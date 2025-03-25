@@ -69,13 +69,10 @@ void nr_mac_rrc_verification_failed(const module_id_t mod_id)
 {
   UNUSED(mod_id);
 }
-bool nr_rlc_activate_srb0(int ue_id,
-                          void *data,
-                          void (*send_initial_ul_rrc_message)(int ue_id, const uint8_t *sdu, sdu_size_t sdu_len, void *data))
+void nr_rlc_init_ue(int ue_id, void (*send_initial_srb0)(int ue_id, const uint8_t *sdu, int sdu_len))
 {
   UNUSED(ue_id);
-  UNUSED(data);
-  UNUSED(send_initial_ul_rrc_message);
+  UNUSED(send_initial_srb0);
   return true;
 }
 int nr_rlc_module_init(nr_rlc_op_mode_t mode)

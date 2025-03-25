@@ -21,6 +21,7 @@ typedef void (*rlf_handler_t)(int rnti);
 
 typedef struct nr_rlc_ue_t {
   int ue_id;
+  void (*send_initial_srb0)(int ue_id, const uint8_t *sdu, int sdu_len);
   nr_rlc_entity_t *srb0;
   nr_rlc_entity_t *srb[3];
   nr_rlc_entity_t *drb[MAX_DRBS_PER_UE];

@@ -526,8 +526,7 @@ long get_lcid_from_drbid(int drb_id);
 long get_lcid_from_srbid(int srb_id);
 
 bool prepare_initial_ul_rrc_message(gNB_MAC_INST *mac, NR_UE_info_t *UE);
-void send_initial_ul_rrc_message(int rnti, const uint8_t *sdu, sdu_size_t sdu_len, void *data);
-
+void send_initial_ul_rrc_message(int rnti, const uint8_t *sdu, sdu_size_t sdu_len);
 void finish_nr_dl_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid);
 void abort_nr_dl_harq(NR_UE_info_t* UE, int8_t harq_pid);
 

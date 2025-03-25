@@ -24,8 +24,8 @@ void nr_ue_init_mac(NR_UE_MAC_INST_t *mac);
 NR_UE_DL_BWP_t *get_dl_bwp_structure(NR_UE_MAC_INST_t *mac, int bwp_id, bool setup);
 NR_UE_UL_BWP_t *get_ul_bwp_structure(NR_UE_MAC_INST_t *mac, int bwp_id, bool setup);
 
-void send_srb0_rrc(int ue_id, const uint8_t *sdu, sdu_size_t sdu_len, void *data);
 void send_pcch_rrc(int ue_id, const uint8_t *sdu, sdu_size_t sdu_len, void *data);
+void send_initial_srb0_ue_message(int ue_id, const uint8_t *sdu, sdu_size_t sdu_len);
 void update_mac_ul_timers(NR_UE_MAC_INST_t *mac);
 void update_mac_dl_timers(NR_UE_MAC_INST_t *mac);
 NR_LC_SCHEDULING_INFO *get_scheduling_info_from_lcid(NR_UE_MAC_INST_t *mac, NR_LogicalChannelIdentity_t lcid);
