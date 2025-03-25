@@ -582,7 +582,7 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac, nr_cell_sched_t *cell, uin
 
     if (is_SA) {
       /* SRB1 is added to RLC and MAC in the handler later */
-      nr_rlc_activate_srb0(UE->rnti, UE, NULL);
+      nr_rlc_init_ue(UE->rnti, send_initial_ul_rrc_message);
     }
   }
   return UE;

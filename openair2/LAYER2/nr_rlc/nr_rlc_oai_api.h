@@ -23,6 +23,7 @@ typedef struct nr_rlc_data_ind {
   uint8_t *buf;
   tb_size_t len;
 } nr_rlc_data_ind_t;
+void nr_rlc_init_ue(int ue_id, void (*send_initial_srb0)(int ue_id, const uint8_t *sdu, int sdu_len));
 void nr_mac_rlc_data_ind(const module_id_t  module_idP,
                          const uint16_t ue_id,
                          const bool gnb_flagP,
@@ -82,9 +83,5 @@ int nr_rlc_tx_list_occupancy(int ue_id, logical_chan_id_t lcid);
 void nr_rlc_activate_avg_time_to_tx(const int ue_id, const logical_chan_id_t channel_id, const bool is_on);
 
 void nr_rlc_srb_recv_sdu(const int ue_id, const logical_chan_id_t channel_id, unsigned char *buf, int size);
-
-bool nr_rlc_activate_srb0(int ue_id,
-                          void *data,
-                          void (*send_initial_ul_rrc_message)(int rnti, const uint8_t *sdu, sdu_size_t sdu_len, void *data));
 
 bool nr_rlc_get_statistics(int ue_id, int srb_flag, int rb_id, nr_rlc_statistics_t *out);

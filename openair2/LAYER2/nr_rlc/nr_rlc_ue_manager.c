@@ -114,7 +114,6 @@ void nr_rlc_manager_remove_ue(nr_rlc_ue_manager_t *_m, int ue_id)
 
   if (ue->srb0 != NULL) {
     /* deliver_sdu_data for srb0 is allocated, needs a free() */
-    free(ue->srb0->deliver_sdu_data);
     ue->srb0->delete_entity(ue->srb0);
   }
 
