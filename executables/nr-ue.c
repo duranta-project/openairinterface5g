@@ -1093,10 +1093,8 @@ void init_NR_UE(int nb_inst, char *uecap_file, char *reconfig_file, char *rbconf
     nr_rrc_set_mac_queue(instance_id, &mac->input_nf);
     mac->if_module = nr_ue_if_module_init(instance_id);
     AssertFatal(mac->if_module, "can not initialize IF module\n");
-    if (!IS_SA_MODE(get_softmodem_params()) && !get_softmodem_params()->sl_mode) {
+    if (!IS_SA_MODE(get_softmodem_params()) && !get_softmodem_params()->sl_mode)
       init_nsa_message(rrc, reconfig_file, rbconfig_file);
-      nr_rlc_init_ue(instance_id, send_initial_srb0_ue_message);
-    }
     //TODO: Move this call to RRC
     start_sidelink(instance_id);
   }
