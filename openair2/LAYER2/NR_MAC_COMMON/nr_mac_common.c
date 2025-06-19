@@ -3743,14 +3743,23 @@ uint32_t get_Y(const NR_SearchSpace_t *ss, int slot, rnti_t rnti) {
 }
 
 
-static void get_info_from_cset_tables(NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_CSS_config,
-                                      int scs_ssb,
-                                      int ssb_offset,
-                                      int index,
-                                      channel_bandwidth_t min_channel_bw)
+void get_info_from_cset_tables(NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_CSS_config,
+                               int scs_ssb,
+                               int scs_pdcch,
+                               int ssb_offset,
+                               int index,
+                               int nr_band)
 {
+  // according to Table 5.3.5-1 in 38.104
+  // band 79 is the only one which minimum is 40
+  // for all the other channels it is either 10 or 5
+  // and there is no difference between the two for this implementation so it is set it to 10
+   channel_bandwidth_t min_channel_bw;
+  if (nr_band == 79)
+    min_channel_bw = bw_40MHz;
+  else
+    min_channel_bw = bw_10MHz;
   uint32_t is_condition_A = (ssb_offset == 0);   //  38.213 ch.13
-  int scs_pdcch = type0_PDCCH_CSS_config->scs_pdcch;
   switch((scs_ssb << 3) | scs_pdcch) {
     case (NR_SubcarrierSpacing_kHz15 << 3) | NR_SubcarrierSpacing_kHz15:
       AssertFatal(index < 15, "38.213 Table 13-1 4 MSB out of range\n");
@@ -3842,12 +3851,12 @@ static void get_info_from_cset_tables(NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_C
         type0_PDCCH_CSS_config->rb_offset = table_38213_13_10_c4[index];
       break;
     default:
-      LOG_E(NR_MAC,
-            "NR_SubcarrierSpacing_kHz30 %d, scs_ssb %d, scs_pdcch %d, min_chan_bw %d\n",
-            NR_SubcarrierSpacing_kHz30,
-            scs_ssb,
-            scs_pdcch,
-            min_channel_bw);
+      AssertFatal(false,
+                  "NR_SubcarrierSpacing_kHz30 %d, scs_ssb %d, scs_pdcch %d, min_chan_bw %d\n",
+                  NR_SubcarrierSpacing_kHz30,
+                  scs_ssb,
+                  scs_pdcch,
+                  min_channel_bw);
       break;
   }
 }
@@ -3870,16 +3879,6 @@ void get_type0_PDCCH_CSS_config_parameters(NR_Type0_PDCCH_CSS_config_t *type0_PD
     LOG_E(MAC, "get_type0_PDCCH_CSS_config_parameters() called while mib is not available, mac layer incoherency\n");
     return;
   }
-  // according to Table 5.3.5-1 in 38.104
-  // band 79 is the only one which minimum is 40
-  // for all the other channels it is either 10 or 5
-  // and there is no difference between the two for this implementation so it is set it to 10
-  channel_bandwidth_t min_channel_bw;
-  if (nr_band == 79)
-    min_channel_bw = bw_40MHz;
-  else
-    min_channel_bw = bw_10MHz;
-
   NR_SubcarrierSpacing_t scs_pdcch;
   if (frequency_range == FR2) {
     if(mib->subCarrierSpacingCommon == NR_MIB__subCarrierSpacingCommon_scs15or60)
@@ -3901,30 +3900,14 @@ void get_type0_PDCCH_CSS_config_parameters(NR_Type0_PDCCH_CSS_config_t *type0_PD
 
   uint32_t index_4msb = (mib->pdcch_ConfigSIB1.controlResourceSetZero);
   uint32_t index_4lsb = (mib->pdcch_ConfigSIB1.searchSpaceZero);
-  LOG_D(NR_MAC,
-        "NR_SubcarrierSpacing_kHz30 %d, scs_ssb %d, scs_pdcch %d, min_chan_bw %d\n",
-        (int)NR_SubcarrierSpacing_kHz30,
-        (int)scs_ssb,
-        (int)scs_pdcch,
-        min_channel_bw);
-
-  get_info_from_cset_tables(type0_PDCCH_CSS_config, scs_ssb, ssb_subcarrier_offset, index_4msb, min_channel_bw);
-
+  LOG_D(NR_MAC, "NR_SubcarrierSpacing_kHz30 %d, scs_ssb %ld, scs_pdcch %ld\n", NR_SubcarrierSpacing_kHz30, scs_ssb, scs_pdcch);
+  get_info_from_cset_tables(type0_PDCCH_CSS_config, scs_ssb, scs_pdcch, ssb_subcarrier_offset, index_4msb, nr_band);
   LOG_D(NR_MAC,
         "Coreset0: index_4msb=%d, num_rbs=%d, num_symb=%d, rb_offset=%d\n",
         index_4msb,
         type0_PDCCH_CSS_config->num_rbs,
         type0_PDCCH_CSS_config->num_symbols,
         type0_PDCCH_CSS_config->rb_offset);
-
-  AssertFatal(type0_PDCCH_CSS_config->num_rbs != -1,
-              "Type0 PDCCH coreset num_rbs undefined, index_4msb=%d, min_channel_bw %d, scs_ssb %d, scs_pdcch %d\n",
-              index_4msb,
-              min_channel_bw,
-              (int)scs_ssb,
-              (int)scs_pdcch);
-  AssertFatal(type0_PDCCH_CSS_config->num_symbols != -1, "Type0 PDCCH coreset num_symbols undefined");
-  AssertFatal(type0_PDCCH_CSS_config->rb_offset != -1, "Type0 PDCCH coreset rb_offset undefined");
 
   // type0-pdcch search space
   float big_o = 0.0f;

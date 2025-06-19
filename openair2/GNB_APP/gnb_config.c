@@ -433,11 +433,46 @@ static int get_ulsyncvalidityduration_enum_value(int val)
   return retval;
 }
 
+static void determine_initial_BWP(NR_ServingCellConfigCommon_t *scc)
+{
+  long scs = *scc->ssbSubcarrierSpacing;
+  NR_FrequencyInfoDL_t *frequencyInfoDL = scc->downlinkConfigCommon->frequencyInfoDL;
+  frequency_range_t frequency_range = get_freq_range_from_band(*frequencyInfoDL->frequencyBandList.list.array[0]);
+  int off_pA = get_ssb_offset_to_pointA(*frequencyInfoDL->absoluteFrequencySSB,
+                                        frequencyInfoDL->absoluteFrequencyPointA,
+                                        scs,
+                                        frequency_range);
+  int ssb_prb_offset_pointA = frequency_range == FR1 ? off_pA >> scs : off_pA >> (scs - 2);
+  int start_rb, nb_rb;
+  if (IS_SA_MODE(get_softmodem_params())) {
+    NR_PDCCH_ConfigCommon_t *pdcch_configcommon = scc->downlinkConfigCommon->initialDownlinkBWP->pdcch_ConfigCommon->choice.setup;
+    NR_ControlResourceSetZero_t *csetZero = pdcch_configcommon->controlResourceSetZero;
+    AssertFatal(csetZero, "Coreset0 index not available\n");
+    int ssb_offset =  get_ssb_subcarrier_offset(*frequencyInfoDL->absoluteFrequencySSB,
+                                                frequencyInfoDL->absoluteFrequencyPointA,
+                                                *scc->ssbSubcarrierSpacing);
+    int nr_band = *scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList.list.array[0];
+    NR_Type0_PDCCH_CSS_config_t type0_PDCCH_CSS_config = {0};
+    // TODO assuming SSB and PDCCH SCS are the same
+    get_info_from_cset_tables(&type0_PDCCH_CSS_config, scs, scs, ssb_offset, *csetZero, nr_band);
+    start_rb = ssb_prb_offset_pointA - type0_PDCCH_CSS_config.rb_offset;
+    nb_rb = type0_PDCCH_CSS_config.num_rbs;
+  } else {
+    // for NSA we make the arbitrary choice to have an initial BWP of 24 PRBs
+    // it is more than the 20 PRBs of SSB and equal to the smaller BW normally used in NR
+    nb_rb = 24;
+    start_rb = ssb_prb_offset_pointA < 4 ? 0 : ssb_prb_offset_pointA - 4;
+  }
+  int riv = PRBalloc_to_locationandbandwidth(nb_rb, start_rb);
+  LOG_I(GNB_APP, "Initial BWP RIV %d nb PRBs %d start PRB %d\n", riv, nb_rb, start_rb);
+  scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth = riv;
+  scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth = riv;
+}
+
 void fix_scc(NR_ServingCellConfigCommon_t *scc, uint64_t ssbmap)
 {
   scc->ssb_PositionsInBurst->present = get_ssb_len(scc);
   uint8_t curr_bit;
-
   // changing endianicity of ssbmap and filling the ssb_PositionsInBurst buffers
   if(scc->ssb_PositionsInBurst->present == NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_shortBitmap) {
     scc->ssb_PositionsInBurst->choice.shortBitmap.size = 1;

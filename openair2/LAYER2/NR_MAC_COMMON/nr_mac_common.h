@@ -287,7 +287,12 @@ void get_monitoring_period_offset(const NR_SearchSpace_t *ss, int *period, int *
 uint32_t nr_compute_tbslbrm(uint16_t table,
 			    uint16_t nb_rb,
 		            uint8_t Nl);
-
+void get_info_from_cset_tables(NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_CSS_config,
+                               int scs_ssb,
+                               int scs_pdcch,
+                               int ssb_offset,
+                               int index,
+                               int nr_band);
 void get_type0_PDCCH_CSS_config_parameters(NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_CSS_config,
                                            frame_t frameP,
                                            const NR_MIB_t *mib,
