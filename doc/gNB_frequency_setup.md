@@ -20,8 +20,6 @@ To configure the gNB with the required frequency and bandwidth, modify following
 * `dl_subcarrierSpacing`: downlink subcarrier spacing.
   * *Allowed values:* `0` = 15 kHz, `1` = 30 kHz, `2` = 60 kHz, `3` = 120 kHz
 * `dl_carrierBandwidth`: number of PRBs for downlink.
-* `initialDLBWPlocationAndBandwidth`: resource indicator value (RIV) of the initial BWP.
-  * Steps to compute this value are provided below.
 * `initialDLBWPsubcarrierSpacing`: initial downlink BWP subcarrier spacing.
   * *Allowed values:* `0` = 15 kHz, `1` = 30 kHz, `2` = 60 kHz, `3` = 120 kHz
 * `initialDLBWPcontrolResourceSetZero`: CORESET0 index (valid configurations, based on SCS and frequency bandwith, are given in TS 38.213, Table 13.1 to Table 13.14).
@@ -30,8 +28,6 @@ To configure the gNB with the required frequency and bandwidth, modify following
   * **Set only for FDD configurations.**
   * Frequency separation between DL and UL channels for a specific 5G NR band is defined in 38.101-1 5.4.4-1 for FR1 bands and in 38.101-5 5.4.4-1 for FR1 NTN bands. `ul_absoluteFrequencyPointA` is calculated by substracting the given frequency offset from the `dl_absoluteFrequencyPointA`.
 * `ul_carrierBandwidth`: number of PRBs for uplink.
-* `initialULBWPlocationAndBandwidth`: resource indicator value (RIV) of the initial BWP.
-  * Steps to compute this value are provided below.
 * `initialULBWPsubcarrierSpacing`: initial uplink BWP subcarrier spacing.
   * *Allowed values:* `0` = 15 kHz, `1` = 30 kHz, `2` = 60 kHz, `3` = 120 kHz
 * `subcarrierSpacing`: general subcarrier spacing for both DL and UL.
@@ -43,7 +39,7 @@ To configure the gNB with the required frequency and bandwidth, modify following
 
 ## Determining the ARFCN value for `absoluteFrequencySSB` and `dl_absoluteFrequencyPointA`
 
-Follow these steps to find the ARFCN values for `absoluteFrequencySSB`, `dl_absoluteFrequencyPointA`, `initialDLBWPlocationAndBandwidth`, and `initialULBWPlocationAndBandwidth`:
+Follow these steps to find the ARFCN values for `absoluteFrequencySSB` and `dl_absoluteFrequencyPointA`:
 1. Convert RU center frequency to ARFCN value
     * Example tool: [5G NR ARFCN Calculator](https://5g-tools.com/5g-nr-arfcn-calculator/)
     * Input the center frequency of the RU (in MHz) into the tool to calculate the ARFCN value.
@@ -56,9 +52,8 @@ Follow these steps to find the ARFCN values for `absoluteFrequencySSB`, `dl_abso
     * From the tool's output, use the following results for your configuration:
       * Arfcn GSCN: This corresponds to `absoluteFrequencySSB` - value for `absoluteFrequencySSB` can be selected freely from the table, if `Coreset(0) check` is "ok".
       * Point A Arfcnc: This corresponds to `dl_absoluteFrequencyPointA`.
-      * locationAndBandwidth full: Use this value for both `initialDLBWPlocationAndBandwidth` and `initialULBWPlocationAndBandwidth`.
 
-4. Set `dl_absoluteFrequencyPointA`, `absoluteFrequencySSB`, `initialDLBWPlocationAndBandwidth`, and `initialULBWPlocationAndBandwidth` in the gNB configuration file
+4. Set `dl_absoluteFrequencyPointA` and `absoluteFrequencySSB` in the gNB configuration file
 
 ## Example calculation
 1. Convert RU center frequency to ARFCN value
@@ -77,6 +72,3 @@ Follow these steps to find the ARFCN values for `absoluteFrequencySSB`, `dl_abso
     * The tool provides following output values:
       * Arfcn GSCN (`absoluteFrequencySSB`) = 630048
       * Point A Arfcnc (`dl_absoluteFrequencyPointA`) = 626724
-      * locationAndBandwidth full (`initialDLBWPlocationAndBandwidth`) = 1099
-      * locationAndBandwidth full (`initialULBWPlocationAndBandwidth`) = 1099
-

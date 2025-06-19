@@ -24,22 +24,15 @@
 #define GNB_CONFIG_STRING_DLOFFSETTOCARRIER                     "dl_offstToCarrier"
 #define GNB_CONFIG_STRING_DLSUBCARRIERSPACING                   "dl_subcarrierSpacing"
 #define GNB_CONFIG_STRING_DLCARRIERBANDWIDTH                    "dl_carrierBandwidth"
-
-#define GNB_CONFIG_STRING_INITIALDLBWPLOCATIONANDBANDWIDTH      "initialDLBWPlocationAndBandwidth"
 #define GNB_CONFIG_STRING_INITIALDLBWPSUBCARRIERSPACING         "initialDLBWPsubcarrierSpacing"
-
 #define GNB_CONFIG_STRING_INITIALDLBWPCONTROLRESOURCESETZERO    "initialDLBWPcontrolResourceSetZero"
 #define GNB_CONFIG_STRING_INITIALDLBWPSEARCHSPACEZERO           "initialDLBWPsearchSpaceZero"
-
 #define GNB_CONFIG_STRING_ULFREQUENCYBAND                       "ul_frequencyBand"
 #define GNB_CONFIG_STRING_ULABSOLUEFREQUENCYPOINTA              "ul_absoluteFrequencyPointA"
 #define GNB_CONFIG_STRING_ULOFFSETTOCARRIER                     "ul_offstToCarrier"
 #define GNB_CONFIG_STRING_ULSUBCARRIERSPACING                   "ul_subcarrierSpacing"
 #define GNB_CONFIG_STRING_ULCARRIERBANDWIDTH                    "ul_carrierBandwidth"
-
-#define GNB_CONFIG_STRING_INITIALULBWPLOCATIONANDBANDWIDTH      "initialULBWPlocationAndBandwidth"
 #define GNB_CONFIG_STRING_INITIALULBWPSUBCARRIERSPACING         "initialULBWPsubcarrierSpacing"
-
 #define GNB_CONFIG_STRING_PMAX                                  "pMax"
 #define GNB_CONFIG_STRING_PRACHCONFIGURATIONINDEX               "prach_ConfigurationIndex"
 #define GNB_CONFIG_STRING_PRACHMSG1FDM                          "prach_msg1_FDM"
@@ -130,7 +123,6 @@
 {GNB_CONFIG_STRING_DLOFFSETTOCARRIER,NULL,0,.i64ptr=&scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->offsetToCarrier,.defint64val=0,TYPE_INT64,0/*8*/},\
 {GNB_CONFIG_STRING_DLSUBCARRIERSPACING,NULL,0,.i64ptr=&scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing,.defint64val=NR_SubcarrierSpacing_kHz30,TYPE_INT64,0/*9*/},\
 {GNB_CONFIG_STRING_DLCARRIERBANDWIDTH,NULL,0,.i64ptr=&scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth,.defint64val=217,TYPE_INT64,0 /*10*/}, \
-{GNB_CONFIG_STRING_INITIALDLBWPLOCATIONANDBANDWIDTH,NULL,0,.i64ptr=&scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth,.defint64val=13036,TYPE_INT64,0/*11*/},\
 {GNB_CONFIG_STRING_INITIALDLBWPSUBCARRIERSPACING,NULL,0,.i64ptr=&scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.subcarrierSpacing,.defint64val=NR_SubcarrierSpacing_kHz30,TYPE_INT64,0/*12*/},\
 {GNB_CONFIG_STRING_INITIALDLBWPCONTROLRESOURCESETZERO,NULL,0,.i64ptr=scc->downlinkConfigCommon->initialDownlinkBWP->pdcch_ConfigCommon->choice.setup->controlResourceSetZero,.defint64val=-1,TYPE_INT64,0/*13*/},\
 {GNB_CONFIG_STRING_INITIALDLBWPSEARCHSPACEZERO,NULL,0,.i64ptr=scc->downlinkConfigCommon->initialDownlinkBWP->pdcch_ConfigCommon->choice.setup->searchSpaceZero,.defint64val=-1,TYPE_INT64,0/*14*/},\
@@ -140,7 +132,6 @@
 {GNB_CONFIG_STRING_ULSUBCARRIERSPACING,NULL,0,.i64ptr=&scc->uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing,.defint64val=NR_SubcarrierSpacing_kHz30,TYPE_INT64,0/*66*/},\
 {GNB_CONFIG_STRING_ULCARRIERBANDWIDTH,NULL,0,.i64ptr=&scc->uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth,.defint64val=217,TYPE_INT64,0/*67*/},\
 {GNB_CONFIG_STRING_PMAX,NULL,0,.i64ptr=scc->uplinkConfigCommon->frequencyInfoUL->p_Max,.defint64val=20,TYPE_INT64,0/*68*/},\
-{GNB_CONFIG_STRING_INITIALULBWPLOCATIONANDBANDWIDTH,NULL,0,.i64ptr=&scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth,.defint64val=13036,TYPE_INT64,0/*69*/},\
 {GNB_CONFIG_STRING_INITIALULBWPSUBCARRIERSPACING,NULL,0,.i64ptr=&scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.subcarrierSpacing,.defint64val=NR_SubcarrierSpacing_kHz30,TYPE_INT64,0 /*70*/}, \
 {GNB_CONFIG_STRING_PRACHCONFIGURATIONINDEX,NULL,0,.i64ptr=&scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->rach_ConfigGeneric.prach_ConfigurationIndex,.defint64val=98,TYPE_INT64,0/*71*/},\
 {GNB_CONFIG_STRING_PRACHMSG1FDM,NULL,0,.i64ptr=&scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->rach_ConfigGeneric.msg1_FDM,.defint64val=NR_RACH_ConfigGeneric__msg1_FDM_one,TYPE_INT64,0/*72*/},\
