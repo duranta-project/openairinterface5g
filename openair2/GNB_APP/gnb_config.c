@@ -1398,7 +1398,7 @@ static void get_bwp_config(nr_mac_config_t *configuration, const int bw)
               "Invalid number of additional BWPs %d\n",
               configuration->num_additional_bwps);
   for (int i = 0; i < configuration->num_additional_bwps; i++) {
-    configuration->bwp_config[i].id = i + 1;
+    configuration->bwp_config[i].id = *BWPParamList.paramarray[i][GNB_BWP_ID_IDX].iptr;;
     int bwp_start = *BWPParamList.paramarray[i][GNB_BWP_START_IDX].iptr;
     AssertFatal(bwp_start >= 0 && bwp_start < bw, "Invalid BWP start value %d\n", bwp_start);
     int bwp_size = *BWPParamList.paramarray[i][GNB_BWP_SIZE_IDX].iptr;

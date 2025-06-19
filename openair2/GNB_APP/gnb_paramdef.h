@@ -161,7 +161,7 @@ typedef enum {
 {GNB_CONFIG_STRING_CU_SIB_LIST,                  GNB_CONFIG_HLP_CU_SIBS, 0, .iptr=NULL, .defintarrayval=0,        TYPE_INTARRAY,  0},  \
 {GNB_CONFIG_STRING_DU_SIB_LIST,                  GNB_CONFIG_HLP_DU_SIBS, 0, .iptr=NULL, .defintarrayval=0,        TYPE_INTARRAY,  0},  \
 {GNB_CONFIG_STRING_CONFIG_REP, GNB_CONFIG_HLP_CONFIG_REP, 0,          .strptr=NULL, .defstrval="ssb_rsrp",        TYPE_STRING,    0},  \
-{GNB_CONFIG_STRING_1ST_ACTIVE_BWP,               NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
+{GNB_CONFIG_STRING_1ST_ACTIVE_BWP,               NULL,   0,            .iptr=NULL,  .defintval=1,                 TYPE_INT,       0},  \
 {GNB_CONFIG_STRING_LIMIT_RSRP_REPORT,            NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
 }
 // clang-format on
@@ -268,18 +268,22 @@ typedef enum {
 #define GNB_CONFIG_STRING_BWP_SCS     "scs"
 #define GNB_CONFIG_STRING_BWP_START   "bwpStart"
 #define GNB_CONFIG_STRING_BWP_SIZE    "bwpSize"
+#define GNB_CONFIG_STRING_BWP_ID      "bwpId"
 
 #define GNB_BWP_SCS_IDX       0
 #define GNB_BWP_START_IDX     1
 #define GNB_BWP_SIZE_IDX      2
+#define GNB_BWP_ID_IDX        3
 
 #define GNBBWPPARAMS_DESC {                                                                  \
  {GNB_CONFIG_STRING_BWP_SCS,            NULL,   0,            .iptr=NULL,  .defintarrayval=0,            TYPE_INT,  0},  \
  {GNB_CONFIG_STRING_BWP_START,          NULL,   0,            .iptr=NULL,  .defintarrayval=0,            TYPE_INT,  0},  \
  {GNB_CONFIG_STRING_BWP_SIZE,           NULL,   0,            .iptr=NULL,  .defintarrayval=0,            TYPE_INT,  0},  \
+ {GNB_CONFIG_STRING_BWP_ID,             NULL,   0,            .iptr=NULL,  .defintarrayval=0,            TYPE_INT,  0},  \
 }
 
 #define BWPPARAMS_CHECK {                                         \
+  { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
