@@ -26,7 +26,6 @@ gNBs:
         dl_offstToCarrier: 0
         dl_subcarrierSpacing: 1
         dl_carrierBandwidth: 106
-        initialDLBWPlocationAndBandwidth: 28875
         initialDLBWPsubcarrierSpacing: 1
         initialDLBWPcontrolResourceSetZero: 11
         initialDLBWPsearchSpaceZero: 0
@@ -35,7 +34,6 @@ gNBs:
         ul_subcarrierSpacing: 1
         ul_carrierBandwidth: 106
         pMax: 20
-        initialULBWPlocationAndBandwidth: 28875
         initialULBWPsubcarrierSpacing: 1
         prach_ConfigurationIndex: 98
         prach_msg1_FDM: 0
