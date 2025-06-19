@@ -21,12 +21,6 @@ gNBs:
     # Physical parameters:
     do_CSIRS: 1
     do_SRS: periodic
-    first_active_bwp: 1
-    bwp_list:
-      -
-        scs: 1
-        bwpStart: 0
-        bwpSize: 106
     #uess_agg_levels: [0,1,1,1,1]
     servingCellConfigCommon:
       #spCellConfigCommon
