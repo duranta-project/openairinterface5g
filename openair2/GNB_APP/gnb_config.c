@@ -577,6 +577,8 @@ void fix_scc(NR_ServingCellConfigCommon_t *scc, uint64_t ssbmap)
   AssertFatal(*scc->uplinkConfigCommon->initialUplinkBWP->pucch_ConfigCommon->choice.setup->pucch_ResourceCommon < 2,
 	      "pucch_ResourceConfig should be 0 or 1 for now\n");
 
+  determine_initial_BWP(scc);
+
   if (*scc->ext2->ntn_Config_r17->ntn_UlSyncValidityDuration_r17 == 0) {
     free(scc->ext2->ntn_Config_r17->ntn_UlSyncValidityDuration_r17);
     scc->ext2->ntn_Config_r17->ntn_UlSyncValidityDuration_r17 = NULL;
