@@ -184,7 +184,6 @@
 {GNB_CONFIG_STRING_NROFUPLINKSLOTS2,NULL, 0,.i64ptr=&pattern2.nrofUplinkSlots,.defint64val=-1,TYPE_INT64,0},\
 {GNB_CONFIG_STRING_NROFUPLINKSYMBOLS2,NULL, 0,.i64ptr=&pattern2.nrofUplinkSymbols,.defint64val=-1,TYPE_INT64,0}}
 
-
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*                                     Serving Cell Config Common configuration parameters to apply in RA 2-Step                                                                                                    */
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
