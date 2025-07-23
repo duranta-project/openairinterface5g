@@ -204,7 +204,7 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
                           slot_t slotP,
                           int beam_index,
                           int r_pucch,
-                          int do_common);
+                          int is_common);
 
 int get_pdsch_to_harq_feedback(NR_PUCCH_Config_t *pucch_Config,
                                nr_dci_format_t dci_format,
