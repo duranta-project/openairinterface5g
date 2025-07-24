@@ -230,12 +230,12 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_
   nr_schedule_ulsch(gNB, cell, frame, slot, &sched_info->UL_dci_req);
   stop_meas(&cell->schedule_ulsch);
 
+  nr_sr_reporting(gNB, cell, frame, slot);
+
   // This schedules the DCI for Downlink and PDSCH
   start_meas(&cell->schedule_dlsch);
   nr_schedule_ue_spec(gNB, cell, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
   stop_meas(&cell->schedule_dlsch);
-
-  nr_sr_reporting(gNB, cell, frame, slot);
 
   nr_schedule_pucch(gNB, cell, frame, slot);
 
