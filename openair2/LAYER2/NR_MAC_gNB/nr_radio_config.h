@@ -118,6 +118,7 @@ NR_CellGroupConfig_t *update_cellGroupConfig_for_reconfig(NR_CellGroupConfig_t *
                                                           const nr_cell_sched_t *cell,
                                                           const NR_UE_NR_Capability_t *uecap,
                                                           const NR_ServingCellConfigCommon_t *scc,
+                                                          const NR_PUCCH_Config_t *pucch_Config,
                                                           int uid,
                                                           int old_bwp,
                                                           int new_bwp,
