@@ -672,7 +672,7 @@ void nr_generate_pucch2(c16_t **txdataF,
   uint8_t  startingSymbolIndex = pucch_pdu->start_symbol_index;
   uint16_t startingPRB = pucch_pdu->prb_start + pucch_pdu->bwp_start;
 
-  for (int l=0; l<pucch_pdu->nr_of_symbols; l++) {
+  for (int l = 0; l < pucch_pdu->nr_of_symbols; l++) {
     // c_init calculation according to TS38.211 subclause
     uint64_t temp_x2 = 1ll << 17;
     temp_x2 *= 14UL * nr_slot_tx + l + startingSymbolIndex + 1;
@@ -682,29 +682,19 @@ void nr_generate_pucch2(c16_t **txdataF,
     uint32_t m = (startingPRB * NR_PUCCH_DMRS_RB * DMRS_MOD_ORDER) % 32;
     const int seq_sz = ((startingPRB + pucch_pdu->prb_size) * NR_PUCCH_DMRS_RB * DMRS_MOD_ORDER + 31) / 32;
     uint32_t *seq = gold_cache(temp_x2, seq_sz);
-    for (int rb=0; rb<pucch_pdu->prb_size; rb++) {
-      const bool nb_rb_is_even = !(frame_parms->N_RB_DL & 1);
-      const int halfRBs = frame_parms->N_RB_DL / 2;
+    int symbol_offset = (l + startingSymbolIndex) * frame_parms->ofdm_symbol_size;
+    for (int rb = 0; rb < pucch_pdu->prb_size; rb++) {
       const int baseRB = rb + startingPRB;
-      int re_offset = (l + startingSymbolIndex) * frame_parms->ofdm_symbol_size + NR_NB_SC_PER_RB * baseRB;
-      if (baseRB > halfRBs)
-        re_offset -= (nb_rb_is_even) ? (halfRBs * NR_NB_SC_PER_RB) : (halfRBs * NR_NB_SC_PER_RB + 6);
-      else
-        re_offset += frame_parms->first_carrier_offset;
-
+      int re_offset =  (frame_parms->first_carrier_offset + 12 * baseRB) % frame_parms->ofdm_symbol_size;
       int k=0;
 #ifdef DEBUG_NR_PUCCH_TX
       int kk=0;
 #endif
 
-      for (int n=0; n<12; n++) {
-        if (n == 6 && baseRB == halfRBs && !nb_rb_is_even) {
-          // if number RBs in bandwidth is odd  and current PRB contains DC, we need to recalculate the offset when n=6 (for second half PRB)
-          re_offset = ((l+startingSymbolIndex)*frame_parms->ofdm_symbol_size);
-        }
+      for (int n = 0; n < 12; n++) {
 
-        if (n%3 != 1) { // mapping PUCCH according to TS38.211 subclause 6.3.2.5.3
-          txdataF[0][re_offset] = d[outSample + k];
+        if (n % 3 != 1) { // mapping PUCCH according to TS38.211 subclause 6.3.2.5.3
+          txdataF[0][re_offset + symbol_offset] = d[outSample + k];
 #ifdef DEBUG_NR_PUCCH_TX
           printf(
               "\t [nr_generate_pucch2] (n=%d) mapping PUCCH to RE \t amp=%d \tofdm_symbol_size=%d \tN_RB_DL=%d "
@@ -718,15 +708,15 @@ void nr_generate_pucch2(c16_t **txdataF,
               re_offset,
               l,
               n,
-              txdataF[0][re_offset].r,
-              txdataF[0][re_offset].i);
+              txdataF[0][re_offset + symbol_offset].r,
+              txdataF[0][re_offset + symbol_offset].i);
 #endif
           k++;
         }
 
-        if (n%3 == 1) { // mapping DM-RS signal according to TS38.211 subclause 6.4.1.3.2
-          txdataF[0][re_offset].r = (int16_t)(baseVal * (1 - (2 * ((uint8_t)((seq[idxGold] >> (m)) & 1)))));
-          txdataF[0][re_offset].i = (int16_t)(baseVal * (1 - (2 * ((uint8_t)((seq[idxGold] >> (m + 1)) & 1)))));
+        if (n % 3 == 1) { // mapping DM-RS signal according to TS38.211 subclause 6.4.1.3.2
+          txdataF[0][re_offset + symbol_offset].r = (int16_t)(baseVal * (1 - (2 * ((uint8_t)((seq[idxGold] >> (m)) & 1)))));
+          txdataF[0][re_offset + symbol_offset].i = (int16_t)(baseVal * (1 - (2 * ((uint8_t)((seq[idxGold] >> (m + 1)) & 1)))));
           m += 2;
 #ifdef DEBUG_NR_PUCCH_TX
           printf(
@@ -741,13 +731,14 @@ void nr_generate_pucch2(c16_t **txdataF,
               re_offset,
               l,
               n,
-              txdataF[0][re_offset].r,
-              txdataF[0][re_offset].i);
+              txdataF[0][re_offset + symbol_offset].r,
+              txdataF[0][re_offset + symbol_offset].i);
           kk++;
 #endif
         }
-
         re_offset++;
+        if (re_offset >= frame_parms->ofdm_symbol_size)
+          re_offset -= frame_parms->ofdm_symbol_size;
       }
 
       outSample += 8;
