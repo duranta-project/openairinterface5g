@@ -1048,8 +1048,9 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, int cell_id, frame_t frame, s
       T_INT(uci_234->rssi));
   }
 
-  // TODO: handle SR
   if (uci_234->pduBitmap & 0x1) {
+    if (uci_234->sr.sr_payload && uci_234->sr.sr_payload[0])
+      sched_ctrl->SR = true;
     free(uci_234->sr.sr_payload);
   }
 
