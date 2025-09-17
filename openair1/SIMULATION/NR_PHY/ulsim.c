@@ -771,6 +771,7 @@ int main(int argc, char *argv[])
   // TODO do a UECAP for phy-sim
   const nr_mac_config_t conf = {.pdsch_AntennaPorts = {.N1 = 1, .N2 = 1, .XP = 1},
                                 .pusch_AntennaPorts = n_rx,
+                                .first_active_bwp = 1,
                                 .minRXTXTIME = 0,
                                 .do_CSIRS = 0,
                                 .do_SRS = 0,

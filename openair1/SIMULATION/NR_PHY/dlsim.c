@@ -787,6 +787,7 @@ int main(int argc, char **argv)
   pdsch_AntennaPorts.XP = n_tx > 1 ? 2 : 1;
   const nr_mac_config_t conf = {.pdsch_AntennaPorts = pdsch_AntennaPorts,
                                 .pusch_AntennaPorts = n_tx,
+                                .first_active_bwp = 1,
                                 .minRXTXTIME = 6,
                                 .do_CSIRS = 0,
                                 .do_SRS = 0,
