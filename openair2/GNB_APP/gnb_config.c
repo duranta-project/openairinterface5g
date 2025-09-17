@@ -1332,12 +1332,15 @@ static void get_bwp_config(nr_mac_config_t *configuration, const NR_ServingCellC
   snprintf(path, sizeof(path), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
   GET_PARAMS_LIST(BWPParamList, BWPParams, GNBBWPPARAMS_DESC, GNB_CONFIG_STRING_BWP_LIST, path, BWPPARAMS_CHECK);
   configuration->num_additional_bwps = BWPParamList.numelt;
-  AssertFatal(configuration->num_additional_bwps >= 0 && configuration->num_additional_bwps <= 4,
-              "Invalid number of additional BWPs %d\n",
-              configuration->num_additional_bwps);
   int bw = scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
+  bool bwp_id_1 = false; // if there is no BWP1 configured, we assign that to the full BWP
+  bool first_active_configured = false;
   for (int i = 0; i < configuration->num_additional_bwps; i++) {
-    configuration->bwp_config[i].id = *BWPParamList.paramarray[i][GNB_BWP_ID_IDX].iptr;;
+    configuration->bwp_config[i].id = *BWPParamList.paramarray[i][GNB_BWP_ID_IDX].iptr;
+    if (configuration->bwp_config[i].id == 1)
+      bwp_id_1 = true;
+    if (configuration->bwp_config[i].id == configuration->first_active_bwp)
+      first_active_configured = true;
     int bwp_start = *BWPParamList.paramarray[i][GNB_BWP_START_IDX].iptr;
     AssertFatal(bwp_start >= 0 && bwp_start < bw, "Invalid BWP start value %d\n", bwp_start);
     int bwp_size = *BWPParamList.paramarray[i][GNB_BWP_SIZE_IDX].iptr;
@@ -1352,6 +1355,14 @@ static void get_bwp_config(nr_mac_config_t *configuration, const NR_ServingCellC
           configuration->bwp_config[i].location_and_bw,
           configuration->bwp_config[i].scs);
   }
+  int max_configurable_bwps = 3 + bwp_id_1;  // 4 BWPs, BWP1 is the default full if not differently configured
+  AssertFatal(configuration->num_additional_bwps >= 0 && configuration->num_additional_bwps <= max_configurable_bwps,
+              "Invalid number of additional BWPs %d\n",
+              configuration->num_additional_bwps);
+  // if 1st active is BWP1 and that is not explicitly configured, it will be configured by default
+  if (!bwp_id_1 && configuration->first_active_bwp == 1)
+    first_active_configured = true;
+  AssertFatal(first_active_configured, "1st active BWP does not belog to the configured BWPs\n");
 }
 
 static bool parse_complex_token(const char *tok, double complex *out)
@@ -1665,10 +1676,8 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
 
   NR_ServingCellConfigCommon_t *scc = get_scc_config(config.minRXTXTIME, config.do_SRS);
   // BWP
-  get_bwp_config(&config, scc);
-  AssertFatal(config.num_additional_bwps <= 4, "Impossible to configure more than 4 additional BWPs\n");
   config.first_active_bwp = *GNBParamList.paramarray[0][GNB_1ST_ACTIVE_BWP_IDX].iptr;
-  AssertFatal(config.first_active_bwp <= config.num_additional_bwps, "1st active BWP does not belog to the configured BWPs\n");
+  get_bwp_config(&config, scc);
 
   if (MacRLC_ParamList.numelt > 0) {
     AssertFatal(MacRLC_ParamList.numelt == 1, "only one MACRLCs section supported!\n");
