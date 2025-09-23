@@ -287,7 +287,8 @@ static void config_preamble_index(NR_UE_MAC_INST_t *mac)
     // The field is mandatory present if the 2-step random access type occasions are shared with 4-step random access type,
     // otherwise the field is not present
     bool sharedROs = twostep->msgA_CB_PreamblesPerSSB_PerSharedRO_r16 != NULL;
-    AssertFatal(sharedROs == false, "Shared ROs between 2- and 4-step RA not supported\n");
+    if (!sharedROs)
+      LOG_E(NR_MAC, "Shared ROs between 2- and 4-step RA not supported\n");
 
     // For Type-2 random access procedure with separate configuration of PRACH occasions with Type-1 random access procedure
     // configuration by msgA-SSB-PerRACH-OccasionAndCB-PreamblesPerSSB when provided;
