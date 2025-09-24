@@ -1254,8 +1254,9 @@ static void config_pucch_resset1(NR_PUCCH_Config_t *pucch_Config,
                                  const nr_pdsch_AntennaPorts_t *ap,
                                  const NR_UE_NR_Capability_t *uecap)
 {
+  int maxNrofPUCCH_Resources = 128;
   NR_PUCCH_ResourceId_t *pucchressetid = calloc(1, sizeof(*pucchressetid));
-  *pucchressetid = MAX_PUCCH_PER_SET + id;
+  *pucchressetid = (maxNrofPUCCH_Resources / 2) + id;
   asn1cSeqAdd(&pucchresset->resourceList.list, pucchressetid);
 
   if(uecap) {
@@ -1386,6 +1387,18 @@ static void set_SR_periodandoffset(const nr_cell_sched_t *cell,
     periodicityAndOffset->present = NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl640;
     periodicityAndOffset->choice.sl640 = sr_slot;
   }
+}
+
+static int get_pucch_start_idx(int bwp_start, int pucch2_size)
+{
+  return bwp_start / pucch2_size + (bwp_start % pucch2_size > 0);
+}
+
+static int get_num_pucch(int bwp_start, int bwp_size, int pucch2_size)
+{
+  int start_prb = get_pucch_start_idx(bwp_start, pucch2_size) * pucch2_size; // first PRB of first valid group
+  int available = bwp_start + bwp_size - start_prb;            // PRBs from there to end of BWP
+  return min(MAX_PUCCH_PER_SET, available / pucch2_size);
 }
 
 static void scheduling_request_config(const nr_cell_sched_t *cell, NR_PUCCH_Config_t *pucch_Config, int num_pucch, int uid, int scs)
@@ -1872,8 +1885,8 @@ static NR_PUCCH_Config_t *config_pucch(const NR_UE_NR_Capability_t *uecap,
   pucch_Config->resourceToAddModList = calloc_or_fail(1, sizeof(*pucch_Config->resourceToAddModList));
   pucch_Config->resourceToReleaseList = NULL;
   int pucch2_size = get_pucch2_size(ap->N1 * ap->N2 * ap->XP);
-  int pucch_start_idx = bwp_start / pucch2_size + (bwp_start % pucch2_size > 0);
-  int num_pucch = min(MAX_PUCCH_PER_SET, bwp_size / pucch2_size);
+  int pucch_start_idx =  get_pucch_start_idx(bwp_start, pucch2_size);
+  int num_pucch = get_num_pucch(bwp_start, bwp_size, pucch2_size);
   NR_PUCCH_ResourceSet_t *pucchresset0 = calloc_or_fail(1, sizeof(*pucchresset0));
   pucchresset0->pucch_ResourceSetId = 0;
   for (int i = 0; i < num_pucch; i++)
@@ -3496,9 +3509,11 @@ static NR_CSI_MeasConfig_t *get_csiMeasConfig(const NR_ServingCellConfig_t *conf
   asn1cSeqAdd(&csi_MeasConfig->csi_SSB_ResourceSetToAddModList->list, ssbresset0);
 
   int curr_bwp;
+  int bwp_start;
   NR_SetupRelease_PDSCH_Config_t *pdsch_Config;
   if (bwp_id == 0) {
     pdsch_Config = configDedicated->initialDownlinkBWP->pdsch_Config;
+    bwp_start = NRRIV2PRBOFFSET(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
     curr_bwp = NRRIV2BW(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
   } else {
     NR_BWP_Downlink_t *bwp = NULL;
@@ -3508,6 +3523,7 @@ static NR_CSI_MeasConfig_t *get_csiMeasConfig(const NR_ServingCellConfig_t *conf
     }
     AssertFatal(bwp, "BWP ID doesn't match\n");
     pdsch_Config = bwp->bwp_Dedicated->pdsch_Config;
+    bwp_start = NRRIV2PRBOFFSET(bwp->bwp_Common->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
     curr_bwp = NRRIV2BW(bwp->bwp_Common->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
   }
   // check if SSB index is even/odd and then select the other SSB index in the same slot
@@ -3532,7 +3548,7 @@ static NR_CSI_MeasConfig_t *get_csiMeasConfig(const NR_ServingCellConfig_t *conf
   csires1->resourceType = NR_CSI_ResourceConfig__resourceType_periodic;
   asn1cSeqAdd(&csi_MeasConfig->csi_ResourceConfigToAddModList->list, csires1);
   int pucch2_size = get_pucch2_size(pdsch_AntennaPorts);
-  int num_pucch = min(MAX_PUCCH_PER_SET, curr_bwp / pucch2_size);
+  int num_pucch = get_num_pucch(bwp_start, curr_bwp, pucch2_size);
   int pucch_Resource = set_pucch_resource_index(pucch_Config, 1, uid % num_pucch);
   if (config->do_CSIRS) {
     NR_CSI_ResourceConfig_t *csires0 = calloc(1, sizeof(*csires0));
@@ -3819,7 +3835,8 @@ static bool verify_radio_configuration(int uid,
   const nr_pdsch_AntennaPorts_t *ap = &configuration->pdsch_AntennaPorts;
   int pucch2_size = get_pucch2_size(ap->N1 * ap->N2 * ap->XP);
   int curr_bwp = NRRIV2BW(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
-  int num_pucch = min(MAX_PUCCH_PER_SET, curr_bwp / pucch2_size);
+  int bwp_start = NRRIV2PRBOFFSET(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
+  int num_pucch = get_num_pucch(bwp_start, curr_bwp, pucch2_size);
   const int pucch_idx = uid / num_pucch;
   const int idx = (pucch_idx * 2) + 1;
   int offset = get_ul_slot_offset(fs, idx, true);
