@@ -23,15 +23,20 @@
 
 // RU OFDM Modulator gNodeB
 // OFDM modulation core routine, generates a first_symbol to first_symbol+num_symbols on a particular slot and TX antenna port
-void nr_feptx0(RU_t *ru, int tti_tx, int first_symbol, int num_symbols, int aa)
+static void nr_feptx0(const NR_DL_FRAME_PARMS *fp,
+                      const int *in,
+                      int *out,
+                      time_stats_t *stats,
+                      int frame,
+                      int slot,
+                      int first_symbol,
+                      int num_symbols,
+                      int aa)
 {
-  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
-
-  unsigned int slot_offset,slot_offsetF;
-  int slot = tti_tx;
+  unsigned int slot_offset, slot_offsetF;
 
   if (aa == 0 && first_symbol == 0)
-    start_meas(&ru->ofdm_mod_stats);
+    start_meas(stats);
   slot_offset = get_samples_slot_timestamp(fp, slot);
   slot_offsetF = first_symbol * fp->ofdm_symbol_size;
 
@@ -44,68 +49,43 @@ void nr_feptx0(RU_t *ru, int tti_tx, int first_symbol, int num_symbols, int aa)
 
   LOG_D(PHY,
         "SFN/SF:RU:TX:%d/%d aa %d Generating slot %d (first_symbol %d num_symbols %d) slot_offset %d, slot_offsetF %d\n",
-        ru->proc.frame_tx,
-        ru->proc.tti_tx,
+        frame,
+        slot,
         aa,
         slot,
         first_symbol,
         num_symbols,
         slot_offset,
         slot_offsetF);
-  
+
   if (fp->Ncp == 1) {
-    PHY_ofdm_mod(&ru->common.txdataF_BF[aa][slot_offsetF],
-                 (int*)&ru->common.txdata[aa][slot_offset],
-                 fp->ofdm_symbol_size,
-                 num_symbols,
-                 fp->nb_prefix_samples,
-                 CYCLIC_PREFIX);
+    PHY_ofdm_mod(&in[slot_offsetF], &out[slot_offset], fp->ofdm_symbol_size, num_symbols, fp->nb_prefix_samples, CYCLIC_PREFIX);
   } else {
     if (fp->numerology_index != 0) {
       
       if (!(slot%(fp->slots_per_subframe/2))&&(first_symbol==0)) { // case where first symbol in slot has longer prefix
-        PHY_ofdm_mod(&ru->common.txdataF_BF[aa][slot_offsetF],
-                     (int*)&ru->common.txdata[aa][slot_offset],
-                     fp->ofdm_symbol_size,
-                     1,
-                     fp->nb_prefix_samples0,
-                     CYCLIC_PREFIX);
+        PHY_ofdm_mod(&in[slot_offsetF], &out[slot_offset], fp->ofdm_symbol_size, 1, fp->nb_prefix_samples0, CYCLIC_PREFIX);
 
-        PHY_ofdm_mod(&ru->common.txdataF_BF[aa][slot_offsetF+fp->ofdm_symbol_size],
-                     (int*)&ru->common.txdata[aa][slot_offset+fp->nb_prefix_samples0+fp->ofdm_symbol_size],
+        PHY_ofdm_mod(&in[slot_offsetF + fp->ofdm_symbol_size],
+                     &out[slot_offset + fp->nb_prefix_samples0 + fp->ofdm_symbol_size],
                      fp->ofdm_symbol_size,
-                     num_symbols-1,
+                     num_symbols - 1,
                      fp->nb_prefix_samples,
                      CYCLIC_PREFIX);
       }
       else { // all symbols in slot have shorter prefix
-        PHY_ofdm_mod(&ru->common.txdataF_BF[aa][slot_offsetF],
-                     (int*)&ru->common.txdata[aa][slot_offset],
-                     fp->ofdm_symbol_size,
-                     num_symbols,
-                     fp->nb_prefix_samples,
-                     CYCLIC_PREFIX);
+        PHY_ofdm_mod(&in[slot_offsetF], &out[slot_offset], fp->ofdm_symbol_size, num_symbols, fp->nb_prefix_samples, CYCLIC_PREFIX);
       }
     } // numerology_index!=0
     else { //numerology_index == 0
       for (int idx_sym = abs_first_symbol; idx_sym < abs_first_symbol+num_symbols; idx_sym++) {
         if (idx_sym % 0x7) {
-          PHY_ofdm_mod(&ru->common.txdataF_BF[aa][slot_offsetF],
-                       (int*)&ru->common.txdata[aa][slot_offset],
-                       fp->ofdm_symbol_size,
-                       1,
-                       fp->nb_prefix_samples,
-                       CYCLIC_PREFIX);
+          PHY_ofdm_mod(&in[slot_offsetF], &out[slot_offset], fp->ofdm_symbol_size, 1, fp->nb_prefix_samples, CYCLIC_PREFIX);
           slot_offset += fp->nb_prefix_samples+fp->ofdm_symbol_size;
           slot_offsetF += fp->ofdm_symbol_size;
         }
         else {
-          PHY_ofdm_mod(&ru->common.txdataF_BF[aa][slot_offsetF],
-                       (int*)&ru->common.txdata[aa][slot_offset],
-                       fp->ofdm_symbol_size,
-                       1,
-                       fp->nb_prefix_samples0,
-                       CYCLIC_PREFIX);
+          PHY_ofdm_mod(&in[slot_offsetF], &out[slot_offset], fp->ofdm_symbol_size, 1, fp->nb_prefix_samples0, CYCLIC_PREFIX);
           slot_offset += fp->nb_prefix_samples0+fp->ofdm_symbol_size;
           slot_offsetF += fp->ofdm_symbol_size;
         }
@@ -114,7 +94,7 @@ void nr_feptx0(RU_t *ru, int tti_tx, int first_symbol, int num_symbols, int aa)
   }
 
   if (aa == 0 && first_symbol == 0)
-    stop_meas(&ru->ofdm_mod_stats);
+    stop_meas(stats);
 }
 
 // RU FEP TX OFDM modulation, single-thread
@@ -131,7 +111,15 @@ void nr_feptx_ofdm(RU_t *ru,int frame_tx,int tti_tx)
   if (nr_slot_select(cfg,frame_tx,slot) == NR_UPLINK_SLOT)
     return;
 
-  nr_feptx0(ru, slot, 0, fp->symbols_per_slot, aa);
+  nr_feptx0(fp,
+            (const int *)ru->common.txdataF_BF[aa],
+            ru->common.txdata[aa],
+            &ru->ofdm_mod_stats,
+            frame_tx,
+            tti_tx,
+            0,
+            NR_SYMBOLS_PER_SLOT,
+            aa);
 
   LOG_D(PHY,
         "feptx_ofdm (TXPATH): frame %d, slot %d: txp (time %p) %d dB, txp (freq) %d dB\n",
@@ -184,6 +172,7 @@ void nr_feptx(void *arg)
   int aa = feptx->aid;
   int startSymbol = feptx->startSymbol;
   int numSymbols = feptx->numSymbols;
+  const NR_DL_FRAME_PARMS *fp = &ru->gNB_list[0]->frame_parms;
 
   if (aa == 0)
     start_meas(&ru->precoding_stats);
@@ -191,7 +180,6 @@ void nr_feptx(void *arg)
   // If there is no digital beamforming we just need to copy the data to RU
   if (ru->config.dbt_config.num_dig_beams == 0 || ru->gNB_list[0]->common_vars.analog_bf) {
     // FFT shift
-    const NR_DL_FRAME_PARMS *fp = &ru->gNB_list[0]->frame_parms;
     fft_shift(ru->gNB_list[0]->common_vars.txdataF[aa],
               fp->ofdm_symbol_size,
               fp->N_RB_DL,
@@ -207,7 +195,15 @@ void nr_feptx(void *arg)
     stop_meas(&ru->precoding_stats);
 
   ////////////FEPTX////////////
-  nr_feptx0(ru, slot, startSymbol, numSymbols, aa);
+  nr_feptx0(fp,
+            (const int *)ru->common.txdataF_BF[aa],
+            ru->common.txdata[aa],
+            &ru->ofdm_mod_stats,
+            ru->proc.frame_tx,
+            slot,
+            startSymbol,
+            numSymbols,
+            aa);
 
   // Task completed in //
   completed_task_ans(feptx->ans);
