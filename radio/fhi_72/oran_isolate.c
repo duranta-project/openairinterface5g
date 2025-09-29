@@ -335,6 +335,17 @@ void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
   }
 }
 
+void oran_fh_if4p5_south_out_ctrl(RU_t *ru, int frame, int slot, uint64_t ts, struct nr_grid *nrg)
+{
+  ru_info_t ru_info;
+  ru_info.nb_rx = ru->nb_rx;
+  ru_info.rx_grid = nrg;
+  int ret = xran_fh_rx_send_slot_cfg(&ru_info, frame, slot);
+  if (ret != 0) {
+    printf("ORAN: ORAN_fh_if4p5_south_in_ctrl ERROR in TX function \n");
+  }
+}
+
 void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
 {
   start_meas(&ru->tx_fhaul);
@@ -342,6 +353,7 @@ void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
       .nb_rx = ru->nb_rx,
       .nb_tx = ru->nb_tx,
       .txdataF_BF = ru->common.txdataF_BF,
+      .tx_grid = ru->common.ru_tx_grid
   };
 
   // printf("south_out:\tframe=%d\tslot=%d\ttimestamp=%ld\n",frame,slot,timestamp);
@@ -361,6 +373,8 @@ void *get_internal_parameter(char *name)
     return (void *)oran_fh_if4p5_south_in;
   if (!strcmp(name, "fh_if4p5_south_out"))
     return (void *)oran_fh_if4p5_south_out;
+  if (!strcmp(name, "fh_if4p5_south_out_ctrl"))
+    return (void *)oran_fh_if4p5_south_out_ctrl;
 
   return NULL;
 }

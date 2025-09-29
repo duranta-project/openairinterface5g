@@ -450,54 +450,27 @@ static void rx_rf(RU_t *ru, int *frame, int *slot)
   stop_meas(&ru->rx_fhaul);
 }
 
-static uint16_t prev_beam;
-
-static radio_tx_gpio_flag_t get_gpio_flags(RU_t *ru, int slot)
+void ctrl_rf(RU_t *ru, int frame, int slot, uint64_t timestamp, struct nr_grid *nrg)
 {
-  radio_tx_gpio_flag_t flags_gpio = 0;
-  openair0_config_t *cfg0 = &ru->openair0_cfg;
+  const int num_ant_ports = ru->nb_tx;
+  uint16_t beam_id[num_ant_ports];
 
-  /* We should tell MAC about the limitation of analog beamforming so that MAC schedules them accordingly.
-    Here, we assume that MAC changes beams only in slot boundary and we don't have to check its correctness.*/
-
-  // For analog beam switching, we assume MAC sends one section per slot
-  uint16_t beam_id = ru->common.ru_tx_grid->grid_info[0].beam_id;
-  // And the MSB is set
-  AssertFatal(IS_BIT_SET(beam_id, 15), "RU based analog beam switching enabled but MAC beam id MSB not set\n");
-  beam_id &= 0x7fff;
-
-  switch (cfg0->gpio_controller) {
-    case RU_GPIO_CONTROL_GENERIC:
-      // currently we switch beams at the beginning of a slot and we take the beam index of the first symbol of this slot
-      // we only send the beam to the gpio if the beam is different from the previous slot
-
-      if (prev_beam != beam_id) {
-        flags_gpio = beam_id | TX_GPIO_CHANGE; // enable change of gpio
-        LOG_I(HW, "slot %d, beam %d\n", slot, beam_id);
-        prev_beam = beam_id;
-      }
-      break;
-
-    case RU_GPIO_CONTROL_INTERDIGITAL: {
-      // the beam index is written in bits 8-10 of the flags
-      // bit 11 enables the gpio programming
-      int beam = 0;
-      if ((slot % 10 == 0) && beam_id < 64) {
-        // beam = ru->common.beam_id[0][slot*fp->symbols_per_slot] | 64;
-        beam = 1024; // hardcoded now for beam32 boresight
-        // beam = 127; //for the sake of trying beam63
-        LOG_D(HW, "slot %d, beam %d\n", slot, beam);
-      }
-      flags_gpio = beam | TX_GPIO_CHANGE;
-      // flags_gpio |= beam << 8; // MSB 8 bits are used for beam
-      LOG_I(HW, "slot %d, beam %d, flags_gpio %d\n", slot, beam, flags_gpio);
-      break;
-    }
-    default:
-      AssertFatal(false, "illegal GPIO controller %d\n", cfg0->gpio_controller);
+  for (int_fast16_t i = 0; i < num_ant_ports; i++) {
+    if (!IS_BIT_SET(nrg[i].grid_info->beam_id, 15))
+      return; // MSB must be set to send beam to RU
+    beam_id[i] = nrg[i].grid_info->beam_id & 0x7fff; // FAPI beam_id is only 15 bits. MSB already handled
   }
 
-  return flags_gpio;
+  const NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+  uint64_t ts = timestamp + ru->ts_offset;
+  nfapi_nr_config_request_scf_t *cfg = &ru->config;
+  int slot_type = nr_slot_select(cfg, frame, slot % fp->slots_per_frame);
+  int prevslot_type = nr_slot_select(cfg, frame, (slot + (fp->slots_per_frame - 1)) % fp->slots_per_frame);
+  if (cfg->cell_config.frame_duplex_type.value == TDD && slot_type == NR_DOWNLINK_SLOT && prevslot_type == NR_UPLINK_SLOT
+      && !get_softmodem_params()->continuous_tx && !IS_SOFTMODEM_RFSIM)
+    ts -= ru->sf_extension;
+
+  ru->rfdevice.trx_set_beams(&ru->rfdevice, beam_id, num_ant_ports, ts);
 }
 
 void tx_rf(RU_t *ru, int frame,int slot, uint64_t timestamp)
@@ -515,7 +488,6 @@ void tx_rf(RU_t *ru, int frame,int slot, uint64_t timestamp)
   int sf_extension = 0;
   int siglen = get_samples_per_slot(slot, fp);
   radio_tx_burst_flag_t flags_burst = TX_BURST_INVALID;
-  radio_tx_gpio_flag_t flags_gpio = 0;
 
   if (cfg->cell_config.frame_duplex_type.value == TDD && !get_softmodem_params()->continuous_tx && !IS_SOFTMODEM_RFSIM) {
     int slot_type = nr_slot_select(cfg,frame,slot%fp->slots_per_frame);
@@ -559,24 +531,22 @@ void tx_rf(RU_t *ru, int frame,int slot, uint64_t timestamp)
     flags_burst = proc->first_tx == 1 ? TX_BURST_START : TX_BURST_MIDDLE;
   }
 
-  if (ru->openair0_cfg.gpio_controller != RU_GPIO_CONTROL_NONE)
-    flags_gpio = get_gpio_flags(ru, slot);
-
-  const int flags = flags_burst | (flags_gpio << 4);
   proc->first_tx = 0;
 
   int nt = ru->nb_tx;
   void *txp[nt];
+  // prepare tx buffer pointers
   for (int i = 0; i < nt; i++)
     txp[i] = (void *)&ru->common.txdata[i][get_samples_slot_timestamp(fp, slot)] - sf_extension * sizeof(int32_t);
 
-  // prepare tx buffer pointers
+  ctrl_rf(ru, frame, slot, timestamp, ru->common.ru_tx_grid);
+
   uint32_t txs = ru->rfdevice.trx_write_func(&ru->rfdevice,
                                              timestamp + ru->ts_offset - sf_extension,
                                              txp,
                                              siglen + sf_extension,
                                              nt,
-                                             flags);
+                                             flags_burst);
   LOG_D(PHY,
         "[TXPATH] RU %d tx_rf, writing to TS %lu, %d.%d, unwrapped_frame %d, slot %d, flags %d, siglen+sf_extension %d, "
         "returned %d, E %f\n",
@@ -586,7 +556,7 @@ void tx_rf(RU_t *ru, int frame,int slot, uint64_t timestamp)
         slot,
         proc->frame_tx_unwrap,
         slot,
-        flags,
+        flags_burst,
         siglen + sf_extension,
         txs,
         10 * log10((double)signal_energy(txp[0], siglen + sf_extension)));
@@ -848,6 +818,9 @@ void *ru_thread(void *param)
       t = ru->ifdevice.get_internal_parameter("fh_if4p5_south_out");
       if (t != NULL)
         ru->fh_south_out = t;
+      t = ru->ifdevice.get_internal_parameter("fh_if4p5_south_out_ctrl");
+      if (t != NULL)
+        ru->fh_south_out_ctrl = t;
     } else {
       malloc_IF4p5_buffer(ru);
     }
@@ -1138,6 +1111,7 @@ void set_function_spec_param(RU_t *ru)
         ru->rfdevice.host_type   = RAU_HOST;
         ru->fh_south_in            = rx_rf;                 // local synchronous RF RX
         ru->fh_south_out           = tx_rf;                 // local synchronous RF TX
+        ru->fh_south_out_ctrl = ctrl_rf; // local synchronous RF control
         ru->start_rf               = start_rf;              // need to start the local RF interface
         ru->stop_rf                = stop_rf;
         ru->start_write_thread     = start_write_thread;                  // starting RF TX in different thread
