@@ -11,6 +11,7 @@
 #include "NR_MAC_COMMON/nr_mac.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
+#include "NR_MAC_gNB/nr_radio_config.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 
 /*TAG*/

@@ -19,6 +19,7 @@
 #include "NR_MAC_gNB/mac_proto.h"
 #include "NR_MAC_gNB/mac_rrc_ul.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
+#include "NR_MAC_gNB/nr_radio_config.h"
 #include "NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "NR_RLC-BearerConfig.h"
 #include "NR_RadioBearerConfig.h"
@@ -361,14 +362,20 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
     ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, cc->mib);
     ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, cc->sib1);
     ASN_STRUCT_FREE(asn_DEF_NR_ServingCellConfigCommon, cc->ServingCellConfigCommon);
+    for (int i = 0; i < cell->ul_rrc_info.max_num_res; i++) {
+      free(cell->ul_rrc_info.csimeas_resources[i]);
+      free(cell->ul_rrc_info.sr_resources[i]);
+    }
+    free(cell->ul_rrc_info.csimeas_resources);
+    free(cell->ul_rrc_info.sr_resources);
   }
   NR_UEs_t *UE_info = &mac->UE_info;
   for (int i = 0; i < sizeofArray(UE_info->connected_ue_list); ++i)
     if (UE_info->connected_ue_list[i])
-      delete_nr_ue_data(UE_info->connected_ue_list[i], &UE_info->uid_allocator);
+      delete_nr_ue_data(UE_info->connected_ue_list[i], mac, &UE_info->uid_allocator);
   for (int i = 0; i < sizeofArray(UE_info->access_ue_list); ++i)
     if (UE_info->access_ue_list[i])
-      delete_nr_ue_data(UE_info->access_ue_list[i], &UE_info->uid_allocator);
+      delete_nr_ue_data(UE_info->access_ue_list[i], mac, &UE_info->uid_allocator);
   if (mac->f1_config.setup_resp)
     free_f1ap_setup_response(mac->f1_config.setup_resp);
   free(mac->f1_config.setup_resp);

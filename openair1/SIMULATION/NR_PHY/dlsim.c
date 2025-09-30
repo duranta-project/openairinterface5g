@@ -847,7 +847,21 @@ int main(int argc, char **argv)
   rnti_t rnti = 0x1234;
   int uid = 0;
   int ssb_index = 0;
-  NR_CellGroupConfig_t *secondaryCellGroup = get_default_secondaryCellGroup(scc, UE_Capability_nr, 0, 1, &conf, cell, uid, ssb_index);
+  NR_UE_UL_RRC_info_t sr_info = {.allocated = true,
+                                 .resource = 0,
+                                 .offset = get_ul_slot_offset(&frame_structure, 0, true),
+                                 .period = frame_structure.numb_slots_period};
+  NR_UE_UL_RRC_info_t csimeas_info = sr_info;
+  NR_CellGroupConfig_t *secondaryCellGroup = get_default_secondaryCellGroup(scc,
+                                                                            UE_Capability_nr,
+                                                                            sr_info,
+                                                                            csimeas_info,
+                                                                            0,
+                                                                            1,
+                                                                            &conf,
+                                                                            cell,
+                                                                            uid,
+                                                                            ssb_index);
   secondaryCellGroup->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(rnti, uid, scc, frame);
   NR_BWP_Downlink_t *bwp = secondaryCellGroup->spCellConfig->spCellConfigDedicated->downlinkBWP_ToAddModList->list.array[0];
 
@@ -882,7 +896,6 @@ int main(int argc, char **argv)
   phy_init_nr_gNB(gNB);
   N_RB_DL = gNB->frame_parms.N_RB_DL;
   NR_UE_info_t *UE_info = RC.nrmac[0]->UE_info.connected_ue_list[0];
-
   configure_UE_BWP(cell, scc, UE_info, false, NR_SearchSpace__searchSpaceType_PR_ue_Specific, -1, -1);
 
   // stub to configure frame_parms

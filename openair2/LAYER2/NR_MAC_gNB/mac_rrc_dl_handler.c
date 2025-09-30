@@ -547,12 +547,31 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac, nr_cell_sched_t *cell, uin
   NR_COMMON_channels_t *cc = &cell->common_channels;
   const NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
   int ssb_index = get_ssbidx_from_beam(cell, UE->UE_beam_index);
+  bool alloc = mac_ul_rrc_periodic_resources(cell, UE, scc, cell->radio_config.first_active_bwp);
   if (is_SA) {
-    cellGroupConfig = get_initial_cellGroupConfig(UE->uid, UE->is_redcap, scc, cell, &mac->rlc_config, ssb_index);
-    cellGroupConfig->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(UE->rnti, UE->uid, scc, mac->frame);
-  } else {
+    if (alloc) {
+      cellGroupConfig = get_initial_cellGroupConfig(UE->uid,
+                                                    UE->is_redcap,
+                                                    UE->sr_info,
+                                                    UE->csimeas_info,
+                                                    scc,
+                                                    cell,
+                                                    &mac->rlc_config,
+                                                    ssb_index);
+      cellGroupConfig->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(UE->rnti, UE->uid, scc, mac->frame);
+    }
+  } else if (alloc) {
     NR_UE_NR_Capability_t *cap = get_ue_nr_cap_from_cg_config_info(cgci);
-    cellGroupConfig = get_default_secondaryCellGroup(scc, cap, 1, 1, &cell->radio_config, cell, UE->uid, ssb_index);
+    cellGroupConfig = get_default_secondaryCellGroup(scc,
+                                                     cap,
+                                                     UE->sr_info,
+                                                     UE->csimeas_info,
+                                                     1,
+                                                     1,
+                                                     &cell->radio_config,
+                                                     cell,
+                                                     UE->uid,
+                                                     ssb_index);
     cellGroupConfig->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(UE->rnti, UE->uid, scc, mac->frame);
     // TODO: in NSA we assign capabilities here, otherwise outside => not logic
     UE->capability = cap;
@@ -573,7 +592,7 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac, nr_cell_sched_t *cell, uin
     DevAssert(res);
   } else {
     if (!add_new_UE_RA(mac, UE)) {
-      delete_nr_ue_data(UE, &mac->UE_info.uid_allocator);
+      delete_nr_ue_data(UE, mac, &mac->UE_info.uid_allocator);
       LOG_E(NR_MAC, "UE list full while creating new UE\n");
       return NULL;
     }
