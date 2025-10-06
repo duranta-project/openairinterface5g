@@ -218,20 +218,33 @@ uint16_t get_pm_index(const gNB_MAC_INST *nrmac,
 }
 
 // look-up table for AMC. Based on BLER vs SNR curves from the nr_dlsim simulation
-// command line: nr_dlsim -n 10000 -m 0 -R 25 -b 25 -e MCS -s START_SNR -t 99.99
+// command line: nr_dlsim -n 10000 -m 0 -R 25 -b 25 -e MCS -s START_SNR -t 99.999
 // SNR Thresholds for MCS=[0,...,28]; START_SNR=chosen values with a resolution of 0.2dB to maintain a BLER of 10^-3
-static const int SINRx10_MCS_mapping[29] = {
-  -10,  -4,   6,  16,  24,  34,  42,  50,  56,  62, //  0..9
-   86,  92,  98, 104, 112, 118, 124, 140, 146, 154, // 10..19
-  162, 170, 178, 186, 194, 202, 212, 220, 245       // 20..28
+static const int SINRx10_MCS_mapping[4][29] = {
+  [0] = {
+    -12,  -6,   6,  18,  22,  34,  44,  48,  54,  62, //  0..9
+     90,  94,  98, 102, 110, 118, 126, 142, 146, 154, // 10..19
+    162, 170, 176, 184, 194, 200, 212, 218, 244,      // 20..28
+  },
+  [1] = {
+    -12,   6,  24,  42,  54,  92,  98, 102, 112, 122, //  0..9
+    126, 146, 156, 160, 166, 178, 184, 194, 200, 212, // 10..19
+    230, 238, 246, 254, 264, 274, 282, 298            // 20..27
+  },
+  // [2] not implemented
+  [3] = {
+    -12,  -6,   6,  12,  22,  32,  42,  50,  54,  60, //  0..9
+     88,  92,  98, 102, 114, 120, 124, 142, 152, 166, // 10..19
+    166, 176, 186, 198, 200, 212, 220, 228, 230,      // 20..28
+  },
 };
 
 int get_mcs_from_SINRx10(int mcs_table, int SINRx10, int Nl)
 {
-  if (mcs_table != 0) {
-    LOG_E(MAC, "mcs_table = %d, but get_mcs_from_SINRx10() only supports MCS table 0 (TS 38.214 - Table 5.1.3.1-1)\n", mcs_table);
-    return 28;
-  }
+  AssertFatal(mcs_table == 0 || mcs_table == 1 || mcs_table == 3,
+              "mcs_table = %d, but %s() only supports MCS tables 0&1&3 (TS 38.214 - Table 5.1.3.1-X)\n",
+              mcs_table,
+              __func__);
 
   int MIMO_SNRx10 = 0;
   if (Nl == 2)
@@ -239,24 +252,25 @@ int get_mcs_from_SINRx10(int mcs_table, int SINRx10, int Nl)
   else if (Nl == 4)
     MIMO_SNRx10 = 70;
 
-  for (int i = 28; i >= 0; i--) {
-    if (SINRx10 >= SINRx10_MCS_mapping[i] + MIMO_SNRx10)
+  int max = mcs_table == 1 ? 27 : 28;
+  for (int i = max; i >= 0; i--) {
+    if (SINRx10 >= SINRx10_MCS_mapping[mcs_table][i] + MIMO_SNRx10)
       return i;
   }
 
-  LOG_W(MAC, "SINR (%d.%d dB) too low, no MCS possible to achieve BLER of 10^-3\n", SINRx10 / 10, SINRx10 % 10);
+  LOG_D(MAC, "SINR (%d.%d dB) too low, no MCS possible to achieve BLER of 10^-3\n", SINRx10 / 10, SINRx10 % 10);
 
   return 0;
 }
 
 int get_snrx10_from_mcs(int mcs_table, int mcs, int Nl)
 {
-  AssertFatal(mcs_table == 0,
-              "mcs_table = %d, but %s() only supports MCS tables 0 (TS 38.214 - Table 5.1.3.1-1)\n",
+  AssertFatal(mcs_table == 0 || mcs_table == 1 || mcs_table == 3,
+              "mcs_table = %d, but %s() only supports MCS tables 0&1&3 (TS 38.214 - Table 5.1.3.1-X)\n",
               mcs_table,
               __func__);
 
-  int snrx10 = SINRx10_MCS_mapping[mcs];
+  int snrx10 = SINRx10_MCS_mapping[mcs_table][mcs];
   // if MCS X is used at Y layers, the SNR must be correspondingly better
   if (Nl == 2)
     snrx10 += 40;
