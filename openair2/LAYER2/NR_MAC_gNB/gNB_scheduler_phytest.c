@@ -144,11 +144,11 @@ void nr_preprocessor_phytest(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pdsch)
   sched_ctrl->num_total_bytes = 0;
   DevAssert(seq_arr_size(&sched_ctrl->lc_config) == 1);
   const nr_lc_config_t *c = seq_arr_at(&sched_ctrl->lc_config, 0);
-  const int lcid = c->lcid;
+  const logical_chan_id_t lcid = c->lcid;
   const uint16_t rnti = UE->rnti;
   /* update sched_ctrl->num_total_bytes so that postprocessor schedules data,
    * if available */
-  sched_ctrl->rlc_status[lcid] = nr_mac_rlc_status_ind(rnti, frame, lcid);
+  nr_mac_rlc_status_ind(rnti, frame, 1, &lcid, &sched_ctrl->rlc_status[lcid]);
   sched_ctrl->num_total_bytes += sched_ctrl->rlc_status[lcid].bytes_in_buffer;
 
   int CCEIndex = get_cce_index(mac,

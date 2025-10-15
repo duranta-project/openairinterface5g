@@ -327,31 +327,38 @@ static uint32_t update_dlsch_buffer(frame_t frame, slot_t slot, NR_UE_info_t *UE
   sched_ctrl->num_total_bytes = 0;
   sched_ctrl->dl_pdus_total = 0;
 
+  logical_chan_id_t ch[NR_MAX_NUM_LCID] = {0};
+  int n = 0;
   /* loop over all activated logical channels */
-  for (int i = 0; i < seq_arr_size(&sched_ctrl->lc_config); ++i) {
-    const nr_lc_config_t *c = seq_arr_at(&sched_ctrl->lc_config, i);
-    const int lcid = c->lcid;
-    const uint16_t rnti = UE->rnti;
-    LOG_D(NR_MAC, "UE %x: LCID %d\n", rnti, lcid);
-    memset(&sched_ctrl->rlc_status[lcid], 0, sizeof(sched_ctrl->rlc_status[lcid]));
-    if (c->suspended)
+  FOR_EACH_SEQ_ARR(const nr_lc_config_t *, c, &sched_ctrl->lc_config ) {
+    logical_chan_id_t lcid = c->lcid;
+    if (c->suspended || (lcid == DL_SCH_LCID_DTCH && nr_timer_is_active(&sched_ctrl->transm_interrupt))) {
+      memset(&sched_ctrl->rlc_status[lcid], 0, sizeof(sched_ctrl->rlc_status[lcid]));
       continue;
-    if (lcid == DL_SCH_LCID_DTCH && nr_timer_is_active(&sched_ctrl->transm_interrupt))
-      continue;
-    sched_ctrl->rlc_status[lcid] = nr_mac_rlc_status_ind(rnti, frame, lcid);
+    }
+    ch[n++] = lcid;
+  }
 
-    if (sched_ctrl->rlc_status[lcid].bytes_in_buffer == 0)
+  mac_rlc_status_resp_t ret[NR_MAX_NUM_LCID] = {0};
+  nr_mac_rlc_status_ind(UE->rnti, frame, n, ch, ret);
+
+  for (int i = 0; i < n; ++i) {
+    logical_chan_id_t lcid = ch[i];
+
+    if (ret[i].bytes_in_buffer == 0)
       continue;
 
+    sched_ctrl->rlc_status[lcid] = ret[i];
     sched_ctrl->dl_pdus_total += sched_ctrl->rlc_status[lcid].pdus_in_buffer;
     sched_ctrl->num_total_bytes += sched_ctrl->rlc_status[lcid].bytes_in_buffer;
     LOG_D(MAC,
-          "%4d.%2d UE %04x LCID %d status: %d bytes, total buffer %d bytes %d PDUs\n",
+          "%4d.%2d UE %04x LCID %d status: %d bytes, %d PDUs, total buffer %d bytes %d PDUs\n",
           frame,
           slot,
           UE->rnti,
           lcid,
-          sched_ctrl->rlc_status[lcid].bytes_in_buffer,
+          ret[i].bytes_in_buffer,
+          ret[i].pdus_in_buffer,
           sched_ctrl->num_total_bytes,
           sched_ctrl->dl_pdus_total);
   }
