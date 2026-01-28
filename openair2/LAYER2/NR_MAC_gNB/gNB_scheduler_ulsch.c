@@ -37,6 +37,7 @@
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 
 //#define SRS_IND_DEBUG
+#define MAX_NUM_DATA_IND 1024
 
 /* \brief Get the number of UL TDAs that could be used in slot, reachable
  * via specific k2. The output parameter first_idx is a pointer to the first
@@ -401,6 +402,8 @@ static int nr_process_mac_pdu(instance_t module_idP,
   log_dump(NR_MAC, pduP, pdu_len, LOG_DUMP_CHAR, "\n");
 #endif
 
+  nr_rlc_data_ind_t data_ind[MAX_NUM_DATA_IND] = {0};
+  int num_data_ind = 0;
   while (pdu_len > 0) {
     uint16_t mac_len = 0;
     uint8_t lcid = 0;
@@ -422,7 +425,7 @@ static int nr_process_mac_pdu(instance_t module_idP,
       for (int i = 0; i < print_len; i++)
         printf("%02x ", pduP[i]);
       printf("\n");
-      return 0;
+      break;
     }
 
     LOG_D(NR_MAC,
@@ -463,7 +466,8 @@ static int nr_process_mac_pdu(instance_t module_idP,
 
         if (prepare_initial_ul_rrc_message(RC.nrmac[module_idP], UE)) {
           nr_rlc_data_ind_t ind = {.ch = 0, .buf = pduP + mac_subheader_len, .len = mac_len};
-          nr_mac_rlc_data_ind(module_idP, UE->rnti, true, &ind, 1);
+          data_ind[num_data_ind++] = ind;
+          DevAssert(num_data_ind < MAX_NUM_DATA_IND);
         } else {
           LOG_E(NR_MAC, "prepare_initial_ul_rrc_message() returned false, cannot forward CCCH message\n");
         }
@@ -483,7 +487,8 @@ static int nr_process_mac_pdu(instance_t module_idP,
           LOG_I(NR_MAC, "RNTI %04x LCID %d: ignoring %d bytes\n", UE->rnti, lcid, mac_len);
         } else {
           nr_rlc_data_ind_t ind = {.ch = lcid, .buf = pduP + mac_subheader_len, .len = mac_len};
-          nr_mac_rlc_data_ind(module_idP, UE->rnti, true, &ind, 1);
+          data_ind[num_data_ind++] = ind;
+          DevAssert(num_data_ind < MAX_NUM_DATA_IND);
 
           UE->mac_stats.ul.total_sdu_bytes += mac_len;
           UE->mac_stats.ul.lc_bytes[lcid] += mac_len;
@@ -508,7 +513,8 @@ static int nr_process_mac_pdu(instance_t module_idP,
           UE->mac_stats.ul.lc_bytes[lcid] += mac_len;
 
           nr_rlc_data_ind_t ind = {.ch = lcid, .buf = pduP + mac_subheader_len, .len = mac_len};
-          nr_mac_rlc_data_ind(module_idP, UE->rnti, true, &ind, 1);
+          data_ind[num_data_ind++] = ind;
+          DevAssert(num_data_ind < MAX_NUM_DATA_IND);
 
           sdus += 1;
           /* Updated estimated buffer when receiving data */
@@ -539,7 +545,7 @@ static int nr_process_mac_pdu(instance_t module_idP,
       case UL_SCH_LCID_SINGLE_ENTRY_PHR:
         if (harq_pid < 0) {
           LOG_E(NR_MAC, "Invalid HARQ PID %d\n", harq_pid);
-          return 0;
+          continue;
         }
         NR_sched_pusch_t *sched_pusch = &sched_ctrl->ul_harq_processes[harq_pid].sched_pusch;
 
@@ -614,13 +620,17 @@ static int nr_process_mac_pdu(instance_t module_idP,
 
       case UL_SCH_LCID_PADDING:
         // End of MAC PDU, can ignore the rest.
-        return 0;
+        // 38.321 Sec 6.1.5: "Presence and length of padding is implicit based
+        // on TB size, size of MAC subPDU(s)."
+        mac_len = pdu_len - mac_subheader_len; // will make pdu_len go to 0
+        break;
 
       default:
         LOG_E(NR_MAC, "RNTI %0x [%d.%d], received unknown MAC header (LCID = 0x%02x)\n", UE->rnti, frameP, slot, lcid);
-        return -1;
+        mac_len = pdu_len - mac_subheader_len; // will make pdu_len go to 0
         break;
     }
+
 
 #ifdef ENABLE_MAC_PAYLOAD_DEBUG
     if (lcid < 45 || lcid == 52 || lcid == 63) {
@@ -637,6 +647,8 @@ static int nr_process_mac_pdu(instance_t module_idP,
     pduP += (mac_subheader_len + mac_len);
     pdu_len -= (mac_subheader_len + mac_len);
   }
+
+  nr_mac_rlc_data_ind(module_idP, UE->rnti, true, data_ind, num_data_ind);
 
   UE->mac_stats.ul.num_mac_sdu += sdus;
 
