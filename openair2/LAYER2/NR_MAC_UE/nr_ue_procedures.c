@@ -3820,7 +3820,8 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
 
         if (mac_len > 0) {
           LOG_DDUMP(NR_MAC, (void *)pduP, mac_subheader_len + mac_len, LOG_DUMP_CHAR, "DL_SCH_LCID_CCCH (e.g. RRCSetup) payload: ");
-          nr_mac_rlc_data_ind(mac->ue_id, mac->ue_id, false, rx_lcid, (char *)(pduP + mac_subheader_len), mac_len);
+          nr_rlc_data_ind_t ind = {.ch = rx_lcid, .buf = pduP + mac_subheader_len, .len = mac_len};
+          nr_mac_rlc_data_ind(mac->ue_id, mac->ue_id, false, &ind, 1);
         }
         break;
       case DL_SCH_LCID_TCI_STATE_ACT_UE_SPEC_PDSCH:
@@ -3940,7 +3941,8 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
           break;
         }
         LOG_D(NR_MAC, "%4d.%2d : DLSCH -> LCID %d %d bytes\n", frameP, slot, rx_lcid, mac_len);
-        nr_mac_rlc_data_ind(mac->ue_id, mac->ue_id, false, rx_lcid, (char *)(pduP + mac_subheader_len), mac_len);
+        nr_rlc_data_ind_t ind = {.ch = rx_lcid, .buf = pduP + mac_subheader_len, .len = mac_len};
+        nr_mac_rlc_data_ind(mac->ue_id, mac->ue_id, false, &ind, 1);
         break;
       default:
         LOG_W(MAC, "unknown lcid %02x\n", rx_lcid);

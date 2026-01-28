@@ -41,12 +41,16 @@ struct NR_RLC_Config;
 struct NR_LogicalChannelConfig;
 
 int nr_rlc_module_init(nr_rlc_op_mode_t mode);
+typedef struct nr_rlc_data_ind {
+  logical_chan_id_t ch;
+  uint8_t *buf;
+  tb_size_t len;
+} nr_rlc_data_ind_t;
 void nr_mac_rlc_data_ind(const module_id_t  module_idP,
                          const uint16_t ue_id,
                          const bool gnb_flagP,
-                         const logical_chan_id_t channel_idP,
-                         char *buffer_pP,
-                         const tb_size_t tb_sizeP);
+                         const nr_rlc_data_ind_t *data,
+                         int num_data);
 tbs_size_t nr_mac_rlc_data_req(const module_id_t  module_idP,
                                const uint16_t ue_id,
                                const bool gnb_flagP,

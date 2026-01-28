@@ -462,7 +462,8 @@ static int nr_process_mac_pdu(instance_t module_idP,
         }
 
         if (prepare_initial_ul_rrc_message(RC.nrmac[module_idP], UE)) {
-          nr_mac_rlc_data_ind(module_idP, UE->rnti, true, 0, (char *)(pduP + mac_subheader_len), mac_len);
+          nr_rlc_data_ind_t ind = {.ch = 0, .buf = pduP + mac_subheader_len, .len = mac_len};
+          nr_mac_rlc_data_ind(module_idP, UE->rnti, true, &ind, 1);
         } else {
           LOG_E(NR_MAC, "prepare_initial_ul_rrc_message() returned false, cannot forward CCCH message\n");
         }
@@ -481,7 +482,8 @@ static int nr_process_mac_pdu(instance_t module_idP,
         if (!srbc || srbc->suspended) {
           LOG_I(NR_MAC, "RNTI %04x LCID %d: ignoring %d bytes\n", UE->rnti, lcid, mac_len);
         } else {
-          nr_mac_rlc_data_ind(module_idP, UE->rnti, true, lcid, (char *)(pduP + mac_subheader_len), mac_len);
+          nr_rlc_data_ind_t ind = {.ch = lcid, .buf = pduP + mac_subheader_len, .len = mac_len};
+          nr_mac_rlc_data_ind(module_idP, UE->rnti, true, &ind, 1);
 
           UE->mac_stats.ul.total_sdu_bytes += mac_len;
           UE->mac_stats.ul.lc_bytes[lcid] += mac_len;
@@ -505,7 +507,8 @@ static int nr_process_mac_pdu(instance_t module_idP,
         } else {
           UE->mac_stats.ul.lc_bytes[lcid] += mac_len;
 
-          nr_mac_rlc_data_ind(module_idP, UE->rnti, true, lcid, (char *)(pduP + mac_subheader_len), mac_len);
+          nr_rlc_data_ind_t ind = {.ch = lcid, .buf = pduP + mac_subheader_len, .len = mac_len};
+          nr_mac_rlc_data_ind(module_idP, UE->rnti, true, &ind, 1);
 
           sdus += 1;
           /* Updated estimated buffer when receiving data */
