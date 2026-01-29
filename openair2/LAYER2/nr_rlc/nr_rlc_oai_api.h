@@ -51,6 +51,22 @@ void nr_mac_rlc_data_ind(const module_id_t  module_idP,
                          const bool gnb_flagP,
                          const nr_rlc_data_ind_t *data,
                          int num_data);
+/* \brief Fill up to pdu_siz_len RLC PDUs into buffer pointed to by buffer_pP,
+ * or until tb_sizeP is reached.  Each PDU is preceded by 3 bytes (nothing is
+ * written) that have to be filled by the consumer (with a MAC sub-PDU
+ * subheader).  This function fills up to an entire TB in a single call, unlike
+ * nr_mac_rlc_data_req() that fills only one RLC PDU in one step.  */
+int nr_mac_rlc_multi_data_req(const module_id_t module_idP,
+                              const uint16_t ue_id,
+                              const bool gnb_flagP,
+                              const logical_chan_id_t channel_idP,
+                              const tb_size_t tb_sizeP,
+                              char *buffer_pP,
+                              tb_size_t *pdu_siz,
+                              int pdu_siz_len);
+/* \brief Fill one RLC PDU into buffer pointed to by buffer_pP, or until
+ * tb_sizeP is reached. Note that NO header is prepended (for a MAC sub-PDU
+ * subheader), and the user of the API has to fill the necessary data. */
 tbs_size_t nr_mac_rlc_data_req(const module_id_t  module_idP,
                                const uint16_t ue_id,
                                const bool gnb_flagP,

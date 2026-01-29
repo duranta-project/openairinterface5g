@@ -191,6 +191,50 @@ void nr_mac_rlc_data_ind(const module_id_t  module_idP,
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }
 
+int nr_mac_rlc_multi_data_req(const module_id_t module_idP,
+                              const uint16_t ue_id,
+                              const bool gnb_flagP,
+                              const logical_chan_id_t channel_idP,
+                              tb_size_t tb_sizeP,
+                              char *buffer_pP,
+                              tb_size_t *pdu_siz,
+                              int pdu_siz_len)
+{
+  int ret = 0;
+
+  nr_rlc_manager_lock(nr_rlc_ue_manager);
+  nr_rlc_ue_t *ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, ue_id);
+  nr_rlc_entity_t *rb = get_rlc_entity_from_lcid(ue, channel_idP);
+
+  if (rb != NULL) {
+    rb->set_time(rb, get_nr_rlc_current_time());
+    while (tb_sizeP - 3 > 0 && pdu_siz_len > 0) {
+      // fill PDU in buffer, store size of PDU
+      pdu_siz[0] = rb->generate_pdu(rb, buffer_pP + 3, tb_sizeP - 3);
+      if (pdu_siz[0] == 0)
+        break;
+      LOG_D(RLC, "MAC PDU created: channel_idP %d len %d\n", channel_idP, pdu_siz[0]);
+      // reserve header
+      tb_sizeP -= 3 + pdu_siz[0];
+      buffer_pP += 3 + pdu_siz[0];
+      pdu_siz++;
+      pdu_siz_len--;
+      ret++;
+    }
+  } else {
+    LOG_D(RLC, "MAC PDU failed to get created for channel_idP:%d \n", channel_idP);
+    ret = 0;
+  }
+
+  nr_rlc_manager_unlock(nr_rlc_ue_manager);
+
+  if (gnb_flagP)
+    T(T_ENB_RLC_MAC_DL, T_INT(module_idP), T_INT(ue_id),
+      T_INT(channel_idP), T_INT(ret));
+
+  return ret;
+}
+
 tbs_size_t nr_mac_rlc_data_req(const module_id_t  module_idP,
                                const uint16_t ue_id,
                                const bool gnb_flagP,
