@@ -1092,44 +1092,24 @@ static void generate_dl_mac_pdu(gNB_MAC_INST *mac,
         if (lcid_alloc[lcid] == 0)
           continue;
 
+        tb_size_t pdu_siz[MAX_NUM_DATA_REQ];
+        int num = nr_mac_rlc_multi_data_req(module_id, rnti, true, lcid, bufEnd - buf, (char *)buf, pdu_siz, sizeofArray(pdu_siz));
+        DevAssert(num <= sizeofArray(pdu_siz));
+
+        sdus += num;
         int lcid_bytes = 0;
-        int lcid_remaining = lcid_alloc[lcid];
-        while (bufEnd - buf > sizeof(NR_MAC_SUBHEADER_LONG) + 1 && lcid_remaining > 0) {
-          NR_MAC_SUBHEADER_LONG *header = (NR_MAC_SUBHEADER_LONG *)buf;
-          const rlc_buffer_occupancy_t ndata = min(lcid_remaining, bufEnd - buf - sizeof(NR_MAC_SUBHEADER_LONG));
-          tbs_size_t len = nr_mac_rlc_data_req(module_id, rnti, true, lcid, ndata, (char *)buf + sizeof(NR_MAC_SUBHEADER_LONG));
-          LOG_D(NR_MAC,
-                "%4d.%2d RNTI %04x: %d bytes from %s %d (ndata %d, remaining size %ld)\n",
-                frame,
-                slot,
-                rnti,
-                len,
-                lcid < 4 ? "DCCH" : "DTCH",
-                lcid,
-                ndata,
-                bufEnd - buf - sizeof(NR_MAC_SUBHEADER_LONG));
-
-          if (len == 0)
-            break;
-
-          T(T_GNB_MAC_LCID_DL,
-            T_INT(rnti),
-            T_INT(frame),
-            T_INT(slot),
-            T_INT(lcid),
-            T_INT(len * 8),
-            T_INT(nr_rlc_tx_list_occupancy(rnti, lcid)));
+        for (int j = 0; j < num; ++j) {
+          NR_MAC_SUBHEADER_LONG *header = (NR_MAC_SUBHEADER_LONG *) buf;
           header->R = 0;
           header->F = 1;
           header->LCID = lcid;
-          header->L = htons(len);
-          buf += len + sizeof(NR_MAC_SUBHEADER_LONG);
-          dlsch_total_bytes += len;
-          lcid_bytes += len;
-          lcid_remaining -= len;
-          sdus += 1;
+          header->L = htons(pdu_siz[j]);
+          buf += pdu_siz[j] + sizeof(NR_MAC_SUBHEADER_LONG);
+          dlsch_total_bytes += pdu_siz[j];
+          lcid_bytes += pdu_siz[j];
         }
 
+        T(T_GNB_MAC_LCID_DL, T_INT(rnti), T_INT(frame), T_INT(slot), T_INT(lcid), T_INT(lcid_bytes), T_INT(nr_rlc_tx_list_occupancy(rnti, lcid)));
         UE->mac_stats.dl.lc_bytes[lcid] += lcid_bytes;
       }
     } else if (get_softmodem_params()->phy_test || get_softmodem_params()->do_ra) {
