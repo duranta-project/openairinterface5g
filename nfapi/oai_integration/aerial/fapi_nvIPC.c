@@ -540,7 +540,7 @@ void *epoll_recv_task(void *arg)
 void create_recv_thread(int8_t affinity)
 {
   pthread_t thread_id;
-  threadCreate(&thread_id, epoll_recv_task, NULL, "vnf_nvipc_aerial", affinity, OAI_PRIORITY_RT);
+  threadCreate(&thread_id, epoll_recv_task, NULL, "vnf_nvipc_aerial", affinity, OAI_PRIORITY_RT_MAX);
 }
 
 int load_hard_code_config(nv_ipc_config_t *config, int module_type, nv_ipc_transport_t _transport)
