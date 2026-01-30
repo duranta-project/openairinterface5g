@@ -599,7 +599,7 @@ void configure_psfch_params_tx(int module_idP,
                                sl_nr_rx_indication_t *rx_ind,
                                int pdu_id)
 {
-  // TODO: May need to update in case of multiple UEs
+  // TODO: May need to update in case of multiple UEs  !!!!Jin!!!
   const uint8_t psfch_periods[] = {0,1,2,4};
   NR_SL_PSFCH_Config_r16_t *sl_psfch_config = mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup;
   long psfch_period = (sl_psfch_config->sl_PSFCH_Period_r16)
@@ -754,7 +754,10 @@ int16_t get_feedback_slot(long psfch_period, uint16_t slot) {
 
 int nr_ue_sl_acknack_scheduling(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx_ind,
                                 long psfch_period, uint16_t frame, uint16_t slot, const int nr_slots_frame) {
-  // TODO: needs to be updated for multi-subchannels
+  LOG_I(NR_MAC,//Jin add
+      "[JIN DEBUG RX ::::::: SL-RX-IND] me=%u rx_ind sfn=%u slot=%u num_pdus=%u\n",
+      mac->src_id, rx_ind->sfn, rx_ind->slot, rx_ind->number_pdus);
+  // TODO: needs to be updated for multi-subchannels  Jin : ?????
   int psfch_frame, psfch_slot;
   sl_nr_ue_mac_params_t *sl_mac =  mac->SL_MAC_PARAMS;
   NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
@@ -765,7 +768,17 @@ int nr_ue_sl_acknack_scheduling(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx
 
   psfch_slot = get_feedback_slot(psfch_period, slot);
   const int psfch_index = get_psfch_index(rx_ind->sfn, rx_ind->slot, nr_slots_frame, tdd, n_ul_buf_max_size);
-  NR_SL_UE_sched_ctrl_t  *sched_ctrl = &mac->sl_info.list[0]->UE_sched_ctrl;
+  //NR_SL_UE_sched_ctrl_t  *sched_ctrl = &mac->sl_info.list[0]->UE_sched_ctrl; //Jin replace
+  //Jin patch
+  const uint16_t peer_id = mac->sci_pdu_rx.source_id;
+  NR_SL_UE_info_t *peer = find_UE(mac, peer_id);
+  if (!peer || !peer->UE_sched_ctrl.sched_psfch) {
+    LOG_W(NR_MAC, "%s: no peer or sched_psfch for peer_id=%u\n", __FUNCTION__, peer_id);
+    return -1;
+  }
+    NR_SL_UE_sched_ctrl_t *sched_ctrl = &peer->UE_sched_ctrl;
+  //Jin end
+
   SL_sched_feedback_t  *curr_psfch = &sched_ctrl->sched_psfch[psfch_index];
   psfch_frame = frame;
   frameslot_t fs;
@@ -800,7 +813,32 @@ void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx_ind,
 
   NR_SL_BWP_Generic_r16_t *sl_bwp = mac->sl_bwp->sl_BWP_Generic_r16;
 
-  SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[psfch_index];
+  //SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[psfch_index];  //Jin replace
+  //Jin replace
+ 
+  const uint16_t peer_id = mac->sci_pdu_rx.source_id;
+  NR_SL_UE_info_t *peer = find_UE(mac, peer_id);
+  if (!peer) {
+    LOG_W(NR_MAC, "%s: no peer struct for source_id=%u (psfch_index=%d)\n",
+          __FUNCTION__, peer_id, psfch_index);
+    return;
+  }
+  if (!peer->UE_sched_ctrl.sched_psfch) {
+    LOG_W(NR_MAC, "%s: peer_id=%u has NULL sched_psfch\n",
+          __FUNCTION__, peer_id);
+    return;
+  }
+  const int n = sl_num_slsch_feedbacks(mac);
+  if (psfch_index < 0 || psfch_index >= n) {
+    LOG_W(NR_MAC, "%s: psfch_index=%d out of range (n=%d) peer_id=%u\n",
+          __FUNCTION__, psfch_index, n, peer_id);
+    return;
+  }
+  SL_sched_feedback_t *sched_psfch = &peer->UE_sched_ctrl.sched_psfch[psfch_index];
+  //jIN END
+
+
+
   LOG_D(NR_MAC, "psfch_period %ld, feedback frame:slot %d:%d, frame:slot %d:%d, harq feedback %d psfch_index %d\n",
         psfch_period,
         sched_psfch->feedback_frame,
@@ -884,12 +922,16 @@ void update_harq_lists(NR_UE_MAC_INST_t *mac, frame_t frame, sub_frame_t slot, N
       remove_nr_list(&sched_ctrl->feedback_sl_harq, cur);
       harq->feedback_slot = -1;
       harq->is_waiting = false;
+
+      //Jin disactive
+      /*
       if (harq->round >= HARQ_ROUND_MAX - 1) {
         abort_nr_ue_sl_harq(mac, cur, UE);
       } else {
         add_tail_nr_list(&sched_ctrl->retrans_sl_harq, cur);
         harq->round++;
       }
+      */
     }
     cur = sched_ctrl->feedback_sl_harq.next[cur];
   }
@@ -919,7 +961,8 @@ void configure_psfch_params_rx(int module_idP,
   SL_UE_iterator(UE_info->list, UE) {
     NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_UE_sl_harq_t **matched_harqs = (NR_UE_sl_harq_t **) calloc(sched_ctrl->feedback_sl_harq.len, sizeof(NR_UE_sl_harq_t *));
-    int matched_sz = find_current_slot_harqs(frame, slot, sched_ctrl, matched_harqs);
+    //int matched_sz = find_current_slot_harqs(frame, slot, sched_ctrl, matched_harqs);
+    int matched_sz = 0; //Jin desable SCI also 
     LOG_D(NR_MAC, "%s matched_sz %d\n", __FUNCTION__, matched_sz);
     rx_config->sl_rx_config_list[0].num_psfch_pdus = 0;
     for (int i = 0; i < matched_sz; i++) {
@@ -990,43 +1033,119 @@ uint8_t sl_num_slsch_feedbacks(NR_UE_MAC_INST_t *mac) {
 }
 
 bool is_feedback_scheduled(NR_UE_MAC_INST_t *mac, int frameP,int slotP) {
-  for (int i = 0; i < sl_num_slsch_feedbacks(mac); i++) {
-    SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[i];
-    LOG_D(NR_MAC, "frame.slot %4d.%2d, harq_feedback %d\n", frameP, slotP, sched_psfch->harq_feedback);
-    if (frameP == sched_psfch->feedback_frame && slotP == sched_psfch->feedback_slot && sched_psfch->harq_feedback) {
-      return true;
+
+
+  //for (int i = 0; i < sl_num_slsch_feedbacks(mac); i++) {    //Jin replace 
+  //  SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[i];   //JIn replace 
+  
+  //Jin replace the loop begining 
+  const int n = sl_num_slsch_feedbacks(mac);
+
+  //NR_SL_UE_info_t *UE = NULL;  // required by some SL_UE_iterator macro variants
+  SL_UE_iterator(mac->sl_info.list, UE) {
+    SL_sched_feedback_t *arr = UE->UE_sched_ctrl.sched_psfch;
+    if (!arr)
+      continue;
+    for (int i = 0; i < n; i++) {
+      SL_sched_feedback_t *sched_psfch = &arr[i];
+  //Jin end
+
+      LOG_D(NR_MAC, "frame.slot %4d.%2d, harq_feedback %d\n", frameP, slotP, sched_psfch->harq_feedback);
+      if (frameP == sched_psfch->feedback_frame && slotP == sched_psfch->feedback_slot && sched_psfch->harq_feedback) {
+        return true;
+        }
     }
   }
   return false;
 }
 
 void reset_sched_psfch(NR_UE_MAC_INST_t *mac, int frameP,int slotP) {
+  //for (int i = 0; i < sl_num_slsch_feedbacks(mac); i++) {   //Jin replace
+  //SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[i];   //jin replace
+    //Jin replace whole loop beginning 
+  const int n = sl_num_slsch_feedbacks(mac);
+  SL_UE_iterator(mac->sl_info.list, UE) {
 
-  for (int i = 0; i < sl_num_slsch_feedbacks(mac); i++) {
-    SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[i];
-    if (frameP == sched_psfch->feedback_frame && slotP == sched_psfch->feedback_slot) {
-      sched_psfch->feedback_frame = -1;
-      sched_psfch->feedback_slot = -1;
-      sched_psfch->harq_feedback = 0;
+    SL_sched_feedback_t *arr = UE->UE_sched_ctrl.sched_psfch;
+    if (!arr)
+      continue;
+
+    for (int i = 0; i < n; i++) {
+      SL_sched_feedback_t *sched_psfch = &arr[i];
+  //Jin end
+
+      if (frameP == sched_psfch->feedback_frame && slotP == sched_psfch->feedback_slot) {
+        sched_psfch->feedback_frame = -1;
+        sched_psfch->feedback_slot = -1;
+        sched_psfch->harq_feedback = 0;
+        }
     }
   }
 }
 
+ 
 void nr_ue_process_mac_sl_pdu(int module_idP,
                               sl_nr_rx_indication_t *rx_ind,
                               int pdu_id)
-{
+{   
   int8_t pdu_type = (rx_ind->rx_indication_body + pdu_id)->pdu_type;
   sl_nr_slsch_pdu_t *rx_slsch_pdu = &(rx_ind->rx_indication_body + pdu_id)->rx_slsch_pdu;
   uint8_t *pduP          = rx_slsch_pdu->pdu;
   int32_t pdu_len        = (int32_t)rx_slsch_pdu->pdu_length;
   uint8_t done           = 0;
+
+
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_idP);
   int frame = rx_ind->sfn;
   int slot = rx_ind->slot;
   if (!pduP){
     return;
   }
+
+  // ---------------- Jin DEBUG: dump first bytes and scan for LCID=4 ----------------
+  LOG_I(NR_MAC, "[SL-RX-DBG] me=%u pdu_len=%d pdu_type=%d frame=%d slot=%d\n",
+        mac->src_id, pdu_len, pdu_type, frame, slot);
+
+  if (pdu_len >= 16) {
+    LOG_I(NR_MAC,
+          "[SL-RX-DBG] pdu@0 first16: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+          pduP[0], pduP[1], pduP[2], pduP[3], pduP[4], pduP[5], pduP[6], pduP[7],
+          pduP[8], pduP[9], pduP[10], pduP[11], pduP[12], pduP[13], pduP[14], pduP[15]);
+  if (pdu_len >= 5) {
+    uint8_t lcid_off4 = ((NR_MAC_SUBHEADER_FIXED *)(pduP + 4))->LCID;
+    LOG_I(NR_MAC, "[SL-RX-DBG] LCID at off=4 is %u (byte=%02x)\n", lcid_off4, pduP[4]);
+  }
+
+
+  } else if (pdu_len > 0) {
+    // print up to 8 bytes if small
+    int n = pdu_len < 8 ? pdu_len : 8;
+    LOG_I(NR_MAC, "[SL-RX-DBG] pdu@0 first%d:", n);
+    for (int i = 0; i < n; i++) {
+      LOG_I(NR_MAC, " %02x", pduP[i]);
+    }
+  }
+
+  // Scan offsets 0..15: where does the parser "see" LCID=4?
+  // This matches your existing parsing: rx_lcid = ((NR_MAC_SUBHEADER_FIXED *)(pduP))->LCID;
+  int max_scan = pdu_len < 256 ? pdu_len : 256;
+  for (int off = 0; off < max_scan; off++) {
+    uint8_t lcid = ((NR_MAC_SUBHEADER_FIXED *)(pduP + off))->LCID;
+    if (lcid == 4) {
+      LOG_I(NR_MAC, "[SL-RX-DBG] FOUND LCID=4 at off=%d (byte=%02x)\n", off, pduP[off]);
+      if (pdu_len - off >= 16) {
+        LOG_I(NR_MAC,
+              "[SL-RX-DBG] pdu@off first16: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+              pduP[off+0], pduP[off+1], pduP[off+2], pduP[off+3],
+              pduP[off+4], pduP[off+5], pduP[off+6], pduP[off+7],
+              pduP[off+8], pduP[off+9], pduP[off+10], pduP[off+11],
+              pduP[off+12], pduP[off+13], pduP[off+14], pduP[off+15]);
+      }
+    }
+  }
+  // ---------------- end Jin DEBUG ----------------
+
+
 
   NR_SLSCH_MAC_SUBHEADER_FIXED *sl_sch_subheader = (NR_SLSCH_MAC_SUBHEADER_FIXED *) pduP;
   uint8_t psfch_period = 0;
@@ -1083,36 +1202,91 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
                                    tx_slot);
   }
 
-  LOG_D(NR_MAC, "In %s : processing PDU %d (with length %d) of %d total number of PDUs...\n", __FUNCTION__, pdu_id, pdu_len, rx_ind->number_pdus);
-  LOG_D(NR_PHY, "%4d.%2d Rx V %d R %d SRC %d DST %d\n", frame, slot, sl_sch_subheader->V, sl_sch_subheader->R, sl_sch_subheader->SRC, sl_sch_subheader->DST);
+  LOG_I(NR_MAC, "In %s : processing PDU %d (with length %d) of %d total number of PDUs...\n", __FUNCTION__, pdu_id, pdu_len, rx_ind->number_pdus);
+  LOG_I(NR_PHY, "%4d.%2d Rx V %d R %d SRC %d DST %d\n", frame, slot, sl_sch_subheader->V, sl_sch_subheader->R, sl_sch_subheader->SRC, sl_sch_subheader->DST);
   pduP += sizeof(*sl_sch_subheader);
   pdu_len -= sizeof(*sl_sch_subheader);
+
+LOG_I(NR_MAC,
+      "[Jin debug !!!!!!!!!!!!!SL-RX-DBG] after fixedhdr: me=%u SRC=%u DST=%u pdu_len=%d next16: "
+      "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+      mac->src_id,
+      sl_sch_subheader->SRC,
+      sl_sch_subheader->DST,
+      pdu_len,
+      pduP[0], pduP[1], pduP[2], pduP[3], pduP[4], pduP[5], pduP[6], pduP[7],
+      pduP[8], pduP[9], pduP[10], pduP[11], pduP[12], pduP[13], pduP[14], pduP[15]);
+
+
+
   if (frame % 20 == 0)
-    LOG_D(NR_PHY, "%4d.%2d Rx V %d R %d SRC %d DST %d\n", frame, slot, sl_sch_subheader->V, sl_sch_subheader->R, sl_sch_subheader->SRC, sl_sch_subheader->DST);
+    LOG_I(NR_PHY, "%4d.%2d Rx V %d R %d SRC %d DST %d\n", frame, slot, sl_sch_subheader->V, sl_sch_subheader->R, sl_sch_subheader->SRC, sl_sch_subheader->DST);
   while (!done && pdu_len > 0) {
     uint16_t mac_len = 0x0000;
     uint16_t mac_subheader_len = 0x0001; //  default to fixed-length subheader = 1-oct
     uint8_t rx_lcid = ((NR_MAC_SUBHEADER_FIXED *)(pduP))->LCID;
-    LOG_D(NR_MAC, "[UE %x] LCID %d, remaining pdu length %d byte(s)\n", mac->src_id, rx_lcid, pdu_len);
+    LOG_I(NR_MAC, "[UE %x] LCID %d, remaining pdu length %d byte(s)\n", mac->src_id, rx_lcid, pdu_len);
     switch (rx_lcid) {
       //  MAC CE
       case SL_SCH_LCID_4_19:
         if (!get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len))
           return;
-        LOG_D(NR_MAC, "%4d.%2d : SLSCH -> LCID %d %d bytes with subheader %d\n", frame, slot, rx_lcid, mac_len, mac_subheader_len);
+        LOG_I(NR_MAC, "%4d.%2d : SLSCH -> LCID %d %d bytes with subheader %d\n", frame, slot, rx_lcid, mac_len, mac_subheader_len);
+    // Jin Debug: ICMP sequence tracker
+    // -------------------------------
+    /*
+    uint8_t *sdu = (uint8_t *)(pduP + mac_subheader_len);
+    uint32_t sdu_len = mac_len;
+
+    if (sdu_len >= 34) {  // Enough bytes for IPv4 + ICMP
+        uint8_t *iph = sdu;
+
+        // IPv4 check: version = 4
+        if ((iph[0] >> 4) == 4) {
+            uint8_t ihl = (iph[0] & 0x0F) * 4;
+            uint8_t protocol = iph[9];
+
+            if (protocol == 1 && sdu_len >= ihl + 8) {   // ICMP
+                uint8_t *icmph = iph + ihl;
+
+                uint8_t type = icmph[0];
+                uint8_t code = icmph[1];
+                uint16_t seq = (icmph[6] << 8) | icmph[7];
+
+                LOG_I(NR_MAC,
+                      "Jin ^^^^^^^^  [ICMP-RX] frame=%d slot=%d seq=%u type=%u code=%u\n",
+                      frame, slot, seq, type, code);
+            }
+        }
+    }*/
+    // -------------------------------
+
+ 
+
 
         mac_rlc_data_ind(module_idP,
-                         mac->src_id,
+                         mac->src_id, 
                          0,
                          frame,
                          ENB_FLAG_NO,
                          MBMS_FLAG_NO,
-                         rx_lcid,
+                         rx_lcid,  
                          (char *)(pduP + mac_subheader_len),
                          mac_len,
                          1,
                          NULL);
+        //Jin log
+        LOG_I(NR_MAC,
+          "[Jin check rx at pdu &&&&&&&&&&&&&&&&& SL-RX-SLSCH] srcID_ME=%u sci_src=%u sci_dst=%u lcid=%u mac_len=%u frame=%u slot=%u\n",
+          mac->src_id,
+          mac->sci_pdu_rx.source_id,
+          mac->sci_pdu_rx.dest_id,
+          rx_lcid, 
+          mac_len,
+          frame,
+          slot);
 	      break;
+
       case SL_SCH_LCID_SL_CSI_REPORT:
         {
           NR_MAC_SUBHEADER_FIXED* sub_pdu_header = (NR_MAC_SUBHEADER_FIXED*) pduP;

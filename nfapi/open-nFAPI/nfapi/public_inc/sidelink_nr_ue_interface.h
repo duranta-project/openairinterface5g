@@ -4,7 +4,7 @@
 #include "fapi_nr_ue_interface.h"
 
 #define SL_NR_RX_CONFIG_LIST_NUM 1
-#define SL_NR_TX_CONFIG_LIST_NUM 1
+#define SL_NR_TX_CONFIG_LIST_NUM 1 //Jin original 1, change to 2
 #define SL_NR_RX_IND_MAX_PDU 2
 #define SL_NR_SCI_IND_MAX_PDU 2
 #define SL_NR_MAX_PSCCH_SCI_LENGTH_IN_BYTES 8

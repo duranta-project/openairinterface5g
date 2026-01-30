@@ -160,6 +160,7 @@ static uint8_t nr_extract_dci_info(NR_UE_MAC_INST_t *mac,
 
 void nr_ue_init_mac(module_id_t module_idP, ueinfo_t* ueinfo)
 {
+  
   LOG_I(NR_MAC, "[UE%d] Applying default macMainConfig\n", module_idP);
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_idP);
   nr_ue_mac_default_configs(mac);
@@ -185,11 +186,11 @@ void nr_ue_init_mac(module_id_t module_idP, ueinfo_t* ueinfo)
   AssertFatal((get_nrUE_params()->mcs >= 0 && get_nrUE_params()->mcs <= 28), "MCS must be 1 to 28!!!");
   int k = 0;
   for (int i = 0; i < CUR_SL_UE_CONNECTIONS + 1; i++) {
-    if (mac->src_id == i)
+     if (mac->src_id == i)
 	  continue;
     mac->sl_info.list[k] = calloc(1, sizeof(NR_SL_UE_info_t));
     mac->sl_info.list[k]->uid = i;
-    NR_SL_UE_sched_ctrl_t *UE_sched_ctrl = &mac->sl_info.list[k]->UE_sched_ctrl;
+     NR_SL_UE_sched_ctrl_t *UE_sched_ctrl = &mac->sl_info.list[k]->UE_sched_ctrl;
     UE_sched_ctrl->rx_csi_report.RI = 0;
     UE_sched_ctrl->rx_csi_report.CQI = 0;
     UE_sched_ctrl->sl_max_mcs = get_nrUE_params()->mcs;
@@ -200,6 +201,12 @@ void nr_ue_init_mac(module_id_t module_idP, ueinfo_t* ueinfo)
     create_nr_list(&UE_sched_ctrl->retrans_sl_harq, 16);
     k++;
   }
+  mac->sl_info.list[k] = NULL; //Jin add, renew for new UES
+
+  if (ueinfo != NULL) {
+    mac->src_id = ueinfo->srcid;
+  }
+
 }
 
 void nr_ue_mac_default_configs(NR_UE_MAC_INST_t *mac)

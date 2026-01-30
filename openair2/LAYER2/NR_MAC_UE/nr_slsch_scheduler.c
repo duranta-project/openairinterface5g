@@ -91,10 +91,24 @@ void handle_nr_ue_sl_harq(module_id_t mod_id,
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(mod_id);
   NR_UE_SL_SCHED_LOCK(&mac->sl_sched_lock);
-  NR_SL_UE_info_t **UE_SL_temp = (NR_SL_UE_info_t **)&mac->sl_info.list, *UE;
-  // TODO: update for multiple UEs
-  UE=*(UE_SL_temp);
+  //NR_SL_UE_info_t **UE_SL_temp = (NR_SL_UE_info_t **)&mac->sl_info.list, *UE;  //Jin replace
+  // TODO: update for multiple UEs   !!!Jin fix here!
+  //UE=*(UE_SL_temp); //Jin replace
+  //uint8_t num_ack_rcvd = rx_slsch_pdu->num_acks_rcvd;  //Jin replace
+
+   /***********Jin add for multiple UEs ***********/
+  // IMPORTANT: src_id must be host-order here.
+  NR_SL_UE_info_t *UE = find_UE(mac, src_id);
+  LOG_I(NR_MAC, "%s: JIN  debug &&&&&&&&&&&&&&&& me=%u src_id=%u\n", __FUNCTION__, mac->src_id, src_id);
+  if (!UE) {
+    LOG_W(NR_MAC, "%s: unknown peer src_id=%u (me=%u)\n",
+          __FUNCTION__, src_id, mac->src_id);
+    NR_UE_SL_SCHED_UNLOCK(&mac->sl_sched_lock);
+    return;
+  }
   uint8_t num_ack_rcvd = rx_slsch_pdu->num_acks_rcvd;
+  /**************Jin end ********* */
+
 
   NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   NR_UE_sl_harq_t **matched_harqs = (NR_UE_sl_harq_t **) calloc(sched_ctrl->feedback_sl_harq.len, sizeof(NR_UE_sl_harq_t *));
@@ -212,8 +226,30 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
                        uint16_t *slsch_pdu_length_max, NR_UE_sl_harq_t *cur_harq,
                        mac_rlc_status_resp_t *rlc_status,
                        sl_resource_info_t *resource) {
-  uid_t dest_id = UE->uid;
-  NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+//uid_t dest_id = UE->uid;//Jin problem : hardcoded as 1 for all UEs
+    /* ----------------------------Jin replacement:--------- */
+    uid_t dest_id = 0;
+    const uint16_t src = mac->src_id;
+
+    if (src == 0) {
+      // alternate between 1 and 2 deterministically using (frame,slot)
+      sl_nr_ue_mac_params_t *sl_mac_params = mac->SL_MAC_PARAMS;
+      const int mu = sl_mac_params->sl_phy_config.sl_config_req.sl_bwp_config.sl_scs;
+      const int spf = nr_slots_per_frame[mu];
+      const int64_t abs = (int64_t)frameP * spf + slotP;   // use the function's frame/slot variables
+      dest_id = (abs & 1) ? 2 : 1;
+    } else {
+      dest_id = 0;
+    }
+
+    // Optional: sanity log (remove once stable)
+    LOG_D(NR_MAC, "[SL-TX] src_id=%u -> dest_id=%u (frame=%d slot=%d)\n",
+          src, dest_id, frameP, slotP);
+    /* ------------------------------------------------------ */
+
+
+
+   NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   const NR_mac_dir_stats_t *stats = &UE->mac_sl_stats.sl;
   NR_sched_pssch_t *sched_pssch = &sched_ctrl->sched_pssch;
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
@@ -310,7 +346,17 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   uint16_t num_subch = sl_get_num_subch(mac->sl_tx_res_pool);
   bool is_feedback_slot = false;
   for (int i = 0; i < (n_ul_slots_period * num_subch); i++) {
-    SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[i];
+    //SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[i]; //Jin replace
+    //Jin implementation to repalce info.list
+    NR_SL_UE_info_t *peer = find_UE(mac, dest_id);
+    if (!peer || !peer->UE_sched_ctrl.sched_psfch) {
+      LOG_W(NR_MAC, "PSSCH/PSFCH: no peer or no sched_psfch for dest_id=%d\n", dest_id);
+      continue; // or return depending on context
+    }
+    SL_sched_feedback_t *sched_psfch = &peer->UE_sched_ctrl.sched_psfch[i];
+    //Jin end
+
+
     if (slotP == sched_psfch->feedback_slot) {
         LOG_D(NR_MAC, "%4d.%2d i = %d sched_psfch %p feedback slot %d\n", frameP, slotP, i, sched_psfch, sched_psfch->feedback_slot);
         is_feedback_slot = true;
@@ -349,8 +395,24 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   sci2_pdu->ndi = cur_harq->ndi;
   sci2_pdu->rv_index = nr_rv_round_map[cur_harq->round % 4];
   sci2_pdu->source_id = mac->src_id;
+  /* --- JIN: sync-ref should reply to the UE that sent the last SCI2 --- */
+  if (mac->src_id == 0) { // sync-ref
+    const uint16_t last_rx_src = mac->sci_pdu_rx.source_id;  // decoded in nr_ue_process_sci2_indication_pdu
+    if (last_rx_src != 0 && last_rx_src != mac->src_id) {
+      dest_id = last_rx_src;
+    }
+    LOG_I(NR_MAC,
+          "[JIN][SL-TX-DEST] sync-ref me=%u choose DST=%u (last_rx_src=%u)\n",
+          mac->src_id, dest_id, last_rx_src);
+  }
+  /* --- end JIN --- */
+
+
   sci2_pdu->dest_id = dest_id;
   sci2_pdu->harq_feedback = cur_harq->is_waiting;
+
+  LOG_I(NR_MAC, "[Jin Jin !!!!! slsch define sci2] SCI2 SRC=%d DST=%d\n",sci2_pdu->source_id ,sci2_pdu->dest_id );//Jin debug fixed srcID problem
+
   LOG_D(NR_MAC, "%4d.%2d Comparing Setting harq_feedback %d bytes_in_buffer %d sl_harq_pid %d\n", frameP, slotP, sci2_pdu->harq_feedback, rlc_status->bytes_in_buffer, cur_harq ? cur_harq->sl_harq_pid : 0);
   sci2_pdu->cast_type = 1;
   if (format2 == NR_SL_SCI_FORMAT_2C || format2 == NR_SL_SCI_FORMAT_2A) {
@@ -388,7 +450,7 @@ SL_CSI_Report_t* set_nr_ue_sl_csi_meas_periodicity(const NR_TDD_UL_DL_Pattern_t 
   uint8_t n_slots_frame = nr_slots_per_frame[mu];
   const int n_ul_slots_period = tdd ? tdd->nrofUplinkSlots + (tdd->nrofUplinkSymbols > 0 ? 1 : 0) : n_slots_frame;
   const int nr_slots_period = tdd ? n_slots_frame / get_nb_periods_per_frame(tdd->dl_UL_TransmissionPeriodicity) : n_slots_frame;
-  const int ideal_period = (CUR_SL_UE_CONNECTIONS * nr_slots_period) / n_ul_slots_period;
+  const int ideal_period = (CUR_SL_UE_CONNECTIONS * nr_slots_period) / n_ul_slots_period; //Jin replace
   const int first_ul_slot_period = tdd ? get_first_ul_slot(tdd->nrofDownlinkSlots, tdd->nrofDownlinkSymbols, tdd->nrofUplinkSymbols) : 0;
   const int idx = (uid << 1) + is_rsrp;
   SL_CSI_Report_t *csi_report = &sched_ctrl->sched_csi_report;

@@ -635,6 +635,7 @@ void nr_UE_configure_Sidelink(uint8_t id, uint8_t is_sync_source, ueinfo_t *uein
   for (int i=0; i<sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.count; i++) {
     nr_rlc_add_drb_sl(ueinfo->srcid, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
   }
+    
   //TBD.. These should be chosen by RRC according to 3GPP 38.331 RRC specification.
   //Currently hardcoding the values to these
   uint16_t slss_id = 671, ssb_ta_index = 1;

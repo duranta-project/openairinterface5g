@@ -527,10 +527,23 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
     NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
     const int n_ul_slots_period = tdd ? tdd->nrofUplinkSlots + (tdd->nrofUplinkSymbols > 0 ? 1 : 0) : nr_slots_frame;
     uint16_t num_subch = sl_get_num_subch(mac->sl_tx_res_pool);
-    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch = calloc(n_ul_slots_period * num_subch, sizeof(SL_sched_feedback_t));
-    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch->feedback_frame = -1;
-    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch->feedback_slot = -1;
+    //Jin replace hardcode list, to support multiple UES.
+    //mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch = calloc(n_ul_slots_period * num_subch, sizeof(SL_sched_feedback_t));
+    //mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch->feedback_frame = -1;
+    //mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch->feedback_slot = -1;
+    /******************   Jin replacement   ****************************** */
+      SL_UE_iterator(mac->sl_info.list, UE) {
+        const int n = sl_num_slsch_feedbacks(mac);
+        UE->UE_sched_ctrl.sched_psfch = calloc(n, sizeof(SL_sched_feedback_t));
+        for (int i = 0; i < n; i++) {
+          UE->UE_sched_ctrl.sched_psfch = calloc(n_ul_slots_period * num_subch, sizeof(SL_sched_feedback_t));
+          UE->UE_sched_ctrl.sched_psfch->feedback_frame = -1;
+          UE->UE_sched_ctrl.sched_psfch->feedback_slot  = -1;
+        }
+      }
+    /************************************************ */
 
+ 
     int nr_slots_period = nr_slots_frame;
     int nr_ulstart_slot = 0;
     if (tdd) {
@@ -744,9 +757,22 @@ void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
 
     const int n_ul_slots_period = tdd ? tdd->nrofUplinkSlots + (tdd->nrofUplinkSymbols > 0 ? 1 : 0) : nr_slots_frame;
     uint16_t num_subch = sl_get_num_subch(mac->sl_tx_res_pool);
-    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch = calloc(n_ul_slots_period * num_subch, sizeof(SL_sched_feedback_t));
-    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch->feedback_frame = -1;
-    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch->feedback_slot = -1;
+    //Jin replace hardcode list, to support multiple UES.
+    //mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch = calloc(n_ul_slots_period * num_subch, sizeof(SL_sched_feedback_t)); //Jin
+    //mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch->feedback_frame = -1;
+    //mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch->feedback_slot = -1;
+    /******************   Jin replacement   ****************************** */
+      SL_UE_iterator(mac->sl_info.list, UE) {
+        const int n = sl_num_slsch_feedbacks(mac);
+        UE->UE_sched_ctrl.sched_psfch = calloc(n, sizeof(SL_sched_feedback_t));
+        for (int i = 0; i < n; i++) {
+          UE->UE_sched_ctrl.sched_psfch = calloc(n_ul_slots_period * num_subch, sizeof(SL_sched_feedback_t));
+          UE->UE_sched_ctrl.sched_psfch->feedback_frame = -1;
+          UE->UE_sched_ctrl.sched_psfch->feedback_slot  = -1;
+        }
+      }
+    /************************************************ */
+
 
     LOG_I(MAC, "SIDELINK CONFIGs: tdd config period:%d, mu:%ld, DLslots:%ld,ULslots:%ld Mixedslotsym DL:UL %ld:%ld\n",
                             sl_config->tdd_table.tdd_period, sl_mac->sl_TDD_config->referenceSubcarrierSpacing,

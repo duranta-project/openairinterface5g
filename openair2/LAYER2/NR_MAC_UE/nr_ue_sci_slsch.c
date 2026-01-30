@@ -864,7 +864,8 @@ int nr_ue_process_sci2_indication_pdu(NR_UE_MAC_INST_t *mac, module_id_t mod_id,
         sci->sci_format_type,sci->Nid,sci->subch_index,sci->sci_payloadlen,*(unsigned long long*)sci->sci_payloadBits);
   AssertFatal(sci->sci_format_type == SL_SCI_FORMAT_2_ON_PSSCH, "need to have format 2 here only\n");
   extract_pssch_sci_pdu((uint64_t *)sci->sci_payloadBits, sci->sci_payloadlen,sl_bwp, sl_res_pool, sci_pdu);
-  LOG_D(NR_MAC,"SCI2A: harq_pid %d ndi %d RV %d SRC %x DST %x HARQ_FB %d Cast %d CSI_Req %d\n", sci_pdu->harq_pid,sci_pdu->ndi,sci_pdu->rv_index,sci_pdu->source_id,sci_pdu->dest_id,sci_pdu->harq_feedback,sci_pdu->cast_type,sci_pdu->csi_req);
+
+  LOG_I(NR_MAC,"SCI2A: harq_pid %d ndi %d RV %d SRC %x DST %x HARQ_FB %d Cast %d CSI_Req %d\n", sci_pdu->harq_pid,sci_pdu->ndi,sci_pdu->rv_index,sci_pdu->source_id,sci_pdu->dest_id,sci_pdu->harq_feedback,sci_pdu->cast_type,sci_pdu->csi_req);
   // send schedule response
 
   sl_nr_rx_config_request_t rx_config;

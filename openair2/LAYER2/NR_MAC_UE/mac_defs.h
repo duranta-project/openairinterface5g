@@ -537,7 +537,8 @@ typedef struct {
 } NR_SL_UE_sched_ctrl_t;
 
 #define MAX_SL_UE_CONNECTIONS 8
-#define CUR_SL_UE_CONNECTIONS 1
+//#define CUR_SL_UE_CONNECTIONS 1
+#define CUR_SL_UE_CONNECTIONS 2 //jin : increase for 2 UEs
 
 #define MAX_SL_CSI_REPORTCONFIG MAX_SL_UE_CONNECTIONS
 
