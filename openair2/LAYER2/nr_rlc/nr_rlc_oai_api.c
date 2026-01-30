@@ -1074,7 +1074,7 @@ bool nr_rlc_get_statistics(int ue_id, int srb_flag, int rb_id, nr_rlc_statistics
 
     // Patch buffer status using OAI results (no need to change anything in the RB)
     // rb->set_time(rb, get_nr_rlc_current_time());
-    nr_rlc_entity_buffer_status_t oai_stat = rb->buffer_status(rb, 1000*1000);
+    nr_rlc_entity_buffer_status_t oai_stat = rb->buffer_status(rb, 256 * 1000);
     out->rxbuf_occ_bytes = oai_stat.status_size;
     out->txbuf_occ_bytes = oai_stat.tx_size + oai_stat.retx_size;
   } else {
