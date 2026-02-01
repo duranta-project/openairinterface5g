@@ -401,7 +401,7 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
     if (last_rx_src != 0 && last_rx_src != mac->src_id) {
       dest_id = last_rx_src;
     }
-    LOG_I(NR_MAC,
+    LOG_D(NR_MAC,
           "[JIN][SL-TX-DEST] sync-ref me=%u choose DST=%u (last_rx_src=%u)\n",
           mac->src_id, dest_id, last_rx_src);
   }
@@ -411,7 +411,7 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   sci2_pdu->dest_id = dest_id;
   sci2_pdu->harq_feedback = cur_harq->is_waiting;
 
-  LOG_I(NR_MAC, "[Jin Jin !!!!! slsch define sci2] SCI2 SRC=%d DST=%d\n",sci2_pdu->source_id ,sci2_pdu->dest_id );//Jin debug fixed srcID problem
+  //LOG_D(NR_MAC, "[Jin Jin !!!!! slsch define sci2] SCI2 SRC=%d DST=%d\n",sci2_pdu->source_id ,sci2_pdu->dest_id );//Jin debug fixed srcID problem
 
   LOG_D(NR_MAC, "%4d.%2d Comparing Setting harq_feedback %d bytes_in_buffer %d sl_harq_pid %d\n", frameP, slotP, sci2_pdu->harq_feedback, rlc_status->bytes_in_buffer, cur_harq ? cur_harq->sl_harq_pid : 0);
   sci2_pdu->cast_type = 1;

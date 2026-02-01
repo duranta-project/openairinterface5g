@@ -3707,7 +3707,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
       /* --- end JIN --- */
       sl_sch_subheader->SRC = mac->sci2_pdu.source_id;
       sl_sch_subheader->DST = mac->sci2_pdu.dest_id;      //sci_pdu->source_id jin this is as 2, but here is written as 1...
-      LOG_I(NR_MAC, "[Jin Jin !!!!!SL-TX] About to TX: SCI2 SRC=%d DST=%d\n",sl_sch_subheader->SRC,sl_sch_subheader->DST);//Jin debug fixed srcID problem
+      LOG_D(NR_MAC, "[Jin Jin !!!!!SL-TX] About to TX: SCI2 SRC=%d DST=%d\n",sl_sch_subheader->SRC,sl_sch_subheader->DST);//Jin debug fixed srcID problem
       pdu += sizeof(NR_SLSCH_MAC_SUBHEADER_FIXED);
       LOG_D(NR_MAC, "%4d.%2d Tx V %d, R %d, SRC %d, DST %d\n", frame, slot, sl_sch_subheader->V, sl_sch_subheader->R, sl_sch_subheader->SRC, sl_sch_subheader->DST);
  
@@ -3788,7 +3788,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
               break;
             }
                 //Jin log
-              LOG_I(NR_MAC, "[SL-TX-DBG] TB base first16: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+              LOG_D(NR_MAC, "[SL-TX-DBG] TB base first16: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
                     base[0], base[1], base[2], base[3],
                     base[4], base[5], base[6], base[7],
                     base[8], base[9], base[10], base[11],
@@ -3879,7 +3879,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
     pscch_pssch_pdu->slsch_payload        = cur_harq->transportBlock;//Jin replace 
     pscch_pssch_pdu->slsch_payload_length = pscch_pssch_pdu->tb_size;//Jin replace : remove memcpy
     uint8_t *b = pscch_pssch_pdu->slsch_payload; //Jin replace add log
-    LOG_I(NR_MAC,//jin log
+    LOG_D(NR_MAC,//jin log
           "[Jin debug !!!!  SL-TX-PDU] me=%u peer_uid=%u idx=%d frame=%d slot=%d tb=%p len=%u first8: "
           "%02x %02x %02x %02x %02x %02x %02x %02x\n",
           mac->src_id, UE->uid, pdu_idx, frame, slot,
@@ -4223,7 +4223,7 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind) {
         for (int i = 0; i < tx_config.number_pdus; i++) {
           uint8_t t = tx_config.tx_config_list[i].pdu_type;
 
-          LOG_I(NR_MAC,
+          LOG_D(NR_MAC,
                 "[SL-TX-LIST] me=%u frame=%d slot=%d i=%d pdu_type=%u\n",
                 mac->src_id, frame, slot, i, t);
 
@@ -4238,7 +4238,7 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind) {
 
             if (p->slsch_payload && p->slsch_payload_length >= 8) {
               uint8_t *b = p->slsch_payload;
-              LOG_I(NR_MAC,
+              LOG_D(NR_MAC,
                     "[SL-TX-FINAL] me=%u frame=%d slot=%d idx=%d slsch_len=%u tb_size=%u first8: "
                     "%02x %02x %02x %02x %02x %02x %02x %02x\n",
                     mac->src_id, frame, slot, i,

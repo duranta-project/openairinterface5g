@@ -127,9 +127,9 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
   if (rcvd_count < entity->rx_deliv
       || nr_pdcp_sdu_in_list(entity->rx_list, rcvd_count)) {
     LOG_W(PDCP, "discard NR PDU rcvd_count=%d, entity->rx_deliv %d,sdu_in_list %d\n", rcvd_count,entity->rx_deliv,nr_pdcp_sdu_in_list(entity->rx_list,rcvd_count));
-    LOG_W(PDCP,
-        "[JIN DEBUG DEBUG  *********** DELETE LATER !!!!! PDCP-RX] entity=%p rb_id=%d rx_deliv=%u rcvd_sn=%d rcvd_count=%u size=%d\n",
-        entity, entity->rb_id, entity->rx_deliv, rcvd_sn, rcvd_count, size);
+   // LOG_W(PDCP,
+   //     "[JIN DEBUG DEBUG  *********** DELETE LATER !!!!! PDCP-RX] entity=%p rb_id=%d rx_deliv=%u rcvd_sn=%d rcvd_count=%u size=%d\n",
+    //    entity, entity->rb_id, entity->rx_deliv, rcvd_sn, rcvd_count, size);
     entity->stats.rxpdu_dd_pkts++;
     entity->stats.rxpdu_dd_bytes += size;
 

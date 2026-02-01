@@ -755,7 +755,7 @@ int16_t get_feedback_slot(long psfch_period, uint16_t slot) {
 int nr_ue_sl_acknack_scheduling(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx_ind,
                                 long psfch_period, uint16_t frame, uint16_t slot, const int nr_slots_frame) {
   LOG_I(NR_MAC,//Jin add
-      "[JIN DEBUG RX ::::::: SL-RX-IND] me=%u rx_ind sfn=%u slot=%u num_pdus=%u\n",
+      "[JIN DEBUG SL ACKNAKC SL-RX-IND] me=%u rx_ind sfn=%u slot=%u num_pdus=%u\n",
       mac->src_id, rx_ind->sfn, rx_ind->slot, rx_ind->number_pdus);
   // TODO: needs to be updated for multi-subchannels  Jin : ?????
   int psfch_frame, psfch_slot;
@@ -1103,26 +1103,26 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
   }
 
   // ---------------- Jin DEBUG: dump first bytes and scan for LCID=4 ----------------
-  LOG_I(NR_MAC, "[SL-RX-DBG] me=%u pdu_len=%d pdu_type=%d frame=%d slot=%d\n",
-        mac->src_id, pdu_len, pdu_type, frame, slot);
+  //LOG_I(NR_MAC, "[SL-RX-DBG] me=%u pdu_len=%d pdu_type=%d frame=%d slot=%d\n",
+  //      mac->src_id, pdu_len, pdu_type, frame, slot);
 
   if (pdu_len >= 16) {
-    LOG_I(NR_MAC,
-          "[SL-RX-DBG] pdu@0 first16: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-          pduP[0], pduP[1], pduP[2], pduP[3], pduP[4], pduP[5], pduP[6], pduP[7],
-          pduP[8], pduP[9], pduP[10], pduP[11], pduP[12], pduP[13], pduP[14], pduP[15]);
+    //LOG_I(NR_MAC,
+     //     "[SL-RX-DBG] pdu@0 first16: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+     //     pduP[0], pduP[1], pduP[2], pduP[3], pduP[4], pduP[5], pduP[6], pduP[7],
+     //     pduP[8], pduP[9], pduP[10], pduP[11], pduP[12], pduP[13], pduP[14], pduP[15]);
   if (pdu_len >= 5) {
     uint8_t lcid_off4 = ((NR_MAC_SUBHEADER_FIXED *)(pduP + 4))->LCID;
-    LOG_I(NR_MAC, "[SL-RX-DBG] LCID at off=4 is %u (byte=%02x)\n", lcid_off4, pduP[4]);
+   // LOG_I(NR_MAC, "[SL-RX-DBG] LCID at off=4 is %u (byte=%02x)\n", lcid_off4, pduP[4]);
   }
 
 
   } else if (pdu_len > 0) {
     // print up to 8 bytes if small
     int n = pdu_len < 8 ? pdu_len : 8;
-    LOG_I(NR_MAC, "[SL-RX-DBG] pdu@0 first%d:", n);
+    //LOG_I(NR_MAC, "[SL-RX-DBG] pdu@0 first%d:", n);
     for (int i = 0; i < n; i++) {
-      LOG_I(NR_MAC, " %02x", pduP[i]);
+     // LOG_I(NR_MAC, " %02x", pduP[i]);
     }
   }
 
@@ -1132,14 +1132,14 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
   for (int off = 0; off < max_scan; off++) {
     uint8_t lcid = ((NR_MAC_SUBHEADER_FIXED *)(pduP + off))->LCID;
     if (lcid == 4) {
-      LOG_I(NR_MAC, "[SL-RX-DBG] FOUND LCID=4 at off=%d (byte=%02x)\n", off, pduP[off]);
+     // LOG_I(NR_MAC, "[SL-RX-DBG] FOUND LCID=4 at off=%d (byte=%02x)\n", off, pduP[off]);
       if (pdu_len - off >= 16) {
-        LOG_I(NR_MAC,
-              "[SL-RX-DBG] pdu@off first16: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-              pduP[off+0], pduP[off+1], pduP[off+2], pduP[off+3],
-              pduP[off+4], pduP[off+5], pduP[off+6], pduP[off+7],
-              pduP[off+8], pduP[off+9], pduP[off+10], pduP[off+11],
-              pduP[off+12], pduP[off+13], pduP[off+14], pduP[off+15]);
+      //  LOG_I(NR_MAC,
+      //        "[SL-RX-DBG] pdu@off first16: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+       //       pduP[off+0], pduP[off+1], pduP[off+2], pduP[off+3],
+       //       pduP[off+4], pduP[off+5], pduP[off+6], pduP[off+7],
+       //       pduP[off+8], pduP[off+9], pduP[off+10], pduP[off+11],
+       //       pduP[off+12], pduP[off+13], pduP[off+14], pduP[off+15]);
       }
     }
   }
@@ -1206,7 +1206,7 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
   LOG_I(NR_PHY, "%4d.%2d Rx V %d R %d SRC %d DST %d\n", frame, slot, sl_sch_subheader->V, sl_sch_subheader->R, sl_sch_subheader->SRC, sl_sch_subheader->DST);
   pduP += sizeof(*sl_sch_subheader);
   pdu_len -= sizeof(*sl_sch_subheader);
-
+/*
 LOG_I(NR_MAC,
       "[Jin debug !!!!!!!!!!!!!SL-RX-DBG] after fixedhdr: me=%u SRC=%u DST=%u pdu_len=%d next16: "
       "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
@@ -1216,22 +1216,22 @@ LOG_I(NR_MAC,
       pdu_len,
       pduP[0], pduP[1], pduP[2], pduP[3], pduP[4], pduP[5], pduP[6], pduP[7],
       pduP[8], pduP[9], pduP[10], pduP[11], pduP[12], pduP[13], pduP[14], pduP[15]);
-
+  */
 
 
   if (frame % 20 == 0)
-    LOG_I(NR_PHY, "%4d.%2d Rx V %d R %d SRC %d DST %d\n", frame, slot, sl_sch_subheader->V, sl_sch_subheader->R, sl_sch_subheader->SRC, sl_sch_subheader->DST);
+    LOG_D(NR_PHY, "%4d.%2d Rx V %d R %d SRC %d DST %d\n", frame, slot, sl_sch_subheader->V, sl_sch_subheader->R, sl_sch_subheader->SRC, sl_sch_subheader->DST);
   while (!done && pdu_len > 0) {
     uint16_t mac_len = 0x0000;
     uint16_t mac_subheader_len = 0x0001; //  default to fixed-length subheader = 1-oct
     uint8_t rx_lcid = ((NR_MAC_SUBHEADER_FIXED *)(pduP))->LCID;
-    LOG_I(NR_MAC, "[UE %x] LCID %d, remaining pdu length %d byte(s)\n", mac->src_id, rx_lcid, pdu_len);
+    LOG_D(NR_MAC, "[UE %x] LCID %d, remaining pdu length %d byte(s)\n", mac->src_id, rx_lcid, pdu_len);
     switch (rx_lcid) {
       //  MAC CE
       case SL_SCH_LCID_4_19:
         if (!get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len))
           return;
-        LOG_I(NR_MAC, "%4d.%2d : SLSCH -> LCID %d %d bytes with subheader %d\n", frame, slot, rx_lcid, mac_len, mac_subheader_len);
+        LOG_D(NR_MAC, "%4d.%2d : SLSCH -> LCID %d %d bytes with subheader %d\n", frame, slot, rx_lcid, mac_len, mac_subheader_len);
     // Jin Debug: ICMP sequence tracker
     // -------------------------------
     /*
@@ -1277,7 +1277,7 @@ LOG_I(NR_MAC,
                          NULL);
         //Jin log
         LOG_I(NR_MAC,
-          "[Jin check rx at pdu &&&&&&&&&&&&&&&&& SL-RX-SLSCH] srcID_ME=%u sci_src=%u sci_dst=%u lcid=%u mac_len=%u frame=%u slot=%u\n",
+          "[Jin-Log check rx at pdu SL-RX-SLSCH] srcID_ME=%u sci_src=%u sci_dst=%u lcid=%u mac_len=%u frame=%u slot=%u\n",
           mac->src_id,
           mac->sci_pdu_rx.source_id,
           mac->sci_pdu_rx.dest_id,
