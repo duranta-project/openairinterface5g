@@ -45,7 +45,7 @@
 #include <linux/if.h>
 #include <linux/if_tun.h>
 #include "common/openairinterface5g_limits.h"
-
+ 
 #include "pdcp.h"
 #include <executables/nr-uesoftmodem.h>
 
@@ -66,7 +66,24 @@ struct msghdr nas_msg_rx;
 
 #define GRAAL_NETLINK_ID 31
 
-static int tun_alloc(char *dev) {
+//Jin add for TAP
+typedef enum {
+  OAI_TUNTAP_TUN = 0,
+  OAI_TUNTAP_TAP = 1
+} oai_tuntap_mode_t;
+
+static oai_tuntap_mode_t oai_get_tuntap_mode(void)
+{
+  // Default: TUN (keeps your current behaviour)
+  const char *s = getenv("OAI_TUNTAP_MODE"); // set to "tap" to enable TAP
+  if (s && !strcasecmp(s, "tap"))
+    return OAI_TUNTAP_TAP;
+  return OAI_TUNTAP_TUN;
+}
+//Jin TAP end
+
+//static int tun_alloc(char *dev) { //Jin origin
+static int tun_alloc(char *dev, oai_tuntap_mode_t mode) { //Jin replace TAP
   struct ifreq ifr;
   int fd, err;
 
@@ -81,7 +98,8 @@ static int tun_alloc(char *dev) {
    *
    *        IFF_NO_PI - Do not provide packet information
    */
-  ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
+  //ifr.ifr_flags = IFF_TUN | IFF_NO_PI; //Jin origin
+  ifr.ifr_flags = ((mode == OAI_TUNTAP_TAP) ? IFF_TAP : IFF_TUN) | IFF_NO_PI; //Jin replace TAP
 
   if( *dev )
     strncpy(ifr.ifr_name, dev, sizeof(ifr.ifr_name)-1);
@@ -106,14 +124,19 @@ int netlink_init_mbms_tun(char *ifprefix, int id) {//for UE, id = 1, 2, ...,
     else {
       sprintf(ifname, "oaitun_%.3s1", ifprefix); // added "1": for historical reasons
     }
-    nas_sock_mbms_fd = tun_alloc(ifname);
+    // nas_sock_mbms_fd = tun_alloc(ifname);   //Jin origin
+    oai_tuntap_mode_t mode = oai_get_tuntap_mode(); //Jin TAP
+    nas_sock_mbms_fd = tun_alloc(ifname, mode); //Jin add TAP
 
     if (nas_sock_mbms_fd == -1) {
       printf("[NETLINK] Error opening mbms socket %s (%d:%s)\n",ifname,errno, strerror(errno));
       exit(1);
     }
 
-    printf("[NETLINK]Opened socket %s with fd %d\n",ifname,nas_sock_mbms_fd);
+    //printf("[NETLINK]Opened socket %s with fd %d\n",ifname,nas_sock_mbms_fd); //Jin origin
+    printf("[Jin TAP TAP NETLINK]%s Opened socket %s with fd %d\n", //Jin have a look at TAP
+       (mode == OAI_TUNTAP_TAP) ? "TAP" : "TUN",
+       ifname, nas_sock_mbms_fd);
     ret = fcntl(nas_sock_mbms_fd,F_SETFL,O_NONBLOCK);
 
     if (ret == -1) {
@@ -136,6 +159,7 @@ int netlink_init_mbms_tun(char *ifprefix, int id) {//for UE, id = 1, 2, ...,
 int netlink_init_tun(char *ifprefix, int num_if, int id) {//for UE, id = 1, 2, ...,
   int ret;
   char ifname[64];
+  oai_tuntap_mode_t mode = oai_get_tuntap_mode(); //Jin add TAP
 
   int begx = (id == 0) ? 0 : id - 1;
   int endx = (id == 0) ? num_if : id;
@@ -143,7 +167,9 @@ int netlink_init_tun(char *ifprefix, int num_if, int id) {//for UE, id = 1, 2, .
   for (int i = begx; i < endx; i++) {
     sprintf(ifname, "oaitun_%.3s%d", ifprefix, i+1);
     index = get_softmodem_params()->sl_mode ? 0 : i;
-    nas_sock_fd[index] = tun_alloc(ifname);
+    //nas_sock_fd[index] = tun_alloc(ifname); //Jin origin
+    oai_tuntap_mode_t mode = oai_get_tuntap_mode(); //Jin add TAP
+    nas_sock_fd[index] = tun_alloc(ifname, mode); //Jin add TAP
 
     if (nas_sock_fd[index] == -1) {
       LOG_E(PDCP, "TUN: Error opening socket %s (%d:%s)\n", ifname, errno, strerror(errno));
@@ -152,6 +178,9 @@ int netlink_init_tun(char *ifprefix, int num_if, int id) {//for UE, id = 1, 2, .
 
     LOG_I(PDCP, "TUN: Opened socket %s with fd nas_sock_fd[%d]=%d\n",
            ifname, index, nas_sock_fd[index]);
+    LOG_D(PDCP, "JIN LOG TAP !!!!!!!!!! %s: Opened socket %s with fd nas_sock_fd[%d]=%d\n",
+       (mode == OAI_TUNTAP_TAP) ? "TAP" : "TUN",
+       ifname, index, nas_sock_fd[index]);
     ret = fcntl(nas_sock_fd[index], F_SETFL, O_NONBLOCK);
 
     if (ret == -1) {
