@@ -304,15 +304,7 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
      * deliver the retrieved SDAP SDU to the upper layer.
      */
     extern int nas_sock_fd[];
-    //int len = write(nas_sock_fd[0], &buf[offset], size-offset); //Jin origin
-    //Jin replace : previous support multi UE TAP
-    int idx = (int)ue_id;
-    if (idx < 0 || idx >= (MAX_MOBILES_PER_ENB * 2) || nas_sock_fd[idx] <= 0) {
-      LOG_E(SDAP, "Invalid nas_sock_fd index for ue_id=%d\n", (int)ue_id);
-      return;
-    }
-    int len = write(nas_sock_fd[idx], &buf[offset], size-offset);
-    //Jin end 
+    int len = write(nas_sock_fd[0], &buf[offset], size-offset); 
 
     LOG_I(SDAP, "RX Entity len : %d\n", len);
     LOG_I(SDAP, "RX Entity size : %d\n", size);

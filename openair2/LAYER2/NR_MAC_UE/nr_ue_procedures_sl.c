@@ -1206,17 +1206,7 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
   LOG_I(NR_PHY, "%4d.%2d Rx V %d R %d SRC %d DST %d\n", frame, slot, sl_sch_subheader->V, sl_sch_subheader->R, sl_sch_subheader->SRC, sl_sch_subheader->DST);
   pduP += sizeof(*sl_sch_subheader);
   pdu_len -= sizeof(*sl_sch_subheader);
-/*
-LOG_I(NR_MAC,
-      "[Jin debug !!!!!!!!!!!!!SL-RX-DBG] after fixedhdr: me=%u SRC=%u DST=%u pdu_len=%d next16: "
-      "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-      mac->src_id,
-      sl_sch_subheader->SRC,
-      sl_sch_subheader->DST,
-      pdu_len,
-      pduP[0], pduP[1], pduP[2], pduP[3], pduP[4], pduP[5], pduP[6], pduP[7],
-      pduP[8], pduP[9], pduP[10], pduP[11], pduP[12], pduP[13], pduP[14], pduP[15]);
-  */
+ 
 
 
   if (frame % 20 == 0)
@@ -1263,9 +1253,12 @@ LOG_I(NR_MAC,
 
  
 
+        LOG_I(NR_MAC, "[Jin !!!!!!!!! SL-RX->RLC] me=%u sl_hdr_SRC=%u sl_hdr_DST=%u rx_lcid=%u frame=%d slot=%d\n",
+              mac->src_id, sl_sch_subheader->SRC, sl_sch_subheader->DST, rx_lcid, frame, slot);
 
         mac_rlc_data_ind(module_idP,
-                         mac->src_id, 
+                         //mac->src_id, //Jin origin 
+                         sl_sch_subheader->SRC, //Jin replace support multiple UEs
                          0,
                          frame,
                          ENB_FLAG_NO,
@@ -1278,7 +1271,8 @@ LOG_I(NR_MAC,
         //Jin log
         LOG_I(NR_MAC,
           "[Jin-Log check rx at pdu SL-RX-SLSCH] srcID_ME=%u sci_src=%u sci_dst=%u lcid=%u mac_len=%u frame=%u slot=%u\n",
-          mac->src_id,
+          //mac->src_id, //jin origin
+          sl_sch_subheader->SRC,//Jin update log
           mac->sci_pdu_rx.source_id,
           mac->sci_pdu_rx.dest_id,
           rx_lcid, 

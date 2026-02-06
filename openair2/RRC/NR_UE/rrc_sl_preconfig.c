@@ -34,7 +34,7 @@
 #include "executables/nr-uesoftmodem.h"
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
-
+#include <inttypes.h> //JIn add
 #define GNSS_SUPPORT 0
 
 #define SL_SYNC_SOURCE_NONE  0 //No sync source selected
@@ -626,7 +626,8 @@ void nr_UE_configure_Sidelink(uint8_t id, uint8_t is_sync_source, ueinfo_t *uein
   nas_config(1 + ueinfo->srcid, ueinfo->thirdOctet, ueinfo->fourthOctet, "oai_sl_tun");
   nr_rrc_mac_config_req_sl_preconfig(id, sl_preconfig, sync_source);
 
-
+  //JIn origin : comment
+  /*
   // SL RadioBearers
   for (int i=0; i<sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.count; i++) {
     add_drb_sl(ueinfo->srcid, (NR_SL_RadioBearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i], 0, 0, NULL, NULL);
@@ -635,6 +636,43 @@ void nr_UE_configure_Sidelink(uint8_t id, uint8_t is_sync_source, ueinfo_t *uein
   for (int i=0; i<sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.count; i++) {
     nr_rlc_add_drb_sl(ueinfo->srcid, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
   }
+  */  //JIn end
+
+  //Jin replace for multiple UEs : ID Syn-ref 0 , then UE1 1, UE2 2, hardcoded for now...
+   void create_for(ue_id_t sid)
+  {
+    /* SL RadioBearers for sid */
+    for (int i = 0;
+         i < sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.count;
+         i++) {
+      add_drb_sl(sid,
+                 (NR_SL_RadioBearerConfig_r16_t *)
+                   sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i],
+                 0, 0, NULL, NULL);
+    }
+
+    /* RLC bearers for sid */
+    for (int i = 0;
+         i < sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.count;
+         i++) {
+      nr_rlc_add_drb_sl(sid, 1,
+                        (NR_SL_RLC_BearerConfig_r16_t *)
+                          sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
+    }
+  }
+
+  /* Always provision self */
+  create_for(ueinfo->srcid);
+
+  /* Provision peers deterministically */
+  if (ueinfo->srcid == 0) {
+    create_for(1);
+    create_for(2);
+  } else {
+    create_for(0);
+  }
+  //Jin end
+
     
   //TBD.. These should be chosen by RRC according to 3GPP 38.331 RRC specification.
   //Currently hardcoding the values to these

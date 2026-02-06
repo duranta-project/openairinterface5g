@@ -106,6 +106,9 @@ typedef struct {
 
 static rlc_data_req_queue q;
 
+
+static NR_SL_RadioBearerConfig_r16_t *g_sl_rb_cfg = NULL; //Jin add quick for multiple UEs RB
+
 static void *rlc_data_req_thread(void *_)
 {
   int i;
@@ -531,7 +534,7 @@ static void *ue_tun_read_thread(void *_)
     int rc = poll(pfd, (MAX_MOBILES_PER_ENB * 2), 100);
     if (rc <= 0)
       continue;
-    
+
     // get a UE id that PDCP actually knows about 
     ue_id_t rntiMaybeUEid;
     nr_pdcp_manager_lock(nr_pdcp_ue_manager);
@@ -1006,7 +1009,7 @@ void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, int ciphering_a
   }
 
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
-  nr_pdcp_ue_t *ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, srcid);
+  nr_pdcp_ue_t *ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, srcid); 
   if (ue->drb[slrb_id-1] != NULL) {
     LOG_W(PDCP, "%s:%d:%s: warning DRB %d already exist for UE ID/RNTI %ld, do nothing\n", __FILE__, __LINE__, __FUNCTION__, slrb_id, srcid);
   } else {
