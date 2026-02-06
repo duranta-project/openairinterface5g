@@ -31,7 +31,7 @@
 #include "NR_CellGroupConfig.h"
 #include "openair2/RRC/NR/nr_rrc_proto.h"
 #include <stdint.h>
-
+#include <poll.h>
 /* from OAI */
 #include "oai_asn1.h"
 #include "nr_pdcp_oai_api.h"
@@ -399,12 +399,32 @@ static void reblock_tun_socket(void)
   extern int nas_sock_fd[];
   int f;
 
+
+  /**********Jin origin comment ***
   f = fcntl(nas_sock_fd[0], F_GETFL, 0);
   f &= ~(O_NONBLOCK);
   if (fcntl(nas_sock_fd[0], F_SETFL, f) == -1) {
     LOG_E(PDCP, "reblock_tun_socket failed\n");
     exit(1);
   }
+  ***********   Jin end ***/
+
+  //Jin TAP : multiple tun/tap FDs can exist. 
+  for (int i = 0; i < (MAX_MOBILES_PER_ENB * 2); i++) {
+    if (nas_sock_fd[i] <= 0)
+      continue;
+    f = fcntl(nas_sock_fd[i], F_GETFL, 0);
+    if (f == -1)
+      continue;
+    f &= ~(O_NONBLOCK);
+    if (fcntl(nas_sock_fd[i], F_SETFL, f) == -1) {
+      LOG_E(PDCP, "reblock_tun_socket failed for nas_sock_fd[%d]\n", i);
+      exit(1);
+    }
+  }
+  //Jin end
+
+
 }
 
 static void *enb_tun_read_thread(void *_)
@@ -463,7 +483,20 @@ static void *ue_tun_read_thread(void *_)
   int rb_id = 1;
   pthread_setname_np( pthread_self(),"ue_tun_read"); 
   LOG_I(PDCP,"ue_tun_read_thread created on core %d\n",sched_getcpu());
+  
+  //Jin add  : borrow from ENB to control UE number
+  struct pollfd pfd[MAX_MOBILES_PER_ENB * 2];
+  memset(pfd, 0, sizeof(pfd));
+  for (int i = 0; i < (MAX_MOBILES_PER_ENB * 2); i++) {
+    pfd[i].fd = nas_sock_fd[i];
+    pfd[i].events = POLLIN;
+  }
+  //JIn end
+
+
   while (1) {
+    //Jin origin comment follwoing : 
+    /*
     len = read(nas_sock_fd[0], &rx_buf, NL_MAX_PAYLOAD);
     if (len == -1) {
       LOG_E(PDCP, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
@@ -492,6 +525,60 @@ static void *ue_tun_read_thread(void *_)
     extern uint8_t nas_pduid;
 
     sdap_data_req(&ctxt, rntiMaybeUEid, SRB_FLAG_NO, rb_id, RLC_MUI_UNDEFINED, RLC_SDU_CONFIRM_NO, len, (unsigned char *)rx_buf, PDCP_TRANSMISSION_MODE_DATA, NULL, NULL, nas_qfi, dc, nas_pduid);
+   */ //Jin comment end
+   
+    //Jin add new : to support multiple UE under TAP
+    int rc = poll(pfd, (MAX_MOBILES_PER_ENB * 2), 100);
+    if (rc <= 0)
+      continue;
+    
+    // get a UE id that PDCP actually knows about 
+    ue_id_t rntiMaybeUEid;
+    nr_pdcp_manager_lock(nr_pdcp_ue_manager);
+    const bool has_ue = nr_pdcp_get_first_ue_id(nr_pdcp_ue_manager, &rntiMaybeUEid);
+    nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+    if (!has_ue)
+      continue;
+
+    for (int i = 0; i < (MAX_MOBILES_PER_ENB * 2); i++) {
+      if (nas_sock_fd[i] <= 0)
+        continue;
+
+      if (pfd[i].fd != nas_sock_fd[i])
+        pfd[i].fd = nas_sock_fd[i];
+
+      if (!(pfd[i].revents & POLLIN))
+        continue;
+
+      int len = read(pfd[i].fd, rx_buf, NL_MAX_PAYLOAD);
+      if (len <= 0)
+        continue;
+
+      LOG_I(PDCP, "JIN TUN: ue_tun_read_thread: nas_sock_fd[%d] read %d bytes -> ue_id=%d\n",
+            i, len, (int)rntiMaybeUEid);
+
+      // Keep UE context consistent (do NOT invent ue_id from i) 
+      ctxt.module_id = 0;
+      ctxt.enb_flag = 0;
+      ctxt.instance = 0;
+      ctxt.frame = 0;
+      ctxt.subframe = 0;
+      ctxt.eNB_index = 0;
+      ctxt.brOption = 0;
+      ctxt.rntiMaybeUEid = rntiMaybeUEid;
+
+      bool dc = SDAP_HDR_UL_DATA_PDU;
+      extern uint8_t nas_qfi;
+      extern uint8_t nas_pduid;
+
+      sdap_data_req(&ctxt, rntiMaybeUEid, SRB_FLAG_NO, rb_id,
+                    RLC_MUI_UNDEFINED, RLC_SDU_CONFIRM_NO,
+                    len, (unsigned char *)rx_buf,
+                    PDCP_TRANSMISSION_MODE_DATA,
+                    NULL, NULL, nas_qfi, dc, nas_pduid);
+    }
+    //Jin end
+
   }
 
   return NULL;

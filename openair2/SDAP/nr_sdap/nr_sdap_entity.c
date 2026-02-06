@@ -22,6 +22,7 @@
 #include "nr_sdap.h"
 #include "nr_sdap_entity.h"
 #include "common/utils/LOG/log.h"
+#include "common/openairinterface5g_limits.h" //jIN ADD 
 #include <openair2/LAYER2/nr_pdcp/nr_pdcp_oai_api.h>
 #include <openair3/ocp-gtpu/gtp_itf.h>
 #include "openair2/LAYER2/nr_pdcp/nr_pdcp_ue_manager.h"
@@ -29,6 +30,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+
+
 
 typedef struct {
   nr_sdap_entity_t *sdap_entity_llist;
@@ -88,7 +91,7 @@ static bool nr_sdap_tx_entity(nr_sdap_entity_t *entity,
   if(pdcp_entity){
     sdap_drb_id = pdcp_entity;
     pdcp_ent_has_sdap = entity->qfi2drb_table[qfi].has_sdap_tx;
-    LOG_D(SDAP, "TX - QFI: %u is mapped to DRB ID: %ld\n", qfi, entity->qfi2drb_table[qfi].drb_id);
+    LOG_I(SDAP, "TX - QFI: %u is mapped to DRB ID: %ld\n", qfi, entity->qfi2drb_table[qfi].drb_id);
   }
 
   if(!pdcp_ent_has_sdap){
@@ -149,9 +152,9 @@ static bool nr_sdap_tx_entity(nr_sdap_entity_t *entity,
     /* Add the SDAP UL Header to the buffer */
     memcpy(&sdap_buf[0], &sdap_hdr, SDAP_HDR_LENGTH);
     memcpy(&sdap_buf[SDAP_HDR_LENGTH], sdu_buffer, sdu_buffer_size);
-    LOG_D(SDAP, "TX Entity QFI: %u \n", sdap_hdr.QFI);
-    LOG_D(SDAP, "TX Entity R:   %u \n", sdap_hdr.R);
-    LOG_D(SDAP, "TX Entity DC:  %u \n", sdap_hdr.DC);
+    LOG_I(SDAP, "TX Entity QFI: %u \n", sdap_hdr.QFI);
+    LOG_I(SDAP, "TX Entity R:   %u \n", sdap_hdr.R);
+    LOG_I(SDAP, "TX Entity DC:  %u \n", sdap_hdr.DC);
   }
 
   /*
@@ -240,9 +243,9 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
        * retrieve the SDAP SDU from the DL SDAP data PDU as specified in the subclause 6.2.2.2.
        */
       nr_sdap_dl_hdr_t *sdap_hdr = (nr_sdap_dl_hdr_t *)buf;
-      LOG_D(SDAP, "RX Entity Received QFI : %u\n", sdap_hdr->QFI);
-      LOG_D(SDAP, "RX Entity Received RQI : %u\n", sdap_hdr->RQI);
-      LOG_D(SDAP, "RX Entity Received RDI : %u\n", sdap_hdr->RDI);
+      LOG_I(SDAP, "RX Entity Received QFI : %u\n", sdap_hdr->QFI);
+      LOG_I(SDAP, "RX Entity Received RQI : %u\n", sdap_hdr->RQI);
+      LOG_I(SDAP, "RX Entity Received RDI : %u\n", sdap_hdr->RDI);
 
       /*
        * TS 37.324 5.2 Data transfer
@@ -250,7 +253,7 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
        * Perform reflective QoS flow to DRB mapping as specified in the subclause 5.3.2.
        */
       if(sdap_hdr->RDI == SDAP_REFLECTIVE_MAPPING) {
-        LOG_D(SDAP, "RX - Performing Reflective Mapping\n");
+        LOG_I(SDAP, "RX - Performing Reflective Mapping\n");
         /*
          * TS 37.324 5.3 QoS flow to DRB Mapping 
          * 5.3.2 Reflective mapping
@@ -301,10 +304,19 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
      * deliver the retrieved SDAP SDU to the upper layer.
      */
     extern int nas_sock_fd[];
-    int len = write(nas_sock_fd[0], &buf[offset], size-offset);
-    LOG_D(SDAP, "RX Entity len : %d\n", len);
-    LOG_D(SDAP, "RX Entity size : %d\n", size);
-    LOG_D(SDAP, "RX Entity offset : %d\n", offset);
+    //int len = write(nas_sock_fd[0], &buf[offset], size-offset); //Jin origin
+    //Jin replace : previous support multi UE TAP
+    int idx = (int)ue_id;
+    if (idx < 0 || idx >= (MAX_MOBILES_PER_ENB * 2) || nas_sock_fd[idx] <= 0) {
+      LOG_E(SDAP, "Invalid nas_sock_fd index for ue_id=%d\n", (int)ue_id);
+      return;
+    }
+    int len = write(nas_sock_fd[idx], &buf[offset], size-offset);
+    //Jin end 
+
+    LOG_I(SDAP, "RX Entity len : %d\n", len);
+    LOG_I(SDAP, "RX Entity size : %d\n", size);
+    LOG_I(SDAP, "RX Entity offset : %d\n", offset);
 
     if (len != size-offset)
       LOG_E(SDAP, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
