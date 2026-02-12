@@ -897,8 +897,8 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
     }
     // in case UE beam has changed
     old_UE->UE_beam_index = UE->UE_beam_index;
-    // Reset UL failure for old UE
-    nr_mac_reset_ul_failure(&old_UE->UE_sched_ctrl);
+    // Reset link failure for old UE
+    nr_mac_reset_link_failure(&old_UE->UE_sched_ctrl);
     // Reset HARQ processes
     reset_dl_harq_list(&old_UE->UE_sched_ctrl);
     reset_ul_harq_list(&old_UE->UE_sched_ctrl);
@@ -1051,7 +1051,7 @@ static void _nr_rx_sdu(gNB_MAC_INST *gNB_mac,
               slotP,
               UE->rnti,
               UE->UE_sched_ctrl.pusch_consecutive_dtx_cnt);
-        nr_mac_trigger_ul_failure(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
+        nr_mac_trigger_link_failure(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
       }
     }
     handle_nr_ul_harq(cell, UE, current_rnti, harq_pid, sduP == NULL);

@@ -757,8 +757,8 @@ typedef struct {
   bool ta_apply;
   int pusch_consecutive_dtx_cnt;
   int pucch_consecutive_dtx_cnt;
-  bool ul_failure;
-  int ul_failure_timer;
+  bool link_failure;
+  int link_failure_timer;
   int rlc_max_retx_cnt;  // count of RLC max RETX events, triggers release at threshold
   int release_timer;
   CSI_report_t CSI_report;
