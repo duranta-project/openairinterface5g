@@ -65,6 +65,7 @@
 #define NR_RRC_SETUP_DELAY_MS           10
 #define NR_RRC_RECONFIGURATION_DELAY_MS 10
 #define NR_RRC_BWP_SWITCHING_DELAY_MS   6
+#define RLC_MAX_RETX_RELEASE_THRESHOLD  32
 
 // #define DEBUG_DCI
 //  CQI TABLES (10 times the value in 214 to adequately compare with R)
@@ -2965,6 +2966,34 @@ static void init_bler_stats(const NR_bler_options_t *bler_options, NR_bler_stats
   bler_stats->bler = (float)(bler_options->lower + bler_options->upper) / 2.0f;
 }
 
+/* \brief RLF handler called from RLC when max retransmissions reached.
+ * Called from scheduler context (sched_lock held), do NOT take sched_lock. */
+static void gnb_rlf_handler(int rnti)
+{
+  gNB_MAC_INST *mac = RC.nrmac[0];
+  NR_UE_info_t *UE = find_nr_UE(&mac->UE_info, rnti);
+  if (!UE)
+    UE = find_ra_UE(&mac->UE_info, rnti);
+  if (!UE) {
+    LOG_W(NR_MAC, "RLF indication for unknown UE %04x, dropping\n", rnti);
+    return;
+  }
+
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  /* Already triggered UL failure, ignore further events */
+  if (sched_ctrl->rlc_max_retx_cnt >= RLC_MAX_RETX_RELEASE_THRESHOLD)
+    return;
+
+  sched_ctrl->rlc_max_retx_cnt++;
+  LOG_W(NR_MAC, "UE %04x: RLC max RETX reached (%d/%d)\n", rnti, sched_ctrl->rlc_max_retx_cnt, RLC_MAX_RETX_RELEASE_THRESHOLD);
+
+  if (sched_ctrl->rlc_max_retx_cnt >= RLC_MAX_RETX_RELEASE_THRESHOLD) {
+    LOG_W(NR_MAC, "UE %04x: RLF threshold reached, triggering UL failure\n", rnti);
+    // if the UE does not come back, will eventually trigger UE context release request
+    nr_mac_trigger_ul_failure(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
+  }
+}
+
 /* @brief returns a new UE allocated instance.
  *
  * It will be typically added to the access_ue_list, but not always (e.g.,
@@ -2985,6 +3014,9 @@ NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroup
 
   // initialize LCID structure
   seq_arr_init(&sched_ctrl->lc_config, sizeof(nr_lc_config_t));
+
+  // Register gNB-side RLF handler for UE context release on persistent link failure
+  nr_rlc_set_rlf_handler(UE->rnti, gnb_rlf_handler);
   return UE;
 }
 
@@ -3868,6 +3900,7 @@ void nr_mac_reset_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl)
   sched_ctrl->ul_failure = false;
   sched_ctrl->ul_failure_timer = 0;
   sched_ctrl->pusch_consecutive_dtx_cnt = 0;
+  sched_ctrl->rlc_max_retx_cnt = 0;
 }
 
 /* \brief trigger a release request towards the CU.
