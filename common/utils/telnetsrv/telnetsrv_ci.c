@@ -232,29 +232,29 @@ int rrc_gNB_trigger_n2_ho(char *buf, int debug, telnet_printfunc_t prnt)
   return 0;
 }
 
-int force_ul_failure(char *buf, int debug, telnet_printfunc_t prnt)
+int force_link_failure(char *buf, int debug, telnet_printfunc_t prnt)
 {
   UNUSED(debug);
   if (!RC.nrmac)
-    ERROR_MSG_RET("no MAC/RLC present, force_ul_failure failed\n");
+    ERROR_MSG_RET("no MAC/RLC present, force_link_failure failed\n");
   int rnti = fetch_rnti(buf, prnt);
   if (rnti < 0)
     ERROR_MSG_RET("could not identify UE (no UE, no such RNTI, or multiple UEs)\n");
   NR_UE_info_t *UE = find_connected_nr_ue(&RC.nrmac[0]->UE_info, rnti);
-  nr_mac_trigger_ul_failure(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
+  nr_mac_trigger_link_failure(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
   return 0;
 }
 
 int force_ue_release(char *buf, int debug, telnet_printfunc_t prnt)
 {
-  force_ul_failure(buf, debug, prnt);
+  force_link_failure(buf, debug, prnt);
   int rnti = fetch_rnti(buf, prnt);
   if (rnti < 0)
     ERROR_MSG_RET("could not identify UE (no UE, no such RNTI, or multiple UEs)\n");
   NR_UE_info_t *UE = find_connected_nr_ue(&RC.nrmac[0]->UE_info, rnti);
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
-  sched_ctrl->ul_failure_timer = 2;
-  nr_mac_check_ul_failure(RC.nrmac[0], UE->rnti, sched_ctrl);
+  sched_ctrl->link_failure_timer = 2;
+  nr_mac_check_link_failure(RC.nrmac[0], UE->rnti, sched_ctrl);
   return 0;
 }
 
@@ -402,7 +402,8 @@ static telnetshell_cmddef_t cicmds[] = {
     {"force_reestab", "[rnti(hex,opt)]", trigger_reestab},
     {"get_reestab_count", "[rnti(hex,opt)]", get_reestab_count},
     {"force_ue_release", "[rnti(hex,opt)]", force_ue_release},
-    {"force_ul_failure", "[rnti(hex,opt)]", force_ul_failure},
+    {"force_link_failure", "[rnti(hex,opt)]", force_link_failure},
+    {"force_ul_failure", "[rnti(hex,opt)]", force_link_failure}, /* backward compat alias, TODO cleanup */
     {"trigger_f1_ho", "[rrc_ue_id(int,opt)]", rrc_gNB_trigger_f1_ho},
     {"fetch_du_by_ue_id", "[rrc_ue_id(int,opt)]", fetch_du_by_ue_id},
     {"get_current_bwp", "[rnti(hex,opt)]", get_current_bwp},
