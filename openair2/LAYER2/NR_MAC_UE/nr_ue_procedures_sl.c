@@ -1211,7 +1211,21 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
 
   if (frame % 20 == 0)
     LOG_D(NR_PHY, "%4d.%2d Rx V %d R %d SRC %d DST %d\n", frame, slot, sl_sch_subheader->V, sl_sch_subheader->R, sl_sch_subheader->SRC, sl_sch_subheader->DST);
-  while (!done && pdu_len > 0) {
+
+    //JIN: Filter packets not meant for this UE
+    uint16_t my_id = mac->src_id;
+    uint16_t dst_id = sl_sch_subheader->DST;
+    // Accept if: (1) unicast to me, OR (2) broadcast/multicast
+    bool for_me = (dst_id == my_id) || (dst_id >= 0xFF00);  // Adjust broadcast range as needed
+    if (!for_me) {
+      LOG_D(NR_MAC, "[SL-RX-FILTER] Ignoring packet: DST=%u but my_id=%u\n",
+            dst_id, my_id);
+      return;  // Not for me, ignore it
+    }
+    //JIN  END 
+
+
+    while (!done && pdu_len > 0) {
     uint16_t mac_len = 0x0000;
     uint16_t mac_subheader_len = 0x0001; //  default to fixed-length subheader = 1-oct
     uint8_t rx_lcid = ((NR_MAC_SUBHEADER_FIXED *)(pduP))->LCID;
@@ -1256,6 +1270,7 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
         LOG_I(NR_MAC, "[Jin !!!!!!!!! SL-RX->RLC] me=%u sl_hdr_SRC=%u sl_hdr_DST=%u rx_lcid=%u frame=%d slot=%d\n",
               mac->src_id, sl_sch_subheader->SRC, sl_sch_subheader->DST, rx_lcid, frame, slot);
 
+
         mac_rlc_data_ind(module_idP,
                          //mac->src_id, //Jin origin 
                          sl_sch_subheader->SRC, //Jin replace support multiple UEs
@@ -1267,7 +1282,9 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
                          (char *)(pduP + mac_subheader_len),
                          mac_len,
                          1,
-                         NULL);
+                         NULL,
+                         sl_sch_subheader->SRC,  // NEW: sourceL2Id
+                         sl_sch_subheader->DST); // NEW: destinationL2Id
         //Jin log
         LOG_I(NR_MAC,
           "[Jin-Log check rx at pdu SL-RX-SLSCH] srcID_ME=%u sci_src=%u sci_dst=%u lcid=%u mac_len=%u frame=%u slot=%u\n",

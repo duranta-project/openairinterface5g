@@ -33,6 +33,10 @@ typedef struct nr_rlc_ue_t {
   nr_rlc_entity_t *srb0;
   nr_rlc_entity_t *srb[3];
   nr_rlc_entity_t *drb[MAX_DRBS_PER_UE];
+  // JIN: Sidelink L2 IDs (set by MAC layer before calling mac_rlc_data_ind)
+  uint32_t sl_rx_src_l2id;   // Source L2 ID of received packet
+  uint32_t sl_rx_dst_l2id;   // Destination L2 ID of received packet
+
 } nr_rlc_ue_t;
 
 /***********************************************************************/

@@ -3741,7 +3741,8 @@ void nr_ue_process_mac_pdu(nr_downlink_indication_t *dl_info,
                          (char *)(pduP + mac_subheader_len),
                          mac_len,
                          1,
-                         NULL);
+                         NULL,
+                        0,0);//Jin add last 2
         break;
       default:
         LOG_W(MAC, "unknown lcid %02x\n", rx_lcid);

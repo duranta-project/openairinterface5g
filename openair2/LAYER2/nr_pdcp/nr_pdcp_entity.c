@@ -131,8 +131,7 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
        "[JIN DEBUG DEBUG  *********** DELETE LATER !!!!! PDCP-RX] entity=%p rb_id=%d rx_deliv=%u rcvd_sn=%d rcvd_count=%u size=%d\n",
        entity, entity->rb_id, entity->rx_deliv, rcvd_sn, rcvd_count, size);
     entity->stats.rxpdu_dd_pkts++;
-    entity->stats.rxpdu_dd_bytes += size;
-
+    entity->stats.rxpdu_dd_bytes += size; 
 
     return;
   }

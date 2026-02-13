@@ -78,7 +78,9 @@ extern void mac_rlc_data_ind(const module_id_t         module_idP,
                              char                     *buffer_pP,
                              const tb_size_t           tb_sizeP,
                              num_tb_t                  num_tbP,
-                             crc_t                    *crcs_pP);
+                             crc_t                    *crcs_pP,
+                             const uint32_t            sourceL2Id,      // jin add
+                             const uint32_t            destinationL2Id); // jin add
 
 extern const char *rnti_types[];
 extern const char *dci_formats[];

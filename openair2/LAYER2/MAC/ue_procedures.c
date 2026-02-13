@@ -528,7 +528,8 @@ ue_send_sdu(module_id_t module_idP,
                          (char *)payload_ptr,
                          rx_lengths[i],
                          1,
-                         NULL);
+                         NULL,
+                        0,0); //Jin add last two
       } else if ((rx_lcids[i]  < NB_RB_MAX) && (rx_lcids[i] > DCCH1 )) {
         LOG_D(MAC,"[UE %d] Frame %d : DLSCH -> DL-DTCH%d (eNB %d, %d bytes)\n", module_idP, frameP,rx_lcids[i], eNB_index,rx_lengths[i]);
 #if defined(ENABLE_MAC_PAYLOAD_DEBUG)
@@ -547,7 +548,8 @@ ue_send_sdu(module_id_t module_idP,
                          MBMS_FLAG_NO,
                          rx_lcids[i],
                          (char *) payload_ptr, rx_lengths[i], 1,
-                         NULL);
+                         NULL,
+                        0,0); //Jin add last two
       } else {
         LOG_E(MAC, "[UE %d] Frame %d : unknown LCID %d (eNB %d)\n",
               module_idP, frameP, rx_lcids[i], eNB_index);
@@ -780,7 +782,8 @@ ue_send_mch_sdu(module_id_t module_idP, uint8_t CC_id, frame_t frameP,
           (char *)payload_ptr,
           rx_lengths[i],
           1,
-          NULL);
+          NULL,
+          0,0); //Jin add last two
       }
     } else {
       LOG_W(MAC,
@@ -852,7 +855,8 @@ void ue_send_sl_sdu(module_id_t module_idP,
       rlc_sdu,
       rlc_sdu_len,
       1,
-      NULL);
+      NULL,
+      0,0); //Jin add last two
   } else { //SL_DISCOVERY
     uint16_t len = sdu_len;
     LOG_I( MAC, "SL DISCOVERY \n");

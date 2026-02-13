@@ -65,7 +65,9 @@ void mac_rlc_data_ind     (
   char                     *buffer_pP,
   const tb_size_t           tb_sizeP,
   num_tb_t                  num_tbP,
-  crc_t                    *crcs_pP)
+  crc_t                    *crcs_pP,
+  const uint32_t            sourceL2Id,      // JIN : Source L2 ID for sidelink
+  const uint32_t            destinationL2Id) // JIN: Destination L2 ID for sidelink
 {
   nr_rlc_ue_t *ue;
   nr_rlc_entity_t *rb;
@@ -84,6 +86,12 @@ void mac_rlc_data_ind     (
 
   if(ue == NULL)
 	  LOG_I(RLC, "RLC instance for the given UE was not found \n");
+
+  // JIN: Store L2 IDs for sidelink (used when delivering to PDCP)
+  ue->sl_rx_src_l2id = sourceL2Id;
+  ue->sl_rx_dst_l2id = destinationL2Id;
+  // END JIN
+
 
   switch (channel_idP) {
   case 0:        rb = ue->srb0;                 break;
@@ -484,7 +492,14 @@ rb_found:
   }
   memcpy(memblock->data, buf, size);
   LOG_D(PDCP, "Calling PDCP layer from RLC in %s\n", __FUNCTION__);
-  if (!pdcp_data_ind(&ctx, is_srb, 0, rb_id, size, memblock, NULL, NULL)) {
+
+  // JIN: Pass L2 IDs to PDCP
+  uint32_t src = ue->sl_rx_src_l2id;
+  uint32_t dst = ue->sl_rx_dst_l2id;
+
+  //if (!pdcp_data_ind(&ctx, is_srb, 0, rb_id, size, memblock, NULL, NULL)) {
+  if (!pdcp_data_ind(&ctx, is_srb, 0, rb_id, size, memblock, 
+                     (src != 0) ? &src : NULL,  (dst != 0) ? &dst : NULL)) { // Jin add pass ID if availble
     LOG_E(RLC, "%s:%d:%s: ERROR: pdcp_data_ind failed\n", __FILE__, __LINE__, __FUNCTION__);
     /* what to do in case of failure? for the moment: nothing */
   }

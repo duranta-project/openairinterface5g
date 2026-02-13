@@ -28,11 +28,45 @@
 
 typedef void nr_pdcp_ue_manager_t;
 
+typedef struct nr_pdcp_peer_context_t nr_pdcp_peer_context_t; //Jin add
+
 typedef struct nr_pdcp_ue_t {
   ue_id_t rntiMaybeUEid;
   nr_pdcp_entity_t *srb[3];
   nr_pdcp_entity_t *drb[MAX_DRBS_PER_UE];
+  
+  // Jin add multi UES
+  nr_pdcp_peer_context_t **sl_peers;  // Array of pointers to peer contexts
+  int sl_peer_count;                   // Number of active peers
 } nr_pdcp_ue_t;
+
+// JIN ADD : Per-peer PDCP context for sidelink
+struct nr_pdcp_peer_context_t {
+  ue_id_t peer_ue_id;                  // The peer UE's L2 ID
+  nr_pdcp_entity_t *drb[MAX_DRBS_PER_UE];  // PDCP entities for this peer
+};
+
+/***********************************************************************/
+/* sidelink peer management functions                                  */
+/***********************************************************************/
+// Get or create peer context for a given peer UE ID
+nr_pdcp_peer_context_t *nr_pdcp_ue_get_peer_context(
+    nr_pdcp_ue_t *ue, 
+    ue_id_t peer_ue_id);
+
+// Add DRB PDCP entity for a specific peer
+void nr_pdcp_ue_add_peer_drb_pdcp_entity(
+    nr_pdcp_ue_t *ue, 
+    ue_id_t peer_ue_id,
+    int drb_id, 
+    nr_pdcp_entity_t *entity);
+
+// Get DRB PDCP entity for a specific peer
+nr_pdcp_entity_t *nr_pdcp_ue_get_peer_drb_entity(
+    nr_pdcp_ue_t *ue,
+    ue_id_t peer_ue_id,
+    int drb_id);
+
 
 /***********************************************************************/
 /* manager functions                                                   */

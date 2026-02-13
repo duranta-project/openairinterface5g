@@ -132,6 +132,23 @@ void nr_pdcp_manager_remove_ue(nr_pdcp_ue_manager_t *_m, ue_id_t rntiMaybeUEid)
     if (ue->drb[j] != NULL)
       ue->drb[j]->delete_entity(ue->drb[j]);
 
+  //Jin add: Clean up peer contexts
+  for (i = 0; i < ue->sl_peer_count; i++) {
+    nr_pdcp_peer_context_t *peer_ctx = ue->sl_peers[i];
+    for (j = 0; j < MAX_DRBS_PER_UE; j++) {
+      if (peer_ctx->drb[j] != NULL) {
+        peer_ctx->drb[j]->delete_entity(peer_ctx->drb[j]);
+      }
+    }
+    free(peer_ctx);
+  }
+  if (ue->sl_peers != NULL) {
+    free(ue->sl_peers);
+  } 
+  //Jin end
+
+
+
   free(ue);
 
   m->ue_count--;
@@ -210,3 +227,94 @@ bool nr_pdcp_get_first_ue_id(nr_pdcp_ue_manager_t *_m, ue_id_t *ret)
   *ret = m->ue_list[0]->rntiMaybeUEid;
   return true;
 }
+
+
+//Jin add following for peer   multi UES
+/* must be called with lock acquired */
+nr_pdcp_peer_context_t *nr_pdcp_ue_get_peer_context(
+    nr_pdcp_ue_t *ue, 
+    ue_id_t peer_ue_id)
+{
+  int i;
+  
+  // Search for existing peer context
+  for (i = 0; i < ue->sl_peer_count; i++) {
+    if (ue->sl_peers[i]->peer_ue_id == peer_ue_id) {
+      return ue->sl_peers[i];
+    }
+  }
+  
+  // Create new peer context
+  LOG_D(PDCP, "Creating new peer context for UE 0x%"PRIx64" with peer 0x%"PRIx64"\n",
+        ue->rntiMaybeUEid, peer_ue_id);
+  
+  ue->sl_peer_count++;
+  ue->sl_peers = realloc(ue->sl_peers, 
+                         sizeof(nr_pdcp_peer_context_t *) * ue->sl_peer_count);
+  if (ue->sl_peers == NULL) {
+    LOG_E(PDCP, "%s:%d:%s: out of memory\n", __FILE__, __LINE__, __FUNCTION__);
+    exit(1);
+  }
+  
+  ue->sl_peers[ue->sl_peer_count - 1] = calloc(1, sizeof(nr_pdcp_peer_context_t));
+  if (ue->sl_peers[ue->sl_peer_count - 1] == NULL) {
+    LOG_E(PDCP, "%s:%d:%s: out of memory\n", __FILE__, __LINE__, __FUNCTION__);
+    exit(1);
+  }
+  
+  ue->sl_peers[ue->sl_peer_count - 1]->peer_ue_id = peer_ue_id;
+  
+  return ue->sl_peers[ue->sl_peer_count - 1];
+}
+
+/* must be called with lock acquired */
+void nr_pdcp_ue_add_peer_drb_pdcp_entity(
+    nr_pdcp_ue_t *ue, 
+    ue_id_t peer_ue_id,
+    int drb_id, 
+    nr_pdcp_entity_t *entity)
+{
+  if (drb_id < 1 || drb_id > MAX_DRBS_PER_UE) {
+    LOG_E(PDCP, "%s:%d:%s: fatal, bad drb id\n", __FILE__, __LINE__, __FUNCTION__);
+    exit(1);
+  }
+  
+  nr_pdcp_peer_context_t *peer_ctx = nr_pdcp_ue_get_peer_context(ue, peer_ue_id);
+  
+  drb_id--;
+  
+  if (peer_ctx->drb[drb_id] != NULL) {
+    LOG_W(PDCP, "%s:%d:%s: warning, peer drb already present (ue=0x%"PRIx64", peer=0x%"PRIx64", drb=%d), replacing\n",
+          __FILE__, __LINE__, __FUNCTION__, ue->rntiMaybeUEid, peer_ue_id, drb_id + 1);
+    peer_ctx->drb[drb_id]->delete_entity(peer_ctx->drb[drb_id]);
+  }
+  
+  peer_ctx->drb[drb_id] = entity;
+  
+  LOG_D(PDCP, "Added peer DRB entity: local_ue=0x%"PRIx64" peer_ue=0x%"PRIx64" drb_id=%d\n",
+        ue->rntiMaybeUEid, peer_ue_id, drb_id + 1);
+}
+
+/* must be called with lock acquired */
+nr_pdcp_entity_t *nr_pdcp_ue_get_peer_drb_entity(
+    nr_pdcp_ue_t *ue,
+    ue_id_t peer_ue_id,
+    int drb_id)
+{
+  int i;
+  
+  if (drb_id < 1 || drb_id > MAX_DRBS_PER_UE) {
+    LOG_E(PDCP, "%s:%d:%s: fatal, bad drb id\n", __FILE__, __LINE__, __FUNCTION__);
+    return NULL;
+  }
+  
+  // Search for peer context
+  for (i = 0; i < ue->sl_peer_count; i++) {
+    if (ue->sl_peers[i]->peer_ue_id == peer_ue_id) {
+      return ue->sl_peers[i]->drb[drb_id - 1];
+    }
+  }
+  
+  return NULL;  // Peer context not found
+}
+//JIn end

@@ -228,6 +228,8 @@ typedef struct {
   rb_id_t         rb_id;
   sdu_size_t      sdu_buffer_size;
   mem_block_t     *sdu_buffer;
+  uint32_t        srcID;   // JIN :  Source L2 ID
+  uint32_t        dstID; // jin: Destination L2 ID
 } pdcp_data_ind_queue_item;
 
 #define PDCP_DATA_IND_QUEUE_SIZE 10000
@@ -248,14 +250,18 @@ static void do_pdcp_data_ind(
   const MBMS_flag_t MBMS_flagP,
   const rb_id_t rb_id,
   const sdu_size_t sdu_buffer_size,
-  mem_block_t *const sdu_buffer)
+  mem_block_t *const sdu_buffer,
+  const uint32_t srcID,    // JIN
+  const uint32_t dstID)    // JIN
 {
   nr_pdcp_ue_t *ue;
   nr_pdcp_entity_t *rb;
-  ue_id_t rntiMaybeUEid = ctxt_pP->rntiMaybeUEid;
+  ue_id_t peer_ue_id = ctxt_pP->rntiMaybeUEid;  // This is the PEER's ID from RLC
+    LOG_I(PDCP, "[DEBUG-THEORY] rntiMaybeUEid=0x%lx (this should be PEER's ID in sidelink)\n", 
+        peer_ue_id);
+  ue_id_t local_ue_id;
 
   if (ctxt_pP->module_id != 0 ||
-      //ctxt_pP->enb_flag != 1 ||
       ctxt_pP->instance != 0 ||
       ctxt_pP->eNB_index != 0 ||
       ctxt_pP->brOption != 0) {
@@ -264,28 +270,96 @@ static void do_pdcp_data_ind(
   }
 
   if (ctxt_pP->enb_flag)
-    T(T_ENB_PDCP_UL, T_INT(ctxt_pP->module_id), T_INT(rntiMaybeUEid), T_INT(rb_id), T_INT(sdu_buffer_size));
+    T(T_ENB_PDCP_UL, T_INT(ctxt_pP->module_id), T_INT(peer_ue_id), T_INT(rb_id), T_INT(sdu_buffer_size));
 
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
-  ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, rntiMaybeUEid);
+  
+  // JIN ADD: In sidelink, we need to find the LOCAL UE, not the peer
+  // The dstID is the local UE's L2 ID (destination of the packet)
+  if (dstID != 0) {
+    // Sidelink mode: dstID is the local UE
+    local_ue_id = dstID;
+    LOG_D(PDCP, "[SL-RX] Packet from peer=0x%x to local_ue=0x%x rb_id=%ld size=%d\n",
+          peer_ue_id, local_ue_id, rb_id, sdu_buffer_size);
+  } else {
+    // Legacy mode: rntiMaybeUEid is the local UE
+    local_ue_id = peer_ue_id;
+    peer_ue_id = 0;  // No peer in legacy mode
+    LOG_D(PDCP, "[LEGACY-RX] local_ue=0x%lx rb_id=%ld size=%d\n",
+          local_ue_id, rb_id, sdu_buffer_size);
+  }
+  
+  ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, local_ue_id);
 
   if (srb_flagP == 1) {
+    // SRBs: use traditional lookup (no peer-specific entities for control plane)
     if (rb_id < 1 || rb_id > 2)
       rb = NULL;
     else
       rb = ue->srb[rb_id - 1];
   } else {
-    if (rb_id < 1 || rb_id > MAX_DRBS_PER_UE)
-      rb = NULL;
-    else
-      rb = ue->drb[rb_id - 1];
+    // jin: use peer-aware lookup in sidelink mode
+    if (peer_ue_id != 0) {
+      rb = nr_pdcp_ue_get_peer_drb_entity(ue, peer_ue_id, rb_id);
+      
+      if (rb == NULL) {
+        // Auto-create peer entity by cloning the shared entity's configuration
+        nr_pdcp_entity_t *template = ue->drb[rb_id - 1];
+        
+        if (template != NULL) {
+          LOG_I(PDCP, "[SL-AUTO-CREATE] Creating peer PDCP entity: local_ue=0x%lx peer=0x%lx rb_id=%ld\n",
+                local_ue_id, peer_ue_id, rb_id);
+          
+          // Create new entity with same configuration as template
+          nr_pdcp_entity_t *new_entity = new_nr_pdcp_entity(
+            template->type,
+            template->is_gnb,
+            template->rb_id,
+            template->pdusession_id,
+            template->has_sdap_rx,
+            template->has_sdap_tx,
+            template->deliver_sdu,
+            template->deliver_sdu_data,
+            template->deliver_pdu,
+            template->deliver_pdu_data,
+            template->sn_size,
+            template->t_reordering,
+            template->discard_timer,
+            template->ciphering_algorithm,
+            template->integrity_algorithm,
+            template->ciphering_key,
+            template->integrity_key
+          );
+          
+          // Add to peer context
+          nr_pdcp_ue_add_peer_drb_pdcp_entity(ue, peer_ue_id, rb_id, new_entity);
+          rb = new_entity;
+          
+          LOG_I(PDCP, "[SL-AUTO-CREATE] Successfully created peer entity %p for peer=0x%lx\n", 
+                rb, peer_ue_id);
+        } else {
+          LOG_E(PDCP, "[SL-AUTO-CREATE] Cannot create peer entity, template DRB is NULL! local_ue=0x%lx rb_id=%ld\n",
+                local_ue_id, rb_id);
+          rb = NULL;
+        }
+      } else {
+        LOG_D(PDCP, "[SL-RX] Using existing peer entity %p for local_ue=0x%lx peer=0x%lx rb_id=%ld\n",
+              rb, local_ue_id, peer_ue_id, rb_id);
+      }
+    } else {
+      // Legacy: use shared entity
+      if (rb_id < 1 || rb_id > MAX_DRBS_PER_UE)
+        rb = NULL;
+      else
+        rb = ue->drb[rb_id - 1];
+    }
   }
 
   if (rb != NULL) {
     rb->recv_pdu(rb, (char *)sdu_buffer->data, sdu_buffer_size);
   } else {
-    LOG_E(PDCP, "%s:%d:%s: no RB found (rb_id %ld, srb_flag %d)\n",
-          __FILE__, __LINE__, __FUNCTION__, rb_id, srb_flagP);
+    LOG_E(PDCP, "%s:%d:%s: no RB found (local_ue_id=0x%lx, peer_ue_id=0x%lx, rb_id=%ld, srb_flag=%d)\n",
+          __FILE__, __LINE__, __FUNCTION__, local_ue_id, peer_ue_id, rb_id, srb_flagP);
   }
 
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
@@ -310,7 +384,9 @@ static void *pdcp_data_ind_thread(void *_)
                      pq.q[i].MBMS_flagP,
                      pq.q[i].rb_id,
                      pq.q[i].sdu_buffer_size,
-                     pq.q[i].sdu_buffer);
+                     pq.q[i].sdu_buffer,
+                     pq.q[i].srcID,    // JIN ADD
+                     pq.q[i].dstID);   // JIN ADD
 
     if (pthread_mutex_lock(&pq.m) != 0) abort();
 
@@ -341,7 +417,9 @@ static void enqueue_pdcp_data_ind(
   const MBMS_flag_t MBMS_flagP,
   const rb_id_t rb_id,
   const sdu_size_t sdu_buffer_size,
-  mem_block_t *const sdu_buffer)
+  mem_block_t *const sdu_buffer,
+  const uint32_t srcID,    // JIN ADD
+  const uint32_t dstID)    // JIN ADD
 {
   int i;
   int logged = 0;
@@ -364,6 +442,8 @@ static void enqueue_pdcp_data_ind(
   pq.q[i].rb_id           = rb_id;
   pq.q[i].sdu_buffer_size = sdu_buffer_size;
   pq.q[i].sdu_buffer      = sdu_buffer;
+  pq.q[i].srcID           = srcID;    // Jin add
+  pq.q[i].dstID           = dstID;    //  Jin add
 
   if (pthread_cond_signal(&pq.c) != 0) abort();
   if (pthread_mutex_unlock(&pq.m) != 0) abort();
@@ -378,12 +458,17 @@ bool pdcp_data_ind(const protocol_ctxt_t *const  ctxt_pP,
                    const uint32_t *const srcID,
                    const uint32_t *const dstID)
 {
+  uint32_t src = (srcID != NULL) ? *srcID : 0;  // Jin get the pointer 
+  uint32_t dst = (dstID != NULL) ? *dstID : 0;   // Jin get the pointer 
+  
   enqueue_pdcp_data_ind(ctxt_pP,
                         srb_flagP,
                         MBMS_flagP,
                         rb_id,
                         sdu_buffer_size,
-                        sdu_buffer);
+                        sdu_buffer,
+                        src,    // jin add
+                        dst);   // jin add
   return true;
 }
 
@@ -1245,7 +1330,7 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
   if (rb_id < 1 || rb_id > MAX_DRBS_PER_UE)
     rb = NULL;
   else
-    rb = ue->drb[rb_id - 1];
+    rb = ue->drb[rb_id - 1]; 
 
   if (rb == NULL) {
     LOG_E(PDCP, "%s:%d:%s: no DRB found (ue_id %ld, rb_id %ld)\n", __FILE__, __LINE__, __FUNCTION__, ue_id, rb_id);
