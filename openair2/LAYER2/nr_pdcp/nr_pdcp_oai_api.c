@@ -808,11 +808,11 @@ static void deliver_sdu_drb(void *_ue, nr_pdcp_entity_t *entity,
   nr_pdcp_ue_t *ue = _ue;
   int rb_id;
   int i;
-
+ 
   if (IS_SOFTMODEM_NOS1 || UE_NAS_USE_TUN) {
     LOG_D(PDCP, "IP packet received with size %d, to be sent to SDAP interface, UE ID/RNTI: %ld\n", size, ue->rntiMaybeUEid);
     sdap_data_ind(entity->rb_id, entity->is_gnb, entity->has_sdap_rx, entity->pdusession_id, ue->rntiMaybeUEid, buf, size);
-  }
+   }
   else{
     for (i = 0; i < MAX_DRBS_PER_UE; i++) {
         if (entity == ue->drb[i]) {

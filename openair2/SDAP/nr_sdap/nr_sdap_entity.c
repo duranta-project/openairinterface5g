@@ -304,7 +304,25 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
      * deliver the retrieved SDAP SDU to the upper layer.
      */
     extern int nas_sock_fd[];
-    int len = write(nas_sock_fd[0], &buf[offset], size-offset); 
+ 
+    //int len = write(nas_sock_fd[0], &buf[offset], size-offset); //Jin origin replace by below for MultiUES
+    // Find the valid TUN file descriptor for this UE
+    int ue_index = -1;
+    for (int i = 0; i < NUMBER_OF_UE_MAX; i++) {
+      if (nas_sock_fd[i] > 0) {
+        ue_index = i;
+        break;
+      }
+    }
+    if (ue_index < 0) {
+      LOG_E(SDAP, "No valid TUN interface found!\n");
+      return;
+    }
+    LOG_D(SDAP, "[JIN DEBUG -------- TUN-WRITE] Using nas_sock_fd[%d]=%d for write\n", 
+          ue_index, nas_sock_fd[ue_index]);
+    int len = write(nas_sock_fd[ue_index], &buf[offset], size-offset);
+    //Jin end
+
 
     LOG_I(SDAP, "RX Entity len : %d\n", len);
     LOG_I(SDAP, "RX Entity size : %d\n", size);
