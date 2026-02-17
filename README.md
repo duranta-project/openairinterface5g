@@ -1,74 +1,246 @@
-<h1 align="center">
-    <a href="https://openairinterface.org/"><img src="https://openairinterface.org/wp-content/uploads/2015/06/cropped-oai_final_logo.png" alt="OAI" width="550"></a>
-</h1>
+# OAI-SL-MultiUE-Broker
 
-<p align="center">
-    <a href="https://gitlab.eurecom.fr/oai/openairinterface5g/-/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-OAI--Public--V1.1-blue" alt="License"></a>
-    <a href="https://releases.ubuntu.com/18.04/"><img src="https://img.shields.io/badge/OS-Ubuntu18-Green" alt="Supported OS Ubuntu 18"></a>
-    <a href="https://releases.ubuntu.com/20.04/"><img src="https://img.shields.io/badge/OS-Ubuntu20-Green" alt="Supported OS Ubuntu 20"></a>
-    <a href="https://releases.ubuntu.com/22.04/"><img src="https://img.shields.io/badge/OS-Ubuntu22-Green" alt="Supported OS Ubuntu 22"></a>
-    <a href="https://www.redhat.com/en/technologies/linux-platforms/enterprise-linux"><img src="https://img.shields.io/badge/OS-RHEL8-Green" alt="Supported OS RHEL8"></a>
-    <a href="https://www.redhat.com/en/technologies/linux-platforms/enterprise-linux"><img src="https://img.shields.io/badge/OS-RHEL9-Green" alt="Supported OS RELH9"></a>
-    <a href="https://getfedora.org/en/workstation/"><img src="https://img.shields.io/badge/OS-Fedore37-Green" alt="Supported OS Fedora 37"></a>
-</p>
 
-<p align="center">
-    <a href="https://jenkins-oai.eurecom.fr/job/RAN-Container-Parent/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-Container-Parent%2F&label=build%20Images"></a>
-</p>
 
-<p align="center">
-  <a href="https://hub.docker.com/r/oaisoftwarealliance/oai-gnb"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/oaisoftwarealliance/oai-gnb?label=gNB%20docker%20pulls"></a>
-  <a href="https://hub.docker.com/r/oaisoftwarealliance/oai-nr-ue"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/oaisoftwarealliance/oai-nr-ue?label=NR-UE%20docker%20pulls"></a>
-  <a href="https://hub.docker.com/r/oaisoftwarealliance/oai-enb"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/oaisoftwarealliance/oai-enb?label=eNB%20docker%20pulls"></a>
-  <a href="https://hub.docker.com/r/oaisoftwarealliance/oai-lte-ue"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/oaisoftwarealliance/oai-lte-ue?label=LTE-UE%20docker%20pulls"></a>
-</p>
+## RFSim Broker based Multiple UEs Test 
 
-# OpenAirInterface License #
+This part test is based on ‘sl-eurecom4’ branch on openairinterface5g.
+(https://gitlab.eurecom.fr/oai/openairinterface5g.git)
 
- *  [OAI License Model](http://www.openairinterface.org/?page_id=101)
- *  [OAI License v1.1 on our website](http://www.openairinterface.org/?page_id=698)
 
-It is distributed under **OAI Public License V1.1**.
+## To start
 
-The license information is distributed under [LICENSE](LICENSE) file in the same directory.
-
-Please see [NOTICE](NOTICE.md) file for third party software that is included in the sources.
-
-# Where to Start #
-
- *  [General overview of documentation](./doc/README.md)
- *  [The implemented features](./doc/FEATURE_SET.md)
- *  [How to build](./doc/BUILD.md)
- *  [How to run the modems](./doc/RUNMODEM.md)
-
-Not all information is available in a central place, and information for
-specific sub-systems might be available in the corresponding sub-directories.
-To find all READMEs, this command might be handy:
-
+* First go to the correct repository :
 ```
-find . -iname "readme*"
+cd openairinterface5g/cmake_targets
+```
+* To install zeroMQ : 
+```
+apt-get install libzmq3-dev
+```
+* Then start compilation : 
+```
+sudo ./build_oai --nrUE -w SIMU --cmake-opt -DENABLE_T_TRACER=OFF
+```
+* Or, to start a clean start compilation, do the clean up first then compile : 
+```
+sudo ./build_oai -c -C  
+
+sudo ./build_oai -I --cmake-opt -DENABLE_T_TRACER=OFF
+```
+* Now we need to create three UEs through namespaces: 
+```
+cd openairinterface5g/cmake_targets
+sudo ./multi-ue.sh -c1 -c2 -c3
 ```
 
-# RAN repository structure #
 
-The OpenAirInterface (OAI) software is composed of the following parts: 
+
+ 
+## Start RFSim for Multiple UEs through Broker
+
+
+### Launch Broker (outside namespace):
+```
+cd ran_build/build/
+./broker
+```
+
+### Launch SYNC-REF (namespace 1):
+```
+sudo ./multi-ue.sh -o1
+cd ran_build/build/
+sudo RFSIMULATOR=server ./nr-uesoftmodem --rfsim -O ../../../targets/PROJECTS/NR-SIDELINK/CONF/sl_sync_ref.conf --sl-mode 2 --sa --sync-ref --brokerip 10.201.1.100
+```
+
+### Launch UE2 (namespace 2):
+```
+sudo ./multi-ue.sh -o2
+cd ran_build/build/
+sudo ./nr-uesoftmodem --rfsim -O ../../../targets/PROJECTS/NR-SIDELINK/CONF/ue1.conf --sl-mode 2 --sa --brokerip 10.202.1.100 --device_id 1 | sudo tee $HOME/sl-oai-release4/rat-selection/logs/sl.log 
+```
+
+### Launch UE3 (namespace 3):
+```
+sudo ./multi-ue.sh -o3
+cd ran_build/build/
+ sudo ./nr-uesoftmodem --rfsim -O ../../../targets/PROJECTS/NR-SIDELINK/CONF/ue2.conf --sl-mode 2 --sa --brokerip 10.203.1.100 --device_id 2 | sudo tee $HOME/sl-oai-release4/rat-selection/logs/sl.log
+```
+
+Optional : You can now quickly check the connection to sync-ref from two UEs : 
+```
+ping -I oaitun_ue2 10.0.0.1
+ping -I oaitun_ue3 10.0.0.1
+```
+
+Note: when restart the simulation, you might need to kill everything first by the following command : 
+``` 
+sudo pkill -f nr-uesoftmodem 
+sudo pkill -f broker
+sudo pkill -f rfsimulator
+```
+
+##  Monitor route with Babel and Wireshark
+You might need to first install Babel onto the local machine
 
 ```
-openairinterface5g
-├── charts
-├── ci-scripts        : Meta-scripts used by the OSA CI process. Contains also configuration files used day-to-day by CI.
-├── CMakeLists.txt    : Top-level CMakeLists.txt for building
-├── cmake_targets     : Build utilities to compile (simulation, emulation and real-time platforms), and generated build files.
-├── common            : Some common OAI utilities, some other tools can be found at openair2/UTILS.
-├── doc               : Documentation
-├── docker            : Dockerfiles to build for Ubuntu and RHEL
-├── executables       : Top-level executable source files (gNB, eNB, ...)
-├── maketags          : Script to generate emacs tags.
-├── nfapi             : (n)FAPI code for MAC-PHY interface
-├── openair1          : 3GPP LTE Rel-10/12 PHY layer / 3GPP NR Rel-15 layer. A local Readme file provides more details.
-├── openair2          : 3GPP LTE Rel-10 RLC/MAC/PDCP/RRC/X2AP + LTE Rel-14 M2AP implementation. Also 3GPP NR Rel-15 RLC/MAC/PDCP/RRC/X2AP.
-├── openair3          : 3GPP LTE Rel10 for S1AP, NAS GTPV1-U for both ENB and UE.
-├── openshift         : OpenShift helm charts for some deployment options of OAI
-├── radio             : Drivers for various radios such as USRP, AW2S, RFsim, ...
-└── targets           : Some configuration files; only historical relevance, and might be deleted in the future
+sudo apt update
+sudo apt install babeld
 ```
+
+### Launch SYNC-REF (namespace 1):
+First go into the correct namespace : 
+```
+sudo ./multi-ue.sh -o1
+```
+
+In order to have a readable address at the logside, we'll hardcode the IP address through following command, so sync-ref will be translate as 'fe80::1/64'
+```
+sudo ip netns exec ue1 ip -6 addr add fe80::1/64 dev oaitun_ue1 nodad  
+```
+Then launch Babel on sync-ref : 
+```
+ip netns exec ue1 bash -lc '
+set -e
+cat > /tmp/babeld-ue1.conf <<EOF
+interface oaitun_ue1
+redistribute local deny
+pid-file /tmp/babeld-ue1.pid
+EOF
+babeld -d 1 -c /tmp/babeld-ue1.conf
+'
+```
+For now, as no other UE is connected, sync-ref will simply print its local id.
+
+### Launch UE2 (namespace 2):
+First go into the correct namespace : 
+```
+sudo ./multi-ue.sh -o2
+```
+
+UE2 will be allocated address as 'fe80::2/64'
+```
+sudo ip netns exec ue2 ip -6 addr add fe80::2/64 dev oaitun_ue2 nodad
+```
+Then launch Babel on UE2 : 
+```
+ip netns exec ue2 bash -lc '
+set -e
+cat > /tmp/babeld-ue2.conf <<EOF
+interface oaitun_ue2
+redistribute local deny
+pid-file /tmp/babeld-ue2.pid
+EOF
+babeld -d 1 -c /tmp/babeld-ue2.conf
+'
+```
+
+### Launch UE3 (namespace 3):
+First go into the correct namespace : 
+```
+sudo ./multi-ue.sh -o3
+```
+
+UE3 will be allocated address as 'fe80::3/64'
+```
+sudo ip netns exec ue3 ip -6 addr add fe80::3/64 dev oaitun_ue3 nodad
+
+```
+Then launch Babel on UE3 : 
+```
+ip netns exec ue3 bash -lc '
+set -e
+cat > /tmp/babeld-ue3.conf <<EOF
+interface oaitun_ue3
+redistribute local deny
+pid-file /tmp/babeld-ue3.pid
+EOF
+babeld -d 1 -c /tmp/babeld-ue3.conf
+'
+
+```
+
+Note : On babel, it will show neighbour connection with 'Neighbour ... rxcost 96 txcost 65535...', when it's 96, it means perfect connection, 65535 means a bad connection, if the connection is bad when generating the UE3, try to kill and restart again.
+
+### Wireshark monitor
+Within the each namespace, you can start wireshark with filter on each node to check the Babel messages (example as for sync-ref, please update the oaitun_ueX name for each UE): 
+```
+sudo wireshark -i oaitun_ue1 -k &
+```
+You should be able to see 'Babel Hello' message, and 'Babel Hello ihu'. ihu representing 'I hear you'.
+When there are two UEs connecting to sync-ref at the same time, you should be able to see 'Babel Hello ihu ihu'
+
+
+## Enable TAP in RFSim for Multiple UEs
+This part is to switch from default TUN to TAP. 
+The baseline is, by default, system is running through TUN. In order to enable TAP, when you run each node simply add a flag at the begining: " OAI_TUNTAP_MODE=tap".
+
+Optional : To disable the TAP (in case of an uncleaned restart...), do the following : 
+```
+unset OAI_TUNTAP_MODE
+```
+### Launch Broker (outside namespace):
+```
+cd ran_build/build/
+./broker
+```
+### Launch SYNC-REF (namespace 1):
+```
+sudo ./multi-ue.sh -o1
+cd ran_build/build/
+sudo OAI_TUNTAP_MODE=tap RFSIMULATOR=server ./nr-uesoftmodem --rfsim -O ../../../targets/PROJECTS/NR-SIDELINK/CONF/sl_sync_ref.conf --sl-mode 2 --sa --sync-ref --brokerip 10.201.1.100
+```
+
+### Launch UE2 (namespace 2):
+```
+sudo ./multi-ue.sh -o2
+cd ran_build/build/
+sudo OAI_TUNTAP_MODE=tap ./nr-uesoftmodem --rfsim -O ../../../targets/PROJECTS/NR-SIDELINK/CONF/ue1.conf --sl-mode 2 --sa --brokerip 10.202.1.100 --device_id 1 | sudo tee $HOME/sl-oai-release4/rat-selection/logs/sl.log
+```
+
+### Launch UE3 (namespace 3):
+```
+sudo ./multi-ue.sh -o3
+cd ran_build/build/
+sudo OAI_TUNTAP_MODE=tap ./nr-uesoftmodem --rfsim -O ../../../targets/PROJECTS/NR-SIDELINK/CONF/ue2.conf --sl-mode 2 --sa --brokerip 10.203.1.100 --device_id 2 | sudo tee $HOME/sl-oai-release4/rat-selection/logs/sl.log
+```
+
+## Check connection with Batman
+
+### Start Batman on sync-ref (namespace 1):
+```
+sudo ./multi-ue.sh -o1
+ip link set oaitun_ue1 address 02:00:00:00:00:01
+sudo batctl if add oaitun_ue1
+```
+
+### Start Batman on UE2 (namespace 2):
+```
+sudo ./multi-ue.sh -o2
+ip link set oaitun_ue1 address 02:00:00:00:00:02
+sudo batctl if add oaitun_ue2
+```
+
+
+### Start Batman on UE3 (namespace 3):
+```
+sudo ./multi-ue.sh -o3
+ip link set oaitun_ue1 address 02:00:00:00:00:03
+sudo batctl if add oaitun_ue3
+```
+### Batman command
+To check the neighbour : 
+```
+batctl n
+```
+To check the routing table : 
+```
+batctl o
+```
+
+###Start wireshark with filter
+You can check the current packets exchange with wireshark, please update the name 'oaitun_ueX' accordingly. 
+```
+wireshark -k -i oaitun_ueX -Y "eth.type == 0x4305"
+```
+
