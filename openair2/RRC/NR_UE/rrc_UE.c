@@ -75,6 +75,17 @@
 
 #include "nr_nas_msg_sim.h"
 
+// for NR_PC5 Controller
+int ctrl_sock_fd;
+#define BUFSIZE 1024
+struct sockaddr_in prose_ctl_addr;
+int slrb_id;
+//int send_ue_information = 0;
+NR_SL_UE_STATE_t On_Off_Net = NR_UE_STATE_OFF_NETWORK;
+// end
+
+
+
 NR_UE_RRC_INST_t *NR_UE_rrc_inst;
 /* NAS Attach request with IMSI */
 static const char  nr_nas_attach_req_imsi[] = {
@@ -2537,4 +2548,367 @@ void nr_ue_rrc_timer_trigger(int module_id, int frame, int slot, int gnb_id)
   NRRRC_SLOT_PROCESS(message_p).gnb_id = gnb_id;
   LOG_D(NR_RRC, "RRC timer trigger: frame %d slot %d \n", frame, slot);
   itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(module_id), message_p);
+}
+
+/* control socket for PC5 Controller (and futur O-RAN-like agent control)
+ *
+ */
+
+//--------------------------------------------------------
+void
+nr_rrc_pc5_control_socket_init() {
+  struct sockaddr_in rrc_ctrl_socket_addr;
+  pthread_attr_t     attr;
+  struct sched_param sched_param;
+  int optval; // flag value for setsockopt
+  //int n; // message byte size
+  // create the control socket
+  ctrl_sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+  if (ctrl_sock_fd == -1) {
+    LOG_E(RRC,"[rrc_control_socket_init]: Error opening socket %d (%d:%s)\n",ctrl_sock_fd,errno, strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+
+  //   if (ctrl_sock_fd < 0)
+  //      error("ERROR: Failed on opening socket");
+  optval = 1;
+  setsockopt(ctrl_sock_fd, SOL_SOCKET, SO_REUSEADDR,
+             (const void *)&optval , sizeof(int));
+  //build the server's  address
+  bzero((char *) &rrc_ctrl_socket_addr, sizeof(rrc_ctrl_socket_addr));
+  rrc_ctrl_socket_addr.sin_family = AF_INET;
+  rrc_ctrl_socket_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  rrc_ctrl_socket_addr.sin_port = htons(NR_CONTROL_SOCKET_PORT_NO);
+
+  // associate the parent socket with a port
+  if (bind(ctrl_sock_fd, (struct sockaddr *) &rrc_ctrl_socket_addr,
+           sizeof(rrc_ctrl_socket_addr)) < 0) {
+    LOG_E(RRC,"[rrc_control_socket_init] ERROR: Failed on binding the socket\n");
+    exit(1);
+  }
+
+  //create thread to listen to incoming packets
+  if (pthread_attr_init(&attr) != 0) {
+    LOG_E(RRC, "[rrc_control_socket_init]Failed to initialize pthread attribute for PC5_CTL -> RRC communication (%d:%s)\n",
+          errno, strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+
+  sched_param.sched_priority = 10;
+  pthread_attr_setschedpolicy(&attr, SCHED_RR);
+  pthread_attr_setschedparam(&attr, &sched_param);
+  pthread_t nr_rrc_control_socket_thread;
+
+  if (pthread_create(&nr_rrc_control_socket_thread, &attr, nr_rrc_control_socket_thread_fct, NULL) != 0) {
+    LOG_E(RRC, "[nr_rrc_control_socket_init]Failed to create new thread for NR_RRC/NR_PC5_CTL communication (%d:%s)\n",
+          errno, strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+
+  pthread_setname_np( nr_rrc_control_socket_thread, "NR_RRC/NR_PC5 Control Socket" );
+}
+
+
+//--------------------------------------------------------
+void *nr_rrc_control_socket_thread_fct(void *arg)
+{
+
+   unsigned int prose_addr_len;
+   char send_buf[BUFSIZE];
+   char receive_buf[BUFSIZE];
+   int n;
+   struct nr_sidelink_ctrl_element *sl_ctrl_msg_recv = NULL;
+   struct nr_sidelink_ctrl_element *sl_ctrl_msg_send = NULL;
+   uint32_t sourceL2Id, groupL2Id, destinationL2Id;
+   module_id_t         module_id = 0; //hardcoded for testing only
+   uint8_t type;
+   //NR_UE_RRC_INST_t *rrc = &NR_UE_rrc_inst[module_id];
+   //protocol_ctxt_t ctxt;
+   //struct NR_RLC_Config                  *DRB_rlc_config                   = NULL;
+   //struct NR_PDCP_Config                 *DRB_pdcp_config                  = NULL;
+   //struct NR_PDCP_Config__rlc_UM         *PDCP_rlc_UM                      = NULL;
+   //struct NR_LogicalChannelConfig        *DRB_lchan_config                 = NULL;
+   //struct NR_LogicalChannelConfig__ul_SpecificParameters  *DRB_ul_SpecificParameters = NULL;
+   //long                               *logicalchannelgroup_drb          = NULL;
+   int j = 0;
+   int i = 0;
+   int slrb_id =0;
+   //LTE_DRB_Identity_t drb_id = 0;
+   //LTE_DRB_ToReleaseList_t*  drb2release_list = NULL;
+
+   //from the main program, listen for the incoming messages from control socket (PC5 Controller)
+   prose_addr_len = sizeof(prose_ctl_addr);
+   //int enable_notification = 1;
+
+   LOG_I(RRC,"NR UE SL state: %d \n", On_Off_Net);
+   while (1) {
+      LOG_I(RRC,"Listening to incoming connection from PC5 Controller \n");
+      // receive a message from PC5 Controller
+      memset(receive_buf, 0, BUFSIZE);
+      n = recvfrom(ctrl_sock_fd, receive_buf, BUFSIZE, 0,
+            (struct sockaddr *) &prose_ctl_addr, (socklen_t *)&prose_addr_len);
+      if (n < 0){
+         LOG_E(RRC, "ERROR: Failed to receive from PC5 Controller \n");
+         exit(EXIT_FAILURE);
+      }
+
+      //TODO: should store the address of PC5 Controller [NR_UE_rrc_inst] to be able to send UE state notification to the Controller
+
+      sl_ctrl_msg_recv = calloc(1, sizeof(struct nr_sidelink_ctrl_element));
+      memcpy((void *)sl_ctrl_msg_recv, (void *)receive_buf, sizeof(struct nr_sidelink_ctrl_element));
+
+      //process the message
+      switch (sl_ctrl_msg_recv->type) {
+      case NR_SESSION_INIT_REQ:
+         //if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
+           LOG_I(RRC,"Received NR_SessionInitializationRequest on socket from PC5 Controller (msg type: %d)\n", sl_ctrl_msg_recv->type);
+         //}
+
+         //TODO: get SL_UE_STATE from lower layer
+
+         LOG_I(RRC,"Send UEStateInformation to PC5 Controller \n");
+         memset(send_buf, 0, BUFSIZE);
+
+         sl_ctrl_msg_send = calloc(1, sizeof(struct nr_sidelink_ctrl_element));
+         sl_ctrl_msg_send->type = NR_UE_STATUS_INFO;
+         sl_ctrl_msg_send->nr_sidelinkPrimitive.ue_state = On_Off_Net;
+         memcpy((void *)send_buf, (void *)sl_ctrl_msg_send, sizeof(struct nr_sidelink_ctrl_element));
+         free(sl_ctrl_msg_send);
+
+         prose_addr_len = sizeof(prose_ctl_addr);
+         n = sendto(ctrl_sock_fd, (char *)send_buf, sizeof(struct nr_sidelink_ctrl_element), 0, (struct sockaddr *)&prose_ctl_addr, prose_addr_len);
+         if (n < 0) {
+            LOG_E(RRC, "ERROR: Failed to send to PC5 Controller \n");
+            exit(EXIT_FAILURE);
+         }
+
+       //  if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
+           struct nr_sidelink_ctrl_element *ptr_ctrl_msg = NULL;
+           ptr_ctrl_msg = (struct nr_sidelink_ctrl_element *) send_buf;
+           LOG_UI(RRC,"[UEStateInformation] msg type: %d\n",ptr_ctrl_msg->type);
+           LOG_UI(RRC,"[UEStateInformation] UE state: %d\n",ptr_ctrl_msg->nr_sidelinkPrimitive.ue_state);
+        // }
+
+         break;
+
+      case NR_GROUP_COMMUNICATION_ESTABLISH_REQ:
+         sourceL2Id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.group_comm_establish_req.sourceL2Id;
+         groupL2Id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.group_comm_establish_req.groupL2Id;
+         int group_comm_rbid = 0;
+
+       //  if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
+           LOG_I(RRC,"[GroupCommunicationEstablishReq] Received on socket from PC5 Controller (msg type: %d)\n",sl_ctrl_msg_recv->type);
+           LOG_I(RRC,"[GroupCommunicationEstablishReq] source Id: 0x%08x\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.group_comm_establish_req.sourceL2Id);
+           LOG_I(RRC,"[GroupCommunicationEstablishReq] group Id: 0x%08x\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.group_comm_establish_req.groupL2Id);
+           LOG_I(RRC,"[GroupCommunicationEstablishReq] group IP Address: " IPV4_ADDR "\n",IPV4_ADDR_FORMAT(sl_ctrl_msg_recv->nr_sidelinkPrimitive.group_comm_establish_req.groupIpAddress));
+       //  }
+
+         LOG_I(RRC,"Send GroupCommunicationEstablishResp to PC5 CTL\n");
+         LOG_I(RRC,"[GroupCommunicationEstablishResponse]  msg type: %d\n",NR_GROUP_COMMUNICATION_ESTABLISH_RSP);
+         LOG_I(RRC,"[GroupCommunicationEstablishResponse]  slrb_id: %d\n",group_comm_rbid);
+         memset(send_buf, 0, BUFSIZE);
+         sl_ctrl_msg_send = calloc(1, sizeof(struct nr_sidelink_ctrl_element));
+         sl_ctrl_msg_send->type = NR_GROUP_COMMUNICATION_ESTABLISH_RSP;
+         sl_ctrl_msg_send->nr_sidelinkPrimitive.slrb_id = group_comm_rbid; //slrb_id
+
+         memcpy((void *)send_buf, (void *)sl_ctrl_msg_send, sizeof(struct nr_sidelink_ctrl_element));
+         free(sl_ctrl_msg_send);
+
+         prose_addr_len = sizeof(prose_ctl_addr);
+         n = sendto(ctrl_sock_fd, (char *)send_buf, sizeof(struct nr_sidelink_ctrl_element), 0, (struct sockaddr *)&prose_ctl_addr, prose_addr_len);
+         if (n < 0){
+            LOG_E(RRC, "ERROR: Failed to send to PC5 CTL\n");
+            exit(EXIT_FAILURE);
+         }
+
+         break;
+
+      case NR_GROUP_COMMUNICATION_RELEASE_REQ:
+    	  printf("-----------------------------------\n");
+         //if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
+           LOG_I(RRC,"[NR_GroupCommunicationReleaseRequest] Received on socket from PC5 Controller (msg type: %d)\n",sl_ctrl_msg_recv->type);
+           LOG_I(RRC,"[NR_GroupCommunicationReleaseRequest] Slrb Id: %i\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.slrb_id);
+       //  }
+         //reset groupL2ID from MAC LAYER
+         //UE_rrc_inst[module_id].groupL2Id = 0x00000000;
+         //sourceL2Id = UE_rrc_inst[module_id].sourceL2Id;
+
+         LOG_I(RRC,"Send NR_GroupCommunicationReleaseResponse to PC5 CTL \n");
+         memset(send_buf, 0, BUFSIZE);
+
+         sl_ctrl_msg_send = calloc(1, sizeof(struct nr_sidelink_ctrl_element));
+         sl_ctrl_msg_send->type = NR_GROUP_COMMUNICATION_RELEASE_RSP;
+         sl_ctrl_msg_send->nr_sidelinkPrimitive.group_comm_release_rsp = NR_GROUP_COMMUNICATION_RELEASE_OK;
+
+         memcpy((void *)send_buf, (void *)sl_ctrl_msg_send, sizeof(struct nr_sidelink_ctrl_element));
+         free(sl_ctrl_msg_send);
+
+         prose_addr_len = sizeof(prose_ctl_addr);
+         n = sendto(ctrl_sock_fd, (char *)send_buf, sizeof(struct nr_sidelink_ctrl_element), 0, (struct sockaddr *)&prose_ctl_addr, prose_addr_len);
+         if (n < 0){
+            LOG_E(RRC, "ERROR: Failed to send to PC5 CTL \n");
+            exit(EXIT_FAILURE);
+         }
+         break;
+
+
+      case NR_DIRECT_COMMUNICATION_ESTABLISH_REQ:
+         sourceL2Id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.direct_comm_establish_req.sourceL2Id;
+         destinationL2Id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.direct_comm_establish_req.destinationL2Id;
+         int direct_comm_rbid = 0;
+
+        // if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
+           LOG_I(RRC,"[NR_DirectCommunicationEstablishReq] Received on socket from PC5 Controller (msg type: %d)\n",sl_ctrl_msg_recv->type);
+           LOG_I(RRC,"[NR_DirectCommunicationEstablishReq] source Id: 0x%08x\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.group_comm_establish_req.sourceL2Id);
+           LOG_I(RRC,"[NR_DirectCommunicationEstablishReq] destination Id: 0x%08x\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.group_comm_establish_req.groupL2Id);
+        // }
+
+
+//#ifdef DEBUG_CTRL_SOCKET
+         LOG_I(RRC,"Send DirectCommunicationEstablishResp to PC5 CTL\n");
+         LOG_I(RRC,"[NR_DirectCommunicationEstablishResponse]  msg type: %d\n",NR_DIRECT_COMMUNICATION_ESTABLISH_RSP);
+         LOG_I(RRC,"[NR_DirectCommunicationEstablishResponse]  slrb_id: %d\n",direct_comm_rbid);
+//#endif
+
+         memset(send_buf, 0, BUFSIZE);
+         sl_ctrl_msg_send = calloc(1, sizeof(struct nr_sidelink_ctrl_element));
+         sl_ctrl_msg_send->type = NR_DIRECT_COMMUNICATION_ESTABLISH_RSP;
+         sl_ctrl_msg_send->nr_sidelinkPrimitive.slrb_id = direct_comm_rbid; //slrb_id
+
+         memcpy((void *)send_buf, (void *)sl_ctrl_msg_send, sizeof(struct nr_sidelink_ctrl_element));
+         free(sl_ctrl_msg_send);
+
+         prose_addr_len = sizeof(prose_ctl_addr);
+         n = sendto(ctrl_sock_fd, (char *)send_buf, sizeof(struct nr_sidelink_ctrl_element), 0, (struct sockaddr *)&prose_ctl_addr, prose_addr_len);
+         if (n < 0){
+            LOG_E(RRC, "ERROR: Failed to send to PC5 Controller \n");
+            exit(EXIT_FAILURE);
+         }
+
+         break;
+
+      case NR_DIRECT_COMMUNICATION_RELEASE_REQ:
+          printf("-----------------------------------\n");
+// #ifdef DEBUG_CTRL_SOCKET
+          LOG_I(RRC,"[NR_DirectCommunicationReleaseRequest] Received on socket from PC5 Controller (msg type: %d)\n",sl_ctrl_msg_recv->type);
+          LOG_I(RRC,"[NR_DirectCommunicationReleaseRequest] Slrb Id: %i\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.slrb_id);
+// #endif
+          slrb_id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.slrb_id;
+          //reset groupL2ID from MAC LAYER
+
+
+          LOG_I(RRC,"Send NR_DirectCommunicationReleaseResponse to PC5 Controller \n");
+          memset(send_buf, 0, BUFSIZE);
+
+          sl_ctrl_msg_send = calloc(1, sizeof(struct nr_sidelink_ctrl_element));
+          sl_ctrl_msg_send->type = NR_DIRECT_COMMUNICATION_RELEASE_RSP;
+          sl_ctrl_msg_send->nr_sidelinkPrimitive.direct_comm_release_rsp = NR_DIRECT_COMMUNICATION_RELEASE_OK;
+
+          memcpy((void *)send_buf, (void *)sl_ctrl_msg_send, sizeof(struct nr_sidelink_ctrl_element));
+          free(sl_ctrl_msg_send);
+
+          prose_addr_len = sizeof(prose_ctl_addr);
+          n = sendto(ctrl_sock_fd, (char *)send_buf, sizeof(struct nr_sidelink_ctrl_element), 0, (struct sockaddr *)&prose_ctl_addr, prose_addr_len);
+          if (n < 0){
+             LOG_E(RRC, "ERROR: Failed to send to PC5 Controller \n");
+             exit(EXIT_FAILURE);
+          }
+          break;
+
+
+      case NR_PC5S_ESTABLISH_REQ:
+           type =  sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.type;
+           sourceL2Id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.sourceL2Id;
+           int pc5s_rbid = 10; // to update
+        //   if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
+             LOG_I(RRC,"[NR_PC5EstablishReq] Received on socket from PC5 Controller (msg type: %d)\n",sl_ctrl_msg_recv->type);
+             LOG_I(RRC,"[NR_PC5EstablishReq] type: %d\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.type); //RX/TX
+             LOG_I(RRC,"[NR_PC5EstablishReq] source Id: 0x%08x \n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.sourceL2Id);
+         //  }
+         if (type > 0) {
+            destinationL2Id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.destinationL2Id;
+          //  if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
+              LOG_I(RRC,"[NR_PC5EstablishReq] destination Id: 0x%08x \n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.destinationL2Id);
+          //  }
+         }
+
+         //store sourceL2Id/destinationL2Id
+         if (type > 0) { //TX
+
+         } else {//RX
+
+         }
+
+
+         // configure lower layers PDCP/MAC/PHY for this communication
+         //Establish a new RBID/LCID for this communication
+         // Establish a SLRB (starting from 8 for now)
+
+
+         //TX
+         if (type > 0) {
+
+         } else {//RX
+            //configure MAC with sourceL2Id/groupL2ID
+
+         }
+
+         LOG_I(RRC,"Send NR_PC5EstablishRsp to PC5 Controller \n");
+         memset(send_buf, 0, BUFSIZE);
+         sl_ctrl_msg_send = calloc(1, sizeof(struct nr_sidelink_ctrl_element));
+         sl_ctrl_msg_send->type = NR_PC5S_ESTABLISH_RSP;
+         sl_ctrl_msg_send->nr_sidelinkPrimitive.pc5s_establish_rsp.slrbid_lcid28 = pc5s_rbid;
+         sl_ctrl_msg_send->nr_sidelinkPrimitive.pc5s_establish_rsp.slrbid_lcid29 = pc5s_rbid;
+         sl_ctrl_msg_send->nr_sidelinkPrimitive.pc5s_establish_rsp.slrbid_lcid30 = pc5s_rbid;
+
+         memcpy((void *)send_buf, (void *)sl_ctrl_msg_send, sizeof(struct nr_sidelink_ctrl_element));
+         free(sl_ctrl_msg_send);
+
+         prose_addr_len = sizeof(prose_ctl_addr);
+         n = sendto(ctrl_sock_fd, (char *)send_buf, sizeof(struct nr_sidelink_ctrl_element), 0, (struct sockaddr *)&prose_ctl_addr, prose_addr_len);
+
+         if (n < 0){
+            LOG_E(RRC, "ERROR: Failed to send to PC5 Controller \n");
+            exit(EXIT_FAILURE);
+         }
+         break;
+
+      case NR_PC5S_RELEASE_REQ:
+           printf("-----------------------------------\n");
+  //#ifdef DEBUG_CTRL_SOCKET
+           LOG_I(RRC,"[NR_PC5SReleaseRequest] Received on socket from PC5 Controller (msg type: %d)\n",sl_ctrl_msg_recv->type);
+           LOG_I(RRC,"[NR_PC5SReleaseRequest] Slrb Id: %i\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.slrb_id);
+ // #endif
+           slrb_id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.slrb_id;
+           //reset groupL2ID from MAC LAYER
+
+           LOG_I(RRC,"Send NR_PC5SReleaseResponse to PC5 Controller \n");
+           memset(send_buf, 0, BUFSIZE);
+
+           sl_ctrl_msg_send = calloc(1, sizeof(struct nr_sidelink_ctrl_element));
+           sl_ctrl_msg_send->type = NR_PC5S_RELEASE_RSP;
+           sl_ctrl_msg_send->nr_sidelinkPrimitive.pc5s_release_rsp = NR_PC5S_RELEASE_OK;
+
+           memcpy((void *)send_buf, (void *)sl_ctrl_msg_send, sizeof(struct nr_sidelink_ctrl_element));
+           free(sl_ctrl_msg_send);
+
+           prose_addr_len = sizeof(prose_ctl_addr);
+           n = sendto(ctrl_sock_fd, (char *)send_buf, sizeof(struct nr_sidelink_ctrl_element), 0, (struct sockaddr *)&prose_ctl_addr, prose_addr_len);
+           if (n < 0){
+              LOG_E(RRC, "ERROR: Failed to send to PC5 Controller \n");
+              exit(EXIT_FAILURE);
+           }
+           break;
+
+
+      case NR_PC5_DISCOVERY_MESSAGE:
+    	  LOG_I(RRC,"[NR_PC5DiscoveryMessage] NOT SUPPORTED YET\n");
+         break;
+      default:
+         break;
+      }
+   }
+   free (sl_ctrl_msg_recv);
+   return 0;
 }

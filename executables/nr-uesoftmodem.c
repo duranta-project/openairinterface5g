@@ -549,7 +549,11 @@ int main( int argc, char **argv ) {
 
       if (UE[CC_id]->sl_mode) {
         AssertFatal(UE[CC_id]->sl_mode == 2, "Only Sidelink mode 2 supported. Mode 1 not yet supported\n");
-        nr_UE_configure_Sidelink(0, get_nrUE_params()->sync_ref, &ueinfo);
+		// starting the sockets between the PC5 Controller and the RRC and the PDCP
+		nr_rrc_pc5_control_socket_init();
+		nr_pdcp_pc5_signaling_socket_init();
+        //
+		nr_UE_configure_Sidelink(0, get_nrUE_params()->sync_ref, &ueinfo);
         DevAssert(mac->if_module != NULL && mac->if_module->sl_phy_config_request != NULL);
         sl_nr_ue_phy_params_t *sl_phy = &UE[CC_id]->SL_UE_PHY_PARAMS;
         mac->if_module->sl_phy_config_request(&mac->SL_MAC_PARAMS->sl_phy_config);

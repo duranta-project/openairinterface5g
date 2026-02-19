@@ -263,5 +263,107 @@ typedef struct NR_UE_RRC_INST_s {
 
 } NR_UE_RRC_INST_t;
 
+// NR_PC5 Controller
+
+//Primitives
+#define NR_SESSION_INIT_REQ                    1
+#define NR_UE_STATUS_INFO                      2
+#define NR_GROUP_COMMUNICATION_ESTABLISH_REQ   3
+#define NR_GROUP_COMMUNICATION_ESTABLISH_RSP   4
+#define NR_DIRECT_COMMUNICATION_ESTABLISH_REQ  5
+#define NR_DIRECT_COMMUNICATION_ESTABLISH_RSP  6
+#define NR_GROUP_COMMUNICATION_RELEASE_REQ     7
+#define NR_GROUP_COMMUNICATION_RELEASE_RSP     8
+#define NR_DIRECT_COMMUNICATION_RELEASE_REQ    9
+#define NR_DIRECT_COMMUNICATION_RELEASE_RSP    10
+#define NR_PC5S_ESTABLISH_REQ                  11
+#define NR_PC5S_ESTABLISH_RSP                  12
+#define NR_PC5_DISCOVERY_MESSAGE               13
+#define NR_PC5S_RELEASE_REQ                    14
+#define NR_PC5S_RELEASE_RSP                    15
+//#define DEBUG_CTRL_SOCKET
+#define NR_CONTROL_SOCKET_PORT_NO 8888
+#define NR_PC5_DISCOVERY_PAYLOAD_SIZE      29
+
+//#define DEBUG_SCG_CONFIG 1
+
+typedef enum {
+  NR_UE_STATE_OFF_NETWORK,
+  NR_UE_STATE_ON_NETWORK
+} NR_SL_UE_STATE_t;
+
+typedef enum {
+  NR_GROUP_COMMUNICATION_RELEASE_OK = 0,
+  NR_GROUP_COMMUNICATION_RELEASE_FAILURE
+} NR_Group_Communication_Status_t;
+
+typedef enum {
+	NR_DIRECT_COMMUNICATION_RELEASE_OK = 0,
+	NR_DIRECT_COMMUNICATION_RELEASE_FAILURE
+} NR_Direct_Communication_Status_t;
+
+typedef enum {
+	NR_PC5S_RELEASE_OK = 0,
+	NR_PC5S_RELEASE_FAILURE
+} NR_PC5S_Release_Status_t;
+
+struct NR_GroupCommunicationEstablishReq {
+  uint32_t sourceL2Id;
+  uint32_t groupL2Id;
+  uint32_t groupIpAddress;
+  uint8_t pqi;
+};
+
+struct NR_GroupCommunicationReleaseReq {
+  uint32_t sourceL2Id;
+  uint32_t groupL2Id;
+  int slrb_id;
+};
+
+struct NR_DirectCommunicationEstablishReq {
+  uint32_t sourceL2Id;
+  uint32_t destinationL2Id;
+  uint8_t  pqi;
+};
+
+struct NR_PC5SEstablishReq {
+  uint8_t type;
+  uint32_t sourceL2Id;
+  uint32_t destinationL2Id;
+};
+
+struct NR_PC5SEstablishRsp {
+  uint32_t slrbid_lcid28;
+  uint32_t slrbid_lcid29;
+  uint32_t slrbid_lcid30;
+};
+
+
+//PC5_DISCOVERY MESSAGE
+typedef struct  {
+  unsigned char payload[NR_PC5_DISCOVERY_PAYLOAD_SIZE];
+  uint32_t measuredPower;
+}  __attribute__((__packed__)) NR_PC5DiscoveryMessage ;
+
+
+struct nr_sidelink_ctrl_element {
+  unsigned short type;
+  union {
+    struct NR_GroupCommunicationEstablishReq group_comm_establish_req;
+    struct NR_DirectCommunicationEstablishReq direct_comm_establish_req;
+    NR_Group_Communication_Status_t group_comm_release_rsp;
+    NR_Direct_Communication_Status_t direct_comm_release_rsp;
+    NR_PC5S_Release_Status_t pc5s_release_rsp;
+    NR_SL_UE_STATE_t ue_state;
+    int slrb_id;
+    struct NR_PC5SEstablishReq pc5s_establish_req;
+    struct NR_PC5SEstablishRsp pc5s_establish_rsp;
+    NR_PC5DiscoveryMessage pc5_discovery_message;
+  } nr_sidelinkPrimitive;
+};
+
+// end NR_PC5 Controller section
+
+
 #endif
 /** @} */

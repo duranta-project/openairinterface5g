@@ -110,4 +110,35 @@ const bool nr_pdcp_get_statistics(ue_id_t ue_id, int srb_flag, int rb_id, nr_pdc
 
 void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, int ciphering_algorithm, int integrity_algorithm, unsigned char *ciphering_key, unsigned char *integrity_key);
 
+// NR_PC5 extensions for PC5S
+#define NR_PDCP_SOCKET_PORT_NO 9999 //temporary value
+#define NR_PC5_SIGNALLING_PAYLOAD_SIZE   100  //should be updated with a correct value
+
+void nr_pdcp_pc5_signaling_socket_init(void);
+void *nr_pdcp_control_socket_thread_fct (void*);
+
+typedef struct  {
+  rb_id_t             rb_id;
+  sdu_size_t          data_size;
+  signed int          inst;
+  ip_traffic_type_t   traffic_type;
+  uint32_t sourceL2Id;
+  uint32_t destinationL2Id;
+} __attribute__((__packed__)) nr_pc5s_header_t;
+
+//new PC5S-message
+typedef struct  {
+  unsigned char bytes[NR_PC5_SIGNALLING_PAYLOAD_SIZE];
+}  __attribute__((__packed__)) NR_PC5SignallingMessage ;
+
+//example of PC5-S messages
+typedef struct {
+  nr_pc5s_header_t pc5s_header;
+  union {
+    uint8_t status;
+    NR_PC5SignallingMessage pc5_signalling_message;
+  } pc5sPrimitive;
+} __attribute__((__packed__)) nr_sidelink_pc5s_element;
+
+
 #endif /* NR_PDCP_OAI_API_H */

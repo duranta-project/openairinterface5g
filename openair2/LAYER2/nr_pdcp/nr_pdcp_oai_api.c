@@ -47,6 +47,13 @@
     exit(1); \
   } while (0)
 
+// SL PC5-S Controller
+int pdcp_pc5_sockfd;
+//struct sockaddr_in prose_ctrl_addr;
+struct sockaddr_in prose_pdcp_addr;
+struct sockaddr_in pdcp_sin; 
+// end
+  
 static nr_pdcp_ue_manager_t *nr_pdcp_ue_manager;
 
 /* TODO: handle time a bit more properly */
@@ -1459,3 +1466,134 @@ const bool nr_pdcp_get_statistics(ue_id_t ue_id, int srb_flag, int rb_id, nr_pdc
 
   return ret;
 }
+
+// 
+// NR_PC5 extensions for PC5S
+//
+
+// Signaling socket between the PC5 Controller and PDCP for PC5-S traffic
+void
+nr_pdcp_pc5_signaling_socket_init() {
+
+  pthread_attr_t     attr;
+  struct sched_param sched_param;
+  int optval; // flag value for setsockopt
+  //int n; // message byte size
+  //create PDCP socket
+  pdcp_pc5_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+
+  if (pdcp_pc5_sockfd < 0) {
+    LOG_E(PDCP,"[pdcp_pc5_socket_init] Error opening socket %d (%d:%s)\n",pdcp_pc5_sockfd,errno, strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+
+  optval = 1;
+  setsockopt(pdcp_pc5_sockfd, SOL_SOCKET, SO_REUSEADDR,
+             (const void *)&optval, sizeof(int));
+  //fcntl(pdcp_pc5_sockfd,F_SETFL,O_NONBLOCK);
+  bzero((char *) &pdcp_sin, sizeof(pdcp_sin));
+  pdcp_sin.sin_family = AF_INET;
+  pdcp_sin.sin_addr.s_addr = htonl(INADDR_ANY);
+  pdcp_sin.sin_port = htons(NR_PDCP_SOCKET_PORT_NO);
+
+  // associate the parent socket with a port
+  if (bind(pdcp_pc5_sockfd, (struct sockaddr *) &pdcp_sin,
+           sizeof(pdcp_sin)) < 0) {
+    LOG_E(PDCP,"[pdcp_pc5_socket_init] ERROR: Failed on binding the socket\n");
+    exit(1);
+  }
+
+  //create thread to listen to incoming packets
+  if (pthread_attr_init(&attr) != 0) {
+    LOG_E(RRC, "[pdcp_signaling_socket_init] Failed to initialize pthread attribute for PC5_CTL -> PDCP communication (%d:%s)\n",
+          errno, strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+
+  sched_param.sched_priority = 10;
+  pthread_attr_setschedpolicy(&attr, SCHED_RR);
+  pthread_attr_setschedparam(&attr, &sched_param);
+  pthread_t nr_pdcp_control_socket_thread;
+
+  if (pthread_create(&nr_pdcp_control_socket_thread, &attr, nr_pdcp_control_socket_thread_fct, NULL) != 0) {
+    LOG_E(PDCP, "[nr_pdcp_control_socket_init]Failed to create new thread for NR_PDCP/PC5_CTL communication (%d:%s)\n",
+          errno, strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+
+  pthread_setname_np( nr_pdcp_control_socket_thread, "NR_PDCP/NR_PC5 Control Socket" );
+
+}
+
+// Signaling socket thread to listen to the PC5-S port
+void *nr_pdcp_control_socket_thread_fct (void *arg) {
+
+  //pdcp_t                        *pdcp_p    = NULL;
+  int bytes_received;
+  nr_sidelink_pc5s_element *sl_pc5s_msg_send = NULL;
+  nr_pc5s_header_t *pc5s_header  = NULL;
+  rb_id_t          rab_id  = 0;
+  char receive_buf[MAX_MESSAGE_SIZE];
+  char send_buf[MAX_MESSAGE_SIZE];
+
+  while (1) {
+      LOG_I(RRC,"Listening to incoming connection from PC5 Controller \n");
+
+      // receive a message from PC5 Controller
+	  memset(receive_buf, 0, sizeof(receive_buf));
+	  socklen_t prose_addr_len = sizeof(prose_pdcp_addr);
+	  bytes_received = recvfrom(pdcp_pc5_sockfd, receive_buf, sizeof(receive_buf), MAX_MESSAGE_SIZE,
+								(struct sockaddr *) &prose_pdcp_addr, &prose_addr_len);
+	  if (bytes_received == -1) {
+		LOG_E(PDCP, "%s(%d). recvfrom failed. %s\n", __FUNCTION__, __LINE__, strerror(errno));
+		return 0;
+	  }
+	  if (bytes_received == 0) {
+		LOG_E(PDCP, "%s(%d). EOF pdcp_pc5_sockfd.\n", __FUNCTION__, __LINE__);
+	  }
+	  if (bytes_received > sizeof(receive_buf)) {
+		LOG_E(PDCP, "%s(%d). Message truncated. %d\n", __FUNCTION__, __LINE__, bytes_received);
+		return 0;
+	  }
+	  if (bytes_received > 0) {
+		pc5s_header = calloc(1, sizeof(nr_pc5s_header_t));
+		memcpy((void *)pc5s_header, (void *)receive_buf, sizeof(nr_pc5s_header_t));
+
+
+		switch(pc5s_header->traffic_type) {
+		  case TRAFFIC_PC5S_SESSION_INIT :
+			//send reply to NR_PC5 Controller
+			LOG_D(PDCP,"Received a request to open PDCP socket and establish a new PDCP session ... send response to PC5 Controller \n");
+			memset(send_buf, 0, sizeof(send_buf));
+			sl_pc5s_msg_send = calloc(1, sizeof(nr_sidelink_pc5s_element));
+			sl_pc5s_msg_send->pc5s_header.traffic_type = TRAFFIC_PC5S_SESSION_INIT;
+			sl_pc5s_msg_send->pc5sPrimitive.status = 1;
+			memcpy(send_buf, sl_pc5s_msg_send, sizeof(nr_sidelink_pc5s_element));
+			int prose_addr_len = sizeof(prose_pdcp_addr);
+			int bytes_sent = sendto(pdcp_pc5_sockfd, send_buf, sizeof(nr_sidelink_pc5s_element), 0,
+									(struct sockaddr *) &prose_pdcp_addr, prose_addr_len);
+			free (sl_pc5s_msg_send);
+
+			if (bytes_sent < 0) {
+			  LOG_E(PDCP, "ERROR: Failed to send to PC5 Controller \n");
+			  exit(EXIT_FAILURE);
+			}
+			break;
+
+		  case TRAFFIC_PC5S_SIGNALLING:  /* PC5-S message -> send to other UE */
+			//LOG_I(PDCP, "[PDCP] pc5s_header->rb_id = %ld\n", pc5s_header->rb_id);
+			LOG_D(PDCP, "pc5s message type %d, unsupported yet \n", pc5s_header->traffic_type);
+			break;
+
+		  default:
+			LOG_D(PDCP, "pc5s message type %d, unknown...\n", pc5s_header->traffic_type);
+			break;
+		} /* end of switch */
+	  }/* end of bytes_received > 0 */
+  }  /* end of while loop */
+  if (pc5s_header != NULL) {
+    free(pc5s_header);
+    pc5s_header = NULL;
+  }
+  return 0;
+} /* pdcp_fifo_read_input_sdus_frompc5s */

@@ -177,6 +177,10 @@ void nr_rrc_handle_SetupRelease_RLF_TimersAndConstants(NR_UE_RRC_INST_t *rrc,
 int configure_NR_SL_Preconfig(uint8_t id,int sync_source);
 void nr_UE_configure_Sidelink(uint8_t id, uint8_t is_sync_source, ueinfo_t *ueinfo);
 
+// NR_PC5 Controller
+void *nr_rrc_control_socket_thread_fct(void *arg);
+// end
+
 /** @}*/
 #endif
 
