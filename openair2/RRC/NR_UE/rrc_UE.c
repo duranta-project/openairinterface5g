@@ -2661,12 +2661,11 @@ void *nr_rrc_control_socket_thread_fct(void *arg)
       //process the message
       switch (sl_ctrl_msg_recv->type) {
       case NR_SESSION_INIT_REQ:
-         //if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
+         if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
            LOG_I(RRC,"Received NR_SessionInitializationRequest on socket from PC5 Controller (msg type: %d)\n", sl_ctrl_msg_recv->type);
-         //}
+         }
 
          //TODO: get SL_UE_STATE from lower layer
-
          LOG_I(RRC,"Send UEStateInformation to PC5 Controller \n");
          memset(send_buf, 0, BUFSIZE);
 
@@ -2683,12 +2682,12 @@ void *nr_rrc_control_socket_thread_fct(void *arg)
             exit(EXIT_FAILURE);
          }
 
-       //  if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
+         if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
            struct nr_sidelink_ctrl_element *ptr_ctrl_msg = NULL;
            ptr_ctrl_msg = (struct nr_sidelink_ctrl_element *) send_buf;
            LOG_UI(RRC,"[UEStateInformation] msg type: %d\n",ptr_ctrl_msg->type);
            LOG_UI(RRC,"[UEStateInformation] UE state: %d\n",ptr_ctrl_msg->nr_sidelinkPrimitive.ue_state);
-        // }
+         }
 
          break;
 
@@ -2697,12 +2696,12 @@ void *nr_rrc_control_socket_thread_fct(void *arg)
          groupL2Id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.group_comm_establish_req.groupL2Id;
          int group_comm_rbid = 0;
 
-       //  if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
+         if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
            LOG_I(RRC,"[GroupCommunicationEstablishReq] Received on socket from PC5 Controller (msg type: %d)\n",sl_ctrl_msg_recv->type);
            LOG_I(RRC,"[GroupCommunicationEstablishReq] source Id: 0x%08x\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.group_comm_establish_req.sourceL2Id);
            LOG_I(RRC,"[GroupCommunicationEstablishReq] group Id: 0x%08x\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.group_comm_establish_req.groupL2Id);
            LOG_I(RRC,"[GroupCommunicationEstablishReq] group IP Address: " IPV4_ADDR "\n",IPV4_ADDR_FORMAT(sl_ctrl_msg_recv->nr_sidelinkPrimitive.group_comm_establish_req.groupIpAddress));
-       //  }
+         }
 
          LOG_I(RRC,"Send GroupCommunicationEstablishResp to PC5 CTL\n");
          LOG_I(RRC,"[GroupCommunicationEstablishResponse]  msg type: %d\n",NR_GROUP_COMMUNICATION_ESTABLISH_RSP);
@@ -2726,10 +2725,10 @@ void *nr_rrc_control_socket_thread_fct(void *arg)
 
       case NR_GROUP_COMMUNICATION_RELEASE_REQ:
     	  printf("-----------------------------------\n");
-         //if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
+         if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
            LOG_I(RRC,"[NR_GroupCommunicationReleaseRequest] Received on socket from PC5 Controller (msg type: %d)\n",sl_ctrl_msg_recv->type);
            LOG_I(RRC,"[NR_GroupCommunicationReleaseRequest] Slrb Id: %i\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.slrb_id);
-       //  }
+         }
          //reset groupL2ID from MAC LAYER
          //UE_rrc_inst[module_id].groupL2Id = 0x00000000;
          //sourceL2Id = UE_rrc_inst[module_id].sourceL2Id;
@@ -2758,18 +2757,18 @@ void *nr_rrc_control_socket_thread_fct(void *arg)
          destinationL2Id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.direct_comm_establish_req.destinationL2Id;
          int direct_comm_rbid = 0;
 
-        // if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
+         if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
            LOG_I(RRC,"[NR_DirectCommunicationEstablishReq] Received on socket from PC5 Controller (msg type: %d)\n",sl_ctrl_msg_recv->type);
            LOG_I(RRC,"[NR_DirectCommunicationEstablishReq] source Id: 0x%08x\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.group_comm_establish_req.sourceL2Id);
            LOG_I(RRC,"[NR_DirectCommunicationEstablishReq] destination Id: 0x%08x\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.group_comm_establish_req.groupL2Id);
-        // }
+         }
 
 
-//#ifdef DEBUG_CTRL_SOCKET
+#ifdef DEBUG_CTRL_SOCKET
          LOG_I(RRC,"Send DirectCommunicationEstablishResp to PC5 CTL\n");
          LOG_I(RRC,"[NR_DirectCommunicationEstablishResponse]  msg type: %d\n",NR_DIRECT_COMMUNICATION_ESTABLISH_RSP);
          LOG_I(RRC,"[NR_DirectCommunicationEstablishResponse]  slrb_id: %d\n",direct_comm_rbid);
-//#endif
+#endif
 
          memset(send_buf, 0, BUFSIZE);
          sl_ctrl_msg_send = calloc(1, sizeof(struct nr_sidelink_ctrl_element));
@@ -2790,13 +2789,12 @@ void *nr_rrc_control_socket_thread_fct(void *arg)
 
       case NR_DIRECT_COMMUNICATION_RELEASE_REQ:
           printf("-----------------------------------\n");
-// #ifdef DEBUG_CTRL_SOCKET
+ #ifdef DEBUG_CTRL_SOCKET
           LOG_I(RRC,"[NR_DirectCommunicationReleaseRequest] Received on socket from PC5 Controller (msg type: %d)\n",sl_ctrl_msg_recv->type);
           LOG_I(RRC,"[NR_DirectCommunicationReleaseRequest] Slrb Id: %i\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.slrb_id);
-// #endif
+ #endif
           slrb_id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.slrb_id;
           //reset groupL2ID from MAC LAYER
-
 
           LOG_I(RRC,"Send NR_DirectCommunicationReleaseResponse to PC5 Controller \n");
           memset(send_buf, 0, BUFSIZE);
@@ -2818,68 +2816,62 @@ void *nr_rrc_control_socket_thread_fct(void *arg)
 
 
       case NR_PC5S_ESTABLISH_REQ:
-           type =  sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.type;
-           sourceL2Id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.sourceL2Id;
-           int pc5s_rbid = 10; // to update
-        //   if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
-             LOG_I(RRC,"[NR_PC5EstablishReq] Received on socket from PC5 Controller (msg type: %d)\n",sl_ctrl_msg_recv->type);
-             LOG_I(RRC,"[NR_PC5EstablishReq] type: %d\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.type); //RX/TX
-             LOG_I(RRC,"[NR_PC5EstablishReq] source Id: 0x%08x \n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.sourceL2Id);
-         //  }
-         if (type > 0) {
-            destinationL2Id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.destinationL2Id;
-          //  if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
-              LOG_I(RRC,"[NR_PC5EstablishReq] destination Id: 0x%08x \n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.destinationL2Id);
-          //  }
-         }
+       type =  sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.type;
+       sourceL2Id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.sourceL2Id;
+       int pc5s_rbid = 10; // to update
+       if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
+         LOG_I(RRC,"[NR_PC5EstablishReq] Received on socket from PC5 Controller (msg type: %d)\n",sl_ctrl_msg_recv->type);
+         LOG_I(RRC,"[NR_PC5EstablishReq] type: %d\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.type); //RX/TX
+         LOG_I(RRC,"[NR_PC5EstablishReq] source Id: 0x%08x \n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.sourceL2Id);
+       }
+       if (type > 0) {
+        destinationL2Id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.destinationL2Id;
+        if (LOG_DEBUGFLAG(DEBUG_CTRLSOCKET)){
+          LOG_I(RRC,"[NR_PC5EstablishReq] destination Id: 0x%08x \n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.pc5s_establish_req.destinationL2Id);
+        }
+       }
 
-         //store sourceL2Id/destinationL2Id
-         if (type > 0) { //TX
+       //store sourceL2Id/destinationL2Id
+       if (type > 0) { //TX
+       } else {//RX
+       }
+	   
+       // configure lower layers PDCP/MAC/PHY for this communication
+       //Establish a new RBID/LCID for this communication
+       // Establish a SLRB (starting from 8 for now)
 
-         } else {//RX
+	   //TX
+       if (type > 0) {
+       } else {//RX
+        //configure MAC with sourceL2Id/groupL2ID
+       }
 
-         }
+       LOG_I(RRC,"Send NR_PC5EstablishRsp to PC5 Controller \n");
+       memset(send_buf, 0, BUFSIZE);
+       sl_ctrl_msg_send = calloc(1, sizeof(struct nr_sidelink_ctrl_element));
+       sl_ctrl_msg_send->type = NR_PC5S_ESTABLISH_RSP;
+       //sl_ctrl_msg_send->nr_sidelinkPrimitive.pc5s_establish_rsp.slrbid_lcid28 = pc5s_rbid;
+       //sl_ctrl_msg_send->nr_sidelinkPrimitive.pc5s_establish_rsp.slrbid_lcid29 = pc5s_rbid;
+       //sl_ctrl_msg_send->nr_sidelinkPrimitive.pc5s_establish_rsp.slrbid_lcid30 = pc5s_rbid;
 
+       memcpy((void *)send_buf, (void *)sl_ctrl_msg_send, sizeof(struct nr_sidelink_ctrl_element));
+       free(sl_ctrl_msg_send);
 
-         // configure lower layers PDCP/MAC/PHY for this communication
-         //Establish a new RBID/LCID for this communication
-         // Establish a SLRB (starting from 8 for now)
+       prose_addr_len = sizeof(prose_ctl_addr);
+       n = sendto(ctrl_sock_fd, (char *)send_buf, sizeof(struct nr_sidelink_ctrl_element), 0, (struct sockaddr *)&prose_ctl_addr, prose_addr_len);
 
-
-         //TX
-         if (type > 0) {
-
-         } else {//RX
-            //configure MAC with sourceL2Id/groupL2ID
-
-         }
-
-         LOG_I(RRC,"Send NR_PC5EstablishRsp to PC5 Controller \n");
-         memset(send_buf, 0, BUFSIZE);
-         sl_ctrl_msg_send = calloc(1, sizeof(struct nr_sidelink_ctrl_element));
-         sl_ctrl_msg_send->type = NR_PC5S_ESTABLISH_RSP;
-         sl_ctrl_msg_send->nr_sidelinkPrimitive.pc5s_establish_rsp.slrbid_lcid28 = pc5s_rbid;
-         sl_ctrl_msg_send->nr_sidelinkPrimitive.pc5s_establish_rsp.slrbid_lcid29 = pc5s_rbid;
-         sl_ctrl_msg_send->nr_sidelinkPrimitive.pc5s_establish_rsp.slrbid_lcid30 = pc5s_rbid;
-
-         memcpy((void *)send_buf, (void *)sl_ctrl_msg_send, sizeof(struct nr_sidelink_ctrl_element));
-         free(sl_ctrl_msg_send);
-
-         prose_addr_len = sizeof(prose_ctl_addr);
-         n = sendto(ctrl_sock_fd, (char *)send_buf, sizeof(struct nr_sidelink_ctrl_element), 0, (struct sockaddr *)&prose_ctl_addr, prose_addr_len);
-
-         if (n < 0){
-            LOG_E(RRC, "ERROR: Failed to send to PC5 Controller \n");
-            exit(EXIT_FAILURE);
-         }
-         break;
+       if (n < 0){
+          LOG_E(RRC, "ERROR: Failed to send to PC5 Controller \n");
+          exit(EXIT_FAILURE);
+       }
+       break;
 
       case NR_PC5S_RELEASE_REQ:
            printf("-----------------------------------\n");
-  //#ifdef DEBUG_CTRL_SOCKET
+ #ifdef DEBUG_CTRL_SOCKET
            LOG_I(RRC,"[NR_PC5SReleaseRequest] Received on socket from PC5 Controller (msg type: %d)\n",sl_ctrl_msg_recv->type);
            LOG_I(RRC,"[NR_PC5SReleaseRequest] Slrb Id: %i\n",sl_ctrl_msg_recv->nr_sidelinkPrimitive.slrb_id);
- // #endif
+ #endif
            slrb_id = sl_ctrl_msg_recv->nr_sidelinkPrimitive.slrb_id;
            //reset groupL2ID from MAC LAYER
 
@@ -2900,12 +2892,121 @@ void *nr_rrc_control_socket_thread_fct(void *arg)
               exit(EXIT_FAILURE);
            }
            break;
-
-
-      case NR_PC5_DISCOVERY_MESSAGE:
+ 
+     case NR_PC5_DISCOVERY_MESSAGE:
     	  LOG_I(RRC,"[NR_PC5DiscoveryMessage] NOT SUPPORTED YET\n");
          break;
-      default:
+
+     case NR_MACReconfigurationRequest:
+	 		LOG_I(RRC,"[NR_MACReconfigurationRequest] Received a Scheduler Reconfiguration Request\n");
+	  		memset(send_buf, 0, BUFSIZE);
+
+	        sl_ctrl_msg_send = calloc(1, sizeof(struct nr_sidelink_ctrl_element));
+	        sl_ctrl_msg_send->type = NR_MACReconfigurationConfirm; // send the OK back to controller
+			sl_ctrl_msg_send->nr_sidelinkPrimitive.pc5_scheduler_config.map.action = sl_ctrl_msg_recv->pc5_scheduler_config.map.action; // to be updated by 1 (release) in case of failure
+			sl_ctrl_msg_send->nr_sidelinkPrimitive.pc5_scheduler_config.map.sfid = sl_ctrl_msg_recv->pc5_scheduler_config.map.sfid;// to be updated by the real sfid, in case the expected one is not available
+	        memcpy((void *)send_buf, (void *)sl_ctrl_msg_send, sizeof(struct nr_sidelink_ctrl_element));
+	        free(sl_ctrl_msg_send);
+
+	        prose_addr_len = sizeof(prose_ctl_addr);
+	        n = sendto(ctrl_sock_fd, (char *)send_buf, sizeof(struct nr_sidelink_ctrl_element), 0, (struct sockaddr *)&prose_ctl_addr, prose_addr_len);
+	        if (n < 0) {
+	           LOG_E(RRC, "ERROR: Failed to send to PC5 Controller \n");
+	           exit(EXIT_FAILURE);
+	        }
+	  	 break;	 
+	  case NR_RRCReconfigurationRequest:
+	      LOG_I(RRC,"Received a  NR_RRCReconfigurationRequest from PC5 Controller \n");
+		  
+	      LOG_I(RRC,"Send NR_RRCReconfigurationAccept to PC5 Controller \n");
+	      memset(send_buf, 0, BUFSIZE); 
+	      // Send the RRCReconfigurationAccept
+	      printf("[RRC] ------------------------------------------------\n");
+	      printf("[RRC] Send NR_RRCReconfigurationAccept \n");
+		  
+		  sl_ctrl_msg_send = calloc(1, sizeof(struct nr_sidelink_ctrl_element));
+		  sl_ctrl_msg_send->type = NR_RRCReconfigurationAccept; // send the OK back to controller
+		  sl_ctrl_msg_send->nr_sidelinkPrimitive.pc5_rrcreconfiguration_rsp = NR_RRC_RECONFIGURATION_OK;
+		  memcpy((void *)send_buf, (void *)sl_ctrl_msg_send, sizeof(struct nr_sidelink_ctrl_element));
+		  free(sl_ctrl_msg_send);
+
+		  prose_addr_len = sizeof(prose_ctl_addr);
+		  n = sendto(ctrl_sock_fd, (char *)send_buf, sizeof(struct nr_sidelink_ctrl_element), 0, (struct sockaddr *)&prose_ctl_addr, prose_addr_len);
+		  if (n < 0){
+		     LOG_E(RRC, "ERROR: Failed to send NR_RRCReconfigurationAccept  to PC5 Controller \n");
+		     exit(EXIT_FAILURE);
+		  }
+	     break;
+	  case NR_RRCReconfigurationSetup:
+	       LOG_I(RRC,"Received a NR_RRCReconfigurationSetup from PC5 Controller \n");
+	       
+		   // Setup the Radio Bearer
+	       struct NR_SL_RadioBearerConfig_r16 *sl_RadioBearerConfig_r16 = calloc(1,sizeof(*sl_RadioBearerConfig_r16)); 
+
+	       sl_RadioBearerConfig_r16->slrb_Uu_ConfigIndex_r16 = received_data.sl_radioBearerConfig.slrb_Uu_ConfigIndex_r16;
+	       sl_RadioBearerConfig_r16->sl_SDAP_Config_r16 = NULL;
+	       sl_RadioBearerConfig_r16->sl_TransRange_r16 = NULL;
+	       sl_RadioBearerConfig_r16->sl_PDCP_Config_r16 = calloc(1,sizeof(*sl_RadioBearerConfig_r16));
+	       sl_RadioBearerConfig_r16->sl_PDCP_Config_r16->sl_DiscardTimer_r16 = calloc(1,sizeof(*sl_RadioBearerConfig_r16->sl_PDCP_Config_r16->sl_DiscardTimer_r16));
+	       *sl_RadioBearerConfig_r16->sl_PDCP_Config_r16->sl_DiscardTimer_r16 = received_data.sl_radioBearerConfig.sl_PDCP_Config_r16.sl_DiscardTimer_r16;
+	       sl_RadioBearerConfig_r16->sl_PDCP_Config_r16->sl_PDCP_SN_Size_r16 = calloc(1,sizeof(*sl_RadioBearerConfig_r16->sl_PDCP_Config_r16->sl_PDCP_SN_Size_r16));
+	       *sl_RadioBearerConfig_r16->sl_PDCP_Config_r16->sl_PDCP_SN_Size_r16 = received_data.sl_radioBearerConfig.sl_PDCP_Config_r16.sl_PDCP_SN_Size_r16;
+	       sl_RadioBearerConfig_r16->sl_PDCP_Config_r16->sl_OutOfOrderDelivery = NULL;
+	       
+	       // Setup the RLC Radio Bearer
+	       struct NR_SL_RLC_BearerConfig_r16 *sl_RLC_BearerConfig_r16 = calloc(1,sizeof(*sl_RLC_BearerConfig_r16));
+	       
+	       sl_RLC_BearerConfig_r16->sl_RLC_BearerConfigIndex_r16 = received_data.sl_RLC_BearerConfig.sl_RLC_BearerConfigIndex_r16;
+	       sl_RLC_BearerConfig_r16->sl_ServedRadioBearer_r16 = calloc(1,sizeof(*sl_RLC_BearerConfig_r16->sl_ServedRadioBearer_r16));
+	       *sl_RLC_BearerConfig_r16->sl_ServedRadioBearer_r16 = received_data.sl_RLC_BearerConfig.sl_ServedRadioBearer_r16;
+	       sl_RLC_BearerConfig_r16->sl_RLC_Config_r16 = calloc(1,sizeof(*sl_RLC_BearerConfig_r16->sl_RLC_Config_r16));
+	       sl_RLC_BearerConfig_r16->sl_RLC_Config_r16->present = received_data.sl_RLC_BearerConfig.sl_RLC_Config_r16.present;
+	       sl_RLC_BearerConfig_r16->sl_RLC_Config_r16->choice.sl_UM_RLC_r16 = calloc(1,sizeof(*sl_RLC_BearerConfig_r16->sl_RLC_Config_r16->choice.sl_UM_RLC_r16));
+	       sl_RLC_BearerConfig_r16->sl_RLC_Config_r16->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16=calloc(1,sizeof(*sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16));  
+
+	       *sl_RLC_BearerConfig_r16->sl_RLC_Config_r16->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16=received_data.sl_RLC_BearerConfig.sl_RLC_Config_r16.sl_SN_FieldLengthUM_r16;
+	       // Logical Channel Config for default link
+	       sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16 = calloc(1,sizeof(*sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16));
+	       sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_Priority_r16 = received_data.sl_RLC_BearerConfig.sl_MAC_LogicalChannelConfig_r16.sl_Priority_r16;
+	       sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_PrioritisedBitRate_r16 = received_data.sl_RLC_BearerConfig.sl_MAC_LogicalChannelConfig_r16.sl_PrioritisedBitRate_r16;
+	       sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_BucketSizeDuration_r16 = received_data.sl_RLC_BearerConfig.sl_MAC_LogicalChannelConfig_r16.sl_BucketSizeDuration_r16;
+	       sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_ConfiguredGrantType1Allowed_r16 = NULL;
+	       sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16 = calloc(1,sizeof(*sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16));
+	       *sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16 = received_data.sl_RLC_BearerConfig.sl_MAC_LogicalChannelConfig_r16.sl_HARQ_FeedbackEnabled_r16;
+	       sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_AllowedCG_List_r16 = NULL;
+	       sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_AllowedSCS_List_r16 = NULL; 
+	       sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16 = calloc(1,sizeof(*sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16)); 
+	       *sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16 = received_data.sl_RLC_BearerConfig.sl_MAC_LogicalChannelConfig_r16.sl_LogicalChannelGroup_r16; 
+	       sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_SchedulingRequestId_r16 = NULL;
+	       sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelSR_DelayTimerApplied_r16 = NULL;
+
+	       // SL RadioBearers
+	       add_drb_sl(0, (NR_SL_RadioBearerConfig_r16_t *)sl_RadioBearerConfig_r16, 0, 0, NULL, NULL);
+
+	       // Configure RLC
+	       nr_rlc_add_drb_sl(0, received_data.sl_radioBearerConfig.slrb_Uu_ConfigIndex_r16, (NR_SL_RLC_BearerConfig_r16_t *)sl_RLC_BearerConfig_r16);	  
+	  
+           // Done reconfiguration.	    
+	       LOG_I(RRC,"Send NR_RRCReconfigurationConfirm to PC5 Controller \n");
+	       memset(send_buf, 0, BUFSIZE); 
+	       // Send the NR_RRCReconfigurationConfirm
+	       printf("[RRC] ------------------------------------------------\n");
+	       printf("[RRC] Send NR_RRCReconfigurationConfirm \n");
+	   
+	       sl_ctrl_msg_send = calloc(1, sizeof(struct nr_sidelink_ctrl_element));
+	       sl_ctrl_msg_send->type = NR_RRCReconfigurationConfirm; // send the OK back to controller
+	       sl_ctrl_msg_send->nr_sidelinkPrimitive.pc5_rrcreconfiguration_rsp = NR_RRC_RECONFIGURATION_OK;
+	       memcpy((void *)send_buf, (void *)sl_ctrl_msg_send, sizeof(struct nr_sidelink_ctrl_element));
+	       free(sl_ctrl_msg_send);
+
+	       prose_addr_len = sizeof(prose_ctl_addr);
+	       n = sendto(ctrl_sock_fd, (char *)send_buf, sizeof(struct nr_sidelink_ctrl_element), 0, (struct sockaddr *)&prose_ctl_addr, prose_addr_len);
+	       if (n < 0){
+	         LOG_E(RRC, "ERROR: Failed to send NR_RRCReconfigurationConfirm  to PC5 Controller \n");
+	         exit(EXIT_FAILURE);
+	      }
+	     break;	  
+	  default:
          break;
       }
    }

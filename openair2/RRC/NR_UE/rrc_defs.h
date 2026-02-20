@@ -281,9 +281,17 @@ typedef struct NR_UE_RRC_INST_s {
 #define NR_PC5_DISCOVERY_MESSAGE               13
 #define NR_PC5S_RELEASE_REQ                    14
 #define NR_PC5S_RELEASE_RSP                    15
+#define NR_MACReconfigurationRequest           16  
+#define NR_MACReconfigurationConfirm           17
+#define NR_RRCReconfigurationRequest           18 
+#define NR_RRCReconfigurationAccept            19
+#define NR_RRCReconfigurationSetup             20
+#define NR_RRCReconfigurationConfirm           21
+#define NR_PC5_DISCOVERY_PAYLOAD_SIZE          29
+#define NR_PC5_SIGNALLING_PAYLOAD_SIZE         100 //should be updated with a correct value
+
 //#define DEBUG_CTRL_SOCKET
-#define NR_CONTROL_SOCKET_PORT_NO 8888
-#define NR_PC5_DISCOVERY_PAYLOAD_SIZE      29
+#define NR_CONTROL_SOCKET_PORT_NO 5555
 
 //#define DEBUG_SCG_CONFIG 1
 
@@ -338,13 +346,73 @@ struct NR_PC5SEstablishRsp {
   uint32_t slrbid_lcid30;
 };
 
-
 //PC5_DISCOVERY MESSAGE
 typedef struct  {
   unsigned char payload[NR_PC5_DISCOVERY_PAYLOAD_SIZE];
   uint32_t measuredPower;
 }  __attribute__((__packed__)) NR_PC5DiscoveryMessage ;
 
+//
+// Section for the E5 Agent scheduler configuration
+//
+
+// UE scheduler configuration
+typedef struct {
+    uint8_t action;        // 0 = add, 1 = release
+    uint8_t sfid;       // subframe ID allocated to the UE 
+} NR_RBMapping;
+
+// message structure to be sent
+typedef struct {
+    NR_RBMapping map;
+} NR_Scheduler_Configuration;
+
+
+// 
+// Section of the E5 agent adjusting QoS
+//
+
+typedef struct {
+    int sl_DiscardTimer_r16;
+    int sl_PDCP_SN_Size_r16;
+} Serialized_NR_SL_PDCP_Config_r16;
+
+typedef struct {
+    int slrb_Uu_ConfigIndex_r16;
+    Serialized_NR_SL_PDCP_Config_r16 sl_PDCP_Config_r16;
+} Serialized_NR_SL_RadioBearerConfig_r16;
+
+typedef struct {
+    int present;
+    int sl_SN_FieldLengthUM_r16;
+} Serialized_NR_SL_RLC_Config_r16;
+
+typedef struct {
+    int sl_Priority_r16;
+    int sl_PrioritisedBitRate_r16;
+    int sl_BucketSizeDuration_r16;
+    int sl_HARQ_FeedbackEnabled_r16;
+    int sl_LogicalChannelGroup_r16;
+} Serialized_NR_SL_MAC_LogicalChannelConfig_r16;
+
+typedef struct {
+    int sl_RLC_BearerConfigIndex_r16;
+    int sl_ServedRadioBearer_r16;
+    Serialized_NR_SL_RLC_Config_r16 sl_RLC_Config_r16;
+    Serialized_NR_SL_MAC_LogicalChannelConfig_r16 sl_MAC_LogicalChannelConfig_r16;
+} Serialized_NR_SL_RLC_BearerConfig_r16;
+
+typedef enum {
+	NR_RRC_RECONFIGURATION_OK = 0,
+	NR_RRC_RECONFIGURATION_FAILURE
+} NR_PC5_RRCReconfiguration_Status_t;
+
+typedef struct {
+    Serialized_NR_SL_RadioBearerConfig_r16 sl_radioBearerConfig;
+    Serialized_NR_SL_RLC_BearerConfig_r16 sl_RLC_BearerConfig;
+} NR_RRC_Configuration;
+
+// end NR_PC5 Controller section
 
 struct nr_sidelink_ctrl_element {
   unsigned short type;
@@ -359,11 +427,11 @@ struct nr_sidelink_ctrl_element {
     struct NR_PC5SEstablishReq pc5s_establish_req;
     struct NR_PC5SEstablishRsp pc5s_establish_rsp;
     NR_PC5DiscoveryMessage pc5_discovery_message;
+	NR_Scheduler_Configuration pc5_scheduler_config;
+	NR_RRC_Configuration pc5_rrc_config;
+	NR_PC5_RRCReconfiguration_Status_t pc5_rrcreconfiguration_rsp;
   } nr_sidelinkPrimitive;
 };
-
-// end NR_PC5 Controller section
-
 
 #endif
 /** @} */
