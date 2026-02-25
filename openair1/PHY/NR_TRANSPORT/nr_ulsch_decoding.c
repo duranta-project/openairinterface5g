@@ -103,6 +103,7 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
     NR_gNB_PUSCH *pusch = &phy_vars_gNB->pusch_vars[ULSCH_id];
     NR_UL_gNB_HARQ_t *harq_process = ulsch->harq_process;
     const nfapi_nr_pusch_pdu_t *pusch_pdu = &harq_process->ulsch_pdu;
+    uint8_t harq_pid = ulsch->harq_pid;
 
     nrLDPC_TB_decoding_parameters_t *TB_parameters = &TBs[pusch_id];
 
@@ -126,7 +127,8 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
 
 
     // The harq_pid is not unique among the active HARQ processes in the instance so we use ULSCH_id instead
-    TB_parameters->harq_unique_pid = ULSCH_id;
+    TB_parameters->harq_unique_pid = (phy_vars_gNB->max_nb_pusch * harq_pid) + ULSCH_id;
+    AssertFatal(TB_parameters->harq_unique_pid < 0xffffffff,"harq_unique_pid >= %d, harq_pid %d, ULSCH_id %d\n",16*phy_vars_gNB->max_nb_pusch,harq_pid,ULSCH_id);
 
     // ------------------------------------------------------------------
     TB_parameters->nb_rb = pusch_pdu->rb_size;
@@ -154,7 +156,6 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
       }
     }
 
-    uint8_t harq_pid = ulsch->harq_pid;
     LOG_D(PHY,
           "ULSCH Decoding, harq_pid %d rnti %x TBS %d G %d mcs %d Nl %d nb_rb %d, Qm %d, Coderate %f RV %d round %d new RX %d\n",
           harq_pid,
