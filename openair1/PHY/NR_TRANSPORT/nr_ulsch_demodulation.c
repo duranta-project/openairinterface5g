@@ -19,6 +19,10 @@
 #include <sys/time.h>
 
 
+#ifndef __AVX2__
+#define USE128BIT
+#endif
+
 #if T_TRACER
 static void copy_c16_data_to_slot_memory(c16_t *src, c16_t *dst_slot, int nb_re_pusch, int symbol)
 {
@@ -174,6 +178,41 @@ static int get_nb_re_pusch (NR_DL_FRAME_PARMS *frame_parms, const nfapi_nr_pusch
     return (rel15_ul->rb_size * NR_NB_SC_PER_RB);
 }
 
+#ifdef __AVX512BW__
+#define s16 __m512i
+#define setzero _mm512_setzero_si512
+#define set1_s16 _mm512_set1_epi16
+#define cpx_mult_conj_s16 oai_mm512_cpx_mult_conj
+#define adds_s16 _mm512_adds_epi16
+#define smadd_s16 oai_mm512_smadd
+#define packs_s16 _mm512_packs_epi32
+#define unpacklo_s16 _mm512_unpacklo_epi16
+#define mulhrs_s16 _mm512_mulhrs_epi16
+#define COMPSHIFT 4
+#elif defined(__AVX2__)
+#define s16 simde__m256i
+#define setzero simde_mm256_setzero_si256
+#define set1_s16 simde_mm256_set1_epi16
+#define cpx_mult_conj_s16 oai_mm256_cpx_mult_conj
+#define adds_s16 simde_mm256_adds_epi16
+#define smadd_s16 oai_mm256_smadd
+#define packs_s16 simde_mm256_packs_epi32
+#define unpacklo_s16 simde_mm256_unpacklo_epi16
+#define mulhrs_s16 simde_mm256_mulhrs_epi16
+#define COMPSHIFT 3
+#else
+#define s16 simde__m128i
+#define setzero simde_mm_setzero_si128
+#define set1_s16 simde_mm_set1_epi16
+#define cpx_mult_conj_s16 oai_mm_cpx_mult_conj
+#define adds_s16 simde_mm_adds_epi16
+#define smadd_s16 oai_mm_smadd
+#define packs_s16 simde_mm_packs_epi32
+#define unpacklo_s16 simde_mm_unpacklo_epi16
+#define mulhrs_s16 simde_mm_mulhrs_epi16
+#define COMPSHIFT 2
+#endif
+#ifndef __aarch64__
 static void nr_ulsch_channel_compensation(uint32_t buffer_length,
                                           int nb_rx_ant,
                                           c16_t rxFext[][buffer_length],
@@ -191,63 +230,60 @@ static void nr_ulsch_channel_compensation(uint32_t buffer_length,
   int mod_order  = rel15_ul->qam_mod_order;
   int nrOfLayers = rel15_ul->nrOfLayers;
 
-  simde__m256i QAM_ampa_256 = simde_mm256_setzero_si256();
-  simde__m256i QAM_ampb_256 = simde_mm256_setzero_si256();
-  simde__m256i QAM_ampc_256 = simde_mm256_setzero_si256();
+  s16 QAM_ampa = setzero();
+  s16 QAM_ampb = setzero();
+  s16 QAM_ampc = setzero();
 
   if (mod_order == 4) {
-    QAM_ampa_256 = simde_mm256_set1_epi16(QAM16_n1);
-    QAM_ampb_256 = simde_mm256_setzero_si256();
-    QAM_ampc_256 = simde_mm256_setzero_si256();
+    QAM_ampa = set1_s16(QAM16_n1);
   }
   else if (mod_order == 6) {
-    QAM_ampa_256 = simde_mm256_set1_epi16(QAM64_n1);
-    QAM_ampb_256 = simde_mm256_set1_epi16(QAM64_n2);
-    QAM_ampc_256 = simde_mm256_setzero_si256();
+    QAM_ampa = set1_s16(QAM64_n1);
+    QAM_ampb = set1_s16(QAM64_n2);
   }
   else if (mod_order == 8) {
-    QAM_ampa_256 = simde_mm256_set1_epi16(QAM256_n1);
-    QAM_ampb_256 = simde_mm256_set1_epi16(QAM256_n2);
-    QAM_ampc_256 = simde_mm256_set1_epi16(QAM256_n3);
+    QAM_ampa = set1_s16(QAM256_n1);
+    QAM_ampb = set1_s16(QAM256_n2);
+    QAM_ampc = set1_s16(QAM256_n3);
   }
 
   for (int aatx = 0; aatx < nrOfLayers; aatx++) {
-    simde__m256i *rxComp_256 = (simde__m256i *)&rxComp[aatx * nb_rx_ant][symbol * buffer_length];
-    simde__m256i *rxF_ch_maga_256 = (simde__m256i *)ul_ch_maga[aatx];
-    simde__m256i *rxF_ch_magb_256 = (simde__m256i *)ul_ch_magb[aatx];
-    simde__m256i *rxF_ch_magc_256 = (simde__m256i *)ul_ch_magc[aatx];
+    s16 *rxComp_s16 = (s16 *)&rxComp[aatx * nb_rx_ant][symbol * buffer_length];
+    s16 *rxF_ch_maga = (s16 *)ul_ch_maga[aatx];
+    s16 *rxF_ch_magb = (s16 *)ul_ch_magb[aatx];
+    s16 *rxF_ch_magc = (s16 *)ul_ch_magc[aatx];
     for (int aarx = 0; aarx < nb_rx_ant; aarx++) {
-      simde__m256i *rxF_256 = (simde__m256i *)rxFext[aarx];
-      simde__m256i *chF_256 = (simde__m256i *)chFext[aatx][aarx];
+      s16 *rxF = (s16 *)rxFext[aarx];
+      s16 *chF = (s16 *)chFext[aatx][aarx];
 
-      for (int i = 0; i < buffer_length >> 3; i++) 
+      for (int i = 0; i < buffer_length >> COMPSHIFT; i++) 
       {
         // MRC        
-        simde__m256i comp = oai_mm256_cpx_mult_conj(chF_256[i], rxF_256[i], output_shift);
-        rxComp_256[i] = simde_mm256_add_epi16(rxComp_256[i], comp); 
+        s16 comp = cpx_mult_conj_s16(chF[i], rxF[i], output_shift);
+        rxComp_s16[i] = adds_s16(rxComp_s16[i], comp); 
 
         if (mod_order > 2) {
-          simde__m256i mag = oai_mm256_smadd(chF_256[i], chF_256[i], output_shift); // |h|^2
+          s16 mag = smadd_s16(chF[i], chF[i], output_shift); // |h|^2
           // pack and duplicate
-          mag = simde_mm256_packs_epi32(mag, mag);
-          mag = simde_mm256_unpacklo_epi16(mag, mag);
+          mag = packs_s16(mag, mag);
+          mag = unpacklo_s16(mag, mag);
 
-          rxF_ch_maga_256[i] = simde_mm256_add_epi16(rxF_ch_maga_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampa_256));
+          rxF_ch_maga[i] = adds_s16(rxF_ch_maga[i], mulhrs_s16(mag, QAM_ampa));
 
           if (mod_order > 4)
-            rxF_ch_magb_256[i] = simde_mm256_add_epi16(rxF_ch_magb_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampb_256));
+            rxF_ch_magb[i] = adds_s16(rxF_ch_magb[i], mulhrs_s16(mag, QAM_ampb));
 
           if (mod_order > 6)
-            rxF_ch_magc_256[i] = simde_mm256_add_epi16(rxF_ch_magc_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampc_256));
+            rxF_ch_magc[i] = adds_s16(rxF_ch_magc[i], mulhrs_s16(mag, QAM_ampc));
         }        
       }
       if (nb_layers > 1) {
         for (int atx = 0; atx < nrOfLayers; atx++) {
-          simde__m256i *rho_256 = (simde__m256i *)rho[aatx][atx];
-          simde__m256i *chF_256 = (simde__m256i *)chFext[aatx][aarx];
-          simde__m256i *chF2_256 = (simde__m256i *)chFext[atx][aarx];
-          for (int i = 0; i < buffer_length >> 3; i++) {
-            rho_256[i] = simde_mm256_adds_epi16(rho_256[i], oai_mm256_cpx_mult_conj(chF_256[i], chF2_256[i], output_shift));
+          s16 *rho_s16 = (s16 *)rho[aatx][atx];
+          s16 *chF = (s16 *)chFext[aatx][aarx];
+          s16 *chF2 = (s16 *)chFext[atx][aarx];
+          for (int i = 0; i < buffer_length >> COMPSHIFT; i++) {
+            rho_s16[i] = adds_s16(rho_s16[i], cpx_mult_conj_s16(chF[i], chF2[i], output_shift));
           }
         }
       }
@@ -255,7 +291,159 @@ static void nr_ulsch_channel_compensation(uint32_t buffer_length,
   }
 
 }
+#else
+#define COMP_SHIFT(SHIFT) \
+static void nr_ulsch_channel_compensation##SHIFT(uint32_t buffer_length,\
+                                          int nb_rx_ant,\
+                                          c16_t rxFext[][buffer_length],\
+                                          c16_t chFext[][nb_rx_ant][buffer_length],\
+                                          c16_t ul_ch_maga[][buffer_length],\
+                                          c16_t ul_ch_magb[][buffer_length],\
+                                          c16_t ul_ch_magc[][buffer_length],\
+                                          c16_t **rxComp,\
+                                          int nb_layers,\
+                                          c16_t rho[][nb_layers][buffer_length],\
+                                          const nfapi_nr_pusch_pdu_t *rel15_ul,\
+                                          uint32_t symbol)\
+{\
+  int mod_order  = rel15_ul->qam_mod_order;\
+  int nrOfLayers = rel15_ul->nrOfLayers;\
+\
+  s16 QAM_ampa = setzero();\
+  s16 QAM_ampb = setzero();\
+  s16 QAM_ampc = setzero();\
+\
+  if (mod_order == 4) {\
+    QAM_ampa = set1_s16(QAM16_n1);\
+  }\
+  else if (mod_order == 6) {\
+    QAM_ampa = set1_s16(QAM64_n1);\
+    QAM_ampb = set1_s16(QAM64_n2);\
+  }\
+  else if (mod_order == 8) {\
+    QAM_ampa = set1_s16(QAM256_n1);\
+    QAM_ampb = set1_s16(QAM256_n2);\
+    QAM_ampc = set1_s16(QAM256_n3);\
+  }\
+\
+  for (int aatx = 0; aatx < nrOfLayers; aatx++) {\
+    s16 *rxComp_s16 = (s16 *)&rxComp[aatx * nb_rx_ant][symbol * buffer_length];\
+    s16 *rxF_ch_maga = (s16 *)ul_ch_maga[aatx];\
+    s16 *rxF_ch_magb = (s16 *)ul_ch_magb[aatx];\
+    s16 *rxF_ch_magc = (s16 *)ul_ch_magc[aatx];\
+    for (int aarx = 0; aarx < nb_rx_ant; aarx++) {\
+      s16 *rxF = (s16 *)rxFext[aarx];\
+      s16 *chF = (s16 *)chFext[aatx][aarx];\
+\
+      if (mod_order==8) {\
+        for (int i = 0; i < buffer_length >> COMPSHIFT; i++) \
+        {\
+          s16 comp = oai_mm_cpx_mult_conj##SHIFT(chF[i], rxF[i]);\
+          rxComp_s16[i] = adds_s16(rxComp_s16[i], comp);\
+          s16 mag = smadd_s16(chF[i], chF[i], SHIFT);\
+          mag = packs_s16(mag, mag);\
+          mag = unpacklo_s16(mag, mag);\
+          rxF_ch_maga[i] = adds_s16(rxF_ch_maga[i], mulhrs_s16(mag, QAM_ampa));\
+          rxF_ch_magb[i] = adds_s16(rxF_ch_magb[i], mulhrs_s16(mag, QAM_ampb));\
+          rxF_ch_magc[i] = adds_s16(rxF_ch_magc[i], mulhrs_s16(mag, QAM_ampc));\
+        }\
+      }\
+      else if (mod_order==6){\
+        for (int i = 0; i < buffer_length >> COMPSHIFT; i++) \
+        {\
+          s16 comp = oai_mm_cpx_mult_conj##SHIFT(chF[i], rxF[i]);\
+          rxComp_s16[i] = adds_s16(rxComp_s16[i], comp);\
+          s16 mag = smadd_s16(chF[i], chF[i], SHIFT);\
+          mag = packs_s16(mag, mag);\
+          mag = unpacklo_s16(mag, mag);\
+          rxF_ch_maga[i] = adds_s16(rxF_ch_maga[i], mulhrs_s16(mag, QAM_ampa));\
+          rxF_ch_magb[i] = adds_s16(rxF_ch_magb[i], mulhrs_s16(mag, QAM_ampb));\
+        }\
+      }\
+      else if (mod_order==4){\
+        for (int i = 0; i < buffer_length >> COMPSHIFT; i++) \
+        {\
+          s16 comp = oai_mm_cpx_mult_conj##SHIFT(chF[i], rxF[i]);\
+          rxComp_s16[i] = adds_s16(rxComp_s16[i], comp);\
+          s16 mag = smadd_s16(chF[i], chF[i], SHIFT);\
+          mag = packs_s16(mag, mag);\
+          mag = unpacklo_s16(mag, mag);\
+          rxF_ch_maga[i] = adds_s16(rxF_ch_maga[i], mulhrs_s16(mag, QAM_ampa));\
+        }\
+      }\
+      else if (mod_order==2){\
+        for (int i = 0; i < buffer_length >> COMPSHIFT; i++) \
+        {\
+          s16 comp = oai_mm_cpx_mult_conj##SHIFT(chF[i], rxF[i]);\
+          rxComp_s16[i] = adds_s16(rxComp_s16[i], comp);\
+        }\
+      }\
+      if (nb_layers > 1) {\
+        for (int atx = 0; atx < nrOfLayers; atx++) {\
+          s16 *rho_s16 = (s16 *)rho[aatx][atx];\
+          s16 *chF = (s16 *)chFext[aatx][aarx];\
+          s16 *chF2 = (s16 *)chFext[atx][aarx];\
+          for (int i = 0; i < buffer_length >> COMPSHIFT; i++) {\
+            rho_s16[i] = adds_s16(rho_s16[i], cpx_mult_conj_s16(chF[i], chF2[i], SHIFT));\
+          }\
+        }\
+      }\
+    }\
+  }\
+\
+}
+COMP_SHIFT(1)
+COMP_SHIFT(2)
+COMP_SHIFT(3)
+COMP_SHIFT(4)
+COMP_SHIFT(5)
+COMP_SHIFT(6)
+COMP_SHIFT(7)
+COMP_SHIFT(8)
+COMP_SHIFT(9)
+COMP_SHIFT(10)
+COMP_SHIFT(11)
+COMP_SHIFT(12)
+COMP_SHIFT(13)
+COMP_SHIFT(14)
+COMP_SHIFT(15)
 
+static void nr_ulsch_channel_compensation(uint32_t buffer_length,
+                                          int nb_rx_ant,
+                                          c16_t rxFext[][buffer_length],
+                                          c16_t chFext[][nb_rx_ant][buffer_length],
+                                          c16_t ul_ch_maga[][buffer_length],
+                                          c16_t ul_ch_magb[][buffer_length],
+                                          c16_t ul_ch_magc[][buffer_length],
+                                          c16_t **rxComp,
+                                          int nb_layers,
+                                          c16_t rho[][nb_layers][buffer_length],
+                                          const nfapi_nr_pusch_pdu_t *rel15_ul,
+                                          uint32_t symbol,
+                                          uint32_t output_shift)
+{
+	switch(output_shift) {
+//        case 0: nr_ulsch_channel_compensation0(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol);
+        case 1: nr_ulsch_channel_compensation1(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+        case 2: nr_ulsch_channel_compensation2(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+        case 3: nr_ulsch_channel_compensation3(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+        case 4: nr_ulsch_channel_compensation4(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+        case 5: nr_ulsch_channel_compensation5(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+        case 6: nr_ulsch_channel_compensation6(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+        case 7: nr_ulsch_channel_compensation7(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+        case 8: nr_ulsch_channel_compensation8(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+        case 9: nr_ulsch_channel_compensation9(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+        case 10: nr_ulsch_channel_compensation10(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+        case 11: nr_ulsch_channel_compensation11(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+        case 12: nr_ulsch_channel_compensation12(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+        case 13: nr_ulsch_channel_compensation13(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+        case 14: nr_ulsch_channel_compensation14(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+        case 15: nr_ulsch_channel_compensation15(buffer_length,nb_rx_ant,rxFext,chFext,ul_ch_maga,ul_ch_magb,ul_ch_magc,rxComp,nb_layers,rho,rel15_ul,symbol); break;
+	default: LOG_E(NR_PHY,"Illegal shift %d\n",output_shift);
+	break;
+	}
+}
+#endif
 // Zero Forcing Rx function: nr_det_HhH()
 static void nr_ulsch_det_HhH(c16_t *after_mf_00, // a
                              c16_t *after_mf_01, // b
