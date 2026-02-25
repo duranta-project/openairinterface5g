@@ -1378,9 +1378,10 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
   else 
     pusch_vars->log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(frame_parms->nb_antennas_rx >> 1);
 
-  if (pusch_vars->log2_maxh < 0)
-    pusch_vars->log2_maxh = 0;
-
+  if (pusch_vars->log2_maxh < 1)
+    pusch_vars->log2_maxh = 1;
+  else if (pusch_vars->log2_maxh > 14)
+    pusch_vars->log2_maxh = 14;
   stop_meas(&gNB->rx_pusch_init_stats);
 
   start_meas(&gNB->rx_pusch_symbol_processing_stats);
