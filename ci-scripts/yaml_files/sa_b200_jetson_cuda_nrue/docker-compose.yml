@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: MIT
+
+services:
+    oai-nr-ue:
+        image: ${REGISTRY-oaisoftwarealliance/}${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+        network_mode: host
+        runtime: nvidia
+        container_name: oai-nr-ue
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_ADMIN  # for interface bringup
+            - NET_RAW    # for ping
+            - SYS_NICE   # for performance
+            - IPC_LOCK   # for memory locking
+        devices:
+            - /dev/net/tun:/dev/net/tun
+            - /dev/bus/usb/:/dev/bus/usb/
+        ulimits:
+          core: -1 # for core dumps
+        environment:
+            TZ: Europe/Paris
+            USE_B2XX: 'yes'
+            USE_ADDITIONAL_OPTIONS:  --usrp-args type=b200 -C 3350010000 -r 78 --numerology 1 --band 78 --ssb 345 --ue-fo-compensation --uicc0.imsi 001040000000001 --uicc0.pdu_sessions.[0].dnn oai.ipv4 --thread-pool 5,6,7,8,9 --ue-txgain 15 --ue-rxgain 90 --loader.ldpc.shlibversion _cuda -A 60
+        cpuset: "3-11"
+        volumes:
+            - ../../conf_files/ue.sa.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-uesoftmodem"
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        deploy:
+          resources:
+            reservations:
+              devices:
+                - driver: nvidia
+                  count: all
+                  capabilities: [gpu]
+

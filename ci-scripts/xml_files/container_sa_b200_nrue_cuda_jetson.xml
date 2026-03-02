@@ -1,0 +1,192 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+
+<testCaseList>
+  <htmlTabRef>JETSON-5G-NRUE-CUDA</htmlTabRef>
+  <htmlTabName>30 MHz TDD SA JETSON with CUDA</htmlTabName>
+  <htmlTabIcon>tasks</htmlTabIcon>
+  <testCase>
+    <class>DeployCoreNetwork</class>
+    <desc>Initialize 5G Core</desc>
+    <cn_id>oc-cn5g-00104</cn_id>
+  </testCase>
+
+  <testCase>
+    <class>Pull_Local_Registry</class>
+    <desc>Pull Images from Local Registry</desc>
+    <node>jetson2-oai</node>
+    <images>oai-nr-ue</images>
+    <tag_prefix>armv8_cuda_</tag_prefix>
+  </testCase>
+
+  <testCase>
+    <class>Pull_Local_Registry</class>
+    <desc>Pull Images from Local Registry</desc>
+    <node>gracehopper1-oai</node>
+    <images>oai-gnb-aerial</images>
+    <tag_prefix>arm_</tag_prefix>
+  </testCase>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace</desc>
+    <node>jetson2-oai</node>
+  </testCase>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace</desc>
+    <node>gracehopper1-oai</node>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Script</class>
+    <desc>Configure 30 MHz bandwidth on WNC RU</desc>
+    <node>gracehopper1-oai</node>
+    <script>scripts/set-wnc-bandwidth.sh</script>
+    <args>30</args>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy PNF/Nvidia CUBB in a container</desc>
+    <node>gracehopper1-oai</node>
+    <yaml_path>ci-scripts/yaml_files/sa_gnb_aerial_30MHz</yaml_path>
+    <services>nv-cubb</services>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy VNF in a container</desc>
+    <node>gracehopper1-oai</node>
+    <yaml_path>ci-scripts/yaml_files/sa_gnb_aerial_30MHz</yaml_path>
+    <services>oai-gnb-aerial</services>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy nrUE (TDD/Band78/40MHz/N310) in a container</desc>
+    <yaml_path>ci-scripts/yaml_files/sa_b200_jetson_cuda_nrue</yaml_path>
+    <node>jetson2-oai</node>
+    <num_attempts>3</num_attempts>
+  </testCase>
+
+  <testCase>
+    <class>Attach_UE</class>
+    <desc>Attach OAIUE</desc>
+    <id>oai_ue_jetson2</id>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Configure IP route</desc>
+    <node>jetson2-oai</node>
+    <command>sudo ip route add 172.21.6.105 via 13.1.1.100 dev oaitun_ue1</command>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping: 20pings in 20sec</desc>
+    <id>oai_ue_jetson2</id>
+    <svr_id>oc-cn5g-00104</svr_id>
+    <ping_args>-c 20</ping_args>
+    <ping_packetloss_threshold>1</ping_packetloss_threshold>
+    <ping_rttavg_threshold>25</ping_rttavg_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>iperf (UL/10Mbps/UDP)(30 sec)</desc>
+    <iperf_args>-u -b 10M -t 30 -i 1</iperf_args>
+    <id>oai_ue_jetson2</id>
+    <svr_id>oc-cn5g-00104</svr_id>
+    <iperf_packetloss_threshold>25</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>80</iperf_bitrate_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>iperf (DL/10Mbps/UDP)(30 sec)</desc>
+    <iperf_args>-u -b 10M -t 30 -i 1 -R</iperf_args>
+    <id>oai_ue_jetson2</id>
+    <svr_id>oc-cn5g-00104</svr_id>
+    <iperf_packetloss_threshold>25</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>80</iperf_bitrate_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>iperf (UL/30Mbps/UDP)(30 sec)</desc>
+    <may_fail>true</may_fail>
+    <iperf_args>-u -b 30M -t 30 -i 1</iperf_args>
+    <id>oai_ue_jetson2</id>
+    <svr_id>oc-cn5g-00104</svr_id>
+    <iperf_packetloss_threshold>25</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>80</iperf_bitrate_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>iperf (DL/30Mbps/UDP)(30 sec)</desc>
+    <may_fail>true</may_fail>
+    <iperf_args>-u -b 30M -t 30 -i 1 -R</iperf_args>
+    <id>oai_ue_jetson2</id>
+    <svr_id>oc-cn5g-00104</svr_id>
+    <iperf_packetloss_threshold>25</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>80</iperf_bitrate_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <always_exec>true</always_exec>
+    <desc>Undeploy nr UE</desc>
+    <node>jetson2-oai</node>
+    <yaml_path>ci-scripts/yaml_files/sa_b200_jetson_cuda_nrue</yaml_path>
+    <analysis>
+      <services>oai-nr-ue</services>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <always_exec>true</always_exec>
+    <desc>Undeploy gNB</desc>
+    <node>gracehopper1-oai</node>
+    <yaml_path>ci-scripts/yaml_files/sa_gnb_aerial_30MHz</yaml_path>
+    <analysis>
+      <services>oai-gnb-aerial=RetxCheck=20,100,100,100 oai-gnb-aerial=EndsWithBye</services>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Script</class>
+    <always_exec>true</always_exec>
+    <desc>Configure 100 MHz bandwidth on WNC RU</desc>
+    <node>gracehopper1-oai</node>
+    <script>scripts/set-wnc-bandwidth.sh</script>
+    <args>100</args>
+  </testCase>
+
+  <testCase>
+    <class>Clean_Test_Server_Images</class>
+    <always_exec>true</always_exec>
+    <desc>Clean Test Images on Test Server</desc>
+    <node>gracehopper1-oai</node>
+    <images>oai-gnb-aerial</images>
+  </testCase>
+
+  <testCase>
+    <class>Clean_Test_Server_Images</class>
+    <always_exec>true</always_exec>
+    <desc>Clean Test Images on Test Server</desc>
+    <node>jetson2-oai</node>
+    <images>oai-nr-ue</images>
+  </testCase>
+
+  <testCase>
+    <class>UndeployCoreNetwork</class>
+    <always_exec>true</always_exec>
+    <desc>Terminate 5G Core</desc>
+    <cn_id>oc-cn5g-00104</cn_id>
+  </testCase>
+
+</testCaseList>
