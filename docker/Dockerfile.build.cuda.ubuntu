@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
+#---------------------------------------------------------------------
+#
+# Dockerfile for the Open-Air-Interface BUILD service
+#   Valid for Ubuntu 24.04
+#
+#---------------------------------------------------------------------
+
+FROM ran-base-cuda:latest AS ran-build-cuda
+ARG BUILD_OPTION
+
+ARG E2AP_VERSION=E2AP_V3
+ARG KPM_VERSION=KPM_V3_00
+
+RUN rm -Rf /oai-ran
+WORKDIR /oai-ran
+COPY . .
+
+# build all targets so final targets can be created afterwards
+RUN \
+   # Mount CCache cache direrctory
+   --mount=type=cache,target=/root/.cache/ccache/ \
+   # Mount CPM package cache
+   --mount=type=cache,target=/root/.cache/cpm/ \
+    /bin/sh oaienv && \
+    cd cmake_targets && \
+    mkdir -p log && \
+    ./build_oai -c --ninja \
+      --eNB --gNB --RU --UE --nrUE \
+      --build-lib "telnetsrv enbscope uescope nrscope ldpc_cuda" \
+      -w USRP -t Ethernet -w BLADERF \
+      --build-e2 --cmake-opt -DKPM_VERSION=$KPM_VERSION --cmake-opt -DE2AP_VERSION=$E2AP_VERSION \
+      --cmake-opt -DOAI_VRTSIM_TAPS_CLIENT=ON \
+      --cmake-opt -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda-12.2 \
+      --noavx512 \
+      --build-tool-opt -k10 \
+      --cmake-opt -DCMAKE_C_FLAGS="-Werror" --cmake-opt -DCMAKE_CXX_FLAGS="-Werror" $BUILD_OPTION && \
+    # Mainly to see if the sanitize option was perfectly executed
+    echo "---- ldd on executables ----" && \
+    ldd ran_build/build/*softmodem* ran_build/build/nr-cuup ran_build/build/oairu && \
+    echo "---- ldd on shared libraries ----" && \
+    ldd ran_build/build/*.so
+
+## Build FlexRIC for SM Models
+RUN \
+    # Mount CCache cache direrctory
+    --mount=type=cache,target=/root/.cache/ccache/ \
+    mkdir -p openair2/E2AP/flexric/build && \
+    cd openair2/E2AP/flexric/build && \
+    cmake -GNinja -DCMAKE_BUILD_TYPE=Release \
+          -DKPM_VERSION=$KPM_VERSION \
+          -DCMAKE_C_COMPILER=gcc-12 \
+          -DCMAKE_CXX_COMPILER=g++-12 .. \
+          -DE2AP_VERSION=$E2AP_VERSION .. && \
+    ninja && \
+    ninja install
+

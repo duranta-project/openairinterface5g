@@ -178,9 +178,20 @@ class Containerize():
 	
 		dockerfileprefix = '.ubuntu'
 
+		baseImage = 'ran-base'
+		baseTag = 'develop'
+		buildImage = 'ran-build'
+		forceBaseImageBuild = False
+		imageTag = 'develop'
+
+		result = re.search('native_cuda_armv8', self.imageKind)
+		if result is not None:
+			baseImage = 'ran-base-cuda'
+			buildImage = 'ran-build-cuda'
+			dockerfileprefix = '.cuda.ubuntu'
 		# we always build the ran-build image with all targets
 		# Creating a tupple with the imageName, the DockerFile prefix pattern, targetName and sanitized option
-		imageNames = [('ran-build', 'build', 'ran-build', '')]
+		imageNames = [(buildImage, 'build', f'{buildImage}', '')]
 		result = re.search('eNB', self.imageKind)
 		if result is not None:
 			imageNames.append(('oai-enb', 'eNB', 'oai-enb', ''))
@@ -220,13 +231,13 @@ class Containerize():
 			imageNames.append(('oai-gnb', 'gNB', 'oai-gnb', ''))
 			imageNames.append(('oai-nr-cuup', 'nr-cuup', 'oai-nr-cuup', ''))
 			imageNames.append(('oai-nr-ue', 'nrUE', 'oai-nr-ue', ''))
-		
+		result = re.search('native_cuda_armv8', self.imageKind)
+		if result is not None:
+			imageNames.append(('oai-gnb', 'gNB', 'oai-gnb', ''))
+			imageNames.append(('oai-nr-ue', 'nrUE', 'oai-nr-ue', ''))
+
 		cmd.cd(lSourcePath)
 
-		baseImage = 'ran-base'
-		baseTag = 'develop'
-		forceBaseImageBuild = False
-		imageTag = 'develop'
 		if (self.merge):
 			imageTag = 'ci-temp'
 			if self.targetBranch == 'develop':
@@ -254,17 +265,17 @@ class Containerize():
 		# On when the base image docker file is being modified.
 		if forceBaseImageBuild:
 			cmd.run(f"docker image rm {baseImage}:{baseTag}")
-			logfile = f'{lSourcePath}/cmake_targets/log/ran-base.docker.log'
+			logfile = f'{lSourcePath}/cmake_targets/log/{baseImage}.docker.log'
 			option = f" --build-arg UBUNTU_IMAGE={DEFAULT_REGISTRY}/{ubuntuImage}"
 			cmd.run(f"docker build --target {baseImage} --tag {baseImage}:{baseTag} --file docker/Dockerfile.base{dockerfileprefix} {option} . &> {logfile}", timeout=1600)
-			t = ("ran-base", archiveArtifact(cmd, ctx, logfile))
+			t = (baseImage, archiveArtifact(cmd, ctx, logfile))
 			log_files.append(t)
 
-		# First verify if the base image was properly created.
 		ret = cmd.run(f"docker image inspect --format=\'Size = {{{{.Size}}}} bytes\' {baseImage}:{baseTag}")
+
 		allImagesSize = {}
 		if ret.returncode != 0:
-			logging.error('\u001B[1m Could not build properly ran-base\u001B[0m')
+			logging.error(f'\u001B[1m Could not build properly {baseImage}\u001B[0m')
 			# Recover the name of the failed container?
 			cmd.run(f"docker ps --quiet --filter \"status=exited\" -n1 | xargs --no-run-if-empty docker rm -f")
 			cmd.run(f"docker image prune --force")
@@ -277,10 +288,10 @@ class Containerize():
 			if result is not None:
 				size = float(result.group("size")) / 1000000
 				imageSizeStr = f'{size:.1f}'
-				logging.debug(f'\u001B[1m   ran-base size is {imageSizeStr} Mbytes\u001B[0m')
-				allImagesSize['ran-base'] = f'{imageSizeStr} Mbytes'
+				logging.debug(f'\u001B[1m {baseImage} size is {imageSizeStr} Mbytes\u001B[0m')
+				allImagesSize[baseImage] = f'{imageSizeStr} Mbytes'
 			else:
-				logging.debug('ran-base size is unknown')
+				logging.debug(f'{baseImage} size is unknown')
 
 		# Build the target image(s)
 		status = True
@@ -291,11 +302,11 @@ class Containerize():
 			cmd.run(f'sed -i -e "s#{baseImage}:latest#{baseImage}:{baseTag}#" docker/Dockerfile.{pattern}{dockerfileprefix}')
 			# target images should use the proper ran-build image
 			if image != 'ran-build' and "-asan" in name:
-				cmd.run(f'sed -i -e "s#ran-build:latest#ran-build-asan:{imageTag}#" docker/Dockerfile.{pattern}{dockerfileprefix}')
+				cmd.run(f'sed -i -e "s#{buildImage}:latest#{buildImage}-asan:{imageTag}#" docker/Dockerfile.{pattern}{dockerfileprefix}')
 			elif "fhi72" in name or name == "oai-nr-oru":
 				cmd.run(f'sed -i -e "s#ran-build-fhi72:latest#ran-build-fhi72:{imageTag}#" docker/Dockerfile.{pattern}{dockerfileprefix}')
 			elif image != 'ran-build':
-				cmd.run(f'sed -i -e "s#ran-build:latest#ran-build:{imageTag}#" docker/Dockerfile.{pattern}{dockerfileprefix}')
+				cmd.run(f'sed -i -e "s#{buildImage}:latest#{buildImage}:{imageTag}#" docker/Dockerfile.{pattern}{dockerfileprefix}')
 			if image == 'oai-gnb-aerial':
 				cmd.run('cp -f /opt/nvidia-ipc/nvipc_src.2026.01.07.tar.gz .')
 			logfile = f'{lSourcePath}/cmake_targets/log/{name}.docker.log'

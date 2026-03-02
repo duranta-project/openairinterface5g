@@ -1,0 +1,76 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
+#---------------------------------------------------------------------
+#
+# Dockerfile for the Open-Air-Interface BUILD service
+#   Valid for Ubuntu 24.04
+#
+#---------------------------------------------------------------------
+
+
+FROM nvidia/cuda:12.2.0-devel-ubuntu22.04 AS ran-base-cuda
+
+ARG NEEDED_GIT_PROXY
+ARG TARGETARCH
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Europe/Paris
+ENV BUILD_UHD_FROM_SOURCE=True
+ENV UHD_VERSION=4.8.0.0
+
+#install developers pkg/repo
+RUN apt-get update && \
+    apt-get upgrade --yes && \
+    apt-get install --yes \
+       #gcc needed for build_oai
+       build-essential \
+       ccache \
+       psmisc \
+       git \
+       #use gcc-12 to avoid problems of default gcc-11 in FlexRIC
+       gcc-12 \
+       g++-12 \
+       xxd \
+       libpcre2-dev \
+       python3-dev \
+       bison \
+       flex \
+       m4 \
+       # python3-pip for conf template generation
+       python3-pip \
+       wget \
+       flatbuffers-compiler \
+       libflatbuffers-dev \
+       libnanomsg-dev && \
+    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100 --slave /usr/bin/g++ g++ /usr/bin/g++-12 && \
+    pip3 install --ignore-installed pyyaml
+
+# Add "Tini - A tiny but valid init for containers", https://github.com/krallin/tini
+# it will be copied into target containers, to print exit numbers and handle signals properly
+ENV TINI_VERSION=v0.19.0
+RUN wget https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-${TARGETARCH} -O /tini && chmod +x /tini
+
+ENV YQ_VERSION=v4.2.0
+RUN wget https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${TARGETARCH} -O /usr/local/bin/yq &&\
+    chmod +x /usr/local/bin/yq
+
+# In some network environments, GIT proxy is required
+RUN /bin/bash -c "if [[ -v NEEDED_GIT_PROXY ]]; then git config --global http.proxy $NEEDED_GIT_PROXY; fi"
+
+# Copying only the needed files to create ran-base
+WORKDIR /oai-ran/cmake_targets/tools
+COPY cmake_targets/tools/build_helper \
+     cmake_targets/tools/uhd-4.x-tdd-patch.diff \
+     ./
+
+WORKDIR /oai-ran/cmake_targets
+COPY cmake_targets/build_oai .
+
+WORKDIR /oai-ran
+COPY oaienv .
+
+#run build_oai -I to get the builder image
+RUN /bin/sh oaienv && \ 
+    cd cmake_targets && \
+    mkdir -p log && \
+    ./build_oai -I -w USRP -w BLADERF --install-optional-packages
+

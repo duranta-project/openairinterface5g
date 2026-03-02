@@ -1,0 +1,28 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+
+<testCaseList>
+  <htmlTabRef>build-cuda-tab</htmlTabRef>
+  <htmlTabName>Build Container Images for ARM with CUDA</htmlTabName>
+  <htmlTabIcon>wrench</htmlTabIcon>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace for server 0</desc>
+    <node>jetson3-oai</node>
+  </testCase>
+
+  <testCase>
+    <class>Build_Image</class>
+    <desc>Build all Images</desc>
+    <node>jetson3-oai</node>
+    <kind>native_cuda_armv8</kind>
+  </testCase>
+
+  <testCase>
+    <class>Push_Local_Registry</class>
+    <desc>Push Images to Local Registry</desc>
+    <node>jetson3-oai</node>
+    <tag_prefix>armv8_cuda_</tag_prefix>
+  </testCase>
+
+</testCaseList>
