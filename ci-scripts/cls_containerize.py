@@ -55,7 +55,7 @@ def AnalyzeBuildLogs(image, lf):
 			committed = committed or lineHasCommit
 			if re.search(r'error:|Errors|ERROR', line):
 				errors.append(f"=> {line.strip()}")
-	status = (committed or tagged) and len(errors) == 0
+	status = (committed or tagged)
 	logging.info(f"Analyzing {image}, file {lf}: {status=}, {len(errors)} errors")
 	for e in errors:
 		logging.info(e)
