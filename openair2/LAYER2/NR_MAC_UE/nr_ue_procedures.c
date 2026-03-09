@@ -3725,6 +3725,8 @@ static int nr_ue_validate_successrar(uint8_t *pduP,
   return n;
 }
 
+#define MAX_NUM_DATA_IND 1024
+
 ///////////////////////////////////
 // brief:     nr_ue_process_mac_pdu
 // function:  parsing DL PDU header
@@ -3790,6 +3792,9 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
     pdu_len -= n;
   }
 
+  nr_rlc_data_ind_t data_ind[MAX_NUM_DATA_IND] = {0};
+  int num_data_ind = 0;
+
   while (!done && pdu_len > 0){
     uint16_t mac_len = 0x0000;
     uint16_t mac_subheader_len = 0x0001; //  default to fixed-length subheader = 1-oct
@@ -3821,7 +3826,8 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
         if (mac_len > 0) {
           LOG_DDUMP(NR_MAC, (void *)pduP, mac_subheader_len + mac_len, LOG_DUMP_CHAR, "DL_SCH_LCID_CCCH (e.g. RRCSetup) payload: ");
           nr_rlc_data_ind_t ind = {.ch = rx_lcid, .buf = pduP + mac_subheader_len, .len = mac_len};
-          nr_mac_rlc_data_ind(mac->ue_id, mac->ue_id, false, &ind, 1);
+          data_ind[num_data_ind++] = ind;
+          DevAssert(num_data_ind < MAX_NUM_DATA_IND);
         }
         break;
       case DL_SCH_LCID_TCI_STATE_ACT_UE_SPEC_PDSCH:
@@ -3933,8 +3939,11 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
         //  MAC SDU
       // From values 1 to 32 it equals to the identity of the logical channel
       case 1 ... 32:
-        if (!get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len))
-          return;
+        if (!get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len)) {
+          LOG_E(MAC, "get_mac_len(): invalid pdu_len %d (mac_len %d mac_subheader_len %d)\n", pdu_len, mac_len, mac_subheader_len);
+          done = 1;
+          break;
+        }
         // discard the received subPDU if RB is suspended
         if (is_lcid_suspended(mac, rx_lcid)) {
           LOG_W(NR_MAC, "Received PDU for a suspended RB, corresponding to LCID %d. Dropping it.\n", rx_lcid);
@@ -3942,7 +3951,8 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
         }
         LOG_D(NR_MAC, "%4d.%2d : DLSCH -> LCID %d %d bytes\n", frameP, slot, rx_lcid, mac_len);
         nr_rlc_data_ind_t ind = {.ch = rx_lcid, .buf = pduP + mac_subheader_len, .len = mac_len};
-        nr_mac_rlc_data_ind(mac->ue_id, mac->ue_id, false, &ind, 1);
+        data_ind[num_data_ind++] = ind;
+        DevAssert(num_data_ind < MAX_NUM_DATA_IND);
         break;
       default:
         LOG_W(MAC, "unknown lcid %02x\n", rx_lcid);
@@ -3950,9 +3960,13 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
     }
     pduP += (mac_subheader_len + mac_len);
     pdu_len -= (mac_subheader_len + mac_len);
-    if (pdu_len < 0)
+    if (pdu_len < 0) {
       LOG_E(MAC, "[UE %d][%d.%d] nr_ue_process_mac_pdu, residual mac pdu length %d < 0!\n", mac->ue_id, frameP, slot, pdu_len);
+      done = 1;
+    }
   }
+
+  nr_mac_rlc_data_ind(mac->ue_id, mac->ue_id, false, data_ind, num_data_ind);
 }
 
 /**
