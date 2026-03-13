@@ -216,7 +216,6 @@ typedef struct {
   /// - second index: beam ID for each antenna port [0 .. num_ports)
   /// Array of beam id assigned to antenna ports in a frame
   uint16_t **beam_id;
-  int num_beams_period;
   bool analog_bf;
   int32_t *debugBuff;
   int32_t debugBuff_sample_offset;

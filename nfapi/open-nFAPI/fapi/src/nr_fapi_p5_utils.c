@@ -298,8 +298,6 @@ bool eq_config_request(const nfapi_nr_config_request_scf_t *unpacked_req, const 
 
   EQ_TLV(unpacked_req->nfapi_config.timing_info_period, req->nfapi_config.timing_info_period);
 
-  EQ_TLV(unpacked_req->analog_beamforming_ve.num_beams_period_vendor_ext, req->analog_beamforming_ve.num_beams_period_vendor_ext);
-
   EQ_TLV(unpacked_req->analog_beamforming_ve.analog_bf_vendor_ext, req->analog_beamforming_ve.analog_bf_vendor_ext);
 
   return true;
@@ -873,8 +871,6 @@ void copy_config_request(const nfapi_nr_config_request_scf_t *src, nfapi_nr_conf
 
   COPY_TLV(dst->nfapi_config.tx_data_timing_offset, src->nfapi_config.tx_data_timing_offset);
 
-  COPY_TLV(dst->analog_beamforming_ve.num_beams_period_vendor_ext, src->analog_beamforming_ve.num_beams_period_vendor_ext);
-
   COPY_TLV(dst->analog_beamforming_ve.analog_bf_vendor_ext, src->analog_beamforming_ve.analog_bf_vendor_ext);
 }
 
@@ -1334,7 +1330,6 @@ void dump_config_request(const nfapi_nr_config_request_scf_t *msg)
   INDENTED_TLV_FORMAT_PRINT("TX_DATA Timing Offset", "%d", nfapi_config->tx_data_timing_offset);
   /* Beamforming VE */
   const nfapi_nr_analog_beamforming_ve_t *analog_beamforming_ve = &msg->analog_beamforming_ve;
-  INDENTED_TLV_FORMAT_PRINT("Num Beams per Period", "%d", analog_beamforming_ve->num_beams_period_vendor_ext);
   INDENTED_TLV_PRINT("Analog Beamforming VE", analog_beamforming_ve->analog_bf_vendor_ext);
   /* Vendor Extension */
   if (msg->vendor_extension) {

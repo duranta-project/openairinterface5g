@@ -506,7 +506,6 @@ typedef struct {
 } nfapi_nr_pm_tlv_ve_t;
 
 typedef struct {
-  nfapi_uint8_tlv_t num_beams_period_vendor_ext;
   nfapi_uint8_tlv_t analog_bf_vendor_ext;
 } nfapi_nr_analog_beamforming_ve_t;
 
