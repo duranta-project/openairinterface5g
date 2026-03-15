@@ -437,7 +437,6 @@ typedef struct pdschSymbolProc_s {
   unsigned int layerSz2;
   unsigned int dlPtrsSymPos;
   unsigned int n_ptrs;
-  uint16_t *ant_to_map;
   unsigned int re_beginning_of_symbol[14];
   c16_t *tx_layers[4];
   time_stats_t dlsch_resource_mapping_stats;
@@ -637,6 +636,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   c16_t tx_layers[rel15->nrOfLayers][layerSz2] __attribute__((aligned(64)));
   memset(tx_layers, 0, sizeof(tx_layers));
   nr_layer_mapping(rel15->NrOfCodewords, encoded_length, mod_symbs, rel15->nrOfLayers, layerSz2, nb_re, tx_layers);
+  stop_meas(&gNB->dlsch_layer_mapping_stats);
 
   /// Layer Precoding and Antenna port mapping
   // tx_layers 1-8 are mapped on antenna ports 1000-1007
@@ -645,27 +645,21 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   //        pmi = prgs_list[rbidx/prg_size].pm_idx, rbidx =0,...,rbSize-1
   // The Precoding matrix:
   // The Codebook Type I
+
+  // Update grid info to send to oru for beamforming
   const nfapi_nr_tx_precoding_and_beamforming_t *pb = &rel15->precodingAndBeamforming;
-  // beam number in multi-beam scenario (concurrent beams)
-  const uint16_t symb_bitmap = SL_to_bitmap(rel15->StartSymbolIndex, rel15->NrOfSymbols);
-  uint16_t ant_to_map[frame_parms->nb_antennas_tx];
-  const uint16_t num_log_ports = rel15->param_v4.numberCodewords ? rel15->param_v4.spatialStreamsCw[0].numSpatialStreamIndices : 0;
+  AssertFatal(rel15->param_v4.numberCodewords > 0, "No spatial stream index provided\n");
+  const uint16_t num_log_ports = rel15->param_v4.spatialStreamsCw[0].numSpatialStreamIndices;
   for (int ant = 0; ant < num_log_ports; ant++) {
-    const uint16_t beam_id = pb->prgs_list[0].dig_bf_interface_list[ant].beam_idx;
-    ant_to_map[ant] = get_first_ant_idx(gNB->enable_analog_das,
-                                                  frame_parms->nb_antennas_tx / gNB->common_vars.num_beams_period,
-                                                  beam_id,
-                                                  rel15->param_v4.spatialStreamsCw[0].spatialStreamIndices[ant]);
-    beam_index_allocation(beam_id,
-                          ant_to_map[ant],
-                          1,
-                          frame_parms->symbols_per_slot,
-                          slot,
-                          symb_bitmap,
-                          frame_parms->nb_antennas_tx,
-                          gNB->common_vars.beam_id);
+    const uint16_t beam_id = (pb->dig_bf_interfaces > 0) ? pb->prgs_list[0].dig_bf_interface_list[ant].beam_idx : 0;
+    update_grid_info(gNB->common_vars.tx_grid_info,
+                     rel15->param_v4.spatialStreamsCw[0].spatialStreamIndices[ant],
+                     beam_id,
+                     rel15->BWPStart + rel15->rbStart,
+                     rel15->rbSize,
+                     rel15->StartSymbolIndex,
+                     rel15->NrOfSymbols);
   }
-  stop_meas(&gNB->dlsch_layer_mapping_stats);
 
   // spawn symbol threads
 
@@ -704,7 +698,6 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
     rdata->layerSz2 = layerSz2;
     rdata->dlPtrsSymPos = dlPtrsSymPos;
     rdata->n_ptrs = n_ptrs;
-    rdata->ant_to_map = ant_to_map;
     for (int s = l_symbol; s < l_symbol + rdata->numSymbols; s++) {
       rdata->re_beginning_of_symbol[s] = re_beginning_of_symbol;
       re_beginning_of_symbol += freq_alloc->num_rbs * NR_NB_SC_PER_RB;
@@ -731,6 +724,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
     merge_meas(&gNB->dlsch_precoding_stats, &arr[i].dlsch_precoding_stats);
   }
   stop_meas(&gNB->dlsch_pdsch_generation_stats);
+
   /* output and its parts for each dlsch should be aligned on 64 bytes (or 8 * 64 bits)
    * should remain a multiple of 8 * 64 with enough offset to fit each dlsch
    */

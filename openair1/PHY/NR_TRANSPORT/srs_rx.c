@@ -30,22 +30,6 @@
 void nr_fill_srs(PHY_VARS_gNB *gNB, frame_t frame, slot_t slot, nfapi_nr_srs_pdu_t *srs_pdu)
 {
   NR_gNB_SRS_job_t srs = {.frame = frame, .slot = slot, .srs_pdu = *srs_pdu};
-  if (gNB->common_vars.beam_id) {
-    const uint8_t l0 = srs_pdu->time_start_position; // L2 already sends the absolute symbol index
-    int bitmap = SL_to_bitmap(l0, 1 << srs_pdu->num_symbols);
-    int fapi_beam_idx = srs_pdu->beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx;
-    const nfapi_v4_srs_parameters_t *p = &srs_pdu->srs_parameters_v4;
-    // We assume the ports are sequential so taking the first port index here
-    const uint16_t ant_port_start = p->num_ul_spatial_streams_ports > 0 ? p->Ul_spatial_stream_ports[0] : 0;
-    beam_index_allocation(fapi_beam_idx,
-                          ant_port_start,
-                          p->num_ul_spatial_streams_ports,
-                          NR_SYMBOLS_PER_SLOT,
-                          slot,
-                          bitmap,
-                          gNB->frame_parms.nb_antennas_rx,
-                          gNB->common_vars.beam_id);
-  }
   bool found = spsc_q_put(&gNB->srs_queue, &srs, sizeof(srs));
   if (!found)
     LOG_W(NR_PHY, "SRS list is full: dropping SRS UE %04x\n", srs_pdu->rnti);

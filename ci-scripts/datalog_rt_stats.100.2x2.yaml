@@ -10,7 +10,7 @@ ColNames :
   - Average vs Reference Deviation (Reference Value; Acceptability Deviation Threshold)
 Ref : 
   feprx : 150.0
-  feptx_prec : 0.0
+  feptx_prec : 30.0
   feptx_ofdm : 60.0
   feptx_total : 150.0
   L1 Tx processing : 475.0

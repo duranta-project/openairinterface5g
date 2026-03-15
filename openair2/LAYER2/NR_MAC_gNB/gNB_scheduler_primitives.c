@@ -879,7 +879,8 @@ nfapi_nr_dl_dci_pdu_t *prepare_dci_pdu(nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_
                                        int aggregation_level,
                                        int cce_index,
                                        int beam_index,
-                                       int rnti)
+                                       int rnti,
+                                       nr_beam_mode_t beam_mode)
 {
   nfapi_nr_dl_dci_pdu_t *dci_pdu = &pdcch_pdu->dci_pdu[pdcch_pdu->numDlDci];
   dci_pdu->RNTI = rnti;
@@ -913,7 +914,7 @@ nfapi_nr_dl_dci_pdu_t *prepare_dci_pdu(nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_
     pdcch_pdu->param_v4.dci_spatialStreamIndices[pdcch_pdu->numDlDci * num_ant_ports_per_dci + i].spatial_stream_index =
         spatial_stream_idx[i];
   }
-  dci_pdu->precodingAndBeamforming.dig_bf_interfaces = num_ant_ports_per_dci;
+  dci_pdu->precodingAndBeamforming.dig_bf_interfaces = (beam_mode == NO_BEAM_MODE) ? 0 : num_ant_ports_per_dci;
   dci_pdu->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = beam_index;
   return dci_pdu;
 }
@@ -1594,9 +1595,10 @@ void nr_configure_pucch(nfapi_nr_pucch_pdu_t *pucch_pdu,
   // Beamforming
   pucch_pdu->beamforming.num_prgs = 1;
   pucch_pdu->beamforming.prg_size = pucch_pdu->prb_size;
-  pucch_pdu->beamforming.dig_bf_interface = 1;
+  pucch_pdu->beamforming.dig_bf_interface = (beam_mode == NO_BEAM_MODE) ? 0 : 1;
   const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, beam_mode);
-  pucch_pdu->beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = fapi_beam;
+  if (pucch_pdu->beamforming.dig_bf_interface)
+    pucch_pdu->beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = fapi_beam;
   pucch_pdu->param_v4.numSpatialStreamIndices = 1;
   pucch_pdu->param_v4.spatialStreamIndices[0] = ant_port_idx;
 }
@@ -3355,11 +3357,12 @@ void nr_csirs_scheduling(int Mod_idP, frame_t frame, slot_t slot, nfapi_nr_dl_tt
           nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csirs_pdu_rel15 = &dl_tti_csirs_pdu->csi_rs_pdu.csi_rs_pdu_rel15;
           csirs_pdu_rel15->precodingAndBeamforming.num_prgs = 1;
           csirs_pdu_rel15->precodingAndBeamforming.prg_size = resourceMapping.freqBand.nrofRBs; //1 PRG of max size
-          csirs_pdu_rel15->precodingAndBeamforming.dig_bf_interfaces = 1;
+          csirs_pdu_rel15->precodingAndBeamforming.dig_bf_interfaces = (gNB_mac->beam_info.beam_mode == NO_BEAM_MODE) ? 0 : 1;
           csirs_pdu_rel15->precodingAndBeamforming.prgs_list[0].pm_idx = 0;
           const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, gNB_mac->beam_info.beam_mode);
           // TODO: set correctly dig_bf_interface_list when ports of same CDM group is used and PMI if used.
-          csirs_pdu_rel15->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = fapi_beam;
+          if (csirs_pdu_rel15->precodingAndBeamforming.dig_bf_interfaces)
+            csirs_pdu_rel15->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = fapi_beam;
           const nr_pdsch_AntennaPorts_t *p = &gNB_mac->radio_config.pdsch_AntennaPorts;
           const uint16_t num_max_csi_ports = p->N1 * p->N2 * p->XP;
           /* The L1 does not take number of spatial streams parameter into

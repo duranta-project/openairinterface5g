@@ -49,6 +49,7 @@ static int DEFRUTPCORES[] = {-1,-1,-1,-1};
 #include "nfapi_interface.h"
 #include <nfapi/oai_integration/vendor_ext.h>
 #include "executables/nr-softmodem-common.h"
+#include "PHY/phy_digital_beamforming.h"
 
 static void NRRCconfig_RU(configmodule_interface_t *cfg);
 
@@ -449,26 +450,31 @@ static void rx_rf(RU_t *ru, int *frame, int *slot)
   stop_meas(&ru->rx_fhaul);
 }
 
+static uint16_t prev_beam;
+
 static radio_tx_gpio_flag_t get_gpio_flags(RU_t *ru, int slot)
 {
   radio_tx_gpio_flag_t flags_gpio = 0;
-  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
   openair0_config_t *cfg0 = &ru->openair0_cfg;
+
+  /* We should tell MAC about the limitation of analog beamforming so that MAC schedules them accordingly.
+    Here, we assume that MAC changes beams only in slot boundary and we don't have to check its correctness.*/
+
+  // For analog beam switching, we assume MAC sends one section per slot
+  uint16_t beam_id = ru->common.ru_tx_grid->grid_info[0].beam_id;
+  // And the MSB is set
+  AssertFatal(IS_BIT_SET(beam_id, 15), "RU based analog beam switching enabled but MAC beam id MSB not set\n");
+  beam_id &= 0x7fff;
 
   switch (cfg0->gpio_controller) {
     case RU_GPIO_CONTROL_GENERIC:
       // currently we switch beams at the beginning of a slot and we take the beam index of the first symbol of this slot
       // we only send the beam to the gpio if the beam is different from the previous slot
 
-      if (ru->common.beam_id) {
-        int prev_slot = (slot - 1 + fp->slots_per_frame) % fp->slots_per_frame;
-        uint16_t **beam_ids = ru->common.beam_id;
-        uint16_t prev_beam = beam_ids[prev_slot * fp->symbols_per_slot][0];
-        int beam = beam_ids[slot * fp->symbols_per_slot][0];
-        if (prev_beam != beam) {
-          flags_gpio = beam | TX_GPIO_CHANGE; // enable change of gpio
-          LOG_I(HW, "slot %d, beam %d\n", slot, beam_ids[slot * fp->symbols_per_slot][0]);
-        }
+      if (prev_beam != beam_id) {
+        flags_gpio = beam_id | TX_GPIO_CHANGE; // enable change of gpio
+        LOG_I(HW, "slot %d, beam %d\n", slot, beam_id);
+        prev_beam = beam_id;
       }
       break;
 
@@ -476,7 +482,7 @@ static radio_tx_gpio_flag_t get_gpio_flags(RU_t *ru, int slot)
       // the beam index is written in bits 8-10 of the flags
       // bit 11 enables the gpio programming
       int beam = 0;
-      if ((slot % 10 == 0) && ru->common.beam_id && (ru->common.beam_id[slot * fp->symbols_per_slot][0] < 64)) {
+      if ((slot % 10 == 0) && beam_id < 64) {
         // beam = ru->common.beam_id[0][slot*fp->symbols_per_slot] | 64;
         beam = 1024; // hardcoded now for beam32 boresight
         // beam = 127; //for the sake of trying beam63
@@ -980,7 +986,7 @@ void *ru_thread(void *param)
         prach_item_t p;
         while (get_next_nr_prach(&gNB->prach_ru_queue, &now, &p)) {
           // need to extract RACH data for later processing by rx_nr_prach()
-          rx_nr_prach_ru(&p, ru->common.rxdata, ru->nr_frame_parms, ru->N_TA_offset, gNB->enable_analog_das);
+          rx_nr_prach_ru(&p, ru->common.rxdata, ru->nr_frame_parms, ru->N_TA_offset);
           bool success = spsc_q_put(&gNB->prach_l1rx_queue, &p, sizeof(p));
           // assume prach_l1rx_queue never full: prach_ru_queue filled at
           // constant pace, but prach_l1rx_queue emptied as fast as possible,
@@ -1125,7 +1131,7 @@ void set_function_spec_param(RU_t *ru)
         ru->do_prach             = 0;                       // no prach processing in RU
         ru->feprx                = nr_fep_tp;     // this is frequency-shift + DFTs
         ru->feptx_ofdm           = nr_feptx_tp;             // this is fep with idft and precoding
-        ru->feptx_prec           = NULL;                    
+        ru->feptx_prec           = nr_feptx_prec;
         ru->fh_north_in          = NULL;                    // no incoming fronthaul from north
         ru->fh_north_out         = NULL;                    // no outgoing fronthaul to north
         ru->nr_start_if          = NULL;                    // no if interface
@@ -1142,8 +1148,8 @@ void set_function_spec_param(RU_t *ru)
       ru->do_prach               = 0;
       ru->txfh_in_fep            = 0;
       ru->feprx                  = nr_fep_tp;     // this is frequency-shift + DFTs
-      ru->feptx_prec             = NULL;          // need to do transmit Precoding + IDFTs
-      ru->feptx_ofdm             = nr_feptx_tp; // need to do transmit Precoding + IDFTs
+      ru->feptx_prec             = nr_feptx_prec; // transmit precoding
+      ru->feptx_ofdm             = nr_feptx_tp; // IDFTs
       ru->fh_south_in            = fh_if5_south_in;     // synchronous IF5 reception
       ru->fh_south_out           = (ru->txfh_in_fep>0) ? NULL : fh_if5_south_out;    // synchronous IF5 transmission
       ru->fh_south_asynch_in     = NULL;                // no asynchronous UL

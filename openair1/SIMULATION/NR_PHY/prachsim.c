@@ -763,7 +763,7 @@ int main(int argc, char **argv){
                              .Xu = gNB->X_u,
                              .rx_prach = &gNB->rx_prach,
                              .prach_buf = (void *)(in + 1)};
-        rx_nr_prach_ru(in, ru->common.rxdata, ru->nr_frame_parms, ru->N_TA_offset, false);
+        rx_nr_prach_ru(in, ru->common.rxdata, ru->nr_frame_parms, ru->N_TA_offset);
         if (n_frames == 1)
           LOG_I(PHY,
                 "ncs %d,num_seq %d\n",

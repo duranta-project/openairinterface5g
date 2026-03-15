@@ -66,7 +66,7 @@ void nr_schedule_rx_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_p
   const NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
   const nfapi_nr_prach_config_t *cfg = &gNB->gNB_config.prach_config;
   const nfapi_nr_num_prach_fd_occasions_t *occ = &cfg->num_prach_fd_occasions_list[prach_pdu->num_ra];
-  const int num_rx_per_beam = gNB->frame_parms.nb_antennas_rx / gNB->common_vars.num_beams_period;
+  const int num_rx_port = (prach_pdu->beamforming.dig_bf_interface == 0) ? gNB->frame_parms.nb_antennas_rx : 1;
   prach_item_t prach = {
       .frame = SFN,
       .slot = Slot,
@@ -79,36 +79,12 @@ void nr_schedule_rx_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_p
       .prach_sequence_length = cfg->prach_sequence_length.value,
       .restricted_set = cfg->restricted_set_config.value,
       .numerology_index = fp->numerology_index,
-      .nb_rx = num_rx_per_beam,
+      .nb_rx = num_rx_port,
       .Xu = gNB->X_u,
       .rx_prach = &gNB->rx_prach,
       // TODO can be made permanently allocated?
       .prach_buf = calloc_or_fail(1, sizeof(c16_t) * prach.nb_rx * NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX * NR_PRACH_SEQ_LEN_L),
   };
-  const int num_beams = prach_pdu->beamforming.dig_bf_interface;
-  int n_symb = get_nr_prach_duration(prach_pdu->prach_format);
-  AssertFatal(num_beams < NFAPI_MAX_NUM_BG_IF, "impossible beams size %d\n", num_beams);
-  for (int i = 0; i < num_beams; i++) {
-    int fapi_beam_idx = prach_pdu->beamforming.prgs_list[0].dig_bf_interface_list[i].beam_idx;
-    int start_symb = prach_pdu->prach_start_symbol + i * n_symb;
-    int bitmap = SL_to_bitmap(start_symb, n_symb);
-    if (gNB->common_vars.beam_id) {
-      // TODO: Remove assumption of contiguous ports after DAS is properly handled in beamforming
-      uint16_t ant_start = get_first_ant_idx(gNB->enable_analog_das,
-                                             num_rx_per_beam,
-                                             fapi_beam_idx,
-                                             prach_pdu->param_v4.spatialStreamIndices[i * num_rx_per_beam]);
-      beam_index_allocation(fapi_beam_idx,
-                            ant_start,
-                            num_rx_per_beam,
-                            NR_SYMBOLS_PER_SLOT,
-                            Slot,
-                            bitmap,
-                            gNB->frame_parms.nb_antennas_rx,
-                            gNB->common_vars.beam_id);
-      prach.ant_start = ant_start;
-    }
-  }
   bool found = spsc_q_put(&gNB->prach_ru_queue, &prach, sizeof(prach));
   if (!found)
     LOG_W(NR_PHY, "%4d.%2d PRACH occ queue is full: dropping PRACH request\n", SFN, Slot);
@@ -119,8 +95,7 @@ static void rx_nr_prach_ru_internal(prach_item_t *p,
                                     int prachOccasion,
                                     int32_t **rxdata,
                                     NR_DL_FRAME_PARMS *fp,
-                                    int N_TA_offset,
-                                    bool das)
+                                    int N_TA_offset)
 {
   int sample_offset_slot;
   const int sum = fp->ofdm_symbol_size + fp->nb_prefix_samples;
@@ -346,23 +321,11 @@ static void rx_nr_prach_ru_internal(prach_item_t *p,
   k*=K;
   k+=kbar;
 
-  const uint8_t num_beams = p->pdu.beamforming.dig_bf_interface;
-  // When more than one beams, then each occasion is on one beam
-  int ant_offset = 0;
-  if (num_beams > 1) {
-    AssertFatal(prachOccasion < num_beams, "Num of PRACH Occasions must be same as number of beams in beamforming mode\n");
-    ant_offset = prachOccasion * p->nb_rx;
-  }
-  // TODO: Remove assumption of contiguous ports after DAS is properly handled in beamforming
-  uint16_t ant_start =
-      get_first_ant_idx(das,
-                        p->nb_rx,
-                        p->pdu.beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx,
-                        p->pdu.param_v4.numSpatialStreamIndices > 0 ? p->pdu.param_v4.spatialStreamIndices[ant_offset] : 0);
   for (int aa = 0; aa < p->nb_rx; aa++) {
     // Fixme: slot or slot makes no sense ???
     int slot2 = p->prach_sequence_length ? p->slot : p->slot;
-    int idx = ant_start + aa;
+    // TODO L1 BF: call prach beamforming here
+    int idx = aa;
     c16_t *prach = (c16_t *)&rxdata[idx][get_samples_slot_timestamp(fp, slot2) + sample_offset_slot - N_TA_offset];
 
     // do DFT
@@ -386,7 +349,7 @@ static void rx_nr_prach_ru_internal(prach_item_t *p,
   }
 }
 
-void rx_nr_prach_ru(prach_item_t *p, int32_t **rxdata, NR_DL_FRAME_PARMS *fp, int N_TA_offset, bool das)
+void rx_nr_prach_ru(prach_item_t *p, int32_t **rxdata, NR_DL_FRAME_PARMS *fp, int N_TA_offset)
 {
   int N_dur = get_nr_prach_duration(p->pdu.prach_format);
   LOG_D(NR_PHY_RACH, "%d.%d try to decode %d occasions \n", p->frame, p->slot, p->pdu.num_prach_ocas);
@@ -395,7 +358,7 @@ void rx_nr_prach_ru(prach_item_t *p, int32_t **rxdata, NR_DL_FRAME_PARMS *fp, in
     // comment FK: the standard 38.211 section 5.3.2 has one extra term +14*N_RA_slot. This is because there prachStartSymbol is
     // given wrt to start of the 15kHz slot or 60kHz slot. Here we work slot based, so this function is anyway only called in slots
     // where there is PRACH. Its up to the MAC to schedule another PRACH PDU in the case there are there N_RA_slot \in {0,1}.
-    rx_nr_prach_ru_internal(p, prachStartSymbol, prach_oc, rxdata, fp, N_TA_offset, das);
+    rx_nr_prach_ru_internal(p, prachStartSymbol, prach_oc, rxdata, fp, N_TA_offset);
   }
 }
 
@@ -554,6 +517,8 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
         LOG_M("prach_rxF1.m", "prach_rxF1", in->prach_buf[1][occasion], 6144, 1, 1);
       }
       c16_t prachF[dft_sz] __attribute__((aligned(32)));
+
+      // TODO: once DBF is implemented we have to process only one logical antenna port here
       for (int aa = 0; aa < nb_rx; aa++) {
         // Do componentwise product with Xu* on each antenna
         for (int offset = 0; offset < N_ZC; offset++) {

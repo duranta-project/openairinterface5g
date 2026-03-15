@@ -272,7 +272,6 @@ void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
       .nb_rx = ru->nb_rx,
       .nb_tx = ru->nb_tx,
       .rxdataF = ru->common.rxdataF,
-      .beam_id = ru->common.beam_id,
       .prach_buf = NULL,
   };
 
@@ -343,7 +342,6 @@ void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
       .nb_rx = ru->nb_rx,
       .nb_tx = ru->nb_tx,
       .txdataF_BF = ru->common.txdataF_BF,
-      .beam_id = ru->common.beam_id,
   };
 
   // printf("south_out:\tframe=%d\tslot=%d\ttimestamp=%ld\n",frame,slot,timestamp);

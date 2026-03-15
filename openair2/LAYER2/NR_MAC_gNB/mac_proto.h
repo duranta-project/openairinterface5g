@@ -161,7 +161,8 @@ nfapi_nr_dl_dci_pdu_t *prepare_dci_pdu(nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_
                                        int aggregation_level,
                                        int cce_index,
                                        int beam_index,
-                                       int rnti);
+                                       int rnti,
+                                       nr_beam_mode_t beam_mode);
 
 void nr_schedule_pucch(gNB_MAC_INST *nrmac, frame_t frameP, slot_t slotP);
 
@@ -322,7 +323,8 @@ nfapi_nr_dl_tti_pdsch_pdu_rel15_t *prepare_pdsch_pdu(nfapi_nr_dl_tti_request_pdu
                                                      int rnti,
                                                      int beam_index,
                                                      int nl_tbslbrm,
-                                                     int pdu_index);
+                                                     int pdu_index,
+                                                     nr_beam_mode_t beam_mode);
 int nr_write_ce_dlsch_pdu(module_id_t module_idP,
                           const NR_UE_sched_ctrl_t *ue_sched_ctl,
                           unsigned char *mac_pdu,

@@ -12,6 +12,8 @@
 #include "PHY/MODULATION/modulation_common.h"
 #include "PHY/MODULATION/nr_modulation.h"
 #include "openair1/PHY/defs_nr_common.h"
+#include "PHY/phy_digital_beamforming.h"
+
 #include "common/utils/LOG/log.h"
 #include "common/utils/system.h"
 
@@ -136,29 +138,17 @@ void nr_feptx_prec(RU_t *ru, int frame_tx, int slot_tx)
   AssertFatal(ru->num_gNB == 1, "Cannot handle more than 1 gNB\n");
   PHY_VARS_gNB *gNB = gNB_list[0];
   nfapi_nr_config_request_scf_t *cfg = &ru->gNB_list[0]->gNB_config;
-  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
-  start_meas(&ru->precoding_stats);
-
-  // Copy beam ID assigned to all ports in this slot
-  if (gNB->common_vars.analog_bf) {
-    for (int i = 0; i < fp->symbols_per_slot; i++) {
-      memcpy(ru->common.beam_id[slot_tx * fp->symbols_per_slot + i],
-             gNB->common_vars.beam_id[slot_tx * fp->symbols_per_slot + i],
-             (ru->nb_tx) * sizeof(**ru->common.beam_id));
-    }
-  }
 
   if (nr_slot_select(cfg,frame_tx,slot_tx) == NR_UPLINK_SLOT)
     return;
 
-  // If there is no digital beamforming we just need to copy the data to RU
-  if (ru->config.dbt_config.num_dig_beams == 0 || ru->gNB_list[0]->common_vars.analog_bf) {
-    for (int i = 0; i < fp->nb_antennas_tx; ++i) {
-      memcpy(ru->common.txdataF_BF[i], gNB->common_vars.txdataF[i], fp->samples_per_slot_wCP * sizeof(int32_t));
-    }
-  }  else {
-    AssertFatal(false, "This needs to be fixed by using appropriate beams from config\n");
-  }
+  start_meas(&ru->precoding_stats);
+  // Point gNB's tx grid pointer to RU
+  ru->common.ru_tx_grid = gNB->common_vars.tx_grid_info;
+
+  // Call tx beamforming interface
+  tx_beamforming_if(ru);
+
   stop_meas(&ru->precoding_stats);
 }
 
@@ -172,31 +162,22 @@ void nr_feptx(void *arg)
   int aa = feptx->aid;
   int startSymbol = feptx->startSymbol;
   int numSymbols = feptx->numSymbols;
+
+  // FFT shift
   const NR_DL_FRAME_PARMS *fp = &ru->gNB_list[0]->frame_parms;
-
-  if (aa == 0)
-    start_meas(&ru->precoding_stats);
-
-  // If there is no digital beamforming we just need to copy the data to RU
-  if (ru->config.dbt_config.num_dig_beams == 0 || ru->gNB_list[0]->common_vars.analog_bf) {
-    // FFT shift
-    fft_shift(ru->gNB_list[0]->common_vars.txdataF[aa],
-              fp->ofdm_symbol_size,
-              fp->N_RB_DL,
-              (c16_t *)ru->common.txdataF_BF[aa],
-              fp->ofdm_symbol_size,
-              startSymbol,
-              numSymbols);
-  } else {
-    AssertFatal(false, "This needs to be fixed by using appropriate beams from config\n");
-  }
-
-  if (aa == 0)
-    stop_meas(&ru->precoding_stats);
+  c16_t ofdm_mod_in[fp->samples_per_slot_wCP] __attribute__((aligned(64)));
+  memset(ofdm_mod_in, 0, sizeof(ofdm_mod_in));
+  fft_shift((c16_t *)ru->common.txdataF_BF[aa],
+            fp->ofdm_symbol_size,
+            fp->N_RB_DL,
+            ofdm_mod_in,
+            fp->ofdm_symbol_size,
+            startSymbol,
+            numSymbols);
 
   ////////////FEPTX////////////
   nr_feptx0(fp,
-            (const int *)ru->common.txdataF_BF[aa],
+            (const int *)ofdm_mod_in,
             ru->common.txdata[aa],
             &ru->ofdm_mod_stats,
             ru->proc.frame_tx,
@@ -223,14 +204,6 @@ void nr_feptx_tp(RU_t *ru, int frame_tx, int slot)
   feptx_cmd_t arr[sz];
   task_ans_t ans;
   init_task_ans(&ans, sz);
-
-  // Copy beam IDs
-  if (ru->gNB_list[0]->common_vars.analog_bf) {
-    for (uint_fast16_t i = 0; i < fp->symbols_per_slot; i++)
-      memcpy(ru->common.beam_id[slot * fp->symbols_per_slot + i],
-             ru->gNB_list[0]->common_vars.beam_id[slot * fp->symbols_per_slot + i],
-             (ru->nb_tx) * sizeof(**ru->common.beam_id));
-  }
 
   int nbfeptx = 0;
   for (int aid = 0; aid < nt; aid++) {
@@ -320,6 +293,7 @@ void nr_fep_tp(RU_t *ru, int slot)
 
       task_t t = {.func = nr_fep, .args = feprx_cmd};
       pushTpool(ru->threadPool, t);
+
       nbfeprx++;
     }
   }

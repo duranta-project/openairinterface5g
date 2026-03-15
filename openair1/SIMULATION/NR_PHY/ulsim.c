@@ -71,6 +71,7 @@
 #include "openair2/LAYER2/NR_MAC_UE/mac_proto.h"
 #include "openair2/LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "openair2/LAYER2/NR_MAC_gNB/nr_radio_config.h"
+#include "PHY/phy_digital_beamforming.h"
 #include "time_meas.h"
 #include "utils.h"
 
@@ -1583,8 +1584,8 @@ int main(int argc, char *argv[])
         UL_INFO.srs_ind.number_of_pdus = 0;
 
         //----------- OFDM Demodulation and RX rotation--------------------------
-        bool was_symbol_used[14] = {0};
-        int offset = (slot & 3) * gNB->frame_parms.symbols_per_slot * gNB->frame_parms.ofdm_symbol_size;
+        bool was_symbol_used[NR_SYMBOLS_PER_SLOT] = {0};
+        int offset = (slot & RU_RX_SLOT_DEPTH) * gNB->frame_parms.symbols_per_slot * gNB->frame_parms.ofdm_symbol_size;
         for (int i = 0; i < 14; i++) {
           was_symbol_used[i] = true;
         }

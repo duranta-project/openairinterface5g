@@ -469,12 +469,12 @@ typedef struct
 typedef c16_t nfapi_nr_txru_t;
 
 typedef struct {
-  uint16_t beam_idx;     //0~65535
+  uint16_t beam_idx;     //0~32767
   nfapi_nr_txru_t *txru_list;
 } nfapi_nr_dig_beam_t;
 
 typedef struct {
-  uint16_t num_dig_beams; //0~65535
+  uint16_t num_dig_beams; //0~32767
   uint16_t num_txrus;    //0~65535
   nfapi_nr_dig_beam_t *dig_beam_list;
 } nfapi_nr_dbt_pdu_t;

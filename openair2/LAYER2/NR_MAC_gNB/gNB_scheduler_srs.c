@@ -465,8 +465,8 @@ static void nr_configure_srs(gNB_MAC_INST *nrmac,
   // Indexing SRS antenna ports when beamformed
   const unsigned int srs_num_rx_ant_ports = nrmac->radio_config.pusch_AntennaPorts;
   srs_pdu->srs_parameters_v4.num_ul_spatial_streams_ports = srs_num_rx_ant_ports;
-  srs_pdu->beamforming.dig_bf_interface = srs_num_rx_ant_ports;
-  for (int i = 0; i < srs_num_rx_ant_ports;i++){
+  srs_pdu->beamforming.dig_bf_interface = (nrmac->beam_info.beam_mode == NO_BEAM_MODE) ? 0 : srs_num_rx_ant_ports;
+  for (int i = 0; i < srs_num_rx_ant_ports; i++){
     srs_pdu->beamforming.prgs_list[0].dig_bf_interface_list[i].beam_idx = fapi_beam;
     srs_pdu->srs_parameters_v4.Ul_spatial_stream_ports[i] =
         nrmac->radio_config.spatial_stream_index[beam.idx * srs_num_rx_ant_ports + i];

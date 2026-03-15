@@ -537,16 +537,19 @@ int main(int argc, char **argv)
     ack_nack_errors = 0;
     sr_errors = 0;
     n_errors = 0;
-    c16_t **txdataF = gNB->common_vars.txdataF;
+    c16_t txdataF_buf[frame_parms->nb_antennas_tx * frame_parms->samples_per_slot_wCP] __attribute__((aligned(32)));
+    c16_t *txdataF[frame_parms->nb_antennas_tx];
+    for(int i=0; i< frame_parms->nb_antennas_tx; ++i)
+      txdataF[i] = &txdataF_buf[i * frame_parms->samples_per_slot_wCP];
     for (trial = 0; trial < n_trials && !stop; trial++) {
       for (int aatx = 0; aatx < 1; aatx++)
         bzero(txdataF[aatx], frame_parms->ofdm_symbol_size * sizeof(int));
       if (format == 0 && do_DTX == 0) {
-        nr_generate_pucch0(txdataF, frame_parms, amp, nr_slot_tx, &pucch_tx_pdu);
+        nr_generate_pucch0((c16_t **)txdataF, frame_parms, amp, nr_slot_tx, &pucch_tx_pdu);
       } else if (format == 1 && do_DTX == 0) {
-        nr_generate_pucch1(txdataF, frame_parms, amp, nr_slot_tx, &pucch_tx_pdu);
+        nr_generate_pucch1((c16_t **)txdataF, frame_parms, amp, nr_slot_tx, &pucch_tx_pdu);
       } else if (do_DTX == 0) {
-        nr_generate_pucch2(txdataF, frame_parms, amp, nr_slot_tx, &pucch_tx_pdu);
+        nr_generate_pucch2((c16_t **)txdataF, frame_parms, amp, nr_slot_tx, &pucch_tx_pdu);
       }
 
       // SNR Computation

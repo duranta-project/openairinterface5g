@@ -65,8 +65,6 @@ static void tx_func(processingData_L1tx_t *info)
     reset_active_ulsch(gNB, frame_rx);
   }
 
-  clear_slot_beamid(gNB, slot_tx);
-
   nfapi_nr_slot_indication_scf_t ind = {.sfn = frame_tx, .slot = slot_tx};
   start_meas(&gNB->slot_indication_stats);
   // this variable is very big (multiple MB), so we put it into static storage
@@ -226,7 +224,7 @@ static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size
   bool full_slot = ru->half_slot_parallelization == 0;
   if (ru->feptx_prec) {
     output += print_meas_log(&ru->precoding_stats,
-                             full_slot ? "feptx_prec (per port)" : "feptx_prec (per port, half_slot)",
+                             "feptx_prec",
                              NULL,
                              NULL,
                              output,

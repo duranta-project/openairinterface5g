@@ -28,7 +28,8 @@ static void schedule_ssb(frame_t frame,
                          uint8_t scoffset,
                          uint16_t offset_pointa,
                          uint32_t payload,
-                         uint16_t stream_idx)
+                         uint16_t stream_idx,
+                         nr_beam_mode_t beam_mode)
 {
   nfapi_nr_dl_tti_request_pdu_t *dl_config_pdu = &dl_req->dl_tti_pdu_list[dl_req->nPDUs];
   memset((void *) dl_config_pdu, 0, sizeof(nfapi_nr_dl_tti_request_pdu_t));
@@ -56,9 +57,10 @@ static void schedule_ssb(frame_t frame,
   dl_config_pdu->ssb_pdu.ssb_pdu_rel15.bchPayload = payload;
   dl_config_pdu->ssb_pdu.ssb_pdu_rel15.precoding_and_beamforming.num_prgs = 1;
   dl_config_pdu->ssb_pdu.ssb_pdu_rel15.precoding_and_beamforming.prg_size = 20; //SSB is always 20RBs
-  dl_config_pdu->ssb_pdu.ssb_pdu_rel15.precoding_and_beamforming.dig_bf_interfaces = 1;
+  dl_config_pdu->ssb_pdu.ssb_pdu_rel15.precoding_and_beamforming.dig_bf_interfaces = (beam_mode == NO_BEAM_MODE) ? 0 : 1;
   dl_config_pdu->ssb_pdu.ssb_pdu_rel15.precoding_and_beamforming.prgs_list[0].pm_idx = 0;
-  dl_config_pdu->ssb_pdu.ssb_pdu_rel15.precoding_and_beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = beam_index;
+  if (dl_config_pdu->ssb_pdu.ssb_pdu_rel15.precoding_and_beamforming.dig_bf_interfaces)
+    dl_config_pdu->ssb_pdu.ssb_pdu_rel15.precoding_and_beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = beam_index;
   dl_config_pdu->ssb_pdu.ssb_pdu_rel15.param_v4.spatialStreamIndexPresent = 1;
   dl_config_pdu->ssb_pdu.ssb_pdu_rel15.param_v4.spatialStreamIndex = stream_idx;
   dl_req->nPDUs++;
@@ -209,7 +211,8 @@ void schedule_nr_mib(module_id_t module_idP, frame_t frameP, slot_t slotP, nfapi
                          ssbSubcarrierOffset,
                          offset_pointa,
                          mib_pdu,
-                         gNB->radio_config.spatial_stream_index[beam.idx]);
+                         gNB->radio_config.spatial_stream_index[beam.idx],
+                         gNB->beam_info.beam_mode);
             fill_ssb_vrb_map(cc, prb_offset, ssbSubcarrierOffset, ssb_start_symbol, CC_id, beam.idx);
             if (IS_SA_MODE(get_softmodem_params())) {
               get_type0_PDCCH_CSS_config_parameters(&gNB->type0_PDCCH_CSS_config[i_ssb],
@@ -364,8 +367,18 @@ static void nr_fill_nfapi_dl_SIB_pdu(gNB_MAC_INST *gNB_mac,
   dl_req->nPDUs += 1;
 
   const uint16_t fapi_beam = convert_to_fapi_beam(beam_index, gNB_mac->beam_info.beam_mode);
-  nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu_rel15 =
-      prepare_pdsch_pdu(dl_tti_pdsch_pdu, gNB_mac, NULL, pdsch, NULL, is_sib1, 0, SI_RNTI, fapi_beam, 1, pdu_index);
+  nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu_rel15 = prepare_pdsch_pdu(dl_tti_pdsch_pdu,
+                                                                         gNB_mac,
+                                                                         NULL,
+                                                                         pdsch,
+                                                                         NULL,
+                                                                         is_sib1,
+                                                                         0,
+                                                                         SI_RNTI,
+                                                                         fapi_beam,
+                                                                         1,
+                                                                         pdu_index,
+                                                                         gNB_mac->beam_info.beam_mode);
   LOG_D(NR_MAC,
         "OtherSI:bwpStart %d, bwpSize %d, rbStart %d, rbSize %d, dlDmrsSymbPos = 0x%x\n",
         pdsch_pdu_rel15->BWPStart,
@@ -383,7 +396,8 @@ static void nr_fill_nfapi_dl_SIB_pdu(gNB_MAC_INST *gNB_mac,
                                                    aggregation_level,
                                                    cce_index,
                                                    fapi_beam,
-                                                   SI_RNTI);
+                                                   SI_RNTI,
+                                                   gNB_mac->beam_info.beam_mode);
   pdcch_pdu_rel15->numDlDci++;
 
   /* DCI payload */

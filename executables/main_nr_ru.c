@@ -124,10 +124,6 @@ int beam_index_allocation(bool das,
 {
   return 0;
 }
-uint16_t get_first_ant_idx(bool das, uint16_t num_ports_beams, uint16_t beam_id, uint16_t fapi_start_port)
-{
-  return 0;
-};
 void nr_fill_du(uint16_t N_ZC, const uint16_t *prach_root_sequence_map, uint16_t nr_du[NR_PRACH_SEQ_LEN_L - 1])
 {
   return;

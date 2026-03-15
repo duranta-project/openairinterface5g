@@ -43,13 +43,6 @@ void nr_fill_pucch(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_pucch_pdu_t 
         pucch_pdu->sr_flag,
         pucch_pdu->bit_len_csi_part1);
   NR_gNB_PUCCH_job_t pucch = {.frame = frame, .slot = slot, .pucch_pdu = *pucch_pdu};
-  if (gNB->common_vars.beam_id) {
-    int fapi_beam_idx = pucch_pdu->beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx;
-    int bitmap = SL_to_bitmap(pucch_pdu->start_symbol_index, pucch_pdu->nr_of_symbols);
-    const nfapi_nr_spatial_stream_index_t *p = &pucch_pdu->param_v4;
-    const uint16_t ant_port = p->numSpatialStreamIndices > 0 ? p->spatialStreamIndices[0] : 0;
-    beam_index_allocation(fapi_beam_idx, ant_port, 1, NR_SYMBOLS_PER_SLOT, slot, bitmap, gNB->frame_parms.nb_antennas_rx, gNB->common_vars.beam_id);
-  }
   bool found = spsc_q_put(&gNB->pucch_queue, &pucch, sizeof(pucch));
   if (!found)
     LOG_W(NR_PHY, "PUCCH list is full: dropping PUCCH UE %04x\n", pucch_pdu->rnti);

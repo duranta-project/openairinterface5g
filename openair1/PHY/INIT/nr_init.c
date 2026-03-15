@@ -90,9 +90,7 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
   // shortcuts
   NR_DL_FRAME_PARMS *const fp       = &gNB->frame_parms;
   nfapi_nr_config_request_scf_t *cfg = &gNB->gNB_config;
-  NR_gNB_COMMON *const common_vars = &gNB->common_vars;
-  common_vars->analog_bf = cfg->analog_beamforming_ve.analog_bf_vendor_ext.value;
-  LOG_I(PHY, "L1 configured with%s analog beamforming\n", common_vars->analog_bf ? "" : "out");
+  NR_gNB_COMMON *const common_vars  = &gNB->common_vars;
 
   int Ptx = cfg->carrier_config.num_tx_ant.value;
   int Prx = cfg->carrier_config.num_rx_ant.value;
@@ -142,19 +140,10 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
    * RU to copy/recover freq-domain memory from there */
   common_vars->rxdataF = malloc16_clear(Prx * sizeof(*common_vars->rxdataF));
 
-  /* beam_id array is common for tx and rx so the max number of both is taken */
-  const unsigned int num_antenna_ports = max(Ptx, Prx);
-  if (cfg->analog_beamforming_ve.analog_bf_vendor_ext.value) {
-    common_vars->beam_id = (uint16_t **)malloc16(fp->slots_per_frame * fp->symbols_per_slot * sizeof(*common_vars->beam_id));
-    for (int i = 0; i < fp->slots_per_frame * fp->symbols_per_slot; i++)
-      common_vars->beam_id[i] = (uint16_t *)malloc16_clear(num_antenna_ports * sizeof(**common_vars->beam_id));
-  }
-
-  common_vars->txdataF = (c16_t **)malloc16_clear(Ptx * sizeof(*common_vars->txdataF));
+  common_vars->tx_grid_info = calloc(1, Ptx * sizeof(*common_vars->tx_grid_info));
+  common_vars->txdataF = calloc(Ptx, sizeof(*common_vars->txdataF));
   for (int j = 0; j < Ptx; j++)
-    common_vars->txdataF[j] = (c16_t *)malloc16_clear(fp->samples_per_slot_wCP * sizeof(**common_vars->txdataF));
-  common_vars->debugBuff = (int32_t*)malloc16_clear(fp->samples_per_frame*sizeof(int32_t)*100);	
-  common_vars->debugBuff_sample_offset = 0; 
+    common_vars->txdataF[j] = (c16_t*)malloc16_clear(fp->samples_per_slot_wCP * sizeof(c16_t));
 
   // PRACH
   init_nr_prach(gNB);
@@ -188,6 +177,7 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
 void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
 {
   const int Prx = gNB->gNB_config.carrier_config.num_rx_ant.value;
+  const int Ptx = gNB->gNB_config.carrier_config.num_tx_ant.value;
   const int max_ul_mimo_layers = NR_MAX_NB_LAYERS;
   const int n_buf = Prx * max_ul_mimo_layers;
 
@@ -203,23 +193,15 @@ void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
   destroy_DLSCH_struct(gNB);
 
   NR_gNB_COMMON * common_vars = &gNB->common_vars;
-  if (common_vars->beam_id) {
-    for (int j = 0; j < gNB->frame_parms.slots_per_frame * gNB->frame_parms.symbols_per_slot; j++) {
-      free_and_zero(common_vars->beam_id[j]);
-    }
-  }
-  free_and_zero(common_vars->beam_id);
-
-  for (int i = 0; i < gNB->frame_parms.nb_antennas_tx; i++) {
+  for (int i = 0; i < Ptx; i++) {
     free_and_zero(common_vars->txdataF[i]);
   }
   free_and_zero(common_vars->txdataF);
+  free_and_zero(common_vars->tx_grid_info);
 
   /* Do NOT free per-antenna txdataF/rxdataF: the gNB gets a pointer to the
    * RU's txdataF/rxdataF, and the RU will free that */
   free_and_zero(common_vars->rxdataF);
-
-  free_and_zero(common_vars->debugBuff);
 
   for (int ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
     NR_gNB_PUSCH *pusch_vars = &gNB->pusch_vars[ULSCH_id];

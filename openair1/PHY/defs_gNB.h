@@ -41,7 +41,6 @@ typedef struct {
   int restricted_set;
   int numerology_index;
   int nb_rx;
-  int ant_start;
   c16_t (*Xu)[839];
   time_stats_t *rx_prach;
   c16_t (*prach_buf)[NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX][NR_PRACH_SEQ_LEN_L];
@@ -202,23 +201,13 @@ typedef struct {
 } NR_gNB_SRS_job_t;
 
 typedef struct {
+  int num_beams_period;
   /// \brief Pointers (dynamic) to the received data in the frequency domain.
   /// - first index: tx antenna [0..16) where 16 is the total supported antenna ports.
   /// - second index: [0..4*ofdm_symbol_size*symbols_per_slot)
   c16_t **rxdataF;
-  /// \brief holds the transmit data in the frequency domain.
-  /// For IFFT_FPGA this points to the same memory as PHY_vars->rx_vars[a].RX_DMA_BUFFER. //?
-  /// - first index: tx antenna [0..16) where 16 is the total supported antenna ports.
-  /// - second index: sample [0..ofdm_symbol_size*symbols_per_frame)
   c16_t **txdataF;
-  /// \brief Anaglogue beam ID for each OFDM symbol (used when beamforming not done in RU)
-  /// - first index: symbol index [0 .. symbols_per_frame)
-  /// - second index: beam ID for each antenna port [0 .. num_ports)
-  /// Array of beam id assigned to antenna ports in a frame
-  uint16_t **beam_id;
-  bool analog_bf;
-  int32_t *debugBuff;
-  int32_t debugBuff_sample_offset;
+  struct nr_grid *tx_grid_info;
 } NR_gNB_COMMON;
 
 typedef struct {

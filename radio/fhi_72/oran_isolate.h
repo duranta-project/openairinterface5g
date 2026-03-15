@@ -15,6 +15,7 @@
 #include "openair1/PHY/TOOLS/tools_defs.h"
 #include "openair1/PHY/defs_nr_common.h"
 #include "openair1/PHY/NR_TRANSPORT/nr_transport_proto.h"
+#include "openair1/PHY/defs_RU.h"
 
 /*
  * Structure added to bear the information needed from OAI RU
@@ -28,15 +29,14 @@ typedef struct ru_info_s {
   int nb_tx;
   int32_t **txdataF_BF;
 
-  /// \brief Anaglogue beam ID for each OFDM symbol (used when beamforming not done in RU)
-  /// - first index: symbol index [0.. symbols_per_frame)
-  /// - second index: beam_id [0..num_ports)
-  uint16_t **beam_id;
-
   // Needed for Prach
   c16_t (*prach_buf)[NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX][NR_PRACH_SEQ_LEN_L];
   int nb_prach_rx;
   int start_prach_rx;
+  // Info to section CP packets
+  struct nr_grid *tx_grid;
+  struct nr_grid *rx_grid;
+
 } ru_info_t;
 
 void print_fhi_counters(ru_info_t *ru, const int frame, const int slot);
