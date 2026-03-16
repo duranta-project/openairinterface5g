@@ -28,7 +28,7 @@ In the `MACRLC` section of configuration files, there are three new parameters: 
 
 Setting analog beamforming to "preconfigured" or "lophy" changes the way FAPI beam index is treated. By setting "preconfigured", we instruct L1 to look up in Hi-PHY preconfigured DBM beam index. By setting "lophy", we instruct L2 to directly signal to Lo-PHY the beam index (e.g. over 7.2x fronthaul).
 
-DAS is enabled by setting to 1 the parameter `enable_das` in the L1 section of the configuration file. In case of DAS enabled, the field `beam_weights` in `MACRLC` section can be omitted and the number of beams per period equals the total number of beams.
+DAS is enabled by setting the field `beams_per_period` in `MACRLC` section to a value equal to the number of distributed units and by ensuring `nb_tx` and `nb_rx` in RU section is adequate enough to serve all beams. `beam_mode` must be set to "preconfigured" and `beam_weights` can be omitted.
 
 ## Implementation in OAI scheduler
 
@@ -62,7 +62,6 @@ Therefore, in case of analog beamforming, L2 provides in each channel FAPI messa
 
 The total number of logical antenna ports available at L1 is same as `pusch_AntennaPorts * beams_per_period` in UL and `pdsch_AntennaPorts_N1 * pdsch_AntennaPorts_N2 * pdsch_AntennaPorts_XP * beams_per_period` in DL.
 To handle multiple concurrent beams, L2 uses spatial stream indices specified by FAPI to signal L1 on which logical ports to use for a DL or UL signal. The config file parameter `spatial_stream_index` can be used to specify an array of logical port indices to be used. If this parameter is not provided then the indices defaults to `[0 ... pusch_AntennaPorts - 1]`. This parameter is particularly useful when a specific subset of eAxCID has to be used.
-In case of DAS, since each beam corresponds to a specific antenna port, the `beam_index_allocation` function is simplified in the sense that the beam index corresponds to the antenna port index of the frequency domain buffers.
 
 ## RU implementation
 

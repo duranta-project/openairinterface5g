@@ -825,7 +825,6 @@ void RCconfig_NR_L1(void)
       AssertFatal(gNB->TX_AMP > 300, "TX_AMP is too small, must be larger than 300 (is %d)\n", gNB->TX_AMP);
       gNB->phase_comp = *gpd(params, np, L1_PHASE_COMP)->uptr;
       gNB->dmrs_num_antennas_per_thread = *gpd(params, np, L1_NUM_ANTENNAS_PER_THREAD)->uptr;
-      gNB->enable_analog_das = *gpd(params, np, L1_ANALOG_DAS)->uptr;
       // Midhaul configuration
       if (strcmp(*gpd(params, np, L1_TRANSPORT_N_PREFERENCE)->strptr, "local_mac") == 0) {
         // do nothing
@@ -1751,17 +1750,9 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
         beam_info->beam_duration = *gpd(params, np, MACRLC_BEAM_DURATION)->u8ptr;
         beam_info->beam_allocation_size = -1; // to be initialized once we have information on frame configuration
       }
-      bool das_enabled = false;
-      if (NFAPI_MODE == NFAPI_MONOLITHIC) {
-        GET_PARAMS_LIST(L1_ParamList, L1_Params, L1PARAMS_DESC, CONFIG_STRING_L1_LIST, NULL);
-        const paramdef_t *l1_params = L1_ParamList.paramarray[j];
-        const int l1_np = sizeofArray(L1_Params);
-        das_enabled =  *gpd(l1_params, l1_np, L1_ANALOG_DAS)->uptr;
-      }
       // TODO config_isparamset doesn't seem to work for array types, checking numelt instead
       int n = gpd(params, np, MACRLC_BEAM_WEIGHTS_LIST)->numelt;
       if (n > 0) {
-        AssertFatal(!das_enabled, "No need to set beam weights in case of DAS\n");
         int num_beam = n;
         if (RC.nrmac[j]->beam_info.beam_mode == PRECONFIGURED_BEAM_IDX) {
           AssertFatal(n % num_tx == 0, "Error! Number of beam input needs to be multiple of TX antennas\n");
@@ -1775,13 +1766,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
         config.bw_list = calloc_or_fail(n, sizeof(*config.bw_list));
         for (int b = 0; b < n; b++)
           config.bw_list[b] = gpd(params, np, MACRLC_BEAM_WEIGHTS_LIST)->iptr[b];
-      } else if (das_enabled) {
-        n = *gpd(params, np, MACRLC_BEAMS_PERIOD)->u8ptr;
-        config.nb_bfw[0] = num_tx;  // number of tx antennas
-        config.nb_bfw[1] = n; // number of beams weights/indices
-        config.bw_list = calloc_or_fail(n, sizeof(*config.bw_list));
-        for (int b = 0; b < n; b++)
-          config.bw_list[b] = b;
       }
       config.bt.num_beams = 0;
       config.bt.num_weights_per_beam = 0;

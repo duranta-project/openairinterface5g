@@ -51,7 +51,6 @@ void beam_index_allocation(uint16_t fapi_beam_index,
   if (!ant_beam_id_list)
     return;
 
-  AssertFatal(IS_BIT_SET(fapi_beam_index, 15), "Can't handle preconfigured DBM yet\n");
   uint16_t ru_beam_idx = fapi_beam_index & 0x7fff;
   for (int j = 0; j < symbols_per_slot; j++) {
     if (((bitmap_symbols >> j) & 0x01))
