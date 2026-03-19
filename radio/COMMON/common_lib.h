@@ -423,23 +423,6 @@ struct openair0_device {
   /*! \brief Called to send samples to the RF target
       @param device pointer to the device structure specific to the RF hardware target
       @param timestamp The timestamp at whicch the first sample MUST be sent
-      @param buff Buffer which holds the samples (3 dimensional)
-      @param nsamps number of samples to be sent
-      @param nb_antennas_tx number of antennas
-      @param num_beams number of beams
-      @param flags flags must be set to true if timestamp parameter needs to be applied
-  */
-  int (*trx_write_beams_func)(openair0_device_t *device,
-                              openair0_timestamp_t timestamp,
-                              void ***buff,
-                              int nsamps,
-                              int nb_antennas_tx,
-                              int num_beams,
-                              int flags);
-
-  /*! \brief Called to send samples to the RF target
-      @param device pointer to the device structure specific to the RF hardware target
-      @param timestamp The timestamp at whicch the first sample MUST be sent
       @param buff Buffer which holds the samples (2 dimensional)
       @param nsamps number of samples to be sent
       @param nb_antennas_tx number of antennas
@@ -561,26 +544,11 @@ struct openair0_device {
    * to the application to determine the beam of the received samples.
    *
    * \param device the hardware to use
-   * \param beam_map the beams to receive
-   * \return 0 on success
-   */
-  int (*trx_set_beams)(openair0_device_t *device, uint64_t beam_map, openair0_timestamp_t timestamp);
-
-  /*! \brief Set tx/rx beams
-   *
-   * Set the tx/rx beams. This has to be done in advance of the reception in order to
-   * allow the underlying device to change receiver configuration. The exact time depends
-   * on the device.
-   *
-   * NOTICE: the samples returned from trx_read_func may belong to more than one beam. It is up
-   * to the application to determine the beam of the received samples.
-   *
-   * \param device the hardware to use
    * \param beams pointer to array of beam ids
-   * \param num_beams number of beams
+   * \param num_beams number of beams. Expected to be equal to number of antennas
    * \return 0 on success
    */
-  int (*trx_set_beams2)(openair0_device_t *device, int *beams, int num_beams, openair0_timestamp_t timestamp);
+  int (*trx_set_beams)(openair0_device_t *device, uint16_t *beams, int num_beams, openair0_timestamp_t timestamp);
 
   /*! \brief RRU Configuration callback
    * \param idx RU index
@@ -631,7 +599,6 @@ typedef struct {
   uint64_t timestamp;      // Timestamp value of first sample
   uint32_t option_value;   // Option value
   uint32_t option_flag;    // Option flag
-  uint64_t beam_map;
 } samplesBlockHeader_t;
 
 #ifdef __cplusplus
