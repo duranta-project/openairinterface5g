@@ -450,6 +450,11 @@ unsigned int crcbit(unsigned char *inputptr, int octetlen, unsigned int poly);
 
 void phy_viterbi_dot11(int8_t *, uint8_t *, uint16_t);
 
+uint32_t get_C(uint32_t B, uint32_t Kcb);
+uint32_t get_K(uint32_t Zout, uint8_t BG);
+uint32_t get_Zout(uint32_t Kb, uint32_t Kprime);
+uint32_t get_Kb(uint8_t BG, uint32_t B);
+
 /**
  * \brief perform segmentation of a Transport Block (TB) into segments
  * \param input_buffer buffer containing the TB data to be segmented, can be NULL
