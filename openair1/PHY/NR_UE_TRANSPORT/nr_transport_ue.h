@@ -58,9 +58,6 @@ typedef struct {
   nr_rnti_type_t rnti_type;
   /// Cell ID
   int     Nid_cell;
-  /// bit mask of PT-RS ofdm symbol indicies
-  uint16_t ptrs_symbols;
-  int n_ptrs;
 } NR_UE_ULSCH_t;
 
 typedef struct {

@@ -482,11 +482,11 @@ static uint32_t get_d_factor_re(const uint32_t a, const uint32_t b)
 /*
  * This function calculates the rate matching information for UCI multiplexing with PUSCH
  */
-static rate_match_info_uci_t calc_rate_match_info_uci(const NR_UE_ULSCH_t *ulsch_ue,
+static rate_match_info_uci_t calc_rate_match_info_uci(const nfapi_nr_ue_pusch_pdu_t *pusch_pdu,
+                                                      const nr_ptrs_info_t *ptrs_info,
                                                       const NR_UL_UE_HARQ_t *harq_process_ul_ue,
                                                       unsigned int *G)
 {
-  const nfapi_nr_ue_pusch_pdu_t *pusch_pdu = &ulsch_ue->pusch_pdu;
   // get beta offset
   uint8_t beta_offset_index = pusch_pdu->pusch_uci.beta_offset_harq_ack;
   double beta = get_beta_offset_harq_ack(beta_offset_index);
@@ -506,8 +506,8 @@ static rate_match_info_uci_t calc_rate_match_info_uci(const NR_UE_ULSCH_t *ulsch
             pusch_pdu->nr_of_symbols,
             pusch_pdu->start_symbol_index,
             pusch_pdu->ul_dmrs_symb_pos,
-            ulsch_ue->ptrs_symbols,
-            ulsch_ue->n_ptrs);
+            ptrs_info->ptrs_symbols,
+            ptrs_info->n_ptrs);
 
 
   rate_match_info_uci_t rminfo = {0};
@@ -557,13 +557,13 @@ static rate_match_info_uci_t calc_rate_match_info_uci(const NR_UE_ULSCH_t *ulsch
   return rminfo;
 }
 
-static int initialize_mapping_resources(const NR_UE_ULSCH_t *ulsch_ue,
+static int initialize_mapping_resources(const nfapi_nr_ue_pusch_pdu_t *pusch_pdu,
+                                        const nr_ptrs_info_t *ptrs_info,
                                         uint32_t *m_ulsch_initial,
                                         uint32_t *m_uci_current)
 {
   if (!m_ulsch_initial || !m_uci_current)
     return -1;
-  const nfapi_nr_ue_pusch_pdu_t *pusch_pdu = &ulsch_ue->pusch_pdu;
   const uint8_t n_pusch_sym_all = pusch_pdu->nr_of_symbols;
   const uint16_t ul_dmrs_symb_pos = pusch_pdu->ul_dmrs_symb_pos;
   const uint8_t dmrs_type = pusch_pdu->dmrs_config_type;
@@ -574,8 +574,8 @@ static int initialize_mapping_resources(const NR_UE_ULSCH_t *ulsch_ue,
   // Initialize resources per symbol for ULSCH and UCI
   for (uint8_t i = 0; i < n_pusch_sym_all; i++) {
     uint8_t absolute_symbol_idx = pusch_pdu->start_symbol_index + i;
-    bool is_ptrs = (ulsch_ue->ptrs_symbols >> absolute_symbol_idx) & 0x01;
-    int ptrs_overhead = is_ptrs ? ulsch_ue->n_ptrs : 0;
+    bool is_ptrs = (ptrs_info->ptrs_symbols >> absolute_symbol_idx) & 0x01;
+    int ptrs_overhead = is_ptrs ? ptrs_info->n_ptrs : 0;
     if ((ul_dmrs_symb_pos >> absolute_symbol_idx) & 0x01) {
       // Calculate available data REs on DMRS symbols based on DMRS configuration
       m_ulsch_initial[i] = pusch_pdu->rb_size * data_re_on_dmrs_sym_per_prb - ptrs_overhead;
@@ -853,7 +853,8 @@ static void apply_template_to_codeword(uint8_t *codeword,
 /*
  * This function implements the UCI multiplexing on PUSCH according to TS 38.212 section 6.2.7.
  */
-static uci_on_pusch_bit_type_t *nr_data_control_mapping(const NR_UE_ULSCH_t *ulsch_ue,
+static uci_on_pusch_bit_type_t *nr_data_control_mapping(const nfapi_nr_ue_pusch_pdu_t *pusch_pdu,
+                                                        const nr_ptrs_info_t *ptrs_info,
                                                         uci_on_pusch_bit_type_t *template,
                                                         unsigned int G_ulsch,
                                                         rate_match_info_uci_t *rm_info,
@@ -866,7 +867,7 @@ static uci_on_pusch_bit_type_t *nr_data_control_mapping(const NR_UE_ULSCH_t *uls
 {
   if (!codeword || codeword_len == 0 || !template)
     return NULL;
-  const nfapi_nr_ue_pusch_pdu_t *pusch_pdu = &ulsch_ue->pusch_pdu;
+
   const uint8_t n_symbols = pusch_pdu->nr_of_symbols;
   if (n_symbols == 0 || n_symbols > NR_SYMBOLS_PER_SLOT)
     return NULL;
@@ -874,7 +875,7 @@ static uci_on_pusch_bit_type_t *nr_data_control_mapping(const NR_UE_ULSCH_t *uls
   uint32_t m_ulsch_initial[NR_SYMBOLS_PER_SLOT] = {0};
   uint32_t m_uci_current[NR_SYMBOLS_PER_SLOT] = {0}; // This holds RE counts, not bit counts
 
-  if (initialize_mapping_resources(ulsch_ue, m_ulsch_initial, m_uci_current) != 0) {
+  if (initialize_mapping_resources(pusch_pdu, ptrs_info, m_ulsch_initial, m_uci_current) != 0) {
     LOG_E(PHY, "Failed to initialize mapping resources\n");
     return NULL;
   }
@@ -985,15 +986,15 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
 
   unsigned int K_ptrs = 0, k_RE_ref = 0;
   uint32_t unav_res = 0;
-  ulsch_ue->ptrs_symbols = 0;
+  nr_ptrs_info_t ptrs_info = {0};
   if (pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS) {
     K_ptrs = pusch_pdu->pusch_ptrs.ptrs_freq_density;
     k_RE_ref = pusch_pdu->pusch_ptrs.ptrs_ports_list[0].ptrs_re_offset;
     uint8_t L_ptrs = 1 << pusch_pdu->pusch_ptrs.ptrs_time_density;
-    set_ptrs_symb_idx(&ulsch_ue->ptrs_symbols, number_of_symbols, start_symbol, L_ptrs, ul_dmrs_symb_pos);
-    ulsch_ue->n_ptrs = (nb_rb + K_ptrs - 1) / K_ptrs;
-    int ptrsSymbPerSlot = get_ptrs_symbols_in_slot(ulsch_ue->ptrs_symbols, start_symbol, number_of_symbols);
-    unav_res = ulsch_ue->n_ptrs * ptrsSymbPerSlot;
+    set_ptrs_symb_idx(&ptrs_info.ptrs_symbols, number_of_symbols, start_symbol, L_ptrs, ul_dmrs_symb_pos);
+    ptrs_info.n_ptrs = (nb_rb + K_ptrs - 1) / K_ptrs;
+    int ptrsSymbPerSlot = get_ptrs_symbols_in_slot(ptrs_info.ptrs_symbols, start_symbol, number_of_symbols);
+    unav_res = ptrs_info.n_ptrs * ptrsSymbPerSlot;
   }
 
   G[pusch_id] = nr_get_G(nb_rb, number_of_symbols, nb_dmrs_re_per_rb, number_dmrs_symbols, unav_res, mod_order, Nl);
@@ -1028,7 +1029,7 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
 
   bool uci_present = (pusch_pdu->pusch_uci.harq_ack_bit_length != 0) || (pusch_pdu->pusch_uci.csi_payload.p1_bits != 0);
   if (uci_present) {
-    rm_info = calc_rate_match_info_uci(ulsch_ue, harq_process_ul_ue, &G[pusch_id]);
+    rm_info = calc_rate_match_info_uci(pusch_pdu, &ptrs_info, harq_process_ul_ue, &G[pusch_id]);
   }
 
   if (nr_ulsch_encoding(UE, ulsch_ue, frame, slot, G, 1, ULSCH_ids) == -1) {
@@ -1090,7 +1091,8 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
   if (uci_present) {
     uint8_t temp_codeword[(G_initial_total_pusch_bits + 7) / 8];
     start_meas_nr_ue_phy(UE, UCI_ON_PUSCH_MAPPING);
-    nr_data_control_mapping(ulsch_ue,
+    nr_data_control_mapping(pusch_pdu,
+                            &ptrs_info,
                             template_buffer,
                             G[pusch_id],
                             &rm_info,
@@ -1283,7 +1285,7 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
                                     .Wt = Wt,
                                     .Wf = Wf,
                                     .dmrs_symb_pos = ul_dmrs_symb_pos,
-                                    .ptrs_symb_pos = ulsch_ue->ptrs_symbols,
+                                    .ptrs_symb_pos = ptrs_info.ptrs_symbols,
                                     .pdu_bit_map = pusch_pdu->pdu_bit_map,
                                     .transform_precoding = pusch_pdu->transform_precoding,
                                     .bwp_start = pusch_pdu->bwp_start,
