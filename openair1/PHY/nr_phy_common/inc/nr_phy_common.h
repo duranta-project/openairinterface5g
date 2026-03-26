@@ -20,6 +20,12 @@ typedef struct {
   int O_ack;
 } rate_match_info_uci_t;
 
+typedef struct {
+  /// bit mask of PT-RS ofdm symbol indicies
+  uint16_t ptrs_symbols;
+  int n_ptrs;
+} nr_ptrs_info_t;
+
 void init_byte2m128i(void);
 void freq2time(uint16_t ofdm_symbol_size, int16_t *freq_signal, int16_t *time_signal);
 void nr_est_delay(int ofdm_symbol_size, const c16_t *ls_est, c16_t *ch_estimates_time, delay_t *delay);
