@@ -465,37 +465,6 @@ static void map_symbols(const nr_phy_pxsch_params_t p,
   }
 }
 
-// Function to lookup beta offset value from Table 9.3-2 in TS 38.213
-static double get_beta_offset_csi(const uint8_t beta_offset_idx)
-{
-  static const double beta_offset_values[19] = {1.125,
-                                                1.250,
-                                                1.375,
-                                                1.625,
-                                                1.750,
-                                                2.000,
-                                                2.250,
-                                                2.500,
-                                                2.875,
-                                                3.125,
-                                                3.500,
-                                                4.000,
-                                                5.000,
-                                                6.250,
-                                                8.000,
-                                                10.000,
-                                                12.625,
-                                                15.875,
-                                                20.000};
-
-  if (beta_offset_idx >= sizeofArray(beta_offset_values)) {
-    LOG_E(PHY, "Invalid beta_offset_index %d, using default value\n", beta_offset_idx);
-    return beta_offset_values[9];
-  }
-
-  return beta_offset_values[beta_offset_idx];
-}
-
 static uint32_t get_d_factor_re(const uint32_t a, const uint32_t b)
 {
   uint32_t d_factor_re;
@@ -508,90 +477,6 @@ static uint32_t get_d_factor_re(const uint32_t a, const uint32_t b)
     }
   }
   return d_factor_re;
-}
-
-// Function to lookup beta offset value from Table 9.3-1 in TS 38.213
-static double get_beta_offset_harq_ack(uint8_t beta_offset_index)
-{
-  static const double beta_offset_values[21] = {
-      1.000, // Index 0
-      2.000, // Index 1
-      2.500, // Index 2
-      3.125, // Index 3
-      4.000, // Index 4
-      5.000, // Index 5
-      6.250, // Index 6
-      8.000, // Index 7
-      10.000, // Index 8
-      12.625, // Index 9
-      15.875, // Index 10
-      20.000, // Index 11
-      31.000, // Index 12
-      50.000, // Index 13
-      80.000, // Index 14
-      126.000, // Index 15
-      0.6, // Index 16
-      0.4, // Index 17
-      0.2, // Index 18
-      0.1, // Index 19
-      0.05, // Index 20
-  };
-
-  if (beta_offset_index > 20) {
-    LOG_E(PHY, "Invalid beta_offset_index %d, using default value\n", beta_offset_index);
-    return 20.000; // Default value using index 11
-  }
-
-  return beta_offset_values[beta_offset_index];
-}
-
-static double get_alpha_scaling_value(uint8_t alpha_scaling)
-{
-  switch (alpha_scaling) {
-    case 0:
-      return 0.5;
-    case 1:
-      return 0.65;
-    case 2:
-      return 0.8;
-    case 3:
-      return 1.0;
-    default:
-      AssertFatal(false, "Invalid alpha_scaling value %d, valid range is 0-3", alpha_scaling);
-      return 1.0;
-  }
-}
-
-/*
- * This function gets the CRC size of UCI according to 6.3.1.2.1 of 38.212
- */
-static int get_crc_uci(const uint32_t ouci)
-{
-  int L = 0;
-  if (ouci > 19) {
-    L = 11;
-  } else if (ouci > 11) {
-    L = 6;
-  } else {
-    L = 0;
-  }
-  return L;
-}
-
-static uint32_t get_Qd(const uint32_t ouci,
-                       double beta,
-                       double alpha,
-                       const uint32_t eff_bits,
-                       const uint32_t s1,
-                       const uint32_t s2,
-                       const uint32_t sub)
-{
-  // as described in section 6.3.2.4.1 of 38.212
-  if (ouci == 0)
-    return 0;
-  uint32_t first_term = ceil(((double)ouci + get_crc_uci(ouci)) * (double)beta * s1 / eff_bits);
-  uint32_t second_term = ceil(alpha * s2) - sub;
-  return (first_term < second_term) ? first_term : second_term;
 }
 
 /*
@@ -613,30 +498,16 @@ static rate_match_info_uci_t calc_rate_match_info_uci(const NR_UE_ULSCH_t *ulsch
   // Calculate sumKr (total bits in all code blocks)
   uint32_t sumKr = harq_process_ul_ue->K * harq_process_ul_ue->C;
 
-  uint16_t ul_dmrs_symb_pos = pusch_pdu->ul_dmrs_symb_pos;
-  // Calculate s1: total number of non-DMRS REs in allocation
-  int s1 = pusch_pdu->rb_size * NR_NB_SC_PER_RB * (pusch_pdu->nr_of_symbols - get_num_dmrs(ul_dmrs_symb_pos));
-
-  // Calculate s2: number of non-DMRS REs after first DMRS symbol
-  // __builtin_ctz returns the index of the first set bit
-  int first_dmrs_symbol = __builtin_ctz(ul_dmrs_symb_pos);
-  // mask with everything from (first_dmrs_symbol + 1) to the end
-  uint32_t range_mask = ((1U << pusch_pdu->nr_of_symbols) - 1) << pusch_pdu->start_symbol_index;
-  uint32_t post_dmrs_mask = range_mask & ~((1U << (first_dmrs_symbol + 1)) - 1);
-  // number of non-DMRS REs bits in that post-DMRS range
-  uint32_t non_dmrs_bits = post_dmrs_mask & ~ul_dmrs_symb_pos;
-  int num_non_dmrs_symbols = __builtin_popcount(non_dmrs_bits);
-  int s2 = num_non_dmrs_symbols * pusch_pdu->rb_size * NR_NB_SC_PER_RB;
-
-  if (ulsch_ue->ptrs_symbols) {
-    // for any OFDM symbol that does not carry DMRS of the PUSCH, M_UCI = M_PUSCH − M_PTRS
-    uint32_t non_dmrs_ptrs_mask = ulsch_ue->ptrs_symbols & ~ul_dmrs_symb_pos;
-    int ptrs_symb_in_alloc = __builtin_popcount(non_dmrs_ptrs_mask);
-    s1 -= (ptrs_symb_in_alloc * ulsch_ue->n_ptrs);
-    uint32_t ptrs_in_post_window = ulsch_ue->ptrs_symbols & post_dmrs_mask;
-    int num_ptrs_symbols_s2 = __builtin_popcount(ptrs_in_post_window);
-    s2 -= (num_ptrs_symbols_s2 * ulsch_ue->n_ptrs);
-  }
+  int s1 = 0;
+  int s2 = 0;
+  get_s1_s2(&s1,
+            &s2,
+            pusch_pdu->rb_size,
+            pusch_pdu->nr_of_symbols,
+            pusch_pdu->start_symbol_index,
+            pusch_pdu->ul_dmrs_symb_pos,
+            ulsch_ue->ptrs_symbols,
+            ulsch_ue->n_ptrs);
 
 
   rate_match_info_uci_t rminfo = {0};
