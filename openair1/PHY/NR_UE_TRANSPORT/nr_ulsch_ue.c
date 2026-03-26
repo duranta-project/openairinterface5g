@@ -537,7 +537,8 @@ static rate_match_info_uci_t calc_rate_match_info_uci(const nfapi_nr_ue_pusch_pd
   // get the number of coded CSI part 2 symbols and bits, TS 38.212 section 6.3.2.4.1.3
   const double beta_csi2 = get_beta_offset_csi(pusch_pdu->pusch_uci.beta_offset_csi2);
   const uint16_t ocsi2 = pusch_pdu->pusch_uci.csi_payload.p2_bits;
-  rminfo.Q_dash_CSI2 = get_Qd(ocsi2, beta_csi2, alpha, sumKr, s1, s1, rminfo.Q_dash_ACK + rminfo.Q_dash_CSI1);
+  int sub = rminfo.Q_dash_CSI1 + (rminfo.O_ack > 2 ? rminfo.Q_dash_ACK : 0);
+  rminfo.Q_dash_CSI2 = get_Qd(ocsi2, beta_csi2, alpha, sumKr, s1, s1, sub);
   rminfo.E_uci_CSI2 = rminfo.Q_dash_CSI2 * nlqm;
 
   rminfo.G_ulsch = *G - (rminfo.E_uci_CSI1 + rminfo.E_uci_CSI2);

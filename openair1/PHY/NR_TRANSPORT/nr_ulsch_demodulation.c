@@ -490,6 +490,64 @@ static uint32_t average_u32(const uint32_t *x, uint16_t size)
   return (uint32_t)(sum_x / size);
 }
 
+static rate_match_info_uci_t get_uci_on_pusch_info(const nfapi_nr_pusch_pdu_t *pusch_pdu, nr_ptrs_info_t *ptrs_info, int G)
+{
+  rate_match_info_uci_t uci_info = {0};
+  const nfapi_nr_pusch_uci_t *pusch_uci = &pusch_pdu->pusch_uci;
+  if ((pusch_uci->harq_ack_bit_length == 0) && (pusch_uci->csi_part1_bit_length == 0)) {
+    uci_info.G_ulsch = G;
+    return uci_info;
+  }
+
+  int s1 = 0;
+  int s2 = 0;
+  get_s1_s2(&s1,
+            &s2,
+            pusch_pdu->rb_size,
+            pusch_pdu->nr_of_symbols,
+            pusch_pdu->start_symbol_index,
+            pusch_pdu->ul_dmrs_symb_pos,
+            ptrs_info->ptrs_symbols,
+            ptrs_info->n_ptrs);
+
+  // if the number of HARQ-ACK information bits to be transmitted on PUSCH is 0, 1 or 2 bits
+  // the number of reserved resource elements for potential HARQ-ACK transmission is calculated using oack = 2
+  // according to TS 38.212 section 6.2.7, step 1
+  int rev_ack = (pusch_uci->harq_ack_bit_length <= 2) ? 2 : pusch_uci->harq_ack_bit_length;
+  uci_info.O_ack = pusch_uci->harq_ack_bit_length;
+  double alpha = get_alpha_scaling_value(pusch_uci->alpha_scaling);
+  // Calculate sumKr (total bits in all code blocks)
+  int kcb = pusch_pdu->maintenance_parms_v3.ldpcBaseGraph == 1 ? 8448 : 3840;
+  int B = lenWithCrc(1, pusch_pdu->pusch_data.tb_size << 3);
+  int C = get_C(B, kcb);
+  int Bprime = B <= kcb ? B : B + (C * 24);
+  int Kprime = Bprime / C;
+  int Zout = get_Zout(get_Kb(pusch_pdu->maintenance_parms_v3.ldpcBaseGraph, B), Kprime);
+  uint32_t sumKr = get_K(Zout, pusch_pdu->maintenance_parms_v3.ldpcBaseGraph) * C;
+
+  // get the number of coded HARQ-ACK symbols and bits, TS 38.212 section 6.3.2.4.1.1
+  double beta = get_beta_offset_harq_ack(pusch_uci->beta_offset_harq_ack);
+  uci_info.Q_dash_ACK = get_Qd(uci_info.O_ack, beta, alpha, sumKr, s1, s2, 0);
+  int Q_ack_rev = get_Qd(rev_ack, beta, alpha, sumKr, s1, s2, 0);
+  uci_info.E_uci_ACK_actual = uci_info.Q_dash_ACK * pusch_pdu->nrOfLayers * pusch_pdu->qam_mod_order;
+  uci_info.E_uci_ACK = Q_ack_rev * pusch_pdu->nrOfLayers * pusch_pdu->qam_mod_order;
+
+  // get the number of coded CSI part 1 symbols and bits, TS 38.212 section 6.3.2.4.1.2
+  const double beta_csi1 = get_beta_offset_csi(pusch_uci->beta_offset_csi1);
+  int sub = uci_info.O_ack > 2 ? uci_info.Q_dash_ACK : Q_ack_rev;
+  uci_info.Q_dash_CSI1 = get_Qd(pusch_uci->csi_part1_bit_length, beta_csi1, alpha, sumKr, s1, s1, sub);
+  uci_info.E_uci_CSI1 = uci_info.Q_dash_CSI1 * pusch_pdu->nrOfLayers * pusch_pdu->qam_mod_order;
+
+  // get the number of coded CSI part 2 symbols and bits, TS 38.212 section 6.3.2.4.1.3
+  const double beta_csi2 = get_beta_offset_csi(pusch_uci->beta_offset_csi2);
+  sub = uci_info.Q_dash_CSI1 + (uci_info.O_ack > 2 ? uci_info.Q_dash_ACK : 0);
+  uci_info.Q_dash_CSI2 = get_Qd(pusch_uci->csi_part2_bit_length, beta_csi2, alpha, sumKr, s1, s1, sub);
+  uci_info.E_uci_CSI2 = uci_info.Q_dash_CSI2 * pusch_pdu->nrOfLayers * pusch_pdu->qam_mod_order;
+
+  uci_info.G_ulsch = G - uci_info.E_uci_CSI1 - uci_info.E_uci_CSI2 - (uci_info.O_ack > 2 ? uci_info.E_uci_ACK : 0);
+  return uci_info;
+}
+
 int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
                          NR_gNB_PUSCH **pusch_vars_group,
                          const nfapi_nr_pusch_pdu_t **rel15_ul_group,
@@ -724,11 +782,12 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   int nb_re_dmrs = factor * rel15_ul_ref->num_dmrs_cdm_grps_no_data;
 
   int max_G = 0;
+  int G[group_size];
   for (int u = 0; u < group_size; u++) {
     const nfapi_nr_pusch_pdu_t *p = rel15_ul_group[u];
-    int G_u = nr_get_G(p->rb_size, p->nr_of_symbols, nb_re_dmrs, number_dmrs_symbols, unav_res, p->qam_mod_order, p->nrOfLayers);
-    if (G_u > max_G)
-      max_G = G_u;
+    G[u] = nr_get_G(p->rb_size, p->nr_of_symbols, nb_re_dmrs, number_dmrs_symbols, unav_res, p->qam_mod_order, p->nrOfLayers);
+    if (G[u] > max_G)
+      max_G = G[u];
   }
 
   const uint64_t num_scrambling_bytes = group_size * (max_G + 96) * sizeof(int16_t);
@@ -745,8 +804,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   for (int u = 0; u < group_size; u++) {
     scrambling_sequences_arr[u] = scrambling_sequences[u];
     const nfapi_nr_pusch_pdu_t *p = rel15_ul_group[u];
-    int G_u = nr_get_G(p->rb_size, p->nr_of_symbols, nb_re_dmrs, number_dmrs_symbols, unav_res, p->qam_mod_order, p->nrOfLayers);
-    nr_codeword_unscrambling_init(scrambling_sequences_arr[u], G_u, 0, p->data_scrambling_id, p->rnti);
+    nr_codeword_unscrambling_init(scrambling_sequences_arr[u], G[u], 0, p->data_scrambling_id, p->rnti);
   }
 
   // Computation of channel levels
@@ -814,6 +872,9 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   else if (joint_pv->log2_maxh > 14)
     joint_pv->log2_maxh = 14;
 
+  rate_match_info_uci_t uci_info[group_size];
+  for (int u = 0; u < group_size; u++)
+    uci_info[u] = get_uci_on_pusch_info(rel15_ul_group[u], &ptrs_info, G[u]);
   stop_meas(&gNB->rx_pusch_init_stats);
 
   start_meas(&gNB->rx_pusch_symbol_processing_stats);
