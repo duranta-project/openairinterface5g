@@ -678,7 +678,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   for (uint s = 0; s < NR_SYMBOLS_PER_SLOT; s++)
     cpe[s] = (c16_t){.r = INT16_MAX}; // zero phase error.
   uint ptrs_re_symbol = 0;
-  uint16_t ptrs_symb_pos = 0;
+  nr_ptrs_info_t ptrs_info = {0};
   if (is_ptrs) {
     if (rel15_ul_ref->pusch_ptrs.num_ptrs_ports != 1)
       LOG_W(NR_PHY, "Multi-port PTRS not supported, skipping PTRS processing\n");
@@ -701,9 +701,9 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
                        .rnti = rel15_ul_ref->rnti};
       const int slot_offset = (p.slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * p.ofdm_symbol_size;
       c16_t *rxdataF = (c16_t *)&gNB->common_vars.rxdataF[ant_port_start][slot_offset];
-      ptrs_re_symbol =
+      ptrs_info.n_ptrs =
           nr_ptrs_run(&p, rel15_ul_ref->pusch_ptrs.ptrs_time_density, rxdataF, (const c16_t *)joint_pv->ul_ch_estimates[0], cpe);
-      ptrs_symb_pos = p.ptrs_symb_pos;
+      ptrs_info.ptrs_symbols = p.ptrs_symb_pos;
     }
   }
 
@@ -779,8 +779,8 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   // This is assumed to be same for all the UEs (same PTRS configuration for all UEs)
   uint32_t unav_res = 0;
   if (rel15_ul_ref->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS) {
-    int ptrsSymbPerSlot = get_ptrs_symbols_in_slot(ptrs_symb_pos, rel15_ul_ref->start_symbol_index, rel15_ul_ref->nr_of_symbols);
-    unav_res = ptrs_re_symbol * ptrsSymbPerSlot;
+    int ptrsSymbPerSlot = get_ptrs_symbols_in_slot(ptrs_info.ptrs_symbols, rel15_ul_ref->start_symbol_index, rel15_ul_ref->nr_of_symbols);
+    unav_res = ptrs_info.n_ptrs * ptrsSymbPerSlot;
   }
 
   // Scrambling initialization
@@ -853,7 +853,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
                            &joint_pdu,
                            frame_parms,
                            rel15_ul_ref->rnti,
-                           IS_BIT_SET(ptrs_symb_pos, meas_symbol));
+                           IS_BIT_SET(ptrs_info.ptrs_symbols, meas_symbol));
       stop_meas(&gNB->pusch_extraction_stats);
     }
 
@@ -899,7 +899,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     for (int s = 0; s < numSymbols && s + symbol < end_symbol; s++) {
       int curr_sym = symbol + s;
       joint_pv->ul_valid_re_per_slot[curr_sym] =
-          get_nb_re_pusch(frame_parms, &joint_pdu, curr_sym) - (IS_BIT_SET(ptrs_symb_pos, (symbol + s)) ? ptrs_re_symbol : 0);
+          get_nb_re_pusch(frame_parms, &joint_pdu, curr_sym) - (IS_BIT_SET(ptrs_info.ptrs_symbols, (symbol + s)) ? ptrs_re_symbol : 0);
       if (curr_sym == rel15_ul_ref->start_symbol_index) {
         joint_pv->llr_offset[curr_sym] = 0;
       } else {
@@ -926,7 +926,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       rdata->numSymbols = task_index == loop_iter - 1 ? rel15_ul_ref->nr_of_symbols - (loop_iter - 1) * numSymbols : numSymbols;
       rdata->pusch_vars = joint_pv;
       rdata->llr = joint_pv->llr;
-      rdata->ptrs_symb_pos = ptrs_symb_pos;
+      rdata->ptrs_symb_pos = ptrs_info.ptrs_symbols;
       rdata->ptrs_cpe = cpe;
       rdata->nvar = nvar;
       rdata->ant_port_start = ant_port_start;
