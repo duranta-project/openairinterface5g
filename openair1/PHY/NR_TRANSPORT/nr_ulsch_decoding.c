@@ -244,7 +244,7 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
 #ifdef LDPC_CUDA
     int16_t *ulsch_llr = phy_vars_gNB->pusch_vars[ULSCH_id].llr_dev;
 #else
-    int16_t *ulsch_llr = phy_vars_gNB->pusch_vars[ULSCH_id].llr;
+    int16_t *ulsch_llr = phy_vars_gNB->pusch_vars[ULSCH_id].ulsch_llrs;
 #endif
 
     if (!ulsch_llr) {
