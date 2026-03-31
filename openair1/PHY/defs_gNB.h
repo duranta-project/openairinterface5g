@@ -254,11 +254,14 @@ typedef struct {
   uint32_t ulsch_noise_power_tot;
   /// \brief llr values.
   /// - first index: ? [0..1179743] (hard coded)
-  int16_t *llr;
+  int16_t *ulsch_llrs;
 #ifdef LDPC_CUDA
   /// \brief llr values link to device memory
   int16_t *llr_dev;
 #endif
+  int16_t *ack_llrs;
+  int16_t *csi1_llrs;
+  int16_t *csi2_llrs;
   /// \brief Total RE count after DMRS/PTRS RE's are extracted from respective symbol.
   /// - first index: ? [0...14] smybol per slot
   int16_t *ul_valid_re_per_slot;

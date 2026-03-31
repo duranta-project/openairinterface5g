@@ -512,7 +512,7 @@ int main(int argc, char **argv)
     n_false_positive = 0;
 
     for (trial = 0; trial < n_trials && !stop; trial++) {
-      memset(pusch_vars->llr, 0, (8 * ((3 * 8 * 6144) + 12)) * sizeof(int16_t));
+      memset(pusch_vars->ulsch_llrs, 0, (8 * ((3 * 8 * 6144) + 12)) * sizeof(int16_t));
       harq_process_gNB->harq_to_be_cleared = true;
 
       for (i = 0; i < available_bits; i++) {
@@ -537,16 +537,16 @@ int main(int argc, char **argv)
 #if 1
         SNR_lin = pow(10, SNR / 10.0);
         sigma = 1.0 / sqrt(2 * SNR_lin);
-        pusch_vars->llr[i] = (int16_t) quantize(sigma / 4.0 / 4.0,
+        pusch_vars->ulsch_llrs[i] = (int16_t) quantize(sigma / 4.0 / 4.0,
                                                 modulated_input[i] + sigma * gaussdouble(0.0, 1.0),
                                                 qbits);
 #else
-        pusch_vars->llr[i] = (int16_t) quantize(0.01, modulated_input[i], qbits);
+        pusch_vars->ulsch_llrs[i] = (int16_t) quantize(0.01, modulated_input[i], qbits);
 #endif
-        //printf("pusch_vars->llr[%d]: %d\n", i, pusch_vars->llr[i]);
+        //printf("pusch_vars->ulsch_llrs[%d]: %d\n", i, pusch_vars->ulsch_llrs[i]);
 
         //Uncoded BER
-        if (pusch_vars->llr[i] < 0)
+        if (pusch_vars->ulsch_llrs[i] < 0)
           channel_output_uncoded[i] = 1;  //QPSK demod
         else
           channel_output_uncoded[i] = 0;
