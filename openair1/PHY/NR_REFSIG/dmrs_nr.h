@@ -42,7 +42,11 @@ void nr_chest_time_domain_avg(NR_DL_FRAME_PARMS *frame_parms,
                               uint8_t num_streams);
 
 int8_t get_num_dmrs_re_per_rb(const uint8_t dmrs_type, const uint8_t num_cdm_grp_no_data);
-
+void get_dmrs_uci_symbol_info(const uint8_t start_symbol,
+                              const uint8_t num_symbols,
+                              const uint16_t dmrs_map,
+                              int *first_non_dmrs_sym,
+                              int *after_dmrs_symb);
 static inline uint8_t is_dmrs_symbol(uint8_t l, uint16_t dmrsSymbMask)
 {
   DevAssert(l < 32);

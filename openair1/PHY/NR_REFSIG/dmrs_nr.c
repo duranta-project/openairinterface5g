@@ -317,3 +317,31 @@ void nr_chest_time_domain_avg(NR_DL_FRAME_PARMS *frame_parms,
     }
   }
 }
+
+// to compute the first non dmrs symbol and the first symbol after the first set of consecutive DMRS symbols
+void get_dmrs_uci_symbol_info(const uint8_t start_symbol,
+                              const uint8_t num_symbols,
+                              const uint16_t dmrs_map,
+                              int *first_non_dmrs_sym,
+                              int *after_dmrs_symb)
+{
+  // First non-DMRS symbol
+  const uint16_t last_sym = start_symbol + num_symbols;
+  for (uint_fast8_t s = start_symbol; s < last_sym; s++) {
+    if (!is_dmrs_symbol(s, dmrs_map)) {
+      *first_non_dmrs_sym = s;
+      break;
+    }
+  }
+
+  // Symbol after first consequtive DMRS symbol
+  const int first_dmrs_sym = get_next_dmrs_symbol_in_slot(dmrs_map, start_symbol, last_sym);
+  *after_dmrs_symb = first_dmrs_sym + 1;
+  while (is_dmrs_symbol(*after_dmrs_symb, dmrs_map) && *after_dmrs_symb < last_sym) {
+    (*after_dmrs_symb)++;
+  }
+
+  // Return relative symbol idx
+  *first_non_dmrs_sym -= start_symbol;
+  *after_dmrs_symb -= start_symbol;
+}

@@ -367,15 +367,145 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                      rel15_ul->qam_mod_order);
 }
 
+typedef struct {
+  // The "Density" (used to find UCI REs within a symbol)
+  int d_ack[14];
+  int d_ack_rvd[14];
+  int d_csi1[14];
+  int d_csi2[14];
+  // The "Starting Gates" (used for thread-safe parallel writes)
+  int ack_offset[14];
+  int csi1_offset[14];
+  int csi2_offset[14];
+  int ulsch_offset[14];
+} nr_uci_mapping_t;
+
+nr_uci_mapping_t init_nr_uci_pusch_demux(const nfapi_nr_pusch_pdu_t *pusch_pdu,
+                                         rate_match_info_uci_t *uci_info,
+                                         NR_DL_FRAME_PARMS *frame_parms,
+                                         NR_gNB_PUSCH *pusch_vars)
+{
+  nr_uci_mapping_t map = {0};
+  int first_non_dmrs_sym = 0;
+  int after_dmrs_symb = 0;
+  uint32_t bits_per_re = pusch_pdu->nrOfLayers * pusch_pdu->qam_mod_order;
+  get_dmrs_uci_symbol_info(pusch_pdu->start_symbol_index,
+                           pusch_pdu->nr_of_symbols,
+                           pusch_pdu->ul_dmrs_symb_pos,
+                           &first_non_dmrs_sym,
+                           &after_dmrs_symb);
+  // Track how many REs we have successfully "assigned" across symbols
+  uint32_t re_assigned_ack = 0;
+  uint32_t re_actual_ack = 0;
+  uint32_t M_ul[14] = {0};
+  uint32_t M_ack_rvd[14] = {0};
+  uint32_t curr_ack_offset = 0;
+  map.ulsch_offset[0] = 0;
+  int Q_ack = uci_info->E_uci_ACK / bits_per_re; // includes reserved resources if O_ack <= 2
+  for (int s = 0; s < frame_parms->symbols_per_slot; s++) {
+    M_ul[s] = pusch_vars->ul_valid_re_per_slot[s];
+    map.d_ack[s] = 0;
+    map.d_ack_rvd[s] = 0;
+    map.ack_offset[s] = curr_ack_offset;
+    bool is_ack_sym = (s >= after_dmrs_symb) && !is_dmrs_symbol(s, pusch_pdu->ul_dmrs_symb_pos);
+    if (is_ack_sym && re_assigned_ack < Q_ack) {
+      uint32_t re_remaining = Q_ack - re_assigned_ack; // includes reserved resources if O_ack <= 2
+      uint32_t re_remaining_actual = uci_info->Q_dash_ACK - re_actual_ack;
+      if (re_remaining < pusch_vars->ul_valid_re_per_slot[s]) {
+        if (uci_info->O_ack <= 2)
+          M_ack_rvd[s] += re_remaining;
+        uint32_t d_scaling = 1;
+        if (uci_info->O_ack <= 2 && re_remaining_actual < M_ack_rvd[s])
+          d_scaling = re_remaining_actual ? M_ack_rvd[s] / re_remaining_actual : 0;
+        else
+          re_remaining_actual = M_ack_rvd[s];
+        map.d_ack[s] = M_ul[s] / re_remaining * d_scaling;
+        if (uci_info->O_ack <= 2)
+          map.d_ack_rvd[s] = M_ul[s] / re_remaining;
+        else
+          M_ul[s] -= re_remaining;
+        curr_ack_offset +=  bits_per_re * (d_scaling == 1 ? re_remaining : re_remaining_actual);
+        re_assigned_ack += re_remaining;
+        re_actual_ack += re_remaining_actual;
+      } else {
+        if (uci_info->O_ack > 2)
+          M_ul[s] = 0;
+        else
+          M_ack_rvd[s] += pusch_vars->ul_valid_re_per_slot[s];
+        uint32_t d_scaling = 1;
+        if (uci_info->O_ack <= 2 && re_remaining_actual < M_ack_rvd[s])
+          d_scaling = re_remaining_actual ? M_ack_rvd[s] / re_remaining_actual : 0;
+        else
+          re_remaining_actual = M_ack_rvd[s];
+        map.d_ack[s] = d_scaling;
+        if (uci_info->O_ack <= 2)
+          map.d_ack_rvd[s] = 1;
+        curr_ack_offset += bits_per_re * (d_scaling == 1 ? pusch_vars->ul_valid_re_per_slot[s] : re_remaining_actual);
+        re_assigned_ack += pusch_vars->ul_valid_re_per_slot[s];
+        re_actual_ack += re_remaining_actual;
+      }
+    } else
+      map.d_ack[s] = 0;
+  }
+
+  if (uci_info->Q_dash_CSI1 == 0) {
+    for (int s = 0; s < frame_parms->symbols_per_slot; s++) {
+      if (s < 13)
+        map.ulsch_offset[s + 1] = map.ulsch_offset[s] + (M_ul[s] * bits_per_re);
+    }
+    return map;
+  }
+
+  uint32_t re_assigned_csi1 = 0;
+  uint32_t re_assigned_csi2 = 0;
+  for (int s = 0; s < frame_parms->symbols_per_slot; s++) {
+    bool is_csi_sym = (s >= first_non_dmrs_sym) && !is_dmrs_symbol(s, pusch_pdu->ul_dmrs_symb_pos);
+    uint32_t re_avail_for_csi1 = M_ul[s] - M_ack_rvd[s];
+    map.csi1_offset[s] = re_assigned_csi1 * bits_per_re;
+    map.csi2_offset[s] = re_assigned_csi2 * bits_per_re;
+    if (is_csi_sym && re_assigned_csi1 < uci_info->Q_dash_CSI1 && re_avail_for_csi1 > 0) {
+      uint32_t re_rem_csi1 = uci_info->Q_dash_CSI1 - re_assigned_csi1;
+      if (re_rem_csi1 < re_avail_for_csi1) {
+        map.d_csi1[s] = re_avail_for_csi1 / re_rem_csi1;
+        M_ul[s] -= re_rem_csi1;
+        re_assigned_csi1 += re_rem_csi1;
+      } else {
+        map.d_csi1[s] = 1;
+        M_ul[s] = 0;
+        re_assigned_csi1 += re_avail_for_csi1;
+      }
+    } else
+      map.d_csi1[s] = 0;
+    uint32_t re_avail_for_csi2 = M_ul[s];
+    if (is_csi_sym && re_assigned_csi2 < uci_info->Q_dash_CSI2 && re_avail_for_csi2 > 0) {
+      uint32_t re_rem_csi2 = uci_info->Q_dash_CSI2 - re_assigned_csi2;
+      if (re_rem_csi2 < re_avail_for_csi2) {
+        map.d_csi2[s] = re_avail_for_csi2 / re_rem_csi2;
+        M_ul[s] -= re_rem_csi2;
+        re_assigned_csi2 += re_rem_csi2;
+      } else {
+        map.d_csi2[s] = 1;
+        M_ul[s] = 0;
+        re_assigned_csi2 += re_avail_for_csi2;
+      }
+    } else
+      map.d_csi2[s] = 0;
+    if (s < 13)
+      map.ulsch_offset[s + 1] = map.ulsch_offset[s] + (M_ul[s] * bits_per_re);
+  }
+  return map;
+}
+
 typedef struct puschSymbolProc_s {
   PHY_VARS_gNB *gNB;
   NR_DL_FRAME_PARMS *frame_parms;
   const nfapi_nr_pusch_pdu_t *rel15_ul;
   NR_gNB_PUSCH *pusch_vars;
+  rate_match_info_uci_t *uci_info;
+  nr_uci_mapping_t *map_uci;
   int slot;
   int startSymbol;
   int numSymbols;
-  int16_t *llr;
   uint32_t nvar;
   int beam_nb;
   // TODO: Remove assumption of contiguous ports after DAS is properly handled in beamforming
@@ -391,10 +521,92 @@ typedef struct puschSymbolProc_s {
   int layers_attenuation;
 } puschSymbolProc_t;
 
+static void symbol_unscrambling_demux(puschSymbolProc_t *rdata, int ue_idx, int s, int size, int16_t llr_in[size])
+{
+  const nfapi_nr_pusch_pdu_t *rel15_ul = rdata->rel15_ul_group[ue_idx];
+  rate_match_info_uci_t *uci_info = &rdata->uci_info[ue_idx];
+  nr_uci_mapping_t *map_uci = &rdata->map_uci[ue_idx];
+  NR_gNB_PUSCH *joint_pusch_vars = rdata->pusch_vars;
+  NR_gNB_PUSCH *ue_pusch_vars = rdata->pusch_vars_group[ue_idx];
+  // unscrambling and UCI demultiplexing
+  int16_t *s_seq = rdata->scrambling_sequences[ue_idx] + (joint_pusch_vars->llr_offset[s] * rel15_ul->nrOfLayers);
+  uint32_t bits_per_re = rel15_ul->nrOfLayers * rel15_ul->qam_mod_order;
+  uint32_t a_idx  = map_uci->ack_offset[s];
+  uint32_t c1_idx = map_uci->csi1_offset[s];
+  uint32_t c2_idx = map_uci->csi2_offset[s];
+  uint32_t u_idx = map_uci->ulsch_offset[s];
+
+  // unscrambling and UCI demultiplexing
+  int num_rvd_ack = 0;
+  int num_ack = 0;
+  int num_csi = 0;
+  for (int re = 0; re < joint_pusch_vars->ul_valid_re_per_slot[s]; re++) {
+    bool is_ack = uci_info->Q_dash_ACK > 0  && (re % map_uci->d_ack[s] == 0);
+    bool is_cnt_ack = uci_info->O_ack <= 2 && uci_info->Q_dash_CSI1 > 0 && (re % map_uci->d_ack_rvd[s] == 0);
+    bool is_csi1 = uci_info->Q_dash_CSI1 > 0 && ((re - num_ack - num_rvd_ack) % map_uci->d_csi1[s] == 0);
+    bool is_csi2 = uci_info->Q_dash_CSI2 > 0 && ((re - num_ack - num_csi) % map_uci->d_csi2[s] == 0);
+    int16_t *curr_re_llr = &llr_in[re * bits_per_re];
+    int16_t *curr_re_s = &s_seq[re * bits_per_re];
+
+    if (is_cnt_ack)
+      num_rvd_ack++;
+    if (is_ack) {
+      uci_info->Q_dash_ACK--;
+      if (uci_info->O_ack <= 2) {
+        for (int b = 0; b < bits_per_re; b++) {
+          int bit_in_mod_symbol = b % rel15_ul->qam_mod_order;
+          if (uci_info->O_ack == 1) {
+            // Table 5.3.3.1-1 of 38.212: Only the first bit (d0) is c0
+            // Subsequent bits d1...dN-1 are placeholders (y, x).
+            if (bit_in_mod_symbol == 0)
+              ue_pusch_vars->ack_llrs[a_idx++] = curr_re_llr[b] * curr_re_s[b]; // unscrambling for info bits
+            else
+              ue_pusch_vars->ack_llrs[a_idx++] = curr_re_llr[b]; // not unscrambling for placeholders x and y
+          } else {
+            // Table 5.3.3.1-2 of 38.212
+            // Subsequent bits d1...dN-1 are placeholders (y, x).
+            if (bit_in_mod_symbol == 0 || bit_in_mod_symbol == 1)
+              ue_pusch_vars->ack_llrs[a_idx++] = curr_re_llr[b] * curr_re_s[b]; // unscrambling for info bits
+            else
+              ue_pusch_vars->ack_llrs[a_idx++] = curr_re_llr[b]; // not unscrambling for placeholders x and y
+          }
+        }
+      } else {
+        // Large ACK (>2 bits): Standard extraction and unscrambling
+        for (int b = 0; b < bits_per_re; b++)
+          ue_pusch_vars->ack_llrs[a_idx++] = curr_re_llr[b] * curr_re_s[b];
+        num_ack++;
+        continue;
+      }
+    }
+    if (is_csi1 && !is_cnt_ack) {
+      for (int b = 0; b < bits_per_re; b++)
+        ue_pusch_vars->csi1_llrs[c1_idx++] = curr_re_llr[b] * curr_re_s[b];
+      uci_info->Q_dash_CSI1--;
+      num_csi++;
+      continue;
+    }
+    if (is_csi2) {
+      for (int b = 0; b < bits_per_re; b++)
+        ue_pusch_vars->csi2_llrs[c2_idx++] = curr_re_llr[b] * curr_re_s[b];
+      uci_info->Q_dash_CSI2--;
+      continue;
+    }
+    int b = 0;
+    for (; (b + 16) <= bits_per_re; b += 16) {
+      simde__m256i v_llr = simde_mm256_loadu_si256((simde__m256i *)&curr_re_llr[b]);
+      simde__m256i v_s = simde_mm256_loadu_si256((simde__m256i *)&curr_re_s[b]);
+      simde_mm256_storeu_si256((simde__m256i *)&ue_pusch_vars->ulsch_llrs[u_idx + b], simde_mm256_mullo_epi16(v_llr, v_s));
+    }
+    for (; b < bits_per_re; b++)
+      ue_pusch_vars->ulsch_llrs[u_idx + b] = curr_re_llr[b] * curr_re_s[b];
+     u_idx += bits_per_re;
+  }
+}
+
 static void nr_pusch_symbol_processing(void *arg)
 {
   puschSymbolProc_t *rdata=(puschSymbolProc_t*)arg;
-
   PHY_VARS_gNB *gNB = rdata->gNB;
   NR_DL_FRAME_PARMS *frame_parms = rdata->frame_parms;
   const nfapi_nr_pusch_pdu_t *rel15_ul = rdata->rel15_ul;
@@ -426,47 +638,22 @@ static void nr_pusch_symbol_processing(void *arg)
 
     int nb_re_pusch = pusch_vars->ul_valid_re_per_slot[symbol];
     for (int u = 0; u < rdata->group_size; u++) {
-      NR_gNB_PUSCH *ue_pusch_vars = rdata->pusch_vars_group[u];
-      const nfapi_nr_pusch_pdu_t *ue_pdu = rdata->rel15_ul_group[u];
-      int16_t *ue_scrambling_seq = rdata->scrambling_sequences[u];
-
-      const int ue_layers = ue_pdu->nrOfLayers;
-      const int qam = ue_pdu->qam_mod_order;
+      // layer de-mapping
+      const int ue_layers = rdata->rel15_ul_group[u]->nrOfLayers;
+      int size = ue_layers * buffer_length;
+      int16_t *llr_ptr;
+      int16_t llr_buf[size];  // only needed for multi-layer
       const int layer_off = rdata->layer_offsets[u];
-
-      ue_pusch_vars->llr_offset[symbol] = pusch_vars->llr_offset[symbol];
-      ue_pusch_vars->ul_valid_re_per_slot[symbol] = nb_re_pusch;
-
-      const int sym_bit_offset = ue_pusch_vars->llr_offset[symbol] * ue_layers;
-      int16_t *llr_dest = &ue_pusch_vars->llr[sym_bit_offset];
-      int16_t *s_seq = &ue_scrambling_seq[sym_bit_offset];
-
-      const int n = nb_re_pusch * ue_layers * qam;
-      const int16_t *src;
-
-      // demapping: bring elements into order such that unscrambling is a linear operation
-      // e.g., from "RE0-l0, RE1-l0, ..., REn-l0, RE0-l1, ..." to "RE0-l0, Re0-l1, RE1-l0, ..."
-      // Each REn-ln = q LLRs (q = QAM order {2,4,6,8}, one LLR/bit).
       if (ue_layers == 1) {
-        // no demapping needed
-        src = llrss[layer_off];
+        llr_ptr = llrss[layer_off];  // zero-copy
       } else {
-        nr_layer_demapping(ue_layers, qam, nb_re_pusch, &llrss[layer_off], llr_dest);
-        src = llr_dest;
+        llr_ptr = llr_buf;
+        const int qam = rdata->rel15_ul_group[u]->qam_mod_order;
+        nr_layer_demapping(ue_layers, qam, nb_re_pusch, &llrss[layer_off], llr_ptr);
       }
-
-      // unscrambling
-      int k = 0;
-      for (; k + 16 <= n; k += 16) {
-        simde__m256i a = simde_mm256_loadu_si256((const simde__m256i *)(src + k));
-        simde__m256i b = simde_mm256_loadu_si256((const simde__m256i *)(s_seq + k));
-        simde_mm256_storeu_si256((simde__m256i *)(llr_dest + k), simde_mm256_mullo_epi16(a, b));
-      }
-      for (; k < n; k++)
-        llr_dest[k] = src[k] * s_seq[k];
+      symbol_unscrambling_demux(rdata, u, symbol, size, llr_ptr);
     }
   }
-
   // Task running in // completed
   completed_task_ans(rdata->ans);
 }
@@ -882,8 +1069,11 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     joint_pv->log2_maxh = 14;
 
   rate_match_info_uci_t uci_info[group_size];
-  for (int u = 0; u < group_size; u++)
+  nr_uci_mapping_t map_uci[group_size];
+  for (int u = 0; u < group_size; u++) {
     uci_info[u] = get_uci_on_pusch_info(rel15_ul_group[u], &ptrs_info, G[u]);
+    map_uci[u] = init_nr_uci_pusch_demux(rel15_ul_group[u], &uci_info[u], frame_parms, joint_pv);
+  }
   stop_meas(&gNB->rx_pusch_init_stats);
 
   start_meas(&gNB->rx_pusch_symbol_processing_stats);
@@ -925,7 +1115,6 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       // Last task processes remainder symbols
       rdata->numSymbols = task_index == loop_iter - 1 ? rel15_ul_ref->nr_of_symbols - (loop_iter - 1) * numSymbols : numSymbols;
       rdata->pusch_vars = joint_pv;
-      rdata->llr = joint_pv->llr;
       rdata->nvar = nvar;
       rdata->ant_port_start = ant_port_start;
       rdata->rxFext_slot_mem = rxFext_slot_mem;
@@ -936,6 +1125,8 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       rdata->scrambling_sequences = scrambling_sequences_arr;
       rdata->layer_offsets = layer_offset;
       rdata->layers_attenuation = total_layers ? log2_approx(max_ch >> 11) : 0;
+      rdata->uci_info = uci_info;
+      rdata->map_uci = map_uci;
 
       if (rel15_ul_ref->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS) {
         nr_pusch_symbol_processing(rdata);
@@ -1028,6 +1219,6 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     gNBunlockScopeData(gNB, gNBPuschRxIq)
   }
   uint32_t total_llrs = total_res * rel15_ul_ref->qam_mod_order * rel15_ul_ref->nrOfLayers;
-  gNBscopeCopyWithMetadata(gNB, gNBPuschLlr, pusch_vars_group[0]->llr, sizeof(c16_t), 1, total_llrs, 0, &mt);
+  gNBscopeCopyWithMetadata(gNB, gNBPuschLlr, pusch_vars_group[0]->ulsch_llrs, sizeof(c16_t), 1, total_llrs, 0, &mt);
   return 0;
 }

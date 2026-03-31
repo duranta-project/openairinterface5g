@@ -589,34 +589,6 @@ static int initialize_mapping_resources(const nfapi_nr_ue_pusch_pdu_t *pusch_pdu
   return 0;
 }
 
-// to compute the first non dmrs symbol and the first symbol after the first set of consecutive DMRS symbols
-static void get_first_uci_symbol(const uint8_t start_symbol,
-                                 const uint8_t num_symbols,
-                                 const uint16_t dmrs_map,
-                                 int *first_non_dmrs_sym,
-                                 int *after_dmrs_symb)
-{
-  // First non-DMRS symbol
-  const uint16_t last_sym = start_symbol + num_symbols;
-  for (uint_fast8_t s = start_symbol; s < last_sym; s++) {
-    if (!is_dmrs_symbol(s, dmrs_map)) {
-      *first_non_dmrs_sym = s;
-      break;
-    }
-  }
-
-  // Symbol after first consequtive DMRS symbol
-  const int first_dmrs_sym = get_next_dmrs_symbol_in_slot(dmrs_map, start_symbol, last_sym);
-  *after_dmrs_symb = first_dmrs_sym + 1;
-  while (is_dmrs_symbol(*after_dmrs_symb, dmrs_map) && *after_dmrs_symb < last_sym) {
-    (*after_dmrs_symb)++;
-  }
-
-  // Return relative symbol idx
-  *first_non_dmrs_sym -= start_symbol;
-  *after_dmrs_symb -= start_symbol;
-}
-
 static inline bool skip_mapping_current_uci(const uci_on_pusch_bit_type_t template, const uci_on_pusch_bit_type_t uci_type_to_map)
 {
   bool ret = false;
@@ -883,11 +855,11 @@ static uci_on_pusch_bit_type_t *nr_data_control_mapping(const nfapi_nr_ue_pusch_
 
   int first_non_dmrs_sym = 0;
   int first_symb_after_dmrs = 0;
-  get_first_uci_symbol(pusch_pdu->start_symbol_index,
-                       pusch_pdu->nr_of_symbols,
-                       pusch_pdu->ul_dmrs_symb_pos,
-                       &first_non_dmrs_sym,
-                       &first_symb_after_dmrs);
+  get_dmrs_uci_symbol_info(pusch_pdu->start_symbol_index,
+                           pusch_pdu->nr_of_symbols,
+                           pusch_pdu->ul_dmrs_symb_pos,
+                           &first_non_dmrs_sym,
+                           &first_symb_after_dmrs);
 
   memset(template, 0, codeword_len * sizeof(uci_on_pusch_bit_type_t));
 

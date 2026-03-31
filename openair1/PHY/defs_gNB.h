@@ -254,11 +254,14 @@ typedef struct {
   uint32_t ulsch_noise_power_tot;
   /// \brief llr values.
   /// - first index: ? [0..1179743] (hard coded)
-  int16_t *llr;
+  int16_t *ulsch_llrs;
 #ifdef LDPC_CUDA
   /// \brief llr values link to device memory
   int16_t *llr_dev;
 #endif
+  int16_t *ack_llrs;
+  int16_t *csi1_llrs;
+  int16_t *csi2_llrs;
   // PTRS symbol index, to be updated every PTRS symbol within a slot.
   uint8_t ptrs_symbol_index;
   /// bit mask of PT-RS ofdm symbol indicies
