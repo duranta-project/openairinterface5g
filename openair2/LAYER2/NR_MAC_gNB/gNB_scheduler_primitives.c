@@ -94,6 +94,18 @@ static const uint16_t cqi_table3[16][2] = {{0, 0},
                                            {6, 6660},
                                            {6, 7720}};
 
+int get_fb_frame(int frame, int slot, int K, int n_slots_frame, int NTN_gNB_Koffset)
+{
+  // K is the feedback time in slot
+  return (frame + ((slot + K + NTN_gNB_Koffset) / n_slots_frame)) % MAX_FRAME_NUMBER;
+}
+
+int get_fb_slot(int slot, int K, int n_slots_frame, int NTN_gNB_Koffset)
+{
+  // K is the feedback time in slot
+  return (slot + K + NTN_gNB_Koffset) % n_slots_frame;
+}
+
 int get_ssbidx_from_beam(const nr_cell_sched_t *cell, int beam_idx)
 {
   for (int i = 0; i < MAX_NUM_OF_SSB; i++)

@@ -299,8 +299,8 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
       // we schedule CSI reporting max_fb_time slots in advance
       int period, offset;
       csi_period_offset(csirep, NULL, &period, &offset);
-      const int sched_slot = (slot + ul_bwp->max_fb_time + NTN_gNB_Koffset) % n_slots_frame;
-      const int sched_frame = (frame + ((slot + ul_bwp->max_fb_time + NTN_gNB_Koffset) / n_slots_frame)) % MAX_FRAME_NUMBER;
+      const int sched_slot = get_fb_slot(slot, ul_bwp->max_fb_time, n_slots_frame, NTN_gNB_Koffset);
+      const int sched_frame = get_fb_frame(frame, slot, ul_bwp->max_fb_time, n_slots_frame, NTN_gNB_Koffset);
       // prepare to schedule csi measurement reception according to 5.2.1.4 in 38.214
       if ((sched_frame * n_slots_frame + sched_slot - offset) % period != 0)
         continue;
@@ -1268,7 +1268,7 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
     // can't schedule ACKNACK before minimum feedback time
     if((pdsch_to_harq_feedback[f] + NTN_gNB_Koffset) < minfbtime)
       continue;
-    const int pucch_slot = (slot + pdsch_to_harq_feedback[f] + NTN_gNB_Koffset) % n_slots_frame;
+    const int pucch_slot = get_fb_slot(slot, pdsch_to_harq_feedback[f], n_slots_frame, NTN_gNB_Koffset);
     // check if the slot is UL
     if (fs->frame_type == TDD) {
       int mod_slot = get_slot_idx_in_period(pucch_slot, fs);
@@ -1278,7 +1278,7 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
       if (r_pucch >= 0 && is_mixed_slot(mod_slot, fs) && pc->tdd_slot_bitmap[mod_slot].num_ul_symbols < 2)
         continue;
     }
-    const int pucch_frame = (frame + ((slot + pdsch_to_harq_feedback[f] + NTN_gNB_Koffset) / n_slots_frame)) % MAX_FRAME_NUMBER;
+    const int pucch_frame = get_fb_frame(frame, slot, pdsch_to_harq_feedback[f], n_slots_frame, NTN_gNB_Koffset);
     // we store PUCCH resources according to slot, TDD configuration and size of the vector containing PUCCH structures
     const int pucch_index = get_pucch_index(pucch_frame, pucch_slot, &cell->frame_structure, sched_ctrl->sched_pucch_size);
     NR_sched_pucch_t *curr_pucch = &sched_ctrl->sched_pucch[pucch_index];
@@ -1433,8 +1433,8 @@ void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t SFN, sl
       find_period_offset_SR(srConf, &SR_period, &SR_offset);
       // we schedule SR max_fb_time slots in advance
       const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
-      const int sched_slot = (slot + ul_bwp->max_fb_time + NTN_gNB_Koffset) % n_slots_frame;
-      const int sched_frame = (SFN + ((slot + ul_bwp->max_fb_time + NTN_gNB_Koffset) / n_slots_frame)) % MAX_FRAME_NUMBER;
+      const int sched_slot = get_fb_slot(slot, ul_bwp->max_fb_time, n_slots_frame, NTN_gNB_Koffset);
+      const int sched_frame = get_fb_frame(SFN, slot, ul_bwp->max_fb_time, n_slots_frame, NTN_gNB_Koffset);
        // convert to int to avoid underflow of uint
       int sfn_sf = sched_frame * n_slots_frame + sched_slot;
       LOG_D(NR_MAC, "SR_resource_id %d: SR_period %d, SR_offset %d\n", id, SR_period, SR_offset);

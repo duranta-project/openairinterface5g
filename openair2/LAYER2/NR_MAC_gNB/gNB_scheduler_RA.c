@@ -785,9 +785,9 @@ static void nr_generate_Msg3_retransmission(nr_cell_sched_t *cell,
                                            ra->Msg3_tda_id);
 
   int slots_frame = cell->frame_structure.numb_slots_frame;
-  uint16_t K2 = tda_info.k2 + get_NTN_Koffset(scc);
-  const int sched_frame = (frame + (slot + K2) / slots_frame) % MAX_FRAME_NUMBER;
-  const int sched_slot = (slot + K2) % slots_frame;
+  int NTN_gNB_Koffset = get_NTN_Koffset(scc);
+  const int sched_frame = get_fb_frame(frame, slot, tda_info.k2, slots_frame, NTN_gNB_Koffset);
+  const int sched_slot = get_fb_slot(slot, tda_info.k2, slots_frame, NTN_gNB_Koffset);
   uint16_t slot_bitmap = get_ul_bitmap(&cell->frame_structure, sched_slot);
   uint16_t msg3_mask = SL_to_bitmap(tda_info.startSymbolIndex, tda_info.nrOfSymbols);
 
@@ -975,7 +975,7 @@ static void nr_generate_Msg3_retransmission(nr_cell_sched_t *cell,
   start_ra_contention_resolution_timer(
       ra,
       scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->ra_ContentionResolutionTimer,
-      K2,
+      NTN_gNB_Koffset + tda_info.k2,
       ul_bwp->scs);
 
   // reset state to wait msg3
@@ -1001,10 +1001,9 @@ static bool get_feasible_msg3_tda(const NR_ServingCellConfigCommon_t *scc,
   int slots_per_frame = fs->numb_slots_frame;
   for (int i = 0; i < tda_list->list.count; i++) {
     // check if it is UL
-    long k2 = *tda_list->list.array[i]->k2 + NTN_gNB_Koffset;
-    int abs_slot = slot + k2 + mu_delta;
-    int temp_frame = (frame + (abs_slot / slots_per_frame)) & 1023;
-    int temp_slot = abs_slot % slots_per_frame; // msg3 slot according to 8.3 in 38.213
+     // msg3 slot according to 8.3 in 38.213
+    int temp_frame = get_fb_frame(frame, slot, *tda_list->list.array[i]->k2 + mu_delta, slots_per_frame, NTN_gNB_Koffset);
+    int temp_slot = get_fb_slot(slot, *tda_list->list.array[i]->k2 + mu_delta, slots_per_frame, NTN_gNB_Koffset);
     if (fs->frame_type == TDD && !is_ul_slot(temp_slot, fs))
       continue;
 
@@ -1016,7 +1015,7 @@ static bool get_feasible_msg3_tda(const NR_ServingCellConfigCommon_t *scc,
     int start, nr;
     SLIV2SL(startSymbolAndLength, &start, &nr);
     uint16_t msg3_mask = SL_to_bitmap(start, nr);
-    LOG_D(NR_MAC, "Check Msg3 TDA %d for slot %d: k2 %ld, S %d L %d\n", i, temp_slot, k2, start, nr);
+    LOG_D(NR_MAC, "Check Msg3 TDA %d for slot %d: k2 %ld, S %d L %d\n", i, temp_slot, *tda_list->list.array[i]->k2, start, nr);
     /* if this start and length of this TDA cannot be fulfilled, skip */
     if ((slot_mask & msg3_mask) != msg3_mask)
       continue;
