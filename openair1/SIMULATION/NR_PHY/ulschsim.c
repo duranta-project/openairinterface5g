@@ -435,7 +435,7 @@ int main(int argc, char **argv)
   code_rate = nr_get_code_rate_ul(Imcs, mcs_table);
   available_bits = nr_get_G(nb_rb, nb_symb_sch, nb_re_dmrs, length_dmrs, 0, mod_order, Nl);
   TBS = nr_compute_tbs(mod_order,code_rate, nb_rb, nb_symb_sch, nb_re_dmrs*length_dmrs, 0, 0, Nl);
-
+  pusch_vars->uci_info.G_ulsch = available_bits;
   printf("\nAvailable bits %u TBS %u mod_order %d\n", available_bits, TBS, mod_order);
 
   /////////// setting rel15_ul parameters ///////////
