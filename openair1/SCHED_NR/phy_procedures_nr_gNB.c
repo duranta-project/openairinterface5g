@@ -327,7 +327,9 @@ static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, int
 {
   DevAssert(nb_pusch > 0);
   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
-  
+
+  nr_uci_decoding(gNB, UL_INFO, nb_pusch, ulsch_to_decode, frame_rx, slot_rx);
+
   //----------------------------------------------------------
   //--------------------- ULSCH decoding ---------------------
   //----------------------------------------------------------
@@ -431,67 +433,21 @@ static void nr_fill_indication(const PHY_VARS_gNB *gNB,
                                nfapi_nr_crc_t *crc,
                                nfapi_nr_rx_data_pdu_t *pdu)
 {
-  // Get estimated timing advance for MAC
-  const int sync_pos = pusch->delay.est_delay;
-  int timing_advance_update = 0xffff;
-
-  // scale the 16 factor in N_TA calculation in 38.213 section 4.2 according to the used FFT size
-  uint16_t bw_scaling = 16 * gNB->frame_parms.ofdm_symbol_size / 2048;
-
-  if (stats)
-    stats->ulsch_stats.sync_pos = sync_pos;
-
-  if (pusch->delay.valid) {
-    // do some integer rounding to improve TA accuracy
-    int sync_pos_rounded;
-    if (sync_pos > 0)
-      sync_pos_rounded = sync_pos + (bw_scaling / 2) - 1;
-    else
-      sync_pos_rounded = sync_pos - (bw_scaling / 2) + 1;
-
-    timing_advance_update = sync_pos_rounded / bw_scaling;
-
-    // put timing advance command in 0..63 range
-    timing_advance_update += 31;
-    timing_advance_update = max(timing_advance_update, 0);
-    timing_advance_update = min(timing_advance_update, 63);
-  }
-
-  // estimate UL_CQI for MAC
-  int SNRtimes10 = dB_fixed_x10(pusch->ulsch_power_tot) - dB_fixed_x10(pusch->ulsch_noise_power_tot);
-
-  LOG_D(PHY,
-        "%d.%d: Estimated SNR for PUSCH is = %f dB (ulsch_power %f, noise %f) delay %d%s\n",
-        frame,
-        slot_rx,
-        SNRtimes10 / 10.0,
-        dB_fixed_x10(pusch->ulsch_power_tot) / 10.0,
-        dB_fixed_x10(pusch->ulsch_noise_power_tot) / 10.0,
-        sync_pos,
-        pusch->delay.valid ? "" : " (invalid)");
-
-  int cqi;
-  if      (SNRtimes10 < -640) cqi=0;
-  else if (SNRtimes10 >  635) cqi=255;
-  else                        cqi=(640+SNRtimes10)/5;
-
   crc->handle = pusch_pdu->handle;
   crc->rnti = pusch_pdu->rnti;
   crc->harq_id = pusch_pdu->pusch_data.harq_process_id;
   crc->tb_crc_status = payload == NULL; // 222.10.02/04: pass 0, fail 1
   crc->num_cb = pusch_pdu->pusch_data.num_cb;
-  crc->ul_cqi = cqi;
-  crc->timing_advance = timing_advance_update;
+  crc->ul_cqi = get_pusch_cqi(pusch, frame, slot_rx);
+  crc->timing_advance = get_pusch_ta(gNB, stats, pusch, frame, slot_rx);
   // in terms of dBFS range -128 to 0 with 0.1 step
-  int n_rx = pusch_pdu->param_v4.numSpatialStreamIndices;
-  uint16_t rssi = 1280 - (10 * dB_fixed(32767 * 32767) - dB_fixed_times10(pusch->ulsch_power_tot / n_rx));
-  crc->rssi = (dtx_flag == 0) ? rssi : 0;
+  crc->rssi = (dtx_flag == 0) ? get_pusch_rssi(pusch, pusch_pdu->param_v4.numSpatialStreamIndices) : 0;
 
   pdu->handle = pusch_pdu->handle;
   pdu->rnti = pusch_pdu->rnti;
   pdu->harq_id = pusch_pdu->pusch_data.harq_process_id;
-  pdu->ul_cqi = cqi;
-  pdu->timing_advance = timing_advance_update;
+  pdu->ul_cqi = crc->ul_cqi;
+  pdu->timing_advance = crc->timing_advance;
   pdu->rssi = crc->rssi;
   pdu->pdu_length = payload != NULL ? pusch_pdu->pusch_data.tb_size : 0;
   pdu->pdu = payload;

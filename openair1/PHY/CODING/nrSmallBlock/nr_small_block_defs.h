@@ -15,8 +15,8 @@
 
 
 uint32_t encodeSmallBlock(uint32_t in, int len, int Qm);
-
 uint16_t decodeSmallBlock(int8_t *in, uint8_t len);
+void nr_rate_matching_smallcodeblock_rx(int16_t *input, int E, int N, int8_t *output);
 uint16_t decode_1_2_uci_bit(int8_t *input, int n_bits, int Qm);
 
 static const uint32_t nrSmallBlockBasis[11] = {0xFFFFFFFF, 0x4BA5A933, 0x7D910E5A, 0x6D26339C, 0x71C7C3E0,

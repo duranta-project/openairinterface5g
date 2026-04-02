@@ -1493,23 +1493,12 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
   uint e = signal_energy_nodc(rp[0][0], nb_re_pucch);
   uci_pdu->rssi = 1280 - (10 * dB_fixed(INT16_MAX * INT16_MAX) - dB_fixed_times10(e));
   if (pucch_pdu->bit_len_harq > 0) {
-    int harq_bytes = pucch_pdu->bit_len_harq >> 3;
-    if ((pucch_pdu->bit_len_harq & 7) > 0)
-      harq_bytes++;
     uci_pdu->pduBitmap |= 2;
-    uci_pdu->harq.harq_payload = (uint8_t *)malloc(harq_bytes);
     uci_pdu->harq.harq_crc = decoderState;
+    int harq_bytes = (pucch_pdu->bit_len_harq + 7) / 8;
+    uci_pdu->harq.harq_payload = calloc_or_fail(harq_bytes, sizeof(uint8_t));
     LOG_D(PHY, "[DLSCH/PDSCH/PUCCH2] %d.%d HARQ bytes (%d) Decoder state %d\n", frame, slot, harq_bytes, decoderState);
-    int i = 0;
-    for (; i < harq_bytes - 1; i++) {
-      uci_pdu->harq.harq_payload[i] = decodedPayload[0] & 255;
-      LOG_D(PHY, "[DLSCH/PDSCH/PUCCH2] %d.%d HARQ payload (%d) = %d\n", frame, slot, i, uci_pdu->harq.harq_payload[i]);
-      decodedPayload[0] >>= 8;
-    }
-    int bit_left = pucch_pdu->bit_len_harq - ((harq_bytes - 1) << 3);
-    uci_pdu->harq.harq_payload[i] = decodedPayload[0] & ((1 << bit_left) - 1);
-    LOG_D(PHY, "[DLSCH/PDSCH/PUCCH2] %d.%d HARQ payload (%d) = %d\n", frame, slot, i, uci_pdu->harq.harq_payload[i]);
-    decodedPayload[0] >>= pucch_pdu->bit_len_harq;
+    set_uci_payload(&decodedPayload[0], pucch_pdu->bit_len_harq, harq_bytes, uci_pdu->harq.harq_payload, frame, slot);
   }
 
   if (pucch_pdu->sr_flag == 1) {
@@ -1523,19 +1512,10 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
   if (pucch_pdu->bit_len_csi_part1 > 0) {
     uci_pdu->pduBitmap |= 4;
     uci_pdu->csi_part1.csi_part1_bit_len = pucch_pdu->bit_len_csi_part1;
-    int csi_part1_bytes = pucch_pdu->bit_len_csi_part1 >> 3;
-    if ((pucch_pdu->bit_len_csi_part1 & 7) > 0)
-      csi_part1_bytes++;
-    uci_pdu->csi_part1.csi_part1_payload = (uint8_t *)malloc(csi_part1_bytes);
     uci_pdu->csi_part1.csi_part1_crc = decoderState;
-    int i = 0;
-    for (; i < csi_part1_bytes - 1; i++) {
-      uci_pdu->csi_part1.csi_part1_payload[i] = decodedPayload[0] & 255;
-      decodedPayload[0] >>= 8;
-    }
-    int bit_left = pucch_pdu->bit_len_csi_part1 - ((csi_part1_bytes - 1) << 3);
-    uci_pdu->csi_part1.csi_part1_payload[i] = decodedPayload[0] & ((1 << bit_left) - 1);
-    decodedPayload[0] = pucch_pdu->bit_len_csi_part1 < 64 ? decodedPayload[0] >> bit_left : 0;
+    int csi_bytes = (pucch_pdu->bit_len_csi_part1 + 7) / 8;
+    uci_pdu->csi_part1.csi_part1_payload = calloc_or_fail(csi_bytes, sizeof(uint8_t));
+    set_uci_payload(&decodedPayload[0], pucch_pdu->bit_len_csi_part1, csi_bytes, uci_pdu->csi_part1.csi_part1_payload, frame, slot);
   }
 
   if (pucch_pdu->bit_len_csi_part2 > 0) {
