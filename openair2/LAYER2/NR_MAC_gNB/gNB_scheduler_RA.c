@@ -785,26 +785,25 @@ static void nr_generate_Msg3_retransmission(nr_cell_sched_t *cell,
                                            ra->Msg3_tda_id);
 
   int slots_frame = cell->frame_structure.numb_slots_frame;
-  uint16_t K2 = tda_info.k2 + get_NTN_Koffset(scc);
-  const int sched_frame = (frame + (slot + K2) / slots_frame) % MAX_FRAME_NUMBER;
-  const int sched_slot = (slot + K2) % slots_frame;
-  uint16_t slot_bitmap = get_ul_bitmap(&cell->frame_structure, sched_slot);
+  int NTN_gNB_Koffset = get_NTN_Koffset(scc);
+  const fsn_t sched = get_fb_frame_slot(frame, slot, tda_info.k2, slots_frame, NTN_gNB_Koffset);
+  uint16_t slot_bitmap = get_ul_bitmap(&cell->frame_structure, sched.s);
   uint16_t msg3_mask = SL_to_bitmap(tda_info.startSymbolIndex, tda_info.nrOfSymbols);
 
   if (!is_dl_slot(slot, &cell->frame_structure)
-      || !is_ul_slot(sched_slot, &cell->frame_structure)
+      || !is_ul_slot(sched.s, &cell->frame_structure)
       || !((msg3_mask & slot_bitmap) == msg3_mask))
     return;
 
-  NR_beam_alloc_t beam_ul = beam_allocation_procedure(&cell->beam_info, sched_frame, sched_slot, UE->UE_beam_index, slots_frame);
+  NR_beam_alloc_t beam_ul = beam_allocation_procedure(&cell->beam_info, sched.f, sched.s, UE->UE_beam_index, slots_frame);
   if (beam_ul.idx < 0)
     return;
   NR_beam_alloc_t beam_dci = beam_allocation_procedure(&cell->beam_info, frame, slot, UE->UE_beam_index, slots_frame);
   if (beam_dci.idx < 0) {
-    reset_beam_status(&cell->beam_info, sched_frame, sched_slot, UE->UE_beam_index, slots_frame, beam_ul.new_beam);
+    reset_beam_status(&cell->beam_info, sched.f, sched.s, UE->UE_beam_index, slots_frame, beam_ul.new_beam);
     return;
   }
-  int buffer_index = ul_buffer_index(sched_frame, sched_slot, slots_frame, cell->vrb_map_UL_size);
+  int buffer_index = ul_buffer_index(sched.f, sched.s, slots_frame, cell->vrb_map_UL_size);
   uint16_t *vrb_map_UL = &cell->common_channels.vrb_map_UL[beam_ul.idx][buffer_index * MAX_BWP_SIZE];
 
   NR_pusch_dmrs_t dmrs_info = get_ul_dmrs_params(scc, ul_bwp, &tda_info, 1, 0, 0);
@@ -849,7 +848,7 @@ static void nr_generate_Msg3_retransmission(nr_cell_sched_t *cell,
   int rbSize = 0;
   if (!get_rb_alloc(ra->msg3_nb_rb, ra->msg3_nb_rb, bwpStart, bwpSize, vrb_map_UL, msg3_mask, &rbStart, &rbSize)) {
     // cannot find free vrb_map for msg3 retransmission in this slot
-    reset_beam_status(&cell->beam_info, sched_frame, sched_slot, UE->UE_beam_index, slots_frame, beam_ul.new_beam);
+    reset_beam_status(&cell->beam_info, sched.f, sched.s, UE->UE_beam_index, slots_frame, beam_ul.new_beam);
     reset_beam_status(&cell->beam_info, frame, slot, UE->UE_beam_index, slots_frame, beam_dci.new_beam);
     return;
   }
@@ -861,18 +860,18 @@ static void nr_generate_Msg3_retransmission(nr_cell_sched_t *cell,
         slot,
         UE->rnti,
         cell->nr_cellid,
-        sched_frame,
-        sched_slot);
+        sched.f,
+        sched.s);
 
-  buffer_index = ul_buffer_index(sched_frame, sched_slot, slots_frame, cell->UL_tti_req_ahead_size);
+  buffer_index = ul_buffer_index(sched.f, sched.s, slots_frame, cell->UL_tti_req_ahead_size);
   nfapi_nr_ul_tti_request_t *future_ul_tti_req = &cell->UL_tti_req_ahead[buffer_index];
-  AssertFatal(future_ul_tti_req->SFN == sched_frame
-              && future_ul_tti_req->Slot == sched_slot,
+  AssertFatal(future_ul_tti_req->SFN == sched.f
+              && future_ul_tti_req->Slot == sched.s,
               "future UL_tti_req's frame.slot %d.%d does not match PUSCH %d.%d\n",
               future_ul_tti_req->SFN,
               future_ul_tti_req->Slot,
-              sched_frame,
-              sched_slot);
+              sched.f,
+              sched.s);
   AssertFatal(future_ul_tti_req->n_pdus <
               sizeof(future_ul_tti_req->pdus_list) / sizeof(future_ul_tti_req->pdus_list[0]),
               "Invalid future_ul_tti_req->n_pdus %d\n", future_ul_tti_req->n_pdus);
@@ -913,7 +912,7 @@ static void nr_generate_Msg3_retransmission(nr_cell_sched_t *cell,
                                0);
   if (CCEIndex < 0) {
     LOG_E(NR_MAC, "UE %04x cannot find free CCE!\n", UE->rnti);
-    reset_beam_status(&cell->beam_info, sched_frame, sched_slot, UE->UE_beam_index, slots_frame, beam_ul.new_beam);
+    reset_beam_status(&cell->beam_info, sched.f, sched.s, UE->UE_beam_index, slots_frame, beam_ul.new_beam);
     reset_beam_status(&cell->beam_info, frame, slot, UE->UE_beam_index, slots_frame, beam_dci.new_beam);
     return;
   }
@@ -975,13 +974,13 @@ static void nr_generate_Msg3_retransmission(nr_cell_sched_t *cell,
   start_ra_contention_resolution_timer(
       ra,
       scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->ra_ContentionResolutionTimer,
-      K2,
+      NTN_gNB_Koffset + tda_info.k2,
       ul_bwp->scs);
 
   // reset state to wait msg3
   ra->ra_state = nrRA_WAIT_Msg3;
-  ra->Msg3_frame = sched_frame;
-  ra->Msg3_slot = sched_slot;
+  ra->Msg3_frame = sched.f;
+  ra->Msg3_slot = sched.s;
 }
 
 static bool get_feasible_msg3_tda(const NR_ServingCellConfigCommon_t *scc,
@@ -1001,14 +1000,12 @@ static bool get_feasible_msg3_tda(const NR_ServingCellConfigCommon_t *scc,
   int slots_per_frame = fs->numb_slots_frame;
   for (int i = 0; i < tda_list->list.count; i++) {
     // check if it is UL
-    long k2 = *tda_list->list.array[i]->k2 + NTN_gNB_Koffset;
-    int abs_slot = slot + k2 + mu_delta;
-    int temp_frame = (frame + (abs_slot / slots_per_frame)) & 1023;
-    int temp_slot = abs_slot % slots_per_frame; // msg3 slot according to 8.3 in 38.213
-    if (fs->frame_type == TDD && !is_ul_slot(temp_slot, fs))
+     // msg3 slot according to 8.3 in 38.213
+    fsn_t temp = get_fb_frame_slot(frame, slot, *tda_list->list.array[i]->k2 + mu_delta, slots_per_frame, NTN_gNB_Koffset);
+    if (fs->frame_type == TDD && !is_ul_slot(temp.s, fs))
       continue;
 
-    int s = get_slot_idx_in_period(temp_slot, fs);
+    int s = get_slot_idx_in_period(temp.s, fs);
     const tdd_bitmap_t *bm = &fs->period_cfg.tdd_slot_bitmap[s];
     bool is_mixed = is_mixed_slot(s, fs);
     uint16_t slot_mask = is_mixed ? SL_to_bitmap(NR_SYMBOLS_PER_SLOT - bm->num_ul_symbols, bm->num_ul_symbols) : 0x3fff;
@@ -1016,19 +1013,19 @@ static bool get_feasible_msg3_tda(const NR_ServingCellConfigCommon_t *scc,
     int start, nr;
     SLIV2SL(startSymbolAndLength, &start, &nr);
     uint16_t msg3_mask = SL_to_bitmap(start, nr);
-    LOG_D(NR_MAC, "Check Msg3 TDA %d for slot %d: k2 %ld, S %d L %d\n", i, temp_slot, k2, start, nr);
+    LOG_D(NR_MAC, "Check Msg3 TDA %d for slot %d: k2 %ld, S %d L %d\n", i, temp.s, *tda_list->list.array[i]->k2, start, nr);
     /* if this start and length of this TDA cannot be fulfilled, skip */
     if ((slot_mask & msg3_mask) != msg3_mask)
       continue;
 
     // check if it is possible to allocate MSG3 in a beam in this slot
-    NR_beam_alloc_t beam = beam_allocation_procedure(beam_info, temp_frame, temp_slot, ue_beam_idx, slots_per_frame);
+    NR_beam_alloc_t beam = beam_allocation_procedure(beam_info, temp.f, temp.s, ue_beam_idx, slots_per_frame);
     if (beam.idx < 0)
       continue;
       
     // is in mixed slot with more or equal than 3 symbols, or UL slot
-    ra->Msg3_frame = temp_frame;
-    ra->Msg3_slot = temp_slot;
+    ra->Msg3_frame = temp.f;
+    ra->Msg3_slot = temp.s;
     ra->Msg3_tda_id = i;
     ra->Msg3_beam = beam;
     return true;
