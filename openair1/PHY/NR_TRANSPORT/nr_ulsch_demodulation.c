@@ -205,18 +205,23 @@ static void nr_ulsch_extract_rbs(c16_t *const rxF,
   }
 }
 
-static int get_nb_re_pusch (NR_DL_FRAME_PARMS *frame_parms, const nfapi_nr_pusch_pdu_t *rel15_ul, int symbol)
+static int get_nb_re_pusch(NR_DL_FRAME_PARMS *frame_parms,
+                           const nfapi_nr_pusch_pdu_t *rel15_ul,
+                           int symbol,
+                           const nr_ptrs_info_t *ptrs_info)
 {
-  uint8_t dmrs_symbol_flag = (rel15_ul->ul_dmrs_symb_pos >> symbol) & 0x01;
-  if (dmrs_symbol_flag == 1) {
+  int re_pusch = rel15_ul->rb_size * NR_NB_SC_PER_RB;
+  if ((rel15_ul->ul_dmrs_symb_pos >> symbol) & 0x01) {
     if (rel15_ul->dmrs_config_type == 0) {
       // if no data in dmrs cdm group is 1 only even REs have no data
       // if no data in dmrs cdm group is 2 both odd and even REs have no data
-      return(rel15_ul->rb_size *(12 - (rel15_ul->num_dmrs_cdm_grps_no_data*6)));
-    }
-    else return(rel15_ul->rb_size *(12 - (rel15_ul->num_dmrs_cdm_grps_no_data*4)));
-  } else
-    return (rel15_ul->rb_size * NR_NB_SC_PER_RB);
+      re_pusch -= rel15_ul->rb_size * rel15_ul->num_dmrs_cdm_grps_no_data * 6;
+    } else
+      re_pusch -= rel15_ul->rb_size * rel15_ul->num_dmrs_cdm_grps_no_data * 4;
+  }
+  if (is_ptrs_symbol(symbol, ptrs_info->ptrs_symbols))
+    re_pusch -= ptrs_info->n_ptrs;
+  return re_pusch;
 }
 
 static void inner_rx(PHY_VARS_gNB *gNB,
@@ -318,7 +323,6 @@ static void inner_rx(PHY_VARS_gNB *gNB,
   if (rel15_ul->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS) {
     // rxdataF_comp is MRCed so no point in processing all antenna ports. Fixme.
     nr_pusch_ptrs_processing(gNB, frame_parms, rel15_ul, pusch_vars, slot, symbol, 1, buffer_length);
-    pusch_vars->ul_valid_re_per_slot[symbol] -= pusch_vars->ptrs_re_per_slot;
   }
   if (nb_layer == 2) {
     if (rel15_ul->qam_mod_order <= 6) {
@@ -807,12 +811,17 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     nr_codeword_unscrambling_init(scrambling_sequences_arr[u], G[u], 0, p->data_scrambling_id, p->rnti);
   }
 
-  // Computation of channel levels
-  int nb_re_pusch = 0, meas_symbol = -1;
-  for (meas_symbol = rel15_ul_ref->start_symbol_index; meas_symbol < end_symbol; meas_symbol++)
-    if ((nb_re_pusch = get_nb_re_pusch(frame_parms, &joint_pdu, meas_symbol)) > 0)
-      break;
+  int meas_symbol = -1;
+  for (int sym = 0; sym < frame_parms->symbols_per_slot; sym++) {
+    if (sym >= rel15_ul_ref->start_symbol_index && sym < rel15_ul_ref->start_symbol_index + rel15_ul_ref->nr_of_symbols) {
+      joint_pv->ul_valid_re_per_slot[sym] = get_nb_re_pusch(frame_parms, &joint_pdu, sym, &ptrs_info);
+      if (meas_symbol == -1 && joint_pv->ul_valid_re_per_slot[sym] != 0)
+        meas_symbol = sym;
+    } else
+      joint_pv->ul_valid_re_per_slot[sym] = 0;
+  }
 
+  int nb_re_pusch = joint_pv->ul_valid_re_per_slot[meas_symbol];
   AssertFatal(nb_re_pusch > 0 && meas_symbol >= 0,
               "nb_re_pusch %d cannot be 0 or meas_symbol %d cannot be negative here\n",
               nb_re_pusch,
@@ -891,7 +900,6 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     int res_per_task = 0;
     for (int s = 0; s < numSymbols && s + symbol < end_symbol; s++) {
       int curr_sym = symbol + s;
-      joint_pv->ul_valid_re_per_slot[curr_sym] = get_nb_re_pusch(frame_parms, &joint_pdu, curr_sym);
       if (curr_sym == rel15_ul_ref->start_symbol_index) {
         joint_pv->llr_offset[curr_sym] = 0;
       } else {
