@@ -130,16 +130,7 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
       return -1;
     }
 
-    uint8_t number_dmrs_symbols = count_bits64_with_mask(pusch_pdu->ul_dmrs_symb_pos, pusch_pdu->start_symbol_index, pusch_pdu->nr_of_symbols);
-    int factor = pusch_pdu->dmrs_config_type == pusch_dmrs_type1 ? 6 : 4;
-    int nb_re_dmrs = factor * pusch_pdu->num_dmrs_cdm_grps_no_data;
-    uint32_t G = nr_get_G(pusch_pdu->rb_size,
-                          pusch_pdu->nr_of_symbols,
-                          nb_re_dmrs,
-                          number_dmrs_symbols, // number of dmrs symbols irrespective of single or double symbol dmrs
-                          ulsch->unav_res,
-                          pusch_pdu->qam_mod_order,
-                          pusch_pdu->nrOfLayers);
+    uint32_t G = pusch->uci_info.G_ulsch;
     DevAssert(G > 0);
     TB_parameters->G = G;
 

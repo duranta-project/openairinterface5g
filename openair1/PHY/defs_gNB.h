@@ -281,6 +281,8 @@ typedef struct {
   int DTX;
   /// delay estimation
   delay_t delay;
+  /// information for UCI on PUSCH
+  rate_match_info_uci_t uci_info;
 } NR_gNB_PUSCH;
 
 /// Context data structure for RX/TX portion of slot processing
