@@ -123,6 +123,8 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
     const nfapi_nr_pusch_pdu_t *pusch_pdu = &harq_process->ulsch_pdu;
     uint8_t harq_pid = ulsch->harq_pid;
 
+    if (!(pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_DATA))
+      continue;
     nrLDPC_TB_decoding_parameters_t *TB_parameters = &TBs[pusch_id];
 
     if (!harq_process) {

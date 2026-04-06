@@ -342,9 +342,10 @@ static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, int
     NR_UL_gNB_HARQ_t *ulsch_harq = ulsch->harq_process;
     NR_gNB_PHY_STATS_t *stats = get_phy_stats(gNB, ulsch->rnti);
     const nfapi_nr_pusch_pdu_t *pusch_pdu = &ulsch_harq->ulsch_pdu;
+    if (!(pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_DATA))
+      continue;
 
     bool crc_valid = false;
-
     // if all segments are done
     if (ulsch_harq->processedSegments == ulsch_harq->C) {
       if (ulsch_harq->C > 1) {
