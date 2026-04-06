@@ -453,6 +453,7 @@ int main(int argc, char **argv)
   rel15_ul->maintenance_parms_v3.ldpcBaseGraph = get_BG(TBS, code_rate);
   int bits = count_bits64_with_mask(rel15_ul->ul_dmrs_symb_pos, rel15_ul->start_symbol_index, rel15_ul->nr_of_symbols);
   AssertFatal(length_dmrs == bits, "length_dmrs %d bits %d\n", length_dmrs, bits);
+  rel15_ul->pdu_bit_map = PUSCH_PDU_BITMAP_PUSCH_DATA;
   ///////////////////////////////////////////////////
 
   double modulated_input[16 * 68 * 384]; // [hna] 16 segments, 68*Zc
