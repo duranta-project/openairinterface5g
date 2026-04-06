@@ -401,6 +401,14 @@ nr_uci_mapping_t init_nr_uci_pusch_demux(const nfapi_nr_pusch_pdu_t *pusch_pdu,
   uint32_t M_ack_rvd[14] = {0};
   uint32_t curr_ack_offset = 0;
   map.ulsch_offset[0] = 0;
+  if (!(pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_UCI)) {
+    for (int s = 0; s < frame_parms->symbols_per_slot; s++) {
+      if (s < 13)
+        map.ulsch_offset[s + 1] = map.ulsch_offset[s] + (pusch_vars->ul_valid_re_per_slot[s] * bits_per_re);
+    }
+    return map;
+  }
+
   int Q_ack = uci_info->E_uci_ACK / bits_per_re; // includes reserved resources if O_ack <= 2
   for (int s = 0; s < frame_parms->symbols_per_slot; s++) {
     M_ul[s] = pusch_vars->ul_valid_re_per_slot[s];
@@ -683,12 +691,12 @@ static uint32_t average_u32(const uint32_t *x, uint16_t size)
 static rate_match_info_uci_t get_uci_on_pusch_info(const nfapi_nr_pusch_pdu_t *pusch_pdu, nr_ptrs_info_t *ptrs_info, int G)
 {
   rate_match_info_uci_t uci_info = {0};
-  const nfapi_nr_pusch_uci_t *pusch_uci = &pusch_pdu->pusch_uci;
-  if ((pusch_uci->harq_ack_bit_length == 0) && (pusch_uci->csi_part1_bit_length == 0)) {
+  if (!(pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_UCI)) {
     uci_info.G_ulsch = G;
     return uci_info;
   }
 
+  const nfapi_nr_pusch_uci_t *pusch_uci = &pusch_pdu->pusch_uci;
   int s1 = 0;
   int s2 = 0;
   get_s1_s2(&s1,
@@ -704,7 +712,15 @@ static rate_match_info_uci_t get_uci_on_pusch_info(const nfapi_nr_pusch_pdu_t *p
   // the number of reserved resource elements for potential HARQ-ACK transmission is calculated using oack = 2
   // according to TS 38.212 section 6.2.7, step 1
   int rev_ack = (pusch_uci->harq_ack_bit_length <= 2) ? 2 : pusch_uci->harq_ack_bit_length;
+  // As per 6.3.2.1.1 of 38.212
+  // If UCI is transmitted on PUSCH without UL-SCH and the UCI includes CSI part 1 without CSI part 2
+  // We need to generate a sequence of bits with A = 2 even if number of HARQ bits is < 2
   uci_info.O_ack = pusch_uci->harq_ack_bit_length;
+  if (!(pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_DATA)
+      && pusch_uci->harq_ack_bit_length < 2
+      && pusch_uci->csi_part1_bit_length > 0
+      && pusch_uci->csi_part2_bit_length == 0)
+    uci_info.O_ack = 2;
   double alpha = get_alpha_scaling_value(pusch_uci->alpha_scaling);
   // Calculate sumKr (total bits in all code blocks)
   int kcb = pusch_pdu->maintenance_parms_v3.ldpcBaseGraph == 1 ? 8448 : 3840;
