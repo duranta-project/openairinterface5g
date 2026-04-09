@@ -314,7 +314,8 @@ void fft_shift(const c16_t *in,
                c16_t *out,
                uint16_t fft_size_out,
                uint16_t start_symb,
-               uint16_t num_symb)
+               uint16_t num_symb,
+               bool inv)
 {
   const int num_samp_half = num_prb * NR_NB_SC_PER_RB / 2;
   const int first_carrier_offset = fft_size_out - num_samp_half;
@@ -322,10 +323,16 @@ void fft_shift(const c16_t *in,
     // Copy negative freq component
     uint32_t out_offset = s * fft_size_out + first_carrier_offset;
     uint32_t in_offset = s * in_symb_sz;
-    memcpy(out + out_offset, in + in_offset, num_samp_half * sizeof(int32_t));
+    if (inv)
+      memcpy(out + in_offset, in + out_offset, num_samp_half * sizeof(int32_t));
+    else
+      memcpy(out + out_offset, in + in_offset, num_samp_half * sizeof(int32_t));
     // Copy positive freq component
     out_offset = s * fft_size_out;
     in_offset = s * in_symb_sz + num_samp_half;
-    memcpy(out + out_offset, in + in_offset, num_samp_half * sizeof(int32_t));
+    if (inv)
+      memcpy(out + in_offset, in + out_offset, num_samp_half * sizeof(int32_t));
+    else
+      memcpy(out + out_offset, in + in_offset, num_samp_half * sizeof(int32_t));
   }
 }

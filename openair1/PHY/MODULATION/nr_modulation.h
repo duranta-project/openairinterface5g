@@ -155,5 +155,6 @@ void fft_shift(const c16_t *in,
                c16_t *out,
                uint16_t fft_size_out,
                uint16_t start_symb,
-               uint16_t num_symb);
+               uint16_t num_symb,
+               bool inv);
 #endif

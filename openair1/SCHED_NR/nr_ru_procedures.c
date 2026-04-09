@@ -173,7 +173,8 @@ void nr_feptx(void *arg)
             ofdm_mod_in,
             fp->ofdm_symbol_size,
             startSymbol,
-            numSymbols);
+            numSymbols,
+            false);
 
   ////////////FEPTX////////////
   nr_feptx0(fp,
