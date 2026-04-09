@@ -215,13 +215,17 @@ void nr_ofdm_demod_and_rx_rotation(c16_t **rxdata,
   for (int aa = 0; aa < nb_antennas; aa++) {
     for (uint8_t symbol = 0; symbol < fp->symbols_per_slot; symbol++) {
       if (was_symbol_used[symbol] == true) {
-        nr_symbol_fep_ul(fp, &rxdata[aa][0], &rxdataF[aa][slot_offsetF + symbol * fp->ofdm_symbol_size], symbol, slot, 0);
-        apply_nr_rotation_symbol_RX(fp,
-                                    &rxdataF[aa][slot_offsetF + symbol * fp->ofdm_symbol_size],
-                                    fp->symbol_rotation[linktype],
-                                    fp->N_RB_UL,
-                                    slot,
-                                    symbol);
+        c16_t dataF[fp->ofdm_symbol_size] __attribute__((aligned(32)));
+        nr_symbol_fep_ul(fp, &rxdata[aa][0], dataF, symbol, slot, 0);
+        apply_nr_rotation_symbol_RX(fp, dataF, fp->symbol_rotation[linktype], fp->N_RB_UL, slot, symbol);
+        fft_shift(dataF,
+                  fp->ofdm_symbol_size,
+                  fp->N_RB_UL,
+                  &rxdataF[aa][slot_offsetF + symbol * fp->ofdm_symbol_size],
+                  fp->ofdm_symbol_size,
+                  0,
+                  1,
+                  true);
       }
     }
   }

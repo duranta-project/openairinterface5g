@@ -211,21 +211,11 @@ void nr_decode_pucch0(PHY_VARS_gNB *gNB,
   for (int l = 0; l < pucch_pdu->nr_of_symbols; l++) {
     uint8_t l2 = l + pucch_pdu->start_symbol_index;
 
-    re_offset[l] = (12 * prb_offset[l]) + frame_parms->first_carrier_offset;
-    if (re_offset[l] >= frame_parms->ofdm_symbol_size)
-      re_offset[l] -= frame_parms->ofdm_symbol_size;
+    re_offset[l] = 12 * prb_offset[l];
 
     for (int aa = 0; aa < num_sp_streams; aa++) {
-      c16_t rp[nb_re_pucch];
-      memset(rp, 0, sizeof(rp));
       c16_t *tmp_rp = &rxdataF[aa][soffset + l2 * frame_parms->ofdm_symbol_size];
-      if (re_offset[l] + nb_re_pucch > frame_parms->ofdm_symbol_size) {
-        int neg_length = frame_parms->ofdm_symbol_size - re_offset[l];
-        int pos_length = nb_re_pucch - neg_length;
-        memcpy(rp, &tmp_rp[re_offset[l]], neg_length * sizeof(*tmp_rp));
-        memcpy(&rp[neg_length], tmp_rp, pos_length * sizeof(*tmp_rp));
-      } else
-        memcpy(rp, &tmp_rp[re_offset[l]], nb_re_pucch * sizeof(*tmp_rp));
+      c16_t *rp = tmp_rp + re_offset[l];
 
       for (int n = 0; n < nb_re_pucch; n++) {
         xr[aa][l][n].r = (int32_t)x_re[l][n] * rp[n].r + (int32_t)x_im[l][n] * rp[n].i;
@@ -1134,11 +1124,10 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
   int soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
   uint16_t starting_prb = pucch_pdu->prb_start + pucch_pdu->bwp_start;
   int re_offset[nb_symbols];
-  re_offset[0] = (12 * starting_prb + frame_parms->first_carrier_offset) % frame_parms->ofdm_symbol_size;
+  re_offset[0] = 12 * starting_prb;
   if (nb_symbols == 2) {
     if (pucch_pdu->freq_hop_flag)
-      re_offset[1] = (12 * (pucch_pdu->second_hop_prb + pucch_pdu->bwp_start) + frame_parms->first_carrier_offset)
-                     % frame_parms->ofdm_symbol_size;
+      re_offset[1] = 12 * (pucch_pdu->second_hop_prb + pucch_pdu->bwp_start);
     else
       re_offset[1] = re_offset[0];
   }
@@ -1156,14 +1145,7 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
     for (int symb = 0; symb < nb_symbols; symb++) {
       c16_t *tmp_rp = ((c16_t *)&rxdataF[aa][soffset + (l2 + symb) * frame_parms->ofdm_symbol_size]);
 
-      if (re_offset[symb] + nb_re_pucch < frame_parms->ofdm_symbol_size) {
-        memcpy(rp[aa][symb], &tmp_rp[re_offset[symb]], nb_re_pucch * sizeof(c16_t));
-      } else {
-        int neg_length = frame_parms->ofdm_symbol_size - re_offset[symb];
-        int pos_length = nb_re_pucch - neg_length;
-        memcpy(rp[aa][symb], &tmp_rp[re_offset[symb]], neg_length * sizeof(c16_t));
-        memcpy(&rp[aa][symb][neg_length], tmp_rp, pos_length * sizeof(c16_t));
-      }
+      memcpy(rp[aa][symb], &tmp_rp[re_offset[symb]], nb_re_pucch * sizeof(c16_t));
       pucch2_lev += signal_energy_nodc(rp[aa][symb], nb_re_pucch);
     }
   }

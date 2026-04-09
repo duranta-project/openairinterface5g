@@ -48,7 +48,7 @@ int nr_get_srs_signal(PHY_VARS_gNB *gNB,
   const uint16_t n_symbols = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot; // number of symbols until this slot
   const uint8_t l0 = srs_pdu->time_start_position; // starting symbol in this slot (L2 sends absolute symbol index)
   const uint64_t symbol_offset = (n_symbols + l0) * frame_parms->ofdm_symbol_size;
-  const uint64_t subcarrier_offset = frame_parms->first_carrier_offset + srs_pdu->bwp_start * NR_NB_SC_PER_RB;
+  const uint64_t subcarrier_offset = srs_pdu->bwp_start * NR_NB_SC_PER_RB;
 
   const uint8_t N_ap = 1 << srs_pdu->num_ant_ports;
   const uint8_t N_symb_SRS = 1 << srs_pdu->num_symbols;
@@ -73,9 +73,6 @@ int nr_get_srs_signal(PHY_VARS_gNB *gNB,
 #endif
 
         uint16_t subcarrier = subcarrier_offset + nr_srs_info->k_0_p[p_index][l_line];
-        if (subcarrier >= frame_parms->ofdm_symbol_size) {
-          subcarrier -= frame_parms->ofdm_symbol_size;
-        }
         uint16_t l_line_offset = l_line * frame_parms->ofdm_symbol_size;
 
         for (int k = 0; k < M_sc_b_SRS; k++) {
@@ -112,10 +109,6 @@ int nr_get_srs_signal(PHY_VARS_gNB *gNB,
 
           // Subcarrier increment
           subcarrier += K_TC;
-          if (subcarrier >= frame_parms->ofdm_symbol_size) {
-            subcarrier -= frame_parms->ofdm_symbol_size;
-          }
-
         } // for (int k = 0; k < M_sc_b_SRS; k++)
       } // for (int l_line = 0; l_line < N_symb_SRS; l_line++)
     } // for (int p_index = 0; p_index < N_ap; p_index++)

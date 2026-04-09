@@ -247,13 +247,19 @@ void nr_fep(void *arg)
   int startSymbol = feprx_cmd->startSymbol;
   int endSymbol = feprx_cmd->endSymbol;
 
-  for (int l = startSymbol; l <= endSymbol; l++)
-    nr_symbol_fep_ul(feprx_cmd->fp,
-                     feprx_cmd->rxdata,
-                     &feprx_cmd->rxdataF[l * feprx_cmd->fp->ofdm_symbol_size],
-                     l,
-                     slot,
-                     feprx_cmd->sample_offet);
+  const NR_DL_FRAME_PARMS *fp = feprx_cmd->fp;
+  for (int l = startSymbol; l <= endSymbol; l++) {
+    c16_t rxdataF[fp->ofdm_symbol_size] __attribute__((aligned(32)));
+    nr_symbol_fep_ul(fp, feprx_cmd->rxdata, rxdataF, l, slot, feprx_cmd->sample_offet);
+    fft_shift(rxdataF,
+              fp->ofdm_symbol_size,
+              fp->N_RB_UL,
+              &feprx_cmd->rxdataF[l * fp->ofdm_symbol_size],
+              fp->ofdm_symbol_size,
+              0,
+              1,
+              true);
+  }
 
   completed_task_ans(feprx_cmd->ans);
 }

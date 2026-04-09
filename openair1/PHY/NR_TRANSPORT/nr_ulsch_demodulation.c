@@ -84,7 +84,7 @@ static void nr_ulsch_extract_rbs(c16_t* const rxdataF,
                                  NR_DL_FRAME_PARMS *frame_parms)
 {
   uint8_t delta = 0;
-  int start_re = (frame_parms->first_carrier_offset + (pusch_pdu->rb_start + pusch_pdu->bwp_start) * NR_NB_SC_PER_RB)%frame_parms->ofdm_symbol_size;
+  int start_re = (pusch_pdu->rb_start + pusch_pdu->bwp_start) * NR_NB_SC_PER_RB;
   int nb_re_pusch = NR_NB_SC_PER_RB * pusch_pdu->rb_size;
   c16_t *rxF = &rxdataF[rxoffset];
   c16_t *rxF_ext = &rxFext[0];
@@ -92,70 +92,24 @@ static void nr_ulsch_extract_rbs(c16_t* const rxdataF,
   c16_t *ul_ch0_ext = &chFext[0];
 
   if (is_dmrs_symbol == 0) {
-    if (start_re + nb_re_pusch <= frame_parms->ofdm_symbol_size)
-      memcpy(rxF_ext, &rxF[start_re], nb_re_pusch * sizeof(c16_t));
-    else {
-      int neg_length = frame_parms->ofdm_symbol_size - start_re;
-      int pos_length = nb_re_pusch - neg_length;
-      memcpy(rxF_ext, &rxF[start_re], neg_length * sizeof(c16_t));
-      memcpy(&rxF_ext[neg_length], rxF, pos_length * sizeof(c16_t));
-    }
+    memcpy(rxF_ext, &rxF[start_re], nb_re_pusch * sizeof(c16_t));
     memcpy(ul_ch0_ext, ul_ch0, nb_re_pusch * sizeof(c16_t));
   }
   else if (pusch_pdu->dmrs_config_type == pusch_dmrs_type1) { // 6 REs / PRB
     AssertFatal(delta == 0 || delta == 1, "Illegal delta %d\n",delta);
     c16_t *rxF32 = &rxF[start_re];
-    if (start_re + nb_re_pusch < frame_parms->ofdm_symbol_size) {
-      for (int idx = 1 - delta; idx < nb_re_pusch; idx += 2) {
-        *rxF_ext++ = rxF32[idx];
-        *ul_ch0_ext++ = ul_ch0[idx];
-      }
-    }
-    else { // handle the two pieces around DC
-      int neg_length = frame_parms->ofdm_symbol_size - start_re;
-      int pos_length = nb_re_pusch - neg_length;
-      int idx, idx2;
-      for (idx = 1 - delta; idx < neg_length; idx += 2) {
-        *rxF_ext++ = rxF32[idx];
-        *ul_ch0_ext++= ul_ch0[idx];
-      }
-      rxF32 = rxF;
-      idx2 = idx;
-      for (idx = 1 - delta; idx < pos_length; idx += 2, idx2 += 2) {
-        *rxF_ext++ = rxF32[idx];
-        *ul_ch0_ext++ = ul_ch0[idx2];
-      }
+    for (int idx = 1 - delta; idx < nb_re_pusch; idx += 2) {
+      *rxF_ext++ = rxF32[idx];
+      *ul_ch0_ext++ = ul_ch0[idx];
     }
   }
   else if (pusch_pdu->dmrs_config_type == pusch_dmrs_type2) { // 8 REs / PRB
     AssertFatal(delta==0||delta==2||delta==4,"Illegal delta %d\n",delta);
-    if (start_re + nb_re_pusch < frame_parms->ofdm_symbol_size) {
-      for (int idx = 0; idx < nb_re_pusch; idx ++) {
-        if (idx % 6 == 2 * delta || idx % 6 == 2 * delta + 1)
-          continue;
-        *rxF_ext++ = rxF[idx];
-        *ul_ch0_ext++ = ul_ch0[idx];
-      }
-    }
-    else {
-      int neg_length = frame_parms->ofdm_symbol_size - start_re;
-      int pos_length = nb_re_pusch - neg_length;
-      c16_t *rxF64 = &rxF[start_re];
-      int idx, idx2;
-      for (idx = 0; idx < neg_length; idx ++) {
-        if (idx % 6 == 2 * delta || idx % 6 == 2 * delta + 1)
-          continue;
-        *rxF_ext++ = rxF64[idx];
-        *ul_ch0_ext++ = ul_ch0[idx];
-      }
-      rxF64 = rxF;
-      idx2 = idx;
-      for (idx = 0; idx < pos_length; idx++, idx2++) {
-        if (idx % 6 == 2 * delta || idx % 6 == 2 * delta + 1)
-          continue;
-        *rxF_ext++ = rxF64[idx];
-        *ul_ch0_ext++ = ul_ch0[idx2];
-      }
+    for (int idx = 0; idx < nb_re_pusch; idx++) {
+      if (idx % 6 == 2 * delta || idx % 6 == 2 * delta + 1)
+        continue;
+      *rxF_ext++ = rxF[idx];
+      *ul_ch0_ext++ = ul_ch0[idx];
     }
   }
 }
@@ -1136,7 +1090,7 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
   const nfapi_nr_spatial_stream_index_t *p = &rel15_ul->param_v4;
   uint16_t ant_port_start = p->numSpatialStreamIndices > 0 ? p->spatialStreamIndices[0] : 0;
 
-  uint32_t bwp_start_subcarrier = ((rel15_ul->rb_start + rel15_ul->bwp_start) * NR_NB_SC_PER_RB + frame_parms->first_carrier_offset) % frame_parms->ofdm_symbol_size;
+  uint32_t bwp_start_subcarrier = (rel15_ul->rb_start + rel15_ul->bwp_start) * NR_NB_SC_PER_RB;
   LOG_D(PHY,"pusch %d.%d : bwp_start_subcarrier %d, rb_start %d, first_carrier_offset %d\n", frame,slot,bwp_start_subcarrier, rel15_ul->rb_start, frame_parms->first_carrier_offset);
   LOG_D(PHY,"pusch %d.%d : ul_dmrs_symb_pos %x\n",frame,slot,rel15_ul->ul_dmrs_symb_pos);
 
@@ -1220,8 +1174,6 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
 
   const uint8_t num_sp_streams = rel15_ul->param_v4.numSpatialStreamIndices;
   int start_sc = (rel15_ul->bwp_start + rel15_ul->rb_start) * NR_NB_SC_PER_RB;
-  int middle_sc = frame_parms->ofdm_symbol_size - frame_parms->first_carrier_offset;
-  int end_sc = (start_sc + rel15_ul->rb_size * NR_NB_SC_PER_RB - 1) % frame_parms->ofdm_symbol_size;
   for (int aa_pusch = 0; aa_pusch < num_sp_streams; aa_pusch++) {
     const int aarx = ant_port_start + aa_pusch;
     DevAssert(aarx < sizeofArray(pusch_vars->ulsch_power));
@@ -1231,16 +1183,9 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
 
     for (uint8_t symbol = rel15_ul->start_symbol_index; symbol < end_symbol; symbol++) {
       int offset0 = ((slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot + symbol) * frame_parms->ofdm_symbol_size;
-      int offset = offset0 + (frame_parms->first_carrier_offset + start_sc) % frame_parms->ofdm_symbol_size;
+      int offset = offset0 + start_sc;
       c16_t *ul_ch = &gNB->common_vars.rxdataF[aarx][offset];
-      if (end_sc < start_sc) {
-        int64_t symb_energy_aux = signal_energy_nodc(ul_ch, middle_sc - start_sc) * (middle_sc - start_sc);
-        ul_ch = &gNB->common_vars.rxdataF[aarx][offset0];
-        symb_energy_aux += (signal_energy_nodc(ul_ch, end_sc + 1) * (end_sc + 1));
-        symb_energy += symb_energy_aux / (rel15_ul->rb_size * NR_NB_SC_PER_RB);
-      } else {
-        symb_energy += signal_energy_nodc(ul_ch, rel15_ul->rb_size * NR_NB_SC_PER_RB);
-      }
+      symb_energy += signal_energy_nodc(ul_ch, rel15_ul->rb_size * NR_NB_SC_PER_RB);
     }
     pusch_vars->ulsch_power[aa_pusch] += (symb_energy / rel15_ul->nr_of_symbols);
 

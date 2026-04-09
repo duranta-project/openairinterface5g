@@ -722,20 +722,11 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
                 printf("pRbElm->compMethod == %d is not supported\n", pRbElm->compMethod);
                 exit(-1);
               }
+              // The purpose of following if is not clear? So adding assert in else to detect missed reads.
               if ((startRB + numRB) == (start_totalRB + num_totalRB)) {
-                int pos_len = 0;
-                int neg_len = 0;
-
-                if (start_totalRB < (num_totalRB >> 1)) // there are PRBs left of DC
-                  neg_len = min((num_totalRB * 6) - (start_totalRB * 12), num_totalRB * N_SC_PER_PRB);
-                pos_len = (num_totalRB * N_SC_PER_PRB) - neg_len;
-                // Calculation of the pointer for the section in the buffer.
-                // positive half
-                uint8_t *dst1 = (uint8_t *)(pos + (neg_len == 0 ? ((start_totalRB * N_SC_PER_PRB) - (num_totalRB * 6)) : 0));
-                // negative half
-                uint8_t *dst2 = (uint8_t *)(pos + (start_totalRB * N_SC_PER_PRB) + fftsize - (num_totalRB * 6));
-                memcpy((void *)dst2, (void *)local_dst, neg_len * 4);
-                memcpy((void *)dst1, (void *)&local_dst[neg_len], pos_len * 4);
+                memcpy((void *)pos, (void *)local_dst, num_totalRB * N_SC_PER_PRB * 4);
+              } else {
+                DevAssert(0);
               }
             }
           } // idxDesc
