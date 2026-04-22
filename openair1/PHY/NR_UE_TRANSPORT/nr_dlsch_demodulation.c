@@ -30,79 +30,70 @@
 #define print_ints(s,x) printf("%s = %d %d %d %d\n",s,(x)[0],(x)[1],(x)[2],(x)[3])
 #define print_shorts(s,x) printf("%s = [%d+j*%d, %d+j*%d, %d+j*%d, %d+j*%d]\n",s,(x)[0],(x)[1],(x)[2],(x)[3],(x)[4],(x)[5],(x)[6],(x)[7])
 
-static bool overlap_csi_symbol(fapi_nr_dl_config_csirs_pdu_rel15_t *csi_pdu, int symbol)
+static bool overlap_csi_symbol(int row, int l0, int l1, int symbol)
 {
-  int num_l0 [18] = {1, 1, 1, 1, 2, 1, 2, 2, 1, 2, 2, 2, 2, 2, 4, 2, 2, 4};
-  for (int s = 0; s < num_l0[csi_pdu->row - 1]; s++) {
-    if (symbol == csi_pdu->symb_l0 + s)
-      return true;
-  }
+  static const int num_l0[18] = {1, 1, 1, 1, 2, 1, 2, 2, 1, 2, 2, 2, 2, 2, 4, 2, 2, 4};
+  int n = num_l0[row - 1];
+  if (symbol >= l0 && symbol < l0 + n)
+    return true;
   // check also l1 if relevant
-  if (csi_pdu->row == 13 || csi_pdu->row == 14 || csi_pdu->row == 16 || csi_pdu->row == 17) {
-    for (int s = 0; s < 2; s++) { // two consecutive symbols including l1
-      if (symbol == csi_pdu->symb_l1 + s)
-        return true;
-    }
+  if (row == 13 || row == 14 || row == 16 || row == 17) {
+    // two consecutive symbols including l1
+    if (symbol >= l1 && symbol < l1 + 2)
+      return true;
   }
   return false;
 }
 
-static uint32_t build_csi_overlap_bitmap(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_config, int symbol)
+static uint32_t build_csi_overlap_bitmap(int row, int l0, int l1, int density, int freq_domain, int dlsch_symbol)
 {
+  if (!overlap_csi_symbol(row, l0, l1, dlsch_symbol))
+    return 0;
+
   // LS 16 bits for even RBs, MS 16 bits for odd RBs
   uint32_t csi_res_bitmap = 0;
-  int num_k[18] = {1, 1, 1, 1, 1, 4, 2, 2, 6, 3, 4, 4, 3, 3, 3, 4, 4, 4};
-  for (int i = 0; i < dlsch_config->numCsiRsForRateMatching; i++) {
-    fapi_nr_dl_config_csirs_pdu_rel15_t *csi_pdu = &dlsch_config->csiRsForRateMatching[i];
-
-    if (!overlap_csi_symbol(csi_pdu, symbol))
-      continue;
-
-    int num_kp = 1;
-    int mult = 1;
-    int k0_step = 0;
-    int num_k0 = 1;
-    switch (csi_pdu->row) {
-      case 1:
-        k0_step = 4;
-        num_k0 = 3;
-        break;
-      case 2:
-        break;
-      case 4:
-        num_kp = 2;
-        mult = 4;
-        k0_step = 2;
-        num_k0 = 2;
-        break;
-      default:
-        num_kp = 2;
-        mult = 2;
-    }
-    int found = 0;
-    int bit = 0;
-    uint32_t temp_res_map = 0;
-    while (found < num_k[csi_pdu->row - 1]) {
-      if ((csi_pdu->freq_domain >> bit) & 0x01) {
-        for (int k0 = 0; k0 < num_k0; k0++) {
-          for (int kp = 0; kp < num_kp; kp++) {
-            int re = (bit * mult) + (k0 * k0_step) + kp;
-            temp_res_map |= (1 << re);
-          }
-        }
-        found++;
-      }
-      bit++;
-      AssertFatal(bit < 13,
-                  "Couldn't find %d positive bits in bitmap %d for CSI freq. domain\n",
-                  num_k[csi_pdu->row - 1],
-                  csi_pdu->freq_domain);
-    }
-    if (csi_pdu->freq_density < 2)
-      csi_res_bitmap |= (temp_res_map << (16 * csi_pdu->freq_density));
-    else
-      csi_res_bitmap |= (temp_res_map + (temp_res_map << 16));
+  static const int num_k[18] = {1, 1, 1, 1, 1, 4, 2, 2, 6, 3, 4, 4, 3, 3, 3, 4, 4, 4};
+  int num_kp = 1;
+  int mult = 1;
+  int k0_step = 0;
+  int num_k0 = 1;
+  switch (row) {
+    case 1:
+      k0_step = 4;
+      num_k0 = 3;
+      break;
+    case 2:
+      break;
+    case 4:
+      num_kp = 2;
+      mult = 4;
+      k0_step = 2;
+      num_k0 = 2;
+      break;
+    default:
+      num_kp = 2;
+      mult = 2;
   }
+  int found = 0;
+  int bit = 0;
+  uint32_t temp_res_map = 0;
+  while (found < num_k[row - 1]) {
+    if ((freq_domain >> bit) & 0x01) {
+      for (int k0 = 0; k0 < num_k0; k0++) {
+        for (int kp = 0; kp < num_kp; kp++) {
+          int re = (bit * mult) + (k0 * k0_step) + kp;
+          temp_res_map |= (1 << re);
+        }
+      }
+      found++;
+    }
+    bit++;
+    AssertFatal(bit < 13, "Couldn't find %d positive bits in bitmap %d for CSI freq. domain\n", num_k[row - 1], freq_domain);
+  }
+  if (density < 2)
+    csi_res_bitmap = (temp_res_map << (16 * density));
+  else
+    csi_res_bitmap = (temp_res_map + (temp_res_map << 16));
   return csi_res_bitmap;
 }
 
@@ -807,7 +798,16 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   __attribute__((aligned(64))) c16_t rxdataF_ext[nbRx][rx_size_symbol];
   memset(rxdataF_ext, 0, sizeof(rxdataF_ext));
 
-  uint32_t csi_res_bitmap = build_csi_overlap_bitmap(dlsch_config, symbol);
+  uint32_t csi_res_bitmap = 0;
+  for (int i = 0; i < dlsch_config->numCsiRsForRateMatching; i++) {
+    fapi_nr_dl_config_csirs_pdu_rel15_t *csi_pdu = &dlsch_config->csiRsForRateMatching[i];
+    csi_res_bitmap |= build_csi_overlap_bitmap(csi_pdu->row,
+                                               csi_pdu->symb_l0,
+                                               csi_pdu->symb_l1,
+                                               csi_pdu->freq_density,
+                                               csi_pdu->freq_domain,
+                                               symbol);
+  }
   LOG_D(PHY, "%d.%d symbol %d csi overlap bitmap %d\n", frame, nr_slot_rx, symbol, csi_res_bitmap);
 
   nr_dlsch_extract_rbs(fp->samples_per_slot_wCP,
