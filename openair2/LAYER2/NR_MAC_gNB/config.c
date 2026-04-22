@@ -435,8 +435,7 @@ static void config_common(gNB_MAC_INST *nrmac, const nr_mac_config_t *config, NR
         AssertFatal(re >= -1.0f && re <= 1.0f, "DBT real weight out of range [-1,1]: %f\n", re);
         AssertFatal(im >= -1.0f && im <= 1.0f, "DBT imag weight out of range [-1,1]: %f\n", im);
         c16_t q15 = convert_precoder_weight(config->bt.beam_weights[b][w]);
-        beam->txru_list[w].dig_beam_weight_Re = (uint16_t)q15.r;
-        beam->txru_list[w].dig_beam_weight_Im = (uint16_t)q15.i;
+        beam->txru_list[w] = q15;
       }
     }
 

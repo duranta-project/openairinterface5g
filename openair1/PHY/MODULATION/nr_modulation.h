@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include "PHY/defs_nr_common.h"
+#include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_nr_interface_scf.h"
 
 #define DMRS_MOD_ORDER 2
 /*Precoding matices: W[pmi][antenna_port][layer]*/
@@ -129,20 +130,24 @@ c16_t nr_layer_precoder_cm(int n_layers,
                            c16_t weights[NR_MAX_NB_LAYERS][NR_MAX_CSI_PORTS],
                            int offset);
 
-/*! \brief Precoding with SIMDe, txdataF_precoded[] = prec_matrix[] * txdataF_res_mapped[]
-  @param[in]  txdataF_res_mapped Tx data after resource mapping, before precoding.
-  @param[in]  prec_matrix        Weights of precoding matrix.
+/*! \brief Precoding and beamforming with SIMDe, out[] = precoder * beamformer * txdataF_res_mapped[]
+  @param[in]  in                 Tx data after resource mapping, before precoding.
+  @param[in]  weight             Composite Weight of precoder and DBF for this output baseband port.
   @param[in]  re_cnt             Number of RE (sub carrier) to write to txdataF_precoded, should be multiple of 4.
-  @param[out] txdataF_precoded   Precoded antenna data
+  @param[out] out                Precoded and beamformed antenna data
 */
-void nr_layer_precoder_simd(const int n_layers,
-                            const int symSz,
-                            const c16_t txdataF_res_mapped[n_layers][symSz],
-                            const int ant,
-                            c16_t weights[NR_MAX_NB_LAYERS][NR_MAX_CSI_PORTS],
-                            const int sc_offset,
-                            const int re_cnt,
-                            c16_t *txdataF_precoded);
+void nr_beamformer_simd(const c16_t *in, const c16_t weight, const int re_cnt, c16_t *out);
+
+void nr_tx_precoder_and_beamformer(const c16_t *in,
+                                   const uint16_t layer_idx,
+                                   c16_t **out,
+                                   const int out_offset,
+                                   const uint8_t nb_antennas_tx,
+                                   const uint16_t spatial_stream_index[MAX_NUM_SPATIAL_STREAMS],
+                                   const nfapi_nr_tx_precoding_and_beamforming_t *pb,
+                                   const nfapi_nr_pm_pdu_t *pm,
+                                   const nfapi_nr_dbt_pdu_t *dbt,
+                                   const uint16_t num_rb);
 
 void fft_shift(const c16_t *in,
                uint32_t in_symb_sz,

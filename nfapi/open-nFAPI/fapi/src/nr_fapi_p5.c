@@ -719,7 +719,7 @@ uint8_t pack_dbt_table_tlv_value(void *tlv, uint8_t **ppWritePackedMsg, uint8_t 
     }
     for (int k = 0; k< dbt_config->num_txrus; k++) {
       const nfapi_nr_txru_t *tx_ru = &dig_beam->txru_list[k];
-      if (!(push16(tx_ru->dig_beam_weight_Re, ppWritePackedMsg, end) && push16(tx_ru->dig_beam_weight_Im, ppWritePackedMsg, end))) {
+      if (!(push16(tx_ru->r, ppWritePackedMsg, end) && push16(tx_ru->i, ppWritePackedMsg, end))) {
         return 0;
       }
     }
@@ -1268,7 +1268,7 @@ static uint8_t unpack_dbt_table_tlv_value(void *tlv, uint8_t **ppReadPackedMsg, 
     }
     for (int k = 0; k < dbt_config->num_txrus; k++) {
       nfapi_nr_txru_t *tx_ru = &dig_beam->txru_list[k];
-      if (!(pull16(ppReadPackedMsg, &tx_ru->dig_beam_weight_Re, end) && pull16(ppReadPackedMsg, &tx_ru->dig_beam_weight_Im, end))) {
+      if (!(pulls16(ppReadPackedMsg, &tx_ru->r, end) && pulls16(ppReadPackedMsg, &tx_ru->i, end))) {
         return 0;
       }
     }

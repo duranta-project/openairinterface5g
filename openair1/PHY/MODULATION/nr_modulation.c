@@ -685,21 +685,6 @@ c16_t nr_layer_precoder(int sz, c16_t datatx_F_precoding[][sz], const char *prec
       ((int16_t *)precodatatx_F)[1] = (int16_t)((((int16_t *)precodatatx_F)[1]*ONE_OVER_SQRT2_Q15)>>15);*/
 }
 
-c16_t nr_layer_precoder_cm(int n_layers,
-                           int symSz,
-                           c16_t datatx_F_precoding[n_layers][symSz],
-                           int ap,
-                           c16_t weights[NR_MAX_NB_LAYERS][NR_MAX_CSI_PORTS],
-                           int offset)
-{
-  c16_t precodatatx_F = {0};
-  for (int al = 0; al < n_layers; al++) {
-    c16_t prec_weight = weights[al][ap];
-    precodatatx_F = c16maddShift(datatx_F_precoding[al][offset], prec_weight, precodatatx_F, 15);
-  }
-  return precodatatx_F;
-}
-
 #if defined(__AVX512F__) && defined(__AVX512BW__)
 
 static inline __attribute__((always_inline)) __m512i cmac0_prec512(__m512i x, __m512i w_c, __m512i w_s) {
@@ -803,278 +788,165 @@ static inline __attribute__((always_inline)) __m128i cmac_prec128(__m128i y, __m
 }
 #endif
 
-#define load_consts(Type, Instruct, Rank)                                          \
-  const Type w_c##Rank = Instruct(c16toI32(c16conj(weights[Rank][ant]))); \
-  const Type w_s##Rank = Instruct(c16toI32(c16swap(weights[Rank][ant]))); \
-  const Type *in##Rank = (Type *)(txdataF_res_mapped[Rank] + sc_offset + (out-beginning));
+#define load_consts(Type, Instruct)                     \
+  const Type w_c = Instruct(c16toI32(c16conj(weight))); \
+  const Type w_s = Instruct(c16toI32(c16swap(weight))); \
+  const Type *in_simd = (Type *)(in + (out - beginning));
 
-void nr_layer_precoder_simd(const int n_layers,
-                            const int symSz,
-                            const c16_t txdataF_res_mapped[n_layers][symSz],
-                            const int ant,
-                            c16_t weights[NR_MAX_NB_LAYERS][NR_MAX_CSI_PORTS],
-                            const int sc_offset,
-                            const int re_cnt,
-                            c16_t *txdataF_precoded)
+void nr_beamformer_simd(const c16_t *in, const c16_t weight, const int re_cnt, c16_t *out)
 {
   // For x86, use 256 SIMD for every 8 RE and 128 SIMD for last 4 RE
   // For aarch64, use 128 SIMD for every 4 RE
-  AssertFatal(n_layers > 0 && n_layers <= 4, "Shouldn't get here, n_layers %d\n", n_layers);
 
   // 512/256 SIMD: Do 16/8 RE in one iteration, 3 iterations for 2 RB
-  c16_t *beginning = txdataF_precoded + sc_offset;
-  c16_t *out=beginning;
+  c16_t *beginning = out;
 #if defined(__AVX512F__) && defined(__AVX512BW__)
   {
     c16_t *end = out + (re_cnt & ~15);
-    load_consts(__m512i, _mm512_set1_epi32, 0);
-    if (n_layers == 1) {
-      for (; out < end; out += sizeof(__m512i) / sizeof(*out)) {
-        const __m512i x = _mm512_loadu_si512(in0++);
-        // Matrix multiplication for 4 elements of the result (sizeof(simde__m256i) / sizeof(*prec_matrix) = 8)
-        __m512i y = cmac0_prec512(x, w_c0, w_s0);
-        _mm512_storeu_si512(out, y);
-      }
-    } else if (n_layers == 2) {
-      load_consts(__m512i, _mm512_set1_epi32, 1);
-      for (; out < end; out += sizeof(__m512i) / sizeof(*out)) {
-        const __m512i x = _mm512_loadu_si512(in0++);
-        const __m512i x1 = _mm512_loadu_si512(in1++);
-        // Matrix multiplication for 4 elements of the result (sizeof(simde__m256i) / sizeof(*prec_matrix) = 8)
-        __m512i y = cmac0_prec512(x, w_c0, w_s0);
-        y = cmac_prec512(y, x1, w_c1, w_s1);
-        _mm512_storeu_si512(out, y);
-      }
-    } else if (n_layers == 3) {
-      load_consts(__m512i, _mm512_set1_epi32, 1);
-      load_consts(__m512i, _mm512_set1_epi32, 2);
-      for (; out < end; out += sizeof(__m512i) / sizeof(*out)) {
-        const __m512i x = _mm512_loadu_si512(in0++);
-        const __m512i x1 = _mm512_loadu_si512(in1++);
-        const __m512i x2 = _mm512_loadu_si512(in2++);
-        // Matrix multiplication for 4 elements of the result (sizeof(simde__m256i) / sizeof(*prec_matrix) = 8)
-        __m512i y = cmac0_prec512(x, w_c0, w_s0);
-        y = cmac_prec512(y, x1, w_c1, w_s1);
-        y = cmac_prec512(y, x2, w_c2, w_s2);
-        _mm512_storeu_si512(out, y);
-      }
-    } else if (n_layers == 4) {
-      load_consts(__m512i, _mm512_set1_epi32, 1);
-      load_consts(__m512i, _mm512_set1_epi32, 2);
-      load_consts(__m512i, _mm512_set1_epi32, 3);
-      for (; out < end; out += sizeof(__m512i) / sizeof(*out)) {
-        const __m512i x = _mm512_loadu_si512(in0++);
-        const __m512i x1 = _mm512_loadu_si512(in1++);
-        const __m512i x2 = _mm512_loadu_si512(in2++);
-        const __m512i x3 = _mm512_loadu_si512(in3++);
-        // Matrix multiplication for 4 elements of the result (sizeof(simde__m256i) / sizeof(*prec_matrix) = 8)
-        __m512i y = cmac0_prec512(x, w_c0, w_s0);
-        y = cmac_prec512(y, x1, w_c1, w_s1);
-        y = cmac_prec512(y, x2, w_c2, w_s2);
-        y = cmac_prec512(y, x3, w_c3, w_s3);
-        _mm512_storeu_si512(out, y);
-      }
+    load_consts(__m512i, _mm512_set1_epi32);
+    for (; out < end; out += sizeof(__m512i) / sizeof(*out)) {
+      const __m512i x = _mm512_loadu_si512(in_simd++);
+      __m512i y = _mm512_loadu_si512(out);
+      // Matrix multiplication for 4 elements of the result (sizeof(simde__m256i) / sizeof(*prec_matrix) = 8)
+      y = cmac_prec512(y, x, w_c, w_s);
+      _mm512_storeu_si512(out, y);
     }
   }
 #endif
 #ifdef __AVX2__
   {
     c16_t *end = beginning + (re_cnt & ~7);
-    load_consts(simde__m256i, simde_mm256_set1_epi32, 0);
-    if (n_layers == 1) {
-      for (; out < end; out += sizeof(simde__m256i) / sizeof(*out)) {
-        const simde__m256i x0 = simde_mm256_loadu_si256(in0++);
-        // Accumulate the product
-        simde__m256i y = cmac0_prec256(x0, w_c0, w_s0);
-        // Store the result to txdataF
-        simde_mm256_storeu_si256(out, y);
-      }
-    } else if (n_layers == 2) {
-      load_consts(simde__m256i, simde_mm256_set1_epi32, 1);
-      for (; out < end; out += sizeof(simde__m256i) / sizeof(*out)) {
-        const simde__m256i x0 = simde_mm256_loadu_si256(in0++);
-        const simde__m256i x1 = simde_mm256_loadu_si256(in1++);
-        // Accumulate the product
-        simde__m256i y = cmac0_prec256(x0, w_c0, w_s0);
-        y = cmac_prec256(y, x1, w_c1, w_s1);
-        // Store the result to txdataF
-        simde_mm256_storeu_si256(out, y);
-      }
-    } else if (n_layers == 3) {
-      load_consts(simde__m256i, simde_mm256_set1_epi32, 1);
-      load_consts(simde__m256i, simde_mm256_set1_epi32, 2);
-      for (; out < end; out += sizeof(simde__m256i) / sizeof(*out)) {
-        const simde__m256i x0 = simde_mm256_loadu_si256(in0++);
-        const simde__m256i x1 = simde_mm256_loadu_si256(in1++);
-        const simde__m256i x2 = simde_mm256_loadu_si256(in2++);
-        simde__m256i y = cmac0_prec256(x0, w_c0, w_s0);
-        y = cmac_prec256(y, x1, w_c1, w_s1);
-        y = cmac_prec256(y, x2, w_c2, w_s2);
-        // Store the result to txdataF
-        simde_mm256_storeu_si256(out, y);
-      }
-    } else if (n_layers == 4) {
-      load_consts(simde__m256i, simde_mm256_set1_epi32, 1);
-      load_consts(simde__m256i, simde_mm256_set1_epi32, 2);
-      load_consts(simde__m256i, simde_mm256_set1_epi32, 3);
-      for (; out < end; out += sizeof(simde__m256i) / sizeof(*out)) {
-        const simde__m256i x0 = simde_mm256_loadu_si256(in0++);
-        const simde__m256i x1 = simde_mm256_loadu_si256(in1++);
-        const simde__m256i x2 = simde_mm256_loadu_si256(in2++);
-        const simde__m256i x3 = simde_mm256_loadu_si256(in3++);
-        simde__m256i y = cmac0_prec256(x0, w_c0, w_s0);
-        y = cmac_prec256(y, x1, w_c1, w_s1);
-        y = cmac_prec256(y, x2, w_c2, w_s2);
-        y = cmac_prec256(y, x3, w_c3, w_s3);
-        // Store the result to txdataF
-        simde_mm256_storeu_si256(out, y);
-      }
+    load_consts(simde__m256i, simde_mm256_set1_epi32);
+    for (; out < end; out += sizeof(simde__m256i) / sizeof(*out)) {
+      const simde__m256i x = simde_mm256_loadu_si256(in_simd++);
+      simde__m256i y = simde_mm256_loadu_si256(out);
+      // Accumulate the product
+      y = cmac_prec256(y, x, w_c, w_s);
+      // Store the result to txdataF
+      simde_mm256_storeu_si256(out, y);
     }
   }
 #endif
   c16_t *end = beginning + (re_cnt & ~3);
-#ifdef DEBUG_DLSCH_PRECODING_PRINT_WITH_TRIVIAL // Get result with trivial solution, TODO: To be removed
-  // 128 SIMD: Do 4 RE in one iteration, 3 iterations for 1 RB
-  for (; out < end; out += sizeof(simde__m128i) / sizeof(*out)) {
-    c16_t y_triv[4];
-    for (int i = 0; i < 4; i++)
-      y_triv[i] = nr_layer_precoder_cm(n_layers, symSz, txdataF_res_mapped, ant, pmi_pdu, sc + i);
-    memcpy(out, y_triv, sizeof(y_triv));
-  }
-#endif
 #ifdef __aarch64__
-  load_consts(int16x8_t, vdupq_n_s16, 0);
-  if (n_layers == 1) {
-    for (; out < end; out += sizeof(int16x8_t) / sizeof(*out)) {
-      const int16x8_t x0 = vld1q_s16((const int16_t *)in0++);
-      // Accumulate the product
-      int16x8_t y = cmac0_prec128(x0, w_c0, w_s0);
-      // Store the result to txdataF
-      *(int16x8_t *)out = y;
-    }
-  }
-  if (n_layers == 2) {
-    load_consts(int16x8_t, vdupq_n_s16, 1);
-    for (; out < end; out += sizeof(int16x8_t) / sizeof(*out)) {
-      const int16x8_t x0 = vld1q_s16((const int16_t *)in0++);
-      const int16x8_t x1 = vld1q_s16((const int16_t *)in1++);
-      // Accumulate the product
-      int16x8_t y = cmac0_prec128(x0, w_c0, w_s0);
-      y = cmac_prec128(y, x1, w_c1, w_s1);
-      // Store the result to txdataF
-      *(int16x8_t *)out = y;
-    }
-  }
-  if (n_layers == 3) {
-    load_consts(int16x8_t, vdupq_n_s16, 1);
-    load_consts(int16x8_t, vdupq_n_s16, 2);
-    for (; out < end; out += sizeof(int16x8_t) / sizeof(*out)) {
-      const int16x8_t x0 = vld1q_s16((const int16_t *)in0++);
-      const int16x8_t x1 = vld1q_s16((const int16_t *)in1++);
-      const int16x8_t x2 = vld1q_s16((const int16_t *)in2++);
-      // Accumulate the product
-      int16x8_t y = cmac0_prec128(x0, w_c0, w_s0);
-      ;
-      y = cmac_prec128(y, x1, w_c1, w_s1);
-      y = cmac_prec128(y, x2, w_c2, w_s2);
-      // Store the result to txdataF
-      *(int16x8_t *)out = y;
-    }
-  }
-  if (n_layers == 4) {
-    load_consts(int16x8_t, vdupq_n_s16, 1);
-    load_consts(int16x8_t, vdupq_n_s16, 2);
-    load_consts(int16x8_t, vdupq_n_s16, 3);
-    for (; out < end; out += sizeof(int16x8_t) / sizeof(*out)) {
-      const int16x8_t x0 = vld1q_s16((const int16_t *)in0++);
-      const int16x8_t x1 = vld1q_s16((const int16_t *)in1++);
-      const int16x8_t x2 = vld1q_s16((const int16_t *)in2++);
-      const int16x8_t x3 = vld1q_s16((const int16_t *)in3++);
-      // Accumulate the product
-      int16x8_t y = cmac0_prec128(x0, w_c0, w_s0);
-      ;
-      y = cmac_prec128(y, x1, w_c1, w_s1);
-      y = cmac_prec128(y, x2, w_c2, w_s2);
-      y = cmac_prec128(y, x3, w_c3, w_s3);
-      // Store the result to txdataF
-      *(int16x8_t *)out = y;
-    }
+  load_consts(int16x8_t, vdupq_n_s16);
+  for (; out < end; out += sizeof(int16x8_t) / sizeof(*out)) {
+    const int16x8_t x = vld1q_s16((const int16_t *)in_simd++);
+    int16x8_t y = vld1q_s16((const int16_t *)out);
+    // Accumulate the product
+    y = cmac_prec128(y, x, w_c, w_s);
+    // Store the result to txdataF
+    *(int16x8_t *)out = y;
   }
 #else
-  load_consts(simde__m128i, simde_mm_set1_epi32, 0);
-  if (n_layers == 1) {
-    for (; out < end; out += sizeof(simde__m128i) / sizeof(*out)) {
-      const simde__m128i x0 = simde_mm_loadu_si128(in0++);
-      // Accumulate the product
-      simde__m128i y = cmac0_prec128(x0, w_c0, w_s0);
-      // Store the result to txdataF
-      simde_mm_storeu_si128(out, y);
-    }
-  } else if (n_layers == 2) {
-    load_consts(simde__m128i, simde_mm_set1_epi32, 1);
-    for (; out < end; out += sizeof(simde__m128i) / sizeof(*out)) {
-      const simde__m128i x0 = simde_mm_loadu_si128(in0++);
-      const simde__m128i x1 = simde_mm_loadu_si128(in1++);
-      // Accumulate the product
-      simde__m128i y = cmac0_prec128(x0, w_c0, w_s0);
-      y = cmac_prec128(y, x1, w_c1, w_s1);
-      // Store the result to txdataF
-      simde_mm_storeu_si128(out, y);
-    }
-  } else if (n_layers == 3) {
-    load_consts(simde__m128i, simde_mm_set1_epi32, 1);
-    load_consts(simde__m128i, simde_mm_set1_epi32, 2);
-    for (; out < end; out += sizeof(simde__m128i) / sizeof(*out)) {
-      const simde__m128i x0 = simde_mm_loadu_si128(in0++);
-      const simde__m128i x1 = simde_mm_loadu_si128(in1++);
-      const simde__m128i x2 = simde_mm_loadu_si128(in2++);
-      simde__m128i y = cmac0_prec128(x0, w_c0, w_s0);
-      y = cmac_prec128(y, x1, w_c1, w_s1);
-      y = cmac_prec128(y, x2, w_c2, w_s2);
-      // Store the result to txdataF
-      simde_mm_storeu_si128(out, y);
-    }
-  } else if (n_layers == 4) {
-    load_consts(simde__m128i, simde_mm_set1_epi32, 1);
-    load_consts(simde__m128i, simde_mm_set1_epi32, 2);
-    load_consts(simde__m128i, simde_mm_set1_epi32, 3);
-    for (; out < end; out += sizeof(simde__m128i) / sizeof(*out)) {
-      const simde__m128i x0 = simde_mm_loadu_si128(in0++);
-      const simde__m128i x1 = simde_mm_loadu_si128(in1++);
-      const simde__m128i x2 = simde_mm_loadu_si128(in2++);
-      const simde__m128i x3 = simde_mm_loadu_si128(in3++);
-      simde__m128i y = cmac0_prec128(x0, w_c0, w_s0);
-      y = cmac_prec128(y, x1, w_c1, w_s1);
-      y = cmac_prec128(y, x2, w_c2, w_s2);
-      y = cmac_prec128(y, x3, w_c3, w_s3);
-      // Store the result to txdataF
-      simde_mm_storeu_si128(out, y);
-    }
+  // 128 SIMD: Do 4 RE in one iteration, 3 iterations for 1 RB
+  load_consts(simde__m128i, simde_mm_set1_epi32);
+  for (; out < end; out += sizeof(simde__m128i) / sizeof(*out)) {
+    const simde__m128i x = simde_mm_loadu_si128(in_simd++);
+    simde__m128i y = simde_mm_loadu_si128(out);
+    // Accumulate the product
+    y = cmac_prec128(y, x, w_c, w_s);
+    // Store the result to txdataF
+    simde_mm_storeu_si128(out, y);
+  }
+  end += (re_cnt % 4);
+  c16_t *inc16 = (c16_t *)in_simd;
+  for (; out < end; out++) {
+    *out = c16maddShift(*inc16++, weight, *out, 15);
   }
 #endif
-#ifdef DEBUG_DLSCH_PRECODING_PRINT_WITH_TRIVIAL // Print simd and trivial result, TODO: To be removed
-  c16_t *y_simd = (c16_t *)&y;
-  printf("debug_to_be_removed re_cnt=%d, sc=%u, y_simd=(%+4d,%+4d), (%+4d,%+4d), (%+4d,%+4d), (%+4d,%+4d)\n",
-         re_cnt,
-         sc,
-         y_simd[0].r,
-         y_simd[0].i,
-         y_simd[1].r,
-         y_simd[1].i,
-         y_simd[2].r,
-         y_simd[2].i,
-         y_simd[3].r,
-         y_simd[3].i);
-  printf("debug_to_be_removed re_cnt=%d, sc=%u, y_triv=(%+4d,%+4d), (%+4d,%+4d), (%+4d,%+4d), (%+4d,%+4d)\n",
-         re_cnt,
-         sc,
-         y_triv[0].r,
-         y_triv[0].i,
-         y_triv[1].r,
-         y_triv[1].i,
-         y_triv[2].r,
-         y_triv[2].i,
-         y_triv[3].r,
-         y_triv[3].i);
-#endif
+}
+
+void nr_tx_precoder_and_beamformer(const c16_t *in,
+                                   const uint16_t layer_idx,
+                                   c16_t **out,
+                                   const int out_offset,
+                                   const uint8_t nb_antennas_tx,
+                                   const uint16_t spatial_stream_index[MAX_NUM_SPATIAL_STREAMS],
+                                   const nfapi_nr_tx_precoding_and_beamforming_t *pb,
+                                   const nfapi_nr_pm_pdu_t *pm,
+                                   const nfapi_nr_dbt_pdu_t *dbt,
+                                   const uint16_t num_rb)
+{
+  uint16_t rb = 0;
+  uint32_t subCarrier = 0;
+  while (rb < num_rb) {
+    // get pmi info
+    const int pmi = (pb->prg_size > 0) ? (pb->prgs_list[(int)rb / pb->prg_size].pm_idx) : 0;
+    const int pmi2 = (rb < (num_rb - 1) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 1) / pb->prg_size].pm_idx) : -1;
+    const int pmi3 = (rb < (num_rb - 2) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 2) / pb->prg_size].pm_idx) : -1;
+    const int pmi4 = (rb < (num_rb - 3) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 3) / pb->prg_size].pm_idx) : -1;
+
+    // If pmi of next RB and pmi of current RB are the same, we do 2 RB in a row
+    // if pmi differs, or current rb is the end (num_rb - 1), than we do 1 RB in a row
+    int rb_step0 = pmi == pmi2 ? 2 : 1;
+    const int rb_step = rb_step0 == 2 && pmi3 == pmi && pmi4 == pmi ? 4 : rb_step0;
+    const int re_cnt = NR_NB_SC_PER_RB * rb_step;
+
+    // get dbf info
+    const bool do_dbf =
+        (pb->dig_bf_interfaces > 0) && !IS_BIT_SET(pb->prgs_list[(int)rb / pb->prg_size].dig_bf_interface_list[0].beam_idx, 15);
+
+    if (pmi == 0 && !do_dbf) { // no precoding and dbf. layer are spatial streams
+      memcpy(out[spatial_stream_index[layer_idx]] + out_offset + subCarrier, in + subCarrier, re_cnt * sizeof(**out));
+    } else if (pmi > 0 && !do_dbf) { // only precoding. logical ports are spatial streams
+      AssertFatal(nb_antennas_tx > 1, "No precoding can be done with a single antenna port\n");
+      // get the precoding matrix weights:
+      const nfapi_nr_pm_pdu_t *pmi_pdu = &pm[pmi - 1]; // pmi 0 is identity matrix
+      const uint16_t num_log_ports = pmi_pdu->num_ant_ports;
+      for (int ss = 0; ss < num_log_ports; ss++) {
+        const uint16_t log_port = spatial_stream_index[ss];
+        AssertFatal(pmi == pmi_pdu->pm_idx, "PMI %d doesn't match to the one in precoding matrix %d\n", pmi, pmi_pdu->pm_idx);
+        const c16_t w = pmi_pdu->weights[layer_idx][ss];
+        nr_beamformer_simd(in + subCarrier, w, re_cnt, out[log_port] + out_offset + subCarrier);
+      }
+    } else if (pmi == 0 && do_dbf) { // only dbf. bb ports are spatial streams
+      AssertFatal(nb_antennas_tx > 1, "No dbf can be done with a single antenna port\n");
+      const uint16_t num_bb_ports = dbt->num_txrus;
+      for (int bb_port = 0; bb_port < num_bb_ports; bb_port++) {
+        // SSI is not used when DBF is done
+        const uint16_t beam_id = pb->prgs_list[(int)rb / pb->prg_size].dig_bf_interface_list[0].beam_idx & 0x7fff;
+        AssertFatal(beam_id == dbt->dig_beam_list[beam_id].beam_idx,
+                    "DBF Beam ID %d doesn't match one in DBT %d\n",
+                    beam_id,
+                    dbt->dig_beam_list[beam_id].beam_idx);
+        AssertFatal(bb_port < nb_antennas_tx,
+                    "Spatial stream index %d exceeds number of antenna ports %d\n",
+                    bb_port,
+                    nb_antennas_tx);
+        AssertFatal(pb->dig_bf_interfaces <= dbt->num_txrus, "Number of logical ports exceeded DBT matrix size\n");
+        const c16_t w = dbt->dig_beam_list[beam_id].txru_list[bb_port];
+        nr_beamformer_simd(in + subCarrier, w, re_cnt, out[bb_port] + out_offset + subCarrier);
+      }
+    } else { // precoding and dbf
+      AssertFatal(nb_antennas_tx > 1, "No precoding/dbf can be done with a single antenna port\n");
+      // get the precoding matrix weights:
+      const nfapi_nr_pm_pdu_t *pmi_pdu = &pm[pmi - 1]; // pmi 0 is identity matrix
+      const uint16_t num_bb_ports = dbt->num_txrus;
+      for (int bb_port = 0; bb_port < num_bb_ports; bb_port++) {
+        // SSI is not used when DBF is done
+        const uint16_t num_log_ports = pb->dig_bf_interfaces;
+        const uint16_t beam_id = pb->prgs_list[(int)rb / pb->prg_size].dig_bf_interface_list[0].beam_idx & 0x7fff;
+        AssertFatal(pmi == pmi_pdu->pm_idx, "PMI %d doesn't match to the one in precoding matrix %d\n", pmi, pmi_pdu->pm_idx);
+        AssertFatal(beam_id == dbt->dig_beam_list[beam_id].beam_idx,
+                    "DBF Beam ID %d doesn't match one in DBT %d\n",
+                    beam_id,
+                    dbt->dig_beam_list[beam_id].beam_idx);
+        AssertFatal(bb_port < nb_antennas_tx,
+                    "Spatial stream index %d exceeds number of antenna ports %d\n",
+                    bb_port,
+                    nb_antennas_tx);
+        AssertFatal(pb->dig_bf_interfaces <= dbt->num_txrus, "Number of logical ports exceeded DBT matrix size\n");
+        // Composite weight of precoding and dbf
+        c16_t w = {0};
+        for (int ll = 0; ll < num_log_ports; ll++)
+          w = c16maddShift(pmi_pdu->weights[layer_idx][ll], dbt->dig_beam_list[beam_id].txru_list[bb_port], w, 15);
+
+        nr_beamformer_simd(in + subCarrier, w, re_cnt, out[bb_port] + out_offset + subCarrier);
+      }
+    }
+    subCarrier += re_cnt;
+
+    rb += rb_step;
+  } // RB loop: while(rb < rel15->rbSize)
 }

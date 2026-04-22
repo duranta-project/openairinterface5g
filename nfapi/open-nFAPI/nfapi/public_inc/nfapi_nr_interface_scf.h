@@ -466,10 +466,7 @@ typedef struct
 
 //table 3-32
 
-typedef struct {
-  uint16_t dig_beam_weight_Re;
-  uint16_t dig_beam_weight_Im;
-} nfapi_nr_txru_t;
+typedef c16_t nfapi_nr_txru_t;
 
 typedef struct {
   uint16_t beam_idx;     //0~65535

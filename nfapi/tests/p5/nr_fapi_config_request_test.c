@@ -207,8 +207,8 @@ static void fill_config_request_tlv_tdd_rand(nfapi_nr_config_request_scf_t *nfap
       beam->txru_list = calloc(nb_tx , sizeof(*beam->txru_list));
       for (int j = 0; j < nb_tx; j++) {
         nfapi_nr_txru_t *txru = &beam->txru_list[j];
-        txru->dig_beam_weight_Re = rand16_range(1, 0xffff);
-        txru->dig_beam_weight_Im = rand16_range(1, 0xffff);
+        txru->r = rand16_range(1, 0xffff);
+        txru->i = rand16_range(1, 0xffff);
       }
     }
     nfapi_resp->num_tlv++;

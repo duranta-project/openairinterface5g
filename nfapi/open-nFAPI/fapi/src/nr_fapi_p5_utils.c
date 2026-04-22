@@ -257,8 +257,8 @@ bool eq_config_request(const nfapi_nr_config_request_scf_t *unpacked_req, const 
     for (int k = 0; k < req->dbt_config.num_txrus; ++k) {
       const nfapi_nr_txru_t *unpacked_tx_ru = &unpacked_dig_beam->txru_list[k];
       const nfapi_nr_txru_t *req_tx_ru = &req_dig_beam->txru_list[k];
-      EQ(unpacked_tx_ru->dig_beam_weight_Re, req_tx_ru->dig_beam_weight_Re);
-      EQ(unpacked_tx_ru->dig_beam_weight_Im, req_tx_ru->dig_beam_weight_Im);
+      EQ(unpacked_tx_ru->r, req_tx_ru->r);
+      EQ(unpacked_tx_ru->i, req_tx_ru->i);
     }
   }
 
@@ -813,8 +813,8 @@ void copy_config_request(const nfapi_nr_config_request_scf_t *src, nfapi_nr_conf
     for (int k = 0; k < dst->dbt_config.num_txrus; ++k) {
       nfapi_nr_txru_t *dst_tx_ru = &dst_dig_beam->txru_list[k];
       const nfapi_nr_txru_t *src_tx_ru = &src_dig_beam->txru_list[k];
-      dst_tx_ru->dig_beam_weight_Re = src_tx_ru->dig_beam_weight_Re;
-      dst_tx_ru->dig_beam_weight_Im = src_tx_ru->dig_beam_weight_Im;
+      dst_tx_ru->r = src_tx_ru->r;
+      dst_tx_ru->i = src_tx_ru->i;
     }
   }
 
@@ -1260,8 +1260,8 @@ void dump_config_request(const nfapi_nr_config_request_scf_t *msg)
     depth++;
     for (int k = 0; k < dbt_config->num_txrus; k++) {
       const nfapi_nr_txru_t *tx_ru = &dig_beam->txru_list[k];
-      INDENTED_GENERIC_PRINT("Dig Beam Weight Real", "0x%02x", tx_ru->dig_beam_weight_Re);
-      INDENTED_GENERIC_PRINT("Dig Beam Weight Imaginary", "0x%02x", tx_ru->dig_beam_weight_Im);
+      INDENTED_GENERIC_PRINT("Dig Beam Weight Real", "0x%02x", tx_ru->r);
+      INDENTED_GENERIC_PRINT("Dig Beam Weight Imaginary", "0x%02x", tx_ru->i);
     }
     depth--;
   }
