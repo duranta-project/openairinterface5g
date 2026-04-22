@@ -905,10 +905,14 @@ typedef struct {
   nfapi_v4_pdcch_pdu_parameters_t param_v4;
 } nfapi_nr_dl_tti_pdcch_pdu_rel15_t;
 
+#define MAX_CSI_RS_RM 2 // TODO not sure what value to put here yet
+
 typedef struct {
   uint8_t ldpcBaseGraph;
   uint32_t tbSizeLbrmBytes;
-}nfapi_v3_pdsch_maintenance_parameters_t;
+  uint8_t numCSIRSForRM;
+  uint16_t csiRSForRM[MAX_CSI_RS_RM];
+} nfapi_v3_pdsch_maintenance_parameters_t;
 
 typedef struct {
   /// Number of spatial streams used in the index array
@@ -1023,68 +1027,10 @@ typedef struct {
   nfapi_v4_pdsch_parameters_t param_v4;
 } nfapi_nr_dl_tti_pdsch_pdu_rel15_t;
 
-//for pdsch_pdu:
-/*
 typedef struct
 {
-  uint16_t target_code_rate;//
-  uint8_t  qam_mod_order;//
-  uint8_t  mcs_index;//
-  uint8_t  mcs_table;//
-  uint8_t  rv_index;//
-  uint32_t tb_size;//
-} nfapi_nr_code_word_t;
-
-//table 3-38
-typedef struct
-{
-  uint16_t pdu_bit_map;//Bitmap indicating presence of optional PDUs Bit 0: pdschPtrs - Indicates PTRS included (FR2) Bit 1:cbgRetxCtrl (Present when CBG based retransmit is used) All other bits reserved
-  uint16_t rnti;//The RNTI used for identifying the UE when receiving the PDU Value: 1 -> 65535
-  uint16_t pdu_index;//
-  uint16_t bwp_size;//Bandwidth part size [TS38.213 sec12]. Number of contiguous PRBs allocated to the BWP Value: 1->275
-  uint16_t bwp_start;//bandwidth part start RB index from reference CRB [TS38.213 sec 12] Value: 0->274
-  uint8_t  subcarrier_spacing;//Value:0->4
-  uint8_t  cyclic_prefix;//0: Normal; 1: Extended
-  uint8_t  nr_of_code_words;//Number of code words for this RNTI (UE) Value: 1 -> 2 
-  nfapi_nr_code_word_t* code_word_list;
-  uint16_t data_scrambling_id;//
-  uint8_t  nr_of_layers;//
-  uint8_t  transmission_scheme;//PDSCH transmission schemes [TS38.214, sec 5.1.1] 0: Up to 8 transmission layers
-  uint8_t  ref_point;//Reference point for PDSCH DMRS "k" - used for tone mapping
-  //DMRS
-  uint16_t dl_dmrs_symb_pos;//Bitmap occupying the 14 LSBs with: bit 0: first symbol and for each bit 0: no DMRS 1: DMRS
-  uint8_t  dmrs_config_type;//DL DMRS config type[TS38.211, sec 7.4.1.1.2] 0: type 1 1: type 2
-  uint16_t dl_dmrs_scrambling_id;//DL-DMRS-Scrambling-ID [TS38.211, sec 7.4.1.1.2 ] If provided by the higher-layer and the PDSCH is scheduled by PDCCH with CRC scrambled by CRNTI or CS-RNTI, otherwise, L2 should set this to physical cell id. Value: 0->65535
-  uint8_t  scid;// 0 1
-  uint8_t  num_dmrs_cdm_grps_no_data;//Number of DM-RS CDM groups without data [TS38.212 sec 7.3.1.2.2] [TS38.214 Table 4.1-1] it determines the ratio of PDSCH EPRE to DM-RS EPRE. Value: 1->3
-  uint16_t dmrs_ports;//DMRS ports. [TS38.212 7.3.1.2.2] provides description between DCI 1-1 content and DMRS ports. Bitmap occupying the 11 LSBs with: bit 0: antenna port 1000 bit 11: antenna port 1011 and for each bit 0: DMRS port not used 1: DMRS port used
-
-  //Pdsch Allocation in frequency domain [TS38.214, sec 5.1.2.2]
-  uint8_t  resource_alloc;//Resource Allocation Type [TS38.214, sec 5.1.2.2] 0: Type 0 1: Type 1
-  uint8_t  rb_bit_map[36];//For resource alloc type 0. TS 38.212 V15.0.x, 7.3.1.2.2 bitmap of RBs, 273 rounded up to multiple of 32. This bitmap is in units of VRBs. LSB of byte 0 of the bitmap represents the first RB of the bwp
-  uint16_t rb_start;//For resource allocation type 1. [TS38.214, sec5.1.2.2.2] The starting resource block within the BWP for this PDSCH. Value: 0->274
-  uint16_t rb_size;//For resource allocation type 1. [TS38.214, sec 5.1.2.2.2] The number of resource block within for this PDSCH. Value: 1->275
-  uint8_t  vrb_to_prb_mapping;//VRB-to-PRB-mapping [TS38.211, sec 7.3.1.6] 0: non-interleaved 1: interleaved with RB size 2 2: Interleaved with RB size 4
-  //Resource Allocation in time domain [TS38.214, sec 5.1.2.1]
-  uint8_t  start_symbol_index;//Start symbol index of PDSCH mapping from the start of the slot, S. [TS38.214, Table 5.1.2.1-1] Value: 0->13
-  uint8_t  nr_of_symbols;//PDSCH duration in symbols, L [TS38.214, Table 5.1.2.1-1] Value: 1->14
-  //PTRS TS38.214 sec 5.1.6.3
-  uint8_t  ptrs_port_index;//PT-RS antenna ports [TS38.214, sec 5.1.6.3] [TS38.211, table 7.4.1.2.2-1] Bitmap occupying the 6 LSBs with: bit 0:  ntenna port 1000 bit 5: antenna port 1005 and for each bit 0: PTRS port not used 1: PTRS port used
-  uint8_t  ptrs_time_density;//PT-RS time density [TS38.214, table 5.1.6.3-1] 0: 1 1: 2 2: 4
-  uint8_t  ptrs_freq_density;//PT-RS frequency density [TS38.214, table[5.1.6.3-2] 0: 2 1: 4
-  uint8_t  ptrs_re_offset;//PT-RS resource element offset [TS38.211, table [7.4.1.2.2-1]
-  uint8_t  n_epre_ratio_of_pdsch_to_ptrs;//PT-RS-to-PDSCH EPRE ratio [TS38.214, table 4.1-2] Value :0->3
-  nfapi_nr_tx_precoding_and_beamforming_t* precoding_and_beamforming_list;
-  //TX power info
-  uint8_t  power_control_offset;//Ratio of PDSCH EPRE to NZP CSI-RSEPRE [TS38.214, sec 5.2.2.3.1] Value :0->23 representing -8 to 15 dB in 1dB steps
-  uint8_t  power_control_offset_ss;//Ratio of SSB/PBCH block EPRE to NZP CSI-RS EPRES [TS38.214, sec 5.2.2.3.1] Values: 0: -3dB, 1: 0dB, 2: 3dB, 3: 6dB
-  //CBG fields
-  uint8_t  is_last_cb_present;//Indicates whether last CB is present in the CBG retransmission 0: CBG retransmission does not include last CB 1: CBG retransmission includes last CB If CBG Re-Tx includes last CB, L1 will add the TB CRC to the last CB in the payload before it is read into the LDPC HW unit
-  uint8_t  is_inline_tb_crc;//Indicates whether TB CRC is part of data payload or control message 0: TB CRC is part of data payload 1: TB CRC is part of control message
-  uint32_t dl_tb_crc;//TB CRC: to be used in the last CB, applicable only if last CB is present
-
-} nfapi_nr_dlsch_pdu_t;
-*/
+  uint16_t csiRS_pdu_index_v3;  // Unique index across all CSI-RS PDUs in the slot, in the order of appearance in DL_TTI.request
+} nfapi_v3_csirs_maintenance_parameters_t;
 
 typedef struct
 {
@@ -1112,6 +1058,7 @@ typedef struct
     /// Spatial stream index array
     uint8_t spatialStreamIndices[MAX_NUM_SPATIAL_STREAMS];
   } param_v4;
+  nfapi_v3_csirs_maintenance_parameters_t maintenance_parms_v3;
 } nfapi_nr_dl_tti_csi_rs_pdu_rel15_t;
 
 typedef struct
@@ -1391,7 +1338,7 @@ typedef struct
 typedef struct {
   uint8_t ldpcBaseGraph;
   uint32_t tbSizeLbrmBytes;
-}nfapi_v3_pusch_maintenance_parameters_t;
+} nfapi_v3_pusch_maintenance_parameters_t;
 
 typedef struct
 {
@@ -1438,7 +1385,7 @@ typedef struct
   nfapi_nr_dfts_ofdm_t dfts_ofdm;
   //beamforming
   nfapi_nr_ul_beamforming_t beamforming;
-  nfapi_v3_pdsch_maintenance_parameters_t maintenance_parms_v3;
+  nfapi_v3_pusch_maintenance_parameters_t maintenance_parms_v3;
   // Spatial stream indexing for MU-MIMO
   nfapi_nr_spatial_stream_index_t param_v4;
 } nfapi_nr_pusch_pdu_t;
