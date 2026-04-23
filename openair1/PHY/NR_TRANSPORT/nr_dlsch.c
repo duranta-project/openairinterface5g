@@ -275,7 +275,7 @@ static inline int dmrs_case00(c16_t *output,
   return in - txl;
 }
 
-static inline int no_ptrs_dmrs_case(c16_t *output, c16_t *txl, const int amp, const int sz)
+static inline int no_ptrs_dmrs_csi_case(c16_t *output, c16_t *txl, const int amp, const int sz)
 {
   // Loop Over SCs:
   int i = 0;
@@ -306,6 +306,39 @@ static inline int no_ptrs_dmrs_case(c16_t *output, c16_t *txl, const int amp, co
   return sz;
 }
 
+static inline int csi_rm_case(c16_t *output,
+                              c16_t *txl,
+                              const freq_alloc_bitmap_t *freq_alloc,
+                              const int amp,
+                              int symbol_sz,
+                              uint32_t symbol_bitmap,
+                              const nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15)
+{
+  uint32_t csi_even = symbol_bitmap & 0xfff;
+  uint32_t csi_odd  = (symbol_bitmap >> 16) & 0xfff;
+  c16_t *in = txl;
+  int pos = freq_alloc->first_rb;
+  int block_start, block_end;
+  while (find_next_rb_block(freq_alloc->bitmap, rel15->BWPSize, &pos, &block_start, &block_end)) {
+    for (int rb = block_start; rb <= block_end; rb++) {
+      uint32_t csi_map = (rb % 2 == 0) ? csi_even : csi_odd;
+      int start_sc = get_block_start_sc(rb, rel15->BWPStart, symbol_sz);
+      if (csi_map == 0) {
+        in += no_ptrs_dmrs_csi_case(output + start_sc, in, amp, NR_NB_SC_PER_RB);
+      } else {
+        for (int re = 0; re < NR_NB_SC_PER_RB; re++) {
+          if (!((csi_map >> re) & 1)) {
+            int k = (start_sc + re) % symbol_sz;
+            output[k] = c16mulRealShift(*in++, amp, 15);
+          }
+        }
+      }
+    }
+  }
+  return in - txl;
+}
+
+
 static inline void neg_dmrs(c16_t *in, c16_t *out, int sz)
 {
   for (int i = 0; i < sz; i++)
@@ -326,6 +359,7 @@ static inline void do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
                                int amp,
                                int16_t amp_dmrs,
                                int l_prime,
+                               uint32_t csi_res_bitmap,
                                nfapi_nr_dmrs_type_e dmrs_Type,
                                c16_t *dmrs_start)
 {
@@ -400,19 +434,13 @@ static inline void do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
           AssertFatal(false, "rel15->numDmrsCdmGrpsNoData is %d\n", rel15->numDmrsCdmGrpsNoData);
       }
     } else {
-      txl += dmrs_case00(output,
-                         txl,
-                         dmrs_start,
-                         freq_alloc,
-                         amp_dmrs,
-                         amp,
-                         dmrs_port,
-                         dmrs_Type,
-                         symbol_sz,
-                         l_prime,
-                         rel15);
-    } // generic DMRS case
-  } else { // no PTRS or DMRS in this symbol
+      // generic DMRS case
+      txl += dmrs_case00(output, txl, dmrs_start, freq_alloc, amp_dmrs, amp, dmrs_port, dmrs_Type, symbol_sz, l_prime, rel15);
+    }
+  } else if (csi_res_bitmap) {
+    // to rate match around CSI-RS
+    txl += csi_rm_case(output, txl, freq_alloc, amp, symbol_sz, csi_res_bitmap, rel15);
+  } else { // no CSI-RS no PTRS or DMRS in this symbol
     int pos = 0;
     int block_start, block_end;
     while (find_next_rb_block(freq_alloc->bitmap, rel15->BWPSize, &pos, &block_start, &block_end)) {
@@ -420,7 +448,7 @@ static inline void do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
       int nb_rb = block_end - block_start + 1;
       int start_sc = get_block_start_sc(start_rb, rel15->BWPStart, symbol_sz);
       const int sz = nb_rb * NR_NB_SC_PER_RB;
-      txl += no_ptrs_dmrs_case(output + start_sc, txl, amp, sz);
+      txl += no_ptrs_dmrs_csi_case(output + start_sc, txl, amp, sz);
     }
   } // no DMRS/PTRS in symbol
   return;
@@ -502,6 +530,7 @@ typedef struct pdschSymbolProc_s {
   unsigned int n_ptrs;
   uint16_t *ant_to_map;
   unsigned int re_beginning_of_symbol[14];
+  unsigned int csi_res_bitmap[14];
   c16_t *tx_layers[4];
   time_stats_t dlsch_resource_mapping_stats;
   time_stats_t dlsch_precoding_stats;
@@ -573,6 +602,7 @@ static void nr_pdsch_symbol_processing(void *arg)
                   gNB->TX_AMP,
                   min((double)gNB->TX_AMP * sqrt(rel15->numDmrsCdmGrpsNoData), INT16_MAX),
                   l_prime,
+                  rdata->csi_res_bitmap[l_symbol],
                   rel15->dmrsConfigType,
                   mod_dmrs + dmrs_idx);
     } // layer loop
@@ -768,6 +798,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
     rdata->n_ptrs = n_ptrs;
     rdata->ant_to_map = ant_to_map;
     for (int s = l_symbol; s < l_symbol + rdata->numSymbols; s++) {
+      rdata->csi_res_bitmap[s] = dlsch->csi_res_bitmap[s];
       rdata->re_beginning_of_symbol[s] = re_beginning_of_symbol;
       re_beginning_of_symbol += freq_alloc->num_rbs * NR_NB_SC_PER_RB;
       if (n_ptrs > 0 && is_ptrs_symbol(s, dlPtrsSymPos)) {
@@ -775,6 +806,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
       } else if (rel15->dlDmrsSymbPos & (1 << s)) {
         re_beginning_of_symbol -= n_dmrs;
       }
+      re_beginning_of_symbol -= dlsch->csi_re_count[s];
     }
     reset_meas(&rdata->dlsch_resource_mapping_stats);
     reset_meas(&rdata->dlsch_precoding_stats);
@@ -798,6 +830,54 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
    */
   uint32_t size_output_tb = freq_alloc->num_rbs * frame_parms->symbols_per_slot * NR_NB_SC_PER_RB * Qm * rel15->nrOfLayers;
   return ((size_output_tb + 511) >> 9) << 6;
+}
+
+static void determine_unav_resources(const nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15, NR_gNB_DLSCH_t *dlsch)
+{
+  /* PTRS */
+  uint16_t ptrsSymPos = 0;
+  int n_ptrs = 0;
+  uint32_t ptrsSymbPerSlot = 0;
+  if (rel15->pduBitmap & 0x1) {
+    set_ptrs_symb_idx(&ptrsSymPos, rel15->NrOfSymbols, rel15->StartSymbolIndex, 1 << rel15->PTRSTimeDensity, rel15->dlDmrsSymbPos);
+    n_ptrs = (dlsch->freq_alloc.num_rbs + rel15->PTRSFreqDensity - 1) / rel15->PTRSFreqDensity;
+    ptrsSymbPerSlot = get_ptrs_symbols_in_slot(ptrsSymPos, rel15->StartSymbolIndex, rel15->NrOfSymbols);
+  }
+  dlsch->unav_res = ptrsSymbPerSlot * n_ptrs;
+
+  /* CSI-RS */
+  int num_csi = rel15->maintenance_parms_v3.numCSIRSForRM;
+  if (num_csi == 0)
+    return;
+
+  int num_even_rb = 0;
+  int num_words = (dlsch->freq_alloc.last_rb / 32) + 1;
+  for (int i = dlsch->freq_alloc.first_rb / 32; i < num_words; i++) {
+    uint32_t w = dlsch->freq_alloc.bitmap[i];
+    uint32_t even_mask = (i % 2 == 0) ? 0x55555555 : 0xAAAAAAAA;
+    num_even_rb += __builtin_popcount(w & even_mask);
+  }
+  int num_odd_rb = dlsch->freq_alloc.num_rbs - num_even_rb;
+
+  for (int s = rel15->StartSymbolIndex; s < rel15->StartSymbolIndex + rel15->NrOfSymbols; s++) {
+    dlsch->csi_res_bitmap[s] = 0;
+    dlsch->csi_re_count[s] = 0;
+    for (int i = 0; i < num_csi; i++) {
+      nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csi = &dlsch->csi_rm[i];
+      dlsch->csi_res_bitmap[s] |= build_csi_overlap_bitmap(csi->row,
+                                                           csi->symb_l0,
+                                                           csi->symb_l1,
+                                                           csi->freq_density,
+                                                           csi->freq_domain,
+                                                           s);
+    }
+    if (dlsch->csi_res_bitmap[s] != 0) {
+      int even_count = __builtin_popcount(dlsch->csi_res_bitmap[s] & 0xfff);
+      int odd_count = __builtin_popcount((dlsch->csi_res_bitmap[s] >> 16) & 0xfff);
+      dlsch->csi_re_count[s] = num_even_rb * even_count + num_odd_rb * odd_count;
+      dlsch->unav_res += dlsch->csi_re_count[s];
+    }
+  }
 }
 
 void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_array, int frame, int slot)
@@ -824,29 +904,13 @@ void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_arr
           dlsch->freq_alloc.last_rb,
           dlsch->freq_alloc.num_rbs);
 
-    const int Qm = rel15->qamModOrder[0];
-
-    /* PTRS */
-    uint16_t dlPtrsSymPos = 0;
-    int n_ptrs = 0;
-    uint32_t ptrsSymbPerSlot = 0;
-    if (rel15->pduBitmap & 0x1) {
-      set_ptrs_symb_idx(&dlPtrsSymPos,
-                        rel15->NrOfSymbols,
-                        rel15->StartSymbolIndex,
-                        1 << rel15->PTRSTimeDensity,
-                        rel15->dlDmrsSymbPos);
-      n_ptrs = (dlsch->freq_alloc.num_rbs + rel15->PTRSFreqDensity - 1) / rel15->PTRSFreqDensity;
-      ptrsSymbPerSlot = get_ptrs_symbols_in_slot(dlPtrsSymPos, rel15->StartSymbolIndex, rel15->NrOfSymbols);
-    }
-    dlsch->unav_res = ptrsSymbPerSlot * n_ptrs;
-
-    /// CRC, coding, interleaving and rate matching
+    determine_unav_resources(rel15, dlsch);
     AssertFatal(dlsch->pdu != NULL, "%4d.%2d no PDU for PDSCH generation\n", frame, slot);
 
     /* output and its parts for each dlsch should be aligned on 64 bytes (or 8 * 64 bits)
      * => size_output is a sum of parts sizes rounded up to a multiple of 8 * 64
      */
+    const int Qm = rel15->qamModOrder[0];
     size_t size_output_tb = dlsch->freq_alloc.num_rbs * NR_SYMBOLS_PER_SLOT * NR_NB_SC_PER_RB * Qm * rel15->nrOfLayers;
     size_output += ceil_mod(size_output_tb, 8 * 64);
   }
