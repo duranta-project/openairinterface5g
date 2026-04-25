@@ -626,6 +626,70 @@ void nr_pdcp_add_drb(int is_gnb,
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }
 
+void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, const nr_pdcp_entity_security_keys_and_algos_t *security_parameters)
+{
+  nr_pdcp_entity_t *pdcp_drb;
+
+  AssertFatal(s->sl_PDCP_Config_r16 != NULL, "SL PDCP config is not there!\n");
+  int slrb_id = s->slrb_Uu_ConfigIndex_r16;
+  int sn_size = decode_sn_size_ul(*s->sl_PDCP_Config_r16->sl_PDCP_SN_Size_r16);
+  int discard_timer = decode_discard_timer_sl(*s->sl_PDCP_Config_r16->sl_DiscardTimer_r16);
+
+  int t_reordering = 20;
+
+  // get SDAP config
+  sdap_config_t sdap = {0};
+  sdap.pdusession_id = 0;
+  sdap.drb_id = slrb_id;
+
+  int is_gnb = 0; // SL is only for UE side, so is_gnb is always false
+  sdap_role_t role_dl = is_gnb ? SDAP_DL_TX : SDAP_DL_RX;
+  int role = 0;
+  if (s->sl_SDAP_Config_r16 && s->sl_SDAP_Config_r16->sl_SDAP_Header_r16 == NR_SL_SDAP_Config_r16__sl_SDAP_Header_r16_present)
+  {
+    role |= role_dl;
+  }
+  sdap.role = role;
+  sdap.defaultDRB = s->sl_SDAP_Config_r16 && s->sl_SDAP_Config_r16->sl_DefaultRB_r16 == true ? true : false;
+
+  if (s->sl_SDAP_Config_r16->sl_MappedQoS_Flows_r16) {
+    sdap.mappedQFIs2AddCount = s->sl_SDAP_Config_r16->sl_MappedQoS_Flows_r16->choice.sl_MappedQoS_FlowsList_r16->list.count;
+    DevAssert(sdap.mappedQFIs2AddCount <= SDAP_MAX_QFI);
+    LOG_D(SDAP, "SL DRB %d: mapped QFIs = %d  \n", slrb_id, sdap.mappedQFIs2AddCount);
+
+    long standardized_PQI = 0;
+    for (int i = 0; i < sdap.mappedQFIs2AddCount; i++){
+      DevAssert(i < SDAP_MAX_QFI);
+      standardized_PQI = s->sl_SDAP_Config_r16->sl_MappedQoS_Flows_r16->choice.sl_MappedQoS_FlowsList_r16->list.array[i]->sl_PQI_r16->choice.sl_StandardizedPQI_r16;
+      if (standardized_PQI < SDAP_MAX_QFI)
+        sdap.mappedQFIs2Add[i] = standardized_PQI;
+      LOG_D(SDAP, "SL DRB %d: Captured mappedQoS_FlowsToAdd[%d] from RRC: %ld\n", slrb_id, i, sdap.mappedQFIs2Add[i]);
+    }
+  }  
+  
+  // add SDAP entity
+  nr_sdap_addmod_entity(GNB_FLAG_NO, srcid, &sdap);
+
+  nr_pdcp_manager_lock(nr_pdcp_ue_manager);
+  nr_pdcp_ue_t *ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, srcid);
+  if (ue->drb[slrb_id-1] != NULL) {
+    LOG_W(PDCP, "%s:%d:%s: warning DRB %d already exist for UE ID/RNTI %ld, do nothing\n", __FILE__, __LINE__, __FUNCTION__, slrb_id, srcid);
+  } else {
+    pdcp_drb = new_nr_pdcp_entity(NR_PDCP_DRB_AM, 0, slrb_id, sdap.pdusession_id,
+                                  (sdap.role & (SDAP_UL_RX | SDAP_DL_RX)) != 0,(sdap.role & (SDAP_UL_RX | SDAP_DL_RX)) != 0,
+                                  deliver_sdu_drb, ue, deliver_pdu_drb_ue, ue,
+                                  sn_size, t_reordering, discard_timer,
+                                  security_parameters);
+
+    nr_pdcp_ue_add_drb_pdcp_entity(ue, slrb_id, pdcp_drb);
+
+    LOG_I(PDCP, "%s:%d:%s: added slrb %d to UE ID %ld\n", __FILE__, __LINE__, __FUNCTION__, slrb_id, srcid);
+
+    //new_nr_sdap_entity(0, has_sdap, has_sdap, srcid, 0, is_sdap_DefaultRB, slrb_id, mappedQFIs2Add, mappedQFIs2AddCount);
+  }
+  nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+}
+
 void nr_pdcp_add_srbs(eNB_flag_t enb_flag,
                       ue_id_t UEid,
                       NR_SRB_ToAddModList_t *const srb2add_list,
