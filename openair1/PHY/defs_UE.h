@@ -23,7 +23,7 @@
 #include <execinfo.h>
 #include <getopt.h>
 #include <sys/sysinfo.h>
-
+#include <stdbool.h>
 
 #include <stdio.h>
 #include <stdlib.h>

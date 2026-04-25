@@ -259,6 +259,7 @@ int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)
   }
 
   ue->init_averaging = 1;
+
   init_symbol_rotation(fp);
   init_timeshift_rotation(fp->ofdm_symbol_size,
                           fp->N_RB_DL * NR_NB_SC_PER_RB,

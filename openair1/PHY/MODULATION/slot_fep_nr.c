@@ -48,6 +48,99 @@ void nr_symbol_fep(const NR_DL_FRAME_PARMS *frame_parms,
   }
 }
 
+/*
+int sl_nr_slot_fep(PHY_VARS_NR_UE *ue,
+                UE_nr_rxtx_proc_t *proc,
+                unsigned char symbol,
+                unsigned char Ns,
+                uint32_t sample_offset,
+                c16_t rxdataF[][ue->SL_UE_PHY_PARAMS.sl_frame_params.samples_per_slot_wCP])
+{
+  NR_DL_FRAME_PARMS *frame_params = &ue->SL_UE_PHY_PARAMS.sl_frame_params;
+  NR_UE_COMMON *common_vars      = &ue->common_vars;
+
+  AssertFatal(symbol < frame_params->symbols_per_slot, "slot_fep: symbol must be between 0 and %d\n", frame_params->symbols_per_slot-1);
+  AssertFatal(Ns < frame_params->slots_per_frame, "slot_fep: Ns must be between 0 and %d\n", frame_params->slots_per_frame-1);
+
+  unsigned int nb_prefix_samples  = frame_params->nb_prefix_samples;
+  unsigned int nb_prefix_samples0 = frame_params->nb_prefix_samples0;
+
+
+  dft_size_idx_t dftsize = get_dft(frame_params->ofdm_symbol_size);
+  // This is for misalignment issues
+  int32_t tmp_dft_in[8192] __attribute__ ((aligned (32)));
+
+  unsigned int rx_offset = frame_params->get_samples_slot_timestamp(Ns,frame_params,0);
+  unsigned int abs_symbol = Ns * frame_params->symbols_per_slot + symbol;
+
+  rx_offset += sample_offset;
+  rx_offset += ue->rx_offset;
+
+  for (int idx_symb = Ns*frame_params->symbols_per_slot; idx_symb <= abs_symbol; idx_symb++)
+    rx_offset += (idx_symb%(0x7<<frame_params->numerology_index)) ? nb_prefix_samples : nb_prefix_samples0;
+  rx_offset += frame_params->ofdm_symbol_size * symbol;
+
+  // use OFDM symbol from within 1/8th of the CP to avoid ISI
+  rx_offset -= (nb_prefix_samples / frame_params->ofdm_offset_divisor);
+
+#ifdef SL_DEBUG_SLOT_FEP
+  //  if (ue->frame <100)
+  LOG_I(PHY, "slot_fep: slot %d, symbol %d, nb_prefix_samples %u, nb_prefix_samples0 %u, rx_offset %u\n",
+         Ns, symbol, nb_prefix_samples, nb_prefix_samples0, rx_offset);
+#endif
+
+  for (unsigned char aa=0; aa<frame_params->nb_antennas_rx; aa++) {
+    memset(&rxdataF[aa][frame_params->ofdm_symbol_size*symbol],0,frame_params->ofdm_symbol_size*sizeof(int32_t));
+
+    int16_t *rxdata_ptr = (int16_t *)&common_vars->rxdata[aa][rx_offset];
+
+    // if input to dft is not 256-bit aligned
+    if ((rx_offset & 7) != 0) {
+      memcpy((void *)&tmp_dft_in[0],
+             (void *)&common_vars->rxdata[aa][rx_offset],
+             frame_params->ofdm_symbol_size * sizeof(int32_t));
+
+      rxdata_ptr = (int16_t *)tmp_dft_in;
+    }
+
+    dft(dftsize,
+        rxdata_ptr,
+        (int16_t *)&rxdataF[aa][frame_params->ofdm_symbol_size*symbol],
+        1);
+
+
+    int symb_offset = (Ns%frame_params->slots_per_subframe)*frame_params->symbols_per_slot;
+    int32_t rot2 = ((uint32_t*)frame_params->symbol_rotation[1])[symbol+symb_offset];
+    ((int16_t*)&rot2)[1]=-((int16_t*)&rot2)[1];
+
+#ifdef SL_DEBUG_SLOT_FEP
+    //  if (ue->frame <100)
+    LOG_I(PHY, "slot_fep: slot %d, symbol %d rx_offset %u, rotation symbol %d %d.%d\n", Ns,symbol, rx_offset,
+	   symbol+symb_offset,((int16_t*)&rot2)[0],((int16_t*)&rot2)[1]);
+#endif
+
+    rotate_cpx_vector((c16_t *)&rxdataF[aa][frame_params->ofdm_symbol_size*symbol],
+		      (c16_t *)&rot2,
+		      (c16_t *)&rxdataF[aa][frame_params->ofdm_symbol_size*symbol],
+		      frame_params->ofdm_symbol_size,
+		      15);
+
+    c16_t *shift_rot = (c16_t *)frame_params->timeshift_symbol_rotation;
+
+    multadd_cpx_vector((c16_t *)&rxdataF[aa][frame_params->ofdm_symbol_size*symbol],
+          shift_rot,
+          (c16_t *)&rxdataF[aa][frame_params->ofdm_symbol_size*symbol],
+          frame_params->ofdm_symbol_size,
+          15);
+  }
+
+
+
+  LOG_D(PHY, "SIDELINK RX: Slot FEP: done for symbol:%d\n", symbol);
+
+  return 0;
+}
+*/
 int nr_slot_fep(PHY_VARS_NR_UE *ue,
                 const NR_DL_FRAME_PARMS *frame_parms,
                 unsigned int slot,

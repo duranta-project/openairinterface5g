@@ -435,12 +435,17 @@ void nr_ue_sl_phy_config_request(nr_sl_phy_config_t *phy_config)
 void sl_handle_scheduled_response(nr_scheduled_response_t *scheduled_response)
 {
   module_id_t module_id = scheduled_response->module_id;
-  const char *sl_rx_action[] = {"NONE", "RX_PSBCH", "RX_PSCCH", "RX_SCI2_ON_PSSCH", "RX_SLSCH_ON_PSSCH"};
-  const char *sl_tx_action[] = {"TX_PSBCH", "TX_PSCCH_PSSCH", "TX_PSFCH"};
+  
+  const char *sl_rx_action[] = {"NONE", "RX_PSBCH", "RX_PSCCH", "RX_SCI2_ON_PSSCH", "RX_SLSCH_ON_PSSCH", "RX_PSFCH", "RX_SLSCH_ON_PSSCH_CSI_RS"};
+  const char *sl_tx_action[] = {"TX_PSBCH", "TX_PSCCH_PSSCH", "TX_PSCCH_PSSCH_PSFCH", "TX_PSCCH_PSSCH_CSI_RS"};
+  //NR_UE_CSI_RS *csirs_vars = PHY_vars_UE_g[module_id][cc_id]->csirs_vars[0];
 
   if (scheduled_response->sl_rx_config != NULL) {
     sl_nr_rx_config_request_t *sl_rx_config = scheduled_response->sl_rx_config;
     nr_phy_data_t *phy_data = (nr_phy_data_t *)scheduled_response->phy_data;
+    sl_nr_tti_csi_rs_pdu_t *csirs_config_pdu;
+    AssertFatal(sl_rx_config->number_pdus == SL_NR_RX_CONFIG_LIST_NUM,
+                                      "sl_rx_config->number_pdus incorrect\n");
 
     AssertFatal(sl_rx_config->number_pdus == SL_NR_RX_CONFIG_LIST_NUM, "sl_rx_config->number_pdus incorrect\n");
 
@@ -448,6 +453,34 @@ void sl_handle_scheduled_response(nr_scheduled_response_t *scheduled_response)
       case SL_NR_CONFIG_TYPE_RX_PSBCH:
         phy_data->sl_rx_action = SL_NR_CONFIG_TYPE_RX_PSBCH;
         LOG_D(PHY, "Recvd CONFIG_TYPE_RX_PSBCH\n");
+        break;
+      case SL_NR_CONFIG_TYPE_RX_PSCCH:
+        phy_data->sl_rx_action = SL_NR_CONFIG_TYPE_RX_PSCCH;
+        phy_data->nr_sl_pscch_pdu = sl_rx_config->sl_rx_config_list[0].rx_pscch_config_pdu;
+        LOG_D(NR_PHY, "Recvd CONFIG_TYPE_RX_PSCCH\n");
+        break;
+      case SL_NR_CONFIG_TYPE_RX_PSSCH_SCI:
+        phy_data->sl_rx_action = SL_NR_CONFIG_TYPE_RX_PSSCH_SCI;
+        phy_data->nr_sl_pssch_sci_pdu = sl_rx_config->sl_rx_config_list[0].rx_sci2_config_pdu;
+        LOG_D(NR_PHY, "Recvd CONFIG_TYPE_RX_PSSCH_SCI\n");
+        break;
+      case SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH:
+      //case SL_NR_CONFIG_TYPE_RX_PSFCH:
+      case SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_CSI_RS:
+        phy_data->sl_rx_action = sl_rx_config->sl_rx_config_list[0].pdu_type;
+        phy_data->nr_sl_pssch_pdu = sl_rx_config->sl_rx_config_list[0].rx_pssch_config_pdu;
+        LOG_D(NR_PHY, "%4d.%2d Recvd %s\n", sl_rx_config->sfn, sl_rx_config->slot, sl_rx_action[phy_data->sl_rx_action]);
+        if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_CSI_RS) {
+          csirs_config_pdu = &sl_rx_config->sl_rx_config_list[0].rx_csi_rs_config_pdu;
+          memcpy((void*)&(phy_data->csirs_vars->csirs_config_pdu), (void*)csirs_config_pdu, sizeof(sl_nr_tti_csi_rs_pdu_t));
+          phy_data->csirs_vars->active = true;
+        }
+        if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH) {
+          phy_data->psfch_pdu_list = calloc(sl_rx_config->sl_rx_config_list[0].num_psfch_pdus, sizeof(sl_nr_tx_rx_config_psfch_pdu_t));
+          memcpy((void*)phy_data->psfch_pdu_list, (void*)sl_rx_config->sl_rx_config_list[0].rx_psfch_pdu_list,
+                 sl_rx_config->sl_rx_config_list[0].num_psfch_pdus * sizeof(sl_nr_tx_rx_config_psfch_pdu_t));
+          phy_data->num_psfch_pdus = sl_rx_config->sl_rx_config_list[0].num_psfch_pdus;
+        }
         break;
       default:
         AssertFatal(0, "Incorrect sl_rx config req pdutype \n");
@@ -475,6 +508,32 @@ void sl_handle_scheduled_response(nr_scheduled_response_t *scheduled_response)
             *((uint32_t *)sl_tx_config->tx_config_list[0].tx_psbch_config_pdu.psbch_payload);
         phy_data_tx->psbch_vars.psbch_tx_power = sl_tx_config->tx_config_list[0].tx_psbch_config_pdu.psbch_tx_power;
         phy_data_tx->psbch_vars.tx_slss_id = sl_tx_config->tx_config_list[0].tx_psbch_config_pdu.tx_slss_id;
+        break;
+      case SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH:
+      //case SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_CSI_RS:
+      case SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH: {
+          sl_nr_tx_config_pscch_pssch_pdu_t *tx_config_pdu = &sl_tx_config->tx_config_list[0].tx_pscch_pssch_config_pdu;
+          phy_data_tx->sl_tx_action = sl_tx_config->tx_config_list[0].pdu_type;
+          phy_data_tx->nr_sl_pssch_pscch_pdu = *tx_config_pdu;
+          LOG_D(PHY, "Recvd CONFIG_TYPE_%s in (%d.%d) PSCCH startRB %hhu, PSCCH numRB %hhu\n",
+                sl_tx_action[phy_data_tx->sl_tx_action - SL_NR_CONFIG_TYPE_TX_PSBCH],
+                sl_tx_config->sfn, sl_tx_config->slot,
+                phy_data_tx->nr_sl_pssch_pscch_pdu.startrb,
+                phy_data_tx->nr_sl_pssch_pscch_pdu.pscch_numrbs);
+          LOG_D(NR_PHY, "format 1A length %hu :%llx, format 2x length %hu : %llx, PSSCH mcs %hu, PSSCH tbslrm %u\n",
+                phy_data_tx->nr_sl_pssch_pscch_pdu.pscch_sci_payload_len,
+                (unsigned long long)*phy_data_tx->nr_sl_pssch_pscch_pdu.pscch_sci_payload,
+                phy_data_tx->nr_sl_pssch_pscch_pdu.sci2_payload_len,
+                (unsigned long long)*phy_data_tx->nr_sl_pssch_pscch_pdu.sci2_payload,
+                phy_data_tx->nr_sl_pssch_pscch_pdu.mcs,
+                phy_data_tx->nr_sl_pssch_pscch_pdu.tbslbrm);
+          if (phy_data_tx->sl_tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_CSI_RS) {
+            phy_data_tx->nr_sl_pssch_pscch_pdu.nr_sl_csi_rs_pdu = tx_config_pdu->nr_sl_csi_rs_pdu;
+          }
+          //uint8_t current_harq_pid = tx_config_pdu->harq_pid;
+          //NR_UL_UE_HARQ_t *harq_process = &PHY_vars_UE_g[module_id][cc_id]->sl_harq_processes[current_harq_pid];
+          //phy_data_tx->ulsch.status = ACTIVE; //harq_process->status = ACTIVE;
+        }
         break;
       default:
         AssertFatal(0, "Incorrect sl_tx config req pdutype \n");

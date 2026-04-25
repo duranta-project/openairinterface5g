@@ -43,6 +43,13 @@
 
 #include "T.h"
 
+uint32_t nr_generate_dci(void *gNB, PHY_VARS_NR_UE *ue,
+                         nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu_rel15,
+                         int32_t *txdataF,
+                         int16_t amp,
+                         NR_DL_FRAME_PARMS *frame_parms,
+                         int slot);
+
 uint32_t nr_generate_sci1(const PHY_VARS_NR_UE *ue,
                           c16_t *txdataF,
                           const NR_DL_FRAME_PARMS *frame_parms,
@@ -65,4 +72,5 @@ uint32_t nr_generate_sci1(const PHY_VARS_NR_UE *ue,
   pdcch_pdu_rel15.dci_pdu[0].ScramblingRNTI      = 1010;
   *(uint64_t*)pdcch_pdu_rel15.dci_pdu[0].Payload = *(uint64_t *)pscch_pssch_pdu->pscch_sci_payload; 
   return(nr_generate_sci((PHY_VARS_NR_UE *)ue,&pdcch_pdu_rel15,(c16_t *)txdataF,amp,(NR_DL_FRAME_PARMS*)frame_parms,nr_slot_tx));
+  //?return(nr_generate_dci(NULL,(PHY_VARS_NR_UE *)ue,&pdcch_pdu_rel15,(int32_t *)txdataF,amp,(NR_DL_FRAME_PARMS*)frame_parms,nr_slot_tx)); 
 } 
