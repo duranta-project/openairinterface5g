@@ -51,9 +51,27 @@
 #define SL_CONFIG_STRING_RESPOOL_SUBCH_START_RB               "sl_StartRB_Subchannel"
 #define SL_CONFIG_STRING_RESPOOL_NUM_RBS                      "sl_RB_Number"
 #define SL_CONFIG_STRING_RESPOOL_NUM_SUBCHS                   "sl_NumSubchannel"
+#define SL_CONFIG_STRING_RESPOOL_PSFCH_PERIOD                 "sl_PSFCH_Period"
+#define SL_CONFIG_STRING_RESPOOL_PSFCH_RB_SET                 "sl_PSFCH_RB_Set"
+#define SL_CONFIG_STRING_RESPOOL_PSFCH_NUMMUXCS_PAIR          "sl_NumMuxCS_Pair"
+#define SL_CONFIG_STRING_RESPOOL_PSFCH_MINTIMEGAP             "sl_MinTimeGapPSFCH"
+#define SL_CONFIG_STRING_RESPOOL_PSFCH_HOPID                  "sl_PSFCH_HopID"
+#define SL_CONFIG_STRING_RESPOOL_PSFCH_CANDIDATERESOURCETYPE  "sl_PSFCH_CandidateResourceType"
+#define SL_CONFIG_STRING_RSRC_SEL_PRIORITY                    "sl_Priority"
 
+#define SL_CONFIG_STRING_RSRC_SEL_PARAMS_LIST                 "rsrc_selection_params"
+#define SL_CONFIG_STRING_RSRC_SEL_SELECTION_WINDOW            "sl_SelectionWindow"
+#define SL_CONFIG_STRING_RSRC_SEL_SENSING_WINDOW              "sl_SensingWindow"
+#define SL_CONFIG_STRING_RSRC_SEL_TRESHOLD_RSRP               "sl_Thres_RSRP"
+#define SL_CONFIG_STRING_RSRC_SEL_MAXNUM_PER_RESERVE          "sl_MaxNumPerReserve"
+#define SL_CONFIG_STRING_RSRC_SEL_RESOURCE_RESERVED_PERIOD    "sl_ResourceReservePeriod"
+#define SL_CONFIG_STRING_RSRC_SEL_RS_FOR_SENSING              "sl_RS_ForSensing"
+#define SL_CONFIG_STRING_RSRC_SEL_TX_PERCENTAGE               "sl_TxPercentage"
 
-
+#define SL_CONFIG_STRING_UEINFO                               "sl_UEINFO"
+#define SL_CONFIG_STRING_UEINFO_SRCID                         "srcid"
+#define SL_CONFIG_STRING_UEINFO_IPV4ADDR_THIRD_OCTET          "thirdOctet"
+#define SL_CONFIG_STRING_UEINFO_IPV4ADDR_FOURTH_OCTET         "fourthOctet"
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*             Sidelink Frequency common Cell Config parameters                                                                                                     */
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
@@ -125,11 +143,37 @@
 */
 #define SL_RESPOOLPARAMS_DESC(sl_res_pool) { \
 {SL_CONFIG_STRING_RESPOOL_PSCCH_NUMSYM,NULL,0,.i64ptr=sl_res_pool->sl_PSCCH_Config_r16->choice.setup->sl_TimeResourcePSCCH_r16,.defint64val=1,TYPE_INT64,0}, \
-{SL_CONFIG_STRING_RESPOOL_PSCCH_NUMRBS,NULL,0,.i64ptr=sl_res_pool->sl_PSCCH_Config_r16->choice.setup->sl_FreqResourcePSCCH_r16,.defint64val=4,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_RESPOOL_PSCCH_NUMRBS,NULL,0,.i64ptr=sl_res_pool->sl_PSCCH_Config_r16->choice.setup->sl_FreqResourcePSCCH_r16,.defint64val=1,TYPE_INT64,0}, \
 {SL_CONFIG_STRING_RESPOOL_SUBCH_SIZE_IN_RBS,NULL,0,.i64ptr=sl_res_pool->sl_SubchannelSize_r16,.defint64val=0,TYPE_INT64,0},\
 {SL_CONFIG_STRING_RESPOOL_SUBCH_START_RB,NULL,0,.i64ptr=sl_res_pool->sl_StartRB_Subchannel_r16,.defint64val=0,TYPE_INT64,0},\
 {SL_CONFIG_STRING_RESPOOL_NUM_RBS,NULL,0,.i64ptr=sl_res_pool->sl_RB_Number_r16,.defint64val=106,TYPE_INT64,0},\
-{SL_CONFIG_STRING_RESPOOL_NUM_SUBCHS,NULL,0,.i64ptr=sl_res_pool->sl_NumSubchannel_r16,.defint64val=10,TYPE_INT64,0}}
+{SL_CONFIG_STRING_RESPOOL_NUM_SUBCHS,NULL,0,.i64ptr=sl_res_pool->sl_NumSubchannel_r16,.defint64val=10,TYPE_INT64,0},\
+{SL_CONFIG_STRING_RESPOOL_PSFCH_PERIOD,NULL,0,.i64ptr=sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16,.defint64val=3,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_RESPOOL_PSFCH_NUMMUXCS_PAIR,NULL,0,.i64ptr=sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_NumMuxCS_Pair_r16,.defint64val=1,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_RESPOOL_PSFCH_MINTIMEGAP,NULL,0,.i64ptr=sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_MinTimeGapPSFCH_r16,.defint64val=1,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_RESPOOL_PSFCH_HOPID,NULL,0,.i64ptr=sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16,.defint64val=1,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_RESPOOL_PSFCH_CANDIDATERESOURCETYPE,NULL,0,.i64ptr=sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_CandidateResourceType_r16,.defint64val=0,TYPE_INT64,0}}
 
+#define SL_RSRCSELPARAMS_DESC(sl_rsrc_sel_pool) { \
+{SL_CONFIG_STRING_RSRC_SEL_PRIORITY,NULL,0,.i64ptr=&sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SelectionWindowList_r16->list.array[0]->sl_Priority_r16,.defint64val=7,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_RSRC_SEL_SELECTION_WINDOW,NULL,0,.i64ptr=&sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SelectionWindowList_r16->list.array[0]->sl_SelectionWindow_r16,.defint64val=5,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_RSRC_SEL_SENSING_WINDOW,NULL,0,.i64ptr=sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SensingWindow_r16,.defint64val=6,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_RSRC_SEL_TRESHOLD_RSRP,NULL,0,.i64ptr=sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_Thres_RSRP_List_r16->list.array[0],.defint64val=-128,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_RSRC_SEL_MAXNUM_PER_RESERVE,NULL,0,.i64ptr=sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16,.defint64val=1,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_RSRC_SEL_RESOURCE_RESERVED_PERIOD,NULL,0,.i64ptr=&sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_ResourceReservePeriodList_r16->list.array[0]->choice.sl_ResourceReservePeriod1_r16,.defint64val=100,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_RSRC_SEL_RS_FOR_SENSING,NULL,0,.i64ptr=&sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_RS_ForSensing_r16,.defint64val=1,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_RSRC_SEL_TX_PERCENTAGE,NULL,0,.i64ptr=&sl_res_pool->sl_TxPercentageList_r16->list.array[0]->sl_TxPercentage_r16,.defint64val=0,TYPE_INT64,0}, \
+}
 
+/*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
+/*             Sidelink Top-Level UE Info                                                                                                     */
+/*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
+/* 
+   sl_srcid - 16-bit source ID used for LCID information and indexing in L2 stack 
+   sl_ipv4addr - string containing ipv4 address for default SLRB 
+*/
+#define SL_UEINFO_DESC(sl_ueinfo) { \
+{SL_CONFIG_STRING_UEINFO_SRCID,NULL,0,.iptr=&ueinfo.srcid,.defintval=1,TYPE_INT,0}, \
+{SL_CONFIG_STRING_UEINFO_IPV4ADDR_THIRD_OCTET,NULL,0,.iptr=&ueinfo.thirdOctet,.defintval=0,TYPE_INT,0}, \
+{SL_CONFIG_STRING_UEINFO_IPV4ADDR_FOURTH_OCTET,NULL,0,.iptr=&ueinfo.fourthOctet,.defintval=1,TYPE_INT,0}}
 #endif

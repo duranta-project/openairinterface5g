@@ -638,8 +638,9 @@ void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, const nr_pdcp_e
   int t_reordering = 20;
 
   // get SDAP config
+  // TODO move out SDAP, read from s
   sdap_config_t sdap = {0};
-  sdap.pdusession_id = 0;
+  sdap.pdusession_id = 1;
   sdap.drb_id = slrb_id;
 
   int is_gnb = 0; // SL is only for UE side, so is_gnb is always false
