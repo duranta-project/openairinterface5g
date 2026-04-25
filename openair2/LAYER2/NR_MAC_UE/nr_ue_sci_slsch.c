@@ -696,9 +696,9 @@ static bool extract_pscch_pdu(uint64_t *sci1_payload, int len,
 
 int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,int cc_id,frame_t frame, int slot, sl_nr_sci_indication_pdu_t *sci,void *phy_data) {
 
-  nr_sci_pdu_t *sci_pdu = &mac->sci_pdu_rx;
+  nr_sci_pdu_t sci_pdu_rx = {0};
+  nr_sci_pdu_t *sci_pdu = &sci_pdu_rx;
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
-  memset(sci_pdu,0,sizeof(*sci_pdu));
   const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp = mac->sl_bwp;
   const NR_SL_ResourcePool_r16_t *sl_res_pool = mac->sl_rx_res_pool;
 
@@ -785,6 +785,11 @@ int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,i
                           sl_bwp,
                           sl_res_pool);
   if (ret<0) return(ret);
+  // Keep the validated grant with its RX slot, as for the standard UE's DLSCH configuration.
+  nr_phy_data_t *rx_data = phy_data;
+  memcpy(&rx_data->sl_sci1_payload, sci->sci_payloadBits, sizeof(rx_data->sl_sci1_payload));
+  rx_data->sl_sci1_payload_len = sci->sci_payloadlen;
+  rx_data->sl_sci1_subchannel = sci->subch_index;
   /* Feedback timing for the PSSCH this SCI-1A announces, like the DLSCH k1:
    * PHY uses it to hold the TX actor of the PSFCH occasion until the SL-SCH
    * of this slot has been decoded. */
@@ -964,13 +969,19 @@ int config_pssch_sci_pdu_rx(sl_nr_rx_config_pssch_sci_pdu_t *nr_sl_pssch_sci_pdu
 
 int nr_ue_process_sci2_indication_pdu(NR_UE_MAC_INST_t *mac, module_id_t mod_id, int cc_id, frame_t frame, int slot, sl_nr_sci_indication_pdu_t *sci, void *phy_data) {
 
-  nr_sci_pdu_t *sci_pdu = &mac->sci_pdu_rx;
+  const nr_phy_data_t *rx_data = phy_data;
+  uint64_t sci1_payload = rx_data->sl_sci1_payload;
+  nr_sci_pdu_t sci_pdu_rx = {0};
+  nr_sci_pdu_t *sci_pdu = &sci_pdu_rx;
   sl_nr_ue_mac_params_t *sl_mac_params = mac->SL_MAC_PARAMS;
   const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp = mac->sl_bwp;
   const NR_SL_ResourcePool_r16_t *sl_res_pool = mac->sl_rx_res_pool;
   LOG_D(NR_MAC,"Received sci indication (sci format %d, Nid %x, subChannelIndex %d, payloadSize %d,payload %llx)\n",
         sci->sci_format_type,sci->Nid,sci->subch_index,sci->sci_payloadlen,*(unsigned long long*)sci->sci_payloadBits);
   AssertFatal(sci->sci_format_type == SL_SCI_FORMAT_2_ON_PSSCH, "need to have format 2 here only\n");
+  if (!extract_pscch_pdu(&sci1_payload, rx_data->sl_sci1_payload_len, sl_bwp, sl_res_pool, sci_pdu))
+    return -1;
+  sci_pdu->pssch_start_subchannel = rx_data->sl_sci1_subchannel;
   nr_sci_format_t sci2_format;
   if (!get_sci2_format_from_sci1a(sci_pdu->second_stage_sci_format, &sci2_format)) {
     LOG_W(NR_MAC, "SCI-1A indicates reserved second-stage SCI format %u\n", sci_pdu->second_stage_sci_format);

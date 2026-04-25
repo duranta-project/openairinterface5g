@@ -600,6 +600,9 @@ typedef struct nr_phy_data_s {
   int n_dlsch_codewords;
   // Sidelink Rx action decided by MAC
   sl_nr_rx_config_type_enum_t sl_rx_action;
+  uint64_t sl_sci1_payload;
+  uint16_t sl_sci1_payload_len;
+  uint16_t sl_sci1_subchannel;
   sl_nr_rx_config_pscch_pdu_t nr_sl_pscch_pdu;
   sl_nr_rx_config_pssch_sci_pdu_t nr_sl_pssch_sci_pdu;
   sl_nr_rx_config_pssch_pdu_t nr_sl_pssch_pdu;

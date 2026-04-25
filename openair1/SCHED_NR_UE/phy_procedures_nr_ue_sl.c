@@ -276,6 +276,9 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
   }
 
   const int SLSCH_id = slsch_pdu->harq_pid;
+  NR_gNB_ULSCH_t *slsch = &ue->slsch[SLSCH_id];
+  if (!slsch->active || slsch->frame != frame_rx || slsch->slot != slot_rx)
+    return 0;
   int harq_pid = slsch_pdu->harq_pid;
   uint16_t nb_re_dmrs;
   uint16_t start_symbol = 1;
@@ -395,7 +398,8 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
 
   sl_nr_rx_indication_t sl_rx_indication = {0};
   slsch_status_t slsch_status;
-  ue->slsch[SLSCH_id].active = false;
+  if (decode_ok && slsch->frame == frame_rx && slsch->slot == slot_rx)
+    slsch->active = false;
   slsch_status.b = harq_process->b;
   slsch_status.TBS = slsch_pdu->tb_size;
   slsch_status.harq_pid =  harq_pid;

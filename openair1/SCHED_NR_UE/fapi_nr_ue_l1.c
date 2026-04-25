@@ -477,6 +477,16 @@ void sl_handle_scheduled_response(nr_scheduled_response_t *scheduled_response)
       case SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH:
         phy_data->sl_rx_action = sl_rx_config->sl_rx_config_list[0].pdu_type;
         phy_data->nr_sl_pssch_pdu = sl_rx_config->sl_rx_config_list[0].rx_pssch_config_pdu;
+        PHY_VARS_NR_UE *ue = nrPHY_vars_UE_g[module_id][0];
+        const unsigned int harq_pid = phy_data->nr_sl_pssch_pdu.harq_pid;
+        if (harq_pid >= ue->max_nb_slsch) {
+          phy_data->sl_rx_action = 0;
+          break;
+        }
+        NR_gNB_ULSCH_t *slsch = &ue->slsch[harq_pid];
+        slsch->frame = sl_rx_config->sfn;
+        slsch->slot = sl_rx_config->slot;
+        slsch->active = true;
         LOG_D(NR_PHY, "%4d.%2d Recvd %s\n", sl_rx_config->sfn, sl_rx_config->slot, sl_rx_action[phy_data->sl_rx_action]);
         if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH) {
           DevAssert(sl_rx_config->sl_rx_config_list[0].rx_psfch_pdu_list != NULL);

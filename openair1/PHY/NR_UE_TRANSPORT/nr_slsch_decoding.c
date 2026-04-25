@@ -39,6 +39,8 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
   int max_num_segments = 0;
 
   NR_gNB_ULSCH_t *slsch = &UE->slsch[SLSCH_id];
+  if (slsch->frame != frame || slsch->slot != nr_tti_rx)
+    return 0;
   NR_UL_gNB_HARQ_t *harq_process = slsch->harq_process;
 
   if (!harq_process) {

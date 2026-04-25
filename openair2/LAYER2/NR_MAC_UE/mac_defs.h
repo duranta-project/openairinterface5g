@@ -877,9 +877,6 @@ typedef struct NR_UE_MAC_INST_s {
     // SIDELINK Scheduling fields
   NR_SL_UEs_t sl_info;
 
-  // Received SCI PDU, built from SCI-1 on PSCCH and completed by SCI-2 on PSSCH.
-  nr_sci_pdu_t sci_pdu_rx;
-
   nr_sci_pdu_t sci1_pdu;
   nr_sci_pdu_t sci2_pdu;
   /* Sized like the UL-SCH scheduler's own PDU buffer, so any transport block
