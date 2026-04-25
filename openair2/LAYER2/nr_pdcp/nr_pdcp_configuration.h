@@ -41,12 +41,21 @@
 
 #define SIZEOF_NR_PDCP_DISCARD_TIMER INT_LIST_SIZE(VALUES_NR_PDCP_DISCARD_TIMER)
 
+#define VALUES_NR_PDCP_DISCARD_TIMER_SL \
+    3, 10, 20, 25, 30, 40, 50, 60, 75, 100, 150, 200, 250, 300, 500, 750, 1500, -1 /* -1 means infinity */
+
+#define VALUES_NR_PDCP_DISCARD_TIMER_SL_STR \
+    "ms3", "ms10", "ms20", "ms25", "ms30", "ms40", "ms50", "ms60", "ms75", "ms100", "ms150", "ms200", "ms250", "ms300", "ms500", "ms750", "ms1500", "infinity"
+
+#define SIZEOF_NR_PDCP_DISCARD_TIMER_SL INT_LIST_SIZE(VALUES_NR_PDCP_DISCARD_TIMER_SL)
+
 /* configuration of NR PDCP, coming from configuration file */
 typedef struct {
   struct {
     int sn_size;
     int t_reordering;
     int discard_timer;
+    int discard_timer_sl;
   } drb;
 } nr_pdcp_configuration_t;
 

@@ -837,6 +837,71 @@ static void add_drb_am(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_B
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }
 
+static void add_drb_am_sl(int src_id, int drb_id, const NR_SL_RLC_BearerConfig_r16_t *rlc_BearerConfig)
+{
+  nr_rlc_entity_t            *nr_rlc_am;
+  nr_rlc_ue_t                *ue;
+
+  struct NR_SL_RLC_Config_r16 *r = rlc_BearerConfig->sl_RLC_Config_r16;
+  struct NR_SL_LogicalChannelConfig_r16 *l = rlc_BearerConfig->sl_MAC_LogicalChannelConfig_r16;
+  int logical_channel_group;
+
+  int t_status_prohibit;
+  int t_poll_retransmit;
+  int poll_pdu;
+  int poll_byte;
+  int max_retx_threshold;
+  int t_reassembly;
+  int sn_field_length;
+
+  if (!(drb_id >= 1 && drb_id <= MAX_DRBS_PER_UE)) {
+    LOG_E(RLC, "%s:%d:%s: fatal, bad srb id %d\n",
+          __FILE__, __LINE__, __FUNCTION__, drb_id);
+    exit(1);
+  }
+
+  logical_channel_group = *l->sl_LogicalChannelGroup_r16;
+
+  /* TODO: accept other values? */
+  if (logical_channel_group != 1) {
+    LOG_E(RLC, "%s:%d:%s: fatal error\n", __FILE__, __LINE__, __FUNCTION__);
+    //exit(1);
+  }
+
+  struct NR_SL_RLC_Config_r16__sl_AM_RLC_r16 *am;
+  am = r->choice.sl_AM_RLC_r16;
+  t_reassembly       = 35;
+  t_status_prohibit  = 35;
+  t_poll_retransmit  = decode_t_poll_retransmit(am->sl_T_PollRetransmit_r16);
+  poll_pdu           = decode_poll_pdu(am->sl_PollPDU_r16);
+  poll_byte          = decode_poll_byte(am->sl_PollByte_r16);
+  max_retx_threshold = decode_max_retx_threshold(am->sl_MaxRetxThreshold_r16);
+  sn_field_length    = decode_sn_field_length_am(*am->sl_SN_FieldLengthAM_r16);
+
+  nr_rlc_manager_lock(nr_rlc_ue_manager);
+  ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, src_id);
+  int local_id = 4 - 1; // TODO should not be hardcoded, but I don't find LCID?! LCID 0 for SRB 0 not mapped
+  ue->lcid2rb[local_id].type = NR_LCID_DRB;
+  ue->lcid2rb[local_id].choice.drb_id = drb_id;
+  if (ue->drb[drb_id-1] != NULL) {
+    LOG_W(RLC, "%s:%d:%s: DRB %d already exists for SL UE with src_id %04x, do nothing\n", __FILE__, __LINE__, __FUNCTION__, drb_id, src_id);
+  } else {
+    nr_rlc_am = new_nr_rlc_entity_am(RLC_RX_MAXSIZE,
+                                     RLC_TX_MAXSIZE,
+                                     deliver_sdu, ue,
+                                     successful_delivery, ue,
+                                     max_retx_reached, ue,
+                                     t_poll_retransmit,
+                                     t_reassembly, t_status_prohibit,
+                                     poll_pdu, poll_byte, max_retx_threshold,
+                                     sn_field_length);
+    nr_rlc_ue_add_drb_rlc_entity(ue, drb_id, nr_rlc_am);
+
+    LOG_I(RLC, "%s:%d:%s: added drb %d to UE with SRCID 0x%x\n", __FILE__, __LINE__, __FUNCTION__, drb_id, src_id);
+  }
+  nr_rlc_manager_unlock(nr_rlc_ue_manager);
+}
+
 static void add_drb_um(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
 {
   struct NR_RLC_Config *r = rlc_BearerConfig->rlc_Config;
@@ -888,6 +953,57 @@ static void add_drb_um(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_B
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }
 
+static void add_drb_um_sl(int src_id, int drb_id, const NR_SL_RLC_BearerConfig_r16_t *rlc_BearerConfig)
+{
+  nr_rlc_entity_t            *nr_rlc_um;
+  nr_rlc_ue_t                *ue;
+
+  struct NR_SL_RLC_Config_r16 *r = rlc_BearerConfig->sl_RLC_Config_r16;
+  struct NR_SL_LogicalChannelConfig_r16 *l = rlc_BearerConfig->sl_MAC_LogicalChannelConfig_r16;
+  int logical_channel_group;
+
+  int sn_field_length;
+  int t_reassembly;
+
+  if (!(drb_id >= 1 && drb_id <= MAX_DRBS_PER_UE)) {
+    LOG_E(RLC, "%s:%d:%s: fatal, bad srb id %d\n",
+          __FILE__, __LINE__, __FUNCTION__, drb_id);
+    exit(1);
+  }
+
+  logical_channel_group = *l->sl_LogicalChannelGroup_r16;
+
+  /* TODO: accept other values? */
+  if (logical_channel_group != 1) {
+    LOG_E(RLC, "%s:%d:%s: fatal error\n", __FILE__, __LINE__, __FUNCTION__);
+    exit(1);
+  }
+
+  struct NR_SL_RLC_Config_r16__sl_UM_RLC_r16 *um;
+  um = r->choice.sl_UM_RLC_r16;
+  t_reassembly = 35; // up to UE implementation, choose 35ms
+  sn_field_length = decode_sn_field_length_um(*um->sl_SN_FieldLengthUM_r16);
+
+  nr_rlc_manager_lock(nr_rlc_ue_manager);
+  ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, src_id);
+  int local_id = 4 - 1; // TODO should not be hardcoded, but I don't find LCID?! LCID 0 for SRB 0 not mapped
+  ue->lcid2rb[local_id].type = NR_LCID_DRB;
+  ue->lcid2rb[local_id].choice.drb_id = drb_id;
+  if (ue->drb[drb_id-1] != NULL) {
+    LOG_W(RLC, "DEBUG add_drb_um %s:%d:%s: warning DRB %d already exist for SL ue %d, do nothing\n", __FILE__, __LINE__, __FUNCTION__, drb_id, src_id);
+  } else {
+    nr_rlc_um = new_nr_rlc_entity_um(RLC_RX_MAXSIZE,
+                                     RLC_TX_MAXSIZE,
+                                     deliver_sdu, ue,
+                                     t_reassembly,
+                                     sn_field_length);
+    nr_rlc_ue_add_drb_rlc_entity(ue, drb_id, nr_rlc_um);
+
+    LOG_D(RLC, "%s:%d:%s: added drb %d to UE with SRCID 0x%x\n", __FILE__, __LINE__, __FUNCTION__, drb_id, src_id);
+  }
+  nr_rlc_manager_unlock(nr_rlc_ue_manager);
+}
+
 void nr_rlc_add_drb(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
 {
   switch (rlc_BearerConfig->rlc_Config->present) {
@@ -902,6 +1018,23 @@ void nr_rlc_add_drb(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_Bear
     exit(1);
   }
   LOG_I(RLC, "Added DRB to UE %d\n", ue_id);
+}
+
+void nr_rlc_add_drb_sl(int srcid, int drb_id, const NR_SL_RLC_BearerConfig_r16_t *rlc_BearerConfig)
+{
+  switch (rlc_BearerConfig->sl_RLC_Config_r16->present) {
+  case NR_SL_RLC_Config_r16_PR_sl_AM_RLC_r16:
+    add_drb_am_sl(srcid, drb_id, rlc_BearerConfig);
+    break;
+  case NR_SL_RLC_Config_r16_PR_sl_UM_RLC_r16:
+    add_drb_um_sl(srcid, drb_id, rlc_BearerConfig);
+    break;
+  default:
+    LOG_E(RLC, "%s:%d:%s: fatal: unhandled DRB type\n",
+          __FILE__, __LINE__, __FUNCTION__);
+    exit(1);
+  }
+  LOG_I(RLC, "%s:%s:%d: added SL_DRB %d to UE with SRCID 0x%x\n", __FILE__, __FUNCTION__, __LINE__, drb_id,srcid);
 }
 
 struct srb0_data {
