@@ -3808,11 +3808,20 @@ void start_sidelink(int instance)
 {
 
   NR_UE_RRC_INST_t *rrc = get_NR_UE_rrc_inst(instance);
+  nr_pdcp_entity_security_keys_and_algos_t security_up_parameters = get_security_rrc_parameters(rrc, false);
+
+  // these 3 are configured differently in Sidelink 
+  int has_integrity = 0;
+  int has_ciphering = 0;
+  // int has_rohc = 0;
+
+  security_up_parameters.ciphering_algorithm = has_ciphering ? rrc->cipheringAlgorithm : 0;
+  security_up_parameters.integrity_algorithm = has_integrity ? rrc->integrityProtAlgorithm : 0;
 
   if (get_softmodem_params()->sl_mode == 2) {
 
     //Process the Sidelink Preconfiguration
-    rrc_ue_process_sidelink_Preconfiguration(rrc, get_softmodem_params()->sync_ref);
+    rrc_ue_process_sidelink_Preconfiguration(rrc, get_softmodem_params()->sync_ref, &security_up_parameters);
 
   }
 }
