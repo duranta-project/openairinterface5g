@@ -11,6 +11,24 @@
 #include "rrc_defs.h"
 #include "LAYER2/NR_MAC_UE/mac_proto.h"
 #include "nr-uesoftmodem.h"
+#include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
+#include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
+#include "openair2/SDAP/nr_sdap/nr_sdap_entity.h"
+#include "openair2/SDAP/nr_sdap/nr_sdap.h"
+#include "nr_ue_tun.h"
+
+#define GNSS_SUPPORT 0
+
+#define SL_SYNC_SOURCE_NONE  0 //No sync source selected
+#define SL_SYNC_SOURCE_GNBENB 1 // GNB/ENB as sync source
+#define SL_SYNC_SOURCE_GNSS 2 // GPS as sync source
+#define SL_SYNC_SOURCE_SYNC_REF_UE 3 // another SYNC REF UE as sync source
+#define SL_SYNC_SOURCE_LOCAL_TIMING 4 //UE acts as sync source
+
+static void validate_sl_enum_index(const char *name, long index, long count)
+{
+  AssertFatal(index >= 0 && index < count, "Invalid %s ASN.1 index %ld (must be from 0 through %ld)\n", name, index, count - 1);
+}
 
 void free_sl_rrc(NR_UE_RRC_INST_t *rrc)
 {
@@ -90,6 +108,15 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
   sl_res_pool->sl_PSSCH_Config_r16 = calloc(1, sizeof(NR_SetupRelease_SL_PSSCH_Config_r16_t));
   sl_res_pool->sl_PSSCH_Config_r16->present = NR_SetupRelease_SL_PSSCH_Config_r16_PR_setup;
   sl_res_pool->sl_PSSCH_Config_r16->choice.setup = calloc(1, sizeof(NR_SL_PSSCH_Config_r16_t));
+
+  sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_BetaOffsets2ndSCI_r16 =
+                      calloc(1, sizeof(*sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_BetaOffsets2ndSCI_r16));
+  for(int i=0; i<4; i++) {
+    long *p = calloc(1, sizeof(long));
+    *p = i<<2; // valid values: 0...15, for the moment choose 0,4,8,12
+    ASN_SEQUENCE_ADD(&sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_BetaOffsets2ndSCI_r16->list, p);
+  }
+
   sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_PSSCH_DMRS_TimePatternList_r16 =
                       calloc(1, sizeof(*sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_PSSCH_DMRS_TimePatternList_r16));
   for(int i=0; i<3; i++) {
@@ -98,8 +125,30 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
     ASN_SEQUENCE_ADD(&sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_PSSCH_DMRS_TimePatternList_r16->list, p);
   }
 
-  //PSFCH configuration
-  sl_res_pool->sl_PSFCH_Config_r16 = NULL;
+  // This should be added to configuration file
+  sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_Scaling_r16 = calloc(1,sizeof(*sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_Scaling_r16));
+  *sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_Scaling_r16 = NR_SL_PSSCH_Config_r16__sl_Scaling_r16_f0p5;
+
+  // PSFCH configuration: always allocate the struct so SL_RESPOOLPARAMS_DESC (used by config_get
+  // below) can safely dereference its fields. The configured period uses the ASN.1 enum index
+  // (0=sl0, 1=sl1, 2=sl2, 3=sl4); if it is sl0, the struct is freed after the conf overlay.
+  // The RB-set bitmap is computed after conf overlay once sl_NumSubchannel_r16 /
+  // sl_RB_Number_r16 have their final values.
+  sl_res_pool->sl_PSFCH_Config_r16 = calloc(1, sizeof(*sl_res_pool->sl_PSFCH_Config_r16));
+  sl_res_pool->sl_PSFCH_Config_r16->present = NR_SetupRelease_SL_PSFCH_Config_r16_PR_setup;
+  sl_res_pool->sl_PSFCH_Config_r16->choice.setup = calloc(1, sizeof(NR_SL_PSFCH_Config_r16_t));
+  NR_SL_PSFCH_Config_r16_t *psfch_init = sl_res_pool->sl_PSFCH_Config_r16->choice.setup;
+  psfch_init->sl_PSFCH_Period_r16 = calloc(1, sizeof(long));
+  *psfch_init->sl_PSFCH_Period_r16 = NR_SL_PSFCH_Config_r16__sl_PSFCH_Period_r16_sl0;
+  psfch_init->sl_NumMuxCS_Pair_r16 = calloc(1, sizeof(long));
+  *psfch_init->sl_NumMuxCS_Pair_r16 = NR_SL_PSFCH_Config_r16__sl_NumMuxCS_Pair_r16_n1;
+  psfch_init->sl_MinTimeGapPSFCH_r16 = calloc(1, sizeof(long));
+  *psfch_init->sl_MinTimeGapPSFCH_r16 = NR_SL_PSFCH_Config_r16__sl_MinTimeGapPSFCH_r16_sl2;
+  psfch_init->sl_PSFCH_HopID_r16 = calloc(1, sizeof(long));
+  *psfch_init->sl_PSFCH_HopID_r16 = 0;
+  psfch_init->sl_PSFCH_CandidateResourceType_r16 = calloc(1, sizeof(long));
+  *psfch_init->sl_PSFCH_CandidateResourceType_r16 = NR_SL_PSFCH_Config_r16__sl_PSFCH_CandidateResourceType_r16_startSubCH;
+  psfch_init->sl_PSFCH_RB_Set_r16 = calloc(1, sizeof(*psfch_init->sl_PSFCH_RB_Set_r16)); // buf filled after conf overlay
 
   // indicates allowed sync sources which are allowed to use this resource pool
   sl_res_pool->sl_SyncAllowed_r16 = calloc(1, sizeof(NR_SL_SyncAllowed_r16_t));
@@ -134,7 +183,8 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
   sl_res_pool->sl_TimeWindowSizeCBR_r16 = NULL;
   sl_res_pool->sl_TimeWindowSizeCR_r16 = NULL;
   sl_res_pool->sl_PTRS_Config_r16 = NULL;
-  sl_res_pool->sl_UE_SelectedConfigRP_r16 = NULL;
+  sl_res_pool->sl_UE_SelectedConfigRP_r16 = calloc(1,sizeof(*sl_res_pool->sl_UE_SelectedConfigRP_r16));
+
   sl_res_pool->sl_RxParametersNcell_r16 = NULL;
   sl_res_pool->sl_ZoneConfigMCR_List_r16 = NULL;
   sl_res_pool->sl_FilterCoefficient_r16 = NULL;
@@ -146,8 +196,13 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
   sl_res_pool->sl_PriorityThreshold_UL_URLLC_r16 = NULL;
   sl_res_pool->sl_PriorityThreshold_r16 = NULL;
   sl_res_pool->sl_X_Overhead_r16 = NULL;
-  sl_res_pool->sl_PowerControl_r16 = NULL;
-  sl_res_pool->sl_TxPercentageList_r16 = NULL;
+  sl_res_pool->sl_PowerControl_r16 = calloc(1,sizeof(*sl_res_pool->sl_PowerControl_r16));
+  sl_res_pool->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16 = calloc(1,sizeof(*sl_res_pool->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16));
+  *sl_res_pool->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16 = 0;
+  
+  sl_res_pool->sl_TxPercentageList_r16 = calloc(1, sizeof(*sl_res_pool->sl_TxPercentageList_r16));
+  sl_res_pool->sl_TxPercentageList_r16->list.array = (NR_SL_TxPercentageConfig_r16_t **)malloc16_clear(sizeof(NR_SL_TxPercentageConfig_r16_t*));
+  sl_res_pool->sl_TxPercentageList_r16->list.array[0] = (NR_SL_TxPercentageConfig_r16_t *)malloc16_clear(sizeof(NR_SL_TxPercentageConfig_r16_t));
   sl_res_pool->sl_MinMaxMCS_List_r16 = NULL;
 
   sl_res_pool->ext1 = calloc(1, sizeof(*sl_res_pool->ext1));
@@ -155,16 +210,12 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
   sl_res_pool->ext1->sl_TimeResource_r16->size = 8;
   sl_res_pool->ext1->sl_TimeResource_r16->bits_unused = 4;
   sl_res_pool->ext1->sl_TimeResource_r16->buf = calloc(sl_res_pool->ext1->sl_TimeResource_r16->size, sizeof(uint8_t));
-  // EX: BITMAP 10101010.. indicating every alternating slot supported for sidelink
-  for (int i=0;i<sl_res_pool->ext1->sl_TimeResource_r16->size;i++) {
-    if (is_txpool) {
-        sl_res_pool->ext1->sl_TimeResource_r16->buf[i] = (is_sl_syncsource) ? 0xAA //0x88;//0xAA;
-                                                                            : 0x55;//0x11;//0x55;
-    } else {
-        sl_res_pool->ext1->sl_TimeResource_r16->buf[i] = (is_sl_syncsource) ? 0x55 //0x88;//0xAA;
-                                                                            : 0xAA;//0x11;//0x55;
-    }
-  }
+  /* TS 38.214 clause 8 applies this bitmap to logical resource-pool slots.
+   * Make every configured slot available in the default preconfiguration;
+   * Mode-2 resource selection chooses actual transmissions without imposing
+   * an additional sync-role-dependent 50% duty cycle. */
+  memset(sl_res_pool->ext1->sl_TimeResource_r16->buf, 0xff, sl_res_pool->ext1->sl_TimeResource_r16->size);
+  (void)is_sl_syncsource;
 
   // mask out unused bits
   sl_res_pool->ext1->sl_TimeResource_r16->buf[sl_res_pool->ext1->sl_TimeResource_r16->size - 1] &= (0 - (1 << (sl_res_pool->ext1->sl_TimeResource_r16->bits_unused)));
@@ -174,9 +225,145 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
   if (is_txpool)
     sprintf(aprefix, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0,SL_CONFIG_STRING_SL_TX_RPOOL_LIST, 0);
   else
+  {
     sprintf(aprefix, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0,SL_CONFIG_STRING_SL_RX_RPOOL_LIST, 0);
+  }
 
-  config_get(config_get_if(), SL_POOLPARAMS, sizeofArray(SL_POOLPARAMS), aprefix);
+    config_get(config_get_if(), SL_POOLPARAMS, sizeofArray(SL_POOLPARAMS), aprefix);
+
+  NR_SL_PSCCH_Config_r16_t *pscch = sl_res_pool->sl_PSCCH_Config_r16->choice.setup;
+  NR_SL_PSFCH_Config_r16_t *psfch_config = sl_res_pool->sl_PSFCH_Config_r16->choice.setup;
+  validate_sl_enum_index(SL_CONFIG_STRING_RESPOOL_PSCCH_NUMSYM, *pscch->sl_TimeResourcePSCCH_r16, 2);
+  validate_sl_enum_index(SL_CONFIG_STRING_RESPOOL_PSCCH_NUMRBS, *pscch->sl_FreqResourcePSCCH_r16, 5);
+  validate_sl_enum_index(SL_CONFIG_STRING_RESPOOL_SUBCH_SIZE_IN_RBS, *sl_res_pool->sl_SubchannelSize_r16, 8);
+  validate_sl_enum_index(SL_CONFIG_STRING_RESPOOL_PSFCH_NUMMUXCS_PAIR, *psfch_config->sl_NumMuxCS_Pair_r16, 4);
+  validate_sl_enum_index(SL_CONFIG_STRING_RESPOOL_PSFCH_MINTIMEGAP, *psfch_config->sl_MinTimeGapPSFCH_r16, 2);
+  validate_sl_enum_index(SL_CONFIG_STRING_RESPOOL_PSFCH_CANDIDATERESOURCETYPE,
+                         *psfch_config->sl_PSFCH_CandidateResourceType_r16,
+                         2);
+
+  sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SelectionWindowList_r16 = calloc(1, sizeof(*sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SelectionWindowList_r16));
+  struct NR_SL_UE_SelectedConfigRP_r16 *nr_sl_ue_Selected_config = sl_res_pool->sl_UE_SelectedConfigRP_r16;
+  nr_sl_ue_Selected_config->sl_SelectionWindowList_r16->list.array = (NR_SL_SelectionWindowConfig_r16_t**)malloc16_clear(sizeof(NR_SL_SelectionWindowConfig_r16_t*));
+  nr_sl_ue_Selected_config->sl_SelectionWindowList_r16->list.array[0] = (NR_SL_SelectionWindowConfig_r16_t*)malloc16_clear(sizeof(NR_SL_SelectionWindowConfig_r16_t));
+
+  nr_sl_ue_Selected_config->sl_SensingWindow_r16 = calloc(1, sizeof(*nr_sl_ue_Selected_config->sl_SensingWindow_r16));
+
+  nr_sl_ue_Selected_config->sl_Thres_RSRP_List_r16 = calloc(1, sizeof(*nr_sl_ue_Selected_config->sl_Thres_RSRP_List_r16));
+  nr_sl_ue_Selected_config->sl_Thres_RSRP_List_r16->list.array = (NR_SL_Thres_RSRP_r16_t**)malloc16_clear(sizeof(NR_SL_Thres_RSRP_r16_t*));
+  nr_sl_ue_Selected_config->sl_Thres_RSRP_List_r16->list.array[0] = (NR_SL_Thres_RSRP_r16_t*)malloc16_clear(sizeof(NR_SL_Thres_RSRP_r16_t));
+
+  nr_sl_ue_Selected_config->sl_MaxNumPerReserve_r16 = calloc(1, sizeof(*nr_sl_ue_Selected_config->sl_MaxNumPerReserve_r16));
+
+  nr_sl_ue_Selected_config->sl_ResourceReservePeriodList_r16 = calloc(1, sizeof(*nr_sl_ue_Selected_config->sl_ResourceReservePeriodList_r16));
+  nr_sl_ue_Selected_config->sl_ResourceReservePeriodList_r16->list.array = (NR_SL_ResourceReservePeriod_r16_t**)malloc16_clear(sizeof(NR_SL_ResourceReservePeriod_r16_t*));
+  nr_sl_ue_Selected_config->sl_ResourceReservePeriodList_r16->list.array[0] = (NR_SL_ResourceReservePeriod_r16_t*)malloc16_clear(sizeof(NR_SL_ResourceReservePeriod_r16_t));
+
+  char aprefix_rsc_sel[MAX_OPTNAME_SIZE*2 + 8];
+  paramdef_t SL_RSCSELECTIONPARAMS[] = SL_RSRCSELPARAMS_DESC(sl_res_pool);
+  sprintf(aprefix_rsc_sel, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0,SL_CONFIG_STRING_RSRC_SEL_PARAMS_LIST, 0);
+  config_get(config_get_if(), SL_RSCSELECTIONPARAMS, sizeofArray(SL_RSCSELECTIONPARAMS), aprefix_rsc_sel);
+
+  struct NR_SL_UE_SelectedConfigRP_r16 *selected = sl_res_pool->sl_UE_SelectedConfigRP_r16;
+  NR_SL_SelectionWindowConfig_r16_t *selection_window = selected->sl_SelectionWindowList_r16->list.array[0];
+  AssertFatal(selection_window->sl_Priority_r16 >= 1 && selection_window->sl_Priority_r16 <= 8,
+              "Invalid sl_Priority %ld (must be from 1 through 8)\n",
+              selection_window->sl_Priority_r16);
+  validate_sl_enum_index(SL_CONFIG_STRING_RSRC_SEL_TRESHOLD_RSRP, *selected->sl_Thres_RSRP_List_r16->list.array[0], 67);
+  validate_sl_enum_index(SL_CONFIG_STRING_RSRC_SEL_MAXNUM_PER_RESERVE, *selected->sl_MaxNumPerReserve_r16, 2);
+  validate_sl_enum_index(SL_CONFIG_STRING_RSRC_SEL_RS_FOR_SENSING, selected->sl_RS_ForSensing_r16, 2);
+  validate_sl_enum_index(SL_CONFIG_STRING_RSRC_SEL_TX_PERCENTAGE,
+                         sl_res_pool->sl_TxPercentageList_r16->list.array[0]->sl_TxPercentage_r16,
+                         3);
+
+  /* The config system writes physical values (ms, slots) into ASN.1 fields
+   * that carry enum indices per TS 38.331.  Convert them now so every
+   * downstream consumer can call nr_sl_rrp_to_ms() / nr_sl_sw_to_ms()
+   * without knowing this quirk.  Reject values that are out of spec. */
+  {
+    struct NR_SL_UE_SelectedConfigRP_r16 *c = sl_res_pool->sl_UE_SelectedConfigRP_r16;
+
+    /* sl_SensingWindow_r16: physical {100, 1100} ms -> enum {ms100=0, ms1100=1} */
+    if (c->sl_SensingWindow_r16) {
+      long v = *c->sl_SensingWindow_r16;
+      AssertFatal(v == 100 || v == 1100,
+                  "Invalid sl_SensingWindow %ld ms (must be 100 or 1100)\n", v);
+      *c->sl_SensingWindow_r16 = (v == 100) ? 0 : 1;
+    }
+
+    /* sl_SelectionWindow_r16: physical {1,5,10,20} -> enum {n1=0,n5=1,n10=2,n20=3} */
+    {
+      static const int sw_ms[] = {1, 5, 10, 20};
+      long *sw = &c->sl_SelectionWindowList_r16->list.array[0]->sl_SelectionWindow_r16;
+      bool found = false;
+      for (int j = 0; j < 4; j++) {
+        if (*sw == sw_ms[j]) { *sw = j; found = true; break; }
+      }
+      AssertFatal(found, "Invalid sl_SelectionWindow %ld (must be 1, 5, 10, or 20)\n", *sw);
+    }
+
+    /* sl_ResourceReservePeriod1_r16: physical {0,100,...,1000} ms -> enum {ms0=0,...,ms1000=10}
+     * Also set the CHOICE present field which the config system leaves at NOTHING. */
+    {
+      NR_SL_ResourceReservePeriod_r16_t *p =
+          c->sl_ResourceReservePeriodList_r16->list.array[0];
+      long v = p->choice.sl_ResourceReservePeriod1_r16;
+      AssertFatal(v >= 0 && v <= 1000 && v % 100 == 0,
+                  "Invalid sl_ResourceReservePeriod %ld ms (must be 0, 100, 200, ..., 1000)\n", v);
+      p->present = NR_SL_ResourceReservePeriod_r16_PR_sl_ResourceReservePeriod1_r16;
+      p->choice.sl_ResourceReservePeriod1_r16 = v / 100;
+    }
+  }
+
+  LOG_D(NR_RRC, "sl_MaxNumPerReserve %ld, sl_SensingWindow %ld (enum), sl_Priority %ld, sl_SelectionWindow %ld (enum), sl_ResourceReservePeriod1 %ld (enum)\n",
+        *sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16,
+        *sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SensingWindow_r16,
+        sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SelectionWindowList_r16->list.array[0]->sl_Priority_r16,
+        sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SelectionWindowList_r16->list.array[0]->sl_SelectionWindow_r16,
+        sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_ResourceReservePeriodList_r16->list.array[0]->choice.sl_ResourceReservePeriod1_r16);
+  // After conf overlay: if sl_PSFCH_Period is sl0, PSFCH is disabled and the
+  // optional configuration is absent. Otherwise compute the RB-set bitmap now
+  // that sl_NumSubchannel_r16 / sl_RB_Number_r16 have their configured values.
+  NR_SL_PSFCH_Config_r16_t *psfch = sl_res_pool->sl_PSFCH_Config_r16->choice.setup;
+  AssertFatal(psfch->sl_PSFCH_Period_r16 != NULL, "Missing sl_PSFCH_Period in sidelink resource pool\n");
+  const long sl_psfch_period_idx = *psfch->sl_PSFCH_Period_r16;
+  AssertFatal(sl_psfch_period_idx >= 0 && sl_psfch_period_idx < 4,
+              "sl_PSFCH_Period index must be in [0, 3], configured %ld\n",
+              sl_psfch_period_idx);
+  if (sl_psfch_period_idx == 0) {
+    LOG_I(NR_RRC, "SL PSFCH disabled by resource-pool configuration\n");
+    free(sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_CandidateResourceType_r16);
+    free(sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16);
+    free(sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_MinTimeGapPSFCH_r16);
+    free(sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_NumMuxCS_Pair_r16);
+    free(sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_RB_Set_r16);
+    free(sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16);
+    free(sl_res_pool->sl_PSFCH_Config_r16->choice.setup);
+    free(sl_res_pool->sl_PSFCH_Config_r16);
+    sl_res_pool->sl_PSFCH_Config_r16 = NULL;
+  } else {
+    const uint8_t psfch_periods[] = {0, 1, 2, 4};
+    uint8_t psfch_period = psfch_periods[sl_psfch_period_idx];
+    long num_subch = sl_res_pool->sl_NumSubchannel_r16 ? *sl_res_pool->sl_NumSubchannel_r16 : 0;
+    long rb_number = sl_res_pool->sl_RB_Number_r16 ? *sl_res_pool->sl_RB_Number_r16 : 0;
+    uint16_t prod = (uint16_t)(num_subch * psfch_period);
+    uint16_t num_prbs = (prod > 0) ? (uint16_t)((rb_number / prod) * prod) : 0;
+    uint16_t num_bytes = (num_prbs % 8) ? (num_prbs / 8) + 1 : (num_prbs / 8);
+    if (num_bytes == 0)
+      num_bytes = 1;
+    psfch->sl_PSFCH_RB_Set_r16->size = num_bytes;
+    psfch->sl_PSFCH_RB_Set_r16->bits_unused = (num_prbs % 8) ? 8 - (num_prbs % 8) : 0;
+    psfch->sl_PSFCH_RB_Set_r16->buf = calloc(num_bytes, sizeof(uint8_t));
+    memset(psfch->sl_PSFCH_RB_Set_r16->buf, 0xFF, num_prbs / 8);
+    if (num_prbs % 8) {
+      uint8_t remaining = 0;
+      for (int i = 8 - (num_prbs % 8); i < 8; i++)
+        remaining |= 1 << i;
+      psfch->sl_PSFCH_RB_Set_r16->buf[num_prbs / 8] = remaining;
+    }
+    LOG_I(NR_RRC, "SL PSFCH provisioned: period %d, num_subch %ld, rb_number %ld, num_prbs %d, rb_set_bytes %d\n",
+          psfch_period, num_subch, rb_number, num_prbs, num_bytes);
+  }
 }
 
 static void prepare_NR_SL_BWPConfigCommon(NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
@@ -210,6 +397,14 @@ static void prepare_NR_SL_BWPConfigCommon(NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
   LOG_I(RRC, "NUM SL-BWP elem in cfg file:%d\n", SL_BWPParamList.numelt);
   sprintf(aprefix, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0, SL_CONFIG_STRING_SL_BWP_LIST, 0);
   config_get(config_get_if(), SL_BWPPARAMS, sizeofArray(SL_BWPPARAMS), aprefix);
+
+  NR_SL_BWP_Generic_r16_t *generic_bwp = sl_bwp->sl_BWP_Generic_r16;
+  validate_sl_enum_index(SL_CONFIG_STRING_SL_BWP_NUM_SYMBOLS, *generic_bwp->sl_LengthSymbols_r16, 8);
+  AssertFatal(*generic_bwp->sl_StartSymbol_r16 >= 0 && *generic_bwp->sl_StartSymbol_r16 <= 7
+                  && *generic_bwp->sl_StartSymbol_r16 + *generic_bwp->sl_LengthSymbols_r16 + 7 <= 14,
+              "Invalid sidelink symbol allocation: start %ld, length index %ld\n",
+              *generic_bwp->sl_StartSymbol_r16,
+              *generic_bwp->sl_LengthSymbols_r16);
 
   sl_bwp->sl_BWP_PoolConfigCommon_r16 = calloc(1, sizeof(NR_SL_BWP_PoolConfigCommon_r16_t));
 
@@ -333,11 +528,64 @@ NR_SL_PreconfigurationNR_r16_t *prepare_NR_SL_PRECONFIGURATION(uint16_t num_tx_p
   sl_preconfig->sl_PreconfigEUTRA_AnchorCarrierFreqList_r16 = NULL;
 
   // NR sidelink radio bearer(s) configuration(s)
-  sl_preconfig->sl_RadioBearerPreConfigList_r16 = NULL; // fill later
+  sl_preconfig->sl_RadioBearerPreConfigList_r16 = calloc(1,sizeof(*sl_preconfig->sl_RadioBearerPreConfigList_r16)); // fill later
+  struct NR_SL_RadioBearerConfig_r16 *sl_RadioBearerConfig_r16 = calloc(1,sizeof(*sl_RadioBearerConfig_r16));
 
+  sl_RadioBearerConfig_r16->slrb_Uu_ConfigIndex_r16 = 1;
+  sl_RadioBearerConfig_r16->sl_SDAP_Config_r16 = calloc(1, sizeof(*sl_RadioBearerConfig_r16->sl_SDAP_Config_r16));
+  struct NR_SL_SDAP_Config_r16* sl_SDAP_Config = sl_RadioBearerConfig_r16->sl_SDAP_Config_r16;
+  sl_SDAP_Config->sl_SDAP_Header_r16 = NR_SL_SDAP_Config_r16__sl_SDAP_Header_r16_present;
+  sl_SDAP_Config->sl_DefaultRB_r16 = true;
+  sl_SDAP_Config->sl_CastType_r16 = calloc(1, sizeof(*sl_SDAP_Config->sl_CastType_r16));
+  *sl_SDAP_Config->sl_CastType_r16 = NR_SL_SDAP_Config_r16__sl_CastType_r16_unicast;
+  sl_SDAP_Config->sl_MappedQoS_Flows_r16 = calloc(1, sizeof(*sl_SDAP_Config->sl_MappedQoS_Flows_r16));
+  sl_SDAP_Config->sl_MappedQoS_Flows_r16->choice.sl_MappedQoS_FlowsList_r16 = calloc(1, sizeof(*sl_SDAP_Config->sl_MappedQoS_Flows_r16->choice.sl_MappedQoS_FlowsList_r16));
+  struct NR_SL_SDAP_Config_r16__sl_MappedQoS_Flows_r16__sl_MappedQoS_FlowsList_r16* sl_MappedQoS_FlowList = sl_SDAP_Config->sl_MappedQoS_Flows_r16->choice.sl_MappedQoS_FlowsList_r16;
+
+  NR_SL_QoS_Profile_r16_t *sl_QoS_Profile_r16_f1 = calloc(1, sizeof(*sl_QoS_Profile_r16_f1));
+  sl_QoS_Profile_r16_f1->sl_PQI_r16 = calloc(1, sizeof(*sl_QoS_Profile_r16_f1->sl_PQI_r16));
+  struct NR_SL_PQI_r16 *sl_PQI = sl_QoS_Profile_r16_f1->sl_PQI_r16;
+  sl_PQI->choice.sl_StandardizedPQI_r16 = 55;
+
+  ASN_SEQUENCE_ADD(&sl_MappedQoS_FlowList->list, sl_QoS_Profile_r16_f1);
+
+  sl_RadioBearerConfig_r16->sl_TransRange_r16 = NULL;
+  sl_RadioBearerConfig_r16->sl_PDCP_Config_r16 = calloc(1,sizeof(*sl_RadioBearerConfig_r16));
+  sl_RadioBearerConfig_r16->sl_PDCP_Config_r16->sl_DiscardTimer_r16 = calloc(1,sizeof(*sl_RadioBearerConfig_r16->sl_PDCP_Config_r16->sl_DiscardTimer_r16));
+  *sl_RadioBearerConfig_r16->sl_PDCP_Config_r16->sl_DiscardTimer_r16 = NR_SL_PDCP_Config_r16__sl_DiscardTimer_r16_infinity;
+  sl_RadioBearerConfig_r16->sl_PDCP_Config_r16->sl_PDCP_SN_Size_r16 = calloc(1,sizeof(*sl_RadioBearerConfig_r16->sl_PDCP_Config_r16->sl_PDCP_SN_Size_r16));
+  *sl_RadioBearerConfig_r16->sl_PDCP_Config_r16->sl_PDCP_SN_Size_r16 = NR_SL_PDCP_Config_r16__sl_PDCP_SN_Size_r16_len12bits;
+  sl_RadioBearerConfig_r16->sl_PDCP_Config_r16->sl_OutOfOrderDelivery = NULL;
+  ASN_SEQUENCE_ADD(&sl_preconfig->sl_RadioBearerPreConfigList_r16->list,sl_RadioBearerConfig_r16);
+   
   // NR sidelink RLC bearer(s) configuration(s)
-  sl_preconfig->sl_RLC_BearerPreConfigList_r16 = NULL; // fill later
+  sl_preconfig->sl_RLC_BearerPreConfigList_r16 = calloc(1,sizeof(*sl_preconfig->sl_RLC_BearerPreConfigList_r16)); 
+  struct NR_SL_RLC_BearerConfig_r16 *sl_RLC_BearerConfig_r16 = calloc(1,sizeof(*sl_RLC_BearerConfig_r16));
+  // initialize with UM for now
+  sl_RLC_BearerConfig_r16->sl_RLC_BearerConfigIndex_r16 = 0;
+  sl_RLC_BearerConfig_r16->sl_ServedRadioBearer_r16 = calloc(1,sizeof(*sl_RLC_BearerConfig_r16->sl_ServedRadioBearer_r16));
+  *sl_RLC_BearerConfig_r16->sl_ServedRadioBearer_r16 = 1;
+  sl_RLC_BearerConfig_r16->sl_RLC_Config_r16 = calloc(1,sizeof(*sl_RLC_BearerConfig_r16->sl_RLC_Config_r16));
+  sl_RLC_BearerConfig_r16->sl_RLC_Config_r16->present = NR_SL_RLC_Config_r16_PR_sl_UM_RLC_r16;
+  sl_RLC_BearerConfig_r16->sl_RLC_Config_r16->choice.sl_UM_RLC_r16 = calloc(1,sizeof(*sl_RLC_BearerConfig_r16->sl_RLC_Config_r16->choice.sl_UM_RLC_r16));
+  sl_RLC_BearerConfig_r16->sl_RLC_Config_r16->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16=calloc(1,sizeof(*sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16));  
 
+  *sl_RLC_BearerConfig_r16->sl_RLC_Config_r16->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16=NR_SN_FieldLengthUM_size6;  
+  // Logical Channel Config for default link
+  sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16 = calloc(1,sizeof(*sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16));
+  sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_Priority_r16 = 1;
+  sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_PrioritisedBitRate_r16 = NR_SL_LogicalChannelConfig_r16__sl_PrioritisedBitRate_r16_infinity;
+  sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_BucketSizeDuration_r16 = NR_SL_LogicalChannelConfig_r16__sl_BucketSizeDuration_r16_ms5;
+  sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_ConfiguredGrantType1Allowed_r16 = NULL;
+  sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16 = calloc(1,sizeof(*sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16));
+  *sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16 = NR_SL_LogicalChannelConfig_r16__sl_HARQ_FeedbackEnabled_r16_enabled;
+  sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_AllowedCG_List_r16 = NULL;
+  sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_AllowedSCS_List_r16 = NULL; 
+  sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16 = calloc(1,sizeof(*sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16)); 
+  *sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16 = 1; 
+  sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_SchedulingRequestId_r16 = NULL;
+  sl_RLC_BearerConfig_r16->sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelSR_DelayTimerApplied_r16 = NULL;
+  ASN_SEQUENCE_ADD(&sl_preconfig->sl_RLC_BearerPreConfigList_r16->list,sl_RLC_BearerConfig_r16);
   //Measurement and reporting configuration
   sl_preconfig->sl_MeasPreConfig_r16 = NULL;
 
@@ -379,7 +627,7 @@ NR_SL_PreconfigurationNR_r16_t *prepare_NR_SL_PRECONFIGURATION(uint16_t num_tx_p
   sl_preconfig->sl_UE_SelectedPreConfig_r16 = NULL;
 
   // indicates if CSI reporting supported in SL unicast.
-  sl_preconfig->sl_CSI_Acquisition_r16 = NULL;
+  sl_preconfig->sl_CSI_Acquisition_r16 = calloc(1, sizeof(*sl_preconfig->sl_CSI_Acquisition_r16));
 
   // ROHC profiles for NR SL
   sl_preconfig->sl_RoHC_Profiles_r16 = NULL;
@@ -485,17 +733,45 @@ void nr_rrc_ue_decode_NR_SBCCH_SL_BCH_Message(NR_UE_RRC_INST_t *rrc,
 }
 
 void rrc_ue_process_sidelink_Preconfiguration(NR_UE_RRC_INST_t *rrc_inst,
-                                              sl_sync_source_enum_t sync_source)
+                                              sl_sync_source_enum_t sync_source,
+                                              nr_pdcp_entity_security_keys_and_algos_t *security_up_parameters)
 {
 
   AssertFatal(rrc_inst, "RRC instance not created.\n");
 
   NR_SL_PreconfigurationNR_r16_t *sl_preconfig = rrc_inst->sl_preconfig;
+  
   AssertFatal(rrc_inst->sl_preconfig, "Check if SL-preconfig was created");
 
   AssertFatal(sync_source != SL_SYNC_SOURCE_GNBENB, "Sync source GNB not supported\n");
 
+  int id = (sync_source % 254) + 1;
+  char ip[20];
+  snprintf(ip, sizeof(ip), "10.0.0.%d", id);
+
   nr_rrc_mac_config_req_sl_preconfig(rrc_inst->ue_id, sl_preconfig, sync_source);
+
+  // SL RadioBearers
+  for (int i=0; i<sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.count; i++) {
+    add_drb_sl(rrc_inst->ue_id, (NR_SL_RadioBearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i], security_up_parameters);
+  }
+  // configure RLC
+  for (int i=0; i<sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.count; i++) {
+    nr_rlc_add_drb_sl(rrc_inst->ue_id, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
+  }
+
+  // Sidelink SDAP uses one preconfigured session
+  const int pdu_session_id = 1;
+  nas_ue_pdu_tun_t t = {.qfi = -1, .sock = -1};
+  snprintf(t.ifname, sizeof(t.ifname), "oaitun_ue1");
+  nr_ue_tun_create_ip_if(&t, ip, NULL, rrc_inst->ue_id, -1); // creates sock
+
+  nr_sdap_entity_t *sdap = nr_sdap_get_entity(rrc_inst->ue_id, pdu_session_id);
+  DevAssert(sdap != NULL);
+  sdap->tun.sock = t.sock;
+  char name[64];
+  snprintf(name, sizeof(name), "ue_tun_read_%ld_sl", rrc_inst->ue_id);
+  nr_sdap_tun_start_reader(sdap, &t.reader_thread, name);
 
   //TBD.. These should be chosen by RRC according to 3GPP 38.331 RRC specification.
   //Currently hardcoding the values to these
@@ -535,7 +811,7 @@ void init_sidelink(NR_UE_RRC_INST_t *rrc)
 {
   int sync_ref = get_softmodem_params()->sync_ref;
 
-  if (get_softmodem_params()->sl_mode == 2) {
+  if (get_softmodem_params()->sl_mode == SL_MODE2_SUPPORTED) {
     //Preparation of the Sidelink PRE-Configuration message
     configure_NR_SL_Preconfig(rrc, sync_ref);
 
