@@ -314,6 +314,10 @@ int check_crc(uint8_t* decoded_bytes, uint32_t n, uint8_t crc_type)
   for (int i=0; i<crc_len; i++)
     oldcrc |= (decoded_bytes[(n>>3)-crc_len+i])<<((crc_len-1-i)<<3);
 
+  if (oldcrc == 0) {
+    return 0;
+  }
+
   switch (crc_type) {
     
   case CRC24_A:
