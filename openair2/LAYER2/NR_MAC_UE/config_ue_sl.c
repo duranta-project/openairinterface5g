@@ -465,7 +465,7 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
       ASN_STRUCT_FREE(asn_DEF_NR_TDD_UL_DL_ConfigCommon, sl_mac->sl_TDD_config);
     sl_mac->sl_TDD_config = NULL;
   }
-  if (NULL) { // TODO configurable
+  if (get_nrUE_params()->sync_ref) {
     int scs = get_softmodem_params()->numerology;
     const int nr_slots_frame = nr_slots_per_frame[scs];
     NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
@@ -661,6 +661,7 @@ void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
                             cfg->sl_bwp_config.sl_scs,
                             &sl_mac->sl_TDD_config->pattern1);
 
+    AssertFatal(get_nrUE_params()->sync_ref == 0, "Expecting Nearby UE\n");
     int scs = get_softmodem_params()->numerology;
     const int nr_slots_frame = nr_slots_per_frame[scs];
     NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;

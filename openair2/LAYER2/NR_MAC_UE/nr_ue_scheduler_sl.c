@@ -533,7 +533,7 @@ bool slot_has_psfch(NR_UE_MAC_INST_t *mac, BIT_STRING_t *phy_sl_bitmap, uint64_t
 void validate_selected_sl_slot(bool tx, bool rx, NR_TDD_UL_DL_ConfigCommon_t *conf, frameslot_t frame_slot) {
   AssertFatal(conf->pattern1.nrofUplinkSlots == 4 && conf->pattern1.nrofDownlinkSlots == 6,
               "Invalid configuration set. Please update the nrofUplinkSlots to 4 and nrofDownlinkSlots to 6.\n");
-  if (NULL) { // TODO configurable
+  if (get_nrUE_params()->sync_ref) {
     if (tx) {
       AssertFatal((frame_slot.slot == 6 || frame_slot.slot == 7 || frame_slot.slot == 8 || frame_slot.slot == 9),
                   "As a transmitting syncref UE, based on the current configuration of uplink slots = %ld and downlink = %ld, "
@@ -545,7 +545,7 @@ void validate_selected_sl_slot(bool tx, bool rx, NR_TDD_UL_DL_ConfigCommon_t *co
                   "you should be selecting resources with slot 16, 17, 18, or 19 only.\n",
                   conf->pattern1.nrofUplinkSlots, conf->pattern1.nrofDownlinkSlots);
     }
-  } else if (NULL) { // TODO configurable
+  } else if (!get_nrUE_params()->sync_ref) {
     if (tx) {
       AssertFatal((frame_slot.slot == 16 || frame_slot.slot == 17 || frame_slot.slot == 18 || frame_slot.slot == 19),
                   "As a transmitting nearby UE, based on the current configuration of uplink slots = %ld and downlink = %ld, "
@@ -752,9 +752,9 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
   }
   if (sl_ind->slot_type != SIDELINK_SLOT_TYPE_TX) return is_resource_allocated;
 
-  if (slot > 9 && NULL) return is_resource_allocated; // TODO configurable
+  if (slot > 9 && get_nrUE_params()->sync_ref) return is_resource_allocated;
 
-  if (slot < 10 && !NULL) return is_resource_allocated; // TODO configurable
+  if (slot < 10 && !get_nrUE_params()->sync_ref) return is_resource_allocated;
 
   LOG_D(NR_MAC,"[UE%d] SL-PSSCH SCHEDULER: Frame:SLOT %d:%d, slot_type:%d\n",
         sl_ind->module_id, frame, slot,sl_ind->slot_type);
@@ -1018,7 +1018,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
           ((nr_sl_csi_report_t *) mac_ce_p->cur_ptr)->RI = sched_ctrl->sched_csi_report.ri;
           ((nr_sl_csi_report_t *) mac_ce_p->cur_ptr)->CQI = sched_ctrl->sched_csi_report.cqi;
           ((nr_sl_csi_report_t *) mac_ce_p->cur_ptr)->R = 0;
-          if (!NULL) // configurable
+          if (!get_nrUE_params()->sync_ref)
             LOG_D(NR_MAC, "%4d.%2d Sending sl_csi_report with CQI %i, RI %i\n",
                  frame,
                  slot,
