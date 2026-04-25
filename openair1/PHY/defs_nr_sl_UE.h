@@ -127,7 +127,6 @@ typedef struct SL_NR_UE_PSCCH {
 
 } SL_NR_UE_PSCCH_t;
 
-
 typedef struct SL_NR_UE_PSBCH {
   // SUM POWER OF PSBCH DMRS
   int16_t rsrp_sum;

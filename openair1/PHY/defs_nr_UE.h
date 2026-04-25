@@ -62,6 +62,8 @@
 #define TRS_CFO_THRESH 500
 
 #include "impl_defs_nr.h"
+// This is for ULSCH RX structures used for Sidelink
+#include "defs_gNB.h"
 #include "time_meas.h"
 #include "PHY/CODING/coding_defs.h"
 #include "PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface.h"
@@ -216,6 +218,7 @@ typedef struct {
 
 #define NR_PSBCH_DMRS_LENGTH 297 // in mod symbols
 #define NR_PSBCH_DMRS_LENGTH_DWORD 20 // ceil(2(QPSK)*NR_PBCH_DMRS_LENGTH/32)
+
 #define PBCH_A 24
 #define NR_SLSCH_RX_MAX 2
 
@@ -358,6 +361,13 @@ typedef struct PHY_VARS_NR_UE_s {
   NR_DL_UE_HARQ_t dl_harq_processes[2][NR_MAX_HARQ_PROCESSES];
   NR_UL_UE_HARQ_t ul_harq_processes[NR_MAX_HARQ_PROCESSES];
   NR_UL_UE_HARQ_t sl_harq_processes[NR_MAX_HARQ_PROCESSES];
+  /*
+  NR_UL_UE_HARQ_t  sl_harq_processes[NR_MAX_SLSCH_HARQ_PROCESSES];
+  //Paging parameters
+  uint32_t              IMSImod1024;
+  uint32_t              PF;
+  uint32_t              PO;
+  */
 
   // Scrambling IDs used in PUSCH DMRS
   c16_t X_u[64][839];
@@ -389,6 +399,7 @@ typedef struct PHY_VARS_NR_UE_s {
   /// temporary offset during cell search prior to MIB decoding
   int ssb_offset;
   uint16_t symbol_offset; /// offset in terms of symbols for detected ssb in sync
+  int rx_offset;      /// Timing offset
   int64_t max_pos_iir; /// Timing offset IIR filter
   int max_pos_acc; /// Timing offset accumuluated error for PI filter
 
@@ -469,8 +480,9 @@ typedef struct PHY_VARS_NR_UE_s {
   /// PSSCH signal detection threshold
   int pssch_thres;
   // PUCCH0 Look-up table for cyclic-shifts
-  NR_UE_PUCCH0_LUT_t pucch0_lut;
+  //NR_UE_PUCCH0_LUT_t pucch0_lut;
   // Threading
+
   Actor_t sync_actor;
   Actor_t *dl_actors;
   Actor_t *ul_actors;
