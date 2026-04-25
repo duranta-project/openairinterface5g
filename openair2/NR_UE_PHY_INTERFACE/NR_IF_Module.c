@@ -409,6 +409,86 @@ nr_ue_if_module_t *nr_ue_if_module_init(uint32_t module_id)
   return nr_ue_if_module_inst[module_id];
 }
 
+/*
+int nr_ue_scireq(nr_scireq_t *scireq) {
+
+  sl_nr_rx_config_request_t *sl_config = &scireq->sl_config_req;
+  NR_UE_MAC_INST_t *UE_mac = get_mac_inst(0);
+  sl_config->sfn = scireq->frame;
+  sl_config->slot = scireq->slot;
+
+  LOG_T(PHY, "Entering UE SCI configuration frame %d slot %d \n", scireq->frame, scireq->slot);
+//  ue_sci_configuration(UE_mac, sl_config, scireq->frame, scireq->slot);
+
+  return 0;
+}
+*/
+
+/*
+int nr_ue_sl_indication_rk(nr_sidelink_indication_t *sl_info)
+{
+  pthread_mutex_lock(&mac_IF_mutex);
+  uint32_t ret_mask = 0x0;
+  module_id_t module_id = sl_info->module_id;
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+
+  if ((!sl_info->sci_ind && !sl_info->rx_ind)) {
+    // indication to schedule SCI reception
+    if (mac->phy_config_request_sent)
+      nr_ue_sl_scheduler(sl_info);
+  } else {
+    // SL indication after reception of SCI or SL PDU
+    if (sl_info && sl_info->sci_ind && sl_info->sci_ind->number_of_SCIs) {
+      LOG_T(MAC,"[L2][IF MODULE][SL INDICATION][SCI_IND]\n");
+      for (int i = 0; i < sl_info->sci_ind->number_of_SCIs; i++) {
+        LOG_T(MAC,">>>NR_IF_Module i=%d, sl_info->sci_ind->number_of_scis=%d\n",i,sl_info->sci_ind->number_of_SCIs);
+        nr_scheduled_response_t scheduled_response;
+        int8_t ret = handle_sci(sl_info->module_id,
+                                sl_info->frame_rx,
+                                sl_info->slot_rx,
+                                sl_info->sci_ind->sci_pdu+i);
+        if (ret < 0)
+          continue;
+        sl_nr_sci_indication_pdu_t *sci_index = sl_info->sci_ind->sci_pdu+i;
+
+        AssertFatal( nr_ue_if_module_inst[module_id] != NULL, "IF module is NULL!\n" );
+        AssertFatal( nr_ue_if_module_inst[module_id]->scheduled_response != NULL, "scheduled_response is NULL!\n" );
+        sl_nr_rx_config_request_t *sl_config = get_sl_config_request(mac, sl_info->slot_rx);
+        fill_sl_scheduled_response(&scheduled_response, sl_config, NULL, NULL, sl_info->module_id, sl_info->frame_rx, sl_info->slot_rx, sl_info->phy_data);
+        nr_ue_if_module_inst[module_id]->scheduled_response(&scheduled_response);
+      }
+      sl_info->sci_ind = NULL;
+    }
+
+    if (sl_info->rx_ind != NULL) {
+
+      for (int i = 0; i < sl_info->rx_ind->number_pdus; ++i) {
+
+        sl_nr_rx_indication_body_t rx_indication_body = sl_info->rx_ind->rx_indication_body[i];
+        LOG_D(NR_MAC, "Sending DL indication to MAC. 1 PDU type %d of %d total number of PDUs \n",
+              rx_indication_body.pdu_type,
+              sl_info->rx_ind->number_pdus);
+
+        switch(rx_indication_body.pdu_type){
+
+          case SL_NR_RX_PDU_TYPE_SSB:
+            break;
+          case SL_NR_RX_PDU_TYPE_SLSCH:
+            break;
+          default:
+	    AssertFatal(1==0,"Unknown RX indication type\n");
+	    break;
+        }
+      }
+      sl_info->rx_ind = NULL;
+    }
+  }
+  pthread_mutex_unlock(&mac_IF_mutex);
+  return ret_mask;
+}
+*/
+
+
 static void handle_sl_bch(int ue_id,
                           sl_nr_ue_mac_params_t *sl_mac,
                           uint8_t *const sl_mib,
@@ -450,6 +530,28 @@ static void handle_sl_bch(int ue_id,
 
   return;
 }
+
+int8_t handle_slsch(int module_idP,sl_nr_rx_indication_t *rx_ind,int pdu_id)
+{
+    nr_ue_process_mac_sl_pdu(module_idP,rx_ind,pdu_id);
+
+  return 0;
+}
+
+void handle_sl_sci1a(module_id_t module_id, int cc_id, uint32_t frame, uint32_t slot, sl_nr_sci_indication_pdu_t *const sci, void *phy_data) {
+
+
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  nr_ue_process_sci1_indication_pdu(mac,module_id,cc_id,frame,slot,sci,phy_data);
+}
+
+void handle_sl_sci2(module_id_t module_id, int cc_id, uint32_t frame, uint32_t slot, sl_nr_sci_indication_pdu_t *const sci, void *phy_data) {
+
+
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  nr_ue_process_sci2_indication_pdu(mac, module_id, cc_id, frame, slot, sci, phy_data);
+}
+
 /*
 if PSBCH rx - handle_psbch()
   - Extract FN, Slot
@@ -493,11 +595,46 @@ void sl_nr_process_rx_ind(int ue_id,
 
       break;
     case SL_NR_RX_PDU_TYPE_SLSCH:
+    case SL_NR_RX_PDU_TYPE_SLSCH_PSFCH:
+
+        LOG_D(NR_MAC, "[UE%d]SL-MAC Received SLSCH: rx_slsch_pdu:%p, rx_slsch_len %d, ack_nack %d, harq_pid %d\n",
+                         ue_id,
+                         rx_ind->rx_indication_body[num_pdus - 1].rx_slsch_pdu.pdu,
+                         rx_ind->rx_indication_body[num_pdus - 1].rx_slsch_pdu.pdu_length,
+  		                   rx_ind->rx_indication_body[num_pdus - 1].rx_slsch_pdu.ack_nack,
+		                     rx_ind->rx_indication_body[num_pdus - 1].rx_slsch_pdu.harq_pid);
+
+        handle_slsch(ue_id, rx_ind, 0); 
       break;
 
     default:
       AssertFatal(1 == 0, "Incorrect type received. %s\n", __FUNCTION__);
       break;
+    }
+}
+
+/* Process SCI indication from PHY */
+
+void sl_nr_process_sci_ind(uint16_t module_id, int cc_id, uint32_t frame, uint32_t slot, sl_nr_ue_mac_params_t *sl_mac, sl_nr_sci_indication_t *sci_ind, void *phy_data) {
+
+
+  uint8_t num_SCIs = sci_ind->number_of_SCIs;
+ 
+  for (int idx=0;idx<num_SCIs;idx++) {
+
+    switch (sci_ind->sci_pdu[idx].sci_format_type) { 
+      case SL_SCI_FORMAT_1A_ON_PSCCH:
+         LOG_D(NR_MAC,"%d.%d Received PSCCH PDU %d/%d PSCCH RSRP %d, length %d, sub-channel index %d, Nid %x, payload %llx\n", sci_ind->sfn,sci_ind->slot,1+idx,num_SCIs,sci_ind->sci_pdu[idx].pscch_rsrp,sci_ind->sci_pdu[idx].sci_payloadlen,sci_ind->sci_pdu[idx].subch_index,sci_ind->sci_pdu[idx].Nid,*(unsigned long long*)sci_ind->sci_pdu[idx].sci_payloadBits);       
+         handle_sl_sci1a(module_id, cc_id, frame, slot, &sci_ind->sci_pdu[idx], phy_data); 
+       break;
+      case SL_SCI_FORMAT_2_ON_PSSCH:
+         LOG_D(NR_MAC,"%d.%d Received PSSCH PDU %d/%d PSSCH RSRP %d, length %d, payload %llx\n", sci_ind->sfn,sci_ind->slot,1+idx,num_SCIs,sci_ind->sci_pdu[idx].pscch_rsrp,sci_ind->sci_pdu[idx].sci_payloadlen,*(unsigned long long*)sci_ind->sci_pdu[idx].sci_payloadBits);       
+         handle_sl_sci2(module_id, cc_id, frame, slot, &sci_ind->sci_pdu[idx], phy_data);
+       break;
+      default:
+       AssertFatal(1==0,"Unhandled or unknown sci format %d\n",sci_ind->sci_pdu[idx].sci_format_type);
+       break;
+    }
   }
 }
 
@@ -516,11 +653,14 @@ void nr_ue_sl_indication(nr_sidelink_indication_t *sl_indication)
   uint16_t slot = sl_indication->slot_rx;
   uint16_t frame = sl_indication->frame_rx;
   int hfn = sl_indication->hfn_rx;
+  int cc_id = 0;
 
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
 
   if (sl_indication->rx_ind) {
     sl_nr_process_rx_ind(ue_id, hfn, frame, slot, sl_mac, sl_indication->rx_ind);
+  } else if (sl_indication->sci_ind) {
+    sl_nr_process_sci_ind(ue_id, cc_id, frame, slot, sl_mac, sl_indication->sci_ind, sl_indication->phy_data);
   } else {
     nr_ue_sidelink_scheduler(sl_indication, mac);
   }
