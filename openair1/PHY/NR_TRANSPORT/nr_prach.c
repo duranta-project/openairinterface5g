@@ -66,7 +66,11 @@ void nr_schedule_rx_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_p
   const NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
   const nfapi_nr_prach_config_t *cfg = &gNB->gNB_config.prach_config;
   const nfapi_nr_num_prach_fd_occasions_t *occ = &cfg->num_prach_fd_occasions_list[prach_pdu->num_ra];
-  const int num_rx_port = (prach_pdu->beamforming.dig_bf_interface == 0) ? gNB->frame_parms.nb_antennas_rx : 1;
+  const bool no_bf = prach_pdu->beamforming.dig_bf_interface == 0;
+  const bool hiphy_bf =
+      (!no_bf) ? !IS_BIT_SET(prach_pdu->beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx, 15) : false;
+  /* When no DBF L1 does coherent combining of PRACH signal from */
+  const int num_rx_port = (no_bf || hiphy_bf) ? gNB->frame_parms.nb_antennas_rx : 1;
   prach_item_t prach = {
       .frame = SFN,
       .slot = Slot,
@@ -324,9 +328,7 @@ static void rx_nr_prach_ru_internal(prach_item_t *p,
   for (int aa = 0; aa < p->nb_rx; aa++) {
     // Fixme: slot or slot makes no sense ???
     int slot2 = p->prach_sequence_length ? p->slot : p->slot;
-    // TODO L1 BF: call prach beamforming here
-    int idx = aa;
-    c16_t *prach = (c16_t *)&rxdata[idx][get_samples_slot_timestamp(fp, slot2) + sample_offset_slot - N_TA_offset];
+    c16_t *prach = (c16_t *)&rxdata[aa][get_samples_slot_timestamp(fp, slot2) + sample_offset_slot - N_TA_offset];
 
     // do DFT
     c16_t *prach2 = prach + Ncp;
@@ -371,7 +373,8 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
   bool new_dft = false;
   int log2_ifft_size = 10;
 
-  const int nb_rx = in->nb_rx;
+  // After beamforming there is one log port
+  const int nb_rx = in->is_bf ? 1 : in->nb_rx;
   const int NCS = in->pdu.num_cs;
   const int prach_fmt = in->pdu.prach_format;
   const int N_ZC = in->prach_sequence_length == 0 ? 839 : 139;
@@ -518,7 +521,6 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
       }
       c16_t prachF[dft_sz] __attribute__((aligned(32)));
 
-      // TODO: once DBF is implemented we have to process only one logical antenna port here
       for (int aa = 0; aa < nb_rx; aa++) {
         // Do componentwise product with Xu* on each antenna
         for (int offset = 0; offset < N_ZC; offset++) {
