@@ -66,11 +66,15 @@ void nr_schedule_rx_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_p
   const NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
   const nfapi_nr_prach_config_t *cfg = &gNB->gNB_config.prach_config;
   const nfapi_nr_num_prach_fd_occasions_t *occ = &cfg->num_prach_fd_occasions_list[prach_pdu->num_ra];
-  const bool no_bf = prach_pdu->beamforming.dig_bf_interface == 0;
-  const bool hiphy_bf =
-      (!no_bf) ? !IS_BIT_SET(prach_pdu->beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx, 15) : false;
-  /* When no DBF L1 does coherent combining of PRACH signal from */
-  const int num_rx_port = (no_bf || hiphy_bf) ? gNB->frame_parms.nb_antennas_rx : 1;
+  /* FAPI says when dig_bf_interface == 0 there is no beamforming. But inorder
+  to retain the current coherent combining in L1 prach processing, we do hiphy
+  beamforming with beam ID 0 (unity weights) and process only one logical port
+  in prach function. */
+  const bool hiphy_bf = (prach_pdu->beamforming.dig_bf_interface > 0)
+                            ? !IS_BIT_SET(prach_pdu->beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx, 15)
+                            : true;
+  // When hiphy beamforming, L1 needs signal from all baseband ports.
+  const int num_rx_port = (hiphy_bf) ? gNB->frame_parms.nb_antennas_rx : 1;
   prach_item_t prach = {
       .frame = SFN,
       .slot = Slot,
@@ -374,7 +378,6 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
   int log2_ifft_size = 10;
 
   // After beamforming there is one log port
-  const int nb_rx = in->is_bf ? 1 : in->nb_rx;
   const int NCS = in->pdu.num_cs;
   const int prach_fmt = in->pdu.prach_format;
   const int N_ZC = in->prach_sequence_length == 0 ? 839 : 139;
@@ -514,44 +517,36 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
       c16_t *Xu = in->Xu[preamble_offset - first_nonzero_root_idx];
       LOG_D(PHY,"PRACH RX new dft preamble_offset-first_nonzero_root_idx %d\n",preamble_offset-first_nonzero_root_idx);
 
-      memset(prach_ifft, 0, sizeof(prach_ifft));
       if (LOG_DUMPFLAG(DEBUG_PRACH)) {
         LOG_M("prach_rxF0.m", "prach_rxF0", in->prach_buf[0][occasion], N_ZC, 1, 1);
-        LOG_M("prach_rxF1.m", "prach_rxF1", in->prach_buf[1][occasion], 6144, 1, 1);
       }
       c16_t prachF[dft_sz] __attribute__((aligned(32)));
 
-      for (int aa = 0; aa < nb_rx; aa++) {
-        // Do componentwise product with Xu* on each antenna
-        for (int offset = 0; offset < N_ZC; offset++) {
-          prachF[offset] = c16MulConjShift(Xu[offset], in->prach_buf[aa][occasion][offset], 15);
-        }
-        memset(prachF + N_ZC, 0, sizeof(*prachF) * (dft_sz - N_ZC));
-        // Now do IFFT of size 1024 (N_ZC=839) or 256 (N_ZC=139)
-        c16_t prach_ifft_tmp[dft_sz] __attribute__((aligned(32)));
-        idft(get_idft(dft_sz), (int16_t *)prachF, (int16_t *)prach_ifft_tmp, 1);
-        // compute energy and accumulate over receive antennas
-        for (int i = 0; i < dft_sz; i++)
-          prach_ifft[i] += squaredMod(prach_ifft_tmp[i]);
+      // Do componentwise product with Xu* on each antenna
+      for (int offset = 0; offset < N_ZC; offset++) {
+        prachF[offset] = c16MulConjShift(Xu[offset], in->prach_buf[0][occasion][offset], 15);
+      }
+      memset(prachF + N_ZC, 0, sizeof(*prachF) * (dft_sz - N_ZC));
+      // Now do IFFT of size 1024 (N_ZC=839) or 256 (N_ZC=139)
+      c16_t prach_ifft_tmp[dft_sz] __attribute__((aligned(32)));
+      idft(get_idft(dft_sz), (int16_t *)prachF, (int16_t *)prach_ifft_tmp, 1);
 
-        if (LOG_DUMPFLAG(DEBUG_PRACH)) {
-          if (aa == 0)
-            LOG_M("prach_rxF_comp0.m","prach_rxF_comp0", prachF, 1024, 1, 1);
-          if (aa == 1)
-            LOG_M("prach_rxF_comp1.m","prach_rxF_comp1", prachF, 1024, 1, 1);
-        }
+      for (int i = 0; i < dft_sz; i++)
+        prach_ifft[i] = squaredMod(prach_ifft_tmp[i]);
 
-      } // antennas_rx
+      if (LOG_DUMPFLAG(DEBUG_PRACH)) {
+        LOG_M("prach_rxF_comp0.m","prach_rxF_comp0", prachF, 1024, 1, 1);
+      }
 
       // Normalization of energy over ifft and receive antennas
       if (N_ZC == 839) {
         log2_ifft_size = 10;
         for (int i = 0; i < 1024; i++)
-          prach_ifft[i] = (prach_ifft[i]>>log2_ifft_size)/nb_rx;
+          prach_ifft[i] = (prach_ifft[i]>>log2_ifft_size);
       } else {
         log2_ifft_size = 8;
         for (int i = 0; i < 256; i++)
-          prach_ifft[i] = (prach_ifft[i]>>log2_ifft_size)/nb_rx;
+          prach_ifft[i] = (prach_ifft[i]>>log2_ifft_size);
       }
 
     } // new dft
