@@ -35,4 +35,11 @@ void update_grid_info(struct nr_grid *grid,
                       uint16_t num_rb,
                       uint16_t start_symb,
                       uint16_t num_symb);
+void nr_rx_beamforming(const nfapi_nr_dbt_pdu_t *dbt,
+                       const nfapi_nr_ul_beamforming_t *b,
+                       c16_t **in,
+                       c16_t **out,
+                       int num_rx,
+                       int sc_offset,
+                       int num_sc);
 #endif

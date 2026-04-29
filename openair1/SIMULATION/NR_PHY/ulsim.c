@@ -1196,6 +1196,7 @@ int main(int argc, char *argv[])
     reset_meas(&gNB->ts_deinterleave);
     reset_meas(&gNB->ts_rate_unmatch);
     reset_meas(&gNB->ts_ldpc_decode);
+    reset_meas(&gNB->pusch_rx_beamforming);
     reset_meas(&gNB->ulsch_channel_estimation_stats);
     reset_meas(&gNB->pusch_channel_estimation_antenna_processing_stats);
     reset_meas(&gNB->rx_srs_stats);
@@ -1848,6 +1849,7 @@ int main(int argc, char *argv[])
       printf("\ngNB RX\n");
       printDistribution(&gNB->phy_proc_rx,table_rx, "Total PHY proc rx");
       printStatIndent(&gNB->rx_pusch_stats, "RX PUSCH time");
+      printStatIndent2(&gNB->pusch_rx_beamforming, "PUSCH Beamforming");
       printStatIndent2(&gNB->ulsch_channel_estimation_stats, "ULSCH channel estimation time");
       printStatIndent3(&gNB->pusch_channel_estimation_antenna_processing_stats, "Antenna Processing time");
       printStatIndent2(&gNB->rx_pusch_init_stats, "RX PUSCH Initialization time");

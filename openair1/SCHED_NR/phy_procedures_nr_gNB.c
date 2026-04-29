@@ -57,6 +57,29 @@ void update_grid_info(struct nr_grid *grid,
   grid[port].num_sections++;
 }
 
+void nr_rx_beamforming(const nfapi_nr_dbt_pdu_t *dbt,
+                       const nfapi_nr_ul_beamforming_t *b,
+                       c16_t **in,
+                       c16_t **out,
+                       int num_rx,
+                       int sc_offset,
+                       int num_sc)
+{
+  AssertFatal(b->dig_bf_interface > 0, "Beam ID must be provided\n");
+  const uint8_t num_log_ports = b->dig_bf_interface;
+
+  for (int l = 0; l < num_log_ports; l++) {
+    const uint16_t beam_id = b->prgs_list[0].dig_bf_interface_list[l].beam_idx;
+    AssertFatal(!IS_BIT_SET(beam_id, 15), "LoPHY beamforming bit is set!\n");
+    AssertFatal(beam_id == dbt->dig_beam_list[beam_id].beam_idx, "Beam ID not consistent with DBT\n");
+    AssertFatal(dbt->num_txrus == num_rx, "Number of baseband ports don't match with DBT\n");
+    for (int b = 0; b < num_rx; b++) {
+      const c16_t wt = dbt->dig_beam_list[beam_id].txru_list[b];
+      nr_beamformer_simd(in[b] + sc_offset, wt, num_sc, out[b] + sc_offset);
+    }
+  }
+}
+
 void nr_common_signal_procedures(PHY_VARS_gNB *gNB, int frame, int slot, const nfapi_nr_dl_tti_ssb_pdu *ssb_pdu)
 {
   NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;

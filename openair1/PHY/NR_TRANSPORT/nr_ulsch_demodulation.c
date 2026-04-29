@@ -815,7 +815,6 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                      const nfapi_nr_pusch_pdu_t *rel15_ul,
                      c16_t **rxF,
                      int16_t **llr,
-                     int soffset,
                      int symbol,
                      int output_shift,
                      uint32_t nvar,
@@ -849,9 +848,9 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                            (c16_t *)pusch_vars->ul_ch_estimates[aatx * nb_rx_ant + aarx],
                            rxFext[aarx],
                            chFext[aatx][aarx],
-                           soffset+(symbol * frame_parms->ofdm_symbol_size),
+                           symbol * frame_parms->ofdm_symbol_size,
                            dmrs_symbol * frame_parms->ofdm_symbol_size,
-                           dmrs_symbol_flag, 
+                           dmrs_symbol_flag,
                            rel15_ul,
                            frame_parms);
       stop_meas(pusch_extr);
@@ -971,6 +970,7 @@ typedef struct puschSymbolProc_s {
   int slot;
   int startSymbol;
   int numSymbols;
+  c16_t **rxdataF;
   int16_t *llr;
   int16_t *scramblingSequence;
   uint32_t nvar;
@@ -981,7 +981,6 @@ typedef struct puschSymbolProc_s {
   time_stats_t ul_demap;
   time_stats_t ul_unscram;
   // TODO: Remove assumption of contiguous ports after DAS is properly handled in beamforming
-  uint16_t ant_port_start;
   task_ans_t *ans;
   c16_t *pusch_ch_est_dmrs_interpl_slot_mem;
   c16_t *rxFext_slot_mem;
@@ -999,7 +998,6 @@ static void nr_pusch_symbol_processing(void *arg)
   for (int symbol = rdata->startSymbol; symbol < rdata->startSymbol + rdata->numSymbols; symbol++) {
     if (pusch_vars->ul_valid_re_per_slot[symbol] == 0)
       continue;
-    int soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
     int buffer_length = ceil_mod(pusch_vars->ul_valid_re_per_slot[symbol] * NR_NB_SC_PER_RB, 16);
     int16_t llrs[rel15_ul->nrOfLayers][ceil_mod(buffer_length * rel15_ul->qam_mod_order, 64)];
     int16_t *llrss[rel15_ul->nrOfLayers];
@@ -1011,9 +1009,8 @@ static void nr_pusch_symbol_processing(void *arg)
              frame_parms,
              pusch_vars,
              rel15_ul,
-             gNB->common_vars.rxdataF + rdata->ant_port_start,
+             rdata->rxdataF,
              llrss,
-             soffset,
              symbol,
              pusch_vars->log2_maxh,
              rdata->nvar,
@@ -1087,8 +1084,6 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
                    uint8_t slot)
 {
   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
-  const nfapi_nr_spatial_stream_index_t *p = &rel15_ul->param_v4;
-  uint16_t ant_port_start = p->numSpatialStreamIndices > 0 ? p->spatialStreamIndices[0] : 0;
 
   uint32_t bwp_start_subcarrier = (rel15_ul->rb_start + rel15_ul->bwp_start) * NR_NB_SC_PER_RB;
   LOG_D(PHY,"pusch %d.%d : bwp_start_subcarrier %d, rb_start %d, first_carrier_offset %d\n", frame,slot,bwp_start_subcarrier, rel15_ul->rb_start, frame_parms->first_carrier_offset);
@@ -1128,6 +1123,45 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
 #endif
 
   //----------------------------------------------------------
+  //------------------- Beamforming --------------------------
+  //----------------------------------------------------------
+  start_meas(&gNB->pusch_rx_beamforming);
+  const nfapi_nr_spatial_stream_index_t *p = &rel15_ul->param_v4;
+  const nfapi_nr_ul_beamforming_t *bf = &rel15_ul->beamforming;
+  const bool do_bf = (bf->dig_bf_interface > 0) ? !IS_BIT_SET(bf->prgs_list[0].dig_bf_interface_list[0].beam_idx, 15) : false;
+  const int num_sp_streams = do_bf ? bf->dig_bf_interface : p->numSpatialStreamIndices;
+  const int num_sc = frame_parms->samples_per_slot_wCP;
+  c16_t *rxdataF[num_sp_streams];
+  c16_t *toFree = NULL;
+  if (do_bf) {
+    // Allocate buffer for DBF output
+    c16_t *bf_out[num_sp_streams];
+    toFree = calloc(1, num_sp_streams * num_sc * sizeof(*toFree));
+    for (int i = 0; i < num_sp_streams; i++)
+      bf_out[i] = &toFree[i * num_sc];
+    // temporary array to hold bb ports buffer
+    c16_t *bf_in[frame_parms->nb_antennas_rx];
+    for (int i = 0; i < frame_parms->nb_antennas_rx; i++)
+      bf_in[i] =
+          gNB->common_vars.rxdataF[i] + (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
+    // beamform symbols
+    for (int sym = rel15_ul->start_symbol_index; sym < rel15_ul->start_symbol_index + rel15_ul->nr_of_symbols; sym++) {
+      const int sc_start = sym * frame_parms->ofdm_symbol_size + ((rel15_ul->bwp_start + rel15_ul->rb_start) * NR_NB_SC_PER_RB);
+      const int num_sc = rel15_ul->rb_size * NR_NB_SC_PER_RB;
+      nr_rx_beamforming(&gNB->gNB_config.dbt_config, bf, bf_in, bf_out, frame_parms->nb_antennas_rx, sc_start, num_sc);
+    }
+    // point BF output buffer to use by following PUSCH functions
+    for (int i = 0; i < num_sp_streams; i++)
+      rxdataF[i] = bf_out[i];
+  } else {
+    // No BF. point to input buffer
+    for (int i = 0; i < num_sp_streams; i++)
+      rxdataF[i] = gNB->common_vars.rxdataF[p->spatialStreamIndices[i]]
+                   + (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
+  }
+  stop_meas(&gNB->pusch_rx_beamforming);
+
+  //----------------------------------------------------------
   //------------------- Channel estimation -------------------
   //----------------------------------------------------------
   start_meas(&gNB->ulsch_channel_estimation_stats);
@@ -1143,13 +1177,13 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
       for (int nl = 0; nl < rel15_ul->nrOfLayers; nl++) {
         uint32_t nvar_tmp = 0;
         nr_pusch_channel_estimation(gNB,
+                                    rxdataF,
                                     slot,
                                     nl,
                                     get_dmrs_port(nl, rel15_ul->dmrs_ports),
                                     dmrs_symb_idx,
                                     symbol,
                                     pusch_vars,
-                                    ant_port_start,
                                     bwp_start_subcarrier,
                                     rel15_ul,
                                     &max_ch,
@@ -1172,29 +1206,26 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
               frame_parms->N_RB_UL,
               false);
 
-  const uint8_t num_sp_streams = rel15_ul->param_v4.numSpatialStreamIndices;
   int start_sc = (rel15_ul->bwp_start + rel15_ul->rb_start) * NR_NB_SC_PER_RB;
   for (int aa_pusch = 0; aa_pusch < num_sp_streams; aa_pusch++) {
-    const int aarx = ant_port_start + aa_pusch;
-    DevAssert(aarx < sizeofArray(pusch_vars->ulsch_power));
+    DevAssert(aa_pusch < sizeofArray(pusch_vars->ulsch_power));
     pusch_vars->ulsch_power[aa_pusch] = 0;
     pusch_vars->ulsch_noise_power[aa_pusch] = 0;
     int64_t symb_energy = 0;
 
     for (uint8_t symbol = rel15_ul->start_symbol_index; symbol < end_symbol; symbol++) {
-      int offset0 = ((slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot + symbol) * frame_parms->ofdm_symbol_size;
-      int offset = offset0 + start_sc;
-      c16_t *ul_ch = &gNB->common_vars.rxdataF[aarx][offset];
+      c16_t *ul_ch = &rxdataF[aa_pusch][start_sc + symbol * frame_parms->ofdm_symbol_size];
       symb_energy += signal_energy_nodc(ul_ch, rel15_ul->rb_size * NR_NB_SC_PER_RB);
     }
     pusch_vars->ulsch_power[aa_pusch] += (symb_energy / rel15_ul->nr_of_symbols);
 
+    const int n0_abs_port_idx = p->spatialStreamIndices[aa_pusch];
     pusch_vars->ulsch_noise_power[aa_pusch] +=
-        average_u32(&n0_subband_power[aarx][rel15_ul->bwp_start + rel15_ul->rb_start], rel15_ul->rb_size);
+        average_u32(&n0_subband_power[n0_abs_port_idx][rel15_ul->bwp_start + rel15_ul->rb_start], rel15_ul->rb_size);
 
     LOG_D(PHY,
           "aa %d, bwp_start%d, rb_start %d, rb_size %d: ulsch_power %d, ulsch_noise_power %d\n",
-          aarx,
+          aa_pusch,
           rel15_ul->bwp_start,
           rel15_ul->rb_start,
           rel15_ul->rb_size,
@@ -1267,10 +1298,6 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
               nb_re_pusch,
               meas_symbol);
 
-  // extract the first dmrs for the channel level computation
-  // extract the data in the OFDM frame, to the start of the array
-  int soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
-
   nb_re_pusch = ceil_mod(nb_re_pusch, 16);
   int dmrs_symbol;
   if (gNB->chest_time == 0)
@@ -1285,13 +1312,13 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
   for (int aarx = 0; aarx < num_sp_streams; aarx++)
     for (int nl = 0; nl < rel15_ul->nrOfLayers; nl++) {
       start_meas(&gNB->pusch_extraction_stats);
-      nr_ulsch_extract_rbs(gNB->common_vars.rxdataF[ant_port_start + aarx],
+      nr_ulsch_extract_rbs(rxdataF[aarx],
                            (c16_t *)pusch_vars->ul_ch_estimates[nl * num_sp_streams + aarx],
                            temp_rxFext[aarx],
                            (c16_t *)&ul_ch_estimates_ext[nl * num_sp_streams + aarx][meas_symbol * nb_re_pusch],
-                           soffset + meas_symbol * frame_parms->ofdm_symbol_size,
+                           meas_symbol * frame_parms->ofdm_symbol_size,
                            dmrs_symbol * frame_parms->ofdm_symbol_size,
-                           (rel15_ul->ul_dmrs_symb_pos >> meas_symbol) & 0x01, 
+                           (rel15_ul->ul_dmrs_symb_pos >> meas_symbol) & 0x01,
                            rel15_ul,
                            frame_parms);
       stop_meas(&gNB->pusch_extraction_stats);
@@ -1366,7 +1393,7 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
       rdata->llr = pusch_vars->llr;
       rdata->scramblingSequence = scramblingSequence;
       rdata->nvar = nvar;
-      rdata->ant_port_start = ant_port_start;
+      rdata->rxdataF = rxdataF;
       rdata->rxFext_slot_mem = rxFext_slot_mem;
       rdata->pusch_ch_est_dmrs_interpl_slot_mem = pusch_ch_est_dmrs_interpl_slot_mem;
       reset_meas(&rdata->pusch_extr);
@@ -1431,6 +1458,10 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
     merge_meas(&gNB->ulsch_layer_demapping_stats, &rdata->ul_demap);
     merge_meas(&gNB->ulsch_unscrambling_stats, &rdata->ul_unscram);
   }
+
+  // No longer needed.
+  free(toFree);
+
   stop_meas(&gNB->rx_pusch_symbol_processing_stats);
 
   // Copy the data to the scope. This cannot be performed in one call to gNBscopeCopy because the data is not contiguous in the
