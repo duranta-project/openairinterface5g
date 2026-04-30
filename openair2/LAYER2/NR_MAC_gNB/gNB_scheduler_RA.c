@@ -477,15 +477,14 @@ void schedule_nr_prach(module_id_t module_idP, frame_t frameP, slot_t slotP)
               }
             }
             if (initialUplinkBWP->ext1 && initialUplinkBWP->ext1->msgA_ConfigCommon_r16) {
-              if (gNB->UE_info.connected_ue_list[0] == NULL)
-                schedule_nr_MsgA_pusch(scc->uplinkConfigCommon,
-                                       gNB,
-                                       module_idP,
-                                       frameP,
-                                       slotP,
-                                       prach_pdu,
-                                       scc->dmrs_TypeA_Position,
-                                       *scc->physCellId);
+              schedule_nr_MsgA_pusch(scc->uplinkConfigCommon,
+                                     gNB,
+                                     module_idP,
+                                     frameP,
+                                     slotP,
+                                     prach_pdu,
+                                     scc->dmrs_TypeA_Position,
+                                     *scc->physCellId);
             }
           }
           prach_pdu->num_prach_ocas = num_td_occ;
