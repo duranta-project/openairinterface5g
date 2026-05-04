@@ -12,7 +12,9 @@
 void nr_generate_dci(PHY_VARS_gNB *gNB,
                      const nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu_rel15,
                      NR_DL_FRAME_PARMS *frame_parms,
-                     int slot);
+                     int slot,
+                     uint64_t *phase_comp_prb_mask,
+                     int prb_mask_words);
 
 void nr_fill_dci(PHY_VARS_gNB *gNB,
                  int frame,
