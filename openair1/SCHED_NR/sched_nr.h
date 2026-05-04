@@ -19,7 +19,12 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
 void nr_save_ul_tti_req(PHY_VARS_gNB *gNB, nfapi_nr_ul_tti_request_t *UL_tti_req);
 int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, NR_UL_IND_t *UL_INFO);
 void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_rach_indication_t *rach_ind);
-void nr_common_signal_procedures (PHY_VARS_gNB *gNB,int frame,int slot, const nfapi_nr_dl_tti_ssb_pdu *ssb_pdu);
+void nr_common_signal_procedures(PHY_VARS_gNB *gNB,
+                                 int frame,
+                                 int slot,
+                                 const nfapi_nr_dl_tti_ssb_pdu *ssb_pdu,
+                                 uint64_t *phase_comp_prb_mask,
+                                 int prb_mask_words);
 void nr_feptx_ofdm(RU_t *ru,int frame_tx,int tti_tx);
 void nr_feptx0(RU_t *ru,int tti_tx,int first_symbol, int num_symbols, int aa);
 void nr_feptx_prec(RU_t *ru,int frame_tx,int tti_tx);

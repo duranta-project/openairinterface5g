@@ -28,6 +28,13 @@ void nr_modulation(const uint32_t *in,
                    uint16_t mod_order,
                    int16_t *out);
 
+bool nr_modulation_layer_mapping(const uint32_t *in,
+                                 uint32_t length,
+                                 uint16_t mod_order,
+                                 uint8_t n_layers,
+                                 int layerSz,
+                                 c16_t tx_layers[][layerSz]);
+
 /*! \brief Perform NR layer mapping. TS 38.211 V15.4.0 subclause 7.3.1.3
   @param[in] mod_symbs, double Pointer to modulated symbols for each codeword
   @param[in] n_layers, number of layers

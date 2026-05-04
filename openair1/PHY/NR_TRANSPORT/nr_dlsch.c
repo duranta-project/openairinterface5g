@@ -500,11 +500,20 @@ typedef struct pdschSymbolProc_s {
   unsigned int dlPtrsSymPos;
   unsigned int n_ptrs;
   uint16_t *ant_to_map;
+  uint64_t *pdsch_phase_comp_prb_mask;
+  int prb_mask_words;
   unsigned int re_beginning_of_symbol[14];
   c16_t *tx_layers[4];
   time_stats_t dlsch_resource_mapping_stats;
   time_stats_t dlsch_precoding_stats;
 } pdschSymbolProc_t;
+
+static inline void mark_prb_range(uint64_t *prb_mask, int prb_mask_words, int symbol, int start_prb, int nb_prb)
+{
+  uint64_t *symbol_mask = prb_mask + symbol * prb_mask_words;
+  for (int prb = start_prb; prb < start_prb + nb_prb; prb++)
+    symbol_mask[prb >> 6] |= UINT64_C(1) << (prb & 63);
+}
 
 static void nr_pdsch_symbol_processing(void *arg)
 {
@@ -525,6 +534,7 @@ static void nr_pdsch_symbol_processing(void *arg)
   const int symbol_sz = frame_parms->ofdm_symbol_size;
 
   c16_t **txdataF = gNB->common_vars.txdataF;
+  const int symb_offset = (slot % frame_parms->slots_per_subframe) * frame_parms->symbols_per_slot;
 
   for (int l_symbol = rdata->startSymbol; l_symbol < rdata->startSymbol + rdata->numSymbols; l_symbol++) {
     start_meas(&rdata->dlsch_resource_mapping_stats);
@@ -595,6 +605,12 @@ static void nr_pdsch_symbol_processing(void *arg)
                    block_end - block_start + 1,
                    txdataF_offset_per_symbol);
 
+        if (gNB->phase_comp) {
+          c16_t *pdsch_sc = &txdataF[ant][txdataF_offset_per_symbol + block_start];
+          const c16_t *rot = &frame_parms->symbol_rotation[0][symb_offset + l_symbol];
+          rotate_cpx_vector(pdsch_sc, rot, pdsch_sc,(block_end - block_start + 1)*NR_NB_SC_PER_RB, 15);
+          mark_prb_range(rdata->pdsch_phase_comp_prb_mask, rdata->prb_mask_words, l_symbol, block_start, block_end - block_start + 1);
+        }
       }
     }
     stop_meas(&rdata->dlsch_precoding_stats);
@@ -603,7 +619,12 @@ static void nr_pdsch_symbol_processing(void *arg)
   completed_task_ans(rdata->ans);
 }
 
-static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSCH_t *dlsch, int slot)
+static int do_one_dlsch(unsigned char *input_ptr,
+                        PHY_VARS_gNB *gNB,
+                        NR_gNB_DLSCH_t *dlsch,
+                        int slot,
+                        uint64_t *pdsch_phase_comp_prb_mask,
+                        int prb_mask_words)
 {
   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
 
@@ -652,51 +673,67 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   if (IS_SOFTMODEM_DLSIM)
     memcpy(dlsch->f, input_ptr, (encoded_length + 7) >> 3);
 
-  c16_t mod_symbs[rel15->NrOfCodewords][encoded_length] __attribute__((aligned(64)));
-  for (int codeWord = 0; codeWord < rel15->NrOfCodewords; codeWord++) {
-    /// scrambling
-    start_meas(dlsch_scrambling_stats);
-    uint32_t scrambled_output[(encoded_length >> 5) + 4]; // modulator acces by 4 bytes in some cases
-    memset(scrambled_output, 0, sizeof(scrambled_output));
-    nr_pdsch_codeword_scrambling(input_ptr, encoded_length, codeWord, rel15->dataScramblingId, rel15->rnti, scrambled_output);
-
-#ifdef DEBUG_DLSCH
-    printf("PDSCH scrambling:\n");
-    for (int i = 0; i < encoded_length >> 8; i++) {
-      for (int j = 0; j < 8; j++)
-        printf("0x%08x\t", scrambled_output[(i << 3) + j]);
-      printf("\n");
-    }
-#endif
-
-    stop_meas(dlsch_scrambling_stats);
-    /// Modulation
-    start_meas(dlsch_modulation_stats);
-    nr_modulation(scrambled_output, encoded_length, Qm, (int16_t *)mod_symbs[codeWord]);
-    stop_meas(dlsch_modulation_stats);
-#ifdef DEBUG_DLSCH
-    printf("PDSCH Modulation: Qm %d(%d)\n", Qm, nb_re);
-    for (int i = 0; i < nb_re; i += 8) {
-      for (int j = 0; j < 8; j++) {
-        printf("%d %d\t", mod_symbs[codeWord][i + j].r, mod_symbs[codeWord][i + j].i);
-      }
-      printf("\n");
-    }
-#endif
-  }
-
   start_meas(&gNB->dlsch_pdsch_generation_stats);
-  /// Resource mapping
-  // Non interleaved VRB to PRB mapping
-
-  AssertFatal(n_dmrs, "n_dmrs can't be 0\n");
-  // make a large enough tail to process all re with SIMD regardless a garbadge filler
-
-  start_meas(&gNB->dlsch_layer_mapping_stats);
   int layerSz2 = (layerSz + 63) & ~63;
   c16_t tx_layers[rel15->nrOfLayers][layerSz2] __attribute__((aligned(64)));
   memset(tx_layers, 0, sizeof(tx_layers));
-  nr_layer_mapping(rel15->NrOfCodewords, encoded_length, mod_symbs, rel15->nrOfLayers, layerSz2, nb_re, tx_layers);
+  const bool use_fused_mod_layer = 
+      rel15->NrOfCodewords == 1 && (rel15->nrOfLayers == 3 || rel15->nrOfLayers == 4) && (Qm == 2 || Qm == 4 || Qm == 6 || Qm == 8);
+
+  if (use_fused_mod_layer) {
+    start_meas(dlsch_scrambling_stats);
+    uint32_t scrambled_output[(encoded_length >> 5) + 4]; // modulator access by 4 bytes in some cases
+    memset(scrambled_output, 0, sizeof(scrambled_output));
+    start_meas(dlsch_modulation_stats);
+    nr_pdsch_codeword_scrambling(input_ptr, encoded_length, 0, rel15->dataScramblingId, rel15->rnti, scrambled_output);
+    stop_meas(dlsch_scrambling_stats);
+
+    const bool fused_ok =
+        nr_modulation_layer_mapping(scrambled_output, encoded_length, Qm, rel15->nrOfLayers, layerSz2, tx_layers);
+    AssertFatal(fused_ok,
+                "Unsupported fused modulation/layer mapping for Qm %d, %d layers, %d codewords\n",
+                Qm,
+                rel15->nrOfLayers,
+                rel15->NrOfCodewords);
+    stop_meas(dlsch_modulation_stats);
+  } else {
+    c16_t mod_symbs[rel15->NrOfCodewords][encoded_length] __attribute__((aligned(64)));
+    for (int codeWord = 0; codeWord < rel15->NrOfCodewords; codeWord++) {
+      /// scrambling
+      start_meas(dlsch_scrambling_stats);
+      uint32_t scrambled_output[(encoded_length >> 5) + 4]; // modulator acces by 4 bytes in some cases
+      memset(scrambled_output, 0, sizeof(scrambled_output));
+      nr_pdsch_codeword_scrambling(input_ptr, encoded_length, codeWord, rel15->dataScramblingId, rel15->rnti, scrambled_output);
+
+#ifdef DEBUG_DLSCH
+      printf("PDSCH scrambling:\n");
+      for (int i = 0; i < encoded_length >> 8; i++) {
+        for (int j = 0; j < 8; j++)
+          printf("0x%08x\t", scrambled_output[(i << 3) + j]);
+        printf("\n");
+      }
+#endif
+
+      stop_meas(dlsch_scrambling_stats);
+      /// Modulation
+      start_meas(dlsch_modulation_stats);
+      nr_modulation(scrambled_output, encoded_length, Qm, (int16_t *)mod_symbs[codeWord]);
+      stop_meas(dlsch_modulation_stats);
+#ifdef DEBUG_DLSCH
+      printf("PDSCH Modulation: Qm %d(%d)\n", Qm, nb_re);
+      for (int i = 0; i < nb_re; i += 8) {
+        for (int j = 0; j < 8; j++) {
+          printf("%d %d\t", mod_symbs[codeWord][i + j].r, mod_symbs[codeWord][i + j].i);
+        }
+        printf("\n");
+      }
+#endif
+    }
+
+    start_meas(&gNB->dlsch_layer_mapping_stats);
+    nr_layer_mapping(rel15->NrOfCodewords, encoded_length, mod_symbs, rel15->nrOfLayers, layerSz2, nb_re, tx_layers);
+    stop_meas(&gNB->dlsch_layer_mapping_stats);
+  }
 
   /// Layer Precoding and Antenna port mapping
   // tx_layers 1-8 are mapped on antenna ports 1000-1007
@@ -765,6 +802,8 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
     rdata->dlPtrsSymPos = dlPtrsSymPos;
     rdata->n_ptrs = n_ptrs;
     rdata->ant_to_map = ant_to_map;
+    rdata->pdsch_phase_comp_prb_mask = pdsch_phase_comp_prb_mask;
+    rdata->prb_mask_words = prb_mask_words;
     for (int s = l_symbol; s < l_symbol + rdata->numSymbols; s++) {
       rdata->re_beginning_of_symbol[s] = re_beginning_of_symbol;
       re_beginning_of_symbol += freq_alloc->num_rbs * NR_NB_SC_PER_RB;
@@ -798,7 +837,13 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   return ((size_output_tb + 511) >> 9) << 6;
 }
 
-void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_array, int frame, int slot)
+void nr_generate_pdsch(PHY_VARS_gNB *gNB,
+                       int n_dlsch,
+                       NR_gNB_DLSCH_t *dlsch_array,
+                       int frame,
+                       int slot,
+                       uint64_t *pdsch_phase_comp_prb_mask,
+                       int prb_mask_words)
 {
   time_stats_t *dlsch_encoding_stats = &gNB->dlsch_encoding_stats;
   time_stats_t *tinput = &gNB->tinput;
@@ -884,7 +929,7 @@ void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_arr
 
   unsigned char *output_ptr = output;
   for (int i = 0; i < n_dlsch; i++) {
-    output_ptr += do_one_dlsch(output_ptr, gNB, &dlsch_array[i], slot);
+    output_ptr += do_one_dlsch(output_ptr, gNB, &dlsch_array[i], slot, pdsch_phase_comp_prb_mask, prb_mask_words);
   }
 }
 
