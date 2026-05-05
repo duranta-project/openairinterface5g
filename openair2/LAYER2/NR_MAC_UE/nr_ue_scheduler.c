@@ -1677,6 +1677,23 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
         ra->t_crnti = 0;
         mac->crnti = 0;
         ra->ra_rnti = 0;
+
+        // start MsgB response window timer
+        int next_slot = (slotP + 1) % n_slots_frame;
+        int next_frame = (frameP + (next_slot < slotP)) % MAX_FRAME_NUMBER;
+        int add_slots = 1;
+        NR_BWP_PDCCH_t *pdcch_config = &mac->config_BWP_PDCCH[mac->current_DL_BWP->bwp_id];
+        const NR_SearchSpace_t *ra_SS = get_common_search_space(mac, pdcch_config->ra_SS_id);
+        while (!is_dl_slot(next_slot, &mac->frame_structure)
+               || !is_ss_monitor_occasion(next_frame, next_slot, n_slots_frame, ra_SS)) {
+          int temp_slot = (next_slot + 1) % n_slots_frame;
+          next_frame = (next_frame + (temp_slot < next_slot)) % MAX_FRAME_NUMBER;
+          next_slot = temp_slot;
+          add_slots++;
+        }
+        add_slots += GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, mac->current_DL_BWP->scs);
+        nr_timer_setup(&ra->response_window_timer, ra->response_window_setup_time + add_slots, 1);
+        nr_timer_start(&ra->response_window_timer);
       } else {
         AssertFatal(false, "RA type %d not implemented!\n", ra->ra_type);
       }
