@@ -5,7 +5,7 @@
 
 #include "common/utils/LOG/log.h"
 #include "nfapi.h"
-#include "vnf/nfapi_nr_vnf.h"
+#include "../vnf/nr/nfapi_nr_vnf.h"
 #include <common/platform_constants.h>
 #include "nfapi/oai_integration/vendor_ext.h" //TODO: Remove this include when removing the Aerial transport stuff
 

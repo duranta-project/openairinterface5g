@@ -17,8 +17,8 @@
 #include <signal.h>
 
 #include "nfapi_nr_vnf.h"
-#include "nfapi_lte_vnf.h"
-#include "../vendor_ext.h"
+#include "../lte/nfapi_lte_vnf.h"
+#include "../../vendor_ext.h"
 #include <vnf.h>
 #include <vnf_p7.h>
 

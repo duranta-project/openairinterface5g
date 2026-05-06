@@ -24,7 +24,7 @@
 #include <sys/queue.h>
 #include <sys/epoll.h>
 #include "fapi_nvIPC.h"
-#include "vnf/nfapi_nr_vnf.h"
+#include "../vnf/nr/nfapi_nr_vnf.h"
 #include <nr_fapi_p5.h>
 #include <nr_fapi_p7_utils.h>
 #include "nfapi_interface.h"
