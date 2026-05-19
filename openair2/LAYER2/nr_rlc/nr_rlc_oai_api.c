@@ -127,6 +127,7 @@ static nr_rlc_entity_t *get_rlc_entity_from_lcid(nr_rlc_ue_t *ue, logical_chan_i
   }
 }
 
+
 void nr_rlc_release_entity(int ue_id, logical_chan_id_t channel_id)
 {
   nr_rlc_manager_lock(nr_rlc_ue_manager);
@@ -291,16 +292,17 @@ void nr_mac_rlc_status_ind(uint16_t ue_id, frame_t frame, int n_ch, const logica
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }
 
-rlc_op_status_t nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
-                                const srb_flag_t srb_flagP,
-                                const rb_id_t rb_idP,
-                                const mui_t muiP,
-                                sdu_size_t sdu_sizeP,
-                                uint8_t *sdu_pP)
+int nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
+                    const srb_flag_t srb_flagP,
+                    const rb_id_t rb_idP,
+                    const mui_t muiP,
+                    sdu_size_t sdu_sizeP,
+                    uint8_t *sdu_pP)
 {
   int ue_id = ctxt_pP->rntiMaybeUEid;
   nr_rlc_ue_t *ue;
   nr_rlc_entity_t *rb;
+  int tx_space;
 
   LOG_D(RLC, "UE %d srb_flag %d rb_id %ld mui %d sdu_size %d\n", ue_id, srb_flagP, rb_idP, muiP, sdu_sizeP);
 
@@ -323,15 +325,17 @@ rlc_op_status_t nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
   if (rb != NULL) {
     rb->set_time(rb, get_nr_rlc_current_time());
     rb->recv_sdu(rb, (char *)sdu_pP, sdu_sizeP, muiP);
+    tx_space = rb->available_tx_space(rb);
   } else {
     LOG_E(RLC, "%s:%d:%s: fatal: SDU sent to unknown RB\n", __FILE__, __LINE__, __FUNCTION__);
+    tx_space = -1;
   }
 
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 
   free(sdu_pP);
 
-  return RLC_OP_STATUS_OK;
+  return tx_space;
 }
 
 int nr_rlc_get_available_tx_space(const int ue_id, const logical_chan_id_t channel_idP)
@@ -353,6 +357,7 @@ int nr_rlc_get_available_tx_space(const int ue_id, const logical_chan_id_t chann
 
   return ret;
 }
+
 
 int nr_rlc_tx_list_occupancy(int ue_id, logical_chan_id_t lcid)
 {

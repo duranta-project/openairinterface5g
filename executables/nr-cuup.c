@@ -85,15 +85,15 @@ ngran_node_t get_node_type()
   return ngran_gNB_CUUP;
 }
 
-rlc_op_status_t nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
-                                const srb_flag_t srb_flagP,
-                                const rb_id_t rb_idP,
-                                const mui_t muiP,
-                                sdu_size_t sdu_sizeP,
-                                uint8_t *sdu_pP)
+int nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
+                    const srb_flag_t srb_flagP,
+                    const rb_id_t rb_idP,
+                    const mui_t muiP,
+                    sdu_size_t sdu_sizeP,
+                    uint8_t *sdu_pP)
 {
   abort();
-  return 0;
+  return -1;
 }
 
 int nr_rlc_get_available_tx_space(const rnti_t rntiP, const logical_chan_id_t channel_idP)
