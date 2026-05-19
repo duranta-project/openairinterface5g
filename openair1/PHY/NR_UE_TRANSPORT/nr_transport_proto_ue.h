@@ -341,6 +341,18 @@ void nr_pdcch_unscrambling(c16_t *e_rx,
                            uint16_t pdcch_DMRS_scrambling_id,
                            int16_t *z2);
 
+int nr_pssch_channel_estimation(PHY_VARS_NR_UE *ue,
+                                int rxFSz,
+                                c16_t rxdataF[][rxFSz],
+                                unsigned char Ns,
+                                unsigned short p,
+                                unsigned char symbol,
+                                int ul_id,
+                                unsigned short bwp_start_subcarrier,
+                                sl_nr_rx_config_pssch_sci_pdu_t *pssch_pdu,
+                                int *max_ch,
+                                uint32_t *nvar);
+
 /**@}*/
 #endif
 
