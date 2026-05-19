@@ -1456,3 +1456,237 @@ void nr_deconstruct_5g_s_tmsi(const uint64_t fiveg_s_tmsi, uint16_t *amf_set_id,
   *amf_pointer = (fiveg_s_tmsi >> 32) & 0x3F;
   *m_tmsi = fiveg_s_tmsi;
 }
+
+// the following tables contain 10 times the value reported in 214 (in line with SCF specification and to avoid fractional values)
+//Table 5.1.3.1-1 of 38.214
+static const uint16_t Table_51311[32][2] = {{2, 1200}, {2, 1570}, {2, 1930}, {2, 2510}, {2, 3080}, {2, 3790}, {2, 4490}, {2, 5260},
+                                            {2, 6020}, {2, 6790}, {4, 3400}, {4, 3780}, {4, 4340}, {4, 4900}, {4, 5530}, {4, 6160},
+                                            {4, 6580}, {6, 4380}, {6, 4660}, {6, 5170}, {6, 5670}, {6, 6160}, {6, 6660}, {6, 7190},
+                                            {6, 7720}, {6, 8220}, {6, 8730}, {6, 9100}, {6, 9480}, {2, 0}, {4, 0}, {6, 0}};
+
+// Table 5.1.3.1-2 of 38.214
+static const uint16_t Table_51312[32][2] = {{2, 1200}, {2, 1930}, {2, 3080}, {2, 4490}, {2, 6020}, {4, 3780}, {4, 4340},
+                                            {4, 4900}, {4, 5530}, {4, 6160}, {4, 6580}, {6, 4660}, {6, 5170}, {6, 5670},
+                                            {6, 6160}, {6, 6660}, {6, 7190}, {6, 7720}, {6, 8220}, {6, 8730}, {8, 6825},
+                                            {8, 7110}, {8, 7540}, {8, 7970}, {8, 8410}, {8, 8850}, {8, 9165}, {8, 9480},
+                                            {2, 0}, {4, 0}, {6, 0}, {8, 0}};
+
+//Table 5.1.3.1-3 of 38.214
+static const uint16_t Table_51313[32][2] = {{2, 300},  {2, 400},  {2, 500},  {2, 640},  {2, 780},  {2, 990},  {2, 1200}, {2, 1570},
+                                            {2, 1930}, {2, 2510}, {2, 3080}, {2, 3790}, {2, 4490}, {2, 5260}, {2, 6020}, {4, 3400},
+                                            {4, 3780}, {4, 4340}, {4, 4900}, {4, 5530}, {4, 6160}, {6, 4380}, {6, 4660}, {6, 5170},
+                                            {6, 5670}, {6, 6160}, {6, 6660}, {6, 7190}, {6, 7720}, {2, 0}, {4, 0}, {6, 0}};
+
+static const uint16_t Table_61411[32][2] = {{2, 1200}, {2, 1570}, {2, 1930}, {2, 2510}, {2, 3080}, {2, 3790}, {2, 4490},
+                                            {2, 5260}, {2, 6020}, {2, 6790}, {4, 3400}, {4, 3780}, {4, 4340}, {4, 4900},
+                                            {4, 5530}, {4, 6160}, {4, 6580}, {6, 4660}, {6, 5170}, {6, 5670}, {6, 6160},
+                                            {6, 6660}, {6, 7190}, {6, 7720}, {6, 8220}, {6, 8730}, {6, 9100}, {6, 9480},
+                                            {2, 0}, {2, 0}, {4, 0}, {6, 0}};
+
+static const uint16_t Table_61412[32][2] = {{2, 300},  {2, 400},  {2, 500},  {2, 640},  {2, 780},  {2, 990},  {2, 1200},
+                                            {2, 1570}, {2, 1930}, {2, 2510}, {2, 3080}, {2, 3790}, {2, 4490}, {2, 5260},
+                                            {2, 6020}, {2, 6790}, {4, 3780}, {4, 4340}, {4, 4900}, {4, 5530}, {4, 6160},
+                                            {4, 6580}, {4, 6990}, {4, 7720}, {6, 5670}, {6, 6160}, {6, 6660}, {6, 7720},
+                                            {2, 0}, {2, 0}, {4, 0}, {6, 0}};
+
+uint8_t nr_get_Qm_dl(uint8_t Imcs, uint8_t table_idx) {
+  switch(table_idx) {
+    case 0:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 0 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_51311[Imcs][0]);
+    break;
+
+    case 1:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 1 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_51312[Imcs][0]);
+    break;
+
+    case 2:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 2 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_51313[Imcs][0]);
+    break;
+
+    default:
+      LOG_E(MAC, "Invalid MCS table index %d (expected in range [0,2])\n", table_idx);
+      return 0;
+  }
+}
+
+uint32_t nr_get_code_rate_dl(uint8_t Imcs, uint8_t table_idx) {
+  switch(table_idx) {
+    case 0:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 0 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_51311[Imcs][1]);
+    break;
+
+    case 1:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 1 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_51312[Imcs][1]);
+    break;
+
+    case 2:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 2 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_51313[Imcs][1]);
+    break;
+
+    default:
+      LOG_E(MAC, "Invalid MCS table index %d (expected in range [0,2])\n", table_idx);
+      return 0;
+  }
+}
+
+uint8_t nr_get_Qm_ul(uint8_t Imcs, uint8_t table_idx) {
+  switch(table_idx) {
+    case 0:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 0 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_51311[Imcs][0]);
+    break;
+
+    case 1:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 1 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_51312[Imcs][0]);
+    break;
+
+    case 2:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 2 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_51313[Imcs][0]);
+    break;
+
+    case 3:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 3 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_61411[Imcs][0]);
+    break;
+
+    case 4:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 4 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_61412[Imcs][0]);
+    break;
+
+    default:
+      LOG_E(MAC, "Invalid MCS table index %d (expected in range [0,4])\n", table_idx);
+      return 0;
+  }
+}
+
+uint32_t nr_get_code_rate_ul(uint8_t Imcs, uint8_t table_idx) {
+  switch(table_idx) {
+    case 0:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 0 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_51311[Imcs][1]);
+    break;
+
+    case 1:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 1 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_51312[Imcs][1]);      
+    break;
+
+    case 2:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 2 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_51313[Imcs][1]);
+    break;
+
+    case 3:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 3 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_61411[Imcs][1]);
+    break;
+
+    case 4:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 4 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_61412[Imcs][1]);
+    break;
+
+    default:
+      LOG_E(MAC, "Invalid MCS table index %d (expected in range [0,4])\n", table_idx);
+      return 0;
+  }
+}
+
+
+#define MAX_EL_213_9_3_2 19
+const float tab38_213_9_3_2[MAX_EL_213_9_3_2] = {1.125,1.250,1.375,1.625,1.750,2.000,2.250,2.500,2.875,3.125,3.500,4.000,5.000,6.250,8.000,10.000,12.625,15.875,20.000};
+
+int get_NREsci2(const int sci2_alpha,
+                const int sci2_payload_len,
+                const int sci2_beta_offset,
+                const int pssch_numsym,
+                const int pscch_numsym,
+                const int pscch_numrbs,
+                const int l_subch,
+                const int subchannel_size,
+                const int target_coderate) {
+
+  float Osci2 = (float)sci2_payload_len;
+  AssertFatal(sci2_beta_offset < MAX_EL_213_9_3_2, "illegal sci2_beta_offset %d\n",sci2_beta_offset);
+  float beta_offset_sci2 = tab38_213_9_3_2[sci2_beta_offset];
+
+  uint32_t R10240 = target_coderate;
+  uint32_t tmp  = (uint32_t)ceil((Osci2 + 24)*beta_offset_sci2/((float)R10240/5120));
+  float tmp2 = 12.0*pssch_numsym;
+  int N_REsci1  = 12*pscch_numrbs*pscch_numsym;
+  tmp2 *= l_subch*subchannel_size;
+  tmp2 -= N_REsci1;
+  tmp2 *= ((float)sci2_alpha/100.0);
+  int min_val = min(tmp,(int)ceil(tmp2));
+  uint8_t gamma = 12 - (min_val % 12);
+  return min_val + (gamma % 12);
+}
+
+int get_nRECSI_RS(uint8_t freq_density,
+                  uint16_t nr_of_rbs,
+		  int nb_antennas_tx) {
+  AssertFatal(freq_density > 0, "freq_density must be greater than 1\n");
+  uint8_t nr_rbs_w_csi_rs = nr_of_rbs / freq_density;
+  // Actually, kprime + 1 sub-carriers are used by csi-rs. kprime can be 0 or 1 but nb_antennas_tx can be greater than 2.
+  uint8_t subcarriers_used = nb_antennas_tx > 2 ? 2 : nb_antennas_tx;
+  return nr_rbs_w_csi_rs * subcarriers_used;
+}
+
+

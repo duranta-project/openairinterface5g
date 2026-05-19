@@ -277,13 +277,6 @@ uint32_t nr_compute_tbs(uint16_t Qm,
                         uint8_t tb_scaling,
 			uint8_t Nl);
 
-/** \brief Computes Q based on I_MCS PDSCH and table_idx for downlink. Implements MCS Tables from 38.214. */
-uint8_t nr_get_Qm_dl(uint8_t Imcs, uint8_t table_idx);
-uint32_t nr_get_code_rate_dl(uint8_t Imcs, uint8_t table_idx);
-
-/** \brief Computes Q based on I_MCS PDSCH and table_idx for uplink. Implements MCS Tables from 38.214. */
-uint8_t nr_get_Qm_ul(uint8_t Imcs, uint8_t table_idx);
-uint32_t nr_get_code_rate_ul(uint8_t Imcs, uint8_t table_idx);
 int srs_binomial_sum(int count, int Lmax);
 int srs_codebook_nb_res(NR_SRS_Config_t *srs_config);
 int srs_non_codebook_nb_res(NR_SRS_Config_t *srs_config);

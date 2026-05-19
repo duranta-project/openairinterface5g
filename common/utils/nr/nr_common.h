@@ -373,6 +373,28 @@ uint64_t nr_build_full_5g_s_tmsi(const uint64_t part1, const uint16_t part2);
 /** @brief Deconstruct full 5G-S-TMSI into its components */
 void nr_deconstruct_5g_s_tmsi(const uint64_t fiveg_s_tmsi, uint16_t *amf_set_id, uint8_t *amf_pointer, uint32_t *m_tmsi);
 
+/** \brief Computes Q based on I_MCS PDSCH and table_idx for downlink. Implements MCS Tables from 38.214. */
+uint8_t nr_get_Qm_dl(uint8_t Imcs, uint8_t table_idx);
+uint32_t nr_get_code_rate_dl(uint8_t Imcs, uint8_t table_idx);
+
+/** \brief Computes Q based on I_MCS PDSCH and table_idx for uplink. Implements MCS Tables from 38.214. */
+uint8_t nr_get_Qm_ul(uint8_t Imcs, uint8_t table_idx);
+uint32_t nr_get_code_rate_ul(uint8_t Imcs, uint8_t table_idx);
+
+/** @brief Helper for SL CSI in UE */
+int get_nRECSI_RS(uint8_t  freq_density, uint16_t nr_of_rbs, int nb_antennas_tx);
+
+/** @brief Helper for SL SCI2 in UE */
+int get_NREsci2(const int sci2_alpha,
+                const int sci2_payload_len,
+                const int sci2_beta_offset,
+                const int pssch_numsym,
+                const int pscch_numsym,
+                const int pscch_numrbs,
+                const int l_subch,
+                const int subchannel_size,
+                const int target_coderate);
+
 #define CEILIDIV(a,b) ((a+b-1)/b)
 #define ROUNDIDIV(a,b) (((a<<1)+b)/(b<<1))
 #define BOUNDED_EVAL(a, b, c) (min(c, max(a, b)))
