@@ -344,6 +344,7 @@ typedef struct PHY_VARS_NR_UE_s {
   uint8_t prs_active_gNBs;
   NR_DL_UE_HARQ_t dl_harq_processes[2][NR_MAX_HARQ_PROCESSES];
   NR_UL_UE_HARQ_t ul_harq_processes[NR_MAX_HARQ_PROCESSES];
+  NR_UL_UE_HARQ_t sl_harq_processes[NR_MAX_HARQ_PROCESSES];
 
   // Scrambling IDs used in PUSCH DMRS
   c16_t X_u[64][839];
