@@ -334,7 +334,7 @@ static void sl_schedule_rx_actions(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_I
   } else if (rx_action >= SL_NR_CONFIG_TYPE_RX_PSCCH && rx_action <= SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH) {
     // TBD..
 
-  } else if (rx_action == SL_NR_CONFIG_TYPE_RX_PSFCH) {
+  } else if (rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH) {
     // TBD..
   }
 
@@ -380,7 +380,7 @@ static void sl_schedule_tx_actions(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_I
   } else if (tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH) {
     // TBD....
 
-  } else if (tx_action == SL_NR_CONFIG_TYPE_TX_PSFCH) {
+  } else if (tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH) {
     // TBD....
   }
 

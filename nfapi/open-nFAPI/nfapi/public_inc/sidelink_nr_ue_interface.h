@@ -9,7 +9,8 @@
 
 #define SL_NR_RX_CONFIG_LIST_NUM 1
 #define SL_NR_TX_CONFIG_LIST_NUM 1
-#define SL_NR_RX_IND_MAX_PDU 1
+#define SL_NR_RX_IND_MAX_PDU 2
+#define SL_NR_SCI_IND_MAX_PDU 2
 #define SL_NR_MAX_PSCCH_SCI_LENGTH_IN_BYTES 8
 #define SL_NR_MAX_PSSCH_SCI_LENGTH_IN_BYTES 8
 #define SL_NR_MAX_SCI_LENGTH_IN_BYTES 8
@@ -24,7 +25,8 @@ typedef enum sl_sci_format_type_enum {
 typedef enum sl_rx_pdu_type_enum {
   SL_NR_RX_PDU_TYPE_NONE,
   SL_NR_RX_PDU_TYPE_SSB,
-  SL_NR_RX_PDU_TYPE_SLSCH
+  SL_NR_RX_PDU_TYPE_SLSCH,
+  SL_NR_RX_PDU_TYPE_SLSCH_PSFCH  
 } sl_rx_pdu_type_enum_t;
 
 //Type of SL-RX CONFIG requests from MAC to PHY
@@ -33,7 +35,8 @@ typedef enum sl_nr_rx_config_type_enum {
   SL_NR_CONFIG_TYPE_RX_PSCCH,
   SL_NR_CONFIG_TYPE_RX_PSSCH_SCI,
   SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH,
-  SL_NR_CONFIG_TYPE_RX_PSFCH,
+  SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH,
+  SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_CSI_RS,  
   SL_NR_CONFIG_TYPE_RX_MAXIMUM
 } sl_nr_rx_config_type_enum_t;
 
@@ -41,7 +44,8 @@ typedef enum sl_nr_rx_config_type_enum {
 typedef enum sl_nr_tx_config_type_enum {
   SL_NR_CONFIG_TYPE_TX_PSBCH = SL_NR_CONFIG_TYPE_RX_MAXIMUM + 1,
   SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH,
-  SL_NR_CONFIG_TYPE_TX_PSFCH,
+  SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH,
+  SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_CSI_RS,  
   SL_NR_CONFIG_TYPE_TX_MAXIMUM
 } sl_nr_tx_config_type_enum_t;
 
@@ -73,7 +77,7 @@ typedef struct {
   uint8_t sensing_result;
   //in case pssch sensing is requested.
   int16_t pssch_rsrp;
-  sl_nr_sci_indication_pdu_t sci_pdu;
+  sl_nr_sci_indication_pdu_t sci_pdu[SL_NR_SCI_IND_MAX_PDU];
 } sl_nr_sci_indication_t;
 
 // IF UE Rx PSBCH, PHY indicates MAC with received MIB and PSBCH RSRP
@@ -84,8 +88,14 @@ typedef struct sl_nr_ssb_pdu {
   bool decode_status;
 } sl_nr_ssb_pdu_t;
 
-//Use the same structure of pdsch pdu for slsch pdu
-typedef fapi_nr_pdsch_pdu_t sl_nr_slsch_pdu_t;
+typedef struct sl_nr_slsch_pdu {
+  uint8_t harq_pid;
+  uint8_t ack_nack;
+  uint8_t *ack_nack_rcvd;
+  uint8_t  num_acks_rcvd;
+  uint32_t pdu_length;
+  uint8_t* pdu;
+} sl_nr_slsch_pdu_t;
 
 typedef struct {
   sl_rx_pdu_type_enum_t pdu_type;
@@ -195,6 +205,40 @@ typedef struct sl_nr_rx_config_pssch_pdu {
   uint8_t ndi;
 } sl_nr_rx_config_pssch_pdu_t;
 
+typedef struct sl_nr_tx_rx_config_psfch_pdu {                
+  //  These fields can be mapped directly to the same fields 
+  uint8_t freq_hop_flag;                                     
+  uint8_t group_hop_flag;                                    
+  uint8_t sequence_hop_flag;                                 
+  uint16_t second_hop_prb;                                    
+  uint8_t nr_of_symbols;                                      
+  uint8_t start_symbol_index;                                 
+  uint8_t hopping_id;                                         
+  uint16_t prb;                                               
+  uint16_t sl_bwp_start;                                      
+  uint16_t initial_cyclic_shift;                              
+  uint8_t mcs;                                                
+  uint8_t bit_len_harq;                                       
+} sl_nr_tx_rx_config_psfch_pdu_t;                             
+
+typedef struct sl_nr_tti_csi_rs_pdu {
+  uint8_t subcarrier_spacing;
+  uint8_t cyclic_prefix;
+  uint16_t start_rb;
+  uint16_t nr_of_rbs;
+  uint8_t csi_type;
+  uint8_t row;
+  uint16_t freq_domain;
+  uint8_t symb_l0;
+  uint8_t symb_l1;
+  uint8_t cdm_type;
+  uint8_t freq_density;
+  uint16_t scramb_id;
+  uint8_t power_control_offset;
+  uint8_t power_control_offset_ss;
+  uint8_t measurement_bitmap;
+} sl_nr_tti_csi_rs_pdu_t;
+
 typedef struct {
   sl_nr_rx_config_type_enum_t pdu_type; // indicates the type of RX config request
   union {
@@ -202,6 +246,9 @@ typedef struct {
     sl_nr_rx_config_pssch_sci_pdu_t rx_sci2_config_pdu;
     sl_nr_rx_config_pssch_pdu_t rx_pssch_config_pdu;
   };
+  sl_nr_tti_csi_rs_pdu_t rx_csi_rs_config_pdu;                
+  sl_nr_tx_rx_config_psfch_pdu_t *rx_psfch_pdu_list;          
+  uint16_t num_psfch_pdus;                                        
 } sl_nr_rx_config_request_pdu_t;
 
 // MAC commands PHY to perform an action on RX RESOURCE POOL or RX PSBCH using this RX CONFIG
@@ -247,7 +294,8 @@ typedef struct sl_nr_tx_config_pscch_pssch_pdu {
   //Guard symbol + AGC symbol are also excluded
   //Indicates the number of symbols for PSCCH+PSSCH txn
   uint8_t pssch_numsym;
-
+    // start symbol of PSCCH/PSSCH (excluding AGC)
+  uint8_t pssch_startsym;
   //.... Other Parameters for SCI-2 and PSSCH
 
   // Used to determine number of SCI2 modulated symbols
@@ -270,13 +318,20 @@ typedef struct sl_nr_tx_config_pscch_pssch_pdu {
   // Table from SPEC 38.211, Table 8.4.1.1.2-1
   uint16_t dmrs_symbol_position;
 
-
-  //....TBD.. any additional parameters
+  // PSFCH related parameters                                 
+  sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu_list;             
+  uint16_t num_psfch_pdus;                                    
+  
+  // CSI-RS related parameters                                
+  sl_nr_tti_csi_rs_pdu_t nr_sl_csi_rs_pdu;                    
 
   //TX Power for PSSCH in symbol without PSCCH.
   // Power for PSCCH and power for PSSCH in symbol with PSCCH is calculated
   // from this value according to 38.213 section 16
   int16_t pssch_tx_power;
+
+  uint16_t slsch_payload_length;
+  uint8_t *slsch_payload;  
 
 } sl_nr_tx_config_pscch_pssch_pdu_t;
 
@@ -386,8 +441,8 @@ typedef struct {
   fapi_nr_tdd_table_t tdd_table;
   //only 1 SL-BWP can be configured in REL16, REL17
   sl_nr_bwp_config_t sl_bwp_config;
-
+  // scrambling ID used for PSSCH SCI transmissions
+  uint32_t sl_DMRS_ScrambleId;
 } sl_nr_phy_config_request_t;
-
 
 #endif
