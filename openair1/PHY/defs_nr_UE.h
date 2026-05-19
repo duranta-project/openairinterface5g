@@ -442,6 +442,11 @@ typedef struct PHY_VARS_NR_UE_s {
   // Sidelink parameters
   sl_nr_sidelink_mode_t sl_mode;
   sl_nr_ue_phy_params_t SL_UE_PHY_PARAMS;
+  int pscch_dmrs_gold_init;
+  /// PDCCH DMRS for TX
+  uint32_t ***nr_gold_pscch_dmrs;
+  /// PSCCH DMRS for RX
+  uint32_t ***nr_gold_pscch;
   Actor_t sync_actor;
   Actor_t *dl_actors;
   Actor_t *ul_actors;

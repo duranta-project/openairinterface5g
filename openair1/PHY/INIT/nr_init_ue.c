@@ -623,4 +623,34 @@ void sl_ue_phy_init(PHY_VARS_NR_UE *UE)
   // Generate PSS time domain samples used for correlation during SLSS reception.
   sl_generate_pss_ifft_samples(&UE->SL_UE_PHY_PARAMS, &UE->SL_UE_PHY_PARAMS.init_params);
 
+  // PSCCH DMRS gold sequences (TX)
+  UE->nr_gold_pscch_dmrs = (uint32_t ***)malloc16(sl_fp->slots_per_frame * sizeof(uint32_t **));
+  uint32_t ***pscch_dmrs = UE->nr_gold_pscch_dmrs;
+  AssertFatal(pscch_dmrs != NULL, "NR SL UE init: pscch_dmrs malloc failed\n");
+  int pscch_dmrs_init_length = (((sl_fp->N_RB_UL << 1) * 3) >> 5) + 1;
+
+  for (int slot = 0; slot < sl_fp->slots_per_frame; slot++) {
+    pscch_dmrs[slot] = (uint32_t **)malloc16(sl_fp->symbols_per_slot * sizeof(uint32_t *));
+    AssertFatal(pscch_dmrs[slot] != NULL, "NR SL UE init: pscch_dmrs for slot %d - malloc failed\n", slot);
+    for (int symb = 0; symb < sl_fp->symbols_per_slot; symb++) {
+      pscch_dmrs[slot][symb] = (uint32_t *)malloc16(pscch_dmrs_init_length * sizeof(uint32_t));
+      AssertFatal(pscch_dmrs[slot][symb] != NULL, "NR SL UE init: pscch_dmrs slot %d symb %d - malloc failed\n", slot, symb);
+    }
+  }
+  nr_init_pscch_dmrs(sl_fp,UE->nr_gold_pscch_dmrs, UE->SL_UE_PHY_PARAMS.sl_config.sl_DMRS_ScrambleId);
+
+  // PSCCH DMRS gold sequences (RX)
+  UE->nr_gold_pscch = (uint32_t ***)malloc16(sl_fp->slots_per_frame * sizeof(uint32_t **));
+  uint32_t ***pscch_dmrs_rx = UE->nr_gold_pscch;
+  AssertFatal(pscch_dmrs_rx != NULL, "NR SL UE init: pscch_dmrs_rx malloc failed\n");
+
+  for (int slot = 0; slot < sl_fp->slots_per_frame; slot++) {
+    pscch_dmrs_rx[slot] = (uint32_t **)malloc16(sl_fp->symbols_per_slot * sizeof(uint32_t *));
+    AssertFatal(pscch_dmrs_rx[slot] != NULL, "NR SL UE init: pscch_dmrs_rx for slot %d - malloc failed\n", slot);
+    for (int symb = 0; symb < sl_fp->symbols_per_slot; symb++) {
+      pscch_dmrs_rx[slot][symb] = (uint32_t *)malloc16(pscch_dmrs_init_length * sizeof(uint32_t));
+      AssertFatal(pscch_dmrs_rx[slot][symb] != NULL, "NR SL UE init: pscch_dmrs_rx slot %d symb %d - malloc failed\n", slot, symb);
+    }
+  }
+  nr_init_pscch_dmrs(sl_fp, pscch_dmrs_rx, UE->SL_UE_PHY_PARAMS.sl_config.sl_DMRS_ScrambleId);
 }
