@@ -691,8 +691,6 @@ nr_pdcp_entity_t *new_nr_pdcp_entity(
                         int size,
                         const nr_pdcp_integrity_data_t *msg_integrity),
     void *deliver_sdu_data,
-    void (*deliver_pdu)(void *deliver_pdu_data, ue_id_t ue_id, int rb_id, char *buf, int size, int sdu_id),
-    void *deliver_pdu_data,
     int sn_size,
     int t_reordering,
     int discard_timer,
@@ -733,9 +731,6 @@ nr_pdcp_entity_t *new_nr_pdcp_entity(
   ret->get_stats = nr_pdcp_entity_get_stats;
   ret->deliver_sdu = deliver_sdu;
   ret->deliver_sdu_data = deliver_sdu_data;
-
-  ret->deliver_pdu = deliver_pdu;
-  ret->deliver_pdu_data = deliver_pdu_data;
 
   ret->rb_id         = rb_id;
   ret->pdusession_id = pdusession_id;
