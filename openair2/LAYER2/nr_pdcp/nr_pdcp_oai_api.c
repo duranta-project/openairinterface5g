@@ -44,6 +44,15 @@
 #include "openair2/LAYER2/PDCP_v10.1.0/pdcp.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_data_req_queue.h"
 #include "pdcp_messages_types.h"
+#ifdef PDCP_CUCP_CUUP
+#include "LAYER2/nr_up/nr_up_cu.h"
+/* Weak so nr_pdcp_gnb can link without nr_up_direct (physims, nr-cuup) */
+void nr_up_init_direct(nr_up_if_t *iface) __attribute__((weak));
+#else
+#include "LAYER2/nr_up/nr_up_direct.h"
+#endif
+#include "common/utils/ds/byte_array.h"
+#include "LAYER2/nr_up/nr_up_transfer_user_data.h"
 #include "utils.h"
 
 #define TODO do { \
@@ -261,6 +270,17 @@ void nr_pdcp_layer_init(void)
   set_node_type();
 
 #ifdef PDCP_CUCP_CUUP
+  if (NODE_IS_CU(node_type)) {
+    AssertFatal(nr_up_init_cu != NULL, "F1-U (CU) nr-up not linked\n");
+    nr_up_init_cu(get_nr_up_if());
+  } else if (NODE_IS_MONOLITHIC(node_type)) {
+    AssertFatal(nr_up_init_direct != NULL, "mono nr-up backend not linked\n");
+#else
+  {
+#endif
+    nr_up_init_direct(get_nr_up_if());
+  }
+#ifdef PDCP_CUCP_CUUP
   nr_pdcp_e1_if_init(node_type == ngran_gNB_CUUP || node_type == ngran_gNB_CUCP);
 #endif
   init_nr_pdcp_data_ind_queue();
@@ -305,36 +325,23 @@ static void deliver_sdu_drb(void *_ue, nr_pdcp_entity_t *entity,
   }
 }
 
-static void deliver_pdu_drb_ue(void *deliver_pdu_data, ue_id_t ue_id, int rb_id,
-                               char *buf, int size, int sdu_id)
+/** @brief Hands a PDCP DRB PDU to nr-up for DL delivery */
+static void deliver_pdu_drb(void *data, ue_id_t ue_id, int rb_id, char *buf, int size, int sdu_id)
 {
-  DevAssert(deliver_pdu_data == NULL);
-  protocol_ctxt_t ctxt = { .enb_flag = 0, .rntiMaybeUEid = ue_id };
+  DevAssert(data == NULL);
+  DevAssert(buf != NULL && size > 0);
 
-  uint8_t *memblock = malloc16(size);
-  memcpy(memblock, buf, size);
-  LOG_D(PDCP, "%s(): (drb %d) calling rlc_data_req size %d UE %ld/%04lx\n", __func__, rb_id, size, ctxt.rntiMaybeUEid, ctxt.rntiMaybeUEid);
-  nr_rlc_enqueue_data_req(&ctxt, SRB_FLAG_NO, rb_id, sdu_id, size, memblock);
-}
-
-static void deliver_pdu_drb_gnb(void *deliver_pdu_data, ue_id_t ue_id, int rb_id,
-                                char *buf, int size, int sdu_id)
-{
-  DevAssert(deliver_pdu_data == NULL);
-  f1_ue_data_t ue_data = cu_get_f1_ue_data(ue_id);
-  protocol_ctxt_t ctxt = { .enb_flag = 1, .rntiMaybeUEid = ue_data.secondary_ue };
-
-  if (NODE_IS_CU(node_type)) {
-    LOG_D(PDCP, "%s() (drb %d) sending message to gtp size %d\n", __func__, rb_id, size);
-    const f1ap_cudu_inst_t *inst = getCxt(0);
-    DevAssert(inst);
-    gtpv1uSendDirectWithNRUSeqNum(inst->gtpInst, ue_id, rb_id, (uint8_t *)buf, size);
-  } else {
-    uint8_t *memblock = malloc16(size);
-    memcpy(memblock, buf, size);
-    LOG_D(PDCP, "%s(): (drb %d) calling rlc_data_req size %d\n", __func__, rb_id, size);
-    nr_rlc_enqueue_data_req(&ctxt, SRB_FLAG_NO, rb_id, sdu_id, size, memblock);
-  }
+  const byte_array_t pdu = {
+      .buf = (uint8_t *)buf,
+      .len = size,
+  };
+  const nr_up_transfer_user_data_req_t req = {
+      .ue_id = ue_id,
+      .drb_id = rb_id,
+      .sdu_id = sdu_id,
+      .pdu = pdu,
+  };
+  nr_up_transfer_user_data(&req);
 }
 
 static void deliver_sdu_srb(void *_ue, nr_pdcp_entity_t *entity,
@@ -387,12 +394,20 @@ srb_found:
   }
 }
 
-void deliver_pdu_srb_rlc(void *deliver_pdu_data, ue_id_t ue_id, int srb_id,
-                         char *buf, int size, int sdu_id)
+/** @brief Hands a PDCP SRB PDU to RLC asynchronously */
+void deliver_pdu_srb_rlc(void *data, ue_id_t ue_id, int srb_id, char *buf, int size, int sdu_id)
 {
-  protocol_ctxt_t ctxt = { .enb_flag = 1, .rntiMaybeUEid = ue_id };
+  DevAssert(data == NULL);
+  DevAssert(buf != NULL && size > 0);
+
+  protocol_ctxt_t ctxt = {.enb_flag = 0, .rntiMaybeUEid = ue_id};
   uint8_t *memblock = malloc16(size);
+  if (memblock == NULL) {
+    LOG_E(PDCP, "%s(): malloc16 failed size %d\n", __func__, size);
+    return;
+  }
   memcpy(memblock, buf, size);
+  LOG_D(PDCP, "%s(): (srb %d) enqueue rlc_data_req size %d\n", __func__, srb_id, size);
   nr_rlc_enqueue_data_req(&ctxt, SRB_FLAG_YES, srb_id, sdu_id, size, memblock);
 }
 
@@ -421,8 +436,6 @@ void add_srb(int is_gnb,
                                   false,  // has SDAP RX (not relevant)
                                   false,  // has SDAP TX (not relevant)
                                   deliver_sdu_srb,
-                                  ue,
-                                  NULL,
                                   ue,
                                   SHORT_SN_SIZE,
                                   t_Reordering,
@@ -487,8 +500,6 @@ void nr_pdcp_add_drb(int is_gnb,
                                                     (sdap->role & (SDAP_UL_TX | SDAP_DL_TX)) != 0,
                                                     deliver_sdu_drb,
                                                     ue,
-                                                    is_gnb ? deliver_pdu_drb_gnb : deliver_pdu_drb_ue,
-                                                    ue,
                                                     sn_size_dl,
                                                     t_reordering,
                                                     discard_timer,
@@ -549,7 +560,7 @@ void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, const nr_pdcp_e
   } else {
     pdcp_drb = new_nr_pdcp_entity(NR_PDCP_DRB_AM, 0, slrb_id, sdap.pdusession_id,
                                   (sdap.role & SDAP_SL_RX) != 0, (sdap.role & SDAP_SL_TX) != 0,
-                                  deliver_sdu_drb, ue, deliver_pdu_drb_ue, ue,
+                                  deliver_sdu_drb, ue,
                                   sn_size, t_reordering, discard_timer,
                                   security_parameters);
 
@@ -694,8 +705,6 @@ bool nr_pdcp_data_req_srb(ue_id_t ue_id,
     nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
     return 0;
   }
-  AssertFatal(rb->deliver_pdu == NULL, "SRB callback should be NULL, to be provided on every invocation\n");
-
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 
   deliver_pdu_cb(data, ue_id, rb_id, pdu_buf, pdu_size, muiP);
@@ -887,12 +896,9 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
     return 0;
   }
 
-  deliver_pdu deliver_pdu_cb = rb->deliver_pdu;
-
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 
-  deliver_pdu_cb(NULL, ue_id, rb_id, pdu_buf, pdu_size, muiP);
-
+  deliver_pdu_drb(NULL, ue_id, rb_id, pdu_buf, pdu_size, muiP);
   return 1;
 }
 
