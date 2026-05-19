@@ -102,12 +102,6 @@ unsigned int build_rfdc(int dcoff_i_rxfe, int dcoff_q_rxfe) {
 }
 
 
-#define KNRM  "\x1B[0m"
-#define KRED  "\x1B[31m"
-#define KGRN  "\x1B[32m"
-#define KBLU  "\x1B[34m"
-#define RESET "\033[0m"
-
 void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
 {
   int ru_id;
