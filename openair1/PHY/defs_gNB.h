@@ -319,7 +319,7 @@ typedef struct gNB_L1_proc_t_s {
   gNB_L1_rxtx_proc_t L1_proc_tx;
 } gNB_L1_proc_t;
 
-typedef struct {
+typedef struct PHY_MEASUREMENTS_gNB_s {
   // common measurements
   //! estimated noise power (linear)
   unsigned int   n0_power[MAX_NUM_RU_PER_gNB];

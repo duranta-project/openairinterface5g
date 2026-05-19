@@ -456,6 +456,7 @@ typedef struct PHY_VARS_NR_UE_s {
   // Sidelink parameters
   sl_nr_sidelink_mode_t sl_mode;
   sl_nr_ue_phy_params_t SL_UE_PHY_PARAMS;
+  struct PHY_MEASUREMENTS_gNB_s *sl_measurements;
   int max_nb_slsch;
   // we use the gNB ULSCH context for SLSCH reception
   struct NR_gNB_ULSCH_s *slsch;
