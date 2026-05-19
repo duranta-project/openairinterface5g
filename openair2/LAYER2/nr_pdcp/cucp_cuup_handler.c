@@ -26,6 +26,7 @@
 #include "openair2/E1AP/lib/e1ap_bearer_context_management.h"
 #include "openair2/F1AP/f1ap_common.h"
 #include "openair2/F1AP/f1ap_ids.h"
+#include "openair2/LAYER2/nr_up/nr_up.h"
 #include "openair2/SDAP/nr_sdap/nr_sdap.h"
 #include "openair3/ocp-gtpu/gtp_itf.h"
 
@@ -117,6 +118,8 @@ static UP_TL_information_t f1_drb_gtpu_create(const instance_t f1inst,
                                               const gtpv1u_gnb_create_tunnel_req_t *req)
 {
   UP_TL_information_t out = {0};
+
+  nr_up_add_drb(req->ue_id, req->incoming_rb_id);
 
   LOG_I(GTPU, "Incoming DRB %d / PDU Session %d - UL TEID %d\n", req->incoming_rb_id, req->pdusession_id, req->outgoing_teid);
 

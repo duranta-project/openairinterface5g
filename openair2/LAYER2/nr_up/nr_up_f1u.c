@@ -9,6 +9,7 @@
 #include "assertions.h"
 #include "common/utils/LOG/log.h"
 #include "openair2/F1AP/f1ap_common.h"
+#include "nr_up.h"
 
 /** @brief Send a DL DRB PDU on F1-U via GTP-U with NR-U sequence number */
 static void nr_up_f1u_dl_user_data(const nr_up_user_data_req_t *req)
@@ -17,12 +18,14 @@ static void nr_up_f1u_dl_user_data(const nr_up_user_data_req_t *req)
   DevAssert(req);
   DevAssert(inst);
   LOG_D(NR_UP, "%s(): (drb %u) sending message to gtp size %zu\n", __func__, req->drb_id, req->pdu.len);
-  gtpv1uSendDirectWithNRUSeqNum(inst->gtpInst, req->ue_id, req->drb_id, req->pdu.buf, req->pdu.len);
+  gtpv1uSendDirectWithNRUSeqNum(inst->gtpInst, req->ue_id, req->drb_id, req->pdu.buf, req->pdu.len, req->report_polling);
+  nr_up_consume_dbs(req->ue_id, req->drb_id, req->pdu.len);
 }
 
 /** @brief Binds the F1-U nr-up backend on iface */
 void nr_up_init_f1u(nr_up_if_t *iface)
 {
   DevAssert(iface);
+  nr_up_manager_init();
   iface->up_user_data = nr_up_f1u_dl_user_data;
 }

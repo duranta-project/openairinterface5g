@@ -330,7 +330,9 @@ int nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
 
   if (rb != NULL) {
     rb->set_time(rb, get_nr_rlc_current_time());
-    rb->recv_sdu(rb, (char *)sdu_pP, sdu_sizeP, muiP);
+    /* SDU present: normal PDU. NULL/0: DBS refresh only. */
+    if (sdu_pP != NULL && sdu_sizeP > 0)
+      rb->recv_sdu(rb, (char *)sdu_pP, sdu_sizeP, muiP);
     tx_space = rb->available_tx_space(rb);
   } else {
     LOG_E(RLC, "%s:%d:%s: fatal: SDU sent to unknown RB\n", __FILE__, __LINE__, __FUNCTION__);

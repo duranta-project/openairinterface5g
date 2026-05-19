@@ -149,7 +149,8 @@ typedef struct gtpv1u_gnb_delete_tunnel_req_s gtpv1u_gnb_delete_tunnel_req_t;
                                      ue_id_t ue_id,
                                      int bearer_id,
                                      uint8_t *buf,
-                                     size_t len);
+                                     size_t len,
+                                     bool report_polling);
 
   instance_t gtpv1Init(openAddr_t context);
   int gtpv1Term(instance_t inst);

@@ -12,6 +12,7 @@
 #include "assertions.h"
 #include "common/utils/LOG/log.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
+#include "openair2/LAYER2/nr_up/nr_up.h"
 
 /* NR PDCP and RLC both use "big locks". In some cases a thread may do
  * lock(rlc) followed by lock(pdcp) (typically when running 'rx_sdu').
@@ -33,6 +34,8 @@ typedef struct {
   int sdu_id;
   sdu_size_t sdu_sizeP;
   uint8_t *sdu_pP;
+  ue_id_t pdcp_ue_id;
+  bool report_polling;
 } nr_rlc_data_req_queue_item;
 
 #define NR_RLC_DATA_REQ_QUEUE_SIZE 10000
@@ -68,7 +71,20 @@ static void *nr_rlc_data_req_queue_thread(void *_)
     }
 
     nr_rlc_data_req_queue_item *item = &g_nr_rlc_data_req_queue.q[i];
-    nr_rlc_data_req(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id, item->sdu_sizeP, item->sdu_pP);
+    /* PDU present: push. NULL PDU: DBS refresh only. */
+    int desired_buffer_size = nr_rlc_data_req(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id, item->sdu_sizeP, item->sdu_pP);
+    LOG_D(RLC,
+          "UE %ld %s %ld: desired_buffer_size=%d\n",
+          item->ctxt_pP.rntiMaybeUEid,
+          item->srb_flagP ? "SRB" : "DRB",
+          item->rb_idP,
+          desired_buffer_size);
+    if (item->report_polling && !item->srb_flagP && desired_buffer_size >= 0) {
+      nr_up_if_t *iface = get_nr_up_if();
+      DevAssert(iface && iface->up_ddds_indication);
+      LOG_D(RLC, "Send DDDS indication to pdcp_ue_id %ld\n", item->pdcp_ue_id);
+      iface->up_ddds_indication(item->pdcp_ue_id, item->rb_idP, desired_buffer_size);
+    }
 
     if (pthread_mutex_lock(&g_nr_rlc_data_req_queue.m) != 0) {
       abort();
@@ -104,7 +120,9 @@ void nr_rlc_enqueue_data_req(const protocol_ctxt_t *ctxt_pP,
                              rb_id_t rb_idP,
                              int sdu_id,
                              sdu_size_t sdu_sizeP,
-                             uint8_t *sdu_pP)
+                             uint8_t *sdu_pP,
+                             ue_id_t pdcp_ue_id,
+                             bool report_polling)
 {
   int i;
   int logged = 0;
@@ -131,6 +149,8 @@ void nr_rlc_enqueue_data_req(const protocol_ctxt_t *ctxt_pP,
   g_nr_rlc_data_req_queue.q[i].sdu_id = sdu_id;
   g_nr_rlc_data_req_queue.q[i].sdu_sizeP = sdu_sizeP;
   g_nr_rlc_data_req_queue.q[i].sdu_pP = sdu_pP;
+  g_nr_rlc_data_req_queue.q[i].pdcp_ue_id = pdcp_ue_id;
+  g_nr_rlc_data_req_queue.q[i].report_polling = report_polling;
 
   if (pthread_cond_signal(&g_nr_rlc_data_req_queue.c) != 0) {
     abort();
