@@ -19,6 +19,15 @@ nr_get_G(uint16_t nb_rb, uint16_t nb_symb_sch, uint8_t nb_re_dmrs, uint16_t leng
   return (G);
 }
 
+uint32_t nr_get_G_SL(uint16_t nb_rb, uint16_t nb_symb_sch, uint8_t nb_re_dmrs, uint16_t length_dmrs, uint8_t sci1_dmrs_overlap, uint16_t sci1_re, uint16_t sci1_rb, uint16_t sci2_re, uint16_t csi_rs_re, uint8_t Qm, uint8_t Nl) {
+
+  uint32_t unav_res = sci1_re + sci2_re + csi_rs_re;
+  // DMRS suppressed by SCI1 are already counted in the SCI1 reservation.
+  if (sci1_dmrs_overlap > 0)
+    unav_res -= nb_re_dmrs * sci1_rb;
+  return nr_get_G(nb_rb, nb_symb_sch, nb_re_dmrs, length_dmrs, unav_res, Qm, Nl);
+}
+
 int nr_get_E(uint32_t G, uint8_t C, uint8_t Qm, uint8_t Nl, uint8_t r)
 {
   if (Nl <= 0 || Qm <= 0) {

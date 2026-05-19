@@ -1456,3 +1456,32 @@ void nr_deconstruct_5g_s_tmsi(const uint64_t fiveg_s_tmsi, uint16_t *amf_set_id,
   *amf_pointer = (fiveg_s_tmsi >> 32) & 0x3F;
   *m_tmsi = fiveg_s_tmsi;
 }
+
+#define MAX_EL_213_9_3_2 19
+const float tab38_213_9_3_2[MAX_EL_213_9_3_2] = {1.125,1.250,1.375,1.625,1.750,2.000,2.250,2.500,2.875,3.125,3.500,4.000,5.000,6.250,8.000,10.000,12.625,15.875,20.000};
+
+int get_NREsci2(const int sci2_alpha,
+                const int sci2_payload_len,
+                const int sci2_beta_offset,
+                const int pssch_numsym,
+                const int pscch_numsym,
+                const int pscch_numrbs,
+                const int l_subch,
+                const int subchannel_size,
+                const int target_coderate) {
+
+  float Osci2 = (float)sci2_payload_len;
+  AssertFatal(sci2_beta_offset < MAX_EL_213_9_3_2, "illegal sci2_beta_offset %d\n",sci2_beta_offset);
+  float beta_offset_sci2 = tab38_213_9_3_2[sci2_beta_offset];
+
+  uint32_t R10240 = target_coderate;
+  uint32_t tmp  = (uint32_t)ceil((Osci2 + 24)*beta_offset_sci2/((float)R10240/5120));
+  float tmp2 = 12.0*pssch_numsym;
+  int N_REsci1  = 12*pscch_numrbs*pscch_numsym;
+  tmp2 *= l_subch*subchannel_size;
+  tmp2 -= N_REsci1;
+  tmp2 *= ((float)sci2_alpha/100.0);
+  int min_val = min(tmp,(int)ceil(tmp2));
+  uint8_t gamma = 12 - (min_val % 12);
+  return min_val + (gamma % 12);
+}

@@ -9,6 +9,7 @@
 #include "PHY/MODULATION/nr_modulation.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_ue.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
+#include "PHY/NR_TRANSPORT/nr_ulsch.h"
 #include "PHY/NR_REFSIG/pss_nr.h"
 #include "PHY/NR_REFSIG/ul_ref_seq_nr.h"
 #include "PHY/NR_REFSIG/sl_refsig_defs.h"
@@ -259,6 +260,7 @@ int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)
   }
 
   ue->init_averaging = 1;
+
   init_symbol_rotation(fp);
   init_timeshift_rotation(fp->ofdm_symbol_size,
                           fp->N_RB_DL * NR_NB_SC_PER_RB,
@@ -275,6 +277,30 @@ int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)
 
 static void sl_ue_free(PHY_VARS_NR_UE *UE)
 {
+  const NR_DL_FRAME_PARMS *sl_fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
+  if (UE->slsch) {
+    for (int i = 0; i < UE->max_nb_slsch; i++)
+      free_gNB_ulsch(&UE->slsch[i], sl_fp->N_RB_UL);
+    free_and_zero(UE->slsch);
+  }
+  UE->max_nb_slsch = 0;
+
+  if (UE->pssch_vars) {
+    for (int actor = 0; actor < UE->pssch_num_actors; actor++) {
+      NR_gNB_PUSCH *pssch = &UE->pssch_vars[actor];
+      for (int i = 0; i < 2 * sl_fp->nb_antennas_rx; i++) {
+        free_and_zero(pssch->ul_ch_estimates[i]);
+        free_and_zero(pssch->rxdataF_comp[i]);
+      }
+      free_and_zero(pssch->ul_ch_estimates);
+      free_and_zero(pssch->rxdataF_comp);
+      free_and_zero(pssch->ulsch_llrs);
+      free_and_zero(pssch->ul_valid_re_per_slot);
+    }
+    free_and_zero(UE->pssch_vars);
+  }
+  UE->pssch_num_actors = 0;
+
   if (UE->SL_UE_PHY_PARAMS.init_params.sl_pss_for_correlation) {
     free_and_zero(UE->SL_UE_PHY_PARAMS.init_params.sl_pss_for_correlation[0]);
     free_and_zero(UE->SL_UE_PHY_PARAMS.init_params.sl_pss_for_correlation[1]);
@@ -324,6 +350,9 @@ void term_nr_ue_signal(PHY_VARS_NR_UE *ue)
 
     free_and_zero(ue->prs_vars[idx]);
   }
+
+  if (ue->sl_mode)
+    term_nr_ue_sl_transport(ue);
 
   sl_ue_free(ue);
 }
@@ -407,6 +436,18 @@ void term_nr_ue_transport(PHY_VARS_NR_UE *ue)
   free_nr_ue_ul_harq(ue->ul_harq_processes, NR_MAX_HARQ_PROCESSES, N_RB_UL, ue->frame_parms.nb_antennas_tx);
   free_nr_ue_pdsch_buffers(ue->pdsch_scratch, ue->pdsch_num_actors);
   free_and_zero(ue->pdsch_scratch);
+}
+
+void init_nr_ue_sl_transport(PHY_VARS_NR_UE *ue)
+{
+  NR_DL_FRAME_PARMS *sl_fp = &ue->SL_UE_PHY_PARAMS.sl_frame_params;
+  nr_init_ul_harq_processes(ue->sl_harq_processes, NR_MAX_HARQ_PROCESSES, sl_fp->N_RB_SL, sl_fp->nb_antennas_tx);
+}
+
+void term_nr_ue_sl_transport(PHY_VARS_NR_UE *ue)
+{
+  NR_DL_FRAME_PARMS *sl_fp = &ue->SL_UE_PHY_PARAMS.sl_frame_params;
+  free_nr_ue_ul_harq(ue->sl_harq_processes, NR_MAX_HARQ_PROCESSES, sl_fp->N_RB_SL, sl_fp->nb_antennas_tx);
 }
 
 void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb)
@@ -630,4 +671,34 @@ void sl_ue_phy_init(PHY_VARS_NR_UE *UE)
   // Generate PSS time domain samples used for correlation during SLSS reception.
   sl_generate_pss_ifft_samples(&UE->SL_UE_PHY_PARAMS, &UE->SL_UE_PHY_PARAMS.init_params);
 
+  // SLSCH allocation
+  UE->max_nb_slsch = NR_SLSCH_RX_MAX;
+  UE->slsch = (NR_gNB_ULSCH_t *)malloc16(UE->max_nb_slsch * sizeof(NR_gNB_ULSCH_t));
+  for (int i = 0; i < UE->max_nb_slsch; i++) {
+    LOG_I(PHY, "Allocating Transport Channel Buffers for SLSCH %d/%d\n", i, UE->max_nb_slsch);
+    UE->slsch[i] = new_gNB_ulsch(UE->max_ldpc_iterations, sl_fp->N_RB_UL);
+  }
+
+  // PSSCH vars allocation
+  int Prx = sl_fp->nb_antennas_rx;
+  int N_RB_UL = sl_fp->N_RB_UL;
+  int n_buf = 2 * Prx;
+  int nb_re_pusch = N_RB_UL * NR_NB_SC_PER_RB;
+  int nb_re_pusch2 = nb_re_pusch + (nb_re_pusch & 7);
+  UE->pssch_thres = 10;
+  UE->pssch_num_actors = get_nrUE_params()->num_dl_actors > 0 ? get_nrUE_params()->num_dl_actors : 1;
+  UE->pssch_vars = (NR_gNB_PUSCH *)malloc16_clear(UE->pssch_num_actors * sizeof(NR_gNB_PUSCH));
+  for (int actor = 0; actor < UE->pssch_num_actors; actor++) {
+    NR_gNB_PUSCH *pssch = &UE->pssch_vars[actor];
+    pssch->ul_ch_estimates = malloc16(n_buf * sizeof(int32_t *));
+    pssch->rxdataF_comp = malloc16(n_buf * sizeof(int32_t *));
+    for (int i = 0; i < n_buf; i++) {
+      pssch->ul_ch_estimates[i] = malloc16_clear(sizeof(int32_t) * sl_fp->ofdm_symbol_size * sl_fp->symbols_per_slot);
+      pssch->rxdataF_comp[i] = malloc16_clear(sizeof(int32_t) * nb_re_pusch2 * sl_fp->symbols_per_slot);
+    }
+    pssch->ulsch_llrs = malloc16_clear((8 * ((3 * 8 * 6144) + 12)) * sizeof(int16_t));
+    pssch->ul_valid_re_per_slot = malloc16_clear(sizeof(int16_t) * sl_fp->symbols_per_slot);
+  }
+
+  init_delay_table(sl_fp->ofdm_symbol_size, MAX_DELAY_COMP, NR_MAX_OFDM_SYMBOL_SIZE, sl_fp->delay_table);
 }

@@ -19,7 +19,6 @@
 
 #include "PHY/defs_nr_UE.h"
 #include "PHY/MODULATION/modulation_UE.h"
-#include "executables/softmodem-common.h"
 #include "PHY/NR_REFSIG/ss_pbch_nr.h"
 
 #define DEFINE_VARIABLES_SSS_NR_H
@@ -124,11 +123,8 @@ static void pss_sss_extract_nr(
 {
   AssertFatal(params->nb_antennas_rx > 0, "nb antennas as sss_ext is not set to any value\n");
   const int pss_symbol = 0;
-  const int sss_symbol =
-      get_softmodem_params()->sl_mode == 0 ? (SSS_SYMBOL_NB - PSS_SYMBOL_NB) : (SSS0_SL_SYMBOL_NB - PSS0_SL_SYMBOL_NB);
-
-  const unsigned int k = params->ssb_start_subcarrier
-                         + (get_softmodem_params()->sl_mode == 0 ? PSS_SSS_SUB_CARRIER_START : PSS_SSS_SUB_CARRIER_START_SL);
+  const int sss_symbol = SSS_SYMBOL_NB - PSS_SYMBOL_NB;
+  const unsigned int k = params->ssb_start_subcarrier + PSS_SSS_SUB_CARRIER_START;
 
   for (int aarx = 0; aarx < params->nb_antennas_rx; aarx++) {
     memcpy(pss_ext[aarx], &rxdataF[pss_symbol][aarx][k], LENGTH_PSS_NR * sizeof(c16_t));
@@ -302,7 +298,6 @@ void sl_generate_sss(SL_NR_UE_INIT_PARAMS_t *sl_init_params, uint16_t slss_id, u
   n_sl_id1 = slss_id % 336;
   n_sl_id2 = slss_id / 336;
 
-  LOG_D(PHY, "SIDELINK INIT: SSS Generation with N_SL_id1:%d N_SL_id2:%d\n", n_sl_id1, n_sl_id2);
 
 #ifdef SL_DEBUG_INIT
   printf("SIDELINK: SSS Generation with slss_id:%d, N_SL_id1:%d, N_SL_id2:%d\n", slss_id, n_sl_id1, n_sl_id2);

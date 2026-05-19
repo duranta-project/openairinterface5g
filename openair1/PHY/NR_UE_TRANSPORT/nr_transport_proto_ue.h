@@ -88,6 +88,32 @@ int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
                       int nb_ulsch,
                       uint8_t *ULSCH_ids);
 
+/** \brief Top-level entry point for SLSCH encoding in UE: LDPC encoding of the single
+    transport block carried by the PSSCH of this slot.
+    @param[in] ue pointer to ue variables
+    @param[in] pscch_pssch_pdu Pointer to PSCCH/PSSCH descriptor
+    @param[in] harq_pid Index of the sidelink HARQ process carrying the transport block
+    @param[in] frame frame index
+    @param[in] slot slot index
+    @param[in] G number of coded bits available on the PSSCH
+    @returns 0 on success, -1 on unsuccessful encoding
+*/
+int nr_slsch_encoding(PHY_VARS_NR_UE *ue,
+                      const sl_nr_tx_config_pscch_pssch_pdu_t *pscch_pssch_pdu,
+                      uint8_t harq_pid,
+                      const uint32_t frame,
+                      const uint8_t slot,
+                      unsigned int G);
+
+int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
+                      uint8_t UE_id,
+                      short *ulsch_llr,
+                      nfapi_nr_pusch_pdu_t *pusch_pdu,
+                      uint32_t frame,
+                      uint8_t nr_tti_rx,
+                      uint8_t harq_pid,
+                      uint32_t G);
+
 /** \brief Alternative entry point to UE uplink shared channels procedures.
     It handles all the HARQ processes in only one call.
     Performs the following functionalities:
@@ -277,6 +303,7 @@ void nr_generate_psbch_llr(const NR_DL_FRAME_PARMS *frame_parms,
                            const c16_t rxdataF[][frame_parms->ofdm_symbol_size],
                            const c16_t dl_ch_estimates[][frame_parms->ofdm_symbol_size],
                            int symbol,
+                           uint8_t *log2_maxh,
                            int *psbch_e_rx_offset,
                            int16_t psbch_e_rx[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2],
                            int16_t psbch_unClipped[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2]);
@@ -331,5 +358,81 @@ int nr_pbch_decode(PHY_VARS_NR_UE *ue,
                    int *ssb_index,
                    int *ret_symbol_offset,
                    fapiPbch_t *result);
+
+void nr_pdcch_unscrambling(c16_t *e_rx,
+                           uint16_t scrambling_RNTI,
+                           uint32_t length,
+                           uint16_t pdcch_DMRS_scrambling_id,
+                           int16_t *z2);
+
+int nr_pssch_channel_estimation(PHY_VARS_NR_UE *ue,
+                                int rxFSz,
+                                c16_t rxdataF[][rxFSz],
+                                unsigned char Ns,
+                                unsigned short p,
+                                unsigned char symbol,
+                                int ul_id,
+                                unsigned short bwp_start_subcarrier,
+                                sl_nr_rx_config_pssch_sci_pdu_t *pssch_pdu,
+                                int *max_ch,
+                                uint32_t *nvar);
+
+void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
+                            const unsigned char harq_pid,
+                            const uint32_t frame,
+                            const uint8_t slot,
+                            nr_phy_data_tx_t *phy_data,
+                            c16_t **txdataF);
+
+void nr_rx_pssch(PHY_VARS_NR_UE *ue,
+                 const UE_nr_rxtx_proc_t *proc,
+                 nr_phy_data_t *phy_data,
+                 int rxFSz,
+                 c16_t rxdataF[][rxFSz],
+		 int16_t *llrs,
+                 uint8_t pssch_id,
+                 uint32_t frame,
+                 uint8_t slot,
+                 unsigned char harq_pid);
+
+// TS 38.212 8.3.2 CRC, reduced to the PSSCH identity of TS 38.211 8.3.1.1.
+uint16_t nr_sl_sci1_nid(uint64_t payload, uint16_t payload_bits);
+
+void nr_sci_scrambling(uint32_t *in, uint32_t size, uint32_t Nid, uint32_t scrambling_RNTI, uint32_t *out,int sci2_flag);
+
+uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
+                         nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu_rel15,
+                         c16_t *txdataF,
+                         int16_t amp,
+                         NR_DL_FRAME_PARMS *frame_parms,
+                         int slot);
+
+uint32_t nr_generate_sci1(const PHY_VARS_NR_UE *ue,
+                          c16_t *txdataF,
+                          const NR_DL_FRAME_PARMS *frame_parms,
+                          const int16_t amp,
+                          const int nr_slot_tx,
+                          const sl_nr_tx_config_pscch_pssch_pdu_t *pscch_pssch_pdu);
+
+void nr_generate_psfch0(const PHY_VARS_NR_UE *ue,
+                        c16_t **txdataF,
+                        const NR_DL_FRAME_PARMS *frame_parms,
+                        const int16_t amp,
+                        const int nr_slot_tx,
+                        const sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu);
+
+int8_t nr_ue_decode_pucch0(PHY_VARS_NR_UE *ue,
+                         int frame,
+                         int slot,
+                         c16_t rxdataF[][ue->SL_UE_PHY_PARAMS.sl_frame_params.samples_per_slot_wCP],
+                         nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_pdu,
+                         nfapi_nr_pucch_pdu_t *pucch_pdu);
+
+int8_t nr_ue_decode_psfch0(PHY_VARS_NR_UE *ue,
+                         int frame,
+                         int slot,
+                         c16_t rxdataF[][ue->SL_UE_PHY_PARAMS.sl_frame_params.samples_per_slot_wCP],
+                         const sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu);
+
 /**@}*/
 #endif
