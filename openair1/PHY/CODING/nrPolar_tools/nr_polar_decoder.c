@@ -643,6 +643,7 @@ static inline void nr_polar_info_extraction_from_u(uint64_t *Cprime,
 
 uint32_t polar_decoder_int16(int16_t *input,
                              uint64_t *out,
+			     uint16_t *nid,
                              uint8_t ones_flag,
                              int8_t messageType,
                              uint16_t messageLength,
@@ -817,6 +818,7 @@ uint32_t polar_decoder_int16(int16_t *input,
 
   out[0] = Ar;
 
+  if (nid) *nid=crc&65535;
   polarReturn(polarParams);
   return crc ^ rxcrc;
 }

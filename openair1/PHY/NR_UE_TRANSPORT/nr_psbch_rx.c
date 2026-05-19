@@ -147,6 +147,7 @@ int nr_psbch_decode(PHY_VARS_NR_UE *ue,
   uint64_t tmp = 0;
   const uint32_t decoderState = polar_decoder_int16(psbch_e_rx,
                                                     (uint64_t *)&tmp,
+                                                    (uint16_t*)NULL,
                                                     0,
                                                     SL_NR_POLAR_PSBCH_MESSAGE_TYPE,
                                                     SL_NR_POLAR_PSBCH_PAYLOAD_BITS,

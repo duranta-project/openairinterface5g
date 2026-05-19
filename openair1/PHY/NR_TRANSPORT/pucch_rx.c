@@ -1480,7 +1480,7 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
 
     // run polar decoder on llrs
     decoderState =
-        polar_decoder_int16((int16_t *)llrs, decodedPayload, 0, NR_POLAR_UCI_PUCCH_MESSAGE_TYPE, nb_bit, pucch_pdu->prb_size);
+        polar_decoder_int16((int16_t *)llrs, decodedPayload, (uint16_t*)NULL, 0, NR_POLAR_UCI_PUCCH_MESSAGE_TYPE, nb_bit, pucch_pdu->prb_size);
 
     // Decoder reversal
     decodedPayload[0] = reverse_bits(decodedPayload[0], nb_bit);
