@@ -14,6 +14,8 @@
 #include "PHY/CODING/nrPolar_tools/nr_polar_psbch_defs.h"
 #include "common/utils/bits.h"
 
+#define FILTER_MARGIN 32
+
 // Specifies the data that should be copied to the scope during PDSCH RX
 typedef struct pdsch_scope_req_s {
   bool copy_chanest_to_scope;
@@ -375,6 +377,15 @@ void nr_generate_psfch0(const PHY_VARS_NR_UE *ue,
                         const int16_t amp,
                         const int nr_slot_tx,
                         const sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu);
+
+int nr_csi_rs_sinr_estimation(const PHY_VARS_NR_UE *ue,
+                              const fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu,
+                              const uint8_t N_ports,
+                              uint8_t mem_offset,
+                              const c16_t csi_rs_estimated_channel_freq[][N_ports][ue->frame_parms.ofdm_symbol_size + FILTER_MARGIN],
+                              const uint32_t interference_plus_noise_power,
+                              const int16_t log2_re,
+                              int32_t *precoded_sinr_dB);
 
 /**@}*/
 #endif
