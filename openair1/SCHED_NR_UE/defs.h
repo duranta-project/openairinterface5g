@@ -132,7 +132,7 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
 
 void trs_freq_correction(PHY_VARS_NR_UE *ue, int cfo);
 
-int psbch_pscch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
+int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
 void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_tx_t *phy_data, c16_t **txp);
 /*! \brief This function prepares the sl indication to pass to the MAC
  */
@@ -148,6 +148,13 @@ void nr_fill_sl_rx_indication(sl_nr_rx_indication_t *rx_ind,
                               uint16_t n_pdus,
                               void *typeSpecific,
                               uint16_t rx_slss_id);
+
+typedef struct {
+  uint8_t *b;
+  int TBS;
+  int harq_pid;
+  bool rxok;
+} slsch_status_t;
 
 #endif
 /** @}*/

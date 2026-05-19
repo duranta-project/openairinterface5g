@@ -637,7 +637,7 @@ int main(int argc, char **argv)
           sl_uerx->psbch.rx_ok = 1;
         }
       } else
-        psbch_pscch_processing(UE_RX, &proc, &phy_data_rx);
+        psbch_pscch_pssch_processing(UE_RX, &proc, &phy_data_rx);
 
     } // noise trials
 
