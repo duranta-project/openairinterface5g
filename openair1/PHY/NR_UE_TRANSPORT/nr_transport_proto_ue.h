@@ -355,6 +355,18 @@ int nr_pssch_channel_estimation(PHY_VARS_NR_UE *ue,
                                 int *max_ch,
                                 uint32_t *nvar);
 
+void nr_rx_pssch(PHY_VARS_NR_UE *ue,
+                 const UE_nr_rxtx_proc_t *proc,
+                 nr_phy_data_t *phy_data,
+                 int rxFSz,
+                 c16_t rxdataF[][rxFSz],
+		 int16_t *llrs,
+                 uint8_t ulsch_id,
+                 uint32_t frame,
+                 uint8_t slot,
+                 unsigned char harq_pid,
+                 bool *is_csi_rs_slot);
+
 void nr_sci_scrambling(uint32_t *in, uint32_t size, uint32_t Nid, uint32_t scrambling_RNTI, uint32_t *out,int sci2_flag);
 
 uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
