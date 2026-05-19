@@ -73,6 +73,8 @@ int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
     Transport Block.
     @param[in] phy_vars_ue pointer to ue variables
     @param[in] ulsch Pointer to ULSCH descriptor
+    @param[in] pscch_pssch_pdu Pointer to PSSCH descriptor. Non-null means PSSCH is used here
+    @param[in] sl_harq_pid Index of harq_pid for PSSCH
     @param[in] frame frame index
     @param[in] slot slot index
     @param[in] G array of Gs
@@ -82,6 +84,8 @@ int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
 */
 int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
                       NR_UE_ULSCH_t *ulsch,
+                      sl_nr_tx_config_pscch_pssch_pdu_t *pscch_pssch_pdu,
+                      uint8_t sl_harq_pid,
                       const uint32_t frame,
                       const uint8_t slot,
                       unsigned int *G,
@@ -331,5 +335,24 @@ int nr_pbch_decode(PHY_VARS_NR_UE *ue,
                    int *ssb_index,
                    int *ret_symbol_offset,
                    fapiPbch_t *result);
+
+void nr_pdcch_unscrambling(c16_t *e_rx,
+                           uint16_t scrambling_RNTI,
+                           uint32_t length,
+                           uint16_t pdcch_DMRS_scrambling_id,
+                           int16_t *z2);
+
+int nr_pssch_channel_estimation(PHY_VARS_NR_UE *ue,
+                                int rxFSz,
+                                c16_t rxdataF[][rxFSz],
+                                unsigned char Ns,
+                                unsigned short p,
+                                unsigned char symbol,
+                                int ul_id,
+                                unsigned short bwp_start_subcarrier,
+                                sl_nr_rx_config_pssch_sci_pdu_t *pssch_pdu,
+                                int *max_ch,
+                                uint32_t *nvar);
+
 /**@}*/
 #endif

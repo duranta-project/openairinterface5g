@@ -63,6 +63,8 @@ int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
 
 int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
                       NR_UE_ULSCH_t *ulsch,
+                      sl_nr_tx_config_pscch_pssch_pdu_t *pscch_pssch_pdu,
+                      uint8_t sl_harq_pid,
                       const uint32_t frame,
                       const uint8_t slot,
                       unsigned int *G,
@@ -70,6 +72,7 @@ int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
                       uint8_t *ULSCH_ids)
 {
   start_meas_nr_ue_phy(ue, ULSCH_ENCODING_STATS);
+  AssertFatal(!(pscch_pssch_pdu && nb_ulsch > 1), "pscch_pssch_pdu %p nb_ulsch %d\n", pscch_pssch_pdu, nb_ulsch);
 
   nrLDPC_TB_encoding_parameters_t TBs[nb_ulsch];
   memset(TBs, 0, sizeof(TBs));
@@ -80,24 +83,27 @@ int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
                                                        .TBs = TBs};
 
   int max_num_segments = 0;
-  for (uint_fast8_t pusch_id = 0; pusch_id < nb_ulsch; pusch_id++) {
-    const uint8_t ULSCH_id = ULSCH_ids[pusch_id];
-    const uint8_t harq_pid = ulsch[ULSCH_id].pusch_pdu.pusch_data.harq_process_id;
-    NR_UL_UE_HARQ_t *harq_process = &ue->ul_harq_processes[harq_pid];
-    max_num_segments = max(max_num_segments, harq_process->C);
-  }
+  if (!pscch_pssch_pdu) {
+    for (uint_fast8_t pusch_id = 0; pusch_id < nb_ulsch; pusch_id++) {
+      const uint8_t ULSCH_id = ULSCH_ids[pusch_id];
+      const uint8_t harq_pid = ulsch[ULSCH_id].pusch_pdu.pusch_data.harq_process_id;
+      NR_UL_UE_HARQ_t *harq_process = &ue->ul_harq_processes[harq_pid];
+      max_num_segments = max(max_num_segments, harq_process->C);
+    }
+  } else
+    max_num_segments = ue->ul_harq_processes[sl_harq_pid].C;
 
   nrLDPC_segment_encoding_parameters_t segments[nb_ulsch][max_num_segments];
   memset(segments, 0, sizeof(segments));
 
   for (uint8_t pusch_id = 0; pusch_id < nb_ulsch; pusch_id++) {
     uint8_t ULSCH_id = ULSCH_ids[pusch_id];
-    uint8_t harq_pid = ulsch[ULSCH_id].pusch_pdu.pusch_data.harq_process_id;
+    uint8_t harq_pid = pscch_pssch_pdu ? sl_harq_pid : ulsch[ULSCH_id].pusch_pdu.pusch_data.harq_process_id;
 
     nrLDPC_TB_encoding_parameters_t *TB_parameters = &TBs[pusch_id];
-    NR_UL_UE_HARQ_t *harq_process = &ue->ul_harq_processes[harq_pid];
+    NR_UL_UE_HARQ_t *harq_process = pscch_pssch_pdu ? &ue->sl_harq_processes[harq_pid] : &ue->ul_harq_processes[harq_pid];
     const nfapi_nr_ue_pusch_pdu_t *pusch_pdu = &ulsch[ULSCH_id].pusch_pdu;
-    const uint16_t nb_rb = pusch_pdu->rb_size;
+    const uint16_t nb_rb = pscch_pssch_pdu ? pscch_pssch_pdu->l_subch * pscch_pssch_pdu->subchannel_size : pusch_pdu->rb_size;
     TB_parameters->harq_unique_pid = 2 * harq_pid + ULSCH_id;
     TB_parameters->C = harq_process->C;
     TB_parameters->K = harq_process->K;
@@ -106,13 +112,13 @@ int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
     TB_parameters->BG = harq_process->BG;
     TB_parameters->Kb = harq_process->Kb;
     TB_parameters->nb_rb = nb_rb;
-    TB_parameters->Qm = pusch_pdu->qam_mod_order;
-    TB_parameters->mcs = pusch_pdu->mcs_index;
-    TB_parameters->nb_layers = pusch_pdu->nrOfLayers;
-    TB_parameters->rv_index = pusch_pdu->pusch_data.rv_index;
+    TB_parameters->Qm = pscch_pssch_pdu ? pscch_pssch_pdu->mod_order : pusch_pdu->qam_mod_order;
+    TB_parameters->mcs = pscch_pssch_pdu ? pscch_pssch_pdu->mcs : pusch_pdu->mcs_index;
+    TB_parameters->nb_layers = pscch_pssch_pdu ? pscch_pssch_pdu->num_layers : pusch_pdu->nrOfLayers;
+    TB_parameters->rv_index = pscch_pssch_pdu ? pscch_pssch_pdu->rv_index : pusch_pdu->pusch_data.rv_index;
     TB_parameters->G = G[pusch_id];
-    TB_parameters->tbslbrm = pusch_pdu->tbslbrm;
-    TB_parameters->A = pusch_pdu->pusch_data.tb_size / 8;
+    TB_parameters->tbslbrm = pscch_pssch_pdu ? pscch_pssch_pdu->tbslbrm : pusch_pdu->tbslbrm;
+    TB_parameters->A = pscch_pssch_pdu ? pscch_pssch_pdu->tb_size : pusch_pdu->pusch_data.tb_size / 8;
     TB_parameters->segments = segments[pusch_id];
 
     memset(harq_process->f, 0, 14 * nb_rb * 12 * 16);

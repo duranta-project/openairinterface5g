@@ -50,6 +50,7 @@ int8_t nr_rrc_RA_succeeded(const module_id_t mod_id, const uint8_t gNB_index)
 {
   return 1;
 }
+NR_IF_Module_t *NR_IF_Module_init(int Mod_id) { return (NULL); }
 // to solve link errors
 // void init_downlink_harq_status(NR_DL_UE_HARQ_t *dl_harq) {}
 void get_num_re_dmrs(nfapi_nr_ue_pusch_pdu_t *pusch_pdu, uint8_t *nb_dmrs_re_per_rb, uint16_t *number_dmrs_symbols)

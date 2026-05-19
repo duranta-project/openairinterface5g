@@ -5,6 +5,8 @@
 #ifndef __openair_GOLD_H__
 #define __openair_GOLD_H__
 
+#include <stdint.h>
+
 static inline  uint32_t gold_generic(uint32_t *x1, uint32_t *x2, uint8_t reset)
 {
   int32_t n;
