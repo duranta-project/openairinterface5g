@@ -353,6 +353,15 @@ int nr_pssch_channel_estimation(PHY_VARS_NR_UE *ue,
                                 int *max_ch,
                                 uint32_t *nvar);
 
+void nr_sci_scrambling(uint32_t *in, uint32_t size, uint32_t Nid, uint32_t scrambling_RNTI, uint32_t *out,int sci2_flag);
+
+uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
+                         nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu_rel15,
+                         c16_t *txdataF,
+                         int16_t amp,
+                         NR_DL_FRAME_PARMS *frame_parms,
+                         int slot);
+
 /**@}*/
 #endif
 
