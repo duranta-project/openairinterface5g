@@ -1340,7 +1340,7 @@ add_library(e1_if
 
 target_link_libraries(e1_if PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs asn1_f1ap SECURITY e1ap GTPV1U)
 
-target_link_libraries(L2_NR PRIVATE f1ap x2ap s1ap ngap nr_rrc e1ap nr_rlc nr_common xnap nr_pdcp_gnb nr_up_direct nr_up_f1ap)
+target_link_libraries(L2_NR PRIVATE f1ap x2ap s1ap ngap nr_rrc e1ap nr_rlc nr_common xnap nr_pdcp_gnb nr_up_f1ap)
 if(OAI_AERIAL)
     target_compile_definitions(L2_NR PRIVATE ENABLE_AERIAL)
 endif()
@@ -1820,6 +1820,7 @@ target_link_libraries(nr-softmodem PRIVATE
   time_management softmodem_common nrppa
   -Wl,--end-group dl)
 
+target_link_libraries(nr-softmodem PRIVATE nr_up_direct)
 target_link_libraries(nr-softmodem PRIVATE pthread m CONFIG_LIB rt)
 target_link_libraries(nr-softmodem PRIVATE ${T_LIB})
 target_link_libraries(nr-softmodem PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
