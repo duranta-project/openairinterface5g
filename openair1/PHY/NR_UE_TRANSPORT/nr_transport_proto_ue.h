@@ -367,6 +367,13 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
                  unsigned char harq_pid,
                  bool *is_csi_rs_slot);
 
+void nr_pscch_scrambling(uint32_t *in,
+                         uint32_t size,
+                         uint32_t Nid,
+                         uint32_t scrambling_RNTI,
+                         uint32_t *out,
+                         int sci_flag);
+
 void nr_sci_scrambling(uint32_t *in, uint32_t size, uint32_t Nid, uint32_t scrambling_RNTI, uint32_t *out,int sci2_flag);
 
 uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
@@ -389,6 +396,19 @@ void nr_generate_psfch0(const PHY_VARS_NR_UE *ue,
                         const int16_t amp,
                         const int nr_slot_tx,
                         const sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu);
+
+int8_t nr_ue_decode_pucch0(PHY_VARS_NR_UE *ue,
+                         int frame,
+                         int slot,
+                         c16_t rxdataF[][ue->SL_UE_PHY_PARAMS.sl_frame_params.samples_per_slot_wCP],
+                         nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_pdu,
+                         nfapi_nr_pucch_pdu_t *pucch_pdu);
+
+int8_t nr_ue_decode_psfch0(PHY_VARS_NR_UE *ue,
+                         int frame,
+                         int slot,
+                         c16_t rxdataF[][ue->SL_UE_PHY_PARAMS.sl_frame_params.samples_per_slot_wCP],
+                         const sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu);
 
 int nr_csi_rs_sinr_estimation(const PHY_VARS_NR_UE *ue,
                               const fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu,
