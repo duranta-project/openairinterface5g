@@ -123,6 +123,7 @@ static const char *const flag_name[] = {FOREACH_FLAG(FLAG_TEXT) ""};
   COMP_DEF(OCM, )               \
   COMP_DEF(GTPU, )              \
   COMP_DEF(SDAP, )              \
+  COMP_DEF(NR_UP, )             \
   COMP_DEF(SPGW, )              \
   COMP_DEF(S1AP, )              \
   COMP_DEF(F1AP, )              \

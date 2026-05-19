@@ -1147,6 +1147,27 @@ ID = LEGACY_SDAP_TRACE
     GROUP = ALL:LEGACY_SDAP:LEGACY_GROUP_TRACE:LEGACY
     FORMAT = string,log
 
+ID = LEGACY_NR_UP_INFO
+    DESC = NR-UP legacy logs - info level
+    GROUP = ALL:LEGACY_NR_UP:LEGACY_GROUP_INFO:LEGACY
+    FORMAT = string,log
+ID = LEGACY_NR_UP_ERROR
+    DESC = NR-UP legacy logs - error level
+    GROUP = ALL:LEGACY_NR_UP:LEGACY_GROUP_ERROR:LEGACY
+    FORMAT = string,log
+ID = LEGACY_NR_UP_WARNING
+    DESC = NR-UP legacy logs - warning level
+    GROUP = ALL:LEGACY_NR_UP:LEGACY_GROUP_WARNING:LEGACY
+    FORMAT = string,log
+ID = LEGACY_NR_UP_DEBUG
+    DESC = NR-UP legacy logs - debug level
+    GROUP = ALL:LEGACY_NR_UP:LEGACY_GROUP_DEBUG:LEGACY
+    FORMAT = string,log
+ID = LEGACY_NR_UP_TRACE
+    DESC = NR-UP legacy logs - trace level
+    GROUP = ALL:LEGACY_NR_UP:LEGACY_GROUP_TRACE:LEGACY
+    FORMAT = string,log
+
 ID = LEGACY_TMR_INFO
     DESC = TMR legacy logs - info level
     GROUP = ALL:LEGACY_TMR:LEGACY_GROUP_INFO:LEGACY
