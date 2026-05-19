@@ -685,4 +685,8 @@ void sl_ue_phy_init(PHY_VARS_NR_UE *UE)
     pssch->llr = malloc16_clear((8 * ((3 * 8 * 6144) + 12)) * sizeof(int16_t));
     pssch->ul_valid_re_per_slot = malloc16_clear(sizeof(int16_t) * sl_fp->symbols_per_slot);
   }
+
+//  UE->sl_measurements = calloc(1, sizeof(struct PHY_MEASUREMENTS_gNB_s));
+
+  init_delay_table(sl_fp->ofdm_symbol_size, MAX_DELAY_COMP, NR_MAX_OFDM_SYMBOL_SIZE, sl_fp->delay_table);
 }
