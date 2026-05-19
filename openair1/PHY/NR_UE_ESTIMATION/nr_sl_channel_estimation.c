@@ -149,7 +149,7 @@ int nr_pssch_channel_estimation(PHY_VARS_NR_UE *ue,
       // For configuration type 1: k = 4*n + 2*k' + delta,
       // where k' is 0 or 1, and delta is in Table 6.4.1.1.3-1 from TS 38.211
       int pilot_cnt = 0;
-      int delta = nr_pusch_dmrs_delta(pusch_dmrs_type1, p);
+      int delta = 0; // nr_pusch_dmrs_delta(pusch_dmrs_type1, p);
 
       for (int n = 0; n < 3 * nb_rb_pusch; n++) {
         // LS estimation
