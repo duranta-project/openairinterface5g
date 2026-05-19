@@ -334,6 +334,13 @@ int nr_pbch_decode(PHY_VARS_NR_UE *ue,
                    int *ssb_index,
                    int *ret_symbol_offset,
                    fapiPbch_t *result);
+
+void nr_pdcch_unscrambling(c16_t *e_rx,
+                           uint16_t scrambling_RNTI,
+                           uint32_t length,
+                           uint16_t pdcch_DMRS_scrambling_id,
+                           int16_t *z2);
+
 /**@}*/
 #endif
 

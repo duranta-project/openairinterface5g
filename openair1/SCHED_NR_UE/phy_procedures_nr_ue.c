@@ -853,7 +853,7 @@ static int get_max_pdcch_symb(const NR_UE_PDCCH_CONFIG *phy_pdcch_config)
   return max_pdcch_symb;
 }
 
-void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data)
+void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data, int pscch_processing)
 {
   NR_UE_PDCCH_CONFIG *phy_pdcch_config = &phy_data->phy_pdcch_config;
   if (phy_pdcch_config->nb_search_space == 0)
@@ -861,7 +861,7 @@ void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
 
   TracyCZone(ctx, true);
   /* process PDCCH */
-  LOG_D(PHY, " ------ --> PDCCH ChannelComp/LLR Frame.slot %d.%d ------  \n", proc->frame_rx % 1024, proc->nr_slot_rx);
+  LOG_D(PHY, " ------ --> %s ChannelComp/LLR Frame.slot %d.%d ------  \n", pscch_processing ? "PSCCH" : "PDCCH", proc->frame_rx % 1024, proc->nr_slot_rx);
   start_meas_nr_ue_phy(ue, DLSCH_RX_PDCCH_STATS);
   NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
   int num_monitoring_occ = get_max_pdcch_monOcc(phy_pdcch_config, fp->symbols_per_slot);
@@ -884,9 +884,9 @@ void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
     for (int ant = 0; ant < fp->nb_antennas_rx; ant++)
       memcpy(rxdataF_symb[ant], &rxdataF[ant][symbol * fp->ofdm_symbol_size], sizeof(c16_t) * fp->ofdm_symbol_size);
 
-    nr_pdcch_generate_llr(ue, proc, symbol, phy_data, llr_size_symbol, num_monitoring_occ, max_nb_symb_pdcch, rxdataF_symb, pdcch_llr);
+    nr_pdcch_generate_llr(ue, proc, symbol, phy_data, llr_size_symbol, num_monitoring_occ, max_nb_symb_pdcch, rxdataF_symb, pdcch_llr,pscch_processing);
     if (symbol == last_symb_pdcch) {
-      nr_pdcch_dci_indication(proc, llr_size_symbol * max_nb_symb_pdcch, num_monitoring_occ, ue, phy_data, pdcch_llr);
+      nr_pdcch_dci_indication(proc, llr_size_symbol * max_nb_symb_pdcch, num_monitoring_occ, ue, phy_data, pdcch_llr,pscch_processing);
       UEscopeCopy(ue, pdcchLlr, pdcch_llr, sizeof(c16_t), 1, sizeof(pdcch_llr) / sizeof(c16_t), 0);
     }
   }

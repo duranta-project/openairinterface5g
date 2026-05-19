@@ -66,7 +66,7 @@
 void phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_tx_t *phy_data, c16_t **txp);
 
 int pbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
-void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
+void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data,int pscch_processing);
 
 void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
 
@@ -107,14 +107,16 @@ void nr_pdcch_generate_llr(PHY_VARS_NR_UE *ue,
                            int num_monitoring_occ,
                            int max_symb,
                            c16_t rxdataF[ue->frame_parms.nb_antennas_rx][ue->frame_parms.ofdm_symbol_size],
-                           c16_t pdcch_llr[phy_data->phy_pdcch_config.nb_search_space][num_monitoring_occ][max_symb * llr_size_symbol]);
+                           c16_t pdcch_llr[phy_data->phy_pdcch_config.nb_search_space][num_monitoring_occ][max_symb * llr_size_symbol],
+			   int pscch_processing);
 
 void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
                              int llr_size,
                              int max_monOcc,
                              PHY_VARS_NR_UE *ue,
                              nr_phy_data_t *phy_data,
-                             c16_t llr[phy_data->phy_pdcch_config.nb_search_space][max_monOcc][llr_size]);
+                             c16_t llr[phy_data->phy_pdcch_config.nb_search_space][max_monOcc][llr_size],
+			     int sci_indication);
 
 void nr_ue_csi_im_procedures(PHY_VARS_NR_UE *ue,
                              const c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP],

@@ -1330,7 +1330,7 @@ int main(int argc, char **argv)
         nr_ue_scheduled_response(&scheduled_response);
 
         pbch_processing(UE, &UE_proc, &phy_data);
-        pdcch_processing(UE, &UE_proc, &phy_data);
+        pdcch_processing(UE, &UE_proc, &phy_data, 0);
         NR_DL_UE_HARQ_t *decode_harq = &UE->dl_harq_processes[0][phy_data.dlsch_config.harq_process_nbr];
         decode_harq->activated_frame = UE_proc.frame_rx;
         decode_harq->activated_slot = UE_proc.nr_slot_rx;
