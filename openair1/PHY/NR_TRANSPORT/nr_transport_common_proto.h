@@ -26,6 +26,8 @@ double nr_cyclic_shift_hopping(uint32_t n_id,
                                uint8_t lprime,
                                int nr_slot_tx);
 
+int nr_pucch0_lut_index(NR_PUCCH0_LUT_t *lut, uint16_t hopping_id, uint8_t numerology);
+
 /** \brief Computes available bits G. */
 uint32_t nr_get_G(uint16_t nb_rb,
                   uint16_t nb_symb_sch,

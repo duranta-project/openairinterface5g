@@ -55,38 +55,6 @@ void nr_fill_pucch(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_pucch_pdu_t 
     LOG_W(NR_PHY, "PUCCH list is full: dropping PUCCH UE %04x\n", pucch_pdu->rnti);
 }
 
-int get_pucch0_cs_lut_index(PHY_VARS_gNB *gNB, const nfapi_nr_pucch_pdu_t *pucch_pdu)
-{
-#ifdef DEBUG_NR_PUCCH_RX
-  printf("getting index for LUT with %d entries, Nid %d\n", gNB->pucch0_lut.nb_id, pucch_pdu->hopping_id);
-#endif
-
-  int i;
-  for (i = 0; i < gNB->pucch0_lut.nb_id; i++) {
-    if (gNB->pucch0_lut.Nid[i] == pucch_pdu->hopping_id)
-      break;
-  }
-
-  if (i < gNB->pucch0_lut.nb_id) {
-#ifdef DEBUG_NR_PUCCH_RX
-  printf("found index %d\n", i);
-#endif
-  return (i);
-  }
-
-#ifdef DEBUG_NR_PUCCH_RX
-  printf("Initializing PUCCH0 LUT index %i with Nid %d\n", i, pucch_pdu->hopping_id);
-#endif
-  // initialize
-  gNB->pucch0_lut.Nid[gNB->pucch0_lut.nb_id] = pucch_pdu->hopping_id;
-  for (int slot = 0; slot < 10 << pucch_pdu->subcarrier_spacing; slot++)
-    for (int symbol = 0; symbol < 14; symbol++)
-      gNB->pucch0_lut.lut[gNB->pucch0_lut.nb_id][slot][symbol] =
-          (int)floor(nr_cyclic_shift_hopping(pucch_pdu->hopping_id, 0, 0, symbol, 0, slot) / 0.5235987756);
-  gNB->pucch0_lut.nb_id++;
-  return (gNB->pucch0_lut.nb_id - 1);
-}
-
 static const int16_t idft12_re[12][12] = {
     {23170, 23170, 23170, 23170, 23170, 23170, 23170, 23170, 23170, 23170, 23170, 23170},
     {23170, 20066, 11585, 0, -11585, -20066, -23170, -20066, -11585, 0, 11585, 20066},
@@ -168,7 +136,7 @@ void nr_decode_pucch0(PHY_VARS_gNB *gNB,
         mcs[0],
         pucch_pdu->initial_cyclic_shift);
 
-  int cs_ind = get_pucch0_cs_lut_index(gNB, pucch_pdu);
+  int cs_ind = nr_pucch0_lut_index(&gNB->pucch0_lut, pucch_pdu->hopping_id, pucch_pdu->subcarrier_spacing);
   /*
    * Implement TS 38.211 Subclause 6.3.2.3.1 Sequence generation
    * Defining cyclic shift hopping TS 38.211 Subclause 6.3.2.2.2

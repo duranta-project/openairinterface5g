@@ -85,6 +85,23 @@ void nr_group_sequence_hopping(pucch_GroupHopping_t PUCCH_GroupHopping,
 #endif
 }
 
+int nr_pucch0_lut_index(NR_PUCCH0_LUT_t *lut, uint16_t hopping_id, uint8_t numerology)
+{
+  int i;
+  for (i = 0; i < lut->nb_id; i++) {
+    if (lut->Nid[i] == hopping_id)
+      return i;
+  }
+
+  lut->Nid[i] = hopping_id;
+  for (int slot = 0; slot < 10 << numerology; slot++)
+    for (int symbol = 0; symbol < 14; symbol++)
+      lut->lut[i][slot][symbol] =
+          (int)floor(nr_cyclic_shift_hopping(hopping_id, 0, 0, symbol, 0, slot) / 0.5235987756);
+  lut->nb_id++;
+  return i;
+}
+
 double nr_cyclic_shift_hopping(uint32_t n_id,
                                uint8_t m0,
                                uint8_t mcs,

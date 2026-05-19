@@ -158,7 +158,7 @@ static void nr_pdcch_demapping_deinterleaving(uint32_t coreset_nbr_rb,
 	}
       } // pscch_processing == 0
       else { //this will need to be changed a bit when we scan for multiple SCI
-        memcpy(e_rx,llr+(RE_PER_RB_OUT_DMRS*coreset_nbr_rb),coreset_nbr_rb*coreset_time_dur*RE_PER_RB_OUT_DMRS*sizeof(uint32_t));
+        memcpy(e_rx,llr,coreset_nbr_rb*coreset_time_dur*RE_PER_RB_OUT_DMRS*sizeof(uint32_t)); // DIAG: was llr+9*nrb (skipped sym0, read OOB)
       }
     }
   }
@@ -191,7 +191,8 @@ static void nr_pdcch_extract_rbs_single(uint32_t rxdataF_sz,
                                         uint8_t *coreset_freq_dom,
                                         uint32_t rb_offset,
                                         uint32_t coreset_nbr_rb,
-                                        uint32_t n_BWP_start)
+                                        uint32_t n_BWP_start,
+                                        bool apply_coreset_bitmap)
 {
   /*
    * This function is demapping DM-RS PDCCH RE
@@ -218,14 +219,21 @@ static void nr_pdcch_extract_rbs_single(uint32_t rxdataF_sz,
      * whole carrier are contiguous, so the REs of a CORESET RB are found at RE_PER_RB * (c_rb + n_BWP_start).
      */
 
-    int start = rb_offset / 6;
-    int size = coreset_nbr_rb / 6;
+    /* DL CORESET allocation uses six-RB groups. The internal PSCCH
+     * descriptor uses an SL-grid-relative start RB and contiguous RB count. */
+    const int start = apply_coreset_bitmap ? rb_offset / 6 : rb_offset;
+    const int size = apply_coreset_bitmap ? coreset_nbr_rb / 6 : coreset_nbr_rb;
     for (int rb_group = start; rb_group < start + size; rb_group++) {
-      if ((coreset_freq_dom[rb_group / 8] & (1 << (7 - (rb_group & 7)))) == 0) {
+      /* A DL CORESET uses the 45-bit frequencyDomainResources bitmap from
+       * TS 38.331.  PSCCH currently reaches this shared extractor through a
+       * compatibility structure whose first two bytes carry start-RB and
+       * number-of-RBs directly, so bitmap filtering applies only to PDCCH. */
+      if (apply_coreset_bitmap && (coreset_freq_dom[rb_group / 8] & (1 << (7 - (rb_group & 7)))) == 0) {
         continue;
       }
-      for (int rb = 0; rb < 6; rb++) {
-        int c_rb = rb_group * 6 + rb;
+      const int rbs_per_group = apply_coreset_bitmap ? 6 : 1;
+      for (int rb = 0; rb < rbs_per_group; rb++) {
+        int c_rb = rb_group * rbs_per_group + rb;
         const c16_t *rxF = rxFbase + RE_PER_RB * (c_rb + n_BWP_start);
 
         const int valid_re[RE_PER_RB_OUT_DMRS] = {0, 2, 3, 4, 6, 7, 8, 10, 11};
@@ -278,7 +286,8 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
                                c16_t llr[llr_size_symbol],
 			       int pscch_processing)
 {
-  NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
+  // PSCCH lives on the SL carrier, so chest + RE extraction must use the SL frame params.
+  NR_DL_FRAME_PARMS *fp = pscch_processing ? &ue->SL_UE_PHY_PARAMS.sl_frame_params : &ue->frame_parms;
   NR_UE_PDCCH_CONFIG *phy_pdcch_config = &phy_data->phy_pdcch_config;
   fapi_nr_coreset_t *coreset = &phy_pdcch_config->pdcch_config[ss_idx].coreset;
   int32_t pdcch_est_size = ceil_mod(fp->ofdm_symbol_size + LTE_CE_FILTER_LENGTH, 16);
@@ -298,7 +307,9 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
   c16_t pilot[(n_rb + rb_offset + dmrs_ref) * 3] __attribute__((aligned(16)));
   // Note: pilot returned by the following function is already the complex conjugate of the transmitted DMRS
   const uint32_t *gold = nr_gold_pdcch(fp->N_RB_DL, fp->symbols_per_slot, scrambling_id, proc->nr_slot_rx, symbol);
-  nr_pdcch_dmrs_ref(gold, pilot, n_rb + rb_offset + dmrs_ref);
+  const int pilot_rb_offset = pscch_processing ? rb_offset + dmrs_ref : 0;
+  const int pilot_n_rb = pscch_processing ? n_rb : n_rb + rb_offset + dmrs_ref;
+  nr_pdcch_dmrs_ref(gold, pilot + pilot_rb_offset * 3, pilot_n_rb);
   nr_pdcch_channel_estimation(fp,
                               n_rb,
                               rb_offset,
@@ -321,10 +332,11 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
                               rxdataF_ext,
                               pdcch_dl_ch_estimates_ext,
                               fp,
-                              pscch_processing ? NULL : coreset->frequency_domain_resource, // ??
-                              rb_offset,
+                              coreset->frequency_domain_resource,
+                              rb_offset, // coreset->rb_offset?
                               n_rb,
-                              phy_pdcch_config->pdcch_config[ss_idx].BWPStart);
+                              phy_pdcch_config->pdcch_config[ss_idx].BWPStart,
+                              !pscch_processing);
 
   LOG_D(NR_PHY_DCI, "in channel level function (dl_ch_estimates_ext -> dl_ch_estimates_ext)\n");
   int avg[fp->nb_antennas_rx];
@@ -461,7 +473,8 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
                                       fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15,
                                       fapi_nr_dci_indication_t *dci_ind,
 				      sl_nr_sci_indication_t *sci_ind,
-				      int16_t *rsrp_dBm)
+				      int16_t *rsrp_dBm,
+                                      uint16_t sl_subch_index)
 {
   int e_rx_cand_idx = 0;
   // if DCI for SIB we don't break after finding 1st DCI with that RNTI
@@ -491,7 +504,7 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
       }
       uint64_t dci_estimation[2] = {0};
       LOG_D(NR_PHY_DCI,
-            "(%i.%i) Trying DCI candidate %d of %d number of candidates, CCE %d (%d), L %d, length %d, format %d\n",
+            "%4i.%2i Trying DCI candidate %d of %d number of candidates, CCE %d (%d), L %d, length %d, format %d\n",
             proc->frame_rx,
             proc->nr_slot_rx,
             j,
@@ -547,14 +560,13 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
           sl_nr_sci_indication_pdu_t *sci = &sci_ind->sci_pdu[sci_ind->number_of_SCIs];
           *sci = (sl_nr_sci_indication_pdu_t){
           .sci_format_type = SL_SCI_FORMAT_1A_ON_PSCCH,
-          .subch_index = 0,
-          .pscch_rsrp = *rsrp_dBm,
+          .subch_index = sl_subch_index,
+          .pscch_rsrp = 0, //*rsrp_dBm,
           .sci_payloadlen =  dci_length,
           .Nid = Nid
 	  };
 	  memcpy(sci->sci_payloadBits,&dci_estimation,8);
           sci_ind->number_of_SCIs++;
-          //ue->SL_UE_PHY_PARAMS.pscch.rx_ok++;
 	}	
         break;    // If DCI is found, no need to check for remaining DCI lengths
       } else {
@@ -595,8 +607,8 @@ void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
     if (!sci_indication) {
       get_coreset_rballoc(rel15->coreset.frequency_domain_resource, &n_rb, &cset_start);
     } else {
-      n_rb = rel15->coreset.frequency_domain_resource[0];
-      cset_start = rel15->coreset.frequency_domain_resource[1];
+      cset_start = rel15->coreset.frequency_domain_resource[0]; // DIAG: was swapped (n_rb<-[0])
+      n_rb = rel15->coreset.frequency_domain_resource[1];
     }
     for (int m = 0; m < num_monitoring_occ; m++) {
       /// PDCCH/DCI e-sequence (input to rate matching).
@@ -615,9 +627,10 @@ void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
                                         llr_stride,
 					sci_indication);
 
-      nr_dci_decoding_procedure(proc, pdcch_e_rx, rel15, sci_indication ? (fapi_nr_dci_indication_t*)NULL : &dci_ind, sci_indication ? &sci_ind : (sl_nr_sci_indication_t*)NULL,NULL);
+      nr_dci_decoding_procedure(proc, pdcch_e_rx, rel15, sci_indication ? (fapi_nr_dci_indication_t*)NULL : &dci_ind, sci_indication ? &sci_ind : (sl_nr_sci_indication_t*)NULL,NULL, sci_indication ? ss_idx : 0);
     }
   }
+
 
   for (int i = 0; i < (sci_indication? sci_ind.number_of_SCIs : dci_ind.number_of_dcis); i++) {
     LOG_D(PHY,
@@ -626,15 +639,23 @@ void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
           proc->nr_slot_rx,
           i + 1,
           sci_indication ? sci_ind.number_of_SCIs : dci_ind.number_of_dcis,
-	  sci_indication ? "Nid" : "RNTI",
+          sci_indication ? "Nid" : "RNTI",
           sci_indication ? sci_ind.sci_pdu[i].Nid : dci_ind.dci_list[i].rnti,
           sci_indication ? sci_ind.sci_pdu[i].sci_format_type : dci_ind.dci_list[i].dci_format);
   }
 
   /* Send to MAC */
   if (sci_indication) {
-    nr_sidelink_indication_t sl_indication; // TODO fill directly
-    nr_fill_sl_indication(&sl_indication, NULL, &sci_ind, proc, ue, phy_data);
+    nr_sidelink_indication_t sl_indication = {.module_id = ue->Mod_id,
+                                              .hfn_rx = proc->hfn_rx,
+                                              .frame_rx = proc->frame_rx,
+                                              .slot_rx = proc->nr_slot_rx,
+                                              .hfn_tx = proc->hfn_tx,
+                                              .frame_tx = proc->frame_tx,
+                                              .slot_tx = proc->nr_slot_tx,
+                                              .slot_type = SIDELINK_SLOT_TYPE_RX,
+                                              .sci_ind = &sci_ind,
+                                              .phy_data = phy_data};
     ue->if_inst->sl_indication(&sl_indication);
   }
   else {
