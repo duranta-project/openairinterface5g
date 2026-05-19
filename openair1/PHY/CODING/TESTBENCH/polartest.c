@@ -306,6 +306,7 @@ int main(int argc, char *argv[])
       if (decoder_int16 == 1) {
         decoderState = polar_decoder_int16(channelOutput_int16,
                                            (uint64_t *)estimatedOutput,
+					   (uint16_t *)NULL,
                                            0,
                                            polarMessageType,
                                            testLength,
