@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: LicenseRef-CSSL-1.0
 
 add_library(nr_up STATIC nr_up.c)
+target_link_libraries(nr_up PRIVATE ds log_headers)
 
-add_library(nr_up_pdcp_if STATIC nr_up_pdcp_if.c)
-target_link_libraries(nr_up_pdcp_if PUBLIC nr_up)
+add_library(nr_up_pdcp_if STATIC nr_up_pdcp_if.c nr_up_flow_control.c)
+target_link_libraries(nr_up_pdcp_if PUBLIC nr_up PRIVATE ds log_headers)
 
 # gNB mono: same PDCP_CUCP_CUUP compile flag as nr_pdcp_gnb
 add_library(nr_up_direct OBJECT nr_up_direct.c)

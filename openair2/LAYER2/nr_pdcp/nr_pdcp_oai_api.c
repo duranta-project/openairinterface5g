@@ -51,6 +51,7 @@ void nr_up_init_direct(nr_up_if_t *iface) __attribute__((weak));
 #else
 #include "LAYER2/nr_up/nr_up_direct.h"
 #endif
+#include "LAYER2/nr_up/nr_up_flow_control.h"
 #include "common/utils/ds/byte_array.h"
 #include "LAYER2/nr_up/nr_up_pdcp_if.h"
 #include "utils.h"
@@ -325,25 +326,6 @@ static void deliver_sdu_drb(void *_ue, nr_pdcp_entity_t *entity,
   }
 }
 
-/** @brief Hands a PDCP DRB PDU to nr-up for DL delivery */
-static void deliver_pdu_drb(void *data, ue_id_t ue_id, int rb_id, char *buf, int size, int sdu_id)
-{
-  DevAssert(data == NULL);
-  DevAssert(buf != NULL && size > 0);
-
-  const byte_array_t pdu = {
-      .buf = (uint8_t *)buf,
-      .len = size,
-  };
-  const nr_up_user_data_req_t req = {
-      .ue_id = ue_id,
-      .drb_id = rb_id,
-      .sdu_id = sdu_id,
-      .pdu = pdu,
-  };
-  nr_up_user_data(&req);
-}
-
 static void deliver_sdu_srb(void *_ue, nr_pdcp_entity_t *entity,
                             char *buf, int size,
                             const nr_pdcp_integrity_data_t *msg_integrity)
@@ -408,7 +390,7 @@ void deliver_pdu_srb_rlc(void *data, ue_id_t ue_id, int srb_id, char *buf, int s
   }
   memcpy(memblock, buf, size);
   LOG_D(PDCP, "%s(): (srb %d) enqueue rlc_data_req size %d\n", __func__, srb_id, size);
-  nr_rlc_enqueue_data_req(&ctxt, SRB_FLAG_YES, srb_id, sdu_id, size, memblock);
+  nr_rlc_enqueue_data_req(&ctxt, SRB_FLAG_YES, srb_id, sdu_id, size, memblock, ue_id, false);
 }
 
 void add_srb(int is_gnb,
@@ -509,6 +491,7 @@ void nr_pdcp_add_drb(int is_gnb,
     LOG_I(PDCP, "Added DRB %d to UE ID %ld\n", sdap->drb_id, UEid);
   }
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+  nr_up_add_ue(UEid);
 }
 
 void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, const nr_pdcp_entity_security_keys_and_algos_t *security_parameters)
@@ -571,6 +554,7 @@ void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, const nr_pdcp_e
     //new_nr_sdap_entity(0, has_sdap, has_sdap, srcid, 0, is_sdap_DefaultRB, slrb_id, mappedQFIs2Add, mappedQFIs2AddCount);
   }
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+  nr_up_add_ue(srcid);
 }
 
 void nr_pdcp_add_srbs(eNB_flag_t enb_flag,
@@ -617,6 +601,7 @@ uint64_t get_pdcp_optmask(void)
 
 void nr_pdcp_remove_UE(ue_id_t ue_id)
 {
+  nr_up_release_ue(ue_id);
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
   nr_pdcp_manager_remove_ue(nr_pdcp_ue_manager, ue_id);
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
@@ -824,6 +809,7 @@ void nr_pdcp_release_drb(ue_id_t ue_id, int drb_id)
   else
     LOG_E(PDCP, "Attempting to release DRB%d but it is not configured\n", drb_id);
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+  nr_up_release_drb(ue_id, drb_id);
 }
 
 void nr_pdcp_reestablishment(ue_id_t ue_id,
@@ -888,7 +874,14 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
     return 0;
   }
 
-  int max_size = nr_max_pdcp_pdu_size(sdu_buffer_size);
+  const int max_size = nr_max_pdcp_pdu_size(sdu_buffer_size);
+
+  /* Flow control before PDCP SN. On DROP, precheck may send a poll-only DBS refresh. */
+  if (nr_up_flow_control_precheck(ue_id, rb_id, max_size) == NR_UP_FLOW_DROP) {
+    nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+    return 0;
+  }
+
   char pdu_buf[max_size];
   int pdu_size = rb->process_sdu(rb, (char *)sdu_buffer, sdu_buffer_size, muiP, pdu_buf, max_size);
   if (pdu_size == -1) {
@@ -898,7 +891,15 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
 
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 
-  deliver_pdu_drb(NULL, ue_id, rb_id, pdu_buf, pdu_size, muiP);
+  nr_up_user_data_req_t req = {
+      .ue_id = ue_id,
+      .drb_id = rb_id,
+      .sdu_id = muiP,
+      .pdcp_sn = rb->stats.txpdu_sn,
+      .pdu.buf = (uint8_t *)pdu_buf,
+      .pdu.len = pdu_size,
+  };
+  nr_up_deliver_pdu_drb(&req);
   return 1;
 }
 
