@@ -362,6 +362,13 @@ uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
                          NR_DL_FRAME_PARMS *frame_parms,
                          int slot);
 
+uint32_t nr_generate_sci1(const PHY_VARS_NR_UE *ue,
+                          c16_t *txdataF,
+                          const NR_DL_FRAME_PARMS *frame_parms,
+                          const int16_t amp,
+                          const int nr_slot_tx,
+                          const sl_nr_tx_config_pscch_pssch_pdu_t *pscch_pssch_pdu);
+
 void nr_generate_psfch0(const PHY_VARS_NR_UE *ue,
                         c16_t **txdataF,
                         const NR_DL_FRAME_PARMS *frame_parms,
