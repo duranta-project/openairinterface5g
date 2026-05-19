@@ -598,7 +598,7 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
         AssertFatal((phy_data->sl_rx_action >= SL_NR_CONFIG_TYPE_RX_PSBCH &&
                      phy_data->sl_rx_action < SL_NR_CONFIG_TYPE_RX_MAXIMUM), "Incorrect SL RX Action Scheduled\n");
 
-        sampleShift = psbch_pscch_processing(UE, proc, phy_data);
+        sampleShift = psbch_pscch_pssch_processing(UE, proc, phy_data);
       }
     }
   } else
