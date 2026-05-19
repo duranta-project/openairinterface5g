@@ -52,28 +52,6 @@ typedef struct puschAntennaProc_s {
   int dmrs_symbol_start_idx;
 } puschAntennaProc_t;
 
-__attribute__((always_inline)) inline c16_t c32x16cumulVectVectWithSteps(c16_t *in1,
-                                                                         int *offset1,
-                                                                         const int step1,
-                                                                         c16_t *in2,
-                                                                         int *offset2,
-                                                                         const int step2,
-                                                                         const int modulo2,
-                                                                         const int N)
-{
-  int localOffset1 = *offset1;
-  int localOffset2 = *offset2;
-  c32_t cumul = {0};
-  for (int i = 0; i < N; i++) {
-    cumul = c32x16maddShift(in1[localOffset1], in2[localOffset2], cumul, 15);
-    localOffset1 += step1;
-    localOffset2 = (localOffset2 + step2) % modulo2;
-  }
-  *offset1 = localOffset1;
-  *offset2 = localOffset2;
-  return c16x32div(cumul, N);
-}
-
 static void nr_pusch_antenna_processing(void *arg)
 {
   puschAntennaProc_t *rdata = (puschAntennaProc_t *)arg;
