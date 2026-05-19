@@ -91,8 +91,9 @@ int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
       max_num_segments = max(max_num_segments, harq_process->C);
     }
   } else
-    max_num_segments = ue->ul_harq_processes[sl_harq_pid].C;
+    max_num_segments = ue->sl_harq_processes[sl_harq_pid].C;
 
+  DevAssert(max_num_segments > 0);
   nrLDPC_segment_encoding_parameters_t segments[nb_ulsch][max_num_segments];
   memset(segments, 0, sizeof(segments));
 

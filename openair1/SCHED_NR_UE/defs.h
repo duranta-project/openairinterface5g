@@ -149,5 +149,13 @@ void nr_fill_sl_rx_indication(sl_nr_rx_indication_t *rx_ind,
                               void *typeSpecific,
                               uint16_t rx_slss_id);
 
+typedef struct {
+  //ldpcDecode_t *rdata;
+  uint8_t *b;
+  int TBS;
+  int harq_pid;
+  bool rxok;
+} slsch_status_t;
+
 #endif
 /** @}*/

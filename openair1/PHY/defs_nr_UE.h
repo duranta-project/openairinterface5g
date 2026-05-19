@@ -56,6 +56,8 @@
 #define TRS_CFO_THRESH 500
 
 #include "impl_defs_nr.h"
+// This is for ULSCH RX structures used for Sidelink
+#include "defs_gNB.h"
 #include "time_meas.h"
 #include "PHY/CODING/coding_defs.h"
 #include "PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface.h"
@@ -445,6 +447,8 @@ typedef struct PHY_VARS_NR_UE_s {
   int max_nb_slsch;
   // we use the gNB ULSCH context for SLSCH reception
   struct NR_gNB_ULSCH_s *slsch;
+  /// PSSCH demodulation scratch, one per DL actor as for the PDSCH
+  int pssch_num_actors;
   struct NR_gNB_PUSCH_s *pssch_vars;
   /// PSSCH signal detection threshold
   int pssch_thres;

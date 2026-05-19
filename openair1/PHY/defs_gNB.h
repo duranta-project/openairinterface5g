@@ -120,17 +120,11 @@ typedef struct {
   prs_config_t prs_cfg[NR_MAX_PRS_RESOURCES_PER_SET];
 } NR_gNB_PRS;
 
-// forward declaration for sidelink PSSCH PDU pointer in HARQ process
-struct sl_nr_rx_config_pssch_sci_pdu;
-
 typedef struct {
   /// Nfapi ULSCH PDU
   nfapi_nr_pusch_pdu_t ulsch_pdu;
-  /// Sidelink PSSCH PDU pointer (NULL for UL, set for SL reception)
-  struct sl_nr_rx_config_pssch_sci_pdu *pssch_pdu;
   /// Index of current HARQ round for this DLSCH
   uint8_t round;
-  bool new_rx;
   /////////////////////// ulsch decoding ///////////////////////
   /// flag used to clear d properly
   /// set to true in nr_fill_ulsch() when new_data_indicator is received
