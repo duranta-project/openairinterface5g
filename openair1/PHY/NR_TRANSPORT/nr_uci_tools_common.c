@@ -3,6 +3,7 @@
  */
 
 #include "nr_dci.h"
+#include "nr_transport_common_proto.h"
 
 void nr_group_sequence_hopping(pucch_GroupHopping_t PUCCH_GroupHopping,
                                uint32_t n_id,

@@ -1,0 +1,187 @@
+/*
+ * SPDX-License-Identifier: LicenseRef-CSSL-1.0
+ */
+
+#include "PHY/defs_nr_UE.h"
+// [from gNB coding]
+#include "PHY/defs_gNB.h"
+#include "PHY/CODING/coding_extern.h"
+#include "PHY/CODING/coding_defs.h"
+#include "PHY/CODING/lte_interleaver_inline.h"
+#include "PHY/CODING/nrLDPC_extern.h"
+#include "PHY/NR_TRANSPORT/nr_ulsch.h"
+#include "openair1/SCHED_NR_UE/defs.h"
+#include "common/utils/LOG/vcd_signal_dumper.h"
+#include "common/utils/LOG/log.h"
+#include <syscall.h>
+#include "executables/nr-uesoftmodem.h"
+#include "PHY/sse_intrin.h"
+
+//#define DEBUG_ULSCH_DECODING
+//#define gNB_DEBUG_TRACE
+
+#define OAI_UL_LDPC_MAX_NUM_LLR 27000//26112 // NR_LDPC_NCOL_BG1*NR_LDPC_ZMAX = 68*384
+//#define DEBUG_CRC
+#ifdef DEBUG_CRC
+#define PRINT_CRC_CHECK(a) a
+#else
+#define PRINT_CRC_CHECK(a)
+#endif
+
+int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
+                      uint8_t SLSCH_id,
+                      short *slsch_llr,
+                      NR_DL_FRAME_PARMS *frame_parms,
+                      nfapi_nr_pusch_pdu_t *pssch_pdu,
+                      uint32_t frame,
+                      uint8_t nr_tti_rx,
+                      uint8_t harq_pid,
+                      uint32_t G,
+                      const UE_nr_rxtx_proc_t *proc,
+                      nr_phy_data_t *phy_data)
+{
+  nrLDPC_TB_decoding_parameters_t TB = {0};
+  nrLDPC_slot_decoding_parameters_t slot_parameters = {.frame = frame,
+                                                       .slot = nr_tti_rx,
+                                                       .nb_TBs = 1,
+                                                       .threadPool = &get_nrUE_params()->Tpool,
+                                                       .TBs = &TB};
+
+  int max_num_segments = 0;
+
+  NR_gNB_ULSCH_t *slsch = &UE->slsch[SLSCH_id];
+  NR_UL_gNB_HARQ_t *harq_process = slsch->harq_process;
+
+  if (!harq_process) {
+    LOG_E(PHY, "slsch_decoding.c: NULL harq_process pointer\n");
+    return -1;
+  }
+
+  TB.G = G;
+
+  // The harq_pid is not unique among the active HARQ processes in the instance so we use ULSCH_id instead
+  TB.harq_unique_pid = SLSCH_id;
+
+  // ------------------------------------------------------------------
+  TB.nb_rb = pssch_pdu->rb_size;
+  TB.Qm = pssch_pdu->qam_mod_order;
+  TB.mcs = pssch_pdu->mcs_index;
+  TB.nb_layers = pssch_pdu->nrOfLayers;
+  // ------------------------------------------------------------------
+
+  TB.processedSegments = &harq_process->processedSegments;
+  int TBS = pssch_pdu->pusch_data.tb_size;
+
+  TB.BG = pssch_pdu->maintenance_parms_v3.ldpcBaseGraph;
+  TB.A = TBS << 3;
+  LOG_D(PHY,
+        "SLSCH Decoding, harq_pid %d rnti %x TBS %d G %d mcs %d Nl %d nb_rb %d, Qm %d, Coderate %f RV %d round %d new RX %d\n",
+        harq_pid,
+        slsch->rnti,
+        TB.A,
+        TB.G,
+        TB.mcs,
+        TB.nb_layers,
+        TB.nb_rb,
+        TB.Qm,
+        pssch_pdu->target_code_rate / 10240.0f,
+        pssch_pdu->pusch_data.rv_index,
+        harq_process->round,
+        harq_process->harq_to_be_cleared);
+
+    // [hna] Perform nr_segmenation with input and output set to NULL to calculate only (C, K, Z, F)
+  nr_segmentation(NULL,
+                  NULL,
+                  lenWithCrc(1, TB.A), // size in case of 1 segment
+                  &TB.C,
+                  &TB.K,
+                  &TB.Z, // [hna] Z is Zc
+                  &TB.F,
+                  TB.BG);
+  harq_process->C = TB.C;
+  harq_process->K = TB.K;
+  harq_process->Z = TB.Z;
+  harq_process->F = TB.F;
+
+  uint16_t a_segments = MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER * TB.nb_layers; // number of segments to be allocated
+  if (TB.C > a_segments) {
+    LOG_E(PHY, "nr_segmentation.c: too many segments %d, A %d\n", harq_process->C, TB.A);
+    return (-1);
+  }
+  if (TB.nb_rb != 273) {
+    a_segments = a_segments * TB.nb_rb;
+    a_segments = a_segments / 273 + 1;
+  }
+  if (TB.C > a_segments) {
+    LOG_E(PHY, "Illegal harq_process->C %d > %d\n", harq_process->C, a_segments);
+    return -1;
+  }
+  max_num_segments = max(max_num_segments, TB.C);
+
+#ifdef DEBUG_ULSCH_DECODING
+  printf("slsch decoding nr segmentation Z %d\n", TB.Z);
+  if (!frame % 100)
+    printf("K %d C %d Z %d \n", TB.K, TB.C, TB.Z);
+  printf("Segmentation: C %d, K %d\n", TB.C, TB.K);
+#endif
+
+  TB.max_ldpc_iterations = slsch->max_ldpc_iterations;
+  TB.rv_index = pssch_pdu->pusch_data.rv_index;
+  TB.tbslbrm = pssch_pdu->maintenance_parms_v3.tbSizeLbrmBytes;
+  TB.abort_decode = &harq_process->abort_decode;
+  set_abort(&harq_process->abort_decode, false);
+
+  
+  int E = nr_get_E(TB.G, TB.C, TB.Qm, TB.nb_layers, 0);
+  AssertFatal(E > 0, "impossible E %d\n", E);
+
+  TB.llr = slsch_llr;
+  TB.d = harq_process->d;
+  TB.c = harq_process->c;
+  TB.E = E;
+  TB.first_rE2 = TB.C;
+  TB.E2 = TB.E;
+  TB.R = nr_get_R_ldpc_decoder(TB.rv_index, TB.E, TB.BG, TB.Z, &harq_process->llrLen, harq_process->round);
+  for (int r = 0; r < TB.C; r++)
+    TB.decodeSuccess[r] = false;
+  TB.d_to_be_cleared = harq_process->harq_to_be_cleared;
+  reset_meas(&TB.ts_ldpc_decode);
+  for (int r = 0; r < TB.C; r++) {
+    int Etmp = nr_get_E(TB.G, TB.C, TB.Qm, TB.nb_layers, r);
+    if (TB.E != Etmp) {
+      TB.E2 = Etmp;
+      TB.R2 = nr_get_R_ldpc_decoder(TB.rv_index, TB.E2, TB.BG, TB.Z, &harq_process->llrLen, harq_process->round);
+      TB.first_rE2 = r;
+      break;
+    }
+  }
+
+  // nrLDPC_coding_decoder() always returns 0 and signals per-segment success via
+  // decodeSuccess; count the successfully decoded segments here so the caller can
+  // tell whether the transport block was received correctly.
+  UE->nrLDPC_coding_interface.nrLDPC_coding_decoder(&slot_parameters);
+
+  // post decode
+  uint32_t offset = 0, r_offset = 0;
+  int nb_decoded_segments = 0;
+  for (int r = 0; r < TB.C; r++) {
+    uint32_t seg_len = (harq_process->K >> 3) - (harq_process->F >> 3) - ((harq_process->C > 1) ? 3 : 0);
+    if (TB.decodeSuccess[r]) {
+      memcpy(harq_process->b + offset, harq_process->c + r_offset, seg_len);
+      nb_decoded_segments++;
+    } else {
+      LOG_D(PHY, "SLSCH %d Segment %d/%d in error\n", SLSCH_id, r, TB.C);
+    }
+    offset += seg_len;
+    r_offset += (harq_process->K >> 3);
+  }
+  bool crcok = (harq_process->processedSegments == TB.C);
+  if (!crcok)
+    LOG_D(PHY, "SLSCH in error\n");
+
+  harq_process->harq_to_be_cleared = false;
+
+  // Return the number of correctly decoded code segments (== C on full success,
+  // 0 on failure) so nr_slsch_procedures()' nbDecode>0 test is meaningful.
+  return nb_decoded_segments;
+}
