@@ -561,11 +561,7 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
             psfch_pdu->nr_of_symbols, psfch_pdu->initial_cyclic_shift, psfch_pdu->hopping_id,
             psfch_pdu->group_hop_flag, psfch_pdu->freq_hop_flag, psfch_pdu->bit_len_harq);
         nr_slot_fep(ue, fp, proc->nr_slot_rx, psfch_pdu->start_symbol_index, rxdataF, link_type_sl, 0, ue->common_vars.rxdata);
-        ack_nack_rcvd[k] = nr_ue_decode_psfch0(ue,
-                                            frame_rx,
-                                            nr_slot_rx,
-                                            rxdataF,
-                                            psfch_pdu);
+        ack_nack_rcvd[k] = 0; // TODO missing: nr_ue_decode_psfch0(ue, frame_rx, nr_slot_rx, rxdataF, psfch_pdu);
       }
       free(phy_data->psfch_pdu_list);
       phy_data->psfch_pdu_list = NULL;
