@@ -77,6 +77,14 @@
 #include <pthread.h>
 #include "NR_IF_Module.h"
 
+#define MAX_PUCCH0_NID 8
+
+typedef struct {
+  int nb_id;
+  int Nid[MAX_PUCCH0_NID];
+  int lut[MAX_PUCCH0_NID][160][14];
+} NR_UE_PUCCH0_LUT_t;
+
 /// Context data structure for gNB subframe processing
 typedef struct {
   /// Component Carrier index
@@ -459,6 +467,9 @@ typedef struct PHY_VARS_NR_UE_s {
   uint32_t ***nr_gold_pscch;
   /// PSSCH signal detection threshold
   int pssch_thres;
+  // PUCCH0 Look-up table for cyclic-shifts
+  NR_UE_PUCCH0_LUT_t pucch0_lut;
+  // Threading
   Actor_t sync_actor;
   Actor_t *dl_actors;
   Actor_t *ul_actors;
