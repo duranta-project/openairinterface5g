@@ -603,12 +603,12 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 	timing_info.time_since_last_timing_info = pnf_p7->timing_info_ms_counter;
 
 	timing_info.dl_tti_jitter = pnf_p7->dl_tti_jitter;
-	timing_info.tx_data_request_jitter = pnf_p7->tx_data_jitter;
+	timing_info.tx_data_jitter = pnf_p7->tx_data_jitter;
 	timing_info.ul_tti_jitter = pnf_p7->ul_tti_jitter;
 	timing_info.ul_dci_jitter = pnf_p7->ul_dci_jitter;
 
 	timing_info.dl_tti_latest_delay = 0;
-	timing_info.tx_data_request_latest_delay = 0;
+	timing_info.tx_data_latest_delay = 0;
 	timing_info.ul_tti_latest_delay = 0;
 	timing_info.ul_dci_latest_delay = 0;
 

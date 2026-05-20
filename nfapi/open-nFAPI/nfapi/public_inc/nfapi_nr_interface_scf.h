@@ -1227,12 +1227,12 @@ typedef struct {
   uint32_t time_since_last_timing_info;
 
   uint32_t dl_tti_jitter;
-  uint32_t tx_data_request_jitter;
+  uint32_t tx_data_jitter;
   uint32_t ul_tti_jitter;
   uint32_t ul_dci_jitter;
 
   int32_t dl_tti_latest_delay;
-  int32_t tx_data_request_latest_delay;
+  int32_t tx_data_latest_delay;
   int32_t ul_tti_latest_delay;
   int32_t ul_dci_latest_delay;
 
