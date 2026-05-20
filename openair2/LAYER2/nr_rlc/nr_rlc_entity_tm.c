@@ -127,7 +127,7 @@ void nr_rlc_entity_tm_recv_sdu(nr_rlc_entity_t *_entity,
     entity->t_log_buffer_full = entity->t_current;
   }
 
-  if (entity->tx_size + size > entity->tx_maxsize) {
+  if (entity->common.do_drop && entity->tx_size + size > entity->tx_maxsize) {
     entity->sdu_rejected++;
 
     entity->common.stats.rxsdu_dd_pkts++;

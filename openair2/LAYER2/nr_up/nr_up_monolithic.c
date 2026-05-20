@@ -8,6 +8,7 @@
 #include "common/utils/LOG/log.h"
 #include "common/utils/utils.h"
 #include "openair2/F1AP/f1ap_ids.h"
+#include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api_nr_up.h"
 
 #define NR_UP_MONO_SRB_FLAG 0
 #define NR_UP_MONO_BUDGET_STALE_MS 3000u
@@ -72,6 +73,7 @@ static nr_up_dl_transfer_result_t nr_up_mono_deliver_drb(const nr_up_dl_transfer
 void nr_up_init_monolithic(nr_up_if_t *iface)
 {
   nr_up_rlc_queue_init();
+  nr_rlc_set_do_drop(false);
   iface->deliver_drb = nr_up_mono_deliver_drb;
   iface->dl_congestion_precheck = nr_up_mono_dl_congestion_precheck;
 }

@@ -28,6 +28,7 @@
 #include <stdint.h>
 
 #include <executables/softmodem-common.h>
+#include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api_nr_up.h"
 
 static nr_rlc_ue_manager_t *nr_rlc_ue_manager;
 
@@ -769,7 +770,8 @@ void nr_rlc_add_srb(int ue_id, int srb_id, const NR_RLC_BearerConfig_t *rlc_Bear
                                                       t_poll_retransmit,
                                                       t_reassembly, t_status_prohibit,
                                                       poll_pdu, poll_byte, max_retx_threshold,
-                                                      sn_field_length);
+                                                      sn_field_length,
+                                                      nr_rlc_get_do_drop());
     nr_rlc_ue_add_srb_rlc_entity(ue, srb_id, nr_rlc_am);
 
     LOG_I(RLC, "Added srb %d to UE %d\n", srb_id, ue_id);
@@ -834,7 +836,8 @@ static void add_drb_am(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_B
                                                       t_poll_retransmit,
                                                       t_reassembly, t_status_prohibit,
                                                       poll_pdu, poll_byte, max_retx_threshold,
-                                                      sn_field_length);
+                                                      sn_field_length,
+                                                      nr_rlc_get_do_drop());
     nr_rlc_ue_add_drb_rlc_entity(ue, drb_id, nr_rlc_am);
 
     LOG_I(RLC, "Added drb %d to UE %d\n", drb_id, ue_id);
@@ -885,7 +888,8 @@ static void add_drb_um(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_B
                                                       RLC_TX_MAXSIZE,
                                                       deliver_sdu, ue,
                                                       t_reassembly,
-                                                      sn_field_length);
+                                                      sn_field_length,
+                                                      nr_rlc_get_do_drop());
     nr_rlc_ue_add_drb_rlc_entity(ue, drb_id, nr_rlc_um);
 
     LOG_D(RLC, "Added drb %d to UE %d\n", drb_id, ue_id);
@@ -940,7 +944,7 @@ bool nr_rlc_activate_srb0(int ue_id,
   srb0_data->data = data;
   srb0_data->send_initial_ul_rrc_message = send_initial_ul_rrc_message;
 
-  nr_rlc_entity_t *nr_rlc_tm = new_nr_rlc_entity_tm(10000, deliver_sdu_srb0, srb0_data);
+  nr_rlc_entity_t *nr_rlc_tm = new_nr_rlc_entity_tm(10000, deliver_sdu_srb0, srb0_data, nr_rlc_get_do_drop());
   nr_rlc_ue_add_srb_rlc_entity(ue, 0, nr_rlc_tm);
 
   LOG_I(RLC, "Activated srb0 for UE %d\n", ue_id);
