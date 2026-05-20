@@ -57,13 +57,8 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
               frame_parms->symbols_per_slot - 1);
   AssertFatal(slot < frame_parms->slots_per_frame, "slot_fep: Ns must be between 0 and %d\n", frame_parms->slots_per_frame - 1);
 
-  bool is_sl = (linktype == link_type_sl);
-  bool is_synchronized = (ue) ? ue->is_synchronized : false;
   unsigned int nb_prefix_samples = frame_parms->nb_prefix_samples;
-  unsigned int nb_prefix_samples0 = (is_synchronized || is_sl) ? frame_parms->nb_prefix_samples0 : nb_prefix_samples;
-
-  // For Sidelink 16 frames worth of samples is processed to find SSB, for 5G-NR 2.
-  const unsigned int total_samples = (is_sl) ? 16 * frame_parms->samples_per_frame : 2 * frame_parms->samples_per_frame;
+  unsigned int nb_prefix_samples0 = frame_parms->nb_prefix_samples0;
 
   unsigned int rx_offset = get_samples_slot_timestamp(frame_parms, slot);
   const unsigned int abs_symbol = slot * frame_parms->symbols_per_slot + symbol;
@@ -90,17 +85,7 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
   c16_t *rxdataF_symb_ptr[frame_parms->nb_antennas_rx];
   for (unsigned char aa = 0; aa < frame_parms->nb_antennas_rx; aa++) {
     rxdataF_symb_ptr[aa] = &rxdataF[aa][frame_parms->ofdm_symbol_size * symbol];
-    // This happens only during initial sync
-    if (rx_offset + frame_parms->ofdm_symbol_size > total_samples) {
-      // we have to wrap on the end
-      memcpy(&tmp_dft_in[aa][0], &rxdata[aa][rx_offset], (total_samples - rx_offset) * sizeof(int32_t));
-      memcpy(&tmp_dft_in[aa][total_samples - rx_offset],
-             &rxdata[aa][0],
-             (frame_parms->ofdm_symbol_size - (total_samples - rx_offset)) * sizeof(int32_t));
-      rxdata_symb_ptr[aa] = tmp_dft_in[aa];
-    } else {
-      rxdata_symb_ptr[aa] = &rxdata[aa][rx_offset];
-    }
+    rxdata_symb_ptr[aa] = &rxdata[aa][rx_offset];
 
     if (ue && ue->cont_fo_comp) {
       start_meas_nr_ue_phy(ue, RX_FO_COMPENSATION_STATS);
