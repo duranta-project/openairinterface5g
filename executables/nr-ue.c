@@ -788,7 +788,6 @@ void *UE_thread(void *arg)
       readFrame(UE, &tmp, duration_rx_to_tx, true);
   }
 
-  c16_t *rxp[fp->nb_antennas_rx];
   while (!oai_exit) {
     if (syncRunning) {
       notifiedFIFO_elt_t *res = pollNotifiedFIFO(&nf);
@@ -954,6 +953,7 @@ void *UE_thread(void *arg)
     }
 
     int firstSymSamp = get_firstSymSamp(slot_nr, fp);
+    c16_t *rxp[fp->nb_antennas_rx];
     for (int i = 0; i < fp->nb_antennas_rx; i++)
       rxp[i] = &UE->common_vars.rxdata[i][firstSymSamp + get_samples_slot_timestamp(fp, slot_nr)];
 
