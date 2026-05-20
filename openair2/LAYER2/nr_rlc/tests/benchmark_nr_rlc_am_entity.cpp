@@ -47,7 +47,8 @@ static void BM_nr_rlc_am_entity(benchmark::State &state)
                                                     4,
                                                     -1,
                                                     8,
-                                                    12);
+                                                    12,
+                                                    true);
 
   nr_rlc_entity_t *rx_entity = new_nr_rlc_entity_am(10000,
                                                     10000,
@@ -63,7 +64,8 @@ static void BM_nr_rlc_am_entity(benchmark::State &state)
                                                     4,
                                                     -1,
                                                     8,
-                                                    12);
+                                                    12,
+                                                    true);
 
   char message[] = "Message to the other RLC AM entity.";
   for (auto _ : state) {

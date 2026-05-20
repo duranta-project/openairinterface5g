@@ -70,7 +70,8 @@ nr_rlc_entity_t *new_nr_rlc_entity_am(int rx_maxsize,
                                       int poll_pdu,
                                       int poll_byte,
                                       int max_retx_threshold,
-                                      int sn_field_length)
+                                      int sn_field_length,
+                                      bool do_drop)
 {
   nr_rlc_entity_am_t *ret;
 
@@ -127,6 +128,8 @@ nr_rlc_entity_t *new_nr_rlc_entity_am(int rx_maxsize,
 
   ret->rx = nr_rlc_new_rx_manager(1 << (sn_field_length - 1));
 
+  ret->common.do_drop = do_drop;
+
   return (nr_rlc_entity_t *)ret;
 }
 
@@ -135,7 +138,8 @@ nr_rlc_entity_t *new_nr_rlc_entity_um(int rx_maxsize,
                                       void (*deliver_sdu)(void *deliver_sdu_data, nr_rlc_entity_t *entity, char *buf, int size),
                                       void *deliver_sdu_data,
                                       int t_reassembly,
-                                      int sn_field_length)
+                                      int sn_field_length,
+                                      bool do_drop)
 {
   nr_rlc_entity_um_t *ret;
 
@@ -178,12 +182,15 @@ nr_rlc_entity_t *new_nr_rlc_entity_um(int rx_maxsize,
    */
   ret->common.txsdu_avg_time_to_tx = time_average_new(100 * 1000, 1024);
 
+  ret->common.do_drop = do_drop;
+
   return (nr_rlc_entity_t *)ret;
 }
 
 nr_rlc_entity_t *new_nr_rlc_entity_tm(int tx_maxsize,
                                       void (*deliver_sdu)(void *deliver_sdu_data, nr_rlc_entity_t *entity, char *buf, int size),
-                                      void *deliver_sdu_data)
+                                      void *deliver_sdu_data,
+                                      bool do_drop)
 {
   nr_rlc_entity_tm_t *ret;
 
@@ -216,6 +223,8 @@ nr_rlc_entity_t *new_nr_rlc_entity_tm(int tx_maxsize,
    * initial_size of 1024 is arbitrary
    */
   ret->common.txsdu_avg_time_to_tx = time_average_new(100 * 1000, 1024);
+
+  ret->common.do_drop = do_drop;
 
   return (nr_rlc_entity_t *)ret;
 }

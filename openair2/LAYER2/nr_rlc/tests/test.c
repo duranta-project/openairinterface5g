@@ -274,7 +274,8 @@ int test_main(void)
                                      max_retx_reached_gnb, NULL,
                                      test[pos+3], test[pos+4], test[pos+5],
                                      test[pos+6], test[pos+7], test[pos+8],
-                                     test[pos+9]);
+                                     test[pos+9],
+                                     true);
           pos += 10;
           break;
         case UE_AM:
@@ -284,27 +285,30 @@ int test_main(void)
                                     max_retx_reached_ue, NULL,
                                     test[pos+3], test[pos+4], test[pos+5],
                                     test[pos+6], test[pos+7], test[pos+8],
-                                    test[pos+9]);
+                                    test[pos+9],
+                                    true);
           pos += 10;
           break;
         case GNB_UM:
           gnb = new_nr_rlc_entity_um(test[pos+1], test[pos+2],
                                      deliver_sdu_gnb_um, NULL,
-                                     test[pos+3], test[pos+4]);
+                                     test[pos+3], test[pos+4],
+                                     true);
           pos += 5;
           break;
         case UE_UM:
           ue = new_nr_rlc_entity_um(test[pos+1], test[pos+2],
                                     deliver_sdu_ue_um, NULL,
-                                    test[pos+3], test[pos+4]);
+                                    test[pos+3], test[pos+4],
+                                    true);
           pos += 5;
           break;
         case GNB_TM:
-          gnb = new_nr_rlc_entity_tm(test[pos+1], deliver_sdu_gnb_tm, NULL);
+          gnb = new_nr_rlc_entity_tm(test[pos+1], deliver_sdu_gnb_tm, NULL, true);
           pos += 2;
           break;
         case UE_TM:
-          ue = new_nr_rlc_entity_tm(test[pos+1], deliver_sdu_ue_tm, NULL);
+          ue = new_nr_rlc_entity_tm(test[pos+1], deliver_sdu_ue_tm, NULL, true);
           pos += 2;
           break;
         case GNB_SDU:

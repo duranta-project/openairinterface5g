@@ -1828,7 +1828,7 @@ void nr_rlc_entity_am_recv_sdu(nr_rlc_entity_t *_entity,
     entity->t_log_buffer_full = entity->t_current;
   }
 
-  if (entity->tx_size + size > entity->tx_maxsize) {
+  if (entity->common.do_drop && entity->tx_size + size > entity->tx_maxsize) {
     entity->sdu_rejected++;
     entity->common.stats.txpdu_dd_pkts++;
     entity->common.stats.txpdu_dd_bytes += size;

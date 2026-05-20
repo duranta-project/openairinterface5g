@@ -11,6 +11,7 @@
 #include "common/utils/LOG/log.h"
 #include "common/utils/utils.h"
 #include "openair2/F1AP/f1ap_ids.h"
+#include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api_nr_up.h"
 
 /* Allow stale budget if the RLC worker has not refreshed this DRB budget for too long.
  * Without this, DROP with an empty queue never syncs again and can stall DL. */
@@ -72,6 +73,7 @@ void nr_up_init_direct(nr_up_if_t *iface)
 {
   nr_up_manager_init();
   nr_up_rlc_queue_init();
+  nr_rlc_set_do_drop(false);
   iface->deliver_drb = nr_up_mono_deliver_drb;
   iface->dl_congestion_precheck = nr_up_mono_dl_congestion_precheck;
   iface->budget_sync = nr_up_mono_budget_sync;
