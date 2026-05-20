@@ -1131,8 +1131,8 @@ int pbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_da
   if (check_meas_to_perform(ue, nr_slot_rx)) {
     measurements->meas_request_pending = true;
 
-    // Copy rxdata
-    uint32_t rxdata_size = (2 * (fp->samples_per_frame) + fp->ofdm_symbol_size);
+    /* Copy rxdata. When UE is in sync, only one frame worth samples is retained in the buffer. */
+    uint32_t rxdata_size = fp->samples_per_frame + fp->ofdm_symbol_size;
     size_t total_size = sizeof(nr_meas_task_args_t) + fp->nb_antennas_rx * rxdata_size * sizeof(c16_t);
     nr_meas_task_args_t *args = malloc_or_fail(total_size);
     args->proc = *proc;
