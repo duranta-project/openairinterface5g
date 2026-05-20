@@ -93,6 +93,58 @@ void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
 {
 }
 
+static void apply_ch_effect_and_noise(double sigma2,
+                                      double eps,
+                                      double **r_re,
+                                      double **r_im,
+                                      unsigned int nb_rx,
+                                      unsigned int n_samp_tx,
+                                      unsigned int n_samp_rx,
+                                      double fs,
+                                      double cfo,
+                                      double *ip,
+                                      unsigned int time_offset,
+                                      c16_t **txdata,
+                                      c16_t **rxdata)
+{
+  for (int aa = 0; aa < nb_rx; aa++) {
+    memset(r_re[aa], 0, sizeof(double) * n_samp_rx);
+    memset(r_im[aa], 0, sizeof(double) * n_samp_rx);
+    for (int i = 0; i < n_samp_tx; i++) {
+      unsigned int t = (time_offset + i) % n_samp_rx;
+      r_re[aa][t] = (double)txdata[aa][i].r;
+      r_im[aa][t] = (double)txdata[aa][i].i;
+    }
+  }
+
+  if (eps != 0.0)
+    rf_rx(r_re, // real part of txdata
+          r_im, // imag part of txdata
+          NULL, // interference real part
+          NULL, // interference imag part
+          0, // interference power
+          nb_rx, // number of rx antennas
+          n_samp_rx, // number of samples in frame
+          1.0e9 / fs, // sampling time (ns)
+          cfo, // frequency offset in Hz
+          0.0, // drift (not implemented)
+          0.0, // noise figure (not implemented)
+          0.0, // rx gain in dB ?
+          200, // 3rd order non-linearity in dB ?
+          ip, // initial phase
+          30.0e3, // phase noise cutoff in kHz
+          -500.0, // phase noise amplitude in dBc
+          0.0, // IQ imbalance (dB),
+          0.0); // IQ phase imbalance (rad)
+
+  for (int aa = 0; aa < nb_rx; aa++) {
+    for (int i = 0; i < n_samp_rx; i++) {
+      rxdata[aa][i].r = (short)(r_re[aa][i] + sqrt(sigma2 / 2) * gaussdouble(0.0, 1.0));
+      rxdata[aa][i].i = (short)(r_im[aa][i] + sqrt(sigma2 / 2) * gaussdouble(0.0, 1.0));
+    }
+  }
+}
+
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char **argv)
 {
@@ -105,7 +157,7 @@ int main(int argc, char **argv)
   double cfo=0;
   uint8_t snr1set=0;
   c16_t **txdata;
-  double **s_re,**s_im,**r_re,**r_im;
+  double **r_re, **r_im;
   //double iqim = 0.0;
   double ip =0.0;
   //unsigned char pbch_pdu[6];
@@ -159,6 +211,8 @@ int main(int argc, char **argv)
 
   float target_error_rate = 0.01;
 
+  bool test_ssb_end = true;
+
   cpuf = get_cpu_freq_GHz();
 
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == 0) {
@@ -166,7 +220,7 @@ int main(int argc, char **argv)
   }
 
   int c;
-  while ((c = getopt(argc, argv, "--:O:c:F:g:hIL:m:M:n:N:o:P:R:s:S:x:y:z:")) != -1) {
+  while ((c = getopt(argc, argv, "--:O:c:F:g:hIL:m:M:n:N:o:P:R:s:S:wx:y:z:")) != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
     if (c == 1 || c == '-' || c == 'O')
@@ -317,6 +371,10 @@ int main(int argc, char **argv)
       break;
       */
 
+    case 'w':
+      test_ssb_end = false;
+      break;
+
     case 'x':
       transmission_mode=atoi(optarg);
 
@@ -373,6 +431,7 @@ int main(int argc, char **argv)
       printf("-s Starting SNR, runs from SNR0 to SNR0 + 10 dB if not -S given. If -n 1, then just SNR is simulated\n");
       printf("-S Ending SNR, runs from SNR0 to SNR1\n");
       //printf("-t Delay spread for multipath channel\n");
+      printf("-w Don't test Initial Sync with SSB between end and beginning of rxdata\n");
       printf("-x Transmission mode (1,2,6 for the moment)\n");
       printf("-y Number of TX antennas used in eNB\n");
       printf("-z Number of RX antennas used in UE\n");
@@ -446,19 +505,13 @@ int main(int argc, char **argv)
   frame_length_complex_samples = frame_parms->samples_per_subframe*NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
   frame_length_complex_samples_no_prefix = frame_parms->samples_per_subframe_wCP;
 
-  s_re = malloc(2*sizeof(double*));
-  s_im = malloc(2*sizeof(double*));
   r_re = malloc(2*sizeof(double*));
   r_im = malloc(2*sizeof(double*));
   txdata = calloc(2, sizeof(c16_t*));
 
   for (i=0; i<2; i++) {
-
-
-    s_re[i] = malloc16_clear(frame_length_complex_samples*sizeof(double));
-    s_im[i] = malloc16_clear(frame_length_complex_samples*sizeof(double));
-    r_re[i] = malloc16_clear(frame_length_complex_samples*sizeof(double));
-    r_im[i] = malloc16_clear(frame_length_complex_samples*sizeof(double));
+    r_re[i] = malloc16_clear(2 * frame_length_complex_samples * sizeof(double));
+    r_im[i] = malloc16_clear(2 * frame_length_complex_samples * sizeof(double));
     printf("Allocating %d samples for txdata\n",frame_length_complex_samples);
     txdata[i] = malloc16_clear(frame_length_complex_samples * sizeof(c16_t));
   }
@@ -605,71 +658,131 @@ int main(int argc, char **argv)
     n_errors_payload = 0;
 
     for (trial = 0; trial < n_trials && !stop; trial++) {
-
-      for (i=0; i<frame_length_complex_samples; i++) {
-        for (aa=0; aa<frame_parms->nb_antennas_tx; aa++) {
-          r_re[aa][i] = (double)txdata[aa][i].r;
-          r_im[aa][i] = (double)txdata[aa][i].i;
-        }
-      }
-
-      // multipath channel
-      //multipath_channel(gNB2UE,s_re,s_im,r_re,r_im,frame_length_complex_samples,0);
-      
       //AWGN
       sigma2_dB = 20*log10((double)AMP/4)-SNR;
       sigma2 = pow(10,sigma2_dB/10);
       //printf("sigma2 %f (%f dB), tx_lev %f (%f dB)\n",sigma2,sigma2_dB,txlev,10*log10((double)txlev));
 
-      if(eps!=0.0)
-        rf_rx(r_re,  // real part of txdata
-           r_im,  // imag part of txdata
-           NULL,  // interference real part
-           NULL, // interference imag part
-           0,  // interference power
-           frame_parms->nb_antennas_rx,  // number of rx antennas
-           frame_length_complex_samples,  // number of samples in frame
-           1.0e9/fs,   //sampling time (ns)
-           cfo,	// frequency offset in Hz
-           0.0, // drift (not implemented)
-           0.0, // noise figure (not implemented)
-           0.0, // rx gain in dB ?
-           200, // 3rd order non-linearity in dB ?
-           &ip, // initial phase
-           30.0e3,  // phase noise cutoff in kHz
-           -500.0, // phase noise amplitude in dBc
-           0.0,  // IQ imbalance (dB),
-	   0.0); // IQ phase imbalance (rad)
+      uint8_t ssb_index = 0;
+      while (!((SSB_positions >> ssb_index) & 0x01))
+        ssb_index++; // to select the first transmitted ssb
+      int ssb_start_symb = nr_get_ssb_start_symbol(frame_parms, ssb_index);
 
-      for (i=0; i<frame_length_complex_samples; i++) {
-        for (aa=0; aa<frame_parms->nb_antennas_rx; aa++) {
-          UE->common_vars.rxdata[aa][i].r = (short)(r_re[aa][i] + sqrt(sigma2 / 2) * gaussdouble(0.0, 1.0));
-          UE->common_vars.rxdata[aa][i].i = (short)(r_im[aa][i] + sqrt(sigma2 / 2) * gaussdouble(0.0, 1.0));
-        }
-      }
-
-      if (n_trials==1) {
-        LOG_M("rxsig0.m", "rxs0", UE->common_vars.rxdata[0], frame_parms->samples_per_frame, 1, 1);
-        if (gNB->frame_parms.nb_antennas_tx > 1)
-          LOG_M("rxsig1.m", "rxs1", UE->common_vars.rxdata[1], frame_parms->samples_per_frame, 1, 1);
-      }
       if (UE->is_synchronized == 0) {
         UE_nr_rxtx_proc_t proc = {0};
         nr_gscn_info_t gscnInfo[MAX_GSCN_BAND] = {0};
         const int numGscn = 1;
         gscnInfo[0].ssbFirstSC = frame_parms->ssb_start_subcarrier;
-        nr_initial_sync_t ret = nr_initial_sync(&proc, UE, 1, gscnInfo, numGscn);
-        printf("nr_initial_sync1 returns %s\n", ret.cell_detected ? "cell detected" : "cell not detected");
+        apply_ch_effect_and_noise(sigma2,
+                                  eps,
+                                  r_re,
+                                  r_im,
+                                  frame_parms->nb_antennas_rx,
+                                  frame_length_complex_samples,
+                                  2 * frame_length_complex_samples,
+                                  fs,
+                                  cfo,
+                                  &ip,
+                                  0,
+                                  txdata,
+                                  UE->common_vars.rxdata);
+
+        nr_initial_sync_t ret = nr_initial_sync(&proc, UE, 2, gscnInfo, numGscn);
+        printf("nr_initial_sync1 returns %s in frame id: %d, offset %d\n",
+               ret.cell_detected ? "cell detected" : "cell not detected",
+               ret.frame_id,
+               ret.rx_offset);
         if (!ret.cell_detected)
           n_errors++;
-      }
-      else {
+
+        // Simulate SSB between first and second frame
+        // |------frame 1------|------frame 2------|
+        //                  |-ssb-|
+        int ssb_slot = ssb_start_symb / frame_parms->symbols_per_slot;
+        uint32_t ssb_start_offset =
+            get_samples_slot_timestamp(frame_parms, ssb_slot)
+            + get_samples_symbol_timestamp(frame_parms, ssb_slot, ssb_start_symb % frame_parms->symbols_per_slot);
+        int shift = frame_parms->samples_per_frame - ssb_start_offset;
+        shift -= 2 * (frame_parms->ofdm_symbol_size + frame_parms->nb_prefix_samples); // 2 symbols of SSB in next frame
+        uint32_t rxdata_size = 2 * frame_parms->samples_per_frame;
+        apply_ch_effect_and_noise(sigma2,
+                                  eps,
+                                  r_re,
+                                  r_im,
+                                  frame_parms->nb_antennas_rx,
+                                  frame_length_complex_samples,
+                                  rxdata_size,
+                                  fs,
+                                  cfo,
+                                  &ip,
+                                  shift,
+                                  txdata,
+                                  UE->common_vars.rxdata);
+
+        // Run init sync
+        ret = nr_initial_sync(&proc, UE, 2, gscnInfo, numGscn);
+        printf("nr_initial_sync in end of first frame returns %s in frame id: %d, offset %d\n",
+               ret.cell_detected ? "cell detected" : "cell not detected",
+               ret.frame_id,
+               ret.rx_offset);
+        if (!ret.cell_detected)
+          n_errors++;
+
+        if (test_ssb_end) {
+          // Simulate SSB between end and beginning of rxdata buffer
+          // |------frame 1------|------frame 2------|
+          // sb-|                                  |-s
+          shift += frame_parms->samples_per_frame;
+          apply_ch_effect_and_noise(sigma2,
+                                    eps,
+                                    r_re,
+                                    r_im,
+                                    frame_parms->nb_antennas_rx,
+                                    frame_length_complex_samples,
+                                    rxdata_size,
+                                    fs,
+                                    cfo,
+                                    &ip,
+                                    shift,
+                                    txdata,
+                                    UE->common_vars.rxdata);
+
+          // Run init sync
+          ret = nr_initial_sync(&proc, UE, 2, gscnInfo, numGscn);
+          printf("nr_initial_sync in end of second frame returns %s in frame id: %d, offset %d\n",
+                 ret.cell_detected ? "cell detected" : "cell not detected",
+                 ret.frame_id,
+                 ret.rx_offset);
+        }
+        if (!ret.cell_detected)
+          n_errors++;
+      } else {
+        apply_ch_effect_and_noise(sigma2,
+                                  eps,
+                                  r_re,
+                                  r_im,
+                                  frame_parms->nb_antennas_rx,
+                                  frame_length_complex_samples,
+                                  2 * frame_length_complex_samples,
+                                  fs,
+                                  cfo,
+                                  &ip,
+                                  0,
+                                  txdata,
+                                  UE->common_vars.rxdata);
+
+        if (n_trials == 1) {
+          LOG_M("rxsig0.m", "rxs0", UE->common_vars.rxdata[0], frame_parms->samples_per_frame, 1, 1);
+          if (gNB->frame_parms.nb_antennas_tx > 1)
+            LOG_M("rxsig1.m", "rxs1", UE->common_vars.rxdata[1], frame_parms->samples_per_frame, 1, 1);
+        }
+
         UE_nr_rxtx_proc_t proc={0};
 
         uint8_t ssb_index = 0;
         while (!((SSB_positions >> ssb_index) & 0x01))
           ssb_index++; // to select the first transmitted ssb
-        UE->symbol_offset = nr_get_ssb_start_symbol(frame_parms, ssb_index);
+        UE->symbol_offset = ssb_start_symb;
 
         int ssb_slot = (UE->symbol_offset/14)+(n_hf*(frame_parms->slots_per_frame>>1));
         proc.nr_slot_rx = ssb_slot;
@@ -775,15 +888,11 @@ int main(int argc, char **argv)
   free(UE);
 
   for (i=0; i<2; i++) {
-    free(s_re[i]);
-    free(s_im[i]);
     free(r_re[i]);
     free(r_im[i]);
     free(txdata[i]);
   }
 
-  free(s_re);
-  free(s_im);
   free(r_re);
   free(r_im);
   free(txdata);

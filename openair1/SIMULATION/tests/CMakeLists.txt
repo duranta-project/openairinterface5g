@@ -84,12 +84,12 @@ add_physim_test(physim.5g.polartest.test4 "UCI polar test,11-bit CRC" polartest 
 ####################################################################################
 
 add_physim_test(physim.5g.nr_pbchsim.106rb.test1 "PBCH-only, 106 PRB, NID 2" nr_pbchsim -s-11 -S-8 -n30 -R106 -N2)
-add_physim_test(physim.5g.nr_pbchsim.106rb.test2 "PBCH and synchronization, 106PBR" nr_pbchsim -s-11 -S-8 -n30 -o8000 -I -R106)
+add_physim_test(physim.5g.nr_pbchsim.106rb.test2 "PBCH and synchronization, 106PBR" nr_pbchsim -s-11 -S-8 -n30 -o8000 -I -R106 -w)
 add_physim_test(physim.5g.nr_pbchsim.106rb.test3 "PBCH and synchronization, 106PBR, SSB SC OFFSET 6" nr_pbchsim -s-11 -S-8 -n30 -R106 -c6)
 add_physim_test(physim.5g.nr_pbchsim.217rb.test1 "PBCH-only, 217 PRB" nr_pbchsim -s-10 -S-8 -n30 -R217)
-add_physim_test(physim.5g.nr_pbchsim.217rb.test2 "PBCH and synchronization, 217 RPB" nr_pbchsim -s-10 -S-8 -n30 -o8000 -I -R217)
+add_physim_test(physim.5g.nr_pbchsim.217rb.test2 "PBCH and synchronization, 217 RPB" nr_pbchsim -s-10 -S-8 -n30 -o8000 -I -R217 -w)
 add_physim_test(physim.5g.nr_pbchsim.273rb.test1 "PBCH-only, 273 PRB" nr_pbchsim -s-10 -S-8 -n30 -R273)
-add_physim_test(physim.5g.nr_pbchsim.273rb.test2 "PBCH and synchronization, 273 PRB" nr_pbchsim -s-10 -S-8 -n30 -o8000 -I -R273)
+add_physim_test(physim.5g.nr_pbchsim.273rb.test2 "PBCH and synchronization, 273 PRB" nr_pbchsim -s-10 -S-8 -n30 -o8000 -I -R273 -w)
 add_physim_test(physim.5g.nr_pbchsim.otherSCS.test1 "PBCH-only, 15Khz, 5Mhz" nr_pbchsim -s-10 -S-8 -n30 -m0 -R25)
 add_physim_test(physim.5g.nr_pbchsim.otherSCS.test2 "PBCH-only, 120Khz, 50Mhz" nr_pbchsim -s-10 -S-8 -n30 -m3 -R32)
 
