@@ -1073,6 +1073,7 @@ set(NR_PDCP_SRC
 # gNB: PDCP + CU-CP/CU-UP interface
 set(NR_PDCP_SRC_GNB_CORE
   ${NR_PDCP_SRC}
+  openair2/LAYER2/nr_pdcp/nr_pdcp_nrup_handler.c
   openair2/LAYER2/nr_pdcp/cucp_cuup_handler.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_if.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_direct.c
