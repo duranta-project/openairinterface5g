@@ -3385,6 +3385,171 @@ int get_pdsch_to_harq_feedback(NR_PUCCH_Config_t *pucch_Config,
   }
 }
 
+static uint16_t configure_csi_pdu(nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csi_pdu,
+                                  uint8_t csi_type,
+                                  uint16_t csi_index,
+                                  long scramblingID,
+                                  long powerControlOffset,
+                                  long *powerControlOffsetSS,
+                                  const NR_CSI_RS_ResourceMapping_t *resourceMapping,
+                                  const NR_UE_DL_BWP_t *dl_bwp,
+                                  const int stream_index,
+                                  const uint16_t fapi_beam)
+{
+  csi_pdu->maintenance_parms_v3.csiRS_pdu_index_v3 = csi_index;
+  csi_pdu->precodingAndBeamforming.num_prgs = 1;
+  csi_pdu->precodingAndBeamforming.prg_size = resourceMapping->freqBand.nrofRBs; //1 PRG of max size
+  csi_pdu->precodingAndBeamforming.dig_bf_interfaces = 1;
+  csi_pdu->precodingAndBeamforming.prgs_list[0].pm_idx = 0;
+  // TODO: set correctly dig_bf_interface_list when ports of same CDM group is used and PMI if used.
+  csi_pdu->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = fapi_beam;
+  /* The L1 does not take number of spatial streams parameter into
+     consideration because the CSI-RS generation function uses information
+     in mapping params to determine number of ports and maps to contiguous
+     logical ports. Hence we set only the first port for CSI-RS here. */
+  csi_pdu->param_v4.numSpatialStreamIndices = 1;
+  csi_pdu->param_v4.spatialStreamIndices[0] = stream_index;
+  csi_pdu->bwp_size = dl_bwp->BWPSize;
+  csi_pdu->bwp_start = dl_bwp->BWPStart;
+  csi_pdu->subcarrier_spacing = dl_bwp->scs;
+  if (dl_bwp->cyclicprefix)
+    csi_pdu->cyclic_prefix = *dl_bwp->cyclicprefix;
+  else
+    csi_pdu->cyclic_prefix = 0;
+
+  // According to last paragraph of TS 38.214 5.2.2.3.1
+  if (resourceMapping->freqBand.startingRB < dl_bwp->BWPStart) {
+    csi_pdu->start_rb = dl_bwp->BWPStart;
+  } else {
+    csi_pdu->start_rb = resourceMapping->freqBand.startingRB;
+  }
+  if (resourceMapping->freqBand.nrofRBs > (dl_bwp->BWPStart + dl_bwp->BWPSize - csi_pdu->start_rb)) {
+    csi_pdu->nr_of_rbs = dl_bwp->BWPStart + dl_bwp->BWPSize - csi_pdu->start_rb;
+  } else {
+    csi_pdu->nr_of_rbs = resourceMapping->freqBand.nrofRBs;
+  }
+  AssertFatal(csi_pdu->nr_of_rbs >= 24, "CSI-RS has %d RBs, but the minimum is 24\n", csi_pdu->nr_of_rbs);
+
+  csi_pdu->csi_type = csi_type;
+  csi_pdu->symb_l0 = resourceMapping->firstOFDMSymbolInTimeDomain;
+  if (resourceMapping->firstOFDMSymbolInTimeDomain2)
+    csi_pdu->symb_l1 = *resourceMapping->firstOFDMSymbolInTimeDomain2;
+  csi_pdu->cdm_type = resourceMapping->cdm_Type;
+  csi_pdu->freq_density = resourceMapping->density.present;
+  if ((resourceMapping->density.present == NR_CSI_RS_ResourceMapping__density_PR_dot5)
+      && (resourceMapping->density.choice.dot5 == NR_CSI_RS_ResourceMapping__density__dot5_evenPRBs))
+    csi_pdu->freq_density--;
+  csi_pdu->scramb_id = scramblingID;
+  csi_pdu->power_control_offset = powerControlOffset + 8;
+  if (powerControlOffsetSS)
+    csi_pdu->power_control_offset_ss = *powerControlOffsetSS;
+  else
+    csi_pdu->power_control_offset_ss = 1; // 0 dB
+
+  uint16_t bitmap = 0;
+  switch(resourceMapping->frequencyDomainAllocation.present) {
+    case NR_CSI_RS_ResourceMapping__frequencyDomainAllocation_PR_row1:
+      csi_pdu->row = 1;
+      csi_pdu->freq_domain = ((resourceMapping->frequencyDomainAllocation.choice.row1.buf[0]) >> 4) & 0x0f;
+      bitmap = SL_to_bitmap(csi_pdu->symb_l0, 1);
+      break;
+    case NR_CSI_RS_ResourceMapping__frequencyDomainAllocation_PR_row2:
+      csi_pdu->row = 2;
+      csi_pdu->freq_domain = (((resourceMapping->frequencyDomainAllocation.choice.row2.buf[1] >> 4) & 0x0f)
+                             | ((resourceMapping->frequencyDomainAllocation.choice.row2.buf[0] << 4) & 0xff0));
+      bitmap = SL_to_bitmap(csi_pdu->symb_l0, 1);
+      break;
+    case NR_CSI_RS_ResourceMapping__frequencyDomainAllocation_PR_row4:
+      csi_pdu->row = 4;
+      csi_pdu->freq_domain = ((resourceMapping->frequencyDomainAllocation.choice.row4.buf[0]) >> 5) & 0x07;
+      bitmap = SL_to_bitmap(csi_pdu->symb_l0, 1);
+      break;
+    case NR_CSI_RS_ResourceMapping__frequencyDomainAllocation_PR_other:
+      csi_pdu->freq_domain = ((resourceMapping->frequencyDomainAllocation.choice.other.buf[0]) >> 2) & 0x3f;
+      // determining the row of table 7.4.1.5.3-1 in 38.211
+      switch(resourceMapping->nrofPorts) {
+        case NR_CSI_RS_ResourceMapping__nrofPorts_p1:
+          AssertFatal(false, "Resource with 1 CSI port shouldn't be within other rows\n");
+          break;
+        case NR_CSI_RS_ResourceMapping__nrofPorts_p2:
+          csi_pdu->row = 3;
+          bitmap = SL_to_bitmap(csi_pdu->symb_l0, 1);
+          break;
+        case NR_CSI_RS_ResourceMapping__nrofPorts_p4:
+          csi_pdu->row = 5;
+          bitmap = SL_to_bitmap(csi_pdu->symb_l0, 2);
+          break;
+        case NR_CSI_RS_ResourceMapping__nrofPorts_p8:
+          if (resourceMapping->cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm4_FD2_TD2) {
+            csi_pdu->row = 8;
+            bitmap = SL_to_bitmap(csi_pdu->symb_l0, 2);
+          } else {
+            int num_k = 0;
+            for (int k = 0; k < 6; k++)
+              num_k += (((csi_pdu->freq_domain) >> k) & 0x01);
+            if(num_k == 4) {
+              csi_pdu->row = 6;
+              bitmap = SL_to_bitmap(csi_pdu->symb_l0, 1);
+            } else {
+              csi_pdu->row = 7;
+              bitmap = SL_to_bitmap(csi_pdu->symb_l0, 2);
+            }
+          }
+          break;
+        case NR_CSI_RS_ResourceMapping__nrofPorts_p12:
+          if (resourceMapping->cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm4_FD2_TD2) {
+            csi_pdu->row = 10;
+            bitmap = SL_to_bitmap(csi_pdu->symb_l0, 2);
+          } else {
+            csi_pdu->row = 9;
+            bitmap = SL_to_bitmap(csi_pdu->symb_l0, 1);
+          }
+          break;
+        case NR_CSI_RS_ResourceMapping__nrofPorts_p16:
+          if (resourceMapping->cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm4_FD2_TD2)
+            csi_pdu->row = 12;
+          else
+            csi_pdu->row = 11;
+          bitmap = SL_to_bitmap(csi_pdu->symb_l0, 2);
+          break;
+        case NR_CSI_RS_ResourceMapping__nrofPorts_p24:
+          if (resourceMapping->cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm4_FD2_TD2) {
+            csi_pdu->row = 14;
+            bitmap = (SL_to_bitmap(csi_pdu->symb_l0, 2) | SL_to_bitmap(csi_pdu->symb_l1, 2));
+          } else {
+            if (resourceMapping->cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm8_FD2_TD4) {
+              csi_pdu->row = 15;
+              bitmap = SL_to_bitmap(csi_pdu->symb_l0, 3);
+            } else {
+              csi_pdu->row = 13;
+              bitmap = (SL_to_bitmap(csi_pdu->symb_l0, 2) | SL_to_bitmap(csi_pdu->symb_l1, 2));
+            }
+          }
+          break;
+        case NR_CSI_RS_ResourceMapping__nrofPorts_p32:
+          if (resourceMapping->cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm4_FD2_TD2) {
+            csi_pdu->row = 17;
+            bitmap = (SL_to_bitmap(csi_pdu->symb_l0, 2) | SL_to_bitmap(csi_pdu->symb_l1, 2));
+          } else {
+            if (resourceMapping->cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm8_FD2_TD4) {
+              csi_pdu->row = 18;
+              bitmap = SL_to_bitmap(csi_pdu->symb_l0, 3);
+            } else {
+              csi_pdu->row = 16;
+              bitmap = (SL_to_bitmap(csi_pdu->symb_l0, 2) | SL_to_bitmap(csi_pdu->symb_l1, 2));
+            }
+          }
+          break;
+        default:
+          AssertFatal(false, "Invalid number of ports in CSI-RS resource\n");
+      }
+      break;
+    default:
+      AssertFatal(false, "Invalid freqency domain allocation in CSI-RS resource\n");
+  }
+  return bitmap;
+}
+
 void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, nfapi_nr_dl_tti_request_t *DL_req)
 {
   NR_UEs_t *UE_info = &gNB_mac->UE_info;
@@ -3475,187 +3640,32 @@ void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t f
           uint16_t *vrb_map = cell->common_channels.vrb_map[beam_csi.idx];
           UE_info->sched_csirs |= (1 << dl_bwp->bwp_id);
 
-          nfapi_nr_dl_tti_request_pdu_t *dl_tti_csirs_pdu = &dl_req->dl_tti_pdu_list[dl_req->nPDUs];
-          memset((void*)dl_tti_csirs_pdu,0,sizeof(nfapi_nr_dl_tti_request_pdu_t));
-          dl_tti_csirs_pdu->PDUType = NFAPI_NR_DL_TTI_CSI_RS_PDU_TYPE;
-          dl_tti_csirs_pdu->PDUSize = (uint8_t)(2+sizeof(nfapi_nr_dl_tti_csi_rs_pdu));
-
-          nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csirs_pdu_rel15 = &dl_tti_csirs_pdu->csi_rs_pdu.csi_rs_pdu_rel15;
-          csirs_pdu_rel15->precodingAndBeamforming.num_prgs = 1;
-          csirs_pdu_rel15->precodingAndBeamforming.prg_size = resourceMapping.freqBand.nrofRBs; //1 PRG of max size
-          csirs_pdu_rel15->precodingAndBeamforming.dig_bf_interfaces = 1;
-          csirs_pdu_rel15->precodingAndBeamforming.prgs_list[0].pm_idx = 0;
           const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, cell->beam_info.beam_mode);
-          // TODO: set correctly dig_bf_interface_list when ports of same CDM group is used and PMI if used.
-          csirs_pdu_rel15->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = fapi_beam;
           const nr_pdsch_AntennaPorts_t *p = &cell->radio_config.pdsch_AntennaPorts;
-          const uint16_t num_max_csi_ports = p->N1 * p->N2 * p->XP;
-          /* The L1 does not take number of spatial streams parameter into
-          consideration because the CSI-RS generation function uses information
-          in mapping params to determine number of ports and maps to contiguous
-          logical ports. Hence we set only the first port for CSI-RS here. */
-          csirs_pdu_rel15->param_v4.numSpatialStreamIndices = 1;
-          csirs_pdu_rel15->param_v4.spatialStreamIndices[0] = beam_csi.idx * num_max_csi_ports;
-          csirs_pdu_rel15->bwp_size = dl_bwp->BWPSize;
-          csirs_pdu_rel15->bwp_start = dl_bwp->BWPStart;
-          csirs_pdu_rel15->subcarrier_spacing = dl_bwp->scs;
-          if (dl_bwp->cyclicprefix)
-            csirs_pdu_rel15->cyclic_prefix = *dl_bwp->cyclicprefix;
-          else
-            csirs_pdu_rel15->cyclic_prefix = 0;
-
-          // According to last paragraph of TS 38.214 5.2.2.3.1
-          if (resourceMapping.freqBand.startingRB < dl_bwp->BWPStart) {
-            csirs_pdu_rel15->start_rb = dl_bwp->BWPStart;
-          } else {
-            csirs_pdu_rel15->start_rb = resourceMapping.freqBand.startingRB;
+          int num_max_csi_ports = p->N1 * p->N2 * p->XP;
+          nfapi_nr_dl_tti_request_pdu_t *dl_tti_csirs_pdu = &dl_req->dl_tti_pdu_list[dl_req->nPDUs];
+          uint16_t csi_index = 0;
+          for (int c = 0; c < dl_req->nPDUs; c++) {
+            nfapi_nr_dl_tti_request_pdu_t *c_pdu = &dl_req->dl_tti_pdu_list[c];
+            if (c_pdu->PDUType == NFAPI_NR_DL_TTI_CSI_RS_PDU_TYPE)
+              csi_index++;
           }
-          if (resourceMapping.freqBand.nrofRBs > (dl_bwp->BWPStart + dl_bwp->BWPSize - csirs_pdu_rel15->start_rb)) {
-            csirs_pdu_rel15->nr_of_rbs = dl_bwp->BWPStart + dl_bwp->BWPSize - csirs_pdu_rel15->start_rb;
-          } else {
-            csirs_pdu_rel15->nr_of_rbs = resourceMapping.freqBand.nrofRBs;
-          }
-          AssertFatal(csirs_pdu_rel15->nr_of_rbs >= 24, "CSI-RS has %d RBs, but the minimum is 24\n", csirs_pdu_rel15->nr_of_rbs);
-
-          csirs_pdu_rel15->csi_type = 1; // NZP-CSI-RS
-          csirs_pdu_rel15->symb_l0 = resourceMapping.firstOFDMSymbolInTimeDomain;
-          if (resourceMapping.firstOFDMSymbolInTimeDomain2)
-            csirs_pdu_rel15->symb_l1 = *resourceMapping.firstOFDMSymbolInTimeDomain2;
-          csirs_pdu_rel15->cdm_type = resourceMapping.cdm_Type;
-          csirs_pdu_rel15->freq_density = resourceMapping.density.present;
-          if ((resourceMapping.density.present == NR_CSI_RS_ResourceMapping__density_PR_dot5)
-              && (resourceMapping.density.choice.dot5 == NR_CSI_RS_ResourceMapping__density__dot5_evenPRBs))
-            csirs_pdu_rel15->freq_density--;
-          csirs_pdu_rel15->scramb_id = nzpcsi->scramblingID;
-          csirs_pdu_rel15->power_control_offset = nzpcsi->powerControlOffset + 8;
-          if (nzpcsi->powerControlOffsetSS)
-            csirs_pdu_rel15->power_control_offset_ss = *nzpcsi->powerControlOffsetSS;
-          else
-            csirs_pdu_rel15->power_control_offset_ss = 1; // 0 dB
-          switch(resourceMapping.frequencyDomainAllocation.present){
-            case NR_CSI_RS_ResourceMapping__frequencyDomainAllocation_PR_row1:
-              csirs_pdu_rel15->row = 1;
-              csirs_pdu_rel15->freq_domain = ((resourceMapping.frequencyDomainAllocation.choice.row1.buf[0])>>4)&0x0f;
-              for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                vrb_map[rb] |= SL_to_bitmap(csirs_pdu_rel15->symb_l0, 1);
-              break;
-            case NR_CSI_RS_ResourceMapping__frequencyDomainAllocation_PR_row2:
-              csirs_pdu_rel15->row = 2;
-              csirs_pdu_rel15->freq_domain = (((resourceMapping.frequencyDomainAllocation.choice.row2.buf[1]>>4)&0x0f) |
-                                             ((resourceMapping.frequencyDomainAllocation.choice.row2.buf[0]<<4)&0xff0));
-              for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                vrb_map[rb] |= SL_to_bitmap(csirs_pdu_rel15->symb_l0, 1);
-              break;
-            case NR_CSI_RS_ResourceMapping__frequencyDomainAllocation_PR_row4:
-              csirs_pdu_rel15->row = 4;
-              csirs_pdu_rel15->freq_domain = ((resourceMapping.frequencyDomainAllocation.choice.row4.buf[0])>>5)&0x07;
-              for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                vrb_map[rb] |= SL_to_bitmap(csirs_pdu_rel15->symb_l0, 1);
-              break;
-            case NR_CSI_RS_ResourceMapping__frequencyDomainAllocation_PR_other:
-              csirs_pdu_rel15->freq_domain = ((resourceMapping.frequencyDomainAllocation.choice.other.buf[0])>>2)&0x3f;
-              // determining the row of table 7.4.1.5.3-1 in 38.211
-              switch(resourceMapping.nrofPorts){
-                case NR_CSI_RS_ResourceMapping__nrofPorts_p1:
-                  AssertFatal(1==0,"Resource with 1 CSI port shouldn't be within other rows\n");
-                  break;
-                case NR_CSI_RS_ResourceMapping__nrofPorts_p2:
-                  csirs_pdu_rel15->row = 3;
-                  for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                    vrb_map[rb] |= SL_to_bitmap(csirs_pdu_rel15->symb_l0, 1);
-                  break;
-                case NR_CSI_RS_ResourceMapping__nrofPorts_p4:
-                  csirs_pdu_rel15->row = 5;
-                  for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                    vrb_map[rb] |= SL_to_bitmap(csirs_pdu_rel15->symb_l0, 2);
-                  break;
-                case NR_CSI_RS_ResourceMapping__nrofPorts_p8:
-                  if (resourceMapping.cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm4_FD2_TD2) {
-                    csirs_pdu_rel15->row = 8;
-                    for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                      vrb_map[rb] |= SL_to_bitmap(csirs_pdu_rel15->symb_l0, 2);
-                  }
-                  else{
-                    int num_k = 0;
-                    for (int k=0; k<6; k++)
-                      num_k+=(((csirs_pdu_rel15->freq_domain)>>k)&0x01);
-                    if(num_k==4) {
-                      csirs_pdu_rel15->row = 6;
-                      for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                        vrb_map[rb] |= SL_to_bitmap(csirs_pdu_rel15->symb_l0, 1);
-                    }
-                    else {
-                      csirs_pdu_rel15->row = 7;
-                      for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                        vrb_map[rb] |= SL_to_bitmap(csirs_pdu_rel15->symb_l0, 2);
-                    }
-                  }
-                  break;
-                case NR_CSI_RS_ResourceMapping__nrofPorts_p12:
-                  if (resourceMapping.cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm4_FD2_TD2) {
-                    csirs_pdu_rel15->row = 10;
-                    for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                      vrb_map[rb] |= SL_to_bitmap(csirs_pdu_rel15->symb_l0, 2);
-                  }
-                  else {
-                    csirs_pdu_rel15->row = 9;
-                    for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                      vrb_map[rb] |= SL_to_bitmap(csirs_pdu_rel15->symb_l0, 1);
-                  }
-                  break;
-                case NR_CSI_RS_ResourceMapping__nrofPorts_p16:
-                  if (resourceMapping.cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm4_FD2_TD2)
-                    csirs_pdu_rel15->row = 12;
-                  else
-                    csirs_pdu_rel15->row = 11;
-                  for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                    vrb_map[rb] |= SL_to_bitmap(csirs_pdu_rel15->symb_l0, 2);
-                  break;
-                case NR_CSI_RS_ResourceMapping__nrofPorts_p24:
-                  if (resourceMapping.cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm4_FD2_TD2) {
-                    csirs_pdu_rel15->row = 14;
-                    for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                      vrb_map[rb] |= (SL_to_bitmap(csirs_pdu_rel15->symb_l0, 2) | SL_to_bitmap(csirs_pdu_rel15->symb_l1, 2));
-                  }
-                  else{
-                    if (resourceMapping.cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm8_FD2_TD4) {
-                      csirs_pdu_rel15->row = 15;
-                      for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                        vrb_map[rb] |= SL_to_bitmap(csirs_pdu_rel15->symb_l0, 3);
-                    }
-                    else {
-                      csirs_pdu_rel15->row = 13;
-                      for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                        vrb_map[rb] |= (SL_to_bitmap(csirs_pdu_rel15->symb_l0, 2) | SL_to_bitmap(csirs_pdu_rel15->symb_l1, 2));
-                    }
-                  }
-                  break;
-                case NR_CSI_RS_ResourceMapping__nrofPorts_p32:
-                  if (resourceMapping.cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm4_FD2_TD2) {
-                    csirs_pdu_rel15->row = 17;
-                    for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                      vrb_map[rb] |= (SL_to_bitmap(csirs_pdu_rel15->symb_l0, 2) | SL_to_bitmap(csirs_pdu_rel15->symb_l1, 2));
-                  }
-                  else{
-                    if (resourceMapping.cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm8_FD2_TD4) {
-                      csirs_pdu_rel15->row = 18;
-                      for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                        vrb_map[rb] |= SL_to_bitmap(csirs_pdu_rel15->symb_l0, 3);
-                    }
-                    else {
-                      csirs_pdu_rel15->row = 16;
-                      for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
-                        vrb_map[rb] |= (SL_to_bitmap(csirs_pdu_rel15->symb_l0, 2) | SL_to_bitmap(csirs_pdu_rel15->symb_l1, 2));
-                    }
-                  }
-                  break;
-              default:
-                AssertFatal(1==0,"Invalid number of ports in CSI-RS resource\n");
-              }
-              break;
-          default:
-            AssertFatal(1==0,"Invalid freqency domain allocation in CSI-RS resource\n");
-          }
+          memset((void*)dl_tti_csirs_pdu, 0, sizeof(nfapi_nr_dl_tti_request_pdu_t));
+          dl_tti_csirs_pdu->PDUType = NFAPI_NR_DL_TTI_CSI_RS_PDU_TYPE;
+          dl_tti_csirs_pdu->PDUSize = (uint8_t)(2 + sizeof(nfapi_nr_dl_tti_csi_rs_pdu));
+          nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csirs_pdu_rel15 = &dl_tti_csirs_pdu->csi_rs_pdu.csi_rs_pdu_rel15;
+          uint16_t sym_bitmap = configure_csi_pdu(csirs_pdu_rel15,
+                                                  1,
+                                                  csi_index,
+                                                  nzpcsi->scramblingID,
+                                                  nzpcsi->powerControlOffset,
+                                                  nzpcsi->powerControlOffsetSS,
+                                                  &resourceMapping,
+                                                  dl_bwp,
+                                                  beam_csi.idx * num_max_csi_ports,
+                                                  fapi_beam);
+          for (int rb = csirs_pdu_rel15->start_rb; rb < (csirs_pdu_rel15->start_rb + csirs_pdu_rel15->nr_of_rbs); rb++)
+            vrb_map[rb] |= sym_bitmap;
           dl_req->nPDUs++;
         }
       }
