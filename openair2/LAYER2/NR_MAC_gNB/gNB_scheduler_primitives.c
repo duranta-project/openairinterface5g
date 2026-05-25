@@ -3385,16 +3385,16 @@ int get_pdsch_to_harq_feedback(NR_PUCCH_Config_t *pucch_Config,
   }
 }
 
-static uint16_t configure_csi_pdu(nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csi_pdu,
-                                  uint8_t csi_type,
-                                  uint16_t csi_index,
-                                  long scramblingID,
-                                  long powerControlOffset,
-                                  long *powerControlOffsetSS,
-                                  const NR_CSI_RS_ResourceMapping_t *resourceMapping,
-                                  const NR_UE_DL_BWP_t *dl_bwp,
-                                  const int stream_index,
-                                  const uint16_t fapi_beam)
+uint16_t configure_csi_pdu(nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csi_pdu,
+                           uint8_t csi_type,
+                           uint16_t csi_index,
+                           long scramblingID,
+                           long powerControlOffset,
+                           long *powerControlOffsetSS,
+                           const NR_CSI_RS_ResourceMapping_t *resourceMapping,
+                           const NR_UE_DL_BWP_t *dl_bwp,
+                           const int stream_index,
+                           const uint16_t fapi_beam)
 {
   csi_pdu->maintenance_parms_v3.csiRS_pdu_index_v3 = csi_index;
   csi_pdu->precodingAndBeamforming.num_prgs = 1;
@@ -3550,6 +3550,22 @@ static uint16_t configure_csi_pdu(nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csi_pdu,
   return bitmap;
 }
 
+uint16_t get_fapi_csi_index(nfapi_nr_dl_tti_request_body_t *dl_req, nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu)
+{
+  uint16_t csi_index = 0;
+  for (int c = 0; c < dl_req->nPDUs; c++) {
+    nfapi_nr_dl_tti_request_pdu_t *c_pdu = &dl_req->dl_tti_pdu_list[c];
+    if (c_pdu->PDUType == NFAPI_NR_DL_TTI_CSI_RS_PDU_TYPE) {
+      if (pdsch_pdu) {
+        pdsch_pdu->maintenance_parms_v3.csiRSForRM[pdsch_pdu->maintenance_parms_v3.numCSIRSForRM] = csi_index;
+        pdsch_pdu->maintenance_parms_v3.numCSIRSForRM++;
+      }
+      csi_index++;
+    }
+  }
+  return csi_index;
+}
+
 void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, nfapi_nr_dl_tti_request_t *DL_req)
 {
   NR_UEs_t *UE_info = &gNB_mac->UE_info;
@@ -3644,12 +3660,7 @@ void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t f
           const nr_pdsch_AntennaPorts_t *p = &cell->radio_config.pdsch_AntennaPorts;
           int num_max_csi_ports = p->N1 * p->N2 * p->XP;
           nfapi_nr_dl_tti_request_pdu_t *dl_tti_csirs_pdu = &dl_req->dl_tti_pdu_list[dl_req->nPDUs];
-          uint16_t csi_index = 0;
-          for (int c = 0; c < dl_req->nPDUs; c++) {
-            nfapi_nr_dl_tti_request_pdu_t *c_pdu = &dl_req->dl_tti_pdu_list[c];
-            if (c_pdu->PDUType == NFAPI_NR_DL_TTI_CSI_RS_PDU_TYPE)
-              csi_index++;
-          }
+          uint16_t csi_index = get_fapi_csi_index(dl_req, NULL);
           memset((void*)dl_tti_csirs_pdu, 0, sizeof(nfapi_nr_dl_tti_request_pdu_t));
           dl_tti_csirs_pdu->PDUType = NFAPI_NR_DL_TTI_CSI_RS_PDU_TYPE;
           dl_tti_csirs_pdu->PDUSize = (uint8_t)(2 + sizeof(nfapi_nr_dl_tti_csi_rs_pdu));
