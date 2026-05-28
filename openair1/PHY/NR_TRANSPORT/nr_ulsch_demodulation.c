@@ -535,13 +535,28 @@ static void symbol_unscrambling_demux(puschSymbolProc_t *rdata, int ue_idx, int 
   NR_gNB_PUSCH *joint_pusch_vars = rdata->pusch_vars;
   NR_gNB_PUSCH *ue_pusch_vars = rdata->pusch_vars_group[ue_idx];
   rate_match_info_uci_t *uci_info = &ue_pusch_vars->uci_info;
-  // unscrambling and UCI demultiplexing
   int16_t *s_seq = rdata->scrambling_sequences[ue_idx] + (joint_pusch_vars->llr_offset[s] * rel15_ul->nrOfLayers);
   uint32_t bits_per_re = rel15_ul->nrOfLayers * rel15_ul->qam_mod_order;
   uint32_t a_idx  = map_uci->ack_offset[s];
   uint32_t c1_idx = map_uci->csi1_offset[s];
   uint32_t c2_idx = map_uci->csi2_offset[s];
   uint32_t u_idx = map_uci->ulsch_offset[s];
+
+  // Fast path: uncrambling only no UCI multiplexed on this symbol
+  bool no_uci = (map_uci->d_ack[s] == 0 && map_uci->d_csi1[s] == 0 && map_uci->d_csi2[s] == 0);
+  if (no_uci) {
+    const int end = joint_pusch_vars->ul_valid_re_per_slot[s] * bits_per_re;
+    int16_t *llr = &ue_pusch_vars->ulsch_llrs[u_idx];
+    int i = 0;
+    for (; (i + 16) <= end; i += 16) {
+      simde__m256i v_llr = simde_mm256_loadu_si256((simde__m256i *)&llr_in[i]);
+      simde__m256i v_s = simde_mm256_loadu_si256((simde__m256i *)&s_seq[i]);
+      simde_mm256_storeu_si256((simde__m256i *)&llr[i], simde_mm256_mullo_epi16(v_llr, v_s));
+    }
+    for (; i < end; i++)
+      llr[i] = llr_in[i] * s_seq[i];
+    return;
+  }
 
   // unscrambling and UCI demultiplexing
   int num_rvd_ack = 0;
