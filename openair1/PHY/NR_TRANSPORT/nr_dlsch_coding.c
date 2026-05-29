@@ -20,6 +20,9 @@
 #include <syscall.h>
 #include <openair2/UTIL/OPT/opt.h>
 
+#ifdef LDPC_CUDA
+#include <cuda_runtime.h>
+#endif
 // #define DEBUG_DLSCH_CODING
 // #define DEBUG_DLSCH_FREE 1
 
@@ -34,7 +37,11 @@ void free_gNB_dlsch(NR_gNB_DLSCH_t *dlsch, uint16_t N_RB, const NR_DL_FRAME_PARM
   }
 
   if (dlsch->b) {
+#ifdef LDPC_CUDA
+    cudaFreeHost(dlsch->b);
+#else
     free16(dlsch->b, a_segments * 1056);
+#endif
     dlsch->b = NULL;
   }
   if (dlsch->f) {
@@ -67,14 +74,29 @@ NR_gNB_DLSCH_t new_gNB_dlsch(NR_DL_FRAME_PARMS *frame_parms, uint16_t N_RB)
   bzero(dlsch.b, dlsch_bytes);
 
   dlsch.c = (uint8_t **)malloc16(a_segments * sizeof(uint8_t *));
+#ifdef LDPC_CUDA
+  cudaError_t err = cudaHostAlloc((void **)&dlsch.c_devh, a_segments * sizeof(uint8_t *), cudaHostAllocMapped);
+  AssertFatal(err == cudaSuccess, "CUDA Error (dlsch->c_devh): %s\n", cudaGetErrorString(err));
+  err = cudaHostGetDevicePointer((void **)&dlsch.c_dev, (void *)dlsch.c_devh, 0);
+  AssertFatal(err == cudaSuccess, "CUDA Error (dlsch->c_dev): %s\n", cudaGetErrorString(err));
+#endif
   for (int r = 0; r < a_segments; r++) {
     // account for filler in first segment and CRCs for multiple segment case
     // [hna] 8448 is the maximum CB size in NR
     //       68*348 = 68*(maximum size of Zc)
     //       In section 5.3.2 in 38.212, the for loop is up to N + 2*Zc (maximum size of N is 66*Zc, therefore 68*Zc)
-    dlsch.c[r] = malloc16(8448);
-    AssertFatal(dlsch.c[r], "cannot allocate dlsch.c[%d]\n", r);
-    bzero(dlsch.c[r], 8448);
+#ifdef LDPC_CUDA
+    err = cudaHostAlloc((void **)&dlsch.c[r], (8448 / 8) * sizeof(uint8_t), cudaHostAllocMapped);
+    AssertFatal(err == cudaSuccess, "CUDA Error (dlsch->c[%d]): %s\n", r, cudaGetErrorString(err));
+    uint8_t *tmpcr;
+    err = cudaHostGetDevicePointer((void **)&tmpcr, (void *)dlsch.c[r], 0);
+    ((uint8_t **)dlsch.c_devh)[r] = tmpcr;
+    AssertFatal(err == cudaSuccess, "CUDA Error (cudaHostGetDevicePointer) dlsch->c_devh[%d]: %s\n", r, cudaGetErrorString(err));
+#else
+    dlsch.c[r] = malloc16(8448 / 8);
+#endif
+    AssertFatal(dlsch.c[r], "cannot allocate dlsch->c[%d]\n", r);
+    bzero(dlsch.c[r], 8448 / 8);
   }
 
   dlsch.f = malloc16(N_RB * frame_parms->symbols_per_slot * NR_NB_SC_PER_RB * 8 * NR_MAX_NB_LAYERS);
@@ -218,6 +240,9 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
     TB_parameters->nb_layers = rel15->nrOfLayers;
     TB_parameters->rv_index = rel15->rvIndex[0];
 
+#ifdef LDPC_CUDA
+    TB_parameters->c_dev = (uint8_t **)dlsch->c_dev;
+#endif
     int nb_re_dmrs =
         (rel15->dmrsConfigType == NFAPI_NR_DMRS_TYPE1) ? (6 * rel15->numDmrsCdmGrpsNoData) : (4 * rel15->numDmrsCdmGrpsNoData);
     TB_parameters->G = nr_get_G(rbsize,

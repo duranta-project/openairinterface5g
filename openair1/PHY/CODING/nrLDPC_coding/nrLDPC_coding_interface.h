@@ -169,6 +169,7 @@ typedef struct nrLDPC_TB_encoding_parameters_s{
   uint32_t C;
   nrLDPC_segment_encoding_parameters_t *segments;
   unsigned char *output;
+  uint8_t **c_dev;
 } nrLDPC_TB_encoding_parameters_t;
 
 /**

@@ -110,6 +110,12 @@ typedef struct {
   uint8_t *b;
   /// Pointers to transport block segments
   uint8_t **c;
+#ifdef LDPC_CUDA
+  /// Pointers to transport block segments (contains pointers in c above)
+  uint8_t *c_devh;
+  /// Pointers to transport block segments (GPU mapping)
+  uint8_t *c_dev;
+#endif
   /// Interleaver outputs
   uint8_t *f;
   /// REs unavailable for DLSCH (overlapping with PTRS, CSIRS etc.)
@@ -252,6 +258,10 @@ typedef struct {
   /// \brief llr values.
   /// - first index: ? [0..1179743] (hard coded)
   int16_t *llr;
+#ifdef LDPC_CUDA
+  /// \brief llr values link to device memory
+  int16_t *llr_dev;
+#endif
   // PTRS symbol index, to be updated every PTRS symbol within a slot.
   uint8_t ptrs_symbol_index;
   /// bit mask of PT-RS ofdm symbol indicies

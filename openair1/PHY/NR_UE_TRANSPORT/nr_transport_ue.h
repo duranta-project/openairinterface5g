@@ -71,6 +71,10 @@ typedef struct {
   uint8_t *b;
   /// Pointer to transport block segments
   uint8_t *c;
+#ifdef LDPC_CUDA
+  /// Pointer to transport block segments (GPU pointer for c when using shared memory, should be the same on Jetson
+  uint8_t *cdev;
+#endif
   /// soft bits for each received segment ("d"-sequence)(for definition see 36-212 V8.6 2009-03, p.15)
   /// Accumulates the soft bits for each round to increase decoding success (HARQ)
   int16_t *d;

@@ -436,6 +436,12 @@ typedef struct PHY_VARS_NR_UE_s {
   Actor_t *ul_actors;
   pthread_t main_thread;
   pthread_t stat_thread;
+#ifdef LDPC_CUDA
+  // page locked memory (cudaHostAlloc) for llr input to LDPC decoder for GPU offload
+  int16_t *llr[10][2];
+  // gpu mapped version (cudaDeviceGetHostPointer), typically the same for Jetson/GH/GB
+  int16_t *llr_dev[10][2];
+#endif
 } PHY_VARS_NR_UE;
 
 typedef struct {

@@ -44,6 +44,10 @@
 #include "T.h"
 #include "instrumentation.h"
 
+#ifdef LDPC_CUDA
+#include <cuda_runtime.h>
+#endif
+
 static const unsigned int gain_table[31] = {100,  112,  126,  141,  158,  178,  200,  224,  251, 282,  316,
                                             359,  398,  447,  501,  562,  631,  708,  794,  891, 1000, 1122,
                                             1258, 1412, 1585, 1778, 1995, 2239, 2512, 2818, 3162};
@@ -1249,7 +1253,13 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
                      dlsch->cw_info.qamModOrder,
                      dlsch->cw_info.Nl);
     const uint32_t rx_llr_buf_sz = ALIGNARRAYSIZE(G, 32); // each LLR is 2 bytes hence 64 byte aligned
+#ifdef LDPC_CUDA
+    llr[c] = ue->llr_dev[nr_slot_rx % 10][c];
+    LOG_D(NR_PHY, "nr_slot_rx %d, llr[%d] %p\n", nr_slot_rx, c, llr[c]);
+//      memset(llr[i],0,rx_llr_buf_sz * sizeof(int16_t));
+#else
     llr[c] = (int16_t *)malloc16_clear(rx_llr_buf_sz * sizeof(int16_t));
+#endif
 
     // dlsch_harq contains the previous transmissions data for this harq pid
     NR_DL_UE_HARQ_t *harq = &ue->dl_harq_processes[c][dlsch_config->harq_process_nbr];
@@ -1286,7 +1296,9 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
     if (ue->phy_sim_pdsch_llr)
       memcpy(ue->phy_sim_pdsch_llr, llr[c], sizeof(int16_t) * rx_llr_buf_sz);
 
+#ifndef LDPC_CUDA
     free(llr[c]);
+#endif
   }
 
   if (nr_slot_rx==9) {
