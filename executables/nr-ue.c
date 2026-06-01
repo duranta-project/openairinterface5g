@@ -823,7 +823,7 @@ void *UE_thread(void *arg)
           /* For IQ recorder-player we force synchronization to happen in a fixed duration so that
              the replay runs in sync with recorded samples.
           */
-          openair0_config_t *cfg0 = &openair0_cfg[UE->rf_map.card];
+          openair0_config_t *cfg0 = &openair0_cfg_g[UE->rf_map.card];
           const unsigned int sync_in_frames = cfg0->recplay_conf->u_f_sync;
           while (trashed_frames != sync_in_frames) {
             readFrame(UE, &sync_timestamp, duration_rx_to_tx, true);

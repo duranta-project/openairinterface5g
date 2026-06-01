@@ -253,7 +253,7 @@ typedef struct openair0_config {
   //! this interface is reused for split 7, so split 7 options provided below
   split7_config_t split7;
 } openair0_config_t;
-extern openair0_config_t openair0_cfg[MAX_CARDS];
+extern openair0_config_t openair0_cfg_g[MAX_CARDS];
 
 /*! \brief RF mapping */
 typedef struct {

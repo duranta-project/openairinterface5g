@@ -156,7 +156,7 @@ nrUE_params_t *get_nrUE_params(void)
 }
 // needed for some functions
 uint16_t n_rnti = 0x1234;
-openair0_config_t openair0_cfg[MAX_CARDS];
+openair0_config_t openair0_cfg_g[MAX_CARDS];
 
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char *argv[])
@@ -541,7 +541,7 @@ int main(int argc, char *argv[])
   gNB->num_pusch_symbols_per_thread = 1;
   gNB->dmrs_num_antennas_per_thread = num_antennas_per_thread;
   gNB->RU_list[0] = calloc_or_fail(1, sizeof(**gNB->RU_list));
-  gNB->RU_list[0]->rfdevice.openair0_cfg = openair0_cfg;
+  gNB->RU_list[0]->rfdevice.openair0_cfg = openair0_cfg_g;
 
   if (setAffinity == false)
     initFloatingCoresTpool(threadCnt, &gNB->threadPool, false, "gNB-tpool");

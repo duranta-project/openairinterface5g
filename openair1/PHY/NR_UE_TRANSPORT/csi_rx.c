@@ -25,8 +25,6 @@
 //#define NR_CSIRS_DEBUG
 //#define NR_CSIIM_DEBUG
 
-extern openair0_config_t openair0_cfg[MAX_CARDS];
-
 void nr_det_A_MF_2x2(int32_t *a_mf_00,
                      int32_t *a_mf_01,
                      int32_t *a_mf_10,
@@ -222,7 +220,7 @@ static int nr_get_csi_rs_signal(const PHY_VARS_NR_UE *ue,
 
   *rsrp = rsrp_sum/meas_count;
   *rsrp_dBm = dB_fixed(*rsrp) + 30 - SQ15_SQUARED_NORM_FACTOR_DB
-              - ((int)openair0_cfg[ue->rf_map.card].rx_gain[0] - (int)openair0_cfg[ue->rf_map.card].rx_gain_offset[0])
+              - ((int)openair0_cfg_g[ue->rf_map.card].rx_gain[0] - (int)openair0_cfg_g[ue->rf_map.card].rx_gain_offset[0])
               - dB_fixed(ue->frame_parms.ofdm_symbol_size);
 
 #ifdef NR_CSIRS_DEBUG

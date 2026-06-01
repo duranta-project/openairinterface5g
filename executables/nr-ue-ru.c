@@ -88,8 +88,8 @@ static NR_DL_FRAME_PARMS *nrue_cell_fp;
 static int nrue_ru_count;
 static nrUE_RU_params_t *nrue_rus;
 
-openair0_config_t openair0_cfg[MAX_CARDS];
-openair0_device_t openair0_dev[MAX_CARDS];
+openair0_config_t openair0_cfg_g[MAX_CARDS] = {};
+static openair0_device_t openair0_dev[MAX_CARDS] = {};
 
 int nrue_get_cell_count(void)
 {
@@ -266,10 +266,6 @@ void nrue_init_openair0(void)
 {
   int freq_off = 0;
   bool is_sidelink = (get_softmodem_params()->sl_mode) ? true : false;
-
-  memset(openair0_cfg, 0, sizeof(openair0_config_t) * MAX_CARDS);
-  memset(openair0_dev, 0, sizeof(openair0_device_t) * MAX_CARDS);
-
   AssertFatal(MAX_CARDS >= nrue_ru_count,
               "Too many RUs allocated (%d)! Maybe increase MAX_CARDS (%d).\n",
               nrue_ru_count,
@@ -291,7 +287,7 @@ void nrue_init_openair0(void)
       frame_parms = &nrPHY_vars_UE_g[UE_id][0]->SL_UE_PHY_PARAMS.sl_frame_params;
     }
 
-    openair0_config_t *cfg = &openair0_cfg[ru_id];
+    openair0_config_t *cfg = &openair0_cfg_g[ru_id];
     cfg->configFilename    = NULL;
     cfg->sample_rate       = frame_parms->samples_per_subframe * 1e3;
 
@@ -339,34 +335,34 @@ void nrue_init_openair0(void)
 void nrue_ru_start(void)
 {
   for (int ru_id = 0; ru_id < nrue_ru_count; ru_id++) {
-    openair0_config_t *cfg0 = &openair0_cfg[ru_id];
-    openair0_device_t *dev0 = &openair0_dev[ru_id];
+    openair0_config_t *cfg = &openair0_cfg_g[ru_id];
+    openair0_device_t *dev = &openair0_dev[ru_id];
 
-    dev0->host_type = RAU_HOST;
-    int tmp = openair0_device_load(dev0, cfg0);
+    dev->host_type = RAU_HOST;
+    int tmp = openair0_device_load(dev, cfg);
     AssertFatal(tmp == 0, "Could not load the device %d\n", ru_id);
-    int tmp2 = dev0->trx_start_func(dev0);
+    int tmp2 = dev->trx_start_func(dev);
     AssertFatal(tmp2 == 0, "Could not start the device %d\n", ru_id);
     if (usrp_tx_thread == 1)
-      dev0->trx_write_init(dev0);
+      dev->trx_write_init(dev);
   }
 }
 
 void nrue_ru_stop(void)
 {
-  for (int ru_id = 0; ru_id < nrue_ru_count; ru_id++) {
-    if (openair0_dev[ru_id].trx_stop_func)
-      openair0_dev[ru_id].trx_stop_func(&openair0_dev[ru_id]);
+  for (openair0_device_t *ru = openair0_dev; ru < openair0_dev + nrue_ru_count; ru++) {
+    if (ru->trx_stop_func)
+      ru->trx_stop_func(ru);
   }
 }
 
 void nrue_ru_end(void)
 {
-  for (int ru_id = 0; ru_id < nrue_ru_count; ru_id++) {
-    if (openair0_dev[ru_id].trx_get_stats_func)
-      openair0_dev[ru_id].trx_get_stats_func(&openair0_dev[ru_id]);
-    if (openair0_dev[ru_id].trx_end_func)
-      openair0_dev[ru_id].trx_end_func(&openair0_dev[ru_id]);
+  for (openair0_device_t *ru = openair0_dev; ru < openair0_dev + nrue_ru_count; ru++) {
+    if (ru->trx_get_stats_func)
+      ru->trx_get_stats_func(ru);
+    if (ru->trx_end_func)
+      ru->trx_end_func(ru);
   }
 }
 
@@ -403,30 +399,30 @@ void nrue_ru_set_freq(PHY_VARS_NR_UE *UE, uint64_t ul_carrier, uint64_t dl_carri
   current_cell_id = nrue_rus[UE->rf_map.card].used_by_cell;
   nrue_cells[current_cell_id].used_by_ue = UE->Mod_id;
 
-  openair0_config_t *cfg0 = &openair0_cfg[UE->rf_map.card];
-  openair0_device_t *dev0 = &openair0_dev[UE->rf_map.card];
-  nr_rf_card_config_freq(cfg0, ul_carrier, dl_carrier, freq_offset);
-  dev0->trx_set_freq_func(dev0, cfg0);
+  openair0_config_t *cfg = &openair0_cfg_g[UE->rf_map.card];
+  openair0_device_t *dev = &openair0_dev[UE->rf_map.card];
+  nr_rf_card_config_freq(cfg, ul_carrier, dl_carrier, freq_offset);
+  dev->trx_set_freq_func(dev, cfg);
 }
 
 int nrue_ru_adjust_rx_gain(PHY_VARS_NR_UE *UE, int gain_change)
 {
-  openair0_config_t *cfg0 = &openair0_cfg[UE->rf_map.card];
-  openair0_device_t *dev0 = &openair0_dev[UE->rf_map.card];
+  openair0_config_t *cfg = &openair0_cfg_g[UE->rf_map.card];
+  openair0_device_t *dev = &openair0_dev[UE->rf_map.card];
 
   // Increase the RX gain by the value determined by adjust_rxgain
-  cfg0->rx_gain[0] += gain_change;
+  cfg->rx_gain[0] += gain_change;
 
   // Set new RX gain.
-  int ret_gain = dev0->trx_set_gains_func(dev0, cfg0);
+  int ret_gain = dev->trx_set_gains_func(dev, cfg);
   // APPLY RX gain again if crossed the MAX RX gain threshold
   if (ret_gain < 0) {
     gain_change += ret_gain;
-    cfg0->rx_gain[0] += ret_gain;
-    ret_gain = dev0->trx_set_gains_func(dev0, cfg0);
+    cfg->rx_gain[0] += ret_gain;
+    ret_gain = dev->trx_set_gains_func(dev, cfg);
   }
 
-  int applied_rxgain = cfg0->rx_gain[0] - cfg0->rx_gain_offset[0];
+  int applied_rxgain = cfg->rx_gain[0] - cfg->rx_gain_offset[0];
   LOG_I(HW, "Rxgain adjusted by %d dB, RX gain: %d dB \n", gain_change, applied_rxgain);
 
   return gain_change;
@@ -434,14 +430,14 @@ int nrue_ru_adjust_rx_gain(PHY_VARS_NR_UE *UE, int gain_change)
 
 int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **buff, int nsamps, int num_antennas)
 {
-  openair0_device_t *dev0 = &openair0_dev[UE->rf_map.card];
+  openair0_device_t *dev = &openair0_dev[UE->rf_map.card];
   openair0_timestamp_t tmp_timestamp;
-  int ret = dev0->trx_read_func(dev0, &tmp_timestamp, buff, nsamps, num_antennas);
-  if (!dev0->firstTS_initialized) {
-    dev0->firstTS = tmp_timestamp;
-    dev0->firstTS_initialized = true;
+  int ret = dev->trx_read_func(dev, &tmp_timestamp, buff, nsamps, num_antennas);
+  if (!dev->firstTS_initialized) {
+    dev->firstTS = tmp_timestamp;
+    dev->firstTS_initialized = true;
   }
-  *ptimestamp = tmp_timestamp - dev0->firstTS;
+  *ptimestamp = tmp_timestamp - dev->firstTS;
 
   if (UE->Mod_id != 0)
     return ret;
@@ -461,11 +457,11 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
     if (ue_id >= 0) // skip cells that are already used by an UE
       continue;
 
-    dev0 = &openair0_dev[ru_id];
-    dev0->trx_read_func(dev0, &tmp_timestamp, tmp_buf, nsamps, num_antennas);
-    if (!dev0->firstTS_initialized) {
-      dev0->firstTS = tmp_timestamp;
-      dev0->firstTS_initialized = true;
+    dev = &openair0_dev[ru_id];
+    dev->trx_read_func(dev, &tmp_timestamp, tmp_buf, nsamps, num_antennas);
+    if (!dev->firstTS_initialized) {
+      dev->firstTS = tmp_timestamp;
+      dev->firstTS_initialized = true;
     }
   }
 
@@ -474,8 +470,8 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
 
 int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buff, int nsamps, int num_antennas, int flags)
 {
-  openair0_device_t *dev0 = &openair0_dev[UE->rf_map.card];
-  int ret = dev0->trx_write_func(dev0, timestamp + dev0->firstTS, buff, nsamps, num_antennas, flags);
+  openair0_device_t *dev = &openair0_dev[UE->rf_map.card];
+  int ret = dev->trx_write_func(dev, timestamp + dev->firstTS, buff, nsamps, num_antennas, flags);
 
   if (UE->Mod_id != 0)
     return ret;
@@ -496,8 +492,8 @@ int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buf
     if (ue_id >= 0) // skip cells that are already used by an UE
       continue;
 
-    dev0 = &openair0_dev[ru_id];
-    dev0->trx_write_func(dev0, timestamp + dev0->firstTS, tmp_buf, nsamps, num_antennas, flags);
+    dev = &openair0_dev[ru_id];
+    dev->trx_write_func(dev, timestamp + dev->firstTS, tmp_buf, nsamps, num_antennas, flags);
   }
   return ret;
 }
