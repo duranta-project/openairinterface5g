@@ -83,45 +83,15 @@
 
 static struct {
   int count;
-  nrUE_cell_params_t *cfg;
-  NR_DL_FRAME_PARMS *fp;
-} nrue_cells = {};
-
-static struct {
-  int count;
   nrUE_RU_params_t *cfg;
   openair0_device_t *openair0_dev;
 } nrue_rus = {};
 // We keep openair0_cfg_g outside for legacy code
 openair0_config_t openair0_cfg_g[MAX_CARDS] = {};
 
-int nrue_get_cell_count(void)
-{
-  return nrue_cells.count;
-}
-
 int nrue_get_band(const PHY_VARS_NR_UE *UE)
 {
-  int cell_id = nrue_rus.cfg[UE->rf_map.card].used_by_cell;
-  return nrue_cells.cfg[cell_id].band;
-}
-
-const nrUE_cell_params_t *nrue_get_cell(int cell_id)
-{
-  AssertFatal(cell_id >= 0 && cell_id < nrue_cells.count, "Invalid cell ID %d! Cell count = %d\n", cell_id, nrue_cells.count);
-  return &nrue_cells.cfg[cell_id];
-}
-
-NR_DL_FRAME_PARMS *nrue_get_cell_fp(int cell_id)
-{
-  AssertFatal(cell_id >= 0 && cell_id < nrue_cells.count, "Invalid cell ID %d! Cell count = %d\n", cell_id, nrue_cells.count);
-  return &nrue_cells.fp[cell_id];
-}
-
-void nrue_set_cell(int cell_id, const nrUE_cell_params_t *cell)
-{
-  AssertFatal(cell_id >= 0 && cell_id < nrue_cells.count, "Invalid cell ID %d! Cell count = %d\n", cell_id, nrue_cells.count);
-  nrue_cells.cfg[cell_id] = *cell;
+  return nrue_rus.cfg[UE->rf_map.card].cell[0].band;
 }
 
 void nrue_set_cell_params(configmodule_interface_t *cfg)
@@ -131,43 +101,44 @@ void nrue_set_cell_params(configmodule_interface_t *cfg)
   config_getlist(cfg, &cellParamList, cellParams, sizeofArray(cellParams), NULL);
 
   if (cellParamList.numelt <= 0) {
-    nrue_cells.count = 1;
-    nrue_cells.fp = calloc_or_fail(nrue_cells.count, sizeof(*nrue_cells.fp));
-    nrue_cells.cfg = calloc_or_fail(nrue_cells.count, sizeof(*nrue_cells.cfg));
-    nrue_cells.cfg[0] = (nrUE_cell_params_t){.ru_id = 0,
-                                             .band = get_softmodem_params()->band,
-                                             .rf_frequency = downlink_frequency[0][0],
-                                             .rf_freq_offset = uplink_frequency_offset[0][0],
-                                             .numerology = get_softmodem_params()->numerology,
-                                             .N_RB_DL = get_nrUE_params()->N_RB_DL,
-                                             .ssb_start = get_nrUE_params()->ssb_start_subcarrier,
-                                             .used_by_ue = -1};
+    nrue_rus.cfg[0].nb_cells = 1;
+    nrue_rus.cfg[0].cell = malloc(sizeof(nrUE_cell_params_t));
+    AssertFatal(nrue_rus.cfg[0].cell, "no memory");
+    nrue_rus.cfg[0].cell[0] = (nrUE_cell_params_t){.active = true,
+                                                   .band = get_softmodem_params()->band,
+                                                   .rf_frequency = downlink_frequency[0][0],
+                                                   .rf_freq_offset = uplink_frequency_offset[0][0],
+                                                   .numerology = get_softmodem_params()->numerology,
+                                                   .N_RB_DL = get_nrUE_params()->N_RB_DL,
+                                                   .ssb_start = get_nrUE_params()->ssb_start_subcarrier,
+                                                   .fp = calloc_or_fail(1, sizeof(*nrue_rus.cfg[0].cell->fp))};
     return;
   }
 
-  nrue_cells.count = cellParamList.numelt;
-  nrue_cells.fp = calloc_or_fail(nrue_cells.count, sizeof(*nrue_cells.fp));
-  nrue_cells.cfg = calloc_or_fail(nrue_cells.count, sizeof(*nrue_cells.cfg));
-
   LOG_W(NR_PHY, "Ignoring command line cell parameters, using the following instead:\n");
 
-  for (int cell_id = 0; cell_id < nrue_cells.count; cell_id++) {
+  for (int cell_id = 0; cell_id < cellParamList.numelt; cell_id++) {
     paramdef_t *param = cellParamList.paramarray[cell_id];
     const int sz = sizeofArray(cellParams);
-    nrUE_cell_params_t *cell = nrue_cells.cfg + cell_id;
-    *cell = (nrUE_cell_params_t){.ru_id = *gpd(param, sz, NRUE_CELL_RU_ID)->iptr,
+    int ru_id = *gpd(param, sz, NRUE_CELL_RU_ID)->iptr;
+    nrue_rus.cfg[ru_id].nb_cells++;
+    nrUE_cell_params_t *cell_base = nrue_rus.cfg[ru_id].cell;
+    nrUE_cell_params_t *new = reallocarray(cell_base, nrue_rus.cfg[ru_id].nb_cells, sizeof(nrUE_cell_params_t));
+    AssertFatal(new, "no memory");
+    nrue_rus.cfg[ru_id].cell = new;
+    nrUE_cell_params_t *cell = nrue_rus.cfg[ru_id].cell + nrue_rus.cfg[ru_id].nb_cells - 1;
+    *cell = (nrUE_cell_params_t){.active = true,
                                  .band = *gpd(param, sz, NRUE_CELL_BAND)->iptr,
                                  .rf_frequency = *gpd(param, sz, NRUE_CELL_RF_FREQUENCY)->u64ptr,
                                  .rf_freq_offset = *gpd(param, sz, NRUE_CELL_RF_FREQ_OFFSET)->i64ptr,
                                  .numerology = *gpd(param, sz, NRUE_CELL_NUMEROLOGY)->iptr,
                                  .N_RB_DL = *gpd(param, sz, NRUE_CELL_N_RB_DL)->iptr,
                                  .ssb_start = *gpd(param, sz, NRUE_CELL_SSB_START)->iptr,
-                                 .used_by_ue = -1};
+                                 .fp = calloc_or_fail(1, sizeof(*nrue_rus.cfg[0].cell->fp))};
 
     LOG_I(NR_PHY,
-          "cell %d: ru_id %d, band %d, DL freq %lu, UL freq_offset %ld, numerology %d, N_RB_DL %d, ssb_start %d\n",
+          "cell %d: band %d, DL freq %lu, UL freq_offset %ld, numerology %d, N_RB_DL %d, ssb_start %d\n",
           cell_id,
-          cell->ru_id,
           cell->band,
           cell->rf_frequency,
           cell->rf_freq_offset,
@@ -182,17 +153,10 @@ int nrue_get_ru_count(void)
   return nrue_rus.count;
 }
 
-const nrUE_RU_params_t *nrue_get_ru(int ru_id)
+nrUE_RU_params_t *nrue_get_ru(int ru_id)
 {
   AssertFatal(ru_id >= 0 && ru_id < nrue_rus.count, "Invalid RU ID %d! RU count = %d\n", ru_id, nrue_rus.count);
   return &nrue_rus.cfg[ru_id];
-}
-
-void nrue_set_ru_cell_id(int ru_id, int cell_id)
-{
-  AssertFatal(ru_id >= 0 && ru_id < nrue_rus.count, "Invalid RU ID %d! RU count = %d\n", ru_id, nrue_rus.count);
-  AssertFatal(cell_id >= 0 && cell_id < nrue_cells.count, "Invalid cell ID %d! Cell count = %d\n", cell_id, nrue_cells.count);
-  nrue_rus.cfg[ru_id].used_by_cell = cell_id;
 }
 
 void nrue_set_ru_params(configmodule_interface_t *cfg)
@@ -217,8 +181,7 @@ void nrue_set_ru_params(configmodule_interface_t *cfg)
                                          .time_source = get_softmodem_params()->timing_source,
                                          .tune_offset = get_softmodem_params()->tune_offset,
                                          .if_frequency = get_nrUE_params()->if_freq,
-                                         .if_freq_offset = get_nrUE_params()->if_freq_off,
-                                         .used_by_cell = -1};
+                                         .if_freq_offset = get_nrUE_params()->if_freq_off};
     return;
   }
 
@@ -280,14 +243,14 @@ void nrue_init_openair0(void)
 
   for (int ru_id = 0; ru_id < nrue_rus.count; ru_id++) {
     nrUE_RU_params_t *ru = nrue_rus.cfg + ru_id;
-    int cell_id = ru->used_by_cell;
-    if (cell_id < 0) {
+    if (!ru->nb_cells) {
       LOG_W(PHY, "Skipping initialization of RU %d because it is not used by any cell!\n", ru_id);
       continue;
     }
-    NR_DL_FRAME_PARMS *frame_parms = nrue_cells.fp + cell_id;
+    // incoherent datamodel, we use the first cell
+    NR_DL_FRAME_PARMS *frame_parms = ru->cell[0].fp;
     if (is_sidelink) {
-      int UE_id = nrue_cells.cfg[cell_id].used_by_ue;
+      int UE_id = ru->cell[0].used_by_ue;
       if (UE_id < 0) {
         LOG_W(PHY, "Skipping initialization of RU %d because it is not used by any UE!\n", ru_id);
         continue;
@@ -376,8 +339,9 @@ void nrue_ru_end(void)
 
 void nrue_ru_set_freq(PHY_VARS_NR_UE *UE, uint64_t ul_carrier, uint64_t dl_carrier, int freq_offset)
 {
-  int current_cell_id = nrue_rus.cfg[UE->rf_map.card].used_by_cell;
-  NR_DL_FRAME_PARMS *fp0 = nrue_cells.fp + current_cell_id;
+  // in this function, the datamodel is wrong, we assume the ru has one single cell
+  nrUE_RU_params_t *ru = nrue_rus.cfg + UE->rf_map.card;
+  NR_DL_FRAME_PARMS *fp0 = ru->cell[0].fp;
   uint64_t dl_carrier_distance =
       fp0->dl_CarrierFreq > dl_carrier ? fp0->dl_CarrierFreq - dl_carrier : dl_carrier - fp0->dl_CarrierFreq;
   uint64_t ul_carrier_distance =
@@ -385,28 +349,25 @@ void nrue_ru_set_freq(PHY_VARS_NR_UE *UE, uint64_t ul_carrier, uint64_t dl_carri
   uint64_t carrier_distance = dl_carrier_distance + ul_carrier_distance;
 
   for (int ru_id = 0; carrier_distance != 0 && ru_id < nrue_rus.count; ru_id++) {
-    int cell_id = nrue_rus.cfg[ru_id].used_by_cell;
-    if (cell_id < 0) // skip RUs that have no cell definition
+    nrUE_RU_params_t *ru_loop = nrue_rus.cfg + ru_id;
+    if (!ru_loop->cell[0].active) // skip RUs that have no cell definition
       continue;
-    if (nrue_cells.cfg[cell_id].used_by_ue >= 0) // skip cells that are already used by an UE
+    if (ru_loop->cell[0].used_by_ue >= 0) // skip cells that are already used by an UE
       continue;
 
-    fp0 = nrue_cells.fp + cell_id;
+    fp0 = ru_loop->cell[0].fp;
     uint64_t this_dl_carrier_distance =
         fp0->dl_CarrierFreq > dl_carrier ? fp0->dl_CarrierFreq - dl_carrier : dl_carrier - fp0->dl_CarrierFreq;
     uint64_t this_ul_carrier_distance =
         fp0->ul_CarrierFreq > ul_carrier ? fp0->ul_CarrierFreq - ul_carrier : ul_carrier - fp0->ul_CarrierFreq;
     uint64_t this_carrier_distance = this_dl_carrier_distance + this_ul_carrier_distance;
     if (this_carrier_distance < carrier_distance) {
-      UE->rf_map.card = ru_id;
+      UE->rf_map.card = ru_id; // ???? fixme
       carrier_distance = this_carrier_distance;
     }
   }
 
-  nrue_cells.cfg[current_cell_id].used_by_ue = -1;
-  current_cell_id = nrue_rus.cfg[UE->rf_map.card].used_by_cell;
-  nrue_cells.cfg[current_cell_id].used_by_ue = UE->Mod_id;
-
+  ru->cell[0].used_by_ue = UE->Mod_id;
   openair0_config_t *cfg = &openair0_cfg_g[UE->rf_map.card];
   openair0_device_t *dev = &nrue_rus.openair0_dev[UE->rf_map.card];
   nr_rf_card_config_freq(cfg, ul_carrier, dl_carrier, freq_offset);
@@ -458,13 +419,10 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
     tmp_buf[ant] = tmp_samples;
 
   for (int ru_id = 0; ru_id < nrue_rus.count; ru_id++) {
-    int cell_id = nrue_rus.cfg[ru_id].used_by_cell;
-    if (cell_id < 0) // skip RUs that have no cell definition
+    if (!nrue_rus.cfg[ru_id].cell[0].active) // skip RUs that have no cell definition
       continue;
-    int ue_id = nrue_cells.cfg[cell_id].used_by_ue;
-    if (ue_id >= 0) // skip cells that are already used by an UE
+    if (nrue_rus.cfg[ru_id].cell[0].used_by_ue >= 0) // skip cells that are already used by an UE
       continue;
-
     dev = &nrue_rus.openair0_dev[ru_id];
     dev->trx_read_func(dev, &tmp_timestamp, tmp_buf, nsamps, num_antennas);
     if (!dev->firstTS_initialized) {
@@ -493,13 +451,10 @@ int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buf
     tmp_buf[ant] = tmp_samples;
 
   for (int ru_id = 0; ru_id < nrue_rus.count; ru_id++) {
-    int cell_id = nrue_rus.cfg[ru_id].used_by_cell;
-    if (cell_id < 0) // skip RUs that have no cell definition
+    if (!nrue_rus.cfg[ru_id].cell[0].active) // skip RUs that have no cell definition
       continue;
-    int ue_id = nrue_cells.cfg[cell_id].used_by_ue;
-    if (ue_id >= 0) // skip cells that are already used by an UE
+    if (nrue_rus.cfg[ru_id].cell[0].used_by_ue >= 0) // skip cells that are already used by an UE
       continue;
-
     dev = &nrue_rus.openair0_dev[ru_id];
     dev->trx_write_func(dev, timestamp + dev->firstTS, tmp_buf, nsamps, num_antennas, flags);
   }
