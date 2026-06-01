@@ -205,38 +205,38 @@ typedef struct sl_nr_rx_config_pssch_pdu {
   uint8_t ndi;
 } sl_nr_rx_config_pssch_pdu_t;
 
-typedef struct sl_nr_tx_rx_config_psfch_pdu {                
-  //  These fields can be mapped directly to the same fields 
-  uint8_t freq_hop_flag;                                     
-  uint8_t group_hop_flag;                                    
-  uint8_t sequence_hop_flag;                                 
-  uint16_t second_hop_prb;                                    
-  uint8_t nr_of_symbols;                                      
-  uint8_t start_symbol_index;                                 
-  uint8_t hopping_id;                                         
-  uint16_t prb;                                               
-  uint16_t sl_bwp_start;                                      
-  uint16_t initial_cyclic_shift;                              
-  uint8_t mcs;                                                
-  uint8_t bit_len_harq;                                       
-} sl_nr_tx_rx_config_psfch_pdu_t;                             
+typedef struct sl_nr_tx_rx_config_psfch_pdu {
+  //  These fields can be mapped directly to the same fields in nfapi_nr_ul_config_pucch_pdu
+  uint8_t freq_hop_flag;
+  uint8_t group_hop_flag;
+  uint8_t sequence_hop_flag;
+  uint16_t second_hop_prb;
+  uint8_t nr_of_symbols;
+  uint8_t start_symbol_index;
+  uint8_t hopping_id;
+  uint16_t prb;
+  uint16_t sl_bwp_start;
+  uint16_t initial_cyclic_shift;
+  uint8_t mcs;
+  uint8_t bit_len_harq;
+} sl_nr_tx_rx_config_psfch_pdu_t;
 
 typedef struct sl_nr_tti_csi_rs_pdu {
-  uint8_t subcarrier_spacing;
-  uint8_t cyclic_prefix;
-  uint16_t start_rb;
-  uint16_t nr_of_rbs;
-  uint8_t csi_type;
-  uint8_t row;
-  uint16_t freq_domain;
-  uint8_t symb_l0;
-  uint8_t symb_l1;
-  uint8_t cdm_type;
-  uint8_t freq_density;
-  uint16_t scramb_id;
-  uint8_t power_control_offset;
-  uint8_t power_control_offset_ss;
-  uint8_t measurement_bitmap;
+  uint8_t subcarrier_spacing;       // subcarrierSpacing [3GPP TS 38.211, sec 4.2], Value:0->4
+  uint8_t cyclic_prefix;            // Cyclic prefix type [3GPP TS 38.211, sec 4.2], 0: Normal; 1: Extended
+  uint16_t start_rb;                // PRB where this CSI resource starts related to common resource block #0 (CRB#0). Only multiples of 4 are allowed. [3GPP TS 38.331, sec 6.3.2 parameter CSIFrequencyOccupation], Value: 0 ->274
+  uint16_t nr_of_rbs;               // Number of PRBs across which this CSI resource spans. Only multiples of 4 are allowed. [3GPP TS 38.331, sec 6.3.2 parameter CSI-FrequencyOccupation], Value: 24 -> 276
+  uint8_t csi_type;                 // CSI Type [3GPP TS 38.211, sec 7.4.1.5], Value: 0:TRS; 1:CSI-RS NZP; 2:CSI-RS ZP
+  uint8_t row;                      // Row entry into the CSI Resource location table. [3GPP TS 38.211, sec 7.4.1.5.3 and table 7.4.1.5.3-1], Value: 1-18
+  uint16_t freq_domain;             // Bitmap defining the frequencyDomainAllocation [3GPP TS 38.211, sec 7.4.1.5.3] [3GPP TS 38.331 CSIResourceMapping], Value: Up to the 12 LSBs, actual size is determined by the Row parameter
+  uint8_t symb_l0;                  // The time domain location l0 and firstOFDMSymbolInTimeDomain [3GPP TS 38.211, sec 7.4.1.5.3], Value: 0->13
+  uint8_t symb_l1;                  // The time domain location l1 and firstOFDMSymbolInTimeDomain2 [3GPP TS 38.211, sec 7.4.1.5.3], Value: 2->12
+  uint8_t cdm_type;                 // The cdm-Type field [3GPP TS 38.211, sec 7.4.1.5.3 and table 7.4.1.5.3-1], Value: 0: noCDM; 1: fd-CDM2; 2: cdm4-FD2-TD2; 3: cdm8-FD2-TD4
+  uint8_t freq_density;             // The density field, p and comb offset (for dot5). [3GPP TS 38.211, sec 7.4.1.5.3 and table 7.4.1.5.3-1], Value: 0: dot5 (even RB); 1: dot5 (odd RB); 2: one; 3: three
+  uint16_t scramb_id;               // ScramblingID of the CSI-RS [3GPP TS 38.214, sec 5.2.2.3.1], Value: 0->1023
+  uint8_t power_control_offset;     // Ratio of PDSCH EPRE to NZP CSI-RSEPRE [3GPP TS 38.214, sec 5.2.2.3.1], Value: 0->23 representing -8 to 15 dB in 1dB steps; 255: L1 is configured with ProfileSSS
+  uint8_t power_control_offset_ss;  // Ratio of NZP CSI-RS EPRE to SSB/PBCH block EPRE [3GPP TS 38.214, sec 5.2.2.3.1], Values: 0: -3dB; 1: 0dB; 2: 3dB; 3: 6dB; 255: L1 is configured with ProfileSSS
+  uint8_t measurement_bitmap;       // bit 0 RSRP, bit 1 RI, bit 2 LI, bit 3 PMI, bit 4 CQI, bit 5 i1
 } sl_nr_tti_csi_rs_pdu_t;
 
 typedef struct {
@@ -246,9 +246,9 @@ typedef struct {
     sl_nr_rx_config_pssch_sci_pdu_t rx_sci2_config_pdu;
     sl_nr_rx_config_pssch_pdu_t rx_pssch_config_pdu;
   };
-  sl_nr_tti_csi_rs_pdu_t rx_csi_rs_config_pdu;                
-  sl_nr_tx_rx_config_psfch_pdu_t *rx_psfch_pdu_list;          
-  uint16_t num_psfch_pdus;                                        
+  sl_nr_tti_csi_rs_pdu_t rx_csi_rs_config_pdu;
+  sl_nr_tx_rx_config_psfch_pdu_t *rx_psfch_pdu_list;
+  uint16_t num_psfch_pdus;
 } sl_nr_rx_config_request_pdu_t;
 
 // MAC commands PHY to perform an action on RX RESOURCE POOL or RX PSBCH using this RX CONFIG
@@ -294,8 +294,10 @@ typedef struct sl_nr_tx_config_pscch_pssch_pdu {
   //Guard symbol + AGC symbol are also excluded
   //Indicates the number of symbols for PSCCH+PSSCH txn
   uint8_t pssch_numsym;
-    // start symbol of PSCCH/PSSCH (excluding AGC)
+
+  // start symbol of PSCCH/PSSCH (excluding AGC)
   uint8_t pssch_startsym;
+
   //.... Other Parameters for SCI-2 and PSSCH
 
   // Used to determine number of SCI2 modulated symbols
@@ -319,11 +321,11 @@ typedef struct sl_nr_tx_config_pscch_pssch_pdu {
   uint16_t dmrs_symbol_position;
 
   // PSFCH related parameters                                 
-  sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu_list;             
-  uint16_t num_psfch_pdus;                                    
+  sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu_list;
+  uint16_t num_psfch_pdus;
   
-  // CSI-RS related parameters                                
-  sl_nr_tti_csi_rs_pdu_t nr_sl_csi_rs_pdu;                    
+  // CSI-RS related parameters
+  sl_nr_tti_csi_rs_pdu_t nr_sl_csi_rs_pdu;
 
   //TX Power for PSSCH in symbol without PSCCH.
   // Power for PSCCH and power for PSSCH in symbol with PSCCH is calculated
@@ -331,8 +333,7 @@ typedef struct sl_nr_tx_config_pscch_pssch_pdu {
   int16_t pssch_tx_power;
 
   uint16_t slsch_payload_length;
-  uint8_t *slsch_payload;  
-
+  uint8_t *slsch_payload;
 } sl_nr_tx_config_pscch_pssch_pdu_t;
 
 // MAC indicates PHY to send PSBCH.

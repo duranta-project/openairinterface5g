@@ -119,6 +119,8 @@ typedef struct {
   uint8_t harq_pid;
   uint8_t cw_idx;
   uint8_t ack_nack;
+  uint8_t *ack_nack_rcvd;
+  uint8_t  num_acks_rcvd;
   uint32_t pdu_length;
   uint8_t* pdu;
 } fapi_nr_pdsch_pdu_t;
