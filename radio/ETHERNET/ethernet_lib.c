@@ -28,8 +28,6 @@ int num_devices_eth = 0;
 struct sockaddr_in dest_addr[MAX_INST];
 int dest_addr_len[MAX_INST];
 
-int load_lib(openair0_device_t *device, openair0_config_t *openair0_cfg, uint8_t flag);
-
 int trx_eth_start(openair0_device_t *device)
 {
   eth_state_t *eth = (eth_state_t *)device->priv;

@@ -1532,7 +1532,8 @@ static void *ru_thread( void *param ) {
     init_frame_parms(ru->frame_parms,1);
     ru->frame_parms->nb_antennas_rx = ru->nb_rx;
 
-    if (ru->if_south == LOCAL_RF)       openair0_device_load(&ru->rfdevice,&ru->openair0_cfg);
+    if (ru->if_south == LOCAL_RF)
+      openair0_device_load(&ru->rfdevice, &ru->openair0_cfg);
 
     phy_init_RU(ru);
       
