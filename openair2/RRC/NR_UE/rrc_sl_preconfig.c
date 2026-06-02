@@ -213,11 +213,11 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
   // EX: BITMAP 10101010.. indicating every alternating slot supported for sidelink
   for (int i=0;i<sl_res_pool->ext1->sl_TimeResource_r16->size;i++) {
     if (is_txpool) {
-        sl_res_pool->ext1->sl_TimeResource_r16->buf[i] = (is_sl_syncsource) ? 0xAA //0x88;//0xAA;
-                                                                            : 0x55;//0x11;//0x55;
+        sl_res_pool->ext1->sl_TimeResource_r16->buf[i] = (is_sl_syncsource) ? 0xF0
+                                                                            : 0x0F;
     } else {
-        sl_res_pool->ext1->sl_TimeResource_r16->buf[i] = (is_sl_syncsource) ? 0x55 //0x88;//0xAA;
-                                                                            : 0xAA;//0x11;//0x55;
+        sl_res_pool->ext1->sl_TimeResource_r16->buf[i] = (is_sl_syncsource) ? 0x0F
+                                                                            : 0xF0;
     }
   }
 
