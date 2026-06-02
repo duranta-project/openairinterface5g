@@ -261,6 +261,14 @@ static void  sl_prepare_phy_config(int module_id,
     sl_set_tdd_config_nr_ue(&phycfg->tdd_table,
                             phycfg->sl_bwp_config.sl_scs,
                             &sl_TDD_config->pattern1);
+    int period_idx = sl_TDD_config ? get_tdd_period_idx(sl_TDD_config) : 0;
+    // TODO move to right place
+    NR_UE_MAC_INST_t *mac = get_mac_inst(0);
+    config_frame_structure(phycfg->sl_bwp_config.sl_scs,
+                           sl_TDD_config,
+                           period_idx,
+                           TDD, // TODO make configurable
+                           &mac->frame_structure);
 
     LOG_I(NR_MAC, "SIDELINK CONFIGs: tdd config period:%ld, mu:%ld, DLslots:%ld,ULslots:%ld Mixedslotsym DL:UL %ld:%ld\n",
                           sl_TDD_config->pattern1.dl_UL_TransmissionPeriodicity, sl_TDD_config->referenceSubcarrierSpacing,
