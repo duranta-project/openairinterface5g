@@ -478,7 +478,9 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
     int nr_slots_period = nr_slots_frame;
     int nr_ulstart_slot = 0;
     if (tdd) {
-      nr_ulstart_slot = get_first_ul_slot(&mac->frame_structure, false);
+      // can't use get_first_ul_slot() here because frame_structure not set up
+      // yet
+      nr_ulstart_slot = tdd->nrofDownlinkSlots + (tdd->nrofDownlinkSymbols != 0 && tdd->nrofUplinkSymbols == 0);
       nr_slots_period /= get_nb_periods_per_frame(tdd->dl_UL_TransmissionPeriodicity);
     }
 
@@ -680,7 +682,9 @@ void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
     int nr_slots_period = nr_slots_frame;
     int nr_ulstart_slot = 0;
     if (tdd) {
-      nr_ulstart_slot = get_first_ul_slot(&mac->frame_structure, false);
+      // can't use get_first_ul_slot() here because frame_structure not set up
+      // yet
+      nr_ulstart_slot = tdd->nrofDownlinkSlots + (tdd->nrofDownlinkSymbols != 0 && tdd->nrofUplinkSymbols == 0);
       nr_slots_period /= get_nb_periods_per_frame(tdd->dl_UL_TransmissionPeriodicity);
     }
 
