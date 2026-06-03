@@ -659,6 +659,8 @@ void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
                                   cfg->sl_bwp_config.sl_scs,
                                   cfg->sl_bwp_config.sl_num_symbols,
                                   cfg->sl_bwp_config.sl_start_symbol);
+    // why is this not set ?!
+    sl_mac->sl_TDD_config->pattern1.nrofDownlinkSlots = 6;
 
     if (ret == 0) {
       //sl_tdd_config bytes are all 1's - no TDD config present use all slots for sidelink.
@@ -667,9 +669,18 @@ void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
                         NR_NUMBER_OF_SUBFRAMES_PER_FRAME*(1<<cfg->sl_bwp_config.sl_scs);
     }
 
+    // TODO Necessary?
     sl_set_tdd_config_nr_ue(&cfg->tdd_table,
                             cfg->sl_bwp_config.sl_scs,
                             &sl_mac->sl_TDD_config->pattern1);
+
+    // TODO move to right place
+    int period_idx = sl_mac->sl_TDD_config ? get_tdd_period_idx(sl_mac->sl_TDD_config) : 0;
+    config_frame_structure(cfg->sl_bwp_config.sl_scs,
+                           sl_mac->sl_TDD_config,
+                           period_idx,
+                           TDD, // TODO make configurable
+                           &mac->frame_structure);
 
     AssertFatal(get_nrUE_params()->sync_ref == 0, "Expecting Nearby UE\n");
     int scs = get_softmodem_params()->numerology;
