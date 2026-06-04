@@ -1049,9 +1049,6 @@ void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc
   int frame_tx = proc->frame_tx;
   int tx_action = 0;
   const char *sl_tx_actions[] = {"PSBCH", "PSCCH_PSSCH", "PSCCH_PSSCH_PSFCH", "PSCCH_PSSCH_CSI_RS"};
-  if (phy_data->sl_tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_CSI_RS) {
-    LOG_D(NR_PHY, "Generating %s (%d.%d)\n", sl_tx_actions[phy_data->sl_tx_action - SL_NR_CONFIG_TYPE_TX_PSBCH], frame_tx, slot_tx);
-  }
 
   sl_nr_ue_phy_params_t *sl_phy_params = &ue->SL_UE_PHY_PARAMS;
   NR_DL_FRAME_PARMS *fp = &sl_phy_params->sl_frame_params;
@@ -1074,9 +1071,8 @@ void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc
     tx_action = 1;
   }
   else if (phy_data->sl_tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH ||
-           phy_data->sl_tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_CSI_RS ||
            phy_data->sl_tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH) {
-    if (phy_data->sl_tx_action >= SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH && phy_data->sl_tx_action <= SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_CSI_RS)
+    if (phy_data->sl_tx_action >= SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH)
       LOG_D(NR_PHY, "(%d.%d) Sending %s\n", frame_tx, slot_tx, sl_tx_actions[phy_data->sl_tx_action - SL_NR_CONFIG_TYPE_TX_PSBCH]);
     phy_data->pscch_Nid = nr_generate_sci1(ue, txdataF[0], fp, AMP, slot_tx, &phy_data->nr_sl_pssch_pscch_pdu) &0xFFFF;
     nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csi_params = (nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *)&phy_data->nr_sl_pssch_pscch_pdu.nr_sl_csi_rs_pdu;
@@ -1086,25 +1082,6 @@ void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc
     sl_phy_params->pscch.num_pscch_tx ++;
     sl_phy_params->pssch.num_pssch_sci2_tx ++;
     sl_phy_params->pssch.num_pssch_tx ++;
-    if (phy_data->sl_tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_CSI_RS) {
-      uint16_t beta_csirs = get_softmodem_params()->sl_mode ? (uint16_t)(AMP * (ceil(sqrt(phy_data->nr_sl_pssch_pscch_pdu.num_layers / fp->nb_antennas_tx)))) & 0xFFFF : AMP;
-      LOG_D(NR_PHY, "Tx beta_csirs: %d, scramb_id %i (%d.%d)\n", beta_csirs, csi_params->scramb_id, frame_tx, slot_tx);
-      AssertFatal(false, "CSI_RS not supported\n");
-      //nr_generate_csi_rs(fp,
-      //                   (int32_t **)txdataF,
-      //                   beta_csirs,
-      //                   ue->nr_csi_info,
-      //                   csi_params,
-      //                   slot_tx,
-      //                   NULL,
-      //                   NULL,
-      //                   NULL,
-      //                   NULL,
-      //                   NULL,
-      //                   NULL,
-      //                   NULL,
-      //                   NULL);
-    }
     if (phy_data->sl_tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH) {
       for (int k = 0; k < phy_data->nr_sl_pssch_pscch_pdu.num_psfch_pdus; k++) {
         nr_generate_psfch0(ue,
