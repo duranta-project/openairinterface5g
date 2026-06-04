@@ -685,9 +685,9 @@ const static int16_t tw16c[24] __attribute__((aligned(32))) = { 0,32767,12540,30
                                                    0,32767,30273,12539,23170,-23170,-12539,-30273
                                                  };
 
-static inline void dft16(int16_t *x,int16_t *y) __attribute__((always_inline));
+inline void dft16(int16_t *x, int16_t *y, uint8_t scale_flag) __attribute__((always_inline));
 
-static inline void dft16(int16_t *x,int16_t *y)
+inline void dft16(int16_t *x, int16_t *y, uint8_t scale_flag)
 {
 
   int16x8_t *tw16a_128=(int16x8_t *)tw16a,*tw16b_128=(int16x8_t *)tw16b,*x128=(int16x8_t *)x,*y128=(int16x8_t *)y;
@@ -757,9 +757,9 @@ static inline void dft16(int16_t *x,int16_t *y)
 
 }
 
-static inline void idft16(int16_t *x,int16_t *y) __attribute__((always_inline));
+inline void idft16(int16_t *x, int16_t *y, uint8_t scale_flag) __attribute__((always_inline));
 
-static inline void idft16(int16_t *x,int16_t *y)
+inline void idft16(int16_t *x, int16_t *y, uint8_t scale_flag)
 {
 
   int16x8_t *tw16a_128=(int16x8_t *)tw16,*tw16b_128=(int16x8_t *)tw16c,*x128=(int16x8_t *)x,*y128=(int16x8_t *)y;
@@ -828,7 +828,7 @@ static inline void idft16(int16_t *x,int16_t *y)
 }
 
 void idft16f(int16_t *x,int16_t *y) {
-  idft16(x,y);
+  idft16(x, y, 0);
 }
 
 // 64-point optimized DFT
@@ -954,16 +954,15 @@ void dft64(int16_t *x,int16_t *y,unsigned char scale)
   // xtmp1  = x40 x50 x60 x70
   // xtmp2  = x80 x90 xa0 xb0
   // xtmp3  = xc0 xd0 xe0 xf0
-  dft16((int16_t*)(xtmp),(int16_t*)ytmp);
+  dft16((int16_t *)(xtmp), (int16_t *)ytmp, 0);
 
   // xtmp4  = x01 x11 x21 x31
   // xtmp5  = x41 x51 x61 x71
   // xtmp6  = x81 x91 xa1 xb1
   // xtmp7  = xc1 xd1 xe1 xf1
-  dft16((int16_t*)(xtmp+4),(int16_t*)(ytmp+4));
-  dft16((int16_t*)(xtmp+8),(int16_t*)(ytmp+8));
-  dft16((int16_t*)(xtmp+12),(int16_t*)(ytmp+12));
-
+  dft16((int16_t *)(xtmp + 4), (int16_t *)(ytmp + 4), 0);
+  dft16((int16_t *)(xtmp + 8), (int16_t *)(ytmp + 8), 0);
+  dft16((int16_t *)(xtmp + 12), (int16_t *)(ytmp + 12), 0);
 
 #ifdef D64STATS
   stop_meas(&ts_d);
@@ -1052,12 +1051,10 @@ void idft64(int16_t *x,int16_t *y,unsigned char scale)
   start_meas(&ts_d);
 #endif
 
-
-  idft16((int16_t*)(xtmp),(int16_t*)ytmp);
-  idft16((int16_t*)(xtmp+4),(int16_t*)(ytmp+4));
-  idft16((int16_t*)(xtmp+8),(int16_t*)(ytmp+8));
-  idft16((int16_t*)(xtmp+12),(int16_t*)(ytmp+12));
-
+  idft16((int16_t *)(xtmp), (int16_t *)ytmp, 0);
+  idft16((int16_t *)(xtmp + 4), (int16_t *)(ytmp + 4), 0);
+  idft16((int16_t *)(xtmp + 8), (int16_t *)(ytmp + 8), 0);
+  idft16((int16_t *)(xtmp + 12), (int16_t *)(ytmp + 12), 0);
 
 #ifdef D64STATS
   stop_meas(&ts_d);
