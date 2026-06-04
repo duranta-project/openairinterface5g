@@ -52,10 +52,6 @@ typedef struct {
   NR_SCH_status_t status;
   /// NDAPI struct for UE
   nfapi_nr_ue_pusch_pdu_t pusch_pdu;
-  // UL number of harq processes
-  uint8_t number_harq_processes_for_pusch;
-  /// RNTI type
-  nr_rnti_type_t rnti_type;
   /// Cell ID
   int     Nid_cell;
   /// bit mask of PT-RS ofdm symbol indicies
