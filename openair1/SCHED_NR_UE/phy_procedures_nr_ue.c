@@ -864,7 +864,7 @@ void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
   LOG_D(PHY, " ------ --> %s ChannelComp/LLR Frame.slot %d.%d ------  \n", pscch_processing ? "PSCCH" : "PDCCH", proc->frame_rx % 1024, proc->nr_slot_rx);
   start_meas_nr_ue_phy(ue, DLSCH_RX_PDCCH_STATS);
   NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
-  int num_monitoring_occ = get_max_pdcch_monOcc(phy_pdcch_config, fp->symbols_per_slot);
+  int num_monitoring_occ = 1; //get_max_pdcch_monOcc(phy_pdcch_config, fp->symbols_per_slot);
   int max_nb_symb_pdcch = get_max_pdcch_symb(phy_pdcch_config);
   int llr_size_symbol = get_pdcch_max_rbs(phy_pdcch_config) * 9;
   c16_t pdcch_llr[phy_pdcch_config->nb_search_space][num_monitoring_occ][max_nb_symb_pdcch * llr_size_symbol];
