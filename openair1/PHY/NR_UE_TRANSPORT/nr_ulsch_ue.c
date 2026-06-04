@@ -1038,6 +1038,17 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
                     .oob_event_value = 0};
   trace_pdu(&tmp);
 
+#if T_TRACER
+    {
+      // capture Tx Payload via T-Tracer
+      log_ul_payload_tx_bits(frame, slot, &UE->frame_parms, pusch_pdu,
+                             get_num_dmrs(pusch_pdu->ul_dmrs_symb_pos),
+                             get_dmrs_port(0, pusch_pdu->dmrs_ports),
+                             (const uint8_t *)harq_process_ul_ue->payload_AB,
+                             pusch_pdu->pusch_data.tb_size);
+    }
+#endif
+
   /////////////////////////ULSCH coding/////////////////////////
 
   rate_match_info_uci_t rm_info = {0};

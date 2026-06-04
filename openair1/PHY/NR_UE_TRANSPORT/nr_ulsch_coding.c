@@ -61,16 +61,6 @@ int nr_ulsch_pre_encoding(PHY_VARS_NR_UE *ue,
       AssertFatal((A / 8) + 3 <= max_payload_bytes, "A %d is too big (A/8+3 = %d > %d)\n", A, (A / 8) + 3, max_payload_bytes);
     }
 
-#if T_TRACER
-    {
-      // capture Tx Payload via T-Tracer
-      log_ul_payload_tx_bits(frame, slot, &ue->frame_parms, pusch_pdu,
-                             get_num_dmrs(pusch_pdu->ul_dmrs_symb_pos),
-                             get_dmrs_port(0, pusch_pdu->dmrs_ports),
-                             (const uint8_t *)harq_process->payload_AB,
-                             pusch_pdu->pusch_data.tb_size);
-    }
-#endif
     ///////////////////////// b---->| block segmentation |---->c /////////////////////////
 
     harq_process->BG = pusch_pdu->ldpcBaseGraph;
