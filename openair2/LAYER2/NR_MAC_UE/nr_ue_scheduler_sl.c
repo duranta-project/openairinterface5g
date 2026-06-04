@@ -1084,7 +1084,7 @@ void nr_ue_sl_csi_rs_scheduler(NR_UE_MAC_INST_t *mac,
   if (tx_config != NULL) {
       csi_rs_pdu = &tx_config->tx_config_list[0].tx_pscch_pssch_config_pdu.nr_sl_csi_rs_pdu;
       tx_config->number_pdus = 1;
-      *config_type = SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_CSI_RS;
+      *config_type = SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH;
       tx_config->tx_config_list[0].pdu_type = *config_type;
   } else if (rx_config != NULL) {
       csi_rs_pdu = &rx_config->sl_rx_config_list[0].rx_csi_rs_config_pdu;
@@ -1576,7 +1576,7 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
       tti_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH) {
     scheduled_response.sl_rx_config = &rx_config;
       }
-  if (tti_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH || tti_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH || tti_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_CSI_RS) {
+  if (tti_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH || tti_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH) {
     scheduled_response.sl_tx_config = &tx_config;
     }
    #endif
