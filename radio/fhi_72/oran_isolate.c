@@ -200,19 +200,44 @@ void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
 void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
 {
   start_meas(&ru->tx_fhaul);
-  ru_info_t ru_info = {
-      .nb_rx = ru->nb_rx,
-      .nb_tx = ru->nb_tx,
-      .txdataF_BF = ru->common.txdataF_BF,
-      .beam_id = ru->common.beam_id,
-  };
 
-  // printf("south_out:\tframe=%d\tslot=%d\ttimestamp=%ld\n",frame,slot,timestamp);
+  int ret;
+  const struct xran_fh_init *fh_init = get_xran_fh_init();
 
-  int ret = xran_fh_tx_send_slot(&ru_info, frame, slot, timestamp);
-  if (ret != 0) {
-    printf("ORAN: ORAN_fh_if4p5_south_out ERROR in TX function \n");
+  for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
+    for (int xran_port = 0; xran_port < fh_init->xran_ports; xran_port++) {
+      oran_buf_list_t *bufs = get_xran_buffers(xran_port);
+      const struct xran_fh_config *fh_cfg = get_xran_fh_config(xran_port);
+      const uint8_t mu_number = fh_cfg->mu_number[0];
+      const int slots_per_frame = 10 << mu_number;
+      const int tti = slots_per_frame * frame + slot;
+      const struct xran_frame_config *frame_conf = &fh_cfg->frame_conf;
+
+      // UL slot
+      if (frame_conf->nFrameDuplexType == XRAN_FDD || is_tdd_ul_guard_slot(frame_conf, slot)) {
+        // Send CP UL
+        ret = xran_send_cp_slot(fh_cfg->neAxcUl, ru->common.beam_id, tti, slot, bufs->dstcp);
+        if (ret != 0) {
+          LOG_W(HW, "[%d.%d] xran_send_cp_slot UL error for xran_port %d\n", frame, slot, xran_port);
+        }
+      }
+
+      // DL slot
+      if (frame_conf->nFrameDuplexType == XRAN_FDD || is_tdd_dl_guard_slot(frame_conf, slot)) {
+        // Send CP DL
+        ret = xran_send_cp_slot(fh_cfg->neAxc, ru->common.beam_id, tti, slot, bufs->srccp);
+        if (ret != 0) {
+          LOG_W(HW, "[%d.%d] xran_send_cp_slot DL error for xran_port %d\n", frame, slot, xran_port);
+        }
+        const int fft_size = 1 << fh_cfg->perMu[mu_number].nDLFftSize;
+        ret = xran_fh_tx_send_slot(ru->common.txdataF_BF, fft_size, fh_cfg->neAxc, tti, bufs);
+        if (ret != 0) {
+          LOG_W(HW, "[%d.%d] xran_fh_tx_send_slot error for xran_port %d\n", frame, slot, xran_port);
+        }
+      }
+    }
   }
+
   stop_meas(&ru->tx_fhaul);
 }
 

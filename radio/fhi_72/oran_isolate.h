@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include "xran_fh_o_du.h"
+#include "oran-init.h"
 #include "openair1/PHY/impl_defs_nr.h"
 #include "openair1/PHY/TOOLS/tools_defs.h"
 #include "openair1/PHY/defs_nr_common.h"
@@ -41,6 +42,9 @@ typedef struct ru_info_s {
 
 void print_fhi_counters(ru_info_t *ru, const int frame, const int slot);
 
+bool is_tdd_dl_guard_slot(const struct xran_frame_config *frame_conf, int slot);
+bool is_tdd_ul_guard_slot(const struct xran_frame_config *frame_conf, int slot);
+
 /** @brief Reads RX data PUSCH of next slot.
  *
  * @param ru pointer to structure keeping pointers to OAI data.
@@ -53,7 +57,9 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot);
  * @param frame output of the frame which has been read.
  * @param slot output of the slot which has been read. */
 int xran_fh_rx_prach_read_slot(PHY_VARS_gNB *gNB, ru_info_t *ru, int *frame, int *slot);
+/** @brief Writes CP UL data for given slot. */
+int xran_send_cp_slot(const uint8_t nb_ant, uint16_t **beams, const int tti, const int slot, struct xran_buffer_list buf[XRAN_MAX_ANTENNA_NR][XRAN_N_FE_BUF_LEN]);
 /** @brief Writes TX data (PDSCH) of given slot. */
-int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp);
+int xran_fh_tx_send_slot(int32_t **txdataF_BF, const int fft_size, const uint8_t nb_ant, const int tti, oran_buf_list_t *bufs);
 
 #endif /* _ORAN_ISOLATE_H_ */
