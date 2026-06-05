@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
+
 # Overview
 
 This tutorial describes the steps of deployment 5G OAI RAN, with integrated E2 agent, and a nearRT-RIC using O-RAN compliant FlexRIC.
