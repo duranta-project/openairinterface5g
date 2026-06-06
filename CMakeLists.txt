@@ -202,6 +202,8 @@ elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
     set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -gdwarf-2 -mcpu=neoverse-n1  -lgcc -lrt")
   elseif (CPUPART MATCHES "0xd49") # Neoverse-N2
     set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -gdwarf-2 -mcpu=neoverse-n2 -ftree-vectorize -lgcc -lrt")
+  elseif (CPUPART MATCHES "0xd08") # Cortex-A72 (e.g. NXP LS2160A)
+    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -gdwarf-2 -mcpu=cortex-a72 -lgcc -lrt")
   elseif (CPUPART MATCHES "0xd03") # Cortex-A53
     set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -gdwarf-2 -mcpu=cortex-a53 -lgcc -lrt")
   else ()
@@ -212,8 +214,8 @@ else()
 endif()
 
 if (NOT CROSS_COMPILE)
-  if (CPUPART MATCHES "0xd03")
-    # Cortex-A53 does not support ARMv8.2-A extensions
+  if (CPUPART MATCHES "0xd08" OR CPUPART MATCHES "0xd03")
+    # Cortex-A72 and Cortex-A53 implement ARMv8.0-A only, no ARMv8.2-A extensions
     set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -march=armv8-a+simd")
   else()
     set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -march=native")
