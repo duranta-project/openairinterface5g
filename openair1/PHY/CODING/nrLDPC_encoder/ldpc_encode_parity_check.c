@@ -82,7 +82,14 @@
 
 static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, short Zc, int simd_size, int ncols, time_stats_t *tinput_memcpy)
 {
-  unsigned char c[2 * 22 * Zc * simd_size] __attribute__((aligned(64))); //double size matrix of c
+  // For the alignr path (aarch64, BG1, Zc=384) the simd_size copies are skipped,
+  // so only one copy is needed — avoid a 32x overallocation on the stack.
+#ifdef USE_ALIGNR
+  int vla_simd = (BG == 1 && Zc == 384) ? 1 : simd_size;
+#else
+  int vla_simd = simd_size;
+#endif
+  unsigned char c[2 * 22 * Zc * vla_simd] __attribute__((aligned(64))); //double size matrix of c
   if (tinput_memcpy)
     start_meas(tinput_memcpy);
   for (int i1 = 0; i1 < ncols; i1++)   {

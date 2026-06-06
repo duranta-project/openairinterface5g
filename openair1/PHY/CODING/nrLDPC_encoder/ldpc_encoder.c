@@ -36,6 +36,7 @@ int LDPCencoder(unsigned char **inputArray, unsigned char *outputArray, encoder_
   int nind=0;
   int indlist[1000];
   int indlist2[1000];
+  int indlist3[1000];
 
   const short *Gen_shift_values = choose_generator_matrix(BG, Zc);
   if (Gen_shift_values==NULL) {
@@ -193,6 +194,51 @@ int LDPCencoder(unsigned char **inputArray, unsigned char *outputArray, encoder_
     }
     fclose(fd);
     fclose(fd2);
+
+    // 4-wide 128-bit variant: process 4 consecutive i2 values per outer iteration.
+    // Each group of 4 x 16-byte loads to the same base index lands in one 64-byte
+    // cache line, matching AVX-512 cache utilisation using four NEON registers.
+    if ((Zc & 63) == 0) {
+      sprintf(fname,"ldpc_BG%d_Zc%d_byte_128_x4.c",BG,Zc);
+      FILE *fd3 = fopen(fname,"w");
+      AssertFatal(fd3!=NULL,"cannot open %s\n",fname);
+      fprintf(fd3,"#include \"PHY/sse_intrin.h\"\n");
+      fprintf(fd3,"// generated code for Zc=%d, 4-wide 128-bit byte encoding\n",Zc);
+      fprintf(fd3,"static inline void ldpc_BG%d_Zc%d_byte_128_x4(uint8_t *c,uint8_t *d) {\n",BG,Zc);
+      fprintf(fd3,"  simde__m128i *csimd=(simde__m128i *)c,*dsimd=(simde__m128i *)d;\n");
+      fprintf(fd3,"  simde__m128i *c2_0,*c2_1,*c2_2,*c2_3;\n");
+      fprintf(fd3,"  simde__m128i *d2_0,*d2_1,*d2_2,*d2_3;\n");
+      fprintf(fd3,"  int i2;\n");
+      fprintf(fd3,"  for (i2=0; i2<%d; i2+=4) {\n",Zc>>4);
+      fprintf(fd3,"    c2_0=&csimd[i2];   c2_1=&csimd[i2+1]; c2_2=&csimd[i2+2]; c2_3=&csimd[i2+3];\n");
+      fprintf(fd3,"    d2_0=&dsimd[i2];   d2_1=&dsimd[i2+1]; d2_2=&dsimd[i2+2]; d2_3=&dsimd[i2+3];\n");
+
+      for (i1 = 0; i1 < nrows; i1++) {
+        fprintf(fd3,"\n//row: %d\n",i1);
+        int row_offset3 = (Zc*i1)>>4;
+        // recompute index list with 128-bit shift/mask
+        int nind3 = 0;
+        for (i3=0; i3 < ncols; i3++) {
+          int tp = i1 * ncols + i3;
+          for (i4=0; i4 < no_shift_values[tp]; i4++) {
+            int v = (int)((i3*Zc + (Gen_shift_values[pointer_shift_values[tp]+i4]+1)%Zc)/Zc);
+            int idx = v*2*Zc + (i3*Zc + (Gen_shift_values[pointer_shift_values[tp]+i4]+1)%Zc) % Zc;
+            indlist3[nind3++] = ((idx&15)*((2*Zc*ncols)>>4))+(idx>>4);
+          }
+        }
+        int stream;
+        for (stream=0; stream<4; stream++) {
+          fprintf(fd3,"    d2_%d[%d]=",stream,row_offset3);
+          for (i4=0; i4<nind3-1; i4++)
+            fprintf(fd3,"simde_mm_xor_si128(c2_%d[%d],",stream,indlist3[i4]);
+          fprintf(fd3,"c2_%d[%d]",stream,indlist3[i4]);
+          for (i4=0; i4<nind3-1; i4++) fprintf(fd3,")");
+          fprintf(fd3,";\n");
+        }
+      }
+      fprintf(fd3,"  }\n}\n");
+      fclose(fd3);
+    }
   }
   else if(gen_code==0)
   {
