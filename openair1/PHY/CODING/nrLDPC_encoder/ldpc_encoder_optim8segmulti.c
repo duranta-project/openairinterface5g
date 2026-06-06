@@ -140,27 +140,27 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
 #endif
 
 #ifdef __aarch64__
-  simde__m128i shufmask = simde_mm_set_epi64x(0x0101010101010101, 0x0000000000000000);
-  simde__m128i andmask  = simde_mm_set1_epi64x(0x0102040810204080);  // every 8 bits -> 8 bytes, pattern repeats.
-  simde__m128i zero128   = simde_mm_setzero_si128();
-  simde__m128i masks[8];
-  register simde__m128i c128;
-  masks[0] = simde_mm_set1_epi8(0x1);
-  masks[1] = simde_mm_set1_epi8(0x2);
-  masks[2] = simde_mm_set1_epi8(0x4);
-  masks[3] = simde_mm_set1_epi8(0x8);
-  masks[4] = simde_mm_set1_epi8(0x10);
-  masks[5] = simde_mm_set1_epi8(0x20);
-  masks[6] = simde_mm_set1_epi8(0x40);
-  masks[7] = simde_mm_set1_epi8(0x80);
+  // Direct NEON: avoid TBL (table lookup) by using LD1R (load+broadcast) for each
+  // input byte, then VTST instead of ANDNOT+CMPEQ — saves one op per segment per iter.
+  // {lo, lo, lo, lo, lo, lo, lo, lo, hi, hi, hi, hi, hi, hi, hi, hi} via vcombine(LD1R, LD1R)
+#include <arm_neon.h>
+  static const uint8_t _amask[16] __attribute__((aligned(16))) =
+    {0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01,
+     0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01};
+  const uint8x16_t amask_v = vld1q_u8(_amask);
+  uint8x16_t segmasks[8], c128_v, vv;
+  for (int k = 0; k < 8; k++) segmasks[k] = vdupq_n_u8(1u << k);
 
-  for (; i_byte < ((block_length >> 4 ) << 4); i_byte += 16) {
-    unsigned int i = i_byte >> 4;
-    c128 = simde_mm_and_si128(simde_mm_cmpeq_epi8(simde_mm_andnot_si128(simde_mm_shuffle_epi8(simde_mm_set1_epi16(((uint16_t*)input[macro_segment])[i]), shufmask),andmask),zero128),masks[0]);
-    for (int j=macro_segment+1; j < macro_segment_end; j++) {    
-      c128 = simde_mm_or_si128(simde_mm_and_si128(simde_mm_cmpeq_epi8(simde_mm_andnot_si128(simde_mm_shuffle_epi8(simde_mm_set1_epi32(((uint16_t*)input[j])[i]), shufmask),andmask),zero128),masks[j-macro_segment]),c128);
+  for (; i_byte < ((block_length >> 4) << 4); i_byte += 16) {
+    unsigned int bi = i_byte >> 3;  // byte index into input[j] (2 bytes = 16 bits)
+    vv = vcombine_u8(vld1_dup_u8(input[macro_segment] + bi),
+                     vld1_dup_u8(input[macro_segment] + bi + 1));
+    c128_v = vandq_u8(vtstq_u8(vv, amask_v), segmasks[0]);
+    for (int j = macro_segment + 1; j < macro_segment_end; j++) {
+      vv = vcombine_u8(vld1_dup_u8(input[j] + bi), vld1_dup_u8(input[j] + bi + 1));
+      c128_v = vorrq_u8(vandq_u8(vtstq_u8(vv, amask_v), segmasks[j - macro_segment]), c128_v);
     }
-    ((simde__m128i *)cc)[i] = c128;
+    vst1q_u8(cc + i_byte, c128_v);
   }
 #endif
 
