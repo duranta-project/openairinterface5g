@@ -214,8 +214,11 @@ else()
 endif()
 
 if (NOT CROSS_COMPILE)
-  if (CPUPART MATCHES "0xd08" OR CPUPART MATCHES "0xd03")
-    # Cortex-A72 and Cortex-A53 implement ARMv8.0-A only, no ARMv8.2-A extensions
+  if (CPUPART MATCHES "0xd08")
+    # Cortex-A72 is ARMv8.0-A only (no ARMv8.2-A); hardware includes crypto (aes, pmull, sha1, sha2)
+    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -march=armv8-a+simd+crypto")
+  elseif (CPUPART MATCHES "0xd03")
+    # Cortex-A53 is ARMv8.0-A only; crypto extension is optional and not assumed present
     set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -march=armv8-a+simd")
   else()
     set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -march=native")
