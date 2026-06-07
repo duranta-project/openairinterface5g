@@ -1,6 +1,6 @@
 #include "PHY/sse_intrin.h"
 // generated code for Zc=176, byte encoding
-static inline void ldpc_BG1_Zc176_byte(uint8_t *c,uint8_t *d) {
+static inline void ldpc176_byte(uint8_t *c,uint8_t *d) {
   simde__m128i *csimd=(simde__m128i *)c,*dsimd=(simde__m128i *)d;
 
   simde__m128i *c2,*d2;
