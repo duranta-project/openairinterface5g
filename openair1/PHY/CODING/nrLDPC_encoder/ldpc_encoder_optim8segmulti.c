@@ -140,28 +140,78 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
 #endif
 
 #ifdef __aarch64__
-  // Direct NEON: avoid TBL (table lookup) by using LD1R (load+broadcast) for each
-  // input byte, then VTST instead of ANDNOT+CMPEQ — saves one op per segment per iter.
-  // {lo, lo, lo, lo, lo, lo, lo, lo, hi, hi, hi, hi, hi, hi, hi, hi} via vcombine(LD1R, LD1R)
+  // Direct NEON: broadcast 1 byte to all 8 lanes (ldr-b + dup), VTST bit-test mask.
+  // ns=8 fast path: fully unrolled, 2-level asm-volatile barrier OR-tree, no j-loop
+  // overhead.  Barrier 1 forces 4 independent level-1 ORRs; GCC fills the level-2
+  // ORR latency gap with scalar loop work, letting A72's OoO engine start the next
+  // iteration's address computation while ORRs are still in flight.
 #include <arm_neon.h>
   static const uint8_t _amask[16] __attribute__((aligned(16))) =
     {0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01,
      0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01};
   const uint8x16_t amask_v = vld1q_u8(_amask);
-  uint8x16_t segmasks[8], c128_v, vv;
+  uint8x16_t segmasks[8];
   for (int k = 0; k < 8; k++) segmasks[k] = vdupq_n_u8(1u << k);
 
-  for (; i_byte < ((block_length >> 4) << 4); i_byte += 16) {
-    unsigned int bi = i_byte >> 3;  // byte index into input[j] (2 bytes = 16 bits)
-    vv = vcombine_u8(vld1_dup_u8(input[macro_segment] + bi),
-                     vld1_dup_u8(input[macro_segment] + bi + 1));
-    c128_v = vandq_u8(vtstq_u8(vv, amask_v), segmasks[0]);
-    for (int j = macro_segment + 1; j < macro_segment_end; j++) {
-      vv = vcombine_u8(vld1_dup_u8(input[j] + bi), vld1_dup_u8(input[j] + bi + 1));
-      c128_v = vorrq_u8(vandq_u8(vtstq_u8(vv, amask_v), segmasks[j - macro_segment]), c128_v);
+#define CONTRIB(p, bi, k) \
+  vandq_u8(vtstq_u8(vcombine_u8(vld1_dup_u8((p) + (bi)), \
+                                  vld1_dup_u8((p) + (bi) + 1)), amask_v), segmasks[k])
+
+  int ns = (int)(macro_segment_end - macro_segment);
+  if (ns == 8) {
+    // Pre-extract segment base pointers so GCC holds them in registers across the loop.
+    const uint8_t *p0 = input[macro_segment + 0];
+    const uint8_t *p1 = input[macro_segment + 1];
+    const uint8_t *p2 = input[macro_segment + 2];
+    const uint8_t *p3 = input[macro_segment + 3];
+    const uint8_t *p4 = input[macro_segment + 4];
+    const uint8_t *p5 = input[macro_segment + 5];
+    const uint8_t *p6 = input[macro_segment + 6];
+    const uint8_t *p7 = input[macro_segment + 7];
+    for (; i_byte < ((block_length >> 4) << 4); i_byte += 16) {
+      unsigned int bi = i_byte >> 3;
+      uint8x16_t r0 = CONTRIB(p0, bi, 0);
+      uint8x16_t r1 = CONTRIB(p1, bi, 1);
+      uint8x16_t r2 = CONTRIB(p2, bi, 2);
+      uint8x16_t r3 = CONTRIB(p3, bi, 3);
+      uint8x16_t r4 = CONTRIB(p4, bi, 4);
+      uint8x16_t r5 = CONTRIB(p5, bi, 5);
+      uint8x16_t r6 = CONTRIB(p6, bi, 6);
+      uint8x16_t r7 = CONTRIB(p7, bi, 7);
+      // Barrier 1: force all 8 contributions into physical NEON registers before
+      // any ORR starts.  Without this GCC greedily issues each ORR as soon as ONE
+      // input is ready, producing a 7-step serial left-fold (28-cycle critical path).
+      asm volatile ("" : "+w"(r0), "+w"(r1), "+w"(r2), "+w"(r3),
+                         "+w"(r4), "+w"(r5), "+w"(r6), "+w"(r7));
+      // Level-1 ORRs: all 4 are data-independent; A72's 2-wide NEON issues pairs/cycle.
+      uint8x16_t r01 = vorrq_u8(r0, r1);
+      uint8x16_t r23 = vorrq_u8(r2, r3);
+      uint8x16_t r45 = vorrq_u8(r4, r5);
+      uint8x16_t r67 = vorrq_u8(r6, r7);
+      // Barrier 2: force all level-1 results into registers before level-2.
+      // GCC's scheduler then fills the level-2 ORR latency gap with the loop's
+      // scalar work (add i_byte, cmp), placing those instructions between the
+      // level-2 and level-3/4 ORRs.  This lets the A72's OoO engine start the
+      // next iteration's address computation (lsr bi = i_byte>>3) ~4 cycles earlier
+      // than if the scalar work came after all ORRs, hiding load latency for free.
+      asm volatile ("" : "+w"(r01), "+w"(r23), "+w"(r45), "+w"(r67));
+      vst1q_u8(cc + i_byte, vorrq_u8(vorrq_u8(r01, r23), vorrq_u8(r45, r67)));
     }
-    vst1q_u8(cc + i_byte, c128_v);
+  } else {
+    uint8x16_t c128_v, vv;
+    for (; i_byte < ((block_length >> 4) << 4); i_byte += 16) {
+      unsigned int bi = i_byte >> 3;
+      vv = vcombine_u8(vld1_dup_u8(input[macro_segment] + bi),
+                       vld1_dup_u8(input[macro_segment] + bi + 1));
+      c128_v = vandq_u8(vtstq_u8(vv, amask_v), segmasks[0]);
+      for (int j = macro_segment + 1; j < macro_segment_end; j++) {
+        vv = vcombine_u8(vld1_dup_u8(input[j] + bi), vld1_dup_u8(input[j] + bi + 1));
+        c128_v = vorrq_u8(vandq_u8(vtstq_u8(vv, amask_v), segmasks[j - macro_segment]), c128_v);
+      }
+      vst1q_u8(cc + i_byte, c128_v);
+    }
   }
+#undef CONTRIB
 #endif
 
   for (; i_byte < block_length; i_byte++) {
