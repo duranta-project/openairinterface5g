@@ -33,7 +33,8 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
                       time_stats_t *tconcat,
                       time_stats_t *dlsch_rate_matching_stats,
                       time_stats_t *dlsch_interleaving_stats,
-                      time_stats_t *dlsch_segmentation_stats);
+                      time_stats_t *dlsch_segmentation_stats,
+                      time_stats_t *dlsch_crc_stats);
 
 void dump_pdsch_stats(FILE *fd,PHY_VARS_gNB *gNB);
 

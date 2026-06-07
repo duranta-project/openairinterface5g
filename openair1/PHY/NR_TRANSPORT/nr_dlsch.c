@@ -855,6 +855,7 @@ void nr_generate_pdsch(PHY_VARS_gNB *gNB,
   time_stats_t *dlsch_rate_matching_stats = &gNB->dlsch_rate_matching_stats;
   time_stats_t *dlsch_interleaving_stats = &gNB->dlsch_interleaving_stats;
   time_stats_t *dlsch_segmentation_stats = &gNB->dlsch_segmentation_stats;
+  time_stats_t *dlsch_crc_stats = &gNB->dlsch_crc_stats;
 
   size_t size_output = 0;
 
@@ -921,7 +922,8 @@ void nr_generate_pdsch(PHY_VARS_gNB *gNB,
                         tconcat,
                         dlsch_rate_matching_stats,
                         dlsch_interleaving_stats,
-                        dlsch_segmentation_stats)
+                        dlsch_segmentation_stats,
+			dlsch_crc_stats)
       == -1) {
     return;
   }
