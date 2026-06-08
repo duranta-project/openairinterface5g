@@ -128,3 +128,13 @@ jobs:
           )"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  debug-jenkins-config:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Show masked J_URL info
+        env:
+          J_URL: ${{ secrets.J_URL }}
+        run: |
+          echo "J_URL length: ${#J_URL}"
+          echo "J_URL host preview: ${J_URL%%/*} (masked)"
