@@ -1,7 +1,7 @@
 name: Duranta Jenkins Dispatch
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened, labeled]
     branches: [ci-migration-test]
   push:
@@ -100,7 +100,7 @@ jobs:
 
   welcome-first-time-contributor:
     runs-on: ubuntu-24.04
-    if: github.event_name == 'pull_request_target' && github.event.action == 'opened'
+    if: github.event_name == 'pull_request' && github.event.action == 'opened'
 
     steps:
       - name: Post welcome message
@@ -115,7 +115,7 @@ jobs:
             - Add a [label](https://github.com/duranta-project/openairinterface5g/labels/) to categorize your PR so reviewers can triage it faster.
   pr-retrigger-ci-instructions:
     runs-on: ubuntu-24.04
-    if: github.event_name == 'pull_request_target' && github.event.action == 'opened'
+    if: github.event_name == 'pull_request' && github.event.action == 'opened'
 
     steps:
       - name: Post CI retrigger instructions
