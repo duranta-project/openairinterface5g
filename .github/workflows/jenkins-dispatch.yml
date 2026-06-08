@@ -96,38 +96,3 @@ jobs:
         run: gh pr edit ${{ github.event.pull_request.number }} --remove-label "${{ vars.RETRIGGER_CI_LABEL }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  welcome-first-time-contributor:
-    runs-on: ubuntu-24.04
-    if: github.event_name == 'pull_request' && github.event.action == 'opened'
-
-    steps:
-      - name: Post welcome message
-        uses: actions/first-interaction@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          pr-message: |
-            Welcome @${{ github.event.pull_request.user.login }}! Thanks for opening your first PR in this project!
-
-            Here are a few things to help you get started:
-            - Read the [Contributing Guide](https://github.com/${{ github.repository }}/blob/develop/CONTRIBUTING.md) to understand our development process.
-            - Check the [issues page](https://github.com/duranta-project/openairinterface5g/issues) to see if your PR is related to an existing issue.
-            - Add a [label](https://github.com/duranta-project/openairinterface5g/labels/) to categorize your PR so reviewers can triage it faster.
-
-  pr-retrigger-ci-instructions:
-    runs-on: ubuntu-24.04
-    if: github.event_name == 'pull_request' && github.event.action == 'opened'
-
-    steps:
-      - name: Post CI retrigger instructions
-        run: |
-          gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body "$(cat <<'EOF'
-          The CI pipeline runs automatically when this pull request is opened or updated.
-
-          To manually retrigger the CI pipeline without making any changes to the pull request, add the https://github.com/duranta-project/openairinterface5g/labels/retrigger-ci label to this PR.
-
-          The label will be removed automatically after the pipeline is triggered.
-          EOF
-          )"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
