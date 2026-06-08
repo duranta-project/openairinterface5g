@@ -3,6 +3,7 @@ name: Duranta Jenkins Dispatch
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, labeled]
+    branches: [ci-migration-test]
   push:
     branches:
       - ci-migration-test
