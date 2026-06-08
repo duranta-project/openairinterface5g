@@ -9,7 +9,7 @@ on:
       - ci-migration-test
 
 concurrency:
-  group: ${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.event_name }}-${{ github.event.action }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -71,7 +71,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request_target.head.sha || github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       - name: Trigger Jenkins
         run: |
