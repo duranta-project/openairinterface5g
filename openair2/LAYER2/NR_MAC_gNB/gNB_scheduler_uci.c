@@ -183,7 +183,7 @@ void nr_schedule_pucch(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frame
       schedule_pucch_core(cell, nrmac, init_UE, frame, slot);
   }
 
-  UE_iterator(nrmac->UE_info.connected_ue_list, UE) {
+  UE_iterator(&nrmac->UE_info.connected_ue_list, UE) {
     if (UE->pcell != cell)
       continue;
     schedule_pucch_core(cell, nrmac, UE, frame, slot);
@@ -207,7 +207,7 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
   const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
 
-  UE_iterator(nrmac->UE_info.connected_ue_list, UE) {
+  UE_iterator(&nrmac->UE_info.connected_ue_list, UE) {
     if (UE->pcell != cell)
       continue;
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
@@ -1337,7 +1337,7 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
 void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t SFN, slot_t slot)
 {
   const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
-  UE_iterator(nrmac->UE_info.connected_ue_list, UE) {
+  UE_iterator(&nrmac->UE_info.connected_ue_list, UE) {
     if (UE->pcell != cell)
       continue;
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
