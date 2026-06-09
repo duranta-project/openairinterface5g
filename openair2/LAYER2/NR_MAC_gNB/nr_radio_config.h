@@ -41,6 +41,7 @@ NR_SearchSpace_t *rrc_searchspace_config(bool is_common,
                                          int coresetid,
                                          const int num_agg_level_candidates[NUM_PDCCH_AGG_LEVELS]);
 int csi_symbols_in_slot(const NR_ServingCellConfigCommon_t *scc);
+NR_CSI_RS_ResourceMapping_t configure_csi_resourcemapping(int num_dl_antenna_ports, int curr_bwp, int symbol);
 void prepare_sim_uecap(NR_UE_NR_Capability_t *cap,
                        NR_ServingCellConfigCommon_t *scc,
                        int numerology,
