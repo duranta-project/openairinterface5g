@@ -2211,8 +2211,8 @@ void pdcp_layer_init(void)
    * Initialize SDU list
    */
   initNotifiedFIFO(&pdcp_sdu_list);
-  pdcp_coll_p = hashtable_create ((LTE_maxDRB + 2) * NUMBER_OF_UE_MAX, NULL, pdcp_free);
-  AssertFatal(pdcp_coll_p != NULL, "UNRECOVERABLE error, PDCP hashtable_create failed");
+  pdcp_coll_p = malloc_or_fail(sizeof(*pdcp_coll_p));
+  *pdcp_coll_p = hashtable_create ((LTE_maxDRB + 2) * NUMBER_OF_UE_MAX, NULL, pdcp_free);
 
   for (instance = 0; instance < MAX_MOBILES_PER_ENB; instance++) {
     for (service_id = 0; service_id < LTE_maxServiceCount; service_id++) {
@@ -2285,7 +2285,8 @@ void pdcp_layer_cleanup (void)
 {
   //list_free (&pdcp_sdu_list);
   while(pollNotifiedFIFO(&pdcp_sdu_list)) {};
-  hashtable_destroy(&pdcp_coll_p);
+  hashtable_destroy(pdcp_coll_p);
+  free(pdcp_coll_p);
 #ifdef MBMS_MULTICAST_OUT
 
   if(mbms_socket != -1) {

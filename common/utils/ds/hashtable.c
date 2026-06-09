@@ -7,17 +7,7 @@
 #include <stdlib.h>
 #include <inttypes.h>
 #include "hashtable.h"
-#include "assertions.h"
-
-/*
- * free int function
- * hash_free_int_func() is used when this hashtable is used to store int values as data (pointer = value).
- */
-
-void hash_free_int_func(void *memoryP)
-{
-  UNUSED(memoryP);
-}
+#include "common/utils/utils.h"
 
 //-------------------------------------------------------------------------------------------------------------------------------
 /*
@@ -39,31 +29,14 @@ static hash_size_t def_hashfunc(const uint64_t keyP)
  * NULL. The user can also specify a hash function. If the hashfunc argument is NULL, a default hash function is used. If an error
  * occurred, NULL is returned. All other values in the returned hash_table_t pointer should be released with hashtable_destroy().
  */
-hash_table_t *hashtable_create(const hash_size_t sizeP, hash_size_t (*hashfuncP)(const hash_key_t), void (*freefuncP)(void *))
+hash_table_t hashtable_create(const hash_size_t sizeP, hash_size_t (*hashfuncP)(const hash_key_t), void (*freefuncP)(void *))
 {
-  hash_table_t *hashtbl = NULL;
-
-  if (!(hashtbl = malloc(sizeof(hash_table_t)))) {
-    return NULL;
-  }
-
-  if (!(hashtbl->nodes = calloc(sizeP, sizeof(hash_node_t *)))) {
-    free(hashtbl);
-    return NULL;
-  }
-
-  hashtbl->size = sizeP;
-
-  if (hashfuncP)
-    hashtbl->hashfunc = hashfuncP;
-  else
-    hashtbl->hashfunc = def_hashfunc;
-
-  if (freefuncP)
-    hashtbl->freefunc = freefuncP;
-  else
-    hashtbl->freefunc = free;
-
+  hash_table_t hashtbl = {
+    .nodes = calloc_or_fail(sizeP, sizeof(*hashtbl.nodes)),
+    .hashfunc = hashfuncP ? hashfuncP : def_hashfunc,
+    .freefunc = freefuncP,
+    .size = sizeP,
+  };
   return hashtbl;
 }
 //-------------------------------------------------------------------------------------------------------------------------------
@@ -72,33 +45,31 @@ hash_table_t *hashtable_create(const hash_size_t sizeP, hash_size_t (*hashfuncP)
  * The hashtable_destroy() walks through the linked lists for each possible hash value, and releases the elements. It also releases
  * the nodes array and the hash_table_t.
  */
-hashtable_rc_t hashtable_destroy(hash_table_t **hashtblP)
+hashtable_rc_t hashtable_destroy(hash_table_t *hashtblP)
 {
   hash_size_t n;
   hash_node_t *node, *oldnode;
 
-  if (*hashtblP == NULL) {
+  if (hashtblP == NULL) {
     return HASH_TABLE_BAD_PARAMETER_HASHTABLE;
   }
 
-  for (n = 0; n < (*hashtblP)->size; ++n) {
-    node = (*hashtblP)->nodes[n];
+  for (n = 0; n < hashtblP->size; ++n) {
+    node = hashtblP->nodes[n];
 
     while (node) {
       oldnode = node;
       node = node->next;
 
-      if (oldnode->data) {
-        (*hashtblP)->freefunc(oldnode->data);
+      if (hashtblP->freefunc && oldnode->data) {
+        hashtblP->freefunc(oldnode->data);
       }
 
       free(oldnode);
     }
   }
 
-  free((*hashtblP)->nodes);
-  free((*hashtblP));
-  *hashtblP = NULL;
+  free(hashtblP->nodes);
   return HASH_TABLE_OK;
 }
 //-------------------------------------------------------------------------------------------------------------------------------
@@ -145,7 +116,7 @@ hashtable_rc_t hashtable_insert(hash_table_t *const hashtblP, const hash_key_t k
 
   while (node) {
     if (node->key == keyP) {
-      if (node->data) {
+      if (hashtblP->freefunc && node->data) {
         hashtblP->freefunc(node->data);
       }
 
@@ -156,8 +127,7 @@ hashtable_rc_t hashtable_insert(hash_table_t *const hashtblP, const hash_key_t k
     node = node->next;
   }
 
-  if (!(node = malloc(sizeof(hash_node_t))))
-    return -1;
+  node = malloc_or_fail(sizeof(hash_node_t));
 
   node->key = keyP;
   node->data = dataP;
@@ -168,6 +138,7 @@ hashtable_rc_t hashtable_insert(hash_table_t *const hashtblP, const hash_key_t k
     node->next = NULL;
   }
 
+  hashtblP->entries++;
   hashtblP->nodes[hash] = node;
   return HASH_TABLE_OK;
 }
@@ -195,10 +166,11 @@ hashtable_rc_t hashtable_remove(hash_table_t *const hashtblP, const hash_key_t k
       else
         hashtblP->nodes[hash] = node->next;
 
-      if (node->data) {
+      if (hashtblP->freefunc && node->data) {
         hashtblP->freefunc(node->data);
       }
 
+      hashtblP->entries--;
       free(node);
       return HASH_TABLE_OK;
     }
@@ -239,6 +211,11 @@ hashtable_rc_t hashtable_get(const hash_table_t *const hashtblP, const hash_key_
 
   *dataP = NULL;
   return HASH_TABLE_KEY_NOT_EXISTS;
+}
+
+size_t hashtable_num_entries(const hash_table_t *const hashtbl)
+{
+  return hashtbl->entries;
 }
 
 hash_table_iterator_s hashtable_get_iterator(const hash_table_t *const hashtbl)

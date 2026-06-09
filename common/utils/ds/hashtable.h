@@ -32,6 +32,7 @@ typedef struct hash_node_s {
 
 typedef struct hash_table_s {
   hash_size_t size;
+  size_t entries;
   struct hash_node_s **nodes;
   hash_size_t (*hashfunc)(const hash_key_t);
   void (*freefunc)(void *);
@@ -43,13 +44,13 @@ typedef struct hash_table_iterator_s {
   const hash_table_t *const hashtbl;
 } hash_table_iterator_s;
 
-void hash_free_int_func(void *memoryP);
-hash_table_t *hashtable_create(const hash_size_t size, hash_size_t (*hashfunc)(const hash_key_t), void (*freefunc)(void *));
-hashtable_rc_t hashtable_destroy(hash_table_t **hashtbl);
+hash_table_t hashtable_create(const hash_size_t size, hash_size_t (*hashfunc)(const hash_key_t), void (*freefunc)(void *));
+hashtable_rc_t hashtable_destroy(hash_table_t *hashtbl);
 hashtable_rc_t hashtable_is_key_exists(const hash_table_t *const hashtbl, const uint64_t key);
 hashtable_rc_t hashtable_insert(hash_table_t *const hashtbl, const hash_key_t key, void *data);
 hashtable_rc_t hashtable_remove(hash_table_t *const hashtbl, const hash_key_t key);
 hashtable_rc_t hashtable_get(const hash_table_t *const hashtbl, const hash_key_t key, void **dataP);
+size_t hashtable_num_entries(const hash_table_t *const hashtbl);
 hash_table_iterator_s hashtable_get_iterator(const hash_table_t *const hashtbl);
 bool hashtable_iterator_getnext(hash_table_iterator_s *iterator, void **dataP);
 
