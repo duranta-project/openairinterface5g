@@ -84,7 +84,7 @@ void *nrmac_stats_thread(void *arg) {
 }
 
 void clear_mac_stats(gNB_MAC_INST *gNB) {
-  UE_iterator(gNB->UE_info.connected_ue_list, UE) {
+  UE_iterator(&gNB->UE_info.connected_ue_list, UE) {
     memset(&UE->mac_stats,0,sizeof(UE->mac_stats));
   }
 }
@@ -111,7 +111,7 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
    * scheduler to be locked*/
   NR_SCHED_ENSURE_LOCKED(&gNB->sched_lock);
 
-  UE_iterator(gNB->UE_info.connected_ue_list, UE) {
+  UE_iterator(&gNB->UE_info.connected_ue_list, UE) {
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_mac_stats_t *stats = &UE->mac_stats;
     const int avg_rsrp = stats->num_rsrp_meas > 0 ? stats->cumul_rsrp / stats->num_rsrp_meas : 0;
@@ -340,6 +340,9 @@ void mac_top_init_gNB(ngran_node_t node_type,
     gNB_MAC_INST *nrmac = RC.nrmac[i];
     nrmac->if_inst = NR_IF_Module_init(i);
     uid_linear_allocator_init(&RC.nrmac[i]->UE_info.uid_allocator);
+    int num_ues = MAX_MOBILES_PER_GNB * 2 + 1;  // slightly larger to avoid too many collisions
+    // no hash func as RNTI is key (is random)
+    RC.nrmac[i]->UE_info.connected_ue_list = hashtable_create(num_ues, NULL, /* TODO: delete_nr_ue_data */ NULL);
     seq_arr_init(&RC.nrmac[i]->UE_info.access_ue_list, sizeof(NR_UE_info_t *));
   }
 
@@ -355,9 +358,7 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
   ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, cc->sib1);
   ASN_STRUCT_FREE(asn_DEF_NR_ServingCellConfigCommon, cc->ServingCellConfigCommon);
   NR_UEs_t *UE_info = &mac->UE_info;
-  for (int i = 0; i < sizeofArray(UE_info->connected_ue_list); ++i)
-    if (UE_info->connected_ue_list[i])
-      delete_nr_ue_data(UE_info->connected_ue_list[i], &UE_info->uid_allocator);
+  hashtable_destroy(&UE_info->connected_ue_list);
   FOR_EACH_RA_UE(&UE_info->access_ue_list, raUE) {
     delete_nr_ue_data(raUE, &UE_info->uid_allocator);
   }
