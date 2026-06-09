@@ -42,7 +42,8 @@ void nr_mac_configure_sib1(gNB_MAC_INST *nrmac, const plmn_id_t *plmn, uint64_t 
 bool nr_mac_configure_other_sib(gNB_MAC_INST *nrmac, int num_cu_sib, const f1ap_sib_msg_t cu_sib[num_cu_sib]);
 bool nr_mac_add_test_ue(gNB_MAC_INST *nrmac, uint32_t rnti, NR_CellGroupConfig_t *CellGroup);
 void nr_mac_prepare_ra_ue(gNB_MAC_INST *nrmac, NR_UE_info_t *UE);
-bool add_new_UE_RA(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
+bool add_new_UE_RA(NR_UEs_t *UEs, NR_UE_info_t *UE);
+NR_UE_info_t *remove_UE_RA(NR_UEs_t *UEs, rnti_t rnti);
 int nr_mac_get_reconfig_delay_slots(NR_SubcarrierSpacing_t scs);
 
 int nr_transmission_action_indicator_stop(gNB_MAC_INST *mac, NR_UE_info_t *UE_info);

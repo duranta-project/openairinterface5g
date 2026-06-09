@@ -2533,17 +2533,6 @@ NR_UE_info_t *find_nr_UE(NR_UEs_t *UEs, rnti_t rntiP)
   return NULL;
 }
 
-NR_UE_info_t *find_ra_UE(NR_UEs_t *UEs, rnti_t rntiP)
-{
-  UE_iterator(UEs->access_ue_list, UE) {
-    if (UE->rnti == rntiP) {
-      LOG_D(NR_MAC,"Search and found rnti: %04x\n", rntiP);
-      return UE;
-    }
-  }
-  return NULL;
-}
-
 void delete_nr_ue_data(NR_UE_info_t *UE, uid_allocator_t *uia)
 {
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
@@ -3087,7 +3076,7 @@ bool transition_ra_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   NR_UEs_t *UE_info = &nr_mac->UE_info;
 
   // remove UE from initial access list (moved to connected mode)
-  NR_UE_info_t *r = remove_UE_from_list(NR_NB_RA_PROC_MAX, UE_info->access_ue_list, UE->rnti);
+  NR_UE_info_t *r = remove_UE_RA(UE_info, UE->rnti);
   DevAssert(r == UE); /* sanity check: we should have removed the current UE ptr from list */
 
   free_and_zero(UE->ra);

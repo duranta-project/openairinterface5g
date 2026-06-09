@@ -298,8 +298,6 @@ void mac_top_init_gNB(ngran_node_t node_type,
 
       pthread_mutex_init(&RC.nrmac[i]->sched_lock, NULL);
 
-      uid_linear_allocator_init(&RC.nrmac[i]->UE_info.uid_allocator);
-
       RC.nrmac[i]->ul_ri_tpmi_select = nr_ul_ri_tpmi_select_default;
       RC.nrmac[i]->ul_tda_select = nr_ul_tda_select_default;
       RC.nrmac[i]->ul_beam_select = nr_ul_beam_select_default;
@@ -341,7 +339,8 @@ void mac_top_init_gNB(ngran_node_t node_type,
   for (module_id_t i = 0; i < RC.nb_nr_macrlc_inst; i++) {
     gNB_MAC_INST *nrmac = RC.nrmac[i];
     nrmac->if_inst = NR_IF_Module_init(i);
-    memset(&nrmac->UE_info, 0, sizeof(nrmac->UE_info));
+    uid_linear_allocator_init(&RC.nrmac[i]->UE_info.uid_allocator);
+    seq_arr_init(&RC.nrmac[i]->UE_info.access_ue_list, sizeof(NR_UE_info_t *));
   }
 
   du_init_f1_ue_data();
@@ -359,9 +358,11 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
   for (int i = 0; i < sizeofArray(UE_info->connected_ue_list); ++i)
     if (UE_info->connected_ue_list[i])
       delete_nr_ue_data(UE_info->connected_ue_list[i], &UE_info->uid_allocator);
-  for (int i = 0; i < sizeofArray(UE_info->access_ue_list); ++i)
-    if (UE_info->access_ue_list[i])
-      delete_nr_ue_data(UE_info->access_ue_list[i], &UE_info->uid_allocator);
+  FOR_EACH_RA_UE(&UE_info->access_ue_list, raUE) {
+    delete_nr_ue_data(raUE, &UE_info->uid_allocator);
+  }
+  // free_func=NULL because UE data has been removed two lines above!
+  seq_arr_free(&UE_info->access_ue_list, NULL);
   if (mac->f1_config.setup_resp)
     free_f1ap_setup_response(mac->f1_config.setup_resp);
   free(mac->f1_config.setup_resp);
