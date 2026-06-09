@@ -528,7 +528,7 @@ void nr_schedule_periodic_srs(int module_id, frame_t frame, int slot)
 
   NR_UEs_t *UE_info = &nrmac->UE_info;
 
-  UE_iterator(UE_info->connected_ue_list, UE) {
+  UE_iterator(&UE_info->connected_ue_list, UE) {
     const int CC_id = 0;
     NR_UE_UL_BWP_t *current_BWP = &UE->current_UL_BWP;
 

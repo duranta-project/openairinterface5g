@@ -433,7 +433,7 @@ static bool dlsch_to_schedule(const NR_UE_sched_ctrl_t *sched_ctrl)
 }
 
 static int collect_dl_candidates(gNB_MAC_INST *mac,
-                                 NR_UE_info_t **UE_list,
+                                 hash_table_t *UE_list,
                                  nr_dl_candidate_t *candidates,
                                  int max_candidates,
                                  frame_t frame,
@@ -706,7 +706,7 @@ bool commit_alloc(const nr_dl_sched_params_t *params, nr_dl_candidate_t *cand)
 
 static void nr_dl_schedule(gNB_MAC_INST *mac,
                            post_process_pdsch_t *pp_pdsch,
-                           NR_UE_info_t **UE_list,
+                           hash_table_t *UE_list,
                            int max_num_ue,
                            int num_beams,
                            int n_rb_sched[num_beams])
@@ -876,7 +876,7 @@ void nr_dlsch_preprocessor(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pdsch)
 {
   NR_UEs_t *UE_info = &mac->UE_info;
 
-  if (UE_info->connected_ue_list[0] == NULL)
+  if (get_num_nr_UE(UE_info) == 0)
     return;
 
   NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
@@ -892,7 +892,7 @@ void nr_dlsch_preprocessor(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pdsch)
   // FAPI cannot handle more than MAX_DCI_CORESET DCIs
   max_sched_ues = min(max_sched_ues, MAX_DCI_CORESET);
 
-  nr_dl_schedule(mac, pp_pdsch, UE_info->connected_ue_list, max_sched_ues, num_beams, n_rb_sched);
+  nr_dl_schedule(mac, pp_pdsch, &UE_info->connected_ue_list, max_sched_ues, num_beams, n_rb_sched);
 }
 
 nfapi_nr_dl_tti_pdsch_pdu_rel15_t *prepare_pdsch_pdu(nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdsch_pdu,

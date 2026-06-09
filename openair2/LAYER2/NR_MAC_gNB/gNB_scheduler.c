@@ -156,7 +156,7 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame, slot_t slo
 
     // TODO: this should be replaced with a size() operation on connected_ue_list
     int num_ue = 0;
-    UE_iterator(gNB->UE_info.connected_ue_list, it) {
+    UE_iterator(&gNB->UE_info.connected_ue_list, it) {
       (void) it; // not used
       num_ue++;
     }

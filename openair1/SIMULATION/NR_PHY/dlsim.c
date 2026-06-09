@@ -177,8 +177,11 @@ int g_mcsIndex = -1, g_mcsTableIdx = 0, g_rbStart = -1, g_rbSize = -1, g_nrOfLay
 
 void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pp_pdsch)
 {
-  NR_UE_info_t *UE_info = nr_mac->UE_info.connected_ue_list[0];
-  AssertFatal(nr_mac->UE_info.connected_ue_list[1] == NULL, "Only single UE allowed in dlsim\n");
+  // TODO store globally? frequent lookups might be expensive
+  DevAssert(hashtable_num_entries(&nr_mac->UE_info.connected_ue_list) == 1);
+  NR_UE_info_t *UE_info = get_first_nr_UE(&nr_mac->UE_info);
+  DevAssert(UE_info);
+
   NR_UE_sched_ctrl_t *sched_ctrl = &UE_info->UE_sched_ctrl;
   NR_UE_DL_BWP_t *current_BWP = &UE_info->current_DL_BWP;
   NR_ServingCellConfigCommon_t *scc = nr_mac->common_channels[0].ServingCellConfigCommon;
@@ -850,7 +853,7 @@ int main(int argc, char **argv)
   gNB_mac->pre_processor_dl = nr_dlsim_preprocessor;
   phy_init_nr_gNB(gNB);
   N_RB_DL = gNB->frame_parms.N_RB_DL;
-  NR_UE_info_t *UE_info = RC.nrmac[0]->UE_info.connected_ue_list[0];
+  NR_UE_info_t *UE_info = get_first_nr_UE(&RC.nrmac[0]->UE_info);
 
   configure_UE_BWP(RC.nrmac[0], scc, UE_info, false, NR_SearchSpace__searchSpaceType_PR_ue_Specific, -1, -1);
 

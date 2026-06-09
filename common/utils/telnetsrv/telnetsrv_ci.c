@@ -32,17 +32,11 @@
 
 static int get_single_ue_rnti_mac(void)
 {
-  NR_UE_info_t *ue = NULL;
-  UE_iterator(RC.nrmac[0]->UE_info.connected_ue_list, it) {
-    if (it && ue)
-      return -1;
-    if (it)
-      ue = it;
-  }
-  if (!ue)
+  NR_UE_info_t *UEs = &RC.nrmac[0]->UE_info;
+  size_t n = get_num_nr_UE(UEs);
+  if (n == 0 || n > 1)
     return -1;
-
-  return ue->rnti;
+  return get_first_nr_UE(UEs)->rnti;
 }
 
 int get_single_rnti(char *buf, int debug, telnet_printfunc_t prnt)
@@ -393,7 +387,7 @@ static int set_pusch_target_snr(char *buf, int debug, telnet_printfunc_t prnt)
 
   gNB_MAC_INST *nrmac = RC.nrmac[0];
   NR_SCHED_LOCK(&nrmac->sched_lock);
-  UE_iterator(nrmac->UE_info.connected_ue_list, it) {
+  UE_iterator(&nrmac->UE_info.connected_ue_list, it) {
     nr_mac_set_target_snrx10(&it->UE_sched_ctrl.pusch_pc, new_snr * 10);
   }
   NR_SCHED_UNLOCK(&nrmac->sched_lock);

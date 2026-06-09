@@ -91,19 +91,9 @@ void du_clear_all_ue_states()
   gNB_MAC_INST *mac = RC.nrmac[0];
   NR_SCHED_LOCK(&mac->sched_lock);
 
-  NR_UE_info_t *UE = *mac->UE_info.connected_ue_list;
-
   instance_t f1inst = get_f1_gtp_instance();
 
-  while (UE != NULL) {
-    int rnti = UE->rnti;
-    nr_mac_release_ue(mac, rnti);
-    // free all F1 contexts
-    if (du_exists_f1_ue_data(rnti))
-      du_remove_f1_ue_data(rnti);
-    newGtpuDeleteAllTunnels(f1inst, rnti);
-    UE = *mac->UE_info.connected_ue_list;
-  }
+  // TODO release all
   NR_SCHED_UNLOCK(&mac->sched_lock);
 }
 
@@ -523,7 +513,7 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac, uint32_t cu_id, const NR_C
   int CC_id = 0;
   rnti_t rnti;
   if (get_softmodem_params()->phy_test) {
-    AssertFatal(mac->UE_info.connected_ue_list[0] == NULL, "phytest: UE already present\n");
+    AssertFatal(get_num_nr_UE(&mac->UE_info) == 0, "phytest: UE already present\n");
     rnti = 0x1234;
   } else {
     bool found = nr_mac_get_new_rnti(&mac->UE_info, &rnti);
@@ -568,7 +558,7 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac, uint32_t cu_id, const NR_C
     bool res = add_connected_nr_ue(mac, UE);
     DevAssert(res);
   } else {
-    if (!add_new_UE_RA(mac, UE)) {
+    if (!add_new_UE_RA(&mac->UE_info, UE)) {
       delete_nr_ue_data(UE, &mac->UE_info.uid_allocator);
       LOG_E(NR_MAC, "UE list full while creating new UE\n");
       return NULL;

@@ -16,6 +16,7 @@
 /* Utils */
 #include "common/utils/LOG/log.h"
 #include "common/utils/bits.h"
+#include "common/utils/alg/find.h"
 #include "UTIL/OPT/opt.h"
 
 /* rlc */
@@ -476,15 +477,14 @@ void schedule_nr_prach(module_id_t module_idP, frame_t frameP, slot_t slotP)
               }
             }
             if (initialUplinkBWP->ext1 && initialUplinkBWP->ext1->msgA_ConfigCommon_r16) {
-              if (gNB->UE_info.connected_ue_list[0] == NULL)
-                schedule_nr_MsgA_pusch(scc->uplinkConfigCommon,
-                                       gNB,
-                                       module_idP,
-                                       frameP,
-                                       slotP,
-                                       prach_pdu,
-                                       scc->dmrs_TypeA_Position,
-                                       *scc->physCellId);
+              schedule_nr_MsgA_pusch(scc->uplinkConfigCommon,
+                                     gNB,
+                                     module_idP,
+                                     frameP,
+                                     slotP,
+                                     prach_pdu,
+                                     scc->dmrs_TypeA_Position,
+                                     *scc->physCellId);
             }
           }
           prach_pdu->num_prach_ocas = num_td_occ;
@@ -620,7 +620,7 @@ int nr_fill_successrar(const NR_UE_sched_ctrl_t *ue_sched_ctl,
 /** @brief find UE with RA process for given preamble */
 static NR_UE_info_t *get_existing_ra(gNB_MAC_INST *nr_mac, uint16_t preamble_index)
 {
-  UE_iterator(nr_mac->UE_info.access_ue_list, UE) {
+  FOR_EACH_RA_UE(&nr_mac->UE_info.access_ue_list, UE) {
     NR_RA_t *ra = UE->ra;
     for (int i = 0; i < ra->preambles.num_preambles; ++i) {
       if (ra->preambles.preamble_list[i] == preamble_index)
@@ -633,10 +633,43 @@ static NR_UE_info_t *get_existing_ra(gNB_MAC_INST *nr_mac, uint16_t preamble_ind
 /** @brief add UE to list of UEs doing RA.
  *
  * Remove with nr_release_ra_UE(). */
-bool add_new_UE_RA(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
+bool add_new_UE_RA(NR_UEs_t *UEs, NR_UE_info_t *UE)
 {
   DevAssert(UE->ra); // a UE in the acess_ue_list needs to have an RA process
-  return add_UE_to_list(NR_NB_RA_PROC_MAX, nr_mac->UE_info.access_ue_list, UE);
+  if (seq_arr_size(&UEs->access_ue_list) > NR_NB_RA_PROC_MAX)
+    return false;
+  /* store pointer to UE! */
+  seq_arr_push_back(&UEs->access_ue_list, &UE, sizeof(UE));
+  return true;
+}
+
+static bool find_rnti(const void *search, const void *current)
+{
+  rnti_t s = *(const rnti_t *) search;
+  const NR_UE_info_t *c = *(const NR_UE_info_t **) current;
+  return s == c->rnti;
+}
+
+/** @brief release a UE from list of UEs doing RA.
+ *
+ * The corresponding function to add is add_new_UE_RA(). */
+NR_UE_info_t *remove_UE_RA(NR_UEs_t *UEs, rnti_t rnti)
+{
+  elm_arr_t el = find_if(&UEs->access_ue_list, &rnti, find_rnti);
+  if (el.found) {
+    NR_UE_info_t *found = *(NR_UE_info_t **)el.it;
+    seq_arr_erase(&UEs->access_ue_list, el.it);
+    return found;
+  }
+  return NULL;
+}
+
+NR_UE_info_t *find_ra_UE(NR_UEs_t *UEs, rnti_t rnti)
+{
+  elm_arr_t el = find_if(&UEs->access_ue_list, &rnti, find_rnti);
+  if (el.found)
+    return *(NR_UE_info_t **)el.it;
+  return NULL;
 }
 
 static uint8_t nr_get_msg3_tpc(uint32_t preamble_power)
@@ -705,7 +738,7 @@ void nr_initiate_ra_proc(module_id_t module_idP,
     }
 
     UE = get_new_nr_ue_inst(&nr_mac->UE_info.uid_allocator, rnti, NULL, &nr_mac->radio_config);
-    if (!add_new_UE_RA(nr_mac, UE)) {
+    if (!add_new_UE_RA(&nr_mac->UE_info, UE)) {
       LOG_E(NR_MAC, "FAILURE: %4d.%2d initiating RA procedure for preamble index %d: no free RA process\n", frame, slot, preamble_index);
       delete_nr_ue_data(UE, &nr_mac->UE_info.uid_allocator);
       NR_SCHED_UNLOCK(&nr_mac->sched_lock);
@@ -2124,14 +2157,12 @@ bool nr_check_Msg4_MsgB_Ack(module_id_t module_id, frame_t frame, slot_t slot, N
   return false;
 }
 
-/** @brief remove the UE with RNTI rnti from list of UEs doing RA.
- *
- * The corresponding function to add is add_new_UE_RA(). */
+/** @brief remove the UE with RNTI rnti from list of UEs doing RA. */
 void nr_release_ra_UE(gNB_MAC_INST *mac, rnti_t rnti)
 {
   NR_SCHED_ENSURE_LOCKED(&mac->sched_lock);
   NR_UEs_t *UE_info = &mac->UE_info;
-  NR_UE_info_t *UE = remove_UE_from_list(NR_NB_RA_PROC_MAX, UE_info->access_ue_list, rnti);
+  NR_UE_info_t *UE = remove_UE_RA(UE_info, rnti);
   if (UE) {
     delete_nr_ue_data(UE, &UE_info->uid_allocator);
   } else {
@@ -2152,7 +2183,7 @@ void nr_schedule_RA(module_id_t module_idP,
 
   start_meas(&mac->schedule_ra);
   for (int CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
-    UE_iterator(mac->UE_info.access_ue_list, UE) {
+    FOR_EACH_RA_UE(&mac->UE_info.access_ue_list, UE) {
       NR_RA_t *ra = UE->ra;
       if (ra->ra_state != nrRA_gNB_IDLE)
         LOG_D(NR_MAC, "UE %04x frame.slot %d.%d RA state: %d\n", UE->rnti, frameP, slotP, ra->ra_state);
