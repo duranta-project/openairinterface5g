@@ -2653,21 +2653,6 @@ NR_UE_info_t *find_nr_UE(NR_UEs_t *UEs, rnti_t rntiP)
   return NULL;
 }
 
-NR_UE_info_t *find_ra_UE(NR_UEs_t *UEs, rnti_t rntiP)
-{
-  UE_iterator (UEs->access_ue_list, UE) {
-    if (UE->ra->ra_type == RA_2_STEP && UE->ra->RA_rnti == rntiP) {
-      LOG_D(NR_MAC, "Search and found RA 2-Step RA_rnti: %04x\n", rntiP);
-      return UE;
-    }
-    if (UE->rnti == rntiP) {
-      LOG_D(NR_MAC, "Search and found rnti: %04x\n", rntiP);
-      return UE;
-    }
-  }
-  return NULL;
-}
-
 NR_UE_info_t **get_periodic_ue(periodic_ue_sched_t *p, int ul_idx, int index)
 {
   return &p->list[ul_idx * p->max_ue_per_slot + index];
@@ -3326,7 +3311,7 @@ bool transition_ra_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   NR_UEs_t *UE_info = &nr_mac->UE_info;
 
   // remove UE from initial access list (moved to connected mode)
-  NR_UE_info_t *r = remove_UE_from_list(NR_NB_RA_PROC_MAX, UE_info->access_ue_list, UE->rnti);
+  NR_UE_info_t *r = remove_UE_RA(UE_info, UE->rnti);
   DevAssert(r == UE); /* sanity check: we should have removed the current UE ptr from list */
 
   // The RA completed, so the UE's UL works. Clear any UL-failure state

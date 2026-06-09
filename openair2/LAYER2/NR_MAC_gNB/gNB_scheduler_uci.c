@@ -176,7 +176,7 @@ void nr_schedule_pucch(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frame
   if (!is_ul_slot(slot, &cell->frame_structure))
     return;
 
-  UE_iterator(nrmac->UE_info.access_ue_list, init_UE) {
+  FOR_EACH_RA_UE(&nrmac->UE_info.access_ue_list, init_UE) {
     if (init_UE->pcell != cell)
       continue;
     if (init_UE->ra->ra_state == nrRA_WAIT_Msg4_MsgB_ACK)

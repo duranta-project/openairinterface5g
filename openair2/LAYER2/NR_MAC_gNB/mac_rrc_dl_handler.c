@@ -609,7 +609,7 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac,
     bool res = add_connected_nr_ue(mac, UE);
     DevAssert(res);
   } else {
-    if (!add_new_UE_RA(mac, UE)) {
+    if (!add_new_UE_RA(&mac->UE_info, UE)) {
       delete_nr_ue_data(mac, UE);
       LOG_E(NR_MAC, "UE list full while creating new UE\n");
       return NULL;
@@ -1156,7 +1156,8 @@ static void process_reestablishment(gNB_MAC_INST *mac, uint32_t new_dl_rrc_id, u
   mac_remove_nr_ue(mac, UE->rnti);
   NR_UE_info_t *r = remove_UE_from_list(MAX_MOBILES_PER_GNB + 1, mac->UE_info.connected_ue_list, oldUE->rnti);
   DevAssert(r == oldUE);
-  add_UE_to_list(NR_NB_RA_PROC_MAX, mac->UE_info.access_ue_list, oldUE);
+  bool success = add_new_UE_RA(&mac->UE_info, UE);
+  AssertFatal(success, "can not add UE: F1 UE ctxt fail to be sent\n");
   nr_rlc_remove_ue(new_dl_rrc_id);
   nr_rlc_update_id(old_dl_rrc_id, new_dl_rrc_id);
   instance_t f1inst = get_f1_gtp_instance();
