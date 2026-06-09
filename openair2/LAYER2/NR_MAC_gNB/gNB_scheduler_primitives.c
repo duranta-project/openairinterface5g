@@ -2387,16 +2387,6 @@ int extract_length(int startSymbolAndLength) {
 }
 
 /*
- * Dump the UL or DL UE_info into LOG_T(MAC)
- */
-void dump_nr_list(NR_UE_info_t **list)
-{
-  UE_iterator(list, UE) {
-    LOG_T(NR_MAC, "NR list UEs rntis %04x\n", (*list)->rnti);
-  }
-}
-
-/*
  * Create a new NR_list
  */
 void create_nr_list(NR_list_t *list, int len)
@@ -3093,7 +3083,6 @@ bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
 
   LOG_I(NR_MAC, "Adding new UE context with RNTI 0x%04x\n", UE->rnti);
   NR_UEs_t *UE_info = &nr_mac->UE_info;
-  dump_nr_list(UE_info->connected_ue_list);
   AssertFatal(!UE->ra, "UE in connected cannot have RA process\n");
 
   bool success = add_UE_to_list(MAX_MOBILES_PER_GNB, UE_info->connected_ue_list, UE);
@@ -3116,7 +3105,6 @@ bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   init_bler_stats(&nr_mac->dl_bler, &sched_ctrl->dl_bler_stats, nr_mac->frame);
   init_bler_stats(&nr_mac->ul_bler, &sched_ctrl->ul_bler_stats, nr_mac->frame);
 
-  dump_nr_list(UE_info->connected_ue_list);
   return true;
 }
 
