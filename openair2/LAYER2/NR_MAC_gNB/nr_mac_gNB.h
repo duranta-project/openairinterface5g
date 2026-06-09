@@ -20,6 +20,7 @@
 #include "common/utils/ds/seq_arr.h"
 #include "common/utils/nr/nr_common.h"
 #include "common/utils/ds/byte_array.h"
+#include "common/utils/ds/hashtable.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_configuration.h"
 
 #define NR_SCHED_LOCK(lock)                                        \
@@ -827,7 +828,7 @@ typedef struct NR_UE_info {
 typedef struct {
   /// scheduling control info
   // last element always NULL
-  NR_UE_info_t *connected_ue_list[MAX_MOBILES_PER_GNB + 1];
+  hash_table_t connected_ue_list; // has pointers to NR_UE_info_t
   seq_arr_t access_ue_list; // has pointers to NR_UE_info_t
   // bitmap of CSI-RS already scheduled in current slot
   int sched_csirs;
@@ -849,7 +850,10 @@ typedef struct {
   nr_beam_mode_t beam_mode;
 } NR_beam_info_t;
 
-#define UE_iterator(BaSe, VaR) for (NR_UE_info_t **VaR##pptr = BaSe, *VaR = *VaR##pptr; VaR; VaR = *(++VaR##pptr))
+#define UE_iterator(BaSe, VaR)  \
+  hash_table_iterator_s VaR##_it = hashtable_get_iterator(BaSe); \
+  NR_UE_info_t *VaR = NULL; \
+  while(hashtable_iterator_getnext(&VaR##_it, (void **)&VaR))
 
 // In the access_ue_list, we store pointers to NR_UE_info_t, to which seq_arr
 // gives us a pointer (pointer to pointer), so reimplement loop to get the

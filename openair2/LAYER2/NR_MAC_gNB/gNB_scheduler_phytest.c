@@ -49,7 +49,7 @@ void nr_preprocessor_phytest(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pdsch)
   int slot_period = slot % mac->frame_structure.numb_slots_period;
   if (!is_xlsch_in_slot(dlsch_slot_bitmap, dlsch_slot_modval, slot_period))
     return;
-  NR_UE_info_t *UE = mac->UE_info.connected_ue_list[0];
+  NR_UE_info_t *UE = get_first_nr_UE(&mac->UE_info);
   if (UE == NULL)
     return;
   NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
@@ -218,10 +218,7 @@ void nr_ul_preprocessor_phytest(gNB_MAC_INST *nr_mac, post_process_pusch_t *pp_p
   /* already mutex protected: held in gNB_dlsch_ulsch_scheduler() */
   NR_COMMON_channels_t *cc = nr_mac->common_channels;
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
-  NR_UE_info_t *UE = nr_mac->UE_info.connected_ue_list[0];
-
-  AssertFatal(nr_mac->UE_info.connected_ue_list[1] == NULL,
-              "cannot handle more than one UE\n");
+  NR_UE_info_t *UE = get_first_nr_UE(&nr_mac->UE_info);
   if (UE == NULL)
     return;
 

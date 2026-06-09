@@ -2357,7 +2357,7 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
 }
 
 static int collect_ul_candidates(gNB_MAC_INST *mac,
-                                 NR_UE_info_t *UE_list[],
+                                 hash_table_t *UE_list,
                                  nr_ul_candidate_t *candidates,
                                  int max_candidates,
                                  frame_t frame,
@@ -2518,7 +2518,7 @@ void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, post_process_pusch_t *pp_pusch)
    * current_bytes was set by the previous slot's dispatch.
    * Fast EWMA (alpha=0.01) for PF scheduling, slow (alpha=0.001) for stable display. */
   const float dl_slots_per_s = (float)get_dl_slots_per_period(fs) / fs->numb_slots_period * fs->numb_slots_frame * 100;
-  UE_iterator (nr_mac->UE_info.connected_ue_list, UE) {
+  UE_iterator (&nr_mac->UE_info.connected_ue_list, UE) {
     NR_mac_dir_stats_t *stats = &UE->mac_stats.ul;
     float instant_bps = (float)stats->current_bytes * 8.0f * dl_slots_per_s;
     UE->ul_thr_ue = (1 - 0.01f) * UE->ul_thr_ue + 0.01f * instant_bps;
@@ -2557,7 +2557,7 @@ void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, post_process_pusch_t *pp_pusch)
      * double-grants and retx on already-dispatched HARQ PIDs. */
     nr_ul_candidate_t candidates[MAX_MOBILES_PER_GNB] = {0};
     int n_cand = collect_ul_candidates(nr_mac,
-                                       nr_mac->UE_info.connected_ue_list,
+                                       &nr_mac->UE_info.connected_ue_list,
                                        candidates,
                                        MAX_MOBILES_PER_GNB,
                                        frame,
