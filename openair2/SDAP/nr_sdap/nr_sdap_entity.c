@@ -209,7 +209,7 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
     const qfi2drb_t *mapping = &entity->qfi2drb_table[qfi];
     /* If the QFI has no active mapping, drop the packet: it can happen
      * after QoS-flow removal/reconfiguration due to packets that were already enqueued in PDCP */
-    if (mapping->drb_id == SDAP_NO_MAPPING_RULE) {
+    if (is_gnb && mapping->drb_id == SDAP_NO_MAPPING_RULE) {
       LOG_W(SDAP,
             "Dropping UL SDAP PDU with unmapped QFI=%d (ue=%ld pdu_session=%d drb=%d)\n",
             qfi,
