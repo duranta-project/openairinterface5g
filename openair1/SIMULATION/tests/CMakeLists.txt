@@ -120,12 +120,13 @@ add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test6 "4x4 MIMO, 1 Layer" nr_dlsim -
 add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test7 "4x4 MIMO, 2 Layers" nr_dlsim -P -n30 -s20 -U 3 0 0 2 -gA -x2 -y4 -z4)
 add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test8 "4x4 MIMO, 2 Layers 256 QAM" nr_dlsim -P -n30 -s25 -e22 -q1 -U 3 0 0 2 -gA -x2 -y4 -z4)
 add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test9 "4x4 MIMO, 4 Layers" nr_dlsim -P -n30 -s20 -U 3 0 0 2 -x4 -y4 -z4)
-add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test1 "3 PTRS, 8 Interpolated Symbols" nr_dlsim -P -n300 -s5 -T 2 2 2)
-add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test2 "6 PTRS, 5 Interpolated Symbols" nr_dlsim -P -n300 -s5 -T 2 1 2)
-add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test3 "11 PTRS, 0 Interpolated Symbols" nr_dlsim -P -n300 -s5 -T 2 0 4)
-add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test4 "Mapping type A, 2 DMRS Symbols" nr_dlsim -P -n300 -s5 -S7 -U 2 0 1)
-add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test5 "Mapping type A, 3 DMRS Symbols" nr_dlsim -P -n300 -s5 -S7 -U 2 0 2)
-add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test6 "Mapping type B, 4 DMRS Symbols" nr_dlsim -P -n300 -s5 -S7 -U 2 1 3)
+add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.csirs.test1 "3 PTRS, 8 Interpolated Symbols" nr_dlsim -P -n300 -s5 -T 2 2 2)
+add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.csirs.test2 "6 PTRS, 5 Interpolated Symbols" nr_dlsim -P -n300 -s5 -T 2 1 2)
+add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.csirs.test3 "11 PTRS, 0 Interpolated Symbols" nr_dlsim -P -n300 -s5 -T 2 0 4)
+add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.csirs.test4 "Mapping type A, 2 DMRS Symbols" nr_dlsim -P -n300 -s5 -S7 -U 2 0 1)
+add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.csirs.test5 "Mapping type A, 3 DMRS Symbols" nr_dlsim -P -n300 -s5 -S7 -U 2 0 2)
+add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.csirs.test6 "Mapping type B, 4 DMRS Symbols" nr_dlsim -P -n300 -s5 -S7 -U 2 1 3)
+add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.csirs.test7 "106 PRB with CSI-RS to RM at symbol 4" nr_dlsim -P -n300 -R106 -b106 -s10 -c4)
 
 ####################################################################################
 ######                           nr_dlschsim unit test                        ######
