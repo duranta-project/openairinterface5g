@@ -1820,6 +1820,8 @@ static void config_nr_mac_update_cell(nr_cell_sched_t *cell,
     dl_bler_options->harq_round_max = 1;
   else
     dl_bler_options->harq_round_max = *gpd(macrlc_p, macrlc_np, MACRLC_DL_HARQ_ROUND_MAX)->u8ptr;
+  dl_bler_options->target_bler = 0.10f;
+  dl_bler_options->step_size = 1.0f;
   NR_bler_options_t *ul_bler_options = &cell->ul_bler;
   ul_bler_options->upper = *gpd(macrlc_p, macrlc_np, MACRLC_UL_BLER_TARGET_UPPER)->dblptr;
   ul_bler_options->lower = *gpd(macrlc_p, macrlc_np, MACRLC_UL_BLER_TARGET_LOWER)->dblptr;
@@ -1829,6 +1831,8 @@ static void config_nr_mac_update_cell(nr_cell_sched_t *cell,
     ul_bler_options->harq_round_max = 1;
   else
     ul_bler_options->harq_round_max = *gpd(macrlc_p, macrlc_np, MACRLC_UL_HARQ_ROUND_MAX)->u8ptr;
+  ul_bler_options->target_bler = 0.10f;
+  ul_bler_options->step_size = 1.0f;
   cell->min_grant_prb = *gpd(macrlc_p, macrlc_np, MACRLC_MIN_GRANT_PRB)->u16ptr;
   long sc_fdma = NR_PUSCH_Config__transformPrecoder_enabled;
   if (bwp->rach_ConfigCommon->choice.setup->msg3_transformPrecoder != NULL)
