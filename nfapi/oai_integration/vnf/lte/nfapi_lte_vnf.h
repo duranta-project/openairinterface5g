@@ -6,7 +6,7 @@
 #define NFAPI_LTE_VNF_H_
 #include <common_lib.h>
 
-#include "nfapi_vnf_interface.h"
+#include "nfapi_lte_vnf_interface.h"
 typedef struct {
   uint8_t enabled;
   uint32_t rx_port;
