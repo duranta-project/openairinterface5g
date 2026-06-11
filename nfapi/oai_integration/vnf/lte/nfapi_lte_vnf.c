@@ -16,7 +16,7 @@
 
 #include "nfapi_lte_vnf.h"
 #include "../../vendor_ext.h"
-#include <vnf_p7.h>
+#include "vnf_p7_lte.h"
 
 #include "nfapi.h"
 #include "vendor_ext.h"

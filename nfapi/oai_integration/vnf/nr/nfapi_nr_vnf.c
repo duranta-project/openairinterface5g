@@ -20,7 +20,7 @@
 #include "../lte/nfapi_lte_vnf.h"
 #include "../../vendor_ext.h"
 #include "vnf_common.h"
-#include <vnf_p7.h>
+#include "vnf_p7_nr.h"
 
 #include "nfapi.h"
 #include "vendor_ext.h"
