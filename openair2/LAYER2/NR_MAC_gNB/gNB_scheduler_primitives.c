@@ -249,6 +249,22 @@ int get_mcs_from_SINRx10(int mcs_table, int SINRx10, int Nl)
   return 0;
 }
 
+int get_snrx10_from_mcs(int mcs_table, int mcs, int Nl)
+{
+  AssertFatal(mcs_table == 0,
+              "mcs_table = %d, but %s() only supports MCS tables 0 (TS 38.214 - Table 5.1.3.1-1)\n",
+              mcs_table,
+              __func__);
+
+  int snrx10 = SINRx10_MCS_mapping[mcs];
+  // if MCS X is used at Y layers, the SNR must be correspondingly better
+  if (Nl == 2)
+    snrx10 += 40;
+  else if (Nl == 4)
+    snrx10 += 70;
+  return snrx10;
+}
+
 uint8_t get_mcs_from_cqi(int mcs_table, int cqi_table, int cqi_idx)
 {
   if (cqi_idx <= 0) {
