@@ -375,13 +375,16 @@ static void handle_dl_harq(gNB_MAC_INST *mac, NR_UE_info_t * UE, int8_t harq_pid
     if (harq->sched_pdsch.action)
       harq->sched_pdsch.action(mac, UE);
     finish_nr_dl_harq(sched_ctrl, harq_pid);
+    olla_ack(&mac->dl_bler, &sched_ctrl->dl_bler_stats);
   } else if (harq->round >= harq_round_max - 1) {
     abort_nr_dl_harq(UE, harq_pid);
     LOG_D(NR_MAC, "retransmission error for UE %04x (total %"PRIu64")\n", UE->rnti, UE->mac_stats.dl.errors);
+    olla_nack(&mac->dl_bler, &sched_ctrl->dl_bler_stats);
   } else {
     LOG_D(PHY,"NACK for: pid %d, ue %04x\n",harq_pid, UE->rnti);
     add_tail_nr_list(&sched_ctrl->retrans_dl_harq, harq_pid);
     harq->round++;
+    olla_nack(&mac->dl_bler, &sched_ctrl->dl_bler_stats);
   }
 }
 

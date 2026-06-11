@@ -206,8 +206,7 @@ void nr_ul_mcs_select_default(const gNB_MAC_INST *mac, nr_ul_candidate_t *candid
                                    cand->max_mcs,
                                    cand->bler,
                                    bo->lower,
-                                   bo->upper,
-                                   cand->last_num_sched);
+                                   bo->upper);
     }
     cand->sched_pusch.mcs = mcs;
     if (!cand->is_retx)

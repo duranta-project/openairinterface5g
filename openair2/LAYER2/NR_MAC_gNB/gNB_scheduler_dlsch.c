@@ -506,7 +506,9 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
           .retx_harq_pid = harq_pid,
           .retx_rbSize = harq->sched_pdsch.rbSize,
           .avg_throughput = UE->dl_thr_ue,
-          .bler = sched_ctrl->dl_bler_stats.bler,
+          .bler = olla_get_current_bler(&sched_ctrl->dl_bler_stats), // TODO necessary?
+          .delta_olla = sched_ctrl->dl_bler_stats.delta_olla,
+          .snrx10 = sched_ctrl->dl_bler_stats.snrx10_equiv,
           .current_mcs = harq->sched_pdsch.mcs,
           .max_mcs = max_mcs,
           .mcs_table = current_BWP->mcsTableIdx,
@@ -538,7 +540,7 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
         continue;
 
       /* Update BLER stats; MCS adaptation is done by dl_mcs_select for all candidates. */
-      bool bler_updated = update_bler_stats(bo, stats, &sched_ctrl->dl_bler_stats, frame);
+      olla_update(NULL, &sched_ctrl->dl_bler_stats, frame);
 
       candidates[n++] = (nr_dl_candidate_t){
           /* identity / scheduling state */
@@ -548,11 +550,11 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
           .retx_harq_pid = -1,
           .pending_bytes = sched_ctrl->num_total_bytes,
           .avg_throughput = UE->dl_thr_ue,
-          .bler = sched_ctrl->dl_bler_stats.bler,
+          .bler = olla_get_current_bler(&sched_ctrl->dl_bler_stats), // TODO necessary?
+          .delta_olla = sched_ctrl->dl_bler_stats.delta_olla,
+          .snrx10 = sched_ctrl->dl_bler_stats.snrx10_equiv,
           .current_mcs = sched_ctrl->dl_bler_stats.mcs,
           .max_mcs = max_mcs,
-          .last_num_sched = sched_ctrl->dl_bler_stats.last_num_sched,
-          .bler_updated = bler_updated,
           .mcs_table = current_BWP->mcsTableIdx,
           .bwp_start = bwp_info.bwpStart,
           .bwp_size = bwp_info.bwpSize,

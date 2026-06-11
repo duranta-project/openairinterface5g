@@ -899,44 +899,51 @@ NR_pusch_dmrs_t get_ul_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
 
 #define BLER_UPDATE_FRAME 10
 #define BLER_FILTER 0.9f
-int nr_adapt_mcs_from_bler(int current_mcs, int min_mcs, int max_mcs, float bler, float bler_lower, float bler_upper, int num_sched)
+int nr_adapt_mcs_from_bler(int current_mcs, int min_mcs, int max_mcs, float bler, float bler_lower, float bler_upper)
 {
-  int mcs = current_mcs;
-  if (bler < bler_lower && mcs < max_mcs && num_sched > 3)
-    mcs++;
-  else if (bler > bler_upper || num_sched <= 3) // above threshold or no activity
-    mcs--;
-  return max(min_mcs, min(mcs, max_mcs));
+  return 9;
 }
 
-bool update_bler_stats(const NR_bler_options_t *bler_options,
-                       const NR_mac_dir_stats_t *stats,
-                       NR_bler_stats_t *bler_stats,
-                       frame_t frame)
+NR_bler_stats_t olla_init(int est_snrx10, frame_t frame)
 {
-  int diff = frame - bler_stats->last_frame;
-  if (diff < 0) // wrap around
-    diff += 1024;
+  return (NR_bler_stats_t) { .snrx10_equiv = est_snrx10, .last_frame = frame, };
+}
 
-  if (diff < BLER_UPDATE_FRAME)
-    return false;
+void olla_update(int *est_snrx10, NR_bler_stats_t *s, frame_t frame)
+{
+  bool new_cqi = est_snrx10 != NULL;
+  if (new_cqi) {
+    s->snrx10_equiv = *est_snrx10;
+  }
+  // reset BLER stats every 5s, so that BLER would reflect current channel changes
+  // also, in case of no CQI, this will set the SNR base
+  bool stale_delta = ((frame - s->last_frame + 1024) % 1024) > 499 && (s->acks + s->nacks > 100);
+  if (stale_delta) {
+    // reset stats every 5s, so that we periodically reset BLER (e.g., channel
+    // changes) or if we don't get CQI. If we do get CQI, this merely resets
+    // delta_olla to 0 (incorporates into snrx10_equiv), but the MCS remains
+    int snrx10 = s->snrx10_equiv + s->delta_olla * 10.f;
+    *s = olla_init(snrx10, frame);
+  }
+}
 
-  const int num_dl_sched = (int)(stats->rounds[0] - bler_stats->rounds[0]);
-  const int num_dl_retx = (int)(stats->rounds[1] - bler_stats->rounds[1]);
-  const float bler_window = num_dl_sched > 0 ? (float)num_dl_retx / num_dl_sched : bler_stats->bler;
-  bler_stats->bler = BLER_FILTER * bler_stats->bler + (1 - BLER_FILTER) * bler_window;
+float olla_get_current_bler(const NR_bler_stats_t *s)
+{
+  return s->acks > 0 ? (float) s->nacks / (s->nacks + s->acks) : 1.0f;
+}
 
-  bler_stats->last_frame = frame;
-  bler_stats->last_num_sched = num_dl_sched;
-  memcpy(bler_stats->rounds, stats->rounds, sizeof(stats->rounds));
-  LOG_D(MAC,
-        "frame %4d BLER update (num_sched %d, num_retx %d, BLER wnd %.3f avg %.6f)\n",
-        frame,
-        num_dl_sched,
-        num_dl_retx,
-        bler_window,
-        bler_stats->bler);
-  return true;
+void olla_ack(const NR_bler_options_t *o, NR_bler_stats_t *s)
+{
+  s->acks++;
+  s->delta_olla += o->step_size * (o->target_bler / (1.0f - o->target_bler));
+  s->delta_olla = min(8.f, s->delta_olla);
+}
+
+void olla_nack(const NR_bler_options_t *o, NR_bler_stats_t *s)
+{
+  s->nacks++;
+  s->delta_olla -= o->step_size;
+  s->delta_olla = max(-8.f, s->delta_olla);
 }
 
 nfapi_nr_dl_dci_pdu_t *prepare_dci_pdu(nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu,
@@ -3173,7 +3180,6 @@ static void init_bler_stats(const NR_bler_options_t *bler_options, NR_bler_stats
 {
   bler_stats->last_frame = frame;
   bler_stats->mcs = bler_options->min_mcs;
-  bler_stats->bler = (float)(bler_options->lower + bler_options->upper) / 2.0f;
 }
 
 /* @brief returns a new UE allocated instance.

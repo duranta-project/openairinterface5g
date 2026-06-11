@@ -473,13 +473,13 @@ int nr_adapt_mcs_from_bler(int current_mcs,
                            int max_mcs,
                            float bler,
                            float bler_lower,
-                           float bler_upper,
-                           int num_sched);
+                           float bler_upper);
 
-bool update_bler_stats(const NR_bler_options_t *bler_options,
-                       const NR_mac_dir_stats_t *stats,
-                       NR_bler_stats_t *bler_stats,
-                       frame_t frame);
+NR_bler_stats_t olla_init(int est_snrx10, frame_t frame);
+void olla_update(int *est_snrx10, NR_bler_stats_t *bler_stats, frame_t frame);
+float olla_get_current_bler(const NR_bler_stats_t *s);
+void olla_ack(const NR_bler_options_t *o, NR_bler_stats_t *s);
+void olla_nack(const NR_bler_options_t *o, NR_bler_stats_t *s);
 
 float dl_pf_weight(int mcs, int mcs_table, int nrOfLayers, float avg_throughput);
 uint16_t check_dl_retx_feasibility(const nr_dl_candidate_t *cand,

@@ -2697,7 +2697,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
       cand.retx_harq_pid = ul_harq_pid;
       cand.retx_rbSize = retInfo->rbSize;
       cand.current_mcs = retInfo->mcs;
-      cand.bler = sched_ctrl->ul_bler_stats.bler;
+      cand.bler = olla_get_current_bler(&sched_ctrl->ul_bler_stats);
       candidates[numUE++] = cand;
       continue;
     }
@@ -2719,7 +2719,8 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     /* Update BLER stats; MCS adaptation is done by ul_mcs_select pipeline stage */
     const int max_mcs_table = (current_BWP->mcs_table == 0 || current_BWP->mcs_table == 2) ? 28 : 27;
     const int max_mcs = min(mac->ul_bler.max_mcs, max_mcs_table);
-    bool bler_updated = update_bler_stats(&mac->ul_bler, stats, &sched_ctrl->ul_bler_stats, frame);
+    olla_update(NULL, &sched_ctrl->ul_bler_stats, frame);
+    bool bler_updated = true; /* TODO: remove */
 
     cand.is_retx = false;
     if (!aperiodic_srs_scheduled) {
@@ -2730,11 +2731,10 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     cand.retx_harq_pid = -1;
     cand.sched_inactive = (B == 0 && do_sched);
     cand.pending_bytes = B;
-    cand.bler = sched_ctrl->ul_bler_stats.bler;
+    cand.bler = olla_get_current_bler(&sched_ctrl->ul_bler_stats);
     cand.bler_updated = bler_updated;
     cand.current_mcs = sched_ctrl->ul_bler_stats.mcs;
     cand.max_mcs = max_mcs;
-    cand.last_num_sched = sched_ctrl->ul_bler_stats.last_num_sched;
     cand.snrx10 = (int)(sched_ctrl->pusch_pc.avg_snr * 10);
 
     LOG_D(NR_MAC,

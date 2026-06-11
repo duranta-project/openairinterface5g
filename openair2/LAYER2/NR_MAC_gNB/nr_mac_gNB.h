@@ -556,11 +556,14 @@ typedef struct NR_UE_harq {
 //! fixme : need to enhace for the multiple TB CQI report
 
 typedef struct NR_bler_stats {
-  frame_t last_frame;
-  float bler;
   uint8_t mcs;
-  uint64_t rounds[8];
-  int last_num_sched; // scheduling count at last BLER update (for activity guard)
+
+  // for OLLA
+  frame_t last_frame;
+  int snrx10_equiv;
+  float delta_olla;
+  int acks;
+  int nacks;
 } NR_bler_stats_t;
 
 //
@@ -775,6 +778,10 @@ typedef struct NR_bler_options {
   uint8_t min_mcs;
   uint8_t max_mcs;
   uint8_t harq_round_max;
+
+  /* TODO OLLA */
+  float target_bler;
+  float step_size;
 } NR_bler_options_t;
 
 typedef struct nr_mac_rrc_ul_if_s {
@@ -929,11 +936,11 @@ struct nr_dl_candidate {
   uint32_t pending_bytes; ///< total bytes waiting in RLC buffers
   uint32_t pending_bytes_per_lcid[NR_MAX_NUM_LCID]; ///< per-LCID bytes waiting in RLC buffers
   float avg_throughput; ///< EWMA goodput in bps (dl_thr_ue)
+  float delta_olla;
+  int snrx10;
   float bler; ///< current BLER estimate
   int current_mcs; ///< current MCS state (retx: from HARQ, new tx: from BLER tracker)
   int max_mcs; ///< max allowed MCS (config + UE capability)
-  int last_num_sched; ///< scheduled occasions in last BLER window
-  bool bler_updated; ///< true if BLER was refreshed this frame
   int mcs_table; ///< MCS table index (from BWP config)
   int bwp_start; ///< UE's BWP start
   int bwp_size; ///< UE's BWP size
