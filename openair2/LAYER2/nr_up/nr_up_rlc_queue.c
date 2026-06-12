@@ -7,6 +7,7 @@
 #endif
 
 #include "nr_up/nr_up_rlc_queue.h"
+#include "nr_up/nr_up_pdcp_if.h"
 #include <pthread.h>
 #include <stdlib.h>
 #include "assertions.h"
@@ -68,7 +69,11 @@ static void *nr_up_rlc_data_req_thread(void *_)
     }
 
     nr_up_rlc_data_req_queue_item *item = &g_nr_up_rlc_queue.q[i];
-    nr_rlc_data_req(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id, item->sdu_sizeP, item->sdu_pP);
+    int tx_space = nr_rlc_data_req(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id, item->sdu_sizeP, item->sdu_pP);
+
+    if (!item->srb_flagP && tx_space >= 0) {
+      nr_up_dl_budget_sync(item->ctxt_pP.rntiMaybeUEid, item->rb_idP, tx_space);
+    }
 
     if (pthread_mutex_lock(&g_nr_up_rlc_queue.m) != 0) {
       abort();
