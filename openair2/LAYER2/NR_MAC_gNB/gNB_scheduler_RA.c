@@ -2183,7 +2183,12 @@ void nr_schedule_RA(module_id_t module_idP,
 
   start_meas(&mac->schedule_ra);
   for (int CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
-    FOR_EACH_RA_UE(&mac->UE_info.access_ue_list, UE) {
+    /* intentionally iterate in reverse order: some functions (even the loop
+     * body) call nr_release_ra_UE(), which removes a UE from the container we
+     * iterate. Thus, we would potentially skip UEs, or worse, access the last
+     * that is 0 => segfaul. Can't happen in reverse order. */
+    for (int i = seq_arr_size(&mac->UE_info.access_ue_list); i > 0; --i) {
+      NR_UE_info_t *UE = seq_arr_at(&mac->UE_info.access_ue_list, i - 1);
       NR_RA_t *ra = UE->ra;
       if (ra->ra_state != nrRA_gNB_IDLE)
         LOG_D(NR_MAC, "UE %04x frame.slot %d.%d RA state: %d\n", UE->rnti, frameP, slotP, ra->ra_state);
