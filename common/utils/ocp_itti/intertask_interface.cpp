@@ -223,8 +223,8 @@ typedef struct timer_elm_s {
 
     AssertFatal (nb_events >=0,
                  "epoll_wait failed for task %s, nb fds %d, timeout %lu: %s!\n",
-                 itti_get_task_name(task_id), t->nb_fd_epoll, 
-                 t->next_timer != UINT64_MAX ? t->next_timer-current_time : -1, 
+                 itti_get_task_name(task_id), t->nb_fd_epoll,
+                 t->next_timer != UINT64_MAX ? t->next_timer-current_time : -1,
                  strerror(errno));
     LOG_D(ITTI,"receive on %d descriptors for %s\n", nb_events, itti_get_task_name(task_id));
 

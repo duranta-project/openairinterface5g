@@ -23,16 +23,16 @@
  * Module brief:
  * This module is used to add RRCRelease commands to the telnet server in the
  * absence of full support for E2SM RAN Control (RC).
- * This provides similar functionality to the ORAN.WG3.E2SM-RC-R003-v05.00 
- * 8.4.5.4 RRC Connection Release Control which is initiated by the RIC. 
- * 
+ * This provides similar functionality to the ORAN.WG3.E2SM-RC-R003-v05.00
+ * 8.4.5.4 RRC Connection Release Control which is initiated by the RIC.
+ *
  * Implementation notes:
- * We refer to the method call rrc_gNB_generate_RRCRelease at rrc_gNB_NGAP.c 
- * during rrc_gNB_process_NGAP_UE_CONTEXT_RELEASE_COMMAND message generation. 
- * 
+ * We refer to the method call rrc_gNB_generate_RRCRelease at rrc_gNB_NGAP.c
+ * during rrc_gNB_process_NGAP_UE_CONTEXT_RELEASE_COMMAND message generation.
+ *
  * Building the telnetsrv and module:
  * ./build_oai --build-lib telnetsrv
- * 
+ *
  * Loading the module:
  * sudo ./nr-softmodem -E --rfsim --log_config.global_log_options level,nocolor,time -O ~/gnb.sa.band78.106prb.rfsim.conf --telnetsrv --telnetsrv.shrmod rrc
 */
