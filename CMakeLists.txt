@@ -1074,6 +1074,7 @@ set(NR_PDCP_SRC
 set(NR_PDCP_SRC_GNB_CORE
   ${NR_PDCP_SRC}
   openair2/LAYER2/nr_pdcp/nr_pdcp_nrup_handler.c
+  openair2/LAYER2/nr_pdcp/nr_pdcp_nrup_cu.c
   openair2/LAYER2/nr_pdcp/cucp_cuup_handler.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_if.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_direct.c
@@ -1083,10 +1084,14 @@ set(NR_PDCP_SRC_GNB_CORE
 # L2_NR: GNB common (excluded from nr-cuup link)
 set(NR_PDCP_SRC_GNB
   ${NR_PDCP_SRC_GNB_CORE}
+  openair2/LAYER2/nr_pdcp/nr_pdcp_nrup_direct.c
   )
 
 # UE build: PDCP only; CU-CP/CU-UP interface is gNB-only.
-set(NR_PDCP_SRC_UE ${NR_PDCP_SRC})
+set(NR_PDCP_SRC_UE
+  ${NR_PDCP_SRC}
+  openair2/LAYER2/nr_pdcp/nr_pdcp_nrup_ue.c
+  )
 
 set(NR_SDAP_SRC
   ${OPENAIR2_DIR}/SDAP/nr_sdap/nr_sdap.c
@@ -1341,7 +1346,7 @@ target_link_libraries(L2_UE PRIVATE nfapi_pnf_lib)
 target_link_libraries(L2_UE PRIVATE asn1_lte_rrc_hdrs)
 
 add_library( NR_L2_UE ${NR_L2_SRC_UE} ${MAC_NR_SRC_UE} )
-target_link_libraries(NR_L2_UE PRIVATE nr_rlc)
+target_link_libraries(NR_L2_UE PRIVATE nr_rlc nr_up_rlc_queue)
 target_link_libraries(NR_L2_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs nr_common nr_ue_power_procedures nr_ue_ra_procedures)
 target_link_libraries(NR_L2_UE PRIVATE nr_nas)
 

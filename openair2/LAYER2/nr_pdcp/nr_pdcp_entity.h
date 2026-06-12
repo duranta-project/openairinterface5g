@@ -107,9 +107,6 @@ typedef struct nr_pdcp_entity_s {
                       int size,
                       const nr_pdcp_integrity_data_t *msg_integrity);
   void *deliver_sdu_data;
-  void (*deliver_pdu)(void *deliver_pdu_data, ue_id_t ue_id, int rb_id,
-                      char *buf, int size, int sdu_id);
-  void *deliver_pdu_data;
 
   /* configuration variables */
   int rb_id;
@@ -189,8 +186,6 @@ nr_pdcp_entity_t *new_nr_pdcp_entity(
                         int size,
                         const nr_pdcp_integrity_data_t *msg_integrity),
     void *deliver_sdu_data,
-    void (*deliver_pdu)(void *deliver_pdu_data, ue_id_t ue_id, int rb_id, char *buf, int size, int sdu_id),
-    void *deliver_pdu_data,
     int sn_size,
     int t_reordering,
     int discard_timer,
