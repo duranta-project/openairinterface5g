@@ -8,6 +8,9 @@
 #include "common/platform_types.h"
 #include "common/utils/ds/byte_array.h"
 
+/** RLC queue enqueue: no gNB CU UE id, skip post-RLC budget refresh (UE path, SRB). */
+#define NR_UP_CU_UE_ID_NONE UINT64_MAX
+
 /** Result of deliver_drb backend (RLC enqueue or F1-U send) propagated to PDCP. */
 typedef enum nr_up_dl_transfer_result_e {
   NR_UP_DL_OK = 0,

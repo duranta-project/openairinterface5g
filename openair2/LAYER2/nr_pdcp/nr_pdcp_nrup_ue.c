@@ -19,7 +19,7 @@ static void deliver_pdu_drb_ue(void *data, ue_id_t ue_id, int rb_id, char *buf, 
   uint8_t *memblock = malloc16(size);
   memcpy(memblock, buf, size);
   LOG_D(PDCP, "%s(): drb %d enqueue size %d ue %ld\n", __func__, rb_id, size, ue_id);
-  nr_up_enqueue_rlc_data_req(&ctxt, 0, rb_id, sdu_id, size, memblock);
+  nr_up_enqueue_rlc_data_req(&ctxt, 0, rb_id, sdu_id, size, memblock, NR_UP_CU_UE_ID_NONE);
 }
 
 void nr_pdcp_nrup_ue_init(void)
@@ -34,5 +34,5 @@ void deliver_pdu_srb_rlc(void *deliver_pdu_data, ue_id_t ue_id, int srb_id, char
   protocol_ctxt_t ctxt = {.enb_flag = 1, .rntiMaybeUEid = ue_id};
   uint8_t *memblock = malloc16(size);
   memcpy(memblock, buf, size);
-  nr_up_enqueue_rlc_data_req(&ctxt, 1, srb_id, sdu_id, size, memblock);
+  nr_up_enqueue_rlc_data_req(&ctxt, 1, srb_id, sdu_id, size, memblock, NR_UP_CU_UE_ID_NONE);
 }

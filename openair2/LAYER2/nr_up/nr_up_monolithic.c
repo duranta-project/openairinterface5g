@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
+#include <stdint.h>
 #include <string.h>
 #include "nr_up/nr_up_backend_if.h"
 #include "nr_up/nr_up_rlc_queue.h"
@@ -64,10 +65,18 @@ static nr_up_dl_transfer_result_t nr_up_mono_deliver_drb(const nr_up_dl_transfer
     return NR_UP_DL_ERROR;
   }
 
+  DevAssert(req->ue_id != NR_UP_CU_UE_ID_NONE);
   memcpy(memblock, req->pdu.buf, req->pdu.len);
   LOG_D(NR_UP, "%s(): (drb %u) calling rlc_data_req size %zu\n", __func__, req->drb_id, req->pdu.len);
-  nr_up_enqueue_rlc_data_req(&ctxt, NR_UP_MONO_SRB_FLAG, req->drb_id, req->sdu_id, req->pdu.len, memblock);
+  nr_up_enqueue_rlc_data_req(&ctxt, NR_UP_MONO_SRB_FLAG, req->drb_id, req->sdu_id, req->pdu.len, memblock, req->ue_id);
+  nr_up_drb_budget_consume(req->ue_id, req->drb_id, req->pdu.len);
   return NR_UP_DL_OK;
+}
+
+static void nr_up_mono_sync_budget(ue_id_t cu_ue_id, rb_id_t drb_id, int tx_space)
+{
+  if (tx_space >= 0)
+    nr_up_drb_budget_sync(cu_ue_id, drb_id, tx_space);
 }
 
 void nr_up_init_monolithic(nr_up_if_t *iface)
@@ -76,4 +85,5 @@ void nr_up_init_monolithic(nr_up_if_t *iface)
   nr_rlc_set_do_drop(false);
   iface->deliver_drb = nr_up_mono_deliver_drb;
   iface->dl_congestion_precheck = nr_up_mono_dl_congestion_precheck;
+  nr_up_rlc_queue_set_budget_refresh_cb(nr_up_mono_sync_budget);
 }
