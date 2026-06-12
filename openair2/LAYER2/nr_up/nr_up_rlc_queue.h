@@ -14,6 +14,7 @@ void nr_up_enqueue_rlc_data_req(const protocol_ctxt_t *ctxt_pP,
                                 rb_id_t rb_idP,
                                 int sdu_id,
                                 sdu_size_t sdu_sizeP,
-                                uint8_t *sdu_pP);
+                                uint8_t *sdu_pP,
+                                ue_id_t pdcp_ue_id);
 
 #endif /* NR_UP_RLC_QUEUE_H */
