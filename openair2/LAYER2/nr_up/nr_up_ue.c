@@ -30,7 +30,7 @@ static nr_up_dl_transfer_response_t nr_up_ue_deliver_rb(const nr_up_dl_transfer_
         srb_flag ? "srb" : "drb",
         req->drb_id,
         req->pdu.len);
-  nr_up_enqueue_rlc_data_req(&ctxt, srb_flag, req->drb_id, req->sdu_id, req->pdu.len, memblock);
+  nr_up_enqueue_rlc_data_req(&ctxt, srb_flag, req->drb_id, req->sdu_id, req->pdu.len, memblock, req->ue_id);
   return NR_UP_DL_OK;
 }
 

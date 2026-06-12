@@ -7,6 +7,7 @@
 #endif
 
 #include "nr_up_rlc_queue.h"
+#include "nr_up_pdcp_if.h"
 #include <pthread.h>
 #include <stdlib.h>
 #include "assertions.h"
@@ -33,6 +34,7 @@ typedef struct {
   int sdu_id;
   sdu_size_t sdu_sizeP;
   uint8_t *sdu_pP;
+  ue_id_t pdcp_ue_id;
 } nr_up_rlc_data_req_queue_item;
 
 #define NR_UP_RLC_DATA_REQ_QUEUE_SIZE 10000
@@ -68,7 +70,11 @@ static void *nr_up_rlc_data_req_thread(void *_)
     }
 
     nr_up_rlc_data_req_queue_item *item = &g_nr_up_rlc_queue.q[i];
-    nr_rlc_data_req(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id, item->sdu_sizeP, item->sdu_pP);
+    int tx_space = nr_rlc_data_req(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id, item->sdu_sizeP, item->sdu_pP);
+
+    if (!item->srb_flagP && tx_space >= 0) {
+      nr_up_dl_budget_sync(item->pdcp_ue_id, item->rb_idP, tx_space);
+    }
 
     if (pthread_mutex_lock(&g_nr_up_rlc_queue.m) != 0) {
       abort();
@@ -104,7 +110,8 @@ void nr_up_enqueue_rlc_data_req(const protocol_ctxt_t *ctxt_pP,
                                 rb_id_t rb_idP,
                                 int sdu_id,
                                 sdu_size_t sdu_sizeP,
-                                uint8_t *sdu_pP)
+                                uint8_t *sdu_pP,
+                                ue_id_t pdcp_ue_id)
 {
   int i;
   int logged = 0;
@@ -131,6 +138,7 @@ void nr_up_enqueue_rlc_data_req(const protocol_ctxt_t *ctxt_pP,
   g_nr_up_rlc_queue.q[i].sdu_id = sdu_id;
   g_nr_up_rlc_queue.q[i].sdu_sizeP = sdu_sizeP;
   g_nr_up_rlc_queue.q[i].sdu_pP = sdu_pP;
+  g_nr_up_rlc_queue.q[i].pdcp_ue_id = pdcp_ue_id;
 
   if (pthread_cond_signal(&g_nr_up_rlc_queue.c) != 0) {
     abort();

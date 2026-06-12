@@ -6,6 +6,7 @@
 #include "nr_up_direct.h"
 #include "nr_up_backend_if.h"
 #include "nr_up_rlc_queue.h"
+#include "assertions.h"
 #include "common/utils/LOG/log.h"
 #include "common/utils/utils.h"
 #include "openair2/F1AP/f1ap_ids.h"
@@ -29,7 +30,8 @@ static nr_up_dl_transfer_response_t nr_up_mono_deliver_drb(const nr_up_dl_transf
 
   memcpy(memblock, req->pdu.buf, req->pdu.len);
   LOG_D(NR_UP, "%s(): (drb %u) calling rlc_data_req size %zu\n", __func__, req->drb_id, req->pdu.len);
-  nr_up_enqueue_rlc_data_req(&ctxt, SRB_FLAG_NO, req->drb_id, req->sdu_id, req->pdu.len, memblock);
+  nr_up_enqueue_rlc_data_req(&ctxt, SRB_FLAG_NO, req->drb_id, req->sdu_id, req->pdu.len, memblock, req->ue_id);
+  nr_up_drb_budget_consume(req->ue_id, req->drb_id, req->pdu.len);
   return NR_UP_DL_OK;
 }
 
@@ -62,4 +64,5 @@ void nr_up_init_direct(nr_up_if_t *iface)
   nr_up_rlc_queue_init();
   iface->deliver_drb = nr_up_mono_deliver_drb;
   iface->dl_congestion_precheck = nr_up_mono_dl_congestion_precheck;
+  iface->budget_sync = nr_up_drb_budget_sync;
 }
