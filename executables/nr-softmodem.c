@@ -12,6 +12,7 @@
 unsigned short config_frames[4] = {2,9,11,13};
 #endif
 #include "common/utils/time_manager/time_manager.h"
+#include "openair2/LAYER2/nr_up/nr_up.h"
 #ifdef ENABLE_AERIAL
 #include "nfapi/oai_integration/aerial/fapi_nvIPC.h"
 #endif
@@ -569,8 +570,8 @@ int main( int argc, char **argv ) {
   void nr_pdcp_ms_tick(void);
   void x2ap_ms_tick();
   void nr_rlc_ms_tick(void);
-  time_manager_tick_function_t tick_functions[3];
-  int tick_functions_count = 0;
+  time_manager_tick_function_t tick_functions[4] = {nr_up_ms_tick};
+  int tick_functions_count = 1;
   if (NODE_IS_MONOLITHIC(node_type)) {
     /* monolithic */
     tick_functions[tick_functions_count++] = nr_pdcp_ms_tick;
