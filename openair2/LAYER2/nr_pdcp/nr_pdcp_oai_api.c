@@ -45,6 +45,8 @@
 #include "pdcp_messages_types.h"
 #ifdef PDCP_CUCP_CUUP
 #include "nr_pdcp_nrup_cu.h"
+#include "nr_up/nr_up_backend_if.h"
+#include "nr_up/nr_up_pdcp_if.h"
 #ifdef NR_UP_MONO_BACKEND
 #include "nr_pdcp_nrup_direct.h"
 #endif
@@ -267,6 +269,7 @@ void nr_pdcp_layer_init(void)
   set_node_type();
 
 #ifdef PDCP_CUCP_CUUP
+  nr_up_manager_init();
   if (NODE_IS_CU(node_type)) {
     nr_pdcp_nrup_cu_init(node_type);
 #ifdef NR_UP_MONO_BACKEND
@@ -784,6 +787,16 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
     LOG_E(PDCP, "[UE %lx] DRB %ld not found\n", ue_id, rb_id);
     return 0;
   }
+
+#ifdef PDCP_CUCP_CUUP
+  if (rb->is_gnb && NODE_IS_MONOLITHIC(node_type)) {
+    const size_t est_pdu_size = nr_max_pdcp_pdu_size(sdu_buffer_size);
+    if (nr_up_dl_congestion_precheck(ue_id, rb_id, est_pdu_size) == NR_UP_CONGESTION_DROP) {
+      nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+      return 0;
+    }
+  }
+#endif
 
   int max_size = nr_max_pdcp_pdu_size(sdu_buffer_size);
   unsigned char pdu_buf[max_size];

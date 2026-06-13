@@ -12,3 +12,11 @@ nr_up_dl_transfer_result_t nr_up_dl_transfer(const nr_up_dl_transfer_req_t *req)
   DevAssert(iface);
   return iface->deliver_drb(req);
 }
+
+nr_up_congestion_action_t nr_up_dl_congestion_precheck(ue_id_t ue_id, rb_id_t rb_id, size_t pdu_len)
+{
+  nr_up_if_t *iface = get_nr_up_if();
+  DevAssert(iface);
+  DevAssert(iface->dl_congestion_precheck);
+  return iface->dl_congestion_precheck(ue_id, rb_id, pdu_len);
+}

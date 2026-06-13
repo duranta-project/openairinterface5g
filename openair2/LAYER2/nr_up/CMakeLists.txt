@@ -8,8 +8,9 @@ target_include_directories(nr_up PUBLIC ../../..)
 
 add_library(nr_up_pdcp_if STATIC
             nr_up_pdcp_if.c
+            nr_up_backend_if.c
 )
-target_link_libraries(nr_up_pdcp_if PUBLIC nr_up log_headers)
+target_link_libraries(nr_up_pdcp_if PUBLIC nr_up log_headers utils ds)
 target_include_directories(nr_up_pdcp_if PUBLIC ../../..)
 
 add_library(nr_up_rlc_queue STATIC
