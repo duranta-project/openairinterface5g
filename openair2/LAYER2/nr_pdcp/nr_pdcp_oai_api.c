@@ -830,6 +830,16 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
   }
 
   int max_size = nr_max_pdcp_pdu_size(sdu_buffer_size);
+
+#ifdef PDCP_CUCP_CUUP
+  if (rb->is_gnb) {
+    if (nr_up_dl_congestion_precheck(ue_id, rb_id, max_size) == NR_UP_CONGESTION_DROP) {
+      nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+      return 0;
+    }
+  }
+#endif
+
   char pdu_buf[max_size];
   int pdu_size = rb->process_sdu(rb, (char *)sdu_buffer, sdu_buffer_size, muiP, pdu_buf, max_size);
   if (pdu_size == -1) {

@@ -3,11 +3,17 @@
  */
 
 #include <string.h>
+#include <time.h>
 #include "nr_up/nr_up_direct.h"
+#include "nr_up/nr_up_backend_if.h"
 #include "nr_up/nr_up_rlc_queue.h"
 #include "common/utils/LOG/log.h"
 #include "common/utils/utils.h"
 #include "openair2/F1AP/f1ap_ids.h"
+
+/* Allow stale budget if the RLC worker has not refreshed this DRB budget for too long.
+ * Without this, DROP with an empty queue never syncs again and can stall DL. */
+#define NR_UP_MONO_BUDGET_STALE_MS 20u
 
 /** @brief Enqueue a DL DRB PDU toward RLC on the monolithic gNB path
  * Copies the PDU into a memblock and enqueues to the RLC queue */
@@ -28,9 +34,35 @@ static nr_up_dl_transfer_response_t nr_up_mono_deliver_drb(const nr_up_dl_transf
   return NR_UP_DL_OK;
 }
 
+/** @brief Mono congestion precheck with stale-cache ALLOW if last budget sync
+ * is older than threshold */
+static nr_up_congestion_action_t nr_up_mono_dl_congestion_precheck(ue_id_t ue_id, rb_id_t drb_id, size_t pdu_len)
+{
+  nr_up_drb_budget_t *drb_budget;
+  struct timespec now;
+  size_t ms_since_sync;
+
+  nr_up_manager_lock();
+  drb_budget = nr_up_manager_lookup_drb(ue_id, drb_id);
+  if (drb_budget != NULL) {
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    ms_since_sync = nr_up_timespec_diff_ms(&now, &drb_budget->last_budget_sync);
+    /* RLC has not refreshed this budget for too long: allow the packet.
+     * The old occupancy value may be wrong, and keeping DROP would stop all DL. */
+    if (ms_since_sync > NR_UP_MONO_BUDGET_STALE_MS) {
+      nr_up_manager_unlock();
+      return NR_UP_CONGESTION_ALLOW;
+    }
+  }
+  nr_up_manager_unlock();
+  return nr_up_drb_budget_precheck(ue_id, drb_id, pdu_len);
+}
+
 /** @brief Starts the RLC enqueue worker and binds the mono nr-up backend on iface */
 void nr_up_init_direct(nr_up_if_t *iface)
 {
+  nr_up_manager_init();
   nr_up_rlc_queue_init();
   iface->deliver_drb = nr_up_mono_deliver_drb;
+  iface->dl_congestion_precheck = nr_up_mono_dl_congestion_precheck;
 }
