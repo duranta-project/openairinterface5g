@@ -2,8 +2,8 @@
 
 add_library(nr_up STATIC nr_up.c)
 
-add_library(nr_up_pdcp_if STATIC nr_up_pdcp_if.c)
-target_link_libraries(nr_up_pdcp_if PUBLIC nr_up)
+add_library(nr_up_pdcp_if STATIC nr_up_pdcp_if.c nr_up_backend_if.c)
+target_link_libraries(nr_up_pdcp_if PUBLIC nr_up PRIVATE ds log_headers)
 
 add_library(nr_up_rlc_queue STATIC nr_up_rlc_queue.c)
 target_link_libraries(nr_up_rlc_queue PRIVATE asn1_nr_rrc_hdrs log_headers)
