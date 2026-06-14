@@ -39,7 +39,9 @@
 #include "ldpc192_alignr_byte_128.c"
 #include "ldpc176_alignr_byte_128.c"
 #else
+#ifndef __AVX512F__
 #include "ldpc384_byte.c"
+#endif
 #include "ldpc352_byte.c"
 #include "ldpc320_byte.c"
 #include "ldpc288_byte.c"
