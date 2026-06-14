@@ -265,7 +265,7 @@ void nr_generate_dci(PHY_VARS_gNB *gNB,
         prb++;
       if (prb > start_prb) {
         c16_t *this_symbol = txdataF + symbol * frame_parms->ofdm_symbol_size + start_prb * NR_NB_SC_PER_RB;
-        const c16_t *rot = &frame_parms->symbol_rotation[0][symb_offset + symbol];
+        const c16_t rot = frame_parms->symbol_rotation[0][symb_offset + symbol];
         rotate_cpx_vector(this_symbol, rot, this_symbol, (prb - start_prb) * NR_NB_SC_PER_RB, 15);
         uint64_t *global_symbol_mask = phase_comp_prb_mask;
         for (int rr = start_prb; rr < prb; rr++)

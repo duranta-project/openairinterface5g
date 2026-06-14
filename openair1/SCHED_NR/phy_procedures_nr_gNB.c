@@ -73,7 +73,7 @@ static inline void apply_nr_rotation_TX_segment(const NR_DL_FRAME_PARMS *fp,
                                                 int nb_prb)
 {
   const int symb_offset = (slot % fp->slots_per_subframe) * fp->symbols_per_slot;
-  const c16_t *rot = &symbol_rotation[symb_offset + symbol];
+  const c16_t rot = symbol_rotation[symb_offset + symbol];
   c16_t *this_symbol = txdataF + symbol * fp->ofdm_symbol_size + first_prb * NR_NB_SC_PER_RB;
   rotate_cpx_vector(this_symbol, rot, this_symbol, nb_prb * NR_NB_SC_PER_RB, 15);
 }
