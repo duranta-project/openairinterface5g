@@ -623,6 +623,7 @@ void schedule_nr_pcch(gNB_MAC_INST *mac,
   memcpy(tx_req->TLVs[0].value.direct, pcch_sdu.buf, pcch_sdu.len);
   free_byte_array(pcch_sdu);
   tx_req->PDU_index = pdu_index;
+  tx_req->cw_index = 0;
   tx_req->num_TLV = 1;
   tx_req->TLVs[0].length = pdsch_pcch.tb_size;
   tx_req->PDU_length = compute_PDU_length(tx_req->num_TLV, tx_req->TLVs[0].length);

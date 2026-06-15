@@ -1200,6 +1200,7 @@ static void fill_dl_tx_request(post_process_pdsch_t *pdsch,
   const int ntx_req = pdsch->TX_req->Number_of_PDUs;
   nfapi_nr_pdu_t *tx_req = &pdsch->TX_req->pdu_list[ntx_req];
   tx_req->PDU_index = pduindex;
+  tx_req->cw_index = 0;
   tx_req->num_TLV = 1;
   tx_req->TLVs[0].length = TBS;
   tx_req->PDU_length = compute_PDU_length(tx_req->num_TLV, tx_req->TLVs[0].length);

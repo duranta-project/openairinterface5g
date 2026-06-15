@@ -509,6 +509,7 @@ bool eq_tx_data_request_PDU(const nfapi_nr_pdu_t *a, const nfapi_nr_pdu_t *b)
 {
   EQ(a->PDU_length, b->PDU_length);
   EQ(a->PDU_index, b->PDU_index);
+  EQ(a->cw_index, b->cw_index);
   EQ(a->num_TLV, b->num_TLV);
   for (int tlv_idx = 0; tlv_idx < a->num_TLV; ++tlv_idx) {
     const nfapi_nr_tx_data_request_tlv_t *a_tlv = &a->TLVs[tlv_idx];
@@ -1308,6 +1309,7 @@ void copy_tx_data_request_PDU(const nfapi_nr_pdu_t *src, nfapi_nr_pdu_t *dst)
 {
   dst->PDU_length = src->PDU_length;
   dst->PDU_index = src->PDU_index;
+  dst->cw_index = src->cw_index;
   dst->num_TLV = src->num_TLV;
   for (int tlv_idx = 0; tlv_idx < src->num_TLV; ++tlv_idx) {
     const nfapi_nr_tx_data_request_tlv_t *src_tlv = &src->TLVs[tlv_idx];
@@ -1355,6 +1357,7 @@ size_t get_tx_data_request_size(const nfapi_nr_tx_data_request_t *msg)
     const nfapi_nr_pdu_t *pdu = &msg->pdu_list[pdu_idx];
     total_size += sizeof(pdu->PDU_length);
     total_size += sizeof(pdu->PDU_index);
+    total_size += sizeof(pdu->cw_index);
     total_size += sizeof(pdu->num_TLV);
     for (int tlv_idx = 0; tlv_idx < pdu->num_TLV; ++tlv_idx) {
       const nfapi_nr_tx_data_request_tlv_t *tlv = &pdu->TLVs[tlv_idx];
@@ -2421,6 +2424,7 @@ void dump_tx_data_request(const nfapi_nr_tx_data_request_t *msg)
     const nfapi_nr_pdu_t *pdu = &msg->pdu_list[i];
     INDENTED_PRINTF("PDU Length = 0x%02x\n", pdu->PDU_length);
     INDENTED_PRINTF("PDU Index = 0x%02x\n", pdu->PDU_index);
+    INDENTED_PRINTF("CW Index = 0x%02x\n", pdu->cw_index);
     INDENTED_PRINTF("numTLV = 0x%02x\n", pdu->num_TLV);
     for (int tlv_idx = 0; tlv_idx < pdu->num_TLV; tlv_idx++) {
       const nfapi_nr_tx_data_request_tlv_t *tlv = &pdu->TLVs[tlv_idx];

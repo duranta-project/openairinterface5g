@@ -1665,6 +1665,7 @@ typedef struct
 {
   uint32_t PDU_length;
   uint16_t PDU_index;
+  uint8_t cw_index;
   uint32_t num_TLV;
   nfapi_nr_tx_data_request_tlv_t TLVs[NFAPI_NR_MAX_TX_REQUEST_TLV];
 

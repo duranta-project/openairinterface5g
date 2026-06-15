@@ -1630,20 +1630,20 @@ uint8_t unpack_ul_dci_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg
 static uint8_t pack_tx_data_pdu_list_value(void *tlv, uint8_t **ppWritePackedMsg, uint8_t *end, uint32_t *payload_offset)
 {
   nfapi_nr_pdu_t *value = (nfapi_nr_pdu_t *)tlv;
-  if (!(push32(value->PDU_length, ppWritePackedMsg, end) && push16(value->PDU_index, ppWritePackedMsg, end)
-        && push32(value->num_TLV, ppWritePackedMsg, end)))
+  if (!(push32(value->PDU_length, ppWritePackedMsg, end) && push16(value->PDU_index, ppWritePackedMsg, end)))
+    return 0;
+  /* SCF222.10.04 inserts a cw_index byte between pdu_index and num_tlv
+   * (scf_fapi_tx_data_pdu_info_t in cuBB's scf_5g_fapi.h). The MAC sets it to
+   * 0 (single-codeword DL only). */
+  if (!push8(value->cw_index, ppWritePackedMsg, end))
+    return 0;
+  if (!push32(value->num_TLV, ppWritePackedMsg, end))
     return 0;
 
   for (int i = 0; i < value->num_TLV; ++i) {
-    if (!push16(value->TLVs[i].tag, ppWritePackedMsg, end))
+    /* SCF222.10.04 TX_DATA per-PDU TLV header: uint16 tag + uint32 length. */
+    if (!pack_nr_tl_header(value->TLVs[i].tag, value->TLVs[i].length, ppWritePackedMsg, end))
       return 0;
-#ifdef ENABLE_AERIAL
-    if (!push16(value->TLVs[i].length, ppWritePackedMsg, end))
-      return 0;
-#else
-    if (!push32(value->TLVs[i].length, ppWritePackedMsg, end))
-      return 0;
-#endif
     const uint32_t byte_len = (value->TLVs[i].length + 3) / 4;
     switch (value->TLVs[i].tag) {
       case 0: {
@@ -1708,12 +1708,17 @@ static uint8_t unpack_tx_data_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t 
 {
   nfapi_nr_pdu_t *pNfapiMsg = (nfapi_nr_pdu_t *)msg;
 
-  if (!(pull32(ppReadPackedMsg, &pNfapiMsg->PDU_length, end) && pull16(ppReadPackedMsg, &pNfapiMsg->PDU_index, end)
-        && pull32(ppReadPackedMsg, &pNfapiMsg->num_TLV, end)))
+  if (!(pull32(ppReadPackedMsg, &pNfapiMsg->PDU_length, end) && pull16(ppReadPackedMsg, &pNfapiMsg->PDU_index, end)))
+    return 0;
+  /* cw_index (SCF222.10.04 -- see pack_tx_data_pdu_list_value). */
+  if (!pull8(ppReadPackedMsg, &pNfapiMsg->cw_index, end))
+    return 0;
+  if (!pull32(ppReadPackedMsg, &pNfapiMsg->num_TLV, end))
     return 0;
 
   for (int i = 0; i < pNfapiMsg->num_TLV; ++i) {
-    if (!(pull16(ppReadPackedMsg, &pNfapiMsg->TLVs[i].tag, end) && pull32(ppReadPackedMsg, &pNfapiMsg->TLVs[i].length, end)))
+    /* SCF222.10.04 TX_DATA per-PDU TLV header: uint16 tag + uint32 length. */
+    if (!unpack_nr_tl_header(&pNfapiMsg->TLVs[i].tag, &pNfapiMsg->TLVs[i].length, ppReadPackedMsg, end))
       return 0;
     const uint32_t byte_len = (pNfapiMsg->TLVs[i].length + 3) / 4;
     if (pNfapiMsg->TLVs[i].tag == 1) {
