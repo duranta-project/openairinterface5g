@@ -1857,10 +1857,35 @@ uint8_t unpack_nr_rx_data_indication(uint8_t **ppReadPackedMsg, uint8_t *end, vo
   return 1;
 }
 
+/* SCF222.10.04 replaced the 10.02 UL_CQI byte (SNR dB = value/2 - 64, 0xFF =
+ * invalid/not measured) with the int16 ul_sinr_metric (SNR dB = value/500,
+ * 0xFFFF = invalid) inside scf_fapi_ul_meas_common_t. The MAC still consumes
+ * the 10.02 encoding (e.g. the "ul_cqi * 5 - 640" snrx10 conversions feeding
+ * PUSCH/PUCCH power control and the SR acceptance gate ul_cqi >= 148), so
+ * translate at the wire boundary in both directions. */
+static uint8_t ul_cqi_from_sinr_metric(int16_t ul_sinr_metric)
+{
+  if (ul_sinr_metric == (int16_t)0xFFFF)
+    return 0xFF;
+  const int ul_cqi = ul_sinr_metric / 250 + 128;
+  return ul_cqi < 0 ? 0 : (ul_cqi > 254 ? 254 : ul_cqi);
+}
+
+static int16_t sinr_metric_from_ul_cqi(uint8_t ul_cqi)
+{
+  if (ul_cqi == 0xFF)
+    return (int16_t)0xFFFF;
+  return (int16_t)(((int)ul_cqi - 128) * 250);
+}
+
 static uint8_t pack_nr_crc_indication_body(const nfapi_nr_crc_t *value, uint8_t **ppWritePackedMsg, uint8_t *end)
 {
-  if (!(push32(value->handle, ppWritePackedMsg, end) && push16(value->rnti, ppWritePackedMsg, end)
-        && push8(value->harq_id, ppWritePackedMsg, end) && push8(value->tb_crc_status, ppWritePackedMsg, end)
+  if (!(push32(value->handle, ppWritePackedMsg, end) && push16(value->rnti, ppWritePackedMsg, end)))
+    return 0;
+  /* SCF222.10.04: rapid inserted before harq_id. */
+  if (!push8(0, ppWritePackedMsg, end))
+    return 0;
+  if (!(push8(value->harq_id, ppWritePackedMsg, end) && push8(value->tb_crc_status, ppWritePackedMsg, end)
         && push16(value->num_cb, ppWritePackedMsg, end))) {
     return 0;
   }
@@ -1871,8 +1896,14 @@ static uint8_t pack_nr_crc_indication_body(const nfapi_nr_crc_t *value, uint8_t 
       return 0;
     }
   }
-  if (!(push8(value->ul_cqi, ppWritePackedMsg, end) && push16(value->timing_advance, ppWritePackedMsg, end)
-        && push16(value->rssi, ppWritePackedMsg, end))) {
+  /* SCF222.10.04 replaces {ul_cqi, timing_advance, rssi} with
+   * scf_fapi_ul_meas_common_t = {int16 ul_sinr_metric, uint16 timing_advance,
+   * int16 timing_advance_ns, uint16 rssi, uint16 rsrp} -- 10 bytes. */
+  if (!(push16((uint16_t)sinr_metric_from_ul_cqi(value->ul_cqi), ppWritePackedMsg, end)
+        && push16(value->timing_advance, ppWritePackedMsg, end)
+        && push16(0, ppWritePackedMsg, end) /* timing_advance_ns */
+        && push16(value->rssi, ppWritePackedMsg, end)
+        && push16(0, ppWritePackedMsg, end) /* rsrp */)) {
     return 0;
   }
   return 1;
@@ -1896,8 +1927,12 @@ uint8_t pack_nr_crc_indication(void *msg, uint8_t **ppWritePackedMsg, uint8_t *e
 
 uint8_t unpack_nr_crc_indication_body(nfapi_nr_crc_t *value, uint8_t **ppReadPackedMsg, uint8_t *end)
 {
-  if (!(pull32(ppReadPackedMsg, &value->handle, end) && pull16(ppReadPackedMsg, &value->rnti, end)
-        && pull8(ppReadPackedMsg, &value->harq_id, end) && pull8(ppReadPackedMsg, &value->tb_crc_status, end)
+  if (!(pull32(ppReadPackedMsg, &value->handle, end) && pull16(ppReadPackedMsg, &value->rnti, end)))
+    return 0;
+  uint8_t rapid_unused = 0;
+  if (!pull8(ppReadPackedMsg, &rapid_unused, end))
+    return 0;
+  if (!(pull8(ppReadPackedMsg, &value->harq_id, end) && pull8(ppReadPackedMsg, &value->tb_crc_status, end)
         && pull16(ppReadPackedMsg, &value->num_cb, end))) {
     return 0;
   }
@@ -1908,10 +1943,18 @@ uint8_t unpack_nr_crc_indication_body(nfapi_nr_crc_t *value, uint8_t **ppReadPac
       return 0;
     }
   }
-  if (!(pull8(ppReadPackedMsg, &value->ul_cqi, end) && pull16(ppReadPackedMsg, &value->timing_advance, end)
-        && pull16(ppReadPackedMsg, &value->rssi, end))) {
+  /* scf_fapi_ul_meas_common_t (SCF222.10.04) -- 10 bytes. */
+  int16_t ul_sinr_metric = 0;
+  int16_t timing_advance_ns_unused = 0;
+  uint16_t rsrp_unused = 0;
+  if (!(pulls16(ppReadPackedMsg, &ul_sinr_metric, end)
+        && pull16(ppReadPackedMsg, &value->timing_advance, end)
+        && pulls16(ppReadPackedMsg, &timing_advance_ns_unused, end)
+        && pull16(ppReadPackedMsg, &value->rssi, end)
+        && pull16(ppReadPackedMsg, &rsrp_unused, end))) {
     return 0;
   }
+  value->ul_cqi = ul_cqi_from_sinr_metric(ul_sinr_metric);
 
   return 1;
 }

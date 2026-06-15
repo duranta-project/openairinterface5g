@@ -1480,9 +1480,8 @@ size_t get_crc_indication_size(const nfapi_nr_crc_indication_t *msg)
     if (crc->num_cb > 0) {
       total_size += crc->num_cb / 8 + 1;
     }
-    total_size += sizeof(crc->ul_cqi);
-    total_size += sizeof(crc->timing_advance);
-    total_size += sizeof(crc->rssi);
+    total_size += 1; // rapid (SCF222.10.04)
+    total_size += 10; // scf_fapi_ul_meas_common_t: ul_sinr_metric, timing_advance, timing_advance_ns, rssi, rsrp
   }
   return total_size;
 }
