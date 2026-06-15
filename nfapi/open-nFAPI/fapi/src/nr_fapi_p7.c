@@ -909,9 +909,21 @@ static uint8_t pack_ul_tti_request_pusch_pdu(nfapi_nr_pusch_pdu_t *pusch_pdu, ui
   // Check if PUSCH_PDU_BITMAP_PUSCH_UCI bit is set
   if (pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_UCI) {
     if (!(push16(pusch_pdu->pusch_uci.harq_ack_bit_length, ppWritePackedMsg, end)
-          && push16(pusch_pdu->pusch_uci.csi_part1_bit_length, ppWritePackedMsg, end)
-          && push16(pusch_pdu->pusch_uci.csi_part2_bit_length, ppWritePackedMsg, end)
-          && push8(pusch_pdu->pusch_uci.alpha_scaling, ppWritePackedMsg, end)
+          && push16(pusch_pdu->pusch_uci.csi_part1_bit_length, ppWritePackedMsg, end)))
+      return 0;
+    /* SCF222.10.04 replaces csi_part_2_bit_length with flag_csi_part2 (0xFFFF
+     * when CSI Part 2 is scheduled, else 0; cuBB checks flag == UINT16_MAX).
+     * Unlike the DCI profileNR field this is information-losing -- the flag
+     * cannot carry the bit length OAI's own PNF L1 needs -- so it is a genuine
+     * aerial-vs-OAI difference and only the cuBB path translates it. */
+#ifdef ENABLE_AERIAL
+    if (!push16(pusch_pdu->pusch_uci.csi_part2_bit_length ? 0xFFFF : 0, ppWritePackedMsg, end))
+      return 0;
+#else
+    if (!push16(pusch_pdu->pusch_uci.csi_part2_bit_length, ppWritePackedMsg, end))
+      return 0;
+#endif
+    if (!(push8(pusch_pdu->pusch_uci.alpha_scaling, ppWritePackedMsg, end)
           && push8(pusch_pdu->pusch_uci.beta_offset_harq_ack, ppWritePackedMsg, end)
           && push8(pusch_pdu->pusch_uci.beta_offset_csi1, ppWritePackedMsg, end)
           && push8(pusch_pdu->pusch_uci.beta_offset_csi2, ppWritePackedMsg, end))) {
