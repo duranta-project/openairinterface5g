@@ -1391,6 +1391,14 @@ typedef struct
 typedef struct {
   uint8_t ldpcBaseGraph;
   uint32_t tbSizeLbrmBytes;
+#ifdef ENABLE_AERIAL
+  // rest of the SCF222.10.04 Table 3-94 block, which cuBB SCF_FAPI_10_04 always reads
+  uint8_t puschTransType;
+  uint16_t deltaBwp0StartFromActiveBwp;
+  uint16_t initialUlBwpSize;
+  uint8_t groupOrSequenceHopping;
+  uint16_t puschSecondHopPRB;
+#endif
 }nfapi_v3_pusch_maintenance_parameters_t;
 
 typedef struct
@@ -1438,7 +1446,7 @@ typedef struct
   nfapi_nr_dfts_ofdm_t dfts_ofdm;
   //beamforming
   nfapi_nr_ul_beamforming_t beamforming;
-  nfapi_v3_pdsch_maintenance_parameters_t maintenance_parms_v3;
+  nfapi_v3_pusch_maintenance_parameters_t maintenance_parms_v3;
   // Spatial stream indexing for MU-MIMO
   nfapi_nr_spatial_stream_index_t param_v4;
 } nfapi_nr_pusch_pdu_t;
