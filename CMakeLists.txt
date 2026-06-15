@@ -280,7 +280,7 @@ if (ENABLE_LDPC_CUDA)
 endif()
 
 set(CMAKE_C_FLAGS
-  "${C_FLAGS_PROCESSOR} ${commonOpts} -std=gnu11 -funroll-loops ${CMAKE_C_FLAGS}")
+  "${C_FLAGS_PROCESSOR} ${commonOpts} -std=gnu11 -funroll-loops ${CMAKE_C_FLAGS} -fno-omit-frame-pointer")
 set(CMAKE_CXX_FLAGS "${C_FLAGS_PROCESSOR} ${commonOpts} ${CMAKE_CXX_FLAGS}")
 
 add_boolean_option(SANITIZE_ADDRESS OFF "enable the address sanitizer (ASan)" ON)
