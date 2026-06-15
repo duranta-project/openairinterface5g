@@ -1075,8 +1075,7 @@ set(RLC_V2
   ${OPENAIR2_DIR}/LAYER2/rlc_v2/rlc_sdu.c
   )
 
-set(NR_PDCP_SRC
-  ${OPENAIR2_DIR}/LAYER2/nr_pdcp/nr_pdcp_oai_api.c
+add_library(nr_pdcp_core OBJECT
   ${OPENAIR2_DIR}/LAYER2/nr_pdcp/nr_pdcp_ue_manager.c
   ${OPENAIR2_DIR}/LAYER2/nr_pdcp/nr_pdcp_entity.c
   ${OPENAIR2_DIR}/LAYER2/nr_pdcp/nr_pdcp_sdu.c
@@ -1087,18 +1086,23 @@ set(NR_PDCP_SRC
   ${OPENAIR2_DIR}/LAYER2/nr_pdcp/nr_pdcp_integrity_nia1.c
   ${OPENAIR2_DIR}/LAYER2/nr_pdcp/asn1_utils.c
   )
+target_link_libraries(nr_pdcp_core PUBLIC asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs log_headers SECURITY)
 
-# gNB: PDCP + CU-CP/CU-UP interface
-set(NR_PDCP_SRC_GNB
-  ${NR_PDCP_SRC}
+# gNB PDCP (nr-softmodem and nr-cuup)
+add_library(nr_pdcp_gnb STATIC
+  openair2/LAYER2/nr_pdcp/nr_pdcp_oai_api.c
   openair2/LAYER2/nr_pdcp/cucp_cuup_handler.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_if.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_direct.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_e1ap.c
   )
+target_link_libraries(nr_pdcp_gnb PUBLIC nr_pdcp_core)
+target_compile_definitions(nr_pdcp_gnb PUBLIC PDCP_CUCP_CUUP)
+target_link_libraries(nr_pdcp_gnb PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs log_headers e1ap_lib)
 
-# UE build: PDCP only; CU-CP/CU-UP interface is gNB-only.
-set(NR_PDCP_SRC_UE ${NR_PDCP_SRC})
+# UE PDCP
+add_library(nr_pdcp_ue STATIC openair2/LAYER2/nr_pdcp/nr_pdcp_oai_api.c)
+target_link_libraries(nr_pdcp_ue PUBLIC nr_pdcp_core)
 
 set(NR_SDAP_SRC
   ${OPENAIR2_DIR}/SDAP/nr_sdap/nr_sdap.c
@@ -1144,7 +1148,6 @@ set(L2_LTE_SRC
   )
 
 set(L2_NR_SRC
-  ${NR_PDCP_SRC_GNB}
   ${NR_SDAP_SRC}
   ${NR_RRC_DIR}/rrc_gNB.c
   ${NR_RRC_DIR}/mac_rrc_dl_direct.c
@@ -1182,7 +1185,6 @@ set(L2_RRC_SRC_UE
   )
 
 set(NR_L2_SRC_UE
-  ${NR_PDCP_SRC_UE}
   ${NR_SDAP_SRC}
   ${NR_UE_RRC_DIR}/L2_interface_ue.c
   ${NR_UE_RRC_DIR}/main_ue.c
@@ -1338,8 +1340,7 @@ add_library(e1_if
 
 target_link_libraries(e1_if PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs asn1_f1ap SECURITY e1ap GTPV1U)
 
-target_link_libraries(L2_NR PRIVATE f1ap x2ap s1ap ngap nr_rrc e1ap nr_rlc nr_common xnap)
-target_compile_definitions(L2_NR PRIVATE PDCP_CUCP_CUUP)
+target_link_libraries(L2_NR PRIVATE f1ap x2ap s1ap ngap nr_rrc e1ap nr_rlc nr_common xnap nr_pdcp_gnb)
 if(OAI_AERIAL)
     target_compile_definitions(L2_NR PRIVATE ENABLE_AERIAL)
 endif()
@@ -1363,7 +1364,7 @@ target_link_libraries(L2_UE PRIVATE nfapi_pnf_lib)
 target_link_libraries(L2_UE PRIVATE asn1_lte_rrc_hdrs)
 
 add_library( NR_L2_UE ${NR_L2_SRC_UE} ${MAC_NR_SRC_UE} )
-target_link_libraries(NR_L2_UE PRIVATE nr_rlc ds alg)
+target_link_libraries(NR_L2_UE PRIVATE nr_pdcp_ue nr_rlc ds alg)
 target_link_libraries(NR_L2_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs nr_common nr_ue_power_procedures nr_ue_ra_procedures)
 target_link_libraries(NR_L2_UE PRIVATE nr_nas)
 
@@ -1852,18 +1853,16 @@ add_executable(nr-cuup
   executables/nr-cuup.c
   ${NR_RRC_DIR}/rrc_gNB_UE_context.c
   ${OPENAIR2_DIR}/E1AP/e1ap_setup.c
-  ${NR_PDCP_SRC_GNB}
   ${NR_SDAP_SRC}
   )
 
 target_link_libraries(nr-cuup PRIVATE
                       CONFIG_LIB ITTI SCTP_CLIENT
-                      GTPV1U e1ap f1ap
+                      GTPV1U e1ap f1ap nr_pdcp_gnb
                       time_management softmodem_common
                       alg
                       dl pthread ${T_LIB})
 target_link_libraries(nr-cuup PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
-target_compile_definitions(nr-cuup PRIVATE PDCP_CUCP_CUUP)
 if(E2_AGENT)
   target_link_libraries(nr-cuup PRIVATE e2_agent e2_agent_arg e2_ran_func_cuup)
   target_compile_definitions(nr-cuup PRIVATE ${E2AP_VERSION} ${KPM_VERSION} E2_AGENT)
