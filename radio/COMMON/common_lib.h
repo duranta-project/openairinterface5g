@@ -180,7 +180,8 @@ typedef struct openair0_config {
   //! duplexing mode
   duplex_mode_t duplex_mode;
   //! number of downlink resource blocks
-  int num_rb_dl;  double sample_rate;
+  int num_rb_dl;
+  double sample_rate;
   //! flag to indicate that the device is doing mmapped DMA transfers
   int mmapped_dma;
   //! offset in samples between TX and RX paths
@@ -325,14 +326,10 @@ typedef struct {
   pthread_mutex_t mutex_write;
   pthread_mutex_t mutex_store;
   openair0_timestamp_t nextTS;
-  struct {
-    bool active;
-    openair0_timestamp_t timestamp;
-    void **txp;
-    int nsamps;
-    int nbAnt;
-    int flags;
-  } queue[WRITE_QUEUE_SZ];
+  int sz;
+  int grain;
+  int *nb_writers;
+  void **ring;
 } re_order_t;
 
 /*!\brief structure holds the parameters to configure RF devices */
@@ -625,6 +622,7 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
                                   openair0_timestamp_t timestamp,
                                   void **txp,
                                   int nsamps,
+                                  int nb_writers,
                                   int nbAnt,
                                   int flags);
 #define  DEVICE_SECTION   "device"
@@ -650,6 +648,8 @@ extern void iqrecorder_end(openair0_device_t *device);
 
 int openair0_write_reorder(openair0_device_t *device, openair0_timestamp_t timestamp, void **txp, int nsamps, int nbAnt, int flags);
 void openair0_write_reorder_clear_context(openair0_device_t *device);
+
+void *create_ring(int sz_bytes);
 /**@}*/
 
 #ifdef __cplusplus
