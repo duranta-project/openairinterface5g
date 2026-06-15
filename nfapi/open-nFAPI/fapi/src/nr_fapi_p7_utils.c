@@ -680,6 +680,10 @@ bool eq_uci_indication_PUSCH(const nfapi_nr_uci_pusch_pdu_t *a, const nfapi_nr_u
   EQ(a->ul_cqi, b->ul_cqi);
   EQ(a->timing_advance, b->timing_advance);
   EQ(a->rssi, b->rssi);
+#ifdef ENABLE_AERIAL
+  EQ(a->timing_advance_ns, b->timing_advance_ns);
+  EQ(a->rsrp, b->rsrp);
+#endif
 
   // Bit 0 not used in PUSCH PDU
   // HARQ
@@ -706,6 +710,10 @@ bool eq_uci_indication_PUCCH_0_1(const nfapi_nr_uci_pucch_pdu_format_0_1_t *a, c
   EQ(a->ul_cqi, b->ul_cqi);
   EQ(a->timing_advance, b->timing_advance);
   EQ(a->rssi, b->rssi);
+#ifdef ENABLE_AERIAL
+  EQ(a->timing_advance_ns, b->timing_advance_ns);
+  EQ(a->rsrp, b->rsrp);
+#endif
 
   // SR
   if (a->pduBitmap & 0x01) {
@@ -727,6 +735,10 @@ bool eq_uci_indication_PUCCH_2_3_4(const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *
   EQ(a->ul_cqi, b->ul_cqi);
   EQ(a->timing_advance, b->timing_advance);
   EQ(a->rssi, b->rssi);
+#ifdef ENABLE_AERIAL
+  EQ(a->timing_advance_ns, b->timing_advance_ns);
+  EQ(a->rsrp, b->rsrp);
+#endif
   // SR
   if (a->pduBitmap & 0x01) {
     EQ(eq_uci_indication_sr_pdu_2_3_4(&a->sr, &b->sr), true);
@@ -1610,6 +1622,10 @@ void copy_uci_indication_PUSCH(const nfapi_nr_uci_pusch_pdu_t *src, nfapi_nr_uci
   dst->ul_cqi = src->ul_cqi;
   dst->timing_advance = src->timing_advance;
   dst->rssi = src->rssi;
+#ifdef ENABLE_AERIAL
+  dst->timing_advance_ns = src->timing_advance_ns;
+  dst->rsrp = src->rsrp;
+#endif
 
   // Bit 0 not used in PUSCH PDU
   // HARQ
@@ -1635,6 +1651,10 @@ void copy_uci_indication_PUCCH_0_1(const nfapi_nr_uci_pucch_pdu_format_0_1_t *sr
   dst->ul_cqi = src->ul_cqi;
   dst->timing_advance = src->timing_advance;
   dst->rssi = src->rssi;
+#ifdef ENABLE_AERIAL
+  dst->timing_advance_ns = src->timing_advance_ns;
+  dst->rsrp = src->rsrp;
+#endif
 
   // SR
   if (dst->pduBitmap & 0x01) {
@@ -1655,6 +1675,10 @@ void copy_uci_indication_PUCCH_2_3_4(const nfapi_nr_uci_pucch_pdu_format_2_3_4_t
   dst->ul_cqi = src->ul_cqi;
   dst->timing_advance = src->timing_advance;
   dst->rssi = src->rssi;
+#ifdef ENABLE_AERIAL
+  dst->timing_advance_ns = src->timing_advance_ns;
+  dst->rsrp = src->rsrp;
+#endif
   // SR
   if (dst->pduBitmap & 0x01) {
     copy_uci_indication_sr_pdu_2_3_4(&src->sr, &dst->sr);
@@ -2645,6 +2669,10 @@ static void dump_uci_PUSCH_PDU(const nfapi_nr_uci_pusch_pdu_t *pdu, int depth)
   INDENTED_PRINTF("UL_CQI = 0x%02x\n", pdu->ul_cqi);
   INDENTED_PRINTF("Timing Advance = 0x%02x\n", pdu->timing_advance);
   INDENTED_PRINTF("RSSI = 0x%02x\n", pdu->rssi);
+#ifdef ENABLE_AERIAL
+  INDENTED_PRINTF("Timing advance ns = %d\n", pdu->timing_advance_ns);
+  INDENTED_PRINTF("RSRP = 0x%02x\n", pdu->rsrp);
+#endif
   // HARQ payload, CSI Part 1 and 2 are conditionally allocated
   if ((pdu->pduBitmap >> 1) & 0x01) {
     INDENTED_PRINTF("HARQ Information\n");
@@ -2685,6 +2713,10 @@ static void dump_uci_PUCCH_0_1(const nfapi_nr_uci_pucch_pdu_format_0_1_t *pdu, i
   INDENTED_PRINTF("UL_CQI = 0x%02x\n", pdu->ul_cqi);
   INDENTED_PRINTF("Timing Advance = 0x%02x\n", pdu->timing_advance);
   INDENTED_PRINTF("RSSI = 0x%02x\n", pdu->rssi);
+#ifdef ENABLE_AERIAL
+  INDENTED_PRINTF("Timing advance ns = %d\n", pdu->timing_advance_ns);
+  INDENTED_PRINTF("RSRP = 0x%02x\n", pdu->rsrp);
+#endif
   if ((pdu->pduBitmap) & 0x01) {
     INDENTED_PRINTF("SR Information\n");
     dump_sr_0_1(&pdu->sr, depth + 1);
@@ -2714,6 +2746,10 @@ static void dump_uci_PUCCH_2_3_4(const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *pd
   INDENTED_PRINTF("UL_CQI = 0x%02x\n", pdu->ul_cqi);
   INDENTED_PRINTF("Timing Advance = 0x%02x\n", pdu->timing_advance);
   INDENTED_PRINTF("RSSI = 0x%02x\n", pdu->rssi);
+#ifdef ENABLE_AERIAL
+  INDENTED_PRINTF("Timing advance ns = %d\n", pdu->timing_advance_ns);
+  INDENTED_PRINTF("RSRP = 0x%02x\n", pdu->rsrp);
+#endif
   // SR
   if (pdu->pduBitmap & 0x01) {
     dump_sr_2_3_4(&pdu->sr, depth + 1);
