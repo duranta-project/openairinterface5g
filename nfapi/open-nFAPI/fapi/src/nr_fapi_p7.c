@@ -263,6 +263,15 @@ static uint8_t pack_dl_tti_csi_rs_pdu_rel15_value(void *tlv, uint8_t **ppWritePa
         && push8(value->power_control_offset_ss, ppWritePackedMsg, end))) {
     return 0;
   }
+#ifndef ENABLE_AERIAL
+  /* FAPI 222.10.04 adds powerControlOffsetSSProfileNR (int8) after
+   * powerControlOffsetSS, but cuBB 26-1 does not implement it
+   * (scf_fapi_tx_power_info_t carries only the two legacy offsets). Pack it on
+   * the OAI path only; drop this guard once cuBB consumes the field. */
+  if (!pushs8(value->power_control_offset_ss_profile_nr, ppWritePackedMsg, end)) {
+    return 0;
+  }
+#endif
 
   // Precoding and beamforming
   if(!pack_nr_tx_beamforming_pdu(&value->precodingAndBeamforming,ppWritePackedMsg, end)) {
@@ -309,10 +318,13 @@ static uint8_t pack_dl_tti_pdcch_pdu_rel15_value(void *tlv, uint8_t **ppWritePac
       return 0;
     }
     // TX Power info
-    if (!(push8(value->dci_pdu[i].beta_PDCCH_1_0, ppWritePackedMsg, end)
-          && push8(value->dci_pdu[i].powerControlOffsetSS, ppWritePackedMsg, end) &&
-          // DCI Payload fields
-          push16(value->dci_pdu[i].PayloadSizeBits, ppWritePackedMsg, end) &&
+    if (!push8(value->dci_pdu[i].beta_PDCCH_1_0, ppWritePackedMsg, end))
+      return 0;
+    // SCF222.10.04 int8 powerControlOffsetSSProfileNR (dB), stored natively in the stack
+    if (!pushs8(value->dci_pdu[i].powerControlOffsetSSProfileNR, ppWritePackedMsg, end))
+      return 0;
+    // DCI Payload fields
+    if (!(push16(value->dci_pdu[i].PayloadSizeBits, ppWritePackedMsg, end) &&
           // Pack DCI Payload
           pack_dci_payload(value->dci_pdu[i].Payload, value->dci_pdu[i].PayloadSizeBits, ppWritePackedMsg, end))) {
       return 0;
@@ -393,6 +405,15 @@ static uint8_t pack_dl_tti_pdsch_pdu_rel15_value(void *tlv, uint8_t **ppWritePac
   if (!(push8(value->powerControlOffset, ppWritePackedMsg, end) && push8(value->powerControlOffsetSS, ppWritePackedMsg, end))) {
     return 0;
   }
+#ifndef ENABLE_AERIAL
+  /* FAPI 222.10.04 adds powerControlOffsetSSProfileNR (int8) after
+   * powerControlOffsetSS, but cuBB 26-1 does not implement it
+   * (scf_fapi_tx_power_info_t carries only the two legacy offsets). Pack it on
+   * the OAI path only; drop this guard once cuBB consumes the field. */
+  if (!pushs8(value->powerControlOffsetSSProfileNR, ppWritePackedMsg, end)) {
+    return 0;
+  }
+#endif
 
   // Check pduBitMap bit 1 to add or not CBG parameters
   if (value->pduBitmap & 0b10) {
@@ -559,8 +580,9 @@ static uint8_t unpack_dl_tti_pdcch_pdu_rel15_value(void *tlv, uint8_t **ppReadPa
       return 0;
     }
 
+    // SCF222.10.04 int8 powerControlOffsetSSProfileNR (dB), stored natively in the stack
     if (!(pull8(ppReadPackedMsg, &value->dci_pdu[i].beta_PDCCH_1_0, end)
-          && pull8(ppReadPackedMsg, &value->dci_pdu[i].powerControlOffsetSS, end)
+          && pulls8(ppReadPackedMsg, &value->dci_pdu[i].powerControlOffsetSSProfileNR, end)
           && pull16(ppReadPackedMsg, &value->dci_pdu[i].PayloadSizeBits, end)
           && unpack_dci_payload(value->dci_pdu[i].Payload, value->dci_pdu[i].PayloadSizeBits, ppReadPackedMsg, end))) {
       return 0;
@@ -640,6 +662,12 @@ static uint8_t unpack_dl_tti_pdsch_pdu_rel15_value(void *tlv, uint8_t **ppReadPa
   if (!(pull8(ppReadPackedMsg, &value->powerControlOffset, end) && pull8(ppReadPackedMsg, &value->powerControlOffsetSS, end))) {
     return 0;
   }
+#ifndef ENABLE_AERIAL
+  // SCF222.10.04 powerControlOffsetSSProfileNR (int8); cuBB omits it.
+  if (!pulls8(ppReadPackedMsg, &value->powerControlOffsetSSProfileNR, end)) {
+    return 0;
+  }
+#endif
 
   // Check pduBitMap bit 1 to pull CBG parameters or not
   if (value->pduBitmap & 0b10) {
@@ -678,6 +706,12 @@ static uint8_t unpack_dl_tti_csi_rs_pdu_rel15_value(void *tlv, uint8_t **ppReadP
         && pull8(ppReadPackedMsg, &value->power_control_offset_ss, end))) {
     return 0;
   }
+#ifndef ENABLE_AERIAL
+  // SCF222.10.04 powerControlOffsetSSProfileNR (int8); cuBB omits it.
+  if (!pulls8(ppReadPackedMsg, &value->power_control_offset_ss_profile_nr, end)) {
+    return 0;
+  }
+#endif
 
   // Preocding and Beamforming
   if(!unpack_nr_tx_beamforming_pdu(&value->precodingAndBeamforming, ppReadPackedMsg, end)) {
@@ -1524,7 +1558,7 @@ static uint8_t pack_ul_dci_pdu_list_value(void *tlv, uint8_t **ppWritePackedMsg,
         }
       }
     }
-    if (!(push8(dci_pdu->beta_PDCCH_1_0, ppWritePackedMsg, end) && push8(dci_pdu->powerControlOffsetSS, ppWritePackedMsg, end) &&
+    if (!(push8(dci_pdu->beta_PDCCH_1_0, ppWritePackedMsg, end) && pushs8(dci_pdu->powerControlOffsetSSProfileNR, ppWritePackedMsg, end) &&
           // DCI Payload fields
           push16(dci_pdu->PayloadSizeBits, ppWritePackedMsg, end) &&
           // Pack DCI Payload
@@ -1602,7 +1636,7 @@ static uint8_t unpack_ul_dci_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t *
         }
       }
     }
-    if (!(pull8(ppReadPackedMsg, &dci_pdu->beta_PDCCH_1_0, end) && pull8(ppReadPackedMsg, &dci_pdu->powerControlOffsetSS, end)
+    if (!(pull8(ppReadPackedMsg, &dci_pdu->beta_PDCCH_1_0, end) && pulls8(ppReadPackedMsg, &dci_pdu->powerControlOffsetSSProfileNR, end)
           && pull16(ppReadPackedMsg, &dci_pdu->PayloadSizeBits, end)
           && unpack_dci_payload(dci_pdu->Payload, dci_pdu->PayloadSizeBits, ppReadPackedMsg, end))) {
       return 0;

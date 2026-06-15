@@ -49,7 +49,7 @@ static bool eq_dl_tti_request_pdcch_pdu(const nfapi_nr_dl_tti_pdcch_pdu_rel15_t 
     EQ(a_dci_pdu->AggregationLevel, b_dci_pdu->AggregationLevel);
     EQ(eq_dl_tti_beamforming(&a_dci_pdu->precodingAndBeamforming, &b_dci_pdu->precodingAndBeamforming), true);
     EQ(a_dci_pdu->beta_PDCCH_1_0, b_dci_pdu->beta_PDCCH_1_0);
-    EQ(a_dci_pdu->powerControlOffsetSS, b_dci_pdu->powerControlOffsetSS);
+    EQ(a_dci_pdu->powerControlOffsetSSProfileNR, b_dci_pdu->powerControlOffsetSSProfileNR);
     EQ(a_dci_pdu->PayloadSizeBits, b_dci_pdu->PayloadSizeBits);
     for (int i = 0; i < 8; ++i) {
       // The parameter itself always has 8 positions, no need to calculate how many bytes the payload actually occupies
@@ -104,6 +104,7 @@ static bool eq_dl_tti_request_pdsch_pdu(const nfapi_nr_dl_tti_pdsch_pdu_rel15_t 
   EQ(eq_dl_tti_beamforming(&a->precodingAndBeamforming, &b->precodingAndBeamforming), true);
   EQ(a->powerControlOffset, b->powerControlOffset);
   EQ(a->powerControlOffsetSS, b->powerControlOffsetSS);
+  EQ(a->powerControlOffsetSSProfileNR, b->powerControlOffsetSSProfileNR);
   EQ(a->isLastCbPresent, b->isLastCbPresent);
   EQ(a->isInlineTbCrc, b->isInlineTbCrc);
   EQ(a->dlTbCrc, b->dlTbCrc);
@@ -130,6 +131,7 @@ static bool eq_dl_tti_request_csi_rs_pdu(const nfapi_nr_dl_tti_csi_rs_pdu_rel15_
   EQ(a->scramb_id, b->scramb_id);
   EQ(a->power_control_offset, b->power_control_offset);
   EQ(a->power_control_offset_ss, b->power_control_offset_ss);
+  EQ(a->power_control_offset_ss_profile_nr, b->power_control_offset_ss_profile_nr);
   EQ(eq_dl_tti_beamforming(&a->precodingAndBeamforming, &b->precodingAndBeamforming), true);
   return true;
 }
@@ -1045,7 +1047,7 @@ static void copy_dl_tti_request_pdsch_pdu(const nfapi_nr_dl_tti_pdsch_pdu_rel15_
 
 static void copy_dl_tti_request_csi_rs_pdu(const nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *src, nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *dst)
 {
-  PARTIAL_COPY(dst, src, nfapi_nr_dl_tti_csi_rs_pdu_rel15_t, power_control_offset_ss);
+  PARTIAL_COPY(dst, src, nfapi_nr_dl_tti_csi_rs_pdu_rel15_t, power_control_offset_ss_profile_nr);
   copy_dl_tti_beamforming(&src->precodingAndBeamforming, &dst->precodingAndBeamforming);
   const struct nfapi_nr_csi_spatial_stream_index *s = &src->param_v4;
   struct nfapi_nr_csi_spatial_stream_index *d = &dst->param_v4;
@@ -1847,7 +1849,7 @@ static void dump_dl_dci_pdu(const nfapi_nr_dl_dci_pdu_t *pdu, int depth)
   INDENTED_PRINTF("AggregationLevel = %d\n", pdu->AggregationLevel);
   dump_dl_beamforming_pdu(&pdu->precodingAndBeamforming, depth + 1);
   INDENTED_PRINTF("beta_PDCCH_1_0 = %d\n", pdu->beta_PDCCH_1_0);
-  INDENTED_PRINTF("powerControlOffsetSS = %d\n", pdu->powerControlOffsetSS);
+  INDENTED_PRINTF("powerControlOffsetSSProfileNR = %d\n", pdu->powerControlOffsetSSProfileNR);
   INDENTED_PRINTF("PayloadSizeBits = %d\n", pdu->PayloadSizeBits);
   INDENTED_PRINTF("Payload = ");
   for (int i = 0; i < nr_bits_to_bytes(pdu->PayloadSizeBits); ++i) {
@@ -1936,6 +1938,7 @@ static void dump_dl_tti_request_PDSCH_PDU(const nfapi_nr_dl_tti_pdsch_pdu_rel15_
   dump_dl_beamforming_pdu(&pdu->precodingAndBeamforming, depth + 1);
   INDENTED_PRINTF("powerControlOffset = %d\n", pdu->powerControlOffset);
   INDENTED_PRINTF("powerControlOffsetSS = %d\n", pdu->powerControlOffsetSS);
+  INDENTED_PRINTF("powerControlOffsetSSProfileNR = %d\n", pdu->powerControlOffsetSSProfileNR);
 
   INDENTED_PRINTF("isLastCbPresent = %d\n", pdu->isLastCbPresent);
   INDENTED_PRINTF("isInlineTbCrc = %d\n", pdu->isInlineTbCrc);
@@ -1960,6 +1963,7 @@ static void dump_dl_tti_request_CSI_RS_PDU(const nfapi_nr_dl_tti_csi_rs_pdu_rel1
   INDENTED_PRINTF("ScrambId = %d\n", pdu->scramb_id);
   INDENTED_PRINTF("powerControllOffset = %d\n", pdu->power_control_offset);
   INDENTED_PRINTF("powerControllOffsetSS = %d\n", pdu->power_control_offset_ss);
+  INDENTED_PRINTF("powerControlOffsetSSProfileNR = %d\n", pdu->power_control_offset_ss_profile_nr);
   dump_dl_beamforming_pdu(&pdu->precodingAndBeamforming, depth + 1);
 }
 
