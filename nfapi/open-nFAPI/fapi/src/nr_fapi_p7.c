@@ -301,6 +301,21 @@ static uint8_t pack_dl_tti_csi_rs_pdu_rel15_value(void *tlv, uint8_t **ppWritePa
   return 1;
 }
 
+#ifdef ENABLE_AERIAL
+/* cuBB SCF_FAPI_10_04 reads the DCI powerControlOffsetSS byte as the int8
+ * powerControlOffsetSSProfileNR in dB (-8..8); the MAC fills the SCF222.10.02
+ * enum {0: -3 dB, 1: 0 dB, 2: 3 dB, 3: 6 dB}. */
+static int8_t dci_power_offset_ss_to_db(uint8_t power_offset_ss)
+{
+  return power_offset_ss <= 3 ? 3 * power_offset_ss - 3 : 0;
+}
+
+static uint8_t dci_power_offset_ss_from_db(int8_t db)
+{
+  return db <= -3 ? 0 : (db >= 6 ? 3 : (db + 3) / 3);
+}
+#endif
+
 static uint8_t pack_dl_tti_pdcch_pdu_rel15_value(void *tlv, uint8_t **ppWritePackedMsg, uint8_t *end)
 {
   nfapi_nr_dl_tti_pdcch_pdu_rel15_t *value = (nfapi_nr_dl_tti_pdcch_pdu_rel15_t *)tlv;
@@ -328,10 +343,17 @@ static uint8_t pack_dl_tti_pdcch_pdu_rel15_value(void *tlv, uint8_t **ppWritePac
       return 0;
     }
     // TX Power info
+#ifdef ENABLE_AERIAL
     if (!(push8(value->dci_pdu[i].beta_PDCCH_1_0, ppWritePackedMsg, end)
-          && push8(value->dci_pdu[i].powerControlOffsetSS, ppWritePackedMsg, end) &&
-          // DCI Payload fields
-          push16(value->dci_pdu[i].PayloadSizeBits, ppWritePackedMsg, end) &&
+          && pushs8(dci_power_offset_ss_to_db(value->dci_pdu[i].powerControlOffsetSS), ppWritePackedMsg, end)))
+      return 0;
+#else
+    if (!(push8(value->dci_pdu[i].beta_PDCCH_1_0, ppWritePackedMsg, end)
+          && push8(value->dci_pdu[i].powerControlOffsetSS, ppWritePackedMsg, end)))
+      return 0;
+#endif
+    // DCI Payload fields
+    if (!(push16(value->dci_pdu[i].PayloadSizeBits, ppWritePackedMsg, end) &&
           // Pack DCI Payload
           pack_dci_payload(value->dci_pdu[i].Payload, value->dci_pdu[i].PayloadSizeBits, ppWritePackedMsg, end))) {
       return 0;
@@ -581,9 +603,17 @@ static uint8_t unpack_dl_tti_pdcch_pdu_rel15_value(void *tlv, uint8_t **ppReadPa
       return 0;
     }
 
+#ifdef ENABLE_AERIAL
+    int8_t power_offset_ss_db;
+    if (!(pull8(ppReadPackedMsg, &value->dci_pdu[i].beta_PDCCH_1_0, end) && pulls8(ppReadPackedMsg, &power_offset_ss_db, end)))
+      return 0;
+    value->dci_pdu[i].powerControlOffsetSS = dci_power_offset_ss_from_db(power_offset_ss_db);
+#else
     if (!(pull8(ppReadPackedMsg, &value->dci_pdu[i].beta_PDCCH_1_0, end)
-          && pull8(ppReadPackedMsg, &value->dci_pdu[i].powerControlOffsetSS, end)
-          && pull16(ppReadPackedMsg, &value->dci_pdu[i].PayloadSizeBits, end)
+          && pull8(ppReadPackedMsg, &value->dci_pdu[i].powerControlOffsetSS, end)))
+      return 0;
+#endif
+    if (!(pull16(ppReadPackedMsg, &value->dci_pdu[i].PayloadSizeBits, end)
           && unpack_dci_payload(value->dci_pdu[i].Payload, value->dci_pdu[i].PayloadSizeBits, ppReadPackedMsg, end))) {
       return 0;
     }
@@ -1559,9 +1589,16 @@ static uint8_t pack_ul_dci_pdu_list_value(void *tlv, uint8_t **ppWritePackedMsg,
         }
       }
     }
-    if (!(push8(dci_pdu->beta_PDCCH_1_0, ppWritePackedMsg, end) && push8(dci_pdu->powerControlOffsetSS, ppWritePackedMsg, end) &&
-          // DCI Payload fields
-          push16(dci_pdu->PayloadSizeBits, ppWritePackedMsg, end) &&
+#ifdef ENABLE_AERIAL
+    if (!(push8(dci_pdu->beta_PDCCH_1_0, ppWritePackedMsg, end)
+          && pushs8(dci_power_offset_ss_to_db(dci_pdu->powerControlOffsetSS), ppWritePackedMsg, end)))
+      return 0;
+#else
+    if (!(push8(dci_pdu->beta_PDCCH_1_0, ppWritePackedMsg, end) && push8(dci_pdu->powerControlOffsetSS, ppWritePackedMsg, end)))
+      return 0;
+#endif
+    // DCI Payload fields
+    if (!(push16(dci_pdu->PayloadSizeBits, ppWritePackedMsg, end) &&
           // Pack DCI Payload
           pack_dci_payload(dci_pdu->Payload, dci_pdu->PayloadSizeBits, ppWritePackedMsg, end))) {
       return 0;
@@ -1640,8 +1677,16 @@ static uint8_t unpack_ul_dci_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t *
         }
       }
     }
-    if (!(pull8(ppReadPackedMsg, &dci_pdu->beta_PDCCH_1_0, end) && pull8(ppReadPackedMsg, &dci_pdu->powerControlOffsetSS, end)
-          && pull16(ppReadPackedMsg, &dci_pdu->PayloadSizeBits, end)
+#ifdef ENABLE_AERIAL
+    int8_t power_offset_ss_db;
+    if (!(pull8(ppReadPackedMsg, &dci_pdu->beta_PDCCH_1_0, end) && pulls8(ppReadPackedMsg, &power_offset_ss_db, end)))
+      return 0;
+    dci_pdu->powerControlOffsetSS = dci_power_offset_ss_from_db(power_offset_ss_db);
+#else
+    if (!(pull8(ppReadPackedMsg, &dci_pdu->beta_PDCCH_1_0, end) && pull8(ppReadPackedMsg, &dci_pdu->powerControlOffsetSS, end)))
+      return 0;
+#endif
+    if (!(pull16(ppReadPackedMsg, &dci_pdu->PayloadSizeBits, end)
           && unpack_dci_payload(dci_pdu->Payload, dci_pdu->PayloadSizeBits, ppReadPackedMsg, end))) {
       return 0;
     }
