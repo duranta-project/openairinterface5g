@@ -203,7 +203,7 @@ bool fapi_nr_p5_message_unpack(void *pMessageBuf,
 uint8_t pack_nr_param_request(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *config)
 {
   nfapi_nr_param_request_scf_t *pNfapiMsg = (nfapi_nr_param_request_scf_t *)msg;
-  return (pack_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config));
+  return (pack_nr_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config));
 }
 
 uint8_t unpack_nr_param_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg, nfapi_p4_p5_codec_config_t *config)
@@ -551,7 +551,7 @@ uint8_t pack_nr_param_response(void *msg, uint8_t **ppWritePackedMsg, uint8_t *e
                            ppWritePackedMsg,
                            end,
                            &pack_uint8_tlv_value)
-            && pack_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);
+            && pack_nr_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);
   return retval;
 }
 
@@ -1202,7 +1202,7 @@ uint8_t pack_nr_config_request(void *msg, uint8_t **ppWritePackedMsg, uint8_t *e
   // END nFAPI TLVs included in CONFIG.request for IDLE and CONFIGURED states
 
   if (pNfapiMsg->vendor_extension != 0 && config != 0) {
-    retval &= pack_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);
+    retval &= pack_nr_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);
     NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Packing CONFIG.request vendor_extension_tlv %d\n", pNfapiMsg->vendor_extension->tag);
     numTLVs++;
   }
@@ -1725,7 +1725,7 @@ uint8_t pack_nr_config_response(void *msg, uint8_t **ppWritePackedMsg, uint8_t *
     pack_nr_generic_tlv(element->tl.tag, element, ppWritePackedMsg, end);
   }
 
-  retval &= pack_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);
+  retval &= pack_nr_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);
   return retval;
 }
 
@@ -1767,7 +1767,7 @@ uint8_t unpack_nr_config_response(uint8_t **ppReadPackedMsg, uint8_t *end, void 
 uint8_t pack_nr_start_request(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *config)
 {
   nfapi_nr_start_request_scf_t *pNfapiMsg = (nfapi_nr_start_request_scf_t *)msg;
-  return pack_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);
+  return pack_nr_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);
 }
 
 uint8_t unpack_nr_start_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg, nfapi_p4_p5_codec_config_t *config)
@@ -1780,7 +1780,7 @@ uint8_t pack_nr_start_response(void *msg, uint8_t **ppWritePackedMsg, uint8_t *e
 {
   nfapi_nr_start_response_scf_t *pNfapiMsg = (nfapi_nr_start_response_scf_t *)msg;
   return (push8(pNfapiMsg->error_code, ppWritePackedMsg, end)
-          && pack_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config));
+          && pack_nr_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config));
 }
 
 uint8_t unpack_nr_start_response(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg, nfapi_p4_p5_codec_config_t *config)
@@ -1793,7 +1793,7 @@ uint8_t unpack_nr_start_response(uint8_t **ppReadPackedMsg, uint8_t *end, void *
 uint8_t pack_nr_stop_request(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *config)
 {
   nfapi_nr_stop_request_scf_t *pNfapiMsg = (nfapi_nr_stop_request_scf_t *)msg;
-  return pack_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);
+  return pack_nr_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);
 }
 
 uint8_t unpack_nr_stop_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg, nfapi_p4_p5_codec_config_t *config)
@@ -1805,7 +1805,7 @@ uint8_t unpack_nr_stop_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *ms
 uint8_t pack_nr_stop_indication(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *config)
 {
   nfapi_nr_stop_indication_scf_t *pNfapiMsg = (nfapi_nr_stop_indication_scf_t *)msg;
-  return pack_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);
+  return pack_nr_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);
 }
 
 uint8_t unpack_nr_stop_indication(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg, nfapi_p4_p5_codec_config_t *config)
@@ -1819,7 +1819,7 @@ uint8_t pack_nr_error_indication(void *msg, uint8_t **ppWritePackedMsg, uint8_t 
   nfapi_nr_error_indication_scf_t *pNfapiMsg = (nfapi_nr_error_indication_scf_t *)msg;
   if (push16(pNfapiMsg->sfn, ppWritePackedMsg, end) && push16(pNfapiMsg->slot, ppWritePackedMsg, end)
       && push8(pNfapiMsg->message_id, ppWritePackedMsg, end) && push8(pNfapiMsg->error_code, ppWritePackedMsg, end)
-      && pack_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config)) {
+      && pack_nr_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config)) {
     return 1;
   } else {
     return 0;
