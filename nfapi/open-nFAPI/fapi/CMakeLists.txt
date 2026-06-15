@@ -20,11 +20,11 @@ add_library(nr_fapi_p7
 target_include_directories(nr_fapi_p7 PUBLIC inc)
 target_link_libraries(nr_fapi_p7 PUBLIC nr_fapi_common)
 
+# The NR FAPI codec is unconditionally SCF222.10.04. ENABLE_AERIAL only selects
+# the cuBB dialect (TDD-table tag, DBT via nvIPC, aerial vendor TLVs) within 10.04.
 if (OAI_AERIAL)
-    target_compile_definitions(nr_fapi_p5 PRIVATE ENABLE_AERIAL ENABLE_10_04)
+    target_compile_definitions(nr_fapi_p5 PRIVATE ENABLE_AERIAL)
     target_compile_definitions(nr_fapi_p7 PRIVATE ENABLE_AERIAL)
-else()
-    target_compile_definitions(nr_fapi_p5 PRIVATE ENABLE_10_02)
 endif ()
 
 if(OAI_WLS)
