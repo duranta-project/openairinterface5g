@@ -82,8 +82,18 @@ uint8_t unpackarray(uint8_t **ppReadPackedMsg,
 uint32_t pack_dci_payload(uint8_t *payload, uint16_t payloadSizeBits, uint8_t **out, uint8_t *end);
 uint32_t unpack_dci_payload(uint8_t *payload, uint16_t payloadSizeBits, uint8_t **in, uint8_t *end);
 
+/* Legacy LTE TLV header: uint16 tag + uint16 length (4 bytes on the wire). */
+#define LTE_TLV_HEADER_LENGTH 4
 uint8_t pack_tl(nfapi_tl_t *tl, uint8_t **ppWritePackedMsg, uint8_t *end);
 uint8_t unpack_tl(uint8_t **ppReadPackedMsg, nfapi_tl_t *tl, uint8_t *end);
+
+/* NR (SCF222.10.04) TLV header: uint16 tag + uint32 length (6 bytes on the
+ * wire). nfapi_tl_t.length is uint32_t in memory to match the wire field. */
+#define NR_TLV_HEADER_LENGTH 6
+uint8_t pack_nr_tl(nfapi_tl_t *tl, uint8_t **ppWritePackedMsg, uint8_t *end);
+uint8_t unpack_nr_tl(uint8_t **ppReadPackedMsg, nfapi_tl_t *tl, uint8_t *end);
+uint8_t pack_nr_tl_header(uint16_t tag, uint32_t length, uint8_t **ppWritePackedMsg, uint8_t *end);
+uint8_t unpack_nr_tl_header(uint16_t *tag, uint32_t *length, uint8_t **ppReadPackedMsg, uint8_t *end);
 
 typedef uint8_t (*pack_tlv_fn)(void *tlv, uint8_t **ppWritePackedMsg, uint8_t *end);
 uint8_t pack_tlv(uint16_t tag, void *tlv, uint8_t **ppWritePackedMsg, uint8_t *end, pack_tlv_fn fn);
@@ -91,6 +101,7 @@ uint8_t pack_nr_tlv(uint16_t tag, void *tlv, uint8_t **ppWritePackedMsg, uint8_t
 uint8_t pack_nr_generic_tlv(uint16_t tag, void *tlv, uint8_t **ppWritePackedMsg, uint8_t *end);
 
 uint32_t pack_vendor_extension_tlv(nfapi_tl_t *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *config);
+uint32_t pack_nr_vendor_extension_tlv(nfapi_tl_t *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *config);
 int unpack_vendor_extension_tlv(nfapi_tl_t *tl,
                                 uint8_t **ppReadPackedMsg,
                                 uint8_t *end,
@@ -122,6 +133,7 @@ int unpack_nr_tlv_list(unpack_tlv_t unpack_fns[],
                        nfapi_tl_t **ve);
 
 uint32_t pack_p7_vendor_extension_tlv(nfapi_tl_t *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p7_codec_config_t *config);
+uint32_t pack_nr_p7_vendor_extension_tlv(nfapi_tl_t *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p7_codec_config_t *config);
 typedef uint8_t (*unpack_p7_tlv_fn)(void *tlv, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p7_codec_config_t *);
 typedef struct {
   uint16_t tag;
