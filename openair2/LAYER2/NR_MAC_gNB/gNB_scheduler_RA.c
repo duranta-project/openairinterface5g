@@ -1861,6 +1861,9 @@ static bool nr_generate_Msg2(gNB_MAC_INST *nr_mac,
   }
 
   tx_req->PDU_index = pduindex;
+#ifdef ENABLE_AERIAL
+  tx_req->cw_index = 0;
+#endif
   tx_req->num_TLV = 1;
   tx_req->TLVs[0].tag = 0;
   tx_req->TLVs[0].length = TBS;
@@ -2146,6 +2149,9 @@ static void nr_generate_Msg4_MsgB(gNB_MAC_INST *nr_mac,
     tx_req->TLVs[0].tag = 0;
     memcpy(tx_req->TLVs[0].value.direct, harq->transportBlock.buf, sizeof(uint8_t) * harq->tb_size);
     tx_req->PDU_index = pduindex;
+#ifdef ENABLE_AERIAL
+    tx_req->cw_index = 0;
+#endif
     tx_req->num_TLV = 1;
     tx_req->TLVs[0].length =  harq->tb_size;
     tx_req->PDU_length = compute_PDU_length(tx_req->num_TLV, tx_req->TLVs[0].length);

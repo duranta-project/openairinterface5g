@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: LicenseRef-CSSL-1.0
 
 set(Test_Labels fapi p7)
-set(_fapi_p7_messages "slot_indication;rx_data_indication;crc_indication;uci_indication;rach_indication;srs_toa_vendor_ext_indication")
-set(_fapi_p7_no_aerial_messages "dl_tti_request;ul_tti_request;ul_dci_request;tx_data_request;srs_indication")
+set(_fapi_p7_messages "slot_indication;tx_data_request;rx_data_indication;crc_indication;uci_indication;rach_indication;srs_toa_vendor_ext_indication")
+set(_fapi_p7_no_aerial_messages "dl_tti_request;ul_tti_request;ul_dci_request;srs_indication")
 foreach (fapi_p7_message IN LISTS _fapi_p7_messages)
     add_nr_fapi_test(nr_fapi_${fapi_p7_message} nr_fapi_p7 "${Test_Labels}")
 endforeach ()
