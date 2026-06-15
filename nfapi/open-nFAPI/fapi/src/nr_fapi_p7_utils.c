@@ -554,8 +554,10 @@ bool eq_rx_data_indication_PDU(const nfapi_nr_rx_data_pdu_t *a, const nfapi_nr_r
 {
   EQ(a->handle, b->handle);
   EQ(a->rnti, b->rnti);
+  EQ(a->rapid, b->rapid);
   EQ(a->harq_id, b->harq_id);
   EQ(a->pdu_length, b->pdu_length);
+  EQ(a->pdu_tag, b->pdu_tag);
   EQ(a->ul_cqi, b->ul_cqi);
   EQ(a->timing_advance, b->timing_advance);
   EQ(a->rssi, b->rssi);
@@ -571,6 +573,7 @@ bool eq_rx_data_indication(const nfapi_nr_rx_data_indication_t *a, const nfapi_n
   EQ(a->header.message_length, b->header.message_length);
   EQ(a->sfn, b->sfn);
   EQ(a->slot, b->slot);
+  EQ(a->control_length, b->control_length);
   EQ(a->number_of_pdus, b->number_of_pdus);
   for (int pdu_idx = 0; pdu_idx < a->number_of_pdus; ++pdu_idx) {
     EQ(eq_rx_data_indication_PDU(&a->pdu_list[pdu_idx], &b->pdu_list[pdu_idx]), true);
@@ -1377,8 +1380,10 @@ void copy_rx_data_indication_PDU(const nfapi_nr_rx_data_pdu_t *src, nfapi_nr_rx_
 {
   dst->handle = src->handle;
   dst->rnti = src->rnti;
+  dst->rapid = src->rapid;
   dst->harq_id = src->harq_id;
   dst->pdu_length = src->pdu_length;
+  dst->pdu_tag = src->pdu_tag;
   dst->ul_cqi = src->ul_cqi;
   dst->timing_advance = src->timing_advance;
   dst->rssi = src->rssi;
@@ -1393,6 +1398,7 @@ void copy_rx_data_indication(const nfapi_nr_rx_data_indication_t *src, nfapi_nr_
 
   dst->sfn = src->sfn;
   dst->slot = src->slot;
+  dst->control_length = src->control_length;
   dst->number_of_pdus = src->number_of_pdus;
   dst->pdu_list = calloc(dst->number_of_pdus, sizeof(*dst->pdu_list));
   for (int pdu_idx = 0; pdu_idx < src->number_of_pdus; ++pdu_idx) {
@@ -1406,13 +1412,16 @@ size_t get_rx_data_indication_size(const nfapi_nr_rx_data_indication_t *msg)
   size_t total_size = sizeof(msg->header);
   total_size += sizeof(msg->sfn);
   total_size += sizeof(msg->slot);
+  total_size += sizeof(msg->control_length);
   total_size += sizeof(msg->number_of_pdus);
   for (int pdu_idx = 0; pdu_idx < msg->number_of_pdus; ++pdu_idx) {
     const nfapi_nr_rx_data_pdu_t *pdu = &msg->pdu_list[pdu_idx];
     total_size += sizeof(pdu->handle);
     total_size += sizeof(pdu->rnti);
+    total_size += sizeof(pdu->rapid);
     total_size += sizeof(pdu->harq_id);
     total_size += sizeof(pdu->pdu_length);
+    total_size += sizeof(pdu->pdu_tag);
     total_size += sizeof(pdu->ul_cqi);
     total_size += sizeof(pdu->timing_advance);
     total_size += sizeof(pdu->rssi);
@@ -2441,6 +2450,7 @@ void dump_rx_data_indication(const nfapi_nr_rx_data_indication_t *msg)
   depth++;
   INDENTED_PRINTF("SFN = %d\n", msg->sfn);
   INDENTED_PRINTF("Slot = %d\n", msg->slot);
+  INDENTED_PRINTF("Control Length = %d\n", msg->control_length);
   INDENTED_PRINTF("Number of PDUs = %d\n", msg->number_of_pdus);
   for (int pdu_idx = 0; pdu_idx < msg->number_of_pdus; pdu_idx++) {
     depth++;
@@ -2448,8 +2458,10 @@ void dump_rx_data_indication(const nfapi_nr_rx_data_indication_t *msg)
     const nfapi_nr_rx_data_pdu_t *pdu = &msg->pdu_list[pdu_idx];
     INDENTED_PRINTF("Handle = 0x%02x\n", pdu->handle);
     INDENTED_PRINTF("RNTI = 0x%02x\n", pdu->rnti);
+    INDENTED_PRINTF("RAPID = 0x%02x\n", pdu->rapid);
     INDENTED_PRINTF("HarqID = 0x%02x\n", pdu->harq_id);
     INDENTED_PRINTF("PDU Length = 0x%02x\n", pdu->pdu_length);
+    INDENTED_PRINTF("PDU Tag = 0x%02x\n", pdu->pdu_tag);
     INDENTED_PRINTF("UL_CQI = 0x%02x\n", pdu->ul_cqi);
     INDENTED_PRINTF("Timing advance = 0x%02x\n", pdu->timing_advance);
     INDENTED_PRINTF("RSSI = 0x%02x\n", pdu->rssi);

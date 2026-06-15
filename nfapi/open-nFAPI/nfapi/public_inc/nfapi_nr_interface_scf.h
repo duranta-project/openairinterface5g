@@ -1697,8 +1697,10 @@ typedef struct
 {
   uint32_t handle;
   uint16_t rnti;
+  uint8_t  rapid;// SCF222.10.04: RAP ID the UE used; 0xff if not applicable (not consumed by OAI yet)
   uint8_t  harq_id;
   uint32_t pdu_length;// For Aerial, RX_DATA.indication PDULength is changed to 32 bit field
+  uint8_t  pdu_tag;// SCF222.10.04: indicates where the PDU data is located (not consumed by OAI yet)
   uint8_t  ul_cqi;
   uint16_t timing_advance;//Timing advance 𝑇𝐴 measured for the UE [TS 38.213, Section 4.2] NTA_new = NTA_old + (TA − 31) ⋅ 16 ⋅ 64⁄2μ Value: 0 → 63 0xffff should be set if this field is invalid
   uint16_t rssi;
@@ -1712,6 +1714,7 @@ typedef struct
   nfapi_nr_p7_message_header_t header;
   uint16_t sfn;
   uint16_t slot;
+  uint16_t control_length;// SCF222.10.04: length of control data; 0 when PDU data is inline (not consumed by OAI yet)
   uint16_t number_of_pdus;
   nfapi_nr_rx_data_pdu_t *pdu_list;
 
