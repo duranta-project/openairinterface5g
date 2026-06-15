@@ -594,6 +594,11 @@ bool eq_crc_indication_CRC(const nfapi_nr_crc_t *a, const nfapi_nr_crc_t *b)
   EQ(a->ul_cqi, b->ul_cqi);
   EQ(a->timing_advance, b->timing_advance);
   EQ(a->rssi, b->rssi);
+#ifdef ENABLE_AERIAL
+  EQ(a->rapid, b->rapid);
+  EQ(a->timing_advance_ns, b->timing_advance_ns);
+  EQ(a->rsrp, b->rsrp);
+#endif
   return true;
 }
 
@@ -1483,6 +1488,11 @@ void copy_crc_indication_CRC(const nfapi_nr_crc_t *src, nfapi_nr_crc_t *dst)
   dst->ul_cqi = src->ul_cqi;
   dst->timing_advance = src->timing_advance;
   dst->rssi = src->rssi;
+#ifdef ENABLE_AERIAL
+  dst->rapid = src->rapid;
+  dst->timing_advance_ns = src->timing_advance_ns;
+  dst->rsrp = src->rsrp;
+#endif
 }
 
 void copy_crc_indication(const nfapi_nr_crc_indication_t *src, nfapi_nr_crc_indication_t *dst)
@@ -1516,9 +1526,18 @@ size_t get_crc_indication_size(const nfapi_nr_crc_indication_t *msg)
     if (crc->num_cb > 0) {
       total_size += crc->num_cb / 8 + 1;
     }
+#ifdef ENABLE_AERIAL
+    total_size += sizeof(crc->rapid);
+    total_size += sizeof(int16_t); // ul_sinr_metric
+    total_size += sizeof(crc->timing_advance);
+    total_size += sizeof(crc->timing_advance_ns);
+    total_size += sizeof(crc->rssi);
+    total_size += sizeof(crc->rsrp);
+#else
     total_size += sizeof(crc->ul_cqi);
     total_size += sizeof(crc->timing_advance);
     total_size += sizeof(crc->rssi);
+#endif
   }
   return total_size;
 }
@@ -2574,6 +2593,11 @@ void dump_crc_indication(const nfapi_nr_crc_indication_t *msg)
     INDENTED_PRINTF("UL_CQI = 0x%02x\n", crc->ul_cqi);
     INDENTED_PRINTF("Timing advance = 0x%02x\n", crc->timing_advance);
     INDENTED_PRINTF("RSSI = 0x%02x\n", crc->rssi);
+#ifdef ENABLE_AERIAL
+    INDENTED_PRINTF("RAPID = 0x%02x\n", crc->rapid);
+    INDENTED_PRINTF("Timing advance ns = %d\n", crc->timing_advance_ns);
+    INDENTED_PRINTF("RSRP = 0x%02x\n", crc->rsrp);
+#endif
     depth--;
   }
 }

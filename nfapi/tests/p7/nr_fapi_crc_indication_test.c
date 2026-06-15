@@ -21,6 +21,11 @@ static void fill_crc_indication_CRC(nfapi_nr_crc_t *crc)
   crc->ul_cqi = rand8();
   crc->timing_advance = rand16_range(0, 63);
   crc->rssi = rand16_range(0, 1280);
+#ifdef ENABLE_AERIAL
+  crc->rapid = rand8();
+  crc->timing_advance_ns = rand16_range(0, 33600) - 16800;
+  crc->rsrp = rand16_range(0, 1280);
+#endif
 }
 
 static void fill_crc_indication(nfapi_nr_crc_indication_t *msg)
