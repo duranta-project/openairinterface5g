@@ -2494,8 +2494,7 @@ uint8_t unpack_nr_uci_indication(uint8_t **ppReadPackedMsg, uint8_t *end, void *
 
 static uint8_t pack_nr_srs_report_tlv(const nfapi_srs_report_tlv_t *report_tlv, uint8_t **ppWritePackedMsg, uint8_t *end)
 {
-  if(!(push16(report_tlv->tag, ppWritePackedMsg, end) &&
-        push32(report_tlv->length, ppWritePackedMsg, end))) {
+  if(!pack_nr_tl_header(report_tlv->tag, report_tlv->length, ppWritePackedMsg, end)) {
     return 0;
   }
 
@@ -2576,8 +2575,7 @@ uint8_t unpack_nr_srs_report_tlv_value(nfapi_srs_report_tlv_t *report_tlv, uint8
 
 static uint8_t unpack_nr_srs_report_tlv(nfapi_srs_report_tlv_t *report_tlv, uint8_t **ppReadPackedMsg, uint8_t *end) {
 
-  if(!(pull16(ppReadPackedMsg, &report_tlv->tag, end) &&
-        pull32(ppReadPackedMsg, &report_tlv->length, end))) {
+  if(!unpack_nr_tl_header(&report_tlv->tag, &report_tlv->length, ppReadPackedMsg, end)) {
     return 0;
   }
 #ifndef ENABLE_AERIAL
