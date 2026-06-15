@@ -1666,6 +1666,9 @@ typedef struct
 {
   uint32_t PDU_length;
   uint16_t PDU_index;
+#ifdef ENABLE_AERIAL
+  uint8_t cw_index; // cuBB SCF_FAPI_10_04: codeword this PDU belongs to (OAI: single DL codeword)
+#endif
   uint32_t num_TLV;
   nfapi_nr_tx_data_request_tlv_t TLVs[NFAPI_NR_MAX_TX_REQUEST_TLV];
 

@@ -1669,22 +1669,22 @@ uint8_t unpack_ul_dci_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg
 static uint8_t pack_tx_data_pdu_list_value(void *tlv, uint8_t **ppWritePackedMsg, uint8_t *end, uint32_t *payload_offset)
 {
   nfapi_nr_pdu_t *value = (nfapi_nr_pdu_t *)tlv;
-  if (!(push32(value->PDU_length, ppWritePackedMsg, end) && push16(value->PDU_index, ppWritePackedMsg, end)
-        && push32(value->num_TLV, ppWritePackedMsg, end)))
+  if (!(push32(value->PDU_length, ppWritePackedMsg, end) && push16(value->PDU_index, ppWritePackedMsg, end)))
+    return 0;
+#ifdef ENABLE_AERIAL
+  // cuBB SCF_FAPI_10_04 (scf_fapi_tx_data_pdu_info_t): cw_index between pdu_index and num_tlv
+  if (!push8(value->cw_index, ppWritePackedMsg, end))
+    return 0;
+#endif
+  if (!push32(value->num_TLV, ppWritePackedMsg, end))
     return 0;
 
   for (int i = 0; i < value->num_TLV; ++i) {
     uint16_t tag = value->TLVs[i].tag == 2 ? 2 : 0;
     // preserve tag == 2 for nvidia, for direct/ptr, convert to pointer
-    if (!push16(tag, ppWritePackedMsg, end))
+    // uint16 tag + uint32 length (SCF222.10.04 Table 3-114), for both OAI PNF/VNF and cuBB
+    if (!(push16(tag, ppWritePackedMsg, end) && push32(value->TLVs[i].length, ppWritePackedMsg, end)))
       return 0;
-#ifdef ENABLE_AERIAL
-    if (!push16(value->TLVs[i].length, ppWritePackedMsg, end))
-      return 0;
-#else
-    if (!push32(value->TLVs[i].length, ppWritePackedMsg, end))
-      return 0;
-#endif
     const uint32_t byte_len = (value->TLVs[i].length + 3) / 4;
     switch (value->TLVs[i].tag) {
       case 0: {
@@ -1749,8 +1749,13 @@ static uint8_t unpack_tx_data_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t 
 {
   nfapi_nr_pdu_t *pNfapiMsg = (nfapi_nr_pdu_t *)msg;
 
-  if (!(pull32(ppReadPackedMsg, &pNfapiMsg->PDU_length, end) && pull16(ppReadPackedMsg, &pNfapiMsg->PDU_index, end)
-        && pull32(ppReadPackedMsg, &pNfapiMsg->num_TLV, end)))
+  if (!(pull32(ppReadPackedMsg, &pNfapiMsg->PDU_length, end) && pull16(ppReadPackedMsg, &pNfapiMsg->PDU_index, end)))
+    return 0;
+#ifdef ENABLE_AERIAL
+  if (!pull8(ppReadPackedMsg, &pNfapiMsg->cw_index, end))
+    return 0;
+#endif
+  if (!pull32(ppReadPackedMsg, &pNfapiMsg->num_TLV, end))
     return 0;
   NR_FAPI_CHECK_COUNT(pNfapiMsg->num_TLV, pNfapiMsg->TLVs);
 
