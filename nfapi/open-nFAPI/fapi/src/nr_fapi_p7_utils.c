@@ -1665,6 +1665,9 @@ size_t get_uci_indication_size(const nfapi_nr_uci_indication_t *msg)
 
     total_size += sizeof(uci_pdu->pdu_type);
     total_size += sizeof(uci_pdu->pdu_size);
+    // SCF222.10.04 ul_meas_common is 10 bytes on the wire; the PDU structs only
+    // hold ul_cqi/timing_advance/rssi (5 bytes), so reserve the extra 5.
+    total_size += 5;
 
     switch (uci_pdu->pdu_type) {
       case NFAPI_NR_UCI_PUSCH_PDU_TYPE:
