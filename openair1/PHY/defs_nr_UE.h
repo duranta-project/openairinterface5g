@@ -258,6 +258,15 @@ typedef struct {
 } nrUE_cell_params_t;
 
 typedef struct {
+  pthread_mutex_t mread;
+  uint64_t *last_timestamp;
+  c16_t **rxbuf;
+  int sz;
+  int grain;
+  uint64_t last_ts;
+} read_data_t;
+
+typedef struct {
   unsigned int nb_tx;
   unsigned int nb_rx;
   unsigned int att_tx;
@@ -273,6 +282,8 @@ typedef struct {
   int if_freq_offset;
   int nb_cells;
   nrUE_cell_params_t *cell;
+  int nb_clients;
+  read_data_t rd;
 } nrUE_RU_params_t;
 
 /// Top-level PHY Data Structure for UE

@@ -409,7 +409,7 @@ static void fullwrite(int fd, void *_buf, ssize_t count, rfsimulator_state_t *t)
         continue;
 
       if (errno == EAGAIN) {
-        LOG_D(HW, "write() failed, errno(%d)\n", errno);
+        // LOG_D(HW, "write() failed, errno(%d)\n", errno);
         usleep(250);
         continue;
       } else {
@@ -874,7 +874,7 @@ static int startClient(openair0_device_t *device)
   bool have_to_wait;
   do {
     have_to_wait = true;
-    flushInput(t, 3, true);
+    flushInput(t, 300, true);
     if (b->lastReceivedTS)
       have_to_wait = false;
   } while (have_to_wait);
@@ -916,11 +916,7 @@ static int rfsimulator_write_internal(rfsimulator_state_t *t,
     LOG_W(HW, "Not supported to send Tx out of order %lu, %lu\n", t->lastWroteTS, timestamp);
 
   if ((flags != TX_BURST_START) && (flags != TX_BURST_START_AND_END) && (t->lastWroteTS < timestamp))
-    LOG_W(HW,
-          "Gap in writing to USRP: last written %lu, now %lu, gap %lu\n",
-          t->lastWroteTS,
-          timestamp,
-          timestamp - t->lastWroteTS);
+    LOG_W(HW, "Gap in writing to rf : last written %lu, now %lu, gap %lu\n", t->lastWroteTS, timestamp, timestamp - t->lastWroteTS);
 
   t->lastWroteTS = timestamp + nsamps;
   mutexunlock(t->Sockmutex);
@@ -1344,7 +1340,7 @@ static int rfsimulator_read(openair0_device_t *device, openair0_timestamp_t *pti
               "Waiting on socket, current last ts: %ld, expected at least : %ld\n",
               b->lastReceivedTS,
               t->nextRxTstamp + nsamps);
-        flushInput(t, 3, false);
+        flushInput(t, 300, false);
       }
     } while (have_to_wait);
   }
