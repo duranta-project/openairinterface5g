@@ -1832,6 +1832,10 @@ typedef struct
   uint8_t  ul_cqi;
   uint16_t timing_advance;
   uint16_t rssi;
+#ifdef ENABLE_AERIAL
+  int16_t  timing_advance_ns; // cuBB SCF_FAPI_10_04 (SCF222.10.04 Table 3-119), not consumed by OAI yet
+  uint16_t rsrp; // cuBB SCF_FAPI_10_04, not consumed by OAI yet
+#endif
   nfapi_nr_harq_pdu_2_3_4_t harq;//table 3-70
   nfapi_nr_csi_part1_pdu_t csi_part1;//71
   nfapi_nr_csi_part2_pdu_t csi_part2;//72
@@ -1848,6 +1852,10 @@ typedef struct
   uint8_t  ul_cqi;
   uint16_t timing_advance;
   uint16_t rssi;
+#ifdef ENABLE_AERIAL
+  int16_t  timing_advance_ns; // cuBB SCF_FAPI_10_04 (SCF222.10.04 Table 3-120), not consumed by OAI yet
+  uint16_t rsrp; // cuBB SCF_FAPI_10_04, not consumed by OAI yet
+#endif
   nfapi_nr_sr_pdu_0_1_t  sr;//67
   nfapi_nr_harq_pdu_0_1_t harq;//68
   
@@ -1864,6 +1872,10 @@ typedef struct
   uint8_t  ul_cqi;
   uint16_t timing_advance;
   uint16_t rssi;
+#ifdef ENABLE_AERIAL
+  int16_t  timing_advance_ns; // cuBB SCF_FAPI_10_04 (SCF222.10.04 Table 3-121), not consumed by OAI yet
+  uint16_t rsrp; // cuBB SCF_FAPI_10_04, not consumed by OAI yet
+#endif
   nfapi_nr_sr_pdu_2_3_4_t sr;//69
   nfapi_nr_harq_pdu_2_3_4_t harq;//70
   nfapi_nr_csi_part1_pdu_t csi_part1;//71
