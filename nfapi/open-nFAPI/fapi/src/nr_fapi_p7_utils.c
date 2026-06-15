@@ -311,6 +311,13 @@ static bool eq_ul_tti_request_pusch_pdu(const nfapi_nr_pusch_pdu_t *a, const nfa
   EQ(eq_ul_tti_beamforming(&a->beamforming, &b->beamforming), true);
   EQ(a->maintenance_parms_v3.ldpcBaseGraph, b->maintenance_parms_v3.ldpcBaseGraph);
   EQ(a->maintenance_parms_v3.tbSizeLbrmBytes, b->maintenance_parms_v3.tbSizeLbrmBytes);
+#ifdef ENABLE_AERIAL
+  EQ(a->maintenance_parms_v3.puschTransType, b->maintenance_parms_v3.puschTransType);
+  EQ(a->maintenance_parms_v3.deltaBwp0StartFromActiveBwp, b->maintenance_parms_v3.deltaBwp0StartFromActiveBwp);
+  EQ(a->maintenance_parms_v3.initialUlBwpSize, b->maintenance_parms_v3.initialUlBwpSize);
+  EQ(a->maintenance_parms_v3.groupOrSequenceHopping, b->maintenance_parms_v3.groupOrSequenceHopping);
+  EQ(a->maintenance_parms_v3.puschSecondHopPRB, b->maintenance_parms_v3.puschSecondHopPRB);
+#endif
   return true;
 }
 
@@ -1207,8 +1214,7 @@ static void copy_ul_tti_request_pusch_pdu(const nfapi_nr_pusch_pdu_t *src, nfapi
     *dst_dfts_ofdm = *src_dfts_ofdm;
   }
   copy_ul_tti_beamforming(&src->beamforming, &dst->beamforming);
-  dst->maintenance_parms_v3.ldpcBaseGraph = src->maintenance_parms_v3.ldpcBaseGraph;
-  dst->maintenance_parms_v3.tbSizeLbrmBytes = src->maintenance_parms_v3.tbSizeLbrmBytes;
+  dst->maintenance_parms_v3 = src->maintenance_parms_v3;
   const nfapi_nr_spatial_stream_index_t *s = &src->param_v4;
   nfapi_nr_spatial_stream_index_t *d = &dst->param_v4;
   COPY_STRUCT_ARRAY(d, s, spatialStreamIndices, numSpatialStreamIndices);

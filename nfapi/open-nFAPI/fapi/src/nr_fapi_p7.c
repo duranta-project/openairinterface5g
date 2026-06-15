@@ -935,9 +935,19 @@ static uint8_t pack_ul_tti_request_pusch_pdu(nfapi_nr_pusch_pdu_t *pusch_pdu, ui
   // Check if PUSCH_PDU_BITMAP_PUSCH_UCI bit is set
   if (pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_UCI) {
     if (!(push16(pusch_pdu->pusch_uci.harq_ack_bit_length, ppWritePackedMsg, end)
-          && push16(pusch_pdu->pusch_uci.csi_part1_bit_length, ppWritePackedMsg, end)
-          && push16(pusch_pdu->pusch_uci.csi_part2_bit_length, ppWritePackedMsg, end)
-          && push8(pusch_pdu->pusch_uci.alpha_scaling, ppWritePackedMsg, end)
+          && push16(pusch_pdu->pusch_uci.csi_part1_bit_length, ppWritePackedMsg, end)))
+      return 0;
+#ifdef ENABLE_AERIAL
+    // cuBB SCF_FAPI_10_04 takes flag_csi_part2 (SCF222.10.04 Table 3-97) instead of the bit length.
+    // 0xFFFF would make it read the Part 1 to Part 2 mapping (Table 3-95) after the maintenance block
+    // and needs CONFIG UCI_CONFIG maps, neither of which OAI sends: signal no CSI Part 2.
+    if (!push16(0, ppWritePackedMsg, end))
+      return 0;
+#else
+    if (!push16(pusch_pdu->pusch_uci.csi_part2_bit_length, ppWritePackedMsg, end))
+      return 0;
+#endif
+    if (!(push8(pusch_pdu->pusch_uci.alpha_scaling, ppWritePackedMsg, end)
           && push8(pusch_pdu->pusch_uci.beta_offset_harq_ack, ppWritePackedMsg, end)
           && push8(pusch_pdu->pusch_uci.beta_offset_csi1, ppWritePackedMsg, end)
           && push8(pusch_pdu->pusch_uci.beta_offset_csi2, ppWritePackedMsg, end))) {
@@ -979,7 +989,15 @@ static uint8_t pack_ul_tti_request_pusch_pdu(nfapi_nr_pusch_pdu_t *pusch_pdu, ui
   if (!(pack_nr_rx_beamforming_pdu(&pusch_pdu->beamforming, ppWritePackedMsg, end))) {
     return 0;
   }
-#ifndef ENABLE_AERIAL
+#ifdef ENABLE_AERIAL
+  // cuBB SCF_FAPI_10_04 always reads the PUSCH maintenance block (SCF222.10.04 Table 3-94)
+  const nfapi_v3_pusch_maintenance_parameters_t *m = &pusch_pdu->maintenance_parms_v3;
+  if (!(push8(m->puschTransType, ppWritePackedMsg, end) && push16(m->deltaBwp0StartFromActiveBwp, ppWritePackedMsg, end)
+        && push16(m->initialUlBwpSize, ppWritePackedMsg, end) && push8(m->groupOrSequenceHopping, ppWritePackedMsg, end)
+        && push16(m->puschSecondHopPRB, ppWritePackedMsg, end) && push8(m->ldpcBaseGraph, ppWritePackedMsg, end)
+        && push32(m->tbSizeLbrmBytes, ppWritePackedMsg, end)))
+    return 0;
+#else
   if (!(push8(pusch_pdu->maintenance_parms_v3.ldpcBaseGraph, ppWritePackedMsg, end)
         && push32(pusch_pdu->maintenance_parms_v3.tbSizeLbrmBytes, ppWritePackedMsg, end)
         && pack_spatial_stream_indices(&pusch_pdu->param_v4, ppWritePackedMsg, end)))
@@ -1319,7 +1337,14 @@ static uint8_t unpack_ul_tti_request_pusch_pdu(nfapi_nr_pusch_pdu_t *pusch_pdu, 
   if (!(unpack_nr_rx_beamforming_pdu(&pusch_pdu->beamforming, ppReadPackedMsg, end))) {
     return 0;
   }
-#ifndef ENABLE_AERIAL
+#ifdef ENABLE_AERIAL
+  nfapi_v3_pusch_maintenance_parameters_t *m = &pusch_pdu->maintenance_parms_v3;
+  if (!(pull8(ppReadPackedMsg, &m->puschTransType, end) && pull16(ppReadPackedMsg, &m->deltaBwp0StartFromActiveBwp, end)
+        && pull16(ppReadPackedMsg, &m->initialUlBwpSize, end) && pull8(ppReadPackedMsg, &m->groupOrSequenceHopping, end)
+        && pull16(ppReadPackedMsg, &m->puschSecondHopPRB, end) && pull8(ppReadPackedMsg, &m->ldpcBaseGraph, end)
+        && pull32(ppReadPackedMsg, &m->tbSizeLbrmBytes, end)))
+    return 0;
+#else
   if (!(pull8(ppReadPackedMsg, &pusch_pdu->maintenance_parms_v3.ldpcBaseGraph, end)
         && pull32(ppReadPackedMsg, &pusch_pdu->maintenance_parms_v3.tbSizeLbrmBytes, end)
         && unpack_spatial_stream_indices(&pusch_pdu->param_v4, ppReadPackedMsg, end)))

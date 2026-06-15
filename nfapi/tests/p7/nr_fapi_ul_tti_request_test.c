@@ -136,6 +136,13 @@ static void fill_ul_tti_request_pusch_pdu(nfapi_nr_pusch_pdu_t *pdu)
   fill_ul_tti_request_beamforming(&pdu->beamforming);
   pdu->maintenance_parms_v3.ldpcBaseGraph = rand8();
   pdu->maintenance_parms_v3.tbSizeLbrmBytes = rand32();
+#ifdef ENABLE_AERIAL
+  pdu->maintenance_parms_v3.puschTransType = rand8_range(0, 2);
+  pdu->maintenance_parms_v3.deltaBwp0StartFromActiveBwp = rand16_range(0, 274);
+  pdu->maintenance_parms_v3.initialUlBwpSize = rand16_range(0, 275);
+  pdu->maintenance_parms_v3.groupOrSequenceHopping = rand8_range(0, 2);
+  pdu->maintenance_parms_v3.puschSecondHopPRB = rand16_range(0, 274);
+#endif
   pdu->param_v4.numSpatialStreamIndices = get_num_spatial_streams();
   fill_spatial_streams(pdu->param_v4.numSpatialStreamIndices, pdu->param_v4.spatialStreamIndices);
 }
