@@ -27,7 +27,7 @@ void fill_param_response_tlv(nfapi_nr_param_response_scf_t *nfapi_resp)
   nfapi_resp->num_tlv++;
 
   nfapi_resp->cell_param.config_tlvs_to_report_list =
-      calloc(nfapi_resp->cell_param.num_config_tlvs_to_report.value, sizeof(nfapi_uint8_tlv_t *));
+      calloc(nfapi_resp->cell_param.num_config_tlvs_to_report.value, sizeof(*nfapi_resp->cell_param.config_tlvs_to_report_list));
   for (int i = 0; i < nfapi_resp->cell_param.num_config_tlvs_to_report.value; ++i) {
     FILL_TLV(nfapi_resp->cell_param.config_tlvs_to_report_list[i],
              rand16_range(NFAPI_NR_CONFIG_DL_BANDWIDTH_TAG, NFAPI_NR_CONFIG_RSSI_MEASUREMENT_TAG),
