@@ -1811,11 +1811,20 @@ uint8_t unpack_tx_data_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *ms
 
 static uint8_t pack_nr_rx_data_indication_body(const nfapi_nr_rx_data_pdu_t *value, uint8_t **ppWritePackedMsg, uint8_t *end)
 {
+#ifdef ENABLE_AERIAL
+  // cuBB SCF_FAPI_10_04 (scf_fapi_rx_data_pdu_t): rapid before harq_id, pdu_tag in place of the
+  // ul_cqi/timing_advance/rssi tail, which moved to CRC.indication
+  if (!(push32(value->handle, ppWritePackedMsg, end) && push16(value->rnti, ppWritePackedMsg, end)
+        && push8(value->rapid, ppWritePackedMsg, end) && push8(value->harq_id, ppWritePackedMsg, end)
+        && push32(value->pdu_length, ppWritePackedMsg, end) && push8(value->pdu_tag, ppWritePackedMsg, end)))
+    return 0;
+#else
   if (!(push32(value->handle, ppWritePackedMsg, end) && push16(value->rnti, ppWritePackedMsg, end)
         && push8(value->harq_id, ppWritePackedMsg, end) && push32(value->pdu_length, ppWritePackedMsg, end)
         && push8(value->ul_cqi, ppWritePackedMsg, end) && push16(value->timing_advance, ppWritePackedMsg, end)
         && push16(value->rssi, ppWritePackedMsg, end)))
     return 0;
+#endif
 
   if (pusharray8(value->pdu, value->pdu_length, value->pdu_length, ppWritePackedMsg, end) == 0)
     return 0;
@@ -1827,8 +1836,13 @@ uint8_t pack_nr_rx_data_indication(void *msg, uint8_t **ppWritePackedMsg, uint8_
 {
   nfapi_nr_rx_data_indication_t *pNfapiMsg = (nfapi_nr_rx_data_indication_t *)msg;
 
-  if (!(push16(pNfapiMsg->sfn, ppWritePackedMsg, end) && push16(pNfapiMsg->slot, ppWritePackedMsg, end)
-        && push16(pNfapiMsg->number_of_pdus, ppWritePackedMsg, end)))
+  if (!(push16(pNfapiMsg->sfn, ppWritePackedMsg, end) && push16(pNfapiMsg->slot, ppWritePackedMsg, end)))
+    return 0;
+#ifdef ENABLE_AERIAL
+  if (!push16(pNfapiMsg->control_length, ppWritePackedMsg, end))
+    return 0;
+#endif
+  if (!push16(pNfapiMsg->number_of_pdus, ppWritePackedMsg, end))
     return 0;
 
   for (int i = 0; i < pNfapiMsg->number_of_pdus; i++) {
@@ -1841,11 +1855,21 @@ uint8_t pack_nr_rx_data_indication(void *msg, uint8_t **ppWritePackedMsg, uint8_
 
 static uint8_t unpack_nr_rx_data_indication_body(nfapi_nr_rx_data_pdu_t *value, uint8_t **ppReadPackedMsg, uint8_t *end)
 {
+#ifdef ENABLE_AERIAL
+  if (!(pull32(ppReadPackedMsg, &value->handle, end) && pull16(ppReadPackedMsg, &value->rnti, end)
+        && pull8(ppReadPackedMsg, &value->rapid, end) && pull8(ppReadPackedMsg, &value->harq_id, end)
+        && pull32(ppReadPackedMsg, &value->pdu_length, end) && pull8(ppReadPackedMsg, &value->pdu_tag, end)))
+    return 0;
+  value->ul_cqi = 0;
+  value->timing_advance = 0;
+  value->rssi = 0;
+#else
   if (!(pull32(ppReadPackedMsg, &value->handle, end) && pull16(ppReadPackedMsg, &value->rnti, end)
         && pull8(ppReadPackedMsg, &value->harq_id, end) && pull32(ppReadPackedMsg, &value->pdu_length, end)
         && pull8(ppReadPackedMsg, &value->ul_cqi, end) && pull16(ppReadPackedMsg, &value->timing_advance, end)
         && pull16(ppReadPackedMsg, &value->rssi, end)))
     return 0;
+#endif
 
   const uint32_t length = value->pdu_length;
   value->pdu = calloc(length, sizeof(*value->pdu));
@@ -1860,8 +1884,13 @@ uint8_t unpack_nr_rx_data_indication(uint8_t **ppReadPackedMsg, uint8_t *end, vo
 {
   nfapi_nr_rx_data_indication_t *pNfapiMsg = (nfapi_nr_rx_data_indication_t *)msg;
 
-  if (!(pull16(ppReadPackedMsg, &pNfapiMsg->sfn, end) && pull16(ppReadPackedMsg, &pNfapiMsg->slot, end)
-        && pull16(ppReadPackedMsg, &pNfapiMsg->number_of_pdus, end)))
+  if (!(pull16(ppReadPackedMsg, &pNfapiMsg->sfn, end) && pull16(ppReadPackedMsg, &pNfapiMsg->slot, end)))
+    return 0;
+#ifdef ENABLE_AERIAL
+  if (!pull16(ppReadPackedMsg, &pNfapiMsg->control_length, end))
+    return 0;
+#endif
+  if (!pull16(ppReadPackedMsg, &pNfapiMsg->number_of_pdus, end))
     return 0;
 
   if (pNfapiMsg->number_of_pdus > 0) {
