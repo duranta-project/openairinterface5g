@@ -1744,6 +1744,12 @@ typedef struct
   uint8_t  ul_cqi;
   uint16_t timing_advance;
   uint16_t rssi;
+#ifdef ENABLE_AERIAL
+  // cuBB SCF_FAPI_10_04 (SCF222.10.04 Table 3-117), not consumed by OAI yet
+  uint8_t  rapid; // RAP ID the UE used, 0xff if not applicable
+  int16_t  timing_advance_ns; // TA in ns, -16800..16800
+  uint16_t rsrp; // 0..1280 in 0.1 dB steps, 0xffff if invalid
+#endif
 
 } nfapi_nr_crc_t;
 
