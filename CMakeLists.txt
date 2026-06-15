@@ -1071,12 +1071,17 @@ set(NR_PDCP_SRC
   )
 
 # gNB: PDCP + CU-CP/CU-UP interface
-set(NR_PDCP_SRC_GNB
+set(NR_PDCP_SRC_GNB_CORE
   ${NR_PDCP_SRC}
   openair2/LAYER2/nr_pdcp/cucp_cuup_handler.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_if.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_direct.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_e1ap.c
+  )
+
+# L2_NR: GNB common (excluded from nr-cuup link)
+set(NR_PDCP_SRC_GNB
+  ${NR_PDCP_SRC_GNB_CORE}
   )
 
 # UE build: PDCP only; CU-CP/CU-UP interface is gNB-only.
@@ -1844,7 +1849,7 @@ add_executable(nr-cuup
   executables/nr-cuup.c
   ${NR_RRC_DIR}/rrc_gNB_UE_context.c
   ${OPENAIR2_DIR}/E1AP/e1ap_setup.c
-  ${NR_PDCP_SRC_GNB}
+  ${NR_PDCP_SRC_GNB_CORE}
   ${NR_SDAP_SRC}
   )
 
