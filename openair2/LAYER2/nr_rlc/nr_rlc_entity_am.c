@@ -2102,7 +2102,7 @@ void nr_rlc_entity_am_delete(nr_rlc_entity_t *_entity)
 int nr_rlc_entity_am_available_tx_space(nr_rlc_entity_t *_entity)
 {
   nr_rlc_entity_am_t *entity = (nr_rlc_entity_am_t *)_entity;
-  return entity->tx_maxsize - entity->tx_size;
+  return entity->tx_size > entity->tx_maxsize ? 0 : entity->tx_maxsize - entity->tx_size;
 }
 
 int nr_rlc_entity_am_tx_list_occupancy(nr_rlc_entity_t *_entity)
