@@ -12,6 +12,7 @@
 #include "LOG/log.h"
 #include "common/utils/time_stat.h"
 #include "common/utils/assertions.h"
+#include "common/utils/utils.h"
 
 /* for a given SDU/SDU segment, computes the corresponding PDU header size */
 static int compute_pdu_header_size(nr_rlc_entity_am_t *entity,
@@ -2102,7 +2103,7 @@ void nr_rlc_entity_am_delete(nr_rlc_entity_t *_entity)
 int nr_rlc_entity_am_available_tx_space(nr_rlc_entity_t *_entity)
 {
   nr_rlc_entity_am_t *entity = (nr_rlc_entity_am_t *)_entity;
-  return entity->tx_maxsize - entity->tx_size;
+  return max(0, entity->tx_maxsize - entity->tx_size);
 }
 
 int nr_rlc_entity_am_tx_list_occupancy(nr_rlc_entity_t *_entity)
