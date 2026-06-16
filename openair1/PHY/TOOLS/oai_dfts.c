@@ -17,6 +17,9 @@
 #include "tools_defs.h"
 #include "time_meas.h"
 #include "LOG/log.h"
+#include <pthread.h>
+
+static pthread_mutex_t sr_twiddle_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -105,10 +108,12 @@ static inline __m128i pack1_complex_lane0_c16(const c16_t a)
 
 static inline int16_t sat_i16(long v)
 {
-  if (v > 32767)
-    return 32767;
-  if (v < -32768)
-    return -32767;
+  if (v > INT16_MAX)
+    return INT16_MAX;
+
+  if (v < INT16_MIN)
+    return INT16_MIN;
+
   return (int16_t)v;
 }
 
@@ -816,23 +821,60 @@ static sr_twiddle_simd_t *sr_twiddle_table_create(int N, dft_dir_t dir)
 
 const sr_twiddle_simd_t *sr_twiddle_table_get(int N, dft_dir_t dir)
 {
+  if (N <= 0 || !is_power_of_two_int(N)) {
+    fprintf(stderr, "sr_twiddle_table_get: invalid N=%d; expected a power of two\n", N);
+    return NULL;
+  }
+
   const int idx = log2_int((unsigned int)N);
 
   if (idx > SR_MAX_LOG2) {
-    fprintf(stderr, "sr_twiddle_table_get: log2(N)=%d exceeds SR_MAX_LOG2=%d\n", idx, SR_MAX_LOG2);
+    fprintf(stderr,
+            "sr_twiddle_table_get: log2(N)=%d exceeds "
+            "SR_MAX_LOG2=%d\n",
+            idx,
+            SR_MAX_LOG2);
     abort();
   }
 
   sr_twiddle_simd_t *tw = (dir == DFT_DIR_FORWARD) ? &sr_twiddles_fwd[idx] : &sr_twiddles_bwd[idx];
 
+  pthread_mutex_lock(&sr_twiddle_mutex);
+
   if (!tw->initialized) {
     if (!sr_twiddle_table_create(N, dir)) {
+      pthread_mutex_unlock(&sr_twiddle_mutex);
       return NULL;
     }
   }
 
+  pthread_mutex_unlock(&sr_twiddle_mutex);
   return tw;
 }
+
+#define DFT_C16_SR_MAX_N 65536
+
+static void dft_c16_init_impl(void)
+{
+  AssertFatal(twiddle_table_get(64) != NULL, "Failed to initialize DFT64 twiddles\n");
+
+  AssertFatal(twiddle_table_get(128) != NULL, "Failed to initialize DFT128 twiddles\n");
+
+  for (int N = 256; N <= DFT_C16_SR_MAX_N; N <<= 1) {
+    AssertFatal(sr_twiddle_table_get(N, DFT_DIR_FORWARD) != NULL, "Failed to initialize forward SR twiddles N=%d\n", N);
+
+    AssertFatal(sr_twiddle_table_get(N, DFT_DIR_INVERSE) != NULL, "Failed to initialize inverse SR twiddles N=%d\n", N);
+  }
+}
+
+/*
+ * Called automatically when load_dftslib() loads this shared library.
+ */
+__attribute__((constructor)) static void dft_c16_library_init(void)
+{
+  dft_c16_init_impl();
+}
+
 //=====================================================================================
 // TWIDDLES FIN
 //=====================================================================================
@@ -840,6 +882,38 @@ const sr_twiddle_simd_t *sr_twiddle_table_get(int N, dft_dir_t dir)
 //===================================================================
 // DFT64 8x8 int
 //===================================================================
+
+static inline __m128i dft64_dc_from_h0(__m256i h0)
+{
+  const __m256i real_mask = _mm256_setr_epi16(1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0);
+
+  const __m256i imag_mask = _mm256_setr_epi16(0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1);
+
+  __m256i real32 = _mm256_madd_epi16(h0, real_mask);
+  __m256i imag32 = _mm256_madd_epi16(h0, imag_mask);
+
+  /*
+   * Après les deux hadd :
+   * chaque moitié contient [sum_real, sum_imag, ...]
+   */
+  __m256i sum = _mm256_hadd_epi32(real32, imag32);
+  sum = _mm256_hadd_epi32(sum, sum);
+
+  __m128i dc32 = _mm_add_epi32(_mm256_castsi256_si128(sum), _mm256_extracti128_si256(sum, 1));
+
+  /*
+   * Division arrondie par 8 :
+   * positif : +4
+   * négatif : +3
+   */
+  const __m128i sign = _mm_srai_epi32(dc32, 31);
+
+  dc32 = _mm_add_epi32(dc32, _mm_add_epi32(_mm_set1_epi32(4), sign));
+
+  dc32 = _mm_srai_epi32(dc32, 3);
+
+  return _mm_packs_epi32(dc32, _mm_setzero_si128());
+}
 
 static inline void dft8x8_q15_256_dir(const __m256i x0,
                                       const __m256i x1,
@@ -922,10 +996,11 @@ static inline void dft64_avx(const c16_t *src, c16_t *dst, dft_dir_t dir)
   __m256i H4, H5, H6, H7;
 
   dft8x8_q15_256_dir(x0, x1, x2, x3, x4, x5, x6, x7, &H0, &H1, &H2, &H3, &H4, &H5, &H6, &H7, dir);
-  const TwiddleTable *tw = twiddle_table_get(64);
+  const TwiddleTable *tw = &g_tables[64];
   const __m256i *C64_RE = (dir == DFT_DIR_FORWARD) ? tw->C64_RE_RE_q15_256 : tw->C64_RE_RE_q15_256_inverse;
 
   const __m256i *C64_IM = (dir == DFT_DIR_FORWARD) ? tw->C64_IM_SIGNED_q15_256 : tw->C64_IM_SIGNED_q15_256_inverse;
+  const __m128i dc = dft64_dc_from_h0(H0);
   H0 = _mm256_srai_epi16(H0, 3);
 
   H1 = complex_mul8_prepack_q15_256(H1, C64_RE[1], C64_IM[1]);
@@ -948,6 +1023,7 @@ static inline void dft64_avx(const c16_t *src, c16_t *dst, dft_dir_t dir)
    * Second stage.
    */
   dft8x8_q15_256_dir(H0, H1, H2, H3, H4, H5, H6, H7, &Y0, &Y1, &Y2, &Y3, &Y4, &Y5, &Y6, &Y7, dir);
+  Y0 = _mm256_blend_epi32(Y0, _mm256_castsi128_si256(dc), 0x01);
   _mm256_storeu_si256((__m256i *)(dst + 0), Y0);
   _mm256_storeu_si256((__m256i *)(dst + 8), Y1);
   _mm256_storeu_si256((__m256i *)(dst + 16), Y2);
@@ -975,7 +1051,13 @@ static inline void dft64_q15_128_strided(const c16_t *src, int stride, c16_t *ds
 // DFT128 int
 //===================================================================
 
-static inline void dft128_stage0_blk_q15_256_dir(const c16_t *src, c16_t *a, c16_t *b, int blk, dft_dir_t dir)
+static inline void dft128_stage0_blk_q15_256_dir(const c16_t *src,
+                                                 c16_t *a,
+                                                 c16_t *b,
+                                                 int blk,
+                                                 dft_dir_t dir,
+                                                 const __m256i *tw_RE,
+                                                 const __m256i *tw_IM)
 {
   const __m256i x0 = _mm256_loadu_si256((const __m256i *)(src + 8 * blk));
 
@@ -986,12 +1068,8 @@ static inline void dft128_stage0_blk_q15_256_dir(const c16_t *src, c16_t *a, c16
 
   const __m256i s = _mm256_set1_epi16(Q15_INV_SQRT2);
   sum = _mm256_mulhrs_epi16(sum, s);
-  const TwiddleTable *tw = twiddle_table_get(128);
-  const __m256i *W128_RE = (dir == DFT_DIR_FORWARD) ? tw->W128_RE_RE_q15_256 : tw->W128_RE_RE_q15_256_inverse;
 
-  const __m256i *W128_IM = (dir == DFT_DIR_FORWARD) ? tw->W128_IM_SIGNED_q15_256 : tw->W128_IM_SIGNED_q15_256_inverse;
-
-  diff = complex_mul8_prepack_q15_256(diff, W128_RE[blk], W128_IM[blk]);
+  diff = complex_mul8_prepack_q15_256(diff, tw_RE[blk], tw_IM[blk]);
 
   _mm256_store_si256((__m256i *)(a + 8 * blk), sum);
 
@@ -1034,9 +1112,14 @@ static inline void dft128_dir(const c16_t *src, c16_t *dst, dft_dir_t dir)
 
   c16_t A[64] __attribute__((aligned(32)));
   c16_t B[64] __attribute__((aligned(32)));
+  const TwiddleTable *tw = &g_tables[128];
+
+  const __m256i *W128_RE = dir == DFT_DIR_FORWARD ? tw->W128_RE_RE_q15_256 : tw->W128_RE_RE_q15_256_inverse;
+
+  const __m256i *W128_IM = dir == DFT_DIR_FORWARD ? tw->W128_IM_SIGNED_q15_256 : tw->W128_IM_SIGNED_q15_256_inverse;
 
   for (int blk = 0; blk < 8; blk++) {
-    dft128_stage0_blk_q15_256_dir(src, a, b, blk, dir);
+    dft128_stage0_blk_q15_256_dir(src, a, b, blk, dir, W128_RE, W128_IM);
   }
 
   dft64_avx(a, A, dir);
@@ -1275,7 +1358,8 @@ static void dft_split_radix_pure_simd_core(c16_t *__restrict x, c16_t *__restric
   dft_split_radix_pure_simd_core(sub_in + half, O1, work + 2 * N, quarter, dir);
 
   dft_split_radix_pure_simd_core(sub_in + half + quarter, O3, work + 2 * N, quarter, dir);
-  const sr_twiddle_simd_t *table = sr_twiddle_table_get(N, dir);
+  const int idx = log2_int((unsigned int)N);
+  const sr_twiddle_simd_t *table = (dir == DFT_DIR_FORWARD) ? &sr_twiddles_fwd[idx] : &sr_twiddles_bwd[idx];
 
   if (!table) {
     return;
@@ -1339,7 +1423,8 @@ static void dft_split_radix_pure_simd_core_strided(const c16_t *__restrict x,
 
   dft_split_radix_pure_simd_core_strided(x + 3 * stride, stride * 4, O3, child_work, quarter, dir);
 
-  const sr_twiddle_simd_t *table = sr_twiddle_table_get(N, dir);
+  const int idx = log2_int((unsigned int)N);
+  const sr_twiddle_simd_t *table = (dir == DFT_DIR_FORWARD) ? &sr_twiddles_fwd[idx] : &sr_twiddles_bwd[idx];
 
   if (!table) {
     return;
@@ -3048,6 +3133,10 @@ static void dft_mixed_radix_c16_scaled_strided(const c16_t *src, int stride, c16
 
 static void dft_mixed_radix_c16_scaled(const c16_t *src, c16_t *dst, int N, dft_dir_t dir)
 {
+  if (is_power_of_two_int(N) && N >= 256) {
+    dft_split_radix_pure_simd((c16_t *)src, dst, N, dir);
+    return;
+  }
   dft_mixed_radix_c16_scaled_strided(src, 1, dst, N, dir);
 }
 #define DEFINE_MIXED_DFT_ONLY(N)                                                     \
