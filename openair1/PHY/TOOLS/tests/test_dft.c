@@ -164,9 +164,9 @@ int main(void)
   int n_simu = 4096;
   int ret = 0;
   load_dftslib();
-  c16_t *d16 = malloc16(12 * dftFtab[sizeofArray(dftFtab) - 1].size * sizeof(*d16));
-  c16_t *d16_2 = malloc16(12 * sizeof(*d16_2));
-  c16_t *o16 = malloc16(12 * dftFtab[sizeofArray(dftFtab) - 1].size * sizeof(*d16));
+  const int max_dft_size = dftFtab[sizeofArray(dftFtab) - 1].size;
+  c16_t *d16 = malloc16(max_dft_size * sizeof(*d16));
+  c16_t *o16 = malloc16(max_dft_size * sizeof(*o16));
   set_taus_seed(0);
   for (int sz = 0; sz < sizeofArray(dftFtab); sz++) {
     const int n = dftFtab[sz].size;
@@ -197,61 +197,54 @@ int main(void)
       }
       for (int coeff = 0; coeff < sizeofArray(coeffs); coeff++) {
         double expand = pow(10.0, .05 * coeffs[coeff]) / sqrt(2);
-        if (n == 12) {
-          for (int i = 0; i < n; i++) {
-            for (int j = 0; j < 4; j++) {
-              d16[i * 4 + j].r = expand * data[i].r;
-              d16[i * 4 + j].i = expand * data[i].i;
-            }
-            d16_2[i].r = d16[i * 4].r;
-            d16_2[i].i = d16[i * 4].i;
-          }
-        } else {
-          for (int i = 0; i < n; i++) {
-            d16[i].r = expand * data[i].r;
-            d16[i].i = expand * data[i].i;
-          }
+        /*
+         * All DFTs, including DFT-12, receive n contiguous complex samples.
+         * dft12_q15_128 performs its SIMD packing internally.
+         */
+        for (int i = 0; i < n; i++) {
+          d16[i].r = (int16_t)(expand * data[i].r);
+          d16[i].i = (int16_t)(expand * data[i].i);
         }
-        if (n == 12)
-          math_dft(d16_2, out, n, 0, 0);
-        else
-          math_dft(d16, out, n, 0, 1);
+
+        /* The SIMD DFT-12 is scaled by 1/sqrt(12), like the other DFTs. */
+        math_dft(d16, out, n, 0, 1);
         dft(get_dft(n), (int16_t *)d16, (int16_t *)o16, 0);
         double mse_trial = 0;
         double samples_trial = 0;
         double samples_out_trial = 0;
         double sqnr_trial = 0;
         double evm_trial = 0;
-        if (n == 12) {
-          for (int i = 0; i < n; i++) {
-            cd_t error = {.r = o16[i * 4].r - out[i].r, .i = o16[i * 4].i - out[i].i};
-            error_vector[coeff][i] += squaredMod(error);
-            sqnr_trial += squaredMod(error);
-            evm_trial += sqrt(squaredMod(error)) / sqrt(squaredMod(out[i]));
-            samples_out_trial += (squaredMod(out[i]));
-            samples_trial += squaredMod(d16_2[i]);
+        for (int i = 0; i < n; i++) {
+          // if (n==n_simu) printf("i: %d, o: %f,%f, dft: %d,%d\n",i,out[i].r,out[i].i,o16[i].r,o16[i].i);
+          const cd_t error = {
+              .r = (double)o16[i].r - out[i].r,
+              .i = (double)o16[i].i - out[i].i,
+          };
+          const double error_power = squaredMod(error);
+
+          error_vector[coeff][i] += error_power;
+          (*error_vec_d_p)[coeff][t][i] = error_power;
+
+          if (error_power > 0.0) {
+            const double error_dB = 10 * log10(error_power);
+            if (coeffs[coeff] == 50 && n == n_simu && NUM_TRIALS == 1 && error_dB >= 20)
+              printf("error in DFT pos %d : in %f dB, error %f (%f dB) \n", i, coeffs[coeff], error_power, error_dB);
           }
-        } else {
-          for (int i = 0; i < n; i++) {
-            // if (n==n_simu) printf("i: %d, o: %f,%f, dft: %d,%d\n",i,out[i].r,out[i].i,o16[i].r,o16[i].i);
-            cd_t error = {.r = o16[i].r - out[i].r, .i = o16[i].i - out[i].i};
-            evm_trial += sqrt(squaredMod(error)) / sqrt(squaredMod(out[i]));
-            double error_dB = 10 * log10(squaredMod(error));
-            error_vector[coeff][i] += squaredMod(error);
-            (*error_vec_d_p)[coeff][t][i] = squaredMod(error);
-            if (coeffs[coeff] == 50 && n == n_simu && NUM_TRIALS == 1 && error_dB >= 10)
-              printf("error in DFT pos %d : in %f dB, error %f (%f dB) \n", i, coeffs[coeff], squaredMod(error), error_dB);
-            sqnr_trial += squaredMod(error);
-            samples_trial += squaredMod(d16[i]);
-            samples_out_trial += squaredMod(out[i]);
-            mse_trial += squaredMod(error) * squaredMod(error);
-          }
+
+          sqnr_trial += error_power;
+          samples_trial += squaredMod(d16[i]);
+          samples_out_trial += squaredMod(out[i]);
+          mse_trial += error_power;
         }
-        samples[coeff] = samples_trial;
-        samples_out[coeff] = samples_out_trial;
-        sqnr[coeff] += (samples_out_trial / sqnr_trial);
-        mse[coeff] += (mse_trial / n);
-        evm[coeff] += ((evm_trial / n) * 100);
+
+        /* RMS EVM: robust even when an individual output bin is near zero. */
+        evm_trial = 100.0 * sqrt(sqnr_trial / samples_out_trial);
+
+        samples[coeff] += samples_trial;
+        samples_out[coeff] += samples_out_trial;
+        sqnr[coeff] += samples_out_trial / sqnr_trial;
+        mse[coeff] += mse_trial / n;
+        evm[coeff] += evm_trial;
       }
       fflush(stdout);
       if (NUM_TRIALS == 1) {
@@ -266,7 +259,7 @@ int main(void)
         printf("\n");
         int i;
         for (i = 0; i < sizeofArray(coeffs); i++)
-          if (evm[i] / n < 0.01)
+          if (evm[i] < 1.0)
             break;
         if (i == sizeofArray(coeffs)) {
           printf("DFT size: %d, minimum error is more than 1%%, setting the test as failed\n", n);
@@ -278,6 +271,8 @@ int main(void)
       mse[c] /= NUM_TRIALS;
       sqnr[c] /= NUM_TRIALS;
       evm[c] /= NUM_TRIALS;
+      samples[c] /= NUM_TRIALS;
+      samples_out[c] /= NUM_TRIALS;
       for (int i = 0; i < n; i++) {
         error_vector[c][i] /= NUM_TRIALS;
       }
@@ -374,6 +369,5 @@ int main(void)
 #endif
   free(d16);
   free(o16);
-  free(d16_2);
   return ret;
 }
