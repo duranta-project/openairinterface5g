@@ -724,20 +724,33 @@ static TwiddleTable *twiddle_table_create(int N)
   table->initialized = 1;
   return table;
 }
+static pthread_mutex_t twiddle_table_mutex =
+    PTHREAD_MUTEX_INITIALIZER;
+
 const TwiddleTable *twiddle_table_get(int N)
 {
   if (N <= 0 || N > MAX_N) {
-    fprintf(stderr, "twiddle_table_get: invalid N=%d, MAX_N=%d\n", N, MAX_N);
+    fprintf(stderr,
+            "twiddle_table_get: invalid N=%d, MAX_N=%d\n",
+            N,
+            MAX_N);
     abort();
   }
 
-  if (!g_tables[N].initialized) {
+  TwiddleTable *table = &g_tables[N];
+
+  pthread_mutex_lock(&twiddle_table_mutex);
+
+  if (!table->initialized) {
     if (!twiddle_table_create(N)) {
+      pthread_mutex_unlock(&twiddle_table_mutex);
       return NULL;
     }
   }
 
-  return &g_tables[N];
+  pthread_mutex_unlock(&twiddle_table_mutex);
+
+  return table;
 }
 
 typedef struct {

@@ -73,7 +73,7 @@ int nr_symbol_fep_ul(const NR_DL_FRAME_PARMS *fp,
 \param d Pointer to input in time domain
 \param Msc_PUSCH number of allocated data subcarriers
 */
-void nr_dft(c16_t *z, c16_t *d, uint32_t Msc_PUSCH);
+void nr_dft(c16_t *output, c16_t *input, uint32_t N);
 
 void nr_beam_precoding(c16_t **txdataF,
                        c16_t **txdataF_BF,
