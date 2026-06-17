@@ -105,7 +105,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
 \param z Pointer to input in frequnecy domain, and it is also the output in time domain
 \param Msc_PUSCH number of allocated data subcarriers
 */
-void nr_idft(int32_t *z, uint32_t N);
+void nr_idft(int32_t *z, uint32_t Msc_PUSCH);
 
 void reset_active_stats(PHY_VARS_gNB *gNB, int frame);
 void reset_active_ulsch(PHY_VARS_gNB *gNB, int frame);

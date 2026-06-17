@@ -19,14 +19,165 @@
 
 //#define DEBUG_ULSCH_MODULATION
 
+#if defined(__aarch64__)
+
 void dft_lte(int32_t *z,
              struct complex16 *input,
              int32_t Msc_PUSCH,
              uint8_t Nsymb)
 {
+  simde__m128i dft_in128[4][1200];
+  simde__m128i dft_out128[4][1200];
+
+  uint32_t *dft_in0 = (uint32_t *)dft_in128[0];
+  uint32_t *dft_out0 = (uint32_t *)dft_out128[0];
+
+  uint32_t *dft_in1 = (uint32_t *)dft_in128[1];
+  uint32_t *dft_out1 = (uint32_t *)dft_out128[1];
+
+  uint32_t *dft_in2 = (uint32_t *)dft_in128[2];
+  uint32_t *dft_out2 = (uint32_t *)dft_out128[2];
+
+  uint32_t *d0;
+  uint32_t *d1;
+  uint32_t *d2;
+  uint32_t *d3;
+  uint32_t *d4;
+  uint32_t *d5;
+  uint32_t *d6;
+  uint32_t *d7;
+  uint32_t *d8;
+  uint32_t *d9;
+  uint32_t *d10;
+  uint32_t *d11;
+
+  uint32_t *z0;
+  uint32_t *z1;
+  uint32_t *z2;
+  uint32_t *z3;
+  uint32_t *z4;
+  uint32_t *z5;
+  uint32_t *z6;
+  uint32_t *z7;
+  uint32_t *z8;
+  uint32_t *z9;
+  uint32_t *z10;
+  uint32_t *z11;
+
+  uint32_t i;
+  uint32_t ip;
+
+  simde__m128i norm128;
+
+  (void)Nsymb;
+
+  d0 = (uint32_t *)input;
+  d1 = d0 + Msc_PUSCH;
+  d2 = d1 + Msc_PUSCH;
+  d3 = d2 + Msc_PUSCH;
+  d4 = d3 + Msc_PUSCH;
+  d5 = d4 + Msc_PUSCH;
+  d6 = d5 + Msc_PUSCH;
+  d7 = d6 + Msc_PUSCH;
+  d8 = d7 + Msc_PUSCH;
+  d9 = d8 + Msc_PUSCH;
+  d10 = d9 + Msc_PUSCH;
+  d11 = d10 + Msc_PUSCH;
+
+  for (i = 0, ip = 0; i < Msc_PUSCH; i++, ip += 4) {
+    dft_in0[ip] = d0[i];
+    dft_in0[ip + 1] = d1[i];
+    dft_in0[ip + 2] = d2[i];
+    dft_in0[ip + 3] = d3[i];
+
+    dft_in1[ip] = d4[i];
+    dft_in1[ip + 1] = d5[i];
+    dft_in1[ip + 2] = d6[i];
+    dft_in1[ip + 3] = d7[i];
+
+    dft_in2[ip] = d8[i];
+    dft_in2[ip + 1] = d9[i];
+    dft_in2[ip + 2] = d10[i];
+    dft_in2[ip + 3] = d11[i];
+  }
+
+  const dft_size_idx_t dftsize = get_dft(Msc_PUSCH);
+
+  if (dftsize == DFT_SIZE_IDXTABLESIZE) {
+    LOG_E(PHY,
+          "Internal error, not modulating the slot, "
+          "Msc_PUSCH = %d\n",
+          Msc_PUSCH);
+    return;
+  }
+
+  switch (Msc_PUSCH) {
+    case 12:
+      dft(dftsize, (int16_t *)dft_in0, (int16_t *)dft_out0, 0);
+
+      dft(dftsize, (int16_t *)dft_in1, (int16_t *)dft_out1, 0);
+
+      dft(dftsize, (int16_t *)dft_in2, (int16_t *)dft_out2, 0);
+
+      norm128 = simde_mm_set1_epi16(9459);
+
+      for (i = 0; i < 12; i++) {
+        ((simde__m128i *)dft_out0)[i] = simde_mm_slli_epi16(simde_mm_mulhi_epi16(((simde__m128i *)dft_out0)[i], norm128), 1);
+
+        ((simde__m128i *)dft_out1)[i] = simde_mm_slli_epi16(simde_mm_mulhi_epi16(((simde__m128i *)dft_out1)[i], norm128), 1);
+
+        ((simde__m128i *)dft_out2)[i] = simde_mm_slli_epi16(simde_mm_mulhi_epi16(((simde__m128i *)dft_out2)[i], norm128), 1);
+      }
+      break;
+
+    default:
+      dft(dftsize, (int16_t *)dft_in0, (int16_t *)dft_out0, 1);
+
+      dft(dftsize, (int16_t *)dft_in1, (int16_t *)dft_out1, 1);
+
+      dft(dftsize, (int16_t *)dft_in2, (int16_t *)dft_out2, 1);
+      break;
+  }
+
+  z0 = (uint32_t *)z;
+  z1 = z0 + Msc_PUSCH;
+  z2 = z1 + Msc_PUSCH;
+  z3 = z2 + Msc_PUSCH;
+  z4 = z3 + Msc_PUSCH;
+  z5 = z4 + Msc_PUSCH;
+  z6 = z5 + Msc_PUSCH;
+  z7 = z6 + Msc_PUSCH;
+  z8 = z7 + Msc_PUSCH;
+  z9 = z8 + Msc_PUSCH;
+  z10 = z9 + Msc_PUSCH;
+  z11 = z10 + Msc_PUSCH;
+
+  for (i = 0, ip = 0; i < Msc_PUSCH; i++, ip += 4) {
+    z0[i] = dft_out0[ip];
+    z1[i] = dft_out0[ip + 1];
+    z2[i] = dft_out0[ip + 2];
+    z3[i] = dft_out0[ip + 3];
+
+    z4[i] = dft_out1[ip];
+    z5[i] = dft_out1[ip + 1];
+    z6[i] = dft_out1[ip + 2];
+    z7[i] = dft_out1[ip + 3];
+
+    z8[i] = dft_out2[ip];
+    z9[i] = dft_out2[ip + 1];
+    z10[i] = dft_out2[ip + 2];
+    z11[i] = dft_out2[ip + 3];
+  }
+}
+
+#else
+
+void dft_lte(int32_t *z, struct complex16 *input, int32_t Msc_PUSCH, uint8_t Nsymb)
+{
   const dft_size_idx_t dftsize = get_dft(Msc_PUSCH);
 
   c16_t dft_in[Msc_PUSCH] __attribute__((aligned(64)));
+
   c16_t dft_out[Msc_PUSCH] __attribute__((aligned(64)));
 
   const c16_t *src = (const c16_t *)input;
@@ -36,8 +187,7 @@ void dft_lte(int32_t *z,
       (size_t)Msc_PUSCH * sizeof(c16_t);
 
   for (uint8_t symbol = 0; symbol < Nsymb; symbol++) {
-    const size_t offset =
-        (size_t)symbol * Msc_PUSCH;
+    const size_t offset = (size_t)symbol * (size_t)Msc_PUSCH;
 
     memcpy(dft_in, src + offset, bytes);
 
@@ -49,6 +199,8 @@ void dft_lte(int32_t *z,
     memcpy(dst + offset, dft_out, bytes);
   }
 }
+#endif
+
 void ulsch_modulation(int32_t **txdataF,
                       short amp,
                       uint32_t frame,

@@ -685,9 +685,9 @@ const static int16_t tw16c[24] __attribute__((aligned(32))) = { 0,32767,12540,30
                                                    0,32767,30273,12539,23170,-23170,-12539,-30273
                                                  };
 
-inline void dft16(int16_t *x, int16_t *y, uint8_t scale_flag) __attribute__((always_inline));
+static inline void dft16(int16_t *x, int16_t *y, uint8_t scale_flag) __attribute__((always_inline));
 
-inline void dft16(int16_t *x, int16_t *y, uint8_t scale_flag)
+static inline void dft16(int16_t *x, int16_t *y, uint8_t scale_flag)
 {
 
   int16x8_t *tw16a_128=(int16x8_t *)tw16a,*tw16b_128=(int16x8_t *)tw16b,*x128=(int16x8_t *)x,*y128=(int16x8_t *)y;
@@ -757,9 +757,9 @@ inline void dft16(int16_t *x, int16_t *y, uint8_t scale_flag)
 
 }
 
-inline void idft16(int16_t *x, int16_t *y, uint8_t scale_flag) __attribute__((always_inline));
+static inline void idft16(int16_t *x, int16_t *y, uint8_t scale_flag) __attribute__((always_inline));
 
-inline void idft16(int16_t *x, int16_t *y, uint8_t scale_flag)
+static inline void idft16(int16_t *x, int16_t *y, uint8_t scale_flag)
 {
 
   int16x8_t *tw16a_128=(int16x8_t *)tw16,*tw16b_128=(int16x8_t *)tw16c,*x128=(int16x8_t *)x,*y128=(int16x8_t *)y;
