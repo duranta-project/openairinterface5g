@@ -23,156 +23,54 @@ static const short jitter[8]  __attribute__ ((aligned(16))) = {1,0,0,1,0,1,1,0};
 static const short jitterc[8] __attribute__ ((aligned(16))) = {0,1,1,0,1,0,0,1};
 
 
-void lte_idft(LTE_DL_FRAME_PARMS *frame_parms,uint32_t *z, uint16_t Msc_PUSCH) {
-  simde__m128i idft_in128[3][1200],idft_out128[3][1200];
-  simde__m128i norm128;
-  int16_t *idft_in0=(int16_t *)idft_in128[0],*idft_out0=(int16_t *)idft_out128[0];
-  int16_t *idft_in1=(int16_t *)idft_in128[1],*idft_out1=(int16_t *)idft_out128[1];
-  int16_t *idft_in2=(int16_t *)idft_in128[2],*idft_out2=(int16_t *)idft_out128[2];
-  uint32_t *z0,*z1,*z2,*z3,*z4,*z5,*z6,*z7,*z8,*z9,*z10=NULL,*z11=NULL;
-  int i,ip;
-  LOG_T(PHY,"Doing lte_idft for Msc_PUSCH %d\n",Msc_PUSCH);
+void lte_idft(LTE_DL_FRAME_PARMS *frame_parms,
+              uint32_t *z,
+              uint16_t Msc_PUSCH)
+{
+  const dft_size_idx_t dftsize = get_dft(Msc_PUSCH);
+  const size_t symbol_stride = (size_t)frame_parms->N_RB_DL * 12;
 
-  if (frame_parms->Ncp == 0) { // Normal prefix
-    z0 = z;
-    z1 = z0+(frame_parms->N_RB_DL*12);
-    z2 = z1+(frame_parms->N_RB_DL*12);
-    //pilot
-    z3 = z2+(2*frame_parms->N_RB_DL*12);
-    z4 = z3+(frame_parms->N_RB_DL*12);
-    z5 = z4+(frame_parms->N_RB_DL*12);
-    z6 = z5+(frame_parms->N_RB_DL*12);
-    z7 = z6+(frame_parms->N_RB_DL*12);
-    z8 = z7+(frame_parms->N_RB_DL*12);
-    //pilot
-    z9 = z8+(2*frame_parms->N_RB_DL*12);
-    z10 = z9+(frame_parms->N_RB_DL*12);
-    // srs
-    z11 = z10+(frame_parms->N_RB_DL*12);
-  } else { // extended prefix
-    z0 = z;
-    z1 = z0+(frame_parms->N_RB_DL*12);
-    //pilot
-    z2 = z1+(2*frame_parms->N_RB_DL*12);
-    z3 = z2+(frame_parms->N_RB_DL*12);
-    z4 = z3+(frame_parms->N_RB_DL*12);
-    z5 = z4+(frame_parms->N_RB_DL*12);
-    z6 = z5+(frame_parms->N_RB_DL*12);
-    //pilot
-    z7 = z6+(2*frame_parms->N_RB_DL*12);
-    z8 = z7+(frame_parms->N_RB_DL*12);
-    // srs
-    z9 = z8+(frame_parms->N_RB_DL*12);
-  }
+  static const uint8_t normal_cp_symbols[12] = {
+      0, 1, 2,
+      4, 5, 6, 7, 8, 9,
+      11, 12, 13
+  };
 
-  // conjugate input
-  for (i=0; i<(Msc_PUSCH>>2); i++) {
-    ((simde__m128i *)z0)[i] = oai_mm_conj(((simde__m128i *)z0)[i]);
-    ((simde__m128i *)z1)[i] = oai_mm_conj(((simde__m128i *)z1)[i]);
-    ((simde__m128i *)z2)[i] = oai_mm_conj(((simde__m128i *)z2)[i]);
-    ((simde__m128i *)z3)[i] = oai_mm_conj(((simde__m128i *)z3)[i]);
-    ((simde__m128i *)z4)[i] = oai_mm_conj(((simde__m128i *)z4)[i]);
-    ((simde__m128i *)z5)[i] = oai_mm_conj(((simde__m128i *)z5)[i]);
-    ((simde__m128i *)z6)[i] = oai_mm_conj(((simde__m128i *)z6)[i]);
-    ((simde__m128i *)z7)[i] = oai_mm_conj(((simde__m128i *)z7)[i]);
-    ((simde__m128i *)z8)[i] = oai_mm_conj(((simde__m128i *)z8)[i]);
-    ((simde__m128i *)z9)[i] = oai_mm_conj(((simde__m128i *)z9)[i]);
+  static const uint8_t extended_cp_symbols[10] = {
+      0, 1,
+      3, 4, 5, 6, 7,
+      9, 10, 11
+  };
 
-    if (frame_parms->Ncp==NORMAL) {
-      ((simde__m128i *)z10)[i] = oai_mm_conj(((simde__m128i *)z10)[i]);
-      ((simde__m128i *)z11)[i] = oai_mm_conj(((simde__m128i *)z11)[i]);
-    }
-  }
+  const uint8_t *symbol_indexes =
+      frame_parms->Ncp == 0
+          ? normal_cp_symbols
+          : extended_cp_symbols;
 
-  for (i=0,ip=0; i<Msc_PUSCH; i++,ip+=4) {
-    ((uint32_t *)idft_in0)[ip+0] = z0[i];
-    ((uint32_t *)idft_in0)[ip+1] = z1[i];
-    ((uint32_t *)idft_in0)[ip+2] = z2[i];
-    ((uint32_t *)idft_in0)[ip+3] = z3[i];
-    ((uint32_t *)idft_in1)[ip+0] = z4[i];
-    ((uint32_t *)idft_in1)[ip+1] = z5[i];
-    ((uint32_t *)idft_in1)[ip+2] = z6[i];
-    ((uint32_t *)idft_in1)[ip+3] = z7[i];
-    ((uint32_t *)idft_in2)[ip+0] = z8[i];
-    ((uint32_t *)idft_in2)[ip+1] = z9[i];
+  const int number_of_symbols =
+      frame_parms->Ncp == 0 ? 12 : 10;
 
-    if (frame_parms->Ncp==0) {
-      ((uint32_t *)idft_in2)[ip+2] = z10[i];
-      ((uint32_t *)idft_in2)[ip+3] = z11[i];
-    }
-  }
-  dft_size_idx_t dftsize = get_dft(Msc_PUSCH);
-  switch (Msc_PUSCH) {
-    case 12:
-      dft(dftsize, (int16_t *)idft_in0, (int16_t *)idft_out0, 0);
-      dft(dftsize, (int16_t *)idft_in1, (int16_t *)idft_out1, 0);
-      dft(dftsize, (int16_t *)idft_in2, (int16_t *)idft_out2, 0);
-      norm128 = simde_mm_set1_epi16(9459);
+  c16_t idft_input[Msc_PUSCH] __attribute__((aligned(64)));
+  c16_t idft_output[Msc_PUSCH] __attribute__((aligned(64)));
 
-      for (i=0; i<12; i++) {
-        ((simde__m128i *)idft_out0)[i] = simde_mm_slli_epi16(simde_mm_mulhi_epi16(((simde__m128i *)idft_out0)[i],norm128),1);
-        ((simde__m128i *)idft_out1)[i] = simde_mm_slli_epi16(simde_mm_mulhi_epi16(((simde__m128i *)idft_out1)[i],norm128),1);
-        ((simde__m128i *)idft_out2)[i] = simde_mm_slli_epi16(simde_mm_mulhi_epi16(((simde__m128i *)idft_out2)[i],norm128),1);
-      }
+  const size_t bytes =
+      (size_t)Msc_PUSCH * sizeof(c16_t);
 
-      break;
+  for (int s = 0; s < number_of_symbols; s++) {
+    c16_t *symbol =
+        (c16_t *)(z +
+                  (size_t)symbol_indexes[s] * symbol_stride);
 
-    default:
-      dft(dftsize, idft_in0, idft_out0, 1);
-      dft(dftsize, idft_in1, idft_out1, 1);
-      dft(dftsize, idft_in2, idft_out2, 1);
-  }
+    memcpy(idft_input, symbol, bytes);
 
-  for (i=0,ip=0; i<Msc_PUSCH; i++,ip+=4) {
-    z0[i]     = ((uint32_t *)idft_out0)[ip];
+    idft(dftsize,
+         (int16_t *)idft_input,
+         (int16_t *)idft_output,
+         1);
 
-    if(LOG_DEBUGFLAG(DEBUG_ULSCH)) {
-      LOG_I(PHY,"out0 (%d,%d),(%d,%d),(%d,%d),(%d,%d)\n",
-            ((int16_t *)&idft_out0[ip])[0],((int16_t *)&idft_out0[ip])[1],
-            ((int16_t *)&idft_out0[ip+1])[0],((int16_t *)&idft_out0[ip+1])[1],
-            ((int16_t *)&idft_out0[ip+2])[0],((int16_t *)&idft_out0[ip+2])[1],
-            ((int16_t *)&idft_out0[ip+3])[0],((int16_t *)&idft_out0[ip+3])[1]);
-    }
-
-    z1[i] = ((uint32_t *)idft_out0)[ip+1];
-    z2[i] = ((uint32_t *)idft_out0)[ip+2];
-    z3[i] = ((uint32_t *)idft_out0)[ip+3];
-    z4[i] = ((uint32_t *)idft_out1)[ip+0];
-    z5[i] = ((uint32_t *)idft_out1)[ip+1];
-    z6[i] = ((uint32_t *)idft_out1)[ip+2];
-    z7[i] = ((uint32_t *)idft_out1)[ip+3];
-    z8[i] = ((uint32_t *)idft_out2)[ip];
-    z9[i] = ((uint32_t *)idft_out2)[ip+1];
-
-    if (frame_parms->Ncp==0) {
-      z10[i] = ((uint32_t *)idft_out2)[ip+2];
-      z11[i] = ((uint32_t *)idft_out2)[ip+3];
-    }
-  }
-
-  // conjugate output
-  for (i=0; i<(Msc_PUSCH>>2); i++) {
-    ((simde__m128i *)z0)[i] = oai_mm_conj(((simde__m128i *)z0)[i]);
-    ((simde__m128i *)z1)[i] = oai_mm_conj(((simde__m128i *)z1)[i]);
-    ((simde__m128i *)z2)[i] = oai_mm_conj(((simde__m128i *)z2)[i]);
-    ((simde__m128i *)z3)[i] = oai_mm_conj(((simde__m128i *)z3)[i]);
-    ((simde__m128i *)z4)[i] = oai_mm_conj(((simde__m128i *)z4)[i]);
-    ((simde__m128i *)z5)[i] = oai_mm_conj(((simde__m128i *)z5)[i]);
-    ((simde__m128i *)z6)[i] = oai_mm_conj(((simde__m128i *)z6)[i]);
-    ((simde__m128i *)z7)[i] = oai_mm_conj(((simde__m128i *)z7)[i]);
-    ((simde__m128i *)z8)[i] = oai_mm_conj(((simde__m128i *)z8)[i]);
-    ((simde__m128i *)z9)[i] = oai_mm_conj(((simde__m128i *)z9)[i]);
-    if (frame_parms->Ncp==NORMAL) {
-      ((simde__m128i *)z10)[i]=oai_mm_conj(((simde__m128i *)z10)[i]);
-      ((simde__m128i *)z11)[i]=oai_mm_conj(((simde__m128i *)z11)[i]);
-    }
+    memcpy(symbol, idft_output, bytes);
   }
 }
-
-
-
-
-
 
 int32_t ulsch_qpsk_llr(LTE_DL_FRAME_PARMS *frame_parms,
                        int32_t **rxdataF_comp,
