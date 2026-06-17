@@ -99,5 +99,8 @@ Libraries implementing the LDPC algorithms must be named `libldpc<_version>.so`,
 * `LDPCshutdown` implementing type `LDPC_shutdownfunc_t *`
 * `LDPCdecoder` implementing type `LDPC_decoderfunc_t *`
 * `LDPCencoder` implementing type `LDPC_encoderfunc_t *`
+* `LDPCencoder32` implementing type `LDPC_encoderfunc32_t *`, specifically for
+  CUDA offload. This is not used by the LDPC slot coding interface, but must be
+  defined in a shared library to load successfully.
 
 [oai Wikis home](https://gitlab.eurecom.fr/oai/openairinterface5g/wikis/home)

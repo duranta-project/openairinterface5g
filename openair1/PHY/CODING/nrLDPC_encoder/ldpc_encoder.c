@@ -18,6 +18,12 @@
 #include "openair1/PHY/CODING/nrLDPC_extern.h"
 #include "ldpc_generate_coefficient.c"
 
+/* not used, only for compat with LDPC CUDA implementation */
+uint32_t **LDPCencoder32(uint8_t **input, encoder_implemparams_t *impp)
+{
+  abort();
+}
+
 int LDPCencoder(unsigned char **inputArray, unsigned char *outputArray, encoder_implemparams_t *impp)
 {
   const unsigned char *input = inputArray[0];

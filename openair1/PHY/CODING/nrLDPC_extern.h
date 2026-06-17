@@ -10,6 +10,7 @@ typedef struct ldpc_interface_s {
   LDPC_shutdownfunc_t *LDPCshutdown;
   LDPC_decoderfunc_t *LDPCdecoder;
   LDPC_encoderfunc_t *LDPCencoder;
+  LDPC_encoderfunc32_t *LDPCencoder32; /* only for LDPC CUDA, don't use */
 } ldpc_interface_t;
 
 /* functions to load the LDPC shared lib, implemented in openair1/PHY/CODING/nrLDPC_load.c */
@@ -18,6 +19,7 @@ int free_LDPClib(ldpc_interface_t *ldpc_interface);
 
 LDPC_decoderfunc_t LDPCdecoder;
 LDPC_encoderfunc_t LDPCencoder;
+LDPC_encoderfunc32_t LDPCencoder32;
 
 // inline functions:
 #endif

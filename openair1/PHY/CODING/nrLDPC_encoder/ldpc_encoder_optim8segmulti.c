@@ -20,6 +20,12 @@
 #include "ldpc_encode_parity_check.c"
 #include "ldpc_generate_coefficient.c"
 
+/* not used, only for compat with LDPC CUDA implementation */
+uint32_t **LDPCencoder32(uint8_t **input, encoder_implemparams_t *impp)
+{
+  abort();
+}
+
 int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
 {
   //set_log(PHY, 4);
