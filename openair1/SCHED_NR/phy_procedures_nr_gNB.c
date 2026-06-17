@@ -123,8 +123,9 @@ static void apply_nr_rotation_TX_masked(const NR_DL_FRAME_PARMS *fp,
         const int start_prb = prb;
         while (prb < fp->N_RB_DL && prb_is_rotated(local_symbol_mask, prb))
           prb++;
-        if (prb > start_prb)
+        if (prb > start_prb) {
           apply_nr_rotation_TX_segment(fp, txdataF[aa], symbol_rotation, slot, symbol, start_prb, prb - start_prb);
+	}
       }
     }
   }
@@ -484,6 +485,14 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
   if (num_pdsch > 0) {
     LOG_D(PHY, "PDSCH generation started (%d) in frame %d.%d\n", num_pdsch, frame, slot);
     nr_generate_pdsch(gNB, num_pdsch, gNB->dlsch, frame, slot, &phase_comp_prb_mask[0][0][0], prb_mask_words);
+    /*
+    char fname[100],vname[100];
+    for (int s=0;s<12;s++) {
+           sprintf(fname,"txdataF%d.m",s);
+           sprintf(vname,"txF%d",s);
+           LOG_M(fname,vname,&gNB->common_vars.txdataF[0][s*fp->ofdm_symbol_size],fp->N_RB_DL*12,1,1);
+    }
+    exit(-1);*/
   }
 
   START_MEAS_FULL_SLOT(&gNB->phase_comp_stats);
