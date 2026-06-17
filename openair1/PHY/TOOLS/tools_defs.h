@@ -513,6 +513,112 @@ void init_fft(uint16_t size,
               uint8_t logsize,
               uint16_t *rev);
 
+
+#ifdef __aarch64__
+
+/*
+ * Legacy DFT/IDFT sizes for AArch64.
+ *
+ * Keep the previous implementation on ARM64 because some of the newly
+ * generated DFT/IDFT functions are not implemented for this
+ * architecture.
+ */
+
+#define FOREACH_DFTSZ(SZ_DEF) \
+  SZ_DEF(12)                  \
+  SZ_DEF(24)                  \
+  SZ_DEF(36)                  \
+  SZ_DEF(48)                  \
+  SZ_DEF(60)                  \
+  SZ_DEF(64)                  \
+  SZ_DEF(72)                  \
+  SZ_DEF(96)                  \
+  SZ_DEF(108)                 \
+  SZ_DEF(120)                 \
+  SZ_DEF(128)                 \
+  SZ_DEF(144)                 \
+  SZ_DEF(180)                 \
+  SZ_DEF(192)                 \
+  SZ_DEF(216)                 \
+  SZ_DEF(240)                 \
+  SZ_DEF(256)                 \
+  SZ_DEF(288)                 \
+  SZ_DEF(300)                 \
+  SZ_DEF(324)                 \
+  SZ_DEF(360)                 \
+  SZ_DEF(384)                 \
+  SZ_DEF(432)                 \
+  SZ_DEF(480)                 \
+  SZ_DEF(512)                 \
+  SZ_DEF(540)                 \
+  SZ_DEF(576)                 \
+  SZ_DEF(600)                 \
+  SZ_DEF(648)                 \
+  SZ_DEF(720)                 \
+  SZ_DEF(768)                 \
+  SZ_DEF(864)                 \
+  SZ_DEF(900)                 \
+  SZ_DEF(960)                 \
+  SZ_DEF(972)                 \
+  SZ_DEF(1024)                \
+  SZ_DEF(1080)                \
+  SZ_DEF(1152)                \
+  SZ_DEF(1200)                \
+  SZ_DEF(1296)                \
+  SZ_DEF(1440)                \
+  SZ_DEF(1500)                \
+  SZ_DEF(1536)                \
+  SZ_DEF(1620)                \
+  SZ_DEF(1728)                \
+  SZ_DEF(1800)                \
+  SZ_DEF(1920)                \
+  SZ_DEF(1944)                \
+  SZ_DEF(2048)                \
+  SZ_DEF(2160)                \
+  SZ_DEF(2304)                \
+  SZ_DEF(2400)                \
+  SZ_DEF(2592)                \
+  SZ_DEF(2700)                \
+  SZ_DEF(2880)                \
+  SZ_DEF(2916)                \
+  SZ_DEF(3000)                \
+  SZ_DEF(3072)                \
+  SZ_DEF(3240)                \
+  SZ_DEF(4096)                \
+  SZ_DEF(6144)                \
+  SZ_DEF(8192)                \
+  SZ_DEF(12288)               \
+  SZ_DEF(18432)               \
+  SZ_DEF(24576)               \
+  SZ_DEF(36864)               \
+  SZ_DEF(49152)               \
+  SZ_DEF(98304)
+
+#define FOREACH_IDFTSZ(SZ_DEF) \
+  SZ_DEF(64)                   \
+  SZ_DEF(128)                  \
+  SZ_DEF(256)                  \
+  SZ_DEF(512)                  \
+  SZ_DEF(768)                  \
+  SZ_DEF(1024)                 \
+  SZ_DEF(1536)                 \
+  SZ_DEF(2048)                 \
+  SZ_DEF(3072)                 \
+  SZ_DEF(4096)                 \
+  SZ_DEF(6144)                 \
+  SZ_DEF(8192)                 \
+  SZ_DEF(12288)                \
+  SZ_DEF(16384)                \
+  SZ_DEF(18432)                \
+  SZ_DEF(24576)                \
+  SZ_DEF(32768)                \
+  SZ_DEF(36864)                \
+  SZ_DEF(49152)                \
+  SZ_DEF(65536)                \
+  SZ_DEF(98304)
+
+#else
+
 #define FOREACH_DFTSZ(SZ_DEF) \
   SZ_DEF(12)                  \
   SZ_DEF(16)                  \
@@ -666,6 +772,8 @@ void init_fft(uint16_t size,
   SZ_DEF(1048576)              \
   SZ_DEF(1572864)              \
   SZ_DEF(98304)
+
+#endif
 
 typedef  void(*dftfunc_t)(uint8_t sizeidx,int16_t *sigF,int16_t *sig,unsigned char scale_flag);
 typedef void (*idftfunc_t)(uint8_t sizeidx, int16_t *sigF, int16_t *sig, unsigned char scale_flag);
