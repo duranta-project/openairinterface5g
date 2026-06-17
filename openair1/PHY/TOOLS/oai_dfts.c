@@ -2224,7 +2224,7 @@ void dft32(int16_t *x, int16_t *y, uint8_t scale_flag)
 }
 
 
-void dft32(int16_t *x, int16_t *y, uint8_t scale_flag)
+void idft32(int16_t *x, int16_t *y, uint8_t scale_flag)
 {
   const c16_t *src = (const c16_t *)x;
   c16_t *dst = (c16_t *)y;
