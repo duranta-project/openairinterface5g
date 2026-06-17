@@ -514,8 +514,6 @@ void init_fft(uint16_t size,
               uint16_t *rev);
 
 #define FOREACH_DFTSZ(SZ_DEF) \
-  SZ_DEF(4)                   \
-  SZ_DEF(8)                   \
   SZ_DEF(12)                  \
   SZ_DEF(16)                  \
   SZ_DEF(24)                  \
@@ -593,8 +591,6 @@ void init_fft(uint16_t size,
   SZ_DEF(98304)
 
 #define FOREACH_IDFTSZ(SZ_DEF) \
-  SZ_DEF(4)                    \
-  SZ_DEF(8)                    \
   SZ_DEF(12)                   \
   SZ_DEF(16)                   \
   SZ_DEF(24)                   \
