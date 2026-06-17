@@ -24,10 +24,10 @@ check_threshold_variance(physim.5g.nr_dlsim.mcs.mimo.test8 "DLSCH encoding time"
 check_threshold_variance(physim.5g.nr_dlsim.mcs.mimo.test9 "DLSCH encoding time" AVG 32 ABS_VAR 7)
 check_threshold_variance(physim.5g.nr_dlsim.dmrs.ptrs.test1 "DLSCH encoding time" AVG 23 ABS_VAR 7)
 check_threshold_variance(physim.5g.nr_dlsim.dmrs.ptrs.test2 "DLSCH encoding time" AVG 23 ABS_VAR 7)
-check_threshold_variance(physim.5g.nr_dlsim.dmrs.ptrs.test3 "DLSCH encoding time" AVG 31 ABS_VAR 7)
+check_threshold_variance(physim.5g.nr_dlsim.dmrs.ptrs.test3 "DLSCH encoding time" AVG 23 ABS_VAR 7)
 check_threshold_variance(physim.5g.nr_dlsim.dmrs.ptrs.test4 "DLSCH encoding time" AVG 23 ABS_VAR 7)
 check_threshold_variance(physim.5g.nr_dlsim.dmrs.ptrs.test5 "DLSCH encoding time" AVG 23 ABS_VAR 7)
-check_threshold_variance(physim.5g.nr_dlsim.dmrs.ptrs.test6 "DLSCH encoding time" AVG 32 ABS_VAR 7)
+check_threshold_variance(physim.5g.nr_dlsim.dmrs.ptrs.test6 "DLSCH encoding time" AVG 23 ABS_VAR 7)
 
 check_threshold_variance(physim.5g.nr_ulsim.misc.test1 "ULSCH total decoding time"    AVG 211  ABS_VAR 42)
 check_threshold_variance(physim.5g.nr_ulsim.misc.test2 "ULSCH total decoding time"    AVG 361  ABS_VAR 72)

@@ -607,7 +607,7 @@ static void nr_pdsch_symbol_processing(void *arg)
 
         if (gNB->phase_comp) {
 	  int start_sc = get_block_start_sc(block_start, rel15->BWPStart, symbol_sz);
-          c16_t *pdsch_sc = &txdataF[rdata->ant_to_map[ant]][txdataF_offset_per_symbol + start_sc + block_start*NR_NB_SC_PER_RB];
+          c16_t *pdsch_sc = &txdataF[rdata->ant_to_map[ant]][txdataF_offset_per_symbol + start_sc];
           const c16_t rot = frame_parms->symbol_rotation[0][symb_offset + l_symbol];
           rotate_cpx_vector(pdsch_sc, rot, pdsch_sc,(block_end - block_start + 1)*NR_NB_SC_PER_RB, 15);
           mark_prb_range(rdata->pdsch_phase_comp_prb_mask, rdata->prb_mask_words, l_symbol, block_start, block_end - block_start + 1);
