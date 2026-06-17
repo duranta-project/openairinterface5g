@@ -1793,6 +1793,16 @@ void dft16(int16_t *x, int16_t *y, uint8_t scale_flag)
   dft16_q15_128(src, dst, DFT_DIR_FORWARD);
 }
 
+void idft16(int16_t *x, int16_t *y, uint8_t scale_flag)
+{
+  const c16_t *src = (const c16_t *)x;
+  c16_t *dst = (c16_t *)y;
+
+  (void)scale_flag;
+
+  dft16_q15_128(src, dst, DFT_DIR_INVERSE);
+}
+
 static inline void dft12_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
 {
   /*
@@ -1910,6 +1920,16 @@ void dft12(int16_t *x, int16_t *y, uint8_t scale_flag)
   (void)scale_flag;
 
   dft12_q15_128(src, dst, DFT_DIR_FORWARD);
+}
+
+void idft12(int16_t *x, int16_t *y, uint8_t scale_flag)
+{
+  const c16_t *src = (const c16_t *)x;
+  c16_t *dst = (c16_t *)y;
+
+  (void)scale_flag;
+
+  dft12_q15_128(src, dst, DFT_DIR_INVERSE);
 }
 
 static inline void dft12_q15_128_strided(const c16_t *src, int stride, c16_t *dst, dft_dir_t dir)
@@ -2203,6 +2223,17 @@ void dft32(int16_t *x, int16_t *y, uint8_t scale_flag)
   dft32_q15_128(src, dst, DFT_DIR_FORWARD);
 }
 
+
+void dft32(int16_t *x, int16_t *y, uint8_t scale_flag)
+{
+  const c16_t *src = (const c16_t *)x;
+  c16_t *dst = (c16_t *)y;
+
+  (void)scale_flag;
+
+  dft32_q15_128(src, dst, DFT_DIR_INVERSE);
+}
+
 /*
 static inline void dft32_q15_128_strided(const c16_t *src,
                                             int stride,
@@ -2464,6 +2495,16 @@ void dft24(int16_t *x, int16_t *y, uint8_t scale_flag)
   dft24_q15_128(src, dst, DFT_DIR_FORWARD);
 }
 
+void idft24(int16_t *x, int16_t *y, uint8_t scale_flag)
+{
+  const c16_t *src = (const c16_t *)x;
+  c16_t *dst = (c16_t *)y;
+
+  (void)scale_flag;
+
+  dft24_q15_128(src, dst, DFT_DIR_INVERSE);
+}
+
 static inline void dft24_q15_128_strided(const c16_t *src, int stride, c16_t *dst, dft_dir_t dir)
 {
   c16_t tmp[24] __attribute__((aligned(64)));
@@ -2703,6 +2744,15 @@ void dft20(int16_t *x, int16_t *y, uint8_t scale_flag)
   dft20_q15_128(src, dst, DFT_DIR_FORWARD);
 }
 
+void idft20(int16_t *x, int16_t *y, uint8_t scale_flag)
+{
+  const c16_t *src = (const c16_t *)x;
+  c16_t *dst = (c16_t *)y;
+
+  (void)scale_flag;
+
+  dft20_q15_128(src, dst, DFT_DIR_INVERSE);
+}
 static inline void dft20_q15_128_strided(const c16_t *src, int stride, c16_t *dst, dft_dir_t dir)
 {
   c16_t tmp[20] __attribute__((aligned(64)));
@@ -3168,11 +3218,6 @@ static void dft_mixed_radix_c16_scaled(const c16_t *src, c16_t *dst, int N, dft_
     dft_mixed_radix_c16_scaled((c16_t *)input, (c16_t *)output, N, DFT_DIR_INVERSE); \
   }
 
-DEFINE_MIXED_IDFT_ONLY(12)
-DEFINE_MIXED_IDFT_ONLY(16)
-DEFINE_MIXED_IDFT_ONLY(20)
-DEFINE_MIXED_IDFT_ONLY(24)
-DEFINE_MIXED_IDFT_ONLY(32)
 
 DEFINE_MIXED_DFT_ONLY(192)
 DEFINE_MIXED_DFT_ONLY(384)
