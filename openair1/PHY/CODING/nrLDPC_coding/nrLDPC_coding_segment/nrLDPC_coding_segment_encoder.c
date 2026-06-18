@@ -380,16 +380,15 @@ int nrLDPC_coding_encoder(nrLDPC_slot_encoding_parameters_t *nrLDPC_slot_encodin
   for (int dlsch_id = 0; dlsch_id < nrLDPC_slot_encoding_parameters->nb_TBs; dlsch_id++) {
     // Compute number of tasks to encode TB
     nrLDPC_TB_encoding_parameters_t *nrLDPC_TB_encoding_parameters = &nrLDPC_slot_encoding_parameters->TBs[dlsch_id];
-    size_t n_seg = (nrLDPC_TB_encoding_parameters->C / 8 + ((nrLDPC_TB_encoding_parameters->C & 7) == 0 ? 0 : 1));
-    nbTasks += n_seg;
+      size_t n_seg = (nrLDPC_TB_encoding_parameters->C / 8 + ((nrLDPC_TB_encoding_parameters->C & 7) == 0 ? 0 : 1));
+      nbTasks += n_seg;
 
-    // Search for maximum E for sizing encoder output f and f2
-    for (int seg_id = 0; seg_id < nrLDPC_TB_encoding_parameters->C; seg_id++) {
-      uint32_t E = nrLDPC_TB_encoding_parameters->segments[seg_id].E;
-      Emax = E > Emax ? E : Emax;
-    }
+      // Search for maximum E for sizing encoder output f and f2
+      for (int seg_id = 0; seg_id < nrLDPC_TB_encoding_parameters->C; seg_id++) {
+        uint32_t E = nrLDPC_TB_encoding_parameters->segments[seg_id].E;
+        Emax = E > Emax ? E : Emax;
+      }
   }
-
   // Create f and f2 to old encoding tasks outputs
   uint32_t Emax_ceil_mod = ceil_mod(Emax, 64);
   uint8_t f[nbTasks][Emax_ceil_mod] __attribute__((aligned(64)));

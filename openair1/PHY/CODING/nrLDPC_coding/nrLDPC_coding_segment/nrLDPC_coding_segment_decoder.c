@@ -285,7 +285,7 @@ int nrLDPC_prepare_TB_decoding(nrLDPC_slot_decoding_parameters_t *nrLDPC_slot_de
   return nrLDPC_TB_decoding_parameters->C;
 }
 
-int32_t nrLDPC_coding_init(void)
+int32_t nrLDPC_coding_init(int max_num_pxsch)
 {
   return 0;
 }
