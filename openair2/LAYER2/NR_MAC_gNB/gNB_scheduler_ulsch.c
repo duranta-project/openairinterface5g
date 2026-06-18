@@ -675,12 +675,15 @@ static void abort_nr_ul_harq(NR_UE_info_t *UE, int8_t harq_pid)
 
 static void handle_nr_ul_harq(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, rnti_t rnti, int crc_harq_id, bool crc_status)
 {
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   if (nrmac->radio_config.disable_harq) {
     LOG_D(NR_MAC, "skipping UL feedback handling as HARQ is disabled\n");
+    // account result for link adaptation
+    void (*ack_nack)(const NR_bler_options_t *, NR_bler_stats_t *) = crc_status ? olla_ack : olla_nack;
+    ack_nack(&nrmac->ul_bler, &sched_ctrl->ul_bler_stats);
     return;
   }
 
-  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   int8_t harq_pid = sched_ctrl->feedback_ul_harq.head;
   LOG_D(NR_MAC, "Comparing crc harq_id vs feedback harq_pid = %d %d\n", crc_harq_id, harq_pid);
   while (crc_harq_id != harq_pid || harq_pid < 0) {

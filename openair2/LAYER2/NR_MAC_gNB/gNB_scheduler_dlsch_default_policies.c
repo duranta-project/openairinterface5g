@@ -144,15 +144,11 @@ int nr_dl_beam_select_default(NR_beam_info_t *beam_info,
 
 void nr_dl_mcs_select_default(const gNB_MAC_INST *mac, nr_dl_candidate_t *candidates, int n_candidates)
 {
-  const NR_bler_options_t *bo = &mac->dl_bler;
   FOR_EACH_CANDIDATE(cand, candidates, n_candidates)
   {
     int mcs;
     if (cand->is_retx) {
       mcs = cand->current_mcs; /* retx MCS is fixed by the HARQ round */
-    } else if (bo->harq_round_max == 1) {
-      // TODO where is NTN stuff?
-      mcs = 0; // max(bo->min_mcs, min(bo->max_mcs, cand->max_mcs));
     } else {
       int snrx10 = cand->snrx10 + cand->delta_olla * 10.f;
       mcs = get_mcs_from_SINRx10(cand->mcs_table, snrx10, cand->sched_pdsch.nrOfLayers);
