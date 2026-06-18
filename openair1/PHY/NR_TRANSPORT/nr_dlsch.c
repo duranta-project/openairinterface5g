@@ -678,63 +678,22 @@ static int do_one_dlsch(unsigned char *input_ptr,
   int layerSz2 = (layerSz + 63) & ~63;
   c16_t tx_layers[rel15->nrOfLayers][layerSz2] __attribute__((aligned(64)));
   memset(tx_layers, 0, sizeof(tx_layers));
-  const bool use_fused_mod_layer = 
-      rel15->NrOfCodewords == 1 && (rel15->nrOfLayers == 3 || rel15->nrOfLayers == 4) && (Qm == 2 || Qm == 4 || Qm == 6 || Qm == 8);
 
-  if (use_fused_mod_layer) {
-    start_meas(dlsch_scrambling_stats);
-    uint32_t scrambled_output[(encoded_length >> 5) + 4]; // modulator access by 4 bytes in some cases
-    memset(scrambled_output, 0, sizeof(scrambled_output));
-    start_meas(dlsch_modulation_stats);
-    nr_pdsch_codeword_scrambling(input_ptr, encoded_length, 0, rel15->dataScramblingId, rel15->rnti, scrambled_output);
-    stop_meas(dlsch_scrambling_stats);
+  start_meas(dlsch_scrambling_stats);
+  uint32_t scrambled_output[(encoded_length >> 5) + 4]; // modulator access by 4 bytes in some cases
+  memset(scrambled_output, 0, sizeof(scrambled_output));
+  start_meas(dlsch_modulation_stats);
+  nr_pdsch_codeword_scrambling(input_ptr, encoded_length, 0, rel15->dataScramblingId, rel15->rnti, scrambled_output);
+  stop_meas(dlsch_scrambling_stats);
 
-    const bool fused_ok =
-        nr_modulation_layer_mapping(scrambled_output, encoded_length, Qm, rel15->nrOfLayers, layerSz2, tx_layers);
-    AssertFatal(fused_ok,
+  const bool fused_ok =
+      nr_modulation_layer_mapping(scrambled_output, encoded_length, Qm, rel15->nrOfLayers, layerSz2, tx_layers);
+  AssertFatal(fused_ok,
                 "Unsupported fused modulation/layer mapping for Qm %d, %d layers, %d codewords\n",
                 Qm,
                 rel15->nrOfLayers,
                 rel15->NrOfCodewords);
-    stop_meas(dlsch_modulation_stats);
-  } else {
-    c16_t mod_symbs[rel15->NrOfCodewords][encoded_length] __attribute__((aligned(64)));
-    for (int codeWord = 0; codeWord < rel15->NrOfCodewords; codeWord++) {
-      /// scrambling
-      start_meas(dlsch_scrambling_stats);
-      uint32_t scrambled_output[(encoded_length >> 5) + 4]; // modulator acces by 4 bytes in some cases
-      memset(scrambled_output, 0, sizeof(scrambled_output));
-      nr_pdsch_codeword_scrambling(input_ptr, encoded_length, codeWord, rel15->dataScramblingId, rel15->rnti, scrambled_output);
-
-#ifdef DEBUG_DLSCH
-      printf("PDSCH scrambling:\n");
-      for (int i = 0; i < encoded_length >> 8; i++) {
-        for (int j = 0; j < 8; j++)
-          printf("0x%08x\t", scrambled_output[(i << 3) + j]);
-        printf("\n");
-      }
-#endif
-
-      stop_meas(dlsch_scrambling_stats);
-      /// Modulation
-      start_meas(dlsch_modulation_stats);
-      nr_modulation(scrambled_output, encoded_length, Qm, (int16_t *)mod_symbs[codeWord]);
-      stop_meas(dlsch_modulation_stats);
-#ifdef DEBUG_DLSCH
-      printf("PDSCH Modulation: Qm %d(%d)\n", Qm, nb_re);
-      for (int i = 0; i < nb_re; i += 8) {
-        for (int j = 0; j < 8; j++) {
-          printf("%d %d\t", mod_symbs[codeWord][i + j].r, mod_symbs[codeWord][i + j].i);
-        }
-        printf("\n");
-      }
-#endif
-    }
-
-    start_meas(&gNB->dlsch_layer_mapping_stats);
-    nr_layer_mapping(rel15->NrOfCodewords, encoded_length, mod_symbs, rel15->nrOfLayers, layerSz2, nb_re, tx_layers);
-    stop_meas(&gNB->dlsch_layer_mapping_stats);
-  }
+  stop_meas(dlsch_modulation_stats);
 
   /// Layer Precoding and Antenna port mapping
   // tx_layers 1-8 are mapped on antenna ports 1000-1007
