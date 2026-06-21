@@ -916,7 +916,12 @@ static void nr_rrc_manage_rlc_bearers(NR_UE_RRC_INST_t *rrc, const NR_CellGroupC
                     "Invalid RB for RLC configuration\n");
         if (rlc_bearer->servedRadioBearer->present == NR_RLC_BearerConfig__servedRadioBearer_PR_srb_Identity) {
           NR_SRB_Identity_t srb_id = rlc_bearer->servedRadioBearer->choice.srb_Identity;
-          nr_rlc_add_srb(rrc->ue_id, srb_id, rlc_bearer);
+          if (rrc->pending_rlc_replace[lcid]) {
+            rrc->pending_rlc_replace[lcid] = false;
+            nr_rlc_replace_srb(rrc->ue_id, srb_id, rlc_bearer);
+          } else {
+            nr_rlc_add_srb(rrc->ue_id, srb_id, rlc_bearer);
+          }
           nr_rlc_set_rlf_handler(rrc->ue_id, nr_rrc_signal_maxrtxindication);
         } else { // DRB
           NR_DRB_Identity_t drb_id = rlc_bearer->servedRadioBearer->choice.drb_Identity;
@@ -931,6 +936,11 @@ static void nr_rrc_manage_rlc_bearers(NR_UE_RRC_INST_t *rrc, const NR_CellGroupC
       }
     }
   }
+
+  for (int i = 0; i < NR_MAX_NUM_LCID; i++)
+    AssertFatal(!rrc->pending_rlc_replace[i],
+                "RLC entity for LCID %d was kept alive for atomic replace but the cell group config did not re-create it\n",
+                i);
 }
 
 static void nr_ue_meas_reset(meas_t *meas_cell, bool csi_meas)
@@ -1725,8 +1735,10 @@ NR_UE_RRC_INST_t* nr_rrc_init_ue(char* uecap_file, int instance_id, int num_ant_
     set_DRB_status(rrc, j, RB_NOT_PRESENT);
   // SRB0 activated by default
   rrc->Srb[0] = RB_ESTABLISHED;
-  for (int j = 0; j < NR_MAX_NUM_LCID; j++)
+  for (int j = 0; j < NR_MAX_NUM_LCID; j++) {
     rrc->active_RLC_entity[j] = false;
+    rrc->pending_rlc_replace[j] = false;
+  }
 
   for (int i = 0; i < NB_CNX_UE; i++) {
     rrcPerNB_t *ptr = &rrc->perNB[i];
@@ -2173,7 +2185,17 @@ static void nr_rrc_rrcsetup_fallback(NR_UE_RRC_INST_t *rrc)
       nr_pdcp_release_srb(rrc->ue_id, i);
     }
   }
+  /* §5.3.3.4: release the RLC of every RB except SRB0. SRB1 is the only RB the RRCSetup
+   * masterCellGroup immediately re-creates, so to avoid the bug-#128 NULL window we keep SRB1's
+   * entity alive here and defer its release to an atomic replace on the add-path (nr_rlc_replace_srb);
+   * mark it with pending_rlc_replace[] and clear active_RLC_entity[1] so the add-path (not reconfigure)
+   * runs. SRB2/SRB3/DRBs have no such window and are released normally. */
   for (int i = 1; i < NR_MAX_NUM_LCID; i++) {
+    if (i == 1 && rrc->active_RLC_entity[1]) {
+      rrc->active_RLC_entity[1] = false;
+      rrc->pending_rlc_replace[1] = true;
+      continue;
+    }
     nr_rrc_release_rlc_entity(rrc, i);
   }
   nr_sdap_delete_ue_entities(rrc->ue_id);

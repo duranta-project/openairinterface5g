@@ -280,6 +280,13 @@ void release_mac_configuration(NR_UE_MAC_INST_t *mac, NR_UE_MAC_reset_cause_t ca
       asn_sequence_del(&mac->lc_ordered_list, i - 1, 1);
   }
 
+  /* §5.3.3.4: drop the dedicated per-RB MAC logical channels (SRB0/CCCH not listed here). SRB1 is
+   * re-added by the subsequent masterCellGroup; SRB2/DRBs stay gone until post-security. */
+  if (cause == RRC_SETUP_REESTAB_RESUME) {
+    for (int i = mac->lc_ordered_list.count; i > 0; i--)
+      asn_sequence_del(&mac->lc_ordered_list, i - 1, 1);
+  }
+
   asn1cFreeStruc(asn_DEF_NR_CrossCarrierSchedulingConfig, sc->crossCarrierSchedulingConfig);
   asn1cFreeStruc(asn_DEF_NR_SRS_CarrierSwitching, sc->carrierSwitching);
   asn1cFreeStruc(asn_DEF_NR_UplinkConfig, sc->supplementaryUplink);

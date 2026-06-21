@@ -705,9 +705,18 @@ void nr_rlc_reconfigure_entity(int ue_id, int lc_id, NR_RLC_Config_t *rlc_Config
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }
 
-void nr_rlc_add_srb(int ue_id, int srb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
+static void set_srb_lcid2rb(nr_rlc_ue_t *ue, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
 {
-  NR_RLC_Config_t *r = rlc_BearerConfig->rlc_Config;
+  AssertFatal(rlc_BearerConfig->servedRadioBearer
+                  && (rlc_BearerConfig->servedRadioBearer->present == NR_RLC_BearerConfig__servedRadioBearer_PR_srb_Identity),
+              "servedRadioBearer for SRB mandatory present when setting up an SRB RLC entity\n");
+  int local_id = rlc_BearerConfig->logicalChannelIdentity - 1; // LCID 0 for SRB 0 not mapped
+  ue->lcid2rb[local_id].type = NR_LCID_SRB;
+  ue->lcid2rb[local_id].choice.srb_id = rlc_BearerConfig->servedRadioBearer->choice.srb_Identity;
+}
+
+static nr_rlc_entity_t *new_nr_rlc_srb_am_entity(nr_rlc_ue_t *ue, const NR_RLC_Config_t *r)
+{
   int t_status_prohibit;
   int t_poll_retransmit;
   int poll_pdu;
@@ -715,9 +724,6 @@ void nr_rlc_add_srb(int ue_id, int srb_id, const NR_RLC_BearerConfig_t *rlc_Bear
   int max_retx_threshold;
   int t_reassembly;
   int sn_field_length;
-
-  LOG_D(RLC, "Trying to add SRB %d\n", srb_id);
-  AssertFatal(srb_id > 0 && srb_id < 4, "Invalid srb id %d\n", srb_id);
 
   if (r && r->present == NR_RLC_Config_PR_am) {
     struct NR_RLC_Config__am *am;
@@ -744,31 +750,55 @@ void nr_rlc_add_srb(int ue_id, int srb_id, const NR_RLC_BearerConfig_t *rlc_Bear
     sn_field_length = 12;
   }
 
+  return new_nr_rlc_entity_am(RLC_RX_MAXSIZE,
+                              RLC_TX_MAXSIZE,
+                              deliver_sdu,
+                              ue,
+                              successful_delivery,
+                              ue,
+                              max_retx_reached,
+                              ue,
+                              t_poll_retransmit,
+                              t_reassembly,
+                              t_status_prohibit,
+                              poll_pdu,
+                              poll_byte,
+                              max_retx_threshold,
+                              sn_field_length);
+}
+
+void nr_rlc_add_srb(int ue_id, int srb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
+{
+  LOG_D(RLC, "Trying to add SRB %d\n", srb_id);
+  AssertFatal(srb_id > 0 && srb_id < 4, "Invalid srb id %d\n", srb_id);
+
   nr_rlc_manager_lock(nr_rlc_ue_manager);
   nr_rlc_ue_t *ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, ue_id);
-  AssertFatal(rlc_BearerConfig->servedRadioBearer &&
-              (rlc_BearerConfig->servedRadioBearer->present ==
-              NR_RLC_BearerConfig__servedRadioBearer_PR_srb_Identity),
-              "servedRadioBearer for SRB mandatory present when setting up an SRB RLC entity\n");
-  int local_id = rlc_BearerConfig->logicalChannelIdentity - 1; // LCID 0 for SRB 0 not mapped
-  ue->lcid2rb[local_id].type = NR_LCID_SRB;
-  ue->lcid2rb[local_id].choice.srb_id = rlc_BearerConfig->servedRadioBearer->choice.srb_Identity;
-  if (ue->srb[srb_id-1] != NULL) {
+  set_srb_lcid2rb(ue, rlc_BearerConfig);
+  if (ue->srb[srb_id - 1] != NULL) {
     LOG_E(RLC, "SRB %d already exists for UE %d, do nothing\n", srb_id, ue_id);
   } else {
-    nr_rlc_entity_t *nr_rlc_am = new_nr_rlc_entity_am(RLC_RX_MAXSIZE,
-                                                      RLC_TX_MAXSIZE,
-                                                      deliver_sdu, ue,
-                                                      successful_delivery, ue,
-                                                      max_retx_reached, ue,
-                                                      t_poll_retransmit,
-                                                      t_reassembly, t_status_prohibit,
-                                                      poll_pdu, poll_byte, max_retx_threshold,
-                                                      sn_field_length);
-    nr_rlc_ue_add_srb_rlc_entity(ue, srb_id, nr_rlc_am);
-
+    nr_rlc_ue_add_srb_rlc_entity(ue, srb_id, new_nr_rlc_srb_am_entity(ue, rlc_BearerConfig->rlc_Config));
     LOG_I(RLC, "Added srb %d to UE %d\n", srb_id, ue_id);
   }
+  nr_rlc_manager_unlock(nr_rlc_ue_manager);
+}
+
+void nr_rlc_replace_srb(int ue_id, int srb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
+{
+  LOG_D(RLC, "Trying to replace SRB %d\n", srb_id);
+  AssertFatal(srb_id > 0 && srb_id < 4, "Invalid srb id %d\n", srb_id);
+
+  nr_rlc_manager_lock(nr_rlc_ue_manager);
+  nr_rlc_ue_t *ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, ue_id);
+  set_srb_lcid2rb(ue, rlc_BearerConfig);
+  if (ue->srb[srb_id - 1] != NULL) {
+    ue->srb[srb_id - 1]->delete_entity(ue->srb[srb_id - 1]);
+    ue->srb[srb_id - 1] = NULL;
+    LOG_D(RLC, "Released stale SRB %d for UE %d before re-establishing it from the new config\n", srb_id, ue_id);
+  }
+  nr_rlc_ue_add_srb_rlc_entity(ue, srb_id, new_nr_rlc_srb_am_entity(ue, rlc_BearerConfig->rlc_Config));
+  LOG_I(RLC, "Added srb %d to UE %d\n", srb_id, ue_id);
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }
 

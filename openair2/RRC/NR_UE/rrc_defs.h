@@ -220,6 +220,9 @@ typedef struct NR_UE_RRC_INST_s {
   NR_RB_status_t Srb[NR_NUM_SRB];
   NR_RB_status_t status_DRBs[MAX_DRBS_PER_UE];
   bool active_RLC_entity[NR_MAX_NUM_LCID];
+  /* §5.3.3.4 fallback only: entity kept alive across teardown, released via atomic replace on the
+   * add-path. Set in nr_rrc_rrcsetup_fallback(), consumed in nr_rrc_manage_rlc_bearers() */
+  bool pending_rlc_replace[NR_MAX_NUM_LCID];
 
   /* KgNB as computed from parameters within USIM card */
   uint8_t kgnb[32];
