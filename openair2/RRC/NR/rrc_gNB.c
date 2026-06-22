@@ -1117,6 +1117,18 @@ static void fill_security_info(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, security_inf
   nr_derive_key(UP_INT_ALG, secInfo->integrityProtectionAlgorithm, UE->kgnb, (uint8_t *)secInfo->integrityProtectionKey);
 }
 
+/** @brief Send E1 bearer context modification request to CU-UP */
+static void e1_send_bearer_modification_request(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, e1ap_bearer_mod_req_t *req)
+{
+  if (req->numPDUSessionsMod == 0) {
+    LOG_W(NR_RRC, "UE %d: No PDU sessions to modify in E1 bearer update\n", UE->rrc_ue_id);
+    return;
+  }
+
+  sctp_assoc_t assoc_id = get_existing_cuup_for_ue(UE);
+  rrc->cucp_cuup.bearer_context_mod(assoc_id, req);
+}
+
 /** @brief Add DRB modification to E1AP bearer modification request
  * Finds PDU session by DRB ID, creates/updates PDU session modification entry
  * and appends DRB modification
@@ -1214,9 +1226,7 @@ static void cuup_notify_reestablishment(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue_p)
   req.secInfo = malloc_or_fail(sizeof(*req.secInfo));
   fill_security_info(rrc, ue_p, req.secInfo);
 
-  /* Send E1 Bearer Context Modification Request (3GPP TS 38.463) */
-  sctp_assoc_t assoc_id = get_existing_cuup_for_ue(ue_p);
-  rrc->cucp_cuup.bearer_context_mod(assoc_id, &req);
+  e1_send_bearer_modification_request(rrc, ue_p, &req);
   free_e1ap_context_mod_request(&req);
 }
 
@@ -2624,22 +2634,6 @@ static DRB_nGRAN_to_mod_t get_e1_drb_mod_pdcp_status(const drb_t *drb,
   drb_to_mod.pdcp_status->ul_count.hfn = drb_status->ul_count.hfn;
   drb_to_mod.pdcp_status->ul_count.sn = drb_status->ul_count.pdcp_sn;
   return drb_to_mod;
-}
-
-/** @brief Send E1 bearer context modification request to CU-UP */
-static void e1_send_bearer_modification_request(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, e1ap_bearer_mod_req_t *req)
-{
-  if (req->numPDUSessionsMod == 0) {
-    LOG_W(NR_RRC, "UE %d: No PDU sessions to modify in E1 bearer update\n", UE->rrc_ue_id);
-    return;
-  }
-
-  DevAssert(req->numPDUSessions == 0);
-  req->secInfo = malloc_or_fail(sizeof(*req->secInfo));
-  fill_security_info(rrc, UE, req->secInfo);
-
-  sctp_assoc_t assoc_id = get_existing_cuup_for_ue(UE);
-  rrc->cucp_cuup.bearer_context_mod(assoc_id, req);
 }
 
 /** @brief Send E1 bearer updates for DRBs to setup from F1 UE Context Modification Response */
