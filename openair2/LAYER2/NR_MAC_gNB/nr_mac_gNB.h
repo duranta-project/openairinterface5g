@@ -810,6 +810,9 @@ typedef struct {
   /// sri, ul_ri and tpmi based on SRS
   nr_srs_feedback_t srs_feedback;
 
+  int est_snrx10;
+  bool new_est_snrx10;
+
   /// per-LC configuration
   seq_arr_t lc_config;
 
