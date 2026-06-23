@@ -3101,7 +3101,6 @@ bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   seq_arr_push_back(&UE_info->connected_ues_list, &UE, sizeof(UE));
 
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
-  sched_ctrl->dl_max_mcs = 28; /* do not limit MCS for individual UEs */
   sched_ctrl->pdcch_cl_adjust = 0;
   if (UE->pcell->radio_config.do_SRS == APERIODIC_SRS) {
     // for now aperiodic hardcoded every 160 slots
