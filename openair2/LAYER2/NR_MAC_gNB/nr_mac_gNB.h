@@ -731,6 +731,9 @@ typedef struct {
   nr_srs_feedback_t srs_feedback;
   NR_timer_t aperiodic_srs_trigger;
 
+  int est_snrx10;
+  bool new_est_snrx10;
+
   /// per-LC configuration
   seq_arr_t lc_config;
 

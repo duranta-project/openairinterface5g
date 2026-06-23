@@ -540,7 +540,9 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
         continue;
 
       /* Update BLER stats; MCS adaptation is done by dl_mcs_select for all candidates. */
-      olla_update(NULL, &sched_ctrl->dl_bler_stats, frame);
+      int *est_snrx10 = sched_ctrl->new_est_snrx10 ? &sched_ctrl->est_snrx10 : NULL;
+      olla_update(est_snrx10, &sched_ctrl->dl_bler_stats, frame);
+      sched_ctrl->new_est_snrx10 = false;
 
       candidates[n++] = (nr_dl_candidate_t){
           /* identity / scheduling state */

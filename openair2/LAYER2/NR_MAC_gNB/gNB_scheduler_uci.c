@@ -506,6 +506,8 @@ static void evaluate_sinr_report(NR_UE_info_t *UE,
   stats->num_sinr_meas++;
 
   LOG_D(MAC, "Reported SSB-SINRx10 = %d\n", sinr_report->r[0].SINRx10);
+  UE->UE_sched_ctrl.est_snrx10 = sinr_report->r[0].SINRx10;
+  UE->UE_sched_ctrl.new_est_snrx10 = true;
 
   for (RSRP_report_t *r = sinr_report->r; r < sinr_report->r + sinr_report->nb; r++)
     if (r->resource_id < MAX_NUM_OF_SSB)
@@ -681,6 +683,8 @@ static void evaluate_cqi_report(uint8_t *payload,
   const int mcs_table = UE->current_DL_BWP.mcsTableIdx;
   const int mcs = get_mcs_from_cqi(mcs_table, cqi_Table, cqi_idx);
   const int snrx10 = get_snrx10_from_mcs(mcs_table, mcs, ri+1); // assume all layers were used
+  UE->UE_sched_ctrl.est_snrx10 = snrx10;
+  UE->UE_sched_ctrl.new_est_snrx10 = true;
 
   LOG_D(MAC, "Reported CQI %d => MCS %d, SNRx10 %d\n", temp_cqi, mcs, snrx10);
 }
