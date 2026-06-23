@@ -675,9 +675,6 @@ typedef struct {
   /// PHR info: nominal UE transmit power levels (dBm)
   int pcmax;
 
-  /// UE-estimated maximum MCS (from CSI-RS)
-  uint8_t dl_max_mcs;
-
   /// For UL synchronization: store last UL scheduling grant
   frame_t last_ul_frame;
   slot_t last_ul_slot;

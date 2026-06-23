@@ -470,7 +470,7 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
     const NR_bler_options_t *bo = &mac->dl_bler;
     bwp_info_t bwp_info = get_pdsch_bwp_start_size(mac, UE);
     const int max_mcs_table = current_BWP->mcsTableIdx == 1 ? 27 : 28;
-    const int max_mcs = min(sched_ctrl->dl_max_mcs, min(max_mcs_table, bo->max_mcs));
+    const int max_mcs = min(max_mcs_table, bo->max_mcs);
 
     /* QoS / slice info — extract from first DRB for external policies */
     uint64_t fiveQI = 0;
@@ -549,7 +549,7 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
           .pending_bytes = sched_ctrl->num_total_bytes,
           .avg_throughput = UE->dl_thr_ue,
           .bler = sched_ctrl->dl_bler_stats.bler,
-          .current_mcs = min(sched_ctrl->dl_bler_stats.mcs, max_mcs),
+          .current_mcs = sched_ctrl->dl_bler_stats.mcs,
           .max_mcs = max_mcs,
           .last_num_sched = sched_ctrl->dl_bler_stats.last_num_sched,
           .bler_updated = bler_updated,

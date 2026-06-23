@@ -502,11 +502,7 @@ static void evaluate_sinr_report(NR_UE_info_t *UE,
   stats->cumul_sinrx10 += sinr_report->r[0].SINRx10;
   stats->num_sinr_meas++;
 
-  const int mcs_table = UE->current_DL_BWP.mcsTableIdx;
-  const int nrOfLayers = get_dl_nrOfLayers(sched_ctrl, UE->current_DL_BWP.dci_format);
-  sched_ctrl->dl_max_mcs = get_mcs_from_SINRx10(mcs_table, sinr_report->r[0].SINRx10, nrOfLayers);
-
-  LOG_D(MAC, "Reported SSB-SINR = %01f, dl_max_mcs %d\n", sinr_report->r[0].SINRx10 / 10.0, sched_ctrl->dl_max_mcs);
+  LOG_D(MAC, "Reported SSB-SINRx10 = %d\n", sinr_report->r[0].SINRx10);
 
   for (RSRP_report_t *r = sinr_report->r; r < sinr_report->r + sinr_report->nb; r++)
     if (r->resource_id < MAX_NUM_OF_SSB)
@@ -680,9 +676,10 @@ static void evaluate_cqi_report(uint8_t *payload,
   // TODO for wideband case and multiple TB
   const int cqi_idx = sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.wb_cqi_1tb;
   const int mcs_table = UE->current_DL_BWP.mcsTableIdx;
-  sched_ctrl->dl_max_mcs = get_mcs_from_cqi(mcs_table, cqi_Table, cqi_idx);
+  const int mcs = get_mcs_from_cqi(mcs_table, cqi_Table, cqi_idx);
+  const int snrx10 = get_snrx10_from_mcs(mcs_table, mcs, ri+1); // assume all layers were used
 
-  LOG_D(MAC, "Reported CQI = %d, dl_max_mcs %d\n", temp_cqi, sched_ctrl->dl_max_mcs);
+  LOG_D(MAC, "Reported CQI %d => MCS %d, SNRx10 %d\n", temp_cqi, mcs, snrx10);
 }
 
 static uint8_t evaluate_pmi_report(uint8_t *payload,

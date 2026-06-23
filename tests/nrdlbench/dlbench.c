@@ -385,6 +385,10 @@ int main(int argc, char **argv)
 
   gNB_mac->dl_bler.harq_round_max = 4;
   gNB_mac->ul_bler.harq_round_max = 4;
+  gNB_mac->dl_bler.min_mcs = bench_target_mcs;
+  gNB_mac->dl_bler.max_mcs = bench_target_mcs;
+  gNB_mac->ul_bler.min_mcs = bench_target_mcs;
+  gNB_mac->ul_bler.max_mcs = bench_target_mcs;
   gNB->frame_parms.nb_antennas_tx = pdsch_AntennaPorts.N1 * pdsch_AntennaPorts.N2 * pdsch_AntennaPorts.XP;
 
   /* ── 4. Use the real DL scheduler instead of the phytest one ── */
@@ -434,10 +438,6 @@ int main(int argc, char **argv)
      * per-slot status_ind/status_size has to walk it. */
     if (bench_am_backlog > 0)
       inject_am_rx_backlog(rnti, bench_drb_lcid, bench_am_backlog);
-
-    /* Set UE channel quality so the scheduler picks a high MCS */
-    NR_UE_sched_ctrl_t *sc = &UE_info->UE_sched_ctrl;
-    sc->dl_max_mcs = bench_target_mcs;
 
     printf("  UE %3d: rnti=%04x, BWP size=%d\n", u, rnti, UE_info->current_DL_BWP.BWPSize);
   }
