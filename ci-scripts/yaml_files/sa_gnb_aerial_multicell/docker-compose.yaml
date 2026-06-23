@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: MIT
-
 services:
   nv-cubb:
     container_name: nv-cubb
@@ -29,19 +27,18 @@ services:
     environment:
       - cuBB_SDK=/opt/nvidia/cuBB
       - AERIAL_LOG_PATH=/var/log/aerial
-    command: bash -c "sudo rm -rf /tmp/phy.log && /opt/nvidia/cuBB/run_l1.sh"  #Default is P5G_WNC_GH
-    #command: bash -c "sudo rm -rf /tmp/phy.log && /opt/nvidia/cuBB/run_l1.sh P5G_FXN_GH"  #For FXN
+    command: bash -c "sudo rm -rf /tmp/phy.log && /opt/nvidia/cuBB/run_l1.sh"
     healthcheck:
       test: ["CMD-SHELL",'grep -q "L1 is ready!" /tmp/phy.log && echo 0 || echo 1']
       interval: 20s
       timeout: 5s
       retries: 5
-  oai-gnb-aerial:
-    cpuset: "13-17"
-    image: ${REGISTRY-oaisoftwarealliance/}${GNB_IMG:-oai-gnb-aerial}:${TAG:-latest}
+  oai-gnb-aerial-20:
+    cpuset: "13-18"
+    image: ${REGISTRY-oaisoftwarealliance/}${GNB_IMG:-oai-gnb-aerial}:${TAG:-develop}
     depends_on:
       nv-cubb:
-        condition: service_started
+        condition: service_healthy
     cap_drop:
       - ALL
     cap_add:
@@ -58,15 +55,56 @@ services:
               count: all
               capabilities:
                 - gpu
-    network_mode: host
+    networks:
+       oai-cn5g-public-net:
+            ipv4_address: 192.168.70.140
     shm_size: 4096m
     stdin_open: true
     tty: true
     volumes:
-      - ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-vnf.sa.band78.273prb.aerial.conf:/opt/oai-gnb/etc/gnb.conf
-    container_name: oai-gnb-aerial
+      - ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-vnf.sa.band78.273prb.aerial.20.conf:/opt/oai-gnb/etc/gnb.conf
+    container_name: oai-gnb-aerial-20
     healthcheck:
       test: /bin/bash -c "ps aux | grep -v grep | grep -c softmodem"
       interval: 10s
       timeout: 5s
       retries: 5
+  oai-gnb-aerial-21:
+    cpuset: "19-24"
+    image: ${REGISTRY-oaisoftwarealliance/}${GNB_IMG:-oai-gnb-aerial}:${TAG:-develop}
+    depends_on:
+      oai-gnb-aerial-20:
+        condition: service_healthy
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_NICE
+      - IPC_LOCK
+    ipc: "container:nv-cubb"
+    environment:
+      USE_ADDITIONAL_OPTIONS: --log_config.global_log_options level,nocolor,utc_time
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities:
+                - gpu
+    networks:
+       oai-cn5g-public-net:
+            ipv4_address: 192.168.70.141
+    shm_size: 4096m
+    stdin_open: true
+    tty: true
+    volumes:
+      - ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-vnf.sa.band78.273prb.aerial.21.conf:/opt/oai-gnb/etc/gnb.conf
+    container_name: oai-gnb-aerial-21
+    healthcheck:
+      test: /bin/bash -c "ps aux | grep -v grep | grep -c softmodem"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+networks:
+    oai-cn5g-public-net:
+      external: true

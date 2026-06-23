@@ -2,6 +2,7 @@ services:
     mysql:
         container_name: "mysql"
         image: mysql:9.6
+        cpuset: "41"
         volumes:
             - ./database/oai_db.sql:/docker-entrypoint-initdb.d/oai_db.sql
             - ./healthscripts/mysql-healthcheck.sh:/tmp/mysql-healthcheck.sh
@@ -23,6 +24,7 @@ services:
     ims:
         container_name: "ims"
         image: oaisoftwarealliance/ims:latest
+        cpuset: "41"
         volumes:
             - ./conf/sip.conf:/etc/asterisk/sip.conf
             - ./conf/users.conf:/etc/asterisk/users.conf
@@ -37,6 +39,7 @@ services:
     oai-udr:
         container_name: "oai-udr"
         image: oaisoftwarealliance/oai-udr:v2.2.1
+        cpuset: "41"
         expose:
             - 80/tcp
             - 8080/tcp
@@ -53,6 +56,7 @@ services:
     oai-udm:
         container_name: "oai-udm"
         image: oaisoftwarealliance/oai-udm:v2.2.1
+        cpuset: "41"
         expose:
             - 80/tcp
             - 8080/tcp
@@ -68,6 +72,7 @@ services:
     oai-ausf:
         container_name: "oai-ausf"
         image: oaisoftwarealliance/oai-ausf:v2.2.1
+        cpuset: "41"
         expose:
             - 80/tcp
             - 8080/tcp
@@ -83,6 +88,7 @@ services:
     oai-nrf:
         container_name: "oai-nrf"
         image: oaisoftwarealliance/oai-nrf:v2.2.1
+        cpuset: "41"
         expose:
             - 80/tcp
             - 8080/tcp
@@ -96,6 +102,7 @@ services:
     oai-amf:
         container_name: "oai-amf"
         image: oaisoftwarealliance/oai-amf:v2.2.1
+        cpuset: "41"
         expose:
             - 80/tcp
             - 8080/tcp
@@ -114,6 +121,7 @@ services:
     oai-smf:
         container_name: "oai-smf"
         image: oaisoftwarealliance/oai-smf:v2.2.1
+        cpuset: "41"
         expose:
             - 80/tcp
             - 8080/tcp
@@ -131,6 +139,7 @@ services:
     oai-upf:
         container_name: "oai-upf"
         image: oaisoftwarealliance/oai-upf:v2.2.1
+        cpuset: "42-43"
         expose:
             - 2152/udp
             - 8805/udp
@@ -155,6 +164,7 @@ services:
         init: true
         container_name: oai-ext-dn
         image: oaisoftwarealliance/trf-gen-cn5g:latest
+        cpuset: "41"
         entrypoint: /bin/bash -c \
               "ip route add 10.0.0.0/16 via 192.168.70.134 dev eth0; ip route; iperf3 -s -D; sleep infinity"
         command: ["/bin/bash", "-c", "trap : SIGTERM SIGINT; sleep infinity & wait"]
