@@ -706,23 +706,17 @@ static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rn
   harq->is_waiting = false;
   if (!crc_status) {
     finish_nr_ul_harq(sched_ctrl, harq_pid);
-    LOG_D(NR_MAC,
-          "Ulharq id %d crc passed for RNTI %04x\n",
-          harq_pid,
-          rnti);
+    LOG_D(NR_MAC, "Ulharq id %d crc passed for RNTI %04x\n", harq_pid, rnti);
+    olla_ack(&cell->ul_bler, &sched_ctrl->ul_bler_stats);
   } else if (harq->round >= cell->ul_bler.harq_round_max - 1) {
     abort_nr_ul_harq(UE, harq_pid);
-    LOG_D(NR_MAC,
-          "RNTI %04x: Ulharq id %d crc failed in all rounds\n",
-          rnti,
-          harq_pid);
+    LOG_D(NR_MAC, "RNTI %04x: Ulharq id %d crc failed in all rounds\n", rnti, harq_pid);
+    olla_nack(&cell->ul_bler, &sched_ctrl->ul_bler_stats);
   } else {
     harq->round++;
-    LOG_D(NR_MAC,
-          "Ulharq id %d crc failed for RNTI %04x\n",
-          harq_pid,
-          rnti);
+    LOG_D(NR_MAC, "Ulharq id %d crc failed for RNTI %04x\n", harq_pid, rnti);
     add_tail_nr_list(&sched_ctrl->retrans_ul_harq, harq_pid);
+    olla_nack(&cell->ul_bler, &sched_ctrl->ul_bler_stats);
   }
 }
 
@@ -2901,7 +2895,6 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     const int max_mcs_table = (current_BWP->mcs_table == 0 || current_BWP->mcs_table == 2) ? 28 : 27;
     const int max_mcs = min(cell->ul_bler.max_mcs, max_mcs_table);
     olla_update(NULL, &sched_ctrl->ul_bler_stats, frame);
-    bool bler_updated = true; /* TODO: remove */
 
     cand.is_retx = false;
     if (!aperiodic_srs_scheduled) {
@@ -2913,10 +2906,10 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     cand.sched_long_inactivity = long_inactivity;
     cand.pending_bytes = B;
     cand.bler = olla_get_current_bler(&sched_ctrl->ul_bler_stats);
-    cand.bler_updated = bler_updated;
     cand.current_mcs = sched_ctrl->ul_bler_stats.mcs;
     cand.max_mcs = max_mcs;
-    cand.snrx10 = (int)(sched_ctrl->pusch_pc.avg_snr * 10);
+    cand.delta_olla = sched_ctrl->ul_bler_stats.delta_olla;
+    cand.snrx10 = sched_ctrl->ul_bler_stats.snrx10_equiv;
     cand.sr_cnt = sched_ctrl->sr_cnt;
     LOG_D(NR_MAC,
           "[UE %04x][%4d.%2d] b %d, ul_thr_ue %f, mcs %d, SR count %d, UL inactivity %d/%d slots, sched_long_inactivity %d sched_srs %d\n",
