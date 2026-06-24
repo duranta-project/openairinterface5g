@@ -834,6 +834,8 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
     } else {
       /* New transmission: compute TBS-related fields */
       int l = sched_pdsch.nrOfLayers;
+      /* override selected MCS to enforce global policy for min/max MCS */
+      sched_pdsch.mcs = max(mac->dl_bler.min_mcs, min(mac->dl_bler.max_mcs, sched_pdsch.mcs));
       int mcs = sched_pdsch.mcs;
       uint8_t Qm = nr_get_Qm_dl(mcs, dl_bwp->mcsTableIdx);
       uint16_t R = nr_get_code_rate_dl(mcs, dl_bwp->mcsTableIdx);

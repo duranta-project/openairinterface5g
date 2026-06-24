@@ -2090,6 +2090,9 @@ static int apply_ul_new_transmission(gNB_MAC_INST *nrmac,
     sched.ant_port_idx.spatialStreamIndices[i] = nrmac->radio_config.spatial_stream_index[start_stream_idx + i];
   sched.dci_ant_idx = cand->alloc_dci_beam_idx;
 
+  /* override selected MCS to enforce global policy for min/max MCS */
+  sched.mcs = max(nrmac->ul_bler.min_mcs, min(nrmac->ul_bler.max_mcs, sched.mcs));
+
   update_ul_ue_R_Qm(sched.mcs, current_BWP->mcs_table, current_BWP->pusch_Config, &sched.R, &sched.Qm);
   sched.tb_size = nr_compute_tbs(sched.Qm,
                                  sched.R,
