@@ -267,8 +267,8 @@ beam and a PUSCH beam. Candidates that fail beam allocation are compacted out.
 
 ### `nr_dl_mcs_select_default`, `nr_ul_mcs_select_default`
 
-BLER-based (when `harq_round_max > 1`): calls `nr_adapt_mcs_from_bler` for candidates
-with a fresh BLER estimate; holds current MCS otherwise. SINR-based (when
+BLER-based (when `harq_round_max > 1`): calls `get_mcs_from_SINRx10()` for candidates
+to get an MCS following an SNR estimate based on HARQ feedback. SINR-based (when
 `harq_round_max == 1`): maps measured PUSCH SINR to MCS via lookup table. In both
 cases, persists to `{dl,ul}_bler_stats.mcs`.
 
