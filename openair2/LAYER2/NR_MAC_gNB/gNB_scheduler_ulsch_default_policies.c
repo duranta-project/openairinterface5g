@@ -196,17 +196,11 @@ void nr_ul_mcs_select_default(const gNB_MAC_INST *mac, nr_ul_candidate_t *candid
     if (cand->is_retx) {
       mcs = cand->current_mcs;
     } else if (bo->harq_round_max == 1) {
-      mcs = get_mcs_from_SINRx10(cand->mcs_table, cand->snrx10, cand->sched_pusch.nrOfLayers);
-      mcs = max(bo->min_mcs, min(bo->max_mcs, min(cand->max_mcs, mcs)));
-    } else if (!cand->bler_updated) {
-      mcs = cand->current_mcs;
+      abort();
     } else {
-      mcs = nr_adapt_mcs_from_bler(cand->current_mcs,
-                                   bo->min_mcs,
-                                   cand->max_mcs,
-                                   cand->bler,
-                                   bo->lower,
-                                   bo->upper);
+      int snrx10 = cand->snrx10 + cand->delta_olla * 10.f;
+      mcs = get_mcs_from_SINRx10(cand->mcs_table, snrx10, cand->sched_pusch.nrOfLayers);
+      LOG_D(NR_MAC, "SNRx10 %d (%d + %.0f) => MCS %d\n", snrx10, cand->snrx10, cand->delta_olla * 10.f, mcs);
     }
     cand->sched_pusch.mcs = mcs;
     if (!cand->is_retx)

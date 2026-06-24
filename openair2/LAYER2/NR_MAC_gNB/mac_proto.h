@@ -466,15 +466,6 @@ bool get_rb_alloc(int rbSize_min,
                   int *rbStart_ptr,
                   int *rbSize_ptr);
 
-/* Scalar core of the BLER -> MCS adaptation rule. Single source of truth
- * for the activity-guard threshold and the lower/upper hysteresis. */
-int nr_adapt_mcs_from_bler(int current_mcs,
-                           int min_mcs,
-                           int max_mcs,
-                           float bler,
-                           float bler_lower,
-                           float bler_upper);
-
 NR_bler_stats_t olla_init(int est_snrx10, frame_t frame);
 void olla_update(int *est_snrx10, NR_bler_stats_t *bler_stats, frame_t frame);
 float olla_get_current_bler(const NR_bler_stats_t *s);

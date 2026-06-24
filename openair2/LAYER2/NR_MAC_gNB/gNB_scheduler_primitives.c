@@ -897,13 +897,6 @@ NR_pusch_dmrs_t get_ul_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
   return dmrs;
 }
 
-#define BLER_UPDATE_FRAME 10
-#define BLER_FILTER 0.9f
-int nr_adapt_mcs_from_bler(int current_mcs, int min_mcs, int max_mcs, float bler, float bler_lower, float bler_upper)
-{
-  return 9;
-}
-
 NR_bler_stats_t olla_init(int est_snrx10, frame_t frame)
 {
   return (NR_bler_stats_t) { .snrx10_equiv = est_snrx10, .last_frame = frame, };

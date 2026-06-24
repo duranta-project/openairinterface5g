@@ -1056,11 +1056,11 @@ struct nr_ul_candidate {
   int sched_srs;
   uint32_t pending_bytes;
   float avg_throughput;
+  float delta_olla;
+  int snrx10;
   float bler;
   int current_mcs;
   int max_mcs;
-  int last_num_sched; ///< scheduling count at last BLER update (activity guard)
-  bool bler_updated; ///< true if BLER was refreshed this frame
   int mcs_table;
   int bwp_start;
   int bwp_size;
@@ -1072,7 +1072,6 @@ struct nr_ul_candidate {
   /* ── Power control (set by collect, read-only after) ─────────────────────── */
   int ph; ///< power headroom
   int pcmax; ///< configured max TX power
-  int snrx10; ///< PUSCH SINR × 10 (for SINR-based MCS in harq_round_max==1)
 
   bool skipped; ///< true if dropped by TDA/beam select (skip in downstream stages)
   bool scheduled; ///< true if accepted by the RB-allocation policy
