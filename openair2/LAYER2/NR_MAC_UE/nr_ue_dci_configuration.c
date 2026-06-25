@@ -12,6 +12,7 @@
 #include "mac_defs.h"
 #include "common/utils/nr/nr_common.h"
 #include "executables/softmodem-common.h"
+#include "RRC/NR_UE/rrc_proto.h"
 #include <stdio.h>
 
 static void fill_dci_search_candidates(const NR_SearchSpace_t *ss, fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15, const uint32_t Y)
@@ -223,41 +224,46 @@ static void config_dci_pdu(NR_UE_MAC_INST_t *mac,
   rel15->BWPStart = coreset_id == 0 ? mac->type0_PDCCH_CSS_config.cset_start_rb : current_DL_BWP->BWPStart;
   rel15->BWPSize = coreset_id == 0 ? mac->type0_PDCCH_CSS_config.num_rbs : current_DL_BWP->BWPSize;
 
-  uint16_t monitoringSymbolsWithinSlot = 0;
   int sps = 0;
+  const BIT_STRING_t *monitoringSymbols = ss->monitoringSymbolsWithinSlot;
+  if (!monitoringSymbols || !monitoringSymbols->buf || monitoringSymbols->size < 2) {
+    LOG_W(NR_MAC,
+          "Invalid monitoringSymbolsWithinSlot for searchSpaceId %ld (ptr=%p size=%zu), skip DCI config\n",
+          ss->searchSpaceId,
+          monitoringSymbols,
+          monitoringSymbols ? monitoringSymbols->size : 0);
+    return;
+  }
 
   switch(rnti_type) {
     case TYPE_C_RNTI_:
       // we use DL BWP dedicated
       sps = current_DL_BWP->cyclicprefix ? 12 : 14;
-      // for SPS=14 8 MSBs in positions 13 down to 6
-      monitoringSymbolsWithinSlot = (ss->monitoringSymbolsWithinSlot->buf[0]<<(sps-8)) | (ss->monitoringSymbolsWithinSlot->buf[1]>>(16-sps));
       rel15->rnti = mac->crnti;
       rel15->SubcarrierSpacing = current_DL_BWP->scs;
       break;
     case TYPE_RA_RNTI_:
       // we use the initial DL BWP
       sps = current_DL_BWP->cyclicprefix == NULL ? 14 : 12;
-      monitoringSymbolsWithinSlot = (ss->monitoringSymbolsWithinSlot->buf[0]<<(sps-8)) | (ss->monitoringSymbolsWithinSlot->buf[1]>>(16-sps));
       rel15->rnti = mac->ra.ra_rnti;
       rel15->SubcarrierSpacing = current_DL_BWP->scs;
       break;
     case TYPE_MSGB_RNTI_:
       // we use the initial DL BWP
       sps = current_DL_BWP->cyclicprefix == NULL ? 14 : 12;
-      monitoringSymbolsWithinSlot =
-          (ss->monitoringSymbolsWithinSlot->buf[0] << (sps - 8)) | (ss->monitoringSymbolsWithinSlot->buf[1] >> (16 - sps));
       rel15->rnti = mac->ra.MsgB_rnti;
       rel15->SubcarrierSpacing = current_DL_BWP->scs;
       break;
     case TYPE_P_RNTI_:
+      sps = current_DL_BWP->cyclicprefix == NULL ? 14 : 12;
+      rel15->rnti = P_RNTI;
+      rel15->SubcarrierSpacing = current_DL_BWP->scs;
       break;
     case TYPE_CS_RNTI_:
       break;
     case TYPE_TC_RNTI_:
       // we use the initial DL BWP
       sps = current_DL_BWP->cyclicprefix == NULL ? 14 : 12;
-      monitoringSymbolsWithinSlot = (ss->monitoringSymbolsWithinSlot->buf[0]<<(sps-8)) | (ss->monitoringSymbolsWithinSlot->buf[1]>>(16-sps));
       rel15->rnti = mac->ra.t_crnti;
       rel15->SubcarrierSpacing = current_DL_BWP->scs;
       break;
@@ -265,8 +271,6 @@ static void config_dci_pdu(NR_UE_MAC_INST_t *mac,
       break;
     case TYPE_SI_RNTI_:
       sps = 14;
-      // for SPS=14 8 MSBs in positions 13 down to 6
-      monitoringSymbolsWithinSlot = (ss->monitoringSymbolsWithinSlot->buf[0]<<(sps-8)) | (ss->monitoringSymbolsWithinSlot->buf[1]>>(16-sps));
       rel15->rnti = SI_RNTI; // SI-RNTI - 3GPP TS 38.321 Table 7.1-1: RNTI values
       rel15->SubcarrierSpacing = mac->mib->subCarrierSpacingCommon;
       if(mac->frequency_range == FR2)
@@ -286,7 +290,7 @@ static void config_dci_pdu(NR_UE_MAC_INST_t *mac,
       break;
   }
 
-  rel15->coreset.StartSymbolBitmap = monitoringSymbolsWithinSlot;
+  rel15->coreset.StartSymbolBitmap = nr_pdcch_monitoring_symbols_mask(monitoringSymbols, sps);
   uint32_t Y = 0;
   if (ss->searchSpaceType->present == NR_SearchSpace__searchSpaceType_PR_ue_Specific)
     Y = get_Y(ss, slot, rel15->rnti);
@@ -309,7 +313,7 @@ static void config_dci_pdu(NR_UE_MAC_INST_t *mac,
             rel15->dci_format_options[i],
             rel15->dci_length_options[i],
             sps,
-            monitoringSymbolsWithinSlot);
+            rel15->coreset.StartSymbolBitmap);
     }
   #endif
   // add DCI
@@ -396,6 +400,97 @@ static bool monitor_dci_for_other_SI(NR_UE_MAC_INST_t *mac,
     return search_space_monitoring_ocasion_other_si(mac, ss, abs_slot, frame, slot, slots_per_frame);
 
   return false;
+}
+
+/** @brief Per-TTI PF/PO check for paging DCI monitoring (TS 38.213 §10.1, TS 38.304 §7.1).
+ * Returns true if (frame, slot) is a Paging Occasion for this UE on @p paging_ss, false otherwise. */
+static bool monitor_paging_dci(const NR_SearchSpace_t *paging_ss,
+                               const NR_UE_MAC_INST_t *mac,
+                               const int frame,
+                               const int slot,
+                               const int slots_per_frame)
+{
+  DevAssert(paging_ss);
+  DevAssert(mac);
+
+  const nr_ue_paging_cfg_t *paging_cfg = &mac->paging_cfg;
+
+  /* TS 38.213 §10.1: monitor on the SS occasions. For SearchSpaceId=0 this is equivalent to the
+   * Type0/RMSI MO check (TS 38.304 §7.1: "same MOs as RMSI") */
+  if (!is_ss_monitor_occasion(frame, slot, slots_per_frame, paging_ss))
+    return false;
+
+  const uint16_t ue_id = paging_cfg->ue_id;
+  const uint16_t T = paging_cfg->T;
+  const uint16_t N = paging_cfg->N;
+  const uint8_t Ns = paging_cfg->Ns;
+  const uint8_t PF_offset = paging_cfg->PF_offset;
+
+  if (T == 0 || N == 0 || Ns == 0) {
+    LOG_W(NR_MAC,
+          "[UE %d] invalid paging config at %04d.%02d: T=%u N=%u Ns=%u, skipping P-RNTI monitoring\n",
+          mac->ue_id,
+          frame,
+          slot,
+          T,
+          N,
+          Ns);
+    return false;
+  }
+
+  /* TS 38.304 §7.1 PF condition */
+  if (!nr_pcch_sfn_is_pf((uint16_t)frame, PF_offset, T, N, ue_id))
+    return false;
+
+  /* TODO Short Messages support (TS 38.212 §7.3.1.2.1, TS 38.331 Table 6.5-1)
+   * UE_ID = 0 is the spec-mandated fallback (no 5G-S-TMSI yet, or 5G-S-TMSI mod 1024 == 0; TS 38.304 §7.1):
+   * UE-specific paging cannot succeed (no TMSI to match against pagingRecordList), the specs then expects
+   * the UE to still receive broadcast Short Messages in DCI 1_0 with P-RNTI for systemInfoModification,
+   * ETWS, CMAS and stopPagingMonitoring. */
+  if (ue_id == 0) {
+    LOG_W(NR_MAC,
+          "[UE %d] PF match at %04d.%02d with UE_ID=0 (no 5G-S-TMSI yet, or 5G-S-TMSI mod 1024 == 0): skipping P-RNTI monitoring\n",
+          mac->ue_id,
+          frame,
+          slot);
+    return false;
+  }
+
+  /* TS 38.304 §7.1: i_s = floor(UE_ID / N) mod Ns; UE monitors the (i_s+1)-th PO within the PF. */
+  const uint8_t i_s = nr_pcch_po_index(ue_id, N, Ns);
+  const long ss_id = paging_ss->searchSpaceId;
+  if (ss_id == 0) {
+    /* TS 38.304 §7.1: pagingSearchSpace = 0 means MOs are same as RMSI. Ns is either 1 or 2.
+     * Ns=1 means every Type0 MO is a PO, Ns=2 means first/second half-frame split into POs.
+     * Ns=4 is invalid with SearchSpaceId 0 here. */
+    AssertFatal(Ns <= 2, "TS 38.304 §7.1: Ns=%u invalid when pagingSearchSpace is SearchSpaceId 0 (must be 1 or 2)\n", Ns);
+    if (Ns == 1) {
+      LOG_D(NR_MAC_DCI, "[UE %d] PO (SS0, Ns=1) at %04d.%02d\n", mac->ue_id, frame, slot);
+      return true;
+    }
+    const bool po = nr_pcch_ss0_po_half_frame(i_s, slot, slots_per_frame);
+    if (po)
+      LOG_D(NR_MAC_DCI, "[UE %d] PO (SS0, Ns=2, i_s=%u) at %04d.%02d\n", mac->ue_id, i_s, frame, slot);
+    return po;
+  }
+
+  /* Type2 paging (SearchSpaceId != 0), TS 38.304 §7.1 + TS 38.213 §10.1: PO is S*X consecutive
+   * PDCCH MOs in the PF starting at start_mo (= firstPDCCH-MonitoringOccasionOfPO[i_s] when present,
+   * else i_s*S*X). */
+  int period = 0;
+  int offset = 0;
+  get_monitoring_period_offset(paging_ss, &period, &offset);
+
+  /* TODO TS 38.304 §7.1: S is defined as the number of transmitted SS/PBCH blocks (ssb-PositionsInBurst
+   *  in SIB1). Currently uses the count of SSBs detected by the UE PHY. */
+  const int S = max(1, mac->ssb_list.nb_tx_ssb);
+  const int X = paging_cfg->X;
+  int start_mo = i_s * S * X;
+  if (i_s < paging_cfg->first_mo_of_po_count)
+    start_mo = paging_cfg->first_mo_of_po[i_s];
+  const int end_mo = start_mo + S * X - 1;
+
+  return nr_pcch_type2_po_mo_in_range(frame, slot, slots_per_frame, period, offset, start_mo, end_mo);
 }
 
 void update_pdcch_config(NR_UE_MAC_INST_t *mac)
@@ -521,6 +616,31 @@ void ue_dci_configuration(NR_UE_MAC_INST_t *mac, fapi_nr_dl_config_request_t *dl
         css = mac->search_space_zero;
       AssertFatal(css, "Atleast one CSS should be present in connected state\n");
       config_dci_pdu(mac, dl_config, TYPE_C_RNTI_, slot, css);
+    }
+  } else if (mac->state == UE_IDLE) {
+    /* UE_IDLE (RRC-triggered camped idle) monitors pagingSearchSpace per TS 38.213 §10.1 and TS 38.304 §7.1. */
+    if (pdcch_config->paging_SS_id > -1) {
+      const NR_SearchSpace_t *paging_ss = get_common_search_space(mac, pdcch_config->paging_SS_id);
+      AssertFatal(paging_ss, "pagingSearchSpaceId=%ld not found in common SS list\n", pdcch_config->paging_SS_id);
+      DevAssert(paging_ss->searchSpaceType && paging_ss->searchSpaceType->present == NR_SearchSpace__searchSpaceType_PR_common);
+      if (pdcch_config->paging_SS_id > 0) {
+        DevAssert(paging_ss->monitoringSymbolsWithinSlot && paging_ss->monitoringSymbolsWithinSlot->buf
+                  && paging_ss->monitoringSymbolsWithinSlot->size >= 2);
+      }
+      if (monitor_paging_dci(paging_ss, mac, frame, slot, slots_per_frame)) {
+        LOG_D(NR_MAC_DCI,
+              "[UE %d] Monitoring P-RNTI DCI at %04d.%02d (SearchSpaceId=%ld)\n",
+              mac->ue_id,
+              frame,
+              slot,
+              paging_ss->searchSpaceId);
+        config_dci_pdu(mac, dl_config, TYPE_P_RNTI_, slot, paging_ss);
+      }
+    } else {
+      LOG_D(NR_MAC,
+            "[UE %d] pagingSearchSpace is not configured (paging_SS_id=%ld), skipping P-RNTI monitoring\n",
+            mac->ue_id,
+            pdcch_config->paging_SS_id);
     }
   }
 }

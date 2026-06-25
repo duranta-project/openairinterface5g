@@ -25,6 +25,7 @@ NR_UE_DL_BWP_t *get_dl_bwp_structure(NR_UE_MAC_INST_t *mac, int bwp_id, bool set
 NR_UE_UL_BWP_t *get_ul_bwp_structure(NR_UE_MAC_INST_t *mac, int bwp_id, bool setup);
 
 void send_srb0_rrc(int ue_id, const uint8_t *sdu, sdu_size_t sdu_len, void *data);
+void send_pcch_rrc(int ue_id, const uint8_t *sdu, sdu_size_t sdu_len, void *data);
 void update_mac_ul_timers(NR_UE_MAC_INST_t *mac);
 void update_mac_dl_timers(NR_UE_MAC_INST_t *mac);
 NR_LC_SCHEDULING_INFO *get_scheduling_info_from_lcid(NR_UE_MAC_INST_t *mac, NR_LogicalChannelIdentity_t lcid);
@@ -65,6 +66,8 @@ void nr_rrc_mac_config_req_cg(module_id_t module_id,
 void nr_rrc_mac_config_req_mib(module_id_t module_id, int cc_idP, NR_MIB_t *mibP, bool barred);
 void nr_rrc_mac_sched_sib(module_id_t module_id, int sched_sib);
 void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *sib1, bool can_start_ra);
+void nr_rrc_mac_config_req_paging_ue_id(module_id_t module_id, uint64_t fiveG_S_TMSI);
+void nr_rrc_mac_start_ra(module_id_t module_id, nr_mac_ra_start_cause_t cause);
 
 struct position; /* forward declaration */
 void nr_rrc_mac_config_other_sib(module_id_t module_id, NR_SIB19_r17_t *sib19_r17, int hfn, int frame, bool can_start_ra);

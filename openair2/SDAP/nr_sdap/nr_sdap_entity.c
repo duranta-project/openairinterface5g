@@ -7,6 +7,7 @@
 #include <openair3/ocp-gtpu/gtp_itf.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <unistd.h>
 #include "T.h"
 #include "assertions.h"
@@ -14,7 +15,6 @@
 #include "gtpv1_u_messages_types.h"
 #include "intertask_interface.h"
 #include "rlc.h"
-#include "tuntap_if.h"
 #include "nr_sdap.h"
 
 #define NO_SDAP_HEADER 0
@@ -26,6 +26,15 @@ typedef struct {
 static nr_sdap_entity_info sdap_info;
 
 instance_t *N3GTPUInst = NULL;
+
+static void remove_ip_if(nr_sdap_entity_t *entity)
+{
+  DevAssert(entity != NULL);
+  nr_sdap_tun_detach(entity);
+  if (!entity->is_gnb)
+    return;
+  nr_sdap_tun_destroy(entity->ue_id, entity->pdusession_id);
+}
 
 /** @brief Returns a bitmap indicating the SDAP entity role,
  *        i.e. for UL transmission, header for UL data is present in RX/TX
@@ -338,6 +347,10 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
      * 5.2.2 Downlink
      * deliver the retrieved SDAP SDU to the upper layer.
      */
+    if (entity->pdusession_sock < 0) {
+      LOG_D(SDAP, "[UE %ld] PDU session %d: TUN not attached, drop DL SDU (%d B)\n", ue_id, pdusession_id, size - offset);
+      return;
+    }
     int len = write(entity->pdusession_sock, &buf[offset], size - offset);
     LOG_D(SDAP, "RX Entity len : %d\n", len);
     LOG_D(SDAP, "RX Entity size : %d\n", size);
@@ -521,6 +534,7 @@ static void nr_sdap_qfi2drb_map_update(nr_sdap_entity_t *entity, const sdap_conf
 static void nr_sdap_add_entity(const int is_gnb, const ue_id_t ue_id, const sdap_config_t *sdap)
 {
   nr_sdap_entity_t *sdap_entity = calloc_or_fail(1, sizeof(*sdap_entity));
+  LOG_I(SDAP, "Creating SDAP entity ue_id=%ld pdu_session_id=%d\n", ue_id, sdap->pdusession_id);
 
   // SDAP entity ids
   sdap_entity->ue_id = ue_id;
@@ -568,6 +582,13 @@ static void nr_sdap_add_entity(const int is_gnb, const ue_id_t ue_id, const sdap
     // PDCP SDUs to/from the TUN interface.
     start_sdap_tun_gnb_first_ue_default_pdu_session(ue_id, sdap_entity->pdusession_id);
   }
+
+  if (!is_gnb) {
+    /* No-op on first setup until NAS registers the TUN. After paging/service request,
+     * re-attach the preserved UE TUN for the established PDU session (TS 38.304 clause 7.1,
+     * TS 24.501 clauses 5.6.2.2.1/5.6.1.1 restore UP resources for an established PDU session). */
+    nr_sdap_tun_attach(sdap_entity);
+  }
 }
 
 /** @brief Add or modify an SDAP entity if it already exists */
@@ -591,8 +612,10 @@ nr_sdap_entity_t *nr_sdap_get_entity(ue_id_t ue_id, int pdusession_id)
   nr_sdap_entity_t *sdap_entity;
   sdap_entity = sdap_info.sdap_entity_llist;
 
-  if(sdap_entity == NULL)
+  if (sdap_entity == NULL) {
+    LOG_W(SDAP, " Could not find SDAP entity: entity list empty (ue_id=%ld pdu_session_id=%d)\n", ue_id, pdusession_id);
     return NULL;
+  }
 
   while ((sdap_entity->ue_id != ue_id || sdap_entity->pdusession_id != pdusession_id) && sdap_entity->next_entity != NULL) {
     sdap_entity = sdap_entity->next_entity;
@@ -692,8 +715,7 @@ bool nr_sdap_delete_entity(ue_id_t ue_id, int pdusession_id)
 
   if (entityPtr->ue_id == ue_id && entityPtr->pdusession_id == pdusession_id) {
     sdap_info.sdap_entity_llist = sdap_info.sdap_entity_llist->next_entity;
-    if (entityPtr->pdusession_sock != -1)
-      remove_ip_if(entityPtr);
+    remove_ip_if(entityPtr);
     free(entityPtr);
     LOG_D(SDAP, "Successfully deleted SDAP entity for UE %lx and PDU Session id %d\n", ue_id, pdusession_id);
     return true;
@@ -707,9 +729,7 @@ bool nr_sdap_delete_entity(ue_id_t ue_id, int pdusession_id)
 
     if (entityPtr->ue_id == ue_id && entityPtr->pdusession_id == pdusession_id) {
       entityPrev->next_entity = entityPtr->next_entity;
-      if (entityPtr->pdusession_sock != -1) {
-        remove_ip_if(entityPtr);
-      }
+      remove_ip_if(entityPtr);
       free(entityPtr);
       LOG_D(SDAP, "Successfully deleted Entity for UE %lx and PDU Session id %d\n", ue_id, pdusession_id);
       return true;
@@ -734,8 +754,7 @@ bool nr_sdap_delete_ue_entities(ue_id_t ue_id)
   /* Handle scenario where ue_id matches the head of the list */
   while (entityPtr != NULL && entityPtr->ue_id == ue_id && upperBound < MAX_DRBS_PER_UE) {
     sdap_info.sdap_entity_llist = entityPtr->next_entity;
-    if (entityPtr->pdusession_sock != -1)
-      remove_ip_if(entityPtr);
+    remove_ip_if(entityPtr);
     free(entityPtr);
     entityPtr = sdap_info.sdap_entity_llist;
     ret = true;
@@ -747,8 +766,7 @@ bool nr_sdap_delete_ue_entities(ue_id_t ue_id)
       entityPtr = entityPtr->next_entity;
     } else {
       entityPrev->next_entity = entityPtr->next_entity;
-      if (entityPtr->pdusession_sock != -1)
-        remove_ip_if(entityPtr);
+      remove_ip_if(entityPtr);
       free(entityPtr);
       entityPtr = entityPrev->next_entity;
       LOG_I(SDAP, "Successfully deleted SDAP entity for UE %ld\n", ue_id);
@@ -815,8 +833,9 @@ void nr_reconfigure_sdap_entity(NR_SDAP_Config_t *sdap_config, ue_id_t ue_id, in
 
 void set_qfi(uint8_t qfi, uint8_t pduid, ue_id_t ue_id)
 {
+  DevAssert(qfi < SDAP_MAX_QFI);
   nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pduid);
   DevAssert(entity != NULL);
   entity->qfi = qfi;
-  return;
+  nr_sdap_tun_store_qfi(ue_id, pduid, qfi);
 }

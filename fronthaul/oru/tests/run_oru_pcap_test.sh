@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
 set -e
 
 # This script downloads a PCAP file, unarchives it, and then runs a test executable.

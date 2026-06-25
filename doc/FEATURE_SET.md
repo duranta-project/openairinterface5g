@@ -145,6 +145,11 @@ These modes of operation are supported:
   - evalution of RSRP report
   - evaluation of CQI report
 - MAC scheduling of SR reception
+- Paging (PCCH/P-RNTI)
+  - CN paging records queued
+  - PF/PO dequeue from SIB1 PCCH-Config
+  - PCCH encoded at the UE's PO
+  - Type2 common search-space based P-RNTI PDCCH + PDSCH scheduling for PCCH
 - Intra-frequency handover
 - Inter-frequency handover
     - Measurement gaps are automatically computed at the DU if the CU has neighbor information and the configured
@@ -230,9 +235,12 @@ These modes of operation are supported:
   - NGAP Initial UE message
   - NGAP Initial context setup request/response
   - NGAP Downlink/Uplink NAS transfer
-  - NGAP UE context release request/complete
+  - NGAP Paging
+  - NGAP UE context release request/command/complete
   - NGAP UE radio capability info indication
   - NGAP PDU session resource setup request/response
+  - NGAP PDU session resource modify request/response
+  - NGAP PDU session resource release command/response
   - NGAP Mobility Management Procedures:
     * NGAP Handover Required
     * NGAP Handover Request
@@ -259,6 +267,7 @@ These modes of operation are supported:
     * F1 UE Context modification request/response
     * F1 UE Context modification required
     * F1 UE Context release req/cmd/complete
+  - F1 Paging
   - F1 gNB CU configuration update
   - F1 gNB DU configuration update
   - F1 Reset (handled at DU only, full reset only)
@@ -279,10 +288,14 @@ These modes of operation are supported:
   - E1 Bearer Context Setup (gNB-CU-CP initiated)
       - E1 Bearer Context Setup Request
       - E1 Bearer Context Setup Response
+      - E1 Bearer Context Setup Failure
   - Bearer Context Modification (gNB-CU-CP initiated)
       - E1 Bearer Context Modification Request
       - E1 Bearer Context Modification Response
-  - E1 Reset
+      - E1 Bearer Context Modification Failure
+  - Bearer Context Release (gNB-CU-CP initiated)
+      - E1 Bearer Context Release Command
+      - E1 Bearer Context Release Complete
 - Interface with RRC and PDCP/SDAP
 - One CU-CP can handle multiple CU-UPs
 
@@ -356,9 +369,9 @@ These modes of operation are supported:
 * NR-PRACH
    - Formats 0,1,2,3, A1-A3, B1-B3
 * NTN
-   - TA adjustemt based on ntn-Config-r17 information
-   - Different TA adjustemt algorithms between SIB19 receptions:
-      - Autonomous TA adjustemt based on DL time tracking
+   - TA adjustment based on ntn-Config-r17 information
+   - Different TA adjustment algorithms between SIB19 receptions:
+      - Autonomous TA adjustment based on DL time tracking
       - Standard compliant epoch time based TA adjustment including orbital propagation
    - DL Doppler compensation based on ntn-Config-r17 information
    - UL Doppler pre-compensation based on ntn-Config-r17 information and residual DL FO estimation
@@ -395,9 +408,12 @@ These modes of operation are supported:
       - Fallback not supported
 * DCI processing
    - format 10 (RA-RNTI, C-RNTI, SI-RNTI, TC-RNTI)
+   - format 10 with P-RNTI
    - format 00 (C-RNTI, TC-RNTI)
    - format 11 (C-RNTI)
    - format 01 (C-RNTI)
+* Paging monitoring and reception
+   - PF/PO-based paging PDCCH monitoring in IDLE/non-connected states
 * UCI processing
    - ACK/NACK processing
    - Scheduling request procedures
@@ -462,6 +478,7 @@ These modes of operation are supported:
    - Support for master cell group configuration
    - Reception of UECapabilityEnquiry, encoding and transmission of UECapability
    - Support for measurement report of Event A2/A3
+   - Paging: PCCH reception
 * NTN according to 38.331 Rel.17
    - Reception of ntn-Config-r17 from SIB19 or reconfigurationWithSync
    - Handling of ntn-UlSyncValidityDuration-r17 in SIB19
@@ -472,7 +489,8 @@ These modes of operation are supported:
 
 * Transfer of NAS messages between the AMF and the UE supporting the UE registration with the core network and the PDU session establishment according to 24.501 Rel.16
 * 5GMM (5G Mobility Management) messages:
-  - Service Request/Accept/Reject (enc/dec library only)
+  - Service Request/Accept/Reject (Network-triggered Service Request TS 23.502 §4.2.3.3,
+    UE-Triggered Service Request after paging, TS 23.502 §4.2.3.2)
   - Identity Request/Response
   - Authentication Request/Response
   - Security Mode Command/Complete

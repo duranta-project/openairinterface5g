@@ -257,11 +257,9 @@ uint32_t nr_timer_remaining_time(const NR_timer_t *timer);
 
 int set_default_nta_offset(frequency_range_t freq_range, uint32_t samples_per_subframe);
 
-static inline int get_num_dmrs(uint16_t dmrs_mask )
+static inline int get_num_dmrs(uint16_t dmrs_mask)
 {
-  int num_dmrs=0;
-  for (int i=0;i<16;i++) num_dmrs+=((dmrs_mask>>i)&1);
-  return(num_dmrs);
+  return __builtin_popcount(dmrs_mask);
 }
 
 void warn_higher_threequarter_fs(const int n_rb, const int mu);

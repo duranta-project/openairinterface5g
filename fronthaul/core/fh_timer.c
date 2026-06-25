@@ -18,7 +18,7 @@ static uint64_t get_gps_ns(void)
 {
   struct timespec ts;
   clock_gettime(CLOCK_REALTIME, &ts);
-  return ((uint64_t)ts.tv_sec - GPS_EPOCH_OFFSET_UNIX) * NS_PER_SEC + ts.tv_nsec;
+  return ((uint64_t)ts.tv_sec - GPS_EPOCH_OFFSET_UNIX + GPS_LEAP_SECONDS) * NS_PER_SEC + ts.tv_nsec;
 }
 
 void fh_timer_tick(fh_timer_t *timer)
@@ -31,8 +31,17 @@ void fh_timer_tick(fh_timer_t *timer)
     typedef __int128_t int128;
     uint64_t total_syms_per_ms = 14 << timer->numerology;
 
-    // Boundary(ies) crossed
-    while (now >= timer->target_gps_ns && timer->running) {
+    // 1. Calculate how many symbols *should* have elapsed up to 'now'
+    // This catches up if the clock jumped forward, or processes at least 1 symbol.
+    uint64_t expected_s_abs = (uint64_t)((int128)now * total_syms_per_ms / NS_PER_MS);
+
+    // PTP sync backwards adjustment - don't run callbacks until we catch up to the previously expected symbol index
+    if (expected_s_abs < timer->next_s_abs) {
+      return;
+    }
+
+    // 2. Drive the loop using the absolute symbol counter, not the volatile 'now' time
+    while (timer->next_s_abs <= expected_s_abs && timer->running) {
       uint64_t s_abs = timer->next_s_abs;
       rte_atomic64_set(&timer->s_abs, s_abs);
 
@@ -43,8 +52,10 @@ void fh_timer_tick(fh_timer_t *timer)
 
       // Prepare for next symbol
       timer->next_s_abs++;
-      timer->target_gps_ns = (uint64_t)((int128)timer->next_s_abs * NS_PER_MS / total_syms_per_ms);
     }
+
+    // 3. Recalculate the next target timestamp based purely on the new symbol index
+    timer->target_gps_ns = (uint64_t)((int128)timer->next_s_abs * NS_PER_MS / total_syms_per_ms);
   }
 }
 

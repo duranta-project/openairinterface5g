@@ -1864,12 +1864,28 @@ void nr_rrc_mac_config_req_reset(module_id_t module_id, NR_UE_MAC_reset_cause_t 
   fapi_nr_synch_request_t sync_req = {.target_Nid_cell = -1, .ssb_bw_scan = true};
   switch (cause) {
     case GO_TO_IDLE:
+      /* TS 38.331 §5.3.11: enter RRC_IDLE and perform cell selection per TS 38.304. */
       reset_ra(mac, true);
       nr_ue_init_mac(mac);
       release_mac_configuration(mac, cause);
       nr_ue_mac_default_configs(mac);
       // new sync but no target cell id -> -1
       nr_ue_send_synch_request(mac, module_id, 0, &sync_req);
+      break;
+    case GO_TO_IDLE_KEEP_CAMPED:
+      /* Normal no-redirection RRCRelease: keep the selected camped cell context for TS 38.304 §5.2.5/§7.1
+       * paging, while releasing connected-mode MAC state. RA stays idle until paging/NAS triggers access. */
+      // Stop any in-progress RA and discard PRACH resources
+      reset_ra(mac, true);
+      // Apply TS 38.321 §5.12 MAC reset (no PHY sync reinit)
+      reset_mac_inst(mac);
+      // Release dedicated MAC config (keep SIB1/common BWP0/paging PDCCH for the camped cell)
+      release_mac_configuration(mac, cause);
+      // Restore default MAC Cell Group timers/config (after the reset)
+      nr_ue_mac_default_configs(mac);
+      mac->ra.ra_state = nrRA_UE_IDLE;
+      mac->ra.RA_active = false;
+      mac->state = UE_IDLE;
       break;
     case DETACH:
       LOG_A(NR_MAC, "Received detach indication\n");
@@ -1879,34 +1895,10 @@ void nr_rrc_mac_config_req_reset(module_id_t module_id, NR_UE_MAC_reset_cause_t 
       release_mac_configuration(mac, cause);
       mac->state = UE_DETACHING;
       break;
-    case T300_EXPIRY:
-      reset_ra(mac, false);
-      reset_mac_inst(mac);
-      mac->state = UE_PERFORMING_RA; // still in sync but need to restart RA
-      break;
     case REJECT:
       reset_ra(mac, false);
       reset_mac_inst(mac);
       mac->state = UE_BARRED;
-      break;
-    case RE_ESTABLISHMENT:
-      reset_mac_inst(mac);
-      nr_ue_mac_default_configs(mac);
-      nr_ue_reset_sync_state(mac, true);
-      release_mac_configuration(mac, cause);
-      // suspend all RBs except SRB0
-      for (int j = 0; j < mac->lc_ordered_list.count; j++) {
-        nr_lcordered_info_t *lc = mac->lc_ordered_list.array[j];
-        if (lc->rb.type == NR_LCID_SRB && lc->rb.choice.srb_id == 0)
-          continue;
-        lc->rb_suspended = true;
-      }
-      // apply the timeAlignmentTimerCommon included in SIB1
-      configure_timeAlignmentTimer(&mac->time_alignment_timer, mac->timeAlignmentTimerCommon, mac->current_UL_BWP->scs);
-      // new sync with old cell ID (re-establishment on the same cell)
-      sync_req.target_Nid_cell = mac->physCellId;
-      sync_req.ssb_bw_scan = false;
-      nr_ue_send_synch_request(mac, module_id, 0, &sync_req);
       break;
     case RRC_SETUP_REESTAB_RESUME:
       release_mac_configuration(mac, cause);
@@ -1973,6 +1965,119 @@ static void configure_si_schedulingInfo(NR_UE_MAC_INST_t *mac,
   }
 }
 
+/** @brief Parse SIB1 PCCH-Config (TS 38.331) into UE MAC paging_cfg (T, N, PF_offset, Ns, X and the
+ *  per-PO start-MO list). */
+static void configure_pcch_config(NR_UE_MAC_INST_t *mac, const NR_ServingCellConfigCommonSIB_t *scc)
+{
+  DevAssert(mac);
+  DevAssert(scc);
+  const NR_PCCH_Config_t *pcch = &scc->downlinkConfigCommon.pcch_Config;
+  nr_ue_paging_cfg_t *paging_cfg = &mac->paging_cfg;
+  /* Reset the per-PO start-MO list */
+  paging_cfg->first_mo_of_po_count = 0;
+  memset(paging_cfg->first_mo_of_po, 0, sizeof(paging_cfg->first_mo_of_po));
+
+  paging_cfg->T = nr_pcch_default_paging_cycle_rf(pcch);
+  nr_pcch_n_and_paging_frame_offset(pcch, paging_cfg->T, &paging_cfg->N, &paging_cfg->PF_offset);
+  paging_cfg->Ns = nr_pcch_ns_per_pf(pcch);
+
+  /* TS 38.304 §7.1: X defaults to 1 when nrofPDCCH-MonitoringOccasionPerSSB-InPO-r16 is absent
+   * (one PDCCH MO per SSB in a PO) */
+  paging_cfg->X = 1;
+  if (pcch->ext1 && pcch->ext1->nrofPDCCH_MonitoringOccasionPerSSB_InPO_r16) {
+    const long x = *pcch->ext1->nrofPDCCH_MonitoringOccasionPerSSB_InPO_r16;
+    AssertFatal(x >= 2 && x <= NR_PCCH_MAX_MO_PER_SSB_IN_PO,
+                "TS 38.331 PCCH-Config: nrofPDCCH-MonitoringOccasionPerSSB-InPO-r16=%ld out of range (2..%d)\n",
+                x,
+                NR_PCCH_MAX_MO_PER_SSB_IN_PO);
+    paging_cfg->X = x;
+  }
+
+  // TS 38.304 §7.1 / TS 38.331 PCCH-Config: when firstPDCCH-MonitoringOccasionOfPO is present, it
+  // explicitly defines the starting PDCCH MO index of each PO within the PF, overriding the default
+  // (i_s * S * X) computation.
+  if (pcch->firstPDCCH_MonitoringOccasionOfPO) {
+    for (uint8_t i = 0; i < sizeofArray(paging_cfg->first_mo_of_po); i++) {
+      int v;
+      if (!nr_pcch_first_pdcch_start_mo(pcch->firstPDCCH_MonitoringOccasionOfPO, i, &v))
+        break;
+      paging_cfg->first_mo_of_po[i] = v;
+      paging_cfg->first_mo_of_po_count++;
+    }
+  }
+
+  LOG_D(NR_MAC,
+        "PCCH-Config parsed: T=%u N=%u Ns=%u PF_offset=%u X=%u first_mo_of_po_count=%u\n",
+        paging_cfg->T,
+        paging_cfg->N,
+        paging_cfg->Ns,
+        paging_cfg->PF_offset,
+        paging_cfg->X,
+        paging_cfg->first_mo_of_po_count);
+}
+
+/** @brief RRC to MAC: push 5G-S-TMSI for paging UE_ID derivation (TS 38.304 §7.1).
+ * Lifecycle:
+ * - RRC_IDLE after first NAS registration:       5G-S-TMSI known -> UE_ID = TMSI mod 1024.
+ * - RRC_INACTIVE:                                same as above (UE also has fullI-RNTI).
+ * The "no 5G-S-TMSI" window between MIB/SIB1 reception and NAS_5GMM_IND is legitimate per spec,
+ * the UE must still monitor PF/PO with UE_ID = 0 for broadcast-style notifications.
+ * @note Pass UINT64_MAX to invalidate (no 5G-S-TMSI). */
+void nr_rrc_mac_config_req_paging_ue_id(module_id_t module_id, uint64_t fiveG_S_TMSI)
+{
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  int ret = pthread_mutex_lock(&mac->if_mutex);
+  AssertFatal(!ret, "mutex failed %d\n", ret);
+  /* TS 38.304 §7.1: UE_ID = 5G-S-TMSI mod 1024, or 0 when no 5G-S-TMSI is allocated. */
+  mac->paging_cfg.ue_id = (fiveG_S_TMSI == UINT64_MAX) ? 0 : fiveG_S_TMSI % 1024;
+  LOG_I(NR_MAC, "[UE %d] paging UE_ID=%u\n", mac->ue_id, mac->paging_cfg.ue_id);
+  pthread_mutex_unlock(&mac->if_mutex);
+}
+
+static void nr_mac_start_ra(NR_UE_MAC_INST_t *mac, module_id_t module_id, nr_mac_ra_start_cause_t cause)
+{
+  switch (cause) {
+    case NR_MAC_RA_START_SETUP:
+    case NR_MAC_RA_START_T300:
+      reset_ra(mac, false);
+      reset_mac_inst(mac);
+      mac->msg3_C_RNTI = false;
+      mac->state = UE_PERFORMING_RA;
+      break;
+    case NR_MAC_RA_START_REESTABLISHMENT: {
+      fapi_nr_synch_request_t sync_req = {.target_Nid_cell = mac->physCellId, .ssb_bw_scan = false};
+      reset_mac_inst(mac);
+      nr_ue_mac_default_configs(mac);
+      nr_ue_reset_sync_state(mac, true);
+      release_mac_configuration(mac, RE_ESTABLISHMENT);
+      for (int j = 0; j < mac->lc_ordered_list.count; j++) {
+        nr_lcordered_info_t *lc = mac->lc_ordered_list.array[j];
+        if (lc->rb.type == NR_LCID_SRB && lc->rb.choice.srb_id == 0)
+          continue;
+        lc->rb_suspended = true;
+      }
+      configure_timeAlignmentTimer(&mac->time_alignment_timer, mac->timeAlignmentTimerCommon, mac->current_UL_BWP->scs);
+      nr_ue_send_synch_request(mac, module_id, 0, &sync_req);
+      break;
+    }
+    default:
+      AssertFatal(false, "unknown nr_mac_ra_start_cause_t %d\n", cause);
+  }
+}
+
+/** @brief All RRC-initiated RA entry points */
+void nr_rrc_mac_start_ra(module_id_t module_id, nr_mac_ra_start_cause_t cause)
+{
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  int ret = pthread_mutex_lock(&mac->if_mutex);
+  AssertFatal(!ret, "mutex failed %d\n", ret);
+
+  nr_mac_start_ra(mac, module_id, cause);
+
+  ret = pthread_mutex_unlock(&mac->if_mutex);
+  AssertFatal(!ret, "mutex failed %d\n", ret);
+}
+
 void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *sib1, bool can_start_ra)
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
@@ -1988,6 +2093,7 @@ void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *si
   AssertFatal(scc, "SIB1 SCC should not be NULL\n");
   UPDATE_IE(mac->tdd_UL_DL_ConfigurationCommon, scc->tdd_UL_DL_ConfigurationCommon, NR_TDD_UL_DL_ConfigCommon_t);
   configure_si_schedulingInfo(mac, si_SchedulingInfo, si_SchedulingInfo_v1700);
+  configure_pcch_config(mac, scc);
 
   config_common_ue_sa(mac, scc, cc_idP);
 

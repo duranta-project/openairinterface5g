@@ -28,17 +28,19 @@ typedef struct {
   float want_aoa_deg; /* degrees; TDL-D/E only; 0.0 = broadside default */
 } cirdb_select_opts_t;
 
+/* Opaque handle for CIRDB provider */
+typedef struct cirdb_provider_s cirdb_provider_t;
+
 /* Initialize provider and publish snapshot 0 through channel_desc_out. */
-void cirdb_connect(int id,
-                   int num_tx_antennas,
-                   int num_rx_antennas,
-                   const cirdb_select_opts_t *sel,
-                   channel_desc_t **channel_desc_out);
+cirdb_provider_t *cirdb_connect(int num_tx_antennas,
+                                int num_rx_antennas,
+                                const cirdb_select_opts_t *sel,
+                                channel_desc_t **channel_desc_out);
 
 /* Advance snapshot selection based on elapsed nanoseconds since the start. */
-void cirdb_update(uint64_t ns_since_start);
+void cirdb_update(cirdb_provider_t *provider, uint64_t ns_since_start);
 
 /* Tear down and free resources. */
-void cirdb_stop(void);
+void cirdb_stop(cirdb_provider_t *provider);
 
 #endif /* OAI_VRTSIM_CIRDB_PROVIDER_H */

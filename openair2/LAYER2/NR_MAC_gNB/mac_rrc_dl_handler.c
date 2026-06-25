@@ -1107,3 +1107,22 @@ void dl_rrc_message_transfer(const f1ap_dl_rrc_message_t *dl_rrc)
   /* the DU ue id is the RNTI */
   nr_rlc_srb_recv_sdu(dl_rrc->gNB_DU_ue_id, dl_rrc->srb_id, dl_rrc->rrc_container, dl_rrc->rrc_container_length);
 }
+
+/** @brief For CN-initiated Paging, enqueue one MAC record per F1AP/NGAP Paging.
+ * TS 38.413 §8.5.1.2: each NGAP PAGING shall result in one radio page per cell.
+ * One received indication is mapped to one DU queue entry. */
+void f1_paging(const f1ap_paging_t *paging)
+{
+  DevAssert(paging);
+  if (paging->identity_type != F1AP_PAGING_IDENTITY_CN_UE) {
+    LOG_W(MAC, "RAN UE paging identity not supported\n");
+    return;
+  }
+
+  const module_id_t module_id = 0;
+  const uint64_t fiveg_s_tmsi = paging->identity.cn_ue_paging_identity;
+  const uint16_t ue_id = paging->ue_identity_index_value % 1024;
+
+  LOG_I(MAC, "Paging transfer: ue_identity_index=%u, 5G-S-TMSI=0x%012lu\n", paging->ue_identity_index_value, fiveg_s_tmsi);
+  nr_mac_pcch_enqueue(module_id, fiveg_s_tmsi, ue_id);
+}

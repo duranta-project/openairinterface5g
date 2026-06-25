@@ -180,6 +180,7 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame, slot_t slo
     if (IS_SA_MODE(get_softmodem_params())) {
       schedule_nr_sib1(module_idP, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
       schedule_nr_other_sib(module_idP, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
+      schedule_nr_pcch(gNB, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
     }
   }
 

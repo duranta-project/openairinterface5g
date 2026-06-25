@@ -8,6 +8,7 @@
 #include "NR_MIB.h"
 #include "NR_CellGroupConfig.h"
 #include "NR_UE-NR-Capability.h"
+#include "NR_PCCH-Config.h"
 #include "nr_mac.h"
 #include "nr_prach_config.h"
 #include "common/utils/nr/nr_common.h"
@@ -306,5 +307,25 @@ int nr_get_prach_or_ul_mu(const NR_MsgA_ConfigCommon_r16_t *msgacc, const NR_RAC
 int get_delta_for_k2(int mu);
 
 int get_j_for_k2(int mu);
+
+uint16_t nr_pcch_default_paging_cycle_rf(const NR_PCCH_Config_t *pcch);
+
+void nr_pcch_n_and_paging_frame_offset(const NR_PCCH_Config_t *pcch, uint16_t T, uint16_t *N, uint8_t *PF_offset);
+
+uint8_t nr_pcch_ns_per_pf(const NR_PCCH_Config_t *pcch);
+
+bool nr_pcch_first_pdcch_start_mo(const struct NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO *po_list,
+                                  uint8_t i_s,
+                                  int *start_mo);
+
+bool nr_pcch_sfn_is_pf(uint16_t frame, uint8_t PF_offset, uint16_t T, uint16_t N, uint16_t ue_id);
+
+uint8_t nr_pcch_po_index(uint16_t ue_id, uint16_t N, uint8_t Ns);
+
+bool nr_pcch_ss0_po_half_frame(uint8_t i_s, int slot, int slots_per_frame);
+
+bool nr_pcch_type2_po_mo_in_range(int frame, int slot, int slots_per_frame, int period, int offset, int start_mo, int end_mo);
+
+uint16_t nr_pdcch_monitoring_symbols_mask(const BIT_STRING_t *symbols_in_slot, uint8_t sps);
 
 #endif

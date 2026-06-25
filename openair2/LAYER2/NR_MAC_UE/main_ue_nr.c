@@ -23,6 +23,16 @@ void send_srb0_rrc(int ue_id, const uint8_t *sdu, sdu_size_t sdu_len, void *data
   itti_send_msg_to_task(TASK_RRC_NRUE, ue_id, message_p);
 }
 
+void send_pcch_rrc(int ue_id, const uint8_t *sdu, sdu_size_t sdu_len, void *data)
+{
+  AssertFatal(sdu_len > 0 && sdu_len <= PCCH_SDU_SIZE, "invalid PCCH SDU size %d\n", sdu_len);
+  MessageDef *message_p = itti_alloc_new_message(TASK_MAC_UE, 0, NR_RRC_MAC_PCCH_DATA_IND);
+  memset(NR_RRC_MAC_PCCH_DATA_IND(message_p).sdu, 0, sdu_len);
+  memcpy(NR_RRC_MAC_PCCH_DATA_IND(message_p).sdu, sdu, sdu_len);
+  NR_RRC_MAC_PCCH_DATA_IND(message_p).sdu_size = sdu_len;
+  itti_send_msg_to_task(TASK_RRC_NRUE, ue_id, message_p);
+}
+
 void nr_ue_init_mac(NR_UE_MAC_INST_t *mac)
 {
   LOG_I(NR_MAC, "[UE%d] Initializing MAC\n", mac->ue_id);
@@ -216,11 +226,51 @@ void reset_mac_inst(NR_UE_MAC_INST_t *nr_mac)
   // TODO beam failure procedure not implemented
 }
 
+static void release_dedicated_bwp0_config(NR_UE_MAC_INST_t *mac)
+{
+  if (mac->dl_BWPs.count > 0) {
+    NR_UE_DL_BWP_t *bwp = mac->dl_BWPs.array[0];
+    NR_BWP_PDCCH_t *pdcch = &mac->config_BWP_PDCCH[0];
+    for (int i = pdcch->list_Coreset.count; i > 0; i--)
+      asn_sequence_del(&pdcch->list_Coreset, i - 1, 1);
+    for (int i = pdcch->list_SS.count; i > 0; i--)
+      asn_sequence_del(&pdcch->list_SS, i - 1, 1);
+    asn1cFreeStruc(asn_DEF_NR_PDSCH_Config, bwp->pdsch_Config);
+    mac->current_DL_BWP = bwp;
+    mac->sc_info.initial_dl_BWPSize = bwp->BWPSize;
+    mac->sc_info.initial_dl_BWPStart = bwp->BWPStart;
+  }
+
+  if (mac->ul_BWPs.count > 0) {
+    NR_UE_UL_BWP_t *ubwp = mac->ul_BWPs.array[0];
+    asn1cFreeStruc(asn_DEF_NR_PUCCH_Config, ubwp->pucch_Config);
+    asn1cFreeStruc(asn_DEF_NR_SRS_Config, ubwp->srs_Config);
+    asn1cFreeStruc(asn_DEF_NR_PUSCH_Config, ubwp->pusch_Config);
+    mac->current_UL_BWP = ubwp;
+    mac->sc_info.initial_ul_BWPSize = ubwp->BWPSize;
+    mac->sc_info.initial_ul_BWPStart = ubwp->BWPStart;
+  }
+}
+
 void release_mac_configuration(NR_UE_MAC_INST_t *mac, NR_UE_MAC_reset_cause_t cause)
 {
   NR_UE_ServingCell_Info_t *sc = &mac->sc_info;
-  // if cause is Re-establishment, release spCellConfig only
+  /* Partial release for normal no-redirection RRCRelease: RRC keeps the current cell selected for idle camping
+   * (TS 38.304 §5.2.5), so keep SIB1/common BWP0/paging PDCCH and drop only connected-mode MAC config. */
+  if (cause == GO_TO_IDLE_KEEP_CAMPED) {
+    for (int i = mac->lc_ordered_list.count; i > 0; i--)
+      asn_sequence_del(&mac->lc_ordered_list, i - 1, 1);
+    for (int i = mac->dl_BWPs.count - 1; i >= 1; i--)
+      release_dl_BWP(mac, i);
+    for (int i = mac->ul_BWPs.count - 1; i >= 1; i--)
+      release_ul_BWP(mac, i);
+    release_dedicated_bwp0_config(mac);
+    return;
+  }
+
   if (cause == GO_TO_IDLE) {
+    /* Full idle/cell-selection path: release stored common cell context before selecting/syncing again
+     * (TS 38.331 §5.3.11, TS 38.304 §5.2.6). */
     asn1cFreeStruc(asn_DEF_NR_MIB, mac->mib);
     asn1cFreeStruc(asn_DEF_NR_SearchSpace, mac->search_space_zero);
     asn1cFreeStruc(asn_DEF_NR_ControlResourceSet, mac->coreset0);

@@ -724,7 +724,7 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
 
                 xranlib_decompress_avx512(&bfp_decom_req, &bfp_decom_rsp);
 #elif defined(__arm__) || defined(__aarch64__)
-                armral_bfp_decompression(pRbElm->iqWidth, numRB, (int8_t *)src, (int16_t *)local_dst);
+                armral_bfp_decompression(pRbElm->iqWidth, numRB, (int8_t *)src, (int16_t *)(local_dst + startRB * N_SC_PER_PRB));
 #else
                 AssertFatal(1 == 0, "BFP compression not supported on this architecture");
 #endif

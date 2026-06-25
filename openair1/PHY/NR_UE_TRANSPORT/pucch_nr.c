@@ -535,198 +535,108 @@ static inline void nr_pucch2_3_4_scrambling(uint16_t M_bit, uint16_t rnti, uint1
 #endif
 }
 
-void nr_uci_encoding(uint64_t payload, uint8_t nr_bit, uint8_t nrofPRB, bool uci_on_pusch, uint16_t E, uint8_t Qm, uint64_t *b)
+/*
+ * Build a tiled pattern of N bits repeated to fill the required output words,
+ * and write it into b[]. Tiling only covers ceil(E/64) word. N <= 32
+ */
+static inline void fill_pattern(uint64_t *b, uint64_t pattern, int N, uint16_t E)
+{
+  int nwords = (E + 63) / 64;
+  memset(b, 0, nwords * sizeof(uint64_t));
+  int ncopies = (E + N - 1) / N;
+  for (int k = 0; k < ncopies; k++) {
+    int bit = k * N;
+    int w = bit / 64;
+    int shift = bit % 64;
+    b[w] |= pattern << shift;
+    if (shift > 0 && shift + N > 64 && w + 1 < nwords)
+      b[w + 1] |= pattern >> (64 - shift);
+  }
+}
+
+void nr_uci_encoding(uint64_t payload, uint8_t nr_bit, uint8_t nrofPRB, uint16_t E, uint8_t Qm, uint64_t *b)
 {
   /*
    * Implementing TS 38.212 Subclause 6.3.1.2 and 6.3.2
    *
+   * For A<=11, encoding and rate matching are combined: each branch builds
+   * the base N-bit codeword as a pattern and fills E output bits directly
+   * via fill_pattern().
+   *
+   * For A>=12, polar_encoder_fast handles encoding and rate matching internally.
+   *
+   * Output b[] is always a packed bitfield: bit i is at b[i/64] position (i%64).
+   *
+   * Placeholder values from Table 5.3.3.2-1 are resolved at encoding time:
+   *   x -> 1
+   *   y -> b(i-1)  (previous output bit; only appears in the A=1 case)
    */
-  // A is the payload size, to be provided in function call
   uint8_t A = nr_bit;
-  // L is the CRC size
-  // uint8_t L;
-  // E is the rate matching output sequence length as given in TS 38.212 subclause 6.3.1.4.1
-  // int I_seg;
+
 #ifdef DEBUG_NR_PUCCH_TX
   printf("\t\t [nr_uci_encoding] start function with encoding A=%d bits into M_bit=%d (where nrofPRB=%d)\n", A, E, nrofPRB);
 #endif
 
-  // For A=1 case (single bit UCI)
+  memset(b, 0, 8 * sizeof(uint64_t));
   if (A == 1) {
-    uint8_t uci_bit_val = payload & 1; // Extract the single UCI bit
-    uint64_t pattern_word;
-    uint8_t *b_bytes = (uint8_t *)b; // Access b as bytes to set individual special values
-
+    uint8_t uci_bit = payload & 1;
     if (Qm == 1) {
-      // For BPSK, just repeat the input bit
-      pattern_word = uci_bit_val ? 0xFFFFFFFFFFFFFFFFULL : 0x0000000000000000ULL;
-      for (int i = 0; i < 8; i++) {
-        b[i] = pattern_word;
-      }
+      // N=1: repeat the single UCI bit
+      // b is already zeroed by memset, when uci_bit=0 we don't need to do anything
+      if (uci_bit)
+        for (int i = 0; i < (E + 63) / 64; i++)
+          b[i] = 0xFFFFFFFFFFFFFFFFULL;
     } else {
-      // For higher order modulation (QPSK, etc.), use placeholder values
-      memset(b, 0, 8 * sizeof(uint64_t));
-
-      // Fill the entire output with the pattern
-      for (int i = 0; i < E; i++) {
-        switch (i % Qm) {
-          case 0:
-            // First bit in each group is actual UCI bit
-            b_bytes[i] = uci_bit_val;
-            LOG_D(PHY,
-                  "[UCI_ENCODING_A1_QAM_LOOP] i=%d, i%%Qm=%d (case 0), writing uci_bit_val %d to b_bytes[%d]\n",
-                  i,
-                  i % Qm,
-                  uci_bit_val,
-                  i);
-            break;
-          case 1:
-            b_bytes[i] = NR_PUSCH_y;
-            LOG_D(PHY,
-                  "[UCI_ENCODING_A1_QAM_LOOP] i=%d, i%%Qm=%d (case 1), writing NR_PUSCH_y (0x%02X) to b_bytes[%d]\n",
-                  i,
-                  i % Qm,
-                  NR_PUSCH_y,
-                  i);
-            break;
-          default:
-            b_bytes[i] = NR_PUSCH_x;
-            break;
-        }
-      }
+      // N=Qm: build one resolved symbol group per Table 5.3.3.2-1:
+      //   pos 0:  c0      (UCI bit)
+      //   pos 1:  y       -> b(i-1) = uci_bit
+      //   pos 2+: x       -> 1
+      // Resolved pattern: [uci_bit, uci_bit, 1, 1, ..., 1]
+      uint64_t pattern = uci_bit ? 0x3ULL : 0x0ULL; // bits 0 and 1
+      if (Qm > 2)
+        pattern |= ((1ULL << (Qm - 2)) - 1) << 2;   // bits 2..Qm-1 set to 1
+      fill_pattern(b, pattern, Qm, E);
     }
-  }
-  // For A=2 case (two bits UCI)
-  else if (A == 2) {
-    uint8_t bit0 = (payload >> 0) & 1;
-    uint8_t bit1 = (payload >> 1) & 1;
-    uint8_t c2 = bit0 ^ bit1; // Parity bit (XOR of the two bits)
-    uint8_t *b_bytes = (uint8_t *)b;
-
+  } else if (A == 2) {
+    uint8_t c0 = (payload >> 0) & 1;
+    uint8_t c1 = (payload >> 1) & 1;
+    uint8_t c2 = c0 ^ c1;
     if (Qm == 1) {
-      // For BPSK, output is [bit0, bit1, c2]
-      uint64_t pattern = (bit0) | (bit1 << 1) | (c2 << 2);
-      // Repeat this 3-bit pattern to fill the output
-      pattern |= pattern << 3;
-      pattern |= pattern << 6;
-      pattern |= pattern << 12;
-      pattern |= pattern << 24;
-      pattern |= pattern << 48;
-
-      for (int i = 0; i < 8; i++) {
-        b[i] = pattern;
-      }
+      // N=3: base codeword [c0 c1 c2]
+      uint64_t pattern = (uint64_t)c0 | ((uint64_t)c1 << 1) | ((uint64_t)c2 << 2);
+      fill_pattern(b, pattern, 3, E);
     } else {
-      // For higher order modulation (Qm>=2), using patterns from Table 5.3.3.2-1
-      // Pattern: 3 groups of Qm bits each = 3*Qm total length
-      memset(b, 0, 8 * sizeof(uint64_t));
-
-      for (int i = 0; i < E; i++) {
-        int pos_in_pattern = i % (3 * Qm);
-        int group = pos_in_pattern / Qm;
-        int pos_in_group = pos_in_pattern % Qm;
-        uint8_t val_to_write;
-
-        if (pos_in_group == 0) {
-          if (group == 0)
-            val_to_write = bit0;
-          else if (group == 1)
-            val_to_write = c2;
-          else
-            val_to_write = bit1;
-        } else if (pos_in_group == 1) {
-          if (group == 0)
-            val_to_write = bit1;
-          else if (group == 1)
-            val_to_write = bit0;
-          else
-            val_to_write = c2;
-        } else {
-          // Positions 2 and beyond are x placeholders
-          val_to_write = NR_PUSCH_x;
-        }
-
-        b_bytes[i] = val_to_write;
+      // N=3*Qm: one full period per Table 5.3.3.2-1.
+      // Each group of Qm bits:
+      //   pos 0:   data bit (c0, c2, c1 for groups 0, 1, 2)
+      //   pos 1:   data bit (c1, c0, c2 for groups 0, 1, 2)
+      //   pos 2+:  x -> 1
+      // Note: Table 5.3.3.2-1 contains no y placeholders for A=2.
+      uint8_t data[3][2] = {{c0, c1}, {c2, c0}, {c1, c2}};
+      uint64_t pattern = 0;
+      for (int group = 0; group < 3; group++) {
+        int base = group * Qm;
+        if (data[group][0])
+          pattern |= (1ULL << (base + 0));
+        if (data[group][1])
+          pattern |= (1ULL << (base + 1));
+        for (int p = 2; p < Qm; p++)
+          pattern |= (1ULL << (base + p));            // x -> 1
       }
+      fill_pattern(b, pattern, 3 * Qm, E);
     }
   } else if (A <= 11) {
-    // procedure in subclause 6.3.1.2.2 (UCI encoded by channel coding of small block lengths -> subclause 6.3.1.3.2)
-    // CRC bits are not attached, and coding small block lengths (subclause 5.3.3)
-    uint64_t b0 = encodeSmallBlock(payload, A);
-    if (uci_on_pusch) {
-      b[0] = b0;
-      for (int i = 1; i < 8; i++) {
-        b[i] = 0;
-      }
-    } else {
-      // repetition for rate-matching up to 16 PRB
-      b[0] = b0 | (b0<<32);
-      b[1] = b[0];
-      b[2] = b[0];
-      b[3] = b[0];
-      b[4] = b[0];
-      b[5] = b[0];
-      b[6] = b[0];
-      b[7] = b[0];
-      AssertFatal(nrofPRB<=16,"Number of PRB >16\n");
-    }
-  } else if (A >= 12) {
-    // Encoder reversal
+    // Small block encoder produces a 32-bit codeword (TS 38.212 subclause 5.3.3).
+    // Rate match by tiling the 32-bit codeword across E output bits.
+    uint64_t pattern = (uint32_t)encodeSmallBlock(payload, A);
+    fill_pattern(b, pattern, 32, E);
+  } else { // A >= 12
+    // Polar encoder handles encoding and rate matching internally
     payload = reverse_bits(payload, A);
-
-    polar_encoder_fast(&payload, b, 0,0,
-                       NR_POLAR_UCI_PUCCH_MESSAGE_TYPE, 
-                       A, 
-                       nrofPRB);
-  }
-
-  if (uci_on_pusch) {
-    // Rate matching for HARQ ACK following 38.212 section 5.4.3
-    uint64_t output[8] = {0}; // Assuming max 512 bits (8 words of 64 bits)
-    uint16_t N;
-    if (nr_bit <= 2) {
-      // For A=1 (BPSK), N=1. For A=2 (QPSK), N=3
-      N = (nr_bit == 1) ? 1 : 3;
-    } else if (nr_bit <= 11) {
-      // For 3 <= A <= 11, the small block encoder produces a 32-bit codeword
-      N = 32;
-    } else {
-      // For polar-coded UCI, output depends on nrofPRB
-      N = 16 * nrofPRB;
-    }
-
-    if ((nr_bit == 1 || nr_bit == 2) && Qm > 1) {
-      LOG_D(PHY,
-            "[UCI_ENCODING_RM] Bypassing bit-wise rate matching for A=%d, Qm=%d. 'b' (length %d bytes) is assumed to be already "
-            "final.\n",
-            nr_bit,
-            Qm,
-            E);
-    } else {
-      if (N == 0) {
-        LOG_W(PHY, "HARQ-ACK rate matching with encoded_length=0 but E_uci_ack=%d\n", E);
-        return;
-      }
-
-      // Rate matching with single loop for both repetition and puncturing
-      for (int i = 0; i < E; i++) {
-        int src_bit = i % N; // Modulo for cyclic repetition
-        int src_word = src_bit / 64;
-        int src_bit_pos = src_bit % 64;
-        int dst_word = i / 64;
-        int dst_bit_pos = i % 64;
-
-        if ((b[src_word] >> src_bit_pos) & 1ULL)
-          output[dst_word] |= (1ULL << dst_bit_pos);
-      }
-
-      for (int i = 0; i < (E + 63) / 64; i++) {
-        b[i] = output[i];
-      }
-    }
+    polar_encoder_fast(&payload, b, 0, 0, NR_POLAR_UCI_PUCCH_MESSAGE_TYPE, A, nrofPRB);
   }
 }
-//#if 0
+
 void nr_generate_pucch2(c16_t **txdataF,
                         const NR_DL_FRAME_PARMS *frame_parms,
                         const int16_t amp16,
@@ -740,7 +650,7 @@ void nr_generate_pucch2(c16_t **txdataF,
   uint64_t b[16] = {0}; // limit to 1024-bit encoded length
   // M_bit is the number of bits of block b (payload after encoding)
   uint16_t M_bit = nr_pucch_output_sequence_length(pucch_pdu->format_type, pucch_pdu->nr_of_symbols, pucch_pdu->prb_size, 0, 0, 0);
-  nr_uci_encoding(pucch_pdu->payload, pucch_pdu->n_bit, pucch_pdu->prb_size, false, M_bit, 0, &b[0]);
+  nr_uci_encoding(pucch_pdu->payload, pucch_pdu->n_bit, pucch_pdu->prb_size, M_bit, 0, &b[0]);
   /*
    * Implementing TS 38.211
    * Subclauses 6.3.2.5.1 Scrambling (PUCCH format 2)
@@ -910,7 +820,7 @@ void nr_generate_pucch2(c16_t **txdataF,
     }
   }
 }
-//#if 0
+
 void nr_generate_pucch3_4(c16_t **txdataF,
                           const NR_DL_FRAME_PARMS *frame_parms,
                           const int16_t amp16,
@@ -957,7 +867,7 @@ void nr_generate_pucch3_4(c16_t **txdataF,
                                           is_pi_over_2_bpsk_enabled,
                                           add_dmrs);
 
-  nr_uci_encoding(pucch_pdu->payload, pucch_pdu->n_bit, nrofPRB, false, M_bit, 0, b);
+  nr_uci_encoding(pucch_pdu->payload, pucch_pdu->n_bit, nrofPRB, M_bit, 0, b);
   /*
    * Implementing TS 38.211
    * Subclauses 6.3.2.6.1 Scrambling (PUCCH formats 3 and 4)

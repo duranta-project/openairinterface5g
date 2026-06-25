@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
+#this is a configuration file
+#used to build real time processing statistics
+#for 5G NR phy test (gNB terminate)
+Title : gNB Processing Time (us) from datalog_rt_stats.default.yaml
+ColNames :
+  - Metric
+  - Average; Max; Count
+  - Average vs Reference Deviation (Reference Value; Acceptability Deviation Threshold)
+Ref :
+  L1 Tx processing : 190.0
+  DLSCH encoding : 120.0
+  L1 Rx processing : 235.0
+  UL segments decoding : 120.0
+  PUSCH inner-receiver : 150.0
+  UL Indication : 2.0
+  Slot Indication : 10.0
+  feprx : 40.0
+  feptx_ofdm (per port, half_slot) : 30
+  feptx_total : 52
+DeviationThreshold :
+  L1 Tx processing : 0.25
+  DLSCH encoding : 0.25
+  L1 Rx processing : 0.25
+  UL segments decoding : 0.25
+  PUSCH inner-receiver : 0.25
+  UL Indication : 1.00
+  Slot Indication : 0.50
+  feprx : 0.25
+  feptx_ofdm (per port, half_slot) : 0.25
+  feptx_total : 0.25

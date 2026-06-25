@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: LicenseRef-CSSL-1.0
+ */
+
 #include "common/platform_types.h"
 #include "xran_pkt_api.h"
 #include "oru_packet_processor.h"

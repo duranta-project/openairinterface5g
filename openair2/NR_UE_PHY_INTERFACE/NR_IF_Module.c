@@ -138,6 +138,32 @@ static nr_dci_format_t handle_dci(NR_UE_MAC_INST_t *mac, frame_t frame, int slot
   return nr_ue_process_dci_indication_pdu(mac, frame, slot, dci);
 }
 
+/** @brief Handle PCCH reception on P-RNTI. */
+static int8_t handle_pcch(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info, int pdu_id)
+{
+  const fapi_nr_pdsch_pdu_t *pdsch_pdu = &dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu;
+
+  if (!pdsch_pdu->ack_nack || !pdsch_pdu->pdu || pdsch_pdu->pdu_length == 0) {
+    LOG_W(NR_MAC,
+          "[%04d.%02d][UE %d] PCCH RX fail: ack=%d len=%d\n",
+          dl_info->frame,
+          dl_info->slot,
+          mac->ue_id,
+          pdsch_pdu->ack_nack,
+          pdsch_pdu->pdu_length);
+    return 0;
+  }
+
+  LOG_D(NR_MAC,
+        "[%04d.%02d][UE %d] Received PCCH on P-RNTI, forwarding %d bytes to RRC\n",
+        dl_info->frame,
+        dl_info->slot,
+        mac->ue_id,
+        pdsch_pdu->pdu_length);
+  send_pcch_rrc(mac->ue_id, pdsch_pdu->pdu, pdsch_pdu->pdu_length, NULL);
+  return 0;
+}
+
 // L2 Abstraction Layer
 // Note: sdu should always be processed because data and timing advance updates are transmitted by the UE
 static int8_t handle_dlsch(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info, int pdu_id)
@@ -277,6 +303,9 @@ static uint32_t nr_ue_dl_processing(NR_UE_MAC_INST_t *mac, nr_downlink_indicatio
           break;
         case FAPI_NR_RX_PDU_TYPE_DLSCH:
           ret_mask |= (handle_dlsch(mac, dl_info, i)) << FAPI_NR_RX_PDU_TYPE_DLSCH;
+          break;
+        case FAPI_NR_RX_PDU_TYPE_PCCH:
+          ret_mask |= (handle_pcch(mac, dl_info, i)) << FAPI_NR_RX_PDU_TYPE_PCCH;
           break;
         case FAPI_NR_RX_PDU_TYPE_RAR:
           if (!dl_info->rx_ind->rx_indication_body[i].pdsch_pdu.ack_nack) {

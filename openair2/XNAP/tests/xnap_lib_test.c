@@ -650,6 +650,141 @@ static void test_xn_ue_context_release(void)
   printf("%s() successful \n", __func__);
 }
 
+/**
+ * 9. XnAP Handover Cancel Testing
+ */
+static void test_xn_handover_cancel(void)
+{
+  /* ---------- create message ---------- */
+  xnap_handover_cancel_t orig = {
+      .s_ng_node_ue_xnap_id = 111111,
+      .cause = {
+          .type = XNAP_CAUSE_RADIO_NETWORK,
+          .value = XNAP_CAUSE_RADIO_NETWORK_LAYER_PROCEDURE_CANCELLED,
+      },
+  };
+
+  /* ---------- encode ---------- */
+  XNAP_XnAP_PDU_t *xnenc = encode_xnap_handover_cancel(&orig);
+  AssertFatal(xnenc != NULL, "encode_xnap_handover_cancel failed");
+
+  XNAP_XnAP_PDU_t *xndec = xnap_encode_decode(xnenc);
+  xnap_msg_free(xnenc);
+
+  /* ---------- decode ---------- */
+  xnap_handover_cancel_t decoded = {0};
+  bool ret = decode_xnap_handover_cancel(&decoded, xndec);
+  AssertFatal(ret, "decode_xnap_handover_cancel failed");
+  xnap_msg_free(xndec);
+
+  /* ---------- equality ---------- */
+  ret = eq_xnap_handover_cancel(&orig, &decoded);
+  AssertFatal(ret, "XnAP Handover Cancel mismatch\n");
+
+  /* ---------- cleanup ---------- */
+  free_xnap_handover_cancel(&decoded);
+  free_xnap_handover_cancel(&orig);
+
+  printf("%s() successful\n", __func__);
+}
+
+/**
+ * 10. XnAP Handover Success Testing
+ */
+static void test_xn_handover_success(void)
+{
+  /* ---------- create message ---------- */
+  plmn_id_t plmn0 = {.mcc = 208, .mnc = 95, .mnc_digit_length = 2};
+
+  xnap_handover_success_t orig = {
+      .s_ng_node_ue_xnap_id = 333333,
+      .t_ng_node_ue_xnap_id = 444444,
+      .target_cgi = {.plmn_id = plmn0, .nrcell_id = 0xABCDEF012ULL},
+  };
+
+  /* ---------- encode ---------- */
+  XNAP_XnAP_PDU_t *xnenc = encode_xnap_handover_success(&orig);
+  AssertFatal(xnenc != NULL, "encode_xnap_handover_success failed");
+
+  XNAP_XnAP_PDU_t *xndec = xnap_encode_decode(xnenc);
+  xnap_msg_free(xnenc);
+
+  /* ---------- decode ---------- */
+  xnap_handover_success_t decoded = {0};
+  bool ret = decode_xnap_handover_success(&decoded, xndec);
+  AssertFatal(ret, "decode_xnap_handover_success failed");
+  xnap_msg_free(xndec);
+
+  /* ---------- equality ---------- */
+  ret = eq_xnap_handover_success(&orig, &decoded);
+  AssertFatal(ret, "XnAP Handover Success mismatch\n");
+
+  /* ---------- cleanup ---------- */
+  free_xnap_handover_success(&decoded);
+  free_xnap_handover_success(&orig);
+
+  printf("%s() successful\n", __func__);
+}
+
+/**
+ * 11. XnAP RAN Paging Testing – cell_List and rANAreaID_List variants
+ */
+static void test_xn_ran_paging(void)
+{
+  /* ---------- create message ---------- */
+  plmn_id_t plmn0 = {.mcc = 208, .mnc = 95, .mnc_digit_length = 2};
+
+  uint64_t *cell_ids = calloc_or_fail(3, sizeof(uint64_t));
+  cell_ids[0] = 0x123456789ULL & 0xFFFFFFFFFULL;
+  cell_ids[1] = 0xABCDEF012ULL & 0xFFFFFFFFFULL;
+  cell_ids[2] = 0x100200300ULL & 0xFFFFFFFFFULL;
+
+  xnap_ran_area_id_t *ran_area_ids = calloc_or_fail(2, sizeof(xnap_ran_area_id_t));
+  ran_area_ids[0] = (xnap_ran_area_id_t){.tac = 0x001234, .ranac_present = true, .ranac = 7};
+  ran_area_ids[1] = (xnap_ran_area_id_t){.tac = 0x005678, .ranac_present = false};
+
+  xnap_ran_paging_t cases[] = {
+      {.ue_identity_index_value = 0x2A5,
+       .ue_ran_paging_identity = 0xABCDE01234ULL,
+       .paging_drx = XNAP_PAGING_DRX_128,
+       .ran_paging_area = {.plmn = plmn0,
+                           .choice = XNAP_RAN_PAGING_AREA_CELL_LIST,
+                           .num_cells = 3,
+                           .cell_ids = cell_ids}},
+      {.ue_identity_index_value = 0x155,
+       .ue_ran_paging_identity = 0x1234567890ULL,
+       .paging_drx = XNAP_PAGING_DRX_64,
+       .ran_paging_area = {.plmn = plmn0,
+                           .choice = XNAP_RAN_PAGING_AREA_RAN_AREA_ID,
+                           .num_ran_area_ids = 2,
+                           .ran_area_ids = ran_area_ids}},
+  };
+
+  for (size_t i = 0; i < sizeof(cases) / sizeof(*cases); i++) {
+    /* ---------- encode ---------- */
+    XNAP_XnAP_PDU_t *xnenc = encode_xnap_ran_paging(&cases[i]);
+    AssertFatal(xnenc != NULL, "encode_xnap_ran_paging failed");
+    XNAP_XnAP_PDU_t *xndec = xnap_encode_decode(xnenc);
+    xnap_msg_free(xnenc);
+
+    /* ---------- decode ---------- */
+    xnap_ran_paging_t decoded = {0};
+    bool ret = decode_xnap_ran_paging(&decoded, xndec);
+    AssertFatal(ret, "decode_xnap_ran_paging failed");
+    xnap_msg_free(xndec);
+
+    /* ---------- equality ---------- */
+    ret = eq_xnap_ran_paging(&cases[i], &decoded);
+    AssertFatal(ret, "XnAP RAN Paging mismatch (case %zu)\n", i);
+
+    /* ---------- cleanup ---------- */
+    free_xnap_ran_paging(&decoded);
+    free_xnap_ran_paging(&cases[i]);
+  }
+
+  printf("%s() successful\n", __func__);
+}
+
 int main() {
   printf("Starting XnAP Library Unit Tests...\n");
 
@@ -664,6 +799,9 @@ int main() {
   test_xn_handover_preparation_failure();
   test_xn_sn_status_transfer();
   test_xn_ue_context_release();
+  test_xn_handover_cancel();
+  test_xn_handover_success();
+  test_xn_ran_paging();
 
   printf("All XnAP tests passed!\n");
   return 0;

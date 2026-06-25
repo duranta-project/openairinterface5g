@@ -26,7 +26,7 @@ class TestAnalysis(unittest.TestCase):
 		rtsf = "datalog_rt_stats.100.2x2.yaml"
 		l1f = "tests/analysis/gnb_phytest.success.nrL1.log"
 		macf = "tests/analysis/gnb_phytest.success.nrMAC.log"
-		status, s = cls_analysis.Analysis.analyze_rt_stats(rtsf, l1f, macf)
+		status, s = cls_analysis.Analysis.analyze_rt_stats(rtsf, [l1f, macf])
 		self.assertTrue(status)
 		self.assertEqual(s['Title'], "Processing Time (us) from datalog_rt_stats.100.2x2.yaml")
 		self.assertEqual(s['ColNames'], ["Metric", "Average; Max; Count", "Average vs Reference Deviation (Reference Value; Acceptability Deviation Threshold)"])

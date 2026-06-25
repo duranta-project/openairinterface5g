@@ -22,5 +22,6 @@ void ue_context_modification_refuse(const f1ap_ue_context_modif_refuse_t *refuse
 void ue_context_release_command(const f1ap_ue_context_rel_cmd_t *cmd);
 
 void dl_rrc_message_transfer(const f1ap_dl_rrc_message_t *dl_rrc);
+void f1_paging(const f1ap_paging_t *paging);
 
 #endif /* MAC_RRC_DL_HANDLER_H */

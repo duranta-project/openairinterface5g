@@ -85,7 +85,6 @@ typedef struct nr_sdap_entity_s {
   bool enable_sdap;
   int pdusession_id;
   int pdusession_sock;
-  char *pdusession_if_name;
   pthread_t pdusession_thread;
   bool stop_thread;
   int qfi;
@@ -186,5 +185,4 @@ void nr_reconfigure_sdap_entity(NR_SDAP_Config_t *sdap_config, ue_id_t ue_id, in
 void nr_sdap_entity_update_qos_flows(ue_id_t ue_id, int pdusession_id, int drb_id, const uint8_t *qfis, int n_qfis);
 
 void set_qfi(uint8_t qfi, uint8_t pduid, ue_id_t ue_id);
-void remove_ip_if(nr_sdap_entity_t *entity);
 #endif

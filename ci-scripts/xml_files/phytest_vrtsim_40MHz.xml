@@ -1,0 +1,82 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+
+<testCaseList>
+  <htmlTabRef>PHY-Test-40-vrtsim</htmlTabRef>
+  <htmlTabName>Timing phytest 40 MHz with vrtsim</htmlTabName>
+  <htmlTabIcon>tasks</htmlTabIcon>
+
+  <testCase>
+    <class>Pull_Cluster_Image</class>
+    <desc>Pull Images from Cluster</desc>
+    <images>oai-gnb oai-nr-ue</images>
+    <node>caracal</node>
+  </testCase>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace</desc>
+    <node>caracal</node>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Initialize gNB</desc>
+    <node>caracal</node>
+    <yaml_path>ci-scripts/yaml_files/phytest_vrtsim_40MHz</yaml_path>
+    <services>oai-gnb</services>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Initialize UE</desc>
+    <node>caracal</node>
+    <yaml_path>ci-scripts/yaml_files/phytest_vrtsim_40MHz</yaml_path>
+    <services>oai-nr-ue</services>
+  </testCase>
+
+  <testCase>
+    <class>IdleSleep</class>
+    <desc>Sleep</desc>
+    <idle_sleep_time_in_sec>60</idle_sleep_time_in_sec>
+  </testCase>
+
+  <testCase>
+    <class>AnalyzeRTStats_Object</class>
+    <desc>Analyze Real-Time Stats on gNB</desc>
+    <always_exec>true</always_exec>
+    <stats_cfg>datalog_rt_stats.gnb.40.vrtsim.yaml</stats_cfg>
+    <service>oai-gnb</service>
+    <stats_file>/opt/oai-gnb/nrL1_stats.log /opt/oai-gnb/nrMAC_stats.log</stats_file>
+    <node>caracal</node>
+  </testCase>
+
+  <testCase>
+    <class>AnalyzeRTStats_Object</class>
+    <desc>Analyze Real-Time Stats on UE</desc>
+    <always_exec>true</always_exec>
+    <stats_cfg>datalog_rt_stats.ue.40.vrtsim.yaml</stats_cfg>
+    <service>oai-nr-ue</service>
+    <stats_file>/opt/oai-nr-ue/nrL1_UE_stats-0.log</stats_file>
+    <node>caracal</node>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <node>caracal</node>
+    <always_exec>true</always_exec>
+    <desc>Terminate gNB</desc>
+    <yaml_path>ci-scripts/yaml_files/phytest_vrtsim_40MHz</yaml_path>
+    <analysis>
+      <services>oai-gnb=EndsWithBye oai-nr-ue=EndsWithBye</services>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Clean_Test_Server_Images</class>
+    <always_exec>true</always_exec>
+    <desc>Clean Test Images on Test Server</desc>
+    <node>caracal</node>
+    <images>oai-nr-ue oai-gnb</images>
+  </testCase>
+
+</testCaseList>

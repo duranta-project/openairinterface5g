@@ -9,6 +9,8 @@
 #include <stdint.h>
 #include "common/platform_types.h"
 
+struct nr_sdap_entity_s;
+
 /*
  * TS 37.324 4.4 Functions
  * Transfer of user plane data
@@ -40,5 +42,9 @@ void sdap_data_ind(int pdcp_entity, int is_gnb, int pdusession_id, ue_id_t ue_id
 void start_sdap_tun_gnb_first_ue_default_pdu_session(ue_id_t ue_id, int pdu_session_id);
 void create_ue_ip_if(const char *ipv4, const char *ipv6, int ue_id, int pdu_session_id, bool is_default);
 void create_ue_eth_if(int ue_id, int pdu_session_id, bool is_default);
+void nr_sdap_tun_attach(struct nr_sdap_entity_s *entity);
+void nr_sdap_tun_detach(struct nr_sdap_entity_s *entity);
+void nr_sdap_tun_destroy(ue_id_t ue_id, int pdusession_id);
+void nr_sdap_tun_store_qfi(ue_id_t ue_id, int pdusession_id, uint8_t qfi);
 
 #endif

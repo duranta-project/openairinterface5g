@@ -39,5 +39,15 @@
 #include "XNAP_DRBBStatusTransfer18bitsSN.h"
 #include "XNAP_DRBBStatusTransfer12bitsSN.h"
 
+#include "XNAP_UEIdentityIndexValue.h"
+#include "XNAP_UERANPagingIdentity.h"
+#include "XNAP_PagingDRX.h"
+#include "XNAP_RANPagingArea.h"
+#include "XNAP_RANPagingAreaChoice.h"
+#include "XNAP_NG-RAN-Cell-Identity-ListinRANPagingArea.h"
+#include "XNAP_NG-RAN-Cell-Identity.h"
+#include "XNAP_RANAreaID-List.h"
+#include "XNAP_RANAreaID.h"
+
 #endif // XNAP_LIB_INCLUDES_H
 

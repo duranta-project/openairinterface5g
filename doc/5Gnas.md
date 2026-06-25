@@ -17,7 +17,7 @@ Key 5GS NAS messages:
 
 ## OAI Implementation Status
 
-The following tables lists implemented NAS messages and whether there is an encoder or decoder function, and if a corresponding unit test exists.
+The following table lists implemented NAS messages and whether there is an encoder or decoder function, and if a corresponding unit test exists.
 
 | Type  | Message                                   | Encoding | Decoding | Unit test |
 |-------|-------------------------------------------|----------|----------|------------|
@@ -28,6 +28,9 @@ The following tables lists implemented NAS messages and whether there is an enco
 | 5GMM  | Identity Response                         | yes      | no       | no         |
 | 5GMM  | Security Mode Complete                    | yes      | no       | no         |
 | 5GMM  | Uplink NAS Transport                      | yes      | no       | no         |
+| 5GMM  | Authentication Failure                    | yes      | yes      | yes        |
+| 5GMM  | Authentication Reject                     | yes      | yes      | yes        |
+| 5GMM  | Security Mode Reject                      | yes      | yes      | yes        |
 | 5GMM  | Registration Request                      | yes      | yes      | no         |
 | 5GMM  | Registration Accept                       | yes      | yes      | yes        |
 | 5GMM  | Registration Complete                     | yes      | yes      | no         |
@@ -45,10 +48,14 @@ The following tables lists implemented NAS messages and whether there is an enco
 
 [openair3/NAS/NR_UE/5GS/fgs_nas_lib.c](../openair3/NAS/NR_UE/5GS/fgs_nas_lib.c):
 
+* top-level encode/decode dispatch for NAS 5GMM/5GSM payloads
+* delegates message-specific encoding/decoding to `5GMM/MSG` and `5GSM/MSG`
+
 [openair3/NAS/NR_UE/5GS/NR_NAS_defs.h](../openair3/NAS/NR_UE/5GS/NR_NAS_defs.h):
 
-* encoding and decoding functions for 5G NAS message headers and payloads
-* relies on 5GMM/5GSM messages libs for payload encoding
+* 5GS NAS message types and security header definitions
+* shared NAS structures used by UE NAS handlers and encoders
+* prototypes for 5GMM header and security-header encode/decode, implementations in `fgs_nas_lib.c`
 
 [openair3/NAS/NR_UE/5GS/fgs_nas_utils.h](../openair3/NAS/NR_UE/5GS/fgs_nas_utils.h):
 

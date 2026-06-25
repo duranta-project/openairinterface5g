@@ -245,7 +245,8 @@ def ExecuteActionWithParam(action, ctx, node):
 	elif action == 'AnalyzeRTStats_Object':
 		yaml = test.findtext('stats_cfg')
 		service = test.findtext('service')
-		success = CONTAINERS.AnalyzeRTStatsObject(HTML, node, ctx, yaml, service)
+		stats_files = (test.findtext('stats_file') or '').split()
+		success = CONTAINERS.AnalyzeRTStatsObject(HTML, node, ctx, yaml, service, stats_files)
 
 	else:
 		logging.warning(f"unknown action {action}, skip step")

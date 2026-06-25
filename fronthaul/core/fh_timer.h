@@ -23,6 +23,7 @@ typedef void (*fh_timer_cb)(uint64_t s_abs, void *user_data);
 
 #define MAX_FH_TIMER_CBS 8
 #define GPS_EPOCH_OFFSET_UNIX 315964800ULL
+#define GPS_LEAP_SECONDS 18
 
 typedef struct {
   fh_timer_cb fn;

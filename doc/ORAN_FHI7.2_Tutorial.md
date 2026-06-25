@@ -44,7 +44,8 @@ PTP enabled switches and Grandmaster clock we have tested with:
 |Fibrolan Falcon-RX/812/G|
 |Qulsar Qg2 (Grandmaster)|
 
-**S-Plane synchronization is mandatory.** S-plane support is done via `ptp4l` and `phc2sys`. Make sure your version matches. 
+**S-Plane synchronization is mandatory.** S-plane support is done via 
+`ptp4l` and `phc2sys`. Make sure your version matches. 
 
 | Software  | Software Version|
 |-----------|-----------------|
@@ -228,19 +229,19 @@ Once installed you can use this configuration file for ptp4l (`/etc/ptp4l.conf`)
 ```
 [global]
 domainNumber            24
-slaveOnly               1
+clientOnly              1
 time_stamping           hardware
-tx_timestamp_timeout    1
+tx_timestamp_timeout    50
 logging_level           6
 summary_interval        0
 #priority1               127
 
-[your_PTP_ENABLED_NIC]
+[PTP_ENABLED_NIC_INTERFACE]
 network_transport       L2
 hybrid_e2e              0
 ```
 
-You need to increase `tx_timestamp_timeout` to 50 or 100 for Intel E-810. You will see that in the logs of ptp.
+You need to increase `tx_timestamp_timeout` to 100 if needed. You will see that in the logs of ptp.
 
 Create the configuration file for ptp4l (`/etc/sysconfig/ptp4l`)
 
@@ -251,7 +252,7 @@ OPTIONS="-f /etc/ptp4l.conf"
 Create the configuration file for phc2sys (`/etc/sysconfig/phc2sys`)
 
 ```
-OPTIONS="-a -r -r -n 24"
+OPTIONS="-s PTP_ENABLED_NIC_INTERFACE -w -n 24 -r -r -m -R 8"
 ```
 
 The service of ptp4l (`/usr/lib/systemd/system/ptp4l.service`) should be configured as below:
@@ -295,8 +296,7 @@ Beware that PTP issues may show up only when running OAI and XRAN. If you are us
 1. Make sure that you have `skew_tick=1` in `/proc/cmdline`
 2. For Intel E-810 cards set `tx_timestamp_timeout` to 50 or 100 if there are errors in ptp4l logs
 3. Other time sources than PTP, such as NTP or chrony timesources, should be disabled. Make sure they are enabled as further below.
-4. Make sure you set `kthread_cpus=<cpu_list>` in `/proc/cmdline`.
-5. If `rms` or `delay` in `ptp4l` or `offset` in `phc2sys` logs remain high then you can try pinning the `ptp4l` and `phc2sys` processes to an isolated CPU.
+4. If `rms` or `delay` in `ptp4l` or `offset` in `phc2sys` logs remain high then you can try pinning the `ptp4l` and `phc2sys` processes to an isolated CPU.
 
 ```bash
 #to check there is NTP enabled or not
@@ -421,8 +421,9 @@ git apply ~/openairinterface5g/cmake_targets/tools/oran_fhi_integration_patches/
 ```bash
 git clone https://github.com/openairinterface/o-du-phy.git ~/phy
 cd ~/phy
-git checkout <desired-tag> # shall match a variable `K_VERSION`
+git checkout 11.1.1 # the tag points to the `main` branch which has all patches applied that are relevant for OAI integration; the tag matches the value of cmake variable `K_VERSION`
 ```
+or use `xran_DOWNLOAD` option when compiling OAI gNB.
 
 Compile the fronthaul interface library by calling `make` and the option
 `XRAN_LIB_SO=1` to have it build a shared object. Note that we provide two

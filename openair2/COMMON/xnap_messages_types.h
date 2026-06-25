@@ -382,4 +382,72 @@ typedef struct {
   uint32_t t_ng_node_ue_xnap_id;
 } xnap_ue_context_release_t;
 
+/* 3GPP TS 38.423 9.1.1.6 – Handover Cancel */
+typedef struct {
+  /* Source NG-RAN node UE XnAP ID (M) */
+  uint32_t s_ng_node_ue_xnap_id;
+  /* Cause (M) */
+  xnap_cause_t cause;
+} xnap_handover_cancel_t;
+
+/* 3GPP TS 38.423 9.1.1.12 – Handover Success */
+typedef struct {
+  /* Source NG-RAN node UE XnAP ID (M) */
+  uint32_t s_ng_node_ue_xnap_id;
+  /* Target NG-RAN node UE XnAP ID (M) */
+  uint32_t t_ng_node_ue_xnap_id;
+  /* Requested Target Cell Global ID (M) */
+  xnap_ngran_cgi_t target_cgi;
+} xnap_handover_success_t;
+
+/* 3GPP TS 38.423 9.2.3.66 – Paging DRX */
+typedef enum {
+  XNAP_PAGING_DRX_32 = 0,
+  XNAP_PAGING_DRX_64,
+  XNAP_PAGING_DRX_128,
+  XNAP_PAGING_DRX_256,
+  XNAP_PAGING_DRX_512,
+  XNAP_PAGING_DRX_1024,
+} xnap_paging_drx_t;
+
+typedef enum {
+  XNAP_RAN_PAGING_AREA_CELL_LIST = 0,
+  XNAP_RAN_PAGING_AREA_RAN_AREA_ID,
+} xnap_ran_paging_area_choice_t;
+
+/* RAN Area ID entry: TAC (M) + optional RANAC */
+typedef struct {
+  uint32_t tac;        /* 24-bit Tracking Area Code (M) */
+  bool ranac_present;
+  uint8_t ranac;       /* RAN Area Code 0..255 (O) */
+} xnap_ran_area_id_t;
+
+/* 3GPP TS 38.423 9.2.3.38 – RAN Paging Area */
+typedef struct {
+  plmn_id_t plmn;
+  xnap_ran_paging_area_choice_t choice;
+  union {
+    struct {
+      uint8_t num_cells;
+      uint64_t *cell_ids; /* NR-Cell-Identity, 36-bit values */
+    };
+    struct {
+      uint8_t num_ran_area_ids;
+      xnap_ran_area_id_t *ran_area_ids;
+    };
+  };
+} xnap_ran_paging_area_t;
+
+/* 3GPP TS 38.423 9.1.1.7 – RAN Paging */
+typedef struct {
+  /* UE Identity Index Value – 10-bit index (M) */
+  uint16_t ue_identity_index_value;
+  /* UE RAN Paging Identity – I-RNTI, 40-bit (M) */
+  uint64_t ue_ran_paging_identity;
+  /* Paging DRX (M) */
+  xnap_paging_drx_t paging_drx;
+  /* RAN Paging Area (M) */
+  xnap_ran_paging_area_t ran_paging_area;
+} xnap_ran_paging_t;
+
 #endif /* XNAP_MESSAGES_TYPES_H_ */

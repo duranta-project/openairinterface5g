@@ -255,7 +255,7 @@ int oru_fh_get_utc_anchor_point(void *handle, uint32_t *frame, uint32_t *slot, s
   uint64_t total_syms_per_sec = (NR_SYMBOLS_PER_SLOT * 1000) << fh->cfg.numerology;
   uint64_t ns_per_symbol = 1000000000 / total_syms_per_sec;
   uint64_t leftover_syms = absolute_gps_symbol % total_syms_per_sec;
-  ts->tv_sec = (absolute_gps_symbol / total_syms_per_sec) + GPS_EPOCH_OFFSET_UNIX;
+  ts->tv_sec = (absolute_gps_symbol / total_syms_per_sec) + GPS_EPOCH_OFFSET_UNIX - GPS_LEAP_SECONDS;
   ts->tv_nsec = leftover_syms * ns_per_symbol;
   return 0;
 }

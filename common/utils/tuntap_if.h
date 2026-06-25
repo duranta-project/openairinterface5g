@@ -90,4 +90,12 @@ int tuntap_alloc(int flag, const char *dev);
  */
 void tuntap_destroy(const char *dev);
 
+/*!
+ * \brief Bring a TUN/TAP interface administratively up (IOCTL SIOCSIFFLAGS, set IFF_UP).
+ * \param[in] ifname name of the interface
+ * \param[in] sock_fd IPv4 SOCK_DGRAM fd for ioctl (opened by the caller)
+ * \return interface flags with IFF_UP set, or -1 on failure
+ */
+short tuntap_set_up(const char *ifname, int sock_fd);
+
 #endif /*TUN_IF_H_*/

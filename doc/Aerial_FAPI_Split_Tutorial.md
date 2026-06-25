@@ -254,7 +254,7 @@ Both `GNB_IPV4_ADDRESS_FOR_NG_AMF` and `GNB_IPV4_ADDRESS_FOR_NGU` need to be
 set to the IP address of the NIC referenced previously.
 
 **Note**: If the Core Network is running on the same server, 3 cores should be
-allocated to it. 2 for the UPF and 1 for the all the remaining services as shown
+allocated to it. 2 for the UPF and 1 core shared between the remaining services as shown
 below.
 
 ```patch

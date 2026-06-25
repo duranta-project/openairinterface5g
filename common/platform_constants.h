@@ -49,6 +49,12 @@
                                        * defined for NGAP in TS 38.413 - maxnoofDRBs */
 #define MAX_PDUS_PER_UE         (8)   /* Maximum number of PDU Sessions per UE */
 
+/** Maximum value of nrofPDCCH-MonitoringOccasionPerSSB-InPO-r16 (TS 38.331 PCCH-Config) */
+#define NR_PCCH_MAX_MO_PER_SSB_IN_PO 4
+
+/** Maximum number of Paging Occasions per Paging Frame (TS 38.331 PCCH-Config) */
+#define NR_PCCH_MAX_PO 4
+
 #define NB_RB_MBMS_MAX (29 * 16) /* 29 = LTE_maxSessionPerPMCH + 16 = LTE_maxServiceCount from LTE_asn_constant.h */
 
 #define NB_RAB_MAX 11 /* from LTE_maxDRB in LTE_asn_constant.h */
@@ -70,6 +76,9 @@
 
 // SDAP
 #define MAX_QOS_FLOWS 64
+
+/** Maximum number of PagingRecords in one PCCH Paging message (TS 38.331) */
+#define NR_PCCH_MAX_PAGING_RECORDS 32
 
 // SDAP/5G NAS NOS1
 #define DEFAULT_NOS1_PDU_ID 10

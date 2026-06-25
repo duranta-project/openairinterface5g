@@ -1281,3 +1281,432 @@ void free_xnap_ue_context_release(xnap_ue_context_release_t *msg)
   // Nothing to free
   UNUSED(msg);
 }
+
+/**
+ * @brief XnAP Handover Cancel encoding
+ */
+XNAP_XnAP_PDU_t *encode_xnap_handover_cancel(const xnap_handover_cancel_t *msg)
+{
+  XNAP_XnAP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+
+  pdu->present = XNAP_XnAP_PDU_PR_initiatingMessage;
+  asn1cCalloc(pdu->choice.initiatingMessage, initMsg);
+  initMsg->procedureCode = XNAP_ProcedureCode_id_handoverCancel;
+  initMsg->criticality = XNAP_Criticality_ignore;
+  initMsg->value.present = XNAP_InitiatingMessage__value_PR_HandoverCancel;
+
+  XNAP_HandoverCancel_t *out = &initMsg->value.choice.HandoverCancel;
+
+  /* Source NG-RAN node UE XnAP ID (M) */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_HandoverCancel_IEs_t, ie1);
+  ie1->id = XNAP_ProtocolIE_ID_id_sourceNG_RANnodeUEXnAPID;
+  ie1->criticality = XNAP_Criticality_reject;
+  ie1->value.present = XNAP_HandoverCancel_IEs__value_PR_NG_RANnodeUEXnAPID;
+  ie1->value.choice.NG_RANnodeUEXnAPID = msg->s_ng_node_ue_xnap_id;
+
+  /* Cause (M) */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_HandoverCancel_IEs_t, ie2);
+  ie2->id = XNAP_ProtocolIE_ID_id_Cause;
+  ie2->criticality = XNAP_Criticality_ignore;
+  ie2->value.present = XNAP_HandoverCancel_IEs__value_PR_Cause;
+  xnap_gNB_set_cause(&ie2->value.choice.Cause, &msg->cause);
+
+  return pdu;
+}
+
+/**
+ * @brief XnAP Handover Cancel decoding
+ */
+bool decode_xnap_handover_cancel(xnap_handover_cancel_t *out, const XNAP_XnAP_PDU_t *pdu)
+{
+  _EQ_CHECK_INT(pdu->present, XNAP_XnAP_PDU_PR_initiatingMessage);
+  AssertError(pdu->choice.initiatingMessage != NULL, return false, "initiatingMessage is NULL");
+  _EQ_CHECK_LONG(pdu->choice.initiatingMessage->procedureCode, XNAP_ProcedureCode_id_handoverCancel);
+  _EQ_CHECK_INT(pdu->choice.initiatingMessage->value.present, XNAP_InitiatingMessage__value_PR_HandoverCancel);
+
+  XNAP_HandoverCancel_t *in = &pdu->choice.initiatingMessage->value.choice.HandoverCancel;
+  XNAP_HandoverCancel_IEs_t *ie;
+
+  XNAP_LIB_FIND_IE(XNAP_HandoverCancel_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_sourceNG_RANnodeUEXnAPID, true);
+  XNAP_LIB_FIND_IE(XNAP_HandoverCancel_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_Cause, true);
+
+  for (int i = 0; i < in->protocolIEs.list.count; i++) {
+    DevAssert(in->protocolIEs.list.array[i]);
+    ie = in->protocolIEs.list.array[i];
+
+    switch (ie->id) {
+      case XNAP_ProtocolIE_ID_id_sourceNG_RANnodeUEXnAPID: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_HandoverCancel_IEs__value_PR_NG_RANnodeUEXnAPID);
+        out->s_ng_node_ue_xnap_id = ie->value.choice.NG_RANnodeUEXnAPID;
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_Cause: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_HandoverCancel_IEs__value_PR_Cause);
+        out->cause = decode_xnap_cause(&ie->value.choice.Cause);
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_targetNG_RANnodeUEXnAPID:
+        PRINT_ERROR("XNAP_ProtocolIE_ID_id %ld not handled, skipping\n", ie->id);
+        break;
+
+      case XNAP_ProtocolIE_ID_id_targetCellsToCancel:
+        PRINT_ERROR("XNAP_ProtocolIE_ID_id %ld not handled, skipping\n", ie->id);
+        break;
+
+      default:
+        PRINT_ERROR("XNAP_ProtocolIE_ID_id %ld unknown, skipping\n", ie->id);
+        break;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * @brief XnAP Handover Cancel equality function
+ */
+bool eq_xnap_handover_cancel(const xnap_handover_cancel_t *a, const xnap_handover_cancel_t *b)
+{
+  _EQ_CHECK_UINT32(a->s_ng_node_ue_xnap_id, b->s_ng_node_ue_xnap_id);
+  if (!eq_xnap_cause(&a->cause, &b->cause))
+    return false;
+  return true;
+}
+
+/**
+ * @brief XnAP Handover Cancel memory management
+ */
+void free_xnap_handover_cancel(xnap_handover_cancel_t *msg)
+{
+  // Nothing to free
+  UNUSED(msg);
+}
+
+/**
+ * @brief XnAP Handover Success encoding
+ */
+XNAP_XnAP_PDU_t *encode_xnap_handover_success(const xnap_handover_success_t *msg)
+{
+  XNAP_XnAP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+
+  pdu->present = XNAP_XnAP_PDU_PR_initiatingMessage;
+  asn1cCalloc(pdu->choice.initiatingMessage, initMsg);
+  initMsg->procedureCode = XNAP_ProcedureCode_id_handoverSuccess;
+  initMsg->criticality = XNAP_Criticality_ignore;
+  initMsg->value.present = XNAP_InitiatingMessage__value_PR_HandoverSuccess;
+
+  XNAP_HandoverSuccess_t *out = &initMsg->value.choice.HandoverSuccess;
+
+  /* Source NG-RAN node UE XnAP ID (M) */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_HandoverSuccess_IEs_t, ie1);
+  ie1->id = XNAP_ProtocolIE_ID_id_sourceNG_RANnodeUEXnAPID;
+  ie1->criticality = XNAP_Criticality_reject;
+  ie1->value.present = XNAP_HandoverSuccess_IEs__value_PR_NG_RANnodeUEXnAPID;
+  ie1->value.choice.NG_RANnodeUEXnAPID = msg->s_ng_node_ue_xnap_id;
+
+  /* Target NG-RAN node UE XnAP ID (M) */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_HandoverSuccess_IEs_t, ie2);
+  ie2->id = XNAP_ProtocolIE_ID_id_targetNG_RANnodeUEXnAPID;
+  ie2->criticality = XNAP_Criticality_reject;
+  ie2->value.present = XNAP_HandoverSuccess_IEs__value_PR_NG_RANnodeUEXnAPID_1;
+  ie2->value.choice.NG_RANnodeUEXnAPID_1 = msg->t_ng_node_ue_xnap_id;
+
+  /* Requested Target Cell Global ID (M) */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_HandoverSuccess_IEs_t, ie3);
+  ie3->id = XNAP_ProtocolIE_ID_id_requestedTargetCellGlobalID;
+  ie3->criticality = XNAP_Criticality_reject;
+  ie3->value.present = XNAP_HandoverSuccess_IEs__value_PR_Target_CGI;
+  ie3->value.choice.Target_CGI = xnap_encode_target_cgi(&msg->target_cgi);
+
+  return pdu;
+}
+
+/**
+ * @brief XnAP Handover Success decoding
+ */
+bool decode_xnap_handover_success(xnap_handover_success_t *out, const XNAP_XnAP_PDU_t *pdu)
+{
+  _EQ_CHECK_INT(pdu->present, XNAP_XnAP_PDU_PR_initiatingMessage);
+  AssertError(pdu->choice.initiatingMessage != NULL, return false, "initiatingMessage is NULL");
+  _EQ_CHECK_LONG(pdu->choice.initiatingMessage->procedureCode, XNAP_ProcedureCode_id_handoverSuccess);
+  _EQ_CHECK_INT(pdu->choice.initiatingMessage->value.present, XNAP_InitiatingMessage__value_PR_HandoverSuccess);
+
+  XNAP_HandoverSuccess_t *in = &pdu->choice.initiatingMessage->value.choice.HandoverSuccess;
+  XNAP_HandoverSuccess_IEs_t *ie;
+
+  XNAP_LIB_FIND_IE(XNAP_HandoverSuccess_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_sourceNG_RANnodeUEXnAPID, true);
+  XNAP_LIB_FIND_IE(XNAP_HandoverSuccess_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_targetNG_RANnodeUEXnAPID, true);
+  XNAP_LIB_FIND_IE(XNAP_HandoverSuccess_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_requestedTargetCellGlobalID, true);
+
+  for (int i = 0; i < in->protocolIEs.list.count; i++) {
+    DevAssert(in->protocolIEs.list.array[i]);
+    ie = in->protocolIEs.list.array[i];
+
+    switch (ie->id) {
+      case XNAP_ProtocolIE_ID_id_sourceNG_RANnodeUEXnAPID: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_HandoverSuccess_IEs__value_PR_NG_RANnodeUEXnAPID);
+        out->s_ng_node_ue_xnap_id = ie->value.choice.NG_RANnodeUEXnAPID;
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_targetNG_RANnodeUEXnAPID: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_HandoverSuccess_IEs__value_PR_NG_RANnodeUEXnAPID_1);
+        out->t_ng_node_ue_xnap_id = ie->value.choice.NG_RANnodeUEXnAPID_1;
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_requestedTargetCellGlobalID: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_HandoverSuccess_IEs__value_PR_Target_CGI);
+        if (!xnap_decode_target_cgi(&ie->value.choice.Target_CGI, &out->target_cgi))
+          return false;
+      } break;
+
+      default:
+        PRINT_ERROR("XNAP_ProtocolIE_ID_id %ld unknown, skipping\n", ie->id);
+        break;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * @brief XnAP Handover Success equality function
+ */
+bool eq_xnap_handover_success(const xnap_handover_success_t *a, const xnap_handover_success_t *b)
+{
+  _EQ_CHECK_UINT32(a->s_ng_node_ue_xnap_id, b->s_ng_node_ue_xnap_id);
+  _EQ_CHECK_UINT32(a->t_ng_node_ue_xnap_id, b->t_ng_node_ue_xnap_id);
+  if (!eq_xnap_ngran_cgi(&a->target_cgi, &b->target_cgi))
+    return false;
+  return true;
+}
+
+/**
+ * @brief XnAP Handover Success memory management
+ */
+void free_xnap_handover_success(xnap_handover_success_t *msg)
+{
+  // Nothing to free
+  UNUSED(msg);
+}
+
+/**
+ * @brief XnAP RAN Paging encoding
+ */
+XNAP_XnAP_PDU_t *encode_xnap_ran_paging(const xnap_ran_paging_t *msg)
+{
+  XNAP_XnAP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+
+  pdu->present = XNAP_XnAP_PDU_PR_initiatingMessage;
+  asn1cCalloc(pdu->choice.initiatingMessage, initMsg);
+  initMsg->procedureCode = XNAP_ProcedureCode_id_rANPaging;
+  initMsg->criticality = XNAP_Criticality_reject;
+  initMsg->value.present = XNAP_InitiatingMessage__value_PR_RANPaging;
+
+  XNAP_RANPaging_t *out = &initMsg->value.choice.RANPaging;
+
+  /* UE Identity Index Value (M) – 10-bit BIT STRING */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_RANPaging_IEs_t, ie1);
+  ie1->id = XNAP_ProtocolIE_ID_id_UEIdentityIndexValue;
+  ie1->criticality = XNAP_Criticality_reject;
+  ie1->value.present = XNAP_RANPaging_IEs__value_PR_UEIdentityIndexValue;
+  XNAP_UEIdentityIndexValue_t *ue_idx = &ie1->value.choice.UEIdentityIndexValue;
+  ue_idx->present = XNAP_UEIdentityIndexValue_PR_indexLength10;
+  BIT_STRING_t *idx_bs = &ue_idx->choice.indexLength10;
+  UEIDENTITYINDEX_TO_BIT_STRING(msg->ue_identity_index_value, idx_bs);
+
+  /* UE RAN Paging Identity (M) – I-RNTI, 40-bit BIT STRING */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_RANPaging_IEs_t, ie2);
+  ie2->id = XNAP_ProtocolIE_ID_id_UERANPagingIdentity;
+  ie2->criticality = XNAP_Criticality_ignore;
+  ie2->value.present = XNAP_RANPaging_IEs__value_PR_UERANPagingIdentity;
+  XNAP_UERANPagingIdentity_t *ue_paging_id = &ie2->value.choice.UERANPagingIdentity;
+  ue_paging_id->present = XNAP_UERANPagingIdentity_PR_i_RNTI_full;
+  BIT_STRING_t *rnti_bs = &ue_paging_id->choice.i_RNTI_full;
+  IRNTI_TO_BIT_STRING(msg->ue_ran_paging_identity, rnti_bs);
+
+  /* Paging DRX (M) */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_RANPaging_IEs_t, ie3);
+  ie3->id = XNAP_ProtocolIE_ID_id_PagingDRX;
+  ie3->criticality = XNAP_Criticality_ignore;
+  ie3->value.present = XNAP_RANPaging_IEs__value_PR_PagingDRX;
+  ie3->value.choice.PagingDRX = msg->paging_drx;
+
+  /* RAN Paging Area (M) */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_RANPaging_IEs_t, ie4);
+  ie4->id = XNAP_ProtocolIE_ID_id_RANPagingArea;
+  ie4->criticality = XNAP_Criticality_reject;
+  ie4->value.present = XNAP_RANPaging_IEs__value_PR_RANPagingArea;
+  XNAP_RANPagingArea_t *paging_area = &ie4->value.choice.RANPagingArea;
+  MCC_MNC_TO_PLMNID(msg->ran_paging_area.plmn.mcc,
+                    msg->ran_paging_area.plmn.mnc,
+                    msg->ran_paging_area.plmn.mnc_digit_length,
+                    &paging_area->pLMN_Identity);
+  if (msg->ran_paging_area.choice == XNAP_RAN_PAGING_AREA_CELL_LIST) {
+    paging_area->rANPagingAreaChoice.present = XNAP_RANPagingAreaChoice_PR_cell_List;
+    asn1cCalloc(paging_area->rANPagingAreaChoice.choice.cell_List, cell_list);
+    for (int i = 0; i < msg->ran_paging_area.num_cells; i++) {
+      asn1cSequenceAdd(cell_list->list, XNAP_NG_RAN_Cell_Identity_t, cell_item);
+      cell_item->present = XNAP_NG_RAN_Cell_Identity_PR_nr;
+      NR_CELL_ID_TO_BIT_STRING(msg->ran_paging_area.cell_ids[i], &cell_item->choice.nr);
+    }
+  } else {
+    paging_area->rANPagingAreaChoice.present = XNAP_RANPagingAreaChoice_PR_rANAreaID_List;
+    asn1cCalloc(paging_area->rANPagingAreaChoice.choice.rANAreaID_List, ran_area_list);
+    for (int i = 0; i < msg->ran_paging_area.num_ran_area_ids; i++) {
+      const xnap_ran_area_id_t *src = &msg->ran_paging_area.ran_area_ids[i];
+      asn1cSequenceAdd(ran_area_list->list, XNAP_RANAreaID_t, ran_area_item);
+      INT24_TO_OCTET_STRING(src->tac, &ran_area_item->tAC);
+      if (src->ranac_present) {
+        ran_area_item->rANAC = calloc_or_fail(1, sizeof(*ran_area_item->rANAC));
+        *ran_area_item->rANAC = src->ranac;
+      }
+    }
+  }
+
+  return pdu;
+}
+
+/**
+ * @brief XnAP RAN Paging decoding
+ */
+bool decode_xnap_ran_paging(xnap_ran_paging_t *out, const XNAP_XnAP_PDU_t *pdu)
+{
+  _EQ_CHECK_INT(pdu->present, XNAP_XnAP_PDU_PR_initiatingMessage);
+  AssertError(pdu->choice.initiatingMessage != NULL, return false, "initiatingMessage is NULL");
+  _EQ_CHECK_LONG(pdu->choice.initiatingMessage->procedureCode, XNAP_ProcedureCode_id_rANPaging);
+  _EQ_CHECK_INT(pdu->choice.initiatingMessage->value.present, XNAP_InitiatingMessage__value_PR_RANPaging);
+
+  XNAP_RANPaging_t *in = &pdu->choice.initiatingMessage->value.choice.RANPaging;
+  XNAP_RANPaging_IEs_t *ie;
+
+  XNAP_LIB_FIND_IE(XNAP_RANPaging_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_UEIdentityIndexValue, true);
+  XNAP_LIB_FIND_IE(XNAP_RANPaging_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_UERANPagingIdentity, true);
+  XNAP_LIB_FIND_IE(XNAP_RANPaging_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_PagingDRX, true);
+  XNAP_LIB_FIND_IE(XNAP_RANPaging_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_RANPagingArea, true);
+
+  for (int i = 0; i < in->protocolIEs.list.count; i++) {
+    DevAssert(in->protocolIEs.list.array[i]);
+    ie = in->protocolIEs.list.array[i];
+
+    switch (ie->id) {
+      case XNAP_ProtocolIE_ID_id_UEIdentityIndexValue: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_RANPaging_IEs__value_PR_UEIdentityIndexValue);
+        const XNAP_UEIdentityIndexValue_t *ue_idx = &ie->value.choice.UEIdentityIndexValue;
+        if (ue_idx->present != XNAP_UEIdentityIndexValue_PR_indexLength10)
+          return false;
+        out->ue_identity_index_value = BIT_STRING_to_uint16(&ue_idx->choice.indexLength10);
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_UERANPagingIdentity: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_RANPaging_IEs__value_PR_UERANPagingIdentity);
+        const XNAP_UERANPagingIdentity_t *ue_paging_id = &ie->value.choice.UERANPagingIdentity;
+        if (ue_paging_id->present != XNAP_UERANPagingIdentity_PR_i_RNTI_full)
+          return false;
+        out->ue_ran_paging_identity = BIT_STRING_to_uint64(&ue_paging_id->choice.i_RNTI_full);
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_PagingDRX: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_RANPaging_IEs__value_PR_PagingDRX);
+        out->paging_drx = ie->value.choice.PagingDRX;
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_RANPagingArea: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_RANPaging_IEs__value_PR_RANPagingArea);
+        const XNAP_RANPagingArea_t *paging_area = &ie->value.choice.RANPagingArea;
+        PLMNID_TO_MCC_MNC(&paging_area->pLMN_Identity,
+                          out->ran_paging_area.plmn.mcc,
+                          out->ran_paging_area.plmn.mnc,
+                          out->ran_paging_area.plmn.mnc_digit_length);
+        switch (paging_area->rANPagingAreaChoice.present) {
+          case XNAP_RANPagingAreaChoice_PR_cell_List: {
+            out->ran_paging_area.choice = XNAP_RAN_PAGING_AREA_CELL_LIST;
+            const XNAP_NG_RAN_Cell_Identity_ListinRANPagingArea_t *cell_list = paging_area->rANPagingAreaChoice.choice.cell_List;
+            out->ran_paging_area.num_cells = cell_list->list.count;
+            out->ran_paging_area.cell_ids = calloc_or_fail(out->ran_paging_area.num_cells, sizeof(uint64_t));
+            for (int j = 0; j < cell_list->list.count; j++) {
+              const XNAP_NG_RAN_Cell_Identity_t *cell = cell_list->list.array[j];
+              if (cell->present != XNAP_NG_RAN_Cell_Identity_PR_nr)
+                return false;
+              BIT_STRING_TO_NR_CELL_IDENTITY(&cell->choice.nr, out->ran_paging_area.cell_ids[j]);
+            }
+          } break;
+          case XNAP_RANPagingAreaChoice_PR_rANAreaID_List: {
+            out->ran_paging_area.choice = XNAP_RAN_PAGING_AREA_RAN_AREA_ID;
+            const XNAP_RANAreaID_List_t *ran_area_list = paging_area->rANPagingAreaChoice.choice.rANAreaID_List;
+            out->ran_paging_area.num_ran_area_ids = ran_area_list->list.count;
+            out->ran_paging_area.ran_area_ids = calloc_or_fail(out->ran_paging_area.num_ran_area_ids, sizeof(xnap_ran_area_id_t));
+            for (int j = 0; j < ran_area_list->list.count; j++) {
+              const XNAP_RANAreaID_t *ran_area = ran_area_list->list.array[j];
+              xnap_ran_area_id_t *dst = &out->ran_paging_area.ran_area_ids[j];
+              OCTET_STRING_TO_INT24(&ran_area->tAC, dst->tac);
+              if (ran_area->rANAC) {
+                dst->ranac_present = true;
+                dst->ranac = *ran_area->rANAC;
+              }
+            }
+          } break;
+          default:
+            AssertError(0, return false, "Unknown RANPagingAreaChoice.present=%d\n", paging_area->rANPagingAreaChoice.present);
+        }
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_PagingPriority:
+        PRINT_ERROR("XNAP_ProtocolIE_ID_id %ld not handled, skipping\n", ie->id);
+        break;
+
+      case XNAP_ProtocolIE_ID_id_AssistanceDataForRANPaging:
+        PRINT_ERROR("XNAP_ProtocolIE_ID_id %ld not handled, skipping\n", ie->id);
+        break;
+
+      case XNAP_ProtocolIE_ID_id_UERadioCapabilityForPaging:
+        PRINT_ERROR("XNAP_ProtocolIE_ID_id %ld not handled, skipping\n", ie->id);
+        break;
+
+      default:
+        PRINT_ERROR("XNAP_ProtocolIE_ID_id %ld unknown, skipping\n", ie->id);
+        break;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * @brief XnAP RAN Paging equality function
+ */
+bool eq_xnap_ran_paging(const xnap_ran_paging_t *a, const xnap_ran_paging_t *b)
+{
+  _EQ_CHECK_INT(a->ue_identity_index_value, b->ue_identity_index_value);
+  _EQ_CHECK_UINT64(a->ue_ran_paging_identity, b->ue_ran_paging_identity);
+  _EQ_CHECK_INT(a->paging_drx, b->paging_drx);
+
+  if (!eq_xnap_plmn(&a->ran_paging_area.plmn, &b->ran_paging_area.plmn))
+    return false;
+  _EQ_CHECK_INT(a->ran_paging_area.choice, b->ran_paging_area.choice);
+  if (a->ran_paging_area.choice == XNAP_RAN_PAGING_AREA_CELL_LIST) {
+    _EQ_CHECK_INT(a->ran_paging_area.num_cells, b->ran_paging_area.num_cells);
+    for (int i = 0; i < a->ran_paging_area.num_cells; i++)
+      _EQ_CHECK_UINT64(a->ran_paging_area.cell_ids[i], b->ran_paging_area.cell_ids[i]);
+  } else {
+    _EQ_CHECK_INT(a->ran_paging_area.num_ran_area_ids, b->ran_paging_area.num_ran_area_ids);
+    for (int i = 0; i < a->ran_paging_area.num_ran_area_ids; i++) {
+      _EQ_CHECK_UINT32(a->ran_paging_area.ran_area_ids[i].tac, b->ran_paging_area.ran_area_ids[i].tac);
+      _EQ_CHECK_INT(a->ran_paging_area.ran_area_ids[i].ranac_present, b->ran_paging_area.ran_area_ids[i].ranac_present);
+      if (a->ran_paging_area.ran_area_ids[i].ranac_present)
+        _EQ_CHECK_INT(a->ran_paging_area.ran_area_ids[i].ranac, b->ran_paging_area.ran_area_ids[i].ranac);
+    }
+  }
+
+  return true;
+}
+
+/**
+ * @brief XnAP RAN Paging memory management
+ */
+void free_xnap_ran_paging(xnap_ran_paging_t *msg)
+{
+  if (msg->ran_paging_area.choice == XNAP_RAN_PAGING_AREA_CELL_LIST)
+    free(msg->ran_paging_area.cell_ids);
+  else
+    free(msg->ran_paging_area.ran_area_ids);
+}

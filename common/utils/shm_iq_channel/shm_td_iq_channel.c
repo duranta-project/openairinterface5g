@@ -40,6 +40,9 @@ typedef struct ShmTDIQChannel_s {
 
 ShmTDIQChannel *shm_td_iq_channel_create(const char *name, int num_tx_ant, int num_rx_ant)
 {
+  // Unlink any stale shared memory segment first to ensure we start fresh and reclaim space
+  shm_unlink(name);
+
   // Create shared memory segment
   int fd = shm_open(name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
   AssertFatal(fd != -1, "shm_open failed: %s\n", strerror(errno));
@@ -96,29 +99,48 @@ ShmTDIQChannel *shm_td_iq_channel_connect(const char *name, int timeout_in_secon
 {
   // Create shared memory segment
   int fd = -1;
-  while (timeout_in_seconds > 0 && fd == -1) {
+  double timeout_in_uS = timeout_in_seconds * 1000000.0;
+  while (timeout_in_uS > 0 && fd == -1) {
     for (int i = 0; i < 1000; i++) {
       fd = shm_open(name, O_RDWR, S_IRUSR | S_IWUSR);
       if (fd != -1) {
         break;
       }
       usleep(1000);
+      timeout_in_uS -= 1000;
     }
-    timeout_in_seconds--;
     if (fd == -1) {
       printf("Waiting for server to create shared memory segment\n");
     }
   }
   AssertFatal(fd != -1, "shm_open() failed: errno %d, %s", errno, strerror(errno));
 
+  // Map just the header first to wait for initialization
+  ShmTDIQChannelData *shm_ptr = mmap(NULL, sizeof(ShmTDIQChannelData), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  if (shm_ptr == MAP_FAILED) {
+    perror("mmap header");
+    exit(1);
+  }
+
+  // Wait until server initializes the segment
+  while (timeout_in_uS > 0 && shm_ptr->magic != SHM_MAGIC_NUMBER) {
+    usleep(1000);
+    timeout_in_uS -= 1000;
+  }
+  AssertFatal(shm_ptr->magic == SHM_MAGIC_NUMBER, "Timeout waiting for server to initialize shared memory segment\n");
+
+  // Now that it's initialized, ftruncate has finished, so we can get the actual size
   struct stat buf;
   fstat(fd, &buf);
   size_t total_size = buf.st_size;
 
-  // Map shared memory segment to address space
-  ShmTDIQChannelData *shm_ptr = mmap(NULL, total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  // Unmap the temporary header mapping
+  munmap(shm_ptr, sizeof(ShmTDIQChannelData));
+
+  // Map the entire shared memory segment
+  shm_ptr = mmap(NULL, total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
   if (shm_ptr == MAP_FAILED) {
-    perror("mmap");
+    perror("mmap full");
     exit(1);
   }
 
@@ -134,10 +156,6 @@ ShmTDIQChannel *shm_td_iq_channel_connect(const char *name, int timeout_in_secon
   channel->nb_rx_ant = channel->data->num_antennas_tx;
   printf("\033[38;5;208mnb_tx_ant, nb_rx_ant: %d, %d\n\033[0m", channel->nb_tx_ant, channel->nb_rx_ant);
   channel->type = IQ_CHANNEL_TYPE_CLIENT;
-  while (shm_ptr->magic != SHM_MAGIC_NUMBER) {
-    printf("Waiting for server to initialize shared memory\n");
-    sleep(1);
-  }
   close(fd);
   return channel;
 }
@@ -238,7 +256,7 @@ int shm_td_iq_channel_wait(ShmTDIQChannel *channel, uint64_t timestamp, uint64_t
       fprintf(stderr, "Error: clock_gettime failed: %s\n", strerror(errno));
       return 1;
     }
-    
+
     ts.tv_sec += timeout_uS / 1000000; // Convert microseconds to seconds
     ts.tv_nsec += (timeout_uS % 1000000) * 1000; // Convert remaining microseconds to nanoseconds
 

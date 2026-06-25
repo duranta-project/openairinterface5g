@@ -40,6 +40,7 @@
 #include "as_message.h"
 #include "common/utils/nr/nr_common.h"
 #include "notified_fifo.h"
+#include "RRC/NR_UE/nr_mac_rrc_types.h"
 
 #define NB_CNX_UE 2//MAX_MANAGED_RG_PER_MOBILE
 #define MAX_MEAS_OBJ 64
@@ -252,6 +253,8 @@ typedef struct NR_UE_RRC_INST_s {
   NR_NTN_Config_r17_t *target_ntncfg;
   bool process_target_ntncfg;
   notifiedFIFO_t *mac_input_nf;
+  /* NAS PDU deferred until UL-DCCH exists: consumed in RRCSetupComplete/RRCResumeComplete dedicatedNAS-Message */
+  as_nas_info_t pending_initial_nas;
 } NR_UE_RRC_INST_t;
 
 #endif

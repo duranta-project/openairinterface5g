@@ -19,7 +19,7 @@ static uint64_t get_gps_ns(void)
 {
   struct timespec ts;
   clock_gettime(CLOCK_REALTIME, &ts);
-  return ((uint64_t)ts.tv_sec - GPS_EPOCH_OFFSET_UNIX) * NS_PER_SEC + ts.tv_nsec;
+  return ((uint64_t)ts.tv_sec - GPS_EPOCH_OFFSET_UNIX + GPS_LEAP_SECONDS) * NS_PER_SEC + ts.tv_nsec;
 }
 
 typedef struct {

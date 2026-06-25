@@ -5,6 +5,7 @@
 #include <math.h>
 #include "nr_mac.h"
 #include "nr_mac_common.h"
+#include "NR_PagingCycle.h"
 #include "common/utils/bits.h"
 #include <limits.h>
 #include <executables/softmodem-common.h>
@@ -4938,4 +4939,233 @@ int get_j_for_k2(int mu)
   int j_table[] = {1, 1, 2, 3, 11, 21};
   AssertFatal(mu >= 0 && mu < sizeofArray(j_table), "Invalid numerology %d\n", mu);
   return j_table[mu];
+}
+
+/** @brief T: DRX cycle of the UE in radio frames (TS 38.304 §7.1).
+ * @return T = defaultPagingCycle from PCCH-Config (mandatory, TS 38.331). */
+uint16_t nr_pcch_default_paging_cycle_rf(const NR_PCCH_Config_t *pcch)
+{
+  DevAssert(pcch != NULL);
+  switch (pcch->defaultPagingCycle) {
+    case NR_PagingCycle_rf32:
+      return 32;
+    case NR_PagingCycle_rf64:
+      return 64;
+    case NR_PagingCycle_rf128:
+      return 128;
+    case NR_PagingCycle_rf256:
+      return 256;
+    default:
+      AssertFatal(false,
+                  "SIB1 PCCH-Config: invalid defaultPagingCycle %ld (TS 38.331: rf32/64/128/256)\n",
+                  pcch->defaultPagingCycle);
+  }
+}
+
+/** @brief Derive N and PF_offset from PCCH-Config.nAndPagingFrameOffset (TS 38.331), per TS 38.304 §7.1.
+ * N is the number of paging frames per DRX cycle T.
+ * PF_offset is the offset (in radio frames) applied to SFN in the PF equation. */
+void nr_pcch_n_and_paging_frame_offset(const NR_PCCH_Config_t *pcch, uint16_t T, uint16_t *N, uint8_t *PF_offset)
+{
+  DevAssert(pcch != NULL);
+  DevAssert(N != NULL && PF_offset != NULL);
+  const union NR_PCCH_Config__NR_nAndPagingFrameOffset_u *choice = &pcch->nAndPagingFrameOffset.choice;
+  switch (pcch->nAndPagingFrameOffset.present) {
+    case NR_PCCH_Config__nAndPagingFrameOffset_PR_oneT:
+      /* PF offset is 0 */
+      *N = T;
+      *PF_offset = 0;
+      break;
+    case NR_PCCH_Config__nAndPagingFrameOffset_PR_halfT:
+      /* PF offset (0..1) */
+      *N = T / 2;
+      *PF_offset = choice->halfT;
+      break;
+    case NR_PCCH_Config__nAndPagingFrameOffset_PR_quarterT:
+      /* PF offset (0..3) */
+      *N = T / 4;
+      *PF_offset = choice->quarterT;
+      break;
+    case NR_PCCH_Config__nAndPagingFrameOffset_PR_oneEighthT:
+      /* PF offset (0..7) */
+      *N = T / 8;
+      *PF_offset = choice->oneEighthT;
+      break;
+    case NR_PCCH_Config__nAndPagingFrameOffset_PR_oneSixteenthT:
+      /* PF offset (0..15) */
+      *N = T / 16;
+      *PF_offset = choice->oneSixteenthT;
+      break;
+    default:
+      AssertFatal(false, "SIB1 PCCH-Config: unsupported nAndPagingFrameOffset present=%d\n", pcch->nAndPagingFrameOffset.present);
+  }
+}
+
+/** @brief Returns the number of paging occasions per paging frame (TS 38.331 PCCH-Config). */
+uint8_t nr_pcch_ns_per_pf(const NR_PCCH_Config_t *pcch)
+{
+  DevAssert(pcch != NULL);
+  switch (pcch->ns) {
+    case NR_PCCH_Config__ns_one:
+      return 1;
+    case NR_PCCH_Config__ns_two:
+      return 2;
+    case NR_PCCH_Config__ns_four:
+      return 4;
+    default:
+      AssertFatal(false, "SIB1 PCCH-Config: unsupported ns %ld (TS 38.331: one, two, four)\n", pcch->ns);
+  }
+}
+
+/** @brief Resolve start MO index for the (i_s + 1)-th PO from PCCH-Config.firstPDCCH-MonitoringOccasionOfPO (TS 38.331).
+ * @return true and sets *start_mo when list entry i_s exists, false otherwise (start_mo unchanged). */
+bool nr_pcch_first_pdcch_start_mo(const struct NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO *po_list,
+                                  uint8_t i_s,
+                                  int *start_mo)
+{
+  DevAssert(po_list != NULL);
+  DevAssert(start_mo != NULL);
+
+  switch (po_list->present) {
+    case NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO_PR_NOTHING:
+      return false;
+    case NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO_PR_sCS15KHZoneT: {
+      const struct NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO__sCS15KHZoneT *seq = po_list->choice.sCS15KHZoneT;
+      if (!seq || i_s >= seq->list.count)
+        return false;
+      *start_mo = *seq->list.array[i_s];
+      return true;
+    }
+    case NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO_PR_sCS30KHZoneT_SCS15KHZhalfT: {
+      const struct NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO__sCS30KHZoneT_SCS15KHZhalfT *seq =
+          po_list->choice.sCS30KHZoneT_SCS15KHZhalfT;
+      if (!seq || i_s >= seq->list.count)
+        return false;
+      *start_mo = *seq->list.array[i_s];
+      return true;
+    }
+    case NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO_PR_sCS60KHZoneT_SCS30KHZhalfT_SCS15KHZquarterT: {
+      const struct NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO__sCS60KHZoneT_SCS30KHZhalfT_SCS15KHZquarterT *seq =
+          po_list->choice.sCS60KHZoneT_SCS30KHZhalfT_SCS15KHZquarterT;
+      if (!seq || i_s >= seq->list.count)
+        return false;
+      *start_mo = *seq->list.array[i_s];
+      return true;
+    }
+    case NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO_PR_sCS120KHZoneT_SCS60KHZhalfT_SCS30KHZquarterT_SCS15KHZoneEighthT: {
+      const struct
+          NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO__sCS120KHZoneT_SCS60KHZhalfT_SCS30KHZquarterT_SCS15KHZoneEighthT *seq =
+              po_list->choice.sCS120KHZoneT_SCS60KHZhalfT_SCS30KHZquarterT_SCS15KHZoneEighthT;
+      if (!seq || i_s >= seq->list.count)
+        return false;
+      *start_mo = *seq->list.array[i_s];
+      return true;
+    }
+    case NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO_PR_sCS120KHZhalfT_SCS60KHZquarterT_SCS30KHZoneEighthT_SCS15KHZoneSixteenthT: {
+      const struct
+          NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO__sCS120KHZhalfT_SCS60KHZquarterT_SCS30KHZoneEighthT_SCS15KHZoneSixteenthT
+              *seq = po_list->choice.sCS120KHZhalfT_SCS60KHZquarterT_SCS30KHZoneEighthT_SCS15KHZoneSixteenthT;
+      if (!seq || i_s >= seq->list.count)
+        return false;
+      *start_mo = *seq->list.array[i_s];
+      return true;
+    }
+    case NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO_PR_sCS480KHZoneT_SCS120KHZquarterT_SCS60KHZoneEighthT_SCS30KHZoneSixteenthT: {
+      const struct
+          NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO__sCS480KHZoneT_SCS120KHZquarterT_SCS60KHZoneEighthT_SCS30KHZoneSixteenthT
+              *seq = po_list->choice.sCS480KHZoneT_SCS120KHZquarterT_SCS60KHZoneEighthT_SCS30KHZoneSixteenthT;
+      if (!seq || i_s >= seq->list.count)
+        return false;
+      *start_mo = *seq->list.array[i_s];
+      return true;
+    }
+    case NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO_PR_sCS480KHZhalfT_SCS120KHZoneEighthT_SCS60KHZoneSixteenthT: {
+      const struct NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO__sCS480KHZhalfT_SCS120KHZoneEighthT_SCS60KHZoneSixteenthT
+          *seq = po_list->choice.sCS480KHZhalfT_SCS120KHZoneEighthT_SCS60KHZoneSixteenthT;
+      if (!seq || i_s >= seq->list.count)
+        return false;
+      *start_mo = *seq->list.array[i_s];
+      return true;
+    }
+    case NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO_PR_sCS480KHZquarterT_SCS120KHZoneSixteenthT: {
+      const struct NR_PCCH_Config__firstPDCCH_MonitoringOccasionOfPO__sCS480KHZquarterT_SCS120KHZoneSixteenthT *seq =
+          po_list->choice.sCS480KHZquarterT_SCS120KHZoneSixteenthT;
+      if (!seq || i_s >= seq->list.count)
+        return false;
+      *start_mo = *seq->list.array[i_s];
+      return true;
+    }
+    default:
+      AssertFatal(false, "Unsupported firstPDCCH-MonitoringOccasionOfPO choice %d\n", po_list->present);
+  }
+}
+
+/** @brief TS 38.304 §7.1: true if @p frame is a paging frame for @p ue_id (PF equation). */
+bool nr_pcch_sfn_is_pf(uint16_t frame, uint8_t PF_offset, uint16_t T, uint16_t N, uint16_t ue_id)
+{
+  return (frame + PF_offset) % T == (T / N) * (ue_id % N);
+}
+
+/** @brief TS 38.304 §7.1: paging occasion index */
+uint8_t nr_pcch_po_index(uint16_t ue_id, uint16_t N, uint8_t Ns)
+{
+  return (ue_id / N) % Ns;
+}
+
+/** @brief TS 38.304 §7.1: SearchSpaceId 0, Ns = 2. PO in first or second half-frame per i_s. */
+bool nr_pcch_ss0_po_half_frame(uint8_t i_s, int slot, int slots_per_frame)
+{
+  const int half = slots_per_frame / 2;
+  return (i_s == 0 && slot < half) || (i_s == 1 && slot >= half);
+}
+
+/** @brief TS 38.304 §7.1 + TS 38.213: Type2 paging - slot aligns to SS MO period, MO index in PF must lie in [start_mo, end_mo].
+ *  PDCCH MOs in the PF are numbered from zero from the first such occasion (MOs at offset + k*period, where k0 first in PF, k
+ * current). */
+bool nr_pcch_type2_po_mo_in_range(int frame, int slot, int slots_per_frame, int period, int offset, int start_mo, int end_mo)
+{
+  const int frame_start_slot = frame * slots_per_frame;
+  const int global_slot = frame_start_slot + slot;
+  if (global_slot < offset || (global_slot - offset) % period != 0)
+    return false;
+
+  const int diff = frame_start_slot - offset;
+  const int k0 = diff <= 0 ? 0 : (diff + period - 1) / period;
+  const int k = (global_slot - offset) / period;
+  const int mo_index_in_pf = k - k0;
+  const bool in_range = mo_index_in_pf >= start_mo && mo_index_in_pf <= end_mo;
+  if (in_range) {
+    LOG_D(NR_MAC,
+          "Type2 paging PO: frame=%d slot=%d mo_index_in_pf=%d range [%d,%d] period=%d offset=%d\n",
+          frame,
+          slot,
+          mo_index_in_pf,
+          start_mo,
+          end_mo,
+          period,
+          offset);
+  }
+  return in_range;
+}
+
+/** @brief Pack TS 38.331 SearchSpace.monitoringSymbolsWithinSlot into a per-symbol bitmap.
+ *
+ * monitoringSymbolsWithinSlot is a 14-bit BIT STRING. The leftmost bit is symbol 0 and the
+ * rightmost is symbol 13 (TS 38.213 §10.1). asn1c stores it MSB-aligned across two bytes
+ * (buf[0] bit 7 = symbol 0 ... buf[1] bit 2 = symbol 13, bits_unused = 2).
+ *
+ * @param symbols_in_slot  monitoringSymbolsWithinSlot from SearchSpace
+ * @param sps              OFDM symbols per slot
+ * @return per-symbol bitmap (low sps bits valid) */
+uint16_t nr_pdcch_monitoring_symbols_mask(const BIT_STRING_t *symbols_in_slot, uint8_t sps)
+{
+  DevAssert(symbols_in_slot);
+  DevAssert(symbols_in_slot->buf);
+  DevAssert(symbols_in_slot->size >= 2);
+  AssertFatal(sps == NR_SYMBOLS_PER_SLOT_EXTENDED_CP || sps == NR_SYMBOLS_PER_SLOT,
+              "Invalid OFDM symbols per slot %u (must be %u or %u, TS 38.211 §4.3.2)\n",
+              sps,
+              NR_SYMBOLS_PER_SLOT_EXTENDED_CP,
+              NR_SYMBOLS_PER_SLOT);
+  return (symbols_in_slot->buf[0] << (sps - 8)) | (symbols_in_slot->buf[1] >> (16 - sps));
 }

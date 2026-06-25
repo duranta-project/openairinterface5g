@@ -92,25 +92,6 @@ static int encode_mib(NR_BCCH_BCH_Message_t *mib, frame_t frame, uint8_t *buffer
   return encode_size;
 }
 
-int get_max_ssbs(const NR_ServingCellConfigCommon_t *scc)
-{
-  int L_max = 0;
-  switch (scc->ssb_PositionsInBurst->present) {
-    case NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_shortBitmap:
-      L_max = 4;
-      break;
-    case NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_mediumBitmap:
-      L_max = 8;
-      break;
-    case NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_longBitmap:
-      L_max = 64;
-      break;
-    default:
-      AssertFatal(false, "Invalid SSB configuration\n");
-  }
-  return L_max;
-}
-
 bool is_ssb_configured(const NR_ServingCellConfigCommon_t *scc, int ssb_index)
 {
   const BIT_STRING_t *shortBitmap = &scc->ssb_PositionsInBurst->choice.shortBitmap;
@@ -232,64 +213,6 @@ void schedule_nr_mib(module_id_t module_idP, frame_t frameP, slot_t slotP, nfapi
       }
     }
   }
-}
-
-static bool update_rb_mcs_tbs(NR_sched_pdsch_t *pdsch, uint32_t num_total_bytes, uint16_t *vrb_map)
-{
-  const NR_tda_info_t *tda_info = &pdsch->tda_info;
-
-  // Calculate number of PRB_DMRS
-  uint8_t N_PRB_DMRS = pdsch->dmrs_parms.N_PRB_DMRS;
-  LOG_D(MAC, "dlDmrsSymbPos %x\n", pdsch->dmrs_parms.dl_dmrs_symb_pos);
-  int mcsTableIdx = 0;
-  const uint16_t slbitmap = SL_to_bitmap(tda_info->startSymbolIndex, tda_info->nrOfSymbols);
-  int bwpSize = pdsch->bwp_info.bwpSize;
-  int bwpStart = pdsch->bwp_info.bwpStart;
-
-  for (pdsch->mcs = 0; pdsch->mcs < 10; pdsch->mcs++) {
-    pdsch->Qm = nr_get_Qm_dl(pdsch->mcs, mcsTableIdx);
-    pdsch->R = nr_get_code_rate_dl(pdsch->mcs, mcsTableIdx);
-    if (!nr_find_nb_rb(pdsch->Qm,
-                       pdsch->R,
-                       1, // no transform precoding for DL
-                       1, // single layer
-                       tda_info->nrOfSymbols,
-                       pdsch->dmrs_parms.N_PRB_DMRS * pdsch->dmrs_parms.N_DMRS_SLOT,
-                       num_total_bytes,
-                       1, // min_rbSize
-                       bwpSize, // max_rbSize,
-                       &pdsch->tb_size,
-                       &pdsch->rbSize))
-      continue;
-    int rbStart, rbSize;
-    if (get_rb_alloc(pdsch->rbSize, pdsch->rbSize, bwpStart, bwpSize, vrb_map, slbitmap, &rbStart, &rbSize)) {
-      pdsch->rbStart = rbStart;
-      pdsch->rbSize = rbSize;
-      break;
-    }
-  }
-
-  if (pdsch->mcs >= 10 || pdsch->tb_size < num_total_bytes) {
-    LOG_D(NR_MAC,
-          "Couldn't allocate enough resources for %d bytes in SIB PDSCH (rbStart %d, rbSize %d, bwpSize %d)\n",
-          num_total_bytes,
-          pdsch->rbStart,
-          pdsch->rbSize,
-          bwpSize);
-    return false;
-  }
-
-  LOG_D(NR_MAC,
-        "mcs=%i, startSymbolIndex = %i, nrOfSymbols = %i, rbSize = %i, TBS = %i, dmrs_length %d, N_PRB_DMRS = %d, mappingtype = %d\n",
-        pdsch->mcs,
-        tda_info->startSymbolIndex,
-        tda_info->nrOfSymbols,
-        pdsch->rbSize,
-        pdsch->tb_size,
-        pdsch->dmrs_parms.N_DMRS_SLOT,
-        N_PRB_DMRS,
-        tda_info->mapping_type);
-  return true;
 }
 
 static NR_sched_pdsch_t allocate_sib1(gNB_MAC_INST *gNB_mac,
@@ -480,19 +403,6 @@ static bool check_sib1_tda(gNB_MAC_INST *gNB_mac,
   }
 }
 
-static bool check_frame_sib1(NR_ServingCellConfigCommon_t *scc, NR_Type0_PDCCH_CSS_config_t *type0, int frame)
-{
-  if (type0->type0_pdcch_ss_mux_pattern == 1)
-    return frame % 2 == type0->sfn_c;
-  else {
-    long ssb_period = *scc->ssb_periodicityServingCell;
-    int ssb_frame_periodicity = 1;  // every how many frames SSB are generated
-    if (ssb_period > 1) // 0 is every half frame
-      ssb_frame_periodicity = 1 << (ssb_period -1);
-    return frame % ssb_frame_periodicity == 0;
-  }
-}
-
 void schedule_nr_sib1(module_id_t module_idP,
                       frame_t frameP,
                       slot_t slotP,
@@ -505,30 +415,13 @@ void schedule_nr_sib1(module_id_t module_idP,
   gNB_MAC_INST *gNB_mac = RC.nrmac[module_idP];
   NR_COMMON_channels_t *cc = &gNB_mac->common_channels[CC_id];
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
-  int L_max;
-  switch (scc->ssb_PositionsInBurst->present) {
-    case 1:
-      L_max = 4;
-      break;
-    case 2:
-      L_max = 8;
-      break;
-    case 3:
-      L_max = 64;
-      break;
-    default:
-      AssertFatal(false, "SSB bitmap size value %d undefined (allowed values 1,2,3)\n", scc->ssb_PositionsInBurst->present);
-  }
+  const int L_max = get_max_ssbs(scc);
 
   for (int i = 0; i < L_max; i++) {
 
     NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_CSS_config = &gNB_mac->type0_PDCCH_CSS_config[i];
 
-    if(check_frame_sib1(scc, type0_PDCCH_CSS_config, frameP) &&
-       (slotP == type0_PDCCH_CSS_config->slot) &&
-       (type0_PDCCH_CSS_config->num_rbs > 0) &&
-       (type0_PDCCH_CSS_config->active == true)) {
-
+    if (is_type0_occasion(scc, type0_PDCCH_CSS_config, frameP, slotP) && type0_PDCCH_CSS_config->num_rbs > 0) {
       AssertFatal(is_dl_slot(slotP, &gNB_mac->frame_structure),
                   "Trying to schedule SIB1 for SSB %d in slot %d which is not DL. Check searchSpaceZero configuration.\n",
                   type0_PDCCH_CSS_config->ssb_index,

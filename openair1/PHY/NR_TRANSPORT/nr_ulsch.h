@@ -34,18 +34,6 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
                       int *ULSCH_ids,
                       int nb_pusch);
 
-/*! \brief Perform PUSCH unscrambling. TS 38.211 V15.4.0 subclause 6.3.1.1
-  @param llr, Pointer to llr bits
-  @param size, length of llr bits
-  @param q, codeword index (0,1)
-  @param Nid, cell id
-  @param n_RNTI, CRNTI
-*/
-
-void nr_ulsch_unscrambling(int16_t* llr, uint32_t size, uint32_t Nid, uint32_t n_RNTI);
-
-void nr_ulsch_layer_demapping(int16_t *llr_cw, uint8_t Nl, uint8_t mod_order, uint32_t length, int16_t **llr_layers);
-
 void dump_pusch_stats(FILE *fd,PHY_VARS_gNB *gNB);
 
 NR_gNB_SCH_STATS_t *get_ulsch_stats(PHY_VARS_gNB *gNB,NR_gNB_ULSCH_t *ulsch);

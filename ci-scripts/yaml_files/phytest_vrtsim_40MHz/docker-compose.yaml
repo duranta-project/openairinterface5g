@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: MIT
+
+services:
+    oai-gnb:
+        image: ${REGISTRY-oaisoftwarealliance/}${GNB_IMG:-oai-gnb}:${TAG:-develop}
+        container_name: rfsim5g-oai-gnb
+        cap_drop:
+            - ALL
+        cap_add:
+            - SYS_NICE
+        environment:
+            USE_ADDITIONAL_OPTIONS: --phy-test --device.name vrtsim --vrtsim.role server -q -U 768 -T 106 -t 23 -D 127 -m 28 -M 106 --log_config.global_log_options level,nocolor,time
+            ASAN_OPTIONS: detect_leaks=0
+        ipc: host
+        volumes:
+            - ../../conf_files/gnb.band79.106prb.vrtsim.phytest-dora.conf:/opt/oai-gnb/etc/gnb.conf
+            - rrc.config:/opt/oai-gnb/
+            - tmp_data:/tmp/
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-softmodem"
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+    oai-nr-ue:
+        image: ${REGISTRY-oaisoftwarealliance/}${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+        container_name: rfsim5g-oai-nr-ue
+        cap_drop:
+            - ALL
+        cap_add:
+            - SYS_NICE
+        environment:
+            USE_ADDITIONAL_OPTIONS: --phy-test --reconfig-file etc/rrc/reconfig.raw --rbconfig-file etc/rrc/rbconfig.raw --device.name vrtsim --vrtsim.role client -q --log_config.global_log_options level,nocolor,time
+            ASAN_OPTIONS: detect_leaks=0
+        devices:
+            - /dev/net/tun:/dev/net/tun
+        ipc: host
+        volumes:
+            - ../../conf_files/nrue.uicc.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+            - rrc.config:/opt/oai-nr-ue/etc/rrc/
+            - tmp_data:/tmp/
+        depends_on:
+            - oai-gnb
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-uesoftmodem"
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+volumes:
+    rrc.config:
+    tmp_data:

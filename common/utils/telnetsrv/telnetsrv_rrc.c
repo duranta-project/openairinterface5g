@@ -11,6 +11,8 @@
 #include <stdarg.h>
 
 #include "openair2/RRC/NR/rrc_gNB_UE_context.h"
+#include "openair2/RRC/NR/rrc_gNB_NGAP.h"
+#include "openair3/NGAP/ngap_gNB_ue_context.h"
 
 #define TELNETSERVERCODE
 #include "telnetsrv.h"
@@ -106,9 +108,50 @@ int rrc_gNB_trigger_release_all(char *buf, int debug, telnet_printfunc_t prnt)
   return 0;
 }
 
+static int rrc_gNB_trigger_ue_context_release_req(char *buf, int debug, telnet_printfunc_t prnt)
+{
+  UNUSED(debug);
+  int ue_id = -1;
+
+  if (!buf) {
+    ue_id = get_single_ue_id();
+    if (ue_id < 1) {
+      prnt("No UE found!\n");
+      ERROR_MSG_RET("No UE found!\n");
+    }
+  } else {
+    char *end = NULL;
+    errno = 0;
+    long parsed_id = strtol(buf, &end, 10);
+    if (end == buf || *end != '\0' || errno != 0 || parsed_id < 1 || parsed_id >= 0xfffffe) {
+      ERROR_MSG_RET("UE ID needs to be [1,0xfffffe]\n");
+    }
+    ue_id = parsed_id;
+  }
+
+  gNB_RRC_INST *rrc = RC.nrrrc[0];
+  rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(rrc, ue_id);
+  if (!ue_context_p) {
+    ERROR_MSG_RET("No RRC UE context for ue_id %d\n", ue_id);
+  }
+  if (!ngap_get_ue_context(ue_id)) {
+    ERROR_MSG_RET("No NGAP UE context for ue_id %d\n", ue_id);
+  }
+
+  ngap_cause_t cause = {
+      .type = NGAP_CAUSE_RADIO_NETWORK,
+      .value = NGAP_CAUSE_RADIO_NETWORK_USER_INACTIVITY,
+  };
+  rrc_gNB_send_NGAP_UE_CONTEXT_RELEASE_REQ(0, ue_context_p, cause);
+
+  prnt("Sent NGAP UE Context Release Request (user-inactivity) for ue_id %d\n", ue_id);
+  return 0;
+}
+
 static telnetshell_cmddef_t rrc_cmds[] = {
   {"release_rrc", "[rrc_ue_id(int,opt)]", rrc_gNB_trigger_release},
   {"release_rrc_all", "", rrc_gNB_trigger_release_all},
+  {"ctx_rel_req", "[rrc_ue_id(int,opt)]", rrc_gNB_trigger_ue_context_release_req},
   {"", "", NULL},
 };
 

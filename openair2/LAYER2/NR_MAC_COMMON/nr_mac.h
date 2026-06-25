@@ -274,6 +274,12 @@ typedef struct {
   uint8_t CRNTI_2: 8; // octet 11 [7:0]
 } __attribute__((__packed__)) NR_MAC_SUCCESS_RAR;
 
+/* P-RNTI DCI 1_0 Short Messages Indicator values (TS 38.212 Table 7.3.1.2.1-1). */
+#define NR_DCI_PRNTI_SMI_RESERVED 0 /* 00: reserved */
+#define NR_DCI_PRNTI_SMI_PAGING_SCHED_ONLY 1 /* 01: PDSCH carries paging, no Short Message */
+#define NR_DCI_PRNTI_SMI_SHORT_MSG_ONLY 2 /* 10: Short Message only */
+#define NR_DCI_PRNTI_SMI_PAGING_AND_SHORT 3 /* 11: PDSCH paging and Short Message */
+
 // DCI pdu structures. Used by both gNB and UE.
 typedef struct {
   uint32_t val;

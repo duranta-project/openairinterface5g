@@ -145,6 +145,6 @@ class RANManagement():
 			mac_file = archiveArtifact(cmd, ctx, f"{logdir}/nrMAC_stats.log")
 
 		logging.info(f"check against thresholds from {thresholds}")
-		success, datalog_rt_stats = cls_analysis.Analysis.analyze_rt_stats(thresholds, l1_file, mac_file)
+		success, datalog_rt_stats = cls_analysis.Analysis.analyze_rt_stats(thresholds, [l1_file, mac_file])
 		HTML.CreateHtmlDataLogTable(datalog_rt_stats)
 		return success

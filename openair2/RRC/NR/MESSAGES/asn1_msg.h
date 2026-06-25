@@ -11,6 +11,7 @@
 
 #include <common/utils/assertions.h>
 #include "common/platform_constants.h"
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include "NR_ARFCN-ValueNR.h"
@@ -36,6 +37,7 @@
 #include "NR_SIB2.h"
 #include "NR_SIB3.h"
 #include "NR_SIB4.h"
+#include "NR_PagingUE-Identity.h"
 #include "ds/seq_arr.h"
 #include "ds/byte_array.h"
 #include "openair2/LAYER2/nr_pdcp/nr_pdcp_configuration.h"
@@ -152,7 +154,26 @@ NR_MeasConfig_t *get_MeasConfig(const NR_MeasTiming_t *mt,
                                 seq_arr_t *neigh_seq,
                                 int *neigh_a3_id);
 void free_MeasConfig(NR_MeasConfig_t *mc);
-int do_NR_Paging(uint8_t Mod_id, uint8_t *buffer, uint32_t tmsi);
+
+#define NR_PAGING_FULL_I_RNTI_SIZE 5 // 40 bits
+
+/** Paging parameters for do_NR_Paging */
+typedef struct {
+  /// UE Identity type (ng-5G-S-TMSI or fullI-RNTI)
+  NR_PagingUE_Identity_PR ue_identity_type;
+  union {
+    /// Full 48-bit 5G-S-TMSI (TS 23.003): AMF Set ID + AMF Pointer + 5G-TMSI
+    uint64_t fiveg_s_tmsi;
+    uint8_t full_i_rnti[NR_PAGING_FULL_I_RNTI_SIZE];
+  } ue_identity;
+  /// true = accessType non3GPP
+  bool access_type;
+  /// pagingCause voice
+  int *paging_cause;
+} nr_paging_params_t;
+
+byte_array_t do_NR_Paging(int count, const nr_paging_params_t *params);
+int nr_pcch_decode(const byte_array_t pcch, nr_paging_params_t *out_params, int *out_count);
 
 byte_array_t get_HandoverPreparationInformation(nr_rrc_reconfig_param_t *params);
 byte_array_t get_HandoverCommandMessage(nr_rrc_reconfig_param_t *params);

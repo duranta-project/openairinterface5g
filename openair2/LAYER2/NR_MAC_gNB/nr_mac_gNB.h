@@ -20,6 +20,7 @@
 #include "common/utils/ds/seq_arr.h"
 #include "common/utils/nr/nr_common.h"
 #include "common/utils/ds/byte_array.h"
+#include "common/utils/ds/spsc_q.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_configuration.h"
 
 #define NR_SCHED_LOCK(lock)                                        \
@@ -104,6 +105,14 @@ typedef struct {
   int idx;
   bool new_beam;
 } NR_beam_alloc_t;
+
+/** Pending CN paging record */
+typedef struct {
+  /// UE_ID for PF/PO computation (TS 38.304 §7.1)
+  uint16_t ue_id;
+  /// ng-5G-S-TMSI (48 bits)
+  uint64_t fiveg_s_tmsi;
+} nr_mac_pcch_record_t;
 
 typedef struct nr_pdsch_AntennaPorts_t {
   int N1;
@@ -329,6 +338,8 @@ typedef struct {
   /// Max prach length in slots
   int prach_len;
   nr_prach_info_t prach_info;
+  /// PCCH SDU queue (one spsc_q per common-channel context)
+  spsc_q_t pcch_queue;
 } NR_COMMON_channels_t;
 
 // SP ZP CSI-RS Resource Set Activation/Deactivation MAC CE

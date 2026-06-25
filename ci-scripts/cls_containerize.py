@@ -401,7 +401,7 @@ class Containerize():
 		# I would like to run it with --rm and mount the ctest result directory to avoid 'docker cp'
 		# below, but then permissions are messed up and we can't remove the directory without sudo
 		# making the next pipeline fail
-		ret = cmd.run(f'docker run -a STDOUT {runtime_opt} --workdir /oai-ran/build/ --env LD_LIBRARY_PATH=/oai-ran/build/ --name ran-unittests ran-unittests:{baseTag} ctest --no-label-summary -j$(nproc) {ctest_opt}')
+		ret = cmd.run(f'docker run -a STDOUT {runtime_opt} --shm-size=2g --workdir /oai-ran/build/ --env LD_LIBRARY_PATH=/oai-ran/build/ --name ran-unittests ran-unittests:{baseTag} ctest --no-label-summary -j$(nproc) {ctest_opt}')
 		cmd.run('docker cp ran-unittests:/oai-ran/build/Testing/Temporary/LastTest.log .')
 		archiveArtifact(cmd, ctx, f'{lSourcePath}/LastTest.log')
 		cmd.run('docker cp ran-unittests:/oai-ran/build/Testing/Temporary/LastTestsFailed.log .')
@@ -644,7 +644,7 @@ class Containerize():
 			logging.error('\u001B[1m Undeploying objects Failed\u001B[0m')
 		return success
 
-	def AnalyzeRTStatsObject(self, HTML, node, ctx, thresholds, service=None):
+	def AnalyzeRTStatsObject(self, HTML, node, ctx, thresholds, service=None, stats_files=None):
 		logging.info(f'Analyzing realtime stats from server: {node}')
 		yaml = self.yamlPath.strip('/')
 		wd = f'{self.workspace}/{yaml}'
@@ -660,12 +660,20 @@ class Containerize():
 				raise RuntimeError(f"Requested service {s} not found among services: {deployed_services}")
 			logging.info(f"Analyzing deployed service '{s}'")
 			# similar to BuildRunTests(), use docker cp to avoid problems with permissions
-			cmd.run(f'docker compose -f {wd_yaml} cp {s}:/opt/oai-gnb/nrL1_stats.log {wd}/')
-			l1_file = archiveArtifact(cmd, ctx, f"{wd}/nrL1_stats.log")
-			cmd.run(f'docker compose -f {wd_yaml} cp {s}:/opt/oai-gnb/nrMAC_stats.log {wd}/')
-			mac_file = archiveArtifact(cmd, ctx, f"{wd}/nrMAC_stats.log")
+			local_files = []
+			for sf in stats_files:
+				basename = os.path.basename(sf)
+				ret = cmd.run(f'docker compose -f {wd_yaml} cp {s}:{sf} {wd}/')
+				if ret.returncode != 0:
+					logging.error(f"Cannot retrieve {s}:{sf}")
+					return False
+				file = archiveArtifact(cmd, ctx, f"{wd}/{basename}")
+				if not file:
+					logging.error(f"Cannot retrieve file {basename}")
+					return False
+				local_files.append(file)
 
 		logging.info(f"check against thresholds from {thresholds}")
-		success, datalog_rt_stats = cls_analysis.Analysis.analyze_rt_stats(thresholds, l1_file, mac_file)
+		success, datalog_rt_stats = cls_analysis.Analysis.analyze_rt_stats(thresholds, local_files)
 		HTML.CreateHtmlDataLogTable(datalog_rt_stats)
 		return success

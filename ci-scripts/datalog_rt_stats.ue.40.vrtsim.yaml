@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
+#this is a configuration file
+#used to build real time processing statistics
+#for 5G NR phy test (gNB terminate)
+Title : UE Processing Time (us) from datalog_rt_stats.ue.40.vrtsim.yaml
+ColNames :
+  - Metric
+  - Average; Max; Count
+  - Average vs Reference Deviation (Reference Value; Acceptability Deviation Threshold)
+Ref :
+  RX_PDSCH_STATS : 62.0
+  DLSCH_RX_PDCCH_STATS : 30.5
+  RX_DFT_STATS : 5.5
+  DLSCH_CHANNEL_ESTIMATION_STATS : 39.0
+  DLSCH_DECODING_STATS : 178.0
+  DLSCH_LDPC_DECODING_STATS : 78.0
+  DLSCH_LLR_STATS : 25.0
+  DLSCH_LAYER_DEMAPPING : 8.5
+  DLSCH_PROCEDURES_STATS : 188.0
+  PHY_PROC_TX : 158.0
+  PUSCH_PROC_STATS : 167.0
+  ULSCH_LDPC_ENCODING_STATS : 43.0
+  ULSCH_ENCODING_STATS : 121.0
+  OFDM_MOD_STATS : 44.5
+DeviationThreshold :
+  RX_PDSCH_STATS : 0.25
+  DLSCH_RX_PDCCH_STATS : 0.25
+  RX_DFT_STATS : 0.25
+  DLSCH_CHANNEL_ESTIMATION_STATS : 0.25
+  DLSCH_DECODING_STATS : 0.25
+  DLSCH_LDPC_DECODING_STATS : 0.25
+  DLSCH_LLR_STATS : 0.25
+  DLSCH_LAYER_DEMAPPING : 0.5
+  DLSCH_PROCEDURES_STATS : 0.25
+  PHY_PROC_TX : 0.25
+  PUSCH_PROC_STATS : 0.25
+  ULSCH_LDPC_ENCODING_STATS : 0.25
+  ULSCH_ENCODING_STATS : 0.25
+  OFDM_MOD_STATS : 0.25

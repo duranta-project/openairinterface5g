@@ -31,7 +31,7 @@ typedef struct {
   channel_desc_t *ch; /* ch_ps points into taps_blob */
 } cirdb_buffer_t;
 
-typedef struct {
+typedef struct cirdb_provider_s {
   /* I/O */
   FILE *fh;
 
@@ -70,8 +70,6 @@ typedef struct {
   /* Bookkeeping of last step computed from elapsed time */
   int64_t last_step_applied; /* -1 until first update */
 } cirdb_g;
-
-static cirdb_g G;
 
 static inline void fread_exact(void *dst, size_t sz, FILE *fh)
 {
@@ -121,35 +119,39 @@ static void compact_L_out(struct complexf *dst,
 }
 
 /* Load snapshot index s into the next publication buffer and flip */
-static void load_snapshot_and_publish(uint32_t s)
+static void load_snapshot_and_publish(cirdb_g *G, uint32_t s)
 {
-  uint64_t stride = (uint64_t)G.n_tx * G.n_rx * G.L_full * sizeof(struct complexf);
-  uint64_t off = G.sel_offset + (uint64_t)s * stride;
+  uint64_t stride = (uint64_t)G->n_tx * G->n_rx * G->L_full * sizeof(struct complexf);
+  uint64_t off = G->sel_offset + (uint64_t)s * stride;
 
-  if (fseeko(G.fh, (off_t)off, SEEK_SET) != 0) {
+  if (fseeko(G->fh, (off_t)off, SEEK_SET) != 0) {
     LOG_E(HW, "CIRDB fseoko failed errno=%d\n", errno);
     abort();
   }
-  fread_exact(G.snapshot_tmp, (size_t)stride, G.fh);
+  fread_exact(G->snapshot_tmp, (size_t)stride, G->fh);
 
-  int next = (G.cur + 1) % NUM_TAPS_BUFFERS;
-  cirdb_buffer_t *buf = &G.bufs[next];
+  int next = (G->cur + 1) % NUM_TAPS_BUFFERS;
+  cirdb_buffer_t *buf = &G->bufs[next];
 
-  compact_L_out((struct complexf *)buf->taps_blob, (const struct complexf *)G.snapshot_tmp, G.n_tx, G.n_rx, G.L_full, G.L_out);
+  compact_L_out((struct complexf *)buf->taps_blob,
+                (const struct complexf *)G->snapshot_tmp,
+                G->n_tx,
+                G->n_rx,
+                G->L_full,
+                G->L_out);
 
-  point_channel_desc(buf->ch, (struct complexf *)buf->taps_blob, G.n_tx, G.n_rx, G.L_out);
+  point_channel_desc(buf->ch, (struct complexf *)buf->taps_blob, G->n_tx, G->n_rx, G->L_out);
 
-  *G.channel_desc_out = buf->ch;
-  G.cur = next;
+  *G->channel_desc_out = buf->ch;
+  G->cur = next;
 }
 
-void cirdb_connect(int id,
-                   int num_tx_antennas,
-                   int num_rx_antennas,
-                   const cirdb_select_opts_t *sel,
-                   channel_desc_t **channel_desc_out)
+cirdb_provider_t *cirdb_connect(int num_tx_antennas,
+                                int num_rx_antennas,
+                                const cirdb_select_opts_t *sel,
+                                channel_desc_t **channel_desc_out)
 {
-  (void)id;
+  cirdb_g G;
   memset(&G, 0, sizeof(G));
   G.channel_desc_out = channel_desc_out;
   G.num_tx = num_tx_antennas;
@@ -172,9 +174,7 @@ void cirdb_connect(int id,
 
   /* Selection request */
   int want_model_id = sel->want_model_id;
-  AssertFatal(want_model_id >= 0 && want_model_id <= 4,
-            "Invalid model_id=%d (valid: 0..4)\n",
-            want_model_id);
+  AssertFatal(want_model_id >= 0 && want_model_id <= 4, "Invalid model_id=%d (valid: 0..4)\n", want_model_id);
   float want_ds = (sel && sel->want_ds_ns > 0) ? sel->want_ds_ns : -1.0f;
   float want_speed = (sel && sel->want_speed_mps > 0) ? sel->want_speed_mps : -1.0f;
 
@@ -277,7 +277,7 @@ void cirdb_connect(int id,
   }
 
   if (G.S > 0) {
-    load_snapshot_and_publish(0);
+    load_snapshot_and_publish(&G, 0);
   }
 
   LOG_I(HW,
@@ -293,42 +293,49 @@ void cirdb_connect(int id,
         G.snapshot_dt_s,
         G.speed_mps,
         sel->want_aoa_deg);
+
+  cirdb_g *p = calloc_or_fail(1, sizeof(cirdb_g));
+  *p = G;
+  return p;
 }
 
-void cirdb_update(uint64_t ns_since_start)
+void cirdb_update(cirdb_provider_t *G, uint64_t ns_since_start)
 {
-  if (!G.channel_desc_out || !*G.channel_desc_out)
+  if (!G)
     return;
-  if (G.S <= 0)
+  if (!G->channel_desc_out || !*G->channel_desc_out)
+    return;
+  if (G->S <= 0)
     return;
 
-  double dt_s = (G.snapshot_dt_s > 0.0 ? G.snapshot_dt_s : 0.5);
+  double dt_s = (G->snapshot_dt_s > 0.0 ? G->snapshot_dt_s : 0.5);
   if (dt_s <= 0.0)
     dt_s = 0.5;
 
   double steps_f = (ns_since_start * 1e-9) / dt_s;
   int64_t step = (int64_t)(steps_f >= 0.0 ? steps_f : 0.0);
 
-  if (step != G.last_step_applied) {
-    uint32_t s = (uint32_t)(step % G.S);
-    load_snapshot_and_publish(s);
-    G.snap_idx = s;
-    G.last_step_applied = step;
+  if (step != G->last_step_applied) {
+    uint32_t s = (uint32_t)(step % G->S);
+    load_snapshot_and_publish(G, s);
+    G->snap_idx = s;
+    G->last_step_applied = step;
   }
 }
 
-void cirdb_stop(void)
+void cirdb_stop(cirdb_provider_t *G)
 {
+  if (!G)
+    return;
   for (int i = 0; i < NUM_TAPS_BUFFERS; i++) {
-    free(G.bufs[i].taps_blob);
-    if (G.bufs[i].ch) {
-      free(G.bufs[i].ch->ch_ps);
-      free(G.bufs[i].ch);
+    free(G->bufs[i].taps_blob);
+    if (G->bufs[i].ch) {
+      free(G->bufs[i].ch->ch_ps);
+      free(G->bufs[i].ch);
     }
   }
-  free(G.snapshot_tmp);
-  if (G.fh)
-    fclose(G.fh);
-  memset(&G, 0, sizeof(G));
-  G.last_step_applied = -1;
+  free(G->snapshot_tmp);
+  if (G->fh)
+    fclose(G->fh);
+  free(G);
 }
