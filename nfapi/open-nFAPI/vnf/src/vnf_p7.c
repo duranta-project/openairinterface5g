@@ -303,6 +303,31 @@ struct timespec timespec_delta(struct timespec start, struct timespec end)
 	return temp;
 }
 
+/*! Compute signed difference between two TIMEHR timestamps in microseconds.
+ *  Handles 12-bit second wrap-around (every 4096 seconds) correctly
+ *  for differences up to ~2048 seconds.
+ */
+static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b)
+{
+  // Extract seconds and microseconds
+  int32_t sec_a = TIMEHR_SEC(time_hr_a);
+  int32_t sec_b = TIMEHR_SEC(time_hr_b);
+  int32_t usec_a = TIMEHR_USEC(time_hr_a);
+  int32_t usec_b = TIMEHR_USEC(time_hr_b);
+
+  // Handle 12-bit second wrap-around
+  // sec_a - sec_b should be in range [-2048, 2047] for valid comparisons
+  int32_t sec_diff = sec_a - sec_b;
+  if (sec_diff > 2047) {
+    sec_diff -= 4096; // sec_a wrapped, sec_b didn't
+  }
+  if (sec_diff < -2048) {
+    sec_diff += 4096; // sec_b wrapped, sec_a didn't
+  }
+
+  return (int64_t)sec_diff * 1000000 + (usec_a - usec_b);
+}
+
 static uint32_t get_sf_time(uint32_t now_hr, uint32_t sf_start_hr)
 {
 	if(now_hr < sf_start_hr)
@@ -327,24 +352,13 @@ static uint32_t get_sf_time(uint32_t now_hr, uint32_t sf_start_hr)
 
 static uint32_t get_slot_time(uint32_t now_hr, uint32_t slot_start_hr)
 {
-	if(now_hr < slot_start_hr)
-	{
+	// Use proper signed difference to handle wrap-around
+	int64_t diff_us = timehr_diff_us(now_hr, slot_start_hr);
+	if (diff_us < 0) {
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "now is earlier than start of slot\n");
 		return 0;
 	}
-	else
-	{
-		uint32_t now_us = TIMEHR_USEC(now_hr);
-		uint32_t slot_start_us = TIMEHR_USEC(slot_start_hr);
-
-		// if the us have wrapped adjust for it
-		if(now_hr < slot_start_us)
-		{
-			now_us += 1000000;
-		}
-
-		return now_us - slot_start_us;
-	}
+	return (uint32_t)diff_us;
 }
 
 uint32_t calculate_t1(uint16_t sfn_sf, uint32_t sf_start_time_hr)
@@ -1548,11 +1562,8 @@ void vnf_handle_nr_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 }
 
 void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
-{	
-	//printf("received UL Node sync");
-
+{
 	uint32_t now_time_hr = vnf_get_current_time_hr();
-
 	if (pRecvMsg == NULL || vnf_p7  == NULL)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "vnf_handle_ul_node_sync: NULL parameters\n");
@@ -1560,397 +1571,124 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	}
 
 	nfapi_nr_ul_node_sync_t ind;
-  const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(nfapi_nr_ul_node_sync_t), &vnf_p7->_public.codec_config);
-	if(!result)
-	{
+	if (!vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config)) {
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack ul_node_sync\n");
 		return;
 	}
 
-	//NFAPI_TRACE(NFAPI_TRACE_INFO, "Received UL_NODE_SYNC phy_id:%d t1:%d t2:%d t3:%d\n", ind.header.phy_id, ind.t1, ind.t2, ind.t3);
-
-	nfapi_vnf_p7_connection_info_t* phy = vnf_p7_connection_info_list_find(vnf_p7, ind.header.phy_id);
-	uint32_t t4 = calculate_nr_t4(now_time_hr, phy->mu, phy->sfn, phy->slot, vnf_p7->slot_start_time_hr);
-
-	uint32_t tx_2_rx = t4>ind.t1 ? t4 - ind.t1 : t4 + NFAPI_MAX_SFNSLOTDEC(phy->mu) - ind.t1 ; //time taken to receive ul node sync - time taken to send dl node sync
-	uint32_t pnf_proc_time = ind.t3 - ind.t2;
-
-	// divide by 2 using shift operator
-	uint32_t latency =  (tx_2_rx - pnf_proc_time) >> 1;
-
-	//phy->in_sync = 1;
-
-	if(!(phy->filtered_adjust))
-	{
-		phy->latency[phy->min_sync_cycle_count] = latency;
-
-		//NFAPI_TRACE(NFAPI_TRACE_NOTE, "(%4d/%d) PNF to VNF !sync phy_id:%d (t1/2/3/4:%8u, %8u, %8u, %8u) txrx:%4u procT:%3u latency(us):%4d\n",
-		//		phy->sfn, phy->slot, ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4, 
-		//		tx_2_rx, pnf_proc_time, latency);
+	nfapi_vnf_p7_connection_info_t* p7_info = vnf_p7_connection_info_list_find(vnf_p7, ind.header.phy_id);
+	if (!p7_info) {
+		NFAPI_TRACE(NFAPI_TRACE_ERROR, "PHY instance not found for phy_id:%d\n", ind.header.phy_id);
+		return;
 	}
-	else
-	{
-		phy->latency[phy->min_sync_cycle_count] = latency;
+	pthread_mutex_lock(&p7_info->mutex);
+	uint32_t t4 = calculate_nr_t4(now_time_hr, p7_info->mu, p7_info->sfn, p7_info->slot, vnf_p7->slot_start_time_hr);
+	/*
+	* Time Synchronization Algorithm
+	*
+	* T1 = VNF Transmit Time (t1)    |   T2 = PNF Receive Time (t2)
+	* T3 = PNF Transmit Time (t3)    |   T4 = VNF Receive Time (t4)
+	*
+	* Assuming symmetric network delay:
+	* T2 - T1 = Delay + Offset
+	* T4 - T3 = Delay - Offset
+	* Offset = ((T2 - T1) - (T4 - T3)) / 2
+	*/
+	int64_t diff1 = (int64_t)ind.t2 - (int64_t)ind.t1;
+	int64_t diff2 = (int64_t)t4 - (int64_t)ind.t3;
+	int64_t wrap_us = 10240000LL;
+	int64_t half_wrap = 5120000LL;
+	// 10.24s Wrap-around protection (nFAPI timestamps are constrained by 1024 SFN loop)
+	while (diff1 > half_wrap) diff1 -= wrap_us;
+	while (diff1 < -half_wrap) diff1 += wrap_us;
+	while (diff2 > half_wrap) diff2 -= wrap_us;
+	while (diff2 < -half_wrap) diff2 += wrap_us;
+	int32_t offset = (int32_t)((diff1 - diff2) / 2);
 
-		//if(phy->min_sync_cycle_count != SYNC_CYCLE_COUNT)
-		{
-			if (ind.t2 < phy->previous_t2 && ind.t1 > phy->previous_t1)
-			{
-				// Only t2 wrap has occurred!!!
-				phy->slot_offset = (NFAPI_MAX_SFNSLOTDEC(phy->mu) + ind.t2) - ind.t1 - latency;
-			}
-			else if (ind.t2 > phy->previous_t2 && ind.t1 < phy->previous_t1)
-			{
-				// Only t1 wrap has occurred
-				phy->slot_offset = ind.t2 - ( ind.t1 + NFAPI_MAX_SFNSLOTDEC(phy->mu)) - latency;
-			}
-			else
-			{
-				// Either no wrap or both have wrapped
-				phy->slot_offset = ind.t2 - ind.t1 - latency;
-			}
+	int32_t total_correction = offset;
 
-			if (phy->slot_offset_filtered == 0)
-			{
-				phy->slot_offset_filtered = phy->slot_offset;
-			}
-			else
-			{
-				int32_t oldFilteredValueShifted = phy->slot_offset_filtered << 5;
-				int32_t newOffsetShifted = phy->slot_offset << 5;
-
-				// 1/8 of new and 7/8 of old
-				phy->slot_offset_filtered = ((newOffsetShifted >> 3) + ((oldFilteredValueShifted * 7) >> 3)) >> 5;
-			}
-		}
-
-		if(1)
-		{
-                  struct timespec ts;
-                  clock_gettime(CLOCK_MONOTONIC, &ts);
-
-			// NFAPI_TRACE(NFAPI_TRACE_NOTE, "(%4d/%1d) %d.%d PNF to VNF phy_id:%2d (t1/2/3/4:%8u, %8u, %8u, %8u) txrx:%4u procT:%3u latency(us):%4d(avg:%4d) offset(us):%8d filtered(us):%8d wrap[t1:%u t2:%u]\n", 
-			// 		phy->sfn, phy->slot, ts.tv_sec, ts.tv_nsec, ind.header.phy_id,
-			// 		ind.t1, ind.t2, ind.t3, t4, 
-			// 		tx_2_rx, pnf_proc_time, latency, phy->average_latency, phy->slot_offset, phy->slot_offset_filtered,
-			// 		(ind.t1<phy->previous_t1), (ind.t2<phy->previous_t2));
-		}
-
+	// Update 5G NR filtered offset (EWMA with alpha = 1/8)
+	if (p7_info->nr_offset_filtered == 0) {
+		p7_info->nr_offset_filtered = total_correction;
+	} else {
+		p7_info->nr_offset_filtered = (p7_info->nr_offset_filtered * 7 + total_correction) / 8;
 	}
 
-        if (phy->filtered_adjust && (phy->slot_offset_filtered > 1e6 || phy->slot_offset_filtered < -1e6))
-        {
-          phy->filtered_adjust = 0;
-          phy->zero_count=0;
-          phy->min_sync_cycle_count = 2;
-          phy->in_sync = 0;
-          NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s - ADJUST TOO BAD - go out of filtered phy->slot_offset_filtered:%d\n", __FUNCTION__, phy->slot_offset_filtered);
-        }
-
-	if(phy->min_sync_cycle_count)
-		phy->min_sync_cycle_count--;
-
-	if(phy->min_sync_cycle_count == 0)
-	{
-		uint32_t curr_sfn = phy->sfn;
-		uint32_t curr_slot = phy->slot;
-		int32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn,phy->slot);
-
-		if(!phy->filtered_adjust)
-		{
-			int i = 0;
-			//phy->average_latency = 0;
-			for(i = 0; i < SYNC_CYCLE_COUNT; ++i)
-			{
-				phy->average_latency += phy->latency[i];
-
-			}
-			phy->average_latency /= SYNC_CYCLE_COUNT;
-
-			phy->slot_offset = ind.t2 - (ind.t1 - phy->average_latency);
-
-			sfn_slot_dec += (phy->slot_offset / 500);
-			
-			NFAPI_TRACE(NFAPI_TRACE_NOTE, "PNF to VNF slot offset:%d sfn :%d slot:%d \n",phy->slot_offset,NFAPI_SFNSLOTDEC2SFN(phy->mu, sfn_slot_dec),NFAPI_SFNSLOTDEC2SLOT(phy->mu, sfn_slot_dec) );
-
-
+	if (p7_info->sync_locked) {
+		// Proportional micro-steering.
+		// Use gain 1/16 if |total_correction| > 100 to converge faster.
+		// Use gain 1/32 if |total_correction| <= 100 for stability.
+		int32_t micro_adj = 0;
+		if (total_correction > 100 || total_correction < -100) {
+			micro_adj = total_correction / 16;
+		} else {
+			micro_adj = total_correction / 32;
 		}
-		else
-		{
-			sfn_slot_dec += ((phy->slot_offset_filtered + 250) / 500);	//Round up to go from microsecond to slot
-			
+		p7_info->pending_us -= micro_adj;
+
+		// Drift Monitoring
+		if (total_correction <= -2500 || total_correction >= 2500) {
+			// 1. Massive raw drift: unlock immediately
+			p7_info->sync_locked = 0;
+			p7_info->consecutive_drift_violations = 0;
+			NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Massive raw drift detected (%d us). Unlocking sync immediately.\n", total_correction);
+		} else if (p7_info->nr_offset_filtered <= -MARGIN_TOLERANCE_LOCKED_US
+		           || p7_info->nr_offset_filtered >= MARGIN_TOLERANCE_LOCKED_US) {
+			// 2. Persistent smoothed drift: unlock after 3 consecutive samples
+			p7_info->consecutive_drift_violations++;
+			if (p7_info->consecutive_drift_violations >= 3) {
+				p7_info->sync_locked = 0;
+				p7_info->consecutive_drift_violations = 0;
+				NFAPI_TRACE(NFAPI_TRACE_WARN,
+				            "[P7_SYNC] Persistent smoothed drift detected (%d us, raw: %d us). Unlocking sync for re-calibration.\n",
+				            p7_info->nr_offset_filtered, total_correction);
+			} else {
+				NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Smoothed drift warning (%d us, raw: %d us) (count: %d), waiting to confirm.\n",
+				            p7_info->nr_offset_filtered, total_correction, p7_info->consecutive_drift_violations);
+			}
+		} else {
+			p7_info->consecutive_drift_violations = 0;
 		}
-
-		if(sfn_slot_dec < 0)
-		{
-			sfn_slot_dec += NFAPI_MAX_SFNSLOTDEC(phy->mu);
-		}
-		else if( sfn_slot_dec >= NFAPI_MAX_SFNSLOTDEC(phy->mu))
-		{
-			sfn_slot_dec -= NFAPI_MAX_SFNSLOTDEC(phy->mu);
-		}
-
-		
-		uint16_t new_sfn = NFAPI_SFNSLOTDEC2SFN(phy->mu, sfn_slot_dec);
-		uint16_t new_slot = NFAPI_SFNSLOTDEC2SLOT(phy->mu, sfn_slot_dec);
-	
-		{
-			phy->adjustment = NFAPI_SFNSLOT2DEC(phy->mu, new_sfn, new_slot) - NFAPI_SFNSLOT2DEC(phy->mu, curr_sfn, curr_slot);
-
-			//NFAPI_TRACE(NFAPI_TRACE_NOTE, "PNF to VNF phy_id:%d adjustment%d phy->previous_slot_offset_filtered:%d phy->previous_slot_offset_filtered:%d phy->slot_offset_trend:%d\n", ind.header.phy_id, phy->adjustment, phy->previous_slot_offset_filtered, phy->previous_slot_offset_filtered, phy->slot_offset_trend);
-
-			phy->previous_t1 = 0;
-			phy->previous_t2 = 0;
-
-			if(phy->previous_slot_offset_filtered > 0)
-			{
-				if( phy->slot_offset_filtered > phy->previous_slot_offset_filtered)
-				{
-					// pnf is getting futher ahead of vnf
-					//phy->sf_offset_trend = phy->sf_offset_filtered - phy->previous_sf_offset_filtered;
-					phy->slot_offset_trend = (phy->slot_offset_filtered + phy->previous_slot_offset_filtered)/2;
-				}
-				else
-				{
-					// pnf is getting back in sync
-				}
-			}
-			else if(phy->previous_slot_offset_filtered < 0)
-			{
-				if(phy->slot_offset_filtered < phy->previous_slot_offset_filtered)
-				{
-					// vnf is getting future ahead of pnf
-					//phy->sf_offset_trend = -(phy->sf_offset_filtered - phy->previous_sf_offset_filtered);
-					phy->slot_offset_trend = (-(phy->slot_offset_filtered + phy->previous_slot_offset_filtered)) /2;
-				}
-				else
-				{
-					//  vnf is getting back in sync
-				}
-			}
-
-			
-			int insync_minor_adjustment_1 = phy->slot_offset_trend / 6;
-			int insync_minor_adjustment_2 = phy->slot_offset_trend / 2;
-
-
-			if(insync_minor_adjustment_1 == 0)
-				insync_minor_adjustment_1 = 2;
-
-			if(insync_minor_adjustment_2 == 0)
-				insync_minor_adjustment_2 = 10;
-
-			if(!phy->filtered_adjust)
-			{
-				if(phy->adjustment < 10)
-				{
-					phy->zero_count++;
-
-					if(phy->zero_count >= 10)
-					{
-						phy->filtered_adjust = 1;
-						phy->zero_count = 0;
-
-						NFAPI_TRACE(NFAPI_TRACE_NOTE, "***** Adjusting VNF SFN/SF switching to filtered mode\n");
-					}
-				}
-				else
-				{
-					phy->zero_count = 0;
-				}
-			}
-			else
-			{
-				// Fine level of adjustment
-				if (phy->adjustment == 0)
-				{
-					if (phy->zero_count >= 10)
-					{
-						if(phy->in_sync == 0)
-						{
-							NFAPI_TRACE(NFAPI_TRACE_NOTE, "VNF P7 In Sync with phy (phy_id:%d)\n", phy->phy_id); 
-
-							if(vnf_p7->_public.sync_indication)
-								(vnf_p7->_public.sync_indication)(&(vnf_p7->_public), phy->in_sync);
-						}
-
-						phy->in_sync = 1;
-					}
-					else
-					{
-						phy->zero_count++;
-					}
-
-					if(phy->in_sync)
-					{
-						// in sync
-						if(phy->slot_offset_filtered > 250)
-						{
-							// VNF is slow
-							phy->insync_minor_adjustment = insync_minor_adjustment_1; //25;
-							phy->insync_minor_adjustment_duration = ((phy->slot_offset_filtered) / insync_minor_adjustment_1);
-						}
-						else if(phy->slot_offset_filtered < -250)
-						{
-							// VNF is fast
-							phy->insync_minor_adjustment = -(insync_minor_adjustment_1); //25;
-							phy->insync_minor_adjustment_duration = (((phy->slot_offset_filtered) / -(insync_minor_adjustment_1)));
-						}
-						else
-						{
-							phy->insync_minor_adjustment = 0;
-						}
-
-						if(phy->insync_minor_adjustment != 0)
-						{
-              NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-                          "(%4d/%d) VNF phy_id:%d Apply minor insync adjustment %dus for %d slots (slot_offset_filtered:%d) %d %d "
-                          "%d NEW:%d.%d CURR:%d.%d adjustment:%d\n",
-                          phy->sfn,
-                          phy->slot,
-                          ind.header.phy_id,
-                          phy->insync_minor_adjustment,
-                          phy->insync_minor_adjustment_duration,
-                          phy->slot_offset_filtered,
-                          insync_minor_adjustment_1,
-                          insync_minor_adjustment_2,
-                          phy->slot_offset_trend,
-                          new_sfn,
-                          new_slot,
-                          curr_sfn,
-                          curr_slot,
-                          phy->adjustment);
-            }
-					}
-				}
-				else
-				{
-					if (phy->in_sync)
-					{
-						if(phy->adjustment == 0)
-						{
-						}
-						else if(phy->adjustment > 0)
-						{
-							// VNF is slow
-							//if(phy->adjustment == 1)
-							{
-								//
-								if(phy->slot_offset_filtered > 250)
-								{
-									// VNF is slow
-									phy->insync_minor_adjustment = insync_minor_adjustment_2;
-									phy->insync_minor_adjustment_duration = 2 * ((phy->slot_offset_filtered - 250) / insync_minor_adjustment_2);
-								}
-								else if(phy->slot_offset_filtered < -250)
-								{
-									// VNF is fast
-									phy->insync_minor_adjustment = -(insync_minor_adjustment_2);
-									phy->insync_minor_adjustment_duration = 2 * ((phy->slot_offset_filtered + 250) / -(insync_minor_adjustment_2));
-								}
-							
-							}
-							//else
-							{
-								// out of sync?
-							}
-
-              NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-                          "(%4d/%d) VNF phy_id:%d Apply minor insync adjustment %dus for %d slots (adjustment:%d "
-                          "slot_offset_filtered:%d) %d %d %d NEW:%d.%d CURR:%d.%d adj:%d\n",
-                          phy->sfn,
-                          phy->slot,
-                          ind.header.phy_id,
-                          phy->insync_minor_adjustment,
-                          phy->insync_minor_adjustment_duration,
-                          phy->adjustment,
-                          phy->slot_offset_filtered,
-                          insync_minor_adjustment_1,
-                          insync_minor_adjustment_2,
-                          phy->slot_offset_trend,
-                          new_sfn,
-                          new_slot,
-                          curr_sfn,
-                          curr_slot,
-                          phy->adjustment);
-
-            }
-						else if(phy->adjustment < 0)
-						{
-							// VNF is fast
-							//if(phy->adjustment == -1)
-							{
-								//
-								if(phy->slot_offset_filtered > 250)
-								{
-									// VNF is slow
-									phy->insync_minor_adjustment = insync_minor_adjustment_2;
-									phy->insync_minor_adjustment_duration = 2 * ((phy->slot_offset_filtered - 250) / insync_minor_adjustment_2);
-								}
-								else if(phy->slot_offset_filtered < -250)
-								{
-									// VNF is fast
-									phy->insync_minor_adjustment = -(insync_minor_adjustment_2);
-									phy->insync_minor_adjustment_duration = 2 * ((phy->slot_offset_filtered + 250) / -(insync_minor_adjustment_2));
-								}
-							}
-							//else
-							{
-								// out of sync?
-							}
-
-							// NFAPI_TRACE(NFAPI_TRACE_NOTE, "(%d/%d) VNF phy_id:%d Apply minor insync adjustment %dus for %d slots (adjustment:%d slot_offset_filtered:%d) %d %d %d\n", 
-							// 			phy->sfn, phy->slot, ind.header.phy_id,
-							// 			phy->insync_minor_adjustment, phy->insync_minor_adjustment_duration, phy->adjustment, phy->slot_offset_filtered,
-							// 			insync_minor_adjustment_1, insync_minor_adjustment_2, phy->slot_offset_trend); 
-						}
-
-						/*
-						if (phy->adjustment > 10 || phy->adjustment < -10)
-						{
-							phy->zero_count++;		// Add one to the getting out of sync counter
-						}
-						else
-						{
-							phy->zero_count = 0;		// Small error - zero the out of sync counter
-						}
-
-						if (phy->zero_count >= 10)	// If we have had 10 consecutive large errors - drop out of sync
-						{
-							NFAPI_TRACE(NFAPI_TRACE_NOTE, "we have fallen out of sync...\n");
-							//pP7SockInfo->syncAchieved = 0;
-						}
-						*/
-					}
-				}
-			}
-
-
-			if(phy->in_sync == 0)
-			{
-				/*NFAPI_TRACE(NFAPI_TRACE_NOTE, "***** Adjusting VNF phy_id:%d SFN/SF (%s) from %d to %d (%d) mode:%s zeroCount:%u sync:%s\n",
-					ind.header.phy_id, (phy->in_sync ? "via sfn" : "now"),
-					NFAPI_SFNSF2DEC(curr_sfn_sf), NFAPI_SFNSF2DEC(new_sfn_sf), phy->adjustment, 
-					phy->filtered_adjust ? "FILTERED" : "ABSOLUTE",
-					phy->zero_count,
-					phy->in_sync ? "IN_SYNC" : "OUT_OF_SYNC");*/
-
-				phy->sfn = new_sfn;
-				phy->slot = new_slot;
-			}
-		}
-
-		// reset for next cycle
-		phy->previous_slot_offset_filtered = phy->slot_offset_filtered;
-		phy->min_sync_cycle_count = 2;
-		phy->slot_offset_filtered = 0;
-		phy->slot_offset = 0;
 	}
-	else
-	{
-		phy->previous_t1 = ind.t1;
-		phy->previous_t2 = ind.t2;
+
+	if (!p7_info->sync_locked) {
+		// Lock when BOTH raw offset and smoothed offset are within lock tolerance
+		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US &&
+		    p7_info->nr_offset_filtered >= -MARGIN_TOLERANCE_US && p7_info->nr_offset_filtered <= MARGIN_TOLERANCE_US) {
+			p7_info->sync_locked = 1;
+			p7_info->consecutive_drift_violations = 0;
+			NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Sync locked successfully (offset: %d us, smoothed: %d us).\n",
+			            total_correction, p7_info->nr_offset_filtered);
+		} else {
+			int32_t s_adj = 0;
+			int32_t p_adj = 0;
+
+			// Symmetrically constrain massive synchronization jumps to prevent system crashes
+			int32_t capped_correction = total_correction;
+			int32_t max_total_cap = 5 * (int32_t)p7_info->slot_duration_us;
+			if (capped_correction > max_total_cap) capped_correction = max_total_cap;
+			if (capped_correction < -max_total_cap) capped_correction = -max_total_cap;
+
+			if (capped_correction <= -(int32_t)p7_info->slot_duration_us || capped_correction >= (int32_t)p7_info->slot_duration_us) {
+				s_adj = capped_correction / (int32_t)p7_info->slot_duration_us;
+				p_adj = capped_correction - (s_adj * (int32_t)p7_info->slot_duration_us);
+			} else {
+				// Proportional control with gain of 4 for faster unlocked convergence (was 8)
+				p_adj = capped_correction / 4;
+				if (p_adj == 0 && capped_correction != 0) {
+					p_adj = (capped_correction > 0) ? 1 : -1;
+				}
+			}
+
+			int32_t max_p_adj = 10 * p7_info->slot_duration_us;
+			if (p_adj > max_p_adj) p_adj = max_p_adj;
+			if (p_adj < -max_p_adj) p_adj = -max_p_adj;
+
+			p7_info->slot_adjustment += s_adj;
+			p7_info->pending_us -= p_adj;
+		}
 	}
+	pthread_mutex_unlock(&p7_info->mutex);
 }
 
 void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
