@@ -8,7 +8,7 @@
   <testCase>
     <class>Pull_Local_Registry</class>
     <desc>Pull Images from Local Registry</desc>
-    <node>gracehopper1-oai</node>
+    <node>dgx3-oai</node>
     <images>oai-gnb-aerial</images>
     <tag_prefix>arm_</tag_prefix>
   </testCase>
@@ -32,13 +32,13 @@
   <testCase>
     <class>Create_Workspace</class>
     <desc>Create new Workspace</desc>
-    <node>gracehopper1-oai</node>
+    <node>dgx3-oai</node>
   </testCase>
 
   <testCase>
     <class>Deploy_Object</class>
     <desc>Deploy PNF/Nvidia CUBB in a container</desc>
-    <node>gracehopper1-oai</node>
+    <node>dgx3-oai</node>
     <yaml_path>ci-scripts/yaml_files/sa_gnb_aerial</yaml_path>
     <services>nv-cubb</services>
   </testCase>
@@ -46,7 +46,7 @@
   <testCase>
     <class>Deploy_Object</class>
     <desc>Deploy VNF in a container</desc>
-    <node>gracehopper1-oai</node>
+    <node>dgx3-oai</node>
     <yaml_path>ci-scripts/yaml_files/sa_gnb_aerial</yaml_path>
     <services>oai-gnb-aerial</services>
   </testCase>
@@ -119,7 +119,7 @@
     <class>Undeploy_Object</class>
     <always_exec>true</always_exec>
     <desc>Undeploy gNB</desc>
-    <node>gracehopper1-oai</node>
+    <node>dgx3-oai</node>
     <yaml_path>ci-scripts/yaml_files/sa_gnb_aerial</yaml_path>
     <analysis>
       <services>oai-gnb-aerial=EndsWithBye</services>
@@ -130,7 +130,7 @@
     <class>Clean_Test_Server_Images</class>
     <always_exec>true</always_exec>
     <desc>Clean Test Images on Test Server</desc>
-    <node>gracehopper1-oai</node>
+    <node>dgx3-oai</node>
     <images>oai-gnb-aerial</images>
   </testCase>
 
