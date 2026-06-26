@@ -952,8 +952,8 @@ void configure_nr_nfapi_vnf(const char *vnf_addr, uint16_t vnf_p5_port, uint16_t
 #endif
   vnf_info *vnf = calloc(1, sizeof(vnf_info));
   memset(vnf->p7_vnfs, 0, sizeof(vnf->p7_vnfs));
-  vnf->p7_vnfs[0].timing_window = 30;
-  vnf->p7_vnfs[0].periodic_timing_enabled = 0;
+  vnf->p7_vnfs[0].timing_window = 6500;
+  vnf->p7_vnfs[0].periodic_timing_enabled = 1;
   vnf->p7_vnfs[0].aperiodic_timing_enabled = 0;
   vnf->p7_vnfs[0].periodic_timing_period = 1;
   vnf->p7_vnfs[0].config = nfapi_vnf_p7_config_create();
@@ -977,6 +977,9 @@ void configure_nr_nfapi_vnf(const char *vnf_addr, uint16_t vnf_p5_port, uint16_t
   config->vnf_ipv6 = 0;
   config->pnf_list = 0;
   config->phy_list = 0;
+  config->timing_window = vnf->p7_vnfs[0].timing_window;
+  config->timing_info_mode = (vnf->p7_vnfs[0].aperiodic_timing_enabled << 1) | vnf->p7_vnfs[0].periodic_timing_enabled;
+  config->timing_info_period = vnf->p7_vnfs[0].periodic_timing_period;
 
   config->pnf_nr_connection_indication = &pnf_nr_connection_indication_cb;
   config->pnf_disconnect_indication = &pnf_nr_disconnection_indication_cb;

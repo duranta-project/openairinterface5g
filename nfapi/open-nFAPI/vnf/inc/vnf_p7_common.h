@@ -8,6 +8,7 @@
 #define _VNF_P7_COMMON_H_
 
 #include "nfapi_vnf_interface_common.h"
+#include <pthread.h>
 
 #define TIMEHR_SEC(_time_hr) ((uint32_t)(_time_hr) >> 20)
 #define TIMEHR_USEC(_time_hr) ((uint32_t)(_time_hr) & 0xFFFFF)
@@ -87,6 +88,15 @@ typedef struct nfapi_vnf_p7_connection_info {
   int slot;
   int mu; // some 5G slot calculations need the numerology to know the number
           // of slots
+  int slot_ahead;
+  uint16_t timing_window;
+  uint8_t timing_info_period;
+  struct timespec next_slot_time;
+  uint32_t slot_duration_us;
+  uint8_t running;
+  pthread_t thread;
+  pthread_mutex_t mutex;
+  pthread_cond_t initial_timinginfo_cond;
 
   int socket;
   struct sockaddr_in local_addr;
@@ -99,6 +109,13 @@ typedef struct nfapi_vnf_p7_connection_info {
   uint32_t sequence_number;
 
   struct nfapi_vnf_p7_connection_info* next;
+
+  int32_t pending_us;
+  int32_t estimated_mean_late;
+  int32_t estimated_jitter_var;
+  int32_t last_adjustment_sfn;
+  int32_t last_adjustment_slot;
+  int32_t nr_offset_filtered;
 
 } nfapi_vnf_p7_connection_info_t;
 
