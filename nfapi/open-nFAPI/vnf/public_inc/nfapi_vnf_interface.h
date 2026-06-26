@@ -96,6 +96,13 @@ typedef struct nfapi_vnf_config
 	/*! List of configured phys */
 	nfapi_vnf_phy_info_t* phy_list;
 
+	/*! Timing window */
+	uint16_t timing_window;
+	/*! Timing info mode */
+	uint8_t timing_info_mode;
+	/*! Timing info period */
+	uint8_t timing_info_period;
+
 	/*! Configuration options for the p4 p5 pack unpack functions */
 	nfapi_p4_p5_codec_config_t codec_config;
 	

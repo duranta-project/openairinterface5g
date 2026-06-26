@@ -1495,7 +1495,7 @@ void *vnf_p7_thread_start(void *ptr) {
   p7_vnf->config->codec_config.deallocate = &vnf_deallocate;
   p7_vnf->config->allocate_p7_vendor_ext = &phy_allocate_p7_vendor_ext;
   p7_vnf->config->deallocate_p7_vendor_ext = &phy_deallocate_p7_vendor_ext;
-  NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Creating VNF NFAPI P7 start thread %s\n", __FUNCTION__);
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Creating VNF NFAPI start thread %s\n", __FUNCTION__);
   pthread_create(&vnf_p7_start_pthread, NULL, &vnf_p7_start_thread, p7_vnf->config);
   return 0;
 }
@@ -1920,8 +1920,12 @@ void configure_nr_nfapi_vnf(const char *vnf_addr, uint16_t vnf_p5_port, uint16_t
 #endif
   vnf_info *vnf = calloc(1, sizeof(vnf_info));
   memset(vnf->p7_vnfs, 0, sizeof(vnf->p7_vnfs));
-  vnf->p7_vnfs[0].timing_window = 30;
-  vnf->p7_vnfs[0].periodic_timing_enabled = 0;
+  vnf->p7_vnfs[0].timing_window = 6500;
+  vnf->p7_vnfs[0].dl_tti_timing_offset = 0;
+  vnf->p7_vnfs[0].ul_tti_timing_offset = 0;
+  vnf->p7_vnfs[0].ul_dci_timing_offset = 0;
+  vnf->p7_vnfs[0].tx_data_timing_offset = 0;
+  vnf->p7_vnfs[0].periodic_timing_enabled = 1;
   vnf->p7_vnfs[0].aperiodic_timing_enabled = 0;
   vnf->p7_vnfs[0].periodic_timing_period = 1;
   vnf->p7_vnfs[0].config = nfapi_vnf_p7_config_create();
@@ -1944,6 +1948,9 @@ void configure_nr_nfapi_vnf(const char *vnf_addr, uint16_t vnf_p5_port, uint16_t
   config->vnf_ipv6 = 0;
   config->pnf_list = 0;
   config->phy_list = 0;
+  config->timing_window = vnf->p7_vnfs[0].timing_window;
+  config->timing_info_mode = (vnf->p7_vnfs[0].aperiodic_timing_enabled << 1) | (vnf->p7_vnfs[0].periodic_timing_enabled);
+  config->timing_info_period = vnf->p7_vnfs[0].periodic_timing_period;
 
   config->pnf_nr_connection_indication = &pnf_nr_connection_indication_cb;
   config->pnf_disconnect_indication = &pnf_disconnection_indication_cb;
