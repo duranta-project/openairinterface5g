@@ -110,17 +110,58 @@ typedef struct pnf_p7_s {
 	uint8_t timing_info_aperiodic_send; // 0:false 1:true
 
 	uint32_t timing_info_ms_counter; // number of ms since last timing info
+	uint32_t timing_info_last_send_time_hr; // TIME_HR when last timing info was sent
 
 	uint32_t dl_config_jitter;
 	uint32_t ul_config_jitter;
 	uint32_t hi_dci0_jitter;
 	uint32_t tx_jitter;
     
-	//P7 NR
+	//P7 NR - RFC 3550 jitter calculation state
 	uint32_t dl_tti_jitter;
 	uint32_t ul_tti_jitter;
 	uint32_t ul_dci_jitter;
 	uint32_t tx_data_jitter;
+
+	// RFC 3550 jitter state (wrap-safe): previous receive time (TIME_HR) and transmit timestamp (µs)
+	// NOTE: In OAI nFAPI, P7 header transmit_timestamp is derived from SFN/slot and wraps every 10.24s.
+	//       Therefore we compute jitter from deltas (R(i)-R(i-1)) and (S(i)-S(i-1)) with wrap handling.
+	uint32_t dl_tti_prev_rx_time_hr;
+	uint32_t ul_tti_prev_rx_time_hr;
+	uint32_t ul_dci_prev_rx_time_hr;
+	uint32_t tx_data_prev_rx_time_hr;
+
+	uint32_t dl_tti_prev_tx_ts_us;
+	uint32_t ul_tti_prev_tx_ts_us;
+	uint32_t ul_dci_prev_tx_ts_us;
+	uint32_t tx_data_prev_tx_ts_us;
+
+	// Smoothed jitter estimate (as double for 1/16 smoothing factor)
+	double dl_tti_jitter_us;
+	double ul_tti_jitter_us;
+	double ul_dci_jitter_us;
+	double tx_data_jitter_us;
+
+	// Init flags for RFC 3550 jitter calculation
+	uint8_t dl_tti_jitter_init;
+	uint8_t ul_tti_jitter_init;
+	uint8_t ul_dci_jitter_init;
+	uint8_t tx_data_jitter_init;
+
+	int32_t dl_tti_latest_delay;
+	int32_t dl_tti_earliest_arrival;
+	int32_t ul_tti_latest_delay;
+	int32_t ul_tti_earliest_arrival;
+	int32_t ul_dci_latest_delay;
+	int32_t ul_dci_earliest_arrival;
+	int32_t tx_data_latest_delay;
+	int32_t tx_data_earliest_arrival;
+	// Configuration
+	uint32_t dl_tti_timing_offset;
+	uint32_t ul_tti_timing_offset;
+	uint32_t ul_dci_timing_offset;
+	uint32_t tx_data_timing_offset;
+	uint32_t timing_window;
 
 	uint32_t tick;
 	pnf_p7_stats_t stats;
