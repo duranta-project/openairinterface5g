@@ -41,7 +41,7 @@ void fullwrite(int fd, void *_buf, int count) {
       if(errno==EAGAIN) {
         continue;
       } else {
-        AssertFatal(false,"Lost socket\n");
+        AssertFatal(false, "Lost socket: %s\n", strerror(errno));
       }
     } else {
       count -= l;
@@ -52,9 +52,11 @@ void fullwrite(int fd, void *_buf, int count) {
 
 int server_start(short port) {
   int listen_sock;
-  AssertFatal((listen_sock = socket(AF_INET, SOCK_STREAM, 0)) >= 0, "");
+  listen_sock = socket(AF_INET, SOCK_STREAM, 0);
+  AssertFatal(listen_sock >= 0, "%s", strerror(errno));
   int enable = 1;
-  AssertFatal(setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) == 0, "");
+  int ret = setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+  AssertFatal(!ret, "%s", strerror(errno));
   struct sockaddr_in addr = {
 sin_family:
     AF_INET,
@@ -64,13 +66,14 @@ sin_addr:
     { s_addr: INADDR_ANY }
   };
   bind(listen_sock, (struct sockaddr *)&addr, sizeof(addr));
-  AssertFatal(listen(listen_sock, 5) == 0, "");
+  ret = listen(listen_sock, 5);
+  AssertFatal(!ret, "%s", strerror(errno));
   return accept(listen_sock,NULL,NULL);
 }
 
 int client_start(char *IP, short port) {
-  int sock;
-  AssertFatal((sock = socket(AF_INET, SOCK_STREAM, 0)) >= 0, "");
+  int sock = socket(AF_INET, SOCK_STREAM, 0);
+  AssertFatal(sock >= 0, "%s", strerror(errno));
   struct sockaddr_in addr = {
 sin_family:
     AF_INET,
@@ -102,15 +105,16 @@ enum  blocking_t {
 };
 
 void setblocking(int sock, enum blocking_t active) {
-  int opts;
-  AssertFatal( (opts = fcntl(sock, F_GETFL)) >= 0,"");
+  int opts = fcntl(sock, F_GETFL);
+  AssertFatal(opts >= 0, "%s", strerror(errno));
 
   if (active==blocking)
     opts = opts & ~O_NONBLOCK;
   else
     opts = opts | O_NONBLOCK;
 
-  AssertFatal(fcntl(sock, F_SETFL, opts) >= 0, "");
+  int ret = fcntl(sock, F_SETFL, opts);
+  AssertFatal(ret >= 0, "%s", strerror(errno));
 }
 
 int main(int argc, char *argv[]) {
@@ -161,7 +165,8 @@ int main(int argc, char *argv[]) {
       header.option_flag=0;
       header.beam_map = 1;
     } else {
-      AssertFatal(read(fd,&header,sizeof(header)), "");
+      int ret = read(fd, &header, sizeof(header));
+      AssertFatal(ret == sizeof(header), "%s", strerror(errno));
     }
 
     fullwrite(serviceSock, &header, sizeof(header));
@@ -178,7 +183,8 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    AssertFatal(read(fd,buff,dataSize) == dataSize, "");
+    int ret = read(fd, buff, dataSize);
+    AssertFatal(ret == dataSize, "%s", strerror(errno));
 
     if (raw) // UHD shifts the 12 ADC values in MSB
       for (int i=0; i<header.size*header.nbAnt*2; i++)
@@ -190,8 +196,6 @@ int main(int argc, char *argv[]) {
     fullwrite(serviceSock, buff, dataSize);
     // Purge incoming samples
     setblocking(serviceSock, notBlocking);
-    int ret;
-
     do {
       char buff[64000];
       ret=read(serviceSock, buff, 64000);

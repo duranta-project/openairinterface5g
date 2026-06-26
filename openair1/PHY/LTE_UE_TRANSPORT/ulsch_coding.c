@@ -109,9 +109,9 @@ LTE_UE_ULSCH_t *new_ue_ulsch(unsigned char N_RB_UL, uint8_t abstraction_flag) {
         if (abstraction_flag==0) {
           for (int r=0; r<MAX_NUM_ULSCH_SEGMENTS; r++) {
             ulsch->harq_processes[i]->c[r] = malloc16_clear(((r==0)?8:0) + 3+768); // account for filler in first segment and CRCs for multiple segment case
-            AssertFatal(ulsch->harq_processes[i]->c[r], "");
+            AssertFatal(ulsch->harq_processes[i]->c[r], "this pointer to c can't be null (seg: %d)", r);
             ulsch->harq_processes[i]->d[r] = malloc16_clear(96+3+(3*6144));
-            AssertFatal(ulsch->harq_processes[i]->d[r], "");
+            AssertFatal(ulsch->harq_processes[i]->d[r], "this pointer to d can't be null (seg: %d)", r);
           }
         }
 

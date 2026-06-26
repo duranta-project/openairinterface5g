@@ -159,7 +159,7 @@ static void oai_xygraph_getbuff(OAIgraph_t *graph, float **x, float **y, int len
       fl_add_xyplot_overlay(graph->graph,layer,time,values,len,rx_antenna_colors[layer]);
 
     fl_get_xyplot_data_pointer(graph->graph, layer, &old_x, &old_y, &old_len);
-    AssertFatal(old_len==len,"");
+    AssertFatal(old_len == len, "impossible %d != %d", old_len, len);
   }
 
   *x=old_x;

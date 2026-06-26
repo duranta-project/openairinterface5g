@@ -720,7 +720,7 @@ static void scopeUpdaterGnb(enum PlotTypeGnbIf plotType, int numElt)
 
 STATICFORXSCOPE void gNBinitScope(scopeParms_t *p)
 {
-  AssertFatal(p->gNB->scopeData = calloc_or_fail(sizeof(scopeData_t), 1), "");
+  p->gNB->scopeData = calloc_or_fail(sizeof(scopeData_t), 1);
   scopeData_t *scope=(scopeData_t *) p->gNB->scopeData;
   scope->argc=p->argc;
   scope->argv=p->argv;
@@ -1120,7 +1120,7 @@ static void *nrUEscopeThread(void *arg) {
 
 STATICFORXSCOPE void nrUEinitScope(PHY_VARS_NR_UE *ue)
 {
-  AssertFatal(ue->scopeData = calloc_or_fail(sizeof(scopeData_t), 1), "");
+  ue->scopeData = calloc_or_fail(sizeof(scopeData_t), 1);
   scopeData_t *scope=(scopeData_t *) ue->scopeData;
   scope->copyData = copyData;
 #ifndef WEBSRVSCOPE

@@ -178,7 +178,10 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
   if (RC.nb_nr_macrlc_inst > 0)
     RCconfig_nr_macrlc(cfg);
 
-  if (RC.nb_nr_L1_inst>0) AssertFatal(l1_north_init_gNB()==0,"could not initialize L1 north interface\n");
+  if (RC.nb_nr_L1_inst > 0) {
+    int ret = l1_north_init_gNB();
+    AssertFatal(ret == 0, "could not initialize L1 north interface\n");
+  }
 
   AssertFatal (gnb_nb <= RC.nb_nr_inst,
                "Number of gNB is greater than gNB defined in configuration file (%d/%d)!",

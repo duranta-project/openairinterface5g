@@ -134,10 +134,9 @@ int _do_pss_sss_extract(PHY_VARS_UE *ue,
 	    }
 	    else
 	    {
-	    	AssertFatal(0,"");
-	    }
-
-	  }
+        AssertFatal(0, "impossible tdd config");
+      }
+    }
     //printf("extract_rbs: symbol_mod=%d, rx_offset=%d, ch_offset=%d\n",symbol_mod,
     //   (rx_offset + (symbol*(frame_parms->ofdm_symbol_size)))*2,
     //   LTE_CE_OFFSET+ch_offset+(symbol_mod*(frame_parms->ofdm_symbol_size)));
@@ -152,29 +151,22 @@ int _do_pss_sss_extract(PHY_VARS_UE *ue,
         {
           sss_rxF       = &rxdataF[aarx][(1 + (sss_symb*(frame_parms->ofdm_symbol_size)))];
           pss_rxF       = &rxdataF[aarx][(1 + (pss_symb*(frame_parms->ofdm_symbol_size)))];
-        }
-        else
-        {
-        	if(subframe==5 || subframe==0)
-        	{
-    	    rxdataF  =  ue->common_vars.common_vars_rx_data_per_thread[ue->current_thread_id[subframe]].rxdataF;
-    	    sss_rxF  =  &rxdataF[aarx][(1 + (sss_symb*(frame_parms->ofdm_symbol_size)))];
+        } else {
+          if (subframe == 5 || subframe == 0) {
+            rxdataF = ue->common_vars.common_vars_rx_data_per_thread[ue->current_thread_id[subframe]].rxdataF;
+            sss_rxF = &rxdataF[aarx][(1 + (sss_symb * (frame_parms->ofdm_symbol_size)))];
 
-    	    rxdataF  =  ue->common_vars.common_vars_rx_data_per_thread[next_thread_id].rxdataF;
-    	    pss_rxF  =  &rxdataF[aarx][(1 + (pss_symb*(frame_parms->ofdm_symbol_size)))];
-        	}
-    	    else if(subframe==6 || subframe==1)
-    	    {
-    		    rxdataF  =  ue->common_vars.common_vars_rx_data_per_thread[ue->current_thread_id[subframe]].rxdataF;
-    		    pss_rxF  =  &rxdataF[aarx][(rx_offset + (pss_symb*(frame_parms->ofdm_symbol_size)))];
+            rxdataF = ue->common_vars.common_vars_rx_data_per_thread[next_thread_id].rxdataF;
+            pss_rxF = &rxdataF[aarx][(1 + (pss_symb * (frame_parms->ofdm_symbol_size)))];
+          } else if (subframe == 6 || subframe == 1) {
+            rxdataF = ue->common_vars.common_vars_rx_data_per_thread[ue->current_thread_id[subframe]].rxdataF;
+            pss_rxF = &rxdataF[aarx][(rx_offset + (pss_symb * (frame_parms->ofdm_symbol_size)))];
 
-    		    rxdataF  =  ue->common_vars.common_vars_rx_data_per_thread[next_thread_id].rxdataF;
-    		    sss_rxF  =  &rxdataF[aarx][(rx_offset + (sss_symb*(frame_parms->ofdm_symbol_size)))];
-    	    }
-    	    else
-    	    {
-    	    	AssertFatal(0,"");
-    	    }
+            rxdataF = ue->common_vars.common_vars_rx_data_per_thread[next_thread_id].rxdataF;
+            sss_rxF = &rxdataF[aarx][(rx_offset + (sss_symb * (frame_parms->ofdm_symbol_size)))];
+          } else {
+            AssertFatal(0, "impossible tdd config");
+          }
         }
       }
 

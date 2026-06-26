@@ -304,7 +304,7 @@ static void nr_determin(int size,
                         int32_t sign,
                         int32_t shift0)
 {
-  AssertFatal(size > 0, "");
+  AssertFatal(size > 0, "impossible null size in nr_determin");
 
   if(size==1) {
     nr_element_sign(a44[0][0], // a

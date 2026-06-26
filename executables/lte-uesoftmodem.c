@@ -417,8 +417,8 @@ static void init_pdcp(int ue_id) {
 
 // Stupid function addition because UE itti messages queues definition is common with eNB
 void *rrc_enb_process_msg(void *notUsed) {
-AssertFatal(false,"");
-	return NULL;
+  AssertFatal(false, "not implemented");
+  return NULL;
 }
 
 int NB_UE_INST = 1;

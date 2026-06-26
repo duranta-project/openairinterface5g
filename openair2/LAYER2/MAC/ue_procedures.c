@@ -3004,12 +3004,11 @@ ue_scheduler(const module_id_t module_idP,
         &UE_mac_inst[module_idP].
         radioResourceConfigCommon->rach_ConfigCommon;
     } else {
-      LOG_E(MAC, "FATAL: radioResourceConfigCommon is NULL!!!\n");
       VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME
       (VCD_SIGNAL_DUMPER_FUNCTIONS_UE_SCHEDULER,
        VCD_FUNCTION_OUT);
       stop_UE_TIMING(UE_mac_inst[module_idP].ue_scheduler);
-      AssertFatal(1 == 0, "");
+      AssertFatal(false, "FATAL: radioResourceConfigCommon is NULL!!!\n");
       stop_UE_TIMING(UE_mac_inst[module_idP].ue_scheduler);
       //return(RRC_OK);
     }
@@ -3065,10 +3064,7 @@ ue_scheduler(const module_id_t module_idP,
                                       [module_idP].logicalChannelConfig
                                       [lcid]->ul_SpecificParameters->bucketSizeDuration);
         } else {
-          LOG_E(MAC,
-                "[UE %d] lcid %d, NULL ul_SpecificParameters\n",
-                module_idP, lcid);
-          AssertFatal(1 == 0, "");
+          AssertFatal(false, "[UE %d] lcid %d, NULL ul_SpecificParameters\n", module_idP, lcid);
         }
 
         if (UE_mac_inst[module_idP].scheduling_info.Bj[lcid] >

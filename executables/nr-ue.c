@@ -341,7 +341,7 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
   while (writeBlockSize > maxWriteBlockSize) {
     const int dummyBlockSize = min(writeBlockSize - maxWriteBlockSize, maxWriteBlockSize);
     int tmp = nrue_ru_write_reorder(UE, writeTimestamp, (void **)txp, dummyBlockSize, fp->nb_antennas_tx, flags);
-    AssertFatal(tmp == dummyBlockSize, "");
+    AssertFatal(tmp == dummyBlockSize, "write samples to reorder function failed %d", tmp);
 
     writeTimestamp += dummyBlockSize;
     writeBlockSize -= dummyBlockSize;
@@ -364,7 +364,7 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
   }
 
   int tmp = nrue_ru_write_reorder(UE, writeTimestamp, (void **)txp, writeBlockSize, fp->nb_antennas_tx, flags);
-  AssertFatal(tmp == writeBlockSize, "");
+  AssertFatal(tmp == writeBlockSize, "write to reorder function failed %d", tmp);
 }
 
 void processSlotTX(void *arg)
@@ -631,7 +631,7 @@ void dummyWrite(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, int writeBlo
   for (int i = 0; i < fp->nb_antennas_tx; i++)
     dummy_tx[i] = dummy_tx_data;
   int tmp = nrue_ru_write_reorder(UE, timestamp, (void **)dummy_tx, writeBlockSize, fp->nb_antennas_tx, 4);
-  AssertFatal(writeBlockSize == tmp, "");
+  AssertFatal(writeBlockSize == tmp, "write to reorder function failed %d", tmp);
 }
 
 void readFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int duration_rx_to_tx, bool toTrash)
@@ -661,7 +661,7 @@ void readFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int duration
       int readBlockSize = get_samples_per_slot(slot_rx, fp);
       int tmp = nrue_ru_read(UE, timestamp, (void **)rxp, readBlockSize, fp->nb_antennas_rx);
       UEscopeCopy(UE, ueTimeDomainSamplesBeforeSync, rxp[0], sizeof(c16_t), 1, readBlockSize, 0);
-      AssertFatal(readBlockSize == tmp, "");
+      AssertFatal(readBlockSize == tmp, "read rf board failed %d", tmp);
 
       if (IS_SOFTMODEM_RFSIM) {
         int slot_tx = (slot_rx + duration_rx_to_tx) % fp->slots_per_frame;
@@ -868,13 +868,12 @@ void *UE_thread(void *arg)
       shiftForNextFrame = -(UE->init_sync_frame + trashed_frames + 2) * UE->max_pos_acc * get_nrUE_params()->time_sync_I; // compensate for the time drift that happened during initial sync
       LOG_I(PHY, "max_pos_acc = %d, shiftForNextFrame = %d\n", UE->max_pos_acc, shiftForNextFrame);
       // read in first symbol
-      AssertFatal(fp->ofdm_symbol_size + fp->nb_prefix_samples0
-                      == nrue_ru_read(UE,
-                                      &sync_timestamp,
-                                      (void **)UE->common_vars.rxdata,
-                                      fp->ofdm_symbol_size + fp->nb_prefix_samples0,
-                                      fp->nb_antennas_rx),
-                  "");
+      int ret = nrue_ru_read(UE,
+                             &sync_timestamp,
+                             (void **)UE->common_vars.rxdata,
+                             fp->ofdm_symbol_size + fp->nb_prefix_samples0,
+                             fp->nb_antennas_rx);
+      AssertFatal(fp->ofdm_symbol_size + fp->nb_prefix_samples0 == ret, "read rf board failed %d", ret);
       // we have the decoded frame index in the return of the synch process
       // and we shifted above to the first slot of next frame
       decoded_frame_rx = (decoded_frame_rx + 1) % MAX_FRAME_NUMBER;
@@ -978,7 +977,7 @@ void *UE_thread(void *arg)
     int tmp = nrue_ru_read(UE, &rx_timestamp, (void **)rxp, readBlockSize, fp->nb_antennas_rx);
     metadata meta = {.slot =  curMsg.proc.nr_slot_rx, .frame =  curMsg.proc.frame_rx};
     UEscopeCopyWithMetadata(UE, ueTimeDomainSamples, rxp[0] - firstSymSamp, sizeof(c16_t), 1, readBlockSize, 0, &meta);
-    AssertFatal(readBlockSize == tmp, "");
+    AssertFatal(readBlockSize == tmp, "read to rf board failed %d", tmp);
     struct timespec current_time;
     if (clock_gettime(CLOCK_REALTIME, &current_time)) {
       LOG_E(PHY, "clock_gettime failed\n");
@@ -991,7 +990,7 @@ void *UE_thread(void *arg)
       if (first_symbols > 0) {
         openair0_timestamp_t ignore_timestamp;
         int tmp = nrue_ru_read(UE, &ignore_timestamp, (void **)UE->common_vars.rxdata, first_symbols, fp->nb_antennas_rx);
-        AssertFatal(first_symbols == tmp, "");
+        AssertFatal(first_symbols == tmp, "read to rf board failed %d", tmp);
 
       } else
         LOG_E(PHY,"can't compensate: diff =%d\n", first_symbols);

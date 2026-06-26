@@ -126,7 +126,7 @@ PHY_VARS_UE *init_ue_vars(LTE_DL_FRAME_PARMS *frame_parms,
 
 {
   PHY_VARS_UE *ue = (PHY_VARS_UE *)calloc(1,sizeof(PHY_VARS_UE));
-  AssertFatal(ue,"");
+  AssertFatal(ue, "no memory");
 
   if (frame_parms!=(LTE_DL_FRAME_PARMS *)NULL) { // if we want to give initial frame parms, allocate the PHY_VARS_UE structure and put them in
     memcpy(&(ue->frame_parms), frame_parms, sizeof(LTE_DL_FRAME_PARMS));
@@ -159,13 +159,14 @@ void init_thread(int sched_runtime,
   int settingPriority = 1;
 
   if (settingPriority) {
-    if (CPU_COUNT(cpuset) > 0)
-      AssertFatal( 0 == pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), cpuset), "");
-
+    if (CPU_COUNT(cpuset) > 0) {
+      int ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), cpuset);
+      AssertFatal(!ret, "errno: %d", ret);
+    }
     struct sched_param sp;
     sp.sched_priority = sched_fifo;
-    AssertFatal(pthread_setschedparam(pthread_self(),SCHED_FIFO,&sp)==0,
-                "Can't set thread priority, Are you root?\n");
+    int ret = pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
+    AssertFatal(!ret, "Can't set thread priority, Are you root? (errno %d)\n", ret);
   }
 
   /* Check the actual affinity mask assigned to the thread */
@@ -295,10 +296,8 @@ void init_UE(int nb_inst,
 
     UE->rfdevice.host_type = RAU_HOST;
     //    UE->rfdevice.type      = NONE_DEV;
-    AssertFatal(0 == pthread_create(&UE->proc.pthread_ue,
-                                    &UE->proc.attr_ue,
-                                    UE_thread,
-                                    (void *)UE), "");
+    int ret = pthread_create(&UE->proc.pthread_ue, &UE->proc.attr_ue, UE_thread, (void *)UE);
+    AssertFatal(!ret, "errno: %d", ret);
   }
 }
 
@@ -471,14 +470,16 @@ static void *UE_thread_synch(void *arg) {
   printf("Started device, unlocked sync_mutex (UE_sync_thread)\n");
 
   while (oai_exit==0) {
-    AssertFatal ( 0== pthread_mutex_lock(&UE->proc.mutex_synch), "");
-
+    {
+      int ret = pthread_mutex_lock(&UE->proc.mutex_synch);
+      AssertFatal(!ret, "errno: %d", ret);
+    }
     while (UE->proc.instance_cnt_synch < 0)
       // the thread waits here most of the time
       pthread_cond_wait( &UE->proc.cond_synch, &UE->proc.mutex_synch );
 
-    AssertFatal ( 0== pthread_mutex_unlock(&UE->proc.mutex_synch), "");
-
+    int ret = pthread_mutex_unlock(&UE->proc.mutex_synch);
+    AssertFatal(!ret, "errno: %d", ret);
     switch (sync_mode) {
       case pss:
         LOG_I(PHY,"[SCHED][UE] Scanning band %d (%d), freq %u\n",bands_to_scan.band_info[current_band].band, current_band,bands_to_scan.band_info[current_band].dl_min+current_offset);
@@ -583,9 +584,11 @@ static void *UE_thread_synch(void *arg) {
           if (UE->UE_scan_carrier == 1) {
             UE->UE_scan_carrier = 0;
           } else {
-            AssertFatal ( 0== pthread_mutex_lock(&UE->proc.mutex_synch), "");
+            int ret = pthread_mutex_lock(&UE->proc.mutex_synch);
+            AssertFatal(!ret, "errno: %d", ret);
             UE->is_synchronized = 1;
-            AssertFatal ( 0== pthread_mutex_unlock(&UE->proc.mutex_synch), "");
+            ret = pthread_mutex_unlock(&UE->proc.mutex_synch);
+            AssertFatal(!ret, "errno: %d", ret);
 
             if( UE->mode == rx_dump_frame ) {
               FILE *fd;
@@ -604,9 +607,11 @@ static void *UE_thread_synch(void *arg) {
                   exit(0);
                 }
               } else {
-                AssertFatal ( 0== pthread_mutex_lock(&UE->proc.mutex_synch), "");
+                int ret = pthread_mutex_lock(&UE->proc.mutex_synch);
+                AssertFatal(!ret, "errno: %d", ret);
                 UE->is_synchronized = 0;
-                AssertFatal ( 0== pthread_mutex_unlock(&UE->proc.mutex_synch), "");
+                ret = pthread_mutex_unlock(&UE->proc.mutex_synch);
+                AssertFatal(!ret, "errno: %d", ret);
               }
             }
           }
@@ -663,10 +668,12 @@ static void *UE_thread_synch(void *arg) {
         break;
     }
 
-    AssertFatal ( 0== pthread_mutex_lock(&UE->proc.mutex_synch), "");
+    ret = pthread_mutex_lock(&UE->proc.mutex_synch);
+    AssertFatal(!ret, "errno: %d", ret);
     // indicate readiness
     UE->proc.instance_cnt_synch--;
-    AssertFatal ( 0== pthread_mutex_unlock(&UE->proc.mutex_synch), "");
+    ret = pthread_mutex_unlock(&UE->proc.mutex_synch);
+    AssertFatal(!ret, "errno: %d", ret);
     VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME( VCD_SIGNAL_DUMPER_FUNCTIONS_UE_THREAD_SYNCH, 0 );
   }  // while !oai_exit
 
@@ -1692,7 +1699,6 @@ void *UE_thread(void *arg) {
   int i;
   int th_id;
   static uint8_t thread_idx = 0;
-  int ret;
   cpu_set_t cpuset;
   CPU_ZERO(&cpuset);
 
@@ -1718,10 +1724,12 @@ void *UE_thread(void *arg) {
   }
 
   while (!oai_exit) {
-    AssertFatal ( 0== pthread_mutex_lock(&UE->proc.mutex_synch), "");
+    int ret = pthread_mutex_lock(&UE->proc.mutex_synch);
+    AssertFatal(!ret, "errno: %d", ret);
     int instance_cnt_synch = UE->proc.instance_cnt_synch;
     int is_synchronized    = UE->is_synchronized;
-    AssertFatal ( 0== pthread_mutex_unlock(&UE->proc.mutex_synch), "");
+    ret = pthread_mutex_unlock(&UE->proc.mutex_synch);
+    AssertFatal(!ret, "errno: %d", ret);
 
     if (is_synchronized == 0) {
       if (instance_cnt_synch < 0) {  // we can invoke the synch
@@ -1744,35 +1752,39 @@ void *UE_thread(void *arg) {
               rxp[i] = (void *)&UE->common_vars.rxdata[i][UE->frame_parms.samples_per_tti*sf];
             write_dummy(UE, timestamp);
 
-            AssertFatal(UE->frame_parms.samples_per_tti == UE->rfdevice.trx_read_func(&UE->rfdevice,
-                        &timestamp,
-                        rxp,
-                        UE->frame_parms.samples_per_tti,
-                        UE->frame_parms.nb_antennas_rx), "");
+            int ret = UE->rfdevice.trx_read_func(&UE->rfdevice,
+                                                 &timestamp,
+                                                 rxp,
+                                                 UE->frame_parms.samples_per_tti,
+                                                 UE->frame_parms.nb_antennas_rx);
+            AssertFatal(ret == UE->frame_parms.samples_per_tti, "read rf failed %d", ret);
           }
         } else {
           for (int i=0; i<UE->frame_parms.nb_antennas_rx; i++)
             rxp[i] = (void *)&UE->common_vars.rxdata[i][0];
 
-          AssertFatal( UE->frame_parms.samples_per_tti*10 ==
-                       UE->rfdevice.trx_read_func(&UE->rfdevice,
-                                                  &timestamp,
-                                                  rxp,
-                                                  UE->frame_parms.samples_per_tti*10,
-                                                  UE->frame_parms.nb_antennas_rx), "");
+          int ret = UE->rfdevice.trx_read_func(&UE->rfdevice,
+                                               &timestamp,
+                                               rxp,
+                                               UE->frame_parms.samples_per_tti * 10,
+                                               UE->frame_parms.nb_antennas_rx);
+          AssertFatal(ret == UE->frame_parms.samples_per_tti * 10, "read rf failed %d", ret);
         }
 
-        AssertFatal ( 0== pthread_mutex_lock(&UE->proc.mutex_synch), "");
+        int ret = pthread_mutex_lock(&UE->proc.mutex_synch);
+        AssertFatal(!ret, "errno: %d", ret);
         instance_cnt_synch = ++UE->proc.instance_cnt_synch;
 
         if (instance_cnt_synch == 0) {
-          AssertFatal( 0 == pthread_cond_signal(&UE->proc.cond_synch), "");
+          int ret = pthread_cond_signal(&UE->proc.cond_synch);
+          AssertFatal(!ret, "errno: %d", ret);
         } else {
           LOG_E( PHY, "[SCHED][UE] UE sync thread busy!!\n" );
           exit_fun("nothing to add");
         }
 
-        AssertFatal ( 0== pthread_mutex_unlock(&UE->proc.mutex_synch), "");
+        ret = pthread_mutex_unlock(&UE->proc.mutex_synch);
+        AssertFatal(!ret, "errno: %d", ret);
       } else {
         // grab 10 ms of signal into dummy buffer
         for (int i=0; i<UE->frame_parms.nb_antennas_rx; i++)
@@ -1800,11 +1812,12 @@ void *UE_thread(void *arg) {
 
           while ( UE->rx_offset ) {
             size_t s=min(UE->rx_offset,UE->frame_parms.samples_per_tti);
-            AssertFatal(s == UE->rfdevice.trx_read_func(&UE->rfdevice,
-                        &timestamp,
-                        (void **)UE->common_vars.rxdata,
-                        s,
-                        UE->frame_parms.nb_antennas_rx),"");
+            ret = UE->rfdevice.trx_read_func(&UE->rfdevice,
+                                             &timestamp,
+                                             (void **)UE->common_vars.rxdata,
+                                             s,
+                                             UE->frame_parms.nb_antennas_rx);
+            AssertFatal(ret == s, "read rf failed %d", ret);
 
             if (IS_SOFTMODEM_RFSIM )
               write_dummy(UE, timestamp);
@@ -1823,12 +1836,13 @@ void *UE_thread(void *arg) {
         }
 
         // read in first symbol
-        AssertFatal (UE->frame_parms.ofdm_symbol_size+UE->frame_parms.nb_prefix_samples0 ==
-                     UE->rfdevice.trx_read_func(&UE->rfdevice,
-                                                &timestamp,
-                                                (void **)UE->common_vars.rxdata,
-                                                UE->frame_parms.ofdm_symbol_size+UE->frame_parms.nb_prefix_samples0,
-                                                UE->frame_parms.nb_antennas_rx),"");
+        int ret = UE->rfdevice.trx_read_func(&UE->rfdevice,
+                                             &timestamp,
+                                             (void **)UE->common_vars.rxdata,
+                                             UE->frame_parms.ofdm_symbol_size + UE->frame_parms.nb_prefix_samples0,
+                                             UE->frame_parms.nb_antennas_rx);
+        AssertFatal(ret == UE->frame_parms.ofdm_symbol_size + UE->frame_parms.nb_prefix_samples0, "read rf failed %d", ret);
+
         slot_fep(UE,0, 0, 0, 0, 0);
       } else {
         sub_frame++;
@@ -1896,33 +1910,29 @@ void *UE_thread(void *arg) {
                          UE->rx_offset_diff;
         }
 
-        AssertFatal(readBlockSize ==
-                    UE->rfdevice.trx_read_func(&UE->rfdevice,
-                                               &timestamp,
-                                               rxp,
-                                               readBlockSize,
-                                               UE->frame_parms.nb_antennas_rx),"");
-        AssertFatal(writeBlockSize
-                        == UE->rfdevice.trx_write_func(&UE->rfdevice,
-                                                       timestamp + (2 * UE->frame_parms.samples_per_tti)
-                                                           - UE->frame_parms.ofdm_symbol_size - UE->frame_parms.nb_prefix_samples0,
-                                                       txp,
-                                                       writeBlockSize,
-                                                       UE->frame_parms.nb_antennas_tx,
-                                                       1),
-                    "");
+        int ret = UE->rfdevice.trx_read_func(&UE->rfdevice, &timestamp, rxp, readBlockSize, UE->frame_parms.nb_antennas_rx);
+        AssertFatal(ret == readBlockSize, "read rf failed %d", ret);
 
+        ret = UE->rfdevice.trx_write_func(&UE->rfdevice,
+                                          timestamp + (2 * UE->frame_parms.samples_per_tti) - UE->frame_parms.ofdm_symbol_size
+                                              - UE->frame_parms.nb_prefix_samples0,
+                                          txp,
+                                          writeBlockSize,
+                                          UE->frame_parms.nb_antennas_tx,
+                                          1);
+        AssertFatal(ret == writeBlockSize, "write rf failed %d", ret);
         if( sub_frame==9) {
           // read in first symbol of next frame and adjust for timing drift
           int first_symbols=writeBlockSize-readBlockSize;
 
-          if ( first_symbols > 0 )
-            AssertFatal(first_symbols ==
-                        UE->rfdevice.trx_read_func(&UE->rfdevice,
-                                                   &timestamp1,
-                                                   (void **)UE->common_vars.rxdata,
-                                                   first_symbols,
-                                                   UE->frame_parms.nb_antennas_rx),"");
+          if (first_symbols > 0) {
+            int ret = UE->rfdevice.trx_read_func(&UE->rfdevice,
+                                                 &timestamp1,
+                                                 (void **)UE->common_vars.rxdata,
+                                                 first_symbols,
+                                                 UE->frame_parms.nb_antennas_rx);
+            AssertFatal(ret == first_symbols, "read rf failed %d", ret);
+          }
 
           if ( first_symbols <0 )
             LOG_E(PHY,"can't compensate: diff =%d\n", first_symbols);
@@ -1978,8 +1988,10 @@ void *UE_thread(void *arg) {
         proc->instance_cnt_rxtx++;
         LOG_D( PHY, "[SCHED][UE %d] UE RX instance_cnt_rxtx %d subframe %d !!\n", UE->Mod_id, proc->instance_cnt_rxtx,proc->subframe_rx);
         T(T_UE_MASTER_TICK, T_INT(0), T_INT(proc->frame_rx%1024), T_INT(proc->subframe_rx));
-        AssertFatal (pthread_cond_signal(&proc->cond_rxtx) ==0,"");
-        AssertFatal(pthread_mutex_unlock(&proc->mutex_rxtx) ==0,"");
+        ret = pthread_cond_signal(&proc->cond_rxtx);
+        AssertFatal(!ret, "errno: %d", ret);
+        ret = pthread_mutex_unlock(&proc->mutex_rxtx);
+        AssertFatal(!ret, "errno: %d", ret);
       } // start_rx_stream==1
     } // UE->is_synchronized==1
   } // while !oai_exit
@@ -2195,7 +2207,7 @@ int setup_ue_buffers(PHY_VARS_UE **phy_vars_ue,
   LTE_DL_FRAME_PARMS *frame_parms;
 
   for (CC_id=0; CC_id<MAX_NUM_CCs; CC_id++) {
-    AssertFatal( phy_vars_ue[CC_id] !=0, "");
+    AssertFatal(phy_vars_ue[CC_id] != 0, "impossible null pointer");
     frame_parms = &(phy_vars_ue[CC_id]->frame_parms);
     // replace RX signal buffers with mmaped HW versions
     for (i=0; i<frame_parms->nb_antennas_rx; i++) {
@@ -2288,23 +2300,21 @@ static void *timer_thread( void *param ) {
       timer_subframe++;
     }
 
-    //AssertFatal( 0 == pthread_cond_signal(&phy_stub_ticking->cond_ticking), "");
-    AssertFatal(pthread_mutex_lock(&phy_stub_ticking->mutex_ticking) ==0,"");
+    int ret = pthread_mutex_lock(&phy_stub_ticking->mutex_ticking);
+    AssertFatal(!ret, "errno: %d", ret);
     phy_stub_ticking->ticking_var++;
 
     // This should probably be a call to pthread_cond_broadcast when we introduce support for multiple UEs (threads)
-    if(phy_stub_ticking->ticking_var == 0) {
-      //AssertFatal(phy_stub_ticking->ticking_var == 0,"phy_stub_ticking->ticking_var = %d",
-      //phy_stub_ticking->ticking_var);
+    if (phy_stub_ticking->ticking_var == 0) {
       if (pthread_cond_signal(&phy_stub_ticking->cond_ticking) != 0) {
-        //LOG_E( PHY, "[SCHED][UE %d] ERROR pthread_cond_signal for UE RX thread\n", UE->Mod_id);
         LOG_E( PHY, "timer_thread ERROR pthread_cond_signal for UE_thread\n");
         exit_fun("nothing to add");
       }
     } else
       LOG_D(MAC, "timer_thread() Timing problem! ticking_var value:%d \n \n \n", phy_stub_ticking->ticking_var);
 
-    AssertFatal(pthread_mutex_unlock(&phy_stub_ticking->mutex_ticking) ==0,"");
+    ret = pthread_mutex_unlock(&phy_stub_ticking->mutex_ticking);
+    AssertFatal(!ret, "errno: %d", ret);
     start_meas(&UE->timer_stats);
 
     //clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start); // get initial time-stamp

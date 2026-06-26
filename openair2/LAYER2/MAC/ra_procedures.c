@@ -596,10 +596,7 @@ PRACH_RESOURCES_t *ue_get_rach(module_id_t module_idP, int CC_id,
       }
     }
   } else if (UE_mode == PUSCH) {
-    LOG_D(MAC,
-          "[UE %d] FATAL: Should not have checked for RACH in PUSCH yet ...",
-          module_idP);
-    AssertFatal(1 == 0, "");
+    AssertFatal(false, "[UE %d] FATAL: Should not have checked for RACH in PUSCH yet ...", module_idP);
   }
 
   return (NULL);

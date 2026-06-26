@@ -179,7 +179,7 @@ int openair0_load(openair0_device_t *device, char *name, openair0_config_t *open
 
   ret = load_module_shlib(name, shlib_fdesc, 1, NULL);
   AssertFatal((ret >= 0), "Library %s couldn't be loaded\n", name);
-  return ((devfunc_t)shlib_fdesc[0].fptr)(device, openair0_cfg, eth_params);
+  return ((devfunc_t)shlib_fdesc[0].fptr)(device, openair0_cfg);
 }
 
 // mutex (or atomic flags) will be mandatory because this out order system root cause is there are several writer threads
