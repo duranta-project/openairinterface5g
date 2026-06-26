@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <pthread.h>
+#include <sched.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <sys/socket.h>
@@ -55,6 +56,8 @@
 static nfapi_vnf_config_t *config;
 extern RAN_CONTEXT_t RC;
 extern UL_RCC_IND_t  UL_RCC_INFO;
+
+static int nr_start_resp_received = 0;
 
 nfapi_vnf_config_t * get_config()
 {
@@ -964,6 +967,152 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
   return 1;
 }
 
+#ifndef ENABLE_WLS
+static inline void timespec_add_us(struct timespec *t, long us)
+{
+  t->tv_nsec += us * 1000;
+  if (t->tv_nsec >= 1000000000) {
+    t->tv_sec += t->tv_nsec / 1000000000;
+    t->tv_nsec %= 1000000000;
+  } else if (t->tv_nsec < 0) {
+    long sec_diff = (-t->tv_nsec / 1000000000) + 1;
+    t->tv_sec -= sec_diff;
+    t->tv_nsec += sec_diff * 1000000000;
+  }
+}
+#define P7_SYNC_PERIOD_SLOTS_DEFAULT 80
+int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info);
+
+static inline void p7_sync_init(nfapi_vnf_p7_connection_info_t *p7_info)
+{
+  p7_info->sync_slot_counter = 0;
+  p7_info->sync_period_slots = P7_SYNC_PERIOD_SLOTS_DEFAULT;
+  p7_info->consecutive_drift_violations = 0;
+  p7_info->nr_offset_filtered = 0;
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Initialized: period=%u slots\n", p7_info->sync_period_slots);
+}
+
+void *vnf_timing_thread(void *arg)
+{
+  vnf_p7_info *p7_vnf = (vnf_p7_info *)arg;
+  vnf_p7_t *vnf_p7 = (vnf_p7_t *)p7_vnf->config;
+
+  int mu = -1;
+  nfapi_vnf_p7_connection_info_t *p7_info = NULL;
+
+  while (1) {
+    if (__atomic_load_n(&nr_start_resp_received, __ATOMIC_ACQUIRE)) {
+      if (vnf_p7->p7_connections) {
+        p7_info = vnf_p7->p7_connections;
+        if (RC.nrmac && RC.nrmac[0]) {
+          nfapi_nr_config_request_scf_t *req = &RC.nrmac[0]->config[0];
+          const nfapi_uint8_tlv_t *scs = &req->ssb_config.scs_common;
+          if (scs && scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG) {
+            mu = scs->value;
+          }
+        }
+        if (mu < 0 && RC.gNB && RC.gNB[0] && RC.gNB[0]->configured && RC.gNB[0]->frame_parms.numerology_index >= 0) {
+          mu = RC.gNB[0]->frame_parms.numerology_index;
+        }
+        if (mu >= 0) {
+          break;
+        }
+      }
+    }
+    usleep(1000000); // poll once per second until the gNB numerology (mu) is configured
+  }
+  pthread_mutex_lock(&p7_info->mutex);
+  while (!p7_info->initial_timinginfo_received) {
+    pthread_cond_wait(&p7_info->initial_timinginfo_cond, &p7_info->mutex);
+  }
+  pthread_mutex_unlock(&p7_info->mutex);
+  DevAssert(mu >= 0 && mu <= 5);
+  p7_info->mu = mu;
+  p7_info->slot_duration_us = 1000 >> p7_info->mu;
+  LOG_I(NFAPI_VNF, "Starting VNF autonomous timing thread: mu = %d, slot duration = %d us\n", mu, p7_info->slot_duration_us);
+  if (p7_info->initial_timinginfo_received) {
+    int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
+    sfnslot_dec = (sfnslot_dec + 1) % NFAPI_MAX_SFNSLOTDEC(p7_info->mu);
+    p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
+    p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
+  }
+  p7_info->running = 1;
+  p7_info->thread = pthread_self();
+  p7_sync_init(p7_info);
+  clock_gettime(CLOCK_MONOTONIC, &p7_info->next_slot_time);
+  vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
+  vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
+
+  const int max_sfnslotdec = NFAPI_MAX_SFNSLOTDEC(p7_info->mu);
+  int last_mac_ind_dec = -1;
+
+  int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
+
+  while (p7_info->running) {
+    pthread_mutex_lock(&p7_info->mutex);
+    if (p7_info->slot_adjustment != 0) {
+      sfnslot_dec = (sfnslot_dec + p7_info->slot_adjustment + max_sfnslotdec) % max_sfnslotdec;
+      p7_info->slot_adjustment = 0;
+    }
+    int32_t current_pending_us = p7_info->pending_us;
+    p7_info->pending_us = 0;
+    pthread_mutex_unlock(&p7_info->mutex);
+
+    timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us + current_pending_us);
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    int64_t diff_ns = (p7_info->next_slot_time.tv_sec - now.tv_sec) * 1000000000LL
+                      + (p7_info->next_slot_time.tv_nsec - now.tv_nsec);
+    const int64_t extreme_lag_threshold_ns = (int64_t)p7_info->slot_duration_us * 5 * 1000LL;
+    if (diff_ns < -extreme_lag_threshold_ns) {
+      // next_slot_time is in the past by more than 5 slots!
+      // Yield CPU to prevent starvation of the SCTP/UDP network thread under extreme lag.
+      sched_yield();
+    }
+    if (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL) != 0)
+      continue;
+    vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
+    pthread_mutex_lock(&p7_info->mutex);
+    p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
+    p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
+    pthread_mutex_unlock(&p7_info->mutex);
+
+    if (p7_info->sync_slot_counter >= p7_info->sync_period_slots) {
+      p7_info->sync_slot_counter = 0;
+      vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
+    } else {
+      p7_info->sync_slot_counter++;
+    }
+
+    int32_t slot_ahead = __atomic_load_n(&p7_info->slot_ahead, __ATOMIC_RELAXED);
+    int target_ind_dec = (sfnslot_dec + slot_ahead) % max_sfnslotdec;
+    if (last_mac_ind_dec == -1) {
+      last_mac_ind_dec = (target_ind_dec - 1 + max_sfnslotdec) % max_sfnslotdec;
+    }
+
+    int diff_mac = (target_ind_dec - last_mac_ind_dec + max_sfnslotdec) % max_sfnslotdec;
+    if (diff_mac > 0 && diff_mac < max_sfnslotdec / 2) {
+      // NEVER skip slots! Skipping slots breaks MAC scheduling (e.g. RACH, HARQ timing assertions) and drops UE.
+      // Catch up in smooth bursts up to max_burst. If a huge drift happens during iperf CPU starvation,
+      // generating backlog sequentially is much safer than jumping.
+      int burst_counter = 0;
+      const int max_burst = 10 << p7_info->mu;
+      while (last_mac_ind_dec != target_ind_dec && burst_counter < max_burst) {
+        last_mac_ind_dec = (last_mac_ind_dec + 1) % max_sfnslotdec;
+        nfapi_nr_slot_indication_scf_t ind = {0};
+        ind.sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, last_mac_ind_dec);
+        ind.slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, last_mac_ind_dec);
+        ind.header.phy_id = p7_info->phy_id;
+        phy_nr_slot_indication(&ind);
+        burst_counter++;
+      }
+    }
+    sfnslot_dec = (sfnslot_dec + 1) % max_sfnslotdec;
+  }
+  return NULL;
+}
+#endif
+
 int phy_nr_srs_indication(nfapi_nr_srs_indication_t *ind)
 {
   for (int i = 0; i < ind->number_of_pdus; ++i)
@@ -1308,6 +1457,11 @@ void *configure_nr_p7_vnf(void *ptr)
   p7_vnf->config->pack_func = &fapi_nr_p7_message_pack;
   p7_vnf->config->send_p7_msg = &aerial_nr_send_p7_message;
 #endif
+#ifndef ENABLE_WLS
+  // Start VNF autonomous timing thread
+  pthread_t t;
+  threadCreate(&t, &vnf_timing_thread, p7_vnf, "vnf_timing", -1, OAI_PRIORITY_RT_MAX);
+#endif
   return 0;
 }
 
@@ -1355,8 +1509,7 @@ int pnf_nr_start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_pnf_st
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] pnf start response idx:%d config:%p user_data:%p p7_vnf[config:%p thread_started:%d]\n", p5_idx, config, config->user_data, vnf->p7_vnfs[0].config, vnf->p7_vnfs[0].thread_started);
 
   if(p7_vnf->thread_started == 0) {
-    pthread_t vnf_p7_thread;
-    threadCreate(&vnf_p7_thread, &configure_nr_p7_vnf, p7_vnf, "vnf_p7_thread", -1, OAI_PRIORITY_RT);
+    configure_nr_p7_vnf(p7_vnf);
     p7_vnf->thread_started = 1;
   } else {
     // P7 thread already running.
@@ -1463,11 +1616,20 @@ int nr_param_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_param_resp
       req->num_tlv++;
     }
   }
-//TODO: Assign tag and value for P7 message offsets
-req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET;
-req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET;
-req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET;
-req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET;
+  // Assign tag and value for P7 message offsets
+  req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET;
+  req->nfapi_config.dl_tti_timing_offset.value = p7_vnf->dl_tti_timing_offset;
+
+  req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET;
+  req->nfapi_config.ul_tti_timing_offset.value = p7_vnf->ul_tti_timing_offset;
+
+  req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET;
+  req->nfapi_config.ul_dci_timing_offset.value = p7_vnf->ul_dci_timing_offset;
+
+  req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET;
+  req->nfapi_config.tx_data_timing_offset.value = p7_vnf->tx_data_timing_offset;
+
+  req->num_tlv += 4;
 
   vendor_ext_tlv_2 ve2;
   memset(&ve2, 0, sizeof(ve2));
@@ -1572,6 +1734,7 @@ int start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_start_response_t
 int nr_start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_start_response_scf_t *resp) {
   UNUSED(config);
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Received NFAPI_START_RESP idx:%d phy_id:%d\n", p5_idx, resp->header.phy_id);
+  __atomic_store_n(&nr_start_resp_received, 1, __ATOMIC_RELEASE);
   return 0;
 }
 

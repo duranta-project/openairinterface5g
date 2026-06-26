@@ -13,12 +13,15 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stdbool.h>
 #include <stdio.h>
+#include <limits.h>
 #include <assert.h>
 #ifdef ENABLE_AERIAL
 #include "nfapi/oai_integration/aerial/fapi_nvIPC.h"
 #endif
 #include "vnf_p7.h"
+#include "nfapi_vnf.h"
 #ifdef ENABLE_WLS
 #include <wls_integration/include/wls_vnf.h>
 #endif
