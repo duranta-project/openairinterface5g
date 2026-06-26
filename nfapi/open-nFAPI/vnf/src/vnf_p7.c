@@ -1982,8 +1982,6 @@ void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
         }
 }
 
-static int16_t vnf_pnf_sfnslot_delta;
-
 void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 {
 	if (pRecvMsg == NULL || vnf_p7 == NULL)
@@ -1992,20 +1990,24 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		return;
 	}
 
+	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
+
 	nfapi_nr_timing_info_t ind;
-  const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(nfapi_timing_info_t), &vnf_p7->_public.codec_config);
+	const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config);
 	if(!result)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack timing_info\n");
 		return;
 	}
 
-        if (vnf_p7 && vnf_p7->p7_connections)
-        {
-          //int16_t vnf_pnf_sfnsf_delta = NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf) - NFAPI_SFNSF2DEC(ind.last_sfn_sf);
-          nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
-            vnf_pnf_sfnslot_delta = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn,p7_con->slot) - NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn,ind.last_slot);
-          //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() PNF:SFN/SF:%d VNF:SFN/SF:%d deltaSFNSF:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(ind.last_sfn_sf), NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf), vnf_pnf_sfnsf_delta);
+	pthread_mutex_lock(&p7_con->mutex);
+	if (!p7_con->initial_timinginfo_received) {
+		p7_con->sfn = ind.last_sfn;
+		p7_con->slot = ind.last_slot;
+		p7_con->initial_timinginfo_received = 1;
+	}
+	pthread_cond_signal(&p7_con->initial_timinginfo_cond);
+	pthread_mutex_unlock(&p7_con->mutex);
 
           // Panos: Careful here!!! Modification of the original nfapi-code
           //if (vnf_pnf_sfnsf_delta>1 || vnf_pnf_sfnsf_delta < -1)
