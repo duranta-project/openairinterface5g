@@ -644,8 +644,6 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	}
 }
 
-static int16_t vnf_pnf_sfnslot_delta;
-
 void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 {
 	if (pRecvMsg == NULL || vnf_p7 == NULL)
@@ -654,8 +652,10 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		return;
 	}
 
+	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
+
 	nfapi_nr_timing_info_t ind;
-  const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(nfapi_timing_info_t), &vnf_p7->_public.codec_config);
+	const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config);
 	if(!result)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack timing_info\n");
@@ -664,8 +664,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 
         if (vnf_p7 && vnf_p7->p7_connections)
         {
-          nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
-            vnf_pnf_sfnslot_delta = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn,p7_con->slot) - NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn,ind.last_slot);
+            int16_t vnf_pnf_sfnslot_delta = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn,p7_con->slot) - NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn,ind.last_slot);
 
           if (vnf_pnf_sfnslot_delta > 1)
           {
