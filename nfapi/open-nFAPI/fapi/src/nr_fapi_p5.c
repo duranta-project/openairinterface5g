@@ -546,6 +546,26 @@ uint8_t pack_nr_param_response(void *msg, uint8_t **ppWritePackedMsg, uint8_t *e
                            ppWritePackedMsg,
                            end,
                            &pack_uint8_tlv_value)
+            && pack_nr_tlv(NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET,
+                           &(pNfapiMsg->nfapi_config.dl_tti_timing_offset),
+                           ppWritePackedMsg,
+                           end,
+                           &pack_uint32_tlv_value)
+            && pack_nr_tlv(NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET,
+                           &(pNfapiMsg->nfapi_config.ul_tti_timing_offset),
+                           ppWritePackedMsg,
+                           end,
+                           &pack_uint32_tlv_value)
+            && pack_nr_tlv(NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET,
+                           &(pNfapiMsg->nfapi_config.ul_dci_timing_offset),
+                           ppWritePackedMsg,
+                           end,
+                           &pack_uint32_tlv_value)
+            && pack_nr_tlv(NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET,
+                           &(pNfapiMsg->nfapi_config.tx_data_timing_offset),
+                           ppWritePackedMsg,
+                           end,
+                           &pack_uint32_tlv_value)
             && pack_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);
   return retval;
 }
@@ -695,6 +715,10 @@ uint8_t unpack_nr_param_response(uint8_t **ppReadPackedMsg, uint8_t *end, void *
       {NFAPI_NR_NFAPI_TIMING_WINDOW_TAG, &pNfapiMsg->nfapi_config.timing_window, &unpack_uint16_tlv_value},
       {NFAPI_NR_NFAPI_TIMING_INFO_MODE_TAG, &pNfapiMsg->nfapi_config.timing_info_mode, &unpack_uint8_tlv_value},
       {NFAPI_NR_NFAPI_TIMING_INFO_PERIOD_TAG, &pNfapiMsg->nfapi_config.timing_info_period, &unpack_uint8_tlv_value},
+      {NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET, &(pNfapiMsg->nfapi_config.dl_tti_timing_offset), &unpack_uint32_tlv_value},
+      {NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET, &(pNfapiMsg->nfapi_config.ul_tti_timing_offset), &unpack_uint32_tlv_value},
+      {NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET, &(pNfapiMsg->nfapi_config.ul_dci_timing_offset), &unpack_uint32_tlv_value},
+      {NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET, &(pNfapiMsg->nfapi_config.tx_data_timing_offset), &unpack_uint32_tlv_value},
   };
 
   return (pull8(ppReadPackedMsg, &pNfapiMsg->error_code, end) && pull8(ppReadPackedMsg, &pNfapiMsg->num_tlv, end)
@@ -1207,6 +1231,34 @@ uint8_t pack_nr_config_request(void *msg, uint8_t **ppWritePackedMsg, uint8_t *e
                         end,
                         &pack_uint8_tlv_value);
   numTLVs++;
+
+  retval &= pack_nr_tlv(NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET,
+                        &(pNfapiMsg->nfapi_config.dl_tti_timing_offset),
+                        ppWritePackedMsg,
+                        end,
+                        &pack_uint32_tlv_value);
+  numTLVs++;
+
+  retval &= pack_nr_tlv(NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET,
+                        &(pNfapiMsg->nfapi_config.ul_tti_timing_offset),
+                        ppWritePackedMsg,
+                        end,
+                        &pack_uint32_tlv_value);
+  numTLVs++;
+
+  retval &= pack_nr_tlv(NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET,
+                        &(pNfapiMsg->nfapi_config.ul_dci_timing_offset),
+                        ppWritePackedMsg,
+                        end,
+                        &pack_uint32_tlv_value);
+  numTLVs++;
+
+  retval &= pack_nr_tlv(NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET,
+                        &(pNfapiMsg->nfapi_config.tx_data_timing_offset),
+                        ppWritePackedMsg,
+                        end,
+                        &pack_uint32_tlv_value);
+  numTLVs++;
   // END nFAPI TLVs included in CONFIG.request for IDLE and CONFIGURED states
 
   if (pNfapiMsg->vendor_extension != 0 && config != 0) {
@@ -1422,6 +1474,10 @@ uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *
       {NFAPI_NR_NFAPI_TIMING_WINDOW_TAG, &(pNfapiMsg->nfapi_config.timing_window), &unpack_uint16_tlv_value},
       {NFAPI_NR_NFAPI_TIMING_INFO_MODE_TAG, &(pNfapiMsg->nfapi_config.timing_info_mode), &unpack_uint8_tlv_value},
       {NFAPI_NR_NFAPI_TIMING_INFO_PERIOD_TAG, &(pNfapiMsg->nfapi_config.timing_info_period), &unpack_uint8_tlv_value},
+      {NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET, &(pNfapiMsg->nfapi_config.dl_tti_timing_offset), &unpack_uint32_tlv_value},
+      {NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET, &(pNfapiMsg->nfapi_config.ul_tti_timing_offset), &unpack_uint32_tlv_value},
+      {NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET, &(pNfapiMsg->nfapi_config.ul_dci_timing_offset), &unpack_uint32_tlv_value},
+      {NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET, &(pNfapiMsg->nfapi_config.tx_data_timing_offset), &unpack_uint32_tlv_value},
       {NFAPI_NR_NFAPI_P7_PNF_ADDRESS_IPV6_TAG, &(pNfapiMsg->nfapi_config.p7_pnf_address_ipv6), &unpack_ipv6_address_value},
       {NFAPI_NR_NFAPI_P7_PNF_PORT_TAG, &(pNfapiMsg->nfapi_config.p7_pnf_port), &unpack_uint16_tlv_value}};
 
