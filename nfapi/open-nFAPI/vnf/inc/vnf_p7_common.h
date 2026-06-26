@@ -13,6 +13,9 @@
 #define TIMEHR_USEC(_time_hr) ((uint32_t)(_time_hr) & 0xFFFFF)
 #define TIME2TIMEHR(_time) (((uint32_t)(_time.tv_sec) & 0xFFF) << 20 | ((uint32_t)(_time.tv_usec) & 0xFFFFF))
 
+#define MARGIN_TOLERANCE_US 100
+#define MARGIN_TOLERANCE_LOCKED_US 500
+
 typedef struct {
   uint8_t* buffer;
   uint32_t length;
@@ -66,8 +69,13 @@ typedef struct nfapi_vnf_p7_connection_info {
   int32_t slot_offset_filtered;
   uint16_t zero_count;
   int32_t adjustment;
+  int32_t slot_adjustment;
   int32_t insync_minor_adjustment;
   int32_t insync_minor_adjustment_duration;
+  uint8_t sync_locked;
+  int32_t consecutive_drift_violations;
+  uint32_t sync_slot_counter;
+  uint32_t sync_period_slots;
 
   uint32_t previous_t1;
   uint32_t previous_t2;
