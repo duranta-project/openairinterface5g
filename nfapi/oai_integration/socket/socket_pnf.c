@@ -799,12 +799,6 @@ int pnf_nr_p7_message_pump(pnf_p7_t *pnf_p7)
       // update slot start timing
       slot_start = pnf_timespec_add(slot_start, slot_duration);
 
-      // increment sfn/slot
-      if (++pnf_p7->slot == 20) {
-        pnf_p7->slot = 0;
-        pnf_p7->sfn = (pnf_p7->sfn + 1) % 1024;
-      }
-
       continue;
     } else if (selectRetval == -1 && (errno == EINTR)) {
       // interrupted by signal
