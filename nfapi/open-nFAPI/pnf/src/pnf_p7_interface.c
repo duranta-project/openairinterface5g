@@ -46,10 +46,22 @@ nfapi_pnf_p7_config_t* nfapi_pnf_p7_config_create()
 
 void nfapi_pnf_p7_config_destory(nfapi_pnf_p7_config_t* config)
 {
-  if (config == 0) {
-    return;
-  }
+	if(config == 0)
+		return ;
 
+	pnf_p7_t* _this = (pnf_p7_t*)(config);
+	if(_this->rx_message_buffer != NULL)
+	{
+		free(_this->rx_message_buffer);
+		_this->rx_message_buffer = NULL;
+		_this->rx_message_buffer_size = 0;
+	}
+	if(_this->reassemby_buffer != NULL)
+	{
+		pnf_p7_free(_this, _this->reassemby_buffer);
+		_this->reassemby_buffer = NULL;
+		_this->reassemby_buffer_size = 0;
+	}
 	free(config);
 }
 
