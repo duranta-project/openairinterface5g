@@ -33,6 +33,306 @@
 
 #define SYNC_CYCLE_COUNT 2
 
+/* ============================================================================
+ * DYNAMIC SLOT SLEEP TIMING CONTROL
+ * ============================================================================ */
+
+int vnf_nr_extract_timing_info(const nfapi_nr_timing_info_t *ind,
+                               nfapi_vnf_p7_connection_info_t *p7_info,
+                               vnf_timing_stats_t *out_stats)
+{
+	if (ind == NULL || p7_info == NULL || out_stats == NULL) {
+		return 0;
+	}
+	int32_t slot_duration_us = 1000 >> p7_info->mu;
+	if (slot_duration_us <= 0) {
+		return 0;
+	}
+	nfapi_vnf_config_t *config = get_config();
+	if (config == NULL) {
+		return 0;
+	}
+	int32_t slots_per_frame = 10 << p7_info->mu;
+	int64_t frame_duration_us = (int64_t)slots_per_frame * (int64_t)slot_duration_us;
+	int64_t timing_window_us = (int64_t)config->timing_window;
+	int64_t valid_span_us = timing_window_us + frame_duration_us;
+	if (valid_span_us <= 0) {
+		valid_span_us = frame_duration_us;
+	}
+	/*
+	 * Latest delay values:
+	 * These are the most important values for no-drop policy.
+	 * A positive latest_delay means the message was late.
+	 * A negative latest_delay means the message arrived before deadline.
+	 */
+	int32_t latest_delay_values[4] = {
+		ind->dl_tti_latest_delay,
+		ind->tx_data_latest_delay,
+		ind->ul_tti_latest_delay,
+		ind->ul_dci_latest_delay
+	};
+	/*
+	 * Earliest arrival values:
+	 * These are useful to know how early messages are arriving.
+	 * They should not override a positive latest_delay.
+	 */
+	int32_t earliest_arrival_values[4] = {
+		ind->dl_tti_earliest_arrival,
+		ind->tx_data_request_earliest_arrival,
+		ind->ul_tti_earliest_arrival,
+		ind->ul_dci_earliest_arrival
+	};
+	int32_t worst_late = INT32_MIN;
+	int32_t worst_early = INT32_MAX;
+	bool have_latest_delay = false;
+	bool have_any_sample = false;
+	/*
+	 * First pass:
+	 *   use latest_delay fields as primary control input.
+	 * This avoids an early-arrival value masking a real late sample.
+	 */
+	for (int i = 0; i < 4; ++i) {
+		int32_t value = latest_delay_values[i];
+		/*
+		 * In current nFAPI timing_info usage, zero is treated as
+		 * "not reported".  If the PNF implementation later defines
+		 * zero as an explicit exact-deadline sample, this condition
+		 * should be revisited.
+		 */
+		if (value == 0) {
+			continue;
+		}
+		if ((int64_t)value > valid_span_us || (int64_t)value < -valid_span_us) {
+			continue;
+		}
+		have_latest_delay = true;
+		have_any_sample = true;
+		if (value > worst_late) {
+			worst_late = value;
+		}
+		if (value < worst_early) {
+			worst_early = value;
+		}
+	}
+	/*
+	 * Second pass:
+	 *   collect earliest_arrival for diagnostics / fallback.
+	 *
+	 * If there were no latest_delay samples at all, the closest
+	 * earliest_arrival becomes worst_late.  This keeps the controller
+	 * informed that packets are early, without inventing late pressure.
+	 */
+	int32_t closest_early_to_deadline = INT32_MIN;
+	for (int i = 0; i < 4; ++i) {
+		int32_t value = earliest_arrival_values[i];
+		if (value == 0) {
+			continue;
+		}
+		if ((int64_t)value > valid_span_us || (int64_t)value < -valid_span_us) {
+			continue;
+		}
+		have_any_sample = true;
+		if (value < worst_early) {
+			worst_early = value;
+		}
+		/*
+		 * For early samples, the largest value is closest to deadline.
+		 * Example:
+		 *   -100us is closer / riskier than -900us.
+		 */
+		if (value > closest_early_to_deadline) {
+			closest_early_to_deadline = value;
+		}
+	}
+	if (!have_any_sample) {
+		return 0;
+	}
+	if (!have_latest_delay) {
+		if (closest_early_to_deadline == INT32_MIN) {
+			return 0;
+		}
+		worst_late = closest_early_to_deadline;
+	}
+	if (worst_late == INT32_MIN) {
+		return 0;
+	}
+	if (worst_early == INT32_MAX) {
+		worst_early = worst_late;
+	}
+	out_stats->worst_late = worst_late;
+	out_stats->worst_early = worst_early;
+	return 1;
+}
+
+static const int32_t global_ewma_alpha_denom = 8;    // 1/8 default
+static const int32_t global_ewma_beta_attack_denom = 4;     // 1/4 default (fast attack)
+static const int32_t global_ewma_beta_release_denom = 2048;  // 1/2048 default (slow release)
+
+/*
+ * Calculate the number of slots between two (SFN, slot) pairs.
+ * Accounts for SFN wrap-around (SFN 0-1023).
+ * Result: positive if (current_sfn, current_slot) > (prev_sfn, prev_slot)
+ */
+static inline int32_t calculate_slot_distance(int32_t current_sfn, int32_t current_slot,
+                                               int32_t prev_sfn, int32_t prev_slot,
+                                               int32_t slots_per_frame)
+{
+	// Convert to absolute slot numbers within a frame boundary
+	int32_t current_absolute = current_sfn * slots_per_frame + current_slot;
+	int32_t prev_absolute = prev_sfn * slots_per_frame + prev_slot;
+
+	// Handle wrap-around: if current < prev, add one full hyperframe cycle
+	if (current_absolute < prev_absolute) {
+		current_absolute += 1024 * slots_per_frame;  // 1024 SFNs per hyperframe
+	}
+
+	return current_absolute - prev_absolute;
+}
+
+static int32_t abs_i32(int32_t v)
+{
+	return v < 0 ? -v : v;
+}
+
+/*
+ * Integer EWMA helper.
+ * Avoids integer EWMA dead-zone:
+ *   cur += (target - cur) / denom
+ * would otherwise stop changing when abs(target - cur) < denom.
+ * This is not a policy hyperparameter.
+ */
+static inline int32_t p7_ewma_step_i32(int32_t cur, int32_t target, int32_t denom)
+{
+	if (denom <= 1)
+		return target;
+
+	int32_t diff = target - cur;
+	if (diff == 0)
+		return cur;
+
+	int32_t step = diff / denom;
+	if (step == 0)
+		step = diff > 0 ? 1 : -1;
+
+	return cur + step;
+}
+
+/*
+ * Delay Management v2 — Minimalist EWMA-based adaptive slot-ahead control.
+ *
+ * Step 1: EWMA pre-processing (RFC 6298 inspired)
+ *   TimingInfoEWMA[i] = (1-α) * TimingInfoEWMA[i-1] + α * TimingInfo[i]
+ *   TimingInfoDev[i]  = (1-β) * TimingInfoDev[i-1]  + β * |TimingInfo[i] - TimingInfoEWMA[i]|
+ *
+ * Step 2 (Late):  if TimingInfo > 0 or EWMA+Dev > 0 → increase ceil((EWMA+Dev)/slot_dur) slots
+ * Step 3 (Early): if EWMA < -4*Dev                  → decrease 1 slot
+ *
+ * Pacing: wait one timing_info_period between adjustments (= wait for fresh measurement).
+ */
+static void vnf_nr_delay_management(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
+{
+	if (p7_info == NULL || stats == NULL)
+		return;
+	if (p7_info->mu < 0 || p7_info->slot_duration_us <= 0)
+		return;
+
+	int sd = p7_info->slot_duration_us;
+
+	/* --- Initialization: start from baseline (4 slots ahead) --- */
+	/* Shared state below is protected by p7_con->mutex, held by the caller. */
+	if (p7_info->slot_ahead <= 0)
+		p7_info->slot_ahead = 4;
+
+	if (p7_info->estimated_mean_late == 0) {
+		p7_info->estimated_mean_late = stats->worst_late;
+		p7_info->estimated_jitter_var = abs_i32(stats->worst_late) / 2;
+		p7_info->last_adjustment_sfn = p7_info->sfn;
+		p7_info->last_adjustment_slot = p7_info->slot;
+	}
+
+	/* ===== Step 1: EWMA Pre-processing ===== */
+	int32_t TimingInfo = stats->worst_late;
+
+	p7_info->estimated_mean_late = p7_ewma_step_i32(
+		p7_info->estimated_mean_late, TimingInfo, global_ewma_alpha_denom);
+
+	int32_t diff = TimingInfo - p7_info->estimated_mean_late;
+	int32_t abs_diff = abs_i32(diff);
+
+	if (abs_diff > p7_info->estimated_jitter_var) {
+		p7_info->estimated_jitter_var = p7_ewma_step_i32(
+			p7_info->estimated_jitter_var, abs_diff, global_ewma_beta_attack_denom);
+	} else {
+		p7_info->estimated_jitter_var = p7_ewma_step_i32(
+			p7_info->estimated_jitter_var, abs_diff, global_ewma_beta_release_denom);
+	}
+
+	if (p7_info->estimated_jitter_var < 0)
+		p7_info->estimated_jitter_var = 0;
+
+	int32_t TimingInfoEWMA = p7_info->estimated_mean_late;
+	int32_t TimingInfoDev  = p7_info->estimated_jitter_var;
+
+	/* ===== Pacing gate: one timing_info_period between decisions ===== */
+	int32_t elapsed = calculate_slot_distance(
+		p7_info->sfn, p7_info->slot,
+		p7_info->last_adjustment_sfn, p7_info->last_adjustment_slot,
+		10 << p7_info->mu);
+
+	/* timing_info_period is in subframes; convert to slots */
+	int32_t period_slots = (int32_t)p7_info->timing_info_period * (1 << p7_info->mu);
+	if (period_slots < 1) period_slots = 1;
+	bool gate_open = (elapsed >= period_slots);
+
+	if (!gate_open) {
+		return;
+	}
+
+	int32_t target = p7_info->slot_ahead;
+
+	/* ===== Step 2: Late → Increase ===== */
+	if (TimingInfo > 0 || (TimingInfoEWMA + TimingInfoDev) > 0) {
+		int32_t val = TimingInfoEWMA + TimingInfoDev;
+		if (val > 0) {
+			int32_t inc = (val + sd - 1) / sd;
+			target += inc;
+		} else {
+			/* raw TimingInfo > 0 but EWMA hasn't caught up yet */
+			target += 1;
+		}
+	}
+	/* ===== Step 3: Early → Decrease 1 ===== */
+	else if (TimingInfoEWMA < -(sd + 4 * TimingInfoDev)) {
+		/*
+		 * Decrease only when there is enough margin to absorb both:
+		 *   (a) the +sd shift from reducing one slot ahead, AND
+		 *   (b) 4× jitter deviation as safety margin.
+		 *
+		 * After decrease, compensated EWMA becomes:
+		 *   EWMA' = EWMA + sd > -(4*Dev)
+		 * which still satisfies the "early" zone with margin.
+		 */
+		target -= 1;
+	}
+
+	/* Clamp to [2, max_ahead] */
+	int32_t max_ahead = (int32_t)(p7_info->timing_window / sd) - 1;
+	if (max_ahead > 8) max_ahead = 8;
+	if (max_ahead < 2) max_ahead = 2;
+	if (target > max_ahead) target = max_ahead;
+	if (target < 2) target = 2;
+
+	/* ===== Apply adjustment ===== */
+	if (target != p7_info->slot_ahead) {
+		int32_t delta = target - p7_info->slot_ahead;
+		/* Compensate EWMA mean for the shift in reference frame */
+		p7_info->estimated_mean_late -= delta * sd;
+		p7_info->slot_ahead = target;
+		p7_info->last_adjustment_sfn = p7_info->sfn;
+		p7_info->last_adjustment_slot = p7_info->slot;
+	}
+}
+
 void* vnf_p7_malloc(vnf_p7_t* vnf_p7, size_t size)
 {
 	if(vnf_p7->_public.malloc)
@@ -1750,20 +2050,14 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	pthread_cond_signal(&p7_con->initial_timinginfo_cond);
 	pthread_mutex_unlock(&p7_con->mutex);
 
-          // Panos: Careful here!!! Modification of the original nfapi-code
-          //if (vnf_pnf_sfnsf_delta>1 || vnf_pnf_sfnsf_delta < -1)
-		  //printf("VNF-PNF delta - %d", vnf_pnf_sfnslot_delta);
-          if (vnf_pnf_sfnslot_delta > 1) // we need to have a small delta, otherwise it would mean we don't advance
-          {
-            NFAPI_TRACE(NFAPI_TRACE_WARN, "%s() LARGE SFN/SLOT DELTA between PNF and VNF. Delta %d slots. PNF:%d.%d VNF:%d.%d\n",
-                        __FUNCTION__, vnf_pnf_sfnslot_delta,
-                        ind.last_sfn, ind.last_slot,
-                        vnf_p7->p7_connections[0].sfn, vnf_p7->p7_connections[0].slot);
-            // Panos: Careful here!!! Modification of the original nfapi-code
-            vnf_p7->p7_connections[0].sfn = ind.last_sfn;
-            vnf_p7->p7_connections[0].slot = ind.last_slot;
-          }
-        }
+	vnf_timing_stats_t out_stats;
+	int count = vnf_nr_extract_timing_info(&ind, p7_con, &out_stats);
+	if (count <= 0) {
+		return;
+	}
+	pthread_mutex_lock(&p7_con->mutex);
+	vnf_nr_delay_management(p7_con, &out_stats);
+	pthread_mutex_unlock(&p7_con->mutex);
 }
 
 void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)

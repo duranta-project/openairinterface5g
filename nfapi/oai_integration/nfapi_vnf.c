@@ -1075,6 +1075,8 @@ void *vnf_timing_thread(void *arg)
     pthread_mutex_lock(&p7_info->mutex);
     p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
     p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
+    /* slot_ahead is updated by vnf_nr_delay_management under the same mutex */
+    int32_t slot_ahead = p7_info->slot_ahead;
     pthread_mutex_unlock(&p7_info->mutex);
 
     if (p7_info->sync_slot_counter >= p7_info->sync_period_slots) {
@@ -1084,7 +1086,6 @@ void *vnf_timing_thread(void *arg)
       p7_info->sync_slot_counter++;
     }
 
-    int32_t slot_ahead = __atomic_load_n(&p7_info->slot_ahead, __ATOMIC_RELAXED);
     int target_ind_dec = (sfnslot_dec + slot_ahead) % max_sfnslotdec;
     if (last_mac_ind_dec == -1) {
       last_mac_ind_dec = (target_ind_dec - 1 + max_sfnslotdec) % max_sfnslotdec;
