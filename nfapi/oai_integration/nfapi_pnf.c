@@ -18,6 +18,7 @@
 
 #include "nfapi.h"
 #include "nfapi_pnf.h"
+#include "nfapi_pnf_pacing.h"
 #include "common/ran_context.h"
 #include "openair2/PHY_INTERFACE/phy_stub_UE.h"
 
@@ -2332,21 +2333,26 @@ void oai_subframe_ind(uint16_t sfn, uint16_t sf) {
   }
 }
 
-#define SLOT_DURATION 800 // in microseconds
 static void maybe_slow_down_pnf(int mu)
 {
-  /* uses a usleep to wait for approximately the same time period (300 us) */
-  static struct timespec last_execution = {0};
-  struct timespec current_execution;
-  clock_gettime(CLOCK_REALTIME, &current_execution);
-  // Calculate elapsed time since last execution
-  long elapsed_time = (current_execution.tv_sec - last_execution.tv_sec) * 1000000; // Convert seconds to microseconds
-  elapsed_time += (current_execution.tv_nsec - last_execution.tv_nsec) / 1000; // Convert nanoseconds to microseconds
-  int duration = SLOT_DURATION >> mu;
-  if (elapsed_time < duration)
-    usleep(duration - elapsed_time);
-  // Update last_execution time
-  last_execution = current_execution;
+  static nfapi_pnf_pacer_t pacer;
+
+  AssertFatal(mu >= 0 && mu <= 4, "Invalid numerology %d\n", mu);
+
+  struct timespec now;
+  AssertFatal(clock_gettime(CLOCK_MONOTONIC, &now) == 0, "clock_gettime() failed: %s\n", strerror(errno));
+  struct timespec deadline;
+  if (!nfapi_pnf_pacer_next(&pacer, mu, now, &deadline))
+    return;
+
+  int ret;
+  do {
+    ret = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &deadline, NULL);
+  } while (ret == EINTR);
+  if (ret != 0) {
+    LOG_E(PHY, "RFsim PNF pacing sleep failed: %s\n", strerror(ret));
+    AssertFatal(clock_gettime(CLOCK_MONOTONIC, &pacer.next_slot) == 0, "clock_gettime() failed: %s\n", strerror(errno));
+  }
 }
 
 void handle_nr_slot_ind(uint16_t sfn, uint16_t slot, NR_Sched_Rsp_t *sched_resp)
@@ -2356,10 +2362,7 @@ void handle_nr_slot_ind(uint16_t sfn, uint16_t slot, NR_Sched_Rsp_t *sched_resp)
   int mu = _this->mu;
 
   if (IS_SOFTMODEM_RFSIM) {
-    // RFsim can run faster than realtime. However, we need to give the VNF
-    // some time to send an answer, so the PNF can run faster than realtime,
-    // but it should not too much. This function will "maybe" slow down, up to
-    // a slot length
+    // Pace RFsim to the NR slot duration so the PNF does not outrun the VNF.
     maybe_slow_down_pnf(mu);
   }
 
@@ -2376,8 +2379,10 @@ void handle_nr_slot_ind(uint16_t sfn, uint16_t slot, NR_Sched_Rsp_t *sched_resp)
   sfnslot_add_slot(mu, &sfn_tx, &slot_tx, slot_ahead); // modify: do in place
 
   // printf("send slot indication for sfn/slot:%4d.%2d current:%4d.%2d\n", sfn_tx, slot_tx, sfn, slot);
+#ifdef ENABLE_WLS
   nfapi_nr_slot_indication_scf_t ind = {.sfn = sfn_tx, .slot = slot_tx};
   oai_nfapi_nr_slot_indication(&ind);
+#endif
 
   // copy data from appropriate p7 slot buffers into channel structures for PHY processing
   nfapi_pnf_p7_get_msgs(config,
@@ -2478,4 +2483,3 @@ int oai_nfapi_nr_rach_indication(nfapi_nr_rach_indication_t *ind) {
   ind->header.message_id = NFAPI_NR_PHY_MSG_TYPE_RACH_INDICATION;
   return nfapi_pnf_p7_nr_rach_ind(p7_config_g, ind);
 }
-

@@ -722,7 +722,8 @@ int pnf_nr_p7_message_pump(pnf_p7_t *pnf_p7)
     }
   */
 
-  int iptos_value = 0;
+  /* mark P7 traffic as Expedited Forwarding (DSCP EF) for low-latency queuing */
+  int iptos_value = IPTOS_DSCP_EF;
   if (setsockopt(pnf_p7->p7_sock, IPPROTO_IP, IP_TOS, &iptos_value, sizeof(iptos_value)) < 0) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "PNF P7 setsockopt (IPPROTO_IP, IP_TOS) failed errno: %d\n", errno);
     return -1;
