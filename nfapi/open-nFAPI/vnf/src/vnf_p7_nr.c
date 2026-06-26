@@ -7,6 +7,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
+#include <limits.h>
 
 #include "vnf_p7_nr.h"
 #include "nr_fapi_p7_utils.h"
@@ -473,9 +474,13 @@ int vnf_nr_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 	if (slot_duration_us <= 0) {
 		return 0;
 	}
+	nfapi_nr_vnf_config_t *config = get_nr_config();
+	if (config == NULL) {
+		return 0;
+	}
 	int32_t slots_per_frame = 10 << p7_info->mu;
 	int64_t frame_duration_us = (int64_t)slots_per_frame * (int64_t)slot_duration_us;
-	int64_t timing_window_us = (int64_t)p7_info->timing_window;
+	int64_t timing_window_us = (int64_t)config->timing_window;
 	int64_t valid_span_us = timing_window_us + frame_duration_us;
 	if (valid_span_us <= 0) {
 		valid_span_us = frame_duration_us;
@@ -778,6 +783,15 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		p7_con->initial_timing_info_received = 1;
 	}
 	pthread_cond_signal(&p7_con->initial_timinginfo_cond);
+	pthread_mutex_unlock(&p7_con->mutex);
+
+	vnf_timing_stats_t out_stats;
+	int count = vnf_nr_extract_timing_info(&ind, p7_con, &out_stats);
+	if (count <= 0) {
+		return;
+	}
+	pthread_mutex_lock(&p7_con->mutex);
+	vnf_nr_delay_management(p7_con, &out_stats);
 	pthread_mutex_unlock(&p7_con->mutex);
 }
 
