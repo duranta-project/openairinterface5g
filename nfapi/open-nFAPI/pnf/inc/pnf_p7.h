@@ -9,6 +9,9 @@
 #ifndef _PNF_P7_H_
 #define _PNF_P7_H_
 
+#define PNF_P7_RX_MESSAGE_BUFFER_MAX_SIZE 65535
+#define PNF_P7_REASSEMBLY_BUFFER_MAX_SIZE (1024 * 1024 * 3)
+
 #define TIMEHR_SEC(_time_hr) ((uint32_t)(_time_hr) >> 20)
 #define TIMEHR_USEC(_time_hr) ((uint32_t)(_time_hr) & 0xFFFFF)
 #define TIME2TIMEHR(_time) (((uint32_t)(_time.tv_sec) & 0xFFF) << 20 | ((uint32_t)(_time.tv_usec) & 0xFFFFF))
