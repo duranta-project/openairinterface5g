@@ -2716,17 +2716,14 @@ void nr_qam64_llr_2layer_lbest(c16_t *stream0_in,
 #define NR_LBEST_SQRT170      13.03840481040530f  // sqrt(170)
 #define NR_LBEST_NA256        0.07669649888473f    // 1/sqrt(170), unit-energy 256QAM step
 
-// nearest 256QAM PAM-16 level to v (in level units)
+// nearest 256QAM PAM-16 level to v (in level units), O(1) round-to-nearest-odd.
+// = 2*floor(v/2)+1, clamped to [-15,15]. The +16 offset makes the argument
+// non-negative so (int) truncation equals floor (no <math.h> dependency).
 static inline int nr_lbest_slice_pam16(float v)
 {
-  static const int levels[16] = {-15, -13, -11, -9, -7, -5, -3, -1, 1, 3, 5, 7, 9, 11, 13, 15};
-  int best = levels[0];
-  float bestd = (v - levels[0]) * (v - levels[0]);
-  for (int k = 1; k < 16; k++) {
-    float d = (v - levels[k]) * (v - levels[k]);
-    if (d < bestd) { bestd = d; best = levels[k]; }
-  }
-  return best;
+  int o = 2 * (int)((v + 16.0f) * 0.5f) - 15;
+  if (o < -15) o = -15; else if (o > 15) o = 15;
+  return o;
 }
 
 // 256QAM Gray bits for one axis level (per nr_gen_mod_table.c 256QAM map):
