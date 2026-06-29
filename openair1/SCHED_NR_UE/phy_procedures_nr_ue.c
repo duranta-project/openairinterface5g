@@ -526,6 +526,10 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                                                          freq_alloc->num_rbs * NR_NB_SC_PER_RB * dlschCfg->number_symbols,
                                                          &mt);
   }
+  // OAI_LBEST analysis gate: also allocate rho for 2-layer 256QAM (Qm=8) so the float
+  // L-best ML path in the demod can use it (off by default).
+  static int lbest256 = -1;
+  if (lbest256 < 0) { const char *e = getenv("OAI_LBEST"); lbest256 = e ? atoi(e) : 0; }
 
   for (int m = dlschCfg->start_symbol; m < (dlschCfg->number_symbols + dlschCfg->start_symbol); m++) {
     bool first_symbol_flag = false;

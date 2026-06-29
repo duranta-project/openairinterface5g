@@ -788,6 +788,11 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   // Controlled by ue->do_ml (set via -E flag in dlsim, or ue->do_ml in the UE struct).
   // When false (default), MMSE equalization is used for all configurations.
   bool do_ml = ue->do_ml;
+  // ANALYSIS gate (OAI_LBEST): route 2-layer 256QAM (Qm=8) to the float L-best ML kernel
+  // (nr_compute_ML_llr case 8) instead of the MMSE+single-layer fallback. Off by default.
+  static int lbest256 = -1;
+  if (lbest256 < 0) { const char *e = getenv("OAI_LBEST"); lbest256 = e ? atoi(e) : 0; }
+  const bool ml256 = do_ml && lbest256;
 
   // Reinterpret flat dl_ch_estimates_ext as [nl][nbRx][rx_size_symbol]
   c16_t(*chFext)[nbRx][rx_size_symbol] = (void *)dl_ch_estimates_ext;
@@ -1133,8 +1138,9 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     const uint8_t qamModOrder = dlsch->cw_info.qamModOrder;
     start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
     for (int llr_sym = startSymbIdx; llr_sym < startSymbIdx + nbSymb; llr_sym++) {
-      if (nl == 2 && qamModOrder <= 6 && do_ml) {
-        // 2-layer QPSK/16QAM/64QAM: joint ML-LLR using inter-layer Tx correlation
+      if (nl == 2 && do_ml && (qamModOrder <= 6 || (qamModOrder == 8 && ml256))) {
+        // 2-layer QPSK/16QAM/64QAM (and 256QAM under the OAI_LBEST analysis gate):
+        // joint ML-LLR using inter-layer Tx correlation
         // rho_dl[llr_sym] is laid out as [nl*nl][rx_size_symbol]:
         // index 1 = rho[0][1], index nl (=2) = rho[1][0]
         nr_compute_ML_llr(rxdataF_comp[llr_sym][0],
