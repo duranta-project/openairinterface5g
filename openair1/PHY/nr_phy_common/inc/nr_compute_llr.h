@@ -58,6 +58,17 @@ void nr_qam64_llr_2layer_lbest_q15(c16_t *stream0_in,
                                    uint32_t length,
                                    int L);
 
+// int16/16-lane AVX2 L-best 2-layer 64QAM kernel (the optimized form).
+// pattern: 0 = 3x3 (9 cand, full BLER), 1 = 6-cand (plus + toward-seed diagonal), 2 = 5-plus.
+void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
+                                          c16_t *stream1_in,
+                                          c16_t *ch_mag,
+                                          c16_t *ch_mag_i,
+                                          int16_t *stream0_out,
+                                          c16_t *rho01,
+                                          uint32_t length,
+                                          int pattern);
+
 void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rxdataF_comp1,
                        c16_t *ch_mag0,
