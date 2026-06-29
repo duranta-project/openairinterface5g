@@ -2707,6 +2707,171 @@ void nr_qam64_llr_2layer_lbest(c16_t *stream0_in,
   nr_qam64_llr_2layer_lbest_layer(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, L, seed_lambda);
 }
 
+// ============================================================================
+// Fixed-point (Q15-input) prototype of the L-best 2-layer 64QAM kernel.
+//
+// Integer twin of nr_qam64_llr_2layer_lbest_layer: same algorithm, but every
+// step uses the int16 demod buffers directly (no float). Two ideas keep it in
+// the existing mulhi/adds Q15 idiom and make it SIMD-portable:
+//
+//  (1) Scale the whole ML metric by 8*sqrt(42). The desired/nuisance
+//      correlation and energy terms then become EXACT integers (no irrational),
+//      and a single 1/sqrt(42) survives only on the cross term:
+//        Mq = 8*(Xr1.z1r+Xi1.z1i) - chmag0*|X1|^2          (desired)
+//           + 8*(Xr2.z2r+Xi2.z2i) - chmag1*|X2|^2          (nuisance)
+//           - 8*Re{rho.conj(X1).X2} / sqrt(42)             (cross)
+//      where X1,X2 are the *integer* level pairs (odd in [-7,7]) and chmag is
+//      the raw ch_mag input (= ||h||^2 * 4/sqrt(42)).
+//
+//  (2) No per-RE reciprocals. The ZF seed level and the conditional nuisance
+//      slice are both decided by comparing a numerator against det- / ||h||^2-
+//      scaled thresholds, never by dividing.
+//
+// Reference/oracle: identical LLRs (within fixed-point rounding) to
+// nr_qam64_llr_2layer_lbest at the same L; L==64 == full search.
+// ============================================================================
+#define NR_LBEST_Q_SQRT42_Q12        26545   // round(sqrt(42)        * 2^12)
+#define NR_LBEST_Q_SQRT42_OVER4_Q14  26545   // round(sqrt(42)/4      * 2^14) (same constant)
+#define NR_LBEST_Q_INVSQRT42_Q15      5057   // round(2^15 / sqrt(42))
+// integer metric is 8*sqrt(42) (~51.8x) larger than the float-ref metric; bring
+// the emitted LLR back onto the float-ref / SIMD scale.
+#define NR_LBEST_Q_LLR_NUM            2533    // round(2^17 / (8*sqrt(42)))
+#define NR_LBEST_Q_LLR_SHIFT            17
+#define NR_LBEST_Q_LLR_SAT           8192
+
+// nearest 64QAM PAM-8 level magnitude for |a|, thresholds at 2/4/6 * step.
+static inline int nr_lbest_q_pam8_abs(int64_t a, int64_t step)
+{
+  if (a < 2 * step) return 1;
+  if (a < 4 * step) return 3;
+  if (a < 6 * step) return 5;
+  return 7;
+}
+
+static void nr_qam64_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
+                                                const c16_t *stream1_in,
+                                                const c16_t *ch_mag,
+                                                const c16_t *ch_mag_i,
+                                                int16_t *stream0_out,
+                                                const c16_t *rho01,
+                                                uint32_t length,
+                                                int L)
+{
+  if (L < 1)
+    L = 1;
+  if (L > 64)
+    L = 64;
+  static const int levels[8] = {-7, -5, -3, -1, 1, 3, 5, 7};
+
+  for (uint32_t re = 0; re < length; re++) {
+    const int32_t z1r = stream0_in[re].r, z1i = stream0_in[re].i;
+    const int32_t z2r = stream1_in[re].r, z2i = stream1_in[re].i;
+    const int32_t rr = rho01[re].r, ri = rho01[re].i;     // rho = h0^H h1
+    const int32_t cm0 = ch_mag[re].r;                     // ||h0||^2 * 4/sqrt(42)
+    const int32_t cm1 = ch_mag_i[re].r;                   // ||h1||^2 * 4/sqrt(42)
+
+    // recovered channel powers ||h||^2 (for the seed determinant / thresholds)
+    const int64_t Pp0 = ((int64_t)cm0 * NR_LBEST_Q_SQRT42_OVER4_Q14) >> 14;
+    const int64_t Pp1 = ((int64_t)cm1 * NR_LBEST_Q_SQRT42_OVER4_Q14) >> 14;
+
+    // ---- 1. division-free ZF seed: x_hat1 = ((Pp1) z1 - rho z2) / det --------
+    const int64_t det = Pp0 * Pp1 - ((int64_t)rr * rr + (int64_t)ri * ri); // >= 0
+    const int64_t numr = Pp1 * z1r - ((int64_t)rr * z2r - (int64_t)ri * z2i);
+    const int64_t numi = Pp1 * z1i - ((int64_t)rr * z2i + (int64_t)ri * z2r);
+    // soft level estimate in Q6 (level units * 64); clamp to the 64QAM range.
+    int32_t estI_q6 = 0, estQ_q6 = 0;
+    if (det > 0) {
+      estI_q6 = (int32_t)((numr * NR_LBEST_Q_SQRT42_Q12) / (det * 64));
+      estQ_q6 = (int32_t)((numi * NR_LBEST_Q_SQRT42_Q12) / (det * 64));
+      if (estI_q6 < -512) estI_q6 = -512; else if (estI_q6 > 512) estI_q6 = 512;
+      if (estQ_q6 < -512) estQ_q6 = -512; else if (estQ_q6 > 512) estQ_q6 = 512;
+    }
+
+    // ---- 2. candidate set C1 = L nearest constellation points to x_hat1 ------
+    int candI[64], candQ[64];
+    int64_t cand_d[64];
+    int nc = 0;
+    for (int qi = 0; qi < 8; qi++) {
+      for (int ii = 0; ii < 8; ii++) {
+        const int64_t dI = estI_q6 - (levels[ii] << 6);
+        const int64_t dQ = estQ_q6 - (levels[qi] << 6);
+        candI[nc] = levels[ii];
+        candQ[nc] = levels[qi];
+        cand_d[nc] = dI * dI + dQ * dQ;
+        nc++;
+      }
+    }
+    for (int a = 0; a < L; a++) { // partial selection of the L smallest
+      int m = a;
+      for (int b = a + 1; b < 64; b++)
+        if (cand_d[b] < cand_d[m])
+          m = b;
+      if (m != a) {
+        int64_t td = cand_d[a]; cand_d[a] = cand_d[m]; cand_d[m] = td;
+        int ti = candI[a]; candI[a] = candI[m]; candI[m] = ti;
+        int tq = candQ[a]; candQ[a] = candQ[m]; candQ[m] = tq;
+      }
+    }
+
+    // ---- 3+4. metric over candidates (scaled by 8*sqrt(42)), max-log per bit -
+    int64_t max0[6], max1[6];
+    for (int p = 0; p < 6; p++) { max0[p] = INT64_MIN; max1[p] = INT64_MIN; }
+
+    for (int c = 0; c < L; c++) {
+      const int I1 = candI[c], Q1 = candQ[c];
+
+      // conditional ML nuisance x2*: slice (z2*sqrt42 - conj(rho).X1) vs Pp1*thr
+      const int64_t A2I = (((int64_t)z2r * NR_LBEST_Q_SQRT42_Q12) >> 12) - ((int64_t)rr * I1 + (int64_t)ri * Q1);
+      const int64_t A2Q = (((int64_t)z2i * NR_LBEST_Q_SQRT42_Q12) >> 12) - ((int64_t)rr * Q1 - (int64_t)ri * I1);
+      const int I2 = (A2I < 0 ? -1 : 1) * nr_lbest_q_pam8_abs(A2I < 0 ? -A2I : A2I, Pp1);
+      const int Q2 = (A2Q < 0 ? -1 : 1) * nr_lbest_q_pam8_abs(A2Q < 0 ? -A2Q : A2Q, Pp1);
+
+      // metric (units of 8*sqrt(42) * float-ref metric)
+      int64_t metric = 8 * ((int64_t)I1 * z1r + (int64_t)Q1 * z1i) - cm0 * ((int64_t)I1 * I1 + (int64_t)Q1 * Q1);
+      metric += 8 * ((int64_t)I2 * z2r + (int64_t)Q2 * z2i) - cm1 * ((int64_t)I2 * I2 + (int64_t)Q2 * Q2);
+      // cross = 8 * Re{rho.conj(X1).X2} / sqrt(42)
+      const int64_t rec = (int64_t)rr * ((int64_t)I1 * I2 + (int64_t)Q1 * Q2) + (int64_t)ri * ((int64_t)Q1 * I2 - (int64_t)I1 * Q2);
+      metric -= (8 * rec * NR_LBEST_Q_INVSQRT42_Q15) >> 15;
+
+      // bit labels, interleaved {I0,Q0,I1,Q1,I2,Q2} (matches nr_qam64_llr_2layer)
+      int bI0, bI1, bI2, bQ0, bQ1, bQ2;
+      nr_lbest_axis_bits(I1, &bI0, &bI1, &bI2);
+      nr_lbest_axis_bits(Q1, &bQ0, &bQ1, &bQ2);
+      const int bit[6] = {bI0, bQ0, bI1, bQ1, bI2, bQ2};
+      for (int p = 0; p < 6; p++) {
+        if (bit[p] == 0) { if (metric > max0[p]) max0[p] = metric; }
+        else             { if (metric > max1[p]) max1[p] = metric; }
+      }
+    }
+
+    for (int p = 0; p < 6; p++) {
+      int32_t llr;
+      if (max0[p] == INT64_MIN)
+        llr = -NR_LBEST_Q_LLR_SAT;
+      else if (max1[p] == INT64_MIN)
+        llr = NR_LBEST_Q_LLR_SAT;
+      else
+        llr = (int32_t)(((max0[p] - max1[p]) * NR_LBEST_Q_LLR_NUM) >> NR_LBEST_Q_LLR_SHIFT);
+      if (llr > 32767) llr = 32767;
+      if (llr < -32768) llr = -32768;
+      *stream0_out++ = (int16_t)llr;
+    }
+  }
+}
+
+// Public entry for the fixed-point L-best 64QAM kernel (target layer 0, ZF seed).
+void nr_qam64_llr_2layer_lbest_q15(c16_t *stream0_in,
+                                   c16_t *stream1_in,
+                                   c16_t *ch_mag,
+                                   c16_t *ch_mag_i,
+                                   int16_t *stream0_out,
+                                   c16_t *rho01,
+                                   uint32_t length,
+                                   int L)
+{
+  nr_qam64_llr_2layer_lbest_q15_layer(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, L);
+}
+
 void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rxdataF_comp1,
                        c16_t *ch_mag0,
