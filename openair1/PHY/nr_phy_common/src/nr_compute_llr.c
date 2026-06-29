@@ -3188,8 +3188,10 @@ void nr_qam16_llr_2layer_lbest(c16_t *stream0_in,
 // [-(2^kbits-1), 2^kbits-1]. sqrtN = sqrt(norm), norm = 2(4^kbits-1)/3;
 // rf = sqrtN / 2^(kbits-1) recovers ||h||^2 from the n1-scaled ch_mag.
 // ============================================================================
-static const double NR_LBEST_SQRTN[5] = {0, 0, 3.16227766016838, 6.48074069840786, 13.03840481040530};
-static const double NR_LBEST_RF[5]    = {0, 0, 1.58113883008419, 1.62018517460196, 1.62980060130066};
+// Indexed by kbits = Qm/2, for QPSK/16/64/256QAM (kbits 1/2/3/4). Index 0 (BPSK) unused.
+// sqrtN = sqrt(2*(M-1)/3), M = 4^kbits (per-axis level normalisation); RF = 2*sqrt(2*(M-1)/(3*M)).
+static const double NR_LBEST_SQRTN[5] = {0, 1.41421356237310, 3.16227766016838, 6.48074069840786, 13.03840481040530};
+static const double NR_LBEST_RF[5]    = {0, 1.41421356237310, 1.58113883008419, 1.62018517460196, 1.62980060130066};
 
 // nearest PAM-2^kbits level to v (level units), O(1) round-to-nearest-odd, clamped.
 static inline int nr_lbest_slice_gen(double v, int kbits)
@@ -3298,6 +3300,8 @@ void nr_qam_llr_3layer_hybrid(c16_t *zt, c16_t *zn1, c16_t *zn2,
                               int16_t *out, uint32_t length, int Qm, int L, float lambda)
 {
   const int kbits = Qm / 2;
+  // Qm>=2 (QPSK/16/64/256QAM, kbits 1..4). Index 0 (BPSK) unused.
+  AssertFatal(kbits >= 1 && kbits <= 4, "nr_qam_llr_3layer_hybrid: unsupported Qm=%d\n", Qm);
   const double rf = NR_LBEST_RF[kbits];
   for (uint32_t re = 0; re < length; re++) {
     const double Pt = cmt[re].r * rf, Pn1 = cmn1[re].r * rf, Pn2 = cmn2[re].r * rf;
@@ -3338,6 +3342,7 @@ void nr_qam_llr_3layer_ml(c16_t *zt, c16_t *zn1, c16_t *zn2,
                           int16_t *out, uint32_t length, int Qm)
 {
   const int kbits = Qm / 2, nlev = 1 << kbits, nbits = 2 * kbits;
+  AssertFatal(kbits >= 1 && kbits <= 4, "nr_qam_llr_3layer_ml: unsupported Qm=%d\n", Qm);
   const double sqrtN = NR_LBEST_SQRTN[kbits], NA = 1.0 / sqrtN, rf = NR_LBEST_RF[kbits];
   for (uint32_t re = 0; re < length; re++) {
     const double Pt = cmt[re].r * rf, Pn1 = cmn1[re].r * rf, Pn2 = cmn2[re].r * rf;
