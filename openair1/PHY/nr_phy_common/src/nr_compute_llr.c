@@ -2708,6 +2708,148 @@ void nr_qam64_llr_2layer_lbest(c16_t *stream0_in,
 }
 
 // ============================================================================
+// Float reference L-best kernel for 2-layer 256QAM (one target layer). Analysis
+// vehicle: L==256 reproduces the full 256-point ML search (no SIMD full-search
+// 256QAM kernel exists); smaller L is the reduced search. Same algorithm/scaling
+// as the 64QAM reference, with PAM-16 levels, 1/sqrt(170) normalization, 8 bits.
+// ============================================================================
+#define NR_LBEST_SQRT170      13.03840481040530f  // sqrt(170)
+#define NR_LBEST_NA256        0.07669649888473f    // 1/sqrt(170), unit-energy 256QAM step
+
+// nearest 256QAM PAM-16 level to v (in level units)
+static inline int nr_lbest_slice_pam16(float v)
+{
+  static const int levels[16] = {-15, -13, -11, -9, -7, -5, -3, -1, 1, 3, 5, 7, 9, 11, 13, 15};
+  int best = levels[0];
+  float bestd = (v - levels[0]) * (v - levels[0]);
+  for (int k = 1; k < 16; k++) {
+    float d = (v - levels[k]) * (v - levels[k]);
+    if (d < bestd) { bestd = d; best = levels[k]; }
+  }
+  return best;
+}
+
+// 256QAM Gray bits for one axis level (per nr_gen_mod_table.c 256QAM map):
+//   b0 = sign(level<0); m=|level|: b1=(m>8), b2=(|m-8|>4), b3=(||m-8|-4|>2)
+static inline void nr_lbest_axis_bits256(int level, int *b0, int *b1, int *b2, int *b3)
+{
+  const int m = level < 0 ? -level : level;
+  int m2 = m - 8; if (m2 < 0) m2 = -m2;
+  int m3 = m2 - 4; if (m3 < 0) m3 = -m3;
+  *b0 = level < 0 ? 1 : 0;
+  *b1 = m > 8 ? 1 : 0;
+  *b2 = m2 > 4 ? 1 : 0;
+  *b3 = m3 > 2 ? 1 : 0;
+}
+
+// candidate (constellation point + squared distance to the seed) for the L-nearest sort
+// (members iL/qL, not I/Q: <complex.h> defines I as the imaginary unit)
+struct nr_lbest_cand { float d; int16_t iL, qL; };
+static int nr_lbest_cand_cmp(const void *a, const void *b)
+{
+  const float da = ((const struct nr_lbest_cand *)a)->d, db = ((const struct nr_lbest_cand *)b)->d;
+  return (da > db) - (da < db);
+}
+
+void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
+                                c16_t *stream1_in,
+                                c16_t *ch_mag,
+                                c16_t *ch_mag_i,
+                                int16_t *stream0_out,
+                                c16_t *rho01,
+                                uint32_t length,
+                                int L,
+                                float seed_lambda)
+{
+  if (L < 1)
+    L = 1;
+  if (L > 256)
+    L = 256;
+  static const int levels[16] = {-15, -13, -11, -9, -7, -5, -3, -1, 1, 3, 5, 7, 9, 11, 13, 15};
+
+  for (uint32_t re = 0; re < length; re++) {
+    const float z1r = stream0_in[re].r, z1i = stream0_in[re].i;
+    const float z2r = stream1_in[re].r, z2i = stream1_in[re].i;
+    const float rr = rho01[re].r, ri = rho01[re].i; // rho = h0^H h1
+    // recover ||h||^2 from the QAM256_n1 (= 8/sqrt(170)) scaled magnitudes
+    const float P0 = (float)ch_mag[re].r * (NR_LBEST_SQRT170 / 8.0f);
+    const float P1 = (float)ch_mag_i[re].r * (NR_LBEST_SQRT170 / 8.0f);
+
+    // ---- ZF/MMSE seed: x_hat1 = ((P1+l) z1 - rho z2) / det ----
+    const float l = seed_lambda;
+    const float det = (P0 + l) * (P1 + l) - (rr * rr + ri * ri);
+    const float invdet = det != 0.0f ? 1.0f / det : 0.0f;
+    const float rz2r = rr * z2r - ri * z2i;
+    const float rz2i = rr * z2i + ri * z2r;
+    const float estI = ((P1 + l) * z1r - rz2r) * invdet * NR_LBEST_SQRT170; // ~ +-1..15
+    const float estQ = ((P1 + l) * z1i - rz2i) * invdet * NR_LBEST_SQRT170;
+
+    // ---- candidate set C1 = L nearest of the 256 constellation points ----
+    // O(256 log 256) sort by distance, take the first L (L==256 == full ML, no sort needed).
+    struct nr_lbest_cand cand[256];
+    int nc = 0;
+    for (int qi = 0; qi < 16; qi++) {
+      for (int ii = 0; ii < 16; ii++) {
+        const float dI = estI - levels[ii];
+        const float dQ = estQ - levels[qi];
+        cand[nc].d = dI * dI + dQ * dQ;
+        cand[nc].iL = (int16_t)levels[ii];
+        cand[nc].qL = (int16_t)levels[qi];
+        nc++;
+      }
+    }
+    if (L < 256)
+      qsort(cand, 256, sizeof(cand[0]), nr_lbest_cand_cmp);
+
+    // ---- metric over candidates, per-bit max-log reduction (8 bits) ----
+    float max0[8], max1[8];
+    for (int p = 0; p < 8; p++) { max0[p] = -1e30f; max1[p] = -1e30f; }
+
+    for (int c = 0; c < L; c++) {
+      const int I1 = cand[c].iL, Q1 = cand[c].qL;
+      const float x1r = I1 * NR_LBEST_NA256, x1i = Q1 * NR_LBEST_NA256;
+      float metric = (x1r * z1r + x1i * z1i) - 0.5f * P0 * (x1r * x1r + x1i * x1i);
+
+      // conditional ML nuisance x2* = Q_S((z2 - conj(rho) x1)/P1)
+      const float cr = rr * x1r + ri * x1i;
+      const float ci = rr * x1i - ri * x1r;
+      const float invP1 = P1 != 0.0f ? 1.0f / P1 : 0.0f;
+      const int I2 = nr_lbest_slice_pam16((z2r - cr) * invP1 * NR_LBEST_SQRT170);
+      const int Q2 = nr_lbest_slice_pam16((z2i - ci) * invP1 * NR_LBEST_SQRT170);
+      const float x2r = I2 * NR_LBEST_NA256, x2i = Q2 * NR_LBEST_NA256;
+
+      metric += (x2r * z2r + x2i * z2i) - 0.5f * P1 * (x2r * x2r + x2i * x2i);
+      const float cxr = x1r * x2r + x1i * x2i;
+      const float cxi = x1r * x2i - x1i * x2r;
+      metric -= (rr * cxr - ri * cxi);
+
+      // interleaved bit order {I0,Q0,I1,Q1,I2,Q2,I3,Q3}
+      int bI0, bI1, bI2, bI3, bQ0, bQ1, bQ2, bQ3;
+      nr_lbest_axis_bits256(I1, &bI0, &bI1, &bI2, &bI3);
+      nr_lbest_axis_bits256(Q1, &bQ0, &bQ1, &bQ2, &bQ3);
+      const int bit[8] = {bI0, bQ0, bI1, bQ1, bI2, bQ2, bI3, bQ3};
+      for (int p = 0; p < 8; p++) {
+        if (bit[p] == 0) { if (metric > max0[p]) max0[p] = metric; }
+        else             { if (metric > max1[p]) max1[p] = metric; }
+      }
+    }
+
+    for (int p = 0; p < 8; p++) {
+      float llr;
+      if (max0[p] <= -1e29f)
+        llr = -NR_LBEST_LLR_SAT;
+      else if (max1[p] <= -1e29f)
+        llr = NR_LBEST_LLR_SAT;
+      else
+        llr = (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE;
+      if (llr > 32767.0f) llr = 32767.0f;
+      if (llr < -32768.0f) llr = -32768.0f;
+      *stream0_out++ = (int16_t)llr;
+    }
+  }
+}
+
+// ============================================================================
 // Fixed-point (Q15-input) prototype of the L-best 2-layer 64QAM kernel.
 //
 // Integer twin of nr_qam64_llr_2layer_lbest_layer: same algorithm, but every
@@ -3159,6 +3301,16 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
           nr_qam64_llr_2layer(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re);
           nr_qam64_llr_2layer(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re);
         }
+      }
+      break;
+    case 8:
+      // 2-layer 256QAM ML via the float L-best reference (ANALYSIS path; only reached when the
+      // demod L-best gate routes Qm=8 here). L = OAI_LBEST_L256 (default 256 = full ML search).
+      {
+        static int L256 = -1;
+        if (L256 < 0) { const char *e = getenv("OAI_LBEST_L256"); L256 = e ? atoi(e) : 256; }
+        nr_qam256_llr_2layer_lbest(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, L256, 0.0f);
+        nr_qam256_llr_2layer_lbest(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, L256, 0.0f);
       }
       break;
     default:

@@ -47,6 +47,18 @@ void nr_qam64_llr_2layer_lbest(c16_t *stream0_in,
                                int L,
                                float seed_lambda);
 
+// Float reference L-best kernel for 2-layer 256QAM. L==256 == full ML search
+// (analysis vehicle; no SIMD 256QAM full-search kernel exists). seed_lambda: 0=ZF.
+void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
+                                c16_t *stream1_in,
+                                c16_t *ch_mag,
+                                c16_t *ch_mag_i,
+                                int16_t *stream0_out,
+                                c16_t *rho01,
+                                uint32_t length,
+                                int L,
+                                float seed_lambda);
+
 // Fixed-point (Q15-input) L-best 2-layer 64QAM kernel (ZF seed). Integer twin of
 // nr_qam64_llr_2layer_lbest; the SIMD-portable form of the reduced search.
 void nr_qam64_llr_2layer_lbest_q15(c16_t *stream0_in,
