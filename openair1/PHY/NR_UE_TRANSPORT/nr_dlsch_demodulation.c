@@ -782,6 +782,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   static int lbest256 = -1;
   if (lbest256 < 0) { const char *e = getenv("OAI_LBEST"); lbest256 = e ? atoi(e) : 0; }
   const bool ml256 = do_ml && lbest256;
+  const bool ml3 = do_ml && lbest256 && nl == 3; // 3-layer hybrid ML (gated)
 
   // Reinterpret flat dl_ch_estimates_ext as [nl][nbRx][rx_size_symbol]
   c16_t(*chFext)[nbRx][rx_size_symbol] = (void *)dl_ch_estimates_ext;
@@ -815,7 +816,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   uint8_t pilots = (dlsch_config->dlDmrsSymbPos >> symbol) & 1;
   uint8_t config_type = dlsch_config->dmrsConfigType;
 
-  const bool need_rho = do_ml ? (nl == 2 && (dlsch_config->cw_info->qamModOrder <= 6 || (dlsch_config->cw_info->qamModOrder == 8 && ml256))) : false;
+  const bool need_rho = do_ml ? ((nl == 2 && (dlsch_config->cw_info->qamModOrder <= 6 || (dlsch_config->cw_info->qamModOrder == 8 && ml256))) || ml3) : false;
 
   //----------------------------------------------------------
   //--------------------- RBs extraction ---------------------
@@ -1022,9 +1023,9 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   if (nb_re_pdsch) {
     const uint8_t qamModOrder = dlsch->cw_info.qamModOrder;
 
-    if ((nl > 2) || (nl == 2 && !do_ml)) {
+    if ((nl > 2 && !ml3) || (nl == 2 && !do_ml)) {
       nr_dlsch_mmse(pdsch_buf_size_max,
-                    rx_size_symbol,
+		    rx_size_symbol,
                     nbRx,
                     nl,
                     rxdataF_comp[symbol],
@@ -1129,6 +1130,30 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                           rho_dl[llr_sym][nl],
                           dl_valid_re[llr_sym],
                           qamModOrder);
+      } else if (ml3) {
+        // 3-layer hybrid ML (gated, float reference). For each target layer t, project the
+        // most-orthogonal nuisance + Schur-deflate, then 2-layer conditional-slice on the kept
+        // pair. rho_dl[llr_sym] is [nl*nl][rx]: rho[i][j] at index i*nl+j (= h_i^H h_j).
+        // OAI_LBEST3=2 -> exact full-ML reference instead of the hybrid; OAI_LBEST_L3 -> L.
+        static int mode3 = -1, L3 = 256;
+        if (mode3 < 0) {
+          const char *e = getenv("OAI_LBEST3"); mode3 = e ? atoi(e) : 1;
+          const char *el = getenv("OAI_LBEST_L3"); L3 = el ? atoi(el) : 256;
+        }
+        for (int t = 0; t < 3; t++) {
+          const int n1 = (t + 1) % 3, n2 = (t + 2) % 3;
+          c16_t *r_tn1 = rho_dl[llr_sym][t * nl + n1];
+          c16_t *r_tn2 = rho_dl[llr_sym][t * nl + n2];
+          c16_t *r_n1n2 = rho_dl[llr_sym][n1 * nl + n2];
+          if (mode3 == 2)
+            nr_qam_llr_3layer_ml(rxdataF_comp[llr_sym][t], rxdataF_comp[llr_sym][n1], rxdataF_comp[llr_sym][n2],
+                                 dl_ch_mag[llr_sym][t], dl_ch_mag[llr_sym][n1], dl_ch_mag[llr_sym][n2],
+                                 r_tn1, r_tn2, r_n1n2, layer_llr[llr_sym][t], dl_valid_re[llr_sym], qamModOrder);
+          else
+            nr_qam_llr_3layer_hybrid(rxdataF_comp[llr_sym][t], rxdataF_comp[llr_sym][n1], rxdataF_comp[llr_sym][n2],
+                                     dl_ch_mag[llr_sym][t], dl_ch_mag[llr_sym][n1], dl_ch_mag[llr_sym][n2],
+                                     r_tn1, r_tn2, r_n1n2, layer_llr[llr_sym][t], dl_valid_re[llr_sym], qamModOrder, L3, 0.0f);
+        }
       } else {
         nr_dlsch_llr(dlsch,
                      dl_valid_re[llr_sym],
