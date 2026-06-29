@@ -567,6 +567,10 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
     scope_req.copy_rxdataF_to_scope = UETryLockScopeData(ue, pdschRxdataF, sizeof(c16_t), 1, total_re, &mt);
     scope_req.copy_rxdataF_comp_to_scope = UETryLockScopeData(ue, pdschRxdataF_comp, sizeof(c16_t), 1, total_re, &mt);
   }
+  // OAI_LBEST analysis gate: also allocate rho for 2-layer 256QAM (Qm=8) so the float
+  // L-best ML path in the demod can use it (off by default).
+  static int lbest256 = -1;
+  if (lbest256 < 0) { const char *e = getenv("OAI_LBEST"); lbest256 = e ? atoi(e) : 0; }
 
   int16_t *llr_out = llr;
   for (int m = dlschCfg->start_symbol; m < (dlschCfg->number_symbols + dlschCfg->start_symbol); m++) {
