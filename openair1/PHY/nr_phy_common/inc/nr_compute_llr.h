@@ -34,6 +34,19 @@ void nr_qam64_llr_2layer(c16_t *stream0_in,
                          c16_t *rho01,
                          uint32_t length);
 
+// L-best (reduced-search) reference kernel for 2-layer 64QAM (one target layer).
+// Floating-point scalar reference; L==64 reproduces the full max-log search.
+// seed_lambda: 0.0f = ZF seed, = noise_var for MMSE-regularised seed.
+void nr_qam64_llr_2layer_lbest(c16_t *stream0_in,
+                               c16_t *stream1_in,
+                               c16_t *ch_mag,
+                               c16_t *ch_mag_i,
+                               int16_t *stream0_out,
+                               c16_t *rho01,
+                               uint32_t length,
+                               int L,
+                               float seed_lambda);
+
 void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rxdataF_comp1,
                        c16_t *ch_mag0,

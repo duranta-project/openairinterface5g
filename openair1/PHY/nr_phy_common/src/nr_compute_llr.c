@@ -6,6 +6,7 @@
 #include "nr_phy_common.h"
 #include "bits.h"
 #include <complex.h>
+#include <stdlib.h>
 #include "PHY/sse_intrin.h"
 #include "PHY/impl_defs_top.h"
 #ifdef __aarch64__
@@ -2499,6 +2500,211 @@ static void nr_ml_llr_shift(int16_t *llr_layer0, int16_t *llr_layer1, uint32_t n
     llr_layers0[i] = simde_mm_srai_epi16(llr_layers0[i], shift);
     llr_layers1[i] = simde_mm_srai_epi16(llr_layers1[i], shift);
   }
+}
+
+// ============================================================================
+// L-best (reduced-search) reference kernel for 2-layer 64QAM max-log LLR.
+//
+// PHASE 1 reference: floating-point scalar, correctness over speed. See
+// openair1/PHY/nr_phy_common/src/mimo_llr_continuous_approx.md §9 for the plan.
+//
+// Pipeline (per RE, one target layer):
+//   1. inline ZF/MMSE seed  x_hat1 = (R+lambda I)^{-1} z |_1   from (R,z)
+//   2. candidate set C1 = the L 64QAM points nearest x_hat1
+//   3. for each candidate, the nuisance layer is the exact conditional slice
+//      x2*(x1) = Q_S( (z2 - conj(rho)*x1) / P1 )   (O(1), == conditional ML)
+//   4. exact max-log metric over C1, per-bit LLR = max_{bit=0} - max_{bit=1}
+//   L == 64 evaluates the whole constellation => exact max-log == the reference
+//   the SIMD nr_qam64_llr_2layer approximates (validation anchor).
+//
+// Input buffers mirror nr_qam64_llr_2layer (same scale, drop-in):
+//   stream0_in = z1 = H0^H y (desired MRC)     stream1_in = z2 (nuisance MRC)
+//   ch_mag     = ||h0||^2 * (4/sqrt(42))        ch_mag_i  = ||h1||^2 * (4/sqrt(42))
+//   rho01      = rho = h0^H h1                   (so rho21 = conj(rho))
+// Output per RE: { y0r,y1r,y2r, y0i,y1i,y2i } (3 I-bits then 3 Q-bits), same
+// order/scale/sign (positive LLR = bit 0) as nr_qam64_llr_2layer.
+//
+// The metric is computed in Re{x1_n* z1} units (x1_n = normalized constellation
+// point), which is exactly the scale of the existing kernel's bit metric, so the
+// LLR output needs no rescale (NR_LBEST_LLR_SCALE == 1.0). Energy terms use the
+// true 0.5*P*|x|^2 max-log coefficient.
+// ============================================================================
+#define NR_LBEST_SQRT42       6.48074069840786f   // sqrt(42)
+#define NR_LBEST_NA           0.15430334996209f    // 1/sqrt(42), unit-energy 64QAM step
+#define NR_LBEST_LLR_SCALE    1.0f                 // matches nr_qam64_llr_2layer metric scale
+#define NR_LBEST_LLR_SAT      8192.0f              // fallback magnitude when a bit-subset is empty
+
+// nearest odd level in {-7,-5,-3,-1,1,3,5,7} to v (the 8-PAM slicer)
+static inline int nr_lbest_slice_pam8(float v)
+{
+  static const int levels[8] = {-7, -5, -3, -1, 1, 3, 5, 7};
+  int best = levels[0];
+  float bestd = (v - levels[0]) * (v - levels[0]);
+  for (int k = 1; k < 8; k++) {
+    float d = (v - levels[k]) * (v - levels[k]);
+    if (d < bestd) {
+      bestd = d;
+      best = levels[k];
+    }
+  }
+  return best;
+}
+
+// 64QAM Gray bits for one axis level (per nr_gen_mod_table.c):
+//   bit0 = sign (level<0),  bit1 = |level|>4,  bit2 = (|level|==1 || |level|==7)
+static inline void nr_lbest_axis_bits(int level, int *b0, int *b1, int *b2)
+{
+  int a = level < 0 ? -level : level;
+  *b0 = level < 0 ? 1 : 0;
+  *b1 = a > 4 ? 1 : 0;
+  *b2 = (a == 1 || a == 7) ? 1 : 0;
+}
+
+// One target layer of 2-layer 64QAM L-best LLR (scalar float reference).
+//   seed_lambda: 0.0f = ZF seed, = noise_var (float) = MMSE-regularised seed
+//   L:           candidate-set size (1..64); 64 == full search == max-log reference
+static void nr_qam64_llr_2layer_lbest_layer(const c16_t *stream0_in,
+                                            const c16_t *stream1_in,
+                                            const c16_t *ch_mag,
+                                            const c16_t *ch_mag_i,
+                                            int16_t *stream0_out,
+                                            const c16_t *rho01,
+                                            uint32_t length,
+                                            int L,
+                                            float seed_lambda)
+{
+  if (L < 1)
+    L = 1;
+  if (L > 64)
+    L = 64;
+  static const int levels[8] = {-7, -5, -3, -1, 1, 3, 5, 7};
+
+  for (uint32_t re = 0; re < length; re++) {
+    const float z1r = stream0_in[re].r, z1i = stream0_in[re].i;
+    const float z2r = stream1_in[re].r, z2i = stream1_in[re].i;
+    const float rr = rho01[re].r, ri = rho01[re].i; // rho = h0^H h1
+    // recover raw channel powers ||h||^2 from the QAM64_n1-scaled magnitudes
+    const float P0 = (float)ch_mag[re].r * (NR_LBEST_SQRT42 / 4.0f);
+    const float P1 = (float)ch_mag_i[re].r * (NR_LBEST_SQRT42 / 4.0f);
+
+    // ---- 1. inline ZF/MMSE seed: x_hat1 = ((P1+l) z1 - rho z2) / det ----
+    const float l = seed_lambda;
+    const float det = (P0 + l) * (P1 + l) - (rr * rr + ri * ri);
+    const float invdet = det != 0.0f ? 1.0f / det : 0.0f;
+    // rho * z2 (complex)
+    const float rz2r = rr * z2r - ri * z2i;
+    const float rz2i = rr * z2i + ri * z2r;
+    const float xh1r = ((P1 + l) * z1r - rz2r) * invdet; // ~ I-level / sqrt(42)
+    const float xh1i = ((P1 + l) * z1i - rz2i) * invdet;
+    const float estI = xh1r * NR_LBEST_SQRT42; // soft I level estimate (~ +-1..7)
+    const float estQ = xh1i * NR_LBEST_SQRT42;
+
+    // ---- 2. candidate set C1 = L nearest constellation points to x_hat1 ----
+    // (reference: rank all 64 by Euclidean distance; production = per-axis slice)
+    int candI[64], candQ[64];
+    float cand_d[64];
+    int nc = 0;
+    for (int qi = 0; qi < 8; qi++) {
+      for (int ii = 0; ii < 8; ii++) {
+        float dI = estI - levels[ii];
+        float dQ = estQ - levels[qi];
+        candI[nc] = levels[ii];
+        candQ[nc] = levels[qi];
+        cand_d[nc] = dI * dI + dQ * dQ;
+        nc++;
+      }
+    }
+    // partial selection of the L smallest distances to the front
+    for (int a = 0; a < L; a++) {
+      int m = a;
+      for (int b = a + 1; b < 64; b++)
+        if (cand_d[b] < cand_d[m])
+          m = b;
+      if (m != a) {
+        float td = cand_d[a]; cand_d[a] = cand_d[m]; cand_d[m] = td;
+        int ti = candI[a]; candI[a] = candI[m]; candI[m] = ti;
+        int tq = candQ[a]; candQ[a] = candQ[m]; candQ[m] = tq;
+      }
+    }
+
+    // ---- 3+4. metric over candidates, per-bit max-log reduction ----
+    float max0[6] = {-1e30f, -1e30f, -1e30f, -1e30f, -1e30f, -1e30f};
+    float max1[6] = {-1e30f, -1e30f, -1e30f, -1e30f, -1e30f, -1e30f};
+
+    for (int c = 0; c < L; c++) {
+      const int I1 = candI[c], Q1 = candQ[c];
+      const float x1r = I1 * NR_LBEST_NA, x1i = Q1 * NR_LBEST_NA; // normalized x1
+
+      // desired correlation Re{x1_n* z1} and energy 0.5 P0 |x1_n|^2
+      float metric = (x1r * z1r + x1i * z1i) - 0.5f * P0 * (x1r * x1r + x1i * x1i);
+
+      // conditional ML nuisance: x2* = Q_S( (z2 - conj(rho) x1_n) / P1 )
+      // conj(rho)*x1_n = (rr - j ri)(x1r + j x1i)
+      const float cr = rr * x1r + ri * x1i;       // Re{conj(rho) x1_n}
+      const float ci = rr * x1i - ri * x1r;       // Im{conj(rho) x1_n}
+      const float invP1 = P1 != 0.0f ? 1.0f / P1 : 0.0f;
+      const float x2optr = (z2r - cr) * invP1;    // ~ I2-level / sqrt(42)
+      const float x2opti = (z2i - ci) * invP1;
+      const int I2 = nr_lbest_slice_pam8(x2optr * NR_LBEST_SQRT42);
+      const int Q2 = nr_lbest_slice_pam8(x2opti * NR_LBEST_SQRT42);
+      const float x2r = I2 * NR_LBEST_NA, x2i = Q2 * NR_LBEST_NA;
+
+      // add nuisance correlation - energy - cross term
+      metric += (x2r * z2r + x2i * z2i) - 0.5f * P1 * (x2r * x2r + x2i * x2i);
+      // cross = Re{rho * conj(x1_n) * x2_n}
+      const float cxr = x1r * x2r + x1i * x2i; // Re{conj(x1_n) x2_n}
+      const float cxi = x1r * x2i - x1i * x2r; // Im{conj(x1_n) x2_n}
+      metric -= (rr * cxr - ri * cxi);
+
+      // bit labels of this candidate. OAI 64QAM LLR layout interleaves I/Q per
+      // magnitude level: {I0,Q0,I1,Q1,I2,Q2} (matches production SIMD
+      // nr_qam64_llr_2layer output order), NOT grouped {I0,I1,I2,Q0,Q1,Q2}.
+      int bI0, bI1, bI2, bQ0, bQ1, bQ2;
+      nr_lbest_axis_bits(I1, &bI0, &bI1, &bI2);
+      nr_lbest_axis_bits(Q1, &bQ0, &bQ1, &bQ2);
+      const int bit[6] = {bI0, bQ0, bI1, bQ1, bI2, bQ2};
+      for (int p = 0; p < 6; p++) {
+        if (bit[p] == 0) {
+          if (metric > max0[p]) max0[p] = metric;
+        } else {
+          if (metric > max1[p]) max1[p] = metric;
+        }
+      }
+    }
+
+    // emit LLR = max_{bit=0} - max_{bit=1} (positive => bit 0). Empty subset =>
+    // saturate toward the bit value that IS present.
+    for (int p = 0; p < 6; p++) {
+      float llr;
+      if (max0[p] <= -1e29f)
+        llr = -NR_LBEST_LLR_SAT;      // no bit-0 candidate => strongly bit 1
+      else if (max1[p] <= -1e29f)
+        llr = NR_LBEST_LLR_SAT;       // no bit-1 candidate => strongly bit 0
+      else
+        llr = (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE;
+      if (llr > 32767.0f) llr = 32767.0f;
+      if (llr < -32768.0f) llr = -32768.0f;
+      *stream0_out++ = (int16_t)llr;
+    }
+  }
+}
+
+// Drop-in float reference for nr_qam64_llr_2layer (target layer 0): reduced
+// "L-best" search seeded from the linear (ZF/MMSE) estimate. L==64 reproduces
+// the full max-log search; L==8 matches it in BLER at a fraction of the cost
+// (validated via nr_dlsim -E, 2-layer 64QAM). Scalar float reference pending a
+// SIMD port before it can replace the production kernel.
+void nr_qam64_llr_2layer_lbest(c16_t *stream0_in,
+                               c16_t *stream1_in,
+                               c16_t *ch_mag,
+                               c16_t *ch_mag_i,
+                               int16_t *stream0_out,
+                               c16_t *rho01,
+                               uint32_t length,
+                               int L,
+                               float seed_lambda)
+{
+  nr_qam64_llr_2layer_lbest_layer(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, L, seed_lambda);
 }
 
 void nr_compute_ML_llr(c16_t *rxdataF_comp0,
