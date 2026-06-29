@@ -47,6 +47,21 @@ void nr_qam64_llr_2layer_lbest(c16_t *stream0_in,
                                int L,
                                float seed_lambda);
 
+// 3-layer hybrid L-best (target layer): project the most-orthogonal nuisance layer (Schur
+// deflation), keep the other discrete, run the 2-layer conditional-slice LLR on the deflated
+// pair. Qm = 4/6/8 (16/64/256QAM, same for all layers). rho_ab = h_a^H h_b.
+void nr_qam_llr_3layer_hybrid(c16_t *zt, c16_t *zn1, c16_t *zn2,
+                              c16_t *cmt, c16_t *cmn1, c16_t *cmn2,
+                              c16_t *rho_tn1, c16_t *rho_tn2, c16_t *rho_n1n2,
+                              int16_t *out, uint32_t length, int Qm, int L, float lambda);
+
+// 3-layer full-ML reference (target layer): exact max-log over discrete (x_t,x_n1) + conditional
+// x_n2 slice. For BLER comparison against the hybrid.
+void nr_qam_llr_3layer_ml(c16_t *zt, c16_t *zn1, c16_t *zn2,
+                          c16_t *cmt, c16_t *cmn1, c16_t *cmn2,
+                          c16_t *rho_tn1, c16_t *rho_tn2, c16_t *rho_n1n2,
+                          int16_t *out, uint32_t length, int Qm);
+
 // Float reference L-best kernel for 2-layer 16QAM (building block for >2-layer hybrid).
 // L==16 == full ML. seed_lambda: 0=ZF.
 void nr_qam16_llr_2layer_lbest(c16_t *stream0_in,

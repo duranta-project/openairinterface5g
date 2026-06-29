@@ -2967,6 +2967,203 @@ void nr_qam16_llr_2layer_lbest(c16_t *stream0_in,
 }
 
 // ============================================================================
+// Generic float L-best machinery (any square QAM) for the >2-layer hybrid.
+// kbits = Qm/2 (2/3/4 -> 16/64/256QAM); per-axis PAM-2^kbits, levels odd in
+// [-(2^kbits-1), 2^kbits-1]. sqrtN = sqrt(norm), norm = 2(4^kbits-1)/3;
+// rf = sqrtN / 2^(kbits-1) recovers ||h||^2 from the n1-scaled ch_mag.
+// ============================================================================
+static const double NR_LBEST_SQRTN[5] = {0, 0, 3.16227766016838, 6.48074069840786, 13.03840481040530};
+static const double NR_LBEST_RF[5]    = {0, 0, 1.58113883008419, 1.62018517460196, 1.62980060130066};
+
+// nearest PAM-2^kbits level to v (level units), O(1) round-to-nearest-odd, clamped.
+static inline int nr_lbest_slice_gen(double v, int kbits)
+{
+  const int nlev = 1 << kbits, maxlev = nlev - 1;
+  int o = 2 * (int)((v + nlev) * 0.5) - maxlev;
+  if (o < -maxlev) o = -maxlev; else if (o > maxlev) o = maxlev;
+  return o;
+}
+
+// Gray bits for one axis level: b[0]=sign, then nested b[i]=( |..| > 2^(kbits-1-i) ).
+static inline void nr_lbest_axis_bits_gen(int level, int kbits, int *b)
+{
+  int v = level < 0 ? -level : level, t = 1 << (kbits - 1);
+  b[0] = level < 0 ? 1 : 0;
+  for (int i = 1; i < kbits; i++) {
+    b[i] = v > t ? 1 : 0;
+    v = v - t < 0 ? t - v : v - t;
+    t >>= 1;
+  }
+}
+
+// Per-RE 2-layer conditional-slice LLR for the target layer (x1), in DOUBLE.
+// Inputs are recovered powers P0=||h1||^2, P1=||h2||^2 (NOT n1-scaled ch_mag),
+// MF outputs z1,z2, cross rho=(rr,ri)=h1^H h2. Writes Qm=2*kbits int16 LLRs.
+static void nr_lbest_2layer_re(double z1r, double z1i, double z2r, double z2i,
+                               double P0, double P1, double rr, double ri,
+                               int kbits, int L, double lambda, int16_t *out)
+{
+  const int nlev = 1 << kbits, M = nlev * nlev, nbits = 2 * kbits;
+  const double sqrtN = NR_LBEST_SQRTN[kbits], NA = 1.0 / sqrtN;
+  if (L < 1) L = 1;
+  if (L > M) L = M;
+
+  const double det = (P0 + lambda) * (P1 + lambda) - (rr * rr + ri * ri);
+  const double invdet = det != 0.0 ? 1.0 / det : 0.0;
+  const double estI = ((P1 + lambda) * z1r - (rr * z2r - ri * z2i)) * invdet * sqrtN;
+  const double estQ = ((P1 + lambda) * z1i - (rr * z2i + ri * z2r)) * invdet * sqrtN;
+
+  struct { double d; int iL, qL; } cand[256];
+  int nc = 0;
+  for (int qi = 0; qi < nlev; qi++) {
+    const int lq = 2 * qi - (nlev - 1);
+    for (int ii = 0; ii < nlev; ii++) {
+      const int li = 2 * ii - (nlev - 1);
+      const double dI = estI - li, dQ = estQ - lq;
+      cand[nc].d = dI * dI + dQ * dQ;
+      cand[nc].iL = li;
+      cand[nc].qL = lq;
+      nc++;
+    }
+  }
+  if (L < M) // selection of the L smallest (M<=256, reference code)
+    for (int a = 0; a < L; a++) {
+      int m = a;
+      for (int b = a + 1; b < M; b++)
+        if (cand[b].d < cand[m].d) m = b;
+      if (m != a) { __typeof__(cand[0]) tmp = cand[a]; cand[a] = cand[m]; cand[m] = tmp; }
+    }
+
+  double max0[8], max1[8];
+  for (int p = 0; p < nbits; p++) { max0[p] = -1e30; max1[p] = -1e30; }
+
+  for (int c = 0; c < L; c++) {
+    const int I1 = cand[c].iL, Q1 = cand[c].qL;
+    const double x1r = I1 * NA, x1i = Q1 * NA;
+    double metric = (x1r * z1r + x1i * z1i) - 0.5 * P0 * (x1r * x1r + x1i * x1i);
+
+    const double cr = rr * x1r + ri * x1i, ci = rr * x1i - ri * x1r;
+    const double invP1 = P1 != 0.0 ? 1.0 / P1 : 0.0;
+    const int I2 = nr_lbest_slice_gen((z2r - cr) * invP1 * sqrtN, kbits);
+    const int Q2 = nr_lbest_slice_gen((z2i - ci) * invP1 * sqrtN, kbits);
+    const double x2r = I2 * NA, x2i = Q2 * NA;
+    metric += (x2r * z2r + x2i * z2i) - 0.5 * P1 * (x2r * x2r + x2i * x2i);
+    metric -= (rr * (x1r * x2r + x1i * x2i) - ri * (x1r * x2i - x1i * x2r));
+
+    int bI[4], bQ[4];
+    nr_lbest_axis_bits_gen(I1, kbits, bI);
+    nr_lbest_axis_bits_gen(Q1, kbits, bQ);
+    for (int j = 0; j < kbits; j++) {
+      const int p0 = 2 * j, p1 = 2 * j + 1; // interleaved {I0,Q0,I1,Q1,...}
+      if (bI[j] == 0) { if (metric > max0[p0]) max0[p0] = metric; } else { if (metric > max1[p0]) max1[p0] = metric; }
+      if (bQ[j] == 0) { if (metric > max0[p1]) max0[p1] = metric; } else { if (metric > max1[p1]) max1[p1] = metric; }
+    }
+  }
+
+  for (int p = 0; p < nbits; p++) {
+    double llr = (max0[p] <= -1e29) ? -NR_LBEST_LLR_SAT : (max1[p] <= -1e29) ? NR_LBEST_LLR_SAT : (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE;
+    if (llr > 32767.0) llr = 32767.0;
+    if (llr < -32768.0) llr = -32768.0;
+    out[p] = (int16_t)llr;
+  }
+}
+
+// 3-layer HYBRID L-best (target layer t, nuisance n1,n2): per RE, project the
+// nuisance layer most orthogonal to the target (smaller |rho|^2/||h||^2), scalar-
+// Schur-deflate it, then run the 2-layer conditional-slice LLR on the deflated
+// (target, kept-nuisance) pair. Inputs: per-layer MF z, n1-scaled ch_mag, and the
+// three cross-Gram arrays rho_ab = h_a^H h_b. Writes Qm LLRs/RE for layer t.
+void nr_qam_llr_3layer_hybrid(c16_t *zt, c16_t *zn1, c16_t *zn2,
+                              c16_t *cmt, c16_t *cmn1, c16_t *cmn2,
+                              c16_t *rho_tn1, c16_t *rho_tn2, c16_t *rho_n1n2,
+                              int16_t *out, uint32_t length, int Qm, int L, float lambda)
+{
+  const int kbits = Qm / 2;
+  const double rf = NR_LBEST_RF[kbits];
+  for (uint32_t re = 0; re < length; re++) {
+    const double Pt = cmt[re].r * rf, Pn1 = cmn1[re].r * rf, Pn2 = cmn2[re].r * rf;
+    const double t1r = rho_tn1[re].r, t1i = rho_tn1[re].i;     // h_t^H h_n1
+    const double t2r = rho_tn2[re].r, t2i = rho_tn2[re].i;     // h_t^H h_n2
+    const double n12r = rho_n1n2[re].r, n12i = rho_n1n2[re].i; // h_n1^H h_n2
+
+    // keep the more-aligned nuisance discrete, project the other (more orthogonal)
+    const double p1 = (t1r * t1r + t1i * t1i) / Pn1;
+    const double p2 = (t2r * t2r + t2i * t2i) / Pn2;
+    double Pc, Pd, zcr, zci, zdr, zdi, tcr, tci, tdr, tdi, dcr, dci;
+    if (p1 >= p2) { // keep n1 discrete, project n2
+      Pc = Pn2; Pd = Pn1; zcr = zn2[re].r; zci = zn2[re].i; zdr = zn1[re].r; zdi = zn1[re].i;
+      tcr = t2r; tci = t2i; tdr = t1r; tdi = t1i; dcr = n12r; dci = n12i; // rho_dc = h_n1^H h_n2
+    } else {        // keep n2 discrete, project n1
+      Pc = Pn1; Pd = Pn2; zcr = zn1[re].r; zci = zn1[re].i; zdr = zn2[re].r; zdi = zn2[re].i;
+      tcr = t1r; tci = t1i; tdr = t2r; tdi = t2i; dcr = n12r; dci = -n12i; // rho_dc = h_n2^H h_n1 = conj
+    }
+    const double invPc = Pc != 0.0 ? 1.0 / Pc : 0.0;
+    const double Pt2 = Pt - (tcr * tcr + tci * tci) * invPc;
+    const double Pd2 = Pd - (dcr * dcr + dci * dci) * invPc;
+    const double rtdr = tdr - (tcr * dcr + tci * dci) * invPc;          // rho_td - rho_tc conj(rho_dc)/Pc
+    const double rtdi = tdi - (tci * dcr - tcr * dci) * invPc;
+    const double ztr = zt[re].r - (tcr * zcr - tci * zci) * invPc;      // z_t - rho_tc/Pc z_c
+    const double zti = zt[re].i - (tcr * zci + tci * zcr) * invPc;
+    const double zdr2 = zdr - (dcr * zcr - dci * zci) * invPc;
+    const double zdi2 = zdi - (dcr * zci + dci * zcr) * invPc;
+
+    nr_lbest_2layer_re(ztr, zti, zdr2, zdi2, Pt2, Pd2, rtdr, rtdi, kbits, L, lambda, &out[re * Qm]);
+  }
+}
+
+// 3-layer FULL ML reference (target t): per RE, exact max-log over discrete (x_t,x_n1)
+// with the conditional best x_n2 sliced. For BLER comparison against the hybrid.
+void nr_qam_llr_3layer_ml(c16_t *zt, c16_t *zn1, c16_t *zn2,
+                          c16_t *cmt, c16_t *cmn1, c16_t *cmn2,
+                          c16_t *rho_tn1, c16_t *rho_tn2, c16_t *rho_n1n2,
+                          int16_t *out, uint32_t length, int Qm)
+{
+  const int kbits = Qm / 2, nlev = 1 << kbits, nbits = 2 * kbits;
+  const double sqrtN = NR_LBEST_SQRTN[kbits], NA = 1.0 / sqrtN, rf = NR_LBEST_RF[kbits];
+  for (uint32_t re = 0; re < length; re++) {
+    const double Pt = cmt[re].r * rf, Pn1 = cmn1[re].r * rf, Pn2 = cmn2[re].r * rf;
+    const double ztr = zt[re].r, zti = zt[re].i, z1r = zn1[re].r, z1i = zn1[re].i, z2r = zn2[re].r, z2i = zn2[re].i;
+    const double t1r = rho_tn1[re].r, t1i = rho_tn1[re].i, t2r = rho_tn2[re].r, t2i = rho_tn2[re].i, n12r = rho_n1n2[re].r, n12i = rho_n1n2[re].i;
+    const double invPn2 = Pn2 != 0.0 ? 1.0 / Pn2 : 0.0;
+    double max0[8], max1[8];
+    for (int p = 0; p < nbits; p++) { max0[p] = -1e30; max1[p] = -1e30; }
+
+    for (int qit = 0; qit < nlev; qit++) for (int iit = 0; iit < nlev; iit++) {
+      const int It = 2 * iit - (nlev - 1), Qt = 2 * qit - (nlev - 1);
+      const double xtr = It * NA, xti = Qt * NA;
+      for (int q1 = 0; q1 < nlev; q1++) for (int i1 = 0; i1 < nlev; i1++) {
+        const int I1 = 2 * i1 - (nlev - 1), Q1 = 2 * q1 - (nlev - 1);
+        const double x1r = I1 * NA, x1i = Q1 * NA;
+        const double ar = z2r - (t2r * xtr + t2i * xti) - (n12r * x1r + n12i * x1i);
+        const double ai = z2i - (t2r * xti - t2i * xtr) - (n12r * x1i - n12i * x1r);
+        const int I2 = nr_lbest_slice_gen(ar * invPn2 * sqrtN, kbits), Q2 = nr_lbest_slice_gen(ai * invPn2 * sqrtN, kbits);
+        const double x2r = I2 * NA, x2i = Q2 * NA;
+        double m = (xtr * ztr + xti * zti) - 0.5 * Pt * (xtr * xtr + xti * xti)
+                 + (x1r * z1r + x1i * z1i) - 0.5 * Pn1 * (x1r * x1r + x1i * x1i)
+                 + (x2r * z2r + x2i * z2i) - 0.5 * Pn2 * (x2r * x2r + x2i * x2i)
+                 - (t1r * (xtr * x1r + xti * x1i) - t1i * (xtr * x1i - xti * x1r))
+                 - (t2r * (xtr * x2r + xti * x2i) - t2i * (xtr * x2i - xti * x2r))
+                 - (n12r * (x1r * x2r + x1i * x2i) - n12i * (x1r * x2i - x1i * x2r));
+        int bI[4], bQ[4];
+        nr_lbest_axis_bits_gen(It, kbits, bI);
+        nr_lbest_axis_bits_gen(Qt, kbits, bQ);
+        for (int j = 0; j < kbits; j++) {
+          const int p0 = 2 * j, p1 = 2 * j + 1;
+          if (bI[j] == 0) { if (m > max0[p0]) max0[p0] = m; } else { if (m > max1[p0]) max1[p0] = m; }
+          if (bQ[j] == 0) { if (m > max0[p1]) max0[p1] = m; } else { if (m > max1[p1]) max1[p1] = m; }
+        }
+      }
+    }
+    for (int p = 0; p < nbits; p++) {
+      double llr = (max0[p] <= -1e29) ? -NR_LBEST_LLR_SAT : (max1[p] <= -1e29) ? NR_LBEST_LLR_SAT : (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE;
+      if (llr > 32767.0) llr = 32767.0;
+      if (llr < -32768.0) llr = -32768.0;
+      out[re * nbits + p] = (int16_t)llr;
+    }
+  }
+}
+
+// ============================================================================
 // Fixed-point (Q15-input) prototype of the L-best 2-layer 64QAM kernel.
 //
 // Integer twin of nr_qam64_llr_2layer_lbest_layer: same algorithm, but every
