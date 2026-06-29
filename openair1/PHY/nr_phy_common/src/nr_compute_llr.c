@@ -2847,6 +2847,126 @@ void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
 }
 
 // ============================================================================
+// Float reference L-best kernel for 2-layer 16QAM (one target layer). Mainly a
+// BUILDING BLOCK for the >2-layer hybrid (where 16QAM won't be done by exhaustive
+// search): the deflated 2-layer sub-problem can be any modulation. L==16 == full
+// ML. PAM-4 levels, 1/sqrt(10) norm, 4 bits {I0,Q0,I1,Q1}.
+// ============================================================================
+#define NR_LBEST_SQRT10       3.16227766016838f   // sqrt(10)
+#define NR_LBEST_NA16         0.31622776601684f    // 1/sqrt(10), unit-energy 16QAM step
+
+// nearest 16QAM PAM-4 level to v (level units), O(1) round-to-nearest-odd in [-3,3]
+static inline int nr_lbest_slice_pam4(float v)
+{
+  int o = 2 * (int)((v + 4.0f) * 0.5f) - 3;
+  if (o < -3) o = -3; else if (o > 3) o = 3;
+  return o;
+}
+
+// 16QAM Gray bits for one axis level: b0 = sign(level<0), b1 = (|level|>2)
+static inline void nr_lbest_axis_bits16(int level, int *b0, int *b1)
+{
+  *b0 = level < 0 ? 1 : 0;
+  *b1 = (level < 0 ? -level : level) > 2 ? 1 : 0;
+}
+
+void nr_qam16_llr_2layer_lbest(c16_t *stream0_in,
+                               c16_t *stream1_in,
+                               c16_t *ch_mag,
+                               c16_t *ch_mag_i,
+                               int16_t *stream0_out,
+                               c16_t *rho01,
+                               uint32_t length,
+                               int L,
+                               float seed_lambda)
+{
+  if (L < 1)
+    L = 1;
+  if (L > 16)
+    L = 16;
+  static const int levels[4] = {-3, -1, 1, 3};
+
+  for (uint32_t re = 0; re < length; re++) {
+    const float z1r = stream0_in[re].r, z1i = stream0_in[re].i;
+    const float z2r = stream1_in[re].r, z2i = stream1_in[re].i;
+    const float rr = rho01[re].r, ri = rho01[re].i; // rho = h0^H h1
+    // recover ||h||^2 from the QAM16_n1 (= 2/sqrt(10)) scaled magnitudes
+    const float P0 = (float)ch_mag[re].r * (NR_LBEST_SQRT10 / 2.0f);
+    const float P1 = (float)ch_mag_i[re].r * (NR_LBEST_SQRT10 / 2.0f);
+
+    // ---- ZF/MMSE seed: x_hat1 = ((P1+l) z1 - rho z2) / det ----
+    const float l = seed_lambda;
+    const float det = (P0 + l) * (P1 + l) - (rr * rr + ri * ri);
+    const float invdet = det != 0.0f ? 1.0f / det : 0.0f;
+    const float rz2r = rr * z2r - ri * z2i;
+    const float rz2i = rr * z2i + ri * z2r;
+    const float estI = ((P1 + l) * z1r - rz2r) * invdet * NR_LBEST_SQRT10; // ~ +-1,3
+    const float estQ = ((P1 + l) * z1i - rz2i) * invdet * NR_LBEST_SQRT10;
+
+    // ---- candidate set = L nearest of the 16 points (sort, take first L) ----
+    struct nr_lbest_cand cand[16];
+    int nc = 0;
+    for (int qi = 0; qi < 4; qi++) {
+      for (int ii = 0; ii < 4; ii++) {
+        const float dI = estI - levels[ii];
+        const float dQ = estQ - levels[qi];
+        cand[nc].d = dI * dI + dQ * dQ;
+        cand[nc].iL = (int16_t)levels[ii];
+        cand[nc].qL = (int16_t)levels[qi];
+        nc++;
+      }
+    }
+    if (L < 16)
+      qsort(cand, 16, sizeof(cand[0]), nr_lbest_cand_cmp);
+
+    // ---- metric over candidates, per-bit max-log reduction (4 bits) ----
+    float max0[4], max1[4];
+    for (int p = 0; p < 4; p++) { max0[p] = -1e30f; max1[p] = -1e30f; }
+
+    for (int c = 0; c < L; c++) {
+      const int I1 = cand[c].iL, Q1 = cand[c].qL;
+      const float x1r = I1 * NR_LBEST_NA16, x1i = Q1 * NR_LBEST_NA16;
+      float metric = (x1r * z1r + x1i * z1i) - 0.5f * P0 * (x1r * x1r + x1i * x1i);
+
+      const float cr = rr * x1r + ri * x1i;
+      const float ci = rr * x1i - ri * x1r;
+      const float invP1 = P1 != 0.0f ? 1.0f / P1 : 0.0f;
+      const int I2 = nr_lbest_slice_pam4((z2r - cr) * invP1 * NR_LBEST_SQRT10);
+      const int Q2 = nr_lbest_slice_pam4((z2i - ci) * invP1 * NR_LBEST_SQRT10);
+      const float x2r = I2 * NR_LBEST_NA16, x2i = Q2 * NR_LBEST_NA16;
+
+      metric += (x2r * z2r + x2i * z2i) - 0.5f * P1 * (x2r * x2r + x2i * x2i);
+      const float cxr = x1r * x2r + x1i * x2i;
+      const float cxi = x1r * x2i - x1i * x2r;
+      metric -= (rr * cxr - ri * cxi);
+
+      // interleaved bit order {I0,Q0,I1,Q1}
+      int bI0, bI1, bQ0, bQ1;
+      nr_lbest_axis_bits16(I1, &bI0, &bI1);
+      nr_lbest_axis_bits16(Q1, &bQ0, &bQ1);
+      const int bit[4] = {bI0, bQ0, bI1, bQ1};
+      for (int p = 0; p < 4; p++) {
+        if (bit[p] == 0) { if (metric > max0[p]) max0[p] = metric; }
+        else             { if (metric > max1[p]) max1[p] = metric; }
+      }
+    }
+
+    for (int p = 0; p < 4; p++) {
+      float llr;
+      if (max0[p] <= -1e29f)
+        llr = -NR_LBEST_LLR_SAT;
+      else if (max1[p] <= -1e29f)
+        llr = NR_LBEST_LLR_SAT;
+      else
+        llr = (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE;
+      if (llr > 32767.0f) llr = 32767.0f;
+      if (llr < -32768.0f) llr = -32768.0f;
+      *stream0_out++ = (int16_t)llr;
+    }
+  }
+}
+
+// ============================================================================
 // Fixed-point (Q15-input) prototype of the L-best 2-layer 64QAM kernel.
 //
 // Integer twin of nr_qam64_llr_2layer_lbest_layer: same algorithm, but every
