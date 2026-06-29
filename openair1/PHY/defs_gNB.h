@@ -337,6 +337,28 @@ typedef struct {
 // therefore, we can have up to "number of UE" UCI PDUs
 #define MAX_NUM_NR_UCI_PDUS MAX_MOBILES_PER_GNB
 
+// Forward declaration — nr_fhi_t function pointers reference PHY_VARS_gNB
+struct PHY_VARS_gNB_s;
+
+typedef void (*nr_fhi_ul_slot_ready_fn)(struct PHY_VARS_gNB_s *gNB,
+                                        int frame_tx, int slot_tx,
+                                        int frame_rx, int slot_rx,
+                                        uint64_t timestamp_tx);
+typedef void (*nr_fhi_ul_slot_receive_fn)(struct PHY_VARS_gNB_s *gNB,
+                                          int *frame, int *slot);
+typedef void (*nr_fhi_dl_slot_send_fn)(struct PHY_VARS_gNB_s *gNB,
+                                       int frame, int slot,
+                                       uint64_t timestamp);
+
+// NR fronthaul interface: abstracts per-slot DL send and UL-receive/ready notification
+// across LOCAL_RF, IF5, IF4p5, and future 7.2 (xRAN) splits.
+// Lives on openair0_device_t.fhi (rfdevice for LOCAL_RF, ifdevice for IF5/IF4p5).
+typedef struct nr_fhi_s {
+  nr_fhi_ul_slot_ready_fn   ul_slot_ready; // called by RU/xran when UL slot data is ready
+  nr_fhi_ul_slot_receive_fn ul_slot_receive; // called from ru_thread for all NR splits
+  nr_fhi_dl_slot_send_fn    dl_slot_send;  // called by tx_func after phy_procedures_gNB_TX
+} nr_fhi_t;
+
 /// Top-level PHY Data Structure for gNB
 typedef struct PHY_VARS_gNB_s {
   /// Module ID indicator for this instance

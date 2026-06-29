@@ -98,14 +98,10 @@ static void tx_func(processingData_L1tx_t *info)
     start_meas(&info->gNB->phy_proc_tx);
     phy_procedures_gNB_TX(info->gNB, &sched_response.DL_req, &sched_response.TX_req, &sched_response.UL_dci_req, frame_tx,slot_tx);
 
-    PHY_VARS_gNB *gNB = info->gNB;
-    processingData_RU_t syncMsgRU;
-    syncMsgRU.frame_tx = frame_tx;
-    syncMsgRU.slot_tx = slot_tx;
-    syncMsgRU.ru = gNB->RU_list[0];
-    syncMsgRU.timestamp_tx = info->timestamp_tx;
-    LOG_D(PHY, "gNB: %d.%d : calling RU TX function\n", syncMsgRU.frame_tx, syncMsgRU.slot_tx);
-    ru_tx_func((void *)&syncMsgRU);
+    LOG_D(PHY, "gNB: %d.%d : calling fhi dl_slot_send\n", frame_tx, slot_tx);
+    RU_t *fhi_ru = gNB->RU_list[0];
+    nr_fhi_t *fhi = (fhi_ru->if_south == LOCAL_RF) ? fhi_ru->rfdevice.fhi : fhi_ru->ifdevice.fhi;
+    fhi->dl_slot_send(gNB, frame_tx, slot_tx, info->timestamp_tx);
     stop_meas(&info->gNB->phy_proc_tx);
   }
 }
@@ -249,15 +245,8 @@ static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size
     output += print_meas_log(&ru->txdataF_copy_stats, "txdataF_copy", NULL, NULL, output, end - output);
   }
 
-  if (ru->fh_north_asynch_in)
-    output += print_meas_log(&ru->rx_fhaul,"rx_fhaul",NULL,NULL, output, end - output);
-
   output += print_meas_log(&ru->tx_fhaul,"tx_fhaul",NULL,NULL, output, end - output);
 
-  if (ru->fh_north_out) {
-    output += print_meas_log(&ru->compression,"compression",NULL,NULL, output, end - output);
-    output += print_meas_log(&ru->transport,"transport",NULL,NULL, output, end - output);
-  }
   return output - begin;
 }
 

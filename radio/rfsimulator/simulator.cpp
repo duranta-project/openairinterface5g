@@ -1627,6 +1627,7 @@ extern "C" __attribute__((__visibility__("default"))) int device_init(openair0_d
   }
   /* let's pretend to be a b2x0 */
   device->type = RFSIMULATOR;
+  device->host_type = RAU_HOST;
   openair0_cfg->rx_gain[0] = 0;
   device->openair0_cfg = openair0_cfg;
   device->priv = rfsimulator;

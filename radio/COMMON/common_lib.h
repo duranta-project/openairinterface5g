@@ -349,6 +349,9 @@ typedef struct {
   } queue[WRITE_QUEUE_SZ];
 } re_order_t;
 
+/* Forward declaration for NR fronthaul interface (defined in PHY/defs_gNB.h) */
+struct nr_fhi_s;
+
 /*!\brief structure holds the parameters to configure RF devices */
 struct openair0_device {
   /*!tx write thread*/
@@ -380,6 +383,9 @@ struct openair0_device {
   int is_init;
   /*!brief Can be used by driver to hold internal structure*/
   void *priv;
+
+  /*!brief NR fronthaul interface (dl_slot_send / ul_slot_ready callbacks) */
+  struct nr_fhi_s *fhi;
 
   /*!brief pointer to FH state, used in ECPRI split 8*/
   fhstate_t fhstate;

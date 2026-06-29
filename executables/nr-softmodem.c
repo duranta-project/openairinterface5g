@@ -363,23 +363,6 @@ int stop_L1(module_id_t gnb_id)
   if (RC.nb_nr_L1_inst > 0)
     stop_gNB(RC.nb_nr_L1_inst);
 
-  /* stop trx devices, multiple carrier currently not supported by RU */
-  if (ru->rfdevice.trx_get_stats_func) {
-    ru->rfdevice.trx_get_stats_func(&ru->rfdevice);
-  }
-  if (ru->rfdevice.trx_stop_func) {
-    ru->rfdevice.trx_stop_func(&ru->rfdevice);
-    LOG_I(GNB_APP, "turned off RU rfdevice\n");
-  }
-
-  if (ru->ifdevice.trx_get_stats_func) {
-    ru->ifdevice.trx_get_stats_func(&ru->rfdevice);
-  }
-  if (ru->ifdevice.trx_stop_func) {
-    ru->ifdevice.trx_stop_func(&ru->ifdevice);
-    LOG_I(GNB_APP, "turned off RU ifdevice\n");
-  }
-
   if (RC.nb_RU > 0)
     stop_RU(RC.nb_RU);
 

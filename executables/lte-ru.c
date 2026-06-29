@@ -2357,7 +2357,6 @@ void set_function_spec_param(RU_t *ru) {
     case LOCAL_RF:   // this is an RU with integrated RF (RRU, eNB)
       if (ru->function ==  NGFI_RRU_IF5) {                 // IF5 RRU
         ru->do_prach              = 0;                      // no prach processing in RU
-        ru->fh_north_in           = NULL;                   // no shynchronous incoming fronthaul from north
         ru->fh_north_out          = fh_if5_north_out;       // need only to do send_IF5  reception
         ru->fh_south_out          = tx_rf;                  // send output to RF
         ru->fh_north_asynch_in    = fh_if5_north_asynch_in; // TX packets come asynchronously
@@ -2381,7 +2380,6 @@ void set_function_spec_param(RU_t *ru) {
         }
       } else if (ru->function == NGFI_RRU_IF4p5) {
         ru->do_prach              = 1;                        // do part of prach processing in RU
-        ru->fh_north_in           = NULL;                     // no synchronous incoming fronthaul from north
         ru->fh_north_out          = fh_if4p5_north_out;       // send_IF4p5 on reception
         ru->fh_south_out          = tx_rf;                    // send output to RF
         ru->fh_north_asynch_in    = fh_if4p5_north_asynch_in; // TX packets come asynchronously
@@ -2410,7 +2408,6 @@ void set_function_spec_param(RU_t *ru) {
         ru->feprx                = (get_thread_worker_conf() == WORKER_DISABLE) ? fep_full : ru_fep_full_2thread;                // RX DFTs
         ru->feptx_ofdm           = (get_thread_worker_conf() == WORKER_DISABLE) ? feptx_ofdm : feptx_ofdm_2thread;              // this is fep with idft and precoding
         ru->feptx_prec           = feptx_prec;              // this is fep with idft and precoding
-        ru->fh_north_in          = NULL;                    // no incoming fronthaul from north
         ru->fh_north_out         = NULL;                    // no outgoing fronthaul to north
         ru->start_if             = NULL;                    // no if interface
         ru->rfdevice.host_type   = RAU_HOST;

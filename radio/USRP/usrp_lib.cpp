@@ -1056,6 +1056,7 @@ extern "C" {
       return 0;
     }
 
+    device->host_type = RAU_HOST;
     device->openair0_cfg = openair0_cfg;
     device->trx_start_func = trx_usrp_start;
     device->trx_get_stats_func = trx_usrp_get_stats;
