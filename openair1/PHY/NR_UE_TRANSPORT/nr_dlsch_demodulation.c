@@ -779,10 +779,10 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   bool do_ml = ue->do_ml;
   // ANALYSIS gate (OAI_LBEST): route 2-layer 256QAM (Qm=8) to the float L-best ML kernel
   // (nr_compute_ML_llr case 8) instead of the MMSE+single-layer fallback. Off by default.
-  static int lbest256 = -1;
-  if (lbest256 < 0) { const char *e = getenv("OAI_LBEST"); lbest256 = e ? atoi(e) : 0; }
-  const bool ml256 = do_ml && lbest256;
-  const bool ml3 = do_ml && lbest256 && nl == 3; // 3-layer hybrid ML (gated)
+  static int lbest_gate = -1;
+  if (lbest_gate < 0) { const char *e = getenv("OAI_LBEST"); lbest_gate = e ? atoi(e) : 0; }
+  const bool ml256 = do_ml && lbest_gate;
+  const bool ml3 = do_ml && lbest_gate && nl == 3; // 3-layer hybrid ML (gated)
 
   // Reinterpret flat dl_ch_estimates_ext as [nl][nbRx][rx_size_symbol]
   c16_t(*chFext)[nbRx][rx_size_symbol] = (void *)dl_ch_estimates_ext;
