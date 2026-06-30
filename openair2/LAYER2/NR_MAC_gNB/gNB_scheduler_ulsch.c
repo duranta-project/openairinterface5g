@@ -786,8 +786,14 @@ static void nr_rx_ra_sdu_crc(gNB_MAC_INST *mac, const nfapi_nr_crc_t *crc)
   if (crc->ul_cqi != 0xff) {
     // Msg3: reset average with first measurement. If this fails (e.g., ul_cqi == 0xff)
     // everything starts from predetermined value
-    nr_mac_pc_reset_snr(&UE->UE_sched_ctrl.pusch_pc, crc->ul_cqi * 5 - 640, crc->rssi);
-    UE->ra->msg3_TPC = nr_mac_get_tpc(&UE->UE_sched_ctrl.pusch_pc);
+    const int snrx10 = crc->ul_cqi * 5 - 640;
+    NR_UE_sched_ctrl_t *sc = &UE->UE_sched_ctrl;
+    nr_mac_pc_reset_snr(&sc->pusch_pc, snrx10, crc->rssi);
+    UE->ra->msg3_TPC = nr_mac_get_tpc(&sc->pusch_pc);
+    // use the same target SNR for UL/DL assuming that if a UE reaches SNR X,
+    // it should be similar in DL
+    sc->dl_bler_stats = olla_init(snrx10, mac->frame);
+    sc->ul_bler_stats = olla_init(snrx10, mac->frame);
   }
   DevAssert(crc->harq_id < 8);
   if (crc->timing_advance != 0xffff)
