@@ -181,6 +181,7 @@ int main(int argc, char *argv[])
   int print_perf = 0;
   cpuf = get_cpu_freq_GHz();
   int msg3_flag = 0;
+  bool uci_on_pusch = false;
   bool no_phase_pre_comp = false;
   int rv_index = 0;
   float roundStats;
@@ -197,6 +198,9 @@ int main(int argc, char *argv[])
   uint16_t ptrsSymPos = 0;
   uint16_t ptrsSymbPerSlot = 0;
   uint16_t ptrsRePerSymb = 0;
+  int ack_bits = 0;
+  int csi1_bits = 0;
+  int csi2_bits = 0;
 
   uint8_t transform_precoding = transformPrecoder_disabled; // 0 - ENABLE, 1 - DISABLE
   uint8_t num_dmrs_cdm_grps_no_data = 1;
@@ -241,7 +245,7 @@ int main(int argc, char *argv[])
   void *d_channel_coeffs_gpu = NULL;
 #endif
 
-  while ((c = getopt(argc, argv, "--:O:a:b:c:d:ef:g:h:i:jk:l:m:n:p:q:r:s:t:u:v:w:y:z:A:C:F:G:H:I:M:N:PR:S:T:U:L:ZW:E:X:Y:"))
+  while ((c = getopt(argc, argv, "--:O:a:b:c:d:ef:g:h:i:jk:l:m:n:o:p:q:r:s:t:u:v:w:y:z:A:C:F:G:H:I:M:N:PR:S:T:U:L:ZW:E:X:Y:"))
          != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
@@ -370,6 +374,13 @@ int main(int argc, char *argv[])
 
     case 'p':
       extended_prefix_flag = 1;
+      break;
+
+    case 'o':
+      uci_on_pusch = true;
+      ack_bits = atoi(&optarg[0]);
+      csi1_bits = atoi(&optarg[2]);
+      csi2_bits = atoi(&optarg[4]);
       break;
 
     case 'q':
@@ -540,11 +551,12 @@ int main(int argc, char *argv[])
       printf("-g Channel model configuration. Arguments list: Number of arguments = 3, {Channel model: [A] TDLA30, [B] TDLB100, [C] TDLC300}, {Correlation: [l] Low, [m] Medium, [h] High}, {Maximum Doppler shift} e.g. -g A,l,10\n");
       printf("-h This message\n");
       printf("-i Change channel estimation technique. Arguments list: Number of arguments=2, Frequency domain {0:Linear interpolation, 1:PRB based averaging}, Time domain {0:Estimates of last DMRS symbol, 1:Average of DMRS symbols}. e.g. -i 1,0\n");
-      printf("-j Save signal buffers in binary format.");
+      printf("-j Save signal buffers in binary format\n");
       printf("-k 3/4 sampling\n");
       printf("-l PUSCH DMRS length: 1 or 2\n");
       printf("-m MCS value\n");
       printf("-n Number of trials to simulate\n");
+      printf("-o UCI on PUSCH, 1st value number of ACK bits, 2nd value CSI part1 bits, 3rd value CSI part2 bits\n");
       printf("-p Use extended prefix mode\n");
       printf("-q MCS table\n");
       printf("-r Number of allocated resource blocks for PUSCH\n");
@@ -944,8 +956,6 @@ int main(int argc, char *argv[])
   if (enable_ptrs && 1 << ptrs_time_density >= nb_symb_sch)
     pdu_bit_map &= ~PUSCH_PDU_BITMAP_PUSCH_PTRS; // disable PUSCH PTRS
 
-  printf("\n");
-
   uint32_t unav_res = 0;
   if (pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS) {
     set_ptrs_symb_idx(&ptrsSymPos, nb_symb_sch, start_symbol, 1 << ptrs_time_density, l_prime_mask);
@@ -1078,6 +1088,9 @@ int main(int argc, char *argv[])
     int round_trials[16] = {0};
     double blerStats[16] = {0};
     double berStats[16] = {0};
+    int errors_ack = 0;
+    int errors_csi1 = 0;
+    int errors_csi2 = 0;
 
     uint64_t sum_pusch_delay = 0;
     int min_pusch_delay = INT_MAX;
@@ -1158,6 +1171,17 @@ int main(int argc, char *argv[])
         pusch_pdu->pusch_data.harq_process_id = 0;
         pusch_pdu->pusch_data.new_data_indicator = round == 0 ? true : false;
         pusch_pdu->pusch_data.num_cb = 0;
+        if (uci_on_pusch) {
+          pusch_pdu->pdu_bit_map |= PUSCH_PDU_BITMAP_PUSCH_UCI;
+          pusch_pdu->pusch_uci.harq_ack_bit_length = ack_bits;
+          pusch_pdu->pusch_uci.csi_part1_bit_length = csi1_bits;
+          pusch_pdu->pusch_uci.csi_part2_bit_length = csi2_bits;
+          pusch_pdu->pusch_uci.alpha_scaling = 3; // equivalent to a value of 1
+          // using default values per 38.331
+          pusch_pdu->pusch_uci.beta_offset_harq_ack = 11;
+          pusch_pdu->pusch_uci.beta_offset_csi1 = 13;
+          pusch_pdu->pusch_uci.beta_offset_csi2 = 13;
+        }
         pusch_pdu->pusch_ptrs.ptrs_time_density = ptrs_time_density;
         pusch_pdu->pusch_ptrs.ptrs_freq_density = ptrs_freq_density;
         pusch_pdu->pusch_ptrs.ptrs_ports_list = (nfapi_nr_ptrs_ports_t *)malloc_or_fail(2 * sizeof(nfapi_nr_ptrs_ports_t));
@@ -1253,6 +1277,18 @@ int main(int argc, char *argv[])
         pusch_config_pdu->pusch_data.new_data_indicator = round == 0 ? true : false;
         pusch_config_pdu->pusch_data.rv_index = rv_index;
         pusch_config_pdu->pusch_data.harq_process_id = harq_pid;
+        if (uci_on_pusch) {
+          pusch_config_pdu->pusch_uci.harq_ack_bit_length = ack_bits;
+          pusch_config_pdu->pusch_uci.harq_payload = rand() & ((1 << ack_bits) - 1);
+          pusch_config_pdu->pusch_uci.csi_payload.p1_bits = csi1_bits;
+          pusch_config_pdu->pusch_uci.csi_payload.part1_payload = rand() & ((1 << csi1_bits) - 1);
+          pusch_config_pdu->pusch_uci.csi_payload.p2_bits = csi2_bits;
+          pusch_config_pdu->pusch_uci.csi_payload.part2_payload = rand() & ((1 << csi2_bits) - 1);
+          pusch_config_pdu->pusch_uci.alpha_scaling = 3;
+          pusch_config_pdu->pusch_uci.beta_offset_harq_ack = 11;
+          pusch_config_pdu->pusch_uci.beta_offset_csi1 = 13;
+          pusch_config_pdu->pusch_uci.beta_offset_csi2 = 13;
+        }
         pusch_config_pdu->pusch_ptrs.ptrs_time_density = ptrs_time_density;
         pusch_config_pdu->pusch_ptrs.ptrs_freq_density = ptrs_freq_density;
         pusch_config_pdu->pusch_ptrs.ptrs_ports_list =
@@ -1549,6 +1585,35 @@ int main(int argc, char *argv[])
                 0 | log_format);
         }
 
+        nfapi_nr_uci_indication_t *uci_ind = &UL_INFO.uci_ind;
+        nfapi_nr_uci_t *uci = uci_ind->uci_list;
+        nfapi_nr_uci_pusch_pdu_t *pusch_ind = &uci->pusch_pdu;
+        int ack_bytes = (ack_bits + 7) / 8;
+        for (i = 0; i < ack_bytes; i++) {
+          if (((pusch_config_pdu->pusch_uci.harq_payload >> (i * 8)) & 255) != pusch_ind->harq.harq_payload[i]) {
+            errors_ack++;
+            round = max_rounds; // aborting multiple rounds detection, UCI needs to be decoded first round
+            break;
+          }
+        }
+        int csi1_bytes = (csi1_bits + 7) / 8;
+        for (i = 0; i < csi1_bytes; i++) {
+          if (((pusch_config_pdu->pusch_uci.csi_payload.part1_payload >> (i * 8)) & 255) != pusch_ind->csi_part1.csi_part1_payload[i]) {
+            errors_csi1++;
+            round = max_rounds; // aborting multiple rounds detection, UCI needs to be decoded first round
+            break;
+          }
+        }
+        int csi2_bytes = (csi2_bits + 7) / 8;
+        for (i = 0; i < csi2_bytes; i++) {
+          if (((pusch_config_pdu->pusch_uci.csi_payload.part2_payload >> (i * 8)) & 255) != pusch_ind->csi_part2.csi_part2_payload[i]) {
+            errors_csi2++;
+            round = max_rounds; // aborting multiple rounds detection, UCI needs to be decoded first round
+            break;
+          }
+        }
+
+
         if ((ulsch_gNB->last_iteration_cnt >= ulsch_gNB->max_ldpc_iterations) || ul_proc_error == 1) {
           error_flag = 1;
           n_errors[round]++;
@@ -1632,7 +1697,10 @@ int main(int argc, char *argv[])
            n_false_positive, n_trials, errors_scrambling[0], available_bits * round_trials[0]);
     for (int r = 1; r < max_rounds; r++)
       printf(",%u/%u", errors_scrambling[r], available_bits * round_trials[r]);
-    printf(")\n");
+    if (uci_on_pusch)
+      printf(") UCI on PUSCH errors: ACK %d CSIp1 %d CSIp2 %d\n", errors_ack, errors_csi1, errors_csi2);
+    else
+      printf(")\n");
     printf("\n");
 
 
@@ -1723,7 +1791,8 @@ int main(int argc, char *argv[])
     if(n_trials==1)
       break;
 
-    if (srs_ret == 0 && (float)effTP >= eff_tp_check) {
+    int uci_errors = errors_ack + errors_csi1 + errors_csi2;
+    if (srs_ret == 0 && uci_errors == 0 && (float)effTP >= eff_tp_check) {
       printf("*************\n");
       printf("PUSCH test OK\n");
       printf("*************\n");
