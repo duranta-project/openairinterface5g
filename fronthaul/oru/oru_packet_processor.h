@@ -13,12 +13,24 @@ extern "C" {
 #endif
 
 #define HIST_SIZE 64
+#define MAX_DL_IQ_STREAMS_PER_SYMBOL 32 // cap on distinct beam/PRB-run fragments returned for one DL symbol
 
 typedef struct {
   uint64_t hist[HIST_SIZE];
   int64_t sum;
   uint64_t count;
 } txrx_histogram_t;
+
+// One continuous PRB run, decompressed. read_dl_iq_streams() returns these ungrouped - more than
+// one stream can share an ant_id (multiple beams on one eaxc) or a beam_id (one beam split across
+// sections). Placing/summing into the final per-antenna buffer is the caller's job.
+typedef struct {
+  uint8_t ant_id; // RU port / eaxc this fragment targets
+  uint16_t beam_id; // beam this PRB run was declared under
+  int start_prb;
+  int num_prb;
+  uint32_t *iq; // num_prb * NR_NB_SC_PER_RB samples (same packed format as txdataF elsewhere)
+} dl_iq_stream_t;
 
 typedef struct {
   int section_id;
@@ -58,7 +70,13 @@ typedef struct {
   uint64_t uplane_err_late;
   uint64_t uplane_err_early;
   uint64_t uplane_err_dup;
+  uint64_t uplane_err_prb_range; // start_prbu/num_prbu from the wire fell outside [0, ctx->num_prb)
+  uint64_t uplane_err_short_payload; // packet payload shorter than num_prbu/iqWidth/compMeth implied
   uint64_t uplane_missing_cplane;
+  uint64_t dl_stream_pool_exhausted; // distinct (eaxc, beam) pairs for one DL symbol exceeded MAX_DL_STREAMS_PER_SYMBOL
+  uint64_t dl_stream_sections_exhausted; // sections sharing one (eaxc, beam) stream exceeded MAX_SECTIONS_PER_DL_STREAM
+  uint64_t dl_iq_streams_pool_exhausted; // PRB-run fragments for one DL symbol exceeded MAX_DL_IQ_STREAMS_PER_SYMBOL
+  uint64_t invalid_eaxc_id; // eaxc/antenna id from a C-Plane or U-Plane packet was out of MAX_ANTENNAS range
   uint64_t application_too_slow;
   uint64_t dl_tdd_mismatch;
   uint64_t ul_tdd_mismatch;
@@ -108,7 +126,17 @@ void handle_uplane_packet(void *context, void *pkt);
 void handle_cplane_packet(void *context, void *pkt);
 void print_packet_processor_stats(void *context);
 void get_packet_processor_stats(void *context, oru_packet_processor_stats_t *out_stats);
-void read_dl_iq(void *context, uint32_t **txdataF, int nb_tx, uint64_t *hyper_frame, int *frame, int *slot, int *symbol);
+// Dequeues the next ready DL symbol job into `streams`/`iq_arena` (caller-owned; iq_arena needs
+// MAX_DL_IQ_STREAMS_PER_SYMBOL * num_prb * NR_NB_SC_PER_RB uint32_t). Returns stream count
+// (0..max_streams; 0 is normal, not an error), or -1 if `context` is NULL.
+int read_dl_iq_streams(void *context,
+                       dl_iq_stream_t *streams,
+                       uint32_t *iq_arena,
+                       int max_streams,
+                       uint64_t *hyper_frame,
+                       int *frame,
+                       int *slot,
+                       int *symbol);
 int get_ready_job_count(void *context);
 int poll_ul_job(void *context, ul_job_t *job);
 void get_dl_symbol_bitmask(void *context, const uint8_t **bitmask, uint16_t *bit_length);

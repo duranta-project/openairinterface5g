@@ -144,6 +144,10 @@ int main(int argc, char *argv[])
   for (int i = 0; i < MAX_ANTENNAS; i++)
     txdataF[i] = malloc(273 * 12 * sizeof(uint32_t));
 
+  static dl_iq_stream_t dl_streams[MAX_DL_IQ_STREAMS_PER_SYMBOL];
+  static uint32_t *dl_iq_arena = NULL;
+  dl_iq_arena = malloc(MAX_DL_IQ_STREAMS_PER_SYMBOL * 273 * 12 * sizeof(uint32_t));
+
   while (pcap_next_ex(pcap, &pkthdr, &packet) >= 0) {
     pkt_count++;
     double ts = pkthdr->ts.tv_sec + pkthdr->ts.tv_usec / 1000000.0;
@@ -215,7 +219,7 @@ int main(int argc, char *argv[])
             int f, sl, sy;
             uint64_t hf;
             while (get_ready_job_count(ctx) > 0) {
-              read_dl_iq(ctx, txdataF, MAX_ANTENNAS, &hf, &f, &sl, &sy);
+              read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_IQ_STREAMS_PER_SYMBOL, &hf, &f, &sl, &sy);
             }
           }
           last_tick_sym = current_sym;
@@ -243,7 +247,7 @@ int main(int argc, char *argv[])
     int f, sl, sy;
     uint64_t hf;
     while (get_ready_job_count(ctx) > 0) {
-      read_dl_iq(ctx, txdataF, MAX_ANTENNAS, &hf, &f, &sl, &sy);
+      read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_IQ_STREAMS_PER_SYMBOL, &hf, &f, &sl, &sy);
     }
   }
 
@@ -278,6 +282,7 @@ int main(int argc, char *argv[])
     rte_mempool_free(mp);
   for (int i = 0; i < MAX_ANTENNAS; i++)
     free(txdataF[i]);
+  free(dl_iq_arena);
 
   return 0;
 }

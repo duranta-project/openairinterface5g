@@ -22,6 +22,12 @@ add_dependencies(tests test_fh_compression)
 add_test(NAME test_fh_compression COMMAND test_fh_compression)
 set_property(TEST test_fh_compression PROPERTY LABELS fronthaul)
 
+add_executable(test_oru_beamforming test_oru_beamforming.cpp)
+target_link_libraries(test_oru_beamforming PRIVATE oru_beamforming log_headers GTest::gtest)
+add_dependencies(tests test_oru_beamforming)
+add_test(NAME test_oru_beamforming COMMAND test_oru_beamforming)
+set_property(TEST test_oru_beamforming PROPERTY LABELS fronthaul)
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PCAP REQUIRED libpcap)
 

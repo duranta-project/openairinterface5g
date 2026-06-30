@@ -10,16 +10,7 @@
 #include "common/utils/symbol_reorder/symbol_reorder.h"
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_prach_config.h"
 #include "openair1/PHY/defs_gNB.h"
-
-#define ORU_CODEBOOK_MAX_BEAMS 64
-#define ORU_CODEBOOK_MAX_NB_TX 8
-#define ORU_CODEBOOK_MAX_STREAMS 4
-
-typedef struct {
-  int nb_fh_streams;
-  int nb_beams;
-  c16_t w[ORU_CODEBOOK_MAX_BEAMS][ORU_CODEBOOK_MAX_NB_TX][ORU_CODEBOOK_MAX_STREAMS];
-} oru_codebook_t;
+#include "oru_beamforming.h"
 
 #define MAX_DL_READ_THREADS 8
 #define MAX_ORU_UL_WORKERS 8

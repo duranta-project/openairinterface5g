@@ -517,10 +517,8 @@ static void dl_symbol_process(ORU_t *oru, int frame, int slot, int symbol, c16_t
 
   __attribute__((aligned(64))) c16_t txdataF_shifted[fp->ofdm_symbol_size];
   memset(txdataF_shifted, 0, sizeof(txdataF_shifted));
-  c16_t *rotation = fp->symbol_rotation[0] + (slot % fp->slots_per_subframe) * fp->symbols_per_slot + symbol;
   for (int aatx = 0; aatx < ru->nb_tx; aatx++) {
-    // Phase compensation
-    rotate_cpx_vector(txDataF[aatx], *rotation, txDataF[aatx], fp->N_RB_DL * NR_NB_SC_PER_RB, 15);
+    // txDataF is already phase-rotated by combine_dl_streams() - don't rotate again.
     // FFT Shift
     const int num_samp_half = fp->N_RB_DL * NR_NB_SC_PER_RB / 2;
     const int first_carrier_offset = fp->ofdm_symbol_size - num_samp_half;
@@ -547,6 +545,23 @@ static void dl_symbol_process(ORU_t *oru, int frame, int slot, int symbol, c16_t
   }
 
   dl_symbol_completed(oru, abs_symbol);
+}
+
+// Computes this symbol's phase rotation and hands off to combine_dl_streams() (oru_beamforming.c).
+static void assemble_dl_symbol(ORU_t *oru,
+                               int slot,
+                               int symbol,
+                               c16_t **txDataF,
+                               int n_rb_dl,
+                               const dl_iq_stream_t *streams,
+                               int num_streams)
+{
+  RU_t *ru = (RU_t *)oru->ru;
+  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+  const int n_sc = n_rb_dl * NR_NB_SC_PER_RB;
+  c16_t rotation = *(fp->symbol_rotation[0] + (slot % fp->slots_per_subframe) * fp->symbols_per_slot + symbol);
+
+  combine_dl_streams(txDataF, ru->nb_tx, n_sc, streams, num_streams, &oru->codebook, rotation);
 }
 
 static pthread_mutex_t south_read_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -598,6 +613,10 @@ void *oru_north_read_worker(void *arg)
   for (int aatx = 0; aatx < ru->nb_tx; aatx++) {
     txDataF_ptr[aatx] = txDataF[aatx];
   }
+  // Scratch for read_dl_iq_streams(): reused every iteration, sized once for the worst case
+  // (MAX_DL_IQ_STREAMS_PER_SYMBOL streams, each up to a full-band PRB run).
+  dl_iq_stream_t dl_streams[MAX_DL_IQ_STREAMS_PER_SYMBOL];
+  __attribute__((aligned(64))) uint32_t dl_iq_arena[MAX_DL_IQ_STREAMS_PER_SYMBOL * fp->N_RB_DL * NR_NB_SC_PER_RB];
   uint32_t start_frame, start_slot;
   uint64_t start_hyper_frame;
   int64_t start_timestamp;
@@ -645,8 +664,15 @@ anchor_ready:
   while (!oai_exit) {
     int frame = -1, slot = -1, symbol = -1;
     uint64_t hyper_frame;
-    int ret = oru_fh_tx_read_symbol(oru->fronthaul, (uint32_t **)txDataF_ptr, ru->nb_tx, &hyper_frame, &frame, &slot, &symbol);
-    if (ret != 0) {
+    int num_streams = oru_fh_tx_read_symbol(oru->fronthaul,
+                                            dl_streams,
+                                            dl_iq_arena,
+                                            MAX_DL_IQ_STREAMS_PER_SYMBOL,
+                                            &hyper_frame,
+                                            &frame,
+                                            &slot,
+                                            &symbol);
+    if (num_streams < 0) {
       LOG_E(PHY, "[RU_thread] read data error: frame %d, slot %d, symbol %d\n", frame, slot, symbol);
       continue;
     }
@@ -659,6 +685,7 @@ anchor_ready:
     if (timestamp < 0) {
       continue;
     }
+    assemble_dl_symbol(oru, slot, symbol, txDataF_ptr, fp->N_RB_DL, dl_streams, num_streams);
     uint64_t abs_symbol = num_frames * (fp->slots_per_frame * fp->symbols_per_slot) + slot * fp->symbols_per_slot + symbol;
     dl_symbol_process(oru, frame, slot, symbol, txDataF_ptr, timestamp, abs_symbol);
     if (frame % 256 == 0 && slot == 0 && symbol == 0) {

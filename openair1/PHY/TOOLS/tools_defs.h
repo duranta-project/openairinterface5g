@@ -548,6 +548,29 @@ static inline void multadd_cpx_vector(const c16_t *x1, const c16_t *x2, c16_t *y
   }
 }
 
+/*!
+  Element-wise saturating accumulation of one complex vector into another: y = sat16(y + x).
+  @param x - input, added into y   in the format  |Re0 Im0 Re1 Im1|,......,|Re(N-2)  Im(N-2) Re(N-1) Im(N-1)|
+  @param y - accumulator, updated in place, same format
+  @param N - the number of complex numbers (any N; the remainder past the last full 128-bit
+             register is handled by a scalar tail, unlike multadd_cpx_vector() above)
+*/
+static inline void add_cpx_vector(const c16_t *x, c16_t *y, const uint32_t N)
+{
+  const simd_q15_t *x_128 = (const simd_q15_t *)x;
+  simd_q15_t *y_128 = (simd_q15_t *)y;
+  const uint32_t n_simd = N / 4; // 4 complex (8 int16 lanes) per 128-bit register
+  for (uint32_t i = 0; i < n_simd; i++) {
+    y_128[i] = adds_int16(y_128[i], x_128[i]);
+  }
+  for (uint32_t i = n_simd * 4; i < N; i++) {
+    int32_t r = (int32_t)y[i].r + x[i].r;
+    int32_t im = (int32_t)y[i].i + x[i].i;
+    y[i].r = r > INT16_MAX ? INT16_MAX : r < INT16_MIN ? INT16_MIN : (int16_t)r;
+    y[i].i = im > INT16_MAX ? INT16_MAX : im < INT16_MIN ? INT16_MIN : (int16_t)im;
+  }
+}
+
 static const int16_t ones_epi16[16] __attribute__((aligned(32))) = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 static inline simde__m256i protected_abs256(const simde__m256i in)
 {

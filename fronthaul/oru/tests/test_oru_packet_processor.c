@@ -75,6 +75,40 @@ void test_send_mbuf(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_m
   }
 }
 
+// Places/sums read_dl_iq_streams()'s raw output into txdataF, and picks a representative
+// beam_id per antenna (largest PRB coverage) for tests that check it.
+static void test_assemble_streams(uint32_t **txdataF,
+                                  int nb_tx,
+                                  int num_prb,
+                                  const dl_iq_stream_t *streams,
+                                  int num_streams,
+                                  uint16_t *beam_ids)
+{
+  for (int a = 0; a < nb_tx; a++) {
+    memset(txdataF[a], 0, num_prb * 12 * sizeof(uint32_t));
+  }
+  int best_num_prb[nb_tx];
+  memset(best_num_prb, 0, sizeof(best_num_prb));
+  if (beam_ids) {
+    memset(beam_ids, 0, nb_tx * sizeof(*beam_ids));
+  }
+  for (int i = 0; i < num_streams; i++) {
+    const dl_iq_stream_t *s = &streams[i];
+    if (s->ant_id >= (unsigned)nb_tx) {
+      continue;
+    }
+    int16_t *dst = (int16_t *)&txdataF[s->ant_id][s->start_prb * 12];
+    const int16_t *src = (const int16_t *)s->iq;
+    for (int j = 0; j < s->num_prb * 12 * 2; j++) {
+      dst[j] += src[j];
+    }
+    if (beam_ids && s->num_prb > best_num_prb[s->ant_id]) {
+      best_num_prb[s->ant_id] = s->num_prb;
+      beam_ids[s->ant_id] = s->beam_id;
+    }
+  }
+}
+
 void test_init_cleanup()
 {
   printf("Testing init and cleanup...\n");
@@ -234,6 +268,7 @@ void test_cplane_uplane_match()
       (struct xran_cp_radioapp_section1 *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_cp_radioapp_section1));
   memset(sec, 0, sizeof(*sec));
   sec->hdr.u.s1.numSymbol = 1;
+  sec->hdr.u.s1.beamId = 37;
   sec->hdr.u1.common.numPrbc = 1;
   *((uint64_t *)sec) = rte_be_to_cpu_64(*((uint64_t *)sec));
 
@@ -296,11 +331,16 @@ void test_cplane_uplane_match()
 
   int frame, slot, symbol;
   uint64_t hyper_frame;
+  uint16_t beam_ids[1] = {0};
+  dl_iq_stream_t dl_streams[MAX_DL_IQ_STREAMS_PER_SYMBOL];
+  uint32_t dl_iq_arena[MAX_DL_IQ_STREAMS_PER_SYMBOL * 273 * 12];
   do {
-    read_dl_iq(ctx, txdataF, 1, &hyper_frame, &frame, &slot, &symbol);
-  } while (!(frame == (target_sym / num_symbols_per_frame) % 1024 && symbol == target_sym % 14));
+    int n = read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_IQ_STREAMS_PER_SYMBOL, &hyper_frame, &frame, &slot, &symbol);
+    test_assemble_streams(txdataF, 1, 273, dl_streams, n, beam_ids);
+  } while (!(frame == (target_sym / num_symbols_per_frame) % 1024 && slot == slot_in_frame && symbol == target_sym % 14));
 
   assert(symbol == target_sym % 14);
+  assert(beam_ids[0] == 37);
   uint16_t *out_iq = (uint16_t *)output_iq;
   assert(out_iq[0] == 0x00FF);
   assert(out_iq[1] == 0x11EE);
@@ -309,6 +349,319 @@ void test_cplane_uplane_match()
 
   cleanup_packet_processor(ctx);
   printf("C-Plane / U-Plane match passed!\n");
+}
+
+// start_prbu/num_prbu are wire-controlled. combine_dl_streams() later writes num_prb PRBs at
+// start_prb into a txDataF buffer sized for ctx->num_prb PRBs - a packet claiming a range beyond
+// ctx->num_prb must be rejected up front, not handed through to that write.
+void test_uplane_prb_range_rejected()
+{
+  printf("Testing U-Plane PRB range rejection...\n");
+  int mu = 1;
+  void *ctx = init_packet_processor(mu, 273, 200, 400, 100, 300, 2, 2, 0, 0, 5, test_alloc_mbuf, test_send_mbuf, NULL, 1500, 0, FH_COMP_NONE, 0);
+  assert(ctx != NULL);
+
+  uint64_t current_sym = 1000;
+  handle_absolute_symbol_tick(ctx, current_sym);
+
+  struct rte_mbuf *u_mbuf = rte_pktmbuf_alloc(mp);
+  struct xran_ecpri_hdr *u_ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(u_mbuf, sizeof(struct xran_ecpri_hdr));
+  u_ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, 0); // Ant 0
+
+  struct radio_app_common_hdr *u_app =
+      (struct radio_app_common_hdr *)rte_pktmbuf_append(u_mbuf, sizeof(struct radio_app_common_hdr));
+  u_app->frame_id = 0;
+  u_app->sf_slot_sym.symb_id = 0;
+  u_app->sf_slot_sym.value = rte_cpu_to_be_16(u_app->sf_slot_sym.value);
+
+  struct data_section_hdr *u_data = (struct data_section_hdr *)rte_pktmbuf_append(u_mbuf, sizeof(struct data_section_hdr));
+  u_data->fields.num_prbu = 10; // 270 + 10 = 280 > ctx->num_prb (273)
+  u_data->fields.start_prbu = 270;
+  u_data->fields.sect_id = 0;
+  u_data->fields.all_bits = rte_cpu_to_be_32(u_data->fields.all_bits);
+
+  uint16_t *iq = (uint16_t *)rte_pktmbuf_append(u_mbuf, 10 * 12 * 4);
+  assert(iq != NULL);
+  memset(iq, 0, 10 * 12 * 4);
+
+  handle_uplane_packet(ctx, u_mbuf);
+
+  oru_packet_processor_stats_t stats;
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.uplane_err_prb_range == 1);
+  assert(stats.uplane_missing_cplane == 0); // rejected before the C-Plane stream lookup even ran
+  assert(stats.uplane_err_short_payload == 0);
+
+  cleanup_packet_processor(ctx);
+  printf("U-Plane PRB range rejection passed!\n");
+}
+
+// xran_extract_iq_samples() returns the packet length still remaining after stripping headers -
+// a truncated packet (fewer bytes than num_prbu/iqWidth/compMeth implies) must be rejected before
+// its iq_data pointer is handed off to the deferred unpack_iq() in read_dl_iq_streams().
+void test_uplane_short_payload_rejected()
+{
+  printf("Testing U-Plane short payload rejection...\n");
+  int mu = 1;
+  void *ctx = init_packet_processor(mu, 273, 200, 400, 100, 300, 2, 2, 0, 0, 5, test_alloc_mbuf, test_send_mbuf, NULL, 1500, 0, FH_COMP_NONE, 0);
+  assert(ctx != NULL);
+
+  uint64_t current_sym = 1000;
+  handle_absolute_symbol_tick(ctx, current_sym);
+
+  struct rte_mbuf *u_mbuf = rte_pktmbuf_alloc(mp);
+  struct xran_ecpri_hdr *u_ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(u_mbuf, sizeof(struct xran_ecpri_hdr));
+  u_ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, 0); // Ant 0
+
+  struct radio_app_common_hdr *u_app =
+      (struct radio_app_common_hdr *)rte_pktmbuf_append(u_mbuf, sizeof(struct radio_app_common_hdr));
+  u_app->frame_id = 0;
+  u_app->sf_slot_sym.symb_id = 0;
+  u_app->sf_slot_sym.value = rte_cpu_to_be_16(u_app->sf_slot_sym.value);
+
+  struct data_section_hdr *u_data = (struct data_section_hdr *)rte_pktmbuf_append(u_mbuf, sizeof(struct data_section_hdr));
+  u_data->fields.num_prbu = 1; // uncompressed 1 PRB needs 12 * 2 * sizeof(uint16_t) = 48 bytes
+  u_data->fields.start_prbu = 0;
+  u_data->fields.sect_id = 0;
+  u_data->fields.all_bits = rte_cpu_to_be_32(u_data->fields.all_bits);
+
+  // Only 8 of the required 48 bytes present - truncated packet.
+  uint16_t *iq = (uint16_t *)rte_pktmbuf_append(u_mbuf, 8);
+  assert(iq != NULL);
+  memset(iq, 0, 8);
+
+  handle_uplane_packet(ctx, u_mbuf);
+
+  oru_packet_processor_stats_t stats;
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.uplane_err_short_payload == 1);
+  assert(stats.uplane_err_prb_range == 0);
+  assert(stats.uplane_missing_cplane == 0);
+
+  cleanup_packet_processor(ctx);
+  printf("U-Plane short payload rejection passed!\n");
+}
+
+// Two C-Plane sections for one beam (disjoint PRB ranges) must merge into one stream. A repeated
+// section_id is rejected as a duplicate. A third section with a *different* beam on the same eaxc
+// (sub-band precoding) is accepted as a genuinely separate stream, not merged or rejected.
+void test_dl_multi_section_same_beam()
+{
+  printf("Testing DL multi-section same-beam merge...\n");
+  int mu = 1; // 30kHz
+  int slots_per_subframe = 1 << mu;
+  void *ctx = init_packet_processor(mu,
+                                    273,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    0);
+  assert(ctx != NULL);
+
+  uint64_t current_sym = 1000;
+  handle_absolute_symbol_tick(ctx, current_sym);
+
+  uint64_t target_sym = current_sym + 7;
+  int num_symbols_per_frame = 10 * slots_per_subframe * 14;
+  int frameId = (target_sym / num_symbols_per_frame) % 256;
+  int slot_in_frame = (target_sym % num_symbols_per_frame) / 14;
+  int subframeId = slot_in_frame / slots_per_subframe;
+  int slotId = slot_in_frame % slots_per_subframe;
+  int startSymbolId = target_sym % 14;
+  const uint16_t beam_id = 42;
+
+  // Two C-Plane sections for the same eaxc/beam, disjoint PRB ranges, distinct sectionId.
+  int section_ids[2] = {0, 1};
+  int start_prbc[2] = {0, 10};
+  int num_prbc[2] = {10, 10};
+  for (int i = 0; i < 2; i++) {
+    struct rte_mbuf *c_mbuf = rte_pktmbuf_alloc(mp);
+    struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_ecpri_hdr));
+    ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, 0);
+
+    struct xran_cp_radioapp_section1_header *apphdr =
+        (struct xran_cp_radioapp_section1_header *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_cp_radioapp_section1_header));
+    memset(apphdr, 0, sizeof(*apphdr));
+    apphdr->cmnhdr.field.dataDirection = XRAN_DIR_DL;
+    apphdr->cmnhdr.field.payloadVer = XRAN_PAYLOAD_VER;
+    apphdr->cmnhdr.field.frameId = frameId;
+    apphdr->cmnhdr.field.subframeId = subframeId;
+    apphdr->cmnhdr.field.slotId = slotId;
+    apphdr->cmnhdr.field.startSymbolId = startSymbolId;
+    apphdr->cmnhdr.sectionType = XRAN_CP_SECTIONTYPE_1;
+    apphdr->cmnhdr.field.all_bits = rte_cpu_to_be_32(apphdr->cmnhdr.field.all_bits);
+
+    struct xran_cp_radioapp_section1 *sec =
+        (struct xran_cp_radioapp_section1 *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_cp_radioapp_section1));
+    memset(sec, 0, sizeof(*sec));
+    sec->hdr.u.s1.numSymbol = 1;
+    sec->hdr.u.s1.beamId = beam_id;
+    sec->hdr.u1.common.sectionId = section_ids[i];
+    sec->hdr.u1.common.startPrbc = start_prbc[i];
+    sec->hdr.u1.common.numPrbc = num_prbc[i];
+    *((uint64_t *)sec) = rte_be_to_cpu_64(*((uint64_t *)sec));
+    handle_cplane_packet(ctx, c_mbuf);
+  }
+
+  // Re-declaring sectionId 0 must be rejected as a duplicate, not merged as a third section.
+  {
+    struct rte_mbuf *c_mbuf = rte_pktmbuf_alloc(mp);
+    struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_ecpri_hdr));
+    ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, 0);
+
+    struct xran_cp_radioapp_section1_header *apphdr =
+        (struct xran_cp_radioapp_section1_header *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_cp_radioapp_section1_header));
+    memset(apphdr, 0, sizeof(*apphdr));
+    apphdr->cmnhdr.field.dataDirection = XRAN_DIR_DL;
+    apphdr->cmnhdr.field.payloadVer = XRAN_PAYLOAD_VER;
+    apphdr->cmnhdr.field.frameId = frameId;
+    apphdr->cmnhdr.field.subframeId = subframeId;
+    apphdr->cmnhdr.field.slotId = slotId;
+    apphdr->cmnhdr.field.startSymbolId = startSymbolId;
+    apphdr->cmnhdr.sectionType = XRAN_CP_SECTIONTYPE_1;
+    apphdr->cmnhdr.field.all_bits = rte_cpu_to_be_32(apphdr->cmnhdr.field.all_bits);
+
+    struct xran_cp_radioapp_section1 *sec =
+        (struct xran_cp_radioapp_section1 *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_cp_radioapp_section1));
+    memset(sec, 0, sizeof(*sec));
+    sec->hdr.u.s1.numSymbol = 1;
+    sec->hdr.u.s1.beamId = beam_id;
+    sec->hdr.u1.common.sectionId = 0;
+    sec->hdr.u1.common.startPrbc = 0;
+    sec->hdr.u1.common.numPrbc = 10;
+    *((uint64_t *)sec) = rte_be_to_cpu_64(*((uint64_t *)sec));
+    handle_cplane_packet(ctx, c_mbuf);
+  }
+
+  const uint16_t beam_id2 = beam_id + 1;
+  // A third section for the same eaxc, new sectionId, a *different* beamId, and a disjoint PRB
+  // range - accepted as a genuinely separate stream (sub-band precoding), not rejected.
+  {
+    struct rte_mbuf *c_mbuf = rte_pktmbuf_alloc(mp);
+    struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_ecpri_hdr));
+    ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, 0);
+
+    struct xran_cp_radioapp_section1_header *apphdr =
+        (struct xran_cp_radioapp_section1_header *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_cp_radioapp_section1_header));
+    memset(apphdr, 0, sizeof(*apphdr));
+    apphdr->cmnhdr.field.dataDirection = XRAN_DIR_DL;
+    apphdr->cmnhdr.field.payloadVer = XRAN_PAYLOAD_VER;
+    apphdr->cmnhdr.field.frameId = frameId;
+    apphdr->cmnhdr.field.subframeId = subframeId;
+    apphdr->cmnhdr.field.slotId = slotId;
+    apphdr->cmnhdr.field.startSymbolId = startSymbolId;
+    apphdr->cmnhdr.sectionType = XRAN_CP_SECTIONTYPE_1;
+    apphdr->cmnhdr.field.all_bits = rte_cpu_to_be_32(apphdr->cmnhdr.field.all_bits);
+
+    struct xran_cp_radioapp_section1 *sec =
+        (struct xran_cp_radioapp_section1 *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_cp_radioapp_section1));
+    memset(sec, 0, sizeof(*sec));
+    sec->hdr.u.s1.numSymbol = 1;
+    sec->hdr.u.s1.beamId = beam_id2;
+    sec->hdr.u1.common.sectionId = 2; // new sectionId, not a duplicate
+    sec->hdr.u1.common.startPrbc = 20;
+    sec->hdr.u1.common.numPrbc = 10;
+    *((uint64_t *)sec) = rte_be_to_cpu_64(*((uint64_t *)sec));
+    handle_cplane_packet(ctx, c_mbuf);
+  }
+
+  oru_packet_processor_stats_t stats;
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_dup == 1);
+  assert(stats.cplane_err_dup_dl == 1);
+  assert(stats.dl_stream_pool_exhausted == 0);
+  assert(stats.dl_stream_sections_exhausted == 0);
+
+  current_sym += 3;
+  handle_absolute_symbol_tick(ctx, current_sym);
+
+  // Three U-Plane packets: two for beam_id's merged sections, one for beam_id2's separate section.
+  int all_section_ids[3] = {section_ids[0], section_ids[1], 2};
+  int all_start_prbc[3] = {start_prbc[0], start_prbc[1], 20};
+  int all_num_prbc[3] = {num_prbc[0], num_prbc[1], 10};
+  uint16_t patterns[3] = {0x1111, 0x2222, 0x3333};
+  for (int i = 0; i < 3; i++) {
+    struct rte_mbuf *u_mbuf = rte_pktmbuf_alloc(mp);
+    struct xran_ecpri_hdr *u_ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(u_mbuf, sizeof(struct xran_ecpri_hdr));
+    u_ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, 0);
+
+    struct radio_app_common_hdr *u_app =
+        (struct radio_app_common_hdr *)rte_pktmbuf_append(u_mbuf, sizeof(struct radio_app_common_hdr));
+    u_app->frame_id = frameId;
+    u_app->sf_slot_sym.subframe_id = subframeId;
+    u_app->sf_slot_sym.slot_id = slotId;
+    u_app->sf_slot_sym.symb_id = startSymbolId;
+    u_app->sf_slot_sym.value = rte_cpu_to_be_16(u_app->sf_slot_sym.value);
+
+    struct data_section_hdr *u_data = (struct data_section_hdr *)rte_pktmbuf_append(u_mbuf, sizeof(struct data_section_hdr));
+    u_data->fields.num_prbu = all_num_prbc[i];
+    u_data->fields.start_prbu = all_start_prbc[i];
+    u_data->fields.sect_id = all_section_ids[i];
+    u_data->fields.all_bits = rte_cpu_to_be_32(u_data->fields.all_bits);
+
+    uint16_t *iq = (uint16_t *)rte_pktmbuf_append(u_mbuf, all_num_prbc[i] * 12 * 4);
+    assert(iq != NULL);
+    for (int j = 0; j < all_num_prbc[i] * 12 * 2; j++) {
+      iq[j] = rte_cpu_to_be_16(patterns[i]);
+    }
+
+    handle_uplane_packet(ctx, u_mbuf);
+  }
+
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.uplane_err_early == 0);
+  assert(stats.uplane_err_late == 0);
+  assert(stats.uplane_missing_cplane == 0);
+
+  current_sym += 10;
+  handle_absolute_symbol_tick(ctx, current_sym);
+
+  uint32_t *txdataF[4] = {0};
+  uint32_t output_iq[273 * 12] = {0};
+  txdataF[0] = output_iq;
+
+  int frame, slot, symbol;
+  uint64_t hyper_frame;
+  uint16_t beam_ids[1] = {0};
+  dl_iq_stream_t dl_streams[MAX_DL_IQ_STREAMS_PER_SYMBOL];
+  uint32_t dl_iq_arena[MAX_DL_IQ_STREAMS_PER_SYMBOL * 273 * 12];
+  do {
+    int n = read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_IQ_STREAMS_PER_SYMBOL, &hyper_frame, &frame, &slot, &symbol);
+    test_assemble_streams(txdataF, 1, 273, dl_streams, n, beam_ids);
+  } while (!(frame == frameId && slot == slot_in_frame && symbol == startSymbolId));
+
+  // beam_id covers 20 PRBs total (2 merged sections) vs. beam_id2's 10 - the representative beam
+  // for a single-beam-per-antenna consumer must be the larger one.
+  assert(beam_ids[0] == beam_id);
+  uint16_t *out_iq = (uint16_t *)output_iq;
+  for (int prb = 0; prb < 30; prb++) {
+    uint16_t expected = prb < 10 ? patterns[0] : prb < 20 ? patterns[1] : patterns[2];
+    for (int sc = 0; sc < 12; sc++) {
+      int idx = prb * 12 + sc;
+      assert(out_iq[2 * idx] == expected);
+      assert(out_iq[2 * idx + 1] == expected);
+    }
+  }
+
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.dl_stream_pool_exhausted == 0);
+  assert(stats.dl_stream_sections_exhausted == 0);
+  assert(stats.dl_iq_streams_pool_exhausted == 0);
+
+  cleanup_packet_processor(ctx);
+  printf("DL multi-section same-beam merge passed!\n");
 }
 
 void test_frame_wrap_around()
@@ -422,9 +775,12 @@ void test_frame_wrap_around()
 
   int frame, slot, symbol;
   uint64_t hyper_frame;
+  dl_iq_stream_t dl_streams[MAX_DL_IQ_STREAMS_PER_SYMBOL];
+  uint32_t dl_iq_arena[MAX_DL_IQ_STREAMS_PER_SYMBOL * 273 * 12];
   do {
-    read_dl_iq(ctx, txdataF, 1, &hyper_frame, &frame, &slot, &symbol);
-  } while (!(frame == (target_sym / num_symbols_per_frame) % 1024 && symbol == target_sym % 14));
+    int n = read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_IQ_STREAMS_PER_SYMBOL, &hyper_frame, &frame, &slot, &symbol);
+    test_assemble_streams(txdataF, 1, 273, dl_streams, n, NULL);
+  } while (!(frame == (target_sym / num_symbols_per_frame) % 1024 && slot == slot_in_frame && symbol == target_sym % 14));
 
   assert(frame == (target_sym / num_symbols_per_frame) % 1024);
   assert(symbol == target_sym % 14);
@@ -437,10 +793,13 @@ void test_cplane_14_symbols()
 {
   printf("Testing 1 C-plane message for 14 symbols...\n");
   int mu = 1; // 30kHz
+  // T2a_cp_max is widened to 900uS: a single section spanning 14 symbols needs its LAST symbol to
+  // still be within T2a_min_cp of "now" too (each symbol has its own individual C-Plane deadline,
+  // not just the section's first symbol), so the window has to be at least ~14 symbols wide.
   void *ctx = init_packet_processor(mu,
                                     273,
                                     200,
-                                    400,
+                                    900,
                                     100,
                                     300,
                                     5,
@@ -460,7 +819,10 @@ void test_cplane_14_symbols()
   uint64_t current_sym = 1000;
   handle_absolute_symbol_tick(ctx, current_sym);
 
-  uint64_t target_sym = current_sym + 7; // Good for C-plane (between 5 and 11)
+  // T2a_min_cp_sym_diff=5, T2a_max_cp_sym_diff=25. Symbol i of the section sits at diff+i, so with
+  // diff=10 the first symbol (i=0) is at 10 (>=5) and the last (i=13) is at 23 (<=25) - both stay
+  // comfortably inside the window.
+  uint64_t target_sym = current_sym + 10;
 
   // 1. C-plane packet with numSymbol = 14
   struct rte_mbuf *c_mbuf = rte_pktmbuf_alloc(mp);
@@ -499,8 +861,10 @@ void test_cplane_14_symbols()
   assert(stats.dl_tdd_mismatch == 0);
   assert(stats.ul_tdd_mismatch == 0);
 
-  // 2. Advance time so we can send U-plane for ALL 14 symbols
-  current_sym += 3;
+  // 2. Advance time so we can send U-plane for ALL 14 symbols. target_sym - current_sym must land
+  // within U-Plane's own [T2a_min_up_dl_sym_diff, T2a_max_up_dl_sym_diff] = [2, 8] window and stay
+  // there as both advance together below.
+  current_sym += 6;
   handle_absolute_symbol_tick(ctx, current_sym);
 
   for (int i = 0; i < 14; i++) {
@@ -550,13 +914,17 @@ void test_cplane_14_symbols()
   uint32_t output_iq[273 * 12] = {0};
   txdataF[0] = output_iq;
 
+  dl_iq_stream_t dl_streams[MAX_DL_IQ_STREAMS_PER_SYMBOL];
+  uint32_t dl_iq_arena[MAX_DL_IQ_STREAMS_PER_SYMBOL * 273 * 12];
   for (int i = 0; i < 14; i++) {
     int frame, slot, symbol;
     uint64_t hyper_frame;
     uint64_t sym_i = target_sym + i;
+    int sym_i_slot_in_frame = (sym_i % num_symbols_per_frame) / 14;
     do {
-      read_dl_iq(ctx, txdataF, 1, &hyper_frame, &frame, &slot, &symbol);
-    } while (!(frame == (sym_i / num_symbols_per_frame) % 1024 && symbol == sym_i % 14));
+      int n = read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_IQ_STREAMS_PER_SYMBOL, &hyper_frame, &frame, &slot, &symbol);
+      test_assemble_streams(txdataF, 1, 273, dl_streams, n, NULL);
+    } while (!(frame == (sym_i / num_symbols_per_frame) % 1024 && slot == sym_i_slot_in_frame && symbol == sym_i % 14));
 
     assert(frame == (sym_i / num_symbols_per_frame) % 1024);
     assert(symbol == sym_i % 14);
@@ -681,8 +1049,11 @@ void test_other_bw_4ant_prb_offset()
 
   int frame, slot, symbol;
   uint64_t hyper_frame;
+  dl_iq_stream_t dl_streams[MAX_DL_IQ_STREAMS_PER_SYMBOL];
+  uint32_t dl_iq_arena[MAX_DL_IQ_STREAMS_PER_SYMBOL * 106 * 12];
   do {
-    read_dl_iq(ctx, txdataF, 4, &hyper_frame, &frame, &slot, &symbol);
+    int n = read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_IQ_STREAMS_PER_SYMBOL, &hyper_frame, &frame, &slot, &symbol);
+    test_assemble_streams(txdataF, 4, 106, dl_streams, n, NULL);
   } while (!(frame == frameId && symbol == startSymbolId));
 
   // Verify memory contents for each antenna
@@ -1437,9 +1808,12 @@ void test_hyper_frame_calculation()
 
   int frame, slot, symbol;
   uint64_t hyper_frame = 0xFFFFFFFF;
+  dl_iq_stream_t dl_streams[MAX_DL_IQ_STREAMS_PER_SYMBOL];
+  uint32_t dl_iq_arena[MAX_DL_IQ_STREAMS_PER_SYMBOL * 273 * 12];
   do {
-    read_dl_iq(ctx, txdataF, 1, &hyper_frame, &frame, &slot, &symbol);
-  } while (!(frame == (target_sym / num_symbols_per_frame) % 1024 && symbol == target_sym % 14));
+    int n = read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_IQ_STREAMS_PER_SYMBOL, &hyper_frame, &frame, &slot, &symbol);
+    test_assemble_streams(txdataF, 1, 273, dl_streams, n, NULL);
+  } while (!(frame == (target_sym / num_symbols_per_frame) % 1024 && slot == slot_in_frame && symbol == target_sym % 14));
 
   assert(hyper_frame == 3);
   assert(frame == 5);
@@ -1547,9 +1921,13 @@ void test_dl_bfp_decompression(void)
 
   int frame, slot, symbol;
   uint64_t hyper_frame;
+  uint16_t beam_ids[1];
+  dl_iq_stream_t dl_streams[MAX_DL_IQ_STREAMS_PER_SYMBOL];
+  uint32_t dl_iq_arena[MAX_DL_IQ_STREAMS_PER_SYMBOL * 273 * 12];
   do {
-    read_dl_iq(ctx, txdataF, 1, &hyper_frame, &frame, &slot, &symbol);
-  } while (!(frame == (int)((target_sym / num_symbols_per_frame) % 1024) && symbol == (int)(target_sym % 14)));
+    int n = read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_IQ_STREAMS_PER_SYMBOL, &hyper_frame, &frame, &slot, &symbol);
+    test_assemble_streams(txdataF, 1, 273, dl_streams, n, beam_ids);
+  } while (!(frame == (int)((target_sym / num_symbols_per_frame) % 1024) && slot == slot_in_frame && symbol == (int)(target_sym % 14)));
 
   // I=100, Q=-200 with exponent=0: exact round-trip through BFP
   int16_t *recovered = (int16_t *)output_iq;
@@ -1742,9 +2120,13 @@ void test_large_delay_profile()
 
   int frame, slot, symbol;
   uint64_t hyper_frame = 0;
+  uint16_t beam_ids[1];
+  dl_iq_stream_t dl_streams[MAX_DL_IQ_STREAMS_PER_SYMBOL];
+  uint32_t dl_iq_arena[MAX_DL_IQ_STREAMS_PER_SYMBOL * 273 * 12];
   do {
-    read_dl_iq(ctx, txdataF, 1, &hyper_frame, &frame, &slot, &symbol);
-  } while (!(frame == (target_sym / num_symbols_per_frame) % 1024 && symbol == target_sym % 14));
+    int n = read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_IQ_STREAMS_PER_SYMBOL, &hyper_frame, &frame, &slot, &symbol);
+    test_assemble_streams(txdataF, 1, 273, dl_streams, n, beam_ids);
+  } while (!(frame == (target_sym / num_symbols_per_frame) % 1024 && slot == slot_in_frame && symbol == target_sym % 14));
 
   uint16_t *out_iq = (uint16_t *)output_iq;
   assert(out_iq[0] == 0x1111);
@@ -1763,6 +2145,13 @@ int main(int argc, char **argv)
   test_cplane_timing_errors();
   usleep(10000);
   test_cplane_uplane_match();
+
+  test_uplane_prb_range_rejected();
+  usleep(10000);
+  test_uplane_short_payload_rejected();
+  usleep(10000);
+
+  test_dl_multi_section_same_beam();
   usleep(10000);
   test_frame_wrap_around();
   usleep(10000);
