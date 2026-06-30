@@ -264,7 +264,7 @@ static radio_tx_gpio_flag_t get_gpio_flags(RU_t *ru, int slot, int symbol)
         int beam = beam_ids[symbol_in_frame][0];
         if (prev_beam != beam) {
           flags_gpio = beam | TX_GPIO_CHANGE; // enable change of gpio
-          LOG_I(HW, "slot %d, symbol %d, beam %d\n", slot, symbol, beam_ids[symbol_in_frame][0]);
+          LOG_D(HW, "slot %d, symbol %d, beam %d\n", slot, symbol, beam_ids[symbol_in_frame][0]);
         }
       }
       break;
@@ -281,7 +281,7 @@ static radio_tx_gpio_flag_t get_gpio_flags(RU_t *ru, int slot, int symbol)
       }
       flags_gpio = beam | TX_GPIO_CHANGE;
       // flags_gpio |= beam << 8; // MSB 8 bits are used for beam
-      LOG_I(HW, "slot %d, symbol %d, beam %d, flags_gpio %d\n", slot, symbol, beam, flags_gpio);
+      LOG_D(HW, "slot %d, symbol %d, beam %d, flags_gpio %d\n", slot, symbol, beam, flags_gpio);
       break;
     }
     default:
