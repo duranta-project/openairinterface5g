@@ -792,7 +792,13 @@ static void nr_rx_ra_sdu(const module_id_t mod_id,
   if (ul_cqi != 0xff) {
     // Msg3: reset average with first measurement. If this fails (e.g., ul_cqi == 0xff)
     // everything starts from predetermined value
-    nr_mac_pc_reset_snr(&UE->UE_sched_ctrl.pusch_pc, ul_cqi * 5 - 640, rssi);
+    int snrx10 = ul_cqi * 5 - 640;
+    NR_UE_sched_ctrl_t *sc = &UE->UE_sched_ctrl;
+    nr_mac_pc_reset_snr(&sc->pusch_pc, snrx10, rssi);
+    // use the same target SNR for UL/DL assuming that if a UE reaches SNR X,
+    // it should be similar in DL
+    sc->dl_bler_stats = olla_init(snrx10, mac->frame);
+    sc->ul_bler_stats = olla_init(snrx10, mac->frame);
   }
 
   if (!sdu) { // NACK
