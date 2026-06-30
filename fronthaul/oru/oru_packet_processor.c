@@ -47,8 +47,8 @@
 
 typedef struct {
   struct {
-    bool cplane_received;
     int section_id;
+    uint16_t beam_id;
     struct {
       int start_prbc;
       int num_prbc;
@@ -507,8 +507,8 @@ static void handle_dl_cplane_packet(oru_packet_processor_context_t *ctx,
       job->comp_method = FH_COMP_NONE;
       job->iq_width = 16;
       for (int j = 0; j < MAX_ANTENNAS; j++) {
-        job->per_antenna[j].cplane_received = false;
         job->per_antenna[j].num_rx_fragments = 0;
+        job->per_antenna[j].beam_id = 0;
         for (int k = 0; k < MAX_RX_FRAGMENTS; k++) {
           job->per_antenna[j].rx_fragments[k].iq_data = NULL;
           job->per_antenna[j].rx_fragments[k].mbuf = NULL;
@@ -521,13 +521,9 @@ static void handle_dl_cplane_packet(oru_packet_processor_context_t *ctx,
         ctx->stats.cplane_err_late++;
         return;
       }
-      if (job->per_antenna[ant_id].cplane_received) {
-        ctx->stats.cplane_err_dup++;
-        ctx->stats.cplane_err_dup_dl++;
-        return;
-      }
     }
     job->per_antenna[ant_id].section_id = section->hdr.u1.common.sectionId;
+    job->per_antenna[ant_id].beam_id = section->hdr.u.s1.beamId;
     job->expected_iq += section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
     job->comp_method = (fh_comp_method_t)hdr->udComp.udCompMeth;
     job->iq_width = hdr->udComp.udIqWidth == 0 ? XRAN_IQ_BITS_UNCOMPRESSED : hdr->udComp.udIqWidth;
@@ -886,7 +882,7 @@ static void unpack_iq(c16_t *txdataF, const uint8_t *iqdata, int start_prb, int 
   }
 }
 
-void read_dl_iq(void *context, uint32_t **txdataF, int nb_tx, uint64_t *hyper_frame, int *frame, int *slot, int *symbol)
+void read_dl_iq(void *context, uint32_t **txdataF, int nb_tx, uint64_t *hyper_frame, int *frame, int *slot, int *symbol, uint16_t *beam_ids)
 {
   oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
   if (ctx == NULL)
@@ -907,6 +903,8 @@ void read_dl_iq(void *context, uint32_t **txdataF, int nb_tx, uint64_t *hyper_fr
   *symbol = absolute_gps_symbol % NR_SYMBOLS_PER_SLOT;
 
   for (int aatx = 0; aatx < nb_tx; aatx++) {
+    if (beam_ids)
+      beam_ids[aatx] = job->per_antenna[aatx].beam_id;
     memset(txdataF[aatx], 0, ctx->num_prb * NR_NB_SC_PER_RB * sizeof(uint32_t));
     if (job->per_antenna[aatx].num_rx_fragments == 0) {
       continue;

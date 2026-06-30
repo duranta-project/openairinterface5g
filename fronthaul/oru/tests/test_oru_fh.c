@@ -110,7 +110,7 @@ int main(int argc, char **argv)
       int f, s, sym;
       uint64_t hf;
       while (oru_fh_get_ready_jobs(handle) > 0) {
-        oru_fh_tx_read_symbol(handle, txData, 1, &hf, &f, &s, &sym);
+        oru_fh_tx_read_symbol(handle, txData, 1, &hf, &f, &s, &sym, NULL);
       }
     }
   }

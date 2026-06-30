@@ -234,6 +234,7 @@ void test_cplane_uplane_match()
       (struct xran_cp_radioapp_section1 *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_cp_radioapp_section1));
   memset(sec, 0, sizeof(*sec));
   sec->hdr.u.s1.numSymbol = 1;
+  sec->hdr.u.s1.beamId = 37;
   sec->hdr.u1.common.numPrbc = 1;
   *((uint64_t *)sec) = rte_be_to_cpu_64(*((uint64_t *)sec));
 
@@ -296,11 +297,13 @@ void test_cplane_uplane_match()
 
   int frame, slot, symbol;
   uint64_t hyper_frame;
+  uint16_t beam_ids[1] = {0};
   do {
-    read_dl_iq(ctx, txdataF, 1, &hyper_frame, &frame, &slot, &symbol);
+    read_dl_iq(ctx, txdataF, 1, &hyper_frame, &frame, &slot, &symbol, beam_ids);
   } while (!(frame == (target_sym / num_symbols_per_frame) % 1024 && symbol == target_sym % 14));
 
   assert(symbol == target_sym % 14);
+  assert(beam_ids[0] == 37);
   uint16_t *out_iq = (uint16_t *)output_iq;
   assert(out_iq[0] == 0x00FF);
   assert(out_iq[1] == 0x11EE);
@@ -423,7 +426,7 @@ void test_frame_wrap_around()
   int frame, slot, symbol;
   uint64_t hyper_frame;
   do {
-    read_dl_iq(ctx, txdataF, 1, &hyper_frame, &frame, &slot, &symbol);
+    read_dl_iq(ctx, txdataF, 1, &hyper_frame, &frame, &slot, &symbol, NULL);
   } while (!(frame == (target_sym / num_symbols_per_frame) % 1024 && symbol == target_sym % 14));
 
   assert(frame == (target_sym / num_symbols_per_frame) % 1024);
@@ -555,7 +558,7 @@ void test_cplane_14_symbols()
     uint64_t hyper_frame;
     uint64_t sym_i = target_sym + i;
     do {
-      read_dl_iq(ctx, txdataF, 1, &hyper_frame, &frame, &slot, &symbol);
+      read_dl_iq(ctx, txdataF, 1, &hyper_frame, &frame, &slot, &symbol, NULL);
     } while (!(frame == (sym_i / num_symbols_per_frame) % 1024 && symbol == sym_i % 14));
 
     assert(frame == (sym_i / num_symbols_per_frame) % 1024);
@@ -682,7 +685,7 @@ void test_other_bw_4ant_prb_offset()
   int frame, slot, symbol;
   uint64_t hyper_frame;
   do {
-    read_dl_iq(ctx, txdataF, 4, &hyper_frame, &frame, &slot, &symbol);
+    read_dl_iq(ctx, txdataF, 4, &hyper_frame, &frame, &slot, &symbol, NULL);
   } while (!(frame == frameId && symbol == startSymbolId));
 
   // Verify memory contents for each antenna
@@ -1438,7 +1441,7 @@ void test_hyper_frame_calculation()
   int frame, slot, symbol;
   uint64_t hyper_frame = 0xFFFFFFFF;
   do {
-    read_dl_iq(ctx, txdataF, 1, &hyper_frame, &frame, &slot, &symbol);
+    read_dl_iq(ctx, txdataF, 1, &hyper_frame, &frame, &slot, &symbol, NULL);
   } while (!(frame == (target_sym / num_symbols_per_frame) % 1024 && symbol == target_sym % 14));
 
   assert(hyper_frame == 3);

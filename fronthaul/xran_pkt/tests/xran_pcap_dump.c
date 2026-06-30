@@ -176,11 +176,12 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
               if (section) {
                 section->hdr.u1.second_4byte = rte_be_to_cpu_32(section->hdr.u1.second_4byte);
                 section->hdr.u.first_4byte = rte_be_to_cpu_32(section->hdr.u.first_4byte);
-                printf("  [Sec 1] SectionID: %d  StartPRB: %d  NumPRB: %d  NumSym: %d\n",
+                printf("  [Sec 1] SectionID: %d  StartPRB: %d  NumPRB: %d  NumSym: %d  BeamID: %d\n",
                        section->hdr.u1.common.sectionId,
                        section->hdr.u1.common.startPrbc,
                        section->hdr.u1.common.numPrbc,
-                       section->hdr.u.s1.numSymbol);
+                       section->hdr.u.s1.numSymbol,
+                       section->hdr.u.s1.beamId);
               }
               break;
             }

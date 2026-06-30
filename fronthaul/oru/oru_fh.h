@@ -80,9 +80,10 @@ int oru_fh_get_ready_jobs(void *handle);
  * @param frame Pointer to store the frame number of the read symbol.
  * @param slot Pointer to store the slot number of the read symbol.
  * @param symbol Pointer to store the symbol number.
+ * @param beam_ids Array to store the C-plane beam ID per TX antenna.
  * @return 0 on success or -1 on failure
  */
-int oru_fh_tx_read_symbol(void *handle, uint32_t **txdataF, int nb_tx, uint64_t *hyper_frame, int *frame, int *slot, int *symbol);
+int oru_fh_tx_read_symbol(void *handle, uint32_t **txdataF, int nb_tx, uint64_t *hyper_frame, int *frame, int *slot, int *symbol, uint16_t *beam_ids);
 
 /**
  * @brief Get the UTC anchor point mapping between 5G time and system time.
