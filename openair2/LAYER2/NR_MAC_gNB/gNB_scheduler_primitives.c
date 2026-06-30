@@ -2999,12 +2999,6 @@ void reset_srs_stats(NR_UE_info_t *UE) {
   }
 }
 
-static void init_bler_stats(const NR_bler_options_t *bler_options, NR_bler_stats_t *bler_stats, frame_t frame)
-{
-  bler_stats->last_frame = frame;
-  bler_stats->mcs = bler_options->min_mcs;
-}
-
 /* @brief returns a new UE allocated instance.
  *
  * It will be typically added to the access_ue_list, but not always (e.g.,
@@ -3114,10 +3108,6 @@ bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
     nr_timer_start(&UE->sched_srs.aperiodic_sched.aperiodic_srs_timer);
   }
   reset_srs_stats(UE);
-
-  // Initialize bler_stats
-  init_bler_stats(&UE->pcell->dl_bler, &sched_ctrl->dl_bler_stats, nr_mac->frame);
-  init_bler_stats(&UE->pcell->ul_bler, &sched_ctrl->ul_bler_stats, nr_mac->frame);
 
   return true;
 }
