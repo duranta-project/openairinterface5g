@@ -32,6 +32,9 @@
 #define CONFIG_STRING_ORU_NUM_UL_SLOTS "num_ul_slots"
 #define CONFIG_STRING_ORU_NUM_DL_SYMBOLS "num_dl_symbols"
 #define CONFIG_STRING_ORU_NUM_UL_SYMBOLS "num_ul_symbols"
+#define CONFIG_STRING_NB_FH_STREAMS "nb_fh_streams"
+#define CONFIG_STRING_CODEBOOK_NB_BEAMS "codebook_nb_beams"
+#define CONFIG_STRING_CODEBOOK_WEIGHTS "codebook_weights"
 #define CONFIG_STRING_ORU_TX_CORE "tx_core"
 
 #define HLP_ORU_TX_BW "set the TX bandwidth list per component carrier"
@@ -47,6 +50,9 @@
 #define HLP_ORU_NUM_UL_SLOTS "set the number of UL Slots in TDD"
 #define HLP_ORU_NUM_DL_SYMBOLS "set the number of DL symbols in the mixed slot"
 #define HLP_ORU_NUM_UL_SYMBOLS "set the number of UL symbols in the mixed slot"
+#define HLP_NB_FH_STREAMS "number of fronthaul streams from DU (0=passthrough, enables codebook beamforming when > 0)"
+#define HLP_CODEBOOK_NB_BEAMS "number of beams in the O-RU codebook"
+#define HLP_CODEBOOK_WEIGHTS "Q15 codebook weights: nb_beams * nb_tx * nb_fh_streams interleaved Re/Im pairs"
 #define HLP_ORU_THREEQUARTER_FS "set the 3/4 sampling frequency"
 
 // clang-format off
@@ -65,6 +71,9 @@
   {CONFIG_STRING_ORU_NUM_UL_SLOTS,              HLP_ORU_NUM_UL_SLOTS,               0,    .uptr=NULL,       .defintval=1,                 TYPE_UINT,         0}, \
   {CONFIG_STRING_ORU_NUM_DL_SYMBOLS,            HLP_ORU_NUM_DL_SYMBOLS,             0,    .uptr=NULL,       .defintval=7,                 TYPE_UINT,         0}, \
   {CONFIG_STRING_ORU_NUM_UL_SYMBOLS,            HLP_ORU_NUM_UL_SYMBOLS,             0,    .uptr=NULL,       .defintval=3,                 TYPE_UINT,         0}, \
+  {CONFIG_STRING_NB_FH_STREAMS,                 HLP_NB_FH_STREAMS,                  0,    .iptr=NULL,       .defintval=0,                 TYPE_INT,          0}, \
+  {CONFIG_STRING_CODEBOOK_NB_BEAMS,             HLP_CODEBOOK_NB_BEAMS,              0,    .iptr=NULL,       .defintval=0,                 TYPE_INT,          0}, \
+  {CONFIG_STRING_CODEBOOK_WEIGHTS,              HLP_CODEBOOK_WEIGHTS,               0,    .iptr=NULL,       .defintarrayval=NULL,          TYPE_INTARRAY,     0}, \
   {CONFIG_STRING_ORU_TX_CORE,                   "The CPU core to be used to deploy south write thread for O-RU.", 0, .iptr=NULL, .defintval=-1, TYPE_INT, 0}, \
 }
 
@@ -250,6 +259,49 @@ int get_oru_options(ORU_t *oru)
   oru->num_UL_slots = *gpd(param, nump, CONFIG_STRING_ORU_NUM_UL_SLOTS)->iptr;
   oru->num_DL_symbols = *gpd(param, nump, CONFIG_STRING_ORU_NUM_DL_SYMBOLS)->iptr;
   oru->num_UL_symbols = *gpd(param, nump, CONFIG_STRING_ORU_NUM_UL_SYMBOLS)->iptr;
+  oru->codebook.nb_fh_streams = *gpd(param, nump, CONFIG_STRING_NB_FH_STREAMS)->iptr;
+  oru->codebook.nb_beams = *gpd(param, nump, CONFIG_STRING_CODEBOOK_NB_BEAMS)->iptr;
+  AssertFatal(oru->codebook.nb_fh_streams >= 0, "nb_fh_streams %d must be non-negative\n", oru->codebook.nb_fh_streams);
+  if (oru->codebook.nb_fh_streams > 0) {
+    AssertFatal(oru->codebook.nb_fh_streams <= ORU_CODEBOOK_MAX_STREAMS,
+                "nb_fh_streams %d exceeds maximum %d\n",
+                oru->codebook.nb_fh_streams,
+                ORU_CODEBOOK_MAX_STREAMS);
+    AssertFatal(oru->codebook.nb_beams > 0 && oru->codebook.nb_beams <= ORU_CODEBOOK_MAX_BEAMS,
+                "codebook_nb_beams %d invalid (range 1..%d)\n",
+                oru->codebook.nb_beams,
+                ORU_CODEBOOK_MAX_BEAMS);
+    AssertFatal(oru->ru->nb_tx <= ORU_CODEBOOK_MAX_NB_TX, "nb_tx %d exceeds maximum %d\n", oru->ru->nb_tx, ORU_CODEBOOK_MAX_NB_TX);
+    AssertFatal(oru->codebook.nb_fh_streams <= oru->ru->nb_tx,
+                "nb_fh_streams %d must not exceed nb_tx %d\n",
+                oru->codebook.nb_fh_streams,
+                oru->ru->nb_tx);
+    paramdef_t *wgt = gpd(param, nump, CONFIG_STRING_CODEBOOK_WEIGHTS);
+    int expected = oru->codebook.nb_beams * oru->ru->nb_tx * oru->codebook.nb_fh_streams * 2;
+    AssertFatal(wgt->numelt == expected,
+                "codebook_weights: expected %d elements (nb_beams=%d * nb_tx=%d * nb_fh_streams=%d * 2)\n",
+                expected,
+                oru->codebook.nb_beams,
+                oru->ru->nb_tx,
+                oru->codebook.nb_fh_streams);
+    int idx = 0;
+    for (int b = 0; b < oru->codebook.nb_beams; b++)
+      for (int t = 0; t < oru->ru->nb_tx; t++)
+        for (int s = 0; s < oru->codebook.nb_fh_streams; s++) {
+          AssertFatal(wgt->iptr[idx] >= INT16_MIN && wgt->iptr[idx] <= INT16_MAX,
+                      "codebook_weights[%d] value %d out of Q15 range\n", idx, wgt->iptr[idx]);
+          oru->codebook.w[b][t][s].r = (int16_t)wgt->iptr[idx++];
+          AssertFatal(wgt->iptr[idx] >= INT16_MIN && wgt->iptr[idx] <= INT16_MAX,
+                      "codebook_weights[%d] value %d out of Q15 range\n", idx, wgt->iptr[idx]);
+          oru->codebook.w[b][t][s].i = (int16_t)wgt->iptr[idx++];
+        }
+    LOG_I(NR_PHY,
+          "Codebook beamforming enabled: nb_fh_streams=%d nb_beams=%d nb_tx=%d\n",
+          oru->codebook.nb_fh_streams,
+          oru->codebook.nb_beams,
+          oru->ru->nb_tx);
+  }
+
   oru->tx_write.core = *gpd(param, nump, CONFIG_STRING_ORU_TX_CORE)->iptr;
 
   paramdef_t fh_param[] = CMDLINE_PARAMS_DESC_ORU_FH;

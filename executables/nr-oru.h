@@ -11,6 +11,16 @@
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_prach_config.h"
 #include "openair1/PHY/defs_gNB.h"
 
+#define ORU_CODEBOOK_MAX_BEAMS 64
+#define ORU_CODEBOOK_MAX_NB_TX 8
+#define ORU_CODEBOOK_MAX_STREAMS 4
+
+typedef struct {
+  int nb_fh_streams;
+  int nb_beams;
+  c16_t w[ORU_CODEBOOK_MAX_BEAMS][ORU_CODEBOOK_MAX_NB_TX][ORU_CODEBOOK_MAX_STREAMS];
+} oru_codebook_t;
+
 #define MAX_DL_READ_THREADS 8
 #define MAX_ORU_UL_WORKERS 8
 
@@ -73,6 +83,7 @@ typedef struct {
   time_stats_t rx_prach;
   time_stats_t rx;
   prach_item_t prach_item;
+  oru_codebook_t codebook;
   bool threequarter_fs;
 
   // Real-time Self-diagnosis metrics
