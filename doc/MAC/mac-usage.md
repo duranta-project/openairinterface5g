@@ -28,16 +28,16 @@ The MCS selection is done in `nr_dl_mcs_select_default()` / `nr_ul_mcs_select_de
 [`gNB_scheduler_dlsch_default_policies.c`](../../openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_dlsch_default_policies.c)
 and
 [`gNB_scheduler_ulsch_default_policies.c`](../../openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_ulsch_default_policies.c).
-The BLER estimation itself is computed separately in `update_bler_stats()` in
-[`gNB_scheduler_primitives.c`](../../openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_primitives.c),
-and the MCS policy reads the result. It considers two thresholds for a "BLER" that is computed from the number of
-first-round retransmissions over total transmissions in the last window (50ms).
-If that ratio is higher than an "upper" threshold (see
-`dl/ul_bler_target_upper` in the configuration section below), it is
-interpreted as "bad channel" and MCS is decremented by 1.  If the ratio is
-lower than a "lower" threshold (see `dl/ul_bler_target_lower`), it is
-interpreted as "good channel" and MCS is incremented by 1. This happens each
-window.
+The current policies infer the MCS to be used from an SNR via
+`get_mcs_from_SINRx10()`, where SNR is estimated based on a measured SNR and a
+SNR offset (`delta_olla`) based on HARQ and computed through the outer-loop
+link adaptation (OLLA) algorithm. OLLA considers a target block error rate for
+HARQ retransmissions. For a ACK (NACK), the SNR offset is increased (reduced)
+where the increase/decrease ratio is governed by the target BLER. Simply put,
+the measured SNR might not truly reflect achievable MCS, such that many ACKs
+(NACKs) will increase (decrease) the SNR offset such that the MCS from SNR+SNR
+offset increases (decreases). More information might be for instance found in
+this paper: https://arxiv.org/abs/2510.05784.
 
 The actual scheduler implementation can be found in functions `nr_dl_proportional_fair()` and
 `nr_ul_proportional_fair()` in files
