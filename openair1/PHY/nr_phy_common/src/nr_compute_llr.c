@@ -2503,6 +2503,35 @@ static void nr_ml_llr_shift(int16_t *llr_layer0, int16_t *llr_layer1, uint32_t n
 }
 
 // ============================================================================
+// References for the L-best / reduced-search soft-output MIMO detectors below
+// (2-layer kernels and the >2-layer hybrid). These are "partial marginalization"
+// style detectors: fully (max-log) enumerate a SUBSET of layers and treat the
+// remaining layers by a linear (ZF / Schur-complement) estimate.
+//   [PM]    E. G. Larsson, J. Jalden, "Fixed-Complexity Soft MIMO Detection via
+//           Partial Marginalization," IEEE Trans. Signal Process., 56(8):3397-3407,
+//           Aug. 2008. doi:10.1109/TSP.2008.925260
+//   [PM-HO] D. Persson, E. G. Larsson, "Partial Marginalization Soft MIMO Detection
+//           with Higher-Order Constellations," IEEE Trans. Signal Process.,
+//           59(1):453-458, Jan. 2011. doi:10.1109/TSP.2010.2068293
+//   [SUMIS] M. Cirkovic, E. G. Larsson, "SUMIS: Near-Optimal Soft-In Soft-Out MIMO
+//           Detection with Low and Fixed Complexity," IEEE Trans. Signal Process.,
+//           2014.
+//   [BCH]   D. W. Waters, J. R. Barry, "The Chase Family of Detection Algorithms for
+//           MIMO Channels," IEEE Trans. Signal Process., 56(2):739-747, Feb. 2008.
+//           doi:10.1109/TSP.2007.911315
+//   [LSD]   B. M. Hochwald, S. ten Brink, "Achieving Near-Capacity on a Multiple-
+//           Antenna Channel," IEEE Trans. Commun., 51(3):389-399, Mar. 2003.
+//           doi:10.1109/TCOMM.2003.809789
+//   [VB]    P. W. Wolniansky, G. J. Foschini, G. D. Golden, R. A. Valenzuela,
+//           "V-BLAST: ...," Proc. URSI ISSSE, 1998.  (ordered SIC / layer ordering)
+// NOTE: citations gathered automatically; DOIs/pages to be re-verified. Two elements
+// here appear under-documented vs. the above: (i) selecting which layers to enumerate
+// vs. linearize by per-RE target/interferer ORTHOGONALITY |rho_ij|^2/(rho_ii rho_jj)
+// rather than SNR-ordering ([PM]/[SUMIS] order by SNR); (ii) coded (LDPC) BLER
+// evaluation on 3GPP TDL/CDL channels (the literature is mostly uncoded BER, i.i.d.).
+// ============================================================================
+
+// ============================================================================
 // L-best (reduced-search) reference kernel for 2-layer 64QAM max-log LLR.
 //
 // PHASE 1 reference: floating-point scalar, correctness over speed. See
@@ -3073,6 +3102,9 @@ static void nr_lbest_2layer_re(double z1r, double z1i, double z2r, double z2i,
 // Schur-deflate it, then run the 2-layer conditional-slice LLR on the deflated
 // (target, kept-nuisance) pair. Inputs: per-layer MF z, n1-scaled ch_mag, and the
 // three cross-Gram arrays rho_ab = h_a^H h_b. Writes Qm LLRs/RE for layer t.
+// Partial-marginalization detector [PM]/[PM-HO]/[BCH] (k=1 enumerated layer); the
+// per-RE orthogonality-based choice of which layer to project is our addition (the
+// cited works order the enumerated subset by SNR). See reference block above.
 void nr_qam_llr_3layer_hybrid(c16_t *zt, c16_t *zn1, c16_t *zn2,
                               c16_t *cmt, c16_t *cmn1, c16_t *cmn2,
                               c16_t *rho_tn1, c16_t *rho_tn2, c16_t *rho_n1n2,
