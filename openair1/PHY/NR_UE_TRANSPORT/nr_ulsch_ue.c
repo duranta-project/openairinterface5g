@@ -1061,24 +1061,25 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
                       &b_csi2[0]);
   }
 
+
+  uint8_t pusch_codeword[(G_initial_total_pusch_bits + 31) / 32 * 4];
   if (uci_present) {
-    uint8_t temp_codeword[(G_initial_total_pusch_bits + 7) / 8];
     start_meas_nr_ue_phy(UE, UCI_ON_PUSCH_MAPPING);
     nr_data_control_mapping(pusch_pdu,
                             &ptrs_info,
                             template_buffer,
                             G[pusch_id],
                             &rm_info,
-                            temp_codeword,
+                            pusch_codeword,
                             G_initial_total_pusch_bits,
                             harq_process_ul_ue->f,
                             b_ack,
                             b_csi1,
                             b_csi2);
     stop_meas_nr_ue_phy(UE, UCI_ON_PUSCH_MAPPING);
-    memcpy(harq_process_ul_ue->f, temp_codeword, (G_initial_total_pusch_bits + 7) / 8);
     uci_mapping_template = template_buffer;
-  }
+  } else
+    memcpy(pusch_codeword, harq_process_ul_ue->f, (G_initial_total_pusch_bits + 7) / 8);
 
   uint16_t start_rb = pusch_pdu->rb_start;
   int start_sc = CIRCULAR_INC(frame_parms->first_carrier_offset,
@@ -1124,7 +1125,7 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
   uint32_t scrambled_output[scrambled_output_len_u32];
   memset(scrambled_output, 0, sizeof(scrambled_output));
 
-  nr_pusch_codeword_scrambling(harq_process_ul_ue->f,
+  nr_pusch_codeword_scrambling(pusch_codeword,
                                available_bits,
                                pusch_pdu->data_scrambling_id,
                                pusch_pdu->pusch_uci.harq_ack_bit_length,
