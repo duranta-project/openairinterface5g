@@ -203,41 +203,37 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
         flags);
 
   // Add data in the ring buffer
-  if (pthread_mutex_lock(&ctx->mutex_store) == 0) {
-    if (!ctx->initDone) {
-      ctx->nextTS = timestamp;
-      ctx->initDone = true;
-    }
-    // We have the write exclusivity
-    AssertFatal(nb_writers, "no UE writers, the minimum is 1");
-    AssertFatal(nbAnt, "no tx antennas, the minimum is 1");
-    int buff_index = timestamp % ctx->sz;
-    for (int a = 0; a < nbAnt; a++) {
-      c16_t *in = txp[a];
-      c16_t *out = ((c16_t *)ctx->ring[a]) + buff_index;
-      for (int i = 0; i < nsamps; i++) {
-        csum(out[i], out[i], in[i]);
-      }
-    }
-    for (int i = 0; i < nsamps; i++)
-      ctx->nb_writers[buff_index + i]++;
+  pthread_mutex_lock(&ctx->mutex_store);
+  if (!ctx->initDone) {
+    ctx->nextTS = timestamp;
+    ctx->initDone = true;
   }
+  // We have the write exclusivity
+  AssertFatal(nb_writers, "no UE writers, the minimum is 1");
+  AssertFatal(nbAnt, "no tx antennas, the minimum is 1");
+  int write_buff_index = timestamp % ctx->sz;
+  for (int a = 0; a < nbAnt; a++) {
+    c16_t *out = ((c16_t *)ctx->ring[a]) + write_buff_index;
+    c16adds(txp[a], out, out, nsamps);
+  }
+  const int *endl = ctx->nb_writers + write_buff_index + nsamps;
+  for (int *i = ctx->nb_writers + write_buff_index; i < endl; i++)
+    *i = *i + 1;
 
   // check it we have ready output now
-  int buff_index = ctx->nextTS % ctx->sz;
-  int end = buff_index;
+  int consume_buff_index = ctx->nextTS % ctx->sz;
+  int end = consume_buff_index;
   const int grain = ctx->grain;
   while (ctx->nb_writers[end] >= nb_writers)
     end++;
 
-  if (end - buff_index > grain) {
-    pthread_mutex_lock(&ctx->mutex_write);
-    while (buff_index + grain <= end) {
+  if (end - consume_buff_index > grain) {
+    while (consume_buff_index + grain <= end) {
       LOG_D(HW, "sending to RF: %ld\n", timestamp);
       if (flags || IS_SOFTMODEM_RFSIM) {
         void *ptr[nbAnt];
         for (int a = 0; a < nbAnt; a++)
-          ptr[a] = ((c16_t *)ctx->ring[a]) + buff_index;
+          ptr[a] = ((c16_t *)ctx->ring[a]) + consume_buff_index;
         int wroteSamples;
         if (nrue_ru_write)
           wroteSamples = nrue_ru_write(UE, ctx->nextTS, ptr, grain, nbAnt, flags);
@@ -247,13 +243,12 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
           LOG_W(HW, "Failed to write to RF: wrote %d out of %d samples\n", wroteSamples, grain);
       }
       for (int a = 0; a < nbAnt; a++)
-        memset(((c16_t *)ctx->ring[a]) + buff_index, 0, grain * sizeof(c16_t));
-      memset(ctx->nb_writers + buff_index, 0, grain * sizeof(*ctx->nb_writers));
-      buff_index += grain;
+        memset(((c16_t *)ctx->ring[a]) + consume_buff_index, 0, grain * sizeof(c16_t));
+      memset(ctx->nb_writers + consume_buff_index, 0, grain * sizeof(*ctx->nb_writers));
+      consume_buff_index += grain;
       ctx->nextTS += grain;
       timestamp += grain;
     }
-    pthread_mutex_unlock(&ctx->mutex_write);
   }
   pthread_mutex_unlock(&ctx->mutex_store);
   return nsamps;
