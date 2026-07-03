@@ -1118,6 +1118,7 @@ nr_rrc_du_container_t *get_du_for_ue(gNB_RRC_INST *rrc, uint32_t ue_id)
  * @note Called periodically (every 1 second) for stats logging */
 void dump_du_info(const gNB_RRC_INST *rrc, FILE *f)
 {
+  return;
   fprintf(f, "%ld connected DUs \n", rrc->num_dus);
   int du_idx = 1;
   nr_rrc_du_container_t *du = NULL;
