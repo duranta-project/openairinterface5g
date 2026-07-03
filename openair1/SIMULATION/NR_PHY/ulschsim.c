@@ -497,7 +497,7 @@ int main(int argc, char **argv)
 
   if (input_fd == NULL) {
     uint8_t ULSCH_ids[] = {0};
-    nr_ulsch_pre_encoding(UE, ulsch_ue, 0, 0, &G, 1, ULSCH_ids);
+    nr_ulsch_pre_encoding(UE, harq_process_ul_ue, &ulsch_ue->pusch_pdu);
     nr_ulsch_encoding(UE, ulsch_ue, 0, 0, &G, 1, ULSCH_ids);
   }
   

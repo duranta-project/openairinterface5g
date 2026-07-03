@@ -61,12 +61,9 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
                        int G);
 
 int nr_ulsch_pre_encoding(PHY_VARS_NR_UE *ue,
-                          const NR_UE_ULSCH_t *ulsch,
-                          const uint32_t frame,
-                          const uint8_t slot,
-                          const unsigned int *G,
-                          const int nb_ulsch,
-                          const uint8_t *ULSCH_ids);
+                          NR_UL_UE_HARQ_t *harq_process,
+                          const nfapi_nr_ue_pusch_pdu_t *pusch_pdu);
+
 /** \brief This is the alternative top-level entry point for ULSCH encoding in UE.
     It handles all the HARQ processes in only one call. The routine first
     computes the segmentation information, followed by LDPC encoding algorithm of the

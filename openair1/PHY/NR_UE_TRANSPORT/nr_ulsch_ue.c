@@ -1052,7 +1052,7 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
   /////////////////////////ULSCH coding/////////////////////////
 
   rate_match_info_uci_t rm_info = {0};
-  if(nr_ulsch_pre_encoding(UE, ulsch_ue, frame, slot, G, 1, ULSCH_ids) != 0) {
+  if(nr_ulsch_pre_encoding(UE, harq_process_ul_ue, pusch_pdu) != 0) {
     LOG_E(PHY, "Error pre-encoding\n");
     return;
   }

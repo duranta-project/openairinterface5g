@@ -15,30 +15,18 @@
 #include "executables/nr-uesoftmodem.h"
 
 int nr_ulsch_pre_encoding(PHY_VARS_NR_UE *ue,
-                          const NR_UE_ULSCH_t *ulsch,
-                          const uint32_t frame,
-                          const uint8_t slot,
-                          const unsigned int *G,
-                          const int nb_ulsch,
-                          const uint8_t *ULSCH_ids)
+                          NR_UL_UE_HARQ_t *harq_process,
+                          const nfapi_nr_ue_pusch_pdu_t *pusch_pdu)
 {
-  for (uint_fast8_t pusch_id = 0; pusch_id < nb_ulsch; pusch_id++) {
-    const uint8_t ULSCH_id = ULSCH_ids[pusch_id];
-    const uint8_t harq_pid = ulsch[ULSCH_id].pusch_pdu.pusch_data.harq_process_id;
-
+  {
     /////////////////////////parameters and variables initialization/////////////////////////
 
-    NR_UL_UE_HARQ_t *harq_process = &ue->ul_harq_processes[harq_pid];
-    const nfapi_nr_ue_pusch_pdu_t *pusch_pdu = &ulsch->pusch_pdu;
-    const uint16_t nb_rb = pusch_pdu->rb_size;
     const uint32_t A = pusch_pdu->pusch_data.tb_size << 3;
-    const uint8_t Qm = pusch_pdu->qam_mod_order;
     // target_code_rate is in 0.1 units
-    const float Coderate = (float)pusch_pdu->target_code_rate / 10240.0f;
 
-    LOG_D(NR_PHY, "ulsch coding nb_rb %d, Nl = %d\n", nb_rb, pusch_pdu->nrOfLayers);
-    LOG_D(NR_PHY, "ulsch coding A %d G %d mod_order %d Coderate %f\n", A, G[pusch_id], Qm, Coderate);
-    LOG_D(NR_PHY, "harq_pid %d, pusch_data.new_data_indicator %d\n", harq_pid, pusch_pdu->pusch_data.new_data_indicator);
+    LOG_D(NR_PHY, "ulsch coding Nl = %d\n", pusch_pdu->nrOfLayers);
+    LOG_D(NR_PHY, "ulsch coding A %d\n", A);
+    LOG_D(NR_PHY, "pusch_data.new_data_indicator %d\n", pusch_pdu->pusch_data.new_data_indicator);
 
     ///////////////////////// a---->| add CRC |---->b /////////////////////////
 
