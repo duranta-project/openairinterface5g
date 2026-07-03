@@ -441,7 +441,7 @@ static void sl_schedule_rx_actions(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_I
     rx_config.number_pdus = 1;
     rx_config.sl_rx_config_list[0].pdu_type = rx_action;
 
-    LOG_I(NR_MAC, "[UE%d] %d:%d CMD to PHY: RX PSBCH \n", ue_id, sl_ind->frame_rx, sl_ind->slot_rx);
+    LOG_D(NR_MAC, "[UE%d] %d:%d CMD to PHY: RX PSBCH \n", ue_id, sl_ind->frame_rx, sl_ind->slot_rx);
 
   } else if (rx_action >= SL_NR_CONFIG_TYPE_RX_PSCCH && rx_action <= SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH) {
     AssertFatal(false, "RX_PSCCH/SLSCH not handled\n");
@@ -487,7 +487,7 @@ static void sl_schedule_tx_actions(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_I
     tx_config.tx_config_list[0].tx_psbch_config_pdu.psbch_tx_power = 0; // TBD...
     memcpy(tx_config.tx_config_list[0].tx_psbch_config_pdu.psbch_payload, sl_mac->tx_sl_bch.sl_mib, 4);
 
-    LOG_I(NR_MAC, "[UE%d] %d:%d CMD to PHY: TX PSBCH \n", ue_id, sl_ind->frame_tx, sl_ind->slot_tx);
+    LOG_D(NR_MAC, "[UE%d] %d:%d CMD to PHY: TX PSBCH \n", ue_id, sl_ind->frame_tx, sl_ind->slot_tx);
 
   } else if (tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH) {
     AssertFatal(false, "SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH\n");
