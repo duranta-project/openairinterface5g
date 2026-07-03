@@ -497,7 +497,8 @@ int main(int argc, char **argv)
 
   if (input_fd == NULL) {
     uint8_t ULSCH_ids[] = {0};
-    nr_ulsch_pre_encoding(UE, harq_process_ul_ue, &ulsch_ue->pusch_pdu);
+    const nfapi_nr_ue_pusch_pdu_t *p = &ulsch_ue->pusch_pdu;
+    nr_ulsch_pre_encoding(harq_process_ul_ue, p->pusch_data.tb_size, p->nrOfLayers, p->ldpcBaseGraph);
     nr_ulsch_encoding(UE, ulsch_ue, 0, 0, &G, 1, ULSCH_ids);
   }
   

@@ -14,58 +14,50 @@
 #include "T_messages_creator.h"
 #include "executables/nr-uesoftmodem.h"
 
-int nr_ulsch_pre_encoding(PHY_VARS_NR_UE *ue,
-                          NR_UL_UE_HARQ_t *harq_process,
-                          const nfapi_nr_ue_pusch_pdu_t *pusch_pdu)
+int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
+                          uint32_t tb_size_bytes,
+                          uint8_t nrOfLayers,
+                          uint8_t ldpcBaseGraph)
 {
-  {
-    /////////////////////////parameters and variables initialization/////////////////////////
+  const uint32_t A = tb_size_bytes << 3;
 
-    const uint32_t A = pusch_pdu->pusch_data.tb_size << 3;
-    // target_code_rate is in 0.1 units
+  ///////////////////////// a---->| add CRC |---->b /////////////////////////
 
-    LOG_D(NR_PHY, "ulsch coding Nl = %d\n", pusch_pdu->nrOfLayers);
-    LOG_D(NR_PHY, "ulsch coding A %d\n", A);
-    LOG_D(NR_PHY, "pusch_data.new_data_indicator %d\n", pusch_pdu->pusch_data.new_data_indicator);
+  const int max_payload_bytes = MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER * nrOfLayers * 1056;
+  int B;
+  if (A > NR_MAX_PDSCH_TBS) {
+    // Add 24-bit crc (polynomial A) to payload
+    const unsigned int crc = crc24a(harq_process->payload_AB, A) >> 8;
+    harq_process->payload_AB[A >> 3] = ((uint8_t *)&crc)[2];
+    harq_process->payload_AB[1 + (A >> 3)] = ((uint8_t *)&crc)[1];
+    harq_process->payload_AB[2 + (A >> 3)] = ((uint8_t *)&crc)[0];
+    B = A + 24;
+    AssertFatal((A / 8) + 4 <= max_payload_bytes, "A %d is too big (A/8+4 = %d > %d)\n", A, (A / 8) + 4, max_payload_bytes);
+  } else {
+    // Add 16-bit crc (polynomial A) to payload
+    const unsigned int crc = crc16(harq_process->payload_AB, A) >> 16;
+    harq_process->payload_AB[A >> 3] = ((uint8_t *)&crc)[1];
+    harq_process->payload_AB[1 + (A >> 3)] = ((uint8_t *)&crc)[0];
+    B = A + 16;
+    AssertFatal((A / 8) + 3 <= max_payload_bytes, "A %d is too big (A/8+3 = %d > %d)\n", A, (A / 8) + 3, max_payload_bytes);
+  }
 
-    ///////////////////////// a---->| add CRC |---->b /////////////////////////
+  ///////////////////////// b---->| block segmentation |---->c /////////////////////////
 
-    const int max_payload_bytes = MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER * pusch_pdu->nrOfLayers * 1056;
-    int B;
-    if (A > NR_MAX_PDSCH_TBS) {
-      // Add 24-bit crc (polynomial A) to payload
-      const unsigned int crc = crc24a(harq_process->payload_AB, A) >> 8;
-      harq_process->payload_AB[A >> 3] = ((uint8_t *)&crc)[2];
-      harq_process->payload_AB[1 + (A >> 3)] = ((uint8_t *)&crc)[1];
-      harq_process->payload_AB[2 + (A >> 3)] = ((uint8_t *)&crc)[0];
-      B = A + 24;
-      AssertFatal((A / 8) + 4 <= max_payload_bytes, "A %d is too big (A/8+4 = %d > %d)\n", A, (A / 8) + 4, max_payload_bytes);
-    } else {
-      // Add 16-bit crc (polynomial A) to payload
-      const unsigned int crc = crc16(harq_process->payload_AB, A) >> 16;
-      harq_process->payload_AB[A >> 3] = ((uint8_t *)&crc)[1];
-      harq_process->payload_AB[1 + (A >> 3)] = ((uint8_t *)&crc)[0];
-      B = A + 16;
-      AssertFatal((A / 8) + 3 <= max_payload_bytes, "A %d is too big (A/8+3 = %d > %d)\n", A, (A / 8) + 3, max_payload_bytes);
-    }
+  harq_process->BG = ldpcBaseGraph;
 
-    ///////////////////////// b---->| block segmentation |---->c /////////////////////////
-
-    harq_process->BG = pusch_pdu->ldpcBaseGraph;
-
-    harq_process->Kb = nr_segmentation(harq_process->payload_AB,
-                                       harq_process->c,
-                                       B,
-                                       &harq_process->C,
-                                       &harq_process->K,
-                                       &harq_process->Z,
-                                       &harq_process->F,
-                                       harq_process->BG);
-    if (harq_process->C > MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * pusch_pdu->nrOfLayers) {
-      LOG_E(PHY, "nr_segmentation.c: too many segments %d, B %d\n", harq_process->C, B);
-      return (-1);
-    }
-  } // pusch_id
+  harq_process->Kb = nr_segmentation(harq_process->payload_AB,
+                                     harq_process->c,
+                                     B,
+                                     &harq_process->C,
+                                     &harq_process->K,
+                                     &harq_process->Z,
+                                     &harq_process->F,
+                                     harq_process->BG);
+  if (harq_process->C > MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * nrOfLayers) {
+    LOG_E(PHY, "nr_segmentation.c: too many segments %d, B %d\n", harq_process->C, B);
+    return (-1);
+  }
   return 0;
 }
 

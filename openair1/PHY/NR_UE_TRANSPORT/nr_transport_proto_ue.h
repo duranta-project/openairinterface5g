@@ -60,9 +60,10 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
                        int number_rbs,
                        int G);
 
-int nr_ulsch_pre_encoding(PHY_VARS_NR_UE *ue,
-                          NR_UL_UE_HARQ_t *harq_process,
-                          const nfapi_nr_ue_pusch_pdu_t *pusch_pdu);
+int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
+                          uint32_t tb_size_bytes,
+                          uint8_t nrOfLayers,
+                          uint8_t ldpcBaseGraph);
 
 /** \brief This is the alternative top-level entry point for ULSCH encoding in UE.
     It handles all the HARQ processes in only one call. The routine first
