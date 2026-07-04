@@ -25,7 +25,7 @@ services:
       - /var/log/aerial:/var/log/aerial
     userns_mode: host
     ipc: "shareable"
-    image: nv-cubb:26-1
+    image: nv-cubb:26-1_10_04
     environment:
       - cuBB_SDK=/opt/nvidia/cuBB
     command: bash -c "/opt/nvidia/cuBB/run-l1.sh"
