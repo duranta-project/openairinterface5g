@@ -17,6 +17,7 @@
 #include "BIT_STRING.h"
 #include "L1_nr_paramdef.h"
 #include "MACRLC_nr_paramdef.h"
+#include "aerial_paramdef.h"
 #include "PHY/INIT/nr_phy_init.h"
 #include "PHY/defs_gNB.h"
 #include "PHY/defs_nr_common.h"
@@ -1516,6 +1517,19 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
         config.pdsch_AntennaPorts.N2,
         config.pdsch_AntennaPorts.XP,
         config.pusch_AntennaPorts);
+
+  // Aerial: physical antenna counts advertised to the L1 in CONFIG.request,
+  // decoupled from the logical antenna ports above
+  GET_PARAMS(Aerial_Params, AERIALPARAMS_DESC, CONFIG_STRING_AERIAL);
+  config.aerial.num_tx_ant = *gpd(Aerial_Params, sizeofArray(Aerial_Params), AERIAL_NUM_TX_ANT)->iptr;
+  config.aerial.num_rx_ant = *gpd(Aerial_Params, sizeofArray(Aerial_Params), AERIAL_NUM_RX_ANT)->iptr;
+  AssertFatal(config.aerial.num_tx_ant >= 0 && config.aerial.num_tx_ant <= 64
+                  && config.aerial.num_rx_ant >= 0 && config.aerial.num_rx_ant <= 64,
+              "Aerial num_tx_ant (%d) and num_rx_ant (%d) must be in 0..64\n",
+              config.aerial.num_tx_ant,
+              config.aerial.num_rx_ant);
+  if (config.aerial.num_tx_ant > 0 || config.aerial.num_rx_ant > 0)
+    LOG_I(GNB_APP, "Aerial physical antennas: num_tx_ant %d num_rx_ant %d\n", config.aerial.num_tx_ant, config.aerial.num_rx_ant);
 
   // RU
   GET_PARAMS_LIST(RUParamList, RUParams, RUPARAMS_DESC, CONFIG_STRING_RU_LIST, NULL);
