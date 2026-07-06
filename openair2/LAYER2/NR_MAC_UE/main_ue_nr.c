@@ -44,8 +44,13 @@ void nr_ue_init_mac_sl(NR_UE_MAC_INST_t *mac)
   mac->sl_candidate_resources = (List_t*)malloc16_clear(sizeof(List_t*));
   init_list(mac->sl_candidate_resources, sizeof(sl_resource_info_t), 1);
 
-  // TODO here: previously src_id from config, now hardcoded. is necessary?
-  mac->src_id = 1;
+  // Assuming only 2 UEs in the system: the SyncRef UE (sync_ref != 0) and the
+  // Nearby UE (sync_ref == 0). They must use distinct source IDs, otherwise the
+  // receiver's find_UE(SRC) cannot match the transmitter in its peer list and
+  // drops every received SLSCH PDU. Give the SyncRef UE src_id 0 and the Nearby
+  // UE src_id 1, so each appears as the single peer (uid) in the other's peer
+  // list built below.
+  mac->src_id = get_nrUE_params()->sync_ref ? 0 : 1;
 
   for (int i = 0; i < CUR_SL_UE_CONNECTIONS + 1; i++) {
     if (mac->src_id == i)
