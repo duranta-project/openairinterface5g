@@ -479,8 +479,8 @@ typedef struct PHY_VARS_NR_UE_s {
   uint32_t ***nr_gold_pscch;
   /// PSSCH signal detection threshold
   int pssch_thres;
-  // PUCCH0 Look-up table for cyclic-shifts
-  //NR_UE_PUCCH0_LUT_t pucch0_lut;
+  // PUCCH0 Look-up table for cyclic-shifts (used by PSFCH reception)
+  NR_UE_PUCCH0_LUT_t pucch0_lut;
   // Threading
 
   Actor_t sync_actor;
