@@ -749,6 +749,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
       if (dmrs_symbol == INVALID_VALUE)
         dmrs_symbol = symbol;
 
+      uint32_t nvar_symbol = 0;
       for (int nl=0; nl<nrOfLayers; nl++) {
         uint32_t nvar_tmp = 0;
 	int dmrs_port = get_dmrs_port(nl,dmrs_ports);
@@ -763,41 +764,35 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
                                     &max_ch,
                                     &nvar_tmp);
         nvar += nvar_tmp;
+        nvar_symbol += nvar_tmp;
       }
       (void) nvar; // prevent warning
-/*
-      PHY_MEASUREMENTS_gNB *meas = ue->sl_measurements;
-      gNB_I0_measurements(meas, frame_parms,ulsch, pusch_vars, symbol, nrOfLayers);
-      allocCast2D(n0_subband_power,
-                  unsigned int,
-                  meas->n0_subband_power,
-                  frame_parms->nb_antennas_rx,
-                  frame_parms->N_RB_UL,
-                  false);
+
+      /*
+       * PSSCH signal / noise power measurement, consumed by the DTX (energy)
+       * detection in phy_procedures_nrUE_SL. ue->sl_measurements is not
+       * allocated for the SL UE, so instead of gNB_I0_measurements() we derive
+       * the signal power from the channel estimates and the noise power from
+       * the channel-estimation residual (nvar). Values are accumulated over the
+       * DMRS symbols; the consumer divides by the number of DMRS symbols.
+       */
       for (aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
-        if (symbol == start_symbol_index) {
+        if (symbol == dmrs_symbol) {
           pusch_vars->ulsch_power[aarx] = 0;
           pusch_vars->ulsch_noise_power[aarx] = 0;
         }
         for (aatx = 0; aatx < nrOfLayers; aatx++) {
           pusch_vars->ulsch_power[aarx] += signal_energy_nodc(
-              (c16_t*)&pusch_vars->ul_ch_estimates[aatx * frame_parms->nb_antennas_rx + aarx][symbol * frame_parms->ofdm_symbol_size],
-              rb_size * 12);
+              (c16_t *)&pusch_vars->ul_ch_estimates[aatx * frame_parms->nb_antennas_rx + aarx][symbol * frame_parms->ofdm_symbol_size],
+              rb_size * NR_NB_SC_PER_RB);
         }
-        for (int rb = 0; rb < rb_size; rb++) {
-          pusch_vars->ulsch_noise_power[aarx] +=
-              n0_subband_power[aarx][bwp_start + rb_start + rb] / rb_size;
-        }
+        pusch_vars->ulsch_noise_power[aarx] += nvar_symbol / nrOfLayers;
         LOG_D(NR_PHY,
-              "aa %d, symbol %d, bwp_start%d, rb_start %d, rb_size %d: ulsch_power %d, ulsch_noise_power %d\n",
-              aarx,symbol,
-              bwp_start,
-              rb_start,
-              rb_size,
+              "aa %d, symbol %d, rb_start %d, rb_size %d: ulsch_power %d, ulsch_noise_power %d\n",
+              aarx, symbol, rb_start, rb_size,
               pusch_vars->ulsch_power[aarx],
               pusch_vars->ulsch_noise_power[aarx]);
       }
-*/
     }
   }
 
