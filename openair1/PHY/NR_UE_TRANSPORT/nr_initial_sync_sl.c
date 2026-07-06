@@ -157,12 +157,12 @@ static int sl_nr_pss_correlation(PHY_VARS_NR_UE *UE, int frame_index)
 static void sl_nr_extract_sss(PHY_VARS_NR_UE *ue,
                               int32_t *tot_metric,
                               uint8_t *phase_max,
-                              c16_t rxdataF[][ue->SL_UE_PHY_PARAMS.sl_frame_params.samples_per_slot_wCP])
+                              NR_DL_FRAME_PARMS *sl_fp,
+                              c16_t rxdataF[][sl_fp->nb_antennas_rx][sl_fp->ofdm_symbol_size])
 {
   c16_t pss_ext[SL_NR_MAX_RX_ANTENNA][SL_NR_NUM_PSS_SYMBOLS][SL_NR_PSS_SEQUENCE_LENGTH];
   c16_t sss_ext[SL_NR_MAX_RX_ANTENNA][SL_NR_NUM_SSS_SYMBOLS][SL_NR_PSS_SEQUENCE_LENGTH];
   uint8_t Nid2 = ue->SL_UE_PHY_PARAMS.sync_params.N_sl_id2;
-  NR_DL_FRAME_PARMS *sl_fp = &ue->SL_UE_PHY_PARAMS.sl_frame_params;
   int16_t *d;
   uint16_t Nid1 = 0;
   c16_t *rxF_ext;
@@ -190,7 +190,7 @@ static void sl_nr_extract_sss(PHY_VARS_NR_UE *ue,
             sym);
 
       for (int i = 0; i < SL_NR_PSS_SEQUENCE_LENGTH; i++) {
-        rxF_ext[i] = rxdataF[aarx][sym * ofdm_symbol_size + k];
+        rxF_ext[i] = rxdataF[sym][aarx][k];
         k++;
         if (k == ofdm_symbol_size)
           k = 0;
@@ -427,28 +427,26 @@ nr_initial_sync_t sl_nr_slss_search(PHY_VARS_NR_UE *UE, UE_nr_rxtx_proc_t *proc,
           }
         }
 
-        NR_DL_FRAME_PARMS *frame_parms = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
-        const uint32_t rxdataF_sz = frame_parms->samples_per_slot_wCP;
-        __attribute__((aligned(32))) c16_t rxdataF[frame_parms->nb_antennas_rx][rxdataF_sz];
+        NR_DL_FRAME_PARMS *fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
+        __attribute__((aligned(32))) c16_t rxdataF[SL_NR_NUMSYM_SLSS_NORMAL_CP][fp->nb_antennas_rx][fp->ofdm_symbol_size];
 
         /* In order to achieve correct processing for NR prefix samples is forced to 0 and then restored after function call */
         int16_t psbch_e_rx[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2] = {0};
         int16_t psbch_unClipped[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2] = {0};
         int psbch_e_rx_offset = 0;
 
-        for (int symbol = 0; symbol < SL_NR_NUMSYM_SLSS_NORMAL_CP; symbol++) {
-          nr_slot_fep(UE,
-                      frame_parms,
-                      proc->nr_slot_rx,
-                      symbol,
-                      rxdataF,
-                      link_type_sl,
-                      sync_params->ssb_offset,
-                      UE->common_vars.rxdata);
+        {
+          __attribute__((aligned(32))) c16_t tmp[fp->nb_antennas_rx][fp->samples_per_slot_wCP];
+          for (int symbol = 0; symbol < SL_NR_NUMSYM_SLSS_NORMAL_CP; symbol++) {
+            nr_slot_fep(UE, fp, proc->nr_slot_rx, symbol, tmp, link_type_sl, sync_params->ssb_offset, UE->common_vars.rxdata);
+            // TODO: remove the memcpy after symbol based receiver is integrated
+            for (int aarx = 0; aarx < fp->nb_antennas_rx; aarx++) {
+              memcpy(rxdataF[symbol][aarx], &tmp[aarx][symbol * fp->ofdm_symbol_size], sizeof(c16_t) * fp->ofdm_symbol_size);
+            }
+          }
         }
 
-        /* TODO: change this function to use new rxdataF format */
-        sl_nr_extract_sss(UE, &metric_tdd_ncp, &phase_tdd_ncp, rxdataF);
+        sl_nr_extract_sss(UE, &metric_tdd_ncp, &phase_tdd_ncp, fp, rxdataF);
 
         // save detected cell id to psbch
         rx_slss_id = UE->SL_UE_PHY_PARAMS.sync_params.N_sl_id;
@@ -456,34 +454,29 @@ nr_initial_sync_t sl_nr_slss_search(PHY_VARS_NR_UE *UE, UE_nr_rxtx_proc_t *proc,
         uint8_t decoded_output[4];
 
         for (int symbol = 0; symbol < SL_NR_NUMSYM_SLSS_NORMAL_CP - 1;) {
-          __attribute__((aligned(32))) struct complex16 dl_ch_estimates[frame_parms->nb_antennas_rx][frame_parms->ofdm_symbol_size];
-          __attribute__((aligned(32))) c16_t rxdataF_symb[frame_parms->nb_antennas_rx][frame_parms->ofdm_symbol_size];
-          for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
-            /* TODO: Change sl sss extract to follow the new rxdataF format */
-            memcpy(rxdataF_symb[aarx],
-                   &rxdataF[aarx][symbol * frame_parms->ofdm_symbol_size],
-                   sizeof(c16_t) * frame_parms->ofdm_symbol_size);
-            nr_pbch_channel_estimation(frame_parms,
+          __attribute__((aligned(32))) struct complex16 dl_ch_estimates[fp->nb_antennas_rx][fp->ofdm_symbol_size];
+          for (int aarx = 0; aarx < fp->nb_antennas_rx; aarx++) {
+            nr_pbch_channel_estimation(fp,
                                        &UE->SL_UE_PHY_PARAMS,
                                        dl_ch_estimates[aarx],
                                        proc,
                                        symbol,
                                        0,
                                        0,
-                                       frame_parms->ssb_start_subcarrier,
-                                       rxdataF_symb[aarx],
+                                       fp->ssb_start_subcarrier,
+                                       rxdataF[symbol][aarx],
                                        true,
                                        rx_slss_id);
           }
-          nr_generate_psbch_llr(frame_parms,
-                                rxdataF_symb,
+          nr_generate_psbch_llr(fp,
+                                rxdataF[symbol],
                                 dl_ch_estimates,
                                 symbol,
                                 &psbch_e_rx_offset,
                                 psbch_e_rx,
                                 psbch_unClipped);
 
-          UE->adjust_rxgain = nr_sl_psbch_rsrp_measurements(UE, sl_ue, frame_parms, symbol, rxdataF, false);
+          UE->adjust_rxgain = nr_sl_psbch_rsrp_measurements(UE, sl_ue, fp, symbol, rxdataF[symbol], false);
 
           symbol = (symbol == 0) ? 5 : symbol + 1;
         }

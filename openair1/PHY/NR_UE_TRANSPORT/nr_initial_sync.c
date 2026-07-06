@@ -159,6 +159,24 @@ static void generate_table(nr_ssb_search_params_t *params,
                           symbol_rotation);
 }
 
+static c16_t *data_in_buffer_edge(c16_t *rxdata, uint32_t rxdata_size, uint32_t sample_offset, uint32_t fft_size)
+{
+  if (sample_offset + fft_size <= rxdata_size)
+    return NULL;
+
+  LOG_I(NR_PHY,
+        "SSB found in edge of rxdata buffer. Circling back to begining. Buf size: %d, offset: %d, fft size: %d\n",
+        rxdata_size,
+        sample_offset,
+        fft_size);
+  c16_t *buf = malloc16(sizeof(*buf) * fft_size);
+  const int num_rxdata_end = (rxdata_size - sample_offset);
+  const int num_rxdata_start = fft_size - num_rxdata_end;
+  memcpy(buf, rxdata + sample_offset, num_rxdata_end * sizeof(*buf));
+  memcpy(buf + num_rxdata_end, rxdata, num_rxdata_start * sizeof(*buf));
+  return buf;
+}
+
 static void do_time_to_freq(nr_ssb_search_params_t *params, uint32_t sample_offset)
 {
   c16_t timeshift_symbol_rotation[params->ofdm_symbol_size];
@@ -175,9 +193,15 @@ static void do_time_to_freq(nr_ssb_search_params_t *params, uint32_t sample_offs
     rx_offset += symb * (params->nb_prefix_samples + params->ofdm_symbol_size);
     // use OFDM symbol from within 1/8th of the CP to avoid ISI
     rx_offset -= params->nb_prefix_samples / params->ofdm_offset_divisor;
+    rx_offset %= params->rxdata_size;
     for (unsigned char aa = 0; aa < params->nb_antennas_rx; aa++) {
       c16_t *rxF = rxdataF[symb][aa];
-      dft(dftsize, (int16_t *)&params->rxdata[aa][rx_offset], (int16_t *)rxF, 1);
+      /* When the signal is in the edge of search window then circle back to the
+       * beginning because the signal is periodic. */
+      c16_t *rx_edge = data_in_buffer_edge(params->rxdata[aa], params->rxdata_size, rx_offset, params->ofdm_symbol_size);
+      c16_t *rx = (rx_edge) ? rx_edge : &params->rxdata[aa][rx_offset];
+      dft(dftsize, (int16_t *)rx, (int16_t *)rxF, 1);
+      free_and_zero(rx_edge);
       apply_nr_rotation_symbol_RX(params->symbols_per_slot,
                                   params->slots_per_subframe,
                                   timeshift_symbol_rotation,
@@ -218,16 +242,6 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
 #ifdef DEBUG_INITIAL_SYNCH
   LOG_I(PHY, "Initial sync : Estimated PSS position %d, Nid2 %d, ssb offset %d\n", sync_pos, nid2, ssb_offset);
 #endif
-
-  // Check that SSB fits within buffer
-  if (ssb_time_offset + NR_N_SYMBOLS_SSB * (params->ofdm_symbol_size + params->nb_prefix_samples) >= params->rxdata_size) {
-    LOG_D(PHY,
-          "SSB extends beyond buffer boundary (sync_pos %d, ssb_offset %d, buffer_size %d)\n",
-          params->pss_res.pos,
-          ssb_time_offset,
-          params->rxdata_size);
-    return false;
-  }
 
   // Apply frequency offset compensation if requested
   if (params->apply_freq_offset && params->pss_res.freq_offset != 0) {
@@ -293,76 +307,66 @@ static void nr_scan_ssb(void *arg)
   if (ssbInfo->freqOffset)
     compensate_freq_offset(rxdata, fp->nb_antennas_rx, ssbInfo->rxdata_sz, ssbInfo->freqOffset, fp->samples_per_subframe * 1000);
 
-  for (int frame_id = 0; frame_id < ssbInfo->nFrames && !ssbInfo->syncRes.cell_detected; frame_id++) {
-    c16_t *rxdataShift[fp->nb_antennas_rx];
-    for (int i = 0; i < fp->nb_antennas_rx; i++)
-      rxdataShift[i] = rxdata[i] + fp->samples_per_frame * frame_id;
+  nr_ssb_search_params_t search_params = {
+      .dl_CarrierFreq = fp->dl_CarrierFreq,
+      .sampling_rate = fp->samples_per_subframe * 1000,
+      .slots_per_frame = fp->slots_per_frame,
+      .slots_per_subframe = fp->slots_per_subframe,
+      .numerology_index = fp->numerology_index,
+      .ofdm_symbol_size = fp->ofdm_symbol_size,
+      .ofdm_offset_divisor = fp->ofdm_offset_divisor,
+      .nb_antennas_rx = fp->nb_antennas_rx,
+      .symbols_per_slot = fp->symbols_per_slot,
+      .first_carrier_offset = fp->first_carrier_offset,
+      .N_RB_DL = fp->N_RB_DL,
+      .rxdata_size = ssbInfo->nFrames * fp->samples_per_frame,
+      .rxdata = rxdata,
+      .nb_prefix_samples = fp->nb_prefix_samples,
+      .nb_prefix_samples0 = fp->nb_prefix_samples0,
+      .ssb_start_subcarrier = ssbInfo->gscnInfo.ssbFirstSC,
+      .subcarrier_spacing = fp->subcarrier_spacing,
+      .samples_per_slot_wCP = fp->samples_per_slot_wCP,
+      .target_nid_cell = ssbInfo->targetNidCell,
+      .exclude_nid_cell = -1, // No exclusion for initial sync
+      .apply_freq_offset = ssbInfo->foFlag,
+      .fo_flag = ssbInfo->foFlag,
+      .rxdataF = rxdataF,
+      .pssTime = pssTime,
+  };
 
-    nr_ssb_search_params_t search_params = {
-        .dl_CarrierFreq = fp->dl_CarrierFreq,
-        .sampling_rate = fp->samples_per_subframe * 1000,
-        .slots_per_frame = fp->slots_per_frame,
-        .slots_per_subframe = fp->slots_per_subframe,
-        .numerology_index = fp->numerology_index,
-        .ofdm_symbol_size = fp->ofdm_symbol_size,
-        .ofdm_offset_divisor = fp->ofdm_offset_divisor,
-        .nb_antennas_rx = fp->nb_antennas_rx,
-        .symbols_per_slot = fp->symbols_per_slot,
-        .first_carrier_offset = fp->first_carrier_offset,
-        .N_RB_DL = fp->N_RB_DL,
-        .rxdata_size = fp->samples_per_frame,
-        .rxdata = rxdataShift,
-        .nb_prefix_samples = fp->nb_prefix_samples,
-        .nb_prefix_samples0 = fp->nb_prefix_samples0,
-        .ssb_start_subcarrier = ssbInfo->gscnInfo.ssbFirstSC,
-        .subcarrier_spacing = fp->subcarrier_spacing,
-        .samples_per_slot_wCP = fp->samples_per_slot_wCP,
-        .target_nid_cell = ssbInfo->targetNidCell,
-        .exclude_nid_cell = -1, // No exclusion for initial sync
-        .apply_freq_offset = ssbInfo->foFlag,
-        .fo_flag = ssbInfo->foFlag,
-        .rxdataF = rxdataF,
-        .pssTime = pssTime,
-    };
+  ssbInfo->syncRes.cell_detected = nr_search_ssb_common(&search_params);
 
-    ssbInfo->syncRes.frame_id = frame_id;
-    ssbInfo->syncRes.cell_detected = nr_search_ssb_common(&search_params);
-
-    if (!ssbInfo->syncRes.cell_detected) {
-      continue;
-    }
-
-    ssbInfo->ssbOffset = search_params.pss_res.pos - search_params.nb_prefix_samples;
-    ssbInfo->nidCell = search_params.sss_res.nid_cell;
+  ssbInfo->ssbOffset = search_params.pss_res.pos - search_params.nb_prefix_samples;
+  ssbInfo->syncRes.frame_id = ssbInfo->ssbOffset / fp->samples_per_frame;
+  ssbInfo->nidCell = search_params.sss_res.nid_cell;
 
 #ifdef DEBUG_INITIAL_SYNCH
-    LOG_I(PHY,
-          "TDD Normal prefix: sss detection result; %d, CellId %d metric %d, phase %d, measured offset %d\n",
-          ssbInfo->syncRes.cell_detected,
-          ssbInfo->nidCell,
-          sss_metric,
-          sss_phase,
-          ssbInfo->syncRes.rx_offset);
+  LOG_I(PHY,
+        "TDD Normal prefix: sss detection result; %d, CellId %d metric %d, phase %d, measured offset %d\n",
+        ssbInfo->syncRes.cell_detected,
+        ssbInfo->nidCell,
+        sss_metric,
+        sss_phase,
+        ssbInfo->syncRes.rx_offset);
 #endif
-    ssbInfo->freqOffset += search_params.pss_res.freq_offset + search_params.sss_res.freq_offset;
+  ssbInfo->freqOffset += search_params.pss_res.freq_offset + search_params.sss_res.freq_offset;
 
-    if (ssbInfo->syncRes.cell_detected) { // we got sss channel
-      ssbInfo->syncRes.cell_detected = nr_pbch_detection(ssbInfo->proc,
-                                                         ssbInfo->fp,
-                                                         ssbInfo->nidCell,
-                                                         1,
-                                                         ssbInfo->gscnInfo.ssbFirstSC,
-                                                         &ssbInfo->halfFrameBit,
-                                                         &ssbInfo->ssbIndex,
-                                                         &ssbInfo->symbolOffset,
-                                                         &ssbInfo->pbchResult,
-                                                         rxdataF); // start pbch detection at first symbol after pss
-      if (ssbInfo->syncRes.cell_detected) {
-        uint32_t rsrp_avg = nr_ue_calculate_ssb_rsrp(ssbInfo->fp, rxdataF[2], ssbInfo->gscnInfo.ssbFirstSC);
-        int rsrp_db_per_re = 10 * log10(rsrp_avg);
-        ssbInfo->adjust_rxgain = TARGET_RX_POWER - rsrp_db_per_re;
-        LOG_I(PHY, "pbch rx ok. rsrp:%d dB/RE, adjust_rxgain:%d dB\n", rsrp_db_per_re, ssbInfo->adjust_rxgain);
-      }
+  if (ssbInfo->syncRes.cell_detected) { // we got sss channel
+    ssbInfo->syncRes.cell_detected = nr_pbch_detection(ssbInfo->proc,
+                                                       ssbInfo->fp,
+                                                       ssbInfo->nidCell,
+                                                       1,
+                                                       ssbInfo->gscnInfo.ssbFirstSC,
+                                                       &ssbInfo->halfFrameBit,
+                                                       &ssbInfo->ssbIndex,
+                                                       &ssbInfo->symbolOffset,
+                                                       &ssbInfo->pbchResult,
+                                                       rxdataF); // start pbch detection at first symbol after pss
+    if (ssbInfo->syncRes.cell_detected) {
+      uint32_t rsrp_avg = nr_ue_calculate_ssb_rsrp(ssbInfo->fp, rxdataF[2], ssbInfo->gscnInfo.ssbFirstSC);
+      int rsrp_db_per_re = 10 * log10(rsrp_avg);
+      ssbInfo->adjust_rxgain = TARGET_RX_POWER - rsrp_db_per_re;
+      LOG_I(PHY, "pbch rx ok. rsrp:%d dB/RE, adjust_rxgain:%d dB\n", rsrp_db_per_re, ssbInfo->adjust_rxgain);
     }
   }
 
@@ -488,7 +492,7 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
       res->syncRes.rx_offset = fp->samples_per_frame - sync_pos_frame + res->ssbOffset;
       ue->init_sync_frame += 1;
     } else {
-      res->syncRes.rx_offset = res->ssbOffset - sync_pos_frame;
+      res->syncRes.rx_offset = (res->ssbOffset - sync_pos_frame) % fp->samples_per_frame;
     }
 
     LOG_I(PHY, "[UE%d] In synch, rx_offset %d samples\n", ue->Mod_id, res->syncRes.rx_offset);
