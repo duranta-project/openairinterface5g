@@ -431,38 +431,6 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	pthread_mutex_unlock(&p7_info->mutex);
 }
 
-void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
-{
-	if (pRecvMsg == NULL || vnf_p7 == NULL)
-	{
-		NFAPI_TRACE(NFAPI_TRACE_ERROR, "vnf_handle_timing_info: NULL parameters\n");
-		return;
-	}
-
-	nfapi_timing_info_t ind;
-	if(nfapi_p7_message_unpack(pRecvMsg, recvMsgLen, &ind, sizeof(nfapi_timing_info_t), &vnf_p7->_public.codec_config) < 0)
-	{
-		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack timing_info\n");
-		return;
-	}
-
-        if (vnf_p7 && vnf_p7->p7_connections)
-        {
-          int16_t vnf_pnf_sfnsf_delta = NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf) - NFAPI_SFNSF2DEC(ind.last_sfn_sf);
-
-          //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() PNF:SFN/SF:%d VNF:SFN/SF:%d deltaSFNSF:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(ind.last_sfn_sf), NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf), vnf_pnf_sfnsf_delta);
-
-          // Panos: Careful here!!! Modification of the original nfapi-code
-          //if (vnf_pnf_sfnsf_delta>1 || vnf_pnf_sfnsf_delta < -1)
-          if (vnf_pnf_sfnsf_delta>0 || vnf_pnf_sfnsf_delta < 0)
-          {
-            NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() LARGE SFN/SF DELTA between PNF and VNF delta:%d VNF:%d PNF:%d\n\n\n\n\n\n\n\n\n", __FUNCTION__, vnf_pnf_sfnsf_delta, NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf), NFAPI_SFNSF2DEC(ind.last_sfn_sf));
-            // Panos: Careful here!!! Modification of the original nfapi-code
-            vnf_p7->p7_connections[0].sfn_sf = ind.last_sfn_sf;
-          }
-        }
-}
-
 int vnf_nr_extract_timing_info(const nfapi_nr_timing_info_t *ind,
                                nfapi_vnf_p7_connection_info_t *p7_info,
                                vnf_timing_stats_t *out_stats)
@@ -474,13 +442,9 @@ int vnf_nr_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 	if (slot_duration_us <= 0) {
 		return 0;
 	}
-	nfapi_nr_vnf_config_t *config = get_nr_config();
-	if (config == NULL) {
-		return 0;
-	}
 	int32_t slots_per_frame = 10 << p7_info->mu;
 	int64_t frame_duration_us = (int64_t)slots_per_frame * (int64_t)slot_duration_us;
-	int64_t timing_window_us = (int64_t)config->timing_window;
+	int64_t timing_window_us = (int64_t)p7_info->timing_window;
 	int64_t valid_span_us = timing_window_us + frame_duration_us;
 	if (valid_span_us <= 0) {
 		valid_span_us = frame_duration_us;

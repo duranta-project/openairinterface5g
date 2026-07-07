@@ -367,8 +367,9 @@ void *vnf_timing_thread(void *arg)
       if (vnf_p7->p7_connections) {
         p7_info = vnf_p7->p7_connections;
         if (RC.nrmac && RC.nrmac[0]) {
-          nfapi_nr_config_request_scf_t *req = &RC.nrmac[0]->config[0];
-          const nfapi_uint8_tlv_t *scs = &req->ssb_config.scs_common;
+          nr_cell_sched_t *cell = nr_mac_get_cell_by_phy_id(RC.nrmac[0], 0);
+          nfapi_nr_config_request_scf_t *req = cell ? &cell->config : NULL;
+          const nfapi_uint8_tlv_t *scs = req ? &req->ssb_config.scs_common : NULL;
           if (scs && scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG) {
             mu = scs->value;
           }
