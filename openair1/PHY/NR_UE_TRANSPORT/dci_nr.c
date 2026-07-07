@@ -491,7 +491,7 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
       }
       uint64_t dci_estimation[2] = {0};
       LOG_D(NR_PHY_DCI,
-            "(%i.%i) Trying DCI candidate %d of %d number of candidates, CCE %d (%d), L %d, length %d, format %d\n",
+            "%4i.%2i Trying DCI candidate %d of %d number of candidates, CCE %d (%d), L %d, length %d, format %d\n",
             proc->frame_rx,
             proc->nr_slot_rx,
             j,
@@ -514,7 +514,7 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
 
       rnti_t n_rnti = rel15->rnti;
       if (crc == n_rnti) {
-        LOG_D(NR_PHY_DCI,
+        LOG_W(NR_PHY_DCI,
               "(%i.%i) Received %s indication (rnti %x,dci format %d,n_CCE %d,payloadSize %d,payload %llx)\n",
               proc->frame_rx,
               proc->nr_slot_rx,
@@ -554,7 +554,7 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
 	  };
 	  memcpy(sci->sci_payloadBits,&dci_estimation,8);
           sci_ind->number_of_SCIs++;
-          //ue->SL_UE_PHY_PARAMS.pscch.rx_ok++;
+          //ue->SL_UE_PHY_PARAMS.pscch.rx_ok++; TODO
 	}	
         break;    // If DCI is found, no need to check for remaining DCI lengths
       } else {
@@ -619,14 +619,15 @@ void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
     }
   }
 
+
   for (int i = 0; i < (sci_indication? sci_ind.number_of_SCIs : dci_ind.number_of_dcis); i++) {
-    LOG_D(PHY,
+    LOG_W(PHY,
           "Frame.slot: %d.%d: DCI %i of %d total DCIs found --> %s %x : format %d\n",
           proc->frame_rx,
           proc->nr_slot_rx,
           i + 1,
           sci_indication ? sci_ind.number_of_SCIs : dci_ind.number_of_dcis,
-	  sci_indication ? "Nid" : "RNTI",
+          sci_indication ? "Nid" : "RNTI",
           sci_indication ? sci_ind.sci_pdu[i].Nid : dci_ind.dci_list[i].rnti,
           sci_indication ? sci_ind.sci_pdu[i].sci_format_type : dci_ind.dci_list[i].dci_format);
   }
