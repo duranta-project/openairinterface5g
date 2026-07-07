@@ -876,6 +876,9 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
     rel15->L[0] = phy_data->nr_sl_pscch_pdu.pscch_numrbs * phy_data->nr_sl_pscch_pdu.pscch_numsym;
     // This provides the offset of the candidate of PSCCH in RBs instead of CCEs
     rel15->CCE[0] = 0;
+    // pdcch_processing() derives the monitored symbols from coreset.StartSymbolBitmap
+    // (MSB-first over the slot), not StartSymbolIndex; PSCCH is monitored from symbol 1
+    rel15->coreset.StartSymbolBitmap = 1 << (fp->symbols_per_slot - 1 - 1);
     phy_data->phy_pdcch_config.nb_search_space = 1;
     pdcch_processing(ue, proc, phy_data,1);
 
