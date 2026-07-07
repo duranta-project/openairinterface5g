@@ -264,7 +264,7 @@ static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b)
 
   return (int64_t)sec_diff * 1000000 + (usec_a - usec_b);
 }
-static uint32_t get_slot_time(uint32_t now_hr, uint32_t slot_start_hr)
+uint32_t get_slot_time(uint32_t now_hr, uint32_t slot_start_hr)
 {
 	// Use proper signed difference to handle wrap-around
 	int64_t diff_us = timehr_diff_us(now_hr, slot_start_hr);

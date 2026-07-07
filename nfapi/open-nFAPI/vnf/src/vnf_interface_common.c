@@ -68,9 +68,9 @@ int nfapi_vnf_allocate_phy(nfapi_vnf_config_t *config, int p5_idx, uint16_t *phy
   info->p5_idx = p5_idx;
   info->phy_id = vnf->next_phy_id++;
 
-  info->timing_window = config->timing_window;
-  info->timing_info_mode = config->timing_info_mode;
-  info->timing_info_period = config->timing_info_period;
+  info->timing_window = 30;
+  info->timing_info_mode = 0x03;
+  info->timing_info_period = 10;
 
   nfapi_vnf_phy_info_list_add(config, info);
 
@@ -121,9 +121,9 @@ int nfapi_nr_vnf_allocate_phy(nfapi_nr_vnf_config_t *config, int p5_idx, uint16_
   info->p5_idx = p5_idx;
   info->phy_id = vnf->next_phy_id++;
 
-  info->timing_window = 30;
-  info->timing_info_mode = 0x03;
-  info->timing_info_period = 10;
+  info->timing_window = config->timing_window;
+  info->timing_info_mode = config->timing_info_mode;
+  info->timing_info_period = config->timing_info_period;
 
   nfapi_nr_vnf_phy_info_list_add(config, info);
 
