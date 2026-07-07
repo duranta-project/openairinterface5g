@@ -593,6 +593,7 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
         UE->if_inst->sl_indication(&sl_indication);
       }
 
+      // not triggered? check gdb
       if (phy_data->sl_rx_action) {
 
         AssertFatal((phy_data->sl_rx_action >= SL_NR_CONFIG_TYPE_RX_PSBCH &&

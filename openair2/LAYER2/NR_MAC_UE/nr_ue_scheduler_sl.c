@@ -608,7 +608,7 @@ static void nr_store_slsch_buffer(NR_UE_MAC_INST_t *mac, frame_t frame, sub_fram
 
     sched_ctrl->sl_pdus_total += sched_ctrl->rlc_status[lcid].pdus_in_buffer;
     sched_ctrl->num_total_bytes += sched_ctrl->rlc_status[lcid].bytes_in_buffer;
-    LOG_D(MAC,
+    LOG_I(MAC,
           "[%4d.%2d] SLSCH, RLC status for UE: %d bytes in buffer, total DL buffer size = %d bytes, %d total PDU bytes\n",
           frame,
           slot,
@@ -692,7 +692,7 @@ void preprocess(NR_UE_MAC_INST_t *mac,
       update_harq_lists(mac, frame, slot, UE);
       *fb_frame = rcv_tx_frame;
       *fb_slot = psfch_slot;
-      LOG_D(NR_MAC, "Tx SLSCH %4d.%2d, Expected Feedback: %4d.%2d in current PSFCH: psfch_period %ld\n",
+      LOG_I(NR_MAC, "Tx SLSCH %4d.%2d, Expected Feedback: %4d.%2d in current PSFCH: psfch_period %ld\n",
             frame,
             slot,
             *fb_frame,
@@ -789,7 +789,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
       cur_harq->feedback_frame = feedback_frame;
       add_tail_nr_list(&sched_ctrl->feedback_sl_harq, harq_id);
       cur_harq->is_waiting = true;
-      LOG_D(NR_MAC, "%4d.%2d Sending Data; Expecting feedback at %4d.%2d\n", frame, slot, feedback_frame, feedback_slot);
+      LOG_W(NR_MAC, "%4d.%2d Sending Data; Expecting feedback at %4d.%2d\n", frame, slot, feedback_frame, feedback_slot);
     }
     else
       add_tail_nr_list(&sched_ctrl->available_sl_harq, harq_id);
@@ -800,6 +800,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
     */
     cur_harq->ndi ^= 1;
 
+    // why inside mac->sci1_pdu?
     nr_schedule_slsch(mac, frame, slot, &mac->sci1_pdu, &mac->sci2_pdu, NR_SL_SCI_FORMAT_2A,
                       UE, &slsch_pdu_length_max, cur_harq, &sched_ctrl->rlc_status[lcid], resource);
 
@@ -827,7 +828,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
     sched_pssch->mcs = pscch_pssch_pdu->mcs;
     sched_pssch->Qm = pscch_pssch_pdu->mod_order;
 
-    LOG_D(NR_MAC, "PSSCH: %4d.%2d SL sched %4d.%2d start %2d RBS %3d MCS %2d nrOfLayers %2d TBS %4d HARQ PID %2d round %d NDI %d sched %6d\n",
+    LOG_W(NR_MAC, "PSSCH: %4d.%2d SL sched %4d.%2d start %2d RBS %3d MCS %2d nrOfLayers %2d TBS %4d HARQ PID %2d round %d NDI %d sched %6d\n",
           frame,
           slot,
           sched_pssch->frame,
