@@ -58,8 +58,6 @@ void nr_ue_init_mac_sl(NR_UE_MAC_INST_t *mac)
     mac->sl_info.list[k] = calloc(1, sizeof(NR_SL_UE_info_t));
     mac->sl_info.list[k]->uid = i;
     NR_SL_UE_sched_ctrl_t *UE_sched_ctrl = &mac->sl_info.list[k]->UE_sched_ctrl;
-    UE_sched_ctrl->rx_csi_report.RI = 0;
-    UE_sched_ctrl->rx_csi_report.CQI = 0;
     UE_sched_ctrl->sl_max_mcs = get_nrUE_params()->mcs;
     create_nr_list(&UE_sched_ctrl->available_sl_harq, 16);
     for (int harq = 0; harq < 16; harq++)

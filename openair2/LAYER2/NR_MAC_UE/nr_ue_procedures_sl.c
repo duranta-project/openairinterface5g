@@ -641,11 +641,6 @@ int get_pssch_to_harq_feedback(uint8_t *pssch_to_harq_feedback, uint8_t psfch_mi
   return n_ul_slots_period;
 }
 
-void get_csirs_to_csi_report(uint8_t *csirs_to_csi_report, uint8_t sl_latencyboundcsi_report, const int nr_slots_frame) {
-  for (int i = 0; i < sl_latencyboundcsi_report; i++)
-    csirs_to_csi_report[i] = i + 1;
-}
-
 int get_feedback_frame_slot(NR_UE_MAC_INST_t *mac, NR_TDD_UL_DL_Pattern_t *tdd,
                             uint8_t feedback_offset, uint8_t psfch_min_time_gap,
                             const int nr_slots_frame, uint16_t frame, uint16_t slot,
@@ -965,12 +960,6 @@ void fill_psfch_params_rx(sl_nr_rx_config_request_t *rx_config, sl_nr_tx_rx_conf
         psfch_pdu->group_hop_flag, psfch_pdu->freq_hop_flag, psfch_pdu->bit_len_harq);
 }
 
-void set_csi_report_params(NR_UE_MAC_INST_t* mac, NR_SL_UE_sched_ctrl_t *sched_ctrl) {
-  SL_CSI_Report_t *csi_report = &sched_ctrl->sched_csi_report;
-  csi_report->cqi = mac->csirs_measurements.cqi;
-  csi_report->ri = mac->csirs_measurements.ri;
-}
-
 uint8_t sl_num_slsch_feedbacks(NR_UE_MAC_INST_t *mac) {
   sl_nr_ue_mac_params_t *sl_mac =  mac->SL_MAC_PARAMS;
   NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
@@ -1057,23 +1046,10 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
 
   }
 
-  LOG_D(NR_MAC, "%4d.%2d ack_nack %d pdu_type %d mac->sci_pdu_rx.csi_req %d\n",
-        frame, slot, rx_slsch_pdu->ack_nack, pdu_type, mac->sci_pdu_rx.csi_req);
+  LOG_D(NR_MAC, "%4d.%2d ack_nack %d pdu_type %d\n",
+        frame, slot, rx_slsch_pdu->ack_nack, pdu_type);
   if (rx_slsch_pdu->ack_nack == 0)
     return;
-
-  NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
-  if (mac->sci_pdu_rx.csi_req) {
-    LOG_D(NR_MAC, "%4d.%2d Configuring sl_csi_report parameters\n", frame, slot);
-    int scs = get_softmodem_params()->numerology;
-    uint16_t tx_slot = (rx_ind->slot + GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, scs)) % nr_slots_per_frame[scs];
-    uint16_t tx_frame = (rx_ind->sfn + (rx_ind->slot + GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, scs)) / nr_slots_per_frame[scs]) % 1024;
-    set_csi_report_params(mac, sched_ctrl);
-    nr_ue_sl_csi_report_scheduling(module_idP,
-                                   sched_ctrl,
-                                   tx_frame,
-                                   tx_slot);
-  }
 
   LOG_D(NR_MAC, "In %s : processing PDU %d (with length %d) of %d total number of PDUs...\n", __FUNCTION__, pdu_id, pdu_len, rx_ind->number_pdus);
   LOG_D(NR_PHY, "%4d.%2d Rx V %d R %d SRC %d DST %d\n", frame, slot, sl_sch_subheader->V, sl_sch_subheader->R, sl_sch_subheader->SRC, sl_sch_subheader->DST);
@@ -1111,21 +1087,6 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
         nr_mac_rlc_data_ind(mac->ue_id, mac->ue_id, false, &data_ind, 1);
 
 	      break;
-      case SL_SCH_LCID_SL_CSI_REPORT:
-        {
-          NR_MAC_SUBHEADER_FIXED* sub_pdu_header = (NR_MAC_SUBHEADER_FIXED*) pduP;
-          if (frame % 20 == 0)
-            LOG_D(NR_MAC, "\tLCID: %i, R: %i\n", sub_pdu_header->LCID, sub_pdu_header->R);
-          mac_subheader_len = sizeof(*sub_pdu_header);
-          nr_sl_csi_report_t* nr_sl_csi_report = (nr_sl_csi_report_t *) (pduP + mac_len);
-          mac_len = sizeof(*nr_sl_csi_report);
-          if (frame % 20 == 0)
-            LOG_D(NR_MAC, "\tCQI: %i RI: %i\n", nr_sl_csi_report->CQI, nr_sl_csi_report->RI);
-          sched_ctrl->rx_csi_report.CQI = nr_sl_csi_report->CQI;
-          sched_ctrl->rx_csi_report.RI = nr_sl_csi_report->RI;
-          LOG_D(NR_MAC, "Setting to CQI %i\n", sched_ctrl->rx_csi_report.CQI);
-          break;
-        }
       case SL_SCH_LCID_SL_PADDING:
         {
           NR_MAC_SUBHEADER_FIXED* sub_pdu_header = (NR_MAC_SUBHEADER_FIXED*) pduP;
@@ -1156,44 +1117,6 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
     LOG_D(NR_MAC, "%4d.%2d : SLSCH -> LCID %d remaining pdu length %d byte(s)\n", frame, slot, rx_lcid, pdu_len);
     if (pdu_len < 0)
       LOG_E(NR_MAC, "[UE %d][%d.%d] nr_ue_process_mac_pdu_sl, residual mac pdu length %d < 0!\n", module_idP, frame, slot, pdu_len);
-  }
-}
-
-void nr_ue_sl_csi_report_scheduling(int mod_id,
-                                    NR_SL_UE_sched_ctrl_t *sched_ctrl,
-                                    uint32_t frame,
-                                    uint32_t slot) {
-  uint32_t sched_slot, sched_frame;
-  NR_UE_MAC_INST_t *mac = get_mac_inst(mod_id);
-  sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
-
-  NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
-  if (sched_ctrl->sched_csi_report.active == false) {
-    uint8_t scs = sl_mac->sl_phy_config.sl_config_req.sl_bwp_config.sl_scs;
-    const int nr_slots_frame = nr_slots_per_frame[scs];
-    uint8_t csirs_to_csi_report[sl_mac->sl_LatencyBoundCSI_Report];
-
-    get_csirs_to_csi_report(csirs_to_csi_report, sl_mac->sl_LatencyBoundCSI_Report, nr_slots_frame);
-    int continue_flag = 0;
-    for (int f = 0; f < sl_mac->sl_LatencyBoundCSI_Report; f++) {
-      continue_flag = get_csi_reporting_frame_slot(mac,
-                                                   tdd,
-                                                   csirs_to_csi_report[f],
-                                                   nr_slots_frame,
-                                                   frame,
-                                                   slot,
-                                                   &sched_frame,
-                                                   &sched_slot);
-      if (continue_flag == -1)
-        continue;
-      else
-        break;
-    }
-    LOG_D(NR_MAC, "%4d.%2d Scheduling csi_report\n", sched_frame, sched_slot);
-    SL_CSI_Report_t *csi_report = &sched_ctrl->sched_csi_report;
-    csi_report->frame = sched_frame;
-    csi_report->slot = sched_slot;
-    csi_report->active = true;
   }
 }
 

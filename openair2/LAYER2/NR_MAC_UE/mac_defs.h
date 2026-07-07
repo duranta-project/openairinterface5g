@@ -491,35 +491,6 @@ typedef struct {
   NR_sched_pssch_t sched_pssch;
 } NR_UE_sl_harq_t;
 
-typedef enum NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR {
-	NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_NOTHING,	/* No components present */
-	NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots4,
-	NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots5,
-	NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots8,
-	NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots10,
-	NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots16,
-	NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots20,
-	NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots32,
-	NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots40,
-	NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots64,
-	NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots80,
-	NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots160,
-	NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots320,
-	NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots640
-} NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR;
-
-typedef struct SL_CSI_Report {
-  uint8_t ri;
-  int8_t cqi;
-  uint8_t cqi_table;
-  uint32_t frame;
-  uint32_t slot;
-  bool active;
-  uint8_t slot_offset;
-  uint8_t slot_periodicity;
-  NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR slot_periodicity_offset;
-} SL_CSI_Report_t;
-
 typedef struct SL_sched_feedback {
   int16_t feedback_slot;
   int16_t feedback_frame;
@@ -566,13 +537,7 @@ typedef struct {
   NR_list_t feedback_sl_harq;
   /// UL HARQ processes that await retransmission
   NR_list_t retrans_sl_harq;
-  //  NR_SLSCH
-  // Used on CSI report transmitter
-  SL_CSI_Report_t sched_csi_report;
-  // To hold the CSI report values received from different users
-  nr_sl_csi_report_t rx_csi_report;
-  bool print_csi_report;
-  /// UE-estimated maximum MCS (from CSI-RS)
+  /// UE-selected maximum MCS
   uint8_t sl_max_mcs;
 
 } NR_SL_UE_sched_ctrl_t;
@@ -580,12 +545,9 @@ typedef struct {
 #define MAX_SL_UE_CONNECTIONS 8
 #define CUR_SL_UE_CONNECTIONS 1
 
-#define MAX_SL_CSI_REPORTCONFIG MAX_SL_UE_CONNECTIONS
-
 typedef struct {
   uid_t uid; // unique ID of this UE
   /// scheduling control info
-  nr_sl_csi_report_t csi_report_template[MAX_SL_CSI_REPORTCONFIG];
   NR_SL_UE_sched_ctrl_t UE_sched_ctrl;
   NR_UE_sl_mac_stats_t mac_sl_stats;
 } NR_SL_UE_info_t;

@@ -217,7 +217,6 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   NR_sched_pssch_t *sched_pssch = &sched_ctrl->sched_pssch;
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
   uint8_t mu = sl_mac->sl_phy_config.sl_config_req.sl_bwp_config.sl_scs;
-  uint8_t slots_per_frame = nr_slots_per_frame[mu];
 
   uint8_t psfch_period = 0;
   const uint8_t psfch_periods[] = {0,1,2,4};
@@ -227,36 +226,14 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   *slsch_pdu_length_max = 0;
 
   NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
-  int period = 0, offset = 0;
-  bool csi_acq = !mac->SL_MAC_PARAMS->sl_CSI_Acquisition;
-  SL_CSI_Report_t *sl_csi_report = set_nr_ue_sl_csi_meas_periodicity(tdd, sched_ctrl, mac, dest_id, false);
-  nr_ue_sl_csi_period_offset(sl_csi_report,
-                             &period,
-                             &offset);
+  //nr_ue_sl_csi_period_offset()
   // Determine current slot is csi-rs schedule slot
-  bool csi_req_slot = !((slots_per_frame * frameP + slotP - offset) % period);
+  bool csi_req_slot = false;
+  bool csi_acq = false;
 
   uint8_t ri = 0;
-  uint8_t cqi_Table = 0;
-  uint8_t cqi = sched_ctrl->rx_csi_report.CQI;
   sched_pssch->mcs = sched_ctrl->sl_max_mcs;
-
   int mcs_tb_ind = 0;
-  // we are using as a flag to indicate if csi report was received
-  if (cqi) {
-    if (sci_pdu->additional_mcs.nbits > 0)
-      mcs_tb_ind = sci_pdu->additional_mcs.val;
-    if (mcs_tb_ind == 0)
-      cqi_Table = NR_CSI_ReportConfig__cqi_Table_table1;
-    else if (mcs_tb_ind == 1)
-      cqi_Table = NR_CSI_ReportConfig__cqi_Table_table2;
-    else if (mcs_tb_ind == 2)
-      cqi_Table = NR_CSI_ReportConfig__cqi_Table_table3;
-
-    sched_pssch->mcs = get_mcs_from_cqi(mcs_tb_ind, cqi_Table, cqi);
-    sched_ctrl->sl_max_mcs = sched_pssch->mcs;
-    ri = sched_ctrl->rx_csi_report.RI;
-  }
 
   /* Calculate coeff */
   NR_bler_options_t *sl_bo = &sl_mac->sl_bler;
@@ -296,9 +273,6 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   // we are using as a flag to indicate if csi report was received
   sci_pdu->mcs = sched_pssch->mcs;
   sci_pdu->additional_mcs.val = 0;
-  if (frameP % 5 == 0)
-    LOG_D(NR_MAC, "cqi ---> %d Tx %4d.%2d dest: %d mcs %i\n",
-          cqi, frameP, slotP, dest_id, sci_pdu->mcs);
   /*Following code will check whether SLSCH was received before and
   its feedback has scheduled for current slot
   */
@@ -374,95 +348,4 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   }
   // Set SLSCH
   *slsch_pdu_length_max = rlc_status->bytes_in_buffer;
-}
-
-SL_CSI_Report_t* set_nr_ue_sl_csi_meas_periodicity(const NR_TDD_UL_DL_Pattern_t *tdd,
-                                                   NR_SL_UE_sched_ctrl_t *sched_ctrl,
-                                                   NR_UE_MAC_INST_t *mac,
-                                                   int uid,
-                                                   bool is_rsrp) {
-  sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
-  sl_nr_phy_config_request_t *sl_cfg = &sl_mac->sl_phy_config.sl_config_req;
-  uint8_t mu = sl_cfg->sl_bwp_config.sl_scs;
-  uint8_t n_slots_frame = nr_slots_per_frame[mu];
-  const int n_ul_slots_period = tdd ? tdd->nrofUplinkSlots + (tdd->nrofUplinkSymbols > 0 ? 1 : 0) : n_slots_frame;
-  const int nr_slots_period = tdd ? n_slots_frame / get_nb_periods_per_frame(tdd->dl_UL_TransmissionPeriodicity) : n_slots_frame;
-  const int ideal_period = (CUR_SL_UE_CONNECTIONS * nr_slots_period) / n_ul_slots_period;
-  const int first_ul_slot_period = tdd ? get_first_ul_slot(&mac->frame_structure, false) : 0;
-  const int idx = (uid << 1) + is_rsrp;
-  SL_CSI_Report_t *csi_report = &sched_ctrl->sched_csi_report;
-  const int offset = first_ul_slot_period + idx % n_ul_slots_period + (idx / n_ul_slots_period) * nr_slots_period;
-  AssertFatal(offset < 320, "Not enough UL slots to accomodate all possible UEs. Need to rework the implementation\n");
-  csi_report->slot_offset = offset;
-  if (ideal_period < 5) {
-    csi_report->slot_periodicity_offset = NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots4;
-  } else if (ideal_period < 6) {
-    csi_report->slot_periodicity_offset = NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots5;
-  } else if (ideal_period < 9) {
-    csi_report->slot_periodicity_offset = NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots8;
-  } else if (ideal_period < 11) {
-    csi_report->slot_periodicity_offset = NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots10;
-  } else if (ideal_period < 17) {
-    csi_report->slot_periodicity_offset = NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots16;
-  } else if (ideal_period < 21) {
-    csi_report->slot_periodicity_offset = NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots20;
-  } else if (ideal_period < 41) {
-    csi_report->slot_periodicity_offset = NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots40;
-  } else if (ideal_period < 81) {
-    csi_report->slot_periodicity_offset = NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots80;
-  } else if (ideal_period < 161) {
-    csi_report->slot_periodicity_offset = NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots160;
-  } else {
-    csi_report->slot_periodicity_offset = NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots320;
-  }
-  return csi_report;
-}
-
-void nr_ue_sl_csi_period_offset(SL_CSI_Report_t *sl_csi_report,
-                                int *period,
-                                int *offset) {
-  *offset = sl_csi_report->slot_offset;
-  switch(sl_csi_report->slot_periodicity_offset) {
-    case NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots4:
-      *period = 4;
-      break;
-    case NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots5:
-      *period = 5;
-      break;
-    case NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots8:
-      *period = 8;
-      break;
-    case NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots10:
-      *period = 10;
-      break;
-    case NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots16:
-      *period = 16;
-      break;
-    case NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots20:
-      *period = 20;
-      break;
-    case NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots32:
-      *period = 32;
-      break;
-    case NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots40:
-      *period = 40;
-      break;
-    case NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots64:
-      *period = 64;
-      break;
-    case NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots80:
-      *period = 80;
-      break;
-    case NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots160:
-      *period = 160;
-      break;
-    case NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots320:
-      *period = 320;
-      break;
-    case NR_UE_SL_CSI_ResourcePeriodicityAndOffset_PR_slots640:
-      *period = 640;
-      break;
-    default:
-      AssertFatal(1 == 0, "No periodicity and offset found in CSI resource");
-  }
 }

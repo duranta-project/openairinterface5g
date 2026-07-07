@@ -524,13 +524,6 @@ typedef struct nr_csi_report {
   int N2;
 } nr_csi_report_t;
 
-// 38321 sec. 6.1.3.35
-typedef struct {
-  uint8_t RI: 1; // 7th bit
-  uint8_t CQI: 4; // 3-6 bits
-  uint8_t R: 3; // 0-2 bits
-} __attribute__ ((__packed__)) nr_sl_csi_report_t;
-
 // 38321 sec. 6.1.3.34
 typedef struct {
   uint8_t C1: 1; // 1st bit
