@@ -106,7 +106,6 @@ uicc_t * checkUicc(int Mod_id) {
       LOG_W(SIM,
             "loading PDU session parameters from legacy UICC configuration. Please update to use %s.pdu_sessions instead to make this warning disappear\n",
             uiccName);
-      sleep(3);
       uicc->n_pdu_sessions = 1;
       pdu_session_config_t *pdu = &uicc->pdu_sessions[0];
       AssertFatal(uicc->dnnStr != NULL, "no default DNN, cannot create\n");
