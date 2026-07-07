@@ -321,8 +321,8 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
                               rxdataF_ext,
                               pdcch_dl_ch_estimates_ext,
                               fp,
-                              pscch_processing ? NULL : coreset->frequency_domain_resource, // ??
-                              rb_offset,
+                              coreset->frequency_domain_resource,
+                              rb_offset, // coreset->rb_offset?
                               n_rb,
                               phy_pdcch_config->pdcch_config[ss_idx].BWPStart);
 
