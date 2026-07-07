@@ -764,8 +764,6 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
       .num_beams = num_beams,
       .max_num_ue = max_num_ue,
       .min_mcs = mac->dl_bler.min_mcs,
-      .bler_lower = mac->dl_bler.lower,
-      .bler_upper = mac->dl_bler.upper,
   };
   for (int b = 0; b < num_beams; b++) {
     params.vrb_map[b] = mac->common_channels[CC_id].vrb_map[b];

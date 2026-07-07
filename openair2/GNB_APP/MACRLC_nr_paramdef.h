@@ -34,12 +34,10 @@
 #define MACRLC_UL_PRBBLACK_SNR_THRESHOLD     "ul_prbblack_SNR_threshold"
 #define MACRLC_PUCCHFAILURETHRES             "pucch_FailureThres"
 #define MACRLC_PUSCHFAILURETHRES             "pusch_FailureThres"
-#define MACRLC_DL_BLER_TARGET_UPPER          "dl_bler_target_upper"
-#define MACRLC_DL_BLER_TARGET_LOWER          "dl_bler_target_lower"
+#define MACRLC_DL_BLER_TARGET                "dl_bler_target"
 #define MACRLC_DL_MIN_MCS                    "dl_min_mcs"
 #define MACRLC_DL_MAX_MCS                    "dl_max_mcs"
-#define MACRLC_UL_BLER_TARGET_UPPER          "ul_bler_target_upper"
-#define MACRLC_UL_BLER_TARGET_LOWER          "ul_bler_target_lower"
+#define MACRLC_UL_BLER_TARGET                "ul_bler_target"
 #define MACRLC_UL_MIN_MCS                    "ul_min_mcs"
 #define MACRLC_UL_MAX_MCS                    "ul_max_mcs"
 #define MACRLC_DL_HARQ_ROUND_MAX             "dl_harq_round_max"
@@ -57,12 +55,10 @@
 #define MACRLC_SPATIAL_STREAM_IDX            "spatial_stream_index"
 
 #define HLP_MACRLC_UL_PRBBLACK "SNR threshold to decide whether a PRB will be blacklisted or not"
-#define HLP_MACRLC_DL_BLER_UP "Upper threshold of BLER to decrease DL MCS"
-#define HLP_MACRLC_DL_BLER_LO "Lower threshold of BLER to increase DL MCS"
+#define HLP_MACRLC_DL_BLER    "Target BLER of DL HARQ"
 #define HLP_MACRLC_DL_MIN_MCS "Minimum DL MCS that should be used"
 #define HLP_MACRLC_DL_MAX_MCS "Maximum DL MCS that should be used"
-#define HLP_MACRLC_UL_BLER_UP "Upper threshold of BLER to decrease UL MCS"
-#define HLP_MACRLC_UL_BLER_LO "Lower threshold of BLER to increase UL MCS"
+#define HLP_MACRLC_UL_BLER    "Target BLER of UL HARQ"
 #define HLP_MACRLC_UL_MIN_MCS "Minimum UL MCS that should be used"
 #define HLP_MACRLC_UL_MAX_MCS "Maximum UL MCS that should be used"
 #define HLP_MACRLC_DL_HARQ_MAX "Maximum number of DL HARQ rounds"
@@ -100,12 +96,10 @@
   {MACRLC_UL_PRBBLACK_SNR_THRESHOLD,   HLP_MACRLC_UL_PRBBLACK,   0, .iptr=NULL,   .defintval=10,              TYPE_INT,     0}, \
   {MACRLC_PUCCHFAILURETHRES,           NULL,                     0, .iptr=NULL,   .defintval=10,              TYPE_INT,     0}, \
   {MACRLC_PUSCHFAILURETHRES,           NULL,                     0, .iptr=NULL,   .defintval=10,              TYPE_INT,     0}, \
-  {MACRLC_DL_BLER_TARGET_UPPER,        HLP_MACRLC_DL_BLER_UP,    0, .dblptr=NULL, .defdblval=0.15,            TYPE_DOUBLE,  0}, \
-  {MACRLC_DL_BLER_TARGET_LOWER,        HLP_MACRLC_DL_BLER_LO,    0, .dblptr=NULL, .defdblval=0.05,            TYPE_DOUBLE,  0}, \
+  {MACRLC_DL_BLER_TARGET,              HLP_MACRLC_DL_BLER,       0, .dblptr=NULL, .defdblval=0.01,            TYPE_DOUBLE,  0}, \
   {MACRLC_DL_MIN_MCS,                  HLP_MACRLC_DL_MIN_MCS,    0, .u8ptr=NULL,  .defintval=0,               TYPE_UINT8,   0}, \
   {MACRLC_DL_MAX_MCS,                  HLP_MACRLC_DL_MAX_MCS,    0, .u8ptr=NULL,  .defintval=28,              TYPE_UINT8,   0}, \
-  {MACRLC_UL_BLER_TARGET_UPPER,        HLP_MACRLC_UL_BLER_UP,    0, .dblptr=NULL, .defdblval=0.15,            TYPE_DOUBLE,  0}, \
-  {MACRLC_UL_BLER_TARGET_LOWER,        HLP_MACRLC_UL_BLER_LO,    0, .dblptr=NULL, .defdblval=0.05,            TYPE_DOUBLE,  0}, \
+  {MACRLC_UL_BLER_TARGET,              HLP_MACRLC_UL_BLER,       0, .dblptr=NULL, .defdblval=0.01,            TYPE_DOUBLE,  0}, \
   {MACRLC_UL_MIN_MCS,                  HLP_MACRLC_UL_MIN_MCS,    0, .u8ptr=NULL,  .defintval=0,               TYPE_UINT8,   0}, \
   {MACRLC_UL_MAX_MCS,                  HLP_MACRLC_UL_MAX_MCS,    0, .u8ptr=NULL,  .defintval=28,              TYPE_UINT8,   0}, \
   {MACRLC_DL_HARQ_ROUND_MAX,           HLP_MACRLC_DL_HARQ_MAX,   0, .u8ptr=NULL,  .defintval=4,               TYPE_UINT8,   0}, \
@@ -147,12 +141,10 @@
   { .s5 = { NULL } }, \
   { .s5 = { NULL } }, \
   { .s5 = { NULL } }, \
-  { .s5 = { NULL } }, \
-  { .s5 = { NULL } }, \
+  { .s2a = { config_check_dblrange, {0.0, 1.0} } }, \
   { .s2 = { config_check_intrange, {0, 31} } }, /* DL min MCS */ \
   { .s2 = { config_check_intrange, {0, 31} } }, /* DL max MCS */ \
-  { .s5 = { NULL } }, \
-  { .s5 = { NULL } }, \
+  { .s2a = { config_check_dblrange, {0.0, 1.0} } }, \
   { .s2 = { config_check_intrange, {0, 31} } }, /* UL min MCS */ \
   { .s2 = { config_check_intrange, {0, 31} } }, /* UL max MCS */ \
   { .s2 = { config_check_intrange, {1, 8} } }, /* DL max HARQ rounds */ \

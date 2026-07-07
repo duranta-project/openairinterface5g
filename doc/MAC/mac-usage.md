@@ -259,14 +259,11 @@ In the `MACRLCs` section of the gNB/DU configuration file:
 * `pusch_FailureThres` (default 10): number of DTX on PUSCH after which
   scheduler declares UE in radio link failure and moves it to "out-of-sync
   state"
-* `dl_bler_target_upper` (default 0.15): upper threshold of BLER (first round
-  retransmission over initial transmission) to decrease MCS by 1
-* `dl_bler_target_lower` (default 0.05): lower threshold of BLER (first round
-  retransmission over initial transmission) to increase MCS by 1
+* `dl_bler_target` (default 0.01): target for BLER (number of retransmissions
+  over all [initial, retx] transmisions) to steer MCS selection
 * `dl_min_mcs` (default 0): minimum MCS to use for any UE
 * `dl_max_mcs` (default 28): maximum MCS to use for any UE
-* `ul_bler_target_upper` (default 0.15): as `dl_bler_target_upper`
-* `ul_bler_target_lower` (default 0.05): as `dl_bler_target_lower`
+* `ul_bler_target` (default 0.01): as `dl_bler_target`
 * `ul_min_mcs` (default 0): as `dl_min_mcs`
 * `ul_max_mcs` (default 28): as `dl_max_mcs`
 * `dl_harq_round_max` (default 4): maximum number of HARQ rounds, i.e.,
