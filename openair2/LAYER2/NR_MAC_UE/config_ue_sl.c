@@ -349,9 +349,6 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
   sl_mac->sl_SSB_PriorityNR = (sl_preconfig->sl_SSB_PriorityNR_r16)
                                       ? *sl_preconfig->sl_SSB_PriorityNR_r16 : 0;
 
-  //Indicates if CSI Reporting is enabled in UNICAST. is 0-ENABLED, 1-DISABLED
-  sl_mac->sl_CSI_Acquisition = (sl_preconfig->sl_CSI_Acquisition_r16) ? 0 : 1;
-
   //Used for DFN calculation in case Sync source = GNSS.
   uint32_t sl_OffsetDFN = (sl_preconfig->sl_OffsetDFN_r16)
                                 ? *sl_preconfig->sl_OffsetDFN_r16 : 0;
@@ -775,7 +772,6 @@ void nr_sl_params_read_conf(module_id_t module_id) {
   sl_mac->power_control_offset = sl_csi_rs_info->power_control_offset;
   sl_mac->power_control_offset_ss = sl_csi_rs_info->power_control_offset_ss;
   sl_mac->measurement_bitmap = 0b00011011;
-  sl_mac->sl_CSI_Acquisition = sl_csi_rs_info->sl_csi_acquisition;
   sl_mac->sl_LatencyBoundCSI_Report = sl_csi_rs_info->sl_latencyboundcsi_report;
   // Based on 38211 Table 7.4.1.5.3-1, for density of 1 and ports 1 & 2 ENUMERATED {noCDM, fd-CDM2}
   sl_mac->cdm_type = get_nrUE_params()->nb_antennas_tx == 1 ? 0 : 1;

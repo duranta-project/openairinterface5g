@@ -149,9 +149,7 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue, int frame_rx, int slot_rx, int SLSCH
                               pssch_pdu->targetCodeRate,
                               0);
 
-  uint8_t nr_rbs_w_csi_rs = nr_of_rbs / freq_density;
-  uint8_t subcarriers_used = get_nrUE_params()->nb_antennas_tx > 2 ? 2 : get_nrUE_params()->nb_antennas_tx;
-  int num_CSI_REs = is_csi_rs_slot ? nr_rbs_w_csi_rs * subcarriers_used : 0;
+  int num_CSI_REs = 0;
   uint16_t sci1_re = pssch_pdu->pscch_numsym * pssch_pdu->pscch_numrbs * NR_NB_SC_PER_RB;
   uint32_t G = nr_get_G_SL(rb_size,
                            number_symbols,
@@ -453,7 +451,7 @@ static int nr_psbch_process(PHY_VARS_NR_UE *ue,
 
 
 extern int dmrs_pscch_mask[2];
-int nr_slsch_procedures(PHY_VARS_NR_UE *ue, int frame_rx, int slot_rx, int SLSCH_id, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data, bool is_csi_rs_slot, int8_t *ack_nack_rcvd, int num_acks) {
+int nr_slsch_procedures(PHY_VARS_NR_UE *ue, int frame_rx, int slot_rx, int SLSCH_id, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data, int8_t *ack_nack_rcvd, int num_acks) {
 
 
   sl_nr_ue_phy_params_t *sl_phy_params = &ue->SL_UE_PHY_PARAMS;
@@ -461,16 +459,6 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue, int frame_rx, int slot_rx, int SLSCH
   sl_nr_rx_config_pssch_pdu_t *slsch_pdu = &phy_data->nr_sl_pssch_pdu; //ue->slsch[SLSCH_id].harq_process->slsch_pdu;
   sl_nr_rx_config_pssch_sci_pdu_t *pssch_pdu = &phy_data->nr_sl_pssch_sci_pdu; //ue->slsch[SLSCH_id].harq_process->pssch_pdu;
 
-  uint8_t  freq_density = 0;
-  uint8_t  nr_of_rbs = 0;
-  if (is_csi_rs_slot) { 
-    AssertFatal(1==0,"Don't do SL CSI-RS for now\n");
-    /*
-    freq_density = ue->csirs_vars[0]->csirs_config_pdu.freq_density;
-    nr_of_rbs = ue->csirs_vars[0]->csirs_config_pdu.nr_of_rbs;
-    AssertFatal((freq_density == 1) || (nr_of_rbs > 0), "CSI-RS parameters are not properly configured\n");
-*/
-    }
   int harq_pid = slsch_pdu->harq_pid;
   uint16_t nb_re_dmrs;
   uint16_t start_symbol = 1;
@@ -494,9 +482,7 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue, int frame_rx, int slot_rx, int SLSCH
                             pssch_pdu->subchannel_size,
                             pssch_pdu->targetCodeRate);
 
-  uint8_t nr_rbs_w_csi_rs = nr_of_rbs / freq_density;
-  uint8_t subcarriers_used = get_nrUE_params()->nb_antennas_tx > 2 ? 2 : get_nrUE_params()->nb_antennas_tx;
-  int num_CSI_REs = is_csi_rs_slot ? nr_rbs_w_csi_rs * subcarriers_used : 0;
+  int num_CSI_REs = 0;
   uint16_t sci1_re = pssch_pdu->pscch_numsym * pssch_pdu->pscch_numrbs * NR_NB_SC_PER_RB;
   uint32_t G = nr_get_G_SL(rb_size,
                            number_symbols,
@@ -589,7 +575,6 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
   int nr_slot_rx = proc->nr_slot_rx;
   sl_nr_ue_phy_params_t *sl_phy_params = &ue->SL_UE_PHY_PARAMS;
   NR_DL_FRAME_PARMS *fp = &sl_phy_params->sl_frame_params;
-  bool is_csi_rs_slot = false;
   int8_t *ack_nack_rcvd = NULL;
 
   int sampleShift = INT_MAX;
@@ -844,7 +829,7 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
       //  continue;
     } else {
       pssch_vars->DTX = 0;
-      int totalDecode = nr_slsch_procedures(ue, frame_rx, nr_slot_rx, 0, proc, phy_data, is_csi_rs_slot, ack_nack_rcvd, phy_data->num_psfch_pdus);
+      int totalDecode = nr_slsch_procedures(ue, frame_rx, nr_slot_rx, 0, proc, phy_data, ack_nack_rcvd, phy_data->num_psfch_pdus);
       LOG_D(NR_PHY,
             "Total %d decoded PSSCH detected in %d.%d (%d,%d,%d)\n",
             totalDecode,
@@ -919,16 +904,6 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
     LOG_D(NR_PHY,"pssch_numsym = %d\n",pssch_pdu->pssch_numsym);
     LOG_D(NR_PHY,"sense_pssch = %d\n",pssch_pdu->sense_pssch);
     ue->slsch->harq_process->pssch_pdu = &phy_data->nr_sl_pssch_sci_pdu;
-    uint8_t  freq_density = 0;
-    uint8_t  nr_of_rbs = 0;
-    if (is_csi_rs_slot) {
-      AssertFatal(1==0,"Don't do SL CSIRS for now\n");
-      /*
-      freq_density = ue->csirs_vars[0]->csirs_config_pdu.freq_density;
-      nr_of_rbs = ue->csirs_vars[0]->csirs_config_pdu.nr_of_rbs;
-      AssertFatal((freq_density == 1) || (nr_of_rbs > 0), "CSI-RS parameters are not properly configured\n");
-*/
-      }    
     int sci2_re = get_NREsci2(pssch_pdu->sci2_alpha_times_100,
                               pssch_pdu->sci2_len,
                               pssch_pdu->sci2_beta_offset,
@@ -942,10 +917,8 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
     uint32_t rb_size                   = pssch_pdu->num_subch*pssch_pdu->subchannel_size;
     int sci1_dmrs_overlap = pssch_pdu->dmrs_symbol_position & dmrs_pscch_mask[pssch_pdu->pscch_numsym-2];
 
-    uint8_t nr_rbs_w_csi_rs = nr_of_rbs / freq_density;
-    uint8_t subcarriers_used = get_nrUE_params()->nb_antennas_tx > 2 ? 2 : get_nrUE_params()->nb_antennas_tx;
-    int num_CSI_REs = is_csi_rs_slot ? nr_rbs_w_csi_rs * subcarriers_used : 0;
-    uint16_t sci1_re = pssch_pdu->pscch_numsym * pssch_pdu->pscch_numrbs * NR_NB_SC_PER_RB;    
+    int num_CSI_REs = 0;
+    uint16_t sci1_re = pssch_pdu->pscch_numsym * pssch_pdu->pscch_numrbs * NR_NB_SC_PER_RB;
     uint16_t start_symbol = 1;
     uint16_t number_symbols = pssch_pdu->pssch_numsym;
     uint8_t number_dmrs_symbols = 0;
@@ -979,8 +952,7 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
                 0,
                 frame_rx,
                 nr_slot_rx,
-                0,
-                &is_csi_rs_slot);
+                0);
     if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH) {
       ack_nack_rcvd = calloc(phy_data->num_psfch_pdus, sizeof(ack_nack_rcvd));
       LOG_D(NR_PHY, "num_psfch_pdus: %d\n", phy_data->num_psfch_pdus);
@@ -1027,7 +999,7 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
       //  continue;
     } else {
       pssch_vars->DTX = 0;
-      int totalDecode = nr_slsch_procedures(ue, frame_rx, nr_slot_rx, 0, proc, phy_data, is_csi_rs_slot, ack_nack_rcvd, phy_data->num_psfch_pdus);
+      int totalDecode = nr_slsch_procedures(ue, frame_rx, nr_slot_rx, 0, proc, phy_data, ack_nack_rcvd, phy_data->num_psfch_pdus);
       LOG_D(NR_PHY,
             "Total %d decoded PSSCH detected in %d.%d (%d,%d,%d)\n",
             totalDecode,
@@ -1048,7 +1020,7 @@ void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc
   int slot_tx = proc->nr_slot_tx;
   int frame_tx = proc->frame_tx;
   int tx_action = 0;
-  const char *sl_tx_actions[] = {"PSBCH", "PSCCH_PSSCH", "PSCCH_PSSCH_PSFCH", "PSCCH_PSSCH_CSI_RS"};
+  const char *sl_tx_actions[] = {"PSBCH", "PSCCH_PSSCH", "PSCCH_PSSCH_PSFCH"};
 
   sl_nr_ue_phy_params_t *sl_phy_params = &ue->SL_UE_PHY_PARAMS;
   NR_DL_FRAME_PARMS *fp = &sl_phy_params->sl_frame_params;
@@ -1075,8 +1047,6 @@ void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc
     if (phy_data->sl_tx_action >= SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH)
       LOG_D(NR_PHY, "(%d.%d) Sending %s\n", frame_tx, slot_tx, sl_tx_actions[phy_data->sl_tx_action - SL_NR_CONFIG_TYPE_TX_PSBCH]);
     phy_data->pscch_Nid = nr_generate_sci1(ue, txdataF[0], fp, AMP, slot_tx, &phy_data->nr_sl_pssch_pscch_pdu) &0xFFFF;
-    nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csi_params = (nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *)&phy_data->nr_sl_pssch_pscch_pdu.nr_sl_csi_rs_pdu;
-    csi_params->scramb_id = phy_data->pscch_Nid % (1 << 10);
     nr_ue_slsch_procedures(ue, phy_data->nr_sl_pssch_pscch_pdu.harq_pid, frame_tx, slot_tx, phy_data, txdataF);
 
     sl_phy_params->pscch.num_pscch_tx ++;

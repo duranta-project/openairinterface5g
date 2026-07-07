@@ -436,14 +436,13 @@ void sl_handle_scheduled_response(nr_scheduled_response_t *scheduled_response)
 {
   module_id_t module_id = scheduled_response->module_id;
   
-  const char *sl_rx_action[] = {"NONE", "RX_PSBCH", "RX_PSCCH", "RX_SCI2_ON_PSSCH", "RX_SLSCH_ON_PSSCH", "RX_PSFCH", "RX_SLSCH_ON_PSSCH_CSI_RS"};
-  const char *sl_tx_action[] = {"TX_PSBCH", "TX_PSCCH_PSSCH", "TX_PSCCH_PSSCH_PSFCH", "TX_PSCCH_PSSCH_CSI_RS"};
+  const char *sl_rx_action[] = {"NONE", "RX_PSBCH", "RX_PSCCH", "RX_SCI2_ON_PSSCH", "RX_SLSCH_ON_PSSCH", "RX_PSFCH"};
+  const char *sl_tx_action[] = {"TX_PSBCH", "TX_PSCCH_PSSCH", "TX_PSCCH_PSSCH_PSFCH"};
   //NR_UE_CSI_RS *csirs_vars = PHY_vars_UE_g[module_id][cc_id]->csirs_vars[0];
 
   if (scheduled_response->sl_rx_config != NULL) {
     sl_nr_rx_config_request_t *sl_rx_config = scheduled_response->sl_rx_config;
     nr_phy_data_t *phy_data = (nr_phy_data_t *)scheduled_response->phy_data;
-    sl_nr_tti_csi_rs_pdu_t *csirs_config_pdu;
     AssertFatal(sl_rx_config->number_pdus == SL_NR_RX_CONFIG_LIST_NUM,
                                       "sl_rx_config->number_pdus incorrect\n");
 
@@ -466,15 +465,9 @@ void sl_handle_scheduled_response(nr_scheduled_response_t *scheduled_response)
         break;
       case SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH:
       //case SL_NR_CONFIG_TYPE_RX_PSFCH:
-      case SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_CSI_RS:
         phy_data->sl_rx_action = sl_rx_config->sl_rx_config_list[0].pdu_type;
         phy_data->nr_sl_pssch_pdu = sl_rx_config->sl_rx_config_list[0].rx_pssch_config_pdu;
         LOG_D(NR_PHY, "%4d.%2d Recvd %s\n", sl_rx_config->sfn, sl_rx_config->slot, sl_rx_action[phy_data->sl_rx_action]);
-        if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_CSI_RS) {
-          csirs_config_pdu = &sl_rx_config->sl_rx_config_list[0].rx_csi_rs_config_pdu;
-          memcpy((void*)&(phy_data->csirs_vars->csirs_config_pdu), (void*)csirs_config_pdu, sizeof(sl_nr_tti_csi_rs_pdu_t));
-          phy_data->csirs_vars->active = true;
-        }
         if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH) {
           phy_data->psfch_pdu_list = calloc(sl_rx_config->sl_rx_config_list[0].num_psfch_pdus, sizeof(sl_nr_tx_rx_config_psfch_pdu_t));
           memcpy((void*)phy_data->psfch_pdu_list, (void*)sl_rx_config->sl_rx_config_list[0].rx_psfch_pdu_list,

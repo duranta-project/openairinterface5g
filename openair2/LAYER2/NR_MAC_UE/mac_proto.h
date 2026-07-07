@@ -418,16 +418,6 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
                        mac_rlc_status_resp_t *rlc_status,
                        sl_resource_info_t *resource);
 
-SL_CSI_Report_t* set_nr_ue_sl_csi_meas_periodicity(const NR_TDD_UL_DL_Pattern_t *tdd,
-                                                   NR_SL_UE_sched_ctrl_t *sched_ctrl,
-                                                   NR_UE_MAC_INST_t *mac,
-                                                   int uid,
-                                                   bool is_rsrp);
-
-void nr_ue_sl_csi_period_offset(SL_CSI_Report_t *sl_csi_report,
-                                int *period,
-                                int *offset);
-
 bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
                               nr_sidelink_indication_t *sl_ind,
                               const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
@@ -442,23 +432,6 @@ void nr_ue_sl_pscch_rx_scheduler(nr_sidelink_indication_t *sl_ind,
                                  sl_nr_rx_config_request_t *rx_config,
                                  uint8_t *config_type,
                                  bool sl_has_psfch);
-
-void nr_ue_sl_csi_rs_scheduler(NR_UE_MAC_INST_t *mac,
-                               uint8_t scs,
-                               const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
-                               sl_nr_tx_config_request_t *tx_config,
-                               sl_nr_rx_config_request_t *rx_config,
-                               uint8_t *config_type);
-
-void nr_ue_sl_csi_report_scheduling(int Mod_idP,
-                                    NR_SL_UE_sched_ctrl_t *sched_ctrl,
-                                    frame_t frame,
-                                    sub_frame_t slot);
-
-void fill_csi_rs_pdu(sl_nr_ue_mac_params_t *sl_mac,
-                     sl_nr_tti_csi_rs_pdu_t *csi_rs_pdu,
-                     const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
-                     uint8_t scs);
 
 void nr_ue_sl_psfch_scheduler(NR_UE_MAC_INST_t *mac,
                               frame_t frame,

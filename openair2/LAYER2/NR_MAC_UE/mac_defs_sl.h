@@ -204,7 +204,6 @@ typedef struct sl_nr_ue_mac_params {
   //Configured from RRC
   uint32_t sl_MaxNumConsecutiveDTX;
   uint32_t sl_SSB_PriorityNR;
-  uint8_t sl_CSI_Acquisition;
 
   //MAC prepares this and sends it to PHY
   nr_sl_phy_config_t sl_phy_config;

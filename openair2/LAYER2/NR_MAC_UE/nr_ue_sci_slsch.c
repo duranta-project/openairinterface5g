@@ -925,11 +925,6 @@ int nr_ue_process_sci2_indication_pdu(NR_UE_MAC_INST_t *mac, module_id_t mod_id,
                             sl_mac_params,
                             sl_has_psfch);
   rx_config.sl_rx_config_list[0].pdu_type =  SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH;
-  if ((!mac->SL_MAC_PARAMS->sl_CSI_Acquisition) && sci_pdu->csi_req) {
-    sl_nr_phy_config_request_t *sl_cfg = &sl_mac_params->sl_phy_config.sl_config_req;
-    uint8_t mu = sl_cfg->sl_bwp_config.sl_scs;
-    nr_ue_sl_csi_rs_scheduler(mac, mu, mac->sl_bwp, NULL, &rx_config, NULL);
-  }
 
   LOG_D(NR_MAC, "%4d.%2d psfch_overhead %d harq_feedback %d action %d\n", frame, slot, mac->sci_pdu_rx.psfch_overhead.val, sci_pdu->harq_feedback, SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH);
   LOG_D(NR_MAC, "%4d.%2d psfch_period %d, psfch_overhead %d nbits %d\n", frame, slot, psfch_period, mac->sci_pdu_rx.psfch_overhead.val, mac->sci_pdu_rx.psfch_overhead.nbits);

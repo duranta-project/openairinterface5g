@@ -371,8 +371,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
                  uint8_t ulsch_id,
                  uint32_t frame,
                  uint8_t slot,
-                 unsigned char harq_pid,
-                 bool *is_csi_rs_slot);
+                 unsigned char harq_pid);
 
 void nr_pscch_scrambling(uint32_t *in,
                          uint32_t size,
@@ -416,15 +415,6 @@ int8_t nr_ue_decode_psfch0(PHY_VARS_NR_UE *ue,
                          int slot,
                          c16_t rxdataF[][ue->SL_UE_PHY_PARAMS.sl_frame_params.samples_per_slot_wCP],
                          const sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu);
-
-int nr_csi_rs_sinr_estimation(const PHY_VARS_NR_UE *ue,
-                              const fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu,
-                              const uint8_t N_ports,
-                              uint8_t mem_offset,
-                              const c16_t csi_rs_estimated_channel_freq[][N_ports][ue->frame_parms.ofdm_symbol_size + FILTER_MARGIN],
-                              const uint32_t interference_plus_noise_power,
-                              const int16_t log2_re,
-                              int32_t *precoded_sinr_dB);
 
 /**@}*/
 #endif

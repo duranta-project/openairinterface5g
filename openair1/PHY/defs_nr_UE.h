@@ -624,7 +624,6 @@ typedef struct nr_phy_data_s {
   sl_nr_rx_config_pscch_pdu_t nr_sl_pscch_pdu;
   sl_nr_rx_config_pssch_sci_pdu_t nr_sl_pssch_sci_pdu;
   sl_nr_rx_config_pssch_pdu_t nr_sl_pssch_pdu;
-  sl_nr_tti_csi_rs_pdu_t nr_sl_csi_rs_pdu;
   sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu_list;
   uint8_t num_psfch_pdus;
 
