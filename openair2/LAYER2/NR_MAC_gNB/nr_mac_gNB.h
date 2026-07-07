@@ -866,8 +866,6 @@ typedef struct NR_mac_stats {
 } NR_mac_stats_t;
 
 typedef struct NR_bler_options {
-  double upper;
-  double lower;
   uint8_t min_mcs;
   uint8_t max_mcs;
   uint8_t harq_round_max;
@@ -1042,8 +1040,6 @@ struct nr_dl_sched_params {
   uint16_t *vrb_map[MAX_NUM_BEAM_PERIODS]; ///< per-beam VRB maps [275], mutable
   int n_rb_avail[MAX_NUM_BEAM_PERIODS]; ///< available RBs per beam
   int min_mcs; ///< minimum MCS from BLER config
-  float bler_lower; ///< BLER lower threshold (increase MCS if below)
-  float bler_upper; ///< BLER upper threshold (decrease MCS if above)
 };
 
 /// Per-UE scheduling candidate — read-only inputs for the policy function.
@@ -1161,8 +1157,6 @@ typedef struct nr_ul_sched_params {
   int n_rb_avail[MAX_NUM_BEAM_PERIODS]; ///< available RBs per beam
   int min_rb;
   int min_mcs;
-  float bler_lower;
-  float bler_upper;
   const NR_ServingCellConfigCommon_t *scc;
   const NR_bler_options_t *bler_opts; ///< UL BLER options (for adapt_ul_mcs)
 } nr_ul_sched_params_t;
