@@ -2267,8 +2267,6 @@ static int nr_ul_schedule(gNB_MAC_INST *nrmac,
       .max_num_ue = max_num_ue,
       .min_rb = min_rb,
       .min_mcs = cell->ul_bler.min_mcs,
-      .bler_lower = cell->ul_bler.lower,
-      .bler_upper = cell->ul_bler.upper,
       .bler_opts = &cell->ul_bler,
       .scc = scc,
   };
