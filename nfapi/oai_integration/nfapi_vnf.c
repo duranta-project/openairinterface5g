@@ -54,6 +54,9 @@
 
 #define TEST
 static nfapi_vnf_config_t *config;
+static pthread_t vnf_timing_thread_handle;
+static bool vnf_timing_thread_created = false;
+
 extern RAN_CONTEXT_t RC;
 extern UL_RCC_IND_t  UL_RCC_INFO;
 
@@ -72,6 +75,30 @@ vnf_p7_t *get_p7_vnf()
 nfapi_vnf_p7_config_t *get_p7_vnf_config()
 {
   return &get_p7_vnf()->_public;
+}
+
+static void stop_vnf_timing_thread(void)
+{
+  if (vnf_timing_thread_created) {
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Stopping VNF timing thread...\n");
+    vnf_p7_t *p7_vnf = get_p7_vnf();
+    if (p7_vnf) {
+      p7_vnf->terminate = 1;
+      if (p7_vnf->p7_connections) {
+        nfapi_vnf_p7_connection_info_t *p7_info = p7_vnf->p7_connections;
+        while (p7_info) {
+          pthread_mutex_lock(&p7_info->mutex);
+          p7_info->running = 0;
+          pthread_cond_broadcast(&p7_info->initial_timinginfo_cond);
+          pthread_mutex_unlock(&p7_info->mutex);
+          p7_info = p7_info->next;
+        }
+      }
+    }
+    pthread_join(vnf_timing_thread_handle, NULL);
+    vnf_timing_thread_created = false;
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] VNF timing thread stopped and joined.\n");
+  }
 }
 
 int vnf_pack_vendor_extension_tlv(void *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *codec) {
@@ -200,6 +227,7 @@ int pnf_nr_connection_indication_cb(nfapi_vnf_config_t *config, int p5_idx) {
 
 int pnf_disconnection_indication_cb(nfapi_vnf_config_t *config, int p5_idx) {
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] pnf disconnection indication idx:%d\n", p5_idx);
+  stop_vnf_timing_thread();
   vnf_info *vnf = (vnf_info *)(config->user_data);
   pnf_info *pnf = vnf->pnfs;
   phy_info *phy = pnf->phys;
@@ -1001,6 +1029,9 @@ void *vnf_timing_thread(void *arg)
   nfapi_vnf_p7_connection_info_t *p7_info = NULL;
 
   while (1) {
+    if (vnf_p7->terminate) {
+      return NULL;
+    }
     if (__atomic_load_n(&nr_start_resp_received, __ATOMIC_ACQUIRE)) {
       if (vnf_p7->p7_connections) {
         p7_info = vnf_p7->p7_connections;
@@ -1022,10 +1053,13 @@ void *vnf_timing_thread(void *arg)
     usleep(1000000); // poll once per second until the gNB numerology (mu) is configured
   }
   pthread_mutex_lock(&p7_info->mutex);
-  while (!p7_info->initial_timinginfo_received) {
+  while (!p7_info->initial_timinginfo_received && !vnf_p7->terminate) {
     pthread_cond_wait(&p7_info->initial_timinginfo_cond, &p7_info->mutex);
   }
   pthread_mutex_unlock(&p7_info->mutex);
+  if (vnf_p7->terminate) {
+    return NULL;
+  }
   DevAssert(mu >= 0 && mu <= 5);
   p7_info->mu = mu;
   p7_info->slot_duration_us = 1000 >> p7_info->mu;
@@ -1048,7 +1082,7 @@ void *vnf_timing_thread(void *arg)
 
   int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
 
-  while (p7_info->running) {
+  while (p7_info->running && !vnf_p7->terminate) {
     pthread_mutex_lock(&p7_info->mutex);
     if (p7_info->slot_adjustment != 0) {
       sfnslot_dec = (sfnslot_dec + p7_info->slot_adjustment + max_sfnslotdec) % max_sfnslotdec;
@@ -1460,8 +1494,12 @@ void *configure_nr_p7_vnf(void *ptr)
 #endif
 #ifndef ENABLE_WLS
   // Start VNF autonomous timing thread
-  pthread_t t;
-  threadCreate(&t, &vnf_timing_thread, p7_vnf, "vnf_timing", -1, OAI_PRIORITY_RT_MAX);
+  vnf_p7_t *vnf_p7 = (vnf_p7_t *)p7_vnf->config;
+  if (vnf_p7) {
+    vnf_p7->terminate = 0;
+  }
+  threadCreate(&vnf_timing_thread_handle, &vnf_timing_thread, p7_vnf, "vnf_timing", -1, OAI_PRIORITY_RT_MAX);
+  vnf_timing_thread_created = true;
 #endif
   return 0;
 }
@@ -1880,6 +1918,8 @@ int nr_stop_ind_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_stop_indicat
 
 void stop_nr_nfapi_vnf()
 {
+  stop_vnf_timing_thread();
+
   if (has_stop_ind) {
     // If it got here with the STOP.indication flag already set, it means it was triggered by the PNF,
     // no need to send a STOP.request
