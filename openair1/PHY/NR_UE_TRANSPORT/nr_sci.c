@@ -39,7 +39,7 @@
 void nr_sci_scrambling(uint32_t *in, uint32_t size, uint32_t Nid, uint32_t scrambling_RNTI, uint32_t *out,int sci2_flag)
 {
   int roundedSz = ((size + 31) / 32);
-  uint32_t *seq = gold_cache(sci2_flag > 0 ? (Nid << 15) + 1010 : (scrambling_RNTI << 15) + Nid, roundedSz);
+  uint32_t *seq = gold_cache(sci2_flag > 0 ? (Nid << 15) + 1010 : (scrambling_RNTI << 16) + Nid, roundedSz);
   for (int i = 0; i < roundedSz; i++)
     out[i] = in[i] ^ seq[i];
 }
