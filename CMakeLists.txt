@@ -2022,6 +2022,16 @@ target_link_libraries(nr_psbchsim PRIVATE
   )
 target_link_libraries(nr_psbchsim PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
 
+add_executable(nr_scisim
+  ${OPENAIR1_DIR}/SIMULATION/NR_PHY/scisim.c
+  ${NFAPI_USER_DIR}/nfapi.c
+  )
+target_link_libraries(nr_scisim PRIVATE
+  -Wl,--start-group UTIL SIMU PHY_NR_COMMON PHY_NR PHY_NR_UE SCHED_NR_LIB SCHED_NR_UE_LIB MAC_UE_NR MAC_NR_COMMON CONFIG_LIB -Wl,--end-group
+  m pthread ${T_LIB} ITTI dl physim_common softmodem_common
+  )
+target_link_libraries(nr_scisim PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
+
 add_executable(nr_pucchsim ${OPENAIR1_DIR}/SIMULATION/NR_PHY/pucchsim.c)
 target_link_libraries(nr_pucchsim PRIVATE
   -Wl,--start-group UTIL SIMU PHY_NR_COMMON PHY_NR PHY_NR_UE SCHED_NR_LIB CONFIG_LIB MAC_NR_COMMON -Wl,--end-group
