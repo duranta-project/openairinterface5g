@@ -42,7 +42,6 @@
 #include "nfapi_pnf.h"
 #include "nfapi_vnf.h"
 #include "ngap_gNB.h"
-#include "ngap_messages_types.h"
 #include "nr_common.h"
 #include "oai_asn1.h"
 #include "prs_nr_paramdef.h"
