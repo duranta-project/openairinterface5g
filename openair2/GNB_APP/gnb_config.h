@@ -11,6 +11,8 @@
 #include "common/ngran_types.h"
 #include "f1ap_messages_types.h"
 #include "intertask_interface.h"
+#include "ngap_messages_types.h"
+#include "xnap_messages_types.h"
 
 void RCconfig_verify(configmodule_interface_t *cfg, ngran_node_t node_type);
 void RCconfig_nr_prs(void);
@@ -27,6 +29,9 @@ int gNB_app_handle_f1ap_gnb_cu_configuration_update(f1ap_gnb_cu_configuration_up
 MessageDef *RCconfig_NR_CU_E1(const E1_t *entity);
 ngran_node_t get_node_type(void);
 void nfapi_stop_l1();
+xnap_net_config_t read_ip_config_xn(uint32_t gnb_idx);
+int is_xnap_enabled(void);
+xnap_setup_req_t read_ng_setup_info(const ngap_register_gnb_cnf_t *cnf, uint32_t gnb_idx);
 #ifdef E2_AGENT
 #include "openair2/E2AP/e2_agent_arg.h"
 e2_agent_args_t RCconfig_NR_E2agent(void);

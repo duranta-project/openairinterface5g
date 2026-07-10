@@ -10,6 +10,11 @@
 #include "common/platform_types.h"
 #include "common/platform_constants.h"
 
+#define XNAP_MAX_NB_CANDIDATES 8
+
+#define XNAP_REGISTER_GNB_REQ(mSGpTR)     (mSGpTR)->ittiMsg.xnap_register_gnb_req
+#define XNAP_F1_SETUP_DONE_IND(mSGpTR)    (mSGpTR)->ittiMsg.xnap_f1_setup_done_ind
+
 typedef struct {
   // PLMN Identity (M)
   plmn_id_t plmn;
@@ -59,6 +64,28 @@ typedef struct {
   uint16_t num_tai;
   xnap_tai_support_t *tai_support;
 } xnap_setup_resp_t;
+
+typedef struct xnap_sctp_s {
+  uint16_t sctp_in_streams;
+  uint16_t sctp_out_streams;
+} xnap_sctp_t;
+
+typedef struct xnap_net_config_t {
+  char *gnb_xn_interface_ip_address;
+  uint8_t nb_of_candidate_gNBs;
+  char *candidate_gnb_address_for_xnc[XNAP_MAX_NB_CANDIDATES];
+  uint32_t gnb_port_for_xnc;
+  xnap_sctp_t sctp_streams;
+} xnap_net_config_t;
+
+typedef struct xnap_register_gnb_req_s {
+  xnap_setup_req_t ng_setup_info;
+  xnap_net_config_t net_config;
+} xnap_register_gnb_req_t;
+
+typedef struct xnap_f1_setup_done_ind_s {
+  uint64_t gNB_DU_id;
+} xnap_f1_setup_done_ind_t;
 
 typedef enum xnap_cause_radio_network_e {
     XNAP_CAUSE_RADIO_NETWORK_LAYER_CELL_NOT_AVAILABLE,

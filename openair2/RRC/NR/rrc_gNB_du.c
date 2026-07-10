@@ -38,6 +38,9 @@
 #include "rrc_messages_types.h"
 #include "s1ap_messages_types.h"
 #include "tree.h"
+#include "intertask_interface.h"
+#include "openair2/COMMON/xnap_messages_types.h"
+#include "openair2/GNB_APP/gnb_config.h"
 #include "uper_decoder.h"
 #include "common/utils/oai_asn1.h"
 #include "utils.h"
@@ -852,6 +855,14 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
   LOG_I(NR_RRC, "DU %ld (%s): sending F1 Setup Response\n", req->gNB_DU_id, req->gNB_DU_name);
   rrc->mac_rrc.f1_setup_response(assoc_id, &resp);
   free_f1ap_setup_response(&resp);
+
+  /* F1 Setup Response sent; tell XNAP to start setting up Xn */
+  const bool xn_enabled = is_xnap_enabled();
+  if (xn_enabled) {
+    MessageDef *xn_msg = itti_alloc_new_message(TASK_RRC_GNB, rrc->module_id, XNAP_F1_SETUP_DONE_IND);
+    XNAP_F1_SETUP_DONE_IND(xn_msg).gNB_DU_id = req->gNB_DU_id;
+    itti_send_msg_to_task(TASK_XNAP, rrc->module_id, xn_msg);
+  }
 
   /* we need to setup one default UE for phy-test and do-ra modes in the MAC */
   if (get_softmodem_params()->phy_test > 0 || get_softmodem_params()->do_ra > 0)
