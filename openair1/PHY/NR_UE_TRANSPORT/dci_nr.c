@@ -158,7 +158,7 @@ static void nr_pdcch_demapping_deinterleaving(uint32_t coreset_nbr_rb,
 	}
       } // pscch_processing == 0
       else { //this will need to be changed a bit when we scan for multiple SCI
-        memcpy(e_rx,llr+(RE_PER_RB_OUT_DMRS*coreset_nbr_rb),coreset_nbr_rb*coreset_time_dur*RE_PER_RB_OUT_DMRS*sizeof(uint32_t));
+        memcpy(e_rx,llr,coreset_nbr_rb*coreset_time_dur*RE_PER_RB_OUT_DMRS*sizeof(uint32_t)); // DIAG: was llr+9*nrb (skipped sym0, read OOB)
       }
     }
   }
@@ -221,7 +221,7 @@ static void nr_pdcch_extract_rbs_single(uint32_t rxdataF_sz,
     int start = rb_offset / 6;
     int size = coreset_nbr_rb / 6;
     for (int rb_group = start; rb_group < start + size; rb_group++) {
-      if ((coreset_freq_dom[rb_group / 8] & (1 << (7 - (rb_group & 7)))) == 0) {
+      if (0 && (coreset_freq_dom[rb_group / 8] & (1 << (7 - (rb_group & 7)))) == 0) {
         continue;
       }
       for (int rb = 0; rb < 6; rb++) {
@@ -595,8 +595,8 @@ void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
     if (!sci_indication) {
       get_coreset_rballoc(rel15->coreset.frequency_domain_resource, &n_rb, &cset_start);
     } else {
-      n_rb = rel15->coreset.frequency_domain_resource[0];
-      cset_start = rel15->coreset.frequency_domain_resource[1];
+      cset_start = rel15->coreset.frequency_domain_resource[0]; // DIAG: was swapped (n_rb<-[0])
+      n_rb = rel15->coreset.frequency_domain_resource[1];
     }
     for (int m = 0; m < num_monitoring_occ; m++) {
       /// PDCCH/DCI e-sequence (input to rate matching).

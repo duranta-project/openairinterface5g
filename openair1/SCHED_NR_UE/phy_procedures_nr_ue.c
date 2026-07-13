@@ -877,8 +877,13 @@ void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
   const uint32_t rxdataF_sz = fp->samples_per_slot_wCP;
   __attribute__((aligned(32))) c16_t rxdataF[fp->nb_antennas_rx][rxdataF_sz];
 
+  // Sidelink PSCCH was transmitted with the SL frame params (link_type_sl, SL
+  // carrier). Demodulate with the matching rotation table, otherwise the wrong
+  // per-symbol phase / timeshift derotation corrupts the PSCCH symbols.
+  NR_DL_FRAME_PARMS *fep_fp = pscch_processing ? &ue->SL_UE_PHY_PARAMS.sl_frame_params : fp;
+  enum nr_Link fep_link = pscch_processing ? link_type_sl : link_type_dl;
   for (int symbol = start_symb_pdcch; symbol <= last_symb_pdcch; symbol++) {
-    nr_slot_fep(ue, fp, proc->nr_slot_rx, symbol, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
+    nr_slot_fep(ue, fep_fp, proc->nr_slot_rx, symbol, rxdataF, fep_link, 0, ue->common_vars.rxdata);
     __attribute__((aligned(32))) c16_t rxdataF_symb[fp->nb_antennas_rx][((fp->ofdm_symbol_size + 7) / 8) * 8];
 
     for (int ant = 0; ant < fp->nb_antennas_rx; ant++)
