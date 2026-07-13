@@ -2029,7 +2029,18 @@ uint8_t unpack_nr_crc_indication(uint8_t **ppReadPackedMsg, uint8_t *end, void *
  * 1 = failure, 2 = not checked) with a DetectionStatus (1 = CRC pass, 2 = CRC
  * failure, 3 = DTX, 4 = no DTX, 5 = DTX not checked). The MAC still consumes
  * the 10.02 values (the harq_crc != 1 / csi_part1_crc != 1 gates in
- * gNB_scheduler_uci.c), so translate those at the wire boundary too. */
+ * gNB_scheduler_uci.c), so translate those at the wire boundary too.
+ *
+ * An explicit DTX (3) means the UE transmitted nothing and the payload bits
+ * are decoder noise, so map it to "failure": the MAC then NACKs the HARQ
+ * process (the UE missed the assignment and needs the retransmission) and
+ * discards the CSI report, instead of consuming garbage bits. 4/5 carry no
+ * CRC verdict and map to "not checked" (payload consumed, as in 10.02).
+ *
+ * TODO: OAI's own L1 does not perform DTX detection on these UCI segments yet
+ * and only produces pass/failure/not-checked (packed as 1/2/4 below). Once
+ * OAI L1 implements DTX detection, emit DetectionStatus 3 on pack so both L1s
+ * share this single treat-DTX-as-failure path. */
 static uint8_t crc_from_detection_status(uint8_t detection_status)
 {
   switch (detection_status) {
@@ -2037,8 +2048,10 @@ static uint8_t crc_from_detection_status(uint8_t detection_status)
       return 0; // CRC pass
     case 2:
       return 1; // CRC failure
+    case 3:
+      return 1; // DTX: payload is noise, treat as failure
     default:
-      return 2; // DTX / not checked
+      return 2; // no DTX / DTX not checked: no CRC verdict, consume payload
   }
 }
 
@@ -2050,7 +2063,7 @@ static uint8_t detection_status_from_crc(uint8_t crc)
     case 1:
       return 2; // CRC failure
     default:
-      return 3; // DTX
+      return 4; // not checked: UCI present, no CRC performed
   }
 }
 
