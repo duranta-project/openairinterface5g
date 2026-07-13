@@ -419,7 +419,7 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
           if (k + NR_NB_SC_PER_RB <= frame_parms->ofdm_symbol_size) { // RB does not cross DC
             if (ap<Nl) 
               memcpy(&txdataF[ap][l*frame_parms->ofdm_symbol_size  + k],
-                     &tx_precoding[ap][2*(l*frame_parms->ofdm_symbol_size + k)],
+                     &tx_precoding[ap][l*frame_parms->ofdm_symbol_size + k],
                      NR_NB_SC_PER_RB*sizeof(int32_t));
             else
               memset(&txdataF[ap][l*frame_parms->ofdm_symbol_size + k],
@@ -430,10 +430,10 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
             int pos_length = NR_NB_SC_PER_RB - neg_length;
             if (ap<Nl) {
               memcpy(&txdataF[ap][l*frame_parms->ofdm_symbol_size + k],
-                     &tx_precoding[ap][2*(l*frame_parms->ofdm_symbol_size + k)],
+                     &tx_precoding[ap][l*frame_parms->ofdm_symbol_size + k],
                      neg_length*sizeof(int32_t));
               memcpy(&txdataF[ap][l*frame_parms->ofdm_symbol_size],
-                     &tx_precoding[ap][2*(l*frame_parms->ofdm_symbol_size)],
+                     &tx_precoding[ap][l*frame_parms->ofdm_symbol_size],
                      pos_length*sizeof(int32_t));
             } else {
               memset(&txdataF[ap][l*frame_parms->ofdm_symbol_size + k],

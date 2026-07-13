@@ -189,6 +189,7 @@ static void configure_SL_UE(PHY_VARS_NR_UE *UE, int mu, int N_RB, int ssb_offset
   config->sl_carrier_config.sl_bandwidth = N_RB;
   config->sl_carrier_config.sl_grid_size = 106;
   config->sl_sync_source.rx_slss_id = slss_id;
+  config->sl_DMRS_ScrambleId = 100; // DIAGNOSTIC: match RX coreset.pdcch_dmrs_scrambling_id
 
   sl_init_frame_parameters(UE);
   sl_ue_phy_init(UE);
