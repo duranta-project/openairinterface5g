@@ -42,6 +42,7 @@
 #include "openair2/PHY_INTERFACE/IF_Module.h"
 #include "common/openairinterface5g_limits.h"
 #include "common/utils/threadPool/task_ans.h"
+#include "nfapi/open-nFAPI/nfapi/public_inc/fapi_nr_ue_constants.h"
 
 #define PBCH_A 24
 #define MAX_NUM_RU_PER_eNB 64

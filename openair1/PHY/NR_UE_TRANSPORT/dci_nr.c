@@ -589,7 +589,6 @@ void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
 {
   NR_UE_PDCCH_CONFIG *phy_pdcch_config = &phy_data->phy_pdcch_config;
 
-  nr_downlink_indication_t dl_indication;
   fapi_nr_dci_indication_t dci_ind = {.SFN = proc->frame_rx, .slot = proc->nr_slot_rx};
 
   for (int ss_idx = 0; ss_idx < phy_pdcch_config->nb_search_space; ss_idx++) {
@@ -632,7 +631,14 @@ void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
   }
 
   /* Send to MAC */
-  nr_fill_dl_indication(&dl_indication, &dci_ind, NULL, proc, ue, phy_data);
+  nr_downlink_indication_t dl_indication = (nr_downlink_indication_t){.gNB_index = proc->gNB_id,
+                                                                      .module_id = ue->Mod_id,
+                                                                      .cc_id = ue->CC_id,
+                                                                      .hfn = proc->hfn_rx,
+                                                                      .frame = proc->frame_rx,
+                                                                      .slot = proc->nr_slot_rx,
+                                                                      .phy_data = phy_data,
+                                                                      .dci_ind = &dci_ind};
   ue->if_inst->dl_indication(&dl_indication);
   phy_pdcch_config->nb_search_space = 0;
 }

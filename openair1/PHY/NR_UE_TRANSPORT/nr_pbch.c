@@ -398,16 +398,18 @@ int nr_pbch_decode(PHY_VARS_NR_UE *ue,
                                                NR_POLAR_PBCH_AGGREGATION_LEVEL);
   pbch_a_prime = tmp;
 
-  nr_downlink_indication_t dl_indication;
-  fapi_nr_rx_indication_t rx_ind = {0};
-  uint16_t number_pdus = 1;
-
   if (decoderState) {
-    if (ue) { // decoding failed in synced state
-      nr_fill_dl_indication(&dl_indication, NULL, &rx_ind, proc, ue, NULL);
-      nr_fill_rx_indication(&rx_ind, FAPI_NR_RX_PDU_TYPE_SSB, ue, 0, 0, NULL, number_pdus, proc, NULL, NULL);
-      if (ue->if_inst && ue->if_inst->dl_indication)
-        ue->if_inst->dl_indication(&dl_indication);
+    if (ue && ue->if_inst && ue->if_inst->dl_indication) { // decoding failed in synced state
+      fapi_nr_rx_indication_t rx_ind = {0};
+      nr_fill_rx_indication(&rx_ind, FAPI_NR_RX_PDU_TYPE_SSB, ue, 0, 0, NULL, proc, NULL);
+      nr_downlink_indication_t dl_indication = (nr_downlink_indication_t){.gNB_index = proc->gNB_id,
+                                                                          .module_id = ue->Mod_id,
+                                                                          .cc_id = ue->CC_id,
+                                                                          .hfn = proc->hfn_rx,
+                                                                          .frame = proc->frame_rx,
+                                                                          .slot = proc->nr_slot_rx,
+                                                                          .rx_ind = &rx_ind};
+      ue->if_inst->dl_indication(&dl_indication);
     }
     return(decoderState);
   }
@@ -463,12 +465,19 @@ int nr_pbch_decode(PHY_VARS_NR_UE *ue,
 
 #endif
 
-  if (ue) {
-    nr_fill_dl_indication(&dl_indication, NULL, &rx_ind, proc, ue, NULL);
-    nr_fill_rx_indication(&rx_ind, FAPI_NR_RX_PDU_TYPE_SSB, ue, 0, 0, NULL, number_pdus, proc, (void *)result, NULL);
-
-    if (ue->if_inst && ue->if_inst->dl_indication)
-      ue->if_inst->dl_indication(&dl_indication);
+  if (ue && ue->if_inst && ue->if_inst->dl_indication) {
+    fapi_nr_rx_indication_t rx_ind = {0};
+    nr_fill_rx_indication(&rx_ind, FAPI_NR_RX_PDU_TYPE_SSB, ue, 0, 0, NULL, proc, (void *)result);
+    nr_downlink_indication_t dl_indication = (nr_downlink_indication_t){
+        .gNB_index = proc->gNB_id,
+        .module_id = ue->Mod_id,
+        .cc_id = ue->CC_id,
+        .hfn = proc->hfn_rx,
+        .frame = proc->frame_rx,
+        .slot = proc->nr_slot_rx,
+        .rx_ind = &rx_ind,
+    };
+    ue->if_inst->dl_indication(&dl_indication);
   }
 
   TracyCZoneEnd(ctx);

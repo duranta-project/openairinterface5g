@@ -1039,20 +1039,27 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
     return;
 
   fapi_nr_l1_measurements_t l1_measurements = {
-    .gNB_index = proc->gNB_id,
-    .meas_type = NFAPI_NR_CSI_MEAS,
-    .Nid_cell = frame_parms->Nid_cell,
-    .is_neighboring_cell = false,
-    .rsrp_dBm = rsrp_dBm,
-    .rank_indicator = rank_indicator,
-    .i1 = *i1,
-    .i2 = *i2,
-    .cqi = cqi,
-    .radiolink_monitoring = RLM_no_monitoring, // TODO do be activated in case of RLM based on CSI-RS
+      .gNB_index = proc->gNB_id,
+      .meas_type = NFAPI_NR_CSI_MEAS,
+      .Nid_cell = frame_parms->Nid_cell,
+      .is_neighboring_cell = false,
+      .rsrp_dBm = rsrp_dBm,
+      .rank_indicator = rank_indicator,
+      .i1 = *i1,
+      .i2 = *i2,
+      .cqi = cqi,
+      .radiolink_monitoring = RLM_no_monitoring, // TODO do be activated in case of RLM based on CSI-RS
   };
-  nr_downlink_indication_t dl_indication;
   fapi_nr_rx_indication_t rx_ind = {0};
-  nr_fill_dl_indication(&dl_indication, NULL, &rx_ind, proc, ue, NULL);
-  nr_fill_rx_indication(&rx_ind, FAPI_NR_MEAS_IND, ue, 0, 0, NULL, 1, proc, (void *)&l1_measurements, NULL);
+  nr_fill_rx_indication(&rx_ind, FAPI_NR_MEAS_IND, ue, 0, 0, NULL, proc, (void *)&l1_measurements);
+  nr_downlink_indication_t dl_indication = (nr_downlink_indication_t){
+      .gNB_index = proc->gNB_id,
+      .module_id = ue->Mod_id,
+      .cc_id = ue->CC_id,
+      .hfn = proc->hfn_rx,
+      .frame = proc->frame_rx,
+      .slot = proc->nr_slot_rx,
+      .rx_ind = &rx_ind,
+  };
   ue->if_inst->dl_indication(&dl_indication);
 }

@@ -547,8 +547,15 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
   if (proc->rx_slot_type == NR_DOWNLINK_SLOT || proc->rx_slot_type == NR_MIXED_SLOT) {
     dl_slot = true;
     if(UE->if_inst != NULL && UE->if_inst->dl_indication != NULL) {
-      nr_downlink_indication_t dl_indication;
-      nr_fill_dl_indication(&dl_indication, NULL, NULL, proc, UE, phy_data);
+      nr_downlink_indication_t dl_indication = (nr_downlink_indication_t){
+          .gNB_index = proc->gNB_id,
+          .module_id = UE->Mod_id,
+          .cc_id = UE->CC_id,
+          .hfn = proc->hfn_rx,
+          .frame = proc->frame_rx,
+          .slot = proc->nr_slot_rx,
+          .phy_data = phy_data,
+      };
       UE->if_inst->dl_indication(&dl_indication);
     }
 

@@ -86,15 +86,6 @@ int is_pbch_in_slot(fapi_nr_config_request_t *config, int frame, int slot, NR_DL
 int is_ssb_in_slot(fapi_nr_config_request_t *config, int frame, int slot, NR_DL_FRAME_PARMS *fp);
 bool is_csi_rs_in_symbol(fapi_nr_dl_config_csirs_pdu_rel15_t csirs_config_pdu, int symbol);
 
-/*! \brief This function prepares the dl indication to pass to the MAC
- */
-void nr_fill_dl_indication(nr_downlink_indication_t *dl_ind,
-                           fapi_nr_dci_indication_t *dci_ind,
-                           fapi_nr_rx_indication_t *rx_ind,
-                           const UE_nr_rxtx_proc_t *proc,
-                           PHY_VARS_NR_UE *ue,
-                           void *phy_data);
-
 /*@}*/
 
 /*! \brief This function prepares the dl rx indication
@@ -105,10 +96,8 @@ void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
                            int cw_idx,
                            int harq_pid,
                            NR_UE_DLSCH_t *dlsch,
-                           uint16_t n_pdus,
                            const UE_nr_rxtx_proc_t *proc,
-                           void *typeSpecific,
-                           uint8_t *b);
+                           void *typeSpecific);
 
 void nr_pdcch_generate_llr(PHY_VARS_NR_UE *ue,
                            const UE_nr_rxtx_proc_t *proc,

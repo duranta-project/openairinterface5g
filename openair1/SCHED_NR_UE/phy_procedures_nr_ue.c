@@ -50,36 +50,6 @@ static const unsigned int gain_table[31] = {100,  112,  126,  141,  158,  178,  
 
 static void nr_ue_prach_procedures(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, c16_t **txData);
 
-void nr_fill_dl_indication(nr_downlink_indication_t *dl_ind,
-                           fapi_nr_dci_indication_t *dci_ind,
-                           fapi_nr_rx_indication_t *rx_ind,
-                           const UE_nr_rxtx_proc_t *proc,
-                           PHY_VARS_NR_UE *ue,
-                           void *phy_data)
-{
-  memset((void*)dl_ind, 0, sizeof(nr_downlink_indication_t));
-
-  dl_ind->gNB_index = proc->gNB_id;
-  dl_ind->module_id = ue->Mod_id;
-  dl_ind->cc_id     = ue->CC_id;
-  dl_ind->hfn       = proc->hfn_rx;
-  dl_ind->frame     = proc->frame_rx;
-  dl_ind->slot      = proc->nr_slot_rx;
-  dl_ind->phy_data  = phy_data;
-
-  if (dci_ind) {
-
-    dl_ind->rx_ind = NULL; //no data, only dci for now
-    dl_ind->dci_ind = dci_ind;
-
-  } else if (rx_ind) {
-
-    dl_ind->rx_ind = rx_ind; //  hang on rx_ind instance
-    dl_ind->dci_ind = NULL;
-
-  }
-}
-
 static uint32_t get_ssb_arfcn(NR_DL_FRAME_PARMS *frame_parms)
 {
   uint32_t band_size_hz = frame_parms->N_RB_DL * 12 * frame_parms->subcarrier_spacing;
@@ -94,16 +64,13 @@ void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
                            int cw_idx,
                            int harq_pid,
                            NR_UE_DLSCH_t *dlsch,
-                           uint16_t n_pdus,
                            const UE_nr_rxtx_proc_t *proc,
-                           void *typeSpecific,
-                           uint8_t *b)
+                           void *typeSpecific)
 {
-  if (n_pdus > 1) {
-    LOG_E(PHY, "Multiple number of DL PDUs not supported yet...\n");
-    return;
-  }
-  fapi_nr_rx_indication_body_t *rx = rx_ind->rx_indication_body + n_pdus - 1;
+  AssertFatal(rx_ind->number_pdus < NFAPI_RX_IND_MAX_PDU - 1, "Exceeded rx_ind array size\n");
+  fapi_nr_rx_indication_body_t *rx = rx_ind->rx_indication_body + rx_ind->number_pdus;
+  rx_ind->number_pdus++;
+  rx->pdu_type = pdu_type;
   switch (pdu_type){
     case FAPI_NR_RX_PDU_TYPE_SIB:
     case FAPI_NR_RX_PDU_TYPE_RAR:
@@ -114,7 +81,7 @@ void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
         rx->pdsch_pdu.harq_pid = harq_pid;
         rx->pdsch_pdu.cw_idx = cw_idx;
         rx->pdsch_pdu.ack_nack = dl_harq->decodeResult;
-        rx->pdsch_pdu.pdu = b;
+        rx->pdsch_pdu.pdu = (uint8_t *)typeSpecific;
         rx->pdsch_pdu.pdu_length = dlsch->cw_info.TBS / 8;
         if (dl_harq->decodeResult) {
           int t = WS_C_RNTI;
@@ -127,7 +94,7 @@ void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
           ws_trace_t tmp = {.nr = true,
                             .direction = DIRECTION_DOWNLINK,
                             .type = ue->frame_parms.frame_type == FDD ? FDD_RADIO : TDD_RADIO,
-                            .pdu_buffer = b,
+                            .pdu_buffer = rx->pdsch_pdu.pdu,
                             .pdu_buffer_size = rx->pdsch_pdu.pdu_length,
                             .ueid = 0,
                             .rntiType = t,
@@ -163,9 +130,6 @@ void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
     default:
     break;
   }
-
-  rx->pdu_type = pdu_type;
-  rx_ind->number_pdus = n_pdus;
 }
 
 int get_tx_amp_prach(int power_dBm, int power_max_dBm, int N_RB_UL){
@@ -703,9 +667,6 @@ static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
   int harq_pid = config->harq_process_nbr;
   int frame_rx = proc->frame_rx;
   int nr_slot_rx = proc->nr_slot_rx;
-  nr_downlink_indication_t dl_indication;
-  fapi_nr_rx_indication_t rx_ind = {0};
-  uint16_t number_pdus = 1;
 
   LOG_D(PHY, "AbsSubframe %d.%d Start LDPC Decoder for CW%d [harq_pid %d]\n", frame_rx % 1024, nr_slot_rx, cw_idx, harq_pid);
 
@@ -749,9 +710,6 @@ static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
       break;
   }
 
-  nr_fill_dl_indication(&dl_indication, NULL, &rx_ind, proc, ue, NULL);
-  nr_fill_rx_indication(&rx_ind, ind_type, ue, cw_idx, harq_pid, dlsch, number_pdus, proc, NULL, dl_harq->b);
-
   LOG_D(PHY, "DL PDU length in bits: %d, in bytes: %d \n", dlsch->cw_info.TBS, dlsch->cw_info.TBS / 8);
   if (cpumeas(CPUMEAS_GETSTATE)) {
     LOG_D(PHY,
@@ -766,6 +724,17 @@ static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
 
   // send to mac
   if (ue->if_inst && ue->if_inst->dl_indication) {
+    fapi_nr_rx_indication_t rx_ind = {0};
+    nr_fill_rx_indication(&rx_ind, ind_type, ue, cw_idx, harq_pid, dlsch, proc, dl_harq->b);
+    nr_downlink_indication_t dl_indication = (nr_downlink_indication_t){
+        .gNB_index = proc->gNB_id,
+        .module_id = ue->Mod_id,
+        .cc_id = ue->CC_id,
+        .hfn = proc->hfn_rx,
+        .frame = proc->frame_rx,
+        .slot = proc->nr_slot_rx,
+        .rx_ind = &rx_ind,
+    };
     ue->if_inst->dl_indication(&dl_indication);
   }
 

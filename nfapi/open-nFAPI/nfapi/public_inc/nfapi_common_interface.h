@@ -4,6 +4,7 @@
 
 #ifndef NFAPI_COMMON_INTERFACE_H
 #define NFAPI_COMMON_INTERFACE_H
+#include "nfapi/open-nFAPI/nfapi/public_inc/fapi_nr_ue_constants.h"
 
 typedef struct {
   uint16_t tag;

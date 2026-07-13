@@ -2849,7 +2849,6 @@ typedef struct {
 	uint8_t rx_ind_data[NFAPI_RX_IND_DATA_MAX];
 } nfapi_rx_indication_pdu_t;
 
-#define NFAPI_RX_IND_MAX_PDU 100
 typedef struct {
 	nfapi_tl_t tl;
 	uint16_t number_of_pdus;
