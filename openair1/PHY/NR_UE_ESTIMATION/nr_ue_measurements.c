@@ -162,7 +162,9 @@ static void send_ssb_rsrp_meas(PHY_VARS_NR_UE *ue,
       .sinr_dB = sinr_dB,
   };
 
-  fapi_nr_rx_indication_t rx_ind = {0};
+  fapi_nr_rx_indication_t rx_ind;
+  rx_ind.number_pdus = 0;
+  nr_fill_rx_indication(&rx_ind, FAPI_NR_MEAS_IND, ue, 0, 0, NULL, proc, &l1_measurements);
   nr_downlink_indication_t dl_indication = (nr_downlink_indication_t){.gNB_index = proc->gNB_id,
                                                                       .module_id = ue->Mod_id,
                                                                       .cc_id = ue->CC_id,
@@ -170,7 +172,6 @@ static void send_ssb_rsrp_meas(PHY_VARS_NR_UE *ue,
                                                                       .frame = proc->frame_rx,
                                                                       .slot = proc->nr_slot_rx,
                                                                       .rx_ind = &rx_ind};
-  nr_fill_rx_indication(&rx_ind, FAPI_NR_MEAS_IND, ue, 0, 0, NULL, proc, &l1_measurements);
   ue->if_inst->dl_indication(&dl_indication);
 }
 

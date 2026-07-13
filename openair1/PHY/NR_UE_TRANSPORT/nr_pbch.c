@@ -400,7 +400,8 @@ int nr_pbch_decode(PHY_VARS_NR_UE *ue,
 
   if (decoderState) {
     if (ue && ue->if_inst && ue->if_inst->dl_indication) { // decoding failed in synced state
-      fapi_nr_rx_indication_t rx_ind = {0};
+      fapi_nr_rx_indication_t rx_ind;
+      rx_ind.number_pdus = 0;
       nr_fill_rx_indication(&rx_ind, FAPI_NR_RX_PDU_TYPE_SSB, ue, 0, 0, NULL, proc, NULL);
       nr_downlink_indication_t dl_indication = (nr_downlink_indication_t){.gNB_index = proc->gNB_id,
                                                                           .module_id = ue->Mod_id,
@@ -466,7 +467,8 @@ int nr_pbch_decode(PHY_VARS_NR_UE *ue,
 #endif
 
   if (ue && ue->if_inst && ue->if_inst->dl_indication) {
-    fapi_nr_rx_indication_t rx_ind = {0};
+    fapi_nr_rx_indication_t rx_ind;
+    rx_ind.number_pdus = 0;
     nr_fill_rx_indication(&rx_ind, FAPI_NR_RX_PDU_TYPE_SSB, ue, 0, 0, NULL, proc, (void *)result);
     nr_downlink_indication_t dl_indication = (nr_downlink_indication_t){
         .gNB_index = proc->gNB_id,

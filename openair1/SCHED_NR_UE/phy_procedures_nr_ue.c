@@ -70,7 +70,7 @@ void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
   AssertFatal(rx_ind->number_pdus < NFAPI_RX_IND_MAX_PDU - 1, "Exceeded rx_ind array size\n");
   fapi_nr_rx_indication_body_t *rx = rx_ind->rx_indication_body + rx_ind->number_pdus;
   rx_ind->number_pdus++;
-  rx->pdu_type = pdu_type;
+  *rx = (fapi_nr_rx_indication_body_t){.pdu_type = pdu_type};
   switch (pdu_type){
     case FAPI_NR_RX_PDU_TYPE_SIB:
     case FAPI_NR_RX_PDU_TYPE_RAR:
@@ -724,7 +724,8 @@ static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
 
   // send to mac
   if (ue->if_inst && ue->if_inst->dl_indication) {
-    fapi_nr_rx_indication_t rx_ind = {0};
+    fapi_nr_rx_indication_t rx_ind;
+    rx_ind.number_pdus = 0;
     nr_fill_rx_indication(&rx_ind, ind_type, ue, cw_idx, harq_pid, dlsch, proc, dl_harq->b);
     nr_downlink_indication_t dl_indication = (nr_downlink_indication_t){
         .gNB_index = proc->gNB_id,

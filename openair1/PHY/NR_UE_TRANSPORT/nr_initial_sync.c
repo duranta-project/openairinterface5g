@@ -453,7 +453,8 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
 
   // In initial sync, we indicate PBCH to MAC after the scan is complete.
   if (ue->if_inst && ue->if_inst->dl_indication) {
-    fapi_nr_rx_indication_t rx_ind = {0};
+    fapi_nr_rx_indication_t rx_ind;
+    rx_ind.number_pdus = 0;
     nr_fill_rx_indication(&rx_ind, FAPI_NR_RX_PDU_TYPE_SSB, ue, 0, 0, NULL, proc, res ? (void *)&res->pbchResult : NULL);
     nr_downlink_indication_t dl_indication = (nr_downlink_indication_t){
         .gNB_index = proc->gNB_id,
