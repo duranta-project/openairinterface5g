@@ -38,12 +38,12 @@ cuphydriver_config:
   use_green_contexts: 0
   use_batched_memcpy: 1 # Experimental feature; requires >= CUDA 12.8
   mps_sm_pusch: 40
-  mps_sm_pucch: 2
-  mps_sm_prach: 2
+  mps_sm_pucch: 4
+  mps_sm_prach: 4
   mps_sm_ul_order: 12
   mps_sm_pdsch: 46
   mps_sm_pdcch: 12
-  mps_sm_pbch: 2
+  mps_sm_pbch: 4
   mps_sm_gpu_comms: 16
   mps_sm_srs: 16
   pdsch_fallback: 0
