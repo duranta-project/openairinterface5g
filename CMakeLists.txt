@@ -816,6 +816,7 @@ set(PHY_SRC_COMMON
   ${OPENAIR1_DIR}/PHY/TOOLS/sqrt.c
   ${OPENAIR1_DIR}/PHY/TOOLS/get_sin_cos.c
   ${OPENAIR1_DIR}/PHY/TOOLS/oai_arith_operations.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/rotate_vector.cpp
   )
 
 set(PHY_SRC
@@ -945,6 +946,7 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/TOOLS/dB_routines.c
   ${OPENAIR1_DIR}/PHY/TOOLS/sqrt.c
   ${OPENAIR1_DIR}/PHY/TOOLS/oai_arith_operations.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/rotate_vector.cpp
   ${PHY_NRLDPC_CODINGIF}
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/pucch_rx.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/srs_rx.c
@@ -993,6 +995,7 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/TOOLS/dB_routines.c
   ${OPENAIR1_DIR}/PHY/TOOLS/sqrt.c
   ${OPENAIR1_DIR}/PHY/TOOLS/oai_arith_operations.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/rotate_vector.cpp
   ${OPENAIR1_DIR}/PHY/INIT/nr_init_ue.c
   ${PHY_NRLDPC_CODINGIF}
   )
@@ -1002,9 +1005,22 @@ if (${SMBV})
   set(PHY_SRC "${PHY_SRC} ${OPENAIR1_DIR}/PHY/TOOLS/smbv.c")
 endif  (${SMBV})
 
+CPMAddPackage(
+  NAME highway
+  GITHUB_REPOSITORY google/highway
+  VERSION 1.2.0
+  GIT_TAG 1.2.0
+  OPTIONS
+    "HWY_SYSTEM_GTEST ON"
+    "BUILD_TESTING OFF"
+)
+if(NOT TARGET hwy::hwy)
+  add_library(hwy::hwy ALIAS hwy)
+endif()
+
 add_library(PHY_COMMON ${PHY_SRC_COMMON})
 target_link_libraries(PHY_COMMON
-  PRIVATE shlib_loader asn1_lte_rrc_hdrs crc_byte
+  PRIVATE shlib_loader asn1_lte_rrc_hdrs crc_byte hwy::hwy
   PUBLIC UTIL
 )
 add_dependencies(PHY_COMMON dfts)
@@ -1016,7 +1032,7 @@ add_library(PHY_UE ${PHY_SRC_UE})
 target_link_libraries(PHY_UE PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs UTIL)
 
 add_library(PHY_NR_COMMON ${PHY_NR_SRC_COMMON})
-target_link_libraries(PHY_NR_COMMON PUBLIC UTIL)
+target_link_libraries(PHY_NR_COMMON PUBLIC UTIL PRIVATE hwy::hwy)
 
 add_library(PHY_NR ${PHY_NR_SRC})
 target_link_libraries(PHY_NR nr_phy_common nr_common nr_fapi_p5 polar smallblock ds)
@@ -1026,7 +1042,7 @@ target_link_libraries(PHY_NR_NO_AVX_256 nr_phy_common nr_common)
 target_compile_definitions(PHY_NR_NO_AVX_256 PUBLIC USE_128BIT)
 
 add_library(PHY_NR_UE ${PHY_NR_UE_SRC})
-target_link_libraries(PHY_NR_UE PRIVATE asn1_nr_rrc_hdrs nr_phy_common nr_common UTIL polar smallblock)
+target_link_libraries(PHY_NR_UE PRIVATE asn1_nr_rrc_hdrs nr_phy_common nr_common UTIL polar smallblock hwy::hwy)
 
 add_library(PHY_RU ${PHY_SRC_RU})
 target_link_libraries(PHY_RU PRIVATE asn1_lte_rrc_hdrs UTIL)

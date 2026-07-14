@@ -6,8 +6,11 @@ add_dependencies(tests test_signal_energy)
 add_test(NAME test_signal_energy
   COMMAND ./test_signal_energy)
 
+if(NOT TARGET hwy::hwy)
+  find_package(hwy REQUIRED)
+endif()
 add_executable(benchmark_rotate_vector benchmark_rotate_vector.cpp)
-target_link_libraries(benchmark_rotate_vector PRIVATE benchmark::benchmark UTIL PHY_NR)
+target_link_libraries(benchmark_rotate_vector PRIVATE benchmark::benchmark UTIL PHY_NR PHY_NR_COMMON hwy::hwy)
 add_dependencies(tests benchmark_rotate_vector)
 add_test(NAME benchmark_rotate_vector
   COMMAND ./benchmark_rotate_vector)
