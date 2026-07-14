@@ -945,12 +945,15 @@ for (int aarx = 0; aarx < nbRx; aarx++) {
 }
       // Output shift: half channel energy (log2|h|^2/2) + MRC antenna gain.
       // Single-layer adds +1 guard bit (raw peak); multi-layer uses median so no guard needed.
+      // ML branch offset (empirical -2) tunable via OAI_ML_MAXH_OFF for the hotness sweep.
+      static int ml_maxh_off = -100;
+      if (ml_maxh_off == -100) { const char *e = getenv("OAI_ML_MAXH_OFF"); ml_maxh_off = e ? atoi(e) : -2; }
       if (nl == 1)
         *log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(nbRx >> 1);
       else if (!do_ml)
         *log2_maxh = (log2_approx(avgs) >> 1)  + log2_approx(nbRx >> 1);
       else
-        *log2_maxh = (log2_approx(avgs) >> 1) - 2 + log2_approx(nbRx >> 1);
+        *log2_maxh = (log2_approx(avgs) >> 1) + ml_maxh_off + log2_approx(nbRx >> 1);
 
       LOG_D(PHY, "[DLSCH] AbsSubframe %d.%d log2_maxh = %d (%d)\n", frame % 1024, nr_slot_rx, *log2_maxh, avgs);
 #if T_TRACER
