@@ -113,8 +113,10 @@ problem — never needs an explicit matrix inverse.
 | QPSK N=3 / N=4 exact | O(16) / O(64) | small enough to stay exhaustive (M=4) |
 
 The conditional slice is what decouples per-candidate cost from constellation order, so at a
-fixed `L` the hybrid cost is roughly the same for 16/64/256QAM; only the candidate count and
-the (cheap, vector-aligned for 256QAM) output packing differ.
+fixed `L` the hybrid *operation count* is roughly the same for 16/64/256QAM; only the candidate
+count and the output-bit packing differ. These are op-counts, **not wall-clock** — see §7 for
+which kernels are actually fixed-point/SIMD (production) vs scalar `float` (analysis-only).
+256QAM's regular alignment would make it a good SIMD target, but no such kernel exists yet.
 
 ## 6. Measured gains (channel dependence)
 
@@ -141,6 +143,24 @@ artifact and are retracted; 2-layer and 256QAM gains need re-measuring under `-E
 **Rank/conditioning:** 256QAM with ≥2 layers needs ≥4 RX; below that neither ML nor MMSE converges
 on TDL — physics, not a detector issue.
 
+### 6a. Reduced-search (L-best) viability — under revision
+
+An earlier verdict held that the 2-layer reduced search (`L < M`) loses several dB on correlated
+TDL channels and is usable only on low-correlation / flat channels (the case-6 code comment still
+says this). **That is now suspect.** Those measurements were taken with *cool* LLR scaling, which
+depresses BLER regardless of the search. With the hot `-2` ML `log2_maxh` (§7a) the reduced
+search's *bit decisions* are in fact faithful on TDL-A — the float ground-truth comparator
+measured `<0.35%` sign disagreement between the 9-candidate reduced search and exact full-ML on
+TDL-A.
+
+**Working hypothesis (pending the `L`-sweep):** with hot LLRs the reduced search is near-ML on
+realistic 3GPP channels, not just flat ones — which would restore the complexity-reduction
+rationale. To confirm, sweep `L` (full vs reduced) at `-2` and check the BLER curves track; the
+key target is **256QAM reduced-`L` at 4T4R**, where full search is O(256) and no SIMD kernel
+exists. Caveat: as `L` shrinks the empty-subset `±NR_LBEST_Q_LLR_SAT` fallback fires more often
+(overconfident LLRs), so "tracks full-ML" must be judged on **BLER**, not sign agreement alone.
+Treat all pre-revision channel-dependence numbers as measured with cool LLRs.
+
 ## 7. Implementation / gating
 
 All gated behind `OAI_LBEST` (default off → production full-search/MMSE, unchanged). Wired in
@@ -151,6 +171,15 @@ the **UE RX (downlink PDSCH)** path only so far (`nr_dlsch_demodulation.c`,
 - `OAI_LBEST_PAT` — 64QAM 2-layer candidate pattern (0=3×3 full-BLER, 1=6-cand, 2=5-plus).
 - `OAI_LBEST_L256` — 256QAM 2-layer candidate count (default 256 = full ML).
 - `OAI_LBEST3` (1=hybrid, 2=full-ML ref) and `OAI_LBEST_L3` — 3-layer.
+
+**Kernel implementation status.** Only the **2-layer 64QAM** path is production-grade fixed-point:
+the int16 full-search `nr_qam64_llr_2layer` and the int16/SIMD reduced-search
+`nr_qam64_llr_2layer_lbest_q15_simd16`. **Every other L-best/hybrid kernel is scalar `float`,
+analysis-only** — the 2-layer 16QAM/256QAM refs (`nr_qam{16,256}_llr_2layer_lbest`) and all
+>2-layer kernels (`nr_qam_llr_3layer_hybrid` / `_ml`). In particular there is **no fixed-point or
+SIMD 256QAM kernel** (full *or* reduced): 256QAM ML runs entirely on the float reference, so its
+dlsim results characterize the *algorithm*, not production speed — a production reduced-`L` 256QAM
+kernel would still have to be written.
 
 ### 7a. LLR scaling and the analysis knobs
 
