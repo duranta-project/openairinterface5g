@@ -950,7 +950,7 @@ for (int aarx = 0; aarx < nbRx; aarx++) {
       else if (!do_ml)
         *log2_maxh = (log2_approx(avgs) >> 1)  + log2_approx(nbRx >> 1);
       else
-        *log2_maxh = (log2_approx(avgs) >> 1) -2 + log2_approx(nbRx >> 1);
+        *log2_maxh = (log2_approx(avgs) >> 1) - 2 + log2_approx(nbRx >> 1);
 
       LOG_D(PHY, "[DLSCH] AbsSubframe %d.%d log2_maxh = %d (%d)\n", frame % 1024, nr_slot_rx, *log2_maxh, avgs);
 #if T_TRACER
