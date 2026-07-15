@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
+add_executable(lpp_request_capabilities_test lpp_request_capabilities_test.c)
+add_dependencies(tests lpp_request_capabilities_test)
+add_test(NAME lpp_request_capabilities_test COMMAND lpp_request_capabilities_test)
+target_link_libraries(lpp_request_capabilities_test PRIVATE asn1_lpp)
