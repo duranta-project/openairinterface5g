@@ -536,6 +536,7 @@ int nrue_ru_write_reorder(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, vo
                                        txp,
                                        nsamps,
                                        nrue_rus.cfg[UE->rf_map.card].nb_clients,
+                                       UE->Mod_id,
                                        nbAnt,
                                        flags);
 }
@@ -544,5 +545,6 @@ void nrue_ru_write_reorder_clear_context(PHY_VARS_NR_UE *UE)
 {
   openair0_device_t *device = &nrue_rus.openair0_dev[UE->rf_map.card];
   LOG_W(HW, "[UE %d] received write reorder clear context\n", UE->Mod_id);
-  openair0_write_reorder_clear_context(device);
+  if (!IS_SOFTMODEM_RFSIM)
+    openair0_write_reorder_clear_context(device);
 }

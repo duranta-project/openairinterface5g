@@ -192,6 +192,7 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
                                   void **txp,
                                   int nsamps,
                                   int nb_writers,
+                                  int writer_id,
                                   int nbAnt,
                                   int flags)
 {
@@ -216,6 +217,15 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
   AssertFatal(nb_writers, "no UE writers, the minimum is 1");
   AssertFatal(nbAnt, "no tx antennas, the minimum is 1");
   int write_buff_index = timestamp % ctx->sz;
+  if (flags & TX_BURST_FILL) {
+    if (ctx->lastTS[writer_id] < timestamp) {
+      int write_buff_index = ctx->lastTS[writer_id] % ctx->sz;
+      const int *endl = ctx->nb_writers + (timestamp % ctx->sz);
+      for (int *i = ctx->nb_writers + write_buff_index; i < endl; i++)
+        *i = *i + 1;
+    }
+  }
+  flags &= ~TX_BURST_FILL;
   for (int a = 0; a < nbAnt; a++) {
     c16_t *out = ((c16_t *)ctx->ring[a]) + write_buff_index;
     c16adds(txp[a], out, out, nsamps);
@@ -223,6 +233,8 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
   const int *endl = ctx->nb_writers + write_buff_index + nsamps;
   for (int *i = ctx->nb_writers + write_buff_index; i < endl; i++)
     *i = *i + 1;
+
+  ctx->lastTS[writer_id] = timestamp + nsamps;
 
   // check it we have ready output now
   int consume_buff_index = ctx->nextTS % ctx->sz;
@@ -258,10 +270,10 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
   return nsamps;
 }
 
-  int openair0_write_reorder(openair0_device_t *device, openair0_timestamp_t timestamp, void **txp, int nsamps, int nbAnt, int flags)
-  {
-    return openair0_write_reorder_common(NULL, NULL, device, timestamp, txp, nsamps, 1, nbAnt, flags);
-  }
+int openair0_write_reorder(openair0_device_t *device, openair0_timestamp_t timestamp, void **txp, int nsamps, int nbAnt, int flags)
+{
+  return openair0_write_reorder_common(NULL, NULL, device, timestamp, txp, nsamps, 1, 0, nbAnt, flags);
+}
 
   void openair0_write_reorder_clear_context(openair0_device_t *device)
   {

@@ -129,6 +129,7 @@ typedef enum {
   TX_BURST_END = 3,
   TX_BURST_START_AND_END = 4,
   TX_BURST_END_NO_TIME_SPEC = 10,
+  TX_BURST_FILL = 1 << 10,
 } radio_tx_burst_flag_t;
 
 /*! \brief Radio TX GPIO flags: MSB to enable sending GPIO command, 12 LSB carry GPIO values */
@@ -330,6 +331,7 @@ typedef struct {
   int grain;
   int *nb_writers;
   void **ring;
+  uint64_t lastTS[100];
 } re_order_t;
 
 /*!\brief structure holds the parameters to configure RF devices */
@@ -570,6 +572,7 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
                                   void **txp,
                                   int nsamps,
                                   int nb_writers,
+                                  int writer_id,
                                   int nbAnt,
                                   int flags);
 
