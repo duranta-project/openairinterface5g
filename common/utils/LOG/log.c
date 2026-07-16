@@ -37,7 +37,7 @@
 
 // Fixme: a better place to be shure it is called 
 void read_cpu_hardware (void) __attribute__ ((constructor));
-#if !defined(__arm__) && !defined(__aarch64__) 
+#if !defined(__arm__) && !defined(__aarch64__) && !defined(__riscv)
   void read_cpu_hardware (void) {__builtin_cpu_init(); }
 #else 
   void read_cpu_hardware (void) {}

@@ -32,6 +32,8 @@ extern "C" {
 // or from the bash with the command $ getconf LEVEL1_DCACHE_LINESIZE
 // in c++ using std::hardware_destructive_interference_size
 #define LEVEL1_DCACHE_LINESIZE 64
+#elif defined(__riscv) && __riscv_xlen == 64
+#define LEVEL1_DCACHE_LINESIZE 64
 #else
 #error Unknown CPU architecture
 #endif

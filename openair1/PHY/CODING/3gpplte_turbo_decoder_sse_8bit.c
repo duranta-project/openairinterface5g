@@ -115,7 +115,7 @@ void log_map8(llr_t *systematic,
 void compute_gamma8(llr_t *m11,llr_t *m10,llr_t *systematic,channel_t *y_parity,
                     unsigned short frame_length,unsigned char term_flag) {
   int k,K1;
-#if defined(__x86_64__)||defined(__i386__)
+#if defined(__x86_64__)||defined(__i386__) || defined(__riscv)
   simde__m128i *systematic128 = (simde__m128i *)systematic;
   simde__m128i *y_parity128 = (simde__m128i *)y_parity;
   simde__m128i *m10_128 = (simde__m128i *)m10;
@@ -129,13 +129,13 @@ void compute_gamma8(llr_t *m11,llr_t *m10,llr_t *systematic,channel_t *y_parity,
 #ifdef DEBUG_LOGMAP
   printf("compute_gamma, %p,%p,%p,%p,framelength %d\n",m11,m10,systematic,y_parity,frame_length);
 #endif
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
   register simde__m128i sl, sh, ypl, yph; // K128=simde_mm_set1_epi8(-128);
 #endif
   K1 = (frame_length>>4);
 
   for (k=0; k<K1; k++) {
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
     sl = simde_mm_cvtepi8_epi16(systematic128[k]);
     sh = simde_mm_cvtepi8_epi16(simde_mm_srli_si128(systematic128[k], 8));
     ypl = simde_mm_cvtepi8_epi16(y_parity128[k]);
@@ -151,7 +151,7 @@ void compute_gamma8(llr_t *m11,llr_t *m10,llr_t *systematic,channel_t *y_parity,
   }
 
   // Termination
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
   sl = simde_mm_cvtepi8_epi16(systematic128[k + term_flag]);
   sh = simde_mm_cvtepi8_epi16(simde_mm_srli_si128(systematic128[k], 8));
   ypl = simde_mm_cvtepi8_epi16(y_parity128[k + term_flag]);
@@ -170,7 +170,7 @@ void compute_gamma8(llr_t *m11,llr_t *m10,llr_t *systematic,channel_t *y_parity,
 
 void compute_alpha8(llr_t *alpha,llr_t *beta,llr_t *m_11,llr_t *m_10,unsigned short frame_length,unsigned char F) {
   int k,loopval,rerun_flag;
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
   simde__m128i *alpha128 = (simde__m128i *)alpha, *alpha_ptr;
   simde__m128i *m11p, *m10p;
   simde__m128i m_b0, m_b1, m_b2, m_b3, m_b4, m_b5, m_b6, m_b7;
@@ -185,7 +185,7 @@ void compute_alpha8(llr_t *alpha,llr_t *beta,llr_t *m_11,llr_t *m_10,unsigned sh
 #endif
   // Set initial state: first colum is known
   // the other columns are unknown, so all states are set to same value
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
   alpha128[0] = simde_mm_set_epi8(-MAX8 / 2,
                                   -MAX8 / 2,
                                   -MAX8 / 2,
@@ -482,7 +482,7 @@ void compute_alpha8(llr_t *alpha,llr_t *beta,llr_t *m_11,llr_t *m_10,unsigned sh
 
 void compute_beta8(llr_t *alpha,llr_t *beta,llr_t *m_11,llr_t *m_10,unsigned short frame_length,unsigned char F,int offset8_flag) {
   int k,rerun_flag, loopval;
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
   simde__m128i m11_128, m10_128;
   simde__m128i m_b0, m_b1, m_b2, m_b3, m_b4, m_b5, m_b6, m_b7;
   simde__m128i new0, new1, new2, new3, new4, new5, new6, new7;
@@ -505,7 +505,7 @@ void compute_beta8(llr_t *alpha,llr_t *beta,llr_t *m_11,llr_t *m_10,unsigned sho
 
   // we are supposed to run compute_alpha just before compute_beta
   // so the initial states of backward computation can be set from last value of alpha states (forward computation)
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv) || defined(__riscv)
   beta_ptr = (simde__m128i *)&beta[frame_length << 3];
   alpha128 = (simde__m128i *)&alpha[0];
 #elif defined(__arm__) || defined(__aarch64__)
@@ -529,7 +529,7 @@ void compute_beta8(llr_t *alpha,llr_t *beta,llr_t *m_11,llr_t *m_10,unsigned sho
       // FIXME! beta0-beta7 are used uninitialized. FIXME!
       // workaround: init with 0
       beta0 = beta1 = beta2 = beta3 = beta4 = beta5 = beta6 = beta7 = 0;
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
       beta_ptr[0] = simde_mm_insert_epi8(beta_ptr[0], beta0, 15);
       beta_ptr[1] = simde_mm_insert_epi8(beta_ptr[1], beta1, 15);
       beta_ptr[2] = simde_mm_insert_epi8(beta_ptr[2], beta2, 15);
@@ -550,7 +550,7 @@ void compute_beta8(llr_t *alpha,llr_t *beta,llr_t *m_11,llr_t *m_10,unsigned sho
 #endif
     }
 
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
     beta_ptr = (simde__m128i *)&beta[frame_length << 3];
 #elif defined(__arm__) || defined(__aarch64__)
     beta_ptr = (int8x16_t *)&beta[frame_length<<3];
@@ -559,7 +559,7 @@ void compute_beta8(llr_t *alpha,llr_t *beta,llr_t *m_11,llr_t *m_10,unsigned sho
     for (k=(frame_length>>4)-1;
          k>=loopval;
          k--) {
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
       m11_128 = ((simde__m128i *)m_11)[k];
       m10_128 = ((simde__m128i *)m_10)[k];
       m_b0 = simde_mm_adds_epi8(beta_ptr[4], m11_128); // m11
@@ -651,7 +651,7 @@ void compute_beta8(llr_t *alpha,llr_t *beta,llr_t *m_11,llr_t *m_10,unsigned sho
     // Set intial state for next iteration from the last state
     // as column last states are the first states of the next column
     // The initial state of column 0 is coming from tail bits (to be computed)
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
     beta128 = (simde__m128i *)&beta[0];
     beta_ptr = (simde__m128i *)&beta[frame_length << 3];
     beta_ptr[0] = simde_mm_srli_si128(beta128[0], 1);
@@ -686,7 +686,7 @@ void compute_beta8(llr_t *alpha,llr_t *beta,llr_t *m_11,llr_t *m_10,unsigned sho
 }
 
 void compute_ext8(llr_t *alpha,llr_t *beta,llr_t *m_11,llr_t *m_10,llr_t *ext, llr_t *systematic,unsigned short frame_length) {
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
   simde__m128i *alpha128 = (simde__m128i *)alpha;
   simde__m128i *beta128 = (simde__m128i *)beta;
   simde__m128i *m11_128, *m10_128, *ext_128;
@@ -716,7 +716,7 @@ void compute_ext8(llr_t *alpha,llr_t *beta,llr_t *m_11,llr_t *m_10,llr_t *ext, l
   beta_ptr = &beta128[8];
 
   for (k=0; k<(frame_length>>4); k++) {
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
     m11_128 = (simde__m128i *)&m_11[k << 4];
     m10_128 = (simde__m128i *)&m_10[k << 4];
     ext_128 = (simde__m128i *)&ext[k << 4];
@@ -897,7 +897,7 @@ uint8_t phy_threegpplte_turbo_decoder8(int16_t *y,
   unsigned char iteration_cnt=0;
   unsigned int crc, crc_len;
   uint8_t temp;
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
   simde__m128i *yp128;
   simde__m128i tmp128[(n + 8) >> 3];
   simde__m128i tmp = {0}, zeros = simde_mm_setzero_si128();
@@ -950,7 +950,7 @@ uint8_t phy_threegpplte_turbo_decoder8(int16_t *y,
       crc_len=3;
   }
 
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
   // note: this makes valgrind freak
   simde__m128i avg = simde_mm_set1_epi32(0);
 
@@ -1089,7 +1089,7 @@ uint8_t phy_threegpplte_turbo_decoder8(int16_t *y,
     pi4_p=pi4tab8[iind];
 
     for (i=0; i<(n2>>4); i++) { // steady-state portion
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
       tmp = simde_mm_insert_epi8(tmp, ((llr_t *)ext)[*pi4_p++], 0);
       tmp = simde_mm_insert_epi8(tmp, ((llr_t *)ext)[*pi4_p++], 1);
       tmp = simde_mm_insert_epi8(tmp, ((llr_t *)ext)[*pi4_p++], 2);
@@ -1135,7 +1135,7 @@ uint8_t phy_threegpplte_turbo_decoder8(int16_t *y,
 
     if ((n2&0x7f) == 0) {  // n2 is a multiple of 128 bits
       for (i=0; i<(n2>>4); i++) {
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
         tmp = simde_mm_insert_epi8(tmp, ext2[*pi5_p++], 0);
         tmp = simde_mm_insert_epi8(tmp, ext2[*pi5_p++], 1);
         tmp = simde_mm_insert_epi8(tmp, ext2[*pi5_p++], 2);
@@ -1180,7 +1180,7 @@ uint8_t phy_threegpplte_turbo_decoder8(int16_t *y,
       }
     } else {
       for (i=0; i<(n2>>4); i++) {
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
         tmp = simde_mm_insert_epi8(tmp, ext2[*pi5_p++], 0);
         tmp = simde_mm_insert_epi8(tmp, ext2[*pi5_p++], 1);
         tmp = simde_mm_insert_epi8(tmp, ext2[*pi5_p++], 2);
@@ -1230,7 +1230,7 @@ uint8_t phy_threegpplte_turbo_decoder8(int16_t *y,
       if ((n2&0x7f) == 0) {  // n2 is a multiple of 128 bits
         // re-order the decoded bits in theregular order
         // as it is presently ordered as 16 sequential columns
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
         simde__m128i *dbytes = (simde__m128i *)decoded_bytes_interl;
         simde__m128i shuffle = SHUFFLE16(7, 6, 5, 4, 3, 2, 1, 0);
         simde__m128i mask __attribute__((aligned(16)));
@@ -1255,7 +1255,7 @@ uint8_t phy_threegpplte_turbo_decoder8(int16_t *y,
           }
         }
 
-#elif defined(__arm__) || defined(__aarch64__)
+#elif defined(__arm__) || defined(__aarch64__) || defined(__riscv)
         uint8x16_t *dbytes=(uint8x16_t *)decoded_bytes_interl;
         uint16x8_t mask  __attribute__((aligned(16)));
         int n_128=n2>>7;
@@ -1278,7 +1278,7 @@ uint8_t phy_threegpplte_turbo_decoder8(int16_t *y,
         pi6_p=pi6tab8[iind];
 
         for (i=0; i<(n2>>4); i++) {
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
           tmp = simde_mm_insert_epi8(tmp, ((llr_t *)tmp128)[*pi6_p++], 7);
           tmp = simde_mm_insert_epi8(tmp, ((llr_t *)tmp128)[*pi6_p++], 6);
           tmp = simde_mm_insert_epi8(tmp, ((llr_t *)tmp128)[*pi6_p++], 5);
@@ -1372,7 +1372,7 @@ uint8_t phy_threegpplte_turbo_decoder8(int16_t *y,
     // do a new iteration if it is not yet decoded
     if (iteration_cnt < max_iterations) {
       log_map8(systematic1,yparity1,m11,m10,alpha,beta,ext,n2,0,F,offset8_flag,alpha_stats,beta_stats,gamma_stats,ext_stats);
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
       simde__m128i *ext_128 = (simde__m128i *)ext;
       simde__m128i *s1_128 = (simde__m128i *)systematic1;
       simde__m128i *s0_128 = (simde__m128i *)systematic0;
@@ -1384,7 +1384,7 @@ uint8_t phy_threegpplte_turbo_decoder8(int16_t *y,
       int myloop=n2>>4;
 
       for (i=0; i<myloop; i++) {
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
         *ext_128 = simde_mm_adds_epi8(simde_mm_subs_epi8(*ext_128, *s1_128++), *s0_128++);
 #elif defined(__arm__) || defined(__aarch64__)
         *ext_128=vqaddq_s8(vqsubq_s8(*ext_128,*s1_128++),*s0_128++);

@@ -144,13 +144,13 @@ static void write_task_output(uint8_t *f,
         // what we want here. The SIMD version do give 0 when the shift is 64
         uint32_t Eoffset2_byte = Eoffset2 >> 5;
         uint32_t Eoffset2_bit = Eoffset2 & 31;
-        int tmp = _mm256_movemask_epi8(_mm256_slli_epi16(((__m256i *)f)[i >> 5], 7 - j));
-        __m64 tmp64 = _mm_set1_pi32(tmp);
-        __m64 out64 = _mm_set_pi32(*(output_p + Eoffset2_byte + 1), *(output_p + Eoffset2_byte));
-        __m64 tmp64b = _mm_or_si64(out64, _mm_slli_pi32(tmp64, Eoffset2_bit));
-        __m64 tmp64c = _mm_or_si64(out64, _mm_srli_pi32(tmp64, (32 - Eoffset2_bit)));
-        *(output_p + Eoffset2_byte) = _m_to_int(tmp64b);
-        *(output_p + Eoffset2_byte + 1) = _m_to_int(_mm_srli_si64(tmp64c, 32));
+        int tmp = simde_mm256_movemask_epi8(simde_mm256_slli_epi16(((simde__m256i *)f)[i >> 5], 7 - j));
+        simde__m64 tmp64 = simde_mm_set1_pi32(tmp);
+        simde__m64 out64 = simde_mm_set_pi32(*(output_p + Eoffset2_byte + 1), *(output_p + Eoffset2_byte));
+        simde__m64 tmp64b = simde_mm_or_si64(out64, simde_mm_slli_pi32(tmp64, Eoffset2_bit));
+        simde__m64 tmp64c = simde_mm_or_si64(out64, simde_mm_srli_pi32(tmp64, (32 - Eoffset2_bit)));
+        *(output_p + Eoffset2_byte) = simde_m_to_int(tmp64b);
+        *(output_p + Eoffset2_byte + 1) = simde_m_to_int(simde_mm_srli_si64(tmp64c, 32));
         Eoffset2 += E;
       }
     } else {
@@ -161,13 +161,13 @@ static void write_task_output(uint8_t *f,
     for (int j = E2_first_segment; j < nb_segments; j++) {
       uint32_t Eoffset2_byte = Eoffset2 >> 5;
       uint32_t Eoffset2_bit = Eoffset2 & 31;
-      int tmp = _mm256_movemask_epi8(_mm256_slli_epi16(((__m256i *)f2)[i >> 5], 7 - j));
-      __m64 tmp64 = _mm_set1_pi32(tmp);
-      __m64 out64 = _mm_set_pi32(*(output_p + Eoffset2_byte + 1), *(output_p + Eoffset2_byte));
-      __m64 tmp64b = _mm_or_si64(out64, _mm_slli_pi32(tmp64, Eoffset2_bit));
-      __m64 tmp64c = _mm_or_si64(out64, _mm_srli_pi32(tmp64, (32 - Eoffset2_bit)));
-      *(output_p + Eoffset2_byte)  = _m_to_int(tmp64b);
-      *(output_p + Eoffset2_byte + 1) = _m_to_int(_mm_srli_si64(tmp64c, 32));
+      int tmp = simde_mm256_movemask_epi8(simde_mm256_slli_epi16(((simde__m256i *)f2)[i >> 5], 7 - j));
+      simde__m64 tmp64 = simde_mm_set1_pi32(tmp);
+      simde__m64 out64 = simde_mm_set_pi32(*(output_p + Eoffset2_byte + 1), *(output_p + Eoffset2_byte));
+      simde__m64 tmp64b = simde_mm_or_si64(out64, simde_mm_slli_pi32(tmp64, Eoffset2_bit));
+      simde__m64 tmp64c = simde_mm_or_si64(out64, simde_mm_srli_pi32(tmp64, (32 - Eoffset2_bit)));
+      *(output_p + Eoffset2_byte)  = simde_m_to_int(tmp64b);
+      *(output_p + Eoffset2_byte + 1) = simde_m_to_int(simde_mm_srli_si64(tmp64c, 32));
       Eoffset2 += E2;
     }
     output_p++;

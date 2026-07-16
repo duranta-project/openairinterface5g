@@ -17,6 +17,7 @@ case "$OS_DISTRO" in
   centos) OS_BASEDISTRO="fedora"; INSTALLER="dnf"; CMAKE="cmake3" ;; # CentOS Stream
   debian) OS_BASEDISTRO="debian"; INSTALLER="apt-get"; CMAKE="cmake" ;;
   ubuntu) OS_BASEDISTRO="debian"; INSTALLER="apt-get"; CMAKE="cmake" ;;
+  bianbu) OS_BASEDISTRO="debian"; INSTALLER="apt-get"; CMAKE="cmake" ;;
 esac
 KERNEL_VERSION=$(uname -r | cut -d '.' -f1)
 KERNEL_MAJOR=$(uname -r | cut -d '.' -f2)
@@ -88,6 +89,7 @@ check_supported_distribution() {
         "ubuntu22.04") return 0 ;;
         "debian11")    return 0 ;;
         "debian12")    return 0 ;;
+	"bianbu4.0.1") return 0 ;;
         "fedora43")    return 0 ;;
         "fedora44")    return 0 ;;
         "rhel9.0")     return 0 ;;
