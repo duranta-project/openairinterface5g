@@ -17,7 +17,7 @@
 // global var to enable openair performance profiler
 extern int cpu_meas_enabled;
 // structure to store data to compute cpu measurment
-#if defined(__x86_64__) || defined(__i386__) || defined(__arm__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__i386__) || defined(__arm__) || defined(__aarch64__) || defined(__riscv)
   typedef long long oai_cputime_t;
 #else
   #error "building on unsupported CPU architecture"
@@ -218,6 +218,37 @@ static inline uint64_t rdtsc_oai(void)
 	    asm volatile("mrs %0, cntvct_el0" : "=r"(r));
 	      return r;
 }
+#elif defined(__riscv)
+/*
+ * Read the standard RISC-V cycle counter.
+ *
+ * On RV64, rdcycle returns the complete 64-bit counter in one instruction.
+ * The memory clobber prevents the compiler from moving memory operations
+ * across the measurement point.
+ */
+static inline uint64_t rdtsc_oai(void) __attribute__((always_inline));
+static inline uint64_t rdtsc_oai(void)
+{
+#if __riscv_xlen == 64
+  uint64_t r;
+  asm volatile("rdcycle %0" : "=r"(r) : : "memory");
+  return r;
+#else
+  /*
+   * RV32 requires a stable high/low/high read in case the low half wraps
+   * between reads.
+   */
+  uint32_t hi, lo, hi_check;
+
+  do {
+    asm volatile("rdcycleh %0" : "=r"(hi) : : "memory");
+    asm volatile("rdcycle %0" : "=r"(lo) : : "memory");
+    asm volatile("rdcycleh %0" : "=r"(hi_check) : : "memory");
+  } while (hi != hi_check);
+
+  return ((uint64_t)hi << 32) | lo;
+#endif
+}
 
 #elif defined(__arm__) 
 static inline uint32_t rdtsc_oai(void) __attribute__((always_inline));
@@ -226,6 +257,7 @@ static inline uint32_t rdtsc_oai(void) {
   asm volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(r) );
   return r;
 }
+
 #endif
 
 static inline long long clock_gettime_oai()
