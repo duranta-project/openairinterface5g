@@ -948,7 +948,7 @@ bool init_RA(NR_UE_MAC_INST_t *mac)
   else
     prach_resources->preamble_power_ramping_step = rach_ConfigGeneric->powerRampingStep << 1;
 
-  ra->scaling_factor_bi = 1;
+  ra->scaling_factor_bi = 100;
 
   if (ra->ra_type == RA_2_STEP && twostep_generic && twostep_generic->msgA_PreambleReceivedTargetPower_r16)
     ra->preambleReceivedTargetPower_config = *twostep_generic->msgA_PreambleReceivedTargetPower_r16;
@@ -1127,7 +1127,7 @@ void nr_ra_backoff_setting(RA_config_t *ra)
   // select a random backoff time according to a uniform distribution
   // between 0 and the PREAMBLE_BACKOFF
   // if no rar, we backoff in next 20 slots instead of 0 (that make systematic collision repetition)
-  int backoff_range = ra->RA_backoff_limit ? ra->RA_backoff_limit : 500;
+  int backoff_range = ra->RA_backoff_limit ? ra->RA_backoff_limit : 100;
   uint32_t random_backoff = rdtsc_oai() % backoff_range; // in slots
   LOG_W(MAC, "backoff: %d:%d\n", random_backoff, backoff_range);
   nr_timer_setup(&ra->RA_backoff_timer, random_backoff, 1);
@@ -1163,23 +1163,20 @@ void nr_rar_not_successful(NR_UE_MAC_INST_t *mac)
   RA_config_t *ra = &mac->ra;
   NR_PRACH_RESOURCES_t *prach_resources = &ra->prach_resources;
   prach_resources->preamble_tx_counter++;
-  bool ra_completed = false;
   if (prach_resources->preamble_tx_counter == ra->preambleTransMax + 1) {
     // if the Random Access Preamble is transmitted on the SpCell
     // TODO to be verified, this means SA if I'm not mistaken
     if (IS_SA_MODE(get_softmodem_params())) {
       // indicate a Random Access problem to upper layers
       nr_mac_rrc_ra_ind(mac->ue_id, false);
+      return;
     } else {
       // if the Random Access Preamble is transmitted on an SCell:
       // consider the Random Access procedure unsuccessfully completed.
-      ra_completed = true;
       ra->ra_state = nrRA_UE_IDLE;
     }
   }
-  if (!ra_completed) {
-    nr_ra_backoff_setting(ra);
-  }
+  nr_ra_backoff_setting(ra);
 }
 
 void trigger_MAC_UE_RA(NR_UE_MAC_INST_t *mac, dci_pdu_rel15_t *pdcch_order)
@@ -1221,6 +1218,7 @@ void prepare_msg4_msgb_feedback(NR_UE_MAC_INST_t *mac, int pid, int ack_nack)
 
 void reset_ra(NR_UE_MAC_INST_t *nr_mac, bool free_prach)
 {
+  LOG_D(MAC, "got reset ra\n");
   RA_config_t *ra = &nr_mac->ra;
   if (ra->rach_ConfigDedicated)
     asn1cFreeStruc(asn_DEF_NR_RACH_ConfigDedicated, ra->rach_ConfigDedicated);

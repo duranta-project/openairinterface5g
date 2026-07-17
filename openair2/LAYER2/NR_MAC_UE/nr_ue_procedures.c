@@ -3378,7 +3378,6 @@ static void nr_ue_process_rar(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *d
   T(T_NRUE_MAC_DL_RAR_PDU_WITH_DATA, T_INT(rnti), T_INT(frame), T_INT(slot),
     T_BUFFER(dlsch_buffer, dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.pdu_length));
 
-  ra->RA_backoff_limit = 0;
   LOG_D(NR_MAC, "[%d.%d]: [UE %d][RAPROC] MAC received RAR (current preamble %d)\n", frame, slot, mac->ue_id, preamble_index);
 
   while (1) {
@@ -3968,7 +3967,6 @@ static int nr_ue_validate_successrar(uint8_t *pduP, int32_t pdu_len, NR_UE_MAC_I
   uint8_t E = 1;
   uint8_t cont_res_id[6];
   RA_config_t *ra = &mac->ra;
-  ra->RA_backoff_limit = 0;
 
   while (n < pdu_len && E) {
     E = (pduP[n] >> 7) & 0x1;
