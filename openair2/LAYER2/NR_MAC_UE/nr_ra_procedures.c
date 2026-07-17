@@ -1161,23 +1161,20 @@ void nr_rar_not_successful(NR_UE_MAC_INST_t *mac)
   RA_config_t *ra = &mac->ra;
   NR_PRACH_RESOURCES_t *prach_resources = &ra->prach_resources;
   prach_resources->preamble_tx_counter++;
-  bool ra_completed = false;
   if (prach_resources->preamble_tx_counter == ra->preambleTransMax + 1) {
     // if the Random Access Preamble is transmitted on the SpCell
     // TODO to be verified, this means SA if I'm not mistaken
     if (IS_SA_MODE(get_softmodem_params())) {
       // indicate a Random Access problem to upper layers
       nr_mac_rrc_ra_ind(mac->ue_id, false);
+      return;
     } else {
       // if the Random Access Preamble is transmitted on an SCell:
       // consider the Random Access procedure unsuccessfully completed.
-      ra_completed = true;
       ra->ra_state = nrRA_UE_IDLE;
     }
   }
-  if (!ra_completed) {
-    nr_ra_backoff_setting(ra);
-  }
+  nr_ra_backoff_setting(ra);
 }
 
 void trigger_MAC_UE_RA(NR_UE_MAC_INST_t *mac, dci_pdu_rel15_t *pdcch_order)
@@ -1219,6 +1216,7 @@ void prepare_msg4_msgb_feedback(NR_UE_MAC_INST_t *mac, int pid, int ack_nack)
 
 void reset_ra(NR_UE_MAC_INST_t *nr_mac, bool free_prach)
 {
+  LOG_D(MAC, "got reset ra\n");
   RA_config_t *ra = &nr_mac->ra;
   if (ra->rach_ConfigDedicated)
     asn1cFreeStruc(asn_DEF_NR_RACH_ConfigDedicated, ra->rach_ConfigDedicated);
