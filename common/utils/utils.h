@@ -17,8 +17,23 @@ extern "C" {
 #include <sys/types.h>
 #include <common/utils/assertions.h>
 
-#ifdef MALLOC_TRACE
-#define malloc myMalloc
+#define CHECK_MUTEX
+#ifdef CHECK_MUTEX
+#include <pthread.h>
+#define pthread_mutex_init(MuT, mutexattr)                                 \
+  ({                                                                       \
+    int macroRet;                                                          \
+    if (mutexattr)                                                         \
+      macroRet = (pthread_mutex_init)((MuT), mutexattr);                   \
+    else {                                                                 \
+      pthread_mutexattr_t type;                                            \
+      pthread_mutexattr_init(&type);                                       \
+      pthread_mutexattr_settype(&type, PTHREAD_MUTEX_ERRORCHECK_NP);       \
+      macroRet = (pthread_mutex_init)((MuT), &type);                       \
+    }                                                                      \
+    AssertFatal(!macroRet, "mutex init failed: %s\n", strerror(macroRet)); \
+    macroRet;                                                              \
+  })
 #endif
 
 #define sizeofArray(a) (sizeof(a)/sizeof(*(a)))
