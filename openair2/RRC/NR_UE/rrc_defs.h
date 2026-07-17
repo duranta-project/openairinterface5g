@@ -203,6 +203,9 @@ typedef struct rrcPerNB {
   NR_UE_RRC_SI_INFO SInfo;
   NR_RSRP_Range_t s_measure;
   l3_measurements_t l3_measurements;
+  uint64_t bcch;
+  bool isMIB;
+  bool barred;
 } rrcPerNB_t;
 
 typedef struct NR_UE_RRC_INST_s {

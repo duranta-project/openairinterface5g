@@ -2015,19 +2015,30 @@ static void nr_rrc_ue_decode_NR_BCCH_BCH_Message(NR_UE_RRC_INST_t *rrc,
   rrc->phyCellID = phycellid;
   rrc->arfcn_ssb = ssb_arfcn;
 
-  asn_dec_rval_t dec_rval = uper_decode_complete(NULL,
-                                                 &asn_DEF_NR_BCCH_BCH_Message,
-                                                 (void **)&bcch_message,
-                                                 (const void *)bufferP,
-                                                 buffer_len);
+  rrcPerNB_t *rrcPerNB = rrc->perNB + gNB_index;
+  bool sameBCCH = false;
 
-  if ((dec_rval.code != RC_OK) || (dec_rval.consumed == 0)) {
-    RRCLOG_E("NR_BCCH_BCH decode error\n");
-    return;
-  }
-  if (LOG_DEBUGFLAG(DEBUG_ASN1))
-    xer_fprint(stdout, &asn_DEF_NR_BCCH_BCH_Message, (void *)bcch_message);
-    
+  if (memcmp(&rrcPerNB->bcch, bufferP, min(buffer_len, sizeof(rrcPerNB->bcch))) == 0)
+    sameBCCH = true;
+  memcpy(&rrcPerNB->bcch, bufferP, min(buffer_len, sizeof(rrcPerNB->bcch)));
+
+  if (!sameBCCH) {
+    asn_dec_rval_t dec_rval =
+        uper_decode_complete(NULL, &asn_DEF_NR_BCCH_BCH_Message, (void **)&bcch_message, (const void *)bufferP, buffer_len);
+    if ((dec_rval.code != RC_OK) || (dec_rval.consumed == 0)) {
+      LOG_E(NR_RRC, "NR_BCCH_BCH decode error\n");
+      return;
+    }
+
+    if (LOG_DEBUGFLAG(DEBUG_ASN1))
+      xer_fprint(stdout, &asn_DEF_NR_BCCH_BCH_Message, (void *)bcch_message);
+
+    rrcPerNB->isMIB = bcch_message->message.present == NR_BCCH_BCH_MessageType_PR_mib;
+    if (rrcPerNB->isMIB)
+      rrcPerNB->barred = bcch_message->message.choice.mib->cellBarred == NR_MIB__cellBarred_barred;
+  } else
+    LOG_D(RRC, "same mib\n");
+
   // Actions following cell selection while T311 is running
   NR_UE_Timers_Constants_t *timers = &rrc->timers_and_constants;
   if (nr_timer_is_active(&timers->T311)) {
@@ -2041,30 +2052,27 @@ static void nr_rrc_ue_decode_NR_BCCH_BCH_Message(NR_UE_RRC_INST_t *rrc,
     // not used
   }
 
-  NR_UE_RRC_SI_INFO *SI_info = &rrc->perNB[gNB_index].SInfo;
-  bool barred = rrc->access_barred || bcch_message->message.choice.mib->cellBarred == NR_MIB__cellBarred_barred;
-  int get_sib = 0;
-  if (IS_SA_MODE(get_softmodem_params())
-      && !SI_info->sib_pending
-      && bcch_message->message.present == NR_BCCH_BCH_MessageType_PR_mib
-      && !barred
-      && rrc->nrRrcState != RRC_STATE_DETACH_NR) {
-    // to schedule MAC to get SI if required
-    get_sib = check_si_status(SI_info);
-  }
-  if (bcch_message->message.present == NR_BCCH_BCH_MessageType_PR_mib) {
-    nr_mac_rrc_message_t rrc_msg = {0};
-    rrc_msg.payload_type = NR_MAC_RRC_CONFIG_MIB;
-    nr_mac_rrc_config_mib_t *config_mib = &rrc_msg.payload.config_mib;
-    config_mib->bcch = bcch_message;
-    config_mib->access_barred = barred;
-    nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
-    if (get_sib) {
-      SI_info->sib_pending = true;
-      nr_mac_rrc_message_t sib_msg = {0};
-      sib_msg.payload_type = NR_MAC_RRC_SCHED_SIB;
-      sib_msg.payload.sched_sib.get_sib = get_sib;
-      nr_rrc_send_msg_to_mac(rrc, &sib_msg);
+  NR_UE_RRC_SI_INFO *SI_info = &rrcPerNB->SInfo;
+  bool barred = rrc->access_barred || rrcPerNB->barred;
+  if (rrcPerNB->isMIB) {
+    if (!sameBCCH) {
+      nr_mac_rrc_message_t rrc_msg = {0};
+      rrc_msg.payload_type = NR_MAC_RRC_CONFIG_MIB;
+      nr_mac_rrc_config_mib_t *config_mib = &rrc_msg.payload.config_mib;
+      config_mib->bcch = bcch_message;
+      config_mib->access_barred = barred;
+      nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+    }
+    if (IS_SA_MODE(get_softmodem_params()) && !SI_info->sib_pending && !barred && rrc->nrRrcState != RRC_STATE_DETACH_NR) {
+      // to schedule MAC to get SI if required
+      int get_sib = check_si_status(SI_info);
+      if (get_sib) {
+        SI_info->sib_pending = true;
+        nr_mac_rrc_message_t sib_msg = {0};
+        sib_msg.payload_type = NR_MAC_RRC_SCHED_SIB;
+        sib_msg.payload.sched_sib.get_sib = get_sib;
+        nr_rrc_send_msg_to_mac(rrc, &sib_msg);
+      }
     }
   } else {
     RRCLOG_E("RRC-received BCCH message is not a MIB\n");
@@ -3290,10 +3298,12 @@ void *rrc_nrue(void *notUsed)
   UNUSED(notUsed);
   MessageDef *msg_p = NULL;
   itti_receive_msg(TASK_RRC_NRUE, &msg_p);
+  uint64_t beg = rdtsc_oai();
   instance_t instance = ITTI_MSG_DESTINATION_INSTANCE(msg_p);
   NR_UE_RRC_INST_t *rrc = get_NR_UE_rrc_inst(instance);
   AssertFatal(instance == rrc->ue_id, "Instance %ld received from ITTI doesn't matach with UE-ID %ld\n", instance, rrc->ue_id);
   RRCLOG_D("Received %s frame %d\n", ITTI_MSG_NAME(msg_p), rrc->current_frame);
+  int bccht = 0;
   switch (ITTI_MSG_ID(msg_p)) {
   case TERMINATE_MESSAGE:
     RRCLOG_W(" *** Exiting RRC thread\n");
@@ -3359,6 +3369,7 @@ void *rrc_nrue(void *notUsed)
   case NR_RRC_MAC_BCCH_DATA_IND:
     RRCLOG_D("Received %s: gNB %d\n", ITTI_MSG_NAME(msg_p), NR_RRC_MAC_BCCH_DATA_IND(msg_p).gnb_index);
     NRRrcMacBcchDataInd *bcch = &NR_RRC_MAC_BCCH_DATA_IND(msg_p);
+    bccht = bcch->is_bch;
     if (bcch->is_bch)
       nr_rrc_ue_decode_NR_BCCH_BCH_Message(rrc, bcch->gnb_index, bcch->phycellid, bcch->ssb_arfcn, bcch->sdu, bcch->sdu_size);
     else
@@ -3430,11 +3441,10 @@ void *rrc_nrue(void *notUsed)
       RRCLOG_W("NAS UL requested but no SRB established: dropping UL request (%u B)\n", req->nasMsg.length);
       free(req->nasMsg.nas_data);
       break;
-    }
-    nr_rrc_ue_send_ul_information_transfer_nas(rrc, req->nasMsg.length, req->nasMsg.nas_data);
+    } else
+      nr_rrc_ue_send_ul_information_transfer_nas(rrc, req->nasMsg.length, req->nasMsg.nas_data);
     free(req->nasMsg.nas_data);
-    break;
-  }
+  } break;
 
   case NAS_INITIAL_UL_TRANSFER_REQ: {
     ul_info_transfer_req_t *req = &NAS_INITIAL_UL_TRANSFER_REQ(msg_p);
@@ -3461,22 +3471,26 @@ void *rrc_nrue(void *notUsed)
     rrc->pending_initial_nas.nas_data = NULL;
     rrc->pending_initial_nas.length = 0;
     free(req->nasMsg.nas_data);
-    break;
-  }
+  } break;
 
   case NAS_5GMM_IND: {
     nas_5gmm_ind_t *req = &NAS_5GMM_IND(msg_p);
     rrc->fiveG_S_TMSI = req->fiveG_STMSI;
     /* Push the 5G-S-TMSI-derived UE_ID to MAC for paging PF/PO derivation */
     nr_rrc_mac_config_req_paging_ue_id(rrc->ue_id, rrc->fiveG_S_TMSI);
-    break;
-  }
+  } break;
 
   default:
     RRCLOG_E("Received unexpected message %s\n", ITTI_MSG_NAME(msg_p));
     break;
   }
+
   RRCLOG_D("RRC Status %d\n", rrc->nrRrcState);
+  uint64_t dur = rdtsc_oai() - beg;
+  if (dur > 100000)
+    LOG_W(NR_RRC, "[UE %ld] processed  %s in %ld µs (case %d)\n", instance, ITTI_MSG_NAME(msg_p), dur / 3000, bccht);
+
+  LOG_D(NR_RRC, "[UE %ld] RRC Status %d\n", rrc->ue_id, rrc->nrRrcState);
   int result = itti_free(ITTI_MSG_ORIGIN_ID(msg_p), msg_p);
   AssertFatal(result == EXIT_SUCCESS, "Failed to free memory (%d)!\n", result);
   return NULL;
@@ -3488,7 +3502,7 @@ void nr_rrc_ue_process_sidelink_radioResourceConfig(NR_SetupRelease_SL_ConfigDed
   if (sl_ConfigDedicatedNR != NULL) {
     switch (sl_ConfigDedicatedNR->present){
       case NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_setup:
-        //TODO
+        // TODO
         break;
       case NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_release:
         break;
