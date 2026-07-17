@@ -103,9 +103,9 @@ static inline uint64_t rdtsc_oai(void) __attribute__((always_inline));
 static inline uint64_t rdtsc_oai(void)
 {
 #if __riscv_xlen == 64
-  uint64_t r;
-  asm volatile("rdcycle %0" : "=r"(r) : : "memory");
-  return r;
+  uint64_t value;
+  __asm__ volatile("rdtime %0" : "=r"(value) :: "memory");
+  return value;
 #else
   /*
    * RV32 requires a stable high/low/high read in case the low half wraps

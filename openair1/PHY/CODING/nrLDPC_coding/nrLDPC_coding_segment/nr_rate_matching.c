@@ -342,14 +342,14 @@ void nr_interleaving_ldpc(uint32_t E, uint8_t Qm, uint8_t *e, uint8_t *f)
       f = (uint8_t *)f_512;
 #endif
 #ifdef USE128BIT
-      e0_128 = (simde__m128i *)e0;
-      e1_128 = (simde__m128i *)e1;
-      e2_128 = (simde__m128i *)e2;
-      e3_128 = (simde__m128i *)e3;
-      e4_128 = (simde__m128i *)e4;
-      e5_128 = (simde__m128i *)e5;
-      e6_128 = (simde__m128i *)e6;
-      e7_128 = (simde__m128i *)e7;
+      simde__m128i *e0_128 = (simde__m128i *)e0;
+      simde__m128i *e1_128 = (simde__m128i *)e1;
+      simde__m128i *e2_128 = (simde__m128i *)e2;
+      simde__m128i *e3_128 = (simde__m128i *)e3;
+      simde__m128i *e4_128 = (simde__m128i *)e4;
+      simde__m128i *e5_128 = (simde__m128i *)e5;
+      simde__m128i *e6_128 = (simde__m128i *)e6;
+      simde__m128i *e7_128 = (simde__m128i *)e7;
       for (; i < (EQm & ~15); i += 16) {
         simde__m128i e0j = simde_mm_loadu_si128(e0_128++);
         simde__m128i e1j = simde_mm_loadu_si128(e1_128++);

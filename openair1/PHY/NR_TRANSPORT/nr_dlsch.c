@@ -881,7 +881,6 @@ void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_arr
     return;
   }
   stop_meas(dlsch_encoding_stats);
-
   unsigned char *output_ptr = output;
   for (int i = 0; i < n_dlsch; i++) {
     output_ptr += do_one_dlsch(output_ptr, gNB, &dlsch_array[i], slot);

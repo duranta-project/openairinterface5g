@@ -819,9 +819,9 @@ static inline __attribute__((always_inline)) simde__m128i cmac0_prec128(simde__m
   */
   return simde_mm_blend_epi16(reals, imags, 0xAA);
 }
-static inline __attribute__((always_inline)) __m128i cmac_prec128(__m128i y, __m128i x, __m128i w_c, __m128i w_s)
+static inline __attribute__((always_inline)) simde__m128i cmac_prec128(simde__m128i y, simde__m128i x, simde__m128i w_c, simde__m128i w_s)
 {
-  const __m128i produ = cmac0_prec128(x, w_c, w_s);
+  const simde__m128i produ = cmac0_prec128(x, w_c, w_s);
   // Accumulate the product
   return simde_mm_adds_epi16(y, produ);
 }
