@@ -14,7 +14,7 @@
 #include "common/utils/LOG/log.h"
 
 #define USE_PERMUTEX
-#ifdef __aarch64__
+#if defined(__aarch64__) || defined(__riscv)
 #define USE_ALIGNR
 #endif
 #ifdef __AVX512F__
