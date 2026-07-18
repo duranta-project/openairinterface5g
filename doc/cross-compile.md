@@ -3,7 +3,7 @@
 # OpenAirInterface Cross-Compiler User Guide
 
 This document explains how to build OAI for ARM64
-(using the instruction set aarch64).
+(using the instruction set aarch64) and RISC-V.
 
 [[_TOC_]]
 
@@ -100,3 +100,57 @@ ninja params_libconfig coding rfsimulator
 You can do the above steps using docker, see dockerfiles
 `docker/Dockerfile.base.ubuntu.cross-arm64` and
 `docker/Dockerfile.build.ubuntu.cross-arm64` for more information.
+
+## Install RISC-V dependencies
+
+When using an existing target sysroot, the host still needs a RISC-V compiler
+and pkg-config:
+
+```shell
+sudo apt install -y gcc-riscv64-linux-gnu g++-riscv64-linux-gnu pkg-config
+```
+
+## Build for RISC-V
+
+The RISC-V flow is the same two-stage build as ARM64: first build the native
+code-generation tools for the x86 host, then configure a cross build with a
+RISC-V toolchain file.
+
+The default RISC-V sysroot is `$HOME/sysroots/k3`. You can override it
+with either `K3_SYSROOT`, `RISCV_SYSROOT`, or the CMake cache variable
+`OAI_RISCV_SYSROOT`.
+
+The default compiler prefix is `riscv64-linux-gnu`. Install a matching host
+cross compiler, or override `OAI_RISCV_C_COMPILER` and
+`OAI_RISCV_CXX_COMPILER` if your compiler is elsewhere. For the SpaceMIT K3
+Linux glibc toolchain, use `-DOAI_RISCV_TOOLCHAIN_PREFIX=riscv64-unknown-linux-gnu`.
+
+The default RISC-V CPU flags are `-march=rv64gc_zba_zbb_zbs_zicond`,
+`-mabi=lp64d`, and `-mtune=generic-ooo`. Override `OAI_RISCV_MARCH`,
+`OAI_RISCV_MABI`, or `OAI_RISCV_MTUNE` if the K3 compiler/runtime needs a
+more specific ISA string.
+
+```shell
+rm -r ran_build
+mkdir ran_build
+mkdir ran_build/build
+mkdir ran_build/build-riscv
+
+cd ran_build/build
+cmake ../../..
+make -j`nproc` generate_T
+
+cd ../build-riscv
+cmake ../../.. -GNinja -DCMAKE_TOOLCHAIN_FILE=../../../cmake_targets/cross-riscv.cmake -DNATIVE_DIR=../build
+```
+
+Example with explicit paths:
+
+```shell
+cmake ../../.. -GNinja \
+  -DCMAKE_TOOLCHAIN_FILE=../../../cmake_targets/cross-riscv.cmake \
+  -DNATIVE_DIR=../build \
+  -DOAI_RISCV_SYSROOT=$HOME/sysroots/k3 \
+  -DOAI_RISCV_C_COMPILER=/opt/riscv/bin/riscv64-linux-gnu-gcc \
+  -DOAI_RISCV_CXX_COMPILER=/opt/riscv/bin/riscv64-linux-gnu-g++
+```
