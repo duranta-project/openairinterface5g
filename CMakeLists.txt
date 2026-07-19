@@ -159,7 +159,13 @@ add_boolean_option(AVX2 ${AUTODETECT_AVX2} "Whether AVX2 intrinsics is available
 eval_boolean(AUTODETECT_GFNI DEFINED CPUFLAGS AND CPUFLAGS MATCHES "gfni")
 add_boolean_option(GFNI ${AUTODETECT_GFNI} "Whether GFNI intrinsics is available on the host processor" ON)
 
-set(OAI_RISCV_MARCH "rv64gc_zba_zbb_zbs_zicond" CACHE STRING "RISC-V -march value")
+# The 'v' (RVV 1.0 vector) extension is required: the hand-written RVV kernels
+# (LDPC enc/dec, and future PHY kernels) are gated on __riscv_vector, which the
+# compiler only defines when 'v' is in -march. Without it those kernels compile
+# out and the build silently falls back to SIMDe scalar code. Override this
+# cache value for a non-vector target. Min VLEN can be pinned (e.g. _zvl256b for
+# SpacemiT X60/K-series) once benchmarked; the kernels are VLA and run on any VLEN.
+set(OAI_RISCV_MARCH "rv64gcv_zba_zbb_zbs_zicond" CACHE STRING "RISC-V -march value")
 set(OAI_RISCV_MABI "lp64d" CACHE STRING "RISC-V -mabi value")
 set(OAI_RISCV_MTUNE "generic-ooo" CACHE STRING "RISC-V -mtune value")
 set(OAI_RISCV_FLAGS "-march=${OAI_RISCV_MARCH} -mabi=${OAI_RISCV_MABI}")
