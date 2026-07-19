@@ -64,9 +64,15 @@ endif()
 if(EXISTS "${OAI_RISCV_SYSROOT_LIBDIR}")
   set(CMAKE_C_FLAGS_INIT "-B${OAI_RISCV_SYSROOT_LIBDIR} ${CMAKE_C_FLAGS_INIT}")
   set(CMAKE_CXX_FLAGS_INIT "-B${OAI_RISCV_SYSROOT_LIBDIR} ${CMAKE_CXX_FLAGS_INIT}")
-  set(CMAKE_EXE_LINKER_FLAGS_INIT "-B${OAI_RISCV_SYSROOT_LIBDIR} -L${OAI_RISCV_SYSROOT_LIBDIR} ${CMAKE_EXE_LINKER_FLAGS_INIT}")
-  set(CMAKE_SHARED_LINKER_FLAGS_INIT "-L${OAI_RISCV_SYSROOT_LIBDIR} ${CMAKE_SHARED_LINKER_FLAGS_INIT}")
-  set(CMAKE_MODULE_LINKER_FLAGS_INIT "-L${OAI_RISCV_SYSROOT_LIBDIR} ${CMAKE_MODULE_LINKER_FLAGS_INIT}")
+  # -rpath-link lets ld resolve the *transitive* deps of shared libs at link
+  # time (e.g. libcrypto.so NEEDs libzstd.so.1, which lives in the multiarch
+  # dir). Without it, linking any executable against openssl fails with
+  # "undefined reference to ZSTD_*". Not covered by -L, which only affects
+  # libraries named directly on the command line.
+  set(_rl "-Wl,-rpath-link,${OAI_RISCV_SYSROOT_LIBDIR}")
+  set(CMAKE_EXE_LINKER_FLAGS_INIT "-B${OAI_RISCV_SYSROOT_LIBDIR} -L${OAI_RISCV_SYSROOT_LIBDIR} ${_rl} ${CMAKE_EXE_LINKER_FLAGS_INIT}")
+  set(CMAKE_SHARED_LINKER_FLAGS_INIT "-L${OAI_RISCV_SYSROOT_LIBDIR} ${_rl} ${CMAKE_SHARED_LINKER_FLAGS_INIT}")
+  set(CMAKE_MODULE_LINKER_FLAGS_INIT "-L${OAI_RISCV_SYSROOT_LIBDIR} ${_rl} ${CMAKE_MODULE_LINKER_FLAGS_INIT}")
 endif()
 
 set(ENV{PKG_CONFIG_SYSROOT_DIR} "${CMAKE_SYSROOT}")
