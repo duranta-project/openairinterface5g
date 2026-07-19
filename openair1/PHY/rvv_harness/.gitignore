@@ -1,0 +1,3 @@
+# built harness binaries (produced by build.sh)
+rvv_cpx_mult_test
+*.o
