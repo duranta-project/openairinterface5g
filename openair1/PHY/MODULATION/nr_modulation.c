@@ -845,6 +845,38 @@ void nr_layer_precoder_simd(const int n_layers,
   // For aarch64, use 128 SIMD for every 4 RE
   AssertFatal(n_layers > 0 && n_layers <= 4, "Shouldn't get here, n_layers %d\n", n_layers);
 
+#if defined(__riscv) && defined(__riscv_vector)
+  /* RVV path: txdataF_precoded[sc_offset+i] = sat( sum_L (weights[L][ant] *
+   * txdataF_res_mapped[L][sc_offset+i]) >> 15 ). Largest gNB-TX cost; the
+   * SIMDe emulation of madd/blend is ~30-47x slower than this on RISC-V.
+   * VLEN-agnostic, generic over n_layers, bit-exact with cmac0/cmac_prec
+   * (rvv_harness/rvv_precoder_test.c). */
+  {
+    c16_t *outb = txdataF_precoded + sc_offset;
+    for (int i = 0; i < re_cnt;) {
+      size_t vl = __riscv_vsetvl_e16m1((size_t)(re_cnt - i));
+      vint16m1_t yr = __riscv_vmv_v_x_i16m1(0, vl);
+      vint16m1_t yi = __riscv_vmv_v_x_i16m1(0, vl);
+      for (int L = 0; L < n_layers; L++) {
+        const int16_t *xp = (const int16_t *)(txdataF_res_mapped[L] + sc_offset + i);
+        vint16m1x2_t xs = __riscv_vlseg2e16_v_i16m1x2(xp, vl);
+        vint16m1_t xr = __riscv_vget_v_i16m1x2_i16m1(xs, 0);
+        vint16m1_t xi = __riscv_vget_v_i16m1x2_i16m1(xs, 1);
+        const int16_t wr = weights[L][ant].r, wi = weights[L][ant].i;
+        vint32m2_t mr = __riscv_vsub_vv_i32m2(__riscv_vwmul_vx_i32m2(xr, wr, vl), __riscv_vwmul_vx_i32m2(xi, wi, vl), vl);
+        vint32m2_t mi = __riscv_vwmacc_vx_i32m2(__riscv_vwmul_vx_i32m2(xr, wi, vl), wr, xi, vl);
+        vint16m1_t pr = __riscv_vnsra_wx_i16m1(mr, 15, vl); /* (mr>>15) low word */
+        vint16m1_t pi = __riscv_vnsra_wx_i16m1(__riscv_vsll_vx_i32m2(mi, 1, vl), 16, vl); /* (mi<<1)>>16 high word */
+        yr = __riscv_vsadd_vv_i16m1(yr, pr, vl);
+        yi = __riscv_vsadd_vv_i16m1(yi, pi, vl);
+      }
+      __riscv_vsseg2e16_v_i16m1x2((int16_t *)(outb + i), __riscv_vcreate_v_i16m1x2(yr, yi), vl);
+      i += vl;
+    }
+    return;
+  }
+#endif
+
   // 512/256 SIMD: Do 16/8 RE in one iteration, 3 iterations for 2 RB
   c16_t *beginning = txdataF_precoded + sc_offset;
   c16_t *out=beginning;
