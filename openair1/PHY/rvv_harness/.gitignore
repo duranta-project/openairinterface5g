@@ -6,4 +6,5 @@ rvv_c16mult_test
 rvv_multadd_test
 rvv_rotate_test
 rvv_precoder_test
+crc_clmul_test
 *.o

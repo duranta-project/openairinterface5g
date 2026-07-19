@@ -19,7 +19,7 @@ MULTIARCH="riscv64-linux-gnu"
 if [ "${1:-}" = "norvv" ]; then
   MARCH="${MARCH:-rv64gc_zba_zbb_zbs_zicond}"
 else
-  MARCH="${MARCH:-rv64gcv_zba_zbb_zbs_zicond}"
+  MARCH="${MARCH:-rv64gcv_zba_zbb_zbc_zbs_zicond}"
 fi
 
 [ -x "$CC" ] || { echo "cross gcc not found: $CC (set CC=...)"; exit 1; }
@@ -32,7 +32,7 @@ INCFLAGS=""
 LIBFLAGS=""
 [ -d "$SYSROOT/usr/lib/$MULTIARCH" ] && LIBFLAGS="-B$SYSROOT/usr/lib/$MULTIARCH -L$SYSROOT/usr/lib/$MULTIARCH"
 
-for t in rvv_cpx_mult_test rvv_chcomp_test rvv_llr_test rvv_c16mult_test rvv_multadd_test rvv_rotate_test rvv_precoder_test; do
+for t in rvv_cpx_mult_test rvv_chcomp_test rvv_llr_test rvv_c16mult_test rvv_multadd_test rvv_rotate_test rvv_precoder_test crc_clmul_test; do
   set -x
   "$CC" --sysroot="$SYSROOT" -march="$MARCH" -mabi=lp64d -O2 -Wall -Wextra \
     $INCFLAGS $LIBFLAGS \
