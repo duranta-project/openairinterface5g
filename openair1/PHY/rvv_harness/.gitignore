@@ -1,4 +1,5 @@
 # built harness binaries (produced by build.sh)
 rvv_cpx_mult_test
 rvv_chcomp_test
+rvv_llr_test
 *.o
