@@ -7,4 +7,5 @@ rvv_multadd_test
 rvv_rotate_test
 rvv_precoder_test
 crc_clmul_test
+wto_test
 *.o
