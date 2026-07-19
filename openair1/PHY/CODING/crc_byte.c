@@ -9,8 +9,15 @@
 
 #if !defined(__SSE4_1__) && !defined(__aarch64__)
 #define USE_INTEL_CRC 0
+  #if defined(__riscv) && (defined(__riscv_zbc) || defined(__riscv_zbkc))
+  #define USE_RISCV_CLMUL 1 // RISC-V Zbc carry-less-multiply folding CRC
+  #include "crc.h"
+  #else
+  #define USE_RISCV_CLMUL 0
+  #endif
 #else
 #define USE_INTEL_CRC 1
+#define USE_RISCV_CLMUL 0
 #include "crc.h"
 #endif
 
@@ -76,7 +83,7 @@ static uint32_t crc11Table[256];
 static uint32_t crc8Table[256];
 static uint32_t crc6Table[256];
 
-#if USE_INTEL_CRC
+#if USE_INTEL_CRC || USE_RISCV_CLMUL
 static const struct crc_pclmulqdq_ctx lte_crc24a_pclmulqdq __attribute__((aligned(16))) = {
         0x64e4d700,     /**< k1 */
         0x2c8c9d00,     /**< k2 */
@@ -126,7 +133,7 @@ uint32_t crc24a(unsigned char* inptr, int bitlen)
 {
   int octetlen = bitlen / 8;  /* Change in octets */
 
-  if ( bitlen % 8 || !USE_INTEL_CRC ) {
+  if ( bitlen % 8 || (!USE_INTEL_CRC && !USE_RISCV_CLMUL) ) {
     uint32_t crc = 0;
     int resbit = (bitlen % 8);
 
@@ -139,16 +146,15 @@ uint32_t crc24a(unsigned char* inptr, int bitlen)
     crc = (crc << resbit) ^ crc24aTable[((*inptr) >> (8 - resbit)) ^ (crc >> (32 - resbit))];
   return crc;
   }
-  #if defined(__SSE4_1__) || defined(__aarch64__) 
-  else {
-  return crc32_calc_pclmulqdq(inptr, octetlen, 0,
-                              &lte_crc24a_pclmulqdq);
-  }
+  #if USE_INTEL_CRC
+  else return crc32_calc_pclmulqdq(inptr, octetlen, 0, &lte_crc24a_pclmulqdq);
+  #elif USE_RISCV_CLMUL
+  else return crc32_calc_clmul(inptr, octetlen, 0, &lte_crc24a_pclmulqdq);
   #endif
 
 }
 
-#if USE_INTEL_CRC
+#if USE_INTEL_CRC || USE_RISCV_CLMUL
 static const struct crc_pclmulqdq_ctx lte_crc24b_pclmulqdq __attribute__((aligned(16))) = {
     0x80140500, /**< k1 */
     0x42000100, /**< k2 */
@@ -162,7 +168,7 @@ uint32_t crc24b(unsigned char* inptr, int bitlen)
 {
   int octetlen = bitlen / 8;  /* Change in octets */
 
-  if ( bitlen % 8 || !USE_INTEL_CRC ) {
+  if ( bitlen % 8 || (!USE_INTEL_CRC && !USE_RISCV_CLMUL) ) {
     uint32_t crc = 0;
     int resbit = (bitlen % 8);
 
@@ -177,10 +183,9 @@ uint32_t crc24b(unsigned char* inptr, int bitlen)
   return crc;
   }
 #if USE_INTEL_CRC
-  else {
-  return crc32_calc_pclmulqdq(inptr, octetlen, 0,
-                              &lte_crc24b_pclmulqdq);
-  }
+  else return crc32_calc_pclmulqdq(inptr, octetlen, 0, &lte_crc24b_pclmulqdq);
+#elif USE_RISCV_CLMUL
+  else return crc32_calc_clmul(inptr, octetlen, 0, &lte_crc24b_pclmulqdq);
 #endif
 }
 

@@ -284,6 +284,7 @@ uint32_t crc32_calc_slice4(const uint8_t *data,
         return crc;
 }
 
+#if defined(__x86_64__) || defined(__i386__) || defined(__aarch64__)
 /**
  * @brief Performs one folding round
  *
@@ -554,5 +555,128 @@ crc32_calc_pclmulqdq(const uint8_t *data,
 
         return n;
 }
+#endif /* x86 / arm PCLMULQDQ folding CRC */
+
+#if defined(__riscv) && (defined(__riscv_zbc) || defined(__riscv_zbkc))
+/*
+ * RISC-V native port of the MSB-first folding CRC using Zbc carry-less
+ * multiply (clmul/clmulh) + rev8, reusing the same crc_pclmulqdq_ctx
+ * constants. Bit-exact with the bit-by-bit reference; ~orders of magnitude
+ * faster than the byte-wise LUT. Validated in
+ * openair1/PHY/rvv_harness/crc_clmul_test.c.
+ */
+#include <riscv_bitmanip.h>
+
+typedef struct {
+  uint64_t lo, hi;
+} crc_u128;
+
+static inline crc_u128 crc_xor128(crc_u128 a, crc_u128 b)
+{
+  return (crc_u128){a.lo ^ b.lo, a.hi ^ b.hi};
+}
+static inline crc_u128 crc_load128(const uint8_t *p)
+{
+  crc_u128 r;
+  __builtin_memcpy(&r.lo, p, 8);
+  __builtin_memcpy(&r.hi, p + 8, 8);
+  return r;
+}
+static inline crc_u128 crc_bswap128(crc_u128 a) /* reverse all 16 bytes */
+{
+  return (crc_u128){__riscv_rev8_64(a.hi), __riscv_rev8_64(a.lo)};
+}
+static inline crc_u128 crc_srl128(crc_u128 a, unsigned nb) /* >> nb bytes, zero fill */
+{
+  if (nb == 0)
+    return a;
+  if (nb >= 16)
+    return (crc_u128){0, 0};
+  if (nb >= 8) {
+    unsigned s = (nb - 8) * 8;
+    return (crc_u128){s ? (a.hi >> s) : a.hi, 0};
+  }
+  unsigned s = nb * 8;
+  return (crc_u128){(a.lo >> s) | (a.hi << (64 - s)), a.hi >> s};
+}
+static inline crc_u128 crc_sll128(crc_u128 a, unsigned nb) /* << nb bytes, zero fill */
+{
+  if (nb == 0)
+    return a;
+  if (nb >= 16)
+    return (crc_u128){0, 0};
+  if (nb >= 8) {
+    unsigned s = (nb - 8) * 8;
+    return (crc_u128){0, s ? (a.lo << s) : a.lo};
+  }
+  unsigned s = nb * 8;
+  return (crc_u128){a.lo << s, (a.hi << s) | (a.lo >> (64 - s))};
+}
+/* carry-less mult of selected 64-bit halves; sel matches _mm_clmulepi64 imm8 */
+static inline crc_u128 crc_clmul128(crc_u128 a, crc_u128 b, int sel)
+{
+  uint64_t x = (sel & 0x01) ? a.hi : a.lo;
+  uint64_t y = (sel & 0x10) ? b.hi : b.lo;
+  return (crc_u128){__riscv_clmul_64(x, y), __riscv_clmulh_64(x, y)};
+}
+static inline crc_u128 crc_fold_round(crc_u128 data_block, crc_u128 k1_k2, crc_u128 fold)
+{
+  crc_u128 tmp = crc_clmul128(fold, k1_k2, 0x11);
+  return crc_xor128(crc_clmul128(fold, k1_k2, 0x00), crc_xor128(data_block, tmp));
+}
+static inline crc_u128 crc_reduce_128_to_64(crc_u128 d, crc_u128 k3_q)
+{
+  crc_u128 tmp = crc_xor128(crc_clmul128(d, k3_q, 0x01), d);
+  d = crc_xor128(crc_clmul128(tmp, k3_q, 0x01), d);
+  return crc_srl128(crc_sll128(d, 8), 8);
+}
+static inline uint32_t crc_reduce_64_to_32(crc_u128 fold, crc_u128 k3_q, crc_u128 p_res)
+{
+  crc_u128 t = crc_clmul128(crc_srl128(fold, 4), k3_q, 0x10);
+  t = crc_srl128(crc_xor128(t, fold), 4);
+  t = crc_clmul128(t, p_res, 0x00);
+  return (uint32_t)(crc_xor128(t, fold).lo & 0xFFFFFFFFu);
+}
+
+__forceinline
+uint32_t crc32_calc_clmul(const uint8_t *data, uint32_t data_len, uint32_t crc, const struct crc_pclmulqdq_ctx *params)
+{
+  if (data == NULL || data_len == 0 || params == NULL)
+    return crc;
+  const crc_u128 k1_k2 = {params->k1, params->k2};
+  const crc_u128 k3_q = {params->k3, params->q};
+  const crc_u128 p_res = {params->p, params->res};
+  crc_u128 fold, next_data, newd;
+  uint32_t n;
+
+  data_len += 4;
+  fold = crc_load128(data);
+  if (data_len <= 16) {
+    fold = crc_bswap128(fold);
+    fold = crc_sll128(crc_srl128(fold, 20 - data_len), 4);
+    crc_u128 temp = (crc_u128){__builtin_bswap32(crc), 0};
+    temp = crc_sll128(temp, data_len - 4);
+    fold = crc_xor128(fold, temp);
+  } else {
+    n = ((~data_len) + 1) & 15;
+    fold = crc_xor128(fold, (crc_u128){crc, 0});
+    fold = crc_bswap128(fold);
+    next_data = crc_bswap128(crc_load128(&data[16]));
+    next_data = crc_xor128(crc_srl128(next_data, n), crc_sll128(fold, 16 - n));
+    fold = crc_srl128(fold, n);
+    if (data_len <= 32)
+      next_data = crc_sll128(crc_srl128(next_data, 4), 4);
+    fold = crc_fold_round(next_data, k1_k2, fold);
+    if (data_len > 32) {
+      for (n = 16 + 16 - n; n < (data_len - 16); n += 16)
+        fold = crc_fold_round(crc_bswap128(crc_load128(&data[n])), k1_k2, fold);
+      newd = crc_sll128(crc_bswap128(crc_load128(&data[n - 4])), 4);
+      fold = crc_fold_round(newd, k1_k2, fold);
+    }
+  }
+  fold = crc_reduce_128_to_64(fold, k3_q);
+  return crc_reduce_64_to_32(fold, k3_q, p_res);
+}
+#endif /* __riscv Zbc clmul folding CRC */
 
 #endif /* __CRC_H__ */
