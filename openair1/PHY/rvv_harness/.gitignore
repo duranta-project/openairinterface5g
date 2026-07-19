@@ -8,4 +8,5 @@ rvv_rotate_test
 rvv_precoder_test
 crc_clmul_test
 wto_test
+interleave_test
 *.o
