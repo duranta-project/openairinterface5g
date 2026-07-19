@@ -72,12 +72,44 @@ typedef union {
   c16_t s[2];
 } amp_t;
 
+#if defined(__riscv) && defined(__riscv_vector)
+#include <riscv_vector.h>
+/* mulhrs(x,amp) = round(x*amp/2^15), truncated to int16 (matches mulhrs_epi16) */
+static inline vint16m1_t dlsch_rvv_mulhrs(vint16m1_t x, int16_t amp, size_t vl)
+{
+  vint32m2_t p = __riscv_vwmul_vx_i32m2(x, amp, vl);
+  p = __riscv_vsra_vx_i32m2(__riscv_vadd_vx_i32m2(__riscv_vsra_vx_i32m2(p, 14, vl), 1, vl), 1, vl);
+  return __riscv_vnsra_wx_i16m1(p, 0, vl);
+}
+/* store [a.r,a.i,b.r,b.i] per element -> interleaved c16 pair (a_c16, b_c16) */
+static inline void dlsch_rvv_seg4(int16_t *op, vint16m1_t ar, vint16m1_t ai, vint16m1_t br, vint16m1_t bi, size_t vl)
+{
+  __riscv_vsseg4e16_v_i16m1x4(op, __riscv_vcreate_v_i16m1x4(ar, ai, br, bi), vl);
+}
+#endif
+
 static inline int interleave_with_0_signal_first(c16_t *output, c16_t *mod_dmrs, const int16_t amp_dmrs, int sz)
 {
   // add filler to process all as SIMD
   c16_t *out = output;
   int i = 0;
   int end = sz / 2;
+#if defined(__riscv) && defined(__riscv_vector)
+  /* out[2i] = mulhrs(mod_dmrs[i], amp), out[2i+1] = 0. VLA, bit-exact with the
+   * vector path (rvv_harness/interleave_test.c). */
+  int16_t *op = (int16_t *)output;
+  for (int r = 0; r < end;) {
+    size_t vl = __riscv_vsetvl_e16m1(end - r);
+    vint16m1x2_t s = __riscv_vlseg2e16_v_i16m1x2((const int16_t *)&mod_dmrs[r], vl);
+    vint16m1_t z = __riscv_vmv_v_x_i16m1(0, vl);
+    dlsch_rvv_seg4(op + 4 * r,
+                   dlsch_rvv_mulhrs(__riscv_vget_v_i16m1x2_i16m1(s, 0), amp_dmrs, vl),
+                   dlsch_rvv_mulhrs(__riscv_vget_v_i16m1x2_i16m1(s, 1), amp_dmrs, vl),
+                   z, z, vl);
+    r += vl;
+  }
+  return 0;
+#endif
 #if defined(__AVX512BW__)
   simde__m512i zeros512 = simde_mm512_setzero_si512(), amp_dmrs512 = simde_mm512_set1_epi16(amp_dmrs);
   simde__m512i perml = simde_mm512_set_epi32(23, 7, 22, 6, 21, 5, 20, 4, 19, 3, 18, 2, 17, 1, 16, 0);
@@ -126,6 +158,21 @@ static inline int interleave_with_0_start_with_0(c16_t *output, c16_t *mod_dmrs,
   c16_t *out = output;
   int i = 0;
   int end = sz / 2;
+#if defined(__riscv) && defined(__riscv_vector)
+  /* out[2i] = 0, out[2i+1] = mulhrs(mod_dmrs[i], amp) */
+  int16_t *op = (int16_t *)output;
+  for (int r = 0; r < end;) {
+    size_t vl = __riscv_vsetvl_e16m1(end - r);
+    vint16m1x2_t s = __riscv_vlseg2e16_v_i16m1x2((const int16_t *)&mod_dmrs[r], vl);
+    vint16m1_t z = __riscv_vmv_v_x_i16m1(0, vl);
+    dlsch_rvv_seg4(op + 4 * r, z, z,
+                   dlsch_rvv_mulhrs(__riscv_vget_v_i16m1x2_i16m1(s, 0), amp_dmrs, vl),
+                   dlsch_rvv_mulhrs(__riscv_vget_v_i16m1x2_i16m1(s, 1), amp_dmrs, vl),
+                   vl);
+    r += vl;
+  }
+  return 0;
+#endif
 #if defined(__AVX512BW__)
   simde__m512i zeros512 = simde_mm512_setzero_si512(), amp_dmrs512 = simde_mm512_set1_epi16(amp_dmrs);
   simde__m512i perml = simde_mm512_set_epi32(23, 7, 22, 6, 21, 5, 20, 4, 19, 3, 18, 2, 17, 1, 16, 0);
@@ -175,6 +222,23 @@ static inline int interleave_signals(c16_t *output, c16_t *signal1, const int am
   c16_t *out = output;
   int i = 0;
   int end = sz / 2;
+#if defined(__riscv) && defined(__riscv_vector)
+  /* out[2i] = mulhrs(signal2[i], amp2), out[2i+1] = mulhrs(signal1[i], amp) */
+  int16_t *op = (int16_t *)output;
+  for (int r = 0; r < end;) {
+    size_t vl = __riscv_vsetvl_e16m1(end - r);
+    vint16m1x2_t a = __riscv_vlseg2e16_v_i16m1x2((const int16_t *)&signal2[r], vl);
+    vint16m1x2_t b = __riscv_vlseg2e16_v_i16m1x2((const int16_t *)&signal1[r], vl);
+    dlsch_rvv_seg4(op + 4 * r,
+                   dlsch_rvv_mulhrs(__riscv_vget_v_i16m1x2_i16m1(a, 0), amp2, vl),
+                   dlsch_rvv_mulhrs(__riscv_vget_v_i16m1x2_i16m1(a, 1), amp2, vl),
+                   dlsch_rvv_mulhrs(__riscv_vget_v_i16m1x2_i16m1(b, 0), amp, vl),
+                   dlsch_rvv_mulhrs(__riscv_vget_v_i16m1x2_i16m1(b, 1), amp, vl),
+                   vl);
+    r += vl;
+  }
+  return sz / 2;
+#endif
 #if defined(__AVX512BW__)
   simde__m512i amp2512 = simde_mm512_set1_epi16(amp2), amp512 = simde_mm512_set1_epi16(amp);
   simde__m512i perml = simde_mm512_set_epi32(23, 7, 22, 6, 21, 5, 20, 4, 19, 3, 18, 2, 17, 1, 16, 0);
@@ -278,6 +342,18 @@ static inline int no_ptrs_dmrs_case(c16_t *output, c16_t *txl, const int amp, co
 {
   // Loop Over SCs:
   int i = 0;
+#if defined(__riscv) && defined(__riscv_vector)
+  /* output[i] = mulhrs(txl[i], amp), elementwise over sz c16 (= 2*sz int16). */
+  int16_t *op = (int16_t *)output;
+  const int16_t *ip = (const int16_t *)txl;
+  const int n = 2 * sz;
+  for (int k = 0; k < n;) {
+    size_t vl = __riscv_vsetvl_e16m1(n - k);
+    __riscv_vse16_v_i16m1(op + k, dlsch_rvv_mulhrs(__riscv_vle16_v_i16m1(ip + k, vl), (int16_t)amp, vl), vl);
+    k += vl;
+  }
+  return sz;
+#endif
 #if defined(__AVX512BW__)
   simde__m512i amp512 = simde_mm512_set1_epi16(amp);
   for (; i < (sz & ~15); i += 16) {
