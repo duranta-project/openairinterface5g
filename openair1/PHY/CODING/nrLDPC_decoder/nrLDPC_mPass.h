@@ -29,6 +29,9 @@
 #define arrPos(a, b) a.d + b* a.dim2
 static inline void *nrLDPC_inv_circ_memcpy(int8_t *str1, const int8_t *str2, uint16_t Z, uint16_t cshift)
 {
+    if (cshift == 0)
+      return memcpy(str1, str2, Z);
+
     uint16_t rem = Z - cshift;
     memcpy(str1+cshift, str2    , rem);
     memcpy(str1       , str2+rem, cshift);
@@ -49,6 +52,9 @@ static inline void *nrLDPC_inv_circ_memcpy(int8_t *str1, const int8_t *str2, uin
 */
 static inline void *nrLDPC_circ_memcpy(int8_t *str1, const int8_t *str2, uint16_t Z, uint16_t cshift)
 {
+    if (cshift == 0)
+      return memcpy(str1, str2, Z);
+
     uint16_t rem = Z - cshift;
     memcpy(str1     , str2+cshift, rem);
     memcpy(str1+rem , str2       , cshift);

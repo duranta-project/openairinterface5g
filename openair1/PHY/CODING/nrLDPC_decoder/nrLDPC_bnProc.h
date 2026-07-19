@@ -9,8 +9,20 @@
 #ifndef __NR_LDPC_BNPROC__H__
 #define __NR_LDPC_BNPROC__H__
 #include "PHY/sse_intrin.h"
+#if defined(__riscv) && defined(__riscv_vector)
+#include <riscv_vector.h>
+#endif
 #if defined(__AVX512BW__)
 #include <simde/x86/avx512.h>
+#endif
+
+#if defined(__riscv) && defined(__riscv_vector)
+static inline vint8m1_t nrLDPC_rvv_clip_i16m2_to_i8m1(vint16m2_t v, size_t vl)
+{
+    v = __riscv_vmax_vx_i16m2(v, -128, vl);
+    v = __riscv_vmin_vx_i16m2(v, 127, vl);
+    return __riscv_vnclip_wx_i8m1(v, 0, __RISCV_VXRM_RNU, vl);
+}
 #endif
 
 /**
@@ -34,7 +46,28 @@ static inline void nrLDPC_bnProcPc(t_nrLDPC_lut* p_lut, int8_t* bnProcBuf, int8_
         uint32_t llrStart = lut_startAddrBnGroupsLlr[idxBnGroup];
         idxBnGroup++;
 
-#if defined(__AVX512BW__)
+#if defined(__riscv) && defined(__riscv_vector)
+        {
+            int8_t *buf = &bnProcBuf[bnStart];
+            int8_t *llr = &llrProcBuf[llrStart];
+            int8_t *res = &llrRes[llrStart];
+            uint32_t off = numBN * NR_LDPC_ZMAX;
+            uint32_t numBytes = numBN * Z;
+            for (uint32_t i = 0; i < numBytes;) {
+                size_t vl = __riscv_vsetvl_e8m1(numBytes - i);
+                vint8m1_t vbuf = __riscv_vle8_v_i8m1(&buf[i], vl);
+                vint16m2_t acc = __riscv_vsext_vf2_i16m2(vbuf, vl);
+                for (uint32_t k = 1; k < numCN; k++) {
+                    vbuf = __riscv_vle8_v_i8m1(&buf[k * off + i], vl);
+                    acc = __riscv_vadd_vv_i16m2(acc, __riscv_vsext_vf2_i16m2(vbuf, vl), vl);
+                }
+                vint8m1_t vllr = __riscv_vle8_v_i8m1(&llr[i], vl);
+                acc = __riscv_vadd_vv_i16m2(acc, __riscv_vsext_vf2_i16m2(vllr, vl), vl);
+                __riscv_vse8_v_i8m1(&res[i], nrLDPC_rvv_clip_i16m2_to_i8m1(acc, vl), vl);
+                i += vl;
+            }
+        }
+#elif defined(__AVX512BW__)
         {
             /* Load 256-bit int8 chunks, accumulate in 512-bit int16, store 256-bit int8. */
             simde__m256i *buf256 = (simde__m256i *) &bnProcBuf[bnStart];
@@ -114,7 +147,25 @@ static inline void nrLDPC_bnProc(t_nrLDPC_lut* p_lut, int8_t* bnProcBuf, int8_t*
         uint32_t llrStart = lut_startAddrBnGroupsLlr[idxBnGroup];
         idxBnGroup++;
 
-#if defined(__AVX512BW__)
+#if defined(__riscv) && defined(__riscv_vector)
+        {
+            int8_t *buf = &bnProcBuf[bnStart];
+            int8_t *res = &bnProcBufRes[bnStart];
+            int8_t *llr = &llrRes[llrStart];
+            uint32_t off = numBN * NR_LDPC_ZMAX;
+            uint32_t numBytes = numBN * Z;
+            for (uint32_t k = 0; k < numCN; k++) {
+                int8_t *p_res = &res[k * off];
+                for (uint32_t i = 0; i < numBytes;) {
+                    size_t vl = __riscv_vsetvl_e8m1(numBytes - i);
+                    vint8m1_t vllr = __riscv_vle8_v_i8m1(&llr[i], vl);
+                    vint8m1_t vbuf = __riscv_vle8_v_i8m1(&buf[k * off + i], vl);
+                    __riscv_vse8_v_i8m1(&p_res[i], __riscv_vssub_vv_i8m1(vllr, vbuf, vl), vl);
+                    i += vl;
+                }
+            }
+        }
+#elif defined(__AVX512BW__)
         {
             simde__m512i *buf = (simde__m512i *) &bnProcBuf[bnStart];
             simde__m512i *res = (simde__m512i *) &bnProcBufRes[bnStart];

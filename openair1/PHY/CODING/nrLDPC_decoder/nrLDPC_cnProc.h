@@ -11,6 +11,9 @@
 #define __NR_LDPC_DECODER_CNPROC__H__
 
 #include "PHY/sse_intrin.h"
+#if defined(__riscv) && defined(__riscv_vector)
+#include <riscv_vector.h>
+#endif
 
 /**
    \brief Performs CN processing for BG2 on the CN processing buffer and stores the results in the CN processing results buffer.
@@ -892,6 +895,81 @@ static inline void nrLDPC_cnProc_BG1(t_nrLDPC_lut* p_lut, int8_t* cnProcBuf, int
 // =============================================================================
 
 /* -------------------------------------------------------------------------
+ * RVV two-pass group kernel — RISC-V vector (runtime VL).
+ * ------------------------------------------------------------------------- */
+#if defined(__riscv) && defined(__riscv_vector)
+static inline vuint8m1_t nrLDPC_rvv_abs_i8m1(vint8m1_t v, size_t vl)
+{
+    vbool8_t neg = __riscv_vmslt_vx_i8m1_b8(v, 0, vl);
+    vint8m1_t neg_v = __riscv_vneg_v_i8m1(v, vl);
+    return __riscv_vreinterpret_v_i8m1_u8m1(__riscv_vmerge_vvm_i8m1(v, neg_v, neg, vl));
+}
+
+static inline void nrLDPC_cnProc_group_2pass_rvv(int8_t  *cnProcBuf,
+                                                 int8_t  *cnProcBufRes,
+                                                 uint32_t numBN,
+                                                 uint32_t numBytes,
+                                                 uint32_t off)
+{
+    for (uint32_t i = 0; i < numBytes;) {
+        size_t vl = __riscv_vsetvl_e8m1(numBytes - i);
+        vuint8m1_t vmin1 = __riscv_vmv_v_x_u8m1(127, vl);
+        vuint8m1_t vmin2 = __riscv_vmv_v_x_u8m1(127, vl);
+        vint8m1_t vsgn_xor = __riscv_vmv_v_x_i8m1(0, vl);
+
+        for (uint32_t k = 0; k < numBN; k++) {
+            vint8m1_t vk = __riscv_vle8_v_i8m1(&cnProcBuf[k * off + i], vl);
+            vuint8m1_t vak = nrLDPC_rvv_abs_i8m1(vk, vl);
+            vsgn_xor = __riscv_vxor_vv_i8m1(vsgn_xor, vk, vl);
+            vuint8m1_t new_min1 = __riscv_vminu_vv_u8m1(vmin1, vak, vl);
+            vuint8m1_t new_min2 = __riscv_vminu_vv_u8m1(vmin2, __riscv_vmaxu_vv_u8m1(vmin1, vak, vl), vl);
+            vmin1 = new_min1;
+            vmin2 = new_min2;
+        }
+
+        for (uint32_t k = 0; k < numBN; k++) {
+            vint8m1_t vk = __riscv_vle8_v_i8m1(&cnProcBuf[k * off + i], vl);
+            vuint8m1_t vak = nrLDPC_rvv_abs_i8m1(vk, vl);
+            vbool8_t use_min2 = __riscv_vmseq_vv_u8m1_b8(vak, vmin1, vl);
+            vuint8m1_t out_mag = __riscv_vmerge_vvm_u8m1(vmin1, vmin2, use_min2, vl);
+            vint8m1_t out_mag_i8 = __riscv_vreinterpret_v_u8m1_i8m1(out_mag);
+            vint8m1_t other_xor = __riscv_vxor_vv_i8m1(vsgn_xor, vk, vl);
+            vbool8_t neg = __riscv_vmslt_vx_i8m1_b8(other_xor, 0, vl);
+            vint8m1_t neg_out = __riscv_vneg_v_i8m1(out_mag_i8, vl);
+            __riscv_vse8_v_i8m1(&cnProcBufRes[k * off + i], __riscv_vmerge_vvm_i8m1(out_mag_i8, neg_out, neg, vl), vl);
+        }
+
+        i += vl;
+    }
+}
+
+static inline uint32_t nrLDPC_cnProcPc_group_rvv(const int8_t *cnProcBuf,
+                                                 const int8_t *cnProcBufRes,
+                                                 uint32_t      numBN,
+                                                 uint32_t      numBytes,
+                                                 uint32_t      off)
+{
+    for (uint32_t i = 0; i < numBytes;) {
+        size_t vl = __riscv_vsetvl_e8m1(numBytes - i);
+        vint8m1_t zero = __riscv_vmv_v_x_i8m1(0, vl);
+        vbool8_t pc = __riscv_vmsne_vx_i8m1_b8(zero, 0, vl);
+
+        for (uint32_t j = 0; j < numBN; j++) {
+            vint8m1_t in = __riscv_vle8_v_i8m1(&cnProcBuf[j * off + i], vl);
+            vint8m1_t res = __riscv_vle8_v_i8m1(&cnProcBufRes[j * off + i], vl);
+            vint8m1_t sum = __riscv_vsadd_vv_i8m1(in, res, vl);
+            pc = __riscv_vmxor_mm_b8(pc, __riscv_vmslt_vx_i8m1_b8(sum, 0, vl), vl);
+        }
+
+        if (__riscv_vcpop_m_b8(pc, vl) != 0)
+            return 1;
+        i += vl;
+    }
+    return 0;
+}
+#endif
+
+/* -------------------------------------------------------------------------
  * 512-bit two-pass group kernel — AVX512BW (64 CNs per iteration).
  * Uses mask-register comparisons and predicated blend for single-cycle
  * select. Only compiled when __AVX512BW__ is defined.
@@ -1056,8 +1134,8 @@ static inline void nrLDPC_cnProc_group_2pass_128(simde__m128i *cnProcBuf,
 }
 
 /* -------------------------------------------------------------------------
- * BG1 / BG2 two-pass wrappers — dispatch to 512-bit (AVX512BW), 256-bit
- * (AVX2), or 128-bit (aarch64/SSE2) based on compile-time target.
+ * BG1 / BG2 two-pass wrappers — dispatch to RVV, 512-bit (AVX512BW),
+ * 256-bit (AVX2), or 128-bit (aarch64/SSE2) based on compile-time target.
  * ------------------------------------------------------------------------- */
 
 /**
@@ -1076,7 +1154,14 @@ static inline void nrLDPC_cnProc_BG1_2pass(t_nrLDPC_lut *p_lut,
     for (int grp = 0; grp < 9; grp++) {
         if (lut_numCnInCnGroups[grp] == 0)
             continue;
-#if defined(__AVX512BW__)
+#if defined(__riscv) && defined(__riscv_vector)
+        uint32_t numBytes = (uint32_t)lut_numCnInCnGroups[grp] * Z;
+        uint32_t off = lut_numCnInCnGroups_BG1_R13[grp] * NR_LDPC_ZMAX;
+        nrLDPC_cnProc_group_2pass_rvv(
+            &cnProcBuf   [lut_startAddrCnGroups[grp]],
+            &cnProcBufRes[lut_startAddrCnGroups[grp]],
+            numBN_per_group[grp], numBytes, off);
+#elif defined(__AVX512BW__)
         uint32_t M   = ((uint32_t)lut_numCnInCnGroups[grp] * Z + 63) >> 6;
         uint32_t off = (lut_numCnInCnGroups_BG1_R13[grp] * NR_LDPC_ZMAX) >> 6;
         nrLDPC_cnProc_group_2pass_512(
@@ -1117,7 +1202,14 @@ static inline void nrLDPC_cnProc_BG2_2pass(t_nrLDPC_lut *p_lut,
     for (int grp = 0; grp < 6; grp++) {
         if (lut_numCnInCnGroups[grp] == 0)
             continue;
-#if defined(__AVX512BW__)
+#if defined(__riscv) && defined(__riscv_vector)
+        uint32_t numBytes = (uint32_t)lut_numCnInCnGroups[grp] * Z;
+        uint32_t off = lut_numCnInCnGroups_BG2_R15[grp] * NR_LDPC_ZMAX;
+        nrLDPC_cnProc_group_2pass_rvv(
+            &cnProcBuf   [lut_startAddrCnGroups[grp]],
+            &cnProcBufRes[lut_startAddrCnGroups[grp]],
+            numBN_per_group[grp], numBytes, off);
+#elif defined(__AVX512BW__)
         uint32_t M   = ((uint32_t)lut_numCnInCnGroups[grp] * Z + 63) >> 6;
         uint32_t off = (lut_numCnInCnGroups_BG2_R15[grp] * NR_LDPC_ZMAX) >> 6;
         nrLDPC_cnProc_group_2pass_512(
@@ -1150,6 +1242,24 @@ static inline void nrLDPC_cnProc_BG2_2pass(t_nrLDPC_lut *p_lut,
 */
 static inline uint32_t nrLDPC_cnProcPc_BG1(t_nrLDPC_lut* p_lut, int8_t* cnProcBuf, int8_t* cnProcBufRes, uint16_t Z)
 {
+#if defined(__riscv) && defined(__riscv_vector)
+    const uint8_t *lut_numCnInCnGroups = p_lut->numCnInCnGroups;
+    const uint32_t *lut_startAddrCnGroups = p_lut->startAddrCnGroups;
+    static const uint8_t numBN_per_group[9] = {3, 4, 5, 6, 7, 8, 9, 10, 19};
+
+    for (int grp = 0; grp < 9; grp++) {
+        if (lut_numCnInCnGroups[grp] == 0)
+            continue;
+        uint32_t numBytes = (uint32_t)lut_numCnInCnGroups[grp] * Z;
+        uint32_t off = lut_numCnInCnGroups_BG1_R13[grp] * NR_LDPC_ZMAX;
+        if (nrLDPC_cnProcPc_group_rvv(&cnProcBuf[lut_startAddrCnGroups[grp]],
+                                      &cnProcBufRes[lut_startAddrCnGroups[grp]],
+                                      numBN_per_group[grp], numBytes, off))
+            return 1;
+    }
+    return 0;
+#else
+
     const uint8_t*  lut_numCnInCnGroups   = p_lut->numCnInCnGroups;
     const uint32_t* lut_startAddrCnGroups = p_lut->startAddrCnGroups;
 
@@ -1781,6 +1891,7 @@ static inline uint32_t nrLDPC_cnProcPc_BG1(t_nrLDPC_lut* p_lut, int8_t* cnProcBu
     }
 
     return pcResSum;
+#endif
 }
 
 /**
@@ -1791,6 +1902,24 @@ static inline uint32_t nrLDPC_cnProcPc_BG1(t_nrLDPC_lut* p_lut, int8_t* cnProcBu
 */
 static inline uint32_t nrLDPC_cnProcPc_BG2(t_nrLDPC_lut* p_lut, int8_t* cnProcBuf, int8_t* cnProcBufRes, uint16_t Z)
 {
+#if defined(__riscv) && defined(__riscv_vector)
+    const uint8_t *lut_numCnInCnGroups = p_lut->numCnInCnGroups;
+    const uint32_t *lut_startAddrCnGroups = p_lut->startAddrCnGroups;
+    static const uint8_t numBN_per_group[6] = {3, 4, 5, 6, 8, 10};
+
+    for (int grp = 0; grp < 6; grp++) {
+        if (lut_numCnInCnGroups[grp] == 0)
+            continue;
+        uint32_t numBytes = (uint32_t)lut_numCnInCnGroups[grp] * Z;
+        uint32_t off = lut_numCnInCnGroups_BG2_R15[grp] * NR_LDPC_ZMAX;
+        if (nrLDPC_cnProcPc_group_rvv(&cnProcBuf[lut_startAddrCnGroups[grp]],
+                                      &cnProcBufRes[lut_startAddrCnGroups[grp]],
+                                      numBN_per_group[grp], numBytes, off))
+            return 1;
+    }
+    return 0;
+#else
+
     const uint8_t*  lut_numCnInCnGroups   = p_lut->numCnInCnGroups;
     const uint32_t* lut_startAddrCnGroups = p_lut->startAddrCnGroups;
 
@@ -2217,6 +2346,7 @@ static inline uint32_t nrLDPC_cnProcPc_BG2(t_nrLDPC_lut* p_lut, int8_t* cnProcBu
     }
 
     return pcResSum;
+#endif
 }
 
 #endif
