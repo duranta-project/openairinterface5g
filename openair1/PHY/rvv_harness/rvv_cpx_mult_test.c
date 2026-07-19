@@ -5,7 +5,7 @@
  *
  * Self-contained, dependency-free micro-harness that validates a hand-written
  * RVV kernel BYTE-FOR-BYTE against a plain-C scalar reference and benchmarks
- * both. Cross-compile with build.sh and run the binary ON the RISC-V target
+ * both. Cross-compile with compile.sh and run the binary ON the RISC-V target
  * (there is no qemu in the build environment).
  *
  * The demonstrator kernel is a Q15 saturating complex multiply on interleaved
