@@ -169,6 +169,119 @@ static inline void rvv_gather4(const uint32_t *src, uint32_t *dst, const uint16_
   }
 }
 #endif /* RVV_DFT_LEAF */
+
+/* ===================================================================
+ * VLA iterative radix-4 (DIF Stockham autosort) IDFT. One kernel for any
+ * VLEN: it vectorizes across the N/4 independent butterflies of each stage
+ * (vl = VLMAX, never partial), so there is no fixed-width leaf and no
+ * partial-vl store. Validated byte-exact (rvv vs scalar) on VLEN=256 and 1024
+ * for N=64/256/1024/4096 in rvv_harness/dft_fft_test.c. Replaces the recursive
+ * idft chain for the pure-power-of-4 sizes.
+ *
+ * Twiddles are conjugated (inverse) and >>1 per stage gives 1/sqrt(N) (scale
+ * flag; every OAI idft caller passes scale=1). Reads gather the k*L+j input
+ * pattern; writes are unit-stride (Stockham output is contiguous).
+ * =================================================================== */
+static inline int16_t stk_sat16(int32_t v) { return v > 32767 ? 32767 : (v < -32768 ? -32768 : (int16_t)v); }
+
+#define STK_MAXN 4096
+#define STK_MAXPASS 6 /* log4(4096) */
+typedef struct {
+  int N, np, L[STK_MAXPASS];
+  uint32_t *baseByte[STK_MAXPASS]; /* byte offset of complex (k*L+j) per butterfly */
+  int16_t *tw[STK_MAXPASS][3];     /* Q15 twiddles (interleaved re,im), m=1..3 */
+} stk_plan_t;
+
+static const int stk_sizes[] = {64, 256, 1024, 4096};
+enum { STK_NPLAN = sizeof(stk_sizes) / sizeof(stk_sizes[0]) };
+static stk_plan_t stk_plans[STK_NPLAN];
+
+static void stk_build(stk_plan_t *pl, int N)
+{
+  int Nq = N / 4;
+  pl->N = N;
+  pl->np = 0;
+  for (int L = N; L >= 4; L /= 4) {
+    int p = pl->np++, Lq = L / 4;
+    pl->L[p] = L;
+    pl->baseByte[p] = (uint32_t *)malloc(sizeof(uint32_t) * Nq);
+    for (int m = 0; m < 3; m++)
+      pl->tw[p][m] = (int16_t *)malloc(sizeof(int16_t) * 2 * Nq);
+    for (int bf = 0; bf < Nq; bf++) {
+      int k = bf / Lq, j = bf % Lq;
+      pl->baseByte[p][bf] = (uint32_t)(4 * (k * L + j));
+      for (int m = 1; m <= 3; m++) {
+        double ang = 2.0 * M_PI * (double)(m * j) / (double)L; /* +j (inverse) */
+        pl->tw[p][m - 1][2 * bf] = stk_sat16((int32_t)lround(cos(ang) * 32767.0));
+        pl->tw[p][m - 1][2 * bf + 1] = stk_sat16((int32_t)lround(sin(ang) * 32767.0));
+      }
+    }
+  }
+}
+__attribute__((constructor)) static void stk_init(void)
+{
+  for (int i = 0; i < STK_NPLAN; i++)
+    stk_build(&stk_plans[i], stk_sizes[i]);
+}
+static const stk_plan_t *stk_get(int N)
+{
+  for (int i = 0; i < STK_NPLAN; i++)
+    if (stk_plans[i].N == N)
+      return &stk_plans[i];
+  return 0;
+}
+
+/* idft of size N (must be a built pow-4 size). scale!=0 applies >>1 per stage. */
+static void idft_stockham(int N, const int16_t *in16, int16_t *out16, int scale)
+{
+  const stk_plan_t *pl = stk_get(N);
+  int Nq = N / 4, sh = scale ? 1 : 0;
+  int16_t abuf[2 * STK_MAXN] __attribute__((aligned(32)));
+  int16_t bbuf[2 * STK_MAXN] __attribute__((aligned(32)));
+  int16_t *a = abuf, *b = bbuf;
+  memcpy(a, in16, sizeof(int16_t) * 2 * N);
+  for (int p = 0; p < pl->np; p++) {
+    int Lq = pl->L[p] / 4;
+    const uint32_t *bb = pl->baseByte[p];
+    int16_t *bo = b;
+    for (int bf = 0; bf < Nq;) {
+      size_t vl = __riscv_vsetvl_e32m1(Nq - bf);
+      vuint32m1_t idx = __riscv_vle32_v_u32m1(bb + bf, vl);
+#define STK_GLEG(LEG, RE, IM)                                                                                     \
+  vuint32m1_t pk##LEG = __riscv_vluxei32_v_u32m1((const uint32_t *)a + (LEG)*Lq, idx, vl);                        \
+  vint16mf2_t RE = __riscv_vreinterpret_v_u16mf2_i16mf2(__riscv_vnsrl_wx_u16mf2(pk##LEG, 0, vl));                 \
+  vint16mf2_t IM = __riscv_vreinterpret_v_u16mf2_i16mf2(__riscv_vnsrl_wx_u16mf2(pk##LEG, 16, vl))
+      STK_GLEG(0, c0r, c0i); STK_GLEG(1, c1r, c1i); STK_GLEG(2, c2r, c2i); STK_GLEG(3, c3r, c3i);
+#undef STK_GLEG
+      vint16mf2_t d0r = __riscv_vsadd_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0r, c1r, vl), __riscv_vsadd_vv_i16mf2(c2r, c3r, vl), vl);
+      vint16mf2_t d0i = __riscv_vsadd_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0i, c1i, vl), __riscv_vsadd_vv_i16mf2(c2i, c3i, vl), vl);
+      vint16mf2_t d2r = __riscv_vssub_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0r, c2r, vl), __riscv_vsadd_vv_i16mf2(c1r, c3r, vl), vl);
+      vint16mf2_t d2i = __riscv_vssub_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0i, c2i, vl), __riscv_vsadd_vv_i16mf2(c1i, c3i, vl), vl);
+      vint16mf2_t d1r = __riscv_vssub_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0r, c3i, vl), __riscv_vsadd_vv_i16mf2(c1i, c2r, vl), vl);
+      vint16mf2_t d1i = __riscv_vsadd_vv_i16mf2(__riscv_vssub_vv_i16mf2(c0i, c3r, vl), __riscv_vssub_vv_i16mf2(c1r, c2i, vl), vl);
+      vint16mf2_t d3r = __riscv_vssub_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0r, c1i, vl), __riscv_vsadd_vv_i16mf2(c3i, c2r, vl), vl);
+      vint16mf2_t d3i = __riscv_vsadd_vv_i16mf2(__riscv_vssub_vv_i16mf2(c0i, c1r, vl), __riscv_vssub_vv_i16mf2(c3r, c2i, vl), vl);
+      __riscv_vsseg2e16_v_i16mf2x2(bo + 2 * bf, __riscv_vcreate_v_i16mf2x2(
+          __riscv_vsra_vx_i16mf2(d0r, sh, vl), __riscv_vsra_vx_i16mf2(d0i, sh, vl)), vl);
+#define STK_BAND(M, DR, DI, OFF)                                                                                 \
+  do {                                                                                                           \
+    vint16mf2x2_t W = __riscv_vlseg2e16_v_i16mf2x2(pl->tw[p][M] + 2 * bf, vl);                                   \
+    vint16mf2_t wr = __riscv_vget_v_i16mf2x2_i16mf2(W, 0), wi = __riscv_vget_v_i16mf2x2_i16mf2(W, 1);            \
+    vint32m1_t re = __riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(DR, wr, vl), __riscv_vwmul_vv_i32m1(DI, wi, vl), vl); \
+    vint32m1_t im = __riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(DR, wi, vl), __riscv_vwmul_vv_i32m1(DI, wr, vl), vl); \
+    vint16mf2_t rr = __riscv_vnclip_wx_i16mf2(re, 15, __RISCV_VXRM_RDN, vl);                                     \
+    vint16mf2_t ii = __riscv_vnclip_wx_i16mf2(im, 15, __RISCV_VXRM_RDN, vl);                                     \
+    __riscv_vsseg2e16_v_i16mf2x2(bo + 2 * (bf + (OFF)*Nq), __riscv_vcreate_v_i16mf2x2(                           \
+        __riscv_vsra_vx_i16mf2(rr, sh, vl), __riscv_vsra_vx_i16mf2(ii, sh, vl)), vl);                            \
+  } while (0)
+      STK_BAND(0, d1r, d1i, 1); STK_BAND(1, d2r, d2i, 2); STK_BAND(2, d3r, d3i, 3);
+#undef STK_BAND
+      bf += (int)vl;
+    }
+    int16_t *t = a; a = b; b = t;
+  }
+  memcpy(out16, a, sizeof(int16_t) * 2 * N);
+}
 #endif /* __riscv_vector */
 
 #ifndef M_PI
@@ -1838,7 +1951,9 @@ void dft64(int16_t *x,int16_t *y,unsigned char scale)
 
 void idft64(int16_t *x,int16_t *y,unsigned char scale)
 {
-
+#if defined(__riscv_vector)
+  idft_stockham(64, x, y, scale); return; /* VLA iterative; supersedes the recursive path */
+#endif
   simd256_q15_t xtmp[16],ytmp[16],*tw64a_256=(simd256_q15_t *)tw64,*tw64b_256=(simd256_q15_t *)tw64c,*x256=(simd256_q15_t *)x,*y256=(simd256_q15_t *)y;
   register simd256_q15_t xintl0,xintl1,xintl2,xintl3,xintl4,xintl5,xintl6,xintl7;
   simd256_q15_t const perm_mask = simde_mm256_set_epi32(7, 3, 5, 1, 6, 2, 4, 0);
@@ -2171,7 +2286,9 @@ void dft256(int16_t *x,int16_t *y,unsigned char scale)
 
 void idft256(int16_t *x,int16_t *y,unsigned char scale)
 {
-
+#if defined(__riscv_vector)
+  idft_stockham(256, x, y, scale); return;
+#endif
   simd256_q15_t xtmp[32],ytmp[32],*tw256_256p=(simd256_q15_t *)tw256,*x256=(simd256_q15_t *)x,*y256=(simd256_q15_t *)y,*y256p=(simd256_q15_t *)y;
   simd256_q15_t *ytmpp = &ytmp[0];
   int i;
@@ -2483,7 +2600,9 @@ void dft1024(int16_t *x,int16_t *y,unsigned char scale)
 
 void idft1024(int16_t *x,int16_t *y,unsigned char scale)
 {
-
+#if defined(__riscv_vector)
+  idft_stockham(1024, x, y, scale); return;
+#endif
   simd256_q15_t xtmp[128],ytmp[128],*tw1024_256p=(simd256_q15_t *)tw1024,*x256=(simd256_q15_t *)x,*y256=(simd256_q15_t *)y,*y256p=(simd256_q15_t *)y;
   simd256_q15_t *ytmpp = &ytmp[0];
   int i,j;
@@ -2774,7 +2893,9 @@ void dft4096(int16_t *x,int16_t *y,unsigned char scale)
 
 void idft4096(int16_t *x,int16_t *y,unsigned char scale)
 {
-
+#if defined(__riscv_vector)
+  idft_stockham(4096, x, y, scale); return;
+#endif
   simd256_q15_t xtmp[512],ytmp[512],*tw4096_256p=(simd256_q15_t *)tw4096,*x256=(simd256_q15_t *)x,*y256=(simd256_q15_t *)y,*y256p=(simd256_q15_t *)y;
   simd256_q15_t *ytmpp = &ytmp[0];
   int i,j;
