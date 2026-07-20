@@ -189,7 +189,7 @@ static inline int16_t stk_sat16(int32_t v) { return v > 32767 ? 32767 : (v < -32
 typedef struct {
   int N, np, L[STK_MAXPASS];
   uint32_t *baseByte[STK_MAXPASS]; /* byte offset of complex (k*L+j) per butterfly */
-  int16_t *tw[STK_MAXPASS][3];     /* Q15 twiddles (interleaved re,im), m=1..3 */
+  int16_t *tw[STK_MAXPASS][3][2];  /* Q15 twiddles (re,im); [m-1][dir], dir 0=inverse(+sin) 1=forward(-sin) */
 } stk_plan_t;
 
 static const int stk_sizes[] = {64, 256, 1024, 4096};
@@ -206,14 +206,17 @@ static void stk_build(stk_plan_t *pl, int N)
     pl->L[p] = L;
     pl->baseByte[p] = (uint32_t *)malloc(sizeof(uint32_t) * Nq);
     for (int m = 0; m < 3; m++)
-      pl->tw[p][m] = (int16_t *)malloc(sizeof(int16_t) * 2 * Nq);
+      for (int d = 0; d < 2; d++)
+        pl->tw[p][m][d] = (int16_t *)malloc(sizeof(int16_t) * 2 * Nq);
     for (int bf = 0; bf < Nq; bf++) {
       int k = bf / Lq, j = bf % Lq;
       pl->baseByte[p][bf] = (uint32_t)(4 * (k * L + j));
       for (int m = 1; m <= 3; m++) {
-        double ang = 2.0 * M_PI * (double)(m * j) / (double)L; /* +j (inverse) */
-        pl->tw[p][m - 1][2 * bf] = stk_sat16((int32_t)lround(cos(ang) * 32767.0));
-        pl->tw[p][m - 1][2 * bf + 1] = stk_sat16((int32_t)lround(sin(ang) * 32767.0));
+        double ang = 2.0 * M_PI * (double)(m * j) / (double)L;
+        int16_t cr = stk_sat16((int32_t)lround(cos(ang) * 32767.0));
+        int16_t sr = stk_sat16((int32_t)lround(sin(ang) * 32767.0));
+        pl->tw[p][m - 1][0][2 * bf] = cr;  pl->tw[p][m - 1][0][2 * bf + 1] = sr;   /* inverse: +sin */
+        pl->tw[p][m - 1][1][2 * bf] = cr;  pl->tw[p][m - 1][1][2 * bf + 1] = -sr;  /* forward: -sin */
       }
     }
   }
@@ -231,8 +234,10 @@ static const stk_plan_t *stk_get(int N)
   return 0;
 }
 
-/* idft of size N (must be a built pow-4 size). scale!=0 applies >>1 per stage. */
-static void idft_stockham(int N, const int16_t *in16, int16_t *out16, int scale)
+/* Radix-4 Stockham transform, size N (built pow-4 size). scale!=0 applies >>1
+ * per stage (1/sqrt(N)). fwd=0 inverse, fwd=1 forward (conjugate twiddles +
+ * the two odd radix-4 bands swapped). */
+static void stk_run(int N, const int16_t *in16, int16_t *out16, int scale, int fwd)
 {
   const stk_plan_t *pl = stk_get(N);
   int Nq = N / 4, sh = scale ? 1 : 0;
@@ -265,7 +270,7 @@ static void idft_stockham(int N, const int16_t *in16, int16_t *out16, int scale)
           __riscv_vsra_vx_i16mf2(d0r, sh, vl), __riscv_vsra_vx_i16mf2(d0i, sh, vl)), vl);
 #define STK_BAND(M, DR, DI, OFF)                                                                                 \
   do {                                                                                                           \
-    vint16mf2x2_t W = __riscv_vlseg2e16_v_i16mf2x2(pl->tw[p][M] + 2 * bf, vl);                                   \
+    vint16mf2x2_t W = __riscv_vlseg2e16_v_i16mf2x2(pl->tw[p][M][fwd] + 2 * bf, vl);                              \
     vint16mf2_t wr = __riscv_vget_v_i16mf2x2_i16mf2(W, 0), wi = __riscv_vget_v_i16mf2x2_i16mf2(W, 1);            \
     vint32m1_t re = __riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(DR, wr, vl), __riscv_vwmul_vv_i32m1(DI, wi, vl), vl); \
     vint32m1_t im = __riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(DR, wi, vl), __riscv_vwmul_vv_i32m1(DI, wr, vl), vl); \
@@ -274,7 +279,10 @@ static void idft_stockham(int N, const int16_t *in16, int16_t *out16, int scale)
     __riscv_vsseg2e16_v_i16mf2x2(bo + 2 * (bf + (OFF)*Nq), __riscv_vcreate_v_i16mf2x2(                           \
         __riscv_vsra_vx_i16mf2(rr, sh, vl), __riscv_vsra_vx_i16mf2(ii, sh, vl)), vl);                            \
   } while (0)
-      STK_BAND(0, d1r, d1i, 1); STK_BAND(1, d2r, d2i, 2); STK_BAND(2, d3r, d3i, 3);
+      /* forward swaps the odd bands: band1 gets inverse-d3, band3 gets inverse-d1 */
+      if (!fwd) { STK_BAND(0, d1r, d1i, 1); STK_BAND(2, d3r, d3i, 3); }
+      else      { STK_BAND(0, d3r, d3i, 1); STK_BAND(2, d1r, d1i, 3); }
+      STK_BAND(1, d2r, d2i, 2);
 #undef STK_BAND
       bf += (int)vl;
     }
@@ -1809,6 +1817,9 @@ const static int16_t tw64c[96] __attribute__((aligned(32))) = {
 
 void dft64(int16_t *x,int16_t *y,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run(64, x, y, scale, 1); return; /* VLA iterative forward */
+#endif
 
   simd256_q15_t xtmp[16],ytmp[16],*tw64a_256=(simd256_q15_t *)tw64a,*tw64b_256=(simd256_q15_t *)tw64b,*x256=(simd256_q15_t *)x,*y256=(simd256_q15_t *)y;
   simd256_q15_t xintl0,xintl1,xintl2,xintl3,xintl4,xintl5,xintl6,xintl7;
@@ -1952,7 +1963,7 @@ void dft64(int16_t *x,int16_t *y,unsigned char scale)
 void idft64(int16_t *x,int16_t *y,unsigned char scale)
 {
 #if defined(__riscv_vector)
-  idft_stockham(64, x, y, scale); return; /* VLA iterative; supersedes the recursive path */
+  stk_run(64, x, y, scale, 0); return;
 #endif
   simd256_q15_t xtmp[16],ytmp[16],*tw64a_256=(simd256_q15_t *)tw64,*tw64b_256=(simd256_q15_t *)tw64c,*x256=(simd256_q15_t *)x,*y256=(simd256_q15_t *)y;
   register simd256_q15_t xintl0,xintl1,xintl2,xintl3,xintl4,xintl5,xintl6,xintl7;
@@ -2197,6 +2208,9 @@ static const int16_t tw256b[384] __attribute__((aligned(32))) = {0,32767,-805,32
                                                    };
 void dft256(int16_t *x,int16_t *y,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run(256, x, y, scale, 1); return; /* VLA iterative forward */
+#endif
 
   simd256_q15_t xtmp[32],ytmp[32],*tw256a_256p=(simd256_q15_t *)tw256a,*tw256b_256p=(simd256_q15_t *)tw256b,*x256=(simd256_q15_t *)x,*y256=(simd256_q15_t *)y,*y256p=(simd256_q15_t *)y;
   simd256_q15_t *ytmpp = &ytmp[0];
@@ -2287,7 +2301,7 @@ void dft256(int16_t *x,int16_t *y,unsigned char scale)
 void idft256(int16_t *x,int16_t *y,unsigned char scale)
 {
 #if defined(__riscv_vector)
-  idft_stockham(256, x, y, scale); return;
+  stk_run(256, x, y, scale, 0); return;
 #endif
   simd256_q15_t xtmp[32],ytmp[32],*tw256_256p=(simd256_q15_t *)tw256,*x256=(simd256_q15_t *)x,*y256=(simd256_q15_t *)y,*y256p=(simd256_q15_t *)y;
   simd256_q15_t *ytmpp = &ytmp[0];
@@ -2547,6 +2561,9 @@ int16_t tw1024[1536] __attribute__((aligned(32)));
 
 void dft1024(int16_t *x,int16_t *y,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run(1024, x, y, scale, 1); return; /* VLA iterative forward */
+#endif
 
   simd256_q15_t xtmp[128],ytmp[128],*tw1024_256p=(simd256_q15_t *)tw1024,*x256=(simd256_q15_t *)x,*y256=(simd256_q15_t *)y,*y256p=(simd256_q15_t *)y;
   simd256_q15_t *ytmpp = &ytmp[0];
@@ -2601,7 +2618,7 @@ void dft1024(int16_t *x,int16_t *y,unsigned char scale)
 void idft1024(int16_t *x,int16_t *y,unsigned char scale)
 {
 #if defined(__riscv_vector)
-  idft_stockham(1024, x, y, scale); return;
+  stk_run(1024, x, y, scale, 0); return;
 #endif
   simd256_q15_t xtmp[128],ytmp[128],*tw1024_256p=(simd256_q15_t *)tw1024,*x256=(simd256_q15_t *)x,*y256=(simd256_q15_t *)y,*y256p=(simd256_q15_t *)y;
   simd256_q15_t *ytmpp = &ytmp[0];
@@ -2840,6 +2857,9 @@ int16_t tw4096[3*2*1024];
 
 void dft4096(int16_t *x,int16_t *y,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run(4096, x, y, scale, 1); return; /* VLA iterative forward */
+#endif
 
   simd256_q15_t xtmp[512],ytmp[512],*tw4096_256p=(simd256_q15_t *)tw4096,*x256=(simd256_q15_t *)x,*y256=(simd256_q15_t *)y,*y256p=(simd256_q15_t *)y;
   simd256_q15_t *ytmpp = &ytmp[0];
@@ -2894,7 +2914,7 @@ void dft4096(int16_t *x,int16_t *y,unsigned char scale)
 void idft4096(int16_t *x,int16_t *y,unsigned char scale)
 {
 #if defined(__riscv_vector)
-  idft_stockham(4096, x, y, scale); return;
+  stk_run(4096, x, y, scale, 0); return;
 #endif
   simd256_q15_t xtmp[512],ytmp[512],*tw4096_256p=(simd256_q15_t *)tw4096,*x256=(simd256_q15_t *)x,*y256=(simd256_q15_t *)y,*y256p=(simd256_q15_t *)y;
   simd256_q15_t *ytmpp = &ytmp[0];
