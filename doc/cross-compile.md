@@ -142,6 +142,10 @@ make -j`nproc` generate_T
 
 cd ../build-riscv
 cmake ../../.. -GNinja -DCMAKE_TOOLCHAIN_FILE=../../../cmake_targets/cross-riscv.cmake -DNATIVE_DIR=../build
+
+ninja dlsim ulsim ldpctest polartest smallblocktest nr_pbchsim nr_dlschsim nr_ulschsim nr_dlsim nr_ulsim nr_pucchsim nr_prachsim nr_srssim
+ninja nr-softmodem nr-uesoftmodem
+ninja params_libconfig coding rfsimulator
 ```
 
 Example with explicit paths:
@@ -154,3 +158,39 @@ cmake ../../.. -GNinja \
   -DOAI_RISCV_C_COMPILER=/opt/riscv/bin/riscv64-linux-gnu-gcc \
   -DOAI_RISCV_CXX_COMPILER=/opt/riscv/bin/riscv64-linux-gnu-g++
 ```
+
+### Enabling the RVV (vector) SIMD path
+
+The default `OAI_RISCV_MARCH` (`rv64gc_zba_zbb_zbs_zicond`) does **not** include
+the `v` (vector) extension. The hand-written RISC-V Vector (RVV) kernels in the
+NR PHY are gated on `__riscv_vector`, so with the default march they compile out
+and the build silently falls back to the (scalar) SIMDe emulation — correct, but
+much slower.
+
+To build the accelerated path, add the vector extension (and `zbc`, for the
+carry-less-multiply CRC) to the march string. The following string is validated
+on the SpaceMIT K3:
+
+```shell
+cmake ../../.. -GNinja \
+  -DCMAKE_TOOLCHAIN_FILE=../../../cmake_targets/cross-riscv.cmake \
+  -DNATIVE_DIR=../build \
+  -DOAI_RISCV_MARCH=rv64gcv_zba_zbb_zbc_zbs_zicond
+```
+
+The RVV kernels are vector-length-agnostic (one VLA implementation), so a single
+binary runs unchanged on any VLEN (e.g. 256-bit and 1024-bit cores); no
+minimum-VLEN pinning is required. Changing `OAI_RISCV_MARCH` on an existing build
+directory requires a fresh `cmake` configure (reconfigure), not just a rebuild.
+
+## Notes for other host distributions / CI
+
+The dependency-install commands above are Ubuntu/Debian-specific (`apt`,
+`:arm64` multiarch). On RHEL/OpenShift (OCP) or other distros, install the
+equivalent RISC-V cross toolchain and a target sysroot via the distro package
+manager or a build container (see the ARM `docker/Dockerfile.*.cross-arm64`
+files as a template). The toolchain-file variables themselves
+(`OAI_RISCV_C_COMPILER`, `OAI_RISCV_CXX_COMPILER`, `OAI_RISCV_SYSROOT`,
+`OAI_RISCV_MARCH`) are distribution-independent, so only the dependency
+bootstrap differs. `ccache` is honored by the build and is recommended for CI to
+avoid repaying the one long compile (`oai_dfts_rvv.c`, the mixed-radix DFT).
