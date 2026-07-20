@@ -145,7 +145,12 @@ cmake ../../.. -GNinja -DCMAKE_TOOLCHAIN_FILE=../../../cmake_targets/cross-riscv
 
 ninja dlsim ulsim ldpctest polartest smallblocktest nr_pbchsim nr_dlschsim nr_ulschsim nr_dlsim nr_ulsim nr_pucchsim nr_prachsim nr_srssim
 ninja nr-softmodem nr-uesoftmodem
-ninja params_libconfig coding rfsimulator
+ninja params_libconfig rfsimulator
+# dlopen'd runtime plugins (MODULE libs). These are NOT link-time deps of the
+# sims/softmodem, so the targets above do NOT build them -- build them
+# explicitly and keep them on LD_LIBRARY_PATH where the binaries run, or PHY
+# init fails at runtime ("error loading LDPC library", DFT not found):
+ninja dfts ldpc ldpc_orig coding
 ```
 
 Example with explicit paths:
