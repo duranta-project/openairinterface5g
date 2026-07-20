@@ -194,6 +194,57 @@ static void xform_rvv(const c16 *in, c16 *out, int N, int fwd){
   memcpy(out,a,sizeof(c16)*N);
   free(a);free(b);
 }
+
+/* ---- UNIT-STRIDE variant: group-major (k outer, vectorize j within group) so
+ * the 4 radix-4 reads are contiguous vlseg2e16 (NO gather). Late stages have
+ * small Lq -> partial vl (the full-vl-all-stages version needs the autosort
+ * layout). Same math as xform_scalar -> byte-exact. ---- */
+static void xform_rvv_us(const c16 *in, c16 *out, int N, int fwd){
+  int Nq=N/4, sh=1;
+  c16 *a=malloc(sizeof(c16)*N), *b=malloc(sizeof(c16)*N);
+  memcpy(a,in,sizeof(c16)*N);
+  for(int p=0;p<g_np;p++){
+    int L=g_L[p], Lq=L/4, r=N/L;
+    int16_t *bo=(int16_t*)b;
+    for(int k=0;k<r;k++){
+      const int16_t *ab=(const int16_t*)(a + k*L);   /* group base */
+      for(int j=0;j<Lq;){
+        size_t vl=__riscv_vsetvl_e16mf2(Lq-j);
+        int bf=k*Lq+j;
+        #define LDG(m,RE,IM) vint16mf2x2_t S##m=__riscv_vlseg2e16_v_i16mf2x2(ab+2*((m)*Lq+j),vl); \
+          vint16mf2_t RE=__riscv_vget_v_i16mf2x2_i16mf2(S##m,0), IM=__riscv_vget_v_i16mf2x2_i16mf2(S##m,1)
+        LDG(0,c0r,c0i); LDG(1,c1r,c1i); LDG(2,c2r,c2i); LDG(3,c3r,c3i);
+        #undef LDG
+        vint16mf2_t d0r=__riscv_vsadd_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0r,c1r,vl),__riscv_vsadd_vv_i16mf2(c2r,c3r,vl),vl);
+        vint16mf2_t d0i=__riscv_vsadd_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0i,c1i,vl),__riscv_vsadd_vv_i16mf2(c2i,c3i,vl),vl);
+        vint16mf2_t d2r=__riscv_vssub_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0r,c2r,vl),__riscv_vsadd_vv_i16mf2(c1r,c3r,vl),vl);
+        vint16mf2_t d2i=__riscv_vssub_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0i,c2i,vl),__riscv_vsadd_vv_i16mf2(c1i,c3i,vl),vl);
+        vint16mf2_t d1r=__riscv_vssub_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0r,c3i,vl),__riscv_vsadd_vv_i16mf2(c1i,c2r,vl),vl);
+        vint16mf2_t d1i=__riscv_vsadd_vv_i16mf2(__riscv_vssub_vv_i16mf2(c0i,c3r,vl),__riscv_vssub_vv_i16mf2(c1r,c2i,vl),vl);
+        vint16mf2_t d3r=__riscv_vssub_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0r,c1i,vl),__riscv_vsadd_vv_i16mf2(c3i,c2r,vl),vl);
+        vint16mf2_t d3i=__riscv_vsadd_vv_i16mf2(__riscv_vssub_vv_i16mf2(c0i,c1r,vl),__riscv_vssub_vv_i16mf2(c3r,c2i,vl),vl);
+        __riscv_vsseg2e16_v_i16mf2x2(bo+2*bf, __riscv_vcreate_v_i16mf2x2(
+            __riscv_vsra_vx_i16mf2(d0r,sh,vl), __riscv_vsra_vx_i16mf2(d0i,sh,vl)), vl);
+        #define BANDU(M,DR,DI,OFF) do { \
+          vint16mf2x2_t W=__riscv_vlseg2e16_v_i16mf2x2((const int16_t*)g_tw[p][M][fwd]+2*bf, vl); \
+          vint16mf2_t wr=__riscv_vget_v_i16mf2x2_i16mf2(W,0), wi=__riscv_vget_v_i16mf2x2_i16mf2(W,1); \
+          vint32m1_t re=__riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(DR,wr,vl),__riscv_vwmul_vv_i32m1(DI,wi,vl),vl); \
+          vint32m1_t im=__riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(DR,wi,vl),__riscv_vwmul_vv_i32m1(DI,wr,vl),vl); \
+          __riscv_vsseg2e16_v_i16mf2x2(bo+2*(bf+(OFF)*Nq), __riscv_vcreate_v_i16mf2x2( \
+              __riscv_vsra_vx_i16mf2(__riscv_vnclip_wx_i16mf2(re,15,__RISCV_VXRM_RDN,vl),sh,vl), \
+              __riscv_vsra_vx_i16mf2(__riscv_vnclip_wx_i16mf2(im,15,__RISCV_VXRM_RDN,vl),sh,vl)), vl); \
+        } while(0)
+        if(!fwd){ BANDU(0,d1r,d1i,1); BANDU(2,d3r,d3i,3); } else { BANDU(0,d3r,d3i,1); BANDU(2,d1r,d1i,3); }
+        BANDU(1,d2r,d2i,2);
+        #undef BANDU
+        j+=(int)vl;
+      }
+    }
+    c16*t=a;a=b;b=t;
+  }
+  memcpy(out,a,sizeof(c16)*N);
+  free(a);free(b);
+}
 #endif
 
 static uint32_t rng=12345;
@@ -217,16 +268,19 @@ int main(int argc,char**argv){
     double rn=0,rd=0; for(int i=0;i<N;i++){ double er=z[i].r-x[i].r,ei=z[i].i-x[i].i; rn+=er*er+ei*ei; rd+=(double)x[i].r*x[i].r+(double)x[i].i*x[i].i; }
     printf("N=%5d  idft-vs-double=%.1fdB  roundtrip idft(dft(x))-vs-x=%.1fdB", N, 10*log10(den/(num+1e-9)), 10*log10(rd/(rn+1e-9)));
 #if defined(__riscv) && defined(__riscv_vector)
-    c16 *yr=malloc(sizeof(c16)*N);
-    xform_rvv(x,yr,N,0); int mi=memcmp(ys,yr,sizeof(c16)*N);
-    xform_rvv(x,yr,N,1); int mf=memcmp(yf,yr,sizeof(c16)*N);
-    printf("   rvv-vs-scalar idft:%s dft:%s", mi?"FAIL":"OK", mf?"FAIL":"OK");
-    { struct timespec t0,t1; int REP=2000; clock_gettime(CLOCK_MONOTONIC,&t0);
-      for(int r=0;r<REP;r++) xform_rvv(x,yr,N,0);
-      clock_gettime(CLOCK_MONOTONIC,&t1);
-      double us=((double)(t1.tv_sec-t0.tv_sec)*1e9+(t1.tv_nsec-t0.tv_nsec))/REP/1000.0;
-      printf("  %.1fus/idft", us); }
-    free(yr);
+    c16 *yr=malloc(sizeof(c16)*N), *yu=malloc(sizeof(c16)*N);
+    xform_rvv(x,yr,N,0);    int mi=memcmp(ys,yr,sizeof(c16)*N);
+    xform_rvv(x,yr,N,1);    int mf=memcmp(yf,yr,sizeof(c16)*N);
+    xform_rvv_us(x,yu,N,0); int ui=memcmp(ys,yu,sizeof(c16)*N);
+    xform_rvv_us(x,yu,N,1); int uf=memcmp(yf,yu,sizeof(c16)*N);
+    printf("  gather[idft:%s dft:%s] us[idft:%s dft:%s]", mi?"FAIL":"OK",mf?"FAIL":"OK",ui?"FAIL":"OK",uf?"FAIL":"OK");
+    { struct timespec t0,t1; int REP=2000; double g,u;
+      clock_gettime(CLOCK_MONOTONIC,&t0); for(int r=0;r<REP;r++) xform_rvv(x,yr,N,0);    clock_gettime(CLOCK_MONOTONIC,&t1);
+      g=((double)(t1.tv_sec-t0.tv_sec)*1e9+(t1.tv_nsec-t0.tv_nsec))/REP/1000.0;
+      clock_gettime(CLOCK_MONOTONIC,&t0); for(int r=0;r<REP;r++) xform_rvv_us(x,yu,N,0); clock_gettime(CLOCK_MONOTONIC,&t1);
+      u=((double)(t1.tv_sec-t0.tv_sec)*1e9+(t1.tv_nsec-t0.tv_nsec))/REP/1000.0;
+      printf("  gather=%.1f us=%.1f us/idft", g, u); }
+    free(yr); free(yu);
 #endif
     printf("\n");
     free(x);free(ys);free(yf);free(z);free(dr);free(di); free_tables();
