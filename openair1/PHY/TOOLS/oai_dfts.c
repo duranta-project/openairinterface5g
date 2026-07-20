@@ -2,7 +2,10 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
-#if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
+/* RISC-V is handled by its own sibling oai_dfts_rvv.c (see that file). Keeping
+ * RISC-V out of this file lets the x86 implementation evolve (e.g. an AVX2-only
+ * rework) without breaking the RISC-V build. */
+#if defined(__x86_64__) || defined(__i386__)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

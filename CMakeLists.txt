@@ -821,7 +821,7 @@ set(PHY_NRLDPC_CODINGIF
   ${OPENAIR1_DIR}/PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface_load.c
 )
 
-add_library(dfts MODULE ${OPENAIR1_DIR}/PHY/TOOLS/oai_dfts.c ${OPENAIR1_DIR}/PHY/TOOLS/oai_dfts_neon.c)
+add_library(dfts MODULE ${OPENAIR1_DIR}/PHY/TOOLS/oai_dfts.c ${OPENAIR1_DIR}/PHY/TOOLS/oai_dfts_neon.c ${OPENAIR1_DIR}/PHY/TOOLS/oai_dfts_rvv.c)
 target_compile_options(dfts PRIVATE -fno-semantic-interposition)
 target_link_libraries(dfts PRIVATE m)
 
