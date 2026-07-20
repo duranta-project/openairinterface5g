@@ -34,55 +34,6 @@
  * dispatch to these under `#if defined(__riscv_vector)`.
  * =================================================================== */
 
-/* radix-4 inverse butterfly (outer stages) over n complex, full-width vsetvl
- * loop: ak = xk*conj(twk) (int32 madd, wrapping neg of tw.im), y = x0 +
- * pack(>>15) of the radix-4 combine (vnclip RDN + wrapping int16 add).
- * Uses e16mf2 inputs -> i32m1 accumulators (NOT m2): the six live int32 a-values
- * then cost 6 vector registers instead of 12, which stays within the register
- * file. At m2 the spills tripped a spacemit-gcc bug that clobbered the stack in
- * this TU's allocation context (SIGSEGV). Half-width => 2x iterations. */
-static void rvv_ibfly4(const int16_t *x0, const int16_t *x1, const int16_t *x2, const int16_t *x3,
-                       int16_t *y0, int16_t *y1, int16_t *y2, int16_t *y3,
-                       const int16_t *w1, const int16_t *w2, const int16_t *w3, size_t n)
-{
-  for (size_t c = 0; c < n;) {
-    size_t vl = __riscv_vsetvl_e16mf2(n - c), o = 2 * c;
-    vint16mf2x2_t X0 = __riscv_vlseg2e16_v_i16mf2x2(x0 + o, vl);
-    vint16mf2_t x0r = __riscv_vget_v_i16mf2x2_i16mf2(X0, 0), x0i = __riscv_vget_v_i16mf2x2_i16mf2(X0, 1);
-    vint16mf2x2_t X1 = __riscv_vlseg2e16_v_i16mf2x2(x1 + o, vl), W1 = __riscv_vlseg2e16_v_i16mf2x2(w1 + o, vl);
-    vint16mf2x2_t X2 = __riscv_vlseg2e16_v_i16mf2x2(x2 + o, vl), W2 = __riscv_vlseg2e16_v_i16mf2x2(w2 + o, vl);
-    vint16mf2x2_t X3 = __riscv_vlseg2e16_v_i16mf2x2(x3 + o, vl), W3 = __riscv_vlseg2e16_v_i16mf2x2(w3 + o, vl);
-    vint16mf2_t x1r = __riscv_vget_v_i16mf2x2_i16mf2(X1, 0), x1i = __riscv_vget_v_i16mf2x2_i16mf2(X1, 1);
-    vint16mf2_t w1r = __riscv_vget_v_i16mf2x2_i16mf2(W1, 0), w1i = __riscv_vget_v_i16mf2x2_i16mf2(W1, 1);
-    vint16mf2_t x2r = __riscv_vget_v_i16mf2x2_i16mf2(X2, 0), x2i = __riscv_vget_v_i16mf2x2_i16mf2(X2, 1);
-    vint16mf2_t w2r = __riscv_vget_v_i16mf2x2_i16mf2(W2, 0), w2i = __riscv_vget_v_i16mf2x2_i16mf2(W2, 1);
-    vint16mf2_t x3r = __riscv_vget_v_i16mf2x2_i16mf2(X3, 0), x3i = __riscv_vget_v_i16mf2x2_i16mf2(X3, 1);
-    vint16mf2_t w3r = __riscv_vget_v_i16mf2x2_i16mf2(W3, 0), w3i = __riscv_vget_v_i16mf2x2_i16mf2(W3, 1);
-    vint16mf2_t nw1i = __riscv_vneg_v_i16mf2(w1i, vl), nw2i = __riscv_vneg_v_i16mf2(w2i, vl), nw3i = __riscv_vneg_v_i16mf2(w3i, vl);
-    vint32m1_t a1r = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(x1r, w1r, vl), x1i, w1i, vl);
-    vint32m1_t a1i = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(x1i, w1r, vl), x1r, nw1i, vl);
-    vint32m1_t a2r = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(x2r, w2r, vl), x2i, w2i, vl);
-    vint32m1_t a2i = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(x2i, w2r, vl), x2r, nw2i, vl);
-    vint32m1_t a3r = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(x3r, w3r, vl), x3i, w3i, vl);
-    vint32m1_t a3i = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(x3i, w3r, vl), x3r, nw3i, vl);
-#define RVV_PK(D) __riscv_vnclip_wx_i16mf2((D), 15, __RISCV_VXRM_RDN, vl)
-#define RVV_LEG(P, DR, DI) \
-  __riscv_vsseg2e16_v_i16mf2x2((P) + o, __riscv_vcreate_v_i16mf2x2( \
-      __riscv_vadd_vv_i16mf2(x0r, RVV_PK(DR), vl), __riscv_vadd_vv_i16mf2(x0i, RVV_PK(DI), vl)), vl)
-    { vint32m1_t dr = __riscv_vadd_vv_i32m1(a1r, __riscv_vadd_vv_i32m1(a2r, a3r, vl), vl);
-      vint32m1_t di = __riscv_vadd_vv_i32m1(a1i, __riscv_vadd_vv_i32m1(a2i, a3i, vl), vl); RVV_LEG(y0, dr, di); }
-    { vint32m1_t dr = __riscv_vsub_vv_i32m1(a1i, __riscv_vadd_vv_i32m1(a2r, a3i, vl), vl);
-      vint32m1_t di = __riscv_vsub_vv_i32m1(__riscv_vsub_vv_i32m1(a3r, a2i, vl), a1r, vl); RVV_LEG(y3, dr, di); }
-    { vint32m1_t dr = __riscv_vsub_vv_i32m1(__riscv_vsub_vv_i32m1(a2r, a3r, vl), a1r, vl);
-      vint32m1_t di = __riscv_vsub_vv_i32m1(__riscv_vsub_vv_i32m1(a2i, a3i, vl), a1i, vl); RVV_LEG(y2, dr, di); }
-    { vint32m1_t dr = __riscv_vsub_vv_i32m1(__riscv_vsub_vv_i32m1(a3i, a2r, vl), a1i, vl);
-      vint32m1_t di = __riscv_vsub_vv_i32m1(a1r, __riscv_vadd_vv_i32m1(a2i, a3r, vl), vl); RVV_LEG(y1, dr, di); }
-#undef RVV_PK
-#undef RVV_LEG
-    c += vl;
-  }
-}
-
 #if defined(RVV_DFT_LEAF) /* leaf kernels; disabled pending the -O2 over-store fix */
 /* radix-4 stage with NO input twiddles (idft16 stage 1): saturating adds/subs,
  * (im,-re) flip via wrapping vneg. */
@@ -2322,12 +2273,6 @@ void idft256(int16_t *x,int16_t *y,unsigned char scale)
   idft64((int16_t*)(xtmp+24),(int16_t*)(ytmp+24),1);
   
   
-#if defined(__riscv_vector)
-  /* 8 unrolled radix-4 butterflies -> one full-width range call (64 complex) */
-  rvv_ibfly4((const int16_t *)ytmpp, (const int16_t *)(ytmpp + 8), (const int16_t *)(ytmpp + 16), (const int16_t *)(ytmpp + 24),
-             (int16_t *)y256p, (int16_t *)(y256p + 8), (int16_t *)(y256p + 16), (int16_t *)(y256p + 24),
-             (const int16_t *)tw256_256p, (const int16_t *)(tw256_256p + 8), (const int16_t *)(tw256_256p + 16), 64);
-#else
   ibfly4_256(ytmpp,ytmpp+8,ytmpp+16,ytmpp+24,
 	     y256p,y256p+8,y256p+16,y256p+24,
 	     tw256_256p,tw256_256p+8,tw256_256p+16);
@@ -2359,7 +2304,6 @@ void idft256(int16_t *x,int16_t *y,unsigned char scale)
   ibfly4_256(ytmpp+7,ytmpp+15,ytmpp+23,ytmpp+31,
 	     y256p+7,y256p+15,y256p+23,y256p+31,
 	     tw256_256p+7,tw256_256p+15,tw256_256p+23);
-#endif
 
   
   if (scale>0) {
@@ -2634,11 +2578,6 @@ void idft1024(int16_t *x,int16_t *y,unsigned char scale)
   idft256((int16_t*)(xtmp+64),(int16_t*)(ytmp+64),1);
   idft256((int16_t*)(xtmp+96),(int16_t*)(ytmp+96),1);
 
-#if defined(__riscv_vector)
-  rvv_ibfly4((const int16_t *)ytmpp, (const int16_t *)(ytmpp + 32), (const int16_t *)(ytmpp + 64), (const int16_t *)(ytmpp + 96),
-             (int16_t *)y256p, (int16_t *)(y256p + 32), (int16_t *)(y256p + 64), (int16_t *)(y256p + 96),
-             (const int16_t *)tw1024_256p, (const int16_t *)(tw1024_256p + 32), (const int16_t *)(tw1024_256p + 64), 256);
-#else
   for (i=0; i<32; i++) {
     ibfly4_256(ytmpp,ytmpp+32,ytmpp+64,ytmpp+96,
 	       y256p,y256p+32,y256p+64,y256p+96,
@@ -2647,7 +2586,6 @@ void idft1024(int16_t *x,int16_t *y,unsigned char scale)
     y256p++;
     ytmpp++;
   }
-#endif
 
   if (scale>0) {
 
@@ -2930,11 +2868,6 @@ void idft4096(int16_t *x,int16_t *y,unsigned char scale)
   idft1024((int16_t*)(xtmp+256),(int16_t*)(ytmp+256),1);
   idft1024((int16_t*)(xtmp+384),(int16_t*)(ytmp+384),1);
 
-#if defined(__riscv_vector)
-  rvv_ibfly4((const int16_t *)ytmpp, (const int16_t *)(ytmpp + 128), (const int16_t *)(ytmpp + 256), (const int16_t *)(ytmpp + 384),
-             (int16_t *)y256p, (int16_t *)(y256p + 128), (int16_t *)(y256p + 256), (int16_t *)(y256p + 384),
-             (const int16_t *)tw4096_256p, (const int16_t *)(tw4096_256p + 128), (const int16_t *)(tw4096_256p + 256), 1024);
-#else
   for (i=0; i<128; i++) {
     ibfly4_256(ytmpp,ytmpp+128,ytmpp+256,ytmpp+384,
 	       y256p,y256p+128,y256p+256,y256p+384,
@@ -2943,7 +2876,6 @@ void idft4096(int16_t *x,int16_t *y,unsigned char scale)
     y256p++;
     ytmpp++;
   }
-#endif
 
   if (scale>0) {
 
