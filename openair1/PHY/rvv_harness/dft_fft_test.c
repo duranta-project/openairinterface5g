@@ -34,6 +34,7 @@
 #include <math.h>
 #include <sched.h>
 #include <unistd.h>
+#include <time.h>
 #if defined(__riscv) && defined(__riscv_vector)
 #include <riscv_vector.h>
 #endif
@@ -209,6 +210,11 @@ int main(int argc,char**argv){
     c16 *yr=malloc(sizeof(c16)*N); idft_rvv(x,yr,N);
     int mm=memcmp(ys,yr,sizeof(c16)*N);
     printf("   rvv-vs-scalar: %s", mm?"FAIL":"BYTE-EXACT");
+    { struct timespec t0,t1; int REP=2000; clock_gettime(CLOCK_MONOTONIC,&t0);
+      for(int r=0;r<REP;r++) idft_rvv(x,yr,N);
+      clock_gettime(CLOCK_MONOTONIC,&t1);
+      double us=((double)(t1.tv_sec-t0.tv_sec)*1e9+(t1.tv_nsec-t0.tv_nsec))/REP/1000.0;
+      printf("   %.2f us/call", us); }
     free(yr);
 #endif
     printf("\n");
