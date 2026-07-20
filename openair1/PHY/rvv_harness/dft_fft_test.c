@@ -51,7 +51,7 @@ static int16_t ssub(int16_t a,int16_t b){ return sat16((int32_t)a-b); }
 /* ---- twiddle / index tables (per pass), shared by scalar and rvv ---- */
 #define MAXPASS 8
 static int g_L[MAXPASS], g_np;
-static c16 *g_tw[MAXPASS][3];      /* tw[pass][m-1][bf], m=1..3, Q15 (multiply, +j sign) */
+static c16 *g_tw[MAXPASS][3][2];   /* tw[pass][m-1][dir][bf]; dir 0=inverse(+sin) 1=forward(-sin) */
 static uint32_t *g_baseByte[MAXPASS]; /* byte offset of complex (k*L+j) for gather */
 
 static void build_tables(int N){
@@ -59,20 +59,22 @@ static void build_tables(int N){
   for(int L=N; L>=4; L/=4){
     int p=g_np++; g_L[p]=L; int Lq=L/4;
     g_baseByte[p]=malloc(sizeof(uint32_t)*Nq);
-    for(int m=0;m<3;m++) g_tw[p][m]=malloc(sizeof(c16)*Nq);
+    for(int m=0;m<3;m++) for(int d=0;d<2;d++) g_tw[p][m][d]=malloc(sizeof(c16)*Nq);
     for(int bf=0;bf<Nq;bf++){
       int k=bf/Lq, j=bf%Lq;
       g_baseByte[p][bf]=(uint32_t)(4*(k*L+j)); /* 4 bytes per complex */
       for(int m=1;m<=3;m++){
-        double ang=2.0*M_PI*(double)(m*j)/(double)L; /* +j inverse */
+        double ang=2.0*M_PI*(double)(m*j)/(double)L;
         double wr=cos(ang), wi=sin(ang);
-        g_tw[p][m-1][bf].r=sat16((int32_t)lround(wr*32767.0));
-        g_tw[p][m-1][bf].i=sat16((int32_t)lround(wi*32767.0));
+        g_tw[p][m-1][0][bf].r=sat16((int32_t)lround(wr*32767.0));   /* inverse: +sin */
+        g_tw[p][m-1][0][bf].i=sat16((int32_t)lround(wi*32767.0));
+        g_tw[p][m-1][1][bf].r=sat16((int32_t)lround(wr*32767.0));   /* forward: -sin */
+        g_tw[p][m-1][1][bf].i=sat16((int32_t)lround(-wi*32767.0));
       }
     }
   }
 }
-static void free_tables(void){ for(int p=0;p<g_np;p++){ free(g_baseByte[p]); for(int m=0;m<3;m++) free(g_tw[p][m]); } }
+static void free_tables(void){ for(int p=0;p<g_np;p++){ free(g_baseByte[p]); for(int m=0;m<3;m++) for(int d=0;d<2;d++) free(g_tw[p][m][d]); } }
 
 /* complex multiply d*w >>15 (Q15 w), saturating -- matches vnclip RDN semantics */
 static c16 cmul15(c16 d, c16 w){
@@ -81,8 +83,10 @@ static c16 cmul15(c16 d, c16 w){
   return (c16){ sat16(re), sat16(im) };
 }
 
-/* ---- scalar fixed-point reference (DIF radix-4 Stockham idft) ---- */
-static void idft_scalar(const c16 *in, c16 *out, int N){
+/* ---- scalar fixed-point reference (DIF radix-4 Stockham); fwd=0 idft, 1 dft.
+ * Forward = inverse with conjugate twiddles (built into g_tw[..][fwd]) and the
+ * two "odd" bands swapped (forward-d1 == inverse-d3 formula, and vice versa). ---- */
+static void xform_scalar(const c16 *in, c16 *out, int N, int fwd){
   int Nq=N/4;
   c16 *a=malloc(sizeof(c16)*N), *b=malloc(sizeof(c16)*N);
   memcpy(a,in,sizeof(c16)*N);
@@ -91,14 +95,13 @@ static void idft_scalar(const c16 *in, c16 *out, int N){
     for(int k=0;k<r;k++) for(int j=0;j<Lq;j++){
       int bf=k*Lq+j, base=k*L+j;
       c16 c0=a[base], c1=a[base+Lq], c2=a[base+2*Lq], c3=a[base+3*Lq];
-      /* radix-4 combine, +j: j*c = (-c.i, c.r) */
       c16 d0={ sadd(sadd(c0.r,c1.r),sadd(c2.r,c3.r)), sadd(sadd(c0.i,c1.i),sadd(c2.i,c3.i)) };
       c16 d2={ ssub(sadd(c0.r,c2.r),sadd(c1.r,c3.r)), ssub(sadd(c0.i,c2.i),sadd(c1.i,c3.i)) };
-      /* d1 = c0 + j c1 - c2 - j c3 ; j c1=(-c1.i,c1.r), -j c3=(c3.i,-c3.r) */
-      c16 d1={ ssub(sadd(c0.r,c3.i),sadd(c1.i,c2.r)), sadd(ssub(c0.i,c3.r),ssub(c1.r,c2.i)) };
-      /* d3 = c0 - j c1 - c2 + j c3 ; -j c1=(c1.i,-c1.r), +j c3=(-c3.i,c3.r) */
-      c16 d3={ ssub(sadd(c0.r,c1.i),sadd(c3.i,c2.r)), sadd(ssub(c0.i,c1.r),ssub(c3.r,c2.i)) };
-      c16 t1=cmul15(d1,g_tw[p][0][bf]), t2=cmul15(d2,g_tw[p][1][bf]), t3=cmul15(d3,g_tw[p][2][bf]);
+      /* inverse d1 = c0 + j c1 - c2 - j c3 ; inverse d3 = c0 - j c1 - c2 + j c3 */
+      c16 di1={ ssub(sadd(c0.r,c3.i),sadd(c1.i,c2.r)), sadd(ssub(c0.i,c3.r),ssub(c1.r,c2.i)) };
+      c16 di3={ ssub(sadd(c0.r,c1.i),sadd(c3.i,c2.r)), sadd(ssub(c0.i,c1.r),ssub(c3.r,c2.i)) };
+      c16 e1 = fwd? di3 : di1, e3 = fwd? di1 : di3;  /* forward swaps the odd bands */
+      c16 t1=cmul15(e1,g_tw[p][0][fwd][bf]), t2=cmul15(d2,g_tw[p][1][fwd][bf]), t3=cmul15(e3,g_tw[p][2][fwd][bf]);
       b[bf]       =(c16){ (int16_t)(d0.r>>1),(int16_t)(d0.i>>1) };
       b[bf+Nq]    =(c16){ (int16_t)(t1.r>>1),(int16_t)(t1.i>>1) };
       b[bf+2*Nq]  =(c16){ (int16_t)(t2.r>>1),(int16_t)(t2.i>>1) };
@@ -134,8 +137,9 @@ static void idft_double(const c16*in,double*outr,double*outi,int N){
 }
 
 #if defined(__riscv) && defined(__riscv_vector)
-/* ---- RVV: vectorize across bf; gather reads, full-VL unit-stride writes ---- */
-static void idft_rvv(const c16 *in, c16 *out, int N){
+/* ---- RVV: vectorize across bf; gather reads, full-VL unit-stride writes.
+ * fwd=0 idft, 1 dft (conjugate twiddles g_tw[..][fwd] + odd-band swap). ---- */
+static void xform_rvv(const c16 *in, c16 *out, int N, int fwd){
   int Nq=N/4;
   c16 *a=malloc(sizeof(c16)*N), *b=malloc(sizeof(c16)*N);
   memcpy(a,in,sizeof(c16)*N);
@@ -169,7 +173,7 @@ static void idft_rvv(const c16 *in, c16 *out, int N){
           __riscv_vsra_vx_i16mf2(d0r,1,vl), __riscv_vsra_vx_i16mf2(d0i,1,vl)), vl);
       /* bands 1..3: (d*w)>>15 then >>1 ; tw unit-stride deinterleaved */
       #define BAND(M,DR,DI,OFF) do { \
-        vint16mf2x2_t W=__riscv_vlseg2e16_v_i16mf2x2((const int16_t*)g_tw[p][M]+2*bf, vl); \
+        vint16mf2x2_t W=__riscv_vlseg2e16_v_i16mf2x2((const int16_t*)g_tw[p][M][fwd]+2*bf, vl); \
         vint16mf2_t wr=__riscv_vget_v_i16mf2x2_i16mf2(W,0), wi=__riscv_vget_v_i16mf2x2_i16mf2(W,1); \
         vint32m1_t re=__riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(DR,wr,vl),__riscv_vwmul_vv_i32m1(DI,wi,vl),vl); \
         vint32m1_t im=__riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(DR,wi,vl),__riscv_vwmul_vv_i32m1(DI,wr,vl),vl); \
@@ -178,7 +182,10 @@ static void idft_rvv(const c16 *in, c16 *out, int N){
         __riscv_vsseg2e16_v_i16mf2x2(bo+2*(bf+(OFF)*Nq), __riscv_vcreate_v_i16mf2x2( \
             __riscv_vsra_vx_i16mf2(rr,1,vl), __riscv_vsra_vx_i16mf2(ii,1,vl)), vl); \
       } while(0)
-      BAND(0,d1r,d1i,1); BAND(1,d2r,d2i,2); BAND(2,d3r,d3i,3);
+      /* forward swaps the odd bands: band1 gets inverse-d3, band3 gets inverse-d1 */
+      if(!fwd){ BAND(0,d1r,d1i,1); BAND(2,d3r,d3i,3); }
+      else    { BAND(0,d3r,d3i,1); BAND(2,d1r,d1i,3); }
+      BAND(1,d2r,d2i,2);
       #undef BAND
       bf+=(int)vl;
     }
@@ -198,27 +205,31 @@ int main(int argc,char**argv){
   int Ns[]={64,256,1024,4096};
   for(unsigned s=0;s<sizeof(Ns)/sizeof(int);s++){
     int N=Ns[s]; build_tables(N);
-    c16 *x=malloc(sizeof(c16)*N),*ys=malloc(sizeof(c16)*N);
+    c16 *x=malloc(sizeof(c16)*N),*ys=malloc(sizeof(c16)*N),*yf=malloc(sizeof(c16)*N),*z=malloc(sizeof(c16)*N);
     for(int i=0;i<N;i++){x[i].r=rnd()/2;x[i].i=rnd()/2;} /* moderate input to limit saturation */
-    idft_scalar(x,ys,N);
-    /* precision vs double */
+    xform_scalar(x,ys,N,0);                      /* idft */
+    xform_scalar(x,yf,N,1);                       /* dft  */
+    /* idft precision vs double (fixed-point noise) */
     double *dr=malloc(8*N),*di=malloc(8*N); idft_double(x,dr,di,N);
     double num=0,den=0; for(int i=0;i<N;i++){ double er=ys[i].r-dr[i],ei=ys[i].i-di[i]; num+=er*er+ei*ei; den+=dr[i]*dr[i]+di[i]*di[i]; }
-    double snr=10*log10(den/(num+1e-9));
-    printf("N=%5d  scalar-vs-double SNR=%.1f dB",N,snr);
+    /* round-trip idft(dft(x)) ~ x : validates the forward against the (sim-proven) inverse */
+    xform_scalar(yf,z,N,0);
+    double rn=0,rd=0; for(int i=0;i<N;i++){ double er=z[i].r-x[i].r,ei=z[i].i-x[i].i; rn+=er*er+ei*ei; rd+=(double)x[i].r*x[i].r+(double)x[i].i*x[i].i; }
+    printf("N=%5d  idft-vs-double=%.1fdB  roundtrip idft(dft(x))-vs-x=%.1fdB", N, 10*log10(den/(num+1e-9)), 10*log10(rd/(rn+1e-9)));
 #if defined(__riscv) && defined(__riscv_vector)
-    c16 *yr=malloc(sizeof(c16)*N); idft_rvv(x,yr,N);
-    int mm=memcmp(ys,yr,sizeof(c16)*N);
-    printf("   rvv-vs-scalar: %s", mm?"FAIL":"BYTE-EXACT");
+    c16 *yr=malloc(sizeof(c16)*N);
+    xform_rvv(x,yr,N,0); int mi=memcmp(ys,yr,sizeof(c16)*N);
+    xform_rvv(x,yr,N,1); int mf=memcmp(yf,yr,sizeof(c16)*N);
+    printf("   rvv-vs-scalar idft:%s dft:%s", mi?"FAIL":"OK", mf?"FAIL":"OK");
     { struct timespec t0,t1; int REP=2000; clock_gettime(CLOCK_MONOTONIC,&t0);
-      for(int r=0;r<REP;r++) idft_rvv(x,yr,N);
+      for(int r=0;r<REP;r++) xform_rvv(x,yr,N,0);
       clock_gettime(CLOCK_MONOTONIC,&t1);
       double us=((double)(t1.tv_sec-t0.tv_sec)*1e9+(t1.tv_nsec-t0.tv_nsec))/REP/1000.0;
-      printf("   %.2f us/call", us); }
+      printf("  %.1fus/idft", us); }
     free(yr);
 #endif
     printf("\n");
-    free(x);free(ys);free(dr);free(di); free_tables();
+    free(x);free(ys);free(yf);free(z);free(dr);free(di); free_tables();
   }
   return 0;
 }
