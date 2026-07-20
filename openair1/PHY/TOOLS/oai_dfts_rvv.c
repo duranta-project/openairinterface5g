@@ -26,7 +26,150 @@
 #include <execinfo.h>
 #ifdef __riscv_vector
 #include <riscv_vector.h>
-#endif
+
+/* ===================================================================
+ * RVV DFT primitives. Each is byte-exact with the SIMDe kernel it
+ * replaces (validated in openair1/PHY/rvv_harness/dft_{bfly,transpose,
+ * leaf}_test.c on VLEN=256 and VLEN=1024). The DFT functions below
+ * dispatch to these under `#if defined(__riscv_vector)`.
+ * =================================================================== */
+
+/* radix-4 inverse butterfly (outer stages) over n complex, full-width vsetvl
+ * loop: ak = xk*conj(twk) (int32 madd, wrapping neg of tw.im), y = x0 +
+ * pack(>>15) of the radix-4 combine (vnclip RDN + wrapping int16 add).
+ * Uses e16mf2 inputs -> i32m1 accumulators (NOT m2): the six live int32 a-values
+ * then cost 6 vector registers instead of 12, which stays within the register
+ * file. At m2 the spills tripped a spacemit-gcc bug that clobbered the stack in
+ * this TU's allocation context (SIGSEGV). Half-width => 2x iterations. */
+static void rvv_ibfly4(const int16_t *x0, const int16_t *x1, const int16_t *x2, const int16_t *x3,
+                       int16_t *y0, int16_t *y1, int16_t *y2, int16_t *y3,
+                       const int16_t *w1, const int16_t *w2, const int16_t *w3, size_t n)
+{
+  for (size_t c = 0; c < n;) {
+    size_t vl = __riscv_vsetvl_e16mf2(n - c), o = 2 * c;
+    vint16mf2x2_t X0 = __riscv_vlseg2e16_v_i16mf2x2(x0 + o, vl);
+    vint16mf2_t x0r = __riscv_vget_v_i16mf2x2_i16mf2(X0, 0), x0i = __riscv_vget_v_i16mf2x2_i16mf2(X0, 1);
+    vint16mf2x2_t X1 = __riscv_vlseg2e16_v_i16mf2x2(x1 + o, vl), W1 = __riscv_vlseg2e16_v_i16mf2x2(w1 + o, vl);
+    vint16mf2x2_t X2 = __riscv_vlseg2e16_v_i16mf2x2(x2 + o, vl), W2 = __riscv_vlseg2e16_v_i16mf2x2(w2 + o, vl);
+    vint16mf2x2_t X3 = __riscv_vlseg2e16_v_i16mf2x2(x3 + o, vl), W3 = __riscv_vlseg2e16_v_i16mf2x2(w3 + o, vl);
+    vint16mf2_t x1r = __riscv_vget_v_i16mf2x2_i16mf2(X1, 0), x1i = __riscv_vget_v_i16mf2x2_i16mf2(X1, 1);
+    vint16mf2_t w1r = __riscv_vget_v_i16mf2x2_i16mf2(W1, 0), w1i = __riscv_vget_v_i16mf2x2_i16mf2(W1, 1);
+    vint16mf2_t x2r = __riscv_vget_v_i16mf2x2_i16mf2(X2, 0), x2i = __riscv_vget_v_i16mf2x2_i16mf2(X2, 1);
+    vint16mf2_t w2r = __riscv_vget_v_i16mf2x2_i16mf2(W2, 0), w2i = __riscv_vget_v_i16mf2x2_i16mf2(W2, 1);
+    vint16mf2_t x3r = __riscv_vget_v_i16mf2x2_i16mf2(X3, 0), x3i = __riscv_vget_v_i16mf2x2_i16mf2(X3, 1);
+    vint16mf2_t w3r = __riscv_vget_v_i16mf2x2_i16mf2(W3, 0), w3i = __riscv_vget_v_i16mf2x2_i16mf2(W3, 1);
+    vint16mf2_t nw1i = __riscv_vneg_v_i16mf2(w1i, vl), nw2i = __riscv_vneg_v_i16mf2(w2i, vl), nw3i = __riscv_vneg_v_i16mf2(w3i, vl);
+    vint32m1_t a1r = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(x1r, w1r, vl), x1i, w1i, vl);
+    vint32m1_t a1i = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(x1i, w1r, vl), x1r, nw1i, vl);
+    vint32m1_t a2r = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(x2r, w2r, vl), x2i, w2i, vl);
+    vint32m1_t a2i = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(x2i, w2r, vl), x2r, nw2i, vl);
+    vint32m1_t a3r = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(x3r, w3r, vl), x3i, w3i, vl);
+    vint32m1_t a3i = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(x3i, w3r, vl), x3r, nw3i, vl);
+#define RVV_PK(D) __riscv_vnclip_wx_i16mf2((D), 15, __RISCV_VXRM_RDN, vl)
+#define RVV_LEG(P, DR, DI) \
+  __riscv_vsseg2e16_v_i16mf2x2((P) + o, __riscv_vcreate_v_i16mf2x2( \
+      __riscv_vadd_vv_i16mf2(x0r, RVV_PK(DR), vl), __riscv_vadd_vv_i16mf2(x0i, RVV_PK(DI), vl)), vl)
+    { vint32m1_t dr = __riscv_vadd_vv_i32m1(a1r, __riscv_vadd_vv_i32m1(a2r, a3r, vl), vl);
+      vint32m1_t di = __riscv_vadd_vv_i32m1(a1i, __riscv_vadd_vv_i32m1(a2i, a3i, vl), vl); RVV_LEG(y0, dr, di); }
+    { vint32m1_t dr = __riscv_vsub_vv_i32m1(a1i, __riscv_vadd_vv_i32m1(a2r, a3i, vl), vl);
+      vint32m1_t di = __riscv_vsub_vv_i32m1(__riscv_vsub_vv_i32m1(a3r, a2i, vl), a1r, vl); RVV_LEG(y3, dr, di); }
+    { vint32m1_t dr = __riscv_vsub_vv_i32m1(__riscv_vsub_vv_i32m1(a2r, a3r, vl), a1r, vl);
+      vint32m1_t di = __riscv_vsub_vv_i32m1(__riscv_vsub_vv_i32m1(a2i, a3i, vl), a1i, vl); RVV_LEG(y2, dr, di); }
+    { vint32m1_t dr = __riscv_vsub_vv_i32m1(__riscv_vsub_vv_i32m1(a3i, a2r, vl), a1i, vl);
+      vint32m1_t di = __riscv_vsub_vv_i32m1(a1r, __riscv_vadd_vv_i32m1(a2i, a3r, vl), vl); RVV_LEG(y1, dr, di); }
+#undef RVV_PK
+#undef RVV_LEG
+    c += vl;
+  }
+}
+
+#if defined(RVV_DFT_LEAF) /* leaf kernels; disabled pending the -O2 over-store fix */
+/* radix-4 stage with NO input twiddles (idft16 stage 1): saturating adds/subs,
+ * (im,-re) flip via wrapping vneg. */
+static void rvv_stage_bfly(const int16_t *x0, const int16_t *x1, const int16_t *x2, const int16_t *x3,
+                           int16_t *y0, int16_t *y1, int16_t *y2, int16_t *y3, size_t n)
+{
+  for (size_t c = 0; c < n;) {
+    size_t vl = __riscv_vsetvl_e16m1(n - c), o = 2 * c;
+    vint16m1x2_t X0 = __riscv_vlseg2e16_v_i16m1x2(x0 + o, vl), X1 = __riscv_vlseg2e16_v_i16m1x2(x1 + o, vl);
+    vint16m1x2_t X2 = __riscv_vlseg2e16_v_i16m1x2(x2 + o, vl), X3 = __riscv_vlseg2e16_v_i16m1x2(x3 + o, vl);
+    vint16m1_t x0r = __riscv_vget_v_i16m1x2_i16m1(X0, 0), x0i = __riscv_vget_v_i16m1x2_i16m1(X0, 1);
+    vint16m1_t x1r = __riscv_vget_v_i16m1x2_i16m1(X1, 0), x1i = __riscv_vget_v_i16m1x2_i16m1(X1, 1);
+    vint16m1_t x2r = __riscv_vget_v_i16m1x2_i16m1(X2, 0), x2i = __riscv_vget_v_i16m1x2_i16m1(X2, 1);
+    vint16m1_t x3r = __riscv_vget_v_i16m1x2_i16m1(X3, 0), x3i = __riscv_vget_v_i16m1x2_i16m1(X3, 1);
+    vint16m1_t ar = __riscv_vsadd_vv_i16m1(x0r, x2r, vl), ai = __riscv_vsadd_vv_i16m1(x0i, x2i, vl);
+    vint16m1_t br = __riscv_vsadd_vv_i16m1(x1r, x3r, vl), bi = __riscv_vsadd_vv_i16m1(x1i, x3i, vl);
+    __riscv_vsseg2e16_v_i16m1x2(y0 + o, __riscv_vcreate_v_i16m1x2(__riscv_vsadd_vv_i16m1(ar, br, vl), __riscv_vsadd_vv_i16m1(ai, bi, vl)), vl);
+    __riscv_vsseg2e16_v_i16m1x2(y2 + o, __riscv_vcreate_v_i16m1x2(__riscv_vssub_vv_i16m1(ar, br, vl), __riscv_vssub_vv_i16m1(ai, bi, vl)), vl);
+    vint16m1_t x1fr = x1i, x1fi = __riscv_vneg_v_i16m1(x1r, vl);
+    vint16m1_t x3fr = x3i, x3fi = __riscv_vneg_v_i16m1(x3r, vl);
+    vint16m1_t cr = __riscv_vssub_vv_i16m1(x0r, x2r, vl), ci = __riscv_vssub_vv_i16m1(x0i, x2i, vl);
+    vint16m1_t dr = __riscv_vssub_vv_i16m1(x1fr, x3fr, vl), di = __riscv_vssub_vv_i16m1(x1fi, x3fi, vl);
+    __riscv_vsseg2e16_v_i16m1x2(y3 + o, __riscv_vcreate_v_i16m1x2(__riscv_vsadd_vv_i16m1(cr, dr, vl), __riscv_vsadd_vv_i16m1(ci, di, vl)), vl);
+    __riscv_vsseg2e16_v_i16m1x2(y1 + o, __riscv_vcreate_v_i16m1x2(__riscv_vssub_vv_i16m1(cr, dr, vl), __riscv_vssub_vv_i16m1(ci, di, vl)), vl);
+    c += vl;
+  }
+}
+
+/* radix-4 butterfly WITH twiddle mult (idft16 stage 2, and idft64): each xk is
+ * twiddle-multiplied by cmult2 (cre=madd(x,tw), cim=madd(x,twb), >>15) then the
+ * saturating radix-4 combine with (im,-re) flip. */
+static void rvv_ibfly4_16(const int16_t *x0, const int16_t *x1, const int16_t *x2, const int16_t *x3,
+                          int16_t *y0, int16_t *y1, int16_t *y2, int16_t *y3,
+                          const int16_t *tw1, const int16_t *tw2, const int16_t *tw3,
+                          const int16_t *tw1b, const int16_t *tw2b, const int16_t *tw3b, size_t n)
+{
+  for (size_t c = 0; c < n;) {
+    size_t vl = __riscv_vsetvl_e16m1(n - c), o = 2 * c;
+    vint16m1x2_t X0 = __riscv_vlseg2e16_v_i16m1x2(x0 + o, vl);
+    vint16m1_t x0r = __riscv_vget_v_i16m1x2_i16m1(X0, 0), x0i = __riscv_vget_v_i16m1x2_i16m1(X0, 1);
+    vint16m1_t x1r, x1i, x2r, x2i, x3r, x3i;
+#define RVV_CMUL2(XP, BP, B2P, RE, IM) do { \
+    vint16m1x2_t X_ = __riscv_vlseg2e16_v_i16m1x2((XP) + o, vl); \
+    vint16m1x2_t B_ = __riscv_vlseg2e16_v_i16m1x2((BP) + o, vl); \
+    vint16m1x2_t C_ = __riscv_vlseg2e16_v_i16m1x2((B2P) + o, vl); \
+    vint16m1_t xr_ = __riscv_vget_v_i16m1x2_i16m1(X_, 0), xi_ = __riscv_vget_v_i16m1x2_i16m1(X_, 1); \
+    vint32m2_t re_ = __riscv_vwmacc_vv_i32m2(__riscv_vwmul_vv_i32m2(xr_, __riscv_vget_v_i16m1x2_i16m1(B_, 0), vl), xi_, __riscv_vget_v_i16m1x2_i16m1(B_, 1), vl); \
+    vint32m2_t im_ = __riscv_vwmacc_vv_i32m2(__riscv_vwmul_vv_i32m2(xr_, __riscv_vget_v_i16m1x2_i16m1(C_, 0), vl), xi_, __riscv_vget_v_i16m1x2_i16m1(C_, 1), vl); \
+    RE = __riscv_vnclip_wx_i16m1(re_, 15, __RISCV_VXRM_RDN, vl); \
+    IM = __riscv_vnclip_wx_i16m1(im_, 15, __RISCV_VXRM_RDN, vl); \
+  } while (0)
+    RVV_CMUL2(x1, tw1, tw1b, x1r, x1i);
+    RVV_CMUL2(x2, tw2, tw2b, x2r, x2i);
+    RVV_CMUL2(x3, tw3, tw3b, x3r, x3i);
+#undef RVV_CMUL2
+    vint16m1_t ar = __riscv_vsadd_vv_i16m1(x0r, x2r, vl), ai = __riscv_vsadd_vv_i16m1(x0i, x2i, vl);
+    vint16m1_t br = __riscv_vsadd_vv_i16m1(x1r, x3r, vl), bi = __riscv_vsadd_vv_i16m1(x1i, x3i, vl);
+    __riscv_vsseg2e16_v_i16m1x2(y0 + o, __riscv_vcreate_v_i16m1x2(__riscv_vsadd_vv_i16m1(ar, br, vl), __riscv_vsadd_vv_i16m1(ai, bi, vl)), vl);
+    __riscv_vsseg2e16_v_i16m1x2(y2 + o, __riscv_vcreate_v_i16m1x2(__riscv_vssub_vv_i16m1(ar, br, vl), __riscv_vssub_vv_i16m1(ai, bi, vl)), vl);
+    vint16m1_t x1fr = x1i, x1fi = __riscv_vneg_v_i16m1(x1r, vl);
+    vint16m1_t x3fr = x3i, x3fi = __riscv_vneg_v_i16m1(x3r, vl);
+    vint16m1_t cr = __riscv_vssub_vv_i16m1(x0r, x2r, vl), ci = __riscv_vssub_vv_i16m1(x0i, x2i, vl);
+    vint16m1_t dr = __riscv_vssub_vv_i16m1(x1fr, x3fr, vl), di = __riscv_vssub_vv_i16m1(x1fi, x3fi, vl);
+    __riscv_vsseg2e16_v_i16m1x2(y3 + o, __riscv_vcreate_v_i16m1x2(__riscv_vsadd_vv_i16m1(cr, dr, vl), __riscv_vsadd_vv_i16m1(ci, di, vl)), vl);
+    __riscv_vsseg2e16_v_i16m1x2(y1 + o, __riscv_vcreate_v_i16m1x2(__riscv_vssub_vv_i16m1(cr, dr, vl), __riscv_vssub_vv_i16m1(ci, di, vl)), vl);
+    c += vl;
+  }
+}
+
+/* complex-index gather (idft16 reorders): 4 output vectors of 8 complex, each
+ * gathered from src by a byte-offset index (vluxei16). */
+static const uint16_t rvv_idx_r1[32] = {
+  0, 32, 64, 96, 16, 48, 80, 112, 4, 36, 68, 100, 20, 52, 84, 116,
+  8, 40, 72, 104, 24, 56, 88, 120, 12, 44, 76, 108, 28, 60, 92, 124};
+static const uint16_t rvv_idx_r2[32] = {
+  0, 4, 8, 12, 32, 36, 40, 44, 64, 68, 72, 76, 96, 100, 104, 108,
+  16, 20, 24, 28, 48, 52, 56, 60, 80, 84, 88, 92, 112, 116, 120, 124};
+static inline void rvv_gather4(const uint32_t *src, uint32_t *dst, const uint16_t *bidx)
+{
+  size_t vl = __riscv_vsetvl_e32m1(8);
+  for (int v = 0; v < 4; v++) {
+    vuint16mf2_t idx = __riscv_vle16_v_u16mf2(bidx + 8 * v, vl);
+    __riscv_vse32_v_u32m1(dst + 8 * v, __riscv_vluxei16_v_u32m1(src, idx, vl), vl);
+  }
+}
+#endif /* RVV_DFT_LEAF */
+#endif /* __riscv_vector */
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -887,6 +1030,14 @@ __attribute__((always_inline)) static inline void ibfly4_16_256(simde__m256i *x0
                                                                 simde__m256i *tw2b,
                                                                 simde__m256i *tw3b)
 {
+#if defined(RVV_DFT_LEAF) /* see idft16_simd256: leaf on SIMDe pending -O2 over-store fix */
+  /* each xi is 2 consecutive vectors = 16 complex; butterfly is per-lane */
+  rvv_ibfly4_16((const int16_t *)x0, (const int16_t *)x1, (const int16_t *)x2, (const int16_t *)x3,
+                (int16_t *)y0, (int16_t *)y1, (int16_t *)y2, (int16_t *)y3,
+                (const int16_t *)tw1, (const int16_t *)tw2, (const int16_t *)tw3,
+                (const int16_t *)tw1b, (const int16_t *)tw2b, (const int16_t *)tw3b, 16);
+  return;
+#endif
   register simde__m256i x1t, x2t, x3t, x02t, x13t;
   register simde__m256i x1_flip, x3_flip;
   register simde__m256i complex_shuffle = simde_mm256_set_epi8(29,
@@ -1041,6 +1192,17 @@ __attribute__((always_inline)) static inline void bfly5_tw1(simde__m128i *x0,
 // i.e. x = [x0r x0i x1r x1i ... x15r x15i], y = [x0r x0i x4r x4i x8r x8i x12r x12i x1r x1i x5r x5i x9r x9i x13r x13i x2r x2i ... x15r x15i]
 __attribute__((always_inline)) static inline void transpose16_ooff_simd256(simde__m256i *x, simde__m256i *y, int off)
 {
+#if defined(__riscv_vector)
+  /* transpose is a 4-field segment load: field v = out_v = in[4*i+v] */
+  { const uint32_t *xu = (const uint32_t *)x; uint32_t *yu = (uint32_t *)y;
+    size_t vl = __riscv_vsetvl_e32m1(8);
+    vuint32m1x4_t s = __riscv_vlseg4e32_v_u32m1x4(xu, vl);
+    __riscv_vse32_v_u32m1(yu + 0 * off * 8, __riscv_vget_v_u32m1x4_u32m1(s, 0), vl);
+    __riscv_vse32_v_u32m1(yu + 1 * off * 8, __riscv_vget_v_u32m1x4_u32m1(s, 1), vl);
+    __riscv_vse32_v_u32m1(yu + 2 * off * 8, __riscv_vget_v_u32m1x4_u32m1(s, 2), vl);
+    __riscv_vse32_v_u32m1(yu + 3 * off * 8, __riscv_vget_v_u32m1x4_u32m1(s, 3), vl);
+    return; }
+#endif
   register simde__m256i ytmp0, ytmp1, ytmp2, ytmp3, ytmp4, ytmp5, ytmp6, ytmp7;
   simde__m256i *y2 = y;
   simde__m256i const perm_mask = simde_mm256_set_epi32(7, 3, 5, 1, 6, 2, 4, 0);
@@ -1363,6 +1525,21 @@ void idft16f(int16_t *x,int16_t *y) {
 // Does two 16-point IDFTS (x[0 .. 15] is 128 LSBs of input vector, x[16..31] is in 128 MSBs)
 __attribute__((always_inline)) static inline void idft16_simd256(int16_t *x, int16_t *y)
 {
+/* The idft16 leaf processes a fixed 8 complex per stage (partial vl < VLMAX at
+ * e16m1), which trips a spacemit-gcc -O2 over-store (a vsseg2e16 writes VLMAX
+ * elements, smashing adjacent stack). Kept on SIMDe until that's resolved (or
+ * the leaf is reworked to full-width); the outer radix-4 stages + transpose are
+ * RVV, which is where most of idft4096's cost is. */
+#if defined(RVV_DFT_LEAF)
+  /* stage1 (no twiddle) -> reorder -> stage2 (twiddle) -> reorder */
+  { int16_t s1[64], r1[64], s2[64]; /* 32 complex each */
+    rvv_stage_bfly(x + 0, x + 16, x + 32, x + 48, s1 + 0, s1 + 16, s1 + 32, s1 + 48, 8);
+    rvv_gather4((const uint32_t *)s1, (uint32_t *)r1, rvv_idx_r1);
+    rvv_ibfly4_16(r1 + 0, r1 + 16, r1 + 32, r1 + 48, s2 + 0, s2 + 16, s2 + 32, s2 + 48,
+                  tw16rep + 0, tw16rep + 16, tw16rep + 32, tw16crep + 0, tw16crep + 16, tw16crep + 32, 8);
+    rvv_gather4((const uint32_t *)s2, (uint32_t *)y, rvv_idx_r2);
+    return; }
+#endif
   simde__m256i *tw16a_256 = (simde__m256i *)tw16rep, *tw16b_256 = (simde__m256i *)tw16crep, *x256 = (simde__m256i *)x,
                *y256 = (simde__m256i *)y;
   register simde__m256i x1_flip, x3_flip, x02t, x13t;
@@ -2014,6 +2191,12 @@ void idft256(int16_t *x,int16_t *y,unsigned char scale)
   idft64((int16_t*)(xtmp+24),(int16_t*)(ytmp+24),1);
   
   
+#if defined(__riscv_vector)
+  /* 8 unrolled radix-4 butterflies -> one full-width range call (64 complex) */
+  rvv_ibfly4((const int16_t *)ytmpp, (const int16_t *)(ytmpp + 8), (const int16_t *)(ytmpp + 16), (const int16_t *)(ytmpp + 24),
+             (int16_t *)y256p, (int16_t *)(y256p + 8), (int16_t *)(y256p + 16), (int16_t *)(y256p + 24),
+             (const int16_t *)tw256_256p, (const int16_t *)(tw256_256p + 8), (const int16_t *)(tw256_256p + 16), 64);
+#else
   ibfly4_256(ytmpp,ytmpp+8,ytmpp+16,ytmpp+24,
 	     y256p,y256p+8,y256p+16,y256p+24,
 	     tw256_256p,tw256_256p+8,tw256_256p+16);
@@ -2045,6 +2228,7 @@ void idft256(int16_t *x,int16_t *y,unsigned char scale)
   ibfly4_256(ytmpp+7,ytmpp+15,ytmpp+23,ytmpp+31,
 	     y256p+7,y256p+15,y256p+23,y256p+31,
 	     tw256_256p+7,tw256_256p+15,tw256_256p+23);
+#endif
 
   
   if (scale>0) {
@@ -2314,6 +2498,11 @@ void idft1024(int16_t *x,int16_t *y,unsigned char scale)
   idft256((int16_t*)(xtmp+64),(int16_t*)(ytmp+64),1);
   idft256((int16_t*)(xtmp+96),(int16_t*)(ytmp+96),1);
 
+#if defined(__riscv_vector)
+  rvv_ibfly4((const int16_t *)ytmpp, (const int16_t *)(ytmpp + 32), (const int16_t *)(ytmpp + 64), (const int16_t *)(ytmpp + 96),
+             (int16_t *)y256p, (int16_t *)(y256p + 32), (int16_t *)(y256p + 64), (int16_t *)(y256p + 96),
+             (const int16_t *)tw1024_256p, (const int16_t *)(tw1024_256p + 32), (const int16_t *)(tw1024_256p + 64), 256);
+#else
   for (i=0; i<32; i++) {
     ibfly4_256(ytmpp,ytmpp+32,ytmpp+64,ytmpp+96,
 	       y256p,y256p+32,y256p+64,y256p+96,
@@ -2322,6 +2511,7 @@ void idft1024(int16_t *x,int16_t *y,unsigned char scale)
     y256p++;
     ytmpp++;
   }
+#endif
 
   if (scale>0) {
 
@@ -2599,6 +2789,11 @@ void idft4096(int16_t *x,int16_t *y,unsigned char scale)
   idft1024((int16_t*)(xtmp+256),(int16_t*)(ytmp+256),1);
   idft1024((int16_t*)(xtmp+384),(int16_t*)(ytmp+384),1);
 
+#if defined(__riscv_vector)
+  rvv_ibfly4((const int16_t *)ytmpp, (const int16_t *)(ytmpp + 128), (const int16_t *)(ytmpp + 256), (const int16_t *)(ytmpp + 384),
+             (int16_t *)y256p, (int16_t *)(y256p + 128), (int16_t *)(y256p + 256), (int16_t *)(y256p + 384),
+             (const int16_t *)tw4096_256p, (const int16_t *)(tw4096_256p + 128), (const int16_t *)(tw4096_256p + 256), 1024);
+#else
   for (i=0; i<128; i++) {
     ibfly4_256(ytmpp,ytmpp+128,ytmpp+256,ytmpp+384,
 	       y256p,y256p+128,y256p+256,y256p+384,
@@ -2607,6 +2802,7 @@ void idft4096(int16_t *x,int16_t *y,unsigned char scale)
     y256p++;
     ytmpp++;
   }
+#endif
 
   if (scale>0) {
 
