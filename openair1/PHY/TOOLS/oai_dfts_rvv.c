@@ -187,10 +187,39 @@ static void stk_build(stk_plan_t *pl, int N, int N1, int N2)
       }
   }
 }
+/* radix-2 sizes N = 2*M (M a pow-4 size handled by the 4-step). One radix-2 DIF
+ * stage wraps stk_run on M=N/2. r2tw[dir][scaled] = W_N^{s*n} over [M], pre-scaled
+ * by 1/sqrt2 in the scaled variant (so the b-branch cmul yields the 1/sqrt2 that,
+ * with the inner 4-step's 1/sqrt(M), gives 1/sqrt(N)). dir 0 inverse, 1 forward. */
+#define STK_MAXM 4096       /* largest inner 4-step size (N=8192 -> M=4096) */
+#define STK_SQRT2INV 23170  /* round(32768/sqrt2) = ONE_OVER_SQRT2_Q15 */
+static const struct { int N; } stk_r2cfg[] = {{128}, {512}, {2048}, {8192}};
+enum { STK_NR2 = sizeof(stk_r2cfg) / sizeof(stk_r2cfg[0]) };
+typedef struct { int N, M; int16_t *r2tw[2][2]; } stk_r2plan_t;
+static stk_r2plan_t stk_r2plans[STK_NR2];
+
+static void stk_build_r2(stk_r2plan_t *pl, int N)
+{
+  int M = N / 2;
+  pl->N = N;
+  pl->M = M;
+  for (int dir = 0; dir < 2; dir++)
+    for (int sc = 0; sc < 2; sc++) {
+      pl->r2tw[dir][sc] = (int16_t *)malloc(sizeof(int16_t) * 2 * M);
+      double mag = sc ? (double)STK_SQRT2INV : 32767.0;
+      for (int n = 0; n < M; n++) {
+        double ang = (double)(dir ? -1 : 1) * 2.0 * M_PI * (double)n / (double)N;
+        pl->r2tw[dir][sc][2 * n] = stk_sat16((int32_t)lround(cos(ang) * mag));
+        pl->r2tw[dir][sc][2 * n + 1] = stk_sat16((int32_t)lround(sin(ang) * mag));
+      }
+    }
+}
 __attribute__((constructor)) static void stk_init(void)
 {
   for (int i = 0; i < STK_NPLAN; i++)
     stk_build(&stk_plans[i], stk_cfg[i].N, stk_cfg[i].N1, stk_cfg[i].N2);
+  for (int i = 0; i < STK_NR2; i++)
+    stk_build_r2(&stk_r2plans[i], stk_r2cfg[i].N);
 }
 static const stk_plan_t *stk_get(int N)
 {
@@ -315,6 +344,63 @@ static void stk_run(int N, const int16_t *in16, int16_t *out16, int scale, int f
   stk_transpose(r, T, N1, N2);                               /* [N1][N2] -> [N2][N1] */
   r = stk_subfft(pl, dir, 1, s, sh, T, A, N2, N1);           /* pass D: size-N2 FFTs, batched over N1 */
   memcpy(out16, r, sizeof(int16_t) * 2 * N);
+}
+static const stk_r2plan_t *stk_get_r2(int N)
+{
+  for (int i = 0; i < STK_NR2; i++)
+    if (stk_r2plans[i].N == N)
+      return &stk_r2plans[i];
+  return 0;
+}
+/* radix-2 (N = 2*M) transform: one DIF butterfly (unit-stride over M points) into
+ * a[n]=(x[n]+x[n+M])[*1/sqrt2], b[n]=(x[n]-x[n+M])*W_N^{s*n}[*1/sqrt2]; the inner
+ * 4-step on each half; then a stride-2 interleave store (out[2r]=A[r],out[2r+1]=B[r]).
+ * Scratch is per-call (stack) -- reentrant like stk_run. */
+static void stk_run2(int N, const int16_t *in16, int16_t *out16, int scale, int fwd)
+{
+  const stk_r2plan_t *pl = stk_get_r2(N);
+  int M = pl->M;
+  const int16_t *tw = pl->r2tw[fwd ? 1 : 0][scale ? 1 : 0];
+  int16_t a[2 * STK_MAXM] __attribute__((aligned(32)));
+  int16_t b[2 * STK_MAXM] __attribute__((aligned(32)));
+  int16_t Ao[2 * STK_MAXM] __attribute__((aligned(32)));
+  int16_t Bo[2 * STK_MAXM] __attribute__((aligned(32)));
+  for (int n = 0; n < M;) {
+    size_t vl = __riscv_vsetvl_e16mf2(M - n);
+    int o = 2 * n;
+    vint16mf2x2_t Xl = __riscv_vlseg2e16_v_i16mf2x2(in16 + o, vl);
+    vint16mf2x2_t Xh = __riscv_vlseg2e16_v_i16mf2x2(in16 + 2 * M + o, vl);
+    vint16mf2_t lr = __riscv_vget_v_i16mf2x2_i16mf2(Xl, 0), li = __riscv_vget_v_i16mf2x2_i16mf2(Xl, 1);
+    vint16mf2_t hr = __riscv_vget_v_i16mf2x2_i16mf2(Xh, 0), hi = __riscv_vget_v_i16mf2x2_i16mf2(Xh, 1);
+    vint16mf2_t sr = __riscv_vsadd_vv_i16mf2(lr, hr, vl), si = __riscv_vsadd_vv_i16mf2(li, hi, vl);
+    vint16mf2_t dr = __riscv_vssub_vv_i16mf2(lr, hr, vl), di = __riscv_vssub_vv_i16mf2(li, hi, vl);
+    vint16mf2_t ar, ai;
+    if (scale) {
+      ar = __riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(sr, STK_SQRT2INV, vl), 15, __RISCV_VXRM_RDN, vl);
+      ai = __riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(si, STK_SQRT2INV, vl), 15, __RISCV_VXRM_RDN, vl);
+    } else {
+      ar = sr;
+      ai = si;
+    }
+    __riscv_vsseg2e16_v_i16mf2x2(a + o, __riscv_vcreate_v_i16mf2x2(ar, ai), vl);
+    vint16mf2x2_t W = __riscv_vlseg2e16_v_i16mf2x2(tw + o, vl);
+    vint16mf2_t wr = __riscv_vget_v_i16mf2x2_i16mf2(W, 0), wi = __riscv_vget_v_i16mf2x2_i16mf2(W, 1);
+    vint32m1_t bre = __riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(dr, wr, vl), __riscv_vwmul_vv_i32m1(di, wi, vl), vl);
+    vint32m1_t bim = __riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(dr, wi, vl), __riscv_vwmul_vv_i32m1(di, wr, vl), vl);
+    __riscv_vsseg2e16_v_i16mf2x2(b + o, __riscv_vcreate_v_i16mf2x2(
+        __riscv_vnclip_wx_i16mf2(bre, 15, __RISCV_VXRM_RDN, vl), __riscv_vnclip_wx_i16mf2(bim, 15, __RISCV_VXRM_RDN, vl)), vl);
+    n += (int)vl;
+  }
+  stk_run(M, a, Ao, scale, fwd);
+  stk_run(M, b, Bo, scale, fwd);
+  uint32_t *dst = (uint32_t *)out16;
+  const uint32_t *sA = (const uint32_t *)Ao, *sB = (const uint32_t *)Bo;
+  for (int r = 0; r < M;) {
+    size_t vl = __riscv_vsetvl_e32m1(M - r);
+    __riscv_vsse32_v_u32m1(dst + 2 * r, 8, __riscv_vle32_v_u32m1(sA + r, vl), vl);
+    __riscv_vsse32_v_u32m1(dst + 2 * r + 1, 8, __riscv_vle32_v_u32m1(sB + r, vl), vl);
+    r += (int)vl;
+  }
 }
 #endif /* __riscv_vector */
 
@@ -2093,6 +2179,9 @@ static const int16_t tw128b[128] __attribute__((aligned(32))) = {0,32767,-1608,3
 
 void dft128(int16_t *x,int16_t *y,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run2(128, x, y, scale, 1); return;
+#endif
 
   simd256_q15_t xtmp[16],*x256 = (simd256_q15_t *)x;
   simd256_q15_t ytmp[16],*y256=(simd256_q15_t*)y;
@@ -2164,6 +2253,9 @@ void dft128(int16_t *x,int16_t *y,unsigned char scale)
 
 void idft128(int16_t *x,int16_t *y,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run2(128, x, y, scale, 0); return;
+#endif
 
   simd256_q15_t xtmp[16],*x256 = (simd256_q15_t *)x;
   simd256_q15_t ytmp[16],*y256=(simd256_q15_t*)y;
@@ -2414,6 +2506,9 @@ static const int16_t tw512[512] __attribute__((aligned(32))) = {
 
 void dft512(int16_t *x,int16_t *y,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run2(512, x, y, scale, 1); return;
+#endif
 
   simd256_q15_t xtmp[64],*x256 = (simd256_q15_t *)x;
   simd256_q15_t ytmp[64],*y256=(simd256_q15_t*)y;
@@ -2496,6 +2591,9 @@ void dft512(int16_t *x,int16_t *y,unsigned char scale)
 
 void idft512(int16_t *x,int16_t *y,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run2(512, x, y, scale, 0); return;
+#endif
 
   simd256_q15_t xtmp[64],*x256 = (simd256_q15_t *)x;
   simd256_q15_t ytmp[64],*y256=(simd256_q15_t*)y;
@@ -2693,6 +2791,9 @@ int16_t tw2048[2048] __attribute__((aligned(32)));
 
 void dft2048(int16_t *x,int16_t *y,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run2(2048, x, y, scale, 1); return;
+#endif
 
   simd256_q15_t xtmp[256],*xtmpp,*x256 = (simd256_q15_t *)x;
   simd256_q15_t ytmp[256],*tw2048_256p=(simd256_q15_t *)tw2048,*y256=(simd256_q15_t *)y,*y256p=(simd256_q15_t *)y;
@@ -2781,6 +2882,9 @@ void dft2048(int16_t *x,int16_t *y,unsigned char scale)
 
 void idft2048(int16_t *x,int16_t *y,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run2(2048, x, y, scale, 0); return;
+#endif
 
   simd256_q15_t xtmp[256],*xtmpp,*x256 = (simd256_q15_t *)x;
   simd256_q15_t ytmp[256],*tw2048_256p=(simd256_q15_t *)tw2048,*y256=(simd256_q15_t *)y,*y256p=(simd256_q15_t *)y;
@@ -2983,6 +3087,9 @@ int16_t tw8192[2*4096] __attribute__((aligned(32)));
 
 void dft8192(int16_t *x,int16_t *y,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run2(8192, x, y, scale, 1); return;
+#endif
 
   simd256_q15_t xtmp[1024],*xtmpp,*x256 = (simd256_q15_t *)x;
   simd256_q15_t ytmp[1024],*tw8192_256p=(simd256_q15_t *)tw8192,*y256=(simd256_q15_t *)y,*y256p=(simd256_q15_t *)y;
@@ -3071,6 +3178,9 @@ void dft8192(int16_t *x,int16_t *y,unsigned char scale)
 
 void idft8192(int16_t *x,int16_t *y,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run2(8192, x, y, scale, 0); return;
+#endif
 
   simd256_q15_t xtmp[1024],*xtmpp,*x256 = (simd256_q15_t *)x;
   simd256_q15_t ytmp[1024],*tw8192_256p=(simd256_q15_t *)tw8192,*y256=(simd256_q15_t *)y,*y256p=(simd256_q15_t *)y;
