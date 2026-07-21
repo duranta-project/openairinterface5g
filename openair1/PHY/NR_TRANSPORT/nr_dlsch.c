@@ -18,6 +18,7 @@
 #include "executables/softmodem-common.h"
 #include "SCHED_NR/sched_nr.h"
 
+#include "utils.h"
 #include <simde/x86/avx512.h>
 #define USE128BIT
 
@@ -334,7 +335,7 @@ static inline void do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
   /* calculate if current symbol is PTRS symbols */
   int ptrs_symbol = 0;
   if (rel15->pduBitmap & 0x1) {
-    ptrs_symbol = is_ptrs_symbol(l_symbol, dlPtrsSymPos);
+    ptrs_symbol = IS_BIT_SET(dlPtrsSymPos, l_symbol);
   }
 
   if (ptrs_symbol) {
@@ -767,7 +768,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
     for (int s = l_symbol; s < l_symbol + rdata->numSymbols; s++) {
       rdata->re_beginning_of_symbol[s] = re_beginning_of_symbol;
       re_beginning_of_symbol += freq_alloc->num_rbs * NR_NB_SC_PER_RB;
-      if (n_ptrs > 0 && is_ptrs_symbol(s, dlPtrsSymPos)) {
+      if (n_ptrs > 0 && IS_BIT_SET(dlPtrsSymPos, s)) {
         re_beginning_of_symbol -= n_ptrs;
       } else if (rel15->dlDmrsSymbPos & (1 << s)) {
         re_beginning_of_symbol -= n_dmrs;

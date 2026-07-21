@@ -5,6 +5,7 @@
 /*!
  * \brief Top-level routines for transmission of the PUSCH TS 38.211 v 15.4.0
  */
+#include "utils.h"
 #include <stdint.h>
 #include "PHY/NR_REFSIG/dmrs_nr.h"
 #include "PHY/NR_REFSIG/ptrs_nr.h"
@@ -429,8 +430,8 @@ static void map_symbols(const nr_phy_pxsch_params_t p,
   const c16_t *cur_data = data;
   uint8_t dmrs_symb_idx = 0;
   for (int l = p.start_symbol; l < p.start_symbol + p.num_symbols; l++) {
-    const bool dmrs_symbol = is_dmrs_symbol(l, p.dmrs_symb_pos);
-    const bool ptrs_symbol = is_ptrs_symbol(l, p.ptrs_symb_pos);
+    const bool dmrs_symbol = IS_BIT_SET(p.dmrs_symb_pos, l);
+    const bool ptrs_symbol = IS_BIT_SET(p.ptrs_symb_pos, l);
     c16_t mod_dmrs_amp[ALNARS_16_4(n_dmrs)] __attribute((aligned(16)));
     c16_t mod_ptrs_amp[ALNARS_16_4(p.nb_rb)] __attribute((aligned(16)));
     const uint32_t *gold = NULL;
@@ -727,7 +728,7 @@ static void get_first_uci_symbol(const uint8_t start_symbol,
   // First non-DMRS symbol
   const uint16_t last_sym = start_symbol + num_symbols;
   for (uint_fast8_t s = start_symbol; s < last_sym; s++) {
-    if (!is_dmrs_symbol(s, dmrs_map)) {
+    if (!IS_BIT_SET(dmrs_map, s)) {
       *first_non_dmrs_sym = s;
       break;
     }
@@ -736,7 +737,7 @@ static void get_first_uci_symbol(const uint8_t start_symbol,
   // Symbol after first consequtive DMRS symbol
   const int first_dmrs_sym = get_next_dmrs_symbol_in_slot(dmrs_map, start_symbol, last_sym);
   *after_dmrs_symb = first_dmrs_sym + 1;
-  while (is_dmrs_symbol(*after_dmrs_symb, dmrs_map) && *after_dmrs_symb < last_sym) {
+  while (IS_BIT_SET(dmrs_map, *after_dmrs_symb) && *after_dmrs_symb < last_sym) {
     (*after_dmrs_symb)++;
   }
 

@@ -30,6 +30,8 @@
  * @param rxComp          Output compensated signal; row [l * nb_rx_ant] holds the MRC result
  *                        for layer l at offset [symbol * buffer_length]
  * @param rho             Tx-correlation matrix [nb_layers][nb_layers][pdsch_buf_size_max], or NULL
+ * @param cpe             Common Phase Error to be corrected.
+ * @param rho             Tx-correlation matrix [nb_layers][nb_layers][buffer_length], or NULL
  * @param mod_order       Modulation order (2=QPSK, 4=16QAM, 6=64QAM, 8=256QAM)
  * @param symbol          OFDM symbol index (used to compute offset into rxComp rows)
  * @param output_shift    Right-shift applied after each complex multiply
@@ -45,6 +47,7 @@ void nr_channel_compensation(uint32_t buffer_length,
                              c16_t ch_magc[nb_layers][pdsch_buf_size_max],
                              c16_t **rxComp,
                              c16_t (*rho)[nb_layers][pdsch_buf_size_max],
+                             c16_t cpe,
                              int mod_order,
                              uint32_t symbol,
                              uint32_t output_shift);

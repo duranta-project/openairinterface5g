@@ -111,10 +111,6 @@ typedef struct {
   uint8_t max_ldpc_iterations;
   /// number of iterations used in last turbo decoding
   int8_t last_iteration_cnt;
-  /// bit mask of PT-RS ofdm symbol indicies
-  uint16_t ptrs_symbols;
-  // PTRS symbol index, to be updated every PTRS symbol within a slot.
-  uint8_t ptrs_symbol_index;
 } NR_UE_DLSCH_t;
 
 typedef struct {
