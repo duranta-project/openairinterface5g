@@ -1526,7 +1526,9 @@ static uint8_t pack_tx_data_pdu_list_value(void *tlv, uint8_t **ppWritePackedMsg
     return 0;
 
   for (int i = 0; i < value->num_TLV; ++i) {
-    if (!push16(value->TLVs[i].tag, ppWritePackedMsg, end))
+    uint16_t tag = value->TLVs[i].tag == 2 ? 2 : 0;
+    // preserve tag == 2 for nvidia, for direct/ptr, convert to pointer
+    if (!push16(tag, ppWritePackedMsg, end))
       return 0;
 #ifdef ENABLE_AERIAL
     if (!push16(value->TLVs[i].length, ppWritePackedMsg, end))
@@ -1608,22 +1610,18 @@ static uint8_t unpack_tx_data_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t 
       return 0;
     const uint32_t byte_len = (pNfapiMsg->TLVs[i].length + 3) / 4;
     if (pNfapiMsg->TLVs[i].tag == 1) {
-      pNfapiMsg->TLVs[i].value.ptr = calloc(byte_len, sizeof(uint32_t));
+      pNfapiMsg->TLVs[i].tag = 0;
     }
     switch (pNfapiMsg->TLVs[i].tag) {
-      case 0: {
+      case 0:
+      case 1: {
+        // always pull into direct, which simply avoids one (possibly big)
+        // malloc
         if (!pullarray32(ppReadPackedMsg,
                          pNfapiMsg->TLVs[i].value.direct,
                          sizeof(pNfapiMsg->TLVs[i].value.direct) / sizeof(uint32_t),
                          byte_len,
                          end))
-          return 0;
-
-        break;
-      }
-
-      case 1: {
-        if (!pullarray32(ppReadPackedMsg, pNfapiMsg->TLVs[i].value.ptr, byte_len, byte_len, end))
           return 0;
 
         break;

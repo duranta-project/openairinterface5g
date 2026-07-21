@@ -530,24 +530,14 @@ bool eq_tx_data_request_PDU(const nfapi_nr_pdu_t *a, const nfapi_nr_pdu_t *b)
   for (int tlv_idx = 0; tlv_idx < a->num_TLV; ++tlv_idx) {
     const nfapi_nr_tx_data_request_tlv_t *a_tlv = &a->TLVs[tlv_idx];
     const nfapi_nr_tx_data_request_tlv_t *b_tlv = &b->TLVs[tlv_idx];
-    EQ(a_tlv->tag, b_tlv->tag);
     EQ(a_tlv->length, b_tlv->length);
-    switch (a_tlv->tag) {
-      case 0:
-        for (int payload_idx = 0; payload_idx < (a_tlv->length + 3) / 4; ++payload_idx) {
-          // value.direct
-          EQ(a_tlv->value.direct[payload_idx], b_tlv->value.direct[payload_idx]);
-        }
-        break;
-      case 1:
-        for (int payload_idx = 0; payload_idx < (a_tlv->length + 3) / 4; ++payload_idx) {
-          // value.ptr
-          EQ(a_tlv->value.ptr[payload_idx], b_tlv->value.ptr[payload_idx]);
-        }
-        break;
-      default:
-        break;
-    }
+    // it does not matter which tag messages have, the payload must be the same
+    EQ(a_tlv->tag == 0 || a_tlv->tag == 1, true);
+    const uint32_t *abuf = a_tlv->tag == 0 ? a_tlv->value.direct : a_tlv->value.ptr;
+    EQ(b_tlv->tag == 0 || b_tlv->tag == 1, true);
+    const uint32_t *bbuf = b_tlv->tag == 0 ? b_tlv->value.direct : b_tlv->value.ptr;
+    int ret = memcmp(abuf, bbuf, (a_tlv->length + 3) / 4);
+    EQ(ret, 0);
   }
   return true;
 }
@@ -1492,9 +1482,10 @@ void copy_tx_data_request_PDU(const nfapi_nr_pdu_t *src, nfapi_nr_pdu_t *dst)
         memcpy(dst_tlv->value.direct, src_tlv->value.direct, sizeof(src_tlv->value.direct));
         break;
       case 1:
-        // value.ptr
-        dst_tlv->value.ptr = calloc((src_tlv->length + 3) / 4, sizeof(uint32_t));
-        memcpy(dst_tlv->value.ptr, src_tlv->value.ptr, src_tlv->length);
+        // value.ptr: instead of allocating a new pointer, we avoid overhead
+        // and copy into direct
+        memcpy(dst_tlv->value.direct, src_tlv->value.ptr, src_tlv->length);
+        dst_tlv->tag = 0;
         break;
       default:
         AssertFatal(1 == 0, "TX_DATA request TLV tag value unsupported");

@@ -1642,6 +1642,7 @@ static void nr_generate_Msg2(module_id_t module_idP,
 
   tx_req->PDU_index = pduindex;
   tx_req->num_TLV = 1;
+  tx_req->TLVs[0].tag = 0;
   tx_req->TLVs[0].length = TBS;
   tx_req->PDU_length = compute_PDU_length(tx_req->num_TLV, TBS);
   TX_req->SFN = frameP;
@@ -1932,6 +1933,7 @@ static void nr_generate_Msg4_MsgB(module_id_t module_idP,
     // DL TX request
     nfapi_nr_pdu_t *tx_req = &TX_req->pdu_list[TX_req->Number_of_PDUs];
     memcpy(tx_req->TLVs[0].value.direct, harq->transportBlock.buf, sizeof(uint8_t) * harq->tb_size);
+    tx_req->TLVs[0].tag = 0;
     tx_req->PDU_index = pduindex;
     tx_req->num_TLV = 1;
     tx_req->TLVs[0].length =  harq->tb_size;

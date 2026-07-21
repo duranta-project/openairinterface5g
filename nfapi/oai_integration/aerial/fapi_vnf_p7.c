@@ -139,18 +139,19 @@ static int32_t aerial_pack_tx_data_request(void *pMessageBuf,
     // assuming there is only 1 TLV present
     value->PDU_length = value->TLVs[0].length;
     for (uint32_t k = 0; k < value->num_TLV; ++k) {
+      uint32_t *buf = value->TLVs[k].tag == 0 ? value->TLVs[k].value.direct : value->TLVs[k].value.ptr;
       // Ensure tag is 2
       value->TLVs[k].tag = 2;
       uint32_t num_values_to_push = ((value->TLVs[k].length + 3) / 4);
       if (value->TLVs[k].length > 0) {
         if (value->TLVs[k].length % 4 != 0) {
-          if (!pusharray32(value->TLVs[k].value.direct, dataBufLen32, num_values_to_push - 1, ppWriteData, data_end)) {
+          if (!pusharray32(buf, dataBufLen32, num_values_to_push - 1, ppWriteData, data_end)) {
             return 0;
           }
           int bytesToAdd = 4 - (4 - (value->TLVs[k].length % 4)) % 4;
           if (bytesToAdd != 4) {
             for (int j = 0; j < bytesToAdd; j++) {
-              uint8_t toPush = (uint8_t)(value->TLVs[k].value.direct[num_values_to_push - 1] >> (j * 8));
+              uint8_t toPush = (uint8_t)(buf[num_values_to_push - 1] >> (j * 8));
               if (!push8(toPush, ppWriteData, data_end)) {
                 return 0;
               }
@@ -158,7 +159,7 @@ static int32_t aerial_pack_tx_data_request(void *pMessageBuf,
           }
         } else {
           // no padding needed
-          if (!pusharray32(value->TLVs[k].value.direct, dataBufLen32, num_values_to_push, ppWriteData, data_end)) {
+          if (!pusharray32(buf, dataBufLen32, num_values_to_push, ppWriteData, data_end)) {
             return 0;
           }
         }
