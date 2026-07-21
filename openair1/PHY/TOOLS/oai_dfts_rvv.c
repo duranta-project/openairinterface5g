@@ -136,46 +136,61 @@ static inline void rvv_gather4(const uint32_t *src, uint32_t *dst, const uint16_
 static inline int16_t stk_sat16(int32_t v) { return v > 32767 ? 32767 : (v < -32768 ? -32768 : (int16_t)v); }
 
 #define STK_MAXN 4096
-#define STK_MAXPASS 6 /* log4(4096) */
+#define STK_MAXST 3  /* log4(64) sub-FFT stages */
+#define STK_MAXBF 16 /* 64/4 butterflies per sub-FFT stage */
+/* 4-step (Bailey) plan: N = N1*N2 (pow-4 factors, so sub-FFTs are pure radix-4).
+ * subtw[dir][which][stage][bf] = the 3 radix-4 twiddles (interleaved re,im) of
+ * the size-(N1|N2) sub-FFT; btw[dir] = the [N] inter-pass (step-B) twiddles.
+ * dir 0 = inverse (sign +1), dir 1 = forward (sign -1); the sign is folded into
+ * every twiddle and into the radix-4 +/-j flip. Read-only after stk_init. */
 typedef struct {
-  int N, np, L[STK_MAXPASS];
-  uint32_t *baseByte[STK_MAXPASS]; /* byte offset of complex (k*L+j) per butterfly */
-  int16_t *tw[STK_MAXPASS][3][2];  /* Q15 twiddles (re,im); [m-1][dir], dir 0=inverse(+sin) 1=forward(-sin) */
+  int N, N1, N2, np[2]; /* np[which] = log4(N1|N2); which 0 = pass A (size N1), 1 = pass D (size N2) */
+  int16_t subtw[2][2][STK_MAXST][STK_MAXBF][6];
+  int16_t *btw[2];
 } stk_plan_t;
 
-static const int stk_sizes[] = {64, 256, 1024, 4096};
-enum { STK_NPLAN = sizeof(stk_sizes) / sizeof(stk_sizes[0]) };
+static const struct { int N, N1, N2; } stk_cfg[] = {{64, 4, 16}, {256, 16, 16}, {1024, 16, 64}, {4096, 64, 64}};
+enum { STK_NPLAN = sizeof(stk_cfg) / sizeof(stk_cfg[0]) };
 static stk_plan_t stk_plans[STK_NPLAN];
 
-static void stk_build(stk_plan_t *pl, int N)
+static void stk_build_sub(stk_plan_t *pl, int which, int M)
 {
-  int Nq = N / 4;
-  pl->N = N;
-  pl->np = 0;
-  for (int L = N; L >= 4; L /= 4) {
-    int p = pl->np++, Lq = L / 4;
-    pl->L[p] = L;
-    pl->baseByte[p] = (uint32_t *)malloc(sizeof(uint32_t) * Nq);
-    for (int m = 0; m < 3; m++)
-      for (int d = 0; d < 2; d++)
-        pl->tw[p][m][d] = (int16_t *)malloc(sizeof(int16_t) * 2 * Nq);
-    for (int bf = 0; bf < Nq; bf++) {
-      int k = bf / Lq, j = bf % Lq;
-      pl->baseByte[p][bf] = (uint32_t)(4 * (k * L + j));
-      for (int m = 1; m <= 3; m++) {
-        double ang = 2.0 * M_PI * (double)(m * j) / (double)L;
-        int16_t cr = stk_sat16((int32_t)lround(cos(ang) * 32767.0));
-        int16_t sr = stk_sat16((int32_t)lround(sin(ang) * 32767.0));
-        pl->tw[p][m - 1][0][2 * bf] = cr;  pl->tw[p][m - 1][0][2 * bf + 1] = sr;   /* inverse: +sin */
-        pl->tw[p][m - 1][1][2 * bf] = cr;  pl->tw[p][m - 1][1][2 * bf + 1] = -sr;  /* forward: -sin */
-      }
+  int np = 0;
+  for (int L = M; L >= 4; L /= 4) {
+    int Lq = L / 4, st = np++;
+    for (int bf = 0; bf < M / 4; bf++) {
+      int j = bf % Lq;
+      for (int m = 1; m <= 3; m++)
+        for (int dir = 0; dir < 2; dir++) {
+          double ang = (double)(dir ? -1 : 1) * 2.0 * M_PI * (double)(m * j) / (double)L;
+          pl->subtw[dir][which][st][bf][2 * (m - 1)] = stk_sat16((int32_t)lround(cos(ang) * 32767.0));
+          pl->subtw[dir][which][st][bf][2 * (m - 1) + 1] = stk_sat16((int32_t)lround(sin(ang) * 32767.0));
+        }
     }
+  }
+  pl->np[which] = np;
+}
+static void stk_build(stk_plan_t *pl, int N, int N1, int N2)
+{
+  pl->N = N;
+  pl->N1 = N1;
+  pl->N2 = N2;
+  stk_build_sub(pl, 0, N1);
+  stk_build_sub(pl, 1, N2);
+  for (int dir = 0; dir < 2; dir++) {
+    pl->btw[dir] = (int16_t *)malloc(sizeof(int16_t) * 2 * N);
+    for (int k1 = 0; k1 < N1; k1++)
+      for (int n2 = 0; n2 < N2; n2++) {
+        double ang = (double)(dir ? -1 : 1) * 2.0 * M_PI * (double)k1 * (double)n2 / (double)N;
+        pl->btw[dir][2 * (k1 * N2 + n2)] = stk_sat16((int32_t)lround(cos(ang) * 32767.0));
+        pl->btw[dir][2 * (k1 * N2 + n2) + 1] = stk_sat16((int32_t)lround(sin(ang) * 32767.0));
+      }
   }
 }
 __attribute__((constructor)) static void stk_init(void)
 {
   for (int i = 0; i < STK_NPLAN; i++)
-    stk_build(&stk_plans[i], stk_sizes[i]);
+    stk_build(&stk_plans[i], stk_cfg[i].N, stk_cfg[i].N1, stk_cfg[i].N2);
 }
 static const stk_plan_t *stk_get(int N)
 {
@@ -185,61 +200,121 @@ static const stk_plan_t *stk_get(int N)
   return 0;
 }
 
-/* Radix-4 Stockham transform, size N (built pow-4 size). scale!=0 applies >>1
- * per stage (1/sqrt(N)). fwd=0 inverse, fwd=1 forward (conjugate twiddles +
- * the two odd radix-4 bands swapped). */
-static void stk_run(int N, const int16_t *in16, int16_t *out16, int scale, int fwd)
+/* Batched radix-4 DIF Stockham along the M rows of an [M][B] complex array whose
+ * B columns are contiguous (the vectorized batch: unit-stride vlseg2, no gather).
+ * s selects the +/-j flip (+1 inverse, -1 forward); sh = per-stage >>1 (1/sqrt).
+ * Ping-pongs a<->b across the log4(M) stages; returns the buffer with the result. */
+static int16_t *stk_subfft(const stk_plan_t *pl, int dir, int which, int s, int sh,
+                           int16_t *a, int16_t *b, int M, int B)
 {
-  const stk_plan_t *pl = stk_get(N);
-  int Nq = N / 4, sh = scale ? 1 : 0;
-  int16_t abuf[2 * STK_MAXN] __attribute__((aligned(32)));
-  int16_t bbuf[2 * STK_MAXN] __attribute__((aligned(32)));
-  int16_t *a = abuf, *b = bbuf;
-  memcpy(a, in16, sizeof(int16_t) * 2 * N);
-  for (int p = 0; p < pl->np; p++) {
-    int Lq = pl->L[p] / 4;
-    const uint32_t *bb = pl->baseByte[p];
-    int16_t *bo = b;
-    for (int bf = 0; bf < Nq;) {
-      size_t vl = __riscv_vsetvl_e32m1(Nq - bf);
-      vuint32m1_t idx = __riscv_vle32_v_u32m1(bb + bf, vl);
-#define STK_GLEG(LEG, RE, IM)                                                                                     \
-  vuint32m1_t pk##LEG = __riscv_vluxei32_v_u32m1((const uint32_t *)a + (LEG)*Lq, idx, vl);                        \
-  vint16mf2_t RE = __riscv_vreinterpret_v_u16mf2_i16mf2(__riscv_vnsrl_wx_u16mf2(pk##LEG, 0, vl));                 \
-  vint16mf2_t IM = __riscv_vreinterpret_v_u16mf2_i16mf2(__riscv_vnsrl_wx_u16mf2(pk##LEG, 16, vl))
-      STK_GLEG(0, c0r, c0i); STK_GLEG(1, c1r, c1i); STK_GLEG(2, c2r, c2i); STK_GLEG(3, c3r, c3i);
-#undef STK_GLEG
-      vint16mf2_t d0r = __riscv_vsadd_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0r, c1r, vl), __riscv_vsadd_vv_i16mf2(c2r, c3r, vl), vl);
-      vint16mf2_t d0i = __riscv_vsadd_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0i, c1i, vl), __riscv_vsadd_vv_i16mf2(c2i, c3i, vl), vl);
-      vint16mf2_t d2r = __riscv_vssub_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0r, c2r, vl), __riscv_vsadd_vv_i16mf2(c1r, c3r, vl), vl);
-      vint16mf2_t d2i = __riscv_vssub_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0i, c2i, vl), __riscv_vsadd_vv_i16mf2(c1i, c3i, vl), vl);
-      vint16mf2_t d1r = __riscv_vssub_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0r, c3i, vl), __riscv_vsadd_vv_i16mf2(c1i, c2r, vl), vl);
-      vint16mf2_t d1i = __riscv_vsadd_vv_i16mf2(__riscv_vssub_vv_i16mf2(c0i, c3r, vl), __riscv_vssub_vv_i16mf2(c1r, c2i, vl), vl);
-      vint16mf2_t d3r = __riscv_vssub_vv_i16mf2(__riscv_vsadd_vv_i16mf2(c0r, c1i, vl), __riscv_vsadd_vv_i16mf2(c3i, c2r, vl), vl);
-      vint16mf2_t d3i = __riscv_vsadd_vv_i16mf2(__riscv_vssub_vv_i16mf2(c0i, c1r, vl), __riscv_vssub_vv_i16mf2(c3r, c2i, vl), vl);
-      __riscv_vsseg2e16_v_i16mf2x2(bo + 2 * bf, __riscv_vcreate_v_i16mf2x2(
-          __riscv_vsra_vx_i16mf2(d0r, sh, vl), __riscv_vsra_vx_i16mf2(d0i, sh, vl)), vl);
-#define STK_BAND(M, DR, DI, OFF)                                                                                 \
-  do {                                                                                                           \
-    vint16mf2x2_t W = __riscv_vlseg2e16_v_i16mf2x2(pl->tw[p][M][fwd] + 2 * bf, vl);                              \
-    vint16mf2_t wr = __riscv_vget_v_i16mf2x2_i16mf2(W, 0), wi = __riscv_vget_v_i16mf2x2_i16mf2(W, 1);            \
-    vint32m1_t re = __riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(DR, wr, vl), __riscv_vwmul_vv_i32m1(DI, wi, vl), vl); \
-    vint32m1_t im = __riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(DR, wi, vl), __riscv_vwmul_vv_i32m1(DI, wr, vl), vl); \
-    vint16mf2_t rr = __riscv_vnclip_wx_i16mf2(re, 15, __RISCV_VXRM_RDN, vl);                                     \
-    vint16mf2_t ii = __riscv_vnclip_wx_i16mf2(im, 15, __RISCV_VXRM_RDN, vl);                                     \
-    __riscv_vsseg2e16_v_i16mf2x2(bo + 2 * (bf + (OFF)*Nq), __riscv_vcreate_v_i16mf2x2(                           \
-        __riscv_vsra_vx_i16mf2(rr, sh, vl), __riscv_vsra_vx_i16mf2(ii, sh, vl)), vl);                            \
+  int np = pl->np[which], M4 = M / 4;
+  for (int p = 0, L = M; p < np; p++, L /= 4) {
+    int Lq = L / 4;
+    for (int bf = 0; bf < M4; bf++) {
+      int k = bf / Lq, j = bf % Lq, r0 = k * L + j, r1 = r0 + Lq, r2 = r0 + 2 * Lq, r3 = r0 + 3 * Lq;
+      const int16_t *w = pl->subtw[dir][which][p][bf];
+      const int16_t *A0 = a + 2 * (size_t)r0 * B, *A1 = a + 2 * (size_t)r1 * B;
+      const int16_t *A2 = a + 2 * (size_t)r2 * B, *A3 = a + 2 * (size_t)r3 * B;
+      int16_t *B0 = b + 2 * (size_t)bf * B, *B1 = b + 2 * (size_t)(bf + M4) * B;
+      int16_t *B2 = b + 2 * (size_t)(bf + 2 * M4) * B, *B3 = b + 2 * (size_t)(bf + 3 * M4) * B;
+      for (int c = 0; c < B;) {
+        size_t vl = __riscv_vsetvl_e16mf2(B - c);
+        int o = 2 * c;
+        vint16mf2x2_t X0 = __riscv_vlseg2e16_v_i16mf2x2(A0 + o, vl), X1 = __riscv_vlseg2e16_v_i16mf2x2(A1 + o, vl);
+        vint16mf2x2_t X2 = __riscv_vlseg2e16_v_i16mf2x2(A2 + o, vl), X3 = __riscv_vlseg2e16_v_i16mf2x2(A3 + o, vl);
+        vint16mf2_t x0r = __riscv_vget_v_i16mf2x2_i16mf2(X0, 0), x0i = __riscv_vget_v_i16mf2x2_i16mf2(X0, 1);
+        vint16mf2_t x1r = __riscv_vget_v_i16mf2x2_i16mf2(X1, 0), x1i = __riscv_vget_v_i16mf2x2_i16mf2(X1, 1);
+        vint16mf2_t x2r = __riscv_vget_v_i16mf2x2_i16mf2(X2, 0), x2i = __riscv_vget_v_i16mf2x2_i16mf2(X2, 1);
+        vint16mf2_t x3r = __riscv_vget_v_i16mf2x2_i16mf2(X3, 0), x3i = __riscv_vget_v_i16mf2x2_i16mf2(X3, 1);
+        vint16mf2_t d0r = __riscv_vsadd_vv_i16mf2(__riscv_vsadd_vv_i16mf2(x0r, x1r, vl), __riscv_vsadd_vv_i16mf2(x2r, x3r, vl), vl);
+        vint16mf2_t d0i = __riscv_vsadd_vv_i16mf2(__riscv_vsadd_vv_i16mf2(x0i, x1i, vl), __riscv_vsadd_vv_i16mf2(x2i, x3i, vl), vl);
+        vint16mf2_t d2r = __riscv_vssub_vv_i16mf2(__riscv_vsadd_vv_i16mf2(x0r, x2r, vl), __riscv_vsadd_vv_i16mf2(x1r, x3r, vl), vl);
+        vint16mf2_t d2i = __riscv_vssub_vv_i16mf2(__riscv_vsadd_vv_i16mf2(x0i, x2i, vl), __riscv_vsadd_vv_i16mf2(x1i, x3i, vl), vl);
+        vint16mf2_t j1r, j1i, j3r, j3i;
+        if (s > 0) {
+          j1r = __riscv_vneg_v_i16mf2(x1i, vl); j1i = x1r;
+          j3r = __riscv_vneg_v_i16mf2(x3i, vl); j3i = x3r;
+        } else {
+          j1r = x1i; j1i = __riscv_vneg_v_i16mf2(x1r, vl);
+          j3r = x3i; j3i = __riscv_vneg_v_i16mf2(x3r, vl);
+        }
+        vint16mf2_t er = __riscv_vssub_vv_i16mf2(x0r, x2r, vl), ei = __riscv_vssub_vv_i16mf2(x0i, x2i, vl);
+        vint16mf2_t fr = __riscv_vssub_vv_i16mf2(j1r, j3r, vl), fi = __riscv_vssub_vv_i16mf2(j1i, j3i, vl);
+        vint16mf2_t d1r = __riscv_vsadd_vv_i16mf2(er, fr, vl), d1i = __riscv_vsadd_vv_i16mf2(ei, fi, vl);
+        vint16mf2_t d3r = __riscv_vssub_vv_i16mf2(er, fr, vl), d3i = __riscv_vssub_vv_i16mf2(ei, fi, vl);
+        __riscv_vsseg2e16_v_i16mf2x2(B0 + o, __riscv_vcreate_v_i16mf2x2(
+            __riscv_vsra_vx_i16mf2(d0r, sh, vl), __riscv_vsra_vx_i16mf2(d0i, sh, vl)), vl);
+#define STK_TW(DR, DI, WI, DST)                                                                                   \
+  do {                                                                                                            \
+    int16_t wr = w[2 * (WI)], wi = w[2 * (WI) + 1];                                                               \
+    vint32m1_t re = __riscv_vsub_vv_i32m1(__riscv_vwmul_vx_i32m1(DR, wr, vl), __riscv_vwmul_vx_i32m1(DI, wi, vl), vl); \
+    vint32m1_t im = __riscv_vadd_vv_i32m1(__riscv_vwmul_vx_i32m1(DR, wi, vl), __riscv_vwmul_vx_i32m1(DI, wr, vl), vl); \
+    vint16mf2_t rr = __riscv_vnclip_wx_i16mf2(re, 15, __RISCV_VXRM_RDN, vl);                                      \
+    vint16mf2_t ii = __riscv_vnclip_wx_i16mf2(im, 15, __RISCV_VXRM_RDN, vl);                                      \
+    __riscv_vsseg2e16_v_i16mf2x2((DST) + o, __riscv_vcreate_v_i16mf2x2(                                           \
+        __riscv_vsra_vx_i16mf2(rr, sh, vl), __riscv_vsra_vx_i16mf2(ii, sh, vl)), vl);                             \
   } while (0)
-      /* forward swaps the odd bands: band1 gets inverse-d3, band3 gets inverse-d1 */
-      if (!fwd) { STK_BAND(0, d1r, d1i, 1); STK_BAND(2, d3r, d3i, 3); }
-      else      { STK_BAND(0, d3r, d3i, 1); STK_BAND(2, d1r, d1i, 3); }
-      STK_BAND(1, d2r, d2i, 2);
-#undef STK_BAND
-      bf += (int)vl;
+        STK_TW(d1r, d1i, 0, B1); STK_TW(d2r, d2i, 1, B2); STK_TW(d3r, d3i, 2, B3);
+#undef STK_TW
+        c += (int)vl;
+      }
     }
     int16_t *t = a; a = b; b = t;
   }
-  memcpy(out16, a, sizeof(int16_t) * 2 * N);
+  return a;
+}
+
+/* step-B: element-wise complex multiply A[i] *= btw[dir][i] over the N contiguous
+ * elements (per-element / vector twiddle W_N^{s*k1*n2}). */
+static void stk_twiddle(const stk_plan_t *pl, int dir, int16_t *A, int N)
+{
+  const int16_t *W = pl->btw[dir];
+  for (size_t i = 0, n = (size_t)N; i < n;) {
+    size_t vl = __riscv_vsetvl_e16mf2(n - i);
+    size_t o = 2 * i;
+    vint16mf2x2_t Xa = __riscv_vlseg2e16_v_i16mf2x2(A + o, vl), Xw = __riscv_vlseg2e16_v_i16mf2x2(W + o, vl);
+    vint16mf2_t ar = __riscv_vget_v_i16mf2x2_i16mf2(Xa, 0), ai = __riscv_vget_v_i16mf2x2_i16mf2(Xa, 1);
+    vint16mf2_t wr = __riscv_vget_v_i16mf2x2_i16mf2(Xw, 0), wi = __riscv_vget_v_i16mf2x2_i16mf2(Xw, 1);
+    vint32m1_t re = __riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(ar, wr, vl), __riscv_vwmul_vv_i32m1(ai, wi, vl), vl);
+    vint32m1_t im = __riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(ar, wi, vl), __riscv_vwmul_vv_i32m1(ai, wr, vl), vl);
+    __riscv_vsseg2e16_v_i16mf2x2(A + o, __riscv_vcreate_v_i16mf2x2(
+        __riscv_vnclip_wx_i16mf2(re, 15, __RISCV_VXRM_RDN, vl), __riscv_vnclip_wx_i16mf2(im, 15, __RISCV_VXRM_RDN, vl)), vl);
+    i += vl;
+  }
+}
+
+/* transpose the [N1][N2] complex array A into At[N2][N1]. Complex = one u32; one
+ * strided store per source row (vsse32 -- the only non-unit-stride access). */
+static void stk_transpose(const int16_t *A, int16_t *At, int N1, int N2)
+{
+  for (int k1 = 0; k1 < N1; k1++) {
+    const uint32_t *src = (const uint32_t *)(A + 2 * (size_t)k1 * N2);
+    uint32_t *dst = (uint32_t *)At + k1; /* column k1 of At[N2][N1] */
+    for (int n2 = 0; n2 < N2;) {
+      size_t vl = __riscv_vsetvl_e32m1(N2 - n2);
+      __riscv_vsse32_v_u32m1(dst + (size_t)n2 * N1, (ptrdiff_t)N1 * 4, __riscv_vle32_v_u32m1(src + n2, vl), vl);
+      n2 += (int)vl;
+    }
+  }
+}
+
+/* 4-step (Bailey) transform, size N = N1*N2 (pow-4 factors). scale!=0 applies
+ * >>1 per radix-4 stage (total 1/sqrt(N)). fwd=0 inverse, fwd=1 forward. Every
+ * load/store is unit-stride/segment except the one transpose (strided store).
+ * Scratch is per-call (stack) so the shared const plan stays reentrant. */
+static void stk_run(int N, const int16_t *in16, int16_t *out16, int scale, int fwd)
+{
+  const stk_plan_t *pl = stk_get(N);
+  int N1 = pl->N1, N2 = pl->N2, dir = fwd ? 1 : 0, s = fwd ? -1 : 1, sh = scale ? 1 : 0;
+  int16_t A[2 * STK_MAXN] __attribute__((aligned(32)));
+  int16_t Bs[2 * STK_MAXN] __attribute__((aligned(32)));
+  int16_t T[2 * STK_MAXN] __attribute__((aligned(32)));
+  memcpy(A, in16, sizeof(int16_t) * 2 * N);
+  int16_t *r = stk_subfft(pl, dir, 0, s, sh, A, Bs, N1, N2); /* pass A: size-N1 FFTs, batched over N2 */
+  stk_twiddle(pl, dir, r, N);
+  stk_transpose(r, T, N1, N2);                               /* [N1][N2] -> [N2][N1] */
+  r = stk_subfft(pl, dir, 1, s, sh, T, A, N2, N1);           /* pass D: size-N2 FFTs, batched over N1 */
+  memcpy(out16, r, sizeof(int16_t) * 2 * N);
 }
 #endif /* __riscv_vector */
 
