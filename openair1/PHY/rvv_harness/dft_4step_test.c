@@ -164,6 +164,40 @@ static void fourstep_fx(const c16 *in, c16 *out, int N, int N1, int N2){
   free(A);free(B);free(At);
 }
 
+/* ================= radix-2 wrapper (N = 2*M, M pow-4) =================
+ * One radix-2 DIF stage over the full N wrapping the validated 4-step on M=N/2:
+ *   a[n] = (x[n]+x[n+M]) * (1/sqrt2)                 -> even outputs = DFT_M(a)
+ *   b[n] = (x[n]-x[n+M]) * W_N^{s*n} * (1/sqrt2)     -> odd  outputs = DFT_M(b)
+ *   out[2r]=A[r], out[2r+1]=B[r]   (A=fourstep(a), B=fourstep(b), each *1/sqrt(M))
+ * so total scale = 1/sqrt2 * 1/sqrt(M) = 1/sqrt(N). The 1/sqrt2 is folded into the
+ * radix-2 twiddle for b, and applied as the real constant g_r2c for a.
+ * Caller must build_tables_fx(M,M1,M2,s) (for the inner 4-step) AND build_r2tw(N,s). */
+#define ONE_OVER_SQRT2_Q15 23170
+static c16 *g_r2tw;                       /* [M] W_N^{s*n} pre-scaled by 1/sqrt2 */
+static const c16 g_r2c = { ONE_OVER_SQRT2_Q15, 0 };  /* 1/sqrt2 as a complex constant */
+static void build_r2tw(int N, int s){
+  int M=N/2;
+  g_r2tw=malloc(sizeof(c16)*M);
+  for (int n=0;n<M;n++){
+    double a=s*2.0*M_PI*(double)n/(double)N;
+    g_r2tw[n]=(c16){ sat16((int32_t)lround(cos(a)*ONE_OVER_SQRT2_Q15)), sat16((int32_t)lround(sin(a)*ONE_OVER_SQRT2_Q15)) };
+  }
+}
+static void radix2_fx(const c16 *in, c16 *out, int N, int M1, int M2){
+  int M=N/2;
+  c16 *a=malloc(sizeof(c16)*M),*b=malloc(sizeof(c16)*M),*A=malloc(sizeof(c16)*M),*B=malloc(sizeof(c16)*M);
+  for (int n=0;n<M;n++){
+    c16 sm={ sadd(in[n].r,in[n+M].r), sadd(in[n].i,in[n+M].i) };
+    c16 df={ ssub(in[n].r,in[n+M].r), ssub(in[n].i,in[n+M].i) };
+    a[n]=cmul15(sm,g_r2c);
+    b[n]=cmul15(df,g_r2tw[n]);
+  }
+  fourstep_fx(a,A,M,M1,M2);
+  fourstep_fx(b,B,M,M1,M2);
+  for (int r=0;r<M;r++){ out[2*r]=A[r]; out[2*r+1]=B[r]; }
+  free(a);free(b);free(A);free(B);
+}
+
 /* ================= RVV 4-step ================= */
 #if defined(__riscv) && defined(__riscv_vector)
 #include <riscv_vector.h>
@@ -244,6 +278,40 @@ static void fourstep_rvv(const c16 *in, c16 *out, int N,int N1,int N2){
   subfft_rvv(A,B,N2,N1,1,g_s);
   memcpy(out,(g_subnp[1]&1)?B:A,sizeof(c16)*N);
 }
+/* radix-2 DIF stage (unit-stride) wrapping fourstep_rvv on M=N/2, then a stride-2
+ * interleave store. Tables (g_* for M, g_r2tw for N) built by the caller. */
+static c16 r2a[4096],r2b[4096],r2A[4096],r2B[4096];   /* M<=4096 */
+static void radix2_rvv(const c16 *in, c16 *out, int N, int M1, int M2){
+  int M=N/2;
+  const int16_t *xr=(const int16_t*)in, *wr2=(const int16_t*)g_r2tw;
+  int16_t *pa=(int16_t*)r2a, *pb=(int16_t*)r2b;
+  for (int n=0;n<M;){
+    size_t vl=__riscv_vsetvl_e16mf2(M-n); int o=2*n;
+    vint16mf2x2_t Xl=LD2(xr+o), Xh=LD2(xr+2*M+o);       /* in[n], in[n+M] */
+    V16 lr=GET(Xl,0),li=GET(Xl,1),hr=GET(Xh,0),hi=GET(Xh,1);
+    V16 sr=ADD(lr,hr), si=ADD(li,hi), dr=SUB(lr,hr), di=SUB(li,hi);
+    /* a = sum * 1/sqrt2 (real constant) */
+    V16 ar=__riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(sr,ONE_OVER_SQRT2_Q15,vl),15,__RISCV_VXRM_RDN,vl);
+    V16 ai=__riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(si,ONE_OVER_SQRT2_Q15,vl),15,__RISCV_VXRM_RDN,vl);
+    ST2(pa+o, ar, ai);
+    /* b = diff * (W_N^{s*n} scaled by 1/sqrt2) */
+    vint16mf2x2_t W=LD2(wr2+o); V16 wrr=GET(W,0),wii=GET(W,1);
+    vint32m1_t bre=__riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(dr,wrr,vl),__riscv_vwmul_vv_i32m1(di,wii,vl),vl);
+    vint32m1_t bim=__riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(dr,wii,vl),__riscv_vwmul_vv_i32m1(di,wrr,vl),vl);
+    ST2(pb+o, __riscv_vnclip_wx_i16mf2(bre,15,__RISCV_VXRM_RDN,vl), __riscv_vnclip_wx_i16mf2(bim,15,__RISCV_VXRM_RDN,vl));
+    n+=(int)vl;
+  }
+  fourstep_rvv(r2a,r2A,M,M1,M2);
+  fourstep_rvv(r2b,r2B,M,M1,M2);
+  uint32_t *dst=(uint32_t*)out;                          /* interleave even/odd */
+  const uint32_t *sA=(const uint32_t*)r2A, *sB=(const uint32_t*)r2B;
+  for (int r=0;r<M;){
+    size_t vl=__riscv_vsetvl_e32m1(M-r);
+    __riscv_vsse32_v_u32m1(dst+2*r,   8, __riscv_vle32_v_u32m1(sA+r,vl), vl);
+    __riscv_vsse32_v_u32m1(dst+2*r+1, 8, __riscv_vle32_v_u32m1(sB+r,vl), vl);
+    r+=(int)vl;
+  }
+}
 #endif
 
 static double snr(const cd *a, const cd *b, int N){
@@ -298,6 +366,37 @@ int main(int argc, char **argv){
       free(g_btw);
     }
     free(x); free(ref); free(got); free(xd); free(xi); free(goti); free(gotr);
+  }
+  /* radix-2 sizes: N = 2*M, inner 4-step on M=N/2 (M1xM2) */
+  struct { int N, M1, M2; } r2cfg[] = { {128,4,16}, {512,16,16}, {2048,16,64}, {8192,64,64} };
+  for (unsigned t = 0; t < sizeof(r2cfg)/sizeof(r2cfg[0]); t++){
+    int N = r2cfg[t].N, M = N/2, M1 = r2cfg[t].M1, M2 = r2cfg[t].M2;
+    cd *ref = malloc(sizeof(cd)*N), *xd = malloc(sizeof(cd)*N);
+    c16 *xi = malloc(sizeof(c16)*N), *goti = malloc(sizeof(c16)*N), *gotr = malloc(sizeof(c16)*N);
+    for (int i = 0; i < N; i++){ double r=rnd(), im=rnd(); xi[i]=(c16){(int16_t)(r*8000),(int16_t)(im*8000)}; xd[i]=(cd){xi[i].r,xi[i].i}; }
+    for (int s = 1; s >= -1; s -= 2){
+      dft_naive(xd, ref, N, s);
+      double inv = 1.0/sqrt((double)N);
+      for (int i=0;i<N;i++){ ref[i].r*=inv; ref[i].i*=inv; }
+      build_tables_fx(M,M1,M2,s); build_r2tw(N,s);
+      radix2_fx(xi, goti, N, M1, M2);
+      double rvv_snr = -999; int diff = -1; double us_rvv = 0;
+#if defined(__riscv) && defined(__riscv_vector)
+      radix2_rvv(xi, gotr, N, M1, M2);
+      diff = 0; for (int i=0;i<N;i++) if (gotr[i].r!=goti[i].r || gotr[i].i!=goti[i].i) diff++;
+      rvv_snr = snr_fx(gotr, ref, N);
+      { int R = N>=1024?2000:8000;
+        double t0=now_us(); for(int r=0;r<R;r++) radix2_rvv(xi,gotr,N,M1,M2); us_rvv=(now_us()-t0)/R; }
+#endif
+      printf("N=%5d (2x%d=%dx%d) s=%+d  fixed-vs-dbl=%.1fdB", N, M, M1, M2, s, snr_fx(goti, ref, N));
+#if defined(__riscv) && defined(__riscv_vector)
+      printf("  rvv-vs-fx diff=%d rvv-snr=%.1fdB  t_rvv=%.2fus", diff, rvv_snr, us_rvv);
+      if (diff!=0) allok = 0;
+#endif
+      printf("\n");
+      free(g_btw); free(g_r2tw);
+    }
+    free(ref); free(xd); free(xi); free(goti); free(gotr);
   }
   return allok?0:1;
 }
