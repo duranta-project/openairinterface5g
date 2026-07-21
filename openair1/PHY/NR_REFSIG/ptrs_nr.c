@@ -13,43 +13,38 @@
 *
 ************************************************************************/
 
+#include "assertions.h"
+#include "platform_types.h"
 #include <stdint.h>
 #include <stdio.h>
 #include "dmrs_nr.h"
 #include "PHY/NR_REFSIG/ptrs_nr.h"
+#include "PHY/TOOLS/tools_defs.h"
 #include "PHY/NR_REFSIG/nr_refsig.h"
 
 /*******************************************************************
-*
-* NAME :         set_ptrs_symb_idx
-*
-* PARAMETERS :   ptrs_symbols           PTRS OFDM symbol indicies bit mask
-*                duration_in_symbols    number of scheduled ofdm symbols
-*                start_symbol           first ofdm symbol within slot
-*                L_ptrs                 the parameter L_ptrs
-*                dmrs_symb_pos          bitmap of the time domain positions of the DMRS symbols
-*
-* RETURN :       sets the bit map of PTRS ofdm symbol indicies
-*
-* DESCRIPTION :  3GPP TS 38.211 6.4.1.2.2.1
-*
-*********************************************************************/
+ *
+ * NAME :         get_ptrs_symb_idx
+ *
+ * PARAMETERS :   duration_in_symbols    number of scheduled ofdm symbols
+ *                start_symbol           first ofdm symbol within slot
+ *                L_ptrs                 the parameter L_ptrs
+ *                dmrs_symb_pos          bitmap of the time domain positions of the DMRS symbols
+ *
+ * RETURN :       bit map of PTRS ofdm symbol indicies
+ *
+ * DESCRIPTION :  3GPP TS 38.211 6.4.1.2.2.1
+ *
+ *********************************************************************/
 
-void set_ptrs_symb_idx(uint16_t *ptrs_symbols,
-                       uint8_t duration_in_symbols,
-                       uint8_t start_symbol,
-                       uint8_t L_ptrs,
-                       uint16_t dmrs_symb_pos)
+uint16_t get_ptrs_symb_idx(uint8_t duration_in_symbols, uint8_t start_symbol, uint8_t L_ptrs, uint16_t dmrs_symb_pos)
 {
   int i = 0;
   int l_ref = start_symbol;
   const int last_symbol = start_symbol + duration_in_symbols - 1;
-  if (L_ptrs == 0) {
-    LOG_E(PHY,"bug: impossible L_ptrs\n");
-    *ptrs_symbols = 0;
-    return;
-  }
+  AssertFatal(L_ptrs > 0, "Impossible L_ptrs\n");
 
+  uint16_t ptrs_symbols = 0;
   while ((l_ref + i * L_ptrs) <= last_symbol) {
     int is_dmrs_symbol = 0, l_counter;
     for(l_counter = l_ref + i * L_ptrs; l_counter >= max(l_ref + (i - 1) * L_ptrs + 1, l_ref); l_counter--) {
@@ -63,9 +58,10 @@ void set_ptrs_symb_idx(uint16_t *ptrs_symbols,
       i = 1;
       continue;
     }
-    *ptrs_symbols = *ptrs_symbols | (1 << (l_ref + i * L_ptrs));
+    ptrs_symbols = ptrs_symbols | (1 << (l_ref + i * L_ptrs));
     i++;
   }
+  return ptrs_symbols;
 }
 
 unsigned int get_first_ptrs_re(const rnti_t rnti, const uint8_t K_ptrs, const uint16_t nRB, const uint8_t k_RE_ref)
@@ -194,7 +190,7 @@ void nr_ptrs_cpe_estimation(uint8_t K_ptrs,
   c16_t dmrs_comp_p[(1 + sc_per_symbol / 4) * 4];
 
   /* generate PTRS RE for the symbol */
-  nr_gen_ref_conj_symbols(gold_seq, sc_per_symbol * 2, (int16_t *)ptrs_p, 2); // 2 for QPSK
+  nr_gen_ref_conj_symbols(gold_seq, sc_per_symbol, ptrs_p); // 2 for QPSK
   uint32_t re_cnt = 0, cnt = 0;
   /* loop over all sub carriers to get compensated RE on ptrs symbols*/
   for (int re = 0; re < NR_NB_SC_PER_RB * nb_rb; re++) {

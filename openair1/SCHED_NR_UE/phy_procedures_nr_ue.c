@@ -17,9 +17,9 @@
 #include "PHY/INIT/nr_phy_init.h"
 #include "PHY/nr_phy_common/inc/nr_phy_common.h"
 #include "PHY/NR_REFSIG/ptrs_nr.h"
+#include "PHY/NR_REFSIG/ss_pbch_nr.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_ue.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
-#include "SCHED_NR_UE/phy_sch_processing_time.h"
 #include "PHY/NR_UE_ESTIMATION/nr_estimation.h"
 #include "executables/softmodem-common.h"
 #include "executables/nr-uesoftmodem.h"
@@ -40,7 +40,6 @@
 #include "common/utils/LOG/log.h"
 
 #include "UTIL/OPT/opt.h"
-#include "intertask_interface.h"
 #include "T.h"
 #include "instrumentation.h"
 
@@ -1228,12 +1227,10 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
     uint16_t dmrs_len = get_num_dmrs(dlsch_config->dlDmrsSymbPos);
     uint32_t unav_res = 0;
     if(dlsch_config->pduBitmap & 0x1) {
-      uint16_t ptrsSymbPos = 0;
-      set_ptrs_symb_idx(&ptrsSymbPos,
-                        dlsch_config->number_symbols,
-                        dlsch_config->start_symbol,
-                        1 << dlsch_config->PTRSTimeDensity,
-                        dlsch_config->dlDmrsSymbPos);
+      uint16_t ptrsSymbPos = get_ptrs_symb_idx(dlsch_config->number_symbols,
+                                               dlsch_config->start_symbol,
+                                               1 << dlsch_config->PTRSTimeDensity,
+                                               dlsch_config->dlDmrsSymbPos);
       int n_ptrs = (freq_alloc.num_rbs + dlsch_config->PTRSFreqDensity - 1) / dlsch_config->PTRSFreqDensity;
       int ptrsSymbPerSlot = get_ptrs_symbols_in_slot(ptrsSymbPos, dlsch_config->start_symbol, dlsch_config->number_symbols);
       unav_res = n_ptrs * ptrsSymbPerSlot;

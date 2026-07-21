@@ -1281,8 +1281,7 @@ void nr_pdsch_ptrs_processing(int nbRx,
     }
 
     if (symbol == startSymbIndex) {
-      *ptrsSymbPos = 0;
-      set_ptrs_symb_idx(ptrsSymbPos, nbSymb, startSymbIndex, 1 << L_ptrs, dmrsSymbPos);
+      *ptrsSymbPos = get_ptrs_symb_idx(nbSymb, startSymbIndex, 1 << L_ptrs, dmrsSymbPos);
     }
     /* if not PTRS symbol set current ptrs symbol index to zero*/
     *ptrsSymbIdx = 0;

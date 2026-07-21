@@ -1067,7 +1067,7 @@ int main(int argc, char *argv[])
 
   uint32_t unav_res = 0;
   if (pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS) {
-    set_ptrs_symb_idx(&ptrsSymPos, nb_symb_sch, start_symbol, 1 << ptrs_time_density, l_prime_mask);
+    ptrsSymPos = get_ptrs_symb_idx(nb_symb_sch, start_symbol, 1 << ptrs_time_density, l_prime_mask);
     ptrsSymbPerSlot = get_ptrs_symbols_in_slot(ptrsSymPos, start_symbol, nb_symb_sch);
     ptrsRePerSymb = ((nb_rb + ptrs_freq_density - 1) / ptrs_freq_density);
     unav_res = ptrsSymbPerSlot * ptrsRePerSymb;

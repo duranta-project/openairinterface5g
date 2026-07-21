@@ -626,11 +626,8 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   uint16_t dlPtrsSymPos = 0;
   int n_ptrs = 0;
   if (rel15->pduBitmap & 0x1) {
-    set_ptrs_symb_idx(&dlPtrsSymPos,
-                      rel15->NrOfSymbols,
-                      rel15->StartSymbolIndex,
-                      1 << rel15->PTRSTimeDensity,
-                      rel15->dlDmrsSymbPos);
+    dlPtrsSymPos =
+        get_ptrs_symb_idx(rel15->NrOfSymbols, rel15->StartSymbolIndex, 1 << rel15->PTRSTimeDensity, rel15->dlDmrsSymbPos);
     n_ptrs = (freq_alloc->num_rbs + rel15->PTRSFreqDensity - 1) / rel15->PTRSFreqDensity;
   }
 
@@ -831,11 +828,8 @@ void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_arr
     int n_ptrs = 0;
     uint32_t ptrsSymbPerSlot = 0;
     if (rel15->pduBitmap & 0x1) {
-      set_ptrs_symb_idx(&dlPtrsSymPos,
-                        rel15->NrOfSymbols,
-                        rel15->StartSymbolIndex,
-                        1 << rel15->PTRSTimeDensity,
-                        rel15->dlDmrsSymbPos);
+      dlPtrsSymPos =
+          get_ptrs_symb_idx(rel15->NrOfSymbols, rel15->StartSymbolIndex, 1 << rel15->PTRSTimeDensity, rel15->dlDmrsSymbPos);
       n_ptrs = (dlsch->freq_alloc.num_rbs + rel15->PTRSFreqDensity - 1) / rel15->PTRSFreqDensity;
       ptrsSymbPerSlot = get_ptrs_symbols_in_slot(dlPtrsSymPos, rel15->StartSymbolIndex, rel15->NrOfSymbols);
     }

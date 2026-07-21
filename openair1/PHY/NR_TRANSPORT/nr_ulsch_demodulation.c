@@ -704,15 +704,12 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   // This is assumed to be same for all the UEs (same PTRS configuration for all UEs)
   uint32_t unav_res = 0;
   if (rel15_ul_ref->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS) {
-    uint16_t ptrsSymbPos = 0;
-    set_ptrs_symb_idx(&ptrsSymbPos,
-                      rel15_ul_ref->nr_of_symbols,
-                      rel15_ul_ref->start_symbol_index,
-                      1 << rel15_ul_ref->pusch_ptrs.ptrs_time_density,
-                      rel15_ul_ref->ul_dmrs_symb_pos);
+    uint16_t ptrsSymbPos = get_ptrs_symb_idx(rel15_ul_ref->nr_of_symbols,
+                                             rel15_ul_ref->start_symbol_index,
+                                             1 << rel15_ul_ref->pusch_ptrs.ptrs_time_density,
+                                             rel15_ul_ref->ul_dmrs_symb_pos);
     int ptrsSymbPerSlot = get_ptrs_symbols_in_slot(ptrsSymbPos, rel15_ul_ref->start_symbol_index, rel15_ul_ref->nr_of_symbols);
-    int n_ptrs =
-        (rel15_ul_ref->rb_size + rel15_ul_ref->pusch_ptrs.ptrs_freq_density - 1) / rel15_ul_ref->pusch_ptrs.ptrs_freq_density;
+    int n_ptrs = (rel15_ul_ref->rb_size + rel15_ul_ref->pusch_ptrs.ptrs_freq_density - 1) / rel15_ul_ref->pusch_ptrs.ptrs_freq_density;
     unav_res = n_ptrs * ptrsSymbPerSlot;
   }
 

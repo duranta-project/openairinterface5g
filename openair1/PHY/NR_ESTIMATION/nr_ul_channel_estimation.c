@@ -691,8 +691,7 @@ void nr_pusch_ptrs_processing(PHY_VARS_gNB *gNB,
     }
 
     if (symbol == startSymbIndex) {
-      pusch_vars->ptrs_symbols = 0;
-      set_ptrs_symb_idx(&pusch_vars->ptrs_symbols, nbSymb, startSymbIndex, 1 << L_ptrs, dmrsSymbPos);
+      pusch_vars->ptrs_symbols = get_ptrs_symb_idx(nbSymb, startSymbIndex, 1 << L_ptrs, dmrsSymbPos);
     }
 
     /* Check if current symbol contains PTRS */

@@ -16,11 +16,11 @@
 #ifndef PTRS_NR_H
 #define PTRS_NR_H
 
-void set_ptrs_symb_idx(uint16_t *ptrs_symbols,
-                       uint8_t duration_in_symbols,
-                       uint8_t start_symbol,
-                       uint8_t L_ptrs,
-                       uint16_t dmrs_symb_pos);
+#include <sys/types.h>
+#include <platform_types.h>
+
+uint get_ptrs_k_RB(uint n_rb, uint k_ptrs, uint nrnti);
+uint16_t get_ptrs_symb_idx(uint8_t duration_in_symbols, uint8_t start_symbol, uint8_t L_ptrs, uint16_t dmrs_symb_pos);
 
 unsigned int get_first_ptrs_re(const rnti_t rnti, const uint8_t K_ptrs, const uint16_t nRB, const uint8_t k_RE_ref);
 

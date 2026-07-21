@@ -62,4 +62,5 @@ int nr_pusch_lowpaprtype1_dmrs_rx(nr_prefix_type_t Ncp,
                                   uint32_t re_offset,
                                   uint8_t dmrs_type);
 
+c16_t get_modulated(const uint32_t *gold_sequence, const int idx_gold, const bool inverse);
 #endif
