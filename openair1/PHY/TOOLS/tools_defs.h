@@ -353,6 +353,25 @@ static __attribute__((always_inline)) inline void mult_complex_vectors(const c16
                                                                        const int size,
                                                                        const int shift)
 {
+#if defined(__riscv) && defined(__riscv_vector)
+  /* out[i] = c16mulShift(in1[i], in2[i], shift): per-element complex multiply,
+   * wrapping arithmetic >>shift (vnsra, no saturation -- matches the scalar).
+   * Full-VLMAX segment stores + scalar tail dodge the -O2 partial-vl over-store. */
+  size_t vlmax = __riscv_vsetvlmax_e16m1();
+  int i = 0;
+  for (; i + (int)vlmax <= size; i += (int)vlmax) {
+    vint16m1x2_t a = __riscv_vlseg2e16_v_i16m1x2((const int16_t *)(in1 + i), vlmax);
+    vint16m1x2_t b = __riscv_vlseg2e16_v_i16m1x2((const int16_t *)(in2 + i), vlmax);
+    vint16m1_t ar = __riscv_vget_v_i16m1x2_i16m1(a, 0), ai = __riscv_vget_v_i16m1x2_i16m1(a, 1);
+    vint16m1_t br = __riscv_vget_v_i16m1x2_i16m1(b, 0), bi = __riscv_vget_v_i16m1x2_i16m1(b, 1);
+    vint32m2_t re = __riscv_vsub_vv_i32m2(__riscv_vwmul_vv_i32m2(ar, br, vlmax), __riscv_vwmul_vv_i32m2(ai, bi, vlmax), vlmax);
+    vint32m2_t im = __riscv_vadd_vv_i32m2(__riscv_vwmul_vv_i32m2(ar, bi, vlmax), __riscv_vwmul_vv_i32m2(ai, br, vlmax), vlmax);
+    __riscv_vsseg2e16_v_i16m1x2((int16_t *)(out + i),
+        __riscv_vcreate_v_i16m1x2(__riscv_vnsra_wx_i16m1(re, shift, vlmax), __riscv_vnsra_wx_i16m1(im, shift, vlmax)), vlmax);
+  }
+  for (; i < size; i++)
+    out[i] = c16mulShift(in1[i], in2[i], shift);
+#else
   const simde__m256i complex_shuffle256 = simde_mm256_set_epi8(29,
                                                                28,
                                                                31,
@@ -412,6 +431,7 @@ static __attribute__((always_inline)) inline void mult_complex_vectors(const c16
   }
   for (; i < size; i++)
     out[i] = c16mulShift(in1[i], in2[i], shift);
+#endif
 }
 /*!\fn void multadd_complex_vector_real_scalar(int16_t *x,int16_t alpha,int16_t *y,uint8_t zero_flag,uint32_t N)
 This function performs componentwise multiplication and accumulation of a real scalar and a complex vector.
