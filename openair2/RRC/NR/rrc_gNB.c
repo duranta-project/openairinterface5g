@@ -409,6 +409,7 @@ void openair_rrc_gNB_configuration(gNB_RRC_INST *rrc, nr_rrc_config_t *configura
   RB_INIT(&rrc->cuups);
   RB_INIT(&rrc->dus);
   RB_INIT(&rrc->cells);
+  RB_INIT(&rrc->xn_candidates);
   rrc->configuration = *configuration;
 }
 
@@ -3973,6 +3974,15 @@ void *rrc_gnb_task(void *args_p)
 
       case NR_RRC_NRDC_TIMEOUT:
         rrc_gnb_nrdc_timeout(RC.nrrrc[instance], &NR_RRC_NRDC_TIMEOUT(msg_p));
+        break;
+
+      /* Messages from XNAP task */
+      case XNAP_SETUP_IND:
+        rrc_add_xn_candidate(RC.nrrrc[instance], XNAP_SETUP_IND(msg_p).gnb_id, XNAP_SETUP_IND(msg_p).assoc_id);
+        break;
+
+      case XNAP_PEER_SHUTDOWN_IND:
+        rrc_remove_xn_candidate(RC.nrrrc[instance], XNAP_PEER_SHUTDOWN_IND(msg_p).gnb_id);
         break;
 
       default:
