@@ -27,7 +27,12 @@ nr_rlc_ue_manager_t *new_nr_rlc_ue_manager(nr_rlc_op_mode_t mode)
     exit(1);
   }
 
-  if (pthread_mutex_init(&ret->lock, NULL)) abort();
+  /* Initialise the RLC manager mutex with PTHREAD_PRIO_INHERIT. */
+  pthread_mutexattr_t mattr;
+  pthread_mutexattr_init(&mattr);
+  pthread_mutexattr_setprotocol(&mattr, PTHREAD_PRIO_INHERIT);
+  if (pthread_mutex_init(&ret->lock, &mattr)) abort();
+  pthread_mutexattr_destroy(&mattr);
   ret->mode = mode;
 
   return ret;
