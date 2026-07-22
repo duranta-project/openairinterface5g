@@ -72,6 +72,8 @@ xnap_peer_t *getXnPeerByCnxId(xnap_gnb_inst_t *inst, uint16_t cnx_id);
  * removes from tree, sets assoc_id, re-inserts. */
 void xnap_peer_set_assoc_id(xnap_gnb_inst_t *inst, xnap_peer_t *peer, sctp_assoc_t assoc_id);
 
+uint16_t xnap_fetch_add_cnx_id(void);
+
 void createXninst(instance_t instance, xnap_setup_req_t *setup_info, xnap_net_config_t *net_config);
 
 #define XNAP_NON_UE_STREAM_ID 0
