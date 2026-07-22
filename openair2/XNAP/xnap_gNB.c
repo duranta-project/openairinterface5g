@@ -122,7 +122,7 @@ static void xnap_gNB_handle_sctp_association_resp(instance_t instance, const sct
     if (resp->sctp_state != SCTP_STATE_ESTABLISHED) {
       LOG_W(XNAP, "[gNB %ld] SCTP_NEW_ASSOCIATION_RESP: peer assoc_id %d %s\n", instance, resp->assoc_id,
             resp->sctp_state == SCTP_STATE_SHUTDOWN ? "shut down" : "unexpected state");
-      xnap_handle_xn_setup_message(instance, inst, peer, 1 /* shutdown */);
+      xnap_handle_xn_setup_message(instance, peer, 1 /* shutdown */);
       xnap_remove_peer(inst, peer);
       return;
     }
@@ -184,8 +184,18 @@ static void xnap_gNB_handle_sctp_close_association(instance_t instance, const sc
     return;
   }
 
-  xnap_handle_xn_setup_message(instance, inst, peer, 1);
+  xnap_handle_xn_setup_message(instance, peer, 1);
   xnap_remove_peer(inst, peer);
+}
+
+/* To handle all the messages coming through Xn interface through call back table */
+static void xnap_gNB_handle_sctp_data_ind(instance_t instance, sctp_data_ind_t *ind)
+{
+  int result;
+  DevAssert(ind != NULL);
+  xnap_gNB_handle_message(instance, ind->assoc_id, ind->stream, ind->buffer, ind->buffer_length);
+  result = itti_free(TASK_UNKNOWN, ind->buffer);
+  AssertFatal(result == EXIT_SUCCESS, "Failed to free memory (%d)!\n", result);
 }
 
 void *xnap_task(void *args)
@@ -220,6 +230,10 @@ void *xnap_task(void *args)
 
       case SCTP_CLOSE_ASSOCIATION:
         xnap_gNB_handle_sctp_close_association(instance, &SCTP_CLOSE_ASSOCIATION(msg));
+        break;
+
+      case SCTP_DATA_IND:
+        xnap_gNB_handle_sctp_data_ind(instance, &SCTP_DATA_IND(msg));
         break;
 
       default:
