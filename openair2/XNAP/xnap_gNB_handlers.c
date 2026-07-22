@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
-#include <stdlib.h>
 #include "xnap_gNB_handlers.h"
 #include "xnap_gNB.h"
 #include "xnap_common.h"
@@ -13,27 +12,23 @@
 #include "lib/xnap_gNB_interface_management.h"
 #include "lib/xnap_gNB_mobility_management.h"
 #include "aper_decoder.h"
+#include "xnap_gNB_itti_messaging.h"
 
-/* Helper for SCTP Shutdown or Xn setup */
+/* Notify RRC of a peer's Xn Setup completion or SCTP-level shutdown. */
 void xnap_handle_xn_setup_message(instance_t instance, xnap_gnb_inst_t *inst, xnap_peer_t *peer, int sctp_shutdown)
 {
   if (sctp_shutdown) {
     if (peer->state == XNAP_PEER_STATE_CONNECTED || peer->state == XNAP_PEER_STATE_WAITING) {
       LOG_W(XNAP, "[gNB %ld] Xn peer assoc_id %d (gNB_id 0x%x) disconnected\n", instance, peer->assoc_id, peer->remote_gnb_id);
 
-      /* Notify RRC only if XnSetup had completed — i.e. the peer was CONNECTED
-       * and RRC holds a candidate entry for it.  WAITING peers never reached
-       * RRC so there is nothing to remove. */
+      /* Notify RRC only if XnSetup had completed because RRC has an entry, 
+       * WAITING peers never reached RRC so there is nothing to remove. */
       if (peer->state == XNAP_PEER_STATE_CONNECTED && peer->remote_gnb_id != 0) {
         MessageDef *msg = itti_alloc_new_message(TASK_XNAP, inst->instance, XNAP_PEER_SHUTDOWN_IND);
         XNAP_PEER_SHUTDOWN_IND(msg).gnb_id = peer->remote_gnb_id;
         itti_send_msg_to_task(TASK_RRC_GNB, inst->instance, msg);
       }
 
-      /* Peers only ever exist in the tree while their SCTP association is up */
-      RB_REMOVE(xnap_peer_map, &inst->peers, peer);
-      inst->nb_peers--;
-      free(peer);
       /* TODO: release XNAP UE contexts using this link */
     }
   } else {
@@ -47,4 +42,258 @@ void xnap_handle_xn_setup_message(instance_t instance, xnap_gnb_inst_t *inst, xn
     XNAP_SETUP_IND(msg).assoc_id = peer->assoc_id;
     itti_send_msg_to_task(TASK_RRC_GNB, inst->instance, msg);
   }
+}
+
+typedef int (*xnap_message_decoded_callback)(instance_t instance,
+                                              sctp_assoc_t assoc_id,
+                                              uint32_t stream,
+                                              xnap_gnb_inst_t *inst,
+                                              xnap_peer_t *peer,
+                                              XNAP_XnAP_PDU_t *pdu);
+
+static int send_xn_setup_failure(instance_t instance, xnap_peer_t *peer, xnap_cause_group_t type, uint8_t value)
+{
+  const xnap_setup_failure_t fail = {.cause = {.type = type, .value = value}};
+  XNAP_XnAP_PDU_t *fail_pdu = encode_xn_setup_failure(&fail);
+  AssertFatal(fail_pdu != NULL, "[gNB %ld] encode_xn_setup_failure() failed\n", instance);
+  uint8_t *buffer = NULL;
+  uint32_t length = 0;
+  int rc = xnap_gNB_encode_pdu(fail_pdu, &buffer, &length);
+  ASN_STRUCT_FREE(asn_DEF_XNAP_XnAP_PDU, fail_pdu);
+  AssertFatal(rc == 0, "[gNB %ld] xnap_gNB_encode_pdu() failed for XnSetupFailure\n", instance);
+  xnap_gNB_itti_send_sctp_data(instance, peer->assoc_id, buffer, length, XNAP_NON_UE_STREAM_ID);
+  return -1;
+}
+
+static int xnap_gNB_handle_xn_setup_request(instance_t instance,
+                                             sctp_assoc_t assoc_id,
+                                             uint32_t stream,
+                                             xnap_gnb_inst_t *inst,
+                                             xnap_peer_t *peer,
+                                             XNAP_XnAP_PDU_t *pdu)
+{
+  UNUSED(assoc_id);
+  UNUSED(stream);
+
+  xnap_setup_req_t req = {0};
+  if (!decode_xn_setup_request(&req, pdu)) {
+    LOG_E(XNAP, "[gNB %ld] Failed to decode XnSetupRequest from assoc_id %d\n",
+          instance, peer->assoc_id);
+    return -1;
+  }
+
+  peer->remote_gnb_id = req.gNB_id;
+
+  /* Reject if the peer belongs to a different PLMN — most common failure
+   * in misconfigured or cross-operator deployments (TS 38.423 §8.3.5) */
+  const plmn_id_t *peer_plmn  = &req.plmn;
+  const plmn_id_t *local_plmn = &inst->setup_info.plmn;
+  if (peer_plmn->mcc != local_plmn->mcc || peer_plmn->mnc != local_plmn->mnc) {
+    LOG_W(XNAP, "[gNB %ld] XnSetupRequest from assoc_id %d (gNB_id 0x%x): "
+          "PLMN mismatch (peer MCC/MNC %u/%u, local %u/%u) — rejecting\n",
+          instance, peer->assoc_id, peer->remote_gnb_id,
+          peer_plmn->mcc, peer_plmn->mnc, local_plmn->mcc, local_plmn->mnc);
+    free_xnap_setup_request(&req);
+    return send_xn_setup_failure(instance, peer, XNAP_CAUSE_MISC, XNAP_CAUSE_MISC_O_AND_M_INTERVENTION);
+  }
+
+  free_xnap_setup_request(&req);
+
+  LOG_I(XNAP, "[gNB %ld] XnSetupRequest from peer assoc_id %d (gNB_id 0x%x) — sending XnSetupResponse\n",
+        instance, peer->assoc_id, peer->remote_gnb_id);
+
+  xnap_setup_resp_t resp = {
+    .gNB_id      = inst->setup_info.gNB_id,
+    .plmn        = inst->setup_info.plmn,
+    .num_tai     = inst->setup_info.num_tai,
+    .tai_support = inst->setup_info.tai_support,
+  };
+
+  XNAP_XnAP_PDU_t *resp_pdu = encode_xn_setup_response(&resp);
+  AssertFatal(resp_pdu != NULL, "[gNB %ld] encode_xn_setup_response() failed\n", instance);
+
+  uint8_t *buffer = NULL;
+  uint32_t length = 0;
+  int rc = xnap_gNB_encode_pdu(resp_pdu, &buffer, &length);
+  ASN_STRUCT_FREE(asn_DEF_XNAP_XnAP_PDU, resp_pdu);
+  AssertFatal(rc == 0, "[gNB %ld] xnap_gNB_encode_pdu() failed for XnSetupResponse\n", instance);
+
+  xnap_gNB_itti_send_sctp_data(instance, peer->assoc_id, buffer, length, XNAP_NON_UE_STREAM_ID);
+
+  /* Xn interface is now active from our side — notify RRC */
+  xnap_handle_xn_setup_message(instance, inst, peer, 0);
+  return 0;
+}
+
+static int xnap_gNB_handle_xn_setup_response(instance_t instance,
+                                              sctp_assoc_t assoc_id,
+                                              uint32_t stream,
+                                              xnap_gnb_inst_t *inst,
+                                              xnap_peer_t *peer,
+                                              XNAP_XnAP_PDU_t *pdu)
+{
+  UNUSED(assoc_id);
+  UNUSED(stream);
+
+  xnap_setup_resp_t resp = {0};
+  if (!decode_xn_setup_response(&resp, pdu)) {
+    LOG_E(XNAP, "[gNB %ld] Failed to decode XnSetupResponse from assoc_id %d\n",
+          instance, peer->assoc_id);
+    return -1;
+  }
+
+  peer->remote_gnb_id = resp.gNB_id;
+  free_xnap_setup_response(&resp);
+
+  xnap_handle_xn_setup_message(instance, inst, peer, 0);
+  return 0;
+}
+
+static const char *xnap_cause_group2str(xnap_cause_group_t t)
+{
+  switch (t) {
+    case XNAP_CAUSE_RADIO_NETWORK: return "radioNetwork";
+    case XNAP_CAUSE_TRANSPORT:     return "transport";
+    case XNAP_CAUSE_PROTOCOL:      return "protocol";
+    case XNAP_CAUSE_MISC:          return "misc";
+    default:                       return "unknown";
+  }
+}
+
+static int xnap_gNB_handle_xn_setup_failure(instance_t instance,
+                                             sctp_assoc_t assoc_id,
+                                             uint32_t stream,
+                                             xnap_gnb_inst_t *inst,
+                                             xnap_peer_t *peer,
+                                             XNAP_XnAP_PDU_t *pdu)
+{
+  UNUSED(assoc_id);
+  UNUSED(stream);
+
+  xnap_setup_failure_t fail = {0};
+  if (!decode_xn_setup_failure(&fail, pdu)) {
+    LOG_E(XNAP, "[gNB %ld] Failed to decode XnSetupFailure from assoc_id %d\n",
+          instance, peer->assoc_id);
+    return -1;
+  }
+
+  LOG_W(XNAP, "[gNB %ld] XnSetupFailure from peer assoc_id %d (gNB_id 0x%x): "
+        "cause %s value=%d — Xn interface not established\n",
+        instance, peer->assoc_id, peer->remote_gnb_id,
+        xnap_cause_group2str(fail.cause.type), fail.cause.value);
+
+  xnap_remove_peer(inst, peer);
+
+  free_xnap_setup_failure(&fail);
+  return 0;
+}
+
+/* Callback table
+ * Indexed by [procedureCode][direction-1]
+ * where direction is:  0 = initiatingMessage, 1 = successfulOutcome, 2 = unsuccessfulOutcome
+ * Procedure codes taken from XNAP_ProcedureCode.h (max value = 37 as per TS 38.423 v16.2.0)
+ */
+
+#define XNAP_NUM_PROC_CODES 38
+
+static const xnap_message_decoded_callback xnap_messages_callback[XNAP_NUM_PROC_CODES][3] = {
+  {0, 0, 0}, /*  0 handoverPreparation */
+  {0, 0, 0}, /*  1 sNStatusTransfer */
+  {0, 0, 0}, /*  2 handoverCancel */
+  {0, 0, 0}, /*  3 retrieveUEContext */
+  {0, 0, 0}, /*  4 rANPaging */
+  {0, 0, 0}, /*  5 xnUAddressIndication */
+  {0, 0, 0}, /*  6 uEContextRelease */
+  {0, 0, 0}, /*  7 sNGRANnodeAdditionPreparation */
+  {0, 0, 0}, /*  8 sNGRANnodeReconfigurationCompletion */
+  {0, 0, 0}, /*  9 mNGRANnodeinitiatedSNGRANnodeModificationPrep */
+  {0, 0, 0}, /* 10 sNGRANnodeinitiatedSNGRANnodeModificationPrep */
+  {0, 0, 0}, /* 11 mNGRANnodeinitiatedSNGRANnodeRelease */
+  {0, 0, 0}, /* 12 sNGRANnodeinitiatedSNGRANnodeRelease */
+  {0, 0, 0}, /* 13 sNGRANnodeCounterCheck */
+  {0, 0, 0}, /* 14 sNGRANnodeChange */
+  {0, 0, 0}, /* 15 rRCTransfer */
+  {0, 0, 0}, /* 16 xnRemoval */
+  {xnap_gNB_handle_xn_setup_request, xnap_gNB_handle_xn_setup_response, xnap_gNB_handle_xn_setup_failure}, /* 17 xnSetup */
+  {0, 0, 0}, /* 18 nGRANnodeConfigurationUpdate */
+  {0, 0, 0}, /* 19 cellActivation */
+  {0, 0, 0}, /* 20 reset */
+  {0, 0, 0}, /* 21 errorIndication */
+  {0, 0, 0}, /* 22 privateMessage */
+  {0, 0, 0}, /* 23 notificationControl */
+  {0, 0, 0}, /* 24 activityNotification */
+  {0, 0, 0}, /* 25 e_UTRA_NR_CellResourceCoordination */
+  {0, 0, 0}, /* 26 secondaryRATDataUsageReport */
+  {0, 0, 0}, /* 27 deactivateTrace */
+  {0, 0, 0}, /* 28 traceStart */
+  {0, 0, 0}, /* 29 handoverSuccess */
+  {0, 0, 0}, /* 30 conditionalHandoverCancel */
+  {0, 0, 0}, /* 31 earlyStatusTransfer */
+  {0, 0, 0}, /* 32 failureIndication */
+  {0, 0, 0}, /* 33 handoverReport */
+  {0, 0, 0}, /* 34 resourceStatusReportingInitiation */
+  {0, 0, 0}, /* 35 resourceStatusReporting */
+  {0, 0, 0}, /* 36 mobilitySettingsChange */
+  {0, 0, 0}, /* 37 accessAndMobilityIndication */
+};
+
+static const char *xnap_direction2str(int dir)
+{
+  static const char *const s[] = {"", "initiatingMessage", "successfulOutcome", "unsuccessfulOutcome"};
+  return (dir >= 0 && dir <= 3) ? s[dir] : "unknown";
+}
+
+int xnap_gNB_handle_message(instance_t instance, sctp_assoc_t assoc_id, uint32_t stream, const uint8_t *buf, uint32_t len)
+{
+  xnap_gnb_inst_t *inst = xnap_get_inst(instance);
+  AssertFatal(inst != NULL, "Xn instance %ld not found\n", instance);
+
+  xnap_peer_t *peer = xnap_get_peer_by_assoc(inst, assoc_id);
+  if (peer == NULL) {
+    LOG_E(XNAP, "[gNB %ld] xnap_gNB_handle_message: no peer for assoc_id %d\n", instance, assoc_id);
+    return -1;
+  }
+
+  XNAP_XnAP_PDU_t pdu = {0};
+  XNAP_XnAP_PDU_t *pdu_p = &pdu;
+  asn_codec_ctx_t st = {.max_stack_size = 100 * 1000};
+  asn_dec_rval_t dec = aper_decode(&st, &asn_DEF_XNAP_XnAP_PDU, (void **)&pdu_p, buf, len, 0, 0);
+  if (dec.code != RC_OK) {
+    LOG_E(XNAP, "[gNB %ld] Failed to decode XnAP PDU from assoc_id %d\n", instance, assoc_id);
+    return -1;
+  }
+
+  long proc_code;
+  switch (pdu.present) {
+    case XNAP_XnAP_PDU_PR_initiatingMessage:
+      proc_code = pdu.choice.initiatingMessage->procedureCode;
+      break;
+    case XNAP_XnAP_PDU_PR_successfulOutcome:
+      proc_code = pdu.choice.successfulOutcome->procedureCode;
+      break;
+    case XNAP_XnAP_PDU_PR_unsuccessfulOutcome:
+      proc_code = pdu.choice.unsuccessfulOutcome->procedureCode;
+      break;
+    default:
+      LOG_E(XNAP, "[gNB %ld] [SCTP %d] invalid PDU direction %d\n", instance, assoc_id, pdu.present);
+      ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_XNAP_XnAP_PDU, &pdu);
+      return -1;
+  }
+
+  if (proc_code >= XNAP_NUM_PROC_CODES || proc_code < 0) {
+    LOG_E(XNAP, "[gNB %ld] [SCTP %d] procedureCode %ld out of range\n", instance, assoc_id, proc_code);
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_XNAP_XnAP_PDU, &pdu);
+    return -1;
+  }
+
+  const xnap_message_decoded_callback cb = xnap_messages_callback[proc_code][pdu.present - 1];
+  if (cb == NULL) {
+    LOG_W(XNAP, "[gNB %ld] [SCTP %d] No handler for procedureCode %ld in %s\n", instance, assoc_id, proc_code, xnap_direction2str(pdu.present));
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_XNAP_XnAP_PDU, &pdu);
+    return 0;
+  }
+
+  int ret = cb(instance, assoc_id, stream, inst, peer, &pdu);
+  ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_XNAP_XnAP_PDU, &pdu);
+  return ret;
 }

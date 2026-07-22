@@ -180,6 +180,13 @@ static void xnap_gNB_handle_sctp_close_association(instance_t instance, const sc
   xnap_remove_peer(inst, peer);
 }
 
+/* To handle all the messages coming through Xn interface through call back table */
+static void xnap_gNB_handle_sctp_data_ind(instance_t instance, sctp_data_ind_t *ind)
+{
+  xnap_gNB_handle_message(instance, ind->assoc_id, ind->stream, ind->buffer, ind->buffer_length);
+  itti_free(TASK_UNKNOWN, ind->buffer);
+}
+
 void *xnap_task(void *args)
 {
   UNUSED(args);
@@ -212,6 +219,10 @@ void *xnap_task(void *args)
 
       case SCTP_CLOSE_ASSOCIATION:
         xnap_gNB_handle_sctp_close_association(instance, &SCTP_CLOSE_ASSOCIATION(msg));
+        break;
+
+      case SCTP_DATA_IND:
+        xnap_gNB_handle_sctp_data_ind(instance, &SCTP_DATA_IND(msg));
         break;
 
       default:
