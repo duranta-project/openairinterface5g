@@ -62,6 +62,18 @@ RB_PROTOTYPE(xnap_peer_map, xnap_peer_s, entry, xnap_peer_compare);
 
 xnap_gnb_inst_t *getCxtXn(instance_t instance);
 
+/* Lookup by real assoc_id (used after SCTP connects). */
+xnap_peer_t *getXnPeerByAssoc(xnap_gnb_inst_t *inst, sctp_assoc_t assoc_id);
+
+/* Lookup by cnx_id (used before SCTP connects, e.g. on SCTP_NEW_ASSOCIATION). */
+xnap_peer_t *getXnPeerByCnxId(xnap_gnb_inst_t *inst, uint16_t cnx_id);
+
+/* Transition a peer from cnx_id-keyed to assoc_id-keyed:
+ * removes from tree, sets assoc_id, re-inserts. */
+void xnap_peer_set_assoc_id(xnap_gnb_inst_t *inst, xnap_peer_t *peer, sctp_assoc_t assoc_id);
+
 void createXninst(instance_t instance, xnap_setup_req_t *setup_info, xnap_net_config_t *net_config);
+
+#define XNAP_NON_UE_STREAM_ID 0
 
 #endif /* XNAP_COMMON_H_ */

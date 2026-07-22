@@ -33,6 +33,25 @@ xnap_gnb_inst_t *getCxtXn(instance_t instance)
   return xnap_inst[instance];
 }
 
+xnap_peer_t *getXnPeerByAssoc(xnap_gnb_inst_t *inst, sctp_assoc_t assoc_id)
+{
+  xnap_peer_t temp = {.assoc_id = assoc_id};
+  return RB_FIND(xnap_peer_map, &inst->peers, &temp);
+}
+
+xnap_peer_t *getXnPeerByCnxId(xnap_gnb_inst_t *inst, uint16_t cnx_id)
+{
+  xnap_peer_t temp = {.assoc_id = -1, .cnx_id = cnx_id};
+  return RB_FIND(xnap_peer_map, &inst->peers, &temp);
+}
+
+void xnap_peer_set_assoc_id(xnap_gnb_inst_t *inst, xnap_peer_t *peer, sctp_assoc_t assoc_id)
+{
+  RB_REMOVE(xnap_peer_map, &inst->peers, peer);
+  peer->assoc_id = assoc_id;
+  RB_INSERT(xnap_peer_map, &inst->peers, peer);
+}
+
 void createXninst(instance_t instance, xnap_setup_req_t *setup_info, xnap_net_config_t *net_config)
 {
   AssertFatal(instance < sizeofArray(xnap_inst), "instance %ld exceeds limit\n", instance);
