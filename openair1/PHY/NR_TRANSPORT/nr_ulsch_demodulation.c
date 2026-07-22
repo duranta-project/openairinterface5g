@@ -20,6 +20,9 @@
 #include "utils.h"
 #include <openair1/PHY/TOOLS/phy_scope_interface.h>
 #include "PHY/sse_intrin.h"
+#if defined(__riscv) && defined(__riscv_vector)
+#include <riscv_vector.h>
+#endif
 #include "T.h"
 #include "T_messages_creator.h"
 #include <sys/time.h>
