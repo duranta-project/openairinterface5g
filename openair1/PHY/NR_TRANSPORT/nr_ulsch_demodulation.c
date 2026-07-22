@@ -28,7 +28,7 @@ static void copy_c16_data_to_slot_memory(c16_t *src, c16_t *dst_slot, int nb_re_
 }
 #endif
 
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__riscv)
 
 void nr_idft(int32_t *z, uint32_t Msc_PUSCH)
 {

@@ -544,14 +544,16 @@ void init_fft(uint16_t size,
               uint16_t *rev);
 
 
-#ifdef __aarch64__
+#if defined(__aarch64__) || defined(__riscv)
 
 /*
- * Legacy DFT/IDFT sizes for AArch64.
+ * Legacy DFT/IDFT sizes for AArch64 and RISC-V.
  *
  * Keep the previous implementation on ARM64 because some of the newly
  * generated DFT/IDFT functions are not implemented for this
- * architecture.
+ * architecture. RISC-V rides the same legacy size set: its transforms
+ * live in oai_dfts_rvv.c (RVV kernels for the pow-2 sizes, legacy SIMDe
+ * for the rest) and do not implement the newly generated x86 sizes.
  */
 
 #define FOREACH_DFTSZ(SZ_DEF) \

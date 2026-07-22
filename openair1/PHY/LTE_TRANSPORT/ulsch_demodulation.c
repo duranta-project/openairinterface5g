@@ -22,7 +22,7 @@
 static const short jitter[8]  __attribute__ ((aligned(16))) = {1,0,0,1,0,1,1,0};
 static const short jitterc[8] __attribute__ ((aligned(16))) = {0,1,1,0,1,0,0,1};
 
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__riscv)
 
 void lte_idft(LTE_DL_FRAME_PARMS *frame_parms,
               uint32_t *z,

@@ -539,7 +539,7 @@ void nr_ue_layer_mapping(const c16_t *mod_symbs, const int n_layers, const int n
     }
   }
 }
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__riscv)
 
 void nr_dft(c16_t *z, c16_t *d, uint32_t Msc_PUSCH)
 {

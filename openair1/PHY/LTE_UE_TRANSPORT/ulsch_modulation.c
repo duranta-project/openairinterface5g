@@ -19,7 +19,7 @@
 
 //#define DEBUG_ULSCH_MODULATION
 
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__riscv)
 
 void dft_lte(int32_t *z,
              struct complex16 *input,
