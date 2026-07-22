@@ -79,14 +79,24 @@ static void fourstep_double(const cd *in, cd *out, int N, int N1, int N2, int s)
 /* ================= fixed-point (int16 Q15) 4-step -- the RVV oracle ================= */
 typedef struct { int16_t r, i; } c16;
 static int16_t sat16(int32_t v){ return v>32767?32767:(v<-32768?-32768:(int16_t)v); }
-/* d * w >> 15 (Q15 w), saturating; matches vnclip RDN + the Stockham cmul */
-static c16 cmul15(c16 d, c16 w){
-  int32_t re=((int32_t)d.r*w.r - (int32_t)d.i*w.i)>>15;
-  int32_t im=((int32_t)d.r*w.i + (int32_t)d.i*w.r)>>15;
-  return (c16){ sat16(re), sat16(im) };
-}
 static int16_t sadd(int16_t a,int16_t b){ return sat16((int32_t)a+b); }
 static int16_t ssub(int16_t a,int16_t b){ return sat16((int32_t)a-b); }
+/* --- improved scaling: fold the per-stage radix-4 1/2 gain into a single
+ * round-to-nearest (RNU) at >>16 (keeps the twiddle at full Q15 precision),
+ * and round (not floor) the DC halving. Matches vnclip RNU / vssra RNU. --- */
+static int16_t rsra1(int16_t x){ return (int16_t)(((int32_t)x + 1) >> 1); }   /* round(x/2), ties up */
+/* d * w * 1/2, round-to-nearest: ((d*w) + 2^15) >> 16 */
+static c16 cmul16(c16 d, c16 w){
+  int32_t re=(((int32_t)d.r*w.r - (int32_t)d.i*w.i) + 32768)>>16;
+  int32_t im=(((int32_t)d.r*w.i + (int32_t)d.i*w.r) + 32768)>>16;
+  return (c16){ sat16(re), sat16(im) };
+}
+/* d * w (unit twiddle), round-to-nearest >>15 (no scaling) -- step-B / radix-2 */
+static c16 cmul15n(c16 d, c16 w){
+  int32_t re=(((int32_t)d.r*w.r - (int32_t)d.i*w.i) + 16384)>>15;
+  int32_t im=(((int32_t)d.r*w.i + (int32_t)d.i*w.r) + 16384)>>15;
+  return (c16){ sat16(re), sat16(im) };
+}
 
 /* sub-FFT twiddles: per size M, per stage (log4 M), per bf (M/4), 3 complex Q15.
  * Step-B twiddles: [N1][N2]. Built once for the tested N. sign folded in. */
@@ -139,11 +149,10 @@ static void subfft_fx(c16 *a, c16 *b, int M, int B, int which, int s){
         c16 e02r={ ssub(x0.r,x2.r), ssub(x0.i,x2.i) };
         c16 d1={ sadd(e02r.r, ssub(jx1.r,jx3.r)), sadd(e02r.i, ssub(jx1.i,jx3.i)) };
         c16 d3={ ssub(e02r.r, ssub(jx1.r,jx3.r)), ssub(e02r.i, ssub(jx1.i,jx3.i)) };
-        c16 t1=cmul15(d1,w1), t2=cmul15(d2,w2), t3=cmul15(d3,w3);
-        b[(bf)*B+c]        =(c16){(int16_t)(d0.r>>1),(int16_t)(d0.i>>1)};
-        b[(bf+M/4)*B+c]    =(c16){(int16_t)(t1.r>>1),(int16_t)(t1.i>>1)};
-        b[(bf+2*(M/4))*B+c]=(c16){(int16_t)(t2.r>>1),(int16_t)(t2.i>>1)};
-        b[(bf+3*(M/4))*B+c]=(c16){(int16_t)(t3.r>>1),(int16_t)(t3.i>>1)};
+        b[(bf)*B+c]        =(c16){rsra1(d0.r),rsra1(d0.i)};
+        b[(bf+M/4)*B+c]    =cmul16(d1,w1);
+        b[(bf+2*(M/4))*B+c]=cmul16(d2,w2);
+        b[(bf+3*(M/4))*B+c]=cmul16(d3,w3);
       }
     }
     c16 *t=a; a=b; b=t;
@@ -157,7 +166,7 @@ static void fourstep_fx(const c16 *in, c16 *out, int N, int N1, int N2){
   subfft_fx(A,B,N1,N2,0,g_s);                 /* DFT along n1; result in A if np even */
   if (g_subnp[0]&1){ c16*t=A;A=B;B=t; }        /* if odd passes, result is in B */
   for (int k1=0;k1<N1;k1++) for(int n2=0;n2<N2;n2++)
-    A[k1*N2+n2]=cmul15(A[k1*N2+n2], g_btw[k1*N2+n2]);
+    A[k1*N2+n2]=cmul15n(A[k1*N2+n2], g_btw[k1*N2+n2]);
   for (int k1=0;k1<N1;k1++) for(int n2=0;n2<N2;n2++) At[n2*N1+k1]=A[k1*N2+n2];  /* transpose */
   subfft_fx(At,B,N2,N1,1,g_s);
   if (g_subnp[1]&1){ memcpy(out,B,sizeof(c16)*N); } else memcpy(out,At,sizeof(c16)*N);
@@ -189,8 +198,8 @@ static void radix2_fx(const c16 *in, c16 *out, int N, int M1, int M2){
   for (int n=0;n<M;n++){
     c16 sm={ sadd(in[n].r,in[n+M].r), sadd(in[n].i,in[n+M].i) };
     c16 df={ ssub(in[n].r,in[n+M].r), ssub(in[n].i,in[n+M].i) };
-    a[n]=cmul15(sm,g_r2c);
-    b[n]=cmul15(df,g_r2tw[n]);
+    a[n]=cmul15n(sm,g_r2c);
+    b[n]=cmul15n(df,g_r2tw[n]);
   }
   fourstep_fx(a,A,M,M1,M2);
   fourstep_fx(b,B,M,M1,M2);
@@ -208,6 +217,7 @@ static void radix2_fx(const c16 *in, c16 *out, int N, int M1, int M2){
 #define SUB(a,b) __riscv_vssub_vv_i16mf2((a),(b),vl)
 #define NEG(a) __riscv_vneg_v_i16mf2((a),vl)
 #define SRA1(a) __riscv_vsra_vx_i16mf2((a),1,vl)
+#define RSRA1(a) __riscv_vssra_vx_i16mf2((a),1,__RISCV_VXRM_RNU,vl) /* round(x/2) */
 #define ST2(p,re,im) __riscv_vsseg2e16_v_i16mf2x2((p),__riscv_vcreate_v_i16mf2x2((re),(im)),vl)
 static void subfft_rvv(c16 *a, c16 *b, int M, int B, int which, int s){
   int np=g_subnp[which], M4=M/4;
@@ -229,12 +239,13 @@ static void subfft_rvv(c16 *a, c16 *b, int M, int B, int which, int s){
         else   { j1r=x1i; j1i=NEG(x1r); j3r=x3i; j3i=NEG(x3r); }
         V16 er=SUB(x0r,x2r), ei=SUB(x0i,x2i), fr=SUB(j1r,j3r), fi=SUB(j1i,j3i);
         V16 d1r=ADD(er,fr), d1i=ADD(ei,fi), d3r=SUB(er,fr), d3i=SUB(ei,fi);
-        ST2(B0+o, SRA1(d0r), SRA1(d0i));
+        ST2(B0+o, RSRA1(d0r), RSRA1(d0i));
+        /* fold the radix-4 1/2 into a single RNU round at >>16 (twiddle stays full Q15) */
         #define TW(DR,DI,W,DST) do{ \
           vint32m1_t re=__riscv_vsub_vv_i32m1(__riscv_vwmul_vx_i32m1(DR,(W).r,vl),__riscv_vwmul_vx_i32m1(DI,(W).i,vl),vl); \
           vint32m1_t im=__riscv_vadd_vv_i32m1(__riscv_vwmul_vx_i32m1(DR,(W).i,vl),__riscv_vwmul_vx_i32m1(DI,(W).r,vl),vl); \
-          V16 rr=__riscv_vnclip_wx_i16mf2(re,15,__RISCV_VXRM_RDN,vl), ii=__riscv_vnclip_wx_i16mf2(im,15,__RISCV_VXRM_RDN,vl); \
-          ST2(DST+o, SRA1(rr), SRA1(ii)); }while(0)
+          V16 rr=__riscv_vnclip_wx_i16mf2(re,16,__RISCV_VXRM_RNU,vl), ii=__riscv_vnclip_wx_i16mf2(im,16,__RISCV_VXRM_RNU,vl); \
+          ST2(DST+o, rr, ii); }while(0)
         TW(d1r,d1i,w1,B1); TW(d2r,d2i,w2,B2); TW(d3r,d3i,w3,B3);
         #undef TW
         c+=(int)vl;
@@ -252,7 +263,7 @@ static void twiddle_rvv(c16 *A, const c16 *W, int rows, int B){
       V16 ar=GET(Xa,0),ai=GET(Xa,1),wr=GET(Xw,0),wi=GET(Xw,1);
       vint32m1_t re=__riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(ar,wr,vl),__riscv_vwmul_vv_i32m1(ai,wi,vl),vl);
       vint32m1_t im=__riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(ar,wi,vl),__riscv_vwmul_vv_i32m1(ai,wr,vl),vl);
-      ST2(po+o, __riscv_vnclip_wx_i16mf2(re,15,__RISCV_VXRM_RDN,vl), __riscv_vnclip_wx_i16mf2(im,15,__RISCV_VXRM_RDN,vl));
+      ST2(po+o, __riscv_vnclip_wx_i16mf2(re,15,__RISCV_VXRM_RNU,vl), __riscv_vnclip_wx_i16mf2(im,15,__RISCV_VXRM_RNU,vl));
       c+=(int)vl;
     }
   }
@@ -291,14 +302,14 @@ static void radix2_rvv(const c16 *in, c16 *out, int N, int M1, int M2){
     V16 lr=GET(Xl,0),li=GET(Xl,1),hr=GET(Xh,0),hi=GET(Xh,1);
     V16 sr=ADD(lr,hr), si=ADD(li,hi), dr=SUB(lr,hr), di=SUB(li,hi);
     /* a = sum * 1/sqrt2 (real constant) */
-    V16 ar=__riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(sr,ONE_OVER_SQRT2_Q15,vl),15,__RISCV_VXRM_RDN,vl);
-    V16 ai=__riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(si,ONE_OVER_SQRT2_Q15,vl),15,__RISCV_VXRM_RDN,vl);
+    V16 ar=__riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(sr,ONE_OVER_SQRT2_Q15,vl),15,__RISCV_VXRM_RNU,vl);
+    V16 ai=__riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(si,ONE_OVER_SQRT2_Q15,vl),15,__RISCV_VXRM_RNU,vl);
     ST2(pa+o, ar, ai);
     /* b = diff * (W_N^{s*n} scaled by 1/sqrt2) */
     vint16mf2x2_t W=LD2(wr2+o); V16 wrr=GET(W,0),wii=GET(W,1);
     vint32m1_t bre=__riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(dr,wrr,vl),__riscv_vwmul_vv_i32m1(di,wii,vl),vl);
     vint32m1_t bim=__riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(dr,wii,vl),__riscv_vwmul_vv_i32m1(di,wrr,vl),vl);
-    ST2(pb+o, __riscv_vnclip_wx_i16mf2(bre,15,__RISCV_VXRM_RDN,vl), __riscv_vnclip_wx_i16mf2(bim,15,__RISCV_VXRM_RDN,vl));
+    ST2(pb+o, __riscv_vnclip_wx_i16mf2(bre,15,__RISCV_VXRM_RNU,vl), __riscv_vnclip_wx_i16mf2(bim,15,__RISCV_VXRM_RNU,vl));
     n+=(int)vl;
   }
   fourstep_rvv(r2a,r2A,M,M1,M2);
@@ -331,13 +342,14 @@ static double snr_fx(const c16 *a, const cd *b, int N){  /* a fixed vs b double 
 int main(int argc, char **argv){
   int cpu = argc>1 ? atoi(argv[1]) : -1;
   if (cpu>=0){ if(cpu>7) use_ai(); pin_cpu(cpu); }
+  int amp = argc>2 ? atoi(argv[2]) : 8000;   /* input amplitude (headroom probe) */
   struct { int N, N1, N2; } cfg[] = { {64,4,16}, {256,16,16}, {1024,16,64}, {4096,64,64} };
   int allok = 1;
   for (unsigned t = 0; t < sizeof(cfg)/sizeof(cfg[0]); t++){
     int N = cfg[t].N, N1 = cfg[t].N1, N2 = cfg[t].N2;
     cd *x = malloc(sizeof(cd)*N), *ref = malloc(sizeof(cd)*N), *got = malloc(sizeof(cd)*N), *xd = malloc(sizeof(cd)*N);
     c16 *xi = malloc(sizeof(c16)*N), *goti = malloc(sizeof(c16)*N), *gotr = malloc(sizeof(c16)*N);
-    for (int i = 0; i < N; i++){ x[i].r = rnd(); x[i].i = rnd(); xi[i]=(c16){(int16_t)(x[i].r*8000),(int16_t)(x[i].i*8000)}; xd[i]=(cd){xi[i].r,xi[i].i}; }
+    for (int i = 0; i < N; i++){ x[i].r = rnd(); x[i].i = rnd(); xi[i]=(c16){(int16_t)(x[i].r*amp),(int16_t)(x[i].i*amp)}; xd[i]=(cd){xi[i].r,xi[i].i}; }
     for (int s = 1; s >= -1; s -= 2){
       dft_naive(x, ref, N, s);
       fourstep_double(x, got, N, N1, N2, s);
@@ -373,7 +385,7 @@ int main(int argc, char **argv){
     int N = r2cfg[t].N, M = N/2, M1 = r2cfg[t].M1, M2 = r2cfg[t].M2;
     cd *ref = malloc(sizeof(cd)*N), *xd = malloc(sizeof(cd)*N);
     c16 *xi = malloc(sizeof(c16)*N), *goti = malloc(sizeof(c16)*N), *gotr = malloc(sizeof(c16)*N);
-    for (int i = 0; i < N; i++){ double r=rnd(), im=rnd(); xi[i]=(c16){(int16_t)(r*8000),(int16_t)(im*8000)}; xd[i]=(cd){xi[i].r,xi[i].i}; }
+    for (int i = 0; i < N; i++){ double r=rnd(), im=rnd(); xi[i]=(c16){(int16_t)(r*amp),(int16_t)(im*amp)}; xd[i]=(cd){xi[i].r,xi[i].i}; }
     for (int s = 1; s >= -1; s -= 2){
       dft_naive(xd, ref, N, s);
       double inv = 1.0/sqrt((double)N);
