@@ -494,6 +494,15 @@ void nr_scale_channel(int size, int ch_estimates_ext[][size], int symb, uint32_t
 {
   for (int l = 0; l < nrOfLayers; l++) {
     for (int aarx = 0; aarx < nb_rx; aarx++) {
+#if defined(__riscv) && defined(__riscv_vector)
+      /* arithmetic >>shift_ch_ext on each int16 component (re,im) in place */
+      int16_t *p = (int16_t *)&ch_estimates_ext[l * nb_rx + aarx][symb * len];
+      for (int n = 0; n < 2 * (int)len;) {
+        size_t vl = __riscv_vsetvl_e16m1(2 * len - n);
+        __riscv_vse16_v_i16m1(p + n, __riscv_vsra_vx_i16m1(__riscv_vle16_v_i16m1(p + n, vl), shift_ch_ext, vl), vl);
+        n += (int)vl;
+      }
+#else
       simde__m128i *ul_ch128 = (simde__m128i *)&ch_estimates_ext[l * nb_rx + aarx][symb * len];
       int loop_end = len >> 2;
       for (int i = 0; i < loop_end; i++) {
@@ -505,6 +514,7 @@ void nr_scale_channel(int size, int ch_estimates_ext[][size], int symb, uint32_t
         c16_t *temp = ((c16_t *)ul_ch128) + j;
         *temp = c16Shift(*temp, shift_ch_ext);
       }
+#endif
     }
   }
 }
