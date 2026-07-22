@@ -9,6 +9,8 @@
 #include "common/utils/ds/byte_array.h"
 #include "nr_rrc_defs.h"
 
+RB_PROTOTYPE(rrc_xn_cand_tree, rrc_xn_candidate_s, entry, rrc_xn_candidate_cmp);
+
 /* forward declarations */
 typedef struct gNB_RRC_INST_s gNB_RRC_INST;
 typedef struct gNB_RRC_UE_s gNB_RRC_UE_t;
@@ -96,6 +98,9 @@ byte_array_t *get_meas_timing_config(const NR_MeasurementTimingConfiguration_t *
 void nr_rrc_apply_target_context(gNB_RRC_UE_t *UE);
 
 bool nr_rrc_update_cell_assoc_after_ho(gNB_RRC_UE_t *UE);
+
+void rrc_add_xn_candidate(gNB_RRC_INST *rrc, uint32_t gnb_id, sctp_assoc_t assoc_id);
+void rrc_remove_xn_candidate(gNB_RRC_INST *rrc, uint32_t gnb_id);
 
 const nr_neighbour_cell_t *get_neighbour_cell_by_pci(const neighbour_cell_configuration_t *cell, int pci);
 void nr_HO_F1_trigger_telnet(gNB_RRC_INST *rrc, uint32_t rrc_ue_id);

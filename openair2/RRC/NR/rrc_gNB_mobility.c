@@ -26,6 +26,48 @@
 #include "openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_rc_extern.h"
 #endif
 
+/* ------------------------------ Xn candidate tree ----------------------------------------*/
+int rrc_xn_candidate_cmp(struct rrc_xn_candidate_s *a, struct rrc_xn_candidate_s *b)
+{
+  if (a->gnb_id < b->gnb_id) return -1;
+  if (a->gnb_id > b->gnb_id) return  1;
+  return 0;
+}
+
+RB_GENERATE(rrc_xn_cand_tree, rrc_xn_candidate_s, entry, rrc_xn_candidate_cmp);
+
+void rrc_add_xn_candidate(gNB_RRC_INST *rrc, uint32_t gnb_id, sctp_assoc_t assoc_id)
+{
+  /* Update assoc_id if the gNB_id is already registered (reconnect). */
+  rrc_xn_candidate_t key = {.gnb_id = gnb_id};
+  rrc_xn_candidate_t *existing = RB_FIND(rrc_xn_cand_tree, &rrc->xn_candidates, &key);
+  if (existing) {
+    existing->assoc_id = assoc_id;
+    LOG_I(NR_RRC, "Xn candidate gNB_id 0x%x updated (assoc_id %d)\n", gnb_id, assoc_id);
+    return;
+  }
+
+  rrc_xn_candidate_t *cand = calloc_or_fail(1, sizeof(*cand));
+  cand->gnb_id   = gnb_id;
+  cand->assoc_id = assoc_id;
+  RB_INSERT(rrc_xn_cand_tree, &rrc->xn_candidates, cand);
+  LOG_I(NR_RRC, "Xn candidate gNB_id 0x%x registered (assoc_id %d)\n", gnb_id, assoc_id);
+}
+
+void rrc_remove_xn_candidate(gNB_RRC_INST *rrc, uint32_t gnb_id)
+{
+  rrc_xn_candidate_t key = {.gnb_id = gnb_id};
+  rrc_xn_candidate_t *cand = RB_FIND(rrc_xn_cand_tree, &rrc->xn_candidates, &key);
+  if (!cand) {
+    LOG_W(NR_RRC, "Xn candidate gNB_id 0x%x not found for removal\n", gnb_id);
+    return;
+  }
+  RB_REMOVE(rrc_xn_cand_tree, &rrc->xn_candidates, cand);
+  free(cand);
+  LOG_I(NR_RRC, "Xn candidate gNB_id 0x%x removed (peer disconnected)\n", gnb_id);
+}
+/* ----------------------------------------------------------------------------------------- */
+
 nr_handover_context_t *alloc_ho_ctx(ho_ctx_type_t type)
 {
   nr_handover_context_t *ho_ctx = calloc_or_fail(1, sizeof(*ho_ctx));
