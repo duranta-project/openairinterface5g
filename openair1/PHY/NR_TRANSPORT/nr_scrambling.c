@@ -4,6 +4,9 @@
 
 #include "nr_transport_common_proto.h"
 #include "PHY/NR_REFSIG/nr_refsig.h"
+#if defined(__riscv) && defined(__riscv_vector)
+#include <riscv_vector.h>
+#endif
 #define DEBUG_SCRAMBLING(a)
 //#define DEBUG_SCRAMBLING(a) a
 void nr_codeword_scrambling(uint8_t *in,
@@ -42,7 +45,20 @@ void nr_codeword_unscrambling(int16_t* llr, uint32_t size, uint8_t q, uint32_t N
 {
   const int roundedSz = (size + 31) / 32;
   uint32_t *seq = gold_cache((n_RNTI << 15) + (q << 14) + Nid, roundedSz);
-#if defined(__x86_64__) || defined(__i386__) || defined(__arm__) || defined(__aarch64__)
+#if defined(__riscv) && defined(__riscv_vector)
+  /* negate llr[i] where scramble bit i is set: the gold sequence is a packed
+   * bit array -> load it straight into a mask register (vlm) and masked-vneg.
+   * VLMAX (VLEN/16) is a multiple of 8 so bits+i/8 stays byte-aligned. */
+  const uint8_t *bits = (const uint8_t *)seq;
+  for (uint32_t i = 0; i < size;) {
+    size_t vl = __riscv_vsetvl_e16m1(size - i);
+    vbool16_t m = __riscv_vlm_v_b16(bits + i / 8, vl);
+    vint16m1_t v = __riscv_vle16_v_i16m1(llr + i, vl);
+    v = __riscv_vneg_v_i16m1_mu(m, v, v, vl);
+    __riscv_vse16_v_i16m1(llr + i, v, vl);
+    i += (uint32_t)vl;
+  }
+#elif defined(__x86_64__) || defined(__i386__) || defined(__arm__) || defined(__aarch64__)
   simde__m128i *llr128 = (simde__m128i*)llr;
   for (int i = 0, j = 0; i < roundedSz; i++, j += 4) {
     uint8_t *s8 = (uint8_t *)(seq + i);
@@ -63,6 +79,20 @@ void nr_codeword_unscrambling_init(int16_t *s2, uint32_t size, uint8_t q, uint32
 {
   const int roundedSz = (size + 31) / 32;
   uint32_t *seq = gold_cache((n_RNTI << 15) + (q << 14) + Nid, roundedSz);
+#if defined(__riscv) && defined(__riscv_vector)
+  /* expand the packed gold bits to a +/-1 int16 sequence: s2[i] = bit i ? -1 : 1
+   * (so a later llr*s2 multiply descrambles). vlm mask + masked vneg of a ones
+   * vector. Fills [0,size); the consumer reads at most `size` entries. */
+  const uint8_t *bits = (const uint8_t *)seq;
+  for (uint32_t i = 0; i < size;) {
+    size_t vl = __riscv_vsetvl_e16m1(size - i);
+    vbool16_t m = __riscv_vlm_v_b16(bits + i / 8, vl);
+    vint16m1_t ones = __riscv_vmv_v_x_i16m1(1, vl);
+    vint16m1_t pm1 = __riscv_vneg_v_i16m1_mu(m, ones, ones, vl);
+    __riscv_vse16_v_i16m1(s2 + i, pm1, vl);
+    i += (uint32_t)vl;
+  }
+#else
   simde__m128i *s128=(simde__m128i *)s2;
   for (int i = 0; i < roundedSz; i++) {
     uint8_t *s8 = (uint8_t *)(seq + i);
@@ -71,4 +101,5 @@ void nr_codeword_unscrambling_init(int16_t *s2, uint32_t size, uint8_t q, uint32
     *s128++ = byte2m128i[s8[2]];
     *s128++ = byte2m128i[s8[3]];
   }
+#endif
 }
