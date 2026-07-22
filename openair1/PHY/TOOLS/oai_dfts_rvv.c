@@ -272,16 +272,15 @@ static int16_t *stk_subfft(const stk_plan_t *pl, int dir, int which, int s, int 
         vint16mf2_t d1r = __riscv_vsadd_vv_i16mf2(er, fr, vl), d1i = __riscv_vsadd_vv_i16mf2(ei, fi, vl);
         vint16mf2_t d3r = __riscv_vssub_vv_i16mf2(er, fr, vl), d3i = __riscv_vssub_vv_i16mf2(ei, fi, vl);
         __riscv_vsseg2e16_v_i16mf2x2(B0 + o, __riscv_vcreate_v_i16mf2x2(
-            __riscv_vsra_vx_i16mf2(d0r, sh, vl), __riscv_vsra_vx_i16mf2(d0i, sh, vl)), vl);
+            __riscv_vssra_vx_i16mf2(d0r, sh, __RISCV_VXRM_RNU, vl), __riscv_vssra_vx_i16mf2(d0i, sh, __RISCV_VXRM_RNU, vl)), vl);
 #define STK_TW(DR, DI, WI, DST)                                                                                   \
   do {                                                                                                            \
     int16_t wr = w[2 * (WI)], wi = w[2 * (WI) + 1];                                                               \
     vint32m1_t re = __riscv_vsub_vv_i32m1(__riscv_vwmul_vx_i32m1(DR, wr, vl), __riscv_vwmul_vx_i32m1(DI, wi, vl), vl); \
     vint32m1_t im = __riscv_vadd_vv_i32m1(__riscv_vwmul_vx_i32m1(DR, wi, vl), __riscv_vwmul_vx_i32m1(DI, wr, vl), vl); \
-    vint16mf2_t rr = __riscv_vnclip_wx_i16mf2(re, 15, __RISCV_VXRM_RDN, vl);                                      \
-    vint16mf2_t ii = __riscv_vnclip_wx_i16mf2(im, 15, __RISCV_VXRM_RDN, vl);                                      \
-    __riscv_vsseg2e16_v_i16mf2x2((DST) + o, __riscv_vcreate_v_i16mf2x2(                                           \
-        __riscv_vsra_vx_i16mf2(rr, sh, vl), __riscv_vsra_vx_i16mf2(ii, sh, vl)), vl);                             \
+    vint16mf2_t rr = __riscv_vnclip_wx_i16mf2(re, 15 + sh, __RISCV_VXRM_RNU, vl);                                 \
+    vint16mf2_t ii = __riscv_vnclip_wx_i16mf2(im, 15 + sh, __RISCV_VXRM_RNU, vl);                                 \
+    __riscv_vsseg2e16_v_i16mf2x2((DST) + o, __riscv_vcreate_v_i16mf2x2(rr, ii), vl);                              \
   } while (0)
         STK_TW(d1r, d1i, 0, B1); STK_TW(d2r, d2i, 1, B2); STK_TW(d3r, d3i, 2, B3);
 #undef STK_TW
@@ -307,7 +306,7 @@ static void stk_twiddle(const stk_plan_t *pl, int dir, int16_t *A, int N)
     vint32m1_t re = __riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(ar, wr, vl), __riscv_vwmul_vv_i32m1(ai, wi, vl), vl);
     vint32m1_t im = __riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(ar, wi, vl), __riscv_vwmul_vv_i32m1(ai, wr, vl), vl);
     __riscv_vsseg2e16_v_i16mf2x2(A + o, __riscv_vcreate_v_i16mf2x2(
-        __riscv_vnclip_wx_i16mf2(re, 15, __RISCV_VXRM_RDN, vl), __riscv_vnclip_wx_i16mf2(im, 15, __RISCV_VXRM_RDN, vl)), vl);
+        __riscv_vnclip_wx_i16mf2(re, 15, __RISCV_VXRM_RNU, vl), __riscv_vnclip_wx_i16mf2(im, 15, __RISCV_VXRM_RNU, vl)), vl);
     i += vl;
   }
 }
@@ -376,8 +375,8 @@ static void stk_run2(int N, const int16_t *in16, int16_t *out16, int scale, int 
     vint16mf2_t dr = __riscv_vssub_vv_i16mf2(lr, hr, vl), di = __riscv_vssub_vv_i16mf2(li, hi, vl);
     vint16mf2_t ar, ai;
     if (scale) {
-      ar = __riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(sr, STK_SQRT2INV, vl), 15, __RISCV_VXRM_RDN, vl);
-      ai = __riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(si, STK_SQRT2INV, vl), 15, __RISCV_VXRM_RDN, vl);
+      ar = __riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(sr, STK_SQRT2INV, vl), 15, __RISCV_VXRM_RNU, vl);
+      ai = __riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(si, STK_SQRT2INV, vl), 15, __RISCV_VXRM_RNU, vl);
     } else {
       ar = sr;
       ai = si;
@@ -388,7 +387,7 @@ static void stk_run2(int N, const int16_t *in16, int16_t *out16, int scale, int 
     vint32m1_t bre = __riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(dr, wr, vl), __riscv_vwmul_vv_i32m1(di, wi, vl), vl);
     vint32m1_t bim = __riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(dr, wi, vl), __riscv_vwmul_vv_i32m1(di, wr, vl), vl);
     __riscv_vsseg2e16_v_i16mf2x2(b + o, __riscv_vcreate_v_i16mf2x2(
-        __riscv_vnclip_wx_i16mf2(bre, 15, __RISCV_VXRM_RDN, vl), __riscv_vnclip_wx_i16mf2(bim, 15, __RISCV_VXRM_RDN, vl)), vl);
+        __riscv_vnclip_wx_i16mf2(bre, 15, __RISCV_VXRM_RNU, vl), __riscv_vnclip_wx_i16mf2(bim, 15, __RISCV_VXRM_RNU, vl)), vl);
     n += (int)vl;
   }
   stk_run(M, a, Ao, scale, fwd);
