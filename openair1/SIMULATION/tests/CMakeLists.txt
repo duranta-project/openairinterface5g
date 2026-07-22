@@ -224,6 +224,16 @@ add_physim_test(physim.5g.nr_ulsim.misc.test12 "32 PRBs, 120 kHz SCS" nr_ulsim -
 add_physim_test(physim.5g.nr_ulsim.misc.test13 "MCS 0, low SNR performance" nr_ulsim -P -n300 -m0 -S -0.6 -i 1,0)
 add_physim_test(physim.5g.nr_ulsim.misc.test14 "MCS 28, 106 PRBs, Time shift 8" nr_ulsim -P -n300 -m28 -R106 -r106 -t90 -s24 -S24 -d 8)
 add_physim_test(physim.5g.nr_ulsim.misc.test15 "SRS, SNR 40 dB" nr_ulsim -P -n300 -s40 -E 1)
+
+if(UCI_PUSCH_VECTOR_DIR)
+  set(_uci_vector "${UCI_PUSCH_VECTOR_DIR}/uci_on_pusch_oack3_ocsi14_ocsi24.bin")
+  if(EXISTS "${_uci_vector}")
+    add_physim_test(physim.5g.nr_ulsim.misc.test16 "UCI on PUSCH codeword check against MATLAB vector" nr_ulsim -P -m27 -u1 -R51 -r51 -o${_uci_vector})
+  else()
+    message(WARNING "UCI_PUSCH_VECTOR_DIR set but vector not found at ${_uci_vector}; skipping UCI-on-PUSCH test")
+  endif()
+endif()
+
 add_physim_test(physim.5g.nr_ulsim.sc-fdma.test1 "SC-FDMA, 50 PRBs" nr_ulsim -P -n300 -s5 -Z)
 add_physim_test(physim.5g.nr_ulsim.sc-fdma.test2 "SC-FDMA, 75 PRBs" nr_ulsim -P -n300 -s5 -Z -r75)
 add_physim_test(physim.5g.nr_ulsim.sc-fdma.test3 "SC-FDMA, 216 PRBs" nr_ulsim -P -n150 -s5 -Z -r216 -R217)
