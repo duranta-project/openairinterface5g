@@ -110,7 +110,9 @@ uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
     uint16_t n_RNTI = dci_pdu->RNTI;
     uint16_t Nid    = dci_pdu->ScramblingId;
     uint16_t scrambling_RNTI = dci_pdu->ScramblingRNTI;
-    polar_encoder_fast((uint64_t*)dci_pdu->Payload, (void*)encoder_output, n_RNTI, 1,
+    uint64_t p;
+    memcpy(&p, dci_pdu->Payload, sizeof(p));
+    polar_encoder_fast(&p, (void*)encoder_output, n_RNTI, 1,
                        NR_POLAR_SCI_MESSAGE_TYPE,
                        dci_pdu->PayloadSizeBits, dci_pdu->AggregationLevel);
 #ifdef DEBUG_CHANNEL_CODING
