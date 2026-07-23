@@ -556,7 +556,8 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue, int frame_rx, int slot_rx, int SLSCH
   sl_rx_indication.sfn = proc->frame_rx;
   sl_rx_indication.slot = proc->nr_slot_rx;
   sl_rx_indication.rx_indication_body[0].rx_slsch_pdu.ack_nack_rcvd = (uint8_t*)calloc(num_acks, sizeof(uint8_t));
-  memcpy((void*)sl_rx_indication.rx_indication_body[0].rx_slsch_pdu.ack_nack_rcvd, (void*)ack_nack_rcvd,
+  if (ack_nack_rcvd)
+    memcpy(sl_rx_indication.rx_indication_body[0].rx_slsch_pdu.ack_nack_rcvd, ack_nack_rcvd,
          num_acks * sizeof(uint8_t));
   sl_rx_indication.rx_indication_body[0].rx_slsch_pdu.num_acks_rcvd = num_acks;
   uint8_t pdu_type = phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH ? SL_NR_RX_PDU_TYPE_SLSCH_PSFCH : SL_NR_RX_PDU_TYPE_SLSCH;
