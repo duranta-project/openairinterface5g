@@ -264,14 +264,19 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
     }
   }
 
-  int ret_decoder = UE->nrLDPC_coding_interface.nrLDPC_coding_decoder(&slot_parameters);
+  // nrLDPC_coding_decoder() always returns 0 and signals per-segment success via
+  // decodeSuccess; count the successfully decoded segments here so the caller can
+  // tell whether the transport block was received correctly.
+  UE->nrLDPC_coding_interface.nrLDPC_coding_decoder(&slot_parameters);
 
   // post decode
   uint32_t offset = 0, r_offset = 0;
+  int nb_decoded_segments = 0;
   for (int r = 0; r < TB.C; r++) {
     uint32_t seg_len = (harq_process->K >> 3) - (harq_process->F >> 3) - ((harq_process->C > 1) ? 3 : 0);
     if (TB.decodeSuccess[r]) {
       memcpy(harq_process->b + offset, harq_process->c + r_offset, seg_len);
+      nb_decoded_segments++;
     } else {
       LOG_D(PHY, "Segment %d/%d in error\n", r, TB.C);
     }
@@ -284,5 +289,7 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
 
   harq_process->harq_to_be_cleared = false;
 
-  return ret_decoder;
+  // Return the number of correctly decoded code segments (== C on full success,
+  // 0 on failure) so nr_slsch_procedures()' nbDecode>0 test is meaningful.
+  return nb_decoded_segments;
 }
