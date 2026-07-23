@@ -1,12 +1,11 @@
 /*
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  *
- * Sidelink PSCCH + PSSCH transmit -> receive loopback unit test (DIAGNOSTIC).
+ * Sidelink PSCCH + PSSCH transmit -> receive loopback unit test.
  *
  * Two UEs (UE_TX, UE_RX) are created with the real production init path
- * (configure_NR_UE + configure_SL_UE).  The real production TX/RX PHY
- * functions are called UNCHANGED; NOTHING under openair1/PHY, SCHED_NR_UE,
- * openair2 or nfapi is modified.
+ * (configure_NR_UE + configure_SL_UE) and the real production TX/RX PHY
+ * functions are exercised end to end.
  *
  *   TX  : nr_generate_sci1()  (PSCCH SCI-1A)
  *         nr_ue_slsch_procedures()  (SCI-2 + SLSCH on PSSCH)
@@ -16,20 +15,15 @@
  *         txdataF is copied verbatim into rxdataF (no OFDM (de)modulation),
  *         then nr_rx_pssch() + nr_slsch_procedures() are called and the
  *         decoded transport block is compared with the transmitted one.
- *         => EXPECTED to PASS.
  *
  *   PSCCH RX (time-domain loopback, because pdcch_processing() runs its own
  *         OFDM FEP from ue->common_vars.rxdata):
  *         txdataF is OFDM-modulated to time domain, copied into the RX UE
  *         rxdata, and the real RX_PSCCH branch (pdcch_processing()) is run.
  *         The decoded SCI-1A is captured through a minimal if_inst.
- *         => EXPECTED to FAIL (0 SCIs / wrong payload) because of a known
- *            scrambling-seed bug in production: TX nr_sci_scrambling() uses
- *            (scrambling_RNTI<<15)+Nid while RX nr_pdcch_unscrambling() uses
- *            (rnti<<16)+n_id.  This is reported, not treated as a harness
- *            error.
  *
- * All results are printed with the "[SCISIM]" prefix.
+ * Both stages are expected to PASS. All results are printed with the
+ * "[SCISIM]" prefix.
  */
 
 #include <stdio.h>
@@ -64,6 +58,7 @@
 #include "openair1/SIMULATION/TOOLS/sim.h"
 #include "NR_SL-SSB-TimeAllocation-r16.h"
 #include "executables/nr-uesoftmodem.h"
+#include "common/utils/threadPool/thread-pool.h"
 
 // nr_slsch_procedures() is a public function of the SL scheduler lib but has no
 // public header declaration; declare it here to call it directly.
@@ -189,7 +184,7 @@ static void configure_SL_UE(PHY_VARS_NR_UE *UE, int mu, int N_RB, int ssb_offset
   config->sl_carrier_config.sl_bandwidth = N_RB;
   config->sl_carrier_config.sl_grid_size = 106;
   config->sl_sync_source.rx_slss_id = slss_id;
-  config->sl_DMRS_ScrambleId = 100; // DIAGNOSTIC: match RX coreset.pdcch_dmrs_scrambling_id
+  config->sl_DMRS_ScrambleId = 100; // must match RX coreset.pdcch_dmrs_scrambling_id
 
   sl_init_frame_parameters(UE);
   sl_ue_phy_init(UE);
@@ -214,7 +209,10 @@ int main(int argc, char **argv)
     exit_fun("[SCISIM] configuration module init failed\n");
   }
   logInit();
-  set_glog(OAILOG_INFO);
+  set_glog(OAILOG_INFO); // set_glog(OAILOG_DEBUG) for verbose PHY traces
+  // LDPC (SLSCH) decoding dispatches segment decode tasks to this threadpool;
+  // without worker threads the tasks never run and decoding always "fails".
+  initFloatingCoresTpool(1, &nrUE_params.Tpool, false, "UE-tpool");
   randominit();
   nr_generate_modulation_table();
 
@@ -278,6 +276,11 @@ int main(int argc, char **argv)
   // ------------------------------- set-up UEs --------------------------
   UE_TX = calloc(1, sizeof(PHY_VARS_NR_UE));
   UE_RX = calloc(1, sizeof(PHY_VARS_NR_UE));
+  // Must be set before configure_SL_UE(), which allocates the SLSCH HARQ
+  // processes (new_gNB_ulsch) and captures max_ldpc_iterations; 0 => the LDPC
+  // decoder runs no iterations and never decodes.
+  UE_TX->max_ldpc_iterations = 5;
+  UE_RX->max_ldpc_iterations = 5;
   configure_NR_UE(UE_TX, mu, N_RB);
   configure_SL_UE(UE_TX, mu, N_RB, 0, 0xFFFF);
   configure_NR_UE(UE_RX, mu, N_RB);
@@ -394,7 +397,7 @@ int main(int argc, char **argv)
   rx_sci->mod_order           = mod_order;
   rx_sci->num_layers          = num_layers;
   rx_sci->dmrs_symbol_position = dmrs_symbol_position;
-  rx_sci->Nid                 = phy_data_tx.pscch_Nid; // DIAGNOSTIC: taken from TX
+  rx_sci->Nid                 = phy_data_tx.pscch_Nid;
   rx_sci->startrb             = startrb;
   rx_sci->pscch_numsym        = pscch_numsym;
   rx_sci->pscch_numrbs        = pscch_numrbs;
@@ -424,6 +427,7 @@ int main(int argc, char **argv)
   int16_t *llrs = UE_RX->pssch_vars[0].llr;
 
   nr_rx_pssch(UE_RX, &proc, &phy_data_rx, rxFSz, rxdataF, llrs, 0, frame, slot, harq_pid);
+
   int nbDecode = nr_slsch_procedures(UE_RX, frame, slot, 0, &proc, &phy_data_rx, NULL, 0);
 
   uint8_t *b_rx = UE_RX->slsch[0].harq_process->b;
@@ -504,15 +508,11 @@ int main(int argc, char **argv)
   printf("\n");
   int pscch_pass = sci1_match;
   printf("[SCISIM] ===== PSCCH/SCI-1A %s =====\n", pscch_pass ? "PASS" : "FAIL");
-  if (!pscch_pass)
-    printf("[SCISIM] NOTE: PSCCH failure is EXPECTED (known production scrambling-seed bug:\n"
-           "[SCISIM]       TX nr_sci_scrambling uses (scrambling_RNTI<<15)+Nid,\n"
-           "[SCISIM]       RX nr_pdcch_unscrambling uses (rnti<<16)+n_id). Not a harness error.\n");
 
   // ------------------------------- summary -----------------------------
-  printf("[SCISIM] SUMMARY: PSSCH/SLSCH=%s  PSCCH/SCI-1A=%s (expected FAIL)\n",
+  printf("[SCISIM] SUMMARY: PSSCH/SLSCH=%s  PSCCH/SCI-1A=%s\n",
          pssch_pass ? "PASS" : "FAIL", pscch_pass ? "PASS" : "FAIL");
 
   free(tb_ref);
-  return pssch_pass ? 0 : 1;
+  return (pssch_pass && pscch_pass) ? 0 : 1;
 }
