@@ -302,7 +302,7 @@ void sl_generate_sss(SL_NR_UE_INIT_PARAMS_t *sl_init_params, uint16_t slss_id, u
   n_sl_id1 = slss_id % 336;
   n_sl_id2 = slss_id / 336;
 
-  LOG_D(PHY, "SIDELINK INIT: SSS Generation with N_SL_id1:%d N_SL_id2:%d\n", n_sl_id1, n_sl_id2);
+  //LOG_D(PHY, "SIDELINK INIT: SSS Generation with N_SL_id1:%d N_SL_id2:%d\n", n_sl_id1, n_sl_id2);
 
 #ifdef SL_DEBUG_INIT
   printf("SIDELINK: SSS Generation with slss_id:%d, N_SL_id1:%d, N_SL_id2:%d\n", slss_id, n_sl_id1, n_sl_id2);

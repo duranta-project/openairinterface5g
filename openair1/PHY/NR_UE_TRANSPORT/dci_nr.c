@@ -548,7 +548,7 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
           *sci = (sl_nr_sci_indication_pdu_t){
           .sci_format_type = SL_SCI_FORMAT_1A_ON_PSCCH,
           .subch_index = 0,
-          .pscch_rsrp = *rsrp_dBm,
+          .pscch_rsrp = 0, //*rsrp_dBm,
           .sci_payloadlen =  dci_length,
           .Nid = Nid
 	  };
