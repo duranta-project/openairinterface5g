@@ -207,6 +207,55 @@ static void radix2_fx(const c16 *in, c16 *out, int N, int M1, int M2){
   free(a);free(b);free(A);free(B);
 }
 
+/* ================= radix-3 wrapper (N = 3*M) =================
+ * One radix-3 DIF stage over N wrapping the inner M-DFT on M=N/3 (M pow-4 ->
+ * 4-step; M=2*pow-4 -> radix-2 wrapper). Standard 3-point butterfly:
+ *   tsum=x1+x2, tdiff=x1-x2, a=x0-tsum/2, r3=(sqrt3/2)*tdiff
+ *   c0=x0+tsum; c1=a-/+j*r3; c2=a+/-j*r3   (sign per direction)
+ *   b0=c0*(1/sqrt3); b1=c1*W_N^{s*n}*(1/sqrt3); b2=c2*W_N^{2s*n}*(1/sqrt3)
+ *   out[3r+q] = DFT_M(b_q)[r]  (q=0,1,2 interleaved)
+ * total scale = 1/sqrt3 * 1/sqrt(M) = 1/sqrt(N). */
+#define ONE_OVER_SQRT3_Q15 18919
+#define SQRT3_2_Q15        28378   /* round(sqrt(3)/2 * 32768) */
+static c16 *g_r3tw1, *g_r3tw2;      /* [M] W_N^{s*n} and W_N^{2s*n}, pre-scaled by 1/sqrt3 */
+static const c16 g_r3c = { ONE_OVER_SQRT3_Q15, 0 };
+static void build_r3tw(int N, int s){
+  int M=N/3;
+  g_r3tw1=malloc(sizeof(c16)*M); g_r3tw2=malloc(sizeof(c16)*M);
+  for (int n=0;n<M;n++){
+    double a1=s*2.0*M_PI*(double)n/(double)N, a2=s*2.0*M_PI*(double)(2*n)/(double)N;
+    g_r3tw1[n]=(c16){ sat16((int32_t)lround(cos(a1)*ONE_OVER_SQRT3_Q15)), sat16((int32_t)lround(sin(a1)*ONE_OVER_SQRT3_Q15)) };
+    g_r3tw2[n]=(c16){ sat16((int32_t)lround(cos(a2)*ONE_OVER_SQRT3_Q15)), sat16((int32_t)lround(sin(a2)*ONE_OVER_SQRT3_Q15)) };
+  }
+}
+/* 3-point butterfly over M points -> b0,b1,b2 (with 1/sqrt3 + twiddle folded) */
+static void radix3_bfly_fx(const c16 *in, c16 *b0, c16 *b1, c16 *b2, int M, int s){
+  for (int n=0;n<M;n++){
+    c16 x0=in[n], x1=in[n+M], x2=in[n+2*M];
+    c16 tsum={ sadd(x1.r,x2.r), sadd(x1.i,x2.i) };
+    c16 tdif={ ssub(x1.r,x2.r), ssub(x1.i,x2.i) };
+    c16 a={ ssub(x0.r,rsra1(tsum.r)), ssub(x0.i,rsra1(tsum.i)) };
+    c16 r3=cmul15n(tdif,(c16){SQRT3_2_Q15,0});              /* (sqrt3/2)*tdiff */
+    c16 rot = s>0 ? (c16){ (int16_t)-r3.i, r3.r } : (c16){ r3.i, (int16_t)-r3.r };
+    c16 c0={ sadd(x0.r,tsum.r), sadd(x0.i,tsum.i) };
+    c16 c1={ sadd(a.r,rot.r), sadd(a.i,rot.i) };
+    c16 c2={ ssub(a.r,rot.r), ssub(a.i,rot.i) };
+    b0[n]=cmul15n(c0,g_r3c);
+    b1[n]=cmul15n(c1,g_r3tw1[n]);
+    b2[n]=cmul15n(c2,g_r3tw2[n]);
+  }
+}
+static void radix3_fx(const c16 *in, c16 *out, int N, int Mrad2, int M1, int M2){
+  int M=N/3;
+  c16 *b0=malloc(sizeof(c16)*M),*b1=malloc(sizeof(c16)*M),*b2=malloc(sizeof(c16)*M);
+  c16 *C0=malloc(sizeof(c16)*M),*C1=malloc(sizeof(c16)*M),*C2=malloc(sizeof(c16)*M);
+  radix3_bfly_fx(in,b0,b1,b2,M,g_s);
+  if (Mrad2){ radix2_fx(b0,C0,M,M1,M2); radix2_fx(b1,C1,M,M1,M2); radix2_fx(b2,C2,M,M1,M2); }
+  else      { fourstep_fx(b0,C0,M,M1,M2); fourstep_fx(b1,C1,M,M1,M2); fourstep_fx(b2,C2,M,M1,M2); }
+  for (int r=0;r<M;r++){ out[3*r]=C0[r]; out[3*r+1]=C1[r]; out[3*r+2]=C2[r]; }
+  free(b0);free(b1);free(b2);free(C0);free(C1);free(C2);
+}
+
 /* ================= RVV 4-step ================= */
 #if defined(__riscv) && defined(__riscv_vector)
 #include <riscv_vector.h>
@@ -323,6 +372,43 @@ static void radix2_rvv(const c16 *in, c16 *out, int N, int M1, int M2){
     r+=(int)vl;
   }
 }
+#define MULC15(V,K) __riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1((V),(K),vl),15,__RISCV_VXRM_RNU,vl)
+#define CMUL15(DR,DI,WR,WI,OR,OI) do{ \
+  vint32m1_t re=__riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(DR,WR,vl),__riscv_vwmul_vv_i32m1(DI,WI,vl),vl); \
+  vint32m1_t im=__riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(DR,WI,vl),__riscv_vwmul_vv_i32m1(DI,WR,vl),vl); \
+  OR=__riscv_vnclip_wx_i16mf2(re,15,__RISCV_VXRM_RNU,vl); OI=__riscv_vnclip_wx_i16mf2(im,15,__RISCV_VXRM_RNU,vl); }while(0)
+static c16 r3a[4096],r3b[4096],r3c[4096],r3A[4096],r3B[4096],r3C[4096];
+static void radix3_rvv(const c16 *in, c16 *out, int N, int Mrad2, int M1, int M2){
+  int M=N/3;
+  const int16_t *xr=(const int16_t*)in, *w1=(const int16_t*)g_r3tw1, *w2=(const int16_t*)g_r3tw2;
+  int16_t *pb0=(int16_t*)r3a,*pb1=(int16_t*)r3b,*pb2=(int16_t*)r3c;
+  for (int n=0;n<M;){
+    size_t vl=__riscv_vsetvl_e16mf2(M-n); int o=2*n;
+    vint16mf2x2_t X0=LD2(xr+o),X1=LD2(xr+2*M+o),X2=LD2(xr+4*M+o);
+    V16 x0r=GET(X0,0),x0i=GET(X0,1),x1r=GET(X1,0),x1i=GET(X1,1),x2r=GET(X2,0),x2i=GET(X2,1);
+    V16 sr=ADD(x1r,x2r),si=ADD(x1i,x2i),dr=SUB(x1r,x2r),di=SUB(x1i,x2i);
+    V16 ar=SUB(x0r,RSRA1(sr)),ai=SUB(x0i,RSRA1(si));
+    V16 r3r=MULC15(dr,SQRT3_2_Q15), r3i=MULC15(di,SQRT3_2_Q15);        /* sqrt3/2*tdiff */
+    V16 rotr,roti;
+    if(g_s>0){ rotr=NEG(r3i); roti=r3r; } else { rotr=r3i; roti=NEG(r3r); }
+    ST2(pb0+o, MULC15(ADD(x0r,sr),ONE_OVER_SQRT3_Q15), MULC15(ADD(x0i,si),ONE_OVER_SQRT3_Q15)); /* b0=c0/sqrt3 */
+    V16 c1r=ADD(ar,rotr),c1i=ADD(ai,roti),c2r=SUB(ar,rotr),c2i=SUB(ai,roti);
+    vint16mf2x2_t W1=LD2(w1+o); V16 b1r,b1i; CMUL15(c1r,c1i,GET(W1,0),GET(W1,1),b1r,b1i); ST2(pb1+o,b1r,b1i);
+    vint16mf2x2_t W2=LD2(w2+o); V16 b2r,b2i; CMUL15(c2r,c2i,GET(W2,0),GET(W2,1),b2r,b2i); ST2(pb2+o,b2r,b2i);
+    n+=(int)vl;
+  }
+  if(Mrad2){ radix2_rvv(r3a,r3A,M,M1,M2); radix2_rvv(r3b,r3B,M,M1,M2); radix2_rvv(r3c,r3C,M,M1,M2); }
+  else     { fourstep_rvv(r3a,r3A,M,M1,M2); fourstep_rvv(r3b,r3B,M,M1,M2); fourstep_rvv(r3c,r3C,M,M1,M2); }
+  uint32_t *dst=(uint32_t*)out;
+  const uint32_t *s0=(const uint32_t*)r3A,*s1=(const uint32_t*)r3B,*s2=(const uint32_t*)r3C;
+  for (int r=0;r<M;){                                     /* interleave out[3r+q]=Cq[r] */
+    size_t vl=__riscv_vsetvl_e32m1(M-r);
+    __riscv_vsse32_v_u32m1(dst+3*r,   12, __riscv_vle32_v_u32m1(s0+r,vl), vl);
+    __riscv_vsse32_v_u32m1(dst+3*r+1, 12, __riscv_vle32_v_u32m1(s1+r,vl), vl);
+    __riscv_vsse32_v_u32m1(dst+3*r+2, 12, __riscv_vle32_v_u32m1(s2+r,vl), vl);
+    r+=(int)vl;
+  }
+}
 #endif
 
 static double snr(const cd *a, const cd *b, int N){
@@ -407,6 +493,40 @@ int main(int argc, char **argv){
 #endif
       printf("\n");
       free(g_btw); free(g_r2tw);
+    }
+    free(ref); free(xd); free(xi); free(goti); free(gotr);
+  }
+  /* radix-3 sizes: N = 3*M (M pow-4 -> r4 inner; M=2*pow-4 -> r2 inner) */
+  struct { int N, Mrad2, M1, M2; } r3cfg[] = {
+    {192,0,4,16}, {768,0,16,16}, {3072,0,16,64}, {12288,0,64,64},
+    {384,1,4,16}, {1536,1,16,16}, {6144,1,16,64},
+  };
+  for (unsigned t = 0; t < sizeof(r3cfg)/sizeof(r3cfg[0]); t++){
+    int N = r3cfg[t].N, M = N/3, Mrad2 = r3cfg[t].Mrad2, M1 = r3cfg[t].M1, M2 = r3cfg[t].M2;
+    cd *ref = malloc(sizeof(cd)*N), *xd = malloc(sizeof(cd)*N);
+    c16 *xi = malloc(sizeof(c16)*N), *goti = malloc(sizeof(c16)*N), *gotr = malloc(sizeof(c16)*N);
+    for (int i = 0; i < N; i++){ double r=rnd(), im=rnd(); xi[i]=(c16){(int16_t)(r*amp),(int16_t)(im*amp)}; xd[i]=(cd){xi[i].r,xi[i].i}; }
+    for (int s = 1; s >= -1; s -= 2){
+      dft_naive(xd, ref, N, s);
+      double inv = 1.0/sqrt((double)N);
+      for (int i=0;i<N;i++){ ref[i].r*=inv; ref[i].i*=inv; }
+      if (Mrad2){ build_tables_fx(M/2,M1,M2,s); build_r2tw(M,s); } else { build_tables_fx(M,M1,M2,s); }
+      build_r3tw(N,s);
+      radix3_fx(xi, goti, N, Mrad2, M1, M2);
+      double rvv_snr = -999; int diff = -1; double us_rvv = 0;
+#if defined(__riscv) && defined(__riscv_vector)
+      radix3_rvv(xi, gotr, N, Mrad2, M1, M2);
+      diff = 0; for (int i=0;i<N;i++) if (gotr[i].r!=goti[i].r || gotr[i].i!=goti[i].i) diff++;
+      rvv_snr = snr_fx(gotr, ref, N);
+      { int R = 200; double t0=now_us(); for(int r=0;r<R;r++) radix3_rvv(xi,gotr,N,Mrad2,M1,M2); us_rvv=(now_us()-t0)/R; }
+#endif
+      printf("N=%5d (3x%d %s) s=%+d  fixed-vs-dbl=%.1fdB", N, M, Mrad2?"r2":"r4", s, snr_fx(goti, ref, N));
+#if defined(__riscv) && defined(__riscv_vector)
+      printf("  rvv-vs-fx diff=%d rvv-snr=%.1fdB  t_rvv=%.2fus", diff, rvv_snr, us_rvv);
+      if (diff!=0) allok = 0;
+#endif
+      printf("\n");
+      free(g_btw); free(g_r3tw1); free(g_r3tw2); if (Mrad2) free(g_r2tw);
     }
     free(ref); free(xd); free(xi); free(goti); free(gotr);
   }
