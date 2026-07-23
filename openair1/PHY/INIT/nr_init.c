@@ -115,7 +115,7 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
 
   crcTableInit();
   init_byte2m128i();
-  init_pucch2_luts();
+  init_pucch2_3_luts();
 
   nr_init_fde(); // Init array for frequency equalization of transform precoding of PUSCH
 

@@ -183,12 +183,12 @@ void nr_decode_pucch1(PHY_VARS_gNB *gNB,
                       nfapi_nr_pucch_pdu_t *pucch_pdu);
 
 
-void nr_decode_pucch2(PHY_VARS_gNB *gNB,
-                      c16_t **rxdataF,
-                      int frame,
-                      int slot,
-                      nfapi_nr_uci_pucch_pdu_format_2_3_4_t* uci_pdu,
-                      const nfapi_nr_pucch_pdu_t* pucch_pdu);
+void nr_decode_pucch2_3(PHY_VARS_gNB *gNB,
+                        c16_t **rxdataF,
+                        int frame,
+                        int slot,
+                        nfapi_nr_uci_pucch_pdu_format_2_3_4_t* uci_pdu,
+                        nfapi_nr_pucch_pdu_t* pucch_pdu);
 
 void nr_decode_pucch0(PHY_VARS_gNB *gNB,
                       c16_t **rxdataF,

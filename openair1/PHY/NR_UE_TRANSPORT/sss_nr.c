@@ -201,7 +201,6 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
   const int Nid2 = GET_NID2(pss->nid2);
   int16_t d_sss[N_ID_1_NUMBER][LENGTH_SSS_NR];
   init_context_sss_nr(AMP, Nid2, d_sss);
-
   pss_sss_extract_nr(params, pss_ext, sss_ext, rxdataF); /* subframe */
 
 #ifdef DEBUG_PLOT_SSS

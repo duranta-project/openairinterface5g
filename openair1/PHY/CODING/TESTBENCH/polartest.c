@@ -138,8 +138,8 @@ int main(int argc, char *argv[])
     coderLength = 108 * aggregation_level;
   } else if (polarMessageType == 2) { // UCI
     // pucch2 parameters, 1 symbol, aggregation_level = NPRB
-    AssertFatal(aggregation_level > 2, "For UCI formats, aggregation (N_RB) should be > 2\n");
-    coderLength = 16 * aggregation_level;
+    aggregation_level = 32*4;
+    coderLength = aggregation_level;
   }
 
   // Logging

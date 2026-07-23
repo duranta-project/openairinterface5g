@@ -53,6 +53,6 @@ void nr_codeword_unscrambling_init(int16_t *s, uint32_t size, uint8_t q, uint32_
 
 /**@}*/
 
-void init_pucch2_luts(void);
+void init_pucch2_3_luts(void);
 void set_prach_tables(int N_ZC, c16_t** ru, uint32_t** zc_inv);
 #endif
