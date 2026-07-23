@@ -214,12 +214,46 @@ static void stk_build_r2(stk_r2plan_t *pl, int N)
       }
     }
 }
+/* radix-3 sizes N = 3*M (M = N/3; M pow-4 -> inner stk_run, M = 2*pow-4 -> inner
+ * stk_run2). r3tw{1,2}[dir][scaled] = W_N^{s*n}, W_N^{2s*n} over [M], pre-scaled
+ * by 1/sqrt3 in the scaled variant. 1/sqrt3 * 1/sqrt(M) = 1/sqrt(N). */
+#define STK_SQRT3INV 18919  /* ONE_OVER_SQRT3_Q15 = round(32768/sqrt3) */
+#define STK_SQRT3_2  28378  /* round(sqrt(3)/2 * 32768) */
+static const struct { int N, Mrad2; } stk_r3cfg[] = {
+    {192, 0}, {768, 0}, {3072, 0}, {12288, 0}, {384, 1}, {1536, 1}, {6144, 1}};
+enum { STK_NR3 = sizeof(stk_r3cfg) / sizeof(stk_r3cfg[0]) };
+typedef struct { int N, M, Mrad2; int16_t *r3tw1[2][2], *r3tw2[2][2]; } stk_r3plan_t;
+static stk_r3plan_t stk_r3plans[STK_NR3];
+
+static void stk_build_r3(stk_r3plan_t *pl, int N, int Mrad2)
+{
+  int M = N / 3;
+  pl->N = N;
+  pl->M = M;
+  pl->Mrad2 = Mrad2;
+  for (int dir = 0; dir < 2; dir++)
+    for (int sc = 0; sc < 2; sc++) {
+      pl->r3tw1[dir][sc] = (int16_t *)malloc(sizeof(int16_t) * 2 * M);
+      pl->r3tw2[dir][sc] = (int16_t *)malloc(sizeof(int16_t) * 2 * M);
+      double mag = sc ? (double)STK_SQRT3INV : 32767.0, sgn = dir ? -1.0 : 1.0;
+      for (int n = 0; n < M; n++) {
+        double a1 = sgn * 2.0 * M_PI * (double)n / (double)N;
+        double a2 = sgn * 2.0 * M_PI * (double)(2 * n) / (double)N;
+        pl->r3tw1[dir][sc][2 * n] = stk_sat16((int32_t)lround(cos(a1) * mag));
+        pl->r3tw1[dir][sc][2 * n + 1] = stk_sat16((int32_t)lround(sin(a1) * mag));
+        pl->r3tw2[dir][sc][2 * n] = stk_sat16((int32_t)lround(cos(a2) * mag));
+        pl->r3tw2[dir][sc][2 * n + 1] = stk_sat16((int32_t)lround(sin(a2) * mag));
+      }
+    }
+}
 __attribute__((constructor)) static void stk_init(void)
 {
   for (int i = 0; i < STK_NPLAN; i++)
     stk_build(&stk_plans[i], stk_cfg[i].N, stk_cfg[i].N1, stk_cfg[i].N2);
   for (int i = 0; i < STK_NR2; i++)
     stk_build_r2(&stk_r2plans[i], stk_r2cfg[i].N);
+  for (int i = 0; i < STK_NR3; i++)
+    stk_build_r3(&stk_r3plans[i], stk_r3cfg[i].N, stk_r3cfg[i].Mrad2);
 }
 static const stk_plan_t *stk_get(int N)
 {
@@ -398,6 +432,89 @@ static void stk_run2(int N, const int16_t *in16, int16_t *out16, int scale, int 
     size_t vl = __riscv_vsetvl_e32m1(M - r);
     __riscv_vsse32_v_u32m1(dst + 2 * r, 8, __riscv_vle32_v_u32m1(sA + r, vl), vl);
     __riscv_vsse32_v_u32m1(dst + 2 * r + 1, 8, __riscv_vle32_v_u32m1(sB + r, vl), vl);
+    r += (int)vl;
+  }
+}
+static const stk_r3plan_t *stk_get_r3(int N)
+{
+  for (int i = 0; i < STK_NR3; i++)
+    if (stk_r3plans[i].N == N)
+      return &stk_r3plans[i];
+  return 0;
+}
+/* radix-3 (N = 3*M) transform: one 3-point DIF butterfly (unit-stride over M) ->
+ * b0/b1/b2, the inner M-DFT on each (stk_run pow-4 M, or stk_run2 for M=2*pow-4),
+ * then a stride-3 interleave store (out[3r+q]=Cq[r]). Per-call stack scratch. */
+static void stk_run3(int N, const int16_t *in16, int16_t *out16, int scale, int fwd)
+{
+  const stk_r3plan_t *pl = stk_get_r3(N);
+  int M = pl->M, dir = fwd ? 1 : 0;
+  const int16_t *w1 = pl->r3tw1[dir][scale ? 1 : 0], *w2 = pl->r3tw2[dir][scale ? 1 : 0];
+  int16_t b0[2 * STK_MAXM] __attribute__((aligned(32)));
+  int16_t b1[2 * STK_MAXM] __attribute__((aligned(32)));
+  int16_t b2[2 * STK_MAXM] __attribute__((aligned(32)));
+  int16_t C0[2 * STK_MAXM] __attribute__((aligned(32)));
+  int16_t C1[2 * STK_MAXM] __attribute__((aligned(32)));
+  int16_t C2[2 * STK_MAXM] __attribute__((aligned(32)));
+  for (int n = 0; n < M;) {
+    size_t vl = __riscv_vsetvl_e16mf2(M - n);
+    int o = 2 * n;
+    vint16mf2x2_t X0 = __riscv_vlseg2e16_v_i16mf2x2(in16 + o, vl);
+    vint16mf2x2_t X1 = __riscv_vlseg2e16_v_i16mf2x2(in16 + 2 * M + o, vl);
+    vint16mf2x2_t X2 = __riscv_vlseg2e16_v_i16mf2x2(in16 + 4 * M + o, vl);
+    vint16mf2_t x0r = __riscv_vget_v_i16mf2x2_i16mf2(X0, 0), x0i = __riscv_vget_v_i16mf2x2_i16mf2(X0, 1);
+    vint16mf2_t x1r = __riscv_vget_v_i16mf2x2_i16mf2(X1, 0), x1i = __riscv_vget_v_i16mf2x2_i16mf2(X1, 1);
+    vint16mf2_t x2r = __riscv_vget_v_i16mf2x2_i16mf2(X2, 0), x2i = __riscv_vget_v_i16mf2x2_i16mf2(X2, 1);
+    vint16mf2_t sr = __riscv_vsadd_vv_i16mf2(x1r, x2r, vl), si = __riscv_vsadd_vv_i16mf2(x1i, x2i, vl);
+    vint16mf2_t dr = __riscv_vssub_vv_i16mf2(x1r, x2r, vl), di = __riscv_vssub_vv_i16mf2(x1i, x2i, vl);
+    vint16mf2_t ar = __riscv_vssub_vv_i16mf2(x0r, __riscv_vssra_vx_i16mf2(sr, 1, __RISCV_VXRM_RNU, vl), vl);
+    vint16mf2_t ai = __riscv_vssub_vv_i16mf2(x0i, __riscv_vssra_vx_i16mf2(si, 1, __RISCV_VXRM_RNU, vl), vl);
+    vint16mf2_t r3r = __riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(dr, STK_SQRT3_2, vl), 15, __RISCV_VXRM_RNU, vl);
+    vint16mf2_t r3i = __riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(di, STK_SQRT3_2, vl), 15, __RISCV_VXRM_RNU, vl);
+    vint16mf2_t rotr, roti;
+    if (dir) { rotr = r3i; roti = __riscv_vneg_v_i16mf2(r3r, vl); }   /* forward (s=-1) */
+    else     { rotr = __riscv_vneg_v_i16mf2(r3i, vl); roti = r3r; }   /* inverse (s=+1) */
+    vint16mf2_t c1r = __riscv_vsadd_vv_i16mf2(ar, rotr, vl), c1i = __riscv_vsadd_vv_i16mf2(ai, roti, vl);
+    vint16mf2_t c2r = __riscv_vssub_vv_i16mf2(ar, rotr, vl), c2i = __riscv_vssub_vv_i16mf2(ai, roti, vl);
+    vint16mf2_t b0r, b0i;
+    if (scale) {
+      b0r = __riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(__riscv_vsadd_vv_i16mf2(x0r, sr, vl), STK_SQRT3INV, vl), 15, __RISCV_VXRM_RNU, vl);
+      b0i = __riscv_vnclip_wx_i16mf2(__riscv_vwmul_vx_i32m1(__riscv_vsadd_vv_i16mf2(x0i, si, vl), STK_SQRT3INV, vl), 15, __RISCV_VXRM_RNU, vl);
+    } else {
+      b0r = __riscv_vsadd_vv_i16mf2(x0r, sr, vl);
+      b0i = __riscv_vsadd_vv_i16mf2(x0i, si, vl);
+    }
+    __riscv_vsseg2e16_v_i16mf2x2(b0 + o, __riscv_vcreate_v_i16mf2x2(b0r, b0i), vl);
+    vint16mf2x2_t W1 = __riscv_vlseg2e16_v_i16mf2x2(w1 + o, vl);
+    vint16mf2_t w1r = __riscv_vget_v_i16mf2x2_i16mf2(W1, 0), w1i = __riscv_vget_v_i16mf2x2_i16mf2(W1, 1);
+    vint32m1_t b1re = __riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(c1r, w1r, vl), __riscv_vwmul_vv_i32m1(c1i, w1i, vl), vl);
+    vint32m1_t b1im = __riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(c1r, w1i, vl), __riscv_vwmul_vv_i32m1(c1i, w1r, vl), vl);
+    __riscv_vsseg2e16_v_i16mf2x2(b1 + o, __riscv_vcreate_v_i16mf2x2(
+        __riscv_vnclip_wx_i16mf2(b1re, 15, __RISCV_VXRM_RNU, vl), __riscv_vnclip_wx_i16mf2(b1im, 15, __RISCV_VXRM_RNU, vl)), vl);
+    vint16mf2x2_t W2 = __riscv_vlseg2e16_v_i16mf2x2(w2 + o, vl);
+    vint16mf2_t w2r = __riscv_vget_v_i16mf2x2_i16mf2(W2, 0), w2i = __riscv_vget_v_i16mf2x2_i16mf2(W2, 1);
+    vint32m1_t b2re = __riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(c2r, w2r, vl), __riscv_vwmul_vv_i32m1(c2i, w2i, vl), vl);
+    vint32m1_t b2im = __riscv_vadd_vv_i32m1(__riscv_vwmul_vv_i32m1(c2r, w2i, vl), __riscv_vwmul_vv_i32m1(c2i, w2r, vl), vl);
+    __riscv_vsseg2e16_v_i16mf2x2(b2 + o, __riscv_vcreate_v_i16mf2x2(
+        __riscv_vnclip_wx_i16mf2(b2re, 15, __RISCV_VXRM_RNU, vl), __riscv_vnclip_wx_i16mf2(b2im, 15, __RISCV_VXRM_RNU, vl)), vl);
+    n += (int)vl;
+  }
+  if (pl->Mrad2) {
+    stk_run2(M, b0, C0, scale, fwd);
+    stk_run2(M, b1, C1, scale, fwd);
+    stk_run2(M, b2, C2, scale, fwd);
+  } else {
+    stk_run(M, b0, C0, scale, fwd);
+    stk_run(M, b1, C1, scale, fwd);
+    stk_run(M, b2, C2, scale, fwd);
+  }
+  uint32_t *dst = (uint32_t *)out16;
+  const uint32_t *s0 = (const uint32_t *)C0, *s1 = (const uint32_t *)C1, *s2 = (const uint32_t *)C2;
+  for (int r = 0; r < M;) {   /* interleave out[3r+q]=Cq[r] */
+    size_t vl = __riscv_vsetvl_e32m1(M - r);
+    __riscv_vsse32_v_u32m1(dst + 3 * r, 12, __riscv_vle32_v_u32m1(s0 + r, vl), vl);
+    __riscv_vsse32_v_u32m1(dst + 3 * r + 1, 12, __riscv_vle32_v_u32m1(s1 + r, vl), vl);
+    __riscv_vsse32_v_u32m1(dst + 3 * r + 2, 12, __riscv_vle32_v_u32m1(s2 + r, vl), vl);
     r += (int)vl;
   }
 }
@@ -3555,6 +3672,9 @@ int16_t twa768[512],twb768[512];
 // 256 x 3
 void idft768(int16_t *input, int16_t *output, unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run3(768, input, output, scale, 0); return;
+#endif
   int i,i2,j;
   uint32_t tmp[3][256]__attribute__((aligned(32)));
   uint32_t tmpo[3][256] __attribute__((aligned(32)));
@@ -3604,6 +3724,9 @@ void idft768(int16_t *input, int16_t *output, unsigned char scale)
 
 void dft768(int16_t *input, int16_t *output, unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run3(768, input, output, scale, 1); return;
+#endif
   int i,i2,j;
   uint32_t tmp[3][256] __attribute__((aligned(32)));
   uint32_t tmpo[3][256] __attribute__((aligned(32)));
@@ -3667,6 +3790,9 @@ int16_t twa1536[1024],twb1536[1024];
 // 512 x 3
 void idft1536(int16_t *input, int16_t *output, unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run3(1536, input, output, scale, 0); return;
+#endif
   int i,i2,j;
   uint32_t tmp[3][512 ]__attribute__((aligned(32)));
   uint32_t tmpo[3][512] __attribute__((aligned(32)));
@@ -3716,6 +3842,9 @@ void idft1536(int16_t *input, int16_t *output, unsigned char scale)
 
 void dft1536(int16_t *input, int16_t *output, unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run3(1536, input, output, scale, 1); return;
+#endif
   int i,i2,j;
   uint32_t tmp[3][512] __attribute__((aligned(32)));
   uint32_t tmpo[3][512] __attribute__((aligned(32)));
@@ -3780,6 +3909,9 @@ int16_t twb3072[2048] __attribute__((aligned(32)));
 // 1024 x 3
 void dft3072(int16_t *input, int16_t *output,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run3(3072, input, output, scale, 1); return;
+#endif
   int i,i2,j;
   uint32_t tmp[3][1024] __attribute__((aligned(32)));
   uint32_t tmpo[3][1024] __attribute__((aligned(32)));
@@ -3828,6 +3960,9 @@ void dft3072(int16_t *input, int16_t *output,unsigned char scale)
 
 void idft3072(int16_t *input, int16_t *output,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run3(3072, input, output, scale, 0); return;
+#endif
   int i,i2,j;
   uint32_t tmp[3][1024]__attribute__((aligned(32)));
   uint32_t tmpo[3][1024] __attribute__((aligned(32)));
@@ -3880,6 +4015,9 @@ int16_t twb6144[4096] __attribute__((aligned(32)));
 
 void idft6144(int16_t *input, int16_t *output,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run3(6144, input, output, scale, 0); return;
+#endif
   int i,i2,j;
   uint32_t tmp[3][2048] __attribute__((aligned(32)));
   uint32_t tmpo[3][2048] __attribute__((aligned(32)));
@@ -3937,6 +4075,9 @@ void idft6144(int16_t *input, int16_t *output,unsigned char scale)
 
 void dft6144(int16_t *input, int16_t *output,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run3(6144, input, output, scale, 1); return;
+#endif
   int i,i2,j;
   uint32_t tmp[3][2048] __attribute__((aligned(32)));
   uint32_t tmpo[3][2048] __attribute__((aligned(32)));
@@ -4000,6 +4141,9 @@ int16_t twb12288[8192] __attribute__((aligned(32)));
 // 4096 x 3
 void dft12288(int16_t *input, int16_t *output,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run3(12288, input, output, scale, 1); return;
+#endif
   int i,i2,j;
   uint32_t tmp[3][4096] __attribute__((aligned(32)));
   uint32_t tmpo[3][4096] __attribute__((aligned(32)));
@@ -4059,6 +4203,9 @@ void dft12288(int16_t *input, int16_t *output,unsigned char scale)
 
 void idft12288(int16_t *input, int16_t *output,unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run3(12288, input, output, scale, 0); return;
+#endif
   int i,i2,j;
   uint32_t tmp[3][4096] __attribute__((aligned(32)));
   uint32_t tmpo[3][4096] __attribute__((aligned(32)));
@@ -5842,6 +5989,9 @@ static int16_t twc192[376]__attribute__((aligned(32)));
 
 void dft192(int16_t *x,int16_t *y,unsigned char scale_flag)
 {
+#if defined(__riscv_vector)
+  stk_run3(192, x, y, scale_flag, 1); return;
+#endif
 
   int i,j;
   simd_q15_t *x128=(simd_q15_t *)x;
@@ -6211,6 +6361,9 @@ static int16_t twc384[95*2*4];
 
 void dft384(int16_t *x,int16_t *y,unsigned char scale_flag)  // 96 x 4
 {
+#if defined(__riscv_vector)
+  stk_run3(384, x, y, scale_flag, 1); return;
+#endif
   int i,j;
   simd_q15_t *x128=(simd_q15_t *)x;
   simd_q15_t *y128=(simd_q15_t *)y;
@@ -6674,6 +6827,9 @@ static int16_t twb384i[256];
 // 128 x 3
 void idft384(int16_t *input, int16_t *output, unsigned char scale)
 {
+#if defined(__riscv_vector)
+  stk_run3(384, input, output, scale, 0); return;
+#endif
   int i,i2,j;
   uint32_t tmp[3][128]__attribute__((aligned(32)));
   uint32_t tmpo[3][128] __attribute__((aligned(32)));
