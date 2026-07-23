@@ -323,34 +323,34 @@ void nr_pssch_extract_rbs(int rxFSz,
   start_re = (frame_parms->first_carrier_offset + (rb_start + bwp_start) * NR_NB_SC_PER_RB)%frame_parms->ofdm_symbol_size;
   nb_re_pusch = NR_NB_SC_PER_RB * rb_size;
 
-  int nb_re_pusch2 = nb_re_pusch + (nb_re_pusch&7);
   for (aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
 
     rxF = &rxdataF[aarx][soffset+(symbol * frame_parms->ofdm_symbol_size)];
-    rxF_ext = &rxdataF_ext[aarx][symbol * nb_re_pusch2]; // [hna] rxdataF_ext isn't contiguous in order to solve an alignment problem ib llr computation in case of mod_order = 4, 6
+    // rxFext/chFext are per-symbol scratch buffers (indexed from 0), matching
+    // the channel compensation which reads them from offset 0.
+    rxF_ext = &rxdataF_ext[aarx][0];
     AssertFatal(soffset + (symbol * frame_parms->ofdm_symbol_size) + start_re < rxFSz, "rxF offset is greater than the buffer size\n");
-    AssertFatal(symbol * nb_re_pusch2 + nb_re_pusch < nb_re_pusch2 * frame_parms->symbols_per_slot, "Copied PUSCH data is more than rxF_ext size\n");
-    LOG_D(NR_PHY,"symbol %d : rxF energy %d\n",symbol,dB_fixed(signal_energy_nodc(rxF,frame_parms->ofdm_symbol_size))); 
+    LOG_D(NR_PHY,"symbol %d : rxF energy %d\n",symbol,dB_fixed(signal_energy_nodc(rxF,frame_parms->ofdm_symbol_size)));
     if (is_dmrs_symbol == 0) {
       if (start_re + nb_re_pusch <= frame_parms->ofdm_symbol_size) {
-        memcpy((void*)rxF_ext, (void*)&rxF[start_re*2], nb_re_pusch*sizeof(int32_t));
+        memcpy((void*)rxF_ext, (void*)&rxF[start_re], nb_re_pusch*sizeof(c16_t));
       } else {
         int neg_length = frame_parms->ofdm_symbol_size-start_re;
         int pos_length = nb_re_pusch-neg_length;
-        memcpy((void*)rxF_ext, (void*)&rxF[start_re*2], neg_length*sizeof(int32_t));
-        memcpy((void*)&rxF_ext[2*neg_length], (void*)rxF, pos_length*sizeof(int32_t));
+        memcpy((void*)rxF_ext, (void*)&rxF[start_re], neg_length*sizeof(c16_t));
+        memcpy((void*)&rxF_ext[neg_length], (void*)rxF, pos_length*sizeof(c16_t));
       }
 
       for (aatx = 0; aatx < nrOfLayers; aatx++) {
         ul_ch0 = (c16_t*)&pusch_vars->ul_ch_estimates[aatx*frame_parms->nb_antennas_rx + aarx][dmrs_symbol*frame_parms->ofdm_symbol_size]; // update channel estimates if new dmrs symbol are available
-        ul_ch0_ext = &chF_ext[aatx*frame_parms->nb_antennas_rx + aarx][symbol*nb_re_pusch2];
-        memcpy((void*)ul_ch0_ext, (void*)ul_ch0,nb_re_pusch*sizeof(int32_t));
+        ul_ch0_ext = &chF_ext[aatx*frame_parms->nb_antennas_rx + aarx][0];
+        memcpy((void*)ul_ch0_ext, (void*)ul_ch0,nb_re_pusch*sizeof(c16_t));
       }
     } else {
 
       for (aatx = 0; aatx < nrOfLayers; aatx++) {
         ul_ch0 = (c16_t*)&pusch_vars->ul_ch_estimates[aatx*frame_parms->nb_antennas_rx + aarx][dmrs_symbol*frame_parms->ofdm_symbol_size]; // update channel estimates if new dmrs symbol are available
-        ul_ch0_ext = &chF_ext[aatx*frame_parms->nb_antennas_rx + aarx][symbol*nb_re_pusch2];
+        ul_ch0_ext = &chF_ext[aatx*frame_parms->nb_antennas_rx + aarx][0];
 
         rxF_ext_index = 0;
         ul_ch0_ext_index = 0;
@@ -358,30 +358,16 @@ void nr_pssch_extract_rbs(int rxFSz,
         for (re = 0; re < nb_re_pusch; re++) {
           uint16_t k = start_re + re;
           is_data_re = allowed_xlsch_re_in_dmrs_symbol(k, start_re, frame_parms->ofdm_symbol_size, num_dmrs_cdm_grps_no_data, dmrs_config_type);
-          if (++k >= frame_parms->ofdm_symbol_size) {
-            k -= frame_parms->ofdm_symbol_size;
-          }
-
-          #ifdef DEBUG_RB_EXT
-          printf("re = %d, is_dmrs_symbol = %d, symbol = %d\n", re, is_dmrs_symbol, symbol);
-          #endif
 
           // save only data and respective channel estimates
           if (is_data_re == 1) {
             if (aatx == 0) {
-              rxF_ext[rxF_ext_index]     = (rxF[ ((start_re + re)*2)      % (frame_parms->ofdm_symbol_size*2)]);
-              rxF_ext[rxF_ext_index + 1] = (rxF[(((start_re + re)*2) + 1) % (frame_parms->ofdm_symbol_size*2)]);
-              rxF_ext_index +=2;
+              rxF_ext[rxF_ext_index] = rxF[(start_re + re) % frame_parms->ofdm_symbol_size];
+              rxF_ext_index++;
             }
 
             ul_ch0_ext[ul_ch0_ext_index] = ul_ch0[ul_ch0_index];
             ul_ch0_ext_index++;
-
-            #ifdef DEBUG_RB_EXT
-            printf("dmrs symb %d: rxF_ext[%u] = (%d,%d), ul_ch0_ext[%u] = (%d,%d)\n",
-                 is_dmrs_symbol,rxF_ext_index>>1, rxF_ext[rxF_ext_index],rxF_ext[rxF_ext_index+1],
-                 ul_ch0_ext_index,  ((int16_t*)&ul_ch0_ext[ul_ch0_ext_index])[0],  ((int16_t*)&ul_ch0_ext[ul_ch0_ext_index])[1]);
-            #endif          
           }
           ul_ch0_index++;
         }
@@ -420,7 +406,7 @@ void nr_slsch_scale_channel(int buffer_length,
   int off = ((nb_rb & 1) == 1) ? 4 : 0;
   for (int aatx = 0; aatx < nrOfLayers; aatx++) {
     for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
-      simde__m128i *sl_ch128 = (simde__m128i *)&sl_ch_estimates_ext[aatx * frame_parms->nb_antennas_rx + aarx][symbol * (off + (nb_rb * NR_NB_SC_PER_RB))];
+      simde__m128i *sl_ch128 = (simde__m128i *)&sl_ch_estimates_ext[aatx * frame_parms->nb_antennas_rx + aarx][0]; // per-symbol scratch
       for (int rb = 0; rb < nb_rb_0; rb++) {
         sl_ch128[0] = simde_mm_mulhi_epi16(sl_ch128[0], ch_amp128);
         sl_ch128[0] = simde_mm_slli_epi16(sl_ch128[0], b);
@@ -463,7 +449,7 @@ void nr_slsch_channel_level(int buffer_length,
       //clear average level
       avg128U = simde_mm_setzero_si128();
 
-      sl_ch128=(simde__m128i *)&sl_ch_estimates_ext[aatx*frame_parms->nb_antennas_rx+aarx][symbol*(off+(nb_rb*12))];
+      sl_ch128=(simde__m128i *)&sl_ch_estimates_ext[aatx*frame_parms->nb_antennas_rx+aarx][0]; // per-symbol scratch
 
       for (rb = 0; rb < nb_rb_0; rb++) {
         avg128U = simde_mm_add_epi32(avg128U, simde_mm_srai_epi32(simde_mm_madd_epi16(sl_ch128[0], sl_ch128[0]), x));
@@ -758,7 +744,10 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
   } else if (ml_rx == false) {
     ad_shift = -3; // For 2-layers, we are already doing a bit shift in the nr_ulsch_mmse_2layers() function, so we can use more bits
   }
-  int ext_buffer_length = ceil_mod(rb_size * NR_NB_SC_PER_RB, 16);
+  // Must match the per-symbol stride used for rxdataF_comp downstream
+  // (symbol*(off+rb_size*12)) so channel compensation writes and the LLR
+  // computation reads the same locations.
+  int ext_buffer_length = off + rb_size * NR_NB_SC_PER_RB;
   c16_t rxFext[frame_parms->nb_antennas_rx][ext_buffer_length] __attribute__((aligned(32)));
   c16_t chFext[nrOfLayers*frame_parms->nb_antennas_rx][ext_buffer_length] __attribute__((aligned(32)));
   c16_t rho[nrOfLayers][nrOfLayers][ext_buffer_length] __attribute__((aligned(32)));
@@ -968,7 +957,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
                                 rxF_ch_maga[aatx * frame_parms->nb_antennas_rx],
                                 rxF_ch_magb[aatx * frame_parms->nb_antennas_rx],
                                 rxF_ch_magc[aatx * frame_parms->nb_antennas_rx],
-                                &llrss[aatx][rxdataF_ext_offset * qam_mod_order],
+                                &llrss[aatx][0], // per-symbol scratch buffer, indexed from 0
                                 pusch_vars->ul_valid_re_per_slot[symbol],
                                 symbol,
                                 qam_mod_order);
@@ -984,7 +973,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
       int16_t *s = scramblingSequence + rxdataF_ext_offset * qam_mod_order * nrOfLayers;
       const int end = pusch_vars->ul_valid_re_per_slot[symbol] * qam_mod_order * nrOfLayers;
       for (int i = 0; i < end; i++)
-        llr16[i] = llrss[0][(rxdataF_ext_offset * qam_mod_order* nrOfLayers) + i] * s[i];
+        llr16[i] = llrss[0][i] * s[i];
       rxdataF_ext_offset += pusch_vars->ul_valid_re_per_slot[symbol];
     } // nb_re_pusch > 0
   } // symbol loop
