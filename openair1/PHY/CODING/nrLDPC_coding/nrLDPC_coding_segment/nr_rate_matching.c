@@ -3,6 +3,9 @@
  */
 
 #include "PHY/sse_intrin.h"
+#if defined(__riscv) && defined(__riscv_vector)
+#include <riscv_vector.h>
+#endif
 #include "nr_rate_matching.h"
 #include "common/utils/LOG/log.h"
 
@@ -57,6 +60,13 @@ void nr_interleaving_ldpc(uint32_t E, uint8_t Qm, uint8_t *e, uint8_t *f)
       e0 = (uint8_t *)e0_128;
       e1 = (uint8_t *)e1_128;
       f = (uint8_t *)f_128;
+#endif
+#if defined(__riscv) && defined(__riscv_vector)
+      for (size_t vlmax = __riscv_vsetvlmax_e8m1(); i + (int)vlmax <= (int)EQm; i += (int)vlmax) {
+        vuint8m1_t v0 = __riscv_vle8_v_u8m1(e0, vlmax), v1 = __riscv_vle8_v_u8m1(e1, vlmax);
+        __riscv_vsseg2e8_v_u8m1x2(f, __riscv_vcreate_v_u8m1x2(v0, v1), vlmax);
+        e0 += vlmax; e1 += vlmax; f += 2 * vlmax;
+      }
 #endif
       for (; i < EQm; i++) {
         *f++ = *e0++;
@@ -138,6 +148,14 @@ void nr_interleaving_ldpc(uint32_t E, uint8_t Qm, uint8_t *e, uint8_t *f)
       e2 = (uint8_t *)e2_128;
       e3 = (uint8_t *)e3_128;
       f = (uint8_t *)f_128;
+#endif
+#if defined(__riscv) && defined(__riscv_vector)
+      for (size_t vlmax = __riscv_vsetvlmax_e8m1(); i + (int)vlmax <= (int)EQm; i += (int)vlmax) {
+        vuint8m1_t v0 = __riscv_vle8_v_u8m1(e0, vlmax), v1 = __riscv_vle8_v_u8m1(e1, vlmax);
+        vuint8m1_t v2 = __riscv_vle8_v_u8m1(e2, vlmax), v3 = __riscv_vle8_v_u8m1(e3, vlmax);
+        __riscv_vsseg4e8_v_u8m1x4(f, __riscv_vcreate_v_u8m1x4(v0, v1, v2, v3), vlmax);
+        e0 += vlmax; e1 += vlmax; e2 += vlmax; e3 += vlmax; f += 4 * vlmax;
+      }
 #endif
       for (; i < EQm; i++) {
         *f++ = *e0++;
@@ -228,6 +246,15 @@ void nr_interleaving_ldpc(uint32_t E, uint8_t Qm, uint8_t *e, uint8_t *f)
       e4 = (uint8_t *)e4_512;
       e5 = (uint8_t *)e5_512;
       f = (uint8_t *)f_512;
+#endif
+#if defined(__riscv) && defined(__riscv_vector)
+      for (size_t vlmax = __riscv_vsetvlmax_e8m1(); i + (int)vlmax <= (int)EQm; i += (int)vlmax) {
+        vuint8m1_t v0 = __riscv_vle8_v_u8m1(e0, vlmax), v1 = __riscv_vle8_v_u8m1(e1, vlmax);
+        vuint8m1_t v2 = __riscv_vle8_v_u8m1(e2, vlmax), v3 = __riscv_vle8_v_u8m1(e3, vlmax);
+        vuint8m1_t v4 = __riscv_vle8_v_u8m1(e4, vlmax), v5 = __riscv_vle8_v_u8m1(e5, vlmax);
+        __riscv_vsseg6e8_v_u8m1x6(f, __riscv_vcreate_v_u8m1x6(v0, v1, v2, v3, v4, v5), vlmax);
+        e0 += vlmax; e1 += vlmax; e2 += vlmax; e3 += vlmax; e4 += vlmax; e5 += vlmax; f += 6 * vlmax;
+      }
 #endif
       for (; i < EQm; i++) {
         *f++ = *e0++;
@@ -410,6 +437,17 @@ void nr_interleaving_ldpc(uint32_t E, uint8_t Qm, uint8_t *e, uint8_t *f)
       e6 = (uint8_t *)e6_128;
       e7 = (uint8_t *)e7_128;
       f = (uint8_t *)f_128;
+#endif
+#if defined(__riscv) && defined(__riscv_vector)
+      for (size_t vlmax = __riscv_vsetvlmax_e8m1(); i + (int)vlmax <= (int)EQm; i += (int)vlmax) {
+        vuint8m1_t v0 = __riscv_vle8_v_u8m1(e0, vlmax), v1 = __riscv_vle8_v_u8m1(e1, vlmax);
+        vuint8m1_t v2 = __riscv_vle8_v_u8m1(e2, vlmax), v3 = __riscv_vle8_v_u8m1(e3, vlmax);
+        vuint8m1_t v4 = __riscv_vle8_v_u8m1(e4, vlmax), v5 = __riscv_vle8_v_u8m1(e5, vlmax);
+        vuint8m1_t v6 = __riscv_vle8_v_u8m1(e6, vlmax), v7 = __riscv_vle8_v_u8m1(e7, vlmax);
+        __riscv_vsseg8e8_v_u8m1x8(f, __riscv_vcreate_v_u8m1x8(v0, v1, v2, v3, v4, v5, v6, v7), vlmax);
+        e0 += vlmax; e1 += vlmax; e2 += vlmax; e3 += vlmax;
+        e4 += vlmax; e5 += vlmax; e6 += vlmax; e7 += vlmax; f += 8 * vlmax;
+      }
 #endif
       for (; i < EQm; i++) {
         *f++ = *e0++;
