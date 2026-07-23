@@ -341,7 +341,7 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
            }
         }
 
-        LOG_D(NR_PHY, "symbol %d re %d/%d k %d\n", l, i, nb_rb*NR_NB_SC_PER_RB, k);
+        //LOG_D(NR_PHY, "symbol %d re %d/%d k %d\n", l, i, nb_rb*NR_NB_SC_PER_RB, k);
         sample_offsetF = l*frame_parms->ofdm_symbol_size + k;
 
         if (is_dmrs_sym) {
