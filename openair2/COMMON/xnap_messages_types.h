@@ -9,6 +9,13 @@
 #include "common/utils/ds/byte_array.h"
 #include "common/platform_types.h"
 #include "common/platform_constants.h"
+#include "openair2/COMMON/sctp_messages_types.h"
+
+#define XNAP_MAX_NB_CANDIDATES 6
+
+#define XNAP_REGISTER_GNB_REQ(mSGpTR)     (mSGpTR)->ittiMsg.xnap_register_gnb_req
+#define XNAP_SETUP_IND(mSGpTR)            (mSGpTR)->ittiMsg.xnap_setup_ind
+#define XNAP_PEER_SHUTDOWN_IND(mSGpTR)    (mSGpTR)->ittiMsg.xnap_peer_shutdown_ind
 
 typedef struct {
   // PLMN Identity (M)
@@ -59,6 +66,34 @@ typedef struct {
   uint16_t num_tai;
   xnap_tai_support_t *tai_support;
 } xnap_setup_resp_t;
+
+typedef struct xnap_sctp_s {
+  uint16_t sctp_in_streams;
+  uint16_t sctp_out_streams;
+} xnap_sctp_t;
+
+typedef struct xnap_net_config_t {
+  char *gnb_xn_interface_ip_address;
+  uint8_t nb_of_candidate_gNBs;
+  char *candidate_gnb_address_for_xnc[XNAP_MAX_NB_CANDIDATES];
+  uint32_t gnb_port_for_xnc;
+  xnap_sctp_t sctp_streams;
+} xnap_net_config_t;
+
+typedef struct xnap_register_gnb_req_s {
+  xnap_setup_req_t ng_setup_info;
+  xnap_net_config_t net_config;
+  char *gNB_name;
+} xnap_register_gnb_req_t;
+
+typedef struct xnap_setup_ind_s {
+  uint32_t     gnb_id;
+  sctp_assoc_t assoc_id;
+} xnap_setup_ind_t;
+
+typedef struct xnap_peer_shutdown_ind_s {
+  uint32_t gnb_id;
+} xnap_peer_shutdown_ind_t;
 
 typedef enum xnap_cause_radio_network_e {
     XNAP_CAUSE_RADIO_NETWORK_LAYER_CELL_NOT_AVAILABLE,

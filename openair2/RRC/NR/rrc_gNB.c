@@ -366,6 +366,7 @@ void openair_rrc_gNB_configuration(gNB_RRC_INST *rrc, nr_rrc_config_t *configura
   RB_INIT(&rrc->cuups);
   RB_INIT(&rrc->dus);
   RB_INIT(&rrc->cells);
+  RB_INIT(&rrc->xn_candidates);
   rrc->configuration = *configuration;
 }
 
@@ -3768,6 +3769,15 @@ void *rrc_gnb_task(void *args_p)
       case NGAP_HANDOVER_COMMAND:
         rrc_gNB_process_HandoverCommand(RC.nrrrc[instance], &NGAP_HANDOVER_COMMAND(msg_p));
         rrc_gNB_free_Handover_Command(&NGAP_HANDOVER_COMMAND(msg_p)); // Free transfered NG message
+        break;
+
+      /* Messages from XNAP task */
+      case XNAP_SETUP_IND:
+        rrc_add_xn_candidate(RC.nrrrc[instance], XNAP_SETUP_IND(msg_p).gnb_id, XNAP_SETUP_IND(msg_p).assoc_id);
+        break;
+
+      case XNAP_PEER_SHUTDOWN_IND:
+        rrc_remove_xn_candidate(RC.nrrrc[instance], XNAP_PEER_SHUTDOWN_IND(msg_p).gnb_id);
         break;
 
       default:

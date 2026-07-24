@@ -60,6 +60,7 @@
 #include "gnb_config_common.h"
 #include "positioning_nr_paramdef.h"
 #include "f1ap_cu_task.h"
+#include "xnap_messages_types.h"
 
 static int DEFBANDS[] = {7};
 static int DEFENBS[] = {0};
@@ -2784,6 +2785,98 @@ int gNB_app_handle_f1ap_gnb_cu_configuration_update(f1ap_gnb_cu_configuration_up
   }
 
   return(ret);
+}
+
+xnap_net_config_t read_ip_config_xn(uint32_t gnb_idx)
+{
+  xnap_net_config_t nc = {0};
+  paramdef_t XnCandidateParams[] = XN_CANDIDATE_PARAMS_DESC;
+  paramlist_def_t XnCandidateList = {GNB_CONFIG_STRING_CANDIDATE_GNB_IPV4_ADDRESS_FOR_XNC, NULL, 0};
+  paramdef_t SCTPParams[] = GNBSCTPPARAMS_DESC;
+  char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
+  sprintf(aprefix, "%s.[%i].%s", GNB_CONFIG_STRING_GNB_LIST, gnb_idx, GNB_CONFIG_STRING_XN_PARAMETERS);
+  config_getlist(config_get_if(), &XnCandidateList, XnCandidateParams, sizeofArray(XnCandidateParams), aprefix);
+  AssertFatal(XnCandidateList.numelt <= XNAP_MAX_NB_CANDIDATES,
+              "Xn candidates limit exceeded (%d > %d)\n", XnCandidateList.numelt, XNAP_MAX_NB_CANDIDATES);
+
+  LOG_I(XNAP, "Number of candidate gNBs configured: %d\n", XnCandidateList.numelt);
+  for (int l = 0; l < XnCandidateList.numelt; l++) {
+    nc.nb_of_candidate_gNBs++;
+    nc.candidate_gnb_address_for_xnc[l] = strdup(*(XnCandidateList.paramarray[l][GNB_CONFIG_STRING_CANDIDATE_GNB_IPV4_ADDRESS_FOR_XNC_IDX].strptr));
+    LOG_I(XNAP, "Candidate gNB %d address: %s \n", l + 1, nc.candidate_gnb_address_for_xnc[l]);
+  }
+
+  paramdef_t XnParams[] = XNPARAMS_DESC;
+  config_get(config_get_if(), XnParams, sizeofArray(XnParams), aprefix);
+  nc.gnb_port_for_xnc = (uint32_t)*(XnParams[GNB_CONFIG_STRING_GNB_PORT_FOR_XNC_IDX].uptr);
+  AssertFatal(((XnParams[GNB_CONFIG_STRING_GNB_IPV4_ADDRESS_FOR_XNC_IDX].strptr != NULL) && (nc.gnb_port_for_xnc != 0)),
+              "gNB IP/Port not added in the CU/gNB configuration file\n");
+  nc.gnb_xn_interface_ip_address = strdup(*(XnParams[GNB_CONFIG_STRING_GNB_IPV4_ADDRESS_FOR_XNC_IDX].strptr));
+
+  nc.sctp_streams.sctp_out_streams =  SCTP_OUT_STREAMS;
+  nc.sctp_streams.sctp_in_streams = SCTP_IN_STREAMS;
+  sprintf(aprefix, "%s.[%i].%s", GNB_CONFIG_STRING_GNB_LIST, 0, GNB_CONFIG_STRING_SCTP_CONFIG);
+  config_get(config_get_if(), SCTPParams, sizeofArray(SCTPParams), aprefix);
+  nc.sctp_streams.sctp_out_streams =  (uint16_t) *(SCTPParams[GNB_SCTP_OUTSTREAMS_IDX].uptr);
+  nc.sctp_streams.sctp_in_streams = (uint16_t) *(SCTPParams[GNB_SCTP_INSTREAMS_IDX].uptr);
+
+  return nc;
+}
+
+int is_xnap_enabled(void)
+{
+  char xn_path[MAX_OPTNAME_SIZE*2 + 8];
+  snprintf(xn_path, sizeof(xn_path), "%s.[%i].%s", GNB_CONFIG_STRING_GNB_LIST, 0, GNB_CONFIG_STRING_XN_PARAMETERS);
+  paramdef_t Xn_Params[] = XNPARAMS_DESC;
+  config_get(config_get_if(), Xn_Params, sizeofArray(Xn_Params), xn_path);
+  int xn_enabled = *(Xn_Params[GNB_CONFIG_XN_ENABLE_IDX].iptr);
+  LOG_I(XNAP, "Xn interface %s\n", xn_enabled ? "enabled" : "disabled");
+
+  return xn_enabled;
+}
+
+xnap_setup_req_t read_ng_setup_info(const ngap_register_gnb_cnf_t *cnf, uint32_t gnb_idx)
+{
+  LOG_I(XNAP, "[gNB %u] Reading info required for Xn setup from NGAP_REGISTER_GNB_CNF\n", gnb_idx);
+  xnap_setup_req_t setup_info = {0};
+
+  setup_info.gNB_id = cnf->gNB_id;
+  if (cnf->num_plmn > 0)
+    setup_info.plmn = cnf->plmn[0].plmn;
+
+  setup_info.num_tai =1;
+  setup_info.tai_support = calloc_or_fail(setup_info.num_tai, sizeof(*setup_info.tai_support));
+
+  for (int i = 0; i < setup_info.num_tai; i++) {
+    xnap_tai_support_t *tai = &setup_info.tai_support[i];
+    tai->tac = cnf->tac;
+    tai->num_plmn = cnf->num_plmn;
+    tai->plmn_support = calloc_or_fail(tai->num_plmn, sizeof(*tai->plmn_support));
+
+    for (int j = 0; j < tai->num_plmn; j++) {
+      const ngap_plmn_t *src_plmn = &cnf->plmn[j];
+      xnap_plmn_support_t *plmn_support = &tai->plmn_support[j];
+
+      plmn_support->plmn = src_plmn->plmn;
+      plmn_support->num_nssai = src_plmn->num_nssai;
+
+      if (plmn_support->num_nssai > 0) {
+      plmn_support->nssai = calloc_or_fail(plmn_support->num_nssai, sizeof(*plmn_support->nssai));
+      memcpy(plmn_support->nssai, src_plmn->s_nssai, plmn_support->num_nssai * sizeof(*plmn_support->nssai));
+      }
+    }
+  }
+
+  setup_info.num_amf_regions = cnf->num_amf_regions;
+  if (setup_info.num_amf_regions > 0) {
+    setup_info.amf_region_info = calloc_or_fail(cnf->num_amf_regions, sizeof(*setup_info.amf_region_info));
+    for (int r = 0; r < cnf->num_amf_regions; r++) {
+      xnap_amf_region_info_t *amf_region = &setup_info.amf_region_info[r];
+      memcpy(amf_region, &cnf->amf_region_info[r], sizeof(*amf_region));
+    }
+  }
+
+  return setup_info;
 }
 
 ngran_node_t get_node_type(void)

@@ -1310,7 +1310,7 @@ add_library(e1_if
 
 target_link_libraries(e1_if PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs asn1_f1ap SECURITY ${OPENSSL_LIBRARIES} e1ap GTPV1U)
 
-target_link_libraries(L2_NR PRIVATE f1ap x2ap s1ap ngap nr_rrc e1ap nr_rlc nr_common)
+target_link_libraries(L2_NR PRIVATE f1ap x2ap s1ap ngap nr_rrc e1ap nr_rlc nr_common xnap)
 target_compile_definitions(L2_NR PRIVATE PDCP_CUCP_CUUP)
 if(OAI_AERIAL)
     target_compile_definitions(L2_NR PRIVATE ENABLE_AERIAL)
@@ -1807,7 +1807,7 @@ target_link_libraries(nr-softmodem PRIVATE
   UTIL SCTP_CLIENT SCHED_LIB SCHED_NR_LIB PHY_NR PHY PHY_NR_COMMON NR_PHY_RU GTPV1U SECURITY
   ITTI ${NAS_UE_LIB} nr_rrc
   ngap s1ap L2_LTE_NR L2_NR MAC_NR_COMMON nfapi_vnf_lib nfapi_pnf_lib nfapi_user_lib SIMU
-  x2ap f1ap m2ap m3ap e1ap radio_common
+  x2ap xnap f1ap m2ap m3ap e1ap radio_common
   time_management softmodem_common
   -Wl,--end-group dl)
 
@@ -1838,7 +1838,7 @@ endif()
 
 # force the generation of ASN.1 so that we don't need to wait during the build
 target_link_libraries(nr-softmodem PRIVATE
-  asn1_lte_rrc asn1_nr_rrc asn1_s1ap asn1_ngap asn1_m2ap asn1_m3ap asn1_x2ap asn1_f1ap asn1_lpp)
+  asn1_lte_rrc asn1_nr_rrc asn1_s1ap asn1_ngap asn1_m2ap asn1_m3ap asn1_x2ap asn1_xnap asn1_f1ap asn1_lpp)
 
 add_executable(nr-cuup
   executables/nr-cuup.c
@@ -2108,7 +2108,7 @@ if (${T_TRACER})
         syncsim nr_ulsim nr_dlsim nr_dlschsim nr_pbchsim nr_pucchsim
         nr_ulschsim ldpctest polartest smallblocktest nr_srssim nr_ulsim_mu_mimo
         #all "add_library" definitions
-        ITTI lte_rrc nr_rrc s1ap x2ap m2ap m3ap f1ap
+        ITTI lte_rrc nr_rrc s1ap x2ap xnap m2ap m3ap f1ap
         params_libconfig
         oai_eth_transpro UTIL
         SECURITY SCHED_LIB SCHED_NR_LIB SCHED_RU_LIB SCHED_UE_LIB SCHED_NR_UE_LIB

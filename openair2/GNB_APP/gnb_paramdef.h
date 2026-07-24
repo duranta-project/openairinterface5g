@@ -799,6 +799,33 @@ typedef enum {
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
 
+/* Xn configuration section */
+#define GNB_CONFIG_STRING_XN_PARAMETERS                              "Xn_INTERFACE"
+
+#define GNB_CONFIG_XN_ENABLE_IDX                                     0
+#define GNB_CONFIG_STRING_GNB_IPV4_ADDRESS_FOR_XNC_IDX               1
+#define GNB_CONFIG_STRING_GNB_PORT_FOR_XNC_IDX                       2
+
+#define GNB_CONFIG_XN_ENABLE                                         "enable_xn"
+#define GNB_CONFIG_STRING_GNB_IPV4_ADDRESS_FOR_XNC                   "gnb_ipv4_address_for_xnc"
+#define GNB_CONFIG_STRING_GNB_PORT_FOR_XNC                           "gnb_port_for_xnc"
+
+#define XNPARAMS_DESC { \
+  {GNB_CONFIG_XN_ENABLE,                       "enable or disable xn interface", PARAMFLAG_BOOL,  .iptr=NULL,   .defstrval=0,      TYPE_INT,    0}, \
+  {GNB_CONFIG_STRING_GNB_IPV4_ADDRESS_FOR_XNC, "interface ip address for xnc",   0,               .strptr=NULL, .defstrval=0,      TYPE_STRING, 0}, \
+  {GNB_CONFIG_STRING_GNB_PORT_FOR_XNC,         "port for xnc",                   0,               .uptr=NULL,   .defstrval=0L,     TYPE_UINT,   0}, \
+}
+
+#define GNB_CONFIG_STRING_CANDIDATE_GNB_IPV4_ADDRESS_FOR_XNC         "candidate_gnb_ipv4_address_for_xnc"
+
+#define GNB_CONFIG_STRING_CANDIDATE_GNB_IPV4_ADDRESS_FOR_XNC_IDX     0
+
+#define GNB_CONFIG_STRING_CANDIDATE_GNB_ADDRESS_FOR_XNC         "ip"
+
+#define XN_CANDIDATE_PARAMS_DESC { \
+  {GNB_CONFIG_STRING_CANDIDATE_GNB_ADDRESS_FOR_XNC, "candidate node ip address for xnc", 0, .strptr=NULL, .defstrval=0, TYPE_STRING, 0}, \
+}
+
 /* E1 configuration section */
 #define GNB_CONFIG_STRING_E1_PARAMETERS                   "E1_INTERFACE"
 

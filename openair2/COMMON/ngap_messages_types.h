@@ -390,9 +390,23 @@ typedef struct ngap_register_gnb_req_s {
 
 //-------------------------------------------------------------------------------------------//
 // NGAP -> gNB application layer messages
+
+typedef struct ngap_amf_region_info_s {
+  plmn_id_t plmn;
+  uint8_t   amf_region_id;
+} ngap_amf_region_info_t;
+
+#define NGAP_MAX_NB_AMF_REGIONS 16
+
 typedef struct ngap_register_gnb_cnf_s {
   /* Nb of AMF connected */
   uint8_t          nb_amf;
+  uint32_t         gNB_id;
+  uint32_t         tac;
+  uint8_t          num_plmn;
+  ngap_plmn_t      plmn[PLMN_LIST_MAX_SIZE];
+  uint8_t                num_amf_regions;
+  ngap_amf_region_info_t amf_region_info[NGAP_MAX_NB_AMF_REGIONS];
 } ngap_register_gnb_cnf_t;
 
 typedef struct ngap_deregistered_gnb_ind_s {

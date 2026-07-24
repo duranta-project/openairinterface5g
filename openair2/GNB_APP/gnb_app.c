@@ -28,6 +28,7 @@
 #include "gnb_config.h"
 #include "openair2/LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "openair2/GNB_APP/gnb_config_ng.h"
+#include "openair2/XNAP/xnap_gNB.h"
 
 extern RAN_CONTEXT_t RC;
 /*------------------------------------------------------------------------------*/
@@ -77,6 +78,22 @@ uint32_t gNB_app_register_x2(uint32_t gnb_id_start, uint32_t gnb_id_end) {
   return register_gnb_x2_pending;
 }
 
+/*--------------------------------------------------------------------------------*/
+void gNB_app_register_xn(instance_t instance, ngap_register_gnb_cnf_t *cnf)
+{
+  MessageDef *msg_p = itti_alloc_new_message(TASK_GNB_APP, 0, XNAP_REGISTER_GNB_REQ);
+  xnap_register_gnb_req_t *msg = &XNAP_REGISTER_GNB_REQ(msg_p);
+
+  msg->net_config = read_ip_config_xn(instance);
+  msg->ng_setup_info = read_ng_setup_info(cnf, instance);
+
+  LOG_I(GNB_APP, "Sending XNAP_REGISTER_GNB_REQ for gNB ID %u with %d no of candidates\n",
+        msg->ng_setup_info.gNB_id,
+        msg->net_config.nb_of_candidate_gNBs);
+
+  itti_send_msg_to_task (TASK_XNAP, GNB_MODULE_ID_TO_INSTANCE(instance), msg_p);
+}
+
 /*------------------------------------------------------------------------------*/
 
 void *gNB_app_task(void *args_p)
@@ -103,6 +120,13 @@ void *gNB_app_task(void *args_p)
       // this sends the E1AP_REGISTER_REQ to CU-CP so it sets up the socket
       // it does NOT use the E1AP part
       itti_send_msg_to_task(TASK_CUCP_E1, 0, msg);
+    }
+
+    if (node_type == ngran_gNB_CUCP || node_type == ngran_gNB_CU || node_type == ngran_gNB) {
+      if (is_xnap_enabled()) {
+        if (itti_create_task(TASK_XNAP, xnap_task, NULL) < 0)
+          LOG_E(XNAP, "Create task for XNAP failed\n");
+      }
     }
 
     if (node_type == ngran_gNB_CUUP) {
@@ -142,6 +166,9 @@ void *gNB_app_task(void *args_p)
     case NGAP_REGISTER_GNB_CNF:
       LOG_I(GNB_APP, "[gNB %ld] Received %s: associated AMF %d\n", instance, msg_name,
             NGAP_REGISTER_GNB_CNF(msg_p).nb_amf);
+      if (is_xnap_enabled() && NGAP_REGISTER_GNB_CNF(msg_p).nb_amf > 0) {
+        gNB_app_register_xn(instance, &NGAP_REGISTER_GNB_CNF(msg_p));
+      }
       break;
 
     case F1AP_SETUP_RESP:
