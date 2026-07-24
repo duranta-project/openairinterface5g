@@ -709,6 +709,15 @@ typedef struct {
   int consecutive_count; // how many consecutive reports have selected candidate_beam_index
 } beam_hysteresis_t;
 
+typedef struct {
+  bool valid;
+  fsn_t time;
+  uint8_t num_layers;
+  uint8_t num_rx;
+  uint16_t num_prg;
+  c16_t h_srs_eff[MAX_BWP_SIZE][MAX_NUM_NR_SRS_AP][NB_ANTENNAS_RX];
+} nr_srs_eff_channel_info_t;
+
 /*! \brief scheduling control information set through an API */
 typedef struct {
   /// CCE index and aggregation, should be coherent with cce_list
@@ -795,6 +804,9 @@ typedef struct {
 
   /// sri, ul_ri and tpmi based on SRS
   nr_srs_feedback_t srs_feedback;
+
+  // Stores effective SRS channel information (ie., after precoding)
+  nr_srs_eff_channel_info_t srs_eff_channel_info;
 
   /// per-LC configuration
   seq_arr_t lc_config;
