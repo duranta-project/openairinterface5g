@@ -179,7 +179,6 @@ void nr_preprocessor_phytest(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post_proc
   for (int i = 0; i < sched_pdsch.ant_port_idx.numSpatialStreamIndices;i++)
     sched_pdsch.ant_port_idx.spatialStreamIndices[i] = cell->radio_config.spatial_stream_index[start_stream_idx + i];
 
-  sched_ctrl->dl_bler_stats.mcs = target_dl_mcs; /* for logging output */
   sched_pdsch.tb_size = nr_compute_tbs(sched_pdsch.Qm,
                                        sched_pdsch.R,
                                        sched_pdsch.rbSize,
@@ -315,8 +314,6 @@ void nr_ul_preprocessor_phytest(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, pos
   const uint16_t start_stream_idx = beam * cell->radio_config.pusch_AntennaPorts;
   for (int i = 0; i < sched.ant_port_idx.numSpatialStreamIndices; i++)
     sched.ant_port_idx.spatialStreamIndices[i] = cell->radio_config.spatial_stream_index[start_stream_idx + i];
-
-  sched_ctrl->ul_bler_stats.mcs = sched.mcs; /* for logging output */
 
   /* Calculate TBS from MCS */
   sched.R = nr_get_code_rate_ul(sched.mcs, ul_bwp->mcs_table);
