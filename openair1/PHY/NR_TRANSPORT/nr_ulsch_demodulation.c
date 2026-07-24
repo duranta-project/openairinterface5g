@@ -723,11 +723,12 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   int nb_re_dmrs = factor * rel15_ul_ref->num_dmrs_cdm_grps_no_data;
 
   int max_G = 0;
+  int G_u[group_size];
   for (int u = 0; u < group_size; u++) {
     const nfapi_nr_pusch_pdu_t *p = rel15_ul_group[u];
-    int G_u = nr_get_G(p->rb_size, p->nr_of_symbols, nb_re_dmrs, number_dmrs_symbols, unav_res, p->qam_mod_order, p->nrOfLayers);
-    if (G_u > max_G)
-      max_G = G_u;
+    G_u[u] = nr_get_G(p->rb_size, p->nr_of_symbols, nb_re_dmrs, number_dmrs_symbols, unav_res, p->qam_mod_order, p->nrOfLayers);
+    if (G_u[u] > max_G)
+      max_G = G_u[u];
   }
 
   const uint64_t num_scrambling_bytes = group_size * (max_G + 96) * sizeof(int16_t);
@@ -744,8 +745,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   for (int u = 0; u < group_size; u++) {
     scrambling_sequences_arr[u] = scrambling_sequences[u];
     const nfapi_nr_pusch_pdu_t *p = rel15_ul_group[u];
-    int G_u = nr_get_G(p->rb_size, p->nr_of_symbols, nb_re_dmrs, number_dmrs_symbols, unav_res, p->qam_mod_order, p->nrOfLayers);
-    nr_codeword_unscrambling_init(scrambling_sequences_arr[u], G_u, 0, p->data_scrambling_id, p->rnti);
+    nr_codeword_unscrambling_init(scrambling_sequences_arr[u], G_u[u], 0, p->data_scrambling_id, p->rnti);
   }
 
   // Computation of channel levels
