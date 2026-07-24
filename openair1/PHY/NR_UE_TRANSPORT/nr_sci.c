@@ -31,6 +31,7 @@
 #include "PHY/MODULATION/nr_modulation.h"
 #include "PHY/NR_REFSIG/nr_refsig.h"
 #include "common/utils/nr/nr_common.h"
+#include "PHY/CODING/coding_defs.h"
 
 //#define DEBUG_PSCCH_DMRS
 //#define DEBUG_SCI
@@ -112,6 +113,7 @@ uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
     uint16_t scrambling_RNTI = dci_pdu->ScramblingRNTI;
     uint64_t p;
     memcpy(&p, dci_pdu->Payload, sizeof(p));
+    LOG_I(NR_PHY, "SCI-1A payload %lx (%lx)\n", p, *(uint64_t*)dci_pdu->Payload);
     polar_encoder_fast(&p, (void*)encoder_output, n_RNTI, 1,
                        NR_POLAR_SCI_MESSAGE_TYPE,
                        dci_pdu->PayloadSizeBits, dci_pdu->AggregationLevel);
@@ -216,7 +218,34 @@ uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
           dci_pdu->PayloadSizeBits,
           *(unsigned long long *)dci_pdu->Payload);
 
-    sci_Nid = Nid;
+    // PSSCH DMRS + PSSCH/SLSCH scrambling n_ID (38.211 8.3.1.1) is derived from the
+    // SCI-1A CRC, not from the DMRS scrambling id. The RX obtains it from the polar
+    // decoder as (crc24c(payload) & 0xFFFF); reproduce the identical computation here
+    // (mirrors polar_decoder_int16() with ones_flag=1) so TX and RX agree.
+    {
+      uint64_t Ar = *(uint64_t *)dci_pdu->Payload;
+      const int len = dci_pdu->PayloadSizeBits;
+      Ar &= (len < 64) ? ((1ULL << len) - 1) : ~0ULL;
+      uint32_t crc = 0;
+      if (len <= 32) {
+        uint32_t Aprime = (uint32_t)(Ar << (32 - len));
+        uint8_t A[3 + 4] = {0xff, 0xff, 0xff,
+                            (uint8_t)(Aprime >> 24), (uint8_t)(Aprime >> 16),
+                            (uint8_t)(Aprime >> 8), (uint8_t)Aprime};
+        crc = (crc24c(A, 24 + len) >> 8) & 0xffffff;
+      } else {
+        uint64_t Aprime = Ar << (64 - len);
+        uint8_t A[3 + 8] = {0xff, 0xff, 0xff,
+                            (uint8_t)(Aprime >> 56), (uint8_t)(Aprime >> 48),
+                            (uint8_t)(Aprime >> 40), (uint8_t)(Aprime >> 32),
+                            (uint8_t)(Aprime >> 24), (uint8_t)(Aprime >> 16),
+                            (uint8_t)(Aprime >> 8),  (uint8_t)Aprime};
+        crc = (crc24c(A, 24 + len) >> 8) & 0xffffff;
+      }
+      sci_Nid = crc & 0xFFFF;
+      LOG_I(NR_PHY, "TX SCI-1A CRC-derived Nid=%u (payload 0x%llx, len %d)\n",
+            sci_Nid, (unsigned long long)Ar, len);
+    }
   } // for (int d=0;d<pdcch_pdu_rel15->numDlDci;d++)
   return sci_Nid;
 }
