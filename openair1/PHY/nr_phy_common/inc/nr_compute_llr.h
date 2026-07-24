@@ -34,6 +34,17 @@ void nr_qam64_llr_2layer(c16_t *stream0_in,
                          c16_t *rho01,
                          uint32_t length);
 
+// Direct SIMD full ML 2-layer 256QAM (analogous to nr_qam64_llr_2layer for 64QAM).
+// 8 bits/RE, PAM-16 constellation, Gray-coded. Computes LLRs for stream0 in presence
+// of stream1 interference.
+void nr_qam256_llr_2layer(c16_t *stream0_in,
+                          c16_t *stream1_in,
+                          c16_t *ch_mag,
+                          c16_t *ch_mag_i,
+                          int16_t *stream0_out,
+                          c16_t *rho01,
+                          uint32_t length);
+
 // L-best (reduced-search) reference kernel for 2-layer 64QAM (one target layer).
 // Floating-point scalar reference; L==64 reproduces the full max-log search.
 // seed_lambda: 0.0f = ZF seed, = noise_var for MMSE-regularised seed.
@@ -71,6 +82,19 @@ void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
                                 int L,
                                 float seed_lambda);
 
+// Fixed-point (Q15-input) L-best 2-layer 256QAM kernel (ZF seed). Integer twin of
+// nr_qam256_llr_2layer_lbest; scale 16*sqrt(170), PAM-16 levels, 8 bits/RE.
+// pattern: 0=5x5/25cand[default], 1=3x3/9cand, 2=5-plus/5cand, other=full256.
+// Enabled via OAI_LBEST_Q15_256=1; pattern selected by OAI_LBEST_PAT256.
+void nr_qam256_llr_2layer_lbest_q15(c16_t *stream0_in,
+                                    c16_t *stream1_in,
+                                    c16_t *ch_mag,
+                                    c16_t *ch_mag_i,
+                                    int16_t *stream0_out,
+                                    c16_t *rho01,
+                                    uint32_t length,
+                                    int pattern);
+
 // Fixed-point (Q15-input) L-best 2-layer 64QAM kernel (ZF seed). Integer twin of
 // nr_qam64_llr_2layer_lbest; the SIMD-portable form of the reduced search.
 void nr_qam64_llr_2layer_lbest_q15(c16_t *stream0_in,
@@ -92,6 +116,18 @@ void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                                           c16_t *rho01,
                                           uint32_t length,
                                           int pattern);
+
+// int16/16-lane AVX2 L-best 2-layer 256QAM kernel (PAM-16, 8 bits/RE).
+// pattern: 0 = 5x5 (25 cand) [default], 1 = 3x3 (9 cand), 2 = 5-plus (5 cand).
+// Enabled via OAI_LBEST_Q15_256=1; pattern selected by OAI_LBEST_PAT256.
+void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
+                                           c16_t *stream1_in,
+                                           c16_t *ch_mag,
+                                           c16_t *ch_mag_i,
+                                           int16_t *stream0_out,
+                                           c16_t *rho01,
+                                           uint32_t length,
+                                           int pattern);
 
 void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rxdataF_comp1,
