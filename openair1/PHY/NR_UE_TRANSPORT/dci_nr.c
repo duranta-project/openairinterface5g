@@ -278,7 +278,9 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
                                c16_t llr[llr_size_symbol],
 			       int pscch_processing)
 {
-  NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
+  // HACK: PSCCH lives on the SL grid (first_carrier_offset=1412), not the DL grid
+  // (fco=0). Use the SL frame params for chest + RE extraction when demodulating PSCCH.
+  NR_DL_FRAME_PARMS *fp = pscch_processing ? &ue->SL_UE_PHY_PARAMS.sl_frame_params : &ue->frame_parms;
   NR_UE_PDCCH_CONFIG *phy_pdcch_config = &phy_data->phy_pdcch_config;
   fapi_nr_coreset_t *coreset = &phy_pdcch_config->pdcch_config[ss_idx].coreset;
   int32_t pdcch_est_size = ceil_mod(fp->ofdm_symbol_size + LTE_CE_FILTER_LENGTH, 16);
