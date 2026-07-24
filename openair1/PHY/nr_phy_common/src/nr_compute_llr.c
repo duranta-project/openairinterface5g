@@ -470,6 +470,73 @@ static inline simde__m128i max_epi16(simde__m128i m0,
   return simde_mm_max_epi16(b0, b1);
 }
 
+// Reduce 16 vectors to 1 via max, for 256QAM LLR computation (128-bit path).
+static inline simde__m128i max16_epi16(simde__m128i v[16])
+{
+  simde__m128i a[8], b[4], c[2];
+  for (int k = 0; k < 8; k++) a[k] = simde_mm_max_epi16(v[2*k], v[2*k+1]);
+  for (int k = 0; k < 4; k++) b[k] = simde_mm_max_epi16(a[2*k], a[2*k+1]);
+  c[0] = simde_mm_max_epi16(b[0], b[1]);
+  c[1] = simde_mm_max_epi16(b[2], b[3]);
+  return simde_mm_max_epi16(c[0], c[1]);
+}
+
+// PAM-16 interference slicer (128-bit). Compares |psi| against 7 thresholds and
+// selects one of 8 interference magnitude levels c1,c3,...,c15.
+static inline simde__m128i interference_abs_256qam_epi16(simde__m128i psi,
+                                                         simde__m128i t2, simde__m128i t4,
+                                                         simde__m128i t6, simde__m128i t8,
+                                                         simde__m128i t10, simde__m128i t12,
+                                                         simde__m128i t14,
+                                                         simde__m128i c1, simde__m128i c3,
+                                                         simde__m128i c5, simde__m128i c7,
+                                                         simde__m128i c9, simde__m128i c11,
+                                                         simde__m128i c13, simde__m128i c15)
+{
+  // Branchless slicer: cmp_k is all-ones where psi < t_k
+  simde__m128i cmp2  = simde_mm_cmpgt_epi16(t2,  psi);
+  simde__m128i cmp4  = simde_mm_cmpgt_epi16(t4,  psi);
+  simde__m128i cmp6  = simde_mm_cmpgt_epi16(t6,  psi);
+  simde__m128i cmp8  = simde_mm_cmpgt_epi16(t8,  psi);
+  simde__m128i cmp10 = simde_mm_cmpgt_epi16(t10, psi);
+  simde__m128i cmp12 = simde_mm_cmpgt_epi16(t12, psi);
+  simde__m128i cmp14 = simde_mm_cmpgt_epi16(t14, psi);
+  // Region mask = XOR of adjacent comparisons (one-hot interval selection)
+  simde__m128i r1  = simde_mm_and_si128(cmp2,                                  c1);
+  simde__m128i r3  = simde_mm_and_si128(simde_mm_xor_si128(cmp4,  cmp2),  c3);
+  simde__m128i r5  = simde_mm_and_si128(simde_mm_xor_si128(cmp6,  cmp4),  c5);
+  simde__m128i r7  = simde_mm_and_si128(simde_mm_xor_si128(cmp8,  cmp6),  c7);
+  simde__m128i r9  = simde_mm_and_si128(simde_mm_xor_si128(cmp10, cmp8),  c9);
+  simde__m128i r11 = simde_mm_and_si128(simde_mm_xor_si128(cmp12, cmp10), c11);
+  simde__m128i r13 = simde_mm_and_si128(simde_mm_xor_si128(cmp14, cmp12), c13);
+  simde__m128i r15 = simde_mm_and_si128(simde_mm_xor_si128(allones128(), cmp14), c15);
+  return simde_mm_or_si128(
+      simde_mm_or_si128(simde_mm_or_si128(r1, r3), simde_mm_or_si128(r5, r7)),
+      simde_mm_or_si128(simde_mm_or_si128(r9, r11), simde_mm_or_si128(r13, r15)));
+}
+
+// a_sq = int_ch_mag * (a_r^2 + a_i^2) * scale_factor for 256QAM (128-bit).
+// Shift 4 instead of 3 because sqrt(170)/8 is half sqrt(42)/4.
+static inline simde__m128i square_a_256qam_epi16(simde__m128i a_r,
+                                                 simde__m128i a_i,
+                                                 simde__m128i int_ch_mag,
+                                                 simde__m128i scale_factor)
+{
+  simde__m128i tmp_result = simde_mm_mulhi_epi16(a_r, a_r);
+  tmp_result = simde_mm_slli_epi16(tmp_result, 1);
+  tmp_result = simde_mm_mulhi_epi16(tmp_result, scale_factor);
+  tmp_result = simde_mm_slli_epi16(tmp_result, 4);
+  tmp_result = simde_mm_mulhi_epi16(tmp_result, int_ch_mag);
+  tmp_result = simde_mm_slli_epi16(tmp_result, 1);
+  simde__m128i tmp_result2 = simde_mm_mulhi_epi16(a_i, a_i);
+  tmp_result2 = simde_mm_slli_epi16(tmp_result2, 1);
+  tmp_result2 = simde_mm_mulhi_epi16(tmp_result2, scale_factor);
+  tmp_result2 = simde_mm_slli_epi16(tmp_result2, 4);
+  tmp_result2 = simde_mm_mulhi_epi16(tmp_result2, int_ch_mag);
+  tmp_result2 = simde_mm_slli_epi16(tmp_result2, 1);
+  return simde_mm_adds_epi16(tmp_result, tmp_result2);
+}
+
 #else
 
 // calculate interference magnitude
@@ -577,6 +644,70 @@ static inline simde__m256i max_epi16_256(simde__m256i m0,
   simde__m256i b0 = simde_mm256_max_epi16(a0, a1);
   simde__m256i b1 = simde_mm256_max_epi16(a2, a3);
   return simde_mm256_max_epi16(b0, b1);
+}
+
+// Reduce 16 vectors to 1 via max, for 256QAM LLR computation (256-bit path).
+static inline simde__m256i max16_epi16_256(simde__m256i v[16])
+{
+  simde__m256i a[8], b[4], c[2];
+  for (int k = 0; k < 8; k++) a[k] = simde_mm256_max_epi16(v[2*k], v[2*k+1]);
+  for (int k = 0; k < 4; k++) b[k] = simde_mm256_max_epi16(a[2*k], a[2*k+1]);
+  c[0] = simde_mm256_max_epi16(b[0], b[1]);
+  c[1] = simde_mm256_max_epi16(b[2], b[3]);
+  return simde_mm256_max_epi16(c[0], c[1]);
+}
+
+// PAM-16 interference slicer (256-bit). Compares |psi| against 7 thresholds and
+// selects one of 8 interference magnitude levels c1,c3,...,c15.
+static inline simde__m256i interference_abs_256qam_epi16_256(simde__m256i psi,
+                                                              simde__m256i t2, simde__m256i t4,
+                                                              simde__m256i t6, simde__m256i t8,
+                                                              simde__m256i t10, simde__m256i t12,
+                                                              simde__m256i t14,
+                                                              simde__m256i c1, simde__m256i c3,
+                                                              simde__m256i c5, simde__m256i c7,
+                                                              simde__m256i c9, simde__m256i c11,
+                                                              simde__m256i c13, simde__m256i c15)
+{
+  simde__m256i cmp2  = simde_mm256_cmpgt_epi16(t2,  psi);
+  simde__m256i cmp4  = simde_mm256_cmpgt_epi16(t4,  psi);
+  simde__m256i cmp6  = simde_mm256_cmpgt_epi16(t6,  psi);
+  simde__m256i cmp8  = simde_mm256_cmpgt_epi16(t8,  psi);
+  simde__m256i cmp10 = simde_mm256_cmpgt_epi16(t10, psi);
+  simde__m256i cmp12 = simde_mm256_cmpgt_epi16(t12, psi);
+  simde__m256i cmp14 = simde_mm256_cmpgt_epi16(t14, psi);
+  simde__m256i r1  = simde_mm256_and_si256(cmp2,                                    c1);
+  simde__m256i r3  = simde_mm256_and_si256(simde_mm256_xor_si256(cmp4,  cmp2),  c3);
+  simde__m256i r5  = simde_mm256_and_si256(simde_mm256_xor_si256(cmp6,  cmp4),  c5);
+  simde__m256i r7  = simde_mm256_and_si256(simde_mm256_xor_si256(cmp8,  cmp6),  c7);
+  simde__m256i r9  = simde_mm256_and_si256(simde_mm256_xor_si256(cmp10, cmp8),  c9);
+  simde__m256i r11 = simde_mm256_and_si256(simde_mm256_xor_si256(cmp12, cmp10), c11);
+  simde__m256i r13 = simde_mm256_and_si256(simde_mm256_xor_si256(cmp14, cmp12), c13);
+  simde__m256i r15 = simde_mm256_and_si256(simde_mm256_xor_si256(allones256(), cmp14), c15);
+  return simde_mm256_or_si256(
+      simde_mm256_or_si256(simde_mm256_or_si256(r1, r3), simde_mm256_or_si256(r5, r7)),
+      simde_mm256_or_si256(simde_mm256_or_si256(r9, r11), simde_mm256_or_si256(r13, r15)));
+}
+
+// a_sq = int_ch_mag * (a_r^2 + a_i^2) * scale_factor for 256QAM (256-bit).
+static inline simde__m256i square_a_256qam_epi16_256(simde__m256i a_r,
+                                                     simde__m256i a_i,
+                                                     simde__m256i int_ch_mag,
+                                                     simde__m256i scale_factor)
+{
+  simde__m256i tmp_result = simde_mm256_mulhi_epi16(a_r, a_r);
+  tmp_result = simde_mm256_slli_epi16(tmp_result, 1);
+  tmp_result = simde_mm256_mulhi_epi16(tmp_result, scale_factor);
+  tmp_result = simde_mm256_slli_epi16(tmp_result, 4);
+  tmp_result = simde_mm256_mulhi_epi16(tmp_result, int_ch_mag);
+  tmp_result = simde_mm256_slli_epi16(tmp_result, 1);
+  simde__m256i tmp_result2 = simde_mm256_mulhi_epi16(a_i, a_i);
+  tmp_result2 = simde_mm256_slli_epi16(tmp_result2, 1);
+  tmp_result2 = simde_mm256_mulhi_epi16(tmp_result2, scale_factor);
+  tmp_result2 = simde_mm256_slli_epi16(tmp_result2, 4);
+  tmp_result2 = simde_mm256_mulhi_epi16(tmp_result2, int_ch_mag);
+  tmp_result2 = simde_mm256_slli_epi16(tmp_result2, 1);
+  return simde_mm256_adds_epi16(tmp_result, tmp_result2);
 }
 
 #endif
@@ -2479,6 +2610,1044 @@ void nr_qam64_llr_2layer(c16_t *stream0_in,
 #endif
 }
 
+
+
+/*
+ * This function computes the LLRs of stream 0 (s_0) in presence of the interfering
+ * stream 1 (s_1) assuming that both symbols are 256QAM.
+ * Direct SIMD full ML 2-layer 256QAM (analogous to nr_qam64_llr_2layer for 64QAM).
+ */
+void nr_qam256_llr_2layer(c16_t *stream0_in,
+                          c16_t *stream1_in,
+                          c16_t *ch_mag,
+                          c16_t *ch_mag_i,
+                          int16_t *stream0_out,
+                          c16_t *rho01,
+                          uint32_t length)
+{
+#ifdef USE_128BIT
+  simde__m128i *rho01_128i      = (simde__m128i *)rho01;
+  simde__m128i *stream0_128i_in = (simde__m128i *)stream0_in;
+  simde__m128i *stream1_128i_in = (simde__m128i *)stream1_in;
+  simde__m128i *ch_mag_128i     = (simde__m128i *)ch_mag;
+  simde__m128i *ch_mag_128i_i   = (simde__m128i *)ch_mag_i;
+
+  // ---- rho multipliers k/sqrt(170) ----
+  simde__m128i ONE_OVER_SQRT_170   = simde_mm_set1_epi16(5026);   // 1/sqrt(170)*2^16
+  simde__m128i THREE_OVER_SQRT_170 = simde_mm_set1_epi16(15078);  // 3/sqrt(170)*2^16
+  simde__m128i FIVE_OVER_SQRT_170  = simde_mm_set1_epi16(25130);  // 5/sqrt(170)*2^16
+  simde__m128i SEVEN_OVER_SQRT_170 = simde_mm_set1_epi16(17591);  // 7/sqrt(170)*2^15 (<<1)
+  simde__m128i NINE_OVER_SQRT_170  = simde_mm_set1_epi16(22616);  // 9/sqrt(170)*2^15 (<<1)
+  simde__m128i ELEVEN_OVER_SQRT_170  = simde_mm_set1_epi16(27642); // 11/sqrt(170)*2^15 (<<1)
+  simde__m128i THIRTEEN_OVER_SQRT_170 = simde_mm_set1_epi16(16333); // 13/sqrt(170)*2^14 (<<2)
+  simde__m128i FIFTEEN_OVER_SQRT_170  = simde_mm_set1_epi16(18847); // 15/sqrt(170)*2^14 (<<2)
+
+  // ---- interference abs levels k/sqrt(2*170)=k/sqrt(340) in Q15 ----
+  simde__m128i ONE_OVER_SQRT_2_170    = simde_mm_set1_epi16(1777);
+  simde__m128i THREE_OVER_SQRT_2_170  = simde_mm_set1_epi16(5330);
+  simde__m128i FIVE_OVER_SQRT_2_170   = simde_mm_set1_epi16(8884);
+  simde__m128i SEVEN_OVER_SQRT_2_170  = simde_mm_set1_epi16(12437);
+  simde__m128i NINE_OVER_SQRT_2_170   = simde_mm_set1_epi16(15991);
+  simde__m128i ELEVEN_OVER_SQRT_2_170 = simde_mm_set1_epi16(19544);
+  simde__m128i THIRTEEN_OVER_SQRT_2_170 = simde_mm_set1_epi16(23098);
+  simde__m128i FIFTEEN_OVER_SQRT_2_170  = simde_mm_set1_epi16(26651);
+
+  // ---- misc ----
+  simde__m128i ONE_OVER_SQRT_2 = simde_mm_set1_epi16(23170); // 1/sqrt(2)*2^15
+  simde__m128i SQRT_170_OVER_EIGHT = simde_mm_set1_epi16(13354); // sqrt(170)/8*2^13, Q3.12
+
+  // ---- ch_mag scaling: v/(8*sqrt(170))*2^12 for each unique v=x0r^2+x0i^2 ----
+  // All use <<4 shift after mulhi.
+  simde__m128i K_2   = simde_mm_set1_epi16(79);
+  simde__m128i K_10  = simde_mm_set1_epi16(393);
+  simde__m128i K_18  = simde_mm_set1_epi16(707);
+  simde__m128i K_26  = simde_mm_set1_epi16(1021);
+  simde__m128i K_34  = simde_mm_set1_epi16(1335);
+  simde__m128i K_50  = simde_mm_set1_epi16(1964);
+  simde__m128i K_58  = simde_mm_set1_epi16(2278);
+  simde__m128i K_74  = simde_mm_set1_epi16(2906);
+  simde__m128i K_82  = simde_mm_set1_epi16(3220);
+  simde__m128i K_90  = simde_mm_set1_epi16(3534);
+  simde__m128i K_98  = simde_mm_set1_epi16(3849);
+  simde__m128i K_106 = simde_mm_set1_epi16(4163);
+  simde__m128i K_122 = simde_mm_set1_epi16(4791);
+  simde__m128i K_130 = simde_mm_set1_epi16(5105);
+  simde__m128i K_146 = simde_mm_set1_epi16(5733);
+  simde__m128i K_162 = simde_mm_set1_epi16(6362);
+  simde__m128i K_170 = simde_mm_set1_epi16(6676);
+  simde__m128i K_178 = simde_mm_set1_epi16(6990);
+  simde__m128i K_194 = simde_mm_set1_epi16(7618);
+  simde__m128i K_202 = simde_mm_set1_epi16(7933);
+  simde__m128i K_218 = simde_mm_set1_epi16(8561);
+  simde__m128i K_226 = simde_mm_set1_epi16(8875);
+  simde__m128i K_234 = simde_mm_set1_epi16(9189);
+  simde__m128i K_242 = simde_mm_set1_epi16(9503);
+  simde__m128i K_250 = simde_mm_set1_epi16(9818);
+  simde__m128i K_274 = simde_mm_set1_epi16(10761);
+  simde__m128i K_290 = simde_mm_set1_epi16(11389);
+  simde__m128i K_306 = simde_mm_set1_epi16(12017);
+  simde__m128i K_338 = simde_mm_set1_epi16(13273);
+  simde__m128i K_346 = simde_mm_set1_epi16(13587);
+  simde__m128i K_394 = simde_mm_set1_epi16(15472);
+  simde__m128i K_450 = simde_mm_set1_epi16(17671);
+
+  simde__m128i ch_mag_des;
+  simde__m128i ch_mag_int;
+
+  // Process 8 REs per iteration (2 x 128-bit loads of 4 complex each)
+  for (int i = 0; i < length >> 2; i += 2) {
+    simde__m128i xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7, xmm8, xmm9, xmm10, xmm11, xmm12;
+
+    // ---- rho = Re(rho), Im(rho) ----
+    oai_mm_separate_real_imag_parts(&xmm2, &xmm3, rho01_128i[i], rho01_128i[i+1]);
+    simde__m128i rho_rpi = simde_mm_adds_epi16(xmm2, xmm3); // Re+Im
+    simde__m128i rho_rmi = simde_mm_subs_epi16(xmm2, xmm3); // Re-Im
+
+    // ---- compute rho_rs[128]: Re(rho)*x1r/sqrt(170) + Im(rho)*x1i/sqrt(170)
+    // Layout: rho_rs[ri*16+ci] for ri in {15,13,11,9,7,5,3,1}/sqrt(170) (row=ri),
+    //         ci in {15,13,11,9,7,5,3,1,-1,...,-15}/sqrt(170) (col=ci)
+    // We compute Im(rho)*x1i scale factors first (xmm5..xmm12 for x1i={1,3,5,7,9,11,13,15}/sqrt(170))
+    simde__m128i rho_rs[128];
+
+    xmm5  = simde_mm_mulhi_epi16(xmm3, ONE_OVER_SQRT_170);           // Im*1/sqrt(170)
+    xmm6  = simde_mm_mulhi_epi16(xmm3, THREE_OVER_SQRT_170);         // Im*3/sqrt(170)
+    xmm7  = simde_mm_mulhi_epi16(xmm3, FIVE_OVER_SQRT_170);          // Im*5/sqrt(170)
+    xmm8  = simde_mm_mulhi_epi16(xmm3, SEVEN_OVER_SQRT_170);
+    xmm8  = simde_mm_slli_epi16(xmm8, 1);                            // Im*7/sqrt(170)
+    xmm9  = simde_mm_mulhi_epi16(xmm3, NINE_OVER_SQRT_170);
+    xmm9  = simde_mm_slli_epi16(xmm9, 1);                            // Im*9/sqrt(170)
+    xmm10 = simde_mm_mulhi_epi16(xmm3, ELEVEN_OVER_SQRT_170);
+    xmm10 = simde_mm_slli_epi16(xmm10, 1);                           // Im*11/sqrt(170)
+    xmm11 = simde_mm_mulhi_epi16(xmm3, THIRTEEN_OVER_SQRT_170);
+    xmm11 = simde_mm_slli_epi16(xmm11, 2);                           // Im*13/sqrt(170)
+    xmm12 = simde_mm_mulhi_epi16(xmm3, FIFTEEN_OVER_SQRT_170);
+    xmm12 = simde_mm_slli_epi16(xmm12, 2);                           // Im*15/sqrt(170)
+
+    // row ri=0 (x1r=15): rho_rs[0..15]
+    xmm4 = simde_mm_mulhi_epi16(xmm2, FIFTEEN_OVER_SQRT_170);
+    xmm4 = simde_mm_slli_epi16(xmm4, 2);                             // Re*15/sqrt(170)
+    rho_rs[0]  = simde_mm_adds_epi16(xmm4, xmm12); // (15,15)
+    rho_rs[1]  = simde_mm_adds_epi16(xmm4, xmm11); // (15,13)
+    rho_rs[2]  = simde_mm_adds_epi16(xmm4, xmm10); // (15,11)
+    rho_rs[3]  = simde_mm_adds_epi16(xmm4, xmm9);  // (15,9)
+    rho_rs[4]  = simde_mm_adds_epi16(xmm4, xmm8);  // (15,7)
+    rho_rs[5]  = simde_mm_adds_epi16(xmm4, xmm7);  // (15,5)
+    rho_rs[6]  = simde_mm_adds_epi16(xmm4, xmm6);  // (15,3)
+    rho_rs[7]  = simde_mm_adds_epi16(xmm4, xmm5);  // (15,1)
+    rho_rs[8]  = simde_mm_subs_epi16(xmm4, xmm5);  // (15,-1)
+    rho_rs[9]  = simde_mm_subs_epi16(xmm4, xmm6);  // (15,-3)
+    rho_rs[10] = simde_mm_subs_epi16(xmm4, xmm7);  // (15,-5)
+    rho_rs[11] = simde_mm_subs_epi16(xmm4, xmm8);  // (15,-7)
+    rho_rs[12] = simde_mm_subs_epi16(xmm4, xmm9);  // (15,-9)
+    rho_rs[13] = simde_mm_subs_epi16(xmm4, xmm10); // (15,-11)
+    rho_rs[14] = simde_mm_subs_epi16(xmm4, xmm11); // (15,-13)
+    rho_rs[15] = simde_mm_subs_epi16(xmm4, xmm12); // (15,-15)
+
+    // row ri=1 (x1r=13): rho_rs[16..31]
+    xmm4 = simde_mm_mulhi_epi16(xmm2, THIRTEEN_OVER_SQRT_170);
+    xmm4 = simde_mm_slli_epi16(xmm4, 2);
+    rho_rs[16] = simde_mm_adds_epi16(xmm4, xmm12);
+    rho_rs[17] = simde_mm_adds_epi16(xmm4, xmm11);
+    rho_rs[18] = simde_mm_adds_epi16(xmm4, xmm10);
+    rho_rs[19] = simde_mm_adds_epi16(xmm4, xmm9);
+    rho_rs[20] = simde_mm_adds_epi16(xmm4, xmm8);
+    rho_rs[21] = simde_mm_adds_epi16(xmm4, xmm7);
+    rho_rs[22] = simde_mm_adds_epi16(xmm4, xmm6);
+    rho_rs[23] = simde_mm_adds_epi16(xmm4, xmm5);
+    rho_rs[24] = simde_mm_subs_epi16(xmm4, xmm5);
+    rho_rs[25] = simde_mm_subs_epi16(xmm4, xmm6);
+    rho_rs[26] = simde_mm_subs_epi16(xmm4, xmm7);
+    rho_rs[27] = simde_mm_subs_epi16(xmm4, xmm8);
+    rho_rs[28] = simde_mm_subs_epi16(xmm4, xmm9);
+    rho_rs[29] = simde_mm_subs_epi16(xmm4, xmm10);
+    rho_rs[30] = simde_mm_subs_epi16(xmm4, xmm11);
+    rho_rs[31] = simde_mm_subs_epi16(xmm4, xmm12);
+
+    // row ri=2 (x1r=11): rho_rs[32..47]
+    xmm4 = simde_mm_mulhi_epi16(xmm2, ELEVEN_OVER_SQRT_170);
+    xmm4 = simde_mm_slli_epi16(xmm4, 1);
+    rho_rs[32] = simde_mm_adds_epi16(xmm4, xmm12);
+    rho_rs[33] = simde_mm_adds_epi16(xmm4, xmm11);
+    rho_rs[34] = simde_mm_adds_epi16(xmm4, xmm10);
+    rho_rs[35] = simde_mm_adds_epi16(xmm4, xmm9);
+    rho_rs[36] = simde_mm_adds_epi16(xmm4, xmm8);
+    rho_rs[37] = simde_mm_adds_epi16(xmm4, xmm7);
+    rho_rs[38] = simde_mm_adds_epi16(xmm4, xmm6);
+    rho_rs[39] = simde_mm_adds_epi16(xmm4, xmm5);
+    rho_rs[40] = simde_mm_subs_epi16(xmm4, xmm5);
+    rho_rs[41] = simde_mm_subs_epi16(xmm4, xmm6);
+    rho_rs[42] = simde_mm_subs_epi16(xmm4, xmm7);
+    rho_rs[43] = simde_mm_subs_epi16(xmm4, xmm8);
+    rho_rs[44] = simde_mm_subs_epi16(xmm4, xmm9);
+    rho_rs[45] = simde_mm_subs_epi16(xmm4, xmm10);
+    rho_rs[46] = simde_mm_subs_epi16(xmm4, xmm11);
+    rho_rs[47] = simde_mm_subs_epi16(xmm4, xmm12);
+
+    // row ri=3 (x1r=9): rho_rs[48..63]
+    xmm4 = simde_mm_mulhi_epi16(xmm2, NINE_OVER_SQRT_170);
+    xmm4 = simde_mm_slli_epi16(xmm4, 1);
+    rho_rs[48] = simde_mm_adds_epi16(xmm4, xmm12);
+    rho_rs[49] = simde_mm_adds_epi16(xmm4, xmm11);
+    rho_rs[50] = simde_mm_adds_epi16(xmm4, xmm10);
+    rho_rs[51] = simde_mm_adds_epi16(xmm4, xmm9);
+    rho_rs[52] = simde_mm_adds_epi16(xmm4, xmm8);
+    rho_rs[53] = simde_mm_adds_epi16(xmm4, xmm7);
+    rho_rs[54] = simde_mm_adds_epi16(xmm4, xmm6);
+    rho_rs[55] = simde_mm_adds_epi16(xmm4, xmm5);
+    rho_rs[56] = simde_mm_subs_epi16(xmm4, xmm5);
+    rho_rs[57] = simde_mm_subs_epi16(xmm4, xmm6);
+    rho_rs[58] = simde_mm_subs_epi16(xmm4, xmm7);
+    rho_rs[59] = simde_mm_subs_epi16(xmm4, xmm8);
+    rho_rs[60] = simde_mm_subs_epi16(xmm4, xmm9);
+    rho_rs[61] = simde_mm_subs_epi16(xmm4, xmm10);
+    rho_rs[62] = simde_mm_subs_epi16(xmm4, xmm11);
+    rho_rs[63] = simde_mm_subs_epi16(xmm4, xmm12);
+
+    // row ri=4 (x1r=7): rho_rs[64..79]
+    xmm4 = simde_mm_mulhi_epi16(xmm2, SEVEN_OVER_SQRT_170);
+    xmm4 = simde_mm_slli_epi16(xmm4, 1);
+    rho_rs[64] = simde_mm_adds_epi16(xmm4, xmm12);
+    rho_rs[65] = simde_mm_adds_epi16(xmm4, xmm11);
+    rho_rs[66] = simde_mm_adds_epi16(xmm4, xmm10);
+    rho_rs[67] = simde_mm_adds_epi16(xmm4, xmm9);
+    rho_rs[68] = simde_mm_adds_epi16(xmm4, xmm8);
+    rho_rs[69] = simde_mm_adds_epi16(xmm4, xmm7);
+    rho_rs[70] = simde_mm_adds_epi16(xmm4, xmm6);
+    rho_rs[71] = simde_mm_adds_epi16(xmm4, xmm5);
+    rho_rs[72] = simde_mm_subs_epi16(xmm4, xmm5);
+    rho_rs[73] = simde_mm_subs_epi16(xmm4, xmm6);
+    rho_rs[74] = simde_mm_subs_epi16(xmm4, xmm7);
+    rho_rs[75] = simde_mm_subs_epi16(xmm4, xmm8);
+    rho_rs[76] = simde_mm_subs_epi16(xmm4, xmm9);
+    rho_rs[77] = simde_mm_subs_epi16(xmm4, xmm10);
+    rho_rs[78] = simde_mm_subs_epi16(xmm4, xmm11);
+    rho_rs[79] = simde_mm_subs_epi16(xmm4, xmm12);
+
+    // row ri=5 (x1r=5): rho_rs[80..95]
+    xmm4 = simde_mm_mulhi_epi16(xmm2, FIVE_OVER_SQRT_170);
+    rho_rs[80] = simde_mm_adds_epi16(xmm4, xmm12);
+    rho_rs[81] = simde_mm_adds_epi16(xmm4, xmm11);
+    rho_rs[82] = simde_mm_adds_epi16(xmm4, xmm10);
+    rho_rs[83] = simde_mm_adds_epi16(xmm4, xmm9);
+    rho_rs[84] = simde_mm_adds_epi16(xmm4, xmm8);
+    rho_rs[85] = simde_mm_adds_epi16(xmm4, xmm7);
+    rho_rs[86] = simde_mm_adds_epi16(xmm4, xmm6);
+    rho_rs[87] = simde_mm_adds_epi16(xmm4, xmm5);
+    rho_rs[88] = simde_mm_subs_epi16(xmm4, xmm5);
+    rho_rs[89] = simde_mm_subs_epi16(xmm4, xmm6);
+    rho_rs[90] = simde_mm_subs_epi16(xmm4, xmm7);
+    rho_rs[91] = simde_mm_subs_epi16(xmm4, xmm8);
+    rho_rs[92] = simde_mm_subs_epi16(xmm4, xmm9);
+    rho_rs[93] = simde_mm_subs_epi16(xmm4, xmm10);
+    rho_rs[94] = simde_mm_subs_epi16(xmm4, xmm11);
+    rho_rs[95] = simde_mm_subs_epi16(xmm4, xmm12);
+
+    // row ri=6 (x1r=3): rho_rs[96..111]
+    xmm4 = simde_mm_mulhi_epi16(xmm2, THREE_OVER_SQRT_170);
+    rho_rs[96]  = simde_mm_adds_epi16(xmm4, xmm12);
+    rho_rs[97]  = simde_mm_adds_epi16(xmm4, xmm11);
+    rho_rs[98]  = simde_mm_adds_epi16(xmm4, xmm10);
+    rho_rs[99]  = simde_mm_adds_epi16(xmm4, xmm9);
+    rho_rs[100] = simde_mm_adds_epi16(xmm4, xmm8);
+    rho_rs[101] = simde_mm_adds_epi16(xmm4, xmm7);
+    rho_rs[102] = simde_mm_adds_epi16(xmm4, xmm6);
+    rho_rs[103] = simde_mm_adds_epi16(xmm4, xmm5);
+    rho_rs[104] = simde_mm_subs_epi16(xmm4, xmm5);
+    rho_rs[105] = simde_mm_subs_epi16(xmm4, xmm6);
+    rho_rs[106] = simde_mm_subs_epi16(xmm4, xmm7);
+    rho_rs[107] = simde_mm_subs_epi16(xmm4, xmm8);
+    rho_rs[108] = simde_mm_subs_epi16(xmm4, xmm9);
+    rho_rs[109] = simde_mm_subs_epi16(xmm4, xmm10);
+    rho_rs[110] = simde_mm_subs_epi16(xmm4, xmm11);
+    rho_rs[111] = simde_mm_subs_epi16(xmm4, xmm12);
+
+    // row ri=7 (x1r=1): rho_rs[112..127]
+    xmm4 = simde_mm_mulhi_epi16(xmm2, ONE_OVER_SQRT_170);
+    rho_rs[112] = simde_mm_adds_epi16(xmm4, xmm12);
+    rho_rs[113] = simde_mm_adds_epi16(xmm4, xmm11);
+    rho_rs[114] = simde_mm_adds_epi16(xmm4, xmm10);
+    rho_rs[115] = simde_mm_adds_epi16(xmm4, xmm9);
+    rho_rs[116] = simde_mm_adds_epi16(xmm4, xmm8);
+    rho_rs[117] = simde_mm_adds_epi16(xmm4, xmm7);
+    rho_rs[118] = simde_mm_adds_epi16(xmm4, xmm6);
+    rho_rs[119] = simde_mm_adds_epi16(xmm4, xmm5);
+    rho_rs[120] = simde_mm_subs_epi16(xmm4, xmm5);
+    rho_rs[121] = simde_mm_subs_epi16(xmm4, xmm6);
+    rho_rs[122] = simde_mm_subs_epi16(xmm4, xmm7);
+    rho_rs[123] = simde_mm_subs_epi16(xmm4, xmm8);
+    rho_rs[124] = simde_mm_subs_epi16(xmm4, xmm9);
+    rho_rs[125] = simde_mm_subs_epi16(xmm4, xmm10);
+    rho_rs[126] = simde_mm_subs_epi16(xmm4, xmm11);
+    rho_rs[127] = simde_mm_subs_epi16(xmm4, xmm12);
+
+    // ---- y1r, y1i (interfering stream) ----
+    simde__m128i y1r, y1i;
+    oai_mm_separate_real_imag_parts(&y1r, &y1i, stream1_128i_in[i], stream1_128i_in[i+1]);
+
+    // ---- psi_r_s[256] and psi_i_s[256] ----
+    simde__m128i psi_r_s[256];
+    simde__m128i psi_i_s[256];
+
+    // Positive x0_r half (j=0..127): psi_r = |rho_rs[j] - y1r|
+    for (int j = 0; j < 128; j++)
+      psi_r_s[j] = simde_mm_abs_epi16(simde_mm_subs_epi16(rho_rs[j], y1r));
+    // Negative x0_r half (j=128..255): psi_r = |rho_rs[255-j] + y1r|
+    for (int j = 128; j < 256; j++)
+      psi_r_s[j] = simde_mm_abs_epi16(simde_mm_adds_epi16(rho_rs[255-j], y1r));
+
+    // psi_i: for symbol j=ri*16+qi, uses rho_rs at transposed index.
+    // For positive x0_r (j=0..127): ri=j/16, qi=j%16
+    //   qi=0..7  (pos x0_i): rho_idx = qi*16+(15-ri), use - y1i
+    //   qi=8..15 (neg x0_i): rho_idx = (15-qi)*16+ri, use + y1i
+    for (int k = 0; k < 128; k += 16) {
+      int ri = k >> 4;
+      for (int qi = 0; qi < 8; qi++)
+        psi_i_s[k+qi] = simde_mm_abs_epi16(simde_mm_subs_epi16(rho_rs[qi*16+(15-ri)], y1i));
+      for (int qi = 8; qi < 16; qi++)
+        psi_i_s[k+qi] = simde_mm_abs_epi16(simde_mm_adds_epi16(rho_rs[(15-qi)*16+ri], y1i));
+    }
+    // Negative x0_r (j=128..255): mirror of j=255-j from positive half
+    for (int k = 128; k < 256; k += 16) {
+      int j_base = 255 - k;      // maps k=128->j_base=127, k=144->j_base=111, etc.
+      int ri = j_base >> 4;
+      for (int qi = 0; qi < 8; qi++) {
+        int jj = k + (15 - qi); // mirror within block
+        int ri2 = (255 - jj) >> 4;
+        int qi2 = (255 - jj) & 15;
+        (void)qi2;
+        psi_i_s[jj] = simde_mm_abs_epi16(simde_mm_subs_epi16(rho_rs[qi*16+(15-ri2)], y1i));
+      }
+      for (int qi = 8; qi < 16; qi++) {
+        int jj = k + (15 - qi);
+        int ri2 = (255 - jj) >> 4;
+        psi_i_s[jj] = simde_mm_abs_epi16(simde_mm_adds_epi16(rho_rs[(15-qi)*16+ri2], y1i));
+      }
+      (void)ri;
+    }
+
+    // ---- y0r, y0i (desired stream) ----
+    simde__m128i y0r, y0i;
+    oai_mm_separate_real_imag_parts(&y0r, &y0i, stream0_128i_in[i], stream0_128i_in[i+1]);
+
+    // ---- channel magnitudes ----
+    oai_mm_separate_real_imag_parts(&ch_mag_des, &xmm0, ch_mag_128i[i], ch_mag_128i[i+1]);
+    oai_mm_separate_real_imag_parts(&ch_mag_int, &xmm0, ch_mag_128i_i[i], ch_mag_128i_i[i+1]);
+
+    // ---- y0r_over and y0i_over: 8 levels each ----
+    simde__m128i y0r_over[8], y0i_over[16];
+    // Re multiples
+    {
+      simde__m128i t;
+      t = simde_mm_mulhi_epi16(y0r, FIFTEEN_OVER_SQRT_170); y0r_over[0] = simde_mm_slli_epi16(t, 2); // x0r=15
+      t = simde_mm_mulhi_epi16(y0r, THIRTEEN_OVER_SQRT_170); y0r_over[1] = simde_mm_slli_epi16(t, 2); // x0r=13
+      t = simde_mm_mulhi_epi16(y0r, ELEVEN_OVER_SQRT_170);  y0r_over[2] = simde_mm_slli_epi16(t, 1); // x0r=11
+      t = simde_mm_mulhi_epi16(y0r, NINE_OVER_SQRT_170);    y0r_over[3] = simde_mm_slli_epi16(t, 1); // x0r=9
+      t = simde_mm_mulhi_epi16(y0r, SEVEN_OVER_SQRT_170);   y0r_over[4] = simde_mm_slli_epi16(t, 1); // x0r=7
+      y0r_over[5] = simde_mm_mulhi_epi16(y0r, FIVE_OVER_SQRT_170);  // x0r=5
+      y0r_over[6] = simde_mm_mulhi_epi16(y0r, THREE_OVER_SQRT_170); // x0r=3
+      y0r_over[7] = simde_mm_mulhi_epi16(y0r, ONE_OVER_SQRT_170);   // x0r=1
+    }
+    // Im multiples: positive (qi=0..7) and negative (qi=8..15)
+    {
+      simde__m128i t;
+      t = simde_mm_mulhi_epi16(y0i, FIFTEEN_OVER_SQRT_170);  y0i_over[0] = simde_mm_slli_epi16(t, 2);
+      t = simde_mm_mulhi_epi16(y0i, THIRTEEN_OVER_SQRT_170); y0i_over[1] = simde_mm_slli_epi16(t, 2);
+      t = simde_mm_mulhi_epi16(y0i, ELEVEN_OVER_SQRT_170);   y0i_over[2] = simde_mm_slli_epi16(t, 1);
+      t = simde_mm_mulhi_epi16(y0i, NINE_OVER_SQRT_170);     y0i_over[3] = simde_mm_slli_epi16(t, 1);
+      t = simde_mm_mulhi_epi16(y0i, SEVEN_OVER_SQRT_170);    y0i_over[4] = simde_mm_slli_epi16(t, 1);
+      y0i_over[5] = simde_mm_mulhi_epi16(y0i, FIVE_OVER_SQRT_170);
+      y0i_over[6] = simde_mm_mulhi_epi16(y0i, THREE_OVER_SQRT_170);
+      y0i_over[7] = simde_mm_mulhi_epi16(y0i, ONE_OVER_SQRT_170);
+      // negated
+      for (int q = 0; q < 8; q++)
+        y0i_over[8+q] = simde_mm_sub_epi16(simde_mm_set1_epi16(0), y0i_over[7-q]);
+    }
+
+    // y0_s[128]: for positive x0_r (j=ri*16+qi, ri=0..7, qi=0..15)
+    simde__m128i y0_s[128];
+    for (int ri = 0; ri < 8; ri++) {
+      for (int qi = 0; qi < 16; qi++)
+        y0_s[ri*16+qi] = simde_mm_adds_epi16(y0r_over[ri], y0i_over[qi]);
+    }
+
+    // ---- interference thresholds (7 levels) ----
+    // t_{2k} = k * ch_mag_int/4 = k * (ch_mag_int >> 2) for k=1..7
+    simde__m128i ch_mag_int_d4 = simde_mm_srai_epi16(ch_mag_int, 2); // /4
+    simde__m128i ch_mag_int_d2 = simde_mm_srai_epi16(ch_mag_int, 1); // /2
+    simde__m128i t2  = ch_mag_int_d4;
+    simde__m128i t4  = ch_mag_int_d2;
+    simde__m128i t6  = simde_mm_adds_epi16(ch_mag_int_d4, ch_mag_int_d2);
+    simde__m128i t8  = ch_mag_int;
+    simde__m128i t10 = simde_mm_adds_epi16(ch_mag_int_d4, ch_mag_int);
+    simde__m128i t12 = simde_mm_adds_epi16(ch_mag_int_d2, ch_mag_int);
+    simde__m128i t14 = simde_mm_adds_epi16(t6, ch_mag_int);
+
+    // ---- a_r, a_i, psi_a, a_sq for all 256 symbols ----
+    simde__m128i a_r_s[256], a_i_s[256], psi_a_s[256], a_sq_s[256];
+    for (int j = 0; j < 256; j++) {
+      a_r_s[j] = interference_abs_256qam_epi16(psi_r_s[j], t2, t4, t6, t8, t10, t12, t14,
+                   ONE_OVER_SQRT_2_170, THREE_OVER_SQRT_2_170, FIVE_OVER_SQRT_2_170, SEVEN_OVER_SQRT_2_170,
+                   NINE_OVER_SQRT_2_170, ELEVEN_OVER_SQRT_2_170, THIRTEEN_OVER_SQRT_2_170, FIFTEEN_OVER_SQRT_2_170);
+      a_i_s[j] = interference_abs_256qam_epi16(psi_i_s[j], t2, t4, t6, t8, t10, t12, t14,
+                   ONE_OVER_SQRT_2_170, THREE_OVER_SQRT_2_170, FIVE_OVER_SQRT_2_170, SEVEN_OVER_SQRT_2_170,
+                   NINE_OVER_SQRT_2_170, ELEVEN_OVER_SQRT_2_170, THIRTEEN_OVER_SQRT_2_170, FIFTEEN_OVER_SQRT_2_170);
+      psi_a_s[j] = prodsum_psi_a_epi16(psi_r_s[j], a_r_s[j], psi_i_s[j], a_i_s[j]);
+      psi_a_s[j] = simde_mm_slli_epi16(simde_mm_mulhi_epi16(psi_a_s[j], ONE_OVER_SQRT_2), 2);
+      a_sq_s[j]  = square_a_256qam_epi16(a_r_s[j], a_i_s[j], ch_mag_int, SQRT_170_OVER_EIGHT);
+    }
+
+    // ---- ch_mag_with_sigma2: (x0r^2+x0i^2)/(8*sqrt(170)) * ch_mag_des ----
+    // 128 entries for positive x0_r half; use <<4 after mulhi.
+    // v table indexed [ri*16+qi]:
+    static const int16_t v_tab[128] = {
+      // ri=0 (x0r=15): 225+x0i^2 for |x0i|={15,13,11,9,7,5,3,1,1,3,5,7,9,11,13,15}
+      450,394,346,306,274,250,234,226, 226,234,250,274,306,346,394,450,
+      // ri=1 (x0r=13): 169+x0i^2
+      394,338,290,250,218,194,178,170, 170,178,194,218,250,290,338,394,
+      // ri=2 (x0r=11): 121+x0i^2
+      346,290,242,202,170,146,130,122, 122,130,146,170,202,242,290,346,
+      // ri=3 (x0r=9): 81+x0i^2
+      306,250,202,162,130,106, 90, 82,  82, 90,106,130,162,202,250,306,
+      // ri=4 (x0r=7): 49+x0i^2
+      274,218,170,130, 98, 74, 58, 50,  50, 58, 74, 98,130,170,218,274,
+      // ri=5 (x0r=5): 25+x0i^2
+      250,194,146,106, 74, 50, 34, 26,  26, 34, 50, 74,106,146,194,250,
+      // ri=6 (x0r=3): 9+x0i^2
+      234,178,130, 90, 58, 34, 18, 10,  10, 18, 34, 58, 90,130,178,234,
+      // ri=7 (x0r=1): 1+x0i^2
+      226,170,122, 82, 50, 26, 10,  2,   2, 10, 26, 50, 82,122,170,226
+    };
+    simde__m128i ch_mag_s[128];
+    for (int j = 0; j < 128; j++) {
+      simde__m128i *kp;
+      switch(v_tab[j]) {
+        case   2: kp = &K_2;   break; case  10: kp = &K_10;  break;
+        case  18: kp = &K_18;  break; case  26: kp = &K_26;  break;
+        case  34: kp = &K_34;  break; case  50: kp = &K_50;  break;
+        case  58: kp = &K_58;  break; case  74: kp = &K_74;  break;
+        case  82: kp = &K_82;  break; case  90: kp = &K_90;  break;
+        case  98: kp = &K_98;  break; case 106: kp = &K_106; break;
+        case 122: kp = &K_122; break; case 130: kp = &K_130; break;
+        case 146: kp = &K_146; break; case 162: kp = &K_162; break;
+        case 170: kp = &K_170; break; case 178: kp = &K_178; break;
+        case 194: kp = &K_194; break; case 202: kp = &K_202; break;
+        case 218: kp = &K_218; break; case 226: kp = &K_226; break;
+        case 234: kp = &K_234; break; case 242: kp = &K_242; break;
+        case 250: kp = &K_250; break; case 274: kp = &K_274; break;
+        case 290: kp = &K_290; break; case 306: kp = &K_306; break;
+        case 338: kp = &K_338; break; case 346: kp = &K_346; break;
+        case 394: kp = &K_394; break; default:  kp = &K_450; break;
+      }
+      ch_mag_s[j] = simde_mm_slli_epi16(simde_mm_mulhi_epi16(ch_mag_des, *kp), 4);
+    }
+
+    // ---- bit_met_s[256] ----
+    simde__m128i bit_met_s[256];
+    for (int j = 0; j < 128; j++) {
+      simde__m128i x = simde_mm_adds_epi16(simde_mm_subs_epi16(psi_a_s[j], a_sq_s[j]), y0_s[j]);
+      bit_met_s[j] = simde_mm_subs_epi16(x, ch_mag_s[j]);
+    }
+    for (int j = 0; j < 128; j++) {
+      simde__m128i x = simde_mm_subs_epi16(simde_mm_subs_epi16(psi_a_s[128+j], a_sq_s[128+j]), y0_s[127-j]);
+      bit_met_s[128+j] = simde_mm_subs_epi16(x, ch_mag_s[127-j]);
+    }
+
+    // ---- LLR extraction: 8 bits per RE ----
+    // Index structure: bit_met_s[128+j] has logical ri_neg=15-(j/16), qi_neg=15-(j%16)
+    //
+    // bI0=0: j=0..127; bI0=1: j=128..255
+    // bI1=1: j=0..63 and 128..191; bI1=0: j=64..127 and 192..255
+    // bI2=1: j=0..31,96..127,128..159,224..255; bI2=0: j=32..95,160..223
+    // bI3=1: j=0..15,48..63,64..79,112..127,128..143,176..191,192..207,240..255
+    // bI3=0: j=16..47,80..111,144..175,208..239
+    // bQ0=0: j%16<8 (j<128) or (j-128)%16>=8 (j>=128)
+    // bQ1=1: j%16<4 or j%16>=12 (j<128) or (15-(j-128)%16) gives similar
+    // etc.
+
+    simde__m128i logmax_den_re0, logmax_num_re0;
+    simde__m128i tmp[16];
+
+    // --- bI0 ---
+    for (int k = 0; k < 16; k++) tmp[k] = max_epi16(bit_met_s[128+k*8],bit_met_s[128+k*8+1],bit_met_s[128+k*8+2],bit_met_s[128+k*8+3],bit_met_s[128+k*8+4],bit_met_s[128+k*8+5],bit_met_s[128+k*8+6],bit_met_s[128+k*8+7]);
+    logmax_den_re0 = max16_epi16(tmp);
+    for (int k = 0; k < 16; k++) tmp[k] = max_epi16(bit_met_s[k*8],bit_met_s[k*8+1],bit_met_s[k*8+2],bit_met_s[k*8+3],bit_met_s[k*8+4],bit_met_s[k*8+5],bit_met_s[k*8+6],bit_met_s[k*8+7]);
+    logmax_num_re0 = max16_epi16(tmp);
+    simde__m128i llr_bI0 = simde_mm_subs_epi16(logmax_num_re0, logmax_den_re0);
+
+    // --- bI1: den=j=0..63 + 128..191, num=j=64..127 + 192..255 ---
+    for (int k = 0; k < 8; k++) tmp[k]   = max_epi16(bit_met_s[k*8],bit_met_s[k*8+1],bit_met_s[k*8+2],bit_met_s[k*8+3],bit_met_s[k*8+4],bit_met_s[k*8+5],bit_met_s[k*8+6],bit_met_s[k*8+7]);
+    for (int k = 0; k < 8; k++) tmp[k+8] = max_epi16(bit_met_s[128+k*8],bit_met_s[128+k*8+1],bit_met_s[128+k*8+2],bit_met_s[128+k*8+3],bit_met_s[128+k*8+4],bit_met_s[128+k*8+5],bit_met_s[128+k*8+6],bit_met_s[128+k*8+7]);
+    logmax_den_re0 = max16_epi16(tmp);
+    for (int k = 0; k < 8; k++) tmp[k]   = max_epi16(bit_met_s[64+k*8],bit_met_s[64+k*8+1],bit_met_s[64+k*8+2],bit_met_s[64+k*8+3],bit_met_s[64+k*8+4],bit_met_s[64+k*8+5],bit_met_s[64+k*8+6],bit_met_s[64+k*8+7]);
+    for (int k = 0; k < 8; k++) tmp[k+8] = max_epi16(bit_met_s[192+k*8],bit_met_s[192+k*8+1],bit_met_s[192+k*8+2],bit_met_s[192+k*8+3],bit_met_s[192+k*8+4],bit_met_s[192+k*8+5],bit_met_s[192+k*8+6],bit_met_s[192+k*8+7]);
+    logmax_num_re0 = max16_epi16(tmp);
+    simde__m128i llr_bI1 = simde_mm_subs_epi16(logmax_num_re0, logmax_den_re0);
+
+    // --- bI2: den=j=0..31,96..127,128..159,224..255; num=j=32..95,160..223 ---
+    // den groups: [0..31]=4 groups, [96..127]=4 groups, [128..159]=4 groups, [224..255]=4 groups
+    for (int k=0;k<4;k++) tmp[k]    = max_epi16(bit_met_s[k*8],bit_met_s[k*8+1],bit_met_s[k*8+2],bit_met_s[k*8+3],bit_met_s[k*8+4],bit_met_s[k*8+5],bit_met_s[k*8+6],bit_met_s[k*8+7]);
+    for (int k=0;k<4;k++) tmp[k+4]  = max_epi16(bit_met_s[96+k*8],bit_met_s[96+k*8+1],bit_met_s[96+k*8+2],bit_met_s[96+k*8+3],bit_met_s[96+k*8+4],bit_met_s[96+k*8+5],bit_met_s[96+k*8+6],bit_met_s[96+k*8+7]);
+    for (int k=0;k<4;k++) tmp[k+8]  = max_epi16(bit_met_s[128+k*8],bit_met_s[128+k*8+1],bit_met_s[128+k*8+2],bit_met_s[128+k*8+3],bit_met_s[128+k*8+4],bit_met_s[128+k*8+5],bit_met_s[128+k*8+6],bit_met_s[128+k*8+7]);
+    for (int k=0;k<4;k++) tmp[k+12] = max_epi16(bit_met_s[224+k*8],bit_met_s[224+k*8+1],bit_met_s[224+k*8+2],bit_met_s[224+k*8+3],bit_met_s[224+k*8+4],bit_met_s[224+k*8+5],bit_met_s[224+k*8+6],bit_met_s[224+k*8+7]);
+    logmax_den_re0 = max16_epi16(tmp);
+    for (int k=0;k<8;k++) tmp[k]   = max_epi16(bit_met_s[32+k*8],bit_met_s[32+k*8+1],bit_met_s[32+k*8+2],bit_met_s[32+k*8+3],bit_met_s[32+k*8+4],bit_met_s[32+k*8+5],bit_met_s[32+k*8+6],bit_met_s[32+k*8+7]);
+    for (int k=0;k<8;k++) tmp[k+8] = max_epi16(bit_met_s[160+k*8],bit_met_s[160+k*8+1],bit_met_s[160+k*8+2],bit_met_s[160+k*8+3],bit_met_s[160+k*8+4],bit_met_s[160+k*8+5],bit_met_s[160+k*8+6],bit_met_s[160+k*8+7]);
+    logmax_num_re0 = max16_epi16(tmp);
+    simde__m128i llr_bI2 = simde_mm_subs_epi16(logmax_num_re0, logmax_den_re0);
+
+    // --- bI3: den=j=0..15,48..63,64..79,112..127,128..143,176..191,192..207,240..255
+    //          num=j=16..47,80..111,144..175,208..239 ---
+    for (int k=0;k<2;k++) tmp[k]    = max_epi16(bit_met_s[k*8],bit_met_s[k*8+1],bit_met_s[k*8+2],bit_met_s[k*8+3],bit_met_s[k*8+4],bit_met_s[k*8+5],bit_met_s[k*8+6],bit_met_s[k*8+7]);
+    for (int k=0;k<2;k++) tmp[k+2]  = max_epi16(bit_met_s[48+k*8],bit_met_s[48+k*8+1],bit_met_s[48+k*8+2],bit_met_s[48+k*8+3],bit_met_s[48+k*8+4],bit_met_s[48+k*8+5],bit_met_s[48+k*8+6],bit_met_s[48+k*8+7]);
+    for (int k=0;k<2;k++) tmp[k+4]  = max_epi16(bit_met_s[64+k*8],bit_met_s[64+k*8+1],bit_met_s[64+k*8+2],bit_met_s[64+k*8+3],bit_met_s[64+k*8+4],bit_met_s[64+k*8+5],bit_met_s[64+k*8+6],bit_met_s[64+k*8+7]);
+    for (int k=0;k<2;k++) tmp[k+6]  = max_epi16(bit_met_s[112+k*8],bit_met_s[112+k*8+1],bit_met_s[112+k*8+2],bit_met_s[112+k*8+3],bit_met_s[112+k*8+4],bit_met_s[112+k*8+5],bit_met_s[112+k*8+6],bit_met_s[112+k*8+7]);
+    for (int k=0;k<2;k++) tmp[k+8]  = max_epi16(bit_met_s[128+k*8],bit_met_s[128+k*8+1],bit_met_s[128+k*8+2],bit_met_s[128+k*8+3],bit_met_s[128+k*8+4],bit_met_s[128+k*8+5],bit_met_s[128+k*8+6],bit_met_s[128+k*8+7]);
+    for (int k=0;k<2;k++) tmp[k+10] = max_epi16(bit_met_s[176+k*8],bit_met_s[176+k*8+1],bit_met_s[176+k*8+2],bit_met_s[176+k*8+3],bit_met_s[176+k*8+4],bit_met_s[176+k*8+5],bit_met_s[176+k*8+6],bit_met_s[176+k*8+7]);
+    for (int k=0;k<2;k++) tmp[k+12] = max_epi16(bit_met_s[192+k*8],bit_met_s[192+k*8+1],bit_met_s[192+k*8+2],bit_met_s[192+k*8+3],bit_met_s[192+k*8+4],bit_met_s[192+k*8+5],bit_met_s[192+k*8+6],bit_met_s[192+k*8+7]);
+    for (int k=0;k<2;k++) tmp[k+14] = max_epi16(bit_met_s[240+k*8],bit_met_s[240+k*8+1],bit_met_s[240+k*8+2],bit_met_s[240+k*8+3],bit_met_s[240+k*8+4],bit_met_s[240+k*8+5],bit_met_s[240+k*8+6],bit_met_s[240+k*8+7]);
+    logmax_den_re0 = max16_epi16(tmp);
+    for (int k=0;k<4;k++) tmp[k]    = max_epi16(bit_met_s[16+k*8],bit_met_s[16+k*8+1],bit_met_s[16+k*8+2],bit_met_s[16+k*8+3],bit_met_s[16+k*8+4],bit_met_s[16+k*8+5],bit_met_s[16+k*8+6],bit_met_s[16+k*8+7]);
+    for (int k=0;k<4;k++) tmp[k+4]  = max_epi16(bit_met_s[80+k*8],bit_met_s[80+k*8+1],bit_met_s[80+k*8+2],bit_met_s[80+k*8+3],bit_met_s[80+k*8+4],bit_met_s[80+k*8+5],bit_met_s[80+k*8+6],bit_met_s[80+k*8+7]);
+    for (int k=0;k<4;k++) tmp[k+8]  = max_epi16(bit_met_s[144+k*8],bit_met_s[144+k*8+1],bit_met_s[144+k*8+2],bit_met_s[144+k*8+3],bit_met_s[144+k*8+4],bit_met_s[144+k*8+5],bit_met_s[144+k*8+6],bit_met_s[144+k*8+7]);
+    for (int k=0;k<4;k++) tmp[k+12] = max_epi16(bit_met_s[208+k*8],bit_met_s[208+k*8+1],bit_met_s[208+k*8+2],bit_met_s[208+k*8+3],bit_met_s[208+k*8+4],bit_met_s[208+k*8+5],bit_met_s[208+k*8+6],bit_met_s[208+k*8+7]);
+    logmax_num_re0 = max16_epi16(tmp);
+    simde__m128i llr_bI3 = simde_mm_subs_epi16(logmax_num_re0, logmax_den_re0);
+
+    // --- bQ0: bQ0=0 when j%16<8 (pos x0_i); bQ0=1 when j%16>=8 (neg x0_i)
+    // For j=0..127: bQ0=0 when j%16<8, i.e. even-half of each 16-block
+    // For j=128..255: qi_neg=15-(j-128)%16; bQ0=0 when qi_neg<8 i.e. (j-128)%16>7 i.e. (j-128)%16>=8
+    // num (bQ0=0): {j<128 and j%16<8} U {j>=128 and (j-128)%16>=8}
+    // = j in {0..7,16..23,...,112..119} U {136..143,152..159,...,248..255}
+    // den (bQ0=1): {j<128 and j%16>=8} U {j>=128 and (j-128)%16<8}
+    // = j in {8..15,24..31,...,120..127} U {128..135,144..151,...,240..247}
+    {
+      // Build den: 8 groups from [8,24,40,56,72,88,104,120] and 8 groups from [128,144,160,176,192,208,224,240]
+      for (int k=0;k<8;k++) tmp[k]   = max_epi16(bit_met_s[8+k*16],bit_met_s[9+k*16],bit_met_s[10+k*16],bit_met_s[11+k*16],bit_met_s[12+k*16],bit_met_s[13+k*16],bit_met_s[14+k*16],bit_met_s[15+k*16]);
+      for (int k=0;k<8;k++) tmp[k+8] = max_epi16(bit_met_s[128+k*16],bit_met_s[129+k*16],bit_met_s[130+k*16],bit_met_s[131+k*16],bit_met_s[132+k*16],bit_met_s[133+k*16],bit_met_s[134+k*16],bit_met_s[135+k*16]);
+      logmax_den_re0 = max16_epi16(tmp);
+      // Build num:
+      for (int k=0;k<8;k++) tmp[k]   = max_epi16(bit_met_s[k*16],bit_met_s[1+k*16],bit_met_s[2+k*16],bit_met_s[3+k*16],bit_met_s[4+k*16],bit_met_s[5+k*16],bit_met_s[6+k*16],bit_met_s[7+k*16]);
+      for (int k=0;k<8;k++) tmp[k+8] = max_epi16(bit_met_s[136+k*16],bit_met_s[137+k*16],bit_met_s[138+k*16],bit_met_s[139+k*16],bit_met_s[140+k*16],bit_met_s[141+k*16],bit_met_s[142+k*16],bit_met_s[143+k*16]);
+      logmax_num_re0 = max16_epi16(tmp);
+    }
+    simde__m128i llr_bQ0 = simde_mm_subs_epi16(logmax_num_re0, logmax_den_re0);
+
+    // --- bQ1: qi=0..3 or qi=12..15 → bQ1=1; qi=4..11 → bQ1=0
+    // For j<128: qi=j%16; bQ1=1 when qi<4 or qi>=12
+    // For j>=128: qi_neg=15-(j-128)%16; bQ1=1 when qi_neg<4 i.e.(j-128)%16>11 i.e.(j-128)%16>=12
+    //             or qi_neg>=12 i.e.(j-128)%16<4
+    // den (bQ1=1): {j<128 and (j%16<4 or j%16>=12)} U {j>=128 and ((j-128)%16<4 or (j-128)%16>=12)}
+    // num (bQ1=0): {j<128 and 4<=j%16<12} U {j>=128 and 4<=(j-128)%16<12}
+    {
+      // den: qi=0..3 → cols 0-3 of each 16-block; qi=12..15 → cols 12-15
+      // 8 row-blocks for j<128, 8 row-blocks for j>=128
+      // Each row-block has 4 entries from cols 0-3 and 4 from cols 12-15 → we need 2 max_epi16 per block
+      simde__m128i t16[16];
+      // j<128 den: for each ri=0..7, take qi=0..3 and qi=12..15
+      for (int ri=0;ri<8;ri++) {
+        int base = ri*16;
+        t16[2*ri]   = max_epi16(bit_met_s[base],bit_met_s[base+1],bit_met_s[base+2],bit_met_s[base+3],bit_met_s[base+12],bit_met_s[base+13],bit_met_s[base+14],bit_met_s[base+15]);
+        // j>=128: for this ri, the corresponding negative blocks are at 128+((7-ri)*16..+15)
+        int base2 = 128+(7-ri)*16;
+        t16[2*ri+1] = max_epi16(bit_met_s[base2],bit_met_s[base2+1],bit_met_s[base2+2],bit_met_s[base2+3],bit_met_s[base2+12],bit_met_s[base2+13],bit_met_s[base2+14],bit_met_s[base2+15]);
+      }
+      logmax_den_re0 = max16_epi16(t16);
+      // num: qi=4..11
+      for (int ri=0;ri<8;ri++) {
+        int base = ri*16;
+        t16[2*ri]   = max_epi16(bit_met_s[base+4],bit_met_s[base+5],bit_met_s[base+6],bit_met_s[base+7],bit_met_s[base+8],bit_met_s[base+9],bit_met_s[base+10],bit_met_s[base+11]);
+        int base2 = 128+(7-ri)*16;
+        t16[2*ri+1] = max_epi16(bit_met_s[base2+4],bit_met_s[base2+5],bit_met_s[base2+6],bit_met_s[base2+7],bit_met_s[base2+8],bit_met_s[base2+9],bit_met_s[base2+10],bit_met_s[base2+11]);
+      }
+      logmax_num_re0 = max16_epi16(t16);
+    }
+    simde__m128i llr_bQ1 = simde_mm_subs_epi16(logmax_num_re0, logmax_den_re0);
+
+    // --- bQ2: qi=0..1,6..9,14..15 → bQ2=1; qi=2..5,10..13 → bQ2=0
+    // (Gray code: qi∈{0,1,6,7,8,9,14,15} → b2=1)
+    // For j>=128: qi_neg=15-(j-128)%16; qi_neg∈{0,1,6,7,8,9,14,15} → b2=1
+    //   (j-128)%16: qi_neg=15-col; qi_neg∈{0,1,6,7,8,9,14,15} → col∈{14,15,6,7,5,6,0,1}... 
+    //   col=15-qi_neg: for qi_neg=0→col=15, 1→14, 6→9, 7→8, 8→7, 9→6, 14→1, 15→0
+    //   So bQ2=1 for j>=128 when (j-128)%16 ∈ {0,1,6,7,8,9,14,15} (same set by symmetry)
+    {
+      simde__m128i t16[16];
+      for (int ri=0;ri<8;ri++) {
+        int base=ri*16, base2=128+(7-ri)*16;
+        t16[2*ri]   = max_epi16(bit_met_s[base],bit_met_s[base+1],bit_met_s[base+6],bit_met_s[base+7],bit_met_s[base+8],bit_met_s[base+9],bit_met_s[base+14],bit_met_s[base+15]);
+        t16[2*ri+1] = max_epi16(bit_met_s[base2],bit_met_s[base2+1],bit_met_s[base2+6],bit_met_s[base2+7],bit_met_s[base2+8],bit_met_s[base2+9],bit_met_s[base2+14],bit_met_s[base2+15]);
+      }
+      logmax_den_re0 = max16_epi16(t16);
+      for (int ri=0;ri<8;ri++) {
+        int base=ri*16, base2=128+(7-ri)*16;
+        t16[2*ri]   = max_epi16(bit_met_s[base+2],bit_met_s[base+3],bit_met_s[base+4],bit_met_s[base+5],bit_met_s[base+10],bit_met_s[base+11],bit_met_s[base+12],bit_met_s[base+13]);
+        t16[2*ri+1] = max_epi16(bit_met_s[base2+2],bit_met_s[base2+3],bit_met_s[base2+4],bit_met_s[base2+5],bit_met_s[base2+10],bit_met_s[base2+11],bit_met_s[base2+12],bit_met_s[base2+13]);
+      }
+      logmax_num_re0 = max16_epi16(t16);
+    }
+    simde__m128i llr_bQ2 = simde_mm_subs_epi16(logmax_num_re0, logmax_den_re0);
+
+    // --- bQ3: qi∈{0,3,4,7,8,11,12,15} → bQ3=1; qi∈{1,2,5,6,9,10,13,14} → bQ3=0
+    // Same qi_neg symmetry as bQ2 case.
+    {
+      simde__m128i t16[16];
+      for (int ri=0;ri<8;ri++) {
+        int base=ri*16, base2=128+(7-ri)*16;
+        t16[2*ri]   = max_epi16(bit_met_s[base],bit_met_s[base+3],bit_met_s[base+4],bit_met_s[base+7],bit_met_s[base+8],bit_met_s[base+11],bit_met_s[base+12],bit_met_s[base+15]);
+        t16[2*ri+1] = max_epi16(bit_met_s[base2],bit_met_s[base2+3],bit_met_s[base2+4],bit_met_s[base2+7],bit_met_s[base2+8],bit_met_s[base2+11],bit_met_s[base2+12],bit_met_s[base2+15]);
+      }
+      logmax_den_re0 = max16_epi16(t16);
+      for (int ri=0;ri<8;ri++) {
+        int base=ri*16, base2=128+(7-ri)*16;
+        t16[2*ri]   = max_epi16(bit_met_s[base+1],bit_met_s[base+2],bit_met_s[base+5],bit_met_s[base+6],bit_met_s[base+9],bit_met_s[base+10],bit_met_s[base+13],bit_met_s[base+14]);
+        t16[2*ri+1] = max_epi16(bit_met_s[base2+1],bit_met_s[base2+2],bit_met_s[base2+5],bit_met_s[base2+6],bit_met_s[base2+9],bit_met_s[base2+10],bit_met_s[base2+13],bit_met_s[base2+14]);
+      }
+      logmax_num_re0 = max16_epi16(t16);
+    }
+    simde__m128i llr_bQ3 = simde_mm_subs_epi16(logmax_num_re0, logmax_den_re0);
+
+    // Map to output: 8 LLRs per RE {bI0,bQ0,bI1,bQ1,bI2,bQ2,bI3,bQ3}
+    for (int re = 0; re < 8; re++) {
+      *stream0_out++ = ((short *)&llr_bI0)[re];
+      *stream0_out++ = ((short *)&llr_bQ0)[re];
+      *stream0_out++ = ((short *)&llr_bI1)[re];
+      *stream0_out++ = ((short *)&llr_bQ1)[re];
+      *stream0_out++ = ((short *)&llr_bI2)[re];
+      *stream0_out++ = ((short *)&llr_bQ2)[re];
+      *stream0_out++ = ((short *)&llr_bI3)[re];
+      *stream0_out++ = ((short *)&llr_bQ3)[re];
+    }
+  }
+#else
+  // ---- AVX2 256-bit path: process 16 REs per iteration ----
+  simde__m256i *rho01_256i      = (simde__m256i *)rho01;
+  simde__m256i *stream0_256i_in = (simde__m256i *)stream0_in;
+  simde__m256i *stream1_256i_in = (simde__m256i *)stream1_in;
+  simde__m256i *ch_mag_256i     = (simde__m256i *)ch_mag;
+  simde__m256i *ch_mag_256i_i   = (simde__m256i *)ch_mag_i;
+
+  simde__m256i ONE_OVER_SQRT_170   = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(5026));
+  simde__m256i THREE_OVER_SQRT_170 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(15078));
+  simde__m256i FIVE_OVER_SQRT_170  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(25130));
+  simde__m256i SEVEN_OVER_SQRT_170 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(17591));
+  simde__m256i NINE_OVER_SQRT_170  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(22616));
+  simde__m256i ELEVEN_OVER_SQRT_170  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(27642));
+  simde__m256i THIRTEEN_OVER_SQRT_170 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(16333));
+  simde__m256i FIFTEEN_OVER_SQRT_170  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(18847));
+
+  simde__m256i ONE_OVER_SQRT_2_170    = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(1777));
+  simde__m256i THREE_OVER_SQRT_2_170  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(5330));
+  simde__m256i FIVE_OVER_SQRT_2_170   = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(8884));
+  simde__m256i SEVEN_OVER_SQRT_2_170  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(12437));
+  simde__m256i NINE_OVER_SQRT_2_170   = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(15991));
+  simde__m256i ELEVEN_OVER_SQRT_2_170 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(19544));
+  simde__m256i THIRTEEN_OVER_SQRT_2_170 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(23098));
+  simde__m256i FIFTEEN_OVER_SQRT_2_170  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(26651));
+
+  simde__m256i ONE_OVER_SQRT_2    = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(23170));
+  simde__m256i SQRT_170_OVER_EIGHT= simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(13354));
+
+  simde__m256i K256_2   = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(79));
+  simde__m256i K256_10  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(393));
+  simde__m256i K256_18  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(707));
+  simde__m256i K256_26  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(1021));
+  simde__m256i K256_34  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(1335));
+  simde__m256i K256_50  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(1964));
+  simde__m256i K256_58  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(2278));
+  simde__m256i K256_74  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(2906));
+  simde__m256i K256_82  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(3220));
+  simde__m256i K256_90  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(3534));
+  simde__m256i K256_98  = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(3849));
+  simde__m256i K256_106 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(4163));
+  simde__m256i K256_122 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(4791));
+  simde__m256i K256_130 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(5105));
+  simde__m256i K256_146 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(5733));
+  simde__m256i K256_162 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(6362));
+  simde__m256i K256_170 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(6676));
+  simde__m256i K256_178 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(6990));
+  simde__m256i K256_194 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(7618));
+  simde__m256i K256_202 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(7933));
+  simde__m256i K256_218 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(8561));
+  simde__m256i K256_226 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(8875));
+  simde__m256i K256_234 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(9189));
+  simde__m256i K256_242 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(9503));
+  simde__m256i K256_250 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(9818));
+  simde__m256i K256_274 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(10761));
+  simde__m256i K256_290 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(11389));
+  simde__m256i K256_306 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(12017));
+  simde__m256i K256_338 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(13273));
+  simde__m256i K256_346 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(13587));
+  simde__m256i K256_394 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(15472));
+  simde__m256i K256_450 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(17671));
+
+  simde__m256i ch_mag_des_256;
+  simde__m256i ch_mag_int_256;
+
+  uint32_t len256 = length >> 3;
+
+  for (int i = 0; i < len256; i += 2) {
+    simde__m256i xmm0,xmm2,xmm3,xmm4,xmm5,xmm6,xmm7,xmm8,xmm9,xmm10,xmm11,xmm12;
+
+    oai_mm256_separate_real_imag_parts(&xmm2, &xmm3, rho01_256i[i], rho01_256i[i+1]);
+    simde__m256i rho_rs[128];
+
+    xmm5  = simde_mm256_mulhi_epi16(xmm3, ONE_OVER_SQRT_170);
+    xmm6  = simde_mm256_mulhi_epi16(xmm3, THREE_OVER_SQRT_170);
+    xmm7  = simde_mm256_mulhi_epi16(xmm3, FIVE_OVER_SQRT_170);
+    xmm8  = simde_mm256_mulhi_epi16(xmm3, SEVEN_OVER_SQRT_170);
+    xmm8  = simde_mm256_slli_epi16(xmm8, 1);
+    xmm9  = simde_mm256_mulhi_epi16(xmm3, NINE_OVER_SQRT_170);
+    xmm9  = simde_mm256_slli_epi16(xmm9, 1);
+    xmm10 = simde_mm256_mulhi_epi16(xmm3, ELEVEN_OVER_SQRT_170);
+    xmm10 = simde_mm256_slli_epi16(xmm10, 1);
+    xmm11 = simde_mm256_mulhi_epi16(xmm3, THIRTEEN_OVER_SQRT_170);
+    xmm11 = simde_mm256_slli_epi16(xmm11, 2);
+    xmm12 = simde_mm256_mulhi_epi16(xmm3, FIFTEEN_OVER_SQRT_170);
+    xmm12 = simde_mm256_slli_epi16(xmm12, 2);
+
+    // row ri=0 (x1r=15)
+    xmm4 = simde_mm256_mulhi_epi16(xmm2, FIFTEEN_OVER_SQRT_170);
+    xmm4 = simde_mm256_slli_epi16(xmm4, 2);
+    rho_rs[0]=simde_mm256_adds_epi16(xmm4,xmm12); rho_rs[1]=simde_mm256_adds_epi16(xmm4,xmm11);
+    rho_rs[2]=simde_mm256_adds_epi16(xmm4,xmm10); rho_rs[3]=simde_mm256_adds_epi16(xmm4,xmm9);
+    rho_rs[4]=simde_mm256_adds_epi16(xmm4,xmm8);  rho_rs[5]=simde_mm256_adds_epi16(xmm4,xmm7);
+    rho_rs[6]=simde_mm256_adds_epi16(xmm4,xmm6);  rho_rs[7]=simde_mm256_adds_epi16(xmm4,xmm5);
+    rho_rs[8]=simde_mm256_subs_epi16(xmm4,xmm5);  rho_rs[9]=simde_mm256_subs_epi16(xmm4,xmm6);
+    rho_rs[10]=simde_mm256_subs_epi16(xmm4,xmm7); rho_rs[11]=simde_mm256_subs_epi16(xmm4,xmm8);
+    rho_rs[12]=simde_mm256_subs_epi16(xmm4,xmm9); rho_rs[13]=simde_mm256_subs_epi16(xmm4,xmm10);
+    rho_rs[14]=simde_mm256_subs_epi16(xmm4,xmm11);rho_rs[15]=simde_mm256_subs_epi16(xmm4,xmm12);
+    // row ri=1 (x1r=13)
+    xmm4 = simde_mm256_mulhi_epi16(xmm2, THIRTEEN_OVER_SQRT_170);
+    xmm4 = simde_mm256_slli_epi16(xmm4, 2);
+    rho_rs[16]=simde_mm256_adds_epi16(xmm4,xmm12);rho_rs[17]=simde_mm256_adds_epi16(xmm4,xmm11);
+    rho_rs[18]=simde_mm256_adds_epi16(xmm4,xmm10);rho_rs[19]=simde_mm256_adds_epi16(xmm4,xmm9);
+    rho_rs[20]=simde_mm256_adds_epi16(xmm4,xmm8); rho_rs[21]=simde_mm256_adds_epi16(xmm4,xmm7);
+    rho_rs[22]=simde_mm256_adds_epi16(xmm4,xmm6); rho_rs[23]=simde_mm256_adds_epi16(xmm4,xmm5);
+    rho_rs[24]=simde_mm256_subs_epi16(xmm4,xmm5); rho_rs[25]=simde_mm256_subs_epi16(xmm4,xmm6);
+    rho_rs[26]=simde_mm256_subs_epi16(xmm4,xmm7); rho_rs[27]=simde_mm256_subs_epi16(xmm4,xmm8);
+    rho_rs[28]=simde_mm256_subs_epi16(xmm4,xmm9); rho_rs[29]=simde_mm256_subs_epi16(xmm4,xmm10);
+    rho_rs[30]=simde_mm256_subs_epi16(xmm4,xmm11);rho_rs[31]=simde_mm256_subs_epi16(xmm4,xmm12);
+    // row ri=2 (x1r=11)
+    xmm4 = simde_mm256_mulhi_epi16(xmm2, ELEVEN_OVER_SQRT_170);
+    xmm4 = simde_mm256_slli_epi16(xmm4, 1);
+    rho_rs[32]=simde_mm256_adds_epi16(xmm4,xmm12);rho_rs[33]=simde_mm256_adds_epi16(xmm4,xmm11);
+    rho_rs[34]=simde_mm256_adds_epi16(xmm4,xmm10);rho_rs[35]=simde_mm256_adds_epi16(xmm4,xmm9);
+    rho_rs[36]=simde_mm256_adds_epi16(xmm4,xmm8); rho_rs[37]=simde_mm256_adds_epi16(xmm4,xmm7);
+    rho_rs[38]=simde_mm256_adds_epi16(xmm4,xmm6); rho_rs[39]=simde_mm256_adds_epi16(xmm4,xmm5);
+    rho_rs[40]=simde_mm256_subs_epi16(xmm4,xmm5); rho_rs[41]=simde_mm256_subs_epi16(xmm4,xmm6);
+    rho_rs[42]=simde_mm256_subs_epi16(xmm4,xmm7); rho_rs[43]=simde_mm256_subs_epi16(xmm4,xmm8);
+    rho_rs[44]=simde_mm256_subs_epi16(xmm4,xmm9); rho_rs[45]=simde_mm256_subs_epi16(xmm4,xmm10);
+    rho_rs[46]=simde_mm256_subs_epi16(xmm4,xmm11);rho_rs[47]=simde_mm256_subs_epi16(xmm4,xmm12);
+    // row ri=3 (x1r=9)
+    xmm4 = simde_mm256_mulhi_epi16(xmm2, NINE_OVER_SQRT_170);
+    xmm4 = simde_mm256_slli_epi16(xmm4, 1);
+    rho_rs[48]=simde_mm256_adds_epi16(xmm4,xmm12);rho_rs[49]=simde_mm256_adds_epi16(xmm4,xmm11);
+    rho_rs[50]=simde_mm256_adds_epi16(xmm4,xmm10);rho_rs[51]=simde_mm256_adds_epi16(xmm4,xmm9);
+    rho_rs[52]=simde_mm256_adds_epi16(xmm4,xmm8); rho_rs[53]=simde_mm256_adds_epi16(xmm4,xmm7);
+    rho_rs[54]=simde_mm256_adds_epi16(xmm4,xmm6); rho_rs[55]=simde_mm256_adds_epi16(xmm4,xmm5);
+    rho_rs[56]=simde_mm256_subs_epi16(xmm4,xmm5); rho_rs[57]=simde_mm256_subs_epi16(xmm4,xmm6);
+    rho_rs[58]=simde_mm256_subs_epi16(xmm4,xmm7); rho_rs[59]=simde_mm256_subs_epi16(xmm4,xmm8);
+    rho_rs[60]=simde_mm256_subs_epi16(xmm4,xmm9); rho_rs[61]=simde_mm256_subs_epi16(xmm4,xmm10);
+    rho_rs[62]=simde_mm256_subs_epi16(xmm4,xmm11);rho_rs[63]=simde_mm256_subs_epi16(xmm4,xmm12);
+    // row ri=4 (x1r=7)
+    xmm4 = simde_mm256_mulhi_epi16(xmm2, SEVEN_OVER_SQRT_170);
+    xmm4 = simde_mm256_slli_epi16(xmm4, 1);
+    rho_rs[64]=simde_mm256_adds_epi16(xmm4,xmm12);rho_rs[65]=simde_mm256_adds_epi16(xmm4,xmm11);
+    rho_rs[66]=simde_mm256_adds_epi16(xmm4,xmm10);rho_rs[67]=simde_mm256_adds_epi16(xmm4,xmm9);
+    rho_rs[68]=simde_mm256_adds_epi16(xmm4,xmm8); rho_rs[69]=simde_mm256_adds_epi16(xmm4,xmm7);
+    rho_rs[70]=simde_mm256_adds_epi16(xmm4,xmm6); rho_rs[71]=simde_mm256_adds_epi16(xmm4,xmm5);
+    rho_rs[72]=simde_mm256_subs_epi16(xmm4,xmm5); rho_rs[73]=simde_mm256_subs_epi16(xmm4,xmm6);
+    rho_rs[74]=simde_mm256_subs_epi16(xmm4,xmm7); rho_rs[75]=simde_mm256_subs_epi16(xmm4,xmm8);
+    rho_rs[76]=simde_mm256_subs_epi16(xmm4,xmm9); rho_rs[77]=simde_mm256_subs_epi16(xmm4,xmm10);
+    rho_rs[78]=simde_mm256_subs_epi16(xmm4,xmm11);rho_rs[79]=simde_mm256_subs_epi16(xmm4,xmm12);
+    // row ri=5 (x1r=5)
+    xmm4 = simde_mm256_mulhi_epi16(xmm2, FIVE_OVER_SQRT_170);
+    rho_rs[80]=simde_mm256_adds_epi16(xmm4,xmm12);rho_rs[81]=simde_mm256_adds_epi16(xmm4,xmm11);
+    rho_rs[82]=simde_mm256_adds_epi16(xmm4,xmm10);rho_rs[83]=simde_mm256_adds_epi16(xmm4,xmm9);
+    rho_rs[84]=simde_mm256_adds_epi16(xmm4,xmm8); rho_rs[85]=simde_mm256_adds_epi16(xmm4,xmm7);
+    rho_rs[86]=simde_mm256_adds_epi16(xmm4,xmm6); rho_rs[87]=simde_mm256_adds_epi16(xmm4,xmm5);
+    rho_rs[88]=simde_mm256_subs_epi16(xmm4,xmm5); rho_rs[89]=simde_mm256_subs_epi16(xmm4,xmm6);
+    rho_rs[90]=simde_mm256_subs_epi16(xmm4,xmm7); rho_rs[91]=simde_mm256_subs_epi16(xmm4,xmm8);
+    rho_rs[92]=simde_mm256_subs_epi16(xmm4,xmm9); rho_rs[93]=simde_mm256_subs_epi16(xmm4,xmm10);
+    rho_rs[94]=simde_mm256_subs_epi16(xmm4,xmm11);rho_rs[95]=simde_mm256_subs_epi16(xmm4,xmm12);
+    // row ri=6 (x1r=3)
+    xmm4 = simde_mm256_mulhi_epi16(xmm2, THREE_OVER_SQRT_170);
+    rho_rs[96]=simde_mm256_adds_epi16(xmm4,xmm12); rho_rs[97]=simde_mm256_adds_epi16(xmm4,xmm11);
+    rho_rs[98]=simde_mm256_adds_epi16(xmm4,xmm10); rho_rs[99]=simde_mm256_adds_epi16(xmm4,xmm9);
+    rho_rs[100]=simde_mm256_adds_epi16(xmm4,xmm8);rho_rs[101]=simde_mm256_adds_epi16(xmm4,xmm7);
+    rho_rs[102]=simde_mm256_adds_epi16(xmm4,xmm6);rho_rs[103]=simde_mm256_adds_epi16(xmm4,xmm5);
+    rho_rs[104]=simde_mm256_subs_epi16(xmm4,xmm5);rho_rs[105]=simde_mm256_subs_epi16(xmm4,xmm6);
+    rho_rs[106]=simde_mm256_subs_epi16(xmm4,xmm7);rho_rs[107]=simde_mm256_subs_epi16(xmm4,xmm8);
+    rho_rs[108]=simde_mm256_subs_epi16(xmm4,xmm9);rho_rs[109]=simde_mm256_subs_epi16(xmm4,xmm10);
+    rho_rs[110]=simde_mm256_subs_epi16(xmm4,xmm11);rho_rs[111]=simde_mm256_subs_epi16(xmm4,xmm12);
+    // row ri=7 (x1r=1)
+    xmm4 = simde_mm256_mulhi_epi16(xmm2, ONE_OVER_SQRT_170);
+    rho_rs[112]=simde_mm256_adds_epi16(xmm4,xmm12);rho_rs[113]=simde_mm256_adds_epi16(xmm4,xmm11);
+    rho_rs[114]=simde_mm256_adds_epi16(xmm4,xmm10);rho_rs[115]=simde_mm256_adds_epi16(xmm4,xmm9);
+    rho_rs[116]=simde_mm256_adds_epi16(xmm4,xmm8); rho_rs[117]=simde_mm256_adds_epi16(xmm4,xmm7);
+    rho_rs[118]=simde_mm256_adds_epi16(xmm4,xmm6); rho_rs[119]=simde_mm256_adds_epi16(xmm4,xmm5);
+    rho_rs[120]=simde_mm256_subs_epi16(xmm4,xmm5); rho_rs[121]=simde_mm256_subs_epi16(xmm4,xmm6);
+    rho_rs[122]=simde_mm256_subs_epi16(xmm4,xmm7); rho_rs[123]=simde_mm256_subs_epi16(xmm4,xmm8);
+    rho_rs[124]=simde_mm256_subs_epi16(xmm4,xmm9); rho_rs[125]=simde_mm256_subs_epi16(xmm4,xmm10);
+    rho_rs[126]=simde_mm256_subs_epi16(xmm4,xmm11);rho_rs[127]=simde_mm256_subs_epi16(xmm4,xmm12);
+
+    simde__m256i y1r, y1i;
+    oai_mm256_separate_real_imag_parts(&y1r, &y1i, stream1_256i_in[i], stream1_256i_in[i+1]);
+
+    simde__m256i psi_r_s[256], psi_i_s[256];
+    for (int j=0;j<128;j++)
+      psi_r_s[j]=simde_mm256_abs_epi16(simde_mm256_subs_epi16(rho_rs[j],y1r));
+    for (int j=128;j<256;j++)
+      psi_r_s[j]=simde_mm256_abs_epi16(simde_mm256_adds_epi16(rho_rs[255-j],y1r));
+
+    for (int k=0;k<128;k+=16) {
+      int ri=k>>4;
+      for (int qi=0;qi<8;qi++)
+        psi_i_s[k+qi]=simde_mm256_abs_epi16(simde_mm256_subs_epi16(rho_rs[qi*16+(15-ri)],y1i));
+      for (int qi=8;qi<16;qi++)
+        psi_i_s[k+qi]=simde_mm256_abs_epi16(simde_mm256_adds_epi16(rho_rs[(15-qi)*16+ri],y1i));
+    }
+    for (int k=128;k<256;k+=16) {
+      int j_base=255-k; int ri=j_base>>4;
+      for (int qi=0;qi<8;qi++) {
+        int jj=k+(15-qi); int ri2=(255-jj)>>4;
+        psi_i_s[jj]=simde_mm256_abs_epi16(simde_mm256_subs_epi16(rho_rs[qi*16+(15-ri2)],y1i));
+      }
+      for (int qi=8;qi<16;qi++) {
+        int jj=k+(15-qi); int ri2=(255-jj)>>4;
+        psi_i_s[jj]=simde_mm256_abs_epi16(simde_mm256_adds_epi16(rho_rs[(15-qi)*16+ri2],y1i));
+      }
+      (void)ri;
+    }
+
+    simde__m256i y0r, y0i;
+    oai_mm256_separate_real_imag_parts(&y0r, &y0i, stream0_256i_in[i], stream0_256i_in[i+1]);
+    oai_mm256_separate_real_imag_parts(&ch_mag_des_256, &xmm0, ch_mag_256i[i], ch_mag_256i[i+1]);
+    oai_mm256_separate_real_imag_parts(&ch_mag_int_256, &xmm0, ch_mag_256i_i[i], ch_mag_256i_i[i+1]);
+
+    simde__m256i y0r_over[8], y0i_over[16];
+    {
+      simde__m256i t;
+      t=simde_mm256_mulhi_epi16(y0r,FIFTEEN_OVER_SQRT_170);  y0r_over[0]=simde_mm256_slli_epi16(t,2);
+      t=simde_mm256_mulhi_epi16(y0r,THIRTEEN_OVER_SQRT_170); y0r_over[1]=simde_mm256_slli_epi16(t,2);
+      t=simde_mm256_mulhi_epi16(y0r,ELEVEN_OVER_SQRT_170);   y0r_over[2]=simde_mm256_slli_epi16(t,1);
+      t=simde_mm256_mulhi_epi16(y0r,NINE_OVER_SQRT_170);     y0r_over[3]=simde_mm256_slli_epi16(t,1);
+      t=simde_mm256_mulhi_epi16(y0r,SEVEN_OVER_SQRT_170);    y0r_over[4]=simde_mm256_slli_epi16(t,1);
+      y0r_over[5]=simde_mm256_mulhi_epi16(y0r,FIVE_OVER_SQRT_170);
+      y0r_over[6]=simde_mm256_mulhi_epi16(y0r,THREE_OVER_SQRT_170);
+      y0r_over[7]=simde_mm256_mulhi_epi16(y0r,ONE_OVER_SQRT_170);
+    }
+    {
+      simde__m256i t;
+      t=simde_mm256_mulhi_epi16(y0i,FIFTEEN_OVER_SQRT_170);  y0i_over[0]=simde_mm256_slli_epi16(t,2);
+      t=simde_mm256_mulhi_epi16(y0i,THIRTEEN_OVER_SQRT_170); y0i_over[1]=simde_mm256_slli_epi16(t,2);
+      t=simde_mm256_mulhi_epi16(y0i,ELEVEN_OVER_SQRT_170);   y0i_over[2]=simde_mm256_slli_epi16(t,1);
+      t=simde_mm256_mulhi_epi16(y0i,NINE_OVER_SQRT_170);     y0i_over[3]=simde_mm256_slli_epi16(t,1);
+      t=simde_mm256_mulhi_epi16(y0i,SEVEN_OVER_SQRT_170);    y0i_over[4]=simde_mm256_slli_epi16(t,1);
+      y0i_over[5]=simde_mm256_mulhi_epi16(y0i,FIVE_OVER_SQRT_170);
+      y0i_over[6]=simde_mm256_mulhi_epi16(y0i,THREE_OVER_SQRT_170);
+      y0i_over[7]=simde_mm256_mulhi_epi16(y0i,ONE_OVER_SQRT_170);
+      simde__m256i zero256=simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(0));
+      for (int q=0;q<8;q++) y0i_over[8+q]=simde_mm256_sub_epi16(zero256,y0i_over[7-q]);
+    }
+
+    simde__m256i y0_s[128];
+    for (int ri=0;ri<8;ri++)
+      for (int qi=0;qi<16;qi++)
+        y0_s[ri*16+qi]=simde_mm256_adds_epi16(y0r_over[ri],y0i_over[qi]);
+
+    simde__m256i ch_mag_int_d4=simde_mm256_srai_epi16(ch_mag_int_256,2);
+    simde__m256i ch_mag_int_d2=simde_mm256_srai_epi16(ch_mag_int_256,1);
+    simde__m256i t2_256  = ch_mag_int_d4;
+    simde__m256i t4_256  = ch_mag_int_d2;
+    simde__m256i t6_256  = simde_mm256_adds_epi16(ch_mag_int_d4,ch_mag_int_d2);
+    simde__m256i t8_256  = ch_mag_int_256;
+    simde__m256i t10_256 = simde_mm256_adds_epi16(ch_mag_int_d4,ch_mag_int_256);
+    simde__m256i t12_256 = simde_mm256_adds_epi16(ch_mag_int_d2,ch_mag_int_256);
+    simde__m256i t14_256 = simde_mm256_adds_epi16(t6_256,ch_mag_int_256);
+
+    simde__m256i a_r_s[256],a_i_s[256],psi_a_s[256],a_sq_s[256];
+    for (int j=0;j<256;j++) {
+      a_r_s[j]=interference_abs_256qam_epi16_256(psi_r_s[j],t2_256,t4_256,t6_256,t8_256,t10_256,t12_256,t14_256,
+                  ONE_OVER_SQRT_2_170,THREE_OVER_SQRT_2_170,FIVE_OVER_SQRT_2_170,SEVEN_OVER_SQRT_2_170,
+                  NINE_OVER_SQRT_2_170,ELEVEN_OVER_SQRT_2_170,THIRTEEN_OVER_SQRT_2_170,FIFTEEN_OVER_SQRT_2_170);
+      a_i_s[j]=interference_abs_256qam_epi16_256(psi_i_s[j],t2_256,t4_256,t6_256,t8_256,t10_256,t12_256,t14_256,
+                  ONE_OVER_SQRT_2_170,THREE_OVER_SQRT_2_170,FIVE_OVER_SQRT_2_170,SEVEN_OVER_SQRT_2_170,
+                  NINE_OVER_SQRT_2_170,ELEVEN_OVER_SQRT_2_170,THIRTEEN_OVER_SQRT_2_170,FIFTEEN_OVER_SQRT_2_170);
+      psi_a_s[j]=prodsum_psi_a_epi16_256(psi_r_s[j],a_r_s[j],psi_i_s[j],a_i_s[j]);
+      psi_a_s[j]=simde_mm256_slli_epi16(simde_mm256_mulhi_epi16(psi_a_s[j],ONE_OVER_SQRT_2),2);
+      a_sq_s[j] =square_a_256qam_epi16_256(a_r_s[j],a_i_s[j],ch_mag_int_256,SQRT_170_OVER_EIGHT);
+    }
+
+    static const int16_t v_tab[128] = {
+      450,394,346,306,274,250,234,226, 226,234,250,274,306,346,394,450,
+      394,338,290,250,218,194,178,170, 170,178,194,218,250,290,338,394,
+      346,290,242,202,170,146,130,122, 122,130,146,170,202,242,290,346,
+      306,250,202,162,130,106, 90, 82,  82, 90,106,130,162,202,250,306,
+      274,218,170,130, 98, 74, 58, 50,  50, 58, 74, 98,130,170,218,274,
+      250,194,146,106, 74, 50, 34, 26,  26, 34, 50, 74,106,146,194,250,
+      234,178,130, 90, 58, 34, 18, 10,  10, 18, 34, 58, 90,130,178,234,
+      226,170,122, 82, 50, 26, 10,  2,   2, 10, 26, 50, 82,122,170,226
+    };
+    simde__m256i ch_mag_s[128];
+    for (int j=0;j<128;j++) {
+      simde__m256i *kp;
+      switch(v_tab[j]) {
+        case   2: kp=&K256_2;   break; case  10: kp=&K256_10;  break;
+        case  18: kp=&K256_18;  break; case  26: kp=&K256_26;  break;
+        case  34: kp=&K256_34;  break; case  50: kp=&K256_50;  break;
+        case  58: kp=&K256_58;  break; case  74: kp=&K256_74;  break;
+        case  82: kp=&K256_82;  break; case  90: kp=&K256_90;  break;
+        case  98: kp=&K256_98;  break; case 106: kp=&K256_106; break;
+        case 122: kp=&K256_122; break; case 130: kp=&K256_130; break;
+        case 146: kp=&K256_146; break; case 162: kp=&K256_162; break;
+        case 170: kp=&K256_170; break; case 178: kp=&K256_178; break;
+        case 194: kp=&K256_194; break; case 202: kp=&K256_202; break;
+        case 218: kp=&K256_218; break; case 226: kp=&K256_226; break;
+        case 234: kp=&K256_234; break; case 242: kp=&K256_242; break;
+        case 250: kp=&K256_250; break; case 274: kp=&K256_274; break;
+        case 290: kp=&K256_290; break; case 306: kp=&K256_306; break;
+        case 338: kp=&K256_338; break; case 346: kp=&K256_346; break;
+        case 394: kp=&K256_394; break; default:  kp=&K256_450; break;
+      }
+      ch_mag_s[j]=simde_mm256_slli_epi16(simde_mm256_mulhi_epi16(ch_mag_des_256,*kp),4);
+    }
+
+    simde__m256i bit_met_s[256];
+    for (int j=0;j<128;j++) {
+      simde__m256i x=simde_mm256_adds_epi16(simde_mm256_subs_epi16(psi_a_s[j],a_sq_s[j]),y0_s[j]);
+      bit_met_s[j]=simde_mm256_subs_epi16(x,ch_mag_s[j]);
+    }
+    for (int j=0;j<128;j++) {
+      simde__m256i x=simde_mm256_subs_epi16(simde_mm256_subs_epi16(psi_a_s[128+j],a_sq_s[128+j]),y0_s[127-j]);
+      bit_met_s[128+j]=simde_mm256_subs_epi16(x,ch_mag_s[127-j]);
+    }
+
+    simde__m256i logmax_den_re0, logmax_num_re0;
+    simde__m256i tmp256[16];
+
+    // bI0
+    for(int k=0;k<16;k++) tmp256[k]=max_epi16_256(bit_met_s[128+k*8],bit_met_s[128+k*8+1],bit_met_s[128+k*8+2],bit_met_s[128+k*8+3],bit_met_s[128+k*8+4],bit_met_s[128+k*8+5],bit_met_s[128+k*8+6],bit_met_s[128+k*8+7]);
+    logmax_den_re0=max16_epi16_256(tmp256);
+    for(int k=0;k<16;k++) tmp256[k]=max_epi16_256(bit_met_s[k*8],bit_met_s[k*8+1],bit_met_s[k*8+2],bit_met_s[k*8+3],bit_met_s[k*8+4],bit_met_s[k*8+5],bit_met_s[k*8+6],bit_met_s[k*8+7]);
+    logmax_num_re0=max16_epi16_256(tmp256);
+    simde__m256i llr_bI0=simde_mm256_subs_epi16(logmax_num_re0,logmax_den_re0);
+
+    // bI1
+    for(int k=0;k<8;k++) tmp256[k]  =max_epi16_256(bit_met_s[k*8],bit_met_s[k*8+1],bit_met_s[k*8+2],bit_met_s[k*8+3],bit_met_s[k*8+4],bit_met_s[k*8+5],bit_met_s[k*8+6],bit_met_s[k*8+7]);
+    for(int k=0;k<8;k++) tmp256[k+8]=max_epi16_256(bit_met_s[128+k*8],bit_met_s[128+k*8+1],bit_met_s[128+k*8+2],bit_met_s[128+k*8+3],bit_met_s[128+k*8+4],bit_met_s[128+k*8+5],bit_met_s[128+k*8+6],bit_met_s[128+k*8+7]);
+    logmax_den_re0=max16_epi16_256(tmp256);
+    for(int k=0;k<8;k++) tmp256[k]  =max_epi16_256(bit_met_s[64+k*8],bit_met_s[64+k*8+1],bit_met_s[64+k*8+2],bit_met_s[64+k*8+3],bit_met_s[64+k*8+4],bit_met_s[64+k*8+5],bit_met_s[64+k*8+6],bit_met_s[64+k*8+7]);
+    for(int k=0;k<8;k++) tmp256[k+8]=max_epi16_256(bit_met_s[192+k*8],bit_met_s[192+k*8+1],bit_met_s[192+k*8+2],bit_met_s[192+k*8+3],bit_met_s[192+k*8+4],bit_met_s[192+k*8+5],bit_met_s[192+k*8+6],bit_met_s[192+k*8+7]);
+    logmax_num_re0=max16_epi16_256(tmp256);
+    simde__m256i llr_bI1=simde_mm256_subs_epi16(logmax_num_re0,logmax_den_re0);
+
+    // bI2
+    for(int k=0;k<4;k++) tmp256[k]   =max_epi16_256(bit_met_s[k*8],bit_met_s[k*8+1],bit_met_s[k*8+2],bit_met_s[k*8+3],bit_met_s[k*8+4],bit_met_s[k*8+5],bit_met_s[k*8+6],bit_met_s[k*8+7]);
+    for(int k=0;k<4;k++) tmp256[k+4] =max_epi16_256(bit_met_s[96+k*8],bit_met_s[96+k*8+1],bit_met_s[96+k*8+2],bit_met_s[96+k*8+3],bit_met_s[96+k*8+4],bit_met_s[96+k*8+5],bit_met_s[96+k*8+6],bit_met_s[96+k*8+7]);
+    for(int k=0;k<4;k++) tmp256[k+8] =max_epi16_256(bit_met_s[128+k*8],bit_met_s[128+k*8+1],bit_met_s[128+k*8+2],bit_met_s[128+k*8+3],bit_met_s[128+k*8+4],bit_met_s[128+k*8+5],bit_met_s[128+k*8+6],bit_met_s[128+k*8+7]);
+    for(int k=0;k<4;k++) tmp256[k+12]=max_epi16_256(bit_met_s[224+k*8],bit_met_s[224+k*8+1],bit_met_s[224+k*8+2],bit_met_s[224+k*8+3],bit_met_s[224+k*8+4],bit_met_s[224+k*8+5],bit_met_s[224+k*8+6],bit_met_s[224+k*8+7]);
+    logmax_den_re0=max16_epi16_256(tmp256);
+    for(int k=0;k<8;k++) tmp256[k]  =max_epi16_256(bit_met_s[32+k*8],bit_met_s[32+k*8+1],bit_met_s[32+k*8+2],bit_met_s[32+k*8+3],bit_met_s[32+k*8+4],bit_met_s[32+k*8+5],bit_met_s[32+k*8+6],bit_met_s[32+k*8+7]);
+    for(int k=0;k<8;k++) tmp256[k+8]=max_epi16_256(bit_met_s[160+k*8],bit_met_s[160+k*8+1],bit_met_s[160+k*8+2],bit_met_s[160+k*8+3],bit_met_s[160+k*8+4],bit_met_s[160+k*8+5],bit_met_s[160+k*8+6],bit_met_s[160+k*8+7]);
+    logmax_num_re0=max16_epi16_256(tmp256);
+    simde__m256i llr_bI2=simde_mm256_subs_epi16(logmax_num_re0,logmax_den_re0);
+
+    // bI3
+    for(int k=0;k<2;k++) tmp256[k]   =max_epi16_256(bit_met_s[k*8],bit_met_s[k*8+1],bit_met_s[k*8+2],bit_met_s[k*8+3],bit_met_s[k*8+4],bit_met_s[k*8+5],bit_met_s[k*8+6],bit_met_s[k*8+7]);
+    for(int k=0;k<2;k++) tmp256[k+2] =max_epi16_256(bit_met_s[48+k*8],bit_met_s[48+k*8+1],bit_met_s[48+k*8+2],bit_met_s[48+k*8+3],bit_met_s[48+k*8+4],bit_met_s[48+k*8+5],bit_met_s[48+k*8+6],bit_met_s[48+k*8+7]);
+    for(int k=0;k<2;k++) tmp256[k+4] =max_epi16_256(bit_met_s[64+k*8],bit_met_s[64+k*8+1],bit_met_s[64+k*8+2],bit_met_s[64+k*8+3],bit_met_s[64+k*8+4],bit_met_s[64+k*8+5],bit_met_s[64+k*8+6],bit_met_s[64+k*8+7]);
+    for(int k=0;k<2;k++) tmp256[k+6] =max_epi16_256(bit_met_s[112+k*8],bit_met_s[112+k*8+1],bit_met_s[112+k*8+2],bit_met_s[112+k*8+3],bit_met_s[112+k*8+4],bit_met_s[112+k*8+5],bit_met_s[112+k*8+6],bit_met_s[112+k*8+7]);
+    for(int k=0;k<2;k++) tmp256[k+8] =max_epi16_256(bit_met_s[128+k*8],bit_met_s[128+k*8+1],bit_met_s[128+k*8+2],bit_met_s[128+k*8+3],bit_met_s[128+k*8+4],bit_met_s[128+k*8+5],bit_met_s[128+k*8+6],bit_met_s[128+k*8+7]);
+    for(int k=0;k<2;k++) tmp256[k+10]=max_epi16_256(bit_met_s[176+k*8],bit_met_s[176+k*8+1],bit_met_s[176+k*8+2],bit_met_s[176+k*8+3],bit_met_s[176+k*8+4],bit_met_s[176+k*8+5],bit_met_s[176+k*8+6],bit_met_s[176+k*8+7]);
+    for(int k=0;k<2;k++) tmp256[k+12]=max_epi16_256(bit_met_s[192+k*8],bit_met_s[192+k*8+1],bit_met_s[192+k*8+2],bit_met_s[192+k*8+3],bit_met_s[192+k*8+4],bit_met_s[192+k*8+5],bit_met_s[192+k*8+6],bit_met_s[192+k*8+7]);
+    for(int k=0;k<2;k++) tmp256[k+14]=max_epi16_256(bit_met_s[240+k*8],bit_met_s[240+k*8+1],bit_met_s[240+k*8+2],bit_met_s[240+k*8+3],bit_met_s[240+k*8+4],bit_met_s[240+k*8+5],bit_met_s[240+k*8+6],bit_met_s[240+k*8+7]);
+    logmax_den_re0=max16_epi16_256(tmp256);
+    for(int k=0;k<4;k++) tmp256[k]   =max_epi16_256(bit_met_s[16+k*8],bit_met_s[16+k*8+1],bit_met_s[16+k*8+2],bit_met_s[16+k*8+3],bit_met_s[16+k*8+4],bit_met_s[16+k*8+5],bit_met_s[16+k*8+6],bit_met_s[16+k*8+7]);
+    for(int k=0;k<4;k++) tmp256[k+4] =max_epi16_256(bit_met_s[80+k*8],bit_met_s[80+k*8+1],bit_met_s[80+k*8+2],bit_met_s[80+k*8+3],bit_met_s[80+k*8+4],bit_met_s[80+k*8+5],bit_met_s[80+k*8+6],bit_met_s[80+k*8+7]);
+    for(int k=0;k<4;k++) tmp256[k+8] =max_epi16_256(bit_met_s[144+k*8],bit_met_s[144+k*8+1],bit_met_s[144+k*8+2],bit_met_s[144+k*8+3],bit_met_s[144+k*8+4],bit_met_s[144+k*8+5],bit_met_s[144+k*8+6],bit_met_s[144+k*8+7]);
+    for(int k=0;k<4;k++) tmp256[k+12]=max_epi16_256(bit_met_s[208+k*8],bit_met_s[208+k*8+1],bit_met_s[208+k*8+2],bit_met_s[208+k*8+3],bit_met_s[208+k*8+4],bit_met_s[208+k*8+5],bit_met_s[208+k*8+6],bit_met_s[208+k*8+7]);
+    logmax_num_re0=max16_epi16_256(tmp256);
+    simde__m256i llr_bI3=simde_mm256_subs_epi16(logmax_num_re0,logmax_den_re0);
+
+    // bQ0
+    for(int k=0;k<8;k++) tmp256[k]  =max_epi16_256(bit_met_s[8+k*16],bit_met_s[9+k*16],bit_met_s[10+k*16],bit_met_s[11+k*16],bit_met_s[12+k*16],bit_met_s[13+k*16],bit_met_s[14+k*16],bit_met_s[15+k*16]);
+    for(int k=0;k<8;k++) tmp256[k+8]=max_epi16_256(bit_met_s[128+k*16],bit_met_s[129+k*16],bit_met_s[130+k*16],bit_met_s[131+k*16],bit_met_s[132+k*16],bit_met_s[133+k*16],bit_met_s[134+k*16],bit_met_s[135+k*16]);
+    logmax_den_re0=max16_epi16_256(tmp256);
+    for(int k=0;k<8;k++) tmp256[k]  =max_epi16_256(bit_met_s[k*16],bit_met_s[1+k*16],bit_met_s[2+k*16],bit_met_s[3+k*16],bit_met_s[4+k*16],bit_met_s[5+k*16],bit_met_s[6+k*16],bit_met_s[7+k*16]);
+    for(int k=0;k<8;k++) tmp256[k+8]=max_epi16_256(bit_met_s[136+k*16],bit_met_s[137+k*16],bit_met_s[138+k*16],bit_met_s[139+k*16],bit_met_s[140+k*16],bit_met_s[141+k*16],bit_met_s[142+k*16],bit_met_s[143+k*16]);
+    logmax_num_re0=max16_epi16_256(tmp256);
+    simde__m256i llr_bQ0=simde_mm256_subs_epi16(logmax_num_re0,logmax_den_re0);
+
+    // bQ1
+    {
+      simde__m256i t16[16];
+      for(int ri=0;ri<8;ri++) {
+        int base=ri*16,base2=128+(7-ri)*16;
+        t16[2*ri]  =max_epi16_256(bit_met_s[base],bit_met_s[base+1],bit_met_s[base+2],bit_met_s[base+3],bit_met_s[base+12],bit_met_s[base+13],bit_met_s[base+14],bit_met_s[base+15]);
+        t16[2*ri+1]=max_epi16_256(bit_met_s[base2],bit_met_s[base2+1],bit_met_s[base2+2],bit_met_s[base2+3],bit_met_s[base2+12],bit_met_s[base2+13],bit_met_s[base2+14],bit_met_s[base2+15]);
+      }
+      logmax_den_re0=max16_epi16_256(t16);
+      for(int ri=0;ri<8;ri++) {
+        int base=ri*16,base2=128+(7-ri)*16;
+        t16[2*ri]  =max_epi16_256(bit_met_s[base+4],bit_met_s[base+5],bit_met_s[base+6],bit_met_s[base+7],bit_met_s[base+8],bit_met_s[base+9],bit_met_s[base+10],bit_met_s[base+11]);
+        t16[2*ri+1]=max_epi16_256(bit_met_s[base2+4],bit_met_s[base2+5],bit_met_s[base2+6],bit_met_s[base2+7],bit_met_s[base2+8],bit_met_s[base2+9],bit_met_s[base2+10],bit_met_s[base2+11]);
+      }
+      logmax_num_re0=max16_epi16_256(t16);
+    }
+    simde__m256i llr_bQ1=simde_mm256_subs_epi16(logmax_num_re0,logmax_den_re0);
+
+    // bQ2
+    {
+      simde__m256i t16[16];
+      for(int ri=0;ri<8;ri++) {
+        int base=ri*16,base2=128+(7-ri)*16;
+        t16[2*ri]  =max_epi16_256(bit_met_s[base],bit_met_s[base+1],bit_met_s[base+6],bit_met_s[base+7],bit_met_s[base+8],bit_met_s[base+9],bit_met_s[base+14],bit_met_s[base+15]);
+        t16[2*ri+1]=max_epi16_256(bit_met_s[base2],bit_met_s[base2+1],bit_met_s[base2+6],bit_met_s[base2+7],bit_met_s[base2+8],bit_met_s[base2+9],bit_met_s[base2+14],bit_met_s[base2+15]);
+      }
+      logmax_den_re0=max16_epi16_256(t16);
+      for(int ri=0;ri<8;ri++) {
+        int base=ri*16,base2=128+(7-ri)*16;
+        t16[2*ri]  =max_epi16_256(bit_met_s[base+2],bit_met_s[base+3],bit_met_s[base+4],bit_met_s[base+5],bit_met_s[base+10],bit_met_s[base+11],bit_met_s[base+12],bit_met_s[base+13]);
+        t16[2*ri+1]=max_epi16_256(bit_met_s[base2+2],bit_met_s[base2+3],bit_met_s[base2+4],bit_met_s[base2+5],bit_met_s[base2+10],bit_met_s[base2+11],bit_met_s[base2+12],bit_met_s[base2+13]);
+      }
+      logmax_num_re0=max16_epi16_256(t16);
+    }
+    simde__m256i llr_bQ2=simde_mm256_subs_epi16(logmax_num_re0,logmax_den_re0);
+
+    // bQ3
+    {
+      simde__m256i t16[16];
+      for(int ri=0;ri<8;ri++) {
+        int base=ri*16,base2=128+(7-ri)*16;
+        t16[2*ri]  =max_epi16_256(bit_met_s[base],bit_met_s[base+3],bit_met_s[base+4],bit_met_s[base+7],bit_met_s[base+8],bit_met_s[base+11],bit_met_s[base+12],bit_met_s[base+15]);
+        t16[2*ri+1]=max_epi16_256(bit_met_s[base2],bit_met_s[base2+3],bit_met_s[base2+4],bit_met_s[base2+7],bit_met_s[base2+8],bit_met_s[base2+11],bit_met_s[base2+12],bit_met_s[base2+15]);
+      }
+      logmax_den_re0=max16_epi16_256(t16);
+      for(int ri=0;ri<8;ri++) {
+        int base=ri*16,base2=128+(7-ri)*16;
+        t16[2*ri]  =max_epi16_256(bit_met_s[base+1],bit_met_s[base+2],bit_met_s[base+5],bit_met_s[base+6],bit_met_s[base+9],bit_met_s[base+10],bit_met_s[base+13],bit_met_s[base+14]);
+        t16[2*ri+1]=max_epi16_256(bit_met_s[base2+1],bit_met_s[base2+2],bit_met_s[base2+5],bit_met_s[base2+6],bit_met_s[base2+9],bit_met_s[base2+10],bit_met_s[base2+13],bit_met_s[base2+14]);
+      }
+      logmax_num_re0=max16_epi16_256(t16);
+    }
+    simde__m256i llr_bQ3=simde_mm256_subs_epi16(logmax_num_re0,logmax_den_re0);
+
+    // Output: 8 LLRs per RE {bI0,bQ0,bI1,bQ1,bI2,bQ2,bI3,bQ3}
+    for (int re = 0; re < 16; re++) {
+      *stream0_out++ = ((short *)&llr_bI0)[re];
+      *stream0_out++ = ((short *)&llr_bQ0)[re];
+      *stream0_out++ = ((short *)&llr_bI1)[re];
+      *stream0_out++ = ((short *)&llr_bQ1)[re];
+      *stream0_out++ = ((short *)&llr_bI2)[re];
+      *stream0_out++ = ((short *)&llr_bQ2)[re];
+      *stream0_out++ = ((short *)&llr_bI3)[re];
+      *stream0_out++ = ((short *)&llr_bQ3)[re];
+    }
+  }
+#endif
+}
+
+
 static void nr_ml_llr_shift(int16_t *llr_layer0, int16_t *llr_layer1, uint32_t nb_re, int shift)
 {
   simde__m128i *llr_layers0 = (simde__m128i *)llr_layer0;
@@ -3362,6 +4531,179 @@ void nr_qam64_llr_2layer_lbest_q15(c16_t *stream0_in,
 }
 
 // ============================================================================
+// Fixed-point (Q15-input) L-best 2-layer 256QAM kernel.
+//
+// Integer twin of nr_qam256_llr_2layer_lbest: same algorithm and interface,
+// but operates entirely on the int16 demod buffers (no float). Mirrors the
+// 64QAM Q15 design (nr_qam64_llr_2layer_lbest_q15) with PAM-16 levels and
+// 1/sqrt(170) normalization.
+//
+// Metric scale: multiply the float metric by 16*sqrt(170) to make the
+// desired/nuisance correlation and energy terms exact integers:
+//   Mq = 16*(I1*z1r+Q1*z1i) - cm0*(I1^2+Q1^2)  (desired, cm0=||h0||^2*8/sqrt(170))
+//      + 16*(I2*z2r+Q2*z2i) - cm1*(I2^2+Q2^2)  (nuisance)
+//      - 16*Re{rho.conj(X1).X2}/sqrt(170)       (cross; one irrational factor)
+// where I1,Q1,I2,Q2 are integer odd levels in [-15,15].
+//
+// Division-free ZF seed and division-free conditional PAM-16 slice mirror the
+// 64QAM Q15 design. L==256 skips the partial sort (full search, no order needed).
+// ============================================================================
+#define NR_LBEST_Q_SQRT170_Q12       53405  // round(sqrt(170) * 2^12)
+#define NR_LBEST_Q_SQRT170_OVER8_Q14 26690  // round(sqrt(170)/8 * 2^14): ch_mag -> Pp
+#define NR_LBEST_Q_INVSQRT170_Q15     2514  // round(2^15 / sqrt(170))
+// integer metric is 16*sqrt(170) (~208.6x) larger than float; bring LLR back to float scale.
+#define NR_LBEST_Q_LLR256_NUM          628  // round(2^17 / (16*sqrt(170)))
+#define NR_LBEST_Q_LLR256_SHIFT         17
+#define NR_LBEST_Q_LLR256_SAT         8192
+
+// PAM-16 level magnitude for |a|, thresholds at {2,4,...,14}*step (== ||h1||^2).
+static inline int nr_lbest_q_pam16_abs(int64_t a, int64_t step)
+{
+  if (a <  2 * step) return  1;
+  if (a <  4 * step) return  3;
+  if (a <  6 * step) return  5;
+  if (a <  8 * step) return  7;
+  if (a < 10 * step) return  9;
+  if (a < 12 * step) return 11;
+  if (a < 14 * step) return 13;
+  return 15;
+}
+
+static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
+                                                 const c16_t *stream1_in,
+                                                 const c16_t *ch_mag,
+                                                 const c16_t *ch_mag_i,
+                                                 int16_t *stream0_out,
+                                                 const c16_t *rho01,
+                                                 uint32_t length,
+                                                 int L)
+{
+  if (L < 1)   L = 1;
+  if (L > 256) L = 256;
+  static const int levels[16] = {-15,-13,-11,-9,-7,-5,-3,-1,1,3,5,7,9,11,13,15};
+
+  for (uint32_t re = 0; re < length; re++) {
+    const int32_t z1r = stream0_in[re].r,  z1i = stream0_in[re].i;
+    const int32_t z2r = stream1_in[re].r,  z2i = stream1_in[re].i;
+    const int32_t rr  = rho01[re].r,       ri  = rho01[re].i;      // rho = h0^H h1
+    const int32_t cm0 = ch_mag[re].r;      // ||h0||^2 * 8/sqrt(170)
+    const int32_t cm1 = ch_mag_i[re].r;    // ||h1||^2 * 8/sqrt(170)
+
+    // recover channel powers ||h||^2 via cm * sqrt(170)/8
+    const int64_t Pp0 = ((int64_t)cm0 * NR_LBEST_Q_SQRT170_OVER8_Q14) >> 14;
+    const int64_t Pp1 = ((int64_t)cm1 * NR_LBEST_Q_SQRT170_OVER8_Q14) >> 14;
+
+    // ---- 1. division-free ZF seed: x_hat1 = ((Pp1) z1 - rho z2) / det ----
+    const int64_t det  = Pp0 * Pp1 - ((int64_t)rr * rr + (int64_t)ri * ri);
+    const int64_t numr = Pp1 * z1r - ((int64_t)rr * z2r - (int64_t)ri * z2i);
+    const int64_t numi = Pp1 * z1i - ((int64_t)rr * z2i + (int64_t)ri * z2r);
+    // soft level estimate in Q6 (level units * 64); clamp to ±1024 (head-room above ±15*64=±960)
+    int32_t estI_q6 = 0, estQ_q6 = 0;
+    if (det > 0) {
+      estI_q6 = (int32_t)((numr * NR_LBEST_Q_SQRT170_Q12) / (det * 64));
+      estQ_q6 = (int32_t)((numi * NR_LBEST_Q_SQRT170_Q12) / (det * 64));
+      if (estI_q6 < -1024) estI_q6 = -1024; else if (estI_q6 > 1024) estI_q6 = 1024;
+      if (estQ_q6 < -1024) estQ_q6 = -1024; else if (estQ_q6 > 1024) estQ_q6 = 1024;
+    }
+
+    // ---- 2. candidate set: L nearest of 256 points ----
+    int     candI[256], candQ[256];
+    int64_t cand_d[256];
+    int nc = 0;
+    for (int qi = 0; qi < 16; qi++) {
+      for (int ii = 0; ii < 16; ii++) {
+        const int64_t dI = estI_q6 - (levels[ii] << 6);
+        const int64_t dQ = estQ_q6 - (levels[qi] << 6);
+        candI[nc] = levels[ii];
+        candQ[nc] = levels[qi];
+        cand_d[nc] = dI * dI + dQ * dQ;
+        nc++;
+      }
+    }
+    // partial selection sort: bring the L nearest to the front (skipped for full search)
+    if (L < 256) {
+      for (int a = 0; a < L; a++) {
+        int m = a;
+        for (int b = a + 1; b < 256; b++)
+          if (cand_d[b] < cand_d[m])
+            m = b;
+        if (m != a) {
+          int64_t td = cand_d[a]; cand_d[a] = cand_d[m]; cand_d[m] = td;
+          int  ti = candI[a];    candI[a]  = candI[m];  candI[m]  = ti;
+          int  tq = candQ[a];    candQ[a]  = candQ[m];  candQ[m]  = tq;
+        }
+      }
+    }
+
+    // ---- 3+4. metric over candidates (scaled by 16*sqrt(170)), max-log per bit ----
+    int64_t max0[8], max1[8];
+    for (int p = 0; p < 8; p++) { max0[p] = INT64_MIN; max1[p] = INT64_MIN; }
+
+    for (int c = 0; c < L; c++) {
+      const int I1 = candI[c], Q1 = candQ[c];
+
+      // conditional ML nuisance slice: A2 = z2*sqrt(170) - conj(rho)*X1, compare vs Pp1*{2..14}
+      const int64_t A2I = (((int64_t)z2r * NR_LBEST_Q_SQRT170_Q12) >> 12) - ((int64_t)rr * I1 + (int64_t)ri * Q1);
+      const int64_t A2Q = (((int64_t)z2i * NR_LBEST_Q_SQRT170_Q12) >> 12) - ((int64_t)rr * Q1 - (int64_t)ri * I1);
+      const int I2 = (A2I < 0 ? -1 : 1) * nr_lbest_q_pam16_abs(A2I < 0 ? -A2I : A2I, Pp1);
+      const int Q2 = (A2Q < 0 ? -1 : 1) * nr_lbest_q_pam16_abs(A2Q < 0 ? -A2Q : A2Q, Pp1);
+
+      // metric (units of 16*sqrt(170) * float-ref metric)
+      int64_t metric = 16 * ((int64_t)I1 * z1r + (int64_t)Q1 * z1i) - cm0 * ((int64_t)I1 * I1 + (int64_t)Q1 * Q1);
+      metric += 16 * ((int64_t)I2 * z2r + (int64_t)Q2 * z2i) - cm1 * ((int64_t)I2 * I2 + (int64_t)Q2 * Q2);
+      // cross = 16 * Re{rho . conj(X1) . X2} / sqrt(170)
+      const int64_t rec = (int64_t)rr * ((int64_t)I1 * I2 + (int64_t)Q1 * Q2)
+                        + (int64_t)ri * ((int64_t)Q1 * I2 - (int64_t)I1 * Q2);
+      metric -= (16 * rec * NR_LBEST_Q_INVSQRT170_Q15) >> 15;
+
+      // bit labels, interleaved {I0,Q0,I1,Q1,I2,Q2,I3,Q3} (matches nr_qam256_llr_2layer_lbest)
+      int bI0, bI1, bI2, bI3, bQ0, bQ1, bQ2, bQ3;
+      nr_lbest_axis_bits256(I1, &bI0, &bI1, &bI2, &bI3);
+      nr_lbest_axis_bits256(Q1, &bQ0, &bQ1, &bQ2, &bQ3);
+      const int bit[8] = {bI0, bQ0, bI1, bQ1, bI2, bQ2, bI3, bQ3};
+      for (int p = 0; p < 8; p++) {
+        if (bit[p] == 0) { if (metric > max0[p]) max0[p] = metric; }
+        else             { if (metric > max1[p]) max1[p] = metric; }
+      }
+    }
+
+    // emit LLR = max_{bit=0} - max_{bit=1}; empty subset => saturate toward present bit
+    for (int p = 0; p < 8; p++) {
+      int32_t llr;
+      if (max0[p] == INT64_MIN)
+        llr = -NR_LBEST_Q_LLR256_SAT;
+      else if (max1[p] == INT64_MIN)
+        llr = NR_LBEST_Q_LLR256_SAT;
+      else
+        llr = (int32_t)(((max0[p] - max1[p]) * NR_LBEST_Q_LLR256_NUM) >> NR_LBEST_Q_LLR256_SHIFT);
+      if (llr > 32767)  llr =  32767;
+      if (llr < -32768) llr = -32768;
+      *stream0_out++ = (int16_t)llr;
+    }
+  }
+}
+
+// Public entry for the fixed-point L-best 256QAM kernel (target layer 0, ZF seed).
+// pattern: 0 = 5x5 (25 cand, ±{0,2,4} per axis — full-BLER default)
+//          1 = 3x3 ( 9 cand, ±{0,2}   per axis — analogous to 64QAM default)
+//          2 = 5-plus (5 cand, center + ±2 each axis)
+//          other = 256 (full search)
+// Controlled at runtime by OAI_LBEST_PAT256; OAI_LBEST_L256 is for the float ref.
+void nr_qam256_llr_2layer_lbest_q15(c16_t *stream0_in,
+                                    c16_t *stream1_in,
+                                    c16_t *ch_mag,
+                                    c16_t *ch_mag_i,
+                                    int16_t *stream0_out,
+                                    c16_t *rho01,
+                                    uint32_t length,
+                                    int pattern)
+{
+  static const int pat_L[3] = {25, 9, 5};
+  const int L = (pattern >= 0 && pattern <= 2) ? pat_L[pattern] : 256;
+  nr_qam256_llr_2layer_lbest_q15_layer(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, L);
+}
+
+// ============================================================================
 // int16/16-lane variant of the AVX2 L-best kernel. The dominant per-candidate
 // work (metric, conditional slice, max-log reduction) runs 16 REs/vector in
 // int16; only the ZF seed and z2*sqrt(42) (which overflow int16) use int32 half-
@@ -3603,6 +4945,273 @@ void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                                         &stream0_out[re * 6], &rho01[re], length - re, 9);
 }
 
+// ============================================================================
+// int16/16-lane AVX2 L-best kernel for 2-layer 256QAM (PAM-16, 8 bits/RE).
+// Mirrors nr_qam64_llr_2layer_lbest_q15_simd16 with:
+//   - sqrt(170) replacing sqrt(42), /8 replacing /4 in Pp
+//   - PAM-16 slicer (7 thresholds) replacing PAM-8 (3 thresholds)
+//   - 4 bits per axis (b0..b3) instead of 3
+//   - 5x5/3x3/5-plus candidate patterns instead of 3x3/6-cand/5-plus
+//   - LLR stride 8 per RE instead of 6
+// ============================================================================
+#define NR_LBEST_Q_SQRT170_OVER8_Q14_SIMD  26705  // round(sqrt(170)/8 * 2^14)
+#define NR_LBEST_Q_PP1_OVER32_Q16_256       3338  // round(sqrt(170)/8/32 * 2^16)
+
+// int16 PAM-16 level (sign*mag, mag in {1,3,...,15}) sliced vs {2,4,6,8,10,12,14}*thunit.
+static inline simde__m256i nr_lbest_simd_level_pam16(simde__m256i num, simde__m256i thunit)
+{
+  const simde__m256i z   = simde_mm256_setzero_si256();
+  const simde__m256i a   = simde_mm256_abs_epi16(num);
+  const simde__m256i t2  = simde_mm256_slli_epi16(thunit, 1);
+  const simde__m256i t4  = simde_mm256_slli_epi16(thunit, 2);
+  const simde__m256i t8  = simde_mm256_slli_epi16(thunit, 3);
+  const simde__m256i t6  = simde_mm256_adds_epi16(t2, t4);
+  const simde__m256i t10 = simde_mm256_adds_epi16(t2, t8);
+  const simde__m256i t12 = simde_mm256_adds_epi16(t4, t8);
+  const simde__m256i t14 = simde_mm256_adds_epi16(t6, t8);
+  const simde__m256i g2  = simde_mm256_sub_epi16(z, simde_mm256_cmpgt_epi16(a, t2));
+  const simde__m256i g4  = simde_mm256_sub_epi16(z, simde_mm256_cmpgt_epi16(a, t4));
+  const simde__m256i g6  = simde_mm256_sub_epi16(z, simde_mm256_cmpgt_epi16(a, t6));
+  const simde__m256i g8  = simde_mm256_sub_epi16(z, simde_mm256_cmpgt_epi16(a, t8));
+  const simde__m256i g10 = simde_mm256_sub_epi16(z, simde_mm256_cmpgt_epi16(a, t10));
+  const simde__m256i g12 = simde_mm256_sub_epi16(z, simde_mm256_cmpgt_epi16(a, t12));
+  const simde__m256i g14 = simde_mm256_sub_epi16(z, simde_mm256_cmpgt_epi16(a, t14));
+  // mag = 1 + 2*(g2+g4+g6+g8+g10+g12+g14)
+  const simde__m256i sum = simde_mm256_adds_epi16(
+      simde_mm256_adds_epi16(simde_mm256_adds_epi16(g2, g4), simde_mm256_adds_epi16(g6, g8)),
+      simde_mm256_adds_epi16(simde_mm256_adds_epi16(g10, g12), g14));
+  const simde__m256i mag = simde_mm256_adds_epi16(simde_mm256_set1_epi16(1),
+                                                  simde_mm256_slli_epi16(sum, 1));
+  const simde__m256i neg = simde_mm256_cmpgt_epi16(z, num);
+  return simde_mm256_blendv_epi8(mag, simde_mm256_sub_epi16(z, mag), neg);
+}
+
+// z * sqrt(170) / 32, packed to int16 (lane l == RE l).
+static inline simde__m256i nr_lbest_z170d32(simde__m256i z16)
+{
+  const simde__m256i C = simde_mm256_set1_epi32(NR_LBEST_Q_SQRT170_Q12);
+  const simde__m256i lo = simde_mm256_srai_epi32(simde_mm256_mullo_epi32(nr_lbest_widen(z16, 0), C), 17);
+  const simde__m256i hi = simde_mm256_srai_epi32(simde_mm256_mullo_epi32(nr_lbest_widen(z16, 1), C), 17);
+  return simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(lo, hi), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+}
+
+// ZF seed for 256QAM: identical to nr_lbest_simd_seed16 except clamp to [-15,15]
+// and Pp = cm * sqrt(170)/8.
+static inline void nr_lbest_simd_seed16_256(simde__m256i z1r16, simde__m256i z1i16,
+                                            simde__m256i z2r16, simde__m256i z2i16,
+                                            simde__m256i rr16,  simde__m256i ri16,
+                                            simde__m256i cm0_16, simde__m256i cm1_16,
+                                            simde__m256i *centerI, simde__m256i *centerQ,
+                                            simde__m256i *dirImask, simde__m256i *dirQmask)
+{
+  const simde__m256i SQRT170_OVER8 = simde_mm256_set1_epi32(NR_LBEST_Q_SQRT170_OVER8_Q14_SIMD);
+  const simde__m256 SQRT170 = simde_mm256_set1_ps(13.038404810405298f);
+  const simde__m256 HALF = simde_mm256_set1_ps(0.5f), ONE = simde_mm256_set1_ps(1.0f), TWO = simde_mm256_set1_ps(2.0f);
+  const simde__m256 P15 = simde_mm256_set1_ps(15.0f), M15 = simde_mm256_set1_ps(-15.0f);
+  simde__m256i cI[2], cQ[2], dI[2], dQ[2];
+  for (int h = 0; h < 2; h++) {
+    const simde__m256 z1r = simde_mm256_cvtepi32_ps(nr_lbest_widen(z1r16, h)), z1i = simde_mm256_cvtepi32_ps(nr_lbest_widen(z1i16, h));
+    const simde__m256 z2r = simde_mm256_cvtepi32_ps(nr_lbest_widen(z2r16, h)), z2i = simde_mm256_cvtepi32_ps(nr_lbest_widen(z2i16, h));
+    const simde__m256 rr  = simde_mm256_cvtepi32_ps(nr_lbest_widen(rr16,  h)), ri  = simde_mm256_cvtepi32_ps(nr_lbest_widen(ri16,  h));
+    const simde__m256 Pp0 = simde_mm256_cvtepi32_ps(simde_mm256_srai_epi32(simde_mm256_mullo_epi32(nr_lbest_widen(cm0_16, h), SQRT170_OVER8), 14));
+    const simde__m256 Pp1 = simde_mm256_cvtepi32_ps(simde_mm256_srai_epi32(simde_mm256_mullo_epi32(nr_lbest_widen(cm1_16, h), SQRT170_OVER8), 14));
+    // ZF 2x2 solve (float): x_hat1 = (Pp1*z1 - rho*z2) / det
+    simde__m256 det = simde_mm256_sub_ps(simde_mm256_mul_ps(Pp0, Pp1),
+                                         simde_mm256_add_ps(simde_mm256_mul_ps(rr, rr), simde_mm256_mul_ps(ri, ri)));
+    det = simde_mm256_max_ps(det, ONE);
+    const simde__m256 numr = simde_mm256_sub_ps(simde_mm256_mul_ps(Pp1, z1r),
+                                                 simde_mm256_sub_ps(simde_mm256_mul_ps(rr, z2r), simde_mm256_mul_ps(ri, z2i)));
+    const simde__m256 numi = simde_mm256_sub_ps(simde_mm256_mul_ps(Pp1, z1i),
+                                                 simde_mm256_add_ps(simde_mm256_mul_ps(rr, z2i), simde_mm256_mul_ps(ri, z2r)));
+    // soft level estimate ~ +-1..15
+    const simde__m256 estI = simde_mm256_mul_ps(simde_mm256_div_ps(numr, det), SQRT170);
+    const simde__m256 estQ = simde_mm256_mul_ps(simde_mm256_div_ps(numi, det), SQRT170);
+    // nearest odd level: o = 2*round((est-1)/2)+1, clamped to [-15,15]
+    simde__m256 oI = simde_mm256_add_ps(simde_mm256_mul_ps(simde_mm256_round_ps(simde_mm256_mul_ps(simde_mm256_sub_ps(estI, ONE), HALF), SIMDE_MM_FROUND_TO_NEAREST_INT | SIMDE_MM_FROUND_NO_EXC), TWO), ONE);
+    simde__m256 oQ = simde_mm256_add_ps(simde_mm256_mul_ps(simde_mm256_round_ps(simde_mm256_mul_ps(simde_mm256_sub_ps(estQ, ONE), HALF), SIMDE_MM_FROUND_TO_NEAREST_INT | SIMDE_MM_FROUND_NO_EXC), TWO), ONE);
+    oI = simde_mm256_min_ps(simde_mm256_max_ps(oI, M15), P15);
+    oQ = simde_mm256_min_ps(simde_mm256_max_ps(oQ, M15), P15);
+    cI[h] = simde_mm256_cvtps_epi32(oI);
+    cQ[h] = simde_mm256_cvtps_epi32(oQ);
+    dI[h] = simde_mm256_castps_si256(simde_mm256_cmp_ps(estI, oI, SIMDE_CMP_GT_OQ));
+    dQ[h] = simde_mm256_castps_si256(simde_mm256_cmp_ps(estQ, oQ, SIMDE_CMP_GT_OQ));
+  }
+  *centerI  = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(cI[0], cI[1]), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+  *centerQ  = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(cQ[0], cQ[1]), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+  *dirImask = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(dI[0], dI[1]), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+  *dirQmask = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(dQ[0], dQ[1]), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+}
+
+// Per-candidate evaluation for 256QAM (8 bits/RE, PAM-16 slicer).
+// C13_256 = round(2^13/sqrt(170)), CE_256 = round(2^16/(8*8*sqrt(170)*2)),
+// CX_256  = round(2^16/(8*170)).
+#define NR_LBEST_EVAL16_256(I1_, Q1_, BI0, BI1, BI2, BI3, BQ0, BQ1, BQ2, BQ3, C0I_, C0Q_, EI_, EQ_, RRI_, RII_, RRQ_, RIQ_) \
+  do { \
+    const simde__m256i A2I = simde_mm256_subs_epi16(z2r170, simde_mm256_adds_epi16((RRI_), (RIQ_))); \
+    const simde__m256i A2Q = simde_mm256_subs_epi16(z2i170, simde_mm256_subs_epi16((RRQ_), (RII_))); \
+    const simde__m256i I2  = nr_lbest_simd_level_pam16(A2I, Pp1_5_256); \
+    const simde__m256i Q2  = nr_lbest_simd_level_pam16(A2Q, Pp1_5_256); \
+    const simde__m256i corr0   = simde_mm256_adds_epi16((C0I_), (C0Q_)); \
+    const simde__m256i energy0 = simde_mm256_adds_epi16((EI_), (EQ_)); \
+    const simde__m256i corr1   = simde_mm256_adds_epi16(simde_mm256_mulhi_epi16(z2r, simde_mm256_mullo_epi16(I2, C13_256)), \
+                                                        simde_mm256_mulhi_epi16(z2i, simde_mm256_mullo_epi16(Q2, C13_256))); \
+    const simde__m256i energy1 = simde_mm256_mulhi_epi16(cm1, simde_mm256_mullo_epi16(simde_mm256_adds_epi16(simde_mm256_mullo_epi16(I2, I2), simde_mm256_mullo_epi16(Q2, Q2)), CE_256)); \
+    const simde__m256i aa = simde_mm256_adds_epi16(simde_mm256_mullo_epi16((I1_), I2), simde_mm256_mullo_epi16((Q1_), Q2)); \
+    const simde__m256i bb = simde_mm256_subs_epi16(simde_mm256_mullo_epi16((Q1_), I2), simde_mm256_mullo_epi16((I1_), Q2)); \
+    const simde__m256i cross = simde_mm256_adds_epi16(simde_mm256_mulhi_epi16(rr, simde_mm256_mullo_epi16(aa, CX_256)), \
+                                                      simde_mm256_mulhi_epi16(ri, simde_mm256_mullo_epi16(bb, CX_256))); \
+    simde__m256i metric = simde_mm256_max_epi16(simde_mm256_subs_epi16(simde_mm256_adds_epi16(simde_mm256_subs_epi16(corr0, energy0), simde_mm256_subs_epi16(corr1, energy1)), cross), FLOORM); \
+    const simde__m256i bm[8] = {(BI0), (BQ0), (BI1), (BQ1), (BI2), (BQ2), (BI3), (BQ3)}; \
+    for (int p = 0; p < 8; p++) { \
+      max0[p] = simde_mm256_max_epi16(max0[p], simde_mm256_blendv_epi8(metric, SENT, bm[p])); \
+      max1[p] = simde_mm256_max_epi16(max1[p], simde_mm256_blendv_epi8(SENT, metric, bm[p])); \
+    } \
+  } while (0)
+
+// pattern: 0 = 5x5 (25 cand), 1 = 3x3 (9 cand), 2 = 5-plus (5 cand).
+void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
+                                           c16_t *stream1_in,
+                                           c16_t *ch_mag,
+                                           c16_t *ch_mag_i,
+                                           int16_t *stream0_out,
+                                           c16_t *rho01,
+                                           uint32_t length,
+                                           int pattern)
+{
+  const simde__m256i SENT   = simde_mm256_set1_epi16(NR_LBEST_SIMD16_SENT);
+  const simde__m256i FLOORM = simde_mm256_set1_epi16(-32000);
+  const simde__m256i V15 = simde_mm256_set1_epi16(15), Vm15 = simde_mm256_set1_epi16(-15);
+  const simde__m256i z   = simde_mm256_setzero_si256();
+
+  // 256QAM metric Q-constants (metric scale = 1/8, matching 64QAM SIMD kernel):
+  //   C13_256 = round(2^13/sqrt(170))       => mulhi(z, I*C13) = z*I/(8*sqrt(170))
+  //   CE_256  = round(2^16/(8*8*2*sqrt(170)))  => energy = cm*|X|^2/(8*8*2*sqrt(170))
+  //   CX_256  = round(2^16/(8*170))         => cross term
+  const simde__m256i C13_256 = simde_mm256_set1_epi16(628);
+  const simde__m256i CE_256  = simde_mm256_set1_epi16(39);
+  const simde__m256i CX_256  = simde_mm256_set1_epi16(48);
+
+  uint32_t re = 0;
+  for (; re + 16 <= length; re += 16) {
+    simde__m256i z1r, z1i, z2r, z2i, rr, ri, cm0, cm1, dummy;
+    nr_lbest_simd_load16(&stream0_in[re], &z1r, &z1i);
+    nr_lbest_simd_load16(&stream1_in[re], &z2r, &z2i);
+    nr_lbest_simd_load16(&rho01[re],      &rr,  &ri);
+    nr_lbest_simd_load16(&ch_mag[re],     &cm0, &dummy);
+    nr_lbest_simd_load16(&ch_mag_i[re],   &cm1, &dummy);
+
+    simde__m256i centerI, centerQ, dirImask, dirQmask;
+    nr_lbest_simd_seed16_256(z1r, z1i, z2r, z2i, rr, ri, cm0, cm1,
+                             &centerI, &centerQ, &dirImask, &dirQmask);
+    (void)dirImask; (void)dirQmask;
+
+    // per-RE-vector precomputed quantities (int16 scale, /32 shift)
+    const simde__m256i z2r170   = nr_lbest_z170d32(z2r), z2i170 = nr_lbest_z170d32(z2i);
+    const simde__m256i rr5      = simde_mm256_srai_epi16(rr, 5), ri5 = simde_mm256_srai_epi16(ri, 5);
+    const simde__m256i Pp1_5_256 = simde_mm256_mulhi_epi16(cm1, simde_mm256_set1_epi16(NR_LBEST_Q_PP1_OVER32_Q16_256));
+
+    simde__m256i max0[8], max1[8];
+    for (int p = 0; p < 8; p++) { max0[p] = SENT; max1[p] = SENT; }
+
+    // ---- 5x5 block (hoisted) ----
+    // Precompute 5 I-levels and 5 Q-levels, then evaluate all or a subset of pairs.
+    // Offsets: {-4,-2,0,+2,+4} around seed center.
+    static const int offs5[5] = {-4, -2, 0, 2, 4};
+    simde__m256i Iv[5], Qv[5];
+    simde__m256i bIv[5][4], bQv[5][4];                // [level][bit 0..3]
+    simde__m256i c0I[5], c0Q[5], eI[5], eQ[5];
+    simde__m256i rrI[5], riI[5], rrQ[5], riQ[5];
+
+    const simde__m256i V8 = simde_mm256_set1_epi16(8), V4 = simde_mm256_set1_epi16(4), V2 = simde_mm256_set1_epi16(2);
+
+    for (int k = 0; k < 5; k++) {
+      const simde__m256i I1 = simde_mm256_min_epi16(simde_mm256_max_epi16(simde_mm256_adds_epi16(centerI, simde_mm256_set1_epi16(offs5[k])), Vm15), V15);
+      const simde__m256i Q1 = simde_mm256_min_epi16(simde_mm256_max_epi16(simde_mm256_adds_epi16(centerQ, simde_mm256_set1_epi16(offs5[k])), Vm15), V15);
+      Iv[k] = I1; Qv[k] = Q1;
+
+      // 256QAM Gray bit labeling per axis (b0..b3):
+      //   b0 = sign (level < 0)
+      //   b1 = |level| > 8
+      //   b2 = ||level|-8| > 4
+      //   b3 = |||level|-8|-4| > 2
+      const simde__m256i aI  = simde_mm256_abs_epi16(I1);
+      const simde__m256i m2I = simde_mm256_abs_epi16(simde_mm256_sub_epi16(aI,  V8));
+      const simde__m256i m3I = simde_mm256_abs_epi16(simde_mm256_sub_epi16(m2I, V4));
+      bIv[k][0] = simde_mm256_cmpgt_epi16(z,   I1);
+      bIv[k][1] = simde_mm256_cmpgt_epi16(aI,  V8);
+      bIv[k][2] = simde_mm256_cmpgt_epi16(m2I, V4);
+      bIv[k][3] = simde_mm256_cmpgt_epi16(m3I, V2);
+
+      const simde__m256i aQ  = simde_mm256_abs_epi16(Q1);
+      const simde__m256i m2Q = simde_mm256_abs_epi16(simde_mm256_sub_epi16(aQ,  V8));
+      const simde__m256i m3Q = simde_mm256_abs_epi16(simde_mm256_sub_epi16(m2Q, V4));
+      bQv[k][0] = simde_mm256_cmpgt_epi16(z,   Q1);
+      bQv[k][1] = simde_mm256_cmpgt_epi16(aQ,  V8);
+      bQv[k][2] = simde_mm256_cmpgt_epi16(m2Q, V4);
+      bQv[k][3] = simde_mm256_cmpgt_epi16(m3Q, V2);
+
+      c0I[k] = simde_mm256_mulhi_epi16(z1r, simde_mm256_mullo_epi16(I1, C13_256));
+      c0Q[k] = simde_mm256_mulhi_epi16(z1i, simde_mm256_mullo_epi16(Q1, C13_256));
+      eI[k]  = simde_mm256_mulhi_epi16(cm0, simde_mm256_mullo_epi16(simde_mm256_mullo_epi16(I1, I1), CE_256));
+      eQ[k]  = simde_mm256_mulhi_epi16(cm0, simde_mm256_mullo_epi16(simde_mm256_mullo_epi16(Q1, Q1), CE_256));
+      rrI[k] = simde_mm256_mullo_epi16(rr5, I1); riI[k] = simde_mm256_mullo_epi16(ri5, I1);
+      rrQ[k] = simde_mm256_mullo_epi16(rr5, Q1); riQ[k] = simde_mm256_mullo_epi16(ri5, Q1);
+    }
+
+    if (pattern == 0) { // 5x5: all 25 grid pairs
+      for (int iI = 0; iI < 5; iI++)
+        for (int iQ = 0; iQ < 5; iQ++)
+          NR_LBEST_EVAL16_256(Iv[iI], Qv[iQ],
+                              bIv[iI][0], bIv[iI][1], bIv[iI][2], bIv[iI][3],
+                              bQv[iQ][0], bQv[iQ][1], bQv[iQ][2], bQv[iQ][3],
+                              c0I[iI], c0Q[iQ], eI[iI], eQ[iQ],
+                              rrI[iI], riI[iI], rrQ[iQ], riQ[iQ]);
+    } else if (pattern == 1) { // 3x3: center 3 levels, 9 pairs
+      // center indices {1,2,3} map to offsets {-2,0,+2}
+      static const int ci3[3] = {1, 2, 3};
+      for (int a = 0; a < 3; a++)
+        for (int b = 0; b < 3; b++) {
+          const int iI = ci3[a], iQ = ci3[b];
+          NR_LBEST_EVAL16_256(Iv[iI], Qv[iQ],
+                              bIv[iI][0], bIv[iI][1], bIv[iI][2], bIv[iI][3],
+                              bQv[iQ][0], bQv[iQ][1], bQv[iQ][2], bQv[iQ][3],
+                              c0I[iI], c0Q[iQ], eI[iI], eQ[iQ],
+                              rrI[iI], riI[iI], rrQ[iQ], riQ[iQ]);
+        }
+    } else { // 5-plus: center + +-4 each axis (5 cand)
+      // indices: (2,2)=center, (0,2)=I-4, (4,2)=I+4, (2,0)=Q-4, (2,4)=Q+4
+      static const int pI5[5] = {2, 0, 4, 2, 2}, pQ5[5] = {2, 2, 2, 0, 4};
+      for (int c = 0; c < 5; c++) {
+        const int iI = pI5[c], iQ = pQ5[c];
+        NR_LBEST_EVAL16_256(Iv[iI], Qv[iQ],
+                            bIv[iI][0], bIv[iI][1], bIv[iI][2], bIv[iI][3],
+                            bQv[iQ][0], bQv[iQ][1], bQv[iQ][2], bQv[iQ][3],
+                            c0I[iI], c0Q[iQ], eI[iI], eQ[iQ],
+                            rrI[iI], riI[iI], rrQ[iQ], riQ[iQ]);
+      }
+    }
+
+    int16_t tmp[8][16];
+    for (int p = 0; p < 8; p++) {
+      const simde__m256i diff = simde_mm256_subs_epi16(max0[p], max1[p]);
+      // metric is at 1/8 scale -> LLR = diff*8; saturate via int32 widening
+      const simde__m256i lo = simde_mm256_slli_epi32(nr_lbest_widen(diff, 0), 3);
+      const simde__m256i hi = simde_mm256_slli_epi32(nr_lbest_widen(diff, 1), 3);
+      simde__m256i res = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(lo, hi), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+      res = simde_mm256_blendv_epi8(res, simde_mm256_set1_epi16(-NR_LBEST_Q_LLR_SAT), simde_mm256_cmpeq_epi16(max0[p], SENT));
+      res = simde_mm256_blendv_epi8(res, simde_mm256_set1_epi16( NR_LBEST_Q_LLR_SAT), simde_mm256_cmpeq_epi16(max1[p], SENT));
+      simde_mm256_storeu_si256((simde__m256i *)tmp[p], res);
+    }
+    for (int r = 0; r < 16; r++)
+      for (int p = 0; p < 8; p++)
+        stream0_out[(re + r) * 8 + p] = tmp[p][r];
+  }
+
+  if (re < length)
+    nr_qam256_llr_2layer_lbest_q15_layer(&stream0_in[re], &stream1_in[re], &ch_mag[re], &ch_mag_i[re],
+                                         &stream0_out[re * 8], &rho01[re], length - re, 25);
+}
+
 void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rxdataF_comp1,
                        c16_t *ch_mag0,
@@ -3688,13 +5297,62 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       }
       break;
     case 8:
-      // 2-layer 256QAM ML via the float L-best reference (ANALYSIS path; only reached when the
-      // demod L-best gate routes Qm=8 here). L = OAI_LBEST_L256 (default 256 = full ML search).
+      // 2-layer 256QAM. Default = direct SIMD full ML (nr_qam256_llr_2layer), correct on all
+      // channels — analogous to nr_qam64_llr_2layer for 64QAM.
+      // The reduced-search L-best kernel is GATED OFF by default; enable via OAI_LBEST_Q15_256=1.
+      // OAI_LBEST_PAT256 picks the candidate set (0=5x5/25 [default], 1=3x3/9, 2=5-plus/5).
       {
-        static int L256 = -1;
-        if (L256 < 0) { const char *e = getenv("OAI_LBEST_L256"); L256 = e ? atoi(e) : 256; }
-        nr_qam256_llr_2layer_lbest(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, L256, 0.0f);
-        nr_qam256_llr_2layer_lbest(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, L256, 0.0f);
+        static int lbest256 = -1, pat256 = 0;
+        if (lbest256 < 0) {
+          const char *e = getenv("OAI_LBEST_Q15_256");
+          lbest256 = e ? atoi(e) : 0;
+          const char *ep = getenv("OAI_LBEST_PAT256");
+          pat256 = ep ? atoi(ep) : 0;
+        }
+        if (lbest256) {
+          nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, pat256);
+          nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, pat256);
+        } else {
+          nr_qam256_llr_2layer(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re);
+          nr_qam256_llr_2layer(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re);
+        }
+        // --- OAI_LBEST_DBG256: verify the ACTIVE 256QAM kernel (layer 0) vs the FLOAT full-ML
+        // reference (nr_qam256_llr_2layer_lbest, L=256 == exact max-log search) on the SAME
+        // real inputs. Accumulates scale-invariant correctness (sign disagreement), magnitude,
+        // int16 saturation fraction, best-fit scale vs ref, and post-scale residual (distortion).
+        // Analysis-only (dlsim); single-threaded static counters. Set OAI_LBEST_DBG256=1.
+        {
+          static int dbg256 = -1;
+          if (dbg256 < 0) { const char *e = getenv("OAI_LBEST_DBG256"); dbg256 = e ? atoi(e) : 0; }
+          if (dbg256) {
+            static long n = 0, sdis = 0, satN = 0, gtN = 0;
+            static double sAbsP = 0, sAbsR = 0, sPR = 0, sRR = 0, sPP = 0;
+            int16_t *ref = (int16_t *)malloc((size_t)nb_re * 8 * sizeof(int16_t));
+            nr_qam256_llr_2layer_lbest(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, ref, rho0, nb_re, 256, 0.0f);
+            for (uint32_t k = 0; k < nb_re * 8; k++) {
+              const int p = llr_layers0[k], r = ref[k];
+              const int ap = p < 0 ? -p : p, ar = r < 0 ? -r : r;
+              n++;
+              if ((long)p * r < 0) sdis++;
+              if (ap >= 30000) satN++;
+              if (ap >= 128) gtN++; // int8 clip point: LDPC narrows int16->int8 (packs, sat +-127)
+              sAbsP += ap; sAbsR += ar;
+              sPR += (double)p * r; sRR += (double)r * r; sPP += (double)p * p;
+            }
+            free(ref);
+            if (n >= 200000) {
+              const double a = sRR > 0 ? sPR / sRR : 0;
+              const double resid = sPP - 2 * a * sPR + a * a * sRR;
+              fprintf(stderr,
+                      "### LBEST_DBG256 kernel=%s N=%ld signDisagree=%.3f%% meanAbs prod=%.0f ref=%.0f "
+                      "sat|.|>=30000=%.3f%% int8clip|.|>=128=%.3f%% fitScale=%.3f residFrac=%.3f\n",
+                      lbest256 ? "simd16_256" : "simd_full", n, 100.0 * sdis / n,
+                      sAbsP / n, sAbsR / n, 100.0 * satN / n, 100.0 * gtN / n, a,
+                      sPP > 0 ? resid / sPP : 0);
+              n = sdis = satN = gtN = 0; sAbsP = sAbsR = sPR = sRR = sPP = 0;
+            }
+          }
+        }
       }
       break;
     default:
