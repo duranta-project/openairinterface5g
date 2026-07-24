@@ -1402,10 +1402,12 @@ static int nr_srs_tpmi_estimation(const NR_PUSCH_Config_t *pusch_Config,
                                   const uint16_t num_gnb_antenna_elements,
                                   const uint16_t num_ue_srs_ports,
                                   const uint16_t num_prgs,
-                                  const uint8_t ul_ri)
+                                  const uint8_t ul_ri,
+                                  nr_srs_eff_channel_info_t *srs_eff_channel_info)
 {
   if (ul_ri > 1) {
     LOG_D(NR_MAC, "TPMI computation for ul_ri %i is not implemented yet!\n", ul_ri);
+    srs_eff_channel_info->valid = false;
     return 0;
   }
 
@@ -1480,6 +1482,26 @@ static int nr_srs_tpmi_estimation(const NR_PUSCH_Config_t *pusch_Config,
     if (precoded_signal_power > max_precoded_signal_power) {
       max_precoded_signal_power = precoded_signal_power;
       tpmi_sel = tpmi;
+    }
+  }
+
+  srs_eff_channel_info->valid = true;
+  srs_eff_channel_info->num_layers = nrOfLayers;
+  srs_eff_channel_info->num_rx = num_gnb_antenna_elements;
+  srs_eff_channel_info->num_prg = num_prgs;
+  for (int pI = 0; pI < num_prgs; pI++) {
+    for (int l = 0; l < nrOfLayers; l++) {
+      for (int gI = 0; gI < num_gnb_antenna_elements; gI++) {
+        c16_t acc = {0, 0};
+        for (int uI = 0; uI < num_ue_srs_ports; uI++) {
+          uint16_t hidx = uI * num_gnb_antenna_elements * num_prgs + gI * num_prgs + pI;
+          get_precoder_matrix_coef(&w, ul_ri, num_ue_srs_ports, transform_precoding, tpmi_sel, uI, l);
+          c16_t h_times_w = nr_h_times_w(channel_matrix16[hidx], w);
+          acc.r += h_times_w.r;
+          acc.i += h_times_w.i;
+        }
+        srs_eff_channel_info->h_srs_eff[pI][l][gI] = acc;
+      }
     }
   }
 
@@ -1615,13 +1637,16 @@ void handle_nr_srs_measurements(const module_id_t module_id,
       stop_meas(&cell->nr_srs_ri_computation_timer);
 
       start_meas(&cell->nr_srs_tpmi_computation_timer);
+      sched_ctrl->srs_eff_channel_info.frame = frame;
+      sched_ctrl->srs_eff_channel_info.slot = slot;
       sched_ctrl->srs_feedback.tpmi = nr_srs_tpmi_estimation(current_BWP->pusch_Config,
                                                              current_BWP->transform_precoding,
                                                              nr_srs_channel_iq_matrix.channel_matrix,
                                                              nr_srs_channel_iq_matrix.num_gnb_antenna_elements,
                                                              nr_srs_channel_iq_matrix.num_ue_srs_ports,
                                                              nr_srs_channel_iq_matrix.num_prgs,
-                                                             sched_ctrl->srs_feedback.ul_ri);
+                                                             sched_ctrl->srs_feedback.ul_ri,
+                                                             &sched_ctrl->srs_eff_channel_info);
       stop_meas(&cell->nr_srs_tpmi_computation_timer);
 
       sprintf(stats->srs_stats, "UL-RI %d, TPMI %d", sched_ctrl->srs_feedback.ul_ri + 1, sched_ctrl->srs_feedback.tpmi);
