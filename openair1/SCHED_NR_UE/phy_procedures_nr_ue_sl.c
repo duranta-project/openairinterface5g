@@ -987,7 +987,7 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
     }
     if (dB_fixed_x10(pssch_vars->ulsch_power_tot) < dB_fixed_x10(pssch_vars->ulsch_noise_power_tot) + ue->pssch_thres) {
 
-      LOG_D(NR_PHY,
+      LOG_W(NR_PHY,
             "PSSCH not detected in %d.%d (%d,%d,%d)\n",
             frame_rx,
             nr_slot_rx,
@@ -1004,7 +1004,7 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
     } else {
       pssch_vars->DTX = 0;
       int totalDecode = nr_slsch_procedures(ue, frame_rx, nr_slot_rx, 0, proc, phy_data, ack_nack_rcvd, phy_data->num_psfch_pdus);
-      LOG_D(NR_PHY,
+      LOG_A(NR_PHY,
             "Total %d decoded PSSCH detected in %d.%d (%d,%d,%d)\n",
             totalDecode,
             frame_rx,

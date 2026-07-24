@@ -625,11 +625,11 @@ void sl_nr_process_sci_ind(uint16_t module_id, int cc_id, uint32_t frame, uint32
 
     switch (sci_ind->sci_pdu[idx].sci_format_type) { 
       case SL_SCI_FORMAT_1A_ON_PSCCH:
-         LOG_D(NR_MAC,"%d.%d Received PSCCH PDU %d/%d PSCCH RSRP %d, length %d, sub-channel index %d, Nid %x, payload %llx\n", sci_ind->sfn,sci_ind->slot,1+idx,num_SCIs,sci_ind->sci_pdu[idx].pscch_rsrp,sci_ind->sci_pdu[idx].sci_payloadlen,sci_ind->sci_pdu[idx].subch_index,sci_ind->sci_pdu[idx].Nid,*(unsigned long long*)sci_ind->sci_pdu[idx].sci_payloadBits);       
-         handle_sl_sci1a(module_id, cc_id, frame, slot, &sci_ind->sci_pdu[idx], phy_data); 
+         LOG_A(NR_MAC,"%d.%d Received PSCCH PDU %d/%d PSCCH RSRP %d, length %d, sub-channel index %d, Nid %x, payload %llx\n", sci_ind->sfn,sci_ind->slot,1+idx,num_SCIs,sci_ind->sci_pdu[idx].pscch_rsrp,sci_ind->sci_pdu[idx].sci_payloadlen,sci_ind->sci_pdu[idx].subch_index,sci_ind->sci_pdu[idx].Nid,*(unsigned long long*)sci_ind->sci_pdu[idx].sci_payloadBits);       
+         handle_sl_sci1a(module_id, cc_id, frame, slot, &sci_ind->sci_pdu[idx], phy_data);
        break;
       case SL_SCI_FORMAT_2_ON_PSSCH:
-         LOG_D(NR_MAC,"%d.%d Received PSSCH PDU %d/%d PSSCH RSRP %d, length %d, payload %llx\n", sci_ind->sfn,sci_ind->slot,1+idx,num_SCIs,sci_ind->sci_pdu[idx].pscch_rsrp,sci_ind->sci_pdu[idx].sci_payloadlen,*(unsigned long long*)sci_ind->sci_pdu[idx].sci_payloadBits);       
+         LOG_A(NR_MAC,"%d.%d Received PSSCH PDU %d/%d PSSCH RSRP %d, length %d, payload %llx\n", sci_ind->sfn,sci_ind->slot,1+idx,num_SCIs,sci_ind->sci_pdu[idx].pscch_rsrp,sci_ind->sci_pdu[idx].sci_payloadlen,*(unsigned long long*)sci_ind->sci_pdu[idx].sci_payloadBits);
          handle_sl_sci2(module_id, cc_id, frame, slot, &sci_ind->sci_pdu[idx], phy_data);
        break;
       default:
