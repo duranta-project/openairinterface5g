@@ -42,6 +42,7 @@
 #include "common/platform_constants.h"
 #include "common/ran_context.h"
 #include "collection/linear_alloc.h"
+#include "common/cmake_defs.h"
 
 /* RRC */
 #include "NR_BCCH-BCH-Message.h"
@@ -51,6 +52,7 @@
 
 /* PHY */
 #include "time_meas.h"
+#include "openair1/PHY/defs_nr_common.h"
 
 /* Interface */
 #include "nfapi_nr_interface_scf.h"
