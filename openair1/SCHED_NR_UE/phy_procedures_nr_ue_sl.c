@@ -946,7 +946,7 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
       nr_slot_fep(ue, fp, proc->nr_slot_rx, sym, rxdataF, link_type_sl, 0, ue->common_vars.rxdata);
     }
 
-    int16_t *llrs = (int16_t*)__builtin_alloca_with_align(G*sizeof(int16_t),64);
+    int16_t *llrs = ue->pssch_vars[0].llr;
     nr_rx_pssch(ue,
                 proc,
                 phy_data,
