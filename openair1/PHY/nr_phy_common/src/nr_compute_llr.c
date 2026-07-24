@@ -2765,7 +2765,7 @@ uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
                         c16_t ch_magc[nb_layers][pdsch_buf_size_max],
                         c16_t ch_estimates_ext[][nb_rx_ant][buffer_length],
                         unsigned short nb_rb,
-                        unsigned char mod_order,
+                        uint8_t *mod_orders,
                         int shift,
                         unsigned char symbol,
                         int length,
@@ -2959,7 +2959,6 @@ uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
   simde__m128i *ch_mag128_0 = NULL, *ch_mag128b_0 = NULL, *ch_mag128c_0 = NULL; // Layer 0
   simde__m128i *ch_mag128_1 = NULL, *ch_mag128b_1 = NULL, *ch_mag128c_1 = NULL; // Layer 1
   simde__m128i mmtmpD0, mmtmpD1, mmtmpD2, mmtmpD3;
-  simde__m128i QAM_amp128 = {0}, QAM_amp128b = {0}, QAM_amp128c = {0};
 
   simde__m128i *determ_fin_128 = (simde__m128i *)&determ_fin[0];
 
@@ -2971,19 +2970,34 @@ uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
   simde__m128i *rxdataF_comp128_0 = (simde__m128i *)&rxdataF_comp[0][symbol * buffer_length];
   simde__m128i *rxdataF_comp128_1 = (simde__m128i *)&rxdataF_comp[1][symbol * buffer_length];
 
-  if (mod_order > 2) {
-    if (mod_order == 4) {
-      QAM_amp128 = simde_mm_set1_epi16(QAM16_n1); // 2/sqrt(10)
-      QAM_amp128b = simde_mm_setzero_si128();
-      QAM_amp128c = simde_mm_setzero_si128();
-    } else if (mod_order == 6) {
-      QAM_amp128 = simde_mm_set1_epi16(QAM64_n1); // 4/sqrt{42}
-      QAM_amp128b = simde_mm_set1_epi16(QAM64_n2); // 2/sqrt{42}
-      QAM_amp128c = simde_mm_setzero_si128();
-    } else if (mod_order == 8) {
-      QAM_amp128 = simde_mm_set1_epi16(QAM256_n1);
-      QAM_amp128b = simde_mm_set1_epi16(QAM256_n2);
-      QAM_amp128c = simde_mm_set1_epi16(QAM256_n3);
+  simde__m128i QAM_amp128_0 = simde_mm_setzero_si128(), QAM_amp128b_0 = simde_mm_setzero_si128(),
+               QAM_amp128c_0 = simde_mm_setzero_si128();
+  simde__m128i QAM_amp128_1 = simde_mm_setzero_si128(), QAM_amp128b_1 = simde_mm_setzero_si128(),
+               QAM_amp128c_1 = simde_mm_setzero_si128();
+
+  if (mod_orders[0] > 2 || mod_orders[1] > 2) {
+    // Setup Layer 0
+    if (mod_orders[0] == 4) {
+      QAM_amp128_0 = simde_mm_set1_epi16(QAM16_n1);
+    } else if (mod_orders[0] == 6) {
+      QAM_amp128_0 = simde_mm_set1_epi16(QAM64_n1);
+      QAM_amp128b_0 = simde_mm_set1_epi16(QAM64_n2);
+    } else if (mod_orders[0] == 8) {
+      QAM_amp128_0 = simde_mm_set1_epi16(QAM256_n1);
+      QAM_amp128b_0 = simde_mm_set1_epi16(QAM256_n2);
+      QAM_amp128c_0 = simde_mm_set1_epi16(QAM256_n3);
+    }
+
+    // Setup Layer 1
+    if (mod_orders[1] == 4) {
+      QAM_amp128_1 = simde_mm_set1_epi16(QAM16_n1);
+    } else if (mod_orders[1] == 6) {
+      QAM_amp128_1 = simde_mm_set1_epi16(QAM64_n1);
+      QAM_amp128b_1 = simde_mm_set1_epi16(QAM64_n2);
+    } else if (mod_orders[1] == 8) {
+      QAM_amp128_1 = simde_mm_set1_epi16(QAM256_n1);
+      QAM_amp128b_1 = simde_mm_set1_epi16(QAM256_n2);
+      QAM_amp128c_1 = simde_mm_set1_epi16(QAM256_n3);
     }
     ch_mag128_0 = (simde__m128i *)ch_mag[0];
     ch_mag128b_0 = (simde__m128i *)ch_magb[0];
@@ -2995,7 +3009,7 @@ uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
 
   for (int rb = 0; rb < 3 * nb_rb_0; rb++) {
     // Magnitude computation
-    if (mod_order > 2) {
+    if (mod_orders[0] > 2 || mod_orders[1] > 2) {
       uint64_t sum_det = 0;
       for (int k = 0; k < 4; k++) {
         sum_det += (((uint32_t *)&determ_fin_128[0])[k]);
@@ -3017,22 +3031,22 @@ uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
       ch_mag128_0[0] = mmtmpD2;
       ch_mag128b_0[0] = mmtmpD2;
       ch_mag128c_0[0] = mmtmpD2;
-      ch_mag128_0[0] = simde_mm_mulhi_epi16(ch_mag128_0[0], QAM_amp128);
+      ch_mag128_0[0] = simde_mm_mulhi_epi16(ch_mag128_0[0], QAM_amp128_0);
       ch_mag128_0[0] = simde_mm_slli_epi16(ch_mag128_0[0], 1);
-      ch_mag128b_0[0] = simde_mm_mulhi_epi16(ch_mag128b_0[0], QAM_amp128b);
+      ch_mag128b_0[0] = simde_mm_mulhi_epi16(ch_mag128b_0[0], QAM_amp128b_0);
       ch_mag128b_0[0] = simde_mm_slli_epi16(ch_mag128b_0[0], 1);
-      ch_mag128c_0[0] = simde_mm_mulhi_epi16(ch_mag128c_0[0], QAM_amp128c);
+      ch_mag128c_0[0] = simde_mm_mulhi_epi16(ch_mag128c_0[0], QAM_amp128c_0);
       ch_mag128c_0[0] = simde_mm_slli_epi16(ch_mag128c_0[0], 1);
 
       // Layer 1
       ch_mag128_1[0] = mmtmpD2;
       ch_mag128b_1[0] = mmtmpD2;
       ch_mag128c_1[0] = mmtmpD2;
-      ch_mag128_1[0] = simde_mm_mulhi_epi16(ch_mag128_1[0], QAM_amp128);
+      ch_mag128_1[0] = simde_mm_mulhi_epi16(ch_mag128_1[0], QAM_amp128_1);
       ch_mag128_1[0] = simde_mm_slli_epi16(ch_mag128_1[0], 1);
-      ch_mag128b_1[0] = simde_mm_mulhi_epi16(ch_mag128b_1[0], QAM_amp128b);
+      ch_mag128b_1[0] = simde_mm_mulhi_epi16(ch_mag128b_1[0], QAM_amp128b_1);
       ch_mag128b_1[0] = simde_mm_slli_epi16(ch_mag128b_1[0], 1);
-      ch_mag128c_1[0] = simde_mm_mulhi_epi16(ch_mag128c_1[0], QAM_amp128c);
+      ch_mag128c_1[0] = simde_mm_mulhi_epi16(ch_mag128c_1[0], QAM_amp128c_1);
       ch_mag128c_1[0] = simde_mm_slli_epi16(ch_mag128c_1[0], 1);
     }
 

@@ -185,7 +185,7 @@ int main(int argc, char *argv[])
   uint16_t nb_symb_sch = 12;
   int start_symbol = 0;
   uint16_t nb_rb = 50;
-  int Imcs = 9;
+  int Imcs[MAX_NUM_UE] = {9, 9};
   uint8_t precod_nbr_layers = 1;
   int tx_offset;
   double txlev[MAX_NUM_UE] = {0};
@@ -325,9 +325,15 @@ int main(int argc, char *argv[])
         printf("PUSCH DMRS length %d\n", length_dmrs);
         break;
 
-      case 'm':
-        Imcs = atoi(optarg);
+      case 'm': {
+        int u_idx = 0;
+        char *token = strtok(optarg, ",");
+        while (token != NULL && u_idx < MAX_NUM_UE) {
+          Imcs[u_idx++] = atoi(token);
+          token = strtok(NULL, ",");
+        }
         break;
+      }
 
       case 'W':
         precod_nbr_layers = atoi(optarg);
@@ -756,9 +762,6 @@ int main(int argc, char *argv[])
 
   uint16_t pdu_bit_map = PUSCH_PDU_BITMAP_PUSCH_DATA;
 
-  unsigned char mod_order = nr_get_Qm_ul(Imcs, mcs_table);
-  uint16_t code_rate = nr_get_code_rate_ul(Imcs, mcs_table);
-
   uint8_t mapping_type = typeB; // Default Values
   pusch_dmrs_type_t dmrs_config_type = pusch_dmrs_type1; // Default Values
   pusch_dmrs_AdditionalPosition_t add_pos = pusch_dmrs_pos0; // Default Values
@@ -806,8 +809,6 @@ int main(int argc, char *argv[])
   }
 
   nb_re_dmrs = nb_re_dmrs * num_dmrs_cdm_grps_no_data;
-  unsigned int TBS =
-      nr_compute_tbs(mod_order, code_rate, nb_rb, nb_symb_sch, nb_re_dmrs * number_dmrs_symbols, 0, 0, precod_nbr_layers);
 
   printf("[ULSIM]: length_dmrs: %u, l_prime_mask: %u	number_dmrs_symbols: %u, mapping_type: %u add_pos: %d \n",
          length_dmrs,
@@ -821,15 +822,37 @@ int main(int argc, char *argv[])
          nb_rb,
          nb_symb_sch,
          start_symbol);
-  printf("[ULSIM]: MCS: %d, mod order: %u, code_rate: %u\n", Imcs, mod_order, code_rate);
 
-  uint8_t ulsch_input_buffer[MAX_NUM_UE][TBS / 8];
+  unsigned char mod_order[MAX_NUM_UE];
+  uint16_t code_rate[MAX_NUM_UE];
+  unsigned int TBS[MAX_NUM_UE];
+  unsigned int available_bits[MAX_NUM_UE];
+  unsigned int max_TBS = 0;
+
+  for (int u = 0; u < NUM_UE; u++) {
+    mod_order[u] = nr_get_Qm_ul(Imcs[u], mcs_table);
+    code_rate[u] = nr_get_code_rate_ul(Imcs[u], mcs_table);
+    TBS[u] =
+        nr_compute_tbs(mod_order[u], code_rate[u], nb_rb, nb_symb_sch, nb_re_dmrs * number_dmrs_symbols, 0, 0, precod_nbr_layers);
+
+    // Note: unav_res is currently computed downstream, you may need to move the unav_res calculation up or initialize it to 0 here
+    // if no PTRS is used.
+    available_bits[u] = nr_get_G(nb_rb, nb_symb_sch, nb_re_dmrs, number_dmrs_symbols, 0, mod_order[u], precod_nbr_layers);
+
+    if (TBS[u] > max_TBS)
+      max_TBS = TBS[u];
+
+    printf("[ULSIM]: UE %d -> MCS: %d, mod order: %u, code_rate: %u, TBS: %u\n", u, Imcs[u], mod_order[u], code_rate[u], TBS[u]);
+  }
+
+  uint8_t ulsch_input_buffer[MAX_NUM_UE][max_TBS / 8];
 
   for (int u = 0; u < NUM_UE; u++) {
     ulsch_input_buffer[u][0] = 0x31;
-    for (i = 1; i < TBS / 8; i++) {
+    for (i = 1; i < TBS[u] / 8; i++) {
       ulsch_input_buffer[u][i] = (uint8_t)rand();
     }
+    UE[u]->phy_sim_test_buf = calloc_or_fail(1, (available_bits[u] + 7) / 8);
   }
 
   double ts = 1.0 / (gNB->frame_parms.subcarrier_spacing * gNB->frame_parms.ofdm_symbol_size);
@@ -839,16 +862,9 @@ int main(int argc, char *argv[])
 
   printf("\n");
 
-  uint32_t unav_res = 0;
-  unsigned int available_bits =
-      nr_get_G(nb_rb, nb_symb_sch, nb_re_dmrs, number_dmrs_symbols, unav_res, mod_order, precod_nbr_layers);
-  uint8_t cw_buf[available_bits];
-  memset(cw_buf, 0, available_bits);
-  printf("[ULSIM]: VALUE OF G: %u, TBS: %u\n", available_bits, TBS);
   int frame_length_complex_samples = gNB->frame_parms.samples_per_subframe * NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
 
   for (int u = 0; u < NUM_UE; u++) {
-    UE[u]->phy_sim_test_buf = calloc_or_fail(1, (available_bits + 7) / 8);
     for (int aatx = 0; aatx < n_tx; aatx++) {
       s_interleaved[u][aatx] = calloc_or_fail(1, frame_length_complex_samples * 2 * sizeof(float));
     }
@@ -953,13 +969,13 @@ int main(int argc, char *argv[])
           int abwp_start = NRRIV2PRBOFFSET(ubwp->bwp_Common->genericParameters.locationAndBandwidth, 275);
           pusch_pdu->bwp_start = abwp_start;
           pusch_pdu->bwp_size = abwp_size;
-          pusch_pdu->pusch_data.tb_size = TBS >> 3;
+          pusch_pdu->pusch_data.tb_size = TBS[u] >> 3;
           pusch_pdu->pdu_bit_map = pdu_bit_map;
           pusch_pdu->rnti = n_rnti + u;
-          pusch_pdu->mcs_index = Imcs;
+          pusch_pdu->mcs_index = Imcs[u];
           pusch_pdu->mcs_table = mcs_table;
-          pusch_pdu->target_code_rate = code_rate;
-          pusch_pdu->qam_mod_order = mod_order;
+          pusch_pdu->target_code_rate = code_rate[u];
+          pusch_pdu->qam_mod_order = mod_order[u];
           pusch_pdu->transform_precoding = transform_precoding;
           pusch_pdu->data_scrambling_id = *scc->physCellId;
           pusch_pdu->nrOfLayers = precod_nbr_layers;
@@ -983,7 +999,7 @@ int main(int argc, char *argv[])
           pusch_pdu->pusch_data.harq_process_id = 0;
           pusch_pdu->pusch_data.new_data_indicator = round == 0 ? true : false;
           pusch_pdu->pusch_data.num_cb = 0;
-          pusch_pdu->maintenance_parms_v3.ldpcBaseGraph = get_BG(TBS, code_rate);
+          pusch_pdu->maintenance_parms_v3.ldpcBaseGraph = get_BG(TBS[u], code_rate[u]);
           pusch_pdu->param_v4.numSpatialStreamIndices = conf.pusch_AntennaPorts;
           memcpy(pusch_pdu->param_v4.spatialStreamIndices, conf.spatial_stream_index, sizeof(conf.spatial_stream_index));
 
@@ -1022,26 +1038,26 @@ int main(int argc, char *argv[])
           nfapi_nr_ue_pusch_pdu_t *pusch_config_pdu = &ul_config0->pusch_config_pdu;
           // Config UL TX PDU
           pusch_config_pdu->tx_request_body.fapiTxPdu = ulsch_input_buffer[u];
-          pusch_config_pdu->tx_request_body.pdu_length = TBS / 8;
+          pusch_config_pdu->tx_request_body.pdu_length = TBS[u] / 8;
           pusch_config_pdu->rnti = n_rnti + u;
           pusch_config_pdu->pdu_bit_map = pdu_bit_map;
-          pusch_config_pdu->qam_mod_order = mod_order;
+          pusch_config_pdu->qam_mod_order = mod_order[u];
           pusch_config_pdu->rb_size = nb_rb;
           pusch_config_pdu->rb_start = start_rb;
           pusch_config_pdu->nr_of_symbols = nb_symb_sch;
           pusch_config_pdu->start_symbol_index = start_symbol;
           pusch_config_pdu->ul_dmrs_symb_pos = l_prime_mask;
           pusch_config_pdu->dmrs_config_type = dmrs_config_type;
-          pusch_config_pdu->mcs_index = Imcs;
+          pusch_config_pdu->mcs_index = Imcs[u];
           pusch_config_pdu->mcs_table = mcs_table;
           pusch_config_pdu->num_dmrs_cdm_grps_no_data = num_dmrs_cdm_grps_no_data;
           pusch_config_pdu->nrOfLayers = precod_nbr_layers;
           // set orthognal DMRS ports
           pusch_config_pdu->dmrs_ports = ((1 << precod_nbr_layers) - 1) << (u * precod_nbr_layers);
-          pusch_config_pdu->target_code_rate = code_rate;
+          pusch_config_pdu->target_code_rate = code_rate[u];
           pusch_config_pdu->tbslbrm = tbslbrm;
-          pusch_config_pdu->ldpcBaseGraph = get_BG(TBS, code_rate);
-          pusch_config_pdu->pusch_data.tb_size = TBS / 8;
+          pusch_config_pdu->ldpcBaseGraph = get_BG(TBS[u], code_rate[u]);
+          pusch_config_pdu->pusch_data.tb_size = TBS[u] / 8;
           pusch_config_pdu->pusch_data.new_data_indicator = round == 0 ? true : false;
           pusch_config_pdu->pusch_data.rv_index = rv_index;
           pusch_config_pdu->pusch_data.harq_process_id = harq_pid;
@@ -1054,7 +1070,7 @@ int main(int argc, char *argv[])
             pusch_config_pdu->num_dmrs_cdm_grps_no_data = num_dmrs_cdm_grps_no_data;
           }
 
-          for (int i = 0; i < (TBS / 8); i++) {
+          for (int i = 0; i < (TBS[u] / 8); i++) {
             UE[u]->ul_harq_processes[harq_pid].payload_AB[i] = ulsch_input_buffer[u][i];
           }
 
@@ -1265,7 +1281,7 @@ int main(int argc, char *argv[])
             LOG_M("rxsigF0_llr.m",
                   "rxsF0_llr",
                   &pusch_vars->llr[0],
-                  precod_nbr_layers * (nb_symb_sch - 1) * NR_NB_SC_PER_RB * pusch_pdu->rb_size * mod_order,
+                  precod_nbr_layers * (nb_symb_sch - 1) * NR_NB_SC_PER_RB * pusch_pdu->rb_size * mod_order[u],
                   1,
                   0 | log_format);
           }
@@ -1280,7 +1296,7 @@ int main(int argc, char *argv[])
               n_errors[u][round]++;
             }
 
-            for (i = 0; i < available_bits; i++) {
+            for (i = 0; i < available_bits[u]; i++) {
               const uint8_t current_bit = (UE[u]->ul_harq_processes[harq_pid].f[i / 8] >> (i & 7)) & 1;
               if (((current_bit == 0) && (pusch_vars->llr[i] <= 0)) || ((current_bit == 1) && (pusch_vars->llr[i] >= 0))) {
                 errors_scrambling[u][round]++;
@@ -1322,7 +1338,7 @@ int main(int argc, char *argv[])
         }
 
         errors_decoding = 0;
-        for (i = 0; i < TBS; i++) {
+        for (i = 0; i < TBS[u]; i++) {
           uint8_t estimated_output_bit = (gNB->ulsch[u].harq_process->b[i / 8] & (1 << (i & 7))) >> (i & 7);
           uint8_t test_input_bit = (UE[u]->ul_harq_processes[harq_pid].payload_AB[i / 8] & (1 << (i & 7))) >> (i & 7);
 
@@ -1344,7 +1360,7 @@ int main(int argc, char *argv[])
         }
         roundStats[u] += ((float)ue_rounds[u]);
         if (!ue_final_error_flag)
-          effRate[u] += ((double)TBS) / (double)ue_rounds[u];
+          effRate[u] += ((double)TBS[u]) / (double)ue_rounds[u];
       }
     } // trial loop
 
@@ -1364,22 +1380,22 @@ int main(int argc, char *argv[])
              n_false_positive[u],
              n_trials,
              errors_scrambling[u][0],
-             available_bits * round_trials[u][0]);
+             available_bits[u] * round_trials[u][0]);
       for (int r = 1; r < max_rounds; r++)
-        printf(",%u/%u", errors_scrambling[u][r], available_bits * round_trials[u][r]);
+        printf(",%u/%u", errors_scrambling[u][r], available_bits[u] * round_trials[u][r]);
       printf(")\n");
       printf("\n");
 
       for (int r = 0; r < max_rounds; r++) {
         if (round_trials[u][r] > 0) {
           blerStats[u][r] = (double)n_errors[u][r] / round_trials[u][r];
-          berStats[u][r] = (double)errors_scrambling[u][r] / available_bits / round_trials[u][r];
+          berStats[u][r] = (double)errors_scrambling[u][r] / available_bits[u] / round_trials[u][r];
         } else {
           blerStats[u][r] = 0.0;
           berStats[u][r] = 0.0;
         }
       }
-      effTP[u] = effRate[u] / (double)TBS * (double)100;
+      effTP[u] = effRate[u] / (double)TBS[u] * (double)100;
       printf("SNR %f: Channel BLER (%e", SNR, blerStats[u][0]);
       for (int r = 1; r < max_rounds; r++)
         printf(",%e", blerStats[u][r]);
@@ -1391,7 +1407,7 @@ int main(int argc, char *argv[])
              roundStats[u],
              effRate[u],
              effTP[u],
-             TBS);
+             TBS[u]);
 
       if (delay_pusch_est_count[u] > 0) {
         double av_delay = (double)sum_pusch_delay[u] / (2 * delay_pusch_est_count[u]);
@@ -1470,7 +1486,7 @@ int main(int argc, char *argv[])
       "DMRS CDM gr w/o data:\t%d\n",
       nb_rb,
       nb_symb_sch,
-      Imcs,
+      Imcs[0],
       dmrs_config_type,
       add_pos,
       mapping_type,
