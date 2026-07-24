@@ -595,8 +595,6 @@ typedef struct NR_UE_harq {
 //! fixme : need to enhace for the multiple TB CQI report
 
 typedef struct NR_bler_stats {
-  uint8_t mcs;
-
   // for OLLA
   frame_t last_frame;
   int snrx10_equiv;
