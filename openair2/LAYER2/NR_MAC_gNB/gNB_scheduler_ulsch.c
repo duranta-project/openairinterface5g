@@ -1590,6 +1590,37 @@ static int nr_srs_tpmi_estimation(const NR_PUSCH_Config_t *pusch_Config,
   return tpmi_sel;
 }
 
+/* Effective channel h * w of each gNB antenna after the UE precoder of the selected TPMI, per
+ * PRG and layer, stored as eff[num_prgs][nrOfLayers][num_gnb_antenna_elements]. Only needed for
+ * the MU-MIMO pairing correlation. */
+static void nr_srs_eff_channel(const uint8_t *channel_matrix,
+                               const uint16_t num_gnb_antenna_elements,
+                               const uint16_t num_ue_srs_ports,
+                               const uint16_t num_prgs,
+                               const uint8_t ul_ri,
+                               const long transform_precoding,
+                               const uint8_t tpmi,
+                               c16_t eff[num_prgs][ul_ri + 1][num_gnb_antenna_elements])
+{
+  const int nrOfLayers = ul_ri + 1;
+  const c16_t *channel_matrix16 = (const c16_t *)channel_matrix;
+  for (int pI = 0; pI < num_prgs; pI++) {
+    for (int l = 0; l < nrOfLayers; l++) {
+      for (int gI = 0; gI < num_gnb_antenna_elements; gI++) {
+        int32_t acc_r = 0, acc_i = 0;
+        for (int uI = 0; uI < num_ue_srs_ports; uI++) {
+          uint16_t hidx = uI * num_gnb_antenna_elements * num_prgs + gI * num_prgs + pI;
+          char w = get_precoder_matrix_coef(ul_ri, num_ue_srs_ports, transform_precoding, tpmi, uI, l);
+          c16_t h_times_w = nr_h_times_w(channel_matrix16[hidx], w);
+          acc_r += h_times_w.r;
+          acc_i += h_times_w.i;
+        }
+        eff[pI][l][gI] = (c16_t){.r = (int16_t)(acc_r / num_ue_srs_ports), .i = (int16_t)(acc_i / num_ue_srs_ports)};
+      }
+    }
+  }
+}
+
 void handle_nr_srs_measurements(gNB_MAC_INST *nrmac,
                                 nr_cell_sched_t *cell,
                                 const frame_t frame,
@@ -1727,6 +1758,33 @@ void handle_nr_srs_measurements(gNB_MAC_INST *nrmac,
 
       sprintf(stats->srs_stats, "UL-RI %d, TPMI %d", sched_ctrl->srs_feedback.ul_ri + 1, sched_ctrl->srs_feedback.tpmi);
 
+      const uint8_t ul_ri = sched_ctrl->srs_feedback.ul_ri;
+      const int nrOfLayers = ul_ri + 1;
+      const uint16_t num_rx = nr_srs_channel_iq_matrix.num_gnb_antenna_elements;
+      const uint16_t num_prgs = nr_srs_channel_iq_matrix.num_prgs;
+      sched_ctrl->srs_eff_channel_info.valid = false;
+      if (nrOfLayers > 2 || nrOfLayers > MAX_NUM_NR_SRS_AP || num_rx > NB_ANTENNAS_RX || num_prgs > MAX_BWP_SIZE)
+        break;
+
+      // used for the MU-MIMO pairing
+      c16_t eff[num_prgs][nrOfLayers][num_rx];
+      nr_srs_eff_channel(nr_srs_channel_iq_matrix.channel_matrix,
+                         num_rx,
+                         nr_srs_channel_iq_matrix.num_ue_srs_ports,
+                         num_prgs,
+                         ul_ri,
+                         current_BWP->transform_precoding,
+                         sched_ctrl->srs_feedback.tpmi,
+                         eff);
+      nr_srs_eff_channel_info_t *srs_eff = &sched_ctrl->srs_eff_channel_info;
+      for (int pI = 0; pI < num_prgs; pI++)
+        for (int l = 0; l < nrOfLayers; l++)
+          memcpy(srs_eff->h_srs_eff[pI][l], eff[pI][l], num_rx * sizeof(c16_t));
+      srs_eff->time = (fsn_t){.f = frame, .s = slot, .mu = current_BWP->scs};
+      srs_eff->num_layers = nrOfLayers;
+      srs_eff->num_rx = num_rx;
+      srs_eff->num_prg = num_prgs;
+      srs_eff->valid = true;
       break;
     }
 
