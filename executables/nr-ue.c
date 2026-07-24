@@ -443,6 +443,14 @@ void processSlotTX(void *arg)
   } else {
     dynamic_barrier_join(rxtxD->next_barrier);
   }
+  // HACK: on SL non-transmit slots phy_procedures_nrUE_SL_TX() is not called, so this
+  // slot's txData still holds the waveform written there in a previous frame. RU_write
+  // radiates it regardless, so the peer keeps decoding the stale SCI. Zero it out.
+  if (UE->sl_mode == 2 && !sl_tx_action) {
+    int n = get_samples_per_slot(proc->nr_slot_tx, fp);
+    for (int i = 0; i < fp->nb_antennas_tx; i++)
+      memset(txp[i], 0, n * sizeof(c16_t));
+  }
   RU_write(rxtxD, sl_tx_action, txp);
   TracyCZoneEnd(ctx);
 }
