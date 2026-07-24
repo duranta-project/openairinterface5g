@@ -1411,8 +1411,8 @@ static int nr_srs_tpmi_estimation(const NR_PUSCH_Config_t *pusch_Config,
 
   uint8_t tpmi_sel = 0;
   const uint8_t nrOfLayers = ul_ri + 1;
-  int16_t precoded_channel_matrix_re[num_prgs * num_gnb_antenna_elements];
-  int16_t precoded_channel_matrix_im[num_prgs * num_gnb_antenna_elements];
+  int16_t precoded_channel_matrix_re[num_prgs * num_gnb_antenna_elements * nrOfLayers];
+  int16_t precoded_channel_matrix_im[num_prgs * num_gnb_antenna_elements * nrOfLayers];
   c16_t *channel_matrix16 = (c16_t *)channel_matrix;
   uint32_t max_precoded_signal_power = 0;
   int additional_max_tpmi = -1;
@@ -1434,36 +1434,44 @@ static int nr_srs_tpmi_estimation(const NR_PUSCH_Config_t *pusch_Config,
 
     for (int pI = 0; pI < num_prgs; pI++) {
       for (int gI = 0; gI < num_gnb_antenna_elements; gI++) {
-        uint16_t index_gI_pI = gI * num_prgs + pI;
-        precoded_channel_matrix_re[index_gI_pI] = 0;
-        precoded_channel_matrix_im[index_gI_pI] = 0;
-
-        for (int uI = 0; uI < num_ue_srs_ports; uI++) {
-          for (int layer_idx = 0; layer_idx < nrOfLayers; layer_idx++) {
-            uint16_t index = uI * num_gnb_antenna_elements * num_prgs + index_gI_pI;
-            get_precoder_matrix_coef(&w, ul_ri, num_ue_srs_ports, transform_precoding, tpmi, uI, layer_idx);
-            c16_t h_times_w = nr_h_times_w(channel_matrix16[index], w);
-
-            precoded_channel_matrix_re[index_gI_pI] += h_times_w.r;
-            precoded_channel_matrix_im[index_gI_pI] += h_times_w.i;
-
+        for (int l = 0; l < nrOfLayers; l++) {
+          uint32_t oidx = (l * num_gnb_antenna_elements + gI) * num_prgs + pI;
+          precoded_channel_matrix_re[oidx] = 0;
+          precoded_channel_matrix_im[oidx] = 0;
+          for (int uI = 0; uI < num_ue_srs_ports; uI++) {
+            uint16_t hidx = uI * num_gnb_antenna_elements * num_prgs + gI * num_prgs + pI;
+            get_precoder_matrix_coef(&w, ul_ri, num_ue_srs_ports, transform_precoding, tpmi, uI, l);
+            c16_t h_times_w = nr_h_times_w(channel_matrix16[hidx], w);
+            precoded_channel_matrix_re[oidx] += h_times_w.r;
+            precoded_channel_matrix_im[oidx] += h_times_w.i;
 #ifdef SRS_IND_DEBUG
-            LOG_I(NR_MAC, "(pI %i, gI %i,  uI %i, layer_idx %i) w = %c, channel_matrix --> real %i, imag %i\n",
-                  pI, gI, uI, layer_idx, w, channel_matrix16[index].r, channel_matrix16[index].i);
+            LOG_I(NR_MAC,
+                  "(pI %i, gI %i,  uI %i, layer %i) w = %c, channel_matrix --> real %i, imag %i\n",
+                  pI,
+                  gI,
+                  uI,
+                  l,
+                  w,
+                  channel_matrix16[hidx].r,
+                  channel_matrix16[hidx].i);
 #endif
           }
-        }
-
 #ifdef SRS_IND_DEBUG
-        LOG_I(NR_MAC, "(pI %i, gI %i) precoded_channel_coef --> real %i, imag %i\n",
-              pI, gI, precoded_channel_matrix_re[index_gI_pI], precoded_channel_matrix_im[index_gI_pI]);
+          LOG_I(NR_MAC,
+                "(pI %i, gI %i, layer %i) precoded_channel_coef --> real %i, imag %i\n",
+                pI,
+                gI,
+                l,
+                precoded_channel_matrix_re[oidx],
+                precoded_channel_matrix_im[oidx]);
 #endif
+        }
       }
     }
 
     uint32_t precoded_signal_power = calc_power_complex(precoded_channel_matrix_re,
                                                         precoded_channel_matrix_im,
-                                                        num_prgs * num_gnb_antenna_elements);
+                                                        num_prgs * num_gnb_antenna_elements * nrOfLayers);
 
 #ifdef SRS_IND_DEBUG
     LOG_I(NR_MAC, "(tpmi %i) precoded_signal_power = %i\n", tpmi, precoded_signal_power);
