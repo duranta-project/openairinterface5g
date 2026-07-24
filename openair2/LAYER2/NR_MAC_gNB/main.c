@@ -180,8 +180,8 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
                        pucch_rssi,
                        bler,
                        UE->current_DL_BWP.mcsTableIdx,
-                       sched_ctrl->dl_bler_stats.mcs,
-                       nr_get_Qm_dl(sched_ctrl->dl_bler_stats.mcs, UE->current_DL_BWP.mcsTableIdx),
+                       stats->dl.mcs,
+                       nr_get_Qm_dl(stats->dl.mcs, UE->current_DL_BWP.mcsTableIdx),
                        sched_ctrl->dl_cce_fail);
     if (reset_rsrp) {
       stats->num_rsrp_meas = 0;
@@ -209,10 +209,10 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
         stats->ulsch_DTX,
         bler,
         UE->current_UL_BWP.mcs_table,
-        sched_ctrl->ul_bler_stats.mcs,
-        nr_get_Qm_ul(sched_ctrl->ul_bler_stats.mcs, UE->current_UL_BWP.mcs_table),
-        UE->mac_stats.deltaMCS,
-        UE->mac_stats.NPRB,
+        stats->ul.mcs,
+        nr_get_Qm_ul(stats->ul.mcs, UE->current_UL_BWP.mcs_table),
+        stats->deltaMCS,
+        stats->NPRB,
         snr,
         diff_target,
         rssi,
