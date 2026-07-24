@@ -171,6 +171,7 @@ typedef struct NR_mac_dir_stats {
   uint32_t current_rbs;
   uint64_t prev_sdu_bytes;
   frame_t last_goodput_frame;
+  uint8_t mcs;
 } NR_mac_dir_stats_t;
 
 typedef struct {
