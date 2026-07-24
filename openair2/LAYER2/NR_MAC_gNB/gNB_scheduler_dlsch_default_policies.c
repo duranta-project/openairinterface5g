@@ -155,10 +155,6 @@ void nr_dl_mcs_select_default(const gNB_MAC_INST *mac, nr_dl_candidate_t *candid
       LOG_D(NR_MAC, "SNRx10 %d (%d + %.0f) => MCS %d\n", snrx10, cand->snrx10, cand->delta_olla * 10.f, mcs);
     }
     cand->sched_pdsch.mcs = mcs;
-    /* Persist for all candidates — BLER-based MCS ramps even for UEs the
-     * policy rejects this slot (failed CCE, no free RBs, etc.). */
-    if (!cand->is_retx)
-      cand->UE->UE_sched_ctrl.dl_bler_stats.mcs = mcs;
   }
 }
 

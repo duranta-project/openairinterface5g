@@ -2452,6 +2452,7 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
   }
   UE->mac_stats.ul.current_bytes += sched_pusch->tb_size;
   UE->mac_stats.ul.current_rbs = sched_pusch->rbSize;
+  UE->mac_stats.ul.mcs = sched_pusch->mcs;
   nr_mac->mac_stats.ul.used_prb_aggregate += sched_pusch->rbSize;
   sched_ctrl->last_ul_frame = sched_pusch->frame;
   sched_ctrl->last_ul_slot = sched_pusch->slot;
@@ -2735,7 +2736,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     cand.sched_inactive = (B == 0 && do_sched);
     cand.pending_bytes = B;
     cand.bler = olla_get_current_bler(&sched_ctrl->ul_bler_stats);
-    cand.current_mcs = sched_ctrl->ul_bler_stats.mcs;
+    cand.current_mcs = UE->mac_stats.ul.mcs;
     cand.max_mcs = max_mcs;
     cand.delta_olla = sched_ctrl->ul_bler_stats.delta_olla;
     cand.snrx10 = sched_ctrl->ul_bler_stats.snrx10_equiv;

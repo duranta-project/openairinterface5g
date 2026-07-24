@@ -555,7 +555,7 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
           .bler = olla_get_current_bler(&sched_ctrl->dl_bler_stats), // TODO necessary?
           .delta_olla = sched_ctrl->dl_bler_stats.delta_olla,
           .snrx10 = sched_ctrl->dl_bler_stats.snrx10_equiv,
-          .current_mcs = sched_ctrl->dl_bler_stats.mcs,
+          .current_mcs = UE->mac_stats.dl.mcs,
           .max_mcs = max_mcs,
           .mcs_table = current_BWP->mcsTableIdx,
           .bwp_start = bwp_info.bwpStart,
@@ -1242,6 +1242,7 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac,
   NR_pdsch_dmrs_t *dmrs_parms = &sched_pdsch->dmrs_parms;
   NR_sched_pucch_t *pucch = sched_pdsch->pucch_allocation >= 0 ? &sched_ctrl->sched_pucch[sched_pdsch->pucch_allocation] : NULL;
   UE->mac_stats.dl.rounds[harq->round]++;
+  UE->mac_stats.dl.mcs = sched_pdsch->mcs;
   int tpc = nr_mac_get_tpc(&sched_ctrl->pucch_pc);
   LOG_D(NR_MAC,
         "%4d.%2d [DLSCH/PDSCH/PUCCH] RNTI %04x DCI L %d start %3d RBs %3d startSymbol %2d nb_symbol %2d dmrspos %x MCS %2d "

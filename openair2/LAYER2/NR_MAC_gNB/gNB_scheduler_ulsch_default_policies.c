@@ -200,8 +200,6 @@ void nr_ul_mcs_select_default(const gNB_MAC_INST *mac, nr_ul_candidate_t *candid
       LOG_D(NR_MAC, "SNRx10 %d (%d + %.0f) => MCS %d\n", snrx10, cand->snrx10, cand->delta_olla * 10.f, mcs);
     }
     cand->sched_pusch.mcs = mcs;
-    if (!cand->is_retx)
-      cand->UE->UE_sched_ctrl.ul_bler_stats.mcs = mcs;
   }
 }
 
