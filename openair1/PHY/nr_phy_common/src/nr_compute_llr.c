@@ -469,6 +469,73 @@ static inline simde__m128i max_epi16(simde__m128i m0,
   return simde_mm_max_epi16(b0, b1);
 }
 
+// Reduce 16 vectors to 1 via max, for 256QAM LLR computation (128-bit path).
+static inline simde__m128i max16_epi16(simde__m128i v[16])
+{
+  simde__m128i a[8], b[4], c[2];
+  for (int k = 0; k < 8; k++) a[k] = simde_mm_max_epi16(v[2*k], v[2*k+1]);
+  for (int k = 0; k < 4; k++) b[k] = simde_mm_max_epi16(a[2*k], a[2*k+1]);
+  c[0] = simde_mm_max_epi16(b[0], b[1]);
+  c[1] = simde_mm_max_epi16(b[2], b[3]);
+  return simde_mm_max_epi16(c[0], c[1]);
+}
+
+// PAM-16 interference slicer (128-bit). Compares |psi| against 7 thresholds and
+// selects one of 8 interference magnitude levels c1,c3,...,c15.
+static inline simde__m128i interference_abs_256qam_epi16(simde__m128i psi,
+                                                         simde__m128i t2, simde__m128i t4,
+                                                         simde__m128i t6, simde__m128i t8,
+                                                         simde__m128i t10, simde__m128i t12,
+                                                         simde__m128i t14,
+                                                         simde__m128i c1, simde__m128i c3,
+                                                         simde__m128i c5, simde__m128i c7,
+                                                         simde__m128i c9, simde__m128i c11,
+                                                         simde__m128i c13, simde__m128i c15)
+{
+  // Branchless slicer: cmp_k is all-ones where psi < t_k
+  simde__m128i cmp2  = simde_mm_cmpgt_epi16(t2,  psi);
+  simde__m128i cmp4  = simde_mm_cmpgt_epi16(t4,  psi);
+  simde__m128i cmp6  = simde_mm_cmpgt_epi16(t6,  psi);
+  simde__m128i cmp8  = simde_mm_cmpgt_epi16(t8,  psi);
+  simde__m128i cmp10 = simde_mm_cmpgt_epi16(t10, psi);
+  simde__m128i cmp12 = simde_mm_cmpgt_epi16(t12, psi);
+  simde__m128i cmp14 = simde_mm_cmpgt_epi16(t14, psi);
+  // Region mask = XOR of adjacent comparisons (one-hot interval selection)
+  simde__m128i r1  = simde_mm_and_si128(cmp2,                                  c1);
+  simde__m128i r3  = simde_mm_and_si128(simde_mm_xor_si128(cmp4,  cmp2),  c3);
+  simde__m128i r5  = simde_mm_and_si128(simde_mm_xor_si128(cmp6,  cmp4),  c5);
+  simde__m128i r7  = simde_mm_and_si128(simde_mm_xor_si128(cmp8,  cmp6),  c7);
+  simde__m128i r9  = simde_mm_and_si128(simde_mm_xor_si128(cmp10, cmp8),  c9);
+  simde__m128i r11 = simde_mm_and_si128(simde_mm_xor_si128(cmp12, cmp10), c11);
+  simde__m128i r13 = simde_mm_and_si128(simde_mm_xor_si128(cmp14, cmp12), c13);
+  simde__m128i r15 = simde_mm_and_si128(simde_mm_xor_si128(allones128(), cmp14), c15);
+  return simde_mm_or_si128(
+      simde_mm_or_si128(simde_mm_or_si128(r1, r3), simde_mm_or_si128(r5, r7)),
+      simde_mm_or_si128(simde_mm_or_si128(r9, r11), simde_mm_or_si128(r13, r15)));
+}
+
+// a_sq = int_ch_mag * (a_r^2 + a_i^2) * scale_factor for 256QAM (128-bit).
+// Shift 4 instead of 3 because sqrt(170)/8 is half sqrt(42)/4.
+static inline simde__m128i square_a_256qam_epi16(simde__m128i a_r,
+                                                 simde__m128i a_i,
+                                                 simde__m128i int_ch_mag,
+                                                 simde__m128i scale_factor)
+{
+  simde__m128i tmp_result = simde_mm_mulhi_epi16(a_r, a_r);
+  tmp_result = simde_mm_slli_epi16(tmp_result, 1);
+  tmp_result = simde_mm_mulhi_epi16(tmp_result, scale_factor);
+  tmp_result = simde_mm_slli_epi16(tmp_result, 4);
+  tmp_result = simde_mm_mulhi_epi16(tmp_result, int_ch_mag);
+  tmp_result = simde_mm_slli_epi16(tmp_result, 1);
+  simde__m128i tmp_result2 = simde_mm_mulhi_epi16(a_i, a_i);
+  tmp_result2 = simde_mm_slli_epi16(tmp_result2, 1);
+  tmp_result2 = simde_mm_mulhi_epi16(tmp_result2, scale_factor);
+  tmp_result2 = simde_mm_slli_epi16(tmp_result2, 4);
+  tmp_result2 = simde_mm_mulhi_epi16(tmp_result2, int_ch_mag);
+  tmp_result2 = simde_mm_slli_epi16(tmp_result2, 1);
+  return simde_mm_adds_epi16(tmp_result, tmp_result2);
+}
+
 #else
 
 // calculate interference magnitude
@@ -576,6 +643,70 @@ static inline simde__m256i max_epi16_256(simde__m256i m0,
   simde__m256i b0 = simde_mm256_max_epi16(a0, a1);
   simde__m256i b1 = simde_mm256_max_epi16(a2, a3);
   return simde_mm256_max_epi16(b0, b1);
+}
+
+// Reduce 16 vectors to 1 via max, for 256QAM LLR computation (256-bit path).
+static inline simde__m256i max16_epi16_256(simde__m256i v[16])
+{
+  simde__m256i a[8], b[4], c[2];
+  for (int k = 0; k < 8; k++) a[k] = simde_mm256_max_epi16(v[2*k], v[2*k+1]);
+  for (int k = 0; k < 4; k++) b[k] = simde_mm256_max_epi16(a[2*k], a[2*k+1]);
+  c[0] = simde_mm256_max_epi16(b[0], b[1]);
+  c[1] = simde_mm256_max_epi16(b[2], b[3]);
+  return simde_mm256_max_epi16(c[0], c[1]);
+}
+
+// PAM-16 interference slicer (256-bit). Compares |psi| against 7 thresholds and
+// selects one of 8 interference magnitude levels c1,c3,...,c15.
+static inline simde__m256i interference_abs_256qam_epi16_256(simde__m256i psi,
+                                                              simde__m256i t2, simde__m256i t4,
+                                                              simde__m256i t6, simde__m256i t8,
+                                                              simde__m256i t10, simde__m256i t12,
+                                                              simde__m256i t14,
+                                                              simde__m256i c1, simde__m256i c3,
+                                                              simde__m256i c5, simde__m256i c7,
+                                                              simde__m256i c9, simde__m256i c11,
+                                                              simde__m256i c13, simde__m256i c15)
+{
+  simde__m256i cmp2  = simde_mm256_cmpgt_epi16(t2,  psi);
+  simde__m256i cmp4  = simde_mm256_cmpgt_epi16(t4,  psi);
+  simde__m256i cmp6  = simde_mm256_cmpgt_epi16(t6,  psi);
+  simde__m256i cmp8  = simde_mm256_cmpgt_epi16(t8,  psi);
+  simde__m256i cmp10 = simde_mm256_cmpgt_epi16(t10, psi);
+  simde__m256i cmp12 = simde_mm256_cmpgt_epi16(t12, psi);
+  simde__m256i cmp14 = simde_mm256_cmpgt_epi16(t14, psi);
+  simde__m256i r1  = simde_mm256_and_si256(cmp2,                                    c1);
+  simde__m256i r3  = simde_mm256_and_si256(simde_mm256_xor_si256(cmp4,  cmp2),  c3);
+  simde__m256i r5  = simde_mm256_and_si256(simde_mm256_xor_si256(cmp6,  cmp4),  c5);
+  simde__m256i r7  = simde_mm256_and_si256(simde_mm256_xor_si256(cmp8,  cmp6),  c7);
+  simde__m256i r9  = simde_mm256_and_si256(simde_mm256_xor_si256(cmp10, cmp8),  c9);
+  simde__m256i r11 = simde_mm256_and_si256(simde_mm256_xor_si256(cmp12, cmp10), c11);
+  simde__m256i r13 = simde_mm256_and_si256(simde_mm256_xor_si256(cmp14, cmp12), c13);
+  simde__m256i r15 = simde_mm256_and_si256(simde_mm256_xor_si256(allones256(), cmp14), c15);
+  return simde_mm256_or_si256(
+      simde_mm256_or_si256(simde_mm256_or_si256(r1, r3), simde_mm256_or_si256(r5, r7)),
+      simde_mm256_or_si256(simde_mm256_or_si256(r9, r11), simde_mm256_or_si256(r13, r15)));
+}
+
+// a_sq = int_ch_mag * (a_r^2 + a_i^2) * scale_factor for 256QAM (256-bit).
+static inline simde__m256i square_a_256qam_epi16_256(simde__m256i a_r,
+                                                     simde__m256i a_i,
+                                                     simde__m256i int_ch_mag,
+                                                     simde__m256i scale_factor)
+{
+  simde__m256i tmp_result = simde_mm256_mulhi_epi16(a_r, a_r);
+  tmp_result = simde_mm256_slli_epi16(tmp_result, 1);
+  tmp_result = simde_mm256_mulhi_epi16(tmp_result, scale_factor);
+  tmp_result = simde_mm256_slli_epi16(tmp_result, 4);
+  tmp_result = simde_mm256_mulhi_epi16(tmp_result, int_ch_mag);
+  tmp_result = simde_mm256_slli_epi16(tmp_result, 1);
+  simde__m256i tmp_result2 = simde_mm256_mulhi_epi16(a_i, a_i);
+  tmp_result2 = simde_mm256_slli_epi16(tmp_result2, 1);
+  tmp_result2 = simde_mm256_mulhi_epi16(tmp_result2, scale_factor);
+  tmp_result2 = simde_mm256_slli_epi16(tmp_result2, 4);
+  tmp_result2 = simde_mm256_mulhi_epi16(tmp_result2, int_ch_mag);
+  tmp_result2 = simde_mm256_slli_epi16(tmp_result2, 1);
+  return simde_mm256_adds_epi16(tmp_result, tmp_result2);
 }
 
 #endif
@@ -2478,6 +2609,32 @@ void nr_qam64_llr_2layer(c16_t *stream0_in,
 #endif
 }
 
+
+
+/*
+ * This function computes the LLRs of stream 0 (s_0) in presence of the interfering
+ * stream 1 (s_1) assuming that both symbols are 256QAM.
+ * Direct SIMD full ML 2-layer 256QAM (analogous to nr_qam64_llr_2layer for 64QAM).
+ */
+// 2-layer 256QAM direct SIMD full-ML LLR (analogue of nr_qam64_llr_2layer for 64QAM).
+// Exact max-log search over all 256 constellation points, implemented by reusing the
+// verified L-best simd16 machinery on the full 16x16 grid (pattern 3, O(256) per RE via
+// the O(1) conditional slice). Replaces an earlier bespoke unrolled kernel that carried an
+// imaginary-axis / magnitude-threshold bug (OAI_LBEST_DBG256 showed ~46% sign disagreement
+// vs the exact float reference nr_qam256_llr_2layer_lbest).
+void nr_qam256_llr_2layer(c16_t *stream0_in,
+                          c16_t *stream1_in,
+                          c16_t *ch_mag,
+                          c16_t *ch_mag_i,
+                          int16_t *stream0_out,
+                          c16_t *rho01,
+                          uint32_t length)
+{
+  nr_qam256_llr_2layer_lbest_q15_simd16(stream0_in, stream1_in, ch_mag, ch_mag_i,
+                                        stream0_out, rho01, length, 3 /* full 16x16 ML */);
+}
+
+
 static void nr_ml_llr_shift(int16_t *llr_layer0, int16_t *llr_layer1, uint32_t nb_re, int shift)
 {
   simde__m128i *llr_layers0 = (simde__m128i *)llr_layer0;
@@ -3361,6 +3518,179 @@ void nr_qam64_llr_2layer_lbest_q15(c16_t *stream0_in,
 }
 
 // ============================================================================
+// Fixed-point (Q15-input) L-best 2-layer 256QAM kernel.
+//
+// Integer twin of nr_qam256_llr_2layer_lbest: same algorithm and interface,
+// but operates entirely on the int16 demod buffers (no float). Mirrors the
+// 64QAM Q15 design (nr_qam64_llr_2layer_lbest_q15) with PAM-16 levels and
+// 1/sqrt(170) normalization.
+//
+// Metric scale: multiply the float metric by 16*sqrt(170) to make the
+// desired/nuisance correlation and energy terms exact integers:
+//   Mq = 16*(I1*z1r+Q1*z1i) - cm0*(I1^2+Q1^2)  (desired, cm0=||h0||^2*8/sqrt(170))
+//      + 16*(I2*z2r+Q2*z2i) - cm1*(I2^2+Q2^2)  (nuisance)
+//      - 16*Re{rho.conj(X1).X2}/sqrt(170)       (cross; one irrational factor)
+// where I1,Q1,I2,Q2 are integer odd levels in [-15,15].
+//
+// Division-free ZF seed and division-free conditional PAM-16 slice mirror the
+// 64QAM Q15 design. L==256 skips the partial sort (full search, no order needed).
+// ============================================================================
+#define NR_LBEST_Q_SQRT170_Q12       53405  // round(sqrt(170) * 2^12)
+#define NR_LBEST_Q_SQRT170_OVER8_Q14 26690  // round(sqrt(170)/8 * 2^14): ch_mag -> Pp
+#define NR_LBEST_Q_INVSQRT170_Q15     2514  // round(2^15 / sqrt(170))
+// integer metric is 16*sqrt(170) (~208.6x) larger than float; bring LLR back to float scale.
+#define NR_LBEST_Q_LLR256_NUM          628  // round(2^17 / (16*sqrt(170)))
+#define NR_LBEST_Q_LLR256_SHIFT         17
+#define NR_LBEST_Q_LLR256_SAT         8192
+
+// PAM-16 level magnitude for |a|, thresholds at {2,4,...,14}*step (== ||h1||^2).
+static inline int nr_lbest_q_pam16_abs(int64_t a, int64_t step)
+{
+  if (a <  2 * step) return  1;
+  if (a <  4 * step) return  3;
+  if (a <  6 * step) return  5;
+  if (a <  8 * step) return  7;
+  if (a < 10 * step) return  9;
+  if (a < 12 * step) return 11;
+  if (a < 14 * step) return 13;
+  return 15;
+}
+
+static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
+                                                 const c16_t *stream1_in,
+                                                 const c16_t *ch_mag,
+                                                 const c16_t *ch_mag_i,
+                                                 int16_t *stream0_out,
+                                                 const c16_t *rho01,
+                                                 uint32_t length,
+                                                 int L)
+{
+  if (L < 1)   L = 1;
+  if (L > 256) L = 256;
+  static const int levels[16] = {-15,-13,-11,-9,-7,-5,-3,-1,1,3,5,7,9,11,13,15};
+
+  for (uint32_t re = 0; re < length; re++) {
+    const int32_t z1r = stream0_in[re].r,  z1i = stream0_in[re].i;
+    const int32_t z2r = stream1_in[re].r,  z2i = stream1_in[re].i;
+    const int32_t rr  = rho01[re].r,       ri  = rho01[re].i;      // rho = h0^H h1
+    const int32_t cm0 = ch_mag[re].r;      // ||h0||^2 * 8/sqrt(170)
+    const int32_t cm1 = ch_mag_i[re].r;    // ||h1||^2 * 8/sqrt(170)
+
+    // recover channel powers ||h||^2 via cm * sqrt(170)/8
+    const int64_t Pp0 = ((int64_t)cm0 * NR_LBEST_Q_SQRT170_OVER8_Q14) >> 14;
+    const int64_t Pp1 = ((int64_t)cm1 * NR_LBEST_Q_SQRT170_OVER8_Q14) >> 14;
+
+    // ---- 1. division-free ZF seed: x_hat1 = ((Pp1) z1 - rho z2) / det ----
+    const int64_t det  = Pp0 * Pp1 - ((int64_t)rr * rr + (int64_t)ri * ri);
+    const int64_t numr = Pp1 * z1r - ((int64_t)rr * z2r - (int64_t)ri * z2i);
+    const int64_t numi = Pp1 * z1i - ((int64_t)rr * z2i + (int64_t)ri * z2r);
+    // soft level estimate in Q6 (level units * 64); clamp to ±1024 (head-room above ±15*64=±960)
+    int32_t estI_q6 = 0, estQ_q6 = 0;
+    if (det > 0) {
+      estI_q6 = (int32_t)((numr * NR_LBEST_Q_SQRT170_Q12) / (det * 64));
+      estQ_q6 = (int32_t)((numi * NR_LBEST_Q_SQRT170_Q12) / (det * 64));
+      if (estI_q6 < -1024) estI_q6 = -1024; else if (estI_q6 > 1024) estI_q6 = 1024;
+      if (estQ_q6 < -1024) estQ_q6 = -1024; else if (estQ_q6 > 1024) estQ_q6 = 1024;
+    }
+
+    // ---- 2. candidate set: L nearest of 256 points ----
+    int     candI[256], candQ[256];
+    int64_t cand_d[256];
+    int nc = 0;
+    for (int qi = 0; qi < 16; qi++) {
+      for (int ii = 0; ii < 16; ii++) {
+        const int64_t dI = estI_q6 - (levels[ii] << 6);
+        const int64_t dQ = estQ_q6 - (levels[qi] << 6);
+        candI[nc] = levels[ii];
+        candQ[nc] = levels[qi];
+        cand_d[nc] = dI * dI + dQ * dQ;
+        nc++;
+      }
+    }
+    // partial selection sort: bring the L nearest to the front (skipped for full search)
+    if (L < 256) {
+      for (int a = 0; a < L; a++) {
+        int m = a;
+        for (int b = a + 1; b < 256; b++)
+          if (cand_d[b] < cand_d[m])
+            m = b;
+        if (m != a) {
+          int64_t td = cand_d[a]; cand_d[a] = cand_d[m]; cand_d[m] = td;
+          int  ti = candI[a];    candI[a]  = candI[m];  candI[m]  = ti;
+          int  tq = candQ[a];    candQ[a]  = candQ[m];  candQ[m]  = tq;
+        }
+      }
+    }
+
+    // ---- 3+4. metric over candidates (scaled by 16*sqrt(170)), max-log per bit ----
+    int64_t max0[8], max1[8];
+    for (int p = 0; p < 8; p++) { max0[p] = INT64_MIN; max1[p] = INT64_MIN; }
+
+    for (int c = 0; c < L; c++) {
+      const int I1 = candI[c], Q1 = candQ[c];
+
+      // conditional ML nuisance slice: A2 = z2*sqrt(170) - conj(rho)*X1, compare vs Pp1*{2..14}
+      const int64_t A2I = (((int64_t)z2r * NR_LBEST_Q_SQRT170_Q12) >> 12) - ((int64_t)rr * I1 + (int64_t)ri * Q1);
+      const int64_t A2Q = (((int64_t)z2i * NR_LBEST_Q_SQRT170_Q12) >> 12) - ((int64_t)rr * Q1 - (int64_t)ri * I1);
+      const int I2 = (A2I < 0 ? -1 : 1) * nr_lbest_q_pam16_abs(A2I < 0 ? -A2I : A2I, Pp1);
+      const int Q2 = (A2Q < 0 ? -1 : 1) * nr_lbest_q_pam16_abs(A2Q < 0 ? -A2Q : A2Q, Pp1);
+
+      // metric (units of 16*sqrt(170) * float-ref metric)
+      int64_t metric = 16 * ((int64_t)I1 * z1r + (int64_t)Q1 * z1i) - cm0 * ((int64_t)I1 * I1 + (int64_t)Q1 * Q1);
+      metric += 16 * ((int64_t)I2 * z2r + (int64_t)Q2 * z2i) - cm1 * ((int64_t)I2 * I2 + (int64_t)Q2 * Q2);
+      // cross = 16 * Re{rho . conj(X1) . X2} / sqrt(170)
+      const int64_t rec = (int64_t)rr * ((int64_t)I1 * I2 + (int64_t)Q1 * Q2)
+                        + (int64_t)ri * ((int64_t)Q1 * I2 - (int64_t)I1 * Q2);
+      metric -= (16 * rec * NR_LBEST_Q_INVSQRT170_Q15) >> 15;
+
+      // bit labels, interleaved {I0,Q0,I1,Q1,I2,Q2,I3,Q3} (matches nr_qam256_llr_2layer_lbest)
+      int bI0, bI1, bI2, bI3, bQ0, bQ1, bQ2, bQ3;
+      nr_lbest_axis_bits256(I1, &bI0, &bI1, &bI2, &bI3);
+      nr_lbest_axis_bits256(Q1, &bQ0, &bQ1, &bQ2, &bQ3);
+      const int bit[8] = {bI0, bQ0, bI1, bQ1, bI2, bQ2, bI3, bQ3};
+      for (int p = 0; p < 8; p++) {
+        if (bit[p] == 0) { if (metric > max0[p]) max0[p] = metric; }
+        else             { if (metric > max1[p]) max1[p] = metric; }
+      }
+    }
+
+    // emit LLR = max_{bit=0} - max_{bit=1}; empty subset => saturate toward present bit
+    for (int p = 0; p < 8; p++) {
+      int32_t llr;
+      if (max0[p] == INT64_MIN)
+        llr = -NR_LBEST_Q_LLR256_SAT;
+      else if (max1[p] == INT64_MIN)
+        llr = NR_LBEST_Q_LLR256_SAT;
+      else
+        llr = (int32_t)(((max0[p] - max1[p]) * NR_LBEST_Q_LLR256_NUM) >> NR_LBEST_Q_LLR256_SHIFT);
+      if (llr > 32767)  llr =  32767;
+      if (llr < -32768) llr = -32768;
+      *stream0_out++ = (int16_t)llr;
+    }
+  }
+}
+
+// Public entry for the fixed-point L-best 256QAM kernel (target layer 0, ZF seed).
+// pattern: 0 = 5x5 (25 cand, ±{0,2,4} per axis — full-BLER default)
+//          1 = 3x3 ( 9 cand, ±{0,2}   per axis — analogous to 64QAM default)
+//          2 = 5-plus (5 cand, center + ±2 each axis)
+//          other = 256 (full search)
+// Controlled at runtime by OAI_LBEST_PAT256; OAI_LBEST_L256 is for the float ref.
+void nr_qam256_llr_2layer_lbest_q15(c16_t *stream0_in,
+                                    c16_t *stream1_in,
+                                    c16_t *ch_mag,
+                                    c16_t *ch_mag_i,
+                                    int16_t *stream0_out,
+                                    c16_t *rho01,
+                                    uint32_t length,
+                                    int pattern)
+{
+  static const int pat_L[3] = {25, 9, 5};
+  const int L = (pattern >= 0 && pattern <= 2) ? pat_L[pattern] : 256;
+  nr_qam256_llr_2layer_lbest_q15_layer(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, L);
+}
+
+// ============================================================================
 // int16/16-lane variant of the AVX2 L-best kernel. The dominant per-candidate
 // work (metric, conditional slice, max-log reduction) runs 16 REs/vector in
 // int16; only the ZF seed and z2*sqrt(42) (which overflow int16) use int32 half-
@@ -3602,6 +3932,302 @@ void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                                         &stream0_out[re * 6], &rho01[re], length - re, 9);
 }
 
+// ============================================================================
+// int16/16-lane AVX2 L-best kernel for 2-layer 256QAM (PAM-16, 8 bits/RE).
+// Mirrors nr_qam64_llr_2layer_lbest_q15_simd16 with:
+//   - sqrt(170) replacing sqrt(42), /8 replacing /4 in Pp
+//   - PAM-16 slicer (7 thresholds) replacing PAM-8 (3 thresholds)
+//   - 4 bits per axis (b0..b3) instead of 3
+//   - 5x5/3x3/5-plus candidate patterns instead of 3x3/6-cand/5-plus
+//   - LLR stride 8 per RE instead of 6
+// ============================================================================
+#define NR_LBEST_Q_SQRT170_OVER8_Q14_SIMD  26705  // round(sqrt(170)/8 * 2^14)
+#define NR_LBEST_Q_PP1_OVER32_Q16_256       3338  // round(sqrt(170)/8/32 * 2^16)
+
+// int16 PAM-16 level (sign*mag, mag in {1,3,...,15}) sliced vs {2,4,6,8,10,12,14}*thunit.
+static inline simde__m256i nr_lbest_simd_level_pam16(simde__m256i num, simde__m256i thunit)
+{
+  const simde__m256i z   = simde_mm256_setzero_si256();
+  const simde__m256i a   = simde_mm256_abs_epi16(num);
+  const simde__m256i t2  = simde_mm256_slli_epi16(thunit, 1);
+  const simde__m256i t4  = simde_mm256_slli_epi16(thunit, 2);
+  const simde__m256i t8  = simde_mm256_slli_epi16(thunit, 3);
+  const simde__m256i t6  = simde_mm256_adds_epi16(t2, t4);
+  const simde__m256i t10 = simde_mm256_adds_epi16(t2, t8);
+  const simde__m256i t12 = simde_mm256_adds_epi16(t4, t8);
+  const simde__m256i t14 = simde_mm256_adds_epi16(t6, t8);
+  const simde__m256i g2  = simde_mm256_sub_epi16(z, simde_mm256_cmpgt_epi16(a, t2));
+  const simde__m256i g4  = simde_mm256_sub_epi16(z, simde_mm256_cmpgt_epi16(a, t4));
+  const simde__m256i g6  = simde_mm256_sub_epi16(z, simde_mm256_cmpgt_epi16(a, t6));
+  const simde__m256i g8  = simde_mm256_sub_epi16(z, simde_mm256_cmpgt_epi16(a, t8));
+  const simde__m256i g10 = simde_mm256_sub_epi16(z, simde_mm256_cmpgt_epi16(a, t10));
+  const simde__m256i g12 = simde_mm256_sub_epi16(z, simde_mm256_cmpgt_epi16(a, t12));
+  const simde__m256i g14 = simde_mm256_sub_epi16(z, simde_mm256_cmpgt_epi16(a, t14));
+  // mag = 1 + 2*(g2+g4+g6+g8+g10+g12+g14)
+  const simde__m256i sum = simde_mm256_adds_epi16(
+      simde_mm256_adds_epi16(simde_mm256_adds_epi16(g2, g4), simde_mm256_adds_epi16(g6, g8)),
+      simde_mm256_adds_epi16(simde_mm256_adds_epi16(g10, g12), g14));
+  const simde__m256i mag = simde_mm256_adds_epi16(simde_mm256_set1_epi16(1),
+                                                  simde_mm256_slli_epi16(sum, 1));
+  const simde__m256i neg = simde_mm256_cmpgt_epi16(z, num);
+  return simde_mm256_blendv_epi8(mag, simde_mm256_sub_epi16(z, mag), neg);
+}
+
+// z * sqrt(170) / 32, packed to int16 (lane l == RE l).
+static inline simde__m256i nr_lbest_z170d32(simde__m256i z16)
+{
+  const simde__m256i C = simde_mm256_set1_epi32(NR_LBEST_Q_SQRT170_Q12);
+  const simde__m256i lo = simde_mm256_srai_epi32(simde_mm256_mullo_epi32(nr_lbest_widen(z16, 0), C), 17);
+  const simde__m256i hi = simde_mm256_srai_epi32(simde_mm256_mullo_epi32(nr_lbest_widen(z16, 1), C), 17);
+  return simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(lo, hi), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+}
+
+// ZF seed for 256QAM: identical to nr_lbest_simd_seed16 except clamp to [-15,15]
+// and Pp = cm * sqrt(170)/8.
+static inline void nr_lbest_simd_seed16_256(simde__m256i z1r16, simde__m256i z1i16,
+                                            simde__m256i z2r16, simde__m256i z2i16,
+                                            simde__m256i rr16,  simde__m256i ri16,
+                                            simde__m256i cm0_16, simde__m256i cm1_16,
+                                            simde__m256i *centerI, simde__m256i *centerQ,
+                                            simde__m256i *dirImask, simde__m256i *dirQmask)
+{
+  const simde__m256i SQRT170_OVER8 = simde_mm256_set1_epi32(NR_LBEST_Q_SQRT170_OVER8_Q14_SIMD);
+  const simde__m256 SQRT170 = simde_mm256_set1_ps(13.038404810405298f);
+  const simde__m256 HALF = simde_mm256_set1_ps(0.5f), ONE = simde_mm256_set1_ps(1.0f), TWO = simde_mm256_set1_ps(2.0f);
+  const simde__m256 P15 = simde_mm256_set1_ps(15.0f), M15 = simde_mm256_set1_ps(-15.0f);
+  simde__m256i cI[2], cQ[2], dI[2], dQ[2];
+  for (int h = 0; h < 2; h++) {
+    const simde__m256 z1r = simde_mm256_cvtepi32_ps(nr_lbest_widen(z1r16, h)), z1i = simde_mm256_cvtepi32_ps(nr_lbest_widen(z1i16, h));
+    const simde__m256 z2r = simde_mm256_cvtepi32_ps(nr_lbest_widen(z2r16, h)), z2i = simde_mm256_cvtepi32_ps(nr_lbest_widen(z2i16, h));
+    const simde__m256 rr  = simde_mm256_cvtepi32_ps(nr_lbest_widen(rr16,  h)), ri  = simde_mm256_cvtepi32_ps(nr_lbest_widen(ri16,  h));
+    const simde__m256 Pp0 = simde_mm256_cvtepi32_ps(simde_mm256_srai_epi32(simde_mm256_mullo_epi32(nr_lbest_widen(cm0_16, h), SQRT170_OVER8), 14));
+    const simde__m256 Pp1 = simde_mm256_cvtepi32_ps(simde_mm256_srai_epi32(simde_mm256_mullo_epi32(nr_lbest_widen(cm1_16, h), SQRT170_OVER8), 14));
+    // ZF 2x2 solve (float): x_hat1 = (Pp1*z1 - rho*z2) / det
+    simde__m256 det = simde_mm256_sub_ps(simde_mm256_mul_ps(Pp0, Pp1),
+                                         simde_mm256_add_ps(simde_mm256_mul_ps(rr, rr), simde_mm256_mul_ps(ri, ri)));
+    det = simde_mm256_max_ps(det, ONE);
+    const simde__m256 numr = simde_mm256_sub_ps(simde_mm256_mul_ps(Pp1, z1r),
+                                                 simde_mm256_sub_ps(simde_mm256_mul_ps(rr, z2r), simde_mm256_mul_ps(ri, z2i)));
+    const simde__m256 numi = simde_mm256_sub_ps(simde_mm256_mul_ps(Pp1, z1i),
+                                                 simde_mm256_add_ps(simde_mm256_mul_ps(rr, z2i), simde_mm256_mul_ps(ri, z2r)));
+    // soft level estimate ~ +-1..15
+    const simde__m256 estI = simde_mm256_mul_ps(simde_mm256_div_ps(numr, det), SQRT170);
+    const simde__m256 estQ = simde_mm256_mul_ps(simde_mm256_div_ps(numi, det), SQRT170);
+    // nearest odd level: o = 2*round((est-1)/2)+1, clamped to [-15,15]
+    simde__m256 oI = simde_mm256_add_ps(simde_mm256_mul_ps(simde_mm256_round_ps(simde_mm256_mul_ps(simde_mm256_sub_ps(estI, ONE), HALF), SIMDE_MM_FROUND_TO_NEAREST_INT | SIMDE_MM_FROUND_NO_EXC), TWO), ONE);
+    simde__m256 oQ = simde_mm256_add_ps(simde_mm256_mul_ps(simde_mm256_round_ps(simde_mm256_mul_ps(simde_mm256_sub_ps(estQ, ONE), HALF), SIMDE_MM_FROUND_TO_NEAREST_INT | SIMDE_MM_FROUND_NO_EXC), TWO), ONE);
+    oI = simde_mm256_min_ps(simde_mm256_max_ps(oI, M15), P15);
+    oQ = simde_mm256_min_ps(simde_mm256_max_ps(oQ, M15), P15);
+    cI[h] = simde_mm256_cvtps_epi32(oI);
+    cQ[h] = simde_mm256_cvtps_epi32(oQ);
+    dI[h] = simde_mm256_castps_si256(simde_mm256_cmp_ps(estI, oI, SIMDE_CMP_GT_OQ));
+    dQ[h] = simde_mm256_castps_si256(simde_mm256_cmp_ps(estQ, oQ, SIMDE_CMP_GT_OQ));
+  }
+  *centerI  = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(cI[0], cI[1]), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+  *centerQ  = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(cQ[0], cQ[1]), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+  *dirImask = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(dI[0], dI[1]), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+  *dirQmask = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(dQ[0], dQ[1]), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+}
+
+// Per-candidate evaluation for 256QAM (8 bits/RE, PAM-16 slicer).
+// C13_256 = round(2^13/sqrt(170)), CE_256 = round(2^16/(8*8*sqrt(170)*2)),
+// CX_256  = round(2^16/(8*170)).
+#define NR_LBEST_EVAL16_256(I1_, Q1_, BI0, BI1, BI2, BI3, BQ0, BQ1, BQ2, BQ3, C0I_, C0Q_, EI_, EQ_, RRI_, RII_, RRQ_, RIQ_) \
+  do { \
+    const simde__m256i A2I = simde_mm256_subs_epi16(z2r170, simde_mm256_adds_epi16((RRI_), (RIQ_))); \
+    const simde__m256i A2Q = simde_mm256_subs_epi16(z2i170, simde_mm256_subs_epi16((RRQ_), (RII_))); \
+    const simde__m256i I2  = nr_lbest_simd_level_pam16(A2I, Pp1_5_256); \
+    const simde__m256i Q2  = nr_lbest_simd_level_pam16(A2Q, Pp1_5_256); \
+    const simde__m256i corr0   = simde_mm256_adds_epi16((C0I_), (C0Q_)); \
+    const simde__m256i energy0 = simde_mm256_adds_epi16((EI_), (EQ_)); \
+    const simde__m256i corr1   = simde_mm256_adds_epi16(simde_mm256_mulhi_epi16(z2r, simde_mm256_mullo_epi16(I2, C13_256)), \
+                                                        simde_mm256_mulhi_epi16(z2i, simde_mm256_mullo_epi16(Q2, C13_256))); \
+    const simde__m256i energy1 = simde_mm256_mulhi_epi16(cm1, simde_mm256_mullo_epi16(simde_mm256_adds_epi16(simde_mm256_mullo_epi16(I2, I2), simde_mm256_mullo_epi16(Q2, Q2)), CE_256)); \
+    const simde__m256i aa = simde_mm256_adds_epi16(simde_mm256_mullo_epi16((I1_), I2), simde_mm256_mullo_epi16((Q1_), Q2)); \
+    const simde__m256i bb = simde_mm256_subs_epi16(simde_mm256_mullo_epi16((Q1_), I2), simde_mm256_mullo_epi16((I1_), Q2)); \
+    const simde__m256i cross = simde_mm256_adds_epi16(simde_mm256_mulhi_epi16(rr, simde_mm256_mullo_epi16(aa, CX_256)), \
+                                                      simde_mm256_mulhi_epi16(ri, simde_mm256_mullo_epi16(bb, CX_256))); \
+    simde__m256i metric = simde_mm256_max_epi16(simde_mm256_subs_epi16(simde_mm256_adds_epi16(simde_mm256_subs_epi16(corr0, energy0), simde_mm256_subs_epi16(corr1, energy1)), cross), FLOORM); \
+    const simde__m256i bm[8] = {(BI0), (BQ0), (BI1), (BQ1), (BI2), (BQ2), (BI3), (BQ3)}; \
+    for (int p = 0; p < 8; p++) { \
+      max0[p] = simde_mm256_max_epi16(max0[p], simde_mm256_blendv_epi8(metric, SENT, bm[p])); \
+      max1[p] = simde_mm256_max_epi16(max1[p], simde_mm256_blendv_epi8(SENT, metric, bm[p])); \
+    } \
+  } while (0)
+
+// pattern: 0 = 5x5 (25 cand), 1 = 3x3 (9 cand), 2 = 5-plus (5 cand).
+void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
+                                           c16_t *stream1_in,
+                                           c16_t *ch_mag,
+                                           c16_t *ch_mag_i,
+                                           int16_t *stream0_out,
+                                           c16_t *rho01,
+                                           uint32_t length,
+                                           int pattern)
+{
+  const simde__m256i SENT   = simde_mm256_set1_epi16(NR_LBEST_SIMD16_SENT);
+  const simde__m256i FLOORM = simde_mm256_set1_epi16(-32000);
+  const simde__m256i V15 = simde_mm256_set1_epi16(15), Vm15 = simde_mm256_set1_epi16(-15);
+  const simde__m256i z   = simde_mm256_setzero_si256();
+
+  // 256QAM metric Q-constants (metric scale = 1/8, matching 64QAM SIMD kernel):
+  //   C13_256 = round(2^13/sqrt(170))       => mulhi(z, I*C13) = z*I/(8*sqrt(170))
+  //   CE_256  = round(2^16/(8*8*2*sqrt(170)))  => energy = cm*|X|^2/(8*8*2*sqrt(170))
+  //   CX_256  = round(2^16/(8*170))         => cross term
+  const simde__m256i C13_256 = simde_mm256_set1_epi16(628);
+  const simde__m256i CE_256  = simde_mm256_set1_epi16(39);
+  const simde__m256i CX_256  = simde_mm256_set1_epi16(48);
+
+  uint32_t re = 0;
+  for (; re + 16 <= length; re += 16) {
+    simde__m256i z1r, z1i, z2r, z2i, rr, ri, cm0, cm1, dummy;
+    nr_lbest_simd_load16(&stream0_in[re], &z1r, &z1i);
+    nr_lbest_simd_load16(&stream1_in[re], &z2r, &z2i);
+    nr_lbest_simd_load16(&rho01[re],      &rr,  &ri);
+    nr_lbest_simd_load16(&ch_mag[re],     &cm0, &dummy);
+    nr_lbest_simd_load16(&ch_mag_i[re],   &cm1, &dummy);
+
+    simde__m256i centerI, centerQ, dirImask, dirQmask;
+    nr_lbest_simd_seed16_256(z1r, z1i, z2r, z2i, rr, ri, cm0, cm1,
+                             &centerI, &centerQ, &dirImask, &dirQmask);
+    (void)dirImask; (void)dirQmask;
+
+    // per-RE-vector precomputed quantities (int16 scale, /32 shift)
+    const simde__m256i z2r170   = nr_lbest_z170d32(z2r), z2i170 = nr_lbest_z170d32(z2i);
+    const simde__m256i rr5      = simde_mm256_srai_epi16(rr, 5), ri5 = simde_mm256_srai_epi16(ri, 5);
+    const simde__m256i Pp1_5_256 = simde_mm256_mulhi_epi16(cm1, simde_mm256_set1_epi16(NR_LBEST_Q_PP1_OVER32_Q16_256));
+
+    simde__m256i max0[8], max1[8];
+    for (int p = 0; p < 8; p++) { max0[p] = SENT; max1[p] = SENT; }
+
+    // ---- 5x5 block (hoisted) ----
+    // Precompute 5 I-levels and 5 Q-levels, then evaluate all or a subset of pairs.
+    // Offsets: {-4,-2,0,+2,+4} around seed center.
+    static const int offs5[5] = {-4, -2, 0, 2, 4};
+    simde__m256i Iv[5], Qv[5];
+    simde__m256i bIv[5][4], bQv[5][4];                // [level][bit 0..3]
+    simde__m256i c0I[5], c0Q[5], eI[5], eQ[5];
+    simde__m256i rrI[5], riI[5], rrQ[5], riQ[5];
+
+    const simde__m256i V8 = simde_mm256_set1_epi16(8), V4 = simde_mm256_set1_epi16(4), V2 = simde_mm256_set1_epi16(2);
+
+    for (int k = 0; k < 5; k++) {
+      const simde__m256i I1 = simde_mm256_min_epi16(simde_mm256_max_epi16(simde_mm256_adds_epi16(centerI, simde_mm256_set1_epi16(offs5[k])), Vm15), V15);
+      const simde__m256i Q1 = simde_mm256_min_epi16(simde_mm256_max_epi16(simde_mm256_adds_epi16(centerQ, simde_mm256_set1_epi16(offs5[k])), Vm15), V15);
+      Iv[k] = I1; Qv[k] = Q1;
+
+      // 256QAM Gray bit labeling per axis (b0..b3):
+      //   b0 = sign (level < 0)
+      //   b1 = |level| > 8
+      //   b2 = ||level|-8| > 4
+      //   b3 = |||level|-8|-4| > 2
+      const simde__m256i aI  = simde_mm256_abs_epi16(I1);
+      const simde__m256i m2I = simde_mm256_abs_epi16(simde_mm256_sub_epi16(aI,  V8));
+      const simde__m256i m3I = simde_mm256_abs_epi16(simde_mm256_sub_epi16(m2I, V4));
+      bIv[k][0] = simde_mm256_cmpgt_epi16(z,   I1);
+      bIv[k][1] = simde_mm256_cmpgt_epi16(aI,  V8);
+      bIv[k][2] = simde_mm256_cmpgt_epi16(m2I, V4);
+      bIv[k][3] = simde_mm256_cmpgt_epi16(m3I, V2);
+
+      const simde__m256i aQ  = simde_mm256_abs_epi16(Q1);
+      const simde__m256i m2Q = simde_mm256_abs_epi16(simde_mm256_sub_epi16(aQ,  V8));
+      const simde__m256i m3Q = simde_mm256_abs_epi16(simde_mm256_sub_epi16(m2Q, V4));
+      bQv[k][0] = simde_mm256_cmpgt_epi16(z,   Q1);
+      bQv[k][1] = simde_mm256_cmpgt_epi16(aQ,  V8);
+      bQv[k][2] = simde_mm256_cmpgt_epi16(m2Q, V4);
+      bQv[k][3] = simde_mm256_cmpgt_epi16(m3Q, V2);
+
+      c0I[k] = simde_mm256_mulhi_epi16(z1r, simde_mm256_mullo_epi16(I1, C13_256));
+      c0Q[k] = simde_mm256_mulhi_epi16(z1i, simde_mm256_mullo_epi16(Q1, C13_256));
+      eI[k]  = simde_mm256_mulhi_epi16(cm0, simde_mm256_mullo_epi16(simde_mm256_mullo_epi16(I1, I1), CE_256));
+      eQ[k]  = simde_mm256_mulhi_epi16(cm0, simde_mm256_mullo_epi16(simde_mm256_mullo_epi16(Q1, Q1), CE_256));
+      rrI[k] = simde_mm256_mullo_epi16(rr5, I1); riI[k] = simde_mm256_mullo_epi16(ri5, I1);
+      rrQ[k] = simde_mm256_mullo_epi16(rr5, Q1); riQ[k] = simde_mm256_mullo_epi16(ri5, Q1);
+    }
+
+    if (pattern == 0) { // 5x5: all 25 grid pairs
+      for (int iI = 0; iI < 5; iI++)
+        for (int iQ = 0; iQ < 5; iQ++)
+          NR_LBEST_EVAL16_256(Iv[iI], Qv[iQ],
+                              bIv[iI][0], bIv[iI][1], bIv[iI][2], bIv[iI][3],
+                              bQv[iQ][0], bQv[iQ][1], bQv[iQ][2], bQv[iQ][3],
+                              c0I[iI], c0Q[iQ], eI[iI], eQ[iQ],
+                              rrI[iI], riI[iI], rrQ[iQ], riQ[iQ]);
+    } else if (pattern == 1) { // 3x3: center 3 levels, 9 pairs
+      // center indices {1,2,3} map to offsets {-2,0,+2}
+      static const int ci3[3] = {1, 2, 3};
+      for (int a = 0; a < 3; a++)
+        for (int b = 0; b < 3; b++) {
+          const int iI = ci3[a], iQ = ci3[b];
+          NR_LBEST_EVAL16_256(Iv[iI], Qv[iQ],
+                              bIv[iI][0], bIv[iI][1], bIv[iI][2], bIv[iI][3],
+                              bQv[iQ][0], bQv[iQ][1], bQv[iQ][2], bQv[iQ][3],
+                              c0I[iI], c0Q[iQ], eI[iI], eQ[iQ],
+                              rrI[iI], riI[iI], rrQ[iQ], riQ[iQ]);
+        }
+    } else if (pattern == 2) { // 5-plus: center + +-4 each axis (5 cand)
+      // indices: (2,2)=center, (0,2)=I-4, (4,2)=I+4, (2,0)=Q-4, (2,4)=Q+4
+      static const int pI5[5] = {2, 0, 4, 2, 2}, pQ5[5] = {2, 2, 2, 0, 4};
+      for (int c = 0; c < 5; c++) {
+        const int iI = pI5[c], iQ = pQ5[c];
+        NR_LBEST_EVAL16_256(Iv[iI], Qv[iQ],
+                            bIv[iI][0], bIv[iI][1], bIv[iI][2], bIv[iI][3],
+                            bQv[iQ][0], bQv[iQ][1], bQv[iQ][2], bQv[iQ][3],
+                            c0I[iI], c0Q[iQ], eI[iI], eQ[iQ],
+                            rrI[iI], riI[iI], rrQ[iQ], riQ[iQ]);
+      }
+    } else { // pattern == 3: FULL exact ML — all 256 points (16x16 grid, conditional slice)
+      // Enumerate every PAM-16 level on both axes (no seed centering). Per-level quantities
+      // that depend only on the level (Gray bits, |x|^2 energy, rho5*level) are identical
+      // for the I- and Q-candidate roles; only the correlation term differs (z1r vs z1i).
+      static const int lv16[16] = {-15, -13, -11, -9, -7, -5, -3, -1, 1, 3, 5, 7, 9, 11, 13, 15};
+      simde__m256i fI[16], fbI[16][4], fc0I[16], fc0Q[16], feI[16], frrI[16], friI[16];
+      for (int k = 0; k < 16; k++) {
+        const simde__m256i I1 = simde_mm256_set1_epi16(lv16[k]);
+        fI[k] = I1;
+        const simde__m256i aI  = simde_mm256_abs_epi16(I1);
+        const simde__m256i m2I = simde_mm256_abs_epi16(simde_mm256_sub_epi16(aI,  V8));
+        const simde__m256i m3I = simde_mm256_abs_epi16(simde_mm256_sub_epi16(m2I, V4));
+        fbI[k][0] = simde_mm256_cmpgt_epi16(z,   I1);
+        fbI[k][1] = simde_mm256_cmpgt_epi16(aI,  V8);
+        fbI[k][2] = simde_mm256_cmpgt_epi16(m2I, V4);
+        fbI[k][3] = simde_mm256_cmpgt_epi16(m3I, V2);
+        fc0I[k] = simde_mm256_mulhi_epi16(z1r, simde_mm256_mullo_epi16(I1, C13_256));
+        fc0Q[k] = simde_mm256_mulhi_epi16(z1i, simde_mm256_mullo_epi16(I1, C13_256));
+        feI[k]  = simde_mm256_mulhi_epi16(cm0, simde_mm256_mullo_epi16(simde_mm256_mullo_epi16(I1, I1), CE_256));
+        frrI[k] = simde_mm256_mullo_epi16(rr5, I1);
+        friI[k] = simde_mm256_mullo_epi16(ri5, I1);
+      }
+      for (int iI = 0; iI < 16; iI++)
+        for (int iQ = 0; iQ < 16; iQ++)
+          NR_LBEST_EVAL16_256(fI[iI], fI[iQ],
+                              fbI[iI][0], fbI[iI][1], fbI[iI][2], fbI[iI][3],
+                              fbI[iQ][0], fbI[iQ][1], fbI[iQ][2], fbI[iQ][3],
+                              fc0I[iI], fc0Q[iQ], feI[iI], feI[iQ],
+                              frrI[iI], friI[iI], frrI[iQ], friI[iQ]);
+    }
+
+    int16_t tmp[8][16];
+    for (int p = 0; p < 8; p++) {
+      const simde__m256i diff = simde_mm256_subs_epi16(max0[p], max1[p]);
+      // metric is at 1/8 scale -> LLR = diff*8; saturate via int32 widening
+      const simde__m256i lo = simde_mm256_slli_epi32(nr_lbest_widen(diff, 0), 3);
+      const simde__m256i hi = simde_mm256_slli_epi32(nr_lbest_widen(diff, 1), 3);
+      simde__m256i res = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(lo, hi), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+      res = simde_mm256_blendv_epi8(res, simde_mm256_set1_epi16(-NR_LBEST_Q_LLR_SAT), simde_mm256_cmpeq_epi16(max0[p], SENT));
+      res = simde_mm256_blendv_epi8(res, simde_mm256_set1_epi16( NR_LBEST_Q_LLR_SAT), simde_mm256_cmpeq_epi16(max1[p], SENT));
+      simde_mm256_storeu_si256((simde__m256i *)tmp[p], res);
+    }
+    for (int r = 0; r < 16; r++)
+      for (int p = 0; p < 8; p++)
+        stream0_out[(re + r) * 8 + p] = tmp[p][r];
+  }
+
+  if (re < length)
+    nr_qam256_llr_2layer_lbest_q15_layer(&stream0_in[re], &stream1_in[re], &ch_mag[re], &ch_mag_i[re],
+                                         &stream0_out[re * 8], &rho01[re], length - re, (pattern == 3) ? 256 : 25);
+}
+
 void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rxdataF_comp1,
                        c16_t *ch_mag0,
@@ -3650,13 +4276,68 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       }
       break;
     case 8:
-      // 2-layer 256QAM ML via the float L-best reference (ANALYSIS path; only reached when the
-      // demod L-best gate routes Qm=8 here). L = OAI_LBEST_L256 (default 256 = full ML search).
+      // 2-layer 256QAM. Default = direct SIMD full ML (nr_qam256_llr_2layer), correct on all
+      // channels — analogous to nr_qam64_llr_2layer for 64QAM.
+      // The reduced-search L-best kernel is GATED OFF by default; enable via OAI_LBEST_Q15_256=1.
+      // OAI_LBEST_PAT256 picks the candidate set (0=5x5/25 [default], 1=3x3/9, 2=5-plus/5).
       {
-        static int L256 = -1;
-        if (L256 < 0) { const char *e = getenv("OAI_LBEST_L256"); L256 = e ? atoi(e) : 256; }
-        nr_qam256_llr_2layer_lbest(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, L256, 0.0f);
-        nr_qam256_llr_2layer_lbest(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, L256, 0.0f);
+        static int lbest256 = -1, pat256 = 0;
+        if (lbest256 < 0) {
+          const char *e = getenv("OAI_LBEST_Q15_256");
+          lbest256 = e ? atoi(e) : 0;
+          const char *ep = getenv("OAI_LBEST_PAT256");
+          pat256 = ep ? atoi(ep) : 0;
+        }
+        if (lbest256) {
+          nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, pat256);
+          nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, pat256);
+        } else {
+          nr_qam256_llr_2layer(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re);
+          nr_qam256_llr_2layer(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re);
+        }
+        // --- OAI_LBEST_DBG256: verify the ACTIVE 256QAM kernel (layer 0) vs the FLOAT full-ML
+        // reference (nr_qam256_llr_2layer_lbest, L=256 == exact max-log search) on the SAME
+        // real inputs. Accumulates scale-invariant correctness (sign disagreement), magnitude,
+        // int16 saturation fraction, best-fit scale vs ref, and post-scale residual (distortion).
+        // Analysis-only (dlsim); single-threaded static counters. Set OAI_LBEST_DBG256=1.
+        {
+          static int dbg256 = -1;
+          if (dbg256 < 0) { const char *e = getenv("OAI_LBEST_DBG256"); dbg256 = e ? atoi(e) : 0; }
+          if (dbg256) {
+            static long n = 0, sdis = 0, satN = 0, gtN = 0, pdis[8] = {0};
+            static double sAbsP = 0, sAbsR = 0, sPR = 0, sRR = 0, sPP = 0;
+            int16_t *ref = (int16_t *)malloc((size_t)nb_re * 8 * sizeof(int16_t));
+            nr_qam256_llr_2layer_lbest(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, ref, rho0, nb_re, 256, 0.0f);
+            for (uint32_t k = 0; k < nb_re * 8; k++) {
+              const int p = llr_layers0[k], r = ref[k];
+              const int ap = p < 0 ? -p : p, ar = r < 0 ? -r : r;
+              n++;
+              if ((long)p * r < 0) { sdis++; pdis[k & 7]++; } // k&7 = bit pos {I0,Q0,I1,Q1,I2,Q2,I3,Q3}
+              if (ap >= 30000) satN++;
+              if (ap >= 128) gtN++; // int8 clip point: LDPC narrows int16->int8 (packs, sat +-127)
+              sAbsP += ap; sAbsR += ar;
+              sPR += (double)p * r; sRR += (double)r * r; sPP += (double)p * p;
+            }
+            free(ref);
+            if (n >= 200000) {
+              const double a = sRR > 0 ? sPR / sRR : 0;
+              const double resid = sPP - 2 * a * sPR + a * a * sRR;
+              const double per = n / 8.0; // occurrences per bit position
+              fprintf(stderr,
+                      "### LBEST_DBG256 kernel=%s N=%ld signDisagree=%.3f%% meanAbs prod=%.0f ref=%.0f "
+                      "sat|.|>=30000=%.3f%% int8clip|.|>=128=%.3f%% fitScale=%.3f residFrac=%.3f\n"
+                      "###   per-bit signDisagree{I0,Q0,I1,Q1,I2,Q2,I3,Q3}= "
+                      "%.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f (%%)\n",
+                      lbest256 ? "simd16_256" : "simd_full", n, 100.0 * sdis / n,
+                      sAbsP / n, sAbsR / n, 100.0 * satN / n, 100.0 * gtN / n, a,
+                      sPP > 0 ? resid / sPP : 0,
+                      100.0 * pdis[0] / per, 100.0 * pdis[1] / per, 100.0 * pdis[2] / per, 100.0 * pdis[3] / per,
+                      100.0 * pdis[4] / per, 100.0 * pdis[5] / per, 100.0 * pdis[6] / per, 100.0 * pdis[7] / per);
+              n = sdis = satN = gtN = 0; sAbsP = sAbsR = sPR = sRR = sPP = 0;
+              for (int b = 0; b < 8; b++) pdis[b] = 0;
+            }
+          }
+        }
       }
       break;
     default:
