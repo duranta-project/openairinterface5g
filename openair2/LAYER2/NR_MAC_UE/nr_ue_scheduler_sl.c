@@ -432,7 +432,7 @@ static void sl_schedule_rx_actions(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_I
   rx_config.slot = sl_ind->slot_rx;
 
   if (sl_ind->sci_ind != NULL) {
-    // TBD..
+    AssertFatal(false, "sci_inds not handled\n");
   } else {
     rx_action = sl_mac->future_ttis[sl_ind->slot_rx].sl_action;
   }
@@ -444,10 +444,10 @@ static void sl_schedule_rx_actions(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_I
     LOG_I(NR_MAC, "[UE%d] %d:%d CMD to PHY: RX PSBCH \n", ue_id, sl_ind->frame_rx, sl_ind->slot_rx);
 
   } else if (rx_action >= SL_NR_CONFIG_TYPE_RX_PSCCH && rx_action <= SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH) {
-    // TBD..
+    AssertFatal(false, "RX_PSCCH/SLSCH not handled\n");
 
   } else if (rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH) {
-    // TBD..
+    AssertFatal(false, "RX_PSCCH/SLSCH/PSFCH not handled\n");
   }
 
   if (rx_config.number_pdus) {
@@ -490,10 +490,10 @@ static void sl_schedule_tx_actions(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_I
     LOG_I(NR_MAC, "[UE%d] %d:%d CMD to PHY: TX PSBCH \n", ue_id, sl_ind->frame_tx, sl_ind->slot_tx);
 
   } else if (tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH) {
-    // TBD....
+    AssertFatal(false, "SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH\n");
 
   } else if (tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH) {
-    // TBD....
+    AssertFatal(false, "SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH\n");
   }
 
   if (tx_config.number_pdus == 1) {
