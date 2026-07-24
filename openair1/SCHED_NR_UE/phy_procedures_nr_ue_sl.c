@@ -1071,20 +1071,24 @@ void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc
     tx_action = 1;
   }
     
+  // Mark all symbols used when we actually transmit; when idle (no SL TX action)
+  // mark none, so nr_tx_rotation_and_ofdm_mod() writes zeros for every symbol.
   bool was_symbol_used[NR_SYMBOLS_PER_SLOT];
-  for (int i = 0; i < 14; i++)
-    was_symbol_used[i] = true;
-  if (tx_action) {
-    LOG_D(NR_PHY, "Sending Uplink data \n");
-    nr_tx_rotation_and_ofdm_mod(proc->nr_slot_tx,
-                                fp,
-                                fp->nb_antennas_tx,
-                                txdataF,
-                                txp,
-                                link_type_sl,
-                                was_symbol_used,
-                                ue->no_phase_pre_comp);
-  }
+  for (int i = 0; i < NR_SYMBOLS_PER_SLOT; i++)
+    was_symbol_used[i] = tx_action ? true : false;
+  // Always run the modulator so this slot's time-domain txData is refreshed
+  // (real samples when transmitting, zeros otherwise). This prevents re-radiating
+  // the stale waveform left in the buffer by a previous frame, mirroring how the
+  // NR UL path (phy_procedures_nrUE_TX) always calls the modulator.
+  LOG_D(NR_PHY, "Sending Uplink data \n");
+  nr_tx_rotation_and_ofdm_mod(proc->nr_slot_tx,
+                              fp,
+                              fp->nb_antennas_tx,
+                              txdataF,
+                              txp,
+                              link_type_sl,
+                              was_symbol_used,
+                              ue->no_phase_pre_comp);
 
   LOG_D(NR_PHY, "****** end Sidelink TX-Chain for AbsSubframe %d.%d ******\n", frame_tx, slot_tx);
   stop_meas(&sl_phy_params->phy_proc_sl_tx);

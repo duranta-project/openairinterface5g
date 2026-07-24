@@ -413,15 +413,16 @@ void processSlotTX(void *arg)
       }
       dynamic_barrier_join(rxtxD->next_barrier);
 
-      if (phy_data.sl_tx_action) {
-
+      if (phy_data.sl_tx_action)
         AssertFatal((phy_data.sl_tx_action >= SL_NR_CONFIG_TYPE_TX_PSBCH &&
                      phy_data.sl_tx_action < SL_NR_CONFIG_TYPE_TX_MAXIMUM), "Incorrect SL TX Action Scheduled\n");
 
-        phy_procedures_nrUE_SL_TX(UE, proc, &phy_data, txp);
-
-        sl_tx_action = true;
-      }
+      // Always run the SL TX chain: it generates a channel when one is scheduled,
+      // and in all cases its OFDM modulator rewrites this slot's txData (zeroing the
+      // symbols we don't use), so we never re-radiate the stale waveform left in the
+      // buffer by a previous frame. Mirrors the NR UL path.
+      phy_procedures_nrUE_SL_TX(UE, proc, &phy_data, txp);
+      sl_tx_action = (phy_data.sl_tx_action != 0);
 
     } else {
       // trigger L2 to run ue_scheduler thru IF module
@@ -443,14 +444,11 @@ void processSlotTX(void *arg)
   } else {
     dynamic_barrier_join(rxtxD->next_barrier);
   }
-  // HACK: on SL non-transmit slots phy_procedures_nrUE_SL_TX() is not called, so this
-  // slot's txData still holds the waveform written there in a previous frame. RU_write
-  // radiates it regardless, so the peer keeps decoding the stale SCI. Zero it out.
-  if (UE->sl_mode == 2 && !sl_tx_action) {
-    int n = get_samples_per_slot(proc->nr_slot_tx, fp);
-    for (int i = 0; i < fp->nb_antennas_tx; i++)
-      memset(txp[i], 0, n * sizeof(c16_t));
-  }
+  // Note: SL non-transmit slots used to leave a stale waveform in txData here (a
+  // previous frame's PSCCH), which the peer kept decoding. This was previously
+  // worked around with an explicit memset of txp; it is now handled by always
+  // calling phy_procedures_nrUE_SL_TX() above, whose OFDM modulator zeros this
+  // slot's txData when no channel is scheduled.
   RU_write(rxtxD, sl_tx_action, txp);
   TracyCZoneEnd(ctx);
 }
