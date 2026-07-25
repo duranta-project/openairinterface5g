@@ -111,6 +111,8 @@ static int      g_num_sci1 = 0;             // number of SCI-1A (PSCCH) captured
 static int      g_num_sci2 = 0;             // number of SCI-2 (PSSCH) captured
 static uint8_t  g_sci1_payload[8] = {0};    // last captured SCI-1A payload
 static uint16_t g_sci1_len = 0;
+static uint8_t  g_sci2_payload[8] = {0};    // last captured SCI-2 payload
+static uint16_t g_sci2_len = 0;
 static int      g_num_slsch_ind = 0;        // number of SLSCH rx indications
 
 static void test_sl_indication(nr_sidelink_indication_t *ind)
@@ -126,6 +128,8 @@ static void test_sl_indication(nr_sidelink_indication_t *ind)
         memcpy(g_sci1_payload, sci->sci_pdu[i].sci_payloadBits, 8);
       } else if (sci->sci_pdu[i].sci_format_type == SL_SCI_FORMAT_2_ON_PSSCH) {
         g_num_sci2++;
+        g_sci2_len = sci->sci_pdu[i].sci_payloadlen;
+        memcpy(g_sci2_payload, sci->sci_pdu[i].sci_payloadBits, 8);
       }
     }
   }
@@ -432,9 +436,18 @@ int main(int argc, char **argv)
 
   uint8_t *b_rx = UE_RX->slsch[0].harq_process->b;
   int tb_match = (memcmp(b_rx, tb_ref, tb_size) == 0);
+
+  // SCI-2 TX vs RX comparison (the SCI-2 indication is delivered regardless of CRC,
+  // so compare the payloads directly to see whether SCI-2 actually decoded).
+  uint64_t sci2_rx = (*(uint64_t *)g_sci2_payload) & (((uint64_t)1 << sci2_len) - 1);
+  uint64_t sci2_tx = sci2_pattern & (((uint64_t)1 << sci2_len) - 1);
+  int sci2_match = (g_num_sci2 > 0) && (sci2_rx == sci2_tx);
+  printf("[SCISIM] SCI-2: captured=%d, TX payload=0x%llx RX payload=0x%llx, match=%d\n",
+         g_num_sci2, (unsigned long long)sci2_tx, (unsigned long long)sci2_rx, sci2_match);
+
   printf("[SCISIM] PSSCH/SLSCH: nbDecode=%d, SCI2 captured=%d, SLSCH ind=%d, TB match=%d\n",
          nbDecode, g_num_sci2, g_num_slsch_ind, tb_match);
-  int pssch_pass = (nbDecode > 0 && tb_match);
+  int pssch_pass = (nbDecode > 0 && tb_match && sci2_match);
   printf("[SCISIM] ===== PSSCH/SLSCH %s =====\n", pssch_pass ? "PASS" : "FAIL");
 
   // =====================================================================
