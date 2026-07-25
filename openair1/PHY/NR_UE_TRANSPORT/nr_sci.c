@@ -40,6 +40,15 @@
 void nr_sci_scrambling(uint32_t *in, uint32_t size, uint32_t Nid, uint32_t scrambling_RNTI, uint32_t *out,int sci2_flag)
 {
   int roundedSz = ((size + 31) / 32);
+  // c_init used here:
+  //   sci2_flag == 0 (SCI-1A on PSCCH): (scrambling_RNTI << 16) + Nid   [= (1010<<16)+Nid]
+  //   sci2_flag  > 0 (SCI-2 on PSSCH) : (Nid << 15) + 1010
+  // NOTE(spec): TS 38.211 specifies a fixed c_init = 1010 for the PSCCH (the SCI-1A
+  // path uses (1010<<16)+Nid instead -- it currently decodes only because the RX
+  // nr_pdcch_unscrambling() uses the exact same value; this should be reconciled
+  // with the spec). The SCI-2 value (Nid<<15)+1010 matches TS 38.211 8.3.1.1; the RX
+  // must descramble SCI-2 with the SAME init (it previously used the PDCCH init
+  // (1010<<16)+Nid, which did not match and broke SCI-2 decoding).
   uint32_t *seq = gold_cache(sci2_flag > 0 ? (Nid << 15) + 1010 : (scrambling_RNTI << 16) + Nid, roundedSz);
   for (int i = 0; i < roundedSz; i++)
     out[i] = in[i] ^ seq[i];
