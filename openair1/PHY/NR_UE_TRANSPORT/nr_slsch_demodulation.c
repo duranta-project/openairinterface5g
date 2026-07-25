@@ -896,7 +896,14 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
                sci2_left=0;
 	       //for (int i=0;i<sci2_re;i++) LOG_I(NR_PHY,"sci2_llrs [%d] %d,%d\n",i,sci2_llrs[i<<1],sci2_llrs[1+(i<<1)]);
 	       //unscramble the SCI2 payload
-	       nr_pdcch_unscrambling((c16_t*)sci2_llrs, 1010,sci2_re,pssch_pdu->Nid,unscrambled_sci2_llrs);
+	       // SCI-2 is a PSSCH channel: c_init = (Nid<<15)+1010 (TS 38.211 8.3.1.1),
+	       // matching the TX nr_sci_scrambling(sci2_flag=1). Use the PSSCH descrambler
+	       // nr_codeword_unscrambling(): its init is (n_RNTI<<15)+(q<<14)+Nid, so with
+	       // n_RNTI=pssch_pdu->Nid, q=0, Nid=1010 we get exactly (pssch_pdu->Nid<<15)+1010,
+	       // over the full Gsci2 = sci2_re*2 QPSK LLRs. (The previous nr_pdcch_unscrambling()
+	       // used the PDCCH init (1010<<16)+Nid and only sci2_re values -- both wrong.)
+	       memcpy(unscrambled_sci2_llrs, sci2_llrs, sizeof(int16_t) * sci2_re * 2);
+	       nr_codeword_unscrambling(unscrambled_sci2_llrs, sci2_re * 2, 0, 1010, pssch_pdu->Nid);
 	  //     for (int i=0;i<sci2_re;i++) LOG_I(NR_PHY,"sci2_llrs [%d] %d,%d\n",i,unscrambled_sci2_llrs[i<<1],unscrambled_sci2_llrs[1+(i<<1)]);
 
 	       uint64_t sci_estimation[2]={0};
