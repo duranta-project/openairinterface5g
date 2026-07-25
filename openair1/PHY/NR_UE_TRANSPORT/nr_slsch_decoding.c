@@ -278,7 +278,7 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
       memcpy(harq_process->b + offset, harq_process->c + r_offset, seg_len);
       nb_decoded_segments++;
     } else {
-      LOG_D(PHY, "Segment %d/%d in error\n", r, TB.C);
+      LOG_I(PHY, "SLSCH %d Segment %d/%d in error\n", SLSCH_id, r, TB.C);
     }
     offset += seg_len;
     r_offset += (harq_process->K >> 3);
@@ -288,6 +288,19 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
     LOG_D(PHY, "SLSCH in error\n");
 
   harq_process->harq_to_be_cleared = false;
+
+  // DEBUG: CRC over the decoded SLSCH transport block, to compare with the value
+  // the transmitter logs (same crc24c over the TB). They match iff the TB was
+  // recovered correctly; when decoding fails, harq_process->b is garbage so the
+  // CRC will not match.
+  {
+    int nok = 0;
+    for (int r = 0; r < TB.C; r++)
+      if (TB.decodeSuccess[r]) nok++;
+    LOG_I(PHY, "SLSCH DECODE %d.%d: harq %d tb_size %d G %u segments ok %d/%d TB-crc24c=0x%06x\n",
+          frame, nr_tti_rx, harq_pid, TBS, TB.G, nok, TB.C,
+          crc24c(harq_process->b, TBS << 3) >> 8);
+  }
 
   // Return the number of correctly decoded code segments (== C on full success,
   // 0 on failure) so nr_slsch_procedures()' nbDecode>0 test is meaningful.

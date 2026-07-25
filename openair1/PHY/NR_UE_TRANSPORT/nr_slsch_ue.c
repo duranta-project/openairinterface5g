@@ -190,7 +190,13 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
 
   if (nr_ulsch_encoding(UE, ulsch_ue, pscch_pssch_pdu,harq_pid, frame, slot , &G, 1, &ULSCH_ids) == -1)
     return;
- 
+
+  // DEBUG: CRC over the transmitted SLSCH transport block, to compare with the
+  // value the receiver logs after decoding (same crc24c over harq_process->b).
+  LOG_I(NR_PHY, "SLSCH ENCODE %d.%d: harq %d tb_size %d G %u TB-crc24c=0x%06x\n",
+        frame, slot, harq_pid, pscch_pssch_pdu->tb_size, G,
+        crc24c(harq_process_ul_ue->payload_AB, pscch_pssch_pdu->tb_size << 3) >> 8);
+
   
   uint32_t sci2_encoded_output[sci2_re*2];
   
@@ -198,6 +204,13 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
     unsigned long long p;
     memcpy(&p, pscch_pssch_pdu->sci2_payload, sizeof(p));
     LOG_D(NR_PHY,"Generating SCI2/PSSCH with %d RE, payload %llx\n",sci2_re,p);
+    // DEBUG: SCI-2 TX params, to compare with the RX "SCI2 DECODE" log. sci2_re must
+    // match the receiver; if it doesn't (or SCI-2 spans several symbols) the RX
+    // extraction/descrambling of SCI-2 LLRs will not line up.
+    LOG_I(NR_PHY,
+          "SCI2 ENCODE %d.%d: sci2_re=%d sci2_len=%d beta_offset=%d alpha100=%d Nid=%d payload=0x%llx\n",
+          frame, slot, sci2_re, pscch_pssch_pdu->sci2_payload_len, pscch_pssch_pdu->sci2_beta_offset,
+          pscch_pssch_pdu->sci2_alpha_times_100, phy_data->pscch_Nid, p);
     // do SCI2 encoding
     uint64_t payload;
     memcpy(&payload, pscch_pssch_pdu->sci2_payload, sizeof(payload));

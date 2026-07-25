@@ -909,9 +909,16 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
                                                   pssch_pdu->sci2_len,
                                                   sci2_re);
 	       // send SCI indication with SCI2 payload and get SLSCH information if CRC is OK
-	       LOG_D(NR_PHY,"SCI indication (crc %x)\n",crc);
-	       if (crc==0) ue->SL_UE_PHY_PARAMS.pssch.rx_sci2_ok++;   
-	       else        ue->SL_UE_PHY_PARAMS.pssch.rx_sci2_errors++;   
+	       // LLR-energy / non-zero count over the sci2_re*2 QPSK LLRs: if ~0 the SCI-2
+	       // REs were not extracted (wrong positions / bad equalization); if healthy but
+	       // the CRC fails, the ordering/length/scrambling across symbols is wrong.
+	       long sci2_e = 0; int sci2_nz = 0;
+	       for (int i = 0; i < sci2_re * 2; i++) { sci2_e += (long)unscrambled_sci2_llrs[i] * unscrambled_sci2_llrs[i]; if (unscrambled_sci2_llrs[i]) sci2_nz++; }
+	       LOG_I(NR_PHY,"SCI2 DECODE %d.%d: crc=%x (%s) Nid=%d sci2_len=%d sci2_re=%d llr_energy=%ld llr_nz=%d/%d payload=0x%llx\n",
+	             frame, slot, crc, crc == 0 ? "OK" : "FAIL", pssch_pdu->Nid,
+	             pssch_pdu->sci2_len, sci2_re, sci2_e, sci2_nz, sci2_re * 2, (unsigned long long)sci_estimation[0]);
+	       if (crc==0) ue->SL_UE_PHY_PARAMS.pssch.rx_sci2_ok++;
+	       else        ue->SL_UE_PHY_PARAMS.pssch.rx_sci2_errors++;
 	       sl_nr_sci_indication_t sci_ind={0}; 
                sci_ind.sfn = frame;
                sci_ind.slot = slot;
