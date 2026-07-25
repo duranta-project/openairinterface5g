@@ -91,7 +91,7 @@ int nr_pssch_channel_estimation(PHY_VARS_NR_UE *ue,
   const int k0 = bwp_start_subcarrier;
   const int nb_rb_pusch = pssch_pdu->subchannel_size*pssch_pdu->l_subch;
 
-  LOG_D(PHY, "In %s: ch_offset %d, soffset %d, symbol_offset %d, OFDM size %d, Ns = %d, k0 = %d, symbol %d\n",
+  LOG_W(PHY, "In %s: ch_offset %d, soffset %d, symbol_offset %d, OFDM size %d, Ns = %d, k0 = %d, symbol %d\n",
         __FUNCTION__,
         ch_offset, soffset,
         symbol_offset,
@@ -151,6 +151,14 @@ int nr_pssch_channel_estimation(PHY_VARS_NR_UE *ue,
       int pilot_cnt = 0;
       int delta = 0; // nr_pusch_dmrs_delta(pusch_dmrs_type1, p);
 
+      // DEBUG: coherence of the per-pilot LS estimates. coherence = |sum(ch)|^2 /
+      // (N * sum(|ch|^2)) is ~1 when the DMRS correlates coherently (flat channel,
+      // correct reference) and ~1/N (≈0) when the LS estimates have random phase
+      // (wrong Nid / wrong DMRS positions / uncompensated rotation).
+      int64_t coh_r = 0, coh_i = 0;
+      uint64_t coh_e = 0;
+      int coh_n = 0;
+
       for (int n = 0; n < 3 * nb_rb_pusch; n++) {
         // LS estimation
         c32_t ch = {0};
@@ -162,12 +170,22 @@ int nr_pssch_channel_estimation(PHY_VARS_NR_UE *ue,
         }
 
         c16_t ch16 = {.r = (int16_t)ch.r, .i = (int16_t)ch.i};
+        coh_r += ch16.r;
+        coh_i += ch16.i;
+        coh_e += (uint64_t)((int64_t)ch16.r * ch16.r + (int64_t)ch16.i * ch16.i);
+        coh_n++;
         *max_ch = max(*max_ch, max(abs(ch.r), abs(ch.i)));
         for (int k = pilot_cnt << 1; k < (pilot_cnt << 1) + 4; k++) {
           ul_ls_est[k] = ch16;
         }
         pilot_cnt += 2;
       }
+
+      double coh = (coh_e && coh_n) ? ((double)coh_r * coh_r + (double)coh_i * coh_i) / ((double)coh_n * coh_e) : 0.0;
+      LOG_I(NR_PHY,
+            "PSSCH chest sym %d p %d aarx %d: Nid=%d max_ch=%d pilots=%d coherence=%.3f (|sum|^2=%.0f, N*sum|.|^2=%.0f)\n",
+            symbol, p, aarx, pssch_pdu->Nid, *max_ch, coh_n, coh,
+            (double)coh_r * coh_r + (double)coh_i * coh_i, (double)coh_n * coh_e);
 
       freq2time(symbolSize, (int16_t *)ul_ls_est, (int16_t*)ch_estimates_time);
 
