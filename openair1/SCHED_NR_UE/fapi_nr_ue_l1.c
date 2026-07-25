@@ -520,9 +520,18 @@ void sl_handle_scheduled_response(nr_scheduled_response_t *scheduled_response)
                 (unsigned long long)*phy_data_tx->nr_sl_pssch_pscch_pdu.sci2_payload,
                 phy_data_tx->nr_sl_pssch_pscch_pdu.mcs,
                 phy_data_tx->nr_sl_pssch_pscch_pdu.tbslbrm);
-          //uint8_t current_harq_pid = tx_config_pdu->harq_pid;
-          //NR_UL_UE_HARQ_t *harq_process = &PHY_vars_UE_g[module_id][cc_id]->sl_harq_processes[current_harq_pid];
-          //phy_data_tx->ulsch.status = ACTIVE; //harq_process->status = ACTIVE;
+          // Copy the MAC-built SLSCH transport block into the HARQ payload buffer the
+          // PHY encoder reads from (mirrors the PUSCH path in
+          // nr_ue_scheduled_response_ul()). Without this the encoder sees an all-zero
+          // TB (observed as TB-crc24c=0). For HARQ retransmissions the MAC provides no
+          // fresh payload, so only copy when a new SLSCH PDU is present; otherwise the
+          // buffer is reused (re-encoded) for the retransmission.
+          if (tx_config_pdu->slsch_payload != NULL && tx_config_pdu->slsch_payload_length > 0) {
+            NR_UL_UE_HARQ_t *harq_process = &nrPHY_vars_UE_g[module_id][0]->sl_harq_processes[tx_config_pdu->harq_pid];
+            memcpy(harq_process->payload_AB, tx_config_pdu->slsch_payload, tx_config_pdu->slsch_payload_length);
+            LOG_I(NR_PHY, "SLSCH TX: copied %d bytes of MAC PDU into harq %d payload_AB\n",
+                  tx_config_pdu->slsch_payload_length, tx_config_pdu->harq_pid);
+          }
         }
         break;
       default:
