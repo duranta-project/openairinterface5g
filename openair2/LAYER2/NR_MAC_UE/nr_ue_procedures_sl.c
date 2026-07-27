@@ -668,6 +668,12 @@ int get_feedback_frame_slot(NR_UE_MAC_INST_t *mac, NR_TDD_UL_DL_Pattern_t *tdd,
 
 int16_t get_feedback_slot(long psfch_period, uint16_t slot) {
   int16_t feedback_slot = -1;
+  // TODO: this is a hardcoded lookup table for one specific TDD/SL slot layout
+  // (SL slots {0-3,10-13}, PSFCH slots {6-9,16-19}) and AssertFatal()s on any other
+  // slot. It must be derived from the resource-pool PSFCH period and the SL slot
+  // bitmap instead, so it works for arbitrary configurations.
+  LOG_D(NR_MAC, "TODO get_feedback_slot: hardcoded table, psfch_period %ld slot %d -- derive from resource pool\n",
+        psfch_period, slot);
   if (psfch_period == 1) {
     switch(slot) {
       case 0:
@@ -1011,9 +1017,13 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
 
   NR_SLSCH_MAC_SUBHEADER_FIXED *sl_sch_subheader = (NR_SLSCH_MAC_SUBHEADER_FIXED *) pduP;
   uint8_t psfch_period = 0;
+  // sl_PSFCH_Period_r16 is an enum index (0..3); map it to the actual slot period
+  // {0,1,2,4} as everywhere else. Using the raw index breaks get_feedback_slot()
+  // for index 3 (raw 3 vs period 4).
+  const uint8_t psfch_periods[] = {0, 1, 2, 4};
   if (mac->sl_tx_res_pool->sl_PSFCH_Config_r16 &&
       mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16)
-    psfch_period = *mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16;
+    psfch_period = psfch_periods[*mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16];
   if (psfch_period && mac->sci_pdu_rx.harq_feedback) {
     configure_psfch_params_tx(module_idP, mac, rx_ind, pdu_id);
   }
