@@ -78,7 +78,8 @@ void nr_fill_sl_rx_indication(sl_nr_rx_indication_t *rx_ind,
         //rx_slsch_pdu->harq_pid   = slsch_status->rdata->harq_pid;
         rx_slsch_pdu->ack_nack   = (slsch_status->rxok==true) ? 1 : 0;
 
-        LOG_I(NR_MAC, "%4d.%2d Received %s SLSCH\n", rx_ind->sfn, rx_ind->slot, rx_slsch_pdu->ack_nack ? "Correct" : "Incorrect");
+        if (!rx_slsch_pdu->ack_nack )
+          LOG_E(NR_MAC, "%4d.%2d Received Incorrect SLSCH (NACK)\n", rx_ind->sfn, rx_ind->slot);
         if (slsch_status->rxok==true) ue->SL_UE_PHY_PARAMS.pssch.rx_ok++;
         else                          ue->SL_UE_PHY_PARAMS.pssch.rx_errors[0]++;
       }
@@ -975,10 +976,9 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
       LOG_D(NR_PHY, "num_psfch_pdus: %d\n", phy_data->num_psfch_pdus);
       for (int k = 0; k < phy_data->num_psfch_pdus; k++) {
         sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu = &phy_data->psfch_pdu_list[k];
-        LOG_D(NR_PHY, "%s start_symbol_index %d, sl_bwp_start %d, sequence_hop_flag %d, \
+        LOG_W(NR_PHY, "PSFCH start_symbol_index %d, sl_bwp_start %d, sequence_hop_flag %d, \
             second_hop_prb %d, prb %d, nr_of_symbols %d, initial_cyclic_shift %d, hopping_id %d, \
             group_hop_flag %d, freq_hop_flag %d, bit_len_harq %d\n",
-            __FUNCTION__,
             psfch_pdu->start_symbol_index, psfch_pdu->sl_bwp_start,
             psfch_pdu->sequence_hop_flag, psfch_pdu->second_hop_prb, psfch_pdu->prb,
             psfch_pdu->nr_of_symbols, psfch_pdu->initial_cyclic_shift, psfch_pdu->hopping_id,
@@ -1079,12 +1079,20 @@ void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc
     sl_phy_params->pssch.num_pssch_tx ++;
     if (phy_data->sl_tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH) {
       for (int k = 0; k < phy_data->nr_sl_pssch_pscch_pdu.num_psfch_pdus; k++) {
+        sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu = &phy_data->nr_sl_pssch_pscch_pdu.psfch_pdu_list[k];
+        LOG_W(NR_PHY, "PSFCH start_symbol_index %d, sl_bwp_start %d, sequence_hop_flag %d, \
+            second_hop_prb %d, prb %d, nr_of_symbols %d, initial_cyclic_shift %d, hopping_id %d, \
+            group_hop_flag %d, freq_hop_flag %d, bit_len_harq %d\n",
+            psfch_pdu->start_symbol_index, psfch_pdu->sl_bwp_start,
+            psfch_pdu->sequence_hop_flag, psfch_pdu->second_hop_prb, psfch_pdu->prb,
+            psfch_pdu->nr_of_symbols, psfch_pdu->initial_cyclic_shift, psfch_pdu->hopping_id,
+            psfch_pdu->group_hop_flag, psfch_pdu->freq_hop_flag, psfch_pdu->bit_len_harq);
         nr_generate_psfch0(ue,
                           txdataF,
                           fp,
                           AMP,
                           slot_tx,
-                          &phy_data->nr_sl_pssch_pscch_pdu.psfch_pdu_list[k]);
+                          psfch_pdu);
       }
       sl_phy_params->psfch.num_psfch_tx ++;
       free(phy_data->nr_sl_pssch_pscch_pdu.psfch_pdu_list);
