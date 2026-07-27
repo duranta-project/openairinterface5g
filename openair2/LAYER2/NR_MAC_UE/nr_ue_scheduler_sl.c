@@ -980,14 +980,14 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
       }
       if (buflen_remain > 0) {
         LOG_D(NR_MAC, "In %s filling remainder %d bytes to the UL PDU \n", __FUNCTION__, buflen_remain);
-        ((NR_MAC_SUBHEADER_FIXED *) mac_ce_p->cur_ptr)->R = 0;
-        ((NR_MAC_SUBHEADER_FIXED *) mac_ce_p->cur_ptr)->LCID = SL_SCH_LCID_SL_PADDING;
-        mac_ce_p->cur_ptr++;
+        ((NR_MAC_SUBHEADER_FIXED *) pdu)->R = 0;
+        ((NR_MAC_SUBHEADER_FIXED *) pdu)->LCID = SL_SCH_LCID_SL_PADDING;
+        pdu++;
         buflen_remain--;
 
         if (get_softmodem_params()->phy_test || get_softmodem_params()->do_ra) {
-          uint8_t *buf = mac_ce_p->cur_ptr;
-          uint8_t *end = mac_ce_p->pdu_end;
+          uint8_t *buf = pdu;
+          uint8_t *end = pdu + buflen_remain;
           for (; buf < end && ((intptr_t)buf) % 4; buf++)
             *buf = lrand48() & 0xff;
           for (; buf < end - 3; buf += 4) {
@@ -997,7 +997,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
           for (; buf < end; buf++)
             *buf = lrand48() & 0xff;
         } else {
-          memset(mac_ce_p->cur_ptr, 0, mac_ce_p->pdu_end - mac_ce_p->cur_ptr);
+          memset(pdu, 0, buflen_remain);
         }
       } 
 
