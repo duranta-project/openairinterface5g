@@ -623,7 +623,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
                             pssch_pdu->targetCodeRate);
 
   int16_t sci2_llrs[(sci2_re*2)] __attribute__((aligned(16)));
-  int16_t unscrambled_sci2_llrs[(sci2_re*2)] __attribute__((aligned(16)));
+  int16_t unscrambled_sci2_llrs[(sci2_re*3)] __attribute__((aligned(16)));
   uint8_t number_dmrs_symbols = 0;
   uint16_t start_symbol = 1;
   for (int l = start_symbol; l < start_symbol + nr_of_symbols; l++)
