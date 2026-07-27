@@ -647,6 +647,19 @@ typedef struct nr_power_control {
   float tpc_in_flight; /// TPCs applied by UE but not yet in average SNR
 } nr_power_control_t;
 
+#define NR_MU_MIMO_MAX_TRACKED_PARTNERS 8
+
+typedef struct {
+  rnti_t partner_rnti;
+  float rho;
+  int age_gap_slots;
+} nr_mu_orthogonal_partner_t;
+
+typedef struct {
+  nr_mu_orthogonal_partner_t partners[NR_MU_MIMO_MAX_TRACKED_PARTNERS];
+  int num_partners;
+} nr_mu_orthogonal_list_t;
+
 typedef struct {
   bool valid;
   frame_t frame;
@@ -745,6 +758,8 @@ typedef struct {
   NR_timer_t aperiodic_srs_trigger;
   // Stores effective SRS channel information (ie., after precoding)
   nr_srs_eff_channel_info_t srs_eff_channel_info;
+  // List of active orthogonal partners for the UE
+  nr_mu_orthogonal_list_t mu_orthogonal_partners;
 
   /// per-LC configuration
   seq_arr_t lc_config;

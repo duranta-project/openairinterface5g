@@ -620,4 +620,8 @@ bool nr_ul_check_phr(const nr_ul_sched_params_t *params,
                      uint8_t mcs,
                      nr_ul_phr_advice_t *advice);
 fsn_t get_fb_frame_slot(int frame, int slot, int K, int n_slots_frame, int NTN_gNB_Koffset);
+
+void nr_mu_update_pair_cache(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_UE_info_t *UE);
+
+void nr_mu_invalidate_pair_cache(gNB_MAC_INST *mac, rnti_t disconnected_rnti);
 #endif /*__LAYER2_NR_MAC_PROTO_H__*/
