@@ -948,10 +948,14 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
                              num_CSI_REs,
                              pssch_pdu->mod_order,
                              pssch_pdu->num_layers);
+    // FEP from symbol 1: PSSCH (SCI-2 + SLSCH) also occupies the PSCCH symbols on the
+    // non-PSCCH REs, and SCI-2 starts at symbol 1, so symbols 1..pscch_numsym must be
+    // demodulated too (previously started at 1+pscch_numsym, so the SCI-2 REs were
+    // read back as zero and SCI-2 never decoded).
     LOG_I(NR_PHY,"Starting slot FEP for SLSCH (symbol %d to %d) pscch_numsym %d pssch_numsym %d REs with SCI2 %d G %d\n",
-          1 + pssch_pdu->pscch_numsym, pssch_pdu->pssch_numsym,
+          1, pssch_pdu->pssch_numsym,
           pssch_pdu->pscch_numsym, pssch_pdu->pssch_numsym, sci2_re, G);
-    for (int sym=1+pssch_pdu->pscch_numsym; sym<=pssch_pdu->pssch_numsym;sym++) {
+    for (int sym=1; sym<=pssch_pdu->pssch_numsym;sym++) {
       nr_slot_fep(ue, fp, proc->nr_slot_rx, sym, rxdataF, link_type_sl, 0, ue->common_vars.rxdata);
     }
 
