@@ -464,19 +464,20 @@ void sl_handle_scheduled_response(nr_scheduled_response_t *scheduled_response)
         LOG_I(NR_PHY, "Recvd CONFIG_TYPE_RX_PSSCH_SCI\n");
         break;
       case SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH:
-      //case SL_NR_CONFIG_TYPE_RX_PSFCH:
+      case SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH:
         phy_data->sl_rx_action = sl_rx_config->sl_rx_config_list[0].pdu_type;
         phy_data->nr_sl_pssch_pdu = sl_rx_config->sl_rx_config_list[0].rx_pssch_config_pdu;
-        LOG_D(NR_PHY, "%4d.%2d Recvd %s\n", sl_rx_config->sfn, sl_rx_config->slot, sl_rx_action[phy_data->sl_rx_action]);
+        LOG_A(NR_PHY, "%4d.%2d Recvd %s\n", sl_rx_config->sfn, sl_rx_config->slot, sl_rx_action[phy_data->sl_rx_action]);
         if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH) {
+          DevAssert(sl_rx_config->sl_rx_config_list[0].rx_psfch_pdu_list != NULL);
           phy_data->psfch_pdu_list = calloc(sl_rx_config->sl_rx_config_list[0].num_psfch_pdus, sizeof(sl_nr_tx_rx_config_psfch_pdu_t));
-          memcpy((void*)phy_data->psfch_pdu_list, (void*)sl_rx_config->sl_rx_config_list[0].rx_psfch_pdu_list,
+          memcpy(phy_data->psfch_pdu_list, sl_rx_config->sl_rx_config_list[0].rx_psfch_pdu_list,
                  sl_rx_config->sl_rx_config_list[0].num_psfch_pdus * sizeof(sl_nr_tx_rx_config_psfch_pdu_t));
           phy_data->num_psfch_pdus = sl_rx_config->sl_rx_config_list[0].num_psfch_pdus;
         }
         break;
       default:
-        AssertFatal(0, "Incorrect sl_rx config req pdutype \n");
+        AssertFatal(0, "Incorrect sl_rx config req pdutype %d\n", sl_rx_config->sl_rx_config_list[0].pdu_type);
         break;
     }
 
@@ -527,6 +528,7 @@ void sl_handle_scheduled_response(nr_scheduled_response_t *scheduled_response)
           // fresh payload, so only copy when a new SLSCH PDU is present; otherwise the
           // buffer is reused (re-encoded) for the retransmission.
           if (tx_config_pdu->slsch_payload != NULL && tx_config_pdu->slsch_payload_length > 0) {
+            AssertFatal(tx_config_pdu->slsch_payload_length < 1000, "write of %d bytes\n", tx_config_pdu->slsch_payload_length);
             NR_UL_UE_HARQ_t *harq_process = &nrPHY_vars_UE_g[module_id][0]->sl_harq_processes[tx_config_pdu->harq_pid];
             memcpy(harq_process->payload_AB, tx_config_pdu->slsch_payload, tx_config_pdu->slsch_payload_length);
             LOG_I(NR_PHY, "SLSCH TX: copied %d bytes of MAC PDU into harq %d payload_AB\n",
