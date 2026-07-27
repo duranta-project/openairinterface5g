@@ -847,6 +847,16 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
       //----------------------------------------------------------
       //--------------------- Channel Compensation ---------------
       //----------------------------------------------------------
+      // nr_pssch_channel_compensation() accumulates (rxComp += ...) into
+      // pusch_vars->rxdataF_comp to MRC across RX antennas, so this persistent
+      // buffer must be zeroed for this symbol first. Without it, the current slot's
+      // equalized REs pile onto a previous slot's leftover (same Nid/channel, other
+      // payload), which raises the magnitude and smears the constellation -> the
+      // PSSCH/SCI-2 fails to decode on some slots. Mirrors the UL path
+      // (nr_ulsch_demodulation.c, memset before nr_ulsch_channel_compensation()).
+      for (int i = 0; i < nrOfLayers; i++)
+        memset(&pusch_vars->rxdataF_comp[i * frame_parms->nb_antennas_rx][symbol * ext_buffer_length],
+               0, sizeof(int32_t) * ext_buffer_length);
       //LOG_I(PHY, "Doing channel compensations log2_maxh %d, avgs %d (%d,%d)\n" ,pusch_vars->log2_maxh, avgs,avg[0], avg[1]);
       nr_pssch_channel_compensation(ext_buffer_length,
 		      		    frame_parms->nb_antennas_rx,
