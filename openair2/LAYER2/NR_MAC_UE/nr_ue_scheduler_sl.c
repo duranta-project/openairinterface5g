@@ -1014,6 +1014,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
 
     const uint32_t TBS = pscch_pssch_pdu->tb_size;
     memcpy(pscch_pssch_pdu->slsch_payload, cur_harq->transportBlock, TBS);
+    pscch_pssch_pdu->slsch_payload_length = TBS;
     // mark UE as scheduled
     sched_pssch->rbSize = 0;
     is_resource_allocated = true;
