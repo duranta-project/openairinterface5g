@@ -1440,13 +1440,13 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
   if (resource && mac->is_synced && !is_psbch_slot && tx_allowed && sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX) {
     //Check if reserved slot or a sidelink resource configured in Rx/Tx resource pool timeresource bitmap
     bool is_resource_allocated = nr_ue_sl_pssch_scheduler(mac, sl_ind, mac->sl_bwp, mac->sl_tx_res_pool, &tx_config, resource, &tti_action);
-    bool is_feedback_slot = mac->sl_tx_res_pool->sl_PSFCH_Config_r16 ? is_feedback_scheduled(mac, frame, slot) : false;
+    bool is_feedback_slot = mac->sl_tx_res_pool->sl_PSFCH_Config_r16 ? is_feedback_scheduled(mac, sl_ind->frame_tx, sl_ind->slot_tx) : false;
     if (is_resource_allocated && is_feedback_slot && mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup) {
-      // TODO make sure this is called!
-      if (is_feedback_slot) {
-        nr_ue_sl_psfch_scheduler(mac, frame, slot, psfch_period, sl_ind, mac->sl_bwp, &tx_config, &tti_action);
-        reset_sched_psfch(mac, frame, slot);
-      }
+      // PSFCH is scheduled for the TX slot (frame_tx/slot_tx), not the current
+      // (RX-reference) slot: nr_ue_sl_psfch_scheduler() matches the queued PSFCH
+      // against feedback_frame/feedback_slot, which were computed for the TX slot.
+      nr_ue_sl_psfch_scheduler(mac, sl_ind->frame_tx, sl_ind->slot_tx, psfch_period, sl_ind, mac->sl_bwp, &tx_config, &tti_action);
+      reset_sched_psfch(mac, sl_ind->frame_tx, sl_ind->slot_tx);
     }
   }
 
