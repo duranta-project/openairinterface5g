@@ -1,0 +1,10 @@
+/*
+ * SPDX-License-Identifier: LicenseRef-CSSL-1.0
+ */
+
+#ifndef GNB_SCHEDULER_ULSCH_MU_MIMO_POLICIES_H
+#define GNB_SCHEDULER_ULSCH_MU_MIMO_POLICIES_H
+
+#include "LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
+
+#endif // GNB_SCHEDULER_ULSCH_MU_MIMO_POLICIES_H
