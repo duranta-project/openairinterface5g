@@ -557,7 +557,7 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue, int frame_rx, int slot_rx, int SLSCH
   nr_sidelink_indication_t sl_indication;       
   slsch_status_t slsch_status;
   ue->slsch[SLSCH_id].active = false;
-  NR_UL_gNB_HARQ_t *harq_process = &ue->slsch[SLSCH_id].harq_process[harq_pid]; 
+  NR_UL_gNB_HARQ_t *harq_process = &ue->slsch[SLSCH_id].harq_process[0]; 
   slsch_status.b = harq_process->b;
   slsch_status.TBS = slsch_pdu->tb_size;
   slsch_status.harq_pid =  harq_pid;
