@@ -2407,10 +2407,21 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
                                  int sched_slot)
 {
   int numUE = 0;
+  const frame_structure_t *fs = &mac->frame_structure;
+  const float ul_slots_per_s = (float)get_ul_slots_per_period(fs) / fs->numb_slots_period * fs->numb_slots_frame * 100;
 
   UE_iterator (UE_list, UE) {
     if (numUE >= max_candidates)
       break;
+
+    /* Per-slot UL goodput EWMA (bps) — update once per DL slot, called for up
+     * to every UL slot. current_bytes was set by the previous slot's dispatch.
+     * Slow EWMA (alpha=0.001) for stable display. */
+    NR_mac_dir_stats_t *stats = &UE->mac_stats.ul;
+    float instant_bps = (float)stats->current_bytes * 8.0f * ul_slots_per_s;
+    UE->ul_thr_ue = (1 - 0.01f) * UE->ul_thr_ue + 0.01f * instant_bps;
+    UE->ul_thr_ue_display = (1 - 0.001f) * UE->ul_thr_ue_display + 0.001f * instant_bps;
+    stats->current_bytes = 0;
 
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     if (!nr_mac_ue_is_active(UE))
@@ -2418,7 +2429,6 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
 
     LOG_D(NR_MAC, "collect_ul_candidates: preparing UL scheduling for UE %04x\n", UE->rnti);
     NR_UE_UL_BWP_t *current_BWP = &UE->current_UL_BWP;
-    NR_mac_dir_stats_t *stats = &UE->mac_stats.ul;
     stats->current_rbs = 0;
 
     bwp_info_t bi = get_pusch_bwp_start_size(UE);
@@ -2552,17 +2562,6 @@ void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, post_process_pusch_t *pp_pusch)
    * might starve HARQ processes that need a retransmission in a specific slot
    * but we might not necessarily reach it */
   bool last_dl = (current.s % fs->numb_slots_period) == (fs->period_cfg.num_dl_slots - 1);
-  /* Per-slot UL goodput EWMA (bps) — update once per DL slot, before the scheduling loop.
-   * current_bytes was set by the previous slot's dispatch.
-   * Fast EWMA (alpha=0.01) for PF scheduling, slow (alpha=0.001) for stable display. */
-  const float dl_slots_per_s = (float)get_dl_slots_per_period(fs) / fs->numb_slots_period * fs->numb_slots_frame * 100;
-  UE_iterator (nr_mac->UE_info.connected_ue_list, UE) {
-    NR_mac_dir_stats_t *stats = &UE->mac_stats.ul;
-    float instant_bps = (float)stats->current_bytes * 8.0f * dl_slots_per_s;
-    UE->ul_thr_ue = (1 - 0.01f) * UE->ul_thr_ue + 0.01f * instant_bps;
-    UE->ul_thr_ue_display = (1 - 0.001f) * UE->ul_thr_ue_display + 0.001f * instant_bps;
-    stats->current_bytes = 0;
-  }
 
   fsn_t *next = &nr_mac->ul_next;
   while (max_dci > 0) {
