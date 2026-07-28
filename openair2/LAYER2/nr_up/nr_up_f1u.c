@@ -9,6 +9,7 @@
 #include "assertions.h"
 #include "common/utils/LOG/log.h"
 #include "openair2/F1AP/f1ap_common.h"
+#include "nr_up/nr_up_backend_if.h"
 
 static nr_up_dl_transfer_result_t nr_up_f1u_deliver_drb(const nr_up_dl_transfer_req_t *req)
 {
@@ -23,5 +24,6 @@ static nr_up_dl_transfer_result_t nr_up_f1u_deliver_drb(const nr_up_dl_transfer_
 void nr_up_init_f1u(nr_up_if_t *iface)
 {
   DevAssert(iface);
+  nr_up_manager_init();
   iface->deliver_drb = nr_up_f1u_deliver_drb;
 }

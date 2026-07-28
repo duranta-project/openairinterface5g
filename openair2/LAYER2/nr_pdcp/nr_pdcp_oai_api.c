@@ -45,7 +45,6 @@
 #include "pdcp_messages_types.h"
 #ifdef PDCP_CUCP_CUUP
 #include "nr_pdcp_nrup_f1ap.h"
-#include "nr_up/nr_up_backend_if.h"
 #include "nr_up/nr_up_pdcp_if.h"
 #ifdef NR_UP_MONO_BACKEND
 #include "nr_pdcp_nrup_direct.h"
@@ -269,7 +268,6 @@ void nr_pdcp_layer_init(void)
   set_node_type();
 
 #ifdef PDCP_CUCP_CUUP
-  nr_up_manager_init();
   if (NODE_IS_CU(node_type)) {
     nr_pdcp_nrup_f1ap_init(node_type);
 #ifdef NR_UP_MONO_BACKEND

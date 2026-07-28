@@ -35,6 +35,8 @@ static nr_up_congestion_action_t nr_up_mono_dl_congestion_precheck(ue_id_t ue_id
 
   clock_gettime(CLOCK_MONOTONIC, &now);
   ms_since_refresh = nr_up_timespec_diff_ms(&now, &drb_budget->last_rlc_refresh);
+  /* RLC has not refreshed this budget for too long: allow the packet.
+   * The old occupancy value may be wrong, and keeping DROP would stop all DL. */
   if (ms_since_refresh > NR_UP_MONO_BUDGET_STALE_MS) {
     nr_up_manager_unlock();
     return NR_UP_CONGESTION_ALLOW;
@@ -81,6 +83,7 @@ static void nr_up_mono_sync_budget(ue_id_t cu_ue_id, rb_id_t drb_id, int tx_spac
 
 void nr_up_init_monolithic(nr_up_if_t *iface)
 {
+  nr_up_manager_init();
   nr_up_rlc_queue_init();
   nr_rlc_set_do_drop(false);
   iface->deliver_drb = nr_up_mono_deliver_drb;

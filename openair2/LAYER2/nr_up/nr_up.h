@@ -26,7 +26,7 @@ typedef struct nr_up_dl_transfer_req_s {
 } nr_up_dl_transfer_req_t;
 
 typedef enum nr_up_congestion_action_e {
-  NR_UP_CONGESTION_ALLOW = 0,
+  NR_UP_CONGESTION_ALLOW,
   NR_UP_CONGESTION_DROP,
 } nr_up_congestion_action_t;
 
