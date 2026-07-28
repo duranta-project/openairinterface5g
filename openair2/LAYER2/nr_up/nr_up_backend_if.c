@@ -124,6 +124,19 @@ nr_up_drb_budget_t *nr_up_manager_insert_drb(ue_id_t ue_id, rb_id_t drb_id)
   return drb_budget;
 }
 
+/** @brief Remove a per-DRB budget entry */
+void nr_up_release_drb(ue_id_t ue_id, rb_id_t drb_id)
+{
+  DevAssert(drb_id >= 1 && drb_id <= MAX_DRBS_PER_UE);
+  if (g_nr_up_manager.drbs == NULL) {
+    return;
+  }
+  hash_key_t key = NR_UP_DRB_BUDGET_KEY(ue_id, drb_id);
+  nr_up_manager_lock();
+  hashtable_remove(g_nr_up_manager.drbs, key);
+  nr_up_manager_unlock();
+}
+
 /** @brief Subtract bytes from the cached per-DRB TX budget */
 void nr_up_drb_budget_consume(ue_id_t ue_id, rb_id_t drb_id, size_t bytes)
 {

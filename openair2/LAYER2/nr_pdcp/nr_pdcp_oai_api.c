@@ -558,6 +558,9 @@ uint64_t get_pdcp_optmask(void)
 
 void nr_pdcp_remove_UE(ue_id_t ue_id)
 {
+  for (rb_id_t drb_id = 1; drb_id <= MAX_DRBS_PER_UE; drb_id++) {
+    nr_up_release_drb(ue_id, drb_id);
+  }
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
   nr_pdcp_manager_remove_ue(nr_pdcp_ue_manager, ue_id);
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
@@ -765,6 +768,7 @@ void nr_pdcp_release_drb(ue_id_t ue_id, int drb_id)
   else
     LOG_E(PDCP, "Attempting to release DRB%d but it is not configured\n", drb_id);
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+  nr_up_release_drb(ue_id, drb_id);
 }
 
 void nr_pdcp_reestablishment(ue_id_t ue_id,
