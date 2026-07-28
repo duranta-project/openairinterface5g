@@ -17,6 +17,7 @@
 #include <string.h>
 #include <sched.h>
 #include <unistd.h>
+#include <time.h>
 #include <simde/x86/sse2.h>
 #include <simde/x86/sse4.1.h>
 #include <riscv_vector.h>
@@ -220,7 +221,11 @@ __attribute__((noinline)) static int run_tests(void){
     memset(rref,0,n*4*2); memset(rgot,0,n*4*2);
     qam16_ref(s0,s1,chm,chmi,rref,rho,n); qam16_rvv(s0,s1,chm,chmi,rgot,rho,n);
     int d=0; for(int k=0;k<4*n;k++) if(rref[k]!=rgot[k]) d++;
-    printf("  len=%5d: diff=%d %s\n",n,d,d?"FAIL":"OK"); if(d) fail=1;
+    double us=0;
+    if(n>=3072){ int R=4000; struct timespec a,b; clock_gettime(CLOCK_MONOTONIC,&a);
+      for(int r=0;r<R;r++) qam16_rvv(s0,s1,chm,chmi,rgot,rho,n);
+      clock_gettime(CLOCK_MONOTONIC,&b); us=((b.tv_sec-a.tv_sec)*1e6+(b.tv_nsec-a.tv_nsec)/1e3)/R; }
+    printf("  len=%5d: diff=%d %s  t_rvv=%.2fus\n",n,d,d?"FAIL":"OK",us); if(d) fail=1;
     free(s0);free(s1);free(chm);free(chmi);free(rho);free(rref);free(rgot);
   }
   return fail;
