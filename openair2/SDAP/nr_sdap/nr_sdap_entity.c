@@ -604,8 +604,10 @@ static void nr_sdap_add_entity(const int is_gnb, const ue_id_t ue_id, const sdap
   if (sdap->defaultDRB) {
     sdap_entity->default_drb.drb_id = sdap->drb_id;
     sdap_entity->default_drb.entity_role = sdap->role;
-    LOG_I(SDAP, "Default DRB for the created SDAP entity: DRB %d \n", sdap_entity->default_drb.drb_id);
+    // TODO how does TUN thread know which QFI (1) for SA (2) sidelink => first one?
+    sdap_entity->qfi = sdap->mappedQFIs2Add[0];
   }
+  LOG_I(SDAP, "UE %ld SDAP Entity: DRB %d Default DRB %d QFI %d\n", ue_id, sdap->drb_id, sdap_entity->default_drb.drb_id, sdap_entity->qfi);
 
   if (sdap->role == NO_SDAP_HEADER) {
     AssertFatal(sdap->mappedQFIs2AddCount <= 1,
