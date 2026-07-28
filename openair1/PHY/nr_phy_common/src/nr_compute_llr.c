@@ -10,6 +10,9 @@
 #include <stdio.h> // OAI_LBEST_DBG diagnostic (stderr); analysis-only
 #include "PHY/sse_intrin.h"
 #include "PHY/impl_defs_top.h"
+#if defined(__riscv) && defined(__riscv_vector)
+#include <riscv_vector.h>
+#endif
 #ifdef __aarch64__
 #define USE_128BIT
 #endif
@@ -57,7 +60,50 @@ void nr_compute_llr(c16_t *rxdataF_comp,
  */
 void nr_qpsk_llr_2layer(c16_t *stream0_in, c16_t *stream1_in, int16_t *stream0_out, c16_t *rho01, uint32_t length)
 {
-#ifdef USE_128BIT
+#if defined(__riscv) && defined(__riscv_vector)
+  /* Per-RE 2-layer QPSK LLR. vlseg2 gives the re/im deinterleave (free), vsseg2
+   * the [L1,L2] interleave out. y0/sqrt2 = (mulhi(.,23170))<<1; y1/2 = .>>1;
+   * rho_{p,m} = mulhi(sat(rhor +/- rhoi), 23170); |psi| = |sat(rho -/+ y1)|;
+   * bit-metrics = saturating sums (order matters); L = sat(max_num - max_den). */
+  const int16_t *p0 = (const int16_t *)stream0_in, *p1 = (const int16_t *)stream1_in, *pr = (const int16_t *)rho01;
+  for (uint32_t k = 0; k < length;) {
+    size_t vl = __riscv_vsetvl_e16m1(length - k);
+    uint32_t o = 2 * k;
+    vint16m1x2_t S0 = __riscv_vlseg2e16_v_i16m1x2(p0 + o, vl);
+    vint16m1x2_t S1 = __riscv_vlseg2e16_v_i16m1x2(p1 + o, vl);
+    vint16m1x2_t RH = __riscv_vlseg2e16_v_i16m1x2(pr + o, vl);
+    vint16m1_t s0r = __riscv_vget_v_i16m1x2_i16m1(S0, 0), s0i = __riscv_vget_v_i16m1x2_i16m1(S0, 1);
+    vint16m1_t s1r = __riscv_vget_v_i16m1x2_i16m1(S1, 0), s1i = __riscv_vget_v_i16m1x2_i16m1(S1, 1);
+    vint16m1_t rr = __riscv_vget_v_i16m1x2_i16m1(RH, 0), ri = __riscv_vget_v_i16m1x2_i16m1(RH, 1);
+#define RV_MULHI(X) __riscv_vnsra_wx_i16m1(__riscv_vwmul_vx_i32m2((X), 23170, vl), 16, vl)
+#define RV_ABS(X)   __riscv_vmax_vv_i16m1((X), __riscv_vneg_v_i16m1((X), vl), vl)
+#define RV_ADD(A, B) __riscv_vsadd_vv_i16m1((A), (B), vl)
+#define RV_SUB(A, B) __riscv_vssub_vv_i16m1((A), (B), vl)
+    vint16m1_t y0r = __riscv_vsll_vx_i16m1(RV_MULHI(s0r), 1, vl), y0i = __riscv_vsll_vx_i16m1(RV_MULHI(s0i), 1, vl);
+    vint16m1_t y1r = __riscv_vsra_vx_i16m1(s1r, 1, vl), y1i = __riscv_vsra_vx_i16m1(s1i, 1, vl);
+    vint16m1_t rho_p = RV_MULHI(RV_ADD(rr, ri)), rho_m = RV_MULHI(RV_SUB(rr, ri));
+    vint16m1_t a_rpm = RV_ABS(RV_SUB(rho_p, y1r)), a_imm = RV_ABS(RV_SUB(rho_m, y1i));
+    vint16m1_t a_rmm = RV_ABS(RV_SUB(rho_m, y1r)), a_ipm = RV_ABS(RV_SUB(rho_p, y1i));
+    vint16m1_t a_rpp = RV_ABS(RV_ADD(rho_p, y1r)), a_imp = RV_ABS(RV_ADD(rho_m, y1i));
+    vint16m1_t a_rmp = RV_ABS(RV_ADD(rho_m, y1r)), a_ipp = RV_ABS(RV_ADD(rho_p, y1i));
+    vint16m1_t num_re_p = RV_ADD(RV_ADD(RV_ADD(a_rpm, a_imm), y0r), y0i);
+    vint16m1_t num_re_m = RV_SUB(RV_ADD(RV_ADD(a_rmm, a_ipp), y0r), y0i);
+    vint16m1_t den_re_p = RV_ADD(RV_SUB(RV_ADD(a_rmp, a_ipm), y0r), y0i);
+    vint16m1_t den_re_m = RV_SUB(RV_SUB(RV_ADD(a_rpp, a_imp), y0r), y0i);
+    vint16m1_t num_im_p = RV_ADD(RV_ADD(RV_ADD(a_rpm, a_imm), y0r), y0i);
+    vint16m1_t num_im_m = RV_ADD(RV_SUB(RV_ADD(a_rmp, a_ipm), y0r), y0i);
+    vint16m1_t den_im_p = RV_SUB(RV_ADD(RV_ADD(a_rmm, a_ipp), y0r), y0i);
+    vint16m1_t den_im_m = RV_SUB(RV_SUB(RV_ADD(a_rpp, a_imp), y0r), y0i);
+    vint16m1_t L1 = RV_SUB(__riscv_vmax_vv_i16m1(num_re_p, num_re_m, vl), __riscv_vmax_vv_i16m1(den_re_p, den_re_m, vl));
+    vint16m1_t L2 = RV_SUB(__riscv_vmax_vv_i16m1(num_im_p, num_im_m, vl), __riscv_vmax_vv_i16m1(den_im_p, den_im_m, vl));
+    __riscv_vsseg2e16_v_i16m1x2(stream0_out + o, __riscv_vcreate_v_i16m1x2(L1, L2), vl);
+#undef RV_MULHI
+#undef RV_ABS
+#undef RV_ADD
+#undef RV_SUB
+    k += (uint32_t)vl;
+  }
+#elif defined(USE_128BIT)
   simde__m128i *rho01_128i = (simde__m128i *)rho01;
   simde__m128i *stream0_128i_in = (simde__m128i *)stream0_in;
   simde__m128i *stream1_128i_in = (simde__m128i *)stream1_in;
