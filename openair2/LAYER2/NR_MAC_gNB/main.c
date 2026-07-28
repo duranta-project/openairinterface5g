@@ -141,18 +141,16 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
 
     output = st_append(output, end, "\n");
 
-    if(sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.print_report)
-      output = st_append(output,
-                         end,
-                         "UE %04x: CQI %d, RI %d, PMI (%d,%d)\n",
-                         UE->rnti,
-                         sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.wb_cqi_1tb,
-                         sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.ri+1,
-                         sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.pmi_x1,
-                         sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.pmi_x2);
-
-    if (stats->srs_stats[0] != '\0') {
-      output = st_append(output, end, "UE %04x: %s\n", UE->rnti, stats->srs_stats);
+    bool csirep = sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.print_report;
+    bool srsrep = stats->srs_stats[0] != '\0';
+    if(csirep || srsrep) {
+      output = st_append(output, end, "UE %04x:", UE->rnti);
+      const struct CRI_RI_LI_PMI_CQI *r = &sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report;
+      if (csirep)
+        output = st_append(output, end, " CSI [CQI %d RI %d PMI (%d,%d)]", r->wb_cqi_1tb, r->ri + 1, r->pmi_x1, r->pmi_x2);
+      if (srsrep)
+        output = st_append(output, end, " SRS [%s]", stats->srs_stats);
+      output = st_append(output, end, "\n");
     }
 
     output = st_append(output,

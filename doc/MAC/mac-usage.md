@@ -124,8 +124,7 @@ Example:
 
 ```
 UE RNTI 2460 CU-UE-ID 2 in-sync PH 28 dB PCMAX 24 dBm, average RSRP -74 (8 meas), average SINR 40.0 (32 meas)
-UE 2460: CQI 15, RI 2, PMI (14,1)
-UE 2460: UL-RI 2 TPMI 0
+UE 2460: CSI [CQI 15 RI 2 PMI (14,1)] SRS [UL-RI 2 TPMI 0]
 UE 2460: dlsch_rounds 32917/5113/1504/560, dlsch_errors 211, pucch0_DTX 1385 (SNR 19.8+0.2 dB), BLER 0.19557 MCS (1) 23 CCE fail 3, goodput 120.50 Mbps
 UE 2460: ulsch_rounds 3756/353/182/179, ulsch_errors 170, ulsch_DTX 285, BLER 0.33021 MCS (1) 27 (Qm 8 deltaMCS 0 dB) NPRB 5 SNR 31.0 (-1.0) dB CCE fail 0, goodput 12.30 Mbps
 UE 2460: LCID 1: TX            651 RX           3031 bytes
@@ -151,7 +150,7 @@ In the first line,
 * `SINR` (`40.0`): measured signal to interference and noise ratio of the SSB
   received at the UE. Maximum value that can be reported by the UE is 40.0 dB.
 
-The second and third line reflect channel state information (CSI) as
+The second line reflects channel state information (CSI) as
 reported by the UE, and only appear if CSI-RS/SRS are enabled and _received_
 (for some bands, they cannot be enabled):
 
@@ -166,7 +165,7 @@ reported by the UE, and only appear if CSI-RS/SRS are enabled and _received_
   around quickly. It can jump when objects move around the UE
 * `UL-RI`, `TPMI`: same as DL.
 
-The fourth and fifth line show HARQ-related information:
+The third and fourth line show HARQ-related information:
 
 * `dlsch_rounds A/B/C/D` (`32917/5113/1504/560`). This is the number of
   transmissions by the gNB for each round of the HARQ protocol. `A` is the first
