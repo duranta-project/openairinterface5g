@@ -83,12 +83,6 @@ void *nrmac_stats_thread(void *arg) {
   return NULL;
 }
 
-void clear_mac_stats(gNB_MAC_INST *gNB) {
-  UE_iterator(gNB->UE_info.connected_ue_list, UE) {
-    memset(&UE->mac_stats,0,sizeof(UE->mac_stats));
-  }
-}
-
 static char *st_append(char *start, const char *end, const char *format, ...)
 {
   size_t space = end - start;
