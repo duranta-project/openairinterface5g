@@ -482,9 +482,28 @@ void nr_channel_level(const int symbol,
   int16_t y = len >> x;
   for (int aarx = 0; aarx < nb_rx; aarx++) {
     for (int l = 0; l < Nl; l++) {
+#if defined(__riscv) && defined(__riscv_vector)
+      /* avg = ( sum_k ((re_k^2+im_k^2) >> x) ) / y, over floor(len/4)*4 complex
+       * (matches simde_mm_average_sse's length>>2 loop, tail len%4 dropped).
+       * vlseg2 (re/im) + vwmul/vwmacc (|c|^2) + vsra + widening reduction. */
+      const int16_t *p = (const int16_t *)&ch_estimates_ext[l * nb_rx + aarx][symbol * len];
+      int64_t acc = 0;
+      uint32_t nc = len & ~3u;
+      for (uint32_t n = 0; n < nc;) {
+        size_t vl = __riscv_vsetvl_e16mf2(nc - n);
+        vint16mf2x2_t v = __riscv_vlseg2e16_v_i16mf2x2(p + 2 * n, vl);
+        vint16mf2_t cr = __riscv_vget_v_i16mf2x2_i16mf2(v, 0), ci = __riscv_vget_v_i16mf2x2_i16mf2(v, 1);
+        vint32m1_t pw = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(cr, cr, vl), ci, ci, vl);
+        pw = __riscv_vsra_vx_i32m1(pw, x, vl);
+        acc += __riscv_vmv_x_s_i64m1_i64(__riscv_vwredsum_vs_i32m1_i64m1(pw, __riscv_vmv_s_x_i64m1(0, 1), vl));
+        n += (uint32_t)vl;
+      }
+      avg[l * nb_rx + aarx] = (int32_t)(uint32_t)(acc / y);
+#else
       simde__m128i *ch128 = (simde__m128i *)&ch_estimates_ext[l * nb_rx + aarx][symbol * len];
       //compute average level
       avg[l * nb_rx + aarx] = simde_mm_average(ch128, len, x, y);
+#endif
       LOG_D(PHY, "Channel level: %d\n", avg[l * nb_rx + aarx]);
     }
   }
