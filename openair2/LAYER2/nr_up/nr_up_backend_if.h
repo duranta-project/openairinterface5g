@@ -27,6 +27,7 @@ void nr_up_manager_init(void);
 void nr_up_manager_lock(void);
 void nr_up_manager_unlock(void);
 nr_up_drb_budget_t *nr_up_manager_lookup_drb(ue_id_t ue_id, rb_id_t drb_id);
+void nr_up_manager_release_drb(ue_id_t ue_id, rb_id_t drb_id);
 void nr_up_drb_budget_consume(ue_id_t ue_id, rb_id_t drb_id, size_t bytes);
 void nr_up_drb_budget_sync(ue_id_t ue_id, rb_id_t drb_id, uint32_t available_tx_bytes);
 
