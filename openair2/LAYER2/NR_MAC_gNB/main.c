@@ -165,7 +165,7 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
     output = st_append(output,
                        end,
                        ", dlsch_errors %" PRIu64
-                       ", pucch0_DTX %d (SNR %.1f%+.1f dB), BLER %.5f MCS (%d) %d CCE fail %d, goodput %.2f Mbps\n",
+                       ", pucch0_DTX %d (SNR %.1f%+.1f dB), BLER %.5f MCS (%d) %d CCE fail %d\n",
                        stats->dl.errors,
                        stats->pucch0_DTX,
                        pucch_snr,
@@ -173,8 +173,7 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
                        sched_ctrl->dl_bler_stats.bler,
                        UE->current_DL_BWP.mcsTableIdx,
                        sched_ctrl->dl_bler_stats.mcs,
-                       sched_ctrl->dl_cce_fail,
-                       UE->dl_thr_ue_display / 1e6);
+                       sched_ctrl->dl_cce_fail);
     if (reset_rsrp) {
       stats->num_rsrp_meas = 0;
       stats->cumul_rsrp = 0;
@@ -194,7 +193,7 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
         output,
         end,
         ", ulsch_errors %" PRIu64
-        ", ulsch_DTX %d, BLER %.5f MCS (%d) %d (Qm %d deltaMCS %d dB) NPRB %d SNR %.1f (%+.1f) dB CCE fail %d, goodput %.2f Mbps\n",
+        ", ulsch_DTX %d, BLER %.5f MCS (%d) %d (Qm %d deltaMCS %d dB) NPRB %d SNR %.1f (%+.1f) dB CCE fail %d\n",
         stats->ul.errors,
         stats->ulsch_DTX,
         sched_ctrl->ul_bler_stats.bler,
@@ -205,19 +204,17 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
         UE->mac_stats.NPRB,
         snr,
         diff_target,
-        sched_ctrl->ul_cce_fail,
-        UE->ul_thr_ue_display / 1e6);
+        sched_ctrl->ul_cce_fail);
 
-    for (int i = 0; i < seq_arr_size(&sched_ctrl->lc_config); i++) {
+    // UE always has LCID 1 for SRB 1
+    output = st_append(output, end, "UE %04x: LCIDs 1", UE->rnti);
+    for (int i = 1; i < seq_arr_size(&sched_ctrl->lc_config); i++) {
       const nr_lc_config_t *c = seq_arr_at(&sched_ctrl->lc_config, i);
-      output = st_append(output,
-                         end,
-                         "UE %04x: LCID %d: TX %14"PRIu64" RX %14"PRIu64" bytes\n",
-                         UE->rnti,
-                         c->lcid,
-                         stats->dl.lc_bytes[c->lcid],
-                         stats->ul.lc_bytes[c->lcid]);
+      output = st_append(output, end, ",%d", c->lcid);
     }
+    float dl_thr = UE->dl_thr_ue_display / 1e6;
+    float ul_thr = UE->ul_thr_ue_display / 1e6;
+    output = st_append(output, end, " goodput DL %7.2f UL %7.2f Mbps\n",  dl_thr, ul_thr);
   }
   DevAssert(output <= end);
   return output - begin;

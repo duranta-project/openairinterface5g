@@ -125,11 +125,9 @@ Example:
 ```
 UE RNTI 2460 CU-UE-ID 2 in-sync PH 28 dB PCMAX 24 dBm, average RSRP -74 (8 meas), average SINR 40.0 (32 meas)
 UE 2460: CSI [CQI 15 RI 2 PMI (14,1)] SRS [UL-RI 2 TPMI 0]
-UE 2460: dlsch_rounds 32917/5113/1504/560, dlsch_errors 211, pucch0_DTX 1385 (SNR 19.8+0.2 dB), BLER 0.19557 MCS (1) 23 CCE fail 3, goodput 120.50 Mbps
-UE 2460: ulsch_rounds 3756/353/182/179, ulsch_errors 170, ulsch_DTX 285, BLER 0.33021 MCS (1) 27 (Qm 8 deltaMCS 0 dB) NPRB 5 SNR 31.0 (-1.0) dB CCE fail 0, goodput 12.30 Mbps
-UE 2460: LCID 1: TX            651 RX           3031 bytes
-UE 2460: LCID 2: TX              0 RX              0 bytes
-UE 2460: LCID 4: TX     1526169592 RX          16152 bytes
+UE 2460: dlsch_rounds 32917/5113/1504/560, dlsch_errors 211, pucch0_DTX 1385 (SNR 19.8+0.2 dB), BLER 0.19557 MCS (1) 23 CCE fail 3
+UE 2460: ulsch_rounds 3756/353/182/179, ulsch_errors 170, ulsch_DTX 285, BLER 0.33021 MCS (1) 27 (Qm 8 deltaMCS 0 dB) NPRB 5 SNR 31.0 (-1.0) dB CCE fail 0
+UE 2460: LCID 1,2,4 goodput DL  120.50 UL   12.30 Mbps
 ```
 
 In the first line,
@@ -213,15 +211,13 @@ The third and fourth line show HARQ-related information:
 * Both ULSCH/DLSCH `CCE fail`: lists the number of failed CCE attempts. If this
   number gets high, it signifies that the scheduler tried to scheduled this UE,
   but could not allocate the DCI.
-* Both ULSCH/DLSCH `goodput`: smoothed (EWMA) goodput in Mbps, reflecting the
-  actual MAC-layer throughput achieved by the UE.
 
-In the last lines:
+In the last line:
 
-* `LCID X` shows the amount of MAC SDU/RLC PDU data for Logical Channel ID with
-  ID `X` in transmit and receive directions. LCIDs 1 and 2 are mapped to SRBs 1
-  and 2. LCIDs 4 and onward are mapped to DRBs 1 onward. If you have an LCID 4,
-  it means you have a PDU session.
+* `MAC goodput` for `DL` and `UL`: smoothed (EWMA) goodput in Mbps, reflecting
+  the actual MAC-layer throughput achieved by the UE excluding retransmissions,
+  i.e., only counting the amount of "new data". This might be much lower than
+  the maximum throughput if there are many retransmissions.
 
 ## Configuration of the MAC
 
