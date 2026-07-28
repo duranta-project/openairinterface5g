@@ -887,7 +887,6 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
       const uint8_t sh_size = sizeof(NR_MAC_SUBHEADER_LONG);
 
       int num_sdus=0;
-      NR_UE_MAC_CE_INFO *mac_ce_p = (NR_UE_MAC_CE_INFO *) pdu;
             
       if (sched_ctrl->num_total_bytes > 0) {
         if (sched_ctrl->rlc_status[lcid].bytes_in_buffer > 0) {
@@ -953,12 +952,12 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
             } else {
               pdu -= sh_size;
               buflen_remain += sh_size;
-              LOG_W(NR_MAC, "In %s: no data to transmit for RB with LCID 0x%02x\n", __FUNCTION__, lcid);
               break;
             }
           }
 
           if (buflen_remain > 0) {
+            NR_UE_MAC_CE_INFO *mac_ce_p = (NR_UE_MAC_CE_INFO *) pdu;
             mac_ce_p->phr_len = 0;
             mac_ce_p->sdu_length_total = sdu_length_total;
             
