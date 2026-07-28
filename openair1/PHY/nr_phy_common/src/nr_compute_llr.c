@@ -12,6 +12,38 @@
 #include "PHY/impl_defs_top.h"
 #if defined(__riscv) && defined(__riscv_vector)
 #include <riscv_vector.h>
+/* Shared RVV helpers for the 2-layer QAM LLRs (mirror the SIMDe helpers). vl is
+ * passed explicitly (no globals -> reentrant). mulhi = (x*c)>>16 (arithmetic
+ * narrow); prodsum/interf/square replicate prodsum_psi_a / interference_abs /
+ * square_a exactly. */
+static inline vint16m1_t rvq_mulhi(vint16m1_t x, int16_t c, size_t vl)
+{
+  return __riscv_vnsra_wx_i16m1(__riscv_vwmul_vx_i32m2(x, c, vl), 16, vl);
+}
+static inline vint16m1_t rvq_mulhiv(vint16m1_t x, vint16m1_t y, size_t vl)
+{
+  return __riscv_vnsra_wx_i16m1(__riscv_vwmul_vv_i32m2(x, y, vl), 16, vl);
+}
+static inline vint16m1_t rvq_prodsum(vint16m1_t pr, vint16m1_t ar, vint16m1_t pi, vint16m1_t ai, size_t vl)
+{
+  return __riscv_vsadd_vv_i16m1(__riscv_vsll_vx_i16m1(rvq_mulhiv(pr, ar, vl), 1, vl),
+                                __riscv_vsll_vx_i16m1(rvq_mulhiv(pi, ai, vl), 1, vl), vl);
+}
+static inline vint16m1_t rvq_interf(vint16m1_t psi, vint16m1_t icm, int16_t c1, int16_t c2, size_t vl)
+{
+  vbool16_t m = __riscv_vmslt_vv_i16m1_b16(psi, icm, vl); /* psi < icm ? c1 : c2 */
+  return __riscv_vmerge_vvm_i16m1(__riscv_vmv_v_x_i16m1(c2, vl), __riscv_vmv_v_x_i16m1(c1, vl), m, vl);
+}
+static inline vint16m1_t rvq_square(vint16m1_t ar, vint16m1_t ai, vint16m1_t icm, int16_t sf, size_t vl)
+{
+  vint16m1_t t = __riscv_vsll_vx_i16m1(rvq_mulhiv(ar, ar, vl), 1, vl);
+  t = __riscv_vsll_vx_i16m1(rvq_mulhi(t, sf, vl), 1, vl);
+  t = __riscv_vsll_vx_i16m1(rvq_mulhiv(t, icm, vl), 1, vl);
+  vint16m1_t u = __riscv_vsll_vx_i16m1(rvq_mulhiv(ai, ai, vl), 1, vl);
+  u = __riscv_vsll_vx_i16m1(rvq_mulhi(u, sf, vl), 1, vl);
+  u = __riscv_vsll_vx_i16m1(rvq_mulhiv(u, icm, vl), 1, vl);
+  return __riscv_vsadd_vv_i16m1(t, u, vl);
+}
 #endif
 #ifdef __aarch64__
 #define USE_128BIT
@@ -781,7 +813,80 @@ void nr_qam16_llr_2layer(c16_t *stream0_in,
                          c16_t *rho01,
                          uint32_t length)
 {
-#ifdef USE_128BIT
+#if defined(__riscv) && defined(__riscv_vector)
+  /* 2-layer 16QAM LLR. vlseg2 = free re/im deinterleave, vsseg4e16 = 4 LLRs/RE.
+   * rho_rs/psi/y0_s/bit-metrics spill to int16 scratch rows: sizeless RVV vectors
+   * can't be arrayed AND 16 live bit-metrics exceed the 32 registers. Constants:
+   * 1/sqrt10=20724(Q16)/10362(Q15), 3/sqrt10=31086(Q15), sqrt10/4=25905, 9/2/sqrt10=23315. */
+  const int16_t *p0 = (const int16_t *)stream0_in, *p1 = (const int16_t *)stream1_in;
+  const int16_t *pr = (const int16_t *)rho01, *pm = (const int16_t *)ch_mag, *pmi = (const int16_t *)ch_mag_i;
+  const uint8_t idx[16] = {4, 6, 5, 7, 0, 2, 1, 3, 0, 2, 1, 3, 4, 6, 5, 7};
+  enum { VM = 64 };
+  int16_t rrs[8][VM], psi_rs[16][VM], psi_is[16][VM], y0s[8][VM], bm[16][VM];
+  for (uint32_t nn = 0; nn < length;) {
+    size_t vl = __riscv_vsetvl_e16m1(length - nn);
+    uint32_t o = 2 * nn;
+#define MH(x, c) rvq_mulhi((x), (c), vl)
+#define SL1(x) __riscv_vsll_vx_i16m1((x), 1, vl)
+#define SL2(x) __riscv_vsll_vx_i16m1((x), 2, vl)
+#define AD(a, b) __riscv_vsadd_vv_i16m1((a), (b), vl)
+#define SU(a, b) __riscv_vssub_vv_i16m1((a), (b), vl)
+#define AB(x) __riscv_vmax_vv_i16m1((x), __riscv_vneg_v_i16m1((x), vl), vl)
+#define MX(a, b) __riscv_vmax_vv_i16m1((a), (b), vl)
+#define ST(buf, v) __riscv_vse16_v_i16m1((buf), (v), vl)
+#define LD(buf) __riscv_vle16_v_i16m1((buf), vl)
+#define MXb(a, c, d, e, f, g, h, k) \
+  MX(MX(MX(LD(bm[a]), LD(bm[c])), MX(LD(bm[d]), LD(bm[e]))), MX(MX(LD(bm[f]), LD(bm[g])), MX(LD(bm[h]), LD(bm[k]))))
+    vint16m1x2_t RH = __riscv_vlseg2e16_v_i16m1x2(pr + o, vl);
+    vint16m1_t rr = __riscv_vget_v_i16m1x2_i16m1(RH, 0), ri = __riscv_vget_v_i16m1x2_i16m1(RH, 1);
+    vint16m1_t rho_rpi = AD(rr, ri), rho_rmi = SU(rr, ri);
+    ST(rrs[0], MH(rho_rpi, 20724)); ST(rrs[4], MH(rho_rmi, 20724));
+    ST(rrs[3], SL1(MH(rho_rpi, 31086))); ST(rrs[7], SL1(MH(rho_rmi, 31086)));
+    vint16m1_t x4 = MH(rr, 20724), x5 = SL1(MH(ri, 31086)); ST(rrs[1], AD(x4, x5)); ST(rrs[5], SU(x4, x5));
+    vint16m1_t x6 = SL1(MH(rr, 31086)), x7 = MH(ri, 20724); ST(rrs[2], AD(x6, x7)); ST(rrs[6], SU(x6, x7));
+    vint16m1x2_t S1 = __riscv_vlseg2e16_v_i16m1x2(p1 + o, vl);
+    vint16m1_t y1r = __riscv_vget_v_i16m1x2_i16m1(S1, 0), y1i = __riscv_vget_v_i16m1x2_i16m1(S1, 1);
+    for (int j = 0; j < 8; j++) ST(psi_rs[j], AB(SU(LD(rrs[j]), y1r)));
+    for (int j = 8; j < 16; j++) ST(psi_rs[j], AB(AD(LD(rrs[(j - 4) & 7]), y1r)));
+    for (int k = 0; k < 16; k += 8)
+      for (int j = k; j < k + 4; j++) {
+        ST(psi_is[j], AB(SU(LD(rrs[idx[j]]), y1i)));
+        ST(psi_is[j + 4], AB(AD(LD(rrs[idx[j + 4]]), y1i)));
+      }
+    vint16m1x2_t S0 = __riscv_vlseg2e16_v_i16m1x2(p0 + o, vl);
+    vint16m1_t y0r = __riscv_vget_v_i16m1x2_i16m1(S0, 0), y0i = __riscv_vget_v_i16m1x2_i16m1(S0, 1);
+    vint16m1_t chd = __riscv_vget_v_i16m1x2_i16m1(__riscv_vlseg2e16_v_i16m1x2(pm + o, vl), 0);
+    vint16m1_t chi = __riscv_vget_v_i16m1x2_i16m1(__riscv_vlseg2e16_v_i16m1x2(pmi + o, vl), 0);
+    vint16m1_t y0ros = MH(y0r, 20724), y0ios = MH(y0i, 20724), y0r3 = SL1(MH(y0r, 31086)), y0i3 = SL1(MH(y0i, 31086));
+    ST(y0s[0], AD(y0ros, y0ios)); ST(y0s[4], SU(y0ros, y0ios)); ST(y0s[1], AD(y0ros, y0i3)); ST(y0s[5], SU(y0ros, y0i3));
+    ST(y0s[2], AD(y0r3, y0ios)); ST(y0s[6], SU(y0r3, y0ios)); ST(y0s[3], AD(y0r3, y0i3)); ST(y0s[7], SU(y0r3, y0i3));
+    vint16m1_t cm10 = MH(chd, 10362), cm2 = SL1(MH(chd, 25905)), cm9 = SL2(MH(chd, 23315));
+    for (int j = 0; j < 16; j++) {
+      vint16m1_t prj = LD(psi_rs[j]), pij = LD(psi_is[j]);
+      vint16m1_t ar = rvq_interf(prj, chi, 10362, 31086, vl), ai = rvq_interf(pij, chi, 10362, 31086, vl);
+      vint16m1_t base = SU(rvq_prodsum(prj, ar, pij, ai, vl), rvq_square(ar, ai, chi, 25905, vl));
+      vint16m1_t cm = ((j & 3) == 0) ? cm10 : ((j & 3) == 3) ? cm9 : cm2;
+      vint16m1_t y = (j < 8) ? LD(y0s[j]) : LD(y0s[(j - 4) & 7]);
+      ST(bm[j], (j < 8) ? SU(AD(base, y), cm) : SU(SU(base, y), cm));
+    }
+    vint16m1_t L1 = SU(MXb(0, 1, 2, 3, 4, 5, 6, 7), MXb(8, 9, 10, 11, 12, 13, 14, 15));
+    vint16m1_t L2 = SU(MXb(0, 1, 3, 2, 8, 9, 10, 11), MXb(4, 5, 6, 7, 12, 13, 14, 15));
+    vint16m1_t L3 = SU(MXb(0, 1, 4, 5, 8, 9, 12, 13), MXb(2, 3, 6, 7, 10, 11, 14, 15));
+    vint16m1_t L4 = SU(MXb(0, 2, 4, 6, 8, 10, 12, 14), MXb(1, 3, 5, 7, 9, 11, 13, 15));
+    __riscv_vsseg4e16_v_i16m1x4(stream0_out + 4 * nn, __riscv_vcreate_v_i16m1x4(L1, L2, L3, L4), vl);
+#undef MH
+#undef SL1
+#undef SL2
+#undef AD
+#undef SU
+#undef AB
+#undef MX
+#undef ST
+#undef LD
+#undef MXb
+    nn += (uint32_t)vl;
+  }
+#elif defined(USE_128BIT)
   simde__m128i *rho01_128i = (simde__m128i *)rho01;
   simde__m128i *stream0_128i_in = (simde__m128i *)stream0_in;
   simde__m128i *stream1_128i_in = (simde__m128i *)stream1_in;
