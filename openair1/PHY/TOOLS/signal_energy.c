@@ -48,6 +48,24 @@ int32_t signal_energy(int32_t *input,uint32_t length)
 
 uint32_t signal_energy_nodc(const c16_t *input, uint32_t length)
 {
+#if defined(__riscv) && defined(__riscv_vector)
+  /* sum_k(|c_k|^2)/length. The SIMDe path accumulates |c|^2 in float across 4
+   * lanes (loses precision above 2^24, and a VLA float reduction would be
+   * VLEN-dependent). Accumulate in int64 instead: exact, associative, identical
+   * on every VLEN -- strictly more accurate for this power measurement (feeds
+   * dB_fixed/SNR/AGC). vlseg2 (re/im) + vwmul/vwmacc (|c|^2) + widening reduction. */
+  const int16_t *p = (const int16_t *)input;
+  int64_t acc = 0;
+  for (uint32_t n = 0; n < length;) {
+    size_t vl = __riscv_vsetvl_e16mf2(length - n);
+    vint16mf2x2_t v = __riscv_vlseg2e16_v_i16mf2x2(p + 2 * n, vl);
+    vint16mf2_t cr = __riscv_vget_v_i16mf2x2_i16mf2(v, 0), ci = __riscv_vget_v_i16mf2x2_i16mf2(v, 1);
+    vint32m1_t pw = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(cr, cr, vl), ci, ci, vl);
+    acc += __riscv_vmv_x_s_i64m1_i64(__riscv_vwredsum_vs_i32m1_i64m1(pw, __riscv_vmv_s_x_i64m1(0, 1), vl));
+    n += (uint32_t)vl;
+  }
+  return (uint32_t)((double)acc / (double)length);
+#else
   // init
   simde__m128 mm0 = simde_mm_setzero_ps();
 
@@ -70,6 +88,7 @@ uint32_t signal_energy_nodc(const c16_t *input, uint32_t length)
   float sums[4];
   simde_mm_store_ps(sums, mm0);
   return (uint32_t)((sums[0] + sums[1] + sums[2] + sums[3] + leftover_sum) / (float)length);
+#endif
 }
 
 double signal_energy_fp(double *s_re[2],double *s_im[2],uint32_t nb_antennas,uint32_t length,uint32_t offset)
