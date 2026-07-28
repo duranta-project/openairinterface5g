@@ -4394,6 +4394,12 @@ float nr_mac_get_snr(const nr_power_control_t *pc)
   return pc->avg_snr + pc->tpc_in_flight;
 }
 
+float nr_mac_get_rssi(const nr_power_control_t *pc)
+{
+  // in FAPI scale: convert to dBm/dBFs
+  return pc->avg_rssi / 10.f - 128.f;
+}
+
 /**
  * @brief Calculates the difference of current average SNR to the target SNR
  * set in the power control loop.

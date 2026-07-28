@@ -563,6 +563,7 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
                         int sched_srs);
 
 float nr_mac_get_snr(const nr_power_control_t *pc);
+float nr_mac_get_rssi(const nr_power_control_t *pc);
 void nr_mac_pc_snr(nr_power_control_t *pc, int snrx10, int rssi);
 void nr_mac_pc_reset_snr(nr_power_control_t *pc, int snrx10, int rssi);
 void nr_mac_set_target_snrx10(nr_power_control_t *pc, int target_snrx10);
