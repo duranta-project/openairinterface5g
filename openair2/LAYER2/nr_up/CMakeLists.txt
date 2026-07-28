@@ -4,7 +4,7 @@ add_library(nr_up STATIC
             nr_up.c
 )
 target_link_libraries(nr_up PUBLIC log_headers)
-target_include_directories(nr_up PUBLIC ../../..)
+target_include_directories(nr_up PUBLIC ${CMAKE_SOURCE_DIR})
 
 add_library(nr_up_pdcp_if STATIC
             nr_up_pdcp_if.c
@@ -19,9 +19,9 @@ add_library(nr_up_rlc_queue STATIC
 target_link_libraries(nr_up_rlc_queue PRIVATE asn1_nr_rrc_hdrs)
 target_include_directories(nr_up_rlc_queue PRIVATE ../../..)
 
-add_library(nr_up_mono STATIC
+add_library(nr_up_direct STATIC
             nr_up_monolithic.c
 )
-target_link_libraries(nr_up_mono PUBLIC nr_up_pdcp_if nr_up_rlc_queue)
-target_compile_definitions(nr_up_mono PUBLIC NR_UP_MONO_BACKEND)
-target_include_directories(nr_up_mono PRIVATE ../../..)
+target_link_libraries(nr_up_direct PUBLIC nr_up_pdcp_if nr_up_rlc_queue)
+target_compile_definitions(nr_up_direct PUBLIC NR_UP_MONO_BACKEND)
+target_include_directories(nr_up_direct PRIVATE ${CMAKE_SOURCE_DIR})
