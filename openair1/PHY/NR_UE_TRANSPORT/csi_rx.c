@@ -21,6 +21,9 @@
 #include "PHY/NR_REFSIG/nr_refsig.h"
 #include "common/utils/nr/nr_common.h"
 #include "PHY/NR_UE_ESTIMATION/filt16a_32.h"
+#if defined(__riscv) && defined(__riscv_vector)
+#include <riscv_vector.h>
+#endif
 
 //#define NR_CSIRS_DEBUG
 //#define NR_CSIIM_DEBUG
@@ -34,6 +37,29 @@ void nr_det_A_MF_2x2(int32_t *a_mf_00,
                      int32_t *det_fin,
                      const unsigned short nb_rb) {
 
+#if defined(__riscv) && defined(__riscv_vector)
+  /* det[k] = |(r00*r11 - i00*i11) - (r01*r10 - i01*i10)|, int32 wrapping (matches
+   * the madd/sub/abs_epi32 path). vlseg2 (re/im) + widening mul; abs = max(x,-x). */
+  const int16_t *p00 = (const int16_t *)a_mf_00, *p01 = (const int16_t *)a_mf_01;
+  const int16_t *p10 = (const int16_t *)a_mf_10, *p11 = (const int16_t *)a_mf_11;
+  int N = 3 * nb_rb * 4;
+  for (int n = 0; n < N;) {
+    size_t vl = __riscv_vsetvl_e16mf2(N - n);
+    int o = 2 * n;
+    vint16mf2x2_t V00 = __riscv_vlseg2e16_v_i16mf2x2(p00 + o, vl), V11 = __riscv_vlseg2e16_v_i16mf2x2(p11 + o, vl);
+    vint16mf2x2_t V01 = __riscv_vlseg2e16_v_i16mf2x2(p01 + o, vl), V10 = __riscv_vlseg2e16_v_i16mf2x2(p10 + o, vl);
+    vint16mf2_t r00 = __riscv_vget_v_i16mf2x2_i16mf2(V00, 0), i00 = __riscv_vget_v_i16mf2x2_i16mf2(V00, 1);
+    vint16mf2_t r11 = __riscv_vget_v_i16mf2x2_i16mf2(V11, 0), i11 = __riscv_vget_v_i16mf2x2_i16mf2(V11, 1);
+    vint16mf2_t r01 = __riscv_vget_v_i16mf2x2_i16mf2(V01, 0), i01 = __riscv_vget_v_i16mf2x2_i16mf2(V01, 1);
+    vint16mf2_t r10 = __riscv_vget_v_i16mf2x2_i16mf2(V10, 0), i10 = __riscv_vget_v_i16mf2x2_i16mf2(V10, 1);
+    vint32m1_t ad = __riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(r00, r11, vl), __riscv_vwmul_vv_i32m1(i00, i11, vl), vl);
+    vint32m1_t bc = __riscv_vsub_vv_i32m1(__riscv_vwmul_vv_i32m1(r01, r10, vl), __riscv_vwmul_vv_i32m1(i01, i10, vl), vl);
+    vint32m1_t d = __riscv_vsub_vv_i32m1(ad, bc, vl);
+    __riscv_vse32_v_i32m1(det_fin + n, __riscv_vmax_vv_i32m1(d, __riscv_vneg_v_i32m1(d, vl), vl), vl);
+    n += (int)vl;
+  }
+  return;
+#endif
   simde__m128i ad_re_128, bc_re_128, det_re_128;
 
   simde__m128i *a_mf_00_128 = (simde__m128i *)a_mf_00;
@@ -68,6 +94,19 @@ void nr_det_A_MF_2x2(int32_t *a_mf_00,
 void nr_squared_matrix_element(int32_t *a,
                                int32_t *a_sq,
                                const unsigned short nb_rb) {
+#if defined(__riscv) && defined(__riscv_vector)
+  /* a_sq[k] = re_k^2 + im_k^2 (== madd_epi16(a,a)): vlseg2 + vwmul/vwmacc */
+  const int16_t *p = (const int16_t *)a;
+  int N = 3 * nb_rb * 4;
+  for (int n = 0; n < N;) {
+    size_t vl = __riscv_vsetvl_e16mf2(N - n);
+    vint16mf2x2_t v = __riscv_vlseg2e16_v_i16mf2x2(p + 2 * n, vl);
+    vint16mf2_t r = __riscv_vget_v_i16mf2x2_i16mf2(v, 0), i = __riscv_vget_v_i16mf2x2_i16mf2(v, 1);
+    __riscv_vse32_v_i32m1(a_sq + n, __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(r, r, vl), i, i, vl), vl);
+    n += (int)vl;
+  }
+  return;
+#endif
   simde__m128i *a_128 = (simde__m128i *)a;
   simde__m128i *a_sq_128 = (simde__m128i *)a_sq;
   for (int rb=0; rb<3*nb_rb; rb++) {
@@ -83,6 +122,19 @@ void nr_numer_2x2(int32_t *a_00_sq,
                   int32_t *a_11_sq,
                   int32_t *num_fin,
                   const unsigned short nb_rb) {
+#if defined(__riscv) && defined(__riscv_vector)
+  /* num[k] = a00_sq[k]+a11_sq[k] + a01_sq[k]+a10_sq[k] (int32) */
+  int N = 3 * nb_rb * 4;
+  for (int n = 0; n < N;) {
+    size_t vl = __riscv_vsetvl_e32m1(N - n);
+    vint32m1_t s = __riscv_vadd_vv_i32m1(
+        __riscv_vadd_vv_i32m1(__riscv_vle32_v_i32m1(a_00_sq + n, vl), __riscv_vle32_v_i32m1(a_11_sq + n, vl), vl),
+        __riscv_vadd_vv_i32m1(__riscv_vle32_v_i32m1(a_01_sq + n, vl), __riscv_vle32_v_i32m1(a_10_sq + n, vl), vl), vl);
+    __riscv_vse32_v_i32m1(num_fin + n, s, vl);
+    n += (int)vl;
+  }
+  return;
+#endif
   simde__m128i *a_00_sq_128 = (simde__m128i *)a_00_sq;
   simde__m128i *a_01_sq_128 = (simde__m128i *)a_01_sq;
   simde__m128i *a_10_sq_128 = (simde__m128i *)a_10_sq;
