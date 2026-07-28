@@ -44,6 +44,27 @@ static inline vint16m1_t rvq_square(vint16m1_t ar, vint16m1_t ai, vint16m1_t icm
   u = __riscv_vsll_vx_i16m1(rvq_mulhiv(u, icm, vl), 1, vl);
   return __riscv_vsadd_vv_i16m1(t, u, vl);
 }
+/* 64QAM 4-way interference select: psi<m1?c1 : psi<m2?c3 : psi<=m3?c5 : c7 */
+static inline vint16m1_t rvq_interf4(vint16m1_t psi, vint16m1_t m1, vint16m1_t m2, vint16m1_t m3,
+                                     int16_t c1, int16_t c3, int16_t c5, int16_t c7, size_t vl)
+{
+  vint16m1_t r = __riscv_vmv_v_x_i16m1(c1, vl);
+  r = __riscv_vmerge_vvm_i16m1(r, __riscv_vmv_v_x_i16m1(c3, vl), __riscv_vmsge_vv_i16m1_b16(psi, m1, vl), vl);
+  r = __riscv_vmerge_vvm_i16m1(r, __riscv_vmv_v_x_i16m1(c5, vl), __riscv_vmsge_vv_i16m1_b16(psi, m2, vl), vl);
+  r = __riscv_vmerge_vvm_i16m1(r, __riscv_vmv_v_x_i16m1(c7, vl), __riscv_vmsgt_vv_i16m1_b16(psi, m3, vl), vl);
+  return r;
+}
+/* 64QAM square_a: middle shift is <<3 (not <<1) */
+static inline vint16m1_t rvq_square64(vint16m1_t ar, vint16m1_t ai, vint16m1_t icm, int16_t sf, size_t vl)
+{
+  vint16m1_t t = __riscv_vsll_vx_i16m1(rvq_mulhiv(ar, ar, vl), 1, vl);
+  t = __riscv_vsll_vx_i16m1(rvq_mulhi(t, sf, vl), 3, vl);
+  t = __riscv_vsll_vx_i16m1(rvq_mulhiv(t, icm, vl), 1, vl);
+  vint16m1_t u = __riscv_vsll_vx_i16m1(rvq_mulhiv(ai, ai, vl), 1, vl);
+  u = __riscv_vsll_vx_i16m1(rvq_mulhi(u, sf, vl), 3, vl);
+  u = __riscv_vsll_vx_i16m1(rvq_mulhiv(u, icm, vl), 1, vl);
+  return __riscv_vsadd_vv_i16m1(t, u, vl);
+}
 #endif
 #ifdef __aarch64__
 #define USE_128BIT
@@ -1375,7 +1396,94 @@ void nr_qam64_llr_2layer(c16_t *stream0_in,
                          c16_t *rho01,
                          uint32_t length)
 {
-#ifdef USE_128BIT
+#if defined(__riscv) && defined(__riscv_vector)
+  /* 2-layer 64QAM LLR. vlseg2 in; 6 LLRs/RE via strided vsse16. 32 rho_rs + 64
+   * bit-metrics spill to int16 scratch (sizeless RVV vectors can't be arrayed;
+   * 64 metrics far exceed the register file); psi is computed fused (no psi
+   * scratch). Interference amplitude = 4-way interval select (rvq_interf4).
+   * Constants: {1,3,5,7}/sqrt42, {1,3,5,7}/sqrt(2*42), n/(4 sqrt42), sqrt42/4. */
+  const int16_t *p0=(const int16_t*)stream0_in,*p1=(const int16_t*)stream1_in,*prr=(const int16_t*)rho01,*pm=(const int16_t*)ch_mag,*pmi=(const int16_t*)ch_mag_i;
+  static const uint8_t rho_idx[32]={7,15,23,31,24,16,8,0, 6,14,22,30,25,17,9,1, 5,13,21,29,26,18,10,2, 4,12,20,28,27,19,11,3};
+  static const uint8_t cmtab[32]={8,7,5,6,6,5,7,8, 7,6,4,2,2,4,6,7, 5,4,3,1,1,3,4,5, 6,2,1,0,0,1,2,6};
+  enum{VM=64};
+  int16_t rrs[32][VM], y0s[32][VM], cm[9][VM], bm[64][VM];
+  for(uint32_t nn=0;nn<length;){
+    size_t vl=__riscv_vsetvl_e16m1(length-nn); uint32_t o=2*nn;
+#define MH(x,c) rvq_mulhi((x),(c),vl)
+#define MV(x,y) rvq_mulhiv((x),(y),vl)
+#define L1s(x) __riscv_vsll_vx_i16m1((x),1,vl)
+#define L2s(x) __riscv_vsll_vx_i16m1((x),2,vl)
+#define AD(a,b) __riscv_vsadd_vv_i16m1((a),(b),vl)
+#define SU(a,b) __riscv_vssub_vv_i16m1((a),(b),vl)
+#define AB(x) __riscv_vmax_vv_i16m1((x),__riscv_vneg_v_i16m1((x),vl),vl)
+#define MX(a,b) __riscv_vmax_vv_i16m1((a),(b),vl)
+#define ST(b,v) __riscv_vse16_v_i16m1((b),(v),vl)
+#define LD(b) __riscv_vle16_v_i16m1((b),vl)
+    vint16m1x2_t RH=__riscv_vlseg2e16_v_i16m1x2(prr+o,vl); vint16m1_t xr=__riscv_vget_v_i16m1x2_i16m1(RH,0),xi=__riscv_vget_v_i16m1x2_i16m1(RH,1);
+    vint16m1_t rp=AD(xr,xi),rm=SU(xr,xi);
+    ST(rrs[27],MH(rp,10112)); ST(rrs[28],MH(rm,10112)); ST(rrs[18],MH(rp,30337)); ST(rrs[21],MH(rm,30337));
+    ST(rrs[9],L1s(MH(rp,25281))); ST(rrs[14],L1s(MH(rm,25281))); ST(rrs[0],L2s(MH(rp,17697))); ST(rrs[7],L2s(MH(rm,17697)));
+    vint16m1_t q4=MH(xr,10112),q5=MH(xi,10112),q6=MH(xi,30337),q7=L1s(MH(xi,25281)),q8=L2s(MH(xi,17697));
+    ST(rrs[26],AD(q4,q6)); ST(rrs[29],SU(q4,q6)); ST(rrs[25],AD(q4,q7)); ST(rrs[30],SU(q4,q7)); ST(rrs[24],AD(q4,q8)); ST(rrs[31],SU(q4,q8));
+    q4=MH(xr,30337); ST(rrs[19],AD(q4,q5)); ST(rrs[20],SU(q4,q5)); ST(rrs[17],AD(q4,q7)); ST(rrs[22],SU(q4,q7)); ST(rrs[16],AD(q4,q8)); ST(rrs[23],SU(q4,q8));
+    q4=L1s(MH(xr,25281)); ST(rrs[11],AD(q4,q5)); ST(rrs[12],SU(q4,q5)); ST(rrs[10],AD(q4,q6)); ST(rrs[13],SU(q4,q6)); ST(rrs[8],AD(q4,q8)); ST(rrs[15],SU(q4,q8));
+    q4=L2s(MH(xr,17697)); ST(rrs[3],AD(q4,q5)); ST(rrs[4],SU(q4,q5)); ST(rrs[2],AD(q4,q6)); ST(rrs[5],SU(q4,q6)); ST(rrs[1],AD(q4,q7)); ST(rrs[6],SU(q4,q7));
+    vint16m1x2_t Sy1=__riscv_vlseg2e16_v_i16m1x2(p1+o,vl); vint16m1_t y1r=__riscv_vget_v_i16m1x2_i16m1(Sy1,0),y1i=__riscv_vget_v_i16m1x2_i16m1(Sy1,1);
+    vint16m1x2_t Sy0=__riscv_vlseg2e16_v_i16m1x2(p0+o,vl); vint16m1_t y0r=__riscv_vget_v_i16m1x2_i16m1(Sy0,0),y0i=__riscv_vget_v_i16m1x2_i16m1(Sy0,1);
+    vint16m1_t chd=__riscv_vget_v_i16m1x2_i16m1(__riscv_vlseg2e16_v_i16m1x2(pm+o,vl),0);
+    vint16m1_t chi=__riscv_vget_v_i16m1x2_i16m1(__riscv_vlseg2e16_v_i16m1x2(pmi+o,vl),0);
+    vint16m1_t y0r1=MH(y0r,10112),y0r3=MH(y0r,30337),y0r5=L1s(MH(y0r,25281)),y0r7=L2s(MH(y0r,17697));
+    vint16m1_t y0i1=MH(y0i,10112),y0i3=MH(y0i,30337),y0i5=L1s(MH(y0i,25281)),y0i7=L2s(MH(y0i,17697));
+    for(int j=0;j<32;j+=8){ vint16m1_t v=(j==0)?y0r7:(j==8)?y0r5:(j==16)?y0r3:y0r1;
+      ST(y0s[j+0],AD(v,y0i7)); ST(y0s[j+1],AD(v,y0i5)); ST(y0s[j+2],AD(v,y0i3)); ST(y0s[j+3],AD(v,y0i1));
+      ST(y0s[j+4],SU(v,y0i1)); ST(y0s[j+5],SU(v,y0i3)); ST(y0s[j+6],SU(v,y0i5)); ST(y0s[j+7],SU(v,y0i7)); }
+    vint16m1_t m1=__riscv_vsra_vx_i16m1(chi,1,vl),m2=chi,m3=AD(m1,m2);
+    ST(cm[0],L1s(MH(chd,1264))); ST(cm[1],L1s(MH(chd,6320))); ST(cm[2],L1s(MH(chd,16433))); ST(cm[6],L1s(MH(chd,31601)));
+    ST(cm[3],L1s(MH(chd,11376))); ST(cm[4],L1s(MH(chd,21489))); ST(cm[5],L2s(MH(chd,18329))); ST(cm[7],L2s(MH(chd,23385))); ST(cm[8],L2s(MH(chd,30969)));
+    for(int j=0;j<64;j++){
+      int rb=(j<32)?j:63-j;
+      vint16m1_t pr=AB((j<32)?SU(LD(rrs[rb]),y1r):AD(LD(rrs[rb]),y1r));
+      int ii=rho_idx[rb];
+      vint16m1_t pi=AB(((j&7)<4)?SU(LD(rrs[ii]),y1i):AD(LD(rrs[ii]),y1i));
+      vint16m1_t ar=rvq_interf4(pr,m1,m2,m3,3575,10726,17876,25027,vl), ai=rvq_interf4(pi,m1,m2,m3,3575,10726,17876,25027,vl);
+      vint16m1_t pa=L2s(MH(rvq_prodsum(pr,ar,pi,ai,vl),23170));
+      vint16m1_t asq=rvq_square64(ar,ai,chi,13272,vl);
+      int t=(j<32)?j:63-j; vint16m1_t y=LD(y0s[t]), c=LD(cm[cmtab[t]]);
+      ST(bm[j], (j<32)? SU(AD(SU(pa,asq),y),c) : SU(SU(SU(pa,asq),y),c));
+    }
+#define B8(a,b,c,d,e,f,g,h) MX(MX(MX(LD(bm[a]),LD(bm[b])),MX(LD(bm[c]),LD(bm[d]))),MX(MX(LD(bm[e]),LD(bm[f])),MX(LD(bm[g]),LD(bm[h]))))
+#define B4(w,x,y,z) MX(MX((w),(x)),MX((y),(z)))
+    vint16m1_t L0=SU(B4(B8(0,1,2,3,4,5,6,7),B8(8,9,10,11,12,13,14,15),B8(16,17,18,19,20,21,22,23),B8(24,25,26,27,28,29,30,31)),
+                     B4(B8(56,57,58,59,60,61,62,63),B8(48,49,50,51,52,53,54,55),B8(40,41,42,43,44,45,46,47),B8(32,33,34,35,36,37,38,39)));
+    vint16m1_t L1=SU(B4(B8(3,11,19,27,35,43,51,59),B8(2,10,18,26,34,42,50,58),B8(1,9,17,25,33,41,49,57),B8(0,8,16,24,32,40,48,56)),
+                     B4(B8(4,12,20,28,36,44,52,60),B8(5,13,21,29,37,45,53,61),B8(6,14,22,30,38,46,54,62),B8(7,15,23,31,39,47,55,63)));
+    vint16m1_t L2=SU(B4(B8(47,46,45,44,43,42,41,40),B8(39,38,37,36,35,34,33,32),B8(31,30,29,28,27,26,25,24),B8(23,22,21,20,19,18,17,16)),
+                     B4(B8(63,62,61,60,59,58,57,56),B8(55,54,53,52,51,50,49,48),B8(15,14,13,12,11,10,9,8),B8(7,6,5,4,3,2,1,0)));
+    vint16m1_t L3=SU(B4(B8(4,12,20,28,36,44,52,60),B8(5,13,21,29,37,45,53,61),B8(3,11,19,27,35,43,51,59),B8(2,10,18,26,34,42,50,58)),
+                     B4(B8(0,8,16,24,32,40,48,56),B8(1,9,17,25,33,41,49,57),B8(6,14,22,30,38,46,54,62),B8(7,15,23,31,39,47,55,63)));
+    vint16m1_t L4=SU(B4(B8(55,54,53,52,51,50,49,48),B8(47,46,45,44,43,42,41,40),B8(23,22,21,20,19,18,17,16),B8(15,14,13,12,11,10,9,8)),
+                     B4(B8(63,62,61,60,59,58,57,56),B8(39,38,37,36,35,34,33,32),B8(31,30,29,28,27,26,25,24),B8(7,6,5,4,3,2,1,0)));
+    vint16m1_t L5=SU(B4(B8(6,14,22,30,38,46,54,62),B8(5,13,21,29,37,45,53,61),B8(2,10,18,26,34,42,50,58),B8(1,9,17,25,33,41,49,57)),
+                     B4(B8(0,8,16,24,32,40,48,56),B8(3,11,19,27,35,43,51,59),B8(4,12,20,28,36,44,52,60),B8(7,15,23,31,39,47,55,63)));
+#undef B8
+#undef B4
+    int16_t *ob=stream0_out+6*nn;
+    __riscv_vsse16_v_i16m1(ob+0,6*sizeof(int16_t),L0,vl); __riscv_vsse16_v_i16m1(ob+1,6*sizeof(int16_t),L1,vl);
+    __riscv_vsse16_v_i16m1(ob+2,6*sizeof(int16_t),L2,vl); __riscv_vsse16_v_i16m1(ob+3,6*sizeof(int16_t),L3,vl);
+    __riscv_vsse16_v_i16m1(ob+4,6*sizeof(int16_t),L4,vl); __riscv_vsse16_v_i16m1(ob+5,6*sizeof(int16_t),L5,vl);
+#undef MH
+#undef MV
+#undef L1s
+#undef L2s
+#undef AD
+#undef SU
+#undef AB
+#undef MX
+#undef ST
+#undef LD
+    nn+=(uint32_t)vl;
+  }
+#elif defined(USE_128BIT)
   simde__m128i *rho01_128i = (simde__m128i *)rho01;
   simde__m128i *stream0_128i_in = (simde__m128i *)stream0_in;
   simde__m128i *stream1_128i_in = (simde__m128i *)stream1_in;
