@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <sched.h>
 #include <unistd.h>
+#include <time.h>
 #include <riscv_vector.h>
 
 typedef struct { int16_t r, i; } c16_t;
@@ -109,7 +110,11 @@ __attribute__((noinline)) static int run_tests(void){
     for(int k=0;k<n;k++){ s0[k]=(c16_t){r16(),r16()}; s1[k]=(c16_t){r16(),r16()}; rho[k]=(c16_t){r16(),r16()}; }
     qpsk2_ref(s0,s1,rho,rref,n); qpsk2_rvv(s0,s1,rho,rgot,n);
     int d=0; for(int k=0;k<2*n;k++) if(rref[k]!=rgot[k]) d++;
-    printf("  len=%5d: diff=%d %s\n", n, d, d?"FAIL":"OK");
+    double us=0;
+    if(n>=3276){ int R=4000; struct timespec a,b; clock_gettime(CLOCK_MONOTONIC,&a);
+      for(int r=0;r<R;r++) qpsk2_rvv(s0,s1,rho,rgot,n);
+      clock_gettime(CLOCK_MONOTONIC,&b); us=((b.tv_sec-a.tv_sec)*1e6+(b.tv_nsec-a.tv_nsec)/1e3)/R; }
+    printf("  len=%5d: diff=%d %s  t_rvv=%.2fus\n", n, d, d?"FAIL":"OK", us);
     if(d) fail=1;
     free(s0);free(s1);free(rho);free(rref);free(rgot);
   }
