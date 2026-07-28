@@ -22,3 +22,13 @@ void nr_pdcp_dl_transfer_gnb(ue_id_t ue_id, uint8_t drb_id, const byte_array_t *
   }
   LOG_W(PDCP, "%s(): (drb %u) nr-up DL transfer failed (%d)\n", __func__, drb_id, rc);
 }
+
+void nr_pdcp_deliver_pdu_drb(void *data, ue_id_t ue_id, int rb_id, char *buf, int size, int sdu_id)
+{
+  UNUSED(data);
+  const byte_array_t pdu = {
+      .buf = (uint8_t *)buf,
+      .len = size,
+  };
+  nr_pdcp_dl_transfer_gnb(ue_id, rb_id, &pdu, sdu_id);
+}

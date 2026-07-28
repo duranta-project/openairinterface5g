@@ -1074,7 +1074,7 @@ set(NR_PDCP_SRC
 set(NR_PDCP_SRC_GNB_CORE
   ${NR_PDCP_SRC}
   openair2/LAYER2/nr_pdcp/nr_pdcp_nrup_handler.c
-  openair2/LAYER2/nr_pdcp/nr_pdcp_nrup_cu.c
+  openair2/LAYER2/nr_pdcp/nr_pdcp_nrup_f1ap.c
   openair2/LAYER2/nr_pdcp/cucp_cuup_handler.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_if.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_direct.c
@@ -1321,7 +1321,7 @@ add_library(e1_if
 
 target_link_libraries(e1_if PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs asn1_f1ap SECURITY ${OPENSSL_LIBRARIES} e1ap GTPV1U)
 
-target_link_libraries(L2_NR PRIVATE f1ap x2ap s1ap ngap nr_rrc e1ap nr_rlc nr_common nr_up_direct)
+target_link_libraries(L2_NR PRIVATE f1ap x2ap s1ap ngap nr_rrc e1ap nr_rlc nr_common nr_up_direct nr_up_f1ap)
 target_compile_definitions(L2_NR PRIVATE PDCP_CUCP_CUUP)
 if(OAI_AERIAL)
     target_compile_definitions(L2_NR PRIVATE ENABLE_AERIAL)
@@ -1861,7 +1861,7 @@ add_executable(nr-cuup
 
 target_link_libraries(nr-cuup PRIVATE
                       CONFIG_LIB ITTI SCTP_CLIENT
-                      GTPV1U e1ap f1ap nr_up_pdcp_if
+                      GTPV1U e1ap f1ap nr_up_pdcp_if nr_up_f1ap
                       time_management softmodem_common
                       alg
                       dl pthread ${T_LIB})
