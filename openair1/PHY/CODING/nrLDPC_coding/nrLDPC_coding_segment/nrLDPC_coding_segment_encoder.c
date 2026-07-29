@@ -69,11 +69,11 @@ static void write_task_output(uint8_t *f,
 
 #if defined(__AVX512VBMI__)
   uint64_t *output_p = (uint64_t*)output;
-  simde__m512i inc = _mm512_set1_epi8(0x1);
+  __m512i inc = _mm512_set1_epi8(0x1);
 
   for (int i=0;i<E2;i+=64) {
     uint32_t Eoffset2 = Eoffset;
-    simde__m512i bitperm = simde_mm512_set1_epi64(0x3830282018100800);
+    __m512i bitperm = _mm512_set1_epi64(0x3830282018100800);
     if (i<E) {
       for (int j=0; j < E2_first_segment; j++) {
         // Note: Here and below for AVX2, we are using the 64-bit SIMD instruction
@@ -82,26 +82,26 @@ static void write_task_output(uint8_t *f,
         // what we want here. The SIMD version do give 0 when the shift is 64
         uint32_t Eoffset2_byte = Eoffset2 >> 6;
         uint32_t Eoffset2_bit = Eoffset2 & 63;
-        simde__m64 tmp = (simde__m64)simde_mm512_bitshuffle_epi64_mask(((simde__m512i *)f)[i >> 6],bitperm);
-        *(simde__m64*)(output_p + Eoffset2_byte)   = simde_mm_or_si64(*(simde__m64*)(output_p + Eoffset2_byte),simde_mm_slli_si64(tmp,Eoffset2_bit));
-        *(simde__m64*)(output_p + Eoffset2_byte+1) = simde_mm_or_si64(*(simde__m64*)(output_p + Eoffset2_byte+1),simde_mm_srli_si64(tmp,(64-Eoffset2_bit)));
+        __m64 tmp = (__m64)_mm512_bitshuffle_epi64_mask(((__m512i *)f)[i >> 6],bitperm);
+        *(__m64*)(output_p + Eoffset2_byte)   = _mm_or_si64(*(__m64*)(output_p + Eoffset2_byte),_mm_slli_si64(tmp,Eoffset2_bit));
+        *(__m64*)(output_p + Eoffset2_byte+1) = _mm_or_si64(*(__m64*)(output_p + Eoffset2_byte+1),_mm_srli_si64(tmp,(64-Eoffset2_bit)));
         Eoffset2 += E;
-        bitperm = simde_mm512_add_epi8(bitperm ,inc);
+        bitperm = _mm512_add_epi8(bitperm ,inc);
       }
     } else {
       for (int j=0; j < E2_first_segment; j++) {
         Eoffset2 += E;
-        bitperm = simde_mm512_add_epi8(bitperm ,inc);
+        bitperm = _mm512_add_epi8(bitperm ,inc);
       }
     }
     for (int j=E2_first_segment; j < nb_segments; j++) {
       uint32_t Eoffset2_byte = Eoffset2 >> 6;
       uint32_t Eoffset2_bit = Eoffset2 & 63;
-      simde__m64 tmp = (simde__m64)simde_mm512_bitshuffle_epi64_mask(((simde__m512i *)f2)[i >> 6],bitperm);
-      *(simde__m64*)(output_p + Eoffset2_byte)   = simde_mm_or_si64(*(simde__m64*)(output_p + Eoffset2_byte),simde_mm_slli_si64(tmp,Eoffset2_bit));
-      *(simde__m64*)(output_p + Eoffset2_byte+1) = simde_mm_or_si64(*(simde__m64*)(output_p + Eoffset2_byte+1),simde_mm_srli_si64(tmp,(64-Eoffset2_bit)));
+      __m64 tmp = (__m64)_mm512_bitshuffle_epi64_mask(((__m512i *)f2)[i >> 6],bitperm);
+      *(__m64*)(output_p + Eoffset2_byte)   = _mm_or_si64(*(__m64*)(output_p + Eoffset2_byte),_mm_slli_si64(tmp,Eoffset2_bit));
+      *(__m64*)(output_p + Eoffset2_byte+1) = _mm_or_si64(*(__m64*)(output_p + Eoffset2_byte+1),_mm_srli_si64(tmp,(64-Eoffset2_bit)));
       Eoffset2 += E2;
-      bitperm = simde_mm512_add_epi8(bitperm ,inc);
+      bitperm = _mm512_add_epi8(bitperm ,inc);
     }
     output_p++;
   }
