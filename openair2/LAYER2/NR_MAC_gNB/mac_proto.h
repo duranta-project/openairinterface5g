@@ -624,4 +624,6 @@ fsn_t get_fb_frame_slot(int frame, int slot, int K, int n_slots_frame, int NTN_g
 void nr_mu_update_pair_cache(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_UE_info_t *UE);
 
 void nr_mu_invalidate_pair_cache(gNB_MAC_INST *mac, rnti_t disconnected_rnti);
+
+bool needs_default_grant(const nr_ul_candidate_t *c);
 #endif /*__LAYER2_NR_MAC_PROTO_H__*/
