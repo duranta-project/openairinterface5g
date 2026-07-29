@@ -5085,6 +5085,91 @@ static inline void nr_lbest_simd_seed16(simde__m256i z1r16, simde__m256i z1i16, 
     } \
   } while (0)
 
+#if defined(__riscv) && defined(__riscv_vector)
+/* RVV port of the L-best 64QAM detector (reentrant: vl passed explicitly; the
+ * macros assume `vl` in scope). Byte-exact vs x86-native (rvv_qam64_lbest_test:
+ * 0/1536, both VLENs). Float ZF seed + integer 3x3 reduced search. */
+#define RLB_MV(x,y)  __riscv_vmul_vv_i16m1((x),(y),vl)
+#define RLB_MVX(x,c) __riscv_vmul_vx_i16m1((x),(c),vl)
+#define RLB_MH(x,y)  __riscv_vnsra_wx_i16m1(__riscv_vwmul_vv_i32m2((x),(y),vl),16,vl)
+#define RLB_AD(a,b)  __riscv_vsadd_vv_i16m1((a),(b),vl)
+#define RLB_SU(a,b)  __riscv_vssub_vv_i16m1((a),(b),vl)
+#define RLB_AB(x)    __riscv_vmax_vv_i16m1((x),__riscv_vneg_v_i16m1((x),vl),vl)
+#define RLB_MX(a,b)  __riscv_vmax_vv_i16m1((a),(b),vl)
+#define RLB_MN(a,b)  __riscv_vmin_vv_i16m1((a),(b),vl)
+#define RLB_ST(b,v)  __riscv_vse16_v_i16m1((b),(v),vl)
+#define RLB_LD(b)    __riscv_vle16_v_i16m1((b),vl)
+enum { RLB_C13 = 1264, RLB_CE = 158, RLB_CX = 195 };
+static inline vint16m1_t rvlb64_z42d32(vint16m1_t z, size_t vl)
+{
+  vint32m2_t p = __riscv_vsra_vx_i32m2(__riscv_vwmul_vx_i32m2(z, NR_LBEST_Q_SQRT42_Q12, vl), 17, vl);
+  return __riscv_vnclip_wx_i16m1(p, 0, __RISCV_VXRM_RDN, vl);
+}
+static inline vint16m1_t rvlb64_level16(vint16m1_t num, vint16m1_t thunit, size_t vl)
+{
+  vint16m1_t a = RLB_AB(num);
+  vint16m1_t t2 = __riscv_vsll_vx_i16m1(thunit, 1, vl), t4 = __riscv_vsll_vx_i16m1(thunit, 2, vl), t6 = RLB_AD(t2, t4);
+  vint16m1_t z0 = __riscv_vmv_v_x_i16m1(0, vl), o1 = __riscv_vmv_v_x_i16m1(1, vl);
+  vint16m1_t g2 = __riscv_vmerge_vvm_i16m1(z0, o1, __riscv_vmsgt_vv_i16m1_b16(a, t2, vl), vl);
+  vint16m1_t g4 = __riscv_vmerge_vvm_i16m1(z0, o1, __riscv_vmsgt_vv_i16m1_b16(a, t4, vl), vl);
+  vint16m1_t g6 = __riscv_vmerge_vvm_i16m1(z0, o1, __riscv_vmsgt_vv_i16m1_b16(a, t6, vl), vl);
+  vint16m1_t mag = RLB_AD(o1, __riscv_vsll_vx_i16m1(RLB_AD(RLB_AD(g2, g4), g6), 1, vl));
+  return __riscv_vmerge_vvm_i16m1(mag, __riscv_vneg_v_i16m1(mag, vl), __riscv_vmslt_vx_i16m1_b16(num, 0, vl), vl);
+}
+static void rvlb64_seed(vint16m1_t z1r, vint16m1_t z1i, vint16m1_t z2r, vint16m1_t z2i, vint16m1_t rr, vint16m1_t ri,
+                        vint16m1_t cm0, vint16m1_t cm1, vint16m1_t *cI, vint16m1_t *cQ, vint16m1_t *dIm, vint16m1_t *dQm, size_t vl)
+{
+  vfloat32m2_t fz1r = __riscv_vfwcvt_f_x_v_f32m2(z1r, vl), fz1i = __riscv_vfwcvt_f_x_v_f32m2(z1i, vl);
+  vfloat32m2_t fz2r = __riscv_vfwcvt_f_x_v_f32m2(z2r, vl), fz2i = __riscv_vfwcvt_f_x_v_f32m2(z2i, vl);
+  vfloat32m2_t frr = __riscv_vfwcvt_f_x_v_f32m2(rr, vl), fri = __riscv_vfwcvt_f_x_v_f32m2(ri, vl);
+  vfloat32m2_t Pp0 = __riscv_vfcvt_f_x_v_f32m2(__riscv_vsra_vx_i32m2(__riscv_vwmul_vx_i32m2(cm0, NR_LBEST_Q_SQRT42_OVER4_Q14, vl), 14, vl), vl);
+  vfloat32m2_t Pp1 = __riscv_vfcvt_f_x_v_f32m2(__riscv_vsra_vx_i32m2(__riscv_vwmul_vx_i32m2(cm1, NR_LBEST_Q_SQRT42_OVER4_Q14, vl), 14, vl), vl);
+  vfloat32m2_t det = __riscv_vfsub_vv_f32m2(__riscv_vfmul_vv_f32m2(Pp0, Pp1, vl),
+                     __riscv_vfadd_vv_f32m2(__riscv_vfmul_vv_f32m2(frr, frr, vl), __riscv_vfmul_vv_f32m2(fri, fri, vl), vl), vl);
+  det = __riscv_vfmax_vf_f32m2(det, 1.0f, vl);
+  vfloat32m2_t numr = __riscv_vfsub_vv_f32m2(__riscv_vfmul_vv_f32m2(Pp1, fz1r, vl),
+                      __riscv_vfsub_vv_f32m2(__riscv_vfmul_vv_f32m2(frr, fz2r, vl), __riscv_vfmul_vv_f32m2(fri, fz2i, vl), vl), vl);
+  vfloat32m2_t numi = __riscv_vfsub_vv_f32m2(__riscv_vfmul_vv_f32m2(Pp1, fz1i, vl),
+                      __riscv_vfadd_vv_f32m2(__riscv_vfmul_vv_f32m2(frr, fz2i, vl), __riscv_vfmul_vv_f32m2(fri, fz2r, vl), vl), vl);
+  vfloat32m2_t s42 = __riscv_vfmv_v_f_f32m2(6.48074069840786f, vl);
+  vfloat32m2_t estI = __riscv_vfmul_vv_f32m2(__riscv_vfdiv_vv_f32m2(numr, det, vl), s42, vl);
+  vfloat32m2_t estQ = __riscv_vfmul_vv_f32m2(__riscv_vfdiv_vv_f32m2(numi, det, vl), s42, vl);
+  vfloat32m2_t half = __riscv_vfmv_v_f_f32m2(0.5f, vl);
+  vfloat32m2_t tI = __riscv_vfmul_vv_f32m2(__riscv_vfsub_vf_f32m2(estI, 1.0f, vl), half, vl);
+  vfloat32m2_t tQ = __riscv_vfmul_vv_f32m2(__riscv_vfsub_vf_f32m2(estQ, 1.0f, vl), half, vl);
+  vfloat32m2_t rI = __riscv_vfcvt_f_x_v_f32m2(__riscv_vfcvt_x_f_v_i32m2(tI, vl), vl);
+  vfloat32m2_t rQ = __riscv_vfcvt_f_x_v_f32m2(__riscv_vfcvt_x_f_v_i32m2(tQ, vl), vl);
+  vfloat32m2_t oI = __riscv_vfadd_vf_f32m2(__riscv_vfmul_vf_f32m2(rI, 2.0f, vl), 1.0f, vl);
+  vfloat32m2_t oQ = __riscv_vfadd_vf_f32m2(__riscv_vfmul_vf_f32m2(rQ, 2.0f, vl), 1.0f, vl);
+  oI = __riscv_vfmin_vf_f32m2(__riscv_vfmax_vf_f32m2(oI, -7.0f, vl), 7.0f, vl);
+  oQ = __riscv_vfmin_vf_f32m2(__riscv_vfmax_vf_f32m2(oQ, -7.0f, vl), 7.0f, vl);
+  *cI = __riscv_vfncvt_x_f_w_i16m1(oI, vl); *cQ = __riscv_vfncvt_x_f_w_i16m1(oQ, vl);
+  vbool16_t mI = __riscv_vmfgt_vv_f32m2_b16(estI, oI, vl), mQ = __riscv_vmfgt_vv_f32m2_b16(estQ, oQ, vl);
+  vint16m1_t z0 = __riscv_vmv_v_x_i16m1(0, vl), m1v = __riscv_vmv_v_x_i16m1(-1, vl);
+  *dIm = __riscv_vmerge_vvm_i16m1(z0, m1v, mI, vl); *dQm = __riscv_vmerge_vvm_i16m1(z0, m1v, mQ, vl);
+}
+static void rvlb64_eval16(vint16m1_t I1, vint16m1_t Q1, vint16m1_t bI0, vint16m1_t bI1, vint16m1_t bI2, vint16m1_t bQ0, vint16m1_t bQ1, vint16m1_t bQ2,
+                          vint16m1_t c0I, vint16m1_t c0Q, vint16m1_t eI, vint16m1_t eQ, vint16m1_t rrI, vint16m1_t riI, vint16m1_t rrQ, vint16m1_t riQ,
+                          vint16m1_t z2r, vint16m1_t z2i, vint16m1_t rr, vint16m1_t ri, vint16m1_t cm1, vint16m1_t z2r42, vint16m1_t z2i42, vint16m1_t Pp1_5,
+                          int16_t max0[6][64], int16_t max1[6][64], size_t vl)
+{
+  vint16m1_t A2I = RLB_SU(z2r42, RLB_AD(rrI, riQ)), A2Q = RLB_SU(z2i42, RLB_SU(rrQ, riI));
+  vint16m1_t I2 = rvlb64_level16(A2I, Pp1_5, vl), Q2 = rvlb64_level16(A2Q, Pp1_5, vl);
+  vint16m1_t corr0 = RLB_AD(c0I, c0Q), energy0 = RLB_AD(eI, eQ);
+  vint16m1_t corr1 = RLB_AD(RLB_MH(z2r, RLB_MVX(I2, RLB_C13)), RLB_MH(z2i, RLB_MVX(Q2, RLB_C13)));
+  vint16m1_t energy1 = RLB_MH(cm1, RLB_MVX(RLB_AD(RLB_MV(I2, I2), RLB_MV(Q2, Q2)), RLB_CE));
+  vint16m1_t aa = RLB_AD(RLB_MV(I1, I2), RLB_MV(Q1, Q2)), bb = RLB_SU(RLB_MV(Q1, I2), RLB_MV(I1, Q2));
+  vint16m1_t cross = RLB_AD(RLB_MH(rr, RLB_MVX(aa, RLB_CX)), RLB_MH(ri, RLB_MVX(bb, RLB_CX)));
+  vint16m1_t metric = RLB_MX(RLB_SU(RLB_AD(RLB_SU(corr0, energy0), RLB_SU(corr1, energy1)), cross), __riscv_vmv_v_x_i16m1(-32000, vl));
+  vint16m1_t sent = __riscv_vmv_v_x_i16m1(NR_LBEST_SIMD16_SENT, vl);
+  #define RLB_UPD(p, bmask) { vbool16_t m = __riscv_vmsne_vx_i16m1_b16((bmask), 0, vl); \
+    RLB_ST(max0[p], RLB_MX(RLB_LD(max0[p]), __riscv_vmerge_vvm_i16m1(metric, sent, m, vl))); \
+    RLB_ST(max1[p], RLB_MX(RLB_LD(max1[p]), __riscv_vmerge_vvm_i16m1(sent, metric, m, vl))); }
+  RLB_UPD(0, bI0) RLB_UPD(1, bQ0) RLB_UPD(2, bI1) RLB_UPD(3, bQ1) RLB_UPD(4, bI2) RLB_UPD(5, bQ2)
+  #undef RLB_UPD
+}
+#endif
+
 // pattern: 0 = 3x3 (9 cand, full BLER), 1 = 6-cand (plus + toward-seed diagonal),
 //          2 = 5-plus (center + +-2 each axis).
 void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
@@ -5096,6 +5181,77 @@ void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                                           uint32_t length,
                                           int pattern)
 {
+#if defined(__riscv) && defined(__riscv_vector)
+  const int16_t *p0 = (const int16_t *)stream0_in, *p1 = (const int16_t *)stream1_in, *prr = (const int16_t *)rho01;
+  const int16_t *pm = (const int16_t *)ch_mag, *pmi = (const int16_t *)ch_mag_i;
+  int16_t max0[6][64], max1[6][64];
+  static const int offs3[3] = {-2, 0, 2};
+  static const int pI5[5] = {1, 0, 2, 1, 1}, pQ5[5] = {1, 1, 1, 0, 2};
+  for (uint32_t nn = 0; nn < length;) {
+    size_t vl = __riscv_vsetvl_e16m1(length - nn);
+    uint32_t o = 2 * nn;
+    vint16m1x2_t Z1 = __riscv_vlseg2e16_v_i16m1x2(p0 + o, vl); vint16m1_t z1r = __riscv_vget_v_i16m1x2_i16m1(Z1, 0), z1i = __riscv_vget_v_i16m1x2_i16m1(Z1, 1);
+    vint16m1x2_t Z2 = __riscv_vlseg2e16_v_i16m1x2(p1 + o, vl); vint16m1_t z2r = __riscv_vget_v_i16m1x2_i16m1(Z2, 0), z2i = __riscv_vget_v_i16m1x2_i16m1(Z2, 1);
+    vint16m1x2_t RR = __riscv_vlseg2e16_v_i16m1x2(prr + o, vl); vint16m1_t rr = __riscv_vget_v_i16m1x2_i16m1(RR, 0), ri = __riscv_vget_v_i16m1x2_i16m1(RR, 1);
+    vint16m1_t cm0 = __riscv_vget_v_i16m1x2_i16m1(__riscv_vlseg2e16_v_i16m1x2(pm + o, vl), 0);
+    vint16m1_t cm1 = __riscv_vget_v_i16m1x2_i16m1(__riscv_vlseg2e16_v_i16m1x2(pmi + o, vl), 0);
+    vint16m1_t cI, cQ, dIm, dQm; rvlb64_seed(z1r, z1i, z2r, z2i, rr, ri, cm0, cm1, &cI, &cQ, &dIm, &dQm, vl);
+    vint16m1_t z2r42 = rvlb64_z42d32(z2r, vl), z2i42 = rvlb64_z42d32(z2i, vl);
+    vint16m1_t rr5 = __riscv_vsra_vx_i16m1(rr, 5, vl), ri5 = __riscv_vsra_vx_i16m1(ri, 5, vl);
+    vint16m1_t Pp1_5 = RLB_MH(cm1, __riscv_vmv_v_x_i16m1(NR_LBEST_Q_PP1_OVER32_Q16, vl));
+    vint16m1_t sent = __riscv_vmv_v_x_i16m1(NR_LBEST_SIMD16_SENT, vl);
+    for (int p = 0; p < 6; p++) { RLB_ST(max0[p], sent); RLB_ST(max1[p], sent); }
+    int16_t sIv[3][64], sQv[3][64], sc0I[3][64], sc0Q[3][64], seI[3][64], seQ[3][64], srrI[3][64], sriI[3][64], srrQ[3][64], sriQ[3][64];
+    int16_t sbI0[3][64], sbI1[3][64], sbI2[3][64], sbQ0[3][64], sbQ1[3][64], sbQ2[3][64];
+    vint16m1_t V1 = __riscv_vmv_v_x_i16m1(1, vl), V4 = __riscv_vmv_v_x_i16m1(4, vl), V7 = __riscv_vmv_v_x_i16m1(7, vl), Vm7 = __riscv_vmv_v_x_i16m1(-7, vl), z0 = __riscv_vmv_v_x_i16m1(0, vl);
+    for (int k = 0; k < 3; k++) {
+      vint16m1_t I1 = RLB_MN(RLB_MX(RLB_AD(cI, __riscv_vmv_v_x_i16m1(offs3[k], vl)), Vm7), V7);
+      vint16m1_t Q1 = RLB_MN(RLB_MX(RLB_AD(cQ, __riscv_vmv_v_x_i16m1(offs3[k], vl)), Vm7), V7);
+      RLB_ST(sIv[k], I1); RLB_ST(sQv[k], Q1);
+      vint16m1_t aI = RLB_AB(I1), aQ = RLB_AB(Q1);
+      #define RLB_M2I(cond) __riscv_vmerge_vvm_i16m1(z0, __riscv_vmv_v_x_i16m1(-1, vl), (cond), vl)
+      RLB_ST(sbI0[k], RLB_M2I(__riscv_vmslt_vx_i16m1_b16(I1, 0, vl)));
+      RLB_ST(sbI1[k], RLB_M2I(__riscv_vmsgt_vv_i16m1_b16(aI, V4, vl)));
+      RLB_ST(sbI2[k], RLB_M2I(__riscv_vmor_mm_b16(__riscv_vmseq_vv_i16m1_b16(aI, V1, vl), __riscv_vmseq_vv_i16m1_b16(aI, V7, vl), vl)));
+      RLB_ST(sbQ0[k], RLB_M2I(__riscv_vmslt_vx_i16m1_b16(Q1, 0, vl)));
+      RLB_ST(sbQ1[k], RLB_M2I(__riscv_vmsgt_vv_i16m1_b16(aQ, V4, vl)));
+      RLB_ST(sbQ2[k], RLB_M2I(__riscv_vmor_mm_b16(__riscv_vmseq_vv_i16m1_b16(aQ, V1, vl), __riscv_vmseq_vv_i16m1_b16(aQ, V7, vl), vl)));
+      #undef RLB_M2I
+      RLB_ST(sc0I[k], RLB_MH(z1r, RLB_MVX(I1, RLB_C13))); RLB_ST(sc0Q[k], RLB_MH(z1i, RLB_MVX(Q1, RLB_C13)));
+      RLB_ST(seI[k], RLB_MH(cm0, RLB_MVX(RLB_MV(I1, I1), RLB_CE))); RLB_ST(seQ[k], RLB_MH(cm0, RLB_MVX(RLB_MV(Q1, Q1), RLB_CE)));
+      RLB_ST(srrI[k], RLB_MV(rr5, I1)); RLB_ST(sriI[k], RLB_MV(ri5, I1)); RLB_ST(srrQ[k], RLB_MV(rr5, Q1)); RLB_ST(sriQ[k], RLB_MV(ri5, Q1));
+    }
+    #define RLB_EVAL(iI, iQ) rvlb64_eval16(RLB_LD(sIv[iI]), RLB_LD(sQv[iQ]), RLB_LD(sbI0[iI]), RLB_LD(sbI1[iI]), RLB_LD(sbI2[iI]), \
+        RLB_LD(sbQ0[iQ]), RLB_LD(sbQ1[iQ]), RLB_LD(sbQ2[iQ]), RLB_LD(sc0I[iI]), RLB_LD(sc0Q[iQ]), RLB_LD(seI[iI]), RLB_LD(seQ[iQ]), \
+        RLB_LD(srrI[iI]), RLB_LD(sriI[iI]), RLB_LD(srrQ[iQ]), RLB_LD(sriQ[iQ]), z2r, z2i, rr, ri, cm1, z2r42, z2i42, Pp1_5, max0, max1, vl)
+    if (pattern == 0) {
+      for (int iI = 0; iI < 3; iI++) for (int iQ = 0; iQ < 3; iQ++) RLB_EVAL(iI, iQ);
+    } else {
+      for (int c = 0; c < 5; c++) RLB_EVAL(pI5[c], pQ5[c]);
+      if (pattern == 1) { // 6th: toward-seed diagonal, per-lane blend corner 0 vs 2
+        vbool16_t mI = __riscv_vmsne_vx_i16m1_b16(dIm, 0, vl), mQ = __riscv_vmsne_vx_i16m1_b16(dQm, 0, vl);
+        #define RLB_SI(a) __riscv_vmerge_vvm_i16m1(RLB_LD(a[0]), RLB_LD(a[2]), mI, vl)
+        #define RLB_SQ(a) __riscv_vmerge_vvm_i16m1(RLB_LD(a[0]), RLB_LD(a[2]), mQ, vl)
+        rvlb64_eval16(RLB_SI(sIv), RLB_SQ(sQv), RLB_SI(sbI0), RLB_SI(sbI1), RLB_SI(sbI2), RLB_SQ(sbQ0), RLB_SQ(sbQ1), RLB_SQ(sbQ2),
+                      RLB_SI(sc0I), RLB_SQ(sc0Q), RLB_SI(seI), RLB_SQ(seQ), RLB_SI(srrI), RLB_SI(sriI), RLB_SQ(srrQ), RLB_SQ(sriQ),
+                      z2r, z2i, rr, ri, cm1, z2r42, z2i42, Pp1_5, max0, max1, vl);
+        #undef RLB_SI
+        #undef RLB_SQ
+      }
+    }
+    #undef RLB_EVAL
+    for (int p = 0; p < 6; p++) {
+      vint16m1_t diff = RLB_SU(RLB_LD(max0[p]), RLB_LD(max1[p]));
+      vint32m2_t w = __riscv_vsll_vx_i32m2(__riscv_vwadd_vx_i32m2(diff, 0, vl), 3, vl);
+      vint16m1_t res = __riscv_vnclip_wx_i16m1(w, 0, __RISCV_VXRM_RDN, vl);
+      res = __riscv_vmerge_vvm_i16m1(res, __riscv_vmv_v_x_i16m1(-NR_LBEST_Q_LLR_SAT, vl), __riscv_vmseq_vx_i16m1_b16(RLB_LD(max0[p]), NR_LBEST_SIMD16_SENT, vl), vl);
+      res = __riscv_vmerge_vvm_i16m1(res, __riscv_vmv_v_x_i16m1(NR_LBEST_Q_LLR_SAT, vl), __riscv_vmseq_vx_i16m1_b16(RLB_LD(max1[p]), NR_LBEST_SIMD16_SENT, vl), vl);
+      __riscv_vsse16_v_i16m1(stream0_out + 6 * nn + p, 6 * sizeof(int16_t), res, vl);
+    }
+    nn += (uint32_t)vl;
+  }
+  return;
+#else
   const simde__m256i SENT = simde_mm256_set1_epi16(NR_LBEST_SIMD16_SENT);
   const simde__m256i FLOORM = simde_mm256_set1_epi16(-32000); // keep real metrics above SENT
   const simde__m256i V1 = simde_mm256_set1_epi16(1), V4 = simde_mm256_set1_epi16(4);
@@ -5202,6 +5358,7 @@ void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
   if (re < length)
     nr_qam64_llr_2layer_lbest_q15_layer(&stream0_in[re], &stream1_in[re], &ch_mag[re], &ch_mag_i[re],
                                         &stream0_out[re * 6], &rho01[re], length - re, 9);
+#endif
 }
 
 // ============================================================================
