@@ -40,6 +40,7 @@
 #ifdef E3_AGENT
 #include "openair2/E3AP/ran_func_spectrum_extern.h"
 #endif /* E3_AGENT */
+#include "gNB_scheduler_ulsch_MU_MIMO_policies.h"
 
 #define MACSTATSSTRLEN 36256
 
@@ -310,7 +311,11 @@ void mac_top_init_gNB(ngran_node_t node_type,
       RC.nrmac[i]->ul_tda_select = nr_ul_tda_select_default;
       RC.nrmac[i]->ul_beam_select = nr_ul_beam_select_default;
       RC.nrmac[i]->ul_mcs_select = nr_ul_mcs_select_default;
-      RC.nrmac[i]->ul_rb_alloc = nr_ul_proportional_fair;
+      if (config->ul_mu_mimo) {
+        RC.nrmac[i]->ul_rb_alloc = nr_ul_pf_mu_mimo;
+      } else {
+        RC.nrmac[i]->ul_rb_alloc = nr_ul_proportional_fair;
+      }
 
       RC.nrmac[i]->dl_lcid_alloc = nr_dl_lcid_alloc_default;
 
