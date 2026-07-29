@@ -295,6 +295,7 @@ void mac_top_init_gNB(ngran_node_t node_type,
 
       cell->cset0_bwp_start = 0;
       cell->cset0_bwp_size = 0;
+      RC.nrmac[i]->srs_period_slots = 0;
 
       cell->ul_next = (fsn_t) {.mu = *scc->ssbSubcarrierSpacing};
       RC.nrmac[i]->print_ue_stats = true;

@@ -1089,6 +1089,7 @@ struct nr_ul_candidate {
   int priority; ///< LC priority from first DRB (0 if none)
   nssai_t nssai; ///< slice/service type/differentiator from first DRB
   int beam_index;
+  bool has_mu_partner;
 
   /* ── Power control (set by collect, read-only after) ─────────────────────── */
   int ph; ///< power headroom
@@ -1343,6 +1344,9 @@ typedef struct gNB_MAC_INST_s {
   nr_cell_sched_t cells[NR_MAX_CELLS];
 
   NR_UEs_t UE_info;
+
+  /// SRS Periodicity (in slots)
+  int srs_period_slots;
 
   /// DL preprocessor for differentiated scheduling
   nr_pp_impl_dl pre_processor_dl;
