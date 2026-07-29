@@ -59,15 +59,16 @@ static inline vint16m1_t rvv_chmag(vint16m1_t ar, vint16m1_t ai, int16_t amp, in
 }
 
 void nr_channel_compensation(uint32_t buffer_length,
+                             uint32_t pdsch_buf_size_max,
                              int nb_rx_ant,
                              int nb_layers,
                              c16_t rxFext[nb_rx_ant][buffer_length],
                              c16_t chFext[nb_layers][nb_rx_ant][buffer_length],
-                             c16_t ch_maga[nb_layers][buffer_length],
-                             c16_t ch_magb[nb_layers][buffer_length],
-                             c16_t ch_magc[nb_layers][buffer_length],
+                             c16_t ch_maga[nb_layers][pdsch_buf_size_max],
+                             c16_t ch_magb[nb_layers][pdsch_buf_size_max],
+                             c16_t ch_magc[nb_layers][pdsch_buf_size_max],
                              c16_t **rxComp,
-                             c16_t (*rho)[nb_layers][buffer_length],
+                             c16_t (*rho)[nb_layers][pdsch_buf_size_max],
                              int mod_order,
                              uint32_t symbol,
                              uint32_t output_shift)
