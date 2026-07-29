@@ -262,7 +262,7 @@ static int compare_ul_pf_rb_ptrs(const void *a, const void *b)
   return compare_ul_pf(ca, cb, ca->sched_pusch.mcs, cb->sched_pusch.mcs);
 }
 
-static void nr_ul_port_select_default(const nr_ul_sched_params_t *params, nr_ul_candidate_t *cand)
+void nr_ul_port_select_default(const nr_ul_sched_params_t *params, nr_ul_candidate_t *cand)
 {
   if (cand->is_retx) {
     const NR_sched_pusch_t *retInfo = &cand->UE->UE_sched_ctrl.ul_harq_processes[cand->retx_harq_pid].sched_pusch;
