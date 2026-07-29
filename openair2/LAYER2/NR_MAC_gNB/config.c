@@ -1047,6 +1047,7 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
   config_common(cell, config, scc);
   if (cell->radio_config.do_SRS == PERIODIC_SRS)
     cell->periodic_srs_config = create_period_structure(cell, SRS);
+  cell->ul_mu_mimo_srs_max_age_slots = config->ul_mu_mimo_srs_max_age_ms * cell->frame_structure.numb_slots_frame / 10;
   fill_beam_index_list(scc, config, cell);
 
   find_SSB_and_RO_available(cell);
