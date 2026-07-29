@@ -71,7 +71,7 @@ static bool get_ids_from_fs_combination(const NR_UE_NR_Capability_t *cap, long f
   return true;
 }
 
-NR_feature_set_ids_t get_feature_set_ids (const NR_UE_NR_Capability_t *cap, int band, nr_rat_type_t type)
+NR_feature_set_ids_t get_feature_set_ids(const NR_UE_NR_Capability_t *cap, int band, nr_rat_type_t type)
 {
   NR_feature_set_ids_t ids = {0};
 
