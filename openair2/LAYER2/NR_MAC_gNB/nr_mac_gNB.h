@@ -1183,6 +1183,8 @@ struct nr_ul_candidate {
   int priority; ///< LC priority from first DRB (0 if none)
   nssai_t nssai; ///< slice/service type/differentiator from first DRB
   int beam_index;
+  int mu_partner;
+  float mu_pf_bias;
 
   /* ── Power control (set by collect, read-only after) ─────────────────────── */
   int ph; ///< power headroom

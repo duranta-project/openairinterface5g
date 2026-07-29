@@ -3409,7 +3409,9 @@ void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti)
 {
   NR_UEs_t *UE_info = &nr_mac->UE_info;
   NR_UE_info_t *UE = remove_connected_nr_ue(UE_info, rnti);
-  if (!UE)
+  if (UE)
+    nr_mu_invalidate_pair_cache(nr_mac, rnti);
+  else
     UE = remove_ra_ue(UE_info, rnti);
   if (UE)
     release_nr_ue_inst(&nr_mac->UE_info.uid_allocator, UE);
