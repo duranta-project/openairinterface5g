@@ -228,6 +228,8 @@ typedef struct nr_mac_config_s {
   /// Sized to the max number of physical RU antenna ports, NOT to be confused
   /// with MAX_NUM_SPATIAL_STREAMS, which bounds the per-PDU NFAPI wire field.
   uint16_t spatial_stream_index[NR_MAC_MAX_RU_ANTENNA_PORTS];
+  /// Enable the UL MU-MIMO scheduler policy
+  bool ul_mu_mimo;
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {
