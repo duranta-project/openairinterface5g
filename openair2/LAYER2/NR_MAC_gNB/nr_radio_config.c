@@ -744,6 +744,9 @@ static struct NR_SRS_Resource__resourceType__periodic *configure_periodic_srs(co
     periodic_srs->periodicityAndOffset_p.choice.sl2560 = offset;
   } else
     AssertFatal(false, "Invalid SRS periodicity %d\n", ideal_period);
+
+  RC.nrmac[0]->srs_period_slots = srs_period[periodic_srs->periodicityAndOffset_p.present];
+
   return periodic_srs;
 }
 
