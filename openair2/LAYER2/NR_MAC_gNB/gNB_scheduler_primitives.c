@@ -3317,10 +3317,12 @@ void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti)
 {
   NR_UEs_t *UE_info = &nr_mac->UE_info;
   NR_UE_info_t *UE = remove_UE_from_list(MAX_MOBILES_PER_GNB + 1, UE_info->connected_ue_list, rnti);
-  if (UE)
+  if (UE) {
+    nr_mu_invalidate_pair_cache(nr_mac, rnti);
     delete_nr_ue_data(UE, &UE_info->uid_allocator);
-  else
+  } else {
     nr_release_ra_UE(nr_mac, rnti);
+  }
 }
 
 /**

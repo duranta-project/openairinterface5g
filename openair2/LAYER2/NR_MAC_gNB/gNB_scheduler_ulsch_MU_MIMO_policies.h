@@ -7,4 +7,6 @@
 
 #include "LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
 
+int nr_ul_pf_mu_mimo(const nr_ul_sched_params_t *params, nr_ul_candidate_t *candidates, int n_candidates);
+
 #endif // GNB_SCHEDULER_ULSCH_MU_MIMO_POLICIES_H

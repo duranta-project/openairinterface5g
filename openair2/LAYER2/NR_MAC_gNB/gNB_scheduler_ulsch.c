@@ -1650,6 +1650,10 @@ void handle_nr_srs_measurements(const module_id_t module_id,
 
       sprintf(stats->srs_stats, "UL-RI %d, TPMI %d", sched_ctrl->srs_feedback.ul_ri + 1, sched_ctrl->srs_feedback.tpmi);
 
+      // Update the MU-MIMO correlation pair cache after receiving SRS
+      if (cell->radio_config.ul_mu_mimo)
+        nr_mu_update_pair_cache(nrmac, cell, UE);
+
       break;
     }
 
