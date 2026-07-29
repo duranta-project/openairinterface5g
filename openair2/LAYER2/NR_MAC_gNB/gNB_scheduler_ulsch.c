@@ -1871,13 +1871,13 @@ static bool nr_UE_is_to_be_scheduled(const frame_structure_t *fs,
   const bool has_data = sched_ctrl->estimated_ul_buffer > sched_ctrl->sched_ul_bytes;
   const bool high_inactivity = diff >= (ulsch_max_frame_inactivity > 0 ? ulsch_max_frame_inactivity * n : num_slots_per_period);
   LOG_D(NR_MAC,
-        "%4d.%2d UL inactivity %d slots has_data %d SR %d\n",
+        "%4d.%2d UL inactivity %d slots has_data %d SR count %d\n",
         frame,
         slot,
         diff,
         has_data,
-        sched_ctrl->SR);
-  return has_data || sched_ctrl->SR || high_inactivity;
+        sched_ctrl->sr_cnt);
+  return has_data || sched_ctrl->sr_cnt > 0 || high_inactivity;
 }
 
 void update_ul_ue_R_Qm(int mcs, int mcs_table, const NR_PUSCH_Config_t *pusch_Config, uint16_t *R, uint8_t *Qm)
@@ -2407,7 +2407,7 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
   NR_UE_UL_BWP_t *current_BWP = &UE->current_UL_BWP;
 
   /* the UE now has the grant for the request */
-  sched_ctrl->SR = false;
+  sched_ctrl->sr_cnt = 0;
 
   int8_t harq_id = sched_pusch->ul_harq_pid;
   if (harq_id < 0) {
@@ -2736,7 +2736,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     cand.max_mcs = max_mcs;
     cand.last_num_sched = sched_ctrl->ul_bler_stats.last_num_sched;
     cand.snrx10 = (int)(sched_ctrl->pusch_pc.avg_snr * 10);
-
+    cand.sr_cnt = sched_ctrl->sr_cnt;
     LOG_D(NR_MAC,
           "[UE %04x][%4d.%2d] b %d, ul_thr_ue %f, mcs %d, sched_inactive %d sched_srs %d\n",
           UE->rnti,
