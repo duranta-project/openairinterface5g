@@ -1649,6 +1649,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
     config.ul_prbblack_SNR_threshold = *gpd(params, np, MACRLC_UL_PRBBLACK_SNR_THRESHOLD)->iptr;
     config.pucch.failure_thres = *gpd(params, np, MACRLC_PUCCHFAILURETHRES)->iptr;
     config.pusch.failure_thres = *gpd(params, np, MACRLC_PUSCHFAILURETHRES)->iptr;
+    config.ul_mu_mimo = *gpd(params, np, MACRLC_UL_MU_MIMO)->u8ptr;
 
     LOG_I(NR_MAC,
           "PUSCH Target %d RSSI thresh %d Failure %d, PUCCH Target %d RSSI thresh %d Failure %d\n",
@@ -1658,6 +1659,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
           config.pucch.target_snrx10,
           config.pucch.rssi_threshold,
           config.pucch.failure_thres);
+    LOG_I(NR_MAC, "UL MU-MIMO scheduler %s\n", config.ul_mu_mimo ? "enabled" : "disabled");
 
     ngran_node_t node_type = get_node_type();
     mac_top_init_gNB(node_type, scc, &config, &default_rlc_config, &cell);

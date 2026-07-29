@@ -222,6 +222,8 @@ typedef struct nr_mac_config_s {
   nr_beam_table_t bt;
   /// Spatial stream indexing for mapping onto RU ports. Needed for MU-MIMO
   uint16_t spatial_stream_index[MAX_NUM_SPATIAL_STREAMS];
+  /// Enable the UL MU-MIMO scheduler policy
+  bool ul_mu_mimo;
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {
