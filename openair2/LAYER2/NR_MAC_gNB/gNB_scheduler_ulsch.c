@@ -1758,6 +1758,9 @@ void handle_nr_srs_measurements(gNB_MAC_INST *nrmac,
 
       sprintf(stats->srs_stats, "UL-RI %d, TPMI %d", sched_ctrl->srs_feedback.ul_ri + 1, sched_ctrl->srs_feedback.tpmi);
 
+      if (!cell->radio_config.ul_mu_mimo)
+        break;
+
       const uint8_t ul_ri = sched_ctrl->srs_feedback.ul_ri;
       const int nrOfLayers = ul_ri + 1;
       const uint16_t num_rx = nr_srs_channel_iq_matrix.num_gnb_antenna_elements;
@@ -1785,6 +1788,8 @@ void handle_nr_srs_measurements(gNB_MAC_INST *nrmac,
       srs_eff->num_rx = num_rx;
       srs_eff->num_prg = num_prgs;
       srs_eff->valid = true;
+
+      nr_mu_update_pair_cache(nrmac, cell, UE);
       break;
     }
 
