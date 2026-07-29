@@ -5088,7 +5088,14 @@ static inline void nr_lbest_simd_seed16(simde__m256i z1r16, simde__m256i z1i16, 
 #if defined(__riscv) && defined(__riscv_vector)
 /* RVV port of the L-best 64QAM detector (reentrant: vl passed explicitly; the
  * macros assume `vl` in scope). Byte-exact vs x86-native (rvv_qam64_lbest_test:
- * 0/1536, both VLENs). Float ZF seed + integer 3x3 reduced search. */
+ * 0/1536, both VLENs). Float ZF seed + integer 3x3 reduced search.
+ *
+ * The seed/eval16 helpers are always_inline: rvlb64_eval16 takes 24 vector values
+ * by parameter, which overflows the RVV vector-argument registers. When left as an
+ * out-of-line call inside this large TU the SpaceMIT gcc mishandles the spilled
+ * scalable-vector stack args (garbage metrics -> ~50% LLR BER on the board), even
+ * though the identical kernel compiled correctly in the standalone harness (where it
+ * was inlined). Inlining removes the vector-arg passing entirely and restores decode. */
 #define RLB_MV(x,y)  __riscv_vmul_vv_i16m1((x),(y),vl)
 #define RLB_MVX(x,c) __riscv_vmul_vx_i16m1((x),(c),vl)
 #define RLB_MH(x,y)  __riscv_vnsra_wx_i16m1(__riscv_vwmul_vv_i32m2((x),(y),vl),16,vl)
@@ -5116,7 +5123,7 @@ static inline vint16m1_t rvlb64_level16(vint16m1_t num, vint16m1_t thunit, size_
   vint16m1_t mag = RLB_AD(o1, __riscv_vsll_vx_i16m1(RLB_AD(RLB_AD(g2, g4), g6), 1, vl));
   return __riscv_vmerge_vvm_i16m1(mag, __riscv_vneg_v_i16m1(mag, vl), __riscv_vmslt_vx_i16m1_b16(num, 0, vl), vl);
 }
-static void rvlb64_seed(vint16m1_t z1r, vint16m1_t z1i, vint16m1_t z2r, vint16m1_t z2i, vint16m1_t rr, vint16m1_t ri,
+static inline __attribute__((always_inline)) void rvlb64_seed(vint16m1_t z1r, vint16m1_t z1i, vint16m1_t z2r, vint16m1_t z2i, vint16m1_t rr, vint16m1_t ri,
                         vint16m1_t cm0, vint16m1_t cm1, vint16m1_t *cI, vint16m1_t *cQ, vint16m1_t *dIm, vint16m1_t *dQm, size_t vl)
 {
   vfloat32m2_t fz1r = __riscv_vfwcvt_f_x_v_f32m2(z1r, vl), fz1i = __riscv_vfwcvt_f_x_v_f32m2(z1i, vl);
@@ -5148,7 +5155,7 @@ static void rvlb64_seed(vint16m1_t z1r, vint16m1_t z1i, vint16m1_t z2r, vint16m1
   vint16m1_t z0 = __riscv_vmv_v_x_i16m1(0, vl), m1v = __riscv_vmv_v_x_i16m1(-1, vl);
   *dIm = __riscv_vmerge_vvm_i16m1(z0, m1v, mI, vl); *dQm = __riscv_vmerge_vvm_i16m1(z0, m1v, mQ, vl);
 }
-static void rvlb64_eval16(vint16m1_t I1, vint16m1_t Q1, vint16m1_t bI0, vint16m1_t bI1, vint16m1_t bI2, vint16m1_t bQ0, vint16m1_t bQ1, vint16m1_t bQ2,
+static inline __attribute__((always_inline)) void rvlb64_eval16(vint16m1_t I1, vint16m1_t Q1, vint16m1_t bI0, vint16m1_t bI1, vint16m1_t bI2, vint16m1_t bQ0, vint16m1_t bQ1, vint16m1_t bQ2,
                           vint16m1_t c0I, vint16m1_t c0Q, vint16m1_t eI, vint16m1_t eQ, vint16m1_t rrI, vint16m1_t riI, vint16m1_t rrQ, vint16m1_t riQ,
                           vint16m1_t z2r, vint16m1_t z2i, vint16m1_t rr, vint16m1_t ri, vint16m1_t cm1, vint16m1_t z2r42, vint16m1_t z2i42, vint16m1_t Pp1_5,
                           int16_t max0[6][64], int16_t max1[6][64], size_t vl)
