@@ -265,6 +265,14 @@ typedef struct nr_mac_config_s {
   /// Sized to the max number of physical RU antenna ports, NOT to be confused
   /// with MAX_NUM_SPATIAL_STREAMS, which bounds the per-PDU NFAPI wire field.
   uint16_t spatial_stream_index[NR_MAC_MAX_RU_ANTENNA_PORTS];
+  /// Enable the UL MU-MIMO scheduler policy
+  bool ul_mu_mimo;
+  /// UL MU-MIMO: maximum SRS channel cross-correlation of a UE pair
+  float ul_mu_mimo_corr_threshold;
+  /// UL MU-MIMO: proportional-fair weight factor of paired UEs
+  float ul_mu_mimo_pf_bias;
+  /// UL MU-MIMO: maximum age of an SRS channel estimate used for pairing
+  int ul_mu_mimo_srs_max_age_ms;
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {
@@ -1398,6 +1406,7 @@ typedef struct nr_cell_sched_s {
   bool first_MIB;
   NR_sched_pdsch_t sib1_pdsch[MAX_NUM_OF_SSB];
   periodic_ue_sched_t periodic_srs_config;
+  int ul_mu_mimo_srs_max_age_slots;
 
   /// Dedicated UL TDA list, built from frame_structure at config time
   seq_arr_t ul_tda;

@@ -8,6 +8,7 @@
 
 
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
+#include "gNB_scheduler_ulsch_MU_MIMO_policies.h"
 #include "executables/softmodem-common.h"
 #include "common/utils/nr/nr_common.h"
 #include "utils.h"
@@ -2354,6 +2355,8 @@ static int nr_ul_schedule(gNB_MAC_INST *nrmac,
     params.n_rb_avail[b] = n_rb_sched[b];
   }
 
+  /* MU-MIMO is a per-cell option, the allocator in nrmac serves the other cells */
+  const nr_ul_rb_alloc_fn ul_rb_alloc = cell->radio_config.ul_mu_mimo ? nr_ul_pf_mu_mimo : nrmac->ul_rb_alloc;
   int i = 0;
   while (i < n_cand) {
     int beam = candidates[i].alloc_beam_idx;
@@ -2365,7 +2368,7 @@ static int nr_ul_schedule(gNB_MAC_INST *nrmac,
       continue;
     int count = i - start;
 
-    nrmac->ul_rb_alloc(&params, candidates + start, count);
+    ul_rb_alloc(&params, candidates + start, count);
   }
 
   /* Release beam reservations for candidates the policy rejected (failed

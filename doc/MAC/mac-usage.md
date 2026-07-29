@@ -299,6 +299,18 @@ In the `MACRLCs` section of the gNB/DU configuration file:
 * `stats_max_ue` (default 8): maximum number of UEs to show in periodical
   stats; beyond this number, periodical statistics will be disabled (it can
   still be seen in `nrMAC_stats.log`. Use `0` to disable periodical stats.
+* `ul_mu_mimo` (default 0): enable the UL MU-MIMO scheduler, which pairs
+  rank-1 UEs whose SRS channel estimates are close to orthogonal and
+  co-schedules them on the same PRBs
+* `ul_mu_mimo_corr_threshold` (default 0.7): maximum cross-correlation (0 to
+  1) of the SRS effective channels of two UEs, on any PRG, to pair them
+* `ul_mu_mimo_pf_bias` (default 1.5): factor (at least 1) applied to the
+  proportional-fair weight of UEs that have a pairing partner, so that they
+  are scheduled first; 1 disables the bias
+* `ul_mu_mimo_srs_max_age_ms` (default 160): SRS channel estimates older than
+  this are not used for pairing, and cached pairs computed from them expire.
+  Keep it above the periodic SRS period, otherwise UEs are rarely paired,
+  e.g. 80 ms with 16 UEs, a 5 ms TDD period and 30 kHz SCS
 
 In the `gNBs` section of the gNB/DU configuration file: some of the parameters
 affect RRC configuration (CellGroupConfig) of a UE, and are therefore listed

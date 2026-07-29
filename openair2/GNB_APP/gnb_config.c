@@ -1650,6 +1650,14 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
   config.ul_prbblack_SNR_threshold = *gpd(macrlc_p, macrlc_np, MACRLC_UL_PRBBLACK_SNR_THRESHOLD)->iptr;
   config.pucch.failure_thres = *gpd(macrlc_p, macrlc_np, MACRLC_PUCCHFAILURETHRES)->iptr;
   config.pusch.failure_thres = *gpd(macrlc_p, macrlc_np, MACRLC_PUSCHFAILURETHRES)->iptr;
+  config.ul_mu_mimo = *gpd(macrlc_p, macrlc_np, MACRLC_UL_MU_MIMO)->u8ptr;
+  config.ul_mu_mimo_corr_threshold = *gpd(macrlc_p, macrlc_np, MACRLC_UL_MU_MIMO_CORR_THRESHOLD)->dblptr;
+  config.ul_mu_mimo_pf_bias = *gpd(macrlc_p, macrlc_np, MACRLC_UL_MU_MIMO_PF_BIAS)->dblptr;
+  config.ul_mu_mimo_srs_max_age_ms = *gpd(macrlc_p, macrlc_np, MACRLC_UL_MU_MIMO_SRS_MAX_AGE)->iptr;
+  AssertFatal(config.ul_mu_mimo_corr_threshold >= 0 && config.ul_mu_mimo_corr_threshold <= 1,
+              MACRLC_UL_MU_MIMO_CORR_THRESHOLD " %.2f out of range [0, 1]\n",
+              config.ul_mu_mimo_corr_threshold);
+  AssertFatal(config.ul_mu_mimo_pf_bias >= 1, MACRLC_UL_MU_MIMO_PF_BIAS " %.2f must be at least 1\n", config.ul_mu_mimo_pf_bias);
   LOG_I(NR_MAC,
         "PUSCH Target %d RSSI thresh %d Failure %d, PUCCH Target %d RSSI thresh %d Failure %d\n",
         config.pusch.target_snrx10,
@@ -1658,6 +1666,14 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
         config.pucch.target_snrx10,
         config.pucch.rssi_threshold,
         config.pucch.failure_thres);
+  if (config.ul_mu_mimo)
+    LOG_I(NR_MAC,
+          "UL MU-MIMO scheduler enabled: correlation threshold %.2f, PF bias %.2f, SRS max age %d ms\n",
+          config.ul_mu_mimo_corr_threshold,
+          config.ul_mu_mimo_pf_bias,
+          config.ul_mu_mimo_srs_max_age_ms);
+  else
+    LOG_I(NR_MAC, "UL MU-MIMO scheduler disabled\n");
 
   // BWP
   get_bwp_config(&config, bw, idx);
