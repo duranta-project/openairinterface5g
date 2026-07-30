@@ -215,6 +215,53 @@ hot at high throughput — the scalar slice-by-4 is already adequate.
 
 ---
 
+## 5b. Running on the K3 board (X100 / A100)
+
+The SpaceMIT K3 has two vector clusters that must be selected explicitly:
+
+| Cluster | CPUs | VLEN | notes |
+|---|---|---|---|
+| **X100** | `cpu0`–`cpu7` | 256-bit (`vlenb=32`) | default; no special launch |
+| **A100** | `cpu8`–`cpu15` | 1024-bit (`vlenb=128`) | requires the `/proc/set_ai_thread` switch **before any vector op** |
+
+**The A100 switch.** Writing the thread's PID to `/proc/set_ai_thread` moves it to the
+A100 cluster and changes VLEN to 1024 *at runtime*. Two hard rules:
+1. **VLEN must be constant for a function's stack frame.** Do the switch, then call the
+   vector work as a separate `noinline` function so its prologue reads the post-switch
+   `vlenb` and sizes spill slots correctly (keep `main()` scalar). The simplest way to
+   guarantee this is to switch *before* `exec`, so the whole program starts at VLEN=1024.
+2. **Run from an interactive shell.** A non-interactive `ssh host '…'` invocation dies at
+   init (the "CPU channel pipeline" pre-alloc) — this hits even old binaries, so it is an
+   environment quirk, not the code. Use `ssh -t`, a login shell, or run on the box.
+
+**Launch recipes** (switch-before-exec form, no in-program switch needed):
+
+```bash
+# A100 (cpu8, VLEN=1024) — harness
+sh -c 'echo $$ >/proc/set_ai_thread; exec ./rvv_chlevel_test 8'
+
+# A100 — nr_dlsim / nr_ulsim (env + taskset after the switch)
+sh -c 'echo $$ >/proc/set_ai_thread; exec env LD_LIBRARY_PATH=. taskset -c 8 ./nr_dlsim <args>'
+
+# X100 (cpu2, VLEN=256) — no switch
+LD_LIBRARY_PATH=. taskset -c 2 ./nr_dlsim <args>
+```
+
+**Verify the VLEN actually took** (a one-shot `__riscv_vlenb()` print in the kernel, or the
+harness banner): cpu8-with-switch prints `vlenb=128` (VLEN=1024, `e16m1` vlmax=64); cpu2
+prints `vlenb=32` (VLEN=256, vlmax=16). If a `taskset -c 8` run shows `vlenb=32`, the switch
+did not take (missing/failed `/proc/set_ai_thread` write) and you are measuring the A100
+core at the wrong VLEN.
+
+**Perf note.** A100's wide VLEN helps *compute-dense* kernels but *loses* on memory-bound
+ones (segment/strided loads, stack round-trips) — e.g. the 2-layer L-best was ~4× slower on
+A100 than X100. See `nr_phy_common/src/nr_mimo_lbest_detector.md` and `RX_FUSION_ASSESSMENT.md`.
+
+*Canonical source for the mechanism:* the `LAUNCH NOTE` comment in
+`rvv_harness/rvv_chlevel_test.c` and the `use_ai()` helper in the harness `.c` files.
+
+---
+
 ## 6. Recommended ordering and rough sizing
 
 T-shirt sizes are relative engineering effort, not calendar time.
