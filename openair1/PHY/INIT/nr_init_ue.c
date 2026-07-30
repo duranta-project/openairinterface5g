@@ -454,17 +454,22 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
   const uint32_t pdsch_est_size = fp->symbols_per_slot * fp->ofdm_symbol_size;
   const uint32_t llr_buf_max = NR_NB_SC_PER_RB * NR_SYMBOLS_PER_SLOT * fp->N_RB_DL * 8 * NR_MAX_NB_LAYERS;
   const size_t comp_elems = (size_t)NR_SYMBOLS_PER_SLOT * NR_MAX_NB_LAYERS * pdsch_buf_size_max;
-  const size_t rho_elems  = (size_t)NR_SYMBOLS_PER_SLOT * NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS * pdsch_buf_size_max;
+  // R1.2a: dl_ch_mag*/rho_dl are consumed within the per-symbol nr_rx_pdsch call
+  // (LLR is no longer deferred) and are not exported by any observability tap, so
+  // they only need single-symbol storage. rxdataF_comp stays full-slot for the scope
+  // taps (shrunk in R1.2b).
+  const size_t comp_elems_sym = (size_t)NR_MAX_NB_LAYERS * pdsch_buf_size_max;
+  const size_t rho_elems  = (size_t)NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS * pdsch_buf_size_max;
   const size_t ch_est_elems = (size_t)fp->nb_antennas_rx * NR_MAX_NB_LAYERS * pdsch_est_size;
   for (int i = 0; i < num_actors; i++) {
     buffers[i].pdsch_buf_size_max           = pdsch_buf_size_max;
     buffers[i].pdsch_est_size        = pdsch_est_size;
     buffers[i].llr_buf_max           = llr_buf_max;
-    buffers[i].rxdataF_comp          = malloc16_clear(comp_elems   * sizeof(c16_t));
-    buffers[i].dl_ch_mag             = malloc16_clear(comp_elems   * sizeof(c16_t));
-    buffers[i].dl_ch_magb            = malloc16_clear(comp_elems   * sizeof(c16_t));
-    buffers[i].dl_ch_magr            = malloc16_clear(comp_elems   * sizeof(c16_t));
-    buffers[i].rho_dl                = malloc16_clear(rho_elems    * sizeof(c16_t));
+    buffers[i].rxdataF_comp          = malloc16_clear(comp_elems     * sizeof(c16_t));
+    buffers[i].dl_ch_mag             = malloc16_clear(comp_elems_sym * sizeof(c16_t));
+    buffers[i].dl_ch_magb            = malloc16_clear(comp_elems_sym * sizeof(c16_t));
+    buffers[i].dl_ch_magr            = malloc16_clear(comp_elems_sym * sizeof(c16_t));
+    buffers[i].rho_dl                = malloc16_clear(rho_elems      * sizeof(c16_t));
     buffers[i].pdsch_dl_ch_estimates = malloc16_clear(ch_est_elems * sizeof(int32_t));
     for (int c = 0; c < 2; c++)
       buffers[i].llr[c]              = malloc16(llr_buf_max * sizeof(int16_t));

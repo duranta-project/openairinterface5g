@@ -750,14 +750,14 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                 uint32_t pdsch_buf_size_max,
                 int nbRx,
                 c16_t rxdataF_comp[][NR_MAX_NB_LAYERS][pdsch_buf_size_max],
-                c16_t dl_ch_mag[][NR_MAX_NB_LAYERS][pdsch_buf_size_max],
-                c16_t dl_ch_magb[][NR_MAX_NB_LAYERS][pdsch_buf_size_max],
-                c16_t dl_ch_magr[][NR_MAX_NB_LAYERS][pdsch_buf_size_max],
+                c16_t dl_ch_mag[NR_MAX_NB_LAYERS][pdsch_buf_size_max],
+                c16_t dl_ch_magb[NR_MAX_NB_LAYERS][pdsch_buf_size_max],
+                c16_t dl_ch_magr[NR_MAX_NB_LAYERS][pdsch_buf_size_max],
                 c16_t ptrs_phase_per_slot[][NR_SYMBOLS_PER_SLOT],
                 int32_t ptrs_re_per_slot[][NR_SYMBOLS_PER_SLOT],
                 uint32_t nvar,
                 pdsch_scope_req_t *scope_req,
-                c16_t rho_dl[][NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max])
+                c16_t rho_dl[NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max])
 {
   NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
   const int nl = dlsch->cw_info.Nl;
@@ -996,11 +996,11 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                           nl,
                           rxdataF_ext,
                           chFext,
-                          dl_ch_mag[symbol],
-                          dl_ch_magb[symbol],
-                          dl_ch_magr[symbol],
+                          dl_ch_mag,
+                          dl_ch_magb,
+                          dl_ch_magr,
                           p_rxComp,
-                          need_rho ? (c16_t(*)[nl][pdsch_buf_size_max])rho_dl[symbol] : NULL,
+                          need_rho ? (c16_t(*)[nl][pdsch_buf_size_max])rho_dl : NULL,
                           dlsch->cw_info.qamModOrder,
                           0, // symbol already baked into p_rxComp
                           *log2_maxh);
@@ -1044,24 +1044,24 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                     nbRx,
                     nl,
                     rxdataF_comp[symbol],
-                    dl_ch_mag[symbol],
-                    dl_ch_magb[symbol],
-                    dl_ch_magr[symbol],
+                    dl_ch_mag,
+                    dl_ch_magb,
+                    dl_ch_magr,
                     dl_ch_estimates_ext,
                     qamModOrder,
                     *log2_maxh,
                     nb_re_pdsch,
                     nvar,
-                    (need_rho && mmse_gram) ? rho_dl[symbol] : NULL); // Gram-based build; OAI_MMSE_GRAM=0 -> legacy chFext
+                    (need_rho && mmse_gram) ? rho_dl : NULL); // Gram-based build; OAI_MMSE_GRAM=0 -> legacy chFext
     } else if ((nl == 2) && (qamModOrder > 6) && do_ml && !ml256) {
       nr_mmse_2layers(p_rxComp,
                       rx_size_symbol,
                       pdsch_buf_size_max,
                       nbRx,
                       nl,
-                      dl_ch_mag[symbol],
-                      dl_ch_magb[symbol],
-                      dl_ch_magr[symbol],
+                      dl_ch_mag,
+                      dl_ch_magb,
+                      dl_ch_magr,
                       chFext,
                       freq_alloc->num_rbs,
                       qamModOrder,
@@ -1069,10 +1069,10 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                       0,
                       nb_re_pdsch,
                       nvar,
-                      (need_rho && mmse_gram) ? rho_dl[symbol][0] : NULL,
-                      (need_rho && mmse_gram) ? rho_dl[symbol][1] : NULL,
-                      (need_rho && mmse_gram) ? rho_dl[symbol][nl] : NULL,
-                      (need_rho && mmse_gram) ? rho_dl[symbol][nl + 1] : NULL); // Gram; OAI_MMSE_GRAM=0 -> chFext
+                      (need_rho && mmse_gram) ? rho_dl[0] : NULL,
+                      (need_rho && mmse_gram) ? rho_dl[1] : NULL,
+                      (need_rho && mmse_gram) ? rho_dl[nl] : NULL,
+                      (need_rho && mmse_gram) ? rho_dl[nl + 1] : NULL); // Gram; OAI_MMSE_GRAM=0 -> chFext
     }
   }
   stop_meas_nr_ue_phy(ue, DLSCH_MRC_MMSE_STATS);
@@ -1139,21 +1139,21 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     if (nl == 2 && do_ml && (qamModOrder <= 6 || (qamModOrder == 8 && ml256))) {
       // 2-layer QPSK/16QAM/64QAM (and 256QAM under the OAI_LBEST analysis gate):
       // joint ML-LLR using inter-layer Tx correlation.
-      // rho_dl[symbol] is [nl*nl][rx_size_symbol]: index 1 = rho[0][1], index nl = rho[1][0]
+      // rho_dl is [nl*nl][rx_size_symbol]: index 1 = rho[0][1], index nl = rho[1][0]
       nr_compute_ML_llr(rxdataF_comp[symbol][0],
                         rxdataF_comp[symbol][1],
-                        dl_ch_mag[symbol][0],
-                        dl_ch_mag[symbol][1],
+                        dl_ch_mag[0],
+                        dl_ch_mag[1],
                         layer_llr[0],
                         layer_llr[1],
-                        rho_dl[symbol][1],
-                        rho_dl[symbol][nl],
+                        rho_dl[1],
+                        rho_dl[nl],
                         this_re,
                         qamModOrder);
     } else if (ml3) {
       // 3-layer hybrid ML (gated, float reference). For each target layer t, project the
       // most-orthogonal nuisance + Schur-deflate, then 2-layer conditional-slice on the kept
-      // pair. rho_dl[symbol] is [nl*nl][rx]: rho[i][j] at index i*nl+j (= h_i^H h_j).
+      // pair. rho_dl is [nl*nl][rx]: rho[i][j] at index i*nl+j (= h_i^H h_j).
       // OAI_LBEST3=2 -> exact full-ML reference instead of the hybrid; OAI_LBEST_L3 -> L.
       static int mode3 = -1, L3 = 256;
       if (mode3 < 0) {
@@ -1164,16 +1164,16 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
       }
       for (int t = 0; t < 3; t++) {
         const int n1 = (t + 1) % 3, n2 = (t + 2) % 3;
-        c16_t *r_tn1 = rho_dl[symbol][t * nl + n1];
-        c16_t *r_tn2 = rho_dl[symbol][t * nl + n2];
-        c16_t *r_n1n2 = rho_dl[symbol][n1 * nl + n2];
+        c16_t *r_tn1 = rho_dl[t * nl + n1];
+        c16_t *r_tn2 = rho_dl[t * nl + n2];
+        c16_t *r_n1n2 = rho_dl[n1 * nl + n2];
         if (mode3 == 2)
           nr_qam_llr_3layer_ml(rxdataF_comp[symbol][t],
                                rxdataF_comp[symbol][n1],
                                rxdataF_comp[symbol][n2],
-                               dl_ch_mag[symbol][t],
-                               dl_ch_mag[symbol][n1],
-                               dl_ch_mag[symbol][n2],
+                               dl_ch_mag[t],
+                               dl_ch_mag[n1],
+                               dl_ch_mag[n2],
                                r_tn1,
                                r_tn2,
                                r_n1n2,
@@ -1184,9 +1184,9 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
           nr_qam_llr_3layer_hybrid(rxdataF_comp[symbol][t],
                                    rxdataF_comp[symbol][n1],
                                    rxdataF_comp[symbol][n2],
-                                   dl_ch_mag[symbol][t],
-                                   dl_ch_mag[symbol][n1],
-                                   dl_ch_mag[symbol][n2],
+                                   dl_ch_mag[t],
+                                   dl_ch_mag[n1],
+                                   dl_ch_mag[n2],
                                    r_tn1,
                                    r_tn2,
                                    r_n1n2,
@@ -1200,9 +1200,9 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
       nr_dlsch_llr(dlsch,
                    this_re,
                    pdsch_buf_size_max,
-                   dl_ch_mag[symbol][0],
-                   dl_ch_magb[symbol][0],
-                   dl_ch_magr[symbol][0],
+                   dl_ch_mag[0],
+                   dl_ch_magb[0],
+                   dl_ch_magr[0],
                    nbRx,
                    rxdataF_comp[symbol],
                    this_llr_size,
