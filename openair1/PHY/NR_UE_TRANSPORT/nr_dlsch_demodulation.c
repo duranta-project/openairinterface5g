@@ -521,7 +521,8 @@ static void nr_dlsch_mmse(uint32_t pdsch_buf_size_max,
                           unsigned char mod_order,
                           int shift,
                           int length,
-                          uint32_t noise_var)
+                          uint32_t noise_var,
+                          c16_t rho[nl * nl][pdsch_buf_size_max])
 {
   uint32_t nb_rb_0 = (length + 11) / 12;
   c16_t determ_fin[12 * nb_rb_0] __attribute__((aligned(32)));
@@ -535,19 +536,32 @@ static void nr_dlsch_mmse(uint32_t pdsch_buf_size_max,
       for (int ctx = 0; ctx < nl; ctx++)
         conjH_H_elements[aarx][rtx][ctx] = conjH_H_elements_data[aarx][rtx][ctx];
 
-  //Compute H^*H matrix elements and sub elements:(1/2^log2_maxh)*conjH_H_elements
-  for (int rtx = 0; rtx < nl; rtx++) {//row
-    for (int ctx = 0; ctx < nl; ctx++) {//column
-      for (int aarx = 0; aarx < n_rx; aarx++)  {
-        c16_t *ch0r = dl_ch_estimates_ext[rtx * n_rx + aarx];
-        c16_t *ch0c = dl_ch_estimates_ext[ctx * n_rx + aarx];
-        mult_cpx_conj_vector(ch0r,
-                            ch0c,
-                            conjH_H_elements[aarx][ctx][rtx], // sic
-                            nb_rb_0 * NR_NB_SC_PER_RB,
-                            shift);
-        if (aarx != 0)
-          nr_a_sum_b(conjH_H_elements[0][ctx][rtx], conjH_H_elements[aarx][ctx][rtx], nb_rb_0);
+  // Compute H^*H matrix elements and sub elements:(1/2^log2_maxh)*conjH_H_elements
+  if (rho) {
+    // Gram-based: rho already holds Sum_rx conj(ch_i)*ch_j >> log2_maxh (the full nl x nl Gram,
+    // diagonal included), at the same scale conjH_H uses. The chFext-based build below re-derives
+    // exactly this. conjH_H[ctx][rtx] = conj(ch_rtx)*ch_ctx = rho[rtx][ctx] (flat: rho[rtx*nl+ctx]).
+    // (Conjugate/transpose direction validated against the chFext path in dlsim.)
+    for (int rtx = 0; rtx < nl; rtx++)
+      for (int ctx = 0; ctx < nl; ctx++)
+        memcpy(conjH_H_elements[0][ctx][rtx], rho[rtx * nl + ctx], length * sizeof(c16_t));
+  } else {
+    for (int rtx = 0; rtx < nl; rtx++) { // row
+      for (int ctx = 0; ctx < nl; ctx++) { // column
+        for (int aarx = 0; aarx < n_rx; aarx++) {
+          c16_t *ch0r = dl_ch_estimates_ext[rtx * n_rx + aarx];
+          c16_t *ch0c = dl_ch_estimates_ext[ctx * n_rx + aarx];
+          /* upstream replaced nr_conjch0_mult_ch1() here: it is now static in
+             nr_compute_llr.c, and mult_cpx_conj_vector() takes the length in
+             subcarriers rather than RBs */
+          mult_cpx_conj_vector(ch0r,
+                               ch0c,
+                               conjH_H_elements[aarx][ctx][rtx], // sic
+                               nb_rb_0 * NR_NB_SC_PER_RB,
+                               shift);
+          if (aarx != 0)
+            nr_a_sum_b(conjH_H_elements[0][ctx][rtx], conjH_H_elements[aarx][ctx][rtx], nb_rb_0);
+        }
       }
     }
   }
@@ -765,7 +779,13 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   uint8_t pilots = (dlsch_config->dlDmrsSymbPos >> symbol) & 1;
   uint8_t config_type = dlsch_config->dmrsConfigType;
 
-  const bool need_rho = do_ml ? (nl == 2 && dlsch_config->cw_info->qamModOrder <= 6) : false;
+  // rho = full nl x nl Gram (H^H H). Needed by the ML LLR kernels AND now by the Gram-based linear
+  // MMSE: nr_dlsch_mmse builds H^H H from rho instead of re-deriving it from the (per-symbol) channel
+  // estimates. Covers the linear-MMSE cases (nl>2 non-ml3; nl==2 non-ML) as well as the ML cases.
+  // Every multi-layer path (ML search, linear nl>2 / 2-layer MMSE, 2-layer 256QAM MMSE) now reads the
+  // Gram from rho, so retain it for all nl >= 2. Single-layer (nl==1, MRC) needs no rho.
+  // rho_dl is only allocated when do_ml is set; without it the MMSE falls back to the chFext Gram build.
+  const bool need_rho = (nl >= 2) && rho_dl;
 
   int nb_rb_pdsch = freq_alloc->num_rbs;
   uint32_t csi_res_bitmap = build_csi_overlap_bitmap(dlsch_config, symbol);
@@ -962,6 +982,12 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   // MRC is performed inline by nr_channel_compensation; apply MMSE for multi-layer
   start_meas_nr_ue_phy(ue, DLSCH_MRC_MMSE_STATS);
   const uint8_t qamModOrder = dlsch->cw_info.qamModOrder;
+  // A/B validation toggle: OAI_MMSE_GRAM=0 forces the legacy chFext Gram build (default 1 = Gram).
+  static int mmse_gram = -1;
+  if (mmse_gram < 0) {
+    const char *e = getenv("OAI_MMSE_GRAM");
+    mmse_gram = e ? atoi(e) : 1;
+  }
   if ((nl > 2) || (nl == 2 && !do_ml)) {
     nr_dlsch_mmse(pdsch_buf_size_max,
                   rx_size_symbol,
@@ -975,7 +1001,8 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                   qamModOrder,
                   *log2_maxh,
                   nb_re_pdsch,
-                  nvar);
+                  nvar,
+                  (need_rho && mmse_gram) ? rho_dl : NULL); // Gram-based build; OAI_MMSE_GRAM=0 -> legacy chFext
   } else if ((nl == 2) && (qamModOrder > 6) && do_ml) {
     nr_mmse_2layers(p_rxComp,
                     rx_size_symbol,
@@ -991,7 +1018,11 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                     *log2_maxh,
                     0,
                     nb_re_pdsch,
-                    nvar);
+                    nvar,
+                    (need_rho && mmse_gram) ? rho_dl[0] : NULL,
+                    (need_rho && mmse_gram) ? rho_dl[1] : NULL,
+                    (need_rho && mmse_gram) ? rho_dl[nl] : NULL,
+                    (need_rho && mmse_gram) ? rho_dl[nl + 1] : NULL); // Gram; OAI_MMSE_GRAM=0 -> chFext
   }
   stop_meas_nr_ue_phy(ue, DLSCH_MRC_MMSE_STATS);
 
