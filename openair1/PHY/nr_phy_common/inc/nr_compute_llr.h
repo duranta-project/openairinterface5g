@@ -59,6 +59,33 @@ uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
                         int shift,
                         unsigned char symbol,
                         int length,
-                        uint32_t noise_var);
+                        uint32_t noise_var,
+                        c16_t *rho00,
+                        c16_t *rho01,
+                        c16_t *rho10,
+                        c16_t *rho11);
+
+// Fused 2-layer linear MMSE + scalar LLR (L=1). = nr_mmse_2layers (Gram-fed equalize) + per-layer
+// nr_compute_llr. UE: symbol=0 + pre-offset rxdataF_comp; gNB: symbol offset applied internally.
+uint8_t nr_compute_MMSE_llr(c16_t **rxdataF_comp,
+                            uint32_t buffer_length,
+                            uint32_t pdsch_buf_size_max,
+                            int nb_rx_ant,
+                            int nb_layers,
+                            c16_t ch_mag[nb_layers][pdsch_buf_size_max],
+                            c16_t ch_magb[nb_layers][pdsch_buf_size_max],
+                            c16_t ch_magc[nb_layers][pdsch_buf_size_max],
+                            c16_t ch_estimates_ext[][nb_rx_ant][buffer_length],
+                            unsigned short nb_rb,
+                            unsigned char mod_order,
+                            int shift,
+                            unsigned char symbol,
+                            int length,
+                            uint32_t noise_var,
+                            c16_t *rho00,
+                            c16_t *rho01,
+                            c16_t *rho10,
+                            c16_t *rho11,
+                            int16_t **llr);
 
 #endif /* __NR_COMPUTE_LLR__H__ */

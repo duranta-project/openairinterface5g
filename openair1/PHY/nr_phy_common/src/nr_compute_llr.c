@@ -2769,7 +2769,11 @@ uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
                         int shift,
                         unsigned char symbol,
                         int length,
-                        uint32_t noise_var)
+                        uint32_t noise_var,
+                        c16_t *rho00,
+                        c16_t *rho01,
+                        c16_t *rho10,
+                        c16_t *rho11)
 {
   uint32_t nb_rb_0 = length / 12 + ((length % 12) ? 1 : 0);
 
@@ -2837,6 +2841,15 @@ uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
    *
    */
 
+  if (rho01) {
+    // Gram-fed: af_mf = the 2x2 Gram already computed by channel_compensation (rho). Verified
+    // bit-identical to the chFext build below (OAI_MMSE_DBG: max|af_mf-rho|=0 on all elements).
+    const size_t nbytes = (size_t)(12 * nb_rb_0) * sizeof(c16_t);
+    memcpy(af_mf_00, rho00, nbytes);
+    memcpy(af_mf_01, rho01, nbytes);
+    memcpy(af_mf_10, rho10, nbytes);
+    memcpy(af_mf_11, rho11, nbytes);
+  } else {
   if (nb_rx_ant >= 2) {
     // (1/2^log2_maxh)*conj_H_00xH_00: (1/(64*2))conjH_00*H_00*2^15
     nr_conjch0_mult_ch1(ch00, ch00, conjch00_ch00, nb_rb_0, shift);
@@ -2922,6 +2935,8 @@ uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
                               af_mf_11,
                               nb_rb_0);
   }
+
+  } // end else (legacy chFext Gram build; the if(rho01) branch reads af_mf from rho)
 
   // Add noise_var such that: H^h * H + noise_var * I
   if (noise_var != 0) {
@@ -3068,4 +3083,38 @@ uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
     after_mf_d_128 += 1;
   }
   return (0);
+}
+
+// Fused 2-layer linear MMSE receiver + scalar LLR (the L=1 case of the unified detector). Does the
+// Gram-fed (rho) 2x2 MMSE equalization (nr_mmse_2layers) followed by the per-layer scalar LLR, in one
+// call. Shared by the UE (pass symbol=0 with pre-offset rxdataF_comp) and the gNB (pass symbol; the
+// symbol*buffer_length offset is applied internally). Replaces the separate {equalize + scalar LLR}.
+uint8_t nr_compute_MMSE_llr(c16_t **rxdataF_comp,
+                            uint32_t buffer_length,
+                            uint32_t pdsch_buf_size_max,
+                            int nb_rx_ant,
+                            int nb_layers,
+                            c16_t ch_mag[nb_layers][pdsch_buf_size_max],
+                            c16_t ch_magb[nb_layers][pdsch_buf_size_max],
+                            c16_t ch_magc[nb_layers][pdsch_buf_size_max],
+                            c16_t ch_estimates_ext[][nb_rx_ant][buffer_length],
+                            unsigned short nb_rb,
+                            unsigned char mod_order,
+                            int shift,
+                            unsigned char symbol,
+                            int length,
+                            uint32_t noise_var,
+                            c16_t *rho00,
+                            c16_t *rho01,
+                            c16_t *rho10,
+                            c16_t *rho11,
+                            int16_t **llr)
+{
+  const uint8_t ret = nr_mmse_2layers(rxdataF_comp, buffer_length, pdsch_buf_size_max, nb_rx_ant, nb_layers,
+                                      ch_mag, ch_magb, ch_magc, ch_estimates_ext, nb_rb, mod_order, shift,
+                                      symbol, length, noise_var, rho00, rho01, rho10, rho11);
+  for (int l = 0; l < nb_layers; l++)
+    nr_compute_llr(&rxdataF_comp[l][symbol * buffer_length], ch_mag[l], ch_magb[l], ch_magc[l],
+                   llr[l], length, symbol, mod_order);
+  return ret;
 }

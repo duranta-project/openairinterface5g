@@ -342,24 +342,27 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                         rel15_ul->qam_mod_order);
     }
     else {
-      nr_mmse_2layers(pusch_vars->rxdataF_comp,
-                      buffer_length,
-                      buffer_length,
-                      nb_rx_ant,
-                      nb_layer,
-                      rxF_ch_maga,
-                      rxF_ch_magb,
-                      rxF_ch_magc,
-                      chFext,
-                      rel15_ul->rb_size,
-                      rel15_ul->qam_mod_order,
-                      pusch_vars->log2_maxh,
-                      symbol,
-                      pusch_vars->ul_valid_re_per_slot[symbol],
-                      nvar);
+      // Fused Gram-fed 2-layer MMSE + scalar LLR (L=1). Replaces {nr_mmse_2layers + scalar loop}.
+      nr_compute_MMSE_llr(pusch_vars->rxdataF_comp,
+                          buffer_length,
+                          buffer_length,
+                          nb_rx_ant,
+                          nb_layer,
+                          rxF_ch_maga,
+                          rxF_ch_magb,
+                          rxF_ch_magc,
+                          chFext,
+                          rel15_ul->rb_size,
+                          rel15_ul->qam_mod_order,
+                          pusch_vars->log2_maxh,
+                          symbol,
+                          pusch_vars->ul_valid_re_per_slot[symbol],
+                          nvar,
+                          rho[0][0], rho[0][1], rho[1][0], rho[1][1],
+                          llr);
     }
   }
-  if (nb_layer != 2 || rel15_ul->qam_mod_order > 6)
+  if (nb_layer != 2) // 2-layer 256QAM MMSE is now handled inside nr_compute_MMSE_llr above
     for (int aatx = 0; aatx < nb_layer; aatx++)
       nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
                      rxF_ch_maga[aatx],
