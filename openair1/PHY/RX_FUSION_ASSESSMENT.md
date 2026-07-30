@@ -2,7 +2,7 @@
 
 **Goal.** Fuse the RX per-symbol chain — *extraction → channel compensation → LLR → descrambling* — so that the intermediate results stay resident in registers / L1 instead of being written to full-slot (or full-symbol) scratch buffers and read back. This trades **memory traffic for compute**, which is the right trade for accelerators and cores with modest L1 and wide vector units: SpaceMIT K3 A100 (RVV, VLEN=1024), Qualcomm Hexagon (HVX), AMD AIE, ARM (NEON/SVE, small L1), and possibly CUDA/HIP GPUs.
 
-This repo drives the **RISC-V (RVV)** implementation; the restructuring is meant to be platform-agnostic so the parallel **aarch64 / Hexagon / AIE** efforts implement the same *tile* contract. Correctness bar for the refactor: **functionally equivalent** (same BLER; minor numerical differences from reordering are acceptable), *not* bit-exact — this gives freedom to reorder and fuse kernels.
+This repo drives the **RISC-V (RVV)** implementation; the restructuring is meant to be platform-agnostic so the parallel **aarch64 / Hexagon / AIE** efforts implement the same *tile* contract. A north-star goal is a single **channel-agnostic `inner_rx`** shared across the NR *data* channels — PDSCH (UE), PUSCH (gNB), and Sidelink PSSCH (§3a). Correctness bar for the refactor: **functionally equivalent** (same BLER; minor numerical differences from reordering are acceptable), *not* bit-exact — this gives freedom to reorder and fuse kernels.
 
 Scope of this document: (1) as-is dataflow + buffer inventory for both chains, (2) what must be restructured, (3) a proposed *process-one-tile* interface for the parallel teams, (4) how to preserve the observability taps at zero cost when disabled.
 
@@ -140,6 +140,26 @@ The harness owns: the **run iterator** — it walks the RBG-bitmask allocation a
 
 Tile-size guidance: `TILE` is a per-platform tuning knob bounded by the vector register budget of the terminal kernel (2-layer L-best is the tightest: ~12 max-log accumulators + ~10 shared ≈ near the RVV 32-register ceiling — see `nr_mimo_lbest_detector.md`). VLEN=256 → TILE=16 REs/lane group; VLEN=1024 → 64; HVX/AIE/NEON pick their own. Larger TILE amortizes loop overhead; smaller TILE eases register pressure. The harness parameterizes it so no kernel hard-codes VLEN.
 
+### 3a. Unification target — one data-channel `inner_rx` (PDSCH / PUSCH / PSSCH)
+
+The tile contract above is deliberately **channel-agnostic**, and that is the point: the same fused `inner_rx` should serve all three NR **data** channels — UE **PDSCH**, gNB **PUSCH**, and Sidelink **PSSCH** (landing in `develop` soon). They share identical signal math (matched filter → MMSE/L-best detect → QAM LLR → descramble) and differ only in *configuration*. Converging them is the biggest single leverage in this effort: each platform team implements `nr_rx_process_tile` **once** and it serves 3 channels × all ISAs, instead of an N-channel × M-ISA matrix of kernels.
+
+**Scope of the union — data channels only.** PDSCH/PUSCH/PSSCH merge onto one `inner_rx`. **PSCCH is control** (a sibling of PDCCH: blind decode, SCI, polar back-end); it can share the *front-end* (extract → compensate → LLR) but not the full pipeline. So the target is "one data-channel `inner_rx`" (+ optionally "one control-channel front-end"), not one function for all four.
+
+**The boundary that keeps the kernel channel-agnostic.** All channel-specific behaviour stays **upstream** (channel estimation, DMRS/RS layout, allocation bitmask) or **downstream** (HARQ / decode). `inner_rx` consumes channel *estimates*, not the reference signals, so DMRS-pattern differences never enter the kernel. The only channel-specifics it needs are already `rx_tile_t` fields or thin additions:
+
+| channel-specific | how it enters the contract |
+|---|---|
+| RS/DMRS skip pattern | the harness run iterator, not the kernel |
+| scrambling seed (RNTI / Nid / SCI-derived) | `scramble_seq` pointer |
+| transform precoding (PUSCH only) | flag; terminates the fused span (SC-FDMA) |
+| PTRS presence | optional whole-symbol phase pre-pass |
+| layer/stream count, MU-MIMO group | `n_layer` (the UL group builds a joint multi-layer PDU today) |
+
+**Sidelink PSSCH looks like a *simpler* instance** — CP-OFDM (no transform-precoding boundary), limited rank, SCI-derived seed. Action: have a Sidelink stakeholder confirm the descriptor covers PSSCH's DMRS pattern and seed derivation **before the contract is frozen**, so no field is discovered missing after the fact.
+
+**Vehicle:** generalize the *existing* gNB `inner_rx` (`nr_ulsch_demodulation.c:224`) — already the closest thing to the target — rather than invent a new one. R1 (un-deferring PDSCH to per-symbol) is the prerequisite that puts DL into the same shape so it can converge here.
+
 ---
 
 ## 4. Observability taps — preserve at zero cost when disabled
@@ -186,7 +206,9 @@ Net: **disabled observability = zero extra allocation and zero extra stores**; e
 | **P3** | **R4 L>1**: register-resident L-best terminal; 2-layer & 3-layer joint fused (rho / nulling in-tile) | P2 | 2-/3-layer BLER; A100 vs X100 timing (expect A100 to stop losing) |
 | **P4** | Parallel teams implement `nr_rx_process_tile` for aarch64 / Hexagon / AIE against the P2 contract | P2 | per-platform kernel tests vs RVV reference |
 
-P1 is worth doing on its own regardless of the tiling work: it's a pure structural change (no new kernels), it's the single biggest full-slot-buffer reduction, and it makes DL match UL — a prerequisite that de-risks everything after.
+P1 is worth doing on its own regardless of the tiling work: it's a pure structural change (no new kernels), it's the single biggest full-slot-buffer reduction, it makes DL match UL, and it puts PDSCH in the per-symbol shape needed both for UE symbol-parallelism and for converging onto the shared `inner_rx` — a prerequisite that de-risks everything after.
+
+**Channel convergence** (PDSCH/PUSCH/PSSCH onto one `inner_rx`, §3a) is realized *as P2/P3 land* — the contract is designed for it from the start, so no separate phase is needed for PDSCH↔PUSCH. A Sidelink PSSCH pass follows once SL is in `develop`; the only prep now is having a SL stakeholder validate the `rx_tile_t` fields cover PSSCH before the contract freezes.
 
 ---
 
