@@ -190,12 +190,13 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
       output = st_append(output, end, "/%"PRIu64, stats->ul.rounds[i]);
 
     float snr = nr_mac_get_snr(&sched_ctrl->pusch_pc);
+    float rssi = nr_mac_get_rssi(&sched_ctrl->pusch_pc);
     float diff_target = (snr * 10.0f - sched_ctrl->pusch_pc.target_snrx10) / 10.0f;
     output = st_append(
         output,
         end,
         ", ulsch_errors %" PRIu64
-        ", ulsch_DTX %d, BLER %.5f MCS (%d) %d (Qm %d deltaMCS %d dB) NPRB %d SNR %.1f (%+.1f) dB CCE fail %d\n",
+        ", ulsch_DTX %d, BLER %.5f MCS (%d) %d (Qm %d deltaMCS %d dB) NPRB %d SNR %.1f (%+.1f) dB RSSI %.1f dBm CCE fail %d\n",
         stats->ul.errors,
         stats->ulsch_DTX,
         sched_ctrl->ul_bler_stats.bler,
@@ -206,6 +207,7 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
         UE->mac_stats.NPRB,
         snr,
         diff_target,
+        rssi,
         sched_ctrl->ul_cce_fail);
 
     // UE always has LCID 1 for SRB 1

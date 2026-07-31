@@ -126,7 +126,7 @@ Example:
 UE RNTI 2460 CU-UE-ID 2 in-sync PH 28 dB PCMAX 24 dBm, average RSRP -74 (8 meas), average SINR 40.0 (32 meas)
 UE 2460: CSI [CQI 15 RI 2 PMI (14,1)] SRS [UL-RI 2 TPMI 0]
 UE 2460: dlsch_rounds 32917/5113/1504/560, dlsch_errors 211, pucch0_DTX 1385 (SNR 19.8+0.2 dB) RSSI -44.2, BLER 0.19557 MCS (1) 23 CCE fail 3
-UE 2460: ulsch_rounds 3756/353/182/179, ulsch_errors 170, ulsch_DTX 285, BLER 0.33021 MCS (1) 27 (Qm 8 deltaMCS 0 dB) NPRB 5 SNR 31.0 (-1.0) dB CCE fail 0
+UE 2460: ulsch_rounds 3756/353/182/179, ulsch_errors 170, ulsch_DTX 285, BLER 0.33021 MCS (1) 27 (Qm 8 deltaMCS 0 dB) NPRB 5 SNR 31.0 (-1.0) dB RSSI -39.8 CCE fail 0
 UE 2460: LCID 1,2,4 goodput DL  120.50 UL   12.30 Mbps
 ```
 
@@ -212,6 +212,7 @@ The third and fourth line show HARQ-related information:
 * ULSCH `SNR`: the current SNR that the gNB receives the UE PUSCH signal with.
   This value should be close to the target SNR; in paranthesis, the difference
   to the target SNR.
+* ULSCH `RSSI`: as for PUCCH. Use `MACRLCs.[0].pusch_RSSI_Threshold` to limit.
 * Both ULSCH/DLSCH `CCE fail`: lists the number of failed CCE attempts. If this
   number gets high, it signifies that the scheduler tried to scheduled this UE,
   but could not allocate the DCI.
