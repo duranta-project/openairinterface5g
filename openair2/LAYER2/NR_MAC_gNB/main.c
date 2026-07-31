@@ -162,14 +162,16 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
 
     float pucch_snr = nr_mac_get_snr(&sched_ctrl->pucch_pc);
     float pucch_snr_diff = (pucch_snr * 10.0f - sched_ctrl->pucch_pc.target_snrx10) / 10.0f;
+    float pucch_rssi = nr_mac_get_rssi(&sched_ctrl->pucch_pc);
     output = st_append(output,
                        end,
                        ", dlsch_errors %" PRIu64
-                       ", pucch0_DTX %d (SNR %.1f%+.1f dB), BLER %.5f MCS (%d) %d CCE fail %d\n",
+                       ", pucch0_DTX %d (SNR %.1f%+.1f dB) RSSI %.1f, BLER %.5f MCS (%d) %d CCE fail %d\n",
                        stats->dl.errors,
                        stats->pucch0_DTX,
                        pucch_snr,
                        pucch_snr_diff,
+                       pucch_rssi,
                        sched_ctrl->dl_bler_stats.bler,
                        UE->current_DL_BWP.mcsTableIdx,
                        sched_ctrl->dl_bler_stats.mcs,
