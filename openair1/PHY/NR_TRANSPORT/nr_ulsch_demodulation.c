@@ -329,8 +329,10 @@ static void inner_rx(PHY_VARS_gNB *gNB,
     pusch_vars->ul_valid_re_per_slot[symbol] -= pusch_vars->ptrs_re_per_slot;
   }
   start_meas(ulsch_llr);
+  static int gnb_lbest = -1;
+  if (gnb_lbest < 0) { const char *e = getenv("OAI_LBEST"); gnb_lbest = e ? atoi(e) : 0; }
   if (nb_layer == 2) {
-    if (rel15_ul->qam_mod_order <= 6) {
+    if (rel15_ul->qam_mod_order <= 6 || (rel15_ul->qam_mod_order == 8 && gnb_lbest)) {
       nr_compute_ML_llr((c16_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
                         (c16_t *)&pusch_vars->rxdataF_comp[1][symbol * buffer_length],
                         rxF_ch_maga[0],
@@ -814,9 +816,14 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     for (int aarx = 0; aarx < num_sp_streams; aarx++)
       avgs = cmax(avgs, avg[nl * num_sp_streams + aarx]);
 
-  if (total_layers == 2 && rel15_ul_ref->qam_mod_order > 6)
-    joint_pv->log2_maxh = (log2_approx(avgs) >> 1) - 3; // for MMSE
-  else if (total_layers == 2)
+  if (total_layers == 2 && rel15_ul_ref->qam_mod_order > 6) {
+    // 256QAM 2-layer: the full-ML detector wants a cooler LLR scale (-2) than the
+    // linear MMSE receiver (-3); -3 saturates the ML metric and loses ~1 dB, while
+    // -2 recovers the full ML gain over MMSE (verified on TDL-A). Selected by OAI_LBEST.
+    static int ml256 = -1;
+    if (ml256 < 0) { const char *e = getenv("OAI_LBEST"); ml256 = e ? atoi(e) : 0; }
+    joint_pv->log2_maxh = (log2_approx(avgs) >> 1) + (ml256 ? -2 : -3);
+  } else if (total_layers == 2)
     joint_pv->log2_maxh = (log2_approx(avgs) >> 1) - 2 + log2_approx(num_sp_streams >> 1);
   else
     joint_pv->log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(num_sp_streams >> 1);

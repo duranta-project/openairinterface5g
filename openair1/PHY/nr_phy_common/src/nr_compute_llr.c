@@ -4355,25 +4355,18 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       }
       break;
     case 8:
-      // 2-layer 256QAM. Default = direct SIMD full ML (nr_qam256_llr_2layer), correct on all
-      // channels — analogous to nr_qam64_llr_2layer for 64QAM.
-      // The reduced-search L-best kernel is GATED OFF by default; enable via OAI_LBEST_Q15_256=1.
-      // OAI_LBEST_PAT256 picks the candidate set (0=5x5/25 [default], 1=3x3/9, 2=5-plus/5).
+      // 2-layer 256QAM. Default = reduced-search L-best with the 3x3/9-candidate pattern, which
+      // matches the full 256-candidate max-log ML in coded BLER (verified on TDL-A, gNB + UE) at a
+      // ~28x candidate reduction. OAI_LBEST_PAT256 overrides the candidate set:
+      //   0 = 5x5/25, 1 = 3x3/9 [default], 2 = 5-plus/5 (degraded), 3 = full 16x16 ML.
       {
-        static int lbest256 = -1, pat256 = 0;
-        if (lbest256 < 0) {
-          const char *e = getenv("OAI_LBEST_Q15_256");
-          lbest256 = e ? atoi(e) : 0;
+        static int pat256 = -1;
+        if (pat256 < 0) {
           const char *ep = getenv("OAI_LBEST_PAT256");
-          pat256 = ep ? atoi(ep) : 0;
+          pat256 = ep ? atoi(ep) : 1; // 3x3/9-candidate L-best is the ML default
         }
-        if (lbest256) {
-          nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, pat256);
-          nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, pat256);
-        } else {
-          nr_qam256_llr_2layer(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re);
-          nr_qam256_llr_2layer(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re);
-        }
+        nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, pat256);
+        nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, pat256);
         // --- OAI_LBEST_DBG256: verify the ACTIVE 256QAM kernel (layer 0) vs the FLOAT full-ML
         // reference (nr_qam256_llr_2layer_lbest, L=256 == exact max-log search) on the SAME
         // real inputs. Accumulates scale-invariant correctness (sign disagreement), magnitude,
@@ -4407,7 +4400,7 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                       "sat|.|>=30000=%.3f%% int8clip|.|>=128=%.3f%% fitScale=%.3f residFrac=%.3f\n"
                       "###   per-bit signDisagree{I0,Q0,I1,Q1,I2,Q2,I3,Q3}= "
                       "%.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f (%%)\n",
-                      lbest256 ? "simd16_256" : "simd_full", n, 100.0 * sdis / n,
+                      "simd16_256", n, 100.0 * sdis / n,
                       sAbsP / n, sAbsR / n, 100.0 * satN / n, 100.0 * gtN / n, a,
                       sPP > 0 ? resid / sPP : 0,
                       100.0 * pdis[0] / per, 100.0 * pdis[1] / per, 100.0 * pdis[2] / per, 100.0 * pdis[3] / per,
