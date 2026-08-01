@@ -3827,7 +3827,42 @@ static inline void nr_lbest_simd_seed16(simde__m256i z1r16, simde__m256i z1i16, 
 // Per-candidate evaluation (slice + metric + max-log reduction), updating max0/max1.
 // Captures the per-RE-vector operands from the enclosing scope; the per-candidate
 // I-only/Q-only terms (bits, corr0/energy0 parts, slice operands) are passed in.
-#define NR_LBEST_EVAL16(I1_, Q1_, BI0, BI1, BI2, BQ0, BQ1, BQ2, C0I_, C0Q_, EI_, EQ_, RRI_, RII_, RRQ_, RIQ_) \
+// Store Qm LLR vectors (res[Qm], 16 REs across the lanes) to the interleaved decoder layout
+// stream0_out[(re+r)*Qm + p] via an 8x8 int16 transpose (padded from Qm), replacing the scalar
+// scatter (~24% of the 64QAM kernel). Qm in {6,8}; exactly Qm int16/RE are written (no overflow).
+static inline void nr_lbest_store_llr16(int16_t *stream0_out, uint32_t re, const simde__m256i *res, int Qm)
+{
+  simde__m256i r[8];
+  for (int p = 0; p < Qm; p++) r[p] = res[p];
+  for (int p = Qm; p < 8; p++) r[p] = simde_mm256_setzero_si256();
+  const simde__m256i a0 = simde_mm256_unpacklo_epi16(r[0], r[1]), a1 = simde_mm256_unpackhi_epi16(r[0], r[1]);
+  const simde__m256i a2 = simde_mm256_unpacklo_epi16(r[2], r[3]), a3 = simde_mm256_unpackhi_epi16(r[2], r[3]);
+  const simde__m256i a4 = simde_mm256_unpacklo_epi16(r[4], r[5]), a5 = simde_mm256_unpackhi_epi16(r[4], r[5]);
+  const simde__m256i a6 = simde_mm256_unpacklo_epi16(r[6], r[7]), a7 = simde_mm256_unpackhi_epi16(r[6], r[7]);
+  const simde__m256i b0 = simde_mm256_unpacklo_epi32(a0, a2), b1 = simde_mm256_unpackhi_epi32(a0, a2);
+  const simde__m256i b2 = simde_mm256_unpacklo_epi32(a1, a3), b3 = simde_mm256_unpackhi_epi32(a1, a3);
+  const simde__m256i b4 = simde_mm256_unpacklo_epi32(a4, a6), b5 = simde_mm256_unpackhi_epi32(a4, a6);
+  const simde__m256i b6 = simde_mm256_unpacklo_epi32(a5, a7), b7 = simde_mm256_unpackhi_epi32(a5, a7);
+  simde__m256i c[8];
+  c[0] = simde_mm256_unpacklo_epi64(b0, b4); c[1] = simde_mm256_unpackhi_epi64(b0, b4);
+  c[2] = simde_mm256_unpacklo_epi64(b1, b5); c[3] = simde_mm256_unpackhi_epi64(b1, b5);
+  c[4] = simde_mm256_unpacklo_epi64(b2, b6); c[5] = simde_mm256_unpackhi_epi64(b2, b6);
+  c[6] = simde_mm256_unpacklo_epi64(b3, b7); c[7] = simde_mm256_unpackhi_epi64(b3, b7);
+  for (int j = 0; j < 8; j++) { // c[j] low128 = RE j (bits 0..Qm-1 + pad); high128 = RE j+8
+    const simde__m128i lo = simde_mm256_castsi256_si128(c[j]), hi = simde_mm256_extracti128_si256(c[j], 1);
+    int16_t *o0 = &stream0_out[(re + j) * Qm], *o8 = &stream0_out[(re + j + 8) * Qm];
+    if (Qm == 8) {
+      simde_mm_storeu_si128((simde__m128i *)o0, lo);
+      simde_mm_storeu_si128((simde__m128i *)o8, hi);
+    } else { // Qm == 6: 4 int16 (storel) + 2 int16 (int32 store)
+      simde_mm_storel_epi64((simde__m128i *)o0, lo); *(int32_t *)(o0 + 4) = simde_mm_extract_epi32(lo, 2);
+      simde_mm_storel_epi64((simde__m128i *)o8, hi); *(int32_t *)(o8 + 4) = simde_mm_extract_epi32(hi, 2);
+    }
+  }
+}
+
+// Metric only (slice + corr/energy/cross), result -> (MET_). No max-log reduction.
+#define NR_LBEST_METRIC16(MET_, I1_, Q1_, C0I_, C0Q_, EI_, EQ_, RRI_, RII_, RRQ_, RIQ_) \
   do { \
     const simde__m256i A2I = simde_mm256_subs_epi16(z2r42, simde_mm256_adds_epi16((RRI_), (RIQ_))); \
     const simde__m256i A2Q = simde_mm256_subs_epi16(z2i42, simde_mm256_subs_epi16((RRQ_), (RII_))); \
@@ -3840,7 +3875,14 @@ static inline void nr_lbest_simd_seed16(simde__m256i z1r16, simde__m256i z1i16, 
     const simde__m256i aa = simde_mm256_adds_epi16(simde_mm256_mullo_epi16((I1_), I2), simde_mm256_mullo_epi16((Q1_), Q2)); \
     const simde__m256i bb = simde_mm256_subs_epi16(simde_mm256_mullo_epi16((Q1_), I2), simde_mm256_mullo_epi16((I1_), Q2)); \
     const simde__m256i cross = simde_mm256_adds_epi16(simde_mm256_mulhi_epi16(rr, simde_mm256_mullo_epi16(aa, CX)), simde_mm256_mulhi_epi16(ri, simde_mm256_mullo_epi16(bb, CX))); \
-    simde__m256i metric = simde_mm256_max_epi16(simde_mm256_subs_epi16(simde_mm256_adds_epi16(simde_mm256_subs_epi16(corr0, energy0), simde_mm256_subs_epi16(corr1, energy1)), cross), FLOORM); \
+    (MET_) = simde_mm256_max_epi16(simde_mm256_subs_epi16(simde_mm256_adds_epi16(simde_mm256_subs_epi16(corr0, energy0), simde_mm256_subs_epi16(corr1, energy1)), cross), FLOORM); \
+  } while (0)
+
+// Per-candidate metric + streaming max-log reduction into max0/max1 (for non-grid patterns).
+#define NR_LBEST_EVAL16(I1_, Q1_, BI0, BI1, BI2, BQ0, BQ1, BQ2, C0I_, C0Q_, EI_, EQ_, RRI_, RII_, RRQ_, RIQ_) \
+  do { \
+    simde__m256i metric; \
+    NR_LBEST_METRIC16(metric, I1_, Q1_, C0I_, C0Q_, EI_, EQ_, RRI_, RII_, RRQ_, RIQ_); \
     const simde__m256i bm[6] = {(BI0), (BQ0), (BI1), (BQ1), (BI2), (BQ2)}; \
     for (int p = 0; p < 6; p++) { \
       max0[p] = simde_mm256_max_epi16(max0[p], simde_mm256_blendv_epi8(metric, SENT, bm[p])); \
@@ -3917,11 +3959,24 @@ void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
       rrI[k] = simde_mm256_mullo_epi16(rr5, I1); riI[k] = simde_mm256_mullo_epi16(ri5, I1);
       rrQ[k] = simde_mm256_mullo_epi16(rr5, Q1); riQ[k] = simde_mm256_mullo_epi16(ri5, Q1);
     }
-    if (pattern == 0) { // 3x3: all 9 grid pairs
+    if (pattern == 0) { // 3x3 full grid: reduce per-axis. Bits are per-axis, so the max over a
+      // bit-subset factorises: max over candidates with I-bit=b = max over I-levels-with-b of
+      // (max over Q). Computing maxI[i]=max_Q met[i][.], maxQ[q]=max_I met[.][q] then blending over
+      // 3 values/axis replaces 9*6*2 per-candidate blends with 3*3*4 (~2.6x fewer). Bit-exact.
+      simde__m256i met[3][3];
       for (int iI = 0; iI < 3; iI++)
         for (int iQ = 0; iQ < 3; iQ++)
-          NR_LBEST_EVAL16(Iv[iI], Qv[iQ], bIv[iI][0], bIv[iI][1], bIv[iI][2], bQv[iQ][0], bQv[iQ][1], bQv[iQ][2],
-                          c0I[iI], c0Q[iQ], eI[iI], eQ[iQ], rrI[iI], riI[iI], rrQ[iQ], riQ[iQ]);
+          NR_LBEST_METRIC16(met[iI][iQ], Iv[iI], Qv[iQ], c0I[iI], c0Q[iQ], eI[iI], eQ[iQ], rrI[iI], riI[iI], rrQ[iQ], riQ[iQ]);
+      simde__m256i maxI[3], maxQ[3];
+      for (int i = 0; i < 3; i++) maxI[i] = simde_mm256_max_epi16(met[i][0], simde_mm256_max_epi16(met[i][1], met[i][2]));
+      for (int q = 0; q < 3; q++) maxQ[q] = simde_mm256_max_epi16(met[0][q], simde_mm256_max_epi16(met[1][q], met[2][q]));
+      for (int k = 0; k < 3; k++) // I-bit k -> output p=2k ; Q-bit k -> p=2k+1
+        for (int i = 0; i < 3; i++) {
+          max0[2 * k]     = simde_mm256_max_epi16(max0[2 * k],     simde_mm256_blendv_epi8(maxI[i], SENT, bIv[i][k]));
+          max1[2 * k]     = simde_mm256_max_epi16(max1[2 * k],     simde_mm256_blendv_epi8(SENT, maxI[i], bIv[i][k]));
+          max0[2 * k + 1] = simde_mm256_max_epi16(max0[2 * k + 1], simde_mm256_blendv_epi8(maxQ[i], SENT, bQv[i][k]));
+          max1[2 * k + 1] = simde_mm256_max_epi16(max1[2 * k + 1], simde_mm256_blendv_epi8(SENT, maxQ[i], bQv[i][k]));
+        }
     } else { // 5-plus: center (1,1) + I+-2 + Q+-2
       static const int pI[5] = {1, 0, 2, 1, 1}, pQ[5] = {1, 1, 1, 0, 2};
       for (int c = 0; c < 5; c++) {
@@ -3946,20 +4001,18 @@ void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
       }
     }
 
-    int16_t tmp[6][16];
+    simde__m256i res[6];
     for (int p = 0; p < 6; p++) {
       const simde__m256i diff = simde_mm256_subs_epi16(max0[p], max1[p]);
       // metric is normal/8 scale -> LLR = diff*8 (== float-ref / SIMD scale); saturate via int32
       const simde__m256i lo = simde_mm256_slli_epi32(nr_lbest_widen(diff, 0), 3);
       const simde__m256i hi = simde_mm256_slli_epi32(nr_lbest_widen(diff, 1), 3);
-      simde__m256i res = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(lo, hi), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
-      res = simde_mm256_blendv_epi8(res, simde_mm256_set1_epi16(-NR_LBEST_Q_LLR_SAT), simde_mm256_cmpeq_epi16(max0[p], SENT));
-      res = simde_mm256_blendv_epi8(res, simde_mm256_set1_epi16(NR_LBEST_Q_LLR_SAT), simde_mm256_cmpeq_epi16(max1[p], SENT));
-      simde_mm256_storeu_si256((simde__m256i *)tmp[p], res);
+      simde__m256i r = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(lo, hi), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+      r = simde_mm256_blendv_epi8(r, simde_mm256_set1_epi16(-NR_LBEST_Q_LLR_SAT), simde_mm256_cmpeq_epi16(max0[p], SENT));
+      r = simde_mm256_blendv_epi8(r, simde_mm256_set1_epi16(NR_LBEST_Q_LLR_SAT), simde_mm256_cmpeq_epi16(max1[p], SENT));
+      res[p] = r;
     }
-    for (int r = 0; r < 16; r++)
-      for (int p = 0; p < 6; p++)
-        stream0_out[(re + r) * 6 + p] = tmp[p][r];
+    nr_lbest_store_llr16(stream0_out, re, res, 6);
   }
 
   if (re < length)
@@ -4108,7 +4161,8 @@ static inline void nr_lbest_simd_seed16_256(simde__m256i z1r16, simde__m256i z1i
 // Per-candidate evaluation for 256QAM (8 bits/RE, PAM-16 slicer).
 // C13_256 = round(2^13/sqrt(170)), CE_256 = round(2^16/(8*8*sqrt(170)*2)),
 // CX_256  = round(2^16/(8*170)).
-#define NR_LBEST_EVAL16_256(I1_, Q1_, BI0, BI1, BI2, BI3, BQ0, BQ1, BQ2, BQ3, C0I_, C0Q_, EI_, EQ_, RRI_, RII_, RRQ_, RIQ_) \
+// Metric only (256QAM), result -> (MET_). No max-log reduction.
+#define NR_LBEST_METRIC16_256(MET_, I1_, Q1_, C0I_, C0Q_, EI_, EQ_, RRI_, RII_, RRQ_, RIQ_) \
   do { \
     const simde__m256i A2I = simde_mm256_subs_epi16(z2r170, simde_mm256_adds_epi16((RRI_), (RIQ_))); \
     const simde__m256i A2Q = simde_mm256_subs_epi16(z2i170, simde_mm256_subs_epi16((RRQ_), (RII_))); \
@@ -4123,7 +4177,14 @@ static inline void nr_lbest_simd_seed16_256(simde__m256i z1r16, simde__m256i z1i
     const simde__m256i bb = simde_mm256_subs_epi16(simde_mm256_mullo_epi16((Q1_), I2), simde_mm256_mullo_epi16((I1_), Q2)); \
     const simde__m256i cross = simde_mm256_adds_epi16(simde_mm256_mulhi_epi16(rr, simde_mm256_mullo_epi16(aa, CX_256)), \
                                                       simde_mm256_mulhi_epi16(ri, simde_mm256_mullo_epi16(bb, CX_256))); \
-    simde__m256i metric = simde_mm256_max_epi16(simde_mm256_subs_epi16(simde_mm256_adds_epi16(simde_mm256_subs_epi16(corr0, energy0), simde_mm256_subs_epi16(corr1, energy1)), cross), FLOORM); \
+    (MET_) = simde_mm256_max_epi16(simde_mm256_subs_epi16(simde_mm256_adds_epi16(simde_mm256_subs_epi16(corr0, energy0), simde_mm256_subs_epi16(corr1, energy1)), cross), FLOORM); \
+  } while (0)
+
+// Per-candidate metric + streaming max-log reduction into max0/max1 (for non-grid patterns).
+#define NR_LBEST_EVAL16_256(I1_, Q1_, BI0, BI1, BI2, BI3, BQ0, BQ1, BQ2, BQ3, C0I_, C0Q_, EI_, EQ_, RRI_, RII_, RRQ_, RIQ_) \
+  do { \
+    simde__m256i metric; \
+    NR_LBEST_METRIC16_256(metric, I1_, Q1_, C0I_, C0Q_, EI_, EQ_, RRI_, RII_, RRQ_, RIQ_); \
     const simde__m256i bm[8] = {(BI0), (BQ0), (BI1), (BQ1), (BI2), (BQ2), (BI3), (BQ3)}; \
     for (int p = 0; p < 8; p++) { \
       max0[p] = simde_mm256_max_epi16(max0[p], simde_mm256_blendv_epi8(metric, SENT, bm[p])); \
@@ -4229,17 +4290,25 @@ void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                               bQv[iQ][0], bQv[iQ][1], bQv[iQ][2], bQv[iQ][3],
                               c0I[iI], c0Q[iQ], eI[iI], eQ[iQ],
                               rrI[iI], riI[iI], rrQ[iQ], riQ[iQ]);
-    } else if (pattern == 1) { // 3x3: center 3 levels, 9 pairs
-      // center indices {1,2,3} map to offsets {-2,0,+2}
+    } else if (pattern == 1) { // 3x3 full grid (center 3 levels): reduce per-axis (bit-exact, ~2.7x
+      // fewer max-log ops than 9*8*2 per-candidate blends). center indices {1,2,3} = offsets {-2,0,+2}.
       static const int ci3[3] = {1, 2, 3};
+      simde__m256i met[3][3];
       for (int a = 0; a < 3; a++)
         for (int b = 0; b < 3; b++) {
           const int iI = ci3[a], iQ = ci3[b];
-          NR_LBEST_EVAL16_256(Iv[iI], Qv[iQ],
-                              bIv[iI][0], bIv[iI][1], bIv[iI][2], bIv[iI][3],
-                              bQv[iQ][0], bQv[iQ][1], bQv[iQ][2], bQv[iQ][3],
-                              c0I[iI], c0Q[iQ], eI[iI], eQ[iQ],
-                              rrI[iI], riI[iI], rrQ[iQ], riQ[iQ]);
+          NR_LBEST_METRIC16_256(met[a][b], Iv[iI], Qv[iQ], c0I[iI], c0Q[iQ], eI[iI], eQ[iQ], rrI[iI], riI[iI], rrQ[iQ], riQ[iQ]);
+        }
+      simde__m256i maxI[3], maxQ[3];
+      for (int i = 0; i < 3; i++) maxI[i] = simde_mm256_max_epi16(met[i][0], simde_mm256_max_epi16(met[i][1], met[i][2]));
+      for (int q = 0; q < 3; q++) maxQ[q] = simde_mm256_max_epi16(met[0][q], simde_mm256_max_epi16(met[1][q], met[2][q]));
+      for (int k = 0; k < 4; k++) // I-bit k -> output p=2k ; Q-bit k -> p=2k+1
+        for (int i = 0; i < 3; i++) {
+          const simde__m256i bI = bIv[ci3[i]][k], bQ = bQv[ci3[i]][k];
+          max0[2 * k]     = simde_mm256_max_epi16(max0[2 * k],     simde_mm256_blendv_epi8(maxI[i], SENT, bI));
+          max1[2 * k]     = simde_mm256_max_epi16(max1[2 * k],     simde_mm256_blendv_epi8(SENT, maxI[i], bI));
+          max0[2 * k + 1] = simde_mm256_max_epi16(max0[2 * k + 1], simde_mm256_blendv_epi8(maxQ[i], SENT, bQ));
+          max1[2 * k + 1] = simde_mm256_max_epi16(max1[2 * k + 1], simde_mm256_blendv_epi8(SENT, maxQ[i], bQ));
         }
     } else if (pattern == 2) { // 5-plus: center + +-4 each axis (5 cand)
       // indices: (2,2)=center, (0,2)=I-4, (4,2)=I+4, (2,0)=Q-4, (2,4)=Q+4
@@ -4283,28 +4352,25 @@ void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                               frrI[iI], friI[iI], frrI[iQ], friI[iQ]);
     }
 
-    int16_t tmp[8][16];
+    // TODO(int8-clip): these (correct, ML-faithful) 256QAM LLRs are hot for the 8-bit LDPC
+    // decoder input — OAI_LBEST_DBG256 measures ~35% of them |.|>=128 (clip int8), which can
+    // add a small high-SNR error floor. Second-order vs the graded-fallback fix above, and
+    // naive log2_maxh cooling made BLER worse (precision loss), so a proper LLR->int8 rescale
+    // (matched to the linear/MMSE path's scale) is needed, not just a shift. Not yet done.
+    simde__m256i res[8];
     for (int p = 0; p < 8; p++) {
-      // TODO(int8-clip): these (correct, ML-faithful) 256QAM LLRs are hot for the 8-bit LDPC
-      // decoder input — OAI_LBEST_DBG256 measures ~35% of them |.|>=128 (clip int8), which can
-      // add a small high-SNR error floor. Second-order vs the graded-fallback fix above, and
-      // naive log2_maxh cooling made BLER worse (precision loss), so a proper LLR->int8 rescale
-      // (matched to the linear/MMSE path's scale) is needed, not just a shift. Not yet done.
       const simde__m256i diff = simde_mm256_subs_epi16(max0[p], max1[p]);
       // metric is at 1/8 scale -> LLR = diff*8; saturate via int32 widening
       const simde__m256i lo = simde_mm256_slli_epi32(nr_lbest_widen(diff, 0), 3);
       const simde__m256i hi = simde_mm256_slli_epi32(nr_lbest_widen(diff, 1), 3);
-      simde__m256i res = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(lo, hi), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+      simde__m256i r = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(lo, hi), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
       // unspanned bit (one side has no candidate): use the graded per-axis seed LLR instead of
       // the hard +-LLR_SAT (which wrecks the coarse/MSB bits a local search cannot span).
       const simde__m256i unspanned = simde_mm256_or_si256(simde_mm256_cmpeq_epi16(max0[p], SENT),
                                                           simde_mm256_cmpeq_epi16(max1[p], SENT));
-      res = simde_mm256_blendv_epi8(res, axisLLR[p], unspanned);
-      simde_mm256_storeu_si256((simde__m256i *)tmp[p], res);
+      res[p] = simde_mm256_blendv_epi8(r, axisLLR[p], unspanned);
     }
-    for (int r = 0; r < 16; r++)
-      for (int p = 0; p < 8; p++)
-        stream0_out[(re + r) * 8 + p] = tmp[p][r];
+    nr_lbest_store_llr16(stream0_out, re, res, 8);
   }
 
   if (re < length)
