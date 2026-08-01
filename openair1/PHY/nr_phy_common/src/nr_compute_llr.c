@@ -7,6 +7,7 @@
 #include "bits.h"
 #include <complex.h>
 #include <stdlib.h>
+#include <stdio.h> // OAI_LBEST_DBG diagnostic (stderr); analysis-only
 #include "PHY/sse_intrin.h"
 #include "PHY/impl_defs_top.h"
 #ifdef __aarch64__
@@ -3945,6 +3946,43 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
         } else {
           nr_qam64_llr_2layer(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re);
           nr_qam64_llr_2layer(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re);
+        }
+        // --- OAI_LBEST_DBG: verify the ACTIVE 64QAM kernel (layer 0) vs the FLOAT full-ML
+        // reference (nr_qam64_llr_2layer_lbest, L=64 == exact max-log search) on the SAME
+        // real inputs. Accumulates scale-invariant correctness (sign disagreement), magnitude,
+        // int16 saturation fraction, best-fit scale vs ref, and post-scale residual (distortion).
+        // Analysis-only (dlsim); single-threaded static counters. Set OAI_LBEST_DBG=1.
+        {
+          static int dbg = -1;
+          if (dbg < 0) { const char *e = getenv("OAI_LBEST_DBG"); dbg = e ? atoi(e) : 0; }
+          if (dbg) {
+            static long n = 0, sdis = 0, satN = 0, gtN = 0;
+            static double sAbsP = 0, sAbsR = 0, sPR = 0, sRR = 0, sPP = 0;
+            int16_t *ref = (int16_t *)malloc((size_t)nb_re * 6 * sizeof(int16_t));
+            nr_qam64_llr_2layer_lbest(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, ref, rho0, nb_re, 64, 0.0f);
+            for (uint32_t k = 0; k < nb_re * 6; k++) {
+              const int p = llr_layers0[k], r = ref[k];
+              const int ap = p < 0 ? -p : p, ar = r < 0 ? -r : r;
+              n++;
+              if ((long)p * r < 0) sdis++;
+              if (ap >= 30000) satN++;
+              if (ap >= 128) gtN++; // int8 clip point: LDPC narrows int16->int8 (packs, sat +-127)
+              sAbsP += ap; sAbsR += ar;
+              sPR += (double)p * r; sRR += (double)r * r; sPP += (double)p * p;
+            }
+            free(ref);
+            if (n >= 200000) {
+              const double a = sRR > 0 ? sPR / sRR : 0;                  // prod ~= a*ref
+              const double resid = sPP - 2 * a * sPR + a * a * sRR;      // sum (prod - a*ref)^2
+              fprintf(stderr,
+                      "### LBEST_DBG kernel=%s N=%ld signDisagree=%.3f%% meanAbs prod=%.0f ref=%.0f "
+                      "sat|.|>=30000=%.3f%% int8clip|.|>=128=%.3f%% fitScale=%.3f residFrac=%.3f\n",
+                      lbest ? "simd16" : "legacy_full", n, 100.0 * sdis / n,
+                      sAbsP / n, sAbsR / n, 100.0 * satN / n, 100.0 * gtN / n, a,
+                      sPP > 0 ? resid / sPP : 0);
+              n = sdis = satN = gtN = 0; sAbsP = sAbsR = sPR = sRR = sPP = 0;
+            }
+          }
         }
       }
       break;
