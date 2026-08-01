@@ -12,13 +12,13 @@ static inline NRLB_VI NRLB_NAME(nrlbw_level)(NRLB_VI num, NRLB_VI thunit)
   const NRLB_VI t2 = NRLB_MM(slli_epi16)(thunit, 1);
   const NRLB_VI t4 = NRLB_MM(slli_epi16)(thunit, 2);
   const NRLB_VI t6 = NRLB_MM(adds_epi16)(t2, t4);
-  const NRLB_VI g2 = NRLB_MM(sub_epi16)(z, NRLB_MM(cmpgt_epi16)(a, t2));
-  const NRLB_VI g4 = NRLB_MM(sub_epi16)(z, NRLB_MM(cmpgt_epi16)(a, t4));
-  const NRLB_VI g6 = NRLB_MM(sub_epi16)(z, NRLB_MM(cmpgt_epi16)(a, t6));
+  const NRLB_VI g2 = NRLB_MM(sub_epi16)(z, NRLB_CMPGT16(a, t2));
+  const NRLB_VI g4 = NRLB_MM(sub_epi16)(z, NRLB_CMPGT16(a, t4));
+  const NRLB_VI g6 = NRLB_MM(sub_epi16)(z, NRLB_CMPGT16(a, t6));
   const NRLB_VI mag = NRLB_MM(adds_epi16)(NRLB_MM(set1_epi16)(1),
                                                   NRLB_MM(slli_epi16)(NRLB_MM(adds_epi16)(NRLB_MM(adds_epi16)(g2, g4), g6), 1));
-  const NRLB_VI neg = NRLB_MM(cmpgt_epi16)(z, num);
-  return NRLB_MM(blendv_epi8)(mag, NRLB_MM(sub_epi16)(z, mag), neg);
+  const NRLB_VI neg = NRLB_CMPGT16(z, num);
+  return NRLB_BLENDV(mag, NRLB_MM(sub_epi16)(z, mag), neg);
 }
 
 
@@ -60,14 +60,14 @@ static inline void NRLB_NAME(nrlbw_seed)(NRLB_VI z1r16, NRLB_VI z1i16, NRLB_VI z
     const NRLB_VF estI = NRLB_MM(mul_ps)(NRLB_MM(div_ps)(numr, det), SQRT42);
     const NRLB_VF estQ = NRLB_MM(mul_ps)(NRLB_MM(div_ps)(numi, det), SQRT42);
     // nearest odd level: o = 2*round((est-1)/2)+1, clamped to [-7,7]
-    NRLB_VF oI = NRLB_MM(add_ps)(NRLB_MM(mul_ps)(NRLB_MM(round_ps)(NRLB_MM(mul_ps)(NRLB_MM(sub_ps)(estI, ONE), HALF), SIMDE_MM_FROUND_TO_NEAREST_INT | SIMDE_MM_FROUND_NO_EXC), TWO), ONE);
-    NRLB_VF oQ = NRLB_MM(add_ps)(NRLB_MM(mul_ps)(NRLB_MM(round_ps)(NRLB_MM(mul_ps)(NRLB_MM(sub_ps)(estQ, ONE), HALF), SIMDE_MM_FROUND_TO_NEAREST_INT | SIMDE_MM_FROUND_NO_EXC), TWO), ONE);
+    NRLB_VF oI = NRLB_MM(add_ps)(NRLB_MM(mul_ps)(NRLB_ROUNDPS(NRLB_MM(mul_ps)(NRLB_MM(sub_ps)(estI, ONE), HALF), SIMDE_MM_FROUND_TO_NEAREST_INT | SIMDE_MM_FROUND_NO_EXC), TWO), ONE);
+    NRLB_VF oQ = NRLB_MM(add_ps)(NRLB_MM(mul_ps)(NRLB_ROUNDPS(NRLB_MM(mul_ps)(NRLB_MM(sub_ps)(estQ, ONE), HALF), SIMDE_MM_FROUND_TO_NEAREST_INT | SIMDE_MM_FROUND_NO_EXC), TWO), ONE);
     oI = NRLB_MM(min_ps)(NRLB_MM(max_ps)(oI, M7), P7);
     oQ = NRLB_MM(min_ps)(NRLB_MM(max_ps)(oQ, M7), P7);
     cI[h] = NRLB_MM(cvtps_epi32)(oI);
     cQ[h] = NRLB_MM(cvtps_epi32)(oQ);
-    dI[h] = NRLB_CASTPS_SI(NRLB_MM(cmp_ps)(estI, oI, SIMDE_CMP_GT_OQ)); // toward-seed = +2 side
-    dQ[h] = NRLB_CASTPS_SI(NRLB_MM(cmp_ps)(estQ, oQ, SIMDE_CMP_GT_OQ));
+    dI[h] = NRLB_CMPPS_SI(estI, oI, SIMDE_CMP_GT_OQ); // toward-seed = +2 side
+    dQ[h] = NRLB_CMPPS_SI(estQ, oQ, SIMDE_CMP_GT_OQ);
   }
   *centerI = NRLB_NAME(nrlbw_pack32)(cI[0], cI[1]);
   *centerQ = NRLB_NAME(nrlbw_pack32)(cQ[0], cQ[1]);
@@ -105,8 +105,8 @@ static inline void NRLB_NAME(nrlbw_seed)(NRLB_VI z1r16, NRLB_VI z1i16, NRLB_VI z
     NR_LBEST_METRIC16(metric, I1_, Q1_, C0I_, C0Q_, EI_, EQ_, RRI_, RII_, RRQ_, RIQ_); \
     const NRLB_VI bm[6] = {(BI0), (BQ0), (BI1), (BQ1), (BI2), (BQ2)}; \
     for (int p = 0; p < 6; p++) { \
-      max0[p] = NRLB_MM(max_epi16)(max0[p], NRLB_MM(blendv_epi8)(metric, SENT, bm[p])); \
-      max1[p] = NRLB_MM(max_epi16)(max1[p], NRLB_MM(blendv_epi8)(SENT, metric, bm[p])); \
+      max0[p] = NRLB_MM(max_epi16)(max0[p], NRLB_BLENDV(metric, SENT, bm[p])); \
+      max1[p] = NRLB_MM(max_epi16)(max1[p], NRLB_BLENDV(SENT, metric, bm[p])); \
     } \
   } while (0)
 
@@ -166,12 +166,12 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
       const NRLB_VI Q1 = NRLB_MM(min_epi16)(NRLB_MM(max_epi16)(NRLB_MM(adds_epi16)(centerQ, NRLB_MM(set1_epi16)(offs3[k])), Vm7), V7);
       Iv[k] = I1; Qv[k] = Q1;
       const NRLB_VI aI = NRLB_MM(abs_epi16)(I1), aQ = NRLB_MM(abs_epi16)(Q1);
-      bIv[k][0] = NRLB_MM(cmpgt_epi16)(z, I1);
-      bIv[k][1] = NRLB_MM(cmpgt_epi16)(aI, V4);
-      bIv[k][2] = NRLB_OR(NRLB_MM(cmpeq_epi16)(aI, V1), NRLB_MM(cmpeq_epi16)(aI, V7));
-      bQv[k][0] = NRLB_MM(cmpgt_epi16)(z, Q1);
-      bQv[k][1] = NRLB_MM(cmpgt_epi16)(aQ, V4);
-      bQv[k][2] = NRLB_OR(NRLB_MM(cmpeq_epi16)(aQ, V1), NRLB_MM(cmpeq_epi16)(aQ, V7));
+      bIv[k][0] = NRLB_CMPGT16(z, I1);
+      bIv[k][1] = NRLB_CMPGT16(aI, V4);
+      bIv[k][2] = NRLB_OR(NRLB_CMPEQ16(aI, V1), NRLB_CMPEQ16(aI, V7));
+      bQv[k][0] = NRLB_CMPGT16(z, Q1);
+      bQv[k][1] = NRLB_CMPGT16(aQ, V4);
+      bQv[k][2] = NRLB_OR(NRLB_CMPEQ16(aQ, V1), NRLB_CMPEQ16(aQ, V7));
       c0I[k] = NRLB_MM(mulhi_epi16)(z1r, NRLB_MM(mullo_epi16)(I1, C13));
       c0Q[k] = NRLB_MM(mulhi_epi16)(z1i, NRLB_MM(mullo_epi16)(Q1, C13));
       eI[k] = NRLB_MM(mulhi_epi16)(cm0, NRLB_MM(mullo_epi16)(NRLB_MM(mullo_epi16)(I1, I1), CE));
@@ -192,10 +192,10 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
       for (int q = 0; q < 3; q++) maxQ[q] = NRLB_MM(max_epi16)(met[0][q], NRLB_MM(max_epi16)(met[1][q], met[2][q]));
       for (int k = 0; k < 3; k++) // I-bit k -> output p=2k ; Q-bit k -> p=2k+1
         for (int i = 0; i < 3; i++) {
-          max0[2 * k]     = NRLB_MM(max_epi16)(max0[2 * k],     NRLB_MM(blendv_epi8)(maxI[i], SENT, bIv[i][k]));
-          max1[2 * k]     = NRLB_MM(max_epi16)(max1[2 * k],     NRLB_MM(blendv_epi8)(SENT, maxI[i], bIv[i][k]));
-          max0[2 * k + 1] = NRLB_MM(max_epi16)(max0[2 * k + 1], NRLB_MM(blendv_epi8)(maxQ[i], SENT, bQv[i][k]));
-          max1[2 * k + 1] = NRLB_MM(max_epi16)(max1[2 * k + 1], NRLB_MM(blendv_epi8)(SENT, maxQ[i], bQv[i][k]));
+          max0[2 * k]     = NRLB_MM(max_epi16)(max0[2 * k],     NRLB_BLENDV(maxI[i], SENT, bIv[i][k]));
+          max1[2 * k]     = NRLB_MM(max_epi16)(max1[2 * k],     NRLB_BLENDV(SENT, maxI[i], bIv[i][k]));
+          max0[2 * k + 1] = NRLB_MM(max_epi16)(max0[2 * k + 1], NRLB_BLENDV(maxQ[i], SENT, bQv[i][k]));
+          max1[2 * k + 1] = NRLB_MM(max_epi16)(max1[2 * k + 1], NRLB_BLENDV(SENT, maxQ[i], bQv[i][k]));
         }
     } else { // 5-plus: center (1,1) + I+-2 + Q+-2
       static const int pI[5] = {1, 0, 2, 1, 1}, pQ[5] = {1, 1, 1, 0, 2};
@@ -205,15 +205,15 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
                         c0I[iI], c0Q[iQ], eI[iI], eQ[iQ], rrI[iI], riI[iI], rrQ[iQ], riQ[iQ]);
       }
       if (pattern == 1) { // 6th: toward-seed diagonal, per-lane select corner 0 vs 2
-#define NR_LBEST_SI(a) NRLB_MM(blendv_epi8)((a)[0], (a)[2], dirImask)
-#define NR_LBEST_SQ(a) NRLB_MM(blendv_epi8)((a)[0], (a)[2], dirQmask)
+#define NR_LBEST_SI(a) NRLB_BLENDV((a)[0], (a)[2], dirImask)
+#define NR_LBEST_SQ(a) NRLB_BLENDV((a)[0], (a)[2], dirQmask)
         NR_LBEST_EVAL16(NR_LBEST_SI(Iv), NR_LBEST_SQ(Qv),
-                        NRLB_MM(blendv_epi8)(bIv[0][0], bIv[2][0], dirImask),
-                        NRLB_MM(blendv_epi8)(bIv[0][1], bIv[2][1], dirImask),
-                        NRLB_MM(blendv_epi8)(bIv[0][2], bIv[2][2], dirImask),
-                        NRLB_MM(blendv_epi8)(bQv[0][0], bQv[2][0], dirQmask),
-                        NRLB_MM(blendv_epi8)(bQv[0][1], bQv[2][1], dirQmask),
-                        NRLB_MM(blendv_epi8)(bQv[0][2], bQv[2][2], dirQmask),
+                        NRLB_BLENDV(bIv[0][0], bIv[2][0], dirImask),
+                        NRLB_BLENDV(bIv[0][1], bIv[2][1], dirImask),
+                        NRLB_BLENDV(bIv[0][2], bIv[2][2], dirImask),
+                        NRLB_BLENDV(bQv[0][0], bQv[2][0], dirQmask),
+                        NRLB_BLENDV(bQv[0][1], bQv[2][1], dirQmask),
+                        NRLB_BLENDV(bQv[0][2], bQv[2][2], dirQmask),
                         NR_LBEST_SI(c0I), NR_LBEST_SQ(c0Q), NR_LBEST_SI(eI), NR_LBEST_SQ(eQ),
                         NR_LBEST_SI(rrI), NR_LBEST_SI(riI), NR_LBEST_SQ(rrQ), NR_LBEST_SQ(riQ));
 #undef NR_LBEST_SI
@@ -228,8 +228,8 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
       const NRLB_VI lo = NRLB_MM(slli_epi32)(NRLB_NAME(nrlbw_widen)(diff, 0), 3);
       const NRLB_VI hi = NRLB_MM(slli_epi32)(NRLB_NAME(nrlbw_widen)(diff, 1), 3);
       NRLB_VI r = NRLB_NAME(nrlbw_pack32)(lo, hi);
-      r = NRLB_MM(blendv_epi8)(r, NRLB_MM(set1_epi16)(-NR_LBEST_Q_LLR_SAT), NRLB_MM(cmpeq_epi16)(max0[p], SENT));
-      r = NRLB_MM(blendv_epi8)(r, NRLB_MM(set1_epi16)(NR_LBEST_Q_LLR_SAT), NRLB_MM(cmpeq_epi16)(max1[p], SENT));
+      r = NRLB_BLENDV(r, NRLB_MM(set1_epi16)(-NR_LBEST_Q_LLR_SAT), NRLB_CMPEQ16(max0[p], SENT));
+      r = NRLB_BLENDV(r, NRLB_MM(set1_epi16)(NR_LBEST_Q_LLR_SAT), NRLB_CMPEQ16(max1[p], SENT));
       res[p] = r;
     }
     NRLB_NAME(nrlbw_store_llr)(stream0_out, re, res, 6);
