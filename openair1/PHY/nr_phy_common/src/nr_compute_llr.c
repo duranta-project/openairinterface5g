@@ -2925,6 +2925,31 @@ static inline void nr_lbest_axis_bits256(int level, int *b0, int *b1, int *b2, i
   *b3 = m3 > 2 ? 1 : 0;
 }
 
+// Graded per-axis PAM-16 LLR for the target layer, from the soft seed estimate e (level units)
+// and gain g = 0.5*P0/170. The target metric m(l) = -0.5*P0/170*(l-e)^2 + const is concave with
+// vertex ~= e, so max over a bit-subset is at the level nearest e with that bit. Fills llr[b] =
+// m(l0*)-m(l1*) = g*[(l1*-e)^2 - (l0*-e)^2] for axis bits b0..b3. This is the graded replacement
+// for the hard +-LLR_SAT fallback used when a reduced candidate set does not span a bit (the
+// coarse/MSB bits a local search window cannot reach) -> keeps reduced-search speed with correct
+// MSB soft output. In the same metric units as the ML search, so spanned/unspanned bits are
+// mutually consistent.
+static inline void nr_lbest_pam16_axis_llr(float e, float g, float *llr)
+{
+  static const int levels[16] = {-15, -13, -11, -9, -7, -5, -3, -1, 1, 3, 5, 7, 9, 11, 13, 15};
+  float d0[4], d1[4];
+  for (int b = 0; b < 4; b++) { d0[b] = 1e30f; d1[b] = 1e30f; }
+  for (int k = 0; k < 16; k++) {
+    const float d = (levels[k] - e) * (levels[k] - e);
+    int bb[4];
+    nr_lbest_axis_bits256(levels[k], &bb[0], &bb[1], &bb[2], &bb[3]);
+    for (int b = 0; b < 4; b++) {
+      if (bb[b] == 0) { if (d < d0[b]) d0[b] = d; }
+      else            { if (d < d1[b]) d1[b] = d; }
+    }
+  }
+  for (int b = 0; b < 4; b++) llr[b] = g * (d1[b] - d0[b]);
+}
+
 // candidate (constellation point + squared distance to the seed) for the L-nearest sort
 // (members iL/qL, not I/Q: <complex.h> defines I as the imaginary unit)
 struct nr_lbest_cand { float d; int16_t iL, qL; };
@@ -2966,6 +2991,12 @@ void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
     const float rz2i = rr * z2i + ri * z2r;
     const float estI = ((P1 + l) * z1r - rz2r) * invdet * NR_LBEST_SQRT170; // ~ +-1..15
     const float estQ = ((P1 + l) * z1i - rz2i) * invdet * NR_LBEST_SQRT170;
+
+    // graded fallback LLRs for bits a reduced candidate set may not span (the coarse/MSB bits)
+    float axisI[4], axisQ[4];
+    const float glin = 0.5f * P0 / 170.0f * NR_LBEST_LLR_SCALE;
+    nr_lbest_pam16_axis_llr(estI, glin, axisI);
+    nr_lbest_pam16_axis_llr(estQ, glin, axisQ);
 
     // ---- candidate set C1 = L nearest of the 256 constellation points ----
     // O(256 log 256) sort by distance, take the first L (L==256 == full ML, no sort needed).
@@ -3019,12 +3050,11 @@ void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
 
     for (int p = 0; p < 8; p++) {
       float llr;
-      if (max0[p] <= -1e29f)
-        llr = -NR_LBEST_LLR_SAT;
-      else if (max1[p] <= -1e29f)
-        llr = NR_LBEST_LLR_SAT;
+      // bit order {I0,Q0,I1,Q1,I2,Q2,I3,Q3}: even p = I-axis, odd p = Q-axis, axis bit = p/2
+      if (max0[p] > -1e29f && max1[p] > -1e29f)
+        llr = (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE; // spanned: ML LLR
       else
-        llr = (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE;
+        llr = (p & 1) ? axisQ[p >> 1] : axisI[p >> 1];  // unspanned: graded linear (seed) LLR
       if (llr > 32767.0f) llr = 32767.0f;
       if (llr < -32768.0f) llr = -32768.0f;
       *stream0_out++ = (int16_t)llr;
@@ -3982,15 +4012,46 @@ static inline simde__m256i nr_lbest_z170d32(simde__m256i z16)
   return simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(lo, hi), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
 }
 
+// Graded per-axis PAM-16 LLR (SIMD float, 8 lanes/half): out[b] = g*(min dist^2 with bit b=1 -
+// with b=0), g = 0.5*P0/170, in the kernel's final LLR units. Closed form (no 16-level loop): the
+// nearest PAM-16 level with a given bit value = clamp(round-to-odd(est), subrange), so each bit's
+// min-distance is a couple of clamps. Only b0/b1/b2 are computed — b3 (the finest bit) is ALWAYS
+// spanned by any 3x3/5x5/5-plus window (verified), so its fallback is never used; out[3]=0.
+static inline void nr_lbest_simd_axis_llr256(simde__m256 est, simde__m256 g, simde__m256 out[4])
+{
+  const simde__m256 ONE = simde_mm256_set1_ps(1.0f), TWO = simde_mm256_set1_ps(2.0f), HALF = simde_mm256_set1_ps(0.5f);
+  // o = nearest odd to est; oa = nearest odd to |est|
+  const simde__m256 a = simde_mm256_andnot_ps(simde_mm256_set1_ps(-0.0f), est);
+#define NR_RODD(x) simde_mm256_add_ps(simde_mm256_mul_ps(simde_mm256_round_ps(simde_mm256_mul_ps(simde_mm256_sub_ps((x), ONE), HALF), SIMDE_MM_FROUND_TO_NEAREST_INT | SIMDE_MM_FROUND_NO_EXC), TWO), ONE)
+  const simde__m256 o = NR_RODD(est), oa = NR_RODD(a);
+#define NR_CL(x, lo, hi) simde_mm256_min_ps(simde_mm256_max_ps((x), simde_mm256_set1_ps(lo)), simde_mm256_set1_ps(hi))
+#define NR_DSQ(lvl, ref) ({ const simde__m256 _d = simde_mm256_sub_ps((lvl), (ref)); simde_mm256_mul_ps(_d, _d); })
+  // b0 (sign): pos levels [1,15] (bit 0) vs neg [-15,-1] (bit 1)
+  out[0] = simde_mm256_mul_ps(g, simde_mm256_sub_ps(NR_DSQ(NR_CL(o, -15.0f, -1.0f), est), NR_DSQ(NR_CL(o, 1.0f, 15.0f), est)));
+  // b1 (|L|>8): |L| in [1,7] (bit 0) vs [9,15] (bit 1); by symmetry work in a=|est|
+  out[1] = simde_mm256_mul_ps(g, simde_mm256_sub_ps(NR_DSQ(NR_CL(oa, 9.0f, 15.0f), a), NR_DSQ(NR_CL(oa, 1.0f, 7.0f), a)));
+  // b2 (||L|-8|>4): |L| in {5,7,9,11} (bit 0) vs {1,3}U{13,15} (bit 1)
+  const simde__m256 d2_0 = NR_DSQ(NR_CL(oa, 5.0f, 11.0f), a);
+  const simde__m256 d2_1 = simde_mm256_min_ps(NR_DSQ(NR_CL(oa, 1.0f, 3.0f), a), NR_DSQ(NR_CL(oa, 13.0f, 15.0f), a));
+  out[2] = simde_mm256_mul_ps(g, simde_mm256_sub_ps(d2_1, d2_0));
+  out[3] = simde_mm256_setzero_ps(); // b3 always spanned by the search window -> fallback never read
+#undef NR_RODD
+#undef NR_CL
+#undef NR_DSQ
+}
+
 // ZF seed for 256QAM: identical to nr_lbest_simd_seed16 except clamp to [-15,15]
-// and Pp = cm * sqrt(170)/8.
+// and Pp = cm * sqrt(170)/8. Also emits axisLLR[8] = graded per-axis PAM-16 LLRs (interleaved
+// {I0,Q0,I1,Q1,I2,Q2,I3,Q3}, int16) used as the fallback for bits the reduced search cannot span.
 static inline void nr_lbest_simd_seed16_256(simde__m256i z1r16, simde__m256i z1i16,
                                             simde__m256i z2r16, simde__m256i z2i16,
                                             simde__m256i rr16,  simde__m256i ri16,
                                             simde__m256i cm0_16, simde__m256i cm1_16,
                                             simde__m256i *centerI, simde__m256i *centerQ,
-                                            simde__m256i *dirImask, simde__m256i *dirQmask)
+                                            simde__m256i *dirImask, simde__m256i *dirQmask,
+                                            simde__m256i axisLLR[8])
 {
+  simde__m256 aL[2][8]; // [half][ {I0,Q0,I1,Q1,I2,Q2,I3,Q3} ]
   const simde__m256i SQRT170_OVER8 = simde_mm256_set1_epi32(NR_LBEST_Q_SQRT170_OVER8_Q14_SIMD);
   const simde__m256 SQRT170 = simde_mm256_set1_ps(13.038404810405298f);
   const simde__m256 HALF = simde_mm256_set1_ps(0.5f), ONE = simde_mm256_set1_ps(1.0f), TWO = simde_mm256_set1_ps(2.0f);
@@ -4013,6 +4074,12 @@ static inline void nr_lbest_simd_seed16_256(simde__m256i z1r16, simde__m256i z1i
     // soft level estimate ~ +-1..15
     const simde__m256 estI = simde_mm256_mul_ps(simde_mm256_div_ps(numr, det), SQRT170);
     const simde__m256 estQ = simde_mm256_mul_ps(simde_mm256_div_ps(numi, det), SQRT170);
+    // graded per-axis PAM-16 LLRs from the soft estimate (g = 0.5*P0/170, P0 = Pp0)
+    const simde__m256 glin = simde_mm256_mul_ps(simde_mm256_set1_ps(0.5f / 170.0f), Pp0);
+    simde__m256 aI4[4], aQ4[4];
+    nr_lbest_simd_axis_llr256(estI, glin, aI4);
+    nr_lbest_simd_axis_llr256(estQ, glin, aQ4);
+    for (int b = 0; b < 4; b++) { aL[h][2 * b] = aI4[b]; aL[h][2 * b + 1] = aQ4[b]; }
     // nearest odd level: o = 2*round((est-1)/2)+1, clamped to [-15,15]
     simde__m256 oI = simde_mm256_add_ps(simde_mm256_mul_ps(simde_mm256_round_ps(simde_mm256_mul_ps(simde_mm256_sub_ps(estI, ONE), HALF), SIMDE_MM_FROUND_TO_NEAREST_INT | SIMDE_MM_FROUND_NO_EXC), TWO), ONE);
     simde__m256 oQ = simde_mm256_add_ps(simde_mm256_mul_ps(simde_mm256_round_ps(simde_mm256_mul_ps(simde_mm256_sub_ps(estQ, ONE), HALF), SIMDE_MM_FROUND_TO_NEAREST_INT | SIMDE_MM_FROUND_NO_EXC), TWO), ONE);
@@ -4027,6 +4094,10 @@ static inline void nr_lbest_simd_seed16_256(simde__m256i z1r16, simde__m256i z1i
   *centerQ  = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(cQ[0], cQ[1]), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
   *dirImask = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(dI[0], dI[1]), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
   *dirQmask = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(dQ[0], dQ[1]), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+  for (int p = 0; p < 8; p++) // round to nearest int16, saturating pack (final LLR units)
+    axisLLR[p] = simde_mm256_permute4x64_epi64(
+        simde_mm256_packs_epi32(simde_mm256_cvtps_epi32(aL[0][p]), simde_mm256_cvtps_epi32(aL[1][p])),
+        SIMDE_MM_SHUFFLE(3, 1, 2, 0));
 }
 
 // Per-candidate evaluation for 256QAM (8 bits/RE, PAM-16 slicer).
@@ -4087,9 +4158,9 @@ void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
     nr_lbest_simd_load16(&ch_mag[re],     &cm0, &dummy);
     nr_lbest_simd_load16(&ch_mag_i[re],   &cm1, &dummy);
 
-    simde__m256i centerI, centerQ, dirImask, dirQmask;
+    simde__m256i centerI, centerQ, dirImask, dirQmask, axisLLR[8];
     nr_lbest_simd_seed16_256(z1r, z1i, z2r, z2i, rr, ri, cm0, cm1,
-                             &centerI, &centerQ, &dirImask, &dirQmask);
+                             &centerI, &centerQ, &dirImask, &dirQmask, axisLLR);
     (void)dirImask; (void)dirQmask;
 
     // per-RE-vector precomputed quantities (int16 scale, /32 shift)
@@ -4209,13 +4280,21 @@ void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
 
     int16_t tmp[8][16];
     for (int p = 0; p < 8; p++) {
+      // TODO(int8-clip): these (correct, ML-faithful) 256QAM LLRs are hot for the 8-bit LDPC
+      // decoder input — OAI_LBEST_DBG256 measures ~35% of them |.|>=128 (clip int8), which can
+      // add a small high-SNR error floor. Second-order vs the graded-fallback fix above, and
+      // naive log2_maxh cooling made BLER worse (precision loss), so a proper LLR->int8 rescale
+      // (matched to the linear/MMSE path's scale) is needed, not just a shift. Not yet done.
       const simde__m256i diff = simde_mm256_subs_epi16(max0[p], max1[p]);
       // metric is at 1/8 scale -> LLR = diff*8; saturate via int32 widening
       const simde__m256i lo = simde_mm256_slli_epi32(nr_lbest_widen(diff, 0), 3);
       const simde__m256i hi = simde_mm256_slli_epi32(nr_lbest_widen(diff, 1), 3);
       simde__m256i res = simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(lo, hi), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
-      res = simde_mm256_blendv_epi8(res, simde_mm256_set1_epi16(-NR_LBEST_Q_LLR_SAT), simde_mm256_cmpeq_epi16(max0[p], SENT));
-      res = simde_mm256_blendv_epi8(res, simde_mm256_set1_epi16( NR_LBEST_Q_LLR_SAT), simde_mm256_cmpeq_epi16(max1[p], SENT));
+      // unspanned bit (one side has no candidate): use the graded per-axis seed LLR instead of
+      // the hard +-LLR_SAT (which wrecks the coarse/MSB bits a local search cannot span).
+      const simde__m256i unspanned = simde_mm256_or_si256(simde_mm256_cmpeq_epi16(max0[p], SENT),
+                                                          simde_mm256_cmpeq_epi16(max1[p], SENT));
+      res = simde_mm256_blendv_epi8(res, axisLLR[p], unspanned);
       simde_mm256_storeu_si256((simde__m256i *)tmp[p], res);
     }
     for (int r = 0; r < 16; r++)
