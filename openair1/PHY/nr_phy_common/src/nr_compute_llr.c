@@ -3824,23 +3824,63 @@ void nr_qam256_llr_2layer_lbest_q15(c16_t *stream0_in,
 #include "nr_lbest_qam64_simd.c.inc"
 #include "nr_lbest_qam256_simd.c.inc"
 #undef NRLB_W
+// AVX-512 (W=512) instantiation: only when 512 is a real compile target (else SIMDe would
+// emulate it as 2x256/4x128, which is slower than the native w256/w128). Compares yield
+// k-masks and blendv has no 512 form -> the header's NRLB_ wrappers lift both back to the
+// vector-mask model, so this is the same source (bit-exact) at 2x the lanes.
+#if defined(__AVX512BW__) && defined(__AVX512VL__) && defined(__AVX512F__)
+#include <simde/x86/avx512.h>
+#define NRLB_W 512
+#include "nr_lbest_simd_width.h"
+#include "nr_lbest_qam64_simd.c.inc"
+#include "nr_lbest_qam256_simd.c.inc"
+#undef NRLB_W
+#define NRLB_HAVE_W512 1
+#endif
 
 // Public entry (name unchanged for callers): pick the arch-native width.
+// x86 width selection (cached): 1 = w128 (NEON regression), 2 = w512 (AVX-512), 0 = w256 (default).
+// w256 is the safe default: on double-pumped-AVX-512 parts (Zen4/Zen5-mobile, e.g. Strix Halo) the
+// 512 path executes as 2x256 uops with no datapath-width gain, so it is a wash-to-slight-regression
+// there (esp. 256QAM, where the blendv k-mask emulation offsets the fewer-instructions saving).
+// w512 helps on true-512-datapath server CPUs (EPYC Genoa/Turin, Xeon SP) -> opt in with
+// OAI_LBEST_W512=1 (all widths are bit-exact; verified via OAI_LBEST_DBG/DBG256). OAI_LBEST_W128=1
+// selects the NEON-equivalent path for x86 regression testing.
+static int nr_lbest_simd_width_mode(void)
+{
+  static int mode = -1;
+  if (mode < 0) {
+    const char *e;
+    if ((e = getenv("OAI_LBEST_W128")) && atoi(e)) mode = 1;
+#ifdef NRLB_HAVE_W512
+    else if ((e = getenv("OAI_LBEST_W512")) && atoi(e)) mode = 2;
+#endif
+    else mode = 0;
+    // announce once so a measurement run self-documents which kernel ran (and reveals a silent
+    // fallback to w256 when OAI_LBEST_W512=1 but AVX-512 was not a compile target).
+    fprintf(stderr, "### LBEST 2-layer width = %s\n",
+            mode == 1 ? "w128 (SSE->NEON)" : mode == 2 ? "w512 (AVX-512)" : "w256 (AVX2)");
+  }
+  return mode;
+}
+
 void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in, c16_t *stream1_in, c16_t *ch_mag,
                                           c16_t *ch_mag_i, int16_t *stream0_out, c16_t *rho01,
                                           uint32_t length, int pattern)
 {
   // On aarch64 the 128-bit instantiation runs (SIMDe -> NEON, avoiding the inefficient 256->2x128
-  // cross-lane emulation). On x86 the 256-bit runs; OAI_LBEST_W128=1 forces the 128-bit path so the
-  // NEON code path can be regression-tested on x86 (it is bit-exact to 256 -- verify via the DBG).
-  static int w128 = -1;
-  if (w128 < 0) { const char *e = getenv("OAI_LBEST_W128"); w128 = e ? atoi(e) : 0; }
+  // cross-lane emulation). On x86 the 256-bit runs by default; OAI_LBEST_W512=1 opts into AVX-512
+  // (a win only on true-512-datapath server CPUs) and OAI_LBEST_W128=1 selects the NEON-equivalent
+  // path for x86 regression (all widths bit-exact -- see nr_lbest_simd_width_mode()).
 #if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
-  (void)w128;
   nr_qam64_llr_2layer_lbest_q15_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
 #else
-  if (w128) nr_qam64_llr_2layer_lbest_q15_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
-  else      nr_qam64_llr_2layer_lbest_q15_simd_w256(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
+  const int m = nr_lbest_simd_width_mode();
+  if (m == 1)      nr_qam64_llr_2layer_lbest_q15_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
+#ifdef NRLB_HAVE_W512
+  else if (m == 2) nr_qam64_llr_2layer_lbest_q15_simd_w512(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
+#endif
+  else             nr_qam64_llr_2layer_lbest_q15_simd_w256(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
 #endif
 }
 
@@ -3852,10 +3892,12 @@ void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in, c16_t *stream1_in,
 #if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
   nr_qam256_llr_2layer_lbest_q15_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
 #else
-  static int w128 = -1;
-  if (w128 < 0) { const char *e = getenv("OAI_LBEST_W128"); w128 = e ? atoi(e) : 0; }
-  if (w128) nr_qam256_llr_2layer_lbest_q15_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
-  else      nr_qam256_llr_2layer_lbest_q15_simd_w256(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
+  const int m = nr_lbest_simd_width_mode();
+  if (m == 1)      nr_qam256_llr_2layer_lbest_q15_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
+#ifdef NRLB_HAVE_W512
+  else if (m == 2) nr_qam256_llr_2layer_lbest_q15_simd_w512(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
+#endif
+  else             nr_qam256_llr_2layer_lbest_q15_simd_w256(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
 #endif
 }
 
