@@ -989,21 +989,35 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   //----------------------------------------------------------
   //--------------------- channel compensation ---------------
   //----------------------------------------------------------
+  // Fused single-layer inner RX (OAI_FUSE): when enabled for a single-layer, non-PTRS PDSCH we
+  // skip the standalone MRC compensation here; nr_inner_rx_1layer in the LLR block below does
+  // MRC+LLR tiled in L1, so rxComp/dl_ch_mag are never materialized as full-symbol arrays.
+  // PTRS is excluded because its phase processing sits between compensation and LLR.
+  static int fuse_env = -1;
+  if (fuse_env < 0) {
+    const char *e = getenv("OAI_FUSE");
+    fuse_env = e ? atoi(e) : 0;
+  }
+  const bool ptrs_active_fuse =
+      (dlsch_harq->status == NR_ACTIVE) && (dlsch_config->pduBitmap & 0x1) && (dlsch->rnti_type == TYPE_C_RNTI_);
+  const bool fuse_1layer = fuse_env && (nl == 1) && !ptrs_active_fuse;
+
   start_meas_nr_ue_phy(ue, DLSCH_CHANNEL_COMPENSATION_STATS);
-  nr_channel_compensation(rx_size_symbol,
-                          pdsch_buf_size_max,
-                          nbRx,
-                          nl,
-                          rxdataF_ext,
-                          chFext,
-                          dl_ch_mag,
-                          dl_ch_magb,
-                          dl_ch_magr,
-                          p_rxComp,
-                          need_rho ? (c16_t(*)[nl][pdsch_buf_size_max])rho_dl : NULL,
-                          dlsch->cw_info.qamModOrder,
-                          0, // symbol already baked into p_rxComp
-                          *log2_maxh);
+  if (!fuse_1layer)
+    nr_channel_compensation(rx_size_symbol,
+                            pdsch_buf_size_max,
+                            nbRx,
+                            nl,
+                            rxdataF_ext,
+                            chFext,
+                            dl_ch_mag,
+                            dl_ch_magb,
+                            dl_ch_magr,
+                            p_rxComp,
+                            need_rho ? (c16_t(*)[nl][pdsch_buf_size_max])rho_dl : NULL,
+                            dlsch->cw_info.qamModOrder,
+                            0, // symbol already baked into p_rxComp
+                            *log2_maxh);
   stop_meas_nr_ue_phy(ue, DLSCH_CHANNEL_COMPENSATION_STATS);
   if (meas_enabled) {
     LOG_D(PHY,
@@ -1119,7 +1133,12 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     const int this_llr_size = (this_re * qamModOrder) > 0 ? (this_re * qamModOrder) : 1;
     __attribute__((aligned(32))) int16_t layer_llr[nl][this_llr_size];
     start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
-    if (nl == 2 && do_ml && (qamModOrder <= 6 || (qamModOrder == 8 && ml256))) {
+    if (fuse_1layer) {
+      // Fused single-layer inner RX: MRC compensation + LLR, tiled in L1 (nr_inner_rx_1layer).
+      // Replaces {nr_channel_compensation + nr_dlsch_llr} for this symbol, bit-exact. chFext[0] is
+      // the single layer's extracted channel, rxdataF_ext the extracted Rx, layer_llr[0] the output.
+      nr_inner_rx_1layer(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], qamModOrder, *log2_maxh, layer_llr[0]);
+    } else if (nl == 2 && do_ml && (qamModOrder <= 6 || (qamModOrder == 8 && ml256))) {
       // 2-layer QPSK/16QAM/64QAM (and 256QAM under the OAI_LBEST analysis gate):
       // joint ML-LLR using inter-layer Tx correlation.
       // rho_dl is [nl*nl][rx_size_symbol]: index 1 = rho[0][1], index nl = rho[1][0]

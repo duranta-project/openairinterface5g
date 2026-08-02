@@ -49,4 +49,30 @@ void nr_channel_compensation(uint32_t buffer_length,
                              uint32_t symbol,
                              uint32_t output_shift);
 
+/**
+ * @brief Fused single-layer inner RX: MRC channel compensation + per-RE LLR, tiled.
+ *
+ * Equivalent to {nr_channel_compensation(nb_layers==1) + nr_dlsch_llr} but processes the symbol
+ * in L1-resident RE-tiles, so the compensated symbols and channel magnitudes are never written
+ * to full-symbol arrays (eliminates the rxComp/mag DRAM round-trip). Bit-exact with the unfused
+ * path. Single-layer only (no rho / no MMSE inversion); the caller must exclude the PTRS case.
+ *
+ * @param length          Number of valid REs to demap this symbol
+ * @param buffer_length   Padded row stride of rxFext/chFext (multiple of 16)
+ * @param nb_rx_ant       Number of Rx antennas
+ * @param rxFext          Extracted received signal [nb_rx_ant][buffer_length]
+ * @param chFext          Extracted channel estimates for the single layer [nb_rx_ant][buffer_length]
+ * @param mod_order       Modulation order (2/4/6/8)
+ * @param output_shift    Right-shift applied after each complex multiply (log2_maxh)
+ * @param llr             Output LLR buffer (length*mod_order int16, contiguous per RE)
+ */
+void nr_inner_rx_1layer(uint32_t length,
+                        uint32_t buffer_length,
+                        int nb_rx_ant,
+                        c16_t rxFext[nb_rx_ant][buffer_length],
+                        c16_t chFext[nb_rx_ant][buffer_length],
+                        int mod_order,
+                        int output_shift,
+                        int16_t *llr);
+
 #endif /* __NR_CHANNEL_COMPENSATION__H__ */
