@@ -75,6 +75,17 @@ void nr_inner_rx_1layer(uint32_t length,
                         int output_shift,
                         int16_t *llr);
 
+/** @brief Register-fused single-layer inner RX: per-block MRC + mag + LLR in registers, no tile
+ * scratch and no per-tile LLR call (bit-exact with nr_inner_rx_1layer). */
+void nr_inner_rx_1layer_reg(uint32_t length,
+                            uint32_t buffer_length,
+                            int nb_rx_ant,
+                            c16_t rxFext[nb_rx_ant][buffer_length],
+                            c16_t chFext[nb_rx_ant][buffer_length],
+                            int mod_order,
+                            int output_shift,
+                            int16_t *llr);
+
 /**
  * @brief Fused 2-layer near-ML inner RX: MRC compensation + rho build + joint ML-LLR, tiled.
  *

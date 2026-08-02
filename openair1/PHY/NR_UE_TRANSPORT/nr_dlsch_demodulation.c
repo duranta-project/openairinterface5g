@@ -1140,10 +1140,14 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     __attribute__((aligned(32))) int16_t layer_llr[nl][this_llr_size];
     start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
     if (fuse_1layer) {
-      // Fused single-layer inner RX: MRC compensation + LLR, tiled in L1 (nr_inner_rx_1layer).
-      // Replaces {nr_channel_compensation + nr_dlsch_llr} for this symbol, bit-exact. chFext[0] is
-      // the single layer's extracted channel, rxdataF_ext the extracted Rx, layer_llr[0] the output.
-      nr_inner_rx_1layer(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], qamModOrder, *log2_maxh, layer_llr[0]);
+      // Fused single-layer inner RX: MRC compensation + LLR for this symbol, bit-exact with
+      // {nr_channel_compensation + nr_dlsch_llr}. chFext[0] = the single layer's extracted channel,
+      // rxdataF_ext = extracted Rx, layer_llr[0] = output. OAI_FUSE=2 selects the register-fused
+      // variant (no tile scratch, no per-tile LLR call); OAI_FUSE=1 the tiled variant.
+      if (fuse_env == 2)
+        nr_inner_rx_1layer_reg(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], qamModOrder, *log2_maxh, layer_llr[0]);
+      else
+        nr_inner_rx_1layer(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], qamModOrder, *log2_maxh, layer_llr[0]);
     } else if (nl == 2 && do_ml && (qamModOrder <= 6 || (qamModOrder == 8 && ml256))) {
       // 2-layer QPSK/16QAM/64QAM (and 256QAM under the OAI_LBEST analysis gate):
       // joint ML-LLR using inter-layer Tx correlation.

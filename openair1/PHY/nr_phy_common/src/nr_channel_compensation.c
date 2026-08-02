@@ -18,12 +18,14 @@
 #include "nr_lbest_simd_width.h"
 #include "nr_channel_comp_simd.c.inc"
 #include "nr_inner_rx_1layer_simd.c.inc"
+#include "nr_inner_rx_1layer_reg_simd.c.inc"
 #include "nr_inner_rx_2layer_ml_simd.c.inc"
 #undef NRLB_W
 #define NRLB_W 128
 #include "nr_lbest_simd_width.h"
 #include "nr_channel_comp_simd.c.inc"
 #include "nr_inner_rx_1layer_simd.c.inc"
+#include "nr_inner_rx_1layer_reg_simd.c.inc"
 #include "nr_inner_rx_2layer_ml_simd.c.inc"
 #undef NRLB_W
 
@@ -87,6 +89,26 @@ void nr_inner_rx_1layer(uint32_t length,
     nr_inner_rx_1layer_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr);
   else
     nr_inner_rx_1layer_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr);
+#endif
+}
+
+// Register-fused variant: no tile scratch, no per-tile LLR call (per-block MRC+mag+LLR in regs).
+void nr_inner_rx_1layer_reg(uint32_t length,
+                            uint32_t buffer_length,
+                            int nb_rx_ant,
+                            c16_t rxFext[nb_rx_ant][buffer_length],
+                            c16_t chFext[nb_rx_ant][buffer_length],
+                            int mod_order,
+                            int output_shift,
+                            int16_t *llr)
+{
+#if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
+  nr_inner_rx_1layer_reg_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr);
+#else
+  if (nr_comp_simd_width_mode() == 1)
+    nr_inner_rx_1layer_reg_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr);
+  else
+    nr_inner_rx_1layer_reg_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr);
 #endif
 }
 
