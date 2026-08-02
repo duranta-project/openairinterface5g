@@ -291,20 +291,33 @@ static void inner_rx(PHY_VARS_gNB *gNB,
   for (int i = 0; i < nb_layer; i++)
     memset(&pusch_vars->rxdataF_comp[i][symbol * buffer_length], 0, sizeof(int32_t) * buffer_length);
 
-  nr_channel_compensation(buffer_length,
-                          buffer_length,
-                          nb_rx_ant,
-                          nb_layer,
-                          rxFext,
-                          chFext,
-                          rxF_ch_maga,
-                          rxF_ch_magb,
-                          rxF_ch_magc,
-                          pusch_vars->rxdataF_comp,
-                          (nb_layer > 1) ? rho : NULL,
-                          rel15_ul->qam_mod_order,
-                          symbol,
-                          output_shift);
+  // Fused single-layer inner RX (OAI_FUSE): skip the standalone MRC compensation; nr_inner_rx_1layer
+  // in the LLR stage below does MRC+LLR tiled in L1 (no rxComp/mag round-trip). Same shared kernel as
+  // the UE. CP-OFDM single-layer non-PTRS only: transform precoding's freq-eq/idft and PTRS both sit
+  // between compensation and LLR.
+  static int fuse_env = -1;
+  if (fuse_env < 0) {
+    const char *e = getenv("OAI_FUSE");
+    fuse_env = e ? atoi(e) : 0;
+  }
+  const bool fuse_1layer = fuse_env && (nb_layer == 1)
+                           && (rel15_ul->transform_precoding != transformPrecoder_enabled)
+                           && !(rel15_ul->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS);
+  if (!fuse_1layer)
+    nr_channel_compensation(buffer_length,
+                            buffer_length,
+                            nb_rx_ant,
+                            nb_layer,
+                            rxFext,
+                            chFext,
+                            rxF_ch_maga,
+                            rxF_ch_magb,
+                            rxF_ch_magc,
+                            pusch_vars->rxdataF_comp,
+                            (nb_layer > 1) ? rho : NULL,
+                            rel15_ul->qam_mod_order,
+                            symbol,
+                            output_shift);
   stop_meas(pusch_ch_comp);
 
   if (nb_layer == 1 && rel15_ul->transform_precoding == transformPrecoder_enabled && rel15_ul->qam_mod_order <= 6) {
@@ -365,16 +378,31 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                           llr);
     }
   }
-  if (nb_layer != 2) // 2-layer 256QAM MMSE is now handled inside nr_compute_MMSE_llr above
-    for (int aatx = 0; aatx < nb_layer; aatx++)
-      nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
-                     rxF_ch_maga[aatx],
-                     rxF_ch_magb[aatx],
-                     rxF_ch_magc[aatx],
-                     llr[aatx],
-                     pusch_vars->ul_valid_re_per_slot[symbol],
-                     symbol,
-                     rel15_ul->qam_mod_order);
+  if (nb_layer != 2) { // 2-layer 256QAM MMSE is now handled inside nr_compute_MMSE_llr above
+    if (fuse_1layer) {
+      // Fused single-layer inner RX: MRC compensation + LLR, tiled in L1 (nr_inner_rx_1layer).
+      // Replaces {nr_channel_compensation + nr_compute_llr} for this symbol, bit-exact. chFext[0]
+      // is the single layer's extracted channel, rxFext the extracted Rx, llr[0] the output.
+      nr_inner_rx_1layer(pusch_vars->ul_valid_re_per_slot[symbol],
+                         buffer_length,
+                         nb_rx_ant,
+                         rxFext,
+                         chFext[0],
+                         rel15_ul->qam_mod_order,
+                         output_shift,
+                         llr[0]);
+    } else {
+      for (int aatx = 0; aatx < nb_layer; aatx++)
+        nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
+                       rxF_ch_maga[aatx],
+                       rxF_ch_magb[aatx],
+                       rxF_ch_magc[aatx],
+                       llr[aatx],
+                       pusch_vars->ul_valid_re_per_slot[symbol],
+                       symbol,
+                       rel15_ul->qam_mod_order);
+    }
+  }
   stop_meas(ulsch_llr);
 }
 
