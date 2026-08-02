@@ -28,7 +28,7 @@ OAI_FUSE=1 ./nr_dlsim -n300 <cfg> -E -P     # fused:   COMP skipped (~0), fused 
 
 | config | unfused COMP+LLR | fused (LLR) | delta | fused/slot (×13) |
 |---|---|---|---|---|
-| 1-layer 64QAM        | 0.37 + 0.18 = 0.55 | 0.47  | ~15% | ~6 µs |
+| 1-layer 16QAM (-e14) | 0.37 + 0.18 = 0.55 | 0.47  | ~15% | ~6 µs |
 | 2-layer QPSK         | 1.13 + 1.22 = 2.35 | 1.80  | ~23% | ~23 µs |
 | 2-layer 64QAM full-ML| 1.39 + 35.95 = 37.34 | 36.86 | ~1.3% | **~479 µs** |
 | 2-layer 256QAM L-best| 1.40 + 34.32 = 35.72 | 35.22 | ~1.4% | ~458 µs |
@@ -37,7 +37,7 @@ OAI_FUSE=1 ./nr_dlsim -n300 <cfg> -E -P     # fused:   COMP skipped (~0), fused 
 
 | config | unfused COMP+LLR | fused (LLR) | delta | fused/slot (×13) |
 |---|---|---|---|---|
-| 1-layer 64QAM        | 0.95 + 0.50 = 1.45 | 1.16  | ~20% | ~15 µs |
+| 1-layer 16QAM (-e14) | 0.95 + 0.50 = 1.45 | 1.16  | ~20% | ~15 µs |
 | 2-layer QPSK         | (run stalled — TODO) | | | |
 | 2-layer 64QAM full-ML| 3.97 + 97.51 = 101.48 | 97.56 | ~3.9% | **~1268 µs** |
 | 2-layer 256QAM L-best| 3.76 + 62.52 = 66.28 | 66.79 | ~-0.8% (noise) | ~868 µs |
@@ -57,7 +57,7 @@ OAI_FUSE=1 ./nr_dlsim -n300 <cfg> -E -P     # fused:   COMP skipped (~0), fused 
 
 | platform | config | unfused | fused | delta | notes |
 |---|---|---|---|---|---|
-| RK3588 A76 (UE)   | | | | | native w128 |
+| RK3588 A76 (UE, Rock 5A) | 2L-64QAM full-ML @40 MHz | 29.71+479.76=509.47 | 496.72 | ~2.5% | native w128; **BLER/BER identical fused vs unfused (validated on real NEON)**; comp cost **-43%** when fused (29.71→16.96 absorbed = memory round-trip saved), but full-ML LLR dominates (~497 µs/sym ≈ **6.5 ms/slot**, ~13× over 500 µs → needs L-best reduced-search). TODO: measure 1-layer / 2L-QPSK here where fusion should shine (compensation a bigger fraction). |
 | NXP A72 (gNB)     | | | | | native w128 |
 | K3 X100 (RISC-V)  | | | | | SIMDe (not native RVV) |
 | K3 A100 (RISC-V)  | | | | | SIMDe; LLR ~4× slower here |
