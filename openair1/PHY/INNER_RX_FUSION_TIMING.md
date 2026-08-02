@@ -66,6 +66,31 @@ OAI_FUSE=1 ./nr_dlsim -n300 <cfg> -E -P     # fused:   COMP skipped (~0), fused 
 | K3 X100 (RISC-V)  | | | | | SIMDe (not native RVV) |
 | K3 A100 (RISC-V)  | | | | | SIMDe; LLR ~4× slower here |
 
-## Re-measure after register-fusion
-Same A/B; the register-fusion should shrink the fused-LLR column further (no L1 scratch
-round-trip), most visibly on the memory-bound targets and the cheap-LLR configs.
+## Register-fusion (`OAI_FUSE=2`, commit b361b05971)
+Per-block MRC + magnitudes + LLR computed in registers, LLR stored directly (compile-time-index
+extracts, no stack spill) — no L1 tile scratch and no per-tile LLR call. Bit-exact with unfused
+and with the tiled fusion (`OAI_FUSE=1`), all mod orders, w256 and w128. A/B is the same gate:
+```
+OAI_FUSE=1 ./nr_dlsim -n300 <cfg> -P   # tiled fusion  (L1 scratch + per-tile call)
+OAI_FUSE=2 ./nr_dlsim -n300 <cfg> -P   # register fusion (no scratch, no call)
+# 1-layer decider cfg: -s24 -S25 -R273 -b273 -e17 -x1 -y1 -z2   (64QAM, 2 Rx, 100 MHz)
+```
+
+### x86 (dev machine) — register vs tiled, 1-layer 64QAM @100 MHz
+| variant | fused LLR |
+|---|---|
+| tiled (FUSE=1)    | 1.91 µs |
+| register (FUSE=2) | 2.17 µs (~+14%) |
+
+**x86 says register LOSES to tiled — but x86 cannot decide this.** Interleaving compensation+LLR
+per block raises register pressure / hurts scheduling; on cache-rich x86 that cost exceeds the
+(nearly free) L1 tile-scratch the register form removes. On the memory-bound A76/A100 the scratch
+round-trip is more expensive (bigger saving) **but** the core is more register-constrained (bigger
+pressure cost) — the two effects pull opposite ways, so the register-fusion must be measured on
+the A76 to know if it's worth keeping over the tiled fusion.
+
+### aarch64 — TODO (the decider)
+Run the A/B above on the A76 for 1-layer 64QAM @100 MHz (where tiled already gave ~7.3%). If
+register (FUSE=2) beats tiled (FUSE=1) there, flip the default and keep it; if not, drop the
+register path and keep the tiled fusion. Then repeat for 2-layer once register-fusion is extended
+past single-layer.
