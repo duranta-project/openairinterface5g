@@ -105,6 +105,26 @@ for 1-layer, because 1-layer's scratch is tiny (rxComp + mag, **no rho**) and th
 ~24 µs. **Keep the tiled fusion as the default;** the register path stays gated (`OAI_FUSE=2`,
 bit-exact) but is not a win for single-layer.
 
-The only place register-fusion might pay off is **2-layer**, where the scratch is real (the `rho`
-round-trip = the ~-43% comp cut measured on the A76) and the per-tile ML call is heavier — but that
-kernel is unbuilt. Build + measure it before investing further, or leave the register path as-is.
+### 2-layer register-fusion — NOT built (evidence says wash), decided 2026-08-02
+Considered extending register-fusion to 2-layer, where the scratch is bigger (rxC0/1 + mag0/1 +
+rho01/10, six arrays vs the single layer's three). Reading the actual detectors settled it without
+building:
+- The 2-layer detectors are **compute-bound, not memory-bound on their scratch**. The L-best 64QAM
+  kernel (`nr_qam64_llr_2layer_lbest_q15_simd`, the default hot path) does **5 input loads** per
+  16-RE iteration (z1, z2, rho, cm0, cm1 via `nrlbw_load`) followed by **~100+ SIMD ops** — seed,
+  a 9-candidate metric grid, per-axis max reductions, LLR pack. Full-ML (`nr_qam64_llr_2layer`)
+  does far more. Input loads are <5% of the work; register-fusing them saves <5%.
+- Corroborated by the ~3.4× speedup L-best gets from candidate reduction on the A76 (a
+  memory-bound kernel wouldn't speed up that much from doing less *compute*). The
+  "L-best is memory-bound (~4× on A100)" observation is a **RISC-V/SIMDe** artifact (256-bit
+  emulated as 2×128 + narrow datapath), not an A76 property.
+- The **tiled fusion already removed the DRAM round-trip** for all six scratch arrays; register-
+  fusion only removes the residual **L1** load — and the 1-layer A76 test measured that L1-load
+  elimination at **~0** (wash). 2-layer does 15–50× more detector compute per RE, so the L1-load
+  fraction is *smaller*, not bigger ⇒ 2-layer register-fusion is a wash with higher confidence
+  than 1-layer.
+
+Conclusion: **register-fusion does not help 2-layer either.** The tiled fusion is the shipping form
+for both 1- and 2-layer; the 1-layer register path stays gated (`OAI_FUSE=2`, bit-exact) as a
+reference but is not a win. The near-ML/L-best detector compute is the wall — only reduced-search
+(L-best: ~3.4× on A76) moves it, not fusion.
