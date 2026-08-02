@@ -59,6 +59,8 @@ OAI_FUSE=1 ./nr_dlsim -n300 <cfg> -E -P     # fused:   COMP skipped (~0), fused 
 |---|---|---|---|---|---|
 | RK3588 A76 (UE, Rock 5A) | 2L-64QAM full-ML @40 MHz | 29.71+479.76=509.47 | 496.72 | ~2.5% | native w128; **BLER/BER identical fused vs unfused (validated on real NEON)**; comp cost **-43%** when fused (29.71→16.96 absorbed = memory round-trip saved), but full-ML LLR dominates (~497 µs/sym ≈ **6.5 ms/slot**, ~13× over 500 µs → needs L-best reduced-search). TODO: measure 1-layer / 2L-QPSK here where fusion should shine (compensation a bigger fraction). |
 | RK3588 A76 (UE, Rock 5A) | 2L-64QAM **L-best** (PAT=1) @40 MHz | 29.87+125.62=155.49 | 142.33 | **~8.5%** | native w128; BER identical fused vs unfused (real NEON); L-best LLR ~3.4× cheaper than full-ML (126 vs 480 µs/sym); same ~44% comp cut (29.87→16.71) but now a bigger share → bigger overall %. ~1.85 ms/slot (viable with per-symbol threading across cores). |
+| RK3588 A76 (UE, Rock 5A) | 2L-64QAM full-ML @100 MHz | 75.12+1239.64=1314.76 | 1282.29 | ~2.5% | comp 2.5× vs 40 MHz, LLR 2.6× → **delta bandwidth-invariant** on this memory-bound core; ~43% comp cut (42.6 absorbed vs 75.1). BER identical. |
+| RK3588 A76 (UE, Rock 5A) | 2L-64QAM **L-best** (PAT=1) @100 MHz | 75.37+333.15=408.52 | 375.77 | **~8.0%** | same ~43% comp cut; delta ≈ 40 MHz L-best (8.5%). L-best LLR ~3.7× cheaper than full-ML. BER identical. |
 | NXP A72 (gNB)     | | | | | native w128 |
 | K3 X100 (RISC-V)  | | | | | SIMDe (not native RVV) |
 | K3 A100 (RISC-V)  | | | | | SIMDe; LLR ~4× slower here |
