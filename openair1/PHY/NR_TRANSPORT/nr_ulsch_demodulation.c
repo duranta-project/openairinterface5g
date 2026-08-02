@@ -300,10 +300,22 @@ static void inner_rx(PHY_VARS_gNB *gNB,
     const char *e = getenv("OAI_FUSE");
     fuse_env = e ? atoi(e) : 0;
   }
+  static int gnb_lbest_fuse = -1;
+  if (gnb_lbest_fuse < 0) {
+    const char *e = getenv("OAI_LBEST");
+    gnb_lbest_fuse = e ? atoi(e) : 0;
+  }
+  const bool ptrs_fuse = (rel15_ul->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS);
   const bool fuse_1layer = fuse_env && (nb_layer == 1)
                            && (rel15_ul->transform_precoding != transformPrecoder_enabled)
-                           && !(rel15_ul->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS);
-  if (!fuse_1layer)
+                           && !ptrs_fuse;
+  // 2-layer near-ML path: QPSK/16QAM/64QAM, or 256QAM under the L-best gate (matches the LLR
+  // dispatch below). The 256QAM-MMSE path is not fused here.
+  const bool fuse_2layer_ml = fuse_env && (nb_layer == 2)
+                              && (rel15_ul->qam_mod_order <= 6 || (rel15_ul->qam_mod_order == 8 && gnb_lbest_fuse))
+                              && !ptrs_fuse;
+  const bool fuse_skip_comp = fuse_1layer || fuse_2layer_ml;
+  if (!fuse_skip_comp)
     nr_channel_compensation(buffer_length,
                             buffer_length,
                             nb_rx_ant,
@@ -346,16 +358,30 @@ static void inner_rx(PHY_VARS_gNB *gNB,
   if (gnb_lbest < 0) { const char *e = getenv("OAI_LBEST"); gnb_lbest = e ? atoi(e) : 0; }
   if (nb_layer == 2) {
     if (rel15_ul->qam_mod_order <= 6 || (rel15_ul->qam_mod_order == 8 && gnb_lbest)) {
-      nr_compute_ML_llr((c16_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
-                        (c16_t *)&pusch_vars->rxdataF_comp[1][symbol * buffer_length],
-                        rxF_ch_maga[0],
-                        rxF_ch_maga[1],
-                        llr[0],
-                        llr[1],
-                        rho[0][1],
-                        rho[1][0],
-                        pusch_vars->ul_valid_re_per_slot[symbol],
-                        rel15_ul->qam_mod_order);
+      if (fuse_2layer_ml) {
+        // Fused: MRC compensation + rho build + joint ML-LLR, tiled in L1 (nr_inner_rx_2layer_ml).
+        // Replaces {nr_channel_compensation + nr_compute_ML_llr}. Same shared kernel as the UE.
+        nr_inner_rx_2layer_ml(pusch_vars->ul_valid_re_per_slot[symbol],
+                              buffer_length,
+                              nb_rx_ant,
+                              rxFext,
+                              chFext,
+                              rel15_ul->qam_mod_order,
+                              output_shift,
+                              llr[0],
+                              llr[1]);
+      } else {
+        nr_compute_ML_llr((c16_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
+                          (c16_t *)&pusch_vars->rxdataF_comp[1][symbol * buffer_length],
+                          rxF_ch_maga[0],
+                          rxF_ch_maga[1],
+                          llr[0],
+                          llr[1],
+                          rho[0][1],
+                          rho[1][0],
+                          pusch_vars->ul_valid_re_per_slot[symbol],
+                          rel15_ul->qam_mod_order);
+      }
     }
     else {
       // Fused Gram-fed 2-layer MMSE + scalar LLR (L=1). Replaces {nr_mmse_2layers + scalar loop}.
