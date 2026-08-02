@@ -89,8 +89,22 @@ round-trip is more expensive (bigger saving) **but** the core is more register-c
 pressure cost) — the two effects pull opposite ways, so the register-fusion must be measured on
 the A76 to know if it's worth keeping over the tiled fusion.
 
-### aarch64 — TODO (the decider)
-Run the A/B above on the A76 for 1-layer 64QAM @100 MHz (where tiled already gave ~7.3%). If
-register (FUSE=2) beats tiled (FUSE=1) there, flip the default and keep it; if not, drop the
-register path and keep the tiled fusion. Then repeat for 2-layer once register-fusion is extended
-past single-layer.
+### aarch64 (RK3588 A76) — DECIDED: register is a wash, keep tiled
+1-layer 64QAM @100 MHz, 2 Rx, `OAI_RNGSEED=888`, BER bit-identical (1.592530e-04) both:
+
+| variant | fused LLR |
+|---|---|
+| unfused (ref, earlier) | 26.46 µs |
+| tiled (FUSE=1)    | 24.46 µs (~7.5% vs unfused) |
+| register (FUSE=2) | 24.54 µs (+0.3% vs tiled — noise) |
+
+**Verdict: register-fusion does NOT beat the tiled fusion.** On the memory-bound A76 it's a wash
+(+0.3%); on cache-rich x86 it's ~14% slower. The tiled fusion already captured the whole
+memory-round-trip win (26.46 → 24.46); eliminating the scratch + per-tile call on top adds nothing
+for 1-layer, because 1-layer's scratch is tiny (rxComp + mag, **no rho**) and the LLR is only
+~24 µs. **Keep the tiled fusion as the default;** the register path stays gated (`OAI_FUSE=2`,
+bit-exact) but is not a win for single-layer.
+
+The only place register-fusion might pay off is **2-layer**, where the scratch is real (the `rho`
+round-trip = the ~-43% comp cut measured on the A76) and the per-tile ML call is heavier — but that
+kernel is unbuilt. Build + measure it before investing further, or leave the register path as-is.
