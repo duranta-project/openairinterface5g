@@ -3924,14 +3924,11 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       nr_qam16_llr_2layer(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re);
       break;
     case 6:
-      // 2-layer 64QAM. Default = full ML search (nr_qam64_llr_2layer), correct on all channels.
-      // The reduced-search L-best kernel (nr_qam64_llr_2layer_lbest_q15_simd16) is GATED OFF by
-      // default: it is only accurate on low-correlation / sparse channels (e.g. mmWave indoor,
-      // LOS-dominated), where the linear (ZF) seed predicts the ML symbol well. On correlated /
-      // selective channels (e.g. 3GPP TDL) it loses several dB and MUST NOT be used.
-      // Enable per-scenario via OAI_LBEST=1; OAI_LBEST_PAT picks the candidate set
-      // (0=3x3 [default], 1=6-cand seed-aware, 2=5-plus). TODO: replace the env gate with a
-      // proper RX-mode/config flag set by the scenario.
+      // 2-layer 64QAM. Default today = full ML search (nr_qam64_llr_2layer). The reduced-search
+      // L-best kernel (nr_qam64_llr_2layer_lbest_q15_simd16) tracks full-ML on 3GPP TDL with the
+      // hot ML LLR scaling and is faster (see nr_mimo_lbest_detector.md sec. 6a); it is opt-in via
+      // OAI_LBEST=1 for now, pending a proper RX-mode/config flag to make it the default.
+      // OAI_LBEST_PAT picks the candidate set (0=3x3 [default], 1=6-cand seed-aware, 2=5-plus).
       {
         static int lbest = -1, pat = 0;
         if (lbest < 0) {
