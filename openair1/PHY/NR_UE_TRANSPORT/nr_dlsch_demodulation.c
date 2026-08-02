@@ -1053,27 +1053,10 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                     nb_re_pdsch,
                     nvar,
                     (need_rho && mmse_gram) ? rho_dl : NULL); // Gram-based build; OAI_MMSE_GRAM=0 -> legacy chFext
-    } else if ((nl == 2) && (qamModOrder > 6) && do_ml && !ml256) {
-      nr_mmse_2layers(p_rxComp,
-                      rx_size_symbol,
-                      pdsch_buf_size_max,
-                      nbRx,
-                      nl,
-                      dl_ch_mag,
-                      dl_ch_magb,
-                      dl_ch_magr,
-                      chFext,
-                      freq_alloc->num_rbs,
-                      qamModOrder,
-                      *log2_maxh,
-                      0,
-                      nb_re_pdsch,
-                      nvar,
-                      (need_rho && mmse_gram) ? rho_dl[0] : NULL,
-                      (need_rho && mmse_gram) ? rho_dl[1] : NULL,
-                      (need_rho && mmse_gram) ? rho_dl[nl] : NULL,
-                      (need_rho && mmse_gram) ? rho_dl[nl + 1] : NULL); // Gram; OAI_MMSE_GRAM=0 -> chFext
     }
+    // R4: the 2-layer 256QAM (non-lbest) per-PRB MMSE that used to live here is now fused
+    // with its LLR in block B via nr_compute_MMSE_llr, mirroring the gNB inner_rx. The
+    // channel-compensated (MRC) rxdataF_comp is left untouched for that path here.
   }
   stop_meas_nr_ue_phy(ue, DLSCH_MRC_MMSE_STATS);
 
@@ -1150,6 +1133,34 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                         rho_dl[nl],
                         this_re,
                         qamModOrder);
+    } else if (nl == 2 && do_ml && qamModOrder == 8) {
+      // R4: 2-layer 256QAM (non-lbest) — fused per-RE MMSE (L=1) + LLR, mirroring the gNB
+      // inner_rx. nr_compute_MMSE_llr = nr_mmse_2layers (per-RE Gram inversion on the MRC'd
+      // p_rxComp) + per-layer nr_compute_llr, replacing {block-A nr_mmse_2layers + nr_dlsch_llr}.
+      // (The qamModOrder==8 && ml256 case is taken by the ML branch above.)
+      int16_t *llr_ptrs[nl];
+      for (int l = 0; l < nl; l++)
+        llr_ptrs[l] = layer_llr[l];
+      nr_compute_MMSE_llr(p_rxComp,
+                          rx_size_symbol,
+                          pdsch_buf_size_max,
+                          nbRx,
+                          nl,
+                          dl_ch_mag,
+                          dl_ch_magb,
+                          dl_ch_magr,
+                          chFext,
+                          freq_alloc->num_rbs,
+                          qamModOrder,
+                          *log2_maxh,
+                          0, // symbol already baked into p_rxComp
+                          this_re,
+                          nvar,
+                          rho_dl[0],
+                          rho_dl[1],
+                          rho_dl[nl],
+                          rho_dl[nl + 1],
+                          llr_ptrs);
     } else if (ml3) {
       // 3-layer hybrid ML (gated, float reference). For each target layer t, project the
       // most-orthogonal nuisance + Schur-deflate, then 2-layer conditional-slice on the kept
