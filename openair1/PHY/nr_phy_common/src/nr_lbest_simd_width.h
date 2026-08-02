@@ -17,8 +17,10 @@
 #undef NRLB_VI
 #undef NRLB_VF
 #undef NRLB_N
+#undef NRLB_N_RE
 #undef NRLB_MM
 #undef NRLB_MMF
+#undef NRLB_OAI
 #undef NRLB_NAME
 #undef NRLB_SETZERO
 #undef NRLB_CASTPS_SI
@@ -43,6 +45,8 @@
   #define NRLB_N 16
   #define NRLB_MM(op) NRLB_CC(simde_mm256_, op)
   #define NRLB_MMF(op) NRLB_CC(simde_mm256_, op)
+  #define NRLB_OAI(op) NRLB_CC(oai_mm256_, op)
+  #define NRLB_N_RE 8
   #define NRLB_NAME(base) NRLB_CC(base, _w256)
   #define NRLB_SETZERO() simde_mm256_setzero_si256()
   #define NRLB_CASTPS_SI(x) simde_mm256_castps_si256(x)
@@ -61,6 +65,8 @@
   #define NRLB_N 8
   #define NRLB_MM(op) NRLB_CC(simde_mm_, op)
   #define NRLB_MMF(op) NRLB_CC(simde_mm_, op)
+  #define NRLB_OAI(op) NRLB_CC(oai_mm_, op)
+  #define NRLB_N_RE 4
   #define NRLB_NAME(base) NRLB_CC(base, _w128)
   #define NRLB_SETZERO() simde_mm_setzero_si128()
   #define NRLB_CASTPS_SI(x) simde_mm_castps_si128(x)
@@ -79,6 +85,8 @@
   #define NRLB_N 32
   #define NRLB_MM(op) NRLB_CC(simde_mm512_, op)
   #define NRLB_MMF(op) NRLB_CC(simde_mm512_, op)
+  #define NRLB_OAI(op) NRLB_CC(oai_mm512_, op)
+  #define NRLB_N_RE 16
   #define NRLB_NAME(base) NRLB_CC(base, _w512)
   #define NRLB_SETZERO() simde_mm512_setzero_si512()
   #define NRLB_CASTPS_SI(x) simde_mm512_castps_si512(x)
