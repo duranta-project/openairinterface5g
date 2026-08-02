@@ -1001,9 +1001,15 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   const bool ptrs_active_fuse =
       (dlsch_harq->status == NR_ACTIVE) && (dlsch_config->pduBitmap & 0x1) && (dlsch->rnti_type == TYPE_C_RNTI_);
   const bool fuse_1layer = fuse_env && (nl == 1) && !ptrs_active_fuse;
+  // 2-layer near-ML path (matches the block-B nr_compute_ML_llr gate): QPSK/16QAM/64QAM, or 256QAM
+  // under the L-best (ml256) gate. The 256QAM-MMSE and do_ml-off paths are not fused here.
+  const uint8_t qam_fuse = dlsch->cw_info.qamModOrder;
+  const bool fuse_2layer_ml =
+      fuse_env && (nl == 2) && do_ml && (qam_fuse <= 6 || (qam_fuse == 8 && ml256)) && !ptrs_active_fuse;
+  const bool fuse_skip_comp = fuse_1layer || fuse_2layer_ml;
 
   start_meas_nr_ue_phy(ue, DLSCH_CHANNEL_COMPENSATION_STATS);
-  if (!fuse_1layer)
+  if (!fuse_skip_comp)
     nr_channel_compensation(rx_size_symbol,
                             pdsch_buf_size_max,
                             nbRx,
@@ -1142,16 +1148,24 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
       // 2-layer QPSK/16QAM/64QAM (and 256QAM under the OAI_LBEST analysis gate):
       // joint ML-LLR using inter-layer Tx correlation.
       // rho_dl is [nl*nl][rx_size_symbol]: index 1 = rho[0][1], index nl = rho[1][0]
-      nr_compute_ML_llr(rxdataF_comp[symbol][0],
-                        rxdataF_comp[symbol][1],
-                        dl_ch_mag[0],
-                        dl_ch_mag[1],
-                        layer_llr[0],
-                        layer_llr[1],
-                        rho_dl[1],
-                        rho_dl[nl],
-                        this_re,
-                        qamModOrder);
+      if (fuse_2layer_ml) {
+        // Fused: MRC compensation + rho build + joint ML-LLR, tiled in L1 (nr_inner_rx_2layer_ml).
+        // Replaces {nr_channel_compensation + nr_compute_ML_llr}; relies on the RE-exact 2-layer
+        // LLR kernels being tile-safe. chFext = extracted 2-layer channel, rxdataF_ext the Rx.
+        nr_inner_rx_2layer_ml(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext, qamModOrder, *log2_maxh,
+                              layer_llr[0], layer_llr[1]);
+      } else {
+        nr_compute_ML_llr(rxdataF_comp[symbol][0],
+                          rxdataF_comp[symbol][1],
+                          dl_ch_mag[0],
+                          dl_ch_mag[1],
+                          layer_llr[0],
+                          layer_llr[1],
+                          rho_dl[1],
+                          rho_dl[nl],
+                          this_re,
+                          qamModOrder);
+      }
     } else if (nl == 2 && do_ml && qamModOrder == 8) {
       // R4: 2-layer 256QAM (non-lbest) — fused per-RE MMSE (L=1) + LLR, mirroring the gNB
       // inner_rx. nr_compute_MMSE_llr = nr_mmse_2layers (per-RE Gram inversion on the MRC'd

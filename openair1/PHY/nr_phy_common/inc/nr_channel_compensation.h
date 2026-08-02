@@ -75,4 +75,23 @@ void nr_inner_rx_1layer(uint32_t length,
                         int output_shift,
                         int16_t *llr);
 
+/**
+ * @brief Fused 2-layer near-ML inner RX: MRC compensation + rho build + joint ML-LLR, tiled.
+ *
+ * Equivalent to {nr_channel_compensation(nb_layers==2) + nr_compute_ML_llr}, processed in
+ * L1-resident RE-tiles (the two compensated streams, per-layer magnitudes and off-diagonal rho
+ * never touch full-symbol arrays). Requires RE-sub-range-composable 2-layer LLR kernels. Only
+ * mag_a is built (nr_compute_ML_llr derives the other thresholds). 256-bit only for now. Caller
+ * must exclude the PTRS case.
+ */
+void nr_inner_rx_2layer_ml(uint32_t length,
+                           uint32_t buffer_length,
+                           int nb_rx_ant,
+                           c16_t rxFext[nb_rx_ant][buffer_length],
+                           c16_t chFext[2][nb_rx_ant][buffer_length],
+                           int mod_order,
+                           int output_shift,
+                           int16_t *llr0,
+                           int16_t *llr1);
+
 #endif /* __NR_CHANNEL_COMPENSATION__H__ */
