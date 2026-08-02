@@ -4269,8 +4269,9 @@ static void nr_construct_HhH_elements(c16_t *conjch00_ch00,
   }
 }
 
-// MMSE Rx function: nr_mmse_2layers()
-uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
+// MMSE Rx function: nr_mmse_2layers(). File-local: the only caller is nr_compute_MMSE_llr below;
+// both the UE and gNB reach the 2-layer MMSE exclusively through that fused entry point.
+static uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
                         uint32_t buffer_length,
                         uint32_t pdsch_buf_size_max,
                         int nb_rx_ant,
