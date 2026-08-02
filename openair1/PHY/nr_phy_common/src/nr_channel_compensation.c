@@ -17,10 +17,14 @@
 #define NRLB_W 256
 #include "nr_lbest_simd_width.h"
 #include "nr_channel_comp_simd.c.inc"
+#include "nr_inner_rx_1layer_simd.c.inc"
+#include "nr_inner_rx_2layer_ml_simd.c.inc"
 #undef NRLB_W
 #define NRLB_W 128
 #include "nr_lbest_simd_width.h"
 #include "nr_channel_comp_simd.c.inc"
+#include "nr_inner_rx_1layer_simd.c.inc"
+#include "nr_inner_rx_2layer_ml_simd.c.inc"
 #undef NRLB_W
 
 // x86 width selection (cached): 1 = w128 (SSE->NEON regression path, OAI_COMP_W128), 0 = w256 (default).
@@ -76,90 +80,14 @@ void nr_inner_rx_1layer(uint32_t length,
                         int output_shift,
                         int16_t *llr)
 {
-  simde__m256i QAM_ampa_256 = simde_mm256_setzero_si256();
-  simde__m256i QAM_ampb_256 = simde_mm256_setzero_si256();
-  simde__m256i QAM_ampc_256 = simde_mm256_setzero_si256();
-
-  if (mod_order == 4) {
-    QAM_ampa_256 = simde_mm256_set1_epi16(QAM16_n1);
-  } else if (mod_order == 6) {
-    QAM_ampa_256 = simde_mm256_set1_epi16(QAM64_n1);
-    QAM_ampb_256 = simde_mm256_set1_epi16(QAM64_n2);
-  } else if (mod_order == 8) {
-    QAM_ampa_256 = simde_mm256_set1_epi16(QAM256_n1);
-    QAM_ampb_256 = simde_mm256_set1_epi16(QAM256_n2);
-    QAM_ampc_256 = simde_mm256_set1_epi16(QAM256_n3);
-  }
-
-  // L1-resident per-tile scratch. TILE is a multiple of 8 (SIMD block) and of 16 (RE alloc
-  // granularity), so with buffer_length a multiple of 16 every tile spans whole 8-RE blocks.
-  enum { TILE = 96 };
-  __attribute__((aligned(32))) c16_t rxComp_t[TILE];
-  __attribute__((aligned(32))) c16_t maga_t[TILE];
-  __attribute__((aligned(32))) c16_t magb_t[TILE];
-  __attribute__((aligned(32))) c16_t magc_t[TILE];
-
-  simde__m256i *rxComp_256 = (simde__m256i *)rxComp_t;
-  simde__m256i *maga_256 = (simde__m256i *)maga_t;
-  simde__m256i *magb_256 = (simde__m256i *)magb_t;
-  simde__m256i *magc_256 = (simde__m256i *)magc_t;
-
-  for (uint32_t base = 0; base < length; base += TILE) {
-    const uint32_t tre = (length - base < TILE) ? (length - base) : TILE; // valid REs (LLR)
-    uint32_t hi = base + TILE;
-    if (hi > buffer_length)
-      hi = buffer_length;
-    const uint32_t nblk = (hi - base) >> 3; // 8-RE SIMD blocks, never reading past buffer_length
-
-    // First Rx antenna: direct store (no pre-memset of the tile scratch needed)
-    {
-      simde__m256i *rxF_256 = (simde__m256i *)&rxFext[0][base];
-      simde__m256i *chF_256 = (simde__m256i *)&chFext[0][base];
-      for (uint32_t i = 0; i < nblk; i++) {
-        rxComp_256[i] = oai_mm256_cpx_mult_conj(chF_256[i], rxF_256[i], output_shift);
-        if (mod_order > 2) {
-          simde__m256i mag = oai_mm256_smadd(chF_256[i], chF_256[i], output_shift);
-          mag = simde_mm256_packs_epi32(mag, mag);
-          mag = simde_mm256_unpacklo_epi16(mag, mag);
-          maga_256[i] = simde_mm256_mulhrs_epi16(mag, QAM_ampa_256);
-          if (mod_order > 4)
-            magb_256[i] = simde_mm256_mulhrs_epi16(mag, QAM_ampb_256);
-          if (mod_order > 6)
-            magc_256[i] = simde_mm256_mulhrs_epi16(mag, QAM_ampc_256);
-        }
-      }
-    }
-
-    // Remaining Rx antennas: accumulate (MRC)
-    for (int aarx = 1; aarx < nb_rx_ant; aarx++) {
-      simde__m256i *rxF_256 = (simde__m256i *)&rxFext[aarx][base];
-      simde__m256i *chF_256 = (simde__m256i *)&chFext[aarx][base];
-      for (uint32_t i = 0; i < nblk; i++) {
-        simde__m256i comp = oai_mm256_cpx_mult_conj(chF_256[i], rxF_256[i], output_shift);
-        rxComp_256[i] = simde_mm256_add_epi16(rxComp_256[i], comp);
-        if (mod_order > 2) {
-          simde__m256i mag = oai_mm256_smadd(chF_256[i], chF_256[i], output_shift);
-          mag = simde_mm256_packs_epi32(mag, mag);
-          mag = simde_mm256_unpacklo_epi16(mag, mag);
-          maga_256[i] = simde_mm256_add_epi16(maga_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampa_256));
-          if (mod_order > 4)
-            magb_256[i] = simde_mm256_add_epi16(magb_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampb_256));
-          if (mod_order > 6)
-            magc_256[i] = simde_mm256_add_epi16(magc_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampc_256));
-        }
-      }
-    }
-
-    // Per-RE LLR for this tile's valid REs, straight from the L1 scratch
-    int16_t *llr_off = llr + (size_t)base * mod_order;
-    switch (mod_order) {
-      case 2: nr_qpsk_llr(rxComp_t, llr_off, tre); break;
-      case 4: nr_16qam_llr(rxComp_t, maga_t, llr_off, tre); break;
-      case 6: nr_64qam_llr(rxComp_t, maga_t, magb_t, llr_off, tre); break;
-      case 8: nr_256qam_llr(rxComp_t, maga_t, magb_t, magc_t, llr_off, tre); break;
-      default: break;
-    }
-  }
+#if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
+  nr_inner_rx_1layer_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr);
+#else
+  if (nr_comp_simd_width_mode() == 1)
+    nr_inner_rx_1layer_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr);
+  else
+    nr_inner_rx_1layer_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr);
+#endif
 }
 
 /* Fused 2-layer near-ML inner RX: MRC compensation + Gram off-diagonal (rho) build + joint ML-LLR
@@ -179,86 +107,12 @@ void nr_inner_rx_2layer_ml(uint32_t length,
                            int16_t *llr0,
                            int16_t *llr1)
 {
-  simde__m256i QAM_ampa_256 = simde_mm256_setzero_si256();
-  if (mod_order == 4)
-    QAM_ampa_256 = simde_mm256_set1_epi16(QAM16_n1);
-  else if (mod_order == 6)
-    QAM_ampa_256 = simde_mm256_set1_epi16(QAM64_n1);
-  else if (mod_order == 8)
-    QAM_ampa_256 = simde_mm256_set1_epi16(QAM256_n1);
-
-  enum { TILE = 96 };
-  __attribute__((aligned(32))) c16_t rxC0_t[TILE], rxC1_t[TILE];
-  __attribute__((aligned(32))) c16_t mag0_t[TILE], mag1_t[TILE];
-  __attribute__((aligned(32))) c16_t rho01_t[TILE], rho10_t[TILE];
-
-  simde__m256i *rxC0 = (simde__m256i *)rxC0_t, *rxC1 = (simde__m256i *)rxC1_t;
-  simde__m256i *mag0 = (simde__m256i *)mag0_t, *mag1 = (simde__m256i *)mag1_t;
-  simde__m256i *rho01 = (simde__m256i *)rho01_t, *rho10 = (simde__m256i *)rho10_t;
-
-  for (uint32_t base = 0; base < length; base += TILE) {
-    const uint32_t tre = (length - base < TILE) ? (length - base) : TILE;
-    uint32_t hi = base + TILE;
-    if (hi > buffer_length)
-      hi = buffer_length;
-    const uint32_t nblk = (hi - base) >> 3;
-
-    // First Rx antenna: direct store
-    {
-      simde__m256i *rxF = (simde__m256i *)&rxFext[0][base];
-      simde__m256i *c0 = (simde__m256i *)&chFext[0][0][base];
-      simde__m256i *c1 = (simde__m256i *)&chFext[1][0][base];
-      for (uint32_t i = 0; i < nblk; i++) {
-        rxC0[i] = oai_mm256_cpx_mult_conj(c0[i], rxF[i], output_shift);
-        rxC1[i] = oai_mm256_cpx_mult_conj(c1[i], rxF[i], output_shift);
-        rho01[i] = oai_mm256_cpx_mult_conj(c0[i], c1[i], output_shift);
-        rho10[i] = oai_mm256_cpx_mult_conj(c1[i], c0[i], output_shift);
-        if (mod_order > 2) {
-          simde__m256i m0 = oai_mm256_smadd(c0[i], c0[i], output_shift);
-          m0 = simde_mm256_packs_epi32(m0, m0);
-          m0 = simde_mm256_unpacklo_epi16(m0, m0);
-          mag0[i] = simde_mm256_mulhrs_epi16(m0, QAM_ampa_256);
-          simde__m256i m1 = oai_mm256_smadd(c1[i], c1[i], output_shift);
-          m1 = simde_mm256_packs_epi32(m1, m1);
-          m1 = simde_mm256_unpacklo_epi16(m1, m1);
-          mag1[i] = simde_mm256_mulhrs_epi16(m1, QAM_ampa_256);
-        }
-      }
-    }
-
-    // Remaining Rx antennas: accumulate (MRC + Gram)
-    for (int aarx = 1; aarx < nb_rx_ant; aarx++) {
-      simde__m256i *rxF = (simde__m256i *)&rxFext[aarx][base];
-      simde__m256i *c0 = (simde__m256i *)&chFext[0][aarx][base];
-      simde__m256i *c1 = (simde__m256i *)&chFext[1][aarx][base];
-      for (uint32_t i = 0; i < nblk; i++) {
-        rxC0[i] = simde_mm256_add_epi16(rxC0[i], oai_mm256_cpx_mult_conj(c0[i], rxF[i], output_shift));
-        rxC1[i] = simde_mm256_add_epi16(rxC1[i], oai_mm256_cpx_mult_conj(c1[i], rxF[i], output_shift));
-        rho01[i] = simde_mm256_adds_epi16(rho01[i], oai_mm256_cpx_mult_conj(c0[i], c1[i], output_shift));
-        rho10[i] = simde_mm256_adds_epi16(rho10[i], oai_mm256_cpx_mult_conj(c1[i], c0[i], output_shift));
-        if (mod_order > 2) {
-          simde__m256i m0 = oai_mm256_smadd(c0[i], c0[i], output_shift);
-          m0 = simde_mm256_packs_epi32(m0, m0);
-          m0 = simde_mm256_unpacklo_epi16(m0, m0);
-          mag0[i] = simde_mm256_add_epi16(mag0[i], simde_mm256_mulhrs_epi16(m0, QAM_ampa_256));
-          simde__m256i m1 = oai_mm256_smadd(c1[i], c1[i], output_shift);
-          m1 = simde_mm256_packs_epi32(m1, m1);
-          m1 = simde_mm256_unpacklo_epi16(m1, m1);
-          mag1[i] = simde_mm256_add_epi16(mag1[i], simde_mm256_mulhrs_epi16(m1, QAM_ampa_256));
-        }
-      }
-    }
-
-    // Joint 2-layer ML LLR for this tile, straight from the L1 scratch (RE-exact -> tile-safe)
-    nr_compute_ML_llr(rxC0_t,
-                      rxC1_t,
-                      mag0_t,
-                      mag1_t,
-                      llr0 + (size_t)base * mod_order,
-                      llr1 + (size_t)base * mod_order,
-                      rho01_t,
-                      rho10_t,
-                      tre,
-                      mod_order);
-  }
+#if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
+  nr_inner_rx_2layer_ml_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr0, llr1);
+#else
+  if (nr_comp_simd_width_mode() == 1)
+    nr_inner_rx_2layer_ml_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr0, llr1);
+  else
+    nr_inner_rx_2layer_ml_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr0, llr1);
+#endif
 }
