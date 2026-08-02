@@ -348,19 +348,22 @@ void nr_qpsk_llr_2layer(c16_t *stream0_in, c16_t *stream1_in, int16_t *stream0_o
     y0i = simde_mm256_subs_epi16(logmax_num_im0,
                                  logmax_den_im0); // LLR of second bit [L2(1), L2(2), L2(3), L2(4), L2(5), L2(6), L2(7), L2(8)]
 
-    // [L1(1), L2(1), L1(2), L2(2) ...]
-    simde__m128i *stream0_128i_out = (simde__m128i *)&stream0_256i_out[i];
+    // Interleave [L1,L2] per RE for the 16 REs [re_base, re_base+16), then store EXACTLY the valid
+    // ones. RE-exact: never write past `length` — else the tail block spills into the adjacent
+    // layer's LLR buffer, which corrupts RE-sub-range (tiled) calls (whole-symbol calls only spill
+    // into harmless padding, hiding the bug).
     simde__m128i *y0r_128 = (simde__m128i *)&y0r;
     simde__m128i *y0i_128 = (simde__m128i *)&y0i;
-    simde_mm_storeu_si128(&stream0_128i_out[0], simde_mm_unpacklo_epi16(y0r_128[0], y0i_128[0]));
-    simde_mm_storeu_si128(&stream0_128i_out[1], simde_mm_unpackhi_epi16(y0r_128[0], y0i_128[0]));
-
-    // false if only 4 REs remain
-    if (i < ((length >> 2) - 1)) {
-      simde__m128i *stream0_128i_out = (simde__m128i *)&stream0_256i_out[i + 1];
-      simde_mm_storeu_si128(&stream0_128i_out[0], simde_mm_unpacklo_epi16(y0r_128[1], y0i_128[1]));
-      simde_mm_storeu_si128(&stream0_128i_out[1], simde_mm_unpackhi_epi16(y0r_128[1], y0i_128[1]));
-    }
+    simde__m128i out4[4];
+    out4[0] = simde_mm_unpacklo_epi16(y0r_128[0], y0i_128[0]); // REs re_base+0..3
+    out4[1] = simde_mm_unpackhi_epi16(y0r_128[0], y0i_128[0]); // REs re_base+4..7
+    out4[2] = simde_mm_unpacklo_epi16(y0r_128[1], y0i_128[1]); // REs re_base+8..11
+    out4[3] = simde_mm_unpackhi_epi16(y0r_128[1], y0i_128[1]); // REs re_base+12..15
+    const uint32_t re_base = (uint32_t)i * 8;
+    uint32_t rem = (length > re_base) ? (length - re_base) : 0;
+    if (rem > 16)
+      rem = 16;
+    memcpy(&stream0_out[re_base * 2], out4, (size_t)rem * 2 * sizeof(int16_t));
   }
 #endif
 }
@@ -1178,25 +1181,25 @@ void nr_qam16_llr_2layer(c16_t *stream0_in,
     simde__m128i *y1r_128 = (simde__m128i *)&y1r;
     simde__m128i *y0i_128 = (simde__m128i *)&y0i;
     simde__m128i *y1i_128 = (simde__m128i *)&y1i;
-    simde__m128i xmm0_128, xmm1_128, xmm2_128, xmm3_128;
-    xmm0_128 = simde_mm_unpacklo_epi16(y0r_128[0], y1r_128[0]); // [L1(1), L2(1), L1(2), L2(2), L1(3), L2(3), L1(4), L2(4)]
-    xmm1_128 = simde_mm_unpackhi_epi16(y0r_128[0], y1r_128[0]); // [L1(5), L2(5), L1(6), L2(6), L1(7), L2(7), L1(8), L2(8)]
-    xmm2_128 = simde_mm_unpacklo_epi16(y0i_128[0], y1i_128[0]); // [L3(1), L4(1), L3(2), L4(2), L3(3), L4(3), L3(4), L4(4)]
-    xmm3_128 = simde_mm_unpackhi_epi16(y0i_128[0], y1i_128[0]); // [L3(5), L4(5), L3(6), L4(6), L3(7), L4(7), L3(8), L4(8)]
-    simde__m128i *stream0_128i_out = (simde__m128i *)&stream0_256i_out[2 * i + 0];
-    stream0_128i_out[0] = simde_mm_unpacklo_epi32(xmm0_128, xmm2_128); // 8 LLRs, 2 REs
-    stream0_128i_out[1] = simde_mm_unpackhi_epi32(xmm0_128, xmm2_128); // 8 LLRs, 2 REs
-    stream0_128i_out[2] = simde_mm_unpacklo_epi32(xmm1_128, xmm3_128); // 8 LLRs, 2 REs
-    stream0_128i_out[3] = simde_mm_unpackhi_epi32(xmm1_128, xmm3_128); // 8 LLRs, 2 REs
-    xmm0_128 = simde_mm_unpacklo_epi16(y0r_128[1], y1r_128[1]); // [L1(9), L2(9), L1(10), L2(10), L1(11), L2(11), L1(12), L2(12)]
-    xmm1_128 = simde_mm_unpackhi_epi16(y0r_128[1], y1r_128[1]); // [L1(13), L2(13), L1(14), L2(14), L1(15), L2(15), L1(16), L2(16)]
-    xmm2_128 = simde_mm_unpacklo_epi16(y0i_128[1], y1i_128[1]); // [L3(9), L4(9), L3(10), L4(10), L3(11), L4(11), L3(12), L4(12)]
-    xmm3_128 = simde_mm_unpackhi_epi16(y0i_128[1], y1i_128[1]); // [L3(13), L4(13), L3(14), L4(14), L3(15), L4(15), L3(16), L4(16)]
-    stream0_128i_out = (simde__m128i *)&stream0_256i_out[2 * i + 2];
-    stream0_128i_out[0] = simde_mm_unpacklo_epi32(xmm0_128, xmm2_128); // 8 LLRs, 2 REs
-    stream0_128i_out[1] = simde_mm_unpackhi_epi32(xmm0_128, xmm2_128); // 8 LLRs, 2 REs
-    stream0_128i_out[2] = simde_mm_unpacklo_epi32(xmm1_128, xmm3_128); // 8 LLRs, 2 REs
-    stream0_128i_out[3] = simde_mm_unpackhi_epi32(xmm1_128, xmm3_128); // 8 LLRs, 2 REs
+    // Interleave the 4 LLRs/RE for the 16 REs [re_base, re_base+16) into out8 (RE order, 2 REs per
+    // __m128i), then store EXACTLY the valid REs. RE-exact: never write past `length` so the tail
+    // does not spill into the adjacent layer's LLR buffer (tile-safety).
+    simde__m128i out8[8];
+    for (int h = 0; h < 2; h++) {
+      simde__m128i a = simde_mm_unpacklo_epi16(y0r_128[h], y1r_128[h]);
+      simde__m128i b = simde_mm_unpackhi_epi16(y0r_128[h], y1r_128[h]);
+      simde__m128i c = simde_mm_unpacklo_epi16(y0i_128[h], y1i_128[h]);
+      simde__m128i d = simde_mm_unpackhi_epi16(y0i_128[h], y1i_128[h]);
+      out8[h * 4 + 0] = simde_mm_unpacklo_epi32(a, c); // 2 REs
+      out8[h * 4 + 1] = simde_mm_unpackhi_epi32(a, c); // 2 REs
+      out8[h * 4 + 2] = simde_mm_unpacklo_epi32(b, d); // 2 REs
+      out8[h * 4 + 3] = simde_mm_unpackhi_epi32(b, d); // 2 REs
+    }
+    const uint32_t re_base = (uint32_t)i * 8;
+    uint32_t rem = (length > re_base) ? (length - re_base) : 0;
+    if (rem > 16)
+      rem = 16;
+    memcpy(&stream0_out[re_base * 4], out8, (size_t)rem * 4 * sizeof(int16_t));
   }
 #endif
 }
@@ -2597,8 +2600,10 @@ void nr_qam64_llr_2layer(c16_t *stream0_in,
 
     simde__m256i y2i = simde_mm256_subs_epi16(logmax_num_re0, logmax_den_re0);
 
-    // Map to output stream, difficult to do in SIMD since we have 6 16bit LLRs
-    for (int re = 0; re < 16; re++) {
+    // Map to output stream, difficult to do in SIMD since we have 6 16bit LLRs.
+    // RE-exact: this iter covers REs [i*8, i*8+16); write only those < length so the tail never
+    // spills past nb_re into the adjacent layer's buffer (tile-safety).
+    for (int re = 0; re < 16 && (uint32_t)(i * 8 + re) < length; re++) {
       *stream0_out++ = ((short *)&y0r)[re];
       *stream0_out++ = ((short *)&y1r)[re];
       *stream0_out++ = ((short *)&y2r)[re];
