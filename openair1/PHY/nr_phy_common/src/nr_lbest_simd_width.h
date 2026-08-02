@@ -182,13 +182,17 @@ static inline void NRLB_NAME(nrlbw_store_llr)(int16_t *stream0_out, uint32_t re,
   c[2] = simde_mm512_unpacklo_epi64(b1, b5); c[3] = simde_mm512_unpackhi_epi64(b1, b5);
   c[4] = simde_mm512_unpacklo_epi64(b2, b6); c[5] = simde_mm512_unpackhi_epi64(b2, b6);
   c[6] = simde_mm512_unpacklo_epi64(b3, b7); c[7] = simde_mm512_unpackhi_epi64(b3, b7);
-  for (int L = 0; L < 4; L++)
-    for (int j = 0; j < 8; j++) {
-      const simde__m128i cc = simde_mm512_extracti32x4_epi32(c[j], L);
+  for (int j = 0; j < 8; j++) {
+    // extracti32x4 needs a compile-time-constant lane -> extract all 4 with literal indices,
+    // then index at runtime (a loop variable in the lane arg fails at -O0, where nothing unrolls).
+    const simde__m128i cc[4] = {simde_mm512_extracti32x4_epi32(c[j], 0), simde_mm512_extracti32x4_epi32(c[j], 1),
+                                simde_mm512_extracti32x4_epi32(c[j], 2), simde_mm512_extracti32x4_epi32(c[j], 3)};
+    for (int L = 0; L < 4; L++) {
       int16_t *o = &stream0_out[(re + (uint32_t)(L * 8 + j)) * Qm];
-      if (Qm == 8) simde_mm_storeu_si128((simde__m128i *)o, cc);
-      else { simde_mm_storel_epi64((simde__m128i *)o, cc); *(int32_t *)(o + 4) = simde_mm_extract_epi32(cc, 2); }
+      if (Qm == 8) simde_mm_storeu_si128((simde__m128i *)o, cc[L]);
+      else { simde_mm_storel_epi64((simde__m128i *)o, cc[L]); *(int32_t *)(o + 4) = simde_mm_extract_epi32(cc[L], 2); }
     }
+  }
 #elif NRLB_W == 256
   simde__m256i r[8];
   for (int p = 0; p < Qm; p++) r[p] = res[p];
