@@ -209,8 +209,9 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
   const int phase_to_try[] = {0, 2, -2, 4, -4, 6, -6, 8, -8, 10, -10, 12, -12, 14, -14};
 
   // now do the SSS detection based on the precomputed sequences
-  sss_detection_result_t res = {.metric = -INT_MAX};
   int Nid1 = -1;
+  int64_t max_metric = 0;
+  sss_detection_result_t res = {};
   for (int idx = 0; idx < sizeofArray(phase_to_try); idx++) { // phase offset between PSS and SSS
 
     const float angle = M_PI / 3 / 15 * phase_to_try[idx];
@@ -226,8 +227,8 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
       }
       metric >>= SCALING_METRIC_SSS_NR;
       // if the current metric is better than the last save it
-      if (metric > res.metric) {
-        res.metric = metric;
+      if (metric > max_metric) {
+        max_metric = metric;
         Nid1 = n1;
         res.phase = idx;
 
@@ -237,7 +238,7 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
               res.phase,
               n1,
               metric,
-              res.metric,
+              max_metric,
               res.phase);
 #endif
       }
@@ -245,14 +246,14 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
     // we try progressively rotation between pss and sss
     // but pss and sss are in phase at emission
     // rotation means doppler variation, or very noisy pss detection
-    if (res.metric >= SSS_METRIC_FLOOR_NR)
+    if (max_metric >= SSS_METRIC_FLOOR_NR)
       break;
   }
 
-  if (res.metric < SSS_METRIC_FLOOR_NR) {
+  if (max_metric < SSS_METRIC_FLOOR_NR) {
     LOG_D(PHY,
-          "Failed to detect SSS after PSS, metric of SSS %d, threshold to consider SSS valid %d, detected PCI: %d\n",
-          res.metric,
+          "Failed to detect SSS after PSS, metric of SSS %ld, threshold to consider SSS valid %d, detected PCI: %d\n",
+          max_metric,
           SSS_METRIC_FLOOR_NR,
           res.nid_cell);
     res.success = false;
@@ -262,7 +263,7 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
     res.success = true;
   }
 
-  LOG_D(PHY, "Nid2 %d Nid1 %d metric %d, phase_max %d \n", Nid2, Nid1, res.metric, res.phase);
+  LOG_D(PHY, "Nid2 %d Nid1 %d metric %ld, phase_max %d \n", Nid2, Nid1, max_metric, res.phase);
   int16_t *d = d_sss[Nid1-nid1_start];
   c32_t sig_sum = {};
   for (int i = 0; i < LENGTH_SSS_NR; i++) {
