@@ -701,13 +701,22 @@ uint32_t unpack_dci_payload(uint8_t *payload, uint16_t payloadSizeBits, uint8_t 
   return pullresult;
 }
 
-uint32_t pack_vendor_extension_tlv(nfapi_tl_t *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *config)
+/* TLV-header packer signature, satisfied by both pack_tl (4-byte LTE header)
+ * and pack_nr_tl (6-byte NR header). The vendor-extension packers below share
+ * one body and differ only by which packer they pass in. */
+typedef uint8_t (*tl_header_pack_fn)(nfapi_tl_t *tl, uint8_t **ppWritePackedMsg, uint8_t *end);
+
+static uint32_t pack_p4_p5_ve_tlv(nfapi_tl_t *ve,
+                                  uint8_t **ppWritePackedMsg,
+                                  uint8_t *end,
+                                  nfapi_p4_p5_codec_config_t *config,
+                                  tl_header_pack_fn pack_header)
 {
   if (ve != 0 && config != 0) {
     if (config->pack_vendor_extension_tlv) {
       uint8_t *pStartOfTlv = *ppWritePackedMsg;
 
-      if (pack_tl(ve, ppWritePackedMsg, end) == 0)
+      if (pack_header(ve, ppWritePackedMsg, end) == 0)
         return 0;
 
       uint8_t *pStartOfValue = *ppWritePackedMsg;
@@ -716,12 +725,54 @@ uint32_t pack_vendor_extension_tlv(nfapi_tl_t *ve, uint8_t **ppWritePackedMsg, u
         return 0;
 
       ve->length = (*ppWritePackedMsg) - pStartOfValue;
-      pack_tl(ve, &pStartOfTlv, end);
+      pack_header(ve, &pStartOfTlv, end);
       return 1;
     }
   }
 
   return 1;
+}
+
+static uint32_t pack_p7_ve_tlv(nfapi_tl_t *ve,
+                               uint8_t **ppWritePackedMsg,
+                               uint8_t *end,
+                               nfapi_p7_codec_config_t *config,
+                               tl_header_pack_fn pack_header)
+{
+  if (ve != 0 && config != 0) {
+    if (config->pack_vendor_extension_tlv) {
+      uint8_t *pStartOfTlv = *ppWritePackedMsg;
+
+      if (pack_header(ve, ppWritePackedMsg, end) == 0)
+        return 0;
+
+      uint8_t *pStartOfValue = *ppWritePackedMsg;
+
+      if ((config->pack_vendor_extension_tlv)(ve, ppWritePackedMsg, end, config) == 0)
+        return 0;
+
+      ve->length = (*ppWritePackedMsg) - pStartOfValue;
+      pack_header(ve, &pStartOfTlv, end);
+      return 1;
+    }
+  }
+
+  return 1;
+}
+
+/* LTE/legacy VE packers use the 4-byte header (pack_tl); the pack_nr_* variants
+ * use the 6-byte SCF222.10.04 header (pack_nr_tl) so VE TLVs stay consistent
+ * with the rest of the NR message body. The unpack side needs no NR variant:
+ * the caller (unpack_nr_tlv_list / unpack_nr_p7_tlv_list) has already consumed
+ * the header with unpack_nr_tl before delegating the value here. */
+uint32_t pack_vendor_extension_tlv(nfapi_tl_t *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *config)
+{
+  return pack_p4_p5_ve_tlv(ve, ppWritePackedMsg, end, config, pack_tl);
+}
+
+uint32_t pack_nr_vendor_extension_tlv(nfapi_tl_t *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *config)
+{
+  return pack_p4_p5_ve_tlv(ve, ppWritePackedMsg, end, config, pack_nr_tl);
 }
 
 int unpack_vendor_extension_tlv(nfapi_tl_t *tl,
@@ -741,25 +792,12 @@ int unpack_vendor_extension_tlv(nfapi_tl_t *tl,
 
 uint32_t pack_p7_vendor_extension_tlv(nfapi_tl_t *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p7_codec_config_t *config)
 {
-  if (ve != 0 && config != 0) {
-    if (config->pack_vendor_extension_tlv) {
-      uint8_t *pStartOfTlv = *ppWritePackedMsg;
+  return pack_p7_ve_tlv(ve, ppWritePackedMsg, end, config, pack_tl);
+}
 
-      if (pack_tl(ve, ppWritePackedMsg, end) == 0)
-        return 0;
-
-      uint8_t *pStartOfValue = *ppWritePackedMsg;
-
-      if ((config->pack_vendor_extension_tlv)(ve, ppWritePackedMsg, end, config) == 0)
-        return 0;
-
-      ve->length = (*ppWritePackedMsg) - pStartOfValue;
-      pack_tl(ve, &pStartOfTlv, end);
-      return 1;
-    }
-  }
-
-  return 1;
+uint32_t pack_nr_p7_vendor_extension_tlv(nfapi_tl_t *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p7_codec_config_t *config)
+{
+  return pack_p7_ve_tlv(ve, ppWritePackedMsg, end, config, pack_nr_tl);
 }
 
 int unpack_p7_vendor_extension_tlv(nfapi_tl_t *tl,
@@ -777,6 +815,10 @@ int unpack_p7_vendor_extension_tlv(nfapi_tl_t *tl,
   return 1;
 }
 
+/* Legacy LTE TLV header: uint16 tag + uint16 length (4 bytes packed).
+ * Used by the LTE P4/P5/P7 codecs and the generic pack_tlv/unpack_tlv_list
+ * dispatch. NR FAPI uses the 6-byte SCF222.10.04 header via pack_nr_tl/
+ * unpack_nr_tl below. */
 uint8_t pack_tl(nfapi_tl_t *tl, uint8_t **ppWritePackedMsg, uint8_t *end)
 {
   return (push16(tl->tag, ppWritePackedMsg, end) && push16(tl->length, ppWritePackedMsg, end));
@@ -784,7 +826,41 @@ uint8_t pack_tl(nfapi_tl_t *tl, uint8_t **ppWritePackedMsg, uint8_t *end)
 
 uint8_t unpack_tl(uint8_t **ppReadPackedMsg, nfapi_tl_t *tl, uint8_t *end)
 {
-  return (pull16(ppReadPackedMsg, &tl->tag, end) && pull16(ppReadPackedMsg, &tl->length, end));
+  /* Legacy LTE wire length is 16-bit; nfapi_tl_t.length is 32-bit in memory. */
+  tl->length = 0;
+  return (pull16(ppReadPackedMsg, &tl->tag, end) && pull16(ppReadPackedMsg, (uint16_t *)&tl->length, end));
+}
+
+/* SCF222.10.04 NR TLV header: uint16 tag + uint32 length (6 bytes packed).
+ * cuBB enforces this layout when built with -DSCF_FAPI_10_04 (see
+ * scf_5g_fapi.h: scf_fapi_tl_t). nfapi_tl_t.length is uint32_t in memory, so
+ * the full 32-bit wire length is preserved. Used unconditionally by both
+ * NR FAPI codecs (the aerial path and OAI's own PNF/VNF split). */
+uint8_t pack_nr_tl(nfapi_tl_t *tl, uint8_t **ppWritePackedMsg, uint8_t *end)
+{
+  return (push16(tl->tag, ppWritePackedMsg, end) && push32(tl->length, ppWritePackedMsg, end));
+}
+
+uint8_t pack_nr_tl_header(uint16_t tag, uint32_t length, uint8_t **ppWritePackedMsg, uint8_t *end)
+{
+  return (push16(tag, ppWritePackedMsg, end) && push32(length, ppWritePackedMsg, end));
+}
+
+uint8_t unpack_nr_tl(uint8_t **ppReadPackedMsg, nfapi_tl_t *tl, uint8_t *end)
+{
+  /* nfapi_tl_t.length is 32-bit, matching the SCF222.10.04 wire field, so the
+   * full length is preserved (no truncation of long TLVs). */
+  if (!(pull16(ppReadPackedMsg, &tl->tag, end) && pull32(ppReadPackedMsg, &tl->length, end)))
+    return 0;
+  return 1;
+}
+
+/* Header-only NR TLV unpack keeping the full uint32 length. Use this (not
+ * unpack_nr_tl) where the value length can exceed 16 bits, e.g. TX_DATA.req
+ * per-PDU payloads. */
+uint8_t unpack_nr_tl_header(uint16_t *tag, uint32_t *length, uint8_t **ppReadPackedMsg, uint8_t *end)
+{
+  return (pull16(ppReadPackedMsg, tag, end) && pull32(ppReadPackedMsg, length, end));
 }
 
 int unpack_tlv_list(unpack_tlv_t unpack_fns[],
@@ -890,9 +966,9 @@ int unpack_nr_tlv_list(unpack_tlv_t unpack_fns[],
   uint8_t numBadTags = 0;
   uint16_t idx = 0;
   if (size == 0) { return 1; }
-  while ((uint8_t *)(*ppReadPackedMsg) + 4 < end) {
+  while ((uint8_t *)(*ppReadPackedMsg) + NR_TLV_HEADER_LENGTH < end) {
     // unpack the tl and process the values accordingly
-    if (unpack_tl(ppReadPackedMsg, &generic_tl, end) == 0)
+    if (unpack_nr_tl(ppReadPackedMsg, &generic_tl, end) == 0)
       return 0;
 
     uint8_t tagMatch = 0;
@@ -1093,7 +1169,7 @@ int unpack_nr_p7_tlv_list(unpack_p7_tlv_t unpack_fns[],
 
   while ((uint8_t *)(*ppReadPackedMsg) < end) {
     // unpack the tl and process the values accordingly
-    if (unpack_tl(ppReadPackedMsg, &generic_tl, end) == 0)
+    if (unpack_nr_tl(ppReadPackedMsg, &generic_tl, end) == 0)
       return 0;
 
     uint8_t tagMatch = 0;
@@ -1222,7 +1298,7 @@ uint8_t pack_nr_tlv(uint16_t tag, void *tlv, uint8_t **ppWritePackedMsg, uint8_t
     uint8_t *pStartOfTlv = *ppWritePackedMsg;
 
     // write a dumy tlv header
-    if (pack_tl(tl, ppWritePackedMsg, end) == 0)
+    if (pack_nr_tl(tl, ppWritePackedMsg, end) == 0)
       return 0;
 
     // Record the start of the value
@@ -1235,7 +1311,7 @@ uint8_t pack_nr_tlv(uint16_t tag, void *tlv, uint8_t **ppWritePackedMsg, uint8_t
     // calculate the length of the value and rewrite the tl header
     tl->length = (*ppWritePackedMsg) - pStartOfValue;
     // rewrite the header with the correct length
-    pack_tl(tl, &pStartOfTlv, end);
+    pack_nr_tl(tl, &pStartOfTlv, end);
     // Add padding that ensures multiple of 4 bytes (SCF 225 Section 2.3.2.1)
     int padding = get_tlv_padding(tl->length);
     NFAPI_TRACE(NFAPI_TRACE_DEBUG, "TLV 0x%x with padding of %d bytes\n", tl->tag, padding);
@@ -1260,7 +1336,7 @@ uint8_t pack_nr_generic_tlv(uint16_t tag, void *tlv, uint8_t **ppWritePackedMsg,
   // If the tag is defined
   if (toPack->tl.tag == tag && toPack->tl.length != 0) {
     // write the tlv header, length comes with value
-    if (pack_tl(&(toPack->tl), ppWritePackedMsg, end) == 0)
+    if (pack_nr_tl(&(toPack->tl), ppWritePackedMsg, end) == 0)
       return 0;
 
     // pack the tlv value
@@ -1330,7 +1406,7 @@ uint8_t unpack_nr_generic_tlv_list(void *tlv_list, uint8_t tlv_count, uint8_t **
 
     // unpack each generic tlv
     //  unpack the tl and process the values accordingly
-    if (unpack_tl(ppReadPackedMsg, &(element->tl), end) == 0)
+    if (unpack_nr_tl(ppReadPackedMsg, &(element->tl), end) == 0)
       return 0;
 
     uint8_t *pStartOfValue = *ppReadPackedMsg;

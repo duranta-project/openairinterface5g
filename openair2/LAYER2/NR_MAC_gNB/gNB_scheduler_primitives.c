@@ -938,7 +938,8 @@ nfapi_nr_dl_dci_pdu_t *prepare_dci_pdu(nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_
   get_coreset_rb_params(coreset, &N_rb, &rb_start);
 
   dci_pdu->beta_PDCCH_1_0 = 0;
-  dci_pdu->powerControlOffsetSS = 1;
+  // SCF222.10.04 ProfileNR is an int8 dB value; 0 dB matches the pre-10.04 default (enum 1)
+  dci_pdu->powerControlOffsetSSProfileNR = 0;
   dci_pdu->precodingAndBeamforming.num_prgs = 1;
   dci_pdu->precodingAndBeamforming.prg_size = N_rb;
   dci_pdu->precodingAndBeamforming.prgs_list[0].pm_idx = 0;

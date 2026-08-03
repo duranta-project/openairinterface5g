@@ -745,10 +745,13 @@ typedef enum {
   X(SCF_ERROR_CODE_MSG_CAPACITY_EXCEEDED, 0x45)          \
   X(SCF_ERROR_CODE_RHOCP_PTP_EVENTS_ERROR, 0x46)         \
   X(SCF_ERROR_CODE_RHOCP_PTP_EVENTS_SYNCED, 0x47)        \
+  X(SCF_ERROR_CODE_SRS_WITHOUT_PUSCH_UNSUPPORTED, 0x48)  \
   X(SCF_FAPI_SSB_PBCH_L1_LIMIT_EXCEEDED, 0x81)           \
   X(SCF_FAPI_PDCCH_L1_LIMIT_EXCEEDED, 0x82)              \
   X(SCF_FAPI_PDSCH_L1_LIMIT_EXCEEDED, 0x84)              \
   X(SCF_FAPI_CSIRS_L1_LIMIT_EXCEEDED, 0x88)              \
+  X(SCF_ERROR_CODE_FH_PORT_DOWN, 0x99)                   \
+  X(SCF_ERROR_CODE_FH_PORT_UP, 0x9A)                     \
   X(SCF_FAPI_PUSCH_L1_LIMIT_EXCEEDED, 0xC1)              \
   X(SCF_FAPI_PUCCH_L1_LIMIT_EXCEEDED, 0xC2)              \
   X(SCF_FAPI_SRS_L1_LIMIT_EXCEEDED, 0xC4)                \
@@ -845,8 +848,10 @@ typedef struct {
   // Value :0->17 Report title: 5G FAPI: PHY API Specification Issue date: 29 June 2019 Version: 222.10.17 68 Field Type Description representing -8 to 8 dB in 1dB steps
   uint8_t beta_PDCCH_1_0;
   // PDCCH power value used for all other PDCCH Formats.
-  // This is ratio of SSB/PBCH block EPRE to PDCCH and PDCCH DMRS EPRE [TS38.214, sec 4.1] Values: 0: -3dB,1: 0dB,2: 3dB,3: 6dB
-  uint8_t powerControlOffsetSS;
+  // This is ratio of SSB/PBCH block EPRE to PDCCH and PDCCH DMRS EPRE [TS38.214, sec 4.1].
+  // SCF222.10.04 replaced the pre-10.04 enum {0:-3dB,1:0dB,2:3dB,3:6dB} with an int8 dB
+  // value (ProfileNR); the stack stores and the wire carries the 10.04 representation.
+  int8_t powerControlOffsetSSProfileNR;
   // The total DCI length (in bits) including padding bits [TS38.212 sec 7.3.1] Range 0->DCI_PAYLOAD_BYTE_LEN*8
   uint16_t PayloadSizeBits;
   // DCI payload, where the actual size is defined by PayloadSizeBits. The bit order is as following bit0-bit7 are mapped to first byte of MSB - LSB
@@ -1010,6 +1015,8 @@ typedef struct {
   uint8_t powerControlOffset;
   /// Ratio of SSB/PBCH block EPRE to NZP CSI-RS EPRES [TS38.214, sec 5.2.2.3.1]
   uint8_t powerControlOffsetSS;
+  /// SCF222.10.04: PDSCH EPRE to SSB/PBCH EPRE, int8 dB; -127=L1 ProfileSSS. cuBB does not implement it yet (packed only when !ENABLE_AERIAL)
+  int8_t powerControlOffsetSSProfileNR;
   // CBG fields
   /// Indicates whether last CB is present in the CBG retransmission ( 0 -> not included; 1 -> included )
   uint8_t isLastCbPresent;
@@ -1104,6 +1111,7 @@ typedef struct
   uint16_t scramb_id;               // ScramblingID of the CSI-RS [3GPP TS 38.214, sec 5.2.2.3.1], Value: 0->1023
   uint8_t power_control_offset;     // Ratio of PDSCH EPRE to NZP CSI-RSEPRE [3GPP TS 38.214, sec 5.2.2.3.1], Value: 0->23 representing -8 to 15 dB in 1dB steps; 255: L1 is configured with ProfileSSS
   uint8_t power_control_offset_ss;  // Ratio of NZP CSI-RS EPRE to SSB/PBCH block EPRE [3GPP TS 38.214, sec 5.2.2.3.1], Values: 0: -3dB; 1: 0dB; 2: 3dB; 3: 6dB; 255: L1 is configured with ProfileSSS
+  int8_t power_control_offset_ss_profile_nr;  // SCF222.10.04: int8 dB; -127=L1 ProfileSSS. cuBB does not implement it yet (packed only when !ENABLE_AERIAL)
   nfapi_nr_tx_precoding_and_beamforming_t precodingAndBeamforming;
   /// Spatial stream indexing for MU-MIMO
   struct nfapi_nr_csi_spatial_stream_index {
@@ -1666,6 +1674,7 @@ typedef struct
 {
   uint32_t PDU_length;
   uint16_t PDU_index;
+  uint8_t cw_index;
   uint32_t num_TLV;
   nfapi_nr_tx_data_request_tlv_t TLVs[NFAPI_NR_MAX_TX_REQUEST_TLV];
 
@@ -1697,8 +1706,10 @@ typedef struct
 {
   uint32_t handle;
   uint16_t rnti;
+  uint8_t  rapid;// SCF222.10.04: RAP ID the UE used; 0xff if not applicable (not consumed by OAI yet)
   uint8_t  harq_id;
   uint32_t pdu_length;// For Aerial, RX_DATA.indication PDULength is changed to 32 bit field
+  uint8_t  pdu_tag;// SCF222.10.04: indicates where the PDU data is located (not consumed by OAI yet)
   uint8_t  ul_cqi;
   uint16_t timing_advance;//Timing advance 𝑇𝐴 measured for the UE [TS 38.213, Section 4.2] NTA_new = NTA_old + (TA − 31) ⋅ 16 ⋅ 64⁄2μ Value: 0 → 63 0xffff should be set if this field is invalid
   uint16_t rssi;
@@ -1712,6 +1723,7 @@ typedef struct
   nfapi_nr_p7_message_header_t header;
   uint16_t sfn;
   uint16_t slot;
+  uint16_t control_length;// SCF222.10.04: length of control data; 0 when PDU data is inline (not consumed by OAI yet)
   uint16_t number_of_pdus;
   nfapi_nr_rx_data_pdu_t *pdu_list;
 

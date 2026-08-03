@@ -49,7 +49,7 @@ static bool eq_dl_tti_request_pdcch_pdu(const nfapi_nr_dl_tti_pdcch_pdu_rel15_t 
     EQ(a_dci_pdu->AggregationLevel, b_dci_pdu->AggregationLevel);
     EQ(eq_dl_tti_beamforming(&a_dci_pdu->precodingAndBeamforming, &b_dci_pdu->precodingAndBeamforming), true);
     EQ(a_dci_pdu->beta_PDCCH_1_0, b_dci_pdu->beta_PDCCH_1_0);
-    EQ(a_dci_pdu->powerControlOffsetSS, b_dci_pdu->powerControlOffsetSS);
+    EQ(a_dci_pdu->powerControlOffsetSSProfileNR, b_dci_pdu->powerControlOffsetSSProfileNR);
     EQ(a_dci_pdu->PayloadSizeBits, b_dci_pdu->PayloadSizeBits);
     for (int i = 0; i < 8; ++i) {
       // The parameter itself always has 8 positions, no need to calculate how many bytes the payload actually occupies
@@ -104,6 +104,7 @@ static bool eq_dl_tti_request_pdsch_pdu(const nfapi_nr_dl_tti_pdsch_pdu_rel15_t 
   EQ(eq_dl_tti_beamforming(&a->precodingAndBeamforming, &b->precodingAndBeamforming), true);
   EQ(a->powerControlOffset, b->powerControlOffset);
   EQ(a->powerControlOffsetSS, b->powerControlOffsetSS);
+  EQ(a->powerControlOffsetSSProfileNR, b->powerControlOffsetSSProfileNR);
   EQ(a->isLastCbPresent, b->isLastCbPresent);
   EQ(a->isInlineTbCrc, b->isInlineTbCrc);
   EQ(a->dlTbCrc, b->dlTbCrc);
@@ -130,6 +131,7 @@ static bool eq_dl_tti_request_csi_rs_pdu(const nfapi_nr_dl_tti_csi_rs_pdu_rel15_
   EQ(a->scramb_id, b->scramb_id);
   EQ(a->power_control_offset, b->power_control_offset);
   EQ(a->power_control_offset_ss, b->power_control_offset_ss);
+  EQ(a->power_control_offset_ss_profile_nr, b->power_control_offset_ss_profile_nr);
   EQ(eq_dl_tti_beamforming(&a->precodingAndBeamforming, &b->precodingAndBeamforming), true);
   return true;
 }
@@ -509,6 +511,7 @@ bool eq_tx_data_request_PDU(const nfapi_nr_pdu_t *a, const nfapi_nr_pdu_t *b)
 {
   EQ(a->PDU_length, b->PDU_length);
   EQ(a->PDU_index, b->PDU_index);
+  EQ(a->cw_index, b->cw_index);
   EQ(a->num_TLV, b->num_TLV);
   for (int tlv_idx = 0; tlv_idx < a->num_TLV; ++tlv_idx) {
     const nfapi_nr_tx_data_request_tlv_t *a_tlv = &a->TLVs[tlv_idx];
@@ -553,8 +556,10 @@ bool eq_rx_data_indication_PDU(const nfapi_nr_rx_data_pdu_t *a, const nfapi_nr_r
 {
   EQ(a->handle, b->handle);
   EQ(a->rnti, b->rnti);
+  EQ(a->rapid, b->rapid);
   EQ(a->harq_id, b->harq_id);
   EQ(a->pdu_length, b->pdu_length);
+  EQ(a->pdu_tag, b->pdu_tag);
   EQ(a->ul_cqi, b->ul_cqi);
   EQ(a->timing_advance, b->timing_advance);
   EQ(a->rssi, b->rssi);
@@ -570,6 +575,7 @@ bool eq_rx_data_indication(const nfapi_nr_rx_data_indication_t *a, const nfapi_n
   EQ(a->header.message_length, b->header.message_length);
   EQ(a->sfn, b->sfn);
   EQ(a->slot, b->slot);
+  EQ(a->control_length, b->control_length);
   EQ(a->number_of_pdus, b->number_of_pdus);
   for (int pdu_idx = 0; pdu_idx < a->number_of_pdus; ++pdu_idx) {
     EQ(eq_rx_data_indication_PDU(&a->pdu_list[pdu_idx], &b->pdu_list[pdu_idx]), true);
@@ -1062,7 +1068,7 @@ static void copy_dl_tti_request_pdsch_pdu(const nfapi_nr_dl_tti_pdsch_pdu_rel15_
 
 static void copy_dl_tti_request_csi_rs_pdu(const nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *src, nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *dst)
 {
-  PARTIAL_COPY(dst, src, nfapi_nr_dl_tti_csi_rs_pdu_rel15_t, power_control_offset_ss);
+  PARTIAL_COPY(dst, src, nfapi_nr_dl_tti_csi_rs_pdu_rel15_t, power_control_offset_ss_profile_nr);
   copy_dl_tti_beamforming(&src->precodingAndBeamforming, &dst->precodingAndBeamforming);
   const struct nfapi_nr_csi_spatial_stream_index *s = &src->param_v4;
   struct nfapi_nr_csi_spatial_stream_index *d = &dst->param_v4;
@@ -1329,6 +1335,7 @@ void copy_tx_data_request_PDU(const nfapi_nr_pdu_t *src, nfapi_nr_pdu_t *dst)
 {
   dst->PDU_length = src->PDU_length;
   dst->PDU_index = src->PDU_index;
+  dst->cw_index = src->cw_index;
   dst->num_TLV = src->num_TLV;
   for (int tlv_idx = 0; tlv_idx < src->num_TLV; ++tlv_idx) {
     const nfapi_nr_tx_data_request_tlv_t *src_tlv = &src->TLVs[tlv_idx];
@@ -1376,6 +1383,7 @@ size_t get_tx_data_request_size(const nfapi_nr_tx_data_request_t *msg)
     const nfapi_nr_pdu_t *pdu = &msg->pdu_list[pdu_idx];
     total_size += sizeof(pdu->PDU_length);
     total_size += sizeof(pdu->PDU_index);
+    total_size += sizeof(pdu->cw_index);
     total_size += sizeof(pdu->num_TLV);
     for (int tlv_idx = 0; tlv_idx < pdu->num_TLV; ++tlv_idx) {
       const nfapi_nr_tx_data_request_tlv_t *tlv = &pdu->TLVs[tlv_idx];
@@ -1395,8 +1403,10 @@ void copy_rx_data_indication_PDU(const nfapi_nr_rx_data_pdu_t *src, nfapi_nr_rx_
 {
   dst->handle = src->handle;
   dst->rnti = src->rnti;
+  dst->rapid = src->rapid;
   dst->harq_id = src->harq_id;
   dst->pdu_length = src->pdu_length;
+  dst->pdu_tag = src->pdu_tag;
   dst->ul_cqi = src->ul_cqi;
   dst->timing_advance = src->timing_advance;
   dst->rssi = src->rssi;
@@ -1411,6 +1421,7 @@ void copy_rx_data_indication(const nfapi_nr_rx_data_indication_t *src, nfapi_nr_
 
   dst->sfn = src->sfn;
   dst->slot = src->slot;
+  dst->control_length = src->control_length;
   dst->number_of_pdus = src->number_of_pdus;
   dst->pdu_list = calloc(dst->number_of_pdus, sizeof(*dst->pdu_list));
   for (int pdu_idx = 0; pdu_idx < src->number_of_pdus; ++pdu_idx) {
@@ -1424,13 +1435,16 @@ size_t get_rx_data_indication_size(const nfapi_nr_rx_data_indication_t *msg)
   size_t total_size = sizeof(msg->header);
   total_size += sizeof(msg->sfn);
   total_size += sizeof(msg->slot);
+  total_size += sizeof(msg->control_length);
   total_size += sizeof(msg->number_of_pdus);
   for (int pdu_idx = 0; pdu_idx < msg->number_of_pdus; ++pdu_idx) {
     const nfapi_nr_rx_data_pdu_t *pdu = &msg->pdu_list[pdu_idx];
     total_size += sizeof(pdu->handle);
     total_size += sizeof(pdu->rnti);
+    total_size += sizeof(pdu->rapid);
     total_size += sizeof(pdu->harq_id);
     total_size += sizeof(pdu->pdu_length);
+    total_size += sizeof(pdu->pdu_tag);
     total_size += sizeof(pdu->ul_cqi);
     total_size += sizeof(pdu->timing_advance);
     total_size += sizeof(pdu->rssi);
@@ -1489,9 +1503,8 @@ size_t get_crc_indication_size(const nfapi_nr_crc_indication_t *msg)
     if (crc->num_cb > 0) {
       total_size += crc->num_cb / 8 + 1;
     }
-    total_size += sizeof(crc->ul_cqi);
-    total_size += sizeof(crc->timing_advance);
-    total_size += sizeof(crc->rssi);
+    total_size += 1; // rapid (SCF222.10.04)
+    total_size += 10; // scf_fapi_ul_meas_common_t: ul_sinr_metric, timing_advance, timing_advance_ns, rssi, rsrp
   }
   return total_size;
 }
@@ -1675,6 +1688,9 @@ size_t get_uci_indication_size(const nfapi_nr_uci_indication_t *msg)
 
     total_size += sizeof(uci_pdu->pdu_type);
     total_size += sizeof(uci_pdu->pdu_size);
+    // SCF222.10.04 ul_meas_common is 10 bytes on the wire; the PDU structs only
+    // hold ul_cqi/timing_advance/rssi (5 bytes), so reserve the extra 5.
+    total_size += 5;
 
     switch (uci_pdu->pdu_type) {
       case NFAPI_NR_UCI_PUSCH_PDU_TYPE:
@@ -1884,7 +1900,7 @@ static void dump_dl_dci_pdu(const nfapi_nr_dl_dci_pdu_t *pdu, int depth)
   INDENTED_PRINTF("AggregationLevel = %d\n", pdu->AggregationLevel);
   dump_dl_beamforming_pdu(&pdu->precodingAndBeamforming, depth + 1);
   INDENTED_PRINTF("beta_PDCCH_1_0 = %d\n", pdu->beta_PDCCH_1_0);
-  INDENTED_PRINTF("powerControlOffsetSS = %d\n", pdu->powerControlOffsetSS);
+  INDENTED_PRINTF("powerControlOffsetSSProfileNR = %d\n", pdu->powerControlOffsetSSProfileNR);
   INDENTED_PRINTF("PayloadSizeBits = %d\n", pdu->PayloadSizeBits);
   INDENTED_PRINTF("Payload = ");
   for (int i = 0; i < nr_bits_to_bytes(pdu->PayloadSizeBits); ++i) {
@@ -1973,6 +1989,7 @@ static void dump_dl_tti_request_PDSCH_PDU(const nfapi_nr_dl_tti_pdsch_pdu_rel15_
   dump_dl_beamforming_pdu(&pdu->precodingAndBeamforming, depth + 1);
   INDENTED_PRINTF("powerControlOffset = %d\n", pdu->powerControlOffset);
   INDENTED_PRINTF("powerControlOffsetSS = %d\n", pdu->powerControlOffsetSS);
+  INDENTED_PRINTF("powerControlOffsetSSProfileNR = %d\n", pdu->powerControlOffsetSSProfileNR);
 
   INDENTED_PRINTF("isLastCbPresent = %d\n", pdu->isLastCbPresent);
   INDENTED_PRINTF("isInlineTbCrc = %d\n", pdu->isInlineTbCrc);
@@ -1997,6 +2014,7 @@ static void dump_dl_tti_request_CSI_RS_PDU(const nfapi_nr_dl_tti_csi_rs_pdu_rel1
   INDENTED_PRINTF("ScrambId = %d\n", pdu->scramb_id);
   INDENTED_PRINTF("powerControllOffset = %d\n", pdu->power_control_offset);
   INDENTED_PRINTF("powerControllOffsetSS = %d\n", pdu->power_control_offset_ss);
+  INDENTED_PRINTF("powerControlOffsetSSProfileNR = %d\n", pdu->power_control_offset_ss_profile_nr);
   dump_dl_beamforming_pdu(&pdu->precodingAndBeamforming, depth + 1);
 }
 
@@ -2472,6 +2490,7 @@ void dump_tx_data_request(const nfapi_nr_tx_data_request_t *msg)
     const nfapi_nr_pdu_t *pdu = &msg->pdu_list[i];
     INDENTED_PRINTF("PDU Length = 0x%02x\n", pdu->PDU_length);
     INDENTED_PRINTF("PDU Index = 0x%02x\n", pdu->PDU_index);
+    INDENTED_PRINTF("CW Index = 0x%02x\n", pdu->cw_index);
     INDENTED_PRINTF("numTLV = 0x%02x\n", pdu->num_TLV);
     for (int tlv_idx = 0; tlv_idx < pdu->num_TLV; tlv_idx++) {
       const nfapi_nr_tx_data_request_tlv_t *tlv = &pdu->TLVs[tlv_idx];
@@ -2488,6 +2507,7 @@ void dump_rx_data_indication(const nfapi_nr_rx_data_indication_t *msg)
   depth++;
   INDENTED_PRINTF("SFN = %d\n", msg->sfn);
   INDENTED_PRINTF("Slot = %d\n", msg->slot);
+  INDENTED_PRINTF("Control Length = %d\n", msg->control_length);
   INDENTED_PRINTF("Number of PDUs = %d\n", msg->number_of_pdus);
   for (int pdu_idx = 0; pdu_idx < msg->number_of_pdus; pdu_idx++) {
     depth++;
@@ -2495,8 +2515,10 @@ void dump_rx_data_indication(const nfapi_nr_rx_data_indication_t *msg)
     const nfapi_nr_rx_data_pdu_t *pdu = &msg->pdu_list[pdu_idx];
     INDENTED_PRINTF("Handle = 0x%02x\n", pdu->handle);
     INDENTED_PRINTF("RNTI = 0x%02x\n", pdu->rnti);
+    INDENTED_PRINTF("RAPID = 0x%02x\n", pdu->rapid);
     INDENTED_PRINTF("HarqID = 0x%02x\n", pdu->harq_id);
     INDENTED_PRINTF("PDU Length = 0x%02x\n", pdu->pdu_length);
+    INDENTED_PRINTF("PDU Tag = 0x%02x\n", pdu->pdu_tag);
     INDENTED_PRINTF("UL_CQI = 0x%02x\n", pdu->ul_cqi);
     INDENTED_PRINTF("Timing advance = 0x%02x\n", pdu->timing_advance);
     INDENTED_PRINTF("RSSI = 0x%02x\n", pdu->rssi);

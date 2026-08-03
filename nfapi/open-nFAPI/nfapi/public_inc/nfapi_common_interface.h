@@ -7,7 +7,11 @@
 
 typedef struct {
   uint16_t tag;
-  uint16_t length;
+  /* SCF222.10.04 carries the TLV length as a uint32 on the NR wire (range
+   * 0..0xFFFFFFFF). Keep the in-memory field 32-bit so long TLVs are not
+   * truncated by the codec. The legacy LTE wire still uses a 16-bit length;
+   * pack_tl writes the low 16 bits and unpack_tl reads 16 bits into this field. */
+  uint32_t length;
 } nfapi_tl_t;
 
 /*! Configuration options for the p7 pack unpack functions

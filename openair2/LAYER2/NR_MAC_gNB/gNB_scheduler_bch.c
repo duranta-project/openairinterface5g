@@ -499,6 +499,7 @@ void schedule_nr_sib1(module_id_t module_idP,
       memcpy(tx_req->TLVs[0].value.direct, cc->sib1_bcch_pdu, tb_size);
 
       tx_req->PDU_index  = pdu_index;
+      tx_req->cw_index = 0;
       tx_req->num_TLV = 1;
       tx_req->TLVs[0].length = tb_size;
       tx_req->PDU_length = compute_PDU_length(tx_req->num_TLV, tx_req->TLVs[0].length);
@@ -636,6 +637,7 @@ static void other_sib_sched_control(module_id_t module_idP,
   memcpy(tx_req->TLVs[0].value.direct, sib_bcch_pdu, sched_pdsch_otherSI.tb_size);
 
   tx_req->PDU_index = pdu_index;
+  tx_req->cw_index = 0;
   tx_req->num_TLV = 1;
   tx_req->TLVs[0].length = sched_pdsch_otherSI.tb_size;
   tx_req->PDU_length = compute_PDU_length(tx_req->num_TLV, tx_req->TLVs[0].length);
