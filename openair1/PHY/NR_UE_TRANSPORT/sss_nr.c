@@ -212,6 +212,16 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
   int Nid1 = -1;
   int64_t max_metric = 0;
   sss_detection_result_t res = {};
+  int64_t base_power = 0;
+  for (int i = 0; i < LENGTH_SSS_NR; i++) {
+    base_power += squaredMod(sss_comp[i]);
+  }
+  base_power = sqrt(base_power);
+  if (base_power == 0) {
+    LOG_W(PHY, "SSS detection on a null signal skipping it\n");
+    base_power = INT64_MAX;
+  }
+
   for (int idx = 0; idx < sizeofArray(phase_to_try); idx++) { // phase offset between PSS and SSS
 
     const float angle = M_PI / 3 / 15 * phase_to_try[idx];
@@ -222,35 +232,35 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
         continue;
       int64_t metric = 0;
       for (int i = 0; i < LENGTH_SSS_NR; i++) {
-        // metric is only real part because sss is a pure real signal (imaginary is 0)
+        // d_sss is only real part because sss is a pure real signal (imaginary is 0)
         metric += d_sss[n][i] * (rot.r * sss_comp[i].r - rot.i * sss_comp[i].i);
       }
-      metric >>= SCALING_METRIC_SSS_NR;
       // if the current metric is better than the last save it
       if (metric > max_metric) {
         max_metric = metric;
         Nid1 = n1;
         res.phase = idx;
-
-#ifdef DEBUG_SSS_NR
-        LOG_D(PHY,
-              "(phase,Nid1) (%d,%d), metric_phase %ld metric %d, phase_max %d \n",
-              res.phase,
-              n1,
-              metric,
-              max_metric,
-              res.phase);
-#endif
       }
+#ifdef DEBUG_SSS_NR
+      LOG_I(PHY,
+            "(phase,Nid1) (%.02f,%d), metric  %ld/%ld = %ld, max %ld, phase_max %d \n",
+            angle,
+            n1,
+            metric,
+            base_power,
+            metric / base_power,
+            max_metric / base_power,
+            res.phase);
+#endif
     }
     // we try progressively rotation between pss and sss
-    // but pss and sss are in phase at emission
+    // pss and sss are in phase at emission
     // rotation means doppler variation, or very noisy pss detection
-    if (max_metric >= SSS_METRIC_FLOOR_NR)
+    if (max_metric / base_power >= SSS_METRIC_FLOOR_NR)
       break;
   }
 
-  if (max_metric < SSS_METRIC_FLOOR_NR) {
+  if (max_metric / base_power < SSS_METRIC_FLOOR_NR) {
     LOG_D(PHY,
           "Failed to detect SSS after PSS, metric of SSS %ld, threshold to consider SSS valid %d, detected PCI: %d\n",
           max_metric,

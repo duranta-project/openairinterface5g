@@ -19,13 +19,11 @@
 #include "pss_nr.h"
 
 #define NUMBER_SSS_SEQUENCE (336)
-#define  LENGTH_SSS_NR                (127)
-#define SCALING_METRIC_SSS_NR (15)
+#define LENGTH_SSS_NR (127)
 
 #define  GET_NID2_SL(Nid_SL)          (Nid_SL/NUMBER_SSS_SEQUENCE)
 #define  GET_NID1_SL(Nid_SL)          (Nid_SL%NUMBER_SSS_SEQUENCE)
-
-#define SSS_METRIC_FLOOR_NR   (30000)
+#define SSS_METRIC_FLOOR_NR (3) // ratio signal sss sequence power against signal power
 
 typedef struct {
   int nb_antennas_rx;
