@@ -173,3 +173,12 @@ same fold (symmetry, and the path to a single shared inner_rx) is the next step.
   fusion/memset/descramble work), so a latent issue in that detector or its inputs (likely an
   uninitialized/padding read). Low impact on BLER curves (averages out) but it breaks
   cross-invocation bit-exact A/B for that path — validate full-ML via single-run self-checks.
+
+### x86 gNB confirmation (Intel Xeon Gold 6433N, Sapphire Rapids)
+`nr_ulsim` 2L-64QAM L-best @100 MHz, 4 Rx, MCS25, `OAI_FUSE=1` — with the demap+descramble
+store-fold, **`RX PUSCH layer demapping` and `RX PUSCH unscrambling` both read 0.00 µs** (folded
+into the LLR store), on both AVX2 (w256) and **AVX-512 (w512, `OAI_LBEST_W512=1`)**. AVX-512 w512
+L-best is functional and, with `-C8` threading, RX PUSCH wall time ~902 µs (vs ~2295 µs AVX2 single).
+`OAI_FUSE=1` vs `=2` LLR ~1939 vs ~1934 µs (2-layer takes the tiled path for both — register variant
+is 1-layer only — so this is not a register-vs-tiled comparison). Confirms the store-fold across x86
+SIMD widths; feeds the compiler/ISA sweep follow-up.
