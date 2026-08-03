@@ -49,6 +49,44 @@ shared `inner_rx` starts at **post-extraction** (`rxFext`/`chFext` in), and extr
 per-side wrappers. (Merging extraction is a separate, harder, largely platform-specific question —
 revisit only for RVV, and even there weigh it against multi-reuse.)
 
+### Refinement: skip the copy on data symbols (pointer-pass), gather only on special symbols
+
+The "materialize because reused" argument justifies the **gather** (irregular→regular), not a plain
+copy. Extraction actually does two jobs, and only one earns its keep:
+- **Gather** (compact around DMRS/PTRS/CSI-RS holes or RB gaps) — genuine value, but only on the
+  **special symbols** (DMRS-bearing, PTRS, and CSI-RS on the UE). Materialize into scratch there.
+- **Plain contiguous copy** — pure overhead on the **majority** of symbols (pure data + contiguous
+  allocation): reading `rxdataF` directly 3× is identical to reading a copy 3×, so the copy adds
+  nothing.
+
+So for a symbol with **no DMRS/PTRS/CSI-RS and a single contiguous RB run** (RA type-1, no type-0
+bitmap gaps, no VRB↔PRB interleaving, no intra-slot hopping), skip the memcpy and pass a **pointer**
+`&rxdataF[sym*ofdm_size + first_sc]` (+ channel-estimate pointer) straight to `inner_rx`. Special
+symbols keep the gather-into-scratch path. This removes the per-symbol extraction memcpy for most
+symbols without merging the gather into the hot compensation loop.
+
+Implications for the shared contract:
+- `inner_rx` must take a **row stride** (or per-antenna pointer array) instead of assuming the compact
+  `buffer_length` stride — a direct `rxdataF` pointer has stride `ofdm_symbol_size`. This is a clean
+  generalization (arguably makes the contract better). The per-side wrapper's "extraction" then
+  returns *(base ptr, stride)*: the direct pointer for data symbols, or a gathered-scratch pointer
+  for special symbols. Same post-extraction boundary; common case pays **zero** copy.
+
+To verify in code before implementing:
+- **Alignment** — `first_rb*48` bytes is always 16-byte aligned (NEON/native-128, RVV fine) but
+  32-byte aligned only when `first_rb` is even → the direct path needs **unaligned loads** on
+  AVX2/512 (check whether the kernels' `(NRLB_VI*)` derefs are aligned or already `loadu`).
+- **Channel-estimate layout** — whether the estimate for the data REs is a contiguous per-symbol
+  slice (pointer works), full-BW per symbol (same contiguity test), or time-interpolated /
+  held constant across data symbols (then it may be symbol-invariant → extract once, even better).
+- **Allocation contiguity** — the concrete non-contiguity trigger is **RA type-0 (RBG bitmap)**;
+  when the bitmap is used the allocated RBs may have gaps, so those symbols fall to the gather path
+  (also VRB↔PRB interleaving for PDSCH, and intra-slot hopping). **RA type-1** (contiguous
+  `startRB + nRB`) is the pointer fast-path. The wrapper already has the RA type from the DCI/config,
+  so the pointer-vs-gather choice is a cheap up-front check (type-1 & not-special-symbol → pointer;
+  type-0 / interleaved / hopping → gather). A type-0 bitmap that is itself one contiguous run could
+  also take the fast path, but gating on type-1 is the simple, safe default.
+
 ## Dispatch map: gNB `inner_rx` vs UE `nr_rx_pdsch` (post-extraction)
 
 | Stage | gNB (`nr_ulsch_demodulation.c`) | UE (`nr_dlsch_demodulation.c`) | Verdict |
