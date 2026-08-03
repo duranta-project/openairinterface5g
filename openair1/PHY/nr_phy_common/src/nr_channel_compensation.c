@@ -141,3 +141,82 @@ void nr_inner_rx_2layer_ml(uint32_t length,
     nr_inner_rx_2layer_ml_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr0, llr1, llr_cw, scramble);
 #endif
 }
+
+// Non-fused paths produced per-layer LLRs: interleave (layer demap) into llr_cw and, if scramble is
+// given, descramble the codeword slice in place. Shared by the UE and gNB inner_rx dispatch.
+static void nr_demap_descramble(int nb_layer, int mod_order, uint32_t length,
+                                int16_t *layers[], const int16_t *scramble, int16_t *llr_cw)
+{
+  nr_layer_demapping((uint8_t)nb_layer, (uint8_t)mod_order, (int)length, layers, llr_cw);
+  if (scramble) {
+    const uint32_t n = length * (uint32_t)nb_layer * (uint32_t)mod_order;
+    for (uint32_t k = 0; k < n; k++)
+      llr_cw[k] = (int16_t)(llr_cw[k] * scramble[k]);
+  }
+}
+
+/* Shared post-extraction inner RX for the detector set common to the UE (PDSCH) and gNB (PUSCH):
+ * pick the detector for (nb_layer, mod_order, do_ml, fuse_mode), then either write the layer-demapped
+ * (+ descrambled) codeword to llr_cw, or, when llr_cw==NULL, leave per-layer LLRs in layer_scratch[]
+ * for the caller to demap (e.g. the gNB MU-MIMO group path). Compensation must already be done for
+ * the non-fused paths (rxComp / mag_a-c per layer, rho01/rho10 for 2-layer); the fused paths
+ * (fuse_mode==1) do MRC inline from rxFext/chFext. do_ml + lbest256 encode each side's 2-layer ML
+ * gate (gNB: do_ml=true, lbest256=gnb_lbest; UE: do_ml, lbest256=ml256).
+ *
+ * Returns true if it handled the config; false for caller-specific paths — register-fused single
+ * layer (fuse_mode==2), 2-layer non-ML / 256QAM-MMSE, 3-layer, and >2 layers — which the caller runs
+ * itself (then demaps as needed). */
+bool nr_inner_rx(uint32_t length,
+                 uint32_t buffer_length,
+                 int nb_rx_ant,
+                 int nb_layer,
+                 int mod_order,
+                 c16_t rxFext[nb_rx_ant][buffer_length],
+                 c16_t chFext[nb_layer][nb_rx_ant][buffer_length],
+                 c16_t *rxComp[nb_layer],
+                 c16_t *mag_a[nb_layer],
+                 c16_t *mag_b[nb_layer],
+                 c16_t *mag_c[nb_layer],
+                 c16_t *rho01,
+                 c16_t *rho10,
+                 int output_shift,
+                 int fuse_mode,
+                 bool do_ml,
+                 bool lbest256,
+                 int16_t *layer_scratch[nb_layer],
+                 const int16_t *scramble,
+                 int16_t *llr_cw)
+{
+  const bool cw = (llr_cw != NULL); // codeword output (fold demap+descramble); else per-layer scratch
+
+  if (nb_layer == 1) {
+    if (fuse_mode == 1) { // tiled fused: MRC+LLR (+descramble at store when cw)
+      nr_inner_rx_1layer(length, buffer_length, nb_rx_ant, rxFext, chFext[0], mod_order, output_shift,
+                         cw ? llr_cw : layer_scratch[0], cw ? scramble : NULL);
+      return true;
+    }
+    if (fuse_mode == 0) { // standalone LLR on the compensated stream
+      nr_compute_llr(rxComp[0], mag_a[0], mag_b[0], mag_c[0], layer_scratch[0], length, 0, mod_order);
+      if (cw)
+        nr_demap_descramble(1, mod_order, length, layer_scratch, scramble, llr_cw);
+      return true;
+    }
+    return false; // fuse_mode==2 (register-fused): caller
+  }
+
+  if (nb_layer == 2 && do_ml && (mod_order <= 6 || (mod_order == 8 && lbest256))) {
+    if (fuse_mode == 1) { // tiled fused: MRC + rho + joint ML-LLR (+demap+descramble at store when cw)
+      nr_inner_rx_2layer_ml(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift,
+                            cw ? NULL : layer_scratch[0], cw ? NULL : layer_scratch[1],
+                            cw ? llr_cw : NULL, cw ? scramble : NULL);
+      return true;
+    }
+    nr_compute_ML_llr(rxComp[0], rxComp[1], mag_a[0], mag_a[1], layer_scratch[0], layer_scratch[1],
+                      rho01, rho10, length, mod_order);
+    if (cw)
+      nr_demap_descramble(2, mod_order, length, layer_scratch, scramble, llr_cw);
+    return true;
+  }
+
+  return false; // 2-layer non-ML / 256QAM-MMSE, 3-layer, >2-layer: caller
+}

@@ -367,95 +367,47 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
     pusch_vars->ul_valid_re_per_slot[symbol] -= pusch_vars->ptrs_re_per_slot;
   }
   start_meas(ulsch_llr);
-  bool did_fused = false; // set when a fused branch wrote the final codeword directly into llr_cw
   static int gnb_lbest = -1;
   if (gnb_lbest < 0) { const char *e = getenv("OAI_LBEST"); gnb_lbest = e ? atoi(e) : 0; }
-  if (nb_layer == 2) {
-    if (rel15_ul->qam_mod_order <= 6 || (rel15_ul->qam_mod_order == 8 && gnb_lbest)) {
-      if (fuse_2layer_ml) {
-        // Fused: MRC compensation + rho build + joint ML-LLR, tiled in L1 (nr_inner_rx_2layer_ml).
-        // Replaces {nr_channel_compensation + nr_compute_ML_llr}. Same shared kernel as the UE. When
-        // llr_cw is set, the layer demap + descramble are also folded into the store (codeword out).
-        nr_inner_rx_2layer_ml(pusch_vars->ul_valid_re_per_slot[symbol],
-                              buffer_length,
-                              nb_rx_ant,
-                              rxFext,
-                              chFext,
-                              rel15_ul->qam_mod_order,
-                              output_shift,
-                              llr[0],
-                              llr[1],
-                              llr_cw,
-                              scramble);
-        if (llr_cw)
-          did_fused = true;
-      } else {
-        nr_compute_ML_llr((c16_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
-                          (c16_t *)&pusch_vars->rxdataF_comp[1][symbol * buffer_length],
-                          rxF_ch_maga[0],
-                          rxF_ch_maga[1],
-                          llr[0],
-                          llr[1],
-                          rho[0][1],
-                          rho[1][0],
-                          pusch_vars->ul_valid_re_per_slot[symbol],
-                          rel15_ul->qam_mod_order);
-      }
-    }
-    else {
-      // Fused Gram-fed 2-layer MMSE + scalar LLR (L=1). Replaces {nr_mmse_2layers + scalar loop}.
-      nr_compute_MMSE_llr(pusch_vars->rxdataF_comp,
-                          buffer_length,
-                          buffer_length,
-                          nb_rx_ant,
-                          nb_layer,
-                          rxF_ch_maga,
-                          rxF_ch_magb,
-                          rxF_ch_magc,
-                          chFext,
-                          rel15_ul->rb_size,
-                          rel15_ul->qam_mod_order,
-                          pusch_vars->log2_maxh,
-                          symbol,
-                          pusch_vars->ul_valid_re_per_slot[symbol],
-                          nvar,
-                          rho[0][0], rho[0][1], rho[1][0], rho[1][1],
-                          llr);
-    }
+  const uint32_t valid_re = pusch_vars->ul_valid_re_per_slot[symbol];
+  const int mod = rel15_ul->qam_mod_order;
+  // Per-layer pointers into the compensated buffers (used by the shared dispatch's non-fused paths).
+  c16_t *rxComp[nb_layer], *mag_a[nb_layer], *mag_b[nb_layer], *mag_c[nb_layer];
+  int16_t *layer_scratch[nb_layer];
+  for (int l = 0; l < nb_layer; l++) {
+    rxComp[l] = &pusch_vars->rxdataF_comp[l][symbol * buffer_length];
+    mag_a[l] = rxF_ch_maga[l];
+    mag_b[l] = rxF_ch_magb[l];
+    mag_c[l] = rxF_ch_magc[l];
+    layer_scratch[l] = llr[l];
   }
-  if (nb_layer != 2) { // 2-layer 256QAM MMSE is now handled inside nr_compute_MMSE_llr above
-    if (fuse_1layer) {
-      // Fused single-layer inner RX: MRC compensation + LLR, tiled in L1 (nr_inner_rx_1layer).
-      // Replaces {nr_channel_compensation + nr_compute_llr} for this symbol, bit-exact. chFext[0]
-      // is the single layer's extracted channel, rxFext the extracted Rx, llr[0] the output.
-      // Single layer: per-layer LLR order == codeword bit order (no demap), so writing directly to
-      // llr_cw with the descramble folded in is exactly the codeword. NULL llr_cw => raw per-layer.
-      nr_inner_rx_1layer(pusch_vars->ul_valid_re_per_slot[symbol],
-                         buffer_length,
-                         nb_rx_ant,
-                         rxFext,
-                         chFext[0],
-                         rel15_ul->qam_mod_order,
-                         output_shift,
-                         llr_cw ? llr_cw : llr[0],
-                         llr_cw ? scramble : NULL);
-      if (llr_cw)
-        did_fused = true;
+  const int fuse_mode = (fuse_1layer || fuse_2layer_ml) ? 1 : 0;
+  // Shared inner RX (comp already done above for the non-fused paths). gNB 2-layer uses ML for
+  // qam<=6 always and 256QAM under the L-best gate (do_ml=true, lbest256=gnb_lbest); the else
+  // (2-layer 256QAM without L-best) and >2 layers fall through to the caller-specific fallbacks.
+  const bool handled = nr_inner_rx(valid_re, buffer_length, nb_rx_ant, nb_layer, mod, rxFext, chFext,
+                                   rxComp, mag_a, mag_b, mag_c,
+                                   (nb_layer == 2) ? rho[0][1] : NULL,
+                                   (nb_layer == 2) ? rho[1][0] : NULL,
+                                   output_shift, fuse_mode, /*do_ml=*/true, /*lbest256=*/gnb_lbest != 0,
+                                   layer_scratch, llr_cw ? scramble : NULL, llr_cw);
+  const bool did_fused = handled && (llr_cw != NULL); // codeword written directly => skip post-pass
+  if (!handled) {
+    if (nb_layer == 2) {
+      // Fused Gram-fed 2-layer MMSE + scalar LLR (L=1), 256QAM without L-best. Writes per-layer.
+      nr_compute_MMSE_llr(pusch_vars->rxdataF_comp, buffer_length, buffer_length, nb_rx_ant, nb_layer,
+                          rxF_ch_maga, rxF_ch_magb, rxF_ch_magc, chFext, rel15_ul->rb_size, mod,
+                          pusch_vars->log2_maxh, symbol, valid_re, nvar,
+                          rho[0][0], rho[0][1], rho[1][0], rho[1][1], llr);
     } else {
-      for (int aatx = 0; aatx < nb_layer; aatx++)
+      for (int aatx = 0; aatx < nb_layer; aatx++) // >2 layers: per-layer LLR on the MRC'd stream
         nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
-                       rxF_ch_maga[aatx],
-                       rxF_ch_magb[aatx],
-                       rxF_ch_magc[aatx],
-                       llr[aatx],
-                       pusch_vars->ul_valid_re_per_slot[symbol],
-                       symbol,
-                       rel15_ul->qam_mod_order);
+                       rxF_ch_maga[aatx], rxF_ch_magb[aatx], rxF_ch_magc[aatx],
+                       llr[aatx], valid_re, symbol, mod);
     }
   }
   stop_meas(ulsch_llr);
-  // True iff a fused branch wrote the final (demapped + optionally descrambled) codeword to llr_cw.
-  return did_fused;
+  return did_fused; // true iff the shared dispatch wrote the final codeword directly into llr_cw
 }
 
 typedef struct puschSymbolProc_s {

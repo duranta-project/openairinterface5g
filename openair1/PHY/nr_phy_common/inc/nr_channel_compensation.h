@@ -120,4 +120,38 @@ void nr_inner_rx_2layer_ml(uint32_t length,
                            int16_t *llr_cw,
                            const int16_t *scramble);
 
+/**
+ * @brief Shared post-extraction inner RX dispatch (UE PDSCH + gNB PUSCH common detector set).
+ *
+ * Picks the detector for (nb_layer, mod_order, do_ml, fuse_mode) and either writes the layer-demapped
+ * (+ descrambled, if scramble!=NULL) codeword to llr_cw, or — when llr_cw==NULL — leaves per-layer
+ * LLRs in layer_scratch[] for the caller to demap. Compensation must already be done for the
+ * non-fused paths (rxComp/mag_a-c per layer, rho01/rho10 for 2-layer); fuse_mode==1 does MRC inline.
+ * do_ml + lbest256 encode the 2-layer ML gate (gNB: do_ml=true, lbest256=gnb_lbest; UE: do_ml, ml256).
+ * fuse_mode: 0=standalone LLR, 1=tiled fused kernels, 2=register-fused (returns false, caller-only).
+ *
+ * @return true if handled; false for caller-specific paths (register-fused single layer, 2-layer
+ *         non-ML / 256QAM-MMSE, 3-layer, >2 layers) — the caller runs those and demaps as needed.
+ */
+bool nr_inner_rx(uint32_t length,
+                 uint32_t buffer_length,
+                 int nb_rx_ant,
+                 int nb_layer,
+                 int mod_order,
+                 c16_t rxFext[nb_rx_ant][buffer_length],
+                 c16_t chFext[nb_layer][nb_rx_ant][buffer_length],
+                 c16_t *rxComp[nb_layer],
+                 c16_t *mag_a[nb_layer],
+                 c16_t *mag_b[nb_layer],
+                 c16_t *mag_c[nb_layer],
+                 c16_t *rho01,
+                 c16_t *rho10,
+                 int output_shift,
+                 int fuse_mode,
+                 bool do_ml,
+                 bool lbest256,
+                 int16_t *layer_scratch[nb_layer],
+                 const int16_t *scramble,
+                 int16_t *llr_cw);
+
 #endif /* __NR_CHANNEL_COMPENSATION__H__ */
