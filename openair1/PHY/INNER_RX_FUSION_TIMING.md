@@ -63,10 +63,25 @@ OAI_FUSE=1 ./nr_dlsim -n300 <cfg> -E -P     # fused:   COMP skipped (~0), fused 
 | RK3588 A76 (UE, Rock 5A) | 2L-64QAM **L-best** (PAT=1) @100 MHz | 75.37+333.15=408.52 | 375.77 | **~8.0%** | same ~43% comp cut; delta ≈ 40 MHz L-best (8.5%). L-best LLR ~3.7× cheaper than full-ML. BER identical. |
 | RK3588 A76 (UE, Rock 5A) | 1-layer 64QAM @100 MHz, 2 Rx | 20.96+5.50=26.46 | 24.54 | ~7.3% | comp cut only ~9% (19.04 absorbed vs 20.96) — **no rho to save** + per-tile LLR-call overhead vs a very cheap 5.5 µs LLR. Register-fusion (inline LLR, no per-tile call/scratch) should lift this. BER identical. |
 | GH200 Grace (gNB, Neoverse-V2) | 2L-64QAM **L-best** (PAT=1) @100 MHz, 4 Rx | 672.23+1956.00=2628.23 | 2388.18 | **~9.1%** | `nr_ulsim -y2 -z4 -W2 -R273 -m25`, per slot (12 sym). Big out-of-order aarch64 server core = **the other end** of the A76. Comp **~98.6% absorbed** (672.23→9.47) — far more than A76's ~43%: the V2 is bandwidth-constrained relative to its huge compute, so the comp DRAM round-trip is proportionally much costlier. LLR rises 1956→2379 (comp *compute* moves in) but the ~250 µs round-trip vanishes → net -240 µs. BER ~2.2e-4 both (seeds differ — timing run, not a bit-exact check). Tiled fusion; register variant not built (see below). |
-| GH200 Grace (gNB, Neoverse-V2) | 2L-64QAM **full-ML** @100 MHz, 4 Rx | — | 9.31+6611.06=6620.37 | — | fused-only reference. Full-ML LLR **6611** vs L-best **2379** → **L-best 2.78× cheaper** on this core, *less* than the A76's ~3.7×: the big OoO V2 hides part of full-ML's extra candidates behind ILP, so candidate reduction pays less here. Detector compute is the wall (6.6 ms/slot ≈ 13× a 500 µs budget; L-best 2.4 ms ≈ 4.8×) — only reduced-search moves it, not fusion (comp fully absorbed, 9.31 µs). |
+| GH200 Grace (gNB, Neoverse-V2) | 2L-64QAM **full-ML** @100 MHz, 4 Rx | 674.25+6177.28=6851.53 | 6620.20 | **~3.4%** | comp **~98.6% absorbed** (674.25→9.27), saving ~231 µs — **same absolute round-trip as the L-best run** (~235 µs), but only 3.4% here because full-ML LLR (6611) is 2.78× the L-best LLR (2379). Fusion saves a fixed comp-round-trip; its % = round-trip / detector-cost. Full-ML LLR vs L-best → **L-best 2.78× cheaper** on this core, *less* than the A76's ~3.7× (big OoO V2 hides full-ML's extra candidates via ILP). Detector is the wall: 6.6 ms/slot ≈ 13× a 500 µs budget (L-best 2.4 ms ≈ 4.8×). |
 | NXP A72 (gNB)     | | | | | native w128 |
 | K3 X100 (RISC-V)  | | | | | SIMDe (not native RVV) |
 | K3 A100 (RISC-V)  | | | | | SIMDe; LLR ~4× slower here |
+
+### Findings (aarch64: A76 little-core ↔ GH200 big-core)
+- **The tiled fusion saves a fixed compensation round-trip, detector-independent.** On the GH200 it
+  is ~235 µs/slot whether the detector is L-best (240) or full-ML (231); the compensation is
+  ~98.6% absorbed either way. So the *percentage* is just round-trip ÷ detector-cost: **9.1% for
+  L-best, 3.4% for full-ML** on the same core. Identical shape on the A76 (~8% L-best, ~2.5%
+  full-ML). This is the whole fusion story in one line — fusion removes a constant, the detector
+  sets the denominator.
+- **Comp absorption scales with how bandwidth-bound the core is:** ~43% on the A76, ~98.6% on the
+  GH200. The Neoverse-V2 has so much compute vs memory bandwidth that the comp DRAM round-trip is
+  nearly its entire comp cost, so fusion erases almost all of it.
+- **The detector is the wall on every platform, and only reduced-search moves it.** L-best is
+  2.78× cheaper than full-ML on the GH200 vs ~3.7× on the A76 — the big out-of-order core hides
+  more of full-ML's extra candidates behind ILP, so candidate reduction pays less there (but still
+  the dominant lever: full-ML 6.6 ms/slot ≈ 13× a 500 µs budget, L-best 2.4 ms ≈ 4.8×).
 
 ## Register-fusion (`OAI_FUSE=2`, commit b361b05971)
 Per-block MRC + magnitudes + LLR computed in registers, LLR stored directly (compile-time-index
