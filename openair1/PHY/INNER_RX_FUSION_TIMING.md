@@ -145,3 +145,31 @@ Conclusion: **register-fusion does not help 2-layer either.** The tiled fusion i
 for both 1- and 2-layer; the 1-layer register path stays gated (`OAI_FUSE=2`, bit-exact) as a
 reference but is not a win. The near-ML/L-best detector compute is the wall — only reduced-search
 (L-best: ~3.4× on A76) moves it, not fusion.
+
+## Demap + descramble folded into the inner-RX store (gNB)
+The layer demapping and codeword descrambling that used to run as separate per-symbol passes
+after the LLR are now folded into the fused inner-RX store:
+- **1-layer** (`nr_inner_rx_1layer` + `scramble`): per-tile LLRs are multiplied by the ±1
+  descrambling sequence at the store (1-layer needs no demap — per-layer order == codeword order).
+- **2-layer** (`nr_inner_rx_2layer_ml` codeword mode): the detector writes per-layer into L1 tile
+  scratch, then a per-tile pass interleaves the two layers (demap) and descrambles into the
+  codeword buffer.
+
+gNB wiring writes the final codeword directly for single-UE, non-PTRS, non-transform-precoding
+symbols and skips the post-pass. Bit-exact (deterministic self-check vs `nr_layer_demapping` +
+unscramble, all mod orders). On x86 the eliminated passes were ~34 µs demap + ~13 µs unscramble per
+slot (2-layer 64QAM); GH200 numbers TBD (`RX PUSCH layer demapping` + `unscrambling` should drop
+to ~0 like the compensation did). UE still descrambles in its decoder — bringing it forward to this
+same fold (symmetry, and the path to a single shared inner_rx) is the next step.
+
+## Follow-ups / open items
+- **Compiler sweep.** All timing so far is **gcc12**. The fusion payoff hinges on the compiler
+  keeping the L1 tile scratch in registers and scheduling the fused loops, so **gcc13/gcc15 and
+  clang (clang15 is already the RISC-V toolchain)** could change the delta. Re-run the A/B under
+  each and compare; a newer compiler may shift where fusion helps.
+- **Full-ML 2-layer nondeterminism (pre-existing).** `nr_ulsim` 2-layer full-ML (`nr_qam64_llr_2layer`)
+  gives run-to-run varying `errors_scrambling` for identical code+seed (e.g. FUSE=0: 3128 then
+  2878), while L-best and 1-layer are deterministic. Present on the baseline (independent of the
+  fusion/memset/descramble work), so a latent issue in that detector or its inputs (likely an
+  uninitialized/padding read). Low impact on BLER curves (averages out) but it breaks
+  cross-invocation bit-exact A/B for that path — validate full-ML via single-run self-checks.
