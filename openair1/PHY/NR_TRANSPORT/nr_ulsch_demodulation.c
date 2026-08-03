@@ -287,10 +287,6 @@ static void inner_rx(PHY_VARS_gNB *gNB,
   c16_t rxF_ch_magb[nb_layer][buffer_length] __attribute__((aligned(64)));
   c16_t rxF_ch_magc[nb_layer][buffer_length] __attribute__((aligned(64)));
 
-  memset(rho, 0, sizeof(rho));
-  for (int i = 0; i < nb_layer; i++)
-    memset(&pusch_vars->rxdataF_comp[i][symbol * buffer_length], 0, sizeof(int32_t) * buffer_length);
-
   // Fused single-layer inner RX (OAI_FUSE): skip the standalone MRC compensation; nr_inner_rx_1layer
   // in the LLR stage below does MRC+LLR tiled in L1 (no rxComp/mag round-trip). Same shared kernel as
   // the UE. CP-OFDM single-layer non-PTRS only: transform precoding's freq-eq/idft and PTRS both sit
@@ -315,7 +311,17 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                               && (rel15_ul->qam_mod_order <= 6 || (rel15_ul->qam_mod_order == 8 && gnb_lbest_fuse))
                               && !ptrs_fuse;
   const bool fuse_skip_comp = fuse_1layer || fuse_2layer_ml;
-  if (!fuse_skip_comp)
+  // Only the standalone-compensation path needs these buffers: nr_channel_compensation writes the
+  // valid REs (and rho accumulates across Rx antennas), while the padding REs must be pre-zeroed for
+  // the downstream LLR SIMD over-read. The fused kernels build rho in L1 tiles and write LLR
+  // RE-exactly, never touching rho / rxdataF_comp — so skip the zeroing AND the compensation. (The
+  // memsets were previously unconditional and showed up as the residual ~9 µs "channel compensation"
+  // time in fused runs; PTRS and transform-precoding, which read rxdataF_comp, are excluded from the
+  // fuse gates above so they always fall in this branch.)
+  if (!fuse_skip_comp) {
+    memset(rho, 0, sizeof(rho));
+    for (int i = 0; i < nb_layer; i++)
+      memset(&pusch_vars->rxdataF_comp[i][symbol * buffer_length], 0, sizeof(int32_t) * buffer_length);
     nr_channel_compensation(buffer_length,
                             buffer_length,
                             nb_rx_ant,
@@ -330,6 +336,7 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                             rel15_ul->qam_mod_order,
                             symbol,
                             output_shift);
+  }
   stop_meas(pusch_ch_comp);
 
   if (nb_layer == 1 && rel15_ul->transform_precoding == transformPrecoder_enabled && rel15_ul->qam_mod_order <= 6) {
