@@ -3847,6 +3847,9 @@ void nr_qam256_llr_2layer_lbest_q15(c16_t *stream0_in,
 // w512 helps on true-512-datapath server CPUs (EPYC Genoa/Turin, Xeon SP) -> opt in with
 // OAI_LBEST_W512=1 (all widths are bit-exact; verified via OAI_LBEST_DBG/DBG256). OAI_LBEST_W128=1
 // selects the NEON-equivalent path for x86 regression testing.
+// Only used on the x86 dispatch path below (aarch64 always runs w128 directly), so gate the
+// definition with the same condition to avoid an unused-function warning (-Werror) on aarch64.
+#if !(defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__))
 static int nr_lbest_simd_width_mode(void)
 {
   static int mode = -1;
@@ -3864,6 +3867,7 @@ static int nr_lbest_simd_width_mode(void)
   }
   return mode;
 }
+#endif
 
 void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in, c16_t *stream1_in, c16_t *ch_mag,
                                           c16_t *ch_mag_i, int16_t *stream0_out, c16_t *rho01,
