@@ -128,14 +128,16 @@ void nr_inner_rx_2layer_ml(uint32_t length,
                            int mod_order,
                            int output_shift,
                            int16_t *llr0,
-                           int16_t *llr1)
+                           int16_t *llr1,
+                           int16_t *llr_cw,
+                           const int16_t *scramble)
 {
 #if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
-  nr_inner_rx_2layer_ml_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr0, llr1);
+  nr_inner_rx_2layer_ml_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr0, llr1, llr_cw, scramble);
 #else
   if (nr_comp_simd_width_mode() == 1)
-    nr_inner_rx_2layer_ml_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr0, llr1);
+    nr_inner_rx_2layer_ml_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr0, llr1, llr_cw, scramble);
   else
-    nr_inner_rx_2layer_ml_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr0, llr1);
+    nr_inner_rx_2layer_ml_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr0, llr1, llr_cw, scramble);
 #endif
 }

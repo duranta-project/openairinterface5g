@@ -219,9 +219,10 @@ static int get_nb_re_pusch (NR_DL_FRAME_PARMS *frame_parms, const nfapi_nr_pusch
     return (rel15_ul->rb_size * NR_NB_SC_PER_RB);
 }
 
-// Returns true iff it fused descrambling into the single-layer LLR store (wrote the descrambled
-// codeword LLR straight to llr[0]); the caller then skips the demap+unscramble pass. scramble_1l
-// is the per-symbol descrambling sequence slice for that case, or NULL to keep the raw-LLR path.
+// Returns true iff it wrote the final layer-demapped (+ optionally descrambled) codeword LLR
+// straight into llr_cw at the store; the caller then skips the demap+unscramble pass. llr_cw is the
+// per-symbol codeword-buffer slice (or NULL to keep the raw per-layer path via llr[]); scramble is
+// the matching descrambling-sequence slice (or NULL to leave the codeword un-descrambled).
 static bool inner_rx(PHY_VARS_gNB *gNB,
                      int slot,
                      NR_DL_FRAME_PARMS *frame_parms,
@@ -238,7 +239,8 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
                      time_stats_t *pusch_extr,
                      time_stats_t *pusch_ch_comp,
                      time_stats_t *ulsch_llr,
-                     const int16_t *scramble_1l)
+                     int16_t *llr_cw,
+                     const int16_t *scramble)
 {
   int nb_layer = rel15_ul->nrOfLayers;
   int nb_rx_ant = rel15_ul->param_v4.numSpatialStreamIndices;
@@ -365,13 +367,15 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
     pusch_vars->ul_valid_re_per_slot[symbol] -= pusch_vars->ptrs_re_per_slot;
   }
   start_meas(ulsch_llr);
+  bool did_fused = false; // set when a fused branch wrote the final codeword directly into llr_cw
   static int gnb_lbest = -1;
   if (gnb_lbest < 0) { const char *e = getenv("OAI_LBEST"); gnb_lbest = e ? atoi(e) : 0; }
   if (nb_layer == 2) {
     if (rel15_ul->qam_mod_order <= 6 || (rel15_ul->qam_mod_order == 8 && gnb_lbest)) {
       if (fuse_2layer_ml) {
         // Fused: MRC compensation + rho build + joint ML-LLR, tiled in L1 (nr_inner_rx_2layer_ml).
-        // Replaces {nr_channel_compensation + nr_compute_ML_llr}. Same shared kernel as the UE.
+        // Replaces {nr_channel_compensation + nr_compute_ML_llr}. Same shared kernel as the UE. When
+        // llr_cw is set, the layer demap + descramble are also folded into the store (codeword out).
         nr_inner_rx_2layer_ml(pusch_vars->ul_valid_re_per_slot[symbol],
                               buffer_length,
                               nb_rx_ant,
@@ -380,7 +384,11 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
                               rel15_ul->qam_mod_order,
                               output_shift,
                               llr[0],
-                              llr[1]);
+                              llr[1],
+                              llr_cw,
+                              scramble);
+        if (llr_cw)
+          did_fused = true;
       } else {
         nr_compute_ML_llr((c16_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
                           (c16_t *)&pusch_vars->rxdataF_comp[1][symbol * buffer_length],
@@ -420,6 +428,8 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
       // Fused single-layer inner RX: MRC compensation + LLR, tiled in L1 (nr_inner_rx_1layer).
       // Replaces {nr_channel_compensation + nr_compute_llr} for this symbol, bit-exact. chFext[0]
       // is the single layer's extracted channel, rxFext the extracted Rx, llr[0] the output.
+      // Single layer: per-layer LLR order == codeword bit order (no demap), so writing directly to
+      // llr_cw with the descramble folded in is exactly the codeword. NULL llr_cw => raw per-layer.
       nr_inner_rx_1layer(pusch_vars->ul_valid_re_per_slot[symbol],
                          buffer_length,
                          nb_rx_ant,
@@ -427,8 +437,10 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
                          chFext[0],
                          rel15_ul->qam_mod_order,
                          output_shift,
-                         llr[0],
-                         scramble_1l);
+                         llr_cw ? llr_cw : llr[0],
+                         llr_cw ? scramble : NULL);
+      if (llr_cw)
+        did_fused = true;
     } else {
       for (int aatx = 0; aatx < nb_layer; aatx++)
         nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
@@ -442,8 +454,8 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
     }
   }
   stop_meas(ulsch_llr);
-  // Descrambling was folded into the store iff the single-layer fused path ran with a sequence.
-  return fuse_1layer && scramble_1l != NULL;
+  // True iff a fused branch wrote the final (demapped + optionally descrambled) codeword to llr_cw.
+  return did_fused;
 }
 
 typedef struct puschSymbolProc_s {
@@ -493,22 +505,22 @@ static void nr_pusch_symbol_processing(void *arg)
     for (int l = 0; l < rel15_ul->nrOfLayers; l++)
       llrss[l] = llrs[l];
 
-    // Fused descramble-at-store: for a single-UE, single-layer, fuse-eligible symbol the inner-RX
-    // kernel writes the descrambled codeword LLR straight into the final buffer (llrss[0] repointed
-    // there), so the demap (a no-op for 1 layer) + unscramble pass below is skipped entirely.
-    // group_size==1 => pusch_vars == pusch_vars_group[0] and rdata->llr == pusch_vars->llr (see
-    // joint_pv). If inner_rx does NOT take that path (returns false), llrss[0] still points at the
-    // final buffer and the post-pass descrambles it in place (src == llr_dest) — still correct.
+    // Fused layer-demap + descramble at store: for a single-UE, non-PTRS, non-transform-precoding
+    // symbol, inner_rx can write the final layer-demapped (+ descrambled) codeword straight into the
+    // final buffer, skipping the demap+unscramble pass below. group_size==1 => pusch_vars ==
+    // pusch_vars_group[0] and pusch_vars->llr IS that UE's codeword buffer (see joint_pv). inner_rx
+    // returns whether it actually fused (only its fused kernels do); otherwise it writes per-layer
+    // into llrss and the post-pass runs (llr_cw passed but unused) -- always correct.
     static int fuse_env2 = -1;
     if (fuse_env2 < 0) { const char *e = getenv("OAI_FUSE"); fuse_env2 = e ? atoi(e) : 0; }
-    const bool fuse_descr_1l = fuse_env2 && rdata->group_size == 1 && rel15_ul->nrOfLayers == 1
-                               && !(rel15_ul->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS)
-                               && rel15_ul->transform_precoding != transformPrecoder_enabled;
-    const int16_t *scramble_1l = NULL;
-    if (fuse_descr_1l) {
-      const int sym_bit_off = pusch_vars->llr_offset[symbol]; // *1 layer
-      llrss[0] = &pusch_vars->llr[sym_bit_off];
-      scramble_1l = &rdata->scrambling_sequences[0][sym_bit_off];
+    int16_t *llr_cw = NULL;
+    const int16_t *scramble = NULL;
+    if (fuse_env2 && rdata->group_size == 1
+        && !(rel15_ul->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS)
+        && rel15_ul->transform_precoding != transformPrecoder_enabled) {
+      const int sym_bit_off = pusch_vars->llr_offset[symbol] * rel15_ul->nrOfLayers;
+      llr_cw = &pusch_vars->llr[sym_bit_off];
+      scramble = &rdata->scrambling_sequences[0][sym_bit_off];
     }
 
     const bool descr_fused = inner_rx(gNB,
@@ -527,9 +539,10 @@ static void nr_pusch_symbol_processing(void *arg)
              &rdata->pusch_extr,
              &rdata->pusch_ch_comp,
              &rdata->ulsch_llr,
-             scramble_1l);
+             llr_cw,
+             scramble);
     if (descr_fused)
-      continue; // demap(no-op)+unscramble already folded into the store
+      continue; // layer demap + descramble already folded into the store
 
     int nb_re_pusch = pusch_vars->ul_valid_re_per_slot[symbol];
     for (int u = 0; u < rdata->group_size; u++) {

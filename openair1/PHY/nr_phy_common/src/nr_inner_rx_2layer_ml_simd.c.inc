@@ -14,7 +14,9 @@ static void NRLB_NAME(nr_inner_rx_2layer_ml)(uint32_t length,
                                              int mod_order,
                                              int output_shift,
                                              int16_t *llr0,
-                                             int16_t *llr1)
+                                             int16_t *llr1,
+                                             int16_t *llr_cw,
+                                             const int16_t *scramble)
 {
   NRLB_VI QAM_ampa = NRLB_SETZERO();
   if (mod_order == 4)
@@ -28,6 +30,9 @@ static void NRLB_NAME(nr_inner_rx_2layer_ml)(uint32_t length,
   __attribute__((aligned(32))) c16_t rxC0_t[TILE], rxC1_t[TILE];
   __attribute__((aligned(32))) c16_t mag0_t[TILE], mag1_t[TILE];
   __attribute__((aligned(32))) c16_t rho01_t[TILE], rho10_t[TILE];
+  // Per-layer LLR tile scratch (codeword-output mode): the detector writes here (L1-hot), then the
+  // per-tile loop below reorders (layer demap) + optionally descrambles into the codeword buffer.
+  __attribute__((aligned(32))) int16_t tl0[(TILE + 16) * 8], tl1[(TILE + 16) * 8]; // mod_order <= 8 (+1 SIMD block slop)
 
   NRLB_VI *rxC0 = (NRLB_VI *)rxC0_t, *rxC1 = (NRLB_VI *)rxC1_t;
   NRLB_VI *mag0 = (NRLB_VI *)mag0_t, *mag1 = (NRLB_VI *)mag1_t;
@@ -87,8 +92,33 @@ static void NRLB_NAME(nr_inner_rx_2layer_ml)(uint32_t length,
     }
 
     // Joint 2-layer ML LLR for this tile (width-agnostic, RE-exact -> tile-safe)
-    nr_compute_ML_llr(rxC0_t, rxC1_t, mag0_t, mag1_t,
-                      llr0 + (size_t)base * mod_order, llr1 + (size_t)base * mod_order,
-                      rho01_t, rho10_t, tre, mod_order);
+    if (llr_cw) {
+      // Codeword-output mode: detector -> L1 per-layer tile scratch, then fold the layer demap
+      // (interleave l0,l1 per RE) and optional descramble (+-1 mullo) into the store. Bit-exact
+      // with {nr_compute_ML_llr to per-layer + nr_layer_demapping + codeword unscrambling}.
+      nr_compute_ML_llr(rxC0_t, rxC1_t, mag0_t, mag1_t, tl0, tl1, rho01_t, rho10_t, tre, mod_order);
+      int16_t *cw = llr_cw + (size_t)base * 2 * mod_order;              // 2 layers/RE
+      const int16_t *s = scramble ? scramble + (size_t)base * 2 * mod_order : NULL;
+      for (uint32_t i = 0; i < tre; i++) {
+        const int16_t *s0 = tl0 + (size_t)i * mod_order, *s1 = tl1 + (size_t)i * mod_order;
+        int16_t *d0 = cw + (size_t)(i * 2 + 0) * mod_order, *d1 = cw + (size_t)(i * 2 + 1) * mod_order;
+        if (s) {
+          const int16_t *q0 = s + (size_t)(i * 2 + 0) * mod_order, *q1 = s + (size_t)(i * 2 + 1) * mod_order;
+          for (int b = 0; b < mod_order; b++) {
+            d0[b] = (int16_t)(s0[b] * q0[b]);
+            d1[b] = (int16_t)(s1[b] * q1[b]);
+          }
+        } else {
+          for (int b = 0; b < mod_order; b++) {
+            d0[b] = s0[b];
+            d1[b] = s1[b];
+          }
+        }
+      }
+    } else {
+      nr_compute_ML_llr(rxC0_t, rxC1_t, mag0_t, mag1_t,
+                        llr0 + (size_t)base * mod_order, llr1 + (size_t)base * mod_order,
+                        rho01_t, rho10_t, tre, mod_order);
+    }
   }
 }

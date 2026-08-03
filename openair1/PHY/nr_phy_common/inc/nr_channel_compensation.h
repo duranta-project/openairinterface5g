@@ -99,6 +99,14 @@ void nr_inner_rx_1layer_reg(uint32_t length,
  * never touch full-symbol arrays). Requires RE-sub-range-composable 2-layer LLR kernels. Only
  * mag_a is built (nr_compute_ML_llr derives the other thresholds). 256-bit only for now. Caller
  * must exclude the PTRS case.
+ *
+ * @param llr0,llr1  Per-layer LLR outputs (per-layer contiguous). Used when llr_cw == NULL.
+ * @param llr_cw     Optional codeword output: when non-NULL, the two layers' LLRs are written
+ *                   layer-demapped (interleaved [RE-l0, RE-l1] per RE) directly into it, folding
+ *                   the layer demapping into the store; llr0/llr1 are then unused.
+ * @param scramble   Optional descrambling sequence (length*2*mod_order int16 of +-1) applied at the
+ *                   store when llr_cw is non-NULL; NULL leaves the codeword raw. Ignored if
+ *                   llr_cw == NULL.
  */
 void nr_inner_rx_2layer_ml(uint32_t length,
                            uint32_t buffer_length,
@@ -108,6 +116,8 @@ void nr_inner_rx_2layer_ml(uint32_t length,
                            int mod_order,
                            int output_shift,
                            int16_t *llr0,
-                           int16_t *llr1);
+                           int16_t *llr1,
+                           int16_t *llr_cw,
+                           const int16_t *scramble);
 
 #endif /* __NR_CHANNEL_COMPENSATION__H__ */

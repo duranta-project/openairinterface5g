@@ -1157,7 +1157,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
         // Replaces {nr_channel_compensation + nr_compute_ML_llr}; relies on the RE-exact 2-layer
         // LLR kernels being tile-safe. chFext = extracted 2-layer channel, rxdataF_ext the Rx.
         nr_inner_rx_2layer_ml(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext, qamModOrder, *log2_maxh,
-                              layer_llr[0], layer_llr[1]);
+                              layer_llr[0], layer_llr[1], NULL, NULL);
       } else {
         nr_compute_ML_llr(rxdataF_comp[symbol][0],
                           rxdataF_comp[symbol][1],
