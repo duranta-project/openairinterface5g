@@ -65,6 +65,10 @@ void nr_channel_compensation(uint32_t buffer_length,
  * @param mod_order       Modulation order (2/4/6/8)
  * @param output_shift    Right-shift applied after each complex multiply (log2_maxh)
  * @param llr             Output LLR buffer (length*mod_order int16, contiguous per RE)
+ * @param scramble        Optional descrambling sequence (length*mod_order int16 of +-1): when
+ *                        non-NULL, the LLRs are multiplied by it in-place as they are stored
+ *                        (descrambling folded into the store). NULL => raw LLR. Single-layer only:
+ *                        per-layer LLR order equals the codeword bit order, so no demap is needed.
  */
 void nr_inner_rx_1layer(uint32_t length,
                         uint32_t buffer_length,
@@ -73,7 +77,8 @@ void nr_inner_rx_1layer(uint32_t length,
                         c16_t chFext[nb_rx_ant][buffer_length],
                         int mod_order,
                         int output_shift,
-                        int16_t *llr);
+                        int16_t *llr,
+                        const int16_t *scramble);
 
 /** @brief Register-fused single-layer inner RX: per-block MRC + mag + LLR in registers, no tile
  * scratch and no per-tile LLR call (bit-exact with nr_inner_rx_1layer). */

@@ -13,7 +13,8 @@ static void NRLB_NAME(nr_inner_rx_1layer)(uint32_t length,
                                           c16_t chFext[nb_rx_ant][buffer_length],
                                           int mod_order,
                                           int output_shift,
-                                          int16_t *llr)
+                                          int16_t *llr,
+                                          const int16_t *scramble)
 {
   NRLB_VI QAM_ampa = NRLB_SETZERO();
   NRLB_VI QAM_ampb = NRLB_SETZERO();
@@ -95,6 +96,20 @@ static void NRLB_NAME(nr_inner_rx_1layer)(uint32_t length,
       case 6: nr_64qam_llr(rxComp_t, maga_t, magb_t, llr_off, tre); break;
       case 8: nr_256qam_llr(rxComp_t, maga_t, magb_t, magc_t, llr_off, tre); break;
       default: break;
+    }
+
+    // Fold descrambling into the store: multiply this tile's just-written, cache-hot LLRs by the
+    // scrambling sequence (+-1 per bit). Bit-exact with the standalone codeword unscrambling pass
+    // (int16 mullo). NULL => raw LLR (caller descrambles later, e.g. UE decoder path). Single-layer:
+    // per-layer LLR order == codeword bit order (no demap), so scramble is indexed contiguously.
+    if (scramble) {
+      const uint32_t nb = tre * (uint32_t)mod_order; // int16 LLRs in this tile
+      const int16_t *s = scramble + (size_t)base * mod_order;
+      uint32_t k = 0;
+      for (; k + NRLB_N <= nb; k += NRLB_N)
+        NRLB_STOREU(llr_off + k, NRLB_MM(mullo_epi16)(NRLB_LOADU(llr_off + k), NRLB_LOADU(s + k)));
+      for (; k < nb; k++)
+        llr_off[k] = (int16_t)(llr_off[k] * s[k]);
     }
   }
 }

@@ -1147,7 +1147,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
       if (fuse_env == 2)
         nr_inner_rx_1layer_reg(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], qamModOrder, *log2_maxh, layer_llr[0]);
       else
-        nr_inner_rx_1layer(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], qamModOrder, *log2_maxh, layer_llr[0]);
+        nr_inner_rx_1layer(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], qamModOrder, *log2_maxh, layer_llr[0], NULL);
     } else if (nl == 2 && do_ml && (qamModOrder <= 6 || (qamModOrder == 8 && ml256))) {
       // 2-layer QPSK/16QAM/64QAM (and 256QAM under the OAI_LBEST analysis gate):
       // joint ML-LLR using inter-layer Tx correlation.

@@ -80,15 +80,16 @@ void nr_inner_rx_1layer(uint32_t length,
                         c16_t chFext[nb_rx_ant][buffer_length],
                         int mod_order,
                         int output_shift,
-                        int16_t *llr)
+                        int16_t *llr,
+                        const int16_t *scramble)
 {
 #if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
-  nr_inner_rx_1layer_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr);
+  nr_inner_rx_1layer_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr, scramble);
 #else
   if (nr_comp_simd_width_mode() == 1)
-    nr_inner_rx_1layer_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr);
+    nr_inner_rx_1layer_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr, scramble);
   else
-    nr_inner_rx_1layer_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr);
+    nr_inner_rx_1layer_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, mod_order, output_shift, llr, scramble);
 #endif
 }
 
