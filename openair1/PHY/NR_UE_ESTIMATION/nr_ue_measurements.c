@@ -24,6 +24,13 @@
 #define K1 ((long long int) 512)
 #define K2 ((long long int) (1024-K1))
 
+// Neighbor-cell PSS reacquisition window half-width (samples). Independent rfsim gNB
+// processes free-run their own sample clocks (no shared syntonization beyond the
+// virtual-channel timing model), so the peak drifts slowly relative to the previous
+// find. A narrow window loses lock repeatedly, forcing full-frame research and
+// spurious "not detected" L3 resets even though the cell is reliably in range.
+#define NEIGHBOR_CELL_REACQ_MARGIN 64
+
 //#define DEBUG_MEAS_RRC
 //#define DEBUG_MEAS_UE
 //#define DEBUG_RANK_EST
@@ -328,8 +335,8 @@ static bool search_neighboring_cell(UE_nr_rxtx_proc_t *proc,
           search_params.pss_res.avg);
 
     // Update search window
-    neighboring_cell_info->pss_search_start = search_params.pss_res.pos - 16;
-    neighboring_cell_info->pss_search_length = 32;
+    neighboring_cell_info->pss_search_start = search_params.pss_res.pos - NEIGHBOR_CELL_REACQ_MARGIN;
+    neighboring_cell_info->pss_search_length = 2 * NEIGHBOR_CELL_REACQ_MARGIN;
     neighboring_cell_info->ssb_slot = proc->nr_slot_rx;
   }
 
@@ -424,8 +431,11 @@ static bool validate_known_pci(NR_DL_FRAME_PARMS *frame_parms,
   nr_neighboring_cell->is_candidate = false;
   neighboring_cell_info->consec_fail = 0;
   neighboring_cell_info->valid_meas = true;
-  neighboring_cell_info->pss_search_start += pss_res.pos - 16;
-  neighboring_cell_info->pss_search_length = 32;
+  // pss_res.pos is local to the just-used search window (rx[i] = rxdata[i] + pss_search_start,
+  // see ssb_time_offset above), so it must be added back to get an absolute sample position
+  // before deriving the next window - otherwise the window collapses toward 0 every other cycle.
+  neighboring_cell_info->pss_search_start += pss_res.pos - NEIGHBOR_CELL_REACQ_MARGIN;
+  neighboring_cell_info->pss_search_length = 2 * NEIGHBOR_CELL_REACQ_MARGIN;
   neighboring_cell_info->ssb_slot = slot;
 
   return true;
