@@ -757,7 +757,8 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                 int32_t ptrs_re_per_slot[][NR_SYMBOLS_PER_SLOT],
                 uint32_t nvar,
                 pdsch_scope_req_t *scope_req,
-                c16_t rho_dl[NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max])
+                c16_t rho_dl[NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max],
+                const int16_t *scramble)
 {
   NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
   const int nl = dlsch->cw_info.Nl;
@@ -1138,26 +1139,39 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     const int this_re = dl_valid_re[symbol];
     const int this_llr_size = (this_re * qamModOrder) > 0 ? (this_re * qamModOrder) : 1;
     __attribute__((aligned(32))) int16_t layer_llr[nl][this_llr_size];
+    // Codeword bit offset of this symbol's first bit (== the layer-demapped position); computed up
+    // front so the fused kernels can write the demapped (+ descrambled) codeword straight into llr.
+    int llr_bit_offset = 0;
+    for (int i = startSymbIdx; i < symbol; i++)
+      llr_bit_offset += dl_valid_re[i] * qamModOrder * nl;
+    int16_t *llr_cw = llr + llr_bit_offset;
+    const int16_t *seq_sym = scramble ? scramble + llr_bit_offset : NULL;
+    bool cw_written = false; // a fused path wrote the demapped (+descrambled) codeword directly
+
     start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
     if (fuse_1layer) {
       // Fused single-layer inner RX: MRC compensation + LLR for this symbol, bit-exact with
       // {nr_channel_compensation + nr_dlsch_llr}. chFext[0] = the single layer's extracted channel,
-      // rxdataF_ext = extracted Rx, layer_llr[0] = output. OAI_FUSE=2 selects the register-fused
-      // variant (no tile scratch, no per-tile LLR call); OAI_FUSE=1 the tiled variant.
+      // rxdataF_ext = extracted Rx. OAI_FUSE=2 selects the register-fused variant (no tile scratch,
+      // no per-tile LLR call) which writes per-layer; OAI_FUSE=1 the tiled variant, which folds
+      // descrambling into the store and writes the codeword directly (1 layer: per-layer order ==
+      // codeword order, no demap).
       if (fuse_env == 2)
         nr_inner_rx_1layer_reg(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], qamModOrder, *log2_maxh, layer_llr[0]);
-      else
-        nr_inner_rx_1layer(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], qamModOrder, *log2_maxh, layer_llr[0], NULL);
+      else {
+        nr_inner_rx_1layer(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], qamModOrder, *log2_maxh, llr_cw, seq_sym);
+        cw_written = true;
+      }
     } else if (nl == 2 && do_ml && (qamModOrder <= 6 || (qamModOrder == 8 && ml256))) {
       // 2-layer QPSK/16QAM/64QAM (and 256QAM under the OAI_LBEST analysis gate):
       // joint ML-LLR using inter-layer Tx correlation.
       // rho_dl is [nl*nl][rx_size_symbol]: index 1 = rho[0][1], index nl = rho[1][0]
       if (fuse_2layer_ml) {
         // Fused: MRC compensation + rho build + joint ML-LLR, tiled in L1 (nr_inner_rx_2layer_ml).
-        // Replaces {nr_channel_compensation + nr_compute_ML_llr}; relies on the RE-exact 2-layer
-        // LLR kernels being tile-safe. chFext = extracted 2-layer channel, rxdataF_ext the Rx.
+        // Codeword-output mode folds the layer demap + descramble into the store (llr_cw direct).
         nr_inner_rx_2layer_ml(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext, qamModOrder, *log2_maxh,
-                              layer_llr[0], layer_llr[1], NULL, NULL);
+                              NULL, NULL, llr_cw, seq_sym);
+        cw_written = true;
       } else {
         nr_compute_ML_llr(rxdataF_comp[symbol][0],
                           rxdataF_comp[symbol][1],
@@ -1259,13 +1273,19 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
 
     start_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
-    int llr_bit_offset = 0;
-    for (int i = startSymbIdx; i < symbol; i++)
-      llr_bit_offset += dl_valid_re[i] * qamModOrder * nl;
-    int16_t *p_layer[nl];
-    for (int l = 0; l < nl; l++)
-      p_layer[l] = layer_llr[l];
-    nr_layer_demapping(nl, qamModOrder, this_re, p_layer, llr + llr_bit_offset);
+    if (!cw_written) {
+      // Non-fused (and register-fused) paths produced per-layer LLRs: layer-demap into the codeword
+      // buffer, then descramble that slice (the fused paths above folded both into the store).
+      int16_t *p_layer[nl];
+      for (int l = 0; l < nl; l++)
+        p_layer[l] = layer_llr[l];
+      nr_layer_demapping(nl, qamModOrder, this_re, p_layer, llr_cw);
+      if (seq_sym) {
+        const int n = this_re * qamModOrder * nl;
+        for (int k = 0; k < n; k++)
+          llr_cw[k] = (int16_t)(llr_cw[k] * seq_sym[k]);
+      }
+    }
     stop_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
   }
 

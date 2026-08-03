@@ -456,6 +456,7 @@ typedef struct PHY_VARS_NR_UE_s {
     c16_t   *rho_dl;                // [NR_SYMBOLS_PER_SLOT][NR_MAX_NB_LAYERS*NR_MAX_NB_LAYERS][pdsch_buf_size_max]
     int32_t *pdsch_dl_ch_estimates; // [nb_antennas_rx*NR_MAX_NB_LAYERS][pdsch_est_size]
     int16_t *llr[2];               // [2 codewords][llr_buf_max]
+    int16_t *scramble;             // [llr_buf_max] precomputed +-1 descrambling sequence (per slot)
     uint32_t pdsch_buf_size_max;
     uint32_t pdsch_est_size;
     uint32_t llr_buf_max;
