@@ -40,7 +40,7 @@ THREAD_STRUCT thread_struct;
 
 // needed for some functions
 uint16_t n_rnti = 0x1234;
-openair0_config_t openair0_cfg[MAX_CARDS];
+openair0_config_t openair0_cfg_g[MAX_CARDS] = {};
 nrUE_params_t nrUE_params;
 
 nrUE_params_t *get_nrUE_params(void)
@@ -316,7 +316,7 @@ int main(int argc, char *argv[])
   gNB = calloc_or_fail(1, sizeof(PHY_VARS_gNB));
   gNB->ofdm_offset_divisor = UINT_MAX;
   gNB->RU_list[0] = calloc_or_fail(1, sizeof(**gNB->RU_list));
-  gNB->RU_list[0]->rfdevice.openair0_cfg = openair0_cfg;
+  gNB->RU_list[0]->rfdevice.openair0_cfg = openair0_cfg_g;
 
   NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
   fp->N_RB_DL = N_RB_DL;

@@ -167,7 +167,7 @@ void nr_derive_key(int alg_type, uint8_t alg_id, const uint8_t key[32], uint8_t 
 void processSlotTX(void *arg) {}
 
 // needed for some functions
-openair0_config_t openair0_cfg[MAX_CARDS];
+openair0_config_t openair0_cfg_g[MAX_CARDS] = {};
 void update_ptrs_config(NR_BWP_Downlink_t *bwp, int *rbSize, uint8_t *mcsIndex,int8_t *ptrs_arg);
 void update_dmrs_config(NR_BWP_Downlink_t *bwp, int8_t *dmrs_arg);
 

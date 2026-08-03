@@ -86,24 +86,10 @@ int sync_var=-1; //!< protected by mutex \ref sync_mutex.
 int config_sync_var=-1;
 int oai_exit = 0;
 
-unsigned int mmapped_dma=0;
-
 uint64_t downlink_frequency[MAX_NUM_CCs][4];
 int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
 char *uecap_file;
 
-runmode_t mode = normal_txrx;
-
-#if MAX_NUM_CCs == 1
-double tx_gain[MAX_NUM_CCs][4] = {{20,0,0,0}};
-double rx_gain[MAX_NUM_CCs][4] = {{110,0,0,0}};
-#else
-double tx_gain[MAX_NUM_CCs][4] = {{20,0,0,0},{20,0,0,0}};
-double rx_gain[MAX_NUM_CCs][4] = {{110,0,0,0},{20,0,0,0}};
-#endif
-
-int chain_offset = 0;
-int numerology = 0;
 double cpuf;
 
 /*------------------------------------------------------------------------*/
@@ -192,7 +178,10 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
   if (RC.nb_nr_macrlc_inst > 0)
     RCconfig_nr_macrlc(cfg);
 
-  if (RC.nb_nr_L1_inst>0) AssertFatal(l1_north_init_gNB()==0,"could not initialize L1 north interface\n");
+  if (RC.nb_nr_L1_inst > 0) {
+    int ret = l1_north_init_gNB();
+    AssertFatal(ret == 0, "could not initialize L1 north interface\n");
+  }
 
   AssertFatal (gnb_nb <= RC.nb_nr_inst,
                "Number of gNB is greater than gNB defined in configuration file (%d/%d)!",
@@ -520,7 +509,6 @@ int main( int argc, char **argv ) {
   setvbuf(stdout, NULL, _IONBF, 0);
   setvbuf(stderr, NULL, _IONBF, 0);
 #endif
-  mode = normal_txrx;
   logInit();
   lock_memory_to_ram();
   get_options(uniqCfg);
@@ -624,7 +612,7 @@ int main( int argc, char **argv ) {
 
     for (ru_id=0; ru_id<RC.nb_RU; ru_id++) {
       RC.ru[ru_id]->rf_map.card=0;
-      RC.ru[ru_id]->rf_map.chain=CC_id+chain_offset;
+      RC.ru[ru_id]->rf_map.chain = CC_id;
       if (ru_id==0) sl_ahead = RC.ru[ru_id]->sl_ahead;	
       else AssertFatal(RC.ru[ru_id]->sl_ahead != RC.ru[0]->sl_ahead,"RU %d has different sl_ahead %d than RU 0 %d\n",ru_id,RC.ru[ru_id]->sl_ahead,RC.ru[0]->sl_ahead);
     }

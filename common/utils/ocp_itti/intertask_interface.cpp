@@ -113,7 +113,8 @@ typedef struct timer_elm_s {
 
     t->message_queue.insert(t->message_queue.begin(), message);
     eventfd_t sem_counter = 1;
-    AssertFatal ( sizeof(sem_counter) == write(t->sem_fd, &sem_counter, sizeof(sem_counter)), "");
+    int ret = write(t->sem_fd, &sem_counter, sizeof(sem_counter));
+    AssertFatal(ret == sizeof(sem_counter), "write failed: %s", strerror(errno));
     LOG_D(ITTI, "sent messages id=%s messages_info to %s\n", messages_info[message_id].name, t->admin.name);
     return 0;
   }
@@ -143,18 +144,25 @@ typedef struct timer_elm_s {
     event.events  = EPOLLIN | EPOLLERR;
     event.data.u64 = 0;
     event.data.fd  = fd;
-    AssertFatal(epoll_ctl(t->epoll_fd, EPOLL_CTL_ADD, fd, &event) == 0,
+    int ret = epoll_ctl(t->epoll_fd, EPOLL_CTL_ADD, fd, &event);
+    AssertFatal(!ret,
                 "epoll_ctl (EPOLL_CTL_ADD) failed for task %s, fd %d: %s!\n",
-                itti_get_task_name(task_id), fd, strerror(errno));
+                itti_get_task_name(task_id),
+                fd,
+                strerror(errno));
     eventfd_t sem_counter = 1;
-    AssertFatal ( sizeof(sem_counter) == write(t->sem_fd, &sem_counter, sizeof(sem_counter)), "");
+    ret = write(t->sem_fd, &sem_counter, sizeof(sem_counter));
+    AssertFatal(ret == sizeof(sem_counter), "write failed: %s", strerror(errno));
   }
 
   void itti_unsubscribe_event_fd(task_id_t task_id, int fd) {
     task_list_t *t=tasks[task_id];
-    AssertFatal (epoll_ctl(t->epoll_fd, EPOLL_CTL_DEL, fd, NULL) == 0,
-                 "epoll_ctl (EPOLL_CTL_DEL) failed for task %s, fd %d: %s!\n",
-                 itti_get_task_name(task_id), fd, strerror(errno));
+    int ret = epoll_ctl(t->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+    AssertFatal(!ret,
+                "epoll_ctl (EPOLL_CTL_DEL) failed for task %s, fd %d: %s!\n",
+                itti_get_task_name(task_id),
+                fd,
+                strerror(errno));
     t->nb_fd_epoll--;
   }
 
@@ -230,7 +238,9 @@ typedef struct timer_elm_s {
           (events[i].data.fd == t->sem_fd)) {
         eventfd_t   sem_counter;
         /* Read will always return 1 */
-        AssertFatal( sizeof(sem_counter) == read (t->sem_fd, &sem_counter, sizeof(sem_counter)), "");
+        int ret = read(t->sem_fd, &sem_counter, sizeof(sem_counter));
+        AssertFatal(ret == sizeof(sem_counter), "write failed: %s", strerror(errno));
+
         /* Mark that the event has been processed */
         events[i].events &= ~EPOLLIN;
       }
@@ -328,8 +338,10 @@ typedef struct timer_elm_s {
     LOG_D(ITTI, "Starting itti queue: %s as task %d\n", taskInfo->name, newQueue);
     pthread_mutex_init(&tasks[newQueue]->queue_cond_lock, NULL);
     memcpy(&tasks[newQueue]->admin, taskInfo, sizeof(task_info_t));
-    AssertFatal( ( tasks[newQueue]->epoll_fd = epoll_create1(0) ) >=0, "");
-    AssertFatal( ( tasks[newQueue]->sem_fd = eventfd(0, EFD_SEMAPHORE) ) >=0, "");
+    tasks[newQueue]->epoll_fd = epoll_create1(0);
+    AssertFatal(tasks[newQueue]->epoll_fd >= 0, "%s", strerror(errno));
+    tasks[newQueue]->sem_fd = eventfd(0, EFD_SEMAPHORE);
+    AssertFatal(tasks[newQueue]->sem_fd >= 0, "%s", strerror(errno));
     itti_subscribe_event_fd((task_id_t)newQueue, tasks[newQueue]->sem_fd);
 
     return newQueue;
@@ -384,7 +396,8 @@ typedef struct timer_elm_s {
       t->next_timer=timer.timeout;
 
     eventfd_t sem_counter = 1;
-    AssertFatal ( sizeof(sem_counter) == write(t->sem_fd, &sem_counter, sizeof(sem_counter)), "");
+    int ret = write(t->sem_fd, &sem_counter, sizeof(sem_counter));
+    AssertFatal(ret == sizeof(sem_counter), "%s", strerror(errno));
     pthread_mutex_unlock (&t->queue_cond_lock);
     return 0;
   }

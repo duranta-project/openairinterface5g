@@ -170,7 +170,10 @@ void RCconfig_macrlc(void)
         // check number of instances is same as RRC/PDCP
         LOG_I(ENB_APP,"Configuring local RRC for MACRLC\n");
       } else { // other midhaul
-        AssertFatal(1==0,"MACRLC %d: %s unknown northbound midhaul\n",j, *(MacRLC_ParamList.paramarray[j][MACRLC_TRANSPORT_N_PREFERENCE_IDX].strptr));
+        AssertFatal(false,
+                    "MACRLC %d: %s unknown northbound midhaul\n",
+                    j,
+                    *(MacRLC_ParamList.paramarray[j][MACRLC_TRANSPORT_N_PREFERENCE_IDX].strptr));
       }
 
       if (strcmp(*(MacRLC_ParamList.paramarray[j][MACRLC_TRANSPORT_S_PREFERENCE_IDX].strptr), "local_L1") == 0) {
@@ -186,7 +189,10 @@ void RCconfig_macrlc(void)
         configure_nfapi_vnf(my_addr, my_portc, remote_addr, remote_portd, my_portd);
         LOG_I(ENB_APP,"**************** RETURNED FROM configure_nfapi_vnf() vnf_port:%d\n", my_portc);
       } else { // other midhaul
-        AssertFatal(1==0,"MACRLC %d: %s unknown southbound midhaul\n",j,*(MacRLC_ParamList.paramarray[j][MACRLC_TRANSPORT_S_PREFERENCE_IDX].strptr));
+        AssertFatal(false,
+                    "MACRLC %d: %s unknown southbound midhaul\n",
+                    j,
+                    *(MacRLC_ParamList.paramarray[j][MACRLC_TRANSPORT_S_PREFERENCE_IDX].strptr));
       }
 
       if (strcmp(*(MacRLC_ParamList.paramarray[j][MACRLC_SCHED_MODE_IDX].strptr), "default") == 0) {

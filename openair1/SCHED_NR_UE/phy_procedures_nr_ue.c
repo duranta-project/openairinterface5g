@@ -890,14 +890,14 @@ int get_ssb_index_in_symbol(const PHY_VARS_NR_UE *ue, const int symbIdxInFrame, 
 /* Description: Generates PBCH LLRs from frequency domain signal for one OFDM symbol.
                 Generates PBCH time domain channel response.
    Returns    : SSB index if symbol contains SSB. Else returns -1. */
-int nr_process_pbch_symbol(PHY_VARS_NR_UE *ue,
-                           const UE_nr_rxtx_proc_t *proc,
-                           const int symbol,
-                           const int ssbIndexIn,
-                           c16_t dl_ch_estimates_time[ue->frame_parms.nb_antennas_rx][ue->frame_parms.ofdm_symbol_size],
-                           c16_t *dl_ch_estimates_symbol,
-                           int16_t pbch_e_rx[NR_POLAR_PBCH_E],
-                           uint8_t *log2_maxh)
+static int nr_process_pbch_symbol(PHY_VARS_NR_UE *ue,
+                                  const UE_nr_rxtx_proc_t *proc,
+                                  const int symbol,
+                                  const int ssbIndexIn,
+                                  c16_t dl_ch_estimates_time[ue->frame_parms.nb_antennas_rx][ue->frame_parms.ofdm_symbol_size],
+                                  c16_t *dl_ch_estimates_symbol,
+                                  int16_t pbch_e_rx[NR_POLAR_PBCH_E],
+                                  uint8_t *log2_maxh)
 {
   NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
   const int symbIdxInFrame = symbol + NR_SYMBOLS_PER_SLOT * proc->nr_slot_rx;
@@ -991,7 +991,7 @@ static int pbch_process(PHY_VARS_NR_UE *UE,
   int sampleShift = INT_MAX;
 
   // Buffer to hold symbol 3 estimates for FO estimation
-  c16_t pbch_ch_est_sym3[NR_PBCH_NUM_RB * NR_NB_SC_PER_RB] = {0};
+  c16_t pbch_ch_est_sym3[NR_PBCH_NUM_RB * NR_NB_SC_PER_RB];
   // Choose estimates buffer for FO compensation based on current PBCH symbol
   c16_t *cur_pbch_est = NULL;
   if (*pbchSymbCnt == 0)

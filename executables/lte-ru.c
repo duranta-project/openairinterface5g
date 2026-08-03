@@ -182,8 +182,13 @@ void fh_if4p5_south_in(RU_t *ru,
   else
     symbol_mask_full = (1<<fp->symbols_per_tti)-1;
 
-  LOG_D(PHY,"fh_if4p5_south_in: RU %d, frame %d, subframe %d, ru %d, mask %x\n",ru->idx,*frame,*subframe,ru->idx,proc->symbol_mask[*subframe]);
-  //AssertFatal(proc->symbol_mask[*subframe]==0 || proc->symbol_mask[*subframe]>=symbol_mask_full,"rx_fh_if4p5: proc->symbol_mask[%d] = %x\n",*subframe,proc->symbol_mask[*subframe]); // >= because PULTICK for S-subframe could have been received during normal subframe
+  LOG_D(PHY,
+        "fh_if4p5_south_in: RU %d, frame %d, subframe %d, ru %d, mask %x\n",
+        ru->idx,
+        *frame,
+        *subframe,
+        ru->idx,
+        proc->symbol_mask[*subframe]);
 
   if (proc->symbol_mask[*subframe]<symbol_mask_full) { // this is normal case, if not true then we received a PULTICK before the previous subframe was finished
     do {
@@ -404,9 +409,11 @@ void fh_if4p5_north_asynch_in(RU_t *ru,
 
     if (ru->cmd == STOP_RU) {
       LOG_E(PHY,"Got STOP_RU\n");
-      AssertFatal((ret=pthread_mutex_lock(&proc->mutex_ru))==0,"mutex_lock returns %d\n",ret);
+      ret = pthread_mutex_lock(&proc->mutex_ru);
+      AssertFatal(!ret, "mutex_lock returns %d\n", ret);
       proc->instance_cnt_ru = -1;
-      AssertFatal((ret=pthread_mutex_unlock(&proc->mutex_ru))==0,"mutex_unlock returns %d\n",ret);
+      ret = pthread_mutex_unlock(&proc->mutex_ru);
+      AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
       ru->cmd=STOP_RU;
       return;
     }
@@ -421,16 +428,14 @@ void fh_if4p5_north_asynch_in(RU_t *ru,
       proc->first_tx = 0;
       symbol_mask_full = ((subframe_select(fp,*subframe) == SF_S) ? (1<<fp->dl_symbols_in_S_subframe) : (1<<fp->symbols_per_tti))-1;
     } else {
-      /* AssertFatal(frame_tx == *frame, "frame_tx %d is not what we expect %d\n",frame_tx,*frame);
-       AssertFatal(subframe_tx == *subframe, "In frame_tx %d : subframe_tx %d is not what we expect %d\n",frame_tx,subframe_tx,*subframe);
-      */
       *frame    = frame_tx;
       *subframe = tti_tx;
     }
 
     if (packet_type == IF4p5_PDLFFT) {
       symbol_mask = symbol_mask | (1<<symbol_number);
-    } else AssertFatal(1==0,"Illegal IF4p5 packet type (should only be IF4p5_PDLFFT got %d\n",packet_type);
+    } else
+      AssertFatal(1 == 0, "Illegal IF4p5 packet type (should only be IF4p5_PDLFFT got %d\n", packet_type);
   } while (symbol_mask != symbol_mask_full);
 
   if (subframe_select(fp,tti_tx) == SF_DL) stop_meas(&ru->rx_fhaul);
@@ -542,8 +547,6 @@ void rx_rf(RU_t *ru,
 
   proc->timestamp_rx = ts-ru->ts_offset;
 
-  //  AssertFatal(rxs == fp->samples_per_tti,
-  //        "rx_rf: Asked for %d samples, got %d from SDR\n",fp->samples_per_tti,rxs);
   if(rxs != fp->samples_per_tti) {
     LOG_E(PHY,"rx_rf: Asked for %d samples, got %d from SDR\n",fp->samples_per_tti,rxs);
     late_control=STATE_BURST_TERMINATE;
@@ -739,7 +742,6 @@ void tx_rf(RU_t *ru,
 
    VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_TRX_WRITE, 0);
 
-   //    AssertFatal(txs ==  siglen+sf_extension,"TX : Timeout (sent %d/%d)\n",txs, siglen);
    if (usrp_tx_thread == 0 && (txs != siglen + sf_extension)
        && (late_control == STATE_BURST_NORMAL)) { /* add fail safe for late command */
      late_control = STATE_BURST_TERMINATE;
@@ -754,14 +756,13 @@ void tx_rf(RU_t *ru,
     for (int i=0; i<ru->frame_parms->nb_antennas_tx; i++)
       dummy_tx[i]= dummy_tx_data[i];
 
-    AssertFatal(1
-                    == ru->rfdevice.trx_write_func(&ru->rfdevice,
-                                                   timestamp + ru->ts_offset - sf_extension,
-                                                   dummy_tx,
-                                                   1,
-                                                   ru->frame_parms->nb_antennas_tx,
-                                                   4),
-                "");
+    int ret = ru->rfdevice.trx_write_func(&ru->rfdevice,
+                                          timestamp + ru->ts_offset - sf_extension,
+                                          dummy_tx,
+                                          1,
+                                          ru->frame_parms->nb_antennas_tx,
+                                          4);
+    AssertFatal(ret == 1, "rf board wrote return %d", ret);
   }
 }
 
@@ -815,9 +816,8 @@ static void *ru_thread_asynch_rxtx( void *param ) {
   return(&ru_thread_asynch_rxtx_status);
 }
 
-
-void wakeup_slaves(RU_proc_t *proc) {
-  int ret;
+void wakeup_slaves(RU_proc_t *proc)
+{
   struct timespec wait;
   int time_ns = 5000000L;
 
@@ -833,13 +833,20 @@ void wakeup_slaves(RU_proc_t *proc) {
       wait.tv_sec  += 1;
     }
 
-    AssertFatal((ret=pthread_mutex_timedlock(&slave_proc->mutex_FH,&wait))==0,"ERROR pthread_mutex_lock for RU %d slave %d (IC %d)\n",proc->ru->idx,slave_proc->ru->idx,slave_proc->instance_cnt_FH);
+    int ret = pthread_mutex_timedlock(&slave_proc->mutex_FH, &wait);
+    AssertFatal(!ret,
+                "ERROR %d pthread_mutex_lock for RU %d slave %d (IC %d)\n",
+                ret,
+                proc->ru->idx,
+                slave_proc->ru->idx,
+                slave_proc->instance_cnt_FH);
     int cnt_slave            = ++slave_proc->instance_cnt_FH;
     slave_proc->frame_rx     = proc->frame_rx;
     slave_proc->tti_rx  = proc->tti_rx;
     slave_proc->timestamp_rx = proc->timestamp_rx;
     slave_proc->timestamp_tx = proc->timestamp_tx;
-    AssertFatal((ret=pthread_mutex_unlock( &slave_proc->mutex_FH ))==0,"mutex_unlock returns %d\n",ret);
+    ret = pthread_mutex_unlock(&slave_proc->mutex_FH);
+    AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
 
     if (cnt_slave == 0) {
       // the thread was presumably waiting where it should and can now be woken up
@@ -855,7 +862,6 @@ void wakeup_slaves(RU_proc_t *proc) {
     }
   }
 }
-
 
 /*!
  * \brief The prach receive thread of RU.
@@ -959,17 +965,16 @@ int wakeup_synch(RU_t *ru) {
     wait.tv_sec  += 1;
   }
 
-  AssertFatal((ret=pthread_mutex_timedlock(&ru->proc.mutex_synch,&wait)) == 0,"[RU] ERROR pthread_mutex_lock for RU synch thread (IC %d)\n", ru->proc.instance_cnt_synch );
+  ret = pthread_mutex_timedlock(&ru->proc.mutex_synch, &wait);
+  AssertFatal(!ret, "[RU] ERROR %d pthread_mutex_lock for RU synch thread (IC %d)\n", ret, ru->proc.instance_cnt_synch);
   ++ru->proc.instance_cnt_synch;
 
   // the thread can now be woken up
-  if (pthread_cond_signal(&ru->proc.cond_synch) != 0) {
-    LOG_E( PHY, "[RU] ERROR pthread_cond_signal for RU synch thread\n");
-    exit_fun( "ERROR pthread_cond_signal" );
-    return(-1);
-  }
+  ret = pthread_cond_signal(&ru->proc.cond_synch);
+  AssertFatal(!ret, "[RU] ERROR %d pthread_cond_signal for RU synch thread\n", ret);
 
-  AssertFatal((ret=pthread_mutex_unlock( &ru->proc.mutex_synch ))==0,"mutex_unlock returns %d\n",ret);
+  ret = pthread_mutex_unlock(&ru->proc.mutex_synch);
+  AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
   return(0);
 }
 
@@ -1021,9 +1026,11 @@ static void do_ru_synch(RU_t *ru) {
                                          fp->samples_per_tti,
                                          ru->nb_rx);
 
-      AssertFatal((ret=pthread_mutex_lock(&ru->proc.mutex_synch))==0,"mutex_lock returns %d\n",ret);
+      ret = pthread_mutex_lock(&ru->proc.mutex_synch);
+      AssertFatal(!ret, "mutex_lock returns %d\n", ret);
       ic = ru->proc.instance_cnt_synch;
-      AssertFatal((ret=pthread_mutex_unlock(&ru->proc.mutex_synch))==0,"mutex_unlock returns %d\n",ret);
+      ret = pthread_mutex_unlock(&ru->proc.mutex_synch);
+      AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
     } // ic>=0
   } // in_synch==0
 
@@ -1060,7 +1067,8 @@ void wakeup_L1s(RU_t *ru) {
   // call eNB function directly
   VCD_SIGNAL_DUMPER_DUMP_VARIABLE_BY_NAME(VCD_SIGNAL_DUMPER_VARIABLES_FRAME_NUMBER_WAKEUP_L1S_RU+ru->idx, ru->proc.frame_rx);
   VCD_SIGNAL_DUMPER_DUMP_VARIABLE_BY_NAME(VCD_SIGNAL_DUMPER_VARIABLES_SUBFRAME_NUMBER_WAKEUP_L1S_RU+ru->idx, ru->proc.tti_rx);
-  AssertFatal(0==pthread_mutex_lock(&proc->mutex_RU),"");
+  int ret = pthread_mutex_lock(&proc->mutex_RU);
+  AssertFatal(!ret, "errno: %d", ret);
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_LOCK_MUTEX_RU+ru->idx, 1);
   //LOG_I(PHY,"wakeup_L1s: Frame %d, Subframe %d: RU %d done (wait_cnt %d),RU_mask[%d] %x\n",
   //          ru->proc.frame_rx,ru->proc.tti_rx,ru->idx,ru->wait_cnt,ru->proc.tti_rx,proc->RU_mask[ru->proc.tti_rx]);
@@ -1082,9 +1090,10 @@ void wakeup_L1s(RU_t *ru) {
           eNB->RU_list[i]->idx, eNB->RU_list[i]->proc.frame_rx, eNB->RU_list[i]->proc.tti_rx, ru_states[eNB->RU_list[i]->state]);
 
     if (ru == eNB->RU_list[i] && eNB->RU_list[i]->wait_cnt == 0) {
-      //AssertFatal((proc->RU_mask&(1<<i)) == 0, "eNB %d frame %d, subframe %d : previous information from RU %d (num_RU %d,mask %x) has not been served yet!\n", eNB->Mod_id,ru->proc.frame_rx,ru->proc.tti_rx,ru->idx,eNB->num_RU,proc->RU_mask);
       proc->RU_mask[ru->proc.tti_rx] |= (1<<i);
-    } else if (eNB->RU_list[i]->state == RU_SYNC ||(eNB->RU_list[i]->is_slave==1 && eNB->RU_list[i]->wait_cnt>0 && ru!=eNB->RU_list[i] /*&& ru->is_slave==0*/) ) {
+    } else if (eNB->RU_list[i]->state == RU_SYNC
+               || (eNB->RU_list[i]->is_slave == 1 && eNB->RU_list[i]->wait_cnt > 0
+                   && ru != eNB->RU_list[i] /*&& ru->is_slave==0*/)) {
       proc->RU_mask[ru->proc.tti_rx] |= (1<<i);
     }
 
@@ -1112,12 +1121,7 @@ void wakeup_L1s(RU_t *ru) {
     LOG_D(PHY,"Resetting mask frame %d, subframe %d, this is RU %d\n", ru->proc.frame_rx, ru->proc.tti_rx, ru->idx);
     proc->RU_mask[ru->proc.tti_rx] = 0;
     VCD_SIGNAL_DUMPER_DUMP_VARIABLE_BY_NAME(VCD_SIGNAL_DUMPER_VARIABLES_MASK_RU, proc->RU_mask[ru->proc.tti_rx]);
-    clock_gettime(CLOCK_MONOTONIC,&t);
-    //stop_meas(&proc->ru_arrival_time);
-    /*AssertFatal(t.tv_nsec < proc->t[ru->proc.tti_rx].tv_nsec+5000000, "Time difference for subframe %d (Frame %d) => %lu > 5ms, this is RU %d\n",
-                  ru->proc.tti_rx, ru->proc.frame_rx, t.tv_nsec - proc->t[ru->proc.tti_rx].tv_nsec, ru->idx);*/
-    //VCD_SIGNAL_DUMPER_DUMP_VARIABLE_BY_NAME(VCD_SIGNAL_DUMPER_VARIABLES_FRAME_NUMBER_WAKEUP_L1S_RU+ru->idx, ru->proc.frame_rx);
-    //VCD_SIGNAL_DUMPER_DUMP_VARIABLE_BY_NAME(VCD_SIGNAL_DUMPER_VARIABLES_SUBFRAME_NUMBER_WAKEUP_L1S_RU+ru->idx, ru->proc.tti_rx);
+    clock_gettime(CLOCK_MONOTONIC, &t);
     AssertFatal(0==pthread_mutex_unlock(&proc->mutex_RU),"");
     VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME( VCD_SIGNAL_DUMPER_FUNCTIONS_LOCK_MUTEX_RU+ru->idx, 0 );
     // unlock RUs that are waiting for eNB processing to be completed
@@ -1136,22 +1140,10 @@ void wakeup_L1s(RU_t *ru) {
         }
       }
     }
-
-    /*
-      AssertFatal(0==pthread_mutex_lock(&ruproc->mutex_eNBs),"");
-      LOG_D(PHY,"RU %d sending signal to unlock waiting ru_threads\n", ru->idx);
-      AssertFatal(0==pthread_cond_broadcast(&ruproc->cond_eNBs),"");
-      if (ruproc->instance_cnt_eNBs==-1) ruproc->instance_cnt_eNBs++;
-      AssertFatal(0==pthread_mutex_unlock(&ruproc->mutex_eNBs),"");
-    */
   } else { // not all RUs have provided their information
     AssertFatal(0==pthread_mutex_unlock(&proc->mutex_RU),"");
     VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME( VCD_SIGNAL_DUMPER_FUNCTIONS_LOCK_MUTEX_RU+ru->idx, 0 );
   }
-
-  //      pthread_mutex_unlock(&proc->mutex_RU);
-  //      LOG_D(PHY,"wakeup eNB top for for subframe %d\n", ru->proc.tti_rx);
-  //      ru->eNB_top(eNB_list[0],ru->proc.frame_rx,ru->proc.tti_rx,string);
 }
 
 
@@ -1166,7 +1158,8 @@ void wakeup_prach_ru(RU_t *ru) {
     wait.tv_sec  += 1;
   }
 
-  AssertFatal((ret=pthread_mutex_timedlock(&ru->proc.mutex_prach,&wait)) == 0,"[RU] ERROR pthread_mutex_lock for RU prach thread (IC %d)\n", ru->proc.instance_cnt_prach);
+  ret = pthread_mutex_timedlock(&ru->proc.mutex_prach, &wait);
+  AssertFatal(!ret, "[RU] ERROR pthread_mutex_lock for RU prach thread (IC %d)\n", ru->proc.instance_cnt_prach);
 
   if (ru->proc.instance_cnt_prach==-1) {
     ++ru->proc.instance_cnt_prach;
@@ -1181,10 +1174,12 @@ void wakeup_prach_ru(RU_t *ru) {
 
     LOG_D(PHY,"RU %d: waking up PRACH thread\n",ru->idx);
     // the thread can now be woken up
-    AssertFatal(pthread_cond_signal(&ru->proc.cond_prach) == 0, "ERROR pthread_cond_signal for RU prach thread\n");
+    int ret = pthread_cond_signal(&ru->proc.cond_prach);
+    AssertFatal(!ret, "ERROR %d pthread_cond_signal for RU prach thread\n", ret);
   } else LOG_W(PHY,"RU prach thread busy, skipping\n");
 
-  AssertFatal((ret=pthread_mutex_unlock( &ru->proc.mutex_prach ))==0,"mutex_unlock returns %d\n",ret);
+  ret = pthread_mutex_unlock(&ru->proc.mutex_prach);
+  AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
 }
 
 
@@ -1199,7 +1194,8 @@ void wakeup_prach_ru_br(RU_t *ru) {
     wait.tv_sec  += 1;
   }
 
-  AssertFatal((ret=pthread_mutex_timedlock(&ru->proc.mutex_prach_br,&wait))==0,"[RU] ERROR pthread_mutex_lock for RU prach thread BR (IC %d)\n", ru->proc.instance_cnt_prach_br);
+  ret = pthread_mutex_timedlock(&ru->proc.mutex_prach_br, &wait);
+  AssertFatal(!ret, "[RU] ERROR %d pthread_mutex_lock for RU prach thread BR (IC %d)\n", ret, ru->proc.instance_cnt_prach_br);
 
   if (ru->proc.instance_cnt_prach_br==-1) {
     ++ru->proc.instance_cnt_prach_br;
@@ -1207,10 +1203,12 @@ void wakeup_prach_ru_br(RU_t *ru) {
     ru->proc.subframe_prach_br = ru->proc.tti_rx;
     LOG_D(PHY,"RU %d: waking up PRACH thread\n",ru->idx);
     // the thread can now be woken up
-    AssertFatal(pthread_cond_signal(&ru->proc.cond_prach_br) == 0, "ERROR pthread_cond_signal for RU prach thread BR\n");
+    int ret = pthread_cond_signal(&ru->proc.cond_prach_br);
+    AssertFatal(!ret, "ERROR pthread_cond_signal for RU prach thread BR\n");
   } else LOG_W(PHY,"RU prach thread busy, skipping\n");
 
-  AssertFatal((ret=pthread_mutex_unlock( &ru->proc.mutex_prach_br ))==0,"mutex_unlock returns %d\n",ret);
+  ret = pthread_mutex_unlock(&ru->proc.mutex_prach_br);
+  AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
 }
 
 
@@ -1456,7 +1454,8 @@ static void *ru_thread_tx( void *param ) {
       eNB       = ru->eNB_list[i];
       eNB_proc  = &eNB->proc;
       L1_proc   = (get_thread_parallel_conf() == PARALLEL_RU_L1_TRX_SPLIT)? &eNB_proc->L1_proc_tx : &eNB_proc->L1_proc;
-      AssertFatal((ret=pthread_mutex_lock(&eNB_proc->mutex_RU_tx))==0,"mutex_lock returns %d\n",ret);
+      ret = pthread_mutex_lock(&eNB_proc->mutex_RU_tx);
+      AssertFatal(!ret, "mutex_lock returns %d\n", ret);
 
       for (int j=0; j<eNB->num_RU; j++) {
         if (ru == eNB->RU_list[j]) {
@@ -1474,23 +1473,24 @@ static void *ru_thread_tx( void *param ) {
 
       if (eNB_proc->RU_mask_tx != (1<<eNB->num_RU)-1) {  // not all RUs have provided their information so return
         //LOG_I(PHY,"Not all RUs have provided their info (mask = %d), RU %d, num_RUs %d\n", eNB_proc->RU_mask_tx,ru->idx,eNB->num_RU);
-        AssertFatal((ret=pthread_mutex_unlock(&eNB_proc->mutex_RU_tx))==0,"mutex_unlock returns %d\n",ret);
+        ret = pthread_mutex_unlock(&eNB_proc->mutex_RU_tx);
+        AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
       } else { // all RUs TX are finished so send the ready signal to eNB processing
         eNB_proc->RU_mask_tx = 0;
         VCD_SIGNAL_DUMPER_DUMP_VARIABLE_BY_NAME(VCD_SIGNAL_DUMPER_VARIABLES_MASK_TX_RU, eNB_proc->RU_mask_tx);
-        AssertFatal((ret=pthread_mutex_unlock(&eNB_proc->mutex_RU_tx))==0,"mutex_unlock returns %d\n",ret);
-        AssertFatal((ret=pthread_mutex_lock( &L1_proc->mutex_RUs))==0,"mutex_lock returns %d\n",ret);
+        ret = pthread_mutex_unlock(&eNB_proc->mutex_RU_tx);
+        AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
+        ret = pthread_mutex_lock(&L1_proc->mutex_RUs);
+        AssertFatal(!ret, "mutex_lock returns %d\n", ret);
         L1_proc->instance_cnt_RUs = 0;
         LOG_D(PHY,"ru_thread_tx: Signaling RU TX done in %d.%d\n", frame_tx, tti_tx);
         // the thread can now be woken up
         LOG_D(PHY,"ru_thread_tx: clearing mask and Waking up L1 thread\n");
 
-        if (pthread_cond_signal(&L1_proc->cond_RUs) != 0) {
-          LOG_E( PHY, "[eNB] ERROR pthread_cond_signal for eNB TXnp4 thread\n");
-          exit_fun( "ERROR pthread_cond_signal" );
-        }
-
-        AssertFatal((ret=pthread_mutex_unlock( &L1_proc->mutex_RUs))==0,"mutex_unlock returns %d\n",ret);
+        ret = pthread_cond_signal(&L1_proc->cond_RUs);
+        AssertFatal(!ret, "[eNB] ERROR pthread_cond_signal for eNB TXnp4 thread\n");
+        ret = pthread_mutex_unlock(&L1_proc->mutex_RUs);
+        AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
       }
     }
 
@@ -1509,7 +1509,6 @@ static void *ru_thread( void *param ) {
   int subframe = 9;
   int frame = 1023;
   int resynch_done = 0;
-  int ret;
   cpu_set_t cpuset;
   CPU_ZERO(&cpuset);
   // set default return value
@@ -1532,7 +1531,8 @@ static void *ru_thread( void *param ) {
     init_frame_parms(ru->frame_parms,1);
     ru->frame_parms->nb_antennas_rx = ru->nb_rx;
 
-    if (ru->if_south == LOCAL_RF)       openair0_device_load(&ru->rfdevice,&ru->openair0_cfg);
+    if (ru->if_south == LOCAL_RF)
+      openair0_device_load(&ru->rfdevice, &ru->openair0_cfg);
 
     phy_init_RU(ru);
       
@@ -1542,17 +1542,21 @@ static void *ru_thread( void *param ) {
 	      exit(-1);
     }
 
-    AssertFatal((ret=pthread_mutex_lock(ru->ru_mutex))==0,"mutex_lock returns %d\n",ret);
+    int ret = pthread_mutex_lock(ru->ru_mutex);
+    AssertFatal(!ret, "mutex_lock returns %d\n", ret);
     *ru->ru_mask &= ~(1<<ru->idx);
     pthread_cond_signal(ru->ru_cond);
-    AssertFatal((ret=pthread_mutex_unlock(ru->ru_mutex))==0,"mutex_unlock returns %d\n",ret);
+    ret = pthread_mutex_unlock(ru->ru_mutex);
+    AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
     ru->state = RU_RUN;
   }
 
-  AssertFatal((ret=pthread_mutex_lock(&proc->mutex_FH1))==0,"mutex_lock returns %d\n",ret);
+  int ret = pthread_mutex_lock(&proc->mutex_FH1);
+  AssertFatal(!ret, "mutex_lock returns %d\n", ret);
   proc->instance_cnt_FH1 = 0;
   pthread_cond_signal(&proc->cond_FH1);
-  AssertFatal((ret=pthread_mutex_unlock(&proc->mutex_FH1))==0,"mutex_unlock returns %d\n",ret);
+  ret = pthread_mutex_unlock(&proc->mutex_FH1);
+  AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
 
   if(usrp_tx_thread == 1){
      if (ru->start_write_thread){
@@ -1601,16 +1605,20 @@ static void *ru_thread( void *param ) {
     // wakeup the thread because the devices are ready at this point
 
     if ((ru->fh_south_asynch_in)||(ru->fh_north_asynch_in)) {
-      AssertFatal((ret=pthread_mutex_lock(&proc->mutex_asynch_rxtx))==0,"mutex_lock returns %d\n",ret);
+      int ret = pthread_mutex_lock(&proc->mutex_asynch_rxtx);
+      AssertFatal(!ret, "mutex_lock returns %d\n", ret);
       proc->instance_cnt_asynch_rxtx=0;
       pthread_cond_signal(&proc->cond_asynch_rxtx);
-      AssertFatal((ret=pthread_mutex_unlock(&proc->mutex_asynch_rxtx))==0,"mutex_unlock returns %d\n",ret);
+      ret = pthread_mutex_unlock(&proc->mutex_asynch_rxtx);
+      AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
     } else LOG_D(PHY,"RU %d no asynch_south interface\n",ru->idx);
 
     // if this is a slave RRU, try to synchronize on the DL frequency
-    if ((ru->is_slave == 1) && (ru->if_south == LOCAL_RF)) do_ru_synch(ru);
+    if ((ru->is_slave == 1) && (ru->if_south == LOCAL_RF))
+      do_ru_synch(ru);
 
-    if (ru->state == RU_RUN || ru->state == RU_CHECK_SYNC) LOG_I(PHY,"RU %d Starting steady-state operation\n",ru->idx);
+    if (ru->state == RU_RUN || ru->state == RU_CHECK_SYNC)
+      LOG_I(PHY, "RU %d Starting steady-state operation\n", ru->idx);
 
     // This is a forever while loop, it loops over subframes which are scheduled by incoming samples from HW devices
     while (ru->state == RU_RUN || ru->state == RU_CHECK_SYNC) {
@@ -1632,18 +1640,21 @@ static void *ru_thread( void *param ) {
       if(first_phy_tx == 0) {
         phy_tx_end = 0;
         phy_tx_txdataF_end = 0;
-        AssertFatal((ret=pthread_mutex_lock(&ru->proc.mutex_phy_tx))==0,"[RU] ERROR pthread_mutex_lock for phy tx thread (IC %d)\n", ru->proc.instance_cnt_phy_tx);
+        int ret = pthread_mutex_lock(&ru->proc.mutex_phy_tx);
+        AssertFatal(!ret, "[RU] ERROR pthread_mutex_lock for phy tx thread (IC %d)\n", ru->proc.instance_cnt_phy_tx);
 
         if (ru->proc.instance_cnt_phy_tx==-1) {
           ++ru->proc.instance_cnt_phy_tx;
           // the thread can now be woken up
-          AssertFatal(pthread_cond_signal(&ru->proc.cond_phy_tx) == 0, "ERROR pthread_cond_signal for phy_tx thread\n");
+          int ret = pthread_cond_signal(&ru->proc.cond_phy_tx);
+          AssertFatal(!ret, "ERROR pthread_cond_signal for phy_tx thread\n");
         } else {
           LOG_E(PHY,"phy tx thread busy, skipping\n");
           ++ru->proc.instance_cnt_phy_tx;
         }
 
-        AssertFatal((ret=pthread_mutex_unlock( &ru->proc.mutex_phy_tx ))==0,"mutex_unlock returns %d\n",ret);
+        ret = pthread_mutex_unlock(&ru->proc.mutex_phy_tx);
+        AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
       } else {
         phy_tx_end = 1;
         phy_tx_txdataF_end = 1;
@@ -1679,7 +1690,8 @@ static void *ru_thread( void *param ) {
           ((uint16_t *)&rru_config_msg.msg[0])[0] = ru->ru0->proc.frame_rx;
           ru->cmd=WAIT_RESYNCH;
           LOG_I(PHY,"Sending Frame Resynch %d to RRU %d\n", ru->ru0->proc.frame_rx,ru->idx);
-          AssertFatal((ru->ifdevice.trx_ctlsend_func(&ru->ifdevice,&rru_config_msg,rru_config_msg.len)!=-1),"Failed to send msg to RAU\n");
+          int ret = ru->ifdevice.trx_ctlsend_func(&ru->ifdevice, &rru_config_msg, rru_config_msg.len);
+          AssertFatal(ret != -1, "Failed to send msg to RAU\n");
           resynch_done=1;
         }
 
@@ -1706,30 +1718,33 @@ static void *ru_thread( void *param ) {
         if (ru->feprx) ru->feprx(ru, proc->tti_rx);
 
         // wakeup all eNB processes waiting for this RU
-        AssertFatal((ret=pthread_mutex_lock(&proc->mutex_eNBs))==0,"mutex_lock returns %d\n",ret);
+        ret = pthread_mutex_lock(&proc->mutex_eNBs);
+        AssertFatal(!ret, "mutex_lock returns %d\n", ret);
 
         if (proc->instance_cnt_eNBs==0) proc->instance_cnt_eNBs--;
 
-        AssertFatal((ret=pthread_mutex_unlock(&proc->mutex_eNBs))==0,"mutex_unlock returns %d\n",ret);
+        ret = pthread_mutex_unlock(&proc->mutex_eNBs);
+        AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
 #if defined(PRE_SCD_THREAD)
         new_dlsch_ue_select_tbl_in_use = dlsch_ue_select_tbl_in_use;
         dlsch_ue_select_tbl_in_use = !dlsch_ue_select_tbl_in_use;
         memcpy(&pre_scd_eNB_UE_stats,&RC.mac[ru->eNB_list[0]->Mod_id]->UE_info.eNB_UE_stats, sizeof(eNB_UE_STATS)*MAX_NUM_CCs*NUMBER_OF_UE_MAX);
         memcpy(&pre_scd_activeUE, &RC.mac[ru->eNB_list[0]->Mod_id]->UE_info.active, sizeof(bool)*NUMBER_OF_UE_MAX);
-        AssertFatal((ret=pthread_mutex_lock(&ru->proc.mutex_pre_scd))==0,"[eNB] error locking proc mutex for eNB pre scd\n");
+        ret = pthread_mutex_lock(&ru->proc.mutex_pre_scd);
+        AssertFatal(!ret, "[eNB] error locking proc mutex for eNB pre scd\n");
         ru->proc.instance_pre_scd++;
 
         if (ru->proc.instance_pre_scd == 0) {
-          if (pthread_cond_signal(&ru->proc.cond_pre_scd) != 0) {
-            LOG_E( PHY, "[eNB] ERROR pthread_cond_signal for eNB pre scd\n" );
-            exit_fun( "ERROR pthread_cond_signal cond_pre_scd" );
-          }
+          int ret = pthread_cond_signal(&ru->proc.cond_pre_scd);
+          AssertFatal(!ret, "[eNB] ERROR pthread_cond_signal for eNB pre scd\n");
+        }
         } else {
           LOG_E( PHY, "[eNB] frame %d subframe %d rxtx busy instance_pre_scd %d\n",
                  frame,subframe,ru->proc.instance_pre_scd );
         }
 
-        AssertFatal((ret=pthread_mutex_unlock(&ru->proc.mutex_pre_scd))==0,"[eNB] error unlocking mutex_pre_scd mutex for eNB pre scd\n");
+        ret = pthread_mutex_unlock(&ru->proc.mutex_pre_scd);
+        AssertFatal(!ret, "[eNB] error unlocking mutex_pre_scd mutex for eNB pre scd\n");
 #endif
 	// wakeup all eNB processes waiting for this RU
 	if (ru->num_eNB>0) wakeup_L1s(ru);
@@ -1823,15 +1838,8 @@ static void *ru_thread_synch(void *arg) {
       if (ru->rx_offset >= 0 && abs_diff<6 && avg>0 && dB_fixed(peak_val/avg)>=15 && cnt>10) {
         LOG_I(PHY,"Estimated peak_val %d dB, avg %d => timing offset %llu\n",dB_fixed(peak_val),dB_fixed(avg),(unsigned long long int)ru->rx_offset);
         ru->in_synch = 1;
-       /* 
-                LOG_M("ru_sync_rx.m","rurx",&ru->common.rxdata[0][0],LTE_NUMBER_OF_SUBFRAMES_PER_FRAME*fp->samples_per_tti,1,1);
-                LOG_M("ru_sync_corr.m","sync_corr",ru->dmrs_corr,LTE_NUMBER_OF_SUBFRAMES_PER_FRAME*fp->samples_per_tti,1,6);
-                LOG_M("ru_dmrs.m","rudmrs",&ru->dmrssync[0],fp->ofdm_symbol_size,1,1);
-          
-        exit(-1);
-       */
       } // sync_pos > 0
-      else { //AssertFatal(cnt<1000,"Cannot find synch reference\n");
+      else {
         if (cnt>200) {
           LOG_M("ru_sync_rx.m","rurx",&ru->common.rxdata[0][0],LTE_NUMBER_OF_SUBFRAMES_PER_FRAME*fp->samples_per_tti,1,1);
           LOG_M("ru_sync_corr.m","sync_corr",ru->dmrs_corr,LTE_NUMBER_OF_SUBFRAMES_PER_FRAME*fp->samples_per_tti,1,6);
@@ -1879,13 +1887,15 @@ void *pre_scd_thread( void *param ) {
       break;
     }
 
-    AssertFatal((ret=pthread_mutex_lock(&ru->proc.mutex_pre_scd ))==0,"mutex_lock returns %d\n",ret);
+    ret = pthread_mutex_lock(&ru->proc.mutex_pre_scd);
+    AssertFatal(!ret, "mutex_lock returns %d\n", ret);
 
     if (ru->proc.instance_pre_scd < 0) {
       pthread_cond_wait(&ru->proc.cond_pre_scd, &ru->proc.mutex_pre_scd);
     }
 
-    AssertFatal((ret=pthread_mutex_unlock(&ru->proc.mutex_pre_scd))==0,"mutex_unlock returns %d\n",ret);
+    ret = pthread_mutex_unlock(&ru->proc.mutex_pre_scd);
+    AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
     PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, Mod_id, ENB_FLAG_YES,
                                    NOT_A_RNTI, frame, subframe,Mod_id);
     rlc_tick(frame, subframe);
@@ -1906,9 +1916,11 @@ void *pre_scd_thread( void *param ) {
       subframe++;
     }
 
-    AssertFatal((ret=pthread_mutex_lock(&ru->proc.mutex_pre_scd ))==0,"mutex_lock returns %d\n",ret);
+    ret = pthread_mutex_lock(&ru->proc.mutex_pre_scd);
+    AssertFatal(!ret, "mutex_lock returns %d\n", ret);
     ru->proc.instance_pre_scd--;
-    AssertFatal((ret=pthread_mutex_unlock(&ru->proc.mutex_pre_scd))==0,"mutex_unlock returns %d\n",ret);
+    ret = pthread_mutex_unlock(&ru->proc.mutex_pre_scd);
+    AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
   }
 
   eNB_pre_scd_status = 0;
@@ -1959,7 +1971,8 @@ static void *eNB_thread_phy_tx( void *param ) {
         ru->proc.tti_tx       = proc->subframe_phy_tx;
         ru->proc.timestamp_tx = proc->timestamp_phy_tx;
         // the thread can now be woken up
-        AssertFatal(pthread_cond_signal(&ru->proc.cond_rf_tx) == 0, "ERROR pthread_cond_signal for rf_tx thread\n");
+        int ret = pthread_cond_signal(&ru->proc.cond_rf_tx);
+        AssertFatal(!ret, "ERROR pthread_cond_signal for rf_tx thread\n");
       } else {
         LOG_E(PHY,"rf tx thread busy, skipping\n");
         late_control=STATE_BURST_TERMINATE;
@@ -1968,9 +1981,11 @@ static void *eNB_thread_phy_tx( void *param ) {
       pthread_mutex_unlock( &ru->proc.mutex_rf_tx );
     }
 
-    AssertFatal((ret=pthread_mutex_unlock( &ru->proc.mutex_rf_tx ))==0,"mutex_unlock returns %d\n",ret);
+    ret = pthread_mutex_unlock(&ru->proc.mutex_rf_tx);
+    AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
 
-    if (release_thread(&proc->mutex_phy_tx,&proc->instance_cnt_phy_tx,"eNB_thread_phy_tx") < 0) break;
+    if (release_thread(&proc->mutex_phy_tx, &proc->instance_cnt_phy_tx, "eNB_thread_phy_tx") < 0)
+      break;
 
     phy_tx_end = 1;
   }
@@ -2196,26 +2211,32 @@ void kill_RU_proc(RU_t *ru) {
   int ret;
   RU_proc_t *proc = &ru->proc;
 #if defined(PRE_SCD_THREAD)
-  AssertFatal((ret=pthread_mutex_lock(&proc->mutex_pre_scd))==0,"mutex_lock returns %d\n",ret);
+  ret = pthread_mutex_lock(&proc->mutex_pre_scd);
+  AssertFatal(!ret, "mutex_lock returns %d\n", ret);
   ru->proc.instance_pre_scd = 0;
   pthread_cond_signal(&proc->cond_pre_scd);
-  AssertFatal((ret=pthread_mutex_unlock(&proc->mutex_pre_scd))==0,"mutex_unlock returns %d\n",ret);
+  ret = pthread_mutex_unlock(&proc->mutex_pre_scd);
+  AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
   pthread_join(proc->pthread_pre_scd, NULL);
   pthread_mutex_destroy(&proc->mutex_pre_scd);
   pthread_cond_destroy(&proc->cond_pre_scd);
 #endif
 #ifdef PHY_TX_THREAD
-  AssertFatal((ret=pthread_mutex_lock(&proc->mutex_phy_tx))==0,"mutex_lock returns %d\n",ret);
+  ret = pthread_mutex_lock(&proc->mutex_phy_tx);
+  AssertFatal(!ret, "mutex_lock returns %d\n", ret);
   proc->instance_cnt_phy_tx = 0;
   pthread_cond_signal(&proc->cond_phy_tx);
-  AssertFatal((ret=pthread_mutex_unlock(&proc->mutex_phy_tx))==0,"mutex_unlock returns %d\n",ret);
+  ret = pthread_mutex_unlock(&proc->mutex_phy_tx);
+  AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
   pthread_join(ru->proc.pthread_phy_tx, NULL);
   pthread_mutex_destroy( &proc->mutex_phy_tx);
   pthread_cond_destroy( &proc->cond_phy_tx);
-  AssertFatal((ret=pthread_mutex_lock(&proc->mutex_rf_tx))==0,"mutex_lock returns %d\n",ret);
+  ret = pthread_mutex_lock(&proc->mutex_rf_tx);
+  AssertFatal(!ret, "mutex_lock returns %d\n", ret);
   proc->instance_cnt_rf_tx = 0;
   pthread_cond_signal(&proc->cond_rf_tx);
-  AssertFatal((ret=pthread_mutex_unlock(&proc->mutex_rf_tx))==0,"mutex_unlock returns %d\n",ret);
+  ret = pthread_mutex_unlock(&proc->mutex_rf_tx);
+  AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
   pthread_join(proc->pthread_rf_tx, NULL);
   pthread_mutex_destroy( &proc->mutex_rf_tx);
   pthread_cond_destroy( &proc->cond_rf_tx);
@@ -2228,36 +2249,50 @@ void kill_RU_proc(RU_t *ru) {
     kill_feptx_thread(ru);
   }
 
-  AssertFatal((ret=pthread_mutex_lock(&proc->mutex_FH))==0,"mutex_lock returns %d\n",ret);
+  ret = pthread_mutex_lock(&proc->mutex_FH);
+  AssertFatal(!ret, "mutex_lock returns %d\n", ret);
   proc->instance_cnt_FH = 0;
   pthread_cond_signal(&proc->cond_FH);
-  AssertFatal((ret=pthread_mutex_unlock(&proc->mutex_FH))==0,"mutex_unlock returns %d\n",ret);
-  AssertFatal((ret=pthread_mutex_lock(&proc->mutex_FH1))==0,"mutex_lock returns %d\n",ret);
+  ret = pthread_mutex_unlock(&proc->mutex_FH);
+  AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
+  ret = pthread_mutex_lock(&proc->mutex_FH1);
+  AssertFatal(!ret, "mutex_lock returns %d\n", ret);
   proc->instance_cnt_FH1 = 0;
   pthread_cond_signal(&proc->cond_FH1);
-  AssertFatal((ret=pthread_mutex_unlock(&proc->mutex_FH1))==0,"mutex_unlock returns %d\n",ret);
-  AssertFatal((ret=pthread_mutex_lock(&proc->mutex_prach))==0,"mutex_lock returns %d\n",ret);
+  ret = pthread_mutex_unlock(&proc->mutex_FH1);
+  AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
+  ret = pthread_mutex_lock(&proc->mutex_prach);
+  AssertFatal(!ret, "mutex_lock returns %d\n", ret);
   proc->instance_cnt_prach = 0;
   pthread_cond_signal(&proc->cond_prach);
-  AssertFatal((ret=pthread_mutex_unlock(&proc->mutex_prach))==0,"mutex_unlock returns %d\n",ret);
-  AssertFatal((ret=pthread_mutex_lock(&proc->mutex_prach_br))==0,"mutex_lock returns %d\n",ret);
+  ret = pthread_mutex_unlock(&proc->mutex_prach);
+  AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
+  ret = pthread_mutex_lock(&proc->mutex_prach_br);
+  AssertFatal(!ret, "mutex_lock returns %d\n", ret);
   proc->instance_cnt_prach_br = 0;
   pthread_cond_signal(&proc->cond_prach_br);
-  AssertFatal((ret=pthread_mutex_unlock(&proc->mutex_prach_br))==0,"mutex_unlock returns %d\n",ret);
-  AssertFatal((ret=pthread_mutex_lock(&proc->mutex_synch))==0,"mutex_lock returns %d\n",ret);
+  ret = pthread_mutex_unlock(&proc->mutex_prach_br);
+  AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
+  ret = pthread_mutex_lock(&proc->mutex_synch);
+  AssertFatal(!ret, "mutex_lock returns %d\n", ret);
   proc->instance_cnt_synch = 0;
   pthread_cond_signal(&proc->cond_synch);
-  AssertFatal((ret=pthread_mutex_unlock(&proc->mutex_synch))==0,"mutex_unlock returns %d\n",ret);
-  AssertFatal((ret=pthread_mutex_lock(&proc->mutex_eNBs))==0,"mutex_lock returns %d\n",ret);
+  ret = pthread_mutex_unlock(&proc->mutex_synch);
+  AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
+  ret = pthread_mutex_lock(&proc->mutex_eNBs);
+  AssertFatal(!ret, "mutex_lock returns %d\n", ret);
   proc->instance_cnt_eNBs = 1;
   // cond_eNBs is used by both ru_thread and ru_thread_tx, so we need to send
   // a broadcast to wake up both threads
   pthread_cond_broadcast(&proc->cond_eNBs);
-  AssertFatal((ret=pthread_mutex_unlock(&proc->mutex_eNBs))==0,"mutex_unlock returns %d\n",ret);
-  AssertFatal((ret=pthread_mutex_lock(&proc->mutex_asynch_rxtx))==0,"mutex_lock returns %d\n",ret);
+  ret = pthread_mutex_unlock(&proc->mutex_eNBs);
+  AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
+  ret = pthread_mutex_lock(&proc->mutex_asynch_rxtx);
+  AssertFatal(!ret, "mutex_lock returns %d\n", ret);
   proc->instance_cnt_asynch_rxtx = 0;
   pthread_cond_signal(&proc->cond_asynch_rxtx);
-  AssertFatal((ret=pthread_mutex_unlock(&proc->mutex_asynch_rxtx))==0,"mutex_unlock returns %d\n",ret);
+  ret = pthread_mutex_unlock(&proc->mutex_asynch_rxtx);
+  AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
   LOG_D(PHY, "Joining pthread_FH\n");
   pthread_join(proc->pthread_FH, NULL);
 
@@ -2692,29 +2727,6 @@ void init_ru_vnf(void) {
       }
     }
 
-    // frame_parms is not used in L2 FAPI simulator
-    /*
-        eNB0             = ru->eNB_list[0];
-        LOG_D(PHY, "RU FUnction:%d ru->if_south:%d\n", ru->function, ru->if_south);
-        LOG_D(PHY, "eNB0:%p\n", eNB0);
-        if (eNB0)
-        {
-          if ((ru->function != NGFI_RRU_IF5) && (ru->function != NGFI_RRU_IF4p5))
-            AssertFatal(eNB0!=NULL,"eNB0 is null!\n");
-
-          if (eNB0) {
-            LOG_I(PHY,"Copying frame parms from eNB %d to ru %d\n",eNB0->Mod_id,ru->idx);
-            memcpy((void*)&ru->frame_parms,(void*)&eNB0->frame_parms,sizeof(LTE_DL_FRAME_PARMS));
-
-            // attach all RU to all eNBs in its list/
-            LOG_D(PHY,"ru->num_eNB:%d eNB0->num_RU:%d\n", ru->num_eNB, eNB0->num_RU);
-            for (i=0;i<ru->num_eNB;i++) {
-              eNB0 = ru->eNB_list[i];
-              eNB0->RU_list[eNB0->num_RU++] = ru;
-            }
-          }
-        }
-    */
     LOG_I(PHY,"Initializing RRU descriptor %d : (%s,%s,%d)\n",ru_id,ru_if_types[ru->if_south],NB_timing[ru->if_timing],ru->function);
     //    set_function_spec_param(ru);
     LOG_I(PHY,"Starting ru_thread %d\n",ru_id);

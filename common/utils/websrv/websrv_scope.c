@@ -19,6 +19,7 @@
 #include "openair1/PHY/TOOLS/phy_scope.h"
 #include "openair1/PHY/TOOLS/phy_scope_interface.h"
 #include "common/utils/load_module_shlib.h"
+#include "openair1/PHY/phy_extern_nr_ue.h"
 
 static websrv_scope_params_t scope_params = {0, 1000, NULL, NULL, 65535};
 static websrv_params_t *websrvparams_ptr;
@@ -122,8 +123,8 @@ char *websrv_scope_initdata(void)
     scope_params.statusmask |= SCOPE_STATUSMASK_AVAILABLE;
     return "gNB";
   } else if (IS_SOFTMODEM_5GUE) {
-    scope_params.scopedata = PHY_vars_UE_g[0][0];
-    nrUEinitScope(PHY_vars_UE_g[0][0]);
+    scope_params.scopedata = nrPHY_vars_UE_g[0][0];
+    nrUEinitScope(nrPHY_vars_UE_g[0][0]);
     scope_params.scopeform = create_phy_scope_nrue(scope_params.selectedTarget);
     scope_params.statusmask |= SCOPE_STATUSMASK_AVAILABLE;
     return "5GUE";

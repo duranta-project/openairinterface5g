@@ -440,16 +440,13 @@ int nr_prs_channel_estimation(uint8_t gNB_id,
     // peak estimator
     mean_val = squaredMod(((c16_t *)ch_tmp)[(prs_cfg->NumRB * 12) >> 1]);
     peak_estimator(&chT_interpol[rxAnt][0], NR_PRS_IDFT_OVERSAMP_FACTOR * frame_params->ofdm_symbol_size, &prs_toa, &ch_pwr, mean_val);
-
+    openair0_config_t *cfg = &openair0_cfg_g[ue->rf_map.card];
     // adjusting the rx_gains for channel peak power
-    ch_pwr_dbm = 10 * log10(ch_pwr) + 30 - SQ15_SQUARED_NORM_FACTOR_DB
-                 - ((int)openair0_cfg[ue->rf_map.card].rx_gain[0] - (int)openair0_cfg[ue->rf_map.card].rx_gain_offset[0])
+    ch_pwr_dbm = 10 * log10(ch_pwr) + 30 - SQ15_SQUARED_NORM_FACTOR_DB - ((int)cfg->rx_gain[0] - (int)cfg->rx_gain_offset[0])
                  - dB_fixed(frame_params->ofdm_symbol_size);
 
-    prs_meas[rxAnt]->rsrp_dBm =
-        10 * log10(prs_meas[rxAnt]->rsrp) + 30 - SQ15_SQUARED_NORM_FACTOR_DB
-        - ((int)openair0_cfg[ue->rf_map.card].rx_gain[0] - (int)openair0_cfg[ue->rf_map.card].rx_gain_offset[0])
-        - dB_fixed(ue->frame_parms.ofdm_symbol_size);
+    prs_meas[rxAnt]->rsrp_dBm = 10 * log10(prs_meas[rxAnt]->rsrp) + 30 - SQ15_SQUARED_NORM_FACTOR_DB
+                                - ((int)cfg->rx_gain[0] - (int)cfg->rx_gain_offset[0]) - dB_fixed(ue->frame_parms.ofdm_symbol_size);
 
     // prs measurements
     prs_meas[rxAnt]->gNB_id     = gNB_id;
@@ -770,6 +767,12 @@ int nr_pbch_channel_estimation(const NR_DL_FRAME_PARMS *fp,
   return(0);
 }
 
+#define inc_rxF(n)                     \
+  {                                    \
+    rxF += n;                          \
+    if (rxF > rxdataF[aarx] + symb_sz) \
+      rxF -= symb_sz;                  \
+  }
 void nr_pdcch_channel_estimation(const PHY_VARS_NR_UE *ue,
                                  int nb_rb_coreset,
                                  int coreset_start_rb,
@@ -797,9 +800,8 @@ void nr_pdcch_channel_estimation(const PHY_VARS_NR_UE *ue,
 #endif
 
   for (int aarx = 0; aarx < ue->frame_parms.nb_antennas_rx; aarx++) {
-    int k = coreset_start_subcarrier;
     c16_t *pil = &pilot[(dmrs_ref + coreset_start_rb) * 3];
-    c16_t *rxF = &rxdataF[aarx][k + 1];
+    c16_t *rxF = rxdataF[aarx] + coreset_start_subcarrier + 1;
     c16_t *dl_ch = pdcch_dl_ch_estimates[aarx];
 
     memset(dl_ch, 0, sizeof(c16_t) * symb_sz);
@@ -815,34 +817,20 @@ void nr_pdcch_channel_estimation(const PHY_VARS_NR_UE *ue,
     //    if ((ue->frame_parms.N_RB_DL&1)==0) {
     // Treat first 2 pilots specially (left edge)
     multadd_real_vector_complex_scalar(fl, c16mulShift(*pil++, *rxF, 15), dl_ch, 16);
-    rxF += 4;
-    k += 2;
-
-    if (k >= symb_sz) {
-      k -= symb_sz;
-      rxF = &rxdataF[aarx][k + 1];
-    }
+    inc_rxF(4);
     multadd_real_vector_complex_scalar(fm, c16mulShift(*pil++, *rxF, 15), dl_ch, 16);
-    k = (k + 4) % symb_sz;
-    rxF = &rxdataF[aarx][k + 1)];
-
+    inc_rxF(4);
     multadd_real_vector_complex_scalar(fr, c16mulShift(*pil++, *rxF, 15), dl_ch, 16);
     dl_ch += 12;
-    k = (k + 4) % symb_sz;
-    rxF = &rxdataF[aarx][k + 1];
-
+    inc_rxF(4);
     for (int pilot_cnt = 3; pilot_cnt < (3 * nb_rb_coreset); pilot_cnt += 3) {
       multadd_real_vector_complex_scalar(fl, c16mulShift(*pil++, *rxF, 15), dl_ch, 16);
-      k = (k + 4) % symb_sz;
-      rxF = &rxdataF[aarx][k + 1];
-
+      inc_rxF(4);
       multadd_real_vector_complex_scalar(fm, c16mulShift(*pil++, *rxF, 15), dl_ch, 16);
-      k = (k + 4) % symb_sz;
-      rxF = &rxdataF[aarx][k + 1];
+      inc_rxF(4);
       multadd_real_vector_complex_scalar(fr, c16mulShift(*pil++, *rxF, 15), dl_ch, 16);
       dl_ch += 12;
-      k = (k + 4) % symb_sz;
-      rxF = &rxdataF[aarx][k + 1];
+      inc_rxF(4);
     }
 #else //ELSE CH_INTERP
     c32_t ch_sum = {0, 0};
@@ -855,9 +843,7 @@ void nr_pdcch_channel_estimation(const PHY_VARS_NR_UE *ue,
       c16_t ch = c16mulShift(*pil++, *rxF, 15);
       ch_sum.r += ch.r;
       ch_sum.i += ch.i;
-      k = (k + 4) % symb_sz;
-      rxF = &rxdataF[aarx][k + 1];
-
+      inc_rxF(4);
       if (pilot_cnt % 3 == 2) {
         ch.r = ch_sum.r / 3;
         ch.i = ch_sum.i / 3;

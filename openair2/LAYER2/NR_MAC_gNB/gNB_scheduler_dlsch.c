@@ -305,7 +305,7 @@ static uint32_t update_dlsch_buffer(frame_t frame, slot_t slot, NR_UE_info_t *UE
   sched_ctrl->num_total_bytes = 0;
   int dl_pdus_total = 0;
 
-  logical_chan_id_t ch[NR_MAX_NUM_LCID] = {0};
+  logical_chan_id_t ch[NR_MAX_NUM_LCID];
   int n = 0;
   /* loop over all activated logical channels */
   FOR_EACH_SEQ_ARR(const nr_lc_config_t *, c, &sched_ctrl->lc_config ) {
@@ -317,7 +317,7 @@ static uint32_t update_dlsch_buffer(frame_t frame, slot_t slot, NR_UE_info_t *UE
     ch[n++] = lcid;
   }
 
-  mac_rlc_status_resp_t ret[NR_MAX_NUM_LCID] = {0};
+  mac_rlc_status_resp_t ret[n];
   nr_mac_rlc_status_ind(UE->rnti, frame, n, ch, ret);
 
   for (int i = 0; i < n; ++i) {

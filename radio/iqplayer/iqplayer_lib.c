@@ -275,8 +275,7 @@ static int trx_iqplayer_read(openair0_device_t *device, openair0_timestamp_t *pt
 
   iqrec_t *curHeader=(iqrec_t *)s->currentPtr;
   if (curHeader->header != BELL_LABS_IQ_HEADER) {
-    LOG_I(HW,"Problem iq header nsamps %d\n", nsamps);
-    AssertFatal(curHeader->header==BELL_LABS_IQ_HEADER,"" );
+    AssertFatal(curHeader->header == BELL_LABS_IQ_HEADER, "Problem iq header nsamps %d\n", nsamps);
   }
   // the current timestamp is the stored timestamp until we wrap on input
   AssertFatal(nsamps*4==curHeader->nbBytes,"nsamps=%d curHeader->nbBytes=%d", (int)nsamps, (int)curHeader->nbBytes);

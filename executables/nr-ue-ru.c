@@ -81,43 +81,17 @@
 }
 // clang-format on
 
-static int nrue_cell_count;
-static nrUE_cell_params_t *nrue_cells;
-static NR_DL_FRAME_PARMS *nrue_cell_fp;
-
-static int nrue_ru_count;
-static nrUE_RU_params_t *nrue_rus;
-
-openair0_config_t openair0_cfg[MAX_CARDS];
-openair0_device_t openair0_dev[MAX_CARDS];
-
-int nrue_get_cell_count(void)
-{
-  return nrue_cell_count;
-}
+static struct {
+  int count;
+  nrUE_RU_params_t *cfg;
+  openair0_device_t *openair0_dev;
+} nrue_rus = {};
+// We keep openair0_cfg_g outside for legacy code
+openair0_config_t openair0_cfg_g[MAX_CARDS] = {};
 
 int nrue_get_band(const PHY_VARS_NR_UE *UE)
 {
-  int cell_id = nrue_rus[UE->rf_map.card].used_by_cell;
-  return nrue_cells[cell_id].band;
-}
-
-const nrUE_cell_params_t *nrue_get_cell(int cell_id)
-{
-  AssertFatal(cell_id >= 0 && cell_id < nrue_cell_count, "Invalid cell ID %d! Cell count = %d\n", cell_id, nrue_cell_count);
-  return &nrue_cells[cell_id];
-}
-
-NR_DL_FRAME_PARMS *nrue_get_cell_fp(int cell_id)
-{
-  AssertFatal(cell_id >= 0 && cell_id < nrue_cell_count, "Invalid cell ID %d! Cell count = %d\n", cell_id, nrue_cell_count);
-  return &nrue_cell_fp[cell_id];
-}
-
-void nrue_set_cell(int cell_id, const nrUE_cell_params_t *cell)
-{
-  AssertFatal(cell_id >= 0 && cell_id < nrue_cell_count, "Invalid cell ID %d! Cell count = %d\n", cell_id, nrue_cell_count);
-  nrue_cells[cell_id] = *cell;
+  return nrue_rus.cfg[UE->rf_map.card].cell[0].band;
 }
 
 void nrue_set_cell_params(configmodule_interface_t *cfg)
@@ -127,65 +101,62 @@ void nrue_set_cell_params(configmodule_interface_t *cfg)
   config_getlist(cfg, &cellParamList, cellParams, sizeofArray(cellParams), NULL);
 
   if (cellParamList.numelt <= 0) {
-    nrue_cell_count = 1;
-    nrue_cell_fp = calloc_or_fail(nrue_cell_count, sizeof(NR_DL_FRAME_PARMS));
-    nrue_cells = calloc_or_fail(nrue_cell_count, sizeof(nrUE_cell_params_t));
-    nrue_cells[0] = (nrUE_cell_params_t){.ru_id = 0,
-                                         .band = get_softmodem_params()->band,
-                                         .rf_frequency = downlink_frequency[0][0],
-                                         .rf_freq_offset = uplink_frequency_offset[0][0],
-                                         .numerology = get_softmodem_params()->numerology,
-                                         .N_RB_DL = get_nrUE_params()->N_RB_DL,
-                                         .ssb_start = get_nrUE_params()->ssb_start_subcarrier,
-                                         .used_by_ue = -1};
+    nrue_rus.cfg[0].nb_cells = 1;
+    nrue_rus.cfg[0].cell = malloc(sizeof(nrUE_cell_params_t));
+    AssertFatal(nrue_rus.cfg[0].cell, "no memory");
+    nrue_rus.cfg[0].cell[0] = (nrUE_cell_params_t){.active = true,
+                                                   .band = get_softmodem_params()->band,
+                                                   .rf_frequency = downlink_frequency[0][0],
+                                                   .rf_freq_offset = uplink_frequency_offset[0][0],
+                                                   .numerology = get_softmodem_params()->numerology,
+                                                   .N_RB_DL = get_nrUE_params()->N_RB_DL,
+                                                   .ssb_start = get_nrUE_params()->ssb_start_subcarrier,
+                                                   .fp = calloc_or_fail(1, sizeof(*nrue_rus.cfg[0].cell->fp))};
     return;
   }
 
-  nrue_cell_count = cellParamList.numelt;
-  nrue_cell_fp = calloc_or_fail(nrue_cell_count, sizeof(NR_DL_FRAME_PARMS));
-  nrue_cells = calloc_or_fail(nrue_cell_count, sizeof(nrUE_cell_params_t));
-
   LOG_W(NR_PHY, "Ignoring command line cell parameters, using the following instead:\n");
 
-  for (int cell_id = 0; cell_id < nrue_cell_count; cell_id++) {
-    nrue_cells[cell_id].ru_id          = *(gpd(cellParamList.paramarray[cell_id], sizeofArray(cellParams), NRUE_CELL_RU_ID)->iptr);
-    nrue_cells[cell_id].band           = *(gpd(cellParamList.paramarray[cell_id], sizeofArray(cellParams), NRUE_CELL_BAND)->iptr);
-    nrue_cells[cell_id].rf_frequency   = *(gpd(cellParamList.paramarray[cell_id], sizeofArray(cellParams), NRUE_CELL_RF_FREQUENCY)->u64ptr);
-    nrue_cells[cell_id].rf_freq_offset = *(gpd(cellParamList.paramarray[cell_id], sizeofArray(cellParams), NRUE_CELL_RF_FREQ_OFFSET)->i64ptr);
-    nrue_cells[cell_id].numerology     = *(gpd(cellParamList.paramarray[cell_id], sizeofArray(cellParams), NRUE_CELL_NUMEROLOGY)->iptr);
-    nrue_cells[cell_id].N_RB_DL        = *(gpd(cellParamList.paramarray[cell_id], sizeofArray(cellParams), NRUE_CELL_N_RB_DL)->iptr);
-    nrue_cells[cell_id].ssb_start      = *(gpd(cellParamList.paramarray[cell_id], sizeofArray(cellParams), NRUE_CELL_SSB_START)->iptr);
-    nrue_cells[cell_id].used_by_ue     = -1;
+  for (int cell_id = 0; cell_id < cellParamList.numelt; cell_id++) {
+    paramdef_t *param = cellParamList.paramarray[cell_id];
+    const int sz = sizeofArray(cellParams);
+    int ru_id = *gpd(param, sz, NRUE_CELL_RU_ID)->iptr;
+    nrue_rus.cfg[ru_id].nb_cells++;
+    nrUE_cell_params_t *cell_base = nrue_rus.cfg[ru_id].cell;
+    nrUE_cell_params_t *new = reallocarray(cell_base, nrue_rus.cfg[ru_id].nb_cells, sizeof(nrUE_cell_params_t));
+    AssertFatal(new, "no memory");
+    nrue_rus.cfg[ru_id].cell = new;
+    nrUE_cell_params_t *cell = nrue_rus.cfg[ru_id].cell + nrue_rus.cfg[ru_id].nb_cells - 1;
+    *cell = (nrUE_cell_params_t){.active = true,
+                                 .band = *gpd(param, sz, NRUE_CELL_BAND)->iptr,
+                                 .rf_frequency = *gpd(param, sz, NRUE_CELL_RF_FREQUENCY)->u64ptr,
+                                 .rf_freq_offset = *gpd(param, sz, NRUE_CELL_RF_FREQ_OFFSET)->i64ptr,
+                                 .numerology = *gpd(param, sz, NRUE_CELL_NUMEROLOGY)->iptr,
+                                 .N_RB_DL = *gpd(param, sz, NRUE_CELL_N_RB_DL)->iptr,
+                                 .ssb_start = *gpd(param, sz, NRUE_CELL_SSB_START)->iptr,
+                                 .fp = calloc_or_fail(1, sizeof(*nrue_rus.cfg[0].cell->fp))};
 
     LOG_I(NR_PHY,
-          "cell %d: ru_id %d, band %d, DL freq %lu, UL freq_offset %ld, numerology %d, N_RB_DL %d, ssb_start %d\n",
+          "cell %d: band %d, DL freq %lu, UL freq_offset %ld, numerology %d, N_RB_DL %d, ssb_start %d\n",
           cell_id,
-          nrue_cells[cell_id].ru_id,
-          nrue_cells[cell_id].band,
-          nrue_cells[cell_id].rf_frequency,
-          nrue_cells[cell_id].rf_freq_offset,
-          nrue_cells[cell_id].numerology,
-          nrue_cells[cell_id].N_RB_DL,
-          nrue_cells[cell_id].ssb_start);
+          cell->band,
+          cell->rf_frequency,
+          cell->rf_freq_offset,
+          cell->numerology,
+          cell->N_RB_DL,
+          cell->ssb_start);
   }
 }
 
 int nrue_get_ru_count(void)
 {
-  return nrue_ru_count;
+  return nrue_rus.count;
 }
 
-const nrUE_RU_params_t *nrue_get_ru(int ru_id)
+nrUE_RU_params_t *nrue_get_ru(int ru_id)
 {
-  AssertFatal(ru_id >= 0 && ru_id < nrue_ru_count, "Invalid RU ID %d! RU count = %d\n", ru_id, nrue_ru_count);
-  return &nrue_rus[ru_id];
-}
-
-void nrue_set_ru_cell_id(int ru_id, int cell_id)
-{
-  AssertFatal(ru_id >= 0 && ru_id < nrue_ru_count, "Invalid RU ID %d! RU count = %d\n", ru_id, nrue_ru_count);
-  AssertFatal(cell_id >= 0 && cell_id < nrue_cell_count, "Invalid cell ID %d! Cell count = %d\n", cell_id, nrue_cell_count);
-  nrue_rus[ru_id].used_by_cell = cell_id;
+  AssertFatal(ru_id >= 0 && ru_id < nrue_rus.count, "Invalid RU ID %d! RU count = %d\n", ru_id, nrue_rus.count);
+  return &nrue_rus.cfg[ru_id];
 }
 
 void nrue_set_ru_params(configmodule_interface_t *cfg)
@@ -195,95 +166,91 @@ void nrue_set_ru_params(configmodule_interface_t *cfg)
   config_getlist(cfg, &RUParamList, RUParams, sizeofArray(RUParams), NULL);
 
   if (RUParamList.numelt <= 0) {
-    nrue_ru_count = 1;
-    nrue_rus = calloc_or_fail(nrue_ru_count, sizeof(nrUE_RU_params_t));
-    nrue_rus[0] = (nrUE_RU_params_t){.nb_tx = get_nrUE_params()->nb_antennas_tx,
-                                     .nb_rx = get_nrUE_params()->nb_antennas_rx,
-                                     .att_tx = get_nrUE_params()->tx_gain,
-                                     .att_rx = 0,
-                                     .max_rxgain = get_nrUE_params()->rx_gain,
-                                     .sdr_addrs = get_nrUE_params()->usrp_args,
-                                     .tx_subdev = get_nrUE_params()->tx_subdev,
-                                     .rx_subdev = get_nrUE_params()->rx_subdev,
-                                     .clock_source = get_softmodem_params()->clock_source,
-                                     .time_source = get_softmodem_params()->timing_source,
-                                     .tune_offset = get_softmodem_params()->tune_offset,
-                                     .if_frequency = get_nrUE_params()->if_freq,
-                                     .if_freq_offset = get_nrUE_params()->if_freq_off,
-                                     .used_by_cell = -1};
+    nrue_rus.count = 1;
+    nrue_rus.cfg = calloc_or_fail(nrue_rus.count, sizeof(*nrue_rus.cfg));
+    nrue_rus.openair0_dev = calloc_or_fail(nrue_rus.count, sizeof(*nrue_rus.openair0_dev));
+    nrue_rus.cfg[0] = (nrUE_RU_params_t){.nb_tx = get_nrUE_params()->nb_antennas_tx,
+                                         .nb_rx = get_nrUE_params()->nb_antennas_rx,
+                                         .att_tx = get_nrUE_params()->tx_gain,
+                                         .att_rx = 0,
+                                         .max_rxgain = get_nrUE_params()->rx_gain,
+                                         .sdr_addrs = get_nrUE_params()->usrp_args,
+                                         .tx_subdev = get_nrUE_params()->tx_subdev,
+                                         .rx_subdev = get_nrUE_params()->rx_subdev,
+                                         .clock_source = get_softmodem_params()->clock_source,
+                                         .time_source = get_softmodem_params()->timing_source,
+                                         .tune_offset = get_softmodem_params()->tune_offset,
+                                         .if_frequency = get_nrUE_params()->if_freq,
+                                         .if_freq_offset = get_nrUE_params()->if_freq_off};
     return;
   }
 
-  nrue_ru_count = RUParamList.numelt;
-  nrue_rus = calloc_or_fail(nrue_ru_count, sizeof(nrUE_RU_params_t));
+  nrue_rus.count = RUParamList.numelt;
+  nrue_rus.openair0_dev = calloc_or_fail(nrue_rus.count, sizeof(*nrue_rus.openair0_dev));
+  nrue_rus.cfg = calloc_or_fail(nrue_rus.count, sizeof(nrUE_RU_params_t));
 
   LOG_W(NR_PHY, "Ignoring command line RU parameters, using the following instead:\n");
 
-  for (int ru_id = 0; ru_id < nrue_ru_count; ru_id++) {
-    nrue_rus[ru_id].nb_tx            = *(gpd(RUParamList.paramarray[ru_id], sizeofArray(RUParams), NRUE_RU_NB_TX)->uptr);
-    nrue_rus[ru_id].nb_rx            = *(gpd(RUParamList.paramarray[ru_id], sizeofArray(RUParams), NRUE_RU_NB_RX)->uptr);
-    nrue_rus[ru_id].att_tx           = *(gpd(RUParamList.paramarray[ru_id], sizeofArray(RUParams), NRUE_RU_ATT_TX)->uptr);
-    nrue_rus[ru_id].att_rx           = *(gpd(RUParamList.paramarray[ru_id], sizeofArray(RUParams), NRUE_RU_ATT_RX)->uptr);
-    nrue_rus[ru_id].max_rxgain       = *(gpd(RUParamList.paramarray[ru_id], sizeofArray(RUParams), NRUE_RU_MAX_RXGAIN)->iptr);
-    nrue_rus[ru_id].tune_offset      = *(gpd(RUParamList.paramarray[ru_id], sizeofArray(RUParams), NRUE_RU_TUNE_OFFSET)->dblptr);
-    nrue_rus[ru_id].if_frequency     = *(gpd(RUParamList.paramarray[ru_id], sizeofArray(RUParams), NRUE_RU_IF_FREQUENCY)->u64ptr);
-    nrue_rus[ru_id].if_freq_offset   = *(gpd(RUParamList.paramarray[ru_id], sizeofArray(RUParams), NRUE_RU_IF_FREQ_OFFSET)->iptr);
-    nrue_rus[ru_id].used_by_cell     = -1;
-
-    nrue_rus[ru_id].sdr_addrs = strdup(*(gpd(RUParamList.paramarray[ru_id], sizeofArray(RUParams), NRUE_RU_SDR_ADDRS)->strptr));
-    nrue_rus[ru_id].tx_subdev = strdup(*(gpd(RUParamList.paramarray[ru_id], sizeofArray(RUParams), NRUE_RU_TX_SUBDEV)->strptr));
-    nrue_rus[ru_id].rx_subdev = strdup(*(gpd(RUParamList.paramarray[ru_id], sizeofArray(RUParams), NRUE_RU_RX_SUBDEV)->strptr));
-
-    int clock_src_idx = config_paramidx_fromname(RUParams, sizeofArray(RUParams), NRUE_RU_CLOCK_SRC);
+  for (int ru_id = 0; ru_id < nrue_rus.count; ru_id++) {
+    paramdef_t *param = RUParamList.paramarray[ru_id];
+    const int sz = sizeofArray(RUParams);
+    nrUE_RU_params_t *ru = nrue_rus.cfg + ru_id;
+    int clock_src_idx = config_paramidx_fromname(RUParams, sz, NRUE_RU_CLOCK_SRC);
     AssertFatal(clock_src_idx >= 0, "Index for clock_src config option not found!\n");
-    nrue_rus[ru_id].clock_source = config_get_processedint(cfg, &RUParamList.paramarray[ru_id][clock_src_idx]);
-
-    int time_src_idx = config_paramidx_fromname(RUParams, sizeofArray(RUParams), NRUE_RU_TIME_SRC);
+    int time_src_idx = config_paramidx_fromname(RUParams, sz, NRUE_RU_TIME_SRC);
     AssertFatal(time_src_idx >= 0, "Index for time_src config option not found!\n");
-    nrue_rus[ru_id].time_source = config_get_processedint(cfg, &RUParamList.paramarray[ru_id][time_src_idx]);
-
+    *ru = (nrUE_RU_params_t){.nb_tx = *gpd(param, sz, NRUE_RU_NB_TX)->uptr,
+                             .nb_rx = *gpd(param, sz, NRUE_RU_NB_RX)->uptr,
+                             .att_tx = *gpd(param, sz, NRUE_RU_ATT_TX)->uptr,
+                             .att_rx = *gpd(param, sz, NRUE_RU_ATT_RX)->uptr,
+                             .max_rxgain = *gpd(param, sz, NRUE_RU_MAX_RXGAIN)->iptr,
+                             .sdr_addrs = strdup(*gpd(param, sz, NRUE_RU_SDR_ADDRS)->strptr),
+                             .tx_subdev = strdup(*gpd(param, sz, NRUE_RU_TX_SUBDEV)->strptr),
+                             .rx_subdev = strdup(*gpd(param, sz, NRUE_RU_RX_SUBDEV)->strptr),
+                             .clock_source = config_get_processedint(cfg, param + clock_src_idx),
+                             .time_source = config_get_processedint(cfg, param + time_src_idx),
+                             .tune_offset = *gpd(param, sz, NRUE_RU_TUNE_OFFSET)->dblptr,
+                             .if_frequency = *gpd(param, sz, NRUE_RU_IF_FREQUENCY)->u64ptr,
+                             .if_freq_offset = *gpd(param, sz, NRUE_RU_IF_FREQ_OFFSET)->iptr};
     LOG_I(NR_PHY,
           "RU %d: nb_tx %d, nb_rx %d, att_tx %d, att_rx %d, max_rxgain %d, tune_offset %f, if_frequency %lu, if_freq_offset %d, "
           "sdr_addrs \"%s\", tx_subdev \"%s\", rx_subdev \"%s\", clock_source %d, time_source %d\n",
           ru_id,
-          nrue_rus[ru_id].nb_tx,
-          nrue_rus[ru_id].nb_rx,
-          nrue_rus[ru_id].att_tx,
-          nrue_rus[ru_id].att_rx,
-          nrue_rus[ru_id].max_rxgain,
-          nrue_rus[ru_id].tune_offset,
-          nrue_rus[ru_id].if_frequency,
-          nrue_rus[ru_id].if_freq_offset,
-          nrue_rus[ru_id].sdr_addrs,
-          nrue_rus[ru_id].tx_subdev,
-          nrue_rus[ru_id].rx_subdev,
-          nrue_rus[ru_id].clock_source,
-          nrue_rus[ru_id].time_source);
+          ru->nb_tx,
+          ru->nb_rx,
+          ru->att_tx,
+          ru->att_rx,
+          ru->max_rxgain,
+          ru->tune_offset,
+          ru->if_frequency,
+          ru->if_freq_offset,
+          ru->sdr_addrs,
+          ru->tx_subdev,
+          ru->rx_subdev,
+          ru->clock_source,
+          ru->time_source);
   }
 }
 
 void nrue_init_openair0(void)
 {
   int freq_off = 0;
-  bool is_sidelink = (get_softmodem_params()->sl_mode) ? true : false;
-
-  memset(openair0_cfg, 0, sizeof(openair0_config_t) * MAX_CARDS);
-  memset(openair0_dev, 0, sizeof(openair0_device_t) * MAX_CARDS);
-
-  AssertFatal(MAX_CARDS >= nrue_ru_count,
+  bool is_sidelink = get_softmodem_params()->sl_mode ? true : false;
+  AssertFatal(MAX_CARDS >= nrue_rus.count,
               "Too many RUs allocated (%d)! Maybe increase MAX_CARDS (%d).\n",
-              nrue_ru_count,
+              nrue_rus.count,
               MAX_CARDS);
 
-  for (int ru_id = 0; ru_id < nrue_ru_count; ru_id++) {
-    int cell_id = nrue_rus[ru_id].used_by_cell;
-    if (cell_id < 0) {
+  for (int ru_id = 0; ru_id < nrue_rus.count; ru_id++) {
+    nrUE_RU_params_t *ru = nrue_rus.cfg + ru_id;
+    if (!ru->nb_cells) {
       LOG_W(PHY, "Skipping initialization of RU %d because it is not used by any cell!\n", ru_id);
       continue;
     }
-    NR_DL_FRAME_PARMS *frame_parms = &nrue_cell_fp[cell_id];
+    // incoherent datamodel, we use the first cell
+    NR_DL_FRAME_PARMS *frame_parms = ru->cell[0].fp;
     if (is_sidelink) {
-      int UE_id = nrue_cells[cell_id].used_by_ue;
+      int UE_id = ru->cell[0].used_by_ue;
       if (UE_id < 0) {
         LOG_W(PHY, "Skipping initialization of RU %d because it is not used by any UE!\n", ru_id);
         continue;
@@ -291,7 +258,7 @@ void nrue_init_openair0(void)
       frame_parms = &nrPHY_vars_UE_g[UE_id][0]->SL_UE_PHY_PARAMS.sl_frame_params;
     }
 
-    openair0_config_t *cfg = &openair0_cfg[ru_id];
+    openair0_config_t *cfg = &openair0_cfg_g[ru_id];
     cfg->configFilename    = NULL;
     cfg->sample_rate       = frame_parms->samples_per_subframe * 1e3;
 
@@ -314,12 +281,12 @@ void nrue_init_openair0(void)
           duplex_mode_txt[cfg->duplex_mode]);
 
     uint64_t dl_carrier, ul_carrier;
-    if (is_sidelink || nrue_rus[ru_id].if_frequency == 0) {
+    if (is_sidelink || ru->if_frequency == 0) {
       dl_carrier = frame_parms->dl_CarrierFreq;
       ul_carrier = frame_parms->ul_CarrierFreq;
     } else {
-      dl_carrier = nrue_rus[ru_id].if_frequency;
-      ul_carrier = nrue_rus[ru_id].if_frequency + nrue_rus[ru_id].if_freq_offset;
+      dl_carrier = ru->if_frequency;
+      ul_carrier = ru->if_frequency + ru->if_freq_offset;
     }
 
     nr_rf_card_config_freq(cfg, ul_carrier, dl_carrier, freq_off);
@@ -327,106 +294,105 @@ void nrue_init_openair0(void)
 
     cfg->configFilename = get_softmodem_params()->rf_config_file;
 
-    cfg->sdr_addrs = nrue_rus[ru_id].sdr_addrs;
-    cfg->tx_subdev = nrue_rus[ru_id].tx_subdev;
-    cfg->rx_subdev = nrue_rus[ru_id].rx_subdev;
-    cfg->clock_source = nrue_rus[ru_id].clock_source;
-    cfg->time_source = nrue_rus[ru_id].time_source;
-    cfg->tune_offset = nrue_rus[ru_id].tune_offset;
+    cfg->sdr_addrs = ru->sdr_addrs;
+    cfg->tx_subdev = ru->tx_subdev;
+    cfg->rx_subdev = ru->rx_subdev;
+    cfg->clock_source = ru->clock_source;
+    cfg->time_source = ru->time_source;
+    cfg->tune_offset = ru->tune_offset;
   }
 }
 
 void nrue_ru_start(void)
 {
-  for (int ru_id = 0; ru_id < nrue_ru_count; ru_id++) {
-    openair0_config_t *cfg0 = &openair0_cfg[ru_id];
-    openair0_device_t *dev0 = &openair0_dev[ru_id];
-
-    dev0->host_type = RAU_HOST;
-    int tmp = openair0_device_load(dev0, cfg0);
-    AssertFatal(tmp == 0, "Could not load the device %d\n", ru_id);
-    int tmp2 = dev0->trx_start_func(dev0);
-    AssertFatal(tmp2 == 0, "Could not start the device %d\n", ru_id);
-    if (usrp_tx_thread == 1)
-      dev0->trx_write_init(dev0);
+  for (int ru_id = 0; ru_id < nrue_rus.count; ru_id++) {
+    openair0_config_t *cfg = &openair0_cfg_g[ru_id];
+    openair0_device_t *dev = &nrue_rus.openair0_dev[ru_id];
+    if (nrue_rus.cfg[ru_id].nb_clients > 0) {
+      dev->host_type = RAU_HOST;
+      int tmp = openair0_device_load(dev, cfg);
+      AssertFatal(tmp == 0, "Could not load the device %d\n", ru_id);
+      int tmp2 = dev->trx_start_func(dev);
+      AssertFatal(tmp2 == 0, "Could not start the device %d\n", ru_id);
+      if (usrp_tx_thread == 1)
+        dev->trx_write_init(dev);
+    }
   }
 }
 
 void nrue_ru_stop(void)
 {
-  for (int ru_id = 0; ru_id < nrue_ru_count; ru_id++) {
-    if (openair0_dev[ru_id].trx_stop_func)
-      openair0_dev[ru_id].trx_stop_func(&openair0_dev[ru_id]);
+  for (openair0_device_t *ru = nrue_rus.openair0_dev; ru < nrue_rus.openair0_dev + nrue_rus.count; ru++) {
+    if (ru->trx_stop_func)
+      ru->trx_stop_func(ru);
   }
 }
 
 void nrue_ru_end(void)
 {
-  for (int ru_id = 0; ru_id < nrue_ru_count; ru_id++) {
-    if (openair0_dev[ru_id].trx_get_stats_func)
-      openair0_dev[ru_id].trx_get_stats_func(&openair0_dev[ru_id]);
-    if (openair0_dev[ru_id].trx_end_func)
-      openair0_dev[ru_id].trx_end_func(&openair0_dev[ru_id]);
+  for (openair0_device_t *ru = nrue_rus.openair0_dev; ru < nrue_rus.openair0_dev + nrue_rus.count; ru++) {
+    if (ru->trx_get_stats_func)
+      ru->trx_get_stats_func(ru);
+    if (ru->trx_end_func)
+      ru->trx_end_func(ru);
   }
 }
 
 void nrue_ru_set_freq(PHY_VARS_NR_UE *UE, uint64_t ul_carrier, uint64_t dl_carrier, int freq_offset)
 {
-  int current_cell_id = nrue_rus[UE->rf_map.card].used_by_cell;
-  NR_DL_FRAME_PARMS *fp0 = &nrue_cell_fp[current_cell_id];
+  // in this function, the datamodel is wrong, we assume the ru has one single cell
+  nrUE_RU_params_t *ru = nrue_rus.cfg + UE->rf_map.card;
+  NR_DL_FRAME_PARMS *fp0 = ru->cell[0].fp;
   uint64_t dl_carrier_distance =
       fp0->dl_CarrierFreq > dl_carrier ? fp0->dl_CarrierFreq - dl_carrier : dl_carrier - fp0->dl_CarrierFreq;
   uint64_t ul_carrier_distance =
       fp0->ul_CarrierFreq > ul_carrier ? fp0->ul_CarrierFreq - ul_carrier : ul_carrier - fp0->ul_CarrierFreq;
   uint64_t carrier_distance = dl_carrier_distance + ul_carrier_distance;
 
-  for (int ru_id = 0; carrier_distance != 0 && ru_id < nrue_ru_count; ru_id++) {
-    int cell_id = nrue_rus[ru_id].used_by_cell;
-    if (cell_id < 0) // skip RUs that have no cell definition
+  for (int ru_id = 0; carrier_distance != 0 && ru_id < nrue_rus.count; ru_id++) {
+    nrUE_RU_params_t *ru_loop = nrue_rus.cfg + ru_id;
+    if (!ru_loop->cell[0].active) // skip RUs that have no cell definition
       continue;
-    if (nrue_cells[cell_id].used_by_ue >= 0) // skip cells that are already used by an UE
+    if (ru_loop->cell[0].used_by_ue >= 0) // skip cells that are already used by an UE
       continue;
 
-    fp0 = &nrue_cell_fp[cell_id];
+    fp0 = ru_loop->cell[0].fp;
     uint64_t this_dl_carrier_distance =
         fp0->dl_CarrierFreq > dl_carrier ? fp0->dl_CarrierFreq - dl_carrier : dl_carrier - fp0->dl_CarrierFreq;
     uint64_t this_ul_carrier_distance =
         fp0->ul_CarrierFreq > ul_carrier ? fp0->ul_CarrierFreq - ul_carrier : ul_carrier - fp0->ul_CarrierFreq;
     uint64_t this_carrier_distance = this_dl_carrier_distance + this_ul_carrier_distance;
     if (this_carrier_distance < carrier_distance) {
-      UE->rf_map.card = ru_id;
+      UE->rf_map.card = ru_id; // ???? fixme
       carrier_distance = this_carrier_distance;
     }
   }
 
-  nrue_cells[current_cell_id].used_by_ue = -1;
-  current_cell_id = nrue_rus[UE->rf_map.card].used_by_cell;
-  nrue_cells[current_cell_id].used_by_ue = UE->Mod_id;
-
-  openair0_config_t *cfg0 = &openair0_cfg[UE->rf_map.card];
-  openair0_device_t *dev0 = &openair0_dev[UE->rf_map.card];
-  nr_rf_card_config_freq(cfg0, ul_carrier, dl_carrier, freq_offset);
-  dev0->trx_set_freq_func(dev0, cfg0);
+  ru->cell[0].used_by_ue = UE->Mod_id;
+  openair0_config_t *cfg = &openair0_cfg_g[UE->rf_map.card];
+  openair0_device_t *dev = &nrue_rus.openair0_dev[UE->rf_map.card];
+  nr_rf_card_config_freq(cfg, ul_carrier, dl_carrier, freq_offset);
+  dev->trx_set_freq_func(dev, cfg);
 }
 
 int nrue_ru_adjust_rx_gain(PHY_VARS_NR_UE *UE, int gain_change)
 {
-  openair0_config_t *cfg0 = &openair0_cfg[UE->rf_map.card];
-  openair0_device_t *dev0 = &openair0_dev[UE->rf_map.card];
+  openair0_config_t *cfg = &openair0_cfg_g[UE->rf_map.card];
+  openair0_device_t *dev = &nrue_rus.openair0_dev[UE->rf_map.card];
 
   // Increase the RX gain by the value determined by adjust_rxgain
-  cfg0->rx_gain[0] += gain_change;
+  cfg->rx_gain[0] += gain_change;
 
   // Set new RX gain.
-  int ret_gain = dev0->trx_set_gains_func(dev0, cfg0);
+  int ret_gain = dev->trx_set_gains_func(dev, cfg);
   // APPLY RX gain again if crossed the MAX RX gain threshold
   if (ret_gain < 0) {
     gain_change += ret_gain;
-    cfg0->rx_gain[0] += ret_gain;
-    ret_gain = dev0->trx_set_gains_func(dev0, cfg0);
+    cfg->rx_gain[0] += ret_gain;
+    ret_gain = dev->trx_set_gains_func(dev, cfg);
   }
 
-  int applied_rxgain = cfg0->rx_gain[0] - cfg0->rx_gain_offset[0];
+  int applied_rxgain = cfg->rx_gain[0] - cfg->rx_gain_offset[0];
   LOG_I(HW, "Rxgain adjusted by %d dB, RX gain: %d dB \n", gain_change, applied_rxgain);
 
   return gain_change;
@@ -434,48 +400,109 @@ int nrue_ru_adjust_rx_gain(PHY_VARS_NR_UE *UE, int gain_change)
 
 int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **buff, int nsamps, int num_antennas)
 {
-  openair0_device_t *dev0 = &openair0_dev[UE->rf_map.card];
-  openair0_timestamp_t tmp_timestamp;
-  int ret = dev0->trx_read_func(dev0, &tmp_timestamp, buff, nsamps, num_antennas);
-  if (!dev0->firstTS_initialized) {
-    dev0->firstTS = tmp_timestamp;
-    dev0->firstTS_initialized = true;
+  openair0_device_t *dev = &nrue_rus.openair0_dev[UE->rf_map.card];
+  nrUE_RU_params_t *ru = nrue_rus.cfg + UE->rf_map.card;
+  read_data_t *rd = &ru->rd;
+
+  if (ru->nb_clients > 1 && !rd->last_timestamp) {
+    int ret = pthread_mutex_init(&rd->mread, NULL);
+    AssertFatal(!ret, "errno: %s\n", strerror(ret));
+    ret = pthread_mutex_lock(&rd->mread);
+    AssertFatal(!ret, "errno: %s\n", strerror(ret));
+    rd->sz = ceil_mod(UE->frame_parms.samples_per_frame, PAGE_SIZE / sizeof(c16_t));
+    rd->grain = 2048; // arbitrary read size, cosen to fit in a ethernet jumbo frame
+    rd->last_timestamp = calloc(ru->nb_clients, sizeof(*rd->last_timestamp));
+    rd->rxbuf = calloc(ru->nb_rx, sizeof(*rd->rxbuf));
+    for (int i = 0; i < ru->nb_rx; i++) {
+      rd->rxbuf[i] = create_ring(rd->sz * sizeof(c16_t));
+    }
+    ret = pthread_mutex_unlock(&rd->mread);
+    AssertFatal(!ret, "errno: %s\n", strerror(ret));
+    LOG_I(PHY, "multi read init done\n");
   }
-  *ptimestamp = tmp_timestamp - dev0->firstTS;
+
+  int ret;
+  if (ru->nb_clients > 1) {
+    // if this client timestamp is above all other clients, let's wait another client make a read
+    int this_ue = UE->Mod_id; // suppose Mod_id is 0..ru->nb_clients, so there is only one multi_client RU ...
+    LOG_D(PHY, "read for ue %d of %d samples we wait this ue is the first\n", this_ue, nsamps);
+    do {
+      pthread_mutex_lock(&rd->mread);
+      uint64_t min = INT64_MAX;
+      for (int i = 0; i < ru->nb_clients; i++)
+        if (min > rd->last_timestamp[i])
+          min = rd->last_timestamp[i];
+      if (min == rd->last_timestamp[this_ue]) {
+        AssertFatal(nsamps < rd->sz, "too large write for the ring buffer %d %d\n", nsamps, rd->sz);
+        // acquire enough blocks to be above the need end
+        while (rd->last_ts < rd->last_timestamp[this_ue] + nsamps) {
+          openair0_timestamp_t tmp_timestamp;
+          void *tmp[ru->nb_rx];
+          for (int i = 0; i < ru->nb_rx; i++)
+            tmp[i] = rd->rxbuf[i] + (rd->last_ts % rd->sz);
+          ret = dev->trx_read_func(dev, &tmp_timestamp, tmp, rd->grain, num_antennas);
+          AssertFatal(ret == rd->grain, "wrote to rf board failed %d", ret);
+          rd->last_ts = tmp_timestamp + ret;
+          if (!dev->firstTS_initialized) {
+            dev->firstTS = tmp_timestamp;
+            dev->firstTS_initialized = true;
+          }
+        }
+        if (!rd->last_timestamp[this_ue])
+          rd->last_timestamp[this_ue] = rd->last_ts - nsamps;
+        for (int i = 0; i < ru->nb_rx; i++)
+          memcpy(buff[i], rd->rxbuf[i] + (rd->last_timestamp[this_ue] % rd->sz), nsamps * sizeof(c16_t));
+        LOG_D(PHY, "ue %d sent %d samples for ts %ld\n", this_ue, nsamps, rd->last_timestamp[this_ue]);
+        *ptimestamp = rd->last_timestamp[this_ue] - dev->firstTS;
+        rd->last_timestamp[this_ue] += nsamps;
+        int ret = pthread_mutex_unlock(&rd->mread);
+        AssertFatal(!ret, "errno: %s\n", strerror(ret));
+        return nsamps;
+      } else {
+        pthread_mutex_unlock(&rd->mread);
+        usleep(100);
+      }
+    } while (true);
+  } else {
+    openair0_timestamp_t tmp_timestamp;
+    ret = dev->trx_read_func(dev, &tmp_timestamp, buff, nsamps, num_antennas);
+    if (!dev->firstTS_initialized) {
+      dev->firstTS = tmp_timestamp;
+      dev->firstTS_initialized = true;
+    }
+    *ptimestamp = tmp_timestamp - dev->firstTS;
+  }
 
   if (UE->Mod_id != 0)
     return ret;
-
+#if 0
   // UE 0 needs to read from all RUs that are not used by any other UE
-
   void *tmp_buf[num_antennas];
   uint32_t tmp_samples[nsamps];
   for (int ant = 0; ant < num_antennas; ant++)
     tmp_buf[ant] = tmp_samples;
 
-  for (int ru_id = 0; ru_id < nrue_ru_count; ru_id++) {
-    int cell_id = nrue_rus[ru_id].used_by_cell;
-    if (cell_id < 0) // skip RUs that have no cell definition
+  for (int ru_id = 0; ru_id < nrue_rus.count; ru_id++) {
+    if (!nrue_rus.cfg[ru_id].cell[0].active) // skip RUs that have no cell definition
       continue;
-    int ue_id = nrue_cells[cell_id].used_by_ue;
-    if (ue_id >= 0) // skip cells that are already used by an UE
+    if (nrue_rus.cfg[ru_id].cell[0].used_by_ue >= 0) // skip cells that are already used by an UE
       continue;
-
-    dev0 = &openair0_dev[ru_id];
-    dev0->trx_read_func(dev0, &tmp_timestamp, tmp_buf, nsamps, num_antennas);
-    if (!dev0->firstTS_initialized) {
-      dev0->firstTS = tmp_timestamp;
-      dev0->firstTS_initialized = true;
+    dev = &nrue_rus.openair0_dev[ru_id];
+    openair0_timestamp_t tmp_timestamp;
+    dev->trx_read_func(dev, &tmp_timestamp, tmp_buf, nsamps, num_antennas);
+    if (!dev->firstTS_initialized) {
+      dev->firstTS = tmp_timestamp;
+      dev->firstTS_initialized = true;
     }
   }
-
+#endif
   return ret;
 }
 
 int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buff, int nsamps, int num_antennas, int flags)
 {
-  openair0_device_t *dev0 = &openair0_dev[UE->rf_map.card];
-  int ret = dev0->trx_write_func(dev0, timestamp + dev0->firstTS, buff, nsamps, num_antennas, flags);
+  openair0_device_t *dev = &nrue_rus.openair0_dev[UE->rf_map.card];
+  int ret = dev->trx_write_func(dev, timestamp + dev->firstTS, buff, nsamps, num_antennas, flags);
 
   if (UE->Mod_id != 0)
     return ret;
@@ -488,38 +515,35 @@ int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buf
   for (int ant = 0; ant < num_antennas; ant++)
     tmp_buf[ant] = tmp_samples;
 
-  for (int ru_id = 0; ru_id < nrue_ru_count; ru_id++) {
-    int cell_id = nrue_rus[ru_id].used_by_cell;
-    if (cell_id < 0) // skip RUs that have no cell definition
+  for (int ru_id = 0; ru_id < nrue_rus.count; ru_id++) {
+    if (!nrue_rus.cfg[ru_id].cell[0].active) // skip RUs that have no cell definition
       continue;
-    int ue_id = nrue_cells[cell_id].used_by_ue;
-    if (ue_id >= 0) // skip cells that are already used by an UE
+    if (nrue_rus.cfg[ru_id].cell[0].used_by_ue >= 0) // skip cells that are already used by an UE
       continue;
-
-    dev0 = &openair0_dev[ru_id];
-    dev0->trx_write_func(dev0, timestamp + dev0->firstTS, tmp_buf, nsamps, num_antennas, flags);
+    dev = &nrue_rus.openair0_dev[ru_id];
+    dev->trx_write_func(dev, timestamp + dev->firstTS, tmp_buf, nsamps, num_antennas, flags);
   }
   return ret;
 }
 
-typedef int (*nrue_ru_write_t)(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **txp, int nsamps, int nbAnt, int flags);
-int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
-                                  PHY_VARS_NR_UE *UE,
-                                  openair0_device_t *device,
-                                  openair0_timestamp_t timestamp,
-                                  void **txp,
-                                  int nsamps,
-                                  int nbAnt,
-                                  int flags);
-
 int nrue_ru_write_reorder(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **txp, int nsamps, int nbAnt, int flags)
 {
-  openair0_device_t *device = &openair0_dev[UE->rf_map.card];
-  return openair0_write_reorder_common(nrue_ru_write, UE, device, timestamp, txp, nsamps, nbAnt, flags);
+  openair0_device_t *device = &nrue_rus.openair0_dev[UE->rf_map.card];
+  return openair0_write_reorder_common(nrue_ru_write,
+                                       UE,
+                                       device,
+                                       timestamp,
+                                       txp,
+                                       nsamps,
+                                       nrue_rus.cfg[UE->rf_map.card].nb_clients,
+                                       nbAnt,
+                                       flags);
 }
 
 void nrue_ru_write_reorder_clear_context(PHY_VARS_NR_UE *UE)
 {
-  openair0_device_t *device = &openair0_dev[UE->rf_map.card];
-  openair0_write_reorder_clear_context(device);
+  openair0_device_t *device = &nrue_rus.openair0_dev[UE->rf_map.card];
+  LOG_W(HW, "[UE %d] received write reorder clear context\n", UE->Mod_id);
+  if (!IS_SOFTMODEM_RFSIM)
+     openair0_write_reorder_clear_context(device);
 }

@@ -481,10 +481,11 @@ int initial_sync(PHY_VARS_UE *ue, runmode_t mode) {
           ue->frame_parms.phich_config_common.phich_duration,
           phich_string[ue->frame_parms.phich_config_common.phich_resource],
           ue->frame_parms.nb_antenna_ports_eNB);
-    LOG_I(PHY, "[UE %d] Frame %d Measured Carrier Frequency %.0f Hz (offset %d Hz)\n",
+    LOG_I(PHY,
+          "[UE %d] Frame %d Measured Carrier Frequency %.0f Hz (offset %d Hz)\n",
           ue->Mod_id,
           ue->proc.proc_rxtx[0].frame_rx,
-          openair0_cfg[0].rx_freq[0]-ue->common_vars.freq_offset,
+          openair0_cfg_g[0].rx_freq[0] - ue->common_vars.freq_offset,
           ue->common_vars.freq_offset);
   } else {
     LOG_D(PHY,"[UE%d] Initial sync : PBCH not ok\n",ue->Mod_id);

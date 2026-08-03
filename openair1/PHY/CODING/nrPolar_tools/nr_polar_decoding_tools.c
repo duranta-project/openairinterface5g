@@ -373,7 +373,10 @@ static inline void computeBeta(decoder_node_t *node)
     node->betaInit = true;
   }
   assert(node->right->betaInit);
-  memcpy(&betav[sz], betar, sz * sizeof(*betav));
+  if (sz == 1)
+    betav[sz] = *betar;
+  else
+    memcpy(&betav[sz], betar, sz * sizeof(*betav));
   node->betaInit = true;
 }
 

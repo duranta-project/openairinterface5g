@@ -52,7 +52,7 @@ void nr_group_sequence_hopping(pucch_GroupHopping_t PUCCH_GroupHopping,
         goldIdx++;
         l = l+32;
       }
-      AssertFatal(goldIdx < 8 + (minShift + 31) / 32, "");
+      AssertFatal(goldIdx < 8 + (minShift + 31) / 32, "impossible: %d >= %d", goldIdx, 8 + (minShift + 31) / 32);
       int tmpShift = (minShift & ((1 << 5) - 1)); // minShift%32;
       f_gh = f_gh + ((1 << m) * ((uint8_t)((seq[goldIdx] >> tmpShift) & 1)));
       minShift ++;
@@ -115,7 +115,7 @@ double nr_cyclic_shift_hopping(uint32_t n_id,
       goldIdx++;
       l = l+32;
     }
-    AssertFatal(goldIdx < 8 + (minShift + 31) / 32, "");
+    AssertFatal(goldIdx < 8 + (minShift + 31) / 32, "impossible: %d >= %d", goldIdx, 8 + (minShift + 31) / 32);
     int tmpShift = (minShift & ((1 << 5) - 1)); // minShift%32;
     minShift ++;
     n_cs += (1 << m) * (uint8_t)((seq[goldIdx] >> tmpShift) & 1);

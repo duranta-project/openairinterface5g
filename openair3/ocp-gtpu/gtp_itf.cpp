@@ -602,7 +602,7 @@ static int udpServerSocket(openAddr_s addr)
   }
 
   int sendbuff = 1000 * 1000 * 10;
-  AssertFatal(0 == setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &sendbuff, sizeof(sendbuff)), "");
+  AssertFatal(0 == setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &sendbuff, sizeof(sendbuff)), "%s", strerror(errno));
   LOG_D(GTPU,
         "[%d] Created listener for paquets to: %s:%s, send buffer size: %d\n",
         sockfd,

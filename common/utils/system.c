@@ -251,7 +251,7 @@ void threadCreate(pthread_t* t, void * (*func)(void*), void * param, char* name,
                 priority,
                 sched_get_priority_min(SCHED_OAI),
                 sched_get_priority_max(SCHED_OAI));
-    AssertFatal(priority <= sched_get_priority_max(SCHED_OAI), "");
+    AssertFatal(priority <= sched_get_priority_max(SCHED_OAI), "not possible priority %d", priority);
     struct sched_param sparam = {0};
     sparam.sched_priority = priority;
     ret = pthread_attr_setschedparam(&attr, &sparam);

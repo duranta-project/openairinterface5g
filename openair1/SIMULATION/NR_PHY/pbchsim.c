@@ -43,7 +43,7 @@ int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
 double cpuf;
 
 // needed for some functions
-openair0_config_t openair0_cfg[MAX_CARDS];
+openair0_config_t openair0_cfg_g[MAX_CARDS] = {};
 
 uint8_t const nr_rv_round_map[4] = {0, 2, 3, 1};
 

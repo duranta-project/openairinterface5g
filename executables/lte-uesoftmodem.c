@@ -123,7 +123,7 @@ THREAD_STRUCT thread_struct;
 /* struct for ethernet specific parameters given in eNB conf file */
 eth_params_t *eth_params;
 
-openair0_config_t openair0_cfg[MAX_CARDS];
+openair0_config_t openair0_cfg_g[MAX_CARDS] = {};
 
 double cpuf;
 
@@ -307,77 +307,74 @@ void set_default_frame_parms(LTE_DL_FRAME_PARMS *frame_parms[MAX_NUM_CCs]) {
 
 static void init_openair0(LTE_DL_FRAME_PARMS *frame_parms, int rxgain)
 {
-  int card;
-  int i;
-
-  for (card=0; card<MAX_CARDS; card++) {
-    openair0_cfg[card].mmapped_dma=mmapped_dma;
-    openair0_cfg[card].configFilename = NULL;
+  for (openair0_config_t *cfg = openair0_cfg_g; cfg < openair0_cfg_g + MAX_CARDS; cfg++) {
+    cfg->mmapped_dma = mmapped_dma;
+    cfg->configFilename = NULL;
 
     if(frame_parms->N_RB_DL == 100) {
       if (frame_parms->threequarter_fs) {
-        openair0_cfg[card].sample_rate=23.04e6;
-        openair0_cfg[card].tx_bw = 10e6;
-        openair0_cfg[card].rx_bw = 10e6;
+        cfg->sample_rate = 23.04e6;
+        cfg->tx_bw = 10e6;
+        cfg->rx_bw = 10e6;
       } else {
-        openair0_cfg[card].sample_rate=30.72e6;
-        openair0_cfg[card].tx_bw = 10e6;
-        openair0_cfg[card].rx_bw = 10e6;
+        cfg->sample_rate = 30.72e6;
+        cfg->tx_bw = 10e6;
+        cfg->rx_bw = 10e6;
       }
     } else if(frame_parms->N_RB_DL == 50) {
-      openair0_cfg[card].sample_rate=15.36e6;
-      openair0_cfg[card].tx_bw = 5e6;
-      openair0_cfg[card].rx_bw = 5e6;
+      cfg->sample_rate = 15.36e6;
+      cfg->tx_bw = 5e6;
+      cfg->rx_bw = 5e6;
     } else if (frame_parms->N_RB_DL == 25) {
-      openair0_cfg[card].sample_rate=7.68e6;
-      openair0_cfg[card].tx_bw = 2.5e6;
-      openair0_cfg[card].rx_bw = 2.5e6;
+      cfg->sample_rate = 7.68e6;
+      cfg->tx_bw = 2.5e6;
+      cfg->rx_bw = 2.5e6;
     } else if (frame_parms->N_RB_DL == 6) {
-      openair0_cfg[card].sample_rate=1.92e6;
-      openair0_cfg[card].tx_bw = 1.5e6;
-      openair0_cfg[card].rx_bw = 1.5e6;
+      cfg->sample_rate = 1.92e6;
+      cfg->tx_bw = 1.5e6;
+      cfg->rx_bw = 1.5e6;
     }
 
     if (frame_parms->frame_type==TDD)
-      openair0_cfg[card].duplex_mode = duplex_mode_TDD;
+      cfg->duplex_mode = duplex_mode_TDD;
     else //FDD
-      openair0_cfg[card].duplex_mode = duplex_mode_FDD;
+      cfg->duplex_mode = duplex_mode_FDD;
 
-    openair0_cfg[card].num_rb_dl=frame_parms->N_RB_DL;
-    openair0_cfg[card].clock_source = get_softmodem_params()->clock_source;
-    openair0_cfg[card].time_source = get_softmodem_params()->timing_source;
-    openair0_cfg[card].tune_offset = get_softmodem_params()->tune_offset;
-    openair0_cfg[card].tx_num_channels=min(2,frame_parms->nb_antennas_tx);
-    openair0_cfg[card].rx_num_channels=min(2,frame_parms->nb_antennas_rx);
+    cfg->num_rb_dl = frame_parms->N_RB_DL;
+    cfg->clock_source = get_softmodem_params()->clock_source;
+    cfg->time_source = get_softmodem_params()->timing_source;
+    cfg->tune_offset = get_softmodem_params()->tune_offset;
+    cfg->tx_num_channels = min(2, frame_parms->nb_antennas_tx);
+    cfg->rx_num_channels = min(2, frame_parms->nb_antennas_rx);
 
-    for (i=0; i<4; i++) {
-      if (i<openair0_cfg[card].tx_num_channels)
-        openair0_cfg[card].tx_freq[i] = downlink_frequency[0][i]+uplink_frequency_offset[0][i];
+    for (int i = 0; i < 4; i++) {
+      if (i < cfg->tx_num_channels)
+        cfg->tx_freq[i] = downlink_frequency[0][i] + uplink_frequency_offset[0][i];
       else
-        openair0_cfg[card].tx_freq[i]=0.0;
+        cfg->tx_freq[i] = 0.0;
 
-      if (i<openair0_cfg[card].rx_num_channels)
-        openair0_cfg[card].rx_freq[i] = downlink_frequency[0][i];
+      if (i < cfg->rx_num_channels)
+        cfg->rx_freq[i] = downlink_frequency[0][i];
       else
-        openair0_cfg[card].rx_freq[i]=0.0;
+        cfg->rx_freq[i] = 0.0;
 
-      openair0_cfg[card].autocal[i] = 1;
-      openair0_cfg[card].tx_gain[i] = tx_gain[0][i];
-      openair0_cfg[card].rx_gain[i] = rxgain - rx_gain_off;
-      openair0_cfg[card].configFilename = get_softmodem_params()->rf_config_file;
-      printf("Card %d, channel %d, Setting tx_gain %.0f, rx_gain %.0f, tx_freq %.0f, rx_freq %.0f, tune_offset %.0f\n",
-             card,i, openair0_cfg[card].tx_gain[i],
-             openair0_cfg[card].rx_gain[i],
-             openair0_cfg[card].tx_freq[i],
-             openair0_cfg[card].rx_freq[i],
-             openair0_cfg[card].tune_offset);
+      cfg->autocal[i] = 1;
+      cfg->tx_gain[i] = tx_gain[0][i];
+      cfg->rx_gain[i] = rxgain - rx_gain_off;
+      cfg->configFilename = get_softmodem_params()->rf_config_file;
+      printf("channel %d, Setting tx_gain %.0f, rx_gain %.0f, tx_freq %.0f, rx_freq %.0f, tune_offset %.0f\n",
+             i,
+             cfg->tx_gain[i],
+             cfg->rx_gain[i],
+             cfg->tx_freq[i],
+             cfg->rx_freq[i],
+             cfg->tune_offset);
     }
 
-    if (usrp_args) openair0_cfg[card].sdr_addrs = usrp_args;
+    if (usrp_args)
+      cfg->sdr_addrs = usrp_args;
   }
 }
-
-
 
 /* helper function to terminate a certain ITTI task
  */
@@ -420,8 +417,8 @@ static void init_pdcp(int ue_id) {
 
 // Stupid function addition because UE itti messages queues definition is common with eNB
 void *rrc_enb_process_msg(void *notUsed) {
-AssertFatal(false,"");
-	return NULL;
+  AssertFatal(false, "not implemented");
+  return NULL;
 }
 
 int NB_UE_INST = 1;
@@ -441,7 +438,7 @@ int main( int argc, char **argv ) {
   }
 
   mode = normal_txrx;
-  memset(&openair0_cfg[0],0,sizeof(openair0_config_t)*MAX_CARDS);
+  memset(openair0_cfg_g, 0, sizeof(openair0_cfg_g));
   logInit();
   lock_memory_to_ram();
   printf("Reading in command-line options\n");

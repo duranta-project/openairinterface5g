@@ -431,7 +431,7 @@ void nr_deinterleaving_ldpc(uint32_t E, uint8_t Qm, int16_t *e, int16_t *f)
 {
   switch (Qm) {
     case 2: {
-      AssertFatal(E % 2 == 0, "");
+      AssertFatal(E % 2 == 0, "E: %d", E);
       int16_t *e1 = e + (E / 2);
       int16_t *end = f + E - 1;
       while (f < end) {
@@ -440,7 +440,7 @@ void nr_deinterleaving_ldpc(uint32_t E, uint8_t Qm, int16_t *e, int16_t *f)
       }
     } break;
     case 4: {
-      AssertFatal(E % 4 == 0, "");
+      AssertFatal(E % 4 == 0, "E: %d", E);
       int16_t *e1 = e + (E / 4);
       int16_t *e2 = e1 + (E / 4);
       int16_t *e3 = e2 + (E / 4);
@@ -453,7 +453,7 @@ void nr_deinterleaving_ldpc(uint32_t E, uint8_t Qm, int16_t *e, int16_t *f)
       }
     } break;
     case 6: {
-      AssertFatal(E % 6 == 0, "");
+      AssertFatal(E % 6 == 0, "E: %d", E);
       int16_t *e1 = e + (E / 6);
       int16_t *e2 = e1 + (E / 6);
       int16_t *e3 = e2 + (E / 6);
@@ -470,7 +470,7 @@ void nr_deinterleaving_ldpc(uint32_t E, uint8_t Qm, int16_t *e, int16_t *f)
       }
     } break;
     case 8: {
-      AssertFatal(E % 8 == 0, "");
+      AssertFatal(E % 8 == 0, "E: %d", E);
       int16_t *e1 = e + (E / 8);
       int16_t *e2 = e1 + (E / 8);
       int16_t *e3 = e2 + (E / 8);
