@@ -897,12 +897,12 @@ NR_pusch_dmrs_t get_ul_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
   return dmrs;
 }
 
-NR_bler_stats_t olla_init(int est_snrx10, frame_t frame)
+olla_stats_t olla_init(int est_snrx10, frame_t frame)
 {
-  return (NR_bler_stats_t) { .snrx10_equiv = est_snrx10, .last_frame = frame, };
+  return (olla_stats_t) { .snrx10_equiv = est_snrx10, .last_frame = frame, };
 }
 
-void olla_update(int *est_snrx10, NR_bler_stats_t *s, frame_t frame)
+void olla_update(int *est_snrx10, olla_stats_t *s, frame_t frame)
 {
   bool new_cqi = est_snrx10 != NULL;
   if (new_cqi) {
@@ -920,19 +920,19 @@ void olla_update(int *est_snrx10, NR_bler_stats_t *s, frame_t frame)
   }
 }
 
-float olla_get_current_bler(const NR_bler_stats_t *s)
+float olla_get_current_bler(const olla_stats_t *s)
 {
   return s->acks > 0 ? (float) s->nacks / (s->nacks + s->acks) : 1.0f;
 }
 
-void olla_ack(const NR_bler_options_t *o, NR_bler_stats_t *s)
+void olla_ack(const NR_bler_options_t *o, olla_stats_t *s)
 {
   s->acks++;
   s->delta_olla += o->step_size * (o->target_bler / (1.0f - o->target_bler));
   s->delta_olla = min(8.f, s->delta_olla);
 }
 
-void olla_nack(const NR_bler_options_t *o, NR_bler_stats_t *s)
+void olla_nack(const NR_bler_options_t *o, olla_stats_t *s)
 {
   s->nacks++;
   s->delta_olla -= o->step_size;

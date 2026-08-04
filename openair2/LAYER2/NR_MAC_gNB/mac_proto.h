@@ -466,11 +466,11 @@ bool get_rb_alloc(int rbSize_min,
                   int *rbStart_ptr,
                   int *rbSize_ptr);
 
-NR_bler_stats_t olla_init(int est_snrx10, frame_t frame);
-void olla_update(int *est_snrx10, NR_bler_stats_t *bler_stats, frame_t frame);
-float olla_get_current_bler(const NR_bler_stats_t *s);
-void olla_ack(const NR_bler_options_t *o, NR_bler_stats_t *s);
-void olla_nack(const NR_bler_options_t *o, NR_bler_stats_t *s);
+olla_stats_t olla_init(int est_snrx10, frame_t frame);
+void olla_update(int *est_snrx10, olla_stats_t *bler_stats, frame_t frame);
+float olla_get_current_bler(const olla_stats_t *s);
+void olla_ack(const NR_bler_options_t *o, olla_stats_t *s);
+void olla_nack(const NR_bler_options_t *o, olla_stats_t *s);
 
 float dl_pf_weight(int mcs, int mcs_table, int nrOfLayers, float avg_throughput);
 uint16_t check_dl_retx_feasibility(const nr_dl_candidate_t *cand,

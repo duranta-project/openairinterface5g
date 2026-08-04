@@ -555,14 +555,13 @@ typedef struct NR_UE_harq {
 
 //! fixme : need to enhace for the multiple TB CQI report
 
-typedef struct NR_bler_stats {
-  // for OLLA
+typedef struct olla_stats {
   frame_t last_frame;
   int snrx10_equiv;
   float delta_olla;
   int acks;
   int nacks;
-} NR_bler_stats_t;
+} olla_stats_t;
 
 //
 /*! As per spec 38.214 section 5.2.1.4.2
@@ -686,8 +685,8 @@ typedef struct {
   mac_rlc_status_resp_t rlc_status[NR_MAX_NUM_LCID];
 
   /// Estimation of HARQ from BLER
-  NR_bler_stats_t dl_bler_stats;
-  NR_bler_stats_t ul_bler_stats;
+  olla_stats_t dl_olla_stats;
+  olla_stats_t ul_olla_stats;
 
   uint16_t ta_frame;
   int16_t ta_update;
@@ -988,7 +987,7 @@ typedef void (*nr_dl_ri_pmi_select_fn)(const gNB_MAC_INST *mac, nr_dl_candidate_
 /// MCS adaptation: sets sched_pdsch.mcs from BLER state for every candidate.
 /// Called for all candidates (including those that won't get scheduled) so
 /// BLER-based MCS ramps even for UEs that fail CCE. Also persists the
-/// decision to dl_bler_stats.mcs for continuity across slots.
+/// decision to dl_olla_stats.mcs for continuity across slots.
 typedef void (*nr_dl_mcs_select_fn)(const gNB_MAC_INST *mac, nr_dl_candidate_t *candidates, int n_candidates);
 
 /// Beam allocation: assigns beam structure index to each candidate.
@@ -1134,7 +1133,7 @@ typedef int (
 
 /// MCS selection: sets sched_pusch.mcs from BLER/SINR state for every candidate.
 /// Runs after beam_select so sched_pusch.nrOfLayers (for SINR lookup) and beam info are available.
-/// Also persists the decision to ul_bler_stats.mcs for continuity across slots.
+/// Also persists the decision to ul_olla_stats.mcs for continuity across slots.
 typedef void (*nr_ul_mcs_select_fn)(const gNB_MAC_INST *mac, nr_ul_candidate_t *candidates, int n_candidates);
 
 /// UL scheduling policy: beam loop is inside the policy for cross-beam scheduling.

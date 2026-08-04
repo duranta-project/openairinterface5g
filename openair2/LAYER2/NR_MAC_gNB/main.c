@@ -163,7 +163,7 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
     float pucch_snr = nr_mac_get_snr(&sched_ctrl->pucch_pc);
     float pucch_snr_diff = (pucch_snr * 10.0f - sched_ctrl->pucch_pc.target_snrx10) / 10.0f;
     float pucch_rssi = nr_mac_get_rssi(&sched_ctrl->pucch_pc);
-    float bler = olla_get_current_bler(&sched_ctrl->dl_bler_stats);
+    float bler = olla_get_current_bler(&sched_ctrl->dl_olla_stats);
     output = st_append(output,
                        end,
                        ", dlsch_errors %" PRIu64
@@ -194,7 +194,7 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
     float snr = nr_mac_get_snr(&sched_ctrl->pusch_pc);
     float rssi = nr_mac_get_rssi(&sched_ctrl->pusch_pc);
     float diff_target = (snr * 10.0f - sched_ctrl->pusch_pc.target_snrx10) / 10.0f;
-    bler = olla_get_current_bler(&sched_ctrl->ul_bler_stats);
+    bler = olla_get_current_bler(&sched_ctrl->ul_olla_stats);
     output = st_append(
         output,
         end,
