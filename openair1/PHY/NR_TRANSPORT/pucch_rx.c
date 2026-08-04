@@ -1244,7 +1244,7 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
            symb,
            pucch_pdu->dmrs_scrambling_id);
 #endif
-    uint32_t *sGold = gold_cache(x2, starting_prb / 4 + ngroup / 2);
+    uint32_t *sGold = gold_cache(x2, starting_prb / 4 + (ngroup + 1) / 2);
     // Compute pilot conjugate
     c16_t pil_dmrs[nb_re_dmrs] __attribute__((aligned(32)));
     uint8_t *sGold8 = (uint8_t *)(sGold + starting_prb / 4);
