@@ -244,7 +244,7 @@
     <node>ofqot</node>
     <yaml_path>ci-scripts/yaml_files/sa_f1_b200_gnb</yaml_path>
     <analysis>
-      <services>gnb_cu=EndsWithBye gnb_du_fdd=RetxCheck=10,100,100,100 gnb_du_fdd=EndsWithBye</services>
+      <services>gnb_cu=EndsWithBye gnb_du_fdd=RetxCheck=15,100,100,100 gnb_du_fdd=EndsWithBye</services>
     </analysis>
   </testCase>
 

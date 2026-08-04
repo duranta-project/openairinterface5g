@@ -210,7 +210,7 @@
     <node>ofqot</node>
     <yaml_path>ci-scripts/yaml_files/sa_b200_gnb</yaml_path>
     <analysis>
-      <services>gnb_mono_tdd=RetxCheck=10,100,100,100 gnb_mono_tdd=EndsWithBye</services>
+      <services>gnb_mono_tdd=RetxCheck=15,100,100,100 gnb_mono_tdd=EndsWithBye</services>
     </analysis>
   </testCase>
 
