@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <stdbool.h>
+#include <openair1/PHY/TOOLS/tools_defs.h>
 #include "record_player.h"
 
 /* default name of shared library implementing the radio front end */
@@ -589,6 +590,15 @@ struct openair0_device {
    * \param arg pointer to capabilities or configuration
    */
   int (*trx_write_init)(openair0_device_t *device);
+  /*! \brief Optional (vrtsim server + channel model): frequency-domain DL post-channel
+   *  constellation helper for the O-RU scope.
+   */
+  int (*trx_dl_post_freq_scope_func)(openair0_device_t *device,
+                                     c16_t *y_out,
+                                     const c16_t *x_in,
+                                     int fft_sz,
+                                     int n_tx,
+                                     int ref_rx);
   /* \brief Get internal parameter
    * \param id parameter to get
    * \return a pointer to the parameter

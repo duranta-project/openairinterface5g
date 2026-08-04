@@ -36,7 +36,7 @@ int end_forms(void) {
 
 void copyData(void *scopeData, enum scopeDataType type, void *dataIn, int elementSz, int colSz, int lineSz, int offset, metadata *meta)
 {
-  if (type >= MAX_SCOPE_TYPES) {
+  if (type >= EXTRA_SCOPE_TYPES) {
     return;
   }
   scopeData_t *tmp = (scopeData_t *)scopeData;
@@ -76,5 +76,8 @@ void copyData(void *scopeData, enum scopeDataType type, void *dataIn, int elemen
 
     // The new data just copied becomes live now
     ((scopeGraphData_t **)tmp->liveData)[type] = newData;
+    // Signal to the scope thread that this type has fresh data (single writer per type;
+    // aligned 64-bit load/store is atomic on the reader side).
+    tmp->liveDataCnt[type]++;
   }
 }
