@@ -4,18 +4,20 @@ This document summarizes the main throughput KPIs
 
 ## 1. `nr-softmodem` Performance in `oai-gNB` and `oai-gNB-du` Modes for FR1 bands
 
-### Test Profile
+### KPI with USRP
+
+#### Test Profile
 
 The following results apply to the TDD configuration below:
-
 |Parameter          |Value                   |
 |-------------------|------------------------|
-|Band               |n78/n77                 |
+|Band               |n41                     |
 |SCS                |30 kHz                  |
-|DL test TDD Pattern|`DDDSU`, 2.5ms, 10D2G2U |
-|UL test TDD Pattern|`DDSUU`, 2.5ms, 6D4G4U  |
+|DL test TDD Pattern|`DDDSU`, 2.5ms          |
+|UL test TDD Pattern|`DDSUU`, 2.5ms          |
 
-#### KPI with USRP
+- test machine: AMD Ryzen 9 7950X 16-Core Processor
+- radio: USRP N310, UE: Quectel RM500Q
 
 |Bandwidth MHz/PRB|Layers|DL Throughput (Mbps)|UL Throughput (Mbps)|
 |-----------------|-----:|-------------------:|-------------------:|
@@ -30,11 +32,29 @@ The following results apply to the TDD configuration below:
 |                 |4     |730                 |X                   |
 |80(217)          |1     |310                 |80                  |
 |                 |2     |622                 |140                 |
-|                 |4     |x                   |X                   |
+|                 |4     |X                   |X                   |
+|100(273)         |1     |400                 |101                 |
+|                 |2     |800                 |120                 |
 
-#### KPI with ORAN 7.2
+### KPI with ORAN 7.2
+- test branch: [2026.w22](https://github.com/duranta-project/openairinterface5g/releases/tag/2026.w22)
 
-9b BFP, 4T4R, Benetel550 RU, Quectel RM520N, OTA, distance: 2m
+#### Test Profile
+
+The following results apply to the TDD configuration below:
+|Parameter          |Value                   |
+|-------------------|------------------------|
+|Band               |n78/n77                 |
+|SCS                |30 kHz                  |
+|DL test TDD Pattern|`DDDSU`, 2.5ms, 10D2G2U |
+|UL test TDD Pattern|`DDSUU`, 2.5ms, 6D4G4U  |
+
+- test machine: AMD EPYC 9575F 64-Core Processor
+- radio: Benetel550 O-RU, UE: Quectel RM520N
+- OTA, distance: 2m
+- avx512 disabled (`--noavx512`)
+
+9b BFP static compression, 4T4R
 
 |Bandwidth MHz/PRB|Layers|DL Throughput (Mbps)|UL Throughput (Mbps)|
 |-----------------|-----:|-------------------:|-------------------:|
@@ -44,7 +64,7 @@ The following results apply to the TDD configuration below:
 |                 |2     |820                 |250                 |
 |                 |4     |1400                |X                   |
 
-16b no compression, 2T2R, Benetel550 RU, Quectel RM520N, OTA, distance: 2m
+16b no compression, 2T2R
 
 |Bandwidth MHz/PRB|Layers|DL Throughput (Mbps)|UL Throughput (Mbps)|
 |-----------------|-----:|-------------------:|-------------------:|
