@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include "intertask_interface.h"
 
 #include "openair2/RRC/NR/rrc_gNB_UE_context.h"
 
@@ -19,11 +20,10 @@
 
 static int get_single_ue_rnti(void)
 {
-  rrc_gNB_ue_context_t *ue_context_p = NULL;
-  RB_FOREACH(ue_context_p, rrc_nr_ue_tree_s, &(RC.nrrrc[0]->rrc_ue_head)) {
-    return ue_context_p->ue_context.rnti;
-  }
-  return -1;
+  MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_SINGLE_UE_RNTI);
+  MessageDef *resp_p;
+  itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p);
+  return resp_p->ittiMsg.rrc_get_single_ue_rnti.rnti ? resp_p->ittiMsg.rrc_get_single_ue_rnti.rnti : -1;
 }
 
 int get_single_rnti(char *buf, int debug, telnet_printfunc_t prnt)
@@ -56,12 +56,15 @@ int add_bearer(char *buf, int debug, telnet_printfunc_t prnt)
   }
 
   // verify it exists in RRC as well
-  rrc_gNB_ue_context_t *rrcue = rrc_gNB_get_ue_context_by_rnti_any_du(RC.nrrrc[0], rnti);
-  if (!rrcue)
+  MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_UE_CONTEXT_BY_RNTI_ANY_DU);
+  MessageDef *resp_p;
+  itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p);
+  if (!resp_p->ittiMsg.rrc_get_ue_context_by_rnti_any_du.ue_context_exists)
     ERROR_MSG_RET("could not find UE with RNTI %04x\n", rnti);
 
   AssertFatal(false, "not implemented\n");
   //rrc_gNB_trigger_new_bearer(rnti);
+  free(resp_p);
   prnt("called rrc_gNB_trigger_new_bearer(%04x)\n", rnti);
   return 0;
 }
@@ -82,13 +85,17 @@ int release_bearer(char *buf, int debug, telnet_printfunc_t prnt)
   }
 
   // verify it exists in RRC as well
-  rrc_gNB_ue_context_t *rrcue = rrc_gNB_get_ue_context_by_rnti_any_du(RC.nrrrc[0], rnti);
-  if (!rrcue)
+  MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_UE_CONTEXT_BY_RNTI_ANY_DU);
+  msg_p->ittiMsg.rrc_get_ue_context_by_rnti_any_du.rnti = rnti;
+  MessageDef *resp_p;
+  itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p);
+  if (!resp_p->ittiMsg.rrc_get_ue_context_by_rnti_any_du.ue_context_exists)
     ERROR_MSG_RET("could not find UE with RNTI %04x\n", rnti);
 
   AssertFatal(false, "not implemented\n");
   //rrc_gNB_trigger_release_bearer(rnti);
   prnt("called rrc_gNB_trigger_release_bearer(%04x)\n", rnti);
+  free(resp_p);
   return 0;
 }
 

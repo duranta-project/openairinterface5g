@@ -283,6 +283,15 @@ typedef struct timer_elm_s {
     pthread_mutex_unlock (&t->queue_cond_lock);
   }
 
+  void itti_send_and_receive_msg_to_task(task_id_t sending_task_id,
+                                         task_id_t receiving_task_id,
+                                         MessageDef *sending_message,
+                                         MessageDef **receiving_message)
+  {
+    itti_send_msg_to_task(sending_task_id, 0, sending_message);
+    itti_receive_msg(receiving_task_id, receiving_message);
+  }
+
   void itti_poll_msg(task_id_t task_id, MessageDef **received_msg) {
     //reception of one message, non-blocking
     task_list_t *t=tasks[task_id];

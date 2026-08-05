@@ -24,6 +24,7 @@
 #include "openair2/LAYER2/NR_MAC_gNB/mac_config.h"
 #include "openair2/RRC/NR/rrc_gNB_mobility.h"
 #include "openair3/NGAP/ngap_gNB_ue_context.h"
+#include "intertask_interface.h"
 #include "openair2/RRC/NR/rrc_gNB_du.h"
 #define TELNETSERVERCODE
 #include "telnetsrv.h"
@@ -59,48 +60,42 @@ int get_single_rnti(char *buf, int debug, telnet_printfunc_t prnt)
   return 0;
 }
 
-rrc_gNB_ue_context_t *get_single_rrc_ue(void)
+int check_single_rrc_ue(MessageDef *resp_p, telnet_printfunc_t prnt)
 {
-  rrc_gNB_ue_context_t *ue = NULL;
-  rrc_gNB_ue_context_t *l = NULL;
-  int n = 0;
-  RB_FOREACH (l, rrc_nr_ue_tree_s, &RC.nrrrc[0]->rrc_ue_head) {
-    if (ue == NULL)
-      ue = l;
-    n++;
+  if (!resp_p->ittiMsg.rrc_get_single_ue_rnti.is_single) {
+    printf("UE count is not exactly one in RRC\n");
+    return 0;
   }
-  if (!ue) {
-    printf("could not find any UE in RRC\n");
-  }
-  if (n > 1) {
-    printf("more than one UE in RRC present\n");
-    ue = NULL;
-  }
-
-  return ue;
+  return 1;
 }
 
 int get_reestab_count(char *buf, int debug, telnet_printfunc_t prnt)
 {
   UNUSED(debug);
-  if (!RC.nrrrc)
-    ERROR_MSG_RET("no RRC present, cannot list counts\n");
-  rrc_gNB_ue_context_t *ue = NULL;
   if (!buf) {
-    ue = get_single_rrc_ue();
-    if (!ue)
+    MessageDef *msg_ue_rnti_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_SINGLE_UE_RNTI);
+    MessageDef *resp_ue_rnti_p;
+    itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_ue_rnti_p, &resp_ue_rnti_p);
+    if (!check_single_rrc_ue(resp_ue_rnti_p, prnt)) {
       ERROR_MSG_RET("no single UE in RRC present\n");
+    }
+    const Rrc_get_single_ue_rnti *resp = &resp_ue_rnti_p->ittiMsg.rrc_get_single_ue_rnti;
+    prnt("UE RNTI %04x reestab %d reconfig %d\n", resp->rnti, resp->ue_reestablishment_counter, resp->ue_reconfiguration_counter);
+    free(resp_ue_rnti_p);
   } else {
     ue_id_t ue_id = strtol(buf, NULL, 10);
-    ue = rrc_gNB_get_ue_context(RC.nrrrc[0], ue_id);
-    if (!ue)
+    MessageDef *msg_ue_context_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_UE_CONTEXT_BY_UE_ID);
+    msg_ue_context_p->ittiMsg.rrc_get_ue_context_by_ue_id.id = ue_id;
+    MessageDef *resp_ue_context_p;
+    itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_ue_context_p, &resp_ue_context_p);
+    if (!resp_ue_context_p->ittiMsg.rrc_get_ue_context_by_ue_id.is_single) {
       ERROR_MSG_RET("could not find UE with ue_id %d in RRC\n");
+    }
+    const Rrc_get_single_ue_rnti *resp = &resp_ue_context_p->ittiMsg.rrc_get_ue_context_by_ue_id;
+    prnt("UE RNTI %04x reestab %d reconfig %d\n", resp->rnti, resp->ue_reestablishment_counter, resp->ue_reconfiguration_counter);
+    free(resp_ue_context_p);
   }
 
-  prnt("UE RNTI %04x reestab %d reconfig %d\n",
-       ue->ue_context.rnti,
-       ue->ue_context.ue_reestablishment_counter,
-       ue->ue_context.ue_reconfiguration_counter);
   return 0;
 }
 
@@ -144,21 +139,20 @@ int fetch_du_by_ue_id(char *buf, int debug, telnet_printfunc_t prnt)
     ue_id = strtol(buf, NULL, 10);
   } else {
     // No UE ID provided: find the connected UE first
-    rrc_gNB_ue_context_t *ue = get_single_rrc_ue();
-    if (!ue)
-      ERROR_MSG_RET("no single UE in RRC present\n");
-    ue_id = ue->ue_context.rrc_ue_id;
+    ue_id = -1;
   }
 
-  nr_rrc_du_container_t *du = get_du_for_ue(RC.nrrrc[0], ue_id);
-
-  if (du) {
-    prnt("gNB_DU_id %ld is connected to ue_id %ld\n", du->gNB_DU_id, ue_id);
-    return 0;
-  } else {
+  MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_DU_ID_BY_UE_ID);
+  msg_p->ittiMsg.rrc_get_du_id_by_ue_id.ue_id = ue_id;
+  MessageDef *resp_p;
+  itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p);
+  if (resp_p->ittiMsg.rrc_get_du_id_by_ue_id.no_du) {
     ERROR_MSG_RET("No DU connected\n");
-    return -1;
   }
+  int du_id = resp_p->ittiMsg.rrc_get_du_id_by_ue_id.du_id;
+  prnt("gNB_DU_id %ld is connected to ue_id %ld\n", du_id, resp_p->ittiMsg.rrc_get_du_id_by_ue_id.ue_id);
+  free(resp_p);
+  return 0;
 }
 
 /**
@@ -171,23 +165,17 @@ int fetch_du_by_ue_id(char *buf, int debug, telnet_printfunc_t prnt)
 int rrc_gNB_trigger_f1_ho(char *buf, int debug, telnet_printfunc_t prnt)
 {
   UNUSED(debug);
-  if (!RC.nrrrc)
-    ERROR_MSG_RET("no RRC present, cannot list counts\n");
-  rrc_gNB_ue_context_t *ue = NULL;
+  ue_id_t ue_id = -1;
   if (!buf) {
-    ue = get_single_rrc_ue();
-    if (!ue)
-      ERROR_MSG_RET("no single UE in RRC present\n");
+    ue_id = -1;
   } else {
-    ue_id_t ue_id = strtol(buf, NULL, 10);
-    ue = rrc_gNB_get_ue_context(RC.nrrrc[0], ue_id);
-    if (!ue)
-      ERROR_MSG_RET("could not find UE with ue_id %d in RRC\n", ue_id);
+    ue_id = strtol(buf, NULL, 10);
   }
 
-  gNB_RRC_UE_t *UE = &ue->ue_context;
-  nr_HO_F1_trigger_telnet(RC.nrrrc[0], UE->rrc_ue_id);
-  prnt("RRC F1 handover triggered for UE %u\n", UE->rrc_ue_id);
+  MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_NR_HO_F1_TRIGGER);
+  msg_p->ittiMsg.rrc_trigger_ho_f1.id = ue_id;
+  itti_send_msg_to_task(TASK_RRC_GNB, 0, msg_p);
+  prnt("RRC F1 handover triggered for UE %u\n", ue_id);
   return 0;
 }
 
@@ -199,9 +187,6 @@ int rrc_gNB_trigger_f1_ho(char *buf, int debug, telnet_printfunc_t prnt)
 int rrc_gNB_trigger_n2_ho(char *buf, int debug, telnet_printfunc_t prnt)
 {
   UNUSED(debug);
-  if (!RC.nrrrc)
-    ERROR_MSG_RET("no RRC present, cannot list counts\n");
-
   if (!buf) {
     ERROR_MSG_RET("Please provide neighbour cell id and ue id\n");
   } else {
@@ -220,15 +205,19 @@ int rrc_gNB_trigger_n2_ho(char *buf, int debug, telnet_printfunc_t prnt)
     uint32_t ueId = strtol(token, NULL, 10);
 
     // Retrieve UE context
-    rrc_gNB_ue_context_t *ue_p = rrc_gNB_get_ue_context(RC.nrrrc[0], ueId);
-    if (!ue_p) {
+    MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_CHECK_UE_CONTEXT);
+    msg_p->ittiMsg.rrc_check_ue_context.id = ueId;
+    MessageDef *resp_p;
+    itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p);
+    if (!resp_p->ittiMsg.rrc_check_ue_context.check) {
       ERROR_MSG_RET("UE with id %u not found\n", ueId);
     }
-    gNB_RRC_UE_t *UE = &ue_p->ue_context;
-
+    free(resp_p);
     // Trigger N2 handover
-    nr_HO_N2_trigger_telnet(RC.nrrrc[0], neighbour_pci, UE->rrc_ue_id);
-
+    msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_NR_HO_N2_TRIGGER);
+    msg_p->ittiMsg.rrc_trigger_ho_n2.id = ueId;
+    msg_p->ittiMsg.rrc_trigger_ho_n2.neighbour_pci = neighbour_pci;
+    itti_send_msg_to_task(TASK_RRC_GNB, 0, msg_p);
     // Print success message
     prnt("RRC N2 handover triggered for UE %u with neighbour cell id %u\n",
          ueId,
@@ -314,21 +303,20 @@ static int trigger_ngap_pdu_session_release(char *buf, int debug, telnet_printfu
     gNB_ue_ngap_id = atoi(tokens[0] + 6);
     pdu_start_index = 1;
   } else {
-    // No UE ID: infer it
-    if (!RC.nrrrc)
-      ERROR_MSG_RET("No RRC present\n");
-    rrc_gNB_ue_context_t *ue = get_single_rrc_ue();
-    if (!ue)
-      ERROR_MSG_RET("No single UE in RRC present\n");
-    gNB_ue_ngap_id = ue->ue_context.rrc_ue_id;
+    gNB_ue_ngap_id = -1;
   }
 
   if (pdu_start_index >= count) {
     ERROR_MSG_RET("No pdusession_id(int) provided\n");
   }
 
-  ngap_gNB_ue_context_t *ngap = ngap_get_ue_context(gNB_ue_ngap_id);
-  if (!ngap) {
+  MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_NGAP_UE_ID);
+  msg_p->ittiMsg.rrc_get_ngap_ue_id.gNB_ue_ngap_id = gNB_ue_ngap_id;
+  MessageDef *resp_p;
+  itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p);
+  int amf_ue_ngap_id = resp_p->ittiMsg.rrc_get_ngap_ue_id.amf_ue_ngap_id;
+  free(resp_p);
+  if (!amf_ue_ngap_id) {
     ERROR_MSG_RET("No NGAP UE context for gNB_ue_ngap_id %d\n", gNB_ue_ngap_id);
   }
 
@@ -336,8 +324,8 @@ static int trigger_ngap_pdu_session_release(char *buf, int debug, telnet_printfu
   ngap_pdusession_release_command_t *msg = &NGAP_PDUSESSION_RELEASE_COMMAND(message_p);
   memset(msg, 0, sizeof(*msg));
 
-  msg->amf_ue_ngap_id = ngap->amf_ue_ngap_id;
-  msg->gNB_ue_ngap_id = ngap->gNB_ue_ngap_id;
+  msg->amf_ue_ngap_id = amf_ue_ngap_id;
+  msg->gNB_ue_ngap_id = gNB_ue_ngap_id;
 
   int nb_sessions = 0;
   for (int i = pdu_start_index; i < count; ++i) {
@@ -373,8 +361,7 @@ static int trigger_bwp_switch(char *buf, int debug, telnet_printfunc_t prnt)
   if (rnti < 0)
     ERROR_MSG_RET("could not identify UE (no UE, no such RNTI, or multiple UEs)\n");
   if (!nr_trigger_bwp_switch(rnti, bwpId)) {
-    prnt("failed trigger BWP switch for UE %04x BWP ID %d\n", rnti, bwpId);
-    return -1;
+    ERROR_MSG_RET("failed trigger BWP switch for UE %04x BWP ID %d\n", rnti, bwpId);
   } else {
     prnt("triggered BWP switch to BWP ID %d for UE %04x\n", bwpId, rnti);
     return 0;
