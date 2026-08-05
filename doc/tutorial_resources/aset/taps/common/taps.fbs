@@ -1,0 +1,13 @@
+// FlatBuffers schema for vrtsim remote CIR (matches OAI raytracing-channel-emulator taps.fbs).
+// Layout: taps[aarx + num_rx * aatx][0..taps_len) as interleaved float re,im.
+namespace Phy;
+
+table Taps {
+  id:uint;
+  num_tx_antennas:uint;
+  num_rx_antennas:uint;
+  taps_len:uint;
+  taps:[float];
+}
+
+root_type Taps;
