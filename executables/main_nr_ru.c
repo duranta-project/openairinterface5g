@@ -3,7 +3,10 @@
  */
 
 #include <sched.h>
+#include <execinfo.h>
+#include <signal.h>
 #include <string.h>
+#include <unistd.h>
 #include "assertions.h"
 #include "PHY/types.h"
 #include "PHY/defs_RU.h"
@@ -143,6 +146,17 @@ static void sig_handler(int sig_num)
   oai_exit = 1;
 }
 
+static void oru_crash_handler(int sig)
+{
+  void *bt[64];
+  int n = backtrace(bt, 64);
+  fprintf(stderr, "\n=== nr-oru caught signal %d (%s), backtrace: ===\n", sig, strsignal(sig));
+  backtrace_symbols_fd(bt, n, STDERR_FILENO);
+  fflush(stderr);
+  signal(sig, SIG_DFL);
+  raise(sig);
+}
+
 uint16_t nr_du[838];
 
 uint64_t downlink_frequency[MAX_NUM_CCs][4];
@@ -229,8 +243,20 @@ int main(int argc, char **argv)
   ret = ru->rfdevice.trx_start_func(&ru->rfdevice);
   AssertFatal(ret == 0, "RU %u: trx_start_func() ret %d: cannot start rfdevice\n", ru->idx, ret);
 
-  // Signal handler
+  if (IS_SOFTMODEM_DOSCOPE) {
+    scopeParms_t p = {
+        .argc = &argc,
+        .argv = argv,
+        .ru = ru,
+        .gNB = NULL,
+    };
+    load_softscope("nr", &p);
+  }
+
   signal(SIGINT, sig_handler);
+  signal(SIGTERM, sig_handler);
+  signal(SIGSEGV, oru_crash_handler);
+  signal(SIGABRT, oru_crash_handler);
 
   ret = oru_fh_start(oru.fronthaul);
   AssertFatal(ret == 0, "Cannot start O-RU fronthaul\n");
@@ -292,6 +318,9 @@ int main(int argc, char **argv)
   }
 
   oru_fh_stop(oru.fronthaul);
+
+  if (IS_SOFTMODEM_DOSCOPE)
+    end_forms();
 
   if (ru->rfdevice.trx_stop_func) {
     ru->rfdevice.trx_stop_func(&ru->rfdevice);

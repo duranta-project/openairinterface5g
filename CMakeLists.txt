@@ -1783,6 +1783,7 @@ if (OAI_RU_FRONTHAUL)
     ${OPENAIR_DIR}/openair1/SCHED/phy_procedures_lte_common.c
     ${OPENAIR_DIR}/executables/main_nr_ru.c
     ${OPENAIR_DIR}/executables/nr-oru.c
+    ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
   )
   target_link_libraries(nr-oru PRIVATE
     UTIL NR_PHY_RU PHY_NR shlib_loader dl oru_fh MAC_NR_COMMON

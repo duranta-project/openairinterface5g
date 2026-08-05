@@ -9,14 +9,20 @@
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "oru_packet_processor.h"
 #include "common/utils/threadPool/thread-pool.h"
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 #include "openair1/PHY/MODULATION/nr_modulation.h"
 #include "openair1/SCHED_NR/sched_nr.h"
 #include "openair1/PHY/MODULATION/modulation_common.h"
+#include "openair1/PHY/TOOLS/phy_scope_interface.h"
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 
 #define CONFIG_SECTION_ORU "ORUs.[0]"
+
+// Max antenna ports packed into each O-RU I/Q constellation tap (matches ORU_IQ_MAX_ANT).
+#define ORU_SCOPE_MAX_ANT 4
 
 #define CONFIG_STRING_ORU_TX_BW_LIST "tx_bw"
 #define CONFIG_STRING_ORU_RX_BW_LIST "rx_bw"
@@ -199,6 +205,64 @@ void prepare_prach_item(ORU_t *oru)
         AssertFatal(1 == 0, "Invalid PRACH format");
     }
   }
+}
+
+static void oru_scope_copy(RU_t *ru,
+                           enum scopeDataType type,
+                           const void *data,
+                           int elementSz,
+                           int colSz,
+                           int lineSz,
+                           int offset,
+                           int frame,
+                           int slot)
+{
+  scopeData_t *scope = ru->scopeData;
+  if (!scope || !scope->copyData)
+    return;
+  metadata meta = {.slot = slot, .frame = frame};
+  scope->copyData(scope, type, (void *)data, elementSz, colSz, lineSz, offset, &meta);
+}
+
+// DL post-channel constellation: Y(f)=X(f)*H(f) via the vrtsim server DL channel model (CIR DFT).
+// Uses the same TX antenna ports and symbol as oruDLpreFreq so colours stay consistent across plots.
+static void oru_scope_copy_dl_post(RU_t *ru, const c16_t *dl_pre, int nant, int sym_len, int frame, int slot)
+{
+  openair0_device_t *dev = &ru->rfdevice;
+  if (!dev->trx_dl_post_freq_scope_func)
+    return;
+  c16_t dl_post[ORU_SCOPE_MAX_ANT * sym_len];
+  if (dev->trx_dl_post_freq_scope_func(dev, dl_post, dl_pre, sym_len, nant, 0) != 0)
+    return;
+  oru_scope_copy(ru, oruDLpostFreq, dl_post, sizeof(c16_t), nant, sym_len, 0, frame, slot);
+}
+
+// UL post-channel constellation: FFT + RX-rotate one OFDM symbol for every RX antenna port
+// (the same front-end receive_pusch runs) and pack them antenna-major into a single scope
+// buffer (colSz = nant) so the scope overlays all ports. Single writer (south thread) => no
+// race with the parallel per-antenna PUSCH jobs. Gated by the caller on ru->scopeData.
+static void oru_scope_copy_ul_post(ORU_t *oru, int frame, int slot, int symbol)
+{
+  RU_t *ru = oru->ru;
+  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+  const int sym_len = fp->ofdm_symbol_size;
+  int nant = min(fp->nb_antennas_rx, ORU_SCOPE_MAX_ANT);
+  c16_t ul_post[nant * sym_len] __attribute__((aligned(32)));
+  for (int aarx = 0; aarx < nant; aarx++) {
+    c16_t rxdataF[sym_len] __attribute__((aligned(32)));
+    nr_symbol_fep_ul(fp, (c16_t *)ru->common.rxdata[aarx], rxdataF, symbol, slot, ru->N_TA_offset);
+    apply_nr_rotation_symbol_RX(fp->symbols_per_slot,
+                                fp->slots_per_subframe,
+                                fp->timeshift_symbol_rotation,
+                                fp->first_carrier_offset,
+                                rxdataF,
+                                fp->symbol_rotation[link_type_ul],
+                                fp->N_RB_UL,
+                                slot,
+                                symbol);
+    memcpy(&ul_post[aarx * sym_len], rxdataF, sym_len * sizeof(c16_t));
+  }
+  oru_scope_copy(ru, oruULpostFreq, ul_post, sizeof(c16_t), nant, sym_len, 0, frame, slot);
 }
 
 int get_oru_options(ORU_t *oru)
@@ -422,15 +486,39 @@ static void dl_symbol_process(ORU_t *oru, int frame, int slot, int symbol, c16_t
   uint32_t slot_offset = get_samples_slot_timestamp(fp, slot);
   uint32_t symbol_offset = get_samples_symbol_timestamp(fp, slot, symbol);
 
+  // Soft-scope: prefer DL symbols with energy so empty getbuff symbols don't blank the plot.
+  const int nb_re = fp->N_RB_DL * NR_NB_SC_PER_RB;
+  const int sym_len = fp->ofdm_symbol_size;
+  int nant_scope = 0;
+  bool do_scope = false;
+  if (ru->scopeData) {
+    uint64_t energy = 0;
+    for (int k = 0; k < nb_re; k++)
+      energy += (uint64_t)abs(txDataF[0][k].r) + (uint64_t)abs(txDataF[0][k].i);
+    if (energy > 0) {
+      do_scope = true;
+      nant_scope = min(ru->nb_tx, ORU_SCOPE_MAX_ANT);
+    }
+  }
+  c16_t dl_pre[ORU_SCOPE_MAX_ANT * sym_len];
+
   __attribute__((aligned(64))) c16_t txdataF_shifted[fp->ofdm_symbol_size];
   memset(txdataF_shifted, 0, sizeof(txdataF_shifted));
   c16_t *rotation = fp->symbol_rotation[0] + (slot % fp->slots_per_subframe) * fp->symbols_per_slot + symbol;
+  const int num_samp_half = nb_re / 2;
+  const int first_carrier_offset = fp->ofdm_symbol_size - num_samp_half;
   for (int aatx = 0; aatx < ru->nb_tx; aatx++) {
-    // Phase compensation
-    rotate_cpx_vector(txDataF[aatx], *rotation, txDataF[aatx], fp->N_RB_DL * NR_NB_SC_PER_RB, 15);
+    // Soft-scope snapshot before phase compensation: rotation is symbol-dependent, so copying
+    // after it makes the constellation jump (sometimes ~45°) between OFDM symbols. Keep the
+    // L1 TX orientation; still FFT-shift into the full-bin layout the plot expects.
+    if (do_scope && aatx < nant_scope) {
+      memset(&dl_pre[aatx * sym_len], 0, sym_len * sizeof(c16_t));
+      memcpy(&dl_pre[aatx * sym_len + first_carrier_offset], txDataF[aatx], num_samp_half * sizeof(c16_t));
+      memcpy(&dl_pre[aatx * sym_len], txDataF[aatx] + num_samp_half, num_samp_half * sizeof(c16_t));
+    }
+    // Phase compensation (air interface only — not fed to the scope)
+    rotate_cpx_vector(txDataF[aatx], *rotation, txDataF[aatx], nb_re, 15);
     // FFT Shift
-    const int num_samp_half = fp->N_RB_DL * NR_NB_SC_PER_RB / 2;
-    const int first_carrier_offset = fp->ofdm_symbol_size - num_samp_half;
     memcpy(txdataF_shifted + first_carrier_offset, txDataF[aatx], num_samp_half * sizeof(c16_t));
     memcpy(txdataF_shifted, txDataF[aatx] + num_samp_half, num_samp_half * sizeof(c16_t));
     fft_and_cp_insertion(ru->nr_frame_parms,
@@ -438,6 +526,12 @@ static void dl_symbol_process(ORU_t *oru, int frame, int slot, int symbol, c16_t
                          (c16_t *)&ru->common.txdata[aatx][slot_offset + symbol_offset],
                          slot,
                          symbol);
+  }
+
+  if (do_scope) {
+    // Fixed length so copyData() never realloc()s under the scope reader.
+    oru_scope_copy(ru, oruDLpreFreq, dl_pre, sizeof(c16_t), nant_scope, sym_len, 0, frame, slot);
+    oru_scope_copy_dl_post(ru, dl_pre, nant_scope, sym_len, frame, slot);
   }
 
   clock_gettime(CLOCK_MONOTONIC, &end);
@@ -888,6 +982,9 @@ void *oru_south_read_thread(void *arg)
 
   while (!oai_exit) {
     int rx_slot_type = nr_slot_select(&ru->config, frame, slot);
+    // Pick the UL symbol carrying the most energy for the UL post-channel constellation.
+    int scope_ul_symbol = -1;
+    uint64_t scope_ul_energy = 0;
     for (int symbol = 0; symbol < 14; symbol++) {
       int samples_to_read = get_samples_symbol_duration(fp, slot, symbol, 1);
       size_t offset = get_samples_slot_timestamp(fp, slot) + get_samples_symbol_timestamp(fp, slot, symbol);
@@ -925,6 +1022,17 @@ void *oru_south_read_thread(void *arg)
       }
 
       if (rx_slot_type == NR_UPLINK_SLOT || rx_slot_type == NR_MIXED_SLOT) {
+
+        // Scope: prefer UL symbols with energy (single writer; no race with PUSCH jobs).
+        if (ru->scopeData) {
+          uint64_t e = 0;
+          for (int k = 0; k < samples_to_read; k++)
+            e += (uint64_t)abs(rxp[0][k].r) + (uint64_t)abs(rxp[0][k].i);
+          if (e > scope_ul_energy) {
+            scope_ul_energy = e;
+            scope_ul_symbol = symbol;
+          }
+        }
 
         // Process pending jobs whose next symbol matches the current one
         for (int i = 0; i < MAX_PENDING_UL_JOBS; i++) {
@@ -972,6 +1080,8 @@ void *oru_south_read_thread(void *arg)
       if (prach_symbol != -1)
         receive_prach(oru, frame, slot, symbol, prach_symbol);
     }
+    if (ru->scopeData && scope_ul_symbol >= 0)
+      oru_scope_copy_ul_post(oru, frame, slot, scope_ul_symbol);
     slot++;
     if (slot == fp->slots_per_frame) {
       slot = 0;

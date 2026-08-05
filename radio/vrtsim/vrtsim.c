@@ -1004,6 +1004,86 @@ static int vrtsim_read(openair0_device_t *device, openair0_timestamp_t *ptimesta
   return nsamps;
 }
 
+// DFT of a complex CIR (length cir_len) onto fft_sz bins -> H_fft[k].
+static void vrtsim_cir_to_hfreq(cf_t *hf, const struct complexf *cir, int cir_len, int fft_sz)
+{
+  for (int k = 0; k < fft_sz; k++) {
+    float re = 0.0f;
+    float im = 0.0f;
+    for (int l = 0; l < cir_len; l++) {
+      float phase = -2.0f * (float)M_PI * (float)k * (float)l / (float)fft_sz;
+      float co = cosf(phase);
+      float si = sinf(phase);
+      re += cir[l].r * co - cir[l].i * si;
+      im += cir[l].r * si + cir[l].i * co;
+    }
+    hf[k].r = re;
+    hf[k].i = im;
+  }
+}
+
+// O-RU scope: Y[tx][k] = X[tx][k] * H_fft[ref_rx][tx][k] using the current server DL channel model.
+static int vrtsim_dl_post_freq_scope(openair0_device_t *device,
+                                     c16_t *y_out,
+                                     const c16_t *x_in,
+                                     int fft_sz,
+                                     int n_tx,
+                                     int ref_rx)
+{
+  if (!device || !y_out || !x_in || fft_sz <= 0 || n_tx <= 0)
+    return -1;
+  vrtsim_state_t *vrtsim_state = (vrtsim_state_t *)device->priv;
+  if (!vrtsim_state || vrtsim_state->role != ROLE_SERVER)
+    return -1;
+  if (!(vrtsim_state->chanmod || vrtsim_state->taps_socket || vrtsim_state->use_cirdb))
+    return -1;
+
+  channel_desc_t *chan_desc = NULL;
+#ifdef OAI_VRTSIM_TAPS_CLIENT
+  if (vrtsim_state->taps_client)
+    chan_desc = taps_client_get_model(vrtsim_state->taps_client, 0);
+#endif
+  if (!chan_desc && vrtsim_state->channel_desc[0])
+    chan_desc = vrtsim_state->channel_desc[0];
+  if (!chan_desc || !chan_desc->ch_ps)
+    return -1;
+
+  const int nb_tx = chan_desc->nb_tx;
+  const int nb_rx = chan_desc->nb_rx;
+  if (ref_rx < 0 || ref_rx >= nb_rx)
+    ref_rx = 0;
+  n_tx = min(n_tx, nb_tx);
+
+  const int cir_len = (int)chan_desc->channel_length;
+  if (cir_len <= 0)
+    return -1;
+
+  float pathloss_linear = 1.0f;
+  if (!vrtsim_state->taps_socket && !vrtsim_state->use_cirdb)
+    pathloss_linear = powf(10.0f, (float)chan_desc->path_loss_dB / 20.0f);
+
+  cf_t hf[fft_sz] __attribute__((aligned(32)));
+  for (int aatx = 0; aatx < n_tx; aatx++) {
+    const int idx = ref_rx + aatx * nb_rx;
+    struct complexf cir_scaled[cir_len];
+    const struct complexf *cir = chan_desc->ch_ps[idx];
+    for (int l = 0; l < cir_len; l++) {
+      cir_scaled[l].r = cir[l].r * pathloss_linear;
+      cir_scaled[l].i = cir[l].i * pathloss_linear;
+    }
+    vrtsim_cir_to_hfreq(hf, cir_scaled, cir_len, fft_sz);
+    c16_t *y = &y_out[aatx * fft_sz];
+    const c16_t *x = &x_in[aatx * fft_sz];
+    for (int k = 0; k < fft_sz; k++) {
+      const float xr = (float)x[k].r;
+      const float xi = (float)x[k].i;
+      y[k].r = (int16_t)lroundf(xr * hf[k].r - xi * hf[k].i);
+      y[k].i = (int16_t)lroundf(xr * hf[k].i + xi * hf[k].r);
+    }
+  }
+  return 0;
+}
+
 static void vrtsim_end(openair0_device_t *device)
 {
   vrtsim_state_t *vrtsim_state = (vrtsim_state_t *)device->priv;
@@ -1156,6 +1236,8 @@ __attribute__((__visibility__("default"))) int device_init(openair0_device_t *de
     channel_pipeline_init(noise_power);
     initNamedTpool(vrtsim_state->thread_pool_cores, &vrtsim_state->tpool, false, "vrtsim_chanmod");
 #endif
+    if (vrtsim_state->role == ROLE_SERVER)
+      device->trx_dl_post_freq_scope_func = vrtsim_dl_post_freq_scope;
   }
   openair0_cfg->rx_gain[0] = 0;
   return 0;
