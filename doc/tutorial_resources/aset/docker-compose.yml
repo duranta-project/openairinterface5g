@@ -1,0 +1,218 @@
+# GH200 / ASET: O-RU + gNB + NR UE (vrtsim) + remote CIR taps on one host
+#
+# Build images: docker compose build  (or ./build-containers.sh). The shared ran-base /
+#   ran-build stages are declared as build-only helper services (deploy.replicas: 0) and
+#   referenced via `additional_contexts: aset-ran-*: service:<svc>` (bake aliases, not the
+#   published image tags — avoids packaging racing a stale ran-build under COMPOSE_BAKE).
+# Stack (FHI 7.2 built-in L1 + static CIR taps):  docker compose up --build
+# Stack on NVIDIA Aerial cuPHY L1 (FAPI):          docker compose -f docker-compose.aerial.yml up
+#
+# The `taps` service publishes DL/UL CIRs over nanomsg; nr-oru/nr-ue read them via
+# --vrtsim.taps-socket. Live gain: `docker exec taps set-gain --dl -20` / `--ul -6`.
+#
+# XForms soft-scope (`-d`) on nr-oru + gnb + nr-ue is gated on DISPLAY: `${DISPLAY:+-d}` expands
+# to `-d` only when DISPLAY is set/non-empty. The adjacent .env pins DISPLAY=:1, so the scopes
+# open by default (host: `xhost +local:root`). Disable per run: `DISPLAY= docker compose up`.
+#
+# Do not use `command:` — it replaces the image CMD. Extra flags via USE_ADDITIONAL_OPTIONS.
+# vrtsim: O-RU server, UE client — share vrtsim-run + ipc: host on nr-ue.
+volumes:
+  vrtsim-run:
+
+services:
+  # Shared build stages, mirroring build-containers.sh. `deploy.replicas: 0` keeps them out of
+  # `up`; they are still built on demand because the runtime services below reference them via
+  # `additional_contexts: ...: service:<name>` (Compose builds referenced services first).
+  ran-base:
+    image: ran-base-aset:latest
+    deploy:
+      replicas: 0
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.base.ubuntu
+      target: ran-base
+      args:
+        UBUNTU_IMAGE: ${UBUNTU_IMAGE:-ubuntu:noble}
+
+  ran-build:
+    image: ran-build-fhi72-aset:latest
+    deploy:
+      replicas: 0
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.build.fhi72.aset.ubuntu
+      target: ran-build-fhi72-aset
+      args:
+        UBUNTU_IMAGE: ${UBUNTU_IMAGE:-ubuntu:noble}
+      additional_contexts:
+        # Alias must not equal the published tag — Bake would otherwise race and
+        # let dependents FROM the old image while this service rebuilds.
+        aset-ran-base: "service:ran-base"
+
+  nr-oru:
+    image: oai-nr-oru-aset:latest
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.nrORU.fhi72.aset.ubuntu
+      target: oai-nr-oru
+      args:
+        UBUNTU_IMAGE: ${UBUNTU_IMAGE:-ubuntu:noble}
+      additional_contexts:
+        aset-ran-base: "service:ran-base"
+        aset-ran-build: "service:ran-build"
+    container_name: nr-oru
+    cpuset: "19-31"
+    privileged: true
+    network_mode: host
+    ipc: host
+    cap_add:
+      - SYS_NICE
+      - IPC_LOCK
+      - SYS_ADMIN
+    ulimits:
+      memlock: -1
+    depends_on:
+      - taps
+    environment:
+      DISPLAY: ${DISPLAY}
+      USE_ADDITIONAL_OPTIONS: >-
+        ${DISPLAY:+-d}
+        --device.name vrtsim
+        --vrtsim.role server
+        --vrtsim.connection_descriptor /run/vrtsim/vrtsim_connection
+        --vrtsim.num_ues 1
+        --vrtsim.ue_config.[0].antennas 2x2
+        --vrtsim.chanmod 1
+        --vrtsim.thread-pool 28,29,30
+        --vrtsim.timing-thread-core 31
+        --vrtsim.taps-socket ipc:///tmp/vrtsim_taps_server.ipc
+        --log_config.global_log_options level,nocolor,utc_time
+    volumes:
+      - ./conf/ru.band77.gh200.conf:/opt/nr-oru/etc/nr-oru.conf:ro
+      - /dev/hugepages:/dev/hugepages
+      - /sys/bus/pci/devices:/sys/bus/pci/devices:ro
+      - vrtsim-run:/run/vrtsim
+      - /tmp:/tmp
+      - ../../../:/oai-ran:ro
+
+  gnb:
+    image: oai-gnb-fhi72-aset:latest
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.gNB.fhi72.aset.ubuntu
+      target: oai-gnb-fhi72
+      args:
+        UBUNTU_IMAGE: ${UBUNTU_IMAGE:-ubuntu:noble}
+      additional_contexts:
+        aset-ran-base: "service:ran-base"
+        aset-ran-build: "service:ran-build"
+    container_name: gnb-fhi72
+    cpuset: "13-18"
+    privileged: true
+    network_mode: host
+    ipc: host
+    depends_on:
+      - nr-oru
+    cap_add:
+      - SYS_NICE
+      - IPC_LOCK
+      - SYS_ADMIN
+    ulimits:
+      memlock: -1
+    environment:
+      DISPLAY: ${DISPLAY}
+      USE_ADDITIONAL_OPTIONS: >-
+        ${DISPLAY:+-d}
+        --log_config.global_log_options level,nocolor,utc_time
+    volumes:
+      # Stock entrypoint uses /opt/oai-gnb/etc/gnb.conf; mount the L1 wrapper there and
+      # the shared @include sibling beside it (libconfig include dir = dirname of -O file).
+      - ./conf/gnb.sa.band77.gh200.conf:/opt/oai-gnb/etc/gnb.conf:ro
+      - ./conf/gnb.sa.band77.gh200.common.conf:/opt/oai-gnb/etc/gnb.sa.band77.gh200.common.conf:ro
+      - /dev/hugepages:/dev/hugepages
+      - /sys/bus/pci/devices:/sys/bus/pci/devices:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /dev/dri:/dev/dri
+      - ../../../:/oai-ran:ro
+
+  nr-ue:
+    image: oai-nr-ue-aset:latest
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.nrUE.aset.ubuntu
+      target: oai-nr-ue
+      args:
+        UBUNTU_IMAGE: ${UBUNTU_IMAGE:-ubuntu:noble}
+      additional_contexts:
+        aset-ran-base: "service:ran-base"
+        aset-ran-build: "service:ran-build"
+    container_name: nr-ue
+    # 33-44 are the Tpool workers (ue.sa.gh200.conf), 45-48 the vrtsim radio threads, and
+    # 49-55 the DL/UL/SYNC actors (actor-cores in the same conf), all SCHED_FIFO 97. Contiguous
+    # through 63; taps takes the last isolcpu (64). Kernel: isolcpus=...,4-64.
+    cpuset: "32-63"
+    privileged: true
+    network_mode: host
+    ipc: host
+    depends_on:
+      - taps
+      - nr-oru
+      - gnb
+    cap_add:
+      - SYS_NICE
+      - IPC_LOCK
+    environment:
+      DISPLAY: ${DISPLAY}
+      USE_ADDITIONAL_OPTIONS: >-
+        -r 106 --numerology 1 --band 77 -C 4049760000 --ssb 516
+        --device.name vrtsim
+        --vrtsim.connection_descriptor /run/vrtsim/vrtsim_connection
+        --ue-nb-ant-tx 2 --ue-nb-ant-rx 2
+        --uecap_file /opt/oai-nr-ue/etc/uecap.xml
+        --vrtsim.chanmod 1
+        --vrtsim.thread-pool 45,46,47,48
+        --vrtsim.taps-socket ipc:///tmp/vrtsim_taps_client.ipc
+        --log_config.global_log_options level,nocolor,utc_time
+    volumes:
+      - ./conf/ue.sa.gh200.conf:/opt/oai-nr-ue/etc/nr-ue.conf:ro
+      - ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/uecap_ports2.xml:/opt/oai-nr-ue/etc/uecap.xml:ro
+      - vrtsim-run:/run/vrtsim
+      - /tmp:/tmp
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ../../../:/oai-ran:ro
+
+  taps:
+    build:
+      context: .
+      dockerfile: taps/static/Dockerfile
+    image: oai-vrtsim-taps:latest
+    container_name: taps
+    # Static AWGN is sleep + tiny nanomsg pubs (~0% CPU); one core is enough even for --dual.
+    cpuset: "64"
+    network_mode: host
+    ipc: host
+    volumes:
+      - /tmp:/tmp
+    command:
+      - --dual
+      - --source
+      - static
+      - --static-mode
+      - awgn
+      # DL/UL 2x2 (O-RU nb_tx=nb_rx=2, UE 2x2)
+      - --dl-t
+      - "2"
+      - --dl-r
+      - "2"
+      - --ul-t
+      - "2"
+      - --ul-r
+      - "2"
+    environment:
+      TAPS_DL_CTL_SOCK: /tmp/vrtsim_taps_dl.ctl
+      TAPS_UL_CTL_SOCK: /tmp/vrtsim_taps_ul.ctl
+      TAPS_STATIC_MODE: awgn
+      SIONNA_DL_TX: "2"
+      SIONNA_DL_RX: "2"
+      SIONNA_UL_TX: "2"
+      SIONNA_UL_RX: "2"

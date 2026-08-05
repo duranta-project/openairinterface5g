@@ -1,0 +1,198 @@
+# ASET / GH200: run the RAN stack on the NVIDIA Aerial cuPHY L1 (FAPI split)
+# with static CIR taps (publish_taps.py --dual --source static).
+#
+#   # First run / after code changes - build every image (no build-containers.sh needed):
+#   docker compose -f docker-compose.aerial.yml build
+#   # Then start the stack:
+#   docker compose -f docker-compose.aerial.yml up
+#   # (or do both at once: `... up --build`)
+#
+# Builds run concurrently: the adjacent .env sets COMPOSE_BAKE=true, so Compose solves the
+# whole image graph in a single BuildKit/bake session and builds independent images in
+# parallel (ran-base + taps, then ran-build, then nr-oru + nr-ue + ...). Runtime Dockerfiles
+# FROM bake-only aliases (aset-ran-build), not the published image tags, so packaging cannot
+# race ahead and COPY from a stale ran-build-fhi72-aset:latest. Without bake the classic
+# builder serializes the shared `additional_contexts: service:...` stages.
+# nv-cubb builds from CUBB_SDK/Dockerfile (NGC base + compile); needs `docker login nvcr.io`.
+#
+# Live tap gain:
+#   docker exec taps set-gain --dl -20
+#   docker exec taps set-gain --ul -6
+#
+# Requires OAI images built with OAI_VRTSIM_TAPS_CLIENT=ON (enabled in the aset Dockerfiles).
+# Overlays docker-compose.yml (Compose Spec `include`, v2.20+): keeps nr-oru + nr-ue as-is,
+# adds the nv-cubb Aerial L1 service, and re-points the gnb service from the FHI 7.2 built-in
+# L1 (oai-gnb-fhi72-aset) to the FAPI VNF image (oai-gnb-aerial-aset) talking to nv-cubb over
+# nvIPC shared memory (ipc: container:nv-cubb). Override the Aerial image with CUBB_IMAGE.
+#
+# Build wiring: `docker compose build` (or `up --build`) builds the full image graph.
+# The shared ran-base / ran-build stages live in docker-compose.yml (included below) with
+# `deploy.replicas: 0`; runtime services reference them via `additional_contexts`.
+# Requires Compose v2.17+ with BuildKit; the .env enables the Bake backend for concurrency.
+# The Aerial gNB build packs nvIPC from the cuBB SDK (CUBB_SDK build context) inside
+# docker/Dockerfile.gNB.aerial.aset.ubuntu - no manual nvipc_src tarball at repo root.
+#
+# L1 fronthaul (nv-cubb -> nr-oru) is configured in conf/cuphycontroller_P5G_ASET.yaml.
+#
+# Startup order: nr-oru starts first (no wait on L1). nv-cubb may start once the O-RU
+# container is up; gnb waits for nv-cubb healthy + nr-oru started. Do NOT gate nr-oru on
+# nv-cubb healthy - vrtsim's sample counter runs during xRAN init and rx_initial_sync will
+# see sample 0 vs ~500M+ (OTA vs vrtsim mismatch) if the O-RU starts after L1 is already up.
+
+include:
+  - path: docker-compose.yml
+
+services:
+  # ran-base / ran-build build stages are inherited from docker-compose.yml (include above);
+  # the runtime build blocks below reference them via `additional_contexts: ...: service:<name>`.
+  nv-cubb:
+    image: ${CUBB_IMAGE:-aerial-cuda-accelerated-ran:latest}
+    build:
+      context: ${CUBB_SDK:-${HOME}/aerial-cuda-accelerated-ran}
+      dockerfile: Dockerfile
+      args:
+        AERIAL_BASE_IMAGE: ${AERIAL_BASE_IMAGE:-nvcr.io/nvidia/aerial/aerial-cuda-accelerated-ran:26-1}
+        PROFILE: ${AERIAL_PROFILE:-oai.conf}
+        AERIAL_BUILD_FLAGS: ${AERIAL_BUILD_FLAGS:---cuda-archs 90}
+    container_name: nv-cubb
+    privileged: true
+    network_mode: host
+    ipc: "shareable"
+    stdin_open: true
+    tty: true
+    userns_mode: host
+    shm_size: 4096m
+    depends_on:
+      - nr-oru
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities:
+                - gpu
+    environment:
+      - cuBB_SDK=/opt/nvidia/cuBB
+      - AERIAL_LOG_PATH=/tmp
+    volumes:
+      - /lib/modules:/lib/modules
+      - /dev/hugepages:/dev/hugepages
+      - /usr/src:/usr/src
+      - /sys/bus/pci/devices:/sys/bus/pci/devices:ro
+      - ${CUBB_SDK:-${HOME}/aerial-cuda-accelerated-ran}:/opt/nvidia/cuBB/
+      - ./conf/cuphycontroller_P5G_ASET.yaml:/opt/nvidia/cuBB/cuPHY-CP/cuphycontroller/config/cuphycontroller_P5G_ASET.yaml
+      - ./conf/l2_adapter_config_P5G_GH.yaml:/opt/nvidia/cuBB/cuPHY-CP/cuphycontroller/config/l2_adapter_config_P5G_GH.yaml
+      - /var/log/aerial:/var/log/aerial
+      - ../../../cmake_targets/share:/opt/cuBB/share
+    command: bash -c "rm -f /tmp/phy.log /tmp/l1.ready && /opt/nvidia/cuBB/run_l1.sh P5G_ASET & while ! tail -n 100 /tmp/phy.log 2>/dev/null | grep -q 'L1 is ready!'; do sleep 0.5; done; touch /tmp/l1.ready; wait"
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/l1.ready"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
+      start_period: 120s
+      start_interval: 5s
+
+  # O-RU must be up before Aerial L1 sends FH (vrtsim/xRAN timing sync). Starts first;
+  #
+  # `${DISPLAY:+-d}` opens the O-RU XForms soft-scope (pre-/post-channelized PDSCH + PUSCH IQ)
+  # whenever DISPLAY is set (the .env pins DISPLAY=:1; `DISPLAY= docker compose up` disables it).
+  # The taps live inside the O-RU below the 7.2 fronthaul, so this works with the Aerial L1.
+  # DISPLAY + the base `/tmp:/tmp` mount give the window an X11 socket (host: `xhost +local:root`).
+  nr-oru:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.nrORU.fhi72.aset.ubuntu
+      target: oai-nr-oru
+      args:
+        UBUNTU_IMAGE: ${UBUNTU_IMAGE:-ubuntu:noble}
+      additional_contexts:
+        aset-ran-base: "service:ran-base"
+        aset-ran-build: "service:ran-build"
+    depends_on:
+      - taps
+    volumes:
+      # Aerial cuBB binds the trunk VF4 (0000:01:00.7), so the O-RU's du_addr is the Aerial DU MAC -
+      # different from the built-in-L1 OAI DU config (VF0/VF1 MAC) mounted by docker-compose.yml.
+      - ./conf/ru.band77.gh200.aerial.conf:/opt/nr-oru/etc/nr-oru.conf:ro
+    environment:
+      # Opt-in in-process UL FH pcap (async ring -> writer thread). Uncomment to capture.
+      #ORU_UL_PCAP_PATH: /tmp/oru_ul.pcap
+      #ORU_UL_PCAP_MAX: "2000"
+      #ORU_UL_PCAP_CHAN: "pusch"
+      DISPLAY: ${DISPLAY:-""}
+      USE_ADDITIONAL_OPTIONS: >-
+        ${DISPLAY:+-d}
+        --device.name vrtsim
+        --vrtsim.role server
+        --vrtsim.connection_descriptor /run/vrtsim/vrtsim_connection
+        --vrtsim.num_ues 1
+        --vrtsim.ue_config.[0].antennas 2x2
+        --vrtsim.chanmod 1
+        --vrtsim.thread-pool 28,29,30
+        --vrtsim.timing-thread-core 31
+        --vrtsim.taps-socket ipc:///tmp/vrtsim_taps_server.ipc
+        --log_config.global_log_options level,nocolor,utc_time
+
+  gnb:
+    image: oai-gnb-aerial-aset:latest
+    container_name: gnb-aerial
+    # FAPI VNF: Dockerfile packs nvIPC from cubb-sdk, then builds libnvipc + nr-softmodem.
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.gNB.aerial.aset.ubuntu
+      target: oai-gnb-aerial
+      args:
+        UBUNTU_IMAGE: ${UBUNTU_IMAGE:-ubuntu:noble}
+        AERIAL_IMAGE: ${AERIAL_IMAGE:-aerial-cuda-accelerated-ran:latest}
+      additional_contexts:
+        aset-ran-base: "service:ran-base"
+        cubb-sdk: ${CUBB_SDK:-${HOME}/aerial-cuda-accelerated-ran}
+    # Aerial gNB is a FAPI VNF; it does not own the fronthaul NIC, so drop privileged mode.
+    privileged: false
+    ipc: "container:nv-cubb"
+    depends_on:
+      nv-cubb:
+        condition: service_healthy
+      nr-oru:
+        condition: service_started
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities:
+                - gpu
+    shm_size: 4096m
+    volumes:
+      # Inherit common.conf mount from base; swap the entry wrapper for the Aerial VNF.
+      - ./conf/gnb.sa.band77.gh200.aerial.conf:/opt/oai-gnb/etc/gnb.conf:ro
+
+  nr-ue:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.nrUE.aset.ubuntu
+      target: oai-nr-ue
+      args:
+        UBUNTU_IMAGE: ${UBUNTU_IMAGE:-ubuntu:noble}
+      additional_contexts:
+        aset-ran-base: "service:ran-base"
+        aset-ran-build: "service:ran-build"
+    depends_on:
+      - taps
+      - nr-oru
+      - gnb
+    environment:
+      DISPLAY: ${DISPLAY:-""}
+      USE_ADDITIONAL_OPTIONS: >-
+        -r 106 --numerology 1 --band 77 -C 4049760000 --ssb 516
+        --device.name vrtsim
+        --vrtsim.connection_descriptor /run/vrtsim/vrtsim_connection
+        --ue-nb-ant-tx 2 --ue-nb-ant-rx 2
+        --uecap_file /opt/oai-nr-ue/etc/uecap.xml
+        --vrtsim.chanmod 1
+        --vrtsim.thread-pool 45,46,47,48
+        --vrtsim.taps-socket ipc:///tmp/vrtsim_taps_client.ipc
+        --log_config.global_log_options level,nocolor,utc_time

@@ -1,0 +1,122 @@
+#/*
+# * ASET / GH200 FHI 7.2 build image (doc/tutorial_resources/aset/README.md).
+# * Shares Dockerfile.base.ubuntu as ran-base (tag ran-base-aset); does NOT FROM
+# * Dockerfile.build.fhi72.ubuntu — that recipe is DPDK 20.11 / x86 / FlexRIC and
+# * cannot supply DPDK 22.11, aarch64 xRAN+Arm RAL, mlx5, or OAI_VRTSIM_TAPS_CLIENT.
+# *
+# *   - DPDK 22.11.x → /usr/local (-Dplatform=generic)
+# *   - xRAN K release (11.1.5) from openairinterface/o-du-phy (+ mlx5 jumbo mbuf fix)
+# *   - OAI: gNB, nr-oru, nr-UE, vrtsim, oran_fhlib_5g, taps client
+# * Tag: ran-build-fhi72-aset:latest
+# * Compose supplies aset-ran-base via additional_contexts (service:ran-base).
+# * Manual: --build-context aset-ran-base=docker-image://ran-base-aset:latest
+# */
+FROM aset-ran-base AS ran-base
+
+ARG DPDK_VERSION=22.11.11
+ARG xran_VERSION=11.1.5
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Europe
+RUN apt-get update && \
+    apt-get upgrade --yes && \
+    apt-get install --yes \
+        meson \
+        ninja-build \
+        wget \
+        xz-utils \
+        pkg-config \
+        libnuma-dev \
+        python3-pip \
+        libibverbs-dev \
+        rdma-core \
+        libglfw3-dev \
+        libopengl-dev \
+        libgl1-mesa-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN rm -Rf /oai-ran
+WORKDIR /oai-ran
+
+## DPDK 22.11 per O-RU README (prefix /usr/local; all deps installed in-image)
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+RUN pip3 install --no-cache-dir pyelftools && \
+    python3 -c "from elftools.elf.elffile import ELFFile" && \
+    wget -q http://fast.dpdk.org/rel/dpdk-${DPDK_VERSION}.tar.xz && \
+    tar -xf dpdk-${DPDK_VERSION}.tar.xz && \
+    cd dpdk-stable-${DPDK_VERSION} && \
+    meson setup build --prefix=/usr/local -Dplatform=generic && \
+    ninja -C build && \
+    ninja -C build install && \
+    ldconfig && \
+    DPDK_LIBDIR=$(gcc -dumpmachine) && \
+    MLX5_PMD=$(find "/usr/local/lib/${DPDK_LIBDIR}/dpdk" -name 'librte_net_mlx5.so*' -print -quit) && \
+    test -n "$MLX5_PMD" || \
+      (echo "ERROR: DPDK mlx5 PMD missing — ConnectX VFs will not attach"; exit 1)
+
+## xRAN K release / FHI library (+ mlx5 jumbo mbuf fix for GH200)
+## TARGET defaults to `uname -m` (aarch64 or x86_64) and the Makefile gates the avx512 flags on
+## x86_64, so the K release needs no explicit target — unlike the F release, which wanted armv8.
+RUN git clone https://github.com/openairinterface/o-du-phy.git /opt/phy && \
+    cd /opt/phy && \
+    git checkout ${xran_VERSION} && \
+    sed -i 's/#define MBUF_POOL_ELEMENT (MAX_RX_LEN + RTE_PKTMBUF_HEADROOM)/#define MBUF_POOL_ELEMENT (MAX_RX_LEN + RTE_ETHER_HDR_LEN + 4 + RTE_PKTMBUF_HEADROOM)/' \
+        fhi_lib/lib/ethernet/ethernet.h && \
+    grep -q 'RTE_ETHER_HDR_LEN + 4 + RTE_PKTMBUF_HEADROOM' fhi_lib/lib/ethernet/ethernet.h || \
+      (echo 'ERROR: mlx5 jumbo mbuf fix not applied to ethernet.h'; exit 1) && \
+    cd /opt/phy/fhi_lib/lib && \
+    ARCH_LIB=$(gcc -dumpmachine) && \
+    export PKG_CONFIG_PATH="/usr/local/lib/${ARCH_LIB}/pkgconfig:/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}" && \
+    echo "Building libxran on $(uname -m)" && \
+    make XRAN_LIB_SO=1 \
+        WIRELESS_SDK_TOOLCHAIN=gcc \
+        RTE_SDK=/oai-ran/dpdk-stable-${DPDK_VERSION}/ \
+        XRAN_DIR=/opt/phy/fhi_lib
+
+## Arm RAL (required by radio/fhi_72 on aarch64 — see Dockerfile.build.fhi72.native_arm.ubuntu)
+RUN mkdir -p /opt/oai-arm-libs && \
+    case "$(uname -m)" in \
+        aarch64|arm64) \
+            git clone https://git.gitlab.arm.com/networking/ral.git /opt/ral && \
+            cd /opt/ral && \
+            git checkout armral-25.01 && \
+            cmake -GNinja -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=/usr/local -B build /opt/ral && \
+            cmake --build build && \
+            cmake --install build && \
+            ldconfig && \
+            test -f /usr/local/include/armral.h && \
+            cp -a /usr/local/lib/libarmral.so* /opt/oai-arm-libs/ ;; \
+        *) \
+            echo "Skipping Arm RAL on $(uname -m)"; \
+            touch /opt/oai-arm-libs/.keep ;; \
+    esac
+
+RUN DPDK_LIBDIR=$(gcc -dumpmachine) && \
+    mkdir -p /opt/oai-dpdk-lib && \
+    if [ -d "/usr/local/lib/${DPDK_LIBDIR}" ]; then \
+        cp -a "/usr/local/lib/${DPDK_LIBDIR}/." /opt/oai-dpdk-lib/; \
+    fi && \
+    echo "${DPDK_LIBDIR}" > /opt/oai-dpdk-libdir
+
+COPY . .
+
+FROM ran-base AS ran-build-fhi72-aset
+
+RUN \
+   --mount=type=cache,target=/root/.cache/ccache/ \
+   --mount=type=cache,target=/root/.cache/cpm/ \
+    /bin/sh oaienv && \
+    cd cmake_targets && \
+    mkdir -p log && \
+    ./build_oai \
+      --ninja --gNB --nrRU --nrUE \
+      --build-lib "telnetsrv enbscope uescope nrscope imscope" \
+      -t oran_fhlib_5g \
+      --cmake-opt -Dxran_LOCATION=/opt/phy/fhi_lib/lib \
+      --cmake-opt -DCMAKE_PREFIX_PATH=/usr/local \
+      --cmake-opt -DOAI_VRTSIM_TAPS_CLIENT=ON && \
+    pkg-config --modversion libdpdk && \
+    ldd ran_build/build/nr-softmodem && \
+    ldd ran_build/build/nr-oru && \
+    ldd ran_build/build/nr-uesoftmodem && \
+    ldd ran_build/build/liboran_fhlib_5g.so && \
+    ldd /opt/phy/fhi_lib/lib/build/libxran.so

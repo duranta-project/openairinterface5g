@@ -1,0 +1,73 @@
+#/*
+# * NR UE with vrtsim runtime image (doc/tutorial_resources/aset/README.md)
+# * Tag: oai-nr-ue-aset:latest
+# *
+# * Contexts aset-ran-base / aset-ran-build: see Dockerfile.nrORU.fhi72.aset.ubuntu
+# * (must not FROM the published ran-build tag under COMPOSE_BAKE).
+# */
+ARG UBUNTU_IMAGE=ubuntu:noble
+ARG BUILD_IMAGE=aset-ran-build
+FROM aset-ran-base AS ran-base
+FROM ${BUILD_IMAGE} AS nr-ue-build
+
+FROM ${UBUNTU_IMAGE} AS oai-nr-ue
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Europe/Paris
+ENV PATH="/opt/oai-nr-ue/bin:$PATH"
+
+RUN apt-get update && \
+    apt-get upgrade --yes && \
+    apt-get install --yes \
+        arping \
+        software-properties-common \
+        procps \
+        libsctp1 \
+        tzdata \
+        libconfig9 \
+        openssl \
+        net-tools \
+        gdb \
+        python3 \
+        python3-six \
+        python3-requests \
+        iputils-ping \
+        iproute2 \
+        iperf3 \
+        iperf \
+        libyaml-cpp-dev \
+        libnanomsg5 \
+        libforms2 \
+        libx11-6 \
+        libxpm4 && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/oai-nr-ue/bin
+COPY --from=nr-ue-build \
+    /oai-ran/cmake_targets/ran_build/build/nr-uesoftmodem \
+    /oai-ran/cmake_targets/ran_build/build/common/utils/T/tracer/record* \
+    ./
+COPY ./docker/scripts/nr_ue_entrypoint.sh ./entrypoint.sh
+
+COPY --from=nr-ue-build \
+    /oai-ran/cmake_targets/ran_build/build/librfsimulator.so \
+    /oai-ran/cmake_targets/ran_build/build/libcoding.so \
+    /oai-ran/cmake_targets/ran_build/build/libparams_libconfig.so \
+    /oai-ran/cmake_targets/ran_build/build/libdfts.so \
+    /oai-ran/cmake_targets/ran_build/build/libldpc*.so \
+    /oai-ran/cmake_targets/ran_build/build/libparams_yaml.so \
+    /oai-ran/cmake_targets/ran_build/build/libvrtsim.so \
+    /oai-ran/cmake_targets/ran_build/build/libnrscope.so \
+    /usr/local/lib/
+
+RUN ldconfig && \
+    echo "---- ldd on nr-uesoftmodem ----" && \
+    ldd /opt/oai-nr-ue/bin/nr-uesoftmodem
+
+WORKDIR /opt/oai-nr-ue
+
+COPY --from=ran-base /usr/local/bin/yq /usr/local/bin/yq
+COPY --from=ran-base /tini /tini
+COPY --from=nr-ue-build /oai-ran/common/utils/T/T_messages.txt ./
+
+ENTRYPOINT ["/tini", "-v", "--", "/opt/oai-nr-ue/bin/entrypoint.sh"]
+CMD ["/opt/oai-nr-ue/bin/nr-uesoftmodem"]

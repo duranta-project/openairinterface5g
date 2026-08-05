@@ -1,0 +1,130 @@
+#/*
+# * gNB (FAPI VNF) built against the Aerial cuPHY L1 (doc/tutorial_resources/aset/README.md).
+# * Tag: oai-gnb-aerial-aset:latest
+# *
+# * Requires:
+# *   - docker build --tag ran-base-aset:latest -f docker/Dockerfile.base.ubuntu .
+# *   - cuBB SDK available as a named build context (packs nvIPC during the build):
+# *       docker build \
+# *         --build-context cubb-sdk=/path/to/aerial-cuda-accelerated-ran \
+# *         --build-arg AERIAL_IMAGE=aerial-cuda-accelerated-ran:latest \
+# *         -f docker/Dockerfile.gNB.aerial.aset.ubuntu .
+# *     Or via compose (docker-compose.aerial.yml sets cubb-sdk + AERIAL_IMAGE).
+# */
+# syntax=docker/dockerfile:1.4
+
+ARG AERIAL_IMAGE=aerial-cuda-accelerated-ran:latest
+ARG UBUNTU_IMAGE=ubuntu:noble
+
+# Pack nvIPC from the cuBB SDK (pack_nvipc.sh). The runtime aerial image ships with an
+# empty /opt/nvidia/cuBB; the SDK is supplied through the cubb-sdk build context.
+FROM ${AERIAL_IMAGE} AS nvipc-src
+USER root
+COPY --from=cubb-sdk cuPHY-CP/gt_common_libs /opt/nvidia/cuBB/cuPHY-CP/gt_common_libs
+COPY --from=cubb-sdk cuPHY/nvlog /opt/nvidia/cuBB/cuPHY/nvlog
+COPY --from=cubb-sdk cuPHY-CP/container/patches /opt/nvidia/cuBB/cuPHY-CP/container/patches
+WORKDIR /opt/nvidia/cuBB/cuPHY-CP/gt_common_libs
+RUN set -eux; \
+    ./pack_nvipc.sh; \
+    TAR=$(ls -1t nvipc_src.*.tar.gz | head -1); \
+    cp "$TAR" /tmp/nvipc_src.tar.gz
+
+FROM aset-ran-base AS ran-build
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get upgrade --yes && \
+    DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+       wget \
+       ninja-build \
+       #unzip is needed for protobuf
+       unzip \
+       moreutils \
+       vim-tiny \
+       nano \
+       # To build libnvipc
+       cmake libpcap-dev libcunit1-dev libnuma-dev pkg-config
+
+RUN rm -Rf /oai-ran
+WORKDIR /oai-ran
+COPY . .
+COPY --from=nvipc-src /tmp/nvipc_src.tar.gz ./nvipc_src.tar.gz
+
+RUN /bin/sh oaienv && \
+    tar -xvzf nvipc_src.tar.gz && \
+    cd nvipc_src.*/ && \
+    rm -rf build && mkdir build && cd build && \
+    cmake .. -DNVIPC_DPDK_ENABLE=OFF -DNVIPC_DOCA_ENABLE=OFF -DNVIPC_CUDA_ENABLE=OFF -DENABLE_SLT_RSP=ON && \
+    make -j"$(nproc)" && make install
+
+RUN \
+   --mount=type=cache,target=/root/.cache/ccache/ \
+   --mount=type=cache,target=/root/.cache/cpm/ \
+    /bin/sh oaienv && \
+    cd cmake_targets && \
+    mkdir -p log && \
+    ./build_oai -w AERIAL --gNB --ninja --build-tool-opt -k10 \
+      --cmake-opt -DCMAKE_C_FLAGS="-Werror" --cmake-opt -DCMAKE_CXX_FLAGS="-Werror" \
+      --cmake-opt -DT_RECORD_DB=ON
+
+
+#start from scratch for target executable
+FROM ${UBUNTU_IMAGE} AS oai-gnb-aerial
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Europe
+ENV PATH="/opt/oai-gnb/bin:$PATH"
+
+RUN apt-get update && \
+    apt-get upgrade --yes && \
+    apt-get install --yes \
+        software-properties-common \
+        procps \
+        libsctp1 \
+        tzdata \
+        libconfig9 \
+        openssl \
+        net-tools \
+        iperf \
+        iproute2 \
+        iputils-ping \
+        gdb \
+        moreutils \
+        libusb-1.0-0 \
+        libyaml-cpp-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/oai-gnb/bin
+COPY --from=ran-build \
+    /oai-ran/cmake_targets/ran_build/build/nr-softmodem \
+    /oai-ran/cmake_targets/ran_build/build/common/utils/T/tracer/record* \
+    ./
+
+COPY ./docker/scripts/gnb_entrypoint.sh ./entrypoint.sh
+
+COPY --from=ran-build \
+  /oai-ran/cmake_targets/ran_build/build/libparams_libconfig.so \
+  /oai-ran/cmake_targets/ran_build/build/libparams_yaml.so \
+  /oai-ran/cmake_targets/ran_build/build/_deps*/fmtlog-build*/libfmtlog-shared*.so \
+  /oai-ran/cmake_targets/ran_build/build/_deps*/clickhouse-cpp-build*/clickhouse/libclickhouse*.so \
+  /usr/local/lib/
+
+COPY --from=ran-build \
+    /usr/local/lib/libnvlog.so \
+    /usr/local/lib/libnvipc.so \
+    /usr/local/lib/
+
+RUN ldconfig && \
+    echo "---- ldd on nr-softmodem ----" && \
+    ldd /opt/oai-gnb/bin/nr-softmodem && \
+    echo "---- ldd on shared libraries ----" && \
+    ldd /usr/local/lib/libparams_libconfig.so \
+        /usr/local/lib/libfmtlog-shared.so \
+        /usr/local/lib/libnvlog.so \
+        /usr/local/lib/libnvipc.so
+
+WORKDIR /opt/oai-gnb
+
+COPY --from=ran-build /usr/local/bin/yq /usr/local/bin/yq
+COPY --from=ran-build /tini /tini
+COPY --from=ran-build /oai-ran/common/utils/T/T_messages.txt ./
+ENTRYPOINT ["/tini", "-v", "--", "/opt/oai-gnb/bin/entrypoint.sh"]
+CMD ["/opt/oai-gnb/bin/nr-softmodem"]
