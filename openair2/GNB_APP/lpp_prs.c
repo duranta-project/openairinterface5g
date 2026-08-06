@@ -574,7 +574,7 @@ static LPP_NR_DL_PRS_AssistanceData_r16_t *create_prs_assistance_data(const PHY_
                                                                       size_t pattern2_length)
 {
   const NR_gNB_PRS *prs = &gNB->prs_vars;
-  const NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
+  const NR_ServingCellConfigCommon_t *scc = mac->cells[0].common_channels.ServingCellConfigCommon;
   const NR_FrequencyInfoDL_t *dl = scc->downlinkConfigCommon->frequencyInfoDL;
   const long scs = dl->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing;
   const int ssb_index = first_active_ssb(scc);
@@ -689,7 +689,7 @@ void print_lpp_nr_dl_tdoa_assistance_data(const PHY_VARS_gNB *gNB,
                                           size_t muting_pattern2_length)
 {
   AssertFatal(gNB != NULL && mac != NULL, "cannot create LPP PRS assistance data without gNB and MAC instances\n");
-  const NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
+  const NR_ServingCellConfigCommon_t *scc = mac->cells[0].common_channels.ServingCellConfigCommon;
   long bandwidth;
   if (!validate_prs_config(&gNB->prs_vars, scc, &bandwidth))
     return;
@@ -776,12 +776,12 @@ static NR_BCCH_DL_SCH_Message_t *create_rrc_possib_message(const LPP_AssistanceD
 }
 
 void print_rrc_possib_prs_assistance_data(const PHY_VARS_gNB *gNB,
-                                          const gNB_MAC_INST *mac,
+                                          gNB_MAC_INST *mac,
                                           size_t muting_pattern1_length,
                                           size_t muting_pattern2_length)
 {
   AssertFatal(gNB != NULL && mac != NULL, "cannot create PRS PosSIB without gNB and MAC instances\n");
-  const NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
+  const NR_ServingCellConfigCommon_t *scc = mac->cells[0].common_channels.ServingCellConfigCommon;
   long bandwidth;
   if (!validate_prs_config(&gNB->prs_vars, scc, &bandwidth))
     return;
@@ -819,6 +819,8 @@ void print_rrc_possib_prs_assistance_data(const PHY_VARS_gNB *gNB,
   xer_fprint(stdout, &asn_DEF_LPP_AssistanceDataSIBelement_r15, sib_element);
   LOG_I(GNB_APP, "PRS PosSIB BCCH-DL-SCH-Message:\n");
   xer_fprint(stdout, &asn_DEF_NR_BCCH_DL_SCH_Message, rrc_message);
+  if (!nr_mac_configure_pos_sib(mac, rrc_message))
+    LOG_E(GNB_APP, "failed to deliver PRS PosSIB message to NR MAC\n");
 
 cleanup:
   ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, rrc_message);

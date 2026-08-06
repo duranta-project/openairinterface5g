@@ -19,12 +19,15 @@
 #include "NR_MIB.h"
 #include "nr_mac_gNB.h"
 #include "NR_BCCH-BCH-Message.h"
+#include "NR_PosSI-SchedulingInfo-r16.h"
+#include "NR_PosSIB-Type-r16.h"
 #include "NR_ServingCellConfigCommon.h"
 #include "NR_MIB.h"
 #include "SCHED_NR/phy_frame_config_nr.h"
 #include "T.h"
 #include "asn_internal.h"
 #include "assertions.h"
+#include "constraints.h"
 #include "common/ran_context.h"
 #include "common/utils/T/T.h"
 #include "common/utils/nr/nr_common.h"
@@ -35,10 +38,12 @@
 #include "nfapi_interface.h"
 #include "nfapi_nr_interface.h"
 #include "nfapi_nr_interface_scf.h"
+#include "oai_asn1.h"
 #include "utils.h"
 #ifdef E3_AGENT
 #include "openair2/E3AP/ran_func_spectrum_extern.h"
 #endif /* E3_AGENT */
+#include "uper_encoder.h"
 
 c16_t convert_precoder_weight(double complex c_in)
 {
@@ -1073,6 +1078,8 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
 #endif /* E3_AGENT */
 }
 
+static bool configure_pos_sib_schedule(nr_cell_sched_t *cell);
+
 bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1ap_sib_msg_t cu_sib[num_cu_sib])
 {
   NR_COMMON_channels_t *cc = &cell->common_channels;
@@ -1171,6 +1178,124 @@ bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1a
 
   ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfo);
   ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfov17);
+  if (cc->pos_sib_bcch_length > 0 && !configure_pos_sib_schedule(cell))
+    return false;
+  return true;
+}
+
+static int encode_pos_sib_message(const NR_BCCH_DL_SCH_Message_t *message,
+                                  uint8_t buffer[NR_MAX_SIB_LENGTH / 8],
+                                  const char *name)
+{
+  char error_buffer[256];
+  size_t error_length = sizeof(error_buffer);
+  if (asn_check_constraints(&asn_DEF_NR_BCCH_DL_SCH_Message, message, error_buffer, &error_length) != 0) {
+    LOG_E(NR_MAC, "%s violates BCCH-DL-SCH ASN.1 constraints: %.*s\n", name, (int)error_length, error_buffer);
+    return -1;
+  }
+
+  memset(buffer, 0, NR_MAX_SIB_LENGTH / 8);
+  asn_enc_rval_t encoded =
+      uper_encode_to_buffer(&asn_DEF_NR_BCCH_DL_SCH_Message, NULL, message, buffer, NR_MAX_SIB_LENGTH / 8);
+  if (encoded.encoded <= 0 || encoded.encoded > NR_MAX_SIB_LENGTH) {
+    const char *failed_type = encoded.failed_type ? encoded.failed_type->name : "unknown";
+    LOG_E(NR_MAC,
+          "cannot encode %s within the %d-bit BCCH-DL-SCH limit (failed type %s, encoded %zd bits)\n",
+          name,
+          NR_MAX_SIB_LENGTH,
+          failed_type,
+          encoded.encoded);
+    return -1;
+  }
+  return (encoded.encoded + 7) / 8;
+}
+
+static bool configure_pos_sib_schedule(nr_cell_sched_t *cell)
+{
+  NR_COMMON_channels_t *cc = &cell->common_channels;
+  if (!cc->sib1) {
+    LOG_E(NR_MAC, "cannot configure PosSIB before SIB1 is available\n");
+    return false;
+  }
+
+  NR_SIB1_t *sib1 = cc->sib1->message.choice.c1->choice.systemInformationBlockType1;
+  if (!sib1->si_SchedulingInfo) {
+    LOG_D(NR_MAC, "deferring PosSIB activation until si-SchedulingInfo is available in SIB1\n");
+    return false;
+  }
+
+  bool created_v1610 = false;
+  NR_SIB1_v1610_IEs_t *sib1_v1610 = sib1->nonCriticalExtension;
+  if (!sib1_v1610) {
+    sib1_v1610 = calloc_or_fail(1, sizeof(*sib1_v1610));
+    sib1->nonCriticalExtension = sib1_v1610;
+    created_v1610 = true;
+  }
+
+  NR_PosSI_SchedulingInfo_r16_t *pos_schedule = calloc_or_fail(1, sizeof(*pos_schedule));
+  NR_PosSchedulingInfo_r16_t *schedule_entry = calloc_or_fail(1, sizeof(*schedule_entry));
+  schedule_entry->posSI_Periodicity_r16 = NR_PosSchedulingInfo_r16__posSI_Periodicity_r16_rf16;
+  schedule_entry->posSI_BroadcastStatus_r16 =
+      NR_PosSchedulingInfo_r16__posSI_BroadcastStatus_r16_broadcasting;
+
+  NR_PosSIB_Type_r16_t *mapping = calloc_or_fail(1, sizeof(*mapping));
+  mapping->posSibType_r16 = NR_PosSIB_Type_r16__posSibType_r16_posSibType6_1;
+  asn1cSeqAdd(&schedule_entry->posSIB_MappingInfo_r16.list, mapping);
+  asn1cSeqAdd(&pos_schedule->posSchedulingInfoList_r16.list, schedule_entry);
+
+  NR_PosSI_SchedulingInfo_r16_t *old_schedule = sib1_v1610->posSI_SchedulingInfo_r16;
+  sib1_v1610->posSI_SchedulingInfo_r16 = pos_schedule;
+
+  uint8_t sib1_buffer[NR_MAX_SIB_LENGTH / 8];
+  const int sib1_length = encode_pos_sib_message(cc->sib1, sib1_buffer, "SIB1 with PosSI scheduling");
+  if (sib1_length < 0) {
+    sib1_v1610->posSI_SchedulingInfo_r16 = old_schedule;
+    ASN_STRUCT_FREE(asn_DEF_NR_PosSI_SchedulingInfo_r16, pos_schedule);
+    if (created_v1610) {
+      sib1->nonCriticalExtension = NULL;
+      free(sib1_v1610);
+    }
+    return false;
+  }
+
+  ASN_STRUCT_FREE(asn_DEF_NR_PosSI_SchedulingInfo_r16, old_schedule);
+  cc->pos_sib_active = true;
+  memcpy(cc->sib1_bcch_pdu, sib1_buffer, sizeof(cc->sib1_bcch_pdu));
+  cc->sib1_bcch_length = sib1_length;
+
+  LOG_I(NR_MAC, "activated %d-byte posSibType6-1 message with rf16 periodicity\n", cc->pos_sib_bcch_length);
+  return true;
+}
+
+bool nr_mac_configure_pos_sib(gNB_MAC_INST *nrmac, const NR_BCCH_DL_SCH_Message_t *pos_sib)
+{
+  if (!nrmac || !pos_sib) {
+    LOG_E(NR_MAC, "cannot configure PosSIB without MAC and BCCH-DL-SCH message\n");
+    return false;
+  }
+
+  uint8_t pos_sib_buffer[NR_MAX_SIB_LENGTH / 8];
+  const int pos_sib_length = encode_pos_sib_message(pos_sib, pos_sib_buffer, "PosSIB");
+  if (pos_sib_length < 0)
+    return false;
+
+  NR_SCHED_LOCK(&nrmac->sched_lock);
+  nr_cell_sched_t *cell = &nrmac->cells[0];
+  NR_COMMON_channels_t *cc = &cell->common_channels;
+  memcpy(cc->pos_sib_bcch_pdu, pos_sib_buffer, sizeof(cc->pos_sib_bcch_pdu));
+  cc->pos_sib_bcch_length = pos_sib_length;
+  cc->pos_sib_active = false;
+
+  bool activated = false;
+  NR_SIB1_t *sib1 = NULL;
+  if (cc->sib1)
+    sib1 = cc->sib1->message.choice.c1->choice.systemInformationBlockType1;
+  if (sib1 && sib1->si_SchedulingInfo)
+    activated = configure_pos_sib_schedule(cell);
+  NR_SCHED_UNLOCK(&nrmac->sched_lock);
+
+  if (!activated)
+    LOG_I(NR_MAC, "stored %d-byte PosSIB pending SIB1 SI scheduling configuration\n", pos_sib_length);
   return true;
 }
 

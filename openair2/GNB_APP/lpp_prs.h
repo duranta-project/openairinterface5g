@@ -15,7 +15,7 @@ void print_lpp_nr_dl_tdoa_assistance_data(const struct PHY_VARS_gNB_s *gNB,
                                           size_t muting_pattern1_length,
                                           size_t muting_pattern2_length);
 void print_rrc_possib_prs_assistance_data(const struct PHY_VARS_gNB_s *gNB,
-                                          const struct gNB_MAC_INST_s *mac,
+                                          struct gNB_MAC_INST_s *mac,
                                           size_t muting_pattern1_length,
                                           size_t muting_pattern2_length);
 
