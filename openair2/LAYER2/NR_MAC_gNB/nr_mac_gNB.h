@@ -356,6 +356,10 @@ typedef struct {
   /// used for otherSIB data
   uint8_t other_sib_bcch_pdu[2][NR_MAX_SIB_LENGTH / 8];
   int other_sib_bcch_length[2];
+  /// PosSI message carried on BCCH-DL-SCH
+  uint8_t pos_sib_bcch_pdu[NR_MAX_SIB_LENGTH / 8];
+  int pos_sib_bcch_length;
+  bool pos_sib_active;
   /// VRB map for common channels
   uint16_t vrb_map[MAX_NUM_BEAM_PERIODS][275];
   /// VRB map for common channels and PUSCH, dynamically allocated because
