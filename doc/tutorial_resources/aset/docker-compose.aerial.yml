@@ -117,10 +117,11 @@ services:
       # different from the built-in-L1 OAI DU config (VF0/VF1 MAC) mounted by docker-compose.yml.
       - ./conf/ru.band77.gh200.aerial.conf:/opt/nr-oru/etc/nr-oru.conf:ro
     environment:
-      # Opt-in in-process UL FH pcap (async ring -> writer thread). Uncomment to capture.
-      #ORU_UL_PCAP_PATH: /tmp/oru_ul.pcap
-      #ORU_UL_PCAP_MAX: "2000"
-      #ORU_UL_PCAP_CHAN: "pusch"
+      # In-process UL FH pcap (async ring -> writer thread; safe on FH path).
+      ORU_UL_PCAP_PATH: /tmp/oru_ul.pcap
+      ORU_UL_PCAP_MAX: "2000"
+      # all = DL+UL C/U | pusch | pusch_prach (PRACH free; PUSCH after first PRACH C-plane)
+      ORU_UL_PCAP_CHAN: "all"
       DISPLAY: ${DISPLAY:-""}
       USE_ADDITIONAL_OPTIONS: >-
         ${DISPLAY:+-d}
