@@ -148,7 +148,7 @@ services:
         aset-ran-build: "service:ran-build"
     container_name: nr-ue
     # 33-44 are the Tpool workers (ue.sa.gh200.conf), 45-48 the vrtsim radio threads, and
-    # 49-55 the DL/UL/SYNC actors (actor-cores in the same conf), all SCHED_FIFO 97. Contiguous
+    # 49-55 the DL/UL/SYNC actors (actor-affinity in the same conf), all SCHED_FIFO 97. Contiguous
     # through 63; taps takes the last isolcpu (64). Kernel: isolcpus=...,4-64.
     cpuset: "32-63"
     privileged: true

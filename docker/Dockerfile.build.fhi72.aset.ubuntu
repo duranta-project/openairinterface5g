@@ -1,11 +1,12 @@
 #/*
 # * ASET / GH200 FHI 7.2 build image (doc/tutorial_resources/aset/README.md).
 # * Shares Dockerfile.base.ubuntu as ran-base (tag ran-base-aset); does NOT FROM
-# * Dockerfile.build.fhi72.ubuntu — that recipe is DPDK 20.11 / x86 / FlexRIC and
+# * Dockerfile.build.fhi72.ubuntu - that recipe is DPDK 20.11 / x86 / FlexRIC and
 # * cannot supply DPDK 22.11, aarch64 xRAN+Arm RAL, mlx5, or OAI_VRTSIM_TAPS_CLIENT.
 # *
-# *   - DPDK 22.11.x → /usr/local (-Dplatform=generic)
-# *   - xRAN K release (11.1.5) from openairinterface/o-du-phy (+ mlx5 jumbo mbuf fix)
+# *   - DPDK 22.11.x -> /usr/local (-Dplatform=generic)
+# *   - xRAN K release (11.1.5) from openairinterface/o-du-phy
+# *     (ASET FH MTU kept <= 9582 / typically 8192 - see aset conf mtu comments)
 # *   - OAI: gNB, nr-oru, nr-UE, vrtsim, oran_fhlib_5g, taps client
 # * Tag: ran-build-fhi72-aset:latest
 # * Compose supplies aset-ran-base via additional_contexts (service:ran-base).
@@ -51,18 +52,15 @@ RUN pip3 install --no-cache-dir pyelftools && \
     DPDK_LIBDIR=$(gcc -dumpmachine) && \
     MLX5_PMD=$(find "/usr/local/lib/${DPDK_LIBDIR}/dpdk" -name 'librte_net_mlx5.so*' -print -quit) && \
     test -n "$MLX5_PMD" || \
-      (echo "ERROR: DPDK mlx5 PMD missing — ConnectX VFs will not attach"; exit 1)
+      (echo "ERROR: DPDK mlx5 PMD missing - ConnectX VFs will not attach"; exit 1)
 
-## xRAN K release / FHI library (+ mlx5 jumbo mbuf fix for GH200)
+## xRAN K release / FHI library
 ## TARGET defaults to `uname -m` (aarch64 or x86_64) and the Makefile gates the avx512 flags on
-## x86_64, so the K release needs no explicit target — unlike the F release, which wanted armv8.
+## x86_64, so the K release needs no explicit target - unlike the F release, which wanted armv8.
+## Jumbo/mlx5: do not raise ASET FH mtu above 9582 (9600-18); stock libxran mbuf pool is tight.
 RUN git clone https://github.com/openairinterface/o-du-phy.git /opt/phy && \
     cd /opt/phy && \
     git checkout ${xran_VERSION} && \
-    sed -i 's/#define MBUF_POOL_ELEMENT (MAX_RX_LEN + RTE_PKTMBUF_HEADROOM)/#define MBUF_POOL_ELEMENT (MAX_RX_LEN + RTE_ETHER_HDR_LEN + 4 + RTE_PKTMBUF_HEADROOM)/' \
-        fhi_lib/lib/ethernet/ethernet.h && \
-    grep -q 'RTE_ETHER_HDR_LEN + 4 + RTE_PKTMBUF_HEADROOM' fhi_lib/lib/ethernet/ethernet.h || \
-      (echo 'ERROR: mlx5 jumbo mbuf fix not applied to ethernet.h'; exit 1) && \
     cd /opt/phy/fhi_lib/lib && \
     ARCH_LIB=$(gcc -dumpmachine) && \
     export PKG_CONFIG_PATH="/usr/local/lib/${ARCH_LIB}/pkgconfig:/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}" && \
@@ -72,7 +70,7 @@ RUN git clone https://github.com/openairinterface/o-du-phy.git /opt/phy && \
         RTE_SDK=/oai-ran/dpdk-stable-${DPDK_VERSION}/ \
         XRAN_DIR=/opt/phy/fhi_lib
 
-## Arm RAL (required by radio/fhi_72 on aarch64 — see Dockerfile.build.fhi72.native_arm.ubuntu)
+## Arm RAL (required by radio/fhi_72 on aarch64 - see Dockerfile.build.fhi72.native_arm.ubuntu)
 RUN mkdir -p /opt/oai-arm-libs && \
     case "$(uname -m)" in \
         aarch64|arm64) \
