@@ -13,6 +13,7 @@
 #include "LPP_DL-PRS-MutingOption1-r16.h"
 #include "LPP_DL-PRS-MutingOption2-r16.h"
 #include "LPP_DL-PRS-QCL-Info-r16.h"
+#include "LPP_AssistanceDataSIBelement-r15.h"
 #include "LPP_DL-SelectedPRS-ResourceIndex-r16.h"
 #include "LPP_DL-SelectedPRS-ResourceSetIndex-r16.h"
 #include "LPP_LPP-Message.h"
@@ -33,12 +34,14 @@
 #include "LPP_NR-SelectedDL-PRS-PerFreq-r16.h"
 #include "LPP_ProvideAssistanceData-r9-IEs.h"
 #include "LPP_ProvideAssistanceData.h"
+#include "NR_BCCH-DL-SCH-Message.h"
 #include "PHY/defs_gNB.h"
 #include "NR_MAC_gNB/mac_proto.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
 #include "asn_SEQUENCE_OF.h"
 #include "constraints.h"
 #include "common/utils/LOG/log.h"
+#include "uper_encoder.h"
 #include "xer_encoder.h"
 
 #define LPP_PRS_RESOURCE_SET_ID 0
@@ -564,11 +567,11 @@ static LPP_NR_SSB_Config_r16_t *create_ssb_config(const NR_ServingCellConfigComm
   return ssb;
 }
 
-static LPP_LPP_Message_t *create_message(const PHY_VARS_gNB *gNB,
-                                         const gNB_MAC_INST *mac,
-                                         long bandwidth,
-                                         size_t pattern1_length,
-                                         size_t pattern2_length)
+static LPP_NR_DL_PRS_AssistanceData_r16_t *create_prs_assistance_data(const PHY_VARS_gNB *gNB,
+                                                                      const gNB_MAC_INST *mac,
+                                                                      long bandwidth,
+                                                                      size_t pattern1_length,
+                                                                      size_t pattern2_length)
 {
   const NR_gNB_PRS *prs = &gNB->prs_vars;
   const NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
@@ -617,6 +620,20 @@ static LPP_LPP_Message_t *create_message(const PHY_VARS_gNB *gNB,
   add_to_sequence(&assistance->nr_DL_PRS_AssistanceDataList_r16.list, frequency);
   assistance->nr_SSB_Config_r16 = lpp_calloc(sizeof(*assistance->nr_SSB_Config_r16));
   add_to_sequence(&assistance->nr_SSB_Config_r16->list, create_ssb_config(scc));
+  return assistance;
+}
+
+static LPP_LPP_Message_t *create_message(const PHY_VARS_gNB *gNB,
+                                         const gNB_MAC_INST *mac,
+                                         long bandwidth,
+                                         size_t pattern1_length,
+                                         size_t pattern2_length)
+{
+  const NR_gNB_PRS *prs = &gNB->prs_vars;
+  LPP_NR_DL_PRS_AssistanceData_r16_t *assistance =
+      create_prs_assistance_data(gNB, mac, bandwidth, pattern1_length, pattern2_length);
+  if (assistance == NULL)
+    return NULL;
 
   LPP_DL_SelectedPRS_ResourceSetIndex_r16_t *selected_set = lpp_calloc(sizeof(*selected_set));
   selected_set->nr_DL_SelectedPRS_ResourceSetIndex_r16 = LPP_PRS_RESOURCE_SET_ID;
@@ -692,4 +709,119 @@ void print_lpp_nr_dl_tdoa_assistance_data(const PHY_VARS_gNB *gNB,
   LOG_I(GNB_APP, "NR-DL-TDOA-ProvideAssistanceData-r16 generated from gNB PRS configuration:\n");
   xer_fprint(stdout, &asn_DEF_LPP_LPP_Message, message);
   ASN_STRUCT_FREE(asn_DEF_LPP_LPP_Message, message);
+}
+
+static bool check_asn1_constraints(const asn_TYPE_descriptor_t *type, const void *value, const char *name)
+{
+  char error[1024] = {0};
+  size_t error_length = sizeof(error);
+  if (asn_check_constraints(type, value, error, &error_length) == 0)
+    return true;
+
+  LOG_E(GNB_APP, "Cannot generate PRS PosSIB: %s ASN.1 constraint failed: %s\n", name, error);
+  return false;
+}
+
+static bool encode_uper_to_octet_string(const asn_TYPE_descriptor_t *type,
+                                        const void *value,
+                                        OCTET_STRING_t *encoded,
+                                        const char *name)
+{
+  void *buffer = NULL;
+  const ssize_t size = uper_encode_to_new_buffer(type, NULL, value, &buffer);
+  if (size < 0) {
+    LOG_E(GNB_APP, "Cannot generate PRS PosSIB: UPER encoding of %s failed\n", name);
+    return false;
+  }
+
+  encoded->buf = buffer;
+  encoded->size = size;
+  return true;
+}
+
+static NR_BCCH_DL_SCH_Message_t *create_rrc_possib_message(const LPP_AssistanceDataSIBelement_r15_t *sib_element)
+{
+  NR_SIBpos_r16_t *sibpos = lpp_calloc(sizeof(*sibpos));
+  if (!encode_uper_to_octet_string(&asn_DEF_LPP_AssistanceDataSIBelement_r15,
+                                   sib_element,
+                                   &sibpos->assistanceDataSIB_Element_r16,
+                                   "AssistanceDataSIBelement-r15")) {
+    ASN_STRUCT_FREE(asn_DEF_NR_SIBpos_r16, sibpos);
+    return NULL;
+  }
+
+  PosSystemInformation_r16_IEs__posSIB_TypeAndInfo_r16__Member *member = lpp_calloc(sizeof(*member));
+  member->present = NR_PosSystemInformation_r16_IEs__posSIB_TypeAndInfo_r16__Member_PR_posSib6_1_r16;
+  member->choice.posSib6_1_r16 = sibpos;
+
+  NR_PosSystemInformation_r16_IEs_t *pos_information = lpp_calloc(sizeof(*pos_information));
+  add_to_sequence(&pos_information->posSIB_TypeAndInfo_r16.list, member);
+
+  NR_SystemInformation_t *system_information = lpp_calloc(sizeof(*system_information));
+  system_information->criticalExtensions.present =
+      NR_SystemInformation__criticalExtensions_PR_criticalExtensionsFuture_r16;
+  system_information->criticalExtensions.choice.criticalExtensionsFuture_r16 =
+      lpp_calloc(sizeof(*system_information->criticalExtensions.choice.criticalExtensionsFuture_r16));
+  system_information->criticalExtensions.choice.criticalExtensionsFuture_r16->present =
+      NR_SystemInformation__criticalExtensions__criticalExtensionsFuture_r16_PR_posSystemInformation_r16;
+  system_information->criticalExtensions.choice.criticalExtensionsFuture_r16->choice.posSystemInformation_r16 =
+      pos_information;
+
+  NR_BCCH_DL_SCH_Message_t *message = lpp_calloc(sizeof(*message));
+  message->message.present = NR_BCCH_DL_SCH_MessageType_PR_c1;
+  message->message.choice.c1 = lpp_calloc(sizeof(*message->message.choice.c1));
+  message->message.choice.c1->present = NR_BCCH_DL_SCH_MessageType__c1_PR_systemInformation;
+  message->message.choice.c1->choice.systemInformation = system_information;
+  return message;
+}
+
+void print_rrc_possib_prs_assistance_data(const PHY_VARS_gNB *gNB,
+                                          const gNB_MAC_INST *mac,
+                                          size_t muting_pattern1_length,
+                                          size_t muting_pattern2_length)
+{
+  AssertFatal(gNB != NULL && mac != NULL, "cannot create PRS PosSIB without gNB and MAC instances\n");
+  const NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
+  long bandwidth;
+  if (!validate_prs_config(&gNB->prs_vars, scc, &bandwidth))
+    return;
+
+  LPP_NR_DL_PRS_AssistanceData_r16_t *assistance =
+      create_prs_assistance_data(gNB, mac, bandwidth, muting_pattern1_length, muting_pattern2_length);
+  if (assistance == NULL)
+    return;
+
+  LPP_AssistanceDataSIBelement_r15_t *sib_element = NULL;
+  NR_BCCH_DL_SCH_Message_t *rrc_message = NULL;
+  if (!check_asn1_constraints(&asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16,
+                              assistance,
+                              "NR-DL-PRS-AssistanceData-r16"))
+    goto cleanup;
+
+  sib_element = lpp_calloc(sizeof(*sib_element));
+  if (!encode_uper_to_octet_string(&asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16,
+                                   assistance,
+                                   &sib_element->assistanceDataElement_r15,
+                                   "NR-DL-PRS-AssistanceData-r16")
+      || !check_asn1_constraints(&asn_DEF_LPP_AssistanceDataSIBelement_r15,
+                                 sib_element,
+                                 "AssistanceDataSIBelement-r15"))
+    goto cleanup;
+
+  rrc_message = create_rrc_possib_message(sib_element);
+  if (rrc_message == NULL
+      || !check_asn1_constraints(&asn_DEF_NR_BCCH_DL_SCH_Message, rrc_message, "BCCH-DL-SCH-Message"))
+    goto cleanup;
+
+  LOG_I(GNB_APP, "posSibType6-1 inner NR-DL-PRS-AssistanceData-r16 payload:\n");
+  xer_fprint(stdout, &asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16, assistance);
+  LOG_I(GNB_APP, "posSibType6-1 AssistanceDataSIBelement-r15:\n");
+  xer_fprint(stdout, &asn_DEF_LPP_AssistanceDataSIBelement_r15, sib_element);
+  LOG_I(GNB_APP, "PRS PosSIB BCCH-DL-SCH-Message:\n");
+  xer_fprint(stdout, &asn_DEF_NR_BCCH_DL_SCH_Message, rrc_message);
+
+cleanup:
+  ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, rrc_message);
+  ASN_STRUCT_FREE(asn_DEF_LPP_AssistanceDataSIBelement_r15, sib_element);
+  ASN_STRUCT_FREE(asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16, assistance);
 }
