@@ -38,6 +38,9 @@
 #include "enb_paramdef.h"
 #include "executables/softmodem-common.h"
 #include "f1ap_common.h"
+#ifdef E3_AGENT
+#include "openair2/E3AP/ran_func_spectrum_extern.h"
+#endif /* E3_AGENT */
 #include "gnb_paramdef.h"
 #include "lib/f1ap_interface_management.h"
 #include "F1AP_CauseRadioNetwork.h"
@@ -1979,6 +1982,9 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   }
 
   nr_mac_cell_config_scc(cell, scc, &config);
+#ifdef E3_AGENT
+  e3_spectrum_mac_attach_cell(nrmac, cell);
+#endif /* E3_AGENT */
   nrmac->positioning_config = RCconfig_nr_positioning();
 
   if (strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "local_RRC") == 0) {

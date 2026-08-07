@@ -1059,15 +1059,18 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
                        scc->tdd_UL_DL_ConfigurationCommon,
                        csi_symbols_in_slot(scc),
                        num_symb_cset);
-  nr_rrc_config_ul_tda(scc, rc->minRXTXTIME, rc->do_SRS);
-  seq_arr_init(&cell->ul_tda, sizeof(NR_tda_info_t));
-  init_ul_tda_info(scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList, &cell->ul_tda);
-
 #ifdef E3_AGENT
-  /* The cell's frame structure is known now: let the Spectrum RAN function bind
-   * to it. It owns its configuration (E3Configuration) and state. */
-  e3_spectrum_mac_attach_cell(cell);
+  /* Extra UL TDAs the Spectrum RAN function wants in the list; none unless configured. */
+  const nr_ul_tda_shape_t *extra_tdas = NULL;
+  const int num_extra_tdas = e3_spectrum_extra_ul_tdas(&extra_tdas);
+#else
+  const nr_ul_tda_shape_t *extra_tdas = NULL;
+  const int num_extra_tdas = 0;
 #endif /* E3_AGENT */
+  nr_rrc_config_ul_tda(scc, rc->minRXTXTIME, rc->do_SRS, num_extra_tdas, extra_tdas);
+  seq_arr_init(&cell->ul_tda, sizeof(NR_tda_info_t));
+  init_ul_tda_info(scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList,
+                   &cell->ul_tda);
 }
 
 bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1ap_sib_msg_t cu_sib[num_cu_sib])

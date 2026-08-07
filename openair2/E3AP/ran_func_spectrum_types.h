@@ -53,6 +53,10 @@ struct nr_cell_sched_s;
 
 typedef enum { PRB_BLOCK_DIR_DL = 0, PRB_BLOCK_DIR_UL = 1 } prb_block_dir_t;
 
+/* Install (mask != NULL) or clear (NULL) the sensing policy: per slot, the
+ * symbols to keep free of UL data. False if the cell has no sensing state. */
+bool set_sensing_policy(struct nr_cell_sched_s *cell, const uint16_t *mask, int n_slots);
+
 /* Replace a direction's PRB block (NULL/len 0 = clear). REPLACE semantics: the
  * dApp sends the full current set on every change. False if the cell has no
  * block state. Takes the MAC instance too: the registry scan an install triggers
