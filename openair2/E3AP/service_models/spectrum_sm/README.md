@@ -8,9 +8,10 @@ options (the OAI L1 and the NVIDIA Aerial L1). For the service model itself (the
 indication path, the shared-memory ring, the file layout) see
 [SPECTRUM_SM_ARCHITECTURE.md](SPECTRUM_SM_ARCHITECTURE.md).
 
-The feature is **telemetry-out only**. A dApp can observe the RAN through it; it
-cannot act on it. The one thing that does touch the scheduler is the operator's
-own slot reservation (see *Slot reservation*), which is configuration, not a dApp control.
+Sensing itself is telemetry-out. Two things let a dApp (or an xApp through it)
+act on what it sees: a PRB block (see *PRB-block actuation*) and a sensing policy for the UL scheduler
+(see *Spectrum SM (RF=1) — the control side*). The operator's own slot reservation (see *Slot reservation*) is
+configuration, not a dApp control.
 
 ---
 
@@ -151,7 +152,7 @@ can subscribe to, identified by a RAN-function id:
 
 | RF id | Service model | Carries |
 |------:|---------------|---------|
-| 1 | **Spectrum SM** | the sensing ranges (the tiles from *The sensing scan*) |
+| 1 | **Spectrum SM** | the sensing ranges (the tiles from *The sensing scan*); accepts the PRB-block and sensing-policy controls |
 | 2 | **L1-KPM SM** | PHY IQ metadata, from the OAI PHY tap |
 
 ### Spectrum SM (RF=1)
@@ -181,6 +182,34 @@ follows the periodicity the subscribed dApps declare (the fastest request wins):
 - **periodic** (period > 0, microseconds): one per interval, re-using the latest
   snapshot.
 
+### Spectrum SM (RF=1) — the control side
+
+Besides the telemetry, the SM accepts controls:
+- **In:** the dApp sends commands — most importantly "block this set of PRBs (uplink and/or downlink)." The SM hands the PRB list to the scheduler (see *PRB-block actuation*). The command arrives in the wire format selected by `E3Configuration.encoding` (see *Configuration reference*).
+- **Out:** the gNB can also relay a dApp report onward to a higher-layer xApp (the E2–E3 bridge). The bridge is not implemented yet.
+
+**Lifecycle nuance (deliberate):** the SM is *force-started* when the agent registers it, so controls are accepted from gNB boot, before any dApp subscribes. But `libe3` ties the running state to subscriptions: when a dApp that subscribed later releases its *last* subscription, `libe3` stops the SM, and further controls are NACKed ("no running SM") until a new subscription restarts it. That is intentional — a torn-down session should not keep actuating the scheduler — and on SM stop the gNB defensively clears any active PRB block and sensing policy.
+
+---
+
+## PRB-block actuation — letting the dApp reserve spectrum
+
+When the dApp decides some PRBs are occupied (or an xApp tells it to), it sends a PRB-block command on the Spectrum SM. The gNB then **excludes those PRBs from scheduling**:
+
+- The blocked-PRB set is OR'd into the scheduler's resource-block map for uplink and downlink at the start of every slot, so the allocators never place a UE there. Every requested PRB is stamped, for all channels — the block is enforced uniformly, with no per-channel policy.
+- **Crash-safety.** The fixed cell-channel reservation steps (PRACH, Msg3, SRS, PUCCH, SIB) notice when their PRBs fall inside the block and skip that allocation gracefully (a rate-limited log) instead of asserting, so a block that lands on a dynamically-scheduled channel degrades it rather than crashing the gNB.
+- **Collisions with fixed per-UE signals are detected at events.** PUCCH, SRS and NZP-CSI-RS sit on fixed PRBs assigned by RRC. The gNB keeps a small per-UE table of where those signals live, refreshed whenever a UE's bandwidth-part configuration is applied; it scans that table when a block is installed and re-checks a UE when it (re)configures, logging any signal the block lands on. Each signal is checked against the block for its own direction (PUCCH/SRS uplink, CSI-RS downlink). Today this only logs — it is the hook where a future version would relocate the affected signal off the blocked PRBs via an RRC reconfiguration.
+- **Cell-common channels are not protected.** SSB, CORESET0, PRACH and the cell-common PUCCH are not kept clear of the block — a block over them takes effect and degrades the broadcast / random-access path. An already-connected UE tolerates a brief block, but a block over the downlink SSB/CORESET0 region stops a new UE from synchronizing. Keeping them schedulable is future work.
+- **A sustained block can stall a HARQ retransmission.** A retransmission must reuse its original transport-block size, so it cannot shrink around a block; if a block sits on the only PRBs it can use, it keeps retrying until the UE is dropped by the inactivity timeout. There is no give-up guard for this case today.
+
+The dApp sends the *complete* current PRB set on every change; the gNB mirrors it (it is not incremental).
+
+---
+
+## Reliable dApp→gNB control
+
+The dApp→gNB hop shares a lossy publish/subscribe channel with the high-rate report stream, so a single control command could be dropped. For commands that must not be lost (re-issuing an xApp's block), the dApp sends them **reliably**: each command carries a sequence number, the gNB acknowledges every command it applies, and the dApp retransmits an unacknowledged command at a fixed interval until it is acked (or a retry limit is hit). Duplicates (from retransmits) are detected by sequence number and applied once. This reliability layer lives inside `libe3`; the gNB side simply acks. The detector's own best-effort auto-block does not use this — only the must-not-lose re-issue path does.
+
 ---
 
 ## Configuration reference
@@ -188,16 +217,18 @@ follows the periodicity the subscribed dApps declare (the fastest request wins):
 Everything E3 related, sensing included, is in the **`E3Configuration`** section.
 `targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.106prb.rfsim.e3.conf` is a complete example.
 
-| Key | What it does |
-|-----|--------------|
-| `sensing_target_slots` | Slots (indices within the TDD period) to hard-reserve for sensing (see *Slot reservation*). Empty or absent: sensing is off. Each index must be smaller than the TDD period, otherwise startup aborts. |
-| `sensing_pusch_mcs` (default 9) | MCS index (table 0) of the capture PUSCH. |
-| `sensing_pusch_rb_size` (1) / `sensing_pusch_rb_start` (0) | PRB window of the capture PUSCH, BWP-relative. |
-| `sensing_pusch_nrOfLayers` (1) | Layers of the capture PUSCH; drives the digital-beamforming fan-out, not spatial multiplexing. |
-| `sensing_pusch_beams` (beam 0) | Beam indices the capture PUSCH is fanned out to. |
+| Key | Applies to | What it does |
+|-----|------------|--------------|
+| `sensing_target_slots` | OAI L1 and Aerial L1 | Slots (indices within the TDD period) to hard-reserve for sensing (see *Slot reservation*). Empty or absent: sensing is off. Each index must be smaller than the TDD period, otherwise startup aborts. The reservation is done in the MAC, so it is the same on both L1s. |
+| `sensing_pusch_mcs` (default 9) | Aerial L1 only | MCS index (table 0) of the capture PUSCH. |
+| `sensing_pusch_rb_size` (1) / `sensing_pusch_rb_start` (0) | Aerial L1 only | PRB window of the capture PUSCH, BWP-relative. |
+| `sensing_pusch_nrOfLayers` (1) | Aerial L1 only | Layers of the capture PUSCH; drives the digital-beamforming fan-out, not spatial multiplexing. |
+| `sensing_pusch_beams` (beam 0) | Aerial L1 only | Beam indices the capture PUSCH is fanned out to. |
+| `additional_ul_tdas` | OAI L1 and Aerial L1 | Extra, shorter UL time-domain allocations, as `start:length` pairs (e.g. `"0:6,0:4"`). The scheduler only prefers them once a dApp installs a sensing policy (see *Spectrum SM (RF=1) — the control side*), so they cost nothing until then. Rejected at startup if they would break the ordering the shared TDA code relies on. TDD only. |
+| `collision_margin` (default 0) | OAI L1 and Aerial L1 | Guard PRBs added on each side of every blocked PRB when checking whether a PRB block lands on a UE's PUCCH/SRS/CSI-RS (see *PRB-block actuation*). |
 
-The `sensing_pusch_*` keys are read by every build but only used with the Aerial
-L1 (see *The capture PUSCH*). The section is read once; it is a singleton, so it applies to every cell
+The `sensing_pusch_*` keys are read by every build; the OAI L1 never uses them
+because it needs no capture PUSCH (see *The capture PUSCH*). The section is read once; it is a singleton, so it applies to every cell
 the gNB serves, and the ranges are currently published for the first cell (and
 beam 0).
 
@@ -207,13 +238,15 @@ default), and `enabled_sms`.
 
 ---
 
-## The safety boundary — telemetry vs what touches the radio
+## The safety boundary — what is telemetry vs what touches the radio
 
 | Piece | Touches the scheduler / radio? |
 |-------|--------------------------------|
 | The scan and the control-channel refinement | **No** — works on a copy; telemetry only. |
 | The E3 service models, ranges and IQ references (see *E3 telemetry transport*) | **No** — read-only export. |
 | The capture PUSCH (Aerial only) | **Yes** — injects an uplink grant, but only on slots with no real uplink. |
+| PRB block from the dApp (see *PRB-block actuation*) | **Yes** — removes PRBs from scheduling. |
+| Sensing policy from the dApp (see *Spectrum SM (RF=1) — the control side*) | **Yes** — steers which UL TDA the scheduler picks. |
 | `sensing_target_slots` reservation (see *Slot reservation*) | **Yes** — takes whole slots from UEs. |
 
 Anything marked "No" can be changed freely without affecting UE service;
