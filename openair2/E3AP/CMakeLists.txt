@@ -36,7 +36,11 @@ target_link_libraries(e3ap PUBLIC ${CLIBE3_LIBRARIES} ${SERVICE_MODELS_LIBRARY})
 # this code uses. Linking it into L2_NR archives the objects into libL2_NR.a, so
 # it reaches exactly the binaries that have a MAC. The weak fallbacks for the
 # others are in service_models/spectrum_sm/ran_func_spectrum_stub.c.
-add_library(e3_ran_func_du OBJECT ran_func_spectrum.c)
+add_library(e3_ran_func_du OBJECT
+  ran_func_spectrum.c
+  ran_func_spectrum_prb_block.c
+  ran_func_spectrum_collision.c
+  ran_func_spectrum_registry.c)
 if(OAI_AERIAL)
   # The capture PUSCH exists only for the Aerial L1. L2_NR carries the same
   # definition for its own sources, but it is not inherited by this target.
