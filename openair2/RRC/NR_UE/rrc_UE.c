@@ -284,10 +284,19 @@ static void nr_rrc_process_ntnconfig(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *S
 
 static void nr_decode_SI(NR_UE_RRC_SI_INFO *SI_info, NR_SystemInformation_t *si, NR_UE_RRC_INST_t *rrc, int hfn, int frame)
 {
-  if (si->criticalExtensions.present != NR_SystemInformation__criticalExtensions_PR_systemInformation) {
-    LOG_W(NR_RRC, "Not implemented SystemInformation criticalExtension version\n");
+  if (si->criticalExtensions.present == NR_SystemInformation__criticalExtensions_PR_criticalExtensionsFuture_r16) {
+    LOG_D(NR_RRC, "[UE] Received PosSI or a future SystemInformation extension\n");
     return;
   }
+
+  if (si->criticalExtensions.present != NR_SystemInformation__criticalExtensions_PR_systemInformation) {
+    LOG_D(NR_RRC, "[UE] Unknown criticalExtension version (not Rel16)\n");
+    return;
+  }
+
+  LOG_D(NR_RRC,
+        "[UE] si->criticalExtensions.choice.NR_SystemInformation_t->sib_TypeAndInfo.list.count %d\n",
+        si->criticalExtensions.choice.systemInformation->sib_TypeAndInfo.list.count);
 
   NR_SIB19_r17_t *sib19 = NULL;
   for (int i = 0; i < si->criticalExtensions.choice.systemInformation->sib_TypeAndInfo.list.count; i++) {
