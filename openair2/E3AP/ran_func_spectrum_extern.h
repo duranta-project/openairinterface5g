@@ -11,13 +11,21 @@
 #define RAN_FUNC_SPECTRUM_EXTERN_H
 
 #include "LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
+#include "LAYER2/NR_MAC_gNB/nr_radio_config.h"
 #include "openair2/E3AP/ran_func_spectrum_types.h"
 
-/* Bind sensing to a cell once its frame structure is known (end of
- * nr_mac_config_scc()). Reads the sensing keys of the E3Configuration section
- * and enables sensing for the cell iff the operator reserved slots. A no-op
- * when nothing is configured. */
-void e3_spectrum_mac_attach_cell(nr_cell_sched_t *cell);
+/* Extra UL TDA shapes the operator asked for in E3Configuration
+ * (additional_ul_tdas). Called while the cell's UL TDA list is built, so they can
+ * be appended to it; returns how many, 0 if none. *out stays valid for the life
+ * of the process. */
+int e3_spectrum_extra_ul_tdas(const nr_ul_tda_shape_t **out);
+
+/* Bind the Spectrum RAN function to a cell once its frame structure and UL TDA
+ * list are known (end of nr_mac_config_scc()). Reads the E3Configuration keys it
+ * owns and enables sensing for the cell iff slots are reserved or extra TDAs are
+ * configured; when it is, installs the sensing-aware UL TDA selector on the MAC
+ * instance. A no-op when nothing is configured. */
+void e3_spectrum_mac_attach_cell(gNB_MAC_INST *mac, nr_cell_sched_t *cell);
 
 /* Release what e3_spectrum_mac_attach_cell() allocated. Idempotent. */
 void e3_spectrum_mac_detach_cell(nr_cell_sched_t *cell);

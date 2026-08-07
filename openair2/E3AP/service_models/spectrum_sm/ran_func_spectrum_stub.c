@@ -53,3 +53,29 @@ __attribute__((weak)) bool nr_mac_wait_for_sensing_publish(uint64_t timeout_ns,
 __attribute__((weak)) void nr_mac_signal_sensing_shutdown(void)
 {
 }
+
+/* Strong defs in ran_func_spectrum.c and ran_func_spectrum_prb_block.c. No MAC
+ * in the MAC-less sims, so these are no-ops and the SM's control dispatchers
+ * NACK back to the dApp. Both take their signature from
+ * ran_func_spectrum_types.h, so a mismatch with the strong defs fails to compile. */
+__attribute__((weak)) bool set_sensing_policy(struct nr_cell_sched_s *cell, const uint16_t *mask, int n_slots)
+{
+  (void)cell;
+  (void)mask;
+  (void)n_slots;
+  return false;
+}
+
+__attribute__((weak)) bool set_prb_block_mask(struct gNB_MAC_INST_s *mac,
+                                              struct nr_cell_sched_s *cell,
+                                              prb_block_dir_t dir,
+                                              const uint16_t *mask,
+                                              int len)
+{
+  (void)mac;
+  (void)cell;
+  (void)dir;
+  (void)mask;
+  (void)len;
+  return false;
+}
