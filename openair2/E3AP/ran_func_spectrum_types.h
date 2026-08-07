@@ -43,6 +43,26 @@ typedef struct {
 extern "C" {
 #endif
 
+/* --- Controls the Spectrum SM applies to the RAN ------------------------- *
+ * Declared with the same header on both sides -- the definition in
+ * ran_func_spectrum_prb_block.c and the weak fallback in the SM library -- so
+ * the compiler, not the linker, checks that they agree. The types are only
+ * forward declared: the SM does not need the MAC headers. */
+struct gNB_MAC_INST_s;
+struct nr_cell_sched_s;
+
+typedef enum { PRB_BLOCK_DIR_DL = 0, PRB_BLOCK_DIR_UL = 1 } prb_block_dir_t;
+
+/* Replace a direction's PRB block (NULL/len 0 = clear). REPLACE semantics: the
+ * dApp sends the full current set on every change. False if the cell has no
+ * block state. Takes the MAC instance too: the registry scan an install triggers
+ * runs under its sched_lock. */
+bool set_prb_block_mask(struct gNB_MAC_INST_s *mac,
+                        struct nr_cell_sched_s *cell,
+                        prb_block_dir_t dir,
+                        const uint16_t *mask,
+                        int len);
+
 /* Small wake-up payload returned by nr_mac_wait_for_sensing_publish() — just
  * which (beam, slot) was last written, so the consumer can fetch its ranges.
  * The writer may overwrite that cell before the fetch; that's fine, the
