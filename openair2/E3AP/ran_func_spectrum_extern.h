@@ -11,13 +11,14 @@
 #define RAN_FUNC_SPECTRUM_EXTERN_H
 
 #include "LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
+#include "LAYER2/NR_MAC_gNB/nr_radio_config.h"
 #include "openair2/E3AP/ran_func_spectrum_types.h"
 
-/* Bind sensing to a cell once its frame structure is known (end of
- * nr_mac_cell_config_scc()). Reads the sensing keys of the E3Configuration section
- * and enables sensing for the cell iff the operator reserved slots. A no-op
- * when nothing is configured. */
-void e3_spectrum_mac_attach_cell(nr_cell_sched_t *cell);
+/* additional_ul_tdas, called while the cell's UL TDA list is built. *out stays valid for the life of the process. */
+int e3_spectrum_extra_ul_tdas(const nr_ul_tda_shape_t **out);
+
+/* Called after nr_mac_cell_config_scc(). No-op unless slots are reserved or extra TDAs configured. */
+void e3_spectrum_mac_attach_cell(gNB_MAC_INST *mac, nr_cell_sched_t *cell);
 
 /* Release what e3_spectrum_mac_attach_cell() allocated. Idempotent. */
 void e3_spectrum_mac_detach_cell(nr_cell_sched_t *cell);
@@ -25,21 +26,17 @@ void e3_spectrum_mac_detach_cell(nr_cell_sched_t *cell);
 /* Is this (absolute) slot hard-reserved for sensing for this cell? */
 bool nr_mac_ul_slot_is_sensing_reserved(const nr_cell_sched_t *cell, int slot);
 
-/* Log rate limiter for the scheduler's graceful-skip paths: ++*counter, true for
- * the first five and then every 1000th. */
+/* True for the first five calls and then every 1000th. */
 static inline bool prb_block_ratelimit(uint64_t *counter)
 {
   const uint64_t count = ++(*counter);
   return count <= 5 || (count % 1000) == 0;
 }
 
-/* OR the dApp's PRB block into the current slot's VRB maps. Called once per slot,
- * after the maps are seeded and before any scheduling step reads them. */
+/* Once per slot, after the maps are seeded and before any scheduling step reads them. */
 void apply_prb_block_masks(nr_cell_sched_t *cell, frame_t frame, slot_t slot);
 
-/* Reserve `mask` over [rb_start, rb_start+nb_rb) of a UL VRB row for a cell
- * channel (PRACH/MsgA-PUSCH/Msg3), skipping collisions with the dApp block
- * (logged once) and asserting only on a genuine conflict. */
+/* Skips (logged once) a collision with the dApp block; asserts only on a genuine conflict. */
 void prb_block_reserve_ul_channel(const nr_cell_sched_t *cell,
                                   uint16_t *vrb_map_UL,
                                   int rb_start,
@@ -50,9 +47,6 @@ void prb_block_reserve_ul_channel(const nr_cell_sched_t *cell,
                                   rnti_t rnti,
                                   const char *channel_label);
 
-/* A UE's dedicated configuration was (re)applied / the UE is being deleted:
- * keep the record of where its periodic PUCCH/SRS/CSI-RS live up to date, and
- * report any that the current block lands on. */
 void e3_spectrum_on_ue_configured(const nr_cell_sched_t *cell, NR_UE_info_t *UE);
 void e3_spectrum_on_ue_deleted(const NR_UE_info_t *UE);
 
