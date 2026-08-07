@@ -53,6 +53,9 @@ struct nr_cell_sched_s;
 
 typedef enum { PRB_BLOCK_DIR_DL = 0, PRB_BLOCK_DIR_UL = 1 } prb_block_dir_t;
 
+/* The MAC instance and cell the service models act on. False before MAC init. */
+bool e3_spectrum_default_cell(struct gNB_MAC_INST_s **mac, struct nr_cell_sched_s **cell);
+
 /* Install (mask != NULL) or clear (NULL) the sensing policy: per slot, the
  * symbols to keep free of UL data. False if the cell has no sensing state. */
 bool set_sensing_policy(struct nr_cell_sched_s *cell, const uint16_t *mask, int n_slots);

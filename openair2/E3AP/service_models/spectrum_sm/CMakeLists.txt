@@ -10,6 +10,7 @@ add_subdirectory(MESSAGES)
 set(SPECTRUM_SM_SOURCES
     spectrum_sm.c
     spectrum_enc.c
+    spectrum_dec.c
     spectrum_sensing_ring.c
     ran_func_spectrum_stub.c
 )
