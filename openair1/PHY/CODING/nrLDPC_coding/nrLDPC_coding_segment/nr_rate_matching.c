@@ -8,8 +8,6 @@
 
 // #define RM_DEBUG 1
 
-static const uint8_t index_k0[2][4] = {{0, 17, 33, 56}, {0, 13, 25, 43}};
-
 void nr_interleaving_ldpc(uint32_t E, uint8_t Qm, uint8_t *e, uint8_t *f)
 {
   const uint32_t EQm = E / Qm;
@@ -512,17 +510,10 @@ int nr_rate_matching_ldpc(uint32_t Tbslbrm,
     return -1;
   }
 
-  //Bit selection
-  uint32_t N = (BG == 1) ? (66 * Z) : (50 * Z);
-  uint32_t Ncb;
-  if (Tbslbrm == 0)
-    Ncb = N;
-  else {
-    uint32_t Nref = 3 * Tbslbrm / (2 * C); //R_LBRM = 2/3
-    Ncb = min(N, Nref);
-  }
-
-  uint32_t ind = (index_k0[BG - 1][rvidx] * Ncb / N) * Z;
+  // Bit selection
+  const nr_ldpc_geometry_t geo = nr_ldpc_soft_buffer_geometry(Tbslbrm, BG, Z, C, rvidx);
+  const uint32_t Ncb = geo.Ncb;
+  uint32_t ind = geo.k0;
 
 #ifdef RM_DEBUG
   printf("nr_rate_matching_ldpc: E %u, F %u, Foffset %u, k0 %u, Ncb %u, rvidx %d, Tbslbrm %u\n",
@@ -614,17 +605,11 @@ int nr_rate_matching_ldpc_rx(uint32_t Tbslbrm,
     return -1;
   }
 
-  //Bit selection
-  uint32_t N = (BG == 1) ? (66 * Z) : (50 * Z);
-  uint32_t Ncb;
-  if (Tbslbrm == 0)
-    Ncb = N;
-  else {
-    uint32_t Nref = (3 * Tbslbrm / (2 * C)); //R_LBRM = 2/3
-    Ncb = min(N, Nref);
-  }
-
-  uint32_t ind = (index_k0[BG - 1][rvidx] * Ncb / N) * Z;
+  // Bit selection
+  const nr_ldpc_geometry_t geo = nr_ldpc_soft_buffer_geometry(Tbslbrm, BG, Z, C, rvidx);
+  const uint32_t N = geo.N;
+  const uint32_t Ncb = geo.Ncb;
+  uint32_t ind = geo.k0;
   if (Foffset > E) {
     LOG_E(PHY, "nr_rate_matching: invalid parameters (Foffset %d > E %d)\n", Foffset, E);
     return -1;
@@ -645,8 +630,12 @@ int nr_rate_matching_ldpc_rx(uint32_t Tbslbrm,
          Tbslbrm);
 #endif
 
+  /* Clear the whole mother-code extent, not just Ncb: under LBRM the positions in [Ncb, N) are
+   * never transmitted, so they must reach the decoder as erasures. The decoder always reads out
+   * to N, so leaving them at whatever the previous transport block on this HARQ process wrote
+   * feeds it confident parity LLRs for bits that were never sent. */
   if (clear == 1)
-    memset(d, 0, Ncb * sizeof(int16_t));
+    memset(d, 0, N * sizeof(int16_t));
 
   uint32_t k = 0;
   if (ind < Foffset)

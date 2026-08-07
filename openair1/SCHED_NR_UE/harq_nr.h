@@ -23,6 +23,7 @@
 /************** INCLUDE *******************************************/
 
 #include "PHY/defs_nr_UE.h"
+#include <time.h>
 
 /************* TYPE ***********************************************/
 
@@ -37,6 +38,18 @@
     @returns none */
 
 void init_downlink_harq_status(NR_DL_UE_HARQ_t *dl_harq);
+
+/** \brief CLOCK_MONOTONIC now, in ns, for stamping DL HARQ status transitions.
+    Inline so the basic simulators, which stub init_downlink_harq_status() and do not link
+    harq_nr.c, still resolve it.
+    @returns monotonic timestamp in nanoseconds */
+
+static inline uint64_t nr_ue_harq_now_ns(void)
+{
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+}
 
 
 /** \brief This function update downlink harq context and return reception type (new transmission or retransmission)

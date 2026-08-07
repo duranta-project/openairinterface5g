@@ -99,6 +99,13 @@ void init_downlink_harq_status(NR_DL_UE_HARQ_t *dl_harq)
   dl_harq->first_rx = 1;
   dl_harq->DLround  = 0;
   dl_harq->decodeResult = false;
+  dl_harq->activated_frame = -1;
+  dl_harq->activated_slot = -1;
+  dl_harq->retired_frame = -1;
+  dl_harq->retired_slot = -1;
+  dl_harq->retired_round = 0;
+  dl_harq->activated_ns = 0;
+  dl_harq->retired_ns = 0;
 }
 
 /*******************************************************************
