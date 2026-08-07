@@ -37,9 +37,8 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_
     // given wrt to start of the 15kHz slot or 60kHz slot. Here we work slot based, so this function is anyway only called in slots
     // where there is PRACH. Its up to the MAC to schedule another PRACH PDU in the case there are there N_RA_slot \in {0,1}.
     rx_prach_out_t res = rx_nr_prach(prach_id, prach_oc);
-    LOG_D(NR_PHY,
-          "[RAPROC] Frame %d, slot %d, occasion %d (prachStartSymbol %d) : Most likely preamble %d, energy %d.%d dB delay %d "
-          "(prach_energy counter %d)\n",
+    LOG_A(NR_PHY,
+          "[RAPROC] Frame %d, slot %d, occasion %d (prachStartSymbol %d) : Most likely preamble %d, energy %d.%d dB delay %d\n",
           frame,
           slot,
           prach_oc,
@@ -47,12 +46,10 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_
           res.max_preamble,
           res.max_preamble_energy / 10,
           res.max_preamble_energy % 10,
-          res.max_preamble_delay,
-          gNB->prach_energy_counter);
+          res.max_preamble_delay);
 
-    if ((gNB->prach_energy_counter == NUM_PRACH_RX_FOR_NOISE_ESTIMATE)
-        && (res.max_preamble_energy > gNB->measurements.prach_I0 + gNB->prach_thres)
-        && (rach_ind->number_of_pdus < MAX_NUM_NR_RX_RACH_PDUS)) {
+    if (res.max_preamble_energy > gNB->measurements.prach_I0 + gNB->prach_thres
+        && rach_ind->number_of_pdus < MAX_NUM_NR_RX_RACH_PDUS) {
       LOG_A(NR_PHY,
             "[RAPROC] %d.%d Initiating RA procedure with preamble %d, energy %d.%d dB (I0 %d, thres %d), delay %d start symbol "
             "%u freq index %u\n",
@@ -89,10 +86,7 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_
       rach_ind->number_of_pdus++;
     }
     gNB->measurements.prach_I0 = ((gNB->measurements.prach_I0 * 900) >> 10) + ((res.max_preamble_energy * 124) >> 10);
-    if (frame == 0)
-      LOG_I(PHY, "prach_I0 = %d.%d dB\n", gNB->measurements.prach_I0 / 10, gNB->measurements.prach_I0 % 10);
-    if (gNB->prach_energy_counter < NUM_PRACH_RX_FOR_NOISE_ESTIMATE)
-      gNB->prach_energy_counter++;
+    LOG_A(PHY, "prach_I0 = %d.%d dB\n", gNB->measurements.prach_I0 / 10, gNB->measurements.prach_I0 % 10);
   } // if prach_id>0
   LOG_D(NR_PHY_RACH, "Freeing PRACH entry\n");
   free_nr_prach_entry(prach_id);

@@ -1126,8 +1126,10 @@ void nr_ra_backoff_setting(RA_config_t *ra)
 {
   // select a random backoff time according to a uniform distribution
   // between 0 and the PREAMBLE_BACKOFF
-  uint32_t seed = (unsigned int)(rdtsc_oai() & ~0);
-  uint32_t random_backoff = ra->RA_backoff_limit ? rand_r(&seed) % ra->RA_backoff_limit : 0; // in slots
+  // if no rar, we backoff in next 20 slots instead of 0 (that make systematic collision repetition)
+  int backoff_range = ra->RA_backoff_limit ? ra->RA_backoff_limit : 500;
+  uint32_t random_backoff = rdtsc_oai() % backoff_range; // in slots
+  LOG_W(MAC, "backoff: %d:%d\n", random_backoff, backoff_range);
   nr_timer_setup(&ra->RA_backoff_timer, random_backoff, 1);
   nr_timer_start(&ra->RA_backoff_timer);
 }

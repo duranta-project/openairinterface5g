@@ -415,9 +415,6 @@ typedef struct PHY_VARS_gNB_s {
   /// indicate the channel estimation technique in freq domain
   int chest_freq;
 
-  /// counter to average prach energh over first 100 prach opportunities
-  int prach_energy_counter;
-
   int pucch0_thres;
   int pusch_thres;
   int prach_thres;

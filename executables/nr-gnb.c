@@ -396,7 +396,6 @@ void init_gNB()
     LOG_I(NR_PHY, "Registered with MAC interface module (%p)\n", gNB->if_inst);
     gNB->if_inst->NR_PHY_config_req = nr_phy_config_request;
 
-    gNB->prach_energy_counter = 0;
     gNB->chest_time = get_softmodem_params()->chest_time;
     gNB->chest_freq = get_softmodem_params()->chest_freq;
   }

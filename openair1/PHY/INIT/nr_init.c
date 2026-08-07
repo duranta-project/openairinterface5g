@@ -333,51 +333,48 @@ void nr_phy_config_request_sim(PHY_VARS_gNB *gNB,
 void nr_phy_config_request(NR_PHY_Config_t *phy_config)
 {
   uint8_t Mod_id = phy_config->Mod_id;
-  uint8_t short_sequence, num_sequences, rootSequenceIndex, fd_occasion;
-  NR_DL_FRAME_PARMS *fp = &RC.gNB[Mod_id]->frame_parms;
-  nfapi_nr_config_request_scf_t *gNB_config = &RC.gNB[Mod_id]->gNB_config;
-
-  copy_config_request(phy_config->cfg, gNB_config);
-
-  uint64_t dl_bw_khz = (12*gNB_config->carrier_config.dl_grid_size[gNB_config->ssb_config.scs_common.value].value)*(15<<gNB_config->ssb_config.scs_common.value);
-  fp->dl_CarrierFreq = ((dl_bw_khz>>1) + gNB_config->carrier_config.dl_frequency.value)*1000 ;
-  
-  uint64_t ul_bw_khz = (12*gNB_config->carrier_config.ul_grid_size[gNB_config->ssb_config.scs_common.value].value)*(15<<gNB_config->ssb_config.scs_common.value);
-  fp->ul_CarrierFreq = ((ul_bw_khz>>1) + gNB_config->carrier_config.uplink_frequency.value)*1000 ;
-
-  int32_t dlul_offset = fp->ul_CarrierFreq - fp->dl_CarrierFreq;
-
-  LOG_I(PHY, "DL frequency %lu Hz, UL frequency %lu Hz: uldl offset %d Hz\n", fp->dl_CarrierFreq, fp->ul_CarrierFreq, dlul_offset);
-
-  fp->threequarter_fs = get_softmodem_params()->threequarter_fs;
-  LOG_D(PHY,"Configuring MIB for instance %d, : (Nid_cell %d,DL freq %llu, UL freq %llu)\n",
-        Mod_id,
-        gNB_config->cell_config.phy_cell_id.value,
-        (unsigned long long)fp->dl_CarrierFreq,
-        (unsigned long long)fp->ul_CarrierFreq);
-
-  nr_init_frame_parms(gNB_config, fp);
-  
-
-  if (RC.gNB[Mod_id]->configured == 1) {
-    LOG_E(PHY,"Already gNB already configured, do nothing\n");
+  PHY_VARS_gNB *gNB = RC.gNB[Mod_id];
+  NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
+  nfapi_nr_config_request_scf_t *gNB_config = &gNB->gNB_config;
+  if (gNB->configured == 1) {
+    LOG_E(PHY, "Already gNB already configured, do nothing\n");
     return;
   }
 
-  fd_occasion = 0;
+  copy_config_request(phy_config->cfg, gNB_config);
+
+  int scs = gNB_config->ssb_config.scs_common.value;
+  uint64_t dl_bw_khz = 12 * gNB_config->carrier_config.dl_grid_size[scs].value * (15 << scs);
+  fp->dl_CarrierFreq = (dl_bw_khz / 2 + gNB_config->carrier_config.dl_frequency.value) * 1000;
+
+  uint64_t ul_bw_khz = 12 * gNB_config->carrier_config.ul_grid_size[scs].value * (15 << scs);
+  fp->ul_CarrierFreq = (ul_bw_khz / 2 + gNB_config->carrier_config.uplink_frequency.value) * 1000;
+
+  LOG_I(PHY,
+        "gNB %d PCI %d DL frequency %lu Hz, UL frequency %lu Hz: uldl offset %ld Hz\n",
+        Mod_id,
+        gNB_config->cell_config.phy_cell_id.value,
+        fp->dl_CarrierFreq,
+        fp->ul_CarrierFreq,
+        fp->ul_CarrierFreq - fp->dl_CarrierFreq);
+
+  fp->threequarter_fs = get_softmodem_params()->threequarter_fs;
+
+  nr_init_frame_parms(gNB_config, fp);
+
   nfapi_nr_prach_config_t *prach_config = &gNB_config->prach_config;
-  short_sequence = prach_config->prach_sequence_length.value;
-//  for(fd_occasion = 0; fd_occasion <= prach_config->num_prach_fd_occasions.value ; fd_occasion) { // TODO Need to handle for msg1-fdm > 1
-  num_sequences = prach_config->num_prach_fd_occasions_list[fd_occasion].num_root_sequences.value;
-  rootSequenceIndex = prach_config->num_prach_fd_occasions_list[fd_occasion].prach_root_sequence_index.value;
+  int fd_occasion = 0; // Fixme: we do only first occsion ?
+  nfapi_nr_num_prach_fd_occasions_t *occ = prach_config->num_prach_fd_occasions_list + fd_occasion;
+  compute_nr_prach_seq(prach_config->prach_sequence_length.value,
+                       occ->num_root_sequences.value,
+                       occ->prach_root_sequence_index.value,
+                       gNB->X_u);
 
-  compute_nr_prach_seq(short_sequence, num_sequences, rootSequenceIndex, RC.gNB[Mod_id]->X_u);
-//  }
-  RC.gNB[Mod_id]->configured     = 1;
-
-  fp->ofdm_offset_divisor = RC.gNB[Mod_id]->ofdm_offset_divisor;
+  fp->ofdm_offset_divisor = gNB->ofdm_offset_divisor;
   init_symbol_rotation(fp);
   init_timeshift_rotation(fp->ofdm_symbol_size, fp->nb_prefix_samples, fp->ofdm_offset_divisor, fp->timeshift_symbol_rotation);
+
+  gNB->configured = 1;
 }
 
 static void init_DLSCH_struct(PHY_VARS_gNB *gNB)
