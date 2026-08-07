@@ -9,6 +9,9 @@
 #include "assertions.h"
 #include "nr_mac_gNB.h"
 #include "mac_proto.h"
+#ifdef E3_AGENT
+#include "openair2/E3AP/ran_func_spectrum_extern.h"
+#endif /* E3_AGENT */
 #include "common/utils/LOG/log.h"
 #include "UTIL/OPT/opt.h"
 #include "common/utils/nr/nr_common.h"
@@ -396,6 +399,23 @@ static bool check_sib1_tda(nr_cell_sched_t *cell,
   }
 }
 
+#ifdef E3_AGENT
+static void sib_block_skip(nr_cell_sched_t *cell,
+                           uint64_t *counter,
+                           int idx,
+                           int16_t beam_index,
+                           frame_t frame,
+                           slot_t slot,
+                           int slots_per_frame,
+                           bool new_beam,
+                           const char *reason)
+{
+  if (prb_block_ratelimit(counter))
+    LOG_E(NR_MAC, "[SIB] %s (idx=%d) -- skip occasion [#%llu]\n", reason, idx, (unsigned long long)*counter);
+  reset_beam_status(&cell->beam_info, frame, slot, beam_index, slots_per_frame, new_beam);
+}
+#endif /* E3_AGENT */
+
 void schedule_nr_sib1(nr_cell_sched_t *cell,
                       frame_t frameP,
                       slot_t slotP,
@@ -445,6 +465,22 @@ void schedule_nr_sib1(nr_cell_sched_t *cell,
                                            &sched_pdcch,
                                            &cell->sched_ctrlSIB1->coreset,
                                            0);
+#ifdef E3_AGENT
+      /* No free CCE (e.g. CORESET 0 blocked): skip, a -1 index would write out of bounds in fill_pdcch_vrb_map. */
+      if (cce_index < 0) {
+        static uint64_t sib1_cce_skip = 0;
+        sib_block_skip(cell,
+                       &sib1_cce_skip,
+                       i,
+                       beam_index,
+                       frameP,
+                       slotP,
+                       n_slots_frame,
+                       beam.new_beam,
+                       "SIB1 no PDCCH candidate (CORESET 0 PRBs possibly blocked)");
+        continue;
+      }
+#endif /* E3_AGENT */
 
       bool res = false;
       if (cell->sib1_pdsch[i].time_domain_allocation < 0) {
@@ -455,7 +491,24 @@ void schedule_nr_sib1(nr_cell_sched_t *cell,
           }
         }
       }
+#ifdef E3_AGENT
+      /* Demoted from AssertFatal: SIB1 retries every ~160 ms, losing one occasion beats crashing. */
+      if (cell->sib1_pdsch[i].time_domain_allocation < 0) {
+        static uint64_t sib1_tda_skip = 0;
+        sib_block_skip(cell,
+                       &sib1_tda_skip,
+                       i,
+                       beam_index,
+                       frameP,
+                       slotP,
+                       n_slots_frame,
+                       beam.new_beam,
+                       "SIB1 couldn't select any TDA (CORESET 0 PRBs possibly blocked)");
+        continue;
+      }
+#else /* E3_AGENT */
       AssertFatal(cell->sib1_pdsch[i].time_domain_allocation >= 0, "Couldn't select any TDA for SIB1\n");
+#endif /* E3_AGENT */
       if (!res)
         res = check_sib1_tda(cell,
                              &sched_pdcch,
@@ -465,7 +518,25 @@ void schedule_nr_sib1(nr_cell_sched_t *cell,
                              cell->sib1_pdsch[i].time_domain_allocation,
                              i);
       int tb_size = cell->sib1_pdsch[i].tb_size;
+#ifdef E3_AGENT
+      if (!res || tb_size <= 0) {
+        static uint64_t sib1_tb_skip = 0;
+        /* Reset the cached TDA so the next occasion re-runs the full search. */
+        cell->sib1_pdsch[i].time_domain_allocation = -1;
+        sib_block_skip(cell,
+                       &sib1_tb_skip,
+                       i,
+                       beam_index,
+                       frameP,
+                       slotP,
+                       n_slots_frame,
+                       beam.new_beam,
+                       "SIB1 couldn't allocate TB on already-allocated TDA");
+        continue;
+      }
+#else /* E3_AGENT */
       AssertFatal(res && tb_size > 0, "Couldn't allocate TB for SIB1 for an already allocated TDA\n");
+#endif /* E3_AGENT */
       nfapi_nr_dl_tti_request_body_t *dl_req = &DL_req->dl_tti_request_body;
       int pdu_index = cell->pdu_index++;
       nr_fill_nfapi_dl_SIB_pdu(cell,
@@ -578,7 +649,23 @@ static void other_sib_sched_control(nr_cell_sched_t *cell,
                                        coreset,
                                        0);
 
+#ifdef E3_AGENT
+  if (cce_index < 0) {
+    static uint64_t othersib_cce_skip = 0;
+    sib_block_skip(cell,
+                   &othersib_cce_skip,
+                   payload_idx,
+                   beam_index,
+                   frame,
+                   slot,
+                   n_slots_frame,
+                   beam.new_beam,
+                   "other-SIB no PDCCH candidate (CORESET PRBs possibly blocked)");
+    return;
+  }
+#else /* E3_AGENT */
   AssertFatal(cce_index >= 0, "Could not find CCE for otherSIB DCI\n");
+#endif /* E3_AGENT */
 
   // Mark the corresponding RBs as used
   fill_pdcch_vrb_map(cell, cell->sched_pdcch_otherSI, cce_index, aggregation_level, beam.idx);
@@ -598,7 +685,24 @@ static void other_sib_sched_control(nr_cell_sched_t *cell,
   uint8_t *sib_bcch_pdu = cc->other_sib_bcch_pdu[payload_idx];
   int num_total_bytes = cc->other_sib_bcch_length[payload_idx];
   bool success = update_rb_mcs_tbs(&sched_pdsch_otherSI, num_total_bytes, vrb_map);
+#ifdef E3_AGENT
+  /* The CCEs marked above are harmless: vrb_map is rebuilt per tick and no FAPI PDU was emitted. */
+  if (!success) {
+    static uint64_t othersib_tbs_skip = 0;
+    sib_block_skip(cell,
+                   &othersib_tbs_skip,
+                   payload_idx,
+                   beam_index,
+                   frame,
+                   slot,
+                   n_slots_frame,
+                   beam.new_beam,
+                   "other-SIB couldn't allocate TBS (CORESET PRBs possibly blocked)");
+    return;
+  }
+#else /* E3_AGENT */
   AssertFatal(success, "Couldn't allocate TBS for other SIB\n");
+#endif /* E3_AGENT */
 
   for (int rb = 0; rb < sched_pdsch_otherSI.rbSize; rb++) {
     vrb_map[sched_pdsch_otherSI.bwp_info.bwpStart + sched_pdsch_otherSI.rbStart + rb] |=

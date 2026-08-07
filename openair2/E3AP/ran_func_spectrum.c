@@ -19,6 +19,7 @@
 #include <stdlib.h>
 
 #include "ran_func_spectrum.h"
+#include "ran_func_spectrum_prb_block.h"
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "common/utils/nr/nr_common.h"
@@ -130,6 +131,9 @@ static e3_spectrum_cell_t *find_cell(const nr_cell_sched_t *cell)
 
 void e3_spectrum_mac_attach_cell(nr_cell_sched_t *cell)
 {
+  /* PRB blocking is available on every cell, whether or not sensing is. */
+  prb_block_attach(cell);
+
   static e3_spectrum_cfg_t cfg;
   static bool cfg_read;
   if (!cfg_read) {
@@ -170,6 +174,7 @@ void e3_spectrum_mac_attach_cell(nr_cell_sched_t *cell)
 
 void e3_spectrum_mac_detach_cell(nr_cell_sched_t *cell)
 {
+  prb_block_detach(cell);
   for (int i = 0; i < NR_MAX_CELLS; i++) {
     if (g_cells[i] != NULL && g_cells[i]->cell == cell) {
       free(g_cells[i]);
