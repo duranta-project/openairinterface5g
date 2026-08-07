@@ -16,6 +16,7 @@
 #include "openair2/E3AP/ran_func_spectrum_types.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 __attribute__((weak)) bool nr_mac_get_sensing_ranges(int mod_id,
@@ -58,6 +59,13 @@ __attribute__((weak)) void nr_mac_signal_sensing_shutdown(void)
  * in the MAC-less sims, so these are no-ops and the SM's control dispatchers
  * NACK back to the dApp. Both take their signature from
  * ran_func_spectrum_types.h, so a mismatch with the strong defs fails to compile. */
+__attribute__((weak)) bool e3_spectrum_default_cell(struct gNB_MAC_INST_s **mac, struct nr_cell_sched_s **cell)
+{
+  (void)mac;
+  (void)cell;
+  return false;
+}
+
 __attribute__((weak)) bool set_sensing_policy(struct nr_cell_sched_s *cell, const uint16_t *mask, int n_slots)
 {
   (void)cell;
