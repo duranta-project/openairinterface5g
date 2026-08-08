@@ -487,6 +487,19 @@ static inline void do_txdataF(c16_t **txdataF,
   } // RB loop: while(rb < rb_size)
 }
 
+/* The 2-port/2-layer butterfly precoder is faster than the generic per-antenna
+   kernel only where the generic complex multiply-accumulate is comparatively
+   expensive: on x86 (AVX2/AVX-512), and on aarch64 cores WITHOUT the fused
+   rounding multiply-accumulate (vqrdmlah/vqrdmlsh, i.e. pre-ARMv8.1 such as
+   Cortex-A72). On aarch64 cores WITH QRDMX (Cortex-A76+, Neoverse N/V, GH200)
+   the fused MAC makes the generic path cheaper, so the fast path measurably
+   regresses there and is disabled. The kernel itself stays compiled on all
+   targets (validated by the nr_modulation unit test). */
+#if defined(__AVX2__) || (defined(__aarch64__) && !defined(__ARM_FEATURE_QRDMX))
+#define NR_PDSCH_2X2_FASTPATH 1
+#endif
+
+#ifdef NR_PDSCH_2X2_FASTPATH
 /* Fast path of do_txdataF() for the 2 antenna-port / 2-layer case: fills both
    antenna ports in a single pass using the radix-2 butterfly precoder, sharing
    the layer loads between the two outputs. See nr_layer_precoder_2x2_simd(). */
@@ -533,6 +546,7 @@ static inline void do_txdataF_2x2(c16_t **txdataF,
     rb += rb_step;
   } // RB loop: while(rb < rb_size)
 }
+#endif // NR_PDSCH_2X2_FASTPATH
 
 typedef struct pdschSymbolProc_s {
   PHY_VARS_gNB *gNB;
@@ -638,8 +652,10 @@ static void nr_pdsch_symbol_processing(void *arg)
     const size_t txdataF_offset_per_symbol = l_symbol * symbol_sz;
     const uint16_t num_log_ports =
         rel15->param_v4.numberCodewords ? rel15->param_v4.spatialStreamsCw[0].numSpatialStreamIndices : 0;
-    // 2 ports / 2 layers: precode both antennas in one pass (radix-2 butterfly).
-    // (4-port/2-layer keeps num_log_ports==4 and takes the generic path below.)
+    // 2 ports / 2 layers: precode both antennas in one pass (radix-2 butterfly),
+    // on targets where it is a win (see NR_PDSCH_2X2_FASTPATH). Otherwise, and
+    // for 4-port/2-layer (num_log_ports==4), fall through to the generic path.
+#ifdef NR_PDSCH_2X2_FASTPATH
     if (rel15->nrOfLayers == 2 && num_log_ports == 2) {
       const int ant0 = rdata->ant_to_map[0];
       const int ant1 = rdata->ant_to_map[1];
@@ -669,6 +685,7 @@ static void nr_pdsch_symbol_processing(void *arg)
         }
       }
     } else
+#endif // NR_PDSCH_2X2_FASTPATH
     for (int ant = 0; ant < num_log_ports; ant++) {
       int pos = 0;
       int block_start, block_end;
