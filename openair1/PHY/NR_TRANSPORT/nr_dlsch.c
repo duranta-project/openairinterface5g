@@ -487,6 +487,53 @@ static inline void do_txdataF(c16_t **txdataF,
   } // RB loop: while(rb < rb_size)
 }
 
+/* Fast path of do_txdataF() for the 2 antenna-port / 2-layer case: fills both
+   antenna ports in a single pass using the radix-2 butterfly precoder, sharing
+   the layer loads between the two outputs. See nr_layer_precoder_2x2_simd(). */
+static inline void do_txdataF_2x2(c16_t **txdataF,
+                                  int symbol_sz,
+                                  c16_t txdataF_precoding[][symbol_sz],
+                                  PHY_VARS_gNB *gNB,
+                                  const nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15,
+                                  int ant0,
+                                  int ant1,
+                                  int rb_start,
+                                  int rb_size,
+                                  int txdataF_offset_per_symbol)
+{
+  NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
+  int rb = 0;
+  uint16_t subCarrier = get_block_start_sc(rb_start, rel15->BWPStart, symbol_sz);
+  const nfapi_nr_tx_precoding_and_beamforming_t *pb = &rel15->precodingAndBeamforming;
+  c16_t *out0 = &txdataF[ant0][txdataF_offset_per_symbol];
+  c16_t *out1 = &txdataF[ant1][txdataF_offset_per_symbol];
+  while (rb < rb_size) {
+    // get pmi info (identical stepping to do_txdataF: coalesce equal-PMI RBs)
+    const int pmi = (pb->prg_size > 0) ? (pb->prgs_list[(int)rb / pb->prg_size].pm_idx) : 0;
+    const int pmi2 = (rb < (rb_size - 1) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 1) / pb->prg_size].pm_idx) : -1;
+    const int pmi3 = (rb < (rb_size - 2) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 2) / pb->prg_size].pm_idx) : -1;
+    const int pmi4 = (rb < (rb_size - 3) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 3) / pb->prg_size].pm_idx) : -1;
+    int rb_step0 = pmi == pmi2 ? 2 : 1;
+    const int rb_step = rb_step0 == 2 && pmi3 == pmi && pmi4 == pmi ? 4 : rb_step0;
+    const int re_cnt = NR_NB_SC_PER_RB * rb_step;
+    if (pmi == 0) { // unitary precoding: port i carries layer i
+      memcpy(&out0[subCarrier], &txdataF_precoding[0][subCarrier], re_cnt * sizeof(**txdataF));
+      memcpy(&out1[subCarrier], &txdataF_precoding[1][subCarrier], re_cnt * sizeof(**txdataF));
+    } else { // non-unitary precoding via 2x2 butterfly
+      AssertFatal(frame_parms->nb_antennas_tx > 1, "No precoding can be done with a single antenna port\n");
+      nfapi_nr_pm_pdu_t *pmi_pdu = &gNB->gNB_config.pmi_list.pmi_pdu[pmi - 1]; // pmi 0 is identity matrix
+      AssertFatal(pmi == pmi_pdu->pm_idx, "PMI %d doesn't match to the one in precoding matrix %d\n", pmi, pmi_pdu->pm_idx);
+      AssertFatal(pmi_pdu->num_ant_ports == 2 && pmi_pdu->numLayers == 2,
+                  "2x2 precoder fast path expects 2 ports / 2 layers, got %d ports / %d layers\n",
+                  pmi_pdu->num_ant_ports,
+                  pmi_pdu->numLayers);
+      nr_layer_precoder_2x2_simd(symbol_sz, txdataF_precoding, pmi_pdu->weights, subCarrier, re_cnt, out0, out1);
+    }
+    subCarrier += re_cnt;
+    rb += rb_step;
+  } // RB loop: while(rb < rb_size)
+}
+
 typedef struct pdschSymbolProc_s {
   PHY_VARS_gNB *gNB;
   NR_DL_FRAME_PARMS *frame_parms;
@@ -591,6 +638,37 @@ static void nr_pdsch_symbol_processing(void *arg)
     const size_t txdataF_offset_per_symbol = l_symbol * symbol_sz;
     const uint16_t num_log_ports =
         rel15->param_v4.numberCodewords ? rel15->param_v4.spatialStreamsCw[0].numSpatialStreamIndices : 0;
+    // 2 ports / 2 layers: precode both antennas in one pass (radix-2 butterfly).
+    // (4-port/2-layer keeps num_log_ports==4 and takes the generic path below.)
+    if (rel15->nrOfLayers == 2 && num_log_ports == 2) {
+      const int ant0 = rdata->ant_to_map[0];
+      const int ant1 = rdata->ant_to_map[1];
+      int pos = 0;
+      int block_start, block_end;
+      while (find_next_rb_block(freq_alloc->bitmap, rel15->BWPSize, &pos, &block_start, &block_end)) {
+        do_txdataF_2x2(txdataF,
+                       symbol_sz,
+                       txdataF_precoding,
+                       gNB,
+                       rel15,
+                       ant0,
+                       ant1,
+                       block_start,
+                       block_end - block_start + 1,
+                       txdataF_offset_per_symbol);
+
+        if (gNB->phase_comp) {
+          const int start_sc = get_block_start_sc(block_start, rel15->BWPStart, symbol_sz);
+          const int nsc = (block_end - block_start + 1) * NR_NB_SC_PER_RB;
+          const c16_t rot = frame_parms->symbol_rotation[0][symb_offset + l_symbol];
+          c16_t *psc0 = &txdataF[ant0][txdataF_offset_per_symbol + start_sc];
+          c16_t *psc1 = &txdataF[ant1][txdataF_offset_per_symbol + start_sc];
+          rotate_cpx_vector(psc0, rot, psc0, nsc, 15);
+          rotate_cpx_vector(psc1, rot, psc1, nsc, 15);
+          mark_prb_range(rdata->pdsch_phase_comp_prb_mask, rdata->prb_mask_words, l_symbol, block_start, block_end - block_start + 1);
+        }
+      }
+    } else
     for (int ant = 0; ant < num_log_ports; ant++) {
       int pos = 0;
       int block_start, block_end;
