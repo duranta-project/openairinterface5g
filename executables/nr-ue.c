@@ -423,23 +423,68 @@ void processSlotTX(void *arg)
       }
 
     } else {
-      // trigger L2 to run ue_scheduler thru IF module
-      // [TODO] mapping right after NR initial sync
-      if (UE->if_inst != NULL && UE->if_inst->ul_indication != NULL) {
+      bool pusch_present = false;
+      NR_UE_MAC_INST_t *mac = get_mac_inst(UE->Mod_id);
+      if (mac && mac->ul_config_request) {
+        fapi_nr_ul_config_request_pdu_t *ulcfg_pdu = lockGet_ul_iterator(mac, proc->frame_tx, proc->nr_slot_tx);
+        if (ulcfg_pdu) {
+          while (ulcfg_pdu->pdu_type != FAPI_NR_END) {
+            if (ulcfg_pdu->pdu_type == FAPI_NR_UL_CONFIG_TYPE_PUSCH) {
+              pusch_present = true;
+              break;
+            }
+            ulcfg_pdu++;
+          }
+          release_ul_config(ulcfg_pdu, false);
+        }
+      }
+
+      const int samplesF_per_slot = fp->symbols_per_slot * fp->ofdm_symbol_size;
+      c16_t txdataF_buf[fp->nb_antennas_tx * samplesF_per_slot] __attribute__((aligned(32)));
+      memset(txdataF_buf, 0, sizeof(txdataF_buf));
+      c16_t *txdataF[fp->nb_antennas_tx];
+      for (int i = 0; i < fp->nb_antennas_tx; ++i)
+        txdataF[i] = &txdataF_buf[i * samplesF_per_slot];
+      bool was_symbol_used[NR_SYMBOLS_PER_SLOT] = {0};
+      rate_match_info_uci_t rm_info = {0};
+      unsigned int G = 0;
+
+      if (pusch_present) {
+        // Schedule PUSCH data and perform pre-encoding/LDPC encoding
+        // trigger L2 to run ue_scheduler thru IF module
+        // [TODO] mapping right after NR initial sync
+        if (UE->if_inst != NULL && UE->if_inst->ul_indication != NULL) {
+          start_meas(&UE->ue_ul_indication_stats);
+          nr_uplink_indication_t ul_indication = {.module_id = UE->Mod_id,
+                                                  .gNB_index = proc->gNB_id,
+                                                  .cc_id = UE->CC_id,
+                                                  .frame = proc->frame_tx,
+                                                  .slot = proc->nr_slot_tx,
+                                                  .phy_data = &phy_data,
+                                                  .pusch_present = pusch_present};
+          UE->if_inst->ul_indication(&ul_indication);
+          stop_meas(&UE->ue_ul_indication_stats);
+        }
+        phy_procedures_nrUE_TX_pusch_data(UE, proc, &phy_data, &rm_info, &G);
+      }
+
+      // Barrier: Wait for DL PDSCH decoding to finish to get HARQ ACK/NACK bits
+      dynamic_barrier_join(rxtxD->next_barrier);
+
+      // Schedule control (HARQ/PUCCH/etc.) and complete modulation & RF transmission
+      if (UE->if_inst != NULL && UE->if_inst->ul_indication_control != NULL) {
         start_meas(&UE->ue_ul_indication_stats);
         nr_uplink_indication_t ul_indication = {.module_id = UE->Mod_id,
                                                 .gNB_index = proc->gNB_id,
                                                 .cc_id = UE->CC_id,
                                                 .frame = proc->frame_tx,
                                                 .slot = proc->nr_slot_tx,
-                                                .phy_data = &phy_data};
-
-        UE->if_inst->ul_indication(&ul_indication);
+                                                .phy_data = &phy_data,
+                                                .pusch_present = pusch_present};
+        UE->if_inst->ul_indication_control(&ul_indication);
         stop_meas(&UE->ue_ul_indication_stats);
       }
-      dynamic_barrier_join(rxtxD->next_barrier);
-
-      phy_procedures_nrUE_TX(UE, proc, &phy_data, txp);
+      phy_procedures_nrUE_TX_control(UE, proc, &phy_data, txdataF, was_symbol_used, &rm_info, G, txp);
     }
   } else {
     dynamic_barrier_join(rxtxD->next_barrier);

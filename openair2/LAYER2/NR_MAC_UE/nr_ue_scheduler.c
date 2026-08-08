@@ -2576,9 +2576,12 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
     return;
   LOG_D(NR_MAC, "number of UL PDUs: %d with UL transmission in sfn [%d.%d]\n", *ulcfg_pdu->privateNBpdus, frame_tx, slot_tx);
 
+  bool pusch_present = false;
+
   while (ulcfg_pdu->pdu_type != FAPI_NR_END) {
     uint8_t *ulsch_input_buffer = ulsch_input_buffer_array[number_of_pdus];
     if (ulcfg_pdu->pdu_type == FAPI_NR_UL_CONFIG_TYPE_PUSCH) {
+      pusch_present = true;
       nfapi_nr_ue_pusch_pdu_t *pdu = &ulcfg_pdu->pusch_config_pdu;
       uint32_t TBS_bytes = pdu->pusch_data.tb_size;
       LOG_D(NR_MAC,
@@ -2604,6 +2607,7 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
           if (!nr_timer_is_active(&mac->time_alignment_timer) && mac->state == UE_CONNECTED && !get_softmodem_params()->phy_test) {
             // UL data arrival during RRC_CONNECTED when UL synchronisation status is "non-synchronised"
             trigger_MAC_UE_RA(mac, NULL);
+            release_ul_config(ulcfg_pdu, true);
             return;
           }
           // Getting IP traffic to be transmitted
@@ -2653,10 +2657,10 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
   }
   release_ul_config(ulcfg_pdu, false);
 
-  if(mac->state >= UE_PERFORMING_RA && mac->state < UE_DETACHING)
-    nr_ue_pucch_scheduler(mac, frame_tx, slot_tx);
-
-  if (mac->if_module != NULL && mac->if_module->scheduled_response != NULL) {
+  // Hand off PUSCH data to the PHY now so the pusch-data step's pre-encoding can start; with no
+  // PUSCH there is nothing to hand off yet (control channels are scheduled and handed off later,
+  // in the control step).
+  if (pusch_present && mac->if_module != NULL && mac->if_module->scheduled_response != NULL) {
     LOG_D(NR_MAC, "3# scheduled_response transmitted,%d, %d\n", frame_tx, slot_tx);
     nr_scheduled_response_t scheduled_response = {.ul_config = mac->ul_config_request + slot_tx,
                                                   .mac = mac,
@@ -2696,6 +2700,32 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
       // reset bj timer
       nr_timer_start(&sched_info->Bj_timer);
     }
+  }
+}
+
+void nr_ue_ul_scheduler_control(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
+{
+  int cc_id = ul_info->cc_id;
+  frame_t frame_tx = ul_info->frame;
+  slot_t slot_tx = ul_info->slot;
+
+  // ul_info->pusch_present reflects whether the pusch-data step already ran nr_ue_ul_scheduler()
+  // for this slot (set by the caller before the pusch-data/control steps).
+  if (!ul_info->pusch_present) {
+    nr_ue_ul_scheduler(mac, ul_info);
+  }
+
+  if (mac->state >= UE_PERFORMING_RA && mac->state < UE_DETACHING)
+    nr_ue_pucch_scheduler(mac, frame_tx, slot_tx);
+
+  if (mac->if_module != NULL && mac->if_module->scheduled_response != NULL) {
+    LOG_D(NR_MAC, "scheduled_response control step transmitted,%d, %d\n", frame_tx, slot_tx);
+    nr_scheduled_response_t scheduled_response = {.ul_config = mac->ul_config_request + slot_tx,
+                                                  .mac = mac,
+                                                  .module_id = mac->ue_id,
+                                                  .CC_id = cc_id,
+                                                  .phy_data = ul_info->phy_data};
+    mac->if_module->scheduled_response(&scheduled_response);
   }
 }
 

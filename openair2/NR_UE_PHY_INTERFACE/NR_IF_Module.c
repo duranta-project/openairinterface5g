@@ -231,6 +231,21 @@ int nr_ue_ul_indication(nr_uplink_indication_t *ul_info)
   return 0;
 }
 
+int nr_ue_ul_indication_control(nr_uplink_indication_t *ul_info)
+{
+  module_id_t module_id = ul_info->module_id;
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  int ret = pthread_mutex_lock(&mac->if_mutex);
+  AssertFatal(!ret, "mutex failed %d\n", ret);
+  LOG_D(PHY, "Locked in ul control step, slot %d\n", ul_info->slot);
+
+  if (is_ul_slot(ul_info->slot, &mac->frame_structure))
+    nr_ue_ul_scheduler_control(mac, ul_info);
+  ret = pthread_mutex_unlock(&mac->if_mutex);
+  AssertFatal(!ret, "mutex failed %d\n", ret);
+  return 0;
+}
+
 static uint32_t nr_ue_dl_processing(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info)
 {
   uint32_t ret_mask = 0x0;
@@ -380,6 +395,7 @@ nr_ue_if_module_t *nr_ue_if_module_init(uint32_t module_id)
     nr_ue_if_module_inst[module_id]->scheduled_response = nr_ue_scheduled_response;
     nr_ue_if_module_inst[module_id]->dl_indication = nr_ue_dl_indication;
     nr_ue_if_module_inst[module_id]->ul_indication = nr_ue_ul_indication;
+    nr_ue_if_module_inst[module_id]->ul_indication_control = nr_ue_ul_indication_control;
     nr_ue_if_module_inst[module_id]->slot_indication = nr_ue_slot_indication;
     nr_ue_if_module_inst[module_id]->meas_ind = nr_mac_rrc_meas_ind_ue;
   }

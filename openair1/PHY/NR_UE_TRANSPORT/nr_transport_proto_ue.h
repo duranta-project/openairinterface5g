@@ -90,25 +90,41 @@ int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
                       int nb_ulsch,
                       uint8_t *ULSCH_ids);
 
-/** \brief Alternative entry point to UE uplink shared channels procedures.
-    It handles all the HARQ processes in only one call.
-    Performs the following functionalities:
-    - encoding
-    - scrambling
-    - modulation
-    - transform precoding
+/** \brief Uplink shared channels procedures, PUSCH data step.
+    Performs scheduling and encoding.
     @param[in] UE pointer to ue variables
     @param[in] frame frame index
     @param[in] slot slot index
     @param[in] phy_data PHY layer informations
-    @param[in] c16_t
+    @param[in] rm_info rate match info
+    @param[out] G_out total PUSCH coded bits
 */
-void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
-                            const uint32_t frame,
-                            const uint8_t slot,
-                            nr_phy_data_tx_t *phy_data,
-                            c16_t **txdataF,
-                            bool was_symbol_used[NR_SYMBOLS_PER_SLOT]);
+void nr_ue_ulsch_procedures_pusch_data(PHY_VARS_NR_UE *UE,
+                                       const uint32_t frame,
+                                       const uint8_t slot,
+                                       nr_phy_data_tx_t *phy_data,
+                                       rate_match_info_uci_t *rm_info,
+                                       unsigned int *G_out);
+
+/** \brief Uplink shared channels procedures, control step.
+    Performs scrambling, modulation, transform precoding, and RE mapping.
+    @param[in] UE pointer to ue variables
+    @param[in] frame frame index
+    @param[in] slot slot index
+    @param[in] phy_data PHY layer informations
+    @param[in] txdataF transmission buffer
+    @param[in] was_symbol_used symbol usage mask
+    @param[in] rm_info rate match info
+    @param[in] G_pusch_data total PUSCH coded bits from the PUSCH data step
+*/
+void nr_ue_ulsch_procedures_control(PHY_VARS_NR_UE *UE,
+                                    const uint32_t frame,
+                                    const uint8_t slot,
+                                    nr_phy_data_tx_t *phy_data,
+                                    c16_t **txdataF,
+                                    bool was_symbol_used[NR_SYMBOLS_PER_SLOT],
+                                    rate_match_info_uci_t *rm_info,
+                                    unsigned int G_pusch_data);
 
 /** \brief This function does IFFT for PUSCH
 */

@@ -1830,7 +1830,7 @@ int main(int argc, char *argv[])
     if (print_perf==1) 
     {
       printf("UE TX\n");
-      for (int i = PHY_PROC_TX; i <= OFDM_MOD_STATS; i++) {
+      for (int i = PUSCH_DATA_STEP_STATS; i <= OFDM_MOD_STATS; i++) {
         printStatIndent(&UE->phy_cpu_stats.cpu_time_stats[i], UE->phy_cpu_stats.cpu_time_stats[i].meas_name);
       }
 

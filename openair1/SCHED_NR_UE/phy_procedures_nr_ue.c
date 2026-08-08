@@ -295,37 +295,41 @@ void ue_srs_procedures_nr(PHY_VARS_NR_UE *ue,
                         // is a problem
 }
 
-void phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_tx_t *phy_data, c16_t **txp)
+void phy_procedures_nrUE_TX_pusch_data(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_tx_t *phy_data, rate_match_info_uci_t *rm_info, unsigned int *G)
 {
+  AssertFatal(ue->CC_id == 0, "Transmission on secondary CCs is not supported yet\n");
+
   const int slot_tx = proc->nr_slot_tx;
   const int frame_tx = proc->frame_tx;
 
+  start_meas_nr_ue_phy(ue, PUSCH_DATA_STEP_STATS);
+  nr_ue_ulsch_procedures_pusch_data(ue, frame_tx, slot_tx, phy_data, rm_info, G);
+  stop_meas_nr_ue_phy(ue, PUSCH_DATA_STEP_STATS);
+}
+
+void phy_procedures_nrUE_TX_control(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_tx_t *phy_data, c16_t **txdataF, bool was_symbol_used[NR_SYMBOLS_PER_SLOT], rate_match_info_uci_t *rm_info, unsigned int G, c16_t **txp)
+{
   AssertFatal(ue->CC_id == 0, "Transmission on secondary CCs is not supported yet\n");
+
+  const int slot_tx = proc->nr_slot_tx;
+  const int frame_tx = proc->frame_tx;
 
 #if T_TRACER
   T(T_UE_PHY_UL_TICK, T_INT(ue->Mod_id), T_INT(frame_tx % 1024), T_INT(slot_tx));
 #endif
 
-  const int samplesF_per_slot = ue->frame_parms.symbols_per_slot * ue->frame_parms.ofdm_symbol_size;
-  c16_t txdataF_buf[ue->frame_parms.nb_antennas_tx * samplesF_per_slot] __attribute__((aligned(32)));
-  memset(txdataF_buf, 0, sizeof(txdataF_buf));
-  c16_t *txdataF[ue->frame_parms.nb_antennas_tx]; /* workaround to be compatible with current txdataF usage in all tx procedures. */
-  for(int i=0; i< ue->frame_parms.nb_antennas_tx; ++i)
-    txdataF[i] = &txdataF_buf[i * samplesF_per_slot];
-
-  LOG_D(PHY,"****** start TX-Chain for AbsSubframe %d.%d ******\n", frame_tx, slot_tx);
-  bool was_symbol_used[NR_SYMBOLS_PER_SLOT] = {0};
+  LOG_D(PHY, "****** start TX-Chain control step for AbsSubframe %d.%d ******\n", frame_tx, slot_tx);
 
   start_meas_nr_ue_phy(ue, PHY_PROC_TX);
 
-  nr_ue_ulsch_procedures(ue, frame_tx, slot_tx, phy_data, (c16_t **)&txdataF, was_symbol_used);
+  nr_ue_ulsch_procedures_control(ue, frame_tx, slot_tx, phy_data, txdataF, was_symbol_used, rm_info, G);
 
   if (phy_data->srs_vars.active)
-    ue_srs_procedures_nr(ue, proc, (c16_t **)&txdataF, &phy_data->srs_vars.srs_config_pdu, was_symbol_used);
+    ue_srs_procedures_nr(ue, proc, txdataF, &phy_data->srs_vars.srs_config_pdu, was_symbol_used);
 
-  pucch_procedures_ue_nr(ue, proc, phy_data, (c16_t **)&txdataF, was_symbol_used);
+  pucch_procedures_ue_nr(ue, proc, phy_data, txdataF, was_symbol_used);
 
-  LOG_D(PHY, "Sending Uplink data \n");
+  LOG_D(PHY, "Sending Uplink data control step\n");
 
   // Don't do OFDM Mod if txdata contains prach
   const NR_UE_PRACH *prach_var = ue->prach_vars[proc->gNB_id];
@@ -334,7 +338,7 @@ void phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
     nr_tx_rotation_and_ofdm_mod(proc->nr_slot_tx,
                                 &ue->frame_parms,
                                 ue->frame_parms.nb_antennas_tx,
-                                (c16_t **)txdataF,
+                                txdataF,
                                 txp,
                                 link_type_ul,
                                 was_symbol_used,
@@ -344,9 +348,25 @@ void phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
 
   nr_ue_prach_procedures(ue, proc, txp);
 
-  LOG_D(PHY, "****** end TX-Chain for AbsSubframe %d.%d ******\n", proc->frame_tx, proc->nr_slot_tx);
+  LOG_D(PHY, "****** end TX-Chain control step for AbsSubframe %d.%d ******\n", proc->frame_tx, proc->nr_slot_tx);
 
   stop_meas_nr_ue_phy(ue, PHY_PROC_TX);
+}
+
+void phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_tx_t *phy_data, c16_t **txp)
+{
+  const int samplesF_per_slot = ue->frame_parms.symbols_per_slot * ue->frame_parms.ofdm_symbol_size;
+  c16_t txdataF_buf[ue->frame_parms.nb_antennas_tx * samplesF_per_slot] __attribute__((aligned(32)));
+  memset(txdataF_buf, 0, sizeof(txdataF_buf));
+  c16_t *txdataF[ue->frame_parms.nb_antennas_tx]; /* workaround to be compatible with current txdataF usage in all tx procedures. */
+  for(int i=0; i< ue->frame_parms.nb_antennas_tx; ++i)
+    txdataF[i] = &txdataF_buf[i * samplesF_per_slot];
+  bool was_symbol_used[NR_SYMBOLS_PER_SLOT] = {0};
+  rate_match_info_uci_t rm_info = {0};
+  unsigned int G = 0;
+
+  phy_procedures_nrUE_TX_pusch_data(ue, proc, phy_data, &rm_info, &G);
+  phy_procedures_nrUE_TX_control(ue, proc, phy_data, txdataF, was_symbol_used, &rm_info, G, txp);
 }
 
 static void nr_ue_measurement_procedures(uint16_t l,

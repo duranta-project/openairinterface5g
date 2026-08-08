@@ -70,6 +70,9 @@ typedef struct {
 
     void *phy_data;
 
+    /// whether a PUSCH PDU is scheduled for this slot (set by the caller before the pusch-data/control steps)
+    bool pusch_present;
+
 } nr_uplink_indication_t;
 
 typedef struct {
@@ -252,6 +255,7 @@ typedef struct nr_ue_if_module_s {
   nr_ue_synch_request_f      *synch_request;
   nr_ue_dl_indication_f      *dl_indication;
   nr_ue_ul_indication_f      *ul_indication;
+  nr_ue_ul_indication_f      *ul_indication_control;
   nr_ue_sl_indication_f      *sl_indication;
   nr_ue_slot_indication_f    *slot_indication;
   nr_ue_meas_ind_f           *meas_ind;
@@ -271,10 +275,10 @@ nr_ue_if_module_t *nr_ue_if_module_init(uint32_t module_id);
 int nr_ue_dl_indication(nr_downlink_indication_t *dl_info);
 
 int nr_ue_ul_indication(nr_uplink_indication_t *ul_info);
+int nr_ue_ul_indication_control(nr_uplink_indication_t *ul_info);
 
 void nr_ue_sl_indication(nr_sidelink_indication_t *sl_indication);
 
 void print_ue_mac_stats(const module_id_t mod, const int frame_rx, const int slot_rx);
 
 #endif
-
