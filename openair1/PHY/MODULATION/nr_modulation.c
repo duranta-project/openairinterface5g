@@ -255,16 +255,32 @@ bool nr_modulation_layer_mapping(const uint32_t *in,
   if ((n_symbs % n_layers) != 0)
     return false;
 
+  // Implementation selection (single entry point, chosen internally):
+  // For 1-2 layers the vectorised "modulate then deinterleave" path
+  // (nr_modulation + nr_layer_mapping) is faster than the fused scalar
+  // per-symbol loop below. The fused path only pays off for 3-4 layers, where
+  // the intermediate symbol buffer is large enough to be memory-bound and the
+  // separate layer mapping is itself poorly vectorised. For 1-2 layers the
+  // buffer stays in cache, so the scalar per-symbol modulation (which costs one
+  // bit-extract + table lookup per symbol, i.e. scales with symbol count and
+  // hurts most at low modulation orders) loses to SIMD modulation.
+  if (n_layers == 1) {
+    nr_modulation(in, length, mod_order, (int16_t *)tx_layers[0]);
+    return true;
+  }
+  if (n_layers == 2) {
+    c16_t mod_symbs[n_symbs] __attribute__((aligned(64)));
+    nr_modulation(in, length, mod_order, (int16_t *)mod_symbs);
+    c16_t (*ms)[n_symbs] = &mod_symbs;
+    nr_layer_mapping(1, n_symbs, ms, n_layers, layerSz, n_symbs, tx_layers);
+    return true;
+  }
+
   const uint8_t *in_bytes = (const uint8_t *)in;
 
   switch (mod_order) {
     case 2: {
       const c16_t *nr_mod_table = nr_qpsk_mod_table;
-      if (n_layers == 1) {
-        nr_modulation(in, length, mod_order, (int16_t *)tx_layers[0]);
-        return true;
-      }
-
       for (uint32_t sym = 0, layer_sym = 0; sym < n_symbs; sym += n_layers, layer_sym++) {
         for (uint8_t layer = 0; layer < n_layers; layer++) {
           const uint8_t idx = get_packed_symbol(in_bytes, length, mod_order, sym + layer);
@@ -276,11 +292,6 @@ bool nr_modulation_layer_mapping(const uint32_t *in,
 
     case 4: {
       const int32_t *nr_mod_table = nr_16qam_mod_table;
-      if (n_layers == 1) {
-        nr_modulation(in, length, mod_order, (int16_t *)tx_layers[0]);
-        return true;
-      }
-
       for (uint32_t sym = 0, layer_sym = 0; sym < n_symbs; sym += n_layers, layer_sym++) {
         for (uint8_t layer = 0; layer < n_layers; layer++) {
           const uint8_t idx = get_packed_symbol(in_bytes, length, mod_order, sym + layer);
@@ -292,32 +303,6 @@ bool nr_modulation_layer_mapping(const uint32_t *in,
 
     case 6: {
       const c16_t *nr_mod_table = (const c16_t *)nr_64qam_mod_table;
-      if (n_layers == 1) {
-        c16_t *tx0 = tx_layers[0];
-        uint32_t sym = 0;
-        for (; sym + 2 <= n_symbs; sym += 2) {
-          const uint16_t idx = get_packed_bits(in_bytes, length, sym * mod_order, 12);
-          tx0[sym] = nr_mod_table[idx * 2];
-          tx0[sym + 1] = nr_mod_table[idx * 2 + 1];
-        }
-        if (sym < n_symbs) {
-          const uint8_t idx = get_packed_symbol(in_bytes, length, mod_order, sym);
-          tx0[sym] = nr_mod_table[idx * 2];
-        }
-        return true;
-      }
-
-      if (n_layers == 2) {
-        c16_t *tx0 = tx_layers[0];
-        c16_t *tx1 = tx_layers[1];
-        for (uint32_t sym = 0, layer_sym = 0; sym < n_symbs; sym += 2, layer_sym++) {
-          const uint16_t idx = get_packed_bits(in_bytes, length, sym * mod_order, 12);
-          tx0[layer_sym] = nr_mod_table[idx * 2];
-          tx1[layer_sym] = nr_mod_table[idx * 2 + 1];
-        }
-        return true;
-      }
-
       if (n_layers == 3) {
         c16_t *tx0 = tx_layers[0];
         c16_t *tx1 = tx_layers[1];
@@ -366,11 +351,6 @@ bool nr_modulation_layer_mapping(const uint32_t *in,
 
     case 8: {
       const int32_t *nr_mod_table = nr_256qam_mod_table;
-      if (n_layers == 1) {
-        nr_modulation(in, length, mod_order, (int16_t *)tx_layers[0]);
-        return true;
-      }
-
       for (uint32_t sym = 0, layer_sym = 0; sym < n_symbs; sym += n_layers, layer_sym++) {
         for (uint8_t layer = 0; layer < n_layers; layer++) {
           const uint8_t idx = get_packed_symbol(in_bytes, length, mod_order, sym + layer);
