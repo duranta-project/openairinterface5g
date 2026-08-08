@@ -37,6 +37,15 @@ void nr_layer_precoder_simd(int n_layers,
                             int re_cnt,
                             c16_t *dataF_out);
 
+// 2-port / 2-layer fast path: fills both antenna ports in one pass
+void nr_layer_precoder_2x2_simd(int symbol_size,
+                                const c16_t (*dataF_in)[/*symbol_size*/], // c16_t dataF_in[2][symbol_size]
+                                c16_t weights[NR_MAX_NB_LAYERS][NR_MAX_CSI_PORTS],
+                                int offset,
+                                int re_cnt,
+                                c16_t *dataF_out_ant0,
+                                c16_t *dataF_out_ant1);
+
 #ifdef __cplusplus
 }
 #endif
@@ -191,6 +200,60 @@ TEST(NrLayerPrecoderTest, Compare_CM_SIMD)
           << " at [" << ant << "][" << symbol << "] got real part: " << dataF_out_cm[ant][symbol].r << " result " << dataF_out_simd[ant][symbol].r;
       EXPECT_C16_NEAR(dataF_out_cm[ant][symbol].i, dataF_out_simd[ant][symbol].i, 1)
           << " at [" << ant << "][" << symbol << "] got imag part: " << dataF_out_cm[ant][symbol].i << " result " << dataF_out_simd[ant][symbol].i;
+    }
+  }
+}
+
+// Compare the 2-port/2-layer butterfly fast path against the generic
+// per-antenna SIMD kernel for all four 2x2 codebook weights. They must agree to
+// <= n_layers LSB (truncating vs rounding of the per-layer Q15 scale, summed
+// over 2 layers). Inputs are kept below the range where the combined output
+// (x0 +/- x1)/sqrt(2) overflows int16: there the generic path's overflow
+// handling differs by ISA (x86 saturates, NEON wraps) whereas the fast path
+// always saturates, so that region is not a meaningful equivalence check.
+TEST(NrLayerPrecoderTest, Compare_2x2_SIMD)
+{
+  constexpr int n_layers = 2;
+  constexpr int symbol_size = 24;
+  constexpr int re_cnt = 24;
+  constexpr int16_t C = 23170; // round(SHRT_MAX / sqrt(2))
+  constexpr int in_max = 16000; // |x0|+|x1| after scaling stays within int16
+
+  std::vector<c16_t> buffer_in(n_layers * symbol_size);
+  for (int i = 0; i < n_layers * symbol_size; ++i)
+    buffer_in[i] = {static_cast<int16_t>((rand() % (2 * in_max + 1)) - in_max),
+                    static_cast<int16_t>((rand() % (2 * in_max + 1)) - in_max)};
+  c16_t(*dataF_in)[symbol_size] = reinterpret_cast<c16_t(*)[symbol_size]>(buffer_in.data());
+
+  // The two 2-port/2-layer PMIs: theta = 1 and theta = j ([layer][port])
+  const c16_t pmis[2][2][2] = {
+      {{{C, 0}, {C, 0}}, {{C, 0}, {static_cast<int16_t>(-C), 0}}}, // theta = 1
+      {{{C, 0}, {0, C}}, {{C, 0}, {0, static_cast<int16_t>(-C)}}}, // theta = j
+  };
+
+  for (int p = 0; p < 2; ++p) {
+    c16_t weights[NR_MAX_NB_LAYERS][NR_MAX_CSI_PORTS];
+    for (int layer = 0; layer < n_layers; ++layer)
+      for (int port = 0; port < 2; ++port)
+        weights[layer][port] = pmis[p][layer][port];
+
+    std::vector<c16_t> out_ref(2 * symbol_size, {0, 0});
+    std::vector<c16_t> out_2x2(2 * symbol_size, {0, 0});
+    c16_t(*ref)[symbol_size] = reinterpret_cast<c16_t(*)[symbol_size]>(out_ref.data());
+    c16_t(*bf)[symbol_size] = reinterpret_cast<c16_t(*)[symbol_size]>(out_2x2.data());
+
+    for (int ant = 0; ant < 2; ++ant)
+      nr_layer_precoder_simd(n_layers, symbol_size, dataF_in, ant, weights, 0, re_cnt, ref[ant]);
+
+    nr_layer_precoder_2x2_simd(symbol_size, dataF_in, weights, 0, re_cnt, bf[0], bf[1]);
+
+    for (int ant = 0; ant < 2; ++ant) {
+      for (int sym = 0; sym < re_cnt; ++sym) {
+        EXPECT_C16_NEAR(ref[ant][sym].r, bf[ant][sym].r, n_layers)
+            << " PMI " << p << " ant " << ant << " sym " << sym << " real " << ref[ant][sym].r << " vs " << bf[ant][sym].r;
+        EXPECT_C16_NEAR(ref[ant][sym].i, bf[ant][sym].i, n_layers)
+            << " PMI " << p << " ant " << ant << " sym " << sym << " imag " << ref[ant][sym].i << " vs " << bf[ant][sym].i;
+      }
     }
   }
 }
