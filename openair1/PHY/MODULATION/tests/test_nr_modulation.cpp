@@ -41,6 +41,14 @@ void nr_layer_precoder_simd(int n_layers,
 }
 #endif
 
+// The SIMD precoders apply their per-layer Q15 scaling with different rounding
+// per ISA: x86 (madd + arithmetic shift) truncates, while aarch64/NEON
+// (vqdmulh/vqrdmlah) rounds. Each layer's contribution can therefore differ by
+// up to 1 LSB, and the difference accumulates over the layers, so a comparison
+// against a reference computed with different rounding must tolerate up to
+// n_layers LSB. Exact-equality checks previously broke CI on aarch64.
+#define EXPECT_C16_NEAR(got, want, tol) EXPECT_LE(abs((int)(got) - (int)(want)), (tol))
+
 TEST(NrLayerPrecoderTest, Basic)
 {
   constexpr int n_layers = 2;
@@ -123,9 +131,11 @@ TEST(NrLayerPrecoderTest, SIMD)
     int result_real = -26 - (symbol<<1);
     int result_imag = -24 - (symbol<<1);
 
-    EXPECT_EQ(dataF_out[ant][symbol].r, result_real)
+    // n_layers contributions, each up to 1 LSB apart between truncating (x86)
+    // and rounding (NEON) Q15 scaling
+    EXPECT_C16_NEAR(dataF_out[ant][symbol].r, result_real, n_layers)
         << " at [" << ant << "][" << symbol << "] got real part: " << dataF_out[ant][symbol].r;
-    EXPECT_EQ(dataF_out[ant][symbol].i, -result_imag)
+    EXPECT_C16_NEAR(dataF_out[ant][symbol].i, -result_imag, n_layers)
         << " at [" << ant << "][" << symbol << "] got imag part: " << dataF_out[ant][symbol].i;
   }
 }
@@ -177,9 +187,9 @@ TEST(NrLayerPrecoderTest, Compare_CM_SIMD)
 
     // Compare the result from both C function
     for (int symbol = 0; symbol < re_cnt; symbol++) {
-      EXPECT_EQ(dataF_out_cm[ant][symbol].r, dataF_out_simd[ant][symbol].r)
+      EXPECT_C16_NEAR(dataF_out_cm[ant][symbol].r, dataF_out_simd[ant][symbol].r, 1)
           << " at [" << ant << "][" << symbol << "] got real part: " << dataF_out_cm[ant][symbol].r << " result " << dataF_out_simd[ant][symbol].r;
-      EXPECT_EQ(dataF_out_cm[ant][symbol].i, dataF_out_simd[ant][symbol].i)
+      EXPECT_C16_NEAR(dataF_out_cm[ant][symbol].i, dataF_out_simd[ant][symbol].i, 1)
           << " at [" << ant << "][" << symbol << "] got imag part: " << dataF_out_cm[ant][symbol].i << " result " << dataF_out_simd[ant][symbol].i;
     }
   }
