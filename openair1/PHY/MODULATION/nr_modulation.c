@@ -1007,14 +1007,16 @@ static inline __attribute__((always_inline)) int16x8_t cmac0_prec128(int16x8_t x
 #ifdef NEWOPTIM
 static inline __attribute__((always_inline)) int16x4x2_t cmac_prec4(int16x4x2_t y, int16x8_t x, int16x4_t wr, int16x4_t wi) {
   const int16x4x2_t produ = cmac0_prec4(x, wr, wi);
-  y.val[0] = vadd_s16(y.val[0], produ.val[0]);
-  y.val[1] = vadd_s16(y.val[1], produ.val[1]);
+  // saturating add to match the x86 path (adds_epi16); plain vadd_s16 wraps on overflow
+  y.val[0] = vqadd_s16(y.val[0], produ.val[0]);
+  y.val[1] = vqadd_s16(y.val[1], produ.val[1]);
   return y;
 }
 #else
 static inline __attribute__((always_inline)) int16x8_t cmac_prec128(int16x8_t y, int16x8_t x, int16x8_t wr, int16x8_t wi) {
   int16x8_t produ = cmac0_prec128(x, wr, wi);
-  return vaddq_s16(y, produ);
+  // saturating add to match the x86 path (adds_epi16); plain vaddq_s16 wraps on overflow
+  return vqaddq_s16(y, produ);
 }
 #endif
 
