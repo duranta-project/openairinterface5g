@@ -79,6 +79,31 @@ To verify in code before implementing:
 - **Channel-estimate layout** — whether the estimate for the data REs is a contiguous per-symbol
   slice (pointer works), full-BW per symbol (same contiguity test), or time-interpolated /
   held constant across data symbols (then it may be symbol-invariant → extract once, even better).
+### Dependency: PR240 "phy: use flat buffer in rxdataF" (ON HOLD pending this)
+
+The received-signal pointer-pass hinges on **PR240** (Sakthivel Velumani, "phy: use flat buffer in
+rxdataF" + "rewrite fft shift function"): it stores `rxdataF` flat (subcarrier 0 at index 0),
+changing extraction from `start_re = (first_carrier_offset + rb*12) % ofdm_symbol_size` (wraps) to
+`start_re = rb*12` (never wraps) and **deleting** the two-piece DC-wrap branch in
+`nr_ulsch_extract_rbs`. With it, a data-symbol received-signal extraction is an unconditional single
+contiguous slice ⇒ the pointer-pass needs **no wrap check / fallback**.
+
+Status (checked 2026-08-09, from origin `refs/pull/240/{head,merge}`): **not merged** into develop;
+base w29 (~163 commits behind current develop w31); net -147 lines. **gNB/UL only** — touches
+`nr_ulsch_demodulation.c`, `nr_ul_channel_estimation.c`, `pucch_rx.c`, `srs_rx.c`, `ofdm_mod.c`, the
+FFT-shift, and the sims, but **not** `nr_dlsch_demodulation.c` (UE DL keeps its own DC-wrap at
+`:206`). Note: PR240 heavily rewrites the same `nr_ulsch_demodulation.c` extraction/demod region as
+this branch's inner_rx work ⇒ they **conflict**; sequencing (PR240 first then rebase, vs our stack
+first then PR240 rebases) is a coordination call (with the CI team).
+
+**Decision: hold the extraction pointer-pass until PR240's position vs our stack is clear** — so we
+don't write wrap-handling PR240 deletes, nor invite the conflict early. When resumed:
+- gNB: on PR240, the received-signal pointer-pass is unconditional; the channel-estimate pointer-pass
+  is already unconditional (the estimate is stored compact and is the same for all data symbols).
+- UE DL: either a companion flat-`rxdataF` change, or keep a runtime wrap-check + memcpy fallback.
+- Either way the kernels need the **per-antenna pointer-array** signature (`c16_t *rxFext[nb_rx]` /
+  `c16_t *chFext[nl][nb_rx]`) instead of the 2-D VLA — bit-exact groundwork that can go first.
+
 - **Allocation contiguity** — the concrete non-contiguity trigger is **RA type-0 (RBG bitmap)**;
   when the bitmap is used the allocated RBs may have gaps, so those symbols fall to the gather path
   (also VRB↔PRB interleaving for PDSCH, and intra-slot hopping). **RA type-1** (contiguous
