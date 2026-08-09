@@ -821,9 +821,16 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     // -2 recovers the full ML gain over MMSE (verified on TDL-A). Selected by OAI_LBEST.
     static int ml256 = -1;
     if (ml256 < 0) { const char *e = getenv("OAI_LBEST"); ml256 = e ? atoi(e) : 0; }
-    joint_pv->log2_maxh = (log2_approx(avgs) >> 1) + (ml256 ? -2 : -3);
+    // ML (ml256): use the same mod-order correction + antenna term as the qam<=6 2-layer branch
+    // below (nr_ml_llr_maxh_off(8) + log2_approx(num_sp_streams>>1)); at nb=4 that is -3+1 = -2,
+    // matching the prior fixed -2, but it now tracks the antenna count. MMSE (!ml256) keeps -3.
+    joint_pv->log2_maxh = (log2_approx(avgs) >> 1)
+        + (ml256 ? nr_ml_llr_maxh_off(rel15_ul_ref->qam_mod_order) + log2_approx(num_sp_streams >> 1) : -3);
   } else if (total_layers == 2)
-    joint_pv->log2_maxh = (log2_approx(avgs) >> 1) - 2 + log2_approx(num_sp_streams >> 1);
+    // 2-layer QPSK/16QAM/64QAM near-ML: mod-order-dependent LLR-hotness offset (a uniform -2 tuned
+    // for 256QAM over-heats the lower orders and loses the ML gain). Same table as the UE.
+    joint_pv->log2_maxh =
+        (log2_approx(avgs) >> 1) + nr_ml_llr_maxh_off(rel15_ul_ref->qam_mod_order) + log2_approx(num_sp_streams >> 1);
   else
     joint_pv->log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(num_sp_streams >> 1);
 
