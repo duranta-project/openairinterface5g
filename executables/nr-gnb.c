@@ -155,6 +155,27 @@ void *L1_rx_thread(void *arg)
      START_MEAS_FULL_SLOT(&gNB->l1_rx_proc, slot_type, NR_UPLINK_SLOT);
      rx_func(info);
      STOP_MEAS_FULL_SLOT(&gNB->l1_rx_proc, slot_type, NR_UPLINK_SLOT);
+
+     if (slot_type == NR_UPLINK_SLOT) {
+       rt_probe_record(&gNB->rt_l1_rx_job_probe,
+                       &gNB->l1_rx_proc);
+
+       rt_probe_l1rx_context_t rt_l1rx_ctx =
+           rt_probe_l1rx_context_invalid();
+
+       if (gNB->rt_l1rx_slot_context.valid &&
+           gNB->rt_l1rx_slot_context.frame == info->frame_rx &&
+           gNB->rt_l1rx_slot_context.slot == info->slot_rx)
+         rt_l1rx_ctx = gNB->rt_l1rx_slot_context;
+
+       rt_probe_capture_record_with_l1rx_context(
+           &gNB->rt_l1_rx_job_probe,
+           info->frame_rx,
+           info->slot_rx,
+           &gNB->l1_rx_proc,
+           &rt_l1rx_ctx);
+     }
+
      delNotifiedFIFO_elt(res);
   }
   return NULL;
@@ -310,6 +331,40 @@ static void configure_gnb_l1tx_rt_probe(PHY_VARS_gNB *gNB)
   rt_probe_set_config(&gNB->rt_l1_tx_job_probe, &cfg);
 }
 
+static void configure_gnb_l1rx_rt_probe(PHY_VARS_gNB *gNB)
+{
+  if (!gNB)
+    return;
+
+  rt_probe_config_t cfg = rt_probe_default_config();
+
+  /*
+   * L1_RX_JOB_UL measures the complete gNB L1 RX thread job around
+   * rx_func(info), for full uplink slots only.
+   *
+   * The thresholds below are provisional observation thresholds.
+   * They are not formally justified protocol deadlines.
+   *
+   * L1RX capture uses its own explicit schema and fixed CSV path.
+   */
+  cfg.report_period = 20000;
+  cfg.late_threshold_us = 1000;
+  cfg.threshold_us[0] = 500;
+  cfg.threshold_us[1] = 1000;
+  cfg.threshold_us[2] = 1500;
+  cfg.threshold_us[3] = 2000;
+
+  cfg.capture_records = 20000;
+
+  snprintf(cfg.capture_path,
+           sizeof(cfg.capture_path),
+           "/tmp/rt_probe_l1rx_records.csv");
+
+  rt_probe_load_config(&cfg, "rt_probe_l1rx");
+
+  rt_probe_set_config(&gNB->rt_l1_rx_job_probe, &cfg);
+}
+
 static void nrL1_stats_reset(PHY_VARS_gNB *gNB, RU_t *ru)
 {
   reset_meas(&gNB->l1_tx_proc);
@@ -428,6 +483,12 @@ void *nrL1_stats_thread(void *param) {
                                 RT_DEADLINE_CAPTURE_SCHEMA_L1TX);
     configure_gnb_l1tx_rt_probe(gNB);
   }
+  if (!gNB->rt_l1_rx_job_probe.initialized) {
+    rt_probe_init(&gNB->rt_l1_rx_job_probe, "L1_RX_JOB_UL");
+    rt_probe_set_capture_schema(&gNB->rt_l1_rx_job_probe,
+                                RT_DEADLINE_CAPTURE_SCHEMA_L1RX);
+    configure_gnb_l1rx_rt_probe(gNB);
+  }
 
   nrL1_stats_reset(gNB, ru);
 
@@ -449,16 +510,20 @@ void *nrL1_stats_thread(void *param) {
     fflush(fd);
 
     /*
-     * Report and flush L1TX probe records from the low-priority stats thread.
-     * The realtime L1TX path only writes to the bounded memory buffer.
+     * Report and flush L1 TX/RX probe records from the low-priority stats thread.
+     * The realtime L1 paths only write to their bounded memory buffers.
      */
     rt_probe_report(&gNB->rt_l1_tx_job_probe, 0);
+    rt_probe_report(&gNB->rt_l1_rx_job_probe, 0);
     rt_probe_async_flush_capture(&gNB->rt_l1_tx_job_probe);
+    rt_probe_async_flush_capture(&gNB->rt_l1_rx_job_probe);
 
   }
 
   if (gNB->rt_l1_tx_job_probe.initialized)
     rt_probe_dump_capture(&gNB->rt_l1_tx_job_probe);
+  if (gNB->rt_l1_rx_job_probe.initialized)
+    rt_probe_dump_capture(&gNB->rt_l1_rx_job_probe);
 
   fclose(fd);
   return(NULL);

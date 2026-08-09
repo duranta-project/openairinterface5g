@@ -427,6 +427,8 @@ typedef struct PHY_VARS_gNB_s {
   rt_probe_t rt_l1_tx_job_probe;
   rt_probe_l1tx_context_t rt_l1tx_slot_context;
   time_stats_t l1_rx_proc;
+  rt_probe_t rt_l1_rx_job_probe;
+  rt_probe_l1rx_context_t rt_l1rx_slot_context;
 
   time_stats_t phy_proc_tx;
   time_stats_t gnb_tx_procedures_stats;
