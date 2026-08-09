@@ -115,6 +115,112 @@ static inline rt_probe_l1tx_context_t rt_probe_l1tx_context_invalid(void)
 }
 
 /**
+ * \typedef rt_probe_capture_schema_t
+ * \brief enum to differentiate L1TX, L1RX and unspecified probes
+ */
+typedef enum {
+  RT_DEADLINE_CAPTURE_SCHEMA_NONE = 0,
+  RT_DEADLINE_CAPTURE_SCHEMA_L1TX,
+  RT_DEADLINE_CAPTURE_SCHEMA_L1RX,
+} rt_probe_capture_schema_t;
+
+/**
+ * \typedef rt_probe_l1rx_context_t
+ * \brief L1RX context
+ * \var valid indicates if the L1RX context
+ * is valid for using the record for
+ * performance monitoring
+ * \var frame frame when record was captured
+ * \var slot slot when record was captured
+ * \var ul_pucch_job_count number of
+ * Physical Uplink Control Channel jobs
+ * \var ul_pusch_job_count number of
+ * Physical Uplink Shared Channel jobs
+ * \var ul_pusch_data_count aount of data
+ * transmitted over PUSCH
+ * \var ul_pusch_decode_count number of
+ * Physical Uplink Shared Channel decoding jobs
+ * \var ul_srs_job_count number of
+ * Sounding Reference System jobs
+ * \var ul_pusch_prb_total number of
+ * Physical Ressource Blocks used for PUSCH
+ * \var ul_pusch_tbs_total number of
+ * PUSCH Transport Blocks
+ * \var ul_pusch_mcs_min minimum
+ * Modulation and Coding Scheme index
+ * over the recorded slot
+ * \var ul_pusch_mcs_max maximum
+ * MCS index over the recorded slot
+ * \var ul_pusch_mcs_table_min minimum
+ * MCS table index over the recorded slot
+ * \var ul_pusch_mcs_max maximum
+ * MCS table index over the recorded slot
+ * \var ul_pusch_layers_max maximum numbers
+ * of transmission layers over the recorded slot
+ * \var ul_crc_ok_count number of decodings
+ * validated with Cyclic Redundancy Check
+ * \var ul_crc_fail_count number of decoding
+ * failing CRC validation
+ */
+typedef struct {
+  int valid;
+  int frame;
+  int slot;
+  int ul_pucch_job_count;
+  int ul_pusch_job_count;
+  int ul_pusch_data_count;
+  int ul_pusch_decode_count;
+  int ul_srs_job_count;
+  int ul_pusch_prb_total;
+  uint64_t ul_pusch_tbs_total;
+  int ul_pusch_mcs_min;
+  int ul_pusch_mcs_max;
+  int ul_pusch_mcs_table_min;
+  int ul_pusch_mcs_table_max;
+  int ul_pusch_layers_max;
+  int ul_pusch_rv_nonzero_count;
+  int ul_crc_ok_count;
+  int ul_crc_fail_count;
+} rt_probe_l1rx_context_t;
+
+/**
+ * \brief returns a default invalid RX context
+ */
+static inline rt_probe_l1rx_context_t rt_probe_l1rx_context_invalid(void)
+{
+  rt_probe_l1rx_context_t ctx = {
+      .valid = 0,
+      .frame = -1,
+      .slot = -1,
+      .ul_pucch_job_count = 0,
+      .ul_pusch_job_count = 0,
+      .ul_pusch_data_count = 0,
+      .ul_pusch_decode_count = 0,
+      .ul_srs_job_count = 0,
+      .ul_pusch_prb_total = 0,
+      .ul_pusch_tbs_total = 0,
+      .ul_pusch_mcs_min = -1,
+      .ul_pusch_mcs_max = -1,
+      .ul_pusch_mcs_table_min = -1,
+      .ul_pusch_mcs_table_max = -1,
+      .ul_pusch_layers_max = -1,
+      .ul_pusch_rv_nonzero_count = 0,
+      .ul_crc_ok_count = 0,
+      .ul_crc_fail_count = 0,
+  };
+  return ctx;
+}
+
+/**
+ * \typedef rt_probe_capture_context_t
+ * \brief union of L1TX and L1RX contexts
+ */
+typedef union {
+  rt_probe_l1tx_context_t l1tx;
+  rt_probe_l1rx_context_t l1rx;
+} rt_probe_capture_context_t;
+
+/**
  * \typedef rt_probe_capture_record_t
  * \brief captured real-time probe record
  * \var capture_index record index
@@ -127,7 +233,7 @@ static inline rt_probe_l1tx_context_t rt_probe_l1tx_context_invalid(void)
  * late completion threshold for this record
  * \var late true if the record
  * is a late processing
- * \var ctx L1TX context
+ * \var ctx L1 context
  */
 typedef struct {
   uint64_t capture_index;
@@ -137,7 +243,7 @@ typedef struct {
   oai_cputime_t duration_us;
   oai_cputime_t late_threshold_us;
   int late;
-  rt_probe_l1tx_context_t ctx;
+  rt_probe_capture_context_t ctx;
 } rt_probe_capture_record_t;
 
 /**
@@ -192,6 +298,7 @@ typedef struct {
   int initialized;
 
   rt_probe_config_t cfg;
+  rt_probe_capture_schema_t capture_schema;
 
   uint64_t total;
   uint64_t last_report_total;
@@ -222,6 +329,15 @@ typedef struct {
  * \param name name to give to the probe
  */
 void rt_probe_init(rt_probe_t *p, const char *name);
+
+/**
+ * \brief set the schema of a probe
+ * in other word whether it records L1TX or L1RX context
+ * \param p pointer to the probe to initialize
+ * \param schema schem (or type in other words) to set on the probe
+ */
+void rt_probe_set_capture_schema(rt_probe_t *p,
+                                 rt_probe_capture_schema_t schema);
 
 /**
  * \brief set probe configuration
@@ -263,6 +379,20 @@ void rt_probe_capture_record_with_l1tx_context(rt_probe_t *p,
                                                int slot,
                                                time_stats_t *ts,
                                                const rt_probe_l1tx_context_t *ctx);
+
+/**
+ * \brief capture record with L1RX context with probe from timer
+ * \param p pointer to the probe to capture
+ * \param frame current frame to record
+ * \param slot current slot to record
+ * \param ts timer to record
+ * \param ctx L1RX context
+ */
+void rt_probe_capture_record_with_l1rx_context(rt_probe_t *p,
+                                               int frame,
+                                               int slot,
+                                               time_stats_t *ts,
+                                               const rt_probe_l1rx_context_t *ctx);
 
 /**
  * \brief capture record with probe from timer

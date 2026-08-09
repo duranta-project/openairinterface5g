@@ -32,6 +32,16 @@ void rt_probe_init(rt_probe_t *p, const char *name)
   p->name = name;
   p->initialized = 1;
   p->cfg = rt_probe_default_config();
+  p->capture_schema = RT_DEADLINE_CAPTURE_SCHEMA_NONE;
+}
+
+void rt_probe_set_capture_schema(rt_probe_t *p,
+                                 rt_probe_capture_schema_t schema)
+{
+  if (p == NULL)
+    return;
+
+  p->capture_schema = schema;
 }
 
 static inline void rt_probe_reset_capture(rt_probe_t *p)
@@ -68,6 +78,15 @@ static inline void rt_probe_setup_capture(rt_probe_t *p)
 
   if (!p->cfg.capture_enabled || p->cfg.capture_records == 0)
     return;
+
+  if (p->capture_schema != RT_DEADLINE_CAPTURE_SCHEMA_L1TX &&
+      p->capture_schema != RT_DEADLINE_CAPTURE_SCHEMA_L1RX) {
+    LOG_E(UTIL,
+          "RT_DEADLINE_CAPTURE_ERROR probe=%s reason=unsupported_schema schema=%d\n",
+          p->name,
+          (int)p->capture_schema);
+    return;
+  }
 
   if (p->capture_buffer != NULL)
     return;
@@ -188,6 +207,89 @@ void rt_probe_load_config(rt_probe_config_t *cfg, char *cfg_string)
         cfg->capture_path);
 }
 
+static inline void rt_probe_write_capture_header(FILE *f,
+                                                 rt_probe_capture_schema_t schema)
+{
+  if (f == NULL)
+    return;
+
+  switch (schema) {
+    case RT_DEADLINE_CAPTURE_SCHEMA_L1TX:
+      fprintf(f, "capture_index,probe_total,frame,slot,duration_us,late_threshold_us,late,context_valid,dl_pdsch_count,dl_prb_total,dl_tbs_total,dl_mcs_min,dl_mcs_max,dl_mcs_table_min,dl_mcs_table_max,dl_layers_max,dl_rv_nonzero_count\n");
+      break;
+
+    case RT_DEADLINE_CAPTURE_SCHEMA_L1RX:
+      fprintf(f, "capture_index,probe_total,frame,slot,duration_us,late_threshold_us,late,context_valid,ul_pucch_job_count,ul_pusch_job_count,ul_pusch_data_count,ul_pusch_decode_count,ul_srs_job_count,ul_pusch_prb_total,ul_pusch_tbs_total,ul_pusch_mcs_min,ul_pusch_mcs_max,ul_pusch_mcs_table_min,ul_pusch_mcs_table_max,ul_pusch_layers_max,ul_pusch_rv_nonzero_count,ul_crc_ok_count,ul_crc_fail_count\n");
+      break;
+
+    default:
+      break;
+  }
+}
+
+static inline void rt_probe_write_capture_row(FILE *f,
+                                              rt_probe_capture_schema_t schema,
+                                              const rt_probe_capture_record_t *record)
+{
+  if (f == NULL || record == NULL)
+    return;
+
+  switch (schema) {
+    case RT_DEADLINE_CAPTURE_SCHEMA_L1TX:
+      fprintf(f,
+              "%lu,%lu,%d,%d,%llu,%llu,%d,%d,%d,%d,%lu,%d,%d,%d,%d,%d,%d\n",
+              record->capture_index,
+              record->probe_total,
+              record->frame,
+              record->slot,
+              record->duration_us,
+              record->late_threshold_us,
+              record->late,
+              record->ctx.l1tx.valid,
+              record->ctx.l1tx.dl_pdsch_count,
+              record->ctx.l1tx.dl_prb_total,
+              record->ctx.l1tx.dl_tbs_total,
+              record->ctx.l1tx.dl_mcs_min,
+              record->ctx.l1tx.dl_mcs_max,
+              record->ctx.l1tx.dl_mcs_table_min,
+              record->ctx.l1tx.dl_mcs_table_max,
+              record->ctx.l1tx.dl_layers_max,
+              record->ctx.l1tx.dl_rv_nonzero_count);
+      break;
+
+    case RT_DEADLINE_CAPTURE_SCHEMA_L1RX:
+      fprintf(f,
+              "%lu,%lu,%d,%d,%llu,%llu,%d,%d,%d,%d,%d,%d,%d,%d,%lu,%d,%d,%d,%d,%d,%d,%d,%d\n",
+              record->capture_index,
+              record->probe_total,
+              record->frame,
+              record->slot,
+              record->duration_us,
+              record->late_threshold_us,
+              record->late,
+              record->ctx.l1rx.valid,
+              record->ctx.l1rx.ul_pucch_job_count,
+              record->ctx.l1rx.ul_pusch_job_count,
+              record->ctx.l1rx.ul_pusch_data_count,
+              record->ctx.l1rx.ul_pusch_decode_count,
+              record->ctx.l1rx.ul_srs_job_count,
+              record->ctx.l1rx.ul_pusch_prb_total,
+              record->ctx.l1rx.ul_pusch_tbs_total,
+              record->ctx.l1rx.ul_pusch_mcs_min,
+              record->ctx.l1rx.ul_pusch_mcs_max,
+              record->ctx.l1rx.ul_pusch_mcs_table_min,
+              record->ctx.l1rx.ul_pusch_mcs_table_max,
+              record->ctx.l1rx.ul_pusch_layers_max,
+              record->ctx.l1rx.ul_pusch_rv_nonzero_count,
+              record->ctx.l1rx.ul_crc_ok_count,
+              record->ctx.l1rx.ul_crc_fail_count);
+      break;
+
+    default:
+      break;
+  }
+}
+
 static void rt_probe_flush_capture_csv(rt_probe_t *p, int final_dump)
 {
   if (p == NULL || !p->initialized)
@@ -233,8 +335,7 @@ static void rt_probe_flush_capture_csv(rt_probe_t *p, int final_dump)
       }
 
       if (!p->capture_header_written) {
-        fprintf(p->capture_fd,
-                "capture_index,probe_total,frame,slot,duration_us,late_threshold_us,late,context_valid,dl_pdsch_count,dl_prb_total,dl_tbs_total,dl_mcs_min,dl_mcs_max,dl_mcs_table_min,dl_mcs_table_max,dl_layers_max,dl_rv_nonzero_count\n");
+        rt_probe_write_capture_header(p->capture_fd, p->capture_schema);
         p->capture_header_written = 1;
       }
     }
@@ -242,25 +343,7 @@ static void rt_probe_flush_capture_csv(rt_probe_t *p, int final_dump)
     for (uint64_t seq = read_index; seq < write_index; seq++) {
       const rt_probe_capture_record_t *record = &p->capture_buffer[seq % p->capture_capacity];
 
-      fprintf(p->capture_fd,
-              "%lu,%lu,%d,%d,%llu,%llu,%d,%d,%d,%d,%lu,%d,%d,%d,%d,%d,%d\n",
-              record->capture_index,
-              record->probe_total,
-              record->frame,
-              record->slot,
-              record->duration_us,
-              record->late_threshold_us,
-              record->late,
-              record->ctx.valid,
-              record->ctx.dl_pdsch_count,
-              record->ctx.dl_prb_total,
-              record->ctx.dl_tbs_total,
-              record->ctx.dl_mcs_min,
-              record->ctx.dl_mcs_max,
-              record->ctx.dl_mcs_table_min,
-              record->ctx.dl_mcs_table_max,
-              record->ctx.dl_layers_max,
-              record->ctx.dl_rv_nonzero_count);
+      rt_probe_write_capture_row(p->capture_fd, p->capture_schema, record);
       flushed++;
     }
 
@@ -358,6 +441,9 @@ void rt_probe_capture_record_with_l1tx_context(rt_probe_t *p,
   if (!p->cfg.capture_enabled)
     return;
 
+  if (p->capture_schema != RT_DEADLINE_CAPTURE_SCHEMA_L1TX)
+    return;
+
   if (p->capture_buffer == NULL || p->capture_capacity == 0 || p->capture_dumped)
     return;
 
@@ -381,10 +467,66 @@ void rt_probe_capture_record_with_l1tx_context(rt_probe_t *p,
   record->duration_us = duration_us;
   record->late_threshold_us = p->cfg.late_threshold_us;
   record->late = p->cfg.late_threshold_us > 0 && duration_us > p->cfg.late_threshold_us;
-  record->ctx = ctx != NULL ? *ctx : rt_probe_l1tx_context_invalid();
+  record->ctx.l1tx = ctx != NULL ? *ctx : rt_probe_l1tx_context_invalid();
 
   __atomic_store_n(&p->capture_write_index, write_index + 1, __ATOMIC_RELEASE);
   __atomic_store_n(&p->capture_count, write_index + 1, __ATOMIC_RELAXED);
+}
+
+void rt_probe_capture_record_with_l1rx_context(rt_probe_t *p,
+                                               int frame,
+                                               int slot,
+                                               time_stats_t *ts,
+                                               const rt_probe_l1rx_context_t *ctx)
+{
+  if (p == NULL || !p->initialized)
+    return;
+
+  if (!p->cfg.capture_enabled)
+    return;
+
+  if (p->capture_schema != RT_DEADLINE_CAPTURE_SCHEMA_L1RX)
+    return;
+
+  if (p->capture_buffer == NULL || p->capture_capacity == 0 || p->capture_dumped)
+    return;
+
+  const uint64_t read_index =
+      __atomic_load_n(&p->capture_read_index, __ATOMIC_ACQUIRE);
+  const uint64_t write_index =
+      __atomic_load_n(&p->capture_write_index, __ATOMIC_RELAXED);
+
+  if (write_index - read_index >= p->capture_capacity) {
+    __atomic_add_fetch(&p->capture_dropped_count, 1, __ATOMIC_RELAXED);
+    return;
+  }
+
+  oai_cputime_t duration_us = rt_probe_ns_to_us(ts->p_time);
+
+  const uint64_t idx = write_index % p->capture_capacity;
+  rt_probe_capture_record_t *record = &p->capture_buffer[idx];
+
+  record->capture_index = write_index;
+  record->probe_total = p->total;
+  record->frame = frame;
+  record->slot = slot;
+  record->duration_us = duration_us;
+  record->late_threshold_us = p->cfg.late_threshold_us;
+  record->late =
+      p->cfg.late_threshold_us > 0 &&
+      duration_us > p->cfg.late_threshold_us;
+  record->ctx.l1rx =
+      ctx != NULL ? *ctx : rt_probe_l1rx_context_invalid();
+
+  __atomic_store_n(
+      &p->capture_write_index,
+      write_index + 1,
+      __ATOMIC_RELEASE);
+
+  __atomic_store_n(
+      &p->capture_count,
+      write_index + 1,
+      __ATOMIC_RELAXED);
 }
 
 void rt_probe_capture_record(rt_probe_t *p,
@@ -392,8 +534,29 @@ void rt_probe_capture_record(rt_probe_t *p,
                              int slot,
                              time_stats_t *ts)
 {
-  rt_probe_l1tx_context_t ctx = rt_probe_l1tx_context_invalid();
-  rt_probe_capture_record_with_l1tx_context(p, frame, slot, ts, &ctx);
+  if (p == NULL || !p->initialized)
+    return;
+
+  switch (p->capture_schema) {
+    case RT_DEADLINE_CAPTURE_SCHEMA_L1TX: {
+      const rt_probe_l1tx_context_t ctx =
+          rt_probe_l1tx_context_invalid();
+      rt_probe_capture_record_with_l1tx_context(
+          p, frame, slot, ts, &ctx);
+      break;
+    }
+
+    case RT_DEADLINE_CAPTURE_SCHEMA_L1RX: {
+      const rt_probe_l1rx_context_t ctx =
+          rt_probe_l1rx_context_invalid();
+      rt_probe_capture_record_with_l1rx_context(
+          p, frame, slot, ts, &ctx);
+      break;
+    }
+
+    default:
+      break;
+  }
 }
 
 void rt_probe_record(rt_probe_t *p, time_stats_t *ts)
