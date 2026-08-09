@@ -130,6 +130,15 @@ is compiler-bound (register allocation + scheduling of the interleaved compute),
 have been tried; **retest on aarch64 with gcc15 and/or clang** before any decision to remove. Zero
 runtime cost while gated (default is tiled). [compiler sweep TODO]
 
+**PR-time decision (when upstreaming): most likely DROP for x86/aarch64; the surviving candidate is
+RISC-V K3 A100.** The A100 is memory-bound (L-best ~4x slower under SIMDe), i.e. exactly the regime
+where eliminating the L1-scratch round-trip should pay — unlike the cache-rich/register-cheap
+A76/A72/x86 where it's a wash. Two gating measurements before the PR: (1) aarch64 gcc15/clang;
+(2) **K3 A100 FUSE=1 vs FUSE=2 — testable NOW via SIMDe** (the register .inc compiles on RISC-V; no
+native-RVV realign needed first). If both stay a wash -> drop the register path for a clean
+single-fusion PR. If the A100 flips positive -> keep it, default-on only where it wins (A100),
+gated elsewhere.
+
 ### 2-layer register-fusion — NOT built (evidence says wash), decided 2026-08-02
 Considered extending register-fusion to 2-layer, where the scratch is bigger (rxC0/1 + mag0/1 +
 rho01/10, six arrays vs the single layer's three). Reading the actual detectors settled it without
