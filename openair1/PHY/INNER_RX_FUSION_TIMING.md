@@ -106,7 +106,7 @@ round-trip is more expensive (bigger saving) **but** the core is more register-c
 pressure cost) — the two effects pull opposite ways, so the register-fusion must be measured on
 the A76 to know if it's worth keeping over the tiled fusion.
 
-### aarch64 (RK3588 A76) — DECIDED: register is a wash, keep tiled
+### aarch64 — register ≈ tiled so far; KEEP gated, revisit with gcc15/clang
 1-layer 64QAM @100 MHz, 2 Rx, `OAI_RNGSEED=888`, BER bit-identical (1.592530e-04) both:
 
 | variant | fused LLR |
@@ -115,12 +115,20 @@ the A76 to know if it's worth keeping over the tiled fusion.
 | tiled (FUSE=1)    | 24.46 µs (~7.5% vs unfused) |
 | register (FUSE=2) | 24.54 µs (+0.3% vs tiled — noise) |
 
-**Verdict: register-fusion does NOT beat the tiled fusion.** On the memory-bound A76 it's a wash
-(+0.3%); on cache-rich x86 it's ~14% slower. The tiled fusion already captured the whole
-memory-round-trip win (26.46 → 24.46); eliminating the scratch + per-tile call on top adds nothing
-for 1-layer, because 1-layer's scratch is tiny (rxComp + mag, **no rho**) and the LLR is only
-~24 µs. **Keep the tiled fusion as the default;** the register path stays gated (`OAI_FUSE=2`,
-bit-exact) but is not a win for single-layer.
+Measured wash so far:
+- **RK3588 A76, gcc12:** FUSE=1 ≈ FUSE=2 (table above; broader configs also equivalent).
+- **NXP A72 (gNB), gcc13:** FUSE=1 ≈ FUSE=2 — a *newer* compiler did not flip it either.
+- **x86, gcc12:** FUSE=2 ~14% slower.
+
+**Verdict so far: register-fusion is a wash on aarch64 (A76/A72) and a loss on x86 — the tiled
+fusion is the shipping default.** The tiled fusion already captured the whole memory-round-trip win
+(26.46 → 24.46); eliminating the L1 scratch + per-tile call on top adds nothing for 1-layer (tiny
+scratch — rxComp + mag, **no rho** — and a ~24 µs LLR).
+
+**But keep the register path alive (gated `OAI_FUSE=2`, bit-exact) — do NOT drop it.** Its benefit
+is compiler-bound (register allocation + scheduling of the interleaved compute), and only gcc12/13
+have been tried; **retest on aarch64 with gcc15 and/or clang** before any decision to remove. Zero
+runtime cost while gated (default is tiled). [compiler sweep TODO]
 
 ### 2-layer register-fusion — NOT built (evidence says wash), decided 2026-08-02
 Considered extending register-fusion to 2-layer, where the scratch is bigger (rxC0/1 + mag0/1 +
