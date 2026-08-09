@@ -1149,46 +1149,36 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     bool cw_written = false; // a fused path wrote the demapped (+descrambled) codeword directly
 
     start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
-    if (fuse_1layer) {
-      // Fused single-layer inner RX: MRC compensation + LLR for this symbol, bit-exact with
-      // {nr_channel_compensation + nr_dlsch_llr}. chFext[0] = the single layer's extracted channel,
-      // rxdataF_ext = extracted Rx. OAI_FUSE=2 selects the register-fused variant (no tile scratch,
-      // no per-tile LLR call) which writes per-layer; OAI_FUSE=1 the tiled variant, which folds
-      // descrambling into the store and writes the codeword directly (1 layer: per-layer order ==
-      // codeword order, no demap).
-      if (fuse_env == 2)
-        nr_inner_rx_1layer_reg(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], qamModOrder, *log2_maxh, layer_llr[0]);
-      else {
-        nr_inner_rx_1layer(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], qamModOrder, *log2_maxh, llr_cw, seq_sym);
-        cw_written = true;
-      }
-    } else if (nl == 2 && do_ml && (qamModOrder <= 6 || (qamModOrder == 8 && ml256))) {
-      // 2-layer QPSK/16QAM/64QAM (and 256QAM under the OAI_LBEST analysis gate):
-      // joint ML-LLR using inter-layer Tx correlation.
-      // rho_dl is [nl*nl][rx_size_symbol]: index 1 = rho[0][1], index nl = rho[1][0]
-      if (fuse_2layer_ml) {
-        // Fused: MRC compensation + rho build + joint ML-LLR, tiled in L1 (nr_inner_rx_2layer_ml).
-        // Codeword-output mode folds the layer demap + descramble into the store (llr_cw direct).
-        nr_inner_rx_2layer_ml(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext, qamModOrder, *log2_maxh,
-                              NULL, NULL, llr_cw, seq_sym);
-        cw_written = true;
-      } else {
-        nr_compute_ML_llr(rxdataF_comp[symbol][0],
-                          rxdataF_comp[symbol][1],
-                          dl_ch_mag[0],
-                          dl_ch_mag[1],
-                          layer_llr[0],
-                          layer_llr[1],
-                          rho_dl[1],
-                          rho_dl[nl],
-                          this_re,
-                          qamModOrder);
-      }
+    // Shared inner-RX dispatch for the common detector set (comp already done above for non-fused).
+    // fuse_mode: 1-layer -> reg(2) / tiled(1) / none(0); 2-layer -> fused(1) / none(0). Returns false
+    // for the UE-only paths (register-fused, 2-layer 256QAM MMSE without ml256, 3-layer, 2L !do_ml /
+    // >2 layers), handled in the fallback below (writes per-layer; the demap+descramble block runs).
+    int fuse_mode;
+    if (nl == 1)
+      fuse_mode = fuse_1layer ? (fuse_env == 2 ? 2 : 1) : 0;
+    else
+      fuse_mode = fuse_2layer_ml ? 1 : 0;
+    c16_t *rxComp[nl], *mag_a[nl], *mag_b[nl], *mag_c[nl];
+    int16_t *layer_scratch[nl];
+    for (int l = 0; l < nl; l++) {
+      rxComp[l] = rxdataF_comp[symbol][l];
+      mag_a[l] = dl_ch_mag[l];
+      mag_b[l] = dl_ch_magb[l];
+      mag_c[l] = dl_ch_magr[l];
+      layer_scratch[l] = layer_llr[l];
+    }
+    if (nr_inner_rx(this_re, rx_size_symbol, nbRx, nl, qamModOrder, rxdataF_ext, chFext,
+                    rxComp, mag_a, mag_b, mag_c,
+                    (nl == 2) ? rho_dl[1] : NULL, (nl == 2) ? rho_dl[nl] : NULL,
+                    *log2_maxh, fuse_mode, do_ml, ml256, layer_scratch, seq_sym, llr_cw)) {
+      cw_written = true; // shared dispatch wrote the demapped + descrambled codeword directly
+    } else if (fuse_1layer) {
+      // Register-fused single-layer inner RX (OAI_FUSE=2): no tile scratch / per-tile call; per-layer.
+      nr_inner_rx_1layer_reg(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], qamModOrder, *log2_maxh, layer_llr[0]);
     } else if (nl == 2 && do_ml && qamModOrder == 8) {
-      // R4: 2-layer 256QAM (non-lbest) — fused per-RE MMSE (L=1) + LLR, mirroring the gNB
-      // inner_rx. nr_compute_MMSE_llr = nr_mmse_2layers (per-RE Gram inversion on the MRC'd
-      // p_rxComp) + per-layer nr_compute_llr, replacing {block-A nr_mmse_2layers + nr_dlsch_llr}.
-      // (The qamModOrder==8 && ml256 case is taken by the ML branch above.)
+      // R4: 2-layer 256QAM (non-lbest) — fused per-RE MMSE (L=1) + LLR (the ml256 case is handled by
+      // the shared dispatch above). nr_compute_MMSE_llr = nr_mmse_2layers (per-RE Gram inversion on
+      // the MRC'd p_rxComp) + per-layer nr_compute_llr.
       int16_t *llr_ptrs[nl];
       for (int l = 0; l < nl; l++)
         llr_ptrs[l] = layer_llr[l];
