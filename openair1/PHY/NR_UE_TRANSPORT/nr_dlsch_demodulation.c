@@ -950,18 +950,14 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     }
     // Output shift: half channel energy (log2|h|^2/2) + MRC antenna gain.
     // Single-layer adds +1 guard bit (raw peak); multi-layer uses median so no guard needed.
-    // ML branch offset (empirical -2) tunable via OAI_ML_MAXH_OFF for the hotness sweep.
-    static int ml_maxh_off = -100;
-    if (ml_maxh_off == -100) {
-      const char *e = getenv("OAI_ML_MAXH_OFF");
-      ml_maxh_off = e ? atoi(e) : -2;
-    }
+    // ML branch offset is mod-order-dependent (nr_ml_llr_maxh_off) so the near-ML LLRs don't
+    // saturate at low mod orders; OAI_ML_MAXH_OFF overrides it for the hotness sweep.
     if (nl == 1)
       *log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(nbRx >> 1);
     else if (!do_ml)
       *log2_maxh = (log2_approx(avgs) >> 1) + log2_approx(nbRx >> 1);
     else
-      *log2_maxh = (log2_approx(avgs) >> 1) + ml_maxh_off + log2_approx(nbRx >> 1);
+      *log2_maxh = (log2_approx(avgs) >> 1) + nr_ml_llr_maxh_off(dlsch->cw_info.qamModOrder) + log2_approx(nbRx >> 1);
 
     LOG_D(PHY, "[DLSCH] AbsSubframe %d.%d log2_maxh = %d (%d)\n", frame % 1024, nr_slot_rx, *log2_maxh, avgs);
 #if T_TRACER

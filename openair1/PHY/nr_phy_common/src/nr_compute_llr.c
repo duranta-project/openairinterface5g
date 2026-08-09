@@ -14,6 +14,28 @@
 #define USE_128BIT
 #endif
 
+int nr_ml_llr_maxh_off(int mod_order)
+{
+  // OAI_ML_MAXH_OFF (if set) forces one value across all mod orders (hotness sweep); otherwise the
+  // per-mod-order table below. Values are the empirical optima on TDL, 2-layer, z4, -gA (a uniform
+  // -2, tuned for 256QAM, over-heats QPSK/16/64QAM and loses the ML gain -- QPSK/16QAM ML even fall
+  // below linear MMSE). Retune via the env var; the table is the shipped default.
+  static int env_state = 0, env_val = 0; // 0=unread, 1=env set, 2=env unset
+  if (env_state == 0) {
+    const char *e = getenv("OAI_ML_MAXH_OFF");
+    if (e) { env_val = atoi(e); env_state = 1; }
+    else env_state = 2;
+  }
+  if (env_state == 1)
+    return env_val;
+  switch (mod_order) {
+    case 2:  return 0;  // QPSK
+    case 4:  return 1;  // 16QAM
+    case 6:  return -1; // 64QAM
+    default: return -2; // 256QAM
+  }
+}
+
 void nr_compute_llr(c16_t *rxdataF_comp,
                     c16_t *ch_mag,
                     c16_t *ch_magb,

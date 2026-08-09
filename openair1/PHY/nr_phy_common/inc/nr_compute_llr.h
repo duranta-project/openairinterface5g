@@ -7,6 +7,16 @@
 
 #include "PHY/impl_defs_top.h"
 
+/**
+ * @brief Mod-order-dependent LLR-hotness offset for the 2-layer near-ML/L-best log2_maxh.
+ *
+ * The joint near-ML metric needs a mod-order-dependent fixed-point scale: 256QAM at -2, and lower
+ * orders progressively different, else the ML LLRs saturate and the ML gain over linear MMSE is
+ * lost (a single 256QAM-tuned -2 makes QPSK/16QAM ML worse than MMSE). Verified on TDL, z4, -gA.
+ * OAI_ML_MAXH_OFF forces a single value across all mod orders (hotness sweep / analysis).
+ */
+int nr_ml_llr_maxh_off(int mod_order);
+
 void nr_compute_llr(c16_t *rxdataF_comp,
                     c16_t *ch_mag,
                     c16_t *ch_magb,
