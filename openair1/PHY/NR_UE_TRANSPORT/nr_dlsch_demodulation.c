@@ -1055,7 +1055,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     static int mmse_gram = -1;
     if (mmse_gram < 0) { const char *e = getenv("OAI_MMSE_GRAM"); mmse_gram = e ? atoi(e) : 1; }
 
-    if ((nl > 2 && !ml3) || (nl == 2 && !do_ml)) {
+    if (nl > 2 && !ml3) {
       nr_dlsch_mmse(pdsch_buf_size_max,
                     rx_size_symbol,
                     nbRx,
@@ -1071,9 +1071,10 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                     nvar,
                     (need_rho && mmse_gram) ? rho_dl : NULL); // Gram-based build; OAI_MMSE_GRAM=0 -> legacy chFext
     }
-    // R4: the 2-layer 256QAM (non-lbest) per-PRB MMSE that used to live here is now fused
-    // with its LLR in block B via nr_compute_MMSE_llr, mirroring the gNB inner_rx. The
-    // channel-compensated (MRC) rxdataF_comp is left untouched for that path here.
+    // The 2-layer per-PRB MMSE that used to live here (both 256QAM-non-lbest and, now, the do_ml-off
+    // case) is fused per-RE with its LLR in block B via nr_compute_MMSE_llr, mirroring the gNB
+    // inner_rx. The channel-compensated (MRC) rxdataF_comp is left untouched for those paths here;
+    // only the nl>2 linear-MMSE path still equalizes in place above (no per-RE nl>2 MMSE yet).
   }
   stop_meas_nr_ue_phy(ue, DLSCH_MRC_MMSE_STATS);
 
@@ -1171,10 +1172,11 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     } else if (fuse_1layer) {
       // Register-fused single-layer inner RX (OAI_FUSE=2): no tile scratch / per-tile call; per-layer.
       nr_inner_rx_1layer_reg(this_re, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], qamModOrder, *log2_maxh, layer_llr[0]);
-    } else if (nl == 2 && do_ml && qamModOrder == 8) {
-      // R4: 2-layer 256QAM (non-lbest) — fused per-RE MMSE (L=1) + LLR (the ml256 case is handled by
-      // the shared dispatch above). nr_compute_MMSE_llr = nr_mmse_2layers (per-RE Gram inversion on
-      // the MRC'd p_rxComp) + per-layer nr_compute_llr.
+    } else if (nl == 2) {
+      // 2-layer linear MMSE — every nl==2 case the shared dispatch didn't handle: do_ml off (any
+      // mod order) or 256QAM without ml256. Fused per-RE MMSE (L=1) + per-layer LLR
+      // (nr_compute_MMSE_llr = nr_mmse_2layers per-RE Gram inversion on the MRC'd p_rxComp +
+      // nr_compute_llr), replacing the old {nr_dlsch_mmse per-PRB pre-pass + nr_dlsch_llr} split.
       int16_t *llr_ptrs[nl];
       for (int l = 0; l < nl; l++)
         llr_ptrs[l] = layer_llr[l];
