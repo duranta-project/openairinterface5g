@@ -555,12 +555,11 @@ uint32_t to_nrarfcn(uint64_t CarrierFreq)
 
 // This function computes the RF reference frequency from the NR-ARFCN according to 5.4.2.1 of 3GPP TS 38.104
 // this function applies to both DL and UL
-uint64_t from_nrarfcn(int nr_bandP, uint8_t scs_index, uint32_t nrarfcn)
+uint64_t from_nrarfcn(uint32_t nrarfcn)
 {
   int deltaFglobal = 5;
   uint32_t N_REF_Offs = 0;
   uint64_t F_REF_Offs_khz = 0;
-  int i = get_nr_table_idx(nr_bandP, scs_index);
 
   if (nrarfcn > 599999 && nrarfcn < 2016667) {
     deltaFglobal = 15;
@@ -573,30 +572,11 @@ uint64_t from_nrarfcn(int nr_bandP, uint8_t scs_index, uint32_t nrarfcn)
     F_REF_Offs_khz = 24250080;
   }
 
-  // First check if the ARFCN is on the RASTER
-  uint32_t stepsize = nr_bandtable[i].dl_stepsize;
-  uint32_t N_OFFs = nr_bandtable[i].N_OFFs_DL;
-
-  if (nrarfcn >= nr_bandtable[i].N_OFFs_UL) {
-    if (nr_bandtable[i].N_OFFs_UL > N_OFFs || nrarfcn < N_OFFs) {
-      N_OFFs = nr_bandtable[i].N_OFFs_UL;
-      stepsize = nr_bandtable[i].ul_stepsize;
-    }
-  }
-
-  LOG_D(NR_MAC, "N_OFFs %u, deltaFglobal %d KHz, stepsize:%d\n", N_OFFs, deltaFglobal, stepsize);
-
-  AssertFatal(nrarfcn >= N_OFFs,"nrarfcn %u < N_OFFs[%d] %u\n", nrarfcn, nr_bandtable[i].band, N_OFFs);
-
-  if ((nrarfcn - N_OFFs) % stepsize != 0)
-    LOG_E(NR_MAC, "nrarfcn %u is not on the channel raster for step size %u. N_OFFS:%d\n",
-                  nrarfcn, stepsize, N_OFFs);
-
   uint64_t frequency = 1000 * (F_REF_Offs_khz + (nrarfcn - N_REF_Offs) * deltaFglobal);
-  LOG_I(NR_MAC, "Computing frequency (nrarfcn %llu => %llu KHz, NR band %d\n",
+  LOG_I(NR_MAC,
+        "Computing frequency (nrarfcn %llu => %llu KHz)\n",
         (unsigned long long)nrarfcn,
-        (unsigned long long)frequency/1000,
-        nr_bandP);
+        (unsigned long long)frequency / 1000);
 
   return frequency;
 }

@@ -494,10 +494,7 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
   cfg->carrier_config.dl_bandwidth.tl.tag = NFAPI_NR_CONFIG_DL_BANDWIDTH_TAG; // temporary
   cfg->num_tlv++;
 
-  cfg->carrier_config.dl_frequency.value = from_nrarfcn(nr_band,
-                                                        *scc->ssbSubcarrierSpacing,
-                                                        frequencyInfoDL->absoluteFrequencyPointA)
-                                            / 1000; // freq in kHz
+  cfg->carrier_config.dl_frequency.value = from_nrarfcn(frequencyInfoDL->absoluteFrequencyPointA) / 1000; // freq in kHz
   cfg->carrier_config.dl_frequency.tl.tag = NFAPI_NR_CONFIG_DL_FREQUENCY_TAG;
   cfg->num_tlv++;
 
@@ -529,10 +526,7 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
   else
     UL_pointA = *frequencyInfoUL->absoluteFrequencyPointA;
 
-  cfg->carrier_config.uplink_frequency.value = from_nrarfcn(*frequencyInfoUL->frequencyBandList->list.array[0],
-                                                            *scc->ssbSubcarrierSpacing,
-                                                            UL_pointA)
-                                               / 1000; // freq in kHz
+  cfg->carrier_config.uplink_frequency.value = from_nrarfcn(UL_pointA) / 1000; // freq in kHz
   cfg->carrier_config.uplink_frequency.tl.tag = NFAPI_NR_CONFIG_UPLINK_FREQUENCY_TAG;
   cfg->num_tlv++;
 
