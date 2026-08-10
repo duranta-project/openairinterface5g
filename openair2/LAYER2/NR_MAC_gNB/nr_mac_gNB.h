@@ -1320,6 +1320,8 @@ typedef struct nr_cell_sched_s {
   time_stats_t schedule_ulsch;
   /// processing time of gNB DLSCH scheduler, including rlc_data_req + MAC header + preprocessor
   time_stats_t schedule_dlsch;
+  /// processing time of CSI-RS CSI reporting SR and periodic SRS
+  time_stats_t schedule_periodic;
   /// processing time of rlc_data_req
   time_stats_t rlc_data_req;
   /// processing time of nr_srs_ri_computation
