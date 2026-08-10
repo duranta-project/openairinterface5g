@@ -69,6 +69,7 @@ void *nrmac_stats_thread(void *arg) {
       p += print_meas_log(&cell->schedule_dlsch, "dlsch scheduler", NULL, NULL, p, end - p);
       p += print_meas_log(&cell->schedule_ulsch, "ulsch scheduler", NULL, NULL, p, end - p);
       p += print_meas_log(&cell->schedule_ra, "RA scheduler", NULL, NULL, p, end - p);
+      p += print_meas_log(&cell->schedule_periodic, "periodic channels scheduler", NULL, NULL, p, end - p);
       p += print_meas_log(&cell->rlc_data_req, "rlc_data_req", NULL, NULL, p, end - p);
       p += print_meas_log(&cell->nr_srs_ri_computation_timer, "UL-RI computation time", NULL, NULL, p, end - p);
       p += print_meas_log(&cell->nr_srs_tpmi_computation_timer, "UL-TPMI computation time", NULL, NULL, p, end - p);
