@@ -5,8 +5,17 @@
 #ifndef NR_UE_RU_H
 #define NR_UE_RU_H
 
+#include <time.h>
 #include "PHY/defs_nr_UE.h"
 #include "radio/COMMON/common_lib.h"
+
+static inline int64_t nrue_monotonic_ns(void)
+{
+  struct timespec now;
+  if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+    return 0;
+  return (int64_t)now.tv_sec * 1000000000 + now.tv_nsec;
+}
 
 void nrue_set_cell_params(configmodule_interface_t *cfg);
 int nrue_get_band(const PHY_VARS_NR_UE *UE);
@@ -22,7 +31,12 @@ void nrue_ru_end(void);
 void nrue_ru_set_freq(PHY_VARS_NR_UE *UE, uint64_t ul_carrier, uint64_t dl_carrier, int freq_offset);
 void nrue_ru_get_freq(const PHY_VARS_NR_UE *UE, uint64_t *ul_carrier, uint64_t *dl_carrier, int channel);
 int nrue_ru_adjust_rx_gain(PHY_VARS_NR_UE *UE, int gain_change);
-int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **buff, int nsamps, int num_antennas);
+int nrue_ru_read(PHY_VARS_NR_UE *UE,
+                 openair0_timestamp_t *ptimestamp,
+                 void **buff,
+                 int nsamps,
+                 int num_antennas,
+                 nrue_rx_time_t *rx_time);
 int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buff, int nsamps, int num_antennas, int flags);
 int nrue_ru_write_reorder(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **txp, int nsamps, int nbAnt, int flags);
 void nrue_ru_write_reorder_clear_context(PHY_VARS_NR_UE *UE);

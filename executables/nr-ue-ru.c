@@ -450,7 +450,12 @@ static uint64_t oldest_client_timestamp(const read_data_t *rd, int nb_clients)
   return min;
 }
 
-int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **buff, int nsamps, int num_antennas)
+int nrue_ru_read(PHY_VARS_NR_UE *UE,
+                 openair0_timestamp_t *ptimestamp,
+                 void **buff,
+                 int nsamps,
+                 int num_antennas,
+                 nrue_rx_time_t *rx_time)
 {
   openair0_device_t *dev = &nrue_rus.openair0_dev[UE->rf_map.card];
   nrUE_RU_params_t *ru = nrue_rus.cfg + UE->rf_map.card;
@@ -488,6 +493,7 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
       const bool first = !rd->last_ts;
       ret = dev->trx_read_func(dev, &tmp_timestamp, tmp, rd->grain, num_antennas);
       AssertFatal(ret == rd->grain, "read from rf board failed %d", ret);
+      rd->last_read_ns = IS_SOFTMODEM_RFSIM ? 0 : nrue_monotonic_ns();
       nrue_ru_count_time(UE->rf_map.card, ret);
       if (first) // the first grain was read at index 0: move it where its timestamp belongs
         for (int i = 0; i < ru->nb_rx; i++)
@@ -501,6 +507,9 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
     if (!rd->last_timestamp[this_ue])
       rd->last_timestamp[this_ue] = rd->last_ts - nsamps;
     const uint64_t ts = rd->last_timestamp[this_ue];
+    // A client may read entirely from the ring. Use the last device read, even if another UE made it.
+    if (rx_time)
+      *rx_time = (nrue_rx_time_t){.end_sample = rd->last_ts - dev->firstTS, .monotonic_ns = rd->last_read_ns};
     pthread_mutex_unlock(&rd->mread);
 
     /* copy out of the lock, concurrently with the other clients: the device reads above overwrite only samples
@@ -530,6 +539,12 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
                                           100);
     openair0_timestamp_t tmp_timestamp;
     ret = dev->trx_read_func(dev, &tmp_timestamp, buff, nsamps, num_antennas);
+    if (ret <= 0) {
+      if (rx_time)
+        *rx_time = (nrue_rx_time_t){0};
+      return ret;
+    }
+    const int64_t read_ns = rx_time && ret == nsamps && !IS_SOFTMODEM_RFSIM ? nrue_monotonic_ns() : 0;
     rd->last_ts = tmp_timestamp + ret;
     nrue_ru_count_time(UE->rf_map.card, ret);
     if (!dev->firstTS_initialized) {
@@ -537,6 +552,8 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
       dev->firstTS_initialized = true;
     }
     *ptimestamp = tmp_timestamp - dev->firstTS;
+    if (rx_time)
+      *rx_time = (nrue_rx_time_t){.end_sample = rd->last_ts - dev->firstTS, .monotonic_ns = read_ns};
   }
 
   return ret;
