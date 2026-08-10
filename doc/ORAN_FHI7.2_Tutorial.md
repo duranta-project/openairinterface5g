@@ -69,6 +69,7 @@ We tested the category A radio units listed below.
 |Benetel 550           |RAN550-1v2.1.0-M-0820797|
 |Foxconn RPQN          |v3.1.15q.551_rc10       |
 |Microamp RU (FR2)     |0.1.174                 |
+|ZCU670 Eval kit TRD   |2.3                     |
 
 Supported libxran releases:
 
@@ -1294,6 +1295,22 @@ The required parameters to configure are:
   * Ensure that the VLAN configuration and MAC addressing are consistent with the DU setup.
   * The RU must be PTP synchronized before starting the gNB.
   * After reboot, the RU loads its `startup-config`. To save the current configuration, use `copy running-config startup-config`.
+
+
+#### ZCU670 Evaluation Kit Target Reference Design
+
+**Version 2.3**
+
+The OAI configuration file [`gnb.sa.band77.273prb.fhi72.4x4-zcu670EvalBoard.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band77.273prb.fhi72.4x4-zcu670EvalBoard.conf) corresponds to:
+
+- TDD pattern `DDDSU`, 2.5ms
+- Bandwidth 100MHz
+- MTU 9000
+- 4TX4R
+
+##### RU configuration
+
+A step-by-step guide for configuring and interfacing the AMD Zynq™ UltraScale+™ RFSoC DFE ZCU670 Evaluation Kit TRD with OAI can be found [here](https://github.com/duranta-project/docs/blob/main/openairinterface5g/Tutorial_AMD_ZCU670_Evalutation_Kit.md).
 
 ## Configure Network Interfaces and DPDK VFs
 
