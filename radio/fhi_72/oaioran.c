@@ -26,6 +26,7 @@
 
 #include "common/utils/threadPool/notified_fifo.h"
 #include "common/utils/fsn.h"
+#include "common/ran_context.h"
 
 #define N_SC_PER_PRB 12
 
@@ -38,8 +39,6 @@ int xran_is_prach_slot(uint8_t PortId, uint32_t subframe_id, uint32_t slot_id, u
 extern notifiedFIFO_t oran_sync_fifo;
 #define MAX_QUEUE_LENGTH_NO_JUMP 3
 atomic_int xran_queue_length = 0;
-atomic_int xran_queue_prach_length = 0;
-extern notifiedFIFO_t oran_sync_fifo_prach;
 
 /* Prints TX_TOTAL, RX_TOTAL, RX_ON_TIME, RX_ERR_DROP counters every 128 frames. */
 void print_fhi_counters(ru_info_t *ru, const int frame, const int slot)
@@ -106,6 +105,8 @@ void print_fhi_counters(ru_info_t *ru, const int frame, const int slot)
  * through a message queue on a full slot boundary. */
 void oai_xran_fh_rx_callback(void *pCallbackTag, xran_status_t status, uint8_t mu)
 {
+  if (!first_call_set)
+    return;
   struct xran_cb_tag *callback_tag = (struct xran_cb_tag *)pCallbackTag;
 
   static int32_t last_slot = -1;
@@ -129,11 +130,6 @@ void oai_xran_fh_rx_callback(void *pCallbackTag, xran_status_t status, uint8_t m
   LOG_D(HW, "rx_callback at %4d.%3d (subframe %d), rx_sym %d ru_id %d\n", frame, slot, subframe, rx_sym, ru_id);
 
   if (rx_sym == 7) { // in F release this value is defined as XRAN_FULL_CB_SYM (full slot (offset + 7))
-    // if xran did not call xran_physide_dl_tti callback, it's not ready yet.
-    // wait till first callback to advance counters, because otherwise users
-    // would see periodic output with only "0" in stats counters
-    if (!first_call_set)
-      return;
     uint32_t slot2 = slot + (subframe * slots_in_sf);
     rx_RU[ru_id][slot2] = 1;
     if (last_frame > 0 && frame > 0
@@ -178,83 +174,6 @@ void oai_xran_fh_rx_callback(void *pCallbackTag, xran_status_t status, uint8_t m
   } // rx_sym == 7
 }
 
-void oai_xran_fh_rx_prach_callback(void *pCallbackTag, xran_status_t status, uint8_t mu)
-{
-  struct xran_cb_tag *callback_tag = (struct xran_cb_tag *)pCallbackTag;
-
-  static int32_t last_slot = -1;
-  // static int32_t last_frame = -1;
-
-  const struct xran_fh_init *fh_init = get_xran_fh_init();
-  int num_ports = fh_init->xran_ports;
-
-  const int slots_in_sf = 1 << mu;
-  const int sf_in_frame = 10;
-
-  static int rx_RU[XRAN_PORTS_NUM][160] = {0};
-  uint32_t tti = callback_tag->slotiId;
-  uint32_t frame = XranGetFrameNum(tti, 0, sf_in_frame, slots_in_sf);
-  uint32_t subframe = XranGetSubFrameNum(tti, slots_in_sf, sf_in_frame);
-  uint32_t slot = XranGetSlotNum(tti, slots_in_sf);
-
-  uint32_t rx_sym = callback_tag->symbol & 0xFF;
-  uint32_t ru_id = callback_tag->oXuId;
-
-  LOG_D(HW, "prach_rx_callback at %4d.%3d (subframe %d), rx_sym %d ru_id %d\n", frame, slot, subframe, rx_sym, ru_id);
-
-  if (rx_sym == 7) { // in F release this value is defined as XRAN_FULL_CB_SYM (full slot (offset + 7))
-    // if xran did not call xran_physide_dl_tti callback, it's not ready yet.
-    // wait till first callback to advance counters, because otherwise users
-    // would see periodic output with only "0" in stats counters
-    if (!first_call_set)
-      return;
-    uint32_t slot2 = slot + (subframe * slots_in_sf);
-    rx_RU[ru_id][slot2] = 1;
-    // if (last_frame > 0 && frame > 0
-    //     && ((slot2 > 0 && last_frame != frame) || (slot2 == 0 && last_frame != ((1024 + frame - 1) & 1023))))
-    //   LOG_E(HW, "Jump in frame counter last_frame %d => %d, slot %d\n", last_frame, frame, slot2);
-    for (int i = 0; i < num_ports; i++) {
-      if (rx_RU[i][slot2] == 0)
-        return;
-    }
-    for (int i = 0; i < num_ports; i++)
-      rx_RU[i][slot2] = 0;
-  
-    if (last_slot == -1 || slot2 != last_slot) {
-      notifiedFIFO_elt_t *req = newNotifiedFIFO_elt(sizeof(oran_sync_info_t), 0, &oran_sync_fifo_prach, NULL);
-      oran_sync_info_t *info = NotifiedFifoData(req);
-      info->tti = tti;
-      info->sl = slot2;
-      info->f = frame;
-      info->mu = mu;
-      struct xran_cb_tag *callback_tag = (struct xran_cb_tag *)pCallbackTag;
-      uint32_t tti = callback_tag->slotiId;
-      uint32_t ru_id = callback_tag->oXuId;
-      for (int ru_idx = 0; ru_idx < num_ports; ru_idx++) {
-        oran_buf_list_t *bufs = get_xran_buffers(ru_idx);
-        struct xran_fh_config *fh_config = get_xran_fh_config(ru_idx);
-        for (uint16_t cc_id = 0; cc_id < 1 /* fh_config->nCC */; cc_id++) { // OAI does not support multiple CC yet.
-          for(uint32_t ant_id = 0; ant_id < fh_config->neAxc; ant_id++) {
-            struct xran_prb_map *pRbMap = (struct xran_prb_map *)bufs->prachdstdecomp[ant_id][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
-            AssertFatal(pRbMap != NULL, "(%d:%d:%d)pRbMapPrach == NULL. Aborting.\n", cc_id, tti % XRAN_N_FE_BUF_LEN, ant_id);
-            for (uint32_t sym_id = 0; sym_id < XRAN_NUM_OF_SYMBOL_PER_SLOT; sym_id++) {
-              AssertFatal(pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt <= 1, "PRACH segmentation is not supported\n");
-              info->nRxPkt[cc_id][ant_id][sym_id] = pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt;
-              pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt = 0;
-            }
-          }
-        }
-      }
-      LOG_D(HW, "Push PRACH slot %d.%d.%d (slot %d, subframe %d,last_slot %d)\n", frame, info->sl, slot, ru_id, subframe, last_slot);
-      atomic_fetch_add(&xran_queue_prach_length, 1);
-      pushNotifiedFIFO(&oran_sync_fifo_prach, req);
-    } else
-      LOG_E(HW, "Cannot Push PRACH slot %d.%d.%d (slot %d, subframe %d,last_slot %d)\n", frame, slot2, ru_id, slot, subframe, last_slot);
-    last_slot = slot2;
-    // last_frame = frame;
-  } // rx_sym == 7
-}
-
 /** @details Only used to unblock timing in oai_xran_fh_rx_callback()/oai_xran_fh_rx_prach_callback()
  * on first call. */
 int oai_physide_dl_tti_call_back(void *param, uint8_t mu)
@@ -265,121 +184,90 @@ int oai_physide_dl_tti_call_back(void *param, uint8_t mu)
   return 0;
 }
 
-/** @details Read PRACH data from xran buffers.
+/** @details Read PRACH data from xran buffers for each RU (for each `port_id`).
  * If I/Q compression (bitwidth < 16 bits) is configured, decompresses the data
- * before writing.
- *
- * Function is blocking and waits for next frame/slot combination. It is unblocked
- * by oai_xran_fh_rx_prach_callback(). It writes the current slot into parameters frame/slot. */
-int xran_fh_rx_prach_read_slot(PHY_VARS_gNB *gNB, ru_info_t *ru, int *frame, int *slot)
+ * before writing. */
+void oai_xran_fh_rx_prach_callback(void *pCallbackTag, xran_status_t status, uint8_t mu)                                                                                       
 {
-  // pull next even from oran_sync_fifo_prach if any
-  notifiedFIFO_elt_t *res = pullNotifiedFIFO(&oran_sync_fifo_prach);
-  atomic_fetch_sub(&xran_queue_prach_length, 1);
-  oran_sync_info_t *info = NotifiedFifoData(res);
+  if (!first_call_set)
+    return;
+  struct xran_cb_tag *callback_tag = (struct xran_cb_tag *)pCallbackTag;
 
-  if (xran_queue_prach_length > 0 && xran_queue_prach_length < MAX_QUEUE_LENGTH_NO_JUMP) {
-    LOG_D(HW, "%4d.%2d TTI processing delay detected\n", info->f, info->sl);
-  } else if (xran_queue_prach_length >= MAX_QUEUE_LENGTH_NO_JUMP) {
-    uint32_t old_f = info->f;
-    uint32_t old_sl = info->sl;
-    // set the frame/slot info to what is in the last message
-    notifiedFIFO_elt_t *f;
-    while ((f = pollNotifiedFIFO(&oran_sync_fifo_prach)) != NULL) {
-      atomic_fetch_sub(&xran_queue_prach_length, 1);
-      delNotifiedFIFO_elt(res);
-      res = f;
-    }
-    info = NotifiedFifoData(res);
-    LOG_W(HW, "PRACH TTI processing delay detected, skipping %4d.%2d => %4d.%2d\n", old_f, old_sl, info->f, info->sl);
-    DevAssert(xran_queue_prach_length == 0);
-  }
+  uint32_t port_id = callback_tag->oXuId;
+  struct xran_fh_config *fh_cfg = get_xran_fh_config(port_id);
+  int num_prach_ant = fh_cfg->neAxc;
 
-  *slot = info->sl;
-  *frame = info->f;
-  uint8_t mu = info->mu;
+  const int slots_in_sf = 1 << mu;
+  const int sf_in_frame = 10;
 
+  uint32_t tti = callback_tag->slotiId;
+  uint32_t frame = XranGetFrameNum(tti, 0, sf_in_frame, slots_in_sf);
+  uint32_t subframe = XranGetSubFrameNum(tti, slots_in_sf, sf_in_frame);
+  uint32_t slot = XranGetSlotNum(tti, slots_in_sf * sf_in_frame); // slot within a frame, not a subframe
+  uint32_t rx_sym = callback_tag->symbol & 0xFF; // rx_sym = 7 => cb full slot
+
+  LOG_D(HW, "[%d.%d] %s, tti %d rx_sym %d ru_id %d\n", frame, slot, __FUNCTION__, tti, rx_sym, port_id);
+
+  nr_prach_info_t prach_info = get_prach_info(port_id);
   prach_item_t p;
-  fsn_t now = {.f = *frame, .s = *slot, .mu = gNB->frame_parms.numerology_index};
+  RU_t *ru = RC.ru[0];
+  PHY_VARS_gNB *gNB = ru->gNB_list[0];
+  fsn_t now = {.f = frame, .s = slot, .mu = mu};
   if (get_next_nr_prach(&gNB->prach_ru_queue, &now, &p)) {
-    struct xran_fh_config *fh_cfg = get_xran_fh_config(0);
-    uint8_t mu = fh_cfg->nNumerology[0];
-    int slots_per_subframe = 1 << mu;
-    uint32_t subframe = *slot / slots_per_subframe; // `slot` = slot in which PRACH is received
     // PRACH occasion in a frame if and only if SFN % x == y, TS 38.211 Table 6.3.3.2-2/3/4
-    nr_prach_info_t prach_info = get_prach_info(0);
-    bool is_prach_frame = (*frame % prach_info.x == prach_info.y);
-    bool is_prach_slot = is_prach_frame && xran_is_prach_slot(0, subframe, (p.slot % slots_per_subframe), mu); // `p.slot` = slot in which PRACH is scheduled
-    if (is_prach_slot) {
-      ru->prach_buf = p.prach_buf;
-      ru->nb_prach_rx = p.nb_rx;
-      ru->start_prach_rx = p.ant_start;
-    } else {
-      LOG_W(HW, "[%d.%d] Expected PRACH reception of scheduled slot %d\n", *frame, *slot, p.slot);
+    bool is_prach_frame = (frame % prach_info.x == prach_info.y);
+    bool is_prach_slot = is_prach_frame && xran_is_prach_slot(0, subframe, (p.slot % slots_in_sf), mu); // `p.slot` = slot in which PRACH is scheduled
+    if (!is_prach_slot) {
+      LOG_W(HW, "[%d.%d] Expected PRACH reception of scheduled slot %d\n", frame, slot, p.slot);
+      return;
     }
   } else {
-    delNotifiedFIFO_elt(res);
-    return (0);
+    // reset the number of received packets for slots that are not expected to be PRACH slots
+    for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) {
+      oran_buf_list_t *bufs = get_xran_buffers(port_id);
+      for (int ant_id = 0; ant_id < num_prach_ant; ant_id++) {
+        for (int sym_idx = 0; sym_idx < XRAN_NUM_OF_SYMBOL_PER_SLOT; sym_idx++) {
+          struct xran_prb_map *pPrbMap = (struct xran_prb_map *)bufs->prachdstdecomp[ant_id][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
+          pPrbMap->sFrontHaulRxPacketCtrl[sym_idx].nRxPkt = 0;
+        }
+      }
+    }
+    return;
   }
 
-  /* calculate tti and subframe_id from frame, slot num */
-  int sym_idx = 0;
-
-  struct xran_fh_init *fh_init = get_xran_fh_init();
-  struct xran_fh_config *fh_cfg = get_xran_fh_config(0);
-  nr_prach_info_t prach_info = get_prach_info(0);
-
-  uint16_t N_ZC, num_prbu;
-  if ((prach_info.format & 0xff) < 4) {
-    N_ZC = 839;
-    num_prbu = 70;
-    prach_info.N_dur = 1;
-  } else {
-    N_ZC = 139;
-    num_prbu = 12;
-  }
-
-  int prach_start_sym = prach_info.start_symbol;
-  int prach_end_sym = prach_info.N_dur + prach_start_sym;
   struct xran_ru_config *ru_conf = &fh_cfg->ru_conf;
-
-  int slots_per_frame = 10 << mu;
-
-  int tti = slots_per_frame * (*frame) + (*slot);
-
-  int nb_rx_per_ru = ru->nb_rx / fh_init->xran_ports;
+  struct xran_prach_config *prach_conf = &fh_cfg->perMu[mu].prach_conf;
 
   for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
-    for (int aa = ru->start_prach_rx; aa < ru->start_prach_rx + ru->nb_prach_rx; aa++) {
-      for (sym_idx = prach_start_sym; sym_idx < prach_end_sym; sym_idx++) {
+    oran_buf_list_t *bufs = get_xran_buffers(port_id);
+    for (int ant_id = p.ant_start; ant_id < p.ant_start + num_prach_ant; ant_id++) {
+      for (int sym_idx = prach_conf->startSymId; sym_idx <= prach_conf->lastSymId; sym_idx++) {
         int16_t *dst, *src;
         int idx = 0;
-        oran_buf_list_t *bufs = get_xran_buffers(aa / nb_rx_per_ru);
         // hardcoded to use only first prach occasion
-        dst = (int16_t *)ru->prach_buf[aa - ru->start_prach_rx][0];
-        struct xran_prb_map * pPrbMap = (struct xran_prb_map *)bufs->prachdstdecomp[aa % nb_rx_per_ru][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
+        dst = (int16_t *)p.prach_buf[ant_id + (num_prach_ant * port_id) - p.ant_start][0];
+        struct xran_prb_map *pPrbMap = (struct xran_prb_map *)bufs->prachdstdecomp[ant_id - p.ant_start][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
         struct xran_rx_packet_ctl *p_rx_packet_ctl = &pPrbMap->sFrontHaulRxPacketCtrl[sym_idx];
-        int32_t nRxPkt = info->nRxPkt[cc_id][aa][sym_idx];
-        if (nRxPkt == 0) {
-          LOG_D(HW, "read_prach %d.%d.%d saa = %d: nRxPkt = 0!\n", *frame, *slot, sym_idx, aa);
-          memset(&dst[sym_idx], 0, N_ZC * 2 * sizeof(*dst));
+        int32_t nRxPkt = p_rx_packet_ctl->nRxPkt;
+        p_rx_packet_ctl->nRxPkt = 0; // for the next PRACH slot
+        LOG_D(HW, "[%d.%d] tti %d port_id %d ant_id %d sym_idx %d dst %p nRxPkt %d\n", frame, slot, tti, port_id, ant_id, sym_idx, dst, nRxPkt);
+        /* known issue: for ant_id = 2 (when num_prach_ant = 4), the packet (one per symbol) is not received/stored on time,
+	 * so in the next PRACH occurence two packets were detected, instead of one */
+        if (nRxPkt != 1) {
+          LOG_D(HW, "[%d.%d] tti %d port_id %d ant_id %d sym_idx %d nRxPkt %d (expected 1 packet)\n", frame, slot, tti, port_id, ant_id, sym_idx, nRxPkt);
           continue;
-        } else if (nRxPkt > 1) { // protection
-          LOG_E(HW, "read_prach %d.%d.%d saa = %d: nRxPkt = %d!\n", *frame, *slot, sym_idx, aa, nRxPkt);
-          memset(&dst[sym_idx], 0, N_ZC * 2 * sizeof(*dst));
-          continue;
-        } else {
-          src = (int16_t *)p_rx_packet_ctl->pData[0];
-          if (src == NULL) { // protection
-            LOG_E(HW, "read_prach %d.%d.%d saa = %d:  src = NULL!!\n", *frame, *slot, sym_idx, aa);
-            memset(&dst[sym_idx], 0, N_ZC * 2 * sizeof(*dst));
-            continue;
-          }
         }
-        num_prbu = p_rx_packet_ctl->nRBSize[0];
+
+        src = (int16_t *)p_rx_packet_ctl->pData[0];
+        if (src == NULL) { // protection
+          LOG_E(HW, "[%d.%d] tti %d port_id %d ant_id %d sym_idx %d src = NULL\n", frame, slot, tti, port_id, ant_id, sym_idx);
+          continue;
+        }
+        uint16_t num_prbu = p_rx_packet_ctl->nRBSize[0];
+        uint16_t N_ZC = ((prach_info.format & 0xff) < 4) ? 839 : 139;
         /* convert Network order to host order */
         if (ru_conf->compMeth_PRACH == XRAN_COMPMETHOD_NONE) {
-          if (sym_idx == prach_start_sym) {
+          if (sym_idx == prach_conf->startSymId) {
             for (idx = 0; idx < N_ZC * 2; idx++) {
               dst[idx] = ((int16_t)ntohs(src[idx + g_kbar]));
             }
@@ -411,7 +299,7 @@ int xran_fh_rx_prach_read_slot(PHY_VARS_gNB *gNB, ru_info_t *ru, int *frame, int
 #else
           AssertFatal(1 == 0, "BFP decompression not supported on this architecture");
 #endif
-          if (sym_idx == prach_start_sym)
+          if (sym_idx == prach_conf->startSymId)
             for (idx = 0; idx < (N_ZC * 2); idx++)
               dst[idx] = local_dst[idx + g_kbar];
           else
@@ -419,7 +307,7 @@ int xran_fh_rx_prach_read_slot(PHY_VARS_gNB *gNB, ru_info_t *ru, int *frame, int
               dst[idx] += (local_dst[idx + g_kbar]);
         } // COMPMETHOD_BLKFLOAT
       } // sym_idx
-    } // aa
+    } // ant_id
   } // cc_id
 
   // after reading PRACH, write back to queue
@@ -428,8 +316,6 @@ int xran_fh_rx_prach_read_slot(PHY_VARS_gNB *gNB, ru_info_t *ru, int *frame, int
   // constant pace, but prach_l1rx_queue emptied as fast as possible,
   // see rx_func()
   DevAssert(success);
-  delNotifiedFIFO_elt(res);
-  return (0);
 }
 
 /** @brief Check if symbol in slot is UL.
@@ -641,30 +527,20 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
   return (0);
 }
 
-/** @details Write PDSCH IQ-data from OAI txdataF_BF buffer to xran buffers. If
- * I/Q compression (bitwidth < 16 bits) is configured, compresses the data
- * before writing. */
-int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
+// Send CP UL packets
+int xran_send_cp_ul_slot(ru_info_t *ru, int frame, int slot)
 {
-  void *ptr = NULL;
-  int32_t *pos = NULL;
-  int idx = 0;
-
   const struct xran_fh_init *fh_init = get_xran_fh_init();
-  const struct xran_fh_config *fh_cfg = get_xran_fh_config(0);
-  uint8_t mu_number = fh_cfg->mu_number[0];
-  int fftsize = 1 << fh_cfg->perMu[mu_number].nDLFftSize;
-  int slots_per_frame = 10 << mu_number;
-  int tti = slots_per_frame * frame + slot;
-  int nb_tx_per_ru = ru->nb_tx / fh_init->xran_ports;
   int nb_rx_per_ru = ru->nb_rx / fh_init->xran_ports;
 
-  // Handle CP UL packet here instead of at xran_fh_rx_read_slot() as oran_fh_if4p5_south_in() lags behind
-  // oran_fh_if4p5_south_out() (which is invoked at the right time slot) by 4 slots.
-  // Need to use --continuous-tx so that this routine will be triggered in RX slot.
   for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
     for (uint8_t ant_id = 0; ant_id < ru->nb_rx; ant_id++) {
-      const struct xran_frame_config *frame_conf = &get_xran_fh_config(ant_id / nb_rx_per_ru)->frame_conf;
+      uint32_t port_id = ant_id / nb_rx_per_ru;
+      const struct xran_fh_config *fh_cfg = get_xran_fh_config(port_id);
+      uint8_t mu_number = fh_cfg->mu_number[0];
+      int slots_per_frame = 10 << mu_number;
+      int tti = slots_per_frame * frame + slot;
+      const struct xran_frame_config *frame_conf = &fh_cfg->frame_conf;
       // skip processing this slot is TX (no RX in this slot)
       if (frame_conf->nFrameDuplexType != XRAN_FDD && !is_tdd_ul_guard_slot(frame_conf, slot)) {
         continue;
@@ -675,7 +551,7 @@ int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
         if (frame_conf->nFrameDuplexType != XRAN_FDD && !is_tdd_ul_symbol(frame_conf, slot, sym_idx)) {
           continue;
         }
-        oran_buf_list_t *bufs = get_xran_buffers(ant_id / nb_rx_per_ru);
+        oran_buf_list_t *bufs = get_xran_buffers(port_id);
         uint8_t *pPrbMapData = bufs->dstcp[ant_id % nb_rx_per_ru][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
         struct xran_prb_map *pPrbMap = (struct xran_prb_map *)pPrbMapData;
 
@@ -697,6 +573,25 @@ int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
       }
     }
   }
+  return (0);
+}
+
+/** @details Write PDSCH IQ-data from OAI txdataF_BF buffer to xran buffers. If
+ * I/Q compression (bitwidth < 16 bits) is configured, compresses the data
+ * before writing. */
+int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
+{
+  void *ptr = NULL;
+  int32_t *pos = NULL;
+  int idx = 0;
+
+  const struct xran_fh_init *fh_init = get_xran_fh_init();
+  const struct xran_fh_config *fh_cfg = get_xran_fh_config(0);
+  uint8_t mu_number = fh_cfg->mu_number[0];
+  int fftsize = 1 << fh_cfg->perMu[mu_number].nDLFftSize;
+  int slots_per_frame = 10 << mu_number;
+  int tti = slots_per_frame * frame + slot;
+  int nb_tx_per_ru = ru->nb_tx / fh_init->xran_ports;
 
   for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
     for (uint8_t ant_id = 0; ant_id < ru->nb_tx; ant_id++) {

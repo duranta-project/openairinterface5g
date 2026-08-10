@@ -26,7 +26,8 @@ It calls various helper function in the same file to set up DPDK memory buffer
 - `oai_xran_fh_rx_callback()` through `xran_5g_fronthault_config()`: callback
   for PUSCH data; used to provide timing data.
 - `oai_xran_fh_rx_prach_callback()` through `xran_5g_prach_req()`: callback for
-  PRACH data; not currently used and implemented in PUSCH data callback. 
+  PRACH data. For each TTI, OAI checks if PRACH is scheduled through `prach_ru_queue`.
+  If yes, then reads and stores IQ samples into the `prach_buf`.
 - `oai_physide_dl_tti_call_back()` through `xran_reg_physide_cb()`: only used
   to unblock timing in `oai_xran_fh_rx_callback()` and `oai_xran_fh_rx_prach_callback()`
   upon first xran call.
@@ -35,16 +36,13 @@ More detailed information about the xran callbacks can be taken from the xran
 documentation.
 
 During normal operation, OAI calls into the driver through functions
-`oran_fh_if4p5_south_in()` for PUSCH/PRACH and `oran_fh_if4p5_south_out()` for
-PDSCH.
+`oran_fh_if4p5_south_in()` for PUSCH and `oran_fh_if4p5_south_out()` for PDSCH.
 
 For PDSCH, `oran_fh_if4p5_south_out()` calls `xran_fh_tx_send_slot()` that
 optionally compresses IQ data, then writes it into IQ buffers of xran.
 
-For PUSCH/PRACH, `oran_fh_if4p5_south_in()` calls `xran_fh_rx_read_slot()`/
-`xran_fh_rx_prach_read_slot()` that blocks and waits for the next slot.
-This is done through a message queue which depends on xran calling the callbacks
-`oai_xran_fh_rx_callback()`/`oai_xran_fh_rx_prach_callback()` as installed during
+For PUSCH, `oran_fh_if4p5_south_in()` calls `xran_fh_rx_read_slot()` that blocks
+and waits for the next slot. This is done through a message queue which depends on
+xran calling the callback `oai_xran_fh_rx_callback()` as installed during
 xran initialization.
-Once unblocked, it reads first PUSCH data, then PRACH data, before returning to
-OAI.
+Once unblocked, it reads PUSCH data, before returning to OAI.

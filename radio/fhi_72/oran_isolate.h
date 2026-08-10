@@ -33,10 +33,6 @@ typedef struct ru_info_s {
   /// - second index: beam_id [0..num_ports)
   uint16_t **beam_id;
 
-  // Needed for Prach
-  c16_t (*prach_buf)[NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX][NR_PRACH_SEQ_LEN_L];
-  int nb_prach_rx;
-  int start_prach_rx;
 } ru_info_t;
 
 void print_fhi_counters(ru_info_t *ru, const int frame, const int slot);
@@ -47,12 +43,8 @@ void print_fhi_counters(ru_info_t *ru, const int frame, const int slot);
  * @param frame output of the frame which has been read.
  * @param slot output of the slot which has been read. */
 int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot);
-/** @brief Reads RX data PRACH of next slot.
- *
- * @param ru pointer to structure keeping pointers to OAI data.
- * @param frame output of the frame which has been read.
- * @param slot output of the slot which has been read. */
-int xran_fh_rx_prach_read_slot(PHY_VARS_gNB *gNB, ru_info_t *ru, int *frame, int *slot);
+/** @brief Writes CP UL data for given slot. */
+int xran_send_cp_ul_slot(ru_info_t *ru, int frame, int slot);
 /** @brief Writes TX data (PDSCH) of given slot. */
 int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp);
 

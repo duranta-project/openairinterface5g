@@ -1005,14 +1005,6 @@ static bool set_fh_config(void *mplane_api, int ru_idx, int num_rus, enum xran_c
     printf("No configuration section \"%s\": cannot initialize fhi_lib!\n", aprefix);
     return false;
   }
-  paramdef_t prachp[] = ORAN_PRACH_DESC;
-  int nprach = sizeofArray(prachp);
-  sprintf(aprefix, "%s.%s.[%d].%s", CONFIG_STRING_ORAN, CONFIG_STRING_ORAN_FH, ru_idx, CONFIG_STRING_ORAN_PRACH);
-  ret = config_get(config_get_if(), prachp, nprach, aprefix);
-  if (ret < 0) {
-    printf("No configuration section \"%s\": cannot initialize fhi_lib!\n", aprefix);
-    return false;
-  }
 
   memset(fh_config, 0, sizeof(*fh_config));
 
