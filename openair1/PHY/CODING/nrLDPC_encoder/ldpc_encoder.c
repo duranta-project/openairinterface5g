@@ -41,8 +41,6 @@ int LDPCencoder(unsigned char **inputArray, unsigned char *outputArray, encoder_
   int no_punctured_columns, removed_bit;
   int nind=0;
   int indlist[1000];
-  int indlist2[1000];
-  int indlist3[1000];
 
   const short *Gen_shift_values = choose_generator_matrix(BG, Zc);
   if (Gen_shift_values==NULL) {
@@ -290,52 +288,69 @@ int LDPCencoder(unsigned char **inputArray, unsigned char *outputArray, encoder_
     fprintf(fd," return(0);\n");
     fprintf(fd,"}\n");
     fclose(fd);
-    fclose(fd2);
+  }
+  else if (gen_code == 4) { // CUDA
+    char fname[100];
+    sprintf(fname,"ldpc_BG%d_Zc%d_32bit.cu",BG,Zc);
+    FILE *fd=fopen(fname,"w");
+    AssertFatal(fd!=NULL,"cannot open %s\n",fname);
+    printf("Writing to %s\n",fname);
+    fprintf(fd,"#include <stdio.h>\n#include <stdint.h>\n#include <cuda_runtime.h>\n");
 
-    // 4-wide 128-bit variant: process 4 consecutive i2 values per outer iteration.
-    // Each group of 4 x 16-byte loads to the same base index lands in one 64-byte
-    // cache line, matching AVX-512 cache utilisation using four NEON registers.
-    if ((Zc & 63) == 0) {
-      sprintf(fname,"ldpc_BG%d_Zc%d_byte_128_x4.c",BG,Zc);
-      FILE *fd3 = fopen(fname,"w");
-      AssertFatal(fd3!=NULL,"cannot open %s\n",fname);
-      fprintf(fd3,"#include \"PHY/sse_intrin.h\"\n");
-      fprintf(fd3,"// generated code for Zc=%d, 4-wide 128-bit byte encoding\n",Zc);
-      fprintf(fd3,"static inline void ldpc_BG%d_Zc%d_byte_128_x4(uint8_t *c,uint8_t *d) {\n",BG,Zc);
-      fprintf(fd3,"  simde__m128i *csimd=(simde__m128i *)c,*dsimd=(simde__m128i *)d;\n");
-      fprintf(fd3,"  simde__m128i *c2_0,*c2_1,*c2_2,*c2_3;\n");
-      fprintf(fd3,"  simde__m128i *d2_0,*d2_1,*d2_2,*d2_3;\n");
-      fprintf(fd3,"  int i2;\n");
-      fprintf(fd3,"  for (i2=0; i2<%d; i2+=4) {\n",Zc>>4);
-      fprintf(fd3,"    c2_0=&csimd[i2];   c2_1=&csimd[i2+1]; c2_2=&csimd[i2+2]; c2_3=&csimd[i2+3];\n");
-      fprintf(fd3,"    d2_0=&dsimd[i2];   d2_1=&dsimd[i2+1]; d2_2=&dsimd[i2+2]; d2_3=&dsimd[i2+3];\n");
+    fprintf(fd,"// generated code for Zc=%d, byte encoding\n",Zc);
+    fprintf(fd,"__global__ void ldpc_BG%d_Zc%d_worker(uint32_t *c[4],uint32_t *d[4]) {\n",BG,Zc);
+    fprintf(fd,"  uint32_t *c32=c[blockIdx.x];\n  uint32_t *d32=d[blockIdx.x] + 20*%d;\n\n",Zc);
+    fprintf(fd,"  int i2 = threadIdx.x;\n");
+    fprintf(fd,"\n");
+    fprintf(fd,"  int i1 = blockIdx.y;\n");
+    fprintf(fd,"  // copy 20 c values to d\n");
+    fprintf(fd,"  if (i1<20) d[blockIdx.x][(i1*%d) + i2] = c32[4*%d+(2*%d*i1)+i2];",Zc,Zc,Zc);
+    fprintf(fd,"\n");
+    fprintf(fd,"  if (i2 < %d) {\n",Zc);
+    fprintf(fd,"    c32+=i2;\n");
+    fprintf(fd,"    d32+=i2;\n");
+    fprintf(fd,"    switch(i1) {\n");
 
-      for (i1 = 0; i1 < nrows; i1++) {
-        fprintf(fd3,"\n//row: %d\n",i1);
-        int row_offset3 = (Zc*i1)>>4;
-        // recompute index list with 128-bit shift/mask
-        int nind3 = 0;
-        for (i3=0; i3 < ncols; i3++) {
-          int tp = i1 * ncols + i3;
-          for (i4=0; i4 < no_shift_values[tp]; i4++) {
-            int v = (int)((i3*Zc + (Gen_shift_values[pointer_shift_values[tp]+i4]+1)%Zc)/Zc);
-            int idx = v*2*Zc + (i3*Zc + (Gen_shift_values[pointer_shift_values[tp]+i4]+1)%Zc) % Zc;
-            indlist3[nind3++] = ((idx&15)*((2*Zc*ncols)>>4))+(idx>>4);
-          }
-        }
-        int stream;
-        for (stream=0; stream<4; stream++) {
-          fprintf(fd3,"    d2_%d[%d]=",stream,row_offset3);
-          for (i4=0; i4<nind3-1; i4++)
-            fprintf(fd3,"simde_mm_xor_si128(c2_%d[%d],",stream,indlist3[i4]);
-          fprintf(fd3,"c2_%d[%d]",stream,indlist3[i4]);
-          for (i4=0; i4<nind3-1; i4++) fprintf(fd3,")");
-          fprintf(fd3,";\n");
-        }
-      }
-      fprintf(fd3,"  }\n}\n");
-      fclose(fd3);
-    }
+    for (int i1=0;i1<nrows;i1++) {
+      nind = 0;
+      fprintf(fd,"    case %d:\n",i1);
+      fprintf(fd,"      d32[%d]=",(Zc*i1));
+      for (i3=0; i3 < ncols; i3++)
+      {
+          temp_prime=i1 * ncols + i3;
+	  for (i4=0; i4 < no_shift_values[temp_prime]; i4++)
+  	  {
+	     var=(int)((i3*Zc + (Gen_shift_values[ pointer_shift_values[temp_prime]+i4 ]+1)%Zc)/Zc);
+  	     int index =var*2*Zc + (i3*Zc + (Gen_shift_values[ pointer_shift_values[temp_prime]+i4 ]+1)%Zc) % Zc;
+	     printf("var %d, i3 %d, i4 %d, index %d (index mod 2Zc) %d, Zc %d, pointer_shift_values[%d] %d gen_shift_value %d offset %d\n",var,i3,i4,index,index%(2*Zc),Zc,temp_prime,pointer_shift_values[temp_prime],Gen_shift_values[pointer_shift_values[temp_prime]],(i3*Zc + (Gen_shift_values[ pointer_shift_values[temp_prime]+i4 ]+1)%Zc) % Zc);
+	     if (index%(2*Zc) >= Zc) printf("***********************\n");
+   	     indlist[nind] = index;
+	     printf("indlist[%d] %d, index %d\n",nind,indlist[nind],index);
+	     nind++;
+   	  } //i4
+      } // i3
+      for (i4=0;i4<nind-1;i4++) {
+         fprintf(fd,"c32[%d]^",indlist[i4]);
+      } //i4
+      fprintf(fd,"c32[%d];\n\n",indlist[i4]);
+      fprintf(fd,"       break;\n");
+    }// i1
+    fprintf(fd,"     }\n");
+    fprintf(fd,"  }\n");
+    fprintf(fd,"}\n");
+
+    fprintf(fd,"extern \"C\" int ldpc_BG%d_Zc%d_cuda32(uint32_t *c[4],uint32_t *d[4],int n_inputs) { \n",BG,Zc);
+    fprintf(fd," dim3 numblocks(n_inputs,%d);\n",nrows);
+    fprintf(fd," ldpc_BG%d_Zc%d_worker<<<numblocks,%d>>>(c,d);\n",BG,Zc,Zc);
+    fprintf(fd," \n");
+    fprintf(fd," cudaError_t err=cudaPeekAtLastError();\n");
+    fprintf(fd," if (err!=cudaSuccess) {\n");
+    fprintf(fd,"    printf(\"cuda error: %%s (c %%p, d %%p)\\n\",cudaGetErrorString(err),c,d);\n");
+    fprintf(fd,"    exit(-1);\n");
+    fprintf(fd," }\n");
+    fprintf(fd," return(0);\n");
+    fprintf(fd,"}\n");
+    fclose(fd);
   }
   else if(gen_code==0)
   {
