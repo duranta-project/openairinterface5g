@@ -264,8 +264,190 @@ static void lgf_residual(uint8_t *out, const uint8_t *Gi, const lgf_fac *f, int 
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* per-width emission                                                 */
+/* ------------------------------------------------------------------ */
+
+/* Wide (256/512-bit) emission.
+ *
+ * AVX2 and AVX512 `alignr` operate within 128-bit lanes and so cannot express a
+ * full-width byte rotation at all. Instead every value read -- systematic term or
+ * kernel rotation -- is one unaligned load at a constant byte offset:
+ *
+ *   systematic term at chunk j : loadu(c  + W*j + col*2*Zc + (g+1)%Zc)
+ *   rot(Pk,s)       at chunk j : loadu(kd + W*j + k*2*Zc + s)
+ *
+ * This is the only mechanism the generated code uses, which is what makes the
+ * same emitter work for NEON, AVX2, AVX512 and RVV. It matters most for AVX2 and
+ * AVX512, whose `alignr` operates within 128-bit lanes and so cannot express a
+ * full-width byte rotation at all; the stock generator works around that by
+ * pre-rotating the entire systematic input simd_size times (~1 MB per code block
+ * at BG1 Zc=384). Nothing here needs that.
+ *
+ * At 128 bit this form is NOT used: isolated microbenchmarks make it look
+ * marginally faster, but in ldpctest it is consistently slower than the alignr
+ * emission below (BG1 2.196 vs 2.100 us, BG2 1.390 vs 1.250 us parity). alignr
+ * keeps the systematic operands in registers across the many rows that share
+ * them, which the load form gives up. So: alignr at 128 bit, this at 256/512.
+ *
+ * Bounds. Systematic: W*(NCH-1) + (nc-1)*2*Zc + Zc-1 + W == nc*2*Zc exactly, so
+ * the doubled input needs no padding. Kernel: the scratch holds each group twice
+ * (4 * 2 * Zc), so W*j + s + W < 2*Zc always. Within stage 1 the second copy is
+ * not yet written, but LAG is chosen so that W*j + s + W <= Zc there. */
+
+typedef struct {
+  int W, shift;
+  const char *type, *xorf, *loaduf, *storeuf, *lcast, *scast, *tag;
+} lgf_isa;
+
+static const lgf_isa LGF_ISAS[] = {
+    {16, 4, "simde__m128i", "simde_mm_xor_si128", "simde_mm_loadu_si128", "simde_mm_storeu_si128", "(const simde__m128i *)", "(simde__m128i *)", "128"},
+    {32, 5, "simde__m256i", "simde_mm256_xor_si256", "simde_mm256_loadu_si256", "simde_mm256_storeu_si256", "(const simde__m256i *)", "(simde__m256i *)", "256"},
+    {64, 6, "__m512i", "_mm512_xor_si512", "_mm512_loadu_si512", "_mm512_storeu_si512", "(const void *)", "(void *)", "512"},
+};
+#define LGF_NISA (int)(sizeof(LGF_ISAS) / sizeof(LGF_ISAS[0]))
+
+static void lgf_load(lgf_expr *e, const lgf_isa *I, const char *base, int off)
+{
+  lgf_push(e, "%s(%s(%s+%d))", I->loaduf, I->lcast, base, off);
+}
+
+/* all systematic residual terms of a row, read relative to byte base `cbase` */
+static void lgf_sys_terms(lgf_expr *e, const lgf_isa *I, const uint8_t *R, int nc, int Zc, const char *cbase)
+{
+  for (int c = 0; c < nc; c++)
+    for (int g = 0; g < Zc; g++)
+      if (R[c * Zc + g])
+        lgf_load(e, I, cbase, c * 2 * Zc + (g + 1) % Zc);
+}
+
+/* rot(Pk,s), read relative to byte base `kbase` (which already carries W*j) */
+static void lgf_kern_ref(lgf_expr *e, const lgf_isa *I, const char *kbase, int k, int s, int Zc)
+{
+  lgf_load(e, I, kbase, k * 2 * Zc + s);
+}
+
+/* store one parity chunk to the output, and to the kernel scratch when needed */
+static void lgf_store(FILE *fd, const lgf_isa *I, const char *dst, int off, const char *val)
+{
+  fprintf(fd, "     %s(%s(%s+%d),%s);\n", I->storeuf, I->scast, dst, off, val);
+}
+
+/* Emit the factored encoder for one (BG, Zc, width).
+ * Returns 0 on success, -1 if the structure is not emittable at this width. */
+static int lgf_emit_wide(int BG, int Zc, int nrows, int ncols, const lgf_isa *I, const lgf_fac *fac, int LAG, int direct, int factored)
+{
+  const int W = I->W, NCH = Zc / W, KSL = 2 * Zc; /* kernel slot stride */
+  char fname[160], fn[96];
+
+  if (BG == 1)
+    snprintf(fn, sizeof fn, "ldpc%d_byte", Zc);
+  else
+    snprintf(fn, sizeof fn, "ldpc_BG2_Zc%d_byte", Zc);
+  if (BG == 1)
+    snprintf(fname, sizeof fname, "ldpc%d_factored_byte_%s.c", Zc, I->tag);
+  else
+    snprintf(fname, sizeof fname, "ldpc_BG2_Zc%d_factored_byte_%s.c", Zc, I->tag);
+
+  FILE *fd = fopen(fname, "w");
+  if (!fd) {
+    fprintf(stderr, "cannot open %s\n", fname);
+    return -1;
+  }
+  lgf_expr e = {.n = 0};
+
+  fprintf(fd, "#include <string.h>\n#include \"PHY/sse_intrin.h\"\n");
+  fprintf(fd, "// generated: BG%d Zc=%d, %s-bit, factored\n", BG, Zc, I->tag);
+  fprintf(fd, "// %d terms vs %d expanded (%.2fx); %d chunks/group; pipeline lag %d\n", factored, direct, (double)direct / factored, NCH, LAG);
+  fprintf(fd, "// every read is one unaligned load at a constant offset\n");
+  fprintf(fd, "static inline void %s(uint8_t *c,uint8_t *d) {\n", fn);
+  fprintf(fd, "  uint8_t kd[%d] __attribute__((aligned(64)));  // P0..P3, each stored twice\n", LGF_NKERN * KSL);
+  fprintf(fd, "  int i2;\n\n");
+
+  /* ---------- stage 1: P0, kernel-free extension rows, lagged kernel ---------- */
+  fprintf(fd, "  // stage 1: P0 and the kernel-free extension rows, with the kernel rows\n");
+  fprintf(fd, "  // pipelined %d chunk(s) behind so the loop need not be split\n", LAG);
+  fprintf(fd, "  for (i2=0; i2<%d; i2++) {\n", NCH);
+  fprintf(fd, "     const uint8_t *cb=c+%d*i2;\n", W);
+
+  fprintf(fd, "     %s p0=", I->type);
+  lgf_sys_terms(&e, I, lgf_res[0], ncols, Zc, "cb");
+  lgf_flush(fd, &e, I->xorf);
+  fprintf(fd, ";\n");
+  fprintf(fd, "     %s(%s(d+%d*i2),p0);\n", I->storeuf, I->scast, W);
+
+  for (int r = LGF_NKERN; r < nrows; r++) {
+    if (fac[r].nref)
+      continue;
+    fprintf(fd, "     %s(%s(d+%d+%d*i2),", I->storeuf, I->scast, Zc * r, W);
+    lgf_sys_terms(&e, I, lgf_res[r], ncols, Zc, "cb");
+    lgf_flush(fd, &e, I->xorf);
+    fprintf(fd, ");   //row %d\n", r);
+  }
+
+  fprintf(fd, "     if (i2>=%d) {\n", LAG);
+  fprintf(fd, "       const uint8_t *cm=c+%d*(i2-%d);\n", W, LAG);
+  fprintf(fd, "       uint8_t *dm=d+%d*(i2-%d);\n", W, LAG);
+  for (int r = 1; r < LGF_NKERN; r++) {
+    fprintf(fd, "       %s p%d=", I->type, r);
+    for (int i = 0; i < fac[r].nref; i++)
+      lgf_load(&e, I, "dm", fac[r].k[i] * Zc + fac[r].s[i]);
+    lgf_sys_terms(&e, I, lgf_res[r], ncols, Zc, "cm");
+    lgf_flush(fd, &e, I->xorf);
+    fprintf(fd, ";\n");
+    fprintf(fd, "       %s(%s(dm+%d),p%d);\n", I->storeuf, I->scast, Zc * r, r);
+  }
+  fprintf(fd, "     }\n  }\n\n");
+
+  /* P0 must be doubled before the epilogue, whose rotations wrap past Zc */
+  fprintf(fd, "  memcpy(kd,d,%d); memcpy(kd+%d,d,%d);   // P0 doubled: the epilogue rotations wrap\n", Zc, Zc, Zc);
+
+  fprintf(fd, "  // epilogue: kernel rows for the final %d chunk(s)\n", LAG);
+  for (int j = NCH - LAG; j < NCH; j++) {
+    fprintf(fd, "  { const uint8_t *cm=c+%d, *km=kd+%d; uint8_t *dm=d+%d;\n", W * j, W * j, W * j);
+    for (int r = 1; r < LGF_NKERN; r++) {
+      fprintf(fd, "    %s p%d=", I->type, r);
+      for (int i = 0; i < fac[r].nref; i++)
+        if (fac[r].k[i] == 0)
+          lgf_kern_ref(&e, I, "km", 0, fac[r].s[i], Zc);   /* wraps: doubled scratch */
+        else
+          lgf_load(&e, I, "dm", fac[r].k[i] * Zc + fac[r].s[i]); /* chunk-local: from d */
+      lgf_sys_terms(&e, I, lgf_res[r], ncols, Zc, "cm");
+      lgf_flush(fd, &e, I->xorf);
+      fprintf(fd, ";\n");
+      fprintf(fd, "    %s(%s(dm+%d),p%d);\n", I->storeuf, I->scast, Zc * r, r);
+    }
+    fprintf(fd, "  }\n");
+  }
+
+  fprintf(fd, "  for (int k=1;k<%d;k++) { memcpy(kd+k*%d,d+k*%d,%d); memcpy(kd+k*%d+%d,d+k*%d,%d); }\n\n", LGF_NKERN, KSL, Zc, Zc, KSL, Zc, Zc, Zc);
+
+  /* ---------- stage 2: extension rows that reference the kernel ---------- */
+  fprintf(fd, "  // stage 2: extension rows that reference the kernel\n");
+  fprintf(fd, "  for (i2=0; i2<%d; i2++) {\n", NCH);
+  fprintf(fd, "     const uint8_t *cb=c+%d*i2, *kb=kd+%d*i2;\n", W, W);
+  for (int r = LGF_NKERN; r < nrows; r++) {
+    if (!fac[r].nref)
+      continue;
+    fprintf(fd, "     %s(%s(d+%d+%d*i2),", I->storeuf, I->scast, Zc * r, W);
+    for (int i = 0; i < fac[r].nref; i++)
+      lgf_kern_ref(&e, I, "kb", fac[r].k[i], fac[r].s[i], Zc);
+    lgf_sys_terms(&e, I, lgf_res[r], ncols, Zc, "cb");
+    lgf_flush(fd, &e, I->xorf);
+    fprintf(fd, ");   //row %d [", r);
+    for (int i = 0; i < fac[r].nref; i++)
+      fprintf(fd, "%sP%d<<%d", i ? "+" : "", fac[r].k[i], fac[r].s[i]);
+    fprintf(fd, " + %d sys]\n", fac[r].cost - fac[r].nref);
+  }
+  fprintf(fd, "  }\n}\n");
+  fclose(fd);
+  printf("    %s-bit -> %s (%d chunks, LAG %d)\n", I->tag, fname, NCH, LAG);
+  return 0;
+}
+
+
 /*
- * Generate the factored encoder for (BG,Zc) on the 128-bit alignr path.
+ * Generate the factored encoder for (BG,Zc).
  * Returns 0 on success, -1 if the structure is not emittable (caller should
  * fall back to the stock expanded generator).
  */
@@ -450,6 +632,27 @@ static int generate_factored_encoder(int BG, int Zc, const short *nos, const sho
   }
   fprintf(fd, "  }\n}\n");
   fclose(fd);
+
+  /* Also emit 256- and 512-bit encoders where the lifting size divides evenly.
+   * Those widths cannot use alignr (it is lane-local), so they take the
+   * unaligned-load emission above. LAG is recomputed per width because it is
+   * measured in chunks, and a chunk is wider. */
+  for (int w = 0; w < LGF_NISA; w++) {
+    const lgf_isa *I = &LGF_ISAS[w];
+    if (I->W == 16 || Zc % I->W)
+      continue;
+    const int wNCH = Zc / I->W;
+    int wLAG = 1;
+    for (int r = 1; r < LGF_NKERN; r++)
+      for (int i = 0; i < fac[r].nref; i++)
+        if (fac[r].s[i] / I->W + 1 > wLAG)
+          wLAG = fac[r].s[i] / I->W + 1;
+    if (wLAG >= wNCH) {
+      printf("    %s-bit skipped: LAG %d >= %d chunks\n", I->tag, wLAG, wNCH);
+      continue;
+    }
+    lgf_emit_wide(BG, Zc, nrows, ncols, I, fac, wLAG, direct, factored);
+  }
   return 0;
 }
 
