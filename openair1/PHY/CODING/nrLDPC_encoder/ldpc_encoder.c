@@ -17,6 +17,7 @@
 #include "openair1/PHY/CODING/nrLDPC_defs.h"
 #include "openair1/PHY/CODING/nrLDPC_extern.h"
 #include "ldpc_generate_coefficient.c"
+#include "ldpc_generate_factored.c"
 
 /* not used, only for compat with LDPC CUDA implementation */
 uint32_t **LDPCencoder32(uint8_t **input, encoder_implemparams_t *impp)
@@ -289,68 +290,13 @@ int LDPCencoder(unsigned char **inputArray, unsigned char *outputArray, encoder_
     fprintf(fd,"}\n");
     fclose(fd);
   }
-  else if (gen_code == 4) { // CUDA
-    char fname[100];
-    sprintf(fname,"ldpc_BG%d_Zc%d_32bit.cu",BG,Zc);
-    FILE *fd=fopen(fname,"w");
-    AssertFatal(fd!=NULL,"cannot open %s\n",fname);
-    printf("Writing to %s\n",fname);
-    fprintf(fd,"#include <stdio.h>\n#include <stdint.h>\n#include <cuda_runtime.h>\n");
-
-    fprintf(fd,"// generated code for Zc=%d, byte encoding\n",Zc);
-    fprintf(fd,"__global__ void ldpc_BG%d_Zc%d_worker(uint32_t *c[4],uint32_t *d[4]) {\n",BG,Zc);
-    fprintf(fd,"  uint32_t *c32=c[blockIdx.x];\n  uint32_t *d32=d[blockIdx.x] + 20*%d;\n\n",Zc);
-    fprintf(fd,"  int i2 = threadIdx.x;\n");
-    fprintf(fd,"\n");
-    fprintf(fd,"  int i1 = blockIdx.y;\n");
-    fprintf(fd,"  // copy 20 c values to d\n");
-    fprintf(fd,"  if (i1<20) d[blockIdx.x][(i1*%d) + i2] = c32[4*%d+(2*%d*i1)+i2];",Zc,Zc,Zc);
-    fprintf(fd,"\n");
-    fprintf(fd,"  if (i2 < %d) {\n",Zc);
-    fprintf(fd,"    c32+=i2;\n");
-    fprintf(fd,"    d32+=i2;\n");
-    fprintf(fd,"    switch(i1) {\n");
-
-    for (int i1=0;i1<nrows;i1++) {
-      nind = 0;
-      fprintf(fd,"    case %d:\n",i1);
-      fprintf(fd,"      d32[%d]=",(Zc*i1));
-      for (i3=0; i3 < ncols; i3++)
-      {
-          temp_prime=i1 * ncols + i3;
-	  for (i4=0; i4 < no_shift_values[temp_prime]; i4++)
-  	  {
-	     var=(int)((i3*Zc + (Gen_shift_values[ pointer_shift_values[temp_prime]+i4 ]+1)%Zc)/Zc);
-  	     int index =var*2*Zc + (i3*Zc + (Gen_shift_values[ pointer_shift_values[temp_prime]+i4 ]+1)%Zc) % Zc;
-	     printf("var %d, i3 %d, i4 %d, index %d (index mod 2Zc) %d, Zc %d, pointer_shift_values[%d] %d gen_shift_value %d offset %d\n",var,i3,i4,index,index%(2*Zc),Zc,temp_prime,pointer_shift_values[temp_prime],Gen_shift_values[pointer_shift_values[temp_prime]],(i3*Zc + (Gen_shift_values[ pointer_shift_values[temp_prime]+i4 ]+1)%Zc) % Zc);
-	     if (index%(2*Zc) >= Zc) printf("***********************\n");
-   	     indlist[nind] = index;
-	     printf("indlist[%d] %d, index %d\n",nind,indlist[nind],index);
-	     nind++;
-   	  } //i4
-      } // i3
-      for (i4=0;i4<nind-1;i4++) {
-         fprintf(fd,"c32[%d]^",indlist[i4]);
-      } //i4
-      fprintf(fd,"c32[%d];\n\n",indlist[i4]);
-      fprintf(fd,"       break;\n");
-    }// i1
-    fprintf(fd,"     }\n");
-    fprintf(fd,"  }\n");
-    fprintf(fd,"}\n");
-
-    fprintf(fd,"extern \"C\" int ldpc_BG%d_Zc%d_cuda32(uint32_t *c[4],uint32_t *d[4],int n_inputs) { \n",BG,Zc);
-    fprintf(fd," dim3 numblocks(n_inputs,%d);\n",nrows);
-    fprintf(fd," ldpc_BG%d_Zc%d_worker<<<numblocks,%d>>>(c,d);\n",BG,Zc,Zc);
-    fprintf(fd," \n");
-    fprintf(fd," cudaError_t err=cudaPeekAtLastError();\n");
-    fprintf(fd," if (err!=cudaSuccess) {\n");
-    fprintf(fd,"    printf(\"cuda error: %%s (c %%p, d %%p)\\n\",cudaGetErrorString(err),c,d);\n");
-    fprintf(fd,"    exit(-1);\n");
-    fprintf(fd," }\n");
-    fprintf(fd," return(0);\n");
-    fprintf(fd,"}\n");
-    fclose(fd);
+  else if (gen_code == 5) { // factored encoder, 128-bit alignr path
+    // Recovers the base-graph structure the expanded generator discards: the four
+    // core parity groups P0..P3 are emitted once and referenced by rotation
+    // instead of being pre-inverted into every row. BG1 2109 -> 319 terms,
+    // BG2 1473 -> 173 terms, for every supported Zc.
+    if (generate_factored_encoder(BG, Zc, no_shift_values, pointer_shift_values, Gen_shift_values) != 0)
+      printf("factored generator: falling back, BG %d Zc %d not emitted\n", BG, Zc);
   }
   else if(gen_code==0)
   {

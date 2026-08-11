@@ -16,6 +16,17 @@
 #define USE_PERMUTEX
 #ifdef __aarch64__
 #define USE_ALIGNR
+// Use the factored encoders on the 128-bit alignr path.
+//
+// These recover the base-graph structure that the expanded generator discards:
+// the four core parity groups P0..P3 are emitted once and referenced by cyclic
+// rotation, instead of being pre-inverted into every row that uses them.
+// BG1 2109 -> 319 terms, BG2 1473 -> 173 terms, for every supported lifting
+// size, and bit-exact with the expanded encoders.
+//
+// Only the 128-bit alignr path has factored variants; the AVX2 / AVX512 paths
+// keep the stock encoders. Comment this out to fall back everywhere.
+#define USE_FACTORED
 #endif
 #ifdef __AVX512F__
 #if defined(__AVX512VBMI__) && defined(USE_PERMUTEX)
@@ -28,6 +39,18 @@
 #endif
 #endif
 #ifdef USE_ALIGNR
+#ifdef USE_FACTORED
+#include "ldpc384_factored_byte_128.c"
+#include "ldpc352_factored_byte_128.c"
+#include "ldpc320_factored_byte_128.c"
+#include "ldpc288_factored_byte_128.c"
+#include "ldpc256_factored_byte_128.c"
+#include "ldpc240_factored_byte_128.c"
+#include "ldpc224_factored_byte_128.c"
+#include "ldpc208_factored_byte_128.c"
+#include "ldpc192_factored_byte_128.c"
+#include "ldpc176_factored_byte_128.c"
+#else
 #include "ldpc384_alignr_byte_128.c"
 #include "ldpc352_alignr_byte_128.c"
 #include "ldpc320_alignr_byte_128.c"
@@ -38,6 +61,7 @@
 #include "ldpc208_alignr_byte_128.c"
 #include "ldpc192_alignr_byte_128.c"
 #include "ldpc176_alignr_byte_128.c"
+#endif
 #else
 #ifndef __AVX512F__
 #include "ldpc384_byte.c"
@@ -59,6 +83,32 @@
 #include "ldpc224_byte_128.c"
 #include "ldpc192_byte_128.c"
 #endif
+#if defined(USE_ALIGNR) && defined(USE_FACTORED)
+// BG2, 16-byte-aligned lifting sizes: factored, and on alignr rather than the
+// pre-rotated input layout, so only the doubled input buffer is needed.
+#include "ldpc_BG2_Zc384_factored_byte_128.c"
+#include "ldpc_BG2_Zc352_factored_byte_128.c"
+#include "ldpc_BG2_Zc320_factored_byte_128.c"
+#include "ldpc_BG2_Zc288_factored_byte_128.c"
+#include "ldpc_BG2_Zc256_factored_byte_128.c"
+#include "ldpc_BG2_Zc240_factored_byte_128.c"
+#include "ldpc_BG2_Zc224_factored_byte_128.c"
+#include "ldpc_BG2_Zc208_factored_byte_128.c"
+#include "ldpc_BG2_Zc192_factored_byte_128.c"
+#include "ldpc_BG2_Zc176_factored_byte_128.c"
+#include "ldpc_BG2_Zc160_factored_byte_128.c"
+#include "ldpc_BG2_Zc144_factored_byte_128.c"
+#include "ldpc_BG2_Zc128_factored_byte_128.c"
+#include "ldpc_BG2_Zc112_factored_byte_128.c"
+#include "ldpc_BG2_Zc96_factored_byte_128.c"
+#include "ldpc_BG2_Zc80_factored_byte_128.c"
+// Zc 72/88/104/120 are 8-byte aligned only: no factored variant, keep the stock
+// 64-bit encoders. These still need the pre-rotated input layout.
+#include "ldpc_BG2_Zc120_byte.c"
+#include "ldpc_BG2_Zc104_byte.c"
+#include "ldpc_BG2_Zc88_byte.c"
+#include "ldpc_BG2_Zc72_byte.c"
+#else
 #include "ldpc_BG2_Zc384_byte.c"
 #include "ldpc_BG2_Zc384_byte_128.c"
 #include "ldpc_BG2_Zc352_byte.c"
@@ -89,12 +139,20 @@
 #include "ldpc_BG2_Zc88_byte.c"
 #include "ldpc_BG2_Zc80_byte.c"
 #include "ldpc_BG2_Zc72_byte.c"
+#endif
 
 static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, short Zc, int simd_size, int ncols)
 {
-  // For the alignr path (aarch64, BG1, Zc=384) the simd_size copies are skipped,
-  // so only one copy is needed — avoid a 32x overallocation on the stack.
-#ifdef USE_ALIGNR
+  // Encoders on the alignr path index a doubled input buffer directly, so the
+  // simd_size pre-rotated copies are skipped and only one copy is needed —
+  // avoid a 32x/64x overallocation on the stack.
+  //
+  // BG1 (Zc >= 176) has always been on alignr. With the factored encoders BG2
+  // is too, for the 16-byte-aligned lifting sizes; BG2 Zc 72/88/104/120 have no
+  // factored variant and still need the pre-rotated layout.
+#if defined(USE_ALIGNR) && defined(USE_FACTORED)
+  int vla_simd = ((BG == 1 && Zc >= 176) || (BG == 2 && (Zc & 15) == 0)) ? 1 : simd_size;
+#elif defined(USE_ALIGNR)
   int vla_simd = (BG == 1 && Zc >= 176) ? 1 : simd_size;
 #else
   int vla_simd = simd_size;
@@ -109,7 +167,10 @@ static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, sh
 #if (defined(USE_PERMUTEX) && defined(__AVX512VBMI__)) 
   if (BG == 2 || Zc < 384)
 #endif
-#if defined(USE_ALIGNR)
+#if defined(USE_ALIGNR) && defined(USE_FACTORED)
+  // only the 8-byte-aligned BG2 sizes still need the pre-rotated copies
+  if (BG == 2 && (Zc & 15) != 0)
+#elif defined(USE_ALIGNR)
   if (BG == 2)
 #endif
   {
