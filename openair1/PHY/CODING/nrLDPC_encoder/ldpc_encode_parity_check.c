@@ -10,6 +10,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include "assertions.h"
 #include "common/utils/LOG/log.h"
 
@@ -181,6 +182,73 @@
 #include "ldpc_BG2_Zc72_byte.c"
 #endif
 
+/* Measure the available widths instead of inferring from CPUID.
+ *
+ * The AVX512 datapath width is not architectural and CPUID does not expose it.
+ * It varies within a family -- Zen 5 server is full width while Zen 5 mobile is
+ * reported to be double-pumped, both family 0x1A -- and on some Intel parts
+ * frequency licensing can cost more than the width gains. A family table cannot
+ * express any of that, and gets progressively more wrong on hardware that did
+ * not exist when it was written.
+ *
+ * So: encode a dummy block at each compiled width and keep the fastest. Costs
+ * well under a millisecond, once per process. The narrower width wins ties,
+ * since a wider one that is not clearly better is not worth the register
+ * pressure; the margin also stops measurement noise flipping the choice.
+ *
+ * OAI_LDPC_NO_CALIBRATE falls back to the CPUID guess; OAI_LDPC_SIMD_WIDTH
+ * overrides both.
+ */
+#if defined(LDPC_HAVE_256) || defined(LDPC_HAVE_512)
+static double ldpc_time_enc(void (*f)(uint8_t *, uint8_t *), uint8_t *c, uint8_t *d, int iters)
+{
+  struct timespec a, b;
+  clock_gettime(CLOCK_MONOTONIC, &a);
+  for (int i = 0; i < iters; i++)
+    f(c, d);
+  clock_gettime(CLOCK_MONOTONIC, &b);
+  return (b.tv_sec - a.tv_sec) + 1e-9 * (b.tv_nsec - a.tv_nsec);
+}
+
+static int ldpc_calibrate_width(void)
+{
+  enum { Z = 384, ITERS = 200, ROUNDS = 3 };
+  static uint8_t cb[2 * 22 * Z] __attribute__((aligned(64)));
+  static uint8_t db[46 * Z] __attribute__((aligned(64)));
+  for (unsigned i = 0; i < sizeof cb; i++)
+    cb[i] = (uint8_t)(i * 31u + 7u);
+
+  double t[3] = {1e9, 1e9, 1e9}; /* 128, 256, 512 */
+  for (int r = 0; r < ROUNDS; r++) {
+    double x = ldpc_time_enc(ldpc384_byte_128, cb, db, ITERS);
+    if (x < t[0])
+      t[0] = x;
+#ifdef LDPC_HAVE_256
+    x = ldpc_time_enc(ldpc384_byte_256, cb, db, ITERS);
+    if (x < t[1])
+      t[1] = x;
+#endif
+#ifdef LDPC_HAVE_512
+    x = ldpc_time_enc(ldpc384_byte_512, cb, db, ITERS);
+    if (x < t[2])
+      t[2] = x;
+#endif
+  }
+  int w = 128;
+  double best = t[0];
+  if (t[1] < best * 0.97) {
+    w = 256;
+    best = t[1];
+  }
+  if (t[2] < best * 0.97)
+    w = 512;
+  if (getenv("OAI_LDPC_SIMD_VERBOSE"))
+    fprintf(stderr, "ldpc: calibrated widths (us/CB) 128:%.3f 256:%.3f 512:%.3f -> %d\n",
+            t[0] * 1e6 / ITERS, t[1] * 1e6 / ITERS, t[2] * 1e6 / ITERS, w);
+  return w;
+}
+#endif
+
 /* Which SIMD width the factored encoders should use.
  *
  * This is a microarchitecture question, not an ISA one. Zen 4, Zen 5 and
@@ -228,13 +296,19 @@ static int ldpc_simd_width(void)
         family += (eax >> 20) & 0xFF;
       if (!strcmp(vendor, "AuthenticAMD"))
         // Zen 4 (family 0x19) is double-pumped; Zen 5 (0x1A) is full width.
-        // Both verified by measurement on Genoa and Turin.
+        // Verified on Genoa, Turin and Strix Halo (0x1A model 0x70, an APU --
+        // the most likely counterexample, and it is full width too).
         w = (family >= 0x1A) ? 512 : 256;
       else
         // AVX512-capable Intel parts have the full-width datapath.
         w = 512;
     }
   }
+#endif
+#if defined(LDPC_HAVE_256) || defined(LDPC_HAVE_512)
+  // the table above is only the fallback; prefer measuring the actual part
+  if (!getenv("OAI_LDPC_NO_CALIBRATE"))
+    w = ldpc_calibrate_width();
 #endif
   return w;
 }
