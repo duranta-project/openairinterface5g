@@ -425,6 +425,7 @@ int start_L1L2(module_id_t gnb_id)
 
   init_NR_RU(config_get_if(), NULL);
 
+  configure_NR_RU();
   start_NR_RU();
   wait_RUs();
   init_eNB_afterRU();
@@ -641,8 +642,10 @@ int main( int argc, char **argv ) {
   if (NFAPI_MODE != NFAPI_MODE_PNF && (NODE_IS_DU(node_type) || NODE_IS_MONOLITHIC(node_type)))
     wait_f1_setup_response();
 
-  if (RC.nb_RU > 0)
+  if (RC.nb_RU > 0) {
+    configure_NR_RU();
     start_NR_RU();
+  }
 
   if (NFAPI_MODE == NFAPI_MODE_PNF) {
     wait_RUs();
