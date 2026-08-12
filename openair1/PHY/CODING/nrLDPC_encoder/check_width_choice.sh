@@ -34,8 +34,10 @@ echo "pinning  : ${PIN:-NONE -- set CORE=<n>}"
 echo "reps     : $REPS x $TRIALS trials"
 echo
 
-echo "== what the startup calibration measures and chooses =="
-CAL=$(OAI_LDPC_SIMD_VERBOSE=1 $PIN "$BUILD/ldpctest" -l 8448 -r 1 -d 3 -n 1 -s 10 2>&1 |
+echo "== what the opt-in startup calibration would choose =="
+# calibration is opt-in since it proved unrepresentative, so it needs enabling
+# explicitly here just to report what it would have picked
+CAL=$(OAI_LDPC_CALIBRATE=1 OAI_LDPC_SIMD_VERBOSE=1 $PIN "$BUILD/ldpctest" -l 8448 -r 1 -d 3 -n 1 -s 10 2>&1 |
       grep -m1 'ldpc: calibrated')
 if [ -n "$CAL" ]; then
   echo "  $CAL"
@@ -74,12 +76,12 @@ for cfg in "BG1 K'=8448 r1/3:8448:1:3" "BG2 K'=3840 r1/5:3840:1:5"; do
     fi
   done
   a=$(meas auto "$K" "$NUM" "$DEN")
-  printf "  calibrated     : %s\n" "$a"
+  printf "  default (table): %s\n" "$a"
   echo "  fastest forced : ${bestw}-bit at $best"
   if [ "$a" != "n/a" ] && [ "$best" != "n/a" ]; then
     awk -v c="$a" -v b="$best" 'BEGIN{
-      if (c > b*1.03) printf "  => calibration is %.1f%% off the best width\n", 100*(c/b-1);
-      else printf "  => calibration matches the best width\n"}'
+      if (c > b*1.03) printf "  => the shipped default is %.1f%% off the best width\n", 100*(c/b-1);
+      else printf "  => the shipped default matches the best width\n"}'
   fi
   echo
 done
