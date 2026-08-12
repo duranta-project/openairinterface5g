@@ -47,10 +47,13 @@ fi
 echo
 
 # mean parity time over REPS runs at a forced width
-meas() { # $1=width $2=K' $3=num $4=den
-  local acc=0 n=0 v
+meas() { # $1=width or "auto"  $2=K' $3=num $4=den
+  local acc=0 n=0 v pfx=""
+  # "auto" must leave OAI_LDPC_SIMD_WIDTH unset: an unrecognised value is mapped
+  # to 128 rather than falling through to the calibrated choice.
+  [ "$1" != auto ] && pfx="OAI_LDPC_SIMD_WIDTH=$1"
   for _ in $(seq "$REPS"); do
-    v=$(OAI_LDPC_SIMD_WIDTH=$1 $PIN "$BUILD/ldpctest" -l "$2" -r "$3" -d "$4" -n "$TRIALS" -s 4 2>&1 |
+    v=$(env $pfx $PIN "$BUILD/ldpctest" -l "$2" -r "$3" -d "$4" -n "$TRIALS" -s 4 2>&1 |
         awk '/ldpc_encoder_optim\(parity\)/{gsub(/ us;/,"");s+=$2;c++} END{if(c)printf "%.4f",s/c}')
     [ -n "$v" ] && { acc=$(awk -v a="$acc" -v b="$v" 'BEGIN{print a+b}'); n=$((n+1)); }
   done
@@ -70,7 +73,7 @@ for cfg in "BG1 K'=8448 r1/3:8448:1:3" "BG2 K'=3840 r1/5:3840:1:5"; do
       if [ -z "$best" ] || awk -v a="$t" -v b="$best" 'BEGIN{exit !(a<b)}'; then best=$t; bestw=$w; fi
     fi
   done
-  a=$(meas 0 "$K" "$NUM" "$DEN")   # 0 is invalid, so the calibrated choice is used
+  a=$(meas auto "$K" "$NUM" "$DEN")
   printf "  calibrated     : %s\n" "$a"
   echo "  fastest forced : ${bestw}-bit at $best"
   if [ "$a" != "n/a" ] && [ "$best" != "n/a" ]; then
