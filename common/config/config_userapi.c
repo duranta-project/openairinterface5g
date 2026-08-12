@@ -312,6 +312,22 @@ int config_check_intrange(configmodule_interface_t *cfg, paramdef_t *param)
   return -1;
 }
 
+int config_check_dblrange(configmodule_interface_t *cfg, paramdef_t *param)
+{
+  UNUSED(cfg);
+  if (*param->dblptr >= param->chkPptr->s2a.okdblrange[0] && *param->dblptr <= param->chkPptr->s2a.okdblrange[1])
+    return 0;
+
+  fprintf(stderr,
+          "[CONFIG] %s: %s: invalid value %f, authorized range: %f %f\n",
+          __func__,
+          param->optname,
+          *param->dblptr,
+          param->chkPptr->s2a.okdblrange[0],
+          param->chkPptr->s2a.okdblrange[1]);
+  return -1;
+}
+
 int config_check_uintrange(configmodule_interface_t *cfg, paramdef_t *param)
 {
   (void)cfg;

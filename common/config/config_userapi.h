@@ -52,6 +52,7 @@ int config_check_intval(configmodule_interface_t *cfg, paramdef_t *param);
 int config_check_modify_integer(configmodule_interface_t *cfg, paramdef_t *param);
 int config_check_intrange(configmodule_interface_t *cfg, paramdef_t *param);
 int config_check_uintrange(configmodule_interface_t *cfg, paramdef_t *param);
+int config_check_dblrange(configmodule_interface_t *cfg, paramdef_t *param);
 int config_check_strval(configmodule_interface_t *cfg, paramdef_t *param);
 int config_checkstr_assign_integer(configmodule_interface_t *cfg, paramdef_t *param);
 const paramdef_t *config_get_paramdef_from_name(const paramdef_t *pd, int num, const char *name);
