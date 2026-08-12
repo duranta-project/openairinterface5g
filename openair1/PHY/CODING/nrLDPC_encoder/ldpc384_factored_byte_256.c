@@ -3,7 +3,7 @@
 // generated: BG1 Zc=384, 256-bit, factored
 // 319 terms vs 2105 expanded (6.60x); 12 chunks/group; pipeline lag 1
 // every read is one unaligned load at a constant offset
-static inline void ldpc384_byte(uint8_t *c,uint8_t *d) {
+static inline void ldpc384_byte_256(uint8_t *c,uint8_t *d) {
   uint8_t kd[3072] __attribute__((aligned(64)));  // P0..P3, each stored twice
   int i2;
 

@@ -341,9 +341,9 @@ static int lgf_emit_wide(int BG, int Zc, int nrows, int ncols, const lgf_isa *I,
   char fname[160], fn[96];
 
   if (BG == 1)
-    snprintf(fn, sizeof fn, "ldpc%d_byte", Zc);
+    snprintf(fn, sizeof fn, "ldpc%d_byte_%s", Zc, I->tag);
   else
-    snprintf(fn, sizeof fn, "ldpc_BG2_Zc%d_byte", Zc);
+    snprintf(fn, sizeof fn, "ldpc_BG2_Zc%d_byte_%s", Zc, I->tag);
   if (BG == 1)
     snprintf(fname, sizeof fname, "ldpc%d_factored_byte_%s.c", Zc, I->tag);
   else
@@ -551,9 +551,9 @@ static int generate_factored_encoder(int BG, int Zc, const short *nos, const sho
   fprintf(fd, "// generated code for BG%d Zc=%d, byte encoding, factored\n", BG, Zc);
   fprintf(fd, "// %d terms vs %d expanded (%.2fx); pipeline lag %d chunk(s)\n", factored, direct, (double)direct / factored, LAG);
   if (BG == 1)
-    fprintf(fd, "static inline void ldpc%d_byte(uint8_t *c,uint8_t *d) {\n", Zc);
+    fprintf(fd, "static inline void ldpc%d_byte_128(uint8_t *c,uint8_t *d) {\n", Zc);
   else
-    fprintf(fd, "static inline void ldpc_BG2_Zc%d_byte(uint8_t *c,uint8_t *d) {\n", Zc);
+    fprintf(fd, "static inline void ldpc_BG2_Zc%d_byte_128(uint8_t *c,uint8_t *d) {\n", Zc);
   fprintf(fd, "  simde__m128i *csimd=(simde__m128i *)c,*dsimd=(simde__m128i *)d;\n");
   fprintf(fd, "  simde__m128i *c2,*d2,*cm,*dm;\n");
   fprintf(fd, "  uint8_t kd[%d] __attribute__((aligned(64)));\n", LGF_NKERN * 2 * Zc);

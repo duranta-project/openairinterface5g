@@ -2,7 +2,7 @@
 #include "PHY/sse_intrin.h"
 // generated code for BG2 Zc=48, byte encoding, factored
 // 173 terms vs 1435 expanded (8.29x); pipeline lag 1 chunk(s)
-static inline void ldpc_BG2_Zc48_byte(uint8_t *c,uint8_t *d) {
+static inline void ldpc_BG2_Zc48_byte_128(uint8_t *c,uint8_t *d) {
   simde__m128i *csimd=(simde__m128i *)c,*dsimd=(simde__m128i *)d;
   simde__m128i *c2,*d2,*cm,*dm;
   uint8_t kd[384] __attribute__((aligned(64)));
