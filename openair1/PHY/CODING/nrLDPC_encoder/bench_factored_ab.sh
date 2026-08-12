@@ -25,6 +25,7 @@ PIN=""
 
 [ -f "$EPC" ]   || { echo "no $EPC -- pass the openairinterface5g path as \$1"; exit 1; }
 [ -d "$BUILD" ] || { echo "no build dir $BUILD -- configure and build ldpctest first"; exit 1; }
+[ -x "$BUILD/ldpctest" ] || { echo "no ldpctest binary at $BUILD/ldpctest"; echo "build it first:  (cd $BUILD && make -j\$(nproc) ldpc ldpctest)"; exit 1; }
 # pick the generator from the build directory, not from what is on PATH:
 # some boards have ninja installed but a Makefile-configured build tree
 if [ -f "$BUILD/build.ninja" ]; then GEN="ninja"
@@ -78,6 +79,11 @@ sweep() {
     ap=0; at=0; n=0
     for _ in $(seq "$REPS"); do
       out=$($PIN "$BUILD/ldpctest" -l "$K" -r "$NUM" -d "$DEN" -n "$TRIALS" -s 4 2>&1)
+      if ! grep -q 'ldpc_encoder_optim' <<<"$out"; then
+        echo "ERROR: ldpctest produced no encoder timing for -l $K -r $NUM -d $DEN (exit $?)." >&2
+        echo "--- its output ---" >&2; echo "$out" | head -25 >&2; echo "------------------" >&2
+        exit 1
+      fi
       p=$(awk '/ldpc_encoder_optim\(parity\)/{gsub(/ us;/,"");s+=$2;c++} END{if(c)printf "%.4f",s/c}' <<<"$out")
       t=$(awk '/^ *ldpc_encoder_optim:/       {gsub(/ us;/,"");s+=$2;c++} END{if(c)printf "%.4f",s/c}' <<<"$out")
       [ -n "$p" ] && { ap=$(awk -v a="$ap" -v b="$p" 'BEGIN{print a+b}'); n=$((n+1)); }
