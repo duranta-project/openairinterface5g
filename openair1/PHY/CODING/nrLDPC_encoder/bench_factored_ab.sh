@@ -25,7 +25,11 @@ PIN=""
 
 [ -f "$EPC" ]   || { echo "no $EPC -- pass the openairinterface5g path as \$1"; exit 1; }
 [ -d "$BUILD" ] || { echo "no build dir $BUILD -- configure and build ldpctest first"; exit 1; }
-command -v ninja >/dev/null && GEN=ninja || GEN=make
+# pick the generator from the build directory, not from what is on PATH:
+# some boards have ninja installed but a Makefile-configured build tree
+if [ -f "$BUILD/build.ninja" ]; then GEN="ninja"
+elif [ -f "$BUILD/Makefile" ]; then GEN="make -j$(nproc)"
+else echo "no build.ninja or Makefile in $BUILD -- configure the build first"; exit 1; fi
 
 MARK='#define NO_FACTORED 1 // bench_factored_ab'
 cleanup() { grep -vxF "$MARK" "$EPC" > "$EPC.abtmp" && mv "$EPC.abtmp" "$EPC"; }
