@@ -8,6 +8,8 @@
 # source edit is reverted on exit, including on interrupt.
 #
 # Optional environment:
+#   BUILD=<dir> build directory, if not the default
+#               $OAI/cmake_targets/ran_build/build
 #   CORE=<n>    pin ldpctest to a CPU. Strongly recommended: unpinned runs on a
 #               many-core machine drift ~10% from scheduler migration alone,
 #               which is larger than some of the effects being measured.
@@ -16,7 +18,7 @@
 
 set -u
 OAI=${1:-$HOME/openairinterface5g}
-BUILD=$OAI/cmake_targets/ran_build/build
+BUILD=${BUILD:-$OAI/cmake_targets/ran_build/build}
 EPC=$OAI/openair1/PHY/CODING/nrLDPC_encoder/ldpc_encode_parity_check.c
 REPS=${REPS:-3}
 TRIALS=${TRIALS:-200}
