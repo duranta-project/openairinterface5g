@@ -1369,13 +1369,15 @@ static void set_SR_periodandoffset(NR_SchedulingRequestResourceConfig_t *schedul
   schedulingRequestResourceConfig->periodicityAndOffset = calloc(1,sizeof(*schedulingRequestResourceConfig->periodicityAndOffset));
 
   if(sr_slot < 10 && scs < NR_SubcarrierSpacing_kHz60){
-    schedulingRequestResourceConfig->periodicityAndOffset->present = NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl10;
-    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl10 = sr_slot;
+    schedulingRequestResourceConfig->periodicityAndOffset->present =
+        NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl40;
+    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl40 = sr_slot;
     return;
   }
   else if(sr_slot < 20 && scs < NR_SubcarrierSpacing_kHz120){
-    schedulingRequestResourceConfig->periodicityAndOffset->present = NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl20;
-    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl20 = sr_slot;
+    schedulingRequestResourceConfig->periodicityAndOffset->present =
+        NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl40;
+    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl40 = sr_slot;
     return;
   }
   else if(sr_slot < 40){
