@@ -83,8 +83,20 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
   //printf("%d\n",no_punctured_columns);
   //printf("%d\n",removed_bit);
   // unpack input
-  memset(cc,0,sizeof(cc));
-  memset(dd,0,sizeof(dd));
+  //
+  // Only the systematic bits past the payload need zeroing: the unpack below
+  // writes [0, block_length), the encoder reads [0, ncols*Zc), and the gap
+  // between them is filler, which must read as zero. For BG1 at K'=8448 the two
+  // coincide and this is a no-op.
+  //
+  // dd needs no zeroing at all. Both encoder paths write every byte the output
+  // copy below goes on to read: the optimised one writes all nrows rows, the
+  // original writes exactly (nrows-no_punctured_columns)*Zc, and the copy takes
+  // at most that.
+  //
+  // Together these were ~0.2 us per code block, and were outside every timer.
+  if (block_length < ncols * Zc)
+    memset(cc + block_length, 0, ncols * Zc - block_length);
 
   if(impp->tinput != NULL) start_meas(impp->tinput);
   //interleave up to 8 transport-block segements at a time
