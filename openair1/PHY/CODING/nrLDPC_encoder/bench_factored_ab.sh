@@ -56,6 +56,12 @@ CASES=(
 build() {
   cleanup
   [ "$1" = STOCK ] && { printf '%s\n' "$MARK" | cat - "$EPC" > "$EPC.abtmp" && mv "$EPC.abtmp" "$EPC"; }
+  # ldpc_encode_parity_check.c is #included, not compiled on its own. Ninja
+  # tracks that dependency; some Makefile-configured trees do not, and silently
+  # reuse the previous object -- which makes the A/B compare a build against
+  # itself and report 1.00x. Touch the real translation units to force it.
+  touch "$OAI"/openair1/PHY/CODING/nrLDPC_encoder/ldpc_encoder_optim8segmulti.c \
+        "$OAI"/openair1/PHY/CODING/nrLDPC_encoder/ldpc_encoder.c 2>/dev/null
   ( cd "$BUILD" && $GEN libldpc.so >/dev/null 2>&1 ) ||
   ( cd "$BUILD" && $GEN ldpctest   >/dev/null 2>&1 ) || { echo "BUILD FAILED ($1)"; exit 1; }
 }
@@ -83,8 +89,18 @@ sweep() {
   done
 }
 
-echo "building stock ..."   ; build STOCK   ; sweep STOCK
-echo "building factored ..."; build FACTORED; sweep FACTORED
+echo "building stock ..."   ; build STOCK
+MD5_STOCK=$(md5sum "$BUILD/libldpc.so" 2>/dev/null | cut -c1-12)
+sweep STOCK
+echo "building factored ..."; build FACTORED
+MD5_FAC=$(md5sum "$BUILD/libldpc.so" 2>/dev/null | cut -c1-12)
+if [ -n "$MD5_STOCK" ] && [ "$MD5_STOCK" = "$MD5_FAC" ]; then
+  echo
+  echo "ERROR: libldpc.so is identical for both configurations ($MD5_STOCK)."
+  echo "The toggle did not take effect, so any numbers below would be bogus."
+  exit 1
+fi
+sweep FACTORED
 echo
 
 report() { # $1 = PAR|TOT, $2 = label
