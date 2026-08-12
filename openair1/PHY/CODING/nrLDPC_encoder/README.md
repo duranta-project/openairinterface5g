@@ -378,40 +378,45 @@ reached at *different widths*. Evaluating on Genoa alone would have concluded AV
 not worth building.
 
 A CPUID family table can express this only for parts that have been tested, and cannot
-express within-family variation. So the width is **measured at startup**: encode a dummy
-block at each compiled width, keep the fastest, prefer the narrower on a tie. Cost is about
-0.6 ms. The CPUID table remains as a fallback (`OAI_LDPC_NO_CALIBRATE`), and
-`OAI_LDPC_SIMD_WIDTH` overrides both.
+express within-family variation, so the width was initially **measured at startup**: encode a
+dummy block at each compiled width, keep the fastest, prefer the narrower on a tie, about
+0.6 ms once per process from an ELF constructor at dlopen.
 
-That measurement runs from an **ELF constructor**, so it happens when
-`load_module_version_shlib` dlopens `libldpc.so` — not inside the first encode, where it
-would have cost 0.6 ms within a slot and raced between threads. It is not called from
-`LDPCinit()` because that lives in `nrLDPC_decoder.c`, shared with `libldpc_orig.so`, which
-does not include the encoder file. The lazy path remains for callers that reach the encoder
-without the module being dlopen'd.
-
-One caveat: the constructor runs on whichever core performs the dlopen, before thread
-affinity is set. That only matters on a heterogeneous CPU, and the x86 parts carrying
-AVX512 are homogeneous.
+**That turned out to be the wrong instrument, and it is now opt-in.** A short hot-L1 burst is
+not representative. On a Xeon Gold 6354 (Ice Lake-SP), BG1 Zc=384, us/CB:
 
 ```text
-                                128     256     512   -> calibrated   cpuid table
-Genoa       (family 0x19)      1.919   0.810   0.882      256            256
-Turin       (0x1A model 0x02)  1.505   0.610   0.417      512            512
-Strix Halo  (0x1A model 0x70)  2.110   0.877   0.590      512            512
-Sapphire Rapids (0x6 / 0x8F)   2.484   1.010   0.811      512            512
+                 startup burst    sustained (ldpctest, pinned, 3 x 300)
+  128-bit            2.082              5.515
+  256-bit            0.866              3.290
+  512-bit            1.189              2.111
+  ->                 picks 256          512 is best, by 1.56x
 ```
 
-**Calibration and the table agree on all four parts tested — no case has been found where
-calibration wins.** Strix Halo was tested specifically because Zen 5 APUs were the most
-likely counterexample (mobile parts have been reported to double-pump AVX512 where server
-parts do not, and both are family 0x1A); it turned out to be full width, so the table's
-`family >= 0x1A -> 512` rule held.
+The ranking **inverts**. Both widths slow down once the working set no longer fits in L1,
+but 256 degrades far worse — 3.8x against 512's 1.8x — because it runs four times the loop
+iterations over the same data. Trusting the burst costs 57% on BG1 there (3.3% on BG2, where
+the two widths are nearly equal anyway).
 
-Calibration is therefore insurance rather than a fix: it costs 0.6 ms and removes the need
-to guess for parts nobody has run this on — Zen 5c-based APUs, future AMD families, and
-Intel parts where AVX-512 frequency licensing might outweigh the width. It has not yet been
-shown to beat the table on hardware.
+So the CPUID table is the default, and it is correct on this part: Intel + AVX512 -> 512.
+`OAI_LDPC_CALIBRATE=1` enables the measurement anyway; `OAI_LDPC_SIMD_WIDTH` overrides
+everything. The two agree on all four other x86 parts:
+
+```text
+                                128     256     512   -> table   calibration
+Genoa       (family 0x19)      1.919   0.810   0.882      256        256
+Turin       (0x1A model 0x02)  1.505   0.610   0.417      512        512
+Strix Halo  (0x1A model 0x70)  2.110   0.877   0.590      512        512
+Sapphire Rapids (0x6 / 0x8F)   2.484   1.010   0.811      512        512
+Ice Lake-SP (0x6 / 0x6A)       2.082   0.866   1.189      512        256   <- disagree
+```
+
+**Caveat on the table itself.** Those four rows are burst measurements, and Ice Lake-SP has
+just shown a burst can invert. The **Zen 4 -> 256** entry is the one to distrust: it rests on
+an 8% burst margin, and the mechanism that inverted on Ice Lake-SP (fewer iterations winning
+under cache pressure) works in favour of 512 on any part. Only Ice Lake-SP has sustained
+`ldpctest` numbers so far. `check_width_choice.sh` produces them; the other four parts want
+running before the table is trusted further.
 
 ---
 

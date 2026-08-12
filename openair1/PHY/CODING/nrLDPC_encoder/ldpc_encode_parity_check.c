@@ -196,8 +196,20 @@
  * since a wider one that is not clearly better is not worth the register
  * pressure; the margin also stops measurement noise flipping the choice.
  *
- * OAI_LDPC_NO_CALIBRATE falls back to the CPUID guess; OAI_LDPC_SIMD_WIDTH
- * overrides both.
+ * NOT enabled by default, because a short hot-L1 burst is not representative.
+ * Measured on a Xeon Gold 6354 (Ice Lake-SP), BG1 Zc=384, us/CB:
+ *
+ *                 this burst     sustained (ldpctest, pinned)
+ *   256-bit          0.866            3.290
+ *   512-bit          1.189            2.111
+ *   ->               256 wins         512 wins by 1.56x
+ *
+ * The ranking inverts. Both widths slow down once the working set no longer sits
+ * in L1, but 256 degrades far worse (3.8x vs 1.8x) because it runs four times the
+ * loop iterations over the same data. Trusting the burst costs 57% on BG1 there.
+ *
+ * Set OAI_LDPC_CALIBRATE=1 to use it anyway; OAI_LDPC_SIMD_WIDTH overrides
+ * everything.
  */
 #if defined(LDPC_HAVE_256) || defined(LDPC_HAVE_512)
 static double ldpc_time_enc(void (*f)(uint8_t *, uint8_t *), uint8_t *c, uint8_t *d, int iters)
@@ -296,18 +308,24 @@ static int ldpc_simd_width(void)
         family += (eax >> 20) & 0xFF;
       if (!strcmp(vendor, "AuthenticAMD"))
         // Zen 4 (family 0x19) is double-pumped; Zen 5 (0x1A) is full width.
-        // Verified on Genoa, Turin and Strix Halo (0x1A model 0x70, an APU --
-        // the most likely counterexample, and it is full width too).
+        // Measured on Genoa, Turin and Strix Halo (0x1A model 0x70, an APU --
+        // the most likely counterexample, and full width too).
+        //
+        // Caveat: those three were burst measurements, and Ice Lake-SP showed a
+        // burst can invert relative to sustained load. The Zen 4 -> 256 entry in
+        // particular wants confirming with ldpctest.
         w = (family >= 0x1A) ? 512 : 256;
       else
-        // AVX512-capable Intel parts have the full-width datapath.
+        // Intel: 512 on every AVX512 part measured. Confirmed under sustained
+        // load on Ice Lake-SP (Xeon 6354) and by burst on Sapphire Rapids.
         w = 512;
     }
   }
 #endif
 #if defined(LDPC_HAVE_256) || defined(LDPC_HAVE_512)
-  // the table above is only the fallback; prefer measuring the actual part
-  if (!getenv("OAI_LDPC_NO_CALIBRATE"))
+  // Opt-in only: the burst is unrepresentative and inverts on some parts. See
+  // the comment on ldpc_calibrate_width().
+  if (getenv("OAI_LDPC_CALIBRATE"))
     w = ldpc_calibrate_width();
 #endif
   return w;
