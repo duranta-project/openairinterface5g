@@ -15,6 +15,9 @@
 #   REPS=<n>    repetitions per width (default 3)
 #   TRIALS=<n>  ldpctest -n (default 300)
 
+# tolerate being invoked as "sh check_width_choice.sh": dash has no herestrings
+if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
+
 set -u
 OAI=${1:-$HOME/openairinterface5g}
 BUILD=${BUILD:-$OAI/cmake_targets/ran_build/build}
@@ -55,7 +58,9 @@ meas() { # $1=width $2=K' $3=num $4=den
 }
 
 for cfg in "BG1 K'=8448 r1/3:8448:1:3" "BG2 K'=3840 r1/5:3840:1:5"; do
-  IFS=: read -r tag K NUM DEN <<<"$cfg"
+  tag=${cfg%%:*}; rest=${cfg#*:}
+  K=${rest%%:*}; rest=${rest#*:}
+  NUM=${rest%%:*}; DEN=${rest##*:}
   echo "== $tag, parity generation (us) =="
   best=""; bestw=""
   for w in 128 256 512; do
