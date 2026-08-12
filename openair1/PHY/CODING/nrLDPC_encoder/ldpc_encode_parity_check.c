@@ -313,6 +313,30 @@ static int ldpc_simd_width(void)
   return w;
 }
 
+/* Resolve the width when the module is loaded, rather than inside the first
+ * encode. libldpc.so is dlopen'd by load_module_version_shlib, so an ELF
+ * constructor runs at exactly that point and the first code block does not pay
+ * the ~0.6 ms calibration inside a slot.
+ *
+ * A constructor rather than a call from LDPCinit(): that lives in
+ * nrLDPC_decoder.c, which is shared with libldpc_orig.so, and ldpc_orig does not
+ * include this file -- calling into it from there would not link.
+ *
+ * Idempotent, and the lazy path in ldpc_simd_width() remains for any caller that
+ * reaches the encoder without the module being dlopen'd (ldpctest links it that
+ * way in some configurations).
+ *
+ * Caveat: this runs on whichever core performs the dlopen, before thread
+ * affinity is set. That is only a concern on a heterogeneous CPU, and the x86
+ * parts with AVX512 are all homogeneous.
+ */
+#if defined(LDPC_HAVE_256) || defined(LDPC_HAVE_512)
+__attribute__((constructor)) static void ldpc_simd_width_init(void)
+{
+  (void)ldpc_simd_width();
+}
+#endif
+
 /* Pick the widest factored encoder the lifting size and the CPU both allow.
  * SEL3 is for Zc divisible by 64, SEL2 by 32, SEL1 by 16 only. */
 #if defined(LDPC_HAVE_512)
