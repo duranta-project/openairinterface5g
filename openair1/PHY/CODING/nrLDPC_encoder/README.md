@@ -398,25 +398,34 @@ but 256 degrades far worse — 3.8x against 512's 1.8x — because it runs four 
 iterations over the same data. Trusting the burst costs 57% on BG1 there (3.3% on BG2, where
 the two widths are nearly equal anyway).
 
-So the CPUID table is the default, and it is correct on this part: Intel + AVX512 -> 512.
-`OAI_LDPC_CALIBRATE=1` enables the measurement anyway; `OAI_LDPC_SIMD_WIDTH` overrides
-everything. The two agree on all four other x86 parts:
+So the CPUID table is the default. `OAI_LDPC_CALIBRATE=1` enables the measurement anyway;
+`OAI_LDPC_SIMD_WIDTH` overrides everything.
+
+**Sustained measurements on all five x86 parts** — `ldpctest` parity generation, pinned,
+3 x 200 trials, us/CB, each width forced:
 
 ```text
-                                128     256     512   -> table   calibration
-Genoa       (family 0x19)      1.919   0.810   0.882      256        256
-Turin       (0x1A model 0x02)  1.505   0.610   0.417      512        512
-Strix Halo  (0x1A model 0x70)  2.110   0.877   0.590      512        512
-Sapphire Rapids (0x6 / 0x8F)   2.484   1.010   0.811      512        512
-Ice Lake-SP (0x6 / 0x6A)       2.082   0.866   1.189      512        256   <- disagree
+                              BG1 K'=8448              BG2 K'=3840          table  best
+                          128     256     512      128     256     512
+  Genoa      (Zen 4)     2.409   1.220   1.212    1.215   0.665   0.700     256    256/512*
+  Turin      (Zen 5)     1.800   0.839   0.633    0.864   0.460   0.369     512    512
+  Strix Halo (Zen 5)     2.340   1.122   0.849    1.152   0.606   0.473     512    512
+  Sapphire Rapids        3.739   1.574   1.338    1.569   0.782   0.676     512    512
+  Ice Lake-SP            5.515   3.290   2.111    1.496   0.969   0.928     512    512
+
+  * Genoa is the only split verdict: BG1 is a tie (512 ahead by 0.7%, inside noise)
+    while BG2 favours 256 by 5%. The table's 256 wins one and ties the other.
 ```
 
-**Caveat on the table itself.** Those four rows are burst measurements, and Ice Lake-SP has
-just shown a burst can invert. The **Zen 4 -> 256** entry is the one to distrust: it rests on
-an 8% burst margin, and the mechanism that inverted on Ice Lake-SP (fewer iterations winning
-under cache pressure) works in favour of 512 on any part. Only Ice Lake-SP has sustained
-`ldpctest` numbers so far. `check_width_choice.sh` produces them; the other four parts want
-running before the table is trusted further.
+**The table is right on all five parts. The calibration is right on four.** It agrees
+everywhere except Ice Lake-SP, where it picks 256 and costs 57% on BG1. That is the whole
+case for defaulting to the table.
+
+This also settles a doubt raised when the Zen 4 entry rested only on an 8% burst margin:
+under sustained load it holds. The concern was that the mechanism which inverted on Ice
+Lake-SP — fewer iterations winning once the working set leaves L1 — would favour 512
+everywhere. It does move Genoa's BG1 from "256 by 8%" to "512 by 0.7%", i.e. to a tie, but
+not far enough to change the choice, and BG2 still prefers 256.
 
 ---
 
