@@ -75,7 +75,21 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
 #endif
   else simd_size=32;
   unsigned char cc[22*Zc] __attribute__((aligned(64))); //padded input, unpacked, max size
-  unsigned char dd[46*Zc] __attribute__((aligned(64))); //coded parity part output, unpacked, max size
+
+  // Write the parity straight into the caller's buffer instead of into a local
+  // and copying it across. It belongs immediately after the transmitted
+  // systematic bits, so the destination is just output + block_length - 2*Zc.
+  //
+  // Space: the encoder writes nrows*Zc from there, so the caller needs
+  // (Kb + nrows - 2)*Zc bytes, at most (22+44)*384 = 25344 for BG1 and 19200 for
+  // BG2 -- both inside the 68*384 the interface already specifies.
+  //
+  // Alignment: the 128-bit encoders store through simde__m128i, so this address
+  // must be 16-byte aligned. (Kb-2)*Zc is always a multiple of the SIMD width
+  // when Zc is, so it follows from output itself being aligned. The 256/512-bit
+  // encoders use storeu and do not care.
+  AssertFatal(((uintptr_t)output & 15) == 0, "LDPCencoder: output must be 16-byte aligned, got %p\n", output);
+  unsigned char *dd = output + block_length - 2 * Zc;
 
   // calculate number of punctured bits
   no_punctured_columns=(int)((nrows-2)*Zc+block_length-block_length*rate)/Zc;
@@ -250,8 +264,8 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
   }
   if (impp->toutput != NULL)
     start_meas(impp->toutput);
+  // the parity is already in place; only the systematic part still needs moving
   memcpy(output,&cc[2*Zc],(block_length-(2*Zc)));
-  memcpy(output+block_length-(2*Zc),dd,((nrows-no_punctured_columns) * Zc-removed_bit));
   if (impp->toutput != NULL)
     stop_meas(impp->toutput);
   return 0;
