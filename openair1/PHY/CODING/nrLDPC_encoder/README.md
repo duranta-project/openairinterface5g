@@ -32,18 +32,19 @@ ldpctest, parity generation, us/CB      BG1 K'=8448 r1/3      BG2 K'=3840 r1/5
   Neoverse V2  (GH200)                  10.87 ->   2.16        10.37 ->  1.34
   Cortex-X925  (GB10)                    8.48 ->   1.44         5.95 ->  0.87
 
-x86, parity generation, ns/CB           BG1 Zc=384            BG2 Zc=384
-  EPYC 9374F   Genoa (Zen 4)             10882 ->   810        6232 ->  439
-  EPYC 9575F   Turin (Zen 5)              5327 ->   432        2652 ->  246
-  Ryzen AI MAX+ Strix Halo (Zen 5)        5083 ->   417        2517 ->  236
-  Xeon Gold 6433N Sapphire Rapids         9982 ->   814        5184 ->  447
+x86, prep + parity generation, ns/CB    BG1 Zc=384            BG2 Zc=384
+  EPYC 9374F   Genoa (Zen 4)             12098 ->   955        8513 ->  491
+  EPYC 9575F   Turin (Zen 5)              7080 ->   490        4029 ->  277
+  Ryzen AI MAX+ Strix Halo (Zen 5)        6849 ->   474        3871 ->  263
+  Xeon Gold 6433N Sapphire Rapids        15604 ->   964       11211 ->  499
 
 nr_dlsim, MCS 27 / 273 PRB, GH200       DLSCH encoding 99.92 -> 64.69 us/slot
                                         Eff Throughput 100.00, BLER 0.0
 ```
 
-(x86 figures are against the best available stock encoder, not the slower one currently
-selected on AVX512VBMI parts -- see section 7.2.)
+(x86 figures are against the best available stock configuration, and include the input
+preparation each one requires -- see section 7.2, which explains why leaving that out
+inverts the ranking of the two stock paths.)
 
 ---
 
@@ -441,43 +442,64 @@ puncturing terms are zero, so the r1/3, r2/3 and r22/25 rows are three measureme
 identical computation. Their spread is a useful noise estimate — 0.2% on the GH200, ~4% on
 the A72.
 
-### 7.2 x86, encoder only
+### 7.2 x86, input preparation plus parity generation
 
-All four parts measured with one harness, same flags, all encoders in the same binary so
-the comparison is internally consistent. ns per code block, Zc=384:
+All four parts, one harness, same flags, everything in the same binary. Each variant pays
+only the input preparation it actually requires, which is what `ldpctest` reports as
+`parity`. ns per code block, Zc=384:
 
 ```text
-BG1                          stock512  stock256 | fac512  fac256  fac128 | best stock -> best factored
-  EPYC 9374F  Genoa (Zen 4)     11930     10882 |    873     810    1924 |  10882 ->  810   13.44x
-  EPYC 9575F  Turin (Zen 5)      8096      5327 |    432     624    1517 |   5327 ->  432   12.33x
-  Ryzen AI MAX+ Strix Halo       6808      5083 |    417     616    1439 |   5083 ->  417   12.20x
-  Xeon Gold 6433N  SPR          15413      9982 |    814    1006    2499 |   9982 ->  814   12.27x
+BG1                            enc only   prep    prep+enc      best stock -> best factored
+  Genoa (Zen 4)
+    stock AVX512 permutex        11939      160      12098
+    stock AVX2 256               10936    13219      24155      12098 ->  955   12.67x
+    factored 256 (chosen)          807      147        955
+  Turin (Zen 5)
+    stock AVX512 permutex         7002       78       7080
+    stock AVX2 256                5320     7016      12336       7080 ->  490   14.45x
+    factored 512 (chosen)          429       61        490
+  Strix Halo (Zen 5)
+    stock AVX512 permutex         6795       54       6849
+    stock AVX2 256                5064     6012      11075       6849 ->  474   14.47x
+    factored 512 (chosen)          417       56        474
+  Sapphire Rapids
+    stock AVX512 permutex        15418      186      15604
+    stock AVX2 256                9984    25669      35653      15604 ->  964   16.20x
+    factored 512 (chosen)          815      149        964
 
-BG2                          stock            | fac512  fac256  fac128 | stock -> best factored
-  Genoa                           6232        |    484     439     915 |   6232 ->  439   14.19x
-  Turin                           2652        |    246     341     744 |   2652 ->  246   10.77x
-  Strix Halo                      2517        |    236     329     702 |   2517 ->  236   10.67x
-  Sapphire Rapids                 5184        |    447     565    1182 |   5184 ->  447   11.59x
+BG2                            enc only   prep    prep+enc      stock -> best factored
+  Genoa            stock         6247     2266       8513        8513 ->  491   17.36x
+                   factored 256   433       58        491
+  Turin            stock         2653     1376       4029        4029 ->  277   14.54x
+                   factored 512   249       28        277
+  Strix Halo       stock         2519     1352       3871        3871 ->  263   14.72x
+                   factored 512   237       26        263
+  Sapphire Rapids  stock         5191     6021      11211       11211 ->  499   22.47x
+                   factored 512   449       50        499
 ```
 
-Factored output verified identical to stock on every machine.
+Factored output verified identical to stock on every machine, and the chosen factored width
+matches what section 6 selects: 256 on Genoa, 512 on the other three.
 
-**The stock AVX512 permutex path is slower than the stock AVX2 path on all four parts**, by
-1.10x (Genoa), 1.34x (Strix Halo), 1.52x (Turin) and 1.54x (Sapphire Rapids). Since
-`ldpc_encode_parity_check.c` selects permutex whenever `__AVX512VBMI__` is defined, every
-one of these machines runs the slower of the two stock encoders today. That is a
-pre-existing pessimisation, independent of factoring, and it is why two speedups can be
-quoted: against what is actually selected (14.7x to 18.9x on BG1) or against the best stock
-encoder available (12.2x to 13.4x). The table uses the honest one.
+**Correction.** An earlier revision of this note claimed the AVX512 permutex path was a
+pessimisation, on the grounds that its *encoder function* is 1.1x to 1.5x slower than the
+stock AVX2 one. That was measured with the input already prepared, which hides the whole
+point of the permutex path: it needs only the doubled input, while stock AVX2 replicates
+the systematic bits `simd_size` times — 1.03 MB per code block at BG1 Zc=384, costing 6.0
+to 25.7 us. Counting that, **permutex is the better stock choice on all four parts**, by
+1.62x (Strix Halo), 1.74x (Turin), 2.00x (Genoa) and 2.29x (Sapphire Rapids). The dispatch
+selecting it under `__AVX512VBMI__` is correct.
 
-Note also that the best *factored* width matches what section 6 selects: 256 on Genoa,
-512 on the other three.
+The lesson is the one in section 5.5: an encoder that reads a pre-rotated input is trading
+memory traffic for instruction count, and any comparison that starts from a prepared buffer
+scores only one side of that trade. The `prep` column above is why the factored encoders are
+measured with their own preparation throughout.
 
-Absolute values here differ by up to 2x from those in section 6 for the same encoder --
-`fac128` on Sapphire Rapids reads 2499 here against 1321 there. Nothing changed but the
-binary: section 6 timed three encoders in one image, this table times nine. Only
-within-table comparisons are meaningful, which is why every column above comes from a
-single harness.
+What does survive from that earlier measurement is the primitive cost —
+`permutex2var_epi8` is 1.73x an unaligned 64-byte load on Sapphire Rapids (section 5.4) —
+and that is what justifies the factored encoders using loads rather than permutes. Being
+better than permutex *and* needing no replication is why factored beats both stock paths by
+12.7x to 22.5x here.
 
 ### 7.3 Full chain
 
@@ -775,9 +797,11 @@ BG2 Zc 72/88/104/120       8-byte aligned only; stock 64-bit encoders retained. 
                            generator is parameterised on shift/mask, so a 64-bit path
                            is a small change, but untested.
 Zc = 16                    a parity group is one chunk; correctly rejected. Not dispatched.
-AVX512 permutex path       still selected under NO_FACTORED despite being slower than the
-                           stock AVX2 path on all four x86 parts measured: 1.10x on Genoa,
-                           1.34x Strix Halo, 1.52x Turin, 1.54x Sapphire Rapids.
+AVX512 permutex path       nothing to do. An earlier revision listed this as a
+                           pessimisation; that was an artefact of measuring the encoder
+                           with the input already prepared. Counting the replication it
+                           avoids, it is the better stock path on all four parts. See the
+                           correction in section 7.2.
 RISC-V RVV                 ported against the expanded encoder in a separate context, not
                            re-ported. `vslideup`/`vslidedown` have no lane restriction, and
                            the unaligned-load form works directly.
