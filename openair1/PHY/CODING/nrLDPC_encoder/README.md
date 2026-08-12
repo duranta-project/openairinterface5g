@@ -20,7 +20,10 @@ is needed, balancing what goes in each stage, and — the largest single effect 
 cores — abandoning the pre-rotated input layout.
 
 Measured end to end, LDPC parity generation is 4.8x to 12x faster depending on base graph
-and CPU, and the encoder is no longer the dominant cost of DLSCH encoding.
+and CPU, and the encoder is no longer the dominant cost of DLSCH encoding. With parity no
+longer dominating, the surrounding data movement became visible in turn; removing two
+unnecessary buffer clears and an output copy took a further 11-13% off the whole encoder
+call (section 9).
 
 ```
 ldpctest, parity generation, us/CB      BG1 K'=8448 r1/3      BG2 K'=3840 r1/5
@@ -540,7 +543,121 @@ code block, so the win there is likely larger than the term count alone predicts
 
 ---
 
-## 9. Next phase: per-RV puncturing
+## 9. The input and output path
+
+Once parity generation came down, the surrounding data movement became a third of the
+encoder call. Breakdown on falcon-gh200, pinned, before any of this section's work:
+
+```text
+                     BG1 K'=8448        BG2 K'=3840
+total                  3.163 us           1.985 us
+  input (unpack)       0.506  16%         0.229  12%
+  prep  (doubling)     0.248   8%         0.117   6%    <- nested inside parity
+  encoder proper       1.866  59%         1.181  59%
+  output (2 memcpys)   0.343  11%         0.258  13%
+  unaccounted          0.200   6%         0.200  10%
+```
+
+Two changes landed, one was tried and reverted.
+
+### 9.1 Buffers that did not need zeroing
+
+Two memsets ran before every code block, outside every timer:
+
+```c
+memset(cc,0,sizeof(cc));   //  8448 B at Zc=384
+memset(dd,0,sizeof(dd));   // 17664 B
+```
+
+`dd` needs none: both encoder paths write every byte the output copy subsequently reads.
+`cc` only needs the filler gap `[block_length, ncols*Zc)` zeroed, since the unpack writes
+below it and the encoder reads no further; at BG1 K'=8448 the two coincide and it becomes a
+no-op.
+
+```text
+total encoder call    BG1  3.163 -> 3.018 us   4.6%
+                      BG2  1.985 -> 1.934 us   6.7%
+```
+
+The unaccounted row above drops from 0.200 to ~0.06 us on both base graphs, which is where
+these were hiding.
+
+### 9.2 Parity written in place
+
+The encoder wrote parity into a local `dd[46*Zc]` and then copied it to
+`output + block_length - 2*Zc`. Pointing it at that address directly removes both.
+
+Space works out: the encoder writes `nrows*Zc` from there, needing `(Kb+nrows-2)*Zc`, at
+most 25344 bytes for BG1 and 19200 for BG2, inside the 68*384 the interface already
+specifies. Alignment works out too: the 128-bit encoders store through `simde__m128i`, and
+`(Kb-2)*Zc` is always a multiple of the SIMD width when `Zc` is, so 16-byte alignment
+follows from `output` being aligned — 64 in the production caller, 16 via `malloc16` in
+ldpctest. Asserted rather than assumed. The 256/512-bit encoders use `storeu` and do not
+care.
+
+```text
+output stage          BG1  0.343 -> 0.114 us      total  3.018 -> 2.807 us   7.0%
+                      BG2  0.258 -> 0.052 us      total  1.934 -> 1.720 us  11.1%
+```
+
+The residual tracks the bytes still copied: BG1 keeps 7680 of 25344, 30%, and the stage
+retains 33% of its cost.
+
+Cumulative for the two: **BG1 3.163 -> 2.807 (11.3%), BG2 1.985 -> 1.720 (13.4%)**.
+
+### 9.3 What was tried and did not work
+
+The doubling still costs 0.25 us (BG1). Replacing its two per-column memcpys with a loop
+that reads each column once and writes both copies — 2*ncols*Zc of reads becoming ncols*Zc
+for the same writes — made it *worse*: 0.254 -> 0.285 us. glibc's memcpy beats a hand loop
+at this size. Reverted.
+
+### 9.4 Why this path is hard to optimise further
+
+That experiment exposed a measurement problem. It touched only the prep loop, yet the
+*unpack* stage, which it did not modify, moved and moved back:
+
+```text
+input stage, identical unpack source
+  committed              0.488  0.500  0.501  0.489
+  + unrelated prep edit  0.341  0.343  0.350
+  reverted               0.500  0.501  0.489
+```
+
+`ldpc_encode_parity_check.c` is `#include`d into the same translation unit as the unpack,
+so any edit reshuffles code layout and register allocation across the whole file. A 30%
+swing in an untouched stage.
+
+**That swing is larger than what remains to be won here** — prep at 0.25 us and the
+systematic copy at 0.11 us, against ~0.15 us of layout noise. A real improvement cannot be
+distinguished from a lucky rebuild by timing alone.
+
+The remaining idea is sound in principle: have the unpack write straight into the doubled
+encoder layout and into `output`, eliminating both. But it means rewriting four SIMD
+bit-transpose variants (AVX512-VBMI, AVX2, NEON, scalar) for a theoretical ~0.36 us that
+cannot currently be verified. At slot level that is ~0.8 us of `nr_dlsim`'s 64.69 us, about
+1.2%.
+
+**Before attempting it, switch to instructions retired rather than wall time.** Instruction
+count is layout-insensitive and answers "did this remove work" directly, with timing as a
+secondary check. `icache_probe.c` already does this for the encoders; extending it to wrap
+the whole `LDPCencoder` call is straightforward.
+
+Current state of the call:
+
+```text
+                     BG1 K'=8448        BG2 K'=3840
+total                  2.807 us           1.720 us
+  input (unpack)       0.497  18%         0.226  13%
+  prep  (doubling)     0.252   9%         0.119   7%
+  encoder proper       1.887  67%         1.262  73%
+  output (1 memcpy)    0.120   4%         0.050   3%
+  unaccounted          0.064   2%         0.057   3%
+```
+
+---
+
+## 10. Next phase: per-RV puncturing
 
 The encoder currently computes all 46 parity rows for every transmission, whatever the
 rate matcher will actually consume. That is measurable directly — the rate never reaches
@@ -578,7 +695,7 @@ Against the 319 terms of a full generation, a selected window costs 123 to 260 �
 of Phase 1 this is worth about **1.2-1.3x typically, and up to 2.6x** in the most
 favourable case (8/9 RV0). On the `nr_dlsim` budget that is roughly 1-2 us of a 64.69 us
 slot today; it becomes proportionally more attractive once the input/output path in
-section 10 is addressed, and on any platform where parity is a larger share.
+section 9 is addressed, and on any platform where parity is a larger share.
 
 ### 9.2 Two simplifications the factoring provides
 
@@ -621,7 +738,7 @@ through above 8/9, at every supported `Zc`.
 
 ---
 
-## 10. What is not done
+## 11. What is not done
 
 ```text
 BG2 Zc 72/88/104/120       8-byte aligned only; stock 64-bit encoders retained. The
@@ -633,9 +750,12 @@ AVX512 permutex path       still selected under NO_FACTORED despite being 1.55x 
 RISC-V RVV                 ported against the expanded encoder in a separate context, not
                            re-ported. `vslideup`/`vslidedown` have no lane restriction, and
                            the unaligned-load form works directly.
-input/output processing    now ~1.0 us of BG1's 3.13 us encoding call, and segmentation is
-                           5.76 us in nr_dlsim against ~9 us of parity. The next thing
-                           worth attacking, and free of rate-matching risk.
+input/output processing    partly done, see section 9: buffer clears and the parity copy
+                           removed, 11-13% off the encoder call. What remains is the
+                           doubling (0.25 us) and the systematic copy (0.11 us), which
+                           need the unpack to write both layouts directly -- four SIMD
+                           variants, and not measurable by timing alone given the code
+                           layout sensitivity documented in 9.4.
 stock encoder ASAN         the stock path reports a negative-size memcpy under ASAN on both
                            AMD machines. Pre-existing, not on the factored path, unexplained.
 ```
@@ -680,6 +800,11 @@ binary layout. Prefer `ldpctest` and `nr_dlsim`.
 **Pin the benchmark.** Unpinned on a 72-core host the same binary drifts 9-10% from
 scheduler migration alone; pinned to an isolated core the spread is 1.1%. The machine was
 idle in both cases.
+
+**Below roughly 0.2 us, wall time stops being a usable signal in this file.** Everything in
+`ldpc_encode_parity_check.c` is `#include`d into one translation unit with the unpack, so
+any edit shifts code layout for all of it -- measured at 30% on a stage that was not
+touched (section 9.4). Use instructions retired for changes at that scale.
 
 ---
 
