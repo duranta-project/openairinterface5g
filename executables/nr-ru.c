@@ -623,7 +623,6 @@ void *ru_thread(void *param)
   int                slot     = fp->slots_per_frame-1;
   int                frame    = 1023;
   char               threadname[40];
-  int initial_wait = 0;
 
   bool rx_tti_busy[RU_RX_SLOT_DEPTH] = {false};
   // set default return value
@@ -732,18 +731,7 @@ void *ru_thread(void *param)
     AssertFatal(ru->fh_south_in, "No fronthaul interface at south port");
     ru->fh_south_in(ru, &frame, &slot);
 
-    if (initial_wait == 1 && proc->frame_rx < 300) {
-      if (proc->frame_rx > 0 && ((proc->frame_rx % 100) == 0) && proc->tti_rx == 0) {
-        LOG_D(PHY, "delay processing to let RX stream settle, frame %d (trials %d)\n", proc->frame_rx, ru->rx_fhaul.trials);
-        print_meas(&ru->rx_fhaul, "rx_fhaul", NULL, NULL);
-        reset_meas(&ru->rx_fhaul);
-      }
-      continue;
-    }
-    if (proc->frame_rx>=300)  {
-      initial_wait = 0;
-    }
-    if (initial_wait == 0 && ru->rx_fhaul.trials > 1000) {
+    if (ru->rx_fhaul.trials > 1000) {
         reset_meas(&ru->rx_fhaul);
         reset_meas(&ru->tx_fhaul);
     }
