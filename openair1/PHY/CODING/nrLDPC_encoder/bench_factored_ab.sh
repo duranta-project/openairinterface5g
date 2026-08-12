@@ -62,8 +62,11 @@ build() {
   # itself and report 1.00x. Touch the real translation units to force it.
   touch "$OAI"/openair1/PHY/CODING/nrLDPC_encoder/ldpc_encoder_optim8segmulti.c \
         "$OAI"/openair1/PHY/CODING/nrLDPC_encoder/ldpc_encoder.c 2>/dev/null
-  ( cd "$BUILD" && $GEN libldpc.so >/dev/null 2>&1 ) ||
-  ( cd "$BUILD" && $GEN ldpctest   >/dev/null 2>&1 ) || { echo "BUILD FAILED ($1)"; exit 1; }
+  # Build the CMake target by name. Not "ldpctest": libldpc.so is dlopen'd, so
+  # ldpctest has no build-time dependency on it -- ninja rebuilds it anyway, a
+  # Makefile tree does not, leaving the previous module in place.
+  ( cd "$BUILD" && $GEN ldpc >/dev/null 2>&1 ) ||
+  ( cd "$BUILD" && $GEN libldpc.so >/dev/null 2>&1 ) || { echo "BUILD FAILED ($1)"; exit 1; }
 }
 
 # one pass over every case; fills PAR[] and TOT[] (mean us over REPS)
