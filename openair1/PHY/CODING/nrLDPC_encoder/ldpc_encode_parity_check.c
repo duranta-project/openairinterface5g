@@ -116,6 +116,19 @@
 #include "ldpc_BG2_Zc384_factored_byte_512.c"
 #endif
 #else
+// NO_FACTORED fallback: the stock encoders, as before the factored path existed.
+#ifdef USE_ALIGNR
+#include "ldpc384_alignr_byte_128.c"
+#include "ldpc352_alignr_byte_128.c"
+#include "ldpc320_alignr_byte_128.c"
+#include "ldpc288_alignr_byte_128.c"
+#include "ldpc256_alignr_byte_128.c"
+#include "ldpc240_alignr_byte_128.c"
+#include "ldpc224_alignr_byte_128.c"
+#include "ldpc208_alignr_byte_128.c"
+#include "ldpc192_alignr_byte_128.c"
+#include "ldpc176_alignr_byte_128.c"
+#else
 #ifndef __AVX512F__
 #include "ldpc384_byte.c"
 #endif
@@ -135,6 +148,7 @@
 #include "ldpc256_byte_128.c"
 #include "ldpc224_byte_128.c"
 #include "ldpc192_byte_128.c"
+#endif
 #include "ldpc_BG2_Zc384_byte.c"
 #include "ldpc_BG2_Zc384_byte_128.c"
 #include "ldpc_BG2_Zc352_byte.c"
@@ -313,45 +327,7 @@ static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, sh
     }
   } else
     AssertFatal(false, "BG %d is not supported\n", BG);
-}
 #else
-static void encode_parity_check_part_optim_stock(uint8_t *cc, uint8_t *d, short BG, short Zc, int simd_size, int ncols, time_stats_t *tinput_memcpy)
-{
-  // Encoders on the alignr path index a doubled input buffer directly, so the
-  // simd_size pre-rotated copies are skipped and only one copy is needed —
-  // avoid a 32x/64x overallocation on the stack.
-  //
-  // BG1 (Zc >= 176) has always been on alignr. With the factored encoders BG2
-  // is too, for the 16-byte-aligned lifting sizes; BG2 Zc 72/88/104/120 have no
-  // factored variant and still need the pre-rotated layout.
-#if defined(USE_ALIGNR) && defined(USE_FACTORED)
-  int vla_simd = ((BG == 1 && Zc >= 176) || (BG == 2 && (Zc & 15) == 0)) ? 1 : simd_size;
-#elif defined(USE_ALIGNR)
-  int vla_simd = (BG == 1 && Zc >= 176) ? 1 : simd_size;
-#else
-  int vla_simd = simd_size;
-#endif
-  unsigned char c[2 * 22 * Zc * vla_simd] __attribute__((aligned(64))); //double size matrix of c
-  if (tinput_memcpy)
-    start_meas(tinput_memcpy);
-  for (int i1 = 0; i1 < ncols; i1++)   {
-    memcpy(&c[2 * i1 * Zc], &cc[i1 * Zc], Zc * sizeof(unsigned char));
-    memcpy(&c[(2 * i1 + 1) * Zc], &cc[i1 * Zc], Zc * sizeof(unsigned char));
-  }
-#if (defined(USE_PERMUTEX) && defined(__AVX512VBMI__)) 
-  if (BG == 2 || Zc < 384)
-#endif
-#if defined(USE_ALIGNR) && defined(USE_FACTORED)
-  // only the 8-byte-aligned BG2 sizes still need the pre-rotated copies
-  if (BG == 2 && (Zc & 15) != 0)
-#elif defined(USE_ALIGNR)
-  if (BG == 2)
-#endif
-  {
-    for (int i1 = 1; i1 < simd_size; i1++) {
-      memcpy(&c[(2 * ncols * Zc * i1)], &c[i1], (2 * ncols * Zc * sizeof(unsigned char)) - i1);
-    }
-  }
   if (BG == 1) {
     switch (Zc) {
       case 176:
@@ -454,5 +430,5 @@ static void encode_parity_check_part_optim_stock(uint8_t *cc, uint8_t *d, short 
     }
   } else
     AssertFatal(false, "BG %d is not supported\n", BG);
-}
 #endif
+}
