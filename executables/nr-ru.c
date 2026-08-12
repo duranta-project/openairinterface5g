@@ -1016,6 +1016,8 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg)
     ru->idx = j;
     ru->nr_frame_parms = calloc(1, sizeof(*ru->nr_frame_parms));
     paramdef_t *param = RUParamList.paramarray[j];
+    // RUPARAMS_DESC is shared with LTE, where do_precoding is used
+    AssertFatal(!config_isparamset(param, RU_DO_PRECODING), "RU %d: do_precoding is not supported in NR, remove it from the configuration\n", j);
     if (RC.nb_nr_L1_inst > 0)
       ru->num_gNB = param[RU_ENB_LIST_IDX].numelt;
     else
