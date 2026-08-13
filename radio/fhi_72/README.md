@@ -13,7 +13,7 @@ The main source files and their purpose are as follows:
 - `oran_isolate.c`: main entry point and definition of function pointers for OAI
   callbacks.
 
-The entry point for the driver library is `transport_init()` in `oran_isolate.c`.
+The entry point for the driver library is `oran_fhi72_init()` in `oran_isolate.c`.
 This function is concerned with setting necessary function pointers for OAI
 integration, and prepares xran configuration through `get_xran_config()`. This
 function reads 7.2 specific configuration and deduces some of the parameters

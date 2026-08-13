@@ -3,9 +3,7 @@
  */
 
 #include <stdio.h>
-#include <string.h>
 #include "common_lib.h"
-#include "radio/ETHERNET/ethernet_lib.h"
 #include "oran_isolate.h"
 #include "oran-init.h"
 #include "xran_fh_o_du.h"
@@ -31,6 +29,16 @@
 #include "mplane/connect-mplane.h"
 #endif
 
+/* One instance per O-RAN 7.2 RU - xran itself only supports a single instance today, but this
+ * keeps state ownership consistent with every other transport in this codebase instead of relying
+ * on file-scope globals. Owned via fhi72_transport_t::priv for the NR-facing oran_fhi72_init()
+ * contract below.
+ *
+ * fh_init/fh_config are gathered by oran_fhi72_configure() (runs on whichever thread loads the
+ * transport), but oai_oran_initialize() itself must run from the FH thread once it's pinned to
+ * its final core (see trx_oran_start() below) - xran/DPDK set up per-lcore state tied to the
+ * calling thread, so it can't be done ahead of time on a different thread. That's why fh_init/
+ * fh_config are carried here instead of being locals of the configure step. */
 typedef struct {
   void *oran_priv;
   void *mplane_priv;
@@ -45,9 +53,7 @@ notifiedFIFO_t oran_sync_fifo;
 notifiedFIFO_t oran_sync_fifo_prach;
 
 /* Must be called from the thread that will actually poll xran (the FH thread), after it is
- * already pinned to its final core - not from whichever thread loaded the transport. Moved here
- * (out of transport_init()'s body) so split7_thread() below can defer it the same way: xran/DPDK
- * set up per-lcore state tied to the calling thread. */
+ * already pinned to its final core - not from whichever thread loaded the transport. */
 static int trx_oran_start(oran_eth_state_t *s)
 {
   LOG_I(HW, "Initializing O-RAN 7.2 FH interface through xran library (compiled against headers of %s)\n", VERSIONX);
@@ -143,25 +149,6 @@ static int trx_oran_get_stats(oran_eth_state_t *s)
   return (0);
 }
 
-/* Adapters binding the shared trx_oran_* core above to the legacy openair0_device_t contract
- * (transport_init(), still used by executables/lte-ru.c). */
-static int trx_oran_start_dev(openair0_device_t *device)
-{
-  return trx_oran_start(device->priv);
-}
-static int trx_oran_stop_dev(openair0_device_t *device)
-{
-  return trx_oran_stop(device->priv);
-}
-static void trx_oran_end_dev(openair0_device_t *device)
-{
-  trx_oran_end(device->priv);
-}
-static int trx_oran_get_stats_dev(openair0_device_t *device)
-{
-  return trx_oran_get_stats(device->priv);
-}
-
 /* Adapters binding the shared trx_oran_* core above to the fhi72_transport_t contract
  * (oran_fhi72_init(), used by executables/nr-ru.c). trx_oran_start() itself has no _fhi adapter -
  * it's only ever called from split7_thread(), in this same file, below. */
@@ -245,11 +232,13 @@ static void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
   }
 }
 
-static void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
+/* timestamp isn't a parameter here: xran_fh_tx_send_slot() takes one, but never reads it (xran
+ * schedules TX by frame/slot, not by IQ sample clock) - see the fh_south_out comment in oran.h.
+ * ru->tx_fhaul timing now lives at the call site (ru_tx_func() in nr-ru.c), which still has RU_t. */
+static void oran_fh_if4p5_south_out(int32_t **txdataF_BF, uint16_t **beam_id, int frame, int slot)
 {
-  start_meas(&ru->tx_fhaul);
-
   int ret;
+
   const struct xran_fh_init *fh_init = get_xran_fh_init();
 
   for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
@@ -264,7 +253,7 @@ static void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t time
       // UL slot
       if (frame_conf->nFrameDuplexType == XRAN_FDD || is_tdd_ul_guard_slot(frame_conf, slot)) {
         // Send CP UL
-        ret = xran_send_cp_slot(fh_cfg->neAxcUl, ru->common.beam_id, tti, slot, bufs->dstcp);
+        ret = xran_send_cp_slot(fh_cfg->neAxcUl, beam_id, tti, slot, bufs->dstcp);
         if (ret != 0) {
           LOG_W(HW, "[%d.%d] xran_send_cp_slot UL error for xran_port %d\n", frame, slot, xran_port);
         }
@@ -273,12 +262,12 @@ static void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t time
       // DL slot
       if (frame_conf->nFrameDuplexType == XRAN_FDD || is_tdd_dl_guard_slot(frame_conf, slot)) {
         // Send CP DL
-        ret = xran_send_cp_slot(fh_cfg->neAxc, ru->common.beam_id, tti, slot, bufs->srccp);
-        if (ret != 0) {
+        ret = xran_send_cp_slot(fh_cfg->neAxc, beam_id, tti, slot, bufs->srccp);
+	if (ret != 0) {
           LOG_W(HW, "[%d.%d] xran_send_cp_slot DL error for xran_port %d\n", frame, slot, xran_port);
         }
         const int fft_size = 1 << fh_cfg->perMu[mu_number].nDLFftSize;
-        ret = xran_fh_tx_send_slot(ru->common.txdataF_BF, fft_size, fh_cfg->neAxc, tti, bufs);
+        ret = xran_fh_tx_send_slot(txdataF_BF, fft_size, fh_cfg->neAxc, tti, bufs);
         if (ret != 0) {
           LOG_W(HW, "[%d.%d] xran_fh_tx_send_slot error for xran_port %d\n", frame, slot, xran_port);
         }
@@ -286,22 +275,9 @@ static void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t time
     }
   }
 
-  stop_meas(&ru->tx_fhaul);
 }
 
-static void *get_internal_parameter(char *name)
-{
-  printf("ORAN: %s\n", __FUNCTION__);
-
-  if (!strcmp(name, "fh_if4p5_south_in"))
-    return (void *)oran_fh_if4p5_south_in;
-  if (!strcmp(name, "fh_if4p5_south_out"))
-    return (void *)oran_fh_if4p5_south_out;
-
-  return NULL;
-}
-
-/* Shared xran/M-plane configuration for both entry points below. Only gathers configuration -
+/* Shared xran/M-plane configuration for oran_fhi72_init() below. Only gathers configuration -
  * does NOT call oai_oran_initialize()/start xran itself, see trx_oran_start() above. */
 static oran_eth_state_t *oran_fhi72_configure(openair0_config_t *openair0_cfg)
 {
@@ -383,25 +359,6 @@ static oran_eth_state_t *oran_fhi72_configure(openair0_config_t *openair0_cfg)
   return eth;
 }
 
-/* Legacy entry point, dlsym'd by name ("transport_init") via openair0_transport_load() ->
- * load_lib() in radio/COMMON/common_lib.c. Still used by executables/lte-ru.c. */
-__attribute__((__visibility__("default"))) int transport_init(openair0_device_t *device, openair0_config_t *openair0_cfg)
-{
-  oran_eth_state_t *eth = oran_fhi72_configure(openair0_cfg);
-
-  device->host_type = RAU_HOST;
-  device->transp_type = ETHERNET_TP;
-  device->trx_start_func = trx_oran_start_dev;
-  device->trx_get_stats_func = trx_oran_get_stats_dev;
-  device->trx_end_func = trx_oran_end_dev;
-  device->trx_stop_func = trx_oran_stop_dev;
-  device->get_internal_parameter = get_internal_parameter;
-  device->priv = eth;
-  device->openair0_cfg = &openair0_cfg[0];
-
-  return 0;
-}
-
 typedef struct {
   RU_t *ru;
   oran_eth_state_t *eth;
@@ -409,7 +366,7 @@ typedef struct {
 
 /* @brief O-RAN 7.2 (REMOTE_IF4p5) FH thread. Lives here, not in executables/nr-ru.c, so it can
  * call oran_fh_if4p5_south_in()/trx_oran_start() directly - no function-pointer contract needed
- * for either, since caller and callee are in the same file.
+ * for either, since caller and callee are now in the same file.
  *
  * Deliberately a separate thread/function from ru_thread() (split 8, in nr-ru.c), not a reuse of
  * it: it is pinned to the CPU core xran itself wants (oran_eth_state_t::core, i.e. xran's
@@ -421,7 +378,7 @@ typedef struct {
  *
  * Unlike ru_thread(), this never calls ru_rx_slot(): split 7.2 has no time-domain front-end
  * processing, scope-copy, or (yet) PRACH extraction to do - the O-RU/xran side owns that. The only
- * part shared with ru_thread() is ru_push_tx_job() (in nr-ru.c, exposed via
+ * part still shared with ru_thread() is ru_push_tx_job() (in nr-ru.c, exposed via
  * openair1/PHY/defs_RU.h so this file can call it without duplicating that logic).
  *
  * trx_oran_start() (which runs oai_oran_initialize() and the xran/DPDK startup sequence) is
@@ -499,3 +456,4 @@ __attribute__((__visibility__("default"))) int oran_fhi72_init(openair0_config_t
 
   return 0;
 }
+

@@ -28,6 +28,7 @@
 #include "PHY/TOOLS/tools_defs.h"
 #include "PHY/defs_RU.h"
 #include "PHY/defs_gNB.h"
+#include "executables/nr-softmodem.h" // declares ru_tx_func(), implemented in nr-ru.c
 #include "PHY/defs_nr_common.h"
 #include "PHY/impl_defs_nr.h"
 #include "SCHED_NR/phy_frame_config_nr.h"
@@ -46,6 +47,8 @@
 #define TICK_TO_US(ts) (ts.trials==0?0:ts.diff/ts.trials)
 #define L1STATSSTRLEN 16384
 static void rx_func(processingData_L1_t *param);
+
+// ru_tx_func is implemented in nr-ru.c: stays generic (ru->fh_south_out only) regardless of split
 
 static void tx_func(processingData_L1tx_t *info)
 {
