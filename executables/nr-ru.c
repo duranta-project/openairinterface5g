@@ -612,17 +612,18 @@ static bool wait_free_rx_tti(notifiedFIFO_t *L1_rx_out, bool rx_tti_busy[RU_RX_S
   return true;
 }
 
-/* @brief RX-side per-slot handling: front-end processing, scope-copy, PRACH extraction. Factored
- * out of ru_thread() so it can be reused as-is by an upcoming second RU southbound interface that
- * needs the same handling but not the surrounding IQ sample-clock bookkeeping.
+/* @brief RX-side per-slot handling for split 8 (ru_thread()) only - split 7.2's split7_thread()
+ * (radio/fhi_72/oran_isolate.c) never calls this, it has no time-domain front-end step and relies
+ * on the O-RU/xran side instead.
  *
- * ru->feprx is called unconditionally now: previously, scope-copy and PRACH extraction lived
- * inside the "if (ru->feprx)" branch, which meant a southbound interface without a front-end DFT
- * step (none exists yet, but one is coming) would accidentally skip both, even though rxdataF is
- * valid either way. The ru->common.rxdata guard below is the one genuinely split-specific check
- * that remains: not every interface will have full-rate time-domain IQ to extract PRACH from.
+ * ru->feprx is called unconditionally: previously, scope-copy and PRACH extraction lived inside
+ * an "if (ru->feprx)" branch, which only happened to work because every caller of this code set
+ * it; now that it's a standalone function, that's made explicit instead of implicit.
+ *
+ * PRACH extraction is time-domain-only (rx_nr_prach_ru() needs raw ru->common.rxdata, which only
+ * split 8 has - see nr_phy_init_RU()), hence the ru->common.rxdata guard below.
  */
-static void ru_rx_slot(RU_t *ru, PHY_VARS_gNB *gNB, int frame_rx, int slot_rx)
+void ru_rx_slot(RU_t *ru, PHY_VARS_gNB *gNB, int frame_rx, int slot_rx)
 {
   ru->feprx(ru, slot_rx);
 
@@ -651,10 +652,10 @@ static void ru_rx_slot(RU_t *ru, PHY_VARS_gNB *gNB, int frame_rx, int slot_rx)
   }
 }
 
-/* @brief hand the just-processed slot off to the gNB TX pipeline (tx_func() in nr-gnb.c). Factored
- * out of ru_thread() alongside ru_rx_slot() for the same reason - reusable as-is by an upcoming
- * second RU southbound interface. */
-static void ru_push_tx_job(PHY_VARS_gNB *gNB, int frame_tx, int slot_tx, int frame_rx, int slot_rx, uint64_t timestamp_tx)
+/* @brief hand the just-processed slot off to the gNB TX pipeline (tx_func() in nr-gnb.c), shared
+ * by every RU southbound interface - both ru_thread() and split7_thread() (radio/fhi_72/
+ * oran_isolate.c) call it. */
+void ru_push_tx_job(PHY_VARS_gNB *gNB, int frame_tx, int slot_tx, int frame_rx, int slot_rx, uint64_t timestamp_tx)
 {
   notifiedFIFO_elt_t *resTx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0, &gNB->L1_tx_out, NULL);
   resTx->key = slot_tx;
