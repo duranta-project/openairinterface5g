@@ -600,6 +600,17 @@ typedef struct RU_t_s {
   void* scopeData;
 } RU_t;
 
+/* ru_rx_slot(): RX-side per-slot handling (front-end processing, scope-copy, PRACH extraction)
+ * for split 8's ru_thread() only - split 7.2 has no time-domain front-end step and doesn't call
+ * it (see split7_thread() in radio/fhi_72/oran_isolate.c).
+ *
+ * ru_push_tx_job(): hands the just-processed slot to the gNB TX pipeline, genuinely shared by
+ * every RU southbound interface - both ru_thread() and split7_thread() call it.
+ *
+ * Both defined in executables/nr-ru.c. */
+void ru_rx_slot(RU_t *ru, struct PHY_VARS_gNB_s *gNB, int frame_rx, int slot_rx);
+void ru_push_tx_job(struct PHY_VARS_gNB_s *gNB, int frame_tx, int slot_tx, int frame_rx, int slot_rx, uint64_t timestamp_tx);
+
 
 typedef enum {
   RAU_tick=0,

@@ -635,6 +635,14 @@ int openair0_device_load(openair0_device_t *device, openair0_config_t *openair0_
 /*! \brief Initialize transport protocol . It returns 0 if OK */
 int openair0_transport_load(openair0_device_t *device, openair0_config_t *openair0_cfg);
 
+/*! \brief Look up and dlopen the configured "device.name" shared lib (same shared-lib/config
+ *  convention as openair0_device_load()/openair0_transport_load()), and return the raw function
+ *  pointer for the requested exported symbol. Unlike the two functions above, this does not
+ *  assume an openair0_device_t-shaped init function - the caller casts the result to whatever
+ *  signature that symbol actually has. Used by transports that aren't RF/IQ devices, e.g. the
+ *  O-RAN 7.2 fronthaul in radio/fhi_72 (see fhi72_init_t in radio/fhi_72/oran.h). */
+void *load_transport_shlib(char *fname);
+
 /*! \brief Set RX frequencies
  * \param device the hardware to use
  * \param openair0_cfg RF frontend parameters set by application
