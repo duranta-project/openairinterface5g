@@ -674,10 +674,26 @@ static void abort_nr_ul_harq(NR_UE_info_t *UE, int8_t harq_pid)
     sched_ctrl->sched_ul_bytes = 0;
 }
 
-static void handle_nr_ul_harq(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, rnti_t rnti, int crc_harq_id, bool crc_status)
+static void notify_ul_harq_result(gNB_MAC_INST *mac,
+                                  const NR_UE_info_t *UE,
+                                  int8_t harq_pid,
+                                  uint8_t round,
+                                  nr_harq_result_status_t status)
+{
+  const nr_harq_result_t result = {
+      .rnti = UE->rnti,
+      .harq_pid = harq_pid,
+      .round = round,
+      .status = status,
+  };
+  nr_notify_ul_harq_result(mac, &result);
+}
+
+static void handle_nr_ul_harq(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, rnti_t rnti, int crc_harq_id, nr_harq_result_status_t status)
 {
   if (nrmac->radio_config.disable_harq) {
     LOG_D(NR_MAC, "skipping UL feedback handling as HARQ is disabled\n");
+    notify_ul_harq_result(nrmac, UE, crc_harq_id, 0, status);
     return;
   }
 
@@ -690,12 +706,14 @@ static void handle_nr_ul_harq(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, rnti_t rnti
       return;
 
     remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
-    sched_ctrl->ul_harq_processes[harq_pid].is_waiting = false;
+    NR_UE_ul_harq_t *missed_harq = &sched_ctrl->ul_harq_processes[harq_pid];
+    missed_harq->is_waiting = false;
+    notify_ul_harq_result(nrmac, UE, harq_pid, missed_harq->round, NR_HARQ_RESULT_MISSING);
 
-    if(sched_ctrl->ul_harq_processes[harq_pid].round >= nrmac->ul_bler.harq_round_max - 1) {
+    if (missed_harq->round >= nrmac->ul_bler.harq_round_max - 1) {
       abort_nr_ul_harq(UE, harq_pid);
     } else {
-      sched_ctrl->ul_harq_processes[harq_pid].round++;
+      missed_harq->round++;
       add_tail_nr_list(&sched_ctrl->retrans_ul_harq, harq_pid);
     }
     harq_pid = sched_ctrl->feedback_ul_harq.head;
@@ -705,13 +723,14 @@ static void handle_nr_ul_harq(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, rnti_t rnti
   DevAssert(harq->is_waiting);
   harq->feedback_slot = -1;
   harq->is_waiting = false;
-  if (!crc_status) {
+  notify_ul_harq_result(nrmac, UE, harq_pid, harq->round, status);
+  if (status == NR_HARQ_RESULT_ACK) {
     finish_nr_ul_harq(sched_ctrl, harq_pid);
     LOG_D(NR_MAC,
           "Ulharq id %d crc passed for RNTI %04x\n",
           harq_pid,
           rnti);
-  } else if (harq->round >= nrmac->ul_bler.harq_round_max  - 1) {
+  } else if (harq->round >= nrmac->ul_bler.harq_round_max - 1) {
     abort_nr_ul_harq(UE, harq_pid);
     LOG_D(NR_MAC,
           "RNTI %04x: Ulharq id %d crc failed in all rounds\n",
@@ -1024,7 +1043,10 @@ static void _nr_rx_sdu(const module_id_t gnb_mod_idP,
         nr_mac_trigger_ul_failure(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
       }
     }
-    handle_nr_ul_harq(gNB_mac, UE, current_rnti, harq_pid, sduP == NULL);
+    nr_harq_result_status_t status = sduP != NULL                      ? NR_HARQ_RESULT_ACK
+                                     : ul_cqi == 0xff || ul_cqi <= 128 ? NR_HARQ_RESULT_DTX
+                                                                       : NR_HARQ_RESULT_NACK;
+    handle_nr_ul_harq(gNB_mac, UE, current_rnti, harq_pid, status);
   } else {
     nr_rx_ra_sdu(gnb_mod_idP, CC_idP, frameP, slotP, current_rnti, sduP, sdu_lenP, harq_pid, timing_advance, ul_cqi, rssi);
   }

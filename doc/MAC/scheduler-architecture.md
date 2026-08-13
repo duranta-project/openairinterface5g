@@ -29,7 +29,7 @@ Default policy implementations are in
 [`gNB_scheduler_dlsch_default_policies.c`](../../openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_dlsch_default_policies.c)
 and
 [`gNB_scheduler_ulsch_default_policies.c`](../../openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_ulsch_default_policies.c).
-Named policy registries are declared in
+Named policy and observer registries are declared in
 [`nr_sched_registries.h`](../../openair2/LAYER2/NR_MAC_gNB/nr_sched_registries.h).
 
 ## Selecting scheduler policies
@@ -55,9 +55,18 @@ MACRLCs = (
     ul_beam_select_policy = "default";
     ul_mcs_select_policy = "default";
     ul_rb_alloc_policy = "default";
+
+    dl_harq_result_observers = ();
+    ul_harq_result_observers = ();
   }
 );
 ```
+
+DL and UL HARQ result observers are separate lists, execute in configuration
+order, and receive ACK, NACK, DTX, and scheduler-missing results for their
+direction. Each callback also receives `mac->sched_stateful_data`, the persistent
+context shared with the configured scheduler policies. Observer callbacks run
+synchronously under the MAC scheduler lock and therefore must not block.
 
 Built-in implementations register themselves with `SCHED_REGISTRY_ADD`. The
 `--phy-test` mode continues to override both configured preprocessors with the

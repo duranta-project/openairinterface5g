@@ -67,6 +67,8 @@
 #define MACRLC_UL_BEAM_SELECT_POLICY         "ul_beam_select_policy"
 #define MACRLC_UL_MCS_SELECT_POLICY          "ul_mcs_select_policy"
 #define MACRLC_UL_RB_ALLOC_POLICY            "ul_rb_alloc_policy"
+#define MACRLC_DL_HARQ_RESULT_OBSERVERS      "dl_harq_result_observers"
+#define MACRLC_UL_HARQ_RESULT_OBSERVERS      "ul_harq_result_observers"
 #define MACRLC_SPATIAL_STREAM_IDX            "spatial_stream_index"
 
 #define HLP_MACRLC_UL_PRBBLACK "SNR threshold to decide whether a PRB will be blacklisted or not"
@@ -90,6 +92,7 @@
 #define HLP_MACRLC_PUCCH_RSSI_THRESHOLD "Limits PUCCH TPC commands based on RSSI to prevent ADC railing. Value range [-1280, 0], unit 0.1 dBm/dBFS"
 #define HLP_MACRLC_STATS_MAX_UE "Maximum number of UEs before disabling periodical output (0 to disable)"
 #define HLP_SCHED_POLICY "Name of the registered scheduler policy"
+#define HLP_SCHED_OBSERVERS "Ordered list of registered scheduler observers"
 #define HLP_MACRLC_SPATIAL_STREAM_INDEX "Array of RU antenna ports / eAxCIDs to be used by L1. This may only be applicable for MU-MIMO. Value range [0, 15]"
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------*/
@@ -152,6 +155,8 @@
   {MACRLC_UL_BEAM_SELECT_POLICY,       HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
   {MACRLC_UL_MCS_SELECT_POLICY,        HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
   {MACRLC_UL_RB_ALLOC_POLICY,          HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
+  {MACRLC_DL_HARQ_RESULT_OBSERVERS,    HLP_SCHED_OBSERVERS,      0, .strlistptr=NULL, .defstrlistval=NULL,    TYPE_STRINGLIST, 0}, \
+  {MACRLC_UL_HARQ_RESULT_OBSERVERS,    HLP_SCHED_OBSERVERS,      0, .strlistptr=NULL, .defstrlistval=NULL,    TYPE_STRINGLIST, 0}, \
   {MACRLC_SPATIAL_STREAM_IDX,          HLP_MACRLC_SPATIAL_STREAM_INDEX, \
                                                                                0, .uptr=NULL,   .defintarrayval=0,          TYPE_INTARRAY,0}, \
 }
@@ -213,6 +218,8 @@
   { .s5 = { NULL } }, /* UL beam policy */ \
   { .s5 = { NULL } }, /* UL MCS policy */ \
   { .s5 = { NULL } }, /* UL RB-allocation policy */ \
+  { .s5 = { NULL } }, /* DL HARQ observers */ \
+  { .s5 = { NULL } }, /* UL HARQ observers */ \
   { .s2 = { NULL } }, /* Spatial stream index */ \
 }
 

@@ -1769,6 +1769,39 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
                     "phytest scheduler preprocessors are not registered\n");
       }
 
+#define LOAD_HARQ_RESULT_OBSERVERS(config_key, registry, fn_type, field, count_field)   \
+  do {                                                                                  \
+    const paramdef_t *observer_param = gpd(params, np, config_key);                     \
+    AssertFatal(observer_param->numelt <= NR_SCHED_MAX_HARQ_RESULT_OBSERVERS,           \
+                "At most %d observers are supported for '%s' (configured %d)\n",        \
+                NR_SCHED_MAX_HARQ_RESULT_OBSERVERS,                                     \
+                config_key,                                                             \
+                observer_param->numelt);                                                \
+    RC.nrmac[j]->count_field = 0;                                                       \
+    for (int observer_idx = 0; observer_idx < observer_param->numelt; ++observer_idx) { \
+      const char *observer_name = observer_param->strlistptr[observer_idx];             \
+      fn_type observer = registry##_lookup(observer_name);                              \
+      AssertFatal(observer != NULL,                                                     \
+                  "Unknown observer '%s' for '%s' (registered: %s)\n",                  \
+                  observer_name,                                                        \
+                  config_key,                                                           \
+                  registry##_names());                                                  \
+      RC.nrmac[j]->field[RC.nrmac[j]->count_field++] = observer;                        \
+    }                                                                                   \
+  } while (0)
+
+      LOAD_HARQ_RESULT_OBSERVERS(MACRLC_DL_HARQ_RESULT_OBSERVERS,
+                                 dl_harq_result_observer,
+                                 nr_dl_harq_result_observer_fn,
+                                 dl_harq_result_observers,
+                                 num_dl_harq_result_observers);
+      LOAD_HARQ_RESULT_OBSERVERS(MACRLC_UL_HARQ_RESULT_OBSERVERS,
+                                 ul_harq_result_observer,
+                                 nr_ul_harq_result_observer_fn,
+                                 ul_harq_result_observers,
+                                 num_ul_harq_result_observers);
+
+#undef LOAD_HARQ_RESULT_OBSERVERS
       RC.nrmac[j]->min_grant_prb = *gpd(params, np, MACRLC_MIN_GRANT_PRB)->u16ptr;
       long sc_fdma = NR_PUSCH_Config__transformPrecoder_enabled;
       NR_BWP_UplinkCommon_t *bwp = RC.nrmac[j]->common_channels[0].ServingCellConfigCommon->uplinkConfigCommon->initialUplinkBWP;

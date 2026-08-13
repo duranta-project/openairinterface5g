@@ -25,4 +25,10 @@
 NR_SCHED_POLICY_REGISTRIES(DECLARE_NR_SCHED_POLICY_REGISTRY)
 #undef DECLARE_NR_SCHED_POLICY_REGISTRY
 
+SCHED_REGISTRY_DECLARE(dl_harq_result_observer, nr_dl_harq_result_observer_fn);
+SCHED_REGISTRY_DECLARE(ul_harq_result_observer, nr_ul_harq_result_observer_fn);
+
+void nr_notify_dl_harq_result(gNB_MAC_INST *mac, const nr_harq_result_t *result);
+void nr_notify_ul_harq_result(gNB_MAC_INST *mac, const nr_harq_result_t *result);
+
 #endif /* NR_SCHED_REGISTRIES_H */
