@@ -5,6 +5,7 @@
 #include "common/platform_types.h"
 #include "xran_pkt_api.h"
 #include "oru_packet_processor.h"
+#include "oru_pcap.h"
 #include <rte_byteorder.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -14,8 +15,6 @@
 #include "log.h"
 #include <rte_ring.h>
 #include "common/utils/nr/nr_common.h"
-#include <sys/types.h>
-
 #include <sys/types.h>
 #include <stdatomic.h>
 
@@ -538,7 +537,8 @@ static void handle_ul_cplane_packet(oru_packet_processor_context_t *ctx,
                                     void *pkt,
                                     struct xran_cp_radioapp_section1_header *hdr,
                                     struct xran_cp_radioapp_section1 *section,
-                                    int ant_id)
+                                    int ant_id,
+                                    oru_pcap_cplane_snap_t *snap)
 {
   int numerology = ctx->numerology;
   int slot_in_frame = hdr->cmnhdr.field.slotId + hdr->cmnhdr.field.subframeId * (1 << numerology);
@@ -587,6 +587,7 @@ static void handle_ul_cplane_packet(oru_packet_processor_context_t *ctx,
     ul_job->start_prb = section->hdr.u1.common.startPrbc;
     int ret = rte_ring_enqueue(ctx->ul_ready_jobs, (void *)ul_job);
     AssertFatal(ret == 0, "Failed to enqueue ul_job to ul_ready_jobs ring\n");
+    oru_pcap_cplane_commit_pusch(snap);
   } else {
     ctx->stats.application_too_slow++;
   }
@@ -595,7 +596,8 @@ static void handle_ul_cplane_packet(oru_packet_processor_context_t *ctx,
 void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
                                 void *pkt,
                                 struct xran_cp_radioapp_section3_header *hdr,
-                                uint8_t ant_id)
+                                uint8_t ant_id,
+                                oru_pcap_cplane_snap_t *snap)
 {
   if (hdr->cmnhdr.numOfSections != 1) {
     ctx->stats.cplane_err_hdr++;
@@ -669,11 +671,14 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
           aarx,
           target_absolute_symbol);
   });
+  oru_pcap_cplane_commit_prach(snap);
 }
 
 void handle_cplane_packet(void *context, void *pkt)
 {
   oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
+  oru_pcap_cplane_snap_t snap = {0};
+  oru_pcap_cplane_begin(pkt, &snap);
   struct xran_ecpri_hdr *ecpri_hdr;
   struct xran_recv_packet_info xran_recv_packet_info;
   int ret = xran_parse_ecpri_hdr(pkt, &ecpri_hdr, &xran_recv_packet_info);
@@ -712,7 +717,7 @@ void handle_cplane_packet(void *context, void *pkt)
         handle_dl_cplane_packet(ctx, pkt, hdr, section, ant_id);
       } else {
         ctx->stats.cplane_received_ul++;
-        handle_ul_cplane_packet(ctx, pkt, hdr, section, ant_id);
+        handle_ul_cplane_packet(ctx, pkt, hdr, section, ant_id, &snap);
       }
       rte_pktmbuf_free(pkt);
       return;
@@ -720,7 +725,7 @@ void handle_cplane_packet(void *context, void *pkt)
     case XRAN_CP_SECTIONTYPE_3: {
       ctx->stats.cplane_received_prach++;
       struct xran_cp_radioapp_section3_header *hdr = (struct xran_cp_radioapp_section3_header *)apphdr;
-      handle_prach_cplane_packet(ctx, pkt, hdr, ant_id);
+      handle_prach_cplane_packet(ctx, pkt, hdr, ant_id, &snap);
       rte_pktmbuf_free(pkt);
       return;
     }
@@ -1031,7 +1036,7 @@ void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *j
   int section_id = job->response_payload.section_id;
   int total_ul_rbs = job->num_prb;
   int start_prb_base = job->start_prb;
-  int frame = job->frame;
+  int frame = job->frame & 0xff;
   int slot_in_frame = job->slot_in_frame;
   int mu = ctx->numerology;
 
@@ -1227,7 +1232,13 @@ void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int
                       0);
 
     struct radio_app_common_hdr *radio_app_header = (struct radio_app_common_hdr *)(ecpri_header + 1);
-    fill_radio_app_header(radio_app_header, filter_id, XRAN_DIR_UL, frame, slot_in_frame, symbol, numerology);
+    fill_radio_app_header(radio_app_header,
+                          filter_id,
+                          XRAN_DIR_UL,
+                          frame & 0xff,
+                          slot_in_frame,
+                          symbol,
+                          numerology);
 
     struct data_section_hdr *data_section_header = (struct data_section_hdr *)(radio_app_header + 1);
     fill_data_section_header(data_section_header, num_ul_rbs, start_prb, section_id);

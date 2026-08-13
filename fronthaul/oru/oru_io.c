@@ -3,6 +3,7 @@
  */
 
 #include "oru_io.h"
+#include "oru_pcap.h"
 #include <rte_ether.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -258,6 +259,8 @@ int oru_io_send_uplane(oru_io_t *io, struct rte_mbuf **mbufs, uint32_t num_mbufs
     eth->ether_type = rte_cpu_to_be_16(ECPRI_ETHER_TYPE);
     rte_ether_addr_copy(&io->conf.du_macs[0], &eth->dst_addr);
     rte_ether_addr_copy(&io->local_macs[0], &eth->src_addr);
+
+    oru_pcap_write_uplane(mbufs[i], oru_pcap_mbuf_is_prach(mbufs[i]));
   }
 
   return fh_send_immediate(&io->send, mbufs, num_mbufs);

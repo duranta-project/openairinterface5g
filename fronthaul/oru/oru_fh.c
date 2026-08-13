@@ -15,6 +15,7 @@
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include "oru_packet_processor.h"
+#include "oru_pcap.h"
 #include "log.h"
 #include <sched.h>
 
@@ -30,6 +31,7 @@ static void rx_cb(struct rte_mbuf **pkts, uint16_t n, void *user_data)
   oru_fh_t *fh = (oru_fh_t *)user_data;
   for (int i = 0; i < n; i++) {
     struct rte_mbuf *pkt = pkts[i];
+    oru_pcap_write_rx_frame(pkt);
     struct rte_ether_hdr *eth = rte_pktmbuf_mtod(pkt, struct rte_ether_hdr *);
     uint16_t eth_type = rte_be_to_cpu_16(eth->ether_type);
     size_t hdr_len = sizeof(struct rte_ether_hdr);
@@ -191,6 +193,8 @@ void *oru_fh_init(oru_fh_config_t *cfg)
     free(fh);
     return NULL;
   }
+
+  oru_pcap_init_from_env(cfg->prach_eaxc_offset, cfg->mtu);
 
   fh->packet_processor = init_packet_processor(cfg->numerology,
                                                cfg->num_prbs,
