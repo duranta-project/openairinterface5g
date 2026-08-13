@@ -54,6 +54,19 @@
 #define MACRLC_PUSCH_RSSI_THRESHOLD          "pusch_RSSI_Threshold"
 #define MACRLC_PUCCH_RSSI_THRESHOLD          "pucch_RSSI_Threshold"
 #define MACRLC_STATS_MAX_UE                  "stats_max_ue"
+#define MACRLC_DL_PREPROCESSOR_POLICY        "dl_preprocessor_policy"
+#define MACRLC_DL_RI_PMI_SELECT_POLICY       "dl_ri_pmi_select_policy"
+#define MACRLC_DL_TDA_SELECT_POLICY          "dl_tda_select_policy"
+#define MACRLC_DL_BEAM_SELECT_POLICY         "dl_beam_select_policy"
+#define MACRLC_DL_MCS_SELECT_POLICY          "dl_mcs_select_policy"
+#define MACRLC_DL_RB_ALLOC_POLICY            "dl_rb_alloc_policy"
+#define MACRLC_DL_LCID_ALLOC_POLICY          "dl_lcid_alloc_policy"
+#define MACRLC_UL_PREPROCESSOR_POLICY        "ul_preprocessor_policy"
+#define MACRLC_UL_RI_TPMI_SELECT_POLICY      "ul_ri_tpmi_select_policy"
+#define MACRLC_UL_TDA_SELECT_POLICY          "ul_tda_select_policy"
+#define MACRLC_UL_BEAM_SELECT_POLICY         "ul_beam_select_policy"
+#define MACRLC_UL_MCS_SELECT_POLICY          "ul_mcs_select_policy"
+#define MACRLC_UL_RB_ALLOC_POLICY            "ul_rb_alloc_policy"
 #define MACRLC_SPATIAL_STREAM_IDX            "spatial_stream_index"
 
 #define HLP_MACRLC_UL_PRBBLACK "SNR threshold to decide whether a PRB will be blacklisted or not"
@@ -76,6 +89,7 @@
 #define HLP_MACRLC_PUSCH_RSSI_THRESHOLD "Limits PUSCH TPC commands based on RSSI to prevent ADC railing. Value range [-1280, 0], unit 0.1 dBm/dBFS"
 #define HLP_MACRLC_PUCCH_RSSI_THRESHOLD "Limits PUCCH TPC commands based on RSSI to prevent ADC railing. Value range [-1280, 0], unit 0.1 dBm/dBFS"
 #define HLP_MACRLC_STATS_MAX_UE "Maximum number of UEs before disabling periodical output (0 to disable)"
+#define HLP_SCHED_POLICY "Name of the registered scheduler policy"
 #define HLP_MACRLC_SPATIAL_STREAM_INDEX "Array of RU antenna ports / eAxCIDs to be used by L1. This may only be applicable for MU-MIMO. Value range [0, 15]"
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------*/
@@ -125,6 +139,19 @@
   {MACRLC_PUCCH_RSSI_THRESHOLD,        HLP_MACRLC_PUCCH_RSSI_THRESHOLD, \
                                                                                0, .iptr=NULL,   .defintval=0,               TYPE_INT,     0}, \
   {MACRLC_STATS_MAX_UE,                HLP_MACRLC_STATS_MAX_UE,  0, .iptr=NULL,   .defintval=8,               TYPE_INT,     0}, \
+  {MACRLC_DL_PREPROCESSOR_POLICY,      HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
+  {MACRLC_DL_RI_PMI_SELECT_POLICY,     HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
+  {MACRLC_DL_TDA_SELECT_POLICY,        HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
+  {MACRLC_DL_BEAM_SELECT_POLICY,       HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
+  {MACRLC_DL_MCS_SELECT_POLICY,        HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
+  {MACRLC_DL_RB_ALLOC_POLICY,          HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
+  {MACRLC_DL_LCID_ALLOC_POLICY,        HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
+  {MACRLC_UL_PREPROCESSOR_POLICY,      HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
+  {MACRLC_UL_RI_TPMI_SELECT_POLICY,    HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
+  {MACRLC_UL_TDA_SELECT_POLICY,        HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
+  {MACRLC_UL_BEAM_SELECT_POLICY,       HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
+  {MACRLC_UL_MCS_SELECT_POLICY,        HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
+  {MACRLC_UL_RB_ALLOC_POLICY,          HLP_SCHED_POLICY,         0, .strptr=NULL,  .defstrval="default",       TYPE_STRING,  0}, \
   {MACRLC_SPATIAL_STREAM_IDX,          HLP_MACRLC_SPATIAL_STREAM_INDEX, \
                                                                                0, .uptr=NULL,   .defintarrayval=0,          TYPE_INTARRAY,0}, \
 }
@@ -173,6 +200,19 @@
   { .s2 =  { config_check_intrange, {-1280, 0}} }, /* PUSCH RSSI threshold range */ \
   { .s2 =  { config_check_intrange, {-1280, 0}} }, /* PUCCH RSSI threshold range */ \
   { .s5 = { NULL } }, \
+  { .s5 = { NULL } }, /* DL preprocessor policy */ \
+  { .s5 = { NULL } }, /* DL RI/PMI policy */ \
+  { .s5 = { NULL } }, /* DL TDA policy */ \
+  { .s5 = { NULL } }, /* DL beam policy */ \
+  { .s5 = { NULL } }, /* DL MCS policy */ \
+  { .s5 = { NULL } }, /* DL RB-allocation policy */ \
+  { .s5 = { NULL } }, /* DL LCID-allocation policy */ \
+  { .s5 = { NULL } }, /* UL preprocessor policy */ \
+  { .s5 = { NULL } }, /* UL RI/TPMI policy */ \
+  { .s5 = { NULL } }, /* UL TDA policy */ \
+  { .s5 = { NULL } }, /* UL beam policy */ \
+  { .s5 = { NULL } }, /* UL MCS policy */ \
+  { .s5 = { NULL } }, /* UL RB-allocation policy */ \
   { .s2 = { NULL } }, /* Spatial stream index */ \
 }
 

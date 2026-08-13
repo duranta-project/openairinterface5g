@@ -8,6 +8,7 @@
 
 
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
+#include "LAYER2/NR_MAC_gNB/nr_sched_registries.h"
 #include "executables/softmodem-common.h"
 #include "common/utils/nr/nr_common.h"
 #include "utils.h"
@@ -2993,3 +2994,5 @@ bool commit_ul_alloc(const nr_ul_sched_params_t *params, nr_ul_candidate_t *cand
     vrb_map[cand->sched_pusch.rbStart + cand->bwp_start + rb] |= cand->alloc_slbitmap;
   return true;
 }
+
+SCHED_REGISTRY_ADD(ul_preprocessor_policy, default, nr_ulsch_preprocessor);

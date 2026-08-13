@@ -29,8 +29,39 @@ Default policy implementations are in
 [`gNB_scheduler_dlsch_default_policies.c`](../../openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_dlsch_default_policies.c)
 and
 [`gNB_scheduler_ulsch_default_policies.c`](../../openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_ulsch_default_policies.c).
-Function pointers are assigned at startup in
-[`main.c`](../../openair2/LAYER2/NR_MAC_gNB/main.c).
+Named policy registries are declared in
+[`nr_sched_registries.h`](../../openair2/LAYER2/NR_MAC_gNB/nr_sched_registries.h).
+
+## Selecting scheduler policies
+
+Every existing scheduler function pointer can be selected by name in the
+`MACRLCs` section. All selectors default to `"default"`, so configurations that
+omit them retain the current scheduler behavior:
+
+```ini
+MACRLCs = (
+  {
+    dl_preprocessor_policy = "default";
+    dl_ri_pmi_select_policy = "default";
+    dl_tda_select_policy = "default";
+    dl_beam_select_policy = "default";
+    dl_mcs_select_policy = "default";
+    dl_rb_alloc_policy = "default";
+    dl_lcid_alloc_policy = "default";
+
+    ul_preprocessor_policy = "default";
+    ul_ri_tpmi_select_policy = "default";
+    ul_tda_select_policy = "default";
+    ul_beam_select_policy = "default";
+    ul_mcs_select_policy = "default";
+    ul_rb_alloc_policy = "default";
+  }
+);
+```
+
+Built-in implementations register themselves with `SCHED_REGISTRY_ADD`. The
+`--phy-test` mode continues to override both configured preprocessors with the
+registered `phytest` implementations.
 
 ## Scheduler Pipeline
 

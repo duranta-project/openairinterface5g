@@ -25,6 +25,7 @@
 #include "asn_internal.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
 #include "NR_MAC_gNB/mac_proto.h"
+#include "NR_MAC_gNB/nr_sched_registries.h"
 #include "common/5g_platform_types.h"
 #include "common/config/config_paramdesc.h"
 #include "common/config/config_userapi.h"
@@ -1730,6 +1731,44 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
         ul_bler_options->harq_round_max = 1;
       else
         ul_bler_options->harq_round_max = *gpd(params, np, MACRLC_UL_HARQ_ROUND_MAX)->u8ptr;
+
+#define LOAD_SCHED_POLICY(config_key, registry, field, fn_type)              \
+  do {                                                                       \
+    const char *policy_name = *gpd(params, np, config_key)->strptr;          \
+    fn_type policy = registry##_lookup(policy_name);                         \
+    AssertFatal(policy != NULL,                                              \
+                "Unknown scheduler policy '%s' for '%s' (registered: %s)\n", \
+                policy_name,                                                 \
+                config_key,                                                  \
+                registry##_names());                                         \
+    RC.nrmac[j]->field = policy;                                             \
+  } while (0)
+
+      LOAD_SCHED_POLICY(MACRLC_DL_PREPROCESSOR_POLICY, dl_preprocessor_policy, pre_processor_dl, nr_pp_impl_dl);
+      LOAD_SCHED_POLICY(MACRLC_DL_RI_PMI_SELECT_POLICY, dl_ri_pmi_select_policy, dl_ri_pmi_select, nr_dl_ri_pmi_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_DL_TDA_SELECT_POLICY, dl_tda_select_policy, dl_tda_select, nr_dl_tda_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_DL_BEAM_SELECT_POLICY, dl_beam_select_policy, dl_beam_select, nr_dl_beam_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_DL_MCS_SELECT_POLICY, dl_mcs_select_policy, dl_mcs_select, nr_dl_mcs_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_DL_RB_ALLOC_POLICY, dl_rb_alloc_policy, dl_rb_alloc, nr_dl_rb_alloc_fn);
+      LOAD_SCHED_POLICY(MACRLC_DL_LCID_ALLOC_POLICY, dl_lcid_alloc_policy, dl_lcid_alloc, nr_dl_lcid_alloc_fn);
+      LOAD_SCHED_POLICY(MACRLC_UL_PREPROCESSOR_POLICY, ul_preprocessor_policy, pre_processor_ul, nr_pp_impl_ul);
+      LOAD_SCHED_POLICY(MACRLC_UL_RI_TPMI_SELECT_POLICY, ul_ri_tpmi_select_policy, ul_ri_tpmi_select, nr_ul_ri_tpmi_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_UL_TDA_SELECT_POLICY, ul_tda_select_policy, ul_tda_select, nr_ul_tda_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_UL_BEAM_SELECT_POLICY, ul_beam_select_policy, ul_beam_select, nr_ul_beam_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_UL_MCS_SELECT_POLICY, ul_mcs_select_policy, ul_mcs_select, nr_ul_mcs_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_UL_RB_ALLOC_POLICY, ul_rb_alloc_policy, ul_rb_alloc, nr_ul_rb_alloc_fn);
+
+#undef LOAD_SCHED_POLICY
+
+      /* phy-test has always owned the two preprocessors regardless of the
+       * normal scheduler configuration. Preserve that command-line override. */
+      if (get_softmodem_params()->phy_test) {
+        RC.nrmac[j]->pre_processor_dl = dl_preprocessor_policy_lookup("phytest");
+        RC.nrmac[j]->pre_processor_ul = ul_preprocessor_policy_lookup("phytest");
+        AssertFatal(RC.nrmac[j]->pre_processor_dl != NULL && RC.nrmac[j]->pre_processor_ul != NULL,
+                    "phytest scheduler preprocessors are not registered\n");
+      }
+
       RC.nrmac[j]->min_grant_prb = *gpd(params, np, MACRLC_MIN_GRANT_PRB)->u16ptr;
       long sc_fdma = NR_PUSCH_Config__transformPrecoder_enabled;
       NR_BWP_UplinkCommon_t *bwp = RC.nrmac[j]->common_channels[0].ServingCellConfigCommon->uplinkConfigCommon->initialUplinkBWP;

@@ -11,6 +11,7 @@
  */
 
 #include "gNB_scheduler_ulsch_default_policies.h"
+#include "nr_sched_registries.h"
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "executables/softmodem-common.h"
 #include "common/utils/nr/nr_common.h"
@@ -214,6 +215,12 @@ void nr_ul_mcs_select_default(const gNB_MAC_INST *mac, nr_ul_candidate_t *candid
       cand->UE->UE_sched_ctrl.ul_bler_stats.mcs = mcs;
   }
 }
+
+SCHED_REGISTRY_ADD(ul_ri_tpmi_select_policy, default, nr_ul_ri_tpmi_select_default);
+SCHED_REGISTRY_ADD(ul_tda_select_policy, default, nr_ul_tda_select_default);
+SCHED_REGISTRY_ADD(ul_beam_select_policy, default, nr_ul_beam_select_default);
+SCHED_REGISTRY_ADD(ul_mcs_select_policy, default, nr_ul_mcs_select_default);
+SCHED_REGISTRY_ADD(ul_rb_alloc_policy, default, nr_ul_proportional_fair);
 
 static int compare_ul_pf_rb_ptrs(const void *a, const void *b)
 {

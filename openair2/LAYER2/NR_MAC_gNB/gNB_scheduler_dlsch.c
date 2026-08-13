@@ -11,6 +11,7 @@
 #include "NR_MAC_COMMON/nr_mac.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
+#include "LAYER2/NR_MAC_gNB/nr_sched_registries.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 
 /*TAG*/
@@ -1418,3 +1419,5 @@ void nr_schedule_ue_spec(module_id_t module_id,
   /* PREPROCESSOR */
   gNB_mac->pre_processor_dl(gNB_mac, &pdsch);
 }
+
+SCHED_REGISTRY_ADD(dl_preprocessor_policy, default, nr_dlsch_preprocessor);
