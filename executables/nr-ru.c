@@ -612,6 +612,62 @@ static bool wait_free_rx_tti(notifiedFIFO_t *L1_rx_out, bool rx_tti_busy[RU_RX_S
   return true;
 }
 
+/* @brief RX-side per-slot handling: front-end processing, scope-copy, PRACH extraction. Factored
+ * out of ru_thread() so it can be reused as-is by an upcoming second RU southbound interface that
+ * needs the same handling but not the surrounding IQ sample-clock bookkeeping.
+ *
+ * ru->feprx is called unconditionally now: previously, scope-copy and PRACH extraction lived
+ * inside the "if (ru->feprx)" branch, which meant a southbound interface without a front-end DFT
+ * step (none exists yet, but one is coming) would accidentally skip both, even though rxdataF is
+ * valid either way. The ru->common.rxdata guard below is the one genuinely split-specific check
+ * that remains: not every interface will have full-rate time-domain IQ to extract PRACH from.
+ */
+static void ru_rx_slot(RU_t *ru, PHY_VARS_gNB *gNB, int frame_rx, int slot_rx)
+{
+  ru->feprx(ru, slot_rx);
+
+  LOG_D(NR_PHY, "Setting %d.%d (%d) to busy\n", frame_rx, slot_rx, slot_rx % RU_RX_SLOT_DEPTH);
+  LOG_D(PHY, "RU proc: frame_rx = %d, tti_rx = %d\n", frame_rx, slot_rx);
+  gNBscopeCopy(gNB,
+               gNBRxdataF,
+               ru->common.rxdataF[0],
+               sizeof(c16_t),
+               1,
+               gNB->frame_parms.samples_per_slot_wCP,
+               slot_rx * gNB->frame_parms.samples_per_slot_wCP);
+
+  if (ru->common.rxdata) {
+    fsn_t now = {.f = frame_rx, .s = slot_rx, .mu = ru->nr_frame_parms->numerology_index};
+    prach_item_t p;
+    while (get_next_nr_prach(&gNB->prach_ru_queue, &now, &p)) {
+      // need to extract RACH data for later processing by rx_nr_prach()
+      rx_nr_prach_ru(&p, ru->common.rxdata, ru->nr_frame_parms, ru->N_TA_offset, gNB->enable_analog_das);
+      bool success = spsc_q_put(&gNB->prach_l1rx_queue, &p, sizeof(p));
+      // assume prach_l1rx_queue never full: prach_ru_queue filled at
+      // constant pace, but prach_l1rx_queue emptied as fast as possible,
+      // see rx_func()
+      DevAssert(success);
+    }
+  }
+}
+
+/* @brief hand the just-processed slot off to the gNB TX pipeline (tx_func() in nr-gnb.c). Factored
+ * out of ru_thread() alongside ru_rx_slot() for the same reason - reusable as-is by an upcoming
+ * second RU southbound interface. */
+static void ru_push_tx_job(PHY_VARS_gNB *gNB, int frame_tx, int slot_tx, int frame_rx, int slot_rx, uint64_t timestamp_tx)
+{
+  notifiedFIFO_elt_t *resTx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0, &gNB->L1_tx_out, NULL);
+  resTx->key = slot_tx;
+  processingData_L1tx_t *syncMsgTx = NotifiedFifoData(resTx);
+  *syncMsgTx = (processingData_L1tx_t){.gNB = gNB,
+                                       .frame = frame_tx,
+                                       .slot = slot_tx,
+                                       .frame_rx = frame_rx,
+                                       .slot_rx = slot_rx,
+                                       .timestamp_tx = timestamp_tx};
+  pushNotifiedFIFO(&gNB->L1_tx_out, resTx);
+}
+
 void *ru_thread(void *param)
 {
   static int ru_thread_status;
@@ -702,44 +758,10 @@ void *ru_thread(void *param)
     if (slot_type == NR_UPLINK_SLOT || slot_type == NR_MIXED_SLOT) {
       if (!wait_free_rx_tti(&gNB->L1_rx_out, rx_tti_busy, proc->frame_rx, proc->tti_rx))
         break; // nothing to wait for: we have to stop
-      if (ru->feprx) {
-        ru->feprx(ru,proc->tti_rx);
-        LOG_D(NR_PHY, "Setting %d.%d (%d) to busy\n", proc->frame_rx, proc->tti_rx, proc->tti_rx % RU_RX_SLOT_DEPTH);
-        //LOG_M("rxdata.m","rxs",ru->common.rxdata[0],1228800,1,1);
-        LOG_D(PHY,"RU proc: frame_rx = %d, tti_rx = %d\n", proc->frame_rx, proc->tti_rx);
-        gNBscopeCopy(gNB,
-                     gNBRxdataF,
-                     ru->common.rxdataF[0],
-                     sizeof(c16_t),
-                     1,
-                     gNB->frame_parms.samples_per_slot_wCP,
-                     proc->tti_rx * gNB->frame_parms.samples_per_slot_wCP);
+      ru_rx_slot(ru, gNB, proc->frame_rx, proc->tti_rx);
+    }
 
-        // Do PRACH RU processing
-        fsn_t now = {.f = proc->frame_rx, .s = proc->tti_rx, .mu = fp->numerology_index};
-        prach_item_t p;
-        while (get_next_nr_prach(&gNB->prach_ru_queue, &now, &p)) {
-          // need to extract RACH data for later processing by rx_nr_prach()
-          rx_nr_prach_ru(&p, ru->common.rxdata, ru->nr_frame_parms, ru->N_TA_offset, gNB->enable_analog_das);
-          bool success = spsc_q_put(&gNB->prach_l1rx_queue, &p, sizeof(p));
-          // assume prach_l1rx_queue never full: prach_ru_queue filled at
-          // constant pace, but prach_l1rx_queue emptied as fast as possible,
-          // see rx_func()
-          DevAssert(success);
-        } // end if (prach_id >= 0)
-      } // end if (ru->feprx)
-    } // end if (slot_type == NR_UPLINK_SLOT || slot_type == NR_MIXED_SLOT) {
-
-    notifiedFIFO_elt_t *resTx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0, &gNB->L1_tx_out, NULL);
-    resTx->key = proc->tti_tx;
-    processingData_L1tx_t *syncMsgTx = NotifiedFifoData(resTx);
-    *syncMsgTx = (processingData_L1tx_t){.gNB = gNB,
-                                         .frame = proc->frame_tx,
-                                         .slot = proc->tti_tx,
-                                         .frame_rx = proc->frame_rx,
-                                         .slot_rx = proc->tti_rx,
-                                         .timestamp_tx = proc->timestamp_tx};
-    pushNotifiedFIFO(&gNB->L1_tx_out, resTx);
+    ru_push_tx_job(gNB, proc->frame_tx, proc->tti_tx, proc->frame_rx, proc->tti_rx, proc->timestamp_tx);
   }
 
   ru_thread_status = 0;
