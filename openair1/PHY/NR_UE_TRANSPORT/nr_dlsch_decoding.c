@@ -10,6 +10,7 @@
 #include "PHY/CODING/coding_extern.h"
 #include "PHY/CODING/coding_defs.h"
 #include "PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface.h"
+#include "PHY/CODING/nrLDPC_coding/nrLDPC_coding_segment/nr_rate_matching.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 #include "SCHED_NR_UE/defs.h"
 #include "SIMULATION/TOOLS/sim.h"
@@ -102,6 +103,27 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
         TB_parameters.Qm,
         Coderate);
 
+  /* The cached C/K/Z/F is a function of A and BG, so a change in either means it describes a different
+   * TB: the round-0 PDSCH never reached L1 (dropped PDU, missed DCI) while MAC stayed in step with the
+   * gNB and marked this grant a retransmission. Combining would place the LLRs against the wrong
+   * layout and never decode, so restart as a first reception and let the code below re-segment. */
+  if (harq_process->first_rx != 1 && (TB_parameters.A != harq_process->A || TB_parameters.BG != harq_process->BG)) {
+    LOG_E(PHY,
+          "%d.%d DLSCH %d harq %d round %d: grant has A %u BG %u but soft buffer holds A %u BG %u, restarting as first reception\n",
+          slot_parameters.frame,
+          slot_parameters.slot,
+          cw_idx,
+          harq_pid,
+          harq_process->DLround,
+          TB_parameters.A,
+          TB_parameters.BG,
+          harq_process->A,
+          harq_process->BG);
+    harq_process->first_rx = 1;
+    harq_process->DLround = 0;
+    harq_process->processedSegments = 0;
+  }
+
   if (harq_process->first_rx == 1) {
     // This is a new packet, so compute quantities regarding segmentation
     nr_segmentation(NULL,
@@ -116,6 +138,8 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
     harq_process->K = TB_parameters.K;
     harq_process->Z = TB_parameters.Z;
     harq_process->F = TB_parameters.F;
+    harq_process->A = TB_parameters.A;
+    harq_process->BG = TB_parameters.BG;
 
     if (harq_process->C > MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * TB_parameters.nb_layers) {
       LOG_E(PHY, "nr_segmentation.c: too many segments %d, A %d\n", harq_process->C, TB_parameters.A);
@@ -268,9 +292,79 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
     }
   }
 
+  /* Report every round that a TB needs beyond the first, plus the failing first round that
+   * triggered them. llrLen is the filled extent of the soft buffer: if it does not grow from
+   * one round to the next, the retransmission added nothing and combining is not happening.
+   * Kept at LOG_D: this runs on a SCHED_FIFO thread, and at LOG_I the formatting cost alone was
+   * enough to miss slot deadlines, which drops PDSCH PDUs and desynchronises HARQ — i.e. the
+   * instrumentation manufactured the failures it was meant to observe. Raise the PHY log level
+   * deliberately when you need it. */
+  if (harq_process->DLround > 0 || !harq_process->decodeResult) {
+    const nr_ldpc_geometry_t geo =
+        nr_ldpc_soft_buffer_geometry(dlsch_config->tbslbrm, TB_parameters.BG, harq_process->Z, harq_process->C, cw_info->rv);
+    /* DL SINR/RSRP from the SSB measurements. This is the UE's own view of the link, unlike the
+     * SNR in the gNB dlsch_rounds line which is PUCCH SNR and says nothing about DL quality.
+     * Deliberately not measurements.wideband_cqi_avg: its rx_power_avg term comes from
+     * nr_ue_measurements(), which sums signal_energy over dl_ch_estimates[gNB_id] while iterating
+     * antennas, so it reads antenna 0 repeatedly and lands near zero here. */
+    const PHY_NR_MEASUREMENTS *meas = &phy_vars_ue->measurements;
+    const int ssb_idx = phy_vars_ue->frame_parms.ssb_index;
+    LOG_D(PHY,
+          "%d.%d DL HARQ combine: harq %d cw %d round %d rv %d %s | SSB %d SINR %.1f dB RSRP %d dBm | llrLen %d E %d G %d "
+          "cleared %d | tbslbrm %d Ncb %u k0 %u | A %d C %d K %d Z %d F %d BG %d Qm %d Nl %d nb_rb %d nb_symb %d\n",
+          proc->frame_rx,
+          proc->nr_slot_rx,
+          harq_pid,
+          cw_idx,
+          harq_process->DLround,
+          TB_parameters.rv_index,
+          harq_process->decodeResult ? "ok" : "nok",
+          ssb_idx,
+          meas->ssb_sinr_dB[ssb_idx],
+          meas->ssb_rsrp_dBm[ssb_idx],
+          harq_process->llrLen,
+          TB_parameters.E,
+          TB_parameters.G,
+          TB_parameters.d_to_be_cleared,
+          TB_parameters.tbslbrm,
+          geo.Ncb,
+          geo.k0,
+          TB_parameters.A,
+          TB_parameters.C,
+          TB_parameters.K,
+          TB_parameters.Z,
+          TB_parameters.F,
+          TB_parameters.BG,
+          TB_parameters.Qm,
+          TB_parameters.nb_layers,
+          TB_parameters.nb_rb,
+          dlsch_config->number_symbols);
+  }
+
   if (harq_process->decodeResult) {
     LOG_D(PHY, "%d.%d DLSCH received ok \n", proc->frame_rx, proc->nr_slot_rx);
-    harq_process->status = NR_SCH_IDLE;
+    /* Only retire the process if it still holds the grant we just decoded. When this decode
+     * finishes late (measured up to 5 ms behind), the gNB has already reused the HARQ PID and
+     * configure_dlsch() re-armed it for a newer TB; clearing status here would drop that TB with
+     * "no active cw" and cost a full retransmission chain. The newer grant owns the process now,
+     * so leave it ACTIVE and let its own decode retire it. */
+    if (harq_process->activated_frame == proc->frame_rx && harq_process->activated_slot == proc->nr_slot_rx) {
+      harq_process->status = NR_SCH_IDLE;
+      harq_process->retired_frame = proc->frame_rx;
+      harq_process->retired_slot = proc->nr_slot_rx;
+      harq_process->retired_round = harq_process->DLround;
+      harq_process->retired_ns = nr_ue_harq_now_ns();
+    } else {
+      LOG_W(PHY,
+            "%d.%d DLSCH %d harq %d round %d decoded ok but process was re-armed for %d.%d, not retiring\n",
+            proc->frame_rx,
+            proc->nr_slot_rx,
+            cw_idx,
+            harq_pid,
+            harq_process->DLround,
+            harq_process->activated_frame,
+            harq_process->activated_slot);
+    }
     dlsch->last_iteration_cnt = dlsch->max_ldpc_iterations - 1;
   } else {
     LOG_D(PHY, "%d.%d DLSCH received nok \n", proc->frame_rx, proc->nr_slot_rx);

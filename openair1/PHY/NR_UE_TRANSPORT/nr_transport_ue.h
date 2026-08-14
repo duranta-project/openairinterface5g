@@ -83,6 +83,9 @@ typedef struct {
   uint32_t F;
   /// LDPC lifting factor
   uint32_t Z;
+  /// TB size and base graph the cached C/K/F/Z were derived from
+  uint32_t A;
+  uint8_t BG;
   /// codeword this transport block is mapped to
   uint8_t codeword;
   /// HARQ-ACKs
@@ -93,6 +96,19 @@ typedef struct {
   /// Number of segments processed so far
   uint32_t processedSegments;
   decode_abort_t abort_decode;
+  /* Provenance of the last two status transitions. Only used for diagnostics: when the decode
+   * path finds a process that is no longer NR_ACTIVE it can report which grant activated it and
+   * which decode retired it, which is the difference between a lost grant and a reused HARQ PID. */
+  int activated_frame;
+  int activated_slot;
+  int retired_frame;
+  int retired_slot;
+  uint8_t retired_round;
+  /* CLOCK_MONOTONIC ns at each transition. The frame/slot pair alone cannot distinguish a decode
+   * that completed late from a store that was simply not yet visible to the decoding core, since
+   * both leave the same (activated == current slot, retired == previous use) footprint. */
+  uint64_t activated_ns;
+  uint64_t retired_ns;
 } NR_DL_UE_HARQ_t;
 
 typedef struct {

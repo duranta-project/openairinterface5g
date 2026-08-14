@@ -656,8 +656,26 @@ static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
   // exit dlsch procedures as there are no active dlsch
   NR_DL_UE_HARQ_t *dl_harq = &ue->dl_harq_processes[cw_idx][harq_pid];
   if (dl_harq->status != NR_ACTIVE) {
-    // don't wait anymore
-    LOG_E(NR_PHY, "Internal error  nr_ue_dlsch_procedure() called but no active cw on slot %d, harq %d\n", nr_slot_rx, harq_pid);
+    /* The grant did arrive (dlsch is active and the LLRs are demodulated), so this is not a lost
+     * PDU: the process is no longer ACTIVE even though a grant activated it. retired-activated
+     * separates the two candidate mechanisms: positive means the previous TB's decode really did
+     * complete after the new grant and clobbered it, negative means the activating store was not
+     * yet visible to this core when we read status (no barrier on the field, weak ordering). */
+    const int64_t retire_after_activate_ns = (int64_t)dl_harq->retired_ns - (int64_t)dl_harq->activated_ns;
+    LOG_E(NR_PHY,
+          "Internal error  nr_ue_dlsch_procedure() called but no active cw on slot %d, harq %d "
+          "(now %d.%d, status %d, activated %d.%d, retired %d.%d round %d, retire-activate %ld ns)\n",
+          nr_slot_rx,
+          harq_pid,
+          frame_rx,
+          nr_slot_rx,
+          dl_harq->status,
+          dl_harq->activated_frame,
+          dl_harq->activated_slot,
+          dl_harq->retired_frame,
+          dl_harq->retired_slot,
+          dl_harq->retired_round,
+          (long)retire_after_activate_ns);
     if (config->k1_feedback) {
       const int ack_nack_slot_and_frame = (proc->nr_slot_rx + config->k1_feedback) + proc->frame_rx * fp->slots_per_frame;
       dynamic_barrier_join(&ue->process_slot_tx_barriers[ack_nack_slot_and_frame % NUM_PROCESS_SLOT_TX_BARRIERS]);
