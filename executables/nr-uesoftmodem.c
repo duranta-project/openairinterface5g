@@ -220,7 +220,8 @@ int main(int argc, char **argv)
   start_background_system();
 
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == NULL || CONFIG_ISFLAGSET(CONFIG_ABORT)) {
-    exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return 1;
   }
   //set_softmodem_sighandler();
   CONFIG_SETRTFLAG(CONFIG_NOEXITONHELP);

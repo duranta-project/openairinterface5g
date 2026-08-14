@@ -129,7 +129,8 @@ configmodule_interface_t *uniqCfg = NULL;
 int main ( int argc, char **argv )
 {
   if ((uniqCfg = load_configmodule(argc, argv, 0)) == NULL) {
-    exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return 1;
   }
 
   logInit();

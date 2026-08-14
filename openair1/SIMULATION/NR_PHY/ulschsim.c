@@ -87,7 +87,8 @@ int main(int argc, char **argv)
   double DS_TDL = .03;
 
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == 0) {
-    exit_fun("[NR_ULSCHSIM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return -1;
   }
 
   randominit();

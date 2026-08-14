@@ -104,7 +104,8 @@ int main(int argc, char **argv)
   float target_error_rate = 0.01;
 
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == 0) {
-    exit_fun("[NR_PBCHSIM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return -1;
   }
 
   int c;

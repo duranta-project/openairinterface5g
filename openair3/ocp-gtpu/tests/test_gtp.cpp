@@ -584,7 +584,8 @@ TEST(gtp, error_indication_encode)
 int main(int argc, char **argv)
 {
   //if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == NULL) {
-  //  exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+  //  fprintf(stderr, "configuration module init failed\n");
+  //  return -1;
   //}
   // TODO logInit() without config?
   logInit();

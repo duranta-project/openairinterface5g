@@ -221,7 +221,8 @@ int main(int argc, char **argv)
 
   uniqCfg = load_configmodule(nOfiles > 0 ? synth_argc : argc, nOfiles > 0 ? synth_argv : argv, CONFIG_ENABLECMDLINEONLY);
   if (uniqCfg == NULL) {
-    exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+    fprintf(stderr, "[SOFTMODEM] Error, configuration module init failed\n");
+    return 1;
   }
 
   logInit();
@@ -255,7 +256,8 @@ int main(int argc, char **argv)
       this_argv[2] = Ofiles[i];
       uniqCfg = load_configmodule(3, this_argv, CONFIG_ENABLECMDLINEONLY);
       if (uniqCfg == NULL) {
-        exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+        fprintf(stderr, "[SOFTMODEM] Error, configuration module init failed\n");
+        return 1;
       }
     }
 

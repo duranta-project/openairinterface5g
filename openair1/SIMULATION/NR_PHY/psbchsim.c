@@ -260,7 +260,8 @@ int main(int argc, char **argv)
   NR_DL_FRAME_PARMS *frame_parms;
 
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == 0) {
-    exit_fun("[NR_PSBCHSIM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return -1;
   }
 
   randominit();
