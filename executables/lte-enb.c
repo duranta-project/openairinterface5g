@@ -176,10 +176,8 @@ static inline int rxtx(PHY_VARS_eNB *eNB,
     ru->proc.instance_pre_scd++;
 
     if (ru->proc.instance_pre_scd == 0) {
-      if (pthread_cond_signal(&ru->proc.cond_pre_scd) != 0) {
-        LOG_E( PHY, "[eNB] ERROR pthread_cond_signal for eNB pre scd\n" );
-        exit_fun( "ERROR pthread_cond_signal cond_pre_scd" );
-      }
+      int ret = pthread_cond_signal(&ru->proc.cond_pre_scd);
+      AssertFatal(ret == 0, "pthread_cond_signal(): ret %d %s\n", ret, strerror(ret));
     } else {
       LOG_E( PHY, "[eNB] frame %d subframe %d rxtx busy instance_pre_scd %d\n",
              proc->frame_rx,proc->subframe_rx,ru->proc.instance_pre_scd );
@@ -615,11 +613,8 @@ void wakeup_prach_eNB(PHY_VARS_eNB *eNB,
     proc->subframe_prach = subframe;
 
     // the thread can now be woken up
-    if (pthread_cond_signal(&proc->cond_prach) != 0) {
-      LOG_E( PHY, "[eNB] ERROR pthread_cond_signal for eNB PRACH thread %d\n", proc->thread_index);
-      exit_fun( "ERROR pthread_cond_signal" );
-      return;
-    }
+    int ret = pthread_cond_signal(&proc->cond_prach);
+    AssertFatal(ret == 0, "pthread_cond_signal() for eNB PRACH thread %d: ret %d %s\n", proc->thread_index, ret, strerror(ret));
 
     AssertFatal((ret=pthread_mutex_unlock( &proc->mutex_prach))==0,"mutex_unlock return %d\n",ret);
   }
@@ -676,11 +671,8 @@ void wakeup_prach_eNB_br(PHY_VARS_eNB *eNB,
     proc->subframe_prach_br = subframe;
 
     // the thread can now be woken up
-    if (pthread_cond_signal(&proc->cond_prach_br) != 0) {
-      LOG_E( PHY, "[eNB] ERROR pthread_cond_signal for eNB PRACH BR thread %d\n", proc->thread_index);
-      exit_fun( "ERROR pthread_cond_signal" );
-      return;
-    }
+    ret = pthread_cond_signal(&proc->cond_prach_br);
+    AssertFatal(ret == 0, "pthread_cond_signal() for eNB PRACH BR thread %d: ret %d %s\n", proc->thread_index, ret, strerror(ret));
 
     AssertFatal((ret=pthread_mutex_unlock( &proc->mutex_prach_br))==0,"mutex_unlock return %d\n",ret);
   }

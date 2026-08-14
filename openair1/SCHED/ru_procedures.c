@@ -180,11 +180,8 @@ static void *feptx_thread(void *param)
 
     if (release_thread(&proc->mutex_feptx,&proc->instance_cnt_feptx,"feptx thread")<0) break;
 
-    if (pthread_cond_signal(&proc->cond_feptx) != 0) {
-      printf("[eNB] ERROR pthread_cond_signal for feptx thread exit\n");
-      exit_fun( "ERROR pthread_cond_signal" );
-      return NULL;
-    }
+    int ret = pthread_cond_signal(&proc->cond_feptx);
+    AssertFatal(ret == 0, "pthread_cond_signal() for feptx thread exit: ret %d %s\n", ret, strerror(ret));
   }
   return(NULL);
 }
@@ -208,28 +205,21 @@ void feptx_ofdm_2thread(RU_t *ru,
 
   if (subframe_select(fp,subframe)==SF_DL) {
     // If this is not an S-subframe
-    if (pthread_mutex_timedlock(&proc->mutex_feptx,&wait) != 0) {
-      printf("[RU] ERROR pthread_mutex_lock for feptx thread (IC %d)\n", proc->instance_cnt_feptx);
-      exit_fun( "error locking mutex_feptx" );
-      return;
-    }
-    
-    if (proc->instance_cnt_feptx==0) {
-      printf("[RU] FEPtx thread busy\n");
-      exit_fun("FEPtx thread busy");
-      pthread_mutex_unlock( &proc->mutex_feptx );
-      return;
-    }
-   
-    proc->slot_feptx=1+(subframe<<1); 
+    int ret = pthread_mutex_timedlock(&proc->mutex_feptx,&wait);
+    AssertFatal(ret == 0,
+                "pthread_mutex_timedlock() for feptx thread (IC %d): ret %d %s\n",
+                proc->instance_cnt_feptx,
+                ret,
+                strerror(ret));
+
+    AssertFatal(proc->instance_cnt_feptx != 0, "[RU] FEPtx thread busy\n");
+
+    proc->slot_feptx=1+(subframe<<1);
     ++proc->instance_cnt_feptx;
-    
-    
-    if (pthread_cond_signal(&proc->cond_feptx) != 0) {
-      printf("[RU] ERROR pthread_cond_signal for feptx thread\n");
-      exit_fun( "ERROR pthread_cond_signal" );
-      return;
-    }
+
+
+    ret = pthread_cond_signal(&proc->cond_feptx);
+    AssertFatal(ret == 0, "pthread_cond_signal() for feptx thread: ret %d %s\n", ret, strerror(ret));
     //start_meas(&ru->ofdm_mod_wakeup_stats);
     
     pthread_mutex_unlock( &proc->mutex_feptx );
@@ -521,11 +511,8 @@ static void *fep_thread(void *param)
 	//VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME( VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_PROCEDURES_RU_FEPRX1, 0 ); 
     if (release_thread(&proc->mutex_fep[0],&proc->instance_cnt_fep[0],"fep thread")<0) break;
 
-    if (pthread_cond_signal(&proc->cond_fep[0]) != 0) {
-      printf("[eNB] ERROR pthread_cond_signal for fep thread exit\n");
-      exit_fun( "ERROR pthread_cond_signal" );
-      return NULL;
-    }
+    int ret = pthread_cond_signal(&proc->cond_fep[0]);
+    AssertFatal(ret == 0, "pthread_cond_signal() for fep thread exit: ret %d %s\n", ret, strerror(ret));
   }
   return(NULL);
 }
@@ -613,26 +600,19 @@ void ru_fep_full_2thread(RU_t *ru,
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME( VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_PROCEDURES_RU_FEPRX+ru->idx, 1 );
   start_meas(&ru->ofdm_demod_stats);
 
-  if (pthread_mutex_timedlock(&proc->mutex_fep[0],&wait) != 0) {
-    printf("[RU] ERROR pthread_mutex_lock for fep thread (IC %d)\n", proc->instance_cnt_fep[0]);
-    exit_fun( "error locking mutex_fep" );
-    return;
-  }
+  int ret = pthread_mutex_timedlock(&proc->mutex_fep[0],&wait);
+  AssertFatal(ret == 0,
+              "pthread_mutex_timedlock() for fep thread (IC %d): ret %d %s\n",
+              proc->instance_cnt_fep[0],
+              ret,
+              strerror(ret));
 
-  if (proc->instance_cnt_fep[0]==0) {
-    printf("[RU] FEP thread busy\n");
-    exit_fun("FEP thread busy");
-    pthread_mutex_unlock( &proc->mutex_fep[0] );
-    return;
-  }
-  
+  AssertFatal(proc->instance_cnt_fep[0] != 0, "[RU] FEP thread busy\n");
+
   ++proc->instance_cnt_fep[0];
 
-  if (pthread_cond_signal(&proc->cond_fep[0]) != 0) {
-    printf("[RU] ERROR pthread_cond_signal for fep thread\n");
-    exit_fun( "ERROR pthread_cond_signal" );
-    return;
-  }
+  ret = pthread_cond_signal(&proc->cond_fep[0]);
+  AssertFatal(ret == 0, "pthread_cond_signal() for fep thread: ret %d %s\n", ret, strerror(ret));
   //start_meas(&ru->ofdm_demod_wakeup_stats);
   
   pthread_mutex_unlock( &proc->mutex_fep[0] );
@@ -759,27 +739,23 @@ void do_prach_ru(RU_t *ru)
 	    proc->instance_cnt_prach);
       usleep(500);
     }
-    if (proc->instance_cnt_prach == 0) {
-      exit_fun( "PRACH thread busy" );
-      return;
-    }
-    
+    AssertFatal(proc->instance_cnt_prach != 0, "PRACH thread busy\n");
+
     // wake up thread for PRACH RX
-    if (pthread_mutex_lock(&proc->mutex_prach) != 0) {
-      LOG_E( PHY, "ERROR pthread_mutex_lock for PRACH thread (IC %d)\n", proc->instance_cnt_prach );
-      exit_fun( "error locking mutex_prach" );
-      return;
-    }
-    
+    int ret = pthread_mutex_lock(&proc->mutex_prach);
+    AssertFatal(ret == 0,
+                "pthread_mutex_lock() for PRACH thread (IC %d): ret %d %s\n",
+                proc->instance_cnt_prach,
+                ret,
+                strerror(ret));
+
     ++proc->instance_cnt_prach;
-    
+
     // the thread can now be woken up
-    if (pthread_cond_signal(&proc->cond_prach) != 0) {
-      LOG_E( PHY, "ERROR pthread_cond_signal for PRACH thread\n");
-      exit_fun( "ERROR pthread_cond_signal" );
-      return;
-    }
-    
+    ret = pthread_cond_signal(&proc->cond_prach);
+    AssertFatal(ret == 0, "pthread_cond_signal() for PRACH thread: ret %d %s\n", ret, strerror(ret));
+
+
     pthread_mutex_unlock( &proc->mutex_prach );
   }
 }

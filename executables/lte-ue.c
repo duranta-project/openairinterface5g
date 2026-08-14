@@ -289,10 +289,7 @@ void init_UE(int nb_inst,
     LOG_I(PHY,"Intializing UE Threads for instance %d (%p,%p)...\n",inst,PHY_vars_UE_g[inst],PHY_vars_UE_g[inst][0]);
     init_UE_threads(inst);
     ret = openair0_device_load(&(UE->rfdevice), openair0_cfg_g);
-
-    if (ret !=0) {
-      exit_fun("Error loading device library");
-    }
+    AssertFatal(ret == 0, "Error loading device library: ret %d\n", ret);
 
     UE->rfdevice.host_type = RAU_HOST;
     //    UE->rfdevice.type      = NONE_DEV;
@@ -423,12 +420,7 @@ static void *UE_thread_synch(void *arg) {
       ind++;
     } while (ind < sizeof(eutra_bands) / sizeof(eutra_bands[0]));
 
-    if (found == 0) {
-      LOG_E(PHY,"Can't find EUTRA band for frequency %d",UE->frame_parms.dl_CarrierFreq);
-      exit_fun("Can't find EUTRA band for frequency");
-      return &UE_thread_synch_retval;
-    }
-
+    AssertFatal(found != 0, "Can't find EUTRA band for frequency %d",UE->frame_parms.dl_CarrierFreq);
     LOG_I(PHY,
           "[SCHED][UE] Check absolute frequency DL %" PRIu32 ", UL %" PRIu32 " (oai_exit %d, rx_num_channels %d)\n",
           UE->frame_parms.dl_CarrierFreq,
@@ -718,10 +710,8 @@ static void *UE_thread_rxn_txnp4(void *arg) {
               threadname);
 
   while (!oai_exit) {
-    if (pthread_mutex_lock(&proc->mutex_rxtx) != 0) {
-      LOG_E( PHY, "[SCHED][UE] error locking mutex for UE RXTX\n" );
-      exit_fun("nothing to add");
-    }
+    int ret = pthread_mutex_lock(&proc->mutex_rxtx);
+    AssertFatal(ret == 0, "pthread_mutex_lock() failed: ret %d %s\n", ret, strerror(ret));
 
     while (proc->instance_cnt_rxtx < 0) {
       // most of the time, the thread is waiting here
@@ -790,10 +780,8 @@ static void *UE_thread_rxn_txnp4(void *arg) {
       if (pthread_cond_signal(&proc->cond_rxtx) != 0) abort();
     }
 
-    if (pthread_mutex_unlock(&proc->mutex_rxtx) != 0) {
-      LOG_E( PHY, "[SCHED][UE] error unlocking mutex for UE RXTX\n" );
-      exit_fun("noting to add");
-    }
+    ret = pthread_mutex_unlock(&proc->mutex_rxtx);
+    AssertFatal(ret == 0, "pthread_mutex_unlock() failed: ret %d %s", ret, strerror(ret));
   }
 
   // thread finished
@@ -896,10 +884,7 @@ static void *UE_phy_stub_standalone_pnf_task(void *arg) {
   //int init_ra_UE = -1; // This counter is used to initiate the RA of each UE in different SFrames
   struct rx_tx_thread_data *rtd = arg;
 
-  if (rtd == NULL) {
-    LOG_E(MAC, "[SCHED][UE] rx_tx_thread_data *rtd: NULL pointer\n");
-    exit_fun("nothing to add");
-  }
+  AssertFatal(rtd != NULL, "[SCHED][UE] rx_tx_thread_data *rtd: NULL pointer\n");
 
   UE_rxtx_proc_t *proc = rtd->proc;
   // settings for nfapi-L2-emulator mode
@@ -1363,16 +1348,12 @@ void *UE_thread(void *arg) {
         AssertFatal(!ret, "errno: %d", ret);
         instance_cnt_synch = ++UE->proc.instance_cnt_synch;
 
-        if (instance_cnt_synch == 0) {
-          int ret = pthread_cond_signal(&UE->proc.cond_synch);
-          AssertFatal(!ret, "errno: %d", ret);
-        } else {
-          LOG_E( PHY, "[SCHED][UE] UE sync thread busy!!\n" );
-          exit_fun("nothing to add");
-        }
+        AssertFatal(instance_cnt_synch == 0, "[SCHED][UE] UE sync thread busy!!\n");
+        ret = pthread_cond_signal(&UE->proc.cond_synch);
+        AssertFatal(!ret, "pthread_cond_signal() failed: ret %d %s", ret, strerror(ret));
 
         ret = pthread_mutex_unlock(&UE->proc.mutex_synch);
-        AssertFatal(!ret, "errno: %d", ret);
+        AssertFatal(!ret, "pthread_mutex_unlock() failed: ret %d %s", ret, strerror(ret));
       } else {
         // grab 10 ms of signal into dummy buffer
         for (int i=0; i<UE->frame_parms.nb_antennas_rx; i++)
@@ -1894,10 +1875,8 @@ static void *timer_thread( void *param ) {
 
     // This should probably be a call to pthread_cond_broadcast when we introduce support for multiple UEs (threads)
     if (phy_stub_ticking->ticking_var == 0) {
-      if (pthread_cond_signal(&phy_stub_ticking->cond_ticking) != 0) {
-        LOG_E( PHY, "timer_thread ERROR pthread_cond_signal for UE_thread\n");
-        exit_fun("nothing to add");
-      }
+      int ret = pthread_cond_signal(&phy_stub_ticking->cond_ticking);
+      AssertFatal(ret == 0, "pthread_cond_signal() in timer_thread errored: ret %d %s\n", ret, strerror(ret));
     } else
       LOG_D(MAC, "timer_thread() Timing problem! ticking_var value:%d \n \n \n", phy_stub_ticking->ticking_var);
 

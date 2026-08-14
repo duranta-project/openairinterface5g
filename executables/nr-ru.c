@@ -85,25 +85,17 @@ void fh_if5_south_in(RU_t *ru, int *frame, int *tti)
   start_meas(&ru->rx_fhaul);
 
   ru->ifdevice.trx_read_func2(&ru->ifdevice, &proc->timestamp_rx, NULL, get_samples_per_slot(*tti, fp));
+  if (oai_exit)
+    return;
+
   if (proc->first_rx == 1)
     ru->ts_offset = proc->timestamp_rx;
   proc->frame_rx = ((proc->timestamp_rx - ru->ts_offset) / (fp->samples_per_subframe * 10)) & 1023;
   proc->tti_rx = get_slot_from_timestamp(proc->timestamp_rx - ru->ts_offset, fp);
 
   if (proc->first_rx == 0) {
-    if (proc->tti_rx != *tti) {
-      LOG_E(PHY,"Received Timestamp doesn't correspond to the time we think it is (proc->tti_rx %d, subframe %d)\n",proc->tti_rx,*tti);
-      if (!oai_exit)
-        exit_fun("Exiting");
-      return;
-    }
-
-    if (proc->frame_rx != *frame) {
-      LOG_E(PHY,"Received Timestamp doesn't correspond to the time we think it is (proc->frame_rx %d frame %d proc->tti_rx %d tti %d)\n",proc->frame_rx,*frame,proc->tti_rx,*tti);
-      if (!oai_exit)
-        exit_fun("Exiting");
-      return;
-    }
+    AssertFatal(proc->tti_rx == *tti, "Received Timestamp doesn't correspond to the time we think it is (proc->tti_rx %d, subframe %d)\n",proc->tti_rx,*tti);
+    AssertFatal(proc->frame_rx == *frame, "Received Timestamp doesn't correspond to the time we think it is (proc->frame_rx %d frame %d proc->tti_rx %d tti %d)\n",proc->frame_rx,*frame,proc->tti_rx,*tti);
   } else {
     proc->first_rx = 0;
     *frame = proc->frame_rx;
@@ -196,26 +188,19 @@ static void rx_rf(RU_t *ru, int *frame, int *slot)
         fp->slots_per_frame);
 
   if (proc->first_rx == 0) {
-    if (proc->tti_rx != *slot) {
-      LOG_E(PHY,
-            "Received Timestamp (%lu) doesn't correspond to the time we think it is (proc->tti_rx %d, slot %d)\n",
-            proc->timestamp_rx,
-            proc->tti_rx,
-            *slot);
-      exit_fun("Exiting");
-    }
-
-    if (proc->frame_rx != *frame) {
-      LOG_E(PHY,
-            "Received Timestamp (%lu) doesn't correspond to the time we think it is (proc->frame_rx %d frame %d, proc->tti_rx %d, "
-            "slot %d)\n",
-            proc->timestamp_rx,
-            proc->frame_rx,
-            *frame,
-            proc->tti_rx,
-            *slot);
-      exit_fun("Exiting");
-    }
+    AssertFatal(proc->tti_rx == *slot,
+                "Received Timestamp (%lu) doesn't correspond to the time we think it is (proc->tti_rx %d, slot %d)\n",
+                proc->timestamp_rx,
+                proc->tti_rx,
+                *slot);
+    AssertFatal(proc->frame_rx == *frame,
+                "Received Timestamp (%lu) doesn't correspond to the time we think it is (proc->frame_rx %d frame %d, proc->tti_rx "
+                "%d, slot %d)\n",
+                proc->timestamp_rx,
+                proc->frame_rx,
+                *frame,
+                proc->tti_rx,
+                *slot);
   } else {
     proc->first_rx = 0;
     *frame = proc->frame_rx;

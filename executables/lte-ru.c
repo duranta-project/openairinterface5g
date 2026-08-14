@@ -152,10 +152,7 @@ void fh_if5_south_in(RU_t *ru,
       *subframe=proc->tti_rx;
     }
 
-    if (proc->frame_rx != *frame) {
-      LOG_E(PHY,"Received Timestamp doesn't correspond to the time we think it is (proc->frame_rx %d frame %d)\n",proc->frame_rx,*frame);
-      exit_fun("Exiting");
-    }
+    AssertFatal(proc->frame_rx == *frame, "Received Timestamp doesn't correspond to the time we think it is (proc->frame_rx %d frame %d)\n",proc->frame_rx,*frame);
   } else {
     proc->first_rx = 0;
     *frame = proc->frame_rx;
@@ -233,13 +230,11 @@ void fh_if4p5_south_in(RU_t *ru,
     if (proc->tti_rx != *subframe) {
       LOG_E(PHY,"Received Timestamp (IF4p5) doesn't correspond to the time we think it is (proc->tti_rx %d, subframe %d, symbol_mask %x)\n", proc->tti_rx, *subframe, proc->symbol_mask[*subframe]);
       *subframe=sf;
-      //exit_fun("Exiting");
     }
 
     if (ru->cmd != WAIT_RESYNCH && proc->frame_rx != *frame) {
       LOG_E(PHY,"Received Timestamp (IF4p5) doesn't correspond to the time we think it is (proc->frame_rx %d frame %d,symbol_mask %x\n",
             proc->frame_rx,*frame,proc->symbol_mask[*subframe]);
-      //exit_fun("Exiting");
     } else if (ru->cmd == WAIT_RESYNCH && proc->frame_rx != *frame) {
       ru->cmd=EMPTY;
       *frame=proc->frame_rx;
@@ -311,15 +306,8 @@ void fh_if4p5_south_asynch_in(RU_t *ru,
       *subframe = proc->tti_rx;
       proc->first_rx = 0;
     } else {
-      if (proc->frame_rx != *frame) {
-        LOG_E(PHY,"frame_rx %d is not what we expect %d\n",proc->frame_rx,*frame);
-        exit_fun("Exiting");
-      }
-
-      if (proc->tti_rx != *subframe) {
-        LOG_E(PHY,"tti_rx %d is not what we expect %d\n",proc->tti_rx,*subframe);
-        exit_fun("Exiting");
-      }
+      AssertFatal(proc->frame_rx == *frame, "frame_rx %d is not what we expect %d\n",proc->frame_rx,*frame);
+      AssertFatal(proc->tti_rx == *subframe, "tti_rx %d is not what we expect %d\n",proc->tti_rx,*subframe);
     }
 
     if      (packet_type == IF4p5_PULFFT)       symbol_mask &= (~(1<<symbol_number));
@@ -602,15 +590,8 @@ void rx_rf(RU_t *ru,
   }
 
   if (proc->first_rx == 0) {
-    if (proc->tti_rx != *subframe) {
-      LOG_E(PHY,"Received Timestamp (%llu) doesn't correspond to the time we think it is (proc->tti_rx %d, subframe %d)\n",(long long unsigned int)proc->timestamp_rx,proc->tti_rx,*subframe);
-      exit_fun("Exiting");
-    }
-
-    if (proc->frame_rx != *frame) {
-      LOG_E(PHY,"Received Timestamp (%llu) doesn't correspond to the time we think it is (proc->frame_rx %d frame %d)\n",(long long unsigned int)proc->timestamp_rx,proc->frame_rx,*frame);
-      exit_fun("Exiting");
-    }
+    AssertFatal(proc->tti_rx == *subframe, "Received Timestamp (%llu) doesn't correspond to the time we think it is (proc->tti_rx %d, subframe %d)\n",(long long unsigned int)proc->timestamp_rx,proc->tti_rx,*subframe);
+    AssertFatal(proc->frame_rx == *frame, "Received Timestamp (%llu) doesn't correspond to the time we think it is (proc->frame_rx %d frame %d)\n",(long long unsigned int)proc->timestamp_rx,proc->frame_rx,*frame);
   } else {
     proc->first_rx = 0;
     *frame = proc->frame_rx;
@@ -848,18 +829,10 @@ void wakeup_slaves(RU_proc_t *proc)
     ret = pthread_mutex_unlock(&slave_proc->mutex_FH);
     AssertFatal(!ret, "mutex_unlock returns %d\n", ret);
 
-    if (cnt_slave == 0) {
-      // the thread was presumably waiting where it should and can now be woken up
-      if (pthread_cond_signal(&slave_proc->cond_FH) != 0) {
-        LOG_E( PHY, "ERROR pthread_cond_signal for RU %d, slave RU %d\n",proc->ru->idx,slave_proc->ru->idx);
-        exit_fun( "ERROR pthread_cond_signal" );
-        break;
-      }
-    } else {
-      LOG_W( PHY,"[RU] Frame %d, slave %d thread busy!! (cnt_FH %i)\n",slave_proc->frame_rx,slave_proc->ru->idx, cnt_slave);
-      exit_fun( "FH thread busy" );
-      break;
-    }
+    AssertFatal(cnt_slave == 0, "[RU] Frame %d, slave %d thread busy!! (cnt_FH %i)\n",slave_proc->frame_rx,slave_proc->ru->idx, cnt_slave);
+    // the thread was presumably waiting where it should and can now be woken up
+    ret = pthread_cond_signal(&slave_proc->cond_FH);
+    AssertFatal(ret == 0, "pthread_cond_signal() for RU %d, slave RU %d: ret %d %s\n",proc->ru->idx,slave_proc->ru->idx, ret, strerror(ret));
   }
 }
 
@@ -1959,10 +1932,8 @@ static void *eNB_thread_phy_tx( void *param ) {
       phy_procedures_eNB_TX(eNB_list[0], &L1_proc, 1);
       phy_tx_txdataF_end = 1;
 
-      if(pthread_mutex_lock(&ru->proc.mutex_rf_tx) != 0) {
-        LOG_E(PHY, "[RU] ERROR pthread_mutex_lock for rf tx thread (IC %d)\n", ru->proc.instance_cnt_rf_tx);
-        exit_fun("error locking mutex_rf_tx");
-      }
+      int ret = pthread_mutex_lock(&ru->proc.mutex_rf_tx);
+      AssertFatal(ret == 0, "pthread_mutex_lock() for rf tx thread (IC %d): ret %d %s\n", ru->proc.instance_cnt_rf_tx, ret, strerror(ret));
 
       if (ru->proc.instance_cnt_rf_tx==-1) {
         ++ru->proc.instance_cnt_rf_tx;
