@@ -105,7 +105,7 @@ int load_codinglib(void) {
      shlib_fdesc[ENCODE_C_FPTRIDX].fname=      "threegpplte_turbo_encoder";
      shlib_fdesc[ENCODE_INIT_SSE_FPTRIDX].fname=       "init_encoder_sse";
      ret=load_module_shlib("coding",shlib_fdesc,DECODE_NUM_FPTR,NULL);
-     if (ret < 0) exit_fun("Error loading coding library");
+     AssertFatal(ret >= 0, "Error loading coding library: ret %d\n", ret);
 
 /* execute encoder/decoder init functions */     
      shlib_fdesc[DECODE_INITTD8_SSE_FPTRIDX].fptr();

@@ -625,12 +625,9 @@ void* ru_thread_control( void* param )
 		pthread_mutex_lock(&proc->mutex_ru);
 		proc->instance_cnt_ru = 1;
 		pthread_mutex_unlock(&proc->mutex_ru);
-		if (pthread_cond_signal(&proc->cond_ru_thread) != 0) {
-		  LOG_E( PHY, "ERROR pthread_cond_signal for RU %d\n",ru->idx);
-		  exit_fun( "ERROR pthread_cond_signal" );
-		  break;
-		}
-	      }		
+		int ret = pthread_cond_signal(&proc->cond_ru_thread);
+		AssertFatal(ret == 0, "pthread_cond_signal() for RU %d: ret %d %s\n", ru->idx, ret, strerror(ret));
+	      }
 	      break;
 	    case RRU_config_update: //RRU
 	      if (ru->if_south == LOCAL_RF){
@@ -676,11 +673,8 @@ void* ru_thread_control( void* param )
 		  pthread_mutex_lock(&proc->mutex_ru);
 		  proc->instance_cnt_ru = 1;
 		  pthread_mutex_unlock(&proc->mutex_ru);
-		  if (pthread_cond_signal(&proc->cond_ru_thread) != 0) {
-		    LOG_E( PHY, "ERROR pthread_cond_signal for RU %d\n",ru->idx);
-		    exit_fun( "ERROR pthread_cond_signal" );
-		    break;
-		  }
+		  int ret = pthread_cond_signal(&proc->cond_ru_thread);
+		  AssertFatal(ret == 0, "pthread_cond_signal() for RU %d: ret %d %s\n", ru->idx, ret, strerror(ret));
 		}
 		else LOG_E(PHY,"RRU not ready, cannot start\n"); 
 		

@@ -175,11 +175,7 @@ void *nas_ue_task(void *args_p)
     if (msg_p != NULL) {
       instance = ITTI_MSG_DESTINATION_INSTANCE (msg_p);
       Mod_id = instance - NB_eNB_INST;
-      if (instance == INSTANCE_DEFAULT) {
-        printf("%s:%d: FATAL: instance is INSTANCE_DEFAULT, should not happen.\n",
-               __FILE__, __LINE__);
-        exit_fun("exit... \n");
-      }
+      AssertFatal(instance != INSTANCE_DEFAULT, "instance is INSTANCE_DEFAULT, should not happen.\n");
       nas_user_t *user = &users->item[Mod_id];
 
       switch (ITTI_MSG_ID(msg_p)) {
@@ -276,7 +272,7 @@ void *nas_ue_task(void *args_p)
       }
 
       result = itti_free (ITTI_MSG_ORIGIN_ID(msg_p), msg_p);
-      AssertFatal (result == EXIT_SUCCESS, "Failed to free memory (%d)!\n", result);
+      AssertFatal(result == EXIT_SUCCESS, "Failed to free memory (%d)!\n", result);
       msg_p = NULL;
     }
     struct epoll_event events[20];

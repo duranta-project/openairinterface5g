@@ -1028,11 +1028,8 @@ static inline int wakeup_thread(pthread_mutex_t *mutex,
   AssertFatal((rc = pthread_mutex_unlock(mutex))==0,"wakeup_thread(): error unlocking mutex for %s (%d %s, %p)\n", name, rc, strerror(rc), (void *)mutex);
 
   // the thread can now be woken up
-  if (pthread_cond_signal(cond) != 0) {
-    LOG_E( PHY, "ERROR pthread_cond_signal\n");
-    exit_fun( "ERROR pthread_cond_signal" );
-    return(-1);
-  }
+  rc = pthread_cond_signal(cond);
+  AssertFatal(rc == 0, "wakeup_thread(): pthread_cond_signal() for %s: ret %d %s\n", name, rc, strerror(rc));
 
   AssertFatal((rc = pthread_mutex_unlock(mutex))==0,"wakeup_thread(): error unlocking mutex for %s (%d %s, %p)\n", name, rc, strerror(rc), (void *)mutex);
   return(0);

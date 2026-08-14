@@ -3586,20 +3586,16 @@ void *UE_thread_slot1_dl_processing(void *arg) {
               threadname);
 
   while (!oai_exit) {
-    if (pthread_mutex_lock(&proc->mutex_slot1_dl_processing) != 0) {
-      LOG_E( PHY, "[SCHED][UE] error locking mutex for UE slot1 dl processing\n" );
-      exit_fun("nothing to add");
-    }
+    int ret = pthread_mutex_lock(&proc->mutex_slot1_dl_processing);
+    AssertFatal(ret == 0, "pthread_mutex_lock() for UE slot1 dl processing: ret %d %s\n", ret, strerror(ret));
 
     while (proc->instance_cnt_slot1_dl_processing < 0) {
       // most of the time, the thread is waiting here
       pthread_cond_wait( &proc->cond_slot1_dl_processing, &proc->mutex_slot1_dl_processing );
     }
 
-    if (pthread_mutex_unlock(&proc->mutex_slot1_dl_processing) != 0) {
-      LOG_E( PHY, "[SCHED][UE] error unlocking mutex for UE slot1 dl processing \n" );
-      exit_fun("nothing to add");
-    }
+    ret = pthread_mutex_unlock(&proc->mutex_slot1_dl_processing);
+    AssertFatal(ret == 0, "pthread_mutex_unlock() for UE slot1 dl processing: ret %d %s\n", ret, strerror(ret));
 
     /*for(int th_idx=0; th_idx< RX_NB_TH; th_idx++)
     {
@@ -3815,17 +3811,11 @@ void *UE_thread_slot1_dl_processing(void *arg) {
       LOG_D(PHY, "[AbsSFN %d.%d] Slot1: LLR Computation %5.2f \n",frame_rx,subframe_rx,ue->pdsch_procedures_per_slot_stat[ue->current_thread_id[subframe_rx]][1].p_time/(1000.0));
     }
 
-    if (pthread_mutex_lock(&proc->mutex_slot1_dl_processing) != 0) {
-      LOG_E( PHY, "[SCHED][UE] error locking mutex for UE RXTX\n" );
-      exit_fun("noting to add");
-    }
-
+    int ret = pthread_mutex_lock(&proc->mutex_slot1_dl_processing);
+    AssertFatal(ret == 0, "pthread_mutex_lock() failed: ret %d %s\n", ret, strerror(ret));
     proc->instance_cnt_slot1_dl_processing--;
-
-    if (pthread_mutex_unlock(&proc->mutex_slot1_dl_processing) != 0) {
-      LOG_E( PHY, "[SCHED][UE] error unlocking mutex for UE FEP Slo1\n" );
-      exit_fun("noting to add");
-    }
+    ret = pthread_mutex_unlock(&proc->mutex_slot1_dl_processing);
+    AssertFatal(ret == 0, "pthread_mutex_unlock() failed: ret %d %s\n", ret, strerror(ret));
   }
 
   // thread finished
@@ -3933,34 +3923,40 @@ int phy_procedures_slot_parallelization_UE_RX(PHY_VARS_UE *ue,
   proc->chan_est_slot1_available=0;
   //proc->channel_level=0;
 
-  if (pthread_mutex_lock(&proc->mutex_slot1_dl_processing) != 0) {
-    LOG_E( PHY, "[SCHED][UE %d][Slot0] error locking mutex for UE slot1 dl processing\n",ue->Mod_id );
-    exit_fun("nothing to add");
-  }
+  int ret = pthread_mutex_lock(&proc->mutex_slot1_dl_processing);
+  AssertFatal(ret == 0,
+              "[SCHED][UE %d][Slot0] pthread_mutex_lock() for UE slot1 dl processing: ret %d %s\n",
+              ue->Mod_id,
+              ret,
+              strerror(ret));
 
   proc->instance_cnt_slot1_dl_processing++;
 
   if (proc->instance_cnt_slot1_dl_processing == 0) {
     LOG_D(PHY,"unblock slot1 dl processing thread blocked on instance_cnt_slot1_dl_processing : %d \n", proc->instance_cnt_slot1_dl_processing );
 
-    if (pthread_cond_signal(&proc->cond_slot1_dl_processing) != 0) {
-      LOG_E( PHY, "[SCHED][UE %d][Slot0] ERROR pthread_cond_signal for UE slot1 processing thread\n", ue->Mod_id);
-      exit_fun("nothing to add");
-    }
+    ret = pthread_cond_signal(&proc->cond_slot1_dl_processing);
+    AssertFatal(ret == 0,
+                "[SCHED][UE %d][Slot0] pthread_cond_signal() for UE slot1 processing thread: ret %d %s\n",
+                ue->Mod_id,
+                ret,
+                strerror(ret));
 
-    if (pthread_mutex_unlock(&proc->mutex_slot1_dl_processing) != 0) {
-      LOG_E( PHY, "[SCHED][UE %d][Slot0] error unlocking mutex for UE slot1 dl processing \n",ue->Mod_id );
-      exit_fun("nothing to add");
-    }
+    ret = pthread_mutex_unlock(&proc->mutex_slot1_dl_processing);
+    AssertFatal(ret == 0,
+                "[SCHED][UE %d][Slot0] pthread_mutex_unlock() for UE slot1 dl processing: ret %d %s\n",
+                ue->Mod_id,
+                ret,
+                strerror(ret));
   } else {
     LOG_E( PHY, "[SCHED][UE %d] UE RX thread busy (IC %d)!!\n", ue->Mod_id, proc->instance_cnt_slot1_dl_processing);
-
-    if (proc->instance_cnt_slot1_dl_processing > 2)
-      exit_fun("instance_cnt_slot1_dl_processing > 2");
+    AssertFatal(proc->instance_cnt_slot1_dl_processing <= 2,
+                "instance_cnt_slot1_dl_processing %d > 2\n",
+                proc->instance_cnt_slot1_dl_processing);
   }
 
   //AssertFatal(pthread_cond_signal(&proc->cond_slot1_dl_processing) ==0 ,"");
-  int ret = pthread_mutex_unlock(&proc->mutex_slot1_dl_processing);
+  ret = pthread_mutex_unlock(&proc->mutex_slot1_dl_processing);
   AssertFatal(!ret, "%s", strerror(ret));
 
   /**** Slot0 FE Processing ****/
