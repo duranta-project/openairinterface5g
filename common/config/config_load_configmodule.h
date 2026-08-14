@@ -115,7 +115,7 @@ void write_parsedcfg(configmodule_interface_t *cfg);
 /* free all config module memory, to be used at end of program as
  * it will free parameters values even those specified with the PARAMFLAG_NOFREE flag */
 extern void free_configmodule(void);
-#define CONFIG_PRINTF_ERROR(f, x... ) {fprintf(stderr, f, x); exit_fun("exit because configuration failed\n"); }
+#define CONFIG_PRINTF_ERROR(f, x... ) {fprintf(stderr, f, x); fprintf(stderr, "configuration failed\n"); exit(1); }
 
 #ifdef __cplusplus
 }

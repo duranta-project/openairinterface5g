@@ -314,7 +314,7 @@ void thread_top_init(char *thread_name)
   if (s != 0)
   {
     perror( "pthread_getaffinity_np");
-    exit_fun("Error getting processor affinity ");
+    exit(1);
   }
   memset(cpu_affinity,0,sizeof(cpu_affinity));
   for (j = 0; j < 1024; j++)

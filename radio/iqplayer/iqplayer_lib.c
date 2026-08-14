@@ -244,7 +244,8 @@ static int trx_iqplayer_read(openair0_device_t *device, openair0_timestamp_t *pt
     if (s->wrap_count == device->openair0_cfg->recplay_conf->u_sf_loops) {
       LOG_W(HW, "iqplayer device terminating subframes replay  after %u iteration\n",
             device->openair0_cfg->recplay_conf->u_sf_loops);
-      exit_function(__FILE__, __FUNCTION__, __LINE__,"replay ended, triggering process termination\n", OAI_EXIT_NORMAL);
+      LOG_I(HW, "replay ended, triggering process termination\n");
+      exit(0);
     }
 
     if (s->wrap_count > 0) {

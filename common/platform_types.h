@@ -299,7 +299,6 @@ static inline int ceil_mod(const unsigned int v, const unsigned int mod)
   return ((v + mod - 1) / mod) * mod;
 }
 
-#define exit_fun(msg) exit_function(__FILE__, __FUNCTION__, __LINE__, "exit_fun", OAI_EXIT_NORMAL)
 #ifdef __cplusplus
 extern "C" {
 #endif

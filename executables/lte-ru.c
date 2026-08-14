@@ -603,9 +603,10 @@ void rx_rf(RU_t *ru,
 
   if (rxs != fp->samples_per_tti) {
 #if defined(USRP_REC_PLAY)
-    exit_fun("Exiting IQ record/playback");
+    printf("Exiting IQ record/playback");
+    iqrecorder_end(&ru->rfdevice);
+    exit(0);
 #else
-    //exit_fun( "problem receiving samples" );
     LOG_E(PHY, "problem receiving samples");
 #endif
   }

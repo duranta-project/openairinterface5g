@@ -237,7 +237,6 @@ int wake_eNB_rxtx(PHY_VARS_eNB *eNB, uint16_t sfn, uint16_t sf) {
   // lock the TX mutex and make sure the thread is ready
   if (pthread_mutex_timedlock(&L1_proc->mutex,&wait) != 0) {
       LOG_E( PHY, "[eNB] ERROR pthread_mutex_lock for eNB RXTX thread %d (IC %d)\n", L1_proc->subframe_rx&1,L1_proc->instance_cnt );
-      //exit_fun( "error locking mutex_rxtx" );
       return(-1);
   }
   static int busy_log_cnt=0;

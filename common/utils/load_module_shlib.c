@@ -36,7 +36,7 @@ void loader_init(void) {
   loader_data.shlibs = malloc(loader_data.maxshlibs * sizeof(loader_shlibdesc_t));
   if(loader_data.shlibs == NULL) {
      fprintf(stderr,"[LOADER]  %s %d memory allocation error %s\n",__FILE__, __LINE__,strerror(errno));
-     exit_fun("[LOADER] unrecoverable error");
+     exit(1);
   }
   memset(loader_data.shlibs,0,loader_data.maxshlibs * sizeof(loader_shlibdesc_t));
 }
@@ -80,7 +80,7 @@ static char *loader_format_shlibpath(char *modname, char *version)
   tmpstr = malloc(strlen(shlibpath) + strlen(modname) + strlen(shlibversion) + 16);
   if (tmpstr == NULL) {
     fprintf(stderr, "[LOADER] %s %d malloc error loading module %s, %s\n", __FILE__, __LINE__, modname, strerror(errno));
-    exit_fun("[LOADER] unrecoverable error");
+    exit(1);
   }
   if (shlibpath[0] != 0) {
     ret = sprintf(tmpstr, "%s/", shlibpath);
