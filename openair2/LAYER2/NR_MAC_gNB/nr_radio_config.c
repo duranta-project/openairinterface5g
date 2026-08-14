@@ -347,50 +347,6 @@ uint64_t get_ssb_bitmap(const NR_ServingCellConfigCommon_t *scc)
   return bitmap;
 }
 
-typedef enum {
-  CSI_RS,
-  CSI_MEASUREMENTS,
-  SRS
-} nr_periodic_channel_t;
-
-static bool check_periodicity(int val, int ideal_period, const frame_structure_t *fs)
-{
-  bool valid_periodicity_for_tdd_period = fs->frame_type == FDD ? true : (val % fs->numb_slots_period == 0);
-  return (ideal_period < val + 1) && valid_periodicity_for_tdd_period;
-}
-
-static int set_ideal_period(const nr_cell_sched_t *cell, nr_periodic_channel_t channel_type, int num_pucch_slot)
-{
-  const frame_structure_t *fs = &cell->frame_structure;
-  const int nb_slots_per_period = fs->numb_slots_period;
-  const int n_ul_slots_per_period = get_ul_slots_per_period(fs); // full UL + mixed with UL symbols
-  // 2 reports per UE (RSRP and RI-PMI-CQI)
-  switch (channel_type) {
-    case SRS: {
-      int srs_periodicities[17] = {1, 2, 4, 5, 8, 10, 16, 20, 32, 40, 64, 80, 160, 320, 640, 1280, 2560};
-      int srs_ideal_period = nb_slots_per_period * MAX_MOBILES_PER_GNB;
-      for (int i = 0; i < 17; i++) {
-        if (check_periodicity(srs_periodicities[i], srs_ideal_period, fs))
-          return srs_periodicities[i];
-      }
-      break;
-    }
-    case CSI_RS:
-    case CSI_MEASUREMENTS: {
-      int csi_periodicities[10] = {4, 5, 8, 10, 16, 20, 40, 80, 160, 320};
-      int csi_ideal_period = MAX_MOBILES_PER_GNB * 2 * nb_slots_per_period / (n_ul_slots_per_period * num_pucch_slot);
-      for (int i = 0; i < 10; i++) {
-        if (check_periodicity(csi_periodicities[i], csi_ideal_period, fs))
-          return csi_periodicities[i];
-      }
-      break;
-    }
-    default:
-      AssertFatal(false, "Invalid periodic channel type");
-  }
-  return 0;
-}
-
 static void set_csirs_periodicity(NR_NZP_CSI_RS_Resource_t *nzpcsi0,
                                   int offset,
                                   int ideal_period,

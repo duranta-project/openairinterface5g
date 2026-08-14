@@ -2667,12 +2667,21 @@ NR_UE_info_t *find_ra_UE(NR_UEs_t *UEs, rnti_t rntiP)
   return NULL;
 }
 
-void delete_nr_ue_data(NR_UE_info_t *UE, uid_allocator_t *uia)
+static void reset_srs_periodic_info(nr_cell_sched_t *cell, NR_sched_srs_t *sched_srs)
+{
+  if (cell->period_srs_sched && sched_srs->periodic_sched.periodic_offset >= 0) {
+    cell->period_srs_sched[sched_srs->periodic_sched.periodic_offset] = NULL;
+    sched_srs->periodic_sched.periodic_offset = -1;
+  }
+}
+
+void delete_nr_ue_data(gNB_MAC_INST *mac, NR_UE_info_t *UE)
 {
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
   ASN_STRUCT_FREE(asn_DEF_NR_UE_NR_Capability, UE->capability);
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  reset_srs_periodic_info(UE->pcell, &sched_ctrl->sched_srs);
   seq_arr_free(&sched_ctrl->lc_config, NULL);
   destroy_nr_list(&sched_ctrl->available_dl_harq);
   destroy_nr_list(&sched_ctrl->feedback_dl_harq);
@@ -2683,6 +2692,7 @@ void delete_nr_ue_data(NR_UE_info_t *UE, uid_allocator_t *uia)
   for (int i = 0; i < NR_MAX_HARQ_PROCESSES; ++i)
     free_transportBlock_buffer(&sched_ctrl->harq_processes[i].transportBlock);
   free_sched_pucch_list(sched_ctrl);
+  uid_allocator_t *uia = &mac->UE_info.uid_allocator;
   uid_linear_allocator_free(uia, UE->uid);
   LOG_I(NR_MAC, "Remove NR rnti 0x%04x\n", UE->rnti);
   free_and_zero(UE->ra);
@@ -2871,6 +2881,12 @@ void reset_sc_info(NR_UE_ServingCell_Info_t *sc_info)
 static void configure_sched_srs(nr_cell_sched_t *cell, NR_SRS_Config_t *srs_config, NR_sched_srs_t *sched_srs, NR_UE_info_t *UE)
 {
   nr_srs_type_t srs_type = cell->radio_config.do_SRS;
+  if (!srs_config || srs_type == NO_SRS) {
+    sched_srs->srs_resource = NULL;
+    reset_srs_periodic_info(cell, sched_srs);
+    return;
+  }
+
   NR_SRS_ResourceSet__resourceType_PR set_type = srs_type == PERIODIC_SRS ?
                                                  NR_SRS_ResourceSet__resourceType_PR_periodic :
                                                  NR_SRS_ResourceSet__resourceType_PR_aperiodic;
@@ -2886,8 +2902,9 @@ static void configure_sched_srs(nr_cell_sched_t *cell, NR_SRS_Config_t *srs_conf
   AssertFatal(srs_resource_set, "Couldn't find %s SRS resource set\n", srs_type == PERIODIC_SRS ? "periodic" : "aperiodic");
   sched_srs->usage = srs_resource_set->usage;
   if (srs_type == APERIODIC_SRS) {
-    sched_srs->aperiodic_slotOffset = srs_resource_set->resourceType.choice.aperiodic->slotOffset;
-    sched_srs->aperiodic_ResourceTrigger = srs_resource_set->resourceType.choice.aperiodic->aperiodicSRS_ResourceTrigger;
+    struct NR_SRS_ResourceSet__resourceType__aperiodic *aperiodic = srs_resource_set->resourceType.choice.aperiodic;
+    sched_srs->aperiodic_sched.aperiodic_slotOffset = aperiodic->slotOffset;
+    sched_srs->aperiodic_sched.aperiodic_ResourceTrigger = aperiodic->aperiodicSRS_ResourceTrigger;
   }
 
   NR_SRS_Resource__resourceType_PR res_type = srs_type == PERIODIC_SRS ?
@@ -2905,6 +2922,11 @@ static void configure_sched_srs(nr_cell_sched_t *cell, NR_SRS_Config_t *srs_conf
   }
   AssertFatal(srs_resource, "Couldn't find %s SRS resource\n", srs_type == PERIODIC_SRS ? "periodic" : "aperiodic");
   sched_srs->srs_resource = srs_resource;
+  if (srs_type == PERIODIC_SRS) {
+    sched_srs->periodic_sched.periodic_offset = get_nr_srs_offset(srs_resource->resourceType.choice.periodic->periodicityAndOffset_p);
+    DevAssert(sched_srs->periodic_sched.periodic_offset >= 0);
+    cell->period_srs_sched[sched_srs->periodic_sched.periodic_offset] = UE;
+  }
 }
 
 // main function to configure parameters of current BWP
@@ -3282,7 +3304,7 @@ bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   bool success = add_UE_to_list(MAX_MOBILES_PER_GNB, UE_info->connected_ue_list, UE);
   if (!success) {
     LOG_E(NR_MAC,"Try to add UE %04x but the list is full\n", UE->rnti);
-    delete_nr_ue_data(UE, &UE_info->uid_allocator);
+    delete_nr_ue_data(nr_mac, UE);
     return false;
   }
 
@@ -3290,8 +3312,9 @@ bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   sched_ctrl->dl_max_mcs = 28; /* do not limit MCS for individual UEs */
   sched_ctrl->pdcch_cl_adjust = 0;
   if (UE->pcell->radio_config.do_SRS == APERIODIC_SRS) {
-    nr_timer_setup(&sched_ctrl->sched_srs.aperiodic_srs_timer, 160, 1); // for now aperiodic hardcoded every 160 slots
-    nr_timer_start(&sched_ctrl->sched_srs.aperiodic_srs_timer);
+    // for now aperiodic hardcoded every 160 slots
+    nr_timer_setup(&sched_ctrl->sched_srs.aperiodic_sched.aperiodic_srs_timer, 160, 1);
+    nr_timer_start(&sched_ctrl->sched_srs.aperiodic_sched.aperiodic_srs_timer);
   }
   reset_srs_stats(UE);
 
@@ -3351,7 +3374,7 @@ void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti)
   NR_UEs_t *UE_info = &nr_mac->UE_info;
   NR_UE_info_t *UE = remove_UE_from_list(MAX_MOBILES_PER_GNB + 1, UE_info->connected_ue_list, rnti);
   if (UE)
-    delete_nr_ue_data(UE, &UE_info->uid_allocator);
+    delete_nr_ue_data(nr_mac, UE);
   else
     nr_release_ra_UE(nr_mac, rnti);
 }
@@ -3893,7 +3916,7 @@ void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
       nr_timer_stop(&sched_ctrl->tci_beam_switch);
       beam_switching_procedure(mac, cell, UE, sched_ctrl->UE_mac_ce_ctrl.tci_state_ind.tciStateId);
     }
-    nr_timer_tick(&sched_ctrl->sched_srs.aperiodic_srs_timer);
+    nr_timer_tick(&sched_ctrl->sched_srs.aperiodic_sched.aperiodic_srs_timer);
   }
 }
 

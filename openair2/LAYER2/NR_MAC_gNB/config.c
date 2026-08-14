@@ -36,6 +36,44 @@
 #include "nfapi_nr_interface_scf.h"
 #include "utils.h"
 
+static bool check_periodicity(int val, int ideal_period, const frame_structure_t *fs)
+{
+  bool valid_periodicity_for_tdd_period = fs->frame_type == FDD ? true : (val % fs->numb_slots_period == 0);
+  return (ideal_period < val + 1) && valid_periodicity_for_tdd_period;
+}
+
+int set_ideal_period(const nr_cell_sched_t *cell, nr_periodic_channel_t channel_type, int num_pucch_slot)
+{
+  const frame_structure_t *fs = &cell->frame_structure;
+  const int nb_slots_per_period = fs->numb_slots_period;
+  const int n_ul_slots_per_period = get_ul_slots_per_period(fs); // full UL + mixed with UL symbols
+  // 2 reports per UE (RSRP and RI-PMI-CQI)
+  switch (channel_type) {
+    case SRS: {
+      int srs_periodicities[17] = {1, 2, 4, 5, 8, 10, 16, 20, 32, 40, 64, 80, 160, 320, 640, 1280, 2560};
+      int srs_ideal_period = nb_slots_per_period * MAX_MOBILES_PER_GNB;
+      for (int i = 0; i < 17; i++) {
+        if (check_periodicity(srs_periodicities[i], srs_ideal_period, fs))
+          return srs_periodicities[i];
+      }
+      break;
+    }
+    case CSI_RS:
+    case CSI_MEASUREMENTS: {
+      int csi_periodicities[10] = {4, 5, 8, 10, 16, 20, 40, 80, 160, 320};
+      int csi_ideal_period = MAX_MOBILES_PER_GNB * 2 * nb_slots_per_period / (n_ul_slots_per_period * num_pucch_slot);
+      for (int i = 0; i < 10; i++) {
+        if (check_periodicity(csi_periodicities[i], csi_ideal_period, fs))
+          return csi_periodicities[i];
+      }
+      break;
+    }
+    default:
+      AssertFatal(false, "Invalid periodic channel type");
+  }
+  return 0;
+}
+
 c16_t convert_precoder_weight(double complex c_in)
 {
   return (c16_t) {.r = round(SHRT_MAX*creal(c_in)), .i = round(SHRT_MAX*cimag(c_in))};
@@ -929,6 +967,16 @@ static void init_ul_tda_info(const NR_PUSCH_TimeDomainResourceAllocationList_t *
   }
 }
 
+static void config_period_structures(nr_cell_sched_t *cell)
+{
+  // only SRS for now
+  if (cell->radio_config.do_SRS == PERIODIC_SRS) {
+    cell->srs_period = set_ideal_period(cell, SRS, 0);
+    AssertFatal(cell->srs_period > 0, "Invalid SRS periodicity\n");
+    cell->period_srs_sched = calloc_or_fail(cell->srs_period, sizeof(NR_UE_info_t *));
+  }
+}
+
 void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config)
 {
   DevAssert(nrmac != NULL);
@@ -962,6 +1010,7 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
   LOG_D(NR_MAC, "Configuring common parameters from NR ServingCellConfig\n");
 
   config_common(cell, config, scc);
+  config_period_structures(cell);
   fill_beam_index_list(scc, config, cell);
 
   if (NFAPI_MODE == NFAPI_MONOLITHIC) {
@@ -1270,7 +1319,7 @@ bool nr_mac_add_test_ue(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, uint32_t rnt
   bool res = add_connected_nr_ue(nrmac, UE);
   if (!res) {
     LOG_E(NR_MAC, "Error adding UE %04x\n", rnti);
-    delete_nr_ue_data(UE, &nrmac->UE_info.uid_allocator);
+    delete_nr_ue_data(nrmac, UE);
     NR_SCHED_UNLOCK(&nrmac->sched_lock);
     return false;
   }

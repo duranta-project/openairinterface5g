@@ -93,6 +93,12 @@ typedef enum {
   nrRA_WAIT_Msg4_MsgB_ACK,
 } RA_gNB_state_t;
 
+typedef enum {
+  CSI_RS,
+  CSI_MEASUREMENTS,
+  SRS
+} nr_periodic_channel_t;
+
 static const char *const nrra_text[] =
     {"IDLE", "Msg2", "WAIT_MsgA_PUSCH", "WAIT_Msg3", "Msg3_retransmission", "Msg4", "MsgB", "WAIT_Msg4_MsgB_ACK"};
 
@@ -640,11 +646,22 @@ typedef struct nr_power_control {
 } nr_power_control_t;
 
 typedef struct {
-  long usage;
-  NR_SRS_Resource_t *srs_resource;
   long *aperiodic_slotOffset;
   long aperiodic_ResourceTrigger;
   NR_timer_t aperiodic_srs_timer;
+} NR_sched_aperiodic_srs_t;
+
+typedef struct {
+  int periodic_offset;
+} NR_sched_periodic_srs_t;
+
+typedef struct {
+  long usage;
+  NR_SRS_Resource_t *srs_resource;
+  union {
+    NR_sched_aperiodic_srs_t aperiodic_sched;
+    NR_sched_periodic_srs_t periodic_sched;
+  };
 } NR_sched_srs_t;
 
 /*! \brief scheduling control information set through an API */
@@ -1287,6 +1304,8 @@ typedef struct nr_cell_sched_s {
   NR_Type0_PDCCH_CSS_config_t type0_PDCCH_CSS_config[MAX_NUM_OF_SSB];
   bool first_MIB;
   NR_sched_pdsch_t sib1_pdsch[MAX_NUM_OF_SSB];
+  NR_UE_info_t **period_srs_sched;
+  int srs_period;
 
   /// Dedicated UL TDA list, built from frame_structure at config time
   seq_arr_t ul_tda;

@@ -361,14 +361,15 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
     ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, cc->mib);
     ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, cc->sib1);
     ASN_STRUCT_FREE(asn_DEF_NR_ServingCellConfigCommon, cc->ServingCellConfigCommon);
+    free(cell->period_srs_sched);
   }
   NR_UEs_t *UE_info = &mac->UE_info;
   for (int i = 0; i < sizeofArray(UE_info->connected_ue_list); ++i)
     if (UE_info->connected_ue_list[i])
-      delete_nr_ue_data(UE_info->connected_ue_list[i], &UE_info->uid_allocator);
+      delete_nr_ue_data(mac, UE_info->connected_ue_list[i]);
   for (int i = 0; i < sizeofArray(UE_info->access_ue_list); ++i)
     if (UE_info->access_ue_list[i])
-      delete_nr_ue_data(UE_info->access_ue_list[i], &UE_info->uid_allocator);
+      delete_nr_ue_data(mac, UE_info->access_ue_list[i]);
   if (mac->f1_config.setup_resp)
     free_f1ap_setup_response(mac->f1_config.setup_resp);
   free(mac->f1_config.setup_resp);
