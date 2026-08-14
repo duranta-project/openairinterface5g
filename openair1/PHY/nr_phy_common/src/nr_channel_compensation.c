@@ -3,8 +3,6 @@
  */
 
 #include "nr_channel_compensation.h"
-#include "bits.h"
-#include <complex.h>
 #include "PHY/sse_intrin.h"
 #include "PHY/impl_defs_top.h"
 #ifdef __aarch64__
