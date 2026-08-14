@@ -548,7 +548,8 @@ static bool print_progress(const int dir, const struct thr_data *obs)
 int main(int argc, char *argv[])
 {
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == NULL) {
-    exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return -1;
   }
   logInit();
   itti_init(TASK_MAX, tasks_info);

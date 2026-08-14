@@ -432,7 +432,8 @@ int main( int argc, char **argv ) {
   uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY);
 
   if (uniqCfg == NULL) {
-    exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return 1;
   }
 
   mode = normal_txrx;

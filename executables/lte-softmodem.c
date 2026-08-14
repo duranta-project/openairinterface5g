@@ -372,7 +372,8 @@ int main ( int argc, char **argv )
   start_background_system();
 
   if ((uniqCfg = load_configmodule(argc, argv, 0)) == NULL) {
-    exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+    fprintf(stderr, "Error: configuration module init failed\n");
+    return 1;
   }
 
   mode = normal_txrx;

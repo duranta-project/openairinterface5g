@@ -27,7 +27,8 @@ void set_taus_seed(unsigned int seed_init){};
 int main(int argc, char **argv) {
   ///static configuration for NR at the moment
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == NULL) {
-    exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return -1;
   }
   set_softmodem_sighandler();
   setvbuf(stdout, NULL, _IONBF, 0);

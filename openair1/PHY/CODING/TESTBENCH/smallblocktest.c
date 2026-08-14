@@ -34,7 +34,8 @@ int main(int argc, char *argv[])
   int Qm = 2;
 
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == 0) {
-    exit_fun("[SMALLBLOCKTEST] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return -1;
   }
   logInit();
 

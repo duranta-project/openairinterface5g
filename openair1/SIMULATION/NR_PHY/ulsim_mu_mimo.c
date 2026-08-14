@@ -213,7 +213,8 @@ int main(int argc, char *argv[])
   int threequarter_fs = 0;
 
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == 0) {
-    exit_fun("[NR_ULSIM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return -1;
   }
   int ul_proc_error = 0; // uplink processing checking status flag
   randominit();
