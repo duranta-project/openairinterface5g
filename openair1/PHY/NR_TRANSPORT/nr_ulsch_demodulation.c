@@ -329,8 +329,10 @@ static void inner_rx(PHY_VARS_gNB *gNB,
     pusch_vars->ul_valid_re_per_slot[symbol] -= pusch_vars->ptrs_re_per_slot;
   }
   start_meas(ulsch_llr);
+  static int gnb_lbest = -1;
+  if (gnb_lbest < 0) { const char *e = getenv("OAI_LBEST"); gnb_lbest = e ? atoi(e) : 0; }
   if (nb_layer == 2) {
-    if (rel15_ul->qam_mod_order <= 6) {
+    if (rel15_ul->qam_mod_order <= 6 || (rel15_ul->qam_mod_order == 8 && gnb_lbest)) {
       nr_compute_ML_llr((c16_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
                         (c16_t *)&pusch_vars->rxdataF_comp[1][symbol * buffer_length],
                         rxF_ch_maga[0],
@@ -343,24 +345,27 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                         rel15_ul->qam_mod_order);
     }
     else {
-      nr_mmse_2layers(pusch_vars->rxdataF_comp,
-                      buffer_length,
-                      buffer_length,
-                      nb_rx_ant,
-                      nb_layer,
-                      rxF_ch_maga,
-                      rxF_ch_magb,
-                      rxF_ch_magc,
-                      chFext,
-                      rel15_ul->rb_size,
-                      rel15_ul->qam_mod_order,
-                      pusch_vars->log2_maxh,
-                      symbol,
-                      pusch_vars->ul_valid_re_per_slot[symbol],
-                      nvar);
+      // Fused Gram-fed 2-layer MMSE + scalar LLR (L=1). Replaces {nr_mmse_2layers + scalar loop}.
+      nr_compute_MMSE_llr(pusch_vars->rxdataF_comp,
+                          buffer_length,
+                          buffer_length,
+                          nb_rx_ant,
+                          nb_layer,
+                          rxF_ch_maga,
+                          rxF_ch_magb,
+                          rxF_ch_magc,
+                          chFext,
+                          rel15_ul->rb_size,
+                          rel15_ul->qam_mod_order,
+                          pusch_vars->log2_maxh,
+                          symbol,
+                          pusch_vars->ul_valid_re_per_slot[symbol],
+                          nvar,
+                          rho[0][0], rho[0][1], rho[1][0], rho[1][1],
+                          llr);
     }
   }
-  if (nb_layer != 2 || rel15_ul->qam_mod_order > 6)
+  if (nb_layer != 2) // 2-layer 256QAM MMSE is now handled inside nr_compute_MMSE_llr above
     for (int aatx = 0; aatx < nb_layer; aatx++)
       nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
                      rxF_ch_maga[aatx],
@@ -811,10 +816,22 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     for (int aarx = 0; aarx < num_sp_streams; aarx++)
       avgs = cmax(avgs, avg[nl * num_sp_streams + aarx]);
 
-  if (total_layers == 2 && rel15_ul_ref->qam_mod_order > 6)
-    joint_pv->log2_maxh = (log2_approx(avgs) >> 1) - 3; // for MMSE
-  else if (total_layers == 2)
-    joint_pv->log2_maxh = (log2_approx(avgs) >> 1) - 2 + log2_approx(num_sp_streams >> 1);
+  if (total_layers == 2 && rel15_ul_ref->qam_mod_order > 6) {
+    // 256QAM 2-layer: the full-ML detector wants a cooler LLR scale (-2) than the
+    // linear MMSE receiver (-3); -3 saturates the ML metric and loses ~1 dB, while
+    // -2 recovers the full ML gain over MMSE (verified on TDL-A). Selected by OAI_LBEST.
+    static int ml256 = -1;
+    if (ml256 < 0) { const char *e = getenv("OAI_LBEST"); ml256 = e ? atoi(e) : 0; }
+    // ML (ml256): use the same mod-order correction + antenna term as the qam<=6 2-layer branch
+    // below (nr_ml_llr_maxh_off(8) + log2_approx(num_sp_streams>>1)); at nb=4 that is -3+1 = -2,
+    // matching the prior fixed -2, but it now tracks the antenna count. MMSE (!ml256) keeps -3.
+    joint_pv->log2_maxh = (log2_approx(avgs) >> 1)
+        + (ml256 ? nr_ml_llr_maxh_off(rel15_ul_ref->qam_mod_order) + log2_approx(num_sp_streams >> 1) : -3);
+  } else if (total_layers == 2)
+    // 2-layer QPSK/16QAM/64QAM near-ML: mod-order-dependent LLR-hotness offset (a uniform -2 tuned
+    // for 256QAM over-heats the lower orders and loses the ML gain). Same table as the UE.
+    joint_pv->log2_maxh =
+        (log2_approx(avgs) >> 1) + nr_ml_llr_maxh_off(rel15_ul_ref->qam_mod_order) + log2_approx(num_sp_streams >> 1);
   else
     joint_pv->log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(num_sp_streams >> 1);
 

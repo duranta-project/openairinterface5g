@@ -120,6 +120,7 @@ add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test6 "4x4 MIMO, 1 Layer" nr_dlsim -
 add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test7 "4x4 MIMO, 2 Layers" nr_dlsim -P -n30 -s20 -U 3 0 0 2 -gA -x2 -y4 -z4)
 add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test8 "4x4 MIMO, 2 Layers 256 QAM" nr_dlsim -P -n30 -s25 -e22 -q1 -U 3 0 0 2 -gA -x2 -y4 -z4)
 add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test9 "4x4 MIMO, 4 Layers" nr_dlsim -P -n30 -s20 -U 3 0 0 2 -x4 -y4 -z4)
+add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test10 "4x4 MIMO, 3 Layers" nr_dlsim -P -n30 -s20 -U 3 0 0 2 -x3 -y4 -z4)
 add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test1 "3 PTRS, 8 Interpolated Symbols" nr_dlsim -P -n300 -s5 -T 2 2 2)
 add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test2 "6 PTRS, 5 Interpolated Symbols" nr_dlsim -P -n300 -s5 -T 2 1 2)
 add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test3 "11 PTRS, 0 Interpolated Symbols" nr_dlsim -P -n300 -s5 -T 2 0 4)

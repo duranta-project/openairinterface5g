@@ -24,15 +24,16 @@
 
 // #define DEBUG_HARQ(a...) printf(a)
 #define DEBUG_HARQ(...)
-//#define DEBUG_DLSCH_DEMOD
-//#define DEBUG_PDSCH_RX
+// #define DEBUG_DLSCH_DEMOD
+// #define DEBUG_PDSCH_RX
 
-#define print_ints(s,x) printf("%s = %d %d %d %d\n",s,(x)[0],(x)[1],(x)[2],(x)[3])
-#define print_shorts(s,x) printf("%s = [%d+j*%d, %d+j*%d, %d+j*%d, %d+j*%d]\n",s,(x)[0],(x)[1],(x)[2],(x)[3],(x)[4],(x)[5],(x)[6],(x)[7])
+#define print_ints(s, x) printf("%s = %d %d %d %d\n", s, (x)[0], (x)[1], (x)[2], (x)[3])
+#define print_shorts(s, x) \
+  printf("%s = [%d+j*%d, %d+j*%d, %d+j*%d, %d+j*%d]\n", s, (x)[0], (x)[1], (x)[2], (x)[3], (x)[4], (x)[5], (x)[6], (x)[7])
 
 static bool overlap_csi_symbol(fapi_nr_dl_config_csirs_pdu_rel15_t *csi_pdu, int symbol)
 {
-  int num_l0 [18] = {1, 1, 1, 1, 2, 1, 2, 2, 1, 2, 2, 2, 2, 2, 4, 2, 2, 4};
+  int num_l0[18] = {1, 1, 1, 1, 2, 1, 2, 2, 1, 2, 2, 2, 2, 2, 4, 2, 2, 4};
   for (int s = 0; s < num_l0[csi_pdu->row - 1]; s++) {
     if (symbol == csi_pdu->symb_l0 + s)
       return true;
@@ -135,7 +136,7 @@ static void nr_dlsch_channel_level_median(uint32_t rx_size_symbol,
           max = norm_pack;
         if (norm_pack < min)
           min = norm_pack;
-        dl_ch128+=1;
+        dl_ch128 += 1;
       }
 
       median[aatx][aarx] = (max + min) >> 1;
@@ -167,14 +168,9 @@ static void nr_dlsch_extract_rbs(uint32_t rxdataF_sz,
   int config_type = dlsch_config->dmrsConfigType;
   int n_dmrs_cdm_groups = dlsch_config->n_dmrs_cdm_groups;
   if (config_type == NFAPI_NR_DMRS_TYPE1)
-    AssertFatal(n_dmrs_cdm_groups == 1
-                || n_dmrs_cdm_groups == 2,
-                "n_dmrs_cdm_groups %d is illegal\n",
-                n_dmrs_cdm_groups);
+    AssertFatal(n_dmrs_cdm_groups == 1 || n_dmrs_cdm_groups == 2, "n_dmrs_cdm_groups %d is illegal\n", n_dmrs_cdm_groups);
   else
-    AssertFatal(n_dmrs_cdm_groups == 1
-                || n_dmrs_cdm_groups == 2 
-                || n_dmrs_cdm_groups == 3,
+    AssertFatal(n_dmrs_cdm_groups == 1 || n_dmrs_cdm_groups == 2 || n_dmrs_cdm_groups == 3,
                 "n_dmrs_cdm_groups %d is illegal\n",
                 n_dmrs_cdm_groups);
 
@@ -184,9 +180,9 @@ static void nr_dlsch_extract_rbs(uint32_t rxdataF_sz,
     if (config_type == NFAPI_NR_DMRS_TYPE1 && n_dmrs_cdm_groups == 1)
       dmrs_rb_bitmap = 0x555; // alternating REs starting from 0
     if (config_type == NFAPI_NR_DMRS_TYPE2 && n_dmrs_cdm_groups == 1)
-      dmrs_rb_bitmap = 0xc3;  // REs 0,1 and 6,7
+      dmrs_rb_bitmap = 0xc3; // REs 0,1 and 6,7
     if (config_type == NFAPI_NR_DMRS_TYPE2 && n_dmrs_cdm_groups == 2)
-      dmrs_rb_bitmap = 0x3cf;  // REs 0,1,2,3 and 6,7,8,9
+      dmrs_rb_bitmap = 0x3cf; // REs 0,1,2,3 and 6,7,8,9
   }
 
   // csi_res_bitmap LS 16 bits for even RBs, MS 16 bits for odd RBs
@@ -231,7 +227,7 @@ static void nr_dlsch_extract_rbs(uint32_t rxdataF_sz,
           int j = 0;
           int k = start_re;
           for (int rb = start_rb; rb < start_rb + nb_rb; rb++) {
-            uint32_t overlap_map = rb % 2 ?  dmrs_csi_overlap_odd : dmrs_csi_overlap_even;
+            uint32_t overlap_map = rb % 2 ? dmrs_csi_overlap_odd : dmrs_csi_overlap_even;
             for (int re = 0; re < NR_NB_SC_PER_RB; re++) {
               if (((overlap_map >> re) & 0x01) == 0) {
                 // DATA RE
@@ -263,7 +259,7 @@ void nr_a_sum_b(c16_t *input_x, c16_t *input_y, unsigned short nb_rb)
   simde__m128i *x = (simde__m128i *)input_x;
   simde__m128i *y = (simde__m128i *)input_y;
 
-  for (rb=0; rb<nb_rb; rb++) {
+  for (rb = 0; rb < nb_rb; rb++) {
     x[0] = simde_mm_adds_epi16(x[0], y[0]);
     x[1] = simde_mm_adds_epi16(x[1], y[1]);
     x[2] = simde_mm_adds_epi16(x[2], y[2]);
@@ -277,7 +273,7 @@ void nr_a_sum_b(c16_t *input_x, c16_t *input_y, unsigned short nb_rb)
 static inline void nr_element_sign(c16_t *a, c16_t *b, unsigned short nb_rb, int32_t sign)
 {
   const int16_t nr_sign[8] __attribute__((aligned(16))) = {-1, -1, -1, -1, -1, -1, -1, -1};
-  simde__m128i *a_128,*b_128;
+  simde__m128i *a_128, *b_128;
 
   a_128 = (simde__m128i *)a;
   b_128 = (simde__m128i *)b;
@@ -307,7 +303,7 @@ static void nr_determin(int size,
 {
   AssertFatal(size > 0, "impossible null size in nr_determin");
 
-  if(size==1) {
+  if (size == 1) {
     nr_element_sign(a44[0][0], // a
                     ad_bc, // b
                     nb_rb,
@@ -317,15 +313,17 @@ static void nr_determin(int size,
     c16_t outtemp[12 * nb_rb] __attribute__((aligned(32)));
     c16_t outtemp1[12 * nb_rb] __attribute__((aligned(32)));
     c16_t *sub_matrix[size - 1][size - 1];
-    for (int rtx=0;rtx<size;rtx++) {//row calculation for determin
-      int ctx=0;
-      //find the submatrix row and column indices
-      k=0;
-      for(int rrtx=0;rrtx<size;rrtx++)
-        if(rrtx != rtx) rr[k++] = rrtx;
-      k=0;
-      for(int cctx=0;cctx<size;cctx++)
-        if(cctx != ctx) cc[k++] = cctx;
+    for (int rtx = 0; rtx < size; rtx++) { // row calculation for determin
+      int ctx = 0;
+      // find the submatrix row and column indices
+      k = 0;
+      for (int rrtx = 0; rrtx < size; rrtx++)
+        if (rrtx != rtx)
+          rr[k++] = rrtx;
+      k = 0;
+      for (int cctx = 0; cctx < size; cctx++)
+        if (cctx != ctx)
+          cc[k++] = cctx;
       // fill out the sub matrix corresponds to this element
 
       for (int ridx = 0; ridx < (size - 1); ridx++)
@@ -351,35 +349,37 @@ static double complex nr_determin_cpx(int32_t size, // size
                                       int32_t sign)
 {
   double complex outtemp, outtemp1;
-  //Allocate the submatrix elements
+  // Allocate the submatrix elements
   DevAssert(size > 0);
-  if(size==1) {
+  if (size == 1) {
     return (a44_cpx[0][0] * sign);
-  }else {
+  } else {
     double complex sub_matrix[size - 1][size - 1];
     int16_t k, rr[size - 1], cc[size - 1];
     outtemp1 = 0;
-    for (int rtx=0;rtx<size;rtx++) {//row calculation for determin
-      int ctx=0;
-      //find the submatrix row and column indices
-      k=0;
-      for(int rrtx=0;rrtx<size;rrtx++)
-        if(rrtx != rtx) rr[k++] = rrtx;
-      k=0;
-      for(int cctx=0;cctx<size;cctx++)
-        if(cctx != ctx) cc[k++] = cctx;
-      //fill out the sub matrix corresponds to this element
-       for (int ridx=0;ridx<(size-1);ridx++)
-         for (int cidx=0;cidx<(size-1);cidx++)
-           sub_matrix[cidx][ridx] = a44_cpx[cc[cidx]][rr[ridx]];
+    for (int rtx = 0; rtx < size; rtx++) { // row calculation for determin
+      int ctx = 0;
+      // find the submatrix row and column indices
+      k = 0;
+      for (int rrtx = 0; rrtx < size; rrtx++)
+        if (rrtx != rtx)
+          rr[k++] = rrtx;
+      k = 0;
+      for (int cctx = 0; cctx < size; cctx++)
+        if (cctx != ctx)
+          cc[k++] = cctx;
+      // fill out the sub matrix corresponds to this element
+      for (int ridx = 0; ridx < (size - 1); ridx++)
+        for (int cidx = 0; cidx < (size - 1); cidx++)
+          sub_matrix[cidx][ridx] = a44_cpx[cc[cidx]][rr[ridx]];
 
-       outtemp = nr_determin_cpx(size - 1,
-                                 sub_matrix, // a33
-                                 ((rtx & 1) == 1 ? -1 : 1) * ((ctx & 1) == 1 ? -1 : 1) * sign);
-       outtemp1 += a44_cpx[ctx][rtx] * outtemp;
+      outtemp = nr_determin_cpx(size - 1,
+                                sub_matrix, // a33
+                                ((rtx & 1) == 1 ? -1 : 1) * ((ctx & 1) == 1 ? -1 : 1) * sign);
+      outtemp1 += a44_cpx[ctx][rtx] * outtemp;
     }
 
-    return((double complex)outtemp1);
+    return ((double complex)outtemp1);
   }
 }
 
@@ -396,22 +396,22 @@ uint8_t nr_matrix_inverse(int32_t size,
                           int32_t shift0)
 {
   DevAssert(size > 1);
-  int16_t k,rr[size-1],cc[size-1];
+  int16_t k, rr[size - 1], cc[size - 1];
 
-  if(flag) {//fixed point SIMD calc.
-    //Allocate the submatrix elements
+  if (flag) { // fixed point SIMD calc.
+    // Allocate the submatrix elements
     c16_t *sub_matrix[size - 1][size - 1];
 
-    //Compute Matrix determinant
+    // Compute Matrix determinant
     nr_determin(size,
                 a44, //
                 ad_bc, // determinant
                 nb_rb,
                 +1,
                 shift0);
-    //print_shorts("nr_det_",(int16_t*)&ad_bc[0]);
+    // print_shorts("nr_det_",(int16_t*)&ad_bc[0]);
 
-    //Compute Inversion of the H^*H matrix
+    // Compute Inversion of the H^*H matrix
     /* For 2x2 MIMO matrix, we compute
      * *        |(conj_H_00xH_00+conj_H_10xH_10)   (conj_H_00xH_01+conj_H_10xH_11)|
      * * H_h_H= |                                                                 |
@@ -420,20 +420,22 @@ uint8_t nr_matrix_inverse(int32_t size,
      * *inv(H_h_H) =(1/det)*[d  -b
      * *                     -c  a]
      * **************************************************************************/
-    for (int rtx=0;rtx<size;rtx++) {//row
-      k=0;
-      for(int rrtx=0;rrtx<size;rrtx++)
-        if(rrtx != rtx) rr[k++] = rrtx;
-      for (int ctx=0;ctx<size;ctx++) {//column
-        k=0;
-        for(int cctx=0;cctx<size;cctx++)
-          if(cctx != ctx) cc[k++] = cctx;
+    for (int rtx = 0; rtx < size; rtx++) { // row
+      k = 0;
+      for (int rrtx = 0; rrtx < size; rrtx++)
+        if (rrtx != rtx)
+          rr[k++] = rrtx;
+      for (int ctx = 0; ctx < size; ctx++) { // column
+        k = 0;
+        for (int cctx = 0; cctx < size; cctx++)
+          if (cctx != ctx)
+            cc[k++] = cctx;
 
-        //fill out the sub matrix corresponds to this element
-        for (int ridx=0;ridx<(size-1);ridx++)
-          for (int cidx=0;cidx<(size-1);cidx++)
+        // fill out the sub matrix corresponds to this element
+        for (int ridx = 0; ridx < (size - 1); ridx++)
+          for (int cidx = 0; cidx < (size - 1); cidx++)
             // To verify
-            sub_matrix[cidx][ridx]=a44[cc[cidx]][rr[ridx]];
+            sub_matrix[cidx][ridx] = a44[cc[cidx]][rr[ridx]];
 
         nr_determin(size - 1, // size
                     sub_matrix,
@@ -443,54 +445,56 @@ uint8_t nr_matrix_inverse(int32_t size,
                     shift0);
       }
     }
-  }
-  else {//floating point calc.
-    //Allocate the submatrix elements
+  } else { // floating point calc.
+    // Allocate the submatrix elements
     double complex sub_matrix_cpx[size - 1][size - 1];
-    //Convert the IQ samples (in Q15 format) to float complex
+    // Convert the IQ samples (in Q15 format) to float complex
     double complex a44_cpx[size][size];
     double complex inv_H_h_H_cpx[size][size];
     double complex determin_cpx;
-    for (int i=0; i<12*nb_rb; i++) {
-
-      //Convert Q15 to floating point
-      for (int rtx=0;rtx<size;rtx++) {//row
-        for (int ctx=0;ctx<size;ctx++) {//column
+    for (int i = 0; i < 12 * nb_rb; i++) {
+      // Convert Q15 to floating point
+      for (int rtx = 0; rtx < size; rtx++) { // row
+        for (int ctx = 0; ctx < size; ctx++) { // column
           a44_cpx[ctx][rtx] =
               ((double)(a44[ctx][rtx])[i].r) / (1 << (shift0 - 1)) + I * ((double)(a44[ctx][rtx])[i].i) / (1 << (shift0 - 1));
         }
       }
-      //Compute Matrix determinant (copy real value only)
+      // Compute Matrix determinant (copy real value only)
       determin_cpx = nr_determin_cpx(size,
                                      a44_cpx, //
                                      +1);
-      //if (i<4) printf("order %d nr_det_cpx = %lf+j%lf \n",log2_approx(creal(determin_cpx)),creal(determin_cpx),cimag(determin_cpx));
+      // if (i<4) printf("order %d nr_det_cpx = %lf+j%lf
+      // \n",log2_approx(creal(determin_cpx)),creal(determin_cpx),cimag(determin_cpx));
 
-      //Round and convert to Q15 (Out in the same format as Fixed point).
-      if (creal(determin_cpx)>0) {//determin of the symmetric matrix is real part only
+      // Round and convert to Q15 (Out in the same format as Fixed point).
+      if (creal(determin_cpx) > 0) { // determin of the symmetric matrix is real part only
         ((short *)ad_bc)[i << 1] = (short)((creal(determin_cpx) * (1 << (shift0))) + 0.5); //
       } else {
         ((short *)ad_bc)[i << 1] = (short)((creal(determin_cpx) * (1 << (shift0))) - 0.5); //
       }
-      //Compute Inversion of the H^*H matrix (normalized output divide by determinant)
-      for (int rtx=0;rtx<size;rtx++) {//row
-        k=0;
-        for(int rrtx=0;rrtx<size;rrtx++)
-          if(rrtx != rtx) rr[k++] = rrtx;
-        for (int ctx=0;ctx<size;ctx++) {//column
-          k=0;
-          for(int cctx=0;cctx<size;cctx++)
-            if(cctx != ctx) cc[k++] = cctx;
+      // Compute Inversion of the H^*H matrix (normalized output divide by determinant)
+      for (int rtx = 0; rtx < size; rtx++) { // row
+        k = 0;
+        for (int rrtx = 0; rrtx < size; rrtx++)
+          if (rrtx != rtx)
+            rr[k++] = rrtx;
+        for (int ctx = 0; ctx < size; ctx++) { // column
+          k = 0;
+          for (int cctx = 0; cctx < size; cctx++)
+            if (cctx != ctx)
+              cc[k++] = cctx;
 
-          //fill out the sub matrix corresponds to this element
-          for (int ridx=0;ridx<(size-1);ridx++)
-            for (int cidx=0;cidx<(size-1);cidx++)
+          // fill out the sub matrix corresponds to this element
+          for (int ridx = 0; ridx < (size - 1); ridx++)
+            for (int cidx = 0; cidx < (size - 1); cidx++)
               sub_matrix_cpx[cidx][ridx] = a44_cpx[cc[cidx]][rr[ridx]];
 
           inv_H_h_H_cpx[rtx][ctx] = nr_determin_cpx(size - 1, // size,
                                                     sub_matrix_cpx, //
                                                     ((rtx & 1) == 1 ? -1 : 1) * ((ctx & 1) == 1 ? -1 : 1));
-          //if (i==0) printf("H_h_H(r%d,c%d)=%lf+j%lf --> inv_H_h_H(%d,%d) = %lf+j%lf \n",rtx,ctx,creal(a44_cpx[ctx*size+rtx]),cimag(a44_cpx[ctx*size+rtx]),ctx,rtx,creal(inv_H_h_H_cpx[rtx*size+ctx]),cimag(inv_H_h_H_cpx[rtx*size+ctx]));
+          // if (i==0) printf("H_h_H(r%d,c%d)=%lf+j%lf --> inv_H_h_H(%d,%d) = %lf+j%lf
+          // \n",rtx,ctx,creal(a44_cpx[ctx*size+rtx]),cimag(a44_cpx[ctx*size+rtx]),ctx,rtx,creal(inv_H_h_H_cpx[rtx*size+ctx]),cimag(inv_H_h_H_cpx[rtx*size+ctx]));
 
           if (creal(inv_H_h_H_cpx[rtx][ctx]) > 0)
             inv_H_h_H[rtx][ctx][i].r = (short)((creal(inv_H_h_H_cpx[rtx][ctx]) * (1 << (shift0 - 1))) + 0.5); // Convert to Q 18
@@ -502,12 +506,13 @@ uint8_t nr_matrix_inverse(int32_t size,
           else
             inv_H_h_H[rtx][ctx][i].i = (short)((cimag(inv_H_h_H_cpx[rtx][ctx]) * (1 << (shift0 - 1))) - 0.5); //
 
-          //if (i<4) printf("inv_H_h_H_FP(%d,%d)= %d+j%d \n",ctx,rtx, ((short *) inv_H_h_H[rtx*size+ctx])[i<<1],((short *) inv_H_h_H[rtx*size+ctx])[(i<<1)+1]);
+          // if (i<4) printf("inv_H_h_H_FP(%d,%d)= %d+j%d \n",ctx,rtx, ((short *) inv_H_h_H[rtx*size+ctx])[i<<1],((short *)
+          // inv_H_h_H[rtx*size+ctx])[(i<<1)+1]);
         }
       }
     }
   }
-  return(0);
+  return (0);
 }
 
 /* Zero Forcing Rx function: nr_conjch0_mult_ch1()
@@ -517,7 +522,7 @@ uint8_t nr_matrix_inverse(int32_t size,
 // TODO: This function is just a wrapper, can be removed.
 void nr_conjch0_mult_ch1(c16_t *ch0, c16_t *ch1, c16_t *ch0conj_ch1, unsigned short nb_rb, unsigned char output_shift0)
 {
-  //This function is used to compute multiplications in H_hermitian * H matrix
+  // This function is used to compute multiplications in H_hermitian * H matrix
   mult_cpx_conj_vector(ch0, ch1, ch0conj_ch1, 12 * nb_rb, output_shift0);
 }
 
@@ -536,12 +541,13 @@ static void nr_dlsch_mmse(uint32_t pdsch_buf_size_max,
                           unsigned char mod_order,
                           int shift,
                           int length,
-                          uint32_t noise_var)
+                          uint32_t noise_var,
+                          c16_t rho[nl * nl][pdsch_buf_size_max])
 {
   uint32_t nb_rb_0 = (length + 11) / 12;
   c16_t determ_fin[12 * nb_rb_0] __attribute__((aligned(32)));
 
-  ///Allocate H^*H matrix elements and sub elements
+  /// Allocate H^*H matrix elements and sub elements
   c16_t conjH_H_elements_data[n_rx][nl][nl][12 * nb_rb_0];
   memset(conjH_H_elements_data, 0, sizeof(conjH_H_elements_data));
   c16_t *conjH_H_elements[n_rx][nl][nl];
@@ -550,19 +556,29 @@ static void nr_dlsch_mmse(uint32_t pdsch_buf_size_max,
       for (int ctx = 0; ctx < nl; ctx++)
         conjH_H_elements[aarx][rtx][ctx] = conjH_H_elements_data[aarx][rtx][ctx];
 
-  //Compute H^*H matrix elements and sub elements:(1/2^log2_maxh)*conjH_H_elements
-  for (int rtx = 0; rtx < nl; rtx++) {//row
-    for (int ctx = 0; ctx < nl; ctx++) {//column
-      for (int aarx = 0; aarx < n_rx; aarx++)  {
-        c16_t *ch0r = (c16_t *)dl_ch_estimates_ext[rtx * n_rx + aarx];
-        c16_t *ch0c = (c16_t *)dl_ch_estimates_ext[ctx * n_rx + aarx];
-        nr_conjch0_mult_ch1(ch0r,
-                            ch0c,
-                            conjH_H_elements[aarx][ctx][rtx], // sic
-                            nb_rb_0,
-                            shift);
-        if (aarx != 0)
-          nr_a_sum_b(conjH_H_elements[0][ctx][rtx], conjH_H_elements[aarx][ctx][rtx], nb_rb_0);
+  // Compute H^*H matrix elements and sub elements:(1/2^log2_maxh)*conjH_H_elements
+  if (rho) {
+    // Gram-based: rho already holds Sum_rx conj(ch_i)*ch_j >> log2_maxh (the full nl x nl Gram,
+    // diagonal included), at the same scale conjH_H uses. The chFext-based build below re-derives
+    // exactly this. conjH_H[ctx][rtx] = conj(ch_rtx)*ch_ctx = rho[rtx][ctx] (flat: rho[rtx*nl+ctx]).
+    // (Conjugate/transpose direction validated against the chFext path in dlsim.)
+    for (int rtx = 0; rtx < nl; rtx++)
+      for (int ctx = 0; ctx < nl; ctx++)
+        memcpy(conjH_H_elements[0][ctx][rtx], rho[rtx * nl + ctx], length * sizeof(c16_t));
+  } else {
+    for (int rtx = 0; rtx < nl; rtx++) { // row
+      for (int ctx = 0; ctx < nl; ctx++) { // column
+        for (int aarx = 0; aarx < n_rx; aarx++) {
+          c16_t *ch0r = (c16_t *)dl_ch_estimates_ext[rtx * n_rx + aarx];
+          c16_t *ch0c = (c16_t *)dl_ch_estimates_ext[ctx * n_rx + aarx];
+          nr_conjch0_mult_ch1(ch0r,
+                              ch0c,
+                              conjH_H_elements[aarx][ctx][rtx], // sic
+                              nb_rb_0,
+                              shift);
+          if (aarx != 0)
+            nr_a_sum_b(conjH_H_elements[0][ctx][rtx], conjH_H_elements[aarx][ctx][rtx], nb_rb_0);
+        }
       }
     }
   }
@@ -579,8 +595,8 @@ static void nr_dlsch_mmse(uint32_t pdsch_buf_size_max,
     }
   }
 
-  //Compute the inverse and determinant of the H^*H matrix
-  //Allocate the inverse matrix
+  // Compute the inverse and determinant of the H^*H matrix
+  // Allocate the inverse matrix
   c16_t *inv_H_h_H[nl][nl];
   c16_t inv_H_h_H_data[nl][nl][12 * nb_rb_0];
   memset(inv_H_h_H_data, 0, sizeof(inv_H_h_H_data));
@@ -588,7 +604,7 @@ static void nr_dlsch_mmse(uint32_t pdsch_buf_size_max,
     for (int ctx = 0; ctx < nl; ctx++)
       inv_H_h_H[ctx][rtx] = inv_H_h_H_data[ctx][rtx];
 
-  int fp_flag = 1;//0: float point calc 1: Fixed point calc
+  int fp_flag = 1; // 0: float point calc 1: Fixed point calc
   nr_matrix_inverse(nl,
                     conjH_H_elements[0], // Input matrix
                     inv_H_h_H, // Inverse
@@ -599,74 +615,70 @@ static void nr_dlsch_mmse(uint32_t pdsch_buf_size_max,
 
   // multiply Matrix inversion pf H_h_H by the rx signal vector
   c16_t outtemp[12 * nb_rb_0] __attribute__((aligned(32)));
-  //Allocate rxdataF for zforcing out
+  // Allocate rxdataF for zforcing out
   c16_t rxdataF_zforcing[nl][12 * nb_rb_0];
   memset(rxdataF_zforcing, 0, sizeof(rxdataF_zforcing));
 
-  for (int rtx = 0; rtx < nl; rtx++) {//Output Layers row
+  for (int rtx = 0; rtx < nl; rtx++) { // Output Layers row
     // loop over Layers rtx=0,...,N_Layers-1
     for (int ctx = 0; ctx < nl; ctx++) { // column multi
       // printf("Computing r_%d c_%d\n",rtx,ctx);
       // print_shorts(" H_h_H=",(int16_t*)&conjH_H_elements[ctx*nl+rtx][0][0]);
       // print_shorts(" Inv_H_h_H=",(int16_t*)&inv_H_h_H[ctx*nl+rtx][0]);
-      mult_complex_vectors(inv_H_h_H[ctx][rtx],
-                           rxdataF_comp[ctx],
-                           outtemp,
-                           sizeofArray(outtemp),
-                           shift - (fp_flag == 1 ? 1 : 0));
+      mult_complex_vectors(inv_H_h_H[ctx][rtx], rxdataF_comp[ctx], outtemp, sizeofArray(outtemp), shift - (fp_flag == 1 ? 1 : 0));
       nr_a_sum_b(rxdataF_zforcing[rtx], outtemp, nb_rb_0); // a = a + b
     }
 #ifdef DEBUG_DLSCH_DEMOD
     printf("Computing layer_%d \n", rtx);
-    print_shorts(" Rx signal:=", (int16_t*)&rxdataF_zforcing[rtx][0]);
-    print_shorts(" Rx signal:=", (int16_t*)&rxdataF_zforcing[rtx][4]);
-    print_shorts(" Rx signal:=", (int16_t*)&rxdataF_zforcing[rtx][8]);
+    print_shorts(" Rx signal:=", (int16_t *)&rxdataF_zforcing[rtx][0]);
+    print_shorts(" Rx signal:=", (int16_t *)&rxdataF_zforcing[rtx][4]);
+    print_shorts(" Rx signal:=", (int16_t *)&rxdataF_zforcing[rtx][8]);
 #endif
   }
 
-  //Copy zero_forcing out to output array
+  // Copy zero_forcing out to output array
   for (int rtx = 0; rtx < nl; rtx++)
     nr_element_sign(rxdataF_zforcing[rtx], rxdataF_comp[rtx], nb_rb_0, +1);
 
-  //Update LLR thresholds with the Matrix determinant
-  simde__m128i *dl_ch_mag128_0=NULL,*dl_ch_mag128b_0=NULL,*dl_ch_mag128r_0=NULL,*determ_fin_128;
-  simde__m128i mmtmpD2,mmtmpD3;
-  simde__m128i QAM_amp128={0},QAM_amp128b={0},QAM_amp128r={0};
-  short nr_realpart[8]__attribute__((aligned(16))) = {1,0,1,0,1,0,1,0};
-  determ_fin_128      = (simde__m128i *)&determ_fin[0];
+  // Update LLR thresholds with the Matrix determinant
+  simde__m128i *dl_ch_mag128_0 = NULL, *dl_ch_mag128b_0 = NULL, *dl_ch_mag128r_0 = NULL, *determ_fin_128;
+  simde__m128i mmtmpD2, mmtmpD3;
+  simde__m128i QAM_amp128 = {0}, QAM_amp128b = {0}, QAM_amp128r = {0};
+  short nr_realpart[8] __attribute__((aligned(16))) = {1, 0, 1, 0, 1, 0, 1, 0};
+  determ_fin_128 = (simde__m128i *)&determ_fin[0];
 
   if (mod_order > 2) {
     if (mod_order == 4) {
-      QAM_amp128 = simde_mm_set1_epi16(QAM16_n1);  //2/sqrt(10)
+      QAM_amp128 = simde_mm_set1_epi16(QAM16_n1); // 2/sqrt(10)
       QAM_amp128b = simde_mm_setzero_si128();
       QAM_amp128r = simde_mm_setzero_si128();
     } else if (mod_order == 6) {
-      QAM_amp128  = simde_mm_set1_epi16(QAM64_n1); //4/sqrt{42}
-      QAM_amp128b = simde_mm_set1_epi16(QAM64_n2); //2/sqrt{42}
+      QAM_amp128 = simde_mm_set1_epi16(QAM64_n1); // 4/sqrt{42}
+      QAM_amp128b = simde_mm_set1_epi16(QAM64_n2); // 2/sqrt{42}
       QAM_amp128r = simde_mm_setzero_si128();
     } else if (mod_order == 8) {
-      QAM_amp128 = simde_mm_set1_epi16(QAM256_n1); //8/sqrt{170}
-      QAM_amp128b = simde_mm_set1_epi16(QAM256_n2);//4/sqrt{170}
-      QAM_amp128r = simde_mm_set1_epi16(QAM256_n3);//2/sqrt{170}
+      QAM_amp128 = simde_mm_set1_epi16(QAM256_n1); // 8/sqrt{170}
+      QAM_amp128b = simde_mm_set1_epi16(QAM256_n2); // 4/sqrt{170}
+      QAM_amp128r = simde_mm_set1_epi16(QAM256_n3); // 2/sqrt{170}
     }
     dl_ch_mag128_0 = (simde__m128i *)dl_ch_mag[0];
     dl_ch_mag128b_0 = (simde__m128i *)dl_ch_magb[0];
     dl_ch_mag128r_0 = (simde__m128i *)dl_ch_magr[0];
 
     for (int rb = 0; rb < 3 * nb_rb_0; rb++) {
-      //for symmetric H_h_H matrix, the determinant is only real values
-      mmtmpD2 = simde_mm_sign_epi16(determ_fin_128[0],*(simde__m128i*)&nr_realpart[0]);//set imag part to 0
-      mmtmpD3 = simde_mm_shufflelo_epi16(mmtmpD2,SIMDE_MM_SHUFFLE(2,3,0,1));
-      mmtmpD3 = simde_mm_shufflehi_epi16(mmtmpD3,SIMDE_MM_SHUFFLE(2,3,0,1));
-      mmtmpD2 = simde_mm_add_epi16(mmtmpD2,mmtmpD3);
+      // for symmetric H_h_H matrix, the determinant is only real values
+      mmtmpD2 = simde_mm_sign_epi16(determ_fin_128[0], *(simde__m128i *)&nr_realpart[0]); // set imag part to 0
+      mmtmpD3 = simde_mm_shufflelo_epi16(mmtmpD2, SIMDE_MM_SHUFFLE(2, 3, 0, 1));
+      mmtmpD3 = simde_mm_shufflehi_epi16(mmtmpD3, SIMDE_MM_SHUFFLE(2, 3, 0, 1));
+      mmtmpD2 = simde_mm_add_epi16(mmtmpD2, mmtmpD3);
 
       dl_ch_mag128_0[0] = mmtmpD2;
       dl_ch_mag128b_0[0] = mmtmpD2;
       dl_ch_mag128r_0[0] = mmtmpD2;
 
       dl_ch_mag128_0[0] = simde_mm_mulhrs_epi16(dl_ch_mag128_0[0], QAM_amp128);
-      dl_ch_mag128b_0[0] = simde_mm_mulhrs_epi16(dl_ch_mag128b_0[0],QAM_amp128b);
-      dl_ch_mag128r_0[0] = simde_mm_mulhrs_epi16(dl_ch_mag128r_0[0],QAM_amp128r);
+      dl_ch_mag128b_0[0] = simde_mm_mulhrs_epi16(dl_ch_mag128b_0[0], QAM_amp128b);
+      dl_ch_mag128r_0[0] = simde_mm_mulhrs_epi16(dl_ch_mag128r_0[0], QAM_amp128r);
 
       determ_fin_128 += 1;
       dl_ch_mag128_0 += 1;
@@ -710,23 +722,23 @@ static int nr_dlsch_llr(const NR_UE_DLSCH_t *dlsch,
                         int16_t layer_llr[dlsch->cw_info.Nl][llrSize])
 {
   switch (dlsch->cw_info.qamModOrder) {
-    case 2 :
+    case 2:
       for (int l = 0; l < dlsch->cw_info.Nl; l++)
         nr_qpsk_llr(rxdataF_comp[l], layer_llr[l], len);
       break;
 
-    case 4 :
+    case 4:
       for (int l = 0; l < dlsch->cw_info.Nl; l++)
         nr_16qam_llr(rxdataF_comp[l], dl_ch_mag, layer_llr[l], len);
       break;
 
-    case 6 :
-      for(int l=0; l < dlsch->cw_info.Nl; l++)
+    case 6:
+      for (int l = 0; l < dlsch->cw_info.Nl; l++)
         nr_64qam_llr(rxdataF_comp[l], dl_ch_mag, dl_ch_magb, layer_llr[l], len);
       break;
 
     case 8:
-      for(int l=0; l < dlsch->cw_info.Nl; l++)
+      for (int l = 0; l < dlsch->cw_info.Nl; l++)
         nr_256qam_llr(rxdataF_comp[l], dl_ch_mag, dl_ch_magb, dl_ch_magr, layer_llr[l], len);
       break;
 
@@ -778,6 +790,19 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   // Controlled by ue->do_ml (set via -E flag in dlsim, or ue->do_ml in the UE struct).
   // When false (default), MMSE equalization is used for all configurations.
   bool do_ml = ue->do_ml;
+  // ANALYSIS gate (OAI_LBEST): route 2-layer 256QAM (Qm=8) to the float L-best ML kernel
+  // (nr_compute_ML_llr case 8) instead of the MMSE+single-layer fallback. Off by default.
+  static int lbest_gate = -1;
+  if (lbest_gate < 0) {
+    const char *e = getenv("OAI_LBEST");
+    lbest_gate = e ? atoi(e) : 0;
+  }
+  const bool ml256 = do_ml && lbest_gate;
+  // 3-layer detector selection mirrors the 2-layer path: MMSE is the default (fast linear,
+  // works for all modulations), and the hybrid ML detector (Schur-deflate one nuisance, keep
+  // the other discrete, 2-layer conditional-slice LLR) is opt-in via the do_ml/OAI_LBEST gate.
+  // The hybrid covers QPSK/16/64/256QAM. (4-layer: MMSE only for now; hybrid is a later effort.)
+  const bool ml3 = do_ml && lbest_gate && nl == 3;
 
   // Reinterpret flat dl_ch_estimates_ext as [nl][nbRx][rx_size_symbol]
   c16_t(*chFext)[nbRx][rx_size_symbol] = (void *)dl_ch_estimates_ext;
@@ -786,7 +811,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   for (int l = 0; l < nl; l++)
     p_rxComp[l] = rxdataF_comp[symbol][l];
 
-  NR_UE_COMMON *common_vars  = &ue->common_vars;
+  NR_UE_COMMON *common_vars = &ue->common_vars;
   const int frame = proc->frame_rx;
   const int nr_slot_rx = proc->nr_slot_rx;
   const int gNB_id = proc->gNB_id;
@@ -797,21 +822,26 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
 
   if (gNB_id > 2) {
     LOG_E(PHY, "Illegal gNB_id %d\n", gNB_id);
-    return(-1);
+    return (-1);
   }
 
   if (!common_vars) {
     LOG_E(PHY, "dlsch_demodulation.c: Null common_vars\n");
-    return(-1);
+    return (-1);
   }
 
-  if(symbol > fp->symbols_per_slot >> 1)
+  if (symbol > fp->symbols_per_slot >> 1)
     slot = 1;
 
   uint8_t pilots = (dlsch_config->dlDmrsSymbPos >> symbol) & 1;
   uint8_t config_type = dlsch_config->dmrsConfigType;
 
-  const bool need_rho = do_ml ? (nl == 2 && dlsch_config->cw_info->qamModOrder <= 6) : false;
+  // rho = full nl x nl Gram (H^H H). Needed by the ML LLR kernels AND now by the Gram-based linear
+  // MMSE: nr_dlsch_mmse builds H^H H from rho instead of re-deriving it from the (per-symbol) channel
+  // estimates. Covers the linear-MMSE cases (nl>2 non-ml3; nl==2 non-ML) as well as the ML cases.
+  // Every multi-layer path (ML search, linear nl>2 / 2-layer MMSE, 2-layer 256QAM MMSE) now reads the
+  // Gram from rho, so retain it for all nl >= 2. Single-layer (nl==1, MRC) needs no rho.
+  const bool need_rho = (nl >= 2);
 
   //----------------------------------------------------------
   //--------------------- RBs extraction ---------------------
@@ -860,17 +890,16 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   if (ue->phy_sim_pdsch_rxdataF_ext)
     memcpy(ue->phy_sim_pdsch_rxdataF_ext + symbol * sizeof(rxdataF_ext), rxdataF_ext, sizeof(rxdataF_ext));
 
-  nb_re_pdsch = (pilots == 1) ?
-                ((config_type == NFAPI_NR_DMRS_TYPE1) ? nb_rb_pdsch * (12 - 6 * dlsch_config->n_dmrs_cdm_groups) :
-                nb_rb_pdsch * (12 - 4 * dlsch_config->n_dmrs_cdm_groups)):
-                (nb_rb_pdsch * 12);
+  nb_re_pdsch = (pilots == 1) ? ((config_type == NFAPI_NR_DMRS_TYPE1) ? nb_rb_pdsch * (12 - 6 * dlsch_config->n_dmrs_cdm_groups)
+                                                                      : nb_rb_pdsch * (12 - 4 * dlsch_config->n_dmrs_cdm_groups))
+                              : (nb_rb_pdsch * 12);
   // Subtract CSI-RS REs from PDSCH RE count
   if (csi_res_bitmap != 0) {
     uint32_t csi_re_count = 0;
     uint32_t csi_res_even = csi_res_bitmap & 0xfff;
     uint32_t csi_res_odd = (csi_res_bitmap >> 16) & 0xfff;
     uint32_t count_even = count_bits(&csi_res_even, 1);
-    uint32_t count_odd  = count_bits(&csi_res_odd, 1);
+    uint32_t count_odd = count_bits(&csi_res_odd, 1);
     int start = freq_alloc->first_rb + dlsch_config->BWPStart;
     int end = freq_alloc->last_rb + 1;
     for (int rb = start; rb < end; rb++) {
@@ -918,7 +947,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   if (first_symbol_flag) {
     int32_t avg[nl * nbRx];
     if (nb_re_pdsch)
-      nr_channel_level(0, rx_size_symbol, (c16_t (*)[rx_size_symbol])dl_ch_estimates_ext, nbRx, nl, avg, nb_re_pdsch);
+      nr_channel_level(0, rx_size_symbol, (c16_t(*)[rx_size_symbol])dl_ch_estimates_ext, nbRx, nl, avg, nb_re_pdsch);
     else
       LOG_E(NR_PHY, "Average channel level is 0: nb_rb_pdsch = %d, nb_re_pdsch = %d\n", nb_rb_pdsch, nb_re_pdsch);
     int avgs = 0;
@@ -941,10 +970,15 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     }
     // Output shift: half channel energy (log2|h|^2/2) + MRC antenna gain.
     // Single-layer adds +1 guard bit (raw peak); multi-layer uses median so no guard needed.
+    // ML branch offset is mod-order-dependent (nr_ml_llr_maxh_off) so the near-ML LLRs don't
+    // saturate at low mod orders; OAI_ML_MAXH_OFF overrides it for the hotness sweep.
     if (nl == 1)
       *log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(nbRx >> 1);
-    else
+    else if (!do_ml)
       *log2_maxh = (log2_approx(avgs) >> 1) + log2_approx(nbRx >> 1);
+    else
+      *log2_maxh = (log2_approx(avgs) >> 1) + nr_ml_llr_maxh_off(dlsch->cw_info.qamModOrder) + log2_approx(nbRx >> 1);
+
     LOG_D(PHY, "[DLSCH] AbsSubframe %d.%d log2_maxh = %d (%d)\n", frame % 1024, nr_slot_rx, *log2_maxh, avgs);
 #if T_TRACER
     T(T_UE_PHY_PDSCH_ENERGY,
@@ -1017,8 +1051,11 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   start_meas_nr_ue_phy(ue, DLSCH_MRC_MMSE_STATS);
   if (nb_re_pdsch) {
     const uint8_t qamModOrder = dlsch->cw_info.qamModOrder;
+    // A/B validation toggle: OAI_MMSE_GRAM=0 forces the legacy chFext Gram build (default 1 = Gram).
+    static int mmse_gram = -1;
+    if (mmse_gram < 0) { const char *e = getenv("OAI_MMSE_GRAM"); mmse_gram = e ? atoi(e) : 1; }
 
-    if ((nl > 2) || (nl == 2 && !do_ml)) {
+    if ((nl > 2 && !ml3) || (nl == 2 && !do_ml)) {
       nr_dlsch_mmse(pdsch_buf_size_max,
                     rx_size_symbol,
                     nbRx,
@@ -1031,8 +1068,9 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                     qamModOrder,
                     *log2_maxh,
                     nb_re_pdsch,
-                    nvar);
-    } else if ((nl == 2) && (qamModOrder > 6) && do_ml) {
+                    nvar,
+                    (need_rho && mmse_gram) ? rho_dl[symbol] : NULL); // Gram-based build; OAI_MMSE_GRAM=0 -> legacy chFext
+    } else if ((nl == 2) && (qamModOrder > 6) && do_ml && !ml256) {
       nr_mmse_2layers(p_rxComp,
                       rx_size_symbol,
                       pdsch_buf_size_max,
@@ -1047,7 +1085,11 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                       *log2_maxh,
                       0,
                       nb_re_pdsch,
-                      nvar);
+                      nvar,
+                      (need_rho && mmse_gram) ? rho_dl[symbol][0] : NULL,
+                      (need_rho && mmse_gram) ? rho_dl[symbol][1] : NULL,
+                      (need_rho && mmse_gram) ? rho_dl[symbol][nl] : NULL,
+                      (need_rho && mmse_gram) ? rho_dl[symbol][nl + 1] : NULL); // Gram; OAI_MMSE_GRAM=0 -> chFext
     }
   }
   stop_meas_nr_ue_phy(ue, DLSCH_MRC_MMSE_STATS);
@@ -1068,7 +1110,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   int nbSymb = 0;
   int pduBitmap = 0;
 
-  if(dlsch_harq->status == NR_ACTIVE) {
+  if (dlsch_harq->status == NR_ACTIVE) {
     startSymbIdx = dlsch_config->start_symbol;
     nbSymb = dlsch_config->number_symbols;
     pduBitmap = dlsch_config->pduBitmap;
@@ -1080,7 +1122,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   /* TODO: Move PTRS phase estimation before immediately after DMRS channels
   estimation and apply PTRS phase compensation in nr_channel_compensationi() */
   /* Check for PTRS bitmap and process it respectively */
-  if((pduBitmap & 0x1) && (dlsch->rnti_type == TYPE_C_RNTI_)) {
+  if ((pduBitmap & 0x1) && (dlsch->rnti_type == TYPE_C_RNTI_)) {
     nr_pdsch_ptrs_processing(1, // rxdataF_comp is MRCed so no point in processing all antenna ports. Fixme.
                              ptrs_phase_per_slot,
                              ptrs_re_per_slot,
@@ -1110,8 +1152,9 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     const uint8_t qamModOrder = dlsch->cw_info.qamModOrder;
     start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
     for (int llr_sym = startSymbIdx; llr_sym < startSymbIdx + nbSymb; llr_sym++) {
-      if (nl == 2 && qamModOrder <= 6 && do_ml) {
-        // 2-layer QPSK/16QAM/64QAM: joint ML-LLR using inter-layer Tx correlation
+      if (nl == 2 && do_ml && (qamModOrder <= 6 || (qamModOrder == 8 && ml256))) {
+        // 2-layer QPSK/16QAM/64QAM (and 256QAM under the OAI_LBEST analysis gate):
+        // joint ML-LLR using inter-layer Tx correlation
         // rho_dl[llr_sym] is laid out as [nl*nl][rx_size_symbol]:
         // index 1 = rho[0][1], index nl (=2) = rho[1][0]
         nr_compute_ML_llr(rxdataF_comp[llr_sym][0],
@@ -1124,6 +1167,52 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                           rho_dl[llr_sym][nl],
                           dl_valid_re[llr_sym],
                           qamModOrder);
+      } else if (ml3) {
+        // 3-layer hybrid ML (gated, float reference). For each target layer t, project the
+        // most-orthogonal nuisance + Schur-deflate, then 2-layer conditional-slice on the kept
+        // pair. rho_dl[llr_sym] is [nl*nl][rx]: rho[i][j] at index i*nl+j (= h_i^H h_j).
+        // OAI_LBEST3=2 -> exact full-ML reference instead of the hybrid; OAI_LBEST_L3 -> L.
+        static int mode3 = -1, L3 = 256;
+        if (mode3 < 0) {
+          const char *e = getenv("OAI_LBEST3");
+          mode3 = e ? atoi(e) : 1;
+          const char *el = getenv("OAI_LBEST_L3");
+          L3 = el ? atoi(el) : 256;
+        }
+        for (int t = 0; t < 3; t++) {
+          const int n1 = (t + 1) % 3, n2 = (t + 2) % 3;
+          c16_t *r_tn1 = rho_dl[llr_sym][t * nl + n1];
+          c16_t *r_tn2 = rho_dl[llr_sym][t * nl + n2];
+          c16_t *r_n1n2 = rho_dl[llr_sym][n1 * nl + n2];
+          if (mode3 == 2)
+            nr_qam_llr_3layer_ml(rxdataF_comp[llr_sym][t],
+                                 rxdataF_comp[llr_sym][n1],
+                                 rxdataF_comp[llr_sym][n2],
+                                 dl_ch_mag[llr_sym][t],
+                                 dl_ch_mag[llr_sym][n1],
+                                 dl_ch_mag[llr_sym][n2],
+                                 r_tn1,
+                                 r_tn2,
+                                 r_n1n2,
+                                 layer_llr[llr_sym][t],
+                                 dl_valid_re[llr_sym],
+                                 qamModOrder);
+          else
+            nr_qam_llr_3layer_hybrid(rxdataF_comp[llr_sym][t],
+                                     rxdataF_comp[llr_sym][n1],
+                                     rxdataF_comp[llr_sym][n2],
+                                     dl_ch_mag[llr_sym][t],
+                                     dl_ch_mag[llr_sym][n1],
+                                     dl_ch_mag[llr_sym][n2],
+                                     r_tn1,
+                                     r_tn2,
+                                     r_n1n2,
+                                     layer_llr[llr_sym][t],
+                                     dl_valid_re[llr_sym],
+                                     qamModOrder,
+                                     L3,
+                                     0.0f);
+        }
       } else {
         nr_dlsch_llr(dlsch,
                      dl_valid_re[llr_sym],
@@ -1143,12 +1232,12 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     stop_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
 
     if (UEScopeHasTryLock(ue)) {
-      metadata mt = {.frame = proc->frame_rx, .slot = proc->nr_slot_rx };
+      metadata mt = {.frame = proc->frame_rx, .slot = proc->nr_slot_rx};
       int total_valid_res = 0;
       for (int i = startSymbIdx; i < startSymbIdx + nbSymb; i++) {
         total_valid_res += dl_valid_re[i];
       }
-      if (UETryLockScopeData(ue, pdschRxdataF_comp, sizeof(c16_t), 1,  total_valid_res, &mt)) {
+      if (UETryLockScopeData(ue, pdschRxdataF_comp, sizeof(c16_t), 1, total_valid_res, &mt)) {
         size_t offset = 0;
         for (int i = startSymbIdx; i < startSymbIdx + nbSymb; i++) {
           size_t data_size = sizeof(c16_t) * dl_valid_re[i];
