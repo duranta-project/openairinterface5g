@@ -24,8 +24,7 @@
   fprintf(stderr, "\nExiting execution\n");				\
   fflush(stdout);							\
   fflush(stderr);							\
-  exit_function(__FILE__, __FUNCTION__, __LINE__, "_Assert_Exit_", OAI_EXIT_ASSERT); \
-  abort(); // to avoid gcc warnings - never executed unless app-specific exit_function() does not exit() nor abort()
+  abort();
 
 #define _Assert_(cOND, aCTION, fORMAT, aRGS...)             \
 do {                                                        \
