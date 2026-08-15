@@ -57,16 +57,4 @@ _Assert_(cOND, _Assert_Exit_, #vALUE1": %" PRIdMAX "\n" #vALUE2 ": %" PRIdMAX "\
 
 #define DevMessage(mESSAGE)                 _Assert_(0, _Assert_Exit_, #mESSAGE)
 
-#define CHECK_INIT_RETURN(fCT)                                  \
-do {                                                            \
-    int fct_ret;                                                \
-    if ((fct_ret = (fCT)) != 0) {                               \
-        fprintf(stderr, "Function "#fCT" has failed\n"          \
-        "returning %d\n", fct_ret);                             \
-        fflush(stdout);                                         \
-        fflush(stderr);                                         \
-        exit(EXIT_FAILURE);                                     \
-    }                                                           \
-} while(0)
-
 #endif /* __COMMON_UTILS_ASSERTIONS__H__ */

@@ -397,8 +397,6 @@ void log_getconfig(log_t *g_log)
   config_get(config_get_if(), logparams_debug, sz, CONFIG_STRING_LOG_PREFIX);
   config_get(config_get_if(), logparams_dump, sz, CONFIG_STRING_LOG_PREFIX);
 
-  bool old = CONFIG_ISFLAGSET(CONFIG_NOABORTONCHKF);
-  CONFIG_SETRTFLAG(CONFIG_NOABORTONCHKF);
   if (config_check_unknown_cmdlineopt(config_get_if(), CONFIG_STRING_LOG_PREFIX) > 0) {
     printf("Existing log_config options:\n");
     printf("   Boolean options:\n");
@@ -412,8 +410,6 @@ void log_getconfig(log_t *g_log)
       printf("      %s\n", logparams_level[i].optname);
     exit(1);
   }
-  if (!old)
-    CONFIG_CLEARRTFLAG(CONFIG_NOABORTONCHKF);
   int i = 0;
   FOREACH_FLAG(FLAG_SETDEBUG);
   i = 0;
