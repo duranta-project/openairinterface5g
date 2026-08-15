@@ -876,7 +876,7 @@ void nr_generate_pucch3_4(c16_t **txdataF,
                                           is_pi_over_2_bpsk_enabled,
                                           add_dmrs);
 
-  nr_uci_encoding(pucch_pdu->payload, pucch_pdu->n_bit, nrofPRB, false, M_bit, 0, b);
+  nr_uci_encoding(pucch_pdu->payload, pucch_pdu->n_bit, nrofPRB, M_bit, 0, b);
   /*
    * Implementing TS 38.211
    * Subclauses 6.3.2.6.1 Scrambling (PUCCH formats 3 and 4)
@@ -1115,19 +1115,6 @@ void nr_generate_pucch3_4(c16_t **txdataF,
   int N_ZC = 12 * nrofPRB;
   c16_t r_u_v_base[N_ZC];
   uint32_t re_offset = 0;
-  uint8_t table_6_4_1_3_3_2_1_dmrs_positions[11][14] = {
-    {(intraSlotFrequencyHopping==0)?0:1,(intraSlotFrequencyHopping==0)?1:0,(intraSlotFrequencyHopping==0)?0:1,0,0,0,0,0,0,0,0,0,0,0}, // PUCCH length = 4
-    {1,0,0,1,0,0,0,0,0,0,0,0,0,0}, // PUCCH length = 5
-    {0,1,0,0,1,0,0,0,0,0,0,0,0,0}, // PUCCH length = 6
-    {0,1,0,0,1,0,0,0,0,0,0,0,0,0}, // PUCCH length = 7
-    {0,1,0,0,0,1,0,0,0,0,0,0,0,0}, // PUCCH length = 8
-    {0,1,0,0,0,0,1,0,0,0,0,0,0,0}, // PUCCH length = 9
-    {0,(add_dmrs==0?0:1),(add_dmrs==0?1:0),(add_dmrs==0?0:1),0,0,(add_dmrs==0?0:1),(add_dmrs==0?1:0),(add_dmrs==0?0:1),0,0,0,0,0}, // PUCCH length = 10
-    {0,(add_dmrs==0?0:1),(add_dmrs==0?1:0),(add_dmrs==0?0:1),0,0,(add_dmrs==0?0:1),(add_dmrs==0?1:0),0,(add_dmrs==0?0:1),0,0,0,0}, // PUCCH length = 11
-    {0,(add_dmrs==0?0:1),(add_dmrs==0?1:0),0,(add_dmrs==0?0:1),0,0,(add_dmrs==0?0:1),(add_dmrs==0?1:0),0,(add_dmrs==0?0:1),0,0,0}, // PUCCH length = 12
-    {0,(add_dmrs==0?0:1),(add_dmrs==0?1:0),0,(add_dmrs==0?0:1),0,0,(add_dmrs==0?0:1),0,(add_dmrs==0?1:0),0,(add_dmrs==0?0:1),0,0}, // PUCCH length = 13
-    {0,(add_dmrs==0?0:1),0,(add_dmrs==0?1:0),0,(add_dmrs==0?0:1),0,0,(add_dmrs==0?0:1),0,(add_dmrs==0?1:0),0,(add_dmrs==0?0:1),0}  // PUCCH length = 14
-  };
   int k = 0;
 
   for (int l=0; l<nrofSymbols; l++) {

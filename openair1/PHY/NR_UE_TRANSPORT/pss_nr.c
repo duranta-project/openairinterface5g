@@ -30,15 +30,7 @@
 #include "PHY/NR_REFSIG/sss_nr.h"
 #include "PHY/NR_UE_TRANSPORT/cic_filter_nr.h"
 
-//#define DBG_PSS_NR
-static time_stats_t generic_time[TIME_LAST];
-
-static int16_t d_pss[NUMBER_PSS_SEQUENCE][LENGTH_PSS_NR] = {0};
-static c16_t primary_synchro[NUMBER_PSS_SEQUENCE][LENGTH_PSS_NR] = {0};
-int16_t *get_primary_synchro_nr2(const int nid2)
-{
-  return d_pss[nid2];
-}
+// #define DBG_PSS_NR
 
 /*******************************************************************
 *
@@ -56,10 +48,8 @@ int16_t *get_primary_synchro_nr2(const int nid2)
 
 void generate_pss_nr(const int N_ID_2, int16_t *pss)
 {
-  AssertFatal(fp->ofdm_symbol_size > 127,"Illegal ofdm_symbol_size %d\n",fp->ofdm_symbol_size);
-  AssertFatal(N_ID_2 >= 0 && N_ID_2 <= 2, "Illegal N_ID_2 %d\n", N_ID_2);
+  AssertFatal(N_ID_2 >= 0 && N_ID_2 < NUMBER_PSS_SEQUENCE, "Illegal N_ID_2 %d\n", N_ID_2);
   int16_t x[LENGTH_PSS_NR];
-
 #define INITIAL_PSS_NR (7)
   const int16_t x_initial[INITIAL_PSS_NR] = {0, 1, 1, 0, 1, 1, 1};
   memcpy(x, x_initial, sizeof(x_initial));

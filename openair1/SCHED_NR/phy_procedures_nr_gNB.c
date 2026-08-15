@@ -983,7 +983,7 @@ static void handle_pucch(PHY_VARS_gNB *gNB, c16_t **rxdataF, const NR_gNB_PUCCH_
     case 3:
       uci->pdu_type = NFAPI_NR_UCI_FORMAT_2_3_4_PDU_TYPE;
       uci->pdu_size = sizeof(nfapi_nr_uci_pucch_pdu_format_2_3_4_t);
-      nr_decode_pucch2_3(gNB, rxdataF, pucch->frame, pucch->slot, &uci->uci_pdu_format2_3_4, pucch_pdu);
+      nr_decode_pucch2_3(gNB, rxdataF, pucch->frame, pucch->slot, &uci->pucch_pdu_format_2_3_4, pucch_pdu);
       break;
     default:
       AssertFatal(1 == 0, "Only PUCCH formats 0-3 are currently supported\n");

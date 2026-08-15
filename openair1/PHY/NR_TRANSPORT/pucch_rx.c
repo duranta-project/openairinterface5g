@@ -459,24 +459,8 @@ void nr_decode_pucch1(PHY_VARS_gNB *gNB,
                       int frame,
                       int slot,
                       nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_pdu,
-                      nfapi_nr_pucch_pdu_t *pucch_pdu)
+                      const nfapi_nr_pucch_pdu_t *pucch_pdu)
 {
-#ifdef DEBUG_NR_PUCCH_RX
-  printf(
-      "\t [nr_decode_pucch1] start function at slot(nr_tti_tx)=%d "
-      "payload=%lux m0=%d nrofSymbols=%d startingSymbolIndex=%d "
-      "startingPRB=%d startingPRB_intraSlotHopping=%d timeDomainOCC=%d "
-      "nr_bit=%d\n",
-      nr_tti_tx,
-      *payload,
-      m0,
-      nrofSymbols,
-      startingSymbolIndex,
-      startingPRB,
-      startingPRB_intraSlotHopping,
-      timeDomainOCC,
-      pucch_pdu->bit_len_harq);
-#endif
   /*
    * Implement TS 38.211 Subclause 6.3.2.4.1 Sequence modulation
    *
@@ -538,33 +522,33 @@ void nr_decode_pucch1(PHY_VARS_gNB *gNB,
   c16_t z[16][12] = {0};
   const int half_nb_rb_dl = frame_parms->N_RB_DL >> 1;
   const bool nb_rb_is_even = (frame_parms->N_RB_DL & 1) == 0;
+  int prb_start = pucch_pdu->prb_start;
   for (int l = 0; l < pucch_pdu->nr_of_symbols; l++) { // extracting data and dmrs from rxdataF
     if (intraSlotFrequencyHopping && (l >= floor(pucch_pdu->nr_of_symbols / 2))) { // intra-slot hopping enabled, we need
       // to calculate new offset PRB
-      pucch_pdu->prb_start = pucch_pdu->bwp_start + pucch_pdu->second_hop_prb;
+      prb_start = pucch_pdu->bwp_start + pucch_pdu->second_hop_prb;
     }
     int re_offset = (l + pucch_pdu->start_symbol_index) * frame_parms->ofdm_symbol_size;
-
     if (nb_rb_is_even) {
-      if (pucch_pdu->prb_start < half_nb_rb_dl) // if number RBs in bandwidth is even and
+      if (prb_start < half_nb_rb_dl) // if number RBs in bandwidth is even and
                                                 // current PRB is lower band
-        re_offset += 12 * pucch_pdu->prb_start + frame_parms->first_carrier_offset;
+        re_offset += 12 * prb_start + frame_parms->first_carrier_offset;
       else // if number RBs in bandwidth is even and current PRB is upper band
-        re_offset += 12 * (pucch_pdu->prb_start - half_nb_rb_dl);
+        re_offset += 12 * (prb_start - half_nb_rb_dl);
     } else {
-      if (pucch_pdu->prb_start < half_nb_rb_dl) // if number RBs in bandwidth is odd  and
+      if (prb_start < half_nb_rb_dl) // if number RBs in bandwidth is odd  and
                                                 // current PRB is lower band
-        re_offset += 12 * pucch_pdu->prb_start + frame_parms->first_carrier_offset;
-      else if (pucch_pdu->prb_start > half_nb_rb_dl) // if number RBs in bandwidth is odd
+        re_offset += 12 * prb_start + frame_parms->first_carrier_offset;
+      else if (prb_start > half_nb_rb_dl) // if number RBs in bandwidth is odd
                                                      // and current PRB is upper band
-        re_offset += 12 * (pucch_pdu->prb_start - half_nb_rb_dl) - 6;
+        re_offset += 12 * (prb_start - half_nb_rb_dl) - 6;
       else // if number RBs in bandwidth is odd  and current PRB contains DC
-        re_offset += 12 * pucch_pdu->prb_start + frame_parms->first_carrier_offset;
+        re_offset += 12 * prb_start + frame_parms->first_carrier_offset;
     }
 
     for (int n = 0; n < 12; n++) {
       const int current_subcarrier = (l / 2) * 12 + n;
-      if (n == 6 && pucch_pdu->prb_start == half_nb_rb_dl && !nb_rb_is_even) {
+      if (n == 6 && prb_start == half_nb_rb_dl && !nb_rb_is_even) {
         // if number RBs in bandwidth is odd  and current PRB contains DC, we need to recalculate the offset when n=6 (for second
         // half PRB)
         re_offset = ((l + pucch_pdu->start_symbol_index) * frame_parms->ofdm_symbol_size);
@@ -616,7 +600,7 @@ void nr_decode_pucch1(PHY_VARS_gNB *gNB,
   signal_energy /= (pucch_pdu->nr_of_symbols * n_rx);
   signal_energy_ant0 /= pucch_pdu->nr_of_symbols;
   int pucch_power_dBtimes10 = 10 * dB_fixed(signal_energy);
-  int max_n0 = max(gNB->measurements.n0_subband_power_tot_dB[pucch_pdu->bwp_start + pucch_pdu->prb_start],
+  int max_n0 = max(gNB->measurements.n0_subband_power_tot_dB[pucch_pdu->bwp_start + prb_start],
                    gNB->measurements.n0_subband_power_tot_dB[pucch_pdu->bwp_start + pucch_pdu->second_hop_prb]);
   const int SNRtimes10 = pucch_power_dBtimes10 - (10 * max_n0);
 
@@ -1258,8 +1242,18 @@ void nr_decode_pucch2_3(PHY_VARS_gNB *gNB,
       }
     }
   }
-  c16_t r_ext[Prx][nb_symbols-ndmrs][nb_re_data] __attribute__((aligned(32)));
-  c16_t r_ext2[Prx][nb_symbols-ndmrs][nb_re_data] __attribute__((aligned(32)));
+  #define ALIGN 32
+
+  size_t row_bytes = nb_re_data * sizeof(c16_t);
+  size_t row_bytes_aligned = (row_bytes + ALIGN - 1) & ~(ALIGN - 1);
+  size_t nb_re_data_padded = row_bytes_aligned / sizeof(c16_t);
+
+  c16_t r_ext[Prx][nb_symbols-ndmrs][nb_re_data_padded]
+      __attribute__((aligned(32)));
+
+  c16_t r_ext2[Prx][nb_symbols-ndmrs][nb_re_data_padded]
+      __attribute__((aligned(32)));
+
   const simde__m128i swap128 = simde_mm_set_epi8(13,
                                                  12,
                                                  15,
@@ -1302,7 +1296,7 @@ void nr_decode_pucch2_3(PHY_VARS_gNB *gNB,
 
     // extract DMRS
 #ifdef DEBUG_NR_PUCCH_RX
-    printf("Extracting PUCCH DMRS %d (%d): nb_re_dmrs %d\n",d,dmrspos[d],nb_re_dmrs);
+    printf("Extracting PUCCH DMRS %d (%d): nb_re_dmrs %d, symb %d\n",d,dmrspos[d],nb_re_dmrs,symb);
 #endif
     for (int aa = 0; aa < Prx; aa++) {
       c16_t *rdmrs_ext_p = rdmrs_ext[aa] + nb_re_dmrs*d;
@@ -1435,17 +1429,29 @@ void nr_decode_pucch2_3(PHY_VARS_gNB *gNB,
   }
 
   // Formate 3/4 Allocate memory for IFDT input buffers
+#ifdef __aarch64__ // to be removed with aarch64 DFTs use non-interleaved format
   simde__m128i *fmt3_4_idft_in[Prx];
   simde__m128i *fmt3_4_idft_out=(simde__m128i*)NULL;
   int datacnt = 0;
+#else
+  c16_t *fmt3_4_idft_out[Prx];
+#endif
   if (fmt >= 3) {
+#ifdef __aarch64__ // again to be removed when aarch64 DFTS use non-interleaved format
     for (int aa = 0 ; aa < Prx ; aa++)
-      fmt3_4_idft_in[aa] = __builtin_alloca_with_align(nb_re_data*sizeof(simde__m128i),16);
-    fmt3_4_idft_out = __builtin_alloca_with_align(nb_re_data*sizeof(simde__m128i),16);
+      fmt3_4_idft_in[aa] = __builtin_alloca_with_align(nb_re_data*sizeof(simde__m128i),32*8);
+    fmt3_4_idft_out = __builtin_alloca_with_align(nb_re_data*sizeof(simde__m128i),32*8);
+#else
+    for (int aa = 0 ; aa < Prx ; aa++) {
+      fmt3_4_idft_out[aa] = __builtin_alloca_with_align(nb_re_data*sizeof(c16_t),32*8);
+    }
+#endif
   }
+#ifdef __aarch64 // again
   simde__m128i *interleaved_out[Prx];
   for (int aa = 0 ; aa < Prx ; aa++)
-    interleaved_out[aa] = (simde__m128i*)__builtin_alloca_with_align(nb_re_data * sizeof(simde__m128i),16);
+    interleaved_out[aa] = (simde__m128i*)__builtin_alloca_with_align(nb_re_data * sizeof(simde__m128i),32*8);
+#endif
   int s3 = 0;
   for (int symb = 0 ; symb < nb_symbols ; symb++) { 
     if (fmt == 2) {
@@ -1522,6 +1528,7 @@ void nr_decode_pucch2_3(PHY_VARS_gNB *gNB,
     if (fmt>=3) { // copy rx_ext to IDFT buffers and do idft and unscrambling if required
        if (symb != dmrspos[0] && symb != dmrspos[1] && symb != dmrspos[2] && symb != dmrspos[3]) {
 	  for (int aa = 0 ; aa < Prx ; aa++) {
+#ifdef __aarch64__ // we need this until the aarch64 DFTs come, x86 doesn't use the legacy interleaving format for DFTs with 12
 #ifdef DEBUG_NR_PUCCH_RX
 	    printf("Filling idft in for symbol symb %d s3 %d datacnt %d\n",symb,s3,datacnt);
 #endif
@@ -1535,6 +1542,9 @@ void nr_decode_pucch2_3(PHY_VARS_gNB *gNB,
   	      dft(dftsize,(int16_t*)fmt3_4_idft_in[aa],(int16_t*)fmt3_4_idft_out,1);
 	      // note, the output is the conjugate of the idft, we need to correct this below
 	      // transpose idft_out
+	      
+	      log_dump(PHY,(c16_t*)fmt3_4_idft_in[aa],nb_re_data,LOG_DUMP_C16,"idft_in(%d,%d):",s3,nb_re_data);
+	      log_dump(PHY,(c16_t*)interleaved_out[aa],nb_re_data,LOG_DUMP_C16,"idft_in(%d,%d):",s3,nb_re_data);
 #ifndef SCALAR_TRANSPOSE
 	      int ioff = nb_re_data/4;
 	      
@@ -1553,6 +1563,9 @@ void nr_decode_pucch2_3(PHY_VARS_gNB *gNB,
 		  interleaved_out[aa][j+3*ioff] = simde_mm_unpackhi_epi64(b2,b3); // a03 a13 a23 a33
 	      } 
 #else
+#ifdef DEBUG_NR_PUCCH_RX
+ 	      printf("Filling idft in for symbol symb %d s3 %d\n",symb,s3);
+#endif
 	      for (int i=0;i<nb_re_data;i++) {
                    ((c16_t*)interleaved_out[aa])[i] = ((c16_t*)fmt3_4_idft_out)[4*i];
                    ((c16_t*)interleaved_out[aa])[nb_re_data + i] = ((c16_t*)fmt3_4_idft_out)[1+4*i];
@@ -1592,8 +1605,29 @@ void nr_decode_pucch2_3(PHY_VARS_gNB *gNB,
 		datacnt = -1;
 	      }
 	    } // datacnt = =3
+#else // this is the case for the new DFT 12N routines 
+
+	    dft_size_idx_t dftsize = get_dft(nb_re_data);
+  	    idft(dftsize,(int16_t*)r_ext[aa][s3],(int16_t*)fmt3_4_idft_out[aa],1);
+            simde__m128i *c_ptr = (simde__m128i *)scramb_data + (s3*nb_re_data/4);
+            simde__m128i *br_ptr = (simde__m128i *)r_ext[aa][s3];
+            simde__m128i *bi_ptr = (simde__m128i *)r_ext2[aa][s3];
+	    for (int i=0; i < nb_re_data/4 ; i++) {
+               simde__m128i tmp = simde_mm_srai_epi16(((simde__m128i *)fmt3_4_idft_out[aa])[i], scaling);
+               br_ptr[i] = simde_mm_sign_epi16(tmp, c_ptr[i]); // this contains unscrambled [Re Im] sequence 
+               bi_ptr[i] = oai_mm_conj(simde_mm_sign_epi16(simde_mm_shuffle_epi8(tmp, swap128), c_ptr[i])); // this contains unscramble [Im -Re] requence
+#ifdef DEBUG_NR_PUCCH_RX
+	       log_dump(PHY,(c16_t*)&tmp,4,LOG_DUMP_C16,"btilde_ptr:");
+	       log_dump(PHY,(c16_t*)(c_ptr+i),4,LOG_DUMP_C16,"cptr:");
+	       log_dump(PHY,(c16_t*)(br_ptr+i),4,LOG_DUMP_C16,"brptr:");
+	       log_dump(PHY,(c16_t*)(bi_ptr+i),4,LOG_DUMP_C16,"biptr:");
+#endif
+	     }
+#endif
 	  } // aa
+#ifdef __aarch64__
 	  datacnt++;
+#endif
        } // symb check
     } // fmt 3/4 check
     

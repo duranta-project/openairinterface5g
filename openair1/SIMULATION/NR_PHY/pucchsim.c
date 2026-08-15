@@ -805,6 +805,7 @@ int main(int argc, char **argv)
           pucch_pdu.second_hop_prb = N_RB_DL - nrofPRB;
         } else
           pucch_pdu.freq_hop_flag = 0;
+	pucch_pdu.param_v4.numSpatialStreamIndices = n_rx;
         nr_decode_pucch2_3(gNB, rxdataF, nr_frame_tx, nr_slot_tx, &uci_pdu, &pucch_pdu);
         int csi_part1_bytes = pucch_pdu.bit_len_csi_part1 >> 3;
         if ((pucch_pdu.bit_len_csi_part1 & 7) > 0)
