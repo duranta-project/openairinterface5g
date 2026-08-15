@@ -97,10 +97,9 @@ void nr_generate_pucch0(c16_t **txdataF,
                                                  nr_slot_tx);
     int l2 = l + pucch_pdu->start_symbol_index;
     int re_offset = (12 * prb_offset[l]) + frame_parms->first_carrier_offset;
-    if (re_offset>= frame_parms->ofdm_symbol_size) 
+    if (re_offset>= frame_parms->ofdm_symbol_size)
       re_offset-=frame_parms->ofdm_symbol_size;
 
-    //txptr = &txdataF[0][re_offset];
 #ifdef DEBUG_NR_PUCCH_TX
     printf("\t [nr_generate_pucch0] symbol %d PRB %d (%d)\n",l,prb_offset[l], re_offset);
 #endif
@@ -205,7 +204,6 @@ void nr_generate_pucch1(c16_t **txdataF,
   /*
    * Implementing TS 38.211 Subclause 6.3.2.4.2 Mapping to physical resources
    */
-  //int32_t *txptr;
   uint32_t re_offset=0;
   int i=0;
 #define MAX_SIZE_Z 168 // this value has to be calculated from mprime*12*table_6_3_2_4_1_1_N_SF_mprime_PUCCH_1_noHop[pucch_symbol_length]+m*12+n
@@ -407,24 +405,21 @@ void nr_generate_pucch1(c16_t **txdataF,
       startingPRB = pucch_pdu->second_hop_prb + pucch_pdu->bwp_start;
     }
 
-    if ((startingPRB < (frame_parms->N_RB_DL>>1)) && ((frame_parms->N_RB_DL & 1) == 0)) { // if number RBs in bandwidth is even and current PRB is lower band
-      re_offset = ((l+startingSymbolIndex)*frame_parms->ofdm_symbol_size) + (12*startingPRB) + frame_parms->first_carrier_offset;
-    }
-
-    if ((startingPRB >= (frame_parms->N_RB_DL>>1)) && ((frame_parms->N_RB_DL & 1) == 0)) { // if number RBs in bandwidth is even and current PRB is upper band
-      re_offset = ((l+startingSymbolIndex)*frame_parms->ofdm_symbol_size) + (12*(startingPRB-(frame_parms->N_RB_DL>>1)));
-    }
-
-    if ((startingPRB < (frame_parms->N_RB_DL>>1)) && ((frame_parms->N_RB_DL & 1) == 1)) { // if number RBs in bandwidth is odd  and current PRB is lower band
-      re_offset = ((l+startingSymbolIndex)*frame_parms->ofdm_symbol_size) + (12*startingPRB) + frame_parms->first_carrier_offset;
-    }
-
-    if ((startingPRB > (frame_parms->N_RB_DL>>1)) && ((frame_parms->N_RB_DL & 1) == 1)) { // if number RBs in bandwidth is odd  and current PRB is upper band
-      re_offset = ((l+startingSymbolIndex)*frame_parms->ofdm_symbol_size) + (12*(startingPRB-(frame_parms->N_RB_DL>>1))) - 6;
-    }
-
-    if ((startingPRB == (frame_parms->N_RB_DL>>1)) && ((frame_parms->N_RB_DL & 1) == 1)) { // if number RBs in bandwidth is odd  and current PRB contains DC
-      re_offset = ((l+startingSymbolIndex)*frame_parms->ofdm_symbol_size) + (12*startingPRB) + frame_parms->first_carrier_offset;
+    const int half_nb_rb_dl = frame_parms->N_RB_DL >> 1;
+    const bool nb_rb_is_even = (frame_parms->N_RB_DL & 1) == 0;
+    re_offset = (l + startingSymbolIndex) * frame_parms->ofdm_symbol_size;
+    if (nb_rb_is_even) {
+      if (startingPRB < half_nb_rb_dl) // even bandwidth, current PRB in lower band
+        re_offset += 12 * startingPRB + frame_parms->first_carrier_offset;
+      else // even bandwidth, current PRB in upper band
+        re_offset += 12 * (startingPRB - half_nb_rb_dl);
+    } else {
+      if (startingPRB < half_nb_rb_dl) // odd bandwidth, current PRB in lower band
+        re_offset += 12 * startingPRB + frame_parms->first_carrier_offset;
+      else if (startingPRB > half_nb_rb_dl) // odd bandwidth, current PRB in upper band
+        re_offset += 12 * (startingPRB - half_nb_rb_dl) - 6;
+      else // odd bandwidth, current PRB contains DC
+        re_offset += 12 * startingPRB + frame_parms->first_carrier_offset;
     }
 
     for (int n = 0; n < 12; n++) {
@@ -717,7 +712,6 @@ void nr_generate_pucch2(c16_t **txdataF,
   /*
    * Implementing TS 38.211 Subclause 6.3.2.5.3 Mapping to physical resources
    */
-  // int32_t *txptr;
   int outSample = 0;
   uint8_t  startingSymbolIndex = pucch_pdu->start_symbol_index;
   int secondHopPRB = pucch_pdu->freq_hop_flag ? pucch_pdu->second_hop_prb : pucch_pdu->prb_start;
@@ -985,7 +979,6 @@ void nr_generate_pucch3_4(c16_t **txdataF,
 
   uint8_t occ_Index  = pucch_pdu->pre_dft_occ_idx;  // higher layer parameter occ-Index
 
-  //occ_Index = 1; //only for testing purposes; to be removed FIXME!!!
   if (pucch_pdu->format_type == 3) { // no block-wise spreading for format 3
 
     for (int l=0; l < floor(m_symbol/(12*nrofPRB)); l++) {
@@ -1126,14 +1119,14 @@ void nr_generate_pucch3_4(c16_t **txdataF,
 
     // Next we proceed to calculate base sequence for DM-RS signal, according to TS 38.211 subclause 6.4.1.33
     if (l==0 && nrofPRB >= 3) { // TS 38.211 subclause 5.2.2.1 (Base sequences of length 36 or larger) applies
+      // N_ZC is the largest prime number such that N_ZC < (12*nrofPRB)
       int i = 4;
-
-      while (list_of_prime_numbers[i] < (12*nrofPRB)) i++;
-
-      N_ZC = list_of_prime_numbers[i+1]; // N_ZC is given by the largest prime number such that N_ZC < (12*nrofPRB)
-      double q_base = (N_ZC*(u+1))/31;
-      int8_t q = (uint8_t)floor(q_base + (1/2));
-      q = ((uint8_t)floor(2*q_base)%2 == 0 ? q+v : q-v);
+      while (list_of_prime_numbers[i] < (12 * nrofPRB))
+        i++;
+      N_ZC = list_of_prime_numbers[i - 1];
+      // q = floor(q_base + 1/2) + v*(-1)^floor(2*q_base), with q_base = N_ZC*(u+1)/31
+      const double q_base = N_ZC * (u + 1) / 31.0;
+      const double q = floor(q_base + 0.5) + ((int)floor(2 * q_base) % 2 == 0 ? v : -v);
 
       for (int n=0; n<(12*nrofPRB); n++) {
         const double tmp = M_PI * q * (n % N_ZC) * ((n % N_ZC) + 1) / N_ZC;
@@ -1189,7 +1182,6 @@ void nr_generate_pucch3_4(c16_t **txdataF,
       }
       const int baseRB = rb + startingPRB;
       re_offset = ((l + startingSymbolIndex) * frame_parms->ofdm_symbol_size);
-      //startingPRB = startingPRB + rb;
       if (nb_rb_is_even) {
         if (baseRB < halfRBs) { // if number RBs in bandwidth is even and current PRB is lower band
           re_offset += 12 * baseRB + frame_parms->first_carrier_offset;
@@ -1227,7 +1219,6 @@ void nr_generate_pucch3_4(c16_t **txdataF,
       printf("re_offset=%u,baseRB=%d\n", re_offset-((l + startingSymbolIndex) * frame_parms->ofdm_symbol_size), baseRB);
 #endif
 
-      //txptr = &txdataF[0][re_offset];
       for (int n=0; n<12; n++) {
         if ((n == 6) && baseRB == halfRBs && !nb_rb_is_even) {
           // if number RBs in bandwidth is odd  and current PRB contains DC, we need to recalculate the offset when n=6 (for second

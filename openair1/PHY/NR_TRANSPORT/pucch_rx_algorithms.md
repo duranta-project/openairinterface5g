@@ -70,13 +70,13 @@ size depends on format and payload length:
 
 ## 2. PUCCH Format 0 — `nr_decode_pucch0`
 
-**Lines 129–466** | **1–2 symbols, 1 PRB, 0–2 bits**
+**Lines 115–453** | **1–2 symbols, 1 PRB, 0–2 bits**
 
 Format 0 encodes information in the *cyclic shift index* of a 12-element
 low-PAPR sequence. No data symbols are transmitted; the receiver performs
 maximum-likelihood sequence detection.
 
-### 2.1 Cyclic-Shift LUT (`get_pucch0_cs_lut_index`, lines 71–100)
+### 2.1 Cyclic-Shift LUT (`get_pucch0_cs_lut_index`, lines 57–86)
 
 Before detection, the cyclic-shift hopping sequence is pre-computed for the
 entire frame and cached, keyed by `pucch_GroupHopping` / `hoppingId`.
@@ -147,7 +147,7 @@ value (0–255, covering $-64$ to $+63.5$ dB). A configurable threshold
 
 ## 3. PUCCH Format 1 — `nr_decode_pucch1`
 
-**Lines 468–1074** | **4–14 symbols, 1 PRB, 1–2 bits**
+**Lines 455–1047** | **4–14 symbols, 1 PRB, 1–2 bits**
 
 Format 1 modulates 1 or 2 HARQ bits onto a low-PAPR sequence and spreads the
 result across OFDM symbols with an orthogonal cover code (OCC).  Alternating
@@ -218,11 +218,20 @@ For frequency hopping, metrics from both hops are summed non-coherently.
 
 ## 4. PUCCH Formats 2 & 3 — `nr_decode_pucch2_3`
 
-**Lines 1138–1999** | **Variable symbols and PRBs, 3–64 bits**
+**Lines 1461–2082** | **Variable symbols and PRBs, 3–64 bits**
 
 Formats 2 and 3 share a single decoder function.  Both apply QPSK modulation
 and either a Reed-Muller small-block code (3–11 bits) or a polar code
 (12–64 bits).  The key difference is their time-frequency structure:
+
+`nr_decode_pucch2_3` handles signal extraction, DM-RS processing and channel
+estimation, then dispatches the actual payload decode to one of two helper
+functions depending on the codeword length:
+
+- **`nr_pucch23_ml_shortblock()`** (lines 1149–1380) — short-block (3–11 bit)
+  maximum-likelihood correlation decode (Sections 4.6 / 4.6.1).
+- **`nr_pucch23_decode_polar()`** (lines 1385–1458) — polar-coded (12–64 bit)
+  LLR computation and decode (Section 4.7).
 
 | | Format 2 | Format 3 |
 |---|---|---|
@@ -245,14 +254,20 @@ $$\texttt{scaling} = \max\!\left(\left\lfloor \tfrac{1}{2}\log_2 E \right\rfloor
 ### 4.2 DM-RS Position Selection (Format 3)
 
 DMRS symbol positions within the PUCCH allocation are selected from
-standardised tables based on the number of symbols and the
-`additional_dmrs` flag:
+standardised tables (TS 38.211 Table 6.4.1.3.3.2-1) based on the number of
+symbols and the `additional_dmrs` flag.  This is done by the helper
+`nr_pucch3_dmrs_positions()` (lines 1121–1145), which fills `dmrspos[0..3]`
+(unused entries left at `-1`) and returns the number of DMRS symbols:
 
 | `nr_of_symbols` | `additional_dmrs` | DMRS symbols (relative) |
 |-----------------|-------------------|-------------------------|
+| 4 (no freq hop) | either | 1 symbol (position 1) |
 | 4–9 | either | 2 symbols |
 | 10–14 | 0 | 2 symbols |
 | 10–14 | 1 | 4 symbols |
+
+Throughout the decoder, the predicate `is_pucch3_dmrs_symbol()` (lines
+1113–1116) tests whether a given symbol index is one of the DMRS symbols.
 
 ### 4.3 Data Scrambling
 
@@ -278,18 +293,28 @@ per-group, per-antenna correlation values `corr32[symb][group][aa]`.
 
 ### 4.5 Format 3 FFT Processing
 
-For data symbols, Format 3 uses time-domain OCC spreading (analogous to
-Format 1). Groups of 4 consecutive data symbols are collected into an IDFT
-input buffer per antenna. When the buffer is full (or at end of PUCCH):
+For data symbols, Format 3 applies a transform-precoding IDFT to recover the
+data RE grid.  Two code paths exist, selected at compile time:
+
+**x86 (default, non-interleaved 12N DFT):** the length-$N_d$ `idft()` is
+applied directly to each data symbol's `r_ext` buffer, followed immediately by
+descrambling.  This is the simple per-symbol path.
+
+**aarch64 (`#ifdef __aarch64__`, legacy interleaved DFT):** kept until the
+aarch64 DFTs support the non-interleaved 12N format.  Groups of up to 4
+consecutive data symbols are collected into an IDFT input buffer per antenna
+(stride 4). When the buffer is full — or at end of PUCCH, where the final
+batch may be *partial* (e.g. a 4-symbol PUCCH has only 3 data symbols):
 
 1. Conjugates are taken to convert to IDFT input form.
 2. A 12-, 24-, or 36-point FFT is applied via `dft()`.
 3. The output is transposed using SIMD unpack/shuffle operations to convert
    from time-interleaved to subcarrier-interleaved order.
 4. The gold scrambling sequence is removed with `simde_mm_sign_epi16()`.
+   Only the `datacnt+1` valid lanes of a partial batch are unscrambled, with
+   interleaved column `c` mapping to data symbol `s3 - datacnt + c`.
 
-The result is equivalent to the de-spread, unscrambled data RE grid used by
-Format 2.
+Both paths yield the de-spread, unscrambled data RE grid used by Format 2.
 
 ### 4.6 Decoding — Short Blocks (3–11 bits), Format 2
 
@@ -486,7 +511,7 @@ The decoded bitstream is partitioned in order:
 
 ## 5. Helper / Initialisation Functions
 
-### `get_pucch0_cs_lut_index()` (lines 71–100)
+### `get_pucch0_cs_lut_index()` (lines 57–86)
 
 Maintains a per-hopping-ID cache of cyclic-shift values for the entire frame.
 On first call for a given `hoppingId`, iterates over all slots and symbols,
@@ -494,7 +519,7 @@ calls `nr_cyclic_shift_hopping()`, converts to an integer index (dividing by
 $\pi/6$), and stores in a flat LUT.  Returns the cache slot index for use by
 `nr_decode_pucch0`.
 
-### `init_pucch2_3_luts()` (lines 1098–1129)
+### `init_pucch2_3_luts()` (lines 1071–1102)
 
 Called once at gNB startup.  Populates:
 
@@ -503,16 +528,31 @@ Called once at gNB startup.  Populates:
 - `pucch2_3_polar_llr_num_lut[256]` — 8-bit partial-codeword patterns packed
   into SIMD registers for use in the polar LLR computation.
 
-### `nr_fill_pucch()` (lines 34–69)
+### `nr_fill_pucch()` (lines 33–55)
 
 Finds a free slot in `gNB->pucch[]`, copies the incoming
 `nfapi_nr_pucch_pdu_t`, and allocates a beam index if beamforming is active.
 Aborts with `AssertFatal` if the PUCCH queue is full.
 
-### `nr_dump_uci_stats()` (lines 2001–2064)
+### `is_pucch3_dmrs_symbol()` (lines 1113–1116)
 
-Writes per-UE UCI counters (trial counts, DTX events, noise powers, SR
-positive rates) to a file or stdout for monitoring.
+Returns whether a symbol index is a Format 3 DMRS symbol (always false for
+Format 2, whose `dmrspos[]` entries are all `-1`).
+
+### `nr_pucch3_dmrs_positions()` (lines 1121–1145)
+
+Fills the Format 3 DMRS symbol positions `dmrspos[0..3]` from TS 38.211
+Table 6.4.1.3.3.2-1 and returns the number of DMRS symbols (see Section 4.2).
+
+### `nr_pucch23_ml_shortblock()` (lines 1149–1380)
+
+Short-block (3–11 bit) maximum-likelihood decode for Formats 2 and 3
+(Sections 4.6 / 4.6.1).  Returns the ML codeword.
+
+### `nr_pucch23_decode_polar()` (lines 1385–1458)
+
+Polar-coded (12–64 bit) decode for Formats 2 and 3 (Section 4.7).  Computes
+non-coherent LLRs, runs the polar decoder, and returns its decoder state.
 
 ---
 
