@@ -152,31 +152,6 @@ unsigned int build_rfdc(int dcoff_i_rxfe, int dcoff_q_rxfe) {
 }
 
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert) {
-  int CC_id;
-  logClean();
-  printf("%s:%d %s() Exiting OAI softmodem: %s\n",file,line, function, ((s==NULL)?"":s));
-  oai_exit = 1;
-
-  for(CC_id=0; CC_id<MAX_NUM_CCs; CC_id++) {
-    if (PHY_vars_UE_g)
-      if (PHY_vars_UE_g[0])
-        if (PHY_vars_UE_g[0][CC_id])
-          if (PHY_vars_UE_g[0][CC_id]->rfdevice.trx_end_func)
-            PHY_vars_UE_g[0][CC_id]->rfdevice.trx_end_func(&PHY_vars_UE_g[0][CC_id]->rfdevice);
-  }
-
-  if(PHY_vars_UE_g != NULL )
-    itti_terminate_tasks (TASK_UNKNOWN);
-
-  if (assert) {
-    abort();
-  } else {
-    sleep(1); // allow lte-softmodem threads to exit first
-    exit(EXIT_SUCCESS);
-  }
-}
-
 extern int16_t dlsch_demod_shift;
 uint16_t node_number;
 static void get_options(configmodule_interface_t *cfg)

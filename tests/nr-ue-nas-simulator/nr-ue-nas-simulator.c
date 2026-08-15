@@ -32,12 +32,6 @@ uint8_t mnc_len = 2;
 char *gnb_ipv4_address_for_NGU = NULL;
 int NB_UE_INST = 1;
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  LOG_E(GNB_APP, "error at %s:%d:%s: %s\n", file, line, function, s);
-  abort();
-}
-
 nfapi_mode_t nfapi_mod = -1;
 void nfapi_setmode(nfapi_mode_t nfapi_mode)
 {

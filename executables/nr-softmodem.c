@@ -100,59 +100,6 @@ unsigned int build_rfdc(int dcoff_i_rxfe, int dcoff_q_rxfe) {
 }
 
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  int ru_id;
-
-  if (s != NULL) {
-    printf("%s:%d %s() Exiting OAI softmodem: %s\n",file,line, function, s);
-  }
-
-  if (RC.ru == NULL)
-    exit(-1); // likely init not completed, prevent crash or hang, exit now...
-
-  // Signal worker threads (ru_thread, L1) to stop before tearing down the radio
-  oai_exit = 1;
-
-  for (ru_id=0; ru_id<RC.nb_RU; ru_id++) {
-    if (RC.ru[ru_id] == NULL) {
-      continue;
-    }
-    if (RC.ru[ru_id]->ifdevice.trx_stop_func) {
-      RC.ru[ru_id]->ifdevice.trx_stop_func(&RC.ru[ru_id]->ifdevice);
-      RC.ru[ru_id]->ifdevice.trx_stop_func = NULL;
-    }
-    if (RC.ru[ru_id]->rfdevice.trx_stop_func) {
-      RC.ru[ru_id]->rfdevice.trx_stop_func(&RC.ru[ru_id]->rfdevice);
-      RC.ru[ru_id]->rfdevice.trx_stop_func = NULL;
-    }
-    if (RC.ru[ru_id]->rfdevice.trx_end_func) {
-      if (RC.ru[ru_id]->rfdevice.trx_get_stats_func) {
-        RC.ru[ru_id]->rfdevice.trx_get_stats_func(&RC.ru[ru_id]->rfdevice);
-        RC.ru[ru_id]->rfdevice.trx_get_stats_func = NULL;
-      }
-      RC.ru[ru_id]->rfdevice.trx_end_func(&RC.ru[ru_id]->rfdevice);
-      RC.ru[ru_id]->rfdevice.trx_end_func = NULL;
-    }
-
-    if (RC.ru[ru_id] && RC.ru[ru_id]->ifdevice.trx_end_func) {
-      if (RC.ru[ru_id]->ifdevice.trx_get_stats_func) {
-        RC.ru[ru_id]->ifdevice.trx_get_stats_func(&RC.ru[ru_id]->ifdevice);
-        RC.ru[ru_id]->ifdevice.trx_get_stats_func = NULL;
-      }
-      RC.ru[ru_id]->ifdevice.trx_end_func(&RC.ru[ru_id]->ifdevice);
-      RC.ru[ru_id]->ifdevice.trx_end_func = NULL;
-    }
-  }
-
-  if (assert) {
-    abort();
-  } else {
-    sleep(1); // allow nr-softmodem threads to exit first
-    exit(EXIT_SUCCESS);
-  }
-}
-
 static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cfg)
 {
   uint32_t                        gnb_nb = RC.nb_nr_inst; 

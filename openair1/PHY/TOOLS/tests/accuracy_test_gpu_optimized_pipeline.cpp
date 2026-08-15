@@ -29,12 +29,6 @@ extern "C" {
 }
 configmodule_interface_t *uniqCfg = NULL;
 
-extern "C" void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  fprintf(stderr, "FATAL: %s at %s:%s:%d\n", s, file, function, line);
-  exit(EXIT_FAILURE);
-}
-
 // Number of distinct random input stimuli to try per parameter combination. Overridable on the
 // command line with -iterations=N / --iterations=N (parsed and stripped before gtest sees argv).
 static int g_num_iterations = 1;

@@ -16,12 +16,6 @@
 
 configmodule_interface_t *uniqCfg = NULL;
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert_not_exit)
-{
-  fprintf(stderr, "Exit function called from %s:%d in %s(). Message: %s\n", file, line, function, s);
-  exit(1);
-}
-
 void generate_random_signal(float **sig_re, float **sig_im, int nb_ant, int num_samples)
 {
   for (int i = 0; i < nb_ant; i++) {

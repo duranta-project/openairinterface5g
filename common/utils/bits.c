@@ -4,7 +4,7 @@
 
 #include "bits.h"
 #include "utils.h"
-// we avoid assertions.h as it necessitates othe dependencies (e.g., exit_function)
+// we avoid assertions.h as it necessitates other dependencies
 #include <assert.h>
 #include <simde/x86/gfni.h>
 

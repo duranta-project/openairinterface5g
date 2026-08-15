@@ -10,14 +10,6 @@ extern "C" {
 #include "openair1/PHY/TOOLS/tools_defs.h"
 struct configmodule_interface_s;
 struct configmodule_interface_s *uniqCfg = NULL;
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  if (assert) {
-    abort();
-  } else {
-    exit(EXIT_SUCCESS);
-  }
-}
 }
 #include <cstdio>
 #include "common/utils/LOG/log.h"

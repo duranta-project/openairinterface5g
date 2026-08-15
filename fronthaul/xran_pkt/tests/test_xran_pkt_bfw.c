@@ -11,12 +11,6 @@
 #include "xran_pkt_bfw.h"
 #include "xran_pkt_cp.h"
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assertflag)
-{
-  fprintf(stderr, "Error at %s:%s:%d - %s\n", file, function, line, s ? s : "None");
-  exit(1);
-}
-
 // Writes the low width bits of v MSB first at bit_offset (buf must be zeroed)
 static void pack_value(uint8_t *buf, size_t bit_offset, int32_t v, int width)
 {

@@ -11,14 +11,6 @@ uint64_t get_softmodem_optmask(void)
   return 0;
 }
 configmodule_interface_t *uniqCfg;
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  if (assert) {
-    abort();
-  } else {
-    exit(EXIT_SUCCESS);
-  }
-}
 
 #include "common/utils/LOG/log.h"
 #include "common/config/config_load_configmodule.h"

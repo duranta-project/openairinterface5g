@@ -17,12 +17,6 @@
 #define NUM_MBUFS 1024
 #define MBUF_CACHE_SIZE 250
 
-// OAI Linkage Satisfiers
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assertflag)
-{
-  fprintf(stderr, "Error at %s:%s:%d - %s\n", file, function, line, s ? s : "None");
-  exit(1);
-}
 configmodule_interface_t *uniqCfg = NULL;
 
 void timer_callback(uint64_t s_abs, void *user_data)

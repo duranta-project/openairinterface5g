@@ -9,14 +9,6 @@ extern "C" {
 #include "openair1/PHY/TOOLS/tools_defs.h"
 struct configmodule_interface_s;
 struct configmodule_interface_s *uniqCfg = NULL;
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  if (assert) {
-    abort();
-  } else {
-    exit(EXIT_SUCCESS);
-  }
-}
 }
 // tools_defs.h drags in common/utils/T/T.h, whose T(...) tracing macro shadows gtest's pervasive
 // "T" template parameter name - undo it before pulling gtest in (same fix as
