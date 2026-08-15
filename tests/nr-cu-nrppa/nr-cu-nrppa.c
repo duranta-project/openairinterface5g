@@ -31,16 +31,6 @@ uint8_t mnc_len = 2;
 int NB_UE_INST = 1;
 positioning_config_t *positioning_config = NULL;
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  if (assert) {
-    abort();
-  } else {
-    sleep(1); // allow other threads to exit first
-    exit(EXIT_SUCCESS);
-  }
-}
-
 nfapi_mode_t nfapi_mod = -1;
 void nfapi_setmode(nfapi_mode_t nfapi_mode)
 {

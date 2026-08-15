@@ -59,17 +59,6 @@ static void initialize_agent(ngran_node_t node_type, e2_agent_args_t oai_args)
 }
 #endif  // E2_AGENT
 
-
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  if (assert) {
-    abort();
-  } else {
-    sleep(1); // allow other threads to exit first
-    exit(EXIT_SUCCESS);
-  }
-}
-
 nfapi_mode_t nfapi_mod = -1;
 void nfapi_setmode(nfapi_mode_t nfapi_mode)
 {

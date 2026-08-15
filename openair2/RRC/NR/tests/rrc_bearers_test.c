@@ -25,13 +25,6 @@ int nr_rlc_get_available_tx_space(int module_id, int rnti, int drb_id)
 softmodem_params_t *get_softmodem_params(void) { return NULL; }
 configmodule_interface_t *uniqCfg = NULL;
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  UNUSED(assert);
-  printf("detected error at %s:%d:%s: %s\n", file, line, function, s);
-  abort();
-}
-
 static void test_rrc_pdu_session(void)
 {
   const int pdu_session_id = 3;

@@ -25,12 +25,6 @@ softmodem_params_t *get_softmodem_params(void)
 {
   return &softmodem_params;
 }
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert_flag)
-{
-  (void)assert_flag;
-  fprintf(stderr, "FATAL: %s at %s:%s:%d\n", s, file, function, line);
-  exit(EXIT_FAILURE);
-}
 // Stub: apply_channelmod.c needs this symbol, normally provided by the gNB MAC library.
 bool nr_update_sib19(const gnb_sat_position_update_t *sat_position)
 {

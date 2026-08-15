@@ -9,12 +9,6 @@
 #include <stdlib.h>
 #include "fh_compression.h"
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assertflag)
-{
-  fprintf(stderr, "Error at %s:%s:%d - %s\n", file, function, line, s ? s : "None");
-  exit(1);
-}
-
 static void test_bfp_roundtrip(void)
 {
   printf("Testing BFP compress/decompress round-trip...\n");

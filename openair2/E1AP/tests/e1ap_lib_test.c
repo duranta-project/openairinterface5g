@@ -17,13 +17,6 @@
 #include "common/utils/assertions.h"
 #include "openair1/SIMULATION/TOOLS/sim.h"
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  UNUSED(assert);
-  printf("detected error at %s:%d:%s: %s\n", file, line, function, s);
-  abort();
-}
-
 static E1AP_E1AP_PDU_t *e1ap_encode_decode(const E1AP_E1AP_PDU_t *enc_pdu)
 {
   // xer_fprint(stdout, &asn_DEF_E1AP_E1AP_PDU, enc_pdu);

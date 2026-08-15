@@ -13,17 +13,6 @@
 
 configmodule_interface_t *uniqCfg = NULL;
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  if (s != NULL) {
-    printf("%s:%d %s() Exiting OAI softmodem: %s\n", file, line, function, s);
-  }
-  if (assert)
-    abort();
-  else
-    exit(1);
-}
-
 static int rlc_tick_count = 0;
 static int pdcp_tick_count = 0;
 static int x2ap_tick_count = 0;

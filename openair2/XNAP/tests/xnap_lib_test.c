@@ -16,13 +16,6 @@
 
 configmodule_interface_t *uniqCfg = NULL;
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  UNUSED(assert);
-  printf("detected error at %s:%d:%s: %s\n", file, line, function, s);
-  abort();
-}
-
 /* Helper for ASN.1 Encoding/Decoding loop */
 static XNAP_XnAP_PDU_t *xnap_encode_decode(const XNAP_XnAP_PDU_t *enc_pdu)
 {
