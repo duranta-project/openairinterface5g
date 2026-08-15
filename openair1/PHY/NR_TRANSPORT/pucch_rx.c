@@ -1214,6 +1214,7 @@ void nr_decode_pucch2_3(PHY_VARS_gNB *gNB,
   else {
     nb_re_data = 12 * pucch_pdu->prb_size;
     nb_re_dmrs = 12 * pucch_pdu->prb_size;
+    if (pucch_pdu->freq_hop_flag == 1 && nb_symbols == 4) AssertFatal(1==0,"Cannot have freq_hop_flag 1 and nb_symbols = 4\n");
     if (pucch_pdu->add_dmrs_flag == 0) {
       if (pucch_pdu->freq_hop_flag == 0 && nb_symbols == 4) {
 	 dmrspos[0] = 1;
@@ -1778,11 +1779,12 @@ void nr_decode_pucch2_3(PHY_VARS_gNB *gNB,
 	    // for 4 DMRS, coherently combine the pairs 0,1 and 2,3 and store the combinations in sum_of_prod
 	    for (int g=0;g<ngroup;g++)
 	      for (int d=0;d<2;d++) {
-		   if (ndmrs == 2) {
+		   if (ndmrs <= 2) {
 		     sum_of_prod[g][d][aa] = (c64_t){corr32[dmrspos[d]][g][aa].r,corr32[dmrspos[d]][g][aa].i};
 #ifdef DEBUG_PUCCH_NR_RX
-                     printf("ndmrs = 2 : sum_of_prod[%d][%d][%d] %lld.%lld\n",g,d,aa,sum_of_prod[g][d][aa].r,sum_of_prod[g][d][aa].i);
+                     printf("ndmrs <= 2 : sum_of_prod[%d][%d][%d] %lld.%lld\n",g,d,aa,sum_of_prod[g][d][aa].r,sum_of_prod[g][d][aa].i);
 #endif
+		     if (ndmrs == 1) continue;
 		   }
 	           else { 
 		     csum(sum_of_prod[g][d][aa],corr32[dmrspos[2*d]][g][aa],corr32[dmrspos[1+(2*d)]][g][aa]);
@@ -1794,7 +1796,7 @@ void nr_decode_pucch2_3(PHY_VARS_gNB *gNB,
 	    //loop over symbols correlating within each group, add non-coherently over groups and over symbols around each DMRS 
             int cd=0;
 	    for (int symb=0;symb<(nb_symbols-ndmrs);symb++) {
-	      if (symb<(nb_symbols-ndmrs)/2) cd=0;
+	      if ((symb<(nb_symbols-ndmrs)/2) || (ndmrs==1)) cd=0;
               else cd=1;	      
               for (int group = 0; group < ngroup; group++) {
                 const simde__m128i *rext = (simde__m128i *)r_ext[aa][symb];
@@ -1859,13 +1861,15 @@ void nr_decode_pucch2_3(PHY_VARS_gNB *gNB,
       for (int group = 0 ; group < ngroup ; group++)
         for (int aa = 0 ; aa < Prx ; aa++) {
             corr_tmp += squaredMod(sum_of_prod[group][0][aa]);
-            if (fmt > 2 || (fmt == 2 && pucch_pdu->freq_hop_flag > 0)) 
+            if ((fmt > 2 && (ndmrs>1)) || (fmt == 2 && pucch_pdu->freq_hop_flag > 0)) 
 	       corr_tmp += squaredMod(sum_of_prod[group][1][aa]);
 #ifdef DEBUG_NR_PUCCH_RX
 	    if (fmt == 2 && pucch_pdu->freq_hop_flag == 0)
               printf("sum_of_prod[%d][0][%d] (%lld,%lld)\n",group,aa,sum_of_prod[group][0][aa].r,sum_of_prod[group][0][aa].i);
-	    else 
+	    else if (ndmrs > 1)
               printf("sum_of_prod[%d][0][%d] (%lld,%lld) sum_of_prod[%d][1][%d] (%lld,%lld)\n",group,aa,sum_of_prod[group][0][aa].r,sum_of_prod[group][0][aa].i,group,aa,sum_of_prod[group][1][aa].r,sum_of_prod[group][1][aa].i);
+	    else
+              printf("sum_of_prod[%d][0][%d] (%lld,%lld)\n",group,aa,sum_of_prod[group][0][aa].r,sum_of_prod[group][0][aa].i);
             printf("corr_tmp %lld\n",corr_tmp);
 #endif
         }
