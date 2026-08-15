@@ -45,7 +45,7 @@ add_test(NAME test_dft_saturation COMMAND ./test_dft_saturation)
 set_tests_properties(test_dft_saturation PROPERTIES ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}")
 
 add_executable(test_vector_op test_vector_op.cpp)
-target_link_libraries(test_vector_op PRIVATE LOG minimal_lib)
+target_link_libraries(test_vector_op PRIVATE LOG)
 add_dependencies(tests test_vector_op)
 add_test(NAME test_vector_op
   COMMAND test_vector_op)
