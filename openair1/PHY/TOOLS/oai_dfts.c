@@ -3454,9 +3454,8 @@ void dft_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, unsign
 void idft_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, unsigned char scale_flag)
 {
   AssertFatal((sizeidx >= 0 && sizeidx < DFT_SIZE_IDXTABLESIZE), "Invalid idft size index %i\n", sizeidx);
-  int algn = 0xF;
-  algn = 0x1F;
-  AssertFatal(((intptr_t)output & algn) == 0, "Buffers should be 16 bytes aligned %p", output);
+  int algn = 0x1F;
+  AssertFatal(((intptr_t)output & algn) == 0, "Buffers should be 32 bytes aligned %p", output);
   if (((intptr_t)input) & algn) {
     LOG_D(PHY, "DFT called with input not aligned, add a memcpy\n");
     int sz = idft_ftab[sizeidx].size;
