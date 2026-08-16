@@ -3328,6 +3328,7 @@ void *rrc_nrue(void *notUsed)
   switch (ITTI_MSG_ID(msg_p)) {
   case TERMINATE_MESSAGE:
     LOG_W(NR_RRC, " *** Exiting RRC thread\n");
+    itti_free(ITTI_MSG_ORIGIN_ID(msg_p), msg_p);
     itti_exit_task();
     break;
 

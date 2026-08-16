@@ -157,6 +157,7 @@ typedef struct esm_data_context_s {
 #define ESM_DATA_PDN_MAX    4
   struct {
     int pid;     /* Identifier of the PDN connection        */
+    bool ipv4_route_cleanup_pending;
     bool is_active;   /* true/false if the PDN connection is active/inactive
               * or the process to activate/deactivate the PDN
               * connection is in progress           */

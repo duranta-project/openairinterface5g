@@ -455,6 +455,16 @@ typedef struct {
 } ittiTask_parms_t;
 int itti_create_task(const task_id_t task_id, void *(*start_routine)(void *), const ittiTask_parms_t *args_p);
 
+/** \brief Send TERMINATE_MESSAGE to a started task and wait for its thread.
+   This is a shutdown-only API; callers must first quiesce the task's producers.
+   Tasks configured as in-place shortcuts have no thread and are assumed to be
+   quiescent; they return directly without receiving TERMINATE_MESSAGE.
+   \param task_id task to terminate
+   \param instance destination instance for TERMINATE_MESSAGE
+   @returns a pthread error number, or 0 on success/no thread
+ **/
+int itti_terminate_and_join_task(task_id_t task_id, instance_t instance);
+
 int itti_create_queue(const task_info_t *task_info);
 
 /** \brief Exit the current task.
