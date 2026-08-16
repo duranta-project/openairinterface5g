@@ -3098,6 +3098,13 @@ void *nas_nrue(void *args_p)
   return NULL;
 }
 
+void nas_nrue_cleanup_ipv4_routes(void)
+{
+  for (int ue_id = 0; ue_id < MAX_NUM_NR_UE_INST; ue_id++)
+    for (int psi = 1; psi < MAX_NUM_PSI; psi++)
+      nr_ue_tun_cleanup_ipv4_route(&nr_ue_nas[ue_id].pdu_tun[psi], ue_id);
+}
+
 void nas_init_nrue(int num_ues) {
   for (int i = 0; i < num_ues; i++) {
     (void)get_ue_nas_info(i);
