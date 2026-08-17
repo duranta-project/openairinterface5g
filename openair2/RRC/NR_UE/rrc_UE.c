@@ -137,6 +137,13 @@ static void nr_rrc_trigger_mac_ra(NR_UE_RRC_INST_t *rrc, nr_mac_ra_start_cause_t
   nr_mac_rrc_message_t rrc_msg = {0};
   rrc_msg.payload_type = NR_MAC_RRC_START_RA;
   rrc_msg.payload.start_ra.cause = cause;
+  if (cause == NR_MAC_RA_START_REESTABLISHMENT && rrc->ho_source.valid) {
+    // This re-establishment was triggered by T304 expiry (handle_t304_expiry() already reverted
+    // rrc->phyCellID/rnti/etc. from the snapshot below): tell MAC to revert its own common/BWP0/PHY
+    // config back to the source PCell too, TS 38.331 5.3.5.8.3.
+    rrc_msg.payload.start_ra.revert_to_ho_source = true;
+    rrc->ho_source.valid = false; // snapshot consumed
+  }
   nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
 }
 
@@ -958,6 +965,20 @@ static void nr_rrc_process_reconfigurationWithSync(NR_UE_RRC_INST_t *rrc,
     return;
   }
 
+  // Snapshot the source PCell's identity/security state before it gets overwritten below by the
+  // target's, so that it can be restored if T304 expires (TS 38.331 5.3.5.8.3 "revert back to the
+  // UE configuration used in the source PCell"). Only meaningful when AS security is active: this
+  // is what nr_rrc_process_reconfigurationWithSync() and 5.3.7 re-establishment require anyway.
+  if (rrc->as_security_activated) {
+    rrc->ho_source.valid = true;
+    rrc->ho_source.phyCellID = rrc->phyCellID;
+    rrc->ho_source.rnti = rrc->rnti;
+    rrc->ho_source.arfcn_ssb = rrc->arfcn_ssb;
+    memcpy(rrc->ho_source.kgnb, rrc->kgnb, sizeof(rrc->ho_source.kgnb));
+    memcpy(rrc->ho_source.nh, rrc->nh, sizeof(rrc->ho_source.nh));
+    rrc->ho_source.nhcc = rrc->nhcc;
+  }
+
   // Clear neighbor cell lists from measurement objects during handover
   rrcPerNB_t *rrcNB = &rrc->perNB[gNB_index];
   for (int i = 0; i < MAX_MEAS_OBJ; i++) {
@@ -1027,7 +1048,7 @@ static bool nr_rrc_cellgroup_configuration(NR_UE_RRC_INST_t *rrc, NR_CellGroupCo
   if (!check_cellgroup_config(cgConfig)) {
     // if we received a configuration not supported or with some wrong combination
     // we call the function for RLF (re-establishment if security is activated, going to IDLE otherwise)
-    handle_rlf_detection(rrc);
+    handle_rlf_detection(rrc, NR_ReestablishmentCause_otherFailure);
     return false;
   }
   NR_SpCellConfig_t *spCellConfig = cgConfig->spCellConfig;
@@ -1100,7 +1121,7 @@ static bool nr_rrc_ue_process_masterCellGroup(NR_UE_RRC_INST_t *rrc,
     LOG_E(NR_RRC, "CellGroupConfig decode error\n");
     // if the ASN1 decoding fails for the received CellGroup configuration
     // we call the function for RLF (re-establishment if security is activated, going to IDLE otherwise)
-    handle_rlf_detection(rrc);
+    handle_rlf_detection(rrc, NR_ReestablishmentCause_otherFailure);
     return false;
   }
   if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
@@ -1711,7 +1732,7 @@ static void nr_rrc_ue_process_rrcReconfiguration(NR_UE_RRC_INST_t *rrc, int gNB_
           SEQUENCE_free(&asn_DEF_NR_CellGroupConfig, (void *)cellGroupConfig, 1);
           // if the ASN1 decoding fails for the received CellGroup configuration
           // we call the function for RLF (re-establishment if security is activated, going to IDLE otherwise)
-          handle_rlf_detection(rrc);
+          handle_rlf_detection(rrc, NR_ReestablishmentCause_otherFailure);
         } else {
           if (LOG_DEBUGFLAG(DEBUG_ASN1))
             xer_fprint(stdout, &asn_DEF_NR_CellGroupConfig, (const void *) cellGroupConfig);
@@ -3253,7 +3274,7 @@ static void nr_rrc_handle_ra_indication(NR_UE_RRC_INST_t *rrc, bool ra_succeeded
         && !nr_timer_is_active(&timers->T304)
         && !nr_timer_is_active(&timers->T311)
         && !nr_timer_is_active(&timers->T319))
-      handle_rlf_detection(rrc);
+      handle_rlf_detection(rrc, NR_ReestablishmentCause_otherFailure);
   }
 }
 
@@ -3359,7 +3380,7 @@ void *rrc_nrue(void *notUsed)
 
   case NR_RRC_MAC_VERIFY:
     LOG_W(NR_RRC, "L2 verification of RRC consistency failed\n");
-    handle_rlf_detection(rrc);
+    handle_rlf_detection(rrc, NR_ReestablishmentCause_otherFailure);
     break;
 
   case NR_RRC_MAC_INAC_IND:
@@ -3374,7 +3395,7 @@ void *rrc_nrue(void *notUsed)
           "[UE %ld ID %d] Received indication that RLC reached max retransmissions\n",
           instance,
           NR_RRC_RLC_MAXRTX(msg_p).ue_id);
-    handle_rlf_detection(rrc);
+    handle_rlf_detection(rrc, NR_ReestablishmentCause_otherFailure);
     break;
 
   case NR_RRC_MAC_MSG3_IND:
@@ -3634,9 +3655,10 @@ void handle_RRCRelease(NR_UE_RRC_INST_t *rrc)
   asn1cFreeStruc(asn_DEF_NR_RRCRelease, rrc->RRCRelease);
 }
 
-void handle_rlf_detection(NR_UE_RRC_INST_t *rrc)
+void handle_rlf_detection(NR_UE_RRC_INST_t *rrc, NR_ReestablishmentCause_t reestab_cause)
 {
-  // 5.3.10.3 in 38.331
+  // 5.3.7.1: a UE in RRC_CONNECTED, for which AS security has been activated with SRB2 and at
+  // least one DRB setup, may initiate re-establishment; otherwise it goes directly to RRC_IDLE.
   bool srb2 = rrc->Srb[2] != RB_NOT_PRESENT;
   bool any_drb = false;
   for (int i = 0; i < MAX_DRBS_PER_UE; i++) {
@@ -3647,11 +3669,31 @@ void handle_rlf_detection(NR_UE_RRC_INST_t *rrc)
   }
 
   if (rrc->as_security_activated && srb2 && any_drb) // initiate the connection re-establishment procedure
-    nr_rrc_initiate_rrcReestablishment(rrc, NR_ReestablishmentCause_otherFailure);
+    nr_rrc_initiate_rrcReestablishment(rrc, reestab_cause);
   else {
     NR_Release_Cause_t cause = rrc->as_security_activated ? RRC_CONNECTION_FAILURE : OTHER;
     nr_rrc_going_to_IDLE(rrc, cause, NULL);
   }
+}
+
+/** @brief T304 (MCG) expiry: TS 38.331 5.3.5.8.3 "T304 expiry (Reconfiguration with sync Failure)".
+ * DAPS is not supported in this implementation, so only the non-DAPS branch applies: revert back to
+ * the source PCell's identity/security context (RRC-level; MAC reverts its own common/BWP0/PHY
+ * config symmetrically, see nr_rrc_trigger_mac_ra()) and initiate re-establishment (5.3.7). Releasing
+ * dedicated CFRA preambles/msgA PUSCH resources happens at MAC as part of that re-establishment
+ * trigger. VarRLF-Report is not implemented anywhere in this codebase (same as for every other RLF
+ * trigger), so it's skipped here too. */
+void handle_t304_expiry(NR_UE_RRC_INST_t *rrc)
+{
+  if (rrc->ho_source.valid) {
+    rrc->phyCellID = rrc->ho_source.phyCellID;
+    rrc->rnti = rrc->ho_source.rnti;
+    rrc->arfcn_ssb = rrc->ho_source.arfcn_ssb;
+    memcpy(rrc->kgnb, rrc->ho_source.kgnb, sizeof(rrc->kgnb));
+    memcpy(rrc->nh, rrc->ho_source.nh, sizeof(rrc->nh));
+    rrc->nhcc = rrc->ho_source.nhcc;
+  }
+  handle_rlf_detection(rrc, NR_ReestablishmentCause_handoverFailure);
 }
 
 void nr_rrc_going_to_IDLE(NR_UE_RRC_INST_t *rrc,
@@ -3726,6 +3768,8 @@ void nr_rrc_going_to_IDLE(NR_UE_RRC_INST_t *rrc,
   memset(rrc->kgnb, 0, sizeof(rrc->kgnb));
   rrc->integrityProtAlgorithm = 0;
   rrc->cipheringAlgorithm = 0;
+  // discard any pending source-PCell snapshot: it's only valid within the connection that took it
+  rrc->ho_source.valid = false;
 
   // release all radio resources, including release of the RLC entity,
   // the MAC configuration and the associated PDCP entity

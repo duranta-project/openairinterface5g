@@ -464,6 +464,10 @@ typedef struct {
 
 typedef struct {
   nr_mac_ra_start_cause_t cause;
+  // Set together with NR_MAC_RA_START_REESTABLISHMENT when re-establishment was triggered by T304
+  // expiry (TS 38.331 5.3.5.8.3): MAC must revert its common/BWP0/PHY config -- already switched to
+  // the (unreachable) target PCell -- back to the source PCell, using its own ho_source_scc snapshot.
+  bool revert_to_ho_source;
 } nr_mac_rrc_start_ra_t;
 
 enum payload_type {
