@@ -1078,6 +1078,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
 
     // Generate LLR from PTRS compensated signal
     const uint8_t qamModOrder = dlsch->cw_info.qamModOrder;
+    start_meas_nr_ue_phy(ue, DLSCH_LLR_LAYER_DEMAP_STATS);
     start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
     for (int llr_sym = startSymbIdx; llr_sym < startSymbIdx + nbSymb; llr_sym++) {
       if (nl == 2 && qamModOrder <= 6 && do_ml) {
@@ -1111,6 +1112,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     start_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
     nr_dlsch_layer_demapping(nl, dlsch->cw_info.qamModOrder, llr_per_symbol, layer_llr, dlsch_config, dl_valid_re, llr);
     stop_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
+    stop_meas_nr_ue_phy(ue, DLSCH_LLR_LAYER_DEMAP_STATS);
 
     if (UEScopeHasTryLock(ue)) {
       metadata mt = {.frame = proc->frame_rx, .slot = proc->nr_slot_rx };
@@ -1134,12 +1136,14 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
 
   if (meas_enabled) {
     LOG_D(PHY,
-          "[AbsSFN %u.%d] Slot%d Symbol %d: LLR Computation  %5.2f \n",
+          "[AbsSFN %u.%d] Slot%d Symbol %d: LLR Computation %5.2f Layer Demapping %5.2f LLR+Demapping %5.2f \n",
           frame,
           nr_slot_rx,
           slot,
           symbol,
-          ue->phy_cpu_stats.cpu_time_stats[DLSCH_LLR_STATS].p_time / (cpuf * 1000.0));
+          ue->phy_cpu_stats.cpu_time_stats[DLSCH_LLR_STATS].p_time / (cpuf * 1000.0),
+          ue->phy_cpu_stats.cpu_time_stats[DLSCH_LAYER_DEMAPPING].p_time / (cpuf * 1000.0),
+          ue->phy_cpu_stats.cpu_time_stats[DLSCH_LLR_LAYER_DEMAP_STATS].p_time / (cpuf * 1000.0));
   }
 
 #if T_TRACER
