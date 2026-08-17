@@ -752,8 +752,7 @@ err:
 #undef R
 }
 
-void nr_rlc_entity_am_recv_pdu(nr_rlc_entity_t *_entity,
-                               char *buffer, int size)
+static int recv_pdu(nr_rlc_entity_t *_entity, char *buffer, int size)
 {
 #define R(d) do { if (nr_rlc_pdu_decoder_in_error(&d)) goto err; } while (0)
   nr_rlc_entity_am_t *entity = (nr_rlc_entity_am_t *)_entity;
@@ -776,7 +775,8 @@ void nr_rlc_entity_am_recv_pdu(nr_rlc_entity_t *_entity,
 
   if (dc == 0) {
     LOG_D(RLC, "RLC received control PDU\n");
-    return process_control_pdu(entity, buffer, size);
+    process_control_pdu(entity, buffer, size);
+    return 0;
   }
 
   /* data PDU */
@@ -865,7 +865,7 @@ void nr_rlc_entity_am_recv_pdu(nr_rlc_entity_t *_entity,
     }
   }
 
-  return;
+  return 1;
 
 err:
   LOG_W(RLC, "RX error decoding PDU, discarding\n");
@@ -877,6 +877,10 @@ discard:
 
   entity->common.stats.rxpdu_dd_pkts++;
   entity->common.stats.rxpdu_dd_bytes += size;
+
+  /* Discarding leaves the RX state unchanged, but a poll can create a new
+   * pending STATUS report. Populate its empty cache in that case. */
+  return p && entity->common.bstatus.status_size == 0;
 
 #undef R
 }
@@ -1451,6 +1455,7 @@ static int generate_status(nr_rlc_entity_am_t *entity, char *buffer, int size)
 
   /* reset the trigger */
   entity->status_triggered = 0;
+  entity->common.bstatus.status_size = 0;
 
   /* start t_status_prohibit */
   entity->t_status_prohibit_start = entity->t_current;
@@ -1472,7 +1477,7 @@ static int status_to_report(nr_rlc_entity_am_t *entity)
 }
 
 static int missing_size(nr_rlc_entity_am_t *entity, missing_data_t *m,
-                        int *size, int maxsize)
+                        int *size)
 {
   int r_bits = entity->sn_field_length == 18 ? 3 : 1;
   int range_count = 0;
@@ -1481,7 +1486,6 @@ static int missing_size(nr_rlc_entity_am_t *entity, missing_data_t *m,
   int sn_end;
   int so_end;
   int sn_count;
-  missing_data_t m_nack;
 
   /* be careful to limit a range to 255 SNs, that is: cut if needed */
   sn_count = (m->sn_end - m->sn_start + entity->sn_modulus)
@@ -1518,16 +1522,6 @@ static int missing_size(nr_rlc_entity_am_t *entity, missing_data_t *m,
       so_end = 0xffff;
     }
 
-    /* check that there is room for a nack */
-    m_nack.sn_start = sn_start;
-    m_nack.so_start = so_start;
-    m_nack.sn_end = sn_end;
-    m_nack.so_end = so_end;
-    if (*size + nack_size(entity, &m_nack) > maxsize) {
-      m->next = NULL;
-      break;
-    }
-
     if (sn_start == sn_end) {
       if (so_start == 0 && so_end == 0xffff) {
         /* only nack_sn, no so_start/end, no nack range */
@@ -1554,16 +1548,12 @@ static int missing_size(nr_rlc_entity_am_t *entity, missing_data_t *m,
   return range_count;
 }
 
-static int status_size(nr_rlc_entity_am_t *entity, int maxsize)
+static int status_size(nr_rlc_entity_am_t *entity)
 {
   missing_data_t  m;
   nr_rlc_pdu_t    *cur;
   int             nack_count = 0;
   int             size;
-
-  /* if not enough room, do nothing */
-  if (maxsize < 3)
-    return 0;
 
   /* minimum 3 bytes */
   size = 3;
@@ -1577,12 +1567,19 @@ static int status_size(nr_rlc_entity_am_t *entity, int maxsize)
     if (m.sn_start == -1)
       break;
 
-    nack_count += missing_size(entity, &m, &size, maxsize);
+    nack_count += missing_size(entity, &m, &size);
 
     cur = m.next;
   }
 
   return size;
+}
+
+void nr_rlc_entity_am_recv_pdu(nr_rlc_entity_t *entity, char *buffer, int size)
+{
+  nr_rlc_entity_am_t *am_entity = (nr_rlc_entity_am_t *)entity;
+  if (recv_pdu(entity, buffer, size) && am_entity->status_triggered)
+    am_entity->common.bstatus.status_size = status_size(am_entity);
 }
 
 /*************************************************************************/
@@ -1777,13 +1774,11 @@ static int generate_tx_pdu(nr_rlc_entity_am_t *entity, char *buffer, int size)
 nr_rlc_entity_buffer_status_t nr_rlc_entity_am_buffer_status(
     nr_rlc_entity_t *_entity, int maxsize)
 {
+  //UNUSED(maxsize);
   nr_rlc_entity_am_t *entity = (nr_rlc_entity_am_t *)_entity;
   nr_rlc_entity_buffer_status_t ret;
 
-  if (status_to_report(entity))
-    ret.status_size = status_size(entity, maxsize);
-  else
-    ret.status_size = 0;
+  ret.status_size = status_to_report(entity) ? entity->common.bstatus.status_size : 0;
 
   ret.tx_size = entity->common.bstatus.tx_size;
   ret.retx_size = entity->common.bstatus.retx_size;
@@ -1980,6 +1975,8 @@ static void check_t_reassembly(nr_rlc_entity_am_t *entity)
   /* trigger status report */
   entity->status_triggered = 1;
 
+  entity->common.bstatus.status_size = status_size(entity);
+
   if (sn_compare_rx(entity, entity->rx_next_highest,
                     (entity->rx_highest_status+1) % entity->sn_modulus) > 0 ||
       (entity->rx_next_highest ==
@@ -2093,6 +2090,7 @@ static void clear_entity(nr_rlc_entity_am_t *entity)
 
   entity->common.bstatus.tx_size   = 0;
   entity->common.bstatus.retx_size = 0;
+  entity->common.bstatus.status_size = 0;
 }
 
 void nr_rlc_entity_am_reestablishment(nr_rlc_entity_t *_entity)
