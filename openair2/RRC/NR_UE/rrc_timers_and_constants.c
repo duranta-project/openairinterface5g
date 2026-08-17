@@ -195,12 +195,8 @@ void nr_rrc_handle_timers(NR_UE_RRC_INST_t *rrc)
 
   bool t304_expired = nr_timer_tick(&timers->T304);
   if(t304_expired) {
-    RRCLOG_W("Timer T304 expired\n");
-    // TODO
-    // For T304 of MCG, in case of the handover from NR or intra-NR
-    // handover, initiate the RRC re-establishment procedure;
-    // In case of handover to NR, perform the actions defined in the
-    // specifications applicable for the source RAT.
+    LOG_W(NR_RRC, "[UE %ld] Timer T304 expired! Reconfiguration with sync (handover) failed\n", rrc->ue_id);
+    handle_t304_expiry(rrc);
   }
 
   bool t310_expired = nr_timer_tick(&timers->T310);
@@ -208,7 +204,7 @@ void nr_rrc_handle_timers(NR_UE_RRC_INST_t *rrc)
     RRCLOG_W("Timer T310 expired\n");
     // handle detection of radio link failure
     // as described in 5.3.10.3 of 38.331
-    handle_rlf_detection(rrc);
+    handle_rlf_detection(rrc, NR_ReestablishmentCause_otherFailure);
   }
 
   bool t311_expired = nr_timer_tick(&timers->T311);

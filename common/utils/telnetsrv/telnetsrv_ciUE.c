@@ -75,7 +75,7 @@ int force_rlf(char *buf, int debug, telnet_printfunc_t prnt)
   UNUSED(buf);
   UNUSED(prnt);
   NR_UE_RRC_INST_t *rrc = get_NR_UE_rrc_inst(0);
-  handle_rlf_detection(rrc);
+  handle_rlf_detection(rrc, NR_ReestablishmentCause_otherFailure);
   return 0;
 }
 

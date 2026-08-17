@@ -39,6 +39,7 @@
 #include "NR_ServingCellConfig.h"
 #include "NR_MeasConfig.h"
 #include "NR_ServingCellConfigCommonSIB.h"
+#include "NR_ServingCellConfigCommon.h"
 
 /* position_t */
 #include "executables/position_interface.h"
@@ -572,6 +573,32 @@ typedef struct NR_UE_MAC_INST_s {
   NR_UL_TIME_ALIGNMENT_t ul_time_alignment;
   NR_TDD_UL_DL_ConfigCommon_t *tdd_UL_DL_ConfigurationCommon;
   frame_structure_t frame_structure;
+
+  /// Clone of the ServingCellConfigCommon currently in effect (the one config_common_ue() last
+  /// applied), kept around solely so that the next handover can snapshot it into ho_source_scc.
+  NR_ServingCellConfigCommon_t *servingCellConfigCommon;
+  /// Snapshot of the source PCell's ServingCellConfigCommon, taken right before a handover
+  /// (reconfigurationWithSync) overwrites the common/BWP0/PHY config with the target's. Consumed
+  /// (and freed) to revert the common config back to the source PCell upon T304 expiry
+  /// (TS 38.331 5.3.5.8.3), see the NR_MAC_RA_START_REESTABLISHMENT case of nr_mac_start_ra().
+  /// Only available when servingCellConfigCommon was already set, i.e. this isn't the UE's first
+  /// ever handover (a UE's initial common config comes from SIB1 via config_common_ue_sa(), a
+  /// different ASN.1 type -- see ho_source_phy below for the fallback that covers that case too).
+  NR_ServingCellConfigCommon_t *ho_source_scc;
+  /// Fallback source-PCell snapshot: just the plain scalars that actually drive the PHY resync
+  /// (see handle_sync_req_from_mac() in executables/nr-ue.c) -- physCellId, DL/UL frequency, SSB
+  /// location. Unlike ho_source_scc above, these are taken unconditionally on every handover
+  /// (regardless of whether the current common config came from SIB1-based camping or a prior
+  /// dedicated reconfigurationWithSync), so they're always available to at least point PHY back
+  /// at the right cell/frequency on T304 expiry, even when the fuller ho_source_scc isn't.
+  struct {
+    bool valid;
+    long physCellId;
+    uint32_t dl_frequency;
+    uint32_t uplink_frequency;
+    uint16_t ssb_offset_point_a;
+    uint8_t ssb_subcarrier_offset;
+  } ho_source_phy;
 
   /* Random Access */
   /// CRNTI

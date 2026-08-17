@@ -245,6 +245,19 @@ typedef struct NR_UE_RRC_INST_s {
   uint8_t nh[32];
   uint64_t nhcc;
 
+  /// Snapshot of the source PCell's identity/security state, taken right before a received
+  /// reconfigurationWithSync (handover command) starts mutating it. Used to revert back to the
+  /// source PCell upon T304 expiry, as mandated by TS 38.331 5.3.5.8.3.
+  struct {
+    bool valid;
+    uint32_t phyCellID;
+    rnti_t rnti;
+    long arfcn_ssb;
+    uint8_t kgnb[32];
+    uint8_t nh[32];
+    uint64_t nhcc;
+  } ho_source;
+
   bool detach_after_release;
   NR_timer_t release_timer;
   NR_RRCRelease_t *RRCRelease;
