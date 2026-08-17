@@ -287,7 +287,8 @@ static void config_preamble_index(NR_UE_MAC_INST_t *mac)
     // The field is mandatory present if the 2-step random access type occasions are shared with 4-step random access type,
     // otherwise the field is not present
     bool sharedROs = twostep->msgA_CB_PreamblesPerSSB_PerSharedRO_r16 != NULL;
-    AssertFatal(sharedROs == false, "Shared ROs between 2- and 4-step RA not supported\n");
+    if (!sharedROs)
+      LOG_E(NR_MAC, "Shared ROs between 2- and 4-step RA not supported\n");
 
     // For Type-2 random access procedure with separate configuration of PRACH occasions with Type-1 random access procedure
     // configuration by msgA-SSB-PerRACH-OccasionAndCB-PreamblesPerSSB when provided;
@@ -679,7 +680,7 @@ static int nr_get_RA_window_2Step_v16(long msgB_ResponseWindow)
       return 160;
       break;
     case NR_RACH_ConfigGenericTwoStepRA_r16__msgB_ResponseWindow_r16_sl320:
-      return 360;
+      return 320;
       break;
     default:
       AssertFatal(false, "illegal msgB_responseWindow value %ld\n", msgB_ResponseWindow);
@@ -1157,12 +1158,15 @@ void nr_ra_contention_resolution_failed(NR_UE_MAC_INST_t *mac)
 
 void nr_rar_not_successful(NR_UE_MAC_INST_t *mac)
 {
-  LOG_W(MAC, "[UE %d] RAR reception failed\n", mac->ue_id);
   RA_config_t *ra = &mac->ra;
+  LOG_W(MAC, "[UE %d] Response window timer expired, %s reception failed\n", mac->ue_id, ra->ra_type == RA_2_STEP ? "MsgB" : "RAR");
   NR_PRACH_RESOURCES_t *prach_resources = &ra->prach_resources;
   prach_resources->preamble_tx_counter++;
   bool ra_completed = false;
   if (prach_resources->preamble_tx_counter == ra->preambleTransMax + 1) {
+    if (ra->ra_type == RA_2_STEP) {
+      AssertFatal(false, "Fallback to 4-Step RA not implemented\n");
+    }
     // if the Random Access Preamble is transmitted on the SpCell
     // TODO to be verified, this means SA if I'm not mistaken
     if (IS_SA_MODE(get_softmodem_params())) {
