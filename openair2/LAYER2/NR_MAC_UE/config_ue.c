@@ -2040,7 +2040,7 @@ void nr_rrc_mac_config_req_paging_ue_id(module_id_t module_id, uint64_t fiveG_S_
   pthread_mutex_unlock(&mac->if_mutex);
 }
 
-static void nr_mac_start_ra(NR_UE_MAC_INST_t *mac, module_id_t module_id, nr_mac_ra_start_cause_t cause)
+static void nr_mac_start_ra(NR_UE_MAC_INST_t *mac, module_id_t module_id, nr_mac_ra_start_cause_t cause, bool revert_to_ho_source)
 {
   switch (cause) {
     case NR_MAC_RA_START_SETUP:
@@ -2051,6 +2051,51 @@ static void nr_mac_start_ra(NR_UE_MAC_INST_t *mac, module_id_t module_id, nr_mac
       mac->state = UE_PERFORMING_RA;
       break;
     case NR_MAC_RA_START_REESTABLISHMENT: {
+      if (revert_to_ho_source && mac->ho_source_scc) {
+        // TS 38.331 5.3.5.8.3: T304 (handover) failure -- revert the common/BWP0/PHY config that
+        // handle_reconfiguration_with_sync() switched to the (unreachable) target PCell, back to
+        // the source PCell, replaying the same derivation it originally used to apply it.
+        NR_ServingCellConfigCommon_t *scc = mac->ho_source_scc;
+        if (scc->physCellId)
+          mac->physCellId = *scc->physCellId;
+        mac->dmrs_TypeA_Position = scc->dmrs_TypeA_Position;
+        UPDATE_IE(mac->tdd_UL_DL_ConfigurationCommon, scc->tdd_UL_DL_ConfigurationCommon, NR_TDD_UL_DL_ConfigCommon_t);
+        config_common_ue(mac, scc, 0, 0, 0);
+        build_ssb_list(mac);
+        if (scc->downlinkConfigCommon)
+          configure_common_BWP_dl(mac, 0, scc->downlinkConfigCommon->initialDownlinkBWP);
+        if (scc->uplinkConfigCommon)
+          configure_common_BWP_ul(mac, 0, scc->uplinkConfigCommon->initialUplinkBWP);
+        asn1cFreeStruc(asn_DEF_NR_ServingCellConfigCommon, mac->servingCellConfigCommon);
+        mac->servingCellConfigCommon = mac->ho_source_scc; // ownership transferred, don't free scc itself below
+        mac->ho_source_scc = NULL;
+        mac->if_module->phy_config_request(&mac->phy_config);
+      } else if (revert_to_ho_source && mac->ho_source_phy.valid) {
+        // Fallback: no full ho_source_scc snapshot available -- typically because this was the
+        // UE's first ever handover, whose source common config came from SIB1-based camping
+        // (config_common_ue_sa(), a different ASN.1 type) rather than a prior
+        // reconfigurationWithSync. Directly restore the plain scalars that drive the PHY resync
+        // (see handle_sync_req_from_mac() in executables/nr-ue.c), so PHY still targets the
+        // correct source cell/frequency. TDD/BWP0/RACH-common config stay target-derived until
+        // SIB1 is reacquired on the source cell.
+        mac->physCellId = mac->ho_source_phy.physCellId;
+        mac->phy_config.config_req.carrier_config.dl_frequency = mac->ho_source_phy.dl_frequency;
+        mac->phy_config.config_req.carrier_config.uplink_frequency = mac->ho_source_phy.uplink_frequency;
+        mac->phy_config.config_req.ssb_table.ssb_offset_point_a = mac->ho_source_phy.ssb_offset_point_a;
+        mac->phy_config.config_req.ssb_table.ssb_subcarrier_offset = mac->ho_source_phy.ssb_subcarrier_offset;
+        mac->if_module->phy_config_request(&mac->phy_config);
+      } else if (revert_to_ho_source) {
+        LOG_E(NR_MAC,
+              "T304 expiry re-establishment requested a revert to the source PCell, but no source config (full or "
+              "scalar) was snapshotted -- resyncing with the (stale) current common config\n");
+      }
+      mac->ho_source_phy.valid = false; // snapshot consumed (or was never valid for this RA start)
+      // TS 38.331 5.3.5.8.3 / TS 38.321: discard dedicated (CFRA) preambles and msgA PUSCH
+      // resources from rach-ConfigDedicated -- reset_mac_inst() below only clears RA state, not this.
+      if (mac->ra.rach_ConfigDedicated) {
+        asn1cFreeStruc(asn_DEF_NR_RACH_ConfigDedicated, mac->ra.rach_ConfigDedicated);
+        mac->ra.rach_ConfigDedicated = NULL;
+      }
       fapi_nr_synch_request_t sync_req = {.target_Nid_cell = mac->physCellId, .ssb_bw_scan = false};
       reset_mac_inst(mac);
       nr_ue_mac_default_configs(mac);
@@ -2072,13 +2117,13 @@ static void nr_mac_start_ra(NR_UE_MAC_INST_t *mac, module_id_t module_id, nr_mac
 }
 
 /** @brief All RRC-initiated RA entry points */
-void nr_rrc_mac_start_ra(module_id_t module_id, nr_mac_ra_start_cause_t cause)
+void nr_rrc_mac_start_ra(module_id_t module_id, nr_mac_ra_start_cause_t cause, bool revert_to_ho_source)
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
   int ret = pthread_mutex_lock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
 
-  nr_mac_start_ra(mac, module_id, cause);
+  nr_mac_start_ra(mac, module_id, cause, revert_to_ho_source);
 
   ret = pthread_mutex_unlock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
@@ -2180,6 +2225,31 @@ static void handle_reconfiguration_with_sync(NR_UE_MAC_INST_t *mac,
 
   if (reconfWithSync->spCellConfigCommon) {
     NR_ServingCellConfigCommon_t *scc = reconfWithSync->spCellConfigCommon;
+
+    // Snapshot the (source PCell's) common config that's about to be overwritten below, so that
+    // it can be re-applied if this handover's T304 expires (TS 38.331 5.3.5.8.3 "revert back to
+    // the UE configuration used in the source PCell"), see the NR_MAC_RA_START_REESTABLISHMENT
+    // case of nr_mac_start_ra(). Nothing to snapshot on the very first ServingCellConfigCommon
+    // application (initial connection, not a handover).
+    if (mac->servingCellConfigCommon) {
+      asn1cFreeStruc(asn_DEF_NR_ServingCellConfigCommon, mac->ho_source_scc);
+      mac->ho_source_scc = mac->servingCellConfigCommon;
+      mac->servingCellConfigCommon = NULL;
+    }
+    int copy_result = asn_copy(&asn_DEF_NR_ServingCellConfigCommon, (void **)&mac->servingCellConfigCommon, scc);
+    AssertFatal(copy_result == 0, "unable to copy NR_ServingCellConfigCommon_t\n");
+
+    // Also snapshot the plain PHY-resync scalars unconditionally (see ho_source_phy in
+    // mac_defs.h): unlike ho_source_scc above, these are always available on T304 expiry, even
+    // for the UE's first ever handover, so PHY can always be pointed back at the right source
+    // cell/frequency (see handle_sync_req_from_mac() in executables/nr-ue.c).
+    mac->ho_source_phy.valid = true;
+    mac->ho_source_phy.physCellId = mac->physCellId;
+    mac->ho_source_phy.dl_frequency = mac->phy_config.config_req.carrier_config.dl_frequency;
+    mac->ho_source_phy.uplink_frequency = mac->phy_config.config_req.carrier_config.uplink_frequency;
+    mac->ho_source_phy.ssb_offset_point_a = mac->phy_config.config_req.ssb_table.ssb_offset_point_a;
+    mac->ho_source_phy.ssb_subcarrier_offset = mac->phy_config.config_req.ssb_table.ssb_subcarrier_offset;
+
     if (scc->physCellId)
       mac->physCellId = *scc->physCellId;
     mac->dmrs_TypeA_Position = scc->dmrs_TypeA_Position;

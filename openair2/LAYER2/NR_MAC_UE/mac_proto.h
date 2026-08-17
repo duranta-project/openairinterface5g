@@ -67,7 +67,7 @@ void nr_rrc_mac_config_req_mib(module_id_t module_id, int cc_idP, NR_MIB_t *mibP
 void nr_rrc_mac_sched_sib(module_id_t module_id, int sched_sib);
 void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *sib1, bool can_start_ra);
 void nr_rrc_mac_config_req_paging_ue_id(module_id_t module_id, uint64_t fiveG_S_TMSI);
-void nr_rrc_mac_start_ra(module_id_t module_id, nr_mac_ra_start_cause_t cause);
+void nr_rrc_mac_start_ra(module_id_t module_id, nr_mac_ra_start_cause_t cause, bool revert_to_ho_source);
 
 struct position; /* forward declaration */
 void nr_rrc_mac_config_other_sib(module_id_t module_id, NR_SIB19_r17_t *sib19_r17, int hfn, int frame, bool can_start_ra);
