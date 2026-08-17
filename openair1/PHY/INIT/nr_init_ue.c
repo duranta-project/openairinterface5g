@@ -488,14 +488,24 @@ void nr_init_ul_harq_processes(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES],
   }
 }
 
-void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL_FRAME_PARMS *fp)
+void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL_FRAME_PARMS *fp, bool do_ml)
 {
   const uint32_t pdsch_buf_size_max = (fp->N_RB_DL * NR_NB_SC_PER_RB + 15) & ~15;
   const uint32_t pdsch_est_size = fp->symbols_per_slot * fp->ofdm_symbol_size;
-  const uint32_t llr_buf_max = NR_NB_SC_PER_RB * NR_SYMBOLS_PER_SLOT * fp->N_RB_DL * 8 * NR_MAX_NB_LAYERS;
-  const size_t comp_elems = (size_t)NR_SYMBOLS_PER_SLOT * NR_MAX_NB_LAYERS * pdsch_buf_size_max;
-  const size_t rho_elems  = (size_t)NR_SYMBOLS_PER_SLOT * NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS * pdsch_buf_size_max;
-  const size_t ch_est_elems = (size_t)fp->nb_antennas_rx * NR_MAX_NB_LAYERS * pdsch_est_size;
+
+  /* Cap layer dimension at nb_antennas_rx instead of NR_MAX_NB_LAYERS to
+   * right-size all per-actor scratch buffers, reducing the PDSCH working
+   * set and easing L2 cache pressure. */
+  const int max_layers = min(fp->nb_antennas_rx, NR_MAX_NB_LAYERS);
+  const uint32_t llr_buf_max = NR_NB_SC_PER_RB * NR_SYMBOLS_PER_SLOT * fp->N_RB_DL * 8 * max_layers;
+  const size_t comp_elems = (size_t)NR_SYMBOLS_PER_SLOT * max_layers * pdsch_buf_size_max;
+  const size_t ch_est_elems = (size_t)fp->nb_antennas_rx * max_layers * pdsch_est_size;
+
+  /* rho_dl is only needed for 2-layer ML LLR computation; skip the
+   * allocation entirely when ML is disabled to reduce memory footprint. */
+  const size_t rho_elems =
+      do_ml ? (size_t)NR_SYMBOLS_PER_SLOT * max_layers * max_layers * pdsch_buf_size_max : 0;
+
   for (int i = 0; i < num_actors; i++) {
     buffers[i].pdsch_buf_size_max           = pdsch_buf_size_max;
     buffers[i].pdsch_est_size        = pdsch_est_size;
@@ -504,9 +514,11 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
     buffers[i].dl_ch_mag             = malloc16_clear(comp_elems   * sizeof(c16_t));
     buffers[i].dl_ch_magb            = malloc16_clear(comp_elems   * sizeof(c16_t));
     buffers[i].dl_ch_magr            = malloc16_clear(comp_elems   * sizeof(c16_t));
-    buffers[i].rho_dl                = malloc16_clear(rho_elems    * sizeof(c16_t));
+    buffers[i].rho_dl                = rho_elems ? malloc16_clear(rho_elems * sizeof(c16_t)) : NULL;
     buffers[i].pdsch_dl_ch_estimates = malloc16_clear(ch_est_elems * sizeof(int32_t));
-    for (int c = 0; c < 2; c++) {
+    /* Per TS 38.211 Table 7.3.1.3-1, 1 codeword is used for 1-4 layers.
+     * NR_MAX_NB_LAYERS == 4, so llr[1] is never needed. */
+    for (int c = 0; c < 1; c++) {
 #ifdef LDPC_CUDA
       cudaError_t err = cudaHostAlloc((void **)&buffers[i].llr[c], (66 * 3 * 8448) * sizeof(int16_t), cudaHostAllocMapped);
       AssertFatal(err == cudaSuccess, "CUDA Error (pusch_llr): %s\n", cudaGetErrorString(err));
@@ -516,6 +528,7 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
       buffers[i].llr[c]              = malloc16(llr_buf_max * sizeof(int16_t));
 #endif
     }
+    buffers[i].llr[1] = NULL;
   }
 }
 
@@ -526,7 +539,7 @@ void init_nr_ue_transport(PHY_VARS_NR_UE *ue)
   const int num_actors = get_nrUE_params()->num_dl_actors > 0 ? get_nrUE_params()->num_dl_actors : 1;
   ue->pdsch_num_actors = num_actors;
   ue->pdsch_scratch = calloc_or_fail(num_actors, sizeof(*ue->pdsch_scratch));
-  nr_init_pdsch_buffers(ue->pdsch_scratch, num_actors, &ue->frame_parms);
+  nr_init_pdsch_buffers(ue->pdsch_scratch, num_actors, &ue->frame_parms, ue->do_ml);
 }
 
 void init_phy_nr_measurements(PHY_VARS_NR_UE *ue)
