@@ -52,13 +52,17 @@ static inline c16_t saturating_sub(c16_t a, c16_t b)
 //----------------------------------------------------------------------------------------------
 // QPSK
 //----------------------------------------------------------------------------------------------
+/* Output scaling applied by every LLR routine so that all modulation orders
+   reach the int8 pack on the same scale. QPSK always had this as a bare >>4. */
+#define NR_LLR_SCALE_SHIFT 4
+
 void nr_qpsk_llr(const c16_t *rxdataF_comp, int16_t *llr, uint32_t nb_re)
 {
   const c16_t *rxF = rxdataF_comp;
   c16_t *llr32 = (c16_t *)llr;
   for (int i = 0; i < nb_re; i++) {
-    llr32[i].r = rxF[i].r >> 4;
-    llr32[i].i = rxF[i].i >> 4;
+    llr32[i].r = rxF[i].r >> NR_LLR_SCALE_SHIFT;
+    llr32[i].i = rxF[i].i >> NR_LLR_SCALE_SHIFT;
   }
 }
 
@@ -79,8 +83,14 @@ void nr_16qam_llr(const c16_t *rxdataF_comp, const c16_t *ch_mag_in, int16_t *ll
     // registers of even index in xmm0-> |y_R|-|h|^2, registers of odd index in xmm0-> |y_I|-|h|^2
     xmm0 = simde_mm256_subs_epi16(*ch_mag256, xmm0);
 
-    simde__m256i xmm1 = simde_mm256_unpacklo_epi32(*rxF_256, xmm0);
-    simde__m256i xmm2 = simde_mm256_unpackhi_epi32(*rxF_256, xmm0);
+    /* Scale to the same range as QPSK. Both terms shift together, so the
+       decision threshold is unchanged; only the range reaching the int8 pack
+       is. Without this, >70% of 16QAM beliefs saturate before decoding. */
+    xmm0 = simde_mm256_srai_epi16(xmm0, NR_LLR_SCALE_SHIFT);
+    const simde__m256i rxs = simde_mm256_srai_epi16(*rxF_256, NR_LLR_SCALE_SHIFT);
+
+    simde__m256i xmm1 = simde_mm256_unpacklo_epi32(rxs, xmm0);
+    simde__m256i xmm2 = simde_mm256_unpackhi_epi32(rxs, xmm0);
 
     // xmm1 |1st 2ed 3rd 4th  9th 10th 13rd 14th|
     // xmm2 |5th 6th 7th 8th 11st 12ed 15th 16th|
@@ -111,8 +121,11 @@ void nr_16qam_llr(const c16_t *rxdataF_comp, const c16_t *ch_mag_in, int16_t *ll
     // registers of even index in xmm0-> |y_R|-|h|^2, registers of odd index in xmm0-> |y_I|-|h|^2
     xmm0 = simde_mm_subs_epi16(*ch_mag_128, xmm0);
 
-    llr_128[0] = simde_mm_unpacklo_epi32(*rxF_128, xmm0); // llr128[0] contains the llrs of the 1st,2nd,5th and 6th REs
-    llr_128[1] = simde_mm_unpackhi_epi32(*rxF_128, xmm0); // llr128[1] contains the llrs of the 3rd, 4th, 7th and 8th REs
+    xmm0 = simde_mm_srai_epi16(xmm0, NR_LLR_SCALE_SHIFT);
+    const simde__m128i rxs = simde_mm_srai_epi16(*rxF_128, NR_LLR_SCALE_SHIFT);
+
+    llr_128[0] = simde_mm_unpacklo_epi32(rxs, xmm0); // llr128[0] contains the llrs of the 1st,2nd,5th and 6th REs
+    llr_128[1] = simde_mm_unpackhi_epi32(rxs, xmm0); // llr128[1] contains the llrs of the 3rd, 4th, 7th and 8th REs
     llr_128 += 2;
     rxF_128++;
     ch_mag_128++;
@@ -125,8 +138,15 @@ void nr_16qam_llr(const c16_t *rxdataF_comp, const c16_t *ch_mag_in, int16_t *ll
   c16_t *llr_tail = (c16_t *)llr_128;
   for (uint i = 0U; i < nb_re; i++) {
     c16_t tmp = *rxDataF++;
-    *llr_tail++ = tmp;
-    *llr_tail++ = saturating_sub(*ch_mag++, tmp);
+    /* abs() to match protected_abs in the SIMD paths, which this tail omitted */
+    const c16_t a = {.r = (int16_t)abs(tmp.r), .i = (int16_t)abs(tmp.i)};
+    const c16_t d = saturating_sub(*ch_mag++, a);
+    llr_tail->r = tmp.r >> NR_LLR_SCALE_SHIFT;
+    llr_tail->i = tmp.i >> NR_LLR_SCALE_SHIFT;
+    llr_tail++;
+    llr_tail->r = d.r >> NR_LLR_SCALE_SHIFT;
+    llr_tail->i = d.i >> NR_LLR_SCALE_SHIFT;
+    llr_tail++;
   }
 }
 
@@ -151,6 +171,11 @@ void nr_64qam_llr(const c16_t *rxdataF_comp, const c16_t *ch_mag, const c16_t *c
     xmm1 = simde_mm256_subs_epi16(*ch_maga, xmm1);
     simde__m256i xmm2 = protected_abs256(xmm1);
     xmm2 = simde_mm256_subs_epi16(*ch_magb, xmm2);
+
+    /* Scale all three levels together, after the chain is complete. */
+    xmm0 = simde_mm256_srai_epi16(xmm0, NR_LLR_SCALE_SHIFT);
+    xmm1 = simde_mm256_srai_epi16(xmm1, NR_LLR_SCALE_SHIFT);
+    xmm2 = simde_mm256_srai_epi16(xmm2, NR_LLR_SCALE_SHIFT);
     // xmm0 |1st 4th 7th 10th 13th 16th 19th 22ed|
     // xmm1 |2ed 5th 8th 11th 14th 17th 20th 23rd|
     // xmm2 |3rd 6th 9th 12th 15th 18th 21st 24th|
@@ -206,6 +231,10 @@ void nr_64qam_llr(const c16_t *rxdataF_comp, const c16_t *ch_mag, const c16_t *c
     xmm2 = protected_abs128(xmm1);
     xmm2 = simde_mm_subs_epi16(*ch_magb_128, xmm2);
 
+    xmm0 = simde_mm_srai_epi16(xmm0, NR_LLR_SCALE_SHIFT);
+    xmm1 = simde_mm_srai_epi16(xmm1, NR_LLR_SCALE_SHIFT);
+    xmm2 = simde_mm_srai_epi16(xmm2, NR_LLR_SCALE_SHIFT);
+
     *llr_32++ = simde_mm_extract_epi32(xmm0, 0);
     *llr_32++ = simde_mm_extract_epi32(xmm1, 0);
     *llr_32++ = simde_mm_extract_epi32(xmm2, 0);
@@ -230,10 +259,16 @@ void nr_64qam_llr(const c16_t *rxdataF_comp, const c16_t *ch_mag, const c16_t *c
   c16_t *ch_magb_tail = (c16_t *)ch_magb_128;
   c16_t *llr_tail = (c16_t *)llr_32;
   for (int i = 0; i < nb_re; i++) {
-    *llr_tail++ = *rxDataF;
-    c16_t tmp = saturating_sub(*ch_mag_tail++, *rxDataF++);
-    *llr_tail++ = tmp;
-    *llr_tail++ = saturating_sub(*ch_magb_tail++, tmp);
+    /* abs() at each level, as protected_abs does in both vector paths, and the
+       same output scaling. The tail previously did neither. */
+    const c16_t b0 = *rxDataF++;
+    const c16_t a0 = {.r = (int16_t)abs(b0.r), .i = (int16_t)abs(b0.i)};
+    const c16_t b1 = saturating_sub(*ch_mag_tail++, a0);
+    const c16_t a1 = {.r = (int16_t)abs(b1.r), .i = (int16_t)abs(b1.i)};
+    const c16_t b2 = saturating_sub(*ch_magb_tail++, a1);
+    llr_tail->r = b0.r >> NR_LLR_SCALE_SHIFT; llr_tail->i = b0.i >> NR_LLR_SCALE_SHIFT; llr_tail++;
+    llr_tail->r = b1.r >> NR_LLR_SCALE_SHIFT; llr_tail->i = b1.i >> NR_LLR_SCALE_SHIFT; llr_tail++;
+    llr_tail->r = b2.r >> NR_LLR_SCALE_SHIFT; llr_tail->i = b2.i >> NR_LLR_SCALE_SHIFT; llr_tail++;
   }
 }
 

@@ -51,10 +51,10 @@ void nr_16qam_llr_ref(c16_t *rxdataF_comp, int32_t *ch_mag, int16_t *llr, uint32
     int16_t imag = rxdataF_comp[i].i;
     int16_t mag_real = ch_mag_i16[2 * i];
     int16_t mag_imag = ch_mag_i16[2 * i + 1];
-    llr[4 * i] = real;
-    llr[4 * i + 1] = imag;
-    llr[4 * i + 2] = saturating_sub(mag_real, real);
-    llr[4 * i + 3] = saturating_sub(mag_imag, imag);
+    llr[4 * i]     = real >> 4;
+    llr[4 * i + 1] = imag >> 4;
+    llr[4 * i + 2] = saturating_sub(mag_real, real) >> 4;
+    llr[4 * i + 3] = saturating_sub(mag_imag, imag) >> 4;
   }
 }
 
@@ -71,14 +71,19 @@ void nr_64qam_llr_ref(c16_t *rxdataF_comp,
     int16_t imag = rxdataF_comp[i].i;
     int16_t mag_real = ch_mag_i16[2 * i];
     int16_t mag_imag = ch_mag_i16[2 * i + 1];
-    llr[6 * i] = real;
-    llr[6 * i + 1] = imag;
-    llr[6 * i + 2] = saturating_sub(mag_real, real);
-    llr[6 * i + 3] = saturating_sub(mag_imag, imag);
-    int16_t mag_realb = ch_magb_i16[2 * i];
-    int16_t mag_imagb = ch_magb_i16[2 * i + 1];
-    llr[6 * i + 4] = saturating_sub(mag_realb, llr[6 * i + 2]);
-    llr[6 * i + 5] = saturating_sub(mag_imagb, llr[6 * i + 3]);
+    int16_t d1_r = saturating_sub(mag_real, real);
+    int16_t d1_i = saturating_sub(mag_imag, imag);
+    int16_t magb_real = ch_magb_i16[2 * i];
+    int16_t magb_imag = ch_magb_i16[2 * i + 1];
+    int16_t d2_r = saturating_sub(magb_real, d1_r);
+    int16_t d2_i = saturating_sub(magb_imag, d1_i);
+
+    llr[6 * i]     = real >> 4;
+    llr[6 * i + 1] = imag >> 4;
+    llr[6 * i + 2] = d1_r >> 4;
+    llr[6 * i + 3] = d1_i >> 4;
+    llr[6 * i + 4] = d2_r >> 4;
+    llr[6 * i + 5] = d2_i >> 4;
   }
 }
 
