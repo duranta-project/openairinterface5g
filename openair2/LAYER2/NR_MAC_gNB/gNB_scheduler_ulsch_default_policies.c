@@ -284,7 +284,7 @@ int nr_ul_proportional_fair(const nr_ul_sched_params_t *params, nr_ul_candidate_
   /* Phase 2: Inactive UEs (no BSR data, need scheduling for TA/SR) */
   for (int j = 0; j < n_active; j++) {
     nr_ul_candidate_t *cand = order[j];
-    if (cand->is_retx || !cand->sched_inactive)
+    if (cand->is_retx || (!cand->sched_long_inactivity && cand->sr_cnt == 0))
       continue;
 
     nr_ul_port_select_default(params, cand);
@@ -314,7 +314,7 @@ int nr_ul_proportional_fair(const nr_ul_sched_params_t *params, nr_ul_candidate_
   int excess_total_rbs = max_rbSize;
   for (int j = 0, n = 0; j < n_active && n < n_remain_ue + 2; j++) {
     nr_ul_candidate_t *cand = order[j];
-    if (cand->is_retx || cand->sched_inactive)
+    if (cand->is_retx || cand->sched_long_inactivity || cand->sr_cnt)
       continue;
 
     nr_ul_port_select_default(params, cand);
@@ -350,7 +350,7 @@ int nr_ul_proportional_fair(const nr_ul_sched_params_t *params, nr_ul_candidate_
   /* allocate up to all UEs checked above */
   for (int j = 0; j < n_active; j++) {
     nr_ul_candidate_t *cand = order[j];
-    if (cand->is_retx || cand->sched_inactive || rbs_ue[j] == 0)
+    if (cand->is_retx || cand->sched_long_inactivity || rbs_ue[j] == 0)
       continue;
 
     // give every UE its chunk of data. If total_rbs indicates excess RBs, give
