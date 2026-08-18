@@ -176,7 +176,7 @@ void apply_nr_rotation_symbol_RX(const int symbols_per_slot,
 
   c16_t rot2 = rot[symbol + symb_offset];
   rot2.i = -rot2.i;
-  LOG_D(PHY, "slot %d, symb_offset %d rotating by %d.%d\n", slot, symb_offset, rot2.r, rot2.i);
+  LOG_D(PHY, "slot %d, symb_offset %d symbol %d rotating by %d.%d\n", slot, symb_offset, symbol, rot2.r, rot2.i);
   c16_t *this_symbol = rxdataF;
 
   if (nb_rb & 1) {

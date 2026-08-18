@@ -487,6 +487,67 @@ static inline void do_txdataF(c16_t **txdataF,
   } // RB loop: while(rb < rb_size)
 }
 
+/* The 2-port/2-layer butterfly precoder is faster than the generic per-antenna
+   kernel only where the generic complex multiply-accumulate is comparatively
+   expensive: on x86 (AVX2/AVX-512), and on aarch64 cores WITHOUT the fused
+   rounding multiply-accumulate (vqrdmlah/vqrdmlsh, i.e. pre-ARMv8.1 such as
+   Cortex-A72). On aarch64 cores WITH QRDMX (Cortex-A76+, Neoverse N/V, GH200)
+   the fused MAC makes the generic path cheaper, so the fast path measurably
+   regresses there and is disabled. The kernel itself stays compiled on all
+   targets (validated by the nr_modulation unit test). */
+#if defined(__AVX2__) || (defined(__aarch64__) && !defined(__ARM_FEATURE_QRDMX))
+#define NR_PDSCH_2X2_FASTPATH 1
+#endif
+
+#ifdef NR_PDSCH_2X2_FASTPATH
+/* Fast path of do_txdataF() for the 2 antenna-port / 2-layer case: fills both
+   antenna ports in a single pass using the radix-2 butterfly precoder, sharing
+   the layer loads between the two outputs. See nr_layer_precoder_2x2_simd(). */
+static inline void do_txdataF_2x2(c16_t **txdataF,
+                                  int symbol_sz,
+                                  c16_t txdataF_precoding[][symbol_sz],
+                                  PHY_VARS_gNB *gNB,
+                                  const nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15,
+                                  int ant0,
+                                  int ant1,
+                                  int rb_start,
+                                  int rb_size,
+                                  int txdataF_offset_per_symbol)
+{
+  NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
+  int rb = 0;
+  uint16_t subCarrier = get_block_start_sc(rb_start, rel15->BWPStart, symbol_sz);
+  const nfapi_nr_tx_precoding_and_beamforming_t *pb = &rel15->precodingAndBeamforming;
+  c16_t *out0 = &txdataF[ant0][txdataF_offset_per_symbol];
+  c16_t *out1 = &txdataF[ant1][txdataF_offset_per_symbol];
+  while (rb < rb_size) {
+    // get pmi info (identical stepping to do_txdataF: coalesce equal-PMI RBs)
+    const int pmi = (pb->prg_size > 0) ? (pb->prgs_list[(int)rb / pb->prg_size].pm_idx) : 0;
+    const int pmi2 = (rb < (rb_size - 1) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 1) / pb->prg_size].pm_idx) : -1;
+    const int pmi3 = (rb < (rb_size - 2) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 2) / pb->prg_size].pm_idx) : -1;
+    const int pmi4 = (rb < (rb_size - 3) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 3) / pb->prg_size].pm_idx) : -1;
+    int rb_step0 = pmi == pmi2 ? 2 : 1;
+    const int rb_step = rb_step0 == 2 && pmi3 == pmi && pmi4 == pmi ? 4 : rb_step0;
+    const int re_cnt = NR_NB_SC_PER_RB * rb_step;
+    if (pmi == 0) { // unitary precoding: port i carries layer i
+      memcpy(&out0[subCarrier], &txdataF_precoding[0][subCarrier], re_cnt * sizeof(**txdataF));
+      memcpy(&out1[subCarrier], &txdataF_precoding[1][subCarrier], re_cnt * sizeof(**txdataF));
+    } else { // non-unitary precoding via 2x2 butterfly
+      AssertFatal(frame_parms->nb_antennas_tx > 1, "No precoding can be done with a single antenna port\n");
+      nfapi_nr_pm_pdu_t *pmi_pdu = &gNB->gNB_config.pmi_list.pmi_pdu[pmi - 1]; // pmi 0 is identity matrix
+      AssertFatal(pmi == pmi_pdu->pm_idx, "PMI %d doesn't match to the one in precoding matrix %d\n", pmi, pmi_pdu->pm_idx);
+      AssertFatal(pmi_pdu->num_ant_ports == 2 && pmi_pdu->numLayers == 2,
+                  "2x2 precoder fast path expects 2 ports / 2 layers, got %d ports / %d layers\n",
+                  pmi_pdu->num_ant_ports,
+                  pmi_pdu->numLayers);
+      nr_layer_precoder_2x2_simd(symbol_sz, txdataF_precoding, pmi_pdu->weights, subCarrier, re_cnt, out0, out1);
+    }
+    subCarrier += re_cnt;
+    rb += rb_step;
+  } // RB loop: while(rb < rb_size)
+}
+#endif // NR_PDSCH_2X2_FASTPATH
+
 typedef struct pdschSymbolProc_s {
   PHY_VARS_gNB *gNB;
   NR_DL_FRAME_PARMS *frame_parms;
@@ -500,11 +561,20 @@ typedef struct pdschSymbolProc_s {
   unsigned int dlPtrsSymPos;
   unsigned int n_ptrs;
   uint16_t *ant_to_map;
+  uint64_t *pdsch_phase_comp_prb_mask;
+  int prb_mask_words;
   unsigned int re_beginning_of_symbol[14];
   c16_t *tx_layers[4];
   time_stats_t dlsch_resource_mapping_stats;
   time_stats_t dlsch_precoding_stats;
 } pdschSymbolProc_t;
+
+static inline void mark_prb_range(uint64_t *prb_mask, int prb_mask_words, int symbol, int start_prb, int nb_prb)
+{
+  uint64_t *symbol_mask = prb_mask + symbol * prb_mask_words;
+  for (int prb = start_prb; prb < start_prb + nb_prb; prb++)
+    symbol_mask[prb >> 6] |= UINT64_C(1) << (prb & 63);
+}
 
 static void nr_pdsch_symbol_processing(void *arg)
 {
@@ -525,6 +595,7 @@ static void nr_pdsch_symbol_processing(void *arg)
   const int symbol_sz = frame_parms->ofdm_symbol_size;
 
   c16_t **txdataF = gNB->common_vars.txdataF;
+  const int symb_offset = (slot % frame_parms->slots_per_subframe) * frame_parms->symbols_per_slot;
 
   for (int l_symbol = rdata->startSymbol; l_symbol < rdata->startSymbol + rdata->numSymbols; l_symbol++) {
     start_meas(&rdata->dlsch_resource_mapping_stats);
@@ -581,6 +652,40 @@ static void nr_pdsch_symbol_processing(void *arg)
     const size_t txdataF_offset_per_symbol = l_symbol * symbol_sz;
     const uint16_t num_log_ports =
         rel15->param_v4.numberCodewords ? rel15->param_v4.spatialStreamsCw[0].numSpatialStreamIndices : 0;
+    // 2 ports / 2 layers: precode both antennas in one pass (radix-2 butterfly),
+    // on targets where it is a win (see NR_PDSCH_2X2_FASTPATH). Otherwise, and
+    // for 4-port/2-layer (num_log_ports==4), fall through to the generic path.
+#ifdef NR_PDSCH_2X2_FASTPATH
+    if (rel15->nrOfLayers == 2 && num_log_ports == 2) {
+      const int ant0 = rdata->ant_to_map[0];
+      const int ant1 = rdata->ant_to_map[1];
+      int pos = 0;
+      int block_start, block_end;
+      while (find_next_rb_block(freq_alloc->bitmap, rel15->BWPSize, &pos, &block_start, &block_end)) {
+        do_txdataF_2x2(txdataF,
+                       symbol_sz,
+                       txdataF_precoding,
+                       gNB,
+                       rel15,
+                       ant0,
+                       ant1,
+                       block_start,
+                       block_end - block_start + 1,
+                       txdataF_offset_per_symbol);
+
+        if (gNB->phase_comp) {
+          const int start_sc = get_block_start_sc(block_start, rel15->BWPStart, symbol_sz);
+          const int nsc = (block_end - block_start + 1) * NR_NB_SC_PER_RB;
+          const c16_t rot = frame_parms->symbol_rotation[0][symb_offset + l_symbol];
+          c16_t *psc0 = &txdataF[ant0][txdataF_offset_per_symbol + start_sc];
+          c16_t *psc1 = &txdataF[ant1][txdataF_offset_per_symbol + start_sc];
+          rotate_cpx_vector(psc0, rot, psc0, nsc, 15);
+          rotate_cpx_vector(psc1, rot, psc1, nsc, 15);
+          mark_prb_range(rdata->pdsch_phase_comp_prb_mask, rdata->prb_mask_words, l_symbol, block_start, block_end - block_start + 1);
+        }
+      }
+    } else
+#endif // NR_PDSCH_2X2_FASTPATH
     for (int ant = 0; ant < num_log_ports; ant++) {
       int pos = 0;
       int block_start, block_end;
@@ -595,6 +700,13 @@ static void nr_pdsch_symbol_processing(void *arg)
                    block_end - block_start + 1,
                    txdataF_offset_per_symbol);
 
+        if (gNB->phase_comp) {
+	  int start_sc = get_block_start_sc(block_start, rel15->BWPStart, symbol_sz);
+          c16_t *pdsch_sc = &txdataF[rdata->ant_to_map[ant]][txdataF_offset_per_symbol + start_sc];
+          const c16_t rot = frame_parms->symbol_rotation[0][symb_offset + l_symbol];
+          rotate_cpx_vector(pdsch_sc, rot, pdsch_sc,(block_end - block_start + 1)*NR_NB_SC_PER_RB, 15);
+          mark_prb_range(rdata->pdsch_phase_comp_prb_mask, rdata->prb_mask_words, l_symbol, block_start, block_end - block_start + 1);
+        }
       }
     }
     stop_meas(&rdata->dlsch_precoding_stats);
@@ -603,7 +715,12 @@ static void nr_pdsch_symbol_processing(void *arg)
   completed_task_ans(rdata->ans);
 }
 
-static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSCH_t *dlsch, int slot)
+static int do_one_dlsch(unsigned char *input_ptr,
+                        PHY_VARS_gNB *gNB,
+                        NR_gNB_DLSCH_t *dlsch,
+                        int slot,
+                        uint64_t *pdsch_phase_comp_prb_mask,
+                        int prb_mask_words)
 {
   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
 
@@ -652,51 +769,26 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   if (IS_SOFTMODEM_DLSIM)
     memcpy(dlsch->f, input_ptr, (encoded_length + 7) >> 3);
 
-  c16_t mod_symbs[rel15->NrOfCodewords][encoded_length] __attribute__((aligned(64)));
-  for (int codeWord = 0; codeWord < rel15->NrOfCodewords; codeWord++) {
-    /// scrambling
-    start_meas(dlsch_scrambling_stats);
-    uint32_t scrambled_output[(encoded_length >> 5) + 4]; // modulator acces by 4 bytes in some cases
-    memset(scrambled_output, 0, sizeof(scrambled_output));
-    nr_pdsch_codeword_scrambling(input_ptr, encoded_length, codeWord, rel15->dataScramblingId, rel15->rnti, scrambled_output);
-
-#ifdef DEBUG_DLSCH
-    printf("PDSCH scrambling:\n");
-    for (int i = 0; i < encoded_length >> 8; i++) {
-      for (int j = 0; j < 8; j++)
-        printf("0x%08x\t", scrambled_output[(i << 3) + j]);
-      printf("\n");
-    }
-#endif
-
-    stop_meas(dlsch_scrambling_stats);
-    /// Modulation
-    start_meas(dlsch_modulation_stats);
-    nr_modulation(scrambled_output, encoded_length, Qm, (int16_t *)mod_symbs[codeWord]);
-    stop_meas(dlsch_modulation_stats);
-#ifdef DEBUG_DLSCH
-    printf("PDSCH Modulation: Qm %d(%d)\n", Qm, nb_re);
-    for (int i = 0; i < nb_re; i += 8) {
-      for (int j = 0; j < 8; j++) {
-        printf("%d %d\t", mod_symbs[codeWord][i + j].r, mod_symbs[codeWord][i + j].i);
-      }
-      printf("\n");
-    }
-#endif
-  }
-
   start_meas(&gNB->dlsch_pdsch_generation_stats);
-  /// Resource mapping
-  // Non interleaved VRB to PRB mapping
-
-  AssertFatal(n_dmrs, "n_dmrs can't be 0\n");
-  // make a large enough tail to process all re with SIMD regardless a garbadge filler
-
-  start_meas(&gNB->dlsch_layer_mapping_stats);
   int layerSz2 = (layerSz + 63) & ~63;
   c16_t tx_layers[rel15->nrOfLayers][layerSz2] __attribute__((aligned(64)));
   memset(tx_layers, 0, sizeof(tx_layers));
-  nr_layer_mapping(rel15->NrOfCodewords, encoded_length, mod_symbs, rel15->nrOfLayers, layerSz2, nb_re, tx_layers);
+
+  start_meas(dlsch_scrambling_stats);
+  uint32_t scrambled_output[(encoded_length >> 5) + 4]; // modulator access by 4 bytes in some cases
+  memset(scrambled_output, 0, sizeof(scrambled_output));
+  start_meas(dlsch_modulation_stats);
+  nr_pdsch_codeword_scrambling(input_ptr, encoded_length, 0, rel15->dataScramblingId, rel15->rnti, scrambled_output);
+  stop_meas(dlsch_scrambling_stats);
+
+  const bool fused_ok =
+      nr_modulation_layer_mapping(scrambled_output, encoded_length, Qm, rel15->nrOfLayers, layerSz2, tx_layers);
+  AssertFatal(fused_ok,
+                "Unsupported fused modulation/layer mapping for Qm %d, %d layers, %d codewords\n",
+                Qm,
+                rel15->nrOfLayers,
+                rel15->NrOfCodewords);
+  stop_meas(dlsch_modulation_stats);
 
   /// Layer Precoding and Antenna port mapping
   // tx_layers 1-8 are mapped on antenna ports 1000-1007
@@ -765,6 +857,8 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
     rdata->dlPtrsSymPos = dlPtrsSymPos;
     rdata->n_ptrs = n_ptrs;
     rdata->ant_to_map = ant_to_map;
+    rdata->pdsch_phase_comp_prb_mask = pdsch_phase_comp_prb_mask;
+    rdata->prb_mask_words = prb_mask_words;
     for (int s = l_symbol; s < l_symbol + rdata->numSymbols; s++) {
       rdata->re_beginning_of_symbol[s] = re_beginning_of_symbol;
       re_beginning_of_symbol += freq_alloc->num_rbs * NR_NB_SC_PER_RB;
@@ -798,7 +892,13 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   return ((size_output_tb + 511) >> 9) << 6;
 }
 
-void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_array, int frame, int slot)
+void nr_generate_pdsch(PHY_VARS_gNB *gNB,
+                       int n_dlsch,
+                       NR_gNB_DLSCH_t *dlsch_array,
+                       int frame,
+                       int slot,
+                       uint64_t *pdsch_phase_comp_prb_mask,
+                       int prb_mask_words)
 {
   time_stats_t *dlsch_encoding_stats = &gNB->dlsch_encoding_stats;
   time_stats_t *tinput = &gNB->tinput;
@@ -810,6 +910,7 @@ void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_arr
   time_stats_t *dlsch_rate_matching_stats = &gNB->dlsch_rate_matching_stats;
   time_stats_t *dlsch_interleaving_stats = &gNB->dlsch_interleaving_stats;
   time_stats_t *dlsch_segmentation_stats = &gNB->dlsch_segmentation_stats;
+  time_stats_t *dlsch_crc_stats = &gNB->dlsch_crc_stats;
 
   size_t size_output = 0;
 
@@ -876,7 +977,8 @@ void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_arr
                         tconcat,
                         dlsch_rate_matching_stats,
                         dlsch_interleaving_stats,
-                        dlsch_segmentation_stats)
+                        dlsch_segmentation_stats,
+			dlsch_crc_stats)
       == -1) {
     return;
   }
@@ -884,7 +986,7 @@ void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_arr
 
   unsigned char *output_ptr = output;
   for (int i = 0; i < n_dlsch; i++) {
-    output_ptr += do_one_dlsch(output_ptr, gNB, &dlsch_array[i], slot);
+    output_ptr += do_one_dlsch(output_ptr, gNB, &dlsch_array[i], slot, pdsch_phase_comp_prb_mask, prb_mask_words);
   }
 }
 

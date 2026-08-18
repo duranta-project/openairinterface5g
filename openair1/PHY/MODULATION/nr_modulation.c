@@ -217,6 +217,154 @@ void nr_modulation(const uint32_t *in, uint32_t length, uint16_t mod_order, int1
   AssertFatal(false, "Invalid or unsupported modulation order %d\n", mod_order);
 }
 
+static inline uint8_t get_packed_symbol(const uint8_t *in_bytes, uint32_t length, uint16_t mod_order, uint32_t symbol_idx)
+{
+  const uint32_t bit_offset = symbol_idx * mod_order;
+  const uint32_t byte_offset = bit_offset >> 3;
+  const uint32_t bit_shift = bit_offset & 0x7;
+  const uint32_t num_bytes = (length + 7) >> 3;
+  uint16_t packed = in_bytes[byte_offset];
+  if (bit_shift > 8 - mod_order && byte_offset + 1 < num_bytes)
+    packed |= (uint16_t)in_bytes[byte_offset + 1] << 8;
+  return (packed >> bit_shift) & ((1U << mod_order) - 1);
+}
+
+static inline uint64_t get_packed_bits(const uint8_t *in_bytes, uint32_t length, uint32_t bit_offset, uint8_t width)
+{
+  const uint32_t byte_offset = bit_offset >> 3;
+  const uint32_t bit_shift = bit_offset & 0x7;
+  const uint32_t num_bytes = (length + 7) >> 3;
+  const uint32_t bytes_needed = (bit_shift + width + 7) >> 3;
+  uint64_t packed = 0;
+  for (uint32_t i = 0; i < bytes_needed && byte_offset + i < num_bytes; i++)
+    packed |= (uint64_t)in_bytes[byte_offset + i] << (i << 3);
+  return (packed >> bit_shift) & ((UINT64_C(1) << width) - 1);
+}
+
+bool nr_modulation_layer_mapping(const uint32_t *in,
+                                 uint32_t length,
+                                 uint16_t mod_order,
+                                 uint8_t n_layers,
+                                 int layerSz,
+                                 c16_t tx_layers[][layerSz])
+{
+  if (n_layers < 1 || n_layers > 4)
+    return false;
+
+  const uint32_t n_symbs = length / mod_order;
+  if ((n_symbs % n_layers) != 0)
+    return false;
+
+  // Implementation selection (single entry point, chosen internally):
+  // For 1-2 layers the vectorised "modulate then deinterleave" path
+  // (nr_modulation + nr_layer_mapping) is faster than the fused scalar
+  // per-symbol loop below. The fused path only pays off for 3-4 layers, where
+  // the intermediate symbol buffer is large enough to be memory-bound and the
+  // separate layer mapping is itself poorly vectorised. For 1-2 layers the
+  // buffer stays in cache, so the scalar per-symbol modulation (which costs one
+  // bit-extract + table lookup per symbol, i.e. scales with symbol count and
+  // hurts most at low modulation orders) loses to SIMD modulation.
+  if (n_layers == 1) {
+    nr_modulation(in, length, mod_order, (int16_t *)tx_layers[0]);
+    return true;
+  }
+  if (n_layers == 2) {
+    c16_t mod_symbs[n_symbs] __attribute__((aligned(64)));
+    nr_modulation(in, length, mod_order, (int16_t *)mod_symbs);
+    c16_t (*ms)[n_symbs] = &mod_symbs;
+    nr_layer_mapping(1, n_symbs, ms, n_layers, layerSz, n_symbs, tx_layers);
+    return true;
+  }
+
+  const uint8_t *in_bytes = (const uint8_t *)in;
+
+  switch (mod_order) {
+    case 2: {
+      const c16_t *nr_mod_table = nr_qpsk_mod_table;
+      for (uint32_t sym = 0, layer_sym = 0; sym < n_symbs; sym += n_layers, layer_sym++) {
+        for (uint8_t layer = 0; layer < n_layers; layer++) {
+          const uint8_t idx = get_packed_symbol(in_bytes, length, mod_order, sym + layer);
+          tx_layers[layer][layer_sym] = nr_mod_table[idx];
+        }
+      }
+      return true;
+    }
+
+    case 4: {
+      const int32_t *nr_mod_table = nr_16qam_mod_table;
+      for (uint32_t sym = 0, layer_sym = 0; sym < n_symbs; sym += n_layers, layer_sym++) {
+        for (uint8_t layer = 0; layer < n_layers; layer++) {
+          const uint8_t idx = get_packed_symbol(in_bytes, length, mod_order, sym + layer);
+          ((int32_t *)tx_layers[layer])[layer_sym] = nr_mod_table[idx];
+        }
+      }
+      return true;
+    }
+
+    case 6: {
+      const c16_t *nr_mod_table = (const c16_t *)nr_64qam_mod_table;
+      if (n_layers == 3) {
+        c16_t *tx0 = tx_layers[0];
+        c16_t *tx1 = tx_layers[1];
+        c16_t *tx2 = tx_layers[2];
+        uint32_t sym = 0;
+        uint32_t layer_sym = 0;
+        for (; sym + 6 <= n_symbs; sym += 6, layer_sym += 2) {
+          const uint64_t bits = get_packed_bits(in_bytes, length, sym * mod_order, 36);
+          const uint16_t idx0 = bits & 0xfff;
+          const uint16_t idx1 = (bits >> 12) & 0xfff;
+          const uint16_t idx2 = (bits >> 24) & 0xfff;
+          tx0[layer_sym] = nr_mod_table[idx0 * 2];
+          tx1[layer_sym] = nr_mod_table[idx0 * 2 + 1];
+          tx2[layer_sym] = nr_mod_table[idx1 * 2];
+          tx0[layer_sym + 1] = nr_mod_table[idx1 * 2 + 1];
+          tx1[layer_sym + 1] = nr_mod_table[idx2 * 2];
+          tx2[layer_sym + 1] = nr_mod_table[idx2 * 2 + 1];
+        }
+        if (sym < n_symbs) {
+          for (uint8_t layer = 0; layer < 3; layer++) {
+            const uint8_t idx = get_packed_symbol(in_bytes, length, mod_order, sym + layer);
+            tx_layers[layer][layer_sym] = nr_mod_table[idx * 2];
+          }
+        }
+        return true;
+      }
+
+      if (n_layers == 4) {
+        c16_t *tx0 = tx_layers[0];
+        c16_t *tx1 = tx_layers[1];
+        c16_t *tx2 = tx_layers[2];
+        c16_t *tx3 = tx_layers[3];
+        for (uint32_t sym = 0, layer_sym = 0; sym < n_symbs; sym += 4, layer_sym++) {
+          const uint32_t bits = get_packed_bits(in_bytes, length, sym * mod_order, 24);
+          const uint16_t idx0 = bits & 0xfff;
+          const uint16_t idx1 = (bits >> 12) & 0xfff;
+          tx0[layer_sym] = nr_mod_table[idx0 * 2];
+          tx1[layer_sym] = nr_mod_table[idx0 * 2 + 1];
+          tx2[layer_sym] = nr_mod_table[idx1 * 2];
+          tx3[layer_sym] = nr_mod_table[idx1 * 2 + 1];
+        }
+        return true;
+      }
+      return false;
+    }
+
+    case 8: {
+      const int32_t *nr_mod_table = nr_256qam_mod_table;
+      for (uint32_t sym = 0, layer_sym = 0; sym < n_symbs; sym += n_layers, layer_sym++) {
+        for (uint8_t layer = 0; layer < n_layers; layer++) {
+          const uint8_t idx = get_packed_symbol(in_bytes, length, mod_order, sym + layer);
+          ((int32_t *)tx_layers[layer])[layer_sym] = nr_mod_table[idx];
+        }
+      }
+      return true;
+    }
+
+    default:
+      return false;
+  }
+}
+
 void nr_layer_mapping(int nbCodes,
                       int encoded_len,
                       c16_t mod_symbs[nbCodes][encoded_len],
@@ -259,16 +407,12 @@ void nr_layer_mapping(int nbCodes,
       }
 #endif
 #if defined(__aarch64__) && defined(USE_NEON)
-      // SIMDe doesn't handle this properly, gcc up to 14.2 neither
-      uint8_t const perm0[16] = {0, 1, 2, 3, 8, 9, 10, 11, 4, 5, 6, 7, 12, 13, 14, 15};
-      uint8x16_t perm = vld1q_u8(perm0);
-      uint8x16_t d;
-      for (; i < (n_symbs & (~3)); i += 4) {
-        d = vqtbl1q_u8(*(uint8x16_t *)(mod + i), perm);
-        *(int64_t *)tx0 = vgetq_lane_u64((uint64x2_t)d, 0);
-        *(int64_t *)tx1 = vgetq_lane_u64((uint64x2_t)d, 1);
-        tx0 += 2;
-        tx1 += 2;
+      for (; i < (n_symbs & ~7); i += 8) {
+        uint32x4x2_t d = vld2q_u32((const uint32_t *)(mod + i));
+        vst1q_u32((uint32_t *)tx0, d.val[0]);
+        vst1q_u32((uint32_t *)tx1, d.val[1]);
+        tx0 += 4;
+        tx1 += 4;
       }
 #endif
       for (; i < n_symbs; i += 2) {
@@ -378,6 +522,17 @@ void nr_layer_mapping(int nbCodes,
         }
       }
 #endif
+#if defined(__aarch64__) && defined(USE_NEON)
+      for (; i < (n_symbs & ~11); i += 12) {
+        uint32x4x3_t d = vld3q_u32((const uint32_t *)(mod + i));
+        vst1q_u32((uint32_t *)tx0, d.val[0]);
+        vst1q_u32((uint32_t *)tx1, d.val[1]);
+        vst1q_u32((uint32_t *)tx2, d.val[2]);
+        tx0 += 4;
+        tx1 += 4;
+        tx2 += 4;
+      }
+#endif
       for (; i < n_symbs; i += 3) {
         *tx0++ = mod[i];
         *tx1++ = mod[i + 1];
@@ -450,17 +605,16 @@ void nr_layer_mapping(int nbCodes,
       }
 #endif
 #if defined(__aarch64__) && defined(USE_NEON)
-      // SIMDe doesn't handle this properly, gcc up to 14.2 neither
-      for (; i < (n_symbs & ~3); i += 4) {
-        uint32x4_t d4 = *(uint32x4_t *)(mod + i);
-        *(uint32_t *)tx0 = vgetq_lane_u32(d4, 0); 
-	tx0++;
-        *(uint32_t *)tx1 = vgetq_lane_u32(d4, 1); 
-	tx1++;
-        *(uint32_t *)tx2 = vgetq_lane_u32(d4, 2); 
-	tx2++;
-        *(uint32_t *)tx3 = vgetq_lane_u32(d4, 3); 
-	tx3++;
+      for (; i < (n_symbs & ~15); i += 16) {
+        uint32x4x4_t d = vld4q_u32((const uint32_t *)(mod + i));
+        vst1q_u32((uint32_t *)tx0, d.val[0]);
+        vst1q_u32((uint32_t *)tx1, d.val[1]);
+        vst1q_u32((uint32_t *)tx2, d.val[2]);
+        vst1q_u32((uint32_t *)tx3, d.val[3]);
+        tx0 += 4;
+        tx1 += 4;
+        tx2 += 4;
+        tx3 += 4;
       }
 #endif
       for (; i < n_symbs; i += 4) {
@@ -764,21 +918,47 @@ static inline __attribute__((always_inline)) __m256i cmac_prec256(__m256i y, __m
 }
 #endif
 #ifdef __aarch64__
+#ifdef NEWOPTIM
+static inline __attribute__((always_inline)) int16x4x2_t cmac0_prec4(int16x8_t x, int16x4_t wr, int16x4_t wi) {
+    const int16x4_t x_lo = vget_low_s16(x);
+    const int16x4_t x_hi = vget_high_s16(x);
+    const int16x4_t xr = vuzp1_s16(x_lo, x_hi);
+    const int16x4_t xi = vuzp2_s16(x_lo, x_hi);
+#else
 static inline __attribute__((always_inline)) int16x8_t cmac0_prec128(int16x8_t x, int16x8_t wr, int16x8_t wi) {
     //
     int16x8_t xr = vuzp1q_s16(x, x);  // even lanes
     int16x8_t xi = vuzp2q_s16(x, x);  // odd  lanes
+#endif
 #ifdef __ARM_FEATURE_QRDMX
     // ARMv8.1-A: Use RDM instructions
+#ifdef NEWOPTIM
+    // real = ar*br - ai*bi  (Q15 scaling via high-half doubling muls)
+    int16x4_t real = vqdmulh_s16(xr, wr);      // ≈ round((2*xr*wr)/2^16)
+    real = vqrdmlsh_s16(real, xi, wi);         // real -= round((2*xi*wi)/2^16)
+    // imag = ar*bi + ai*br
+    int16x4_t imag = vqdmulh_s16(xr, wi);
+    imag = vqrdmlah_s16(imag, xi, wr);         // imag += round((2*xi*wr)/2^16)
+#else
     // real = ar*br - ai*bi  (Q15 scaling via high-half doubling muls)
     int16x8_t real = vqdmulhq_s16(xr, wr);      // ≈ round((2*xr*wr)/2^16)
     real = vqrdmlshq_s16(real, xi, wi);         // real -= round((2*xi*wi)/2^16)
-    //
     // imag = ar*bi + ai*br
     int16x8_t imag = vqdmulhq_s16(xr, wi);
     imag = vqrdmlahq_s16(imag, xi, wr);         // imag += round((2*xi*wr)/2^16)
+#endif
 #else
     // ARMv8.0-A fallback: Use standard 32-bit multiply
+#ifdef NEWOPTIM 
+    int32x4_t real_prod = vmull_s16(xr, wr);
+    real_prod = vmlsl_s16(real_prod, xi, wi);
+
+    int32x4_t imag_prod = vmull_s16(xr, wi);
+    imag_prod = vmlal_s16(imag_prod, xi, wr);
+
+    int16x4_t real = vqrshrn_n_s32(real_prod, 15);
+    int16x4_t imag = vqrshrn_n_s32(imag_prod, 15);
+#else
     int32x4_t real_lo = vmull_s16(vget_low_s16(xr), vget_low_s16(wr));
     int32x4_t real_hi = vmull_s16(vget_high_s16(xr), vget_high_s16(wr));
     real_lo = vmlsl_s16(real_lo, vget_low_s16(xi), vget_low_s16(wi));
@@ -792,15 +972,35 @@ static inline __attribute__((always_inline)) int16x8_t cmac0_prec128(int16x8_t x
     int16x8_t real = vcombine_s16(vqrshrn_n_s32(real_lo, 15), vqrshrn_n_s32(real_hi, 15));
     int16x8_t imag = vcombine_s16(vqrshrn_n_s32(imag_lo, 15), vqrshrn_n_s32(imag_hi, 15));
 #endif
+#endif
+#ifdef NEWOPTIM
+    int16x4x2_t produ;
+    produ.val[0] = real;
+    produ.val[1] = imag;
+    return produ;
+#else
     // Re-interleave [real, imag]
     int16x8x2_t produ = vzipq_s16(real, imag);
-    return produ.val[0];        
+    return produ.val[0];
+#endif    
 }
-static inline __attribute__((always_inline)) int16x8_t cmac_prec128(int16x8_t y, int16x8_t x, int16x8_t wr, int16x8_t wi) {
-  int16x8_t produ = cmac0_prec128(x, wr, wi);
-  return vaddq_s16(y, produ);
+#ifdef NEWOPTIM
+static inline __attribute__((always_inline)) int16x4x2_t cmac_prec4(int16x4x2_t y, int16x8_t x, int16x4_t wr, int16x4_t wi) {
+  const int16x4x2_t produ = cmac0_prec4(x, wr, wi);
+  // saturating add to match the x86 path (adds_epi16); plain vadd_s16 wraps on overflow
+  y.val[0] = vqadd_s16(y.val[0], produ.val[0]);
+  y.val[1] = vqadd_s16(y.val[1], produ.val[1]);
+  return y;
 }
 #else
+static inline __attribute__((always_inline)) int16x8_t cmac_prec128(int16x8_t y, int16x8_t x, int16x8_t wr, int16x8_t wi) {
+  int16x8_t produ = cmac0_prec128(x, wr, wi);
+  // saturating add to match the x86 path (adds_epi16); plain vaddq_s16 wraps on overflow
+  return vqaddq_s16(y, produ);
+}
+#endif
+
+#else // __x86 128-bit
 static inline __attribute__((always_inline)) simde__m128i cmac0_prec128(simde__m128i x, simde__m128i w_c, simde__m128i w_s)
 {
   // Multiplication and shift
@@ -831,6 +1031,175 @@ static inline __attribute__((always_inline)) __m128i cmac_prec128(__m128i y, __m
   const Type w_c##Rank = Instruct(c16toI32(c16conj(weights[Rank][ant]))); \
   const Type w_s##Rank = Instruct(c16toI32(c16swap(weights[Rank][ant]))); \
   const Type *in##Rank = (Type *)(txdataF_res_mapped[Rank] + sc_offset + (out-beginning));
+#if defined(NEWOPTIM) && defined(__aarch64__)
+#define load_consts_arm(Rank) \
+  const int16x4_t wr##Rank = vdup_n_s16(weights[Rank][ant].r); \
+  const int16x4_t wi##Rank = vdup_n_s16(weights[Rank][ant].i); \
+  const int16x8_t *in##Rank = (const int16x8_t *)(txdataF_res_mapped[Rank] + sc_offset + (out - beginning));
+#endif
+
+/* Fast path for the 2 antenna-port / 2-layer precoder.
+ *
+ * For 2 CSI ports and 2 layers every 3GPP Type-I codebook weight is either
+ * purely real (+/-1) or purely imaginary (+/-j), scaled by the common
+ * normalisation constant C = round(SHRT_MAX/sqrt(2)) = 23170. The 2x2
+ * precoding therefore reduces to a radix-2 butterfly:
+ *
+ *   y_ant = C * ( u0*x0 + u1*x1 ),   u0,u1 in {+1,-1,+j,-j}
+ *
+ * so the complex cross-term multiplies vanish: each u*x is a lane swap and/or
+ * negation, the x0/x1 loads are shared between the two antenna outputs, and a
+ * single rounding multiply by C is applied per output. This is ~2x faster than
+ * two calls to the generic per-antenna kernel on x86 (AVX2/AVX-512) and ~5x on
+ * aarch64/NEON, and is marginally more accurate (single rounded scale instead
+ * of two truncating shifts). It differs from the generic kernel by <=2 LSB.
+ *
+ * The classifier below turns a unit weight into (swap, per-lane sign) so the
+ * rotation u*x is a swap + sign_epi16 (mullo on AVX-512, vmul on NEON).
+ */
+typedef struct {
+  bool swap;  // true for +/-j (real/imag parts must be swapped)
+  c16_t sgn;  // per-lane sign (+/-1) applied after the optional swap
+} nr_prec2x2_rot_t;
+
+static inline int16_t nr_prec2x2_sat16(const int v)
+{
+  return (v > INT16_MAX) ? INT16_MAX : ((v < INT16_MIN) ? INT16_MIN : (int16_t)v);
+}
+
+static inline nr_prec2x2_rot_t nr_prec2x2_classify(const c16_t w)
+{
+  nr_prec2x2_rot_t r;
+  if (w.i == 0) { // purely real: +/-1
+    const int16_t s = (w.r >= 0) ? 1 : -1;
+    r.swap = false;
+    r.sgn = (c16_t){s, s};
+  } else { // purely imaginary: +/-j.  j*x = (-x.i, x.r): swap then fix signs
+    r.swap = true;
+    r.sgn = (w.i >= 0) ? (c16_t){-1, 1} : (c16_t){1, -1};
+  }
+  return r;
+}
+
+void nr_layer_precoder_2x2_simd(const int symSz,
+                                const c16_t txdataF_res_mapped[2][symSz],
+                                c16_t weights[NR_MAX_NB_LAYERS][NR_MAX_CSI_PORTS],
+                                const int sc_offset,
+                                const int re_cnt,
+                                c16_t *txdataF_precoded_ant0,
+                                c16_t *txdataF_precoded_ant1)
+{
+  // Unit-weight rotations for each (layer, antenna port) and the common scale C
+  const c16_t w00 = weights[0][0], w10 = weights[1][0]; // -> antenna port 0
+  const c16_t w01 = weights[0][1], w11 = weights[1][1]; // -> antenna port 1
+  const int16_t C = (w00.i == 0) ? (int16_t)abs(w00.r) : (int16_t)abs(w00.i);
+  const nr_prec2x2_rot_t r00 = nr_prec2x2_classify(w00), r10 = nr_prec2x2_classify(w10);
+  const nr_prec2x2_rot_t r01 = nr_prec2x2_classify(w01), r11 = nr_prec2x2_classify(w11);
+
+  const c16_t *in0 = txdataF_res_mapped[0] + sc_offset;
+  const c16_t *in1 = txdataF_res_mapped[1] + sc_offset;
+  c16_t *out0 = txdataF_precoded_ant0 + sc_offset;
+  c16_t *out1 = txdataF_precoded_ant1 + sc_offset;
+  int done = 0;
+
+  // NOTE: each layer is scaled by C *first*, then the unit rotation (swap/sign)
+  // is applied and the two contributions are added with saturation. Scaling
+  // first is essential for correctness: (x0 +/- x1) can exceed the int16 range
+  // even for correctly scaled inputs, so adding before scaling would saturate
+  // the intermediate sum and collapse the result. The real scale C commutes
+  // with the swap/sign rotation, so this reordering is free.
+
+#if defined(__AVX512F__) && defined(__AVX512BW__)
+  {
+    const __m512i C512 = _mm512_set1_epi16(C);
+    const __m512i s00 = _mm512_set1_epi32(c16toI32(r00.sgn)), s10 = _mm512_set1_epi32(c16toI32(r10.sgn));
+    const __m512i s01 = _mm512_set1_epi32(c16toI32(r01.sgn)), s11 = _mm512_set1_epi32(c16toI32(r11.sgn));
+    for (; done + 16 <= re_cnt; done += 16) {
+      const __m512i sx0 = _mm512_mulhrs_epi16(_mm512_loadu_si512(in0 + done), C512);
+      const __m512i sx1 = _mm512_mulhrs_epi16(_mm512_loadu_si512(in1 + done), C512);
+      const __m512i sx0s = oai_mm512_swap(sx0), sx1s = oai_mm512_swap(sx1);
+      const __m512i a0 = _mm512_adds_epi16(_mm512_mullo_epi16(r00.swap ? sx0s : sx0, s00),
+                                           _mm512_mullo_epi16(r10.swap ? sx1s : sx1, s10));
+      const __m512i a1 = _mm512_adds_epi16(_mm512_mullo_epi16(r01.swap ? sx0s : sx0, s01),
+                                           _mm512_mullo_epi16(r11.swap ? sx1s : sx1, s11));
+      _mm512_storeu_si512(out0 + done, a0);
+      _mm512_storeu_si512(out1 + done, a1);
+    }
+  }
+#endif
+#ifdef __AVX2__
+  {
+    const simde__m256i C256 = simde_mm256_set1_epi16(C);
+    const simde__m256i s00 = simde_mm256_set1_epi32(c16toI32(r00.sgn)), s10 = simde_mm256_set1_epi32(c16toI32(r10.sgn));
+    const simde__m256i s01 = simde_mm256_set1_epi32(c16toI32(r01.sgn)), s11 = simde_mm256_set1_epi32(c16toI32(r11.sgn));
+    for (; done + 8 <= re_cnt; done += 8) {
+      const simde__m256i sx0 = simde_mm256_mulhrs_epi16(simde_mm256_loadu_si256((const simde__m256i *)(in0 + done)), C256);
+      const simde__m256i sx1 = simde_mm256_mulhrs_epi16(simde_mm256_loadu_si256((const simde__m256i *)(in1 + done)), C256);
+      const simde__m256i sx0s = oai_mm256_swap(sx0), sx1s = oai_mm256_swap(sx1);
+      const simde__m256i a0 = simde_mm256_adds_epi16(simde_mm256_sign_epi16(r00.swap ? sx0s : sx0, s00),
+                                                     simde_mm256_sign_epi16(r10.swap ? sx1s : sx1, s10));
+      const simde__m256i a1 = simde_mm256_adds_epi16(simde_mm256_sign_epi16(r01.swap ? sx0s : sx0, s01),
+                                                     simde_mm256_sign_epi16(r11.swap ? sx1s : sx1, s11));
+      simde_mm256_storeu_si256((simde__m256i *)(out0 + done), a0);
+      simde_mm256_storeu_si256((simde__m256i *)(out1 + done), a1);
+    }
+  }
+#endif
+#ifdef __aarch64__
+  {
+    const int16x8_t Cv = vdupq_n_s16(C);
+    const int16x8_t s00 = vreinterpretq_s16_u32(vdupq_n_u32(c16toI32(r00.sgn)));
+    const int16x8_t s10 = vreinterpretq_s16_u32(vdupq_n_u32(c16toI32(r10.sgn)));
+    const int16x8_t s01 = vreinterpretq_s16_u32(vdupq_n_u32(c16toI32(r01.sgn)));
+    const int16x8_t s11 = vreinterpretq_s16_u32(vdupq_n_u32(c16toI32(r11.sgn)));
+    for (; done + 4 <= re_cnt; done += 4) {
+      const int16x8_t sx0 = vqrdmulhq_s16(vld1q_s16((const int16_t *)(in0 + done)), Cv);
+      const int16x8_t sx1 = vqrdmulhq_s16(vld1q_s16((const int16_t *)(in1 + done)), Cv);
+      const int16x8_t sx0s = vrev32q_s16(sx0), sx1s = vrev32q_s16(sx1);
+      const int16x8_t a0 = vqaddq_s16(vmulq_s16(r00.swap ? sx0s : sx0, s00),
+                                      vmulq_s16(r10.swap ? sx1s : sx1, s10));
+      const int16x8_t a1 = vqaddq_s16(vmulq_s16(r01.swap ? sx0s : sx0, s01),
+                                      vmulq_s16(r11.swap ? sx1s : sx1, s11));
+      vst1q_s16((int16_t *)(out0 + done), a0);
+      vst1q_s16((int16_t *)(out1 + done), a1);
+    }
+  }
+#else
+  {
+    const simde__m128i C128 = simde_mm_set1_epi16(C);
+    const simde__m128i s00 = simde_mm_set1_epi32(c16toI32(r00.sgn)), s10 = simde_mm_set1_epi32(c16toI32(r10.sgn));
+    const simde__m128i s01 = simde_mm_set1_epi32(c16toI32(r01.sgn)), s11 = simde_mm_set1_epi32(c16toI32(r11.sgn));
+    for (; done + 4 <= re_cnt; done += 4) {
+      const simde__m128i sx0 = simde_mm_mulhrs_epi16(simde_mm_loadu_si128((const simde__m128i *)(in0 + done)), C128);
+      const simde__m128i sx1 = simde_mm_mulhrs_epi16(simde_mm_loadu_si128((const simde__m128i *)(in1 + done)), C128);
+      const simde__m128i sx0s = oai_mm_swap(sx0), sx1s = oai_mm_swap(sx1);
+      const simde__m128i a0 = simde_mm_adds_epi16(simde_mm_sign_epi16(r00.swap ? sx0s : sx0, s00),
+                                                  simde_mm_sign_epi16(r10.swap ? sx1s : sx1, s10));
+      const simde__m128i a1 = simde_mm_adds_epi16(simde_mm_sign_epi16(r01.swap ? sx0s : sx0, s01),
+                                                  simde_mm_sign_epi16(r11.swap ? sx1s : sx1, s11));
+      simde_mm_storeu_si128((simde__m128i *)(out0 + done), a0);
+      simde_mm_storeu_si128((simde__m128i *)(out1 + done), a1);
+    }
+  }
+#endif
+
+  // Scalar remainder (re_cnt is a multiple of 12 -> multiple of 4, so normally none)
+  for (; done < re_cnt; done++) {
+    // Scale each layer first (rounding, matching mulhrs), then rotate and add with saturation
+    const c16_t sx0 = {(int16_t)((in0[done].r * C + 16384) >> 15), (int16_t)((in0[done].i * C + 16384) >> 15)};
+    const c16_t sx1 = {(int16_t)((in1[done].r * C + 16384) >> 15), (int16_t)((in1[done].i * C + 16384) >> 15)};
+    const c16_t p00 = r00.swap ? (c16_t){(int16_t)-sx0.i, sx0.r} : sx0;
+    const c16_t p10 = r10.swap ? (c16_t){(int16_t)-sx1.i, sx1.r} : sx1;
+    const c16_t p01 = r01.swap ? (c16_t){(int16_t)-sx0.i, sx0.r} : sx0;
+    const c16_t p11 = r11.swap ? (c16_t){(int16_t)-sx1.i, sx1.r} : sx1;
+    const int a0r = r00.sgn.r * p00.r + r10.sgn.r * p10.r;
+    const int a0i = r00.sgn.i * p00.i + r10.sgn.i * p10.i;
+    const int a1r = r01.sgn.r * p01.r + r11.sgn.r * p11.r;
+    const int a1i = r01.sgn.i * p01.i + r11.sgn.i * p11.i;
+    out0[done] = (c16_t){nr_prec2x2_sat16(a0r), nr_prec2x2_sat16(a0i)};
+    out1[done] = (c16_t){nr_prec2x2_sat16(a1r), nr_prec2x2_sat16(a1i)};
+  }
+}
 
 void nr_layer_precoder_simd(const int n_layers,
                             const int symSz,
@@ -967,19 +1336,37 @@ void nr_layer_precoder_simd(const int n_layers,
   }
 #endif
 #ifdef __aarch64__
-  load_consts(int16x8_t, vdupq_n_s16, 0);
+#ifdef NEWOPTIM
+  load_consts_arm(0);
+#else
+  load_consts(int16x8_t, vdupq_n_s16, 0);  
+#endif
   if (n_layers == 1) {
     for (; out < end; out += sizeof(int16x8_t) / sizeof(*out)) {
+#ifdef NEWOPTIM
+      const int16x4x2_t y = cmac0_prec4(vld1q_s16((const int16_t *)in0++), wr0, wi0);
+      vst2_s16((int16_t *)out, y);
+#else
       const int16x8_t x0 = vld1q_s16((const int16_t *)in0++);
       // Accumulate the product
       int16x8_t y = cmac0_prec128(x0, w_c0, w_s0);
       // Store the result to txdataF
       *(int16x8_t *)out = y;
+#endif
     }
   }
   if (n_layers == 2) {
-    load_consts(int16x8_t, vdupq_n_s16, 1);
+#ifdef NEWOPTIM
+    load_consts_arm(1);
+#else
+    load_consts(int16x8_t, vdupq_n_s16, 1);  
+#endif
     for (; out < end; out += sizeof(int16x8_t) / sizeof(*out)) {
+#ifdef NEWOPTIM
+      int16x4x2_t y = cmac0_prec4(vld1q_s16((const int16_t *)in0++), wr0, wi0);
+      y = cmac_prec4(y, vld1q_s16((const int16_t *)in1++), wr1, wi1);
+      vst2_s16((int16_t *)out, y);
+#else
       const int16x8_t x0 = vld1q_s16((const int16_t *)in0++);
       const int16x8_t x1 = vld1q_s16((const int16_t *)in1++);
       // Accumulate the product
@@ -987,41 +1374,66 @@ void nr_layer_precoder_simd(const int n_layers,
       y = cmac_prec128(y, x1, w_c1, w_s1);
       // Store the result to txdataF
       *(int16x8_t *)out = y;
+#endif
     }
   }
   if (n_layers == 3) {
+#ifdef NEWOPTIM
+    load_consts_arm(1);
+    load_consts_arm(2);
+#else
     load_consts(int16x8_t, vdupq_n_s16, 1);
     load_consts(int16x8_t, vdupq_n_s16, 2);
+#endif
     for (; out < end; out += sizeof(int16x8_t) / sizeof(*out)) {
+#ifdef NEWOPTIM
+      int16x4x2_t y = cmac0_prec4(vld1q_s16((const int16_t *)in0++), wr0, wi0);
+      y = cmac_prec4(y, vld1q_s16((const int16_t *)in1++), wr1, wi1);
+      y = cmac_prec4(y, vld1q_s16((const int16_t *)in2++), wr2, wi2);
+      vst2_s16((int16_t *)out, y);
+#else
       const int16x8_t x0 = vld1q_s16((const int16_t *)in0++);
       const int16x8_t x1 = vld1q_s16((const int16_t *)in1++);
       const int16x8_t x2 = vld1q_s16((const int16_t *)in2++);
       // Accumulate the product
       int16x8_t y = cmac0_prec128(x0, w_c0, w_s0);
-      ;
       y = cmac_prec128(y, x1, w_c1, w_s1);
       y = cmac_prec128(y, x2, w_c2, w_s2);
       // Store the result to txdataF
       *(int16x8_t *)out = y;
+#endif
     }
   }
   if (n_layers == 4) {
+#ifdef NEWOPTIM
+    load_consts_arm(1);
+    load_consts_arm(2);
+    load_consts_arm(3);
+#else
     load_consts(int16x8_t, vdupq_n_s16, 1);
     load_consts(int16x8_t, vdupq_n_s16, 2);
     load_consts(int16x8_t, vdupq_n_s16, 3);
+#endif
     for (; out < end; out += sizeof(int16x8_t) / sizeof(*out)) {
+#ifdef NEWOPTIM
+      int16x4x2_t y = cmac0_prec4(vld1q_s16((const int16_t *)in0++), wr0, wi0);
+      y = cmac_prec4(y, vld1q_s16((const int16_t *)in1++), wr1, wi1);
+      y = cmac_prec4(y, vld1q_s16((const int16_t *)in2++), wr2, wi2);
+      y = cmac_prec4(y, vld1q_s16((const int16_t *)in3++), wr3, wi3);
+      vst2_s16((int16_t *)out, y);
+#else
       const int16x8_t x0 = vld1q_s16((const int16_t *)in0++);
       const int16x8_t x1 = vld1q_s16((const int16_t *)in1++);
       const int16x8_t x2 = vld1q_s16((const int16_t *)in2++);
       const int16x8_t x3 = vld1q_s16((const int16_t *)in3++);
       // Accumulate the product
       int16x8_t y = cmac0_prec128(x0, w_c0, w_s0);
-      ;
       y = cmac_prec128(y, x1, w_c1, w_s1);
       y = cmac_prec128(y, x2, w_c2, w_s2);
       y = cmac_prec128(y, x3, w_c3, w_s3);
       // Store the result to txdataF
-      *(int16x8_t *)out = y;
+      *(int16x8_t *)out = y;      
+#endif
     }
   }
 #else
