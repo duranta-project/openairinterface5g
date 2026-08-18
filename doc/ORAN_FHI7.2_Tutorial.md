@@ -59,16 +59,17 @@ support depends on the NIC.
 
 We tested the category A radio units listed below.
 
-|Vendor                |Software Version        |
-|----------------------|------------------------|
-|VVDN LPRU             |03-v3.0.5               |
-|LiteON RU FR1         |02.00.10                |
-|LiteON RU FR2         |02.00.07                |
-|Metanoia RU FR1 (Jura)|2.0.6                   |
-|Benetel 650           |RAN650-1v2.1.0-M-0820797|
-|Benetel 550           |RAN550-1v2.1.0-M-0820797|
-|Foxconn RPQN          |v3.1.15q.551_rc10       |
-|Microamp RU (FR2)     |0.1.174                 |
+|Vendor                 |Software Version        |
+|-----------------------|------------------------|
+|VVDN LPRU              |03-v3.0.5               |
+|LiteON RU FR1          |02.00.10                |
+|LiteON RU FR2          |02.00.07                |
+|Metanoia RU FR1 (Jura) |2.0.6                   |
+|Metanoia RU FR1 (Cobra)|1.0.1                   |
+|Benetel 650            |RAN650-1v2.1.0-M-0820797|
+|Benetel 550            |RAN550-1v2.1.0-M-0820797|
+|Foxconn RPQN           |v3.1.15q.551_rc10       |
+|Microamp RU (FR2)      |0.1.174                 |
 
 Supported libxran releases:
 
@@ -1176,6 +1177,7 @@ sysrepocfg --edit=vi -d running
 
 #### Metanoia RU
 
+##### FR1 Jura
 **Version 2.0.6**
 
 The OAI configuration file [`gnb.sa.band78.273prb.fhi72.4x4-metanoia.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x4-metanoia.conf) corresponds to:
@@ -1192,6 +1194,27 @@ The RU configuration is stored in `/etc/rumanager.conf`. The required modificati
 6. `center-of-channel-bandwidth` -> `3750000000`
 7. `tx_gain_correction` -> tested with `6020` (please be careful to not fry the RU)
 8. `rx_gain_correction` -> tested with `-903` (please be careful to not fry the RU)
+
+At this stage, RU must be rebooted so the changes apply.
+
+
+##### FR1 Cobra
+**Version 1.0.1**
+
+The OAI configuration file [`gnb.sa.band78.273prb.fhi72.4x4-metanoia-cobra.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x4-metanoia-cobra.conf) corresponds to:
+- TDD pattern `DDDSU`, 2.5ms
+- Bandwidth 100MHz
+- 4TX4R
+
+The RU configuration is stored in `/etc/rumanager.conf`. The required modifications:
+1. `processing_element/vlan_id`
+2. `processing_element/du_mac_address`
+3. `low_level_tx_endpoint/compression_type` -> `STATIC`
+4. `low_level_rx_endpoint/compression_type` -> `STATIC`
+5. `iop_cfg_flag` -> `0x0008` (this will enable O-RAN mode for DL digital power, PS: UL digital power is not supported in this version yet)
+5. `low_level_tx_endpoint/compression/fs-offset` -> `7`
+6. `center-of-channel-bandwidth` -> `3500250000`
+7. `l2_mtu` -> `9000`
 
 At this stage, RU must be rebooted so the changes apply.
 
@@ -1514,8 +1537,10 @@ Sample configuration files for OAI gNB, specific to the manufacturer of the radi
 [`gnb.sa.band78.273prb.fhi72.4x4-benetel550.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x4-benetel550.conf)
 [`gnb.sa.band78.273prb.fhi72.4x2-benetel550.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x2-benetel550.conf)
 [`gnb.sa.band78.273prb.fhi72.2x2-benetel550-16b.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.2x2-benetel550-16b.conf) - tested successfully with E release; with F, UL U-plane fragmentation is not correct
-5. Metanoia RU:
+5. Metanoia RU FR1 (Jura):
 [`gnb.sa.band78.273prb.fhi72.4x4-metanoia.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x4-metanoia.conf)
+6. Metanoia RU FR1 (Cobra):
+[`gnb.sa.band78.273prb.fhi72.4x4-metanoia-cobra.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x4-metanoia-cobra.conf)
 
 Edit the sample OAI gNB configuration file and check following parameters:
 
