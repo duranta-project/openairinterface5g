@@ -279,7 +279,7 @@ Proportional-fair scheduler with three phases:
 - **Phase 1 — Retransmissions:** find the largest free block >= `retx_rbSize`.
 - **Phase 2 — Minimal-grant UEs:** in DL, targets UEs with no pending RLC data
   (`pending_bytes == 0`) that still need a TA command or beam-switch MAC CE. In UL,
-  targets inactive UEs (`sched_inactive`) that need scheduling for TA/SR. Both get a
+  targets inactive UEs (`sched_long_inactivity`) that need scheduling for TA/SR. Both get a
   minimum grant (`min_rb`).
 - **Phase 3 — New data:** sort by PF weight (`pending_bytes / avg_throughput`), allocate
   the largest free block to each UE in order.
