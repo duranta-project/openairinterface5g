@@ -86,7 +86,7 @@ void fill_channel_desc(channel_desc_t *chan_desc,
   chan_desc->nb_taps        = nb_taps;
   chan_desc->channel_length = channel_length;
   chan_desc->amps           = amps;
-  LOG_D(OCM,"[CHANNEL] Doing delays ...\n");
+  LOG_I(OCM,"[CHANNEL] Doing delays ...\n");
 
   if (delays==NULL) {
     chan_desc->delays = calloc(nb_taps, sizeof(double));
@@ -114,7 +114,7 @@ void fill_channel_desc(channel_desc_t *chan_desc,
   chan_desc->ch                         = calloc(nb_tx*nb_rx, sizeof(struct complexd *));
   chan_desc->chF                        = calloc(nb_tx*nb_rx, sizeof(struct complexd *));
   chan_desc->a                          = calloc(nb_taps, sizeof(struct complexd *));
-  LOG_D(OCM,"[CHANNEL] Filling ch \n");
+  LOG_I(OCM,"[CHANNEL] Filling ch \n");
 
   for (i = 0; i<nb_tx*nb_rx; i++)
     chan_desc->ch[i] = calloc(channel_length, sizeof(struct complexd));
@@ -122,14 +122,14 @@ void fill_channel_desc(channel_desc_t *chan_desc,
   for (i = 0; i<nb_tx*nb_rx; i++)
     chan_desc->chF[i] = calloc(275 * 12, sizeof(struct complexd)); // allocate for up to 275 RBs, 12 symbols per RB
 
-  LOG_D(OCM,"[CHANNEL] Filling a (nb_taps %d)\n",nb_taps);
+  LOG_I(OCM,"[CHANNEL] Filling a (nb_taps %d)\n",nb_taps);
 
   for (i = 0; i<nb_taps; i++) {
-    LOG_D(OCM,"tap %d (%p,%zu)\n",i,&chan_desc->a[i],nb_tx*nb_rx * sizeof(struct complexd));
+    LOG_I(OCM,"tap %d (%p,%zu)\n",i,&chan_desc->a[i],nb_tx*nb_rx * sizeof(struct complexd));
     chan_desc->a[i]         = calloc(nb_tx*nb_rx, sizeof(struct complexd));
   }
 
-  LOG_D(OCM,"[CHANNEL] Doing R_sqrt ...\n");
+  LOG_I(OCM,"[CHANNEL] Doing R_sqrt ...\n");
 
   if (R_sqrt == NULL) {
     chan_desc->R_sqrt         = (struct complexd **) calloc(nb_taps,sizeof(struct complexd *));
@@ -156,14 +156,14 @@ void fill_channel_desc(channel_desc_t *chan_desc,
 
   for (i = 0; i<nb_taps; i++) {
     for (j = 0; j<nb_tx*nb_rx*nb_tx*nb_rx; j+=(nb_tx*nb_rx+1)) {
-      LOG_D(OCM,"Rsqrt[%d][%d] %f %f\n",i,j,chan_desc->R_sqrt[i][j].r,chan_desc->R_sqrt[i][j].i);
+      LOG_I(OCM,"Rsqrt[%d][%d] %f %f\n",i,j,chan_desc->R_sqrt[i][j].r,chan_desc->R_sqrt[i][j].i);
     }
   }
 
-  LOG_D(OCM,"[CHANNEL] RF %f\n",chan_desc->ricean_factor);
+  LOG_I(OCM,"[CHANNEL] RF %f\n",chan_desc->ricean_factor);
 
   for (i=0; i<chan_desc->nb_taps; i++)
-    LOG_D(OCM,"[CHANNEL] tap %d: amp %f, delay %f\n",i,chan_desc->amps[i],chan_desc->delays[i]);
+    LOG_I(OCM,"[CHANNEL] tap %d: amp %f, delay %f\n",i,chan_desc->amps[i],chan_desc->delays[i]);
 
   chan_desc->nb_paths=10;
   reset_meas(&chan_desc->random_channel);
@@ -1258,7 +1258,7 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       aoa = .03;
       maxDoppler = 0;
 
-      if ((nb_tx==2) && (nb_rx==1)) {
+      if (((nb_tx==2) && (nb_rx==1)) || ((nb_tx==1) && (nb_rx==2))) {
         R_sqrt_ptr2 = R_sqrt_21_corr;
       } else if ((nb_tx==2) && (nb_rx==2)) {
         R_sqrt_ptr2 = R_sqrt_22_corr;
@@ -1292,7 +1292,7 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       aoa = .03;
       maxDoppler = 0;
 
-      if ((nb_tx==2) && (nb_rx==1)) { //check this
+      if (((nb_tx==2) && (nb_rx==1)) || ((nb_tx==1) && (nb_rx==2))) {
         R_sqrt_ptr2 = R_sqrt_21_anticorr;
       } else if ((nb_tx==2) && (nb_rx==2)) {
         R_sqrt_ptr2 = R_sqrt_22_anticorr;
@@ -1408,7 +1408,7 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       aoa = .03;
       maxDoppler = 0;
 
-      if ((nb_tx==2) && (nb_rx==1)) {
+      if (((nb_tx==2) && (nb_rx==1)) || ((nb_tx==1) && (nb_rx==2))) {
         R_sqrt_ptr2 = R_sqrt_21_corr;
       } else if ((nb_tx==2) && (nb_rx==2)) {
         R_sqrt_ptr2 = R_sqrt_22_corr;
@@ -1442,7 +1442,7 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       aoa = .03;
       maxDoppler = 0;
 
-      if ((nb_tx==2) && (nb_rx==1)) {
+      if (((nb_tx==2) && (nb_rx==1)) || ((nb_tx==1) && (nb_rx==2))) {
         R_sqrt_ptr2 = R_sqrt_21_anticorr;
       } else if ((nb_tx==2) && (nb_rx==2)) {
         R_sqrt_ptr2 = R_sqrt_22_anticorr;
@@ -1669,10 +1669,10 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
 
   chan_desc->normalization_ch_factor = get_normalization_ch_factor(chan_desc);
 
-  LOG_D(OCM,"[CHANNEL] RF %f\n",chan_desc->ricean_factor);
+  LOG_I(OCM,"[CHANNEL] RF %f\n",chan_desc->ricean_factor);
 
   for (i=0; i<chan_desc->nb_taps; i++)
-    LOG_D(OCM,"[CHANNEL] tap %d: amp %f, delay %f\n",i,chan_desc->amps[i],chan_desc->delays[i]);
+    LOG_I(OCM,"[CHANNEL] tap %d: amp %f, delay %f\n",i,chan_desc->amps[i],chan_desc->delays[i]);
 
   chan_desc->nb_paths = 10;
   return(chan_desc);
@@ -1803,16 +1803,15 @@ int random_channel(channel_desc_t *desc, uint8_t abstraction_flag) {
       } //aatx
     } //aarx
 
-    /*
+
     // for debugging set a=anew;
     for (aarx=0;aarx<desc->nb_rx;aarx++) {
       for (aatx=0;aatx<desc->nb_tx;aatx++) {
-        desc->a[i][aarx+(aatx*desc->nb_rx)].x = anew[aarx+(aatx*desc->nb_rx)].x;
-        desc->a[i][aarx+(aatx*desc->nb_rx)].y = anew[aarx+(aatx*desc->nb_rx)].y;
-        printf("anew(%d,%d) = %f+1j*%f\n",aatx,aarx,anew[aarx+(aatx*desc->nb_rx)].x, anew[aarx+(aatx*desc->nb_rx)].y);
+        desc->a[i][aarx+(aatx*desc->nb_rx)].r = anew[aarx+(aatx*desc->nb_rx)].r;
+        desc->a[i][aarx+(aatx*desc->nb_rx)].i = anew[aarx+(aatx*desc->nb_rx)].i;
+        LOG_I(OCM,"anew(%d,%d) = %f+1j*%f\n",aatx,aarx,anew[aarx+(aatx*desc->nb_rx)].r, anew[aarx+(aatx*desc->nb_rx)].i);
      }
     }
-    */
     //apply correlation matrix
     //compute acorr = R_sqrt[i] * anew
     bzero(acorr, desc->nb_tx * desc->nb_rx * sizeof(struct complexd));
@@ -1826,12 +1825,13 @@ int random_channel(channel_desc_t *desc, uint8_t abstraction_flag) {
         }
       }
     } else {
-      for (int inside = 0; inside < desc->nb_tx * desc->nb_rx; inside++) {
-        const cd_t tmp = cdMul(desc->R_sqrt[i / 3][0], anew[inside]);
-        csum(acorr[inside], tmp, acorr[inside]);
-      }
+     for (int j = 0; j < desc->nb_tx * desc->nb_rx; j++) {
+       for (int k = 0; k < desc->nb_tx * desc->nb_rx; k++) {
+         const cd_t tmp = cdMul(desc->R_sqrt[i][j * desc->nb_tx * desc->nb_rx + k], anew[k]);
+         csum(acorr[j], acorr[j], tmp);
+       }
+     }
     }
-
     if (desc->first_run==1) {
       memcpy(desc->a[i], acorr, desc->nb_tx * desc->nb_rx * sizeof(*acorr));
     } else {
@@ -1851,15 +1851,15 @@ int random_channel(channel_desc_t *desc, uint8_t abstraction_flag) {
       //  desc->a[i][aarx+(aatx*desc->nb_rx)].y = (sqrt(desc->forgetting_factor)*desc->a[i][aarx+(aatx*desc->nb_rx)].y) + sqrt(1-desc->forgetting_factor)*anew.y;
     }
 
-    /*
+
     for (aarx=0;aarx<desc->nb_rx;aarx++) {
       for (aatx=0;aatx<desc->nb_tx;aatx++) {
         //desc->a[i][aarx+(aatx*desc->nb_rx)].x = acorr[aarx+(aatx*desc->nb_rx)].x;
         //desc->a[i][aarx+(aatx*desc->nb_rx)].y = acorr[aarx+(aatx*desc->nb_rx)].y;
-        printf("tap %d, a(%d,%d) = %f+1j*%f\n",i,aatx,aarx,desc->a[i][aarx+(aatx*desc->nb_rx)].x, desc->a[i][aarx+(aatx*desc->nb_rx)].y);
+        LOG_I(OCM,"tap %d, a(%d,%d) = %f+1j*%f\n",i,aatx,aarx,desc->a[i][aarx+(aatx*desc->nb_rx)].r, desc->a[i][aarx+(aatx*desc->nb_rx)].i);
       }
     }
-    */
+
   } //nb_taps
 
   stop_meas(&desc->random_channel);
