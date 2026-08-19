@@ -398,6 +398,7 @@ static NR_NZP_CSI_RS_Resource_t *get_nzp_csi_rs_resource(int id,
                                                          int num_dl_antenna_ports,
                                                          int curr_bwp,
                                                          int symbol_index,
+                                                         int period,
                                                          long scramblingID,
                                                          const nr_cell_sched_t *cell)
 {
@@ -467,9 +468,8 @@ static NR_NZP_CSI_RS_Resource_t *get_nzp_csi_rs_resource(int id,
   nzpcsi->powerControlOffsetSS = calloc(1, sizeof(*nzpcsi->powerControlOffsetSS));
   *nzpcsi->powerControlOffsetSS = NR_NZP_CSI_RS_Resource__powerControlOffsetSS_db0;
   nzpcsi->scramblingID = scramblingID;
-  const int ideal_period = set_ideal_period(cell, true); // same periodicity as CSI measurement report
   const frame_structure_t *fs = &cell->frame_structure;
-  set_csirs_periodicity(nzpcsi, id, ideal_period, fs);
+  set_csirs_periodicity(nzpcsi, id, period, fs);
   nzpcsi->qcl_InfoPeriodicCSI_RS = calloc(1, sizeof(*nzpcsi->qcl_InfoPeriodicCSI_RS));
   *nzpcsi->qcl_InfoPeriodicCSI_RS = 0;
 
@@ -483,6 +483,7 @@ static void config_csirs(const NR_ServingCellConfigCommon_t *servingcellconfigco
                          int curr_bwp,
                          int do_csirs,
                          int symbol_index,
+                         int csi_period,
                          int id)
 {
   if (do_csirs) {
@@ -501,7 +502,7 @@ static void config_csirs(const NR_ServingCellConfigCommon_t *servingcellconfigco
     if (!csi_MeasConfig->nzp_CSI_RS_ResourceToAddModList)
       csi_MeasConfig->nzp_CSI_RS_ResourceToAddModList = calloc(1, sizeof(*csi_MeasConfig->nzp_CSI_RS_ResourceToAddModList));
     NR_NZP_CSI_RS_Resource_t *nzpcsi0 =
-        get_nzp_csi_rs_resource(id, num_dl_antenna_ports, curr_bwp, symbol_index, *servingcellconfigcommon->physCellId, cell);
+        get_nzp_csi_rs_resource(id, num_dl_antenna_ports, curr_bwp, symbol_index, csi_period, *servingcellconfigcommon->physCellId, cell);
     asn1cSeqAdd(&csi_MeasConfig->nzp_CSI_RS_ResourceToAddModList->list, nzpcsi0);
 
     // Add NZP CSI-RS Resource ID: identifier used to reference one NZP-CSI-RS-Resource
@@ -3476,7 +3477,7 @@ static NR_CSI_MeasConfig_t *get_csiMeasConfig(const NR_ServingCellConfig_t *conf
   bool has_companion = (bitmap >> (63 - same_slot_index)) & 0x01;
   int symbol_index = has_companion ? ssb_index % 2 : 0;
   const int pdsch_AntennaPorts = config->pdsch_AntennaPorts.N1 * config->pdsch_AntennaPorts.N2 * config->pdsch_AntennaPorts.XP;
-  config_csirs(scc, csi_MeasConfig, cell, pdsch_AntennaPorts, curr_bwp, config->do_CSIRS, symbol_index, ssb_index);
+  config_csirs(scc, csi_MeasConfig, cell, pdsch_AntennaPorts, curr_bwp, config->do_CSIRS, symbol_index, csi_info.period, ssb_index);
   config_csiim(config->do_CSIRS, pdsch_AntennaPorts, curr_bwp, csi_MeasConfig, ssb_index);
 
   NR_CSI_ResourceConfig_t *csires1 = calloc(1, sizeof(*csires1));
