@@ -1847,39 +1847,6 @@ void handle_nr_srs_toa_vendor_ext_measurements(const module_id_t module_id,
   mac->pos_meas_info.active = false;
 }
 
-static bool nr_UE_is_to_be_scheduled(const frame_structure_t *fs,
-                                     NR_UE_info_t *UE,
-                                     frame_t frame,
-                                     slot_t slot,
-                                     uint32_t ulsch_max_frame_inactivity)
-{
-  const int n = fs->numb_slots_frame;
-  const int now = frame * n + slot;
-
-  const NR_UE_sched_ctrl_t *sched_ctrl =&UE->UE_sched_ctrl;
-  /**
-   * Force the default transmission in a full slot as early
-   * as possible in the UL portion of TDD period (last_ul_slot) */
-  int num_slots_per_period = fs->numb_slots_period;
-  int last_ul_slot = fs->frame_type == TDD ? get_first_ul_slot(fs, false) : sched_ctrl->last_ul_slot;
-  const int last_ul_sched = sched_ctrl->last_ul_frame * n + last_ul_slot;
-  const int diff = (now - last_ul_sched + 1024 * n) % (1024 * n);
-  /* UE is to be scheduled if
-   * (1) we think the UE has more bytes awaiting than what we scheduled
-   * (2) there is a scheduling request
-   * (3) or we did not schedule it in more than 10 frames */
-  const bool has_data = sched_ctrl->estimated_ul_buffer > sched_ctrl->sched_ul_bytes;
-  const bool high_inactivity = diff >= (ulsch_max_frame_inactivity > 0 ? ulsch_max_frame_inactivity * n : num_slots_per_period);
-  LOG_D(NR_MAC,
-        "%4d.%2d UL inactivity %d slots has_data %d SR %d\n",
-        frame,
-        slot,
-        diff,
-        has_data,
-        sched_ctrl->SR);
-  return has_data || sched_ctrl->SR || high_inactivity;
-}
-
 void update_ul_ue_R_Qm(int mcs, int mcs_table, const NR_PUSCH_Config_t *pusch_Config, uint16_t *R, uint8_t *Qm)
 {
   *R = nr_get_code_rate_ul(mcs, mcs_table);
@@ -2407,7 +2374,7 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
   NR_UE_UL_BWP_t *current_BWP = &UE->current_UL_BWP;
 
   /* the UE now has the grant for the request */
-  sched_ctrl->SR = false;
+  sched_ctrl->sr_cnt = 0;
 
   int8_t harq_id = sched_pusch->ul_harq_pid;
   if (harq_id < 0) {
@@ -2611,6 +2578,28 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
 
 }
 
+/* Returns true if we did not schedule a PUSCH for this UE for too long, in
+   which case it should get a default grant so that it can send a BSR.
+   The measured inactivity and the threshold are returned in slots for logging. */
+static bool nr_ue_has_long_ul_inactivity(const gNB_MAC_INST *mac,
+                                         const NR_UE_sched_ctrl_t *sched_ctrl,
+                                         int sched_frame,
+                                         int sched_slot,
+                                         int *inactivity,
+                                         int *max_inactivity)
+{
+  const frame_structure_t *fs = &mac->frame_structure;
+  const int slots_per_frame = fs->numb_slots_frame;
+  const int last_ul_slot = fs->frame_type == TDD ? get_first_ul_slot(fs, false) : sched_ctrl->last_ul_slot;
+  const int last_ul_sched = sched_ctrl->last_ul_frame * slots_per_frame + last_ul_slot;
+  *inactivity =
+      (sched_frame * slots_per_frame + sched_slot - last_ul_sched + 1024 * slots_per_frame) % (1024 * slots_per_frame);
+  /* ulsch_max_frame_inactivity == 0 means one transmission per period */
+  *max_inactivity =
+      mac->ulsch_max_frame_inactivity > 0 ? mac->ulsch_max_frame_inactivity * slots_per_frame : fs->numb_slots_period;
+  return *inactivity >= *max_inactivity;
+}
+
 static int collect_ul_candidates(gNB_MAC_INST *mac,
                                  NR_UE_info_t *UE_list[],
                                  nr_ul_candidate_t *candidates,
@@ -2708,12 +2697,19 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
       continue;
     }
 
+    /* number of bytes we think the UE still has to transmit */
     const int B = max(0, sched_ctrl->estimated_ul_buffer - sched_ctrl->sched_ul_bytes);
-    const bool do_sched =
-        nr_UE_is_to_be_scheduled(&mac->frame_structure, UE, sched_frame, sched_slot, mac->ulsch_max_frame_inactivity);
 
-    LOG_D(NR_MAC, "collect_ul_candidates: do_sched UE %04x => %s\n", UE->rnti, do_sched ? "yes" : "no");
-    if ((B == 0 && !do_sched) || nr_timer_is_active(&sched_ctrl->transm_interrupt))
+    int inactivity = 0;
+    int max_inactivity = 0;
+    const bool long_inactivity =
+        nr_ue_has_long_ul_inactivity(mac, sched_ctrl, sched_frame, sched_slot, &inactivity, &max_inactivity);
+
+    /* Consider the UE if (1) we think it has more bytes awaiting than what we
+     * scheduled, (2) it requested a grant through SR, or (3) we did not schedule
+     * it for too long, in which case we give it a default grant so that it can
+     * send a BSR. */
+    if ((B == 0 && sched_ctrl->sr_cnt == 0 && !long_inactivity) || nr_timer_is_active(&sched_ctrl->transm_interrupt))
       continue;
 
     /* Update BLER stats; MCS adaptation is done by ul_mcs_select pipeline stage */
@@ -2728,7 +2724,9 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     } else
       cand.sched_srs = 0;
     cand.retx_harq_pid = -1;
-    cand.sched_inactive = (B == 0 && do_sched);
+    /* UE has not been scheduled for too long: ask the policy for a default
+     * grant (minimum RBs) so that the UE can send a BSR */
+    cand.sched_inactive = long_inactivity;
     cand.pending_bytes = B;
     cand.bler = sched_ctrl->ul_bler_stats.bler;
     cand.bler_updated = bler_updated;
@@ -2736,15 +2734,18 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     cand.max_mcs = max_mcs;
     cand.last_num_sched = sched_ctrl->ul_bler_stats.last_num_sched;
     cand.snrx10 = (int)(sched_ctrl->pusch_pc.avg_snr * 10);
-
+    cand.sr_cnt = sched_ctrl->sr_cnt;
     LOG_D(NR_MAC,
-          "[UE %04x][%4d.%2d] b %d, ul_thr_ue %f, mcs %d, sched_inactive %d sched_srs %d\n",
+          "[UE %04x][%4d.%2d] b %d, ul_thr_ue %f, mcs %d, SR count %d, UL inactivity %d/%d slots, sched_inactive %d sched_srs %d\n",
           UE->rnti,
           frame,
           slot,
           B,
           UE->ul_thr_ue,
           cand.current_mcs,
+          sched_ctrl->sr_cnt,
+          inactivity,
+          max_inactivity,
           cand.sched_inactive,
           cand.sched_srs);
 
