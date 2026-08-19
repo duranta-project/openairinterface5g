@@ -1,14 +1,17 @@
 # Key Performance Indicators for the OpenAirInterface Code Base
 
-This document summarizes the main throughput KPIs
+The goal of this document is to provide some Key Performance Indicators (KPI) for openairinterface5g RAN and UE stack. 
+
+For every test we have mentioned the test/host system, but the same results can be achieved on [other systems](./Supported_Hardware_Operating_System.md)
 
 ## 1. `nr-softmodem` Performance in `oai-gNB` and `oai-gNB-du` Modes for FR1 bands
 
-### KPI with USRP
+### Application level throughput for USRP
 
 #### Test Profile
 
 The following results apply to the TDD configuration below:
+
 |Parameter          |Value                   |
 |-------------------|------------------------|
 |Band               |n41                     |
@@ -16,8 +19,11 @@ The following results apply to the TDD configuration below:
 |DL test TDD Pattern|`DDDSU`, 2.5ms          |
 |UL test TDD Pattern|`DDSUU`, 2.5ms          |
 
-- test machine: AMD Ryzen 9 7950X 16-Core Processor
-- radio: USRP N310, UE: Quectel RM500Q
+- Test System: AMD Ryzen 9 7950X 16-Core Processor
+- Radio: USRP N310 
+- UE: Quectel RM500Q
+- Environment: OTA, distance: 2m
+- Application level throughput tested using iperf3 UDP
 
 |Bandwidth MHz/PRB|Layers|DL Throughput (Mbps)|UL Throughput (Mbps)|
 |-----------------|-----:|-------------------:|-------------------:|
@@ -36,12 +42,12 @@ The following results apply to the TDD configuration below:
 |100(273)         |1     |400                 |101                 |
 |                 |2     |800                 |120                 |
 
-### KPI with ORAN 7.2
-- test branch: [2026.w22](https://github.com/duranta-project/openairinterface5g/releases/tag/2026.w22)
+### Application level throughput for O-RAN 7.2 Fronthaul
 
 #### Test Profile
 
 The following results apply to the TDD configuration below:
+
 |Parameter          |Value                   |
 |-------------------|------------------------|
 |Band               |n78/n77                 |
@@ -49,10 +55,12 @@ The following results apply to the TDD configuration below:
 |DL test TDD Pattern|`DDDSU`, 2.5ms, 10D2G2U |
 |UL test TDD Pattern|`DDSUU`, 2.5ms, 6D4G4U  |
 
-- test machine: AMD EPYC 9575F 64-Core Processor
-- radio: Benetel550 O-RU, UE: Quectel RM520N
-- OTA, distance: 2m
-- avx512 disabled (`--noavx512`)
+- Test System: AMD EPYC 9575F 64-Core Processor
+- Radio: Benetel 550 O-RU
+- UE: Quectel RM520N
+- Environment: OTA, distance: 2m
+- Uncompressed mode with avx512 disabled at compile time
+- Application level throughput tested using iperf3 UDP
 
 9b BFP static compression, 4T4R
 
@@ -86,16 +94,22 @@ The following results apply to the TDD configuration below:
 |DL test TDD Pattern|`DDDSU`, 0.625ms, 10D2U |
 |UL test TDD Pattern|`DDDSU`, 0.625ms, 64D4U |
 
-#### KPI
+- Test System: AMD EPYC 9575F 64-Core Processor
+- Radio: MicroAmp, LiteON FR2
+- UE: Quectel RG530F
+- Environment: OTA, distance: 2m
+- Application level throughput tested using iperf3 UDP
 
-Radio Unit: MicroAmp
+#### KPI
 
 |Bandwidth MHz/PRB|Layers|DL Throughput (Mbps)|UL Throughput (Mbps)|
 |-----------------|-----:|-------------------:|-------------------:|
+|100(66)          |1     |X                   |X                   |
+|                 |2     |550                 |x                   |
 |200(132)         |1     |500                 |86                  |
 |                 |2     |890                 |x                   |
 
-Round trip time (measured using ping): 4.526 ms
+Round trip time (measured using icmp ping): 4.526 ms
 
 With `ulsch_max_frame_inactivity= 0;`
 
@@ -107,11 +121,9 @@ For execution details, see [physical-simulators.md](./physical-simulators.md).
 
 #### Test Profile
 
-|Parameter |Value                           |
-|----------|--------------------------------|
-|Server    |AMD EPYC 9575F 64-Core Processor|
-|SNR       |40 dB                           |
-|MCS       |25                              |
+- Test System: AMD EPYC 9575F 64-Core Processor
+- SNR: 40 DB
+- MCS: 25
 
 #### nr_dlsim
 
