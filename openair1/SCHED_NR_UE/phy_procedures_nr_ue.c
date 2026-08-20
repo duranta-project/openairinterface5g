@@ -437,10 +437,11 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   c16_t (*dl_ch_magr)[NR_MAX_NB_LAYERS][pdsch_buf_size_max]   = (c16_t (*)[NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->dl_ch_magr;
   c16_t (*rho_dl)[NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max] = (c16_t (*)[NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->rho_dl;
 
-  c16_t ptrs_phase_per_slot[ue->frame_parms.nb_antennas_rx][NR_SYMBOLS_PER_SLOT];
+  NR_DL_FRAME_PARMS *frame_parms = &ue->frame_parms;
+  c16_t ptrs_phase_per_slot[frame_parms->nb_antennas_rx][NR_SYMBOLS_PER_SLOT];
   memset(ptrs_phase_per_slot, 0, sizeof(ptrs_phase_per_slot));
 
-  int32_t ptrs_re_per_slot[ue->frame_parms.nb_antennas_rx][NR_SYMBOLS_PER_SLOT];
+  int32_t ptrs_re_per_slot[frame_parms->nb_antennas_rx][NR_SYMBOLS_PER_SLOT];
   memset(ptrs_re_per_slot, 0, sizeof(ptrs_re_per_slot));
 
   uint32_t nvar = 0;
@@ -460,37 +461,32 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                                     m,
                                     pdsch_est_size,
                                     pdsch_dl_ch_estimates,
-                                    ue->frame_parms.samples_per_slot_wCP,
+                                    frame_parms->samples_per_slot_wCP,
                                     rxdataF,
                                     &nvar_tmp);
         nvar += nvar_tmp;
-#if 0
-        ///LOG_M: the channel estimation
-        char filename[100];
-        for (uint8_t aarx=0; aarx<ue->frame_parms.nb_antennas_rx; aarx++) {
-          sprintf(filename,"PDSCH_CHANNEL_frame%d_slot%d_sym%d_port%d_rx%d.m", frame_rx, nr_slot_rx, m, nl, aarx);
-          int **dl_ch_estimates = ue->pdsch_vars[gNB_id]->dl_ch_estimates;
-          LOG_M(filename,"channel_F",&dl_ch_estimates[nl*ue->frame_parms.nb_antennas_rx+aarx][ue->frame_parms.ofdm_symbol_size*m],ue->frame_parms.ofdm_symbol_size, 1, 1);
-        }
-#endif
       }
     }
   }
   stop_meas_nr_ue_phy(ue, DLSCH_CHANNEL_ESTIMATION_STATS);
-  nvar /= (dlschCfg->number_symbols * dlsch->cw_info.Nl * ue->frame_parms.nb_antennas_rx);
+  nvar /= (dlschCfg->number_symbols * dlsch->cw_info.Nl * frame_parms->nb_antennas_rx);
   uint32_t dmrs_mask = dlschCfg->dlDmrsSymbPos;
   int first_dmrs_symbol = get_first_bit_index_mask(&dmrs_mask, 1, 0, NR_SYMBOLS_PER_SLOT);
   nr_ue_measurement_procedures(first_dmrs_symbol, ue, proc, freq_alloc->num_rbs, pdsch_est_size, pdsch_dl_ch_estimates);
 
   if (ue->chest_time == 1) { // averaging time domain channel estimates
-    nr_chest_time_domain_avg(&ue->frame_parms,
-                             (int32_t **)pdsch_dl_ch_estimates,
+    int32_t *ch_est_p[dlsch->cw_info.Nl * frame_parms->nb_antennas_rx];
+    for (int nl = 0; nl < dlsch->cw_info.Nl; nl++)
+      for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++)
+        ch_est_p[nl * frame_parms->nb_antennas_rx + aarx] = pdsch_dl_ch_estimates[nl * frame_parms->nb_antennas_rx + aarx];
+    nr_chest_time_domain_avg(frame_parms,
+                             ch_est_p,
                              dlschCfg->number_symbols,
                              dlschCfg->start_symbol,
                              dlschCfg->dlDmrsSymbPos,
                              freq_alloc->num_rbs,
                              dlsch->cw_info.Nl,
-                             ue->frame_parms.nb_antennas_rx);
+                             frame_parms->nb_antennas_rx);
   }
 
   uint16_t first_symbol_with_data = dlschCfg->start_symbol;
@@ -550,7 +546,7 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                     rxdataF,
                     &log2_maxh,
                     pdsch_buf_size_max,
-                    ue->frame_parms.nb_antennas_rx,
+                    frame_parms->nb_antennas_rx,
                     rxdataF_comp,
                     dl_ch_mag,
                     dl_ch_magb,
