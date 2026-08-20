@@ -43,10 +43,6 @@ static void combine_codebook(c16_t **txDataF,
     memset(txDataF[aatx], 0, n_sc * sizeof(c16_t));
   }
 
-  // Reused scratch for the rotated+weighted term of the stream/txru pair currently being folded
-  // in - sized to the whole symbol so it can hold any single stream's PRB run, never nb_tx times.
-  c16_t term[n_sc];
-
   for (int i = 0; i < num_streams; i++) {
     const dl_iq_stream_t *stream = &streams[i];
     if (stream->ant_id >= cb->nb_fh_streams) {
@@ -62,10 +58,10 @@ static void combine_codebook(c16_t **txDataF,
     const int n_re = stream->num_prb * NR_NB_SC_PER_RB;
     const int re_off = stream->start_prb * NR_NB_SC_PER_RB;
     for (int txru = 0; txru < nb_tx; txru++) {
-      // Fold rotation into the weight once, instead of a separate rotate pass afterward.
+      // Fold rotation into the weight once, instead of a separate rotate pass afterward. Fused
+      // multiply+saturating-accumulate straight into txDataF - no scratch buffer, one pass.
       c16_t w_rot = c16mulShift(cb->w[bidx][txru][stream->ant_id], rotation, 15);
-      rotate_cpx_vector(src, w_rot, term, n_re, 15);
-      add_cpx_vector(term, &txDataF[txru][re_off], n_re);
+      rotate_add_cpx_vector(src, w_rot, &txDataF[txru][re_off], n_re, 15);
     }
   }
 }
