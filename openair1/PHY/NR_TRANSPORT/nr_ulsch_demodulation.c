@@ -756,7 +756,8 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       max_G = G_u[u];
   }
 
-  const uint64_t num_scrambling_bytes = group_size * (max_G + 96) * sizeof(int16_t);
+  const int scr_row = ((max_G + 96 + 15) / 16) * 16;
+  const uint64_t num_scrambling_bytes = group_size * scr_row * sizeof(int16_t);
   AssertFatal(num_scrambling_bytes <= NR_MAX_PUSCH_SCRAMBLING_STACK_BYTES,
               "scrambling_sequences stack buffer %" PRIu64 " bytes exceeds %d MB limit : group_size %d, max_G %d\n",
               num_scrambling_bytes,
@@ -764,7 +765,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
               group_size,
               max_G);
 
-  int16_t scrambling_sequences[group_size][max_G + 96] __attribute__((aligned(32)));
+  int16_t scrambling_sequences[group_size][scr_row] __attribute__((aligned(32)));
   int16_t *scrambling_sequences_arr[group_size];
 
   for (int u = 0; u < group_size; u++) {
