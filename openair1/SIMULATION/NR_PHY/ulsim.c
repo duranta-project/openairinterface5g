@@ -64,6 +64,7 @@
 #include "fapi_nr_ue_interface.h"
 #include "nfapi_interface.h"
 #include "nfapi_nr_interface_scf.h"
+#include "nfapi/open-nFAPI/fapi/inc/nr_fapi_p5_utils.h"
 #include "nr_ue_phy_meas.h"
 #include "openair1/SIMULATION/NR_PHY/nr_unitary_defs.h"
 #include "openair1/SIMULATION/TOOLS/sim.h"
@@ -826,6 +827,7 @@ int main(int argc, char *argv[])
   int uid = 0;
   int ssb_index = 0;
   NR_CellGroupConfig_t *secondaryCellGroup = get_default_secondaryCellGroup(scc, UE_Capability_nr, 0, 1, &conf, uid, ssb_index);
+  ASN_STRUCT_FREE(asn_DEF_NR_UE_NR_Capability, UE_Capability_nr);
   secondaryCellGroup->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(rnti, uid, scc, frame);
 
   NR_BCCH_BCH_Message_t *mib = get_new_MIB_NR(scc);
@@ -922,6 +924,7 @@ int main(int argc, char *argv[])
   }
 
   init_nr_ue_transport(UE);
+  init_nr_ue_phy_cpu_stats(&UE->phy_cpu_stats);
 
   //Configure UE
   NR_UE_MAC_INST_t* UE_mac = nr_l2_init_ue(0, mu);
@@ -958,6 +961,8 @@ int main(int argc, char *argv[])
   uint32_t errors_decoding = 0;
 
   fapi_nr_ul_config_request_t ul_config = {0};
+  nfapi_nr_ptrs_ports_t gnb_ptrs_ports[2] = {0};
+  nfapi_nr_ue_ptrs_ports_t ue_ptrs_ports[2] = {0};
 
   uint8_t ptrs_mcs1 = 2;
   uint8_t ptrs_mcs2 = 4;
@@ -1193,7 +1198,7 @@ int main(int argc, char *argv[])
     reset_meas(&gNB->srs_report_tlv_stats);
     reset_meas(&gNB->srs_beam_report_stats);
     reset_meas(&gNB->srs_iq_matrix_stats);
-    init_nr_ue_phy_cpu_stats(&UE->phy_cpu_stats);
+    reset_nr_ue_phy_cpu_stats(&UE->phy_cpu_stats);
 
     uint32_t errors_scrambling[16] = {0};
     int n_errors[16] = {0};
@@ -1282,7 +1287,7 @@ int main(int argc, char *argv[])
         pusch_pdu->pusch_data.num_cb = 0;
         pusch_pdu->pusch_ptrs.ptrs_time_density = ptrs_time_density;
         pusch_pdu->pusch_ptrs.ptrs_freq_density = ptrs_freq_density;
-        pusch_pdu->pusch_ptrs.ptrs_ports_list = (nfapi_nr_ptrs_ports_t *)malloc_or_fail(2 * sizeof(nfapi_nr_ptrs_ports_t));
+        pusch_pdu->pusch_ptrs.ptrs_ports_list = gnb_ptrs_ports;
         pusch_pdu->pusch_ptrs.ptrs_ports_list[0].ptrs_re_offset = 0;
         pusch_pdu->maintenance_parms_v3.ldpcBaseGraph = get_BG(TBS, code_rate);
         pusch_pdu->param_v4.numSpatialStreamIndices = conf.pusch_AntennaPorts;
@@ -1377,8 +1382,7 @@ int main(int argc, char *argv[])
         pusch_config_pdu->pusch_data.harq_process_id = harq_pid;
         pusch_config_pdu->pusch_ptrs.ptrs_time_density = ptrs_time_density;
         pusch_config_pdu->pusch_ptrs.ptrs_freq_density = ptrs_freq_density;
-        pusch_config_pdu->pusch_ptrs.ptrs_ports_list =
-            (nfapi_nr_ue_ptrs_ports_t *)malloc_or_fail(2 * sizeof(nfapi_nr_ue_ptrs_ports_t));
+        pusch_config_pdu->pusch_ptrs.ptrs_ports_list = ue_ptrs_ports;
         pusch_config_pdu->pusch_ptrs.ptrs_ports_list[0].ptrs_re_offset = 0;
         pusch_config_pdu->transform_precoding = transform_precoding;
         // if transform precoding is enabled
@@ -1876,6 +1880,8 @@ int main(int argc, char *argv[])
       printf("\n");
     }
 
+    freeVarArray(table_rx);
+
     if(n_trials==1)
       break;
 
@@ -1905,9 +1911,11 @@ int main(int argc, char *argv[])
           length_dmrs,
           num_dmrs_cdm_grps_no_data);
 
-  free_MIB_NR(mib);
+  abortTpool(&nrUE_params.Tpool);
+  abortTpool(&gNB->threadPool);
 
-  free_nrLDPC_coding_interface(&gNB->nrLDPC_coding_interface);
+  free_MIB_NR(mib);
+  free(Sched_INFO);
 
   if (output_fd)
     fclose(output_fd);
@@ -1924,11 +1932,28 @@ int main(int argc, char *argv[])
   if (uci_ulsch_matlab_vec)
     fclose(uci_ulsch_matlab_vec);
 
+  term_nr_ue_transport(UE);
+  free_nr_ue_phy_cpu_stats(&UE->phy_cpu_stats);
+  term_nr_ue_signal(UE);
   free_and_zero(UE->phy_sim_test_buf);
 
   free(nrPHY_vars_UE_g[0][0]);
   free(nrPHY_vars_UE_g[0]);
   free(nrPHY_vars_UE_g);
+
+  for (int i = 0; i < n_tx; i++)
+    free_and_zero(s_interleaved[i]);
+  free_and_zero(s_interleaved);
+  for (int i = 0; i < n_rx; i++) {
+    free_and_zero(r_re[i]);
+    free_and_zero(r_im[i]);
+    free_and_zero(rxdata[i]);
+    free_and_zero(gNB->common_vars.rxdataF[i]);
+  }
+  free_and_zero(r_re);
+  free_and_zero(r_im);
+  free_and_zero(rxdata);
+  free_channel_desc_scm(UE2gNB);
 
 #ifdef CHANNEL_SIM_CUDA
   free_cuda_chsim_buffers(use_cuda,
@@ -1940,7 +1965,16 @@ int main(int argc, char *argv[])
                           &h_final_output_pinned,
                           &h_channel_coeffs,
                           &d_channel_coeffs_gpu);
+#else
+  free_and_zero(h_tx_sig_pinned);
 #endif
+
+  phy_free_nr_gNB(gNB);
+  free_config_request(&gNB->gNB_config);
+  free_and_zero(gNB->RU_list[0]);
+  free_and_zero(RC.gNB[0]);
+  free_and_zero(RC.gNB);
+  gNB = NULL;
 
   return ret;
 }

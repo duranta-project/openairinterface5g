@@ -1017,7 +1017,6 @@ int main(int argc, char **argv)
   //NR_COMMON_channels_t *cc = RC.nrmac[0]->common_channels;
   int ret = 1;
   initNamedTpool(gNBthreads, &gNB->threadPool, true, "gNB-tpool");
-  initNotifiedFIFO(&gNB->L1_tx_out);
 
   // Buffers to store internal memory of slot process
   int rx_size = (((14 * UE->frame_parms.N_RB_DL * 12 * sizeof(int32_t)) + 15) >> 4) << 4;
@@ -1496,6 +1495,7 @@ int main(int argc, char **argv)
         printStatIndent(&UE->phy_cpu_stats.cpu_time_stats[i], UE->phy_cpu_stats.cpu_time_stats[i].meas_name);
       }
     }
+    freeVarArray(table_tx);
 
     if (n_trials == 1) {
       unsigned int op_format = 1;
@@ -1556,6 +1556,9 @@ int main(int argc, char **argv)
 
   } // NSR
 
+  abortTpool(&nrUE_params.Tpool);
+  abortTpool(&gNB->threadPool);
+
   free(Sched_INFO);
 
   free_channel_desc_scm(gNB2UE);
@@ -1579,6 +1582,8 @@ int main(int argc, char **argv)
                           &h_final_output_pinned,
                           &h_channel_coeffs,
                           &d_channel_coeffs_gpu);
+#else
+  free_and_zero(h_tx_sig_pinned);
 #endif
 
   free(s_interleaved);
@@ -1594,10 +1599,15 @@ int main(int argc, char **argv)
   free(UE->phy_sim_pdsch_dl_ch_estimates);
   free(UE->phy_sim_pdsch_dl_ch_estimates_ext);
   free(UE->phy_sim_dlsch_b);
+  term_nr_ue_transport(UE);
+  free_nr_ue_phy_cpu_stats(&UE->phy_cpu_stats);
+  term_nr_ue_signal(UE);
   free(UE);
   free(nrPHY_vars_UE_g[0]);
   free(nrPHY_vars_UE_g);
 
+  free_MIB_NR(mib);
+  ASN_STRUCT_FREE(asn_DEF_NR_UE_NR_Capability, UE_Capability_nr);
   free_nrLDPC_coding_interface(&gNB->nrLDPC_coding_interface);
 
   if (output_fd)
@@ -1686,6 +1696,8 @@ void update_dmrs_config(NR_BWP_Downlink_t *bwp, int8_t* dmrs_arg)
   AssertFatal((bwp->bwp_Dedicated->pdsch_Config != NULL && bwp->bwp_Dedicated->pdsch_Config->choice.setup != NULL), "Base RRC reconfig structures are not allocated.\n");
 
   if(mapping_type == typeA) {
+    asn1cFreeStruc(asn_DEF_NR_SetupRelease_DMRS_DownlinkConfig,
+                   bwp->bwp_Dedicated->pdsch_Config->choice.setup->dmrs_DownlinkForPDSCH_MappingTypeA);
     bwp->bwp_Dedicated->pdsch_Config->choice.setup->dmrs_DownlinkForPDSCH_MappingTypeA = calloc(1,sizeof(*bwp->bwp_Dedicated->pdsch_Config->choice.setup->dmrs_DownlinkForPDSCH_MappingTypeA));
     bwp->bwp_Dedicated->pdsch_Config->choice.setup->dmrs_DownlinkForPDSCH_MappingTypeA->present= NR_SetupRelease_DMRS_DownlinkConfig_PR_setup;
     bwp->bwp_Dedicated->pdsch_Config->choice.setup->dmrs_DownlinkForPDSCH_MappingTypeA->choice.setup = calloc(1,sizeof(*bwp->bwp_Dedicated->pdsch_Config->choice.setup->dmrs_DownlinkForPDSCH_MappingTypeA->choice.setup));
@@ -1702,6 +1714,8 @@ void update_dmrs_config(NR_BWP_Downlink_t *bwp, int8_t* dmrs_arg)
   }
 
   if(mapping_type == typeB) {
+    asn1cFreeStruc(asn_DEF_NR_SetupRelease_DMRS_DownlinkConfig,
+                   bwp->bwp_Dedicated->pdsch_Config->choice.setup->dmrs_DownlinkForPDSCH_MappingTypeB);
     bwp->bwp_Dedicated->pdsch_Config->choice.setup->dmrs_DownlinkForPDSCH_MappingTypeB = calloc(1,sizeof(*bwp->bwp_Dedicated->pdsch_Config->choice.setup->dmrs_DownlinkForPDSCH_MappingTypeB));
     bwp->bwp_Dedicated->pdsch_Config->choice.setup->dmrs_DownlinkForPDSCH_MappingTypeB->present= NR_SetupRelease_DMRS_DownlinkConfig_PR_setup;
     bwp->bwp_Dedicated->pdsch_Config->choice.setup->dmrs_DownlinkForPDSCH_MappingTypeB->choice.setup = calloc(1,sizeof(*bwp->bwp_Dedicated->pdsch_Config->choice.setup->dmrs_DownlinkForPDSCH_MappingTypeB->choice.setup));

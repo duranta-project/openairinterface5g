@@ -26,6 +26,7 @@
 #include "common/ran_context.h"
 #include "time_meas.h"
 #include "SCHED_NR/phy_frame_config_nr.h"
+#include "nfapi/open-nFAPI/fapi/inc/nr_fapi_p5_utils.h"
 
 PHY_VARS_gNB *gNB;
 PHY_VARS_NR_UE *UE;
@@ -648,8 +649,11 @@ int main(int argc, char *argv[])
   free(rxdata);
 
   phy_free_nr_gNB(gNB);
+  free_config_request(&gNB->gNB_config);
   free_channel_desc_scm(UE2gNB);
   free(gNB->RU_list[0]);
+  free(gNB);
+  gNB = NULL;
   free(UE);
 
   return ret;

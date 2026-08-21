@@ -589,6 +589,8 @@ int main(int argc, char **argv)
     printf("\n");
   }
 
+  abortTpool(&nrUE_params.Tpool);
+
   free_nr_ue_ul_harq(UE->ul_harq_processes, NR_MAX_HARQ_PROCESSES, UE->frame_parms.N_RB_UL, UE->frame_parms.nb_antennas_tx);
 
   int nb_slots_to_set = (1 << mu) * NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
@@ -617,4 +619,3 @@ int main(int argc, char **argv)
 
   return (n_errors);
 }
-

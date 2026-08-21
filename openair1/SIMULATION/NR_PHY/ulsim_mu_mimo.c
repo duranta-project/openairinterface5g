@@ -60,6 +60,7 @@
 #include "fapi_nr_ue_interface.h"
 #include "nfapi_interface.h"
 #include "nfapi_nr_interface_scf.h"
+#include "nfapi/open-nFAPI/fapi/inc/nr_fapi_p5_utils.h"
 #include "nr_ue_phy_meas.h"
 #include "openair1/SIMULATION/NR_PHY/nr_unitary_defs.h"
 #include "openair1/SIMULATION/TOOLS/sim.h"
@@ -642,6 +643,7 @@ int main(int argc, char *argv[])
   int uid = 0;
   int ssb_index = 0;
   NR_CellGroupConfig_t *secondaryCellGroup = get_default_secondaryCellGroup(scc, UE_Capability_nr, 0, 1, &conf, uid, ssb_index);
+  ASN_STRUCT_FREE(asn_DEF_NR_UE_NR_Capability, UE_Capability_nr);
   secondaryCellGroup->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(rnti, uid, scc, frame);
 
   NR_BCCH_BCH_Message_t *mib = get_new_MIB_NR(scc);
@@ -728,6 +730,7 @@ int main(int argc, char *argv[])
     }
 
     init_nr_ue_transport(UE[u]);
+    init_nr_ue_phy_cpu_stats(&UE[u]->phy_cpu_stats);
 
     UE_mac[u] = nr_l2_init_ue(u, mu);
     ue_init_config_request(UE_mac[u], get_slots_per_frame_from_scs(mu));
@@ -887,7 +890,7 @@ int main(int argc, char *argv[])
     reset_meas(&gNB->ulsch_channel_estimation_stats);
     reset_meas(&gNB->pusch_channel_estimation_antenna_processing_stats);
     for (int u = 0; u < NUM_UE; u++)
-      init_nr_ue_phy_cpu_stats(&UE[u]->phy_cpu_stats);
+      reset_nr_ue_phy_cpu_stats(&UE[u]->phy_cpu_stats);
 
     uint32_t errors_scrambling[MAX_NUM_UE][16] = {0};
     int n_errors[MAX_NUM_UE][16] = {0};
@@ -1487,9 +1490,11 @@ int main(int argc, char *argv[])
       length_dmrs,
       num_dmrs_cdm_grps_no_data);
 
-  free_MIB_NR(mib);
+  abortTpool(&nrUE_params.Tpool);
+  abortTpool(&gNB->threadPool);
 
-  free_nrLDPC_coding_interface(&gNB->nrLDPC_coding_interface);
+  free_MIB_NR(mib);
+  free(Sched_INFO);
 
   for (int u = 0; u < NUM_UE; u++) {
     free_and_zero(UE[u]->phy_sim_test_buf);
@@ -1516,8 +1521,16 @@ int main(int argc, char *argv[])
 
   for (int i = 0; i < n_rx; ++i) {
     free_and_zero(rxdata[i]);
+    free_and_zero(gNB->common_vars.rxdataF[i]);
   }
   free_and_zero(rxdata);
+
+  for (int u = 0; u < NUM_UE; u++) {
+    term_nr_ue_transport(UE[u]);
+    free_nr_ue_phy_cpu_stats(&UE[u]->phy_cpu_stats);
+  }
+  for (int u = 0; u < NUM_UE; u++)
+    term_nr_ue_signal(UE[u]);
 
   for (int u = 0; u < NUM_UE; u++) {
     free_and_zero(UE[u]);
@@ -1525,6 +1538,13 @@ int main(int argc, char *argv[])
   }
   free_and_zero(nrPHY_vars_UE_g);
   free_and_zero(h_tx_sig_pinned);
+
+  phy_free_nr_gNB(gNB);
+  free_config_request(&gNB->gNB_config);
+  free_and_zero(gNB->RU_list[0]);
+  free_and_zero(RC.gNB[0]);
+  free_and_zero(RC.gNB);
+  gNB = NULL;
 
   return ret;
 }
