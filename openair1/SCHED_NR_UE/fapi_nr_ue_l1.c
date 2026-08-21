@@ -108,7 +108,7 @@ static void configure_ta_command(PHY_VARS_NR_UE *ue, fapi_nr_ta_command_pdu *ta_
   if (ta_command_pdu->is_rar) {
     ue->ta_slot = ta_command_pdu->ta_slot;
     ue->ta_frame = ta_command_pdu->ta_frame;
-    ue->ta_command = ta_command_pdu->ta_command + 31; // To use TA adjustment algo in ue_ta_procedures()
+    ue->ta_command = ta_command_pdu->ta_command;
   } else {
     ue->ta_slot = (ta_command_pdu->ta_slot + ul_tx_timing_adjustment) % slots_per_frame;
     if (ta_command_pdu->ta_slot + ul_tx_timing_adjustment > slots_per_frame)
@@ -117,10 +117,18 @@ static void configure_ta_command(PHY_VARS_NR_UE *ue, fapi_nr_ta_command_pdu *ta_
       ue->ta_frame = ta_command_pdu->ta_frame;
     ue->ta_command = ta_command_pdu->ta_command;
   }
+  ue->ta_command_is_rar = ta_command_pdu->is_rar;
 
   LOG_D(PHY,
-        "TA command received in %d.%d Starting UL time alignment procedures. TA update will be applied at frame %d slot %d\n",
-        ta_command_pdu->ta_frame, ta_command_pdu->ta_slot, ue->ta_frame, ue->ta_slot);
+        "[UE %d] TA command received in %d.%d: %s command %d, apply in %d.%d (application-delay %d slots)\n",
+        ue->Mod_id,
+        ta_command_pdu->ta_frame,
+        ta_command_pdu->ta_slot,
+        ta_command_pdu->is_rar ? "RAR" : "relative MAC CE",
+        ue->ta_command,
+        ue->ta_frame,
+        ue->ta_slot,
+        ta_command_pdu->is_rar ? 0 : ul_tx_timing_adjustment);
 }
 
 static void nr_ue_scheduled_response_dl(NR_UE_MAC_INST_t *mac,
