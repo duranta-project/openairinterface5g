@@ -28,16 +28,16 @@ The MCS selection is done in `nr_dl_mcs_select_default()` / `nr_ul_mcs_select_de
 [`gNB_scheduler_dlsch_default_policies.c`](../../openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_dlsch_default_policies.c)
 and
 [`gNB_scheduler_ulsch_default_policies.c`](../../openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_ulsch_default_policies.c).
-The BLER estimation itself is computed separately in `update_bler_stats()` in
-[`gNB_scheduler_primitives.c`](../../openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_primitives.c),
-and the MCS policy reads the result. It considers two thresholds for a "BLER" that is computed from the number of
-first-round retransmissions over total transmissions in the last window (50ms).
-If that ratio is higher than an "upper" threshold (see
-`dl/ul_bler_target_upper` in the configuration section below), it is
-interpreted as "bad channel" and MCS is decremented by 1.  If the ratio is
-lower than a "lower" threshold (see `dl/ul_bler_target_lower`), it is
-interpreted as "good channel" and MCS is incremented by 1. This happens each
-window.
+The current policies infer the MCS to be used from an SNR via
+`get_mcs_from_SINRx10()`, where SNR is estimated based on a measured SNR and a
+SNR offset (`delta_olla`) based on HARQ and computed through the outer-loop
+link adaptation (OLLA) algorithm. OLLA considers a target block error rate for
+HARQ retransmissions. For a ACK (NACK), the SNR offset is increased (reduced)
+where the increase/decrease ratio is governed by the target BLER. Simply put,
+the measured SNR might not truly reflect achievable MCS, such that many ACKs
+(NACKs) will increase (decrease) the SNR offset such that the MCS from SNR+SNR
+offset increases (decreases). More information might be for instance found in
+this paper: https://arxiv.org/abs/2510.05784.
 
 The actual scheduler implementation can be found in functions `nr_dl_proportional_fair()` and
 `nr_ul_proportional_fair()` in files
@@ -259,14 +259,11 @@ In the `MACRLCs` section of the gNB/DU configuration file:
 * `pusch_FailureThres` (default 10): number of DTX on PUSCH after which
   scheduler declares UE in radio link failure and moves it to "out-of-sync
   state"
-* `dl_bler_target_upper` (default 0.15): upper threshold of BLER (first round
-  retransmission over initial transmission) to decrease MCS by 1
-* `dl_bler_target_lower` (default 0.05): lower threshold of BLER (first round
-  retransmission over initial transmission) to increase MCS by 1
+* `dl_bler_target` (default 0.01): target for BLER (number of retransmissions
+  over all [initial, retx] transmisions) to steer MCS selection
 * `dl_min_mcs` (default 0): minimum MCS to use for any UE
 * `dl_max_mcs` (default 28): maximum MCS to use for any UE
-* `ul_bler_target_upper` (default 0.15): as `dl_bler_target_upper`
-* `ul_bler_target_lower` (default 0.05): as `dl_bler_target_lower`
+* `ul_bler_target` (default 0.01): as `dl_bler_target`
 * `ul_min_mcs` (default 0): as `dl_min_mcs`
 * `ul_max_mcs` (default 28): as `dl_max_mcs`
 * `dl_harq_round_max` (default 4): maximum number of HARQ rounds, i.e.,

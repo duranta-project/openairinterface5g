@@ -218,20 +218,33 @@ uint16_t get_pm_index(const gNB_MAC_INST *nrmac,
 }
 
 // look-up table for AMC. Based on BLER vs SNR curves from the nr_dlsim simulation
-// command line: nr_dlsim -n 10000 -m 0 -R 25 -b 25 -e MCS -s START_SNR -t 99.99
+// command line: nr_dlsim -n 10000 -m 0 -R 25 -b 25 -e MCS -s START_SNR -t 99.999
 // SNR Thresholds for MCS=[0,...,28]; START_SNR=chosen values with a resolution of 0.2dB to maintain a BLER of 10^-3
-static const int SINRx10_MCS_mapping[29] = {
-  -10,  -4,   6,  16,  24,  34,  42,  50,  56,  62, //  0..9
-   86,  92,  98, 104, 112, 118, 124, 140, 146, 154, // 10..19
-  162, 170, 178, 186, 194, 202, 212, 220, 245       // 20..28
+static const int SINRx10_MCS_mapping[4][29] = {
+  [0] = {
+    -12,  -6,   6,  18,  22,  34,  44,  48,  54,  62, //  0..9
+     90,  94,  98, 102, 110, 118, 126, 142, 146, 154, // 10..19
+    162, 170, 176, 184, 194, 200, 212, 218, 244,      // 20..28
+  },
+  [1] = {
+    -12,   6,  24,  42,  54,  92,  98, 102, 112, 122, //  0..9
+    126, 146, 156, 160, 166, 178, 184, 194, 200, 212, // 10..19
+    230, 238, 246, 254, 264, 274, 282, 298            // 20..27
+  },
+  // [2] not implemented
+  [3] = {
+    -12,  -6,   6,  12,  22,  32,  42,  50,  54,  60, //  0..9
+     88,  92,  98, 102, 114, 120, 124, 142, 152, 166, // 10..19
+    166, 176, 186, 198, 200, 212, 220, 228, 230,      // 20..28
+  },
 };
 
 int get_mcs_from_SINRx10(int mcs_table, int SINRx10, int Nl)
 {
-  if (mcs_table != 0) {
-    LOG_E(MAC, "mcs_table = %d, but get_mcs_from_SINRx10() only supports MCS table 0 (TS 38.214 - Table 5.1.3.1-1)\n", mcs_table);
-    return 28;
-  }
+  AssertFatal(mcs_table == 0 || mcs_table == 1 || mcs_table == 3,
+              "mcs_table = %d, but %s() only supports MCS tables 0&1&3 (TS 38.214 - Table 5.1.3.1-X)\n",
+              mcs_table,
+              __func__);
 
   int MIMO_SNRx10 = 0;
   if (Nl == 2)
@@ -239,14 +252,31 @@ int get_mcs_from_SINRx10(int mcs_table, int SINRx10, int Nl)
   else if (Nl == 4)
     MIMO_SNRx10 = 70;
 
-  for (int i = 28; i >= 0; i--) {
-    if (SINRx10 >= SINRx10_MCS_mapping[i] + MIMO_SNRx10)
+  int max = mcs_table == 1 ? 27 : 28;
+  for (int i = max; i >= 0; i--) {
+    if (SINRx10 >= SINRx10_MCS_mapping[mcs_table][i] + MIMO_SNRx10)
       return i;
   }
 
-  LOG_W(MAC, "SINR (%d.%d dB) too low, no MCS possible to achieve BLER of 10^-3\n", SINRx10 / 10, SINRx10 % 10);
+  LOG_D(MAC, "SINR (%d.%d dB) too low, no MCS possible to achieve BLER of 10^-3\n", SINRx10 / 10, SINRx10 % 10);
 
   return 0;
+}
+
+int get_snrx10_from_mcs(int mcs_table, int mcs, int Nl)
+{
+  AssertFatal(mcs_table == 0 || mcs_table == 1 || mcs_table == 3,
+              "mcs_table = %d, but %s() only supports MCS tables 0&1&3 (TS 38.214 - Table 5.1.3.1-X)\n",
+              mcs_table,
+              __func__);
+
+  int snrx10 = SINRx10_MCS_mapping[mcs_table][mcs];
+  // if MCS X is used at Y layers, the SNR must be correspondingly better
+  if (Nl == 2)
+    snrx10 += 40;
+  else if (Nl == 4)
+    snrx10 += 70;
+  return snrx10;
 }
 
 uint8_t get_mcs_from_cqi(int mcs_table, int cqi_table, int cqi_idx)
@@ -867,46 +897,46 @@ NR_pusch_dmrs_t get_ul_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
   return dmrs;
 }
 
-#define BLER_UPDATE_FRAME 10
-#define BLER_FILTER 0.9f
-int nr_adapt_mcs_from_bler(int current_mcs, int min_mcs, int max_mcs, float bler, float bler_lower, float bler_upper, int num_sched)
+olla_stats_t olla_init(int est_snrx10, frame_t frame)
 {
-  int mcs = current_mcs;
-  if (bler < bler_lower && mcs < max_mcs && num_sched > 3)
-    mcs++;
-  else if (bler > bler_upper || num_sched <= 3) // above threshold or no activity
-    mcs--;
-  return max(min_mcs, min(mcs, max_mcs));
+  return (olla_stats_t) { .snrx10_equiv = est_snrx10, .last_frame = frame, };
 }
 
-bool update_bler_stats(const NR_bler_options_t *bler_options,
-                       const NR_mac_dir_stats_t *stats,
-                       NR_bler_stats_t *bler_stats,
-                       frame_t frame)
+void olla_update(int *est_snrx10, olla_stats_t *s, frame_t frame)
 {
-  int diff = frame - bler_stats->last_frame;
-  if (diff < 0) // wrap around
-    diff += 1024;
+  bool new_cqi = est_snrx10 != NULL;
+  if (new_cqi) {
+    s->snrx10_equiv = *est_snrx10;
+  }
+  // reset BLER stats every 5s, so that BLER would reflect current channel changes
+  // also, in case of no CQI, this will set the SNR base
+  bool stale_delta = ((frame - s->last_frame + 1024) % 1024) > 499 && (s->acks + s->nacks > 100);
+  if (stale_delta) {
+    // reset stats every 5s, so that we periodically reset BLER (e.g., channel
+    // changes) or if we don't get CQI. If we do get CQI, this merely resets
+    // delta_olla to 0 (incorporates into snrx10_equiv), but the MCS remains
+    int snrx10 = s->snrx10_equiv + s->delta_olla * 10.f;
+    *s = olla_init(snrx10, frame);
+  }
+}
 
-  if (diff < BLER_UPDATE_FRAME)
-    return false;
+float olla_get_current_bler(const olla_stats_t *s)
+{
+  return s->acks > 0 ? (float) s->nacks / (s->nacks + s->acks) : 1.0f;
+}
 
-  const int num_dl_sched = (int)(stats->rounds[0] - bler_stats->rounds[0]);
-  const int num_dl_retx = (int)(stats->rounds[1] - bler_stats->rounds[1]);
-  const float bler_window = num_dl_sched > 0 ? (float)num_dl_retx / num_dl_sched : bler_stats->bler;
-  bler_stats->bler = BLER_FILTER * bler_stats->bler + (1 - BLER_FILTER) * bler_window;
+void olla_ack(const NR_bler_options_t *o, olla_stats_t *s)
+{
+  s->acks++;
+  s->delta_olla += o->step_size * (o->target_bler / (1.0f - o->target_bler));
+  s->delta_olla = min(8.f, s->delta_olla);
+}
 
-  bler_stats->last_frame = frame;
-  bler_stats->last_num_sched = num_dl_sched;
-  memcpy(bler_stats->rounds, stats->rounds, sizeof(stats->rounds));
-  LOG_D(MAC,
-        "frame %4d BLER update (num_sched %d, num_retx %d, BLER wnd %.3f avg %.6f)\n",
-        frame,
-        num_dl_sched,
-        num_dl_retx,
-        bler_window,
-        bler_stats->bler);
-  return true;
+void olla_nack(const NR_bler_options_t *o, olla_stats_t *s)
+{
+  s->nacks++;
+  s->delta_olla -= o->step_size;
+  s->delta_olla = max(-8.f, s->delta_olla);
 }
 
 nfapi_nr_dl_dci_pdu_t *prepare_dci_pdu(nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu,
@@ -3144,13 +3174,6 @@ void reset_srs_stats(NR_UE_info_t *UE) {
   }
 }
 
-static void init_bler_stats(const NR_bler_options_t *bler_options, NR_bler_stats_t *bler_stats, frame_t frame)
-{
-  bler_stats->last_frame = frame;
-  bler_stats->mcs = bler_options->min_mcs;
-  bler_stats->bler = (float)(bler_options->lower + bler_options->upper) / 2.0f;
-}
-
 /* @brief returns a new UE allocated instance.
  *
  * It will be typically added to the access_ue_list, but not always (e.g.,
@@ -3246,17 +3269,12 @@ bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   }
 
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
-  sched_ctrl->dl_max_mcs = 28; /* do not limit MCS for individual UEs */
   sched_ctrl->pdcch_cl_adjust = 0;
   if (nr_mac->radio_config.do_SRS == APERIODIC_SRS) {
     nr_timer_setup(&sched_ctrl->aperiodic_srs_trigger, 160, 1); // for now aperiodic hardcoded every 160 slots
     nr_timer_start(&sched_ctrl->aperiodic_srs_trigger);
   }
   reset_srs_stats(UE);
-
-  // Initialize bler_stats
-  init_bler_stats(&nr_mac->dl_bler, &sched_ctrl->dl_bler_stats, nr_mac->frame);
-  init_bler_stats(&nr_mac->ul_bler, &sched_ctrl->ul_bler_stats, nr_mac->frame);
 
   dump_nr_list(UE_info->connected_ue_list);
   return true;

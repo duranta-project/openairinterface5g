@@ -401,6 +401,7 @@ uint16_t get_pm_index(const gNB_MAC_INST *nrmac,
                       int xp_pdsch_antenna_ports);
 
 int get_mcs_from_SINRx10(int mcs_table, int SINRx10, int Nl);
+int get_snrx10_from_mcs(int mcs_table, int mcs, int Nl);
 uint8_t get_mcs_from_cqi(int mcs_table, int cqi_table, int cqi_idx);
 
 uint8_t get_dl_nrOfLayers(const NR_UE_sched_ctrl_t *sched_ctrl, const nr_dci_format_t dci_format);
@@ -465,20 +466,11 @@ bool get_rb_alloc(int rbSize_min,
                   int *rbStart_ptr,
                   int *rbSize_ptr);
 
-/* Scalar core of the BLER -> MCS adaptation rule. Single source of truth
- * for the activity-guard threshold and the lower/upper hysteresis. */
-int nr_adapt_mcs_from_bler(int current_mcs,
-                           int min_mcs,
-                           int max_mcs,
-                           float bler,
-                           float bler_lower,
-                           float bler_upper,
-                           int num_sched);
-
-bool update_bler_stats(const NR_bler_options_t *bler_options,
-                       const NR_mac_dir_stats_t *stats,
-                       NR_bler_stats_t *bler_stats,
-                       frame_t frame);
+olla_stats_t olla_init(int est_snrx10, frame_t frame);
+void olla_update(int *est_snrx10, olla_stats_t *bler_stats, frame_t frame);
+float olla_get_current_bler(const olla_stats_t *s);
+void olla_ack(const NR_bler_options_t *o, olla_stats_t *s);
+void olla_nack(const NR_bler_options_t *o, olla_stats_t *s);
 
 float dl_pf_weight(int mcs, int mcs_table, int nrOfLayers, float avg_throughput);
 uint16_t check_dl_retx_feasibility(const nr_dl_candidate_t *cand,

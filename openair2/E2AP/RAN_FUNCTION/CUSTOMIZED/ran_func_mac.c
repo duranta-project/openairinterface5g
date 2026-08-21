@@ -3,6 +3,7 @@
  */
 
 #include "ran_func_mac.h"
+#include "openair2/LAYER2/NR_MAC_gNB/mac_proto.h"
 #include <assert.h>
 
 static
@@ -70,10 +71,10 @@ bool read_mac_sm(void* data)
     rd->pucch_snr = sched_ctrl->pucch_pc.avg_snr; //: float = -64;
 
     rd->wb_cqi = sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.wb_cqi_1tb;
-    rd->dl_mcs1 = sched_ctrl->dl_bler_stats.mcs;
-    rd->dl_bler = sched_ctrl->dl_bler_stats.bler;
-    rd->ul_mcs1 = sched_ctrl->ul_bler_stats.mcs;
-    rd->ul_bler = sched_ctrl->ul_bler_stats.bler;
+    rd->dl_mcs1 = UE->mac_stats.dl.mcs;
+    rd->dl_bler = olla_get_current_bler(&sched_ctrl->dl_olla_stats);
+    rd->ul_mcs1 = UE->mac_stats.ul.mcs;
+    rd->ul_bler = olla_get_current_bler(&sched_ctrl->ul_olla_stats);
     rd->dl_mcs2 = 0;
     rd->ul_mcs2 = 0;
     rd->phr = sched_ctrl->ph;

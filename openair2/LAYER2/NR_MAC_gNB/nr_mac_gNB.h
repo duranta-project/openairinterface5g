@@ -555,13 +555,13 @@ typedef struct NR_UE_harq {
 
 //! fixme : need to enhace for the multiple TB CQI report
 
-typedef struct NR_bler_stats {
+typedef struct olla_stats {
   frame_t last_frame;
-  float bler;
-  uint8_t mcs;
-  uint64_t rounds[8];
-  int last_num_sched; // scheduling count at last BLER update (for activity guard)
-} NR_bler_stats_t;
+  int snrx10_equiv;
+  float delta_olla;
+  int acks;
+  int nacks;
+} olla_stats_t;
 
 //
 /*! As per spec 38.214 section 5.2.1.4.2
@@ -675,9 +675,6 @@ typedef struct {
   /// PHR info: nominal UE transmit power levels (dBm)
   int pcmax;
 
-  /// UE-estimated maximum MCS (from CSI-RS)
-  uint8_t dl_max_mcs;
-
   /// For UL synchronization: store last UL scheduling grant
   frame_t last_ul_frame;
   slot_t last_ul_slot;
@@ -688,8 +685,8 @@ typedef struct {
   mac_rlc_status_resp_t rlc_status[NR_MAX_NUM_LCID];
 
   /// Estimation of HARQ from BLER
-  NR_bler_stats_t dl_bler_stats;
-  NR_bler_stats_t ul_bler_stats;
+  olla_stats_t dl_olla_stats;
+  olla_stats_t ul_olla_stats;
 
   uint16_t ta_frame;
   int16_t ta_update;
@@ -731,6 +728,9 @@ typedef struct {
   nr_srs_feedback_t srs_feedback;
   NR_timer_t aperiodic_srs_trigger;
 
+  int est_snrx10;
+  bool new_est_snrx10;
+
   /// per-LC configuration
   seq_arr_t lc_config;
 
@@ -755,6 +755,7 @@ typedef struct NR_mac_dir_stats {
   uint32_t current_rbs;
   uint64_t prev_sdu_bytes;
   frame_t last_goodput_frame;
+  uint8_t mcs;
 } NR_mac_dir_stats_t;
 
 typedef struct NR_mac_stats {
@@ -773,11 +774,13 @@ typedef struct NR_mac_stats {
 } NR_mac_stats_t;
 
 typedef struct NR_bler_options {
-  double upper;
-  double lower;
   uint8_t min_mcs;
   uint8_t max_mcs;
   uint8_t harq_round_max;
+
+  /* TODO OLLA */
+  float target_bler;
+  float step_size;
 } NR_bler_options_t;
 
 typedef struct nr_mac_rrc_ul_if_s {
@@ -947,11 +950,11 @@ struct nr_dl_candidate {
   uint32_t pending_bytes; ///< total bytes waiting in RLC buffers
   uint32_t pending_bytes_per_lcid[NR_MAX_NUM_LCID]; ///< per-LCID bytes waiting in RLC buffers
   float avg_throughput; ///< EWMA goodput in bps (dl_thr_ue)
+  float delta_olla;
+  int snrx10;
   float bler; ///< current BLER estimate
   int current_mcs; ///< current MCS state (retx: from HARQ, new tx: from BLER tracker)
   int max_mcs; ///< max allowed MCS (config + UE capability)
-  int last_num_sched; ///< scheduled occasions in last BLER window
-  bool bler_updated; ///< true if BLER was refreshed this frame
   int mcs_table; ///< MCS table index (from BWP config)
   int bwp_start; ///< UE's BWP start
   int bwp_size; ///< UE's BWP size
@@ -999,7 +1002,7 @@ typedef void (*nr_dl_ri_pmi_select_fn)(const gNB_MAC_INST *mac, nr_dl_candidate_
 /// MCS adaptation: sets sched_pdsch.mcs from BLER state for every candidate.
 /// Called for all candidates (including those that won't get scheduled) so
 /// BLER-based MCS ramps even for UEs that fail CCE. Also persists the
-/// decision to dl_bler_stats.mcs for continuity across slots.
+/// decision to dl_olla_stats.mcs for continuity across slots.
 typedef void (*nr_dl_mcs_select_fn)(const gNB_MAC_INST *mac, nr_dl_candidate_t *candidates, int n_candidates);
 
 /// Beam allocation: assigns beam structure index to each candidate.
@@ -1067,11 +1070,11 @@ struct nr_ul_candidate {
   int sched_srs;
   uint32_t pending_bytes;
   float avg_throughput;
+  float delta_olla;
+  int snrx10;
   float bler;
   int current_mcs;
   int max_mcs;
-  int last_num_sched; ///< scheduling count at last BLER update (activity guard)
-  bool bler_updated; ///< true if BLER was refreshed this frame
   int mcs_table;
   int bwp_start;
   int bwp_size;
@@ -1083,7 +1086,6 @@ struct nr_ul_candidate {
   /* ── Power control (set by collect, read-only after) ─────────────────────── */
   int ph; ///< power headroom
   int pcmax; ///< configured max TX power
-  int snrx10; ///< PUSCH SINR × 10 (for SINR-based MCS in harq_round_max==1)
 
   bool skipped; ///< true if dropped by TDA/beam select (skip in downstream stages)
   bool scheduled; ///< true if accepted by the RB-allocation policy
@@ -1146,7 +1148,7 @@ typedef int (
 
 /// MCS selection: sets sched_pusch.mcs from BLER/SINR state for every candidate.
 /// Runs after beam_select so sched_pusch.nrOfLayers (for SINR lookup) and beam info are available.
-/// Also persists the decision to ul_bler_stats.mcs for continuity across slots.
+/// Also persists the decision to ul_olla_stats.mcs for continuity across slots.
 typedef void (*nr_ul_mcs_select_fn)(const gNB_MAC_INST *mac, nr_ul_candidate_t *candidates, int n_candidates);
 
 /// UL scheduling policy: beam loop is inside the policy for cross-beam scheduling.

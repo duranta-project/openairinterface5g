@@ -163,19 +163,20 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
     float pucch_snr = nr_mac_get_snr(&sched_ctrl->pucch_pc);
     float pucch_snr_diff = (pucch_snr * 10.0f - sched_ctrl->pucch_pc.target_snrx10) / 10.0f;
     float pucch_rssi = nr_mac_get_rssi(&sched_ctrl->pucch_pc);
+    float bler = olla_get_current_bler(&sched_ctrl->dl_olla_stats);
     output = st_append(output,
                        end,
                        ", dlsch_errors %" PRIu64
-                       ", pucch0_DTX %d (SNR %.1f%+.1f) RSSI %.1f, BLER %.5f MCS (%d) %d (Qm %d) CCE fail %d\n",
+                       ", pucch0_DTX %d (SNR %.1f%+.1f) RSSI %.1f, BLER %.3f MCS (%d) %d (Qm %d) CCE fail %d\n",
                        stats->dl.errors,
                        stats->pucch0_DTX,
                        pucch_snr,
                        pucch_snr_diff,
                        pucch_rssi,
-                       sched_ctrl->dl_bler_stats.bler,
+                       bler,
                        UE->current_DL_BWP.mcsTableIdx,
-                       sched_ctrl->dl_bler_stats.mcs,
-                       nr_get_Qm_dl(sched_ctrl->dl_bler_stats.mcs, UE->current_DL_BWP.mcsTableIdx),
+                       stats->dl.mcs,
+                       nr_get_Qm_dl(stats->dl.mcs, UE->current_DL_BWP.mcsTableIdx),
                        sched_ctrl->dl_cce_fail);
     if (reset_rsrp) {
       stats->num_rsrp_meas = 0;
@@ -193,19 +194,20 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
     float snr = nr_mac_get_snr(&sched_ctrl->pusch_pc);
     float rssi = nr_mac_get_rssi(&sched_ctrl->pusch_pc);
     float diff_target = (snr * 10.0f - sched_ctrl->pusch_pc.target_snrx10) / 10.0f;
+    bler = olla_get_current_bler(&sched_ctrl->ul_olla_stats);
     output = st_append(
         output,
         end,
         ", ulsch_errors %" PRIu64
-        ", ulsch_DTX %d, BLER %.5f MCS (%d) %d (Qm %d deltaMCS %d) NPRB %d SNR %.1f (%+.1f) RSSI %.1f CCE fail %d\n",
+        ", ulsch_DTX %d, BLER %.3f MCS (%d) %d (Qm %d deltaMCS %d) NPRB %d SNR %.1f (%+.1f) RSSI %.1f CCE fail %d\n",
         stats->ul.errors,
         stats->ulsch_DTX,
-        sched_ctrl->ul_bler_stats.bler,
+        bler,
         UE->current_UL_BWP.mcs_table,
-        sched_ctrl->ul_bler_stats.mcs,
-        nr_get_Qm_ul(sched_ctrl->ul_bler_stats.mcs, UE->current_UL_BWP.mcs_table),
-        UE->mac_stats.deltaMCS,
-        UE->mac_stats.NPRB,
+        stats->ul.mcs,
+        nr_get_Qm_ul(stats->ul.mcs, UE->current_UL_BWP.mcs_table),
+        stats->deltaMCS,
+        stats->NPRB,
         snr,
         diff_target,
         rssi,

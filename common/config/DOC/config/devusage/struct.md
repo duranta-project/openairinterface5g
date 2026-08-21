@@ -79,6 +79,12 @@ The configuration module provides an implementation of the functions to be used 
 | `f2` | pointer to the checking function. Initialize to `config_check_intrange` to use the config module implementation |
 | `okintrange` | array of 2 integers containing the min and max values for the parameter |
 
+## `s2a` structure
+| field    | Description                                                     |
+|:-----------|:------------------------------------------------------------------|
+| `f2a` | pointer to the checking function. Initialize to `config_check_dblrange` to use the config module implementation |
+| `okdblrange` | array of 2 doubles containing the min and max values for the parameter |
+
 ## `s3` structure
 | field    | Description                                                     |
 |:-----------|:------------------------------------------------------------------|

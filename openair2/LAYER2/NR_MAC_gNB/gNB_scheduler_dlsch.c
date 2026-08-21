@@ -470,7 +470,7 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
     const NR_bler_options_t *bo = &mac->dl_bler;
     bwp_info_t bwp_info = get_pdsch_bwp_start_size(mac, UE);
     const int max_mcs_table = current_BWP->mcsTableIdx == 1 ? 27 : 28;
-    const int max_mcs = min(sched_ctrl->dl_max_mcs, min(max_mcs_table, bo->max_mcs));
+    const int max_mcs = min(max_mcs_table, bo->max_mcs);
 
     /* QoS / slice info — extract from first DRB for external policies */
     uint64_t fiveQI = 0;
@@ -506,7 +506,9 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
           .retx_harq_pid = harq_pid,
           .retx_rbSize = harq->sched_pdsch.rbSize,
           .avg_throughput = UE->dl_thr_ue,
-          .bler = sched_ctrl->dl_bler_stats.bler,
+          .bler = olla_get_current_bler(&sched_ctrl->dl_olla_stats), // TODO necessary?
+          .delta_olla = sched_ctrl->dl_olla_stats.delta_olla,
+          .snrx10 = sched_ctrl->dl_olla_stats.snrx10_equiv,
           .current_mcs = harq->sched_pdsch.mcs,
           .max_mcs = max_mcs,
           .mcs_table = current_BWP->mcsTableIdx,
@@ -538,7 +540,9 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
         continue;
 
       /* Update BLER stats; MCS adaptation is done by dl_mcs_select for all candidates. */
-      bool bler_updated = update_bler_stats(bo, stats, &sched_ctrl->dl_bler_stats, frame);
+      int *est_snrx10 = sched_ctrl->new_est_snrx10 ? &sched_ctrl->est_snrx10 : NULL;
+      olla_update(est_snrx10, &sched_ctrl->dl_olla_stats, frame);
+      sched_ctrl->new_est_snrx10 = false;
 
       candidates[n++] = (nr_dl_candidate_t){
           /* identity / scheduling state */
@@ -548,11 +552,11 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
           .retx_harq_pid = -1,
           .pending_bytes = sched_ctrl->num_total_bytes,
           .avg_throughput = UE->dl_thr_ue,
-          .bler = sched_ctrl->dl_bler_stats.bler,
-          .current_mcs = min(sched_ctrl->dl_bler_stats.mcs, max_mcs),
+          .bler = olla_get_current_bler(&sched_ctrl->dl_olla_stats), // TODO necessary?
+          .delta_olla = sched_ctrl->dl_olla_stats.delta_olla,
+          .snrx10 = sched_ctrl->dl_olla_stats.snrx10_equiv,
+          .current_mcs = UE->mac_stats.dl.mcs,
           .max_mcs = max_mcs,
-          .last_num_sched = sched_ctrl->dl_bler_stats.last_num_sched,
-          .bler_updated = bler_updated,
           .mcs_table = current_BWP->mcsTableIdx,
           .bwp_start = bwp_info.bwpStart,
           .bwp_size = bwp_info.bwpSize,
@@ -760,8 +764,6 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
       .num_beams = num_beams,
       .max_num_ue = max_num_ue,
       .min_mcs = mac->dl_bler.min_mcs,
-      .bler_lower = mac->dl_bler.lower,
-      .bler_upper = mac->dl_bler.upper,
   };
   for (int b = 0; b < num_beams; b++) {
     params.vrb_map[b] = mac->common_channels[CC_id].vrb_map[b];
@@ -830,6 +832,8 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
     } else {
       /* New transmission: compute TBS-related fields */
       int l = sched_pdsch.nrOfLayers;
+      /* override selected MCS to enforce global policy for min/max MCS */
+      sched_pdsch.mcs = max(mac->dl_bler.min_mcs, min(mac->dl_bler.max_mcs, sched_pdsch.mcs));
       int mcs = sched_pdsch.mcs;
       uint8_t Qm = nr_get_Qm_dl(mcs, dl_bwp->mcsTableIdx);
       uint16_t R = nr_get_code_rate_dl(mcs, dl_bwp->mcsTableIdx);
@@ -1238,6 +1242,7 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac,
   NR_pdsch_dmrs_t *dmrs_parms = &sched_pdsch->dmrs_parms;
   NR_sched_pucch_t *pucch = sched_pdsch->pucch_allocation >= 0 ? &sched_ctrl->sched_pucch[sched_pdsch->pucch_allocation] : NULL;
   UE->mac_stats.dl.rounds[harq->round]++;
+  UE->mac_stats.dl.mcs = sched_pdsch->mcs;
   int tpc = nr_mac_get_tpc(&sched_ctrl->pucch_pc);
   LOG_D(NR_MAC,
         "%4d.%2d [DLSCH/PDSCH/PUCCH] RNTI %04x DCI L %d start %3d RBs %3d startSymbol %2d nb_symbol %2d dmrspos %x MCS %2d "
