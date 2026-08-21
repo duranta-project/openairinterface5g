@@ -3196,10 +3196,11 @@ static void nr_ue_check_meas_report(NR_UE_RRC_INST_t *rrc, const uint8_t gnb_ind
 static void nr_rrc_handle_ra_indication(NR_UE_RRC_INST_t *rrc, bool ra_succeeded, int gNB_index)
 {
   NR_UE_Timers_Constants_t *timers = &rrc->timers_and_constants;
-  if (ra_succeeded && nr_timer_is_active(&timers->T304)) {
+  if (ra_succeeded) {
     // successful Random Access procedure triggered by reconfigurationWithSync
     // procedures described in 5.3.5.3 of 38.331 when
     // reconfigurationWithSync is included in spCellConfig
+    if (nr_timer_is_active(&timers->T304))
     nr_timer_stop(&timers->T304);
 
     // TODO apply the parts of the CQI reporting configuration,
@@ -3224,7 +3225,7 @@ static void nr_rrc_handle_ra_indication(NR_UE_RRC_INST_t *rrc, bool ra_succeeded
       sib_msg.payload.sched_sib.get_sib = 1;
       nr_rrc_send_msg_to_mac(rrc, &sib_msg);
     }
-  } else if (!ra_succeeded) {
+  } else {
     // upon random access problem indication from MCG MAC
     // while neither T300, T301, T304, T311 nor T319 are running
     // consider radio link failure to be detected
@@ -3624,6 +3625,7 @@ void nr_rrc_going_to_IDLE(NR_UE_RRC_INST_t *rrc,
                           NR_Release_Cause_t release_cause,
                           NR_RRCRelease_t *RRCRelease)
 {
+  abort();
   NR_UE_Timers_Constants_t *tac = &rrc->timers_and_constants;
   struct NR_RRCRelease_IEs *rrcReleaseIEs = RRCRelease ? RRCRelease->criticalExtensions.choice.rrcRelease : NULL;
 
