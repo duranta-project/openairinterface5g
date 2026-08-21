@@ -1093,16 +1093,27 @@ set(NR_PDCP_SRC
   )
 
 # gNB: PDCP + CU-CP/CU-UP interface
-set(NR_PDCP_SRC_GNB
+set(NR_PDCP_SRC_GNB_CORE
   ${NR_PDCP_SRC}
+  openair2/LAYER2/nr_pdcp/nr_pdcp_nrup_handler.c
+  openair2/LAYER2/nr_pdcp/nr_pdcp_nrup_f1ap.c
   openair2/LAYER2/nr_pdcp/cucp_cuup_handler.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_if.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_direct.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_e1ap.c
   )
 
+# L2_NR: GNB common (excluded from nr-cuup link)
+set(NR_PDCP_SRC_GNB
+  ${NR_PDCP_SRC_GNB_CORE}
+  openair2/LAYER2/nr_pdcp/nr_pdcp_nrup_direct.c
+  )
+
 # UE build: PDCP only; CU-CP/CU-UP interface is gNB-only.
-set(NR_PDCP_SRC_UE ${NR_PDCP_SRC})
+set(NR_PDCP_SRC_UE
+  ${NR_PDCP_SRC}
+  openair2/LAYER2/nr_pdcp/nr_pdcp_nrup_ue.c
+  )
 
 set(NR_SDAP_SRC
   ${OPENAIR2_DIR}/SDAP/nr_sdap/nr_sdap.c
@@ -1335,7 +1346,7 @@ add_library(e1_if
 
 target_link_libraries(e1_if PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs asn1_f1ap SECURITY ${OPENSSL_LIBRARIES} e1ap GTPV1U)
 
-target_link_libraries(L2_NR PRIVATE f1ap x2ap s1ap ngap nr_rrc e1ap nr_rlc nr_common)
+target_link_libraries(L2_NR PRIVATE f1ap x2ap s1ap ngap nr_rrc e1ap nr_rlc nr_common nr_up_direct nr_up_f1ap)
 target_compile_definitions(L2_NR PRIVATE PDCP_CUCP_CUUP)
 if(OAI_AERIAL)
     target_compile_definitions(L2_NR PRIVATE ENABLE_AERIAL)
@@ -1360,7 +1371,7 @@ target_link_libraries(L2_UE PRIVATE nfapi_pnf_lib)
 target_link_libraries(L2_UE PRIVATE asn1_lte_rrc_hdrs)
 
 add_library( NR_L2_UE ${NR_L2_SRC_UE} ${MAC_NR_SRC_UE} )
-target_link_libraries(NR_L2_UE PRIVATE nr_rlc)
+target_link_libraries(NR_L2_UE PRIVATE nr_rlc nr_up_rlc_queue)
 target_link_libraries(NR_L2_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs nr_common nr_ue_power_procedures nr_ue_ra_procedures)
 target_link_libraries(NR_L2_UE PRIVATE nr_nas)
 
@@ -1869,13 +1880,13 @@ add_executable(nr-cuup
   executables/nr-cuup.c
   ${NR_RRC_DIR}/rrc_gNB_UE_context.c
   ${OPENAIR2_DIR}/E1AP/e1ap_setup.c
-  ${NR_PDCP_SRC_GNB}
+  ${NR_PDCP_SRC_GNB_CORE}
   ${NR_SDAP_SRC}
   )
 
 target_link_libraries(nr-cuup PRIVATE
                       CONFIG_LIB ITTI SCTP_CLIENT
-                      GTPV1U e1ap f1ap
+                      GTPV1U e1ap f1ap nr_up_pdcp_if nr_up_f1ap
                       time_management softmodem_common
                       alg
                       dl pthread ${T_LIB})

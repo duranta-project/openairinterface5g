@@ -56,7 +56,8 @@ TEST(nr_rlc_am_entity, test_init)
                                                  -1,
                                                  -1,
                                                  8,
-                                                 12);
+                                                 12,
+                                                 true);
   char buf[30];
   EXPECT_EQ(entity->generate_pdu(entity, buf, sizeof(buf)), 0) << "No PDCP SDU provided to RLC, expected no RLC PDUS";
 
@@ -79,7 +80,8 @@ TEST(nr_rlc_am_entity, test_segmentation_reassembly)
                                                     -1,
                                                     -1,
                                                     8,
-                                                    12);
+                                                    12,
+                                                    true);
 
   nr_rlc_entity_t *rx_entity = new_nr_rlc_entity_am(100,
                                                     100,
@@ -95,7 +97,8 @@ TEST(nr_rlc_am_entity, test_segmentation_reassembly)
                                                     -1,
                                                     -1,
                                                     8,
-                                                    12);
+                                                    12,
+                                                    true);
   char buf[30] = {0};
   snprintf(buf, sizeof(buf), "%s", "Message");
   EXPECT_EQ(tx_entity->generate_pdu(tx_entity, buf, sizeof(buf)), 0) << "No PDCP SDU provided to RLC, expected no RLC PDUS";
@@ -137,7 +140,8 @@ TEST(nr_rlc_am_entity, test_ack_out_of_order)
                                                     4,
                                                     -1,
                                                     8,
-                                                    12);
+                                                    12,
+                                                    true);
 
   nr_rlc_entity_t *rx_entity = new_nr_rlc_entity_am(100,
                                                     100,
@@ -153,7 +157,8 @@ TEST(nr_rlc_am_entity, test_ack_out_of_order)
                                                     4,
                                                     -1,
                                                     8,
-                                                    12);
+                                                    12,
+                                                    true);
 
   char buf[30] = {0};
   EXPECT_EQ(tx_entity->generate_pdu(tx_entity, buf, sizeof(buf)), 0) << "No PDCP SDU provided to RLC, expected no RLC PDUS";

@@ -80,6 +80,7 @@ bool cu_f1u_data_req(protocol_ctxt_t  *ctxt_pP,
 
 typedef void (*deliver_pdu)(void *data, ue_id_t ue_id, int srb_id,
                             char *buf, int size, int sdu_id);
+void nr_pdcp_bind_drb_deliver(deliver_pdu fn);
 /* default implementation of deliver_pdu */
 void deliver_pdu_srb_rlc(void *data, ue_id_t ue_id, int srb_id, char *buf, int size, int sdu_id);
 bool nr_pdcp_data_req_srb(ue_id_t ue_id,
