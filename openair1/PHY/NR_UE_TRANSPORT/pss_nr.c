@@ -170,68 +170,67 @@ static int cmp_pss_peak(const void *a, const void *b)
 
 nr_pss_info_t pss_search_time_nr(const pss_search_t *p)
 {
-  if (p->rxdata_length == 0) {
+  if (p->rxdata_length <= p->ofdm_symbol_size) {
     LOG_E(PHY, "inconsistent call to pss_search_time_nr %d\n", p->rxdata_length);
     return (nr_pss_info_t){0};
   }
 
   c16_t(*pssTime)[p->ofdm_symbol_size] = (c16_t(*)[p->ofdm_symbol_size])p->pssTime;
-  int max_size = get_softmodem_params()->sl_mode == 0 ? NUMBER_PSS_SEQUENCE : NUMBER_PSS_SEQUENCE_SL;
+  const int max_nid2 = get_softmodem_params()->sl_mode == 0 ? NUMBER_PSS_SEQUENCE : NUMBER_PSS_SEQUENCE_SL;
 
   /* Search pss in the received buffer each 4 samples which ensures a memory alignment on 128 bits (32 bits x 4 ) */
   /* This is required by SIMD (single instruction Multiple Data) Extensions of Intel processors. */
   /* Correlation computation is based on a dot product which is realized thank to SIMS extensions */
-  int pss_index_start;
-  int pss_index_end;
+  int pss_start = 0;
+  int pss_end = max_nid2;
   if (p->target_Nid_cell != -1) {
-    pss_index_start = GET_NID2(p->target_Nid_cell);
-    pss_index_end = pss_index_start + 1;
-  } else {
-    pss_index_start = 0;
-    pss_index_end = max_size;
+    pss_start = GET_NID2(p->target_Nid_cell);
+    pss_end = pss_start + 1;
   }
 
   int pss_count = 0;
   nr_pss_info_t pss_info = {0};
-  for (int pss_index = pss_index_start; pss_index < pss_index_end; pss_index++) {
+  for (int nid2 = pss_start; nid2 < pss_end; nid2++) {
     int64_t peak_value = 0;
     int peak_position = 0;
-    int64_t avg = 0;
-    for (int n = 0; n < p->rxdata_length; n += 4) { //
+    int64_t sum = 0;
+    const int trials = (p->rxdata_length - p->ofdm_symbol_size) / PSS_STEP + 1;
+    for (int n = 0; n < trials; n++) {
+      const int start = n * PSS_STEP;
       int64_t pss_corr_ue = 0;
-      /* calculate dot product of primary_synchro_time_nr and rxdata[ar][n]
-       * (ar=0..nb_ant_rx) and store the sum in temp[n]; */
       for (int ar = 0; ar < p->nb_antennas_rx; ar++) {
         /* perform correlation of rx data and pss sequence ie it is a dot product */
-        const c32_t result = dot_product(pssTime[pss_index], &p->rxdata[ar][n], p->ofdm_symbol_size, SCALING_PSS_NR);
+        const c32_t result = dot_product(pssTime[nid2], p->rxdata[ar] + start, p->ofdm_symbol_size, SCALING_PSS_NR);
         const c64_t r64 = {.r = result.r, .i = result.i};
         pss_corr_ue += squaredMod(r64);
       }
 
       /* calculate the absolute value of sync_corr[n] */
-      avg += pss_corr_ue;
+      sum += pss_corr_ue;
       if (pss_corr_ue > peak_value) {
         peak_value = pss_corr_ue;
-        peak_position = n;
-
+        peak_position = start;
 #ifdef DEBUG_PSS_NR
-        LOG_I(NR_PHY, "pss_index %d: n %6u peak_value %li\n", pss_index, n, pss_corr_ue);
+        LOG_I(NR_PHY, "nid2 %d: n %6u peak_value %li\n", nid2, peak_position, pss_corr_ue);
 #endif
       }
     }
 
-    avg /= (p->rxdata_length / 4);
-    bool pss_not_found = (p->target_Nid_cell == -1 && peak_value < 5 * avg) 
-                         || peak_position < p->nb_prefix_samples;
+    int64_t avg = sum / (trials * p->nb_antennas_rx);
+    peak_value /= p->nb_antennas_rx;
+    bool pss_found =
+        peak_position >= p->nb_prefix_samples // if peak position is in first samples, we can't make the iDFT for SSS detection
+        && peak_value > PSS_THRESHOLD * avg;
+
     pss_info.pss_elem_info[pss_count] = (pss_detection_result_t){
-        .nid2 = pss_index,
+        .nid2 = nid2,
         .peak = dB_fixed64(peak_value),
         .pos = peak_position,
         .avg = dB_fixed64(avg),
-        .success = !pss_not_found,
+        .success = pss_found,
     };
 
-    double ffo_est = 0;
+    pss_info.pss_elem_info[pss_count].freq_offset = 0;
     if (p->fo_flag && pss_info.pss_elem_info[pss_count].success) {
       // fractional frequency offset computation according to Cross-correlation Synchronization Algorithm Using PSS
       // Shoujun Huang, Yongtao Su, Ying He and Shan Tang, "Joint time and frequency offset estimation in LTE downlink," 7th
@@ -239,32 +238,28 @@ nr_pss_info_t pss_search_time_nr(const pss_search_t *p)
 
       // Computing cross-correlation at peak on half the symbol size for first half of data
       const c16_t *rx_peak = &p->rxdata[0][peak_position];
-      c32_t r1 = dot_product(pssTime[pss_index],
-                             rx_peak,
-                             p->ofdm_symbol_size >> 1,
-                             SCALING_PSS_NR);
+      c32_t r1 = dot_product(pssTime[nid2], rx_peak, p->ofdm_symbol_size >> 1, SCALING_PSS_NR);
       // Computing cross-correlation at peak on half the symbol size for data shifted by half symbol size
       // as it is real and complex it is necessary to shift by a value equal to symbol size to obtain such shift
-      c32_t r2 =
-          dot_product(pssTime[pss_index] + (p->ofdm_symbol_size >> 1),
-                      rx_peak + (p->ofdm_symbol_size >> 1),
-                      p->ofdm_symbol_size >> 1,
-                      SCALING_PSS_NR);
+      c32_t r2 = dot_product(pssTime[nid2] + (p->ofdm_symbol_size >> 1),
+                             rx_peak + (p->ofdm_symbol_size >> 1),
+                             p->ofdm_symbol_size >> 1,
+                             SCALING_PSS_NR);
       cd_t r1d = {r1.r, r1.i}, r2d = {r2.r, r2.i};
       // estimation of fractional frequency offset: angle[(result1)'*(result2)]/pi
-      ffo_est = atan2(r1d.r * r2d.i - r2d.r * r1d.i, r1d.r * r2d.r + r1d.i * r2d.i) / M_PI;
+      pss_info.pss_elem_info[pss_count].freq_offset =
+          p->subcarrier_spacing * atan2(r1d.r * r2d.i - r2d.r * r1d.i, r1d.r * r2d.r + r1d.i * r2d.i) / M_PI;
 
 #ifdef DBG_PSS_NR
       printf("ffo %lf\n", ffo_est);
 #endif
     }
 
-    pss_info.pss_elem_info[pss_count].freq_offset = ffo_est * p->subcarrier_spacing; // Absolute value of frequency offset
     pss_count++;
   }
 
   // Sort array in descending order using pss_peak as sorting criterion.
-  qsort(pss_info.pss_elem_info, NUMBER_PSS_SEQUENCE, sizeof(pss_detection_result_t), cmp_pss_peak);
+  qsort(pss_info.pss_elem_info, pss_count, sizeof(pss_detection_result_t), cmp_pss_peak);
 
   pss_detection_result_t *pss_el = pss_info.pss_elem_info;
   if (pss_el->success)

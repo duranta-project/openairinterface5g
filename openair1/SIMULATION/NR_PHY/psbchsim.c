@@ -617,7 +617,7 @@ int main(int argc, char **argv)
         UE_nr_rxtx_proc_t proc = {0};
         // Should not have SLSS id configured. Search should find SLSS id from TX UE
         UE_RX->SL_UE_PHY_PARAMS.sl_config.sl_sync_source.rx_slss_id = 0xFFFF;
-        ret = sl_nr_slss_search(UE_RX, &proc, 1);
+        ret = sl_nr_slss_search(UE_RX, &proc, 1, frame_length_complex_samples, UE_RX->common_vars.rxdata);
         printf("Sidelink SLSS search returns status:%d, rx_offset:%d\n", ret.cell_detected, ret.rx_offset);
         if (!ret.cell_detected)
           sl_uerx->psbch.rx_errors = 1;
