@@ -267,7 +267,7 @@ static bool search_neighboring_cell(UE_nr_rxtx_proc_t *proc,
       .symbols_per_slot = frame_parms->symbols_per_slot,
       .first_carrier_offset = frame_parms->first_carrier_offset,
       .N_RB_DL = frame_parms->N_RB_DL,
-      .rxdata_size = frame_parms->samples_per_slot_wCP,
+      .rxdata_size = rxdata_size,
       .rxdata = rxdata,
       .nb_prefix_samples = frame_parms->nb_prefix_samples,
       .nb_prefix_samples0 = frame_parms->nb_prefix_samples0,
@@ -327,7 +327,7 @@ static bool search_neighboring_cell(UE_nr_rxtx_proc_t *proc,
 
     // Update search window
     neighboring_cell_info->pss_search_start = search_params.pss_res.pos - 16;
-    neighboring_cell_info->pss_search_length = 32;
+    neighboring_cell_info->pss_search_length = 32 + frame_parms->ofdm_symbol_size;
     neighboring_cell_info->ssb_slot = proc->nr_slot_rx;
   }
 
@@ -387,7 +387,7 @@ static bool validate_known_pci(NR_DL_FRAME_PARMS *frame_parms,
   uint8_t sss_symbol = SSS_SYMBOL_NB - PSS_SYMBOL_NB;
   nr_slot_fep(NULL, frame_parms, 0, 0, rxdataF_tmp, link_type_dl, ssb_time_offset, (c16_t **)rxdata);
   nr_slot_fep(NULL, frame_parms, 0, sss_symbol, rxdataF_tmp, link_type_dl, ssb_time_offset, (c16_t **)rxdata);
-  /* TODO: Once symbol based PDSCH proc is imeplemented, nr_slot_fep() will use
+  /* TODO: Once symbol based PDSCH proc is implemented, nr_slot_fep() will use
   the new rxdataF buffer format so the following memcpy can be removed. */
   for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
     memcpy(rxdataF[0][aarx], &rxdataF_tmp[aarx][0], sizeof(c16_t) * frame_parms->ofdm_symbol_size);
@@ -423,7 +423,7 @@ static bool validate_known_pci(NR_DL_FRAME_PARMS *frame_parms,
   neighboring_cell_info->consec_fail = 0;
   neighboring_cell_info->valid_meas = true;
   neighboring_cell_info->pss_search_start += pss_res.pos - 16;
-  neighboring_cell_info->pss_search_length = 32;
+  neighboring_cell_info->pss_search_length = 32 + frame_parms->ofdm_symbol_size;
   neighboring_cell_info->ssb_slot = slot;
 
   return true;
@@ -537,7 +537,7 @@ static void do_neighboring_cell_measurements(UE_nr_rxtx_proc_t *proc, PHY_VARS_N
 
     neighboring_cell_info_t *neighboring_cell_info = &ue->measurements.neighboring_cell_info[cell_idx];
     if (neighboring_cell_info->pss_search_length == 0) {
-      neighboring_cell_info->pss_search_length = frame_parms->samples_per_slot_wCP;
+      neighboring_cell_info->pss_search_length = frame_parms->samples_per_slot_wCP + frame_parms->ofdm_symbol_size;
       neighboring_cell_info->ssb_slot = -1;
     }
 
@@ -552,7 +552,9 @@ static void do_neighboring_cell_measurements(UE_nr_rxtx_proc_t *proc, PHY_VARS_N
           LOG_D(NR_PHY, "Max consecutive failures reached for PCI=%d, resetting to full search\n", neighbor_cell->Nid_cell);
           send_neighbor_cell_meas(ue, proc, neighbor_cell->Nid_cell, INT_MAX);
         }
-        reset_neighboring_cell_info(neighbor_cell, neighboring_cell_info, frame_parms->samples_per_slot_wCP);
+        reset_neighboring_cell_info(neighbor_cell,
+                                    neighboring_cell_info,
+                                    frame_parms->samples_per_slot_wCP + frame_parms->ofdm_symbol_size);
       }
       continue;
     }

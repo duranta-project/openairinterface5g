@@ -36,9 +36,6 @@
 #define  GET_NID2_SL(Nid_SL)          (Nid_SL/NUMBER_SSS_SEQUENCE)
 #define  GET_NID1_SL(Nid_SL)          (Nid_SL%NUMBER_SSS_SEQUENCE)
 
-#define  PSS_SC_START_NR              (52)     /* see from TS 38.211 table 7.4.3.1-1: Resources within an SS/PBCH block for PSS... */
-
-#define  SSS_START_IDX                (3)      /* [0:PSBCH 1:PSS0 2:PSS1 3:SSS0 4:SSS1] */
 #define  NUM_SSS_SYMBOLS              (2)
 
 #define SSS_METRIC_FLOOR_NR   (30000)
