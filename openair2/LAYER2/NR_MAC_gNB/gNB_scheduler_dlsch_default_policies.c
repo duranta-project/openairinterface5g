@@ -14,6 +14,7 @@
 
 #include "common/utils/nr/nr_common.h"
 #include "gNB_scheduler_dlsch_default_policies.h"
+#include "nr_sched_registries.h"
 /*MAC*/
 #include "NR_MAC_COMMON/nr_mac.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
@@ -170,6 +171,13 @@ void nr_dl_mcs_select_default(const gNB_MAC_INST *mac, nr_dl_candidate_t *candid
       cand->UE->UE_sched_ctrl.dl_bler_stats.mcs = mcs;
   }
 }
+
+SCHED_REGISTRY_ADD(dl_ri_pmi_select_policy, default, nr_dl_ri_pmi_select_default);
+SCHED_REGISTRY_ADD(dl_tda_select_policy, default, nr_dl_tda_select_default);
+SCHED_REGISTRY_ADD(dl_beam_select_policy, default, nr_dl_beam_select_default);
+SCHED_REGISTRY_ADD(dl_mcs_select_policy, default, nr_dl_mcs_select_default);
+SCHED_REGISTRY_ADD(dl_rb_alloc_policy, default, nr_dl_proportional_fair);
+SCHED_REGISTRY_ADD(dl_lcid_alloc_policy, default, nr_dl_lcid_alloc_default);
 
 static int compare_dl_pf_rb_ptrs(const void *a, const void *b)
 {

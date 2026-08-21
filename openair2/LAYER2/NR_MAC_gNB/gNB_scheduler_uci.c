@@ -12,6 +12,7 @@
 #include <softmodem-common.h>
 #include "NR_MAC_gNB/nr_mac_gNB.h"
 #include "NR_MAC_gNB/mac_proto.h"
+#include "NR_MAC_gNB/nr_sched_registries.h"
 #include "common/ran_context.h"
 #include "common/utils/T/T.h"
 #include "common/utils/nr/nr_common.h"
@@ -365,12 +366,29 @@ int get_pucch_resourceid(NR_PUCCH_Config_t *pucch_Config, int O_uci, int pucch_r
   return *resource_id;
 }
 
-static void handle_dl_harq(gNB_MAC_INST *mac, NR_UE_info_t * UE, int8_t harq_pid, bool success, int harq_round_max)
+static void notify_dl_harq_result(gNB_MAC_INST *mac,
+                                  const NR_UE_info_t *UE,
+                                  int8_t harq_pid,
+                                  uint8_t round,
+                                  nr_harq_result_status_t status)
+{
+  const nr_harq_result_t result = {
+      .rnti = UE->rnti,
+      .harq_pid = harq_pid,
+      .round = round,
+      .status = status,
+  };
+  nr_notify_dl_harq_result(mac, &result);
+}
+
+static void handle_dl_harq(gNB_MAC_INST *mac, NR_UE_info_t *UE, int8_t harq_pid, nr_harq_result_status_t status, int harq_round_max)
 {
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   NR_UE_harq_t *harq = &sched_ctrl->harq_processes[harq_pid];
+  notify_dl_harq_result(mac, UE, harq_pid, harq->round, status);
   harq->feedback_slot = -1;
   harq->is_waiting = false;
+  const bool success = status == NR_HARQ_RESULT_ACK;
   if (success) {
     if (harq->sched_pdsch.action)
       harq->sched_pdsch.action(mac, UE);
@@ -858,7 +876,7 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
     beam_switching_procedure(nrmac, UE, new_bf_index);
 }
 
-static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t * UE, int harq_round_max)
+static NR_UE_harq_t *find_harq(gNB_MAC_INST *nrmac, frame_t frame, slot_t slot, NR_UE_info_t *UE)
 {
   /* In case of realtime problems: we can only identify a HARQ process by
    * timing. If the HARQ process's feedback_frame/feedback_slot is not the one we
@@ -883,7 +901,7 @@ static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t * UE, in
           frame,
           slot);
     remove_front_nr_list(&sched_ctrl->feedback_dl_harq);
-    handle_dl_harq(NULL, UE, pid, false, harq_round_max);
+    handle_dl_harq(nrmac, UE, pid, NR_HARQ_RESULT_MISSING, nrmac->dl_bler.harq_round_max);
     pid = sched_ctrl->feedback_dl_harq.head;
     if (pid < 0)
       return NULL;
@@ -928,7 +946,7 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, frame_t frame, slot_t slot, con
     for (int harq_bit = 0; harq_bit < uci_01->harq.num_harq; harq_bit++) {
       const uint8_t harq_value = uci_01->harq.harq_list[harq_bit].harq_value;
       const uint8_t harq_confidence = uci_01->harq.harq_confidence_level;
-      NR_UE_harq_t *harq = find_harq(frame, slot, UE, nrmac->dl_bler.harq_round_max);
+      NR_UE_harq_t *harq = find_harq(nrmac, frame, slot, UE);
       if (!harq) {
         LOG_E(NR_MAC, "UE %04x: Could not find a HARQ process at %4d.%2d!\n", UE->rnti, frame, slot);
         break;
@@ -938,7 +956,10 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, frame_t frame, slot_t slot, con
       remove_front_nr_list(&sched_ctrl->feedback_dl_harq);
       LOG_D(NR_MAC,"%4d.%2d bit %d pid %d ack/nack %d\n",frame, slot, harq_bit,pid,harq_value);
       nr_mac_update_pdcch_closed_loop_adjust(sched_ctrl, harq_confidence != 0);
-      bool success = harq_value == 0 && harq_confidence == 0;
+      nr_harq_result_status_t status = harq_confidence != 0 ? NR_HARQ_RESULT_DTX
+                                       : harq_value == 0    ? NR_HARQ_RESULT_ACK
+                                                            : NR_HARQ_RESULT_NACK;
+      bool success = status == NR_HARQ_RESULT_ACK;
       // TCI state switch occurs at the first slot that is after slot n_+ T_HARQ + 3N_sf_slot (8.10.3 of 38.133)
       if (success && harq->start_tci_timer) {
         int slots = 3 * nrmac->frame_structure.numb_slots_frame / 10;
@@ -946,7 +967,7 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, frame_t frame, slot_t slot, con
         nr_timer_start(&sched_ctrl->tci_beam_switch);
         harq->start_tci_timer = false;
       }
-      handle_dl_harq(nrmac, UE, pid, success, nrmac->dl_bler.harq_round_max);
+      handle_dl_harq(nrmac, UE, pid, status, nrmac->dl_bler.harq_round_max);
       if (is_ra) {
         bool ue_rejected = nr_check_Msg4_MsgB_Ack(mod_id, frame, slot, UE, success);
         if (ue_rejected) {
@@ -1029,7 +1050,7 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, frame_t frame, slot_t slot, c
     // iterate over received harq bits
     for (int harq_bit = 0; harq_bit < uci_234->harq.harq_bit_len; harq_bit++) {
       const int acknack = ((uci_234->harq.harq_payload[harq_bit >> 3]) >> harq_bit) & 0x01;
-      NR_UE_harq_t *harq = find_harq(frame, slot, UE, RC.nrmac[mod_id]->dl_bler.harq_round_max);
+      NR_UE_harq_t *harq = find_harq(nrmac, frame, slot, UE);
       if (!harq) {
         LOG_E(NR_MAC, "UE %04x: Could not find a HARQ process at %4d.%2d!\n", UE->rnti, frame, slot);
         break;
@@ -1039,14 +1060,17 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, frame_t frame, slot_t slot, c
       remove_front_nr_list(&sched_ctrl->feedback_dl_harq);
       LOG_D(NR_MAC,"%4d.%2d bit %d pid %d ack/nack %d\n",frame, slot, harq_bit, pid, acknack);
       // TCI state switch occurs at the first slot that is after slot n_+ T_HARQ + 3N_sf_slot (8.10.3 of 38.133)
-      bool success = uci_234->harq.harq_crc != 1 && acknack;
+      nr_harq_result_status_t status = uci_234->harq.harq_crc == 1 ? NR_HARQ_RESULT_DTX
+                                       : acknack                   ? NR_HARQ_RESULT_ACK
+                                                                   : NR_HARQ_RESULT_NACK;
+      bool success = status == NR_HARQ_RESULT_ACK;
       if (success && harq->start_tci_timer) {
         int slots = 3 * nrmac->frame_structure.numb_slots_frame / 10;
         nr_timer_setup(&sched_ctrl->tci_beam_switch, slots, 1);
         nr_timer_start(&sched_ctrl->tci_beam_switch);
         harq->start_tci_timer = false;
       }
-      handle_dl_harq(nrmac, UE, pid, success, nrmac->dl_bler.harq_round_max);
+      handle_dl_harq(nrmac, UE, pid, status, nrmac->dl_bler.harq_round_max);
     }
     free(uci_234->harq.harq_payload);
   }

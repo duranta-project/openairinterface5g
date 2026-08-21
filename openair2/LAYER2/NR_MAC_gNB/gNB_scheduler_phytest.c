@@ -8,6 +8,7 @@
 
 #include "nr_mac_gNB.h"
 #include "NR_MAC_gNB/mac_proto.h"
+#include "NR_MAC_gNB/nr_sched_registries.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "executables/nr-softmodem.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac.h"
@@ -358,3 +359,6 @@ void nr_ul_preprocessor_phytest(gNB_MAC_INST *nr_mac, post_process_pusch_t *pp_p
   for (int rb = rbStart; rb < rbStart + rbSize; rb++)
     vrb_map_UL[rb+BWPStart] |= SL_to_bitmap(tda_info.startSymbolIndex, tda_info.nrOfSymbols);
 }
+
+SCHED_REGISTRY_ADD(dl_preprocessor_policy, phytest, nr_preprocessor_phytest);
+SCHED_REGISTRY_ADD(ul_preprocessor_policy, phytest, nr_ul_preprocessor_phytest);

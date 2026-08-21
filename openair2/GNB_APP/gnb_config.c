@@ -25,6 +25,7 @@
 #include "asn_internal.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
 #include "NR_MAC_gNB/mac_proto.h"
+#include "NR_MAC_gNB/nr_sched_registries.h"
 #include "common/5g_platform_types.h"
 #include "common/config/config_paramdesc.h"
 #include "common/config/config_userapi.h"
@@ -1731,6 +1732,77 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
         ul_bler_options->harq_round_max = 1;
       else
         ul_bler_options->harq_round_max = *gpd(params, np, MACRLC_UL_HARQ_ROUND_MAX)->u8ptr;
+
+#define LOAD_SCHED_POLICY(config_key, registry, field, fn_type)              \
+  do {                                                                       \
+    const char *policy_name = *gpd(params, np, config_key)->strptr;          \
+    fn_type policy = registry##_lookup(policy_name);                         \
+    AssertFatal(policy != NULL,                                              \
+                "Unknown scheduler policy '%s' for '%s' (registered: %s)\n", \
+                policy_name,                                                 \
+                config_key,                                                  \
+                registry##_names());                                         \
+    RC.nrmac[j]->field = policy;                                             \
+  } while (0)
+
+      LOAD_SCHED_POLICY(MACRLC_DL_PREPROCESSOR_POLICY, dl_preprocessor_policy, pre_processor_dl, nr_pp_impl_dl);
+      LOAD_SCHED_POLICY(MACRLC_DL_RI_PMI_SELECT_POLICY, dl_ri_pmi_select_policy, dl_ri_pmi_select, nr_dl_ri_pmi_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_DL_TDA_SELECT_POLICY, dl_tda_select_policy, dl_tda_select, nr_dl_tda_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_DL_BEAM_SELECT_POLICY, dl_beam_select_policy, dl_beam_select, nr_dl_beam_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_DL_MCS_SELECT_POLICY, dl_mcs_select_policy, dl_mcs_select, nr_dl_mcs_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_DL_RB_ALLOC_POLICY, dl_rb_alloc_policy, dl_rb_alloc, nr_dl_rb_alloc_fn);
+      LOAD_SCHED_POLICY(MACRLC_DL_LCID_ALLOC_POLICY, dl_lcid_alloc_policy, dl_lcid_alloc, nr_dl_lcid_alloc_fn);
+      LOAD_SCHED_POLICY(MACRLC_UL_PREPROCESSOR_POLICY, ul_preprocessor_policy, pre_processor_ul, nr_pp_impl_ul);
+      LOAD_SCHED_POLICY(MACRLC_UL_RI_TPMI_SELECT_POLICY, ul_ri_tpmi_select_policy, ul_ri_tpmi_select, nr_ul_ri_tpmi_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_UL_TDA_SELECT_POLICY, ul_tda_select_policy, ul_tda_select, nr_ul_tda_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_UL_BEAM_SELECT_POLICY, ul_beam_select_policy, ul_beam_select, nr_ul_beam_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_UL_MCS_SELECT_POLICY, ul_mcs_select_policy, ul_mcs_select, nr_ul_mcs_select_fn);
+      LOAD_SCHED_POLICY(MACRLC_UL_RB_ALLOC_POLICY, ul_rb_alloc_policy, ul_rb_alloc, nr_ul_rb_alloc_fn);
+
+#undef LOAD_SCHED_POLICY
+
+      /* phy-test has always owned the two preprocessors regardless of the
+       * normal scheduler configuration. Preserve that command-line override. */
+      if (get_softmodem_params()->phy_test) {
+        RC.nrmac[j]->pre_processor_dl = dl_preprocessor_policy_lookup("phytest");
+        RC.nrmac[j]->pre_processor_ul = ul_preprocessor_policy_lookup("phytest");
+        AssertFatal(RC.nrmac[j]->pre_processor_dl != NULL && RC.nrmac[j]->pre_processor_ul != NULL,
+                    "phytest scheduler preprocessors are not registered\n");
+      }
+
+#define LOAD_HARQ_RESULT_OBSERVERS(config_key, registry, fn_type, field, count_field)   \
+  do {                                                                                  \
+    const paramdef_t *observer_param = gpd(params, np, config_key);                     \
+    AssertFatal(observer_param->numelt <= NR_SCHED_MAX_HARQ_RESULT_OBSERVERS,           \
+                "At most %d observers are supported for '%s' (configured %d)\n",        \
+                NR_SCHED_MAX_HARQ_RESULT_OBSERVERS,                                     \
+                config_key,                                                             \
+                observer_param->numelt);                                                \
+    RC.nrmac[j]->count_field = 0;                                                       \
+    for (int observer_idx = 0; observer_idx < observer_param->numelt; ++observer_idx) { \
+      const char *observer_name = observer_param->strlistptr[observer_idx];             \
+      fn_type observer = registry##_lookup(observer_name);                              \
+      AssertFatal(observer != NULL,                                                     \
+                  "Unknown observer '%s' for '%s' (registered: %s)\n",                  \
+                  observer_name,                                                        \
+                  config_key,                                                           \
+                  registry##_names());                                                  \
+      RC.nrmac[j]->field[RC.nrmac[j]->count_field++] = observer;                        \
+    }                                                                                   \
+  } while (0)
+
+      LOAD_HARQ_RESULT_OBSERVERS(MACRLC_DL_HARQ_RESULT_OBSERVERS,
+                                 dl_harq_result_observer,
+                                 nr_dl_harq_result_observer_fn,
+                                 dl_harq_result_observers,
+                                 num_dl_harq_result_observers);
+      LOAD_HARQ_RESULT_OBSERVERS(MACRLC_UL_HARQ_RESULT_OBSERVERS,
+                                 ul_harq_result_observer,
+                                 nr_ul_harq_result_observer_fn,
+                                 ul_harq_result_observers,
+                                 num_ul_harq_result_observers);
+
+#undef LOAD_HARQ_RESULT_OBSERVERS
       RC.nrmac[j]->min_grant_prb = *gpd(params, np, MACRLC_MIN_GRANT_PRB)->u16ptr;
       long sc_fdma = NR_PUSCH_Config__transformPrecoder_enabled;
       NR_BWP_UplinkCommon_t *bwp = RC.nrmac[j]->common_channels[0].ServingCellConfigCommon->uplinkConfigCommon->initialUplinkBWP;

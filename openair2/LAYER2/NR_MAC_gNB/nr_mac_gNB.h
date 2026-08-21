@@ -991,6 +991,34 @@ typedef struct gNB_MAC_INST_s gNB_MAC_INST;
 typedef void (*nr_pp_impl_dl)(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pp_pdsch);
 typedef void (*nr_pp_impl_ul)(gNB_MAC_INST *nr_mac, post_process_pusch_t *pp_pusch);
 
+/// Result of one HARQ transmission attempt as observed by MAC.
+typedef enum {
+  NR_HARQ_RESULT_ACK,
+  NR_HARQ_RESULT_NACK,
+  NR_HARQ_RESULT_DTX,
+  NR_HARQ_RESULT_MISSING,
+} nr_harq_result_status_t;
+
+/// HARQ result emitted before the corresponding HARQ process is advanced or released.
+typedef struct {
+  rnti_t rnti;
+  int8_t harq_pid;
+  uint8_t round;
+  nr_harq_result_status_t status;
+} nr_harq_result_t;
+
+/// Observer invoked synchronously under the MAC scheduler lock. Implementations
+/// must not block or retain the result pointer. sched_stateful_data is the same
+/// persistent context shared by the configured scheduler policies.
+typedef void (*nr_dl_harq_result_observer_fn)(gNB_MAC_INST *mac,
+                                              const nr_harq_result_t *result,
+                                              void *sched_stateful_data);
+typedef void (*nr_ul_harq_result_observer_fn)(gNB_MAC_INST *mac,
+                                              const nr_harq_result_t *result,
+                                              void *sched_stateful_data);
+
+#define NR_SCHED_MAX_HARQ_RESULT_OBSERVERS 8
+
 /// RI/PMI selection: sets nrOfLayers and pm_index per candidate from CSI feedback.
 /// For retransmissions, nrOfLayers must match the original transmission.
 /// Custom implementations may use SRS reciprocity to override the UE's reported RI/PMI.
@@ -1294,7 +1322,13 @@ typedef struct gNB_MAC_INST_s {
   nr_ul_mcs_select_fn ul_mcs_select;
   nr_ul_rb_alloc_fn ul_rb_alloc;
 
-  /// Optional state persistence for scheduling policies.
+  /// Direction-specific HARQ-result fan-out. Observers run in configuration order.
+  nr_dl_harq_result_observer_fn dl_harq_result_observers[NR_SCHED_MAX_HARQ_RESULT_OBSERVERS];
+  int num_dl_harq_result_observers;
+  nr_ul_harq_result_observer_fn ul_harq_result_observers[NR_SCHED_MAX_HARQ_RESULT_OBSERVERS];
+  int num_ul_harq_result_observers;
+
+  /// Optional persistent context shared by scheduling policies and observers.
   void *sched_stateful_data;
 
   nr_mac_config_t radio_config;
