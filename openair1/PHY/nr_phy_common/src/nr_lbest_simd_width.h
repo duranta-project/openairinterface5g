@@ -254,3 +254,4 @@ static inline void NRLB_NAME(nrlbw_store_llr)(int16_t *stream0_out, uint32_t re,
   }
 #endif
 }
+

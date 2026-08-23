@@ -128,13 +128,46 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
   const NRLB_VI z = NRLB_SETZERO();
 
   uint32_t re = 0;
-  for (; re + NRLB_N <= length; re += NRLB_N) {
+  for (; re < length; re += NRLB_N) {
+    /* REs carried by this vector. The final vector is partial whenever
+     * length % NRLB_N != 0, which for PUSCH is EVERY symbol: a 273-PRB data
+     * symbol has 3276 data REs and a DMRS symbol 1638.
+     *
+     * Those REs used to be handed to the scalar candidate-LIST L-best
+     * (nr_qam*_llr_2layer_lbest_q15_layer with L = 9 / 25), which is a DIFFERENT
+     * detector from the GRID this body implements -- the L nearest constellation
+     * points to x_hat1, not the pattern's grid around the seed. Nine grid points
+     * are not the nine nearest points, so the tail REs of every symbol got LLRs
+     * from another algorithm, and the list path could even emit an unsubstituted
+     * SENT sentinel (-32768) as an LLR. Running the same grid over a zero-padded
+     * vector and storing only the valid REs is bit-exact with the body by
+     * construction. */
+    const uint32_t n = (length - re < (uint32_t)NRLB_N) ? (length - re) : (uint32_t)NRLB_N;
+    c16_t p_s0[NRLB_N], p_s1[NRLB_N], p_m0[NRLB_N], p_m1[NRLB_N], p_rh[NRLB_N];
+    const c16_t *i_s0 = &stream0_in[re], *i_s1 = &stream1_in[re];
+    const c16_t *i_m0 = &ch_mag[re], *i_m1 = &ch_mag_i[re], *i_rh = &rho01[re];
+    if (n != (uint32_t)NRLB_N) {
+      /* Zero-pad into staging rather than over-reading the caller's buffers: the
+       * loads take NRLB_N REs, and for NRLB_W == 512 that would run up to 31 REs
+       * past `length`, beyond the ceil_mod(rb*12, 16) padding callers provide. */
+      memset(p_s0, 0, sizeof p_s0);
+      memset(p_s1, 0, sizeof p_s1);
+      memset(p_m0, 0, sizeof p_m0);
+      memset(p_m1, 0, sizeof p_m1);
+      memset(p_rh, 0, sizeof p_rh);
+      memcpy(p_s0, i_s0, n * sizeof(c16_t));
+      memcpy(p_s1, i_s1, n * sizeof(c16_t));
+      memcpy(p_m0, i_m0, n * sizeof(c16_t));
+      memcpy(p_m1, i_m1, n * sizeof(c16_t));
+      memcpy(p_rh, i_rh, n * sizeof(c16_t));
+      i_s0 = p_s0; i_s1 = p_s1; i_m0 = p_m0; i_m1 = p_m1; i_rh = p_rh;
+    }
     NRLB_VI z1r, z1i, z2r, z2i, rr, ri, cm0, cm1, dummy;
-    NRLB_NAME(nrlbw_load)(&stream0_in[re], &z1r, &z1i);
-    NRLB_NAME(nrlbw_load)(&stream1_in[re], &z2r, &z2i);
-    NRLB_NAME(nrlbw_load)(&rho01[re], &rr, &ri);
-    NRLB_NAME(nrlbw_load)(&ch_mag[re], &cm0, &dummy);
-    NRLB_NAME(nrlbw_load)(&ch_mag_i[re], &cm1, &dummy);
+    NRLB_NAME(nrlbw_load)(i_s0, &z1r, &z1i);
+    NRLB_NAME(nrlbw_load)(i_s1, &z2r, &z2i);
+    NRLB_NAME(nrlbw_load)(i_rh, &rr, &ri);
+    NRLB_NAME(nrlbw_load)(i_m0, &cm0, &dummy);
+    NRLB_NAME(nrlbw_load)(i_m1, &cm1, &dummy);
 
     NRLB_VI centerI, centerQ, dirImask, dirQmask;
     NRLB_NAME(nrlbw_seed)(z1r, z1i, z2r, z2i, rr, ri, cm0, cm1, &centerI, &centerQ, &dirImask, &dirQmask);
@@ -232,12 +265,18 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
       r = NRLB_BLENDV(r, NRLB_MM(set1_epi16)(NR_LBEST_Q_LLR_SAT), NRLB_CMPEQ16(max1[p], SENT));
       res[p] = r;
     }
-    NRLB_NAME(nrlbw_store_llr)(stream0_out, re, res, 6);
+    /* One call site on purpose: the NRLB_W == 512 variant of nrlbw_store_llr
+     * needs to be unrolled for its lane-extract immediates to stay compile-time
+     * constants, and a second call site can defeat that. So for a partial vector
+     * retarget the SAME call at a temp and copy out the n valid REs -- the
+     * temp+memcpy idiom the non-L-best kernels here already use for their tails. */
+    int16_t tail_tmp[NRLB_N * 8];
+    const int partial = (n != (uint32_t)NRLB_N);
+    NRLB_NAME(nrlbw_store_llr)(partial ? tail_tmp : stream0_out, partial ? 0u : re, res, 6);
+    if (partial)
+      memcpy(&stream0_out[(size_t)re * 6], tail_tmp, (size_t)n * 6 * sizeof(int16_t));
   }
 
-  if (re < length)
-    nr_qam64_llr_2layer_lbest_q15_layer(&stream0_in[re], &stream1_in[re], &ch_mag[re], &ch_mag_i[re],
-                                        &stream0_out[re * 6], &rho01[re], length - re, 9);
 }
 
 #undef NR_LBEST_METRIC16
