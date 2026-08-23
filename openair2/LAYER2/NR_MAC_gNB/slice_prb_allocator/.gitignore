@@ -1,0 +1,11 @@
+# Build artifacts
+test_slice_prb_allocator
+*.o
+*.a
+*.so
+
+# Editor files
+*~
+*.swp
+*.swo
+.DS_Store

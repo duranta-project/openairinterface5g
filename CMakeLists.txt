@@ -1227,6 +1227,7 @@ set (MAC_NR_SRC
   ${NR_GNB_MAC_DIR}/gNB_scheduler_bch.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_dlsch.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_dlsch_default_policies.c
+  ${NR_GNB_MAC_DIR}/slice_prb_allocator/slice_prb_allocator.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_ulsch.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_ulsch_default_policies.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_primitives.c

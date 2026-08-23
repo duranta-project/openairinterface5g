@@ -805,7 +805,8 @@ int main(int argc, char **argv)
                                 .timer_config.n311 = 1,
                                 .timer_config.t319 = 400,
                                 .num_agg_level_candidates = {0, 0, 1, 1, 0},
-                                .spatial_stream_index = {0, 1, 2, 3}};
+                                .spatial_stream_index = {0, 1, 2, 3},
+                                .coreset_duration = 1};
   const nr_rlc_configuration_t rlc_config = {
     .srb = {
       .t_poll_retransmit = 45,

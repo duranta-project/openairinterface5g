@@ -2140,6 +2140,12 @@ static int compare_ul_beam_idx(const void *a, const void *b)
   return ((const nr_ul_candidate_t *)a)->alloc_beam_idx - ((const nr_ul_candidate_t *)b)->alloc_beam_idx;
 }
 
+/*! \brief Modular UL scheduler pipeline (RI/TPMI → beam → TDA → MCS → RB → dispatch).
+ *
+ * \p slice_prb and \p remainUEs_ext are used when called from nr_ul_schedule_ns():
+ * RB search and fair-share are limited to the slice PRB range; remainUEs is shared
+ * across slices and decremented in the dispatch loop below. Both NULL for SCHE_PF.
+ */
 static int nr_ul_schedule(gNB_MAC_INST *nrmac,
                           nr_cell_sched_t *cell,
                           post_process_pusch_t *pp_pusch,
@@ -2150,10 +2156,16 @@ static int nr_ul_schedule(gNB_MAC_INST *nrmac,
                           int n_rb_sched[num_beams],
                           frame_t sched_frame,
                           slot_t sched_slot,
-                          int k2)
+                          int k2,
+                          const slice_prb_range_t *slice_prb,
+                          int *remainUEs_ext)
 {
+  if (slice_prb != NULL && (slice_prb->num_prbs <= 0 || remainUEs_ext == NULL))
+    return 0;
+
+  const bool use_slice = (slice_prb != NULL);
   int frame = pp_pusch->frame;
-  int slot = pp_pusch->slot;
+  slot_t slot = pp_pusch->slot;
   NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   int slots_per_frame = cell->frame_structure.numb_slots_frame;
 
@@ -2185,18 +2197,25 @@ static int nr_ul_schedule(gNB_MAC_INST *nrmac,
     return 0;
 
   const int min_rb = cell->min_grant_prb;
-  int remainUEs[num_beams];
-  for (int i = 0; i < num_beams; i++)
-    remainUEs[i] = max_num_ue;
+  int remainUEs_local[num_beams];
+  int *remainUEs;
+  if (use_slice)
+    remainUEs = remainUEs_ext;
+  else {
+    remainUEs = remainUEs_local;
+    for (int i = 0; i < num_beams; i++)
+      remainUEs_local[i] = max_num_ue;
+  }
   int num_ue_sched = 0;
 
   /* Step 5: MCS selection — updates BLER-based MCS for all candidates
    * (including skipped ones, so the BLER ramp evolves even for unscheduled UEs). */
   nrmac->ul_mcs_select(cell, candidates, n_cand);
 
-  /* Step 6: Sort by beam, then call RB allocation policy per beam */
+  /* Step 6: RB allocation policy per beam */
   qsort(candidates, n_cand, sizeof(*candidates), compare_ul_beam_idx);
 
+  /* NS: tell the RB policy the absolute slice range and size for fair-share math. */
   nr_ul_sched_params_t params = {
       .mac = nrmac,
       .cell = cell,
@@ -2212,11 +2231,13 @@ static int nr_ul_schedule(gNB_MAC_INST *nrmac,
       .bler_upper = cell->ul_bler.upper,
       .bler_opts = &cell->ul_bler,
       .scc = scc,
+      .slice_rb_start = use_slice ? slice_prb->start_prb : -1,
+      .slice_rb_end = use_slice ? slice_prb->end_prb : -1,
   };
   const int index = ul_buffer_index(sched_frame, sched_slot, slots_per_frame, cell->vrb_map_UL_size);
   for (int b = 0; b < num_beams; b++) {
     params.vrb_map_UL[b] = &cell->common_channels.vrb_map_UL[b][index * MAX_BWP_SIZE];
-    params.n_rb_avail[b] = n_rb_sched[b];
+    params.n_rb_avail[b] = use_slice ? slice_prb->num_prbs : n_rb_sched[b];
   }
 
   int i = 0;
@@ -2230,7 +2251,30 @@ static int nr_ul_schedule(gNB_MAC_INST *nrmac,
       continue;
     int count = i - start;
 
+    if (use_slice)
+      params.max_num_ue = remainUEs[beam]; /* shared DCI budget across slices */
     nrmac->ul_rb_alloc(&params, candidates + start, count);
+  }
+
+  /* Under NS, abort HARQ when a retx cannot be placed inside the slice PRB range. */
+  if (use_slice) {
+    for (int j = 0; j < n_cand; j++) {
+      nr_ul_candidate_t *cand = &candidates[j];
+      if (!cand->is_retx || cand->scheduled || cand->skipped)
+        continue;
+      NR_UE_sched_ctrl_t *sched_ctrl = &cand->UE->UE_sched_ctrl;
+      int harq_pid = cand->retx_harq_pid;
+      LOG_D(NR_MAC,
+            "[UE %04x][%4d.%2d] UL retransmission could not be allocated (slice: abort HARQ)\n",
+            cand->rnti,
+            frame,
+            slot);
+      reset_beam_status(&cell->beam_info, frame, slot, cand->beam_index, slots_per_frame, cand->alloc_dci_beam_new);
+      reset_beam_status(&cell->beam_info, sched_frame, sched_slot, cand->beam_index, slots_per_frame, cand->alloc_sched_beam_new);
+      remove_nr_list(&sched_ctrl->retrans_ul_harq, harq_pid);
+      abort_nr_ul_harq(cand->UE, harq_pid);
+      cand->skipped = true;
+    }
   }
 
   /* Release beam reservations for candidates the policy rejected (failed
@@ -2778,8 +2822,278 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
   return numUE;
 }
 
+/*! \brief Subset of pre-collected UL candidates for one slice/beam (NS UE layer).
+ *
+ * Candidates are built once in nr_ulsch_preprocessor(); NS filters by effective
+ * nssai (nr_mac_get_ue_effective_nssai) and beam_index instead of re-collecting. */
+static int filter_ul_candidates_for_slice(const nr_ul_candidate_t *src,
+                                          int n_src,
+                                          int beam_idx,
+                                          const slice_prb_range_t *slice,
+                                          nr_ul_candidate_t *dst,
+                                          int max_dst)
+{
+  int n = 0;
+  for (int i = 0; i < n_src && n < max_dst; i++) {
+    if (src[i].beam_index != beam_idx)
+      continue;
+    nssai_t ue_slice = {0};
+    nr_mac_get_ue_effective_nssai(&src[i].UE->UE_sched_ctrl, &ue_slice);
+    if (ue_slice.sst != slice->slice_id.sst || ue_slice.sd != slice->slice_id.sd)
+      continue;
+    dst[n++] = src[i];
+  }
+  return n;
+}
+
+/*! \brief Run nr_ul_schedule() on a candidate subset (per-slice NS helper).
+ *
+ * Copies candidates before nr_ul_schedule() because the pipeline mutates them
+ * (skipped flags, alloc_* fields). Without a copy, scheduling slice B would see
+ * state left over from slice A in the same K2 iteration. */
+static int nr_ul_schedule_candidates(gNB_MAC_INST *nrmac,
+                                     nr_cell_sched_t *cell,
+                                     post_process_pusch_t *pp_pusch,
+                                     const nr_ul_candidate_t *candidates,
+                                     int n_cand,
+                                     int max_num_ue,
+                                     int num_beams,
+                                     int n_rb_sched[num_beams],
+                                     frame_t sched_frame,
+                                     slot_t sched_slot,
+                                     int k2,
+                                     const slice_prb_range_t *slice_prb,
+                                     int *remainUEs)
+{
+  if (n_cand == 0)
+    return 0;
+
+  nr_ul_candidate_t slice_cands[MAX_MOBILES_PER_GNB];
+  memcpy(slice_cands, candidates, sizeof(nr_ul_candidate_t) * n_cand);
+
+  return nr_ul_schedule(nrmac,
+                        cell,
+                        pp_pusch,
+                        slice_cands,
+                        n_cand,
+                        max_num_ue,
+                        num_beams,
+                        n_rb_sched,
+                        sched_frame,
+                        sched_slot,
+                        k2,
+                        slice_prb,
+                        remainUEs);
+}
+
+static int ul_ns_ue_slice_required_prbs(gNB_MAC_INST *nrmac,
+                                        const nr_cell_sched_t *cell,
+                                        NR_UE_info_t *UE,
+                                        const slice_nssai_t *slice_nssai,
+                                        int total_prbs,
+                                        frame_t frame,
+                                        slot_t slot)
+{
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  nssai_t ue_slice = {0};
+  nr_mac_get_ue_effective_nssai(sched_ctrl, &ue_slice);
+  /* SRBs stay on the same slice as the UE DRB (effective NSSAI). */
+  if (ue_slice.sst != slice_nssai->sst || ue_slice.sd != slice_nssai->sd)
+    return 0;
+
+  int B = max(0, sched_ctrl->estimated_ul_buffer - sched_ctrl->sched_ul_bytes);
+
+  /* Also look at SRB1/SRB2 RLC. BSR alone can miss control-plane demand
+   * (e.g. after reestablishment), which previously left the slice at
+   * require=0 and starved SRB UL → RLC max RETX / RLF. */
+  int srb_bytes = 0;
+  for (int i = 0; i < seq_arr_size(&sched_ctrl->lc_config); ++i) {
+    const nr_lc_config_t *lc = seq_arr_at(&sched_ctrl->lc_config, i);
+    if (lc->suspended)
+      continue;
+    if (lc->lcid != UL_SCH_LCID_SRB1 && lc->lcid != UL_SCH_LCID_SRB2)
+      continue;
+    mac_rlc_status_resp_t st = {0};
+    logical_chan_id_t ch = lc->lcid;
+    nr_mac_rlc_status_ind(UE->rnti, frame, 1, &ch, &st);
+    if (st.bytes_in_buffer > 0)
+      srb_bytes += st.bytes_in_buffer;
+  }
+
+  const int bytes_per_prb_estimate = 2;
+  const int bytes = B + srb_bytes;
+  int required_prbs = bytes > 0 ? (bytes + bytes_per_prb_estimate - 1) / bytes_per_prb_estimate : 0;
+
+  /* Pending UL HARQ retx must keep the original rbSize; count it so the
+   * slice PRB range does not shrink below what remapping needs. */
+  for (int harq_pid = sched_ctrl->retrans_ul_harq.head; harq_pid >= 0;
+       harq_pid = sched_ctrl->retrans_ul_harq.next[harq_pid]) {
+    required_prbs += sched_ctrl->ul_harq_processes[harq_pid].sched_pusch.rbSize;
+  }
+
+  const bool do_sched = nr_UE_is_to_be_scheduled(&cell->frame_structure,
+                                                 UE,
+                                                 frame,
+                                                 slot,
+                                                 cell->ulsch_max_frame_inactivity);
+  /* Min grant when the UE should be scheduled or SRB RLC has pending bytes. */
+  if (do_sched || srb_bytes > 0)
+    required_prbs = max(required_prbs, (int)cell->min_grant_prb);
+
+  return min(required_prbs, total_prbs);
+}
+
+/*! \brief Network slicing UL orchestrator (slice layer + intra-slice UE scheduler).
+ *
+ * Same two-layer pattern as nr_dl_schedule_ns(): per beam, estimate slice demand,
+ * run slice_prb_allocator, then schedule each slice's UEs via nr_ul_schedule_candidates()
+ * with slice_rb_start/end and shared remainUEs. UL slice demand uses
+ * ul_ns_ue_slice_required_prbs(). Falls back to full-band scheduling if no slices.
+ *
+ * \p candidates / \p n_cand come from collect_ul_candidates() in the preprocessor
+ * (shared by PF and NS). NS does not collect again; it filters per slice instead.
+ */
+static int nr_ul_schedule_ns(gNB_MAC_INST *nrmac,
+                             nr_cell_sched_t *cell,
+                             post_process_pusch_t *pp_pusch,
+                             frame_t sched_frame,
+                             slot_t sched_slot,
+                             int k2,
+                             const nr_ul_candidate_t *candidates,
+                             int n_cand,
+                             int max_num_ue,
+                             int num_beams,
+                             int n_rb_sched[num_beams])
+{
+  if (n_cand == 0)
+    return 0;
+
+  if (nrmac->slice_scheduler_ul == NULL || slice_sch_get_num_slices(nrmac->slice_scheduler_ul) == 0) {
+    /* No slice config: treat NS like PF on the pre-collected candidate set. */
+    return nr_ul_schedule_candidates(nrmac,
+                                     cell,
+                                     pp_pusch,
+                                     candidates,
+                                     n_cand,
+                                     max_num_ue,
+                                     num_beams,
+                                     n_rb_sched,
+                                     sched_frame,
+                                     sched_slot,
+                                     k2,
+                                     NULL,
+                                     NULL);
+  }
+
+  const int slots_per_frame = cell->frame_structure.numb_slots_frame;
+
+  NR_UE_info_t **UEs_in_this_beam = calloc(MAX_MOBILES_PER_GNB + 1, sizeof(NR_UE_info_t *));
+  if (UEs_in_this_beam == NULL) {
+    LOG_W(NR_MAC, "nr_ul_schedule_ns: OOM, falling back to PF\n");
+    return nr_ul_schedule_candidates(nrmac,
+                                     cell,
+                                     pp_pusch,
+                                     candidates,
+                                     n_cand,
+                                     max_num_ue,
+                                     num_beams,
+                                     n_rb_sched,
+                                     sched_frame,
+                                     sched_slot,
+                                     k2,
+                                     NULL,
+                                     NULL);
+  }
+
+  int remainUEs[num_beams];
+  for (int i = 0; i < num_beams; i++)
+    remainUEs[i] = max_num_ue; /* shared across slices; decremented per nr_ul_schedule() */
+
+  int total_sched = 0;
+
+  for (int beam_idx = 0; beam_idx < num_beams; beam_idx++) {
+    /* --- Slice layer: demand + PRB range allocation for this beam --- */
+    int UEs_in_this_beam_count = 0;
+    memset(UEs_in_this_beam, 0, sizeof(NR_UE_info_t *) * (MAX_MOBILES_PER_GNB + 1));
+    UE_iterator(nrmac->UE_info.connected_ue_list, UE)
+    {
+      if (UE->UE_beam_index == beam_idx) {
+        UEs_in_this_beam[UEs_in_this_beam_count] = UE;
+        UEs_in_this_beam_count++;
+      }
+      if (UEs_in_this_beam_count >= MAX_MOBILES_PER_GNB)
+        break;
+    }
+    if (UEs_in_this_beam_count == 0)
+      continue;
+
+    int total_prbs = n_rb_sched[beam_idx];
+    slice_sch_update_total_prbs(nrmac->slice_scheduler_ul, total_prbs);
+
+    slice_scheduler_t *slice_scheduler = nrmac->slice_scheduler_ul;
+    int num_slices = slice_sch_get_num_slices(slice_scheduler);
+    for (int s = 0; s < num_slices; s++) {
+      int required_prbs = 0;
+      const slice_nssai_t *slice_nssai = slice_sch_get_slice_nssai(slice_scheduler, s);
+      if (slice_nssai == NULL)
+        continue;
+      UE_iterator(UEs_in_this_beam, UE) {
+        required_prbs += ul_ns_ue_slice_required_prbs(nrmac, cell, UE, slice_nssai, total_prbs, sched_frame, sched_slot);
+      }
+      if (required_prbs > total_prbs)
+        required_prbs = total_prbs;
+      slice_sch_update_require(slice_scheduler, slice_nssai->sst, slice_nssai->sd, required_prbs);
+    }
+
+    slice_sch_schedule(slice_scheduler);
+    int num_ranges = 0;
+    const slice_prb_range_t *allocation = slice_sch_get_allocation(slice_scheduler, &num_ranges);
+    if (allocation == NULL || num_ranges == 0)
+      continue;
+
+    /* Rotate slice order for fair access to shared remainUEs; PRB ranges are fixed. */
+    const int start = (sched_frame * slots_per_frame + sched_slot) % num_ranges;
+
+    /* UE layer: one modular PF run per slice inside its PRB range. */
+    for (int i = 0; i < num_ranges; i++) {
+      const int s = (start + i) % num_ranges;
+      if (allocation[s].num_prbs <= 0)
+        continue;
+
+      nr_ul_candidate_t slice_cands[MAX_MOBILES_PER_GNB];
+      int n_slice_cand = filter_ul_candidates_for_slice(candidates,
+                                                        n_cand,
+                                                        beam_idx,
+                                                        &allocation[s],
+                                                        slice_cands,
+                                                        MAX_MOBILES_PER_GNB);
+      if (n_slice_cand == 0)
+        continue;
+
+      total_sched += nr_ul_schedule_candidates(nrmac,
+                                               cell,
+                                               pp_pusch,
+                                               slice_cands,
+                                               n_slice_cand,
+                                               max_num_ue,
+                                               num_beams,
+                                               n_rb_sched,
+                                               sched_frame,
+                                               sched_slot,
+                                               k2,
+                                               &allocation[s],
+                                               remainUEs);
+    }
+  }
+
+  free(UEs_in_this_beam);
+  return total_sched;
+}
+
 void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_process_pusch_t *pp_pusch)
 {
+  /* Outer loop: for each reachable UL slot (K2), collect once, then branch PF/NS.
+   * PF and NS share collect_ul_candidates(); only the orchestrator below differs. */
   int frame = pp_pusch->frame;
   int slot = pp_pusch->slot;
 
@@ -2854,16 +3168,43 @@ void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_pro
     int len[num_beams];
     for (int i = 0; i < num_beams; i++)
       len[i] = bw;
-    int sched = nr_ul_schedule(nr_mac, cell, pp_pusch, candidates, n_cand, max_dci, num_beams, len, sched_frame, sched_slot, k2);
-    LOG_D(NR_MAC,
-          "run nr_ul_schedule() at %4d.%2d k2 %d (ULSCH at %4d.%2d) scheduled %d last_dl %d\n",
-          frame,
-          slot,
-          k2,
-          next->f,
-          next->s,
-          sched,
-          last_dl);
+
+    int sched;
+    if (nr_mac->scheduler_type_ul == SCHE_NS) {
+      /* Slice layer + per-slice nr_ul_schedule(); candidates filtered inside ns. */
+      sched = nr_ul_schedule_ns(nr_mac,
+                                cell,
+                                pp_pusch,
+                                sched_frame,
+                                sched_slot,
+                                k2,
+                                candidates,
+                                n_cand,
+                                max_dci,
+                                num_beams,
+                                len);
+      LOG_D(NR_MAC,
+            "run nr_ul_schedule_ns() at %4d.%2d k2 %d (ULSCH at %4d.%2d) scheduled %d last_dl %d\n",
+            frame,
+            slot,
+            k2,
+            next->f,
+            next->s,
+            sched,
+            last_dl);
+    } else {
+      /* Full-band modular PF on the same candidate snapshot. */
+      sched = nr_ul_schedule(nr_mac, cell, pp_pusch, candidates, n_cand, max_dci, num_beams, len, sched_frame, sched_slot, k2, NULL, NULL);
+      LOG_D(NR_MAC,
+            "run nr_ul_schedule() at %4d.%2d k2 %d (ULSCH at %4d.%2d) scheduled %d last_dl %d\n",
+            frame,
+            slot,
+            k2,
+            next->f,
+            next->s,
+            sched,
+            last_dl);
+    }
     /* if we did not schedule anything, and it's not the last slot, break. In
      * the case we did schedule or it's the last slot (see above!), continue
      * advancing till there is no TDA anymore */

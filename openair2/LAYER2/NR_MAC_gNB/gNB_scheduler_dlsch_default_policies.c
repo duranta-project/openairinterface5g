@@ -10,6 +10,11 @@
  * wired up at MAC init time.  They can be replaced at runtime by external
  * scheduler plug-ins without touching the core scheduling loop in
  * gNB_scheduler_dlsch.c.
+ *
+ * nr_dl_proportional_fair (dl_rb_alloc default) honours nr_dl_sched_params_t::slice_rb_start/end
+ * when SCHE_NS calls nr_dl_schedule() per slice:
+ *   nr_slice_rb_bounds() maps absolute slice PRBs → BWP-relative search range
+ *   get_rb_alloc_slice() places RBs only inside slice ∩ UE BWP
  */
 
 #include "common/utils/nr/nr_common.h"
@@ -183,6 +188,37 @@ static int compare_dl_pf_rb_ptrs(const void *a, const void *b)
   return (wa < wb) - (wa > wb);
 }
 
+/* RB allocation helper used by nr_dl_proportional_fair.
+ * SCHE_PF: slice_rb_start < 0 → search full UE BWP (same as legacy get_rb_alloc).
+ * SCHE_NS: intersect slice range from slice_prb_allocator with UE BWP, then search
+ *          only inside that intersection via get_rb_alloc_slice(). */
+static bool nr_dl_get_rb_alloc(const nr_dl_sched_params_t *params,
+                               const nr_dl_candidate_t *cand,
+                               int rbSize_min,
+                               int rbSize_max,
+                               const uint16_t *vrb_map,
+                               int *rbStart,
+                               int *rbSize)
+{
+  int slice_start, slice_end;
+  nr_slice_rb_bounds(params->slice_rb_start,
+                     params->slice_rb_end,
+                     cand->bwp_start,
+                     cand->bwp_size,
+                     &slice_start,
+                     &slice_end);
+  return get_rb_alloc_slice(rbSize_min,
+                            rbSize_max,
+                            cand->bwp_start,
+                            cand->bwp_size,
+                            vrb_map,
+                            cand->alloc_slbitmap,
+                            slice_start,
+                            slice_end,
+                            rbStart,
+                            rbSize);
+}
+
 int nr_dl_proportional_fair(const nr_dl_sched_params_t *params, nr_dl_candidate_t *candidates, int n_candidates)
 {
   const int min_rbSize = 5;
@@ -205,14 +241,7 @@ int nr_dl_proportional_fair(const nr_dl_sched_params_t *params, nr_dl_candidate_
     int needed_rbs = cand->retx_rbSize;
     uint16_t *vrb_map = params->vrb_map[cand->alloc_beam_idx];
     int rbStart, rbSize;
-    if (!get_rb_alloc(needed_rbs,
-                      cand->bwp_size,
-                      cand->bwp_start,
-                      cand->bwp_size,
-                      vrb_map,
-                      cand->alloc_slbitmap,
-                      &rbStart,
-                      &rbSize))
+    if (!nr_dl_get_rb_alloc(params, cand, needed_rbs, needed_rbs, vrb_map, &rbStart, &rbSize))
       continue;
 
     COMMIT_ALLOC(params, cand, rbStart, needed_rbs, cand->sched_pdsch.mcs, n_scheduled);
@@ -226,14 +255,7 @@ int nr_dl_proportional_fair(const nr_dl_sched_params_t *params, nr_dl_candidate_
 
     uint16_t *vrb_map = params->vrb_map[cand->alloc_beam_idx];
     int rbStart, rbSize;
-    if (!get_rb_alloc(min_rbSize,
-                      cand->bwp_size,
-                      cand->bwp_start,
-                      cand->bwp_size,
-                      vrb_map,
-                      cand->alloc_slbitmap,
-                      &rbStart,
-                      &rbSize))
+    if (!nr_dl_get_rb_alloc(params, cand, min_rbSize, min_rbSize, vrb_map, &rbStart, &rbSize))
       continue;
 
     COMMIT_ALLOC(params, cand, rbStart, min_rbSize, cand->sched_pdsch.mcs, n_scheduled);
@@ -241,8 +263,25 @@ int nr_dl_proportional_fair(const nr_dl_sched_params_t *params, nr_dl_candidate_
 
   /* BW is the same across all beams, just use beam 0 */
   int max_rbSize = params->n_rb_avail[0];
-  DevAssert(max_rbSize >= min_rbSize);
   int n_remain_ue = params->max_num_ue - n_scheduled;
+  if (n_remain_ue <= 0)
+    return n_scheduled;
+  /* NS can assign fewer PRBs than type-1 min (5); skip new-data PF rather than assert. */
+  if (max_rbSize < min_rbSize) {
+    static frame_t last_warn_frame = -1;
+    if (max_rbSize > 0 && params->frame != last_warn_frame) {
+      last_warn_frame = params->frame;
+      LOG_W(NR_MAC,
+            "%4d.%2d DL PF: slice [%d,%d) has %d PRBs < min %d, skip new-data\n",
+            params->frame,
+            params->slot,
+            params->slice_rb_start,
+            params->slice_rb_end,
+            max_rbSize,
+            min_rbSize);
+    }
+    return n_scheduled;
+  }
   // share RBs fairly between remaining allocatable UEs
   int n_rb_per_ue = max(min_rbSize, max_rbSize / n_remain_ue);
 
@@ -307,7 +346,7 @@ int nr_dl_proportional_fair(const nr_dl_sched_params_t *params, nr_dl_candidate_
     }
     int rbStart, rbSize;
     uint16_t *vrb_map = params->vrb_map[cand->alloc_beam_idx];
-    if (!get_rb_alloc(min_rbSize, rb_req, cand->bwp_start, cand->bwp_size, vrb_map, cand->alloc_slbitmap, &rbStart, &rbSize))
+    if (!nr_dl_get_rb_alloc(params, cand, min_rbSize, rb_req, vrb_map, &rbStart, &rbSize))
       continue;
 
     int mcs = cand->sched_pdsch.mcs;

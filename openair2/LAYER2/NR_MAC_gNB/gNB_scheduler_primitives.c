@@ -579,15 +579,21 @@ int get_cce_index(const nr_cell_sched_t *cell,
                   float pdcch_cl_adjust)
 {
   const uint32_t Y = get_Y(ss, slot, rnti);
+  int nr_of_candidates = 0;
+
   int agg_level_search_order[NUM_PDCCH_AGG_LEVELS];
   determine_aggregation_level_search_order(agg_level_search_order, pdcch_cl_adjust);
-  int nr_of_candidates;
+
+  /* Try ALs in preference order until a free candidate is found. */
+  int CCEIndex = -1;
   for (int i = 0; i < NUM_PDCCH_AGG_LEVELS; i++) {
     find_aggregation_candidates(aggregation_level, &nr_of_candidates, ss, 1 << agg_level_search_order[i]);
-    if (nr_of_candidates > 0)
+    if (nr_of_candidates == 0)
+      continue;
+    CCEIndex = find_pdcch_candidate(cell, *aggregation_level, nr_of_candidates, beam_idx, sched_pdcch, coreset, Y);
+    if (CCEIndex >= 0)
       break;
   }
-  int CCEIndex = find_pdcch_candidate(cell, *aggregation_level, nr_of_candidates, beam_idx, sched_pdcch, coreset, Y);
   return CCEIndex;
 }
 
@@ -757,18 +763,70 @@ int find_largest_free_block(const uint16_t *vrb_map, uint16_t slbitmap, int bwp_
   return best_len;
 }
 
-bool get_rb_alloc(int rbSize_min,
-                  int rbSize_max,
-                  int bwpStart,
-                  int bwpSize,
-                  const uint16_t *vrb_map,
-                  uint16_t sym_mask,
-                  int *rbStart_ptr,
-                  int *rbSize_ptr)
+/*! \brief Map absolute NS slice range to BWP-relative RB search bounds.
+ *
+ * Three coordinate layers on the carrier:
+ *  - slice_rb_start/end: absolute PRBs from slice_prb_allocator (cell-wide)
+ *  - bwp_start/size:     UE BWP on the carrier (may be smaller than the cell BW)
+ *  - slice_start/end_rel: intersection slice ∩ BWP, relative to bwp_start (for get_rb_alloc_slice)
+ *
+ * When slice_rb_start < 0 (SCHE_PF), returns (-1,-1) so get_rb_alloc_slice searches the full UE BWP.
+ */
+void nr_slice_rb_bounds(int slice_rb_start,
+                        int slice_rb_end,
+                        int bwp_start,
+                        int bwp_size,
+                        int *slice_start_rel,
+                        int *slice_end_rel)
 {
+  if (slice_rb_start < 0) {
+    /* PF path: no slice constraint — caller searches [0, bwp_size). */
+    *slice_start_rel = -1;
+    *slice_end_rel = -1;
+    return;
+  }
+  /* Convert absolute carrier PRBs to offsets inside this UE's BWP, then clip to BWP edges. */
+  int ws = slice_rb_start - bwp_start;
+  int we = slice_rb_end - bwp_start;
+  if (ws < 0)
+    ws = 0;
+  if (we > bwp_size)
+    we = bwp_size;
+  *slice_start_rel = ws;
+  *slice_end_rel = we;
+}
+
+/*! \brief Like get_rb_alloc() but limits contiguous RB search to a slice sub-range.
+ *
+ * bwpStart/bwpSize index the UE BWP inside vrb_map (unchanged from get_rb_alloc).
+ * slice_start_rel/slice_end_rel further restrict where free RBs may be taken:
+ * only [slice_start_rel, slice_end_rel) within that BWP is searched.
+ * Pass slice_start_rel < 0 to search the full UE BWP (SCHE_PF behaviour).
+ */
+bool get_rb_alloc_slice(int rbSize_min,
+                        int rbSize_max,
+                        int bwpStart,
+                        int bwpSize,
+                        const uint16_t *vrb_map,
+                        uint16_t sym_mask,
+                        int slice_start_rel,
+                        int slice_end_rel,
+                        int *rbStart_ptr,
+                        int *rbSize_ptr)
+{
+  if (slice_start_rel < 0) {
+    slice_start_rel = 0;
+    slice_end_rel = bwpSize;
+  } else {
+    slice_start_rel = max(0, min(slice_start_rel, bwpSize));
+    slice_end_rel = max(slice_start_rel, min(slice_end_rel, bwpSize));
+  }
+  if (slice_start_rel >= slice_end_rel)
+    return false;
+
   const uint16_t *bwp_map = &vrb_map[bwpStart];
-  int rbStart = 0;
-  while (rbStart + rbSize_min <= bwpSize) {
+  int rbStart = slice_start_rel;
+  while (rbStart + rbSize_min <= slice_end_rel) {
     // 1. Find the first free RB
     if ((bwp_map[rbStart] & sym_mask) != 0) {
       rbStart++;
@@ -777,6 +835,7 @@ bool get_rb_alloc(int rbSize_min,
 
     // 2. Measure contiguous block
     int current_limit = min(rbStart + rbSize_max, bwpSize);
+    current_limit = min(current_limit, slice_end_rel);
     int rbEnd = rbStart + 1;
     while (rbEnd < current_limit && (bwp_map[rbEnd] & sym_mask) == 0) {
       rbEnd++;
@@ -794,6 +853,28 @@ bool get_rb_alloc(int rbSize_min,
     rbStart = rbEnd + 1;
   }
   return false;
+}
+
+bool get_rb_alloc(int rbSize_min,
+                  int rbSize_max,
+                  int bwpStart,
+                  int bwpSize,
+                  const uint16_t *vrb_map,
+                  uint16_t sym_mask,
+                  int *rbStart_ptr,
+                  int *rbSize_ptr)
+{
+  /* Full UE BWP: equivalent to get_rb_alloc_slice with no slice constraint. */
+  return get_rb_alloc_slice(rbSize_min,
+                            rbSize_max,
+                            bwpStart,
+                            bwpSize,
+                            vrb_map,
+                            sym_mask,
+                            -1,
+                            -1,
+                            rbStart_ptr,
+                            rbSize_ptr);
 }
 
 const NR_DMRS_UplinkConfig_t *get_DMRS_UplinkConfig(const NR_PUSCH_Config_t *pusch_Config, const NR_tda_info_t *tda_info)
@@ -4119,6 +4200,8 @@ bool prepare_initial_ul_rrc_message(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR
   nr_rlc_add_srb(UE->rnti, bearer->servedRadioBearer->choice.srb_Identity, bearer);
   int priority = bearer->mac_LogicalChannelConfig->ul_SpecificParameters->priority;
   nr_lc_config_t c = {.lcid = bearer->logicalChannelIdentity, .priority = priority};
+  c.nssai.sst = 1;
+  c.nssai.sd = 0xffffff;
   nr_mac_add_lcid(&UE->UE_sched_ctrl, &c);
   return true;
 }
@@ -4326,6 +4409,46 @@ nr_lc_config_t *nr_mac_get_lc_config(NR_UE_sched_ctrl_t* sched_ctrl, int lcid)
     return elm.it;
   else
     return NULL;
+}
+
+void nr_mac_get_default_srb_nssai(nssai_t *nssai)
+{
+  DevAssert(nssai != NULL);
+  nssai->sst = 1;
+  nssai->sd = 0xffffff;
+}
+
+bool nr_mac_get_ue_first_drb_nssai(const NR_UE_sched_ctrl_t *sched_ctrl, nssai_t *nssai)
+{
+  DevAssert(sched_ctrl != NULL);
+  for (int i = 0; i < seq_arr_size(&sched_ctrl->lc_config); ++i) {
+    const nr_lc_config_t *lc = seq_arr_at(&sched_ctrl->lc_config, i);
+    if (lc->lcid < 3)
+      continue;
+    if (nssai != NULL)
+      *nssai = lc->nssai;
+    return true;
+  }
+  return false;
+}
+
+void nr_mac_get_ue_effective_nssai(const NR_UE_sched_ctrl_t *sched_ctrl, nssai_t *nssai)
+{
+  DevAssert(nssai != NULL);
+  if (!nr_mac_get_ue_first_drb_nssai(sched_ctrl, nssai))
+    nr_mac_get_default_srb_nssai(nssai);
+}
+
+void nr_mac_remap_ue_srbs_to_nssai(NR_UE_sched_ctrl_t *sched_ctrl, const nssai_t *nssai)
+{
+  DevAssert(sched_ctrl != NULL);
+  DevAssert(nssai != NULL);
+  for (int i = 0; i < seq_arr_size(&sched_ctrl->lc_config); ++i) {
+    nr_lc_config_t *lc = seq_arr_at(&sched_ctrl->lc_config, i);
+    if (lc->lcid >= 3)
+      continue;
+    lc->nssai = *nssai;
+  }
 }
 
 bool nr_mac_add_lcid(NR_UE_sched_ctrl_t* sched_ctrl, const nr_lc_config_t *c)

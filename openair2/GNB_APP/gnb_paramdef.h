@@ -96,6 +96,7 @@ typedef enum {
 #define GNB_CONFIG_STRING_NUM_DL_HARQPROCESSES          "num_dlharq"
 #define GNB_CONFIG_STRING_NUM_UL_HARQPROCESSES          "num_ulharq"
 #define GNB_CONFIG_STRING_UESS_AGG_LEVEL_LIST           "uess_agg_levels"
+#define GNB_CONFIG_STRING_CORESET_DURATION              "coreset_duration"
 #define GNB_CONFIG_STRING_CU_SIB_LIST                   "cu_sibs"
 #define GNB_CONFIG_STRING_DU_SIB_LIST                   "du_sibs"
 #define GNB_CONFIG_STRING_CONFIG_REP                    "CSI_report_type"
@@ -111,6 +112,7 @@ typedef enum {
 #define GNB_CONFIG_HLP_NUM_DL_HARQ                      "Set Num DL harq processes. Valid values 2,4,6,8,10,12,16,32. Default 16"
 #define GNB_CONFIG_HLP_NUM_UL_HARQ                      "Set Num UL harq processes. Valid values 16,32. Default 16"
 #define GNB_CONFIG_HLP_UESS_AGG_LEVEL_LIST              "List of aggregation levels with number of candidates per level. Element 0 - aggregation level 1"
+#define GNB_CONFIG_HLP_CORESET_DURATION                 "CORESET duration in OFDM symbols (1, 2 or 3). Replaces former BWP-size heuristic; default 1"
 #define GNB_CONFIG_HLP_CU_SIBS                          "List of CU generated SIBs to be transmitted"
 #define GNB_CONFIG_HLP_DU_SIBS                          "List of DU generated SIBs to be transmitted"
 #define GNB_CONFIG_HLP_CONFIG_REP                       "Define quantity for CSI report (options: ssb_rsrp, ssb_sinr and cri_rsrp)"
@@ -163,6 +165,7 @@ typedef enum {
 {GNB_CONFIG_STRING_CONFIG_REP, GNB_CONFIG_HLP_CONFIG_REP, 0,          .strptr=NULL, .defstrval="ssb_rsrp",        TYPE_STRING,    0},  \
 {GNB_CONFIG_STRING_1ST_ACTIVE_BWP,               NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
 {GNB_CONFIG_STRING_LIMIT_RSRP_REPORT,            NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
+{GNB_CONFIG_STRING_CORESET_DURATION, GNB_CONFIG_HLP_CORESET_DURATION, 0, .iptr=NULL, .defintval=1,               TYPE_INT,       0},  \
 }
 // clang-format on
 
@@ -207,10 +210,12 @@ typedef enum {
 #define GNB_CONFIG_REP_IDX              37
 #define GNB_1ST_ACTIVE_BWP_IDX          38
 #define GNB_LIMIT_RSRP_REPORT_IDX       39
+#define GNB_CORESET_DURATION_IDX        40
 
 #define TRACKING_AREA_CODE_OKRANGE {0x0001,0xFFFD}
 #define NUM_DL_HARQ_OKVALUES {2,4,6,8,10,12,16,32}
 #define NUM_UL_HARQ_OKVALUES {16,32}
+#define CORESET_DURATION_OKVALUES {1,2,3}
 
 #define GNBPARAMS_CHECK {                                         \
   { .s5 = { NULL } },                                             \
@@ -259,6 +264,7 @@ typedef enum {
              3 } }, \
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
+  { .s1 =  { config_check_intval, CORESET_DURATION_OKVALUES, 3 } }, \
 }
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------*/
@@ -596,6 +602,72 @@ typedef enum {
 #define SNSSAIPARAMS_CHECK {                                           \
   { .s2 = { config_check_intrange, SLICE_SERVICE_TYPE_OKRANGE } },        \
   { .s2 = { config_check_intrange, SLICE_DIFFERENTIATOR_TYPE_OKRANGE } }, \
+}
+
+/* Network Slice configuration */
+
+#define GNB_CONFIG_STRING_SLICES_LIST                   "Slices"
+
+#define GNB_CONFIG_STRING_SLICE_ID                       "slice_id"
+#define GNB_CONFIG_STRING_SLICE_SST                      "sst"
+#define GNB_CONFIG_STRING_SLICE_SD                       "sd"
+#define GNB_CONFIG_STRING_SLICE_DEDICATED_PRB_RATIO      "dedicated_prb_ratio"
+#define GNB_CONFIG_STRING_SLICE_MIN_PRB_RATIO            "min_prb_ratio"
+#define GNB_CONFIG_STRING_SLICE_MAX_PRB_RATIO            "max_prb_ratio"
+#define GNB_CONFIG_STRING_SLICE_DL_DEDICATED_PRB_RATIO   "dl_dedicated_prb_ratio"
+#define GNB_CONFIG_STRING_SLICE_DL_MIN_PRB_RATIO        "dl_min_prb_ratio"
+#define GNB_CONFIG_STRING_SLICE_DL_MAX_PRB_RATIO        "dl_max_prb_ratio"
+#define GNB_CONFIG_STRING_SLICE_UL_DEDICATED_PRB_RATIO  "ul_dedicated_prb_ratio"
+#define GNB_CONFIG_STRING_SLICE_UL_MIN_PRB_RATIO       "ul_min_prb_ratio"
+#define GNB_CONFIG_STRING_SLICE_UL_MAX_PRB_RATIO        "ul_max_prb_ratio"
+
+#define GNB_SLICE_ID_IDX                 0
+#define GNB_SLICE_SST_IDX               1
+#define GNB_SLICE_SD_IDX                2
+#define GNB_SLICE_DEDICATED_PRB_RATIO_IDX 3
+#define GNB_SLICE_MIN_PRB_RATIO_IDX     4
+#define GNB_SLICE_MAX_PRB_RATIO_IDX     5
+#define GNB_SLICE_DL_DEDICATED_PRB_RATIO_IDX 6
+#define GNB_SLICE_DL_MIN_PRB_RATIO_IDX     7
+#define GNB_SLICE_DL_MAX_PRB_RATIO_IDX     8
+#define GNB_SLICE_UL_DEDICATED_PRB_RATIO_IDX 9
+#define GNB_SLICE_UL_MIN_PRB_RATIO_IDX     10
+#define GNB_SLICE_UL_MAX_PRB_RATIO_IDX     11
+
+#define GNBSLICEPARAMS_DESC {                                                                  \
+/*   optname                               helpstr                 paramflags XXXptr     def val              type    numelt */ \
+  {GNB_CONFIG_STRING_SLICE_ID,            "slice identifier",             0, .iptr=NULL, .defintval=0,         TYPE_INT, 0},    \
+  {GNB_CONFIG_STRING_SLICE_SST,           "slice service type",           0, .uptr=NULL, .defuintval=1,        TYPE_UINT, 0},    \
+  {GNB_CONFIG_STRING_SLICE_SD,             "slice differentiator",         0, .uptr=NULL, .defuintval=0xffffff, TYPE_UINT, 0},   \
+  {GNB_CONFIG_STRING_SLICE_DEDICATED_PRB_RATIO, "dedicated PRB ratio (%)", 0, .dblptr=NULL, .defdblval=0.0,    TYPE_DOUBLE, 0}, \
+  {GNB_CONFIG_STRING_SLICE_MIN_PRB_RATIO, "minimum PRB ratio (%)",        0, .dblptr=NULL, .defdblval=0.0,    TYPE_DOUBLE, 0}, \
+  {GNB_CONFIG_STRING_SLICE_MAX_PRB_RATIO, "maximum PRB ratio (%)",       0, .dblptr=NULL, .defdblval=100.0, TYPE_DOUBLE, 0}, \
+  {GNB_CONFIG_STRING_SLICE_DL_DEDICATED_PRB_RATIO, "DL dedicated PRB ratio (%, -1=use dedicated_prb_ratio)", 0, .dblptr=NULL, .defdblval=-1.0, TYPE_DOUBLE, 0}, \
+  {GNB_CONFIG_STRING_SLICE_DL_MIN_PRB_RATIO, "DL minimum PRB ratio (%, -1=use min_prb_ratio)", 0, .dblptr=NULL, .defdblval=-1.0, TYPE_DOUBLE, 0}, \
+  {GNB_CONFIG_STRING_SLICE_DL_MAX_PRB_RATIO, "DL maximum PRB ratio (%, -1=use max_prb_ratio)", 0, .dblptr=NULL, .defdblval=-1.0, TYPE_DOUBLE, 0}, \
+  {GNB_CONFIG_STRING_SLICE_UL_DEDICATED_PRB_RATIO, "UL dedicated PRB ratio (%, -1=use dedicated_prb_ratio)", 0, .dblptr=NULL, .defdblval=-1.0, TYPE_DOUBLE, 0}, \
+  {GNB_CONFIG_STRING_SLICE_UL_MIN_PRB_RATIO, "UL minimum PRB ratio (%, -1=use min_prb_ratio)", 0, .dblptr=NULL, .defdblval=-1.0, TYPE_DOUBLE, 0}, \
+  {GNB_CONFIG_STRING_SLICE_UL_MAX_PRB_RATIO, "UL maximum PRB ratio (%, -1=use max_prb_ratio)", 0, .dblptr=NULL, .defdblval=-1.0, TYPE_DOUBLE, 0}, \
+}
+
+#define SLICE_ID_OKRANGE                 {0, 1023}
+#define SLICE_SST_OKRANGE                 {0, 255}
+#define SLICE_SD_OKRANGE                  {0, 0xffffff}
+#define SLICE_PRB_RATIO_OKRANGE           {0.0, 100.0}
+
+#define SLICEPARAMS_CHECK {                                           \
+  { .s2 = { config_check_intrange, SLICE_ID_OKRANGE } },                \
+  { .s2 = { config_check_intrange, SLICE_SST_OKRANGE } },                \
+  { .s2 = { config_check_intrange, SLICE_SD_OKRANGE } },                \
+  { .s5 = { NULL } }, /* dedicated_prb_ratio - no validation, checked in code */ \
+  { .s5 = { NULL } }, /* min_prb_ratio - no validation, checked in code */ \
+  { .s5 = { NULL } }, /* max_prb_ratio - no validation, checked in code */ \
+  { .s5 = { NULL } }, /* dl_* optional overrides */ \
+  { .s5 = { NULL } }, \
+  { .s5 = { NULL } }, \
+  { .s5 = { NULL } }, /* ul_* optional overrides */ \
+  { .s5 = { NULL } }, \
+  { .s5 = { NULL } }, \
 }
 
 /* AMF configuration parameters section name */
