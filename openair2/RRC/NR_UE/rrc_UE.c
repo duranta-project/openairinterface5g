@@ -1204,13 +1204,13 @@ static bool nr_rrc_process_reconfiguration_v1530(NR_UE_RRC_INST_t *rrc, NR_RRCRe
 static void handle_meas_reporting_remove(rrcPerNB_t *rrc, int id, NR_UE_Timers_Constants_t *timers)
 {
   // remove the measurement reporting entry for this measId if included
-  asn1cFreeStruc(asn_DEF_NR_VarMeasReport, rrc->MeasReport[id]);
+  asn1cFreeStruc(asn_DEF_NR_VarMeasReport, rrc->MeasReport[id - 1]);
   // TODO stop the periodical reporting timer or timer T321, whichever is running,
   // and reset the associated information (e.g. timeToTrigger) for this measId
   nr_timer_stop(&timers->T321);
 
   l3_measurements_t *l3_measurements = &rrc->l3_measurements;
-  meas_report_params_t *params = &l3_measurements->meas_report[id];
+  meas_report_params_t *params = &l3_measurements->meas_report[id - 1];
 
   nr_timer_stop(&params->TA2);
   nr_timer_stop(&params->TA3);
@@ -1310,12 +1310,12 @@ static void handle_measobj_addmod(rrcPerNB_t *rrc, struct NR_MeasObjectToAddModL
       continue;
     }
     NR_MeasObjectId_t id = measObj->measObjectId;
-    if (rrc->MeasObj[id]) {
-      update_nr_measobj(measObj->measObject.choice.measObjectNR, rrc->MeasObj[id]->measObject.choice.measObjectNR);
+    if (rrc->MeasObj[id - 1]) {
+      update_nr_measobj(measObj->measObject.choice.measObjectNR, rrc->MeasObj[id - 1]->measObject.choice.measObjectNR);
     }
     else {
       // add a new entry for the received measObject to the measObjectList
-      UPDATE_IE(rrc->MeasObj[id], addmod_list->list.array[i], NR_MeasObjectToAddMod_t);
+      UPDATE_IE(rrc->MeasObj[id - 1], addmod_list->list.array[i], NR_MeasObjectToAddMod_t);
     }
   }
 }
@@ -1327,7 +1327,7 @@ static void handle_reportconfig_remove(rrcPerNB_t *rrc,
   for (int i = 0; i < remove_list->list.count; i++) {
     NR_ReportConfigId_t id = *remove_list->list.array[i];
     // remove the entry with the matching reportConfigId from the reportConfigList
-    asn1cFreeStruc(asn_DEF_NR_ReportConfigToAddMod, rrc->ReportConfig[id]);
+    asn1cFreeStruc(asn_DEF_NR_ReportConfigToAddMod, rrc->ReportConfig[id - 1]);
     for (int j = 0; j < MAX_MEAS_ID; j++) {
       if (rrc->MeasId[j] && rrc->MeasId[j]->reportConfigId == id) {
         // remove all measId associated with the reportConfigId from the measIdList
@@ -1349,14 +1349,14 @@ static void handle_reportconfig_addmod(rrcPerNB_t *rrc,
       continue;
     }
     NR_ReportConfigId_t id = rep->reportConfigId;
-    if (rrc->ReportConfig[id]) {
+    if (rrc->ReportConfig[id - 1]) {
       for (int j = 0; j < MAX_MEAS_ID; j++) {
         // for each measId associated with this reportConfigId included in the measIdList
         if (rrc->MeasId[j] && rrc->MeasId[j]->reportConfigId == id)
           handle_meas_reporting_remove(rrc, j, timers);
       }
     }
-    UPDATE_IE(rrc->ReportConfig[id], addmod_list->list.array[i], NR_ReportConfigToAddMod_t);
+    UPDATE_IE(rrc->ReportConfig[id - 1], addmod_list->list.array[i], NR_ReportConfigToAddMod_t);
   }
 }
 
@@ -1391,8 +1391,8 @@ static void handle_measid_remove(rrcPerNB_t *rrc, struct NR_MeasIdToRemoveList *
 {
   for (int i = 0; i < remove_list->list.count; i++) {
     NR_MeasId_t id = *remove_list->list.array[i];
-    if (rrc->MeasId[id]) {
-      asn1cFreeStruc(asn_DEF_NR_MeasIdToAddMod, rrc->MeasId[id]);
+    if (rrc->MeasId[id - 1]) {
+      asn1cFreeStruc(asn_DEF_NR_MeasIdToAddMod, rrc->MeasId[id - 1]);
       handle_meas_reporting_remove(rrc, id, timers);
     }
   }
@@ -1460,7 +1460,7 @@ static void setup_meas_params(meas_report_params_t *params,
 static void start_periodical_report(rrcPerNB_t *rrc, NR_PeriodicalReportConfig_t *periodical_config, int meas_id)
 {
   l3_measurements_t *l3_measurements = &rrc->l3_measurements;
-  meas_report_params_t *params = &l3_measurements->meas_report[meas_id];
+  meas_report_params_t *params = &l3_measurements->meas_report[meas_id - 1];
 
   setup_meas_params(params,
                     0,
@@ -1562,18 +1562,18 @@ static void handle_measid_addmod(rrcPerNB_t *rrc,
     NR_MeasId_t id = addmod_list->list.array[i]->measId;
     NR_ReportConfigId_t reportId = addmod_list->list.array[i]->reportConfigId;
     NR_MeasObjectId_t measObjectId = addmod_list->list.array[i]->measObjectId;
-    UPDATE_IE(rrc->MeasId[id], addmod_list->list.array[i], NR_MeasIdToAddMod_t);
+    UPDATE_IE(rrc->MeasId[id - 1], addmod_list->list.array[i], NR_MeasIdToAddMod_t);
     handle_meas_reporting_remove(rrc, id, timers);
-    if (rrc->ReportConfig[reportId]) {
-      NR_ReportConfigToAddMod_t *report = rrc->ReportConfig[reportId];
+    if (rrc->ReportConfig[reportId - 1]) {
+      NR_ReportConfigToAddMod_t *report = rrc->ReportConfig[reportId - 1];
       AssertFatal(report->reportConfig.present == NR_ReportConfigToAddMod__reportConfig_PR_reportConfigNR,
                   "Only NR config report is supported\n");
       NR_ReportConfigNR_t *reportNR = report->reportConfig.choice.reportConfigNR;
       // if the reportType is set to reportCGI in the reportConfig associated with this measId
       if (reportNR->reportType.present == NR_ReportConfigNR__reportType_PR_reportCGI) {
-        if (rrc->MeasObj[measObjectId]) {
-          if (rrc->MeasObj[measObjectId]->measObject.present == NR_MeasObjectToAddMod__measObject_PR_measObjectNR) {
-            NR_MeasObjectNR_t *obj_nr = rrc->MeasObj[measObjectId]->measObject.choice.measObjectNR;
+        if (rrc->MeasObj[measObjectId - 1]) {
+          if (rrc->MeasObj[measObjectId - 1]->measObject.present == NR_MeasObjectToAddMod__measObject_PR_measObjectNR) {
+            NR_MeasObjectNR_t *obj_nr = rrc->MeasObj[measObjectId - 1]->measObject.choice.measObjectNR;
             NR_ARFCN_ValueNR_t freq = 0;
             if (obj_nr->ssbFrequency)
               freq = *obj_nr->ssbFrequency;
@@ -1594,9 +1594,9 @@ static void handle_measid_addmod(rrcPerNB_t *rrc,
       else if (reportNR->reportType.present == NR_ReportConfigNR__reportType_PR_eventTriggered) {
         NR_EventTriggerConfig_t *eventTriggerConfig = reportNR->reportType.choice.eventTriggered;
         if (eventTriggerConfig->eventId.present == NR_EventTriggerConfig__eventId_PR_eventA3) {
-          if (rrc->MeasObj[measObjectId]
-              && rrc->MeasObj[measObjectId]->measObject.present == NR_MeasObjectToAddMod__measObject_PR_measObjectNR) {
-            NR_MeasObjectNR_t *obj_nr = rrc->MeasObj[measObjectId]->measObject.choice.measObjectNR;
+          if (rrc->MeasObj[measObjectId - 1]
+              && rrc->MeasObj[measObjectId - 1]->measObject.present == NR_MeasObjectToAddMod__measObject_PR_measObjectNR) {
+            NR_MeasObjectNR_t *obj_nr = rrc->MeasObj[measObjectId - 1]->measObject.choice.measObjectNR;
             extract_neighbor_cells_from_measObject(obj_nr, neighbor_cells, num_neighbors, max_neighbors, serving_cell_pci);
           }
         }
@@ -1604,9 +1604,9 @@ static void handle_measid_addmod(rrcPerNB_t *rrc,
       // Check for periodical report and extract neighbor cell info for MAC
       else if (reportNR->reportType.present == NR_ReportConfigNR__reportType_PR_periodical) {
         NR_PeriodicalReportConfig_t *periodical_config = reportNR->reportType.choice.periodical;
-        if (rrc->MeasObj[measObjectId]
-            && rrc->MeasObj[measObjectId]->measObject.present == NR_MeasObjectToAddMod__measObject_PR_measObjectNR) {
-          NR_MeasObjectNR_t *obj_nr = rrc->MeasObj[measObjectId]->measObject.choice.measObjectNR;
+        if (rrc->MeasObj[measObjectId - 1]
+            && rrc->MeasObj[measObjectId - 1]->measObject.present == NR_MeasObjectToAddMod__measObject_PR_measObjectNR) {
+          NR_MeasObjectNR_t *obj_nr = rrc->MeasObj[measObjectId - 1]->measObject.choice.measObjectNR;
           extract_neighbor_cells_from_measObject(obj_nr, neighbor_cells, num_neighbors, max_neighbors, serving_cell_pci);
           // Initialize periodical report (first report sent when measurements available)
           start_periodical_report(rrc, periodical_config, id);
@@ -2986,7 +2986,7 @@ static void setup_meas_trigger(l3_measurements_t *l3_measurements,
                                long trigger_quantity,
                                bool neighbor_cell_valid)
 {
-  meas_report_params_t *params = &l3_measurements->meas_report[meas_id];
+  meas_report_params_t *params = &l3_measurements->meas_report[meas_id - 1];
 
   setup_meas_params(params,
                     trigger_quantity,
@@ -3035,9 +3035,9 @@ static void handle_event_a2(l3_measurements_t *l3_measurements,
     return;
 
   int meas_id = get_meas_id(rrcNB, report_config_id);
-  if (meas_id < 0)
+  if (meas_id < 1)
     return;
-  meas_report_params_t *params = &l3_measurements->meas_report[meas_id];
+  meas_report_params_t *params = &l3_measurements->meas_report[meas_id - 1];
   meas_t *serving_cell = &l3_measurements->serving_cell;
   int serving_cell_rsrp = get_rsrp_value(serving_cell);
   if (serving_cell_rsrp == INT_MAX) {
@@ -3081,9 +3081,9 @@ static void handle_event_a3(l3_measurements_t *l3_measurements,
     return;
 
   int meas_id = get_meas_id(rrcNB, report_config_id);
-  if (meas_id < 0)
+  if (meas_id < 1)
     return;
-  meas_report_params_t *params = &l3_measurements->meas_report[meas_id];
+  meas_report_params_t *params = &l3_measurements->meas_report[meas_id - 1];
   meas_t *serving_cell = &l3_measurements->serving_cell;
 
   int serving_cell_rsrp = get_rsrp_value(serving_cell);
@@ -3829,7 +3829,7 @@ void rrc_ue_generate_measurementReport(rrcPerNB_t *rrc, instance_t ue_id, int me
 {
   uint8_t buffer[NR_RRC_BUF_SIZE];
   l3_measurements_t *l3m = &rrc->l3_measurements;
-  meas_report_params_t *params = &l3m->meas_report[meas_id];
+  meas_report_params_t *params = &l3m->meas_report[meas_id - 1];
   int rsrp_dBm = params->rs_type == NR_NR_RS_Type_ssb ? l3m->serving_cell.ss_rsrp_dBm.val : l3m->serving_cell.csi_rsrp_dBm.val;
   int rsrp_index = get_rsrp_index(rsrp_dBm);
   uint16_t neighbor_pcis[NUMBER_OF_NEIGHBORING_CELLS_MAX];
