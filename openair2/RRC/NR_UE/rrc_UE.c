@@ -897,13 +897,13 @@ static void nr_rrc_manage_rlc_bearers(NR_UE_RRC_INST_t *rrc, const NR_CellGroupC
     for (int i = 0; i < cellGroupConfig->rlc_BearerToAddModList->list.count; i++) {
       NR_RLC_BearerConfig_t *rlc_bearer = cellGroupConfig->rlc_BearerToAddModList->list.array[i];
       NR_LogicalChannelIdentity_t lcid = rlc_bearer->logicalChannelIdentity;
-      if (rrc->active_RLC_entity[lcid]) {
+      if (rrc->active_RLC_entity[lcid - 1]) {
         if (rlc_bearer->reestablishRLC)
           nr_rlc_reestablish_entity(rrc->ue_id, lcid);
         if (rlc_bearer->rlc_Config)
           nr_rlc_reconfigure_entity(rrc->ue_id, lcid, rlc_bearer->rlc_Config);
       } else {
-        rrc->active_RLC_entity[lcid] = true;
+        rrc->active_RLC_entity[lcid - 1] = true;
         AssertFatal(rlc_bearer->servedRadioBearer, "servedRadioBearer mandatory in case of setup\n");
         AssertFatal(rlc_bearer->servedRadioBearer->present != NR_RLC_BearerConfig__servedRadioBearer_PR_NOTHING,
                     "Invalid RB for RLC configuration\n");
@@ -915,7 +915,7 @@ static void nr_rrc_manage_rlc_bearers(NR_UE_RRC_INST_t *rrc, const NR_CellGroupC
           NR_DRB_Identity_t drb_id = rlc_bearer->servedRadioBearer->choice.drb_Identity;
           if (!rlc_bearer->rlc_Config) {
             RRCLOG_E("RRC RLC-Config not present but is mandatory for setup\n");
-            rrc->active_RLC_entity[lcid] = false;
+            rrc->active_RLC_entity[lcid - 1] = false;
           } else {
             nr_rlc_add_drb(rrc->ue_id, drb_id, rlc_bearer);
             nr_rlc_set_rlf_handler(rrc->ue_id, nr_rrc_signal_maxrtxindication);
