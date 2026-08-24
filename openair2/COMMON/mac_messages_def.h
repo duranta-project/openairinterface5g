@@ -55,9 +55,9 @@ MESSAGE_DEF(RRC_GET_UE_CONTEXT_BY_RNTI_ANY_DU,
             Rrc_get_ue_context_by_rnti_any_du,
             rrc_get_ue_context_by_rnti_any_du)
 MESSAGE_DEF(RRC_GET_DU_ID_BY_UE_ID, MESSAGE_PRIORITY_MED_PLUS, Rrc_get_du_id_by_ue_id, rrc_get_du_id_by_ue_id)
-MESSAGE_DEF(RRC_NR_HO_F1_TRIGGER, MESSAGE_PRIORITY_MED_PLUS, Rrc_trigger_ho, rrc_trigger_ho_f1)
+MESSAGE_DEF(RRC_NR_F1_HO_TRIGGER, MESSAGE_PRIORITY_MED_PLUS, Rrc_trigger_ho, rrc_trigger_f1_ho)
 MESSAGE_DEF(RRC_GET_NGAP_UE_ID, MESSAGE_PRIORITY_MED_PLUS, Rrc_get_ngap_ue_id, rrc_get_ngap_ue_id)
-MESSAGE_DEF(RRC_NR_HO_N2_TRIGGER, MESSAGE_PRIORITY_MED_PLUS, Rrc_trigger_ho, rrc_trigger_ho_n2)
+MESSAGE_DEF(RRC_NR_N2_HO_TRIGGER, MESSAGE_PRIORITY_MED_PLUS, Rrc_trigger_ho, rrc_trigger_n2_ho)
 MESSAGE_DEF(RRC_CHECK_UE_CONTEXT, MESSAGE_PRIORITY_MED_PLUS, Rrc_check_ue_context, rrc_check_ue_context)
 MESSAGE_DEF(RRC_GNB_GENERATE_RRCRELEASE, MESSAGE_PRIORITY_MED_PLUS, Rrc_gnb_generate_rrcrelease, rrc_gnb_generate_rrcrelease)
 MESSAGE_DEF(RRC_GNB_GENERATE_RRCRELEASE_ALL,

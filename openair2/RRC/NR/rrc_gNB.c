@@ -4135,12 +4135,12 @@ void *rrc_gnb_task(void *args_p)
         rrc_get_du_id_by_ue_id(msg_p, instance);
         break;
 
-      case RRC_NR_HO_F1_TRIGGER:
-        rrc_trigger_ho_f1(msg_p, instance);
+      case RRC_NR_F1_HO_TRIGGER:
+        rrc_trigger_f1_ho(msg_p, instance);
         break;
 
-      case RRC_NR_HO_N2_TRIGGER:
-        rrc_trigger_ho_n2(msg_p, instance);
+      case RRC_NR_N2_HO_TRIGGER:
+        rrc_trigger_n2_ho(msg_p, instance);
         break;
 
       case RRC_GET_NGAP_UE_ID:

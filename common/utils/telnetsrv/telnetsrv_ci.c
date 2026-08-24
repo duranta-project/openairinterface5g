@@ -62,8 +62,12 @@ int get_single_rnti(char *buf, int debug, telnet_printfunc_t prnt)
 
 int check_single_rrc_ue(MessageDef *resp_p, telnet_printfunc_t prnt)
 {
+  if(!resp_p->ittiMsg.rrc_get_single_ue_rnti.has_rrc){
+    prnt("no RRC present, cannot list counts\n");
+    return 0;
+  }
   if (!resp_p->ittiMsg.rrc_get_single_ue_rnti.is_single) {
-    printf("UE count is not exactly one in RRC\n");
+    prnt("UE count is not exactly one in RRC\n");
     return 0;
   }
   return 1;
@@ -77,7 +81,7 @@ int get_reestab_count(char *buf, int debug, telnet_printfunc_t prnt)
     MessageDef *resp_ue_rnti_p;
     itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_ue_rnti_p, &resp_ue_rnti_p);
     if (!check_single_rrc_ue(resp_ue_rnti_p, prnt)) {
-      ERROR_MSG_RET("no single UE in RRC present\n");
+      return -1;
     }
     const Rrc_get_single_ue_rnti *resp = &resp_ue_rnti_p->ittiMsg.rrc_get_single_ue_rnti;
     prnt("UE RNTI %04x reestab %d reconfig %d\n", resp->rnti, resp->ue_reestablishment_counter, resp->ue_reconfiguration_counter);
@@ -134,12 +138,23 @@ int fetch_du_by_ue_id(char *buf, int debug, telnet_printfunc_t prnt)
   if (!RC.nrrrc)
     ERROR_MSG_RET("no RRC present, cannot list counts\n");
 
-  ue_id_t ue_id;
+  ue_id_t ue_id = -1;
   if (buf) {
     ue_id = strtol(buf, NULL, 10);
   } else {
-    // No UE ID provided: find the connected UE first
-    ue_id = -1;
+    MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_SINGLE_UE_RNTI);
+    MessageDef *resp_p;
+    if (!itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
+      return false;
+    }
+    if(!resp_p->ittiMsg.rrc_get_single_ue_rnti.has_rrc){
+      ERROR_MSG_RET("No UE connected\n");
+    }
+    if(!resp_p->ittiMsg.rrc_get_single_ue_rnti.is_single){
+      prnt("No ID was provided and multiple UEs are present, first one in list is selected\n");
+    }
+    ue_id = resp_p->ittiMsg.rrc_get_single_ue_rnti.id;
+    free(resp_p);
   }
 
   MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_DU_ID_BY_UE_ID);
@@ -147,7 +162,7 @@ int fetch_du_by_ue_id(char *buf, int debug, telnet_printfunc_t prnt)
   MessageDef *resp_p;
   itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p);
   if (resp_p->ittiMsg.rrc_get_du_id_by_ue_id.no_du) {
-    ERROR_MSG_RET("No DU connected\n");
+    ERROR_MSG_RET("No DU connected or no UE found with the requested ue_id.\n");
   }
   int du_id = resp_p->ittiMsg.rrc_get_du_id_by_ue_id.du_id;
   prnt("gNB_DU_id %ld is connected to ue_id %ld\n", du_id, resp_p->ittiMsg.rrc_get_du_id_by_ue_id.ue_id);
@@ -166,14 +181,26 @@ int rrc_gNB_trigger_f1_ho(char *buf, int debug, telnet_printfunc_t prnt)
 {
   UNUSED(debug);
   ue_id_t ue_id = -1;
-  if (!buf) {
-    ue_id = -1;
-  } else {
+  if (buf) {
     ue_id = strtol(buf, NULL, 10);
+  } else {
+    MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_SINGLE_UE_RNTI);
+    MessageDef *resp_p;
+    if (!itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
+      return false;
+    }
+    if(!resp_p->ittiMsg.rrc_get_single_ue_rnti.has_rrc){
+      ERROR_MSG_RET("No UE connected\n");
+    }
+    if(!resp_p->ittiMsg.rrc_get_single_ue_rnti.is_single){
+      prnt("No ID was provided and multiple UEs are present, first one in list is selected\n");
+    }
+    ue_id = resp_p->ittiMsg.rrc_get_single_ue_rnti.id;
+    free(resp_p);
   }
 
-  MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_NR_HO_F1_TRIGGER);
-  msg_p->ittiMsg.rrc_trigger_ho_f1.id = ue_id;
+  MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_NR_F1_HO_TRIGGER);
+  msg_p->ittiMsg.rrc_trigger_f1_ho.id = ue_id;
   itti_send_msg_to_task(TASK_RRC_GNB, 0, msg_p);
   prnt("RRC F1 handover triggered for UE %u\n", ue_id);
   return 0;
@@ -214,10 +241,10 @@ int rrc_gNB_trigger_n2_ho(char *buf, int debug, telnet_printfunc_t prnt)
     }
     free(resp_p);
     // Trigger N2 handover
-    msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_NR_HO_N2_TRIGGER);
-    msg_p->ittiMsg.rrc_trigger_ho_n2.id = ueId;
-    msg_p->ittiMsg.rrc_trigger_ho_n2.neighbour_pci = neighbour_pci;
-    itti_send_msg_to_task(TASK_RRC_GNB, 0, msg_p);
+    MessageDef *msg_ho_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_NR_N2_HO_TRIGGER);
+    msg_ho_p->ittiMsg.rrc_trigger_n2_ho.id = ueId;
+    msg_ho_p->ittiMsg.rrc_trigger_n2_ho.neighbour_pci = neighbour_pci;
+    itti_send_msg_to_task(TASK_RRC_GNB, 0, msg_ho_p);
     // Print success message
     prnt("RRC N2 handover triggered for UE %u with neighbour cell id %u\n",
          ueId,
@@ -303,7 +330,14 @@ static int trigger_ngap_pdu_session_release(char *buf, int debug, telnet_printfu
     gNB_ue_ngap_id = atoi(tokens[0] + 6);
     pdu_start_index = 1;
   } else {
-    gNB_ue_ngap_id = -1;
+    MessageDef *msg_ue_rnti_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_SINGLE_UE_RNTI);
+    MessageDef *resp_ue_rnti_p;
+    itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_ue_rnti_p, &resp_ue_rnti_p);
+    if (!check_single_rrc_ue(resp_ue_rnti_p, prnt)) {
+      return -1;
+    }
+    gNB_ue_ngap_id = resp_ue_rnti_p->ittiMsg.rrc_get_single_ue_rnti.id;
+    free(resp_ue_rnti_p);
   }
 
   if (pdu_start_index >= count) {

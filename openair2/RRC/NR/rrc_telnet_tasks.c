@@ -6,6 +6,10 @@
 
 static void rrc_get_single_ue_rnti_helper(MessageDef **msg_p, instance_t instance)
 {
+  if(!RC.nrrrc){
+    (*msg_p)->ittiMsg.rrc_get_single_ue_rnti.has_rrc = false;
+    return;
+  }
   if (RC.nrrrc[instance] != NULL) {
     rrc_gNB_ue_context_t *ue = NULL;
     int count = 0;
@@ -19,6 +23,7 @@ static void rrc_get_single_ue_rnti_helper(MessageDef **msg_p, instance_t instanc
         (*msg_p)->ittiMsg.rrc_get_single_ue_rnti.ue_reestablishment_counter = ue->ue_context.ue_reestablishment_counter;
         (*msg_p)->ittiMsg.rrc_get_single_ue_rnti.ue_reconfiguration_counter = ue->ue_context.ue_reconfiguration_counter;
         (*msg_p)->ittiMsg.rrc_get_single_ue_rnti.is_single = true;
+        (*msg_p)->ittiMsg.rrc_get_single_ue_rnti.has_rrc = true;
       }
 
       if (count >= 2) {
@@ -118,25 +123,17 @@ void rrc_get_du_id_by_ue_id(MessageDef *msg_p, instance_t instance)
   itti_send_msg_to_task(TASK_TELNET, 0, resp_p);
 }
 
-extern void nr_HO_F1_trigger_telnet(gNB_RRC_INST *rrc, uint32_t rrc_ue_id);
-extern void nr_HO_N2_trigger_telnet(gNB_RRC_INST *rrc, uint32_t neighbour_pci, uint32_t rrc_ue_id);
+extern void nr_F1_HO_trigger_telnet(gNB_RRC_INST *rrc, uint32_t rrc_ue_id);
+extern void nr_N2_HO_trigger_telnet(gNB_RRC_INST *rrc, uint32_t neighbour_pci, uint32_t rrc_ue_id);
 
-void rrc_trigger_ho_f1(MessageDef *msg_p, instance_t instance)
+void rrc_trigger_f1_ho(MessageDef *msg_p, instance_t instance)
 {
-  MessageDef *resp_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_DU_ID_BY_UE_ID);
-  rrc_get_du_id_by_ue_id_helper(&resp_p, msg_p->ittiMsg.rrc_trigger_ho_f1.id, instance);
-  if (resp_p->ittiMsg.rrc_get_du_id_by_ue_id.no_du) {
-    LOG_E(RRC, "could not find UE with ue_id %lu in RRC\n", msg_p->ittiMsg.rrc_trigger_ho_f1.id);
-    free(resp_p);
-    return;
-  }
-  nr_HO_F1_trigger_telnet(RC.nrrrc[instance], msg_p->ittiMsg.rrc_trigger_ho_f1.id);
-  free(resp_p);
+  nr_F1_HO_trigger_telnet(RC.nrrrc[instance], msg_p->ittiMsg.rrc_trigger_f1_ho.id);
 }
 
-void rrc_trigger_ho_n2(MessageDef *msg_p, instance_t instance)
+void rrc_trigger_n2_ho(MessageDef *msg_p, instance_t instance)
 {
-  nr_HO_N2_trigger_telnet(RC.nrrrc[instance], msg_p->ittiMsg.rrc_trigger_ho_n2.neighbour_pci, msg_p->ittiMsg.rrc_trigger_ho_n2.id);
+  nr_N2_HO_trigger_telnet(RC.nrrrc[instance], msg_p->ittiMsg.rrc_trigger_n2_ho.neighbour_pci, msg_p->ittiMsg.rrc_trigger_n2_ho.id);
 }
 
 void rrc_get_ngap_ue_id(MessageDef *msg_p, instance_t instance)
@@ -150,8 +147,12 @@ void rrc_get_ngap_ue_id(MessageDef *msg_p, instance_t instance)
   MessageDef *resp_p2 = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_NGAP_UE_ID);
   resp_p2->ittiMsg.rrc_get_ngap_ue_id.gNB_ue_ngap_id = msg_p->ittiMsg.rrc_get_ngap_ue_id.gNB_ue_ngap_id;
   ngap_gNB_ue_context_t *ngap_ue_context = ngap_get_ue_context(msg_p->ittiMsg.rrc_get_ngap_ue_id.gNB_ue_ngap_id);
-  resp_p2->ittiMsg.rrc_get_ngap_ue_id.amf_ue_ngap_id = ngap_ue_context->amf_ue_ngap_id;
-  resp_p2->ittiMsg.rrc_get_ngap_ue_id.gNB_ue_ngap_id = ngap_ue_context->gNB_ue_ngap_id;
+  if (ngap_ue_context) {
+    resp_p2->ittiMsg.rrc_get_ngap_ue_id.amf_ue_ngap_id = ngap_ue_context->amf_ue_ngap_id;
+    resp_p2->ittiMsg.rrc_get_ngap_ue_id.gNB_ue_ngap_id = ngap_ue_context->gNB_ue_ngap_id;
+  } else {
+    resp_p2->ittiMsg.rrc_get_ngap_ue_id.amf_ue_ngap_id = 0;
+  }
   itti_send_msg_to_task(TASK_TELNET, 0, resp_p2);
 }
 
@@ -174,11 +175,16 @@ void rrc_gnb_generate_rrcrelease(MessageDef *msg_p, instance_t instance)
 
 void rrc_gnb_generate_rrcrelease_all(MessageDef *msg_p, instance_t instance)
 {
+  MessageDef * resp_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GNB_GENERATE_RRCRELEASE_ALL);
   rrc_gNB_ue_context_t *ue_context_p = NULL;
+  int i=0;
   RB_FOREACH (ue_context_p, rrc_nr_ue_tree_s, &RC.nrrrc[instance]->rrc_ue_head) {
     gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
     rrc_gNB_generate_RRCRelease(RC.nrrrc[instance], UE);
+    resp_p->ittiMsg.rrc_gnb_generate_rrcrelease_all.nb_releases++;
+    resp_p->ittiMsg.rrc_gnb_generate_rrcrelease_all.rrc_gnb_generate_rrcreleases[i].ue_id = ue_context_p->ue_context.rrc_ue_id;
   }
+  itti_send_msg_to_task(TASK_TELNET, 0, resp_p);
 }
 
 void rrc_gnb_trigger_ue_context_release_req(MessageDef *msg_p, instance_t instance)

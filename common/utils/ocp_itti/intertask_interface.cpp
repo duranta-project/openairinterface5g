@@ -290,6 +290,7 @@ typedef struct timer_elm_s {
   {
     itti_send_msg_to_task(sending_task_id, 0, sending_message);
     itti_receive_msg(receiving_task_id, receiving_message);
+    free(sending_message);
   }
 
   void itti_poll_msg(task_id_t task_id, MessageDef **received_msg) {

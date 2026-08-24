@@ -18,12 +18,26 @@
 
 #define ERROR_MSG_RET(mSG, aRGS...) do { prnt(mSG, ##aRGS); return 1; } while (0)
 
-static int get_single_ue_rnti(void)
+static Rrc_get_single_ue_rnti get_single_ue_rnti(void)
 {
   MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_SINGLE_UE_RNTI);
   MessageDef *resp_p;
   itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p);
-  return resp_p->ittiMsg.rrc_get_single_ue_rnti.rnti ? resp_p->ittiMsg.rrc_get_single_ue_rnti.rnti : -1;
+
+  return resp_p->ittiMsg.rrc_get_single_ue_rnti;
+}
+
+static int check_single_ue_rnti(Rrc_get_single_ue_rnti ue_rnti, telnet_printfunc_t prnt)
+{
+  if(!ue_rnti.has_rrc){
+    prnt("no RRC present, cannot list counts\n");
+    return 0;
+  }
+  if (!ue_rnti.is_single) {
+    prnt("UE count is not exactly one in RRC\n");
+    return 0;
+  }
+  return 1;
 }
 
 int get_single_rnti(char *buf, int debug, telnet_printfunc_t prnt)
@@ -32,11 +46,11 @@ int get_single_rnti(char *buf, int debug, telnet_printfunc_t prnt)
   if (buf)
     ERROR_MSG_RET("no parameter allowed\n");
 
-  int rnti = get_single_ue_rnti();
-  if (rnti < 1)
-    ERROR_MSG_RET("different number of UEs\n");
+  Rrc_get_single_ue_rnti single_ue_rnti = get_single_ue_rnti();
+  if(!check_single_ue_rnti(single_ue_rnti, prnt))
+    return -1;
 
-  prnt("single UE RNTI %04x\n", rnti);
+  prnt("single UE RNTI %04x\n", single_ue_rnti);
   return 0;
 }
 
@@ -44,28 +58,29 @@ int get_single_rnti(char *buf, int debug, telnet_printfunc_t prnt)
 int add_bearer(char *buf, int debug, telnet_printfunc_t prnt)
 {
   UNUSED(debug);
-  int rnti = -1;
+  Rrc_get_single_ue_rnti single_ue_rnti;
   if (!buf) {
-    rnti = get_single_ue_rnti();
-    if (rnti < 1)
-      ERROR_MSG_RET("no UE found\n");
+    single_ue_rnti = get_single_ue_rnti();
+    if(!check_single_ue_rnti(single_ue_rnti, prnt))
+      return -1;
   } else {
-    rnti = strtol(buf, NULL, 16);
-    if (rnti < 1 || rnti >= 0xfffe)
+    single_ue_rnti.rnti = strtol(buf, NULL, 16);
+    if (single_ue_rnti.rnti < 1 || single_ue_rnti.rnti >= 0xfffe)
       ERROR_MSG_RET("RNTI needs to be [1,0xfffe]\n");
   }
 
   // verify it exists in RRC as well
   MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_UE_CONTEXT_BY_RNTI_ANY_DU);
   MessageDef *resp_p;
+  msg_p->ittiMsg.rrc_get_ue_context_by_rnti_any_du.rnti = single_ue_rnti.rnti;
   itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p);
   if (!resp_p->ittiMsg.rrc_get_ue_context_by_rnti_any_du.ue_context_exists)
-    ERROR_MSG_RET("could not find UE with RNTI %04x\n", rnti);
+    ERROR_MSG_RET("could not find UE with RNTI %04x\n", single_ue_rnti.rnti);
 
   AssertFatal(false, "not implemented\n");
   //rrc_gNB_trigger_new_bearer(rnti);
   free(resp_p);
-  prnt("called rrc_gNB_trigger_new_bearer(%04x)\n", rnti);
+  prnt("called rrc_gNB_trigger_new_bearer(%04x)\n", single_ue_rnti.rnti);
   return 0;
 }
 
@@ -73,28 +88,28 @@ int add_bearer(char *buf, int debug, telnet_printfunc_t prnt)
 int release_bearer(char *buf, int debug, telnet_printfunc_t prnt)
 {
   UNUSED(debug);
-  int rnti = -1;
+  Rrc_get_single_ue_rnti single_ue_rnti;
   if (!buf) {
-    rnti = get_single_ue_rnti();
-    if (rnti < 1)
-      ERROR_MSG_RET("no UE found\n");
+    single_ue_rnti = get_single_ue_rnti();
+    if(!check_single_ue_rnti(single_ue_rnti, prnt))
+      return -1;
   } else {
-    rnti = strtol(buf, NULL, 16);
-    if (rnti < 1 || rnti >= 0xfffe)
+    single_ue_rnti.rnti = strtol(buf, NULL, 16);
+    if (single_ue_rnti.rnti < 1 || single_ue_rnti.rnti >= 0xfffe)
       ERROR_MSG_RET("RNTI needs to be [1,0xfffe]\n");
   }
 
   // verify it exists in RRC as well
   MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_UE_CONTEXT_BY_RNTI_ANY_DU);
-  msg_p->ittiMsg.rrc_get_ue_context_by_rnti_any_du.rnti = rnti;
+  msg_p->ittiMsg.rrc_get_ue_context_by_rnti_any_du.rnti = single_ue_rnti.rnti;
   MessageDef *resp_p;
   itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p);
   if (!resp_p->ittiMsg.rrc_get_ue_context_by_rnti_any_du.ue_context_exists)
-    ERROR_MSG_RET("could not find UE with RNTI %04x\n", rnti);
+    ERROR_MSG_RET("could not find UE with RNTI %04x\n", single_ue_rnti.rnti);
 
   AssertFatal(false, "not implemented\n");
   //rrc_gNB_trigger_release_bearer(rnti);
-  prnt("called rrc_gNB_trigger_release_bearer(%04x)\n", rnti);
+  prnt("called rrc_gNB_trigger_release_bearer(%04x)\n", single_ue_rnti.rnti);
   free(resp_p);
   return 0;
 }
