@@ -80,7 +80,7 @@ static void nr_fill_nfapi_pucch(gNB_MAC_INST *nrmac, frame_t frame, slot_t slot,
                      pucch->dai_c,
                      pucch->sr_flag,
                      pucch->r_pucch,
-                     nrmac->beam_info.beam_mode,
+                     &nrmac->beam_info,
                      ant_ports_to_use,
                      nrmac->radio_config.spatial_stream_index,
                      nrmac->radio_config.pusch_AntennaPorts);

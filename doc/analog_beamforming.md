@@ -16,19 +16,27 @@ The presence of a limited number of predefined beams at RU poses constraints to 
 
 Analog beamforming implementation also allows to enable distributed antenna systems (DAS), where each beam corresponds to one antenna (or a set of antennas) of the system. In this scenario, the scheduler constraint is alleviated because normally the number of concurrent beams allowed equals the total number of beams.
 
-## Configuration file fields for analog beamforming
+## Configuration file fields for beamforming
 
-A set of parameters in configuration files controls the implementation of analog beamforming and instructs the scheduler on how to behave in such scenarios. Since most notably this technique in 5G is employed in FR2, the configuration file example currently available is a RFsim one for band 261. [Config file example](../ci-scripts/conf_files/gnb.sa.band257.u3.66prb.rfsim.conf)
+A set of parameters in configuration files controls the implementation of beamforming and instructs the scheduler on how to behave in such scenarios. Since most notably this technique in 5G is employed in FR2, the configuration file example currently available is a RFsim one for band 261. [Config file example](../ci-scripts/conf_files/gnb.sa.band257.u3.66prb.rfsim.conf)
 
-In the `MACRLC` section of configuration files, there are three new parameters: `set_analog_beamforming`, `beam_duration` and `beams_per_period`. The explanation of these parameters is here provided:
-- `set_analog_beamforming` can be set to "none", "preconfigured" or "lophy" (default value is "none")
+Everything is controlled from the `MACRLC` section of the configuration file. The single parameter `mimo_mode` selects the mode:
+- `plain` (default): no beamforming is applied.
+- `das`: distributed antenna system, each beam is associated with one or more logical antenna ports. The beam index is the logical antenna port index, so `ssb_beams` must not be set and the number of concurrent beams equals `beams_per_period`.
+- `predefined`: the beam IDs allocated by L2 are signalled to L1 over FAPI. `ssb_beams` gives the beam ID to use for each transmitted SSB, and what L1 does with those IDs depends on whether a digital beam table (DBT) is configured:
+  - with a DBT (`dbt_file`, or a DBT inlined in the `MACRLC` section), each beam ID names one of the DBT entries by its `beam_id` column and L1 applies the corresponding weights. The DBT is typically much larger than the number of SSBs, so the beam IDs in `ssb_beams` select a subset of it; a beam ID that does not appear in the table is rejected at startup.
+  - without a DBT, L1 forwards the beam ID as is to the radio (e.g. an InterDigital frontend) or to the fronthaul (e.g. over 7.2x).
+- `dynamic`: static beamforming for the control signals, with DLSCH/ULSCH precoded from the SRS channel estimate. Not implemented yet: selecting it aborts at startup.
+
+The remaining parameters are:
 - `beam_duration` is the number of slots (currently minimum duration of a beam) the scheduler is tied to a beam (default value is 1)
 - `beams_per_period` is the number of concurrent beams the RU can handle in the beam duration (default value is 1)
-- `beam_weights` is a vector field containing the set of beam indices to be provided by the OAI L1 to the RU is also required. In current implementation, the number of beam indices should be equal to the number of SSBs transmitted
+- `ssb_beams` is a vector field containing the set of beam indices statically allocated to SSB/PRACH, required for `predefined`. The number of beam indices should be equal to the number of SSBs transmitted.
+- `dbt_file` is the path to a CSV file holding the digital beam table
 
-Setting analog beamforming to "preconfigured" or "lophy" changes the way FAPI beam index is treated. By setting "preconfigured", we instruct L1 to look up in Hi-PHY preconfigured DBM beam index. By setting "lophy", we instruct L2 to directly signal to Lo-PHY the beam index (e.g. over 7.2x fronthaul).
+The MSB of the FAPI beam ID tells L1 how to interpret the remaining bits: it is set when the beam ID is used as is (`das`, and `predefined` without a DBT) and cleared when it is a pointer into a pre-stored set of weights (`predefined` with a DBT).
 
-DAS is enabled by setting to 1 the parameter `enable_das` in the L1 section of the configuration file. In case of DAS enabled, the field `beam_weights` in `MACRLC` section can be omitted and the number of beams per period equals the total number of beams.
+`mimo_mode` replaces the previous `set_analog_beamforming` parameter, and `ssb_beams` replaces `beam_weights`; DAS is no longer selected with `enable_das` in the `L1` section. Configuration files still using the old parameters are rejected at startup with a message pointing at the replacement.
 
 ## Implementation in OAI scheduler
 
@@ -41,7 +49,7 @@ It is important to note that in current implementation, there are several period
 ## Beams in phy-test scheduler
 
 In phy-test mode, beams are assigned to PDSCH slots in the same manner as SSB slots with the only addition that it repeats for every TDD period in a frame. For example if PDSCH is scheduled on all DL slot for TDD format DDDDDDDSUU, and with SSB bit map = `0b1010101` and the following beam parameters in config file,
-- `beam_weights` = [10,11,12,13]
+- `ssb_beams` = [10,11,12,13]
 - `beam_duration` = 1
 - `beams_per_period` = 1
 
@@ -56,13 +64,13 @@ This definition of beam-ID is present only in the most recent versions of SCF PH
 In addition to that, a `config_request` structure defined as vendor extension (`nfapi_nr_analog_beamforming_ve_t`) configures the lower layers at initialization with the following information:
 - `analog_bf_vendor_ext` which can assume values 1 or 0 for enabling or disabling analog beamforming
 
-Therefore, in case of analog beamforming, L2 provides in each channel FAPI message information about the beam index via the beam-ID parameter with MSB set to 1.
+Therefore, when the beam ID is meant to be consumed by the RU or the fronthaul, L2 provides in each channel FAPI message information about the beam index via the beam-ID parameter with MSB set to 1.
 
 ## L1 implementation
 
 The total number of logical antenna ports available at L1 is same as `pusch_AntennaPorts * beams_per_period` in UL and `pdsch_AntennaPorts_N1 * pdsch_AntennaPorts_N2 * pdsch_AntennaPorts_XP * beams_per_period` in DL.
 To handle multiple concurrent beams, L2 uses spatial stream indices specified by FAPI to signal L1 on which logical ports to use for a DL or UL signal. The config file parameter `spatial_stream_index` can be used to specify an array of logical port indices to be used. If this parameter is not provided then the indices defaults to `[0 ... pusch_AntennaPorts - 1]`. This parameter is particularly useful when a specific subset of eAxCID has to be used.
-In case of DAS, since each beam corresponds to a specific antenna port, the `beam_index_allocation` function is simplified in the sense that the beam index corresponds to the antenna port index of the frequency domain buffers.
+In case of DAS (`mimo_mode = "das"`), since each beam corresponds to a specific antenna port, the `beam_index_allocation` function is simplified in the sense that the beam index corresponds to the antenna port index of the frequency domain buffers.
 
 ## RU implementation
 

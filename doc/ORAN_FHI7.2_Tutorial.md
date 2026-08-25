@@ -1717,10 +1717,10 @@ we use the analog beamforming implementation. More details can be found in
 - `pusch_AntennaPorts`, `pdsch_AntennaPorts_XP * pdsch_AntennaPorts_N1 * pdsch_AntennaPorts_N2` indicate the number of logical antenna ports for one analog beam.
 The reference DU configuration file is [`gnb-du.sa.band77.273prb.fhi72.4x4-das-benetel650_650.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-du.sa.band77.273prb.fhi72.4x4-das-benetel650_650.conf).
 
-DAS is enabled by setting to 1 the parameter `enable_das` in `L1` section.
+DAS is enabled by setting `mimo_mode = "das"` in the `MACRLC` section.
 
 The following parameters shall be configured on the gNB in the `MACRLC` section:
-- `set_analog_beamforming`
+- `mimo_mode`
 - `beam_duration`
 - `beams_per_period`
 

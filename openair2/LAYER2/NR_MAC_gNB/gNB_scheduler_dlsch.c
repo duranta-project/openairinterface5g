@@ -1310,7 +1310,7 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac,
     maxMIMO_Layers = 1;
   }
   const int nl_tbslbrm = min(maxMIMO_Layers, 4);
-  const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, nr_mac->beam_info.beam_mode);
+  const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, &nr_mac->beam_info);
   nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu = prepare_pdsch_pdu(dl_tti_pdsch_pdu,
                                                                    nr_mac,
                                                                    UE,
