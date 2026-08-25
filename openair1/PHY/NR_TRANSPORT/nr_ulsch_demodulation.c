@@ -29,67 +29,6 @@ static void copy_c16_data_to_slot_memory(c16_t *src, c16_t *dst_slot, int nb_re_
 }
 #endif
 
-#if defined(__aarch64__)
-
-void nr_idft(int32_t *z, uint32_t Msc_PUSCH)
-{
-  simde__m128i idft_in128[1][3240];
-  simde__m128i idft_out128[1][3240];
-  simde__m128i norm128;
-
-  int16_t *idft_in0 = (int16_t *)idft_in128[0];
-  int16_t *idft_out0 = (int16_t *)idft_out128[0];
-
-  int i;
-  int ip;
-
-  LOG_T(PHY, "Doing nr_idft for Msc_PUSCH %d\n", Msc_PUSCH);
-
-  if ((Msc_PUSCH % 1536) > 0) {
-    /* Conjugate input. */
-    for (i = 0; i < (Msc_PUSCH >> 2); i++) {
-      ((simde__m128i *)z)[i] = oai_mm_conj(((simde__m128i *)z)[i]);
-    }
-
-    /* Pack input into lane zero of the legacy four-lane layout. */
-    for (i = 0, ip = 0; i < Msc_PUSCH; i++, ip += 4) {
-      ((uint32_t *)idft_in0)[ip] = z[i];
-    }
-  }
-
-  const dft_size_idx_t dftsize = get_dft(Msc_PUSCH);
-
-  switch (Msc_PUSCH) {
-    case 12:
-      dft(dftsize, idft_in0, idft_out0, 0);
-
-      norm128 = simde_mm_set1_epi16(9459);
-
-      for (i = 0; i < 12; i++) {
-        ((simde__m128i *)idft_out0)[i] = simde_mm_slli_epi16(simde_mm_mulhi_epi16(((simde__m128i *)idft_out0)[i], norm128), 1);
-      }
-      break;
-
-    default:
-      dft(dftsize, idft_in0, idft_out0, 1);
-      break;
-  }
-
-  if ((Msc_PUSCH % 1536) > 0) {
-    /* Extract lane zero. */
-    for (i = 0, ip = 0; i < Msc_PUSCH; i++, ip += 4) {
-      z[i] = ((uint32_t *)idft_out0)[ip];
-    }
-
-    /* Conjugate output. */
-    for (i = 0; i < (Msc_PUSCH >> 2); i++) {
-      ((simde__m128i *)z)[i] = oai_mm_conj(((simde__m128i *)z)[i]);
-    }
-  }
-}
-
-#else
-
 void nr_idft(int32_t *z, uint32_t Msc_PUSCH)
 {
   const dft_size_idx_t dftsize = get_dft(Msc_PUSCH);
@@ -106,8 +45,6 @@ void nr_idft(int32_t *z, uint32_t Msc_PUSCH)
 
   memcpy(z, idft_output, bytes);
 }
-
-#endif
 
 static void nr_ulsch_extract_rbs(c16_t *const rxF,
                                  c16_t *const chF,
