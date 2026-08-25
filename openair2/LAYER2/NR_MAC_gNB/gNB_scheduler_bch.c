@@ -180,7 +180,7 @@ void schedule_nr_mib(module_id_t module_idP, frame_t frameP, slot_t slotP, nfapi
                                                              slots_per_frame);
             AssertFatal(beam.idx >= 0, "Cannot allocate SSB %d in any available beam\n", i_ssb);
             const uint16_t alloc_beam_idx = get_allocated_beam(&gNB->beam_info, frameP, slotP, slots_per_frame, beam.idx);
-            const uint16_t fapi_beam = convert_to_fapi_beam(alloc_beam_idx, gNB->beam_info.beam_mode);
+            const uint16_t fapi_beam = convert_to_fapi_beam(alloc_beam_idx, &gNB->beam_info);
             schedule_ssb(frameP,
                          slotP,
                          scc,
@@ -286,7 +286,7 @@ static void nr_fill_nfapi_dl_SIB_pdu(gNB_MAC_INST *gNB_mac,
   dl_tti_pdsch_pdu->PDUSize = (uint16_t)(4+sizeof(nfapi_nr_dl_tti_pdsch_pdu));
   dl_req->nPDUs += 1;
 
-  const uint16_t fapi_beam = convert_to_fapi_beam(beam_index, gNB_mac->beam_info.beam_mode);
+  const uint16_t fapi_beam = convert_to_fapi_beam(beam_index, &gNB_mac->beam_info);
   nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu_rel15 =
       prepare_pdsch_pdu(dl_tti_pdsch_pdu, gNB_mac, NULL, pdsch, NULL, is_sib1, 0, SI_RNTI, fapi_beam, 1, pdu_index);
   LOG_D(NR_MAC,

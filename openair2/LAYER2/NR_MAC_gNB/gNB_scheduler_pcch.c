@@ -162,7 +162,7 @@ static void nr_fill_nfapi_dl_PCCH_pdu(gNB_MAC_INST *mac,
   dl_tti_pdsch_pdu->PDUSize = pdsch_pdu_size;
   dl_req->nPDUs += 1;
 
-  const uint16_t fapi_beam = convert_to_fapi_beam(beam_index, mac->beam_info.beam_mode);
+  const uint16_t fapi_beam = convert_to_fapi_beam(beam_index, &mac->beam_info);
   nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu_rel15 =
       prepare_pdsch_pdu(dl_tti_pdsch_pdu, mac, NULL, pdsch, NULL, false, 0, P_RNTI, fapi_beam, 1, pdu_index);
 

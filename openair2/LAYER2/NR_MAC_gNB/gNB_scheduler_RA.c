@@ -499,7 +499,7 @@ void schedule_nr_prach(module_id_t module_idP, frame_t frameP, slot_t slotP)
             prach_pdu->param_v4.spatialStreamIndices[start_stream_idx + s] =
                 gNB->radio_config.spatial_stream_index[start_stream_idx + s];
           // Beam id
-          const uint16_t fapi_beam = convert_to_fapi_beam(beam_index, gNB->beam_info.beam_mode);
+          const uint16_t fapi_beam = convert_to_fapi_beam(beam_index, &gNB->beam_info);
           prach_pdu->beamforming.dig_bf_interface = num_beams;
           prach_pdu->beamforming.prgs_list[0].dig_bf_interface_list[beam.idx].beam_idx = fapi_beam;
 
@@ -895,7 +895,7 @@ static void nr_generate_Msg3_retransmission(module_id_t module_idP,
                                                       ra->msg3_round,
                                                       ul_bwp->pusch_Config && ul_bwp->pusch_Config->frequencyHopping,
                                                       UE->rnti,
-                                                      nr_mac->beam_info.beam_mode);
+                                                      &nr_mac->beam_info);
   future_ul_tti_req->n_pdus += 1;
 
   // generation of DCI 0_0 to schedule msg3 retransmission
@@ -928,7 +928,7 @@ static void nr_generate_Msg3_retransmission(module_id_t module_idP,
   }
 
   // Fill PDCCH DL DCI PDU
-  const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, nr_mac->beam_info.beam_mode);
+  const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, &nr_mac->beam_info);
   nfapi_nr_dl_dci_pdu_t *dci_pdu = prepare_dci_pdu(pdcch_pdu_rel15,
                                                    scc,
                                                    ss,
@@ -1316,7 +1316,7 @@ nr_add_msg3(module_id_t module_idP, int CC_id, frame_t frameP, slot_t slotP, NR_
                                                       0,
                                                       ul_bwp->pusch_Config && ul_bwp->pusch_Config->frequencyHopping,
                                                       UE->rnti,
-                                                      mac->beam_info.beam_mode);
+                                                      &mac->beam_info);
   future_ul_tti_req->n_pdus += 1;
 
   // calling function to fill rar message
@@ -1441,7 +1441,7 @@ static void prepare_dl_pdus(gNB_MAC_INST *nr_mac,
   NR_COMMON_channels_t *cc = &nr_mac->common_channels[CC_id];
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
   NR_UE_DL_BWP_t *dl_bwp = &UE->current_DL_BWP;
-  const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, nr_mac->beam_info.beam_mode);
+  const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, &nr_mac->beam_info);
   nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu_rel15 = prepare_pdsch_pdu(dl_tti_pdsch_pdu,
                                                                          nr_mac,
                                                                          UE,

@@ -1501,7 +1501,7 @@ void nr_configure_pucch(nfapi_nr_pucch_pdu_t *pucch_pdu,
                         uint16_t O_ack,
                         uint8_t O_sr,
                         int r_pucch,
-                        nr_beam_mode_t beam_mode,
+                        const NR_beam_info_t *beam_info,
                         uint16_t ant_port_start,
                         uint16_t *ssi,
                         uint16_t num_ant)
@@ -1714,7 +1714,7 @@ void nr_configure_pucch(nfapi_nr_pucch_pdu_t *pucch_pdu,
   pucch_pdu->beamforming.num_prgs = 1;
   pucch_pdu->beamforming.prg_size = pucch_pdu->prb_size;
   pucch_pdu->beamforming.dig_bf_interface = 1;
-  const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, beam_mode);
+  const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, beam_info);
   pucch_pdu->beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = fapi_beam;
   pucch_pdu->param_v4.numSpatialStreamIndices = num_ant;
   for (int i = 0; i < num_ant; i++)
@@ -3488,7 +3488,7 @@ void nr_csirs_scheduling(int Mod_idP, frame_t frame, slot_t slot, nfapi_nr_dl_tt
           csirs_pdu_rel15->precodingAndBeamforming.prg_size = resourceMapping.freqBand.nrofRBs; //1 PRG of max size
           csirs_pdu_rel15->precodingAndBeamforming.dig_bf_interfaces = 1;
           csirs_pdu_rel15->precodingAndBeamforming.prgs_list[0].pm_idx = 0;
-          const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, gNB_mac->beam_info.beam_mode);
+          const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, &gNB_mac->beam_info);
           // TODO: set correctly dig_bf_interface_list when ports of same CDM group is used and PMI if used.
           csirs_pdu_rel15->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = fapi_beam;
           const nr_pdsch_AntennaPorts_t *p = &gNB_mac->radio_config.pdsch_AntennaPorts;
@@ -3954,7 +3954,7 @@ uint64_t get_ssb_bitmap_and_len(const NR_ServingCellConfigCommon_t *scc, uint8_t
 // for now the fapi beam index is the number of SSBs transmitted before ssb_index i
 void fill_beam_index_list(NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config, gNB_MAC_INST *mac)
 {
-  if (mac->beam_info.beam_mode == NO_BEAM_MODE)
+  if (mac->beam_info.mimo_mode == MIMO_MODE_PLAIN)
     return;
 
   uint8_t len = 0;
@@ -3962,8 +3962,16 @@ void fill_beam_index_list(NR_ServingCellConfigCommon_t *scc, const nr_mac_config
   int index = 0;
   for (int i = 0; i < len; ++i) {
     if (IS_BIT_SET(ssbBitmap, (63 - i))) {
-      int fapi_index = mac->beam_info.beam_mode == LOPHY_BEAM_IDX ? config->bw_list[index] : index;
+      int fapi_index = index; // no explicit list (DAS): the beam index is the SSB ordinal
+      if (config->num_ssb_beams > 0) {
+        AssertFatal(index < config->num_ssb_beams,
+                    "not enough beam indices for the transmitted SSBs: only %d configured, need at least %d\n",
+                    config->num_ssb_beams,
+                    index + 1);
+        fapi_index = config->ssb_beams[index];
+      }
       mac->beam_index_list[i] = fapi_index;
+      LOG_I(NR_MAC, "SSB %d transmitted on beam %d\n", i, fapi_index);
       index++;
     } else
       mac->beam_index_list[i] = -1;
@@ -3978,7 +3986,7 @@ static inline int get_beam_index(const NR_beam_info_t *beam_info, int frame, int
 NR_beam_alloc_t beam_allocation_procedure(NR_beam_info_t *beam_info, int frame, int slot, int16_t beam_index, int slots_per_frame)
 {
   // if no beam allocation for analog beamforming we always return beam index 0 (no multiple beams)
-  if (beam_info->beam_mode == NO_BEAM_MODE)
+  if (beam_info->mimo_mode == MIMO_MODE_PLAIN)
     return (NR_beam_alloc_t) {.new_beam = false, .idx = 0};
 
   const int index = get_beam_index(beam_info, frame, slot, slots_per_frame);
@@ -3998,16 +4006,17 @@ NR_beam_alloc_t beam_allocation_procedure(NR_beam_info_t *beam_info, int frame, 
   return (NR_beam_alloc_t) {.new_beam = false, .idx = -1};
 }
 
-uint16_t convert_to_fapi_beam(const uint16_t beam_idx, const nr_beam_mode_t mode)
+uint16_t convert_to_fapi_beam(const uint16_t beam_idx, const NR_beam_info_t *beam_info)
 {
-  AssertFatal(beam_idx >= 0 && beam_idx < 32768, "Beam index out of range. Valid range is [0, 32767]\n");
-  return (mode == LOPHY_BEAM_IDX) ? SET_BIT(beam_idx, 15) : beam_idx;
+  AssertFatal(beam_idx < 32768, "Beam index out of range. Valid range is [0, 32767]\n");
+  // MSB set: use the ID as is; MSB clear: it points into a pre-stored set of weights
+  return beam_info->beam_id_to_ru ? SET_BIT(beam_idx, 15) : beam_idx;
 }
 
 int16_t get_allocated_beam(const NR_beam_info_t *beam_info, int frame, int slot, int slots_per_frame, int beam_number_in_period)
 {
   int16_t beam_idx = 0;
-  if (beam_info->beam_mode != NO_BEAM_MODE) {
+  if (beam_info->mimo_mode != MIMO_MODE_PLAIN) {
     const int index = get_beam_index(beam_info, frame, slot, slots_per_frame);
     beam_idx = beam_info->beam_allocation[beam_number_in_period][index];
   }
@@ -4028,7 +4037,7 @@ void reset_beam_status(NR_beam_info_t *beam_info, int frame, int slot, int16_t b
 int beam_selection_procedures(gNB_MAC_INST *mac, NR_UE_info_t *UE)
 {
   // do not perform beam procedures if there is no beam information
-  if (mac->beam_info.beam_mode == NO_BEAM_MODE)
+  if (mac->beam_info.mimo_mode == MIMO_MODE_PLAIN)
     return -1;
 
   // simple beam switching algorithm -> we select beam with highest RSRP from CSI report

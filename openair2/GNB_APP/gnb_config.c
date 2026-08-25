@@ -768,6 +768,17 @@ static int get_prb_blacklist(uint16_t *prbbl)
   return num_prbbl;
 }
 
+/* L1 needs mimo_mode for DAS; a split-mode L1 has no MACRLCs section, so no DAS */
+static nr_mimo_mode_t get_mimo_mode(int idx)
+{
+  GET_PARAMS_LIST(MacRLC_ParamList, MacRLC_Params, MACRLCPARAMS_DESC, MACRLC_LIST, NULL, MACRLCPARAMS_CHECK);
+  if (idx >= MacRLC_ParamList.numelt)
+    return MIMO_MODE_PLAIN;
+  // config_get_processedint() takes only paramdef_t *, so cast const away
+  paramdef_t *p = (paramdef_t *)gpd(MacRLC_ParamList.paramarray[idx], sizeofArray(MacRLC_Params), MACRLC_MIMO_MODE);
+  return config_get_processedint(config_get_if(), p);
+}
+
 static void set_antenna_ports(paramlist_def_t *p, int *N1, int *N2, int *XP)
 {
   *N1 = *p->paramarray[0][GNB_PDSCH_ANTENNAPORTS_N1_IDX].iptr;
@@ -824,7 +835,11 @@ void RCconfig_NR_L1(void)
       AssertFatal(gNB->TX_AMP > 300, "TX_AMP is too small, must be larger than 300 (is %d)\n", gNB->TX_AMP);
       gNB->phase_comp = *gpd(params, np, L1_PHASE_COMP)->uptr;
       gNB->dmrs_num_antennas_per_thread = *gpd(params, np, L1_NUM_ANTENNAS_PER_THREAD)->uptr;
-      gNB->enable_analog_das = *gpd(params, np, L1_ANALOG_DAS)->uptr;
+      AssertFatal(*gpd(params, np, L1_ANALOG_DAS_REMOVED)->iptr == -1,
+                  "enable_das removed from the L1s section, set mimo_mode = \"das\" in the MACRLCs section instead\n");
+      gNB->enable_analog_das = get_mimo_mode(j) == MIMO_MODE_DAS;
+      if (gNB->enable_analog_das)
+        LOG_I(NR_PHY, "L1 configured for a distributed antenna system (DAS)\n");
       // Midhaul configuration
       if (strcmp(*gpd(params, np, L1_TRANSPORT_N_PREFERENCE)->strptr, "local_mac") == 0) {
         // do nothing
@@ -1477,6 +1492,21 @@ static double complex **read_dbt_from_config(const char *prefix,
   return table;
 }
 
+/* the beam ID names a digital beam table entry by beam_idx, not by row number */
+static void check_ssb_beams_in_dbt(const int32_t *ssb_beams, int num_ssb_beams, const nr_beam_table_t *bt)
+{
+  for (int i = 0; i < num_ssb_beams; i++) {
+    bool found = false;
+    for (int b = 0; b < bt->num_beams && !found; b++)
+      found = (bt->beam_ids ? bt->beam_ids[b] : b) == ssb_beams[i];
+    AssertFatal(found,
+                MACRLC_SSB_BEAMS_LIST "[%d] = %d is not a beam of the digital beam table (%d entries)\n",
+                i,
+                ssb_beams[i],
+                bt->num_beams);
+  }
+}
+
 static void config_spatial_stream_index(const paramdef_t *param, const size_t np, nr_mac_config_t *radio_config, int num_ru_ports)
 {
   const int n = gpd(param, np, MACRLC_SPATIAL_STREAM_IDX)->numelt;
@@ -1755,50 +1785,15 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
         LOG_I(NR_PHY, "Copying %d blacklisted PRB to L1 context\n", num_ulprbbl);
         memcpy(RC.nrmac[j]->ulprbbl, prbbl, MAX_BWP_SIZE * sizeof(prbbl[0]));
       }
-      // config_get_processedint() takes only paramdef_t *, so cast const away
-      paramdef_t *p_ab = (paramdef_t *)gpd(params, np, MACRLC_ANALOG_BEAMFORMING);
-      NR_beam_info_t *beam_info = &RC.nrmac[j]->beam_info;
-      beam_info->beam_mode = config_get_processedint(cfg, p_ab);
-      beam_info->beams_per_period = beams_per_period;
-      if (RC.nrmac[j]->beam_info.beam_mode != NO_BEAM_MODE) {
-        if (RC.nrmac[j]->beam_info.beam_mode == PRECONFIGURED_BEAM_IDX)
-          AssertFatal(NFAPI_MODE == NFAPI_MONOLITHIC, "Analog beamforming only supported for monolithic scenario\n");
-        beam_info->beam_allocation = malloc16(beams_per_period * sizeof(beam_info->beam_allocation));
-        beam_info->beam_duration = *gpd(params, np, MACRLC_BEAM_DURATION)->u8ptr;
-        beam_info->beam_allocation_size = -1; // to be initialized once we have information on frame configuration
-      }
-      bool das_enabled = false;
-      if (NFAPI_MODE == NFAPI_MONOLITHIC) {
-        GET_PARAMS_LIST(L1_ParamList, L1_Params, L1PARAMS_DESC, CONFIG_STRING_L1_LIST, NULL);
-        const paramdef_t *l1_params = L1_ParamList.paramarray[j];
-        const int l1_np = sizeofArray(L1_Params);
-        das_enabled =  *gpd(l1_params, l1_np, L1_ANALOG_DAS)->uptr;
-      }
-      // TODO config_isparamset doesn't seem to work for array types, checking numelt instead
-      int n = gpd(params, np, MACRLC_BEAM_WEIGHTS_LIST)->numelt;
-      if (n > 0) {
-        AssertFatal(!das_enabled, "No need to set beam weights in case of DAS\n");
-        int num_beam = n;
-        if (RC.nrmac[j]->beam_info.beam_mode == PRECONFIGURED_BEAM_IDX) {
-          AssertFatal(n % num_tx == 0, "Error! Number of beam input needs to be multiple of TX antennas\n");
-          num_beam = n / num_tx;
-        }
-        // each beam is described by a set of weights (one for each antenna)
-        // in case of analog beamforming an index to the RU beam identifier is provided
-        // (one for each beam regardless of the number of antennas per beam)
-        config.nb_bfw[0] = num_tx;  // number of tx antennas
-        config.nb_bfw[1] = num_beam; // number of beams weights/indices
-        config.bw_list = calloc_or_fail(n, sizeof(*config.bw_list));
-        for (int b = 0; b < n; b++)
-          config.bw_list[b] = gpd(params, np, MACRLC_BEAM_WEIGHTS_LIST)->iptr[b];
-      } else if (das_enabled) {
-        n = *gpd(params, np, MACRLC_BEAMS_PERIOD)->u8ptr;
-        config.nb_bfw[0] = num_tx;  // number of tx antennas
-        config.nb_bfw[1] = n; // number of beams weights/indices
-        config.bw_list = calloc_or_fail(n, sizeof(*config.bw_list));
-        for (int b = 0; b < n; b++)
-          config.bw_list[b] = b;
-      }
+      char **removed_ab = gpd(params, np, MACRLC_ANALOG_BEAMFORMING_REMOVED)->strptr;
+      AssertFatal(removed_ab == NULL || *removed_ab == NULL,
+                  MACRLC_ANALOG_BEAMFORMING_REMOVED " removed, use " MACRLC_MIMO_MODE
+                  " = \"plain\"|\"das\"|\"predefined\"|\"dynamic\" instead\n");
+      AssertFatal(gpd(params, np, MACRLC_BEAM_WEIGHTS_LIST_REMOVED)->numelt == 0,
+                  MACRLC_BEAM_WEIGHTS_LIST_REMOVED " removed, use " MACRLC_SSB_BEAMS_LIST
+                  " instead (one beam index per transmitted SSB)\n");
+
+      // read before resolving mimo_mode: the table decides how L1 treats the beam IDs
       config.bt.num_beams = 0;
       config.bt.num_weights_per_beam = 0;
       config.bt.beam_ids = NULL;
@@ -1814,6 +1809,60 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
         config.bt.beam_weights =
             read_dbt_from_config(prefix, &config.bt.num_beams, &config.bt.num_weights_per_beam, &config.bt.beam_ids);
       }
+      const bool have_dbt = config.bt.num_beams > 0;
+
+      // config_get_processedint() takes only paramdef_t *, so cast const away
+      paramdef_t *p_mimo = (paramdef_t *)gpd(params, np, MACRLC_MIMO_MODE);
+      NR_beam_info_t *beam_info = &RC.nrmac[j]->beam_info;
+      beam_info->mimo_mode = config_get_processedint(cfg, p_mimo);
+      beam_info->beams_per_period = beams_per_period;
+      beam_info->beam_duration = *gpd(params, np, MACRLC_BEAM_DURATION)->u8ptr;
+      // TODO config_isparamset doesn't seem to work for array types, checking numelt instead
+      int num_ssb_beams = gpd(params, np, MACRLC_SSB_BEAMS_LIST)->numelt;
+      switch (beam_info->mimo_mode) {
+        case MIMO_MODE_PLAIN:
+          AssertFatal(num_ssb_beams == 0,
+                      MACRLC_SSB_BEAMS_LIST " is only meaningful if " MACRLC_MIMO_MODE " is not \"plain\"\n");
+          AssertFatal(!have_dbt,
+                      "a digital beam table is only meaningful if " MACRLC_MIMO_MODE " is not \"plain\"\n");
+          break;
+        case MIMO_MODE_DAS:
+          AssertFatal(num_ssb_beams == 0, "no need to set " MACRLC_SSB_BEAMS_LIST " in case of DAS\n");
+          AssertFatal(!have_dbt, "no need to configure a digital beam table in case of DAS\n");
+          // the beam index is the logical antenna port index, nothing to configure
+          beam_info->beam_id_to_ru = true;
+          break;
+        case MIMO_MODE_PREDEFINED_BF:
+          // always explicit: a digital beam table usually holds many more beams than SSBs
+          AssertFatal(num_ssb_beams > 0, "predefined beamforming needs " MACRLC_SSB_BEAMS_LIST "\n");
+          config.ssb_beams = calloc_or_fail(num_ssb_beams, sizeof(*config.ssb_beams));
+          for (int b = 0; b < num_ssb_beams; b++)
+            config.ssb_beams[b] = gpd(params, np, MACRLC_SSB_BEAMS_LIST)->iptr[b];
+          if (have_dbt)
+            check_ssb_beams_in_dbt(config.ssb_beams, num_ssb_beams, &config.bt);
+          else
+            beam_info->beam_id_to_ru = true;
+          break;
+        case MIMO_MODE_DYNAMIC_BF:
+          /* TODO static beams for control, SRS-based precoding for DLSCH/ULSCH; also has
+           * to disable CSI ports and DL precoding and take the DL layers from the SRS rank */
+          AssertFatal(false, MACRLC_MIMO_MODE " \"dynamic\" is not implemented yet\n");
+          break;
+        default:
+          AssertFatal(false, "unhandled " MACRLC_MIMO_MODE " %d\n", beam_info->mimo_mode);
+      }
+      config.num_ssb_beams = num_ssb_beams;
+      if (beam_info->mimo_mode != MIMO_MODE_PLAIN) {
+        beam_info->beam_allocation = malloc16(beams_per_period * sizeof(beam_info->beam_allocation));
+        beam_info->beam_allocation_size = -1; // to be initialized once we have information on frame configuration
+      }
+      LOG_I(GNB_APP,
+            "MIMO mode %s: %d beams per period, beam duration %d slot(s), %d static beam(s), %d digital beam(s)\n",
+            *gpd(params, np, MACRLC_MIMO_MODE)->strptr,
+            beam_info->beams_per_period,
+            beam_info->beam_duration,
+            config.num_ssb_beams,
+            config.bt.num_beams);
 
       // Read spatial stream indices
       config_spatial_stream_index(params, np, &RC.nrmac[j]->radio_config, num_tx);

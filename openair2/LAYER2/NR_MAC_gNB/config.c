@@ -743,7 +743,7 @@ static void config_common(gNB_MAC_INST *nrmac, const nr_mac_config_t *config, NR
   cfg->num_tlv++;
   cfg->num_tlv++;
 #ifdef ENABLE_AERIAL
-  if (nrmac->beam_info.beam_mode == PRECONFIGURED_BEAM_IDX) {
+  if (nrmac->beam_info.mimo_mode == MIMO_MODE_PREDEFINED_BF && !nrmac->beam_info.beam_id_to_ru) {
     // if we are doing BF in Aerial we need these Custom TLV
     cfg->carrier_config.num_rx_ant.value = 64; //TOOD: Read number of baseband ports (phy ant) from Config?
     cfg->carrier_config.num_tx_ant.value = 64; //TOOD: Read number of baseband ports (phy ant) from Config? 
@@ -775,8 +775,8 @@ static void config_common(gNB_MAC_INST *nrmac, const nr_mac_config_t *config, NR
   // precoding matrix configuration (to be improved)
   cfg->pmi_list = init_DL_MIMO_codebook(nrmac, pdsch_AntennaPorts);
 
-  if (nrmac->beam_info.beam_mode != NO_BEAM_MODE) {
-    LOG_I(NR_MAC, "Configuring analog beamforming in config_request message\n");
+  if (nrmac->beam_info.mimo_mode != MIMO_MODE_PLAIN) {
+    LOG_I(NR_MAC, "Configuring beam-index based beamforming in config_request message\n");
     cfg->analog_beamforming_ve.num_beams_period_vendor_ext.tl.tag = NFAPI_NR_FAPI_NUM_BEAMS_PERIOD_VENDOR_EXTENSION_TAG;
     cfg->analog_beamforming_ve.num_beams_period_vendor_ext.value = nrmac->beam_info.beams_per_period;
     cfg->num_tlv++;
@@ -827,7 +827,7 @@ static void config_common(gNB_MAC_INST *nrmac, const nr_mac_config_t *config, NR
 
 static void initialize_beam_information(NR_beam_info_t *beam_info, int mu, int slots_per_frame)
 {
-  if (beam_info->beam_mode == NO_BEAM_MODE)
+  if (beam_info->mimo_mode == MIMO_MODE_PLAIN)
     return;
 
   int size = mu == 0 ? slots_per_frame << 1 : slots_per_frame;
@@ -945,7 +945,7 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, NR_ServingCellConfigCommon_t *scc, c
   nrmac->vrb_map_UL_size = size;
 
   int num_beams = 1;
-  if(nrmac->beam_info.beam_mode != NO_BEAM_MODE)
+  if(nrmac->beam_info.mimo_mode != MIMO_MODE_PLAIN)
     num_beams = nrmac->beam_info.beams_per_period;
   for (int i = 0; i < num_beams; i++) {
     nrmac->common_channels[0].vrb_map_UL[i] = calloc(size * MAX_BWP_SIZE, sizeof(uint16_t));
