@@ -156,8 +156,8 @@ static int get_stats(char *buf, int debug, telnet_printfunc_t prnt)
     prnt("      \"" TAC "\": %ld,\n", *cell_info->tac);
     prnt("      \"" MCC "\": \"%03d\",\n", cell_info->plmn.mcc);
     prnt("      \"" MNC "\": \"%0*d\",\n", cell_info->plmn.mnc_digit_length, cell_info->plmn.mnc);
-    prnt("      \"" SD  "\": %d,\n", cell_info->nssai[0].sd);
-    prnt("      \"" SST "\": %d\n", cell_info->nssai[0].sst);
+    prnt("      \"" SD  "\": %d,\n", cell_info->served_plmn_list[0].nssai[0].sd);
+    prnt("      \"" SST "\": %d\n", cell_info->served_plmn_list[0].nssai[0].sst);
     prnt("    },\n");
     prnt("    \"device\": {\n");
     prnt("      \"gnbId\": %d,\n", sr->gNB_DU_id);

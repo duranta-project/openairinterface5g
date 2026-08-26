@@ -41,26 +41,17 @@ bool eq_f1ap_cell_info(const f1ap_served_cell_info_t *a, const f1ap_served_cell_
   if (a->tac)
     _EQ_CHECK_INT(*a->tac, *b->tac);
   _EQ_CHECK_INT(a->num_plmn, b->num_plmn);
-  if (a->num_plmn == 0) {
-    // compat bridge: legacy single-PLMN slice comparison (removed once O1 migrates)
-    _EQ_CHECK_INT(a->num_ssi, b->num_ssi);
-    for (int i = 0; i < a->num_ssi; ++i) {
-      _EQ_CHECK_INT(a->nssai[i].sst, b->nssai[i].sst);
-      _EQ_CHECK_INT(a->nssai[i].sd, b->nssai[i].sd);
-    }
-  } else {
-    if (a->num_plmn > F1AP_MAX_NB_PLMNS)
+  if (a->num_plmn > F1AP_MAX_NB_PLMNS)
+    return false;
+  for (int i = 0; i < a->num_plmn; ++i) {
+    if (!eq_f1ap_plmn(&a->served_plmn_list[i].plmn, &b->served_plmn_list[i].plmn))
       return false;
-    for (int i = 0; i < a->num_plmn; ++i) {
-      if (!eq_f1ap_plmn(&a->served_plmn_list[i].plmn, &b->served_plmn_list[i].plmn))
-        return false;
-      _EQ_CHECK_INT(a->served_plmn_list[i].num_nssai, b->served_plmn_list[i].num_nssai);
-      if (a->served_plmn_list[i].num_nssai > MAX_NUM_SLICES)
-        return false;
-      for (int j = 0; j < a->served_plmn_list[i].num_nssai; ++j) {
-        _EQ_CHECK_INT(a->served_plmn_list[i].nssai[j].sst, b->served_plmn_list[i].nssai[j].sst);
-        _EQ_CHECK_INT(a->served_plmn_list[i].nssai[j].sd, b->served_plmn_list[i].nssai[j].sd);
-      }
+    _EQ_CHECK_INT(a->served_plmn_list[i].num_nssai, b->served_plmn_list[i].num_nssai);
+    if (a->served_plmn_list[i].num_nssai > MAX_NUM_SLICES)
+      return false;
+    for (int j = 0; j < a->served_plmn_list[i].num_nssai; ++j) {
+      _EQ_CHECK_INT(a->served_plmn_list[i].nssai[j].sst, b->served_plmn_list[i].nssai[j].sst);
+      _EQ_CHECK_INT(a->served_plmn_list[i].nssai[j].sd, b->served_plmn_list[i].nssai[j].sd);
     }
   }
   _EQ_CHECK_INT(a->mode, b->mode);

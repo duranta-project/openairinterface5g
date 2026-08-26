@@ -1012,10 +1012,6 @@ static int read_du_cell_info(bool separate_du,
   info->plmn = p[0]; // primary PLMN of the NR CGI
   info->nr_cellid = (uint64_t) * (GNBParamList.paramarray[0][GNB_NRCELLID_IDX].u64ptr);
 
-  // compat bridge: keep populating the legacy slice list (first PLMN) for
-  // consumers not yet migrated (O1/telnet); removed once O1 migrates.
-  info->num_ssi = set_snssai_config(info->nssai, MAX_NUM_SLICES, 0, 0);
-
   return 1;
 }
 
