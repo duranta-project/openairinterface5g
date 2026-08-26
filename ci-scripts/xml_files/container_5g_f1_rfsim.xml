@@ -42,6 +42,12 @@
   </testCase>
 
   <testCase>
+    <class>IdleSleep</class>
+    <desc>Delay 2 second due to stabilize connection</desc>
+    <idle_sleep_time_in_sec>2</idle_sleep_time_in_sec>
+  </testCase>
+
+  <testCase>
     <class>Ping</class>
     <desc>Ping ext-dn from all NR-UEs</desc>
     <id>rfsim5g_ue</id>
