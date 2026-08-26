@@ -79,8 +79,11 @@ int get_reestab_count(char *buf, int debug, telnet_printfunc_t prnt)
   if (!buf) {
     MessageDef *msg_ue_rnti_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_SINGLE_UE_RNTI);
     MessageDef *resp_ue_rnti_p;
-    itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_ue_rnti_p, &resp_ue_rnti_p);
+    if (!itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_ue_rnti_p, &resp_ue_rnti_p, 1000)) {
+      ERROR_MSG_RET("Timeout waiting for RRC response\n");
+    }
     if (!check_single_rrc_ue(resp_ue_rnti_p, prnt)) {
+      free(resp_ue_rnti_p);
       return -1;
     }
     const Rrc_get_single_ue_rnti *resp = &resp_ue_rnti_p->ittiMsg.rrc_get_single_ue_rnti;
@@ -91,8 +94,11 @@ int get_reestab_count(char *buf, int debug, telnet_printfunc_t prnt)
     MessageDef *msg_ue_context_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_UE_CONTEXT_BY_UE_ID);
     msg_ue_context_p->ittiMsg.rrc_get_ue_context_by_ue_id.id = ue_id;
     MessageDef *resp_ue_context_p;
-    itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_ue_context_p, &resp_ue_context_p);
+    if (!itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_ue_context_p, &resp_ue_context_p, 1000)) {
+      ERROR_MSG_RET("Timeout waiting for RRC response\n");
+    }
     if (!resp_ue_context_p->ittiMsg.rrc_get_ue_context_by_ue_id.is_single) {
+      free(resp_ue_context_p);
       ERROR_MSG_RET("could not find UE with ue_id %d in RRC\n");
     }
     const Rrc_get_single_ue_rnti *resp = &resp_ue_context_p->ittiMsg.rrc_get_ue_context_by_ue_id;
@@ -160,8 +166,11 @@ int fetch_du_by_ue_id(char *buf, int debug, telnet_printfunc_t prnt)
   MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_DU_ID_BY_UE_ID);
   msg_p->ittiMsg.rrc_get_du_id_by_ue_id.ue_id = ue_id;
   MessageDef *resp_p;
-  itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p);
+  if (!itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
+    ERROR_MSG_RET("Timeout waiting for RRC response\n");
+  }
   if (resp_p->ittiMsg.rrc_get_du_id_by_ue_id.no_du) {
+    free(resp_p);
     ERROR_MSG_RET("No DU connected or no UE found with the requested ue_id.\n");
   }
   int du_id = resp_p->ittiMsg.rrc_get_du_id_by_ue_id.du_id;
@@ -235,8 +244,11 @@ int rrc_gNB_trigger_n2_ho(char *buf, int debug, telnet_printfunc_t prnt)
     MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_CHECK_UE_CONTEXT);
     msg_p->ittiMsg.rrc_check_ue_context.id = ueId;
     MessageDef *resp_p;
-    itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p);
+    if (!itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
+      ERROR_MSG_RET("Timeout waiting for RRC response\n");
+    }
     if (!resp_p->ittiMsg.rrc_check_ue_context.check) {
+      free(resp_p);
       ERROR_MSG_RET("UE with id %u not found\n", ueId);
     }
     free(resp_p);
@@ -332,8 +344,11 @@ static int trigger_ngap_pdu_session_release(char *buf, int debug, telnet_printfu
   } else {
     MessageDef *msg_ue_rnti_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_SINGLE_UE_RNTI);
     MessageDef *resp_ue_rnti_p;
-    itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_ue_rnti_p, &resp_ue_rnti_p);
+    if (!itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_ue_rnti_p, &resp_ue_rnti_p, 1000)) {
+      ERROR_MSG_RET("Timeout waiting for RRC response\n");
+    }
     if (!check_single_rrc_ue(resp_ue_rnti_p, prnt)) {
+      free(resp_ue_rnti_p);
       return -1;
     }
     gNB_ue_ngap_id = resp_ue_rnti_p->ittiMsg.rrc_get_single_ue_rnti.id;
@@ -347,7 +362,9 @@ static int trigger_ngap_pdu_session_release(char *buf, int debug, telnet_printfu
   MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_NGAP_UE_ID);
   msg_p->ittiMsg.rrc_get_ngap_ue_id.gNB_ue_ngap_id = gNB_ue_ngap_id;
   MessageDef *resp_p;
-  itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p);
+  if (!itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
+    ERROR_MSG_RET("Timeout waiting for RRC response\n");
+  }
   int amf_ue_ngap_id = resp_p->ittiMsg.rrc_get_ngap_ue_id.amf_ue_ngap_id;
   free(resp_p);
   if (!amf_ue_ngap_id) {
