@@ -206,9 +206,19 @@ static void test_f1ap_setup_request(void)
       .plmn.mcc = 1,
       .plmn.mnc = 1,
       .plmn.mnc_digit_length = 3,
-      .num_ssi = 1,
-      .nssai[0].sst = 1,
-      .nssai[0].sd = 1,
+      .num_plmn = 2,
+      .served_plmn_list[0].plmn.mcc = 1,
+      .served_plmn_list[0].plmn.mnc = 1,
+      .served_plmn_list[0].plmn.mnc_digit_length = 3,
+      .served_plmn_list[0].num_nssai = 1,
+      .served_plmn_list[0].nssai[0].sst = 1,
+      .served_plmn_list[0].nssai[0].sd = 1,
+      .served_plmn_list[1].plmn.mcc = 208,
+      .served_plmn_list[1].plmn.mnc = 93,
+      .served_plmn_list[1].plmn.mnc_digit_length = 2,
+      .served_plmn_list[1].num_nssai = 1,
+      .served_plmn_list[1].nssai[0].sst = 2,
+      .served_plmn_list[1].nssai[0].sd = 2,
       .tac = tac,
   };
   // create message
@@ -278,6 +288,7 @@ static void test_f1ap_setup_request(void)
   free_f1ap_setup_request(&cp);
   // free original message
   free_f1ap_setup_request(&orig);
+  printf("%s() successful\n", __func__);
 }
 
 /**
@@ -509,6 +520,11 @@ static void test_f1ap_du_configuration_update(void)
       .plmn.mcc = 1,
       .plmn.mnc = 1,
       .plmn.mnc_digit_length = 3,
+      .num_plmn = 1,
+      .served_plmn_list[0].plmn.mcc = 1,
+      .served_plmn_list[0].plmn.mnc = 1,
+      .served_plmn_list[0].plmn.mnc_digit_length = 3,
+      .served_plmn_list[0].num_nssai = 0,
       .tac = tac,
   };
   char *mtc2_data = "mtc2";
@@ -530,6 +546,11 @@ static void test_f1ap_du_configuration_update(void)
       .plmn.mcc = 2,
       .plmn.mnc = 2,
       .plmn.mnc_digit_length = 2,
+      .num_plmn = 1,
+      .served_plmn_list[0].plmn.mcc = 2,
+      .served_plmn_list[0].plmn.mnc = 2,
+      .served_plmn_list[0].plmn.mnc_digit_length = 2,
+      .served_plmn_list[0].num_nssai = 0,
   };
   /* create message */
   f1ap_gnb_du_configuration_update_t orig = {
@@ -589,6 +610,7 @@ static void test_f1ap_du_configuration_update(void)
   AssertFatal(ret, "eq_f1ap_setup_request(): copied message doesn't match\n");
   free_f1ap_du_configuration_update(&cp);
   free_f1ap_du_configuration_update(&orig);
+  printf("%s() successful\n", __func__);
 }
 
 /**

@@ -465,11 +465,20 @@ static F1AP_Served_Cell_Information_t encode_served_cell_info(const f1ap_served_
     OCTET_STRING_fromBuf(netOrder, ((char *)&tac) + 1, 3);
   }
   // Served PLMNs 1..<maxnoofBPLMNs>
-  asn1cSequenceAdd(scell_info.servedPLMNs.list, F1AP_ServedPLMNs_Item_t, servedPLMN_item);
-  // PLMN Identity (M)
-  MCC_MNC_TO_PLMNID(c->plmn.mcc, c->plmn.mnc, c->plmn.mnc_digit_length, &servedPLMN_item->pLMN_Identity);
-  // NSSAIs (O)
-  servedPLMN_item->iE_Extensions = (struct F1AP_ProtocolExtensionContainer *)write_slice_info(c->num_ssi, c->nssai);
+  // MOCN: emit one ServedPLMNs_Item per broadcast PLMN with its own slice list.
+  // Compat bridge: num_plmn==0 (legacy producer not yet migrated) falls back to the
+  // primary PLMN with its legacy slice list (num_ssi/nssai); removed once O1 migrates.
+  int num_splmn = c->num_plmn > 0 ? c->num_plmn : 1;
+  for (int i = 0; i < num_splmn; i++) {
+    const plmn_id_t *p = (c->num_plmn > 0) ? &c->served_plmn_list[i].plmn : &c->plmn;
+    int ns = (c->num_plmn > 0) ? c->served_plmn_list[i].num_nssai : c->num_ssi;
+    const nssai_t *nssai = (c->num_plmn > 0) ? c->served_plmn_list[i].nssai : c->nssai;
+    asn1cSequenceAdd(scell_info.servedPLMNs.list, F1AP_ServedPLMNs_Item_t, servedPLMN_item);
+    // PLMN Identity (M)
+    MCC_MNC_TO_PLMNID(p->mcc, p->mnc, p->mnc_digit_length, &servedPLMN_item->pLMN_Identity);
+    // NSSAIs (O) — per-PLMN TAI Slice Support List
+    servedPLMN_item->iE_Extensions = (struct F1AP_ProtocolExtensionContainer *)write_slice_info(ns, nssai);
+  }
   // NR-Mode-Info (M)
   F1AP_NR_Mode_Info_t *nR_Mode_Info = &scell_info.nR_Mode_Info;
   if (c->mode == F1AP_MODE_FDD) { // FDD Info
@@ -515,9 +524,23 @@ static bool decode_served_cell_info(const F1AP_Served_Cell_Information_t *in, f1
   BIT_STRING_TO_NR_CELL_IDENTITY(&in->nRCGI.nRCellIdentity, info->nr_cellid);
   // NR PCI (M)
   info->nr_pci = in->nRPCI;
-  // Served PLMNs (>= 1)
-  AssertError(in->servedPLMNs.list.count == 1, return false, "at least and only 1 PLMN must be present");
-  info->num_ssi = read_slice_info(in->servedPLMNs.list.array[0], info->nssai, 16);
+  // Served PLMNs (>= 1) — MOCN: decode all PLMNs into served_plmn_list
+  AssertError(in->servedPLMNs.list.count >= 1, return false, "at least 1 ServedPLMN must be present");
+  AssertError(in->servedPLMNs.list.count <= F1AP_MAX_NB_PLMNS,
+              return false,
+              "ServedPLMN count %d exceeds F1AP_MAX_NB_PLMNS=%d",
+              in->servedPLMNs.list.count,
+              F1AP_MAX_NB_PLMNS);
+  info->num_plmn = in->servedPLMNs.list.count;
+  for (int i = 0; i < in->servedPLMNs.list.count; ++i) {
+    F1AP_ServedPLMNs_Item_t *splmn = in->servedPLMNs.list.array[i];
+    PLMNID_TO_MCC_MNC(&splmn->pLMN_Identity,
+                      info->served_plmn_list[i].plmn.mcc,
+                      info->served_plmn_list[i].plmn.mnc,
+                      info->served_plmn_list[i].plmn.mnc_digit_length);
+    info->served_plmn_list[i].num_nssai =
+        read_slice_info(splmn, info->served_plmn_list[i].nssai, MAX_NUM_SLICES);
+  }
   // FDD Info
   if (in->nR_Mode_Info.present == F1AP_NR_Mode_Info_PR_fDD) {
     info->mode = F1AP_MODE_FDD;
@@ -876,12 +899,17 @@ static f1ap_served_cell_info_t copy_f1ap_served_cell_info(const f1ap_served_cell
     .plmn = src->plmn,
     .nr_cellid = src->nr_cellid,
     .nr_pci = src->nr_pci,
-    .num_ssi = src->num_ssi,
+    .num_ssi = src->num_ssi, // compat bridge
+    .num_plmn = src->num_plmn,
     .mode = src->mode,
   };
 
+  // compat bridge: copy legacy slice list (removed once O1 migrates)
   for (int i = 0; i < src->num_ssi; ++i)
     dst.nssai[i] = src->nssai[i];
+  // Deep-copy per-PLMN slice lists (MOCN: each PLMN may carry its own slice support list)
+  for (int i = 0; i < src->num_plmn; ++i)
+    dst.served_plmn_list[i] = src->served_plmn_list[i];
 
   if (src->mode == F1AP_MODE_TDD)
     dst.tdd = src->tdd;
