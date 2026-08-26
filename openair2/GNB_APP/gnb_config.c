@@ -996,11 +996,24 @@ static int read_du_cell_info(bool separate_du,
 
   // PLMN
   plmn_id_t p[PLMN_LIST_MAX_SIZE] = {0};
-  set_plmn_config(p, 0);
-  info->plmn = p[0];
+  uint8_t num_plmn = set_plmn_config(p, 0);
+
+  info->num_plmn = num_plmn;
+  for (int i = 0; i < num_plmn; i++) {
+    // populate served_plmn_list with each broadcast PLMN and its slices
+    info->served_plmn_list[i].plmn = p[i];
+    info->served_plmn_list[i].num_nssai = set_snssai_config(info->served_plmn_list[i].nssai,
+                                                            MAX_NUM_SLICES,
+                                                            0, // gNB index (first gNB)
+                                                            i // PLMN index (current PLMN in loop)
+    );
+  }
+
+  info->plmn = p[0]; // primary PLMN of the NR CGI
   info->nr_cellid = (uint64_t) * (GNBParamList.paramarray[0][GNB_NRCELLID_IDX].u64ptr);
 
-  // SNSSAI
+  // compat bridge: keep populating the legacy slice list (first PLMN) for
+  // consumers not yet migrated (O1/telnet); removed once O1 migrates.
   info->num_ssi = set_snssai_config(info->nssai, MAX_NUM_SLICES, 0, 0);
 
   return 1;
