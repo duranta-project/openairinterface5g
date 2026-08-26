@@ -338,7 +338,7 @@ static int set_bwconfig(char *buf, int debug, telnet_printfunc_t prnt)
   mac->common_channels[0].mib = get_new_MIB_NR(scc);
 
   const f1ap_served_cell_info_t *info = &mac->f1_config.setup_req->cell[0].info;
-  nr_mac_configure_sib1(mac, &info->plmn, info->nr_cellid, *info->tac);
+  nr_mac_configure_sib1(mac, info->nr_cellid, *info->tac, info->num_plmn, info->served_plmn_list);
 
   prnt("OK\n");
   return 0;

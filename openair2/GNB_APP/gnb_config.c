@@ -1846,8 +1846,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
     cc->du_SIBs = fill_du_sibs(GNBParamList.paramarray[0]);
 
     if (IS_SA_MODE(get_softmodem_params()))
-      nr_mac_configure_sib1(RC.nrmac[0], &info.plmn, info.nr_cellid, *info.tac);
-
+      nr_mac_configure_sib1(RC.nrmac[0], info.nr_cellid, *info.tac, info.num_plmn, info.served_plmn_list);
     // read F1 Setup information from config and generated MIB/SIB1
     // and store it at MAC for sending later
     NR_BCCH_BCH_Message_t *mib = RC.nrmac[0]->common_channels[0].mib;
