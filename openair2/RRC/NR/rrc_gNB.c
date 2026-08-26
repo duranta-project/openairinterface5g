@@ -582,7 +582,7 @@ static f1ap_ue_context_setup_req_t rrc_fill_f1_ue_context_setup(gNB_RRC_UE_t *ue
   f1ap_ue_context_setup_req_t req = {
       .gNB_CU_ue_id = ue->rrc_ue_id,
       .servCellIndex = RRC_PCELL_INDEX,
-      .plmn = cell->info.plmn,
+      .plmn = ue->serving_plmn,
       .nr_cellid = cell->info.cell_id,
   };
 
