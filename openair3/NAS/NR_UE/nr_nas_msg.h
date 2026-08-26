@@ -80,6 +80,9 @@ typedef struct {
 } nr_ue_nas_t;
 
 nr_ue_nas_t *get_ue_nas_info(module_id_t module_id);
+/* @brief Return true and write the 1-based selectedPLMN-Identity (TS 38.331) of the
+ * plmns[] entry matching the UE IMSI (MCC/MNC from UICC); false (output untouched) if none. */
+bool nas_get_selected_plmn(const nr_ue_nas_t *nas, const plmn_id_t *plmns, int num_plmns, long *selected_plmn_identity);
 void generateRegistrationRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas, bool is_security_mode);
 void generateServiceRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas);
 void *nas_nrue_task(void *args_p);
