@@ -68,4 +68,20 @@ typedef struct Rrc_gnb_trigger_ue_context_release_req_s {
 } Rrc_gnb_trigger_ue_context_release_req;
 #define RRC_GNB_TRIGGER_UE_CONTEXT_RELEASE_REQ(mSGpTR) (mSGpTR)->ittiMsg.rrc_gnb_trigger_ue_context_release_req;
 
+typedef struct Mac_force_ul_failure_s {
+  rnti_t rnti;
+} Mac_force_ul_failure;
+#define MAC_FORCE_UL_FAILURE(mSGpTR) (mSGpTR)->ittiMsg.mac_force_ul_failure;
+
+typedef struct Mac_get_ue_rnti_s {
+  rnti_t rnti;
+} Mac_get_ue_rnti;
+#define MAC_GET_UE_RNTI(mSGpTR) (mSGpTR)->ittiMsg.mac_get_ue_rnti;
+
+typedef struct Mac_get_ue_rnti_by_uid_s {
+  uid_t uid;
+  rnti_t rnti;
+} Mac_get_ue_rnti_by_uid;
+#define MAC_GET_UE_RNTI_BY_UID(mSGpTR) (mSGpTR)->ittiMsg.mac_get_ue_rnti_by_uid;
+
 #endif /* NR_RRC_MESSAGES_TYPES_H_ */

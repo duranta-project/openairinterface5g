@@ -620,4 +620,7 @@ bool nr_ul_check_phr(const nr_ul_sched_params_t *params,
                      uint8_t mcs,
                      nr_ul_phr_advice_t *advice);
 fsn_t get_fb_frame_slot(int frame, int slot, int K, int n_slots_frame, int NTN_gNB_Koffset);
+
+void *mac_gnb_task(void *args_p);
+
 #endif /*__LAYER2_NR_MAC_PROTO_H__*/

@@ -268,13 +268,49 @@ int rrc_gNB_trigger_n2_ho(char *buf, int debug, telnet_printfunc_t prnt)
 int force_ul_failure(char *buf, int debug, telnet_printfunc_t prnt)
 {
   UNUSED(debug);
-  if (!RC.nrmac)
-    ERROR_MSG_RET("no MAC/RLC present, force_ul_failure failed\n");
-  int rnti = fetch_rnti(buf, prnt);
-  if (rnti < 0)
-    ERROR_MSG_RET("could not identify UE (no UE, no such RNTI, or multiple UEs)\n");
-  NR_UE_info_t *UE = find_nr_UE(&RC.nrmac[0]->UE_info, rnti);
-  nr_mac_trigger_ul_failure(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
+  rnti_t rnti;
+  if(!buf){
+    MessageDef *msg_rnti_p = itti_alloc_new_message(TASK_MAC_GNB, 0, MAC_GET_UE_RNTI);
+    MessageDef *resp_rnti_p;
+    if (!itti_send_and_receive_msg_to_task(TASK_MAC_GNB, TASK_TELNET, msg_rnti_p, &resp_rnti_p, 1000)) {
+      ERROR_MSG_RET("Timeout waiting for MAC response\n");
+    }
+    rnti = resp_rnti_p->ittiMsg.mac_get_ue_rnti.rnti;
+    free(resp_rnti_p);
+  } else {
+    char *token = strtok(buf, ",");
+    if (!token) {
+      ERROR_MSG_RET("Invalid input. Expected format: UE_ID\n");
+    }
+    uid_t ue_id = (uid_t)strtol(token, NULL, 10);
+
+    MessageDef *msg_p = itti_alloc_new_message(TASK_MAC_GNB, 0, MAC_GET_UE_RNTI_BY_UID);
+    msg_p->ittiMsg.mac_get_ue_rnti_by_uid.uid = ue_id;
+    MessageDef *resp_p;
+    if (!itti_send_and_receive_msg_to_task(TASK_MAC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
+      ERROR_MSG_RET("Timeout waiting for MAC response\n");
+    }
+
+    if (resp_p->ittiMsg.mac_get_ue_rnti_by_uid.rnti == 0) {
+      free(resp_p);
+      ERROR_MSG_RET("Provided ID does not correspond to any UE\n");
+    }
+
+    rnti = resp_p->ittiMsg.mac_get_ue_rnti_by_uid.rnti;
+    free(resp_p);
+  }
+
+  if (rnti == 0) {
+    ERROR_MSG_RET("no MAC/RLC present or could not identify UE (no UE, no such RNTI, or multiple UEs)\n");
+  }
+
+  MessageDef *msg_p = itti_alloc_new_message(TASK_MAC_GNB, 0, MAC_FORCE_UL_FAILURE);
+  msg_p->ittiMsg.mac_force_ul_failure.rnti = rnti;
+  MessageDef *resp_p;
+  if (!itti_send_and_receive_msg_to_task(TASK_MAC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
+    ERROR_MSG_RET("Timeout waiting for MAC response\n");
+  }
+  free(resp_p);
   return 0;
 }
 

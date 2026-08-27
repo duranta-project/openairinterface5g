@@ -38,6 +38,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
 #include "NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
+#include "LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "PHY/INIT/nr_phy_init.h"
 #include "PHY/TOOLS/phy_scope_interface.h"
 #include "PHY/defs_gNB.h"
@@ -248,6 +249,13 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
     if (!NODE_IS_DU(node_type)) {
       if (itti_create_task (TASK_RRC_GNB, rrc_gnb_task, NULL) < 0) {
         LOG_E(NR_RRC, "Create task for NR RRC gNB failed\n");
+        return -1;
+      }
+    }
+
+    if (NODE_IS_DU(node_type)) {
+      if (itti_create_task (TASK_MAC_GNB, mac_gnb_task, NULL) < 0) {
+        LOG_E(NR_MAC, "Create task for NR MAC gNB failed\n");
         return -1;
       }
     }
