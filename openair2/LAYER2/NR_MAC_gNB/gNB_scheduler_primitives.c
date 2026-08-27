@@ -4070,10 +4070,19 @@ void send_initial_ul_rrc_message(int rnti, const uint8_t *sdu, sdu_size_t sdu_le
     encoded_len = encode_cellGroupConfig(UE->CellGroup, du2cu, sizeof(du2cu));
 
   DevAssert(mac->f1_config.setup_req != NULL);
-  AssertFatal(mac->f1_config.setup_req->num_cells_available == 1, "can handle only one cell\n");
+  /* find the matching cell in setup_req using the UE's serving cell */
+  const f1ap_setup_req_t *sr = mac->f1_config.setup_req;
+  const uint64_t ue_cellid = UE->pcell->nr_cellid;
+  int cell_idx = 0;
+  for (int i = 0; i < sr->num_cells_available; i++) {
+    if (sr->cell[i].info.nr_cellid == ue_cellid) {
+      cell_idx = i;
+      break;
+    }
+  }
   const f1ap_initial_ul_rrc_message_t ul_rrc_msg = {
-    .plmn = mac->f1_config.setup_req->cell[0].info.plmn,
-    .nr_cellid = mac->f1_config.setup_req->cell[0].info.nr_cellid,
+    .plmn = sr->cell[cell_idx].info.plmn,
+    .nr_cellid = sr->cell[cell_idx].info.nr_cellid,
     .gNB_DU_ue_id = rnti,
     .crnti = rnti,
     .rrc_container = (uint8_t *) sdu,
