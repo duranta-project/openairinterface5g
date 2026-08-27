@@ -452,11 +452,25 @@ int get_ssb_arfcn(const struct nr_rrc_cell_container_t *cell)
   return 0;
 }
 
-static bool rrc_gNB_plmn_matches(const gNB_RRC_INST *rrc, const f1ap_served_cell_info_t *info)
+/* Return true if a PLMN is present in the CU/gNB configured PLMN list. */
+static bool rrc_gNB_plmn_matches(const nr_rrc_config_t *conf, const plmn_id_t *p)
 {
-  const nr_rrc_config_t *conf = &rrc->configuration;
-  return conf->num_plmn == 1 // F1 supports only one
-         && conf->plmn[0].mcc == info->plmn.mcc && conf->plmn[0].mnc == info->plmn.mnc;
+  for (int c = 0; c < conf->num_plmn; c++) {
+    if (conf->plmn[c].mcc == p->mcc && conf->plmn[c].mnc == p->mnc
+        && conf->plmn[c].mnc_digit_length == p->mnc_digit_length)
+      return true;
+  }
+  return false;
+}
+
+/* MOCN: accept the cell if at least one DU-advertised PLMN is served by the CU. */
+static bool rrc_gNB_served_plmns_match(const nr_rrc_config_t *conf, const f1ap_served_cell_info_t *info)
+{
+  for (int d = 0; d < info->num_plmn; d++) {
+    if (rrc_gNB_plmn_matches(conf, &info->served_plmn_list[d].plmn))
+      return true;
+  }
+  return false;
 }
 
 static bool extract_sys_info(const f1ap_gnb_du_system_info_t *sys_info, NR_MIB_t **mib, NR_SIB1_t **sib1)
@@ -704,7 +718,7 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
   }
   for (int i = 0; i < req->num_cells_available; i++) {
     f1ap_served_cell_info_t *cell_info = &req->cell[i].info;
-    if (!rrc_gNB_plmn_matches(rrc, cell_info)) {
+    if (!rrc_gNB_served_plmns_match(&rrc->configuration, cell_info)) {
       LOG_E(NR_RRC,
             "PLMN mismatch: CU %03d.%0*d, DU %03d%0*d\n",
             rrc->configuration.plmn[0].mcc,
@@ -1022,7 +1036,7 @@ void rrc_gNB_process_f1_du_configuration_update(f1ap_gnb_du_configuration_update
     const f1ap_served_cell_info_t *new_ci = &conf_up->cell_to_modify[0].info;
 
     // verify the new plmn of the cell
-    if (!rrc_gNB_plmn_matches(rrc, new_ci)) {
+    if (!rrc_gNB_served_plmns_match(&rrc->configuration, new_ci)) {
       LOG_W(NR_RRC, "PLMN does not match, ignoring gNB-DU configuration update\n");
       return;
     }

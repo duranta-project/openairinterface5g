@@ -390,6 +390,118 @@ static void test_auth_reject(void)
   AssertFatal(eq_auth_reject(&orig, &dec), "test_auth_reject() failed: original and decoded messages do not match\n");
 }
 
+/**
+ * @brief Test NAS PLMN selection (nas_get_selected_plmn): IMSI vs SIB1 PLMN list
+ */
+static void test_nas_get_selected_plmn(void)
+{
+  uicc_t uicc = {0};
+  nr_ue_nas_t nas = {0};
+  nas.uicc = &uicc;
+  long sel;
+  const long SENTINEL = -999;
+
+  const plmn_id_t p20893_2 = {.mcc = 208, .mnc = 93, .mnc_digit_length = 2};
+  const plmn_id_t p20894_2 = {.mcc = 208, .mnc = 94, .mnc_digit_length = 2};
+  const plmn_id_t p208093_3 = {.mcc = 208, .mnc = 93, .mnc_digit_length = 3}; /* MNC 093 */
+  const plmn_id_t p310260_3 = {.mcc = 310, .mnc = 260, .mnc_digit_length = 3};
+  const plmn_id_t zero = {0}; /* placeholder */
+
+  /* 1. 2-digit MNC hit -> index 1 */
+  uicc.imsiStr = "208930000000003"; uicc.nmc_size = 2;
+  plmn_id_t t1[] = {p20893_2};
+  sel = SENTINEL; AssertFatal(nas_get_selected_plmn(&nas, t1, 1, &sel) && sel == 1, "case 1 (2-digit hit)\n");
+
+  /* 2. 3-digit MNC hit -> index 1 */
+  uicc.imsiStr = "310260000000000"; uicc.nmc_size = 3;
+  plmn_id_t t2[] = {p310260_3};
+  sel = SENTINEL; AssertFatal(nas_get_selected_plmn(&nas, t2, 1, &sel) && sel == 1, "case 2 (3-digit hit)\n");
+
+  /* 3. leading-zero MNC 093 (3-digit) -> index 1 */
+  uicc.imsiStr = "208093000000000"; uicc.nmc_size = 3;
+  plmn_id_t t3[] = {p208093_3};
+  sel = SENTINEL; AssertFatal(nas_get_selected_plmn(&nas, t3, 1, &sel) && sel == 1, "case 3 (MNC 093)\n");
+
+  /* 4. same MCC, different MNC -> no match */
+  uicc.imsiStr = "208930000000003"; uicc.nmc_size = 2;
+  plmn_id_t t4[] = {p20894_2};
+  sel = SENTINEL; AssertFatal(!nas_get_selected_plmn(&nas, t4, 1, &sel) && sel == SENTINEL, "case 4 (diff MNC)\n");
+
+  /* 5. different MCC, same MNC -> no match */
+  plmn_id_t t5[] = {{.mcc = 310, .mnc = 93, .mnc_digit_length = 2}};
+  sel = SENTINEL; AssertFatal(!nas_get_selected_plmn(&nas, t5, 1, &sel) && sel == SENTINEL, "case 5 (diff MCC)\n");
+
+  /* 6. same MNC value, different mnc_digit_length -> no match (093 vs 93) */
+  uicc.imsiStr = "208930000000003"; uicc.nmc_size = 2;
+  plmn_id_t t6[] = {p208093_3};
+  sel = SENTINEL; AssertFatal(!nas_get_selected_plmn(&nas, t6, 1, &sel) && sel == SENTINEL, "case 6 (digit length differs)\n");
+
+  /* 7/8/9. first/second/third entry hit -> 1/2/3 */
+  uicc.imsiStr = "208930000000003"; uicc.nmc_size = 2;
+  plmn_id_t t789[] = {p20893_2, p20894_2, {.mcc = 208, .mnc = 95, .mnc_digit_length = 2}};
+  sel = SENTINEL; AssertFatal(nas_get_selected_plmn(&nas, t789, 3, &sel) && sel == 1, "case 7 (first -> 1)\n");
+  uicc.imsiStr = "208940000000000";
+  sel = SENTINEL; AssertFatal(nas_get_selected_plmn(&nas, t789, 3, &sel) && sel == 2, "case 8 (second -> 2)\n");
+  uicc.imsiStr = "208950000000000";
+  sel = SENTINEL; AssertFatal(nas_get_selected_plmn(&nas, t789, 3, &sel) && sel == 3, "case 9 (third -> 3)\n");
+
+  /* 10. middle zero placeholder, later hit keeps original 1-based index (3) */
+  uicc.imsiStr = "208950000000000"; uicc.nmc_size = 2;
+  plmn_id_t t10[] = {p20893_2, zero, {.mcc = 208, .mnc = 95, .mnc_digit_length = 2}};
+  sel = SENTINEL; AssertFatal(nas_get_selected_plmn(&nas, t10, 3, &sel) && sel == 3, "case 10 (placeholder keeps index)\n");
+
+  /* 11. all placeholders -> false */
+  plmn_id_t t11[] = {zero, zero, zero};
+  sel = SENTINEL; AssertFatal(!nas_get_selected_plmn(&nas, t11, 3, &sel) && sel == SENTINEL, "case 11 (all placeholder)\n");
+
+  /* 12/13. no match -> false, output sentinel unchanged */
+  uicc.imsiStr = "999990000000000"; uicc.nmc_size = 2;
+  sel = SENTINEL; AssertFatal(!nas_get_selected_plmn(&nas, t789, 3, &sel) && sel == SENTINEL, "case 12/13 (no match, sentinel kept)\n");
+
+  /* 14. IMSI too short -> false */
+  uicc.imsiStr = "208"; uicc.nmc_size = 2;
+  sel = SENTINEL; AssertFatal(!nas_get_selected_plmn(&nas, t1, 1, &sel) && sel == SENTINEL, "case 14 (IMSI too short)\n");
+
+  /* 15. MNC length not 2 or 3 -> false */
+  uicc.imsiStr = "208930000000003"; uicc.nmc_size = 4;
+  sel = SENTINEL; AssertFatal(!nas_get_selected_plmn(&nas, t1, 1, &sel) && sel == SENTINEL, "case 15 (bad nmc_size)\n");
+
+  /* 16/17/18. null nas / null plmns / null output -> false */
+  uicc.imsiStr = "208930000000003"; uicc.nmc_size = 2;
+  AssertFatal(!nas_get_selected_plmn(NULL, t1, 1, &sel), "case 16 (null nas)\n");
+  AssertFatal(!nas_get_selected_plmn(&nas, NULL, 1, &sel), "case 17 (null plmns)\n");
+  AssertFatal(!nas_get_selected_plmn(&nas, t1, 1, NULL), "case 18 (null out)\n");
+
+  /* 18b/18c. null uicc / null imsiStr -> false, output unchanged */
+  nr_ue_nas_t nas_no_uicc = {0};
+  sel = SENTINEL; AssertFatal(!nas_get_selected_plmn(&nas_no_uicc, t1, 1, &sel) && sel == SENTINEL, "case 18b (null uicc)\n");
+  uicc_t uicc_no_imsi = {0};
+  nr_ue_nas_t nas_no_imsi = {0};
+  nas_no_imsi.uicc = &uicc_no_imsi;
+  sel = SENTINEL; AssertFatal(!nas_get_selected_plmn(&nas_no_imsi, t1, 1, &sel) && sel == SENTINEL, "case 18c (null imsiStr)\n");
+
+  /* 19. num_plmns == 0 -> false */
+  sel = SENTINEL; AssertFatal(!nas_get_selected_plmn(&nas, t1, 0, &sel) && sel == SENTINEL, "case 19 (num_plmns 0)\n");
+
+  /* 20. no scan beyond num_plmns: match sits at index 1 but num_plmns limits to 1 -> false */
+  uicc.imsiStr = "208940000000000"; uicc.nmc_size = 2;
+  sel = SENTINEL; AssertFatal(!nas_get_selected_plmn(&nas, t789, 1, &sel) && sel == SENTINEL, "case 20 (no over-scan)\n");
+
+  /* 21. capacity (independent of PLMN_LIST_MAX_SIZE value): only the last entry
+   * matches -> index max; num_plmns > capacity -> false, output unchanged. */
+  plmn_id_t full[PLMN_LIST_MAX_SIZE];
+  for (int i = 0; i < PLMN_LIST_MAX_SIZE; i++)
+    full[i] = p20894_2; /* all non-matching */
+  full[PLMN_LIST_MAX_SIZE - 1] = p20893_2; /* only last matches */
+  uicc.imsiStr = "208930000000003"; uicc.nmc_size = 2;
+  sel = SENTINEL;
+  AssertFatal(nas_get_selected_plmn(&nas, full, PLMN_LIST_MAX_SIZE, &sel) && sel == PLMN_LIST_MAX_SIZE, "case 21a (== capacity)\n");
+  sel = SENTINEL;
+  AssertFatal(!nas_get_selected_plmn(&nas, full, PLMN_LIST_MAX_SIZE + 1, &sel) && sel == SENTINEL, "case 21b (> capacity)\n");
+
+  LOG_A(NAS, "test_nas_get_selected_plmn() passed\n");
+}
+
 int main()
 {
   // Initialize logging system
@@ -405,5 +517,6 @@ int main()
   test_auth_failure();
   test_auth_reject();
   test_security_mode_reject();
+  test_nas_get_selected_plmn();
   return 0;
 }

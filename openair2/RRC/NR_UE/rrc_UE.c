@@ -473,8 +473,60 @@ static void get_sib19_schedinfo(NR_UE_RRC_SI_INFO *SI_info, NR_SI_SchedulingInfo
   }
 }
 
+/* Convert one SIB1 NR_PLMN_Identity to plmn_id_t. No MCC inheritance: an entry
+ * with omitted/malformed MCC/MNC fails (returns false) and is left as a zeroed,
+ * non-matchable placeholder by the caller to keep 1-based indices aligned. */
+static bool plmn_from_asn1(const NR_PLMN_Identity_t *src, plmn_id_t *dst)
+{
+  if (!src || !dst || !src->mcc || src->mcc->list.count != 3)
+    return false;
+  if (src->mnc.list.count != 2 && src->mnc.list.count != 3)
+    return false;
+  for (int i = 0; i < 3; i++)
+    if (!src->mcc->list.array[i])
+      return false;
+  for (int i = 0; i < src->mnc.list.count; i++)
+    if (!src->mnc.list.array[i])
+      return false;
+  dst->mcc = (*src->mcc->list.array[0]) * 100 + (*src->mcc->list.array[1]) * 10 + (*src->mcc->list.array[2]);
+  dst->mnc_digit_length = src->mnc.list.count;
+  dst->mnc = (src->mnc.list.count == 3)
+                 ? (*src->mnc.list.array[0]) * 100 + (*src->mnc.list.array[1]) * 10 + (*src->mnc.list.array[2])
+                 : (*src->mnc.list.array[0]) * 10 + (*src->mnc.list.array[1]);
+  return true;
+}
+
 static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_info, NR_SIB1_t *sib1)
 {
+  /* PLMN selection (MOCN): build the broadcast PLMN list from SIB1 (only the
+   * outer PLMN-IdentityInfo block currently emitted by get_SIB1_NR is used),
+   * keeping 1-based positions, and let NAS pick the entry matching the UE IMSI. */
+  {
+    plmn_id_t plmns[PLMN_LIST_MAX_SIZE] = {0};
+    int num_plmns = 0;
+    const NR_PLMN_IdentityInfoList_t *info_list = &sib1->cellAccessRelatedInfo.plmn_IdentityInfoList;
+    if (info_list->list.array && info_list->list.count > 0) {
+      const NR_PLMN_IdentityInfo_t *plmn_info = info_list->list.array[0];
+      const int count = (plmn_info && plmn_info->plmn_IdentityList.list.array) ? plmn_info->plmn_IdentityList.list.count : 0;
+      if (count > 0 && count <= PLMN_LIST_MAX_SIZE) {
+        num_plmns = count;
+        for (int j = 0; j < num_plmns; j++)
+          plmn_from_asn1(plmn_info->plmn_IdentityList.list.array[j], &plmns[j]); /* failure: zeroed placeholder, index kept */
+      } else if (count > PLMN_LIST_MAX_SIZE) {
+        LOG_W(NR_RRC, "SIB1 broadcasts %d PLMNs, cannot handle (max %d)\n", count, PLMN_LIST_MAX_SIZE);
+      }
+    }
+
+    long selected = 1;
+    nr_ue_nas_t *nas = get_ue_nas_info(rrc->ue_id);
+    if (nas_get_selected_plmn(nas, plmns, num_plmns, &selected)) {
+      rrc->selected_plmn_identity = selected;
+    } else {
+      rrc->selected_plmn_identity = 1; /* fallback to first PLMN */
+      LOG_W(NR_RRC, "No PLMN matched UE IMSI; falling back to selected_plmn_identity=1\n");
+    }
+  }
+
   if(g_log->log_component[NR_RRC].level >= OAILOG_DEBUG)
     xer_fprint(stdout, &asn_DEF_NR_SIB1, (const void *) sib1);
   RRCLOG_A("SIB1 decoded\n");
