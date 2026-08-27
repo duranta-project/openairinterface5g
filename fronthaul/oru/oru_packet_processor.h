@@ -97,6 +97,10 @@ typedef struct {
   uint64_t ul_uplane_ota_delay_count;
 } oru_packet_processor_stats_t;
 
+// Forward-declared rather than pulling in <rte_mbuf.h>: only used here as an opaque pointer type,
+// and this header must stay includable by TUs (e.g. oru_beamforming.c) that don't otherwise need DPDK.
+struct rte_mbuf;
+
 typedef void *(*alloc_func_t)(void *io_controller);
 typedef void (*send_func_t)(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs);
 
