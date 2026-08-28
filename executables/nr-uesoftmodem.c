@@ -491,7 +491,9 @@ int main(int argc, char **argv)
   // Sleep a while before checking all parameters have been used
   // Some are used directly in external threads, asynchronously
   sleep(2);
-  config_check_unknown_cmdlineopt(uniqCfg, CONFIG_CHECKALLSECTIONS);
+  /* rfsimulator registers its options after the config check window; skip the check for rfsim to avoid a false abort */
+  if (!IS_SOFTMODEM_RFSIM)
+    config_check_unknown_cmdlineopt(uniqCfg, CONFIG_CHECKALLSECTIONS);
 
   // wait for end of program
   printf("Entering ITTI signals handler\n");
