@@ -51,9 +51,10 @@ void config_printhelp(paramdef_t *params,int numparams, const char *prefix) {
   printf("\n-----Help for section %-26s: %03i entries------\n",(prefix==NULL)?"(root section)":prefix,numparams);
 
   for (int i=0 ; i<numparams ; i++) {
-    printf("    %s%s: %s",
+    printf("    %s%s%s: %s",
            (strlen(params[i].optname) <= 1) ? "-" : "--",
            params[i].optname,
+           (params[i].paramflags & PARAMFLAG_DEPRECATED) ? " (deprecated)" : "",
            (params[i].helpstr != NULL)?params[i].helpstr:"Help string not specified\n");
   }   /* for on params entries */
 

@@ -347,6 +347,10 @@ int config_libconfig_get(configmodule_interface_t *cfg, paramdef_t *cfgoptions, 
       continue;
     }
 
+    if ((cfgoptions[i].paramflags & PARAMFLAG_DEPRECATED) != 0 &&
+        config_lookup(&(libconfig_privdata.cfg), cfgpath) != NULL)
+      fprintf(stderr, "[CONFIG] option %s is deprecated and will be removed in a future release\n", cfgpath);
+
     int notfound = 0;
     int defval = 0;
 
