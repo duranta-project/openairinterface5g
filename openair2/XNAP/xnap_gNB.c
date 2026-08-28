@@ -145,6 +145,41 @@ static void xnap_gNB_handle_sctp_association_resp(instance_t instance, const sct
   xnap_gNB_generate_xn_setup_request(inst, peer);
 }
 
+/* To aware that there is a peer sent SCTP connection request before Xn setup request */
+static void xnap_gNB_handle_sctp_association_ind(instance_t instance, const sctp_new_association_ind_t *ind)
+{
+  xnap_gnb_inst_t *inst = xnap_get_inst(instance);
+  AssertFatal(inst != NULL, "Xn instance %ld not found\n", instance);
+
+  if (xnap_get_peer_by_assoc(inst, ind->assoc_id) != NULL) {
+    LOG_W(XNAP, "[gNB %ld] SCTP_NEW_ASSOCIATION_IND: assoc_id %d already registered\n", instance, ind->assoc_id);
+    return;
+  }
+
+  xnap_add_peer(inst, ind->assoc_id, ind->in_streams, ind->out_streams);
+
+  LOG_I(XNAP, "[gNB %ld] Incoming Xn connection: assoc_id %d — waiting for XnSetupRequest\n", instance, ind->assoc_id);
+}
+
+static void xnap_gNB_handle_sctp_close_association(instance_t instance, const sctp_close_association_t *close)
+{
+  xnap_gnb_inst_t *inst = xnap_get_inst(instance);
+  if (inst == NULL) {
+    LOG_W(XNAP, "[gNB %ld] SCTP_CLOSE_ASSOCIATION: instance not found\n", instance);
+    return;
+  }
+
+  xnap_peer_t *peer = xnap_get_peer_by_assoc(inst, close->assoc_id);
+  if (peer == NULL) {
+    LOG_W(XNAP, "[gNB %ld] SCTP_CLOSE_ASSOCIATION: no peer for assoc_id %d\n",
+          instance, close->assoc_id);
+    return;
+  }
+
+  xnap_handle_xn_setup_message(instance, inst, peer, 1);
+  xnap_remove_peer(inst, peer);
+}
+
 void *xnap_task(void *args)
 {
   UNUSED(args);
@@ -169,6 +204,14 @@ void *xnap_task(void *args)
 
       case SCTP_NEW_ASSOCIATION_RESP:
         xnap_gNB_handle_sctp_association_resp(instance, &SCTP_NEW_ASSOCIATION_RESP(msg));
+        break;
+
+      case SCTP_NEW_ASSOCIATION_IND:
+        xnap_gNB_handle_sctp_association_ind(instance, &SCTP_NEW_ASSOCIATION_IND(msg));
+        break;
+
+      case SCTP_CLOSE_ASSOCIATION:
+        xnap_gNB_handle_sctp_close_association(instance, &SCTP_CLOSE_ASSOCIATION(msg));
         break;
 
       default:
