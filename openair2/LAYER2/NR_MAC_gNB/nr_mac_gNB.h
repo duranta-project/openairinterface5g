@@ -639,6 +639,11 @@ typedef struct nr_power_control {
   float tpc_in_flight; /// TPCs applied by UE but not yet in average SNR
 } nr_power_control_t;
 
+typedef struct {
+  int candidate_beam_index; // beam currently being considered for switching (-1 = none)
+  int consecutive_count; // how many consecutive reports have selected candidate_beam_index
+} beam_hysteresis_t;
+
 /*! \brief scheduling control information set through an API */
 typedef struct {
   /// CCE index and aggregation, should be coherent with cce_list
@@ -694,6 +699,7 @@ typedef struct {
   int ul_failure_timer;
   int release_timer;
   CSI_report_t CSI_report;
+  beam_hysteresis_t beam_hysteresis;
   bool SR;
   /// information about every HARQ process
   NR_UE_harq_t harq_processes[NR_MAX_HARQ_PROCESSES];

@@ -4016,39 +4016,75 @@ void reset_beam_status(NR_beam_info_t *beam_info, int frame, int slot, int16_t b
   }
 }
 
+static int required_hysteresis_count(int rsrp_gap_db)
+{
+  if (rsrp_gap_db >= 6)
+    return 1;  // clearly better -> switch immediately
+  if (rsrp_gap_db >= 4)
+    return 2;
+  if (rsrp_gap_db >= 2)
+    return 4;
+  return 8;  // marginal -> need sustained evidence
+}
+
 int beam_selection_procedures(nr_cell_sched_t *cell, NR_UE_info_t *UE)
 {
-  // do not perform beam procedures if there is no beam information
   if (cell->beam_info.beam_mode == NO_BEAM_MODE)
     return -1;
 
-  // simple beam switching algorithm -> we select beam with highest RSRP from CSI report
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   RSRP_report_list_t *rsrp_report = &sched_ctrl->CSI_report.ssb_rsrp_report;
-  int new_bf_index = get_beam_from_ssbidx(cell, rsrp_report->r[0].resource_id);
-  if (!cell->radio_config.do_TCI) { // if not TCI is configure we switch beam directly
-    if (UE->UE_beam_index == new_bf_index)
-      return -1; // no beam change needed
-    return new_bf_index;
-  }
+  beam_hysteresis_t *hyst = &sched_ctrl->beam_hysteresis;
 
-  tciStateInd_t *tci = &sched_ctrl->UE_mac_ce_ctrl.tci_state_ind;
-  if (UE->UE_beam_index == new_bf_index) {
-    if (tci->is_scheduled) {
+  int best_beam = get_beam_from_ssbidx(cell, rsrp_report->r[0].resource_id);
+  int best_rsrp = rsrp_report->r[0].RSRP;
+  tciStateInd_t *tci = cell->radio_config.do_TCI ? &sched_ctrl->UE_mac_ce_ctrl.tci_state_ind : NULL;
+
+  if (best_beam == UE->UE_beam_index) {
+    // current beam confirmed best again -> reset any accumulating challenger
+    hyst->candidate_beam_index = -1;
+    hyst->consecutive_count = 0;
+    if (tci && tci->is_scheduled) {
       LOG_I(NR_MAC, "[UE %x] Stopping procedure to switch beam, old beam reported as best again\n", UE->rnti);
       tci->is_scheduled = false;
     }
-    return -1; // no beam change needed
+    return -1;
   }
 
-  LOG_I(NR_MAC, "[UE %x] Starting procedure to switch beam\n", UE->rnti);
-  // Start procedure to switch beam via
-  // TCI State Indication for UE-specific PDCCH
+  // a TCI switch is already outstanding -> don't evaluate a new candidate until it completes
+  if (tci && tci->is_scheduled)
+    return -1;
 
+  // looking for current beam in the list of differential reports
+  int current_rsrp = -1;
+  for (int k = 1; k < rsrp_report->nb; k++) {
+    if (get_beam_from_ssbidx(cell, rsrp_report->r[k].resource_id) == UE->UE_beam_index)
+      current_rsrp = rsrp_report->r[k].RSRP;
+  }
+  int gap = (current_rsrp < 0) ? INT_MAX : best_rsrp - current_rsrp; // not in report -> force fastest switch
+
+  if (best_beam == hyst->candidate_beam_index)
+    hyst->consecutive_count++;
+  else {
+    hyst->candidate_beam_index = best_beam;
+    hyst->consecutive_count = 1;
+  }
+
+  if (hyst->consecutive_count < required_hysteresis_count(gap))
+    return -1; // too soon to switch, best beam too close to best beam
+
+  // threshold met -> commit the switch
+  hyst->candidate_beam_index = -1;
+  hyst->consecutive_count = 0;
+
+  if (!tci)
+    return best_beam;
+
+  LOG_I(NR_MAC, "[UE %x] Starting procedure to switch beam\n", UE->rnti);
   tci->is_scheduled = true;
   tci->coresetId = sched_ctrl->coreset->controlResourceSetId;
-  tci->tciStateId = new_bf_index; // assumption: this correspond to the TCI index
-  return -1;  // no beam change now in case of TCI
+  tci->tciStateId = best_beam;
+  return -1;
 }
 
 void send_initial_ul_rrc_message(int rnti, const uint8_t *sdu, sdu_size_t sdu_len, void *data)
