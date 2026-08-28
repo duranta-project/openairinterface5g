@@ -679,6 +679,11 @@ typedef struct {
   };
 } NR_sched_srs_t;
 
+typedef struct {
+  int candidate_beam_index; // beam currently being considered for switching (-1 = none)
+  int consecutive_count; // how many consecutive reports have selected candidate_beam_index
+} beam_hysteresis_t;
+
 /*! \brief scheduling control information set through an API */
 typedef struct {
   /// CCE index and aggregation, should be coherent with cce_list
@@ -736,6 +741,7 @@ typedef struct {
   CSI_report_t CSI_report;
   /// number of SR received for this UE since the last UL grant
   uint8_t sr_cnt;
+  beam_hysteresis_t beam_hysteresis;
   /// information about every HARQ process
   NR_UE_harq_t harq_processes[NR_MAX_HARQ_PROCESSES];
   /// HARQ processes that are free
