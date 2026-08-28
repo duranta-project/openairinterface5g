@@ -835,14 +835,18 @@ static void nr_rrc_ue_process_RadioBearerConfig(NR_UE_RRC_INST_t *rrc, NR_RadioB
           nr_pdcp_reestablishment(rrc->ue_id, DRB_id, false, &security_up_parameters);
         }
         AssertFatal(drb->recoverPDCP == NULL, "recoverPDCP not yet implemented\n");
-        /* sdap-Config is included (SA mode) */
-        NR_SDAP_Config_t *sdap_Config = drb->cnAssociation ? drb->cnAssociation->choice.sdap_Config : NULL;
         /* PDCP reconfiguration */
         if (drb->pdcp_Config)
           nr_pdcp_reconfigure_drb(rrc->ue_id, DRB_id, drb->pdcp_Config);
         /* SDAP entity reconfiguration */
-        if (sdap_Config)
-          nr_reconfigure_sdap_entity(sdap_Config, rrc->ue_id, sdap_Config->pdu_Session, DRB_id);
+        /* sdap-Config is included (SA mode) */
+        if (drb->cnAssociation && drb->cnAssociation->present == NR_DRB_ToAddMod__cnAssociation_PR_sdap_Config) {
+          NR_SDAP_Config_t *sdap_Config = drb->cnAssociation->choice.sdap_Config;
+          if (sdap_Config)
+            nr_reconfigure_sdap_entity(sdap_Config, rrc->ue_id, sdap_Config->pdu_Session, DRB_id);
+          else
+            RRCLOG_E("SDAP-Config not present despite element of choice signaling its presence\n");
+        }
       } else {
         set_DRB_status(rrc, DRB_id, RB_ESTABLISHED);
         rrc_ue_add_bearer(rrc->ue_id, radioBearerConfig->drb_ToAddModList->list.array[cnt], &security_up_parameters);
