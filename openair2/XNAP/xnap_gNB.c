@@ -6,8 +6,69 @@
 #include <stdlib.h>
 #include "common/platform_types.h"
 #include "common/utils/LOG/log.h"
-#include "intertask_interface.h"
-#include "xnap_messages_types.h"
+#include "common/utils/ocp_itti/intertask_interface.h"
+#include "assertions.h"
+#include "openair2/COMMON/sctp_messages_types.h"
+#include "openair2/COMMON/xnap_messages_types.h"
+#include "xnap_default_values.h"
+#include "xnap_common.h"
+#include "xnap_gNB.h"
+
+/* Phase 1: create the Xn instance and store its config. */
+static void xnap_gNB_handle_register_gnb(instance_t instance, xnap_register_gnb_req_t *req)
+{
+  xnap_create_inst(instance, &req->ng_setup_info, &req->net_config);
+}
+
+/* Phase 2: F1 Setup Response has been sent — bind a local SCTP listener (for
+ * incoming Xn connections) and dial every configured candidate gNB */
+static void xnap_gNB_handle_f1_setup_done(instance_t instance, const xnap_f1_setup_done_ind_t *ind)
+{
+  xnap_gnb_inst_t *inst = xnap_get_inst(instance);
+  if (inst == NULL) {
+    LOG_E(XNAP, "Xn failed to start because Xn instance %ld not found (either NG Setup Fail or F1 setup done ind came before NG Setup)\n", instance);
+    return;
+  }
+
+  const char *local_ip = inst->net_config.gnb_xn_interface_ip_address;
+  size_t addr_len = strlen(local_ip) + 1;
+
+  MessageDef *listen_msg = itti_alloc_new_message_sized(TASK_XNAP, instance, SCTP_INIT_MSG, sizeof(sctp_init_t) + addr_len);
+  sctp_init_t *init = &SCTP_INIT_MSG(listen_msg);
+  init->port = XNAP_PORT_NUMBER;
+  init->ppid = XNAP_SCTP_PPID;
+  char *addr_buf = (char *)(init + 1);
+  init->bind_address = addr_buf;
+  memcpy(addr_buf, local_ip, addr_len);
+  itti_send_msg_to_task(TASK_SCTP, instance, listen_msg);
+
+  const uint8_t nb_candidates = inst->net_config.nb_of_candidate_gNBs;
+  LOG_I(XNAP, "[gNB %ld] F1 Setup Response sent (DU %lu) — listening on %s port %u, connecting to %u candidate(s)\n",
+        instance, ind->gNB_DU_id, local_ip, XNAP_PORT_NUMBER, nb_candidates);
+
+  for (uint16_t candidate_id = 0; candidate_id < nb_candidates; candidate_id++) {
+    const char *remote_ip = inst->net_config.candidate_gnb_address_for_xnc[candidate_id];
+
+    MessageDef *msg = itti_alloc_new_message(TASK_XNAP, instance, SCTP_NEW_ASSOCIATION_REQ);
+    sctp_new_association_req_t *req = &msg->ittiMsg.sctp_new_association_req;
+
+    req->ulp_cnx_id  = candidate_id;
+    req->port        = XNAP_PORT_NUMBER;
+    req->ppid        = XNAP_SCTP_PPID;
+    req->in_streams  = inst->net_config.sctp_streams.sctp_in_streams;
+    req->out_streams = inst->net_config.sctp_streams.sctp_out_streams;
+
+    req->local_address.ipv4 = 1;
+    strncpy(req->local_address.ipv4_address, local_ip, sizeof(req->local_address.ipv4_address) - 1);
+
+    req->remote_address.ipv4 = 1;
+    strncpy(req->remote_address.ipv4_address, remote_ip, sizeof(req->remote_address.ipv4_address) - 1);
+
+    LOG_I(XNAP, "[gNB %ld] Initiating SCTP connection to candidate %u at %s port %u\n", instance, candidate_id, remote_ip, XNAP_PORT_NUMBER);
+
+    itti_send_msg_to_task(TASK_SCTP, instance, msg);
+  }
+}
 
 void *xnap_task(void *args)
 {
@@ -23,6 +84,14 @@ void *xnap_task(void *args)
     LOG_D(XNAP, "XnAP received %s for instance %ld\n", ITTI_MSG_NAME(msg), instance);
 
     switch (msgType) {
+      case XNAP_REGISTER_GNB_REQ:
+        xnap_gNB_handle_register_gnb(instance, &XNAP_REGISTER_GNB_REQ(msg));
+        break;
+
+      case XNAP_F1_SETUP_DONE_IND:
+        xnap_gNB_handle_f1_setup_done(instance, &XNAP_F1_SETUP_DONE_IND(msg));
+        break;
+
       default:
         LOG_E(XNAP, "Unknown message type %d (%s)\n", msgType, ITTI_MSG_NAME(msg));
         break;
