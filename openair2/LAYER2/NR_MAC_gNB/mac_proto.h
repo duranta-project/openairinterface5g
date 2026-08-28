@@ -619,4 +619,7 @@ bool nr_ul_check_phr(const nr_ul_sched_params_t *params,
                      uint16_t rbSize,
                      uint8_t mcs,
                      nr_ul_phr_advice_t *advice);
+
+void *mac_gnb_task(void *args_p);
+
 #endif /*__LAYER2_NR_MAC_PROTO_H__*/

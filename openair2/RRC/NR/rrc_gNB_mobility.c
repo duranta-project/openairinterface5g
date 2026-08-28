@@ -309,7 +309,7 @@ void nr_rrc_finalize_ho(gNB_RRC_UE_t *ue)
   ue->ho_context = NULL;
 }
 
-void nr_HO_F1_trigger_telnet(gNB_RRC_INST *rrc, uint32_t rrc_ue_id)
+void nr_F1_HO_trigger_telnet(gNB_RRC_INST *rrc, uint32_t rrc_ue_id)
 {
   rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(rrc, rrc_ue_id);
   if (ue_context_p == NULL) {
@@ -600,7 +600,7 @@ void nr_rrc_trigger_n2_ho(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue, const nr_neighbou
   free_byte_array(hoPrepInfo);
 }
 
-void nr_HO_N2_trigger_telnet(gNB_RRC_INST *rrc, uint32_t neighbour_pci, uint32_t rrc_ue_id)
+void nr_N2_HO_trigger_telnet(gNB_RRC_INST *rrc, uint32_t neighbour_pci, uint32_t rrc_ue_id)
 {
   rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(rrc, rrc_ue_id);
   if (ue_context_p == NULL) {

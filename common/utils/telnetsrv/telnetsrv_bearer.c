@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include "intertask_interface.h"
 
 #include "openair2/RRC/NR/rrc_gNB_UE_context.h"
 
@@ -17,13 +18,29 @@
 
 #define ERROR_MSG_RET(mSG, aRGS...) do { prnt(mSG, ##aRGS); return 1; } while (0)
 
-static int get_single_ue_rnti(void)
+static bool get_single_ue_rnti(Rrc_get_single_ue_rnti *ue_rnti_p)
 {
-  rrc_gNB_ue_context_t *ue_context_p = NULL;
-  RB_FOREACH(ue_context_p, rrc_nr_ue_tree_s, &(RC.nrrrc[0]->rrc_ue_head)) {
-    return ue_context_p->ue_context.rnti;
+  MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_SINGLE_UE_RNTI);
+  MessageDef *resp_p;
+  if (!itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
+    return false;
   }
-  return -1;
+  *ue_rnti_p = resp_p->ittiMsg.rrc_get_single_ue_rnti;
+  free(resp_p);
+  return true;
+}
+
+static int check_single_ue_rnti(Rrc_get_single_ue_rnti ue_rnti, telnet_printfunc_t prnt)
+{
+  if(!ue_rnti.has_rrc){
+    prnt("no RRC present, cannot list counts\n");
+    return 0;
+  }
+  if (!ue_rnti.is_single) {
+    prnt("UE count is not exactly one in RRC\n");
+    return 0;
+  }
+  return 1;
 }
 
 int get_single_rnti(char *buf, int debug, telnet_printfunc_t prnt)
@@ -32,11 +49,14 @@ int get_single_rnti(char *buf, int debug, telnet_printfunc_t prnt)
   if (buf)
     ERROR_MSG_RET("no parameter allowed\n");
 
-  int rnti = get_single_ue_rnti();
-  if (rnti < 1)
-    ERROR_MSG_RET("different number of UEs\n");
+  Rrc_get_single_ue_rnti single_ue_rnti;
+  if (!get_single_ue_rnti(&single_ue_rnti)) {
+    ERROR_MSG_RET("Timeout waiting for RRC response\n");
+  }
+  if(!check_single_ue_rnti(single_ue_rnti, prnt))
+    return -1;
 
-  prnt("single UE RNTI %04x\n", rnti);
+  prnt("single UE RNTI %04x\n", single_ue_rnti);
   return 0;
 }
 
@@ -44,25 +64,33 @@ int get_single_rnti(char *buf, int debug, telnet_printfunc_t prnt)
 int add_bearer(char *buf, int debug, telnet_printfunc_t prnt)
 {
   UNUSED(debug);
-  int rnti = -1;
+  Rrc_get_single_ue_rnti single_ue_rnti;
   if (!buf) {
-    rnti = get_single_ue_rnti();
-    if (rnti < 1)
-      ERROR_MSG_RET("no UE found\n");
+    if (!get_single_ue_rnti(&single_ue_rnti)) {
+      ERROR_MSG_RET("Timeout waiting for RRC response\n");
+    }
+    if(!check_single_ue_rnti(single_ue_rnti, prnt))
+      return -1;
   } else {
-    rnti = strtol(buf, NULL, 16);
-    if (rnti < 1 || rnti >= 0xfffe)
+    single_ue_rnti.rnti = strtol(buf, NULL, 16);
+    if (single_ue_rnti.rnti < 1 || single_ue_rnti.rnti >= 0xfffe)
       ERROR_MSG_RET("RNTI needs to be [1,0xfffe]\n");
   }
 
   // verify it exists in RRC as well
-  rrc_gNB_ue_context_t *rrcue = rrc_gNB_get_ue_context_by_rnti_any_du(RC.nrrrc[0], rnti);
-  if (!rrcue)
-    ERROR_MSG_RET("could not find UE with RNTI %04x\n", rnti);
+  MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_UE_CONTEXT_BY_RNTI_ANY_DU);
+  MessageDef *resp_p;
+  msg_p->ittiMsg.rrc_get_ue_context_by_rnti_any_du.rnti = single_ue_rnti.rnti;
+  if (!itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
+    ERROR_MSG_RET("Timeout waiting for RRC response\n");
+  }
+  if (!resp_p->ittiMsg.rrc_get_ue_context_by_rnti_any_du.ue_context_exists)
+    ERROR_MSG_RET("could not find UE with RNTI %04x\n", single_ue_rnti.rnti);
 
   AssertFatal(false, "not implemented\n");
   //rrc_gNB_trigger_new_bearer(rnti);
-  prnt("called rrc_gNB_trigger_new_bearer(%04x)\n", rnti);
+  free(resp_p);
+  prnt("called rrc_gNB_trigger_new_bearer(%04x)\n", single_ue_rnti.rnti);
   return 0;
 }
 
@@ -70,25 +98,33 @@ int add_bearer(char *buf, int debug, telnet_printfunc_t prnt)
 int release_bearer(char *buf, int debug, telnet_printfunc_t prnt)
 {
   UNUSED(debug);
-  int rnti = -1;
+  Rrc_get_single_ue_rnti single_ue_rnti;
   if (!buf) {
-    rnti = get_single_ue_rnti();
-    if (rnti < 1)
-      ERROR_MSG_RET("no UE found\n");
+    if (!get_single_ue_rnti(&single_ue_rnti)) {
+      ERROR_MSG_RET("Timeout waiting for RRC response\n");
+    }
+    if(!check_single_ue_rnti(single_ue_rnti, prnt))
+      return -1;
   } else {
-    rnti = strtol(buf, NULL, 16);
-    if (rnti < 1 || rnti >= 0xfffe)
+    single_ue_rnti.rnti = strtol(buf, NULL, 16);
+    if (single_ue_rnti.rnti < 1 || single_ue_rnti.rnti >= 0xfffe)
       ERROR_MSG_RET("RNTI needs to be [1,0xfffe]\n");
   }
 
   // verify it exists in RRC as well
-  rrc_gNB_ue_context_t *rrcue = rrc_gNB_get_ue_context_by_rnti_any_du(RC.nrrrc[0], rnti);
-  if (!rrcue)
-    ERROR_MSG_RET("could not find UE with RNTI %04x\n", rnti);
+  MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_UE_CONTEXT_BY_RNTI_ANY_DU);
+  msg_p->ittiMsg.rrc_get_ue_context_by_rnti_any_du.rnti = single_ue_rnti.rnti;
+  MessageDef *resp_p;
+  if (!itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
+    ERROR_MSG_RET("Timeout waiting for RRC response\n");
+  }
+  if (!resp_p->ittiMsg.rrc_get_ue_context_by_rnti_any_du.ue_context_exists)
+    ERROR_MSG_RET("could not find UE with RNTI %04x\n", single_ue_rnti.rnti);
 
   AssertFatal(false, "not implemented\n");
   //rrc_gNB_trigger_release_bearer(rnti);
-  prnt("called rrc_gNB_trigger_release_bearer(%04x)\n", rnti);
+  prnt("called rrc_gNB_trigger_release_bearer(%04x)\n", single_ue_rnti.rnti);
+  free(resp_p);
   return 0;
 }
 

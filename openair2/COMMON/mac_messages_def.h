@@ -48,3 +48,26 @@ MESSAGE_DEF(GNB_SAT_POSITION_UPDATE, MESSAGE_PRIORITY_MED, gnb_sat_position_upda
 // nrUE
 MESSAGE_DEF(NR_RRC_MAC_MEAS_DATA_IND,    MESSAGE_PRIORITY_MED_PLUS, NRRrcMacMeasDataInd,           nr_rrc_mac_meas_data_ind)
 
+MESSAGE_DEF(RRC_GET_SINGLE_UE_RNTI, MESSAGE_PRIORITY_MED_PLUS, Rrc_get_single_ue_rnti, rrc_get_single_ue_rnti)
+MESSAGE_DEF(RRC_GET_UE_CONTEXT_BY_UE_ID, MESSAGE_PRIORITY_MED_PLUS, Rrc_get_single_ue_rnti, rrc_get_ue_context_by_ue_id)
+MESSAGE_DEF(RRC_GET_UE_CONTEXT_BY_RNTI_ANY_DU,
+            MESSAGE_PRIORITY_MED_PLUS,
+            Rrc_get_ue_context_by_rnti_any_du,
+            rrc_get_ue_context_by_rnti_any_du)
+MESSAGE_DEF(RRC_GET_DU_ID_BY_UE_ID, MESSAGE_PRIORITY_MED_PLUS, Rrc_get_du_id_by_ue_id, rrc_get_du_id_by_ue_id)
+MESSAGE_DEF(RRC_NR_F1_HO_TRIGGER, MESSAGE_PRIORITY_MED_PLUS, Rrc_trigger_ho, rrc_trigger_f1_ho)
+MESSAGE_DEF(RRC_GET_NGAP_UE_ID, MESSAGE_PRIORITY_MED_PLUS, Rrc_get_ngap_ue_id, rrc_get_ngap_ue_id)
+MESSAGE_DEF(RRC_NR_N2_HO_TRIGGER, MESSAGE_PRIORITY_MED_PLUS, Rrc_trigger_ho, rrc_trigger_n2_ho)
+MESSAGE_DEF(RRC_CHECK_UE_CONTEXT, MESSAGE_PRIORITY_MED_PLUS, Rrc_check_ue_context, rrc_check_ue_context)
+MESSAGE_DEF(RRC_GNB_GENERATE_RRCRELEASE, MESSAGE_PRIORITY_MED_PLUS, Rrc_gnb_generate_rrcrelease, rrc_gnb_generate_rrcrelease)
+MESSAGE_DEF(RRC_GNB_GENERATE_RRCRELEASE_ALL,
+            MESSAGE_PRIORITY_MED_PLUS,
+            Rrc_gnb_generate_rrcrelease_all,
+            rrc_gnb_generate_rrcrelease_all)
+MESSAGE_DEF(RRC_GNB_TRIGGER_UE_CONTEXT_RELEASE_REQ,
+            MESSAGE_PRIORITY_MED_PLUS,
+            Rrc_gnb_trigger_ue_context_release_req,
+            rrc_gnb_trigger_ue_context_release_req)
+MESSAGE_DEF(MAC_FORCE_UL_FAILURE, MESSAGE_PRIORITY_MED_PLUS, Mac_force_ul_failure, mac_force_ul_failure)
+MESSAGE_DEF(MAC_GET_UE_RNTI, MESSAGE_PRIORITY_MED_PLUS, Mac_get_ue_rnti, mac_get_ue_rnti)
+MESSAGE_DEF(MAC_GET_UE_RNTI_BY_UID, MESSAGE_PRIORITY_MED_PLUS, Mac_get_ue_rnti_by_uid, mac_get_ue_rnti_by_uid)
