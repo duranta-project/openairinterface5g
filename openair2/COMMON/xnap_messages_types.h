@@ -9,11 +9,14 @@
 #include "common/utils/ds/byte_array.h"
 #include "common/platform_types.h"
 #include "common/platform_constants.h"
+#include "openair2/COMMON/sctp_messages_types.h"
 
 #define XNAP_MAX_NB_CANDIDATES 8
 
 #define XNAP_REGISTER_GNB_REQ(mSGpTR)     (mSGpTR)->ittiMsg.xnap_register_gnb_req
 #define XNAP_F1_SETUP_DONE_IND(mSGpTR)    (mSGpTR)->ittiMsg.xnap_f1_setup_done_ind
+#define XNAP_SETUP_IND(mSGpTR)            (mSGpTR)->ittiMsg.xnap_setup_ind
+#define XNAP_PEER_SHUTDOWN_IND(mSGpTR)    (mSGpTR)->ittiMsg.xnap_peer_shutdown_ind
 
 typedef struct {
   // PLMN Identity (M)
@@ -86,6 +89,15 @@ typedef struct xnap_register_gnb_req_s {
 typedef struct xnap_f1_setup_done_ind_s {
   uint64_t gNB_DU_id;
 } xnap_f1_setup_done_ind_t;
+
+typedef struct xnap_setup_ind_s {
+  uint32_t     gnb_id;
+  sctp_assoc_t assoc_id;
+} xnap_setup_ind_t;
+
+typedef struct xnap_peer_shutdown_ind_s {
+  uint32_t gnb_id;
+} xnap_peer_shutdown_ind_t;
 
 typedef enum xnap_cause_radio_network_e {
     XNAP_CAUSE_RADIO_NETWORK_LAYER_CELL_NOT_AVAILABLE,

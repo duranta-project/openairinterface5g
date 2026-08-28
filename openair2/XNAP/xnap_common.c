@@ -28,6 +28,34 @@ xnap_gnb_inst_t *xnap_get_inst(instance_t instance)
   return xnap_inst[instance];
 }
 
+xnap_peer_t *xnap_get_peer_by_assoc(xnap_gnb_inst_t *inst, sctp_assoc_t assoc_id)
+{
+  xnap_peer_t temp = {.assoc_id = assoc_id};
+  return RB_FIND(xnap_peer_map, &inst->peers, &temp);
+}
+
+xnap_peer_t *xnap_add_peer(xnap_gnb_inst_t *inst, sctp_assoc_t assoc_id, uint16_t in_streams, uint16_t out_streams)
+{
+  xnap_peer_t *peer = calloc_or_fail(1, sizeof(*peer));
+  peer->assoc_id    = assoc_id;
+  peer->state       = XNAP_PEER_STATE_WAITING;
+  peer->in_streams  = in_streams;
+  peer->out_streams = out_streams;
+
+  xnap_peer_t *dup = RB_INSERT(xnap_peer_map, &inst->peers, peer);
+  AssertFatal(dup == NULL, "[gNB %ld] duplicate Xn peer for assoc_id %d\n", inst->instance, assoc_id);
+  inst->nb_peers++;
+
+  return peer;
+}
+
+void xnap_remove_peer(xnap_gnb_inst_t *inst, xnap_peer_t *peer)
+{
+  RB_REMOVE(xnap_peer_map, &inst->peers, peer);
+  inst->nb_peers--;
+  free(peer);
+}
+
 void xnap_create_inst(instance_t instance, xnap_setup_req_t *setup_info, xnap_net_config_t *net_config)
 {
   AssertFatal(instance < sizeofArray(xnap_inst), "instance %ld exceeds limit\n", instance);

@@ -13,15 +13,39 @@
 #include "xnap_default_values.h"
 #include "xnap_common.h"
 #include "xnap_gNB.h"
+#include "lib/xnap_gNB_interface_management.h"
+#include "xnap_gNB_itti_messaging.h"
+#include "xnap_gNB_handlers.h"
+#include "xnap_gNB_encoder.h"
 
-/* Phase 1: create the Xn instance and store its config. */
+static void xnap_gNB_generate_xn_setup_request(xnap_gnb_inst_t *inst, const xnap_peer_t *peer)
+{
+  const xnap_setup_req_t *req = &inst->setup_info;
+
+  XNAP_XnAP_PDU_t *pdu = encode_xn_setup_request(req);
+  AssertFatal(pdu != NULL, "[gNB %ld] encode_xn_setup_request() failed\n", inst->instance);
+
+  uint8_t *buffer = NULL;
+  uint32_t length = 0;
+  int rc = xnap_gNB_encode_pdu(pdu, &buffer, &length);
+  ASN_STRUCT_FREE(asn_DEF_XNAP_XnAP_PDU, pdu);
+  AssertFatal(rc == 0, "[gNB %ld] xnap_gNB_encode_pdu() failed for XnSetupRequest\n", inst->instance);
+
+  LOG_I(XNAP, "[gNB %ld] Sending XnSetupRequest to peer assoc_id %d (%u bytes)\n",
+        inst->instance, peer->assoc_id, length);
+
+  /* XnSetup is non-UE-associated signalling — always stream 0 */
+  xnap_gNB_itti_send_sctp_data(inst->instance, peer->assoc_id, buffer, length, XNAP_NON_UE_STREAM_ID);
+}
+
+/* Phase 1: create the Xn instance and store its config */
 static void xnap_gNB_handle_register_gnb(instance_t instance, xnap_register_gnb_req_t *req)
 {
   xnap_create_inst(instance, &req->ng_setup_info, &req->net_config);
 }
 
 /* Phase 2: F1 Setup Response has been sent — bind a local SCTP listener (for
- * incoming Xn connections) and dial every configured candidate gNB */
+ * incoming Xn connections) and dial every configured candidate gNB. */
 static void xnap_gNB_handle_f1_setup_done(instance_t instance, const xnap_f1_setup_done_ind_t *ind)
 {
   xnap_gnb_inst_t *inst = xnap_get_inst(instance);
@@ -42,6 +66,10 @@ static void xnap_gNB_handle_f1_setup_done(instance_t instance, const xnap_f1_set
   memcpy(addr_buf, local_ip, addr_len);
   itti_send_msg_to_task(TASK_SCTP, instance, listen_msg);
 
+  /* Candidates are not yet peers (no SCTP association exists): they are
+   * addressed directly by their index in net_config, which doubles as
+   * ulp_cnx_id so the eventual SCTP_NEW_ASSOCIATION_RESP can be matched back
+   * to the candidate that was dialled. */
   const uint8_t nb_candidates = inst->net_config.nb_of_candidate_gNBs;
   LOG_I(XNAP, "[gNB %ld] F1 Setup Response sent (DU %lu) — listening on %s port %u, connecting to %u candidate(s)\n",
         instance, ind->gNB_DU_id, local_ip, XNAP_PORT_NUMBER, nb_candidates);
@@ -70,6 +98,53 @@ static void xnap_gNB_handle_f1_setup_done(instance_t instance, const xnap_f1_set
   }
 }
 
+/* To handle SCTP association response received from the candidates to which the SCTP connection request was sent */
+static void xnap_gNB_handle_sctp_association_resp(instance_t instance, const sctp_new_association_resp_t *resp)
+{
+  xnap_gnb_inst_t *inst = xnap_get_inst(instance);
+  AssertFatal(inst != NULL, "Xn instance %ld not found\n", instance);
+
+  /* Case 1: peer already has a live association, keyed by assoc_id.
+   * Remote opened the SCTP connection to us first — i.e. a simultaneous connect.
+   * assoc_id == -1 means SCTP (UNREACHABLE); */
+  xnap_peer_t *peer = NULL;
+  if (resp->assoc_id != (sctp_assoc_t)-1)
+    peer = xnap_get_peer_by_assoc(inst, resp->assoc_id);
+  if (peer != NULL) {
+    if (resp->sctp_state != SCTP_STATE_ESTABLISHED) {
+      LOG_W(XNAP, "[gNB %ld] SCTP_NEW_ASSOCIATION_RESP: peer assoc_id %d %s\n", instance, resp->assoc_id,
+            resp->sctp_state == SCTP_STATE_SHUTDOWN ? "shut down" : "unexpected state");
+      xnap_handle_xn_setup_message(instance, inst, peer, 1 /* shutdown */);
+      xnap_remove_peer(inst, peer);
+      return;
+    }
+    /* Remote opened sctp first via IND, already keyed by assoc_id.
+     * Update streams and return — peer is the initiator and will send XnSetupRequest. */
+    LOG_I(XNAP, "[gNB %ld] SCTP_NEW_ASSOCIATION_RESP: peer assoc_id %d already registered "
+          "via IND (simultaneous connect), updating streams\n", instance, resp->assoc_id);
+    peer->in_streams  = resp->in_streams;
+    peer->out_streams = resp->out_streams;
+    return;
+  }
+
+  /* Case 2: no peer exists yet — this is the result of our own outgoing
+   * connect attempt for candidate resp->ulp_cnx_id. */
+  if (resp->sctp_state != SCTP_STATE_ESTABLISHED) {
+    LOG_W(XNAP, "[gNB %ld] SCTP association failed for candidate %u (%s)\n",
+          instance, resp->ulp_cnx_id,
+          resp->sctp_state == SCTP_STATE_SHUTDOWN ? "shutdown" : "unreachable");
+    return;
+  }
+
+  peer = xnap_add_peer(inst, resp->assoc_id, resp->in_streams, resp->out_streams);
+
+  LOG_I(XNAP, "[gNB %ld] SCTP association established with candidate %u assoc_id %d "
+        "(in_streams %u out_streams %u) — sending XnSetupRequest\n",
+        instance, resp->ulp_cnx_id, resp->assoc_id, resp->in_streams, resp->out_streams);
+
+  xnap_gNB_generate_xn_setup_request(inst, peer);
+}
+
 void *xnap_task(void *args)
 {
   UNUSED(args);
@@ -90,6 +165,10 @@ void *xnap_task(void *args)
 
       case XNAP_F1_SETUP_DONE_IND:
         xnap_gNB_handle_f1_setup_done(instance, &XNAP_F1_SETUP_DONE_IND(msg));
+        break;
+
+      case SCTP_NEW_ASSOCIATION_RESP:
+        xnap_gNB_handle_sctp_association_resp(instance, &SCTP_NEW_ASSOCIATION_RESP(msg));
         break;
 
       default:
