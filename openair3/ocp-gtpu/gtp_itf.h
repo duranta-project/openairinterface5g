@@ -14,6 +14,21 @@
 
 # define GTPU_HEADER_OVERHEAD_MAX 64
 
+typedef struct {
+  /* TX counters (outgoing GTP-U G-PDUs) */
+  uint64_t tx_pkts;           /* packets successfully sent */
+  uint64_t tx_bytes;          /* payload bytes successfully sent */
+  uint64_t tx_drop_no_tunnel; /* dropped: no matching UE/bearer found */
+  uint64_t tx_drop_send_fail; /* dropped: sendmsg() returned an error */
+
+  /* RX counters (incoming GTP-U G-PDUs from UDP socket) */
+  uint64_t rx_pkts;           /* G-PDUs delivered to lower layer */
+  uint64_t rx_bytes;          /* payload bytes delivered */
+  uint64_t rx_drop_malformed; /* dropped: bad GTP header or length */
+  uint64_t rx_drop_unknown_teid; /* dropped: TEID not in te2ue_mapping */
+  uint64_t rx_drop_refused;   /* dropped: lower-layer callback returned false */
+} gtpu_stats_t;
+
 #include "common/platform_types.h"
 #ifdef __cplusplus
 extern "C" {
@@ -137,6 +152,8 @@ typedef struct gtpv1u_gnb_delete_tunnel_req_s gtpv1u_gnb_delete_tunnel_req_t;
   instance_t gtpv1Init(openAddr_t context);
   int gtpv1Term(instance_t inst);
   void *gtpv1uTask(void *args);
+  bool gtpu_get_stats(instance_t instance, gtpu_stats_t *out);
+  void gtpu_log_stats(instance_t instance);
 
 #ifdef __cplusplus
 }

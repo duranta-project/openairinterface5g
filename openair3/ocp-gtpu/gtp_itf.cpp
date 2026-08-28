@@ -148,6 +148,7 @@ class gtpEndPoint {
   int ipVersion;
   gtpThread_t thrData;
   map<uint64_t, teidData_t> ue2te_mapping;
+  gtpu_stats_t stats = {};
   // we use the same port number for source and destination address
   // this allow using non standard gtp port number (different from 2152)
   // and so, for example tu run 4G and 5G cores on one system
@@ -182,6 +183,26 @@ class gtpEndPoints {
 };
 
 static gtpEndPoints globGtp;
+
+static void gtpu_stat_drop(int h, uint64_t gtpu_stats_t::*counter)
+{
+  pthread_mutex_lock(&globGtp.gtp_lock);
+  auto it = globGtp.instances.find(h);
+  if (it != globGtp.instances.end())
+    it->second.stats.*counter += 1;
+  pthread_mutex_unlock(&globGtp.gtp_lock);
+}
+
+static void gtpu_stat_rx_ok(int h, uint64_t bytes)
+{
+  pthread_mutex_lock(&globGtp.gtp_lock);
+  auto it = globGtp.instances.find(h);
+  if (it != globGtp.instances.end()) {
+    it->second.stats.rx_pkts++;
+    it->second.stats.rx_bytes += bytes;
+  }
+  pthread_mutex_unlock(&globGtp.gtp_lock);
+}
 
 // note TEid 0 is reserved for specific usage: echo req/resp, error and supported extensions
 static teid_t gtpv1uNewTeid(void)
@@ -329,6 +350,7 @@ static void _gtpv1uSendDirect(instance_t instance,
 
   if (ptr2 == ptrUe->second.bearers.end()) {
     LOG_E(GTPU, "[%ld] GTP-U instance: sending a packet to a non existant UE:RAB: %lx/%x\n", instance, ue_id, bearer_id);
+    inst->stats.tx_drop_no_tunnel++;
     pthread_mutex_unlock(&globGtp.gtp_lock);
     return;
   }
@@ -392,14 +414,19 @@ static void _gtpv1uSendDirect(instance_t instance,
   }
 
   DevAssert(compatInst(instance) == bearer.sock_fd);
-  gtpv1uCreateAndSendMsg(&bearer,
-                         GTP_GPDU,
-                         buf,
-                         len,
-                         seqNumFlag,
-                         npduNumFlag,
-                         ext,
-                         extension_count);
+  int send_ok = gtpv1uCreateAndSendMsg(&bearer, GTP_GPDU, buf, len, seqNumFlag, npduNumFlag, ext, extension_count);
+  int h = compatInst(instance);
+  if (send_ok != GTPNOK) {
+    pthread_mutex_lock(&globGtp.gtp_lock);
+    auto it = globGtp.instances.find(h);
+    if (it != globGtp.instances.end()) {
+      it->second.stats.tx_pkts++;
+      it->second.stats.tx_bytes += len;
+    }
+    pthread_mutex_unlock(&globGtp.gtp_lock);
+  } else {
+    gtpu_stat_drop(h, &gtpu_stats_t::tx_drop_send_fail);
+  }
 }
 
 /** Send GTP-U packet with QFI marking for N3-U tunnel
@@ -441,6 +468,7 @@ void gtpv1uSendDirectWithNRUSeqNum(instance_t instance,
 
   if (ptr2 == ptrUe->second.bearers.end()) {
     LOG_E(GTPU, "[%ld] GTP-U instance: sending a packet to a non existant UE:RAB: %lx/%x\n", instance, ue_id, bearer_id);
+    inst->stats.tx_drop_no_tunnel++;
     pthread_mutex_unlock(&globGtp.gtp_lock);
     return;
   }
@@ -1114,6 +1142,7 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
 
   if (msgHdr->version != 1 || msgHdr->PT != 1) {
     LOG_E(GTPU, "[%d] Received a packet that is not GTP header\n", h);
+    gtpu_stat_drop(h, &gtpu_stats_t::rx_drop_malformed);
     return GTPNOK;
   }
 
@@ -1123,6 +1152,7 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
   if (tunnel == globGtp.te2ue_mapping.end()) {
     LOG_E(GTPU, "[%d] Received a incoming packet on unknown TEID (0x%x) Dropping!\n", h, ntohl(msgHdr->teid));
     pthread_mutex_unlock(&globGtp.gtp_lock);
+    gtpu_stat_drop(h, &gtpu_stats_t::rx_drop_unknown_teid);
     return GTPNOK;
   }
   ueidData_t uedata = tunnel->second;
@@ -1259,8 +1289,12 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
                                        &destinationL2Id,
                                        qfi,
                                        rqi,
-                                       uedata.pdusession_id))
+                                       uedata.pdusession_id)) {
         LOG_E(GTPU, "[%d] down layer refused incoming SDAP packet\n", h);
+        gtpu_stat_drop(h, &gtpu_stats_t::rx_drop_refused);
+      } else {
+        gtpu_stat_rx_ok(h, sdu_buffer_size);
+      }
     } else {
       /* Non-SDAP callback path: direct TEID-to-incoming_rb_id delivery via callBack.
        * QFI must be absent on this path */
@@ -1270,8 +1304,12 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
                   qfi,
                   uedata.ue_id,
                   ntohl(msgHdr->teid));
-      if (!uedata.callBack(&ctxt, srb_flag, rb_id, mui, confirm, sdu_buffer_size, sdu_buffer, mode, &sourceL2Id, &destinationL2Id))
+      if (!uedata.callBack(&ctxt, srb_flag, rb_id, mui, confirm, sdu_buffer_size, sdu_buffer, mode, &sourceL2Id, &destinationL2Id)) {
         LOG_E(GTPU, "[%d] down layer refused incoming packet\n", h);
+        gtpu_stat_drop(h, &gtpu_stats_t::rx_drop_refused);
+      } else {
+        gtpu_stat_rx_ok(h, sdu_buffer_size);
+      }
     }
   }
 
@@ -1331,12 +1369,14 @@ static bool gtpv1uReceiveHandleMessage(int h, uint8_t buf[VLEN][BUFSIZE])
     uint8_t *udpData = buf[i];
     if (udpDataLen < (int)sizeof(Gtpv1uMsgHeaderT)) {
       LOG_W(GTPU, "[%d] received malformed gtp packet \n", h);
-      return true;
+      gtpu_stat_drop(h, &gtpu_stats_t::rx_drop_malformed);
+      continue;
     }
     Gtpv1uMsgHeaderT *msg = (Gtpv1uMsgHeaderT *)udpData;
     if ((int)(ntohs(msg->msgLength) + sizeof(Gtpv1uMsgHeaderT)) != udpDataLen) {
       LOG_W(GTPU, "[%d] received malformed gtp packet length\n", h);
-      return true;
+      gtpu_stat_drop(h, &gtpu_stats_t::rx_drop_malformed);
+      continue;
     }
     LOG_D(GTPU, "[%d] Received GTP data, msg type: %x\n", h, msg->msgType);
     switch (msg->msgType) {
@@ -1452,6 +1492,40 @@ void *gtpv1uTask(void *args)
   }
 
   return NULL;
+}
+
+bool gtpu_get_stats(instance_t instance, gtpu_stats_t *out)
+{
+  pthread_mutex_lock(&globGtp.gtp_lock);
+  auto it = globGtp.instances.find(compatInst(instance));
+  if (it == globGtp.instances.end()) {
+    pthread_mutex_unlock(&globGtp.gtp_lock);
+    return false;
+  }
+  *out = it->second.stats;
+  pthread_mutex_unlock(&globGtp.gtp_lock);
+  return true;
+}
+
+void gtpu_log_stats(instance_t instance)
+{
+  gtpu_stats_t s;
+  if (!gtpu_get_stats(instance, &s)) {
+    return;
+  }
+  LOG_I(GTPU,
+        "[%ld] GTP-U stats: TX pkts=%lu bytes=%lu drop_no_tunnel=%lu drop_send_fail=%lu | "
+        "RX pkts=%lu bytes=%lu drop_unknown_teid=%lu drop_malformed=%lu drop_refused=%lu\n",
+        instance,
+        s.tx_pkts,
+        s.tx_bytes,
+        s.tx_drop_no_tunnel,
+        s.tx_drop_send_fail,
+        s.rx_pkts,
+        s.rx_bytes,
+        s.rx_drop_unknown_teid,
+        s.rx_drop_malformed,
+        s.rx_drop_refused);
 }
 
 #ifdef __cplusplus
