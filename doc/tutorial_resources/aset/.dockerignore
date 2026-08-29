@@ -1,0 +1,16 @@
+.git
+.dockerignore
+*.log
+cmake_targets/log/
+cmake_targets/ran_build/
+common/utils/T/T_IDs.h
+common/utils/T/T_messages.txt.h
+common/utils/T/genids
+common/utils/T/genids.o
+build/
+**/__pycache__/
+*.pcap
+.env
+doc/tutorial_resources/aset/.env
+doc/tutorial_resources/aset/logs/
+doc/tutorial_resources/aset/**/__pycache__/
