@@ -245,6 +245,89 @@ TEST(oru_beamforming, codebook_out_of_range_fallbacks)
   }
 }
 
+// UL Rx beamforming: per-antenna FFT output combined into one beam stream in the frequency
+// domain, out[k] = w[0]*X0[k] + w[1]*X1[k], the same saturating multiply-accumulate as the DL
+// codebook path. The inputs are FFT windows (what nr_symbol_fep_ul() produces per antenna).
+TEST(oru_beamforming, ul_combine_two_antennas)
+{
+  oru_codebook_t cb = {0};
+  cb.nb_fh_streams = 1;
+  cb.nb_beams = 1;
+  cb.w[0][0][0] = (c16_t){.r = 20000, .i = 5000};
+  cb.w[0][1][0] = (c16_t){.r = -8000, .i = 15000};
+
+  uint32_t buf0[N_SC], buf1[N_SC];
+  fill_iq(buf0, N_SC, 100);
+  fill_iq(buf1, N_SC, -50);
+  const c16_t *fft[2] = {(c16_t *)buf0, (c16_t *)buf1};
+  c16_t out[N_SC];
+  combine_ul_beam_fd(fft, 2, N_SC, &cb, 0, 0, out);
+
+  for (int i = 0; i < N_SC; i++) {
+    c16_t term0 = c16mulShift(((c16_t *)buf0)[i], cb.w[0][0][0], 15);
+    c16_t term1 = c16mulShift(((c16_t *)buf1)[i], cb.w[0][1][0], 15);
+    EXPECT_EQ(out[i].r, (int16_t)(term0.r + term1.r));
+    EXPECT_EQ(out[i].i, (int16_t)(term0.i + term1.i));
+  }
+}
+
+// Two beams from the same antennas: each gets its own weight vector, so the outputs differ
+// even though the FFT input is identical (sub-band beam switching in UL is the same machinery
+// at the job level - one beam per C-plane section).
+TEST(oru_beamforming, ul_combine_two_beams)
+{
+  oru_codebook_t cb = {0};
+  cb.nb_fh_streams = 1;
+  cb.nb_beams = 2;
+  cb.w[0][0][0] = (c16_t){.r = 32767, .i = 0};
+  cb.w[1][0][0] = (c16_t){.r = 20000, .i = 10000};
+
+  uint32_t buf[N_SC];
+  fill_iq(buf, N_SC, 300);
+  const c16_t *fft[1] = {(c16_t *)buf};
+
+  c16_t out0[N_SC], out1[N_SC];
+  combine_ul_beam_fd(fft, 1, N_SC, &cb, 0, 0, out0);
+  combine_ul_beam_fd(fft, 1, N_SC, &cb, 1, 0, out1);
+
+  for (int i = 0; i < N_SC; i++) {
+    c16_t exp0 = c16mulShift(((c16_t *)buf)[i], cb.w[0][0][0], 15);
+    c16_t exp1 = c16mulShift(((c16_t *)buf)[i], cb.w[1][0][0], 15);
+    EXPECT_EQ(out0[i].r, exp0.r);
+    EXPECT_EQ(out0[i].i, exp0.i);
+    EXPECT_EQ(out1[i].r, exp1.r);
+    EXPECT_EQ(out1[i].i, exp1.i);
+  }
+  EXPECT_NE(memcmp(out0, out1, N_SC * sizeof(c16_t)), 0);
+}
+
+// Stream index (the section's eaxc in codebook mode) out of range is dropped to silence; beam_id
+// out of range falls back to beam 0, mirroring the DL behavior.
+TEST(oru_beamforming, ul_combine_fallbacks)
+{
+  oru_codebook_t cb = {0};
+  cb.nb_fh_streams = 1;
+  cb.nb_beams = 2;
+  cb.w[0][0][0] = (c16_t){.r = 32767, .i = 0};
+  cb.w[1][0][0] = (c16_t){.r = 20000, .i = 10000};
+
+  uint32_t buf[N_SC];
+  fill_iq(buf, N_SC, 300);
+  const c16_t *fft[1] = {(c16_t *)buf};
+
+  c16_t out_zero[N_SC];
+  combine_ul_beam_fd(fft, 1, N_SC, &cb, 0, 5, out_zero); // stream out of range
+  assert_zero(out_zero, N_SC);
+
+  c16_t out_beam[N_SC];
+  combine_ul_beam_fd(fft, 1, N_SC, &cb, 99, 0, out_beam); // beam out of range
+  for (int i = 0; i < N_SC; i++) {
+    c16_t expected = c16mulShift(((c16_t *)buf)[i], cb.w[0][0][0], 15);
+    EXPECT_EQ(out_beam[i].r, expected.r);
+    EXPECT_EQ(out_beam[i].i, expected.i);
+  }
+}
+
 int main(int argc, char **argv)
 {
   logInit();

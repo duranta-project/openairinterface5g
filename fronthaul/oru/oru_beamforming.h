@@ -42,6 +42,16 @@ void combine_dl_streams(c16_t **txDataF,
                         const oru_codebook_t *cb,
                         c16_t rotation);
 
+// UL Rx beamforming: combine per-antenna FFT output into one beam stream, out[k] =
+// sum_a w[beam][a][stream] * fft_data[a][k]
+void combine_ul_beam_fd(const c16_t *const rxdataF[],
+                        int nb_rx,
+                        int n,
+                        const oru_codebook_t *cb,
+                        int beam_id,
+                        int stream_id,
+                        c16_t *out);
+
 #ifdef __cplusplus
 }
 #endif
