@@ -951,15 +951,33 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
 #endif
 
   join_task_ans(&ans);
+  // Compute per UE channel level and group channel level
+  // This is used for computing ulsch power per UE in a group
+  uint64_t ue_ch_level[group_size][num_sp_streams];
+  uint64_t group_ch_level[num_sp_streams];
+  memset(group_ch_level, 0, sizeof(group_ch_level));
+  for (int u = 0; u < group_size; u++) {
+    for (int aarx = 0; aarx < num_sp_streams; aarx++) {
+      uint64_t ch_level = 0;
+      for (int nl = 0; nl < rel15_ul_group[u]->nrOfLayers; nl++)
+        ch_level += avg[layer_offset[u] + nl][aarx];
+      ue_ch_level[u][aarx] = ch_level;
+      group_ch_level[aarx] += ch_level;
+    }
+  }
+
   for (int u = 0; u < group_size; u++) {
     NR_gNB_PUSCH *pv = pusch_vars_group[u];
     // Copy unavailable resources per UE
     *ret_unav_res_group[u] = unav_res;
-    // Copy power measurements per UE
+    // joint_pv->ulsch_power[aarx] is the total received power of the group per antenna
+    // Split power measurements per UE
     pv->ulsch_power_tot = 0;
     pv->ulsch_noise_power_tot = 0;
     for (int aarx = 0; aarx < num_sp_streams; aarx++) {
-      pv->ulsch_power[aarx] = joint_pv->ulsch_power[aarx];
+      pv->ulsch_power[aarx] = group_ch_level[aarx] > 0
+                                  ? (uint32_t)((uint64_t)joint_pv->ulsch_power[aarx] * ue_ch_level[u][aarx] / group_ch_level[aarx])
+                                  : joint_pv->ulsch_power[aarx] / group_size;
       pv->ulsch_noise_power[aarx] = joint_pv->ulsch_noise_power[aarx];
       pv->ulsch_power_tot += pv->ulsch_power[aarx];
       pv->ulsch_noise_power_tot += pv->ulsch_noise_power[aarx];
