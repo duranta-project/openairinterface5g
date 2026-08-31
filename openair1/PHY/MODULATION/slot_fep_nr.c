@@ -162,6 +162,22 @@ int nr_symbol_fep_ul(const NR_DL_FRAME_PARMS *fp,
   return 0;
 }
 
+void apply_nr_rotation_symbol_fftshifted_RX(const int symbols_per_slot,
+                                            const int slots_per_subframe,
+                                            const c16_t *shift_rot,
+                                            c16_t *rxdataF,
+                                            const c16_t *rot,
+                                            const int nb_rb,
+                                            const int slot,
+                                            const int symbol)
+{
+  const int symb_offset = (slot % slots_per_subframe) * symbols_per_slot;
+  c16_t rot2 = rot[symbol + symb_offset];
+  rot2.i = -rot2.i;
+  rotate_cpx_vector(rxdataF, rot2, rxdataF, nb_rb * NR_NB_SC_PER_RB, 15);
+  mult_cpx_vector(rxdataF, shift_rot, rxdataF, nb_rb * NR_NB_SC_PER_RB, 15);
+}
+
 void apply_nr_rotation_symbol_RX(const int symbols_per_slot,
                                  const int slots_per_subframe,
                                  const c16_t *shift_rot,
@@ -222,6 +238,9 @@ void nr_ofdm_demod_and_rx_rotation(c16_t **rxdata,
                                     fp->N_RB_UL,
                                     slot,
                                     symbol);
+        fftshift_inplace(&rxdataF[aa][slot_offsetF + symbol * fp->ofdm_symbol_size],
+                         fp->N_RB_UL * NR_NB_SC_PER_RB,
+                         fp->ofdm_symbol_size);
       }
     }
   }
