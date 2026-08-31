@@ -1809,7 +1809,12 @@ int random_channel(channel_desc_t *desc, uint8_t abstraction_flag) {
       for (aatx=0;aatx<desc->nb_tx;aatx++) {
         desc->a[i][aarx+(aatx*desc->nb_rx)].r = anew[aarx+(aatx*desc->nb_rx)].r;
         desc->a[i][aarx+(aatx*desc->nb_rx)].i = anew[aarx+(aatx*desc->nb_rx)].i;
-        LOG_I(OCM,"anew(%d,%d) = %f+1j*%f\n",aatx,aarx,anew[aarx+(aatx*desc->nb_rx)].r, anew[aarx+(aatx*desc->nb_rx)].i);
+        LOG_D(OCM,
+              "anew(%d,%d) = %f+1j*%f\n",
+              aatx,
+              aarx,
+              anew[aarx + (aatx * desc->nb_rx)].r,
+              anew[aarx + (aatx * desc->nb_rx)].i);
      }
     }
     //apply correlation matrix
@@ -1856,7 +1861,13 @@ int random_channel(channel_desc_t *desc, uint8_t abstraction_flag) {
       for (aatx=0;aatx<desc->nb_tx;aatx++) {
         //desc->a[i][aarx+(aatx*desc->nb_rx)].x = acorr[aarx+(aatx*desc->nb_rx)].x;
         //desc->a[i][aarx+(aatx*desc->nb_rx)].y = acorr[aarx+(aatx*desc->nb_rx)].y;
-        LOG_I(OCM,"tap %d, a(%d,%d) = %f+1j*%f\n",i,aatx,aarx,desc->a[i][aarx+(aatx*desc->nb_rx)].r, desc->a[i][aarx+(aatx*desc->nb_rx)].i);
+        LOG_D(OCM,
+              "tap %d, a(%d,%d) = %f+1j*%f\n",
+              i,
+              aatx,
+              aarx,
+              desc->a[i][aarx + (aatx * desc->nb_rx)].r,
+              desc->a[i][aarx + (aatx * desc->nb_rx)].i);
       }
     }
 
