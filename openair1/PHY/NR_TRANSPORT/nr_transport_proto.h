@@ -182,7 +182,7 @@ void nr_decode_pucch1(PHY_VARS_gNB *gNB,
                       nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_pdu,
                       nfapi_nr_pucch_pdu_t *pucch_pdu);
 
-
+void set_uci_payload(uint64_t *in, int n_bits, int n_bytes, uint8_t *out, int frame, int slot);
 void nr_decode_pucch2(PHY_VARS_gNB *gNB,
                       c16_t **rxdataF,
                       int frame,
@@ -197,5 +197,5 @@ void nr_decode_pucch0(PHY_VARS_gNB *gNB,
                       nfapi_nr_uci_pucch_pdu_format_0_1_t* uci_pdu,
                       const nfapi_nr_pucch_pdu_t* pucch_pdu);
 
-
+void nr_uci_decoding(PHY_VARS_gNB *phy_vars_gNB, NR_UL_IND_t *UL_INFO, int nb_pusch, int *ULSCH_ids, int frame, int slot);
 #endif /*__NR_TRANSPORT__H__*/

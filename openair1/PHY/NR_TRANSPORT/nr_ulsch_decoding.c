@@ -123,6 +123,8 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
     const nfapi_nr_pusch_pdu_t *pusch_pdu = &harq_process->ulsch_pdu;
     uint8_t harq_pid = ulsch->harq_pid;
 
+    if (!(pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_DATA))
+      continue;
     nrLDPC_TB_decoding_parameters_t *TB_parameters = &TBs[pusch_id];
 
     if (!harq_process) {
@@ -130,16 +132,7 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
       return -1;
     }
 
-    uint8_t number_dmrs_symbols = count_bits64_with_mask(pusch_pdu->ul_dmrs_symb_pos, pusch_pdu->start_symbol_index, pusch_pdu->nr_of_symbols);
-    int factor = pusch_pdu->dmrs_config_type == pusch_dmrs_type1 ? 6 : 4;
-    int nb_re_dmrs = factor * pusch_pdu->num_dmrs_cdm_grps_no_data;
-    uint32_t G = nr_get_G(pusch_pdu->rb_size,
-                          pusch_pdu->nr_of_symbols,
-                          nb_re_dmrs,
-                          number_dmrs_symbols, // number of dmrs symbols irrespective of single or double symbol dmrs
-                          ulsch->unav_res,
-                          pusch_pdu->qam_mod_order,
-                          pusch_pdu->nrOfLayers);
+    uint32_t G = pusch->uci_info.G_ulsch;
     DevAssert(G > 0);
     TB_parameters->G = G;
 
@@ -244,7 +237,7 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
 #ifdef LDPC_CUDA
     int16_t *ulsch_llr = phy_vars_gNB->pusch_vars[ULSCH_id].llr_dev;
 #else
-    int16_t *ulsch_llr = phy_vars_gNB->pusch_vars[ULSCH_id].llr;
+    int16_t *ulsch_llr = phy_vars_gNB->pusch_vars[ULSCH_id].ulsch_llrs;
 #endif
 
     if (!ulsch_llr) {
