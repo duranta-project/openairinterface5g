@@ -71,3 +71,6 @@ MESSAGE_DEF(RRC_GNB_TRIGGER_UE_CONTEXT_RELEASE_REQ,
 MESSAGE_DEF(MAC_FORCE_UL_FAILURE, MESSAGE_PRIORITY_MED_PLUS, Mac_force_ul_failure, mac_force_ul_failure)
 MESSAGE_DEF(MAC_GET_UE_RNTI, MESSAGE_PRIORITY_MED_PLUS, Mac_get_ue_rnti, mac_get_ue_rnti)
 MESSAGE_DEF(MAC_GET_UE_RNTI_BY_UID, MESSAGE_PRIORITY_MED_PLUS, Mac_get_ue_rnti_by_uid, mac_get_ue_rnti_by_uid)
+MESSAGE_DEF(MAC_FORCE_UE_RELEASE, MESSAGE_PRIORITY_MED_PLUS, Mac_force_ue_release, mac_force_ue_release)
+MESSAGE_DEF(MAC_GET_UE_BWP_INFO, MESSAGE_PRIORITY_MED_PLUS, Mac_get_ue_bwp_info, mac_get_ue_bwp_info)
+MESSAGE_DEF(MAC_SET_PUSCH_TARGET_SNR, MESSAGE_PRIORITY_MED_PLUS, Mac_set_pusch_target_snr, mac_set_pusch_target_snr)

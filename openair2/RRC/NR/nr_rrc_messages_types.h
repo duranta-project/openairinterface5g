@@ -75,13 +75,32 @@ typedef struct Mac_force_ul_failure_s {
 
 typedef struct Mac_get_ue_rnti_s {
   rnti_t rnti;
+  bool has_mac;
 } Mac_get_ue_rnti;
 #define MAC_GET_UE_RNTI(mSGpTR) (mSGpTR)->ittiMsg.mac_get_ue_rnti;
 
 typedef struct Mac_get_ue_rnti_by_uid_s {
   uid_t uid;
   rnti_t rnti;
+  bool has_mac;
 } Mac_get_ue_rnti_by_uid;
 #define MAC_GET_UE_RNTI_BY_UID(mSGpTR) (mSGpTR)->ittiMsg.mac_get_ue_rnti_by_uid;
+
+typedef struct Mac_force_ue_release_s {
+  rnti_t rnti;
+} Mac_force_ue_release;
+#define MAC_FORCE_UE_RELEASE(mSGpTR) (mSGpTR)->ittiMsg.mac_force_ue_release;
+
+typedef struct Mac_get_ue_bwp_info_s {
+  rnti_t rnti;
+  int dl_bwp_id;
+  int ul_bwp_id;
+} Mac_get_ue_bwp_info;
+#define MAC_GET_UE_BWP_INFO(mSGpTR) (mSGpTR)->ittiMsg.mac_get_ue_bwp_info;
+
+typedef struct Mac_set_pusch_target_snr_s {
+  long target_snrx10;
+} Mac_set_pusch_target_snr;
+#define MAC_SET_PUSCH_TARGET_SNR(mSGpTR) (mSGpTR)->ittiMsg.mac_set_pusch_target_snr;
 
 #endif /* NR_RRC_MESSAGES_TYPES_H_ */
