@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <netinet/in.h>
+#include <netinet/ip.h> /* for IPTOS_DSCP_EF */
 #include <netinet/sctp.h>
 #include <assertions.h>
 #include <arpa/inet.h>

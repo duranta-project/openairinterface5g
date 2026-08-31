@@ -309,9 +309,9 @@ uint8_t pulls32(uint8_t **in, int32_t *out, uint8_t *end)
 
   if ((end - pIn) >= 4) {
 #ifdef FAPI_BYTE_ORDERING_BIG_ENDIAN
-    *out = (pIn[3] << 24) | (pIn[2] << 16) | (pIn[1] << 8) | pIn[0];
+    *out = (int32_t)(((uint32_t)pIn[3] << 24) | (pIn[2] << 16) | (pIn[1] << 8) | pIn[0]);
 #else
-    *out = (pIn[0] << 24) | (pIn[1] << 16) | (pIn[2] << 8) | pIn[3];
+    *out = (int32_t)(((uint32_t)pIn[0] << 24) | (pIn[1] << 16) | (pIn[2] << 8) | pIn[3]);
 #endif
     (*in) += 4;
     return 4;
