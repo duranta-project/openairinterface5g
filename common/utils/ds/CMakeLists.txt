@@ -8,6 +8,7 @@ add_library(ds OBJECT
             obj_hashtable.c
             spsc_q.c
             shared_pointer.c
+            work_q.c
 )
 
 target_include_directories(ds PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
