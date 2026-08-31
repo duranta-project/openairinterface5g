@@ -74,3 +74,6 @@ MESSAGE_DEF(MAC_GET_UE_RNTI_BY_UID, MESSAGE_PRIORITY_MED_PLUS, Mac_get_ue_rnti_b
 MESSAGE_DEF(MAC_FORCE_UE_RELEASE, MESSAGE_PRIORITY_MED_PLUS, Mac_force_ue_release, mac_force_ue_release)
 MESSAGE_DEF(MAC_GET_UE_BWP_INFO, MESSAGE_PRIORITY_MED_PLUS, Mac_get_ue_bwp_info, mac_get_ue_bwp_info)
 MESSAGE_DEF(MAC_SET_PUSCH_TARGET_SNR, MESSAGE_PRIORITY_MED_PLUS, Mac_set_pusch_target_snr, mac_set_pusch_target_snr)
+MESSAGE_DEF(MAC_GET_O1_STATS, MESSAGE_PRIORITY_MED_PLUS, Mac_get_o1_stats, mac_get_o1_stats)
+MESSAGE_DEF(MAC_SET_BWCONFIG, MESSAGE_PRIORITY_MED_PLUS, Mac_set_bwconfig, mac_set_bwconfig)
+MESSAGE_DEF(MAC_STOP_MODEM, MESSAGE_PRIORITY_MED_PLUS, Mac_stop_modem, mac_stop_modem)

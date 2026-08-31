@@ -15,6 +15,7 @@
 #include "NR_TAG-Id.h"
 #include "common/ngran_types.h"
 #include "openair2/LAYER2/nr_pdcp/nr_pdcp_configuration.h"
+#include "intertask_interface.h"
 
 void set_cset_offset(uint16_t);
 void get_K1_K2(int N1, int N2, int *K1, int *K2, int layers);
@@ -37,6 +38,7 @@ void mac_top_init_gNB(ngran_node_t node_type,
                       nr_cell_sched_t **cell);
 void mac_top_destroy_gNB(gNB_MAC_INST *mac);
 void nr_mac_send_f1_setup_req(void);
+void mac_get_o1_stats_handler(MessageDef *msg_p, instance_t instance);
 int get_ssbidx_from_beam(const nr_cell_sched_t *cell, int beam_idx);
 void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *mac_config);
 void nr_mac_configure_sib1(nr_cell_sched_t *cell, const plmn_id_t *plmn, uint64_t cellID, int tac);
