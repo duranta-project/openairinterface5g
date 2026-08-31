@@ -735,6 +735,7 @@ static void handle_ul_cplane_packet(oru_packet_processor_context_t *ctx,
     ul_job->symbol = absolute_gps_symbol % 14;
     ul_job->num_symbols = num_symbols;
     ul_job->antenna_id = ant_id;
+    ul_job->beam_id = section->hdr.u.s1.beamId;
     ul_job->num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
     ul_job->start_prb = section->hdr.u1.common.startPrbc;
     int ret = rte_ring_enqueue(ctx->ul_ready_jobs, (void *)ul_job);
