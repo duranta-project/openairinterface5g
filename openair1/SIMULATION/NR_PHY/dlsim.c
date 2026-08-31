@@ -329,6 +329,23 @@ void validate_input_pmi(nfapi_nr_config_request_scf_t *gNB_config,
               num_antenna_ports, pmi_pdu->num_ant_ports, pmi);
 }
 
+static void configure_csirs_for_dlsim_ue(NR_UE_MAC_INST_t *UE_mac,
+                                         int frame,
+                                         int slot,
+                                         int slots_per_frame,
+                                         NR_CSI_RS_ResourceMapping_t resourceMapping)
+{
+  NR_CSI_MeasConfig_t *csi_MeasConfig = calloc(1, sizeof(*csi_MeasConfig));
+  csi_MeasConfig->nzp_CSI_RS_ResourceToAddModList = calloc(1, sizeof(*csi_MeasConfig->nzp_CSI_RS_ResourceToAddModList));
+  NR_NZP_CSI_RS_Resource_t *nzpcsi = calloc(1, sizeof(*nzpcsi));
+  // only need to configure resource mapping and periodicity and offset for rate-matching
+  nzpcsi->resourceMapping = resourceMapping;
+  nzpcsi->periodicityAndOffset = calloc(1,sizeof(*nzpcsi->periodicityAndOffset));
+  nzpcsi->periodicityAndOffset->present = NR_CSI_ResourcePeriodicityAndOffset_PR_slots320;
+  nzpcsi->periodicityAndOffset->choice.slots320 = (frame * slots_per_frame + slot) % 320;
+  asn1cSeqAdd(&csi_MeasConfig->nzp_CSI_RS_ResourceToAddModList->list, nzpcsi);
+  UE_mac->sc_info.csi_MeasConfig = csi_MeasConfig;
+}
 
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char **argv)
@@ -415,6 +432,8 @@ int main(int argc, char **argv)
   uint8_t  dlsch_threads = 0;
   int chest_type[2] = {0};
   uint8_t  max_ldpc_iterations = 5;
+  // to schedule CSI-RS for rate-matching test in given symbol (default -1 -> no CSI-RS)
+  int csirs_symbol = -1;
   // number of PDSCH symbols per thread = 0 means do not use thread pool
   int num_pdsch_symbols_per_thread = 0;
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == 0) {
@@ -438,7 +457,7 @@ int main(int argc, char **argv)
   void *d_channel_coeffs_gpu = NULL;
 #endif
 
-  while ((c = getopt(argc, argv, "--:O:f:hA:p:g:i:n:s:S:t:v:x:y:z:o:H:M:N:F:GR:d:D:PI:L:a:b:e:m:w:T:U:q:X:Y:Z:Q:E")) != -1) {
+  while ((c = getopt(argc, argv, "--:O:f:hA:p:g:i:n:s:S:t:v:x:y:z:o:H:M:N:F:GR:d:D:PI:L:a:b:c:e:m:w:T:U:q:X:Y:Z:Q:E")) != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
     if (c == 1 || c == '-' || c == 'O')
@@ -595,6 +614,11 @@ int main(int argc, char **argv)
 
     case 'b':
       g_rbSize = atoi(optarg);
+      break;
+
+    case 'c':
+      csirs_symbol = atoi(optarg);
+      AssertFatal(csirs_symbol < NR_SYMBOLS_PER_SLOT, "Invalid CSI-RS symbol %d\n", csirs_symbol);
       break;
 
     case 'd':
@@ -972,7 +996,8 @@ int main(int argc, char **argv)
   init_nr_ue_transport(UE);
 
   UE_mac = nr_l2_init_ue(0, mu);
-  ue_init_config_request(UE_mac, get_slots_per_frame_from_scs(mu));
+  int slot_per_frame = get_slots_per_frame_from_scs(mu);
+  ue_init_config_request(UE_mac, slot_per_frame);
 
   UE->if_inst = nr_ue_if_module_init(0);
   UE->if_inst->scheduled_response = nr_ue_scheduled_response;
@@ -1007,6 +1032,11 @@ int main(int argc, char **argv)
   UE_mac->state = UE_CONNECTED;
   UE_mac->ra.ra_state = nrRA_SUCCEEDED;
 
+  NR_CSI_RS_ResourceMapping_t resourceMapping = {0};
+  if (csirs_symbol >= 0) {
+    resourceMapping = configure_csi_resourcemapping(n_tx, N_RB_DL, csirs_symbol);
+    configure_csirs_for_dlsim_ue(UE_mac, frame, slot, slot_per_frame, resourceMapping);
+  }
   nr_phy_data_t phy_data = {0};
   fapi_nr_dl_config_request_t dl_config = {.sfn = frame, .slot = slot};
   nr_scheduled_response_t scheduled_response = {.dl_config = &dl_config, .phy_data = &phy_data, .mac = UE_mac};
@@ -1093,8 +1123,9 @@ int main(int argc, char **argv)
     NR_gNB_DLSCH_t *gNB_dlsch = &gNB->dlsch[0];
     memset(Sched_INFO, 0, sizeof(*Sched_INFO));
     nfapi_nr_dl_tti_request_body_t *dl_req = &Sched_INFO->DL_req.dl_tti_request_body;
-    // scheduler will place PDSCH second (after PDCCH), verification below
-    nfapi_nr_dl_tti_request_pdu_t  *dl_tti_pdsch_pdu = &dl_req->dl_tti_pdu_list[1];
+    // scheduler will place PDSCH after PDCCH and potentially after CSI-RS, verification below
+    int add_csi = csirs_symbol >= 0 ? 1 : 0;
+    nfapi_nr_dl_tti_request_pdu_t  *dl_tti_pdsch_pdu = &dl_req->dl_tti_pdu_list[add_csi + 1];
     nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu_rel15 = &dl_tti_pdsch_pdu->pdsch_pdu.pdsch_pdu_rel15;
 
     for (trial = 0; trial < n_trials && !stop; trial++) {
@@ -1122,6 +1153,19 @@ int main(int argc, char **argv)
         clear_nr_nfapi_information(cell, frame, slot);
         UE_info->UE_sched_ctrl.harq_processes[harq_pid].ndi = !(trial&1);
         UE_info->UE_sched_ctrl.harq_processes[harq_pid].round = round;
+
+        if (csirs_symbol >= 0) {
+          // configure CSI-RS for rate-matching
+          nfapi_nr_dl_tti_request_body_t *dl_req = &Sched_INFO->DL_req.dl_tti_request_body;
+          nfapi_nr_dl_tti_request_pdu_t *dl_tti_csirs_pdu = &dl_req->dl_tti_pdu_list[dl_req->nPDUs];
+          uint16_t csi_index = get_fapi_csi_index(dl_req, NULL);
+          memset((void*)dl_tti_csirs_pdu, 0, sizeof(nfapi_nr_dl_tti_request_pdu_t));
+          dl_tti_csirs_pdu->PDUType = NFAPI_NR_DL_TTI_CSI_RS_PDU_TYPE;
+          dl_tti_csirs_pdu->PDUSize = (uint8_t)(2 + sizeof(nfapi_nr_dl_tti_csi_rs_pdu));
+          nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csirs_pdu = &dl_tti_csirs_pdu->csi_rs_pdu.csi_rs_pdu_rel15;
+          configure_csi_pdu(csirs_pdu, 1, csi_index, 0, 0, 0, &resourceMapping, &UE_info->current_DL_BWP, 0, 0);
+          dl_req->nPDUs++;
+        }
 
         // nr_schedule_ue_spec() requires the mutex to be locked
         NR_SCHED_LOCK(&gNB_mac->sched_lock);
@@ -1336,14 +1380,13 @@ int main(int argc, char **argv)
 
         dl_config.sfn = frame;
         dl_config.slot = slot;
+
         ue_dci_configuration(UE_mac, &dl_config, frame, slot);
         nr_ue_scheduled_response(&scheduled_response);
 
         pbch_processing(UE, &UE_proc, &phy_data);
         pdcch_processing(UE, &UE_proc, &phy_data);
-        pdsch_processing(UE,
-                         &UE_proc,
-                         &phy_data);
+        pdsch_processing(UE, &UE_proc, &phy_data);
         //----------------------------------------------------------
         //---------------------- count errors ----------------------
         //----------------------------------------------------------
@@ -1365,6 +1408,13 @@ int main(int argc, char **argv)
         uint8_t mod_order = phy_data.dlsch_config.cw_info[0].qamModOrder;
         uint8_t nb_symb_sch = phy_data.dlsch_config.number_symbols;
         uint32_t unav_res = ptrsSymbPerSlot * ptrsRePerSymb;
+        freq_alloc_bitmap_t freq_alloc = {0};
+        if (phy_data.dlsch_config.resource_alloc == 0) {
+          int alloc_size = (phy_data.dlsch_config.BWPSize / 8) + (phy_data.dlsch_config.BWPSize % 8 > 0);
+          freq_alloc = set_start_end_from_bitmap(phy_data.dlsch_config.BWPSize, alloc_size, phy_data.dlsch_config.rb_bitmap);
+        } else
+          freq_alloc = set_bitmap_from_start_size(phy_data.dlsch_config.start_rb, phy_data.dlsch_config.number_rbs);
+        unav_res += compute_csi_rm_unav_res(&phy_data.dlsch_config, &freq_alloc);
         available_bits = nr_get_G(nb_rb, nb_symb_sch, nb_re_dmrs, length_dmrs, unav_res, mod_order, pdsch_pdu_rel15->nrOfLayers);
         if (pdu_bit_map & 0x1) {
           if (trial == 0 && round == 0) {

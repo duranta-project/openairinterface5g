@@ -1193,6 +1193,36 @@ static uint8_t set_csirs_measurement_bitmap(NR_CSI_MeasConfig_t *csi_measconfig,
   return meas_bitmap;
 }
 
+static void configure_csirs_pdu(fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu,
+                                NR_CSI_MeasConfig_t *csi_measconfig,
+                                NR_CSI_ResourceConfigId_t csi_res_id,
+                                NR_UE_DL_BWP_t *current_DL_BWP,
+                                bool last_res,
+                                long scramblingID,
+                                long powerControlOffset,
+                                long *powerControlOffsetSS,
+                                NR_CSI_RS_ResourceMapping_t *resourceMapping)
+{
+  csirs_config_pdu->measurement_bitmap = set_csirs_measurement_bitmap(csi_measconfig, csi_res_id);
+  csirs_config_pdu->subcarrier_spacing = current_DL_BWP->scs;
+  csirs_config_pdu->cyclic_prefix = current_DL_BWP->cyclicprefix ? *current_DL_BWP->cyclicprefix : 0;
+  if (csi_res_id > NR_maxNrofCSI_ResourceConfigurations) {
+    /* According to 38.214 5.1.6.1.1, the number of resources indicate if one
+     * or two consequtive slots for TRS is used. We indicate to phy the last slot. */
+    csirs_config_pdu->last_trs_slot = last_res;
+    csirs_config_pdu->csi_type = 0; // TRS
+  } else
+    csirs_config_pdu->csi_type = 1; // NZP-CSI-RS
+
+  csirs_config_pdu->scramb_id = scramblingID;
+  csirs_config_pdu->power_control_offset = powerControlOffset + 8;
+  if (powerControlOffsetSS)
+    csirs_config_pdu->power_control_offset_ss = *powerControlOffsetSS;
+  else
+    csirs_config_pdu->power_control_offset_ss = 1; // 0 dB
+  configure_csi_resource_mapping(csirs_config_pdu, resourceMapping, current_DL_BWP->BWPSize, current_DL_BWP->BWPStart);
+}
+
 static void nr_schedule_csirs_reception(NR_UE_MAC_INST_t *mac, int frame, int slot)
 {
   if (!mac->sc_info.csi_MeasConfig)
@@ -1207,10 +1237,6 @@ static void nr_schedule_csirs_reception(NR_UE_MAC_INST_t *mac, int frame, int sl
   NR_UE_DL_BWP_t *current_DL_BWP = mac->current_DL_BWP;
   NR_BWP_Id_t dl_bwp_id = current_DL_BWP->bwp_id;
 
-  int mu = current_DL_BWP->scs;
-  uint16_t bwp_size = current_DL_BWP->BWPSize;
-  uint16_t bwp_start = current_DL_BWP->BWPStart;
-
   for (int id = 0; id < csi_measconfig->nzp_CSI_RS_ResourceToAddModList->list.count; id++) {
     NR_NZP_CSI_RS_Resource_t *nzpcsi = csi_measconfig->nzp_CSI_RS_ResourceToAddModList->list.array[id];
     int period, offset;
@@ -1224,27 +1250,15 @@ static void nr_schedule_csirs_reception(NR_UE_MAC_INST_t *mac, int frame, int sl
       continue;
     LOG_D(MAC,"Scheduling reception of CSI-RS in frame %d slot %d\n", frame, slot);
     fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu = &dl_config->dl_config_list[dl_config->number_pdus].csirs_config_pdu.csirs_config_rel15;
-    csirs_config_pdu->measurement_bitmap = set_csirs_measurement_bitmap(csi_measconfig, csi_res_id);
-    csirs_config_pdu->subcarrier_spacing = mu;
-    csirs_config_pdu->cyclic_prefix = current_DL_BWP->cyclicprefix ? *current_DL_BWP->cyclicprefix : 0;
-
-    if (csi_res_id > NR_maxNrofCSI_ResourceConfigurations) {
-      /* According to 38.214 5.1.6.1.1, the number of resources indicate if one
-       * or two consequtive slots for TRS is used. We indicate to phy the last slot. */
-      csirs_config_pdu->last_trs_slot = is_last_res;
-      csirs_config_pdu->csi_type = 0; // TRS
-    } else
-      csirs_config_pdu->csi_type = 1; // NZP-CSI-RS
-
-    csirs_config_pdu->scramb_id = nzpcsi->scramblingID;
-    csirs_config_pdu->power_control_offset = nzpcsi->powerControlOffset + 8;
-    if (nzpcsi->powerControlOffsetSS)
-      csirs_config_pdu->power_control_offset_ss = *nzpcsi->powerControlOffsetSS;
-    else
-      csirs_config_pdu->power_control_offset_ss = 1; // 0 dB
-
-    configure_csi_resource_mapping(csirs_config_pdu, &nzpcsi->resourceMapping, bwp_size, bwp_start);
-
+    configure_csirs_pdu(csirs_config_pdu,
+                        csi_measconfig,
+                        csi_res_id,
+                        current_DL_BWP,
+                        is_last_res,
+                        nzpcsi->scramblingID,
+                        nzpcsi->powerControlOffset,
+                        nzpcsi->powerControlOffsetSS,
+                        &nzpcsi->resourceMapping);
     dl_config->dl_config_list[dl_config->number_pdus].pdu_type = FAPI_NR_DL_CONFIG_TYPE_CSI_RS;
     dl_config->number_pdus += 1;
   }

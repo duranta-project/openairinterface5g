@@ -1010,6 +1010,31 @@ static NR_UE_harq_t *setup_dl_harq_process(NR_UE_sched_ctrl_t *sched_ctrl, NR_sc
   return harq;
 }
 
+static NR_ZP_CSI_RS_Resource_t *find_zp_csi_res(NR_PDSCH_Config_t *pdsch_Config, int frame, int slot, int n_slots_frame)
+{
+  AssertFatal(!pdsch_Config->aperiodic_ZP_CSI_RS_ResourceSetsToAddModList
+              && !pdsch_Config->sp_ZP_CSI_RS_ResourceSetsToAddModList,
+              "Only supporting periodic ZP CSI-RS at the moment\n");
+
+  if (pdsch_Config->p_ZP_CSI_RS_ResourceSet
+      && pdsch_Config->p_ZP_CSI_RS_ResourceSet->present == NR_SetupRelease_ZP_CSI_RS_ResourceSet_PR_setup) {
+    NR_ZP_CSI_RS_ResourceSet_t *zp_set = pdsch_Config->p_ZP_CSI_RS_ResourceSet->choice.setup;
+    for (int i = 0; i < zp_set->zp_CSI_RS_ResourceIdList.list.count; i++) {
+      NR_ZP_CSI_RS_ResourceId_t *id = zp_set->zp_CSI_RS_ResourceIdList.list.array[i];
+      for (int j = 0; j < pdsch_Config->zp_CSI_RS_ResourceToAddModList->list.count; j++) {
+        NR_ZP_CSI_RS_Resource_t *zp_res = pdsch_Config->zp_CSI_RS_ResourceToAddModList->list.array[j];
+        if (zp_res->zp_CSI_RS_ResourceId == *id) {
+          int period, offset;
+          csi_period_offset(NULL, zp_res->periodicityAndOffset, &period, &offset);
+          if ((frame * n_slots_frame + slot - offset) % period == 0)
+            return zp_res;
+        }
+      }
+    }
+  }
+  return NULL;
+}
+
 static void generate_dl_mac_pdu(gNB_MAC_INST *mac,
                                 NR_UE_info_t *UE,
                                 NR_UE_harq_t *harq,
@@ -1306,17 +1331,35 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac,
   }
   const int nl_tbslbrm = min(maxMIMO_Layers, 4);
   const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, cell->beam_info.beam_mode);
+  NR_PDSCH_Config_t *pdsch_Config = current_BWP->pdsch_Config;
   nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu = prepare_pdsch_pdu(dl_tti_pdsch_pdu,
                                                                    cell,
                                                                    UE,
                                                                    sched_pdsch,
-                                                                   current_BWP->pdsch_Config,
+                                                                   pdsch_Config,
                                                                    false,
                                                                    harq->round,
                                                                    rnti,
                                                                    fapi_beam,
                                                                    nl_tbslbrm,
                                                                    pduindex);
+
+  uint16_t csi_index = get_fapi_csi_index(pdsch->dl_req, pdsch_pdu);
+  if (pdsch_Config && pdsch_Config->zp_CSI_RS_ResourceToAddModList) {
+    NR_ZP_CSI_RS_Resource_t *zp_csi = find_zp_csi_res(pdsch_Config, frame, slot, cell->frame_structure.numb_slots_frame);
+    if (zp_csi) {
+      nfapi_nr_dl_tti_request_pdu_t *dl_tti_zpcsi_pdu = &pdsch->dl_req->dl_tti_pdu_list[pdsch->dl_req->nPDUs];
+      memset(dl_tti_zpcsi_pdu, 0, sizeof(nfapi_nr_dl_tti_request_pdu_t));
+      dl_tti_zpcsi_pdu->PDUType = NFAPI_NR_DL_TTI_CSI_RS_PDU_TYPE;
+      dl_tti_zpcsi_pdu->PDUSize = (uint8_t)(2 + sizeof(nfapi_nr_dl_tti_csi_rs_pdu));
+      nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csi_pdu = &dl_tti_zpcsi_pdu->csi_rs_pdu.csi_rs_pdu_rel15;
+      configure_csi_pdu(csi_pdu, 2, csi_index, 0, 0, NULL, &zp_csi->resourceMapping, current_BWP, 0, 0);
+      pdsch->dl_req->nPDUs += 1;
+      AssertFatal(pdsch_pdu->maintenance_parms_v3.numCSIRSForRM < MAX_CSI_RS_RM, "Cannot exceed MAX_CSI_RS_RM\n");
+      pdsch_pdu->maintenance_parms_v3.csiRSForRM[pdsch_pdu->maintenance_parms_v3.numCSIRSForRM] = csi_index;
+      pdsch_pdu->maintenance_parms_v3.numCSIRSForRM++;
+    }
+  }
 
   LOG_D(NR_MAC, "Configuring DCI/PDCCH in %d.%d at CCE %d, rnti %x\n", frame, slot, sched_ctrl->cce_index, rnti);
   /* Fill PDCCH DL DCI PDU */
