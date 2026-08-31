@@ -46,9 +46,9 @@ void test_send_mbuf(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_m
 
 int main(int argc, char *argv[])
 {
-  if (argc < 11) {
+  if (argc < 12) {
     printf(
-        "Usage: %s <pcap_file> <initial_symbol> <num_dl_slots> <num_ul_slots> <num_dl_symbols> <num_ul_symbols> "
+        "Usage: %s <pcap_file> <numerology> <initial_symbol> <num_dl_slots> <num_ul_slots> <num_dl_symbols> <num_ul_symbols> "
         "<tdd_pattern_length_slots> <mtu> <prach_eaxc_offset> -- <eal args>\n",
         argv[0]);
     return 1;
@@ -77,22 +77,24 @@ int main(int argc, char *argv[])
   mp = rte_pktmbuf_pool_create("test_pool", 4096, 0, 0, 10240, rte_socket_id());
   assert(mp != NULL);
 
-  uint64_t initial_symbol = atoll(argv[2]);
-  int num_dl_slots = atoi(argv[3]);
-  int num_ul_slots = atoi(argv[4]);
-  int num_dl_symbols = atoi(argv[5]);
-  int num_ul_symbols = atoi(argv[6]);
-  int tdd_pattern_length_slots = atoi(argv[7]);
-  size_t mtu = atoi(argv[8]);
-  int prach_eaxc_offset = atoi(argv[9]);
+  int numerology = atoi(argv[2]);
+  uint64_t initial_symbol = atoll(argv[3]);
+  int num_dl_slots = atoi(argv[4]);
+  int num_ul_slots = atoi(argv[5]);
+  int num_dl_symbols = atoi(argv[6]);
+  int num_ul_symbols = atoi(argv[7]);
+  int tdd_pattern_length_slots = atoi(argv[8]);
+  size_t mtu = atoi(argv[9]);
+  int prach_eaxc_offset = atoi(argv[10]);
 
-  if (eal_args_start < 10) {
+  if (eal_args_start < 11) {
     printf("Error: Missing '--' separator for EAL arguments\n");
     return 1;
   }
 
   printf("Starting test with parameters:\n");
   printf("  pcap: %s\n", argv[1]);
+  printf("  numerology: %d\n", numerology);
   printf("  initial_symbol: %lu\n", initial_symbol);
   printf("  TDD: DL %d slots + %d sym, UL %d slots + %d sym, Pattern Length %d slots\n",
          num_dl_slots,
@@ -103,7 +105,7 @@ int main(int argc, char *argv[])
   printf("  MTU: %zu\n", mtu);
   printf("  PRACH eAxC Offset: %d\n", prach_eaxc_offset);
 
-  void *ctx = init_packet_processor(1,
+  void *ctx = init_packet_processor(numerology,
                                     273,
                                     0,
                                     1500,
@@ -185,7 +187,7 @@ int main(int argc, char *argv[])
         uint8_t slot = (fields >> 6) & 0x3F;
         uint8_t start_sym = (fields) & 0x3F;
 
-        uint64_t target_sym = (uint64_t)frame * 280 + (subframe * 2 + slot) * 14 + start_sym;
+        uint64_t target_sym = (uint64_t)frame * (140 * (1 << numerology)) + (subframe * (1 << numerology) + slot) * 14 + start_sym;
         handle_absolute_symbol_tick(ctx, initial_symbol);
         last_tick_sym = initial_symbol;
         first_ts = ts;
@@ -194,7 +196,8 @@ int main(int argc, char *argv[])
       }
 
       if (synced) {
-        uint64_t elapsed_syms = (uint64_t)((ts - first_ts) / 0.0000357142857);
+        double sym_duration = 1.0 / (14000.0 * (1 << numerology));
+        uint64_t elapsed_syms = (uint64_t)((ts - first_ts) / sym_duration);
         uint64_t current_sym = initial_symbol + elapsed_syms;
 
         if (current_sym > last_tick_sym) {
@@ -210,8 +213,8 @@ int main(int argc, char *argv[])
                 write_ul_iq(ctx, txdataF[0], job.symbol + i, &job);
               }
             }
-            int frame = (s / 280) % 1024;
-            int slot = (s / 14) % 20;
+            int frame = (s / (140 * (1 << numerology))) % 1024;
+            int slot = (s / 14) % (10 * (1 << numerology));
             int sym = s % 14;
             write_prach_iq(ctx, txdataF, MAX_ANTENNAS, frame, slot, sym);
 
