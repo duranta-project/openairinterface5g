@@ -430,12 +430,13 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   pdsch_scratch_t *scratch = &ue->pdsch_scratch[actor_idx];
   const uint32_t pdsch_est_size = scratch->pdsch_est_size;
   const uint32_t pdsch_buf_size_max = scratch->pdsch_buf_size_max;
+  const int max_layers = min(ue->frame_parms.nb_antennas_rx, NR_MAX_NB_LAYERS);
   int32_t (*pdsch_dl_ch_estimates)[pdsch_est_size] = (int32_t (*)[pdsch_est_size])scratch->pdsch_dl_ch_estimates;
-  c16_t (*rxdataF_comp)[NR_MAX_NB_LAYERS][pdsch_buf_size_max] = (c16_t (*)[NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->rxdataF_comp;
-  c16_t (*dl_ch_mag)[NR_MAX_NB_LAYERS][pdsch_buf_size_max]    = (c16_t (*)[NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->dl_ch_mag;
-  c16_t (*dl_ch_magb)[NR_MAX_NB_LAYERS][pdsch_buf_size_max]   = (c16_t (*)[NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->dl_ch_magb;
-  c16_t (*dl_ch_magr)[NR_MAX_NB_LAYERS][pdsch_buf_size_max]   = (c16_t (*)[NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->dl_ch_magr;
-  c16_t (*rho_dl)[NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max] = (c16_t (*)[NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->rho_dl;
+  c16_t (*rxdataF_comp)[max_layers][pdsch_buf_size_max] = (c16_t (*)[max_layers][pdsch_buf_size_max])scratch->rxdataF_comp;
+  c16_t (*dl_ch_mag)[max_layers][pdsch_buf_size_max]    = (c16_t (*)[max_layers][pdsch_buf_size_max])scratch->dl_ch_mag;
+  c16_t (*dl_ch_magb)[max_layers][pdsch_buf_size_max]   = (c16_t (*)[max_layers][pdsch_buf_size_max])scratch->dl_ch_magb;
+  c16_t (*dl_ch_magr)[max_layers][pdsch_buf_size_max]   = (c16_t (*)[max_layers][pdsch_buf_size_max])scratch->dl_ch_magr;
+  c16_t (*rho_dl)[max_layers * max_layers][pdsch_buf_size_max] = (c16_t (*)[max_layers * max_layers][pdsch_buf_size_max])scratch->rho_dl;
 
   c16_t ptrs_phase_per_slot[ue->frame_parms.nb_antennas_rx][NR_SYMBOLS_PER_SLOT];
   memset(ptrs_phase_per_slot, 0, sizeof(ptrs_phase_per_slot));
@@ -551,6 +552,7 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                     &log2_maxh,
                     pdsch_buf_size_max,
                     ue->frame_parms.nb_antennas_rx,
+                    max_layers,
                     rxdataF_comp,
                     dl_ch_mag,
                     dl_ch_magb,
