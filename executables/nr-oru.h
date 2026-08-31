@@ -85,6 +85,8 @@ typedef struct {
   uint64_t ul_ant_time_max_us; // in SQ4
   _Atomic(uint64_t) ul_dropped_jobs;
   _Atomic(uint64_t) ul_symbols_missed;
+  _Atomic(uint64_t) ul_cal_overflow_dropped; // calendar symbol entry full (UL_CAL_JOBS_PER_SYMBOL)
+  _Atomic(uint64_t) ul_cal_horizon_dropped;  // job declared > UL_CAL_SLOTS slots ahead (beyond calendar ring)
 } ORU_t;
 
 int get_oru_options(ORU_t *oru);
