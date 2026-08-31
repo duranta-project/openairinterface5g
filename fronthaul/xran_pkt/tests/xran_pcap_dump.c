@@ -171,17 +171,28 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
             case XRAN_CP_SECTIONTYPE_1: {
               struct xran_cp_radioapp_section1_header *hdr = (struct xran_cp_radioapp_section1_header *)apphdr;
               printf("  [Sec 1] udCompMeth: %d  udIqWidth: %d\n", hdr->udComp.udCompMeth, hdr->udComp.udIqWidth);
-              struct xran_cp_radioapp_section1 *section =
-                  (struct xran_cp_radioapp_section1 *)rte_pktmbuf_adj(mbuf, sizeof(struct xran_cp_radioapp_section1_header));
-              if (section) {
-                section->hdr.u1.second_4byte = rte_be_to_cpu_32(section->hdr.u1.second_4byte);
-                section->hdr.u.first_4byte = rte_be_to_cpu_32(section->hdr.u.first_4byte);
-                printf("  [Sec 1] SectionID: %d  StartPRB: %d  NumPRB: %d  NumSym: %d  BeamID: %d\n",
-                       section->hdr.u1.common.sectionId,
-                       section->hdr.u1.common.startPrbc,
-                       section->hdr.u1.common.numPrbc,
-                       section->hdr.u.s1.numSymbol,
-                       section->hdr.u.s1.beamId);
+              uint8_t *sec_ptr = (uint8_t *)rte_pktmbuf_adj(mbuf, sizeof(struct xran_cp_radioapp_section1_header));
+              if (sec_ptr) {
+                for (int i = 0; i < apphdr->numOfSections; i++) {
+                  struct xran_cp_radioapp_section1 sec_copy;
+                  memcpy(&sec_copy, sec_ptr, sizeof(sec_copy));
+                  *((uint64_t *)&sec_copy) = rte_be_to_cpu_64(*((uint64_t *)&sec_copy));
+                  printf("  [Sec 1] SectionID: %d  StartPRB: %d  NumPRB: %d  NumSym: %d  BeamID: %d\n",
+                         sec_copy.hdr.u1.common.sectionId,
+                         sec_copy.hdr.u1.common.startPrbc,
+                         sec_copy.hdr.u1.common.numPrbc,
+                         sec_copy.hdr.u.s1.numSymbol,
+                         sec_copy.hdr.u.s1.beamId);
+
+                  sec_ptr += sizeof(struct xran_cp_radioapp_section1);
+                  int ef = sec_copy.hdr.u.s1.ef;
+                  while (ef) {
+                    uint8_t extLen = sec_ptr[0];
+                    uint8_t ext_ef = (sec_ptr[1] >> 7) & 1;
+                    sec_ptr += extLen * 4;
+                    ef = ext_ef;
+                  }
+                }
               }
               break;
             }
