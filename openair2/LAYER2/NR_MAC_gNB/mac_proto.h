@@ -28,7 +28,7 @@ int get_dl_slots_per_period(const frame_structure_t *fs);
 int get_full_ul_slots_per_period(const frame_structure_t *fs);
 int get_full_dl_slots_per_period(const frame_structure_t *fs);
 int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed);
-void delete_nr_ue_data(NR_UE_info_t *UE, uid_allocator_t *uia);
+void delete_nr_ue_data(NR_UE_info_t *UE, gNB_MAC_INST *nrmac, uid_allocator_t *uia);
 
 void mac_top_init_gNB(ngran_node_t node_type,
                       NR_ServingCellConfigCommon_t *scc,
@@ -204,7 +204,7 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
                           slot_t slotP,
                           int beam_index,
                           int r_pucch,
-                          int do_common);
+                          int is_common);
 
 int get_pdsch_to_harq_feedback(NR_PUCCH_Config_t *pucch_Config,
                                nr_dci_format_t dci_format,
@@ -549,8 +549,9 @@ bool nr_mac_ue_is_active(const NR_UE_info_t *ue);
 void nr_mac_trigger_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl, NR_SubcarrierSpacing_t subcarrier_spacing);
 void nr_mac_reset_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl);
 bool nr_mac_check_ul_failure(gNB_MAC_INST *nrmac, int rnti, NR_UE_sched_ctrl_t *sched_ctrl);
-
 void nr_mac_trigger_reconfiguration(const gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_UE_info_t *UE, int new_bwp_id, int new_beam);
+void config_ul_rrc_info(nr_cell_sched_t *cell, const nr_mac_config_t *config, int scs, int bw);
+bool mac_ul_rrc_periodic_resources(nr_cell_sched_t *cell, NR_UE_info_t *UE, const NR_ServingCellConfigCommon_t *scc, int active_bwp);
 void reset_sc_info(NR_UE_ServingCell_Info_t *sc_info);
 bool nr_mac_add_lcid(NR_UE_sched_ctrl_t *sched_ctrl, const nr_lc_config_t *c);
 nr_lc_config_t *nr_mac_get_lc_config(NR_UE_sched_ctrl_t* sched_ctrl, int lcid);
@@ -619,4 +620,6 @@ bool nr_ul_check_phr(const nr_ul_sched_params_t *params,
                      uint16_t rbSize,
                      uint8_t mcs,
                      nr_ul_phr_advice_t *advice);
+int get_fb_frame(int frame, int slot, int K, int n_slots_frame, int NTN_gNB_Koffset);
+int get_fb_slot(int slot, int K, int n_slots_frame, int NTN_gNB_Koffset);
 #endif /*__LAYER2_NR_MAC_PROTO_H__*/

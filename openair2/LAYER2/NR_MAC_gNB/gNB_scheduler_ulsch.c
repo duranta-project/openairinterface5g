@@ -8,6 +8,7 @@
 
 
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
+#include "NR_MAC_gNB/nr_radio_config.h"
 #include "executables/softmodem-common.h"
 #include "common/utils/nr/nr_common.h"
 #include "utils.h"
@@ -779,7 +780,7 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
     UE->UE_sched_ctrl.ta_frame = (frame + 100) % MAX_FRAME_NUMBER;
     if (!transition_ra_connected_nr_ue(mac, UE)) {
       LOG_E(NR_MAC, "cannot add UE %04x: list is full\n", UE->rnti);
-      delete_nr_ue_data(UE, &mac->UE_info.uid_allocator);
+      delete_nr_ue_data(UE, mac, &mac->UE_info.uid_allocator);
     } else {
       LOG_A(NR_MAC, "(rnti 0x%04x) CFRA procedure succeeded!\n", UE->rnti);
     }
@@ -2822,8 +2823,8 @@ void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_pro
     int k2 = fsn_get_diff(*next, current) - koffset;
     DevAssert(k2 > 0);
     int slots_per_frame = cell->frame_structure.numb_slots_frame;
-    int sched_frame = (frame + (slot + k2 + koffset) / slots_per_frame) % MAX_FRAME_NUMBER;
-    int sched_slot = (slot + k2 + koffset) % slots_per_frame;
+    int sched_frame = get_fb_frame(frame, slot, k2, slots_per_frame, koffset);
+    int sched_slot = get_fb_slot(slot, k2, slots_per_frame, koffset);
 
     /* Check that at least one TDA can reach this slot, if not, no future slot is reachable either */
     {

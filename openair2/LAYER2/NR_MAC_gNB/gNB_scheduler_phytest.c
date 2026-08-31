@@ -252,10 +252,10 @@ void nr_ul_preprocessor_phytest(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, pos
                                            tda);
   DevAssert(tda_info.valid_tda);
 
-  int K2 = tda_info.k2 + get_NTN_Koffset(scc);
   int slots_frame = cell->frame_structure.numb_slots_frame;
-  const int sched_frame = (frame + (slot + K2) / slots_frame) % MAX_FRAME_NUMBER;
-  const int sched_slot = (slot + K2) % slots_frame;
+  int NTN_gNB_Koffset = get_NTN_Koffset(scc);
+  const int sched_frame = get_fb_frame(frame, slot, tda_info.k2, slots_frame, NTN_gNB_Koffset);
+  const int sched_slot = get_fb_slot(slot, tda_info.k2, slots_frame, NTN_gNB_Koffset);
 
   /* check if slot is UL, and that slot is 8 (assuming K2=6 because of UE
    * limitations).  Note that if K2 or the TDD configuration is changed, below

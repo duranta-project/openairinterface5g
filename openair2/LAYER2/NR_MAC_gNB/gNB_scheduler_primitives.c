@@ -12,6 +12,7 @@
 
 #include "NR_MAC_gNB/nr_mac_gNB.h"
 #include "NR_MAC_gNB/mac_proto.h"
+#include "NR_MAC_gNB/nr_radio_config.h"
 #include "common/utils/bits.h"
 #include "common/utils/LOG/log.h"
 #include "UTIL/OPT/opt.h"
@@ -92,6 +93,18 @@ static const uint16_t cqi_table3[16][2] = {{0, 0},
                                            {6, 5670},
                                            {6, 6660},
                                            {6, 7720}};
+
+int get_fb_frame(int frame, int slot, int K, int n_slots_frame, int NTN_gNB_Koffset)
+{
+  // K is the feedback time in slot
+  return (frame + ((slot + K + NTN_gNB_Koffset) / n_slots_frame)) % MAX_FRAME_NUMBER;
+}
+
+int get_fb_slot(int slot, int K, int n_slots_frame, int NTN_gNB_Koffset)
+{
+  // K is the feedback time in slot
+  return (slot + K + NTN_gNB_Koffset) % n_slots_frame;
+}
 
 int get_ssbidx_from_beam(const nr_cell_sched_t *cell, int beam_idx)
 {
@@ -2667,8 +2680,14 @@ NR_UE_info_t *find_ra_UE(NR_UEs_t *UEs, rnti_t rntiP)
   return NULL;
 }
 
-void delete_nr_ue_data(NR_UE_info_t *UE, uid_allocator_t *uia)
+void delete_nr_ue_data(NR_UE_info_t *UE, gNB_MAC_INST *nrmac, uid_allocator_t *uia)
 {
+  if (UE->sr_info.allocated)
+    UE->pcell->ul_rrc_info.sr_resources[UE->sr_info.resource][UE->sr_info.offset] = -1;
+  if (UE->csimeas_info.allocated) {
+    UE->pcell->ul_rrc_info.csimeas_resources[UE->csimeas_info.resource][UE->csimeas_info.offset] = -1;
+    UE->pcell->ul_rrc_info.csimeas_resources[UE->csimeas_info.resource][UE->csimeas_info.offset2] = -1;
+  }
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
   ASN_STRUCT_FREE(asn_DEF_NR_UE_NR_Capability, UE->capability);
@@ -3241,7 +3260,7 @@ bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   bool success = add_UE_to_list(MAX_MOBILES_PER_GNB, UE_info->connected_ue_list, UE);
   if (!success) {
     LOG_E(NR_MAC,"Try to add UE %04x but the list is full\n", UE->rnti);
-    delete_nr_ue_data(UE, &UE_info->uid_allocator);
+    delete_nr_ue_data(UE, nr_mac, &UE_info->uid_allocator);
     return false;
   }
 
@@ -3310,7 +3329,7 @@ void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti)
   NR_UEs_t *UE_info = &nr_mac->UE_info;
   NR_UE_info_t *UE = remove_UE_from_list(MAX_MOBILES_PER_GNB + 1, UE_info->connected_ue_list, rnti);
   if (UE)
-    delete_nr_ue_data(UE, &UE_info->uid_allocator);
+    delete_nr_ue_data(UE, nr_mac, &UE_info->uid_allocator);
   else
     nr_release_ra_UE(nr_mac, rnti);
 }
@@ -4076,6 +4095,51 @@ void send_initial_ul_rrc_message(int rnti, const uint8_t *sdu, sdu_size_t sdu_le
   mac->mac_rrc.initial_ul_rrc_message_transfer(0, &ul_rrc_msg);
 }
 
+bool mac_ul_rrc_periodic_resources(nr_cell_sched_t *cell, NR_UE_info_t *UE, const NR_ServingCellConfigCommon_t *scc, int active_bwp)
+{
+  int bwp_size = 0;
+  int bwp_start = 0;
+  const nr_mac_config_t *configuration = &cell->radio_config;
+  if(configuration->num_additional_bwps > 0 && active_bwp != 0) {
+    bwp_size = NRRIV2BW(configuration->bwp_config[active_bwp - 1].location_and_bw, MAX_BWP_SIZE);
+    bwp_start = NRRIV2PRBOFFSET(configuration->bwp_config[active_bwp - 1].location_and_bw, MAX_BWP_SIZE);
+  } else {
+    bwp_size = NRRIV2BW(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
+    bwp_start = NRRIV2PRBOFFSET(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
+  }
+
+  bool sr_allocated = UE->sr_info.allocated; // allocation information of SR resource
+  bool sr = set_ul_periodic_resources(cell->ul_rrc_info.sr_resources,
+                                      configuration,
+                                      &UE->sr_info,
+                                      &cell->frame_structure,
+                                      false,
+                                      UE->uid,
+                                      bwp_start,
+                                      bwp_size,
+                                      cell->ul_rrc_info.sr_period);
+
+  if (sr) {
+    bool csi = set_ul_periodic_resources(cell->ul_rrc_info.csimeas_resources,
+                                         configuration,
+                                         &UE->csimeas_info,
+                                         &cell->frame_structure,
+                                         true,
+                                         UE->uid,
+                                         bwp_start,
+                                         bwp_size,
+                                         cell->ul_rrc_info.csimeas_period);
+    if (csi)
+      return true;
+    else if (!sr_allocated) {
+      // if it was a new allocation for SR but we can't allocate CSI we need to revert SR allocation
+      UE->sr_info.allocated = false;
+      cell->ul_rrc_info.sr_resources[UE->sr_info.resource][UE->sr_info.offset] = -1;
+    }
+  }
+  return false;
+}
+
 bool prepare_initial_ul_rrc_message(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_UE_info_t *UE)
 {
   /* activate SRB0 */
@@ -4099,18 +4163,25 @@ bool prepare_initial_ul_rrc_message(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR
   int srb_id = 1;
   const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   int ssb_index = get_ssbidx_from_beam(cell, UE->UE_beam_index);
-  NR_CellGroupConfig_t *cellGroupConfig = get_initial_cellGroupConfig(UE->uid,
-                                                                      UE->is_redcap,
-                                                                      scc,
-                                                                      cell,
-                                                                      &mac->rlc_config,
-                                                                      ssb_index);
+  bool alloc = mac_ul_rrc_periodic_resources(cell, UE, scc, cell->radio_config.first_active_bwp);
+  NR_CellGroupConfig_t *cellGroupConfig = NULL;
+  if (alloc)
+    cellGroupConfig = get_initial_cellGroupConfig(UE->uid,
+                                                  UE->is_redcap,
+                                                  UE->sr_info,
+                                                  UE->csimeas_info,
+                                                  scc,
+                                                  cell,
+                                                  &mac->rlc_config,
+                                                  ssb_index);
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
   UE->CellGroup = cellGroupConfig;
   UE->local_bwp_id = UE->is_redcap ? 0 : cell->radio_config.first_active_bwp;
 
-  if (!cellGroupConfig)
+  if (!cellGroupConfig) {
+    LOG_W(NR_MAC, "Couldn't allocate RRC resources to the UE %04x, to be rejected\n", UE->rnti); 
     return true;
+  }
 
   /* the cellGroup sent to CU specifies there is SRB1, so create it */
   DevAssert(cellGroupConfig->rlc_BearerToAddModList->list.count == 1);
@@ -4242,6 +4313,9 @@ void nr_mac_trigger_reconfiguration(const gNB_MAC_INST *nrmac, nr_cell_sched_t *
                                                            cell,
                                                            UE->capability,
                                                            cell->common_channels.ServingCellConfigCommon,
+                                                           UE->current_UL_BWP.pucch_Config,
+                                                           UE->sr_info,
+                                                           UE->csimeas_info,
                                                            UE->uid,
                                                            UE->current_DL_BWP.bwp_id,
                                                            -1,
@@ -4253,10 +4327,19 @@ void nr_mac_trigger_reconfiguration(const gNB_MAC_INST *nrmac, nr_cell_sched_t *
     else {
       UE->cm_info.trigger_info = BWP_SWITCH;
       UE->cm_info.new_state = new_bwp_id;
+      const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
+      bool alloc = mac_ul_rrc_periodic_resources(cell, UE, scc, new_bwp_id);
+      if (!alloc) {
+        LOG_E(NR_MAC, "Cannot switch to BWP %d. Couldn't allocate resources\n", new_bwp_id);
+        return;
+      }
       cellGroup_for_UE = update_cellGroupConfig_for_reconfig(UE->CellGroup,
                                                              cell,
                                                              UE->capability,
                                                              cell->common_channels.ServingCellConfigCommon,
+                                                             UE->current_UL_BWP.pucch_Config,
+                                                             UE->sr_info,
+                                                             UE->csimeas_info,
                                                              UE->uid,
                                                              UE->current_DL_BWP.bwp_id,
                                                              new_bwp_id,

@@ -684,7 +684,6 @@ static void rrc_gNB_process_RRCSetupComplete(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE
 {
   UE->Srb[1].Active = 1;
   UE->Srb[2].Active = 0;
-
   rrc_gNB_send_NGAP_NAS_FIRST_REQ(rrc, UE, rrcSetupComplete);
 }
 
