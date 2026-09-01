@@ -987,6 +987,14 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
   nr_rrc_config_ul_tda(scc, rc->minRXTXTIME, rc->do_SRS);
   seq_arr_init(&cell->ul_tda, sizeof(NR_tda_info_t));
   init_ul_tda_info(scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList, &cell->ul_tda);
+
+#ifdef E3_AGENT
+  /* Enable the sensing scanner when the operator hard-reserves UL slots:
+   * otherwise the slots would be reserved but no sensing snapshot emitted. */
+  cell->sensing_enabled = config->num_sensing_target_slots > 0;
+  if (cell->sensing_enabled)
+    LOG_I(NR_MAC, "Sensing mode enabled: %d hard-reserved slots\n", config->num_sensing_target_slots);
+#endif /* E3_AGENT */
   seq_arr_init(&nrmac->pos_act_ue_arr, sizeof(positioning_activation_info_t));
 }
 

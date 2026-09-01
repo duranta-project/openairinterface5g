@@ -743,6 +743,15 @@ set(SCHED_NR_SRC
 add_library(SCHED_NR_LIB ${SCHED_NR_SRC})
 target_link_libraries(SCHED_NR_LIB PRIVATE asn1_nr_rrc_hdrs UTIL)
 target_link_libraries(SCHED_NR_LIB PRIVATE nfapi_nr_lib nfapi_user_lib) # some FAPI messages pack "subPDUs"
+if(E3_AGENT)
+  # phy_procedures_nr_gNB.c taps rxdataF into the L1-KPM SM, so every consumer of
+  # SCHED_NR_LIB needs those symbols -- not just nr-softmodem. Without this the
+  # phy simulators and nr_dlbench fail to link in an E3_AGENT build.
+  target_link_libraries(SCHED_NR_LIB PRIVATE e3ap)
+endif()
+if(E3_AGENT)
+  target_compile_definitions(SCHED_NR_LIB PRIVATE E3_AGENT)
+endif()
 
 set(SCHED_SRC_RU
   ${OPENAIR1_DIR}/SCHED/ru_procedures.c
@@ -1243,6 +1252,15 @@ set (MAC_NR_SRC
   ${NR_GNB_MAC_DIR}/nr_pos_ue_context.c
  )
 
+# SPEAR sensing MAC sources: only with the E3 agent. Call sites in the shared
+# MAC sources are gated with #ifdef E3_AGENT.
+if(E3_AGENT)
+  list(APPEND MAC_NR_SRC
+    ${NR_GNB_MAC_DIR}/gNB_scheduler_ul_sensing.c
+    ${NR_GNB_MAC_DIR}/gNB_scheduler_ul_sensing_aerial.c
+  )
+endif()
+
 
 set (MAC_SRC_UE
   ${PHY_INTERFACE_DIR}/phy_stub_UE.c
@@ -1320,6 +1338,9 @@ add_library(L2_NR
   ${MAC_NR_SRC}
   ${GNB_APP_SRC}
   )
+if(E3_AGENT)
+  target_compile_definitions(L2_NR PRIVATE E3_AGENT)
+endif()
 target_link_libraries(L2_NR PRIVATE ds alg)
 target_link_libraries(L2_NR PRIVATE f1ap_lib)
 target_link_libraries(L2_NR PRIVATE nfapi_vnf_lib)

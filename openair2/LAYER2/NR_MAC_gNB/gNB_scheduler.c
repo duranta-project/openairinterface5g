@@ -5,6 +5,9 @@
 #include "assertions.h"
 
 #include "NR_MAC_gNB/mac_proto.h"
+#ifdef E3_AGENT
+#include "NR_MAC_gNB/gNB_scheduler_ul_sensing.h"
+#endif /* E3_AGENT */
 
 #include "common/utils/LOG/log.h"
 #include "common/utils/nr/nr_common.h"
@@ -159,6 +162,10 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_
     uint16_t *vrb_map_UL = cell->common_channels.vrb_map_UL[i];
     memcpy(&vrb_map_UL[prev_slot % size * MAX_BWP_SIZE], &cell->ulprbbl, sizeof(uint16_t) * MAX_BWP_SIZE);
   }
+  /* Hard-reserve prev_slot's UL for sensing so no UE allocator claims it. */
+#ifdef E3_AGENT
+  nr_mac_sensing_reserve_ul_slot(cell, prev_slot, frame);
+#endif /* E3_AGENT */
   clear_nr_nfapi_information(cell, frame, slot);
 
   bool wait_prach_completed = cell->num_scheduled_prach_rx >= NUM_PRACH_RX_FOR_NOISE_ESTIMATE;
@@ -238,6 +245,13 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_
   nr_sr_reporting(gNB, cell, frame, slot);
 
   nr_schedule_pucch(gNB, cell, frame, slot);
+
+  /* Now that all UE UL scheduling is done: restore the reserved slot and run the
+   * scan + publish against the final vrb_map. Both no-ops unless sensing is on. */
+#ifdef E3_AGENT
+  nr_mac_sensing_restore_ul_slot(cell, frame, slot);
+  nr_mac_sensing_scan_and_publish(gNB, cell, frame, slot);
+#endif /* E3_AGENT */
 
   const int current_index = ul_buffer_index(frame, slot, slots_frame, cell->UL_tti_req_ahead_size);
   copy_ul_tti_req(&sched_info->UL_tti_req, &cell->UL_tti_req_ahead[current_index]);

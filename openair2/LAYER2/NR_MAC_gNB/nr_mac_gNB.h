@@ -23,6 +23,9 @@
 #include "common/utils/ds/spsc_q.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_configuration.h"
 #include "openair2/LAYER2/NR_MAC_gNB/nr_pos_ue_context.h"
+/* sensing_range_t + MAX_SENSING_RANGES for the e3_sensing_ranges storage
+ * below; pulled from the tiny dependency-free sensing types header. */
+#include "LAYER2/NR_MAC_gNB/gNB_scheduler_ul_sensing_types.h"
 
 #define NR_SCHED_LOCK(lock)                                        \
   do {                                                             \
@@ -186,6 +189,10 @@ typedef enum nr_srs_type_e {
   APERIODIC_SRS,
 } nr_srs_type_t;
 
+/* Max configurable sensing-PUSCH beams. Bounded by the FAPI beamforming fanout
+ * NFAPI_MAX_NUM_BG_IF (=6); a _Static_assert in the .c enforces it. */
+#define SENSING_MAX_BEAMS 6
+
 typedef struct nr_mac_config_s {
   nr_pdsch_AntennaPorts_t pdsch_AntennaPorts;
   int pusch_AntennaPorts;
@@ -220,6 +227,20 @@ typedef struct nr_mac_config_s {
   nr_beam_table_t bt;
   /// Spatial stream indexing for mapping onto RU ports. Needed for MU-MIMO
   uint16_t spatial_stream_index[MAX_NUM_SPATIAL_STREAMS];
+  /* Slots (index mod TDD period) hard-reserved for sensing: the scheduler blocks
+   * every UE allocator from them, then frees them just before the scan so a full
+   * clean PRB range is emitted. */
+  int num_sensing_target_slots;
+  /* Sized for mu=1 (<=20 slots/period); config parse rejects indices >= 20. */
+  int sensing_target_slots[20];
+  /* Sensing PUSCH PDU shape, read by build_sensing_pusch_pdu (Aerial path). The
+   * symbol range comes from the scanner; only MCS/PRBs/layers/beams come here. */
+  int sensing_pusch_mcs;
+  int sensing_pusch_rb_size;
+  int sensing_pusch_rb_start;
+  int sensing_pusch_nrOfLayers;
+  int sensing_pusch_num_beams;
+  int sensing_pusch_beams[SENSING_MAX_BEAMS];
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {
@@ -335,6 +356,14 @@ typedef struct {
   nr_prach_info_t prach_info;
   /// PCCH SDU queue (one spsc_q per common-channel context)
   spsc_q_t pcch_queue;
+  /* Per-(beam, slot) snapshot of the sensing ranges: written each UL pass by
+   * nr_mac_record_sensing_ranges(), read async via nr_mac_get_sensing_ranges()
+   * under a per-cell seqlock (writer never blocks, reader retries on a torn read).
+   * Declared unconditionally so the struct layout is identical for E3 and non-E3
+   * TUs; the accessors stay E3-gated. */
+  _Atomic uint32_t e3_sensing_seq[MAX_NUM_BEAM_PERIODS][NR_MAX_SLOTS_PER_FRAME];
+  sensing_range_t e3_sensing_ranges[MAX_NUM_BEAM_PERIODS][NR_MAX_SLOTS_PER_FRAME][MAX_SENSING_RANGES];
+  uint8_t e3_n_sensing_ranges[MAX_NUM_BEAM_PERIODS][NR_MAX_SLOTS_PER_FRAME];
 } NR_COMMON_channels_t;
 
 // SP ZP CSI-RS Resource Set Activation/Deactivation MAC CE
@@ -1287,6 +1316,10 @@ typedef struct nr_cell_sched_s {
 
   /// Optional opaque state for stateful custom scheduling policies
   void *sched_stateful_data;
+
+  /// sensing mode: reserve UL slots and publish a clean sensing snapshot.
+  /// Derived at config time from the presence of sensing_target_slots.
+  bool sensing_enabled;
 
   /// Per-cell KPI statistics
   NR_du_stats_t du_stats;

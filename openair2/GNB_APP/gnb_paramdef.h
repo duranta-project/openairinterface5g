@@ -101,6 +101,50 @@ typedef enum {
 #define GNB_CONFIG_STRING_CONFIG_REP                    "CSI_report_type"
 #define GNB_CONFIG_STRING_1ST_ACTIVE_BWP                "first_active_bwp"
 #define GNB_CONFIG_STRING_LIMIT_RSRP_REPORT             "max_num_RSRP_reported"
+/* SPEAR sensing / TDA parameters: only defined with the E3 agent. The rows sit
+ * at the tail of GNBPARAMS_DESC / GNBPARAMS_CHECK so the indices of the common
+ * parameters above do not depend on E3_AGENT. */
+#ifdef E3_AGENT
+#define GNB_CONFIG_STRING_SENSING_TARGET_SLOTS "sensing_target_slots"
+#define GNB_CONFIG_HLP_SENSING_TARGET_SLOTS                                                                                   \
+  "Hard-reserve listed slots (modulo TDD period) for sensing; UE gets no UL grant on these slots, dApp sees a full sym 0-13 " \
+  "sensing range. Operator override -- independent of the dApp sensing policy."
+#define GNB_CONFIG_STRING_SENSING_PUSCH_MCS "sensing_pusch_mcs"
+#define GNB_CONFIG_HLP_SENSING_PUSCH_MCS \
+  "MCS index (table 0) used to build the sensing PUSCH PDU; default 9 (Qm=4, R~0.43, well within BG1 selection range)"
+#define GNB_CONFIG_STRING_SENSING_PUSCH_RB_SIZE "sensing_pusch_rb_size"
+#define GNB_CONFIG_HLP_SENSING_PUSCH_RB_SIZE                                                                                   \
+  "Number of PRBs the sensing PUSCH PDU covers; cuBB's FH buffer still captures the full BWP per slot regardless, so a small " \
+  "value is enough"
+#define GNB_CONFIG_STRING_SENSING_PUSCH_RB_START "sensing_pusch_rb_start"
+#define GNB_CONFIG_HLP_SENSING_PUSCH_RB_START "Starting PRB (BWP-relative) of the sensing PUSCH allocation"
+#define GNB_CONFIG_STRING_SENSING_PUSCH_NL "sensing_pusch_nrOfLayers"
+#define GNB_CONFIG_HLP_SENSING_PUSCH_NL \
+  "Number of layers (nrOfLayers) on the sensing PUSCH PDU; drives the dig_bf_interface fanout, not spatial multiplexing"
+#define GNB_CONFIG_STRING_SENSING_PUSCH_BEAMS "sensing_pusch_beams"
+#define GNB_CONFIG_HLP_SENSING_PUSCH_BEAMS                                                                                         \
+  "Beam indices written into beamforming.prgs_list[0].dig_bf_interface_list[i].beam_idx; empty list defaults to a single beam at " \
+  "index 0"
+// clang-format off
+#define GNB_SENSING_PARAMS_DESC \
+{GNB_CONFIG_STRING_SENSING_TARGET_SLOTS, GNB_CONFIG_HLP_SENSING_TARGET_SLOTS, 0, .iptr=NULL, .defintarrayval=NULL, TYPE_INTARRAY, 0},  \
+{GNB_CONFIG_STRING_SENSING_PUSCH_MCS, GNB_CONFIG_HLP_SENSING_PUSCH_MCS, 0, .iptr=NULL, .defintval=9, TYPE_INT, 0},  \
+{GNB_CONFIG_STRING_SENSING_PUSCH_RB_SIZE, GNB_CONFIG_HLP_SENSING_PUSCH_RB_SIZE, 0, .iptr=NULL, .defintval=1, TYPE_INT, 0},  \
+{GNB_CONFIG_STRING_SENSING_PUSCH_RB_START, GNB_CONFIG_HLP_SENSING_PUSCH_RB_START, 0, .iptr=NULL, .defintval=0, TYPE_INT, 0},  \
+{GNB_CONFIG_STRING_SENSING_PUSCH_NL, GNB_CONFIG_HLP_SENSING_PUSCH_NL, 0, .iptr=NULL, .defintval=1, TYPE_INT, 0},  \
+{GNB_CONFIG_STRING_SENSING_PUSCH_BEAMS, GNB_CONFIG_HLP_SENSING_PUSCH_BEAMS, 0, .iptr=NULL, .defintarrayval=NULL, TYPE_INTARRAY, 0},
+#define GNB_SENSING_PARAMS_CHECK \
+  { .s5 = { NULL } },                                             \
+  { .s5 = { NULL } },                                             \
+  { .s5 = { NULL } },                                             \
+  { .s5 = { NULL } },                                             \
+  { .s5 = { NULL } },                                             \
+  { .s5 = { NULL } },
+// clang-format on
+#else
+#define GNB_SENSING_PARAMS_DESC
+#define GNB_SENSING_PARAMS_CHECK
+#endif
 
 #define GNB_CONFIG_HLP_STRING_ENABLE_SDAP               "set sdap-HeaderUL/DL present in RRC SDAP-Config (false = both absent)\n"
 #define GNB_CONFIG_HLP_FORCE256QAMOFF                   "suppress activation of 256 QAM despite UE support"
@@ -163,6 +207,7 @@ typedef enum {
 {GNB_CONFIG_STRING_CONFIG_REP, GNB_CONFIG_HLP_CONFIG_REP, 0,          .strptr=NULL, .defstrval="ssb_rsrp",        TYPE_STRING,    0},  \
 {GNB_CONFIG_STRING_1ST_ACTIVE_BWP,               NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
 {GNB_CONFIG_STRING_LIMIT_RSRP_REPORT,            NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
+GNB_SENSING_PARAMS_DESC \
 }
 // clang-format on
 
@@ -207,11 +252,20 @@ typedef enum {
 #define GNB_CONFIG_REP_IDX              37
 #define GNB_1ST_ACTIVE_BWP_IDX          38
 #define GNB_LIMIT_RSRP_REPORT_IDX       39
+#ifdef E3_AGENT
+#define GNB_SENSING_TARGET_SLOTS_IDX 40
+#define GNB_SENSING_PUSCH_MCS_IDX 41
+#define GNB_SENSING_PUSCH_RB_SIZE_IDX 42
+#define GNB_SENSING_PUSCH_RB_START_IDX 43
+#define GNB_SENSING_PUSCH_NL_IDX 44
+#define GNB_SENSING_PUSCH_BEAMS_IDX 45
+#endif
 
 #define TRACKING_AREA_CODE_OKRANGE {0x0001,0xFFFD}
 #define NUM_DL_HARQ_OKVALUES {2,4,6,8,10,12,16,32}
 #define NUM_UL_HARQ_OKVALUES {16,32}
 
+// clang-format off
 #define GNBPARAMS_CHECK {                                         \
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
@@ -259,7 +313,9 @@ typedef enum {
              3 } }, \
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
+  GNB_SENSING_PARAMS_CHECK                                        \
 }
+// clang-format on
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------*/
 
