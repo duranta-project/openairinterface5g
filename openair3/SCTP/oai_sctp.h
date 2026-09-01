@@ -22,24 +22,57 @@
 /*! \file oai_sctp.h
  * \brief Backend-neutral SCTP calls for F1-C and N2.
  *
- * All SCTP socket operations of the SCTP task go through these functions, so
- * that the underlying SCTP implementation can be exchanged without touching
- * the call sites. The implementation is a thin passthrough to libsctp and
- * kernel sockets.
+ * Two backends sit behind this interface:
+ *
+ *   kernel   thin passthrough to libsctp and kernel sockets. What OAI has
+ *            always used, and what runs when the kernel has CONFIG_IP_SCTP.
+ *   usrsctp  the FreeBSD SCTP stack in userspace, sending real SCTP over IP
+ *            through a raw IPPROTO_SCTP socket. Needs CAP_NET_RAW but NOT
+ *            kernel SCTP, because a raw socket only has to carry the packets,
+ *            not implement the protocol.
+ *
+ * WHY THIS EXISTS. Some kernels ship with CONFIG_IP_SCTP unset and cannot be
+ * rebuilt with it -- on the Qualcomm SA8775P the SCTP-enabled rebuild is what
+ * breaks the compute-DSP glink endpoints, so SCTP and the DSP offloads are
+ * mutually exclusive there. usrsctp lifts that constraint without touching the
+ * kernel and without any change at the peer: it is wire-compatible SCTP over
+ * IP, not UDP-encapsulated, so the CU or AMF sees an ordinary association.
+ *
+ * WHY THE CHOICE IS MADE AT RUNTIME, NOT IN CMAKE. The obvious thing is to
+ * probe for kernel SCTP at configure time, but that is wrong twice over: OAI is
+ * routinely cross-compiled, so a configure-time probe tests the BUILD host's
+ * kernel rather than the target's, and the presence of <netinet/sctp.h> in a
+ * sysroot says nothing about CONFIG_IP_SCTP in the kernel that will run the
+ * binary. A single image also has to work across a reboot into a different
+ * kernel. So CMake decides only whether the usrsctp backend is COMPILED IN
+ * (ENABLE_USRSCTP); which backend is USED is decided on first use by actually
+ * trying to open a kernel SCTP socket. See oai_sctp_backend_name().
  *
  * HANDLES. Every call takes and returns an int, exactly like a file
- * descriptor, and that int stays usable with epoll. That keeps
- * itti_subscribe_event_fd(), the epoll loop and the sctp_get_cnx() lookup
- * working unchanged.
+ * descriptor, and that int stays usable with epoll. For the kernel backend it
+ * IS the descriptor. For usrsctp -- whose sockets are `struct socket *` and
+ * have no descriptor at all -- it is an eventfd that the backend signals when
+ * the association has a message ready. That keeps itti_subscribe_event_fd(),
+ * the epoll loop and the sctp_get_cnx() lookup working unchanged.
  */
 
 #ifndef OAI_SCTP_H_
 #define OAI_SCTP_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/sctp.h>
+
+/* Which backend is in use. Safe to call at any time; forces selection on the
+ * first call. Returns "kernel" or "usrsctp". */
+const char *oai_sctp_backend_name(void);
+
+/* True once the usrsctp backend has been selected. Only for logging and for
+ * the few places that must know; prefer adding a call here over branching on
+ * this at a call site. */
+bool oai_sctp_is_usrsctp(void);
 
 int oai_sctp_socket(int domain, int type, int protocol);
 int oai_sctp_bind(int sd, const struct sockaddr *addr, socklen_t addrlen);
