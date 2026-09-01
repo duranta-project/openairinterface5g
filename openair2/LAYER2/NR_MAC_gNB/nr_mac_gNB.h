@@ -23,6 +23,8 @@
 #include "common/utils/ds/spsc_q.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_configuration.h"
 #include "openair2/LAYER2/NR_MAC_gNB/nr_pos_ue_context.h"
+#include "gNB_scheduler_types.h"
+#include "NR_MAC_gNB/slice_prb_allocator/slice_prb_allocator.h"
 
 #define NR_SCHED_LOCK(lock)                                        \
   do {                                                             \
@@ -35,6 +37,10 @@
     int rc = pthread_mutex_unlock(lock);                           \
     AssertFatal(rc == 0, "error while locking scheduler mutex, pthread_mutex_unlock() returned %d\n", rc); \
   } while (0)
+
+#define NR_SCHED_ENSURE_LOCKED(lock)                               \
+  AssertFatal(pthread_mutex_trylock(lock) == EBUSY,                 \
+              "this function should be called with the scheduler mutex locked\n")
 
 /* Commmon */
 #include "COMMON/f1ap_messages_types.h"
@@ -214,6 +220,9 @@ typedef struct nr_mac_config_s {
   int nb_bfw[2];
   int32_t *bw_list;
   int num_agg_level_candidates[NUM_PDCCH_AGG_LEVELS];
+  /// CORESET duration in OFDM symbols (1..3), from gNB config "coreset_duration".
+  /// Replaces the old heuristic (2 symbols if BWP < 48 PRBs, else 1). Default 1.
+  int coreset_duration;
   nr_redcap_config_t *redcap;
   nr_ptrs_config_t *ptrs;
   nr_config_report_type_t report_type;
@@ -887,6 +896,11 @@ typedef struct {
 #define UE_iterator(BaSe, VaR) for (NR_UE_info_t **VaR##pptr = BaSe, *VaR = *VaR##pptr; VaR; VaR = *(++VaR##pptr))
 #define FOR_EACH_CANDIDATE(VaR, ArR, N) for (__typeof__(*(ArR)) *VaR = (ArR); VaR < (ArR) + (N); VaR++)
 
+/* Note: Network slice PRB ratios are managed by slice_scheduler_dl / slice_scheduler_ul.
+ * Use slice_prb_allocator.h functions to access slice configurations.
+ * The old network_slice_t and network_slice_info_t structures have been removed.
+ */
+
 typedef struct {
   /// current frame
   frame_t frame;
@@ -925,10 +939,12 @@ struct nr_dl_sched_params {
   int num_beams; ///< number of beams
   int max_num_ue; ///< max UEs to schedule
   uint16_t *vrb_map[MAX_NUM_BEAM_PERIODS]; ///< per-beam VRB maps [275], mutable
-  int n_rb_avail[MAX_NUM_BEAM_PERIODS]; ///< available RBs per beam
+  int n_rb_avail[MAX_NUM_BEAM_PERIODS]; ///< available RBs per beam (slice num_prbs under NS)
   int min_mcs; ///< minimum MCS from BLER config
   float bler_lower; ///< BLER lower threshold (increase MCS if below)
   float bler_upper; ///< BLER upper threshold (decrease MCS if above)
+  int slice_rb_start; ///< NS: absolute carrier PRB start of slice range; -1 = full BWP (SCHE_PF)
+  int slice_rb_end; ///< NS: absolute carrier PRB end (exclusive); -1 = full BWP
 };
 
 /// Per-UE scheduling candidate — read-only inputs for the policy function.
@@ -1050,6 +1066,8 @@ typedef struct nr_ul_sched_params {
   float bler_upper;
   const NR_ServingCellConfigCommon_t *scc;
   const NR_bler_options_t *bler_opts; ///< UL BLER options (for adapt_ul_mcs)
+  int slice_rb_start; ///< NS: absolute PRB start of slice range; -1 = full BWP (SCHE_PF)
+  int slice_rb_end; ///< NS: absolute PRB end (exclusive); -1 = full BWP
 } nr_ul_sched_params_t;
 
 struct nr_ul_candidate {
@@ -1334,6 +1352,14 @@ typedef struct gNB_MAC_INST_s {
   nr_pp_impl_dl pre_processor_dl;
   /// UL preprocessor for differentiated scheduling
   nr_pp_impl_ul pre_processor_ul;
+  /// DL scheduler algorithm type
+  scheduler_type_t scheduler_type_dl;
+  /// UL scheduler algorithm type
+  scheduler_type_t scheduler_type_ul;
+  /// Slice PRB allocator for DL (ratios from dedicated_prb_ratio / dl_* in gNB config)
+  slice_scheduler_t *slice_scheduler_dl;
+  /// Slice PRB allocator for UL (ratios from dedicated_prb_ratio / ul_* in gNB config)
+  slice_scheduler_t *slice_scheduler_ul;
 
   /// DL scheduling pipeline function pointers
   nr_dl_ri_pmi_select_fn dl_ri_pmi_select;

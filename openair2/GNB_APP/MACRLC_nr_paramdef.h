@@ -55,6 +55,8 @@
 #define MACRLC_PUCCH_RSSI_THRESHOLD          "pucch_RSSI_Threshold"
 #define MACRLC_STATS_MAX_UE                  "stats_max_ue"
 #define MACRLC_SPATIAL_STREAM_IDX            "spatial_stream_index"
+#define MACRLC_DL_SCHEDULER_TYPE             "dl_scheduler_type"
+#define MACRLC_UL_SCHEDULER_TYPE             "ul_scheduler_type"
 
 #define HLP_MACRLC_UL_PRBBLACK "SNR threshold to decide whether a PRB will be blacklisted or not"
 #define HLP_MACRLC_DL_BLER_UP "Upper threshold of BLER to decrease DL MCS"
@@ -127,6 +129,8 @@
   {MACRLC_STATS_MAX_UE,                HLP_MACRLC_STATS_MAX_UE,  0, .iptr=NULL,   .defintval=8,               TYPE_INT,     0}, \
   {MACRLC_SPATIAL_STREAM_IDX,          HLP_MACRLC_SPATIAL_STREAM_INDEX, \
                                                                                0, .uptr=NULL,   .defintarrayval=0,          TYPE_INTARRAY,0}, \
+  {MACRLC_DL_SCHEDULER_TYPE,           NULL,                     0, .uptr=NULL,   .defuintval=0,              TYPE_UINT,    0}, \
+  {MACRLC_UL_SCHEDULER_TYPE,           NULL,                     0, .uptr=NULL,   .defuintval=0,              TYPE_UINT,    0}, \
 }
 // clang-format off
 
@@ -174,6 +178,8 @@
   { .s2 =  { config_check_intrange, {-1280, 0}} }, /* PUCCH RSSI threshold range */ \
   { .s5 = { NULL } }, \
   { .s2 = { NULL } }, /* Spatial stream index */ \
+  { .s5 = { NULL } }, \
+  { .s5 = { NULL } }, \
 }
 
 /*---------------------------------------------------------------------------------------------------------------------------------------------------------*/

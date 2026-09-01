@@ -219,13 +219,8 @@ use-case/deployment type, e.g., one user for phytest in
   2)  Find first free start RB in vrb_map_UL, and as many free consecutive RBs
       as possible.
   3)  Either set up resource allocation directly (e.g., for a single UE,
-      phytest), or call into a function to perform actual resource allocation.
-      Currently, this is done using pf_ul() which implements a basic
-      proportional fair scheduler:
-      * for every UE, check for retransmission and allocate as necessary
-      * Calculate DMRS stuff (nr_set_pusch_semi_static())
-      * Calculate the PF coefficient and put eligible UEs into a list
-      * Allocate resources to the UE(s) with the highest coefficient
+      phytest), or call the modular scheduler (`nr_ul_schedule()` →
+      `nr_ul_proportional_fair`; NS uses `nr_ul_schedule_ns()` per slice).
   4)  Mark used resources in vrb_map_UL.
 * loop through all users: get a HARQ process as indicated through the
   preprocessor, update statistics, fill nFAPI structures directly for PUSCH,
@@ -248,12 +243,8 @@ nr_preprocessor_phytest()], multiple users [nr_dlsch_preprocessor()].
   1)  Check available resources in the vrb_map
   2)  Checks the quantity of waiting data in RLC
   3)  Either set up resource allocation directly (e.g., for a single UE,
-      phytest), or call into a function to perform actual resource allocation.
-      Currently, this is done using pf_dl() which implements a basic
-      proportional fair scheduler:
-      * for every UE, check for retransmission and allocate as necessary
-      * Calculate the PF coefficient and put eligible UEs into a list
-      * Allocate resources to the UE(s) with the highest coefficient
+      phytest), or call the modular scheduler (`nr_dl_schedule()` →
+      `nr_dl_proportional_fair`; NS uses `nr_dl_schedule_ns()` per slice).
   4)  Mark taken resources in the vrb_map
 * loop through all users: check if a new TA is necessary. Then, if a user has
   allocated resources, update statistics (round, sent bytes), update HARQ

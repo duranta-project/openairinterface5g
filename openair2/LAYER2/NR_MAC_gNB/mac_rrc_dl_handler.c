@@ -19,6 +19,7 @@
 #include "lib/f1ap_ue_context.h"
 
 #include "executables/softmodem-common.h"
+#include "slice_prb_allocator/slice_prb_allocator.h"
 
 #include "uper_decoder.h"
 #include "uper_encoder.h"
@@ -220,6 +221,11 @@ static NR_RLC_BearerConfig_t *get_bearerconfig_from_srb(const f1ap_srb_to_setup_
   return get_SRB_RLC_BearerConfig(get_lcid_from_srbid(srb->id), priority, bucket, rlc_config);
 }
 
+/*! \brief Get the first available NSSAI from slice scheduler configuration
+ *  \param mac MAC instance containing slice scheduler
+ *  \param nssai_out Output parameter for the first NSSAI (if found)
+ *  \return true if a slice is found and nssai_out is set, false otherwise
+ */
 static int handle_ue_context_srbs_setup(NR_UE_info_t *UE,
                                         int srbs_len,
                                         const f1ap_srb_to_setup_t *req_srbs,
@@ -238,6 +244,15 @@ static int handle_ue_context_srbs_setup(NR_UE_info_t *UE,
 
     int priority = rlc_BearerConfig->mac_LogicalChannelConfig->ul_SpecificParameters->priority;
     nr_lc_config_t c = {.lcid = rlc_BearerConfig->logicalChannelIdentity, .priority = priority};
+    nr_mac_get_ue_effective_nssai(&UE->UE_sched_ctrl, &c.nssai);
+
+    LOG_I(NR_MAC,
+          "UE ID %d SRB ID %d: assigning UE slice SST 0x%02x SD 0x%06x\n",
+          UE->rnti,
+          srb->id,
+          c.nssai.sst,
+          (unsigned)c.nssai.sd);
+
     nr_mac_add_lcid(&UE->UE_sched_ctrl, &c);
 
     (*resp_srbs)[i].id = srb->id;
@@ -307,10 +322,19 @@ static int handle_ue_context_drbs_setup(NR_UE_info_t *UE,
    * ue_context_*_response() */
   *resp_drbs = calloc(drbs_len, sizeof(**resp_drbs));
   AssertFatal(*resp_drbs != NULL, "out of memory\n");
+  bool has_drb = nr_mac_get_ue_first_drb_nssai(&UE->UE_sched_ctrl, NULL);
+  int accepted_drbs = 0;
   for (int i = 0; i < drbs_len; i++) {
     const f1ap_drb_to_setup_t *drb = &req_drbs[i];
+    if (has_drb) {
+      LOG_W(NR_MAC,
+            "UE %04x: ignoring DRB %d setup because single-DRB-per-UE policy is active\n",
+            UE->rnti,
+            (int)drb->id);
+      continue;
+    }
     AssertFatal(drb->qos_choice == F1AP_QOS_CHOICE_NR, "only NR QoS supported\n");
-    f1ap_drb_setup_t *resp_drb = &(*resp_drbs)[i];
+    f1ap_drb_setup_t *resp_drb = &(*resp_drbs)[accepted_drbs];
     NR_RLC_BearerConfig_t *rlc_BearerConfig = get_bearerconfig_from_drb(drb, rlc_config);
     if (UE->capability && UE->capability->rlc_Parameters && UE->capability->rlc_Parameters->ext2
         && UE->capability->rlc_Parameters->ext2->am_WithLongSN_RedCap_r17 == NULL) {
@@ -330,10 +354,23 @@ static int handle_ue_context_drbs_setup(NR_UE_info_t *UE,
     }
     c.priority = prio;
     nr_mac_add_lcid(&UE->UE_sched_ctrl, &c);
+    nr_mac_remap_ue_srbs_to_nssai(&UE->UE_sched_ctrl, &c.nssai);
+    has_drb = true;
+    accepted_drbs++;
 
     resp_drb->id = drb->id;
     resp_drb->lcid = malloc_or_fail(sizeof(*resp_drb->lcid));
     *resp_drb->lcid = c.lcid;
+    LOG_I(
+        NR_MAC,
+        "UE %04x DRB setup: DRB %d -> LCID %d, NSSAI SST=0x%02x SD=0x%06x, flows=%d, prio=%d\n",
+        UE->rnti,
+        (int)drb->id,
+        (int)c.lcid,
+        c.nssai.sst,
+        (unsigned)c.nssai.sd,
+        (int)drb->nr.flows_len,
+        (int)c.priority);
     // just put same number of tunnels in DL as in UL
     DevAssert(drb->up_ul_tnl_len == 1);
     resp_drb->up_dl_tnl_len = drb->up_ul_tnl_len;
@@ -353,7 +390,11 @@ static int handle_ue_context_drbs_setup(NR_UE_info_t *UE,
     int ret = ASN_SEQUENCE_ADD(&cellGroupConfig->rlc_BearerToAddModList->list, rlc_BearerConfig);
     DevAssert(ret == 0);
   }
-  return drbs_len;
+  if (accepted_drbs == 0) {
+    free(*resp_drbs);
+    *resp_drbs = NULL;
+  }
+  return accepted_drbs;
 }
 
 static int handle_ue_context_drbs_release(NR_UE_info_t *UE,
@@ -390,6 +431,9 @@ static int handle_ue_context_drbs_release(NR_UE_info_t *UE,
       DevAssert(ret == 0);
     }
   }
+  nssai_t srb_nssai = {0};
+  nr_mac_get_ue_effective_nssai(&UE->UE_sched_ctrl, &srb_nssai);
+  nr_mac_remap_ue_srbs_to_nssai(&UE->UE_sched_ctrl, &srb_nssai);
   return drbs_len;
 }
 
@@ -863,6 +907,8 @@ void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
     if (UE->reestablish_rlc) {
       for (int i = 1; i < seq_arr_size(&UE->UE_sched_ctrl.lc_config); ++i) {
         nr_lc_config_t *c = seq_arr_at(&UE->UE_sched_ctrl.lc_config, i);
+        if (c->lcid == 1 || !c->suspended)
+          continue;
         c->suspended = false;
         LOG_I(NR_MAC, "UE %04x: Re-establishing RLC for LCID %d\n", UE->rnti, c->lcid);
         nr_rlc_reestablish_entity(req->gNB_DU_ue_id, c->lcid);

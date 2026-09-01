@@ -105,6 +105,11 @@ The preprocessor itself is a pluggable function pointer (`pre_processor_ul`), so
 custom implementation can replace the entire outer strategy — including how many UL
 slots to target and what to do when the DCI budget is limited.
 
+When `scheduler_type_ul == SCHE_NS`, the same preprocessor calls `nr_ul_schedule_ns()`
+after collection; NS filters the candidate snapshot per slice and reuses the modular
+`nr_ul_schedule()` pipeline inside each slice PRB range. See
+[network_slice_3gpp_impl.md](../network_slice_3gpp_impl.md).
+
 ### Candidate struct
 
 Each candidate is an `nr_{dl,ul}_candidate_t` struct that flows through the pipeline,
@@ -300,6 +305,11 @@ allocation across LCIDs.
 
 Top-level orchestrators that run the full pipeline above. In phy-test mode, replaced by
 `nr_preprocessor_phytest` / `nr_ul_preprocessor_phytest` which bypass the staged pipeline.
+
+When `scheduler_type_dl` / `scheduler_type_ul` is `SCHE_NS`, each preprocessor branches
+to `nr_*_schedule_ns()` (slice PRB allocator + per-slice `nr_*_schedule()`). PF and NS
+share the same function pointers; see
+[network_slice_3gpp_impl.md](../network_slice_3gpp_impl.md).
 
 ---
 

@@ -14,6 +14,9 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include "openair2/LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
+#include "openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_types.h"
+#include "openair2/LAYER2/NR_MAC_gNB/slice_prb_allocator/slice_prb_allocator.h"
 #include "BIT_STRING.h"
 #include "L1_nr_paramdef.h"
 #include "MACRLC_nr_paramdef.h"
@@ -25,6 +28,7 @@
 #include "asn_internal.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
 #include "NR_MAC_gNB/mac_proto.h"
+#include "NR_MAC_gNB/gNB_scheduler_types.h"
 #include "common/5g_platform_types.h"
 #include "common/config/config_paramdesc.h"
 #include "common/config/config_userapi.h"
@@ -74,6 +78,247 @@ static int DEFRUTPCORES[] = {-1,-1,-1,-1};
     (element)->present = NR_SetupRelease_##type##_PR_setup;                  \
     (element)->choice.setup = CALLOC(1, sizeof(*((element)->choice.setup))); \
   } while (0)
+
+/*! \brief Parse network slice configuration from YAML and initialize slice structures in MAC instance.
+ *
+ * Creates slice_scheduler_dl / slice_scheduler_ul when at least one direction uses
+ * SCHE_NS. Each slot, nr_dl_schedule_ns() / nr_ul_schedule_ns() feed traffic demand
+ * into these objects and consume slice_prb_range_t output for intra-slice scheduling.
+ *  \param mac MAC instance to initialize slices for
+ *  \return Number of slices configured
+ */
+static int set_slice_config(gNB_MAC_INST *mac)
+{
+  GET_PARAMS_LIST(SliceParamList,
+                  SliceParams,
+                  GNBSLICEPARAMS_DESC,
+                  GNB_CONFIG_STRING_SLICES_LIST,
+                  NULL,
+                  SLICEPARAMS_CHECK);
+  int num_slices = SliceParamList.numelt;
+  
+  if (num_slices == 0) {
+    LOG_I(NR_MAC, "No slices configured, network slicing scheduler will not be active\n");
+    return 0;
+  }
+
+  const bool dl_ns_enabled = (mac->scheduler_type_dl == SCHE_NS);
+  const bool ul_ns_enabled = (mac->scheduler_type_ul == SCHE_NS);
+  if (!dl_ns_enabled && !ul_ns_enabled) {
+    LOG_I(NR_MAC,
+          "Slices are configured but both dl_scheduler_type and ul_scheduler_type are SCHE_PF; "
+          "network slicing is disabled for both directions\n");
+    return 0;
+  }
+  
+  AssertFatal(num_slices <= MAX_NUM_SLICES, "Number of slices %d exceeds maximum %d\n", num_slices, MAX_NUM_SLICES);
+  
+  // Temporary arrays for validation
+  int slice_ids[MAX_NUM_SLICES];
+  uint8_t slice_sst[MAX_NUM_SLICES];
+  uint32_t slice_sd[MAX_NUM_SLICES];
+  float slice_dedicated[MAX_NUM_SLICES];
+  float slice_min[MAX_NUM_SLICES];
+  float slice_max[MAX_NUM_SLICES];
+  float slice_dl_dedicated[MAX_NUM_SLICES];
+  float slice_dl_min[MAX_NUM_SLICES];
+  float slice_dl_max[MAX_NUM_SLICES];
+  float slice_ul_dedicated[MAX_NUM_SLICES];
+  float slice_ul_min[MAX_NUM_SLICES];
+  float slice_ul_max[MAX_NUM_SLICES];
+  double total_dedicated_ratio = 0.0;
+  double total_dl_dedicated_ratio = 0.0;
+  double total_ul_dedicated_ratio = 0.0;
+  
+  // First pass: Parse and validate individual slice parameters
+  for (int s = 0; s < num_slices; ++s) {
+    slice_ids[s] = *SliceParamList.paramarray[s][GNB_SLICE_ID_IDX].iptr;
+    slice_sst[s] = *SliceParamList.paramarray[s][GNB_SLICE_SST_IDX].uptr;
+    slice_sd[s] = *SliceParamList.paramarray[s][GNB_SLICE_SD_IDX].uptr;
+    
+    // Convert percentage to ratio (0.0-1.0)
+    double dedicated_pct = *SliceParamList.paramarray[s][GNB_SLICE_DEDICATED_PRB_RATIO_IDX].dblptr;
+    double min_pct = *SliceParamList.paramarray[s][GNB_SLICE_MIN_PRB_RATIO_IDX].dblptr;
+    double max_pct = *SliceParamList.paramarray[s][GNB_SLICE_MAX_PRB_RATIO_IDX].dblptr;
+    
+    slice_dedicated[s] = dedicated_pct / 100.0;
+    slice_min[s] = min_pct / 100.0;
+    slice_max[s] = max_pct / 100.0;
+    
+    // Validate individual slice parameters
+    AssertFatal(slice_ids[s] >= 0 && slice_ids[s] <= 1023,
+                "Slice %d: slice_id must be in [0, 1023], but is %d\n", s, slice_ids[s]);
+    AssertFatal(slice_sst[s] >= 0 && slice_sst[s] <= 255,
+                "Slice %d: SST must be in [0, 255], but is %d\n", s, slice_sst[s]);
+    AssertFatal(slice_sd[s] <= 0xffffff,
+                "Slice %d: SD cannot be bigger than 0xffffff, but is 0x%06x\n", s, slice_sd[s]);
+    
+    // Validate PRB ratios are in valid range
+    AssertFatal(dedicated_pct >= 0.0 && dedicated_pct <= 100.0,
+                "Slice %d: Dedicated PRB ratio must be in [0.0, 100.0]%%, but is %.1f%%\n", s, dedicated_pct);
+    AssertFatal(min_pct >= 0.0 && min_pct <= 100.0,
+                "Slice %d: Min PRB ratio must be in [0.0, 100.0]%%, but is %.1f%%\n", s, min_pct);
+    AssertFatal(max_pct >= 0.0 && max_pct <= 100.0,
+                "Slice %d: Max PRB ratio must be in [0.0, 100.0]%%, but is %.1f%%\n", s, max_pct);
+    
+    // Validate ratio relationships: dedicated <= min <= max
+    AssertFatal(slice_dedicated[s] <= slice_min[s],
+                "Slice %d: Dedicated PRB ratio (%.1f%%) must be <= Min PRB ratio (%.1f%%)\n",
+                s, dedicated_pct, min_pct);
+    AssertFatal(slice_min[s] <= slice_max[s],
+                "Slice %d: Min PRB ratio (%.1f%%) must be <= Max PRB ratio (%.1f%%)\n",
+                s, min_pct, max_pct);
+    
+    total_dedicated_ratio += slice_dedicated[s];
+    
+    double dl_ded_pct = *SliceParamList.paramarray[s][GNB_SLICE_DL_DEDICATED_PRB_RATIO_IDX].dblptr;
+    double dl_min_pct = *SliceParamList.paramarray[s][GNB_SLICE_DL_MIN_PRB_RATIO_IDX].dblptr;
+    double dl_max_pct = *SliceParamList.paramarray[s][GNB_SLICE_DL_MAX_PRB_RATIO_IDX].dblptr;
+    double ul_ded_pct = *SliceParamList.paramarray[s][GNB_SLICE_UL_DEDICATED_PRB_RATIO_IDX].dblptr;
+    double ul_min_pct = *SliceParamList.paramarray[s][GNB_SLICE_UL_MIN_PRB_RATIO_IDX].dblptr;
+    double ul_max_pct = *SliceParamList.paramarray[s][GNB_SLICE_UL_MAX_PRB_RATIO_IDX].dblptr;
+
+    if (dl_ded_pct < 0.0) {
+      slice_dl_dedicated[s] = slice_dedicated[s];
+      slice_dl_min[s] = slice_min[s];
+      slice_dl_max[s] = slice_max[s];
+    } else {
+      AssertFatal(dl_ded_pct >= 0.0 && dl_ded_pct <= 100.0,
+                  "Slice %d: dl_dedicated_prb_ratio must be in [0.0, 100.0]%% or -1, but is %.1f%%\n", s, dl_ded_pct);
+      slice_dl_dedicated[s] = (float)(dl_ded_pct / 100.0);
+      if (dl_min_pct < 0.0)
+        slice_dl_min[s] = slice_min[s];
+      else {
+        AssertFatal(dl_min_pct >= 0.0 && dl_min_pct <= 100.0,
+                    "Slice %d: dl_min_prb_ratio must be in [0.0, 100.0]%% or -1, but is %.1f%%\n", s, dl_min_pct);
+        slice_dl_min[s] = (float)(dl_min_pct / 100.0);
+      }
+      if (dl_max_pct < 0.0)
+        slice_dl_max[s] = slice_max[s];
+      else {
+        AssertFatal(dl_max_pct >= 0.0 && dl_max_pct <= 100.0,
+                    "Slice %d: dl_max_prb_ratio must be in [0.0, 100.0]%% or -1, but is %.1f%%\n", s, dl_max_pct);
+        slice_dl_max[s] = (float)(dl_max_pct / 100.0);
+      }
+      AssertFatal(slice_dl_dedicated[s] <= slice_dl_min[s],
+                  "Slice %d: DL dedicated must be <= DL min\n", s);
+      AssertFatal(slice_dl_min[s] <= slice_dl_max[s],
+                  "Slice %d: DL min must be <= DL max\n", s);
+    }
+
+    if (ul_ded_pct < 0.0) {
+      slice_ul_dedicated[s] = slice_dedicated[s];
+      slice_ul_min[s] = slice_min[s];
+      slice_ul_max[s] = slice_max[s];
+    } else {
+      AssertFatal(ul_ded_pct >= 0.0 && ul_ded_pct <= 100.0,
+                  "Slice %d: ul_dedicated_prb_ratio must be in [0.0, 100.0]%% or -1, but is %.1f%%\n", s, ul_ded_pct);
+      slice_ul_dedicated[s] = (float)(ul_ded_pct / 100.0);
+      if (ul_min_pct < 0.0)
+        slice_ul_min[s] = slice_min[s];
+      else {
+        AssertFatal(ul_min_pct >= 0.0 && ul_min_pct <= 100.0,
+                    "Slice %d: ul_min_prb_ratio must be in [0.0, 100.0]%% or -1, but is %.1f%%\n", s, ul_min_pct);
+        slice_ul_min[s] = (float)(ul_min_pct / 100.0);
+      }
+      if (ul_max_pct < 0.0)
+        slice_ul_max[s] = slice_max[s];
+      else {
+        AssertFatal(ul_max_pct >= 0.0 && ul_max_pct <= 100.0,
+                    "Slice %d: ul_max_prb_ratio must be in [0.0, 100.0]%% or -1, but is %.1f%%\n", s, ul_max_pct);
+        slice_ul_max[s] = (float)(ul_max_pct / 100.0);
+      }
+      AssertFatal(slice_ul_dedicated[s] <= slice_ul_min[s],
+                  "Slice %d: UL dedicated must be <= UL min\n", s);
+      AssertFatal(slice_ul_min[s] <= slice_ul_max[s],
+                  "Slice %d: UL min must be <= UL max\n", s);
+    }
+
+    total_dl_dedicated_ratio += slice_dl_dedicated[s];
+    total_ul_dedicated_ratio += slice_ul_dedicated[s];
+
+    LOG_I(NR_MAC,
+          "Configured slice %d: SST=%d, SD=0x%06x, shared Dedicated=%.1f%%, Min=%.1f%%, Max=%.1f%% | "
+          "DL: %.1f%%, %.1f%%, %.1f%% | UL: %.1f%%, %.1f%%, %.1f%%\n",
+          slice_ids[s],
+          slice_sst[s],
+          slice_sd[s],
+          dedicated_pct,
+          min_pct,
+          max_pct,
+          slice_dl_dedicated[s] * 100.0,
+          slice_dl_min[s] * 100.0,
+          slice_dl_max[s] * 100.0,
+          slice_ul_dedicated[s] * 100.0,
+          slice_ul_min[s] * 100.0,
+          slice_ul_max[s] * 100.0);
+  }
+  
+  // Second pass: Validate cross-slice constraints
+  // Check for duplicate slice IDs
+  for (int s1 = 0; s1 < num_slices; ++s1) {
+    for (int s2 = s1 + 1; s2 < num_slices; ++s2) {
+      AssertFatal(slice_ids[s1] != slice_ids[s2],
+                  "Duplicate slice_id %d found in slices %d and %d\n", slice_ids[s1], s1, s2);
+    }
+  }
+  
+  // Check for duplicate NSSAI (SST+SD combinations)
+  for (int s1 = 0; s1 < num_slices; ++s1) {
+    for (int s2 = s1 + 1; s2 < num_slices; ++s2) {
+      AssertFatal(!(slice_sst[s1] == slice_sst[s2] && slice_sd[s1] == slice_sd[s2]),
+                  "Duplicate NSSAI (SST=%d, SD=0x%06x) found in slices %d and %d\n",
+                  slice_sst[s1], slice_sd[s1], s1, s2);
+    }
+  }
+  
+  // Check that sum of dedicated ratios doesn't exceed 100% (shared legacy row, and per-direction)
+  AssertFatal(total_dedicated_ratio <= 1.0,
+              "Sum of dedicated PRB ratios (%.1f%%) exceeds 100%%\n", total_dedicated_ratio * 100.0);
+  AssertFatal(total_dl_dedicated_ratio <= 1.0,
+              "Sum of DL dedicated PRB ratios (%.1f%%) exceeds 100%%\n", total_dl_dedicated_ratio * 100.0);
+  AssertFatal(total_ul_dedicated_ratio <= 1.0,
+              "Sum of UL dedicated PRB ratios (%.1f%%) exceeds 100%%\n", total_ul_dedicated_ratio * 100.0);
+  
+  if (total_dedicated_ratio > 0.9) {
+    LOG_W(NR_MAC, "Warning: Sum of dedicated PRB ratios (%.1f%%) is very high, may limit flexibility\n",
+          total_dedicated_ratio * 100.0);
+  }
+  
+  const int default_total_prbs = 100; // Updated when scheduling runs
+  if (dl_ns_enabled && mac->slice_scheduler_dl == NULL) {
+    mac->slice_scheduler_dl = slice_sch_create(default_total_prbs);
+    AssertFatal(mac->slice_scheduler_dl != NULL, "Failed to create DL slice scheduler\n");
+  }
+  if (ul_ns_enabled && mac->slice_scheduler_ul == NULL) {
+    mac->slice_scheduler_ul = slice_sch_create(default_total_prbs);
+    AssertFatal(mac->slice_scheduler_ul != NULL, "Failed to create UL slice scheduler\n");
+  }
+  
+  for (int s = 0; s < num_slices; ++s) {
+    if (dl_ns_enabled) {
+      int ret_dl = slice_sch_add_slice(mac->slice_scheduler_dl, slice_sst[s], slice_sd[s],
+                                       slice_dl_dedicated[s], slice_dl_min[s], slice_dl_max[s], 0);
+      AssertFatal(ret_dl == 0, "Failed to add slice %d (SST=%d, SD=0x%06x) to DL scheduler\n",
+                  slice_ids[s], slice_sst[s], slice_sd[s]);
+    }
+    if (ul_ns_enabled) {
+      int ret_ul = slice_sch_add_slice(mac->slice_scheduler_ul, slice_sst[s], slice_sd[s],
+                                       slice_ul_dedicated[s], slice_ul_min[s], slice_ul_max[s], 0);
+      AssertFatal(ret_ul == 0, "Failed to add slice %d (SST=%d, SD=0x%06x) to UL scheduler\n",
+                  slice_ids[s], slice_sst[s], slice_sd[s]);
+    }
+  }
+  
+  LOG_I(NR_MAC,
+        "Configured %d network slices (DL scheduler: %s, UL scheduler: %s, DL total dedicated: %.1f%%, UL total dedicated: %.1f%%)\n",
+        num_slices,
+        dl_ns_enabled ? "SCHE_NS" : "SCHE_PF",
+        ul_ns_enabled ? "SCHE_NS" : "SCHE_PF",
+        total_dl_dedicated_ratio * 100.0,
+        total_ul_dedicated_ratio * 100.0);
+  return num_slices;
+}
 
 /**
  * Allocate memory and initialize ServingCellConfigCommon struct members
@@ -1626,6 +1871,14 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
         config.num_agg_level_candidates[PDCCH_AGG_LEVEL8],
         config.num_agg_level_candidates[PDCCH_AGG_LEVEL16]);
 
+  // coreset_duration: optional gNB config (default 1). Controls CORESET#1 duration in
+  // symbols and the matching PDSCH TDA start; previously hard-coded from BWP size.
+  config.coreset_duration = *GNBParamList.paramarray[0][GNB_CORESET_DURATION_IDX].iptr;
+  AssertFatal(config.coreset_duration >= 1 && config.coreset_duration <= 3,
+              "coreset_duration must be 1, 2 or 3, got %d\n",
+              config.coreset_duration);
+  LOG_I(NR_MAC, "CORESET duration: %d symbol(s)\n", config.coreset_duration);
+
   NR_ServingCellConfigCommon_t *scc = get_scc_config(config.minRXTXTIME, config.do_SRS);
   // BWP
   get_bwp_config(&config, scc);
@@ -1665,6 +1918,40 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
     for (j = 0; j < RC.nb_nr_macrlc_inst; j++) {
       gNB_MAC_INST *nrmac = RC.nrmac[j];
       params = MacRLC_ParamList.paramarray[j]; // RC.nb_nr_macrlc_inst == 1 as per assert, but keep consistent
+
+      // Scheduler is configured per direction.
+      RC.nrmac[j]->scheduler_type_dl = SCHE_PF;
+      RC.nrmac[j]->scheduler_type_ul = SCHE_PF;
+      const paramdef_t *p_dl_sche = gpd(params, np, MACRLC_DL_SCHEDULER_TYPE);
+      if (p_dl_sche && (p_dl_sche->paramflags & PARAMFLAG_PARAMSET)) {
+        uint32_t dl_scheduler_type = *p_dl_sche->uptr;
+        if (dl_scheduler_type <= SCHE_NS) {
+          RC.nrmac[j]->scheduler_type_dl = (scheduler_type_t)dl_scheduler_type;
+        } else {
+          LOG_W(NR_MAC,
+                "MAC instance %d: Invalid dl_scheduler_type %d in configuration, using default SCHE_PF\n",
+                j,
+                dl_scheduler_type);
+        }
+      }
+      const paramdef_t *p_ul_sche = gpd(params, np, MACRLC_UL_SCHEDULER_TYPE);
+      if (p_ul_sche && (p_ul_sche->paramflags & PARAMFLAG_PARAMSET)) {
+        uint32_t ul_scheduler_type = *p_ul_sche->uptr;
+        if (ul_scheduler_type <= SCHE_NS) {
+          RC.nrmac[j]->scheduler_type_ul = (scheduler_type_t)ul_scheduler_type;
+        } else {
+          LOG_W(NR_MAC,
+                "MAC instance %d: Invalid ul_scheduler_type %d in configuration, using default SCHE_PF\n",
+                j,
+                ul_scheduler_type);
+        }
+      }
+      LOG_I(NR_MAC,
+            "MAC instance %d: dl_scheduler_type=%d, ul_scheduler_type=%d\n",
+            j,
+            RC.nrmac[j]->scheduler_type_dl,
+            RC.nrmac[j]->scheduler_type_ul);
+
       if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "local_RRC") == 0) {
         // check number of instances is same as RRC/PDCP
 
@@ -1716,6 +2003,12 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
       cell->ulsch_max_frame_inactivity = *gpd(params, np, MACRLC_ULSCH_MAX_FRAME_INACTIVITY)->uptr;
       nrmac->stats_max_ue = *gpd(params, np, MACRLC_STATS_MAX_UE)->iptr;
       nrmac->print_ue_stats = nrmac->stats_max_ue > 0;
+      
+      // Initialize slice configuration (scheduler will be created in set_slice_config if slices are configured)
+      nrmac->slice_scheduler_dl = NULL;
+      nrmac->slice_scheduler_ul = NULL;
+      set_slice_config(nrmac);
+      nr_mac_init_scheduler(nrmac);
       NR_bler_options_t *dl_bler_options = &cell->dl_bler;
       dl_bler_options->upper = *gpd(params, np, MACRLC_DL_BLER_TARGET_UPPER)->dblptr;
       dl_bler_options->lower = *gpd(params, np, MACRLC_DL_BLER_TARGET_LOWER)->dblptr;

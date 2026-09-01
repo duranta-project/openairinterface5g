@@ -19,6 +19,8 @@
 #include "NR_MAC_gNB/mac_proto.h"
 #include "NR_MAC_gNB/mac_rrc_ul.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
+#include "NR_MAC_gNB/gNB_scheduler_types.h"
+#include "NR_MAC_gNB/slice_prb_allocator/slice_prb_allocator.h"
 #include "NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "NR_RLC-BearerConfig.h"
 #include "NR_RadioBearerConfig.h"
@@ -102,11 +104,78 @@ static char *st_append(char *start, const char *end, const char *format, ...)
     return (char *)end;
 }
 
+static char *dump_slice_scheduler_stats(char *output,
+                                        const char *end,
+                                        const char *direction,
+                                        const slice_scheduler_t *scheduler)
+{
+  if (scheduler == NULL)
+    return output;
+
+  const int num_slices = slice_sch_get_num_slices(scheduler);
+  if (num_slices <= 0)
+    return output;
+
+  const int total_prbs = slice_sch_get_total_prbs(scheduler);
+  int num_stats = 0;
+  const slice_statistics_t *stats = slice_sch_get_all_statistics(scheduler, &num_stats);
+  if (stats == NULL || num_stats <= 0)
+    return output;
+
+  output = st_append(output, end, "NS %s PRB allocation (total PRBs %d):\n", direction, total_prbs);
+
+  for (int s = 0; s < num_stats; s++) {
+    const slice_statistics_t *st = &stats[s];
+    int require = 0;
+    float dedicated = 0.0f;
+    float min_ratio = 0.0f;
+    float max_ratio = 0.0f;
+    slice_sch_get_require(scheduler, st->slice_id.sst, st->slice_id.sd, &require);
+    slice_sch_get_slice_config(scheduler,
+                               st->slice_id.sst,
+                               st->slice_id.sd,
+                               NULL,
+                               NULL,
+                               &dedicated,
+                               &min_ratio,
+                               &max_ratio);
+
+    const double latest_pct = total_prbs > 0 ? 100.0 * (double)st->latest_num_prbs / (double)total_prbs : 0.0;
+    const double avg_pct = total_prbs > 0 ? 100.0 * (double)st->avg_num_prbs / (double)total_prbs : 0.0;
+
+    output = st_append(output,
+                       end,
+                       "  slice SST 0x%02x SD 0x%06x: latest %d PRBs [%d,%d) (%.1f%%) avg %.1f PRBs (%.1f%%) "
+                       "require %d dedicated/min/max %.0f/%.0f/%.0f%% samples %d\n",
+                       st->slice_id.sst,
+                       (unsigned)st->slice_id.sd,
+                       st->latest_num_prbs,
+                       st->latest_start_prb,
+                       st->latest_end_prb,
+                       latest_pct,
+                       (double)st->avg_num_prbs,
+                       avg_pct,
+                       require,
+                       dedicated * 100.0,
+                       min_ratio * 100.0,
+                       max_ratio * 100.0,
+                       st->sample_count);
+  }
+
+  return output;
+}
+
 size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *output, size_t strlen, bool reset_rsrp)
 {
   const char *begin = output;
   const char *end = output + strlen;
 
+  /* this function is called from gNB_dlsch_ulsch_scheduler(), so assumes the
+   * scheduler to be locked*/
+  NR_SCHED_ENSURE_LOCKED(&gNB->sched_lock);
+
+  output = dump_slice_scheduler_stats(output, end, "UL", gNB->slice_scheduler_ul);
+  output = dump_slice_scheduler_stats(output, end, "DL", gNB->slice_scheduler_dl);
   UE_iterator(gNB->UE_info.connected_ue_list, UE) {
     if (UE->pcell != cell)
       continue;
@@ -122,6 +191,10 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
     } else {
       output = st_append(output, end, "(none)");
     }
+
+    nssai_t ue_slice = {0};
+    nr_mac_get_ue_effective_nssai(sched_ctrl, &ue_slice);
+    output = st_append(output, end, " SST 0x%02x SD 0x%06x", ue_slice.sst, (unsigned)ue_slice.sd);
 
     bool in_sync = !sched_ctrl->ul_failure;
     output = st_append(output,
@@ -303,6 +376,8 @@ void mac_top_init_gNB(ngran_node_t node_type,
 
       uid_linear_allocator_init(&RC.nrmac[i]->UE_info.uid_allocator);
 
+      RC.nrmac[i]->scheduler_type_dl = SCHE_PF;
+      RC.nrmac[i]->scheduler_type_ul = SCHE_PF;
       RC.nrmac[i]->ul_ri_tpmi_select = nr_ul_ri_tpmi_select_default;
       RC.nrmac[i]->ul_tda_select = nr_ul_tda_select_default;
       RC.nrmac[i]->ul_beam_select = nr_ul_beam_select_default;
@@ -315,13 +390,12 @@ void mac_top_init_gNB(ngran_node_t node_type,
         RC.nrmac[i]->pre_processor_dl = nr_preprocessor_phytest;
         RC.nrmac[i]->pre_processor_ul = nr_ul_preprocessor_phytest;
       } else {
-        RC.nrmac[i]->pre_processor_dl = nr_dlsch_preprocessor;
-        RC.nrmac[i]->pre_processor_ul = nr_ulsch_preprocessor;
         RC.nrmac[i]->dl_ri_pmi_select = nr_dl_ri_pmi_select_default;
         RC.nrmac[i]->dl_mcs_select = nr_dl_mcs_select_default;
         RC.nrmac[i]->dl_beam_select = nr_dl_beam_select_default;
         RC.nrmac[i]->dl_tda_select = nr_dl_tda_select_default;
         RC.nrmac[i]->dl_rb_alloc = nr_dl_proportional_fair;
+        nr_mac_init_scheduler(RC.nrmac[i]);
       }
       if (!IS_SOFTMODEM_NOSTATS)
         threadCreate(&RC.nrmac[i]->stats_thread,
@@ -350,6 +424,25 @@ void mac_top_init_gNB(ngran_node_t node_type,
   srand48(0);
 }
 
+/*! \brief Bind DL/UL preprocessors after gNB YAML is loaded (re-called from
+ * gnb_config.c after set_slice_config()).
+ *
+ * Always wires nr_dlsch_preprocessor / nr_ulsch_preprocessor. PF vs NS is not
+ * selected here — each preprocessor checks scheduler_type_dl/ul at runtime so
+ * dl_scheduler_type and ul_scheduler_type can differ (e.g. NSUL, NSDL). */
+void nr_mac_init_scheduler(gNB_MAC_INST *mac)
+{
+  if (get_softmodem_params()->phy_test)
+    return;
+
+  mac->pre_processor_dl = nr_dlsch_preprocessor;
+  mac->pre_processor_ul = nr_ulsch_preprocessor;
+  LOG_I(NR_MAC,
+        "MAC scheduler preprocessors: DL=%s UL=%s\n",
+        mac->scheduler_type_dl == SCHE_NS ? "SCHE_NS" : "SCHE_PF",
+        mac->scheduler_type_ul == SCHE_NS ? "SCHE_NS" : "SCHE_PF");
+}
+
 void mac_top_destroy_gNB(gNB_MAC_INST *mac)
 {
   for (size_t i = 0; i < sizeofArray(mac->cells); i++) {
@@ -373,6 +466,15 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
     free_f1ap_setup_response(mac->f1_config.setup_resp);
   free(mac->f1_config.setup_resp);
   free(mac->positioning_config);
+
+  if (mac->slice_scheduler_dl != NULL) {
+    slice_sch_destroy(mac->slice_scheduler_dl);
+    mac->slice_scheduler_dl = NULL;
+  }
+  if (mac->slice_scheduler_ul != NULL) {
+    slice_sch_destroy(mac->slice_scheduler_ul);
+    mac->slice_scheduler_ul = NULL;
+  }
 }
 
 void nr_mac_send_f1_setup_req(void)
