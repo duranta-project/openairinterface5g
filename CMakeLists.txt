@@ -1229,6 +1229,7 @@ set (MAC_NR_SRC
   ${NR_GNB_MAC_DIR}/gNB_scheduler_dlsch_default_policies.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_ulsch.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_ulsch_default_policies.c
+  ${NR_GNB_MAC_DIR}/gNB_scheduler_ulsch_MU_MIMO_policies.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_primitives.c
   ${NR_GNB_MAC_DIR}/nr_mac_cell.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_phytest.c

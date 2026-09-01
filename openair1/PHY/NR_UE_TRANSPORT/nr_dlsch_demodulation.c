@@ -943,6 +943,9 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   //--------------------- channel compensation ---------------
   //----------------------------------------------------------
   start_meas_nr_ue_phy(ue, DLSCH_CHANNEL_COMPENSATION_STATS);
+  uint8_t qam_orders[nl];
+  for (int qam_idx = 0; qam_idx < nl; qam_idx++)
+    qam_orders[qam_idx] = dlsch->cw_info.qamModOrder;
   nr_channel_compensation(rx_size_symbol,
                           pdsch_buf_size_max,
                           nbRx,
@@ -954,7 +957,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                           dl_ch_magr[symbol],
                           p_rxComp,
                           need_rho ? (c16_t(*)[nl][pdsch_buf_size_max])rho_dl[symbol] : NULL,
-                          dlsch->cw_info.qamModOrder,
+                          qam_orders,
                           0, // symbol already baked into p_rxComp
                           *log2_maxh);
   stop_meas_nr_ue_phy(ue, DLSCH_CHANNEL_COMPENSATION_STATS);
@@ -1013,7 +1016,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                       dl_ch_magr[symbol],
                       chFext,
                       freq_alloc->num_rbs,
-                      qamModOrder,
+                      qam_orders,
                       *log2_maxh,
                       0,
                       nb_re_pdsch,

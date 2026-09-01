@@ -39,6 +39,7 @@
 #include "system.h"
 #include "time_meas.h"
 #include "utils.h"
+#include "gNB_scheduler_ulsch_MU_MIMO_policies.h"
 
 #define MACSTATSSTRLEN 36256
 
@@ -295,6 +296,7 @@ void mac_top_init_gNB(ngran_node_t node_type,
 
       cell->cset0_bwp_start = 0;
       cell->cset0_bwp_size = 0;
+      RC.nrmac[i]->srs_period_slots = 0;
 
       cell->ul_next = (fsn_t) {.mu = *scc->ssbSubcarrierSpacing};
       RC.nrmac[i]->print_ue_stats = true;
@@ -307,7 +309,11 @@ void mac_top_init_gNB(ngran_node_t node_type,
       RC.nrmac[i]->ul_tda_select = nr_ul_tda_select_default;
       RC.nrmac[i]->ul_beam_select = nr_ul_beam_select_default;
       RC.nrmac[i]->ul_mcs_select = nr_ul_mcs_select_default;
-      RC.nrmac[i]->ul_rb_alloc = nr_ul_proportional_fair;
+      if (config->ul_mu_mimo) {
+        RC.nrmac[i]->ul_rb_alloc = nr_ul_pf_mu_mimo;
+      } else {
+        RC.nrmac[i]->ul_rb_alloc = nr_ul_proportional_fair;
+      }
 
       RC.nrmac[i]->dl_lcid_alloc = nr_dl_lcid_alloc_default;
 
