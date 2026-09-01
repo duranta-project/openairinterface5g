@@ -1626,6 +1626,98 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
         config.num_agg_level_candidates[PDCCH_AGG_LEVEL8],
         config.num_agg_level_candidates[PDCCH_AGG_LEVEL16]);
 
+#ifdef E3_AGENT
+  /* Parse additional_ul_tdas: comma-separated "start:length" pairs, e.g. "0:6,0:4" */
+  const char *extra_tdas_str = *GNBParamList.paramarray[0][GNB_ADDITIONAL_UL_TDAS_IDX].strptr;
+  config.num_additional_ul_tdas = 0;
+  if (extra_tdas_str && extra_tdas_str[0] != '\0') {
+    char buf[256];
+    strncpy(buf, extra_tdas_str, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    char *saveptr = NULL;
+    for (char *tok = strtok_r(buf, ",", &saveptr); tok; tok = strtok_r(NULL, ",", &saveptr)) {
+      AssertFatal(config.num_additional_ul_tdas < MAX_ADDITIONAL_UL_TDAS,
+                  "too many additional_ul_tdas (max %d)\n",
+                  MAX_ADDITIONAL_UL_TDAS);
+      int s, l;
+      AssertFatal(sscanf(tok, "%d:%d", &s, &l) == 2, "invalid additional_ul_tdas entry \"%s\", expected start:length\n", tok);
+      AssertFatal(s >= 0 && s < 14 && l >= 1 && l <= 14 && s + l <= 14,
+                  "additional_ul_tdas entry \"%s\": start %d length %d out of range\n",
+                  tok,
+                  s,
+                  l);
+      config.additional_ul_tdas[config.num_additional_ul_tdas].start_symbol = s;
+      config.additional_ul_tdas[config.num_additional_ul_tdas].num_symbols = l;
+      config.num_additional_ul_tdas++;
+    }
+    LOG_I(GNB_APP, "additional_ul_tdas: %d entries\n", config.num_additional_ul_tdas);
+    for (int i = 0; i < config.num_additional_ul_tdas; i++)
+      LOG_I(GNB_APP,
+            "  additional UL TDA %d: start %d length %d\n",
+            i,
+            config.additional_ul_tdas[i].start_symbol,
+            config.additional_ul_tdas[i].num_symbols);
+  }
+
+  /* sensing_target_slots: list of slot indices (mod TDD period) to hard-reserve
+   * for sensing. These slots are not allocatable to UEs; the dApp gets a clean
+   * sym 0-13 full-PRB sensing range on each of them. */
+  {
+    const paramdef_t *st_pd = &GNBParamList.paramarray[0][GNB_SENSING_TARGET_SLOTS_IDX];
+    int n = st_pd->numelt;
+    config.num_sensing_target_slots = 0;
+    if (n > 0 && st_pd->iptr) {
+      const int cap = (int)(sizeof(config.sensing_target_slots) / sizeof(config.sensing_target_slots[0]));
+      AssertFatal(n <= cap, "sensing_target_slots: too many entries (%d, max %d)\n", n, cap);
+      for (int i = 0; i < n; i++) {
+        int s = st_pd->iptr[i];
+        AssertFatal(s >= 0 && s < 20, "sensing_target_slots[%d]=%d out of range [0,19]\n", i, s);
+        config.sensing_target_slots[config.num_sensing_target_slots++] = s;
+      }
+      LOG_I(GNB_APP, "sensing_target_slots: %d hard-reserved slot(s)\n", config.num_sensing_target_slots);
+    } else {
+      LOG_I(GNB_APP, "sensing_target_slots: empty (no hard-reserved slots)\n");
+    }
+  }
+
+  /* Sensing PUSCH shape (read by build_sensing_pusch_pdu via radio_config). */
+  config.sensing_pusch_mcs = *GNBParamList.paramarray[0][GNB_SENSING_PUSCH_MCS_IDX].iptr;
+  config.sensing_pusch_rb_size = *GNBParamList.paramarray[0][GNB_SENSING_PUSCH_RB_SIZE_IDX].iptr;
+  config.sensing_pusch_rb_start = *GNBParamList.paramarray[0][GNB_SENSING_PUSCH_RB_START_IDX].iptr;
+  config.sensing_pusch_nrOfLayers = *GNBParamList.paramarray[0][GNB_SENSING_PUSCH_NL_IDX].iptr;
+  {
+    const paramdef_t *bp = &GNBParamList.paramarray[0][GNB_SENSING_PUSCH_BEAMS_IDX];
+    const int n = bp->numelt;
+    config.sensing_pusch_num_beams = 0;
+    if (n > 0 && bp->iptr) {
+      AssertFatal(n <= SENSING_MAX_BEAMS, "sensing_pusch_beams: too many entries (%d, max %d)\n", n, SENSING_MAX_BEAMS);
+      for (int i = 0; i < n; i++) {
+        AssertFatal(bp->iptr[i] >= 0, "sensing_pusch_beams[%d]=%d must be >= 0\n", i, bp->iptr[i]);
+        config.sensing_pusch_beams[config.sensing_pusch_num_beams++] = bp->iptr[i];
+      }
+    } else {
+      /* Default to a single beam at index 0 when the list is empty. */
+      config.sensing_pusch_num_beams = 1;
+      config.sensing_pusch_beams[0] = 0;
+    }
+    AssertFatal(config.sensing_pusch_mcs >= 0 && config.sensing_pusch_mcs <= 27,
+                "sensing_pusch_mcs=%d out of range [0,27]\n",
+                config.sensing_pusch_mcs);
+    AssertFatal(config.sensing_pusch_rb_size > 0, "sensing_pusch_rb_size=%d must be > 0\n", config.sensing_pusch_rb_size);
+    AssertFatal(config.sensing_pusch_rb_start >= 0, "sensing_pusch_rb_start=%d must be >= 0\n", config.sensing_pusch_rb_start);
+    AssertFatal(config.sensing_pusch_nrOfLayers >= 1 && config.sensing_pusch_nrOfLayers <= 4,
+                "sensing_pusch_nrOfLayers=%d out of range [1,4]\n",
+                config.sensing_pusch_nrOfLayers);
+    LOG_I(GNB_APP,
+          "sensing_pusch: mcs=%d rb_start=%d rb_size=%d nrOfLayers=%d num_beams=%d\n",
+          config.sensing_pusch_mcs,
+          config.sensing_pusch_rb_start,
+          config.sensing_pusch_rb_size,
+          config.sensing_pusch_nrOfLayers,
+          config.sensing_pusch_num_beams);
+  }
+#endif /* E3_AGENT */
+
   NR_ServingCellConfigCommon_t *scc = get_scc_config(config.minRXTXTIME, config.do_SRS);
   // BWP
   get_bwp_config(&config, scc);

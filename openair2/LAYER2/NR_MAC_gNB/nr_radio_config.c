@@ -1119,7 +1119,11 @@ static int tda_cmp(const void *tda_a, const void *tda_b)
 /* \brief Set up a list of time domain allocations as suitable for the TDD
  * pattern. This will be used by get_num_ul_tda(), which requires a specific
  * ordering, hence we qsort() the list at the end according to tda_cmp(). */
-void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc, int min_fb_delay, nr_srs_type_t do_SRS)
+void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc,
+                          int min_fb_delay,
+                          nr_srs_type_t do_SRS,
+                          int num_additional_ul_tdas,
+                          const additional_ul_tda_t *additional_ul_tdas)
 {
   NR_PUSCH_TimeDomainResourceAllocationList_t *tda_list =
       scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList;
@@ -1209,6 +1213,59 @@ void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc, int min_fb_delay, n
       /* reach next UL from mixed slot in previous period */
       tda = set_TimeDomainResourceAllocation(k2_msg3, get_SLIV(0, 13));
       asn1cSeqAdd(&tda_list->list, tda);
+    }
+  }
+
+  /* Append additional UL TDAs from config. Each extra TDA is replicated for
+   * every distinct k2 value already present in the list. */
+  if (num_additional_ul_tdas > 0) {
+    long k2_values[16];
+    int n_k2 = 0;
+    for (int i = 0; i < tda_list->list.count; i++) {
+      long k2v = *tda_list->list.array[i]->k2;
+      bool found = false;
+      for (int j = 0; j < n_k2; j++)
+        if (k2_values[j] == k2v) {
+          found = true;
+          break;
+        }
+      if (!found)
+        k2_values[n_k2++] = k2v;
+    }
+    int needed = num_additional_ul_tdas * n_k2;
+    AssertFatal(tda_list->list.count + needed <= 16,
+                "additional_ul_tdas: %d extra TDAs x %d k2 values = %d entries, "
+                "but only %d slots left (current %d, max 16)\n",
+                num_additional_ul_tdas,
+                n_k2,
+                needed,
+                16 - tda_list->list.count,
+                tda_list->list.count);
+
+    for (int i = 0; i < num_additional_ul_tdas; i++) {
+      int s = additional_ul_tdas[i].start_symbol;
+      int l = additional_ul_tdas[i].num_symbols;
+      const long sliv = get_SLIV(s, l);
+      for (int j = 0; j < n_k2; j++) {
+        /* Skip an additional TDA that duplicates a built-in one (same k2+SLIV):
+         * besides wasting a slot, init_ul_tda_info would then tag the built-in
+         * copy is_additional too, inverting TDA preference under a sensing policy. */
+        bool dup = false;
+        for (int e = 0; e < tda_list->list.count; e++) {
+          if (tda_list->list.array[e]->k2 != NULL && *tda_list->list.array[e]->k2 == k2_values[j]
+              && tda_list->list.array[e]->startSymbolAndLength == sliv) {
+            dup = true;
+            break;
+          }
+        }
+        if (dup) {
+          LOG_W(NR_RRC, "additional UL TDA k2=%ld start=%d length=%d duplicates a built-in TDA; skipping\n", k2_values[j], s, l);
+          continue;
+        }
+        NR_PUSCH_TimeDomainResourceAllocation_t *extra = set_TimeDomainResourceAllocation(k2_values[j], sliv);
+        asn1cSeqAdd(&tda_list->list, extra);
+        LOG_I(NR_RRC, "additional UL TDA: k2 %ld start %d length %d\n", k2_values[j], s, l);
+      }
     }
   }
 

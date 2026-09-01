@@ -12,6 +12,9 @@
 #include <softmodem-common.h>
 #include "NR_MAC_gNB/nr_mac_gNB.h"
 #include "NR_MAC_gNB/mac_proto.h"
+#ifdef E3_AGENT
+#include "NR_MAC_gNB/gNB_scheduler_prb_block.h"
+#endif /* E3_AGENT */
 #include "common/ran_context.h"
 #include "common/utils/T/T.h"
 #include "common/utils/nr/nr_common.h"
@@ -190,6 +193,29 @@ void nr_schedule_pucch(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frame
   }
 }
 
+#ifdef E3_AGENT
+/* Test a contiguous PUCCH PRB range [start, start+len) (relative to bwp_start,
+ * symbol bitmap `mask`) against the prb_block effective UL mask and reserve it
+ * only if every PRB is free. Two-phase so a mid-range conflict leaves no partial
+ * reservation. Returns true if reserved, false on a collision. */
+static bool pucch_try_reserve_prb_range(const nr_cell_sched_t *cell,
+                                        uint16_t *vrb_map_UL,
+                                        int bwp_start,
+                                        int start,
+                                        int len,
+                                        uint16_t mask)
+{
+  for (int i = start; i < start + len; ++i) {
+    const uint16_t eff = prb_block_pucch_effective_ul(cell, vrb_map_UL[i + bwp_start], i + bwp_start);
+    if ((eff & mask) != 0)
+      return false;
+  }
+  for (int i = start; i < start + len; ++i)
+    vrb_map_UL[i + bwp_start] |= mask;
+  return true;
+}
+#endif /* E3_AGENT */
+
 void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frame, slot_t slot)
 {
   const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
@@ -298,6 +324,22 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
         default:
           AssertFatal(0, "Invalid PUCCH format type\n");
         }
+#ifdef E3_AGENT
+        if (!pucch_try_reserve_prb_range(cell, vrb_map_UL, bwp_start, start, len, mask)) {
+          /* CSI PUCCH PRBs collide with prb_block; drop the occasion (rate-limited
+           * so a dApp blocking a UE's CSI resource can't spam the log). */
+          static uint64_t csi_drop_count = 0;
+          if (prb_block_ratelimit(&csi_drop_count))
+            LOG_W(NR_MAC,
+                  "%4d.%2d VRB MAP in %4d.%2d not free. Can't schedule CSI reporting on PUCCH (drop count=%llu)\n",
+                  frame,
+                  slot,
+                  sched_frame,
+                  sched_slot,
+                  (unsigned long long)csi_drop_count);
+          memset(curr_pucch, 0, sizeof(*curr_pucch));
+        }
+#else /* E3_AGENT */
         // verify resources are free
         for (int i = start; i < start + len; ++i) {
           if((vrb_map_UL[i+bwp_start] & mask) != 0) {
@@ -312,6 +354,7 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
           else
             vrb_map_UL[i+bwp_start] |= mask;
         }
+#endif /* E3_AGENT */
       }
     }
   }
@@ -1091,11 +1134,15 @@ static void set_pucch_allocation(const NR_UE_UL_BWP_t *ul_bwp, const int r_pucch
   }
 }
 
-static bool test_pucch0_vrb_occupation(const NR_sched_pucch_t *pucch, uint16_t *vrb_map_UL, const int bwp_start)
+static bool test_pucch0_vrb_occupation(const NR_sched_pucch_t *pucch,
+                                       uint16_t *vrb_map_UL,
+                                       const int bwp_start,
+                                       const nr_cell_sched_t *cell)
 {
   // We assume initial cyclic shift is always 0 so different pucch resources can't overlap
 
-  // verifying occupation of PRBs for ACK/NACK on dedicated pucch
+  // verifying occupation of PRBs for ACK/NACK on dedicated pucch,
+  // tested against the prb_block effective mask (see prb_block_pucch_effective_ul).
   for (int l=0; l<pucch->nr_of_symb; l++) {
     uint16_t symb = SL_to_bitmap(pucch->start_symb+l, 1);
     int prb;
@@ -1103,9 +1150,13 @@ static bool test_pucch0_vrb_occupation(const NR_sched_pucch_t *pucch, uint16_t *
       prb = pucch->second_hop_prb;
     else
       prb = pucch->prb_start;
-    if ((vrb_map_UL[bwp_start+prb] & symb) != 0) {
+#ifdef E3_AGENT
+    const uint16_t eff = prb_block_pucch_effective_ul(cell, vrb_map_UL[bwp_start + prb], bwp_start + prb);
+#else /* E3_AGENT */
+    const uint16_t eff = vrb_map_UL[bwp_start + prb];
+#endif /* E3_AGENT */
+    if ((eff & symb) != 0) {
       return false;
-      break;
     }
   }
   return true;
@@ -1280,7 +1331,7 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
       curr_pucch->beam_idx = beam.idx;
       const int index = ul_buffer_index(pucch_frame, pucch_slot, n_slots_frame, cell->vrb_map_UL_size);
       uint16_t *vrb_map_UL = &cell->common_channels.vrb_map_UL[beam.idx][index * MAX_BWP_SIZE];
-      bool ret = test_pucch0_vrb_occupation(curr_pucch, vrb_map_UL, bwp_start);
+      bool ret = test_pucch0_vrb_occupation(curr_pucch, vrb_map_UL, bwp_start, cell);
       if(!ret) {
         LOG_D(NR_MAC,
               "DL %4d.%2d, UL_ACK %4d.%2d PRB resources for this occasion are already occupied, move to the following occasion\n",
@@ -1379,9 +1430,20 @@ void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t SFN, sl
         const int bwp_start = ul_bwp->BWPStart;
         const int bwp_size = ul_bwp->BWPSize;
         set_pucch_allocation(ul_bwp, -1, bwp_size, curr_pucch);
-        bool ret = test_pucch0_vrb_occupation(curr_pucch, vrb_map_UL, bwp_start);
+        bool ret = test_pucch0_vrb_occupation(curr_pucch, vrb_map_UL, bwp_start, cell);
         if (!ret) {
+#ifdef E3_AGENT
+          /* SR PRB collides with prb_block. Rate-limited (first 5 + every
+           * 1000th) so a dApp blocking a UE's static PUCCH-SR resource can't
+           * spam the log; the UE retries next SR period. Plain static: this
+           * runs single-threaded under sched_lock. */
+          static uint64_t sr_drop_count = 0;
+          if (prb_block_ratelimit(&sr_drop_count)) {
+            LOG_W(NR_MAC, "Cannot schedule SR. PRBs not available (drop count=%llu)\n", (unsigned long long)sr_drop_count);
+          }
+#else /* E3_AGENT */
           LOG_E(NR_MAC,"Cannot schedule SR. PRBs not available\n");
+#endif /* E3_AGENT */
           continue;
         }
         curr_pucch->beam_idx = beam.idx;

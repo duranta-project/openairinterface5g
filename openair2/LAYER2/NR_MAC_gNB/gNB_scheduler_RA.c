@@ -11,6 +11,9 @@
 /* MAC */
 #include "nr_mac_gNB.h"
 #include "NR_MAC_gNB/mac_proto.h"
+#ifdef E3_AGENT
+#include "NR_MAC_gNB/gNB_scheduler_prb_block.h"
+#endif /* E3_AGENT */
 #include "openair2/COMMON/mac_messages_types.h"
 
 /* Utils */
@@ -191,6 +194,19 @@ void find_SSB_and_RO_available(nr_cell_sched_t *cell)
         cc->total_prach_occasions_per_config_period);
 }
 
+static void fill_vrb(const frame_t frame,
+                     const slot_t slot,
+                     int nb_rb,
+                     int beam_idx,
+                     int vrb_size,
+                     int slots_frame,
+                     int rb_start,
+                     int start_symb,
+                     int num_symb,
+                     NR_COMMON_channels_t *cc,
+                     const nr_cell_sched_t *cell,
+                     const char *channel_label);
+
 static void schedule_nr_MsgA_pusch(NR_UplinkConfigCommon_t *uplinkConfigCommon,
                                    gNB_MAC_INST *nr_mac,
                                    nr_cell_sched_t *cell,
@@ -289,6 +305,25 @@ static void schedule_nr_MsgA_pusch(NR_UplinkConfigCommon_t *uplinkConfigCommon,
 
   LOG_D(NR_MAC, "Scheduling MsgA PUSCH in %d.%d\n", msgA_pusch_frame, msgA_pusch_slot);
 
+#ifdef E3_AGENT
+  /* Mark the MsgA-PUSCH region in vrb_map_UL so the sensing scanner doesn't see
+   * those PRBs as free and emit a range over the UE's MsgA-PUSCH energy. Only
+   * applies to 2-step RA (msgA_ConfigCommon_r16). rb_start is BWP-relative, so
+   * add bwp_start to get the absolute carrier PRB fill_vrb expects. */
+  fill_vrb(msgA_pusch_frame,
+           msgA_pusch_slot,
+           pusch_pdu->rb_size,
+           0 /*beam_idx*/,
+           cell->vrb_map_UL_size,
+           n_slots_frame,
+           pusch_pdu->rb_start + pusch_pdu->bwp_start,
+           S,
+           L,
+           &cell->common_channels,
+           cell,
+           "MsgA-PUSCH");
+#endif /* E3_AGENT */
+
   UL_tti_req->n_pdus += 1;
 }
 
@@ -301,16 +336,23 @@ static void fill_vrb(const frame_t frame,
                      int rb_start,
                      int start_symb,
                      int num_symb,
-                     NR_COMMON_channels_t *cc)
+                     NR_COMMON_channels_t *cc,
+                     const nr_cell_sched_t *cell,
+                     const char *channel_label)
 {
   const int index = ul_buffer_index(frame, slot, slots_frame, vrb_size);
   uint16_t *vrb_map_UL = &cc->vrb_map_UL[beam_idx][index * MAX_BWP_SIZE];
+  const uint16_t mask = SL_to_bitmap(start_symb, num_symb);
+#ifdef E3_AGENT
+  prb_block_reserve_ul_channel(cell, vrb_map_UL, rb_start, nb_rb, mask, frame, slot, 0, channel_label);
+#else /* E3_AGENT */
+  (void)cell;
+  (void)channel_label;
   for (int i = 0; i < nb_rb; ++i) {
-    AssertFatal(
-        !(vrb_map_UL[rb_start + i] & SL_to_bitmap(start_symb, num_symb)),
-        "PRACH resources are already occupied!\n");
-    vrb_map_UL[rb_start + i] |= SL_to_bitmap(start_symb, num_symb);
+    AssertFatal(!(vrb_map_UL[rb_start + i] & mask), "PRACH resources are already occupied!\n");
+    vrb_map_UL[rb_start + i] |= mask;
   }
+#endif /* E3_AGENT */
 }
 
 void schedule_nr_prach(gNB_MAC_INST *gNB, nr_cell_sched_t *cell, frame_t frameP, slot_t slotP)
@@ -532,7 +574,9 @@ void schedule_nr_prach(gNB_MAC_INST *gNB, nr_cell_sched_t *cell, frame_t frameP,
                  bwp_start + rach_ConfigGeneric->msg1_FrequencyStart,
                  start_symb,
                  N_t_slot * N_dur,
-                 cc);
+                 cc,
+                 cell,
+                 "PRACH");
       }
     }
   }
@@ -1188,7 +1232,10 @@ static bool nr_get_Msg3alloc(nr_cell_sched_t *cell, int current_slot, frame_t cu
       bwpStart = act_bwp_start;
   }
 
-  /* search msg3_nb_rb free RBs */
+  /* search msg3_nb_rb free RBs. Detect-only baseline: Msg3 honours the stamped
+   * block (searches vrb_map_UL directly), so a wide block simply starves Msg3
+   * and RA fails ("No space"). The Msg3-inside-the-block exemption (scrubbed-copy
+   * search) is deferred. */
   int rbSize = 0;
   int rbStart = 0;
   if (!get_rb_alloc(msg3_nb_rb, msg3_nb_rb, bwpStart, bwpSize, vrb_map_UL, msg3_mask, &rbStart, &rbSize)) {
@@ -1228,6 +1275,19 @@ nr_add_msg3(nr_cell_sched_t *cell, frame_t frameP, slot_t slotP, NR_UE_info_t *U
   int slots_frame = cell->frame_structure.numb_slots_frame;
   int buffer_index = ul_buffer_index(ra->Msg3_frame, ra->Msg3_slot, slots_frame, cell->vrb_map_UL_size);
   uint16_t *vrb_map_UL = &cc->vrb_map_UL[ra->Msg3_beam.idx][buffer_index * MAX_BWP_SIZE];
+#ifdef E3_AGENT
+  /* Reserve the Msg3 RBs, skipping dApp-block collisions gracefully (PHY then
+   * fails Msg3 decode on the interfered RBs and the UE retries the RA). */
+  prb_block_reserve_ul_channel(cell,
+                               vrb_map_UL,
+                               ra->msg3_first_rb + ra->msg3_bwp_start,
+                               ra->msg3_nb_rb,
+                               mask,
+                               ra->Msg3_frame,
+                               ra->Msg3_slot,
+                               UE->rnti,
+                               "Msg3");
+#else /* E3_AGENT */
   for (int i = 0; i < ra->msg3_nb_rb; ++i) {
     AssertFatal(!(vrb_map_UL[i + ra->msg3_first_rb + ra->msg3_bwp_start] & mask),
                 "RB %d in %4d.%2d is already taken, cannot allocate Msg3!\n",
@@ -1236,6 +1296,7 @@ nr_add_msg3(nr_cell_sched_t *cell, frame_t frameP, slot_t slotP, NR_UE_info_t *U
                 ra->Msg3_slot);
     vrb_map_UL[i + ra->msg3_first_rb + ra->msg3_bwp_start] |= mask;
   }
+#endif /* E3_AGENT */
 
   LOG_D(NR_MAC, "UE %04x: %d.%d RA is active, Msg3 in (%d,%d)\n", UE->rnti, frameP, slotP, ra->Msg3_frame, ra->Msg3_slot);
   buffer_index = ul_buffer_index(ra->Msg3_frame, ra->Msg3_slot, slots_frame, cell->UL_tti_req_ahead_size);
@@ -1566,8 +1627,8 @@ static void nr_generate_Msg2(gNB_MAC_INST *nr_mac,
   // check the feasibility of Msg3, the actual Msg3 allocation
   // is further below. In the case of CFRA, we don't need Msg3, but 38.321
   // §5.1.4 does not clearly exclude Msg3, and UL TA might still be useful.
-  // Before the change in this commit, we used CFRA but required Msg3, which
-  // COTS UE would often (but not always) send.
+  // An earlier approach used CFRA but required Msg3, which a COTS UE would
+  // often (but not always) send.
   bool ret = get_feasible_msg3_tda(scc,
                                    get_delta_for_k2(ul_bwp->scs),
                                    ul_bwp->tdaList_Common,

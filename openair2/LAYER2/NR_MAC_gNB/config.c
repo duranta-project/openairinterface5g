@@ -35,6 +35,10 @@
 #include "nfapi_nr_interface.h"
 #include "nfapi_nr_interface_scf.h"
 #include "utils.h"
+#ifdef E3_AGENT
+#include "NR_MAC_gNB/gNB_scheduler_prb_block.h"
+#include "NR_MAC_gNB/gNB_scheduler_ul_sensing.h"
+#endif /* E3_AGENT */
 
 c16_t convert_precoder_weight(double complex c_in)
 {
@@ -914,7 +918,10 @@ static int config_sched_ctrlSIB1(nr_cell_sched_t *cell)
  * nr_rrc_config_ul_tda() are designed to work in sync (get_num_ul_tda()
  * assumes an ordering, output by nr_rrc_config_ul_tda()).
  */
-static void init_ul_tda_info(const NR_PUSCH_TimeDomainResourceAllocationList_t *l, seq_arr_t *sa_tda)
+static void init_ul_tda_info(const NR_PUSCH_TimeDomainResourceAllocationList_t *l,
+                             seq_arr_t *sa_tda,
+                             int num_additional,
+                             const additional_ul_tda_t *additional)
 {
   DevAssert(l->list.count > 0 && l->list.count <= 16);
   DevAssert(seq_arr_size(sa_tda) == 0);
@@ -924,10 +931,68 @@ static void init_ul_tda_info(const NR_PUSCH_TimeDomainResourceAllocationList_t *
     DevAssert(t->k2);
     NR_tda_info_t tda = { .mapping_type = typeB, .k2 = *t->k2, .valid_tda = true };
     SLIV2SL(t->startSymbolAndLength, &tda.startSymbolIndex, &tda.nrOfSymbols);
-    LOG_I(NR_MAC, "TDA index %d: start %d length %d k2 %ld\n", i, tda.startSymbolIndex, tda.nrOfSymbols, tda.k2);
+    /* Tag as additional if (start, length) matches any configured extra TDA */
+    for (int j = 0; j < num_additional; j++) {
+      if (tda.startSymbolIndex == additional[j].start_symbol && tda.nrOfSymbols == additional[j].num_symbols) {
+        tda.is_additional = true;
+        break;
+      }
+    }
+    LOG_I(NR_MAC,
+          "TDA index %d: start %d length %d k2 %ld%s\n",
+          i,
+          tda.startSymbolIndex,
+          tda.nrOfSymbols,
+          tda.k2,
+          tda.is_additional ? " [additional]" : "");
     seq_arr_push_back(sa_tda, &tda, sizeof(tda));
   }
 }
+
+#ifdef E3_AGENT
+/* get_num_ul_tda() takes the first same-k2 TDA that fits a slot and then asserts
+ * that every later one fits too -- i.e. within a same-k2 run, "fits" must be
+ * monotone once it turns true. The built-in TDAs satisfy that incidentally;
+ * operator-supplied additional_ul_tdas need not. Check it here, against this
+ * cell's actual TDD pattern, so a bad combination fails at configuration time
+ * with an actionable message instead of asserting mid-scheduling. */
+static void check_ul_tda_ordering(const nr_cell_sched_t *cell)
+{
+  const frame_structure_t *fs = &cell->frame_structure;
+  const int period = fs->numb_slots_period > 0 ? fs->numb_slots_period : fs->numb_slots_frame;
+  for (int slot = 0; slot < period; slot++) {
+    const uint16_t ul_bitmap = get_ul_bitmap(fs, slot);
+    if (ul_bitmap == 0)
+      continue;
+    long run_k2 = -1;
+    bool seen_fit = false;
+    const NR_tda_info_t *first_fit = NULL;
+    FOR_EACH_SEQ_ARR (NR_tda_info_t *, tda, &cell->ul_tda) {
+      if (tda->k2 != run_k2) { /* a new same-k2 run starts here */
+        run_k2 = tda->k2;
+        seen_fit = false;
+        first_fit = NULL;
+      }
+      const uint16_t bits = SL_to_bitmap(tda->startSymbolIndex, tda->nrOfSymbols);
+      const bool fits = (bits & ul_bitmap) == bits;
+      if (fits && !seen_fit) {
+        seen_fit = true;
+        first_fit = tda;
+      }
+      AssertFatal(!seen_fit || fits,
+                  "additional_ul_tdas: TDA (start %d, length %d, k2 %ld) does not fit slot %d, but the earlier "
+                  "(start %d, length %d) of the same k2 does -- get_num_ul_tda() requires the fitting TDAs of a k2 to be "
+                  "contiguous at the end of the run. Pick shapes whose symbols are a subset of the longer ones.\n",
+                  tda->startSymbolIndex,
+                  tda->nrOfSymbols,
+                  tda->k2,
+                  slot,
+                  first_fit->startSymbolIndex,
+                  first_fit->nrOfSymbols);
+    }
+  }
+}
+#endif /* E3_AGENT */
 
 void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config)
 {
@@ -984,9 +1049,37 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
                        scc->tdd_UL_DL_ConfigurationCommon,
                        csi_symbols_in_slot(scc),
                        num_symb_cset);
-  nr_rrc_config_ul_tda(scc, rc->minRXTXTIME, rc->do_SRS);
+  nr_rrc_config_ul_tda(scc, rc->minRXTXTIME, rc->do_SRS, config->num_additional_ul_tdas, config->additional_ul_tdas);
   seq_arr_init(&cell->ul_tda, sizeof(NR_tda_info_t));
-  init_ul_tda_info(scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList, &cell->ul_tda);
+  init_ul_tda_info(scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList,
+                   &cell->ul_tda,
+                   config->num_additional_ul_tdas,
+                   config->additional_ul_tdas);
+
+#ifdef E3_AGENT
+  /* Only the operator-supplied TDAs can break get_num_ul_tda()'s ordering
+   * precondition, so only pay for the check when some are configured. */
+  if (config->num_additional_ul_tdas > 0)
+    check_ul_tda_ordering(cell);
+
+  /* Enable the sensing scanner when the operator hard-reserves UL slots:
+   * otherwise the slots would be reserved but no sensing snapshot emitted. */
+  cell->sensing_enabled = (config->num_additional_ul_tdas > 0) || (config->num_sensing_target_slots > 0);
+  if (cell->sensing_enabled)
+    LOG_I(NR_MAC,
+          "Sensing mode enabled: %d additional UL TDAs, %d hard-reserved slots\n",
+          config->num_additional_ul_tdas,
+          config->num_sensing_target_slots);
+
+  /* Per-cell state for the dApp control plane, both inactive until a control
+   * installs something. Allocated here, with the other per-cell scheduler
+   * resources, and released in the per-cell loop of mac_top_destroy_gNB(). The
+   * sensing policy backs cell->sched_stateful_data, which the sensing UL TDA
+   * selector reads. */
+  prb_block_init(cell);
+  if (cell->sensing_enabled)
+    sensing_policy_init(cell);
+#endif /* E3_AGENT */
   seq_arr_init(&nrmac->pos_act_ue_arr, sizeof(positioning_activation_info_t));
 }
 

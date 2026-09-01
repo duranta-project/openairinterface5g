@@ -598,6 +598,7 @@ typedef struct NR_tda_info {
   int nrOfSymbols;
   long k2;
   bool valid_tda;
+  bool is_additional; ///< true for TDAs added via additional_ul_tdas config
 } NR_tda_info_t;
 
 typedef enum {

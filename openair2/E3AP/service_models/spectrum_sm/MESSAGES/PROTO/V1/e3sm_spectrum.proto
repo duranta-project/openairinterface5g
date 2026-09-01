@@ -1,0 +1,89 @@
+// Spectrum Service Model — Protocol Buffers definitions (proto2).
+//
+// Copyright (c) 2026 Institute for Intelligent Networked Systems (INSI)
+// at Northeastern University. All rights reserved.
+// SPDX-License-Identifier: LicenseRef-CSSL-1.0
+//
+// Wire-compatible protobuf mirror of e3sm_spectrum.asn. Field numbers and types
+// are the interop contract shared with the gNB's protobuf-c encoder
+// (openair2/E3AP/service_models/spectrum_sm); keep the two in lockstep exactly
+// as the .asn copies are kept in lockstep today.
+//
+// proto2 (not proto3) so every field has explicit presence — matching the
+// ASN.1 OPTIONAL semantics — and so protobuf-c 1.4.x (no proto3-optional
+// support) can generate the gNB codec. The binary wire is identical either way.
+// The ASN.1 CHOICE maps to a oneof whose set member is the discriminator.
+
+syntax = "proto2";
+
+package e3sm.spectrum.v1;
+
+message SpectrumRanFunctionData {
+  optional bytes name = 1;
+  optional uint32 version = 2;
+  optional bytes description = 3;
+}
+
+message SpectrumSensingIndication {
+  optional int64 timestamp = 1;
+  optional uint32 sfn = 2;
+  optional uint32 slot = 3;
+  optional uint32 beam = 4;
+  optional bytes shm_name = 5;
+  optional uint32 shm_write_idx = 6;
+  optional uint32 n_ranges = 7;
+}
+
+message SpectrumPRBBlacklistControl {
+  // json_name pins the dict key to the ASN.1/dApp spelling "blacklistedPRBs";
+  // only affects the JSON<->message bridge, not the binary wire.
+  repeated uint32 blacklisted_prbs = 1 [json_name = "blacklistedPRBs"];
+  optional uint32 sampling_threshold = 2;
+  optional uint32 validity_period = 3;
+}
+
+message SpectrumSensingPolicyControl {
+  repeated uint32 mask_per_slot = 1;
+  optional bool deactivate = 2 [default = false];  // ASN.1 BOOLEAN DEFAULT FALSE
+  optional uint32 validity_period = 3;
+}
+
+message SpectrumDAppControlData {
+  oneof control_payload {
+    SpectrumPRBBlacklistControl prb_blacklist_control = 1;
+    SpectrumSensingPolicyControl sensing_policy_control = 2;
+  }
+}
+
+message SpectrumPRBBlacklistReport {
+  repeated uint32 blacklisted_prbs = 1 [json_name = "blacklistedPRBs"];
+}
+
+message SpectrumDAppReportData {
+  // CLOCK_REALTIME ns at the dApp; survives the opaque gNB relay to the xApp.
+  // Realtime, unlike SpectrumSensingIndication.timestamp, because this message
+  // always changes host; the two share a name but not a clock.
+  optional uint64 timestamp = 3;
+  oneof report_payload {
+    SpectrumPRBBlacklistReport prb_blacklist_report = 1;
+  }
+}
+
+message SpectrumPRBBlockedControl {
+  repeated uint32 blocked_prbs = 1 [json_name = "blockedPRBs"];
+}
+
+message SpectrumConfigControl {
+  optional int32 noise_floor_threshold = 1;
+  optional uint32 averaging_frames = 2;
+  optional bool enable = 3;
+}
+
+message SpectrumXAppControlData {
+  // CLOCK_REALTIME ns at the xApp; survives the opaque gNB relay to the dApp.
+  optional uint64 timestamp = 3;
+  oneof control_payload {
+    SpectrumPRBBlockedControl prb_blocked_control = 1;
+    SpectrumConfigControl config_control = 2;
+  }
+}
