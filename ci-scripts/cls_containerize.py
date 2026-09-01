@@ -14,6 +14,7 @@
 # Import
 #-----------------------------------------------------------
 import re	       # reg
+import json
 import logging
 import os
 
@@ -31,6 +32,20 @@ from cls_ci_helper import archiveArtifact
 #-----------------------------------------------------------
 IMAGES = ['oai-enb', 'oai-lte-ru', 'oai-lte-ue', 'oai-gnb', 'oai-nr-cuup', 'oai-gnb-aw2s', 'oai-nr-ue', 'oai-enb-asan', 'oai-gnb-asan', 'oai-lte-ue-asan', 'oai-nr-ue-asan', 'oai-nr-cuup-asan', 'oai-gnb-aerial', 'oai-gnb-fhi72', 'oai-gnb-fhi72-t2', 'oai-nr-oru']
 DEFAULT_REGISTRY = "gracehopper3-oai.sboai.cs.eurecom.fr"
+
+# Maps a final target image (as used in BuildImage's imageNames) to the
+# executable inside the ran-build image its Dockerfile COPYs from, e.g.
+# docker/Dockerfile.gNB.ubuntu copies .../ran_build/build/nr-softmodem.
+# Used by _reportAffectedExecutables to know which executable to ask
+# tools/find_affected_executables.py about for a given image build.
+IMAGE_TO_EXECUTABLE = {
+	'oai-enb': 'lte-softmodem',
+	'oai-gnb': 'nr-softmodem',
+	'oai-lte-ue': 'lte-uesoftmodem',
+	'oai-nr-ue': 'nr-uesoftmodem',
+	'oai-nr-cuup': 'nr-cuup',
+	'oai-lte-ru': 'oairu',
+}
 
 def CreateWorkspace(host, sourcePath, repository, branch):
 	script = "scripts/create_workspace.sh"
@@ -170,6 +185,52 @@ class Containerize():
 #-----------------------------------------------------------
 # Container management functions
 #-----------------------------------------------------------
+
+	def _reportAffectedExecutables(self, cmd, ctx, HTML, lSourcePath, buildImage, imageTag, imageNames):
+		# Best-effort, non-blocking: never affects the build's pass/fail status.
+		targets = sorted({IMAGE_TO_EXECUTABLE[image] for image, _, _, _ in imageNames if image in IMAGE_TO_EXECUTABLE})
+		if not targets:
+			return
+
+		changedFilesPath = f'{lSourcePath}/cmake_targets/log/affected_exec_changed_files.txt'
+		ret = cmd.run(f'git diff --name-only origin/develop...HEAD > {changedFilesPath}', reportNonZero=False)
+		if ret.returncode != 0:
+			logging.debug('find_affected_executables: could not compute the changed-file list, skipping')
+			return
+
+		reportPath = f'{lSourcePath}/cmake_targets/log/affected_executables.json'
+		dockerRun = (
+			f'docker run --rm '
+			f'-v {changedFilesPath}:/tmp/affected_exec_changed_files.txt:ro '
+			f'{buildImage}:{imageTag} '
+			f'python3 tools/find_affected_executables.py '
+			f'--build-dir cmake_targets/ran_build/build '
+			f'--files-from /tmp/affected_exec_changed_files.txt '
+			f'--targets {" ".join(targets)} --json'
+		)
+		ret = cmd.run(f'{dockerRun} > {reportPath}', reportNonZero=False, timeout=120)
+		cmd.run(f'rm -f {changedFilesPath}', silent=True)
+		if ret.returncode != 0:
+			logging.debug('find_affected_executables: check did not run cleanly inside ran-build, skipping')
+			return
+
+		archived = archiveArtifact(cmd, ctx, reportPath)
+		if archived is None:
+			return
+		try:
+			with open(archived) as f:
+				report = json.load(f)
+			affected = sorted({
+				t for targetsReport in report.get('by_build_dir', {}).values()
+				for t, info in targetsReport.items() if info.get('affected')
+			})
+		except (OSError, json.JSONDecodeError):
+			logging.debug('find_affected_executables: could not parse its report, skipping')
+			return
+
+		msg = f"Executables affected by this change: {', '.join(affected) if affected else 'none'}"
+		logging.info(msg)
+		HTML.CreateHtmlTestRowQueue('find_affected_executables', 'OK', [msg])
 
 	def BuildImage(self, ctx, node, HTML):
 		lSourcePath = self.workspace
@@ -349,6 +410,17 @@ class Containerize():
 			# Now pruning dangling images in between target builds
 			cmd.run(f"docker image prune --force")
 		cmd.run(f'docker logout {DEFAULT_REGISTRY}')
+
+		# One-shot, best-effort check of which executables this change
+		# affects, reusing the ran-build image we already just built -- no
+		# separate build, and one docker run covering every executable of
+		# interest (ran-build always contains all of them, see imageNames
+		# comment above). Ubuntu-only for now (other OS variants use
+		# different toolchains we haven't verified this against), and only
+		# meaningful when there's a real target-branch diff to look at.
+		if dockerfileprefix == '.ubuntu' and self.merge and self.targetBranch == 'develop':
+			self._reportAffectedExecutables(cmd, ctx, HTML, lSourcePath, buildImage, imageTag, imageNames)
+
 		# Remove all intermediate build images and clean up
 		cmd.run(f"docker image rm ran-build:{imageTag} ran-build-asan:{imageTag} ran-build-fhi72:{imageTag} || true")
 		cmd.run(f"docker volume prune --force")

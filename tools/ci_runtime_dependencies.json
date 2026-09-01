@@ -1,0 +1,31 @@
+{
+  "_readme": "Declares executables that dlopen a plugin at runtime",
+  "dependencies": [
+    {
+      "from": "libldpc.so",
+      "to": [
+        "nr-softmodem",
+        "nr-uesoftmodem",
+        "nr_dlbench",
+        "nr_dlschsim",
+        "nr_dlsim",
+        "nr_ulschsim",
+        "nr_ulsim"
+      ],
+      "reason": "Default NR LDPC encoder/decoder"
+    },
+    {
+      "from": "libldpc_orig.so",
+      "to": [
+        "nr-softmodem",
+        "nr-uesoftmodem",
+        "nr_dlbench",
+        "nr_dlschsim",
+        "nr_dlsim",
+        "nr_ulschsim",
+        "nr_ulsim"
+      ],
+      "reason": "Reference (non-optimized) NR LDPC implementation"
+    }
+  ]
+}
