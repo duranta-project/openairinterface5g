@@ -3,7 +3,7 @@
  */
 
 #include "NR_MAC_gNB/nr_mac_gNB.h"
-#include "NR_MAC_gNB/mac_proto.h"
+#include "NR_MAC_gNB/nr_mac_cell.h"
 
 nr_cell_sched_t *nr_mac_get_cell_by_phy_id(gNB_MAC_INST *mac, uint16_t phy_id)
 {
