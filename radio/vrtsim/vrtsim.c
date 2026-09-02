@@ -1157,7 +1157,7 @@ __attribute__((__visibility__("default"))) int device_init(openair0_device_t *de
     int16_t noise_power = noise_power_dBFS == INVALID_DBFS_VALUE ? 0 : (int16_t)(32767.0 / powf(10.0, .05 * -noise_power_dBFS));
     LOG_A(HW, "VRTSIM: Noise power %d sample value\n", noise_power);
 #ifdef CHANNEL_SIM_CUDA
-    size_t samples_in_one_ms = openair0_cfg->sample_rate / 1000 / 1000;
+    size_t samples_in_one_ms = openair0_cfg->sample_rate / 1000;
     vrtsim_state->channel_pipeline_context = cuda_channel_pipeline_init(openair0_cfg->tx_num_channels * samples_in_one_ms);
 #else
     channel_pipeline_init(noise_power);
