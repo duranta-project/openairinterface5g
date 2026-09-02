@@ -331,19 +331,20 @@ void nr_HO_F1_trigger_telnet(gNB_RRC_INST *rrc, uint32_t rrc_ue_id)
 
   nr_rrc_du_container_t *target_du = find_target_du(rrc, source_du->assoc_id);
   if (target_du == NULL) {
-    LOG_E(NR_RRC, "No target gNB-DU found. Handover for UE %u aborted.\n", ue->rrc_ue_id);
-    return;
+    // No second DU found — fall back to intra-DU inter-cell HO (e.g. monolithic mode with 2 cells)
+    target_du = source_du;
   }
 
-  // For target cell, get the first cell from target DU
-  // (in future, this could be selected based on measurement)
+  // For target cell, get the first cell from target DU that is not the source cell
   nr_rrc_cell_container_t *target_cell = NULL;
   FOR_EACH_SEQ_ARR (nr_rrc_cell_container_t **, cell_ptr, &target_du->cells) {
-    target_cell = *cell_ptr;
-    break; // Get first cell
+    if (*cell_ptr != source_cell) {
+      target_cell = *cell_ptr;
+      break;
+    }
   }
   if (target_cell == NULL) {
-    LOG_E(NR_RRC, "cannot get target cell for UE %u\n", ue->rrc_ue_id);
+    LOG_E(NR_RRC, "No target cell found for UE %u (no second cell available)\n", ue->rrc_ue_id);
     return;
   }
 
