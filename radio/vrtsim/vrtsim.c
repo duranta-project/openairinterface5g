@@ -1158,7 +1158,7 @@ __attribute__((__visibility__("default"))) int device_init(openair0_device_t *de
     LOG_A(HW, "VRTSIM: Noise power %d sample value\n", noise_power);
 #ifdef CHANNEL_SIM_CUDA
     size_t samples_in_one_ms = openair0_cfg->sample_rate / 1000;
-    vrtsim_state->channel_pipeline_context = cuda_channel_pipeline_init(openair0_cfg->tx_num_channels * samples_in_one_ms);
+    vrtsim_state->channel_pipeline_context = cuda_channel_pipeline_init(samples_in_one_ms, openair0_cfg->tx_num_channels);
 #else
     channel_pipeline_init(noise_power);
     initNamedTpool(vrtsim_state->thread_pool_cores, &vrtsim_state->tpool, false, "vrtsim_chanmod");

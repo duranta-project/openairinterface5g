@@ -5,11 +5,13 @@ target_link_libraries(noise_device PRIVATE log_headers SIMU)
 target_include_directories(noise_device PUBLIC ./)
 add_library(channel_pipeline channel_pipeline.c)
 if (ENABLE_CHANNEL_SIM_CUDA)
-  target_sources(channel_pipeline PRIVATE channel_pipeline_v2.cu)
+  target_sources(channel_pipeline PRIVATE
+    channel_pipeline_gpu.cu
+  )
 endif()
 target_link_libraries(channel_pipeline PUBLIC thread-pool noise_device)
 if (ENABLE_CHANNEL_SIM_CUDA)
-  target_link_libraries(channel_pipeline PUBLIC CUDA::toolkit)
+  target_link_libraries(channel_pipeline PUBLIC CUDA::toolkit CUDA::cufft)
 endif()
 
 if(ENABLE_CHANNEL_SIM_CUDA)

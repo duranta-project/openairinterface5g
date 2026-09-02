@@ -25,13 +25,27 @@ extern "C" void exit_function(const char *file, const char *function, const int 
   exit(EXIT_FAILURE);
 }
 
+#define MAX_SAMPLE_LENGTH (65536)
+
 #ifdef CHANNEL_SIM_CUDA
 static void BM_channel_convolution_gpu(benchmark::State &state)
 {
   int nb_rx = state.range(0);
   int nb_tx = state.range(1);
   int num_samples = state.range(2);
-  int channel_length = 16;
+  int channel_length = state.range(3);
+
+  // nb_tx=64 and nb_rx>4 are outside the currently supported GPU pipeline configuration;
+  // Support all lesser link level configs and skip unsupported configs
+  if (nb_tx * nb_rx > (64 * 4)) {
+    state.SkipWithMessage("nb_tx=64 with nb_rx > 4  is not currently supported");
+    return;
+  }
+  // Skip any configs where RX is larger than TX as this is not a realistic case
+  if (nb_tx < nb_rx) {
+    state.SkipWithMessage("No configs where RX antenna count is > TX antenna count");
+    return;
+  }
 
   size_t num_input_samples = num_samples + channel_length - 1;
   std::vector<c16_t *> input(nb_tx);
@@ -53,7 +67,7 @@ static void BM_channel_convolution_gpu(benchmark::State &state)
     generate_random_signal_float(channel[i], channel_length);
   }
 
-  void *gpu_context = cuda_channel_pipeline_init(61440 * 4);
+  void *gpu_context = cuda_channel_pipeline_init(MAX_SAMPLE_LENGTH, 64);
 
   for (int aatx = 0; aatx < nb_tx; aatx++) {
     generate_random_signal(input[aatx], num_input_samples);
@@ -80,6 +94,7 @@ static void BM_channel_convolution_gpu(benchmark::State &state)
 
   cuda_channel_pipeline_shutdown(gpu_context);
 }
+
 #endif
 
 static void BM_channel_convolution_cpu(benchmark::State &state)
@@ -87,7 +102,7 @@ static void BM_channel_convolution_cpu(benchmark::State &state)
   int nb_rx = state.range(0);
   int nb_tx = state.range(1);
   int num_samples = state.range(2);
-  int channel_length = 16;
+  int channel_length = state.range(3);
 
   size_t num_input_samples = num_samples + channel_length - 1;
   std::vector<c16_t *> input(nb_tx);
@@ -143,7 +158,7 @@ static void BM_channel_convolution_tpool(benchmark::State &state)
   int nb_rx = state.range(0);
   int nb_tx = state.range(1);
   int num_samples = state.range(2);
-  int channel_length = 16;
+  int channel_length = state.range(3);
 
   size_t num_input_samples = num_samples + channel_length - 1;
   std::vector<c16_t *> input(nb_tx);
@@ -206,28 +221,31 @@ static void BM_channel_convolution_tpool(benchmark::State &state)
 #ifdef CHANNEL_SIM_CUDA
 BENCHMARK(BM_channel_convolution_gpu)
     ->ArgsProduct({
-        {1, 2, 4, 16, 64}, // nb_rx
-        {1, 2, 4, 16, 64}, // nb_tx
-        {61440}, // num_samples
+        {1, 2, 4, 8, 16, 64}, // nb_rx
+        {1, 2, 4, 8, 16, 64}, // nb_tx
+        {1024, 2048, 30720}, // num_samples
+        {8, 16, 32, 64}, // channel_length
     })
-    ->Iterations(100);
+    ->Iterations(50);
 #endif
 
 BENCHMARK(BM_channel_convolution_cpu)
     ->ArgsProduct({
         {1, 2, 4}, // nb_rx
         {1, 2, 4}, // nb_tx
-        {61440}, // num_samples
+        {1024, 2048, 30720}, // num_samples
+        {8, 16, 32, 64}, // channel_length
     })
-    ->Iterations(50);
+    ->Iterations(10);
 
 BENCHMARK(BM_channel_convolution_tpool)
     ->ArgsProduct({
-        {1, 2, 4, 8, 16}, // nb_rx
-        {1, 2, 4, 8, 16}, // nb_tx
-        {61440}, // num_samples
+        {1, 2, 4}, // nb_rx
+        {1, 2, 4}, // nb_tx
+        {1024, 2048, 30720}, // num_samples
+        {8, 16, 32, 64}, // channel_length
     })
-    ->Iterations(50);
+    ->Iterations(10);
 
 int main(int argc, char **argv)
 {
