@@ -105,20 +105,30 @@ int encode_fgs_uplink_nas_transport(const fgs_uplink_nas_transport_msg *fgs_up_n
 
   IES_ENCODE_U8(buffer, encoded, fgs_up_nas_transport->pdusessionid);
 
-  // set request type
-  *(buffer + encoded) = (0x8 << 4) | (fgs_up_nas_transport->requesttype & 0x7);
-  encoded++;
-
-  if ((encode_result = encode_nssai(&fgs_up_nas_transport->snssai, 0x22, buffer + encoded)) < 0) {
-    return encode_result;
-  } else {
-    encoded += encode_result;
+  /* Request type, S-NSSAI and DNN are optional (TS 24.501 table 8.2.10.1.1)
+     and belong to a PDU session establishment request. They are omitted when
+     unset so that other 5GSM messages - a PDU Session Modification Complete,
+     for one - can share this encoder. */
+  if (fgs_up_nas_transport->requesttype != 0) {
+    // set request type
+    *(buffer + encoded) = (0x8 << 4) | (fgs_up_nas_transport->requesttype & 0x7);
+    encoded++;
   }
 
-  if ((encode_result = encode_dnn(&fgs_up_nas_transport->dnn, 0x25, buffer + encoded)) < 0) {
-    return encode_result;
-  } else {
-    encoded += encode_result;
+  if (fgs_up_nas_transport->snssai.length > 0) {
+    if ((encode_result = encode_nssai(&fgs_up_nas_transport->snssai, 0x22, buffer + encoded)) < 0) {
+      return encode_result;
+    } else {
+      encoded += encode_result;
+    }
+  }
+
+  if (fgs_up_nas_transport->dnn.length > 0) {
+    if ((encode_result = encode_dnn(&fgs_up_nas_transport->dnn, 0x25, buffer + encoded)) < 0) {
+      return encode_result;
+    } else {
+      encoded += encode_result;
+    }
   }
 
   return encoded;
