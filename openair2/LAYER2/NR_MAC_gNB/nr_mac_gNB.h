@@ -192,6 +192,10 @@ typedef enum nr_srs_type_e {
   APERIODIC_SRS,
 } nr_srs_type_t;
 
+/// Max number of physical RU antenna ports the gNB can be configured with.
+/// Independent of MAX_NUM_SPATIAL_STREAMS (the NFAPI per-PDU wire limit).
+#define NR_MAC_MAX_RU_ANTENNA_PORTS 64
+
 typedef struct nr_mac_config_s {
   nr_pdsch_AntennaPorts_t pdsch_AntennaPorts;
   int pusch_AntennaPorts;
@@ -224,8 +228,10 @@ typedef struct nr_mac_config_s {
   nr_ptrs_config_t *ptrs;
   nr_config_report_type_t report_type;
   nr_beam_table_t bt;
-  /// Spatial stream indexing for mapping onto RU ports. Needed for MU-MIMO
-  uint16_t spatial_stream_index[MAX_NUM_SPATIAL_STREAMS];
+  /// Spatial stream indexing for mapping onto RU ports. Needed for MU-MIMO.
+  /// Sized to the max number of physical RU antenna ports, NOT to be confused
+  /// with MAX_NUM_SPATIAL_STREAMS, which bounds the per-PDU NFAPI wire field.
+  uint16_t spatial_stream_index[NR_MAC_MAX_RU_ANTENNA_PORTS];
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {
