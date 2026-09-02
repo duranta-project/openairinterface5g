@@ -9,12 +9,14 @@
 #include "TLVEncoder.h"
 #include "TLVDecoder.h"
 #include "ProtocolConfigurationOptions.h"
+#include "nas_log.h"
 
 int decode_protocol_configuration_options(ProtocolConfigurationOptions *protocolconfigurationoptions, uint8_t iei, uint8_t *buffer, uint32_t len)
 {
   uint32_t decoded = 0;
   uint8_t ielen = 0;
   int decode_result;
+  uint32_t skipped_containers = 0;
 
   if (iei > 0) {
     CHECK_IEI_DECODER(iei, *buffer);
@@ -42,6 +44,29 @@ int decode_protocol_configuration_options(ProtocolConfigurationOptions *protocol
   //IES_DECODE_U16(protocolconfigurationoptions->protocolid, *(buffer + decoded));
   protocolconfigurationoptions->num_protocol_id_or_container_id = 0;
   while ((len - decoded) > 0) {
+    /* The index below addresses arrays of
+       PROTOCOL_CONFIGURATION_OPTIONS_MAXIMUM_PROTOCOL_ID_OR_CONTAINER_ID
+       entries, while this loop is bounded only by the peer's length. */
+    if (protocolconfigurationoptions->num_protocol_id_or_container_id >=
+        PROTOCOL_CONFIGURATION_OPTIONS_MAXIMUM_PROTOCOL_ID_OR_CONTAINER_ID) {
+      uint8_t skipped_len;
+
+      if ((decoded + PROTOCOL_CONFIGURATION_OPTIONS_CONTAINER_HEADER_LENGTH) > len) {
+        break;
+      }
+
+      decoded += sizeof(uint16_t); // protocol/container identifier, nowhere left to store it
+      DECODE_U8(buffer + decoded, skipped_len, decoded);
+
+      if (skipped_len > (len - decoded)) {
+        break;
+      }
+
+      decoded += skipped_len; // skip contents
+      skipped_containers++;
+      continue;
+    }
+
     IES_DECODE_U16(buffer, decoded, protocolconfigurationoptions->protocolid[protocolconfigurationoptions->num_protocol_id_or_container_id]);
     DECODE_U8(buffer + decoded, protocolconfigurationoptions->lengthofprotocolid[protocolconfigurationoptions->num_protocol_id_or_container_id], decoded);
 
@@ -57,6 +82,13 @@ int decode_protocol_configuration_options(ProtocolConfigurationOptions *protocol
       protocolconfigurationoptions->protocolidcontents[protocolconfigurationoptions->num_protocol_id_or_container_id].value = NULL;
     }
     protocolconfigurationoptions->num_protocol_id_or_container_id += 1;
+  }
+
+  if (skipped_containers > 0) {
+    LOG_TRACE(WARNING,
+              "PCO: %u container(s) beyond the %d that fit were not decoded",
+              skipped_containers,
+              PROTOCOL_CONFIGURATION_OPTIONS_MAXIMUM_PROTOCOL_ID_OR_CONTAINER_ID);
   }
 
 #if defined (NAS_DEBUG)
