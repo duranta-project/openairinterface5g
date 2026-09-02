@@ -776,6 +776,17 @@ int nr_srs_ls_channel_estimation(int ant,
   uint8_t fd_cdm = N_ap;
   if (N_ap == 4 && ((K_TC == 2 && srs_pdu->cyclic_shift >= 4) || (K_TC == 4 && srs_pdu->cyclic_shift >= 6))) {
     fd_cdm = 2;
+  } else if (N_ap == 8) {
+    if (K_TC == 8) {
+      // n_SRS_cs_max == 6
+      fd_cdm = 2;
+    } else if (K_TC == 4) {
+      // n_SRS_cs_max == 12
+      fd_cdm = 4;
+    } else if (K_TC == 2 && srs_pdu->cyclic_shift >= 4) {
+      // n_SRS_cs_max == 8
+      fd_cdm = 4;
+    }
   }
 
   memset(srs_ls_estimated_channel, 0, ofdm_symbol_size * N_symb_SRS * sizeof(c16_t));
