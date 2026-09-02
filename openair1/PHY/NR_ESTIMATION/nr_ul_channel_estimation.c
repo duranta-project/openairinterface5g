@@ -789,6 +789,8 @@ int nr_srs_ls_channel_estimation(int ant,
     }
   }
 
+  int16_t scale = (N_ap > fd_cdm) ? N_ap / fd_cdm : 1;
+
   memset(srs_ls_estimated_channel, 0, ofdm_symbol_size * N_symb_SRS * sizeof(c16_t));
 
   for (int srs_symb = 0; srs_symb < N_symb_SRS; srs_symb++) {
@@ -820,6 +822,8 @@ int nr_srs_ls_channel_estimation(int ant,
           // Subcarrier increment
           subcarrier_cdm = CIRCULAR_INC(subcarrier_cdm, K_TC, ofdm_symbol_size);
         }
+        // scaling for N_ap > fd_cdm : N_ap/fd_cdm
+        ls_estimated = c16mulRealShift(ls_estimated, scale, 0);
       }
 
       for (int ktc = 0; ktc < K_TC && srs_symbol_offset + subcarrier + ktc < ofdm_symbol_size * N_symb_SRS; ktc++) {
