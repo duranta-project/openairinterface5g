@@ -678,6 +678,8 @@ int nr_srs_ls_channel_estimation(int ant,
   const uint16_t M_sc_b_SRS = m_SRS_b * NR_NB_SC_PER_RB / K_TC;
   uint8_t fd_cdm = get_srs_fd_cdm(N_ap, K_TC, srs_pdu->cyclic_shift);
 
+  int16_t scale = (N_ap > fd_cdm) ? N_ap / fd_cdm : 1;
+
   memset(srs_ls_estimated_channel, 0, ofdm_symbol_size * N_symb_SRS * sizeof(c16_t));
 
   for (int srs_symb = 0; srs_symb < N_symb_SRS; srs_symb++) {
@@ -713,6 +715,8 @@ int nr_srs_ls_channel_estimation(int ant,
           subcarrier_cdm_tx = CIRCULAR_INC(subcarrier_cdm_tx, K_TC, ofdm_symbol_size);
           subcarrier_cdm = subcarrier_cdm + K_TC;
         }
+        // scaling for N_ap > fd_cdm : N_ap/fd_cdm
+        ls_estimated = c16mulRealShift(ls_estimated, scale, 0);
       }
 
       for (int ktc = 0; ktc < K_TC && srs_symbol_offset + subcarrier + ktc < ofdm_symbol_size * N_symb_SRS; ktc++) {
