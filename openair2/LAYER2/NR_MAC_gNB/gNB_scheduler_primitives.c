@@ -2667,12 +2667,51 @@ NR_UE_info_t *find_ra_UE(NR_UEs_t *UEs, rnti_t rntiP)
   return NULL;
 }
 
-static void reset_srs_periodic_info(nr_cell_sched_t *cell, NR_sched_srs_t *sched_srs)
+NR_UE_info_t **get_periodic_ue(periodic_ue_sched_t *p, int ul_idx, int index)
 {
-  if (cell->period_srs_sched && sched_srs->periodic_sched.periodic_offset >= 0) {
-    cell->period_srs_sched[sched_srs->periodic_sched.periodic_offset] = NULL;
-    sched_srs->periodic_sched.periodic_offset = -1;
+  return &p->list[ul_idx * p->max_ue_per_slot + index];
+}
+
+static void reset_periodic_info(nr_cell_sched_t *cell, NR_UE_info_t *UE, nr_periodic_channel_t channel)
+{
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  switch (channel) {
+    case SRS:
+      if (cell->periodic_srs_config.list && sched_ctrl->sched_srs.periodic_sched.periodic_offset >= 0) {
+        for (int i = 0; i < cell->periodic_srs_config.max_ue_per_slot; i++) {
+          if (*get_periodic_ue(&cell->periodic_srs_config, sched_ctrl->sched_srs.periodic_sched.periodic_offset, i) != UE)
+            continue;
+          *get_periodic_ue(&cell->periodic_srs_config, sched_ctrl->sched_srs.periodic_sched.periodic_offset, i) = NULL;
+          sched_ctrl->sched_srs.periodic_sched.periodic_offset = -1;
+          return;
+        }
+      }
+      break;
+    default:
+      AssertFatal(false, "Periodic channel handling not implemented\n");
   }
+}
+
+static void set_periodic_info(nr_cell_sched_t *cell, NR_UE_info_t *UE, nr_periodic_channel_t channel, int offset)
+{
+  AssertFatal(offset >= 0, "Invalid slot offset for periodic information %d\n", offset);
+  const frame_structure_t *fs = &cell->frame_structure;
+  switch (channel) {
+    case SRS:
+      AssertFatal(offset < cell->periodic_srs_config.max_period, "SRS offset not compatible with periodicity\n");
+      int idx = get_ul_period_idx_from_abs_slot(fs, offset, false, cell->periodic_srs_config.max_period);
+      for (int i = 0; i < cell->periodic_srs_config.max_ue_per_slot; i++) {
+        if (*get_periodic_ue(&cell->periodic_srs_config, idx, i) != NULL)
+          continue;
+        *get_periodic_ue(&cell->periodic_srs_config, idx, i) = UE;
+        UE->UE_sched_ctrl.sched_srs.periodic_sched.periodic_offset = idx;
+        return;
+      }
+      break;
+    default:
+      AssertFatal(false, "Periodic channel handling not implemented\n");
+  }
+  AssertFatal(false, "no free SRS slot at offset %d\n", offset);
 }
 
 void delete_nr_ue_data(gNB_MAC_INST *mac, NR_UE_info_t *UE)
@@ -2681,7 +2720,7 @@ void delete_nr_ue_data(gNB_MAC_INST *mac, NR_UE_info_t *UE)
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
   ASN_STRUCT_FREE(asn_DEF_NR_UE_NR_Capability, UE->capability);
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
-  reset_srs_periodic_info(UE->pcell, &sched_ctrl->sched_srs);
+  reset_periodic_info(UE->pcell, UE, SRS);
   seq_arr_free(&sched_ctrl->lc_config, NULL);
   destroy_nr_list(&sched_ctrl->available_dl_harq);
   destroy_nr_list(&sched_ctrl->feedback_dl_harq);
@@ -2883,7 +2922,7 @@ static void configure_sched_srs(nr_cell_sched_t *cell, NR_SRS_Config_t *srs_conf
   nr_srs_type_t srs_type = cell->radio_config.do_SRS;
   if (!srs_config || srs_type == NO_SRS) {
     sched_srs->srs_resource = NULL;
-    reset_srs_periodic_info(cell, sched_srs);
+    reset_periodic_info(cell, UE, SRS);
     return;
   }
 
@@ -2923,9 +2962,8 @@ static void configure_sched_srs(nr_cell_sched_t *cell, NR_SRS_Config_t *srs_conf
   AssertFatal(srs_resource, "Couldn't find %s SRS resource\n", srs_type == PERIODIC_SRS ? "periodic" : "aperiodic");
   sched_srs->srs_resource = srs_resource;
   if (srs_type == PERIODIC_SRS) {
-    sched_srs->periodic_sched.periodic_offset = get_nr_srs_offset(srs_resource->resourceType.choice.periodic->periodicityAndOffset_p);
-    DevAssert(sched_srs->periodic_sched.periodic_offset >= 0);
-    cell->period_srs_sched[sched_srs->periodic_sched.periodic_offset] = UE;
+    int slot_offset = get_nr_srs_offset(srs_resource->resourceType.choice.periodic->periodicityAndOffset_p);
+    set_periodic_info(cell, UE, SRS, slot_offset);
   }
 }
 

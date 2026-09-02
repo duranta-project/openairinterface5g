@@ -592,7 +592,7 @@ static bool nr_fill_nfapi_srs(gNB_MAC_INST *nrmac,
 *********************************************************************/
 void nr_schedule_periodic_srs(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frame, int slot)
  {
-  if (!cell->period_srs_sched)
+  if (!cell->periodic_srs_config.list)
     return;
 
   // we are sheduling SRS max_k2 slot in advance for the presence of SRS to be taken into account when scheduling PUSCH
@@ -601,19 +601,19 @@ void nr_schedule_periodic_srs(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_
   const int sched_slot = (slot + n_ahead) % n_slots_frame;
   const int sched_frame = (frame + (slot + n_ahead) / n_slots_frame) % MAX_FRAME_NUMBER;
   int abs_slot = sched_frame * n_slots_frame + sched_slot;
-  int offset = abs_slot % cell->srs_period;
+  int idx = get_ul_period_idx_from_abs_slot(&cell->frame_structure, abs_slot, false, cell->periodic_srs_config.max_period);
 
-  NR_UE_info_t *UE = cell->period_srs_sched[offset];
-  if (UE) {
-    if (!nr_mac_ue_is_active(UE) && !get_softmodem_params()->phy_test)
-      return;
+  for (int i = 0; i < cell->periodic_srs_config.max_ue_per_slot; i++) {
+    NR_UE_info_t *UE = *get_periodic_ue(&cell->periodic_srs_config, idx, i);
+    if (!UE || (!nr_mac_ue_is_active(UE) && !get_softmodem_params()->phy_test))
+      continue;
     bool ret = nr_fill_nfapi_srs(nrmac, cell, UE, sched_frame, sched_slot, &UE->UE_sched_ctrl.sched_srs);
     AssertFatal(ret, "Cannot allocate periodic SRS\n");
     LOG_D(NR_MAC," %d.%d Scheduling SRS reception for %d.%d\n", frame, slot, sched_frame, sched_slot);
   }
 }
 
-bool nr_schedule_aperiodic_srs(gNB_MAC_INST *nrmac,nr_cell_sched_t *cell, NR_UE_info_t *UE, int sched_frame, int sched_slot, int k2, int sched_srs)
+bool nr_schedule_aperiodic_srs(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_UE_info_t *UE, int sched_frame, int sched_slot, int k2, int sched_srs)
 {
   NR_UE_UL_BWP_t *current_BWP = &UE->current_UL_BWP;
   NR_SRS_Config_t *srs_config = current_BWP->srs_Config;

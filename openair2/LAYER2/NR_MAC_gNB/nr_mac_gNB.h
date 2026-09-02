@@ -1230,6 +1230,12 @@ typedef struct NR_du_stats {
 } NR_du_stats_t;
 
 typedef struct {
+  NR_UE_info_t **list;
+  int max_period; // common multiple of periodicities sharing the table
+  int max_ue_per_slot; // UE capacity per slot instance
+} periodic_ue_sched_t;
+
+typedef struct {
   bool active;
   f1ap_positioning_measurement_req_t meas_req;
 } positioning_measurement_info_t;
@@ -1304,8 +1310,7 @@ typedef struct nr_cell_sched_s {
   NR_Type0_PDCCH_CSS_config_t type0_PDCCH_CSS_config[MAX_NUM_OF_SSB];
   bool first_MIB;
   NR_sched_pdsch_t sib1_pdsch[MAX_NUM_OF_SSB];
-  NR_UE_info_t **period_srs_sched;
-  int srs_period;
+  periodic_ue_sched_t periodic_srs_config;
 
   /// Dedicated UL TDA list, built from frame_structure at config time
   seq_arr_t ul_tda;
