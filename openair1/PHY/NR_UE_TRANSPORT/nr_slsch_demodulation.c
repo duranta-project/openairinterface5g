@@ -605,7 +605,8 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
   uint32_t bwp_start = 0;
   uint32_t rnti = 0;
 
-  uint32_t rb_size                   = pssch_pdu->num_subch * pssch_pdu->subchannel_size;
+  // num_subch is the resource-pool width; l_subch is the SCI-signalled grant.
+  uint32_t rb_size = pssch_pdu->l_subch * pssch_pdu->subchannel_size;
   uint32_t qam_mod_order             = pssch_pdu->mod_order;
   uint32_t start_symbol_index        = 1;
   uint32_t nr_of_symbols             = pssch_pdu->pssch_numsym;
