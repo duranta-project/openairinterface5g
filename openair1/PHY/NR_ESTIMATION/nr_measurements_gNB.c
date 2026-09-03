@@ -114,12 +114,6 @@ void dump_nr_I0_stats(FILE *fd, PHY_VARS_gNB *gNB)
           min_I0,
           amin,
           gNB->measurements.n0_subband_power_avg_dB);
-  if (gNB->frame_parms.nb_antennas_rx > 1) {
-    fprintf(fd, "(");
-    for (int aarx = 0; aarx < gNB->frame_parms.nb_antennas_rx; aarx++)
-      fprintf(fd, "%d.", gNB->measurements.n0_subband_power_avg_perANT_dB[aarx]);
-    fprintf(fd, ")");
-  }
   fprintf(fd, "\nPRACH I0 = %d.%d dB\n", gNB->measurements.prach_I0 / 10, gNB->measurements.prach_I0 % 10);
 }
 
@@ -195,7 +189,6 @@ void gNB_I0_measurements(PHY_VARS_gNB *gNB, int slot, int first_symb, int num_sy
   if (nb_rb>0) {
     int64_t n0_subband_tot = 0;
     for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
-      measurements->n0_subband_power_avg_perANT_dB[aarx] = dB_fixed(n0_subband_tot_perANT[aarx] / nb_rb);
       n0_subband_tot += n0_subband_tot_perANT[aarx];
     }
     measurements->n0_subband_power_avg_dB = dB_fixed(n0_subband_tot / nb_rb);
