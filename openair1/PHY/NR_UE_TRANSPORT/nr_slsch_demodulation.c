@@ -900,7 +900,9 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
 	     sci2_cnt_thissymb=available_sci2_res_in_symb;
 	  }
 	  else { // we finish SCI2 off here
-	       memcpy(&sci2_llrs[2*sci2_cnt_prev],&pusch_vars->rxdataF_comp[0][(symbol * (off + rb_size * NR_NB_SC_PER_RB))+sci1_re_per_symb],
+      // No SCI-1 RE offset is present after the PSCCH symbols.
+      memcpy(&sci2_llrs[2 * sci2_cnt_prev],
+             &pusch_vars->rxdataF_comp[0][(symbol * (off + rb_size * NR_NB_SC_PER_RB)) + sci1_offset],
 			         sci2_left*sizeof(int32_t));
 	       slsch_res_in_symbol=available_sci2_res_in_symb-sci2_left;
 	       LOG_D(NR_PHY, "SCI2 taking %d REs, SLSCH taking %d\n", sci2_left, slsch_res_in_symbol);
@@ -917,7 +919,8 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
 	       // used the PDCCH init (1010<<16)+Nid and only sci2_re values -- both wrong.)
 	       memcpy(unscrambled_sci2_llrs, sci2_llrs, sizeof(int16_t) * sci2_re * 2);
 	       nr_codeword_unscrambling(unscrambled_sci2_llrs, sci2_re * 2, 0, 1010, pssch_pdu->Nid);
-	  //     for (int i=0;i<sci2_re;i++) LOG_I(NR_PHY,"sci2_llrs [%d] %d,%d\n",i,unscrambled_sci2_llrs[i<<1],unscrambled_sci2_llrs[1+(i<<1)]);
+      //     for (int i=0;i<sci2_re;i++) LOG_I(NR_PHY,"sci2_llrs [%d]
+      //     %d,%d\n",i,unscrambled_sci2_llrs[i<<1],unscrambled_sci2_llrs[1+(i<<1)]);
 
 	       uint64_t sci_estimation[2]={0};
 	       uint16_t dummy;
