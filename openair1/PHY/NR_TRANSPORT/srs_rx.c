@@ -89,9 +89,9 @@ int nr_get_srs_signal(PHY_VARS_gNB *gNB,
   nr_srs_info->srs_noise_num_phases = num_noise_phases;
 
   if (num_noise_phases == 0)
-    LOG_W(NR_PHY,
-          "SRS UE %04x: all %d comb phases occupied by the %d ports, no noise-only subcarrier available: "
-          "noise and SNR estimates are not valid\n",
+    LOG_D(NR_PHY,
+          "SRS UE %04x: all %d comb phases occupied by the %d ports, no noise-only subcarrier in the SRS "
+          "band: the noise measured on the unallocated resource blocks of the slot is used instead\n",
           srs_pdu->rnti,
           K_TC,
           N_ap);

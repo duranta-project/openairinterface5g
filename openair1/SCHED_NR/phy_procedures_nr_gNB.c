@@ -797,11 +797,22 @@ nr_srs_info_t nr_srs_rx_procedures(PHY_VARS_gNB *gNB,
     }
 
     noise_power_avg /= nb_antennas_rx;
-    *snr = dB_fixed(signal_power_avg) - dB_fixed(max(noise_power_avg, 1));
 
     const uint16_t m_SRS_b = get_m_srs(srs_pdu->config_index, srs_pdu->bandwidth_index);
+
+    int noise_power_avg_dB = dB_fixed(max(noise_power_avg, 1));
+
+    // noise power in the case of no empty subcarriers
+    if (nr_srs_info.srs_noise_num_phases == 0) {
+      noise_power_avg_dB = gNB->measurements.n0_subband_power_avg_dB - dB_fixed(nb_antennas_rx);
+    }
+
+    *snr = dB_fixed(signal_power_avg) - noise_power_avg_dB;
+
     for (int rb = 0; rb < m_SRS_b; rb++) {
-      snr_per_rb[rb] = dB_fixed(signal_power_avg) - dB_fixed(max(noise_power_per_rb[rb] / nb_antennas_rx, 1));
+      snr_per_rb[rb] = nr_srs_info.srs_noise_num_phases == 0
+                           ? *snr
+                           : dB_fixed(signal_power_avg) - dB_fixed(max(noise_power_per_rb[rb] / nb_antennas_rx, 1));
     }
     stop_meas(&gNB->srs_channel_estimation_stats);
 
