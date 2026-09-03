@@ -1311,8 +1311,13 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
       case SL_SCH_LCID_SL_INTER_UE_COORD_REQ:
       case SL_SCH_LCID_SL_INTER_UE_COORD_INFO:
       case SL_SCH_LCID_SL_DRX_CMD:
-	      LOG_W(NR_MAC,"Received unsupported SL LCID %d\n",rx_lcid);
-	      return;
+      default:
+        // TS 38.321 Table 6.2.4-1 assigns the SL-SCH LCID values. This
+        // integration cannot determine the size of unsupported sub-PDUs, so
+        // stop before payload bytes can be interpreted as another subheader.
+        LOG_W(NR_MAC, "%4d.%2d Unsupported SL-SCH LCID %d; discarding remaining PDU\n", frame, slot, rx_lcid);
+        mac_len = pdu_len - mac_subheader_len;
+        done = 1;
 	      break;
     }
     pduP += ( mac_subheader_len + mac_len );
