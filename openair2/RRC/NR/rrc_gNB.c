@@ -499,14 +499,6 @@ NR_DRB_ToAddModList_t *createDRBlist(gNB_RRC_UE_t *ue, bool reestablish, bool do
       continue;
     }
     pdusession_t *session = &pduSession->param;
-    NR_DRB_ToAddMod_t *drb_ToAddMod = calloc_or_fail(1, sizeof(*drb_ToAddMod));
-    drb_ToAddMod->drb_Identity = drb->drb_id;
-    // PDCP config
-    drb_ToAddMod->pdcp_Config = nr_rrc_build_pdcp_config_ie(do_integrity, do_ciphering, &drb->pdcp_config);
-    if (reestablish) {
-      asn1cCallocOne(drb_ToAddMod->reestablishPDCP, NR_DRB_ToAddMod__reestablishPDCP_true);
-    }
-    // cn-association: SDAP config
     // Get all QoS flows mapped to this DRB
     pdusession_level_qos_parameter_t flows_to_add[MAX_QOS_FLOWS] = {0};
     uint8_t n_flows = 0;
@@ -517,6 +509,24 @@ NR_DRB_ToAddModList_t *createDRBlist(gNB_RRC_UE_t *ue, bool reestablish, bool do
         flows_to_add[n_flows++] = q->qos;
       }
     }
+    /* A DRB that no QoS flow maps to any more is on its way out: a session
+       modification took its last flow and it is erased once that modification
+       completes. It must not be announced here. TS 38.331 constrains
+       SDAP-Config's mappedQoS-FlowsToAdd to SIZE(1..maxNrofQFIs), so there is
+       no encoding for such a DRB, and asking the UE to add a bearer nothing
+       can be sent on has no meaning to begin with. */
+    if (n_flows == 0) {
+      LOG_D(NR_RRC, "DRB %d has no QoS flow mapped to it, skip\n", drb->drb_id);
+      continue;
+    }
+    NR_DRB_ToAddMod_t *drb_ToAddMod = calloc_or_fail(1, sizeof(*drb_ToAddMod));
+    drb_ToAddMod->drb_Identity = drb->drb_id;
+    // PDCP config
+    drb_ToAddMod->pdcp_Config = nr_rrc_build_pdcp_config_ie(do_integrity, do_ciphering, &drb->pdcp_config);
+    if (reestablish) {
+      asn1cCallocOne(drb_ToAddMod->reestablishPDCP, NR_DRB_ToAddMod__reestablishPDCP_true);
+    }
+    // cn-association: SDAP config
     asn1cCalloc(drb_ToAddMod->cnAssociation, cn_association);
     cn_association->present = NR_DRB_ToAddMod__cnAssociation_PR_sdap_Config;
     nr_sdap_configuration_t *sdap = &session->sdap_config;
