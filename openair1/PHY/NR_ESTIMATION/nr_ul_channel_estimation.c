@@ -776,7 +776,20 @@ int nr_srs_ls_channel_estimation(int ant,
   uint8_t fd_cdm = N_ap;
   if (N_ap == 4 && ((K_TC == 2 && srs_pdu->cyclic_shift >= 4) || (K_TC == 4 && srs_pdu->cyclic_shift >= 6))) {
     fd_cdm = 2;
+  } else if (N_ap == 8) {
+    if (K_TC == 8) {
+      // n_SRS_cs_max == 6
+      fd_cdm = 2;
+    } else if (K_TC == 4) {
+      // n_SRS_cs_max == 12
+      fd_cdm = 4;
+    } else if (K_TC == 2 && srs_pdu->cyclic_shift >= 4) {
+      // n_SRS_cs_max == 8
+      fd_cdm = 4;
+    }
   }
+
+  int16_t scale = (N_ap > fd_cdm) ? N_ap / fd_cdm : 1;
 
   memset(srs_ls_estimated_channel, 0, ofdm_symbol_size * N_symb_SRS * sizeof(c16_t));
 
@@ -809,6 +822,8 @@ int nr_srs_ls_channel_estimation(int ant,
           // Subcarrier increment
           subcarrier_cdm = CIRCULAR_INC(subcarrier_cdm, K_TC, ofdm_symbol_size);
         }
+        // scaling for N_ap > fd_cdm : N_ap/fd_cdm
+        ls_estimated = c16mulRealShift(ls_estimated, scale, 0);
       }
 
       for (int ktc = 0; ktc < K_TC && srs_symbol_offset + subcarrier + ktc < ofdm_symbol_size * N_symb_SRS; ktc++) {
@@ -863,29 +878,37 @@ void nr_srs_noise_power_estimation(uint16_t ofdm_symbol_size,
   const uint16_t m_SRS_b = get_m_srs(srs_pdu->config_index, srs_pdu->bandwidth_index);
   int tot_subcarriers = m_SRS_b * NR_NB_SC_PER_RB;
 
+  const uint8_t K_TC = 2 << srs_pdu->comb_size;
+  const uint8_t num_noise_phases = nr_srs_info->srs_noise_num_phases;
+
+  // This is for the case for N_ap = 4/8, cs >=4 and K_TC = 2
+  if (num_noise_phases == 0) {
+    return;
+  }
+
   uint16_t subcarrier = CIRCULAR_INC(subcarrier_offset + nr_srs_info->k_0_p[0][0], 0, ofdm_symbol_size);
 
   if (subcarrier + tot_subcarriers < ofdm_symbol_size) {
-    *noise_power = signal_energy_nodc(&srs_received_noise[subcarrier], tot_subcarriers) / tot_subcarriers;
+    *noise_power = signal_energy_nodc(&srs_received_noise[subcarrier], tot_subcarriers) * K_TC / num_noise_phases;
   } else {
     int size1 = ofdm_symbol_size - subcarrier;
     int size2 = tot_subcarriers - size1;
     uint64_t noise_power_p1 = signal_energy_nodc(&srs_received_noise[subcarrier], size1) * size1;
     uint64_t noise_power_p2 = signal_energy_nodc(&srs_received_noise[0], size2) * size2;
-    *noise_power = (noise_power_p1 + noise_power_p2) / tot_subcarriers;
+    *noise_power = (noise_power_p1 + noise_power_p2) * K_TC / num_noise_phases / tot_subcarriers;
   }
 
   // Compute SNR per RB on symbol 0
   subcarrier = CIRCULAR_INC(subcarrier_offset + nr_srs_info->k_0_p[0][0], 0, ofdm_symbol_size);
   for (int rb = 0; rb < m_SRS_b; rb++) {
     if (subcarrier + NR_NB_SC_PER_RB < ofdm_symbol_size) {
-      noise_power_per_rb[rb] += signal_energy_nodc(&srs_received_noise[subcarrier], NR_NB_SC_PER_RB);
+      noise_power_per_rb[rb] += signal_energy_nodc(&srs_received_noise[subcarrier], NR_NB_SC_PER_RB) * K_TC / num_noise_phases;
     } else {
       int size1 = ofdm_symbol_size - subcarrier;
       int size2 = NR_NB_SC_PER_RB - size1;
       uint32_t noise_power_per_rb1 = signal_energy_nodc(&srs_received_noise[subcarrier], size1) * size1;
       uint32_t noise_power_per_rb2 = signal_energy_nodc(&srs_received_noise[0], size2) * size2;
-      noise_power_per_rb[rb] += (noise_power_per_rb1 + noise_power_per_rb2) / NR_NB_SC_PER_RB;
+      noise_power_per_rb[rb] += (noise_power_per_rb1 + noise_power_per_rb2) * K_TC / num_noise_phases / NR_NB_SC_PER_RB;
     }
     noise_power_per_rb[rb] = max(noise_power_per_rb[rb], 1);
     subcarrier = CIRCULAR_INC(subcarrier, NR_NB_SC_PER_RB, ofdm_symbol_size);
@@ -1083,8 +1106,16 @@ int nr_srs_channel_interpolation(int p_index,
 
   // Compute wideband SNR on the symbol 0
   int tot_subcarriers = m_SRS_b * NR_NB_SC_PER_RB;
-  uint16_t subcarrier_abs = first_subcarrier + nr_srs_info->k_0_p[p_index][0];
-  *signal_power = signal_energy_nodc(&srs_estimated_channel_freq[subcarrier_abs], tot_subcarriers);
+  uint16_t subcarrier_abs = CIRCULAR_INC(subcarrier_offset + nr_srs_info->k_0_p[p_index][0], 0, ofdm_symbol_size);
+  if (subcarrier_abs + tot_subcarriers < ofdm_symbol_size) {
+    *signal_power = signal_energy_nodc(&srs_ls_estimated_channel[subcarrier_abs], tot_subcarriers);
+  } else {
+    int size1 = ofdm_symbol_size - subcarrier_abs;
+    int size2 = tot_subcarriers - size1;
+    uint64_t signal_power_p1 = (uint64_t)signal_energy_nodc(&srs_ls_estimated_channel[subcarrier_abs], size1) * size1;
+    uint64_t signal_power_p2 = (uint64_t)signal_energy_nodc(&srs_ls_estimated_channel[0], size2) * size2;
+    *signal_power = (signal_power_p1 + signal_power_p2) / tot_subcarriers;
+  }
 
   if (*signal_power == 0) {
     LOG_W(NR_PHY, "Received SRS signal power is 0\n");

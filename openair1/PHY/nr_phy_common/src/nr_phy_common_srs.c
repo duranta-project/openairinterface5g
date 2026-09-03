@@ -219,7 +219,15 @@ bool generate_srs_nr(const NR_DL_FRAME_PARMS *frame_parms,
     LOG_I(NR_PHY,"============ port %d ============\n", p_index);
 #endif
 
-    uint16_t n_SRS_cs_i = (nr_srs_info->n_SRS_cs + (n_SRS_cs_max * (SRS_antenna_port[p_index] - 1000) / N_ap)) % n_SRS_cs_max;
+    // 38.211 Release 18 : 6.4.1.4.1
+    uint16_t n_SRS_cs_i = 0;
+    if ((N_ap == 8) && (n_SRS_cs_max == 6)) {
+      n_SRS_cs_i = (nr_srs_info->n_SRS_cs + (n_SRS_cs_max * (SRS_antenna_port[p_index] - 1000) / 4) / 2) % n_SRS_cs_max;
+    } else if (((N_ap == 4) && (n_SRS_cs_max == 6)) || ((N_ap == 8) && (n_SRS_cs_max == 12))) {
+      n_SRS_cs_i = (nr_srs_info->n_SRS_cs + (n_SRS_cs_max * (SRS_antenna_port[p_index] - 1000) / 2) / (N_ap / 2)) % n_SRS_cs_max;
+    } else {
+      n_SRS_cs_i = (nr_srs_info->n_SRS_cs + (n_SRS_cs_max * (SRS_antenna_port[p_index] - 1000)) / N_ap) % n_SRS_cs_max;
+    }
     double alpha_i = 2 * M_PI * ((double)n_SRS_cs_i / (double)n_SRS_cs_max);
 
 #ifdef SRS_DEBUG
@@ -273,11 +281,32 @@ bool generate_srs_nr(const NR_DL_FRAME_PARMS *frame_parms,
 #endif
 
       // Compute the frequency-domain starting position
+      // 38.211 Release 18 : 6.4.1.4.3
       uint8_t K_TC_p = 0;
-      if((nr_srs_info->n_SRS_cs >= n_SRS_cs_max / 2)
-         && (nr_srs_info->n_SRS_cs < n_SRS_cs_max)
-         && (N_ap == 4)
-         && ((SRS_antenna_port[p_index] == 1001) || (SRS_antenna_port[p_index] == 1003))) {
+      if ((N_ap == 8) && ((SRS_antenna_port[p_index] == 1003) || (SRS_antenna_port[p_index] == 1007)) && (n_SRS_cs_max == 6)) {
+        K_TC_p = (nr_srs_info->K_TC_overbar + 3 * K_TC / 4) % K_TC;
+      } else if ((N_ap == 8) && ((SRS_antenna_port[p_index] == 1002) || (SRS_antenna_port[p_index] == 1006))
+                 && (n_SRS_cs_max == 6)) {
+        K_TC_p = (nr_srs_info->K_TC_overbar + K_TC / 2) % K_TC;
+      } else if ((N_ap == 8) && ((SRS_antenna_port[p_index] == 1001) || (SRS_antenna_port[p_index] == 1005))
+                 && (n_SRS_cs_max == 6)) {
+        K_TC_p = (nr_srs_info->K_TC_overbar + K_TC / 4) % K_TC;
+      } else if ((N_ap == 8)
+                 && ((SRS_antenna_port[p_index] == 1001) || (SRS_antenna_port[p_index] == 1003)
+                     || (SRS_antenna_port[p_index] == 1005) || (SRS_antenna_port[p_index] == 1007))
+                 && (n_SRS_cs_max == 12)) {
+        K_TC_p = (nr_srs_info->K_TC_overbar + K_TC / 2) % K_TC;
+      } else if ((N_ap == 8)
+                 && ((SRS_antenna_port[p_index] == 1001) || (SRS_antenna_port[p_index] == 1003)
+                     || (SRS_antenna_port[p_index] == 1005) || (SRS_antenna_port[p_index] == 1007))
+                 && (n_SRS_cs_max == 8) && (nr_srs_info->n_SRS_cs >= n_SRS_cs_max / 2) && (nr_srs_info->n_SRS_cs < n_SRS_cs_max)) {
+        K_TC_p = (nr_srs_info->K_TC_overbar + K_TC / 2) % K_TC;
+      } else if ((N_ap == 4) && ((SRS_antenna_port[p_index] == 1001) || (SRS_antenna_port[p_index] == 1003))
+                 && (n_SRS_cs_max == 6)) {
+        K_TC_p = (nr_srs_info->K_TC_overbar + K_TC / 2) % K_TC;
+      } else if ((nr_srs_info->n_SRS_cs >= n_SRS_cs_max / 2) && (nr_srs_info->n_SRS_cs < n_SRS_cs_max) && (N_ap == 4)
+                 && ((SRS_antenna_port[p_index] == 1001) || (SRS_antenna_port[p_index] == 1003))
+                 && ((n_SRS_cs_max == 8) || (n_SRS_cs_max == 12))) {
         K_TC_p = (nr_srs_info->K_TC_overbar + K_TC / 2) % K_TC;
       } else {
         K_TC_p = nr_srs_info->K_TC_overbar;
