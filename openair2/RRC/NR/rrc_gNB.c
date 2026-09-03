@@ -942,6 +942,28 @@ nr_rrc_reconfig_param_t get_RRCReconfiguration_params(gNB_RRC_INST *rrc, gNB_RRC
         }
       }
     }
+    /* A modification that took the last QoS flow off a DRB releases it, so the
+       UE is told in the same drb-ToReleaseList a session release would use.
+       createDRBlist() leaves such a DRB out of drb-ToAddModList, so the two
+       lists stay disjoint as TS 38.331 requires. */
+    if (item->status == PDU_SESSION_STATUS_TOMODIFY) {
+      int released[MAX_DRBS_PER_UE];
+      int n = nr_rrc_collect_released_drbs(&UE->drbs, item, released);
+      for (int i = 0; i < n; i++) {
+        if (params.n_drb_rel >= MAX_DRBS_PER_UE) {
+          LOG_E(NR_RRC, "UE %d: Too many DRBs to release (max %d)\n", UE->rrc_ue_id, MAX_DRBS_PER_UE);
+          break;
+        }
+        if (!params.drb_rel)
+          params.drb_rel = calloc_or_fail(MAX_DRBS_PER_UE, sizeof(int));
+        params.drb_rel[params.n_drb_rel++] = released[i];
+        LOG_I(NR_RRC,
+              "UE %d: releasing DRB %d towards the UE, PDU session %d modification left it with no QoS flow\n",
+              UE->rrc_ue_id,
+              released[i],
+              session->pdusession_id);
+      }
+    }
   }
 
   if (UE->nas_pdu.len > 0) {
