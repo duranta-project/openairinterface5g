@@ -960,12 +960,15 @@ nr_rrc_reconfig_param_t get_RRCReconfiguration_params(gNB_RRC_INST *rrc, gNB_RRC
       session->nas_pdu.len = 0;
       LOG_D(NR_RRC, "Transfer NAS info with size %ld to RRCReconfiguration params\n", session->nas_pdu.len);
     }
-    // Collect DRBs to release for PDU sessions marked for release
-    if (item->status == PDU_SESSION_STATUS_TORELEASE || item->status == PDU_SESSION_STATUS_NOTIFYONRELEASE) {
+    // Collect DRBs to release: all DRBs of a session to release, DRBs left with no QoS flow of a session to modify
+    if (item->status == PDU_SESSION_STATUS_TORELEASE || item->status == PDU_SESSION_STATUS_NOTIFYONRELEASE
+        || item->status == PDU_SESSION_STATUS_TOMODIFY) {
       if (!params.drb_rel)
         params.drb_rel = calloc_or_fail(MAX_DRBS_PER_UE, sizeof(int));
       FOR_EACH_SEQ_ARR (drb_t *, drb, &UE->drbs) {
         if (drb->pdusession_id == session->pdusession_id) {
+          if (item->status == PDU_SESSION_STATUS_TOMODIFY && nr_rrc_drb_has_qos_flow(item, drb->drb_id))
+            continue;
           if (params.n_drb_rel >= MAX_DRBS_PER_UE) {
             LOG_E(NR_RRC, "UE %d: Too many DRBs to release (max %d)\n", UE->rrc_ue_id, MAX_DRBS_PER_UE);
             break;
