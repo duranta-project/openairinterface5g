@@ -23,7 +23,7 @@
     <class>Build_eNB</class>
     <desc>Build gNB (USRP)</desc>
     <node>caracal</node>
-    <Build_eNB_args>--gNB -w USRP --ninja -c -P --build-lib ldpc_aal --cmake-opt -DASN1C_EXEC=/opt/asn1c/bin/asn1c --cmake-opt -DPHYSIM_CHECK_FILES="ThresholdsOffload.cmake"</Build_eNB_args>
+    <Build_eNB_args>--gNB -w USRP --ninja -c -P --build-lib "ldpc_aal ldpc_ors" --cmake-opt -DASN1C_EXEC=/opt/asn1c/bin/asn1c --cmake-opt -DPHYSIM_CHECK_FILES="ThresholdsOffload.cmake\;ThresholdsOrsOffload.cmake"</Build_eNB_args>
   </testCase>
 
 </testCaseList>

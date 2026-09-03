@@ -43,6 +43,7 @@ The below hardware can support USRPs, 7.2 FR1 or FR2 O-RUs.
 |Intel ACC100               |
 |Intel ACC200               |
 |AMD Xilinx T2 Telco Card   |
+|ORS Aurora                 |
 
 ## List of supported operating systems
 

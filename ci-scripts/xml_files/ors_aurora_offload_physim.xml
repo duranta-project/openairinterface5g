@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>test-t2-offload-enc-dec</htmlTabRef>
-  <htmlTabName>Test T2 Offload</htmlTabName>
+  <htmlTabRef>test-ors-aurora-offload</htmlTabRef>
+  <htmlTabName>Test Aurora LDPC Offload</htmlTabName>
   <htmlTabIcon>tasks</htmlTabIcon>
 
   <testCase>
@@ -14,10 +14,10 @@
 
   <testCase>
     <class>Build_Deploy_PhySim</class>
-    <desc>Build and Deploy PhySim T2 Offload tests</desc>
+    <desc>Deploy PhySim Aurora offload tests</desc>
     <script>scripts/source-deploy-physims.sh</script>
     <node>caracal</node>
-    <ctest-opt>-R '5g-offload.*(T2|CPU)' -j1</ctest-opt>
+    <ctest-opt>-R 5g-offload.*Aurora -j1</ctest-opt>
   </testCase>
 
   <testCase>

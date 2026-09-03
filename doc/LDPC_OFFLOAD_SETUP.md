@@ -6,7 +6,7 @@
 
 [[_TOC_]]
 
-This documentation describes the integration of LDPC coding for lookaside acceleration using O-RAN AAL/DPDK BBDEV in OAI, along with its usage.
+This section describes the integration of LDPC coding for lookaside acceleration using O-RAN AAL/DPDK BBDEV in OAI, along with its usage.
 For details on the implementation, please consult the [developer notes](../openair1/PHY/CODING/nrLDPC_coding/nrLDPC_coding_aal/README.md).
 
 ## Requirements
@@ -402,4 +402,98 @@ L1s = (
 }
 );
 ...
+```
+
+# OAI LDPC offload (Aurora)
+
+This section describes the integration of LDPC decoding for lookaside acceleration using Aurora from [Open Radio Systems GmbH](https://openradiosystems.com/) in OAI, along with its usage.
+
+The implementation of the LDPC offload library can be found [here](../openair1/PHY/CODING/nrLDPC_coding/nrLDPC_coding_ors/). 
+
+## Requirements
+
+### Supported HW
+This LDPC offloading implementation just support the ORS [Aurora](https://openradiosystems.com/orsaurora.pdf) card. 
+The host system needs a PCIe slot with at least Gen3 and 8 lanes.
+
+### XDMA driver
+The XDMA kernel driver is required for host communication with the Aurora card. The recommended XDMA version can be found [here](https://github.com/openradiosystems/dma_ip_drivers/tree/reworked_xdma_main). It provided better performance than the original driver. The original driver can still be used and it can be found [here](https://github.com/Xilinx/dma_ip_drivers).
+
+## Building and Installing
+
+This Offloading has been tested with Ubuntu 22.04, Ubuntu 24.04, Debian 13 and RHEL 9.1.
+For RHEL 9.1 the optimized XDMA driver ([here](https://github.com/openradiosystems/dma_ip_drivers)) is required.
+
+### XDMA driver
+To build and install the driver:
+```bash
+git clone https://github.com/openradiosystems/dma_ip_drivers
+cd dma_ip_drivers/XDMA/linux-kernel/xdma
+make POLLING=1
+
+# installs the driver/not required
+sudo make install
+
+# loads the driver
+sudo modprobe ./xdma.ko
+```
+
+If the driver is loaded, with `ls /dev/xdma*` the following devices are appearing:
+
+* /dev/xdma0_h2c_0
+* /dev/xdma0_c2h_0
+* /dev/xdma0_user
+
+
+Optionally: You can add a udev rule in order to make device accessible for user but this is not required and root can still access it.
+The `DEVICE_ID` and `VENDOR_ID` needs to be get with `lspci -nn`:
+```Bash
+lspci -nn
+>...
+> 02:00.0 Serial controller [0700]: Xilinx Corporation Device [DEVICE_ID:VENDOR_ID]
+>...
+
+echo "SUBSYSTEM==\"xdma\", ATTRS{device}==\"0x<DEVICE_ID>\", ATTRS{vendor}==\"0x<VENDOR_ID>\" MODE=\"0666\"" | sudo tee /etc/udev/rules.d/99-aurora.rules > /dev/null 
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+### Compiling OAI
+
+```bash
+# Get openairinterface5g source code
+git clone https://github.com/duranta-project/openairinterface5g.git ~/openairinterface5g
+cd ~/openairinterface5g
+git checkout develop
+
+# Install OAI dependencies
+cd ~/openairinterface5g/cmake_targets
+./build_oai -I
+
+# Build OAI gNB
+cd ~/openairinterface5g
+source oaienv
+cd cmake_targets
+./build_oai --ninja --gNB -P --build-lib "ldpc_ors" -C
+```
+
+The shared object file `libldpc_ors.so` is created during the compilation. This object is conditionally compiled. Selection of the library to compile is done using `--build-lib libldpc_ors`. 
+
+
+## Running OAI with XDMA LDPC
+To select the XDMA version for loading into the LDPC interface, the option `--loader.ldpc.shlibversion _ors` needs to be used.
+Alternatively the following configuration needs to be added to your gNB configuration:
+```
+loader : {
+  ldpc : {
+    shlibversion : "_ors";
+  };
+};
+```
+
+For example to run the Uplink test, which was built with the `-P` flag in the build command above.
+
+```
+cd ~/openairinterface5g/cmake_targets/ran_build/build
+./nr_ulsim -n100 -m28 -r273 -R273 -s20 -I5 -C0 -P --loader.ldpc.shlibversion _ors
 ```

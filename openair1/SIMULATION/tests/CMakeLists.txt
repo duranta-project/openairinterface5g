@@ -370,6 +370,20 @@ add_physim_test(physim.5g-offload.nr_ulsim.testT2.9  "T2 LDPC offload: SNR = 30,
 
 endif()
 
+if(ENABLE_LDPC_ORS)
+
+add_physim_test(physim.5g-offload.nr_ulsim.testAurora.1  "Aurora LDPC offload: SNR = 30, MCS = 5, 106 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m5 -r106 -R106 -P -C10 --loader.ldpc.shlibversion _ors)
+add_physim_test(physim.5g-offload.nr_ulsim.testAurora.2  "Aurora LDPC offload: SNR = 30, MCS = 15, 106 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m15 -r106 -R106 -P -C10 --loader.ldpc.shlibversion _ors)
+add_physim_test(physim.5g-offload.nr_ulsim.testAurora.3  "Aurora LDPC offload: SNR = 30, MCS = 25, 106 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m25 -r106 -R106 -P -C10 --loader.ldpc.shlibversion _ors)
+add_physim_test(physim.5g-offload.nr_ulsim.testAurora.4  "Aurora LDPC offload: SNR = 30, MCS = 5, 273 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m5 -r273 -R273 -P -C10 --loader.ldpc.shlibversion _ors)
+add_physim_test(physim.5g-offload.nr_ulsim.testAurora.5  "Aurora LDPC offload: SNR = 30, MCS = 15, 273 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m15 -r273 -R273 -P -C10 --loader.ldpc.shlibversion _ors)
+add_physim_test(physim.5g-offload.nr_ulsim.testAurora.6  "Aurora LDPC offload: SNR = 30, MCS = 25, 273 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m25 -r273 -R273 -P -C10 --loader.ldpc.shlibversion _ors)
+add_physim_test(physim.5g-offload.nr_ulsim.testAurora.7  "Aurora LDPC offload: SNR = 30, MCS = 5, 273 PRBs, 2 layers" nr_ulsim -n1000 -s30 -S30.2 -m5 -r273 -R273 -W2 -z2 -y2 -P -C10 --loader.ldpc.shlibversion _ors)
+add_physim_test(physim.5g-offload.nr_ulsim.testAurora.8  "Aurora LDPC offload: SNR = 30, MCS = 15, 273 PRBs, 2 layers" nr_ulsim -n1000 -s30 -S30.2 -m15 -r273 -R273 -W2 -z2 -y2 -P -C10 --loader.ldpc.shlibversion _ors)
+add_physim_test(physim.5g-offload.nr_ulsim.testAurora.9  "Aurora LDPC offload: SNR = 30, MCS = 25, 273 PRBs, 2 layers" nr_ulsim -n1000 -s30 -S30.2 -m25 -r273 -R273 -W2 -z2 -y2 -P -C10 --loader.ldpc.shlibversion _ors)
+
+endif()
+
 ####################################################################################
 ######                           cuda-specific tests                       ######
 ####################################################################################
