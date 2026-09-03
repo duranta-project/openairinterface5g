@@ -1001,9 +1001,8 @@ static void nr_rrc_override_flow_mapping_info(DRB_nGRAN_to_mod_t *mod, long drb_
  *         - refresh DRB-To-Modify QoS list for changed DRBs that are still used
  *
  * DRBs to be released are only put in the E1 request here; they stay in
- * UE->drbs until the modification completes, exactly as a PDU session release
- * keeps them until the release completes. Erasing one here would erase it out
- * from under the loop below.
+ * UE->drbs until the modification completes. Erasing one here would erase it
+ * out from under the loop below.
  *
  * @param UE UE context
  * @param pduSession PDU session to check
@@ -1022,14 +1021,7 @@ static void nr_rrc_send_e1_after_qos_update(gNB_RRC_UE_t *UE,
   FOR_EACH_SEQ_ARR (drb_t *, drb, &UE->drbs) {
     if (drb->pdusession_id != dst->pdusession_id)
       continue;
-    bool drb_still_used = false;
-    FOR_EACH_SEQ_ARR (nr_rrc_qos_t *, qos, &dst->qos) {
-      if (qos->drb_id == drb->drb_id) {
-        drb_still_used = true;
-        break;
-      }
-    }
-    if (!drb_still_used) {
+    if (!nr_rrc_drb_has_qos_flow(pduSession, drb->drb_id)) {
       // Add DRB to remove directly to e1_req
       DevAssert(pdu_mod->n_drb_to_remove < E1AP_MAX_NUM_DRBS);
       drb_to_remove_t *rem = &pdu_mod->drbs_to_remove[pdu_mod->n_drb_to_remove++];
@@ -1390,30 +1382,11 @@ int rrc_gNB_send_NGAP_PDUSESSION_MODIFY_RESP(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE
               session->param.pdusession_id);
       }
 
-      /* The DRBs this modification released. nr_rrc_send_e1_after_qos_update()
-         asked the CU-UP to remove them and deliberately left them in UE->drbs,
-         so that the F1 UE Context Modification and the RRC Reconfiguration in
-         between could still be built from them. The procedure is over now,
-         which is where a PDU session release erases its DRBs too. */
+      /* The DRBs this modification released: asked of the CU-UP over E1, kept
+         in UE->drbs so F1 and RRC could still be built from them. */
       int drbs_released[MAX_DRBS_PER_UE];
-      int n_drbs_released = 0;
-      FOR_EACH_SEQ_ARR(drb_t *, drb, &UE->drbs) {
-        if (drb->pdusession_id != session->param.pdusession_id)
-          continue;
-        bool drb_still_used = false;
-        FOR_EACH_SEQ_ARR(nr_rrc_qos_t *, q, &session->param.qos) {
-          if (q->drb_id == drb->drb_id) {
-            drb_still_used = true;
-            break;
-          }
-        }
-        if (!drb_still_used) {
-          DevAssert(n_drbs_released < MAX_DRBS_PER_UE);
-          drbs_released[n_drbs_released++] = drb->drb_id;
-        }
-      }
-      /* Only now: nr_rrc_remove_drb_by_id() erases from UE->drbs, which the
-         loop above is iterating. */
+      int n_drbs_released = nr_rrc_collect_released_drbs(&UE->drbs, session, drbs_released);
+      // Only after the collection: removing erases from UE->drbs, which it iterates
       for (int i = 0; i < n_drbs_released; i++)
         nr_rrc_remove_drb_by_id(&UE->drbs, drbs_released[i]);
     } else if (session->status == PDU_SESSION_STATUS_FAILED) {

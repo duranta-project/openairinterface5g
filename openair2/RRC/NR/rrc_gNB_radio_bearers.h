@@ -48,6 +48,14 @@ nr_rrc_qos_t *add_qos(seq_arr_t *qos, const pdusession_level_qos_parameter_t *in
 /// @brief Remove a single QoS flow identified by @param qfi from the list
 bool rm_qos(seq_arr_t *qos, int qfi);
 
+/// @brief Whether any QoS flow of @param session is mapped to DRB @param drb_id
+bool nr_rrc_drb_has_qos_flow(const rrc_pdu_session_param_t *session, int drb_id);
+
+/// @brief Collect into @param out the DRBs of @param session that no QoS flow maps to
+/// any more, i.e. the ones a session modification released
+/// @return the number of DRB IDs written to @param out
+int nr_rrc_collect_released_drbs(const seq_arr_t *drbs, const rrc_pdu_session_param_t *session, int out[MAX_DRBS_PER_UE]);
+
 /// @brief Find the first DRB for a given PDU session ID
 drb_t *find_drb_by_pdusession_id(seq_arr_t *seq, int pdusession_id);
 
