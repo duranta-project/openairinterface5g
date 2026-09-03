@@ -204,7 +204,7 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
                           slot_t slotP,
                           int beam_index,
                           int r_pucch,
-                          int do_common);
+                          int is_common);
 
 int get_pdsch_to_harq_feedback(NR_PUCCH_Config_t *pucch_Config,
                                nr_dci_format_t dci_format,
@@ -619,4 +619,5 @@ bool nr_ul_check_phr(const nr_ul_sched_params_t *params,
                      uint16_t rbSize,
                      uint8_t mcs,
                      nr_ul_phr_advice_t *advice);
+fsn_t get_fb_frame_slot(int frame, int slot, int K, int n_slots_frame, int NTN_gNB_Koffset);
 #endif /*__LAYER2_NR_MAC_PROTO_H__*/

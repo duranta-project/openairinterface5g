@@ -252,29 +252,28 @@ void nr_ul_preprocessor_phytest(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, pos
                                            tda);
   DevAssert(tda_info.valid_tda);
 
-  int K2 = tda_info.k2 + get_NTN_Koffset(scc);
   int slots_frame = cell->frame_structure.numb_slots_frame;
-  const int sched_frame = (frame + (slot + K2) / slots_frame) % MAX_FRAME_NUMBER;
-  const int sched_slot = (slot + K2) % slots_frame;
+  int NTN_gNB_Koffset = get_NTN_Koffset(scc);
+  const fsn_t sched_fs = get_fb_frame_slot(frame, slot, tda_info.k2, slots_frame, NTN_gNB_Koffset);
 
   /* check if slot is UL, and that slot is 8 (assuming K2=6 because of UE
    * limitations).  Note that if K2 or the TDD configuration is changed, below
    * conditions might exclude each other and never be true */
-  int slot_period = sched_slot % cell->frame_structure.numb_slots_period;
+  int slot_period = sched_fs.s % cell->frame_structure.numb_slots_period;
   if (!is_xlsch_in_slot(ulsch_slot_bitmap, ulsch_slot_modval, slot_period))
     return;
 
   // TODO implement beam procedures for phy-test mode
   int beam = 0;
   const NR_tda_info_t *tda_p;
-  const int n_tda = get_num_ul_tda(nr_mac, cell, sched_slot, tda_info.k2, &tda_p);
+  const int n_tda = get_num_ul_tda(nr_mac, cell, sched_fs.s, tda_info.k2, &tda_p);
   DevAssert(n_tda > 0);
   /* check only the first TDA: we are only interested in finding out if this TDA fits completely */
   int rb_s = rbStart, rb_l = rbSize;
-  get_best_ul_tda(cell, beam, tda_p, 1, sched_frame, sched_slot, &rb_s, &rb_l);
+  get_best_ul_tda(cell, beam, tda_p, 1, sched_fs.f, sched_fs.s, &rb_s, &rb_l);
   DevAssert(rb_s == rbStart && rb_l == rbSize);
 
-  const int buffer_index = ul_buffer_index(sched_frame, sched_slot, slots_frame, cell->vrb_map_UL_size);
+  const int buffer_index = ul_buffer_index(sched_fs.f, sched_fs.s, slots_frame, cell->vrb_map_UL_size);
   uint16_t *vrb_map_UL = &cell->common_channels.vrb_map_UL[beam][buffer_index * MAX_BWP_SIZE];
   for (int i = rbStart; i < rbStart + rbSize; ++i) {
     if ((vrb_map_UL[i+BWPStart] & SL_to_bitmap(tda_info.startSymbolIndex, tda_info.nrOfSymbols)) != 0) {
@@ -298,8 +297,8 @@ void nr_ul_preprocessor_phytest(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, pos
   sched_ctrl->cce_index = CCEIndex;
 
   NR_sched_pusch_t sched = {
-      .frame = sched_frame,
-      .slot = sched_slot,
+      .frame = sched_fs.f,
+      .slot = sched_fs.s,
       .rbSize = rbSize,
       .rbStart = rbStart,
       .mcs = target_ul_mcs,

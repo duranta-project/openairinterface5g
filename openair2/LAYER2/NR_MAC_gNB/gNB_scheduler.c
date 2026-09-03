@@ -211,6 +211,7 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_
     schedule_nr_prach(gNB, cell, f, s);
   }
 
+  start_meas(&cell->schedule_periodic);
   // Schedule CSI-RS transmission
   nr_csirs_scheduling(gNB, cell, frame, slot, &sched_info->DL_req);
 
@@ -218,6 +219,9 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_
   nr_csi_meas_reporting(gNB, cell, frame, slot);
 
   nr_schedule_periodic_srs(gNB, cell, frame, slot);
+
+  nr_sr_reporting(gNB, cell, frame, slot);
+  stop_meas(&cell->schedule_periodic);
 
   // This schedule RA procedure if not in phy_test mode
   // Otherwise consider 5G already connected
@@ -234,8 +238,6 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_
   start_meas(&cell->schedule_dlsch);
   nr_schedule_ue_spec(gNB, cell, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
   stop_meas(&cell->schedule_dlsch);
-
-  nr_sr_reporting(gNB, cell, frame, slot);
 
   nr_schedule_pucch(gNB, cell, frame, slot);
 

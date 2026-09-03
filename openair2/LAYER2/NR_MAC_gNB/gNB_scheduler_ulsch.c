@@ -2822,13 +2822,12 @@ void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_pro
     int k2 = fsn_get_diff(*next, current) - koffset;
     DevAssert(k2 > 0);
     int slots_per_frame = cell->frame_structure.numb_slots_frame;
-    int sched_frame = (frame + (slot + k2 + koffset) / slots_per_frame) % MAX_FRAME_NUMBER;
-    int sched_slot = (slot + k2 + koffset) % slots_per_frame;
+    fsn_t sched_fs = get_fb_frame_slot(frame, slot, k2, slots_per_frame, koffset);
 
     /* Check that at least one TDA can reach this slot, if not, no future slot is reachable either */
     {
       const NR_tda_info_t *tda_check = NULL;
-      if (get_num_ul_tda(nr_mac, cell, sched_slot, k2, &tda_check) == 0)
+      if (get_num_ul_tda(nr_mac, cell, sched_fs.s, k2, &tda_check) == 0)
         break;
     }
 
@@ -2845,8 +2844,8 @@ void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_pro
                                        frame,
                                        slot,
                                        k2,
-                                       sched_frame,
-                                       sched_slot);
+                                       sched_fs.f,
+                                       sched_fs.s);
     if (n_cand == 0 && !last_dl)
       break;
 
@@ -2854,7 +2853,7 @@ void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_pro
     int len[num_beams];
     for (int i = 0; i < num_beams; i++)
       len[i] = bw;
-    int sched = nr_ul_schedule(nr_mac, cell, pp_pusch, candidates, n_cand, max_dci, num_beams, len, sched_frame, sched_slot, k2);
+    int sched = nr_ul_schedule(nr_mac, cell, pp_pusch, candidates, n_cand, max_dci, num_beams, len, sched_fs.f, sched_fs.s, k2);
     LOG_D(NR_MAC,
           "run nr_ul_schedule() at %4d.%2d k2 %d (ULSCH at %4d.%2d) scheduled %d last_dl %d\n",
           frame,
