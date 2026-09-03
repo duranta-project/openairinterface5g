@@ -25,6 +25,7 @@
 #define SL_CONFIG_STRING_SL_CSI_RS_SL_LATENCYBOUNDCSI_REPORT        "sl_LatencyBoundCSI_Report"
 
 #define SL_CONFIG_STRING_SL_ALLOWED_RESOURCE_SELECTION_CONFIG       "sl_AllowedResourceSelectionConfig"
+#define SL_CONFIG_STRING_SL_PSSCH_NUM_SUBCHANNELS                   "sl_PSSCH_NumSubchannels"
 
 #define SL_CSI_RS_DESC(sl_csi_info) { \
 {SL_CONFIG_STRING_SL_CSI_RS_SYMB_L0,NULL,0,.u8ptr=&sl_csi_info->symb_l0,.defuintval=1,TYPE_UINT8,0}, \
@@ -46,8 +47,9 @@
 {SL_CONFIG_STRING_SL_CONFIGUREDGRANT_HARQ_PROCID_OFFSET, NULL, 0, .u16ptr=&sl_harq_info->sl_HARQ_ProcID_offset, .defuintval=0, TYPE_UINT16, 0}, \
 {SL_CONFIG_STRING_SL_CONFIGUREDGRANT_HARQ_PERIODIC_RRI, NULL, 0, .u16ptr=&sl_harq_info->sl_Periodic_RRI, .defuintval=0, TYPE_UINT16, 0}}
 
-#define SL_CONFIG_RESOURCE_SELECTION(resource_selection_cfg) { \
-{SL_CONFIG_STRING_SL_ALLOWED_RESOURCE_SELECTION_CONFIG, NULL, 0, .u16ptr=resource_selection_cfg, .defuintval=3, TYPE_UINT16, 0}}
+#define SL_CONFIG_RESOURCE_SELECTION(resource_selection_cfg, pssch_num_subchannels) { \
+{SL_CONFIG_STRING_SL_ALLOWED_RESOURCE_SELECTION_CONFIG, NULL, 0, .u16ptr=resource_selection_cfg, .defuintval=3, TYPE_UINT16, 0}, \
+{SL_CONFIG_STRING_SL_PSSCH_NUM_SUBCHANNELS, NULL, 0, .u16ptr=pssch_num_subchannels, .defuintval=1, TYPE_UINT16, 0}}
 
 typedef struct sl_csi_info {
   uint8_t symb_l0;
@@ -816,8 +818,20 @@ void nr_sl_params_read_conf(module_id_t module_id) {
   sprintf(aprefix_rsc, "%s.[%d]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0);
 
   uint16_t* resource_selection_cfg = (uint16_t *)malloc16_clear(sizeof(*resource_selection_cfg));
-  paramdef_t SL_CONFIG_RSR_INFO[] = SL_CONFIG_RESOURCE_SELECTION(resource_selection_cfg);
+  uint16_t *pssch_num_subchannels = (uint16_t *)malloc16_clear(sizeof(*pssch_num_subchannels));
+  paramdef_t SL_CONFIG_RSR_INFO[] = SL_CONFIG_RESOURCE_SELECTION(resource_selection_cfg, pssch_num_subchannels);
   config_get(config_get_if(), SL_CONFIG_RSR_INFO, sizeof(SL_CONFIG_RSR_INFO) / sizeof(paramdef_t), aprefix_rsc);
+
+  const uint16_t pool_num_subchannels = sl_get_num_subch(mac->sl_tx_res_pool);
+  AssertFatal(*pssch_num_subchannels > 0 && *pssch_num_subchannels <= pool_num_subchannels,
+              "sl_PSSCH_NumSubchannels must be in [1, %u], configured %u\n",
+              pool_num_subchannels,
+              *pssch_num_subchannels);
+  sl_mac->mac_tx_params.l_subch = *pssch_num_subchannels;
+  LOG_I(NR_MAC,
+        "PSSCH allocation uses %u of %u configured subchannels\n",
+        sl_mac->mac_tx_params.l_subch,
+        pool_num_subchannels);
 
   switch(*resource_selection_cfg) {
     case 0:
