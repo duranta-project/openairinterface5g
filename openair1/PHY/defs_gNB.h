@@ -335,6 +335,8 @@ typedef struct {
   int n0_subband_power_avg_dB;
   //! estimated avg noise power per RB (dB)
   int n0_subband_power_tot_dB[275];
+  //! last frame when n0 measurement was done
+  int n0_subband_last_meas_frame[275];
   /// PRACH background noise level
   int prach_I0;
 } PHY_MEASUREMENTS_gNB;

@@ -656,7 +656,7 @@ int main(int argc, char **argv)
       }
 
       // noise measurement (all PRBs)
-      gNB_I0_measurements(gNB, nr_slot_tx, 0, gNB->frame_parms.symbols_per_slot, rb_mask_ul);
+      gNB_I0_measurements(gNB, nr_frame_tx, nr_slot_tx, 0, gNB->frame_parms.symbols_per_slot, rb_mask_ul);
       start_meas(&gNB->phy_proc_rx);
 
       if (n_trials == 1)

@@ -1229,7 +1229,7 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
     } else {
       num_symb = frame_parms->symbols_per_slot;
     }
-    gNB_I0_measurements(gNB, slot_rx, first_symb, num_symb, rb_mask_ul);
+    gNB_I0_measurements(gNB, frame_rx, slot_rx, first_symb, num_symb, rb_mask_ul);
   }
 
   int slot_type = nr_slot_select(&gNB->gNB_config, frame_rx, slot_rx);

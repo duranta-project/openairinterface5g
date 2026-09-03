@@ -117,7 +117,22 @@ void dump_nr_I0_stats(FILE *fd, PHY_VARS_gNB *gNB)
   fprintf(fd, "\nPRACH I0 = %d.%d dB\n", gNB->measurements.prach_I0 / 10, gNB->measurements.prach_I0 % 10);
 }
 
-void gNB_I0_measurements(PHY_VARS_gNB *gNB, int slot, int first_symb, int num_symb, uint32_t rb_mask_ul[14][MAX_BWP_SIZE])
+static bool skip_this_rb_for_io_meas(PHY_MEASUREMENTS_gNB *measurements, int frame, int rb, int step)
+{
+  int last = measurements->n0_subband_last_meas_frame[rb];
+  if (last < 0)
+    return false; // 1. never measured -> measure
+
+  int age = (frame - last + 1024) & 1023;
+  if (age == 0)
+    return true; // already measured this frame -> skip
+  if (age > step)
+    return false; // 2. overdue -> measure
+
+  return rb % step != frame % step; // 3. otherwise, we schedule measurements of (1 / step) PRBs
+}
+
+void gNB_I0_measurements(PHY_VARS_gNB *gNB, int frame, int slot, int first_symb, int num_symb, uint32_t rb_mask_ul[14][MAX_BWP_SIZE])
 {
   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
   NR_gNB_COMMON *common_vars = &gNB->common_vars;
@@ -130,13 +145,17 @@ void gNB_I0_measurements(PHY_VARS_gNB *gNB, int slot, int first_symb, int num_sy
   /* Noise measurements is done on all spatial streams here. Later these
   measurements are used in estimating SNR of individual signal with their
   corresponding streams. */
+  int meas_step = 4; // Measure 1/4 PRBs every frame TODO this should depend on UE channel characteristics
   for (int rb = 0; rb < frame_parms->N_RB_UL; rb++) {
     //  skip middle PRB because of artificial noise possibly created by FFT
     if (I0_SKIP_DC && (rb == frame_parms->N_RB_UL >> 1))
       continue;
+    if (skip_this_rb_for_io_meas(measurements, frame, rb, meas_step))
+      continue;
     for (int s = first_symb; s < first_symb + num_symb; s++) {
       // check that rb was not used in this subframe
       if (rb_mask_ul[s][rb] == 0) {
+        measurements->n0_subband_last_meas_frame[rb] = frame;
         int offset0 = ((slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot + s) * frame_parms->ofdm_symbol_size;
         int offset = offset0 + CIRCULAR_INC(frame_parms->first_carrier_offset, rb * NR_NB_SC_PER_RB, frame_parms->ofdm_symbol_size);
         nb_symb[rb]++;

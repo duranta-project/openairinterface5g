@@ -41,7 +41,7 @@ int nr_pusch_channel_estimation(PHY_VARS_gNB *gNB,
 
 void dump_nr_I0_stats(FILE *fd,PHY_VARS_gNB *gNB);
 
-void gNB_I0_measurements(PHY_VARS_gNB *gNB, int slot, int first_symb, int num_symb, uint32_t rb_mask_ul[14][MAX_BWP_SIZE]);
+void gNB_I0_measurements(PHY_VARS_gNB *gNB, int frame, int slot, int first_symb, int num_symb, uint32_t rb_mask_ul[14][MAX_BWP_SIZE]);
 
 void nr_est_srs_timing_advance_offset(uint16_t ofdm_symbol_size,
                                       const c16_t srs_estimated_channel_time[][NR_SRS_IDFT_OVERSAMP_FACTOR * ofdm_symbol_size],
