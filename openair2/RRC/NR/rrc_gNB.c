@@ -3417,6 +3417,27 @@ void rrc_gNB_process_e1_bearer_context_modif_resp(const e1ap_bearer_modif_resp_t
         if (drb_mod->numQosFlowSetup > 0 || drb_mod->numUpParam > 0)
           do_reconfig = true;
       }
+
+      /* DRBs this modification released. The E1 request that produced this
+         response asked the CU-UP to remove them; the DU is told here, in the
+         same F1 UE Context Modification the setups above go in. They are still
+         in ue->drbs, which is what makes them findable: a DRB is erased when
+         the modification completes, not when the E1 request is built. */
+      FOR_EACH_SEQ_ARR(drb_t *, drb, &ue->drbs) {
+        if (drb->pdusession_id != pdu->id)
+          continue;
+        bool drb_still_used = false;
+        FOR_EACH_SEQ_ARR(nr_rrc_qos_t *, q, &pdu_session->param.qos) {
+          if (q->drb_id == drb->drb_id) {
+            drb_still_used = true;
+            break;
+          }
+        }
+        if (drb_still_used)
+          continue;
+        DevAssert(n_f1_drbs_rel < MAX_DRBS_PER_UE);
+        f1_drbs_rel[n_f1_drbs_rel++].id = drb->drb_id;
+      }
       // Collect DRBs to release for PDU sessions marked for release
     } else if (pdu_session->status == PDU_SESSION_STATUS_TORELEASE) {
       FOR_EACH_SEQ_ARR(drb_t *, drb, &ue->drbs) {
