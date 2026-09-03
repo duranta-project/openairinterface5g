@@ -129,13 +129,15 @@ void gNB_I0_measurements(PHY_VARS_gNB *gNB, int slot, int first_symb, int num_sy
 
   /* Noise measurements is done on all spatial streams here. Later these
   measurements are used in estimating SNR of individual signal with their
-  corresponding streams.
-  */
-  for (int s = first_symb; s < first_symb + num_symb; s++) {
-    int offset0 = ((slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot + s) * frame_parms->ofdm_symbol_size;
-    for (int rb = 0; rb < frame_parms->N_RB_UL; rb++) {
-      if (rb_mask_ul[s][rb] == 0 && // check that rb was not used in this subframe
-          !(I0_SKIP_DC && rb == frame_parms->N_RB_UL >> 1)) { // skip middle PRB because of artificial noise possibly created by FFT
+  corresponding streams. */
+  for (int rb = 0; rb < frame_parms->N_RB_UL; rb++) {
+    //  skip middle PRB because of artificial noise possibly created by FFT
+    if (I0_SKIP_DC && (rb == frame_parms->N_RB_UL >> 1))
+      continue;
+    for (int s = first_symb; s < first_symb + num_symb; s++) {
+      // check that rb was not used in this subframe
+      if (rb_mask_ul[s][rb] == 0) {
+        int offset0 = ((slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot + s) * frame_parms->ofdm_symbol_size;
         int offset = offset0 + CIRCULAR_INC(frame_parms->first_carrier_offset, rb * NR_NB_SC_PER_RB, frame_parms->ofdm_symbol_size);
         nb_symb[rb]++;
         for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
@@ -153,9 +155,9 @@ void gNB_I0_measurements(PHY_VARS_gNB *gNB, int slot, int first_symb, int num_sy
           LOG_D(NR_PHY,"slot %d symbol %d RB %d aarx %d n0_subband_power %d\n", slot, s, rb, aarx, signal_energy);
         } //antenna
       }
-    } //rb
-  } // symb
-  int nb_rb=0;
+    } // symb
+  } // rb
+  int nb_rb = 0;
   int32_t n0_subband_tot_perANT[frame_parms->nb_antennas_rx];
   memset(n0_subband_tot_perANT, 0, sizeof(n0_subband_tot_perANT));
 
@@ -168,7 +170,7 @@ void gNB_I0_measurements(PHY_VARS_gNB *gNB, int slot, int first_symb, int num_sy
               false);
 
   for (int rb = 0 ; rb<frame_parms->N_RB_UL;rb++) {
-    int32_t n0_subband_tot_perPRB=0;
+    int32_t n0_subband_tot_perPRB = 0;
     if (nb_symb[rb] > 0) {
       for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
         tmp_n0_subband[aarx][rb] /= nb_symb[rb];
@@ -182,11 +184,11 @@ void gNB_I0_measurements(PHY_VARS_gNB *gNB, int slot, int first_symb, int num_sy
       }
       n0_subband_tot_perPRB /= frame_parms->nb_antennas_rx;
       measurements->n0_subband_power_tot_dB[rb] = dB_fixed(n0_subband_tot_perPRB);
-      LOG_D(NR_PHY,"n0_subband_power_tot_dB[%d] => %d, over %d symbols\n",rb,measurements->n0_subband_power_tot_dB[rb],nb_symb[rb]);
+      LOG_D(NR_PHY,"n0_subband_power_tot_dB[%d] => %d, over %d symbols\n", rb, measurements->n0_subband_power_tot_dB[rb], nb_symb[rb]);
       nb_rb++;
     }
   }
-  if (nb_rb>0) {
+  if (nb_rb > 0) {
     int64_t n0_subband_tot = 0;
     for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
       n0_subband_tot += n0_subband_tot_perANT[aarx];
