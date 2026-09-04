@@ -111,7 +111,7 @@ void handle_meas_timers(NR_UE_RRC_INST_t *rrc)
     rrcPerNB_t *nb = &rrc->perNB[i];
     l3_measurements_t *l3_measurements = &nb->l3_measurements;
 
-    for (int meas_id = 0; meas_id < MAX_MEAS_ID; meas_id++) {
+    for (int meas_id = 0; meas_id < NR_MAX_MEAS_ID; meas_id++) {
       meas_report_params_t *params = &l3_measurements->meas_report[meas_id];
 
       // Check if this measId is configured

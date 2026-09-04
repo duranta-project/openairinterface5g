@@ -282,7 +282,7 @@ static radio_tx_gpio_flag_t get_gpio_flags(RU_t *ru, int slot)
       }
       flags_gpio = beam | TX_GPIO_CHANGE;
       // flags_gpio |= beam << 8; // MSB 8 bits are used for beam
-      LOG_I(HW, "slot %d, beam %d, flags_gpio %d\n", slot, beam, flags_gpio);
+      LOG_D(HW, "slot %d, beam %d, flags_gpio %d\n", slot, beam, flags_gpio);
       break;
     }
     default:

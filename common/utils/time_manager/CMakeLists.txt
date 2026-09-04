@@ -6,7 +6,8 @@ add_library(time_management STATIC
 add_library(time_management_core OBJECT
             time_source.c
             time_server.c
-            time_client.c)
+            time_client.c
+            time_timer.c)
 
 target_link_libraries(time_management PUBLIC time_management_core)
 target_link_libraries(time_management_core PRIVATE log_headers)

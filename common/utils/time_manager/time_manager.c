@@ -7,6 +7,7 @@
 #include "time_source.h"
 #include "time_server.h"
 #include "time_client.h"
+#include "time_timer.h"
 
 #include "common/config/config_userapi.h"
 #include "common/utils/assertions.h"
@@ -27,6 +28,9 @@ static int tick_functions_count;
 static void tick(void *unused)
 {
   UNUSED(unused);
+
+  time_timer_ms_tick();
+
   for (int i = 0; i < tick_functions_count; i++)
     tick_functions[i]();
 }
@@ -73,6 +77,8 @@ void time_manager_start(time_manager_tick_function_t *_tick_functions,
   int default_server_port = 7374;
   char *server_ip = NULL;
   int server_port = -1;
+
+  time_timer_init();
 
   tick_functions_count = _tick_functions_count;
   tick_functions = calloc_or_fail(tick_functions_count, sizeof(*tick_functions));
@@ -186,4 +192,6 @@ void time_manager_finish(void)
   free(tick_functions);
   tick_functions = NULL;
   tick_functions_count = 0;
+
+  time_timer_free();
 }

@@ -143,7 +143,10 @@ int do_RRCReestablishment(int8_t nh_ncc, uint8_t *const buffer, size_t buffer_si
 
 int do_RRCReestablishmentComplete(uint8_t *buffer, size_t buffer_size, int64_t rrc_TransactionIdentifier);
 
-NR_MeasConfig_t *get_MeasConfig(const NR_MeasTiming_t *mt,
+#include "openair2/RRC/NR/nr_rrc_defs.h"
+
+NR_MeasConfig_t *get_MeasConfig(gNB_RRC_UE_t *ue,
+                                const NR_MeasTiming_t *mt,
                                 int band,
                                 int nr_pci,
                                 NR_ReportConfigToAddMod_t *rc_PER,

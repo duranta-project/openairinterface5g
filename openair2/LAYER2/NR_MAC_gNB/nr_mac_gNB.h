@@ -863,6 +863,8 @@ typedef struct NR_UE_info {
   NR_BWP_Id_t local_bwp_id;
   context_modification_info_t cm_info;
   struct nr_cell_sched_s *pcell; ///< primary serving cell for this UE; used to filter candidates per cell
+  /* if nrdc_mode is true then the DU is an SCG DU */
+  bool nrdc_mode;
 } NR_UE_info_t;
 
 typedef struct {

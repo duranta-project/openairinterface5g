@@ -17,6 +17,7 @@
 #include "lib/f1ap_rrc_message_transfer.h"
 #include "lib/f1ap_interface_management.h"
 #include "lib/f1ap_ue_context.h"
+#include "nrdc_mac_rrc_dl_handler.h"
 
 #include "executables/softmodem-common.h"
 
@@ -293,12 +294,12 @@ static NR_QoS_config_t get_qos_config(const f1ap_qos_flow_param_t *qos)
   return qos_c;
 }
 
-static int handle_ue_context_drbs_setup(NR_UE_info_t *UE,
-                                        int drbs_len,
-                                        const f1ap_drb_to_setup_t *req_drbs,
-                                        f1ap_drb_setup_t **resp_drbs,
-                                        NR_CellGroupConfig_t *cellGroupConfig,
-                                        const nr_rlc_configuration_t *rlc_config)
+int handle_ue_context_drbs_setup(NR_UE_info_t *UE,
+                                 int drbs_len,
+                                 const f1ap_drb_to_setup_t *req_drbs,
+                                 f1ap_drb_setup_t **resp_drbs,
+                                 NR_CellGroupConfig_t *cellGroupConfig,
+                                 const nr_rlc_configuration_t *rlc_config)
 {
   DevAssert(req_drbs != NULL && resp_drbs != NULL && cellGroupConfig != NULL);
   instance_t f1inst = get_f1_gtp_instance();
@@ -466,7 +467,7 @@ static NR_UE_NR_Capability_t *get_ue_nr_cap_from_ho_prep_info(uint8_t *buf, uint
   return cap;
 }
 
-static NR_CG_ConfigInfo_t *get_cg_config_info(uint8_t *buf, uint32_t len)
+NR_CG_ConfigInfo_t *get_cg_config_info(uint8_t *buf, uint32_t len)
 {
   struct NR_CG_ConfigInfo *cg_configinfo = NULL;
   asn_dec_rval_t dec_rval = uper_decode_complete(NULL, &asn_DEF_NR_CG_ConfigInfo, (void **)&cg_configinfo, buf, len);
@@ -478,7 +479,7 @@ static NR_CG_ConfigInfo_t *get_cg_config_info(uint8_t *buf, uint32_t len)
   return cg_configinfo;
 }
 
-static NR_UE_NR_Capability_t *get_ue_nr_cap_from_cg_config_info(const NR_CG_ConfigInfo_t *cgci)
+NR_UE_NR_Capability_t *get_ue_nr_cap_from_cg_config_info(const NR_CG_ConfigInfo_t *cgci)
 {
   /* INTO DU handler */
   if (cgci->criticalExtensions.present != NR_CG_ConfigInfo__criticalExtensions_PR_c1)
@@ -592,7 +593,7 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac, nr_cell_sched_t *cell, uin
  * decode/re-encode cycles per TS 38.473 transparency requirements.
  * @param cellGroup CellGroupConfig to encode
  * @return Encoded byte array */
-static byte_array_t encode_cellgroup_config(const NR_CellGroupConfig_t *cellGroup)
+byte_array_t encode_cellgroup_config(const NR_CellGroupConfig_t *cellGroup)
 {
   byte_array_t cgc = {0};
   ssize_t encoded = uper_encode_to_new_buffer(&asn_DEF_NR_CellGroupConfig, NULL, cellGroup, (void **)&cgc.buf);
@@ -697,11 +698,13 @@ void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
   if (cu2du->meas_timing_config != NULL)
     mtc = get_nr_mtc(cu2du->meas_timing_config->buf, cu2du->meas_timing_config->len);
 
-  /* 38.473: "For DC operation, the CG-ConfigInfo IE shall be included in the CU
-   * to DU RRC Information IE at the gNB acting as secondary node" As of now,
-   * we only handle NSA => we check we have CG-ConfigInfo if not SA or have SA
-   * and no CG-ConfigInfo */
-  AssertFatal(is_SA ^ (cg_configinfo != NULL), "cannot have SA and CG-ConfigInfo: NR-DC not supported xor need CG-ConfigInfo for NSA/phy-test/do-ra\n");
+  /* inclusion of CG-ConfigInfo in SA mode is interpreted
+   * as NR-DC activation in the DU
+   */
+  if (is_SA && cg_configinfo)
+    return nrdc_ue_context_setup_request(req);
+
+  AssertFatal(is_SA || (cg_configinfo != NULL), "CG-ConfigInfo needed for NSA/phy-test/do-ra\n");
 
   NR_SCHED_LOCK(&mac->sched_lock);
 
@@ -802,6 +805,15 @@ void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
     .gNB_DU_ue_id = req->gNB_DU_ue_id,
   };
 
+  /* special handling for NR-DC UEs */
+  NR_SCHED_LOCK(&mac->sched_lock);
+  NR_UE_info_t *UE = find_nr_UE(&RC.nrmac[0]->UE_info, req->gNB_DU_ue_id);
+  if (UE && UE->nrdc_mode) {
+    NR_SCHED_UNLOCK(&mac->sched_lock);
+    return nrdc_ue_context_modification_request(req);
+  }
+  NR_SCHED_UNLOCK(&mac->sched_lock);
+
   NR_UE_NR_Capability_t *ue_cap = NULL;
   if (req->cu_to_du_rrc_info != NULL) {
     AssertFatal(req->cu_to_du_rrc_info->cg_configinfo == NULL, "CG-ConfigInfo not handled\n");
@@ -812,7 +824,7 @@ void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
   }
 
   NR_SCHED_LOCK(&mac->sched_lock);
-  NR_UE_info_t *UE = find_nr_UE(&RC.nrmac[0]->UE_info, req->gNB_DU_ue_id);
+  UE = find_nr_UE(&RC.nrmac[0]->UE_info, req->gNB_DU_ue_id);
   if (!UE) {
     LOG_E(NR_MAC, "could not find UE with RNTI %04x\n", req->gNB_DU_ue_id);
     NR_SCHED_UNLOCK(&mac->sched_lock);
@@ -901,6 +913,29 @@ void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
     UE->reconfigCellGroup = new_CellGroup;
     configure_UE_BWP(cell, scc, UE, false, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
   } else {
+    /* hack: for NR-DC, remove the RLC bearer from the MCG group config
+     * of the UE. This bearer is transfered to the SCG.
+     * We check if the modification request asks to remove a bearer and adds
+     * no bearer. If yes, we are doing the NR-DC scenario (hopefully).
+     * This hack has to be removed in the future. (No other solution
+     * was found.)
+     */
+    if (req->drbs_rel_len == 1 && req->srbs_len == 0 && req->drbs_len == 0
+        && req->cu_to_du_rrc_info == NULL && req->rrc_container == NULL) {
+      /* remove the RLC from UE->CellGroup->rlc_BearerToAddModList */
+      long lcid = get_lcid_from_drbid(req->drbs_rel[0].id);
+      LOG_I(NR_MAC, "NR-DC hack: remove RLC lcid %ld from UE cell group config\n", lcid);
+      NR_CellGroupConfig_t *cellGroupConfig = UE->CellGroup;
+      int idx = 0;
+      while (idx < cellGroupConfig->rlc_BearerToAddModList->list.count) {
+        const NR_RLC_BearerConfig_t *bc = cellGroupConfig->rlc_BearerToAddModList->list.array[idx];
+        if (bc->logicalChannelIdentity == lcid)
+          break;
+        idx++;
+      }
+      DevAssert(idx < cellGroupConfig->rlc_BearerToAddModList->list.count);
+      asn_sequence_del(&cellGroupConfig->rlc_BearerToAddModList->list, idx, 1);
+    }
     ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, new_CellGroup); // we actually don't need it
   }
 

@@ -60,6 +60,7 @@ There is some general information in the [OpenAirInterface Gitlab Wiki](https://
 - [How to setup gNB frequency](./gNB_frequency_setup.md)
 - [How to use the RT data recording app](./data_recording.md)
 - [How to use packages](./packages.md)
+- [How to test F1-based NR-DC](./nr-dc.md)
 
 Legacy unmaintained files:
 - [`L2NFAPI_NOS1.md`](./L2NFAPI_NOS1.md), [`L2NFAPI_S1.md`](./L2NFAPI_S1.md):
