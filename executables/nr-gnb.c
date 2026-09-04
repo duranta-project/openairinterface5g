@@ -175,6 +175,7 @@ void *L1_tx_thread(void *arg) {
 
      if (slot_type == NR_DOWNLINK_SLOT) {
        rt_probe_record(&gNB->rt_l1_tx_job_probe, &gNB->l1_tx_proc);
+       rt_probe_capture_record(&gNB->rt_l1_tx_job_probe, info->frame, info->slot, &gNB->l1_tx_proc);
      }
 
      delNotifiedFIFO_elt(res);
@@ -289,6 +290,10 @@ static void configure_gnb_l1tx_rt_probe(PHY_VARS_gNB *gNB)
   cfg.threshold_us[1] = 400;
   cfg.threshold_us[2] = 600;
   cfg.threshold_us[3] = 800;
+  cfg.capture_records = 20000;
+  snprintf(cfg.capture_path,
+           sizeof(cfg.capture_path),
+           "/tmp/rt_probe_l1tx_records.csv");
 
   rt_probe_load_config(&cfg, "rt_probe_l1tx");
 
@@ -431,9 +436,17 @@ void *nrL1_stats_thread(void *param) {
     fprintf(fd,"%s\n",output);
     fflush(fd);
 
-    // Report L1TX probe records from the low-priority stats thread.
+    /*
+     * Report and flush L1TX probe records from the low-priority stats thread.
+     * The realtime L1TX path only writes to the bounded memory buffer.
+     */
     rt_probe_report(&gNB->rt_l1_tx_job_probe, 0);
+    rt_probe_async_flush_capture(&gNB->rt_l1_tx_job_probe);
+
   }
+
+  if (gNB->rt_l1_tx_job_probe.initialized)
+    rt_probe_dump_capture(&gNB->rt_l1_tx_job_probe);
 
   fclose(fd);
   return(NULL);
