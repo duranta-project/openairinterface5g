@@ -1549,6 +1549,7 @@ void handle_nr_srs_measurements(const module_id_t module_id,
       }
 #endif
 
+      UE->UE_sched_ctrl.srs_feedback.snrx10 = wide_band_snr_dB * 10;
       sprintf(stats->srs_stats, "UL-SNR %i dB", wide_band_snr_dB);
 
       const int ul_prbblack_SNR_threshold = cell->radio_config.ul_prbblack_SNR_threshold;
@@ -2759,7 +2760,9 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     cand.current_mcs = sched_ctrl->ul_bler_stats.mcs;
     cand.max_mcs = max_mcs;
     cand.last_num_sched = sched_ctrl->ul_bler_stats.last_num_sched;
-    cand.snrx10 = (int)(sched_ctrl->pusch_pc.avg_snr * 10);
+    const int srs_snrx10 = sched_ctrl->srs_feedback.snrx10;
+    const int pusch_snrx10 = (int)(sched_ctrl->pusch_pc.avg_snr * 10);
+    cand.snrx10 = srs_snrx10 != INT_MIN ? srs_snrx10 : pusch_snrx10;
 
     LOG_D(NR_MAC,
           "[UE %04x][%4d.%2d] b %d, ul_thr_ue %f, mcs %d, sched_inactive %d sched_srs %d\n",

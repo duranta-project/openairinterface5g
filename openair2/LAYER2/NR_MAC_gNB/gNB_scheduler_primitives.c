@@ -2729,6 +2729,7 @@ void reset_sched_ctrl(NR_UE_sched_ctrl_t *sched_ctrl)
   sched_ctrl->srs_feedback.ul_ri = 0;
   sched_ctrl->srs_feedback.tpmi = 0;
   sched_ctrl->srs_feedback.sri = 0;
+  sched_ctrl->srs_feedback.snrx10 = INT_MIN;
 }
 
 int get_dlbw_tbslbrm(int scc_bwpsize, const NR_ServingCellConfig_t *servingCellConfig)
@@ -3165,6 +3166,7 @@ NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroup
   UE->ra = calloc(1, sizeof(*UE->ra));
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   sched_ctrl->ta_update = 31;
+  sched_ctrl->srs_feedback.snrx10 = INT_MIN;
 
   const nr_mac_config_t *config = &cell->radio_config;
   nr_mac_set_target_snrx10(&sched_ctrl->pucch_pc, config->pucch.target_snrx10);
