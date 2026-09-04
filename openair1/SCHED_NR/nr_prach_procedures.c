@@ -37,14 +37,12 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_
     // given wrt to start of the 15kHz slot or 60kHz slot. Here we work slot based, so this function is anyway only called in slots
     // where there is PRACH. Its up to the MAC to schedule another PRACH PDU in the case there are there N_RA_slot \in {0,1}.
     rx_prach_out_t res = rx_nr_prach(prach_id, prach_oc);
-    const bool prach_noise_ready = gNB->prach_energy_counter == NUM_PRACH_RX_FOR_NOISE_ESTIMATE;
     const bool prach_above_threshold = res.max_preamble_energy > gNB->measurements.prach_I0 + gNB->prach_thres;
     const bool prach_ind_has_space = rach_ind->number_of_pdus < MAX_NUM_NR_RX_RACH_PDUS;
-    const bool prach_accepted = prach_noise_ready && prach_above_threshold && prach_ind_has_space;
     LOG_D(NR_PHY,
           "[RAPROC] %d.%d occasion %d symbol %u format %u sequence-length %d N_ZC %d PRACH-SCS %d UL-mu %d NCS %u "
-          "RAPID %u energy %d.%d dB I0 %d.%d dB threshold %d.%d dB raw-delay %u TA %u "
-          "noise %d/%d noise-ready %d threshold-pass %d indication-space %d accepted %d\n",
+          "RAPID %u energy %.1f dB I0 %.1f dB threshold %.1f dB raw-delay %u TA %u "
+          "threshold-pass %d indication-space %d\n",
           frame,
           slot,
           prach_oc,
@@ -56,31 +54,23 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_
           prach_id->numerology_index,
           prach_pdu->num_cs,
           res.max_preamble,
-          res.max_preamble_energy / 10,
-          res.max_preamble_energy % 10,
-          gNB->measurements.prach_I0 / 10,
-          gNB->measurements.prach_I0 % 10,
-          gNB->prach_thres / 10,
-          gNB->prach_thres % 10,
+          res.max_preamble_energy / 10.0,
+          gNB->measurements.prach_I0 / 10.0,
+          gNB->prach_thres / 10.0,
           res.max_preamble_delay_raw,
           res.max_preamble_delay,
-          gNB->prach_energy_counter,
-          NUM_PRACH_RX_FOR_NOISE_ESTIMATE,
-          prach_noise_ready,
           prach_above_threshold,
-          prach_ind_has_space,
-          prach_accepted);
+          prach_ind_has_space);
 
-    if (prach_accepted) {
+    if (prach_above_threshold && prach_ind_has_space) {
       LOG_A(NR_PHY,
-            "[RAPROC] %d.%d Initiating RA procedure with preamble %d, energy %d.%d dB (I0 %d, thres %d), delay %d start symbol "
+            "[RAPROC] %d.%d Initiating RA procedure with preamble %d, energy %.1f dB (I0 %.1f, thres %d), delay %d start symbol "
             "%u freq index %u\n",
             frame,
             slot,
             res.max_preamble,
-            res.max_preamble_energy / 10,
-            res.max_preamble_energy % 10,
-            gNB->measurements.prach_I0,
+            res.max_preamble_energy / 10.0,
+            gNB->measurements.prach_I0 / 10.0,
             gNB->prach_thres,
             res.max_preamble_delay,
             prachStartSymbol,
@@ -110,9 +100,7 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_
     gNB->measurements.prach_I0 = ((gNB->measurements.prach_I0 * 900) >> 10) + ((res.max_preamble_energy * 124) >> 10);
     if (frame == 0)
       LOG_I(PHY, "prach_I0 = %d.%d dB\n", gNB->measurements.prach_I0 / 10, gNB->measurements.prach_I0 % 10);
-    if (gNB->prach_energy_counter < NUM_PRACH_RX_FOR_NOISE_ESTIMATE)
-      gNB->prach_energy_counter++;
-  } // if prach_id>0
+  }
   LOG_D(NR_PHY_RACH, "Freeing PRACH entry\n");
   free_nr_prach_entry(prach_id);
 }
