@@ -997,8 +997,13 @@ static void nr_rrc_override_flow_mapping_info(DRB_nGRAN_to_mod_t *mod, long drb_
 }
 
 /** @brief Finalize E1 DRB actions after QoS update/release processing:
- *         - remove DRBs no longer referenced by any QoS flow
+ *         - request release of DRBs no longer referenced by any QoS flow
  *         - refresh DRB-To-Modify QoS list for changed DRBs that are still used
+ *
+ * DRBs to be released are only put in the E1 request here; they stay in
+ * UE->drbs until the modification completes. Erasing one here would erase it
+ * out from under the loop below.
+ *
  * @param UE UE context
  * @param pduSession PDU session to check
  * @param e1_req E1AP bearer modification request
@@ -1016,25 +1021,16 @@ static void nr_rrc_send_e1_after_qos_update(gNB_RRC_UE_t *UE,
   FOR_EACH_SEQ_ARR (drb_t *, drb, &UE->drbs) {
     if (drb->pdusession_id != dst->pdusession_id)
       continue;
-    bool drb_still_used = false;
-    FOR_EACH_SEQ_ARR (nr_rrc_qos_t *, qos, &dst->qos) {
-      if (qos->drb_id == drb->drb_id) {
-        drb_still_used = true;
-        break;
-      }
-    }
-    if (!drb_still_used) {
-      if (nr_rrc_remove_drb_by_id(&UE->drbs, drb->drb_id)) {
-        LOG_I(NR_RRC,
-              "UE %d: removed DRB ID %d for PDU session %d (no remaining QoS flows mapped)\n",
-              UE->rrc_ue_id,
-              drb->drb_id,
-              dst->pdusession_id);
-      }
+    if (!nr_rrc_drb_has_qos_flow(pduSession, drb->drb_id)) {
       // Add DRB to remove directly to e1_req
       DevAssert(pdu_mod->n_drb_to_remove < E1AP_MAX_NUM_DRBS);
       drb_to_remove_t *rem = &pdu_mod->drbs_to_remove[pdu_mod->n_drb_to_remove++];
       rem->id = drb->drb_id;
+      LOG_I(NR_RRC,
+            "UE %d: releasing DRB ID %d of PDU session %d (no remaining QoS flows mapped)\n",
+            UE->rrc_ue_id,
+            drb->drb_id,
+            dst->pdusession_id);
       continue;
     }
 
@@ -1385,6 +1381,14 @@ int rrc_gNB_send_NGAP_PDUSESSION_MODIFY_RESP(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE
               UE->rrc_ue_id,
               session->param.pdusession_id);
       }
+
+      /* The DRBs this modification released: asked of the CU-UP over E1, kept
+         in UE->drbs so F1 and RRC could still be built from them. */
+      int drbs_released[MAX_DRBS_PER_UE];
+      int n_drbs_released = nr_rrc_collect_released_drbs(&UE->drbs, session, drbs_released);
+      // Only after the collection: removing erases from UE->drbs, which it iterates
+      for (int i = 0; i < n_drbs_released; i++)
+        nr_rrc_remove_drb_by_id(&UE->drbs, drbs_released[i]);
     } else if (session->status == PDU_SESSION_STATUS_FAILED) {
       DevAssert(resp->nb_of_pdusessions_failed <= NR_MAX_NB_PDU_SESSIONS);
       pdusession_failed_t *failed = &resp->pdusessions_failed[resp->nb_of_pdusessions_failed++];

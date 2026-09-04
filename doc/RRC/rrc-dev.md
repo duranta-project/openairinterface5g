@@ -275,11 +275,11 @@ sequenceDiagram
 
     alt !all_failed
         Note over CUCP: Pre-RRC step: E1/F1 updates
-        Note over CUCP: Build E1AP DRB-To-Remove/To-Modify/To-Setup lists<br/>(populated during nr_rrc_update_pdusession)
+        Note over CUCP: Build E1AP DRB-To-Remove/To-Modify/To-Setup lists<br/>(populated during nr_rrc_update_pdusession)<br/>DRBs left with no QoS flow are put in DRB-To-Remove,<br/>but kept in UE->drbs until the procedure completes
         CUCP->>CUUP: E1 BEARER CONTEXT MOD REQUEST (DRB-To-Remove/To-Modify/To-Setup)
         Note over CUUP: e1_bearer_context_modif()<br/>Process DRB modifications, removals, and setups<br/>Update PDCP/SDAP entities, GTP tunnels
         CUUP->>CUCP: E1 BEARER CONTEXT MOD RESPONSE
-        Note over CUCP: rrc_gNB_process_e1_bearer_context_modif_resp<br/>Save F1-U tunnel info for new DRBs<br/>Mark PDU sessions with new DRBs as PDU_SESSION_STATUS_NEW
+        Note over CUCP: rrc_gNB_process_e1_bearer_context_modif_resp<br/>Save F1-U tunnel info for new DRBs<br/>Mark PDU sessions with new DRBs as PDU_SESSION_STATUS_NEW<br/>Add released DRBs to the F1 DRB release list
         Note over CUCP, DU: F1-U tunnel changes (new DRBs or DRB releases)
         CUCP->>DU: F1 UE Context Modification Request
         Note over DU: handle_ue_context_drbs_setup/release
@@ -293,12 +293,12 @@ sequenceDiagram
         UE->>DU: RRCReconfigurationComplete
         DU->>CUCP: F1AP_UL_RRC_MESSAGE
         Note over CUCP: rrc_gNB_decode_dcch
-        Note over CUCP: handle_rrcReconfigurationComplete<br/>Calls rrc_gNB_send_NGAP_PDUSESSION_MODIFY_RESP<br/>(DRBs already removed earlier in nr_rrc_update_pdusession)
+        Note over CUCP: handle_rrcReconfigurationComplete<br/>Calls rrc_gNB_send_NGAP_PDUSESSION_MODIFY_RESP
 
         CUCP->>CUCP: rrc_gNB_send_NGAP_PDUSESSION_MODIFY_RESP
         loop UE->pduSessions (matching transaction ID)
             alt ESTABLISHED
-                Note over CUCP: Update status to ESTABLISHED<br/>Fill NGAP message (modified)<br/>Include QoS flow list
+                Note over CUCP: Update status to ESTABLISHED<br/>Fill NGAP message (modified)<br/>Include QoS flow list<br/>Erase the DRBs this modification released from UE->drbs
             else PDU_SESSION_STATUS_FAILED
                 Note over CUCP: Fill NGAP message (failed to modify)<br/>Include cause
             end

@@ -501,14 +501,6 @@ NR_DRB_ToAddModList_t *createDRBlist(gNB_RRC_UE_t *ue, bool reestablish, bool do
       continue;
     }
     pdusession_t *session = &pduSession->param;
-    NR_DRB_ToAddMod_t *drb_ToAddMod = calloc_or_fail(1, sizeof(*drb_ToAddMod));
-    drb_ToAddMod->drb_Identity = drb->drb_id;
-    // PDCP config
-    drb_ToAddMod->pdcp_Config = nr_rrc_build_pdcp_config_ie(do_integrity, do_ciphering, &drb->pdcp_config);
-    if (reestablish) {
-      asn1cCallocOne(drb_ToAddMod->reestablishPDCP, NR_DRB_ToAddMod__reestablishPDCP_true);
-    }
-    // cn-association: SDAP config
     // Get all QoS flows mapped to this DRB
     pdusession_level_qos_parameter_t flows_to_add[MAX_QOS_FLOWS] = {0};
     uint8_t n_flows = 0;
@@ -519,6 +511,24 @@ NR_DRB_ToAddModList_t *createDRBlist(gNB_RRC_UE_t *ue, bool reestablish, bool do
         flows_to_add[n_flows++] = q->qos;
       }
     }
+    /* A DRB that no QoS flow maps to any more is on its way out: a session
+       modification took its last flow and it is erased once that modification
+       completes. It must not be announced here. TS 38.331 constrains
+       SDAP-Config's mappedQoS-FlowsToAdd to SIZE(1..maxNrofQFIs), so there is
+       no encoding for such a DRB, and asking the UE to add a bearer nothing
+       can be sent on has no meaning to begin with. */
+    if (n_flows == 0) {
+      LOG_D(NR_RRC, "DRB %d has no QoS flow mapped to it, skip\n", drb->drb_id);
+      continue;
+    }
+    NR_DRB_ToAddMod_t *drb_ToAddMod = calloc_or_fail(1, sizeof(*drb_ToAddMod));
+    drb_ToAddMod->drb_Identity = drb->drb_id;
+    // PDCP config
+    drb_ToAddMod->pdcp_Config = nr_rrc_build_pdcp_config_ie(do_integrity, do_ciphering, &drb->pdcp_config);
+    if (reestablish) {
+      asn1cCallocOne(drb_ToAddMod->reestablishPDCP, NR_DRB_ToAddMod__reestablishPDCP_true);
+    }
+    // cn-association: SDAP config
     asn1cCalloc(drb_ToAddMod->cnAssociation, cn_association);
     cn_association->present = NR_DRB_ToAddMod__cnAssociation_PR_sdap_Config;
     nr_sdap_configuration_t *sdap = &session->sdap_config;
@@ -934,6 +944,28 @@ nr_rrc_reconfig_param_t get_RRCReconfiguration_params(gNB_RRC_INST *rrc, gNB_RRC
                 drb->drb_id,
                 session->pdusession_id);
         }
+      }
+    }
+    /* A modification that took the last QoS flow off a DRB releases it, so the
+       UE is told in the same drb-ToReleaseList a session release would use.
+       createDRBlist() leaves such a DRB out of drb-ToAddModList, so the two
+       lists stay disjoint as TS 38.331 requires. */
+    if (item->status == PDU_SESSION_STATUS_TOMODIFY) {
+      int released[MAX_DRBS_PER_UE];
+      int n = nr_rrc_collect_released_drbs(&UE->drbs, item, released);
+      for (int i = 0; i < n; i++) {
+        if (params.n_drb_rel >= MAX_DRBS_PER_UE) {
+          LOG_E(NR_RRC, "UE %d: Too many DRBs to release (max %d)\n", UE->rrc_ue_id, MAX_DRBS_PER_UE);
+          break;
+        }
+        if (!params.drb_rel)
+          params.drb_rel = calloc_or_fail(MAX_DRBS_PER_UE, sizeof(int));
+        params.drb_rel[params.n_drb_rel++] = released[i];
+        LOG_I(NR_RRC,
+              "UE %d: releasing DRB %d towards the UE, PDU session %d modification left it with no QoS flow\n",
+              UE->rrc_ue_id,
+              released[i],
+              session->pdusession_id);
       }
     }
   }
@@ -3507,6 +3539,16 @@ void rrc_gNB_process_e1_bearer_context_modif_resp(const e1ap_bearer_modif_resp_t
         /* Only mark for RRC reconfiguration if there is a QoS or UL UP change */
         if (drb_mod->numQosFlowSetup > 0 || drb_mod->numUpParam > 0)
           do_reconfig = true;
+      }
+
+      /* DRBs this modification released: the E1 request asked the CU-UP to
+         remove them, the DU is told here, in the same F1 UE Context
+         Modification as the setups above. */
+      int released[MAX_DRBS_PER_UE];
+      int n_released = nr_rrc_collect_released_drbs(&ue->drbs, pdu_session, released);
+      for (int j = 0; j < n_released; j++) {
+        DevAssert(n_f1_drbs_rel < MAX_DRBS_PER_UE);
+        f1_drbs_rel[n_f1_drbs_rel++].id = released[j];
       }
       // Collect DRBs to release for PDU sessions marked for release
     } else if (pdu_session->status == PDU_SESSION_STATUS_TORELEASE) {
