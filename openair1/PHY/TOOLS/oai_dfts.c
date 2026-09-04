@@ -15,7 +15,6 @@
 #include "assertions.h"
 #define OAIDFTS_MAIN
 #include "tools_defs.h"
-#include "time_meas.h"
 #include "LOG/log.h"
 #include <pthread.h>
 
@@ -56,36 +55,11 @@ static pthread_mutex_t sr_twiddle_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define Q15_SIN_4PI_5 ((int16_t)19260) /* sin(4pi/5)  */
 
 #define SR_MAX_LOG2 25
-#define MAX_N 100000
-
 #define ALIGNMENT 32
 
 #define SPLIT_RADIX_STACK_MAX_C16 16384
 
 #define STACK_MAX_N 1024
-
-#define print_shorts(s, x) printf("%s %d,%d,%d,%d,%d,%d,%d,%d\n", s, (x)[0], (x)[1], (x)[2], (x)[3], (x)[4], (x)[5], (x)[6], (x)[7])
-#define print_shorts256(s, x)                                    \
-  printf("%s %d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", \
-         s,                                                      \
-         (x)[0],                                                 \
-         (x)[1],                                                 \
-         (x)[2],                                                 \
-         (x)[3],                                                 \
-         (x)[4],                                                 \
-         (x)[5],                                                 \
-         (x)[6],                                                 \
-         (x)[7],                                                 \
-         (x)[8],                                                 \
-         (x)[9],                                                 \
-         (x)[10],                                                \
-         (x)[11],                                                \
-         (x)[12],                                                \
-         (x)[13],                                                \
-         (x)[14],                                                \
-         (x)[15])
-
-#define print_ints(s, x) printf("%s %d %d %d %d\n", s, (x)[0], (x)[1], (x)[2], (x)[3])
 
 //============================================================================
 // HELPERS
@@ -139,7 +113,6 @@ static inline int is_power_of_two_int(int x)
 
 static inline simde__m256i c16_mul_q15_simd256(simde__m256i x, simde__m256i w_re_negim, simde__m256i w_im_re)
 {
-  // simde__m256i zero  = simde_mm256_setzero_si256();
   simde__m256i round = simde_mm256_set1_epi32(1 << 14);
 
   simde__m256i re32 = simde_mm256_madd_epi16(x, w_re_negim);
@@ -147,12 +120,6 @@ static inline simde__m256i c16_mul_q15_simd256(simde__m256i x, simde__m256i w_re
 
   re32 = simde_mm256_srai_epi32(simde_mm256_add_epi32(re32, round), 15);
   im32 = simde_mm256_srai_epi32(simde_mm256_add_epi32(im32, round), 15);
-  /*
-      simde__m256i re16 = simde_mm256_packs_epi32(re32, zero);
-      simde__m256i im16 = simde_mm256_packs_epi32(im32, zero);
-
-      return simde_mm256_unpacklo_epi16(re16, im16);
-  */
 
   simde__m256i packed = simde_mm256_packs_epi32(re32, im32);
 
@@ -462,7 +429,7 @@ typedef struct {
 
 } TwiddleTable;
 
-static TwiddleTable g_tables[MAX_N + 1];
+static TwiddleTable g_tables[DFT_SIZE_IDXTABLESIZE];
 
 static inline __m128i pack4_twiddle_q15_re_re_scaled(const float complex *W, int k0, int mul, int N, float scale)
 {
@@ -677,12 +644,52 @@ static int twiddle_table_create_radix5_q15_simd(TwiddleTable *table)
   return 1;
 }
 
-static TwiddleTable *twiddle_table_create(int N)
+static void twiddle_table_release_float_tables(TwiddleTable *table)
 {
-  TwiddleTable *table = &g_tables[N];
+  free(table->forward);
+  free(table->inverse);
+  table->forward = NULL;
+  table->inverse = NULL;
+}
+
+static void twiddle_table_release_dynamic_tables(TwiddleTable *table)
+{
+  twiddle_table_release_float_tables(table);
+
+  free(table->r3_q15_w1_re);
+  free(table->r3_q15_w1_im);
+  free(table->r3_q15_w2_re);
+  free(table->r3_q15_w2_im);
+  free(table->r3_q15_w1_re_inv);
+  free(table->r3_q15_w1_im_inv);
+  free(table->r3_q15_w2_re_inv);
+  free(table->r3_q15_w2_im_inv);
+
+  free(table->r5_q15_w1_re);
+  free(table->r5_q15_w1_im);
+  free(table->r5_q15_w2_re);
+  free(table->r5_q15_w2_im);
+  free(table->r5_q15_w3_re);
+  free(table->r5_q15_w3_im);
+  free(table->r5_q15_w4_re);
+  free(table->r5_q15_w4_im);
+  free(table->r5_q15_w1_re_inv);
+  free(table->r5_q15_w1_im_inv);
+  free(table->r5_q15_w2_re_inv);
+  free(table->r5_q15_w2_im_inv);
+  free(table->r5_q15_w3_re_inv);
+  free(table->r5_q15_w3_im_inv);
+  free(table->r5_q15_w4_re_inv);
+  free(table->r5_q15_w4_im_inv);
 
   memset(table, 0, sizeof(*table));
+}
 
+static TwiddleTable *twiddle_table_create(dft_size_idx_t sizeidx, int N)
+{
+  TwiddleTable *table = &g_tables[sizeidx];
+
+  memset(table, 0, sizeof(*table));
   table->N = N;
 
   table->forward = aligned_malloc((size_t)N * sizeof(*table->forward));
@@ -690,37 +697,37 @@ static TwiddleTable *twiddle_table_create(int N)
 
   if (!table->forward || !table->inverse) {
     fprintf(stderr, "twiddle_table_create: allocation failed for N=%d\n", N);
+    twiddle_table_release_dynamic_tables(table);
     return NULL;
   }
 
   for (int k = 0; k < N; k++) {
-    float theta = 2.0f * (float)M_PI * (float)k / (float)N;
-
-    float c = cosf(theta);
-    float s = sinf(theta);
+    const float theta = 2.0f * (float)M_PI * (float)k / (float)N;
+    const float c = cosf(theta);
+    const float s = sinf(theta);
 
     table->forward[k] = c - I * s;
     table->inverse[k] = c + I * s;
   }
 
-  if (N % 3 == 0) {
-    if (!twiddle_table_create_radix3_q15_simd(table)) {
-      return NULL;
-    }
-  }
-
-  if (N == 64 || N == 128) {
-    if (!twiddle_table_64_128_create_q15_simd(table)) {
-      return NULL;
-    }
+  if ((N == 64 || N == 128) && !twiddle_table_64_128_create_q15_simd(table)) {
+    twiddle_table_release_dynamic_tables(table);
+    return NULL;
   }
 
   if (N % 5 == 0) {
     if (!twiddle_table_create_radix5_q15_simd(table)) {
+      twiddle_table_release_dynamic_tables(table);
+      return NULL;
+    }
+  } else if (N % 3 == 0) {
+    if (!twiddle_table_create_radix3_q15_simd(table)) {
+      twiddle_table_release_dynamic_tables(table);
       return NULL;
     }
   }
 
+  twiddle_table_release_float_tables(table);
   table->initialized = 1;
   return table;
 }
@@ -729,20 +736,19 @@ static pthread_mutex_t twiddle_table_mutex =
 
 const TwiddleTable *twiddle_table_get(int N)
 {
-  if (N <= 0 || N > MAX_N) {
-    fprintf(stderr,
-            "twiddle_table_get: invalid N=%d, MAX_N=%d\n",
-            N,
-            MAX_N);
+  const dft_size_idx_t sizeidx = get_dft(N);
+
+  if (sizeidx == DFT_SIZE_IDXTABLESIZE) {
+    fprintf(stderr, "twiddle_table_get: unsupported DFT size N=%d\n", N);
     abort();
   }
 
-  TwiddleTable *table = &g_tables[N];
+  TwiddleTable *table = &g_tables[sizeidx];
 
   pthread_mutex_lock(&twiddle_table_mutex);
 
   if (!table->initialized) {
-    if (!twiddle_table_create(N)) {
+    if (!twiddle_table_create(sizeidx, N)) {
       pthread_mutex_unlock(&twiddle_table_mutex);
       return NULL;
     }
@@ -778,6 +784,18 @@ static int init_sr_twiddle_simd(sr_twiddle_simd_t *tw, int N, dft_dir_t dir)
   tw->W1_IM_RE = aligned_alloc(32, sizeof(simde__m256i) * blocks);
   tw->W3_RE_NEGIM = aligned_alloc(32, sizeof(simde__m256i) * blocks);
   tw->W3_IM_RE = aligned_alloc(32, sizeof(simde__m256i) * blocks);
+
+  if (!tw->W1_RE_NEGIM || !tw->W1_IM_RE || !tw->W3_RE_NEGIM || !tw->W3_IM_RE) {
+    free(tw->W1_RE_NEGIM);
+    free(tw->W1_IM_RE);
+    free(tw->W3_RE_NEGIM);
+    free(tw->W3_IM_RE);
+    tw->W1_RE_NEGIM = NULL;
+    tw->W1_IM_RE = NULL;
+    tw->W3_RE_NEGIM = NULL;
+    tw->W3_IM_RE = NULL;
+    return 0;
+  }
 
   for (int b = 0; b < blocks; b++) {
     int16_t w1_re_negim[16] __attribute__((aligned(64)));
@@ -867,6 +885,16 @@ const sr_twiddle_simd_t *sr_twiddle_table_get(int N, dft_dir_t dir)
 
 #define DFT_C16_SR_MAX_N 65536
 
+static int ensure_sr_twiddles_for_size(int N, dft_dir_t dir)
+{
+  for (int size = N; size > DFT_C16_SR_MAX_N; size >>= 1) {
+    if (!sr_twiddle_table_get(size, dir))
+      return 0;
+  }
+
+  return 1;
+}
+
 static void dft_c16_init_impl(void)
 {
   AssertFatal(twiddle_table_get(64) != NULL, "Failed to initialize DFT64 twiddles\n");
@@ -889,7 +917,7 @@ __attribute__((constructor)) static void dft_c16_library_init(void)
 }
 
 //=====================================================================================
-// TWIDDLES FIN
+// TWIDDLES END
 //=====================================================================================
 
 //===================================================================
@@ -906,8 +934,8 @@ static inline __m128i dft64_dc_from_h0(__m256i h0)
   __m256i imag32 = _mm256_madd_epi16(h0, imag_mask);
 
   /*
-   * Après les deux hadd :
-   * chaque moitié contient [sum_real, sum_imag, ...]
+   * After the two horizontal adds, each 128-bit half contains
+   * [sum_real, sum_imag, ...].
    */
   __m256i sum = _mm256_hadd_epi32(real32, imag32);
   sum = _mm256_hadd_epi32(sum, sum);
@@ -915,9 +943,9 @@ static inline __m128i dft64_dc_from_h0(__m256i h0)
   __m128i dc32 = _mm_add_epi32(_mm256_castsi256_si128(sum), _mm256_extracti128_si256(sum, 1));
 
   /*
-   * Division arrondie par 8 :
-   * positif : +4
-   * négatif : +3
+   * Rounded division by 8:
+   * positive values: +4
+   * negative values: +3
    */
   const __m128i sign = _mm_srai_epi32(dc32, 31);
 
@@ -1009,7 +1037,7 @@ static inline void dft64_avx(const c16_t *src, c16_t *dst, dft_dir_t dir)
   __m256i H4, H5, H6, H7;
 
   dft8x8_q15_256_dir(x0, x1, x2, x3, x4, x5, x6, x7, &H0, &H1, &H2, &H3, &H4, &H5, &H6, &H7, dir);
-  const TwiddleTable *tw = &g_tables[64];
+  const TwiddleTable *tw = &g_tables[DFT_64];
   const __m256i *C64_RE = (dir == DFT_DIR_FORWARD) ? tw->C64_RE_RE_q15_256 : tw->C64_RE_RE_q15_256_inverse;
 
   const __m256i *C64_IM = (dir == DFT_DIR_FORWARD) ? tw->C64_IM_SIGNED_q15_256 : tw->C64_IM_SIGNED_q15_256_inverse;
@@ -1125,7 +1153,7 @@ static inline void dft128_dir(const c16_t *src, c16_t *dst, dft_dir_t dir)
 
   c16_t A[64] __attribute__((aligned(32)));
   c16_t B[64] __attribute__((aligned(32)));
-  const TwiddleTable *tw = &g_tables[128];
+  const TwiddleTable *tw = &g_tables[DFT_128];
 
   const __m256i *W128_RE = dir == DFT_DIR_FORWARD ? tw->W128_RE_RE_q15_256 : tw->W128_RE_RE_q15_256_inverse;
 
@@ -1167,6 +1195,18 @@ static inline size_t split_radix_work_len_c16(int N)
 
   while (N > 128) {
     need += 2u * (size_t)N;
+    N >>= 1;
+  }
+
+  return need;
+}
+
+static inline size_t split_radix_work_len_strided_c16(int N)
+{
+  size_t need = 0;
+
+  while (N > 128) {
+    need += (size_t)N;
     N >>= 1;
   }
 
@@ -1374,15 +1414,13 @@ static void dft_split_radix_pure_simd_core(c16_t *__restrict x, c16_t *__restric
   const int idx = log2_int((unsigned int)N);
   const sr_twiddle_simd_t *table = (dir == DFT_DIR_FORWARD) ? &sr_twiddles_fwd[idx] : &sr_twiddles_bwd[idx];
 
-  if (!table) {
-    return;
-  }
-
+  AssertFatal(table->initialized, "Missing split-radix twiddles for N=%d\n", N);
   sr_combine_simd(E, O1, O3, y, N, table, dir);
 }
 
 static void dft_split_radix_pure_simd(c16_t *x, c16_t *y, int N, dft_dir_t dir)
 {
+  AssertFatal(ensure_sr_twiddles_for_size(N, dir), "Failed to initialize split-radix twiddles for N=%d\n", N);
   const size_t work_len = split_radix_work_len_c16(N);
 
   if (work_len == 0) {
@@ -1399,7 +1437,7 @@ static void dft_split_radix_pure_simd(c16_t *x, c16_t *y, int N, dft_dir_t dir)
   c16_t *work = (c16_t *)aligned_malloc64(sizeof(c16_t) * work_len);
 
   if (!work) {
-    printf("dft_split_radix_pure_simd: allocation failed N=%d work_len=%zu\n", N, work_len);
+    LOG_E(PHY, "dft_split_radix_pure_simd: allocation failed N=%d work_len=%zu\n", N, work_len);
     return;
   }
 
@@ -1439,15 +1477,14 @@ static void dft_split_radix_pure_simd_core_strided(const c16_t *__restrict x,
   const int idx = log2_int((unsigned int)N);
   const sr_twiddle_simd_t *table = (dir == DFT_DIR_FORWARD) ? &sr_twiddles_fwd[idx] : &sr_twiddles_bwd[idx];
 
-  if (!table) {
-    return;
-  }
+  AssertFatal(table->initialized, "Missing split-radix twiddles for N=%d\n", N);
   sr_combine_simd(E, O1, O3, y, N, table, dir);
 }
 
 static void dft_split_radix_pure_simd_strided(const c16_t *x, int stride, c16_t *y, int N, dft_dir_t dir)
 {
-  const size_t work_len = split_radix_work_len_c16(N);
+  AssertFatal(ensure_sr_twiddles_for_size(N, dir), "Failed to initialize split-radix twiddles for N=%d\n", N);
+  const size_t work_len = split_radix_work_len_strided_c16(N);
 
   if (work_len == 0) {
     dft_split_radix_pure_simd_core_strided(x, stride, y, NULL, N, dir);
@@ -1463,7 +1500,7 @@ static void dft_split_radix_pure_simd_strided(const c16_t *x, int stride, c16_t 
   c16_t *work = (c16_t *)aligned_malloc64(sizeof(c16_t) * work_len);
 
   if (!work) {
-    printf("dft_split_radix_pure_simd: allocation failed N=%d work_len=%zu\n", N, work_len);
+    LOG_E(PHY, "dft_split_radix_pure_simd_strided: allocation failed N=%d work_len=%zu\n", N, work_len);
     return;
   }
 
@@ -1516,6 +1553,12 @@ static inline void dft4_void(const c16_t *src, c16_t *dst, dft_dir_t dir)
   const __m128i y = dft4_avx(x, dir);
 
   _mm_storeu_si128((__m128i *)dst, y);
+}
+
+static inline void dft4_strided_q15_128(const c16_t *src, int stride, c16_t *dst, dft_dir_t dir)
+{
+  const __m128i x = load4_complex_strided_c16(src, stride, 0);
+  _mm_storeu_si128((__m128i *)dst, dft4_avx(x, dir));
 }
 
 static inline void dft8_avx(const c16_t *src, c16_t *dst, dft_dir_t dir)
@@ -1603,7 +1646,7 @@ static inline void dft8_strided_q15_128(const c16_t *src, int stride, c16_t *dst
  * Twiddles for DFT16 radix-4 combine.
  *
  * Format:
- *   RE_RE     = [ re0, re0, re1, re1, re2, re2, re3, re3 ]
+ *   RE_RE     = [ re0, re0, re1, re1, re2, re2, re3, re3]
  *   IM_SIGNED = [-im0, im0,-im1, im1,-im2, im2,-im3, im3]
  *
  * Forward:
@@ -1745,7 +1788,7 @@ static inline void dft16_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
 
 /*
  * Format:
- *   RE_RE     = [ re0, re0, re1, re1, re2, re2, re3, re3 ]
+ *   RE_RE     = [ re0, re0, re1, re1, re2, re2, re3, re3]
  *   IM_SIGNED = [-im0, im0,-im1, im1,-im2, im2,-im3, im3]
  *
  * Forward:
@@ -1783,16 +1826,6 @@ static inline __m128i pack3_complex_plus_zero_c16(const c16_t a, const c16_t b, 
   return _mm_setr_epi16(a.r, a.i, b.r, b.i, c.r, c.i, 0, 0);
 }
 
-void dft16(int16_t *x, int16_t *y, uint8_t scale_flag)
-{
-  const c16_t *src = (const c16_t *)x;
-  c16_t *dst = (c16_t *)y;
-
-  (void)scale_flag;
-
-  dft16_q15_128(src, dst, DFT_DIR_FORWARD);
-}
-
 static inline void dft12_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
 {
   /*
@@ -1809,10 +1842,8 @@ static inline void dft12_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
   __m128i H0, H1, H2, H3;
 
   /*
-   * IMPORTANT :
-   * dft4x4_q15_128 doit être ta version scaled /2.
+   * dft4x4_q15_128 applies the required /2 scaling.
    *
-   * Après :
    * H0 = [F0[0], F1[0], F2[0], dummy]
    * H1 = [F0[1], F1[1], F2[1], dummy]
    * H2 = [F0[2], F1[2], F2[2], dummy]
@@ -1821,7 +1852,7 @@ static inline void dft12_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
   dft4x4_q15_128(x0, x1, x2, x3, &H0, &H1, &H2, &H3, dir);
 
   /*
-   * Après transpose :
+   * After the transpose:
    *
    * H0 = A  = [F0[0], F0[1], F0[2], F0[3]]
    * H1 = X1 = [F1[0], F1[1], F1[2], F1[3]]
@@ -1843,10 +1874,8 @@ static inline void dft12_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
   const __m128i W2_IM = twiddle_im_dir_128(_mm_load_si128((const __m128i *)W12_R3_W2_IM_SIGNED), dir);
 
   /*
-   * A est aussi multiplié par 1/sqrt(3).
-   *
-   * Comme le premier étage dft4x4 a déjà fait /2,
-   * le scale total devient :
+   * A is also scaled by 1/sqrt(3). Since the first dft4x4 stage
+   * already applies /2, the total scale is:
    *
    *   /2 * /sqrt(3) = 1/sqrt(12)
    */
@@ -1891,8 +1920,6 @@ static inline void dft12_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
   const __m128i Y2 = _mm_adds_epi16(base, mul_plus_j_dir_i16_128(c3D, dir));
 
   /*
-   * size = 4
-   *
    * dst[0..3]   = Y0
    * dst[4..7]   = Y1
    * dst[8..11]  = Y2
@@ -1900,16 +1927,6 @@ static inline void dft12_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
   _mm_storeu_si128((__m128i *)(dst + 0), Y0);
   _mm_storeu_si128((__m128i *)(dst + 4), Y1);
   _mm_storeu_si128((__m128i *)(dst + 8), Y2);
-}
-
-void dft12(int16_t *x, int16_t *y, uint8_t scale_flag)
-{
-  const c16_t *src = (const c16_t *)x;
-  c16_t *dst = (c16_t *)y;
-
-  (void)scale_flag;
-
-  dft12_q15_128(src, dst, DFT_DIR_FORWARD);
 }
 
 static inline void dft12_q15_128_strided(const c16_t *src, int stride, c16_t *dst, dft_dir_t dir)
@@ -2193,31 +2210,6 @@ static inline void dft32_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
   combine32_q15_128(H_lo, H_hi, dst, dir);
 }
 
-void dft32(int16_t *x, int16_t *y, uint8_t scale_flag)
-{
-  const c16_t *src = (const c16_t *)x;
-  c16_t *dst = (c16_t *)y;
-
-  (void)scale_flag;
-
-  dft32_q15_128(src, dst, DFT_DIR_FORWARD);
-}
-
-/*
-static inline void dft32_q15_128_strided(const c16_t *src,
-                                            int stride,
-                                            c16_t *dst,
-                                            dft_dir_t dir)
-{
-    c16_t tmp[32] __attribute__((aligned(64)));
-
-    for (int i = 0; i < 32; i++) {
-        tmp[i] = src[i * stride];
-    }
-
-    dft32_q15_128(tmp, dst);
-}
-*/
 static inline void dft32_q15_128_strided(const c16_t *src, int stride, c16_t *dst, dft_dir_t dir)
 {
   __m128i H_lo[4] __attribute__((aligned(16)));
@@ -2438,8 +2430,6 @@ static inline void dft24_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
   radix3_combine4_q15_128_scaled(A_hi, X1_hi, X2_hi, W1_RE_HI, W1_IM_HI, W2_RE_HI, W2_IM_HI, &Y0_hi, &Y1_hi, &Y2_hi, dir);
 
   /*
-   * size = 8
-   *
    * dst[0..7]    = Y0
    * dst[8..15]   = Y1
    * dst[16..23]  = Y2
@@ -2452,16 +2442,6 @@ static inline void dft24_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
 
   _mm_storeu_si128((__m128i *)(dst + 16), Y2_lo);
   _mm_storeu_si128((__m128i *)(dst + 20), Y2_hi);
-}
-
-void dft24(int16_t *x, int16_t *y, uint8_t scale_flag)
-{
-  const c16_t *src = (const c16_t *)x;
-  c16_t *dst = (c16_t *)y;
-
-  (void)scale_flag;
-
-  dft24_q15_128(src, dst, DFT_DIR_FORWARD);
 }
 
 static inline void dft24_q15_128_strided(const c16_t *src, int stride, c16_t *dst, dft_dir_t dir)
@@ -2573,8 +2553,6 @@ static inline void radix5_combine4_q15_128_dft20(__m128i A,
 static inline void dft20_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
 {
   /*
-   * Radix-5 split, size = 4.
-   *
    * Branches:
    *
    * r=0 : src[0],  src[5],  src[10], src[15]
@@ -2606,7 +2584,7 @@ static inline void dft20_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
   dft4x4_q15_128(x0, x1, x2, x3, &H0, &H1, &H2, &H3, dir);
 
   /*
-   * Transpose to get:
+   * Transpose:
    *
    * H0 = A  = [F0[0], F0[1], F0[2], F0[3]]
    * H1 = X1 = [F1[0], F1[1], F1[2], F1[3]]
@@ -2678,8 +2656,6 @@ static inline void dft20_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
                                 dir);
 
   /*
-   * size = 4
-   *
    * dst[0..3]    = Y0
    * dst[4..7]    = Y1
    * dst[8..11]   = Y2
@@ -2691,16 +2667,6 @@ static inline void dft20_q15_128(const c16_t *src, c16_t *dst, dft_dir_t dir)
   _mm_storeu_si128((__m128i *)(dst + 8), Y2);
   _mm_storeu_si128((__m128i *)(dst + 12), Y3);
   _mm_storeu_si128((__m128i *)(dst + 16), Y4);
-}
-
-void dft20(int16_t *x, int16_t *y, uint8_t scale_flag)
-{
-  const c16_t *src = (const c16_t *)x;
-  c16_t *dst = (c16_t *)y;
-
-  (void)scale_flag;
-
-  dft20_q15_128(src, dst, DFT_DIR_FORWARD);
 }
 
 static inline void dft20_q15_128_strided(const c16_t *src, int stride, c16_t *dst, dft_dir_t dir)
@@ -2764,15 +2730,13 @@ static inline void radix3_combine4_q15_128_fast(__m128i A,
   const __m128i Cs = complex_mul4_prepack_q15_128(X2, w2_re_re, w2_im_im);
 
   /*
-   * Correct scaling for N = 3 * size when sub-FFTs are already scaled:
+   * Scaling for N = 3 * size when sub-FFTs are already scaled:
    *
    * final scale = 1 / sqrt(3)
    *
    * Y0 = (A + B + C) / sqrt(3)
    */
   const __m128i As = q15_mul_i16_128(A, Q15_INV_SQRT3);
-  // const __m128i Bs = q15_mul_i16_128(B, Q15_INV_SQRT3);
-  // const __m128i Cs = q15_mul_i16_128(C, Q15_INV_SQRT3);
   const __m128i S = _mm_adds_epi16(Bs, Cs);
   const __m128i D = _mm_subs_epi16(Bs, Cs);
   *Y0 = _mm_adds_epi16(As, S);
@@ -2785,10 +2749,9 @@ static inline void radix3_combine4_q15_128_fast(__m128i A,
   const __m128i base = _mm_subs_epi16(As, Sh);
 
   /*
-   * Z = c3 * (B - C) / sqrt(3)
-   *   = 0.5 * (B - C)
+   * B and C already include the 1/sqrt(3) twiddle scaling.
+   * Apply sqrt(3)/2 to their difference for the radix-3 imaginary term.
    */
-
   const __m128i Z = q15_mul_i16_128(D, Q15_HALF_SQRT3);
 
   /*
@@ -2802,14 +2765,14 @@ static inline void radix3_combine4_q15_128_fast(__m128i A,
 static void radix_3_fft_c16_scaled_strided(const c16_t *src, int stride, c16_t *dst, int N, dft_dir_t dir)
 {
   if ((N % 3) != 0) {
-    printf("radix_3_fft_c16_scaled_strided: invalid N=%d\n", N);
+    LOG_E(PHY, "radix_3_fft_c16_scaled_strided: invalid N=%d\n", N);
     return;
   }
 
   const int size = N / 3;
 
   if ((size & 3) != 0) {
-    printf("radix_3_fft_c16_scaled_strided: scalar tail not implemented, size=%d\n", size);
+    LOG_E(PHY, "radix_3_fft_c16_scaled_strided: scalar tail not implemented, size=%d\n", size);
     return;
   }
 
@@ -2817,7 +2780,7 @@ static void radix_3_fft_c16_scaled_strided(const c16_t *src, int stride, c16_t *
 
   if (!tw || !tw->r3_q15_w1_re || !tw->r3_q15_w1_im || !tw->r3_q15_w2_re || !tw->r3_q15_w2_im || !tw->r3_q15_w1_re_inv
       || !tw->r3_q15_w1_im_inv || !tw->r3_q15_w2_re_inv || !tw->r3_q15_w2_im_inv) {
-    printf("radix_3_fft_c16_scaled_strided: missing radix-3 twiddles\n");
+    LOG_E(PHY, "radix_3_fft_c16_scaled_strided: missing radix-3 twiddles\n");
     return;
   }
 
@@ -2830,23 +2793,13 @@ static void radix_3_fft_c16_scaled_strided(const c16_t *src, int stride, c16_t *
   } else {
     tmp_heap = aligned_malloc64(sizeof(c16_t) * (size_t)N);
     if (!tmp_heap) {
-      printf("radix_3_fft_c16_scaled_strided: allocation failed\n");
+      LOG_E(PHY, "radix_3_fft_c16_scaled_strided: allocation failed\n");
       return;
     }
     tmp = tmp_heap;
   }
 
-  /*
-   * Branch r:
-   *   src[(3*n + r) * stride]
-   *
-   * Equivalent pointer:
-   *   src + r*stride
-   *
-   * New stride:
-   *   stride * 3
-   */
-  dft_mixed_radix_c16_scaled_strided(src + 0 * stride, stride * 3, tmp + 0 * size, size, dir);
+  dft_mixed_radix_c16_scaled_strided(src, stride * 3, tmp + 0 * size, size, dir);
 
   dft_mixed_radix_c16_scaled_strided(src + 1 * stride, stride * 3, tmp + 1 * size, size, dir);
 
@@ -2916,35 +2869,35 @@ static inline void radix5_combine4_q15_128_fast(__m128i A,
   const __m128i CDminus = _mm_subs_epi16(C, D);
 
   /*
-   * Y0 = (A + B + C + D + E) / sqrt(5)
+   * B, C, D and E already include the 1/sqrt(5) twiddle scaling.
    */
-  const __m128i As = q15_mul_i16_128(A, 14654);
+  const __m128i As = q15_mul_i16_128(A, Q15_INV_SQRT5);
   *Y0 = _mm_adds_epi16(_mm_adds_epi16(BE, CD), As);
 
   /*
-   * base1 = A/sqrt5 + c1/sqrt5*(B+E) + c2/sqrt5*(C+D)
+   * base1 = As + c1*(B+E) + c2*(C+D)
    */
 
-  const __m128i base1 = _mm_adds_epi16(_mm_adds_epi16(q15_mul_i16_128(BE, 10126), q15_mul_i16_128(CD, -26510)), As);
+  const __m128i base1 = _mm_adds_epi16(_mm_adds_epi16(q15_mul_i16_128(BE, Q15_COS_2PI_5), q15_mul_i16_128(CD, Q15_COS_4PI_5)), As);
 
   /*
-   * imag1 = s1/sqrt5*(B-E) + s2/sqrt5*(C-D)
+   * imag1 = s1*(B-E) + s2*(C-D)
    */
-  const __m128i imag1 = _mm_adds_epi16(q15_mul_i16_128(BEminus, 31163), q15_mul_i16_128(CDminus, 19260));
+  const __m128i imag1 = _mm_adds_epi16(q15_mul_i16_128(BEminus, Q15_SIN_2PI_5), q15_mul_i16_128(CDminus, Q15_SIN_4PI_5));
 
   *Y1 = _mm_adds_epi16(base1, mul_minus_j_dir_i16_128(imag1, dir));
   *Y4 = _mm_adds_epi16(base1, mul_plus_j_dir_i16_128(imag1, dir));
 
   /*
-   * base2 = A/sqrt5 + c2/sqrt5*(B+E) + c1/sqrt5*(C+D)
+   * base2 = As + c2*(B+E) + c1*(C+D)
    */
-  const __m128i base2 = _mm_adds_epi16(_mm_adds_epi16(q15_mul_i16_128(BE, -26510), q15_mul_i16_128(CD, 10126)), As);
+  const __m128i base2 = _mm_adds_epi16(_mm_adds_epi16(q15_mul_i16_128(BE, Q15_COS_4PI_5), q15_mul_i16_128(CD, Q15_COS_2PI_5)), As);
 
   /*
-   * imag2 = s2/sqrt5*(B-E) - s1/sqrt5*(C-D)
+   * imag2 = s2*(B-E) - s1*(C-D)
    */
 
-  const __m128i imag2 = _mm_subs_epi16(q15_mul_i16_128(BEminus, 19260), q15_mul_i16_128(CDminus, 31163));
+  const __m128i imag2 = _mm_subs_epi16(q15_mul_i16_128(BEminus, Q15_SIN_4PI_5), q15_mul_i16_128(CDminus, Q15_SIN_2PI_5));
 
   *Y2 = _mm_adds_epi16(base2, mul_minus_j_dir_i16_128(imag2, dir));
   *Y3 = _mm_adds_epi16(base2, mul_plus_j_dir_i16_128(imag2, dir));
@@ -2955,14 +2908,14 @@ static inline void radix5_combine4_q15_128_fast(__m128i A,
 static void radix_5_fft_c16_scaled_strided(const c16_t *src, int stride, c16_t *dst, int N, dft_dir_t dir)
 {
   if ((N % 5) != 0) {
-    printf("radix_5_fft_c16_scaled_strided: invalid N=%d\n", N);
+    LOG_E(PHY, "radix_5_fft_c16_scaled_strided: invalid N=%d\n", N);
     return;
   }
 
   const int size = N / 5;
 
   if ((size & 3) != 0) {
-    printf("radix_5_fft_c16_scaled_strided: scalar tail not implemented, size=%d\n", size);
+    LOG_E(PHY, "radix_5_fft_c16_scaled_strided: scalar tail not implemented, size=%d\n", size);
     return;
   }
 
@@ -2972,7 +2925,7 @@ static void radix_5_fft_c16_scaled_strided(const c16_t *src, int stride, c16_t *
       || !tw->r5_q15_w3_im || !tw->r5_q15_w4_re || !tw->r5_q15_w4_im || !tw->r5_q15_w1_re_inv || !tw->r5_q15_w1_im_inv
       || !tw->r5_q15_w2_re_inv || !tw->r5_q15_w2_im_inv || !tw->r5_q15_w3_re_inv || !tw->r5_q15_w3_im_inv || !tw->r5_q15_w4_re_inv
       || !tw->r5_q15_w4_im_inv) {
-    printf("radix_5_fft_c16_scaled_strided: missing radix-5 twiddles\n");
+    LOG_E(PHY, "radix_5_fft_c16_scaled_strided: missing radix-5 twiddles\n");
     return;
   }
 
@@ -2985,7 +2938,7 @@ static void radix_5_fft_c16_scaled_strided(const c16_t *src, int stride, c16_t *
   } else {
     tmp_heap = aligned_malloc64(sizeof(c16_t) * (size_t)N);
     if (!tmp_heap) {
-      printf("radix_5_fft_c16_scaled_strided: allocation failed\n");
+      LOG_E(PHY, "radix_5_fft_c16_scaled_strided: allocation failed\n");
       return;
     }
     tmp = tmp_heap;
@@ -3066,7 +3019,10 @@ static void dft_mixed_radix_c16_scaled_strided(const c16_t *src, int stride, c16
   }
 
   if (N == 4) {
-    dft4_void(src, dst, dir);
+    if (stride == 1)
+      dft4_void(src, dst, dir);
+    else
+      dft4_strided_q15_128(src, stride, dst, dir);
     return;
   }
 
@@ -3129,19 +3085,7 @@ static void dft_mixed_radix_c16_scaled_strided(const c16_t *src, int stride, c16
     return;
   }
 
-  c16_t *tmp = aligned_malloc64(sizeof(c16_t) * (size_t)N);
-  if (!tmp) {
-    printf("dft_mixed_radix_c16_scaled_strided: allocation failed N=%d\n", N);
-    return;
-  }
-
-  for (int i = 0; i < N; i++) {
-    tmp[i] = src[i * stride];
-  }
-
-  dft_mixed_radix_c16_scaled(tmp, dst, N, dir);
-
-  free(tmp);
+  AssertFatal(false, "Unsupported mixed-radix DFT factorization for N=%d\n", N);
 }
 
 static void dft_mixed_radix_c16_scaled(const c16_t *src, c16_t *dst, int N, dft_dir_t dir)
@@ -3152,1275 +3096,69 @@ static void dft_mixed_radix_c16_scaled(const c16_t *src, c16_t *dst, int N, dft_
   }
   dft_mixed_radix_c16_scaled_strided(src, 1, dst, N, dir);
 }
-#define DEFINE_MIXED_DFT_ONLY(N)                                                     \
-  void dft##N(int16_t *input, int16_t *output, uint8_t scale_flag)                   \
-  {                                                                                  \
-    (void)scale_flag;                                                                \
-                                                                                     \
-    dft_mixed_radix_c16_scaled((c16_t *)input, (c16_t *)output, N, DFT_DIR_FORWARD); \
+#define DEFINE_MIXED_TRANSFORM(NAME, N, DIR)                        \
+  void NAME##N(int16_t *input, int16_t *output, uint8_t scale_flag) \
+  {                                                                 \
+    (void)scale_flag;                                               \
+    const c16_t *src = (const c16_t *)(const void *)input;          \
+    c16_t *dst = (c16_t *)(void *)output;                           \
+    if ((N) == 12)                                                  \
+      dft12_q15_128(src, dst, (DIR));                               \
+    else if ((N) == 16)                                             \
+      dft16_q15_128(src, dst, (DIR));                               \
+    else if ((N) == 24)                                             \
+      dft24_q15_128(src, dst, (DIR));                               \
+    else if ((N) == 32)                                             \
+      dft32_q15_128(src, dst, (DIR));                               \
+    else if ((N) == 64)                                             \
+      dft64_avx(src, dst, (DIR));                                   \
+    else if ((N) == 128)                                            \
+      dft128_dir(src, dst, (DIR));                                  \
+    else                                                            \
+      dft_mixed_radix_c16_scaled(src, dst, (N), (DIR));             \
   }
 
-#define DEFINE_MIXED_IDFT_ONLY(N)                                                    \
-  void idft##N(int16_t *input, int16_t *output, uint8_t scale_flag)                  \
-  {                                                                                  \
-    (void)scale_flag;                                                                \
-                                                                                     \
-    dft_mixed_radix_c16_scaled((c16_t *)input, (c16_t *)output, N, DFT_DIR_INVERSE); \
-  }
-
-DEFINE_MIXED_IDFT_ONLY(4)
-DEFINE_MIXED_IDFT_ONLY(8)
-DEFINE_MIXED_IDFT_ONLY(12)
-DEFINE_MIXED_IDFT_ONLY(16)
-DEFINE_MIXED_IDFT_ONLY(20)
-DEFINE_MIXED_IDFT_ONLY(24)
-DEFINE_MIXED_IDFT_ONLY(32)
-
-DEFINE_MIXED_DFT_ONLY(4)
-DEFINE_MIXED_DFT_ONLY(8)
-
-DEFINE_MIXED_DFT_ONLY(192)
-DEFINE_MIXED_DFT_ONLY(384)
-DEFINE_MIXED_DFT_ONLY(768)
-DEFINE_MIXED_DFT_ONLY(1536)
-DEFINE_MIXED_DFT_ONLY(3072)
-DEFINE_MIXED_DFT_ONLY(6144)
-DEFINE_MIXED_DFT_ONLY(12288)
-DEFINE_MIXED_DFT_ONLY(64)
-DEFINE_MIXED_DFT_ONLY(128)
-DEFINE_MIXED_DFT_ONLY(256)
-DEFINE_MIXED_DFT_ONLY(512)
-DEFINE_MIXED_DFT_ONLY(1024)
-DEFINE_MIXED_DFT_ONLY(2048)
-DEFINE_MIXED_DFT_ONLY(4096)
-DEFINE_MIXED_DFT_ONLY(8192)
-DEFINE_MIXED_DFT_ONLY(16384)
-
-DEFINE_MIXED_IDFT_ONLY(64)
-DEFINE_MIXED_IDFT_ONLY(128)
-DEFINE_MIXED_IDFT_ONLY(256)
-DEFINE_MIXED_IDFT_ONLY(512)
-DEFINE_MIXED_IDFT_ONLY(1024)
-DEFINE_MIXED_IDFT_ONLY(2048)
-DEFINE_MIXED_IDFT_ONLY(4096)
-DEFINE_MIXED_IDFT_ONLY(8192)
-DEFINE_MIXED_IDFT_ONLY(16384)
-DEFINE_MIXED_IDFT_ONLY(192)
-DEFINE_MIXED_IDFT_ONLY(384)
-DEFINE_MIXED_IDFT_ONLY(768)
-DEFINE_MIXED_IDFT_ONLY(1536)
-DEFINE_MIXED_IDFT_ONLY(3072)
-DEFINE_MIXED_IDFT_ONLY(6144)
-DEFINE_MIXED_IDFT_ONLY(12288)
-
-DEFINE_MIXED_DFT_ONLY(32768)
-
-DEFINE_MIXED_IDFT_ONLY(32768)
-
-DEFINE_MIXED_DFT_ONLY(18432)
-
-DEFINE_MIXED_IDFT_ONLY(18432)
-
-DEFINE_MIXED_DFT_ONLY(24576)
-
-DEFINE_MIXED_IDFT_ONLY(24576)
-
-DEFINE_MIXED_DFT_ONLY(36864)
-
-DEFINE_MIXED_IDFT_ONLY(36864)
-
-DEFINE_MIXED_DFT_ONLY(49152)
-
-DEFINE_MIXED_IDFT_ONLY(49152)
-
-DEFINE_MIXED_DFT_ONLY(65536)
-
-DEFINE_MIXED_IDFT_ONLY(65536)
-
-DEFINE_MIXED_DFT_ONLY(98304)
-
-DEFINE_MIXED_IDFT_ONLY(98304)
-
-DEFINE_MIXED_DFT_ONLY(36)
-
-DEFINE_MIXED_IDFT_ONLY(36)
-
-DEFINE_MIXED_DFT_ONLY(48)
-
-DEFINE_MIXED_IDFT_ONLY(48)
-DEFINE_MIXED_DFT_ONLY(60)
-
-DEFINE_MIXED_IDFT_ONLY(60)
-
-DEFINE_MIXED_DFT_ONLY(72)
-
-DEFINE_MIXED_IDFT_ONLY(72)
-
-DEFINE_MIXED_DFT_ONLY(96)
-
-DEFINE_MIXED_IDFT_ONLY(96)
-
-DEFINE_MIXED_DFT_ONLY(108)
-
-DEFINE_MIXED_IDFT_ONLY(108)
-
-DEFINE_MIXED_DFT_ONLY(120)
-
-DEFINE_MIXED_IDFT_ONLY(120)
-
-DEFINE_MIXED_DFT_ONLY(144)
-
-DEFINE_MIXED_IDFT_ONLY(144)
-
-DEFINE_MIXED_DFT_ONLY(180)
-
-DEFINE_MIXED_IDFT_ONLY(180)
-
-DEFINE_MIXED_DFT_ONLY(216)
-
-DEFINE_MIXED_IDFT_ONLY(216)
-
-DEFINE_MIXED_DFT_ONLY(240)
-
-DEFINE_MIXED_IDFT_ONLY(240)
-
-DEFINE_MIXED_DFT_ONLY(288)
-
-DEFINE_MIXED_IDFT_ONLY(288)
-
-DEFINE_MIXED_DFT_ONLY(300)
-
-DEFINE_MIXED_IDFT_ONLY(300)
-
-DEFINE_MIXED_DFT_ONLY(324)
-
-DEFINE_MIXED_IDFT_ONLY(324)
-
-DEFINE_MIXED_DFT_ONLY(360)
-
-DEFINE_MIXED_IDFT_ONLY(360)
-
-DEFINE_MIXED_DFT_ONLY(432)
-
-DEFINE_MIXED_IDFT_ONLY(432)
-
-DEFINE_MIXED_DFT_ONLY(480)
-
-DEFINE_MIXED_IDFT_ONLY(480)
-
-DEFINE_MIXED_DFT_ONLY(540)
-
-DEFINE_MIXED_IDFT_ONLY(540)
-
-DEFINE_MIXED_DFT_ONLY(576)
-
-DEFINE_MIXED_IDFT_ONLY(576)
-
-DEFINE_MIXED_DFT_ONLY(600)
-
-DEFINE_MIXED_IDFT_ONLY(600)
-
-DEFINE_MIXED_DFT_ONLY(648)
-
-DEFINE_MIXED_IDFT_ONLY(648)
-
-DEFINE_MIXED_DFT_ONLY(720)
-
-DEFINE_MIXED_IDFT_ONLY(720)
-
-DEFINE_MIXED_DFT_ONLY(864)
-
-DEFINE_MIXED_IDFT_ONLY(864)
-
-DEFINE_MIXED_DFT_ONLY(900)
-
-DEFINE_MIXED_IDFT_ONLY(900)
-
-DEFINE_MIXED_DFT_ONLY(960)
-
-DEFINE_MIXED_IDFT_ONLY(960)
-
-DEFINE_MIXED_DFT_ONLY(972)
-
-DEFINE_MIXED_IDFT_ONLY(972)
-
-DEFINE_MIXED_DFT_ONLY(1080)
-
-DEFINE_MIXED_IDFT_ONLY(1080)
-
-DEFINE_MIXED_DFT_ONLY(1152)
-
-DEFINE_MIXED_IDFT_ONLY(1152)
-
-DEFINE_MIXED_DFT_ONLY(1200)
-
-DEFINE_MIXED_IDFT_ONLY(1200)
-
-DEFINE_MIXED_DFT_ONLY(1296)
-
-DEFINE_MIXED_IDFT_ONLY(1296)
-
-DEFINE_MIXED_DFT_ONLY(1440)
-
-DEFINE_MIXED_IDFT_ONLY(1440)
-
-DEFINE_MIXED_DFT_ONLY(1500)
-
-DEFINE_MIXED_IDFT_ONLY(1500)
-
-DEFINE_MIXED_DFT_ONLY(1620)
-
-DEFINE_MIXED_IDFT_ONLY(1620)
-
-DEFINE_MIXED_DFT_ONLY(1728)
-
-DEFINE_MIXED_IDFT_ONLY(1728)
-
-DEFINE_MIXED_DFT_ONLY(1800)
-
-DEFINE_MIXED_IDFT_ONLY(1800)
-
-DEFINE_MIXED_DFT_ONLY(1920)
-
-DEFINE_MIXED_IDFT_ONLY(1920)
-
-DEFINE_MIXED_DFT_ONLY(1944)
-
-DEFINE_MIXED_IDFT_ONLY(1944)
-
-DEFINE_MIXED_DFT_ONLY(2160)
-
-DEFINE_MIXED_IDFT_ONLY(2160)
-
-DEFINE_MIXED_DFT_ONLY(2304)
-
-DEFINE_MIXED_IDFT_ONLY(2304)
-
-DEFINE_MIXED_DFT_ONLY(2400)
-
-DEFINE_MIXED_IDFT_ONLY(2400)
-
-DEFINE_MIXED_DFT_ONLY(2592)
-
-DEFINE_MIXED_IDFT_ONLY(2592)
-
-DEFINE_MIXED_DFT_ONLY(2700)
-
-DEFINE_MIXED_IDFT_ONLY(2700)
-
-DEFINE_MIXED_DFT_ONLY(2880)
-
-DEFINE_MIXED_IDFT_ONLY(2880)
-
-DEFINE_MIXED_DFT_ONLY(2916)
-
-DEFINE_MIXED_IDFT_ONLY(2916)
-
-DEFINE_MIXED_DFT_ONLY(3000)
-
-DEFINE_MIXED_IDFT_ONLY(3000)
-
-DEFINE_MIXED_DFT_ONLY(3240)
-
-DEFINE_MIXED_IDFT_ONLY(3240)
-
-DEFINE_MIXED_DFT_ONLY(1048576)
-DEFINE_MIXED_IDFT_ONLY(1048576)
-
-DEFINE_MIXED_DFT_ONLY(1572864)
-DEFINE_MIXED_IDFT_ONLY(1572864)
-
-#ifndef MR_MAIN
+#define DEFINE_MIXED_DFT(N) DEFINE_MIXED_TRANSFORM(dft, N, DFT_DIR_FORWARD)
+#define DEFINE_MIXED_IDFT(N) DEFINE_MIXED_TRANSFORM(idft, N, DFT_DIR_INVERSE)
+
+/* Export exactly the ABI symbol set used by tools_defs.h function tables. */
+FOREACH_DFTSZ(DEFINE_MIXED_DFT)
+FOREACH_IDFTSZ(DEFINE_MIXED_IDFT)
 
 void dft_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, unsigned char scale_flag)
 {
-  AssertFatal((sizeidx >= 0 && sizeidx < DFT_SIZE_IDXTABLESIZE), "Invalid dft size index %i\n", sizeidx);
-  int algn = 0xF;
-  if ((dft_ftab[sizeidx].size % 3) != 0) // there is no AVX2 implementation for multiples of 3 DFTs
-    algn = 0x1F;
-  AssertFatal(((intptr_t)output & algn) == 0, "Buffers should be aligned %p", output);
+  AssertFatal(sizeidx < DFT_SIZE_IDXTABLESIZE, "Invalid dft size index %i\n", sizeidx);
+  const int algn = (dft_ftab[sizeidx].size % 3) ? 0x1F : 0xF;
+  AssertFatal(((intptr_t)output & algn) == 0, "Output buffer should be %d-byte aligned: %p\n", algn + 1, output);
+
   if (((intptr_t)input) & algn) {
-    LOG_D(PHY, "DFT called with input not aligned, add a memcpy, size %d\n", sizeidx);
-    int sz = dft_ftab[sizeidx].size;
-    if (sizeidx == DFT_12) // This case does 8 DFTs in //
-      sz *= 8;
-    int16_t tmp[sz * 2] __attribute__((aligned(32))); // input and output are not in right type (int16_t instead of c16_t)
-    memcpy(tmp, input, sizeof tmp);
-    dft_ftab[sizeidx].func(tmp, output, scale_flag);
-  } else
+    const size_t bytes = (size_t)dft_ftab[sizeidx].size * sizeof(c16_t);
+    c16_t *tmp = aligned_malloc64(bytes);
+    AssertFatal(tmp != NULL, "Failed to allocate aligned DFT input copy (%zu bytes)\n", bytes);
+    memcpy(tmp, input, bytes);
+    dft_ftab[sizeidx].func((int16_t *)(void *)tmp, output, scale_flag);
+    free(tmp);
+  } else {
     dft_ftab[sizeidx].func(input, output, scale_flag);
-};
+  }
+}
 
 void idft_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, unsigned char scale_flag)
 {
-  AssertFatal((sizeidx >= 0 && sizeidx < DFT_SIZE_IDXTABLESIZE), "Invalid idft size index %i\n", sizeidx);
-  int algn = 0xF;
-  algn = 0x1F;
-  AssertFatal(((intptr_t)output & algn) == 0, "Buffers should be 16 bytes aligned %p", output);
+  AssertFatal(sizeidx < IDFT_SIZE_IDXTABLESIZE, "Invalid idft size index %i\n", sizeidx);
+  const int algn = 0x1F;
+  AssertFatal(((intptr_t)output & algn) == 0, "Output buffer should be %d-byte aligned: %p\n", algn + 1, output);
+
   if (((intptr_t)input) & algn) {
-    LOG_D(PHY, "DFT called with input not aligned, add a memcpy\n");
-    int sz = idft_ftab[sizeidx].size;
-    int16_t tmp[sz * 2] __attribute__((aligned(32))); // input and output are not in right type (int16_t instead of c16_t)
-    memcpy(tmp, input, sizeof tmp);
-    idft_ftab[sizeidx].func(tmp, output, scale_flag);
-  } else
+    const size_t bytes = (size_t)idft_ftab[sizeidx].size * sizeof(c16_t);
+    c16_t *tmp = aligned_malloc64(bytes);
+    AssertFatal(tmp != NULL, "Failed to allocate aligned IDFT input copy (%zu bytes)\n", bytes);
+    memcpy(tmp, input, bytes);
+    idft_ftab[sizeidx].func((int16_t *)(void *)tmp, output, scale_flag);
+    free(tmp);
+  } else {
     idft_ftab[sizeidx].func(input, output, scale_flag);
-};
-
-#endif
-
-/*---------------------------------------------------------------------------------------*/
-
-#ifdef MR_MAIN
-#include <string.h>
-#include <stdio.h>
-
-#define LOG_M write_output
-int write_output(const char *fname, const char *vname, void *data, int length, int dec, char format)
-{
-  FILE *fp = NULL;
-  int i;
-
-  printf("Writing %d elements of type %d to %s\n", length, format, fname);
-
-  if (format == 10 || format == 11 || format == 12 || format == 13 || format == 14) {
-    fp = fopen(fname, "a+");
-  } else if (format != 10 && format != 11 && format != 12 && format != 13 && format != 14) {
-    fp = fopen(fname, "w+");
   }
-
-  if (fp == NULL) {
-    printf("[OPENAIR][FILE OUTPUT] Cannot open file %s\n", fname);
-    return (-1);
-  }
-
-  if (format != 10 && format != 11 && format != 12 && format != 13 && format != 14)
-    fprintf(fp, "%s = [", vname);
-
-  switch (format) {
-    case 0: // real 16-bit
-
-      for (i = 0; i < length; i += dec) {
-        fprintf(fp, "%d\n", ((short *)data)[i]);
-      }
-
-      break;
-
-    case 1: // complex 16-bit
-    case 13:
-    case 14:
-    case 15:
-
-      for (i = 0; i < length << 1; i += (2 * dec)) {
-        fprintf(fp, "%d + j*(%d)\n", ((short *)data)[i], ((short *)data)[i + 1]);
-      }
-
-      break;
-
-    case 2: // real 32-bit
-      for (i = 0; i < length; i += dec) {
-        fprintf(fp, "%d\n", ((int *)data)[i]);
-      }
-
-      break;
-
-    case 3: // complex 32-bit
-      for (i = 0; i < length << 1; i += (2 * dec)) {
-        fprintf(fp, "%d + j*(%d)\n", ((int *)data)[i], ((int *)data)[i + 1]);
-      }
-
-      break;
-
-    case 4: // real 8-bit
-      for (i = 0; i < length; i += dec) {
-        fprintf(fp, "%d\n", ((char *)data)[i]);
-      }
-
-      break;
-
-    case 5: // complex 8-bit
-      for (i = 0; i < length << 1; i += (2 * dec)) {
-        fprintf(fp, "%d + j*(%d)\n", ((char *)data)[i], ((char *)data)[i + 1]);
-      }
-
-      break;
-
-    case 6: // real 64-bit
-      for (i = 0; i < length; i += dec) {
-        fprintf(fp, "%lld\n", ((long long *)data)[i]);
-      }
-
-      break;
-
-    case 7: // real double
-      for (i = 0; i < length; i += dec) {
-        fprintf(fp, "%g\n", ((double *)data)[i]);
-      }
-
-      break;
-
-    case 8: // complex double
-      for (i = 0; i < length << 1; i += 2 * dec) {
-        fprintf(fp, "%g + j*(%g)\n", ((double *)data)[i], ((double *)data)[i + 1]);
-      }
-
-      break;
-
-    case 9: // real unsigned 8-bit
-      for (i = 0; i < length; i += dec) {
-        fprintf(fp, "%d\n", ((unsigned char *)data)[i]);
-      }
-
-      break;
-
-    case 10: // case eren 16 bit complex :
-
-      for (i = 0; i < length << 1; i += (2 * dec)) {
-        if ((i < 2 * (length - 1)) && (i > 0))
-          fprintf(fp, "%d + j*(%d),", ((short *)data)[i], ((short *)data)[i + 1]);
-        else if (i == 2 * (length - 1))
-          fprintf(fp, "%d + j*(%d);", ((short *)data)[i], ((short *)data)[i + 1]);
-        else if (i == 0)
-          fprintf(fp, "\n%d + j*(%d),", ((short *)data)[i], ((short *)data)[i + 1]);
-      }
-
-      break;
-
-    case 11: // case eren 16 bit real for channel magnitudes:
-      for (i = 0; i < length; i += dec) {
-        if ((i < (length - 1)) && (i > 0))
-          fprintf(fp, "%d,", ((short *)data)[i]);
-        else if (i == (length - 1))
-          fprintf(fp, "%d;", ((short *)data)[i]);
-        else if (i == 0)
-          fprintf(fp, "\n%d,", ((short *)data)[i]);
-      }
-
-      printf("\n erennnnnnnnnnnnnnn: length :%d", length);
-      break;
-
-    case 12: // case eren for log2_maxh real unsigned 8 bit
-      fprintf(fp, "%d \n", ((unsigned char *)&data)[0]);
-      break;
-  }
-
-  if (format != 10 && format != 11 && format != 12 && format != 13 && format != 15) {
-    fprintf(fp, "];\n");
-    fclose(fp);
-    return (0);
-  } else if (format == 10 || format == 11 || format == 12 || format == 13 || format == 15) {
-    fclose(fp);
-    return (0);
-  }
-
-  return 0;
 }
 
-int main(int argc, char **argv)
-{
-  time_stats_t ts;
-  simd256_q15_t x[16384], x2[16384], y[16384], tw0, tw1, tw2, tw3;
-  int i;
-  simd_q15_t *x128 = (simd_q15_t *)x, *y128 = (simd_q15_t *)y;
-
-  dfts_autoinit();
-
-  set_taus_seed(0);
-  cpu_meas_enabled = 1;
-  /*
-     ((int16_t *)&tw0)[0] = 32767;
-     ((int16_t *)&tw0)[1] = 0;
-     ((int16_t *)&tw0)[2] = 32767;
-     ((int16_t *)&tw0)[3] = 0;
-     ((int16_t *)&tw0)[4] = 32767;
-     ((int16_t *)&tw0)[5] = 0;
-     ((int16_t *)&tw0)[6] = 32767;
-     ((int16_t *)&tw0)[7] = 0;
-
-     ((int16_t *)&tw1)[0] = 32767;
-     ((int16_t *)&tw1)[1] = 0;
-     ((int16_t *)&tw1)[2] = 32767;
-     ((int16_t *)&tw1)[3] = 0;
-     ((int16_t *)&tw1)[4] = 32767;
-     ((int16_t *)&tw1)[5] = 0;
-     ((int16_t *)&tw1)[6] = 32767;
-     ((int16_t *)&tw1)[7] = 0;
-
-     ((int16_t *)&tw2)[0] = 32767;
-     ((int16_t *)&tw2)[1] = 0;
-     ((int16_t *)&tw2)[2] = 32767;
-     ((int16_t *)&tw2)[3] = 0;
-     ((int16_t *)&tw2)[4] = 32767;
-     ((int16_t *)&tw2)[5] = 0;
-     ((int16_t *)&tw2)[6] = 32767;
-     ((int16_t *)&tw2)[7] = 0;
-
-     ((int16_t *)&tw3)[0] = 32767;
-     ((int16_t *)&tw3)[1] = 0;
-     ((int16_t *)&tw3)[2] = 32767;
-     ((int16_t *)&tw3)[3] = 0;
-     ((int16_t *)&tw3)[4] = 32767;
-     ((int16_t *)&tw3)[5] = 0;
-     ((int16_t *)&tw3)[6] = 32767;
-     ((int16_t *)&tw3)[7] = 0;
-  */
-  for (i = 0; i < 300; i++) {
-    x[i] = simde_mm256_set1_epi32(taus());
-    x[i] = simde_mm256_srai_epi16(x[i], 4);
-  }
-  /*
-bfly2_tw1(x,x+1,y,y+1);
-printf("(%d,%d) (%d,%d) => (%d,%d)
-(%d,%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&y[0])[0],((int16_t*)&y[0])[1],((int16_t*)&y[1])[0],((int16_t*)&y[1])[1]);
-printf("(%d,%d) (%d,%d) => (%d,%d)
-(%d,%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&y[0])[2],((int16_t*)&y[0])[3],((int16_t*)&y[1])[2],((int16_t*)&y[1])[3]);
-printf("(%d,%d) (%d,%d) => (%d,%d)
-(%d,%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&y[0])[4],((int16_t*)&y[0])[5],((int16_t*)&y[1])[4],((int16_t*)&y[1])[5]);
-printf("(%d,%d) (%d,%d) => (%d,%d)
-(%d,%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&y[0])[6],((int16_t*)&y[0])[7],((int16_t*)&y[1])[6],((int16_t*)&y[1])[7]);
-bfly2(x,x+1,y,y+1, &tw0);
-printf("0(%d,%d) (%d,%d) => (%d,%d)
-(%d,%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&y[0])[0],((int16_t*)&y[0])[1],((int16_t*)&y[1])[0],((int16_t*)&y[1])[1]);
-printf("1(%d,%d) (%d,%d) => (%d,%d)
-(%d,%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&y[0])[2],((int16_t*)&y[0])[3],((int16_t*)&y[1])[2],((int16_t*)&y[1])[3]);
-printf("2(%d,%d) (%d,%d) => (%d,%d)
-(%d,%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&y[0])[4],((int16_t*)&y[0])[5],((int16_t*)&y[1])[4],((int16_t*)&y[1])[5]);
-printf("3(%d,%d) (%d,%d) => (%d,%d)
-(%d,%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&y[0])[6],((int16_t*)&y[0])[7],((int16_t*)&y[1])[6],((int16_t*)&y[1])[7]);
-bfly2(x,x+1,y,y+1, &tw0);
-
-bfly3_tw1(x,x+1,x+2,y, y+1,y+2);
-printf("0(%d,%d) (%d,%d) (%d %d) => (%d,%d) (%d,%d) (%d
-%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&x[2])[0],((int16_t*)&x[2])[1],((int16_t*)&y[0])[0],((int16_t*)&y[0])[1],((int16_t*)&y[1])[0],((int16_t*)&y[1])[1],((int16_t*)&y[2])[0],((int16_t*)&y[2])[1]);
-printf("1(%d,%d) (%d,%d) (%d %d) => (%d,%d) (%d,%d) (%d
-%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&x[2])[0],((int16_t*)&x[2])[1],((int16_t*)&y[0])[2],((int16_t*)&y[0])[3],((int16_t*)&y[1])[2],((int16_t*)&y[1])[3],((int16_t*)&y[2])[2],((int16_t*)&y[2])[3]);
-printf("2(%d,%d) (%d,%d) (%d %d) => (%d,%d) (%d,%d) (%d
-%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&x[2])[0],((int16_t*)&x[2])[1],((int16_t*)&y[0])[4],((int16_t*)&y[0])[5],((int16_t*)&y[1])[4],((int16_t*)&y[1])[5],((int16_t*)&y[2])[4],((int16_t*)&y[2])[5]);
-printf("3(%d,%d) (%d,%d) (%d %d) => (%d,%d) (%d,%d) (%d
-%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&x[2])[0],((int16_t*)&x[2])[1],((int16_t*)&y[0])[6],((int16_t*)&y[0])[7],((int16_t*)&y[1])[6],((int16_t*)&y[1])[7],((int16_t*)&y[2])[6],((int16_t*)&y[2])[7]);
-bfly3(x,x+1,x+2,y, y+1,y+2,&tw0,&tw1);
-
-printf("0(%d,%d) (%d,%d) (%d %d) => (%d,%d) (%d,%d) (%d
-%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&x[2])[0],((int16_t*)&x[2])[1],((int16_t*)&y[0])[0],((int16_t*)&y[0])[1],((int16_t*)&y[1])[0],((int16_t*)&y[1])[1],((int16_t*)&y[2])[0],((int16_t*)&y[2])[1]);
-printf("1(%d,%d) (%d,%d) (%d %d) => (%d,%d) (%d,%d) (%d
-%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&x[2])[0],((int16_t*)&x[2])[1],((int16_t*)&y[0])[2],((int16_t*)&y[0])[3],((int16_t*)&y[1])[2],((int16_t*)&y[1])[3],((int16_t*)&y[2])[2],((int16_t*)&y[2])[3]);
-printf("2(%d,%d) (%d,%d) (%d %d) => (%d,%d) (%d,%d) (%d
-%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&x[2])[0],((int16_t*)&x[2])[1],((int16_t*)&y[0])[4],((int16_t*)&y[0])[5],((int16_t*)&y[1])[4],((int16_t*)&y[1])[5],((int16_t*)&y[2])[4],((int16_t*)&y[2])[5]);
-printf("3(%d,%d) (%d,%d) (%d %d) => (%d,%d) (%d,%d) (%d
-%d)\n",((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],((int16_t*)&x[2])[0],((int16_t*)&x[2])[1],((int16_t*)&y[0])[6],((int16_t*)&y[0])[7],((int16_t*)&y[1])[6],((int16_t*)&y[1])[7],((int16_t*)&y[2])[6],((int16_t*)&y[2])[7]);
-
-
-bfly4_tw1(x,x+1,x+2,x+3,y, y+1,y+2,y+3);
-printf("(%d,%d) (%d,%d) (%d %d) (%d,%d) => (%d,%d) (%d,%d) (%d %d) (%d,%d)\n",
- ((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],
- ((int16_t*)&x[2])[0],((int16_t*)&x[2])[1],((int16_t*)&x[3])[0],((int16_t*)&x[3])[1],
- ((int16_t*)&y[0])[0],((int16_t*)&y[0])[1],((int16_t*)&y[1])[0],((int16_t*)&y[1])[1],
- ((int16_t*)&y[2])[0],((int16_t*)&y[2])[1],((int16_t*)&y[3])[0],((int16_t*)&y[3])[1]);
-
-bfly4(x,x+1,x+2,x+3,y, y+1,y+2,y+3,&tw0,&tw1,&tw2);
-printf("0(%d,%d) (%d,%d) (%d %d) (%d,%d) => (%d,%d) (%d,%d) (%d %d) (%d,%d)\n",
- ((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],
- ((int16_t*)&x[2])[0],((int16_t*)&x[2])[1],((int16_t*)&x[3])[0],((int16_t*)&x[3])[1],
- ((int16_t*)&y[0])[0],((int16_t*)&y[0])[1],((int16_t*)&y[1])[0],((int16_t*)&y[1])[1],
- ((int16_t*)&y[2])[0],((int16_t*)&y[2])[1],((int16_t*)&y[3])[0],((int16_t*)&y[3])[1]);
-printf("1(%d,%d) (%d,%d) (%d %d) (%d,%d) => (%d,%d) (%d,%d) (%d %d) (%d,%d)\n",
- ((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],
- ((int16_t*)&x[2])[0],((int16_t*)&x[2])[1],((int16_t*)&x[3])[0],((int16_t*)&x[3])[1],
- ((int16_t*)&y[0])[2],((int16_t*)&y[0])[3],((int16_t*)&y[1])[2],((int16_t*)&y[1])[3],
- ((int16_t*)&y[2])[2],((int16_t*)&y[2])[3],((int16_t*)&y[3])[2],((int16_t*)&y[3])[3]);
-printf("2(%d,%d) (%d,%d) (%d %d) (%d,%d) => (%d,%d) (%d,%d) (%d %d) (%d,%d)\n",
- ((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],
- ((int16_t*)&x[2])[0],((int16_t*)&x[2])[1],((int16_t*)&x[3])[0],((int16_t*)&x[3])[1],
- ((int16_t*)&y[0])[4],((int16_t*)&y[0])[5],((int16_t*)&y[1])[4],((int16_t*)&y[1])[5],
- ((int16_t*)&y[2])[4],((int16_t*)&y[2])[5],((int16_t*)&y[3])[4],((int16_t*)&y[3])[5]);
-printf("3(%d,%d) (%d,%d) (%d %d) (%d,%d) => (%d,%d) (%d,%d) (%d %d) (%d,%d)\n",
- ((int16_t*)&x[0])[0],((int16_t*)&x[0])[1],((int16_t*)&x[1])[0],((int16_t*)&x[1])[1],
- ((int16_t*)&x[2])[6],((int16_t*)&x[2])[7],((int16_t*)&x[3])[6],((int16_t*)&x[3])[7],
- ((int16_t*)&y[0])[6],((int16_t*)&y[0])[7],((int16_t*)&y[1])[6],((int16_t*)&y[1])[7],
- ((int16_t*)&y[2])[0],((int16_t*)&y[2])[1],((int16_t*)&y[3])[0],((int16_t*)&y[3])[1]);
-
-bfly5_tw1(x,x+1,x+2,x+3,x+4,y,y+1,y+2,y+3,y+4);
-
-for (i=0;i<5;i++)
-  printf("%d,%d,",
-   ((int16_t*)&x[i])[0],((int16_t*)&x[i])[1]);
-printf("\n");
-for (i=0;i<5;i++)
-  printf("%d,%d,",
-   ((int16_t*)&y[i])[0],((int16_t*)&y[i])[1]);
-printf("\n");
-
-bfly5(x,x+1,x+2,x+3,x+4,y, y+1,y+2,y+3,y+4,&tw0,&tw1,&tw2,&tw3);
-for (i=0;i<5;i++)
-  printf("%d,%d,",
-   ((int16_t*)&x[i])[0],((int16_t*)&x[i])[1]);
-printf("\n");
-for (i=0;i<5;i++)
-  printf("%d,%d,",
-   ((int16_t*)&y[i])[0],((int16_t*)&y[i])[1]);
-printf("\n");
-
-
-printf("\n\n12-point\n");
-dft12f(x,
- x+1,
- x+2,
- x+3,
- x+4,
- x+5,
- x+6,
- x+7,
- x+8,
- x+9,
- x+10,
- x+11,
- y,
- y+1,
- y+2,
- y+3,
- y+4,
- y+5,
- y+6,
- y+7,
- y+8,
- y+9,
- y+10,
- y+11);
-
-
-printf("X: ");
-for (i=0;i<12;i++)
-  printf("%d,%d,",((int16_t*)(&x[i]))[0],((int16_t *)(&x[i]))[1]);
-printf("\nY:");
-for (i=0;i<12;i++)
-  printf("%d,%d,",((int16_t*)(&y[i]))[0],((int16_t *)(&y[i]))[1]);
-printf("\n");
-
-*/
-
-  for (i = 0; i < 32; i++) {
-    ((int16_t *)x)[i] = (int16_t)((taus() & 0xffff)) >> 5;
-  }
-  memset((void *)&y[0], 0, 16 * 4);
-  idft16((int16_t *)x, (int16_t *)y, 0);
-  printf("\n\n16-point\n");
-  printf("X: ");
-  for (i = 0; i < 4; i++)
-    printf("%d,%d,%d,%d,%d,%d,%d,%d,",
-           ((int16_t *)&x[i])[0],
-           ((int16_t *)&x[i])[1],
-           ((int16_t *)&x[i])[2],
-           ((int16_t *)&x[i])[3],
-           ((int16_t *)&x[i])[4],
-           ((int16_t *)&x[i])[5],
-           ((int16_t *)&x[i])[6],
-           ((int16_t *)&x[i])[7]);
-  printf("\nY:");
-
-  for (i = 0; i < 4; i++)
-    printf("%d,%d,%d,%d,%d,%d,%d,%d,",
-           ((int16_t *)&y[i])[0],
-           ((int16_t *)&y[i])[1],
-           ((int16_t *)&y[i])[2],
-           ((int16_t *)&y[i])[3],
-           ((int16_t *)&y[i])[4],
-           ((int16_t *)&y[i])[5],
-           ((int16_t *)&y[i])[6],
-           ((int16_t *)&y[i])[7]);
-  printf("\n");
-
-  memset((void *)&x[0], 0, 2048 * 4);
-
-  for (i = 0; i < 2048; i += 4) {
-    ((int16_t *)x)[i << 1] = 1024;
-    ((int16_t *)x)[1 + (i << 1)] = 0;
-    ((int16_t *)x)[2 + (i << 1)] = 0;
-    ((int16_t *)x)[3 + (i << 1)] = 1024;
-    ((int16_t *)x)[4 + (i << 1)] = -1024;
-    ((int16_t *)x)[5 + (i << 1)] = 0;
-    ((int16_t *)x)[6 + (i << 1)] = 0;
-    ((int16_t *)x)[7 + (i << 1)] = -1024;
-  }
-  /*
-  for (i=0; i<2048; i+=2) {
-     ((int16_t*)x)[i<<1] = 1024;
-     ((int16_t*)x)[1+(i<<1)] = 0;
-     ((int16_t*)x)[2+(i<<1)] = -1024;
-     ((int16_t*)x)[3+(i<<1)] = 0;
-     }
-
-  for (i=0;i<2048*2;i++) {
-    ((int16_t*)x)[i] = i/2;//(int16_t)((taus()&0xffff))>>5;
-  }
-     */
-  memset((void *)&x[0], 0, 64 * sizeof(int32_t));
-  for (i = 2; i < 36; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = (128 - 36); i < 128; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  idft64((int16_t *)x, (int16_t *)y, 1);
-
-  printf("64-point\n");
-  printf("X: ");
-  for (i = 0; i < 8; i++)
-    print_shorts256("", ((int16_t *)x) + (i * 16));
-
-  printf("\nY:");
-
-  for (i = 0; i < 8; i++)
-    print_shorts256("", ((int16_t *)y) + (i * 16));
-  printf("\n");
-
-  idft64((int16_t *)x, (int16_t *)y, 1);
-  idft64((int16_t *)x, (int16_t *)y, 1);
-  idft64((int16_t *)x, (int16_t *)y, 1);
-  reset_meas(&ts);
-
-  for (i = 0; i < 10000000; i++) {
-    start_meas(&ts);
-    idft64((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-  /*
-  printf("\n\n64-point (%f cycles, #trials %d)\n",(double)ts.diff/(double)ts.trials,ts.trials);
-  //  LOG_M("x64.m","x64",x,64,1,1);
-  LOG_M("y64.m","y64",y,64,1,1);
-  LOG_M("x64.m","x64",x,64,1,1);
-  */
-  /*
-    printf("X: ");
-    for (i=0;i<16;i++)
-      printf("%d,%d,%d,%d,%d,%d,%d,%d,",((int16_t*)&x[i])[0],((int16_t *)&x[i])[1],((int16_t*)&x[i])[2],((int16_t
-    *)&x[i])[3],((int16_t*)&x[i])[4],((int16_t*)&x[i])[5],((int16_t*)&x[i])[6],((int16_t*)&x[i])[7]); printf("\nY:");
-
-    for (i=0;i<16;i++)
-      printf("%d,%d,%d,%d,%d,%d,%d,%d,",((int16_t*)&y[i])[0],((int16_t *)&y[i])[1],((int16_t*)&y[i])[2],((int16_t
-    *)&y[i])[3],((int16_t*)&y[i])[4],((int16_t *)&y[i])[5],((int16_t*)&y[i])[6],((int16_t *)&y[i])[7]); printf("\n");
-
-    idft64((int16_t*)y,(int16_t*)x,1);
-    printf("X: ");
-    for (i=0;i<16;i++)
-      printf("%d,%d,%d,%d,%d,%d,%d,%d,",((int16_t*)&x[i])[0],((int16_t *)&x[i])[1],((int16_t*)&x[i])[2],((int16_t
-    *)&x[i])[3],((int16_t*)&x[i])[4],((int16_t*)&x[i])[5],((int16_t*)&x[i])[6],((int16_t*)&x[i])[7]);
-
-    for (i=0; i<256; i++) {
-      ((int16_t*)x)[i] = (int16_t)((taus()&0xffff))>>5;
-    }
-  */
-
-  memset((void *)&x[0], 0, 128 * 4);
-  for (i = 2; i < 72; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = (256 - 72); i < 256; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft128((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n128-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y128.m", "y128", y, 128, 1, 1);
-  LOG_M("x128.m", "x128", x, 128, 1, 1);
-  /*
-    printf("X: ");
-     for (i=0;i<32;i++)
-       printf("%d,%d,%d,%d,%d,%d,%d,%d,",((int16_t*)&x[i])[0],((int16_t *)&x[i])[1],((int16_t*)&x[i])[2],((int16_t
-    *)&x[i])[3],((int16_t*)&x[i])[4],((int16_t*)&x[i])[5],((int16_t*)&x[i])[6],((int16_t*)&x[i])[7]); printf("\nY:");
-
-     for (i=0;i<32;i++)
-       printf("%d,%d,%d,%d,%d,%d,%d,%d,",((int16_t*)&y[i])[0],((int16_t *)&y[i])[1],((int16_t*)&y[i])[2],((int16_t
-    *)&y[i])[3],((int16_t*)&y[i])[4],((int16_t *)&y[i])[5],((int16_t*)&y[i])[6],((int16_t *)&y[i])[7]); printf("\n");
-  */
-
-  /*
-  for (i=0; i<512; i++) {
-    ((int16_t*)x)[i] = (int16_t)((taus()&0xffff))>>5;
-  }
-
-  memset((void*)&y[0],0,256*4);
-  */
-  memset((void *)&x[0], 0, 256 * sizeof(int32_t));
-  for (i = 2; i < 144; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = (512 - 144); i < 512; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft256((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n256-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y256.m", "y256", y, 256, 1, 1);
-  LOG_M("x256.m", "x256", x, 256, 1, 1);
-
-  memset((void *)&x[0], 0, 512 * sizeof(int32_t));
-  for (i = 2; i < 302; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = (1024 - 300); i < 1024; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-
-  reset_meas(&ts);
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft512((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n512-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y512.m", "y512", y, 512, 1, 1);
-  LOG_M("x512.m", "x512", x, 512, 1, 1);
-  /*
-  printf("X: ");
-  for (i=0;i<64;i++)
-    printf("%d,%d,%d,%d,%d,%d,%d,%d,",((int16_t*)&x[i])[0],((int16_t *)&x[i])[1],((int16_t*)&x[i])[2],((int16_t
-  *)&x[i])[3],((int16_t*)&x[i])[4],((int16_t*)&x[i])[5],((int16_t*)&x[i])[6],((int16_t*)&x[i])[7]); printf("\nY:");
-
-  for (i=0;i<64;i++)
-    printf("%d,%d,%d,%d,%d,%d,%d,%d,",((int16_t*)&y[i])[0],((int16_t *)&y[i])[1],((int16_t*)&y[i])[2],((int16_t
-  *)&y[i])[3],((int16_t*)&y[i])[4],((int16_t *)&y[i])[5],((int16_t*)&y[i])[6],((int16_t *)&y[i])[7]); printf("\n");
-  */
-
-  memset((void *)x, 0, 1024 * sizeof(int32_t));
-  for (i = 2; i < 602; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * 724; i < 2048; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft1024((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n1024-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y1024.m", "y1024", y, 1024, 1, 1);
-  LOG_M("x1024.m", "x1024", x, 1024, 1, 1);
-
-  memset((void *)x, 0, 1536 * sizeof(int32_t));
-  for (i = 2; i < 1202; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (1536 - 600); i < 3072; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft1536((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n1536-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  write_output("y1536.m", "y1536", y, 1536, 1, 1);
-  write_output("x1536.m", "x1536", x, 1536, 1, 1);
-
-  memset((void *)x, 0, 2048 * sizeof(int32_t));
-  for (i = 2; i < 1202; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (2048 - 600); i < 4096; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    dft2048((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n2048-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y2048.m", "y2048", y, 2048, 1, 1);
-  LOG_M("x2048.m", "x2048", x, 2048, 1, 1);
-
-  // NR 80Mhz, 217 PRB, 3/4 sampling
-  memset((void *)x, 0, 3072 * sizeof(int32_t));
-  for (i = 2; i < 2506; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (3072 - 1252); i < 6144; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-
-  reset_meas(&ts);
-
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft3072((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n3072-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  write_output("y3072.m", "y3072", y, 3072, 1, 1);
-  write_output("x3072.m", "x3072", x, 3072, 1, 1);
-
-  memset((void *)x, 0, 4096 * sizeof(int32_t));
-  for (i = 0; i < 2400; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (4096 - 1200); i < 8192; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft4096((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n4096-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y4096.m", "y4096", y, 4096, 1, 1);
-  LOG_M("x4096.m", "x4096", x, 4096, 1, 1);
-
-  dft4096((int16_t *)y, (int16_t *)x2, 1);
-  LOG_M("x4096_2.m", "x4096_2", x2, 4096, 1, 1);
-
-  // NR 160Mhz, 434 PRB, 3/4 sampling
-  memset((void *)x, 0, 6144 * sizeof(int32_t));
-  for (i = 2; i < 5010; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (6144 - 2504); i < 12288; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-
-  reset_meas(&ts);
-
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft6144((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n6144-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  write_output("y6144.m", "y6144", y, 6144, 1, 1);
-  write_output("x6144.m", "x6144", x, 6144, 1, 1);
-
-  memset((void *)x, 0, 8192 * sizeof(int32_t));
-  for (i = 2; i < 4802; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (8192 - 2400); i < 16384; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft8192((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n8192-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y8192.m", "y8192", y, 8192, 1, 1);
-  LOG_M("x8192.m", "x8192", x, 8192, 1, 1);
-
-  memset((void *)x, 0, 16384 * sizeof(int32_t));
-  for (i = 2; i < 9602; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (16384 - 4800); i < 32768; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    dft16384((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n16384-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y16384.m", "y16384", y, 16384, 1, 1);
-  LOG_M("x16384.m", "x16384", x, 16384, 1, 1);
-
-  memset((void *)x, 0, 1536 * sizeof(int32_t));
-  for (i = 2; i < 1202; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (1536 - 600); i < 3072; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft1536((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n1536-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y1536.m", "y1536", y, 1536, 1, 1);
-  LOG_M("x1536.m", "x1536", x, 1536, 1, 1);
-
-  printf("\n\n1536-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y8192.m", "y8192", y, 8192, 1, 1);
-  LOG_M("x8192.m", "x8192", x, 8192, 1, 1);
-
-  memset((void *)x, 0, 3072 * sizeof(int32_t));
-  for (i = 2; i < 1202; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (3072 - 600); i < 3072; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft3072((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n3072-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y3072.m", "y3072", y, 3072, 1, 1);
-  LOG_M("x3072.m", "x3072", x, 3072, 1, 1);
-
-  memset((void *)x, 0, 6144 * sizeof(int32_t));
-  for (i = 2; i < 4802; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (6144 - 2400); i < 12288; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft6144((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n6144-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y6144.m", "y6144", y, 6144, 1, 1);
-  LOG_M("x6144.m", "x6144", x, 6144, 1, 1);
-
-  memset((void *)x, 0, 12288 * sizeof(int32_t));
-  for (i = 2; i < 9602; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (12288 - 4800); i < 24576; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft12288((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n12288-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y12288.m", "y12288", y, 12288, 1, 1);
-  LOG_M("x12288.m", "x12288", x, 12288, 1, 1);
-
-  memset((void *)x, 0, 18432 * sizeof(int32_t));
-  for (i = 2; i < 14402; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (18432 - 7200); i < 36864; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft18432((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n18432-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y18432.m", "y18432", y, 18432, 1, 1);
-  LOG_M("x18432.m", "x18432", x, 18432, 1, 1);
-
-  memset((void *)x, 0, 24576 * sizeof(int32_t));
-  for (i = 2; i < 19202; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (24576 - 19200); i < 49152; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft24576((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n24576-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y24576.m", "y24576", y, 24576, 1, 1);
-  LOG_M("x24576.m", "x24576", x, 24576, 1, 1);
-
-  memset((void *)x, 0, 2 * 18432 * sizeof(int32_t));
-  for (i = 2; i < (2 * 14402); i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (36864 - 14400); i < (36864 * 2); i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    dft36864((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n36864-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y36864.m", "y36864", y, 36864, 1, 1);
-  LOG_M("x36864.m", "x36864", x, 36864, 1, 1);
-
-  memset((void *)x, 0, 49152 * sizeof(int32_t));
-  for (i = 2; i < 28402; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  for (i = 2 * (49152 - 14400); i < 98304; i++) {
-    if ((taus() & 1) == 0)
-      ((int16_t *)x)[i] = 364;
-    else
-      ((int16_t *)x)[i] = -364;
-  }
-  reset_meas(&ts);
-  for (i = 0; i < 10000; i++) {
-    start_meas(&ts);
-    idft49152((int16_t *)x, (int16_t *)y, 1);
-    stop_meas(&ts);
-  }
-
-  printf("\n\n49152-point(%f cycles)\n", (double)ts.diff / (double)ts.trials);
-  LOG_M("y49152.m", "y49152", y, 49152, 1, 1);
-  LOG_M("x49152.m", "x49152", x, 49152, 1, 1);
-
-  return (0);
-}
-
-#endif
 #endif
