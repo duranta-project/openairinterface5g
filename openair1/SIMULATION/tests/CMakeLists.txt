@@ -476,3 +476,53 @@ if(PHYSIM_CHECK_FILES)
     include("${CMAKE_CURRENT_SOURCE_DIR}/${PHYSIM_CHECK_FILE}")
   endforeach()
 endif()
+
+####################################################################################
+######   "quick_physim" subset: fast, representative cases across each        ######
+######   physim executable, meant to run in well under 3 minutes total        ######
+####################################################################################
+
+if(ENABLE_PHYSIM_TESTS)
+  set(QUICK_PHYSIM_TESTS
+    physim.5g.nr_pbchsim.106rb.test1
+    physim.5g.nr_pbchsim.217rb.test1
+    physim.5g.nr_pbchsim.otherSCS.test1
+    physim.5g.nr_pbchsim.otherSCS.test2
+    physim.5g.nr_dlsim.basic.test1
+    physim.5g.nr_dlsim.basic.test2
+    physim.5g.nr_dlsim.basic.test4
+    physim.5g.nr_dlsim.offset.test1
+    physim.5g.nr_dlsim.mcs.mimo.test1
+    physim.5g.nr_dlsim.mcs.mimo.test6
+    physim.5g.nr_dlsim.dmrs.ptrs.test1
+    physim.5g.nr_dlschsim.test1
+    physim.5g.nr_dlschsim.test2
+    physim.5g.nr_dlschsim.test3
+    physim.5g.nr_ulsim.misc.test1
+    physim.5g.nr_ulsim.misc.test2
+    physim.5g.nr_ulsim.misc.test5
+    physim.5g.nr_ulsim.sc-fdma.test1
+    physim.5g.nr_ulsim.mimo.test2
+    physim.5g.nr_ulschsim.test1
+    physim.5g.nr_ulschsim.test2
+    physim.5g.nr_ulschsim.test4
+    physim.5g.nr_pucchsim.test1
+    physim.5g.nr_pucchsim.test2
+    physim.5g.nr_pucchsim.test4
+    physim.5g.nr_pucchsim.test5
+    physim.5g.ldpctest.test1
+    physim.5g.ldpctest.test5
+    physim.5g.ldpctest.test11
+    physim.5g.polartest.test1
+    physim.5g.polartest.test2
+    physim.5g.polartest.test3
+    physim.5g.polartest.test4
+    physim.5g.smallblocktest.test1
+    physim.5g.smallblocktest.test4
+  )
+  foreach(QUICK_TEST IN LISTS QUICK_PHYSIM_TESTS)
+    if(TEST ${QUICK_TEST})
+      set_property(TEST ${QUICK_TEST} APPEND PROPERTY LABELS "quick_physim")
+    endif()
+  endforeach()
+endif()
