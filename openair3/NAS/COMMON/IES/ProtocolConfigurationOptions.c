@@ -42,6 +42,29 @@ int decode_protocol_configuration_options(ProtocolConfigurationOptions *protocol
   //IES_DECODE_U16(protocolconfigurationoptions->protocolid, *(buffer + decoded));
   protocolconfigurationoptions->num_protocol_id_or_container_id = 0;
   while ((len - decoded) > 0) {
+    /* The index below addresses arrays of
+       PROTOCOL_CONFIGURATION_OPTIONS_MAXIMUM_PROTOCOL_ID_OR_CONTAINER_ID
+       entries, while this loop is bounded only by the peer's length. */
+    if (protocolconfigurationoptions->num_protocol_id_or_container_id >=
+        PROTOCOL_CONFIGURATION_OPTIONS_MAXIMUM_PROTOCOL_ID_OR_CONTAINER_ID) {
+      uint8_t skipped_len;
+
+      // decoded > len is tested apart: both are uint32_t, so len - decoded wraps
+      if ((decoded >= len) || ((len - decoded) < 3)) {
+        break;
+      }
+
+      decoded += 2; // protocol/container identifier, nowhere left to store it
+      DECODE_U8(buffer + decoded, skipped_len, decoded);
+
+      if (skipped_len > (len - decoded)) {
+        break;
+      }
+
+      decoded += skipped_len; // skip contents
+      continue;
+    }
+
     IES_DECODE_U16(buffer, decoded, protocolconfigurationoptions->protocolid[protocolconfigurationoptions->num_protocol_id_or_container_id]);
     DECODE_U8(buffer + decoded, protocolconfigurationoptions->lengthofprotocolid[protocolconfigurationoptions->num_protocol_id_or_container_id], decoded);
 
