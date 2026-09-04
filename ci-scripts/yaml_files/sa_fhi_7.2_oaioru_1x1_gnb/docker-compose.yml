@@ -29,7 +29,7 @@ services:
         devices:
             - /dev/vfio:/dev/vfio/
         volumes:
-            - ../../conf_files/gnb.sa.band77.106prb.fhi72.1x1-oaioru.conf:/opt/oai-gnb/etc/gnb.conf
+            - ../../conf_files/${GNB_CONF:-gnb.sa.band77.106prb.fhi72.1x1-oaioru.conf}:/opt/oai-gnb/etc/gnb.conf
             - /dev/hugepages:/dev/hugepages
         cpuset: "7,8,9,10,11,12,13,14,15,16"
         networks:

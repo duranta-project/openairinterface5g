@@ -100,8 +100,8 @@ int main(int argc, char **argv)
   assert(s < (10 << cfg.numerology));
 
   printf("Running live loop for 2 seconds...\n");
-  uint32_t *txData[1];
-  txData[0] = malloc(273 * 12 * sizeof(uint32_t));
+  dl_iq_stream_t dl_streams[MAX_DL_IQ_STREAMS_PER_SYMBOL];
+  uint32_t *iq_arena = malloc(MAX_DL_IQ_STREAMS_PER_SYMBOL * 273 * 12 * sizeof(uint32_t));
   for (int i = 0; i < 2000; i++) {
 
     uint64_t start_cycles = rte_get_timer_cycles();
@@ -110,11 +110,11 @@ int main(int argc, char **argv)
       int f, s, sym;
       uint64_t hf;
       while (oru_fh_get_ready_jobs(handle) > 0) {
-        oru_fh_tx_read_symbol(handle, txData, 1, &hf, &f, &s, &sym);
+        oru_fh_tx_read_symbol(handle, dl_streams, iq_arena, MAX_DL_IQ_STREAMS_PER_SYMBOL, &hf, &f, &s, &sym);
       }
     }
   }
-  free(txData[0]);
+  free(iq_arena);
 
   printf("Stopping ORU_FH...\n");
   oru_fh_stop(handle);

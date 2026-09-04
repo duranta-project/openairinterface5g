@@ -37,6 +37,7 @@
 #include <simde/x86/avx512/srai.h>
 #include <simde/x86/avx512/packs.h>
 #include <simde/x86/avx512/shuffle.h>
+#include <simde/x86/avx512/adds.h>
 #endif
 
 #define simd_q15_t simde__m128i
@@ -518,6 +519,29 @@ static inline void multadd_cpx_vector(const c16_t *x1, const c16_t *x2, c16_t *y
   }
 }
 
+/*!
+  Element-wise saturating accumulation of one complex vector into another: y = sat16(y + x).
+  @param x - input, added into y   in the format  |Re0 Im0 Re1 Im1|,......,|Re(N-2)  Im(N-2) Re(N-1) Im(N-1)|
+  @param y - accumulator, updated in place, same format
+  @param N - the number of complex numbers (any N; the remainder past the last full 128-bit
+             register is handled by a scalar tail, unlike multadd_cpx_vector() above)
+*/
+static inline void add_cpx_vector(const c16_t *x, c16_t *y, const uint32_t N)
+{
+  const simd_q15_t *x_128 = (const simd_q15_t *)x;
+  simd_q15_t *y_128 = (simd_q15_t *)y;
+  const uint32_t n_simd = N / 4; // 4 complex (8 int16 lanes) per 128-bit register
+  for (uint32_t i = 0; i < n_simd; i++) {
+    y_128[i] = adds_int16(y_128[i], x_128[i]);
+  }
+  for (uint32_t i = n_simd * 4; i < N; i++) {
+    int32_t r = (int32_t)y[i].r + x[i].r;
+    int32_t im = (int32_t)y[i].i + x[i].i;
+    y[i].r = r > INT16_MAX ? INT16_MAX : r < INT16_MIN ? INT16_MIN : (int16_t)r;
+    y[i].i = im > INT16_MAX ? INT16_MAX : im < INT16_MIN ? INT16_MIN : (int16_t)im;
+  }
+}
+
 static const int16_t ones_epi16[16] __attribute__((aligned(32))) = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 static inline simde__m256i protected_abs256(const simde__m256i in)
 {
@@ -895,6 +919,16 @@ static inline idft_size_idx_t get_idft(int size)
   return IDFT_SIZE_IDXTABLESIZE; // never reached and will trigger assertion in idft function
 }
 
+// Saturates a shifted 32-bit re/im product to Q1.15, matching what the SIMD tiers' packs_epi32
+// does - the scalar tail must agree with them instead of narrowing via c16mulShift(), which wraps.
+static inline c16_t c16mulShiftSat(const c16_t a, const c16_t b, const int shift)
+{
+  int32_t r = ((int32_t)a.r * b.r - (int32_t)a.i * b.i) >> shift;
+  int32_t im = ((int32_t)a.r * b.i + (int32_t)a.i * b.r) >> shift;
+  return (c16_t){.r = (int16_t)(r > INT16_MAX ? INT16_MAX : r < INT16_MIN ? INT16_MIN : r),
+                 .i = (int16_t)(im > INT16_MAX ? INT16_MAX : im < INT16_MIN ? INT16_MIN : im)};
+}
+
 /*!\fn int32_t rotate_cpx_vector(c16_t *x,c16_t alpha,c16_t *y,uint32_t N,uint16_t output_shift)
 This function performs componentwise multiplication of a vector with a complex scalar.
 @param x Vector input (Q1.15)  in the format  |Re0  Im0|,......,|Re(N-1) Im(N-1)|
@@ -1072,7 +1106,119 @@ static inline void rotate_cpx_vector(const c16_t *const x, const c16_t alpha, c1
 
   // scalar tail: catches any remainder the SIMD tiers above (each width-gated on N) left behind
   for (; i < N; i++)
-    y[i] = c16mulShift(x[i], alpha, output_shift);
+    y[i] = c16mulShiftSat(x[i], alpha, output_shift);
+}
+
+/*
+Fused variant of rotate_cpx_vector() above that saturating-accumulates into y instead of
+overwriting it: y = sat16(y + alpha*x).
+
+@param x Vector input (Q1.15) in the format |Re0 Im0|,......,|Re(N-1) Im(N-1)|
+@param alpha Scalar input (Q1.15) in the format |Re0 Im0|
+@param y Accumulator, updated in place: y = sat16(y + alpha*x)
+@param N Length of x (any N; a scalar tail handles the remainder past the last full-width register)
+@param output_shift Number of bits to shift the product down to Q1.15
+*/
+static inline void rotate_add_cpx_vector(const c16_t *const x, const c16_t alpha, c16_t *y, uint32_t N, int output_shift)
+{
+  uint32_t i = 0;
+
+#if defined(__x86_64__) || defined(__i386__)
+#if defined(__AVX512F__) && defined(__AVX512BW__)
+  {
+    const c16_t for_re = {alpha.r, (int16_t)-alpha.i};
+    const simde__m512i alpha_for_real = simde_mm512_set1_epi32(*(uint32_t *)&for_re);
+    const c16_t for_im = {alpha.i, alpha.r};
+    const simde__m512i alpha_for_im = simde_mm512_set1_epi32(*(uint32_t *)&for_im);
+    const simde__m512i perm_mask = simde_mm512_set_epi8(15, 14, 7, 6, 13, 12, 5, 4, 11, 10, 3, 2, 9, 8, 1, 0,
+                                                         15, 14, 7, 6, 13, 12, 5, 4, 11, 10, 3, 2, 9, 8, 1, 0,
+                                                         15, 14, 7, 6, 13, 12, 5, 4, 11, 10, 3, 2, 9, 8, 1, 0,
+                                                         15, 14, 7, 6, 13, 12, 5, 4, 11, 10, 3, 2, 9, 8, 1, 0);
+    for (; i < (N & ~15u); i += 16) {
+      const simde__m512i x512 = simde_mm512_loadu_si512((const simde__m512i *)(x + i));
+      const simde__m512i xre = simde_mm512_srai_epi32(simde_mm512_madd_epi16(x512, alpha_for_real), output_shift);
+      const simde__m512i xim = simde_mm512_srai_epi32(simde_mm512_madd_epi16(x512, alpha_for_im), output_shift);
+      const simde__m512i term = simde_mm512_shuffle_epi8(simde_mm512_packs_epi32(xre, xim), perm_mask);
+      const simde__m512i y512 = simde_mm512_loadu_si512((const simde__m512i *)(y + i));
+      simde_mm512_storeu_si512((simde__m512i *)(y + i), simde_mm512_adds_epi16(y512, term));
+    }
+  }
+#endif
+#ifdef __AVX2__
+  {
+    const c16_t for_re = {alpha.r, (int16_t)-alpha.i};
+    const simde__m256i alpha_for_real = simde_mm256_set1_epi32(*(uint32_t *)&for_re);
+    const c16_t for_im = {alpha.i, alpha.r};
+    const simde__m256i alpha_for_im = simde_mm256_set1_epi32(*(uint32_t *)&for_im);
+    const simde__m256i perm_mask = simde_mm256_set_epi8(31,
+                                                        30,
+                                                        23,
+                                                        22,
+                                                        29,
+                                                        28,
+                                                        21,
+                                                        20,
+                                                        27,
+                                                        26,
+                                                        19,
+                                                        18,
+                                                        25,
+                                                        24,
+                                                        17,
+                                                        16,
+                                                        15,
+                                                        14,
+                                                        7,
+                                                        6,
+                                                        13,
+                                                        12,
+                                                        5,
+                                                        4,
+                                                        11,
+                                                        10,
+                                                        3,
+                                                        2,
+                                                        9,
+                                                        8,
+                                                        1,
+                                                        0);
+    for (; i < (N & ~7u); i += 8) {
+      const simde__m256i x256 = simde_mm256_lddqu_si256((const simde__m256i *)(x + i));
+      const simde__m256i xre = simde_mm256_srai_epi32(simde_mm256_madd_epi16(x256, alpha_for_real), output_shift);
+      const simde__m256i xim = simde_mm256_srai_epi32(simde_mm256_madd_epi16(x256, alpha_for_im), output_shift);
+      const simde__m256i term = simde_mm256_shuffle_epi8(simde_mm256_packs_epi32(xre, xim), perm_mask);
+      const simde__m256i y256 = simde_mm256_lddqu_si256((const simde__m256i *)(y + i));
+      simde_mm256_storeu_si256((simde__m256i *)(y + i), simde_mm256_adds_epi16(y256, term));
+    }
+  }
+#endif
+#endif // defined(__x86_64__) || defined(__i386__)
+
+  // portable 128-bit tier: SSE2 on x86 (remainder handler for the AVX512/AVX2 tiers above),
+  // transparently portable elsewhere (including aarch64) via SIMDe.
+  {
+    const int32_t *xd = (const int32_t *)x;
+    const simde__m128i shift = simde_mm_cvtsi32_si128(output_shift);
+    const simde__m128i alpha_128 =
+        simde_mm_setr_epi16(alpha.r, (int16_t)-alpha.i, alpha.i, alpha.r, alpha.r, (int16_t)-alpha.i, alpha.i, alpha.r);
+
+    for (; i < (N & ~3u); i += 4) {
+      simde__m128i *y_128 = (simde__m128i *)(y + i);
+      simde__m128i term = simde_mm_packs_epi32( // pack in 16bit integers with saturation [re im re im re im re im]
+          simde_mm_sra_epi32(simde_mm_madd_epi16(simde_mm_setr_epi32(xd[i], xd[i], xd[i + 1], xd[i + 1]), alpha_128), shift),
+          simde_mm_sra_epi32(simde_mm_madd_epi16(simde_mm_setr_epi32(xd[i + 2], xd[i + 2], xd[i + 3], xd[i + 3]), alpha_128), shift));
+      *y_128 = simde_mm_adds_epi16(*y_128, term); // saturating accumulate into y
+    }
+  }
+
+  // scalar tail: catches any remainder the SIMD tiers above (each width-gated on N) left behind
+  for (; i < N; i++) {
+    c16_t term = c16mulShiftSat(x[i], alpha, output_shift);
+    int32_t r = (int32_t)y[i].r + term.r;
+    int32_t im = (int32_t)y[i].i + term.i;
+    y[i].r = r > INT16_MAX ? INT16_MAX : r < INT16_MIN ? INT16_MIN : (int16_t)r;
+    y[i].i = im > INT16_MAX ? INT16_MAX : im < INT16_MIN ? INT16_MIN : (int16_t)im;
+  }
 }
 
 /*!\fn int32_t sub_cpx_vector16(c16_t *x,c16_t *y, c16_t z, uint32_t N)

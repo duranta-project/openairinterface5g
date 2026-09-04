@@ -10,6 +10,7 @@
 #include "common/utils/symbol_reorder/symbol_reorder.h"
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_prach_config.h"
 #include "openair1/PHY/defs_gNB.h"
+#include "oru_beamforming.h"
 
 #define MAX_DL_READ_THREADS 8
 #define MAX_ORU_UL_WORKERS 8
@@ -73,6 +74,7 @@ typedef struct {
   time_stats_t rx_prach;
   time_stats_t rx;
   prach_item_t prach_item;
+  oru_codebook_t codebook;
   bool threequarter_fs;
 
   // Real-time Self-diagnosis metrics
@@ -83,6 +85,8 @@ typedef struct {
   uint64_t ul_ant_time_max_us; // in SQ4
   _Atomic(uint64_t) ul_dropped_jobs;
   _Atomic(uint64_t) ul_symbols_missed;
+  _Atomic(uint64_t) ul_cal_overflow_dropped; // calendar symbol entry full (UL_CAL_JOBS_PER_SYMBOL)
+  _Atomic(uint64_t) ul_cal_horizon_dropped;  // job declared > UL_CAL_SLOTS slots ahead (beyond calendar ring)
 } ORU_t;
 
 int get_oru_options(ORU_t *oru);

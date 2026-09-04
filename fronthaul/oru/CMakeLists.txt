@@ -16,6 +16,10 @@ add_library(oru_packet_processor oru_packet_processor.c)
 target_include_directories(oru_packet_processor PUBLIC ./)
 target_link_libraries(oru_packet_processor PUBLIC ${dpdk_LIBRARIES} PRIVATE xran_pkt UTIL fh_compression)
 
+add_library(oru_beamforming oru_beamforming.c)
+target_include_directories(oru_beamforming PUBLIC ./)
+target_link_libraries(oru_beamforming PUBLIC oru_packet_processor PRIVATE UTIL)
+
 add_library(oru_fh oru_fh.c)
 target_include_directories(oru_fh PUBLIC ./)
 target_link_libraries(oru_fh PUBLIC fh_core oru_io xran_pkt oru_packet_processor ${dpdk_LIBRARIES})

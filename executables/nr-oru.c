@@ -9,6 +9,7 @@
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "oru_packet_processor.h"
 #include "common/utils/threadPool/thread-pool.h"
+#include "common/utils/ds/work_q.h"
 #include <stdatomic.h>
 #include <time.h>
 #include <unistd.h>
@@ -32,6 +33,9 @@
 #define CONFIG_STRING_ORU_NUM_UL_SLOTS "num_ul_slots"
 #define CONFIG_STRING_ORU_NUM_DL_SYMBOLS "num_dl_symbols"
 #define CONFIG_STRING_ORU_NUM_UL_SYMBOLS "num_ul_symbols"
+#define CONFIG_STRING_NB_FH_STREAMS "nb_fh_streams"
+#define CONFIG_STRING_CODEBOOK_NB_BEAMS "codebook_nb_beams"
+#define CONFIG_STRING_CODEBOOK_WEIGHTS "codebook_weights"
 #define CONFIG_STRING_ORU_TX_CORE "tx_core"
 
 #define HLP_ORU_TX_BW "set the TX bandwidth list per component carrier"
@@ -47,6 +51,11 @@
 #define HLP_ORU_NUM_UL_SLOTS "set the number of UL Slots in TDD"
 #define HLP_ORU_NUM_DL_SYMBOLS "set the number of DL symbols in the mixed slot"
 #define HLP_ORU_NUM_UL_SYMBOLS "set the number of UL symbols in the mixed slot"
+#define HLP_NB_FH_STREAMS "number of fronthaul streams from DU (0=passthrough, enables codebook beamforming when > 0)"
+#define HLP_CODEBOOK_NB_BEAMS "number of beams in the O-RU codebook"
+#define HLP_CODEBOOK_WEIGHTS \
+  "Q15 codebook weights: nb_beams * nb_tx * nb_fh_streams interleaved Re/Im pairs; per beam, the tx" \
+  " antenna row is also the UL Rx combine weight for that RX antenna"
 #define HLP_ORU_THREEQUARTER_FS "set the 3/4 sampling frequency"
 
 // clang-format off
@@ -65,6 +74,9 @@
   {CONFIG_STRING_ORU_NUM_UL_SLOTS,              HLP_ORU_NUM_UL_SLOTS,               0,    .uptr=NULL,       .defintval=1,                 TYPE_UINT,         0}, \
   {CONFIG_STRING_ORU_NUM_DL_SYMBOLS,            HLP_ORU_NUM_DL_SYMBOLS,             0,    .uptr=NULL,       .defintval=7,                 TYPE_UINT,         0}, \
   {CONFIG_STRING_ORU_NUM_UL_SYMBOLS,            HLP_ORU_NUM_UL_SYMBOLS,             0,    .uptr=NULL,       .defintval=3,                 TYPE_UINT,         0}, \
+  {CONFIG_STRING_NB_FH_STREAMS,                 HLP_NB_FH_STREAMS,                  0,    .iptr=NULL,       .defintval=0,                 TYPE_INT,          0}, \
+  {CONFIG_STRING_CODEBOOK_NB_BEAMS,             HLP_CODEBOOK_NB_BEAMS,              0,    .iptr=NULL,       .defintval=0,                 TYPE_INT,          0}, \
+  {CONFIG_STRING_CODEBOOK_WEIGHTS,              HLP_CODEBOOK_WEIGHTS,               0,    .iptr=NULL,       .defintarrayval=NULL,          TYPE_INTARRAY,     0}, \
   {CONFIG_STRING_ORU_TX_CORE,                   "The CPU core to be used to deploy south write thread for O-RU.", 0, .iptr=NULL, .defintval=-1, TYPE_INT, 0}, \
 }
 
@@ -139,6 +151,171 @@
   {CONFIG_STRING_CLOCK_TIMEBASE,             HLP_CLOCK_TIMEBASE,    0,                      .strptr=NULL,     .defstrval="utc",            TYPE_STRING,       0, CLOCK_TIMEBASE_CHECK}  \
 }
 // clang-format on
+
+#define UL_SYMBOL_MISS_LOG_RATELIMIT 10000
+#define UL_CAL_ERR_LOG_RATELIMIT 10000
+#define RATELIMIT(n, block)                                                               \
+  do {                                                                                    \
+    static _Atomic unsigned long counter = 0;                                             \
+    unsigned long current = atomic_fetch_add_explicit(&counter, 1, memory_order_relaxed); \
+    if (current % (n) == 0) {                                                             \
+      block                                                                               \
+    }                                                                                     \
+  } while (0)
+
+static void dispatch_ul_work(work_q_t *q, ORU_t *oru, int frame, int slot, int symbol, const ul_job_t *job);
+static void dispatch_ul_fft(work_q_t *fft_q,
+                            work_q_t *beam_q,
+                            ORU_t *oru,
+                            int frame,
+                            int slot,
+                            int symbol,
+                            const ul_job_t *jobs,
+                            int nb_jobs);
+
+// ---------------------------------------------------------------------------
+// UL job calendar: ring of UL_CAL_SLOTS slots x 14 symbols, UL_CAL_JOBS_PER_SYMBOL jobs per symbol
+// entry. Replaces the flat pending_ul[64] array: job arrival parks at its due symbol's entry in
+// O(1) instead of a linear scan, and the per-symbol tick drains exactly the jobs due now.
+//
+#define UL_CAL_SLOTS 4 // Number of slots ahead in the UL calendar ring
+#define UL_CAL_JOBS_PER_SYMBOL 10
+
+typedef struct {
+  ul_job_t job;
+  int symbols_sent; // symbols already dispatched (multi-symbol C-plane jobs)
+  bool active;
+} ul_cal_entry_t;
+
+typedef struct {
+  ul_cal_entry_t entries[UL_CAL_SLOTS * NR_SYMBOLS_PER_SLOT][UL_CAL_JOBS_PER_SYMBOL];
+} ul_calendar_t;
+
+static uint64_t ul_cal_abs_symbol(int frame, int slot, int symbol, int slots_per_frame)
+{
+  return ((uint64_t)frame * slots_per_frame + slot) * NR_SYMBOLS_PER_SLOT + symbol;
+}
+
+// Shortest-path difference between two absolute symbols (corrects for the 1024-frame wrap).
+static int64_t ul_cal_symbol_diff(uint64_t a, uint64_t b, int slots_per_frame)
+{
+  const int64_t total = (int64_t)1024 * slots_per_frame * NR_SYMBOLS_PER_SLOT;
+  int64_t diff = (int64_t)a - (int64_t)b;
+  if (diff < -total / 2) {
+    diff += total;
+  } else if (diff > total / 2) {
+    diff -= total;
+  }
+  return diff;
+}
+
+// Park a job on its due symbol's entry (used both for fresh arrivals and for multi-symbol
+// continuations). Returns false, counting a drop, if that symbol's entry is full.
+static bool ul_calendar_park(ul_calendar_t *cal, ORU_t *oru, const ul_job_t *job, int symbols_sent, uint64_t abs_symbol)
+{
+  const int idx = abs_symbol % (UL_CAL_SLOTS * NR_SYMBOLS_PER_SLOT);
+  for (int i = 0; i < UL_CAL_JOBS_PER_SYMBOL; i++) {
+    if (!cal->entries[idx][i].active) {
+      cal->entries[idx][i] = (ul_cal_entry_t){.job = *job, .symbols_sent = symbols_sent, .active = true};
+      return true;
+    }
+  }
+  __atomic_fetch_add(&oru->ul_cal_overflow_dropped, 1, __ATOMIC_RELAXED);
+  RATELIMIT(UL_CAL_ERR_LOG_RATELIMIT, {
+    LOG_W(PHY, "[ORU south] UL calendar entry full (%d jobs) at symbol %lu, dropping job ant=%d\n",
+          UL_CAL_JOBS_PER_SYMBOL, (unsigned long)abs_symbol, job->antenna_id);
+  });
+  return false;
+}
+
+// Dispatch the next `count` symbols of a job. Codebook mode routes through one FFT job per symbol
+// (it dispatches the beam items itself, so the per-antenna FFTs are computed once); passthrough
+// keeps one work item per symbol.
+static void ul_calendar_dispatch(work_q_t *beam_q, work_q_t *fft_q, ORU_t *oru, const ul_job_t *job, int symbols_sent, int count)
+{
+  const int sym = job->symbol + symbols_sent;
+  const bool beamforming = oru->codebook.nb_fh_streams > 0;
+  for (int k = 0; k < count; k++) {
+    if (beamforming) {
+      dispatch_ul_fft(fft_q, beam_q, oru, job->frame, job->slot_in_frame, sym + k, job, 1);
+    } else {
+      dispatch_ul_work(beam_q, oru, job->frame, job->slot_in_frame, sym + k, job);
+    }
+  }
+}
+
+// Route a freshly-polled UL job: dispatch right away if it is already due, park the rest at its
+// due symbol. Jobs more than a slot late are dropped (their radio data is long gone).
+static void ul_calendar_add(ul_calendar_t *cal, work_q_t *beam_q, work_q_t *fft_q, ORU_t *oru, uint64_t reader_abs, const ul_job_t *job)
+{
+  const int slots_per_frame = oru->ru->nr_frame_parms->slots_per_frame;
+  const uint64_t job_abs = ul_cal_abs_symbol(job->frame, job->slot_in_frame, job->symbol, slots_per_frame);
+  const int64_t diff = ul_cal_symbol_diff(job_abs, reader_abs, slots_per_frame);
+
+  if (diff <= -NR_SYMBOLS_PER_SLOT) {
+    __atomic_fetch_add(&oru->ul_symbols_missed, 1, __ATOMIC_RELAXED);
+    RATELIMIT(UL_SYMBOL_MISS_LOG_RATELIMIT, {
+      LOG_W(PHY, "[ORU south] missed UL symbol %d.%d.%d, dropping job ant=%d\n",
+            job->frame, job->slot_in_frame, job->symbol, job->antenna_id);
+    });
+    return;
+  }
+  if (diff >= UL_CAL_SLOTS * NR_SYMBOLS_PER_SLOT) {
+    __atomic_fetch_add(&oru->ul_cal_horizon_dropped, 1, __ATOMIC_RELAXED);
+    RATELIMIT(UL_CAL_ERR_LOG_RATELIMIT, {
+      LOG_W(PHY, "[ORU south] UL job %d.%d.%d declared %ld symbols ahead (calendar horizon %d), dropping\n",
+            job->frame, job->slot_in_frame, job->symbol, (long)diff, UL_CAL_SLOTS * NR_SYMBOLS_PER_SLOT);
+    });
+    return;
+  }
+
+  // Dispatch every symbol already due (the last one's radio data is in the buffer), park the rest.
+  int due = diff < 0 ? (int)(-diff) + 1 : 0;
+  if (due > job->num_symbols) {
+    due = job->num_symbols;
+  }
+  if (due > 0) {
+    ul_calendar_dispatch(beam_q, fft_q, oru, job, 0, due);
+  }
+  if (due < job->num_symbols) {
+    ul_calendar_park(cal, oru, job, due, job_abs + due);
+  }
+}
+
+// Per-symbol tick: dispatch one symbol of every job parked on the current symbol's entry, re-park
+// multi-symbol continuations on the next symbol's entry. Codebook mode batches the symbol's whole
+// job set into ONE FFT job - the per-antenna FFTs are computed once and every beam job of the
+// symbol shares them. Passthrough dispatches one work item per job as before.
+static void ul_calendar_tick(ul_calendar_t *cal, work_q_t *beam_q, work_q_t *fft_q, ORU_t *oru, uint64_t reader_abs)
+{
+  const int idx = reader_abs % (UL_CAL_SLOTS * NR_SYMBOLS_PER_SLOT);
+  ul_job_t batch[UL_CAL_JOBS_PER_SYMBOL];
+  int nb_batch = 0;
+  for (int i = 0; i < UL_CAL_JOBS_PER_SYMBOL; i++) {
+    ul_cal_entry_t *entry = &cal->entries[idx][i];
+    if (!entry->active) {
+      continue;
+    }
+    if (oru->codebook.nb_fh_streams > 0) {
+      batch[nb_batch++] = entry->job;
+    } else {
+      ul_calendar_dispatch(beam_q, fft_q, oru, &entry->job, entry->symbols_sent, 1);
+    }
+    if (entry->symbols_sent + 1 < entry->job.num_symbols) {
+      ul_calendar_park(cal, oru, &entry->job, entry->symbols_sent + 1, reader_abs + 1);
+    }
+    entry->active = false;
+  }
+  if (nb_batch > 0) {
+    // All jobs on this entry are due at the entry's own symbol - decode it for the FFT job.
+    const int sym_per_slot = NR_SYMBOLS_PER_SLOT;
+    const int slots_per_frame = oru->ru->nr_frame_parms->slots_per_frame;
+    const uint64_t per_frame = (uint64_t)slots_per_frame * sym_per_slot;
+    dispatch_ul_fft(fft_q, beam_q, oru, reader_abs / per_frame, (reader_abs % per_frame) / sym_per_slot,
+                    reader_abs % sym_per_slot, batch, nb_batch);
+  }
+}
+
 
 extern void set_scs_parameters(NR_DL_FRAME_PARMS *fp, int mu, int N_RB_DL, int ssb_case);
 int tx_rf_symbols(RU_t *ru, int frame, int slot, uint64_t timestamp, int start_symbol, int num_symbols);
@@ -250,6 +427,54 @@ int get_oru_options(ORU_t *oru)
   oru->num_UL_slots = *gpd(param, nump, CONFIG_STRING_ORU_NUM_UL_SLOTS)->iptr;
   oru->num_DL_symbols = *gpd(param, nump, CONFIG_STRING_ORU_NUM_DL_SYMBOLS)->iptr;
   oru->num_UL_symbols = *gpd(param, nump, CONFIG_STRING_ORU_NUM_UL_SYMBOLS)->iptr;
+  oru->codebook.nb_fh_streams = *gpd(param, nump, CONFIG_STRING_NB_FH_STREAMS)->iptr;
+  oru->codebook.nb_beams = *gpd(param, nump, CONFIG_STRING_CODEBOOK_NB_BEAMS)->iptr;
+  AssertFatal(oru->codebook.nb_fh_streams >= 0, "nb_fh_streams %d must be non-negative\n", oru->codebook.nb_fh_streams);
+  if (oru->codebook.nb_fh_streams > 0) {
+    AssertFatal(oru->codebook.nb_fh_streams <= ORU_CODEBOOK_MAX_STREAMS,
+                "nb_fh_streams %d exceeds maximum %d\n",
+                oru->codebook.nb_fh_streams,
+                ORU_CODEBOOK_MAX_STREAMS);
+    AssertFatal(oru->codebook.nb_beams > 0 && oru->codebook.nb_beams <= ORU_CODEBOOK_MAX_BEAMS,
+                "codebook_nb_beams %d invalid (range 1..%d)\n",
+                oru->codebook.nb_beams,
+                ORU_CODEBOOK_MAX_BEAMS);
+    AssertFatal(oru->ru->nb_tx <= ORU_CODEBOOK_MAX_NB_TX, "nb_tx %d exceeds maximum %d\n", oru->ru->nb_tx, ORU_CODEBOOK_MAX_NB_TX);
+    AssertFatal(oru->codebook.nb_fh_streams <= oru->ru->nb_tx,
+                "nb_fh_streams %d must not exceed nb_tx %d\n",
+                oru->codebook.nb_fh_streams,
+                oru->ru->nb_tx);
+    // The codebook's antenna axis serves both DL (nb_tx) and UL Rx combining (nb_rx antennas).
+    AssertFatal(oru->ru->nb_rx <= oru->ru->nb_tx,
+                "codebook beamforming needs nb_rx %d <= nb_tx %d (one weight row per RX antenna)\n",
+                oru->ru->nb_rx,
+                oru->ru->nb_tx);
+    paramdef_t *wgt = gpd(param, nump, CONFIG_STRING_CODEBOOK_WEIGHTS);
+    int expected = oru->codebook.nb_beams * oru->ru->nb_tx * oru->codebook.nb_fh_streams * 2;
+    AssertFatal(wgt->numelt == expected,
+                "codebook_weights: expected %d elements (nb_beams=%d * nb_tx=%d * nb_fh_streams=%d * 2)\n",
+                expected,
+                oru->codebook.nb_beams,
+                oru->ru->nb_tx,
+                oru->codebook.nb_fh_streams);
+    int idx = 0;
+    for (int b = 0; b < oru->codebook.nb_beams; b++)
+      for (int t = 0; t < oru->ru->nb_tx; t++)
+        for (int s = 0; s < oru->codebook.nb_fh_streams; s++) {
+          AssertFatal(wgt->iptr[idx] >= INT16_MIN && wgt->iptr[idx] <= INT16_MAX,
+                      "codebook_weights[%d] value %d out of Q15 range\n", idx, wgt->iptr[idx]);
+          oru->codebook.w[b][t][s].r = (int16_t)wgt->iptr[idx++];
+          AssertFatal(wgt->iptr[idx] >= INT16_MIN && wgt->iptr[idx] <= INT16_MAX,
+                      "codebook_weights[%d] value %d out of Q15 range\n", idx, wgt->iptr[idx]);
+          oru->codebook.w[b][t][s].i = (int16_t)wgt->iptr[idx++];
+        }
+    LOG_I(NR_PHY,
+          "Codebook beamforming enabled: nb_fh_streams=%d nb_beams=%d nb_tx=%d\n",
+          oru->codebook.nb_fh_streams,
+          oru->codebook.nb_beams,
+          oru->ru->nb_tx);
+  }
+
   oru->tx_write.core = *gpd(param, nump, CONFIG_STRING_ORU_TX_CORE)->iptr;
 
   paramdef_t fh_param[] = CMDLINE_PARAMS_DESC_ORU_FH;
@@ -465,10 +690,8 @@ static void dl_symbol_process(ORU_t *oru, int frame, int slot, int symbol, c16_t
 
   __attribute__((aligned(64))) c16_t txdataF_shifted[fp->ofdm_symbol_size];
   memset(txdataF_shifted, 0, sizeof(txdataF_shifted));
-  c16_t *rotation = fp->symbol_rotation[0] + (slot % fp->slots_per_subframe) * fp->symbols_per_slot + symbol;
   for (int aatx = 0; aatx < ru->nb_tx; aatx++) {
-    // Phase compensation
-    rotate_cpx_vector(txDataF[aatx], *rotation, txDataF[aatx], fp->N_RB_DL * NR_NB_SC_PER_RB, 15);
+    // txDataF is already phase-rotated by combine_dl_streams() - don't rotate again.
     // FFT Shift
     const int num_samp_half = fp->N_RB_DL * NR_NB_SC_PER_RB / 2;
     const int first_carrier_offset = fp->ofdm_symbol_size - num_samp_half;
@@ -495,6 +718,23 @@ static void dl_symbol_process(ORU_t *oru, int frame, int slot, int symbol, c16_t
   }
 
   dl_symbol_completed(oru, abs_symbol);
+}
+
+// Computes this symbol's phase rotation and hands off to combine_dl_streams() (oru_beamforming.c).
+static void assemble_dl_symbol(ORU_t *oru,
+                               int slot,
+                               int symbol,
+                               c16_t **txDataF,
+                               int n_rb_dl,
+                               const dl_iq_stream_t *streams,
+                               int num_streams)
+{
+  RU_t *ru = (RU_t *)oru->ru;
+  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+  const int n_sc = n_rb_dl * NR_NB_SC_PER_RB;
+  c16_t rotation = *(fp->symbol_rotation[0] + (slot % fp->slots_per_subframe) * fp->symbols_per_slot + symbol);
+
+  combine_dl_streams(txDataF, ru->nb_tx, n_sc, streams, num_streams, &oru->codebook, rotation);
 }
 
 static pthread_mutex_t south_read_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -546,6 +786,10 @@ void *oru_north_read_worker(void *arg)
   for (int aatx = 0; aatx < ru->nb_tx; aatx++) {
     txDataF_ptr[aatx] = txDataF[aatx];
   }
+  // Scratch for read_dl_iq_streams(): reused every iteration, sized once for the worst case
+  // (MAX_DL_IQ_STREAMS_PER_SYMBOL streams, each up to a full-band PRB run).
+  dl_iq_stream_t dl_streams[MAX_DL_IQ_STREAMS_PER_SYMBOL];
+  __attribute__((aligned(64))) uint32_t dl_iq_arena[MAX_DL_IQ_STREAMS_PER_SYMBOL * fp->N_RB_DL * NR_NB_SC_PER_RB];
   uint32_t start_frame, start_slot;
   uint64_t start_hyper_frame;
   int64_t start_timestamp;
@@ -593,8 +837,15 @@ anchor_ready:
   while (!oai_exit) {
     int frame = -1, slot = -1, symbol = -1;
     uint64_t hyper_frame;
-    int ret = oru_fh_tx_read_symbol(oru->fronthaul, (uint32_t **)txDataF_ptr, ru->nb_tx, &hyper_frame, &frame, &slot, &symbol);
-    if (ret != 0) {
+    int num_streams = oru_fh_tx_read_symbol(oru->fronthaul,
+                                            dl_streams,
+                                            dl_iq_arena,
+                                            MAX_DL_IQ_STREAMS_PER_SYMBOL,
+                                            &hyper_frame,
+                                            &frame,
+                                            &slot,
+                                            &symbol);
+    if (num_streams < 0) {
       LOG_E(PHY, "[RU_thread] read data error: frame %d, slot %d, symbol %d\n", frame, slot, symbol);
       continue;
     }
@@ -607,6 +858,7 @@ anchor_ready:
     if (timestamp < 0) {
       continue;
     }
+    assemble_dl_symbol(oru, slot, symbol, txDataF_ptr, fp->N_RB_DL, dl_streams, num_streams);
     uint64_t abs_symbol = num_frames * (fp->slots_per_frame * fp->symbols_per_slot) + slot * fp->symbols_per_slot + symbol;
     dl_symbol_process(oru, frame, slot, symbol, txDataF_ptr, timestamp, abs_symbol);
     if (frame % 256 == 0 && slot == 0 && symbol == 0) {
@@ -661,25 +913,7 @@ void receive_prach(ORU_t *oru, int frame, int slot, int symbol, int prach_symbol
   oru_fh_rx_send_prach(oru->fronthaul, (uint32_t **)rxdataF_ptr, ru->nb_rx, frame, slot, symbol);
 }
 
-#define MAX_PENDING_UL_JOBS 64
-
-#define UL_SYMBOL_MISS_LOG_RATELIMIT 10000
-#define RATELIMIT(n, block)                                                               \
-  do {                                                                                    \
-    static _Atomic unsigned long counter = 0;                                             \
-    unsigned long current = atomic_fetch_add_explicit(&counter, 1, memory_order_relaxed); \
-    if (current % (n) == 0) {                                                             \
-      block                                                                               \
-    }                                                                                     \
-  } while (0)
-
-typedef struct {
-  ul_job_t job;
-  bool active;
-  int symbols_sent;
-} ul_pending_t;
-
-static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t *job)
+static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t *job, const c16_t *const *ant_fft)
 {
   struct timespec start, end;
   clock_gettime(CLOCK_MONOTONIC, &start);
@@ -687,15 +921,29 @@ static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t 
   RU_t *ru = oru->ru;
   NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
   int aarx = job->antenna_id;
+  const oru_codebook_t *cb = &oru->codebook;
+  const bool beamforming = cb->nb_fh_streams > 0;
 
-  if (aarx < 0 || aarx >= fp->nb_antennas_rx) {
+  if (beamforming) {
+    // Codebook mode: the section's eaxc is the beam output stream, not a physical antenna.
+    if (aarx < 0 || aarx >= cb->nb_fh_streams) {
+      LOG_W(PHY, "[ORU south] receive_pusch: UL beam stream %d exceeds nb_fh_streams %d, dropping\n", aarx, cb->nb_fh_streams);
+      return;
+    }
+  } else if (aarx < 0 || aarx >= fp->nb_antennas_rx) {
     LOG_W(PHY, "[ORU south] receive_pusch: invalid antenna_id %d\n", aarx);
     return;
   }
 
   // CP removal + FFT → full ofdm_symbol_size frequency-domain output
   c16_t rxdataF_fft[fp->ofdm_symbol_size] __attribute__((aligned(32)));
-  nr_symbol_fep_ul(fp, (c16_t *)ru->common.rxdata[aarx], rxdataF_fft, symbol, slot, ru->N_TA_offset);
+  if (beamforming) {
+    // UL Rx beamforming: combinte per-antenna FFTs via codebook
+    combine_ul_beam_fd(ant_fft, ru->nb_rx, fp->ofdm_symbol_size, cb, job->beam_id, aarx, rxdataF_fft);
+  } else {
+    // No beamforming: perform FFT on the received antenna's time-domain signal
+    nr_symbol_fep_ul(fp, (c16_t *)ru->common.rxdata[aarx], rxdataF_fft, symbol, slot, ru->N_TA_offset);
+  }
 
   // Phase decompensation (conjugate rotation for UL)
   apply_nr_rotation_symbol_RX(fp->symbols_per_slot,
@@ -735,9 +983,8 @@ static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t 
   }
 }
 
-#define UL_WORK_QUEUE_DEPTH 128
-
-typedef struct ul_work_queue_s ul_work_queue_t;
+#define UL_WORK_QUEUE_DEPTH 128 // beam items: bound on in-flight UL jobs (backpressure)
+#define UL_FFT_QUEUE_DEPTH 32   // FFT items: one per symbol (codebook mode); a few symbols of margin
 
 typedef struct {
   ORU_t *oru;
@@ -745,45 +992,165 @@ typedef struct {
   int slot;
   int symbol;
   ul_job_t job;
-  ul_work_queue_t *queue;
-} __attribute__((aligned(64))) ul_work_item_t;
+  work_q_t *queue;
+  const c16_t *ant_fft[ORU_CODEBOOK_MAX_NB_TX]; // codebook: this symbol's per-antenna FFT windows
+  void *fft_slot; // codebook: the FFT item whose refs this job releases on completion (NULL in passthrough)
+} ul_work_item_t;
 
-struct ul_work_queue_s {
-  __attribute__((aligned(64))) ul_work_item_t ring[UL_WORK_QUEUE_DEPTH];
-  __attribute__((aligned(64))) uint32_t prod_head;
-  __attribute__((aligned(64))) _Atomic(uint32_t) pending_tasks;
-};
+// One FFT job per symbol (codebook mode): computes every RX antenna's FFT once, then dispatches
+// the symbol's UL jobs as beam items. The per-antenna windows live in this item's own queue slot
+// (payload after the fixed fields, 32-byte aligned - work_q slots are 32-byte aligned). Beam jobs
+// reference them via item pointers, and the slot is released by its last reader (refs), not by
+// the FFT job itself - so an FFT job arriving late for an overdue symbol computes into its own
+// slot and can never clobber a live one.
+typedef struct {
+  ORU_t *oru;
+  int frame;
+  int slot;
+  int symbol;
+  work_q_t *queue;      // the FFT queue this item lives in (for work_q_done)
+  work_q_t *beam_queue; // where the beam jobs go
+  int nb_jobs;
+  _Atomic(int) refs; // beam jobs outstanding on this slot; the last one returns it
+  ul_job_t jobs[UL_CAL_JOBS_PER_SYMBOL];
+  c16_t ant_fft[] __attribute__((aligned(32))); // nb_rx * ofdm_symbol_size samples
+} ul_fft_item_t;
+
+// Total size of an FFT item including its per-antenna FFT payload (the queue's element size).
+static size_t ul_fft_item_size(size_t payload_bytes)
+{
+  return sizeof(ul_fft_item_t) + payload_bytes;
+}
 
 static void ul_worker_pool_task(void *args)
 {
   ul_work_item_t *item = args;
-  receive_pusch(item->oru, item->frame, item->slot, item->symbol, &item->job);
-  __atomic_fetch_sub(&item->queue->pending_tasks, 1, __ATOMIC_RELEASE);
+  receive_pusch(item->oru, item->frame, item->slot, item->symbol, &item->job, item->ant_fft);
+  work_q_done(item->queue, item);
+  if (item->fft_slot != NULL) {
+    // Release the symbol's FFT slot: its payload stays alive until the last beam job that
+    // references it has finished. Read the queue before the decrement - the item is alive while
+    // refs >= 1, and the last reader frees it right after.
+    ul_fft_item_t *fft = item->fft_slot;
+    work_q_t *q = fft->queue;
+    if (atomic_fetch_sub(&fft->refs, 1) == 1) {
+      work_q_done(q, fft);
+    }
+  }
 }
 
-static void dispatch_ul_work(ul_work_queue_t *q, ORU_t *oru, int frame, int slot, int symbol, const ul_job_t *job)
+// The FFT worker: one FFT per RX antenna for the symbol, then hand each of the symbol's UL jobs
+// to the beam path. The payload lives in this item's own queue slot until the last beam job
+// releases it (refs), so the slot is safe to reference from every pushed beam item.
+static void ul_fft_pool_task(void *args)
 {
-  if (__atomic_load_n(&q->pending_tasks, __ATOMIC_ACQUIRE) >= UL_WORK_QUEUE_DEPTH) {
-    __atomic_fetch_add(&oru->ul_dropped_jobs, 1, __ATOMIC_RELAXED);
-    return;
+  ul_fft_item_t *item = args;
+  ORU_t *oru = item->oru;
+  RU_t *ru = oru->ru;
+  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+  const int nb_rx = ru->nb_rx;
+  const int n = fp->ofdm_symbol_size;
+
+  // Window offset, N_TA and frame-boundary wrap all inside nr_symbol_fep_ul().
+  for (int a = 0; a < nb_rx; a++) {
+    nr_symbol_fep_ul(fp, (c16_t *)ru->common.rxdata[a], &item->ant_fft[a * n], item->symbol, item->slot,
+                     ru->N_TA_offset);
   }
 
-  uint32_t idx = q->prod_head & (UL_WORK_QUEUE_DEPTH - 1);
-  q->ring[idx] = (ul_work_item_t){
+  item->refs = item->nb_jobs; // plain store: readers only exist after the pushes below
+  const c16_t *ant_fft[ORU_CODEBOOK_MAX_NB_TX];
+  for (int a = 0; a < nb_rx; a++) {
+    ant_fft[a] = &item->ant_fft[a * n];
+  }
+
+  work_q_t *q = item->beam_queue;
+  for (int i = 0; i < item->nb_jobs; i++) {
+    ul_work_item_t beam = {
+        .oru = oru,
+        .frame = item->frame,
+        .slot = item->slot,
+        .symbol = item->symbol,
+        .job = item->jobs[i],
+        .queue = q,
+        .fft_slot = item,
+    };
+    memcpy(beam.ant_fft, ant_fft, nb_rx * sizeof(const c16_t *));
+    void *slot = work_q_push(q, &beam);
+    if (slot == NULL) {
+      __atomic_fetch_add(&oru->ul_dropped_jobs, 1, __ATOMIC_RELAXED);
+      // This push never reached a worker: release the slot ourselves.
+      if (atomic_fetch_sub(&item->refs, 1) == 1) {
+        work_q_done(item->queue, item);
+      }
+      continue;
+    }
+    pushTpool(oru->ru->threadPool, (task_t){.args = slot, .func = ul_worker_pool_task});
+  }
+  // NB: the FFT item's own slot is released by its last beam job (or the drop path above), not here.
+}
+
+// Push one FFT job for a symbol: the FFT worker computes all RX antennas' FFTs once and then
+// dispatches the symbol's UL jobs as beam items (one FFT per antenna per symbol, shared by all
+// beams). Passthrough mode never goes through here.
+static void dispatch_ul_fft(work_q_t *fft_q,
+                            work_q_t *beam_q,
+                            ORU_t *oru,
+                            int frame,
+                            int slot,
+                            int symbol,
+                            const ul_job_t *jobs,
+                            int nb_jobs)
+{
+  const size_t payload = (size_t)oru->ru->nb_rx * oru->ru->nr_frame_parms->ofdm_symbol_size * sizeof(c16_t);
+  const size_t item_size = ul_fft_item_size(payload);
+  uint8_t src[item_size]; // VLA: work_q_push copies a full element into its own slot
+  memset(src, 0, item_size);
+  ul_fft_item_t *item = (ul_fft_item_t *)src;
+  item->oru = oru;
+  item->frame = frame;
+  item->slot = slot;
+  item->symbol = symbol;
+  item->queue = fft_q;
+  item->beam_queue = beam_q;
+  item->nb_jobs = nb_jobs;
+  memcpy(item->jobs, jobs, nb_jobs * sizeof(ul_job_t));
+
+  void *slot_ptr = work_q_push(fft_q, src);
+  if (slot_ptr == NULL) {
+    // FFT queue is a few symbols behind: dropping the whole symbol is equivalent to dropping
+    // its jobs individually at this point.
+    __atomic_fetch_add(&oru->ul_dropped_jobs, nb_jobs, __ATOMIC_RELAXED);
+    RATELIMIT(UL_CAL_ERR_LOG_RATELIMIT, {
+      LOG_W(PHY, "[ORU south] UL FFT queue full at symbol %d.%d.%d, dropping %d jobs\n",
+            frame, slot, symbol, nb_jobs);
+    });
+    return;
+  }
+  pushTpool(oru->ru->threadPool, (task_t){.args = slot_ptr, .func = ul_fft_pool_task});
+}
+
+static void dispatch_ul_work(work_q_t *q, ORU_t *oru, int frame, int slot, int symbol, const ul_job_t *job)
+{
+  ul_work_item_t item = {
     .oru = oru,
     .frame = frame,
     .slot = slot,
     .symbol = symbol,
     .job = *job,
-    .queue = q
+    .queue = q,
   };
 
-  __atomic_fetch_add(&q->pending_tasks, 1, __ATOMIC_RELEASE);
-  q->prod_head++;
+  void *slot_ptr = work_q_push(q, &item);
+  if (slot_ptr == NULL) {
+    // Slot still owned by a previous job's worker: admission is per-slot, so this drop is
+    // precise - no overwrite of live work is ever possible.
+    __atomic_fetch_add(&oru->ul_dropped_jobs, 1, __ATOMIC_RELAXED);
+    return;
+  }
 
   task_t task = {
-    .args = &q->ring[idx],
-    .func = ul_worker_pool_task
+    .args = slot_ptr,
+    .func = ul_worker_pool_task,
   };
   pushTpool(oru->ru->threadPool, task);
 }
@@ -941,12 +1308,18 @@ void *oru_south_read_thread(void *arg)
   slot = start_slot;
   frame = start_frame;
 
-  ul_work_queue_t work_queue = {
-    .prod_head = 0,
-    .pending_tasks = 0,
-  };
+  work_q_t beam_queue;
+  AssertFatal(work_q_alloc(&beam_queue, UL_WORK_QUEUE_DEPTH, sizeof(ul_work_item_t)),
+              "[ORU south] failed to allocate UL work queue\n");
 
-  ul_pending_t pending_ul[MAX_PENDING_UL_JOBS] = {0};
+  // Codebook mode: one FFT job per symbol computes every RX antenna's FFT once and dispatches
+  // the symbol's beam jobs; the FFT payload lives in the job's own queue slot (refcounted).
+  work_q_t fft_queue;
+  const size_t fft_payload = (size_t)ru->nb_rx * fp->ofdm_symbol_size * sizeof(c16_t);
+  AssertFatal(work_q_alloc(&fft_queue, UL_FFT_QUEUE_DEPTH, ul_fft_item_size(fft_payload)),
+              "[ORU south] failed to allocate UL FFT queue\n");
+
+  ul_calendar_t ul_cal = {0};
 
   while (!oai_exit) {
     int rx_slot_type = nr_slot_select(&ru->config, frame, slot);
@@ -970,71 +1343,16 @@ void *oru_south_read_thread(void *arg)
             1,
             num_samples_read);
 
-      // Drain the UL job ring
+      // Drain the UL job ring into the calendar (jobs already due dispatch immediately)
+      const uint64_t reader_abs = ((uint64_t)frame * fp->slots_per_frame + slot) * NR_SYMBOLS_PER_SLOT + symbol;
       ul_job_t new_job;
       while (oru_fh_poll_ul_job(oru->fronthaul, &new_job) == 0) {
-        bool added = false;
-        for (int i = 0; i < MAX_PENDING_UL_JOBS; i++) {
-          if (!pending_ul[i].active) {
-            pending_ul[i] = (ul_pending_t){.job = new_job, .active = true, .symbols_sent = 0};
-            added = true;
-            break;
-          }
-        }
-        if (!added)
-          LOG_W(PHY, "[ORU south] UL pending queue full, dropping job frame=%d slot=%d sym=%d\n",
-                new_job.frame, new_job.slot_in_frame, new_job.symbol);
+        ul_calendar_add(&ul_cal, &beam_queue, &fft_queue, oru, reader_abs, &new_job);
       }
 
       if (rx_slot_type == NR_UPLINK_SLOT || rx_slot_type == NR_MIXED_SLOT) {
-
-        // Process pending jobs whose next symbol matches the current one
-        for (int i = 0; i < MAX_PENDING_UL_JOBS; i++) {
-          if (!pending_ul[i].active)
-            continue;
-          ul_job_t *j = &pending_ul[i].job;
-
-          int slots_per_frame = fp->slots_per_frame;
-          uint64_t total_symbols = (uint64_t)1024 * slots_per_frame * NR_SYMBOLS_PER_SLOT;
-          uint64_t reader_abs_symbol = ((uint64_t)frame * slots_per_frame + slot) * NR_SYMBOLS_PER_SLOT + symbol;
-
-          int expected_symbol = j->symbol + pending_ul[i].symbols_sent;
-          uint64_t job_abs_symbol =
-              ((uint64_t)j->frame * slots_per_frame + j->slot_in_frame) * NR_SYMBOLS_PER_SLOT + expected_symbol;
-
-          // Calculate the number of symbols in the past or future, correct for wrap-around the frame boundary
-          int64_t diff = (int64_t)(job_abs_symbol - reader_abs_symbol);
-          if (diff < -(int64_t)total_symbols / 2) {
-            diff += (int64_t)total_symbols;
-          } else if (diff > (int64_t)total_symbols / 2) {
-            diff -= (int64_t)total_symbols;
-          }
-
-          if (diff > 0) {
-            // Not due yet: revisit next iteration
-            continue;
-          }
-          if (diff <= -NR_SYMBOLS_PER_SLOT) {
-            __atomic_fetch_add(&oru->ul_symbols_missed, 1, __ATOMIC_RELAXED);
-            RATELIMIT(UL_SYMBOL_MISS_LOG_RATELIMIT, {
-              LOG_W(PHY, "[ORU south] missed UL symbol %d.%d.%d (now %d.%d.%d), dropping job ant=%d\n",
-                    j->frame, j->slot_in_frame, expected_symbol, frame, slot, symbol, j->antenna_id);
-            });
-            pending_ul[i].active = false;
-            continue;
-          }
-
-          while (diff <= 0) {
-            dispatch_ul_work(&work_queue, oru, j->frame, j->slot_in_frame, expected_symbol, j);
-            pending_ul[i].symbols_sent++;
-            if (pending_ul[i].symbols_sent == j->num_symbols) {
-              pending_ul[i].active = false;
-              break;
-            }
-            expected_symbol++;
-            diff++;
-          }
-        }
+        // Dispatch the jobs parked on this symbol's calendar entry
+        ul_calendar_tick(&ul_cal, &beam_queue, &fft_queue, oru, reader_abs);
       }
       int prach_symbol = get_prach_symbol(oru, frame, slot, symbol, ru->numerology);
       if (prach_symbol != -1)
@@ -1069,8 +1387,11 @@ void oru_self_diagnosis(ORU_t *oru)
   uint64_t ul_time_max = __atomic_exchange_n(&oru->ul_ant_time_max_us, 0, __ATOMIC_RELAXED);
   uint64_t ul_dropped = __atomic_exchange_n(&oru->ul_dropped_jobs, 0, __ATOMIC_RELAXED);
   uint64_t ul_symbols_missed = __atomic_exchange_n(&oru->ul_symbols_missed, 0, __ATOMIC_RELAXED);
+  uint64_t ul_cal_overflow = __atomic_exchange_n(&oru->ul_cal_overflow_dropped, 0, __ATOMIC_RELAXED);
+  uint64_t ul_cal_horizon = __atomic_exchange_n(&oru->ul_cal_horizon_dropped, 0, __ATOMIC_RELAXED);
 
-  if (dl_count == 0 && ul_count == 0 && ul_dropped == 0 && ul_symbols_missed == 0) {
+  if (dl_count == 0 && ul_count == 0 && ul_dropped == 0 && ul_symbols_missed == 0 && ul_cal_overflow == 0
+      && ul_cal_horizon == 0) {
     return;
   }
 
@@ -1126,7 +1447,7 @@ void oru_self_diagnosis(ORU_t *oru)
 
   LOG_I(PHY, "----------------------------------------------------------------------------\n");
 
-  if (ul_count > 0 || ul_dropped > 0 || ul_symbols_missed > 0) {
+  if (ul_count > 0 || ul_dropped > 0 || ul_symbols_missed > 0 || ul_cal_overflow > 0 || ul_cal_horizon > 0) {
     double ul_ant_avg_us = ul_count > 0 ? (double)ul_time_total / (ul_count * 16.0) : 0.0;
     double ul_ant_max_us = ul_count > 0 ? (double)ul_time_max / 16.0 : 0.0;
 
@@ -1166,6 +1487,16 @@ void oru_self_diagnosis(ORU_t *oru)
     }
     if (ul_symbols_missed > 0) {
       LOG_E(PHY, "  [DIAGNOSIS] UL CRITICAL: Dropped %lu jobs that arrived %d or more symbols too late!\n", ul_symbols_missed, NR_SYMBOLS_PER_SLOT);
+      pass = false;
+    }
+    if (ul_cal_overflow > 0) {
+      LOG_E(PHY, "  [DIAGNOSIS] UL CRITICAL: Dropped %lu jobs because a calendar symbol entry was full (>%d concurrent jobs on one symbol)!\n",
+            ul_cal_overflow, UL_CAL_JOBS_PER_SYMBOL);
+      pass = false;
+    }
+    if (ul_cal_horizon > 0) {
+      LOG_E(PHY, "  [DIAGNOSIS] UL CRITICAL: Dropped %lu jobs declared more than %d symbols ahead (beyond calendar horizon) - DU declaring UL C-plane too early?\n",
+            ul_cal_horizon, UL_CAL_SLOTS * NR_SYMBOLS_PER_SLOT);
       pass = false;
     }
   } else {

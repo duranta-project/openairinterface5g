@@ -40,28 +40,42 @@
 #define MAX_TDD_PATTERN_LENGTH_MS 10
 #define MAX_SLOTS_PER_MS 4
 #define SYMBOL_BITMASK_SIZE ((NR_SYMBOLS_PER_SLOT * MAX_TDD_PATTERN_LENGTH_MS * MAX_SLOTS_PER_MS + 7) / 8)
-#define MAX_RX_FRAGMENTS 4
+#define MAX_SECTIONS_PER_DL_STREAM 4 // C-Plane sections (e.g. split PRB ranges) that can share one (eaxc, beam) stream in a DL symbol
+#define MAX_DL_STREAMS_PER_SYMBOL 16 // cap on distinct (eaxc, beam) pairs declared for one DL symbol
 #define MAX_MBUFS_PER_SYMBOL 64
 #define MAX_SLOTS_PER_FRAME 160
 #define XRAN_IQ_BITS_UNCOMPRESSED 16 /* xRAN table 7.7.1.1-1: udIqWidth=0 means 16-bit samples */
 
+// One (eaxc, beam_id) pair's bookkeeping for a DL symbol: completion tracking and declared
+// section_ids, no IQ. Payload fragments live in dl_symbol_job_t.fragments[] instead.
 typedef struct {
-  struct {
-    bool cplane_received;
-    int section_id;
-    struct {
-      int start_prbc;
-      int num_prbc;
-      void *iq_data;
-      void *mbuf;
-    } rx_fragments[MAX_RX_FRAGMENTS];
-    int num_rx_fragments;
-  } per_antenna[MAX_ANTENNAS];
-  int expected_iq;
-  int received_iq;
-  uint64_t absolute_symbol;
+  uint8_t eaxc_id;
+  uint16_t beam_id;
+  uint16_t section_ids[MAX_SECTIONS_PER_DL_STREAM]; // every C-Plane section_id declared into this stream
+  int num_section_ids;
+  int expected_iq; // PRBs declared via C-Plane for this stream, summed across its section_ids
+  int received_iq; // PRBs actually received via U-Plane for this stream
+} dl_stream_slot_t;
+
+// One joined C-Plane+U-Plane PRB run. comp_method/iq_width come from the U-Plane packet itself,
+// not the C-Plane declaration - sections in the same symbol aren't guaranteed the same compression.
+typedef struct {
+  uint8_t eaxc_id;
+  uint16_t beam_id;
+  int start_prbc;
+  int num_prbc;
   fh_comp_method_t comp_method;
   uint8_t iq_width;
+  void *iq_data; // points into mbuf; valid until this fragment is unpacked and mbuf is freed
+  void *mbuf;
+} dl_fragment_t;
+
+typedef struct {
+  dl_stream_slot_t streams[MAX_DL_STREAMS_PER_SYMBOL];
+  int num_streams;
+  dl_fragment_t fragments[MAX_DL_IQ_STREAMS_PER_SYMBOL];
+  int num_fragments;
+  uint64_t absolute_symbol;
 } dl_symbol_job_t;
 
 typedef struct {
@@ -99,6 +113,7 @@ typedef struct {
   prach_job_t prach_jobs[MAX_SLOTS_PER_FRAME][MAX_ANTENNAS];
   uint64_t current_absolute_symbol;
   uint64_t window_tail_symbol;
+  uint64_t cplane_closed_tail_symbol;
   struct rte_ring *dl_free_jobs;
   struct rte_ring *dl_ready_jobs;
   struct rte_ring *ul_free_jobs;
@@ -134,6 +149,54 @@ static inline void set_bit(uint8_t *bits, uint64_t bit)
 static inline int test_bit(uint8_t *bits, uint64_t bit)
 {
   return bits[bit / 8] & (1 << (bit % 8));
+}
+
+// U-Plane packets carry (eaxc, section_id) - find which beam-stream declared that section_id.
+static dl_stream_slot_t *find_dl_stream_by_section(dl_symbol_job_t *job, uint8_t eaxc_id, uint16_t section_id)
+{
+  for (int s = 0; s < job->num_streams; s++) {
+    dl_stream_slot_t *stream = &job->streams[s];
+    if (stream->eaxc_id != eaxc_id) {
+      continue;
+    }
+    for (int i = 0; i < stream->num_section_ids; i++) {
+      if (stream->section_ids[i] == section_id) {
+        return stream;
+      }
+    }
+  }
+  return NULL;
+}
+
+// Only C-Plane creates stream slots; a U-Plane packet with no match counts as
+// uplane_missing_cplane rather than fabricating a zero-expected_iq slot.
+static dl_stream_slot_t *find_or_add_dl_stream(dl_symbol_job_t *job, uint8_t eaxc_id, uint16_t beam_id)
+{
+  for (int s = 0; s < job->num_streams; s++) {
+    if (job->streams[s].eaxc_id == eaxc_id && job->streams[s].beam_id == beam_id) {
+      return &job->streams[s];
+    }
+  }
+  if (job->num_streams >= MAX_DL_STREAMS_PER_SYMBOL) {
+    return NULL;
+  }
+  dl_stream_slot_t *slot = &job->streams[job->num_streams++];
+  memset(slot, 0, sizeof(*slot));
+  slot->eaxc_id = eaxc_id;
+  slot->beam_id = beam_id;
+  return slot;
+}
+
+// Appends one joined PRB run; mbuf ownership passes to the job, freed later by read_dl_iq_streams().
+static dl_fragment_t *add_dl_fragment(dl_symbol_job_t *job, uint8_t eaxc_id, uint16_t beam_id)
+{
+  if (job->num_fragments >= MAX_DL_IQ_STREAMS_PER_SYMBOL) {
+    return NULL;
+  }
+  dl_fragment_t *frag = &job->fragments[job->num_fragments++];
+  frag->eaxc_id = eaxc_id;
+  frag->beam_id = beam_id;
+  return frag;
 }
 
 void txrx_window_histogram_count(txrx_histogram_t *hist, int32_t diff)
@@ -240,26 +303,42 @@ void cleanup_packet_processor(void *context)
   }
 }
 
-// Releases a single symbol job the instant it individually completes, independent of any other
-// symbol's state (sliding window: no head-of-line blocking on neighboring, still-incomplete jobs).
-void release_completed_symbol_job(oru_packet_processor_context_t *ctx, uint64_t absolute_symbol)
+static bool dl_job_fully_delivered(const dl_symbol_job_t *job)
 {
-  uint32_t job_index = absolute_symbol % NUM_CONCURRENT_DL_SYMBOL_WINDOWS;
-  dl_symbol_job_t *job = ctx->dl_symbol_rx_window[job_index];
-  if (!job || job->absolute_symbol != absolute_symbol) {
-    return;
+  for (int s = 0; s < job->num_streams; s++) {
+    if (job->streams[s].received_iq != job->streams[s].expected_iq) {
+      return false;
+    }
   }
-  ctx->dl_symbol_rx_window[job_index] = NULL;
-  ctx->was_dl_symbol_completed[job_index] = true;
-  int ret = rte_ring_enqueue(ctx->dl_ready_jobs, (void *)job);
-  if (ret != 0) {
-    ctx->stats.application_too_slow++;
+  return true;
+}
+
+// Releases a job early once its C-Plane window has closed and everything declared has already
+// arrived, instead of waiting for push_symbol_job()'s mandatory backstop.
+static void release_cplane_complete_jobs(oru_packet_processor_context_t *ctx, uint64_t absolute_symbol)
+{
+  while (ctx->cplane_closed_tail_symbol <= absolute_symbol) {
+    if (!test_bit(ctx->dl_symbol_bitmask, ctx->cplane_closed_tail_symbol % ctx->symbol_bitmask_length)) {
+      ctx->cplane_closed_tail_symbol++;
+      continue;
+    }
+    uint32_t job_index = ctx->cplane_closed_tail_symbol % NUM_CONCURRENT_DL_SYMBOL_WINDOWS;
+    dl_symbol_job_t *job = ctx->dl_symbol_rx_window[job_index];
+    if (job && job->absolute_symbol == ctx->cplane_closed_tail_symbol && dl_job_fully_delivered(job)) {
+      ctx->dl_symbol_rx_window[job_index] = NULL;
+      ctx->was_dl_symbol_completed[job_index] = true;
+      int ret = rte_ring_enqueue(ctx->dl_ready_jobs, (void *)job);
+      if (ret != 0) {
+        ctx->stats.application_too_slow++;
+      }
+    }
+    ctx->cplane_closed_tail_symbol++;
   }
 }
 
-// Happens during timer expiry: slides the trailing edge of the window forward, forcibly evicting
-// any slot that fell behind (reclaiming it for the job pool) so every DL symbol eventually reaches
-// dl_ready_jobs even if it was never released early via release_completed_symbol_job().
+// Mandatory backstop, run on timer expiry: force-flushes every DL symbol job by its T2a deadline,
+// complete or not. Symbols already released early by release_cplane_complete_jobs() are skipped
+// via was_dl_symbol_completed.
 void push_symbol_job(oru_packet_processor_context_t *ctx, uint64_t absolute_symbol)
 {
   while (ctx->window_tail_symbol <= absolute_symbol) {
@@ -280,7 +359,7 @@ void push_symbol_job(oru_packet_processor_context_t *ctx, uint64_t absolute_symb
         ctx->stats.application_too_slow++;
       }
     } else if (ctx->was_dl_symbol_completed[job_index]) {
-      // Already released early for this exact symbol - nothing to do.
+      // Already released early for this exact symbol by release_cplane_complete_jobs() - nothing to do.
       ctx->was_dl_symbol_completed[job_index] = false;
     } else {
       // Never got a single C-plane packet for this symbol - push an empty placeholder so the
@@ -307,9 +386,17 @@ void handle_absolute_symbol_tick(void *context, uint64_t absolute_symbol)
   if (ctx->current_absolute_symbol == 0) {
     ctx->current_absolute_symbol = absolute_symbol - 1;
     ctx->window_tail_symbol = absolute_symbol - 1;
+    ctx->cplane_closed_tail_symbol = absolute_symbol - 1;
   }
   ctx->current_absolute_symbol = absolute_symbol;
-  uint64_t window_expiry_symbol = ctx->current_absolute_symbol + ctx->T2a_min_up_dl_sym_diff;
+  // Guard against underflow: T2a_min_*_sym_diff can legitimately be 0.
+  if (ctx->T2a_min_cp_sym_diff > 0) {
+    uint64_t cplane_closed_symbol = ctx->current_absolute_symbol + ctx->T2a_min_cp_sym_diff - 1;
+    release_cplane_complete_jobs(ctx, cplane_closed_symbol);
+  }
+  uint32_t min_t2a_min_sym_diff =
+      ctx->T2a_min_cp_sym_diff < ctx->T2a_min_up_dl_sym_diff ? ctx->T2a_min_cp_sym_diff : ctx->T2a_min_up_dl_sym_diff;
+  uint64_t window_expiry_symbol = ctx->current_absolute_symbol + (min_t2a_min_sym_diff > 0 ? min_t2a_min_sym_diff - 1 : 0);
   push_symbol_job(ctx, window_expiry_symbol);
 }
 
@@ -372,7 +459,41 @@ void handle_uplane_packet(void *context, void *pkt)
     rte_pktmbuf_free(pkt);
     return;
   }
-  AssertFatal(Ant_ID <= MAX_ANTENNAS, "Antenna id (%d) exceeds supported value %d\n", Ant_ID, MAX_ANTENNAS);
+  if (Ant_ID >= MAX_ANTENNAS) {
+    // Wire-controlled field - drop rather than let a malformed/out-of-range packet crash the process.
+    ctx->stats.invalid_eaxc_id++;
+    rte_pktmbuf_free(pkt);
+    return;
+  }
+  uint16_t effective_num_prbu = num_prbu == 0 ? ctx->num_prb : num_prbu;
+  uint8_t effective_iq_width = iqWidth == 0 ? XRAN_IQ_BITS_UNCOMPRESSED : iqWidth;
+  // start_prbu/num_prbu are wire-controlled. combine_dl_streams() writes num_prb PRBs at start_prb
+  // into a txDataF buffer sized for ctx->num_prb PRBs - reject anything that wouldn't fit.
+  if (start_prbu > ctx->num_prb || effective_num_prbu > (uint16_t)(ctx->num_prb - start_prbu)) {
+    LOG_W(HW,
+          "U-plane packet: start_prbu %u + num_prbu %u exceeds configured num_prb %d, dropping\n",
+          start_prbu,
+          effective_num_prbu,
+          ctx->num_prb);
+    ctx->stats.uplane_err_prb_range++;
+    rte_pktmbuf_free(pkt);
+    return;
+  }
+  // ret is the packet length still remaining after xran_extract_iq_samples() stripped the headers -
+  // verify it actually holds the IQ payload the header claims, before iq_data_start is handed off
+  // to the deferred unpack_iq() in read_dl_iq_streams().
+  size_t expected_bytes = has_comp_hdr ? (size_t)effective_num_prbu * FH_COMP_PRB_BYTES(effective_iq_width)
+                                       : (size_t)effective_num_prbu * NR_NB_SC_PER_RB * 2 * sizeof(uint16_t);
+  if ((size_t)ret < expected_bytes) {
+    LOG_W(HW,
+          "U-plane packet: payload too short (%d bytes, need %zu for %u PRBs), dropping\n",
+          ret,
+          expected_bytes,
+          effective_num_prbu);
+    ctx->stats.uplane_err_short_payload++;
+    rte_pktmbuf_free(pkt);
+    return;
+  }
   LOG_D(HW,
         "ORAN: U-plane packet received. CC_ID %d, Ant_ID %d, frame_id %d, subframe_id %d, slot_id %d, symb_id %d, filter_id %d, "
         "num_prbu %d, start_prbu %d, sym_inc %d, rb %d, sect_id %d, compMeth %d, iqWidth %d\n",
@@ -436,22 +557,31 @@ void handle_uplane_packet(void *context, void *pkt)
     return;
   }
 
-  if (job->per_antenna[Ant_ID].num_rx_fragments < MAX_RX_FRAGMENTS) {
-    int frag_idx = job->per_antenna[Ant_ID].num_rx_fragments++;
-    job->per_antenna[Ant_ID].rx_fragments[frag_idx].iq_data = iq_data_start;
-    job->per_antenna[Ant_ID].rx_fragments[frag_idx].mbuf = pkt;
-    job->per_antenna[Ant_ID].rx_fragments[frag_idx].start_prbc = start_prbu;
-    job->per_antenna[Ant_ID].rx_fragments[frag_idx].num_prbc = num_prbu == 0 ? ctx->num_prb : num_prbu;
-  } else {
+  dl_stream_slot_t *stream = find_dl_stream_by_section(job, Ant_ID, sect_id);
+  if (!stream) {
+    // C-Plane never declared this (eaxc, section) - drop rather than guess.
+    ctx->stats.uplane_missing_cplane++;
+    rte_pktmbuf_free(pkt);
+    return;
+  }
+
+  dl_fragment_t *frag = add_dl_fragment(job, Ant_ID, stream->beam_id);
+  if (!frag) {
+    ctx->stats.dl_iq_streams_pool_exhausted++;
     LOG_W(HW, "ORU: Dropping extra segment for Ant %d, sym %lu\n", Ant_ID, target_absolute_symbol);
     rte_pktmbuf_free(pkt);
+    return;
   }
-  job->received_iq += num_prbu == 0 ? ctx->num_prb : num_prbu;
-  job->comp_method = (fh_comp_method_t)compMeth;
-  job->iq_width = iqWidth == 0 ? XRAN_IQ_BITS_UNCOMPRESSED : iqWidth;
-  if (job->expected_iq == job->received_iq) {
-    release_completed_symbol_job(ctx, target_absolute_symbol);
-  }
+  frag->start_prbc = start_prbu;
+  frag->num_prbc = effective_num_prbu;
+  frag->iq_data = iq_data_start;
+  frag->mbuf = pkt;
+  frag->comp_method = (fh_comp_method_t)compMeth;
+  frag->iq_width = effective_iq_width;
+  // Only counted once actually stored - crediting a dropped fragment would let
+  // dl_job_fully_delivered() falsely report this symbol complete.
+  stream->received_iq += frag->num_prbc;
+  // Release happens in release_cplane_complete_jobs() or push_symbol_job(), not here.
   return;
 }
 
@@ -461,6 +591,11 @@ static void handle_dl_cplane_packet(oru_packet_processor_context_t *ctx,
                                     struct xran_cp_radioapp_section1 *section,
                                     int ant_id)
 {
+  if (ant_id < 0 || ant_id >= MAX_ANTENNAS) {
+    // Wire-controlled field - drop rather than let a malformed/out-of-range packet crash the process.
+    ctx->stats.invalid_eaxc_id++;
+    return;
+  }
   int numerology = ctx->numerology;
   int slot_in_frame = hdr->cmnhdr.field.slotId + hdr->cmnhdr.field.subframeId * (1 << numerology);
   uint32_t start_symbol = hdr->cmnhdr.field.startSymbolId;
@@ -492,28 +627,30 @@ static void handle_dl_cplane_packet(oru_packet_processor_context_t *ctx,
     return;
   }
   for (int i = 0; i < num_symbols; i++) {
+    // Multi-symbol section: symbol i of the section sits at target_absolute_symbol + i, so its own
+    // offset from "now" is diff + i (later symbols are further out, not closer) - check each one
+    // individually against both bounds, not just the section's first symbol.
+    int32_t sym_diff = diff + i;
+    if (sym_diff > (int32_t)ctx->T2a_max_cp_sym_diff) {
+      ctx->stats.cplane_err_early++;
+      return;
+    }
+    if (sym_diff < (int32_t)ctx->T2a_min_cp_sym_diff) {
+      ctx->stats.cplane_err_late++;
+      return;
+    }
     uint32_t job_index = (target_absolute_symbol + i) % NUM_CONCURRENT_DL_SYMBOL_WINDOWS;
     dl_symbol_job_t *job = ctx->dl_symbol_rx_window[job_index];
     if (!job) {
-      // First cplane packet of in this reception slot
+      // First C-Plane packet for this symbol.
       int ret = rte_ring_dequeue(ctx->dl_free_jobs, (void **)&job);
       if (ret != 0) {
         ctx->stats.application_too_slow++;
         return;
       }
       job->absolute_symbol = target_absolute_symbol + i;
-      job->expected_iq = 0;
-      job->received_iq = 0;
-      job->comp_method = FH_COMP_NONE;
-      job->iq_width = 16;
-      for (int j = 0; j < MAX_ANTENNAS; j++) {
-        job->per_antenna[j].cplane_received = false;
-        job->per_antenna[j].num_rx_fragments = 0;
-        for (int k = 0; k < MAX_RX_FRAGMENTS; k++) {
-          job->per_antenna[j].rx_fragments[k].iq_data = NULL;
-          job->per_antenna[j].rx_fragments[k].mbuf = NULL;
-        }
-      }
+      job->num_streams = 0;
+      job->num_fragments = 0;
       ctx->dl_symbol_rx_window[job_index] = job;
       ctx->was_dl_symbol_completed[job_index] = false;
     } else {
@@ -521,16 +658,27 @@ static void handle_dl_cplane_packet(oru_packet_processor_context_t *ctx,
         ctx->stats.cplane_err_late++;
         return;
       }
-      if (job->per_antenna[ant_id].cplane_received) {
-        ctx->stats.cplane_err_dup++;
-        ctx->stats.cplane_err_dup_dl++;
-        return;
-      }
     }
-    job->per_antenna[ant_id].section_id = section->hdr.u1.common.sectionId;
-    job->expected_iq += section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
-    job->comp_method = (fh_comp_method_t)hdr->udComp.udCompMeth;
-    job->iq_width = hdr->udComp.udIqWidth == 0 ? XRAN_IQ_BITS_UNCOMPRESSED : hdr->udComp.udIqWidth;
+    uint16_t section_id = section->hdr.u1.common.sectionId;
+    if (find_dl_stream_by_section(job, (uint8_t)ant_id, section_id)) {
+      // Duplicate C-Plane packet for this section_id.
+      ctx->stats.cplane_err_dup++;
+      ctx->stats.cplane_err_dup_dl++;
+      return;
+    }
+    dl_stream_slot_t *stream = find_or_add_dl_stream(job, (uint8_t)ant_id, section->hdr.u.s1.beamId);
+    if (!stream) {
+      ctx->stats.dl_stream_pool_exhausted++;
+      return;
+    }
+    if (stream->num_section_ids >= MAX_SECTIONS_PER_DL_STREAM) {
+      ctx->stats.dl_stream_sections_exhausted++;
+      return;
+    }
+    stream->section_ids[stream->num_section_ids++] = section_id;
+    stream->expected_iq += section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
+    // comp_method/iq_width come from each U-Plane packet's own header, not the C-Plane
+    // declaration - see dl_fragment_t.
   }
 }
 
@@ -587,6 +735,7 @@ static void handle_ul_cplane_packet(oru_packet_processor_context_t *ctx,
     ul_job->symbol = absolute_gps_symbol % 14;
     ul_job->num_symbols = num_symbols;
     ul_job->antenna_id = ant_id;
+    ul_job->beam_id = section->hdr.u.s1.beamId;
     ul_job->num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
     ul_job->start_prb = section->hdr.u1.common.startPrbc;
     int ret = rte_ring_enqueue(ctx->ul_ready_jobs, (void *)ul_job);
@@ -819,6 +968,14 @@ void print_packet_processor_stats(void *context)
     LOG_I(HW, "  U-Plane Duplicate Packet Errors: %lu\n", ctx->stats.uplane_err_dup);
   if (ctx->stats.uplane_missing_cplane > 0)
     LOG_I(HW, "  U-Plane Missing C-Plane Errors: %lu\n", ctx->stats.uplane_missing_cplane);
+  if (ctx->stats.dl_stream_pool_exhausted > 0)
+    LOG_I(HW, "  DL Stream Pool Exhausted Errors: %lu\n", ctx->stats.dl_stream_pool_exhausted);
+  if (ctx->stats.dl_stream_sections_exhausted > 0)
+    LOG_I(HW, "  DL Stream Sections Exhausted Errors: %lu\n", ctx->stats.dl_stream_sections_exhausted);
+  if (ctx->stats.dl_iq_streams_pool_exhausted > 0)
+    LOG_I(HW, "  DL IQ Streams Pool Exhausted Errors: %lu\n", ctx->stats.dl_iq_streams_pool_exhausted);
+  if (ctx->stats.invalid_eaxc_id > 0)
+    LOG_I(HW, "  Invalid Eaxc/Antenna ID Errors: %lu\n", ctx->stats.invalid_eaxc_id);
   if (ctx->stats.dl_tdd_mismatch + ctx->thread_safe_stats.dl_tdd_mismatch > 0)
     LOG_I(HW, "  DL TDD Mismatch Errors: %lu\n", ctx->stats.dl_tdd_mismatch + ctx->thread_safe_stats.dl_tdd_mismatch);
   if (ctx->stats.ul_tdd_mismatch + ctx->thread_safe_stats.ul_tdd_mismatch > 0)
@@ -892,11 +1049,18 @@ static void unpack_iq(c16_t *txdataF, const uint8_t *iqdata, int start_prb, int 
   }
 }
 
-void read_dl_iq(void *context, uint32_t **txdataF, int nb_tx, uint64_t *hyper_frame, int *frame, int *slot, int *symbol)
+int read_dl_iq_streams(void *context,
+                       dl_iq_stream_t *streams,
+                       uint32_t *iq_arena,
+                       int max_streams,
+                       uint64_t *hyper_frame,
+                       int *frame,
+                       int *slot,
+                       int *symbol)
 {
   oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
   if (ctx == NULL)
-    return;
+    return -1;
   dl_symbol_job_t *job;
   int ret = -1;
   while (ret != 0) {
@@ -912,27 +1076,38 @@ void read_dl_iq(void *context, uint32_t **txdataF, int nb_tx, uint64_t *hyper_fr
   *slot = (absolute_gps_symbol % num_symbols_per_frame) / NR_SYMBOLS_PER_SLOT;
   *symbol = absolute_gps_symbol % NR_SYMBOLS_PER_SLOT;
 
-  for (int aatx = 0; aatx < nb_tx; aatx++) {
-    memset(txdataF[aatx], 0, ctx->num_prb * NR_NB_SC_PER_RB * sizeof(uint32_t));
-    if (job->per_antenna[aatx].num_rx_fragments == 0) {
+  // Each fragment becomes one output stream, compact (start_prb/num_prb are metadata, not an
+  // offset into a full-band buffer).
+  int out_count = 0;
+  for (int f = 0; f < job->num_fragments; f++) {
+    dl_fragment_t *frag = &job->fragments[f];
+    if (out_count >= max_streams) {
+      // Caller-sized array too small for what this symbol actually carried - drop the rest rather
+      // than overflow. Sizing streams/iq_arena for MAX_DL_IQ_STREAMS_PER_SYMBOL avoids this.
+      LOG_W(HW, "ORU: read_dl_iq_streams() output too small (max_streams=%d) - dropping remaining fragments\n", max_streams);
+      if (frag->mbuf) {
+        rte_pktmbuf_free(frag->mbuf);
+      }
       continue;
     }
-    for (int k = 0; k < job->per_antenna[aatx].num_rx_fragments; k++) {
-      unpack_iq((c16_t *)txdataF[aatx],
-                job->per_antenna[aatx].rx_fragments[k].iq_data,
-                job->per_antenna[aatx].rx_fragments[k].start_prbc,
-                job->per_antenna[aatx].rx_fragments[k].num_prbc,
-                job->comp_method,
-                job->iq_width);
-      if (job->per_antenna[aatx].rx_fragments[k].mbuf) {
-        rte_pktmbuf_free(job->per_antenna[aatx].rx_fragments[k].mbuf);
-      }
+    dl_iq_stream_t *out = &streams[out_count];
+    out->ant_id = frag->eaxc_id;
+    out->beam_id = frag->beam_id;
+    out->start_prb = frag->start_prbc;
+    out->num_prb = frag->num_prbc;
+    out->iq = iq_arena + (size_t)out_count * ctx->num_prb * NR_NB_SC_PER_RB;
+    unpack_iq((c16_t *)out->iq, frag->iq_data, 0, frag->num_prbc, frag->comp_method, frag->iq_width);
+    if (frag->mbuf) {
+      rte_pktmbuf_free(frag->mbuf);
     }
+    out_count++;
   }
+
   ret = rte_ring_enqueue(ctx->dl_free_jobs, (void *)job);
   AssertFatal(ret == 0,
               "Failed to enqueue to ring dl_free_jobs. dl_free_jobs num_elements %d\n",
               rte_ring_count(ctx->dl_free_jobs));
+  return out_count;
 }
 
 int get_ready_job_count(void *context)

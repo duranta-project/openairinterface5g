@@ -1,0 +1,162 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+
+<testCaseList>
+  <htmlTabRef>oai-nr-oru-bf</htmlTabRef>
+  <htmlTabName>O-RU vrtsim 2x2 beamforming</htmlTabName>
+  <htmlTabIcon>wrench</htmlTabIcon>
+
+  <testCase>
+    <class>Pull_Local_Registry</class>
+    <desc>Pull Images from Local Registry</desc>
+    <node>stonechat</node>
+    <images>oai-gnb-fhi72</images>
+  </testCase>
+
+  <testCase>
+    <class>Pull_Local_Registry</class>
+    <desc>Pull Images from Local Registry</desc>
+    <node>matix</node>
+    <images>oai-nr-ue oai-nr-oru</images>
+  </testCase>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace</desc>
+    <node>matix</node>
+  </testCase>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace</desc>
+    <node>stonechat</node>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy OAI 5G CoreNetwork</desc>
+    <node>stonechat</node>
+    <yaml_path>ci-scripts/yaml_files/sa_fhi_7.2_oaioru_1x1_gnb_bf</yaml_path>
+    <services>mysql oai-amf oai-smf oai-upf oai-ext-dn</services>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy OAI O-RU</desc>
+    <node>matix</node>
+    <yaml_path>ci-scripts/yaml_files/5g_vrtsim_fhi72_oaioru_1x1_ru_ue_bf</yaml_path>
+    <services>oai-nr-oru</services>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy OAI 5G gNB 7.2</desc>
+    <node>stonechat</node>
+    <yaml_path>ci-scripts/yaml_files/sa_fhi_7.2_oaioru_1x1_gnb_bf</yaml_path>
+    <services>oai-gnb</services>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy OAI 5G NR-UE</desc>
+    <node>matix</node>
+    <yaml_path>ci-scripts/yaml_files/5g_vrtsim_fhi72_oaioru_1x1_ru_ue_bf/</yaml_path>
+    <services>oai-nr-ue</services>
+  </testCase>
+
+  <testCase>
+    <class>Attach_UE</class>
+    <desc>Attach OAI UE (Wait for IP)</desc>
+    <id>rfsim5g_ue</id>
+    <node>matix</node>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping ext-dn from NR-UE</desc>
+    <id>rfsim5g_ue</id>
+    <node>matix</node>
+    <svr_id>rfsim5g_ext_dn</svr_id>
+    <svr_node>stonechat</svr_node>
+    <ping_args>-c 20 -i 0.25</ping_args>
+    <ping_packetloss_threshold>5</ping_packetloss_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping NR-UE from ext-dn</desc>
+    <id>rfsim5g_ext_dn</id>
+    <node>stonechat</node>
+    <svr_id>rfsim5g_ue</svr_id>
+    <svr_node>matix</svr_node>
+    <ping_args>-c 20 -i 0.25</ping_args>
+    <ping_packetloss_threshold>5</ping_packetloss_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>Iperf (DL/TCP)(20 sec)</desc>
+    <iperf_args>-t 20 -R</iperf_args>
+    <id>rfsim5g_ue</id>
+    <node>matix</node>
+    <svr_id>rfsim5g_ext_dn</svr_id>
+    <svr_node>stonechat</svr_node>
+    <iperf_tcp_rate_target>90</iperf_tcp_rate_target>
+  </testCase>
+
+    <testCase>
+    <class>Iperf</class>
+    <desc>Iperf (UL/TCP)(20 sec)</desc>
+    <iperf_args>-t 20</iperf_args>
+    <id>rfsim5g_ue</id>
+    <node>matix</node>
+    <svr_id>rfsim5g_ext_dn</svr_id>
+    <svr_node>stonechat</svr_node>
+    <iperf_tcp_rate_target>25</iperf_tcp_rate_target>
+  </testCase>
+
+  <testCase>
+    <class>Detach_UE</class>
+    <desc>Detach OAI UE</desc>
+    <id>rfsim5g_ue</id>
+    <node>matix</node>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <always_exec>true</always_exec>
+    <desc>Undeploy all OAI 5G stack</desc>
+    <node>stonechat</node>
+    <yaml_path>ci-scripts/yaml_files/sa_fhi_7.2_oaioru_1x1_gnb_bf/</yaml_path>
+    <analysis>
+      <services>oai-gnb=EndsWithBye</services>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <always_exec>true</always_exec>
+    <desc>Undeploy all OAI 5G stack</desc>
+    <node>matix</node>
+    <yaml_path>ci-scripts/yaml_files/5g_vrtsim_fhi72_oaioru_1x1_ru_ue_bf</yaml_path>
+    <analysis>
+      <services>oai-nr-ue oai-nr-oru</services>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Clean_Test_Server_Images</class>
+    <always_exec>true</always_exec>
+    <desc>Clean Test Images on Test Server</desc>
+    <node>stonechat</node>
+    <images>oai-gnb-fhi72</images>
+  </testCase>
+
+  <testCase>
+    <class>Clean_Test_Server_Images</class>
+    <always_exec>true</always_exec>
+    <desc>Clean Test Images on Test Server</desc>
+    <node>matix</node>
+    <images>oai-nr-ue oai-nr-oru</images>
+  </testCase>
+
+</testCaseList>
