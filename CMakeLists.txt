@@ -781,6 +781,21 @@ set(PHY_NRLDPC_CODINGIF
   ${OPENAIR1_DIR}/PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface_load.c
 )
 
+set(PHY_SRC_TOOLS
+  ${OPENAIR1_DIR}/PHY/TOOLS/file_output.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/dfts_load.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/log2_approx.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/cdot_prod.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/signal_energy.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/dB_routines.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/sqrt.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/get_sin_cos.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/oai_arith_operations.c
+  )
+
+add_library(PHY_TOOLS ${PHY_SRC_TOOLS})
+target_link_libraries(PHY_TOOLS PRIVATE shlib_loader)
+
 add_library(dfts MODULE ${OPENAIR1_DIR}/PHY/TOOLS/oai_dfts.c ${OPENAIR1_DIR}/PHY/TOOLS/oai_dfts_neon.c)
 target_compile_options(dfts PRIVATE -fno-semantic-interposition)
 
@@ -798,6 +813,7 @@ set(PHY_SRC_COMMON
   ${OPENAIR1_DIR}/PHY/LTE_TRANSPORT/dlsch_scrambling.c
   ${OPENAIR1_DIR}/PHY/LTE_UE_TRANSPORT/srs_modulation.c
   ${OPENAIR1_DIR}/PHY/MODULATION/ofdm_mod.c
+  ${OPENAIR1_DIR}/PHY/MODULATION/PHY_ofdm_mod.c
   ${OPENAIR1_DIR}/PHY/LTE_ESTIMATION/lte_sync_time.c
   ${OPENAIR1_DIR}/PHY/LTE_REFSIG/lte_dl_cell_spec.c
   ${OPENAIR1_DIR}/PHY/LTE_REFSIG/lte_dl_uespec.c
@@ -815,14 +831,6 @@ set(PHY_SRC_COMMON
   ${OPENAIR1_DIR}/PHY/CODING/viterbi_lte.c
   ${OPENAIR1_DIR}/PHY/INIT/init_top.c
   ${OPENAIR1_DIR}/PHY/INIT/lte_parms.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/dfts_load.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/log2_approx.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/cdot_prod.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/signal_energy.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/dB_routines.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/sqrt.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/get_sin_cos.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/oai_arith_operations.c
   )
 
 set(PHY_SRC
@@ -918,6 +926,8 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/nr_phy_common/src/nr_phy_common_srs.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_scrambling.c
   ${OPENAIR1_DIR}/PHY/NR_REFSIG/refsig.c
+  ${OPENAIR1_DIR}/PHY/MODULATION/ofdm_mod_nr.c
+  ${OPENAIR1_DIR}/PHY/MODULATION/PHY_ofdm_mod.c
   )
 
   set(PHY_NR_SRC
@@ -945,13 +955,6 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/NR_ESTIMATION/nr_ul_channel_estimation.c
   ${OPENAIR1_DIR}/PHY/NR_ESTIMATION/nr_freq_equalization.c
   ${OPENAIR1_DIR}/PHY/NR_ESTIMATION/nr_measurements_gNB.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/file_output.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/log2_approx.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/cdot_prod.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/signal_energy.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/dB_routines.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/sqrt.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/oai_arith_operations.c
   ${PHY_NRLDPC_CODINGIF}
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/pucch_rx.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/srs_rx.c
@@ -993,13 +996,6 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/NR_UE_ESTIMATION/nr_adjust_synch_ue.c
   ${OPENAIR1_DIR}/PHY/NR_UE_ESTIMATION/nr_ue_measurements.c
   ${OPENAIR1_DIR}/PHY/NR_UE_ESTIMATION/nr_adjust_gain.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/file_output.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/log2_approx.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/cdot_prod.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/signal_energy.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/dB_routines.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/sqrt.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/oai_arith_operations.c
   ${OPENAIR1_DIR}/PHY/INIT/nr_init_ue.c
   ${PHY_NRLDPC_CODINGIF}
   )
@@ -1011,8 +1007,8 @@ endif  (${SMBV})
 
 add_library(PHY_COMMON ${PHY_SRC_COMMON})
 target_link_libraries(PHY_COMMON
-  PRIVATE shlib_loader asn1_lte_rrc_hdrs crc_byte
-  PUBLIC UTIL
+  PRIVATE asn1_lte_rrc_hdrs crc_byte
+  PUBLIC UTIL PHY_TOOLS
 )
 add_dependencies(PHY_COMMON dfts)
 
@@ -1023,7 +1019,7 @@ add_library(PHY_UE ${PHY_SRC_UE})
 target_link_libraries(PHY_UE PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs UTIL)
 
 add_library(PHY_NR_COMMON ${PHY_NR_SRC_COMMON})
-target_link_libraries(PHY_NR_COMMON PUBLIC UTIL)
+target_link_libraries(PHY_NR_COMMON PUBLIC UTIL PHY_TOOLS crc_byte)
 
 if (ENABLE_LDPC_CUDA)
   find_package(CUDA REQUIRED)
@@ -1806,7 +1802,7 @@ if (OAI_RU_FRONTHAUL)
     ${OPENAIR_DIR}/executables/nr-oru.c
   )
   target_link_libraries(nr-oru PRIVATE
-    UTIL NR_PHY_RU PHY_NR shlib_loader dl oru_fh MAC_NR_COMMON
+    UTIL NR_PHY_RU PHY_NR shlib_loader dl oru_fh MAC_NR_COMMON PHY_NR_COMMON
     radio_common softmodem_common nfapi_pnf_lib symbol_reorder)
   target_link_libraries(nr-oru PRIVATE pthread m CONFIG_LIB rt ${T_LIB} utils
     barrier actor nfapi_user_lib)
@@ -2146,7 +2142,7 @@ if (${T_TRACER})
         oai_eth_transpro UTIL
         SECURITY SCHED_LIB SCHED_NR_LIB SCHED_RU_LIB SCHED_UE_LIB SCHED_NR_UE_LIB
         nfapi_lte_lib nfapi_nr_lib nfapi_pnf_lib nfapi_vnf_lib nfapi_user_lib
-        MISC_NFAPI_LTE_LIB
+        MISC_NFAPI_LTE_LIB PHY_TOOLS
         PHY_COMMON PHY PHY_UE PHY_NR PHY_NR_COMMON PHY_NR_UE PHY_RU NR_PHY_RU
         L2 L2_LTE L2_NR L2_LTE_NR L2_UE NR_L2_UE MAC_NR_COMMON MAC_UE_NR ngap
         GTPV1U SCTP_CLIENT MME_APP LIB_NAS_UE SIMU
