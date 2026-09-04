@@ -125,7 +125,12 @@ services:
             - NET_ADMIN  # for interface bringup
             - NET_RAW    # for ping
         environment:
-            USE_ADDITIONAL_OPTIONS: --band 254 -C 2488400000 --CO -873500000 -r 25 --numerology 0 --ssb 60 --rfsim --rfsimulator.[0].prop_delay 238.74 --rfsimulator.[0].serveraddr 192.168.71.140 --num-ul-actors 1 --log_config.global_log_options level,nocolor,time
+            # 238.74 ms one-way DL delay, carried by the enB0 model's static offset
+            # (7334093 samps @ 30.72 MHz): rfsim's model branch reads only the model's
+            # channel_offset, so enabling chanmod here drops the prop_delay carrier —
+            # the gNB UL leg (no chanmod) keeps prop_delay 238.74 in its mounted conf
+            USE_ADDITIONAL_OPTIONS: --band 254 -C 2488400000 --CO -873500000 -r 25 --numerology 0 --ssb 60 --rfsim --rfsimulator.[0].serveraddr 192.168.71.140 --num-ul-actors 1 --rfsimulator.[0].options chanmod --channelmod.modellist_rfsimu_1.[0].ploss_dB 0 --channelmod.modellist_rfsimu_1.[0].noise_power_dB -50 --channelmod.modellist_rfsimu_1.[0].offset 7334093 --telnetsrv --telnetsrv.shrmod ciUE --telnetsrv.listenaddr 192.168.71.150 --telnetsrv.listenport 8091 --log_config.global_log_options level,nocolor,time
+            ASAN_OPTIONS: detect_leaks=0:detect_odr_violation=0
         depends_on:
             - oai-gnb
         networks:

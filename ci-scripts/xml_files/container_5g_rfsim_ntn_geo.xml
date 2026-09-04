@@ -67,7 +67,7 @@
     <class>Custom_Command</class>
     <desc>Trigger Reestablishment</desc>
     <node>localhost</node>
-    <command>echo ci force_reestab | ncat 192.168.71.140 9090 | grep -E 'Reset RLC counters of UE RNTI [0-9a-f]{4} to trigger reestablishment'</command>
+    <command>./trigger_reestab.sh 192.168.71.150 8091 192.168.71.140 9090 rfsim5g-oai-nr-ue</command>
     <command_fail>yes</command_fail>
   </testCase>
 
