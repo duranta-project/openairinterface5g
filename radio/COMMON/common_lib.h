@@ -31,6 +31,7 @@ typedef enum { RAU_LOCAL_RADIO_HEAD, RAU_REMOTE_RADIO_HEAD, RAU_REMOTE_THIRDPART
 #define MAX_WRITE_THREAD_PACKAGE     10
 #define MAX_WRITE_THREAD_BUFFER_SIZE 8
 #define MAX_CARDS 10
+#define OPENAIR0_MAX_ANTENNAS 64
 
 typedef int64_t openair0_timestamp_t;
 typedef volatile int64_t openair0_vtimestamp_t;
@@ -201,29 +202,29 @@ typedef struct openair0_config {
   //! tx daughter card
   char* tx_subdev;
   //! \brief RX base addresses for mmapped_dma
-  int32_t *rxbase[8];
+  int32_t *rxbase[OPENAIR0_MAX_ANTENNAS];
   //! \brief RX buffer size for direct access
   int rxsize;
   //! \brief TX base addresses for mmapped_dma or direct access
-  int32_t *txbase[8];
+  int32_t *txbase[OPENAIR0_MAX_ANTENNAS];
   //! \brief Center frequency in Hz for RX.
   //! index: [0..rx_num_channels[
-  double rx_freq[8];
+  double rx_freq[OPENAIR0_MAX_ANTENNAS];
   //! \brief Center frequency in Hz for TX.
   //! index: [0..rx_num_channels[ !!! see lte-ue.c:427 FIXME iterates over rx_num_channels
-  double tx_freq[8];
+  double tx_freq[OPENAIR0_MAX_ANTENNAS];
   double tune_offset;
   //! \brief memory
   //! \brief Pointer to Calibration table for RX gains
   rx_gain_calib_table_t *rx_gain_calib_table;
   //! \brief Gain for RX in dB.
   //! index: [0..rx_num_channels]
-  double rx_gain[8];
+  double rx_gain[OPENAIR0_MAX_ANTENNAS];
   //! \brief Gain offset (for calibration) in dB
   //! index: [0..rx_num_channels]
-  double rx_gain_offset[8];
+  double rx_gain_offset[OPENAIR0_MAX_ANTENNAS];
   //! gain for TX in dB
-  double tx_gain[8];
+  double tx_gain[OPENAIR0_MAX_ANTENNAS];
   //! RX bandwidth in Hz
   double rx_bw;
   //! TX bandwidth in Hz
@@ -235,7 +236,7 @@ typedef struct openair0_config {
   //! Manual SDR IP address
   char *sdr_addrs;
   //! Auto calibration flag
-  int autocal[8];
+  int autocal[OPENAIR0_MAX_ANTENNAS];
   //! Configuration file for LMS7002M
   char *configFilename;
   //! record player configuration, definition in record_player.h
@@ -244,9 +245,9 @@ typedef struct openair0_config {
   //! Flag to indicate this configuration is for NR
   int nr_flag;
   //! Core IDs for RX FH
-  int rxfh_cores[8];
+  int rxfh_cores[OPENAIR0_MAX_ANTENNAS];
   //! Core IDs for TX FH
-  int txfh_cores[8];
+  int txfh_cores[OPENAIR0_MAX_ANTENNAS];
   //! select the GPIO control method
   gpio_control_t gpio_controller;
   //! this interface is reused for split 7, so split 7 options provided below

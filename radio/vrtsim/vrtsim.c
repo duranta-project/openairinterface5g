@@ -41,7 +41,6 @@
 // Simulator role
 typedef enum { ROLE_SERVER = 1, ROLE_CLIENT } role;
 
-#define MAX_NUM_ANTENNAS_TX 8
 #define SAVED_SAMPLES_LEN 256
 #define MAX_NUM_UES MAX_MOBILES_PER_GNB
 
@@ -448,8 +447,16 @@ static void parse_ue_config(vrtsim_state_t *vrtsim_state)
                   "Invalid antenna format '%s' for UE %d, use e.g. '1x2'\n",
                   antennas,
                   i);
-      AssertFatal(tx_ant > 0 && tx_ant <= MAX_NUM_ANTENNAS_TX, "Invalid TX antenna count %d for UE %d\n", tx_ant, i);
-      AssertFatal(rx_ant > 0 && rx_ant <= MAX_NUM_ANTENNAS_TX, "Invalid RX antenna count %d for UE %d\n", rx_ant, i);
+      AssertFatal(tx_ant > 0 && tx_ant <= OPENAIR0_MAX_ANTENNAS,
+                  "Invalid TX antenna count %d for UE %d (max %d)\n",
+                  tx_ant,
+                  i,
+                  OPENAIR0_MAX_ANTENNAS);
+      AssertFatal(rx_ant > 0 && rx_ant <= OPENAIR0_MAX_ANTENNAS,
+                  "Invalid RX antenna count %d for UE %d (max %d)\n",
+                  rx_ant,
+                  i,
+                  OPENAIR0_MAX_ANTENNAS);
       vrtsim_state->ue_conf[i].tx_ant = tx_ant;
       vrtsim_state->ue_conf[i].rx_ant = rx_ant;
     } else {
@@ -735,7 +742,7 @@ static int vrtsim_write_with_chanmod(vrtsim_state_t *vrtsim_state,
                                      int nbAnt)
 {
   // Sample history for channel impulse response
-  static c16_t saved_samples[MAX_NUM_ANTENNAS_TX][SAVED_SAMPLES_LEN] __attribute__((aligned(32))) = {0};
+  static c16_t saved_samples[OPENAIR0_MAX_ANTENNAS][SAVED_SAMPLES_LEN] __attribute__((aligned(32))) = {0};
   if (vrtsim_state->use_cirdb) {
     double seconds = (double)timestamp / vrtsim_state->sample_rate;
     uint64_t elapsed_ns = (uint64_t)(seconds * 1e9 + 0.5);
@@ -878,10 +885,10 @@ static int vrtsim_write(openair0_device_t *device,
                         int flags)
 {
   AssertFatal(nsamps > 0, "Number of samples must be greater than 0\n");
-  AssertFatal(nbAnt > 0 && nbAnt <= MAX_NUM_ANTENNAS_TX,
+  AssertFatal(nbAnt > 0 && nbAnt <= OPENAIR0_MAX_ANTENNAS,
               "Number of antennas %d must be between 1 and %d\n",
               nbAnt,
-              MAX_NUM_ANTENNAS_TX);
+              OPENAIR0_MAX_ANTENNAS);
   AssertFatal(timestamp >= 0, "Timestamp must be non-negative, got %ld\n", timestamp);
   timestamp -= device->openair0_cfg->command_line_sample_advance;
   vrtsim_state_t *vrtsim_state = (vrtsim_state_t *)device->priv;
@@ -1139,8 +1146,8 @@ __attribute__((__visibility__("default"))) int device_init(openair0_device_t *de
     int16_t noise_power = noise_power_dBFS == INVALID_DBFS_VALUE ? 0 : (int16_t)(32767.0 / powf(10.0, .05 * -noise_power_dBFS));
     LOG_A(HW, "VRTSIM: Noise power %d sample value\n", noise_power);
 #ifdef CHANNEL_SIM_CUDA
-    size_t samples_in_one_ms = openair0_cfg->sample_rate / 1000 / 1000;
-    vrtsim_state->channel_pipeline_context = cuda_channel_pipeline_init(openair0_cfg->tx_num_channels * samples_in_one_ms);
+    size_t samples_in_one_ms = openair0_cfg->sample_rate / 1000;
+    vrtsim_state->channel_pipeline_context = cuda_channel_pipeline_init(samples_in_one_ms, openair0_cfg->tx_num_channels);
 #else
     channel_pipeline_init(noise_power);
     initNamedTpool(vrtsim_state->thread_pool_cores, &vrtsim_state->tpool, false, "vrtsim_chanmod");

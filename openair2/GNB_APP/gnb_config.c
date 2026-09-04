@@ -1479,6 +1479,10 @@ static double complex **read_dbt_from_config(const char *prefix,
 
 static void config_spatial_stream_index(const paramdef_t *param, const size_t np, nr_mac_config_t *radio_config, int num_ru_ports)
 {
+  AssertFatal(num_ru_ports <= NR_MAC_MAX_RU_ANTENNA_PORTS,
+              "Number of RU antenna ports (%d) exceeds NR_MAC_MAX_RU_ANTENNA_PORTS (%d)\n",
+              num_ru_ports,
+              NR_MAC_MAX_RU_ANTENNA_PORTS);
   const int n = gpd(param, np, MACRLC_SPATIAL_STREAM_IDX)->numelt;
   if (n == 0) {
     // No indices provided in config file. Set default indices starting from 0.
