@@ -4,8 +4,12 @@
 
 #include "PHY/defs_nr_common.h"
 #define _GNU_SOURCE // For pthread_setname_np
+#include <errno.h>
+#include <inttypes.h>
 #include <pthread.h>
+#include <string.h>
 #include "executables/nr-ue-ru.h"
+#include "executables/nr-ue-tx-deadline.h"
 #include "executables/nr-uesoftmodem.h"
 #include "PHY/INIT/nr_phy_init.h"
 #include "NR_MAC_UE/mac_proto.h"
@@ -317,24 +321,35 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
   }
 
   if (!IS_SOFTMODEM_RFSIM) {
-    uint64_t deadline_us = rxtxD->absolute_deadline_us;
-    struct timespec current_time;
-    if (clock_gettime(CLOCK_REALTIME, &current_time)) {
-      LOG_E(PHY, "clock_gettime failed\n");
-    }
-    uint64_t current_time_us = current_time.tv_sec * 1e6 + current_time.tv_nsec / 1e3;
-    if (current_time_us > deadline_us) {
-      static unsigned int deadline_warning_rate_limit = 0;
-      if (deadline_warning_rate_limit % 1000 == 0) {
-        LOG_W(PHY,
-              "Deadline missed for tx slot %d.%d (current time %lu us, deadline %lu us, missed by %lu)\n",
+    const nr_ue_tx_deadline_t deadline = {.monotonic_ns = rxtxD->tx_deadline_monotonic_ns,
+                                          .error_code = rxtxD->tx_deadline_error_code,
+                                          .valid = rxtxD->tx_deadline_valid};
+    struct timespec monotonic_time = {0};
+    const int clock_status = deadline.valid ? clock_gettime(CLOCK_MONOTONIC, &monotonic_time) : -1;
+    const int clock_error = deadline.valid && clock_status != 0 ? errno : deadline.error_code;
+    const nr_ue_tx_deadline_check_t check =
+        nr_ue_tx_deadline_check(&deadline, clock_status == 0 ? &monotonic_time : NULL, clock_error);
+    if (!check.valid) {
+      static _Atomic(uint64_t) deadline_error_rate_limit;
+      if (nr_ue_tx_deadline_log_due(&deadline_error_rate_limit))
+        LOG_E(PHY,
+              "Cannot %s deadline for tx slot %d.%d: error %d (%s)\n",
+              deadline.valid ? "check" : "construct",
               proc->frame_tx,
               proc->nr_slot_tx,
-              current_time_us,
-              deadline_us,
-              current_time_us - deadline_us);
-      }
-      deadline_warning_rate_limit++;
+              check.error_code,
+              strerror(check.error_code));
+    } else if (check.missed) {
+      static _Atomic(uint64_t) deadline_warning_rate_limit;
+      if (nr_ue_tx_deadline_log_due(&deadline_warning_rate_limit))
+        LOG_W(PHY,
+              "Deadline missed for tx slot %d.%d (monotonic time %" PRIu64 " ns, deadline %" PRIu64 " ns, missed by %" PRId64
+              " ns)\n",
+              proc->frame_tx,
+              proc->nr_slot_tx,
+              check.monotonic_now_ns,
+              deadline.monotonic_ns,
+              check.lateness_ns);
     }
   }
 
@@ -663,7 +678,7 @@ void readFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int duration
           rxp[i] = &UE->common_vars.rxdata[i][x * fp->samples_per_subframe + get_samples_slot_timestamp(fp, slot_rx)];
 
       int readBlockSize = get_samples_per_slot(slot_rx, fp);
-      int tmp = nrue_ru_read(UE, timestamp, (void **)rxp, readBlockSize, fp->nb_antennas_rx);
+      int tmp = nrue_ru_read(UE, timestamp, (void **)rxp, readBlockSize, fp->nb_antennas_rx, NULL);
       UEscopeCopy(UE, ueTimeDomainSamplesBeforeSync, rxp[0], sizeof(c16_t), 1, readBlockSize, 0);
       AssertFatal(readBlockSize == tmp, "read rf board failed %d", tmp);
 
@@ -694,7 +709,7 @@ static void syncInFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int
   while (size > 0) {
     // Set a maximum transfer size. As we usually read/write single slots, we use the size of slot 0 as maximum here.
     const int unitTransfer = min(get_samples_per_slot(0, fp), size);
-    const int res = nrue_ru_read(UE, timestamp, (void **)UE->common_vars.rxdata, unitTransfer, fp->nb_antennas_rx);
+    const int res = nrue_ru_read(UE, timestamp, (void **)UE->common_vars.rxdata, unitTransfer, fp->nb_antennas_rx, NULL);
     DevAssert(unitTransfer == res);
     if (IS_SOFTMODEM_RFSIM) {
       int ta = UE->timing_advance + UE->timing_advance_ntn;
@@ -876,7 +891,8 @@ void *UE_thread(void *arg)
                              &sync_timestamp,
                              (void **)UE->common_vars.rxdata,
                              fp->ofdm_symbol_size + fp->nb_prefix_samples0,
-                             fp->nb_antennas_rx);
+                             fp->nb_antennas_rx,
+                             NULL);
       AssertFatal(fp->ofdm_symbol_size + fp->nb_prefix_samples0 == ret, "read rf board failed %d", ret);
       // we have the decoded frame index in the return of the synch process
       // and we shifted above to the first slot of next frame
@@ -978,14 +994,16 @@ void *UE_thread(void *arg)
 
     const int readBlockSize = get_readBlockSize(slot_nr, fp) - iq_shift_to_apply;
     openair0_timestamp_t rx_timestamp;
-    int tmp = nrue_ru_read(UE, &rx_timestamp, (void **)rxp, readBlockSize, fp->nb_antennas_rx);
+    nr_ue_tx_deadline_anchor_t deadline_anchor = {.error_code = EINVAL};
+    int tmp = nrue_ru_read(UE,
+                           &rx_timestamp,
+                           (void **)rxp,
+                           readBlockSize,
+                           fp->nb_antennas_rx,
+                           slot_nr != nb_slot_frame - 1 ? &deadline_anchor : NULL);
     metadata meta = {.slot =  curMsg.proc.nr_slot_rx, .frame =  curMsg.proc.frame_rx};
     UEscopeCopyWithMetadata(UE, ueTimeDomainSamples, rxp[0] - firstSymSamp, sizeof(c16_t), 1, readBlockSize, 0, &meta);
     AssertFatal(readBlockSize == tmp, "read to rf board failed %d", tmp);
-    struct timespec current_time;
-    if (clock_gettime(CLOCK_REALTIME, &current_time)) {
-      LOG_E(PHY, "clock_gettime failed\n");
-    }
 
     if(slot_nr == (nb_slot_frame - 1)) {
       // read in first symbol of next frame and adjust for timing drift
@@ -993,11 +1011,17 @@ void *UE_thread(void *arg)
 
       if (first_symbols > 0) {
         openair0_timestamp_t ignore_timestamp;
-        int tmp = nrue_ru_read(UE, &ignore_timestamp, (void **)UE->common_vars.rxdata, first_symbols, fp->nb_antennas_rx);
+        int tmp = nrue_ru_read(UE,
+                               &ignore_timestamp,
+                               (void **)UE->common_vars.rxdata,
+                               first_symbols,
+                               fp->nb_antennas_rx,
+                               &deadline_anchor);
         AssertFatal(first_symbols == tmp, "read to rf board failed %d", tmp);
 
-      } else
+      } else {
         LOG_E(PHY,"can't compensate: diff =%d\n", first_symbols);
+      }
     }
 
     // use previous timing_advance value to compute writeTimestamp
@@ -1005,9 +1029,8 @@ void *UE_thread(void *arg)
         rx_timestamp + get_samples_slot_duration(fp, slot_nr, duration_rx_to_tx) - firstSymSamp - UE->N_TA_offset - timing_advance;
 
     // Calculate TX deadline, approximately 1 symbol before the first sample should be written
-    const uint64_t samples_diff = writeTimestamp - rx_timestamp - fp->ofdm_symbol_size;
-    const float deadline_us = samples_diff * 1e3 / fp->samples_per_subframe;
-    const uint64_t absolute_deadline_us = current_time.tv_sec * 1e6 + current_time.tv_nsec * 1e-3 + deadline_us;
+    const nr_ue_tx_deadline_t tx_deadline =
+        nr_ue_tx_deadline_compute(&deadline_anchor, writeTimestamp, fp->ofdm_symbol_size, fp->samples_per_subframe);
 
     // but use current UE->timing_advance value to compute writeBlockSize
     int writeBlockSize = get_samples_per_slot((slot_nr + duration_rx_to_tx) % nb_slot_frame, fp) - iq_shift_to_apply;
@@ -1064,7 +1087,9 @@ void *UE_thread(void *arg)
     curMsgTx->writeBlockSize = writeBlockSize;
     curMsgTx->proc.timestamp_tx = writeTimestamp;
     curMsgTx->UE = UE;
-    curMsgTx->absolute_deadline_us = absolute_deadline_us;
+    curMsgTx->tx_deadline_monotonic_ns = tx_deadline.monotonic_ns;
+    curMsgTx->tx_deadline_error_code = tx_deadline.error_code;
+    curMsgTx->tx_deadline_valid = tx_deadline.valid;
 
     int slot = curMsgTx->proc.nr_slot_tx;
     int slot_and_frame = slot + curMsgTx->proc.frame_tx * nb_slot_frame;
