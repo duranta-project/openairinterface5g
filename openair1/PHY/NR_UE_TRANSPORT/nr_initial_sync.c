@@ -307,13 +307,17 @@ static void nr_scan_ssb(void *arg)
 
   // initial sync performed on two successive frames, if pbch passes on first frame, no need to process second frame
   // only one frame is used for simulation tools
-  if (ssbInfo->freqOffset)
-    compensate_freq_offset(rxdata, fp->nb_antennas_rx, ssbInfo->rxdata_sz, ssbInfo->freqOffset, fp->samples_per_subframe * 1000);
-
   for (int frame_id = 0; frame_id < ssbInfo->nFrames && !ssbInfo->syncRes.cell_detected; frame_id++) {
     c16_t *rxdataShift[fp->nb_antennas_rx];
     for (int i = 0; i < fp->nb_antennas_rx; i++)
       rxdataShift[i] = rxdata[i] + fp->samples_per_frame * frame_id;
+
+    if (ssbInfo->freqOffset)
+      compensate_freq_offset(rxdataShift,
+                             fp->nb_antennas_rx,
+                             fp->samples_per_frame,
+                             ssbInfo->freqOffset,
+                             fp->samples_per_subframe * 1000);
 
     nr_ssb_search_params_t search_params = {
         .dl_CarrierFreq = fp->dl_CarrierFreq,
