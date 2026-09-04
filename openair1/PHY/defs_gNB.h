@@ -259,16 +259,6 @@ typedef struct {
   /// \brief llr values link to device memory
   int16_t *llr_dev;
 #endif
-  // PTRS symbol index, to be updated every PTRS symbol within a slot.
-  uint8_t ptrs_symbol_index;
-  /// bit mask of PT-RS ofdm symbol indicies
-  uint16_t ptrs_symbols;
-  // PTRS subcarriers per OFDM symbol
-  int32_t ptrs_re_per_slot;
-  /// \brief Estimated phase error based upon PTRS on each symbol .
-  /// - first index: ? [0..7] Number of Antenna
-  /// - second index: ? [0...14] smybol per slot
-  int32_t **ptrs_phase_per_slot;
   /// \brief Total RE count after DMRS/PTRS RE's are extracted from respective symbol.
   /// - first index: ? [0...14] smybol per slot
   int16_t *ul_valid_re_per_slot;

@@ -18,6 +18,7 @@
 #include "log.h"
 #include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_nr_interface.h"
 #include "bits.h"
+#include "utils.h"
 
 uint8_t allowed_xlsch_re_in_dmrs_symbol(uint16_t k,
                                         uint16_t start_sc,
@@ -218,7 +219,7 @@ int8_t get_valid_dmrs_idx_for_channel_est(uint16_t dmrs_symb_pos, uint8_t counte
 {
   int8_t  symbIdx = -1;
   /* if current symbol is DMRS then return this index */
-  if(is_dmrs_symbol(counter, dmrs_symb_pos) == 1) {
+  if (IS_BIT_SET(dmrs_symb_pos, counter) == 1) {
     return counter;
   }
   /* find previous DMRS symbol */

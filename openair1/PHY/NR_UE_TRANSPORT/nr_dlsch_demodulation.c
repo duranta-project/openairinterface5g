@@ -6,6 +6,7 @@
  * \brief Top-level routines for demodulating the PDSCH physical channel from 38-211, V15.2 2018-06
  */
 
+#include "PHY/NR_REFSIG/ptrs_nr.h"
 #include "common/platform_constants.h"
 #include "nr_phy_common.h"
 #include "nr_layer_demapping.h"
@@ -18,6 +19,7 @@
 #include "PHY/NR_REFSIG/nr_refsig.h"
 #include "PHY/NR_REFSIG/dmrs_nr.h"
 #include "common/utils/nr/nr_common.h"
+#include "utils.h"
 #include <complex.h>
 #include "openair1/PHY/TOOLS/phy_scope_interface.h"
 #include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_nr_interface.h"
@@ -162,7 +164,9 @@ static void nr_dlsch_extract_rbs(uint32_t rxdataF_sz,
                                  uint8_t Nl,
                                  NR_DL_FRAME_PARMS *fp,
                                  uint32_t csi_res_bitmap,
-                                 int chest_time_type)
+                                 int chest_time_type,
+                                 uint16_t rnti,
+                                 bool is_ptrs)
 {
   int config_type = dlsch_config->dmrsConfigType;
   int n_dmrs_cdm_groups = dlsch_config->n_dmrs_cdm_groups;
@@ -202,6 +206,9 @@ static void nr_dlsch_extract_rbs(uint32_t rxdataF_sz,
   else
     validDmrsEst = get_next_dmrs_symbol_in_slot(dlsch_config->dlDmrsSymbPos, 0, 14); // get first dmrs symbol index
 
+  const uint k_rb_ref = is_ptrs ? get_ptrs_k_RB(freq_alloc->num_rbs, dlsch_config->PTRSFreqDensity, rnti) : 0;
+  const uint k_ptrs = dlsch_config->PTRSFreqDensity;
+  const uint k_re_ref = dlsch_config->PTRSReOffset;
   int pos = 0;
   int block_start, block_end;
   int offset = 0;
@@ -215,7 +222,7 @@ static void nr_dlsch_extract_rbs(uint32_t rxdataF_sz,
       for (int l = 0; l < Nl; l++) {
         int32_t *dl_ch0 = &dl_ch_estimates[(l * fp->nb_antennas_rx) + aarx][validDmrsEst * fp->ofdm_symbol_size];
         c16_t *dl_ch0_ext = dl_ch_estimates_ext[(l * fp->nb_antennas_rx) + aarx] + offset;
-        if (pilots == 0 && csi_res_bitmap == 0) { // data symbol only
+        if (!is_ptrs && pilots == 0 && csi_res_bitmap == 0) { // data symbol only
           if (l == 0) {
             if (start_re + nb_rb * NR_NB_SC_PER_RB <= fp->ofdm_symbol_size) {
               memcpy(rxF_ext, &rxF[start_re], nb_rb * NR_NB_SC_PER_RB * sizeof(int32_t));
@@ -231,7 +238,9 @@ static void nr_dlsch_extract_rbs(uint32_t rxdataF_sz,
           int j = 0;
           int k = start_re;
           for (int rb = start_rb; rb < start_rb + nb_rb; rb++) {
-            uint32_t overlap_map = rb % 2 ?  dmrs_csi_overlap_odd : dmrs_csi_overlap_even;
+            const uint start_rb_alloc = freq_alloc->first_rb + dlsch_config->BWPStart;
+            uint16_t ptrs_re_map = is_ptrs ? get_ptrs_re_bitmap(rb - start_rb_alloc, k_re_ref, k_ptrs, k_rb_ref) : 0;
+            uint32_t overlap_map = (ptrs_re_map & 0xfff) | (rb % 2 ? dmrs_csi_overlap_odd : dmrs_csi_overlap_even);
             for (int re = 0; re < NR_NB_SC_PER_RB; re++) {
               if (((overlap_map >> re) & 0x01) == 0) {
                 // DATA RE
@@ -746,11 +755,12 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                 c16_t dl_ch_mag[][NR_MAX_NB_LAYERS][pdsch_buf_size_max],
                 c16_t dl_ch_magb[][NR_MAX_NB_LAYERS][pdsch_buf_size_max],
                 c16_t dl_ch_magr[][NR_MAX_NB_LAYERS][pdsch_buf_size_max],
-                c16_t ptrs_phase_per_slot[][NR_SYMBOLS_PER_SLOT],
-                int32_t ptrs_re_per_slot[][NR_SYMBOLS_PER_SLOT],
+                c16_t ptrs_phase,
+                uint ptrs_re_per_symbol,
                 uint32_t nvar,
                 pdsch_scope_req_t *scope_req,
-                c16_t rho_dl[][NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max])
+                c16_t rho_dl[][NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max],
+                uint16_t is_ptrs)
 {
   NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
   const int nl = dlsch->cw_info.Nl;
@@ -824,7 +834,9 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                        nl,
                        fp,
                        csi_res_bitmap,
-                       ue->chest_time);
+                       ue->chest_time,
+                       dlsch->rnti,
+                       is_ptrs);
   stop_meas_nr_ue_phy(ue, DLSCH_EXTRACT_RBS_STATS);
   if (scope_req->copy_chanest_to_scope) {
     size_t size = sizeof(c16_t) * nb_rb_pdsch * NR_NB_SC_PER_RB;
@@ -848,6 +860,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                 ((config_type == NFAPI_NR_DMRS_TYPE1) ? nb_rb_pdsch * (12 - 6 * dlsch_config->n_dmrs_cdm_groups) :
                 nb_rb_pdsch * (12 - 4 * dlsch_config->n_dmrs_cdm_groups)):
                 (nb_rb_pdsch * 12);
+  nb_re_pdsch -= ptrs_re_per_symbol;
   // Subtract CSI-RS REs from PDSCH RE count
   if (csi_res_bitmap != 0) {
     uint32_t csi_re_count = 0;
@@ -954,6 +967,7 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                           dl_ch_magr[symbol],
                           p_rxComp,
                           need_rho ? (c16_t(*)[nl][pdsch_buf_size_max])rho_dl[symbol] : NULL,
+                          ptrs_phase,
                           dlsch->cw_info.qamModOrder,
                           0, // symbol already baked into p_rxComp
                           *log2_maxh);
@@ -1036,36 +1050,10 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   dl_valid_re[symbol] = nb_re_pdsch;
   int startSymbIdx = 0;
   int nbSymb = 0;
-  int pduBitmap = 0;
 
   if(dlsch_harq->status == NR_ACTIVE) {
     startSymbIdx = dlsch_config->start_symbol;
     nbSymb = dlsch_config->number_symbols;
-    pduBitmap = dlsch_config->pduBitmap;
-  }
-
-  /* PTRS processing for multiple antenna ports is broken because the following
-  function estimates phase offset from and applies compensation to rxdataF_comp
-  for each antenna port but rxdataF_comp has MRCed data. */
-  /* TODO: Move PTRS phase estimation before immediately after DMRS channels
-  estimation and apply PTRS phase compensation in nr_channel_compensationi() */
-  /* Check for PTRS bitmap and process it respectively */
-  if((pduBitmap & 0x1) && (dlsch->rnti_type == TYPE_C_RNTI_)) {
-    nr_pdsch_ptrs_processing(1, // rxdataF_comp is MRCed so no point in processing all antenna ports. Fixme.
-                             ptrs_phase_per_slot,
-                             ptrs_re_per_slot,
-                             pdsch_buf_size_max,
-                             nl,
-                             rxdataF_comp,
-                             fp,
-                             dlsch_config,
-                             nr_slot_rx,
-                             symbol,
-                             freq_alloc->num_rbs,
-                             dlsch->rnti,
-                             &dlsch->ptrs_symbols,
-                             &dlsch->ptrs_symbol_index);
-    dl_valid_re[symbol] -= ptrs_re_per_slot[0][symbol];
   }
 
   /* at last symbol in a slot calculate LLR's for whole slot */

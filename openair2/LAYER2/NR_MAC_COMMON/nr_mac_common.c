@@ -3539,9 +3539,9 @@ bool set_dl_ptrs_values(NR_PTRS_DownlinkConfig_t *ptrs_config,
                          mcsIndex,
                          mcsTable);
   }
-  *portIndex =*ptrs_config->epre_Ratio;
-  *nERatio = *ptrs_config->resourceElementOffset;
-  *reOffset  = 0;
+  *nERatio = *ptrs_config->epre_Ratio;
+  *reOffset = *ptrs_config->resourceElementOffset;
+  *portIndex = 1; // First port
   /* If either or both of the parameters PT-RS time density (LPT-RS) and PT-RS frequency density (KPT-RS), shown in Table
    * 5.1.6.3-1 and Table 5.1.6.3-2, indicates that 'PT-RS not present', the UE shall assume that PT-RS is not present
    */

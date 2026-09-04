@@ -6,6 +6,8 @@
  * \brief Implementation of UE procedures from 36.213 LTE specifications
  */
 
+#include "PHY/defs_RU.h"
+#include "utils.h"
 #define _GNU_SOURCE
 
 #include "nr/nr_common.h"
@@ -17,9 +19,9 @@
 #include "PHY/INIT/nr_phy_init.h"
 #include "PHY/nr_phy_common/inc/nr_phy_common.h"
 #include "PHY/NR_REFSIG/ptrs_nr.h"
+#include "PHY/NR_REFSIG/ss_pbch_nr.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_ue.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
-#include "SCHED_NR_UE/phy_sch_processing_time.h"
 #include "PHY/NR_UE_ESTIMATION/nr_estimation.h"
 #include "executables/softmodem-common.h"
 #include "executables/nr-uesoftmodem.h"
@@ -40,7 +42,6 @@
 #include "common/utils/LOG/log.h"
 
 #include "UTIL/OPT/opt.h"
-#include "intertask_interface.h"
 #include "T.h"
 #include "instrumentation.h"
 
@@ -438,12 +439,6 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   c16_t (*rho_dl)[NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max] = (c16_t (*)[NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->rho_dl;
 
   NR_DL_FRAME_PARMS *frame_parms = &ue->frame_parms;
-  c16_t ptrs_phase_per_slot[frame_parms->nb_antennas_rx][NR_SYMBOLS_PER_SLOT];
-  memset(ptrs_phase_per_slot, 0, sizeof(ptrs_phase_per_slot));
-
-  int32_t ptrs_re_per_slot[frame_parms->nb_antennas_rx][NR_SYMBOLS_PER_SLOT];
-  memset(ptrs_re_per_slot, 0, sizeof(ptrs_re_per_slot));
-
   uint32_t nvar = 0;
 
   start_meas_nr_ue_phy(ue, DLSCH_CHANNEL_ESTIMATION_STATS);
@@ -474,7 +469,40 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   int first_dmrs_symbol = get_first_bit_index_mask(&dmrs_mask, 1, 0, NR_SYMBOLS_PER_SLOT);
   nr_ue_measurement_procedures(first_dmrs_symbol, ue, proc, freq_alloc->num_rbs, pdsch_est_size, pdsch_dl_ch_estimates);
 
+  // PTRS processing.
+  const bool is_ptrs = dlschCfg->pduBitmap & 1;
+  c16_t cpe[NR_SYMBOLS_PER_SLOT];
+  for (uint s = 0; s < NR_SYMBOLS_PER_SLOT; s++)
+    cpe[s] = (c16_t){.r = INT16_MAX}; // zero phase error.
+  uint ptrs_re_symbol = 0;
+  uint16_t ptrs_symb_pos = 0;
+  if (is_ptrs) {
+    if (dlschCfg->PTRSPortIndex != 1) {
+      LOG_W(NR_PHY, "Multi-port PTRS not supported, skipping PTRS processing\n");
+    } else {
+      const NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
+      ptrs_proc_t p = {.k_ptrs = dlschCfg->PTRSFreqDensity,
+                       .k_re_ref = dlschCfg->PTRSReOffset,
+                       .symbols_per_slot = fp->symbols_per_slot,
+                       .start_rb = freq_alloc->first_rb,
+                       .num_rb = freq_alloc->num_rbs,
+                       .N_RB = fp->N_RB_DL,
+                       .start_symb = dlschCfg->start_symbol,
+                       .num_symb = dlschCfg->number_symbols,
+                       .dmrs_symb_pos = dlschCfg->dlDmrsSymbPos,
+                       .nid = fp->Nid_cell,
+                       .nscid = dlschCfg->nscid,
+                       .first_carrier_offset = fp->first_carrier_offset,
+                       .ofdm_symbol_size = fp->ofdm_symbol_size,
+                       .slot = proc->nr_slot_rx,
+                       .rnti = dlsch->rnti};
+      ptrs_re_symbol = nr_ptrs_run(&p, dlschCfg->PTRSTimeDensity, rxdataF[0], (const c16_t *)pdsch_dl_ch_estimates[0], cpe);
+      ptrs_symb_pos = p.ptrs_symb_pos;
+    }
+  }
+
   if (ue->chest_time == 1) { // averaging time domain channel estimates
+    AssertFatal(!is_ptrs, "Time domain averaging of DMRS estimates not allowed with PTRS\n");
     int32_t *ch_est_p[dlsch->cw_info.Nl * frame_parms->nb_antennas_rx];
     for (int nl = 0; nl < dlsch->cw_info.Nl; nl++)
       for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++)
@@ -551,11 +579,12 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                     dl_ch_mag,
                     dl_ch_magb,
                     dl_ch_magr,
-                    ptrs_phase_per_slot,
-                    ptrs_re_per_slot,
+                    cpe[m],
+                    IS_BIT_SET(ptrs_symb_pos, m) ? ptrs_re_symbol : 0,
                     nvar,
                     &scope_req,
-                    rho_dl)
+                    rho_dl,
+                    IS_BIT_SET(ptrs_symb_pos, m))
         < 0) {
       if (scope_req.copy_chanest_to_scope) {
         UEunlockScopeData(ue, pdschChanEstimates);
@@ -1224,12 +1253,10 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
     uint16_t dmrs_len = get_num_dmrs(dlsch_config->dlDmrsSymbPos);
     uint32_t unav_res = 0;
     if(dlsch_config->pduBitmap & 0x1) {
-      uint16_t ptrsSymbPos = 0;
-      set_ptrs_symb_idx(&ptrsSymbPos,
-                        dlsch_config->number_symbols,
-                        dlsch_config->start_symbol,
-                        1 << dlsch_config->PTRSTimeDensity,
-                        dlsch_config->dlDmrsSymbPos);
+      uint16_t ptrsSymbPos = get_ptrs_symb_idx(dlsch_config->number_symbols,
+                                               dlsch_config->start_symbol,
+                                               1 << dlsch_config->PTRSTimeDensity,
+                                               dlsch_config->dlDmrsSymbPos);
       int n_ptrs = (freq_alloc.num_rbs + dlsch_config->PTRSFreqDensity - 1) / dlsch_config->PTRSFreqDensity;
       int ptrsSymbPerSlot = get_ptrs_symbols_in_slot(ptrsSymbPos, dlsch_config->start_symbol, dlsch_config->number_symbols);
       unav_res = n_ptrs * ptrsSymbPerSlot;
