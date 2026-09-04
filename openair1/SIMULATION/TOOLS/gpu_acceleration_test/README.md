@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
+
 # GPU vs CPU vrtsim Channel Emulation Testing
 
 This directory contains the GH server test runner used to GPU vrtsim channel emulation. The matrix scales the gNB side up to 64 antennas while keeping the UE side capped at 4 antennas for the larger cases, and additionally regression-tests asymmetric UE antenna configs (UE TX antennas != UE RX antennas): `2x1` (2 TX / 1 RX) and `4x2` (4 TX / 2 RX), each run at the matching gNB antenna scale (2 and 4 respectively).

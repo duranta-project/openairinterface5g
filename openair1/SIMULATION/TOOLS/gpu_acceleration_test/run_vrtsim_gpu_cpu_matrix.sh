@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# GPU vrtsim test matrix runner, GH200 (Gracehopper) server version.
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
+# GPU vrtsim test matrix runner, GH200 (OAI Gracehopper or Falcon) server version.
 # Antenna pairs: gNB scales up, UE is capped at 4x4 above the symmetric 4x4 range.
 set -uo pipefail
 
