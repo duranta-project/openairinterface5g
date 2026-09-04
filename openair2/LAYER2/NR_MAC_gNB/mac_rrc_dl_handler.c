@@ -12,6 +12,7 @@
 #include "F1AP_CauseRadioNetwork.h"
 #include "NR_HandoverPreparationInformation.h"
 #include "NR_CG-ConfigInfo.h"
+#include "NR_RRCReconfiguration.h"
 #include "openair3/ocp-gtpu/gtp_itf.h"
 #include "openair2/LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
 #include "lib/f1ap_rrc_message_transfer.h"
@@ -438,6 +439,134 @@ static NR_UE_NR_Capability_t *get_ue_nr_cap(int rnti, uint8_t *buf, uint32_t len
   return cap;
 }
 
+static void add_dl_bwp_release(NR_ServingCellConfig_t *cd, long bwp_id)
+{
+  if (!cd->downlinkBWP_ToReleaseList)
+    cd->downlinkBWP_ToReleaseList = calloc_or_fail(1, sizeof(*cd->downlinkBWP_ToReleaseList));
+  for (int i = 0; i < cd->downlinkBWP_ToReleaseList->list.count; i++)
+    if (*cd->downlinkBWP_ToReleaseList->list.array[i] == bwp_id)
+      return; /* already listed */
+  asn1cSequenceAdd(cd->downlinkBWP_ToReleaseList->list, NR_BWP_Id_t, id);
+  *id = bwp_id;
+}
+
+static void add_ul_bwp_release(NR_UplinkConfig_t *uc, long bwp_id)
+{
+  if (!uc)
+    return;
+  if (!uc->uplinkBWP_ToReleaseList)
+    uc->uplinkBWP_ToReleaseList = calloc_or_fail(1, sizeof(*uc->uplinkBWP_ToReleaseList));
+  for (int i = 0; i < uc->uplinkBWP_ToReleaseList->list.count; i++)
+    if (*uc->uplinkBWP_ToReleaseList->list.array[i] == bwp_id)
+      return; /* already listed */
+  asn1cSequenceAdd(uc->uplinkBWP_ToReleaseList->list, NR_BWP_Id_t, id);
+  *id = bwp_id;
+}
+
+/* true if the target already configures bwp_id in its DL/UL BWP-ToAddModList; in
+ * that case the UE modifies that BWP in place (same bwp-Id) and no release is
+ * needed - releasing it would only force a needless free/rebuild. */
+static bool target_has_dl_bwp(const NR_ServingCellConfig_t *cd, long bwp_id)
+{
+  if (!cd->downlinkBWP_ToAddModList)
+    return false;
+  for (int i = 0; i < cd->downlinkBWP_ToAddModList->list.count; i++)
+    if (cd->downlinkBWP_ToAddModList->list.array[i]->bwp_Id == bwp_id)
+      return true;
+  return false;
+}
+
+static bool target_has_ul_bwp(const NR_UplinkConfig_t *uc, long bwp_id)
+{
+  if (!uc || !uc->uplinkBWP_ToAddModList)
+    return false;
+  for (int i = 0; i < uc->uplinkBWP_ToAddModList->list.count; i++)
+    if (uc->uplinkBWP_ToAddModList->list.array[i]->bwp_Id == bwp_id)
+      return true;
+  return false;
+}
+
+/* Handover target: OAI applies the target's spCellConfigDedicated as a delta over
+ * the config the UE still holds from the source cell, so a source dedicated BWP is not dropped and the UE's
+ * bwp-Id set diverges from the target gNB. Read the source's dedicated BWP-Ids from
+ * HandoverPreparationInformation.sourceConfig.rrcReconfiguration -> masterCellGroup
+ * -> spCellConfigDedicated and list them in the target's DL/UL BWP release lists. */
+static void ho_release_source_dedicated_bwps(const uint8_t *hpi_buf, uint32_t hpi_len, NR_ServingCellConfig_t *target_cd)
+{
+  NR_HandoverPreparationInformation_t *hpi = NULL;
+  NR_RRCReconfiguration_t *reconf = NULL;
+  NR_CellGroupConfig_t *src_cg = NULL;
+  int n_added = 0;
+
+  do {
+    if (hpi_buf == NULL || hpi_len == 0)
+      break;
+
+    asn_dec_rval_t rv = uper_decode_complete(NULL, &asn_DEF_NR_HandoverPreparationInformation, (void **)&hpi, hpi_buf, hpi_len);
+    if (rv.code != RC_OK || !hpi
+        || hpi->criticalExtensions.present != NR_HandoverPreparationInformation__criticalExtensions_PR_c1
+        || !hpi->criticalExtensions.choice.c1
+        || hpi->criticalExtensions.choice.c1->present
+               != NR_HandoverPreparationInformation__criticalExtensions__c1_PR_handoverPreparationInformation
+        || !hpi->criticalExtensions.choice.c1->choice.handoverPreparationInformation)
+      break;
+
+    const NR_AS_Config_t *src = hpi->criticalExtensions.choice.c1->choice.handoverPreparationInformation->sourceConfig;
+    if (!src)
+      break;
+
+    rv = uper_decode_complete(NULL, &asn_DEF_NR_RRCReconfiguration, (void **)&reconf,
+                              src->rrcReconfiguration.buf, src->rrcReconfiguration.size);
+    if (rv.code != RC_OK || !reconf
+        || reconf->criticalExtensions.present != NR_RRCReconfiguration__criticalExtensions_PR_rrcReconfiguration
+        || !reconf->criticalExtensions.choice.rrcReconfiguration
+        || !reconf->criticalExtensions.choice.rrcReconfiguration->nonCriticalExtension
+        || !reconf->criticalExtensions.choice.rrcReconfiguration->nonCriticalExtension->masterCellGroup)
+      break;
+
+    const OCTET_STRING_t *mcg = reconf->criticalExtensions.choice.rrcReconfiguration->nonCriticalExtension->masterCellGroup;
+    rv = uper_decode_complete(NULL, &asn_DEF_NR_CellGroupConfig, (void **)&src_cg, mcg->buf, mcg->size);
+    if (rv.code != RC_OK || !src_cg || !src_cg->spCellConfig || !src_cg->spCellConfig->spCellConfigDedicated)
+      break;
+
+    const NR_ServingCellConfig_t *scd = src_cg->spCellConfig->spCellConfigDedicated;
+    if (scd->downlinkBWP_ToAddModList) {
+      for (int i = 0; i < scd->downlinkBWP_ToAddModList->list.count; i++) {
+        long bwp_id = scd->downlinkBWP_ToAddModList->list.array[i]->bwp_Id;
+        if (target_has_dl_bwp(target_cd, bwp_id)) {
+          LOG_I(NR_MAC, "HO: source DL BWP %ld also configured by target, UE modifies it in place (no release)\n", bwp_id);
+          continue;
+        }
+        add_dl_bwp_release(target_cd, bwp_id);
+        LOG_I(NR_MAC, "HO: adding source dedicated DL BWP %ld to release list\n", bwp_id);
+        n_added++;
+      }
+    }
+    if (scd->uplinkConfig && scd->uplinkConfig->uplinkBWP_ToAddModList) {
+      for (int i = 0; i < scd->uplinkConfig->uplinkBWP_ToAddModList->list.count; i++) {
+        long bwp_id = scd->uplinkConfig->uplinkBWP_ToAddModList->list.array[i]->bwp_Id;
+        if (target_has_ul_bwp(target_cd->uplinkConfig, bwp_id)) {
+          LOG_I(NR_MAC, "HO: source UL BWP %ld also configured by target, UE modifies it in place (no release)\n", bwp_id);
+          continue;
+        }
+        add_ul_bwp_release(target_cd->uplinkConfig, bwp_id);
+        LOG_I(NR_MAC, "HO: adding source dedicated UL BWP %ld to release list\n", bwp_id);
+        n_added++;
+      }
+    }
+  } while (0);
+
+  if (n_added == 0) {
+    LOG_W(NR_MAC, "HO: no source dedicated BWP added to be released.\n");
+  } else {
+    LOG_I(NR_MAC, "HO: target RRCReconfiguration will release %d source dedicated BWP(s)\n", n_added);
+  }
+
+  ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, src_cg);
+  ASN_STRUCT_FREE(asn_DEF_NR_RRCReconfiguration, reconf);
+  ASN_STRUCT_FREE(asn_DEF_NR_HandoverPreparationInformation, hpi);
+}
+
 /* \brief return UE capabilties from HandoverPreparationInformation.
  *
  * The HandoverPreparationInformation contains more, but for the moment, let's
@@ -551,6 +680,7 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac, nr_cell_sched_t *cell, uin
   if (is_SA) {
     cellGroupConfig = get_initial_cellGroupConfig(UE->uid, UE->is_redcap, scc, cell, &mac->rlc_config, ssb_index);
     cellGroupConfig->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(UE->rnti, UE->uid, scc, mac->frame);
+    UE->local_bwp_id = cell->radio_config.first_active_bwp;
   } else {
     NR_UE_NR_Capability_t *cap = get_ue_nr_cap_from_cg_config_info(cgci);
     cellGroupConfig = get_default_secondaryCellGroup(scc, cap, 1, 1, &cell->radio_config, cell, UE->uid, ssb_index);
@@ -770,6 +900,16 @@ void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
     }
   }
 
+  /* Handover target: the UE keeps the source cell's dedicated BWP(s) unless told
+   * to release them (delta config, no fullConfig). List the source BWP-Ids in
+   * this CellGroupConfig's release lists before it is encoded for the UE. */
+  if (cu2du->ho_prep_info != NULL && new_CellGroup->spCellConfig != NULL
+      && new_CellGroup->spCellConfig->spCellConfigDedicated != NULL) {
+    ho_release_source_dedicated_bwps(cu2du->ho_prep_info->buf,
+                                     cu2du->ho_prep_info->len,
+                                     new_CellGroup->spCellConfig->spCellConfigDedicated);
+  }
+
   resp.du_to_cu_rrc_info.cell_group_config = encode_cellgroup_config(new_CellGroup);
 
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
@@ -884,6 +1024,14 @@ void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
     // we re-configure the BWP to apply the CellGroup and to use UE specific Search Space with DCIX1
     configure_UE_BWP(cell, scc, UE, false, NR_SearchSpace__searchSpaceType_PR_ue_Specific, -1, -1);
     nr_mac_clean_cellgroup(UE->CellGroup);
+
+    // Restore dedicated BWP if it was changed to BWP0 during RA parking
+    int bwp_id = cell->radio_config.first_active_bwp;
+    if (bwp_id > 0 && UE->local_bwp_id != bwp_id) {
+      LOG_A(NR_MAC, "UE %04x: Restoring dedicated BWP %d after RA parking on BWP0 by RRCReconfiguration(nr_mac_trigger_reconfiguration)\n", UE->rnti, bwp_id);
+      nr_mac_trigger_reconfiguration(mac, cell, UE, bwp_id, false);
+      UE->local_bwp_id = bwp_id;
+    }
   }
 
   if (ue_cap != NULL) {
