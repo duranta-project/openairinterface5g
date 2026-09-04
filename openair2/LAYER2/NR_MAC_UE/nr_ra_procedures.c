@@ -1126,8 +1126,8 @@ void nr_ra_backoff_setting(RA_config_t *ra)
 {
   // select a random backoff time according to a uniform distribution
   // between 0 and the PREAMBLE_BACKOFF
-  uint32_t seed = (unsigned int)(rdtsc_oai() & ~0);
-  uint32_t random_backoff = ra->RA_backoff_limit ? rand_r(&seed) % ra->RA_backoff_limit : 0; // in slots
+  int random_backoff = ra->RA_backoff_limit ? rdtsc_oai() % ra->RA_backoff_limit : NO_GNB_RA_BACKOFF;
+  LOG_D(NR_MAC, "backoff: %d in %d limit\n", random_backoff, ra->RA_backoff_limit);
   nr_timer_setup(&ra->RA_backoff_timer, random_backoff, 1);
   nr_timer_start(&ra->RA_backoff_timer);
 }
