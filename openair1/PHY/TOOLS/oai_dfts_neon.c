@@ -66,7 +66,7 @@ static inline neon_m128 neon128_from_i32(int32x4_t x) { return vreinterpretq_u8_
 static inline neon_m128 neon128_from_u64(uint64x2_t x) { return vreinterpretq_u8_u64(x); }
 
 
-/* Native 128-bit loads / stores. */
+/* Native 128-bit loads/stores. */
 
 
 static inline neon_m128i neon128_load_i(const neon_m128i *p) { return vld1q_u8((const uint8_t *)(const void *)p); }
@@ -290,10 +290,8 @@ typedef struct {
 } sve2_plan_slot_t;
 
 /*
- * Generic SVE2 leaf-plan slots kept as an extensible fallback.
- * The current public mixed-radix plans normally decompose DFT24 and DFT60
- * further, so these slots stay uninitialized unless a future plan selects
- * one of these sizes as a terminal leaf.
+ * Generic SVE2 fallback leaf-plan slots for DFT24 and DFT60.
+ * Public mixed-radix plans decompose these sizes before leaf dispatch.
  */
 static sve2_plan_slot_t g_sve2_leaf_plans[] __attribute__((aligned(64))) = {
   {.N = 24},
@@ -301,7 +299,7 @@ static sve2_plan_slot_t g_sve2_leaf_plans[] __attribute__((aligned(64))) = {
 };
 static pthread_mutex_t g_sve2_plan_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-/* Checks SVE and SVE2 availability from Linux HWCAP. */
+/* Checks SVE and SVE2 availability through Linux HWCAP. */
 static int sve2_runtime_available(void)
 {
 #if defined(__aarch64__) && defined(__linux__)
@@ -313,7 +311,6 @@ static int sve2_runtime_available(void)
 #endif
 }
 
-/* Returns the active SVE vector length in bits. */
 SVE2_TARGET static int sve2_vector_bits(void)
 {
   return (int)svcntb() * 8;
@@ -357,7 +354,6 @@ static void sve2_plan_reset(sve2_plan_t *p)
   memset(p, 0, sizeof(*p));
 }
 
-/* Initializes one generic SVE2 plan in caller-owned storage. */
 static int sve2_plan_init(sve2_plan_t *p, int N)
 {
   if (!p || N <= 0)
@@ -453,7 +449,6 @@ static int sve2_plan_init(sve2_plan_t *p, int N)
   return 1;
 }
 
-/* Returns a generic SVE2 leaf plan for a configured fallback size. */
 __attribute__((noinline)) static const sve2_plan_t *sve2_plan_get(int N)
 {
   sve2_plan_slot_t *slot = NULL;
@@ -1233,7 +1228,7 @@ SVE2_TARGET static inline void sve2_dft8_q15(
 
 
 /* ------------------------------------------------------------------------- */
-/* Tiny VL=128 SVE2 leaf kernels: 4, 8, 12, 16 and 32.                 */
+/* Tiny fixed-VL128 SVE2 leaf kernels: 4, 8, 12, 16 and 32.                 */
 /* Dedicated leaf layouts use fixed permutations and stage sequencing.       */
 /* ------------------------------------------------------------------------- */
 
@@ -2027,9 +2022,9 @@ enum {
   MIXED_STAGE_R3 = 3,
   MIXED_STAGE_R5 = 5,
   MIXED_STAGE_R9 = 9,
-  /* first outer stage 3, then child stage 5 */
+  /* Outer R3 followed by child R5. */
   MIXED_STAGE_R15_35 = 15,
-  /* first outer stage 5, then child stage 3 */
+  /* Outer R5 followed by child R3. */
   MIXED_STAGE_R15_53 = 53,
   MIXED_STAGE_R25 = 25
 };
@@ -2203,8 +2198,17 @@ static void neon_leaf_q15(const c16_t *src, c16_t *dst, int N);
 static void inverse_small_leaf_q15(
     const c16_t *src, c16_t *dst, int N)
 {
-  AssertFatal(N == 12 || N == 32,
+  AssertFatal(N == 4 || N == 8 || N == 12 || N == 32,
              "Unsupported small inverse leaf N=%d\n", N);
+
+  if (N == 4 || N == 8) {
+    c16_t transformed[8] __attribute__((aligned(64)));
+    neon_leaf_q15(src, transformed, N);
+    dst[0] = transformed[0];
+    for (int k = 1; k < N; k++)
+      dst[k] = transformed[N - k];
+    return;
+  }
 
   if (N == 12) {
     c16_t conjugated[12] __attribute__((aligned(64)));
@@ -2244,13 +2248,14 @@ __attribute__((noinline)) static void mixed_inverse_leaf_q15(
     const mixed_plan_t *p, const c16_t *src, c16_t *dst)
 {
   if (p->leaf_n == 1) { dst[0] = src[0]; return; }
-  if (p->leaf_n == 12 || p->leaf_n == 32) {
+  if (p->leaf_n == 4 || p->leaf_n == 8 ||
+      p->leaf_n == 12 || p->leaf_n == 32) {
     inverse_small_leaf_q15(src, dst, p->leaf_n);
     return;
   }
   if (p->leaf_n == 16) { idft16_q15_native(src, dst); return; }
   AssertFatal(is_power_of_two_int(p->leaf_n) && p->leaf_n >= 64,
-              "Direct inverse mixed leaf must be 12, 16, 32 or power-of-two >=64, got N=%d\n",
+              "Direct inverse mixed leaf must be 4, 8, 12, 16, 32 or power-of-two >=64, got N=%d\n",
               p->leaf_n);
   dft_power2_q15(src, dst, p->leaf_n, DFT_DIR_INVERSE);
 }
@@ -2454,7 +2459,6 @@ SVE2_TARGET static void sve2_235_exec_q15_rec(
                 "Bad SVE2 R9xR9 topology level=%d N=%d M1=%d M2=%d\\n",
                 level, N, M1, M2);
 
-    /* Outer radix-9 branch-major preparation. */
     sve2_235_r9_prepare_q15(p, level, src, b);
 
     /* Reuse the next level's workspace as one branch-local inner radix-9 input.
@@ -2493,7 +2497,6 @@ SVE2_TARGET static void sve2_235_exec_q15_rec(
     return;
   }
 
-  /* Standalone radix-9 stage. */
   if (r == 9) {
     sve2_235_r9_prepare_q15(p, level, src, b);
 
@@ -2541,8 +2544,7 @@ SVE2_TARGET static void sve2_235_exec_q15_rec(
       const int rem = M - off < 4 ? M - off : 4;
       const svbool_t pg16 = svwhilelt_b16((uint64_t)0, (uint64_t)(2 * rem));
 
-      /* First parent B at each child-input subindex a.  Its twiddle index is
-       * a*M+off, matching the recursive call. */
+      /* First parent B at each child-input subindex a; twiddles use index a*M+off. */
       for (int a = 0; a < A; a++) {
         const int first_off = a * M + off;
         if (B == 3) {
@@ -2579,8 +2581,7 @@ SVE2_TARGET static void sve2_235_exec_q15_rec(
         }
       }
 
-      /* Second parent A.  Apply the prescale at the same point as the recursive child
-       * would have done it, and use its own quantized twiddle table. */
+      /* Second parent A uses its own unitary scale and quantized twiddle table. */
       for (int bidx = 0; bidx < B; bidx++) {
         if (A == 3) {
           svint16_t x0 = svld1_s16(pg16, (const int16_t *)(const void *)stage1[0 * B + bidx]);
@@ -2629,8 +2630,6 @@ SVE2_TARGET static void sve2_235_exec_q15_rec(
       sve2_235_exec_q15_rec(p, level + 1,
                                  b + br * M, y + br * M, child_work);
 
-    /* Preserve recursive gain order: apply the inner-parent gain before the
-     * outer-parent gain. */
     uint32_t *dst32 = (uint32_t *)(void *)dst;
     for (int k = 0; k < M; k += 4) {
       const int rem = M - k < 4 ? M - k : 4;
@@ -2745,7 +2744,6 @@ SVE2_TARGET static void sve2_235_exec_q15_rec_inverse(
                 "Bad SVE2 R9xR9 topology level=%d N=%d M1=%d M2=%d\\n",
                 level, N, M1, M2);
 
-    /* Outer radix-9 branch-major preparation. */
     sve2_235_r9_prepare_q15_inverse(p, level, src, b);
 
     /* Reuse the next level's workspace as one branch-local inner radix-9 input.
@@ -2784,7 +2782,6 @@ SVE2_TARGET static void sve2_235_exec_q15_rec_inverse(
     return;
   }
 
-  /* Standalone radix-9 stage. */
   if (r == 9) {
     sve2_235_r9_prepare_q15_inverse(p, level, src, b);
 
@@ -2832,8 +2829,7 @@ SVE2_TARGET static void sve2_235_exec_q15_rec_inverse(
       const int rem = M - off < 4 ? M - off : 4;
       const svbool_t pg16 = svwhilelt_b16((uint64_t)0, (uint64_t)(2 * rem));
 
-      /* First parent B at each child-input subindex a.  Its twiddle index is
-       * a*M+off, matching the recursive call. */
+      /* First parent B at each child-input subindex a; twiddles use index a*M+off. */
       for (int a = 0; a < A; a++) {
         const int first_off = a * M + off;
         if (B == 3) {
@@ -2870,8 +2866,7 @@ SVE2_TARGET static void sve2_235_exec_q15_rec_inverse(
         }
       }
 
-      /* Second parent A.  Apply the prescale at the same point as the recursive child
-       * would have done it, and use its own quantized twiddle table. */
+      /* Second parent A uses its own unitary scale and quantized twiddle table. */
       for (int bidx = 0; bidx < B; bidx++) {
         if (A == 3) {
           svint16_t x0 = svld1_s16(pg16, (const int16_t *)(const void *)stage1[0 * B + bidx]);
@@ -2920,8 +2915,6 @@ SVE2_TARGET static void sve2_235_exec_q15_rec_inverse(
       sve2_235_exec_q15_rec_inverse(p, level + 1,
                                  b + br * M, y + br * M, child_work);
 
-    /* Preserve the nested gain order: the second child parent returns first, then
-     * the first outer parent applies its gain. */
     uint32_t *dst32 = (uint32_t *)(void *)dst;
     for (int k = 0; k < M; k += 4) {
       const int rem = M - k < 4 ? M - k : 4;
@@ -3435,17 +3428,12 @@ static inline void dft64_q15_dir(const c16_t *src, c16_t *dst, dft_dir_t dir)
   H6 = complex_mul8_prepack_q15(H6, C64_RE[6], C64_IM[6]);
   H7 = complex_mul8_prepack_q15(H7, C64_RE[7], C64_IM[7]);
 
-  /*
-   * Transpose complex 8x8.
-   */
+  /* Transpose the eight local-frequency vectors across batch lanes. */
   transpose8_complex_q15x8(&H0, &H1, &H2, &H3, &H4, &H5, &H6, &H7);
 
   cq15x8_t Y0, Y1, Y2, Y3;
   cq15x8_t Y4, Y5, Y6, Y7;
 
-  /*
-   * Second stage.
-   */
   dft8x8_q15_dir(H0, H1, H2, H3, H4, H5, H6, H7, &Y0, &Y1, &Y2, &Y3, &Y4, &Y5, &Y6, &Y7, dir);
   cq15x8_storeu((cq15x8_t *)(void *)(dst + 0), Y0);
   cq15x8_storeu((cq15x8_t *)(void *)(dst + 8), Y1);
@@ -3582,10 +3570,9 @@ static inline void dft4x4_q15(const neon_m128i x0,
 
 
 /*
- * Non-unitary radix-4 butterfly used by DFT64 after its 1/2 scale has already
- * been applied to A0 and fused into the A1/A2/A3 twiddles.  This is therefore
- * only the saturating add/sub butterfly: no shift, no widening and
- * no extra scale arithmetic.
+ * Non-unitary radix-4 butterfly used by DFT64. The 1/2 scale is already
+ * applied to A0 and folded into the A1/A2/A3 twiddles, so this helper performs
+ * the saturating add/sub butterfly without additional scaling.
  */
 static inline void dft4x4_q15_noscale(const neon_m128i x0,
                                       const neon_m128i x1,
@@ -4093,8 +4080,8 @@ static void dft_radix8_q15(const c16_t *src,
  * Direct-output DFT1024 = radix-16 x sixteen DFT64 children.
  * The outer stage remains branch-major, but eight child branches are
  * transposed into NEON lanes and the batched DFT64 final stage writes
- * directly to X[16*k+r].  There is no child[1024] array and no final
- * radix-16 interleave pass.
+ * directly to X[16*k+r]; child outputs are not materialized separately and
+ * no final radix-16 interleave pass is needed.
  */
 static void dft1024_radix16_direct_q15(const c16_t *src,
                                        c16_t *dst,
@@ -4236,7 +4223,7 @@ static inline void dft256_radix16_prepare_q15(const c16_t *src,
     cq15x8_t O[8];
     cq15x8_t R[16];
 
-    /* q = 0: W16^0 = 1. */
+    /* q=0 has no W16 rotation. */
     {
       const cq15x8_t lo = cq15x8_loadu((const cq15x8_t *)(const void *)(src + n));
       const cq15x8_t hi = cq15x8_loadu((const cq15x8_t *)(const void *)(src + 8 * M + n));
@@ -4257,7 +4244,7 @@ static inline void dft256_radix16_prepare_q15(const c16_t *src,
     dft8x8_q15_dir(B[0], B[1], B[2], B[3], B[4], B[5], B[6], B[7],
                           &O[0], &O[1], &O[2], &O[3], &O[4], &O[5], &O[6], &O[7], dir);
 
-    /* r = 0: W256^(0*n) / sqrt(8) is purely real. */
+    /* Outer branch r=0 needs only the 1/sqrt(8) scale. */
     R[0] = cq15x8_mulhrs_i16(E[0], inv_sqrt8);
     R[1] = complex_mul8_prepack_q15(
         O[0], tw->W_RE_RE[blocks + b], tw->W_IM_SIGNED[blocks + b]);
@@ -4382,8 +4369,8 @@ static void dft2048_radix8x16_fused_q15(const c16_t *src,
 
   /*
    * child_in[r16][n] is one NEON vector whose eight complex lanes are the
-   * eight outer radix-8 branches.  Therefore each DFT16 below computes the
-   * same radix-16 branch for all outer children in parallel, and its result
+   * eight outer radix-8 branches. Each DFT16 call computes the same radix-16
+   * branch for all outer children in parallel, and its result
    * can be stored directly as eight consecutive final DFT2048 bins.
    */
   cq15x8_t child_in[16][16] __attribute__((aligned(64)));
@@ -4482,7 +4469,7 @@ static void dft2048_radix8_q15(const c16_t *src, c16_t *dst, dft_dir_t dir)
 
 /*
  * DFT4096 = radix-8 x radix-8 x DFT64, with the eight outer children
- * computed in parallel.  Every DFT64 result vector already contains the
+ * computed in parallel. Every DFT64 result vector already contains the
  * eight consecutive outer-radix bins expected by natural DFT4096 order.
  */
 static void dft4096_radix8x8_fused_q15(const c16_t *src,
@@ -5008,16 +4995,16 @@ neon_dft4_packed_q15(int16x8_t vin)
       vrev64q_u32(vreinterpretq_u32_s16(sum)));
   const int16x8_t ds = vreinterpretq_s16_u32(
       vrev64q_u32(vreinterpretq_u32_s16(dif)));
-  const int16x8_t a = vqaddq_s16(sum, ss); /* Y0 replicated. */
-  const int16x8_t b = vqsubq_s16(sum, ss); /* Y2 in lane-complex 0. */
+  const int16x8_t a = vqaddq_s16(sum, ss); /* Y0 replicated across complex lanes. */
+  const int16x8_t b = vqsubq_s16(sum, ss); /* Y2 in complex lane 0. */
 
   const int16x8_t dsw = vrev32q_s16(ds);
   const int16x8_t dsn = vqnegq_s16(dsw);
   const uint16x8_t even_mask = {0xffffu,0,0xffffu,0,0xffffu,0,0xffffu,0};
   const int16x8_t minus_j = vbslq_s16(even_mask, dsw, dsn);
   const int16x8_t plus_j  = vbslq_s16(even_mask, dsn, dsw);
-  const int16x8_t c = vqaddq_s16(dif, minus_j); /* Y1 in lane-complex 0. */
-  const int16x8_t e = vqaddq_s16(dif, plus_j);  /* Y3 in lane-complex 0. */
+  const int16x8_t c = vqaddq_s16(dif, minus_j); /* Y1 in complex lane 0. */
+  const int16x8_t e = vqaddq_s16(dif, plus_j);  /* Y3 in complex lane 0. */
 
   const uint32x4_t ac = vzip1q_u32(vreinterpretq_u32_s16(a),
                                     vreinterpretq_u32_s16(c));
@@ -6241,7 +6228,7 @@ static int forward_direct_leaf(const c16_t *src, c16_t *dst,
 
 static int inverse_direct_leaf(const c16_t *src, c16_t *dst, int N)
 {
-  if (N == 12 || N == 32) {
+  if (N == 4 || N == 8 || N == 12 || N == 32) {
     inverse_small_leaf_q15(src, dst, N);
     return 1;
   }
