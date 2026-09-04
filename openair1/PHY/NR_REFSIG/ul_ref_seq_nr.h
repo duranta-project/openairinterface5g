@@ -31,7 +31,7 @@
 static const uint16_t ul_allocated_re[SRS_SB_CONF] /* number of uplink allocated resource elements */
     /* this table is derivated from TS 38.211 Table 6.4.1.4.3-1: SRS bandwidth configuration which gives m_SRS_b then all possible
        values of sequence length is */
-    /* M_sc_b_SRS = m_SRS_b * N_SC_RB/K_TC with K_TC = 2 or K_TC = 4  as specified in TS 38.211 6.4.1.4.3 */
+    /* M_sc_b_SRS = m_SRS_b * NR_NB_SC_PER_RB/K_TC with K_TC = 2 or K_TC = 4  as specified in TS 38.211 6.4.1.4.3 */
     = {
         /*
     K_TC               3           3           3     3     3     3     3     3     3     3     3     3     3     3     3     3     3

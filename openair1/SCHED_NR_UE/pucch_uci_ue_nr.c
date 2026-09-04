@@ -142,7 +142,7 @@ void pucch_procedures_ue_nr(PHY_VARS_NR_UE *ue,
 
       /* set tx power */
       ue->tx_power_dBm[nr_slot_tx] = pucch_tx_power;
-      ue->tx_total_RE[nr_slot_tx] = nb_of_prbs*N_SC_RB;
+      ue->tx_total_RE[nr_slot_tx] = nb_of_prbs * NR_NB_SC_PER_RB;
 
       int tx_amp;
 

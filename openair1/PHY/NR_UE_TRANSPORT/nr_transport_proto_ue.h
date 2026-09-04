@@ -169,7 +169,8 @@ double nr_ue_pbch_freq_offset(const NR_DL_FRAME_PARMS *frame_parms,
 */
 nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
                                   PHY_VARS_NR_UE *phy_vars_ue,
-                                  int n_frames,
+                                  int input_sz,
+                                  c16_t **input,
                                   nr_gscn_info_t gscnInfo[MAX_GSCN_BAND],
                                   int numGscn);
 
@@ -292,7 +293,7 @@ int nr_psbch_decode(PHY_VARS_NR_UE *ue,
 
 void nr_tx_psbch(PHY_VARS_NR_UE *UE, uint32_t frame_tx, uint32_t slot_tx, sl_nr_tx_config_psbch_pdu_t *psbch_vars, c16_t **txdataF);
 
-nr_initial_sync_t sl_nr_slss_search(PHY_VARS_NR_UE *UE, UE_nr_rxtx_proc_t *proc, int num_frames);
+nr_initial_sync_t sl_nr_slss_search(PHY_VARS_NR_UE *UE, UE_nr_rxtx_proc_t *proc, int num_frames, int input_sz, c16_t **input);
 
 // Reuse already existing PBCH functions
 void nr_pbch_channel_compensation(const struct complex16 rxdataF_ext[][PBCH_MAX_RE_PER_SYMBOL],
