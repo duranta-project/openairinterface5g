@@ -259,16 +259,6 @@ typedef struct {
   /// \brief llr values link to device memory
   int16_t *llr_dev;
 #endif
-  // PTRS symbol index, to be updated every PTRS symbol within a slot.
-  uint8_t ptrs_symbol_index;
-  /// bit mask of PT-RS ofdm symbol indicies
-  uint16_t ptrs_symbols;
-  // PTRS subcarriers per OFDM symbol
-  int32_t ptrs_re_per_slot;
-  /// \brief Estimated phase error based upon PTRS on each symbol .
-  /// - first index: ? [0..7] Number of Antenna
-  /// - second index: ? [0...14] smybol per slot
-  int32_t **ptrs_phase_per_slot;
   /// \brief Total RE count after DMRS/PTRS RE's are extracted from respective symbol.
   /// - first index: ? [0...14] smybol per slot
   int16_t *ul_valid_re_per_slot;
@@ -432,26 +422,19 @@ typedef struct PHY_VARS_gNB_s {
   time_stats_t l1_rx_proc;
 
   time_stats_t phy_proc_tx;
+  time_stats_t gnb_tx_procedures_stats;
+  time_stats_t ru_tx_func_stats;
   time_stats_t phy_proc_rx;
   time_stats_t rx_prach;
 
   time_stats_t dlsch_encoding_stats;
+  time_stats_t dlsch_ldpc_encode_stats;
   time_stats_t dlsch_modulation_stats;
   time_stats_t dlsch_scrambling_stats;
   time_stats_t dlsch_pdsch_generation_stats;
   time_stats_t dlsch_layer_mapping_stats;
   time_stats_t dlsch_resource_mapping_stats;
   time_stats_t dlsch_precoding_stats;
-  time_stats_t tinput;
-  time_stats_t tinput_memcpy;
-  time_stats_t tprep;
-  time_stats_t tparity;
-  time_stats_t toutput;
-  time_stats_t tconcat;
-
-  time_stats_t dlsch_rate_matching_stats;
-  time_stats_t dlsch_interleaving_stats;
-  time_stats_t dlsch_segmentation_stats;
 
   time_stats_t dci_generation_stats;
   time_stats_t phase_comp_stats;
@@ -461,9 +444,6 @@ typedef struct PHY_VARS_gNB_s {
   time_stats_t ul_indication_stats;
   time_stats_t slot_indication_stats;
   time_stats_t ulsch_decoding_stats;
-  time_stats_t ts_deinterleave;
-  time_stats_t ts_rate_unmatch;
-  time_stats_t ts_seg_prep;
   time_stats_t ts_ldpc_decode;
   time_stats_t ulsch_deinterleaving_stats;
   time_stats_t ulsch_channel_estimation_stats;

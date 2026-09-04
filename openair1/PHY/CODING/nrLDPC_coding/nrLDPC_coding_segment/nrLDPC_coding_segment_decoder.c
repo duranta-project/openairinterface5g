@@ -59,8 +59,6 @@
  * \var c Pointers to code blocks after LDPC decoding (38.212 V15.4.0 section 5.2.2)
  * \var decodeSuccess pointer to the flag indicating that the decoding of the segment was successful
  * \var ans pointer to task answer used by the thread pool to detect task completion
- * \var p_ts_deinterleave pointer to deinterleaving time stats
- * \var p_ts_rate_unmatch pointer to rate unmatching time stats
  * \var p_ts_ldpc_decode pointer to decoding time stats
  */
 typedef struct nrLDPC_decoding_parameters_s {
@@ -90,9 +88,6 @@ typedef struct nrLDPC_decoding_parameters_s {
 
   task_ans_t *ans;
 
-  time_stats_t ts_deinterleave;
-  time_stats_t ts_rate_unmatch;
-  time_stats_t ts_seg_prep;
   time_stats_t ts_ldpc_decode;
 } nrLDPC_decoding_parameters_t;
 
@@ -119,18 +114,10 @@ static void nr_process_decode_segment(void *arg)
 
   //////////////////////////// ulsch_llr =====> ulsch_harq->e //////////////////////////////
 
-  start_meas(&rdata->ts_deinterleave);
-
   /// code blocks after bit selection in rate matching for LDPC code (38.212 V15.4.0 section 5.4.2.1)
   int16_t harq_e[E];
 
   nr_deinterleaving_ldpc(E, Qm, harq_e, ulsch_llr);
-
-  //////////////////////////////////////////////////////////////////////////////////////////
-
-  stop_meas(&rdata->ts_deinterleave);
-
-  start_meas(&rdata->ts_rate_unmatch);
 
   //////////////////////////////////////////////////////////////////////////////////////////
   //////////////////////////////// nr_rate_matching_ldpc_rx ////////////////////////////////
@@ -150,7 +137,6 @@ static void nr_process_decode_segment(void *arg)
                                rdata->F,
                                K - rdata->F - 2 * (p_decoderParms->Z))
       == -1) {
-    stop_meas(&rdata->ts_rate_unmatch);
     LOG_E(PHY,
           "nrLDPC_coding_segment_decoder.c: Problem in rate_matching BG %d, Z %d, C %d, rv_index %d, E %d, F %d, K%d, K-F-2*Z %d\n",
           p_decoderParms->BG,
@@ -166,7 +152,6 @@ static void nr_process_decode_segment(void *arg)
     completed_task_ans(rdata->ans);
     return;
   }
-  stop_meas(&rdata->ts_rate_unmatch);
 
   p_decoderParms->crc_type = crcType(rdata->C, A);
   p_decoderParms->Kprime = lenWithCrc(rdata->C, A);
@@ -176,7 +161,6 @@ static void nr_process_decode_segment(void *arg)
   int16_t z[68 * 384 + 16] __attribute__((aligned(16)));
 
 
-  start_meas(&rdata->ts_seg_prep);
   memset(z, 0, 2 * rdata->Z * sizeof(*z));
   // set Filler bits
   memset(z + Kprime, 127, rdata->F * sizeof(*z));
@@ -191,7 +175,6 @@ static void nr_process_decode_segment(void *arg)
   for (int i = 0, j = 0; j < ((Kc * rdata->Z) >> 4) + 1; i += 2, j++) {
     pl[j] = simde_mm_packs_epi16(pv[i], pv[i + 1]);
   }
-  stop_meas(&rdata->ts_seg_prep);
   //////////////////////////////////////////////////////////////////////////////////////////
 
   //////////////////////////////////////////////////////////////////////////////////////////
@@ -269,13 +252,7 @@ int nrLDPC_prepare_TB_decoding(nrLDPC_slot_decoding_parameters_t *nrLDPC_slot_de
                 nrLDPC_TB_decoding_parameters->c);
     rdata->llr = nrLDPC_TB_decoding_parameters->llr + llr_offset; // rdata->Kc*rdata->Z;
     rdata->decodeSuccess = &nrLDPC_TB_decoding_parameters->decodeSuccess[r];
-    memset(&rdata->ts_deinterleave, 0, sizeof(rdata->ts_deinterleave));
-    memset(&rdata->ts_rate_unmatch, 0, sizeof(rdata->ts_rate_unmatch));
-    memset(&rdata->ts_seg_prep, 0, sizeof(rdata->ts_seg_prep));
     memset(&rdata->ts_ldpc_decode, 0, sizeof(rdata->ts_ldpc_decode));
-    reset_meas(&rdata->ts_deinterleave);
-    reset_meas(&rdata->ts_rate_unmatch);
-    reset_meas(&rdata->ts_seg_prep);
     reset_meas(&rdata->ts_ldpc_decode);
     task_t t = {.func = &nr_process_decode_segment, .args = rdata};
     pushTpool(nrLDPC_slot_decoding_parameters->threadPool, t);
@@ -324,9 +301,6 @@ int32_t nrLDPC_coding_decoder(nrLDPC_slot_decoding_parameters_t *nrLDPC_slot_dec
 
       nrLDPC_decoding_parameters_t *rdata = &((nrLDPC_decoding_parameters_t *)t_info.buf)[r_t_info];
       r_t_info += 1;
-      merge_meas(&nrLDPC_TB_decoding_parameters->ts_deinterleave, &rdata->ts_deinterleave);
-      merge_meas(&nrLDPC_TB_decoding_parameters->ts_rate_unmatch, &rdata->ts_rate_unmatch);
-      merge_meas(&nrLDPC_TB_decoding_parameters->ts_seg_prep, &rdata->ts_seg_prep);
       merge_meas(&nrLDPC_TB_decoding_parameters->ts_ldpc_decode, &rdata->ts_ldpc_decode);
     }
   }

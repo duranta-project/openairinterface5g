@@ -26,6 +26,7 @@ It is defined in include file [ common/config/config_paramdesc.h ](../../../../.
 | `PARAMFLAG_NOFREE`                   | The end_configmodule API won't free the memory which has been possibly allocated to store the value of the parameter.| I |
 | `PARAMFLAG_BOOL`                     | Parameter is a boolean, it can be specified without a value to set it to true                                        | I |
 | `PARAMFLAG_CMDLINE_NOPREFIXENABLED`  | parameter can be specified without the prefix on the command line. Must be used with care, carefuly checking unicity, especially for short parameter names | I |
+| `PARAMFLAG_VALUE_OPTIONAL`           | Parameter can be specified with a value or without a value to set it to 1                                            | I |
 | `PARAMFLAG_MALLOCINCONFIG`           | Memory for the parameter value has been allocated by the configuration module                                         |O |       
 | `PARAMFLAG_PARAMSET`                 | Parameter value has been explicitely set, as the parameter was specified either on the command line or the config source | O |
 | `PARAMFLAG_PARAMSETDEF`              | Parameter value has been set to it's default                                                                          | O |            

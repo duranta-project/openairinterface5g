@@ -617,8 +617,6 @@ typedef struct LDPCDecode_ue_s {
   int offset;
   int Tbslbrm;
   int decodeIterations;
-  time_stats_t ts_deinterleave;
-  time_stats_t ts_rate_unmatch;
   time_stats_t ts_ldpc_decode;
   task_ans_t *ans;
 } ldpcDecode_ue_t;

@@ -52,6 +52,14 @@ up3:
   IF: wwan0
   MTU: 1500
 
+up4:
+  Host: up4
+  AttachScript: sudo /opt/mbim-fhi72/start_quectel_mbim.sh
+  DetachScript: sudo /opt/mbim-fhi72/stop_quectel_mbim.sh
+  NetworkScript: ip a show dev wwan0
+  IF: wwan0
+  MTU: 1500
+
 adb_ue_1:
   Host: nano
   InitScript: /home/oaicicd/ci_ctl_adb.sh initialize R3CM40LZPHT
@@ -132,6 +140,14 @@ oc-cn5g-20897-stonechat:
   Deploy: "! scripts/oc-cn5g-deploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-fhi72"
   Undeploy: "! scripts/oc-cn5g-undeploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-fhi72"
   LogCollect: "! scripts/oc-cn5g-logcollect.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-fhi72  %%log_dir%%"
+
+oc-cn5g-20899-stonechat:
+  Host: stonechat
+  NetworkScript: echo "inet 172.21.6.121"
+  RunIperf3Server: False
+  Deploy: "! scripts/oc-cn5g-deploy.sh /opt/oai-cn5g-fed-develop-20899 oaicicd-core-for-fhi72-fr2"
+  Undeploy: "! scripts/oc-cn5g-undeploy.sh /opt/oai-cn5g-fed-develop-20899 oaicicd-core-for-fhi72-fr2"
+  LogCollect: "! scripts/oc-cn5g-logcollect.sh /opt/oai-cn5g-fed-develop-20899 oaicicd-core-for-fhi72-fr2  %%log_dir%%"
 
 oc-cn5g-20899-always-on:
   Host: stonechat

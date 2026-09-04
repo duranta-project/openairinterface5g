@@ -14,9 +14,11 @@
 #include "PHY/NR_REFSIG/ptrs_nr.h"
 #include "common/utils/nr/nr_common.h"
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
+#include "PHY/nr_phy_common/inc/nr_phy_meas.h"
 #include "executables/softmodem-common.h"
 #include "SCHED_NR/sched_nr.h"
 
+#include "utils.h"
 #include <simde/x86/avx512.h>
 #define USE128BIT
 
@@ -333,7 +335,7 @@ static inline void do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
   /* calculate if current symbol is PTRS symbols */
   int ptrs_symbol = 0;
   if (rel15->pduBitmap & 0x1) {
-    ptrs_symbol = is_ptrs_symbol(l_symbol, dlPtrsSymPos);
+    ptrs_symbol = IS_BIT_SET(dlPtrsSymPos, l_symbol);
   }
 
   if (ptrs_symbol) {
@@ -603,7 +605,7 @@ static void nr_pdsch_symbol_processing(void *arg)
   completed_task_ans(rdata->ans);
 }
 
-static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSCH_t *dlsch, int slot)
+static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSCH_t *dlsch, int frame, int slot)
 {
   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
 
@@ -625,11 +627,8 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   uint16_t dlPtrsSymPos = 0;
   int n_ptrs = 0;
   if (rel15->pduBitmap & 0x1) {
-    set_ptrs_symb_idx(&dlPtrsSymPos,
-                      rel15->NrOfSymbols,
-                      rel15->StartSymbolIndex,
-                      1 << rel15->PTRSTimeDensity,
-                      rel15->dlDmrsSymbPos);
+    dlPtrsSymPos =
+        get_ptrs_symb_idx(rel15->NrOfSymbols, rel15->StartSymbolIndex, 1 << rel15->PTRSTimeDensity, rel15->dlDmrsSymbPos);
     n_ptrs = (freq_alloc->num_rbs + rel15->PTRSFreqDensity - 1) / rel15->PTRSFreqDensity;
   }
 
@@ -653,9 +652,10 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
     memcpy(dlsch->f, input_ptr, (encoded_length + 7) >> 3);
 
   c16_t mod_symbs[rel15->NrOfCodewords][encoded_length] __attribute__((aligned(64)));
+  int slot_type = nr_slot_select(&gNB->gNB_config, frame, slot);
   for (int codeWord = 0; codeWord < rel15->NrOfCodewords; codeWord++) {
     /// scrambling
-    start_meas(dlsch_scrambling_stats);
+    START_MEAS_FULL_SLOT(dlsch_scrambling_stats, slot_type, NR_DOWNLINK_SLOT);
     uint32_t scrambled_output[(encoded_length >> 5) + 4]; // modulator acces by 4 bytes in some cases
     memset(scrambled_output, 0, sizeof(scrambled_output));
     nr_pdsch_codeword_scrambling(input_ptr, encoded_length, codeWord, rel15->dataScramblingId, rel15->rnti, scrambled_output);
@@ -669,11 +669,11 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
     }
 #endif
 
-    stop_meas(dlsch_scrambling_stats);
+    STOP_MEAS_FULL_SLOT(dlsch_scrambling_stats, slot_type, NR_DOWNLINK_SLOT);
     /// Modulation
-    start_meas(dlsch_modulation_stats);
+    START_MEAS_FULL_SLOT(dlsch_modulation_stats, slot_type, NR_DOWNLINK_SLOT);
     nr_modulation(scrambled_output, encoded_length, Qm, (int16_t *)mod_symbs[codeWord]);
-    stop_meas(dlsch_modulation_stats);
+    STOP_MEAS_FULL_SLOT(dlsch_modulation_stats, slot_type, NR_DOWNLINK_SLOT);
 #ifdef DEBUG_DLSCH
     printf("PDSCH Modulation: Qm %d(%d)\n", Qm, nb_re);
     for (int i = 0; i < nb_re; i += 8) {
@@ -685,14 +685,14 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
 #endif
   }
 
-  start_meas(&gNB->dlsch_pdsch_generation_stats);
+  START_MEAS_FULL_SLOT(&gNB->dlsch_pdsch_generation_stats, slot_type, NR_DOWNLINK_SLOT);
   /// Resource mapping
   // Non interleaved VRB to PRB mapping
 
   AssertFatal(n_dmrs, "n_dmrs can't be 0\n");
   // make a large enough tail to process all re with SIMD regardless a garbadge filler
 
-  start_meas(&gNB->dlsch_layer_mapping_stats);
+  START_MEAS_FULL_SLOT(&gNB->dlsch_layer_mapping_stats, slot_type, NR_DOWNLINK_SLOT);
   int layerSz2 = (layerSz + 63) & ~63;
   c16_t tx_layers[rel15->nrOfLayers][layerSz2] __attribute__((aligned(64)));
   memset(tx_layers, 0, sizeof(tx_layers));
@@ -725,7 +725,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
                           frame_parms->nb_antennas_tx,
                           gNB->common_vars.beam_id);
   }
-  stop_meas(&gNB->dlsch_layer_mapping_stats);
+  STOP_MEAS_FULL_SLOT(&gNB->dlsch_layer_mapping_stats, slot_type, NR_DOWNLINK_SLOT);
 
   // spawn symbol threads
 
@@ -768,7 +768,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
     for (int s = l_symbol; s < l_symbol + rdata->numSymbols; s++) {
       rdata->re_beginning_of_symbol[s] = re_beginning_of_symbol;
       re_beginning_of_symbol += freq_alloc->num_rbs * NR_NB_SC_PER_RB;
-      if (n_ptrs > 0 && is_ptrs_symbol(s, dlPtrsSymPos)) {
+      if (n_ptrs > 0 && IS_BIT_SET(dlPtrsSymPos, s)) {
         re_beginning_of_symbol -= n_ptrs;
       } else if (rel15->dlDmrsSymbPos & (1 << s)) {
         re_beginning_of_symbol -= n_dmrs;
@@ -790,7 +790,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
     merge_meas(&gNB->dlsch_resource_mapping_stats, &arr[i].dlsch_resource_mapping_stats);
     merge_meas(&gNB->dlsch_precoding_stats, &arr[i].dlsch_precoding_stats);
   }
-  stop_meas(&gNB->dlsch_pdsch_generation_stats);
+  STOP_MEAS_FULL_SLOT(&gNB->dlsch_pdsch_generation_stats, slot_type, NR_DOWNLINK_SLOT);
   /* output and its parts for each dlsch should be aligned on 64 bytes (or 8 * 64 bits)
    * should remain a multiple of 8 * 64 with enough offset to fit each dlsch
    */
@@ -801,15 +801,6 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
 void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_array, int frame, int slot)
 {
   time_stats_t *dlsch_encoding_stats = &gNB->dlsch_encoding_stats;
-  time_stats_t *tinput = &gNB->tinput;
-  time_stats_t *tinput_memcpy = &gNB->tinput_memcpy;
-  time_stats_t *tprep = &gNB->tprep;
-  time_stats_t *tparity = &gNB->tparity;
-  time_stats_t *toutput = &gNB->toutput;
-  time_stats_t *tconcat = &gNB->tconcat;
-  time_stats_t *dlsch_rate_matching_stats = &gNB->dlsch_rate_matching_stats;
-  time_stats_t *dlsch_interleaving_stats = &gNB->dlsch_interleaving_stats;
-  time_stats_t *dlsch_segmentation_stats = &gNB->dlsch_segmentation_stats;
 
   size_t size_output = 0;
 
@@ -838,11 +829,8 @@ void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_arr
     int n_ptrs = 0;
     uint32_t ptrsSymbPerSlot = 0;
     if (rel15->pduBitmap & 0x1) {
-      set_ptrs_symb_idx(&dlPtrsSymPos,
-                        rel15->NrOfSymbols,
-                        rel15->StartSymbolIndex,
-                        1 << rel15->PTRSTimeDensity,
-                        rel15->dlDmrsSymbPos);
+      dlPtrsSymPos =
+          get_ptrs_symb_idx(rel15->NrOfSymbols, rel15->StartSymbolIndex, 1 << rel15->PTRSTimeDensity, rel15->dlDmrsSymbPos);
       n_ptrs = (dlsch->freq_alloc.num_rbs + rel15->PTRSFreqDensity - 1) / rel15->PTRSFreqDensity;
       ptrsSymbPerSlot = get_ptrs_symbols_in_slot(dlPtrsSymPos, rel15->StartSymbolIndex, rel15->NrOfSymbols);
     }
@@ -861,30 +849,22 @@ void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_arr
   unsigned char output[size_output >> 3] __attribute__((aligned(64)));
   bzero(output, sizeof(output));
 
-  start_meas(dlsch_encoding_stats);
+  int slot_type = nr_slot_select(&gNB->gNB_config, frame, slot);
+  START_MEAS_FULL_SLOT(dlsch_encoding_stats, slot_type, NR_DOWNLINK_SLOT);
   if (nr_dlsch_encoding(gNB,
                         n_dlsch,
                         dlsch_array,
                         frame,
                         slot,
-                        output,
-                        tinput,
-                        tinput_memcpy,
-                        tprep,
-                        tparity,
-                        toutput,
-                        tconcat,
-                        dlsch_rate_matching_stats,
-                        dlsch_interleaving_stats,
-                        dlsch_segmentation_stats)
+                        output)
       == -1) {
     return;
   }
-  stop_meas(dlsch_encoding_stats);
+  STOP_MEAS_FULL_SLOT(dlsch_encoding_stats, slot_type, NR_DOWNLINK_SLOT);
 
   unsigned char *output_ptr = output;
   for (int i = 0; i < n_dlsch; i++) {
-    output_ptr += do_one_dlsch(output_ptr, gNB, &dlsch_array[i], slot);
+    output_ptr += do_one_dlsch(output_ptr, gNB, &dlsch_array[i], frame, slot);
   }
 }
 

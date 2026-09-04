@@ -33,45 +33,49 @@ void delete_nr_ue_data(NR_UE_info_t *UE, uid_allocator_t *uia);
 void mac_top_init_gNB(ngran_node_t node_type,
                       NR_ServingCellConfigCommon_t *scc,
                       const nr_mac_config_t *conf,
-                      const nr_rlc_configuration_t *default_rlc_config);
+                      const nr_rlc_configuration_t *default_rlc_config,
+                      nr_cell_sched_t **cell);
 void mac_top_destroy_gNB(gNB_MAC_INST *mac);
 void nr_mac_send_f1_setup_req(void);
-int get_ssbidx_from_beam(const gNB_MAC_INST *mac, int beam_idx);
-void nr_mac_config_scc(gNB_MAC_INST *nrmac, NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *mac_config);
-void nr_mac_configure_sib1(gNB_MAC_INST *nrmac, const plmn_id_t *plmn, uint64_t cellID, int tac);
-bool nr_mac_configure_other_sib(gNB_MAC_INST *nrmac, int num_cu_sib, const f1ap_sib_msg_t cu_sib[num_cu_sib]);
-bool nr_mac_add_test_ue(gNB_MAC_INST *nrmac, uint32_t rnti, NR_CellGroupConfig_t *CellGroup);
-void nr_mac_prepare_ra_ue(gNB_MAC_INST *nrmac, NR_UE_info_t *UE);
+int get_ssbidx_from_beam(const nr_cell_sched_t *cell, int beam_idx);
+void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *mac_config);
+void nr_mac_configure_sib1(nr_cell_sched_t *cell, const plmn_id_t *plmn, uint64_t cellID, int tac);
+bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1ap_sib_msg_t cu_sib[num_cu_sib]);
+bool nr_mac_add_test_ue(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, uint32_t rnti, NR_CellGroupConfig_t *CellGroup);
+void nr_mac_prepare_ra_ue(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_UE_info_t *UE);
+nr_cell_sched_t *nr_mac_get_cell_by_phy_id(gNB_MAC_INST *mac, uint16_t phy_id);
+nr_cell_sched_t *nr_mac_get_cell_by_cgi(gNB_MAC_INST *mac, plmn_id_t plmn, uint64_t nr_cellid);
 bool add_new_UE_RA(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
 int nr_mac_get_reconfig_delay_slots(NR_SubcarrierSpacing_t scs);
 
 int nr_transmission_action_indicator_stop(gNB_MAC_INST *mac, NR_UE_info_t *UE_info);
 
-void clear_nr_nfapi_information(gNB_MAC_INST *gNB, int CC_idP, frame_t frameP, slot_t slotP);
+void clear_nr_nfapi_information(nr_cell_sched_t *cell, frame_t frameP, slot_t slotP);
 
-void nr_mac_update_timers(module_id_t module_id);
+void nr_mac_update_timers(gNB_MAC_INST *gNB, nr_cell_sched_t *cell);
 
-void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame_rxP, slot_t slot_rxP, NR_Sched_Rsp_t *sched_info);
+void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, int cell_id, frame_t frame_rxP, slot_t slot_rxP, NR_Sched_Rsp_t *sched_info);
 
 /* \brief main DL scheduler function. Calls a preprocessor to decide on
  * resource allocation, then "post-processes" resource allocation (nFAPI
  * messages, statistics, HARQ handling, CEs, ... */
-void nr_schedule_ue_spec(module_id_t module_id,
+void nr_schedule_ue_spec(gNB_MAC_INST *mac,
+                         nr_cell_sched_t *cell,
                          frame_t frame,
                          slot_t slot,
                          nfapi_nr_dl_tti_request_t *DL_req,
                          nfapi_nr_tx_data_request_t *TX_req);
 
 /* \brief default DL preprocessor */
-void nr_dlsch_preprocessor(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pdsch);
+void nr_dlsch_preprocessor(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post_process_pdsch_t *pp_pdsch);
 
-void schedule_nr_sib1(module_id_t module_idP,
+void schedule_nr_sib1(nr_cell_sched_t *cell,
                       frame_t frameP,
                       slot_t slotP,
                       nfapi_nr_dl_tti_request_t *DL_req,
                       nfapi_nr_tx_data_request_t *TX_req);
 
-void schedule_nr_other_sib(module_id_t module_idP,
+void schedule_nr_other_sib(nr_cell_sched_t *cell,
                            frame_t frame,
                            slot_t slot,
                            nfapi_nr_dl_tti_request_t *DL_req,
@@ -79,22 +83,23 @@ void schedule_nr_other_sib(module_id_t module_idP,
 
 struct NR_SchedulingInfo2_r17* find_sib19_sched_info(const struct NR_SI_SchedulingInfo_v1700*);
 
-void schedule_nr_mib(module_id_t module_idP, frame_t frameP, slot_t slotP, nfapi_nr_dl_tti_request_t *DL_req);
+void schedule_nr_mib(nr_cell_sched_t *cell, frame_t frameP, slot_t slotP, nfapi_nr_dl_tti_request_t *DL_req);
 
 /* \brief main UL scheduler function. Calls a preprocessor to decide on
  * resource allocation, then "post-processes" resource allocation (nFAPI
  * messages, statistics, HARQ handling, ... */
-void nr_schedule_ulsch(module_id_t module_id, frame_t frame, slot_t slot, nfapi_nr_ul_dci_request_t *ul_dci_req);
+void nr_schedule_ulsch(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, nfapi_nr_ul_dci_request_t *ul_dci_req);
 
 /* \brief default UL preprocessor */
-void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, post_process_pusch_t *pp_pusch);
+void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_process_pusch_t *pp_pusch);
 
 int check_sc_fdma_rbsize(long transform_precoding, uint16_t rb);
 
 void nr_mac_pcch_queue_init(NR_COMMON_channels_t *cc);
 void nr_mac_pcch_queue_free(NR_COMMON_channels_t *cc);
-void nr_mac_pcch_enqueue(module_id_t module_id, uint64_t fiveg_s_tmsi, uint16_t ue_id);
+void nr_mac_pcch_enqueue(gNB_MAC_INST *mac, nr_cell_sched_t *cell, uint64_t fiveg_s_tmsi, uint16_t ue_id);
 void schedule_nr_pcch(gNB_MAC_INST *gNB_mac,
+                      nr_cell_sched_t *cell,
                       frame_t frameP,
                       slot_t slotP,
                       nfapi_nr_dl_tti_request_t *DL_req,
@@ -102,7 +107,8 @@ void schedule_nr_pcch(gNB_MAC_INST *gNB_mac,
 
 ////// Random Access MAC-PHY interface functions and primitives ///////
 
-void nr_schedule_RA(module_id_t module_idP,
+void nr_schedule_RA(gNB_MAC_INST *mac,
+                    nr_cell_sched_t *cell,
                     frame_t frameP,
                     slot_t slotP,
                     nfapi_nr_ul_dci_request_t *ul_dci_req,
@@ -110,7 +116,7 @@ void nr_schedule_RA(module_id_t module_idP,
                     nfapi_nr_tx_data_request_t *TX_req);
 
 void nr_initiate_ra_proc(module_id_t module_idP,
-                         int CC_id,
+                         int phy_id,
                          frame_t frameP,
                          int slotP,
                          uint16_t preamble_index,
@@ -121,7 +127,7 @@ void nr_initiate_ra_proc(module_id_t module_idP,
 
 int nr_allocate_CCEs(int module_idP, int CC_idP, frame_t frameP, slot_t slotP, int test_only);
 
-void schedule_nr_prach(module_id_t module_idP, frame_t frameP, slot_t slotP);
+void schedule_nr_prach(gNB_MAC_INST *gNB, nr_cell_sched_t *cell, frame_t frameP, slot_t slotP);
 
 uint16_t nr_mac_compute_RIV(uint16_t N_RB_DL, uint16_t RBstart, uint16_t Lcrbs);
 
@@ -129,16 +135,18 @@ uint16_t nr_mac_compute_RIV(uint16_t N_RB_DL, uint16_t RBstart, uint16_t Lcrbs);
 
 /* \brief preprocessor for phytest: schedules UE_id 0 with fixed MCS on all
  * freq resources */
-void nr_preprocessor_phytest(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pdsch);
+void nr_preprocessor_phytest(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post_process_pdsch_t *pp_pdsch);
 /* \brief UL preprocessor for phytest: schedules UE_id 0 with fixed MCS on a
  * fixed set of resources */
-void nr_ul_preprocessor_phytest(gNB_MAC_INST *nr_mac, post_process_pusch_t *pp_pusch);
+void nr_ul_preprocessor_phytest(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_process_pusch_t *pp_pusch);
 
 void handle_nr_uci_pucch_0_1(module_id_t mod_id,
+                             int cell_id,
                              frame_t frame,
                              slot_t slot,
                              const nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_01);
 void handle_nr_uci_pucch_2_3_4(module_id_t mod_id,
+                               int cell_id,
                                frame_t frame,
                                slot_t slot,
                                const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_234);
@@ -153,7 +161,7 @@ void config_uldci(const NR_UE_ServingCell_Info_t *sc_info,
                   uint8_t ndi,
                   NR_UE_UL_BWP_t *ul_bwp,
                   NR_SearchSpace__searchSpaceType_PR ss_type);
-dci_pdu_rel15_t prepare_dci_dl_payload(const gNB_MAC_INST *gNB_mac,
+dci_pdu_rel15_t prepare_dci_dl_payload(const nr_cell_sched_t *cell,
                                        const NR_UE_info_t *UE,
                                        nr_rnti_type_t rnti_type,
                                        NR_SearchSpace__searchSpaceType_PR ss_type,
@@ -174,7 +182,7 @@ nfapi_nr_dl_dci_pdu_t *prepare_dci_pdu(nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_
                                        int beam_index,
                                        int rnti);
 
-void nr_schedule_pucch(gNB_MAC_INST *nrmac, frame_t frameP, slot_t slotP);
+void nr_schedule_pucch(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frameP, slot_t slotP);
 
 void nr_srs_ri_computation(const nfapi_nr_srs_normalized_channel_iq_matrix_t *nr_srs_normalized_channel_iq_matrix,
                            const NR_UE_UL_BWP_t *current_BWP,
@@ -182,21 +190,21 @@ void nr_srs_ri_computation(const nfapi_nr_srs_normalized_channel_iq_matrix_t *nr
 
 int get_pucch_resourceid(NR_PUCCH_Config_t *pucch_Config, int O_uci, int pucch_resource);
 
-void nr_schedule_periodic_srs(int module_id, frame_t frame, int slot);
-bool nr_schedule_aperiodic_srs(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, int sched_frame, int sched_slot, int k2, int sched_srs);
-void nr_csirs_scheduling(int Mod_idP, frame_t frame, slot_t slot, nfapi_nr_dl_tti_request_t *DL_req);
+void nr_schedule_periodic_srs(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frame, int slot);
+bool nr_schedule_aperiodic_srs(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_UE_info_t *UE, int sched_frame, int sched_slot, int k2, int sched_srs);
+void nr_csirs_scheduling(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, nfapi_nr_dl_tti_request_t *DL_req);
 
-void nr_csi_meas_reporting(int Mod_idP, frame_t frameP, slot_t slotP);
+void nr_csi_meas_reporting(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frameP, slot_t slotP);
 
-void nr_measgap_scheduling(gNB_MAC_INST *nr_mac, frame_t frame, sub_frame_t slot);
+void nr_measgap_scheduling(gNB_MAC_INST *nr_mac, const nr_cell_sched_t *cell, frame_t frame, sub_frame_t slot);
 
-int nr_acknack_scheduling(gNB_MAC_INST *mac,
+int nr_acknack_scheduling(nr_cell_sched_t *cell,
                           NR_UE_info_t *UE,
                           frame_t frameP,
                           slot_t slotP,
                           int beam_index,
                           int r_pucch,
-                          int do_common);
+                          int is_common);
 
 int get_pdsch_to_harq_feedback(NR_PUCCH_Config_t *pucch_Config,
                                nr_dci_format_t dci_format,
@@ -225,7 +233,7 @@ void find_search_space(int ss_type,
 
 void nr_configure_pdcch(nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu, NR_ControlResourceSet_t *coreset, NR_sched_pdcch_t *pdcch);
 
-NR_sched_pdcch_t set_pdcch_structure(gNB_MAC_INST *gNB_mac,
+NR_sched_pdcch_t set_pdcch_structure(nr_cell_sched_t *cell,
                                      NR_SearchSpace_t *ss,
                                      NR_ControlResourceSet_t *coreset,
                                      NR_ServingCellConfigCommon_t *scc,
@@ -234,8 +242,7 @@ NR_sched_pdcch_t set_pdcch_structure(gNB_MAC_INST *gNB_mac,
 
 bool is_type0_occasion(NR_ServingCellConfigCommon_t *scc, const NR_Type0_PDCCH_CSS_config_t *type0, int frame, uint32_t slot);
 
-int find_pdcch_candidate(const gNB_MAC_INST *mac,
-                         int cc_id,
+int find_pdcch_candidate(const nr_cell_sched_t *cell,
                          int aggregation,
                          int nr_of_candidates,
                          int beam_idx,
@@ -243,8 +250,7 @@ int find_pdcch_candidate(const gNB_MAC_INST *mac,
                          const NR_ControlResourceSet_t *coreset,
                          uint32_t Y);
 
-void fill_pdcch_vrb_map(gNB_MAC_INST *mac,
-                        int CC_id,
+void fill_pdcch_vrb_map(nr_cell_sched_t *cell,
                         NR_sched_pdcch_t *pdcch,
                         int first_cce,
                         int aggregation,
@@ -273,7 +279,7 @@ void set_r_pucch_parms(int rsetindex,
                        int *start_symbol_index);
 
 /* find coreset within the search space */
-NR_ControlResourceSet_t *get_coreset(gNB_MAC_INST *nrmac,
+NR_ControlResourceSet_t *get_coreset(nr_cell_sched_t *cell,
                                      NR_ServingCellConfigCommon_t *scc,
                                      NR_BWP_DownlinkDedicated_t *bwp_dedicated,
                                      NR_ControlResourceSetId_t coreset_id);
@@ -307,7 +313,7 @@ void remove_front_nr_list(NR_list_t *listP);
 void nr_release_ra_UE(gNB_MAC_INST *mac, rnti_t rnti);
 NR_UE_info_t * find_nr_UE(NR_UEs_t* UEs, rnti_t rntiP);
 NR_UE_info_t *find_ra_UE(NR_UEs_t *UEs, rnti_t rntiP);
-void configure_UE_BWP(gNB_MAC_INST *nr_mac,
+void configure_UE_BWP(nr_cell_sched_t *cell,
                       NR_ServingCellConfigCommon_t *scc,
                       NR_UE_info_t *UE,
                       bool is_RA,
@@ -317,9 +323,9 @@ void configure_UE_BWP(gNB_MAC_INST *nr_mac,
 
 bool transition_ra_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
 bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
-bool nr_check_Msg4_MsgB_Ack(module_id_t module_id, frame_t frame, slot_t slot, NR_UE_info_t *UE, bool success);
+bool nr_check_Msg4_MsgB_Ack(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, NR_UE_info_t *UE, bool success);
 void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti);
-NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroupConfig_t *CellGroup, const nr_mac_config_t *config);
+NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroupConfig_t *CellGroup, nr_cell_sched_t *cell);
 nfapi_nr_pusch_pdu_t *prepare_pusch_pdu(nfapi_nr_ul_tti_request_t *future_ul_tti_req,
                                         const NR_UE_info_t *UE,
                                         const NR_ServingCellConfigCommon_t *scc,
@@ -331,7 +337,7 @@ nfapi_nr_pusch_pdu_t *prepare_pusch_pdu(nfapi_nr_ul_tti_request_t *future_ul_tti
                                         int rnti,
                                         nr_beam_mode_t beam_mode);
 nfapi_nr_dl_tti_pdsch_pdu_rel15_t *prepare_pdsch_pdu(nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdsch_pdu,
-                                                     const gNB_MAC_INST *mac,
+                                                     const nr_cell_sched_t *cell,
                                                      const NR_UE_info_t *UE,
                                                      const NR_sched_pdsch_t *sched_pdsch,
                                                      const NR_PDSCH_Config_t *pdsch_Config,
@@ -341,7 +347,7 @@ nfapi_nr_dl_tti_pdsch_pdu_rel15_t *prepare_pdsch_pdu(nfapi_nr_dl_tti_request_pdu
                                                      int beam_index,
                                                      int nl_tbslbrm,
                                                      int pdu_index);
-int nr_write_ce_dlsch_pdu(module_id_t module_idP,
+int nr_write_ce_dlsch_pdu(gNB_MAC_INST *gNB,
                           const NR_UE_sched_ctrl_t *ue_sched_ctl,
                           unsigned char *mac_pdu,
                           unsigned char drx_cmd,
@@ -376,6 +382,7 @@ uint8_t *allocate_transportBlock_buffer(byte_array_t *tb, uint32_t needed);
 void free_transportBlock_buffer(byte_array_t *tb);
 
 void handle_nr_srs_measurements(const module_id_t module_id,
+                                const int cell_id,
                                 const frame_t frame,
                                 const slot_t slot,
                                 nfapi_nr_srs_indication_pdu_t *srs_ind);
@@ -387,14 +394,14 @@ void handle_nr_srs_toa_vendor_ext_measurements(const module_id_t module_id,
                                                const int16_t *ta_offset_nsec,
                                                const rnti_t rnti);
 
-void find_SSB_and_RO_available(gNB_MAC_INST *nrmac);
+void find_SSB_and_RO_available(nr_cell_sched_t *cell);
 
 NR_pdsch_dmrs_t get_dl_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
                                    const NR_UE_DL_BWP_t *BWP,
                                    const NR_tda_info_t *tda_info,
                                    const int Layers);
 
-uint16_t get_pm_index(const gNB_MAC_INST *nrmac,
+uint16_t get_pm_index(const nr_cell_sched_t *cell,
                       const NR_UE_info_t *UE,
                       nr_dci_format_t dci_format,
                       int layers,
@@ -408,9 +415,9 @@ uint8_t get_dl_nrOfLayers(const NR_UE_sched_ctrl_t *sched_ctrl, const nr_dci_for
 void free_sched_pucch_list(NR_UE_sched_ctrl_t *sched_ctrl);
 bool add_UE_to_list(int list_size, NR_UE_info_t *list[list_size], NR_UE_info_t *UE);
 NR_UE_info_t *remove_UE_from_list(int list_size, NR_UE_info_t *list[list_size], rnti_t rnti);
-int get_dl_tda(const gNB_MAC_INST *nrmac, int slot);
-int get_num_ul_tda(gNB_MAC_INST *nrmac, int slot, int k2, const NR_tda_info_t **first_idx);
-const NR_tda_info_t *get_best_ul_tda(const gNB_MAC_INST *nrmac,
+int get_dl_tda(const gNB_MAC_INST *nrmac, const nr_cell_sched_t *cell, int slot);
+int get_num_ul_tda(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, int slot, int k2, const NR_tda_info_t **first_idx);
+const NR_tda_info_t *get_best_ul_tda(const nr_cell_sched_t *cell,
                                      int beam,
                                      const NR_tda_info_t *tdas,
                                      int n_tda,
@@ -419,8 +426,7 @@ const NR_tda_info_t *get_best_ul_tda(const gNB_MAC_INST *nrmac,
                                      int *rb_start,
                                      int *rb_len);
 
-int get_cce_index(const gNB_MAC_INST *nrmac,
-                  const int CC_id,
+int get_cce_index(const nr_cell_sched_t *cell,
                   const int slot,
                   const rnti_t rnti,
                   int *aggregation_level,
@@ -506,26 +512,26 @@ bool commit_alloc(const nr_dl_sched_params_t *params, nr_dl_candidate_t *cand);
   } while (0)
 
 int ul_buffer_index(int frame, int slot, int slots_per_frame, int size);
-void UL_tti_req_ahead_initialization(gNB_MAC_INST *gNB, int n, int CCid, frame_t frameP, int slotP);
+void UL_tti_req_ahead_initialization(nr_cell_sched_t *cell, int n, frame_t frameP, int slotP);
 uint64_t get_ssb_bitmap(const NR_ServingCellConfigCommon_t *scc);
 uint64_t get_ssb_bitmap_and_len(const NR_ServingCellConfigCommon_t *scc, uint8_t *len);
-void fill_beam_index_list(NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config, gNB_MAC_INST *mac);
-int get_beam_from_ssbidx(gNB_MAC_INST *mac, int ssb_idx);
+void fill_beam_index_list(NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config, nr_cell_sched_t *cell);
+int get_beam_from_ssbidx(nr_cell_sched_t *cell, int ssb_idx);
 int16_t get_allocated_beam(const NR_beam_info_t *beam_info, int frame, int slot, int slots_per_frame, int beam_number_in_period);
 uint16_t convert_to_fapi_beam(const uint16_t beam_idx, const nr_beam_mode_t mode);
 NR_beam_alloc_t beam_allocation_procedure(NR_beam_info_t *beam_info, int frame, int slot, int16_t beam_index, int slots_per_frame);
 void reset_beam_status(NR_beam_info_t *beam_info, int frame, int slot, int16_t beam_index, int slots_per_frame, bool new_beam);
-int beam_selection_procedures(gNB_MAC_INST *mac, NR_UE_info_t *UE);
-void beam_switching_procedure(gNB_MAC_INST *mac, NR_UE_info_t *UE, int new_beam_index);
-void nr_sr_reporting(gNB_MAC_INST *nrmac, frame_t frameP, slot_t slotP);
-bwp_info_t get_pdsch_bwp_start_size(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
+int beam_selection_procedures(nr_cell_sched_t *cell, NR_UE_info_t *UE);
+void beam_switching_procedure(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_UE_info_t *UE, int new_beam_index);
+void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frameP, slot_t slotP);
+bwp_info_t get_pdsch_bwp_start_size(nr_cell_sched_t *cell, NR_UE_info_t *UE);
 bwp_info_t get_pusch_bwp_start_size(NR_UE_info_t *UE);
-size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset_rsrp);
+size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *output, size_t strlen, bool reset_rsrp);
 
 long get_lcid_from_drbid(int drb_id);
 long get_lcid_from_srbid(int srb_id);
 
-bool prepare_initial_ul_rrc_message(gNB_MAC_INST *mac, NR_UE_info_t *UE);
+bool prepare_initial_ul_rrc_message(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_UE_info_t *UE);
 void send_initial_ul_rrc_message(int rnti, const uint8_t *sdu, sdu_size_t sdu_len, void *data);
 
 void finish_nr_dl_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid);
@@ -544,7 +550,7 @@ void nr_mac_trigger_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl, NR_SubcarrierSpac
 void nr_mac_reset_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl);
 bool nr_mac_check_ul_failure(gNB_MAC_INST *nrmac, int rnti, NR_UE_sched_ctrl_t *sched_ctrl);
 
-void nr_mac_trigger_reconfiguration(const gNB_MAC_INST *nrmac, NR_UE_info_t *UE, int new_bwp_id, int new_beam);
+void nr_mac_trigger_reconfiguration(const gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_UE_info_t *UE, int new_bwp_id, int new_beam);
 void reset_sc_info(NR_UE_ServingCell_Info_t *sc_info);
 bool nr_mac_add_lcid(NR_UE_sched_ctrl_t *sched_ctrl, const nr_lc_config_t *c);
 nr_lc_config_t *nr_mac_get_lc_config(NR_UE_sched_ctrl_t* sched_ctrl, int lcid);
@@ -561,11 +567,13 @@ void prepare_du_configuration_update(gNB_MAC_INST *mac,
 void nr_mac_clean_cellgroup(NR_CellGroupConfig_t *cell_group);
 
 void post_process_dlsch(gNB_MAC_INST *nr_mac,
+                        nr_cell_sched_t *cell,
                         post_process_pdsch_t *pdsch,
                         NR_UE_info_t *UE,
                         NR_sched_pdsch_t *sched_pdsch,
                         const nr_dl_candidate_t *candidate);
 void post_process_ulsch(gNB_MAC_INST *nr_mac,
+                        nr_cell_sched_t *cell,
                         post_process_pusch_t *pusch,
                         NR_UE_info_t *UE,
                         NR_sched_pusch_t *sched_pusch,
@@ -611,4 +619,5 @@ bool nr_ul_check_phr(const nr_ul_sched_params_t *params,
                      uint16_t rbSize,
                      uint8_t mcs,
                      nr_ul_phr_advice_t *advice);
+fsn_t get_fb_frame_slot(int frame, int slot, int K, int n_slots_frame, int NTN_gNB_Koffset);
 #endif /*__LAYER2_NR_MAC_PROTO_H__*/

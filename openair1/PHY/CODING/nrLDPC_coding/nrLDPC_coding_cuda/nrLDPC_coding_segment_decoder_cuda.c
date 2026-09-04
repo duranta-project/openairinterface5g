@@ -87,7 +87,6 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   t_nrLDPC_time_stats *p_procTime = &procTime;
 
 #ifdef USE_GPU_FOR_RM_DEINTER
-  start_meas(&segs->ts_deinterleave);
   int E1 = segs->E;
   int E2 = segs->E2;
   int r_firstE2 = segs->first_rE2;
@@ -126,7 +125,6 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
                           pageable || integrated ? segs->llr : harq_f_dev,
                           decoderStreams,
                           0);
-  stop_meas(&segs->ts_deinterleave);
 #if 0
   cudaError_t err;
   if (1/*segs->rv_index == 2*/) {
@@ -145,7 +143,6 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
     }
   }
 #endif
-  start_meas(&segs->ts_rate_unmatch);
   // printf("Running RM with id %d, d_to_be_cleared %d, rv_idx %d, Z %d, C %d, E1 %d, E2 %d, F %d,r_firstE2
   // %d\n",segs->harq_unique_pid,segs->d_to_be_cleared,segs->rv_index,Z,C,E1,E2,segs->F,r_firstE2);
 #if 0
@@ -182,20 +179,16 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
      }
 #endif
   }
-  stop_meas(&segs->ts_rate_unmatch);
 
 #else // USE_GPU_FOR_RM_DEINTER
   int16_t *z_local = (int16_t *)alloca(sizeof(int16_t) * segLen); // segLen is safe small
   for (int r = 0; r < C; ++r) {
     // deinterleave
-    start_meas(&segs->ts_deinterleave);
     int16_t *harq_e = (int16_t *)alloca(sizeof(int16_t) * segs->segments[r].E);
     //    for (int i=0;i<segs->segments[r].E;i++) printf("llr_in[%d] %d\n",i,segs->segments[r].llr[i]);
     nr_deinterleaving_ldpc(segs->segments[r].E, segs->Qm, harq_e, segs->segments[r].llr);
     //    for (int i=0;i<16;i++) printf("harq_e[%d] %d\n",i,harq_e[i]);
-    stop_meas(&segs->segments[0].ts_deinterleave);
     // rate matching
-    start_meas(&segs->segments[0].ts_rate_unmatch);
     if (nr_rate_matching_ldpc_rx(segs->tbslbrm,
                                  segs->BG,
                                  Z,
@@ -208,14 +201,11 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
                                  segs->F,
                                  Kprime - 2 * Z)
         == -1) {
-      stop_meas(&segs->segments[0].ts_rate_unmatch);
       LOG_E(PHY, "rate matching failed seg %d\n", r);
       memset(segs->segments[r].c, 0, K);
       //*rdata->decodeSuccess = false;
       continue; // skip this segment
     }
-    stop_meas(&segs->segments[0].ts_rate_unmatch);
-    start_meas(&segs->segments[0].ts_seg_prep);
     segs->segments[r].d_to_be_cleared = false;
 
     memset(z_local, 0, sizeof(int16_t) * 2 * Z);
@@ -230,7 +220,6 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
     for (int j = 0, idx = 0; j < vecCount; ++j, idx += 2) {
       pl[j] = simde_mm_packs_epi16(pv[idx], pv[idx + 1]);
     }
-    stop_meas(&segs->segments[0].ts_seg_prep);
   }
 #endif
 

@@ -282,7 +282,7 @@ static radio_tx_gpio_flag_t get_gpio_flags(RU_t *ru, int slot)
       }
       flags_gpio = beam | TX_GPIO_CHANGE;
       // flags_gpio |= beam << 8; // MSB 8 bits are used for beam
-      LOG_I(HW, "slot %d, beam %d, flags_gpio %d\n", slot, beam, flags_gpio);
+      LOG_D(HW, "slot %d, beam %d, flags_gpio %d\n", slot, beam, flags_gpio);
       break;
     }
     default:
@@ -461,8 +461,8 @@ void fill_rf_config(RU_t *ru, char *rf_config_file)
 
   cfg->configFilename = rf_config_file;
 
-  AssertFatal(ru->nb_tx > 0 && ru->nb_tx <= 8, "openair0 does not support more than 8 antennas\n");
-  AssertFatal(ru->nb_rx > 0 && ru->nb_rx <= 8, "openair0 does not support more than 8 antennas\n");
+  AssertFatal(ru->nb_tx > 0 && ru->nb_tx <= OPENAIR0_MAX_ANTENNAS, "openair0 does not support more than %d antennas\n", OPENAIR0_MAX_ANTENNAS);
+  AssertFatal(ru->nb_rx > 0 && ru->nb_rx <= OPENAIR0_MAX_ANTENNAS, "openair0 does not support more than %d antennas\n", OPENAIR0_MAX_ANTENNAS);
 
   cfg->num_rb_dl = N_RB;
   cfg->tx_num_channels = ru->nb_tx;
@@ -892,12 +892,6 @@ void kill_NR_RU_proc(int inst) {
   RU_t *ru = RC.ru[inst];
   RU_proc_t *proc = &ru->proc;
 
-  if (ru->if_south != REMOTE_IF4p5) {
-    abortTpool(ru->threadPool);
-    abortNotifiedFIFO(ru->respfeprx);
-    abortNotifiedFIFO(ru->respfeptx);
-  }
-
   /* Note: it seems pthread_FH and and FEP thread below both use
    * mutex_fep/cond_fep. Thus, we unlocked above for pthread_FH above and do
    * the same for FEP thread below again (using broadcast() to ensure both
@@ -906,7 +900,20 @@ void kill_NR_RU_proc(int inst) {
   proc->instance_cnt_fep[0] = 0;
   pthread_cond_broadcast(proc->cond_fep);
   pthread_mutex_unlock(proc->mutex_fep);
+
+  /* Join the RU thread BEFORE aborting the RU thread pool: ru_thread() is a
+   * producer of that pool (nr_fep_tp()/feptx push tasks on every UL/DL slot).
+   * abortTpool() frees the pool's queues, so a push from ru_thread() after
+   * that point races a destroyed mutex (EINVAL) and asserts. oai_exit is
+   * already set at this point and the RF reads are non-blocking, so the join
+   * returns promptly. */
   pthread_join(proc->pthread_FH, NULL);
+
+  if (ru->if_south != REMOTE_IF4p5) {
+    abortTpool(ru->threadPool);
+    abortNotifiedFIFO(ru->respfeprx);
+    abortNotifiedFIFO(ru->respfeptx);
+  }
 
   // everything should be stopped now, we can safely stop the RF device
   if (ru->stop_rf == NULL) {

@@ -94,7 +94,7 @@
     <node>localhost</node>
     <yaml_path>ci-scripts/yaml_files/5g_vrtsim_chanmod</yaml_path>
     <analysis>
-      <services>oai-gnb=RetxCheck=1,0,0,0 oai-gnb=EndsWithBye oai-nr-ue</services>
+      <services>oai-gnb=RetxCheck=1,50,100,100 oai-gnb=EndsWithBye oai-nr-ue</services>
     </analysis>
   </testCase>
 

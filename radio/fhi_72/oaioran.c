@@ -359,18 +359,19 @@ int xran_fh_rx_prach_read_slot(PHY_VARS_gNB *gNB, ru_info_t *ru, int *frame, int
         struct xran_prb_map * pPrbMap = (struct xran_prb_map *)bufs->prachdstdecomp[aa % nb_rx_per_ru][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
         struct xran_rx_packet_ctl *p_rx_packet_ctl = &pPrbMap->sFrontHaulRxPacketCtrl[sym_idx];
         int32_t nRxPkt = info->nRxPkt[cc_id][aa][sym_idx];
-        /* known issue: for aa = 2, the packet (one per symbol) is not received/stored on time */
-        if (nRxPkt != 1) {
-          LOG_D(HW, "[%d.%d] tti %d aa %d sym_idx %d nRxPkt %d (expected 1 packet)\n", *frame, *slot, tti, aa, sym_idx, nRxPkt);
+        if (nRxPkt == 0) {
+          LOG_D(HW, "read_prach %d.%d.%d saa = %d: nRxPkt = 0!\n", *frame, *slot, sym_idx, aa);
+          memset(&dst[sym_idx], 0, N_ZC * 2 * sizeof(*dst));
           continue;
         }
-
-        src = (int16_t *)p_rx_packet_ctl->pData[0];
-        if (src == NULL) { // protection
-          LOG_E(HW, "[%d.%d] tti %d aa %d sym_idx %d src = NULL\n", *frame, *slot, tti, aa, sym_idx);
-          continue;
+        else {
+          src = (int16_t *)p_rx_packet_ctl->pData[0];
+          if (src == NULL) { // protection
+            LOG_E(HW, "read_prach %d.%d.%d saa = %d:  src = NULL!!\n", *frame, *slot, sym_idx, aa);
+            memset(&dst[sym_idx], 0, N_ZC * 2 * sizeof(*dst));
+            continue;
+          }
         }
-
         num_prbu = p_rx_packet_ctl->nRBSize[0];
         /* convert Network order to host order */
         if (ru_conf->compMeth_PRACH == XRAN_COMPMETHOD_NONE) {

@@ -1049,7 +1049,7 @@ void init_pucch2_luts()
 {
   for (int b = 3; b < 12; b++) {
     for (int cw = 0; cw < (1 << b); cw++) {
-      uint32_t out = encodeSmallBlock(cw, b);
+      uint32_t out = encodeSmallBlock(cw, b, 0); // Qm = 0 because it's unused for len >= 3
       uint16_t *tmp = (uint16_t *)pucch2_lut[b - 3][cw].cw;
       for (int j = 0; j < 32; j++)
         *tmp++ = (out & (1U << j)) > 0 ? -1 : 1;

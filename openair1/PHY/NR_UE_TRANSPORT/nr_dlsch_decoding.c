@@ -172,9 +172,6 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
   TB_parameters.d_to_be_cleared = harq_process->first_rx == 1;
   for (int r = 0; r < TB_parameters.C; r++)
     TB_parameters.decodeSuccess[r] = false;
-  reset_meas(&TB_parameters.ts_deinterleave);
-  reset_meas(&TB_parameters.ts_rate_unmatch);
-  reset_meas(&TB_parameters.ts_seg_prep);
   reset_meas(&TB_parameters.ts_ldpc_decode);
 
   for (int r = 0; r < TB_parameters.C; r++) {
@@ -220,10 +217,7 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
     LOG_D(PHY, "frame=%d, slot=%d, first_rx=%d, rv_index=%d\n", proc->frame_rx, proc->nr_slot_rx, harq_process->first_rx, cw_info->rv);
   }
 
-  merge_meas(&phy_vars_ue->phy_cpu_stats.cpu_time_stats[DLSCH_DEINTERLEAVING_STATS], &TB_parameters.ts_deinterleave);
-  merge_meas(&phy_vars_ue->phy_cpu_stats.cpu_time_stats[DLSCH_RATE_UNMATCHING_STATS], &TB_parameters.ts_rate_unmatch);
   merge_meas(&phy_vars_ue->phy_cpu_stats.cpu_time_stats[DLSCH_LDPC_DECODING_STATS], &TB_parameters.ts_ldpc_decode);
-  merge_meas(&phy_vars_ue->phy_cpu_stats.cpu_time_stats[DLSCH_SEG_PREP_STATS], &TB_parameters.ts_seg_prep);
 
   kpiStructure.nb_total++;
   kpiStructure.blockSize = cw_info->TBS;

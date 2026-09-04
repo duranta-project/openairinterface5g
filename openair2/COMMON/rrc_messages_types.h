@@ -81,6 +81,7 @@
 
 #define RRC_SUBFRAME_PROCESS(mSGpTR)    (mSGpTR)->ittiMsg.rrc_subframe_process
 #define NRRRC_FRAME_PROCESS(mSGpTR)     (mSGpTR)->ittiMsg.nr_rrc_frame_process
+#define NR_RRC_NRDC_TIMEOUT(mSGpTR)     (mSGpTR)->ittiMsg.nr_rrc_nrdc_timeout
 
 #define RLC_SDU_INDICATION(mSGpTR)      (mSGpTR)->ittiMsg.rlc_sdu_indication
 #define NRDuDlReq(mSGpTR)      (mSGpTR)->ittiMsg.nr_du_dl_req
@@ -490,5 +491,11 @@ typedef struct {
     nr_mac_rrc_resume_rb_t resume_rb;
   } payload;
 } nr_mac_rrc_message_t;
+
+typedef struct {
+  uint64_t ue_id;
+  int xid;
+  int state;
+} nr_rrc_nrdc_timeout_t;
 
 #endif /* RRC_MESSAGES_TYPES_H_ */

@@ -1060,4 +1060,18 @@ typedef enum {
 
 /*----------------------------------------------------------------------*/
 
+#define CONFIG_STRING_NRDC "nrdc"
+
+#define CONFIG_NRDC_COMBINATION_LIST "combinations"
+
+#define CONFIG_NRDC_MCG "mcg"
+#define CONFIG_NRDC_SCG "scg"
+
+#define NRDC_PARAMS_DESC { \
+  { CONFIG_NRDC_MCG, "mcg", PARAMFLAG_MANDATORY, .u64ptr=NULL, .defint64val=0, TYPE_UINT64, 0 }, \
+  { CONFIG_NRDC_SCG, "scg", PARAMFLAG_MANDATORY, .u64ptr=NULL, .defint64val=0, TYPE_UINT64, 0 }, \
+}
+
+/*----------------------------------------------------------------------*/
+
 #endif

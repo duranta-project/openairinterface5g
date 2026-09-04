@@ -29,8 +29,8 @@
 typedef struct {
   /// Module ID
   module_id_t module_id;
-  /// CC ID
-  int CC_id;
+  /// PHY ID
+  int phy_id;
   /// frame
   frame_t frame;
   /// slot
@@ -66,8 +66,8 @@ typedef struct {
 typedef struct NR_Sched_Rsp {
   /// Module ID
   module_id_t module_id;
-  /// CC ID
-  uint8_t CC_id;
+  /// PHY ID
+  uint8_t phy_id;
   /// frame
   frame_t frame;
   /// slot
@@ -81,11 +81,10 @@ typedef struct NR_Sched_Rsp {
   /// Pointers to DL SDUs
   nfapi_nr_tx_data_request_t TX_req;
 } NR_Sched_Rsp_t;
-void reset_sched_response(NR_Sched_Rsp_t *sched_response, int frame, int slot, int module_id, int CC_id);
+void reset_sched_response(NR_Sched_Rsp_t *sched_response, int frame, int slot, int module_id, int phy_id);
 
 typedef struct {
-  uint8_t Mod_id;
-  int CC_id;
+  int phy_id;
   nfapi_nr_config_request_scf_t *cfg;
 } NR_PHY_Config_t;
 

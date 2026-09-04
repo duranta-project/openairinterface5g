@@ -75,9 +75,6 @@ typedef struct nrLDPC_TB_decoding_parameters_s{
   int16_t *d;
   bool d_to_be_cleared;
   bool decodeSuccess[NR_LDPC_MAX_NUM_CB];
-  time_stats_t ts_deinterleave;
-  time_stats_t ts_rate_unmatch;
-  time_stats_t ts_seg_prep;
   time_stats_t ts_ldpc_decode;
 } nrLDPC_TB_decoding_parameters_t;
 
@@ -109,17 +106,12 @@ typedef struct nrLDPC_slot_decoding_parameters_s{
  * \var E input llr segment size
  * \var c Pointers to code blocks before LDPC encoding (38.212 V15.4.0 section 5.2.2)
  * IT MUST BE FILLED BY THE IMPLEMENTATION
- * \var ts_interleave interleaving time stats
- * \var ts_rate_match rate matching time stats
  * \var ts_ldpc_encode encoding time stats
  */
 typedef struct nrLDPC_segment_encoding_parameters_s{
   int E;
   uint8_t *c;
-  time_stats_t ts_interleave;
-  time_stats_t ts_rate_match;
   time_stats_t ts_ldpc_encode;
-  time_stats_t ts_output;
 } nrLDPC_segment_encoding_parameters_t;
 
 /**
@@ -183,10 +175,6 @@ typedef struct nrLDPC_TB_encoding_parameters_s{
  * The thread pool can be used by the implementation
  * in order to launch jobs internally
  * DEQUEUING THE JOBS IS DONE WITHIN THE IMPLEMENTATION
- * \var tinput pointer to the input timer struct
- * \var tprep pointer to the preparation timer struct
- * \var tparity pointer to the parity timer struct
- * \var toutput pointer to the output timer struct
  * \var TBs array of TBs decoding parameters
  */
 typedef struct nrLDPC_slot_encoding_parameters_s{
@@ -194,12 +182,6 @@ typedef struct nrLDPC_slot_encoding_parameters_s{
   int slot;
   int nb_TBs;
   tpool_t *threadPool;
-  time_stats_t *tinput;
-  time_stats_t *tinput_memcpy;
-  time_stats_t *tprep;
-  time_stats_t *tparity;
-  time_stats_t *toutput;
-  time_stats_t *tconcat;
   nrLDPC_TB_encoding_parameters_t *TBs;
 } nrLDPC_slot_encoding_parameters_t;
 

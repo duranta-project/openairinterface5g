@@ -63,6 +63,7 @@ MESSAGE_DEF(NAS_INIT_NOS1_IF, MESSAGE_PRIORITY_MED, nas_nos1_msg_t, nas_init_nos
 // xNB: realtime -> RRC messages
 MESSAGE_DEF(RRC_SUBFRAME_PROCESS,       MESSAGE_PRIORITY_MED,       RrcSubframeProcess,         rrc_subframe_process)
 MESSAGE_DEF(NRRRC_FRAME_PROCESS,        MESSAGE_PRIORITY_MED,       NRRrcFrameProcess,          nr_rrc_frame_process)
+MESSAGE_DEF(NR_RRC_NRDC_TIMEOUT,        MESSAGE_PRIORITY_MED,       nr_rrc_nrdc_timeout_t,      nr_rrc_nrdc_timeout)
 
 // eNB: RLC -> RRC messages
 MESSAGE_DEF(RLC_SDU_INDICATION,         MESSAGE_PRIORITY_MED,       RlcSduIndication,           rlc_sdu_indication)

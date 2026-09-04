@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "common/utils/nr/nr_common.h"
-#include "common/utils/var_array.h"
 #define inMicroS(a) (((double)(a)) / (get_cpu_freq_GHz() * 1000.0))
 #include "SIMULATION/LTE_PHY/common_sim.h"
 #include "common/utils/assertions.h"
@@ -513,8 +512,9 @@ int main(int argc, char *argv[])
   // Compute transmitter energy level
   double txlev_sum = compute_tx_energy_level(txdata, n_tx, symbol_offset, symbol_length, n_trials);
 
+  init_sorted_list_meas(&gNB->rx_srs_stats, n_trials);
+
   for (SNR = snr0; SNR <= snr1 && !stop; SNR += snr_step) {
-    varArray_t *table_rx = initVarArray(1000, sizeof(double));
     reset_meas(&gNB->rx_srs_stats);
     reset_meas(&gNB->generate_srs_stats);
     reset_meas(&gNB->get_srs_signal_stats);
@@ -593,15 +593,13 @@ int main(int argc, char *argv[])
 
     if (print_perf == 1) {
       printf("\ngNB RX\n");
-      printDistribution(&gNB->rx_srs_stats, table_rx, "RX SRS time");
+      printDistribution(&gNB->rx_srs_stats, "RX SRS time");
       printStatIndent(&gNB->generate_srs_stats, "Generate SRS sequence time");
       printStatIndent(&gNB->get_srs_signal_stats, "Get SRS signal time");
       printStatIndent(&gNB->srs_channel_estimation_stats, "SRS channel estimation time");
       printStatIndent(&gNB->srs_timing_advance_stats, "SRS timing advance estimation time");
       printf("\n");
     }
-
-    free(table_rx);
 
     int srs_ret = 1;
     if (SNR > 30 && SRS_SNR_dB > 30) {
@@ -625,6 +623,7 @@ int main(int argc, char *argv[])
 
   // free memory
 
+  free_sorted_list_meas(&gNB->rx_srs_stats);
   for (i = 0; i < n_tx; i++) {
     free(s_re[i]);
     free(s_im[i]);

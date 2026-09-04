@@ -12,7 +12,6 @@
 #include <string.h>
 #include "common/utils/assertions.h"
 #include "common/utils/nr/nr_common.h"
-#include "common/utils/var_array.h"
 #include "executables/nr-uesoftmodem.h"
 #include "executables/softmodem-common.h"
 #include "LAYER2/NR_MAC_UE/mac_defs.h"
@@ -56,7 +55,6 @@
 #include "common/ran_context.h"
 #include "common/utils/T/T.h"
 #include "common/utils/nr/nr_common.h"
-#include "common/utils/var_array.h"
 #include "e1ap_messages_types.h"
 #include "fapi_nr_ue_interface.h"
 #include "nfapi_interface.h"
@@ -181,13 +179,13 @@ typedef struct {
 } rb_range_t;
 rb_range_t g_rb_ranges[MAX_RB_RANGES];
 
-void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pp_pdsch)
+void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_process_pdsch_t *pp_pdsch)
 {
   NR_UE_info_t *UE_info = nr_mac->UE_info.connected_ue_list[0];
   AssertFatal(nr_mac->UE_info.connected_ue_list[1] == NULL, "Only single UE allowed in dlsim\n");
   NR_UE_sched_ctrl_t *sched_ctrl = &UE_info->UE_sched_ctrl;
   NR_UE_DL_BWP_t *current_BWP = &UE_info->current_DL_BWP;
-  NR_ServingCellConfigCommon_t *scc = nr_mac->common_channels[0].ServingCellConfigCommon;
+  NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
 
   int nr_of_candidates = 0;
   if (g_mcsIndex < 4) {
@@ -197,8 +195,7 @@ void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pp_pdsch)
     find_aggregation_candidates(&sched_ctrl->aggregation_level, &nr_of_candidates, sched_ctrl->search_space, 4);
   }
   uint32_t Y = get_Y(sched_ctrl->search_space, pp_pdsch->slot, UE_info->rnti);
-  int CCEIndex = find_pdcch_candidate(nr_mac,
-                                      /* CC_id = */ 0,
+  int CCEIndex = find_pdcch_candidate(cell,
                                       sched_ctrl->aggregation_level,
                                       nr_of_candidates,
                                       0,
@@ -217,7 +214,7 @@ void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pp_pdsch)
       .rbStart = g_rbStart,
       .rbSize = g_rbSize,
       .alloc_type = alloc_type,
-      .bwp_info = get_pdsch_bwp_start_size(nr_mac, UE_info),
+      .bwp_info = get_pdsch_bwp_start_size(cell, UE_info),
       .mcs = g_mcsIndex,
       .nrOfLayers = g_nrOfLayers,
       .pm_index = g_pmi,
@@ -238,7 +235,7 @@ void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pp_pdsch)
   /* the following might override the table that is mandated by RRC
    * configuration */
   current_BWP->mcsTableIdx = g_mcsTableIdx;
-  sched_pdsch.time_domain_allocation = get_dl_tda(nr_mac, pp_pdsch->slot);
+  sched_pdsch.time_domain_allocation = get_dl_tda(nr_mac, cell, pp_pdsch->slot);
   AssertFatal(sched_pdsch.time_domain_allocation >= 0,"Unable to find PDSCH time domain allocation in list\n");
 
   sched_pdsch.tda_info = get_dl_tda_info(current_BWP,
@@ -266,10 +263,10 @@ void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pp_pdsch)
                                        0 /* tb_scaling */,
                                        sched_pdsch.nrOfLayers) >> 3;
 
-  const nr_pdsch_AntennaPorts_t *p = &nr_mac->radio_config.pdsch_AntennaPorts;
+  const nr_pdsch_AntennaPorts_t *p = &cell->radio_config.pdsch_AntennaPorts;
   sched_pdsch.ant_port_idx.numSpatialStreamIndices = p->XP * p->N1 * p->N2;
   for (int i = 0; i < sched_pdsch.ant_port_idx.numSpatialStreamIndices;i++)
-    sched_pdsch.ant_port_idx.spatialStreamIndices[i] = nr_mac->radio_config.spatial_stream_index[i];
+    sched_pdsch.ant_port_idx.spatialStreamIndices[i] = cell->radio_config.spatial_stream_index[i];
 
   /* the simulator assumes the HARQ PID is equal to the slot number */
   sched_pdsch.dl_harq_pid = pp_pdsch->slot;
@@ -306,7 +303,7 @@ void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pp_pdsch)
     candidate.pending_bytes_per_lcid[c->lcid] = sched_ctrl->rlc_status[c->lcid].bytes_in_buffer;
   }
 
-  post_process_dlsch(nr_mac, pp_pdsch, UE_info, &sched_pdsch, &candidate);
+  post_process_dlsch(nr_mac, cell, pp_pdsch, UE_info, &sched_pdsch, &candidate);
 }
 
 nrUE_params_t nrUE_params;
@@ -835,21 +832,22 @@ int main(int argc, char **argv)
   };
 
   RC.nb_nr_macrlc_inst = 1;
-  mac_top_init_gNB(ngran_gNB, scc, &conf, &rlc_config);
+  nr_cell_sched_t *cell;
+  mac_top_init_gNB(ngran_gNB, scc, &conf, &rlc_config, &cell);
   gNB_mac = RC.nrmac[0];
-  gNB_mac->beam_info = (NR_beam_info_t){.beams_per_period = 1};
-  nr_mac_config_scc(RC.nrmac[0], scc, &conf);
+  cell->beam_info = (NR_beam_info_t){.beams_per_period = 1};
+  nr_mac_config_scc(gNB_mac, cell, scc, &conf);
 
-  gNB_mac->dl_bler.harq_round_max = num_rounds;
+  cell->dl_bler.harq_round_max = num_rounds;
 
-  validate_input_pmi(&gNB_mac->config[0], pdsch_AntennaPorts, g_nrOfLayers, g_pmi);
+  validate_input_pmi(&cell->config, pdsch_AntennaPorts, g_nrOfLayers, g_pmi);
 
   NR_UE_NR_Capability_t *UE_Capability_nr = CALLOC(1,sizeof(NR_UE_NR_Capability_t));
   prepare_sim_uecap(UE_Capability_nr, scc, mu, N_RB_DL, g_mcsTableIdx, 0);
   rnti_t rnti = 0x1234;
   int uid = 0;
   int ssb_index = 0;
-  NR_CellGroupConfig_t *secondaryCellGroup = get_default_secondaryCellGroup(scc, UE_Capability_nr, 0, 1, &conf, uid, ssb_index);
+  NR_CellGroupConfig_t *secondaryCellGroup = get_default_secondaryCellGroup(scc, UE_Capability_nr, 0, 1, &conf, cell, uid, ssb_index);
   secondaryCellGroup->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(rnti, uid, scc, frame);
   NR_BWP_Downlink_t *bwp = secondaryCellGroup->spCellConfig->spCellConfigDedicated->downlinkBWP_ToAddModList->list.array[0];
 
@@ -877,7 +875,7 @@ int main(int argc, char **argv)
   }
 
   // UE dedicated configuration
-  nr_mac_add_test_ue(RC.nrmac[0], rnti, secondaryCellGroup);
+  nr_mac_add_test_ue(RC.nrmac[0], cell, rnti, secondaryCellGroup);
   // reset preprocessor to the one of DLSIM after it has been set during
   // nr_mac_config_scc()
   gNB_mac->pre_processor_dl = nr_dlsim_preprocessor;
@@ -885,7 +883,7 @@ int main(int argc, char **argv)
   N_RB_DL = gNB->frame_parms.N_RB_DL;
   NR_UE_info_t *UE_info = RC.nrmac[0]->UE_info.connected_ue_list[0];
 
-  configure_UE_BWP(RC.nrmac[0], scc, UE_info, false, NR_SearchSpace__searchSpaceType_PR_ue_Specific, -1, -1);
+  configure_UE_BWP(cell, scc, UE_info, false, NR_SearchSpace__searchSpaceType_PR_ue_Specific, -1, -1);
 
   // stub to configure frame_parms
   //  nr_phy_config_request_sim(gNB,N_RB_DL,N_RB_DL,mu,Nid_cell,SSB_positions);
@@ -1064,15 +1062,12 @@ int main(int argc, char **argv)
   time_stats_t channel_stats = {0};
   time_stats_t noise_stats = {0};
   time_stats_t pipeline_stats = {0};
+  init_sorted_list_meas(&gNB->phy_proc_tx, num_rounds * n_trials);
 
   for (SNR = snr0; SNR < snr1 && !stop; SNR += .2) {
 
-    varArray_t *table_tx=initVarArray(1000,sizeof(double));
     reset_meas(&gNB->phy_proc_tx);
     reset_meas(&gNB->dlsch_scrambling_stats);
-    reset_meas(&gNB->dlsch_interleaving_stats);
-    reset_meas(&gNB->dlsch_rate_matching_stats);
-    reset_meas(&gNB->dlsch_segmentation_stats);
     reset_meas(&gNB->dlsch_modulation_stats);
     reset_meas(&gNB->dlsch_pdsch_generation_stats);
     reset_meas(&gNB->dlsch_precoding_stats);
@@ -1080,10 +1075,6 @@ int main(int argc, char **argv)
     reset_meas(&gNB->dlsch_resource_mapping_stats);
     reset_meas(&gNB->dlsch_encoding_stats);
     reset_meas(&gNB->dci_generation_stats);
-    reset_meas(&gNB->tinput);
-    reset_meas(&gNB->tprep);
-    reset_meas(&gNB->tparity);
-    reset_meas(&gNB->toutput);
     reset_meas(&gNB->phase_comp_stats);
 
     uint32_t errors_scrambling[16] = {0};
@@ -1128,13 +1119,13 @@ int main(int argc, char **argv)
 
       while (round < num_rounds && !UE_harq_process->decodeResult && !stop) {
         reset_sched_response(Sched_INFO, frame, slot, 0, 0);
-        clear_nr_nfapi_information(RC.nrmac[0], 0, frame, slot);
+        clear_nr_nfapi_information(cell, frame, slot);
         UE_info->UE_sched_ctrl.harq_processes[harq_pid].ndi = !(trial&1);
         UE_info->UE_sched_ctrl.harq_processes[harq_pid].round = round;
 
         // nr_schedule_ue_spec() requires the mutex to be locked
         NR_SCHED_LOCK(&gNB_mac->sched_lock);
-        nr_schedule_ue_spec(0, frame, slot, &Sched_INFO->DL_req, &Sched_INFO->TX_req);
+        nr_schedule_ue_spec(gNB_mac, cell, frame, slot, &Sched_INFO->DL_req, &Sched_INFO->TX_req);
         NR_SCHED_UNLOCK(&gNB_mac->sched_lock);
 
         /* check that second message is indeed PDSCH */
@@ -1144,11 +1135,10 @@ int main(int argc, char **argv)
         pdu_bit_map = pdsch_pdu_rel15->pduBitmap;
 	// This is already in DL procedures??
         if(pdu_bit_map & 0x1) {
-          set_ptrs_symb_idx(&dlPtrsSymPos,
-                            pdsch_pdu_rel15->NrOfSymbols,
-                            pdsch_pdu_rel15->StartSymbolIndex,
-                            1<<pdsch_pdu_rel15->PTRSTimeDensity,
-                            pdsch_pdu_rel15->dlDmrsSymbPos);
+          dlPtrsSymPos = get_ptrs_symb_idx(pdsch_pdu_rel15->NrOfSymbols,
+                                           pdsch_pdu_rel15->StartSymbolIndex,
+                                           1 << pdsch_pdu_rel15->PTRSTimeDensity,
+                                           pdsch_pdu_rel15->dlDmrsSymbPos);
           ptrsSymbPerSlot = get_ptrs_symbols_in_slot(dlPtrsSymPos, pdsch_pdu_rel15->StartSymbolIndex, pdsch_pdu_rel15->NrOfSymbols);
           ptrsRePerSymb = ((g_rbSize + pdsch_pdu_rel15->PTRSFreqDensity - 1) / pdsch_pdu_rel15->PTRSFreqDensity);
           LOG_D(PHY,"[DLSIM] PTRS Symbols in a slot: %2u, RE per Symbol: %3u, RE in a slot %4d\n", ptrsSymbPerSlot, ptrsRePerSymb, ptrsSymbPerSlot * ptrsRePerSymb);
@@ -1463,16 +1453,10 @@ int main(int argc, char **argv)
              g_mcsIndex,
              UE->dl_harq_processes[0][slot].C,
              8 * pdsch_pdu_rel15->TBSize[0]);
-      printDistribution(&gNB->phy_proc_tx,table_tx,"PHY proc tx");
+      printDistribution(&gNB->phy_proc_tx, "PHY proc tx");
       printStatIndent2(&gNB->dci_generation_stats, "DCI encoding time");
       printStatIndent2(&gNB->dlsch_encoding_stats,"DLSCH encoding time");
-      printStatIndent3(&gNB->dlsch_segmentation_stats,"DLSCH segmentation time");
-      printStatIndent3(&gNB->tinput,"DLSCH LDPC input processing time");
-      printStatIndent3(&gNB->tprep,"DLSCH LDPC input preparation time");
-      printStatIndent3(&gNB->tparity,"DLSCH LDPC parity generation time");
-      printStatIndent3(&gNB->toutput,"DLSCH LDPC output generation time");
-      printStatIndent3(&gNB->dlsch_rate_matching_stats,"DLSCH Rate Matching time");
-      printStatIndent3(&gNB->dlsch_interleaving_stats,  "DLSCH Interleaving time");
+      printStatIndent3(&gNB->dlsch_ldpc_encode_stats,"LDPC encoding time");
       printStatIndent2(&gNB->dlsch_modulation_stats,"DLSCH modulation time");
       printStatIndent2(&gNB->dlsch_scrambling_stats, "DLSCH scrambling time");
       printStatIndent2(&gNB->dlsch_pdsch_generation_stats,"DLSCH PDSCH Generation time");
@@ -1556,6 +1540,7 @@ int main(int argc, char **argv)
 
   } // NSR
 
+  free_sorted_list_meas(&gNB->phy_proc_tx);
   free(Sched_INFO);
 
   free_channel_desc_scm(gNB2UE);

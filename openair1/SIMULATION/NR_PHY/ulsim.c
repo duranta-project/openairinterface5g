@@ -12,7 +12,6 @@
 #include <errno.h>
 #include <bits/getopt_core.h>
 #include "common/utils/nr/nr_common.h"
-#include "common/utils/var_array.h"
 #define inMicroS(a) (((double)(a))/(get_cpu_freq_GHz()*1000.0))
 #include "SIMULATION/LTE_PHY/common_sim.h"
 #include "common/utils/assertions.h"
@@ -57,7 +56,6 @@
 #include "common/utils/T/T.h"
 #include "common/utils/nr/nr_common.h"
 #include "common/utils/threadPool/thread-pool.h"
-#include "common/utils/var_array.h"
 #include "e1ap_messages_types.h"
 #include "executables/nr-uesoftmodem.h"
 #include "fapi_nr_ue_constants.h"
@@ -816,22 +814,24 @@ int main(int argc, char *argv[])
   };
 
   RC.nb_nr_macrlc_inst = 1;
-  mac_top_init_gNB(ngran_gNB, scc, &conf, &rlc_config);
-  RC.nrmac[0]->beam_info = (NR_beam_info_t){.beams_per_period = 1};
-  nr_mac_config_scc(RC.nrmac[0], scc, &conf);
+  nr_cell_sched_t *cell;
+  mac_top_init_gNB(ngran_gNB, scc, &conf, &rlc_config, &cell);
+  gNB_MAC_INST *nrmac = RC.nrmac[0];
+  cell->beam_info = (NR_beam_info_t){.beams_per_period = 1};
+  nr_mac_config_scc(nrmac, cell, scc, &conf);
 
   NR_UE_NR_Capability_t* UE_Capability_nr = CALLOC(1,sizeof(NR_UE_NR_Capability_t));
   prepare_sim_uecap(UE_Capability_nr, scc, mu, N_RB_UL, 0, mcs_table);
   rnti_t rnti = 0x1234;
   int uid = 0;
   int ssb_index = 0;
-  NR_CellGroupConfig_t *secondaryCellGroup = get_default_secondaryCellGroup(scc, UE_Capability_nr, 0, 1, &conf, uid, ssb_index);
+  NR_CellGroupConfig_t *secondaryCellGroup = get_default_secondaryCellGroup(scc, UE_Capability_nr, 0, 1, &conf, cell, uid, ssb_index);
   secondaryCellGroup->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(rnti, uid, scc, frame);
 
   NR_BCCH_BCH_Message_t *mib = get_new_MIB_NR(scc);
 
   // UE dedicated configuration
-  nr_mac_add_test_ue(RC.nrmac[0], rnti, secondaryCellGroup);
+  nr_mac_add_test_ue(nrmac, cell, rnti, secondaryCellGroup);
   gNB->frame_parms.nb_antennas_tx = 1;
   gNB->frame_parms.nb_antennas_rx = n_rx;
   nfapi_nr_config_request_scf_t *cfg = &gNB->gNB_config;
@@ -952,6 +952,7 @@ int main(int argc, char *argv[])
   time_stats_t channel_stats = {0};
   time_stats_t noise_stats = {0};
   time_stats_t pipeline_stats = {0};
+  init_sorted_list_meas(&gNB->phy_proc_rx, max_rounds * n_trials);
 
   nr_phy_data_tx_t phy_data = {0};
 
@@ -1066,7 +1067,7 @@ int main(int argc, char *argv[])
 
   uint32_t unav_res = 0;
   if (pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS) {
-    set_ptrs_symb_idx(&ptrsSymPos, nb_symb_sch, start_symbol, 1 << ptrs_time_density, l_prime_mask);
+    ptrsSymPos = get_ptrs_symb_idx(nb_symb_sch, start_symbol, 1 << ptrs_time_density, l_prime_mask);
     ptrsSymbPerSlot = get_ptrs_symbols_in_slot(ptrsSymPos, start_symbol, nb_symb_sch);
     ptrsRePerSymb = ((nb_rb + ptrs_freq_density - 1) / ptrs_freq_density);
     unav_res = ptrsSymbPerSlot * ptrsRePerSymb;
@@ -1162,9 +1163,9 @@ int main(int argc, char *argv[])
   //---------------
   int ret = 1;
   int srs_ret = do_SRS;
+  init_sorted_list_meas(&gNB->phy_proc_tx, 4 * n_trials);
   for (SNR = snr0; SNR <= snr1 && !stop; SNR += snr_step) {
 
-    varArray_t *table_rx=initVarArray(1000,sizeof(double));
     int error_flag = 0;
     n_false_positive = 0;
     effRate = 0;
@@ -1180,8 +1181,6 @@ int main(int argc, char *argv[])
     reset_meas(&gNB->ulsch_layer_demapping_stats);
     reset_meas(&gNB->ulsch_unscrambling_stats);
     reset_meas(&gNB->ulsch_decoding_stats);
-    reset_meas(&gNB->ts_deinterleave);
-    reset_meas(&gNB->ts_rate_unmatch);
     reset_meas(&gNB->ts_ldpc_decode);
     reset_meas(&gNB->ulsch_channel_estimation_stats);
     reset_meas(&gNB->pusch_channel_estimation_antenna_processing_stats);
@@ -1284,6 +1283,7 @@ int main(int argc, char *argv[])
         pusch_pdu->pusch_ptrs.ptrs_freq_density = ptrs_freq_density;
         pusch_pdu->pusch_ptrs.ptrs_ports_list = (nfapi_nr_ptrs_ports_t *)malloc_or_fail(2 * sizeof(nfapi_nr_ptrs_ports_t));
         pusch_pdu->pusch_ptrs.ptrs_ports_list[0].ptrs_re_offset = 0;
+        pusch_pdu->pusch_ptrs.num_ptrs_ports = 1;
         pusch_pdu->maintenance_parms_v3.ldpcBaseGraph = get_BG(TBS, code_rate);
         pusch_pdu->param_v4.numSpatialStreamIndices = conf.pusch_AntennaPorts;
         memcpy(pusch_pdu->param_v4.spatialStreamIndices, conf.spatial_stream_index, sizeof(conf.spatial_stream_index));
@@ -1380,6 +1380,7 @@ int main(int argc, char *argv[])
         pusch_config_pdu->pusch_ptrs.ptrs_ports_list =
             (nfapi_nr_ue_ptrs_ports_t *)malloc_or_fail(2 * sizeof(nfapi_nr_ue_ptrs_ports_t));
         pusch_config_pdu->pusch_ptrs.ptrs_ports_list[0].ptrs_re_offset = 0;
+        pusch_config_pdu->pusch_ptrs.num_ptrs_ports = 1;
         pusch_config_pdu->transform_precoding = transform_precoding;
         // if transform precoding is enabled
         if (transform_precoding == transformPrecoder_enabled) {
@@ -1835,7 +1836,7 @@ int main(int argc, char *argv[])
       }
 
       printf("\ngNB RX\n");
-      printDistribution(&gNB->phy_proc_rx,table_rx, "Total PHY proc rx");
+      printDistribution(&gNB->phy_proc_rx, "Total PHY proc rx");
       printStatIndent(&gNB->rx_pusch_stats, "RX PUSCH time");
       printStatIndent2(&gNB->ulsch_channel_estimation_stats, "ULSCH channel estimation time");
       printStatIndent3(&gNB->pusch_channel_estimation_antenna_processing_stats, "Antenna Processing time");
@@ -1852,11 +1853,6 @@ int main(int argc, char *argv[])
       gNB->ulsch_unscrambling_stats.trials = gNB->rx_pusch_symbol_processing_stats.trials;
       printStatIndent3(&gNB->ulsch_unscrambling_stats, "RX PUSCH unscrambling");
       printStatIndent(&gNB->ulsch_decoding_stats,"ULSCH total decoding time");
-      gNB->ts_deinterleave.trials = n_trials;
-      printStatIndent2(&gNB->ts_deinterleave, "ULSCH segment deinterleaving time");
-      gNB->ts_rate_unmatch.trials = n_trials;
-      printStatIndent2(&gNB->ts_rate_unmatch, "ULSCH segment rate matching time");
-      gNB->ts_ldpc_decode.trials = n_trials;
       printStatIndent2(&gNB->ts_ldpc_decode, "ULSCH segments decoding time");
       printStatIndent(&gNB->rx_srs_stats,"RX SRS time");
       printStatIndent2(&gNB->generate_srs_stats,"Generate SRS sequence time");
@@ -1905,6 +1901,7 @@ int main(int argc, char *argv[])
           length_dmrs,
           num_dmrs_cdm_grps_no_data);
 
+  free_sorted_list_meas(&gNB->phy_proc_rx);
   free_MIB_NR(mib);
 
   free_nrLDPC_coding_interface(&gNB->nrLDPC_coding_interface);

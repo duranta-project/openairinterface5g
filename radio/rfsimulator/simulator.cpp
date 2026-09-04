@@ -81,8 +81,8 @@ typedef enum { SIMU_ROLE_SERVER = 1, SIMU_ROLE_CLIENT } simuRole;
   "        chanmod:   enable channel modelisation\n"                                               \
   "        saviq:     enable saving written iqs to a file\n"
 
-#define simOpt PARAMFLAG_NOFREE | PARAMFLAG_CMDLINE_NOPREFIXENABLED
-#define simBool PARAMFLAG_BOOL | PARAMFLAG_NOFREE | PARAMFLAG_CMDLINE_NOPREFIXENABLED
+#define simOpt PARAMFLAG_CMDLINE_NOPREFIXENABLED
+#define simBool PARAMFLAG_BOOL | PARAMFLAG_CMDLINE_NOPREFIXENABLED
 // clang-format off
 /*----------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*                                            configuration parameters for the rfsimulator device */
@@ -145,6 +145,7 @@ typedef struct {
 typedef struct buffer_s {
   int conn_sock;
   openair0_timestamp_t lastReceivedTS;
+  bool headerReceived; // true once a header has been parsed, even if its timestamp was 0
   bool headerMode;
   bool trashingPacket;
   samplesBlockHeader_t th;
@@ -205,7 +206,10 @@ typedef struct {
  * @param nsamps_out output pointer to receive the number of samples until the next beam switch.
  * @return The beam map (uint64_t) valid for the given timestamp.
  */
-static std::vector<uint16_t> get_beams(beam_state_t *beam_state, openair0_timestamp_t timestamp, uint32_t nsamps, uint32_t *nsamps_out)
+static std::vector<uint16_t> get_beams(beam_state_t *beam_state,
+                                       openair0_timestamp_t timestamp,
+                                       uint32_t nsamps,
+                                       uint32_t *nsamps_out)
 {
   std::lock_guard<std::mutex> lock(beam_state->mutex);
   std::vector<uint16_t> current_beams = beam_state->beams;
@@ -292,6 +296,7 @@ static buffer_t *allocCirBuf(rfsimulator_state_t *bridge, int sock)
   bridge->nb_cnx++;
   ptr->conn_sock = sock;
   ptr->lastReceivedTS = 0;
+  ptr->headerReceived = false;
   ptr->headerMode = true;
   ptr->trashingPacket = true;
   ptr->transferPtr = (char *)&ptr->th;
@@ -347,6 +352,7 @@ static void removeCirBuf(rfsimulator_state_t *bridge, buffer_t *buf)
   // a lot of mem leaks
   // free(bridge->buf[sock].channel_model);
   clear_old_packets(buf->received_packets, INT64_MAX);
+  free(buf->packet_ptr);
   *buf = buffer_t{};
   buf->conn_sock = -1;
   bridge->nb_cnx--;
@@ -492,8 +498,7 @@ static void rfsimulator_readconfig(rfsimulator_state_t *rfsimulator)
 
   rfsimulator->ip = strdup(*(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_SERVER_ADDR)->strptr));
   rfsimulator->port = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_SERVER_PORT)->u16ptr);
-  char *saveF = strdup(*(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_IQFILE)->strptr));
-//char *modelname = strdup(*(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_MODELNAME)->strptr));
+  const char *saveF = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_IQFILE)->strptr);
   rfsimulator->chan_pathloss = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_PLOSS)->dblptr);
   rfsimulator->chan_forgetfact = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_FORGETFACT)->dblptr);
   rfsimulator->chan_offset = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_OFFSET)->u64ptr);
@@ -875,7 +880,7 @@ static int startClient(openair0_device_t *device)
   do {
     have_to_wait = true;
     flushInput(t, 3, true);
-    if (b->lastReceivedTS)
+    if (b->headerReceived)
       have_to_wait = false;
   } while (have_to_wait);
   if (b->lastReceivedTS > 0)
@@ -1003,7 +1008,7 @@ static bool add_client(rfsimulator_state_t *t)
     beam_ids[i] = 0;
   fullwrite(conn_sock, beam_ids, sizeof(beam_ids), t);
 
-  c16_t v[t->rx_num_channels];
+  c16_t v[t->tx_num_channels];
   memset(v, 0, sizeof(v));
   fullwrite(conn_sock, v, sizeof(v), t);
 
@@ -1016,6 +1021,7 @@ static bool add_client(rfsimulator_state_t *t)
 static void process_recv_header(buffer_t *b, bool first_time)
 {
   b->headerMode = false; // We got the header
+  b->headerReceived = true;
   AssertFatal(b->th.nbAnt != 0, "Number of antennas not set\n");
   if (b->nbAnt != b->th.nbAnt) {
     LOG_A(HW, "RFsim: Number of antennas changed from %d to %d\n", b->nbAnt, b->th.nbAnt);
@@ -1025,6 +1031,7 @@ static void process_recv_header(buffer_t *b, bool first_time)
     b->lastReceivedTS = b->th.timestamp;
     b->trashingPacket = true;
   } else {
+    b->trashingPacket = false;
     if (b->lastReceivedTS < (int64_t)b->th.timestamp) {
       int nbAnt = b->th.nbAnt;
       if (!nbAnt)
@@ -1377,7 +1384,7 @@ static int rfsimulator_read(openair0_device_t *device, openair0_timestamp_t *pti
   int nsamps_to_process = nsamps;
   while (nsamps_to_process > 0) {
     uint32_t nsamps_beam_map;
-    std::vector<uint16_t> rx_beams = get_beams(&t->beam_ctrl->tx, timestamp, nsamps_to_process, &nsamps_beam_map);
+    std::vector<uint16_t> rx_beams = get_beams(&t->beam_ctrl->rx, timestamp, nsamps_to_process, &nsamps_beam_map);
     if (t->beam_ctrl->enable_beams && (int)rx_beams.size() != nbAnt) {
       LOG_D(HW, "Number of beams does not match application request nbAnt %d, beams %lu\n", nbAnt, rx_beams.size());
     }
@@ -1447,7 +1454,8 @@ static void rfsimulator_end(openair0_device_t *device)
   clear_beam_queue(&s->beam_ctrl->rx, INT64_MAX);
   delete s->beam_ctrl;
   close(s->epollfd);
-  free(s);
+  free(s->ip);
+  delete s;
 }
 
 static void stopServer(openair0_device_t *device)
@@ -1485,7 +1493,7 @@ extern "C" __attribute__((__visibility__("default"))) int device_init(openair0_d
 {
   // to change the log level, use this on command line
   // --log_config.hw_log_level debug
-  rfsimulator_state_t *rfsimulator = static_cast<rfsimulator_state_t *>(calloc(sizeof(rfsimulator_state_t), 1));
+  rfsimulator_state_t *rfsimulator = new rfsimulator_state_t();
   // initialize channel simulation
   rfsimulator->ru_id = openair0_cfg->ru_id;
   rfsimulator->tx_num_channels = openair0_cfg->tx_num_channels;
@@ -1495,6 +1503,11 @@ extern "C" __attribute__((__visibility__("default"))) int device_init(openair0_d
   rfsimulator->tx_bw = openair0_cfg->tx_bw;
   rfsimulator->beam_ctrl = new rfsim_beam_ctrl_t;
   rfsimulator_readconfig(rfsimulator);
+  AssertFatal(!rfsimulator->beam_ctrl->enable_beams || rfsimulator->tx_num_channels == rfsimulator->rx_num_channels,
+              "rfsimulator beam simulation does not support uneven tx/rx antenna counts (tx_num_channels=%d, "
+              "rx_num_channels=%d): beam_ids/trx_set_beams() assign the same beam list to both\n",
+              rfsimulator->tx_num_channels,
+              rfsimulator->rx_num_channels);
   if (rfsimulator->prop_delay_ms > 0.0)
     rfsimulator->chan_offset = ceil(rfsimulator->sample_rate * rfsimulator->prop_delay_ms / 1000);
   if (rfsimulator->chan_offset != 0) {
@@ -1523,7 +1536,7 @@ extern "C" __attribute__((__visibility__("default"))) int device_init(openair0_d
   device->openair0_cfg = openair0_cfg;
   device->priv = rfsimulator;
   device->trx_write_init = rfsimulator_write_init;
-  device->trx_set_beams = rfsimulator_set_beams_vector;
+  device->trx_set_beams = rfsimulator->beam_ctrl->enable_beams ? rfsimulator_set_beams_vector : nullptr;
 
   for (int i = 0; i < MAX_FD_RFSIMU; i++)
     rfsimulator->buf[i].conn_sock = -1;

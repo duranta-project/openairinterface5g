@@ -14,9 +14,10 @@
 #define NR_SMALL_BLOCK_CODED_BITS 32
 
 
-uint32_t encodeSmallBlock(int in, int len);
+uint32_t encodeSmallBlock(uint32_t in, int len, int Qm);
 
 uint16_t decodeSmallBlock(int8_t *in, uint8_t len);
+uint16_t decode_1_2_uci_bit(int8_t *input, int n_bits, int Qm);
 
 static const uint32_t nrSmallBlockBasis[11] = {0xFFFFFFFF, 0x4BA5A933, 0x7D910E5A, 0x6D26339C, 0x71C7C3E0,
 		0x7E0FFC00, 0x731D8E64, 0x6B44F5B0, 0x7DC218EC, 0x4DA1B746, 0x42F0FFFF};

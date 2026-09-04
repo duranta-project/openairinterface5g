@@ -14,6 +14,7 @@
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
 #include "PHY/NR_TRANSPORT/nr_dlsch.h"
+#include "PHY/nr_phy_common/inc/nr_phy_meas.h"
 #include "SCHED_NR/sched_nr.h"
 #include "common/utils/LOG/log.h"
 #include "common/utils/nr/nr_common.h"
@@ -115,16 +116,7 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
                       NR_gNB_DLSCH_t *dlsch_array,
                       int frame,
                       uint8_t slot,
-                      unsigned char *output,
-                      time_stats_t *tinput,
-                      time_stats_t *tinput_memcpy,
-                      time_stats_t *tprep,
-                      time_stats_t *tparity,
-                      time_stats_t *toutput,
-                      time_stats_t *tconcat,
-                      time_stats_t *dlsch_rate_matching_stats,
-                      time_stats_t *dlsch_interleaving_stats,
-                      time_stats_t *dlsch_segmentation_stats)
+                      unsigned char *output)
 {
   nrLDPC_TB_encoding_parameters_t TBs[n_dlsch];
   memset(TBs, 0, sizeof(TBs));
@@ -197,7 +189,6 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
     TB_parameters->harq_unique_pid = i;
     TB_parameters->BG = rel15->maintenance_parms_v3.ldpcBaseGraph;
     TB_parameters->A = A;
-    start_meas(dlsch_segmentation_stats);
     TB_parameters->Kb = nr_segmentation(dlsch->b,
                                         dlsch->c,
                                         B,
@@ -206,7 +197,6 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
                                         &TB_parameters->Z,
                                         &TB_parameters->F,
                                         TB_parameters->BG);
-    stop_meas(dlsch_segmentation_stats);
 
     if (TB_parameters->C > MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers) {
       LOG_E(PHY, "nr_segmentation.c: too many segments %d, B %d\n", TB_parameters->C, B);
@@ -269,8 +259,7 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
         return -1;
       segment_parameters->c = dlsch->c[r];
       segment_parameters->E = E;
-      reset_meas(&segment_parameters->ts_interleave);
-      reset_meas(&segment_parameters->ts_rate_match);
+
       reset_meas(&segment_parameters->ts_ldpc_encode);
     }
 
@@ -287,20 +276,15 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
                                                        .slot = slot,
                                                        .nb_TBs = n_dlsch,
                                                        .threadPool = &gNB->threadPool,
-                                                       .tinput = tinput,
-                                                       .tprep = tprep,
-                                                       .tparity = tparity,
-                                                       .toutput = toutput,
                                                        .TBs = TBs};
   gNB->nrLDPC_coding_interface.nrLDPC_coding_encoder(&slot_parameters);
 
+  int slot_type = nr_slot_select(&gNB->gNB_config, frame, slot);
   for (int i = 0; i < n_dlsch; i++) {
     nrLDPC_TB_encoding_parameters_t *TB_parameters = &TBs[i];
     for (int r = 0; r < TB_parameters->C; r++) {
       nrLDPC_segment_encoding_parameters_t *segment_parameters = &TB_parameters->segments[r];
-      merge_meas(dlsch_interleaving_stats, &segment_parameters->ts_interleave);
-      merge_meas(dlsch_rate_matching_stats, &segment_parameters->ts_rate_match);
-      // merge_meas(, &segment_parameters->ts_ldpc_encode);
+      MERGE_MEAS_FULL_SLOT(&gNB->dlsch_ldpc_encode_stats, &segment_parameters->ts_ldpc_encode, slot_type, NR_DOWNLINK_SLOT);
     }
   }
   return 0;

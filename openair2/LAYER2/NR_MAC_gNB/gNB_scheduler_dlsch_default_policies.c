@@ -29,7 +29,7 @@
 
 // Default RI/PMI selector: reads rank and PMI from CSI feedback for new-tx,
 // or from HARQ process state for retx.
-void nr_dl_ri_pmi_select_default(const gNB_MAC_INST *mac, nr_dl_candidate_t *candidates, int n_candidates)
+void nr_dl_ri_pmi_select_default(const nr_cell_sched_t *cell, nr_dl_candidate_t *candidates, int n_candidates)
 {
   FOR_EACH_CANDIDATE(cand, candidates, n_candidates)
   {
@@ -38,7 +38,7 @@ void nr_dl_ri_pmi_select_default(const gNB_MAC_INST *mac, nr_dl_candidate_t *can
     if (cand->is_retx) {
       cand->sched_pdsch.nrOfLayers = sched_ctrl->harq_processes[cand->retx_harq_pid].sched_pdsch.nrOfLayers;
       cand->sched_pdsch.pm_index =
-          get_pm_index(mac, cand->UE, dl_bwp->dci_format, cand->sched_pdsch.nrOfLayers, mac->radio_config.pdsch_AntennaPorts.XP);
+          get_pm_index(cell, cand->UE, dl_bwp->dci_format, cand->sched_pdsch.nrOfLayers, cell->radio_config.pdsch_AntennaPorts.XP);
     } else {
       cand->sched_pdsch.nrOfLayers = cand->csi_ri + 1;
       cand->sched_pdsch.pm_index = cand->csi_pm_index;
@@ -49,11 +49,11 @@ void nr_dl_ri_pmi_select_default(const gNB_MAC_INST *mac, nr_dl_candidate_t *can
 // Default TDA selector: picks the slot-wide TDA index from get_dl_tda(),
 // then resolves tda_info per candidate using each UE's own BWP / search
 // space / coreset. Marks invalids with skipped=true.
-int nr_dl_tda_select_default(const gNB_MAC_INST *mac, nr_dl_candidate_t *candidates, int n_candidates, frame_t frame, slot_t slot)
+int nr_dl_tda_select_default(const gNB_MAC_INST *mac, const nr_cell_sched_t *cell, nr_dl_candidate_t *candidates, int n_candidates, frame_t frame, slot_t slot)
 {
-  int tda = get_dl_tda(mac, slot);
+  int tda = get_dl_tda(mac, cell, slot);
   AssertFatal(tda >= 0, "Unable to find PDSCH time domain allocation in list\n");
-  const NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
+  const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
 
   int n_valid = 0;
   FOR_EACH_CANDIDATE(cand, candidates, n_candidates)
@@ -142,9 +142,9 @@ int nr_dl_beam_select_default(NR_beam_info_t *beam_info,
   return n_valid;
 }
 
-void nr_dl_mcs_select_default(const gNB_MAC_INST *mac, nr_dl_candidate_t *candidates, int n_candidates)
+void nr_dl_mcs_select_default(const nr_cell_sched_t *cell, nr_dl_candidate_t *candidates, int n_candidates)
 {
-  const NR_bler_options_t *bo = &mac->dl_bler;
+  const NR_bler_options_t *bo = &cell->dl_bler;
   FOR_EACH_CANDIDATE(cand, candidates, n_candidates)
   {
     int mcs;
@@ -262,7 +262,8 @@ int nr_dl_proportional_fair(const nr_dl_sched_params_t *params, nr_dl_candidate_
     int mcs = cand->sched_pdsch.mcs;
     uint8_t Qm = nr_get_Qm_dl(mcs, cand->mcs_table);
     uint16_t R = nr_get_code_rate_dl(mcs, cand->mcs_table);
-    NR_pdsch_dmrs_t dmrs = get_dl_dmrs_params(params->mac->common_channels->ServingCellConfigCommon,
+    const nr_cell_sched_t *cell = params->cell;
+    NR_pdsch_dmrs_t dmrs = get_dl_dmrs_params(cell->common_channels.ServingCellConfigCommon,
                                               &cand->UE->current_DL_BWP,
                                               &cand->sched_pdsch.tda_info,
                                               cand->sched_pdsch.nrOfLayers);

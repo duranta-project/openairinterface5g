@@ -648,6 +648,14 @@ eAXC_id 0 1 # set PRACH eAxC IDs
 
 #### Microamp FR2
 
+Two OAI configuration files are provided for this RU, both with TDD pattern
+`DDDSU` (0.625ms) and 2x2 on band n257:
+- 200MHz: [`gnb.sa.band257.132prb.fhi72.2x2-microamp.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band257.132prb.fhi72.2x2-microamp.conf)
+- 100MHz: [`gnb.sa.band257.66prb.fhi72.2x2-microamp.conf`](../ci-scripts/conf_files/gnb.sa.band257.66prb.fhi72.2x2-microamp.conf)
+
+Both use the same carrier frequency (28.04928GHz), so switching between them
+only requires to change the bandwidth of the RU (see below).
+
 #### Firmware starting from 0.1.174
 
 Requirements:
@@ -699,12 +707,9 @@ You can use the following command to display the current RU configuration:
 sshpass -p microampcfg ssh remctl@<RU_IP_ADDR> get-cfg
 ```
 
-<details>
-  <summary>
-  The OAI configuration file [`gnb.sa.band257.132prb.fhi72.2x2-microamp.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band257.132prb.fhi72.2x2-microamp.conf) corresponds to the following RU configuration:
-  </summary>
+The OAI configuration file [`gnb.sa.band257.132prb.fhi72.2x2-microamp.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band257.132prb.fhi72.2x2-microamp.conf) corresponds to the following RU configuration:
 
-  ```
+```
   PRACH0 CC ID: 0
   PRACH0 RU port ID: 0
   PRACH1 CC ID: 1
@@ -724,9 +729,8 @@ sshpass -p microampcfg ssh remctl@<RU_IP_ADDR> get-cfg
     RU MAC: 10-70-FD-B8-86-02
     DU MAC: 50-7C-6F-31-00-61
   RF Power level: -5 dB - relative to maximum
-  ```
+```
 
-</details>
 
 Execute the following command to check how to configure the RU:
 
@@ -929,12 +933,10 @@ To check PTP status, you can use `rucfg ptp`.
 
 You can use `rucfg show` command to display the current RU configuration. 
 
-<details>
-  <summary>
-  The OAI configuration file [`gnb.sa.band257.132prb.fhi72.2x2-microamp.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band257.132prb.fhi72.2x2-microamp.conf) corresponds to the following RU configuration:
-  </summary>
 
-  ```
+The OAI configuration file [`gnb.sa.band257.132prb.fhi72.2x2-microamp.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band257.132prb.fhi72.2x2-microamp.conf) corresponds to the following RU configuration:
+
+```
   [INFO] Check if RU is available
   [INFO] RU available
   [INFO] Check SSH to RU available
@@ -960,10 +962,7 @@ You can use `rucfg show` command to display the current RU configuration.
     VLAN MGMT: False
     Beamforming: dynamic-mirrored-beam
   }
-  ```
-
-</details>
-
+```
 
 Execute `rucfg config -h` to check how to configure the RU.
 

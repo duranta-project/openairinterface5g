@@ -60,6 +60,7 @@ There is some general information in the [OpenAirInterface Gitlab Wiki](https://
 - [How to setup gNB frequency](./gNB_frequency_setup.md)
 - [How to use the RT data recording app](./data_recording.md)
 - [How to use packages](./packages.md)
+- [How to test F1-based NR-DC](./nr-dc.md)
 
 Legacy unmaintained files:
 - [`L2NFAPI_NOS1.md`](./L2NFAPI_NOS1.md), [`L2NFAPI_S1.md`](./L2NFAPI_S1.md):
@@ -146,5 +147,5 @@ The other SDRs (AW2S, LimeSDR, ...) have no READMEs.
 - [sanitizers.md](./dev_tools/sanitizers.md): how to run with ASan/UBSan/MemSAN/TSan
 - [iwyu](../tools/iwyu/README.md) is a tool to detect `#include` errors
 - [docker-dev-env](../tools/docker-dev-env/README.md) is a ubuntu24 docker development environment
-- [performance analysis with tracy](./dev_tools/tracy.md)
+- [performance monitoring](./dev_tools/performance_monitoring.md): a collection of tools to monitor the computing performance of OAI
 - [doc_best_practices.md](./doc_best_practices.md): overall best practices for writing documentations

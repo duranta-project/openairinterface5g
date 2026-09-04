@@ -1,0 +1,31 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+
+<testCaseList>
+  <htmlTabRef>test-ors-aurora-offload</htmlTabRef>
+  <htmlTabName>Test Aurora LDPC Offload</htmlTabName>
+  <htmlTabIcon>tasks</htmlTabIcon>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Disable Sleep States</desc>
+    <node>caracal</node>
+    <command>sudo cpupower idle-set -D 0</command>
+  </testCase>
+
+  <testCase>
+    <class>Build_Deploy_PhySim</class>
+    <desc>Deploy PhySim Aurora offload tests</desc>
+    <script>scripts/source-deploy-physims.sh</script>
+    <node>caracal</node>
+    <ctest-opt>-R 5g-offload.*Aurora -j1</ctest-opt>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <always_exec>true</always_exec>
+    <desc>Enable Sleep States</desc>
+    <node>caracal</node>
+    <command>sudo cpupower idle-set -E</command>
+  </testCase>
+
+</testCaseList>

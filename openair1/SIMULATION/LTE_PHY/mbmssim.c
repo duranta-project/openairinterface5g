@@ -52,10 +52,6 @@ double cpuf;
 
 int otg_enabled=0;
 /*the following parameters are used to control the processing times calculations*/
-double t_tx_max = -1000000000; /*!< \brief initial max process time for tx */
-double t_rx_max = -1000000000; /*!< \brief initial max process time for rx */
-double t_tx_min = 1000000000; /*!< \brief initial min process time for tx */
-double t_rx_min = 1000000000; /*!< \brief initial min process time for rx */
 int n_tx_dropped = 0; /*!< \brief initial max process time for tx */
 int n_rx_dropped = 0; /*!< \brief initial max process time for rx */
 
@@ -1404,6 +1400,20 @@ int main(int argc, char **argv) {
   UE->high_speed_flag = 1;
   UE->ch_est_alpha=0;
 
+  // initialize sorted lists for timers for which we want the distribution
+  init_sorted_list_meas(&eNB->phy_proc_tx, n_frames * num_rounds);
+  init_sorted_list_meas(&eNB->ofdm_mod_stats, n_frames * num_rounds);
+  init_sorted_list_meas(&eNB->dlsch_modulation_stats, n_frames * num_rounds);
+  init_sorted_list_meas(&eNB->dlsch_encoding_stats, n_frames * num_rounds);
+  init_sorted_list_meas(&UE->phy_proc_rx[0], n_frames * num_rounds);
+  init_sorted_list_meas(&UE->phy_proc_rx[1], n_frames * num_rounds);
+  time_stats_t phy_proc_rx_tot;
+  init_sorted_list_meas(&phy_proc_rx_tot, 2 * n_frames * num_rounds);
+  init_sorted_list_meas(&UE->ofdm_demod_stats, n_frames * num_rounds);
+  init_sorted_list_meas(&UE->dlsch_rx_pdcch_stats, n_frames * num_rounds);
+  init_sorted_list_meas(&UE->dlsch_decoding_stats[0], n_frames * num_rounds);
+  init_sorted_list_meas(&UE->dlsch_decoding_stats[1], n_frames * num_rounds);
+
   for (ch_realization=0; ch_realization<n_ch_rlz; ch_realization++) {
     if(abstx) {
       printf("**********************Channel Realization Index = %d **************************\n", ch_realization);
@@ -1458,6 +1468,7 @@ int main(int argc, char **argv) {
       reset_meas(&UE->dlsch_channel_estimation_stats);
       reset_meas(&UE->dlsch_freq_offset_estimation_stats);
       reset_meas(&UE->rx_dft_stats);
+      reset_meas(&UE->dlsch_rx_pdcch_stats);
       reset_meas(&UE->dlsch_decoding_stats[0]);
       reset_meas(&UE->dlsch_decoding_stats[1]);
       reset_meas(&UE->dlsch_turbo_decoding_stats);
@@ -1472,20 +1483,11 @@ int main(int argc, char **argv) {
       reset_meas(&UE->dlsch_tc_intl2_stats);
       // initialization
       // initialization
-      varArray_t *table_tx=initVarArray(1000,sizeof(double));
-      varArray_t *table_tx_ifft=initVarArray(1000,sizeof(double));
-      varArray_t *table_tx_mod=initVarArray(1000,sizeof(double));
-      varArray_t *table_tx_enc=initVarArray(1000,sizeof(double));
-      varArray_t *table_rx=initVarArray(1000,sizeof(double));
-      time_stats_t phy_proc_rx_tot;
       time_stats_t pdsch_procedures_tot;
       time_stats_t dlsch_procedures_tot;
       time_stats_t dlsch_decoding_tot;
       time_stats_t dlsch_llr_tot;
       time_stats_t ue_front_end_tot;
-      varArray_t *table_rx_fft=initVarArray(1000,sizeof(double));
-      varArray_t *table_rx_demod=initVarArray(1000,sizeof(double));
-      varArray_t *table_rx_dec=initVarArray(1000,sizeof(double));
 
       for (trials = 0; trials<n_frames; trials++) {
         //printf("Trial %d\n",trials);
@@ -1905,7 +1907,6 @@ int main(int argc, char **argv) {
          * get the max, min, and number of packets that exceed t>2000us
          */
         double t_tx = inMicroS(eNB->phy_proc_tx.p_time);
-        double t_tx_ifft = inMicroS(eNB->ofdm_mod_stats.p_time);
         double t_rx = inMicroS(UE->phy_proc_rx[UE->current_thread_id[subframe]].p_time);
         sumUpStats(&phy_proc_rx_tot, UE->phy_proc_rx, UE->current_thread_id[subframe]);
         sumUpStats(&ue_front_end_tot, UE->ue_front_end_stat, UE->current_thread_id[subframe]);
@@ -1913,39 +1914,18 @@ int main(int argc, char **argv) {
         sumUpStats(&dlsch_procedures_tot, UE->dlsch_procedures_stat, UE->current_thread_id[subframe]);
         sumUpStats(&dlsch_decoding_tot, UE->dlsch_decoding_stats, UE->current_thread_id[subframe]);
         sumUpStatsSlot(&dlsch_llr_tot, UE->dlsch_llr_stats_parallelization, UE->current_thread_id[subframe]);
-        double t_rx_fft = inMicroS(UE->ofdm_demod_stats.p_time);
-        double t_rx_demod = inMicroS(UE->dlsch_rx_pdcch_stats.p_time);
-        double t_rx_dec = inMicroS(UE->dlsch_decoding_stats[UE->current_thread_id[subframe]].p_time);
 
         if (t_tx > 2000 )// 2ms is too much time for a subframe
           n_tx_dropped++;
 
         if (t_rx > 2000 )
           n_rx_dropped++;
-
-        appendVarArray(&table_tx, &t_tx);
-        appendVarArray(&table_tx_ifft, &t_tx_ifft);
-        appendVarArray(&table_rx, &t_rx );
-        appendVarArray(&table_rx_fft, &t_rx_fft );
-        appendVarArray(&table_rx_demod, &t_rx_demod );
-        appendVarArray(&table_rx_dec, &t_rx_dec );
       }   //trials
 
       // round_trials[0]: number of code word : goodput the protocol
       // sort table
-      qsort (dataArray(table_tx), table_tx->size, table_tx->atomSize, &cmpdouble);
-      qsort (dataArray(table_tx_ifft), table_tx_ifft->size, table_tx_ifft->atomSize, &cmpdouble);
-      qsort (dataArray(table_tx_mod), table_tx_mod->size, table_tx_mod->atomSize, &cmpdouble);
-      qsort (dataArray(table_tx_enc), table_tx_enc->size, table_tx_enc->atomSize, &cmpdouble);
-      qsort (dataArray(table_rx), table_rx->size, table_rx->atomSize, &cmpdouble);
-      qsort (dataArray(table_rx_fft), table_rx_fft->size, table_rx_fft->atomSize, &cmpdouble);
-      qsort (dataArray(table_rx_demod), table_rx_demod->size, table_rx_demod->atomSize, &cmpdouble);
-      qsort (dataArray(table_rx_dec), table_rx_dec->size, table_rx_dec->atomSize, &cmpdouble);
-
       if (dump_table == 1 ) {
         set_component_filelog(SIM);  // file located in /tmp/usim.txt
-        LOG_UDUMPMSG(SIM,table_tx,table_tx->size,LOG_DUMP_DOUBLE,"The transmitter raw data: \n");
-        LOG_UDUMPMSG(SIM,table_rx,table_rx->size,LOG_DUMP_DOUBLE,"Thereceiver raw data: \n");
       }
 
       effective_rate = 1.0-((double)(errs[0]+errs[1]+errs[2]+errs[3])/((double)round_trials[0] + round_trials[1] + round_trials[2] + round_trials[3]));
@@ -1980,7 +1960,7 @@ int main(int argc, char **argv) {
 
       if (print_perf==1) {
         printf("\neNB TX function statistics (per 1ms subframe)\n");
-        printDistribution(&eNB->phy_proc_tx,table_tx,"PHY proc tx");
+        printDistribution(&eNB->phy_proc_tx, "PHY proc tx");
         printStatIndent(&eNB->dlsch_common_and_dci,"DL common channels and dci time");
         printStatIndent(&eNB->dlsch_ue_specific,"DL per ue part time");
         printStatIndent2(&eNB->dlsch_encoding_stats,"DLSCH encoding time");
@@ -1989,9 +1969,9 @@ int main(int argc, char **argv) {
         printStatIndent3(&eNB->dlsch_interleaving_stats,"DLSCH interleaving time");
         printStatIndent2(&eNB->dlsch_scrambling_stats,  "DLSCH scrambling time");
         printStatIndent2(&eNB->dlsch_modulation_stats, "DLSCH modulation time");
-        printDistribution(&eNB->ofdm_mod_stats,table_tx_ifft,"OFDM_mod (idft) time");
+        printDistribution(&eNB->ofdm_mod_stats, "OFDM_mod (idft) time");
         printf("\nUE RX function statistics (per 1ms subframe)\n");
-        printDistribution(&phy_proc_rx_tot, table_rx,"Total PHY proc rx");
+        printDistribution(&phy_proc_rx_tot, "Total PHY proc rx");
         printStatIndent(&ue_front_end_tot,"Front end processing");
         printStatIndent(&dlsch_llr_tot,"rx_pdsch processing");
         printStatIndent2(&pdsch_procedures_tot,"pdsch processing");
@@ -2183,36 +2163,15 @@ int main(int argc, char **argv) {
                 get_time_meas_us(&UE->dlsch_unscrambling_stats),
                 get_time_meas_us(&UE->dlsch_decoding_stats[UE->current_thread_id[subframe]])
                );
-        //fprintf(time_meas_fd,"eNB_PROC_TX_STD;eNB_PROC_TX_MAX;eNB_PROC_TX_MIN;eNB_PROC_TX_MED;eNB_PROC_TX_Q1;eNB_PROC_TX_Q3;eNB_PROC_TX_DROPPED;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f;%f;%f;%d;",squareRoot(&UE->phy_proc_tx), t_tx_max, t_tx_min, median(table_tx), q1(table_tx), q3(table_tx), n_tx_dropped);
-        //fprintf(time_meas_fd,"IFFT;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f;",
-                squareRoot(&eNB->ofdm_mod_stats),
-                median(table_tx_ifft),q1(table_tx_ifft),q3(table_tx_ifft));
-        //fprintf(time_meas_fd,"MOD;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f;",
-                squareRoot(&eNB->dlsch_modulation_stats),
-                median(table_tx_mod), q1(table_tx_mod), q3(table_tx_mod));
-        //fprintf(time_meas_fd,"ENC;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f;",
-                squareRoot(&eNB->dlsch_encoding_stats),
-                median(table_tx_enc),q1(table_tx_enc),q3(table_tx_enc));
-        //fprintf(time_meas_fd,"eNB_PROC_RX_STD;eNB_PROC_RX_MAX;eNB_PROC_RX_MIN;eNB_PROC_RX_MED;eNB_PROC_RX_Q1;eNB_PROC_RX_Q3;eNB_PROC_RX_DROPPED;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f;%f;%f;%d;",
-                squareRoot(&phy_proc_rx_tot), t_rx_max, t_rx_min,
-                median(table_rx), q1(table_rx), q3(table_rx), n_rx_dropped);
-        //fprintf(time_meas_fd,"FFT;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f;",
-                squareRoot(&UE->ofdm_demod_stats),
-                median(table_rx_fft), q1(table_rx_fft), q3(table_rx_fft));
-        //fprintf(time_meas_fd,"DEMOD;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f;",
-                squareRoot(&UE->dlsch_demodulation_stats),
-                median(table_rx_demod), q1(table_rx_demod), q3(table_rx_demod));
-        //fprintf(time_meas_fd,"DEC;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f\n",
-                squareRoot(&UE->dlsch_decoding_stats[subframe]),
-                median(table_rx_dec), q1(table_rx_dec), q3(table_rx_dec));
+        fprintf(time_meas_fd,"TIMER;STD_DEV;MAX;Q1;MED;Q3;MIN;DROPPED;\n");
+        printDistributionDroppedCsv(time_meas_fd, &eNB->phy_proc_tx, n_tx_dropped, "eNB TX TOTAL");
+        printDistributionCsv(time_meas_fd, &eNB->ofdm_mod_stats, "eNB TX IFFT");
+        printDistributionCsv(time_meas_fd, &eNB->dlsch_modulation_stats, "eNB TX MOD");
+        printDistributionCsv(time_meas_fd, &eNB->dlsch_encoding_stats, "eNB TX ENC");
+        printDistributionDroppedCsv(time_meas_fd, &phy_proc_rx_tot, n_rx_dropped, "UE RX TOTAL");
+        printDistributionCsv(time_meas_fd, &UE->ofdm_demod_stats, "UE RX FFT");
+        printDistributionCsv(time_meas_fd, &UE->dlsch_rx_pdcch_stats, "UE RX DEMOD");
+        printDistributionCsv(time_meas_fd, &UE->dlsch_decoding_stats[UE->current_thread_id[subframe]], "UE RX DEC");
         printf("[passed] effective rate : %f  (%2.1f%%,%f)): log and break \n",rate*effective_rate, 100*effective_rate, rate );
         test_passed = 1;
         break;
@@ -2225,6 +2184,19 @@ int main(int argc, char **argv) {
         break;
     }// SNR
   } //ch_realization
+
+  // free sorted lists for timers for which we wanted the distribution
+  free_sorted_list_meas(&eNB->phy_proc_tx);
+  free_sorted_list_meas(&eNB->ofdm_mod_stats);
+  free_sorted_list_meas(&eNB->dlsch_modulation_stats);
+  free_sorted_list_meas(&eNB->dlsch_encoding_stats);
+  free_sorted_list_meas(&UE->phy_proc_rx[0]);
+  free_sorted_list_meas(&UE->phy_proc_rx[1]);
+  free_sorted_list_meas(&phy_proc_rx_tot);
+  free_sorted_list_meas(&UE->ofdm_demod_stats);
+  free_sorted_list_meas(&UE->dlsch_rx_pdcch_stats);
+  free_sorted_list_meas(&UE->dlsch_decoding_stats[0]);
+  free_sorted_list_meas(&UE->dlsch_decoding_stats[1]);
 
   fclose(bler_fd);
 

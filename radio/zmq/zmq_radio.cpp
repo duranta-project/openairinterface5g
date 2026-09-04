@@ -264,6 +264,21 @@ static int zmq_stop(openair0_device_t *device)
 {
   zmq_state_t *s = static_cast<zmq_state_t *>(device->priv);
   s->rx_stream.stop();
+  // Stop and join the poll threads here so a stop->end sequence is idempotent:
+  // zmq_end() skips its join block once poll_thread_running is false.
+  if (s->poll_thread_running) {
+    s->poll_thread_running = false;
+    for (auto &t : s->tx_poll_threads) {
+      if (t.joinable()) {
+        t.join();
+      }
+    }
+    for (auto &t : s->rx_poll_threads) {
+      if (t.joinable()) {
+        t.join();
+      }
+    }
+  }
   return 0;
 }
 
@@ -315,6 +330,9 @@ extern "C" __attribute__((__visibility__("default"))) int device_init(openair0_d
       AssertFatal(socket != NULL, "zmq_socket(ZMQ_REP) for TX antenna %d failed", i);
       int linger = 0;
       zmq_setsockopt(socket, ZMQ_LINGER, &linger, sizeof(linger));
+      int timeout = 1000; // ms: bound socket calls so poll threads can exit on shutdown
+      zmq_setsockopt(socket, ZMQ_RCVTIMEO, &timeout, sizeof(timeout));
+      zmq_setsockopt(socket, ZMQ_SNDTIMEO, &timeout, sizeof(timeout));
       AssertFatal(zmq_bind(socket, tx_channels[i]) == 0, "zmq_bind for TX antenna %d failed on %s", i, tx_channels[i]);
       auto channel = new zmq_tx_channel(socket, openair0_cfg->sample_rate);
       LOG_I(HW, "[ZMQ] TX socket for antenna %d bound to %s\n", i, tx_channels[i]);
@@ -331,6 +349,9 @@ extern "C" __attribute__((__visibility__("default"))) int device_init(openair0_d
       AssertFatal(socket != NULL, "zmq_socket(ZMQ_REQ) for RX antenna %d failed", i);
       int linger = 0;
       zmq_setsockopt(socket, ZMQ_LINGER, &linger, sizeof(linger));
+      int timeout = 1000; // ms: bound socket calls so poll threads can exit on shutdown
+      zmq_setsockopt(socket, ZMQ_RCVTIMEO, &timeout, sizeof(timeout));
+      zmq_setsockopt(socket, ZMQ_SNDTIMEO, &timeout, sizeof(timeout));
       AssertFatal(zmq_connect(socket, rx_channels[i]) == 0, "zmq_connect for RX antenna %d failed on %s", i, rx_channels[i]);
       auto channel = new zmq_rx_channel(socket, openair0_cfg->sample_rate);
       LOG_I(HW, "[ZMQ] RX socket for antenna %d connected to %s\n", i, rx_channels[i]);

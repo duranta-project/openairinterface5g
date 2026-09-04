@@ -114,7 +114,7 @@ class Analysis():
 		# datalog_rt_stats format must align with HTML.CreateHtmlDataLogTable()
 		datalog_rt_stats['Data']={}
 		for k in real_time_stats:
-			tmp = re.match(r'^(?P<metric>.*):\s+(?P<avg>\d+\.\d+) us;\s+(?P<count>\d+);\s+(?P<max>\d+\.\d+) us;', real_time_stats[k])
+			tmp = re.match(r'^(?P<metric>.*):\s+(?P<avg>\d+\.\d+) us;\s+(?P<max>\d+\.\d+) us;\s+(?P<std_dev>\d+\.\d+) us;\s+(?P<count>\d+);', real_time_stats[k])
 			if tmp is not None:
 				metric = tmp.group('metric')
 				avg = float(tmp.group('avg'))

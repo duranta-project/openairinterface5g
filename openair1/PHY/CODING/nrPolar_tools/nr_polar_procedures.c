@@ -298,7 +298,7 @@ void nr_polar_info_bit_pattern(uint8_t *ibp,
     }
 
     pcbp[n] = 0;
-    for (int m = 0; m < n_PC - n_pc_wm; m++) {
+    for (int m = 0; m < n_PC; m++) {
       if (n == Q_PC_N[m]) {
         pcbp[n] = 1;
         break;

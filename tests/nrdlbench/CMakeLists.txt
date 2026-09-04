@@ -9,7 +9,7 @@ add_executable(nr_dlbench
   )
 target_link_libraries(nr_dlbench PRIVATE
   -Wl,--start-group UTIL SIMU PHY_NR_COMMON PHY_NR SCHED_NR_LIB MAC_NR_COMMON CONFIG_LIB L2_NR -Wl,--end-group
-  m pthread ${T_LIB} ITTI dl physim_common
+  m pthread ${T_LIB} ITTI dl physim_common time_management_core
   softmodem_common
   )
 target_link_libraries(nr_dlbench PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)

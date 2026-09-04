@@ -6,6 +6,7 @@
 #define LINEAR_ALLOC_H
 
 #include <limits.h>
+#include <stdint.h>
 
 typedef unsigned int uid_t;
 #define UID_LINEAR_ALLOCATOR_SIZE 1024
@@ -49,6 +50,35 @@ static inline void uid_linear_allocator_free(uid_allocator_t *uia, uid_t uid) {
   if (i < UID_LINEAR_ALLOCATOR_BITMAP_SIZE) {
     uia->bitmap[i] &= value;
   }
+}
+
+/* short alloc (64 bits case) */
+
+typedef uint64_t uid_allocator_64bits_t;
+
+static inline void uid_linear_allocator_64_bits_init(uid_allocator_64bits_t *uia)
+{
+  *uia = 0;
+}
+
+static inline uid_t uid_linear_allocator_64_bits_new(uid_allocator_64bits_t *uia)
+{
+  uint64_t mask = 1;
+  uint64_t cur = *uia;
+  for (int bit = 0; bit < 64; bit++, mask <<= 1) {
+    if (!(cur & mask)) {
+      *uia |= mask;
+      return bit;
+    }
+  }
+  /* full => return 64 */
+  return 64;
+}
+
+static inline void uid_linear_allocator_64_bits_free(uid_allocator_64bits_t *uia, uid_t uid)
+{
+  uint64_t mask = (uint64_t)1 << (uint64_t)uid;
+  *uia &= ~mask;
 }
 
 #endif /* LINEAR_ALLOC_H */

@@ -53,12 +53,11 @@ static void nr_mac_pcch_queue_reenqueue(spsc_q_t *q, module_id_t module_id, cons
  *
  * @param fiveg_s_tmsi ng-5G-S-TMSI from NGAP/F1AP Paging (TS 38.413 / TS 38.473).
  * @param ue_id        UE identity index value mod 1024 (= UE_ID for PF/PO, TS 38.304 §7.1). */
-void nr_mac_pcch_enqueue(module_id_t module_id, uint64_t fiveg_s_tmsi, uint16_t ue_id)
+void nr_mac_pcch_enqueue(gNB_MAC_INST *mac, nr_cell_sched_t *cell, uint64_t fiveg_s_tmsi, uint16_t ue_id)
 {
-  gNB_MAC_INST *mac = RC.nrmac[module_id];
   DevAssert(mac);
-  const int CC_id = 0;
-  NR_COMMON_channels_t *cc = &mac->common_channels[CC_id];
+  DevAssert(cell);
+  NR_COMMON_channels_t *cc = &cell->common_channels;
 
   const nr_mac_pcch_record_t item = {
       .ue_id = ue_id % 1024,
@@ -66,10 +65,10 @@ void nr_mac_pcch_enqueue(module_id_t module_id, uint64_t fiveg_s_tmsi, uint16_t 
   };
 
   NR_SCHED_LOCK(&mac->sched_lock);
-  nr_mac_pcch_queue_push(&cc->pcch_queue, module_id, &item);
+  nr_mac_pcch_queue_push(&cc->pcch_queue, mac->Mod_id, &item);
   NR_SCHED_UNLOCK(&mac->sched_lock);
 
-  LOG_I(NR_MAC, "[gNB %d] PCCH record enqueued UE_ID=%u (5G-S-TMSI=0x%012lx)\n", module_id, item.ue_id, fiveg_s_tmsi);
+  LOG_I(NR_MAC, "[gNB %d] PCCH record enqueued UE_ID=%u (5G-S-TMSI=0x%012lx)\n", mac->Mod_id, item.ue_id, fiveg_s_tmsi);
 }
 
 /** @brief Get paging search space (Type2-PDCCH CSS) from common search space list by pagingSearchSpace ID.
@@ -100,14 +99,14 @@ static NR_SearchSpace_t *get_paging_search_space(NR_ServingCellConfigCommon_t *s
  * Type0-PDCCH CSS carries RMSI (SIB1). When SearchSpaceId = 0 for pagingSearchSpace, TS 38.304
  * requires paging PDCCH monitoring occasions to be the same as for RMSI, so we reuse this check
  * for Ns=1 paging PO slot selection. */
-static bool is_type0_occasion_paging(gNB_MAC_INST *mac, NR_ServingCellConfigCommon_t *scc, uint16_t frame, uint16_t slot)
+static bool is_type0_occasion_paging(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t *scc, uint16_t frame, uint16_t slot)
 {
   DevAssert(mac);
   DevAssert(scc);
   const int L_max = get_max_ssbs(scc);
   // Loops over all SSB indices, returns true if (frame, slot) is the Type0-PDCCH CSS monitoring occasion for any SSB
   for (int i = 0; i < L_max; i++) {
-    if (is_type0_occasion(scc, &mac->type0_PDCCH_CSS_config[i], frame, slot))
+    if (is_type0_occasion(scc, &cell->type0_PDCCH_CSS_config[i], frame, slot))
       return true;
   }
   return false;
@@ -131,7 +130,7 @@ static bool is_type0_occasion_paging(gNB_MAC_INST *mac, NR_ServingCellConfigComm
  * @param dl_req           DL TTI request body to fill (PDCCH+PDSCH PDUs)
  * @param pdu_index        TX_DATA PDU index linking PDSCH grant to payload
  * @param beam_index       Internal beam index */
-static void nr_fill_nfapi_dl_PCCH_pdu(gNB_MAC_INST *mac,
+static void nr_fill_nfapi_dl_PCCH_pdu(nr_cell_sched_t *cell,
                                       NR_sched_pdsch_t *pdsch,
                                       NR_sched_pdcch_t *pdcch,
                                       NR_SearchSpace_t *search_space,
@@ -142,8 +141,7 @@ static void nr_fill_nfapi_dl_PCCH_pdu(gNB_MAC_INST *mac,
                                       int pdu_index,
                                       int beam_index)
 {
-  const int CC_id = 0;
-  NR_COMMON_channels_t *cc = &mac->common_channels[CC_id];
+  NR_COMMON_channels_t *cc = &cell->common_channels;
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
   const uint16_t pdcch_pdu_size = 4 + sizeof(nfapi_nr_dl_tti_pdcch_pdu);
   const uint16_t pdsch_pdu_size = 4 + sizeof(nfapi_nr_dl_tti_pdsch_pdu);
@@ -162,9 +160,9 @@ static void nr_fill_nfapi_dl_PCCH_pdu(gNB_MAC_INST *mac,
   dl_tti_pdsch_pdu->PDUSize = pdsch_pdu_size;
   dl_req->nPDUs += 1;
 
-  const uint16_t fapi_beam = convert_to_fapi_beam(beam_index, mac->beam_info.beam_mode);
+  const uint16_t fapi_beam = convert_to_fapi_beam(beam_index, cell->beam_info.beam_mode);
   nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu_rel15 =
-      prepare_pdsch_pdu(dl_tti_pdsch_pdu, mac, NULL, pdsch, NULL, false, 0, P_RNTI, fapi_beam, 1, pdu_index);
+      prepare_pdsch_pdu(dl_tti_pdsch_pdu, cell, NULL, pdsch, NULL, false, 0, P_RNTI, fapi_beam, 1, pdu_index);
 
   nfapi_nr_dl_dci_pdu_t *dci_pdu = prepare_dci_pdu(pdcch_pdu_rel15,
                                                    scc,
@@ -179,7 +177,7 @@ static void nr_fill_nfapi_dl_PCCH_pdu(gNB_MAC_INST *mac,
 
   const nr_dci_format_t dci_format = NR_DL_DCI_FORMAT_1_0;
   const nr_rnti_type_t rnti_type = TYPE_P_RNTI_;
-  dci_pdu_rel15_t dci_payload = prepare_dci_dl_payload(mac,
+  dci_pdu_rel15_t dci_payload = prepare_dci_dl_payload(cell,
                                                        NULL,
                                                        rnti_type,
                                                        NR_SearchSpace__searchSpaceType_PR_common,
@@ -205,7 +203,7 @@ static void nr_fill_nfapi_dl_PCCH_pdu(gNB_MAC_INST *mac,
                      search_space,
                      coreset,
                      0,
-                     mac->cset0_bwp_size);
+                     cell->cset0_bwp_size);
 }
 
 /** @brief Returns true if (frame, slot) is a paging occasion (PO) for a given UE.
@@ -246,6 +244,7 @@ static bool is_paging_occasion(const NR_PCCH_Config_t *pcch,
                                uint16_t slot,
                                uint16_t ue_id,
                                gNB_MAC_INST *mac,
+                               nr_cell_sched_t *cell,
                                NR_ServingCellConfigCommon_t *scc)
 {
   DevAssert(pcch);
@@ -320,11 +319,11 @@ static bool is_paging_occasion(const NR_PCCH_Config_t *pcch,
 
     /* Ns = 1: single PO in the PF, starting at the first PDCCH MO for paging (same MOs as RMSI, TS 38.213 §13). */
     if (Ns == 1)
-      return is_type0_occasion_paging(mac, scc, frame, slot);
+      return is_type0_occasion_paging(mac, cell, scc, frame, slot);
 
     /* Ns = 2: PO in first half (i_s = 0) or second half (i_s = 1) of the PF (TS 38.304 §7.1). */
     if (Ns == 2) {
-      const int n_slots_frame = mac->frame_structure.numb_slots_frame;
+      const int n_slots_frame = cell->frame_structure.numb_slots_frame;
       return nr_pcch_ss0_po_half_frame(i_s, slot, n_slots_frame);
     }
     return false;
@@ -348,7 +347,7 @@ static bool is_paging_occasion(const NR_PCCH_Config_t *pcch,
     int period = 0;
     int offset = 0;
     get_monitoring_period_offset(ss, &period, &offset);
-    const int n_slots_frame = mac->frame_structure.numb_slots_frame;
+    const int n_slots_frame = cell->frame_structure.numb_slots_frame;
 
     uint8_t ssb_len = 0;
     const uint64_t ssb_bmp = get_ssb_bitmap_and_len(scc, &ssb_len);
@@ -379,6 +378,7 @@ typedef struct {
   slot_t slot;
   const NR_PCCH_Config_t *pcch;
   gNB_MAC_INST *mac;
+  nr_cell_sched_t *cell;
   NR_ServingCellConfigCommon_t *scc;
 } nr_mac_pcch_po_ctx_t;
 
@@ -388,16 +388,16 @@ typedef struct {
  * It returns true if the current (frame, slot) is a paging occasion for the given UE_ID, false otherwise.
  *
  * @param data Queued head ue_id
- * @param user This TTI frame, slot, pcch, mac, scc). PO is per-item and per-slot.
+ * @param user This TTI frame, slot, pcch, mac, cell, scc). PO is per-item and per-slot.
  * @return true if (frame, slot) is a DL slot and a paging occasion for data's ue_id */
 static bool nr_mac_pcch_po_match(const void *data, void *user)
 {
   const nr_mac_pcch_record_t *item = data;
   const nr_mac_pcch_po_ctx_t *ctx = user;
 
-  if (!is_dl_slot(ctx->slot, &ctx->mac->frame_structure))
+  if (!is_dl_slot(ctx->slot, &ctx->cell->frame_structure))
     return false;
-  return is_paging_occasion(ctx->pcch, ctx->frame, ctx->slot, item->ue_id, ctx->mac, ctx->scc);
+  return is_paging_occasion(ctx->pcch, ctx->frame, ctx->slot, item->ue_id, ctx->mac, ctx->cell, ctx->scc);
 }
 
 /** @brief Schedule PCCH (paging) at the UE's paging occasion for the current (frame, slot).
@@ -422,6 +422,7 @@ static bool nr_mac_pcch_po_match(const void *data, void *user)
  * @param DL_req  DL TTI request to fill with PDCCH/PDSCH for P-RNTI
  * @param TX_req  TX data request for PDSCH payload */
 void schedule_nr_pcch(gNB_MAC_INST *mac,
+                      nr_cell_sched_t *cell,
                       frame_t frameP,
                       slot_t slotP,
                       nfapi_nr_dl_tti_request_t *DL_req,
@@ -431,8 +432,7 @@ void schedule_nr_pcch(gNB_MAC_INST *mac,
   DevAssert(DL_req);
   DevAssert(TX_req);
 
-  const int CC_id = 0;
-  NR_COMMON_channels_t *cc = &mac->common_channels[CC_id];
+  NR_COMMON_channels_t *cc = &cell->common_channels;
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
   DevAssert(scc);
   DevAssert(scc->downlinkConfigCommon);
@@ -450,6 +450,7 @@ void schedule_nr_pcch(gNB_MAC_INST *mac,
       .slot = slotP,
       .pcch = pcch,
       .mac = mac,
+      .cell = cell,
       .scc = scc,
   };
   /* Collect every pending record whose paging occasion is this (frame, slot) and encode
@@ -512,7 +513,7 @@ void schedule_nr_pcch(gNB_MAC_INST *mac,
   AssertFatal(ss->controlResourceSetId,
               "schedule_nr_pcch: paging search space id %ld has NULL controlResourceSetId\n",
               ss->searchSpaceId);
-  NR_ControlResourceSet_t *coreset = get_coreset(mac, scc, NULL, *ss->controlResourceSetId);
+  NR_ControlResourceSet_t *coreset = get_coreset(cell, scc, NULL, *ss->controlResourceSetId);
 
   /* Beam selection for this paging occasion.
    * Spec (TS 38.304 §7.1, multi-beam): the same paging message and Short Message are repeated in all
@@ -521,9 +522,9 @@ void schedule_nr_pcch(gNB_MAC_INST *mac,
   int ssb_for_paging = 0;
   if (cc->num_active_ssb > 0)
     ssb_for_paging = cc->ssb_index[0];
-  int beam_index = get_beam_from_ssbidx(mac, ssb_for_paging);
-  const int n_slots_frame = mac->frame_structure.numb_slots_frame;
-  NR_beam_alloc_t beam = beam_allocation_procedure(&mac->beam_info, frameP, slotP, beam_index, n_slots_frame);
+  int beam_index = get_beam_from_ssbidx(cell, ssb_for_paging);
+  const int n_slots_frame = cell->frame_structure.numb_slots_frame;
+  NR_beam_alloc_t beam = beam_allocation_procedure(&cell->beam_info, frameP, slotP, beam_index, n_slots_frame);
   AssertFatal(beam.idx >= 0, "Cannot allocate beam for PCCH paging (ssb=%d)\n", ssb_for_paging);
 
   /* Determine CCE aggregation level and allocate CCE for PCCH PDCCH in the paging search space (Type2-PDCCH CSS set),
@@ -531,9 +532,9 @@ void schedule_nr_pcch(gNB_MAC_INST *mac,
    * on the primary cell of the MCG. Aggregation levels and PDCCH candidates follow TS 38.213 §10.1 and Table 10.1-1;
    * PRBs used by this PDCCH are then reserved in the VRB map. */
   NR_BWP_t *initial_dl_bwp = &scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters;
-  NR_sched_pdcch_t sched_pdcch = set_pdcch_structure(mac, ss, coreset, scc, initial_dl_bwp, mac->type0_PDCCH_CSS_config);
+  NR_sched_pdcch_t sched_pdcch = set_pdcch_structure(cell, ss, coreset, scc, initial_dl_bwp, cell->type0_PDCCH_CSS_config);
   int aggregation_level = 0;
-  int CCEIndex = get_cce_index(mac, CC_id, slotP, 0, &aggregation_level, beam.idx, ss, coreset, &sched_pdcch, 0.0f);
+  int CCEIndex = get_cce_index(cell, slotP, 0, &aggregation_level, beam.idx, ss, coreset, &sched_pdcch, 0.0f);
   if (CCEIndex < 0) {
     LOG_W(NR_MAC,
           "[%04d.%02d][gNB %d] no free CCE for PCCH (UE_ID=%u, records=%d), re-enqueue\n",
@@ -548,7 +549,7 @@ void schedule_nr_pcch(gNB_MAC_INST *mac,
     return;
   }
 
-  fill_pdcch_vrb_map(mac, CC_id, &sched_pdcch, CCEIndex, aggregation_level, beam.idx);
+  fill_pdcch_vrb_map(cell, &sched_pdcch, CCEIndex, aggregation_level, beam.idx);
 
   /* Allocate PDSCH for PCCH and ensure TBS >= payload, using:
    * - TimeDomainAllocationList for common PDSCH on initial DL BWP
@@ -560,14 +561,14 @@ void schedule_nr_pcch(gNB_MAC_INST *mac,
   AssertFatal(tdalist->list.count > 0, "PCCH-Config: pdsch-TimeDomainAllocationList is empty\n");
 
   uint16_t *vrb_map = cc->vrb_map[beam.idx];
-  const uint16_t *sidx = mac->radio_config.spatial_stream_index;
+  const uint16_t *sidx = cell->radio_config.spatial_stream_index;
   NR_sched_pdsch_t pdsch_pcch = {0};
   bool pdsch_ok = false;
   for (int t = 0; t < tdalist->list.count && !pdsch_ok; t++) {
     NR_tda_info_t tda_info = set_tda_info_from_list(tdalist, t);
     NR_pdsch_dmrs_t dmrs_parms = get_dl_dmrs_params(scc, NULL, &tda_info, 1);
     pdsch_pcch = (NR_sched_pdsch_t){
-        .bwp_info = get_pdsch_bwp_start_size(mac, NULL),
+        .bwp_info = get_pdsch_bwp_start_size(cell, NULL),
         .time_domain_allocation = t,
         .dmrs_parms = dmrs_parms,
         .tda_info = tda_info,
@@ -603,8 +604,8 @@ void schedule_nr_pcch(gNB_MAC_INST *mac,
    * - SCF/NFAPI DL_TTI PDCCH/PDSCH PDUs for P-RNTI (DCI 1_0)
    * - TX_data PDU carrying the PCCH payload, linked via PDU_index. */
   nfapi_nr_dl_tti_request_body_t *dl_req_body = &DL_req->dl_tti_request_body;
-  int pdu_index = mac->pdu_index[CC_id]++;
-  nr_fill_nfapi_dl_PCCH_pdu(mac,
+  int pdu_index = cell->pdu_index++;
+  nr_fill_nfapi_dl_PCCH_pdu(cell,
                             &pdsch_pcch,
                             &sched_pdcch,
                             ss,

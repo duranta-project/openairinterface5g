@@ -7,6 +7,7 @@
 #include <complex.h>
 #include "PHY/sse_intrin.h"
 #include "PHY/impl_defs_top.h"
+#include <simde/x86/avx2.h>
 #ifdef __aarch64__
 #define USE_128BIT
 #endif
@@ -22,6 +23,7 @@ void nr_channel_compensation(uint32_t buffer_length,
                              c16_t ch_magc[nb_layers][pdsch_buf_size_max],
                              c16_t **rxComp,
                              c16_t (*rho)[nb_layers][pdsch_buf_size_max],
+                             c16_t cpe,
                              int mod_order,
                              uint32_t symbol,
                              uint32_t output_shift)
@@ -42,6 +44,22 @@ void nr_channel_compensation(uint32_t buffer_length,
     QAM_ampc_256 = simde_mm256_set1_epi16(QAM256_n3);
   }
 
+  const simde__m256i cpe256 = simde_mm256_set_epi16(cpe.i,
+                                                    cpe.r,
+                                                    cpe.i,
+                                                    cpe.r,
+                                                    cpe.i,
+                                                    cpe.r,
+                                                    cpe.i,
+                                                    cpe.r,
+                                                    cpe.i,
+                                                    cpe.r,
+                                                    cpe.i,
+                                                    cpe.r,
+                                                    cpe.i,
+                                                    cpe.r,
+                                                    cpe.i,
+                                                    cpe.r);
   for (int aatx = 0; aatx < nb_layers; aatx++) {
     simde__m256i *rxComp_256 = (simde__m256i *)&rxComp[aatx][symbol * buffer_length];
     simde__m256i *ch_maga_256 = (simde__m256i *)ch_maga[aatx];
@@ -54,7 +72,8 @@ void nr_channel_compensation(uint32_t buffer_length,
       simde__m256i *chF_256 = (simde__m256i *)chFext[aatx][0];
 
       for (uint32_t i = 0; i < buffer_length >> 3; i++) {
-        rxComp_256[i] = oai_mm256_cpx_mult_conj(chF_256[i], rxF_256[i], output_shift);
+        const simde__m256i chF_cpe256 = oai_mm256_cpx_mult(chF_256[i], cpe256, 15);
+        rxComp_256[i] = oai_mm256_cpx_mult_conj(chF_cpe256, rxF_256[i], output_shift);
 
         if (mod_order > 2) {
           simde__m256i mag = oai_mm256_smadd(chF_256[i], chF_256[i], output_shift);
@@ -86,7 +105,8 @@ void nr_channel_compensation(uint32_t buffer_length,
       simde__m256i *chF_256 = (simde__m256i *)chFext[aatx][aarx];
 
       for (uint32_t i = 0; i < buffer_length >> 3; i++) {
-        simde__m256i comp = oai_mm256_cpx_mult_conj(chF_256[i], rxF_256[i], output_shift);
+        const simde__m256i chF_cpe256 = oai_mm256_cpx_mult(chF_256[i], cpe256, 15);
+        const simde__m256i comp = oai_mm256_cpx_mult_conj(chF_cpe256, rxF_256[i], output_shift);
         rxComp_256[i] = simde_mm256_add_epi16(rxComp_256[i], comp);
 
         if (mod_order > 2) {

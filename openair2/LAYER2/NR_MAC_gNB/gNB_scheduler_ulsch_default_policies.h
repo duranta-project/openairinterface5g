@@ -10,6 +10,7 @@
 void nr_ul_ri_tpmi_select_default(gNB_MAC_INST *mac, nr_ul_candidate_t *cands, int n_cand);
 
 int nr_ul_tda_select_default(gNB_MAC_INST *mac,
+                             nr_cell_sched_t *cell,
                              nr_ul_candidate_t *cands,
                              int n_cand,
                              frame_t sched_frame,
@@ -26,7 +27,7 @@ int nr_ul_beam_select_default(NR_beam_info_t *beam_info,
                               slot_t sched_slot,
                               int slots_per_frame);
 
-void nr_ul_mcs_select_default(const gNB_MAC_INST *mac, nr_ul_candidate_t *candidates, int n_candidates);
+void nr_ul_mcs_select_default(const nr_cell_sched_t *cell, nr_ul_candidate_t *candidates, int n_candidates);
 
 int nr_ul_proportional_fair(const nr_ul_sched_params_t *params, nr_ul_candidate_t *candidates, int n_candidates);
 

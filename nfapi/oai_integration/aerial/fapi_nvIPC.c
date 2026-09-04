@@ -341,6 +341,7 @@ void *epoll_recv_task(void *arg)
   }
   // Simulate one PARAM.response per configured PHY to trigger a CONFIG.request
   // for each cell.  aerial_params is populated by nvIPC_Init before this thread starts.
+  // TODO receive the phy_id, maybe receive this PARAM.response dummy as an argument
   nfapi_vnf_config_t *vnf_config = get_config();
   for (int i = 0; i < aerial_params.num_phys; i++) {
     nfapi_nr_param_response_scf_t resp_msg = {.header.message_id = NFAPI_NR_PHY_MSG_TYPE_PARAM_RESPONSE,

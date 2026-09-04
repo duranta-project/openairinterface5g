@@ -11,6 +11,7 @@
 
 #include "PHY/defs_gNB.h"
 #include "common/utils/threadPool/thread-pool.h"
+#include "time_meas.h"
 
 #define NUMBER_FRAMES_PHY_UE_INACTIVE 10
 

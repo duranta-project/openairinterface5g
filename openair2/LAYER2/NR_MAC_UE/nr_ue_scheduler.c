@@ -247,7 +247,7 @@ void update_mac_ul_timers(NR_UE_MAC_INST_t *mac)
 
 void remove_ul_config_last_item(fapi_nr_ul_config_request_pdu_t *pdu)
 {
-  pdu->privateNBpdus--;
+  (*pdu->privateNBpdus)--;
 }
 
 void release_ul_config(fapi_nr_ul_config_request_pdu_t *configPerSlot, bool clearIt)
@@ -2572,92 +2572,101 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
   uint8_t ulsch_input_buffer_array[FAPI_NR_UL_CONFIG_LIST_NUM][MAX_NUM_NR_ULSCH_SEGMENTS * 1056];
   int number_of_pdus = 0;
 
+  /* Stale ul_config (frame mismatch on a slot-indexed buffer) must not abort the
+   * whole UL scheduler: PUCCH HARQ-ACK/CSI/SR still needs to go out. lockGet_ul_iterator
+   * already cleared the leftover PUSCH grant and released the mutex on that path. */
   fapi_nr_ul_config_request_pdu_t *ulcfg_pdu = lockGet_ul_iterator(mac, frame_tx, slot_tx);
-  if (!ulcfg_pdu)
-    return;
-  LOG_D(NR_MAC, "number of UL PDUs: %d with UL transmission in sfn [%d.%d]\n", *ulcfg_pdu->privateNBpdus, frame_tx, slot_tx);
+  if (ulcfg_pdu) {
+    LOG_D(NR_MAC, "number of UL PDUs: %d with UL transmission in sfn [%d.%d]\n", *ulcfg_pdu->privateNBpdus, frame_tx, slot_tx);
 
-  while (ulcfg_pdu->pdu_type != FAPI_NR_END) {
-    uint8_t *ulsch_input_buffer = ulsch_input_buffer_array[number_of_pdus];
-    if (ulcfg_pdu->pdu_type == FAPI_NR_UL_CONFIG_TYPE_PUSCH) {
-      nfapi_nr_ue_pusch_pdu_t *pdu = &ulcfg_pdu->pusch_config_pdu;
-      uint32_t TBS_bytes = pdu->pusch_data.tb_size;
-      LOG_D(NR_MAC,
-            "harq_id %d, new_data_indicator %d, TBS_bytes %d (ra_state %d)\n",
-            pdu->pusch_data.harq_process_id,
-            pdu->pusch_data.new_data_indicator,
-            TBS_bytes,
-            ra->ra_state);
-      pdu->tx_request_body.fapiTxPdu = NULL;
-      if ((ra->ra_state == nrRA_WAIT_RAR || ra->ra_state == nrRA_WAIT_MSGB) && !ra->cfra) {
-        nr_get_Msg3_MsgA_PUSCH_payload(mac, ulsch_input_buffer, TBS_bytes);
-        for (int k = 0; k < TBS_bytes; k++) {
-          LOG_D(NR_MAC, "(%i): 0x%x\n", k, ulsch_input_buffer[k]);
-        }
-        pdu->tx_request_body.fapiTxPdu = ulsch_input_buffer;
-        pdu->tx_request_body.pdu_length = TBS_bytes;
-        number_of_pdus++;
-        T(T_NRUE_MAC_UL_PDU_WITH_DATA, T_INT(mac->crnti), T_INT(frame_tx), T_INT(slot_tx),
-          T_INT(ulcfg_pdu->pusch_config_pdu.pusch_data.harq_process_id), T_BUFFER(ulsch_input_buffer, TBS_bytes));
-      } else {
-        if (ulcfg_pdu->pusch_config_pdu.pusch_data.new_data_indicator
-            && (mac->state == UE_CONNECTED || (ra->ra_state == nrRA_WAIT_RAR && ra->cfra))) {
-          if (!nr_timer_is_active(&mac->time_alignment_timer) && mac->state == UE_CONNECTED && !get_softmodem_params()->phy_test) {
-            // UL data arrival during RRC_CONNECTED when UL synchronisation status is "non-synchronised"
-            trigger_MAC_UE_RA(mac, NULL);
-            return;
+    while (ulcfg_pdu->pdu_type != FAPI_NR_END) {
+      uint8_t *ulsch_input_buffer = ulsch_input_buffer_array[number_of_pdus];
+      if (ulcfg_pdu->pdu_type == FAPI_NR_UL_CONFIG_TYPE_PUSCH) {
+        nfapi_nr_ue_pusch_pdu_t *pdu = &ulcfg_pdu->pusch_config_pdu;
+        uint32_t TBS_bytes = pdu->pusch_data.tb_size;
+        LOG_D(NR_MAC,
+              "harq_id %d, new_data_indicator %d, TBS_bytes %d (ra_state %d)\n",
+              pdu->pusch_data.harq_process_id,
+              pdu->pusch_data.new_data_indicator,
+              TBS_bytes,
+              ra->ra_state);
+        pdu->tx_request_body.fapiTxPdu = NULL;
+        if ((ra->ra_state == nrRA_WAIT_RAR || ra->ra_state == nrRA_WAIT_MSGB) && !ra->cfra) {
+          nr_get_Msg3_MsgA_PUSCH_payload(mac, ulsch_input_buffer, TBS_bytes);
+          for (int k = 0; k < TBS_bytes; k++) {
+            LOG_D(NR_MAC, "(%i): 0x%x\n", k, ulsch_input_buffer[k]);
           }
-          // Getting IP traffic to be transmitted
-          int tx_power = pdu->tx_power;
-          bool tp_enabled = pdu->transform_precoding == NR_PUSCH_Config__transformPrecoder_enabled;
-          int P_CMAX = nr_get_Pcmax(mac->p_Max,
-                                    mac->nr_band,
-                                    mac->frame_structure.frame_type,
-                                    mac->frequency_range,
-                                    mac->current_UL_BWP->channel_bandwidth,
-                                    pdu->qam_mod_order,
-                                    false,
-                                    mac->current_UL_BWP->scs,
-                                    mac->current_UL_BWP->BWPSize,
-                                    tp_enabled,
-                                    pdu->rb_size,
-                                    pdu->rb_start);
-          if (nr_ue_get_sdu(mac, frame_tx, slot_tx, ulsch_input_buffer, TBS_bytes, tx_power, P_CMAX, &BSRsent)) {
-            pdu->tx_request_body.fapiTxPdu = ulsch_input_buffer;
-            pdu->tx_request_body.pdu_length = TBS_bytes;
-            number_of_pdus++;
-            T(T_NRUE_MAC_UL_PDU_WITH_DATA,
-              T_INT(mac->crnti),
-              T_INT(frame_tx),
-              T_INT(slot_tx),
-              T_INT(ulcfg_pdu->pusch_config_pdu.pusch_data.harq_process_id),
-              T_BUFFER(ulsch_input_buffer, TBS_bytes));
-          } else
-            LOG_E(MAC, "nr_ue_get_sdu() failed\n");
-          // start or restart dataInactivityTimer  if any MAC entity transmits a MAC SDU for DTCH logical channel,
-          // or DCCH logical channel
-          if (mac->data_inactivity_timer)
-            nr_timer_start(mac->data_inactivity_timer);
+          pdu->tx_request_body.fapiTxPdu = ulsch_input_buffer;
+          pdu->tx_request_body.pdu_length = TBS_bytes;
+          number_of_pdus++;
+          T(T_NRUE_MAC_UL_PDU_WITH_DATA,
+            T_INT(mac->crnti),
+            T_INT(frame_tx),
+            T_INT(slot_tx),
+            T_INT(ulcfg_pdu->pusch_config_pdu.pusch_data.harq_process_id),
+            T_BUFFER(ulsch_input_buffer, TBS_bytes));
+        } else {
+          if (ulcfg_pdu->pusch_config_pdu.pusch_data.new_data_indicator
+              && (mac->state == UE_CONNECTED || (ra->ra_state == nrRA_WAIT_RAR && ra->cfra))) {
+            if (!nr_timer_is_active(&mac->time_alignment_timer) && mac->state == UE_CONNECTED
+                && !get_softmodem_params()->phy_test) {
+              // UL data arrival during RRC_CONNECTED when UL synchronisation status is "non-synchronised"
+              release_ul_config(ulcfg_pdu, false);
+              trigger_MAC_UE_RA(mac, NULL);
+              return;
+            }
+            // Getting IP traffic to be transmitted
+            int tx_power = pdu->tx_power;
+            bool tp_enabled = pdu->transform_precoding == NR_PUSCH_Config__transformPrecoder_enabled;
+            int P_CMAX = nr_get_Pcmax(mac->p_Max,
+                                      mac->nr_band,
+                                      mac->frame_structure.frame_type,
+                                      mac->frequency_range,
+                                      mac->current_UL_BWP->channel_bandwidth,
+                                      pdu->qam_mod_order,
+                                      false,
+                                      mac->current_UL_BWP->scs,
+                                      mac->current_UL_BWP->BWPSize,
+                                      tp_enabled,
+                                      pdu->rb_size,
+                                      pdu->rb_start);
+            if (nr_ue_get_sdu(mac, frame_tx, slot_tx, ulsch_input_buffer, TBS_bytes, tx_power, P_CMAX, &BSRsent)) {
+              pdu->tx_request_body.fapiTxPdu = ulsch_input_buffer;
+              pdu->tx_request_body.pdu_length = TBS_bytes;
+              number_of_pdus++;
+              T(T_NRUE_MAC_UL_PDU_WITH_DATA,
+                T_INT(mac->crnti),
+                T_INT(frame_tx),
+                T_INT(slot_tx),
+                T_INT(ulcfg_pdu->pusch_config_pdu.pusch_data.harq_process_id),
+                T_BUFFER(ulsch_input_buffer, TBS_bytes));
+            } else
+              LOG_E(MAC, "nr_ue_get_sdu() failed\n");
+            // start or restart dataInactivityTimer  if any MAC entity transmits a MAC SDU for DTCH logical channel,
+            // or DCCH logical channel
+            if (mac->data_inactivity_timer)
+              nr_timer_start(mac->data_inactivity_timer);
+          }
+        }
+
+        if (ra->ra_state == nrRA_WAIT_CONTENTION_RESOLUTION && !ra->cfra) {
+          LOG_I(NR_MAC, "[RAPROC][%d.%d] RA-Msg3 retransmitted\n", frame_tx, slot_tx);
+          // 38.321 restart the ra-ContentionResolutionTimer at each HARQ retransmission in the first symbol after the end of the
+          // Msg3 transmission
+          nr_Msg3_transmitted(mac);
+        }
+        if (ra->ra_state == nrRA_WAIT_RAR && !ra->cfra) {
+          LOG_A(NR_MAC, "[RAPROC][%d.%d] RA-Msg3 transmitted\n", frame_tx, slot_tx);
+          nr_Msg3_transmitted(mac);
+        }
+        if (ra->ra_state == nrRA_WAIT_MSGB && !ra->cfra) {
+          LOG_A(NR_MAC, "[RAPROC][%d.%d] RA-MsgA-PUSCH transmitted\n", frame_tx, slot_tx);
         }
       }
-
-      if (ra->ra_state == nrRA_WAIT_CONTENTION_RESOLUTION && !ra->cfra) {
-        LOG_I(NR_MAC, "[RAPROC][%d.%d] RA-Msg3 retransmitted\n", frame_tx, slot_tx);
-        // 38.321 restart the ra-ContentionResolutionTimer at each HARQ retransmission in the first symbol after the end of the Msg3
-        // transmission
-        nr_Msg3_transmitted(mac);
-      }
-      if (ra->ra_state == nrRA_WAIT_RAR && !ra->cfra) {
-        LOG_A(NR_MAC, "[RAPROC][%d.%d] RA-Msg3 transmitted\n", frame_tx, slot_tx);
-        nr_Msg3_transmitted(mac);
-      }
-      if (ra->ra_state == nrRA_WAIT_MSGB && !ra->cfra) {
-        LOG_A(NR_MAC, "[RAPROC][%d.%d] RA-MsgA-PUSCH transmitted\n", frame_tx, slot_tx);
-      }
+      ulcfg_pdu++;
     }
-    ulcfg_pdu++;
+    release_ul_config(ulcfg_pdu, false);
   }
-  release_ul_config(ulcfg_pdu, false);
 
   if(mac->state >= UE_PERFORMING_RA && mac->state < UE_DETACHING)
     nr_ue_pucch_scheduler(mac, frame_tx, slot_tx);

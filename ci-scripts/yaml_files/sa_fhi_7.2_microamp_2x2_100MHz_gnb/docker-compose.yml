@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: MIT
+
+services:
+    dpdk-init:
+        image: docker.io/library/oai-dpdk-init:latest
+        network_mode: host
+        container_name: dpdk-init
+        entrypoint: "/tmp/setup_sriov.sh"
+        privileged: true
+        devices:
+            - /dev/vfio:/dev/vfio/
+        volumes:
+            - ./setup_sriov_microamp.sh:/tmp/setup_sriov.sh
+            - /lib/modules:/lib/modules
+            - /usr/lib/modules:/usr/lib/modules
+    oai-gnb:
+        image: ${REGISTRY-oaisoftwarealliance/}oai-gnb-fhi72:${TAG:-develop}
+        cap_add:
+            - IPC_LOCK
+            - SYS_NICE
+        cap_drop:
+            - ALL
+        container_name: oai-gnb
+        environment:
+            TZ: Europe/Paris
+            USE_ADDITIONAL_OPTIONS: --thread-pool 38,39,40,41,42,43,44,45 --log_config.global_log_options level,nocolor,utc_time
+        devices:
+            - /dev/vfio:/dev/vfio/
+        volumes:
+            - ../../../ci-scripts/conf_files/gnb.sa.band257.66prb.fhi72.2x2-microamp.conf:/opt/oai-gnb/etc/gnb.conf
+            - /dev/hugepages:/dev/hugepages
+        # Please change these values based on your system
+        cpuset: "32,33,34,35,36,37,38,39,40,41,42,43,44,45"
+        networks:
+            oai-net:
+                ipv4_address: 172.21.10.20
+        depends_on:
+           dpdk-init:
+             condition: service_completed_successfully
+        healthcheck:
+           test: /bin/bash -c "/opt/oai-gnb/bin/check-prach-io.sh"
+           start_period: 15s
+           start_interval: 500ms
+           interval: 5s
+           timeout: 5s
+           retries: 10
+
+networks:
+    oai-net:
+        driver: macvlan
+        name: oai-net
+        ipam:
+            config:
+                - subnet: "172.21.8.0/22"
+                  ip_range: "172.21.10.20/32"
+                  gateway: "172.21.11.254"
+        driver_opts:
+            com.docker.network.bridge.name: "oai-net"
+            parent: bond0

@@ -4,100 +4,115 @@
 
 #include "PHY/defs_common.h"
 
-double median(varArray_t *input) {
-  return *(double *)((uint8_t *)(input+1)+(input->size/2)*input->atomSize);
+static inline double time_stats_value_us(time_stats_t *ptr, oai_cputime_t (*getter)(time_stats_sorted_list_t *))
+{
+  if (ptr == NULL || !is_enabled_time_stats_sorted_list(&ptr->time_stats_sorted_list))
+    return 0;
+  oai_cputime_t value = getter(&ptr->time_stats_sorted_list);
+  return value >= 0 ? value / 1000.0 : 0;
 }
 
-double q1(varArray_t *input) {
-  return *(double *)((uint8_t *)(input+1)+(input->size/4)*input->atomSize);
-}
-
-double q3(varArray_t *input) {
-  return *(double *)((uint8_t *)(input+1)+(3*input->size/4)*input->atomSize);
-}
-
-void dumpVarArray(varArray_t *input) {
-  double *ptr=dataArray(input);
-  printf("dumping size=%ld\n", input->size);
-
-  for (int i=0; i < input->size; i++)
-    printf("%.1f:", *ptr++);
-
-  printf("\n");
-}
-void sumUpStats(time_stats_t * res, time_stats_t * src, int lastActive) {
+void sumUpStats(time_stats_t * res, time_stats_t * src, int lastActive)
+{
   reset_meas(res);
-	for (int i=0; i<RX_NB_TH; i++) {
-	  res->diff+=src[i].diff;
-	  res->diff_square+=src[i].diff_square;
-	  res->trials+=src[i].trials;
-	  if (src[i].max > res->max)
-	    res->max=src[i].max;
-	}
-	res->p_time=src[lastActive].p_time;
+  for (int i = 0; i < RX_NB_TH; i++) {
+    merge_meas(res, &src[i]);
+  }
+  res->p_time=src[lastActive].p_time;
 }
-void sumUpStatsSlot(time_stats_t *res, time_stats_t src[RX_NB_TH][2], int lastActive) {
+
+void sumUpStatsSlot(time_stats_t *res, time_stats_t src[RX_NB_TH][2], int lastActive)
+{
   reset_meas(res);
-	for (int i=0; i<RX_NB_TH; i++) {
-	  res->diff+=src[i][0].diff+src[i][1].diff;
-	  res->diff_square+=src[i][0].diff_square+src[i][1].diff_square;
-	  res->trials+=src[i][0].trials+src[i][1].trials;
-	  if (src[i][0].max > res->max)
-	    res->max=src[i][0].max;
-	  if (src[i][1].max > res->max)
-	    res->max=src[i][1].max;}
-	int last=src[lastActive][0].in < src[lastActive][1].in? 1 : 0 ;
-	res->p_time=src[lastActive][last].p_time;
+  for (int i = 0; i < RX_NB_TH; i++) {
+    merge_meas(res, &src[i][1]);
+    merge_meas(res, &src[i][2]);
+  }
+  int last=src[lastActive][0].in < src[lastActive][1].in? 1 : 0 ;
+  res->p_time=src[lastActive][last].p_time;
 }
 
-double squareRoot(time_stats_t *ptr) {
-  double timeBase=1/(1000*get_cpu_freq_GHz());
-  return sqrt((double)ptr->diff_square*pow(timeBase,2)/ptr->trials -
-              pow((double)ptr->diff/ptr->trials*timeBase,2));
-}
-
-void printDistribution(time_stats_t *ptr, varArray_t *sortedList, char *txt) {
-  double timeBase=1/(1000*get_cpu_freq_GHz());
+void printDistribution(time_stats_t *ptr, char *txt)
+{
   printf("%-43s %6.2f us (%d trials)\n",
          txt,
-         (double)ptr->diff/ptr->trials*timeBase,
+         ptr->trials ? (double)ptr->diff / ptr->trials / 1000.0 : 0,
          ptr->trials);
-  printf(" Statistics std=%.2f, median=%.2f, q1=%.2f, q3=%.2f µs (on %ld trials)\n",
-         squareRoot(ptr), median(sortedList),q1(sortedList),q3(sortedList), sortedList->size);
+
+  printf(" Statistics std=%.2f, min=%.2f, q1=%.2f, median=%.2f, q3=%.2f, max=%.2f µs (on %d trials)\n",
+         ptr->trials ? get_std_dev(ptr) : 0,
+         time_stats_value_us(ptr, get_min),
+         time_stats_value_us(ptr, get_q1),
+         time_stats_value_us(ptr, get_median),
+         time_stats_value_us(ptr, get_q3),
+         ptr->max / 1000.0,
+         ptr->trials);
 }
 
-void printStatIndent(time_stats_t *ptr, char *txt) {
+void printDistributionCsv(FILE *fd, time_stats_t *ptr, char *name)
+{
+  fprintf(fd,
+          "%s;%f;%f;%f;%f;%f;%f;",
+          name,
+          get_std_dev(ptr),
+          time_stats_value_us(ptr, get_min),
+          time_stats_value_us(ptr, get_q1),
+          time_stats_value_us(ptr, get_median),
+          time_stats_value_us(ptr, get_q3),
+          ptr->max / 1000.0);
+}
+
+void printDistributionDroppedCsv(FILE *fd, time_stats_t *ptr, int n_dropped, char *name)
+{
+  fprintf(fd,
+          "%s;%f;%f;%f;%f;%f;%f;%d;",
+          name,
+          get_std_dev(ptr),
+          time_stats_value_us(ptr, get_min),
+          time_stats_value_us(ptr, get_q1),
+          time_stats_value_us(ptr, get_median),
+          time_stats_value_us(ptr, get_q3),
+          ptr->max / 1000.0,
+          n_dropped);
+}
+
+void printStatIndent(time_stats_t *ptr, char *txt)
+{
   printf("|__ %-38s %6.2f us (%3d trials)\t\t(%6.2f total [ms])\n",
          txt,
-         ptr->trials?inMicroS(ptr->diff/ptr->trials):0,
+         ptr->trials?ptr->diff/ptr->trials/1000.0:0,
          ptr->trials,
-         ptr->trials?inMicroS(ptr->diff)/1000:0);
+         ptr->trials?ptr->diff/1000.0:0);
 }
 
-void printStatIndent2(time_stats_t *ptr, char *txt) {
-  double timeBase=1/(1000*get_cpu_freq_GHz());
+void printStatIndent2(time_stats_t *ptr, char *txt)
+{
   printf("    |__ %-34s %6.2f us (%3d trials)\t\t(%6.2f total [ms])\n",
          txt,
-         ptr->trials?((double)ptr->diff)/ptr->trials*timeBase:0,
+         ptr->trials?ptr->diff/ptr->trials/1000.0:0,
          ptr->trials,
-         ptr->trials?inMicroS(ptr->diff)/1000:0);
+         ptr->trials?ptr->diff/1000.0:0);
 }
 
-void printStatIndent3(time_stats_t *ptr, char *txt) {
-  double timeBase=1/(1000*get_cpu_freq_GHz());
+void printStatIndent3(time_stats_t *ptr, char *txt)
+{
   printf("        |__ %-30s %6.2f us (%3d trials)\n",
          txt,
-         ptr->trials?((double)ptr->diff)/ptr->trials*timeBase:0,
+         ptr->trials?ptr->diff/ptr->trials/1000.0:0,
 	 ptr->trials);
 }
 
 
-void logDistribution(FILE* fd, time_stats_t *ptr, varArray_t *sortedList, int dropped) {
-  fprintf(fd,"%f;%f;%f;%f;%f;%f;%d;",
-	  squareRoot(ptr),
-	  (double)ptr->max, *(double*)dataArray(sortedList),
-	  median(sortedList),q1(sortedList),q3(sortedList),
-	  dropped);
+void logDistribution(FILE* fd, time_stats_t *ptr, int dropped)
+{
+  fprintf(fd, "%f;%f;%f;%f;%f;%f;%d;",
+          ptr->trials ? get_std_dev(ptr) : 0,
+          ptr->max / 1000.0,
+          time_stats_value_us(ptr, get_min),
+          time_stats_value_us(ptr, get_median),
+          time_stats_value_us(ptr, get_q1),
+          time_stats_value_us(ptr, get_q3),
+          dropped);
 }
 
 struct option * parse_oai_options(paramdef_t *options) {

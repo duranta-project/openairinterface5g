@@ -13,6 +13,8 @@
 #include "PHY/TOOLS/tools_defs.h"
 #include "nr_refsig.h"
 #include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_nr_interface.h"
+#include "platform_types.h"
+#include "softmodem-common.h"
 
 // Table 6.4.1.1.3-1/2 from TS 38.211
 static const int wf1[8][2] = {{1, 1}, {1, -1}, {1, 1}, {1, -1}, {1, 1}, {1, -1}, {1, 1}, {1, -1}};
@@ -25,7 +27,7 @@ static const int wt2[12][2] =
 // complex conjugate of mod table
 static const c16_t nr_rx_mod_table[4] = {{23170, -23170}, {23170, 23170}, {-23170, -23170}, {-23170, 23170}};
 
-static inline c16_t get_modulated(const uint32_t *gold_sequence, const int idx_gold, const bool inverse)
+c16_t get_modulated(const uint32_t *gold_sequence, const int idx_gold, const bool inverse)
 {
   const uint8_t *gold = (uint8_t *)gold_sequence;
   const int swap2bits[4] = {0, 2, 1, 3};
@@ -163,27 +165,18 @@ void nr_pbch_dmrs_rx(int symbol, const unsigned int *nr_gold_pbch, c16_t *output
   }
 }
 
-/*!
-  \brief This function generate gold ptrs sequence for each OFDM symbol
-  \param *in gold sequence for ptrs per OFDM symbol
-  \param length is number of RE in a OFDM symbol
-  \param *output pointer to all ptrs RE in a OFDM symbol
-*/
-void nr_gen_ref_conj_symbols(const uint32_t *in, uint32_t length, c16_t *output, int mod_order)
+/**
+ * @brief Generates modulated reference symbols from gold sequence input bits. Assumes modulation index 2.
+ *
+ * @param in gold sequence bits as uint32 words
+ * @param ref_symbols number of symbols to modulate
+ * @param output modulated symbols as c16_t
+ */
+void nr_gen_ref_conj_symbols(const uint32_t *in, uint32_t ref_symbols, c16_t *output)
 {
-  uint8_t idx, b_idx;
-  for (int i=0; i<length/mod_order; i++)
-    {
-      idx = 0;
-      for (int j=0; j<mod_order; j++)
-        {
-          b_idx = (i*mod_order+j)&0x1f;
-          if (i && (!b_idx))
-            in++;
-          idx ^= (((*in)>>b_idx)&1)<<(mod_order-j-1);
-        }
-        output[i] = nr_rx_mod_table[idx];
-    }
+  for (int i = 0; i < ref_symbols; i++) {
+    output[i] = get_modulated(in, i, true);
+  }
 }
 
 int nr_pusch_lowpaprtype1_dmrs_rx(nr_prefix_type_t Ncp,

@@ -31,13 +31,14 @@ int main(int argc, char *argv[])
   // int16_t channelOutput_int16[NR_SMALL_BLOCK_CODED_BITS];
   int8_t channelOutput_int8[NR_SMALL_BLOCK_CODED_BITS];
   unsigned char qbits = 8;
+  int Qm = 2;
 
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == 0) {
     exit_fun("[SMALLBLOCKTEST] Error, configuration module init failed\n");
   }
   logInit();
 
-  while ((arguments = getopt(argc, argv, "--:O:s:d:f:l:i:mhg")) != -1) {
+  while ((arguments = getopt(argc, argv, "--:O:s:d:f:l:i:q:hg")) != -1) {
 
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
@@ -58,6 +59,10 @@ int main(int argc, char *argv[])
         SNRstop = atof(optarg);
         break;
 
+      case 'q':
+        Qm = atoi(optarg);
+        break;
+
       case 'l':
         messageLength = atoi(optarg);
         break;
@@ -65,11 +70,6 @@ int main(int argc, char *argv[])
       case 'i':
         iterations = atoi(optarg);
         break;
-
-        /*case 'm':
-          matlabDebug = 1;
-          //#define DEBUG_POLAR_MATLAB
-          break;*/
 
       case 'g':
         iterations = 1;
@@ -107,7 +107,7 @@ int main(int argc, char *argv[])
       testInput |= (((uint32_t)(rand() % 2)) & 1);
       // Encoding
       start_meas(&timeEncoder);
-      encoderOutput = encodeSmallBlock(testInput, messageLength);
+      encoderOutput = encodeSmallBlock(testInput, messageLength, Qm);
       stop_meas(&timeEncoder);
 
       for (int i = 0; i < NR_SMALL_BLOCK_CODED_BITS; i++) {
@@ -127,7 +127,10 @@ int main(int argc, char *argv[])
 
       // Decoding
       start_meas(&timeDecoder);
-      estimatedOutput = decodeSmallBlock(channelOutput_int8, (uint8_t)messageLength);
+      if (messageLength > 2)
+        estimatedOutput = decodeSmallBlock(channelOutput_int8, messageLength);
+      else
+        estimatedOutput = decode_1_2_uci_bit(channelOutput_int8, messageLength, Qm);
       stop_meas(&timeDecoder);
 
 #ifdef DEBUG_SMALLBLOCKTEST

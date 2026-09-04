@@ -804,6 +804,29 @@ pipeline {
             }
           }
         }
+        stage ("SA-FHI72-FR2-CN5G") {
+          when { expression {do5Gtest} }
+          steps {
+            script {
+              triggerDownstreamJob ('RAN-SA-FHI72-FR2-CN5G')
+            }
+          }
+          post {
+            always {
+              script {
+                // Using a unique variable name for each test stage to avoid overwriting on a global variable
+                // due to parallel-time concurrency
+                saFHI72FR2Status = finalizeDownstreamJob('RAN-SA-FHI72-FR2-CN5G')
+              }
+            }
+            failure {
+              script {
+                currentBuild.result = 'FAILURE'
+                failingStages += saFHI72FR2Status
+              }
+            }
+          }
+        }
         stage ("SA-ORU-CN5G") {
           when { expression {do5Gtest} }
           steps {

@@ -48,7 +48,7 @@ static void handle_nr_rach(NR_UL_IND_t *UL_info)
         LOG_E(MAC, "Not more than 1 preamble per RACH PDU supported, ignoring the rest\n");
       }
       nr_initiate_ra_proc(UL_info->module_id,
-                          UL_info->CC_id,
+                          UL_info->phy_id,
                           UL_info->rach_ind.sfn,
                           UL_info->rach_ind.slot,
                           rach->preamble_list[0].preamble_index,
@@ -72,6 +72,7 @@ static void handle_nr_uci(NR_UL_IND_t *UL_info)
   }
 
   const module_id_t mod_id = UL_info->module_id;
+  const int cell_id = UL_info->phy_id;
   const frame_t frame = UL_info->uci_ind.sfn;
   const slot_t slot = UL_info->uci_ind.slot;
   int num_ucis = UL_info->uci_ind.num_ucis;
@@ -87,13 +88,13 @@ static void handle_nr_uci(NR_UL_IND_t *UL_info)
         const nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_pdu = &uci_list[i].pucch_pdu_format_0_1;
         LOG_D(NR_MAC, "The received uci has sfn slot %d %d, num_ucis %d and pdu_size %d\n",
                 UL_info->uci_ind.sfn, UL_info->uci_ind.slot, num_ucis, uci_list[i].pdu_size);
-        handle_nr_uci_pucch_0_1(mod_id, frame, slot, uci_pdu);
+        handle_nr_uci_pucch_0_1(mod_id, cell_id, frame, slot, uci_pdu);
         break;
       }
 
         case NFAPI_NR_UCI_FORMAT_2_3_4_PDU_TYPE: {
           const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_pdu = &uci_list[i].pucch_pdu_format_2_3_4;
-          handle_nr_uci_pucch_2_3_4(mod_id, frame, slot, uci_pdu);
+          handle_nr_uci_pucch_2_3_4(mod_id, cell_id, frame, slot, uci_pdu);
           break;
         }
       LOG_D(MAC, "UCI handled \n");
@@ -168,7 +169,7 @@ static void handle_nr_ulsch(NR_UL_IND_t *UL_info)
 
       /* if CRC passes, pass PDU, otherwise pass NULL as error indication */
       nr_rx_sdu(UL_info->module_id,
-                UL_info->CC_id,
+                UL_info->phy_id,
                 UL_info->rx_ind.sfn,
                 UL_info->rx_ind.slot,
                 crc->rnti,
@@ -197,17 +198,19 @@ static void handle_nr_srs(NR_UL_IND_t *UL_info)
   }
 
   const module_id_t module_id = UL_info->module_id;
+  const int phy_id = UL_info->phy_id;
   const frame_t frame = UL_info->srs_ind.sfn;
   const slot_t slot = UL_info->srs_ind.slot;
   const int num_srs = UL_info->srs_ind.number_of_pdus;
   nfapi_nr_srs_indication_pdu_t *srs_list = UL_info->srs_ind.pdu_list;
-
   // from here
 
   for (int i = 0; i < num_srs; i++) {
     nfapi_nr_srs_indication_pdu_t *srs_ind = &srs_list[i];
     LOG_D(NR_PHY, "(%d.%d) UL_info->srs_ind.pdu_list[%d].rnti: 0x%04x\n", frame, slot, i, srs_ind->rnti);
+
     handle_nr_srs_measurements(module_id,
+                               phy_id,
                                frame,
                                slot,
                                srs_ind);
@@ -385,28 +388,28 @@ static void match_crc_rx_pdu(nfapi_nr_rx_data_indication_t *rx_ind, nfapi_nr_crc
 static void pnf_send_slot_ind(const nfapi_nr_slot_indication_scf_t *ind, NR_Sched_Rsp_t *rsp)
 {
   module_id_t module_id = 0;
-  int CC_id = 0;
-  reset_sched_response(rsp, ind->sfn, ind->slot, module_id, CC_id);
+  int phy_id = 0;
+  reset_sched_response(rsp, ind->sfn, ind->slot, module_id, phy_id);
   handle_nr_slot_ind(ind->sfn, ind->slot, rsp);
 }
 
 static void run_scheduler_monolithic(const nfapi_nr_slot_indication_scf_t *ind, NR_Sched_Rsp_t *rsp)
 {
   module_id_t module_id = 0;
-  int CC_id = 0;
-  reset_sched_response(rsp, ind->sfn, ind->slot, module_id, CC_id);
-  gNB_dlsch_ulsch_scheduler(rsp->module_id, ind->sfn, ind->slot, rsp);
+  int phy_id = ind->header.phy_id;
+  reset_sched_response(rsp, ind->sfn, ind->slot, module_id, phy_id);
+  gNB_dlsch_ulsch_scheduler(rsp->module_id,phy_id, ind->sfn, ind->slot, rsp);
 }
 
 static void NR_UL_indication(NR_UL_IND_t *UL_info)
 {
   AssertFatal(UL_info!=NULL,"UL_info is null\n");
   module_id_t module_id = UL_info->module_id;
-  int CC_id = UL_info->CC_id;
+  int cell_id = UL_info->phy_id;
 
-  LOG_D(NR_PHY,"SFN/SLOT:%d.%d module_id:%d CC_id:%d UL_info[rach_pdus:%zu rx_ind:%zu crcs:%zu]\n",
+  LOG_D(NR_PHY,"SFN/SLOT:%d.%d module_id:%d phy_id:%d UL_info[rach_pdus:%zu rx_ind:%zu crcs:%zu]\n",
         UL_info->frame, UL_info->slot,
-        module_id, CC_id,
+        module_id, cell_id,
         gnb_rach_ind_queue.num_items,
         gnb_rx_ind_queue.num_items,
         gnb_crc_ind_queue.num_items);
@@ -492,10 +495,10 @@ NR_IF_Module_t *NR_IF_Module_init(int Mod_id) {
   return nr_if_inst[Mod_id];
 }
 
-void reset_sched_response(NR_Sched_Rsp_t *sched_response, int frame, int slot, int module_id, int CC_id)
+void reset_sched_response(NR_Sched_Rsp_t *sched_response, int frame, int slot, int module_id, int phy_id)
 {
   sched_response->module_id = module_id;
-  sched_response->CC_id = CC_id;
+  sched_response->phy_id = phy_id;
   sched_response->frame = frame;
   sched_response->slot = slot;
 

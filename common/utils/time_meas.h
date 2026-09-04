@@ -38,28 +38,159 @@ typedef struct {
   meas_printfunc_t  displayFunc;            /*!< \brief function to call when DISPLAY message is received*/
 } time_stats_msg_t;
 
+/**
+ * \typedef time_stats_sorted_list_t
+ * \brief sorted list of time stats to get med, q1, q2
+ * it can be left disabled by leaving size equal to 0
+ * \var size allocated size of the list
+ * 0 is the sorted list is disabled
+ * \var nb_elm number of elements in the list
+ * \var list pointer to the list
+ */
+/*
+ * Marker set only by init_time_stats_sorted_list().
+ * It prevents an uninitialized time_stats_t from being mistaken for an
+ * enabled sorted list when its size field contains garbage.
+ */
+#define TIME_STATS_SORTED_LIST_MAGIC 0x51A7BEEF
+
+typedef struct {
+  unsigned int size;
+  unsigned int nb_elm;
+  uint32_t magic;
+  oai_cputime_t *list;
+} time_stats_sorted_list_t;
+
+/**
+ * \brief initializes sorted list
+ * if dst is already initialized then asserts
+ * \param time_stats_sorted_list sorted list to be initialized
+ * \param size size of the sorted list
+ */
+void init_time_stats_sorted_list(time_stats_sorted_list_t *list, unsigned int size);
+
+/**
+ * \brief free sorted list
+ * if dst is already free then does nothing
+ * \param time_stats_sorted_list sorted list to be freed
+ */
+void free_time_stats_sorted_list(time_stats_sorted_list_t *list);
+
+/**
+ * \brief returns true if the sorted list is enabled and false otherwise
+ * \param time_stats_sorted_list sorted list to be tested
+ */
+int is_enabled_time_stats_sorted_list(const time_stats_sorted_list_t *list);
+
+/**
+ * \brief empties sorted list
+ * if dst is not initialized then does nothing
+ * \param time_stats_sorted_list sorted list to be emptied
+ */
+void reset_time_stats_sorted_list(time_stats_sorted_list_t *list);
+
+/**
+ * \brief inserts value sorted list
+ * if dst is not initialized then does nothing
+ * if dst is full then does nothing
+ * \param time_stats_sorted_list sorted list to insert in
+ * \param time time value to insert
+ */
+void insert_in_time_stats_sorted_list(time_stats_sorted_list_t *list, oai_cputime_t time);
+
+/**
+ * \brief copy sorted list src into dst, freeing and replacing dst
+ * dst and src should be initialized, otherwise does nothing
+ * \param dst destination sorted list
+ * should be intitialized even with a dummy size 1 buffer to make sure that copying the list there is expected by the caller
+ * \param src source sorted list
+ */
+void copy_time_stats_sorted_list(time_stats_sorted_list_t *dst, const time_stats_sorted_list_t *src);
+
+/**
+ * \brief inserts the content of sorted list src into dst
+ * dst and src should be initialized, otherwise does nothing
+ * if dst is not large enough to copy src then does nothing
+ * \param dst destination sorted list
+ * \param src source sorted list
+ */
+void merge_time_stats_sorted_list(time_stats_sorted_list_t *dst, const time_stats_sorted_list_t *src);
+
+/**
+ * \brief get the minimum from a sorted list
+ * if the sorted list is not initialized or empty then returns -1
+ * \param time_stats_sorted_list sorted list to query
+ */
+oai_cputime_t get_min(time_stats_sorted_list_t *list);
+
+/**
+ * \brief get the median from a sorted list
+ * if the sorted list is not initialized or empty then returns -1
+ * \param time_stats_sorted_list sorted list to query
+ */
+oai_cputime_t get_median(time_stats_sorted_list_t *list);
+
+/**
+ * \brief get the first quartile from a sorted list
+ * if the sorted list is not initialized or empty then returns -1
+ * \param time_stats_sorted_list sorted list to query
+ */
+oai_cputime_t get_q1(time_stats_sorted_list_t *list);
+
+/**
+ * \brief get the third quartile from a sorted list
+ * if the sorted list is not initialized or empty then returns -1
+ * \param time_stats_sorted_list sorted list to query
+ */
+oai_cputime_t get_q3(time_stats_sorted_list_t *list);
+
+/**
+ * \brief get the first decile from a sorted list
+ * if the sorted list is not initialized or empty then returns -1
+ * \param time_stats_sorted_list sorted list to query
+ */
+oai_cputime_t get_d1(time_stats_sorted_list_t *list);
+
+/**
+ * \brief get the nineth decile from a sorted list
+ * if the sorted list is not initialized or empty then returns -1
+ * \param time_stats_sorted_list sorted list to query
+ */
+oai_cputime_t get_d9(time_stats_sorted_list_t *list);
+
 struct notifiedFIFO_elt_s;
 typedef struct time_stats {
-  oai_cputime_t in;          /*!< \brief time at measure starting point */
-  oai_cputime_t diff;        /*!< \brief average difference between time at starting point and time at endpoint*/
-  oai_cputime_t p_time;      /*!< \brief absolute process duration */
-  double diff_square;        /*!< \brief process duration square */
-  oai_cputime_t max;         /*!< \brief maximum difference between time at starting point and time at endpoint*/
-  int trials;                /*!< \brief number of start point - end point iterations */
-  int meas_flag;             /*!< \brief 1: stop_meas not called (consecutive calls of start_meas) */
-  char *meas_name;           /*!< \brief name to use when printing the measure (not used for PHY simulators)*/
-  int meas_index;            /*!< \brief index of this measure in the measure array (not used for PHY simulators)*/
-  int meas_enabled;         /*!< \brief per measure enablement flag. send_meas tests this flag, unused today in start_meas and stop_meas*/
-  struct notifiedFIFO_elt_s *tpoolmsg; /*!< \brief message pushed to the cpu measurment queue to report a measure START or STOP */
-  time_stats_msg_t *tstatptr;   /*!< \brief pointer to the time_stats_msg_t data in the tpoolmsg, stored here for perf considerations*/
+  oai_cputime_t in;                                /*!< \brief time at measure starting point */
+  oai_cputime_t diff;                              /*!< \brief average difference between time at starting point and time at endpoint*/
+  oai_cputime_t p_time;                            /*!< \brief absolute process duration */
+  double diff_square;                              /*!< \brief process duration square */
+  oai_cputime_t max;                               /*!< \brief maximum difference between time at starting point and time at endpoint*/
+  int trials;                                      /*!< \brief number of start point - end point iterations */
+  int meas_flag;                                   /*!< \brief 1: stop_meas not called (consecutive calls of start_meas) */
+  char *meas_name;                                 /*!< \brief name to use when printing the measure (not used for PHY simulators)*/
+  int meas_index;                                  /*!< \brief index of this measure in the measure array (not used for PHY simulators)*/
+  int meas_enabled;                                /*!< \brief per measure enablement flag. send_meas tests this flag, unused today in start_meas and stop_meas*/
+  struct notifiedFIFO_elt_s *tpoolmsg;             /*!< \brief message pushed to the cpu measurment queue to report a measure START or STOP */
+  time_stats_msg_t *tstatptr;                      /*!< \brief pointer to the time_stats_msg_t data in the tpoolmsg, stored here for perf considerations */
+  time_stats_sorted_list_t time_stats_sorted_list; /*!< \brief optional sorted list to get med, q1, q2 */
 } time_stats_t;
 #define MEASURE_ENABLED(X)       (X->meas_enabled)
 
 static inline void start_meas(time_stats_t *ts) __attribute__((always_inline));
 static inline void stop_meas(time_stats_t *ts) __attribute__((always_inline));
 
+/**
+ * \brief get the standard deviation of a timer
+ * \param ptr timer to query
+ */
+double get_std_dev(time_stats_t *ptr);
 void print_meas_now(time_stats_t *ts, const char *name, FILE *file_name);
 void print_meas(time_stats_t *ts, const char *name, time_stats_t *total_exec_time, time_stats_t *sf_exec_time);
+size_t print_meas_log_header(time_stats_t *total_exec_time,
+                             time_stats_t *sf_exec_time,
+                             char *output,
+                             size_t outputlen,
+                             int cpu_meas_enabled);
 size_t print_meas_log(time_stats_t *ts,
                       const char *name,
                       time_stats_t *total_exec_time,
@@ -101,6 +232,19 @@ static inline uint32_t rdtsc_oai(void) {
 }
 #endif
 
+static inline long long clock_gettime_oai()
+{
+  struct timespec time;
+#ifdef CLOCK_MONOTONIC_RAW
+  // CLOCK_MONOTONIC_RAW only on linux
+  // See clock_getres(2)
+  clock_gettime(CLOCK_MONOTONIC_RAW, &time);
+#else
+  clock_gettime(CLOCK_REALTIME, &time);
+#endif
+  return 1e+9 * time.tv_sec + time.tv_nsec;
+}
+
 #define CPUMEAS_DISABLE  0
 #define CPUMEAS_ENABLE   1
 #define CPUMEAS_GETSTATE 2
@@ -126,10 +270,10 @@ static inline void start_meas(time_stats_t *ts) {
   if (cpu_meas_enabled) {
     if (ts->meas_flag==0) {
       ts->trials++;
-      ts->in = rdtsc_oai();
+      ts->in = clock_gettime_oai();
       ts->meas_flag=1;
     } else {
-      ts->in = rdtsc_oai();
+      ts->in = clock_gettime_oai();
     }
     if ((ts->trials&16383)<10) ts->max=0;
   }
@@ -137,7 +281,7 @@ static inline void start_meas(time_stats_t *ts) {
 
 static inline void stop_meas(time_stats_t *ts) {
   if (cpu_meas_enabled) {
-    long long out = rdtsc_oai();
+    long long out = clock_gettime_oai();
     if (ts->in) {
       ts->diff += (out - ts->in);
       /// process duration is the difference between two clock points
@@ -147,6 +291,7 @@ static inline void stop_meas(time_stats_t *ts) {
       if ((out - ts->in) > ts->max)
         ts->max = out - ts->in;
 
+      insert_in_time_stats_sorted_list(&ts->time_stats_sorted_list, (out - ts->in));
       ts->meas_flag = 0;
     }
   }
@@ -160,6 +305,7 @@ static inline void reset_meas(time_stats_t *ts) {
   ts->max=0;
   ts->trials=0;
   ts->meas_flag=0;
+  reset_time_stats_sorted_list(&ts->time_stats_sorted_list);
 }
 
 static inline void copy_meas(time_stats_t *dst_ts,time_stats_t *src_ts) {
@@ -167,6 +313,7 @@ static inline void copy_meas(time_stats_t *dst_ts,time_stats_t *src_ts) {
     dst_ts->trials=src_ts->trials;
     dst_ts->diff=src_ts->diff;
     dst_ts->max=src_ts->max;
+    copy_time_stats_sorted_list(&dst_ts->time_stats_sorted_list, &src_ts->time_stats_sorted_list);
   }
 }
 
@@ -179,6 +326,23 @@ static inline void merge_meas(time_stats_t *dst_ts, const time_stats_t *src_ts)
   dst_ts->diff_square += src_ts->diff_square;
   if (src_ts->max > dst_ts->max)
     dst_ts->max = src_ts->max;
+  if (is_enabled_time_stats_sorted_list(&src_ts->time_stats_sorted_list)) {
+    merge_time_stats_sorted_list(&dst_ts->time_stats_sorted_list, &src_ts->time_stats_sorted_list);
+  } else if (src_ts->trials == 1) {
+    insert_in_time_stats_sorted_list(&dst_ts->time_stats_sorted_list, src_ts->max);
+  }
+}
+
+#define TIME_STATS_ADVANCED_MODE 2
+
+static inline void init_sorted_list_meas(time_stats_t *ts, unsigned int size)
+{
+  init_time_stats_sorted_list(&ts->time_stats_sorted_list, size);
+}
+
+static inline void free_sorted_list_meas(time_stats_t *ts)
+{
+  free_time_stats_sorted_list(&ts->time_stats_sorted_list);
 }
 
 #define CPUMEASUR_SECTION "cpumeasur"
@@ -198,8 +362,8 @@ void end_meas(void);
 
 #define timeIt(a)                                           \
   {                                                         \
-    uint64_t deb = rdtsc_oai();                             \
+    uint64_t deb = clock_gettime_oai();                             \
     a;                                                      \
-    LOG_W(UTIL, #a ": %llu\n", (rdtsc_oai() - deb) / 3000); \
+    LOG_W(UTIL, #a ": %llu\n", (clock_gettime_oai() - deb) / 3000); \
   }
 #endif

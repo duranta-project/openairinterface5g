@@ -27,6 +27,8 @@ typedef struct nr_mac_config_s nr_mac_config_t;
 typedef enum nr_srs_type_e nr_srs_type_t;
 typedef struct nr_mac_timers nr_mac_timers_t;
 typedef struct measgap_config measgap_config_t;
+typedef struct gNB_MAC_INST_s gNB_MAC_INST;
+typedef struct nr_cell_sched_s nr_cell_sched_t;
 
 void nr_rrc_config_dl_tda(NR_PDSCH_TimeDomainResourceAllocationList_t *pdsch_TimeDomainAllocationList,
                           frame_type_t frame_type,
@@ -76,13 +78,13 @@ NR_SIB19_r17_t *get_SIB19_NR(const NR_ServingCellConfigCommon_t *scc);
 NR_CellGroupConfig_t *get_initial_cellGroupConfig(int uid,
                                                   bool redcap,
                                                   const NR_ServingCellConfigCommon_t *scc,
-                                                  const nr_mac_config_t *configuration,
+                                                  const nr_cell_sched_t *cell,
                                                   const nr_rlc_configuration_t *default_rlc_config,
                                                   int ssb_index);
 void update_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
                             const int uid,
                             const NR_UE_NR_Capability_t *uecap,
-                            const nr_mac_config_t *configuration,
+                            const nr_cell_sched_t *cell,
                             const NR_ServingCellConfigCommon_t *scc);
 int encode_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig, uint8_t *buffer, int max_buffer_size);
 
@@ -94,6 +96,7 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
                                                      int scg_id,
                                                      int servCellIndex,
                                                      const nr_mac_config_t *configuration,
+                                                     const nr_cell_sched_t *cell,
                                                      int uid,
                                                      int ssb_index);
 
@@ -112,7 +115,7 @@ NR_RLC_BearerConfig_t *get_DRB_RLC_BearerConfig(long lcChannelId,
                                                 long priority,
                                                 const nr_rlc_configuration_t *default_rlc_config);
 NR_CellGroupConfig_t *update_cellGroupConfig_for_reconfig(NR_CellGroupConfig_t *cellGroupConfig,
-                                                          const nr_mac_config_t *configuration,
+                                                          const nr_cell_sched_t *cell,
                                                           const NR_UE_NR_Capability_t *uecap,
                                                           const NR_ServingCellConfigCommon_t *scc,
                                                           int uid,

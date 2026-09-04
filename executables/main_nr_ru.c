@@ -280,8 +280,13 @@ int main(int argc, char **argv)
     threadCreate(&oru.dl_read_threads[i], oru_north_read_worker, (void *)&oru, thread_name, oru.north_cores[i], OAI_PRIORITY_RT_MAX);
   }
 
+  int diag_countdown_s = 10;
   while (oai_exit == 0) {
-    oru_fh_print_stats(oru.fronthaul);
+    if (--diag_countdown_s <= 0) {
+      oru_fh_print_stats(oru.fronthaul);
+      oru_self_diagnosis(&oru);
+      diag_countdown_s = 10;
+    }
     sleep(1);
   }
 

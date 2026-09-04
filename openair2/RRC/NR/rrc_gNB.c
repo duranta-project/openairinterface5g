@@ -84,6 +84,8 @@
 #include "openair2/F1AP/lib/f1ap_positioning.h"
 #include "openair3/NRPPA/nrppa_gNB_location_information_transfer.h"
 #include "openair3/NRPPA/nrppa_gNB_measurement_information_transfer.h"
+#include "rrc_gNB_measurements.h"
+#include "rrc_gNB_nrdc.h"
 
 #ifdef E2_AGENT
 #include "openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_rc_extern.h"
@@ -304,12 +306,12 @@ static void rrc_deliver_dl_rrc_message(void *deliver_pdu_data, ue_id_t ue_id, in
   data->rrc->mac_rrc.dl_rrc_message_transfer(data->assoc_id, data->dl_rrc);
 }
 
-static void nr_rrc_transfer_protected_rrc_message(const gNB_RRC_INST *rrc,
-                                                  const gNB_RRC_UE_t *ue_p,
-                                                  uint8_t srb_id,
-                                                  const uint32_t message_id,
-                                                  const uint8_t *buffer,
-                                                  int size)
+void nr_rrc_transfer_protected_rrc_message(const gNB_RRC_INST *rrc,
+                                           const gNB_RRC_UE_t *ue_p,
+                                           uint8_t srb_id,
+                                           const uint32_t message_id,
+                                           const uint8_t *buffer,
+                                           int size)
 {
   DevAssert(size > 0);
   f1_ue_data_t ue_data = cu_get_f1_ue_data(ue_p->rrc_ue_id);
@@ -703,10 +705,10 @@ static nr_a3_event_t *get_a3_configuration(gNB_RRC_INST *rrc, int pci)
   return NULL;
 }
 
-static NR_ReportConfigToAddMod_t *prepare_periodic_event_report(const nr_per_event_t *per_event)
+static NR_ReportConfigToAddMod_t *prepare_periodic_event_report(gNB_RRC_UE_t *ue, const nr_per_event_t *per_event)
 {
   NR_ReportConfigToAddMod_t *rc = calloc(1, sizeof(*rc));
-  rc->reportConfigId = 1;
+  rc->reportConfigId = allocate_report_config_id(ue);
   rc->reportConfig.present = NR_ReportConfigToAddMod__reportConfig_PR_reportConfigNR;
 
   NR_PeriodicalReportConfig_t *prc = calloc(1, sizeof(*prc));
@@ -732,10 +734,10 @@ static NR_ReportConfigToAddMod_t *prepare_periodic_event_report(const nr_per_eve
   return rc;
 }
 
-static NR_ReportConfigToAddMod_t *prepare_a2_event_report(const nr_a2_event_t *a2_event)
+static NR_ReportConfigToAddMod_t *prepare_a2_event_report(gNB_RRC_UE_t *ue, const nr_a2_event_t *a2_event)
 {
   NR_ReportConfigToAddMod_t *rc_A2 = calloc(1, sizeof(*rc_A2));
-  rc_A2->reportConfigId = 2;
+  rc_A2->reportConfigId = allocate_report_config_id(ue);
   rc_A2->reportConfig.present = NR_ReportConfigToAddMod__reportConfig_PR_reportConfigNR;
   NR_EventTriggerConfig_t *etrc_A2 = calloc(1, sizeof(*etrc_A2));
   etrc_A2->eventId.present = NR_EventTriggerConfig__eventId_PR_eventA2;
@@ -803,7 +805,7 @@ void free_RRCReconfiguration_params(nr_rrc_reconfig_param_t params)
     FREE_AND_ZERO_BYTE_ARRAY(params.dedicated_NAS_msg_list[i]);
 }
 
-NR_MeasConfig_t *nr_rrc_get_measconfig(const gNB_RRC_INST *rrc, uint64_t nr_cellid)
+NR_MeasConfig_t *nr_rrc_get_measconfig(const gNB_RRC_INST *rrc, uint64_t nr_cellid, gNB_RRC_UE_t *ue)
 {
   nr_rrc_cell_container_t *cell = get_cell_by_cell_id(&((gNB_RRC_INST *)rrc)->cells, nr_cellid);
   DevAssert(cell != NULL);
@@ -837,6 +839,7 @@ NR_MeasConfig_t *nr_rrc_get_measconfig(const gNB_RRC_INST *rrc, uint64_t nr_cell
       */
       LOG_D(NR_RRC, "Preparing A3 Event Measurement Configuration!\n");
       bool default_a3_added = false; // To ensure that the default configuration is only added once
+      int default_a3_report_config_id = -1;
       int i = 0;
       FOR_EACH_SEQ_ARR(nr_neighbour_cell_t *, neighbourCell, neighbour_cells) {
         seq_arr_push_back(&neigh_seq, neighbourCell, sizeof(nr_neighbour_cell_t));
@@ -845,7 +848,7 @@ NR_MeasConfig_t *nr_rrc_get_measconfig(const gNB_RRC_INST *rrc, uint64_t nr_cell
           /* no A3 event configured for this neighbour, let's try the default one, if it exists */
           if (default_a3_added) {
             /* default A3 exists and is already added, use it for this neighbour */
-            neigh_a3_id[i] = 3;
+            neigh_a3_id[i] = default_a3_report_config_id;
             i++;
             continue;
           }
@@ -857,12 +860,13 @@ NR_MeasConfig_t *nr_rrc_get_measconfig(const gNB_RRC_INST *rrc, uint64_t nr_cell
             i++;
             continue;
           }
+          /* allocated default A3 report config ID */
+          default_a3_report_config_id = allocate_report_config_id(ue);
+          neigh_a3_id[i] = default_a3_report_config_id;
           default_a3_added = true;
-          /* default A3 report config ID is 3 */
-          neigh_a3_id[i] = 3;
         } else {
-          /* specific A3 report config ID are 4, 5, ... */
-          neigh_a3_id[i] = i + 4;
+          /* allocate specific A3 report config ID */
+          neigh_a3_id[i] = allocate_report_config_id(ue);
         }
         NR_ReportConfigId_t reportConfigId = neigh_a3_id[i];
         seq_arr_push_back(&rc_A3_seq, prepare_a3_event_report(a3Event, reportConfigId), sizeof(NR_ReportConfigToAddMod_t));
@@ -870,11 +874,11 @@ NR_MeasConfig_t *nr_rrc_get_measconfig(const gNB_RRC_INST *rrc, uint64_t nr_cell
       }
     }
     if (meas_cfg->per_event)
-      rc_PER = prepare_periodic_event_report(meas_cfg->per_event);
+      rc_PER = prepare_periodic_event_report(ue, meas_cfg->per_event);
     if (meas_cfg->a2_event)
-      rc_A2 = prepare_a2_event_report(meas_cfg->a2_event);
+      rc_A2 = prepare_a2_event_report(ue, meas_cfg->a2_event);
 
-    NR_MeasConfig_t *result = get_MeasConfig(mt, band, cell->info.pci, rc_PER, rc_A2, &rc_A3_seq, &neigh_seq, neigh_a3_id);
+    NR_MeasConfig_t *result = get_MeasConfig(ue, mt, band, cell->info.pci, rc_PER, rc_A2, &rc_A3_seq, &neigh_seq, neigh_a3_id);
 
     // Clean up sequence arrays
     seq_arr_free(&rc_A3_seq, NULL);
@@ -1417,7 +1421,7 @@ static void rrc_handle_RRCSetupRequest(gNB_RRC_INST *rrc,
     return;
   }
   UE->ongoing_reconfiguration = false;
-  UE->measConfig = nr_rrc_get_measconfig(rrc, msg->nr_cellid);
+  UE->measConfig = nr_rrc_get_measconfig(rrc, msg->nr_cellid, UE);
   activate_srb(UE, 1);
   rrc_gNB_generate_RRCSetup(0, ue_context_p, msg->du2cu_rrc_container, msg->du2cu_rrc_container_length);
 }
@@ -1893,6 +1897,12 @@ static void rrc_gNB_process_MeasurementReport(gNB_RRC_INST *rrc, gNB_RRC_UE_t *U
   NR_MeasurementReport_IEs_t *measurementReport_IEs = measurementReport->criticalExtensions.choice.measurementReport;
   const NR_MeasId_t measId = measurementReport_IEs->measResults.measId;
 
+  /* check NR-DC measurement */
+  if (measId == get_scg_measurement_id(UE)) {
+    rrc_gnb_nrdc_measurement_received(rrc, UE, measurementReport);
+    return;
+  }
+
   NR_MeasIdToAddMod_t *meas_id_s = NULL;
   for (int meas_idx = 0; meas_idx < meas_config->measIdToAddModList->list.count; meas_idx++) {
     if (measId == meas_config->measIdToAddModList->list.array[meas_idx]->measId) {
@@ -1983,6 +1993,12 @@ static void handle_ueCapabilityInformation(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, 
   int xid = ue_cap_info->rrc_TransactionIdentifier;
   rrc_action_t a = UE->xids[xid];
   UE->xids[xid] = RRC_ACTION_NONE;
+
+  if (a == RRC_F1_NRDC_IN_PROGRESS) {
+    rrc_gnb_nrdc_ue_capabilities_received(rrc, UE, ue_cap_info);
+    return;
+  }
+
   if (a != RRC_UECAPABILITY_ENQUIRY) {
     LOG_E(NR_RRC, "UE %d: received unsolicited UE Capability Information, aborting procedure\n", UE->rrc_ue_id);
     return;
@@ -2186,6 +2202,8 @@ static void handle_rrcReconfigurationComplete(gNB_RRC_INST *rrc, gNB_RRC_UE_t *U
   UE->ue_reconfiguration_counter++;
   UE->ongoing_reconfiguration = false;
 
+  bool start_nrdc = false;
+
   switch (UE->xids[xid]) {
     case RRC_PDUSESSION_RELEASE: {
       rrc_gNB_send_NGAP_PDUSESSION_RELEASE_RESPONSE(rrc, UE, xid);
@@ -2205,6 +2223,8 @@ static void handle_rrcReconfigurationComplete(gNB_RRC_INST *rrc, gNB_RRC_UE_t *U
               "UE %d: RRC Reconfiguration Complete for PDU session establishment, but no PDU sessions were setup\n",
               UE->rrc_ue_id);
       reset_delayed_action(&UE->delayed_action);
+      /* once a PDU session is established, we can start NR-DC */
+      start_nrdc = true;
       break;
     case RRC_PDUSESSION_MODIFY:
       rrc_gNB_send_NGAP_PDUSESSION_MODIFY_RESP(rrc, UE, xid);
@@ -2216,6 +2236,10 @@ static void handle_rrcReconfigurationComplete(gNB_RRC_INST *rrc, gNB_RRC_UE_t *U
       break;
     case RRC_ACTION_NONE:
       LOG_E(RRC, "UE %d: Received RRC Reconfiguration Complete with xid %d while no transaction is ongoing\n", UE->rrc_ue_id, xid);
+      break;
+    case RRC_F1_NRDC_IN_PROGRESS:
+      rrc_gnb_nrdc_rrc_reconfiguration_complete_received(rrc, UE, xid);
+      reset_delayed_action(&UE->delayed_action);
       break;
     default:
       LOG_E(RRC, "UE %d: Received unexpected transaction type %d for xid %d\n", UE->rrc_ue_id, UE->xids[xid], xid);
@@ -2247,6 +2271,9 @@ static void handle_rrcReconfigurationComplete(gNB_RRC_INST *rrc, gNB_RRC_UE_t *U
   };
   rrc->mac_rrc.ue_context_modification_request(ue_data.du_assoc_id, &req);
   /* nothing to be freed */
+
+  if (start_nrdc)
+    rrc_gnb_nrdc_start(rrc, UE);
 }
 
 static void rrc_gNB_generate_UECapabilityEnquiry(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue)
@@ -2379,6 +2406,24 @@ static int rrc_gNB_decode_dcch(gNB_RRC_INST *rrc, const f1ap_ul_rrc_message_t *m
         handle_rrcReestablishmentComplete(rrc, UE, rc);
         break;
 
+      case NR_UL_DCCH_MessageType__c1_PR_scgFailureInformation: {
+        long type = ul_dcch_msg->message.choice.c1->choice.scgFailureInformation->criticalExtensions.choice.scgFailureInformation->failureReportSCG->failureType;
+        char *cause[] = {
+          "NR_FailureReportSCG__failureType_t310_Expiry",
+          "NR_FailureReportSCG__failureType_randomAccessProblem",
+          "NR_FailureReportSCG__failureType_rlc_MaxNumRetx",
+          "NR_FailureReportSCG__failureType_synchReconfigFailureSCG",
+          "NR_FailureReportSCG__failureType_scg_ReconfigFailure",
+          "NR_FailureReportSCG__failureType_srb3_IntegrityFailure",
+          "NR_FailureReportSCG__failureType_other_r16",
+          "NR_FailureReportSCG__failureType_spare1"
+        };
+        LOG_E(NR_RRC, "scg failure cause %s\n", type >= 0 && type <= 7 ? cause[type] : "unknown");
+        LOG_UE_UL_EVENT(UE, "received scg failure cause %s\n", type >= 0 && type <= 7 ? cause[type] : "unknown");
+        nrdc_handle_scg_failure_information(rrc, UE, ul_dcch_msg->message.choice.c1->choice.scgFailureInformation);
+        break;
+      }
+
       default:
         break;
     }
@@ -2491,7 +2536,7 @@ static gtpu_tunnel_t f1u_gtp_update(uint32_t teid, const in_addr_t addr)
 /**
  * @brief Update DRB TEID information in RRC storage from received DRB list
  */
-static void store_du_f1u_tunnel(const f1ap_drb_setup_t *drbs, int n, gNB_RRC_UE_t *ue)
+void store_du_f1u_tunnel(const f1ap_drb_setup_t *drbs, int n, gNB_RRC_UE_t *ue)
 {
   for (int i = 0; i < n; i++) {
     const f1ap_drb_setup_t *drb_f1 = &drbs[i];
@@ -2541,7 +2586,7 @@ static void e1_send_bearer_modification_request(gNB_RRC_INST *rrc, gNB_RRC_UE_t 
 }
 
 /** @brief Send E1 bearer updates for DRBs to setup from F1 UE Context Modification Response */
-static void e1_send_bearer_updates(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, int n, f1ap_drb_setup_t *drbs)
+void e1_send_bearer_updates(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, int n, f1ap_drb_setup_t *drbs)
 {
   if (!is_cuup_associated(rrc) || n <= 0)
     return;
@@ -2688,6 +2733,9 @@ static void rrc_CU_process_ue_context_setup_response(MessageDef *msg_p, instance
   gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
   UE->f1_ue_context_active = true;
 
+  if (UE->nrdc && rrc_gnb_nrdc_wait_for_f1_context_setup_response(UE))
+    return nrdc_rrc_CU_process_ue_context_setup_response(UE, rrc, resp);
+
   // Store the encoded CellGroupConfig for transparent forwarding
   byte_array_t *cgc = &resp->du_to_cu_rrc_info.cell_group_config;
   store_cgc(UE, cgc);
@@ -2757,6 +2805,11 @@ static void rrc_CU_process_ue_context_release_request(MessageDef *msg_p, sctp_as
   }
 
   gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
+
+  if (UE->nrdc != NULL)
+    /* UE has NR-DC connection, send release to the SCG DU */
+    nrdc_scg_ue_release(rrc, UE);
+
   if (UE->ho_context != NULL) {
     nr_ho_source_cu_t *source_ctx = UE->ho_context->source;
     bool from_source_du = source_ctx && source_ctx->cell->assoc_id == assoc_id;
@@ -2809,11 +2862,14 @@ static void rrc_delete_ue_data(gNB_RRC_UE_t *UE)
   ASN_STRUCT_FREE(asn_DEF_NR_MeasResults, UE->measResults);
   FREE_AND_ZERO_BYTE_ARRAY(UE->ue_cap_buffer);
   free_MeasConfig(UE->measConfig);
+  reset_all_measurement_ids(UE);
   free(UE->redcap_cap);
   UE->redcap_cap = NULL;
   seq_arr_free(&UE->pduSessions, free_pdusession);
   seq_arr_free(&UE->drbs, free_drb);
   seq_arr_free(&UE->serving_cells, NULL);
+  if (UE->nrdc)
+    rrc_gnb_free_nrdc(UE);
 }
 
 void rrc_remove_ue(gNB_RRC_INST *rrc, rrc_gNB_ue_context_t *ue_context_p)
@@ -2840,6 +2896,14 @@ static void rrc_CU_process_ue_context_release_complete(MessageDef *msg_p)
   }
 
   gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
+
+  /* check if this message is for NR-DC */
+  if (UE->nrdc) {
+    /* if the message is handled by the NR-DC module, do nothing more */
+    if (nrdc_handle_f1_context_release_complete(rrc, UE, complete))
+      return;
+  }
+
   if (UE->an_release) {
     /* only trigger release if it has been requested by core
      * otherwise, it might be CU that requested release on a DU during normal
@@ -2859,6 +2923,12 @@ static void rrc_CU_process_ue_context_modification_response(MessageDef *msg_p, i
     return;
   }
   gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
+
+  if (UE->nrdc && rrc_gnb_nrdc_wait_for_f1_context_modification_response(UE))
+    return nrdc_rrc_CU_process_ue_context_modification_response(UE, rrc, resp);
+
+  if (UE->nrdc && rrc_gnb_nrdc_wait_for_scg_failure_context_modification_response(UE))
+    return nrdc_scg_failure_context_modification_response(UE, rrc, resp);
 
   bool is_inter_cu_ho = UE->ho_context && UE->ho_context->source && !UE->ho_context->target;
   if (resp->drbs_len > 0) { // DRB to setup
@@ -2995,7 +3065,7 @@ unsigned int mask_flip(unsigned int x) {
 /** @brief Get F1AP QoS flow parameters from PDU session QoS parameters
  * @param qos_param PDU session level QoS parameters from NGAP
  * @return F1AP QoS flow parameters */
-static f1ap_qos_flow_param_t nr_rrc_get_f1_qos_flow_param(const pdusession_level_qos_parameter_t *qos_param)
+f1ap_qos_flow_param_t nr_rrc_get_f1_qos_flow_param(const pdusession_level_qos_parameter_t *qos_param)
 {
   f1ap_qos_flow_param_t qos_char = {0};
 
@@ -3213,6 +3283,27 @@ static void rrc_send_f1_ue_context_modification_request(const gNB_RRC_INST *rrc,
 
   f1_ue_data_t ue_data = cu_get_f1_ue_data(ue_p->rrc_ue_id);
   RETURN_IF_INVALID_ASSOC_ID(ue_data.du_assoc_id);
+
+  /* check if one of the bearers to remove is the NR-DC one, remove it if yes */
+  if (n_rel_drbs) {
+    int nrdc_bearer_index;
+    for (nrdc_bearer_index = 0; nrdc_bearer_index < n_rel_drbs; nrdc_bearer_index++) {
+      if (is_nrdc_bearer(ue_p, rel_drbs[nrdc_bearer_index].id)) {
+        nrdc_release_bearer(rrc, ue_p, rel_drbs[nrdc_bearer_index].id);
+        break;
+      }
+    }
+
+    if (nrdc_bearer_index != n_rel_drbs) {
+      /* nrdc bearer was removed, do not remove it again */
+      n_rel_drbs--;
+      /* do nothing else if no add/rel to do */
+      if (!n_rel_drbs && !n_drbs)
+        return;
+      memcpy(&rel_drbs[nrdc_bearer_index], &rel_drbs[nrdc_bearer_index + 1],
+             sizeof(*rel_drbs) * (n_rel_drbs - nrdc_bearer_index));
+    }
+  }
 
   f1ap_ue_context_mod_req_t req = {
       .gNB_CU_ue_id = ue_p->rrc_ue_id,
@@ -3880,6 +3971,10 @@ void *rrc_gnb_task(void *args_p)
         rrc_CU_process_positioning_measurement_failure(&F1AP_POSITIONING_MEASUREMENT_FAILURE(msg_p));
         break;
 
+      case NR_RRC_NRDC_TIMEOUT:
+        rrc_gnb_nrdc_timeout(RC.nrrrc[instance], &NR_RRC_NRDC_TIMEOUT(msg_p));
+        break;
+
       default:
         LOG_E(NR_RRC, "[gNB %ld] Received unexpected message %s\n", instance, msg_name_p);
         break;
@@ -3934,6 +4029,10 @@ void rrc_gNB_generate_RRCRelease(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
   };
   deliver_ue_ctxt_release_data_t data = {.rrc = rrc, .release_cmd = &ue_context_release_cmd, .assoc_id = ue_data.du_assoc_id};
   nr_pdcp_data_req_srb(UE->rrc_ue_id, DL_SCH_LCID_DCCH, rrc_gNB_mui++, size, buffer, rrc_deliver_ue_ctxt_release_cmd, &data);
+
+  /* if the UE is in NR-DC, release it from SCG DU */
+  if (UE->nrdc)
+    nrdc_scg_ue_release(rrc, UE);
 
 #ifdef E2_AGENT
   E2_AGENT_SIGNAL_DL_DCCH_RRC_MSG(buffer, size, NR_DL_DCCH_MessageType__c1_PR_rrcRelease);
@@ -4026,7 +4125,8 @@ void rrc_f1_ue_context_setup_for_target_du(const gNB_RRC_INST *rrc,
 
   /* Update measurement config for target DU */
   free_MeasConfig(ue->measConfig);
-  ue->measConfig = nr_rrc_get_measconfig(rrc, cell->info.cell_id);
+  reset_all_measurement_ids(ue);
+  ue->measConfig = nr_rrc_get_measconfig(rrc, cell->info.cell_id, ue);
   byte_array_t *meas_config = calloc_or_fail(1, sizeof(*meas_config));
   meas_config->buf = calloc_or_fail(1, NR_RRC_BUF_SIZE);
   meas_config->len = do_NR_MeasConfig(ue->measConfig, meas_config->buf, NR_RRC_BUF_SIZE);

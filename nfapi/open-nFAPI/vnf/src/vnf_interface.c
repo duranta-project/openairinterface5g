@@ -33,7 +33,7 @@ nfapi_vnf_config_t* nfapi_vnf_config_create()
 
 	_this->sctp = 1;
 
-	_this->next_phy_id = 1;
+	_this->next_phy_id = 0;
 	
 	// Set the default P5 port
 	_this->_public.vnf_p5_port = NFAPI_P5_SCTP_PORT;

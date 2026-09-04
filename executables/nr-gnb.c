@@ -30,6 +30,7 @@
 #include "PHY/defs_gNB.h"
 #include "PHY/defs_nr_common.h"
 #include "PHY/impl_defs_nr.h"
+#include "PHY/nr_phy_common/inc/nr_phy_meas.h"
 #include "SCHED_NR/phy_frame_config_nr.h"
 #include "SCHED_NR/sched_nr.h"
 #include "assertions.h"
@@ -67,7 +68,7 @@ static void tx_func(processingData_L1tx_t *info)
 
   clear_slot_beamid(gNB, slot_tx);
 
-  nfapi_nr_slot_indication_scf_t ind = {.sfn = frame_tx, .slot = slot_tx};
+  nfapi_nr_slot_indication_scf_t ind = {.header = {.phy_id = 0}, .sfn = frame_tx, .slot = slot_tx};
   start_meas(&gNB->slot_indication_stats);
   // this variable is very big (multiple MB), so we put it into static storage
   // to not overflow the stack while still having it in local (function) scope
@@ -95,8 +96,10 @@ static void tx_func(processingData_L1tx_t *info)
   // TODO check for analog_bf_vendor_ext set to 1 is a workaround while no beam API for beam selection is implemented
   if (tx_slot_type == NR_DOWNLINK_SLOT || tx_slot_type == NR_MIXED_SLOT || get_softmodem_params()->continuous_tx
       || IS_SOFTMODEM_RFSIM || cfg->analog_beamforming_ve.analog_bf_vendor_ext.value) {
-    start_meas(&info->gNB->phy_proc_tx);
+    START_MEAS_FULL_SLOT(&info->gNB->phy_proc_tx, tx_slot_type, NR_DOWNLINK_SLOT);
+    START_MEAS_FULL_SLOT(&info->gNB->gnb_tx_procedures_stats, tx_slot_type, NR_DOWNLINK_SLOT);
     phy_procedures_gNB_TX(info->gNB, &sched_response.DL_req, &sched_response.TX_req, &sched_response.UL_dci_req, frame_tx,slot_tx);
+    STOP_MEAS_FULL_SLOT(&info->gNB->gnb_tx_procedures_stats, tx_slot_type, NR_DOWNLINK_SLOT);
 
     PHY_VARS_gNB *gNB = info->gNB;
     processingData_RU_t syncMsgRU;
@@ -105,8 +108,13 @@ static void tx_func(processingData_L1tx_t *info)
     syncMsgRU.ru = gNB->RU_list[0];
     syncMsgRU.timestamp_tx = info->timestamp_tx;
     LOG_D(PHY, "gNB: %d.%d : calling RU TX function\n", syncMsgRU.frame_tx, syncMsgRU.slot_tx);
+
+    START_MEAS_FULL_SLOT(&info->gNB->ru_tx_func_stats, tx_slot_type, NR_DOWNLINK_SLOT);
+
     ru_tx_func((void *)&syncMsgRU);
-    stop_meas(&info->gNB->phy_proc_tx);
+
+    STOP_MEAS_FULL_SLOT(&info->gNB->ru_tx_func_stats, tx_slot_type, NR_DOWNLINK_SLOT);
+    STOP_MEAS_FULL_SLOT(&info->gNB->phy_proc_tx, tx_slot_type, NR_DOWNLINK_SLOT);
   }
 }
 
@@ -119,9 +127,10 @@ void *L1_rx_thread(void *arg)
      if (res == NULL)
        break;
      processingData_L1_t *info = (processingData_L1_t *)NotifiedFifoData(res);
-     start_meas(&gNB->l1_rx_proc);
+     int slot_type = nr_slot_select(&gNB->gNB_config, info->frame_rx, info->slot_rx);
+     START_MEAS_FULL_SLOT(&gNB->l1_rx_proc, slot_type, NR_UPLINK_SLOT);
      rx_func(info);
-     stop_meas(&gNB->l1_rx_proc);
+     STOP_MEAS_FULL_SLOT(&gNB->l1_rx_proc, slot_type, NR_UPLINK_SLOT);
      delNotifiedFIFO_elt(res);
   }
   return NULL;
@@ -135,9 +144,10 @@ void *L1_tx_thread(void *arg) {
      if (res == NULL) // stopping condition, happens only when queue is freed
        break;
      processingData_L1tx_t *info = (processingData_L1tx_t *)NotifiedFifoData(res);
-     start_meas(&gNB->l1_tx_proc);
+     int slot_type = nr_slot_select(&gNB->gNB_config, info->frame, info->slot);
+     START_MEAS_FULL_SLOT(&gNB->l1_tx_proc, slot_type, NR_DOWNLINK_SLOT);
      tx_func(info);
-     stop_meas(&gNB->l1_tx_proc);
+     STOP_MEAS_FULL_SLOT(&gNB->l1_tx_proc, slot_type, NR_DOWNLINK_SLOT);
      delNotifiedFIFO_elt(res);
   }
   return NULL;
@@ -158,7 +168,7 @@ static void rx_func(processingData_L1_t *info)
     LOG_D(NR_PHY, "%d.%d Starting RX processing\n", frame_rx, slot_rx);
 
     // UE-specific RX processing for subframe n
-    NR_UL_IND_t UL_INFO = {.frame = frame_rx, .slot = slot_rx, .module_id = gNB->Mod_id, .CC_id = gNB->CC_id};
+    NR_UL_IND_t UL_INFO = {.frame = frame_rx, .slot = slot_rx, .module_id = gNB->Mod_id, .phy_id = gNB->CC_id};
     // Do PRACH RU processing
     UL_INFO.rach_ind.pdu_list = UL_INFO.prach_pdu_indication_list;
     UL_INFO.rach_ind.number_of_pdus = 0;
@@ -190,9 +200,9 @@ static void rx_func(processingData_L1_t *info)
     phy_procedures_gNB_uespec_RX(gNB, frame_rx, slot_rx, &UL_INFO);
 
     // Call the scheduler
-    start_meas(&gNB->ul_indication_stats);
+    START_MEAS_FULL_SLOT(&gNB->ul_indication_stats, rx_slot_type, NR_UPLINK_SLOT);
     gNB->if_inst->NR_UL_indication(&UL_INFO);
-    stop_meas(&gNB->ul_indication_stats);
+    STOP_MEAS_FULL_SLOT(&gNB->ul_indication_stats, rx_slot_type, NR_UPLINK_SLOT);
 
     notifiedFIFO_elt_t *res = newNotifiedFIFO_elt(sizeof(processingData_L1_t), 0, &gNB->L1_rx_out, NULL);
     processingData_L1_t *syncMsg = NotifiedFifoData(res);
@@ -206,26 +216,143 @@ static void rx_func(processingData_L1_t *info)
 
 }
 
+static void nrL1_stats_init_sorted_list(PHY_VARS_gNB *gNB, RU_t *ru, unsigned int size)
+{
+  init_sorted_list_meas(&gNB->l1_tx_proc, size);
+  init_sorted_list_meas(&gNB->l1_rx_proc, size);
+  init_sorted_list_meas(&gNB->phy_proc_tx, size);
+  init_sorted_list_meas(&gNB->gnb_tx_procedures_stats, size);
+  init_sorted_list_meas(&gNB->ru_tx_func_stats, size);
+  init_sorted_list_meas(&gNB->dlsch_encoding_stats, size);
+  init_sorted_list_meas(&gNB->dlsch_ldpc_encode_stats, size);
+  init_sorted_list_meas(&gNB->dlsch_scrambling_stats, size);
+  init_sorted_list_meas(&gNB->dlsch_modulation_stats, size);
+  init_sorted_list_meas(&gNB->dlsch_pdsch_generation_stats, size);
+  init_sorted_list_meas(&gNB->phy_proc_rx, size);
+  init_sorted_list_meas(&gNB->ulsch_decoding_stats, size);
+  init_sorted_list_meas(&gNB->ts_ldpc_decode, size);
+  init_sorted_list_meas(&gNB->ul_indication_stats, size);
+  init_sorted_list_meas(&gNB->slot_indication_stats, size);
+  init_sorted_list_meas(&gNB->rx_pusch_stats, size);
+  init_sorted_list_meas(&gNB->rx_prach, size);
+  if (ru->feprx) {
+    init_sorted_list_meas(&ru->ofdm_demod_stats, size);
+  }
+  if (ru->feptx_prec) {
+    init_sorted_list_meas(&ru->precoding_stats, size);
+  }
+  if (ru->feptx_ofdm) {
+    init_sorted_list_meas(&ru->txdataF_copy_stats, size);
+    init_sorted_list_meas(&ru->ofdm_mod_stats, size);
+    init_sorted_list_meas(&ru->ofdm_total_stats, size);
+  }
+  init_sorted_list_meas(&ru->tx_fhaul, size);
+}
+
+static void nrL1_stats_free_sorted_list(PHY_VARS_gNB *gNB, RU_t *ru)
+{
+  free_sorted_list_meas(&gNB->l1_tx_proc);
+  free_sorted_list_meas(&gNB->l1_rx_proc);
+  free_sorted_list_meas(&gNB->phy_proc_tx);
+  free_sorted_list_meas(&gNB->gnb_tx_procedures_stats);
+  free_sorted_list_meas(&gNB->ru_tx_func_stats);
+  free_sorted_list_meas(&gNB->dlsch_encoding_stats);
+  free_sorted_list_meas(&gNB->dlsch_ldpc_encode_stats);
+  free_sorted_list_meas(&gNB->dlsch_scrambling_stats);
+  free_sorted_list_meas(&gNB->dlsch_modulation_stats);
+  free_sorted_list_meas(&gNB->dlsch_pdsch_generation_stats);
+  free_sorted_list_meas(&gNB->phy_proc_rx);
+  free_sorted_list_meas(&gNB->ulsch_decoding_stats);
+  free_sorted_list_meas(&gNB->ts_ldpc_decode);
+  free_sorted_list_meas(&gNB->ul_indication_stats);
+  free_sorted_list_meas(&gNB->slot_indication_stats);
+  free_sorted_list_meas(&gNB->rx_pusch_stats);
+  free_sorted_list_meas(&gNB->rx_prach);
+  if (ru->feprx) {
+    free_sorted_list_meas(&ru->ofdm_demod_stats);
+  }
+  if (ru->feptx_prec) {
+    free_sorted_list_meas(&ru->precoding_stats);
+  }
+  if (ru->feptx_ofdm) {
+    free_sorted_list_meas(&ru->txdataF_copy_stats);
+    free_sorted_list_meas(&ru->ofdm_mod_stats);
+    free_sorted_list_meas(&ru->ofdm_total_stats);
+    free_sorted_list_meas(&ru->txdataF_copy_stats);
+  }
+  free_sorted_list_meas(&ru->tx_fhaul);
+}
+
+static void nrL1_stats_reset(PHY_VARS_gNB *gNB, RU_t *ru)
+{
+  reset_meas(&gNB->l1_tx_proc);
+  reset_meas(&gNB->l1_rx_proc);
+  reset_meas(&gNB->phy_proc_tx);
+  reset_meas(&gNB->gnb_tx_procedures_stats);
+  reset_meas(&gNB->ru_tx_func_stats);
+  reset_meas(&gNB->dlsch_encoding_stats);
+  reset_meas(&gNB->dlsch_ldpc_encode_stats);
+  reset_meas(&gNB->dlsch_scrambling_stats);
+  reset_meas(&gNB->dlsch_modulation_stats);
+  reset_meas(&gNB->dlsch_resource_mapping_stats);
+  reset_meas(&gNB->dlsch_pdsch_generation_stats);
+  reset_meas(&gNB->phy_proc_rx);
+  reset_meas(&gNB->ulsch_decoding_stats);
+  reset_meas(&gNB->ts_ldpc_decode);
+  reset_meas(&gNB->ul_indication_stats);
+  reset_meas(&gNB->slot_indication_stats);
+  reset_meas(&gNB->rx_pusch_stats);
+  reset_meas(&gNB->rx_prach);
+  if (ru->feprx) {
+    reset_meas(&ru->ofdm_demod_stats);
+  }
+  if (ru->feptx_prec) {
+    reset_meas(&ru->precoding_stats);
+  }
+  if (ru->feptx_ofdm) {
+    reset_meas(&ru->txdataF_copy_stats);
+    reset_meas(&ru->ofdm_mod_stats);
+    reset_meas(&ru->ofdm_total_stats);
+    reset_meas(&ru->txdataF_copy_stats);
+  }
+  reset_meas(&ru->tx_fhaul);
+}
+
 static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size_t outputlen) {
   const char *begin = output;
   const char *end = output + outputlen;
+  output += print_meas_log_header(NULL, NULL, output, end - output, cpu_meas_enabled);
   output += print_meas_log(&gNB->l1_tx_proc, "L1 Tx job", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->l1_rx_proc, "L1 Rx job", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->phy_proc_tx, "L1 Tx processing", NULL, NULL, output, end - output);
+  output += print_meas_log(&gNB->gnb_tx_procedures_stats,
+                           "L1 gNB TX procedures",
+                           NULL,
+                           NULL,
+                           output,
+                           end - output);
+
+  output += print_meas_log(&gNB->ru_tx_func_stats,
+                           "L1 RU TX function",
+                           NULL,
+                           NULL,
+                           output,
+                           end - output);
   output += print_meas_log(&gNB->dlsch_encoding_stats, "DLSCH encoding", NULL, NULL, output, end - output);
+  output += print_meas_log(&gNB->dlsch_ldpc_encode_stats, "LDPC encoding", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->dlsch_scrambling_stats, "DLSCH scrambling", NULL, NULL, output, end-output);
   output += print_meas_log(&gNB->dlsch_modulation_stats, "DLSCH modulation", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->dlsch_pdsch_generation_stats, "PDSCH generation", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->phy_proc_rx, "L1 Rx processing", NULL, NULL, output, end - output);
-  output += print_meas_log(&gNB->ts_deinterleave, "UL segment deinterleaving", NULL, NULL, output, end - output);
-  output += print_meas_log(&gNB->ts_rate_unmatch, "UL segment rate recovery", NULL, NULL, output, end - output);
+  output += print_meas_log(&gNB->ulsch_decoding_stats, "ULSCH decoding", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->ts_ldpc_decode, "UL segments decoding", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->ul_indication_stats, "UL Indication", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->slot_indication_stats, "Slot Indication", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->rx_pusch_stats, "PUSCH inner-receiver", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->rx_prach, "PRACH RX", NULL, NULL, output, end - output);
-  if (ru->feprx)
+  if (ru->feprx) {
     output += print_meas_log(&ru->ofdm_demod_stats, "feprx", NULL, NULL, output, end - output);
+  }
 
   bool full_slot = ru->half_slot_parallelization == 0;
   if (ru->feptx_prec) {
@@ -251,9 +378,13 @@ static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size
 
   output += print_meas_log(&ru->tx_fhaul,"tx_fhaul",NULL,NULL, output, end - output);
 
+  if (cpu_meas_enabled == TIME_STATS_ADVANCED_MODE) {
+    nrL1_stats_reset(gNB, ru);
+  }
   return output - begin;
 }
 
+#define SORTED_LIST_SIZE 2048
 void *nrL1_stats_thread(void *param) {
   PHY_VARS_gNB     *gNB      = (PHY_VARS_gNB *)param;
   RU_t *ru = RC.ru[0];
@@ -266,20 +397,12 @@ void *nrL1_stats_thread(void *param) {
     return NULL;
   }
 
-  reset_meas(&gNB->l1_tx_proc);
-  reset_meas(&gNB->l1_rx_proc);
-  reset_meas(&gNB->phy_proc_tx);
-  reset_meas(&gNB->dlsch_encoding_stats);
-  reset_meas(&gNB->phy_proc_rx);
-  reset_meas(&gNB->ts_deinterleave);
-  reset_meas(&gNB->ts_rate_unmatch);
-  reset_meas(&gNB->ts_ldpc_decode);
-  reset_meas(&gNB->ul_indication_stats);
-  reset_meas(&gNB->slot_indication_stats);
-  reset_meas(&gNB->rx_pusch_stats);
-  reset_meas(&gNB->dlsch_scrambling_stats);
-  reset_meas(&gNB->dlsch_modulation_stats);
-  reset_meas(&gNB->dlsch_pdsch_generation_stats);
+  if (cpu_meas_enabled == TIME_STATS_ADVANCED_MODE) {
+    nrL1_stats_init_sorted_list(gNB, ru, SORTED_LIST_SIZE);
+  }
+
+  nrL1_stats_reset(gNB, ru);
+
   while (!oai_exit) {
     sleep(1);
     if (ftruncate(fileno(fd), 0) != 0 || fseek(fd, 0, SEEK_SET) != 0) {
@@ -293,6 +416,11 @@ void *nrL1_stats_thread(void *param) {
     fprintf(fd,"%s\n",output);
     fflush(fd);
   }
+
+  if (cpu_meas_enabled == TIME_STATS_ADVANCED_MODE) {
+    nrL1_stats_free_sorted_list(gNB, ru);
+  }
+
   fclose(fd);
   return(NULL);
 }

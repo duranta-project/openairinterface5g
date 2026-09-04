@@ -130,9 +130,10 @@ static void print_meas_row(const char *name, time_stats_t *ts, int n_slots)
 }
 
 /* No-op UL preprocessor: we only benchmark DL */
-static void bench_ul_preprocessor_noop(gNB_MAC_INST *mac, post_process_pusch_t *pp_pusch)
+static void bench_ul_preprocessor_noop(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post_process_pusch_t *pp_pusch)
 {
   (void)mac;
+  (void)cell;
   (void)pp_pusch;
 }
 
@@ -378,13 +379,14 @@ int main(int argc, char **argv)
   };
 
   RC.nb_nr_macrlc_inst = 1;
-  mac_top_init_gNB(ngran_gNB, scc, &conf, &rlc_config);
+  nr_cell_sched_t *cell;
+  mac_top_init_gNB(ngran_gNB, scc, &conf, &rlc_config, &cell);
   gNB_MAC_INST *gNB_mac = RC.nrmac[0];
-  gNB_mac->beam_info = (NR_beam_info_t){.beams_per_period = 1};
-  nr_mac_config_scc(gNB_mac, scc, &conf);
+  cell->beam_info = (NR_beam_info_t){.beams_per_period = 1};
+  nr_mac_config_scc(gNB_mac, cell, scc, &conf);
 
-  gNB_mac->dl_bler.harq_round_max = 4;
-  gNB_mac->ul_bler.harq_round_max = 4;
+  cell->dl_bler.harq_round_max = 4;
+  cell->ul_bler.harq_round_max = 4;
   gNB->frame_parms.nb_antennas_tx = pdsch_AntennaPorts.N1 * pdsch_AntennaPorts.N2 * pdsch_AntennaPorts.XP;
 
   /* ── 4. Use the real DL scheduler instead of the phytest one ── */
@@ -405,7 +407,7 @@ int main(int argc, char **argv)
   printf("Creating %d test UEs...\n", num_ues);
   for (int u = 0; u < num_ues; u++) {
     rnti_t rnti = 0x1234 + u;
-    NR_CellGroupConfig_t *cg = get_default_secondaryCellGroup(scc, NULL, 0, 1, &conf, u, 0);
+    NR_CellGroupConfig_t *cg = get_default_secondaryCellGroup(scc, NULL, 0, 1, &conf, cell, u, 0);
     cg->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(rnti, u, scc, 0);
 
     /* Add DRB 1 to CellGroup so nr_mac_add_test_ue registers LCID 4. Default is
@@ -419,12 +421,12 @@ int main(int argc, char **argv)
     cg->rlc_BearerToAddModList = calloc(1, sizeof(*cg->rlc_BearerToAddModList));
     asn1cSeqAdd(&cg->rlc_BearerToAddModList->list, drb1_rlc_cfg);
 
-    bool ok = nr_mac_add_test_ue(gNB_mac, rnti, cg);
+    bool ok = nr_mac_add_test_ue(gNB_mac, cell, rnti, cg);
     AssertFatal(ok, "Failed to add test UE %d (rnti=%04x)\n", u, rnti);
 
     NR_UE_info_t *UE_info = gNB_mac->UE_info.connected_ue_list[u];
     AssertFatal(UE_info != NULL, "UE %d not found in connected list\n", u);
-    configure_UE_BWP(gNB_mac, scc, UE_info, false, NR_SearchSpace__searchSpaceType_PR_ue_Specific, -1, -1);
+    configure_UE_BWP(cell, scc, UE_info, false, NR_SearchSpace__searchSpaceType_PR_ue_Specific, -1, -1);
 
     /* Create DRB 1 RLC entity (nr_mac_add_test_ue registers the LCID
      * but does not create the RLC entity). */
@@ -501,7 +503,7 @@ int main(int argc, char **argv)
         int pid = sc->feedback_dl_harq.head;
         remove_front_nr_list(&sc->feedback_dl_harq);
         bool nack = (target_bler > 0.0) && (uniformrandom() < target_bler);
-        if (nack && sc->harq_processes[pid].round < gNB_mac->dl_bler.harq_round_max - 1) {
+        if (nack && sc->harq_processes[pid].round < cell->dl_bler.harq_round_max - 1) {
           /* NACK: bump round, send to retransmission */
           sc->harq_processes[pid].round++;
           sc->harq_processes[pid].is_waiting = false;
@@ -537,7 +539,7 @@ int main(int argc, char **argv)
     reset_sched_response(sched_rsp, frame, slot, 0, 0);
 
     clock_gettime(CLOCK_MONOTONIC, &ts0);
-    gNB_dlsch_ulsch_scheduler(0, frame, slot, sched_rsp);
+    gNB_dlsch_ulsch_scheduler(0, 0, frame, slot, sched_rsp);
     clock_gettime(CLOCK_MONOTONIC, &ts1);
 
     /* Only measure and run PHY TX for DL slots */
@@ -647,19 +649,18 @@ int main(int argc, char **argv)
     printf("  ---------------------------------------------------------------------------\n");
 
     printf("  Scheduler:\n");
-    print_meas_row("  Total", &gNB_mac->gNB_scheduler, count);
-    print_meas_row("    RA scheduling", &gNB_mac->schedule_ra, count);
-    print_meas_row("    UL scheduling", &gNB_mac->schedule_ulsch, count);
-    print_meas_row("    DL scheduling (PDCCH+PDSCH)", &gNB_mac->schedule_dlsch, count);
-    print_meas_row("      RLC data req", &gNB_mac->rlc_data_req, count);
+    print_meas_row("  Total", &cell->gNB_scheduler, count);
+    print_meas_row("    RA scheduling", &cell->schedule_ra, count);
+    print_meas_row("    UL scheduling", &cell->schedule_ulsch, count);
+    print_meas_row("    DL scheduling (PDCCH+PDSCH)", &cell->schedule_dlsch, count);
+    print_meas_row("      RLC data req", &cell->rlc_data_req, count);
 
     printf("  PHY TX:\n");
     print_meas_row("  Total", &gNB->phy_proc_tx, count);
     print_meas_row("    DCI generation", &gNB->dci_generation_stats, count);
     print_meas_row("    DLSCH encoding", &gNB->dlsch_encoding_stats, count);
-    print_meas_row("      segmentation", &gNB->dlsch_segmentation_stats, count);
-    print_meas_row("      rate matching", &gNB->dlsch_rate_matching_stats, count);
-    print_meas_row("      scrambling", &gNB->dlsch_scrambling_stats, count);
+    print_meas_row("      LDPC encoding", &gNB->dlsch_ldpc_encode_stats, count);
+    print_meas_row("    scrambling", &gNB->dlsch_scrambling_stats, count);
     print_meas_row("    DLSCH modulation", &gNB->dlsch_modulation_stats, count);
     print_meas_row("    layer mapping", &gNB->dlsch_layer_mapping_stats, count);
     print_meas_row("    precoding", &gNB->dlsch_precoding_stats, count);

@@ -55,6 +55,9 @@ target_link_libraries(benchmark_channel_pipeline PRIVATE UTIL SIMU PHY_COMMON LO
 add_executable(test_channel_pipeline test_channel_pipeline.cpp test_channel_pipeline_tools.c)
 target_link_libraries(test_channel_pipeline PRIVATE UTIL SIMU PHY_COMMON LOG CONFIG_LIB shlib_loader m channel_pipeline GTest::gtest thread-pool)
 
+add_executable(accuracy_test_gpu_optimized_pipeline accuracy_test_gpu_optimized_pipeline.cpp test_channel_pipeline_tools.c)
+target_link_libraries(accuracy_test_gpu_optimized_pipeline PRIVATE UTIL SIMU PHY_COMMON LOG CONFIG_LIB shlib_loader m channel_pipeline GTest::gtest thread-pool)
+
 if (ENABLE_CHANNEL_SIM_CUDA)
   target_compile_definitions(test_channel_pipeline PRIVATE CHANNEL_SIM_CUDA)
   add_dependencies(tests test_channel_pipeline)
@@ -65,6 +68,11 @@ if (ENABLE_CHANNEL_SIM_CUDA)
   add_dependencies(tests benchmark_channel_pipeline)
   add_test(NAME benchmark_channel_pipeline COMMAND benchmark_channel_pipeline)
   set_tests_properties(benchmark_channel_pipeline PROPERTIES LABELS "cuda")
+
+  target_compile_definitions(accuracy_test_gpu_optimized_pipeline PRIVATE CHANNEL_SIM_CUDA)
+  add_dependencies(tests accuracy_test_gpu_optimized_pipeline)
+  add_test(NAME accuracy_test_gpu_optimized_pipeline COMMAND accuracy_test_gpu_optimized_pipeline)
+  set_tests_properties(accuracy_test_gpu_optimized_pipeline PROPERTIES LABELS "cuda")
 endif()
 
 if (ENABLE_CHANNEL_SIM_CUDA)

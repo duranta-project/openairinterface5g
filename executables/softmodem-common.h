@@ -118,7 +118,7 @@ extern int usrp_tx_thread;
   {"CO" ,                   CONFIG_HLP_ULF,           0,              .i64ptr=&(uplink_frequency_offset[0][0]), .defintval=0,           TYPE_INT64,  0},  \
   {"a" ,                    CONFIG_HLP_CHOFF,         0,              .iptr=&CHAIN_OFFSET,                    .defintval=0,             TYPE_INT,    0},  \
   {"d" ,                    CONFIG_HLP_SOFTS,         PARAMFLAG_BOOL, .uptr=&do_forms,                        .defintval=0,             TYPE_UINT,   0},  \
-  {"q" ,                    CONFIG_HLP_STMON,         PARAMFLAG_BOOL, .iptr=&cpu_meas_enabled,                     .defintval=0,             TYPE_INT,    0},  \
+  {"q" ,                    CONFIG_HLP_STMON,         PARAMFLAG_VALUE_OPTIONAL, .iptr=&cpu_meas_enabled,      .defintval=0,             TYPE_INT,    0},  \
   {"numerology" ,           CONFIG_HLP_NUMEROLOGY,    0,              .iptr=&NUMEROLOGY,                      .defintval=1,             TYPE_INT,    0},  \
   {"band" ,                 CONFIG_HLP_BAND,          0,              .iptr=&BAND,                            .defintval=78,            TYPE_INT,    0},  \
   {"parallel-config",       CONFIG_HLP_PARALLEL_CMD,  0,              .strptr=&parallel_config,               .defstrval=NULL,          TYPE_STRING, 0},  \

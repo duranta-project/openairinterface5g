@@ -1,0 +1,150 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+
+<testCaseList>
+  <htmlTabRef>test-5g-fhi72-microamp-2x2-100MHz</htmlTabRef>
+  <htmlTabName>100 MHz 2x2 TDD SA FR2 Microamp</htmlTabName>
+  <htmlTabIcon>tasks</htmlTabIcon>
+
+  <testCase>
+    <class>DeployCoreNetwork</class>
+    <desc>Initialize 5G Core</desc>
+    <cn_id>oc-cn5g-20899-stonechat</cn_id>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Script</class>
+    <desc>Check Microamp FR2 RU configuration and PTP synchronization</desc>
+    <node>stonechat</node>
+    <script>scripts/microamp-check-ru.sh</script>
+    <args>100</args>
+  </testCase>
+
+  <testCase>
+    <class>Pull_Local_Registry</class>
+    <desc>Pull Images from Local Registry</desc>
+    <node>stonechat</node>
+    <images>oai-gnb-fhi72</images>
+  </testCase>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace</desc>
+    <node>stonechat</node>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy gNB (TDD/Band257/100MHz/Microamp) in a container</desc>
+    <yaml_path>ci-scripts/yaml_files/sa_fhi_7.2_microamp_2x2_100MHz_gnb</yaml_path>
+    <node>stonechat</node>
+    <num_attempts>2</num_attempts>
+  </testCase>
+
+  <testCase>
+    <class>Attach_UE</class>
+    <desc>Attach UE</desc>
+    <id>up4</id>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping: 100 pings in 10 sec</desc>
+    <id>up4</id>
+    <svr_id>oc-cn5g-20899-stonechat</svr_id>
+    <ping_args>-c 100 -i 0.1</ping_args>
+    <ping_packetloss_threshold>1</ping_packetloss_threshold>
+    <ping_rttavg_threshold>15</ping_rttavg_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>iperf (DL/400Mbps/UDP)(30 sec)</desc>
+    <iperf_args>-u -b 400M -t 30 -R -l 1428</iperf_args>
+    <id>up4</id>
+    <iperf_packetloss_threshold>20</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>80</iperf_bitrate_threshold>
+    <iperf_profile>balanced</iperf_profile>
+    <svr_id>oc-cn5g-20899-stonechat</svr_id>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>Optional iperf (DL/550Mbps/UDP)(30 sec)</desc>
+    <iperf_args>-u -b 550M -t 30 -R -l 1428</iperf_args>
+    <may_fail>true</may_fail>
+    <id>up4</id>
+    <iperf_packetloss_threshold>20</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>80</iperf_bitrate_threshold>
+    <iperf_profile>balanced</iperf_profile>
+    <svr_id>oc-cn5g-20899-stonechat</svr_id>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>iperf (UL/45Mbps/UDP)(30 sec)</desc>
+    <iperf_args>-u -b 45M -t 30</iperf_args>
+    <id>up4</id>
+    <iperf_packetloss_threshold>20</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>80</iperf_bitrate_threshold>
+    <iperf_profile>balanced</iperf_profile>
+    <svr_id>oc-cn5g-20899-stonechat</svr_id>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>iperf (DL/TCP)(30 sec)</desc>
+    <iperf_args>-t 30 -R</iperf_args>
+    <id>up4</id>
+    <iperf_tcp_rate_target>200</iperf_tcp_rate_target>
+    <svr_id>oc-cn5g-20899-stonechat</svr_id>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>iperf (UL/TCP)(30 sec)</desc>
+    <iperf_args>-t 30</iperf_args>
+    <id>up4</id>
+    <iperf_tcp_rate_target>30</iperf_tcp_rate_target>
+    <svr_id>oc-cn5g-20899-stonechat</svr_id>
+  </testCase>
+
+  <testCase>
+    <class>Detach_UE</class>
+    <always_exec>true</always_exec>
+    <desc>Detach UE</desc>
+    <id>up4</id>
+  </testCase>
+
+  <testCase>
+    <class>IdleSleep</class>
+    <desc>Sleep</desc>
+    <idle_sleep_time_in_sec>5</idle_sleep_time_in_sec>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <always_exec>true</always_exec>
+    <desc>Undeploy gNB</desc>
+    <yaml_path>ci-scripts/yaml_files/sa_fhi_7.2_microamp_2x2_100MHz_gnb</yaml_path>
+    <node>stonechat</node>
+    <analysis>
+      <services>oai-gnb=EndsWithBye</services>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Clean_Test_Server_Images</class>
+    <always_exec>true</always_exec>
+    <desc>Clean Test Images on Test Server</desc>
+    <node>stonechat</node>
+    <images>oai-gnb-fhi72</images>
+  </testCase>
+
+  <testCase>
+    <class>UndeployCoreNetwork</class>
+    <always_exec>true</always_exec>
+    <desc>Terminate 5G Core</desc>
+    <cn_id>oc-cn5g-20899-stonechat</cn_id>
+  </testCase>
+
+</testCaseList>

@@ -977,7 +977,7 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 int phy_nr_srs_indication(nfapi_nr_srs_indication_t *ind)
 {
   for (int i = 0; i < ind->number_of_pdus; ++i)
-    handle_nr_srs_measurements(0, ind->sfn, ind->slot, &ind->pdu_list[i]);
+    handle_nr_srs_measurements(0, ind->header.phy_id, ind->sfn, ind->slot, &ind->pdu_list[i]);
   return 1;
 }
 
@@ -1440,7 +1440,8 @@ int nr_param_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_param_resp
   // Aerial, but the native nFAPI path is still 1-based (nfapi_vnf_allocate_phy() starts
   // at 1), and config[] has NFAPI_CC_MAX == 1 entries. Switch to the message's phy_id
   // once the native path is converted to 0-based indexing.
-  nfapi_nr_config_request_scf_t *req = &RC.nrmac[0]->config[p5_idx];
+  nr_cell_sched_t *cell = nr_mac_get_cell_by_phy_id(RC.nrmac[0], resp->header.phy_id);
+  nfapi_nr_config_request_scf_t *req = &cell->config; // check
 #ifndef ENABLE_AERIAL
   struct sockaddr_in pnf_p7_sockaddr;
   phy->remote_port = resp->nfapi_config.p7_pnf_port.value;
@@ -1913,6 +1914,8 @@ void configure_nfapi_vnf(char *vnf_addr, int vnf_p5_port, char *pnf_ip_addr, int
   vnf->p7_vnfs[0].local_port = vnf_p7_port;
   vnf->p7_vnfs[0].mac = malloc(sizeof(mac_t));
   config = nfapi_vnf_config_create();
+  // LTE proxy skips phy_id == 0 upon receiving a PNF_START_REQUEST, start from 1
+  ((vnf_t *)config)->next_phy_id = 1;
   config->malloc = malloc;
   config->free = free;
   config->vnf_p5_port = vnf_p5_port;
@@ -1986,7 +1989,7 @@ int oai_nfapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req)
   LOG_D(NR_PHY, "Entering oai_nfapi_nr_dl_config_req sfn:%d,slot:%d\n", dl_config_req->SFN, dl_config_req->Slot);
   nfapi_vnf_p7_config_t *p7_config = get_p7_vnf_config();
   dl_config_req->header.message_id= NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST;
-  dl_config_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
+  dl_config_req->header.phy_id = 0; // HACK TODO FIXME - need to pass this around!!!!
 
   bool retval = nfapi_vnf_p7_nr_dl_config_req(p7_config, dl_config_req);
 
@@ -2004,7 +2007,7 @@ int oai_nfapi_tx_data_req(nfapi_nr_tx_data_request_t *tx_data_req)
 {
   LOG_D(NR_PHY, "Entering oai_nfapi_nr_tx_data_req sfn:%d,slot:%d\n", tx_data_req->SFN, tx_data_req->Slot);
   nfapi_vnf_p7_config_t *p7_config = get_p7_vnf_config();
-  tx_data_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
+  tx_data_req->header.phy_id = 0; // HACK TODO FIXME - need to pass this around!!!!
   tx_data_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST;
   //LOG_D(PHY, "[VNF] %s() TX_REQ sfn_sf:%d number_of_pdus:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(tx_req->sfn_sf), tx_req->tx_request_body.number_of_pdus);
   bool retval = nfapi_vnf_p7_tx_data_req(p7_config, tx_data_req);
@@ -2037,7 +2040,7 @@ int oai_nfapi_tx_req(nfapi_tx_request_t *tx_req)
 
 int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t *ul_dci_req) {
   nfapi_vnf_p7_config_t *p7_config = get_p7_vnf_config();
-  ul_dci_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
+  ul_dci_req->header.phy_id = 0; // HACK TODO FIXME - need to pass this around!!!!
   ul_dci_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST;
   //LOG_D(PHY, "[VNF] %s() HI_DCI0_REQ sfn_sf:%d dci:%d hi:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(hi_dci0_req->sfn_sf), hi_dci0_req->hi_dci0_request_body.number_of_dci, hi_dci0_req->hi_dci0_request_body.number_of_hi);
   bool retval = nfapi_vnf_p7_ul_dci_req(p7_config, ul_dci_req);
@@ -2090,7 +2093,7 @@ static void remove_ul_config_req_pdu(int index, nfapi_ul_config_request_t *ul_co
 int oai_nfapi_ul_tti_req(nfapi_nr_ul_tti_request_t *ul_tti_req) {
   nfapi_vnf_p7_config_t *p7_config = get_p7_vnf_config();
 
-  ul_tti_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
+  ul_tti_req->header.phy_id = 0; // HACK TODO FIXME - need to pass this around!!!!
   ul_tti_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST;
 
   bool retval = nfapi_vnf_p7_ul_tti_req(p7_config, ul_tti_req);

@@ -7,8 +7,8 @@
 
 #include "LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
 
-void nr_dl_ri_pmi_select_default(const gNB_MAC_INST *mac, nr_dl_candidate_t *candidates, int n_candidates);
-void nr_dl_mcs_select_default(const gNB_MAC_INST *mac, nr_dl_candidate_t *candidates, int n_candidates);
+void nr_dl_ri_pmi_select_default(const nr_cell_sched_t *cell, nr_dl_candidate_t *candidates, int n_candidates);
+void nr_dl_mcs_select_default(const nr_cell_sched_t *cell, nr_dl_candidate_t *candidates, int n_candidates);
 
 int nr_dl_beam_select_default(NR_beam_info_t *beam_info,
                               const int16_t *beam_index_list,
@@ -18,7 +18,7 @@ int nr_dl_beam_select_default(NR_beam_info_t *beam_info,
                               slot_t slot,
                               int slots_per_frame);
 
-int nr_dl_tda_select_default(const gNB_MAC_INST *mac, nr_dl_candidate_t *candidates, int n_candidates, frame_t frame, slot_t slot);
+int nr_dl_tda_select_default(const gNB_MAC_INST *mac, const nr_cell_sched_t *cell, nr_dl_candidate_t *candidates, int n_candidates, frame_t frame, slot_t slot);
 
 int nr_dl_proportional_fair(const nr_dl_sched_params_t *params, nr_dl_candidate_t *candidates, int n_candidates);
 

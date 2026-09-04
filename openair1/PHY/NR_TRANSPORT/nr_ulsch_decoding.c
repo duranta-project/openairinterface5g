@@ -17,6 +17,7 @@
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "PHY/NR_TRANSPORT/nr_ulsch.h"
 #include "PHY/NR_TRANSPORT/nr_dlsch.h"
+#include "PHY/nr_phy_common/inc/nr_phy_meas.h"
 #include "SCHED_NR/sched_nr.h"
 #include "defs.h"
 #include "bits.h"
@@ -270,9 +271,6 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
     for (int r = 0; r < TB_parameters->C; r++)
       TB_parameters->decodeSuccess[r] = false;
     TB_parameters->d_to_be_cleared = harq_process->harq_to_be_cleared;
-    reset_meas(&TB_parameters->ts_deinterleave);
-    reset_meas(&TB_parameters->ts_rate_unmatch);
-    reset_meas(&TB_parameters->ts_seg_prep);
     reset_meas(&TB_parameters->ts_ldpc_decode);
     for (int r = 0; r < TB_parameters->C; r++) {
       int Etmp = nr_get_E(TB_parameters->G, TB_parameters->C, TB_parameters->Qm, TB_parameters->nb_layers, r);
@@ -292,6 +290,7 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
 
   int ret_decoder = phy_vars_gNB->nrLDPC_coding_interface.nrLDPC_coding_decoder(&slot_parameters);
   // post decode
+  int slot_type = nr_slot_select(&phy_vars_gNB->gNB_config, frame, nr_tti_rx);
   for (uint8_t pusch_id = 0; pusch_id < nb_pusch; pusch_id++) {
     uint8_t ULSCH_id = ULSCH_ids[pusch_id];
     NR_gNB_ULSCH_t *ulsch = &phy_vars_gNB->ulsch[ULSCH_id];
@@ -315,10 +314,9 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
     bool crcok = (harq_process->processedSegments == TB_parameters->C);
     if (!crcok)
       LOG_D(PHY, "ULSCH %d in error\n", ULSCH_id);
-    merge_meas(&phy_vars_gNB->ts_deinterleave, &TB_parameters->ts_deinterleave);
-    merge_meas(&phy_vars_gNB->ts_rate_unmatch, &TB_parameters->ts_rate_unmatch);
-    merge_meas(&phy_vars_gNB->ts_seg_prep, &TB_parameters->ts_seg_prep);
-    merge_meas(&phy_vars_gNB->ts_ldpc_decode, &TB_parameters->ts_ldpc_decode);
+
+    MERGE_MEAS_FULL_SLOT(&phy_vars_gNB->ts_ldpc_decode, &TB_parameters->ts_ldpc_decode, slot_type, NR_UPLINK_SLOT);
+
     harq_process->harq_to_be_cleared = false;
   }
 

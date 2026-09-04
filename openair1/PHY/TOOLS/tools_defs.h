@@ -220,6 +220,11 @@ extern "C" {
     };
   }
 
+  __attribute__((always_inline)) inline c32_t c32x16mulConj(const c16_t a, const c16_t b)
+  {
+    return (c32_t){.r = a.r * b.r + a.i * b.i, .i = a.r * b.i - a.i * b.r};
+  }
+
   __attribute__((always_inline)) inline c16_t c16xmulConstShift(const c16_t a, const int b, const int Shift)
   {
     return (c16_t){.r = (int16_t)((a.r * b) >> Shift), .i = (int16_t)((a.i * b) >> Shift)};
@@ -252,6 +257,31 @@ extern "C" {
         .r = a.r * b.r - a.i * b.i,
         .i = a.r * b.i + a.i * b.r
     };
+  }
+
+  /**
+   * @brief Complex doulbe conjugate product.
+   *
+   * @param a
+   * @param b
+   * @return = conj(a) * b
+   */
+  __attribute__((always_inline)) inline cd_t cdMulConj(const cd_t a, const cd_t b)
+  {
+    return (cd_t){.r = a.r * b.r + a.i * b.i, .i = a.r * b.i - a.i * b.r};
+  }
+
+  __attribute__((always_inline)) inline cd_t cdNorm(const cd_t a)
+  {
+    const double abs = sqrt(a.r * a.r + a.i * a.i);
+    DevAssert(abs != 0);
+    return (cd_t){.r = a.r / abs, .i = a.i / abs};
+  }
+
+  __attribute__((always_inline)) inline c16_t cd2c16(const cd_t a, const int16_t amp)
+  {
+    const cd_t n = cdNorm(a);
+    return (c16_t){.r = (int16_t)(n.r * amp), .i = (int16_t)(n.i * amp)};
   }
 
   // On N complex numbers

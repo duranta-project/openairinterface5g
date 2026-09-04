@@ -6,7 +6,6 @@
 #include <math.h>
 #include <unistd.h>
 #include "common/cmake_defs.h"
-#include "common/utils/var_array.h"
 #include "PHY/types.h"
 #include "PHY/defs_common.h"
 #include "PHY/defs_eNB.h"
@@ -50,16 +49,8 @@ nfapi_ue_release_request_body_t release_rntis;
 char title[255];
 
 /*the following parameters are used to control the processing times*/
-double t_tx_max = -1000000000; /*!< \brief initial max process time for tx */
-double t_rx_max = -1000000000; /*!< \brief initial max process time for rx */
-double t_tx_min = 1000000000; /*!< \brief initial min process time for tx */
-double t_rx_min = 1000000000; /*!< \brief initial min process time for tx */
 int n_tx_dropped = 0; /*!< \brief initial max process time for tx */
 int n_rx_dropped = 0; /*!< \brief initial max process time for rx */
-static int cmpdouble(const void *p1, const void *p2) {
-  return *(double *)p1 > *(double *)p2;
-}
-
 RAN_CONTEXT_t RC;
 extern void fep_full(RU_t *ru, int subframe);
 extern void ru_fep_full_2thread(RU_t *ru, int subframe);
@@ -785,6 +776,16 @@ int main(int argc, char **argv) {
   rate = (double)TBStable[get_I_TBS(mcs)][nb_rb - 1] / (coded_bits_per_codeword);
   printf("Rate = %f (mod %d), coded bits %u\n",rate,get_Qm_ul(mcs),coded_bits_per_codeword);
 
+  // initialize sorted lists for timers for which we want the distribution
+  init_sorted_list_meas(&UE->phy_proc_tx, n_frames * 4);
+  init_sorted_list_meas(&UE->ofdm_mod_stats, n_frames * 4);
+  init_sorted_list_meas(&UE->ulsch_modulation_stats, n_frames * 4);
+  init_sorted_list_meas(&UE->ulsch_encoding_stats, n_frames * 4);
+  init_sorted_list_meas(&eNB->phy_proc_rx, n_frames * 4);
+  init_sorted_list_meas(&ru->ofdm_demod_stats, n_frames * 4);
+  init_sorted_list_meas(&eNB->ulsch_demodulation_stats, n_frames * 4);
+  init_sorted_list_meas(&eNB->ulsch_decoding_stats, n_frames * 4);
+
   for (ch_realization=0; ch_realization<n_ch_rlz; ch_realization++) {
     /*
       if(abstx){
@@ -898,14 +899,6 @@ int main(int argc, char **argv) {
       reset_meas(&eNB->ulsch_tc_intl1_stats);
       reset_meas(&eNB->ulsch_tc_intl2_stats);
       // initialization
-      varArray_t *table_tx=initVarArray(1000,sizeof(double));
-      varArray_t *table_tx_ifft=initVarArray(1000,sizeof(double));
-      varArray_t *table_tx_mod=initVarArray(1000,sizeof(double));
-      varArray_t *table_tx_enc=initVarArray(1000,sizeof(double));
-      varArray_t *table_rx=initVarArray(1000,sizeof(double));
-      varArray_t *table_rx_fft=initVarArray(1000,sizeof(double));
-      varArray_t *table_rx_demod=initVarArray(1000,sizeof(double));
-      varArray_t *table_rx_dec=initVarArray(1000,sizeof(double));
       ndi=0;
       phy_reset_ue(0,0,0);
       UE->UE_mode[eNB_id]=PUSCH;
@@ -1213,13 +1206,7 @@ int main(int argc, char **argv) {
           break;
 
         double t_tx = inMicroS(UE->phy_proc_tx.p_time);
-        double t_tx_ifft = inMicroS(UE->ofdm_mod_stats.p_time);
-        double t_tx_mod = inMicroS(UE->ulsch_modulation_stats.p_time);
-        double t_tx_enc = inMicroS(UE->ulsch_encoding_stats.p_time);
         double t_rx = inMicroS(eNB->phy_proc_rx.p_time);
-        double t_rx_fft = inMicroS(ru->ofdm_demod_stats.p_time);
-        double t_rx_demod = inMicroS(eNB->ulsch_demodulation_stats.p_time);
-        double t_rx_dec = inMicroS(eNB->ulsch_decoding_stats.p_time);
 
         if (t_tx > 2000 )// 2ms is too much time for a subframe
           n_tx_dropped++;
@@ -1228,31 +1215,12 @@ int main(int argc, char **argv) {
           n_rx_dropped++;
 
         if (trials < 1000) {
-         appendVarArray(&table_tx, &t_tx);
-         appendVarArray(&table_tx_ifft, &t_tx_ifft);
-         appendVarArray(&table_tx_mod, &t_tx_mod );
-         appendVarArray(&table_tx_enc, &t_tx_enc );
-         appendVarArray(&table_rx, &t_rx );
-         appendVarArray(&table_rx_fft, &t_rx_fft );
-         appendVarArray(&table_rx_demod, &t_rx_demod );
-         appendVarArray(&table_rx_dec, &t_rx_dec );
        }
       }   //trials
 
       // sort table
-      qsort (dataArray(table_tx), table_tx->size, table_tx->atomSize, &cmpdouble);
-      qsort (dataArray(table_tx_ifft), table_tx_ifft->size, table_tx_ifft->atomSize, &cmpdouble);
-      qsort (dataArray(table_tx_mod), table_tx_mod->size, table_tx_mod->atomSize, &cmpdouble);
-      qsort (dataArray(table_tx_enc), table_tx_enc->size, table_tx_enc->atomSize, &cmpdouble);
-      qsort (dataArray(table_rx), table_rx->size, table_rx->atomSize, &cmpdouble);
-      qsort (dataArray(table_rx_fft), table_rx_fft->size, table_rx_fft->atomSize, &cmpdouble);
-      qsort (dataArray(table_rx_demod), table_rx_demod->size, table_rx_demod->atomSize, &cmpdouble);
-      qsort (dataArray(table_rx_dec), table_rx_dec->size, table_rx_dec->atomSize, &cmpdouble);
-
       if (dump_table == 1 ) {
         set_component_filelog(SIM); // file located in /tmp/usim.txt
-        LOG_UDUMPMSG(SIM,dataArray(table_tx),table_tx->size,LOG_DUMP_DOUBLE,"The transmitter raw data: \n");
-        LOG_UDUMPMSG(SIM,dataArray(table_rx),table_rx->size,LOG_DUMP_DOUBLE,"The receiver raw data: \n");
       }
 
       dump_ulsch_stats(stdout,eNB,0);
@@ -1317,20 +1285,20 @@ int main(int argc, char **argv) {
 
       if (dump_perf==1) {
         printf("UE TX function statistics (per 1ms subframe)\n\n");
-        printDistribution(&UE->phy_proc_tx,table_tx,"Total PHY proc tx");
-        printDistribution(&UE->ofdm_mod_stats, table_tx_ifft, "OFDM_mod time");
-        printDistribution(&UE->ulsch_modulation_stats,table_tx_mod, "ULSCH modulation time");
-        printDistribution(&UE->ulsch_encoding_stats,table_tx_enc, "ULSCH encoding time");
+        printDistribution(&UE->phy_proc_tx, "Total PHY proc tx");
+        printDistribution(&UE->ofdm_mod_stats, "OFDM_mod time");
+        printDistribution(&UE->ulsch_modulation_stats, "ULSCH modulation time");
+        printDistribution(&UE->ulsch_encoding_stats, "ULSCH encoding time");
         printStatIndent(&UE->ulsch_segmentation_stats,"ULSCH segmentation time");
         printStatIndent(&UE->ulsch_turbo_encoding_stats,"ULSCH turbo encoding time");
         printStatIndent(&UE->ulsch_rate_matching_stats,"ULSCH rate-matching time");
         printStatIndent(&UE->ulsch_interleaving_stats,"ULSCH sub-block interleaving");
         printStatIndent(&UE->ulsch_multiplexing_stats,"ULSCH multiplexing time");
         printf("\n");
-        printDistribution(&eNB->phy_proc_rx,table_rx,"Total PHY proc rx subframe");
-        printDistribution(&ru->ofdm_demod_stats,table_rx_fft,"|__ OFDM_demod time");
-        printDistribution(&eNB->ulsch_demodulation_stats,table_rx_demod,"|__ ULSCH demodulation time");
-        printDistribution(&eNB->ulsch_decoding_stats,table_rx_dec,"|__ ULSCH Decoding time");
+        printDistribution(&eNB->phy_proc_rx, "Total PHY proc rx subframe");
+        printDistribution(&ru->ofdm_demod_stats, "|__ OFDM_demod time");
+        printDistribution(&eNB->ulsch_demodulation_stats, "|__ ULSCH demodulation time");
+        printDistribution(&eNB->ulsch_decoding_stats, "|__ ULSCH Decoding time");
         printf("     (%.2f Mbit/s, avg iter %.2f, max %.2f)\n",
                UE->ulsch[0]->harq_processes[harq_pid]->TBS/1000.0,
                (double)iter_trials,
@@ -1428,37 +1396,15 @@ int main(int argc, char **argv) {
                 get_time_meas_us(&eNB->ulsch_demodulation_stats),
                 get_time_meas_us(&eNB->ulsch_decoding_stats)
                );
-        //fprintf(time_meas_fd,"UE_PROC_TX_STD;UE_PROC_TX_MAX;UE_PROC_TX_MIN;UE_PROC_TX_MED;UE_PROC_TX_Q1;UE_PROC_TX_Q3;UE_PROC_TX_DROPPED;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f;%f;%f;%d;",
-                squareRoot(&UE->phy_proc_tx), t_tx_max, t_tx_min, median(table_tx), q1(table_tx), q3(table_tx), n_tx_dropped);
-        //fprintf(time_meas_fd,"IFFT;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f;",
-                squareRoot(&UE->ofdm_mod_stats),
-                median(table_tx_ifft),q1(table_tx_ifft),q3(table_tx_ifft));
-        //fprintf(time_meas_fd,"MOD;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f;",
-                squareRoot(&UE->ulsch_modulation_stats),
-                median(table_tx_mod), q1(table_tx_mod), q3(table_tx_mod));
-        //fprintf(time_meas_fd,"ENC;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f;",
-                squareRoot(&UE->ulsch_encoding_stats),
-                median(table_tx_enc),q1(table_tx_enc),q3(table_tx_enc));
-        //fprintf(time_meas_fd,"eNB_PROC_RX_STD;eNB_PROC_RX_MAX;eNB_PROC_RX_MIN;eNB_PROC_RX_MED;eNB_PROC_RX_Q1;eNB_PROC_RX_Q3;eNB_PROC_RX_DROPPED;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f;%f;%f;%d;",
-                squareRoot(&eNB->phy_proc_rx), t_rx_max, t_rx_min,
-                median(table_rx), q1(table_rx), q3(table_rx), n_rx_dropped);
-        //fprintf(time_meas_fd,"FFT;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f;",
-                squareRoot(&ru->ofdm_demod_stats),
-                median(table_rx_fft), q1(table_rx_fft), q3(table_rx_fft));
-        //fprintf(time_meas_fd,"DEMOD;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f;",
-                squareRoot(&eNB->ulsch_demodulation_stats),
-                median(table_rx_demod), q1(table_rx_demod), q3(table_rx_demod));
-        //fprintf(time_meas_fd,"DEC;\n");
-        fprintf(time_meas_fd,"%f;%f;%f;%f\n",
-                squareRoot(&eNB->ulsch_decoding_stats),
-                median(table_rx_dec), q1(table_rx_dec), q3(table_rx_dec));
+        fprintf(time_meas_fd,"TIMER;STD_DEV;MAX;Q1;MED;Q3;MIN;DROPPED;\n");
+        printDistributionDroppedCsv(time_meas_fd, &UE->phy_proc_tx, n_tx_dropped, "UE TX TOTAL");
+        printDistributionCsv(time_meas_fd, &UE->ofdm_mod_stats, "UE TX IFFT");
+        printDistributionCsv(time_meas_fd, &UE->ulsch_modulation_stats, "UE TX MOD");
+        printDistributionCsv(time_meas_fd, &UE->ulsch_encoding_stats, "UE TX ENC");
+        printDistributionDroppedCsv(time_meas_fd, &eNB->phy_proc_rx, n_rx_dropped, "eNB RX TOTAL");
+        printDistributionCsv(time_meas_fd, &ru->ofdm_demod_stats, "RU RX FFT");
+        printDistributionCsv(time_meas_fd, &eNB->ulsch_demodulation_stats, "eNB RX DEMOD");
+        printDistributionCsv(time_meas_fd, &eNB->ulsch_decoding_stats, "eNB RX DEC");
         printf("[passed] effective rate : %f  (%2.1f%%,%f)): log and break \n",rate*effective_rate, 100*effective_rate, rate );
         break;
       } else if (test_perf !=0 ) {
@@ -1476,6 +1422,16 @@ int main(int argc, char **argv) {
 
   oai_exit=1;
   pthread_cond_signal(&ru->proc.cond_fep[0]);
+
+  // initialize sorted lists for timers for which we want the distribution
+  free_sorted_list_meas(&UE->phy_proc_tx);
+  free_sorted_list_meas(&UE->ofdm_mod_stats);
+  free_sorted_list_meas(&UE->ulsch_modulation_stats);
+  free_sorted_list_meas(&UE->ulsch_encoding_stats);
+  free_sorted_list_meas(&eNB->phy_proc_rx);
+  free_sorted_list_meas(&ru->ofdm_demod_stats);
+  free_sorted_list_meas(&eNB->ulsch_demodulation_stats);
+  free_sorted_list_meas(&eNB->ulsch_decoding_stats);
 
   if (abstx) { // ABSTRACTION
     fprintf(csv_fdUL,"];");

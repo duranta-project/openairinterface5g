@@ -1277,6 +1277,26 @@ static void config_pdcp(configmodule_interface_t *cfg, nr_pdcp_configuration_t *
   pdcp_config->drb.discard_timer = config_get_processedint(cfg, &pdcp_params[CONFIG_NR_PDCP_DRB_DISCARD_TIMER_IDX]);
 }
 
+static void config_nrdc(configmodule_interface_t *cfg, nrdc_configuration_t *nrdc_config)
+{
+  GET_PARAMS_LIST(nrdc_combination_list, nrdc_combination, NRDC_PARAMS_DESC, CONFIG_NRDC_COMBINATION_LIST, CONFIG_STRING_NRDC);
+
+  nrdc_config->combination_count = nrdc_combination_list.numelt;
+
+  LOG_I(NR_RRC, "NR-DC: %d combinations configured\n", nrdc_config->combination_count);
+
+  nrdc_config->combinations = calloc_or_fail(nrdc_config->combination_count, sizeof(nrdc_combination_t));
+  for (int i = 0; i < nrdc_combination_list.numelt; i++) {
+    const paramdef_t *combination = nrdc_combination_list.paramarray[i];
+    uint64_t mcg_cell_id = *gpd(combination, sizeofArray(nrdc_combination), CONFIG_NRDC_MCG)->u64ptr;
+    uint64_t scg_cell_id = *gpd(combination, sizeofArray(nrdc_combination), CONFIG_NRDC_SCG)->u64ptr;
+    LOG_I(NR_RRC, "NR-DC: combination %d: mcg cell ID %"PRIu64" scg cell ID %"PRIu64"\n", i, mcg_cell_id, scg_cell_id);
+
+    nrdc_config->combinations[i].mcg_cell_id = mcg_cell_id;
+    nrdc_config->combinations[i].scg_cell_id = scg_cell_id;
+  }
+}
+
 void nfapi_stop_l1()
 {
   if (NFAPI_MODE && (NFAPI_MODE == NFAPI_MODE_AERIAL || NFAPI_MODE == NFAPI_MODE_VNF)) {
@@ -1479,6 +1499,10 @@ static double complex **read_dbt_from_config(const char *prefix,
 
 static void config_spatial_stream_index(const paramdef_t *param, const size_t np, nr_mac_config_t *radio_config, int num_ru_ports)
 {
+  AssertFatal(num_ru_ports <= NR_MAC_MAX_RU_ANTENNA_PORTS,
+              "Number of RU antenna ports (%d) exceeds NR_MAC_MAX_RU_ANTENNA_PORTS (%d)\n",
+              num_ru_ports,
+              NR_MAC_MAX_RU_ANTENNA_PORTS);
   const int n = gpd(param, np, MACRLC_SPATIAL_STREAM_IDX)->numelt;
   if (n == 0) {
     // No indices provided in config file. Set default indices starting from 0.
@@ -1491,9 +1515,10 @@ static void config_spatial_stream_index(const paramdef_t *param, const size_t np
   }
 }
 
-void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
+void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cell)
 {
   int j = 0;
+  nr_cell_sched_t *cell = NULL;
 
   GET_PARAMS(GNBSParams, GNBSPARAMS_DESC, NULL);
   GET_PARAMS_LIST(GNBParamList, GNBParams, GNBPARAMS_DESC, GNB_CONFIG_STRING_GNB_LIST, NULL, GNBPARAMS_CHECK);
@@ -1659,9 +1684,10 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
           config.pucch.failure_thres);
 
     ngran_node_t node_type = get_node_type();
-    mac_top_init_gNB(node_type, scc, &config, &default_rlc_config);
+    mac_top_init_gNB(node_type, scc, &config, &default_rlc_config, &cell);
 
     for (j = 0; j < RC.nb_nr_macrlc_inst; j++) {
+      gNB_MAC_INST *nrmac = RC.nrmac[j];
       params = MacRLC_ParamList.paramarray[j]; // RC.nb_nr_macrlc_inst == 1 as per assert, but keep consistent
       if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "local_RRC") == 0) {
         // check number of instances is same as RRC/PDCP
@@ -1677,7 +1703,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
           .DUport = *gpd(params, np, MACRLC_LOCAL_N_PORTD)->iptr,
           .CUport = *gpd(params, np, MACRLC_REMOTE_N_PORTD)->iptr,
         };
-        RC.nrmac[j]->net_config = nc;
+        nrmac->net_config = nc;
         LOG_I(F1AP,
               "F1-C DU IPaddr %s, connect to F1-C CU %s, binding GTP to %s ports local %d remote %d\n",
               nc.DU_f1c_ip_address,
@@ -1702,7 +1728,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
           .nvipc_poll_core = *gpd(params, np, MACRLC_TRANSPORT_S_POLL_CORE)->i8ptr,
           .num_phys = 1,
         };
-        RC.nrmac[j]->nvipc_params_s = nvipc_p;
+        nrmac->nvipc_params_s = nvipc_p;
         LOG_I(GNB_APP, "Configuring VNF for Aerial connection with prefix %s\n", nvipc_p.nvipc_shm_prefix);
         // parameters are for socket-based communication, irrelevant for Aerial
         configure_nr_nfapi_vnf(NULL, 0xffff, 0xffff);
@@ -1711,10 +1737,10 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
       } else { // other midhaul
         AssertFatal(1 == 0, "MACRLC %d: %s unknown southbound midhaul\n", j, *gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr);
       }
-      RC.nrmac[j]->ulsch_max_frame_inactivity = *gpd(params, np, MACRLC_ULSCH_MAX_FRAME_INACTIVITY)->uptr;
-      RC.nrmac[j]->stats_max_ue = *gpd(params, np, MACRLC_STATS_MAX_UE)->iptr;
-      RC.nrmac[j]->print_ue_stats = RC.nrmac[j]->stats_max_ue > 0;
-      NR_bler_options_t *dl_bler_options = &RC.nrmac[j]->dl_bler;
+      cell->ulsch_max_frame_inactivity = *gpd(params, np, MACRLC_ULSCH_MAX_FRAME_INACTIVITY)->uptr;
+      nrmac->stats_max_ue = *gpd(params, np, MACRLC_STATS_MAX_UE)->iptr;
+      nrmac->print_ue_stats = nrmac->stats_max_ue > 0;
+      NR_bler_options_t *dl_bler_options = &cell->dl_bler;
       dl_bler_options->upper = *gpd(params, np, MACRLC_DL_BLER_TARGET_UPPER)->dblptr;
       dl_bler_options->lower = *gpd(params, np, MACRLC_DL_BLER_TARGET_LOWER)->dblptr;
       dl_bler_options->min_mcs = *gpd(params, np, MACRLC_DL_MIN_MCS)->u8ptr;
@@ -1723,7 +1749,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
         dl_bler_options->harq_round_max = 1;
       else
         dl_bler_options->harq_round_max = *gpd(params, np, MACRLC_DL_HARQ_ROUND_MAX)->u8ptr;
-      NR_bler_options_t *ul_bler_options = &RC.nrmac[j]->ul_bler;
+      NR_bler_options_t *ul_bler_options = &cell->ul_bler;
       ul_bler_options->upper = *gpd(params, np, MACRLC_UL_BLER_TARGET_UPPER)->dblptr;
       ul_bler_options->lower = *gpd(params, np, MACRLC_UL_BLER_TARGET_LOWER)->dblptr;
       ul_bler_options->min_mcs = *gpd(params, np, MACRLC_UL_MIN_MCS)->u8ptr;
@@ -1732,37 +1758,37 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
         ul_bler_options->harq_round_max = 1;
       else
         ul_bler_options->harq_round_max = *gpd(params, np, MACRLC_UL_HARQ_ROUND_MAX)->u8ptr;
-      RC.nrmac[j]->min_grant_prb = *gpd(params, np, MACRLC_MIN_GRANT_PRB)->u16ptr;
+      cell->min_grant_prb = *gpd(params, np, MACRLC_MIN_GRANT_PRB)->u16ptr;
       long sc_fdma = NR_PUSCH_Config__transformPrecoder_enabled;
-      NR_BWP_UplinkCommon_t *bwp = RC.nrmac[j]->common_channels[0].ServingCellConfigCommon->uplinkConfigCommon->initialUplinkBWP;
+      NR_BWP_UplinkCommon_t *bwp = cell->common_channels.ServingCellConfigCommon->uplinkConfigCommon->initialUplinkBWP;
       if (bwp->rach_ConfigCommon->choice.setup->msg3_transformPrecoder != NULL)
         sc_fdma = *bwp->rach_ConfigCommon->choice.setup->msg3_transformPrecoder;
-      int new_min = check_sc_fdma_rbsize(sc_fdma, RC.nrmac[j]->min_grant_prb);
+      int new_min = check_sc_fdma_rbsize(sc_fdma, cell->min_grant_prb);
       // NR_PUSCH_Config__transformPrecoder_enabled	= 0 |	NR_PUSCH_Config__transformPrecoder_disabled	= 1, so !uses_sc_fdma should
       // be used
-      if (sc_fdma == NR_PUSCH_Config__transformPrecoder_enabled && RC.nrmac[j]->min_grant_prb != new_min) {
+      if (sc_fdma == NR_PUSCH_Config__transformPrecoder_enabled && cell->min_grant_prb != new_min) {
         LOG_W(NR_MAC,
               "min_rb value is set as %d. In SC-FDMA, it should be under format 2^x*3^y*5^z and has been automatically decreased "
               "to %d.\n",
-              RC.nrmac[j]->min_grant_prb,
+              cell->min_grant_prb,
               new_min);
-        RC.nrmac[j]->min_grant_prb = new_min;
+       cell->min_grant_prb = new_min;
       }
-      RC.nrmac[j]->identity_pm = *gpd(params, np, MACRLC_IDENTITY_PM)->u8ptr;
+      cell->identity_pm = *gpd(params, np, MACRLC_IDENTITY_PM)->u8ptr;
       // PRB Blacklist
       uint16_t prbbl[MAX_BWP_SIZE] = {0};
       int num_ulprbbl = get_prb_blacklist(prbbl);
       if (num_ulprbbl != -1) {
         LOG_I(NR_PHY, "Copying %d blacklisted PRB to L1 context\n", num_ulprbbl);
-        memcpy(RC.nrmac[j]->ulprbbl, prbbl, MAX_BWP_SIZE * sizeof(prbbl[0]));
+        memcpy(cell->ulprbbl, prbbl, MAX_BWP_SIZE * sizeof(prbbl[0]));
       }
       // config_get_processedint() takes only paramdef_t *, so cast const away
       paramdef_t *p_ab = (paramdef_t *)gpd(params, np, MACRLC_ANALOG_BEAMFORMING);
-      NR_beam_info_t *beam_info = &RC.nrmac[j]->beam_info;
+      NR_beam_info_t *beam_info = &cell->beam_info;
       beam_info->beam_mode = config_get_processedint(cfg, p_ab);
       beam_info->beams_per_period = beams_per_period;
-      if (RC.nrmac[j]->beam_info.beam_mode != NO_BEAM_MODE) {
-        if (RC.nrmac[j]->beam_info.beam_mode == PRECONFIGURED_BEAM_IDX)
+      if (cell->beam_info.beam_mode != NO_BEAM_MODE) {
+        if (cell->beam_info.beam_mode == PRECONFIGURED_BEAM_IDX)
           AssertFatal(NFAPI_MODE == NFAPI_MONOLITHIC, "Analog beamforming only supported for monolithic scenario\n");
         beam_info->beam_allocation = malloc16(beams_per_period * sizeof(beam_info->beam_allocation));
         beam_info->beam_duration = *gpd(params, np, MACRLC_BEAM_DURATION)->u8ptr;
@@ -1780,7 +1806,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
       if (n > 0) {
         AssertFatal(!das_enabled, "No need to set beam weights in case of DAS\n");
         int num_beam = n;
-        if (RC.nrmac[j]->beam_info.beam_mode == PRECONFIGURED_BEAM_IDX) {
+        if (cell->beam_info.beam_mode == PRECONFIGURED_BEAM_IDX) {
           AssertFatal(n % num_tx == 0, "Error! Number of beam input needs to be multiple of TX antennas\n");
           num_beam = n / num_tx;
         }
@@ -1817,10 +1843,10 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
       }
 
       // Read spatial stream indices
-      config_spatial_stream_index(params, np, &RC.nrmac[j]->radio_config, num_tx);
+      config_spatial_stream_index(params, np, &cell->radio_config, num_tx);
 
       // triggers also PHY initialization in case we have L1 via FAPI
-      nr_mac_config_scc(RC.nrmac[j], scc, &config);
+      nr_mac_config_scc(nrmac, cell, scc, &config);
       RC.nrmac[j]->positioning_config = RCconfig_nr_positioning();
     } //  for (j=0;j<RC.nb_nr_macrlc_inst;j++)
 
@@ -1829,26 +1855,29 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
     char *name = NULL;
     f1ap_served_cell_info_t info;
     read_du_cell_info(NODE_IS_DU(node_type), &gnb_id, &gnb_du_id, &name, &info, 1);
-
-    NR_COMMON_channels_t *cc = &RC.nrmac[0]->common_channels[0];
+    cell->nr_cellid = info.nr_cellid;
+    cell->plmn = info.plmn;
+    gNB_MAC_INST *nrmac = RC.nrmac[0];
+    NR_COMMON_channels_t *cc = &cell->common_channels;
     cc->du_SIBs = fill_du_sibs(GNBParamList.paramarray[0]);
 
     if (IS_SA_MODE(get_softmodem_params()))
-      nr_mac_configure_sib1(RC.nrmac[0], &info.plmn, info.nr_cellid, *info.tac);
+      nr_mac_configure_sib1(cell, &info.plmn, info.nr_cellid, *info.tac);
 
     // read F1 Setup information from config and generated MIB/SIB1
     // and store it at MAC for sending later
-    NR_BCCH_BCH_Message_t *mib = RC.nrmac[0]->common_channels[0].mib;
-    const NR_BCCH_DL_SCH_Message_t *sib1 = RC.nrmac[0]->common_channels[0].sib1;
-    seq_arr_t *du_SIBs = RC.nrmac[0]->common_channels[0].du_SIBs;
+    NR_BCCH_BCH_Message_t *mib = cc->mib;
+    const NR_BCCH_DL_SCH_Message_t *sib1 = cc->sib1;
+    seq_arr_t *du_SIBs = cc->du_SIBs;
     f1ap_setup_req_t *req = RC_read_F1Setup(gnb_du_id, name, &info, scc, mib, sib1, du_SIBs);
     AssertFatal(req != NULL, "could not read F1 Setup information\n");
     LOG_I(GNB_APP, "Configured DU: cell ID %ld, PCI %d\n", req->cell[0].info.nr_cellid, req->cell[0].info.nr_pci);
-    RC.nrmac[0]->f1_config.setup_req = req;
-    RC.nrmac[0]->f1_config.gnb_id = gnb_id;
+    nrmac->f1_config.setup_req = req;
+    nrmac->f1_config.gnb_id = gnb_id;
 
     free(name); /* read_du_cell_info() allocated memory */
 
+    *out_cell = cell;
   } else { // MacRLC_ParamList.numelt > 0
     LOG_E(PHY, "No %s configuration found\n", MACRLC_LIST);
     // AssertFatal (0,"No " MACRLC_LIST " configuration found");
@@ -2460,6 +2489,8 @@ gNB_RRC_INST *RCconfig_NRRRC()
 
   config_rlc(config_get_if(), &rrc->rlc_config);
   config_pdcp(config_get_if(), &rrc->pdcp_config);
+
+  config_nrdc(config_get_if(), &rrc->nrdc_config);
 
   return rrc;
 }

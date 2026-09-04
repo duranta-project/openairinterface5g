@@ -11,11 +11,12 @@
 #include "common/ngran_types.h"
 #include "f1ap_messages_types.h"
 #include "intertask_interface.h"
+#include "NR_MAC_gNB/nr_mac_gNB.h"
 
 void RCconfig_verify(configmodule_interface_t *cfg, ngran_node_t node_type);
 void RCconfig_nr_prs(void);
 void RCconfig_NR_L1(void);
-void RCconfig_nr_macrlc(configmodule_interface_t *cfg);
+void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **cell);
 void NRRCConfig(void);
 
 gNB_RRC_INST *RCconfig_NRRRC();

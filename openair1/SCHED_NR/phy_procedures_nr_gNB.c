@@ -10,6 +10,7 @@
 #include "PHY/NR_TRANSPORT/nr_ulsch.h"
 #include "PHY/NR_TRANSPORT/nr_dci.h"
 #include "PHY/NR_ESTIMATION/nr_ul_estimation.h"
+#include "PHY/nr_phy_common/inc/nr_phy_meas.h"
 #include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_interface.h"
 #include "common/utils/LOG/log.h"
 #include "PHY/INIT/nr_phy_init.h"
@@ -298,8 +299,9 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
     nr_generate_pdsch(gNB, num_pdsch, gNB->dlsch, frame, slot);
   }
 
-  //apply the OFDM symbol rotation here
-  start_meas(&gNB->phase_comp_stats);
+  // apply the OFDM symbol rotation here
+  int slot_type = nr_slot_select(&gNB->gNB_config, frame, slot);
+  START_MEAS_FULL_SLOT(&gNB->phase_comp_stats, slot_type, NR_DOWNLINK_SLOT);
   for (int aa = 0; aa < fp->nb_antennas_tx; aa++) {
     if (gNB->phase_comp) {
       apply_nr_rotation_TX(fp,
@@ -318,7 +320,7 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
       T_INT(aa),
       T_BUFFER(gNB->common_vars.txdataF[aa], fp->samples_per_slot_wCP * sizeof(int32_t)));
   }
-  stop_meas(&gNB->phase_comp_stats);
+  STOP_MEAS_FULL_SLOT(&gNB->phase_comp_stats, slot_type, NR_DOWNLINK_SLOT);
 }
 
 static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, int *ulsch_to_decode, int nb_pusch, NR_UL_IND_t *UL_INFO)
@@ -1230,7 +1232,8 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
     gNB_I0_measurements(gNB, slot_rx, first_symb, num_symb, rb_mask_ul);
   }
 
-  start_meas(&gNB->phy_proc_rx);
+  int slot_type = nr_slot_select(&gNB->gNB_config, frame_rx, slot_rx);
+  START_MEAS_FULL_SLOT(&gNB->phy_proc_rx, slot_type, NR_UPLINK_SLOT);
   UL_INFO->uci_ind.uci_list = UL_INFO->uci_pdu_list;
   UL_INFO->uci_ind.sfn = frame_rx;
   UL_INFO->uci_ind.slot = slot_rx;
@@ -1295,13 +1298,13 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
     }
   }
 
-  start_meas(&gNB->ulsch_decoding_stats);
   if (num_pusch > 0) {
+    START_MEAS_FULL_SLOT(&gNB->ulsch_decoding_stats, slot_type, NR_UPLINK_SLOT);
     int ret_nr_ulsch_procedures = nr_ulsch_procedures(gNB, frame_rx, slot_rx, ulsch_idx_to_decode, num_pusch, UL_INFO);
     if (ret_nr_ulsch_procedures != 0)
       LOG_E(NR_PHY, "Error in nr_ulsch_procedures, returned %d\n", ret_nr_ulsch_procedures);
+    STOP_MEAS_FULL_SLOT(&gNB->ulsch_decoding_stats, slot_type, NR_UPLINK_SLOT);
   }
-  stop_meas(&gNB->ulsch_decoding_stats);
 
   UL_INFO->srs_ind.sfn = frame_rx;
   UL_INFO->srs_ind.slot = slot_rx;
@@ -1313,7 +1316,7 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
     stop_meas(&gNB->rx_srs_stats);
   }
 
-  stop_meas(&gNB->phy_proc_rx);
+  STOP_MEAS_FULL_SLOT(&gNB->phy_proc_rx, slot_type, NR_UPLINK_SLOT);
 
   if (n_pucch > 0 || num_pusch > 0) {
     UNUSED(ofdm_symbol_size); // only used if T activated

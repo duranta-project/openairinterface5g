@@ -92,3 +92,9 @@ Credits for source code:
   - radio/zmq/zmq_imported.cpp
   - radio/zmq/zmq_imported.h
 Software Radio Systems Limited: BSD-3-Clause-Open-MPI
+
+Credits for source code:
+  - openair1/PHY/CODING/nrLDPC_coding/nrLDPC_coding_ors/nrLDPC_coding_xdma_offload.c
+  - openair1/PHY/CODING/nrLDPC_coding/nrLDPC_coding_ors/xdma_diag.h
+Xilinx, Inc.: BSD-3-Clause License
+Modified by: Open Radio Systems GmbH

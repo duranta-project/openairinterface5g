@@ -31,11 +31,11 @@ void nr_ul_ri_tpmi_select_default(gNB_MAC_INST *mac, nr_ul_candidate_t *cands, i
   }
 }
 
-static NR_tda_info_t *get_new_tda_for_srs(gNB_MAC_INST *nrmac, const NR_tda_info_t *tda_info)
+static NR_tda_info_t *get_new_tda_for_srs(nr_cell_sched_t *cell, const NR_tda_info_t *tda_info)
 {
   // by current design, the next TDA would be the one for SRS with one less symbol
-  NR_tda_info_t *next = seq_arr_next(&nrmac->ul_tda, tda_info);
-  if (next == seq_arr_end(&nrmac->ul_tda))
+  NR_tda_info_t *next = seq_arr_next(&cell->ul_tda, tda_info);
+  if (next == seq_arr_end(&cell->ul_tda))
     return NULL;
   AssertFatal(next->k2 == tda_info->k2,
               "K2 in TDA information for SRS %ld doesn't match with current one %ld\n",
@@ -58,6 +58,7 @@ static NR_tda_info_t *get_new_tda_for_srs(gNB_MAC_INST *nrmac, const NR_tda_info
  * TDA when it is among the valid candidates for this slot; otherwise falls back to the
  * per-beam best TDA with TBS refit. */
 int nr_ul_tda_select_default(gNB_MAC_INST *mac,
+                             nr_cell_sched_t *cell,
                              nr_ul_candidate_t *cands,
                              int n_cand,
                              frame_t sched_frame,
@@ -65,11 +66,11 @@ int nr_ul_tda_select_default(gNB_MAC_INST *mac,
                              int k2)
 {
   const NR_tda_info_t *tda_list = NULL;
-  int n_tda = get_num_ul_tda(mac, sched_slot, k2, &tda_list);
+  int n_tda = get_num_ul_tda(mac, cell, sched_slot, k2, &tda_list);
   if (n_tda == 0)
     return 0;
 
-  NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
+  NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
 
   int n_valid = 0;
   FOR_EACH_CANDIDATE(cand, cands, n_cand)
@@ -79,14 +80,14 @@ int nr_ul_tda_select_default(gNB_MAC_INST *mac,
 
     int beam = cand->alloc_beam_idx;
     int rb_start = 0, rb_len = cand->bwp_size;
-    const NR_tda_info_t *best = get_best_ul_tda(mac, beam, tda_list, n_tda, sched_frame, sched_slot, &rb_start, &rb_len);
+    const NR_tda_info_t *best = get_best_ul_tda(cell, beam, tda_list, n_tda, sched_frame, sched_slot, &rb_start, &rb_len);
     DevAssert(best->valid_tda);
 
     if (cand->is_retx) {
       /* Try to reuse the original TDA if it is among the valid candidates for this slot */
       const NR_sched_pusch_t *retInfo = &cand->UE->UE_sched_ctrl.ul_harq_processes[cand->retx_harq_pid].sched_pusch;
       /* Check exact TDA index, not just K2 — same K2 doesn't guarantee valid symbols in mixed slots */
-      const NR_tda_info_t *orig = seq_arr_at(&mac->ul_tda, retInfo->time_domain_allocation);
+      const NR_tda_info_t *orig = seq_arr_at(&cell->ul_tda,retInfo->time_domain_allocation);
       ptrdiff_t offset = orig - tda_list;
       if (offset >= 0 && offset < n_tda) {
         /* Original TDA is valid — reuse it directly */
@@ -98,7 +99,7 @@ int nr_ul_tda_select_default(gNB_MAC_INST *mac,
         continue;
       }
       /* Original TDA not available — try the per-beam best TDA with TBS refit */
-      int tda = seq_arr_dist(&mac->ul_tda, seq_arr_front(&mac->ul_tda), best);
+      int tda = seq_arr_dist(&cell->ul_tda, seq_arr_front(&cell->ul_tda),best);
       AssertFatal(tda >= 0 && tda < 16, "illegal TDA index %d\n", tda);
       uint16_t needed = check_ul_retx_feasibility(cand, tda, best, scc, cand->bwp_size);
       if (needed == 0) {
@@ -113,12 +114,12 @@ int nr_ul_tda_select_default(gNB_MAC_INST *mac,
     } else {
       NR_tda_info_t *srs_best = NULL;
       if (cand->sched_srs > 0) {
-        srs_best = get_new_tda_for_srs(mac, best);
+        srs_best = get_new_tda_for_srs(cell, best);
         if (!srs_best)
           cand->sched_srs = 0;
       }
       const NR_tda_info_t *new_best = srs_best ? srs_best : best;
-      int tda = seq_arr_dist(&mac->ul_tda, seq_arr_front(&mac->ul_tda), new_best);
+      int tda = seq_arr_dist(&cell->ul_tda, seq_arr_front(&cell->ul_tda),new_best);
       AssertFatal(tda >= 0 && tda < 16, "illegal TDA index %d\n", tda);
       cand->sched_pusch.time_domain_allocation = tda;
       cand->sched_pusch.tda_info = *new_best;
@@ -187,9 +188,9 @@ int nr_ul_beam_select_default(NR_beam_info_t *beam_info,
   return n_valid;
 }
 
-void nr_ul_mcs_select_default(const gNB_MAC_INST *mac, nr_ul_candidate_t *candidates, int n_candidates)
+void nr_ul_mcs_select_default(const nr_cell_sched_t *cell, nr_ul_candidate_t *candidates, int n_candidates)
 {
-  const NR_bler_options_t *bo = &mac->ul_bler;
+  const NR_bler_options_t *bo = &cell->ul_bler;
   FOR_EACH_CANDIDATE(cand, candidates, n_candidates)
   {
     int mcs;

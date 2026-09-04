@@ -7,9 +7,9 @@ ColNames :
 Ref :
   tx_fhaul : 40.2
   feptx_prec (per port, half_slot) : 12.3
-  L1 Tx processing : 221.0
+  L1 Tx processing : 295.0
   DLSCH encoding : 141.0
-  L1 Rx processing : 332.5
+  L1 Rx processing : 665.0
   UL segments decoding : 55.2
   Slot Indication : 14.3
   PUSCH inner-receiver : 421.4

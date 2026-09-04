@@ -165,16 +165,27 @@ general free-form format is (from the documentation):
 This means that the trimmed <key> and <value> will be separated by ": " (one colon followed by one space).
 ```
 
-### AI Assistants
+### AI and Coding Assistants
 
-These guidelines are mostly based on [linux kernel
+This section provides guidance for AI tools and developers using AI assistance
+when contributing to the respository.  Some of it is based on the [linux kernel
 guidelines](https://docs.kernel.org/process/coding-assistants.html)
 
-This document provides guidance for AI tools and developers using AI assistance
-when contributing to the respository.
+You may use AI assistants, but it has to be done responsibly. In particular,
+this means that you must check any AI/LLM output for correctness, that you
+should shorten output to acceptable levels (on the order of what a human would
+write), and it must fit in the context of the current discussion. For instance,
+in a code review, don't post LLM output verbatim, don't repeat what has already
+been said, and comment on the particular code place. Example code showing an
+alternative approach written by an LLM is acceptable if it does not go beyond
+the scope of what a human can write. In an ongoing discussion, don't overwhelm
+the other parties with large swaths of text. In a bug report, LLM-written text
+is acceptable as long as it is correct, concise, and on point. In summary, you
+should curate the output of AI in general and LLMs in particular to make it
+digestible to a human.
 
 AI tools helping with openairinterface development should follow the standard
-openairinterface developement procedure. They should comply with Duranta OAI’s
+openairinterface development procedure. They should comply with Duranta’s
 licensing requirements:
 
 - All code must be compatible with CSSL v1.0
@@ -246,28 +257,23 @@ branch, and add at least one of these labels when opening the pull request:
 - https://github.com/duranta-project/openairinterface5g/labels/nrUE: perform
   only 5G-UE related tests including physims
 
-Failure to add a label will prevent the CI from running. If in doubt about the
+Failure to add a label simply not run the CI. If in doubt about the
 right label, add both 4G and 5G labels. The CI posts the results in the
 comments section of the pull request. Both pull request authors and reviewers
 are responsible for manual inspection and pre-filtering of the CI results. An
 overview of the CI tests is in [`TESTBenches.md`](./TESTBenches.md).
 
-To communicate the review progress both between author and reviewer, as well as
-to the outside world, we (ab-)use the milestones feature of Github to track the
-current progress. The milestone can be set when opening the pull request, and
-during its lifetime in the sidebar on the right. Following options:
+You might set a pull request in "draft" to signal that the pull request is not
+ready for review, but the CI will still run. To communicate that a pull request
+is ready, simply mark it as "ready". Of course, you are invited to reach out
+to the reviewer(s) through other means to coordinate the review work.
 
-- _no milestone_: not ready for review yet and is generally used to wait for a
-  first CI run that the author will inspect and fix problems detected by the CI
-  (please limit the time in which your code is in that phase)
-- [REVIEW_CAN_START](https://github.com/duranta-project/openairinterface5g/milestone/2): the reviewer can start the review
-- [REVIEW_IN_PROGRESS](https://github.com/duranta-project/openairinterface5g/milestone/4): the reviewer is currently doing review, and might
-  request changes to the code that the author should include (or refute with
-  justification)
-- [REVIEW_COMPLETED_AND_APPROVED](https://github.com/duranta-project/openairinterface5g/milestone/3): the reviewer is happy with code changes
-  (*open comments still have to be addressed!*)
-- [OK_TO_BE_MERGED](https://github.com/duranta-project/openairinterface5g/milestone/1): the maintainers team plans to merge this; *do not push any changes
-  anymore at this point*.
+Once you addressed comments and pushed new changes, please answer for each
+comment how it has been addressed, and consider writing a general "overview"
+comment highlighting the changes that you have applied. This helps the reviewer
+get a quick idea of what has changed and what needs to be checked. Note that
+the bigger the changes, the more such summary is necessary, and will make
+follow-up review easier and hence more likely to actually happen.
 
 ## Review Form
 

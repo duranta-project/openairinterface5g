@@ -36,6 +36,7 @@
 #include "openair2/LAYER2/nr_pdcp/nr_pdcp_configuration.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_configuration.h"
 #include "openair2/SDAP/nr_sdap/nr_sdap_configuration.h"
+#include "openair2/RRC/NR/nrdc_configuration.h"
 
 typedef enum {
   NR_RRC_OK=0,
@@ -44,10 +45,6 @@ typedef enum {
   NR_RRC_Handover_failed,
   NR_RRC_HO_STARTED
 } NR_RRC_status_t;
-
-#define MAX_MEAS_OBJ                                  7
-#define MAX_MEAS_CONFIG                               7
-#define MAX_MEAS_ID                                   7
 
 #define UNDEF_SECURITY_MODE                           0xff
 #define NO_SECURITY_MODE                              0x20
@@ -123,6 +120,7 @@ typedef enum {
   RRC_PDUSESSION_MODIFY,
   RRC_PDUSESSION_RELEASE,
   RRC_UECAPABILITY_ENQUIRY,
+  RRC_F1_NRDC_IN_PROGRESS,
 } rrc_action_t;
 
 typedef struct nr_rrc_config {
@@ -265,6 +263,14 @@ typedef struct gNB_RRC_UE_s {
   delayed_action_state_t delayed_action;
 
   nr_redcap_ue_cap_t *redcap_cap;
+
+  /* measurement IDs */
+  uint64_t measurement_object_ids;       /* bitfield, 64 possible values */
+  uint64_t measurement_ids;              /* bitfield, 64 possible values */
+  uint64_t report_config_ids;            /* bitfield, 64 possible values */
+
+  /* opaque pointer to store NR-DC state (NULL when no NR-DC) */
+  void *nrdc;
 } gNB_RRC_UE_t;
 
 typedef struct rrc_gNB_ue_context_s {
@@ -651,6 +657,7 @@ typedef struct gNB_RRC_INST_s {
   // PDCP configuration parameters loaded during startup
   nr_pdcp_configuration_t pdcp_config;
   nr_rlc_configuration_t rlc_config;
+  nrdc_configuration_t nrdc_config;
 
   /// cell-wide NR serving-cell SS-SINR distribution, see 28.552 5.1.1.32
   /// 0-127 SS-SINR report level (TS 38.133)

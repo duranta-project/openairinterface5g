@@ -9,6 +9,7 @@
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "oru_packet_processor.h"
 #include "common/utils/threadPool/thread-pool.h"
+#include <stdatomic.h>
 #include <time.h>
 #include <unistd.h>
 #include "openair1/PHY/MODULATION/nr_modulation.h"
@@ -662,6 +663,16 @@ void receive_prach(ORU_t *oru, int frame, int slot, int symbol, int prach_symbol
 
 #define MAX_PENDING_UL_JOBS 64
 
+#define UL_SYMBOL_MISS_LOG_RATELIMIT 10000
+#define RATELIMIT(n, block)                                                               \
+  do {                                                                                    \
+    static _Atomic unsigned long counter = 0;                                             \
+    unsigned long current = atomic_fetch_add_explicit(&counter, 1, memory_order_relaxed); \
+    if (current % (n) == 0) {                                                             \
+      block                                                                               \
+    }                                                                                     \
+  } while (0)
+
 typedef struct {
   ul_job_t job;
   bool active;
@@ -983,40 +994,46 @@ void *oru_south_read_thread(void *arg)
             continue;
           ul_job_t *j = &pending_ul[i].job;
 
-          // Skip jobs scheduled for a future slot or frame, and drop jobs in the past
           int slots_per_frame = fp->slots_per_frame;
-          int total_slots = 1024 * slots_per_frame;
-          int diff_slots = (j->frame * slots_per_frame + j->slot_in_frame) - (frame * slots_per_frame + slot);
-          if (diff_slots < -total_slots / 2) {
-            diff_slots += total_slots;
-          } else if (diff_slots > total_slots / 2) {
-            diff_slots -= total_slots;
-          }
+          uint64_t total_symbols = (uint64_t)1024 * slots_per_frame * NR_SYMBOLS_PER_SLOT;
+          uint64_t reader_abs_symbol = ((uint64_t)frame * slots_per_frame + slot) * NR_SYMBOLS_PER_SLOT + symbol;
 
-          if (diff_slots > 0) {
-            // Future slot: skip
-            continue;
-          }
-          if (diff_slots < 0) {
-            // Past slot: drop
-            LOG_W(PHY, "[ORU south] missed UL slot %d.%d (now %d.%d), dropping job ant=%d\n",
-                  j->frame, j->slot_in_frame, frame, slot, j->antenna_id);
-            pending_ul[i].active = false;
-            continue;
-          }
-
-          // Same slot: check symbol
           int expected_symbol = j->symbol + pending_ul[i].symbols_sent;
-          if (expected_symbol < symbol) {
-            LOG_W(PHY, "[ORU south] missed UL symbol %d (now %d), dropping job ant=%d\n",
-                  expected_symbol, symbol, j->antenna_id);
-            pending_ul[i].active = false;
-          } else if (expected_symbol == symbol) {
-            dispatch_ul_work(&work_queue, oru, frame, slot, symbol, j);
-            if (++pending_ul[i].symbols_sent == j->num_symbols)
-              pending_ul[i].active = false;
+          uint64_t job_abs_symbol =
+              ((uint64_t)j->frame * slots_per_frame + j->slot_in_frame) * NR_SYMBOLS_PER_SLOT + expected_symbol;
+
+          // Calculate the number of symbols in the past or future, correct for wrap-around the frame boundary
+          int64_t diff = (int64_t)(job_abs_symbol - reader_abs_symbol);
+          if (diff < -(int64_t)total_symbols / 2) {
+            diff += (int64_t)total_symbols;
+          } else if (diff > (int64_t)total_symbols / 2) {
+            diff -= (int64_t)total_symbols;
           }
-          // expected_symbol > symbol: job spans multiple symbols, revisit next iteration
+
+          if (diff > 0) {
+            // Not due yet: revisit next iteration
+            continue;
+          }
+          if (diff <= -NR_SYMBOLS_PER_SLOT) {
+            __atomic_fetch_add(&oru->ul_symbols_missed, 1, __ATOMIC_RELAXED);
+            RATELIMIT(UL_SYMBOL_MISS_LOG_RATELIMIT, {
+              LOG_W(PHY, "[ORU south] missed UL symbol %d.%d.%d (now %d.%d.%d), dropping job ant=%d\n",
+                    j->frame, j->slot_in_frame, expected_symbol, frame, slot, symbol, j->antenna_id);
+            });
+            pending_ul[i].active = false;
+            continue;
+          }
+
+          while (diff <= 0) {
+            dispatch_ul_work(&work_queue, oru, j->frame, j->slot_in_frame, expected_symbol, j);
+            pending_ul[i].symbols_sent++;
+            if (pending_ul[i].symbols_sent == j->num_symbols) {
+              pending_ul[i].active = false;
+              break;
+            }
+            expected_symbol++;
+            diff++;
+          }
         }
       }
       int prach_symbol = get_prach_symbol(oru, frame, slot, symbol, ru->numerology);
@@ -1029,7 +1046,6 @@ void *oru_south_read_thread(void *arg)
       frame++;
       if (frame == 1024) {
         frame = 0;
-        oru_self_diagnosis(oru);
       }
     }
   }
@@ -1052,8 +1068,9 @@ void oru_self_diagnosis(ORU_t *oru)
   uint64_t ul_time_total = ul_packed & 0xFFFFFFFFULL;
   uint64_t ul_time_max = __atomic_exchange_n(&oru->ul_ant_time_max_us, 0, __ATOMIC_RELAXED);
   uint64_t ul_dropped = __atomic_exchange_n(&oru->ul_dropped_jobs, 0, __ATOMIC_RELAXED);
+  uint64_t ul_symbols_missed = __atomic_exchange_n(&oru->ul_symbols_missed, 0, __ATOMIC_RELAXED);
 
-  if (dl_count == 0 && ul_count == 0 && ul_dropped == 0) {
+  if (dl_count == 0 && ul_count == 0 && ul_dropped == 0 && ul_symbols_missed == 0) {
     return;
   }
 
@@ -1109,7 +1126,7 @@ void oru_self_diagnosis(ORU_t *oru)
 
   LOG_I(PHY, "----------------------------------------------------------------------------\n");
 
-  if (ul_count > 0 || ul_dropped > 0) {
+  if (ul_count > 0 || ul_dropped > 0 || ul_symbols_missed > 0) {
     double ul_ant_avg_us = ul_count > 0 ? (double)ul_time_total / (ul_count * 16.0) : 0.0;
     double ul_ant_max_us = ul_count > 0 ? (double)ul_time_max / 16.0 : 0.0;
 
@@ -1145,6 +1162,10 @@ void oru_self_diagnosis(ORU_t *oru)
 
     if (ul_dropped > 0) {
       LOG_E(PHY, "  [DIAGNOSIS] UL CRITICAL: Dropped %lu jobs because the threadpool queue was full!\n", ul_dropped);
+      pass = false;
+    }
+    if (ul_symbols_missed > 0) {
+      LOG_E(PHY, "  [DIAGNOSIS] UL CRITICAL: Dropped %lu jobs that arrived %d or more symbols too late!\n", ul_symbols_missed, NR_SYMBOLS_PER_SLOT);
       pass = false;
     }
   } else {

@@ -29,10 +29,10 @@
 
 #define MAX_NUM_DATA_REQ 1024
 
-int get_dl_tda(const gNB_MAC_INST *nrmac, int slot)
+int get_dl_tda(const gNB_MAC_INST *nrmac, const nr_cell_sched_t *cell, int slot)
 {
   /* we assume that this function is mutex-protected from outside */
-  const frame_structure_t *fs = &nrmac->frame_structure;
+  const frame_structure_t *fs = &cell->frame_structure;
 
   // Use special TDA in case of CSI-RS
   if (nrmac->UE_info.sched_csirs > 0)
@@ -50,16 +50,12 @@ int get_dl_tda(const gNB_MAC_INST *nrmac, int slot)
 }
 
 // Compute and write all MAC CEs and subheaders, and return number of written bytes
-int nr_write_ce_dlsch_pdu(module_id_t module_idP,
+int nr_write_ce_dlsch_pdu(gNB_MAC_INST *gNB,
                           const NR_UE_sched_ctrl_t *ue_sched_ctl,
                           unsigned char *mac_pdu,
                           unsigned char drx_cmd,
                           unsigned char *ue_cont_res_id)
 {
-  gNB_MAC_INST *gNB = RC.nrmac[module_idP];
-  /* already mutex protected: called below and in _RA.c */
-  NR_SCHED_ENSURE_LOCKED(&gNB->sched_lock);
-
   NR_MAC_SUBHEADER_FIXED *mac_pdu_ptr = (NR_MAC_SUBHEADER_FIXED *) mac_pdu;
   uint8_t last_size = 0;
   int offset = 0, mac_ce_size, i, timing_advance_cmd, tag_id = 0;
@@ -362,12 +358,12 @@ void abort_nr_dl_harq(NR_UE_info_t* UE, int8_t harq_pid)
   UE->mac_stats.dl.errors++;
 }
 
-bwp_info_t get_pdsch_bwp_start_size(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
+bwp_info_t get_pdsch_bwp_start_size(nr_cell_sched_t *cell, NR_UE_info_t *UE)
 {
   bwp_info_t bwp_info;
   if (!UE) {
-    bwp_info.bwpStart = nr_mac->cset0_bwp_start;
-    bwp_info.bwpSize = nr_mac->cset0_bwp_size;
+    bwp_info.bwpStart = cell->cset0_bwp_start;
+    bwp_info.bwpSize = cell->cset0_bwp_size;
     return bwp_info;
   }
   NR_UE_DL_BWP_t *dl_bwp = &UE->current_DL_BWP;
@@ -387,13 +383,13 @@ bwp_info_t get_pdsch_bwp_start_size(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
       && sched_ctrl->search_space->searchSpaceType
       && sched_ctrl->search_space->searchSpaceType->present == NR_SearchSpace__searchSpaceType_PR_common) {
     if (sched_ctrl->coreset->controlResourceSetId == 0) {
-      bwp_info.bwpStart = nr_mac->cset0_bwp_start;
+      bwp_info.bwpStart = cell->cset0_bwp_start;
     } else {
       int additional_offset = (dl_bwp->BWPStart + 5) / 6 * 6 - dl_bwp->BWPStart;
       bwp_info.bwpStart = dl_bwp->BWPStart + sched_ctrl->sched_pdcch.rb_start + additional_offset;
     }
-    if (nr_mac->cset0_bwp_size > 0) {
-      bwp_info.bwpSize = min(dl_bwp->BWPSize, nr_mac->cset0_bwp_size);
+    if (cell->cset0_bwp_size > 0) {
+      bwp_info.bwpSize = min(dl_bwp->BWPSize, cell->cset0_bwp_size);
     } else {
       bwp_info.bwpSize = min(dl_bwp->BWPSize, UE->sc_info.initial_dl_BWPSize);
     }
@@ -404,7 +400,7 @@ bwp_info_t get_pdsch_bwp_start_size(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   return bwp_info;
 }
 
-static void ack_reconfig(gNB_MAC_INST *mac, NR_UE_info_t *UE)
+static void ack_reconfig(nr_cell_sched_t *cell, NR_UE_info_t *UE)
 {
   if (!UE->reconfigCellGroup) {
     LOG_W(NR_MAC, "Received ACK for RRCReconfiguration, but nothing to apply!\n");
@@ -413,10 +409,10 @@ static void ack_reconfig(gNB_MAC_INST *mac, NR_UE_info_t *UE)
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
   UE->CellGroup = UE->reconfigCellGroup;
   UE->reconfigCellGroup = NULL;
-  NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
+  NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   /* clean BWP structures */
   clean_bwp_structures(UE->CellGroup->spCellConfig);
-  configure_UE_BWP(mac, scc, UE, false, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
+  configure_UE_BWP(cell, scc, UE, false, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
 }
 
 static bool dlsch_to_schedule(const NR_UE_sched_ctrl_t *sched_ctrl)
@@ -432,7 +428,7 @@ static bool dlsch_to_schedule(const NR_UE_sched_ctrl_t *sched_ctrl)
   return false;
 }
 
-static int collect_dl_candidates(gNB_MAC_INST *mac,
+static int collect_dl_candidates(nr_cell_sched_t *cell,
                                  NR_UE_info_t **UE_list,
                                  nr_dl_candidate_t *candidates,
                                  int max_candidates,
@@ -440,13 +436,14 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
                                  slot_t slot)
 {
   int n = 0;
-  const frame_structure_t *fs = &mac->frame_structure;
+  const frame_structure_t *fs = &cell->frame_structure;
   const float dl_slots_per_s = (float)get_dl_slots_per_period(fs) / fs->numb_slots_period * fs->numb_slots_frame * 100;
 
   UE_iterator (UE_list, UE) {
+    if (UE->pcell != cell)
+      continue;
     if (n >= max_candidates)
       break;
-
     /* Update EWMA and reset current_bytes before the active check so inactive
      * UEs don't get stuck with stale byte counts. */
     NR_mac_dir_stats_t *stats = &UE->mac_stats.dl;
@@ -467,8 +464,8 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
       sched_ctrl->ta_apply = true;
 
     int harq_pid = sched_ctrl->retrans_dl_harq.head;
-    const NR_bler_options_t *bo = &mac->dl_bler;
-    bwp_info_t bwp_info = get_pdsch_bwp_start_size(mac, UE);
+    const NR_bler_options_t *bo = &cell->dl_bler;
+    bwp_info_t bwp_info = get_pdsch_bwp_start_size(cell, UE);
     const int max_mcs_table = current_BWP->mcsTableIdx == 1 ? 27 : 28;
     const int max_mcs = min(sched_ctrl->dl_max_mcs, min(max_mcs_table, bo->max_mcs));
 
@@ -493,7 +490,7 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
     }
     uint16_t cqi = sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.wb_cqi_1tb;
     uint8_t csi_ri = (current_BWP->dci_format == NR_DL_DCI_FORMAT_1_0) ? 0 : sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.ri;
-    int csi_pm_index = get_pm_index(mac, UE, current_BWP->dci_format, csi_ri + 1, mac->radio_config.pdsch_AntennaPorts.XP);
+    int csi_pm_index = get_pm_index(cell, UE, current_BWP->dci_format, csi_ri + 1, cell->radio_config.pdsch_AntennaPorts.XP);
 
     if (harq_pid >= 0) {
       /* retransmission candidate */
@@ -645,8 +642,7 @@ bool nr_dl_validate_cce_pucch(const nr_dl_sched_params_t *params, nr_dl_candidat
 
   int agg_level = sched_ctrl->aggregation_level;
   NR_sched_pdcch_t sched_pdcch = sched_ctrl->sched_pdcch;
-  int CCEIndex = get_cce_index(params->mac,
-                               params->CC_id,
+  int CCEIndex = get_cce_index(params->cell,
                                params->slot,
                                UE->rnti,
                                &agg_level,
@@ -666,7 +662,7 @@ bool nr_dl_validate_cce_pucch(const nr_dl_sched_params_t *params, nr_dl_candidat
   if (!get_FeedbackDisabled(UE->sc_info.downlinkHARQ_FeedbackDisabled_r17, harq_pid)) {
     NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
     int r_pucch = nr_get_pucch_resource(sched_ctrl->coreset, ul_bwp->pucch_Config, CCEIndex);
-    pucch_alloc = nr_acknack_scheduling(params->mac, UE, params->frame, params->slot, UE->UE_beam_index, r_pucch, 0);
+    pucch_alloc = nr_acknack_scheduling(params->cell, UE, params->frame, params->slot, UE->UE_beam_index, r_pucch, 0);
     if (pucch_alloc < 0) {
       LOG_D(NR_MAC, "[UE %04x][%4d.%2d] could not find PUCCH for DL DCI\n", UE->rnti, params->frame, params->slot);
       return false;
@@ -690,8 +686,7 @@ bool commit_alloc(const nr_dl_sched_params_t *params, nr_dl_candidate_t *cand)
   int beam = cand->alloc_beam_idx;
 
   /* Mark CCE as used so subsequent UEs in the same slot see it as taken */
-  fill_pdcch_vrb_map(params->mac,
-                     params->CC_id,
+  fill_pdcch_vrb_map(params->cell,
                      &cand->alloc_sched_pdcch,
                      cand->alloc_cce_index,
                      cand->alloc_aggregation_level,
@@ -705,6 +700,7 @@ bool commit_alloc(const nr_dl_sched_params_t *params, nr_dl_candidate_t *cand)
 }
 
 static void nr_dl_schedule(gNB_MAC_INST *mac,
+                           nr_cell_sched_t *cell,
                            post_process_pdsch_t *pp_pdsch,
                            NR_UE_info_t **UE_list,
                            int max_num_ue,
@@ -713,18 +709,17 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
 {
   frame_t frame = pp_pdsch->frame;
   slot_t slot = pp_pdsch->slot;
-  int CC_id = 0;
-  NR_ServingCellConfigCommon_t *scc = mac->common_channels[CC_id].ServingCellConfigCommon;
-  int slots_per_frame = mac->frame_structure.numb_slots_frame;
+  NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
+  int slots_per_frame = cell->frame_structure.numb_slots_frame;
 
   /* Step 1: Collect candidates */
   nr_dl_candidate_t candidates[MAX_MOBILES_PER_GNB] = {0};
-  int n = collect_dl_candidates(mac, UE_list, candidates, MAX_MOBILES_PER_GNB, frame, slot);
+  int n = collect_dl_candidates(cell, UE_list, candidates, MAX_MOBILES_PER_GNB, frame, slot);
   if (n == 0)
     return;
 
   /* Step 2: RI/PMI selection — sets sched_pdsch.nrOfLayers and pm_index per candidate */
-  mac->dl_ri_pmi_select(mac, candidates, n);
+  mac->dl_ri_pmi_select(cell, candidates, n);
 
   /* Step 3: Beam allocation (skip for single beam — candidates default to beam 0).
    * Done before TDA so that TDA selection can use the allocated beam to check
@@ -732,14 +727,14 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
   FOR_EACH_CANDIDATE(cand, candidates, n)
   cand->skipped = false;
   if (num_beams > 1) {
-    int n_beam_valid = mac->dl_beam_select(&mac->beam_info, mac->beam_index_list, candidates, n, frame, slot, slots_per_frame);
+    int n_beam_valid = mac->dl_beam_select(&cell->beam_info, cell->beam_index_list, candidates, n, frame, slot, slots_per_frame);
     if (n_beam_valid == 0)
       return;
   }
 
   /* Step 4: Per-UE TDA selection. Resolves tda/tda_info/slbitmap on each
    * candidate, marks invalids with skipped=true. */
-  int n_valid = mac->dl_tda_select(mac, candidates, n, frame, slot);
+  int n_valid = mac->dl_tda_select(mac, cell, candidates, n, frame, slot);
   if (n_valid == 0)
     return;
 
@@ -747,24 +742,24 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
    * Placed after beam allocation so a custom dl_mcs_select can factor in alloc_beam_dir
    * (e.g. use beam RSRP/SINR to bias the MCS target). Also persists the decision so
    * BLER-based MCS ramps even for candidates the policy rejects this slot. */
-  mac->dl_mcs_select(mac, candidates, n);
+  mac->dl_mcs_select(cell, candidates, n);
 
   /* Step 6: Sort by beam, then call RB allocation policy per beam */
   qsort(candidates, n, sizeof(*candidates), compare_beam_idx);
 
   nr_dl_sched_params_t params = {
       .mac = mac,
-      .CC_id = CC_id,
+      .cell = cell,
       .frame = frame,
       .slot = slot,
       .num_beams = num_beams,
       .max_num_ue = max_num_ue,
-      .min_mcs = mac->dl_bler.min_mcs,
-      .bler_lower = mac->dl_bler.lower,
-      .bler_upper = mac->dl_bler.upper,
+      .min_mcs = cell->dl_bler.min_mcs,
+      .bler_lower = cell->dl_bler.lower,
+      .bler_upper = cell->dl_bler.upper,
   };
   for (int b = 0; b < num_beams; b++) {
-    params.vrb_map[b] = mac->common_channels[CC_id].vrb_map[b];
+    params.vrb_map[b] = cell->common_channels.vrb_map[b];
     params.n_rb_avail[b] = n_rb_sched[b];
   }
 
@@ -784,7 +779,7 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
    * No-op in single-beam mode where alloc_new_beam is always false. */
   for (int i = 0; i < n; i++) {
     if (!candidates[i].scheduled && !candidates[i].skipped)
-      reset_beam_status(&mac->beam_info, frame, slot, candidates[i].alloc_beam_dir, slots_per_frame, candidates[i].alloc_new_beam);
+      reset_beam_status(&cell->beam_info, frame, slot, candidates[i].alloc_beam_dir, slots_per_frame, candidates[i].alloc_new_beam);
   }
 
   /* Step 7: Persist MCS, apply CCE/PUCCH, compute TBS, post_process */
@@ -860,28 +855,28 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
         sched_pdsch.action = ack_reconfig;
 
       // Map antenna ports for this UE
-      const nr_pdsch_AntennaPorts_t *p = &mac->radio_config.pdsch_AntennaPorts;
+      const nr_pdsch_AntennaPorts_t *p = &cell->radio_config.pdsch_AntennaPorts;
       const uint16_t num_log_ports = p->XP * p->N1 * p->N2;
       sched_pdsch.ant_port_idx.numSpatialStreamIndices = num_log_ports;
       const int start_stream_idx = cand->alloc_beam_idx * num_log_ports;
       for (int i = 0; i < sched_pdsch.ant_port_idx.numSpatialStreamIndices;i++)
-        sched_pdsch.ant_port_idx.spatialStreamIndices[i] = mac->radio_config.spatial_stream_index[start_stream_idx + i];
+        sched_pdsch.ant_port_idx.spatialStreamIndices[i] = cell->radio_config.spatial_stream_index[start_stream_idx + i];
     }
 
-    post_process_dlsch(mac, pp_pdsch, UE, &sched_pdsch, cand);
+    post_process_dlsch(mac, cell, pp_pdsch, UE, &sched_pdsch, cand);
   }
 }
 
-void nr_dlsch_preprocessor(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pdsch)
+void nr_dlsch_preprocessor(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post_process_pdsch_t *pp_pdsch)
 {
   NR_UEs_t *UE_info = &mac->UE_info;
 
   if (UE_info->connected_ue_list[0] == NULL)
     return;
 
-  NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
+  NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   int bw = scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
-  int num_beams = mac->beam_info.beam_allocation ? mac->beam_info.beams_per_period : 1;
+  int num_beams = cell->beam_info.beam_allocation ? cell->beam_info.beams_per_period : 1;
   int n_rb_sched[num_beams];
   for (int i = 0; i < num_beams; i++)
     n_rb_sched[i] = bw;
@@ -890,11 +885,11 @@ void nr_dlsch_preprocessor(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pdsch)
   static_assert(4 < MAX_DCI_CORESET, "cannot have more concurrent UEs than MAX_DCI_CORESET\n");
   int max_sched_ues = 4;
 
-  nr_dl_schedule(mac, pp_pdsch, UE_info->connected_ue_list, max_sched_ues, num_beams, n_rb_sched);
+  nr_dl_schedule(mac, cell, pp_pdsch, UE_info->connected_ue_list, max_sched_ues, num_beams, n_rb_sched);
 }
 
 nfapi_nr_dl_tti_pdsch_pdu_rel15_t *prepare_pdsch_pdu(nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdsch_pdu,
-                                                     const gNB_MAC_INST *mac,
+                                                     const nr_cell_sched_t *cell,
                                                      const NR_UE_info_t *UE,
                                                      const NR_sched_pdsch_t *sched_pdsch,
                                                      const NR_PDSCH_Config_t *pdsch_Config,
@@ -906,7 +901,7 @@ nfapi_nr_dl_tti_pdsch_pdu_rel15_t *prepare_pdsch_pdu(nfapi_nr_dl_tti_request_pdu
                                                      int pdu_index)
 {
   const NR_UE_DL_BWP_t *dl_bwp = UE ? &UE->current_DL_BWP : NULL;
-  const NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
+  const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu = &dl_tti_pdsch_pdu->pdsch_pdu.pdsch_pdu_rel15;
   pdsch_pdu->pduBitmap = 0;
   pdsch_pdu->rnti = rnti;
@@ -1068,7 +1063,7 @@ static void generate_dl_mac_pdu(gNB_MAC_INST *mac,
     harq->start_tci_timer = sched_ctrl->UE_mac_ce_ctrl.tci_state_ind.is_scheduled;
     uint8_t *buf = allocate_transportBlock_buffer(&harq->transportBlock, TBS);
     /* first, write all CEs that might be there */
-    int written = nr_write_ce_dlsch_pdu(module_id,
+    int written = nr_write_ce_dlsch_pdu(mac,
                                         sched_ctrl,
                                         (unsigned char *)buf,
                                         255, // no drx
@@ -1078,7 +1073,7 @@ static void generate_dl_mac_pdu(gNB_MAC_INST *mac,
     DevAssert(TBS > written);
     int dlsch_total_bytes = 0;
     /* next, get RLC data */
-    start_meas(&mac->rlc_data_req);
+    start_meas(&candidate->UE->pcell->rlc_data_req);
     int sdus = 0;
 
     if (sched_ctrl->num_total_bytes > 0) {
@@ -1140,7 +1135,7 @@ static void generate_dl_mac_pdu(gNB_MAC_INST *mac,
       }
     }
 
-    stop_meas(&mac->rlc_data_req);
+    stop_meas(&candidate->UE->pcell->rlc_data_req);
 
     // Add padding header and zero rest out if there is space left
     if (bufEnd - buf > 0) {
@@ -1212,17 +1207,17 @@ static void fill_dl_tx_request(post_process_pdsch_t *pdsch,
 }
 
 void post_process_dlsch(gNB_MAC_INST *nr_mac,
+                        nr_cell_sched_t *cell,
                         post_process_pdsch_t *pdsch,
                         NR_UE_info_t *UE,
                         NR_sched_pdsch_t *sched_pdsch,
                         const nr_dl_candidate_t *candidate)
 {
-  int CC_id = 0;
   frame_t frame = pdsch->frame;
   slot_t slot = pdsch->slot;
   DevAssert(candidate != NULL);
 
-  const NR_ServingCellConfigCommon_t *scc = nr_mac->common_channels[CC_id].ServingCellConfigCommon;
+  const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   NR_UE_DL_BWP_t *current_BWP = &UE->current_DL_BWP;
 
@@ -1268,13 +1263,13 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac,
   DevAssert(nrOfLayers >= 1 && nrOfLayers <= NR_KPM_MAX_LAYERS);
   DevAssert(current_BWP->mcsTableIdx >= 0 && current_BWP->mcsTableIdx < NR_KPM_NB_MCS_TABLE_DL);
   DevAssert(sched_pdsch->mcs < NR_KPM_NB_MCS);
-  nr_mac->du_stats.pdsch_mcs_dist[nrOfLayers - 1][current_BWP->mcsTableIdx][sched_pdsch->mcs] += sched_pdsch->rbSize;
+  cell->du_stats.pdsch_mcs_dist[nrOfLayers - 1][current_BWP->mcsTableIdx][sched_pdsch->mcs] += sched_pdsch->rbSize;
 
   const int bwp_id = current_BWP->bwp_id;
   const int coresetid = sched_ctrl->coreset->controlResourceSetId;
 
   /* look up the PDCCH PDU for this CC, BWP, and CORESET. If it does not exist, create it */
-  nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu = nr_mac->pdcch_pdu_idx[CC_id][coresetid];
+  nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu = cell->pdcch_pdu_idx[coresetid];
 
   if (!pdcch_pdu) {
     LOG_D(NR_MAC, "creating pdcch pdu, pdcch_pdu = NULL. \n");
@@ -1287,7 +1282,7 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac,
     LOG_D(NR_MAC, "Trying to configure DL pdcch for UE %04x, bwp %d, cs %d\n", UE->rnti, bwp_id, coresetid);
     NR_ControlResourceSet_t *coreset = sched_ctrl->coreset;
     nr_configure_pdcch(pdcch_pdu, coreset, &sched_ctrl->sched_pdcch);
-    nr_mac->pdcch_pdu_idx[CC_id][coresetid] = pdcch_pdu;
+    cell->pdcch_pdu_idx[coresetid] = pdcch_pdu;
   }
 
   nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdsch_pdu = &pdsch->dl_req->dl_tti_pdu_list[pdsch->dl_req->nPDUs];
@@ -1299,7 +1294,7 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac,
   /* SCF222: PDU index incremented for each PDSCH PDU sent in TX control
    * message. This is used to associate control information to data and is
    * reset every slot. */
-  const int pduindex = nr_mac->pdu_index[CC_id]++;
+  const int pduindex = cell->pdu_index++;
   // TODO: verify the case where maxMIMO_Layers is NULL, in which case
   //       in principle maxMIMO_layers should be given by the maximum number of layers
   //       for PDSCH supported by the UE for the serving cell (5.4.2.1 of 38.212)
@@ -1310,9 +1305,9 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac,
     maxMIMO_Layers = 1;
   }
   const int nl_tbslbrm = min(maxMIMO_Layers, 4);
-  const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, nr_mac->beam_info.beam_mode);
+  const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, cell->beam_info.beam_mode);
   nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu = prepare_pdsch_pdu(dl_tti_pdsch_pdu,
-                                                                   nr_mac,
+                                                                   cell,
                                                                    UE,
                                                                    sched_pdsch,
                                                                    current_BWP->pdsch_Config,
@@ -1338,7 +1333,7 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac,
 
   /* DCI payload */
   const int rnti_type = TYPE_C_RNTI_;
-  dci_pdu_rel15_t dci_payload = prepare_dci_dl_payload(nr_mac,
+  dci_pdu_rel15_t dci_payload = prepare_dci_dl_payload(cell,
                                                        UE,
                                                        rnti_type,
                                                        sched_ctrl->search_space->searchSpaceType->present,
@@ -1380,7 +1375,7 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac,
                      sched_ctrl->search_space,
                      sched_ctrl->coreset,
                      UE->pdsch_HARQ_ACK_Codebook,
-                     nr_mac->cset0_bwp_size);
+                     cell->cset0_bwp_size);
 
   LOG_D(NR_MAC,
         "coreset params: FreqDomainResource %llx, start_symbol %d  n_symb %d\n",
@@ -1392,23 +1387,21 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac,
   fill_dl_tx_request(pdsch, harq->transportBlock.buf, pduindex, TBS, frame, slot);
 }
 
-void nr_schedule_ue_spec(module_id_t module_id,
+void nr_schedule_ue_spec(gNB_MAC_INST *gNB_mac,
+                         nr_cell_sched_t *cell,
                          frame_t frame,
                          slot_t slot,
                          nfapi_nr_dl_tti_request_t *DL_req,
                          nfapi_nr_tx_data_request_t *TX_req)
 {
-  gNB_MAC_INST *gNB_mac = RC.nrmac[module_id];
-  int CC_id = 0;
-
   /* already mutex protected: held in gNB_dlsch_ulsch_scheduler() */
   AssertFatal(pthread_mutex_trylock(&gNB_mac->sched_lock) == EBUSY,
               "this function should be called with the scheduler mutex locked\n");
 
-  if (!is_dl_slot(slot, &gNB_mac->frame_structure))
+  if (!is_dl_slot(slot, &cell->frame_structure))
     return;
 
-  NR_ServingCellConfigCommon_t *scc = gNB_mac->common_channels[CC_id].ServingCellConfigCommon;
+  NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   int bw = scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
   gNB_mac->mac_stats.dl.total_prb_aggregate += bw;
 
@@ -1416,5 +1409,5 @@ void nr_schedule_ue_spec(module_id_t module_id,
   post_process_pdsch_t pdsch = { frame, slot, dl_req, TX_req };
 
   /* PREPROCESSOR */
-  gNB_mac->pre_processor_dl(gNB_mac, &pdsch);
+  gNB_mac->pre_processor_dl(gNB_mac, cell, &pdsch);
 }
