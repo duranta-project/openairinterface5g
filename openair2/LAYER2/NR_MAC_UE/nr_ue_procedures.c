@@ -2002,8 +2002,9 @@ static bool check_mux_acknack_csi(NR_PUCCH_Resource_t *csi_res, NR_PUCCH_Config_
   return ret;
 }
 
-void get_pucch_start_symbol_length(NR_PUCCH_Resource_t *pucch_resource, int *start, int *length)
+static void get_pucch_start_symbol_length(NR_PUCCH_Resource_t *pucch_resource, int *start, int *length)
 {
+  AssertFatal(pucch_resource,"Pointer cannot be null\n");
   switch (pucch_resource->format.present) {
     case NR_PUCCH_Resource__format_PR_format0:
       *length = pucch_resource->format.choice.format0->nrofSymbols;
@@ -2031,7 +2032,7 @@ void get_pucch_start_symbol_length(NR_PUCCH_Resource_t *pucch_resource, int *sta
 }
 
 // Ref. 38.213 section 9.2.5 order(Q)
-void order_resources(PUCCH_sched_t *pucch, int num_res)
+static void order_resources(PUCCH_sched_t *pucch, int num_res)
 {
   int k = 0;
   while (k < num_res - 1) {
@@ -2055,7 +2056,7 @@ void order_resources(PUCCH_sched_t *pucch, int num_res)
   }
 }
 
-bool check_overlapping_resources(PUCCH_sched_t *pucch, int j, int o)
+static bool check_overlapping_resources(PUCCH_sched_t *pucch, int j, int o)
 {
   // assuming overlapping means if two resources overlaps in time,
   // ie share a symbol in the slot regardless of PRB
