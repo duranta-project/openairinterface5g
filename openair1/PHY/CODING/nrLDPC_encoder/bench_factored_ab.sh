@@ -8,6 +8,8 @@
 # source edit is reverted on exit, including on interrupt.
 #
 # Optional environment:
+#   BUILD=<dir> build directory, if not the default
+#               $OAI/cmake_targets/ran_build/build
 #   CORE=<n>    pin ldpctest to a CPU. Strongly recommended: unpinned runs on a
 #               many-core machine drift ~10% from scheduler migration alone,
 #               which is larger than some of the effects being measured.
@@ -16,7 +18,7 @@
 
 set -u
 OAI=${1:-$HOME/openairinterface5g}
-BUILD=$OAI/cmake_targets/ran_build/build
+BUILD=${BUILD:-$OAI/cmake_targets/ran_build/build}
 EPC=$OAI/openair1/PHY/CODING/nrLDPC_encoder/ldpc_encode_parity_check.c
 REPS=${REPS:-3}
 TRIALS=${TRIALS:-200}
@@ -25,7 +27,12 @@ PIN=""
 
 [ -f "$EPC" ]   || { echo "no $EPC -- pass the openairinterface5g path as \$1"; exit 1; }
 [ -d "$BUILD" ] || { echo "no build dir $BUILD -- configure and build ldpctest first"; exit 1; }
-command -v ninja >/dev/null && GEN=ninja || GEN=make
+[ -x "$BUILD/ldpctest" ] || { echo "no ldpctest binary at $BUILD/ldpctest"; echo "build it first:  (cd $BUILD && make -j\$(nproc) ldpc ldpctest)"; exit 1; }
+# pick the generator from the build directory, not from what is on PATH:
+# some boards have ninja installed but a Makefile-configured build tree
+if [ -f "$BUILD/build.ninja" ]; then GEN="ninja"
+elif [ -f "$BUILD/Makefile" ]; then GEN="make -j$(nproc)"
+else echo "no build.ninja or Makefile in $BUILD -- configure the build first"; exit 1; fi
 
 MARK='#define NO_FACTORED 1 // bench_factored_ab'
 cleanup() { grep -vxF "$MARK" "$EPC" > "$EPC.abtmp" && mv "$EPC.abtmp" "$EPC"; }
@@ -52,8 +59,17 @@ CASES=(
 build() {
   cleanup
   [ "$1" = STOCK ] && { printf '%s\n' "$MARK" | cat - "$EPC" > "$EPC.abtmp" && mv "$EPC.abtmp" "$EPC"; }
-  ( cd "$BUILD" && $GEN libldpc.so >/dev/null 2>&1 ) ||
-  ( cd "$BUILD" && $GEN ldpctest   >/dev/null 2>&1 ) || { echo "BUILD FAILED ($1)"; exit 1; }
+  # ldpc_encode_parity_check.c is #included, not compiled on its own. Ninja
+  # tracks that dependency; some Makefile-configured trees do not, and silently
+  # reuse the previous object -- which makes the A/B compare a build against
+  # itself and report 1.00x. Touch the real translation units to force it.
+  touch "$OAI"/openair1/PHY/CODING/nrLDPC_encoder/ldpc_encoder_optim8segmulti.c \
+        "$OAI"/openair1/PHY/CODING/nrLDPC_encoder/ldpc_encoder.c 2>/dev/null
+  # Build the CMake target by name. Not "ldpctest": libldpc.so is dlopen'd, so
+  # ldpctest has no build-time dependency on it -- ninja rebuilds it anyway, a
+  # Makefile tree does not, leaving the previous module in place.
+  ( cd "$BUILD" && $GEN ldpc >/dev/null 2>&1 ) ||
+  ( cd "$BUILD" && $GEN libldpc.so >/dev/null 2>&1 ) || { echo "BUILD FAILED ($1)"; exit 1; }
 }
 
 # one pass over every case; fills PAR[] and TOT[] (mean us over REPS)
@@ -65,6 +81,11 @@ sweep() {
     ap=0; at=0; n=0
     for _ in $(seq "$REPS"); do
       out=$($PIN "$BUILD/ldpctest" -l "$K" -r "$NUM" -d "$DEN" -n "$TRIALS" -s 4 2>&1)
+      if ! grep -q 'ldpc_encoder_optim' <<<"$out"; then
+        echo "ERROR: ldpctest produced no encoder timing for -l $K -r $NUM -d $DEN (exit $?)." >&2
+        echo "--- its output ---" >&2; echo "$out" | head -25 >&2; echo "------------------" >&2
+        exit 1
+      fi
       p=$(awk '/ldpc_encoder_optim\(parity\)/{gsub(/ us;/,"");s+=$2;c++} END{if(c)printf "%.4f",s/c}' <<<"$out")
       t=$(awk '/^ *ldpc_encoder_optim:/       {gsub(/ us;/,"");s+=$2;c++} END{if(c)printf "%.4f",s/c}' <<<"$out")
       [ -n "$p" ] && { ap=$(awk -v a="$ap" -v b="$p" 'BEGIN{print a+b}'); n=$((n+1)); }
@@ -79,8 +100,18 @@ sweep() {
   done
 }
 
-echo "building stock ..."   ; build STOCK   ; sweep STOCK
-echo "building factored ..."; build FACTORED; sweep FACTORED
+echo "building stock ..."   ; build STOCK
+MD5_STOCK=$(md5sum "$BUILD/libldpc.so" 2>/dev/null | cut -c1-12)
+sweep STOCK
+echo "building factored ..."; build FACTORED
+MD5_FAC=$(md5sum "$BUILD/libldpc.so" 2>/dev/null | cut -c1-12)
+if [ -n "$MD5_STOCK" ] && [ "$MD5_STOCK" = "$MD5_FAC" ]; then
+  echo
+  echo "ERROR: libldpc.so is identical for both configurations ($MD5_STOCK)."
+  echo "The toggle did not take effect, so any numbers below would be bogus."
+  exit 1
+fi
+sweep FACTORED
 echo
 
 report() { # $1 = PAR|TOT, $2 = label
