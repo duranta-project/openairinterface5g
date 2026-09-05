@@ -235,6 +235,41 @@ if(CMAKE_C_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang
 endif()
 
 if (ENABLE_LDPC_CUDA)
+  # The GPU offload is written against PHY/gpu_compat.h, which maps the CUDA
+  # runtime API onto HIP as well, so the backend follows whichever toolchain is
+  # installed rather than needing a flag of its own. Set LDPC_GPU_BACKEND to
+  # CUDA or HIP to force one when both are present.
+  set(LDPC_GPU_BACKEND "AUTO" CACHE STRING "GPU backend for the LDPC offload (AUTO, CUDA or HIP)")
+  set_property(CACHE LDPC_GPU_BACKEND PROPERTY STRINGS AUTO CUDA HIP)
+
+  if (LDPC_GPU_BACKEND STREQUAL "AUTO")
+    include(CheckLanguage)
+    check_language(HIP)
+    if (CMAKE_HIP_COMPILER)
+      set(LDPC_GPU_BACKEND "HIP")
+    else()
+      set(LDPC_GPU_BACKEND "CUDA")
+    endif()
+    message(STATUS "LDPC GPU offload: selected the ${LDPC_GPU_BACKEND} backend")
+  endif()
+
+  if (LDPC_GPU_BACKEND STREQUAL "HIP")
+    # ROCm installs hip-config.cmake under its own prefix, which is two levels
+    # up from the HIP compiler (<rocm>/lib/llvm/bin/clang++); derive it rather
+    # than making the caller pass CMAKE_PREFIX_PATH.
+    if (CMAKE_HIP_COMPILER)
+      get_filename_component(ROCM_ROOT "${CMAKE_HIP_COMPILER}" DIRECTORY)
+      get_filename_component(ROCM_ROOT "${ROCM_ROOT}/../../.." ABSOLUTE)
+      list(APPEND CMAKE_PREFIX_PATH "${ROCM_ROOT}")
+    endif()
+    # hip::host carries the ROCm include directories, libamdhip64 and
+    # __HIP_PLATFORM_AMD__, which is what PHY/gpu_compat.h keys off, so nothing
+    # has to hardcode a ROCm path.
+    find_package(hip REQUIRED)
+  elseif (NOT LDPC_GPU_BACKEND STREQUAL "CUDA")
+    message(FATAL_ERROR "LDPC_GPU_BACKEND must be AUTO, CUDA or HIP, got \"${LDPC_GPU_BACKEND}\"")
+  endif()
+
   # TODO only on specific targets!!
   set(commonOpts "${commonOpts} -DLDPC_CUDA")
 endif()
@@ -1027,7 +1062,7 @@ target_link_libraries(PHY_UE PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs UTIL)
 add_library(PHY_NR_COMMON ${PHY_NR_SRC_COMMON})
 target_link_libraries(PHY_NR_COMMON PUBLIC UTIL)
 
-if (ENABLE_LDPC_CUDA)
+if (ENABLE_LDPC_CUDA AND LDPC_GPU_BACKEND STREQUAL "CUDA")
   find_package(CUDA REQUIRED)
   if (NOT CUDA_FOUND)
     message(FATAL_ERROR "no CUDA found")
@@ -1051,6 +1086,14 @@ target_link_libraries(PHY_NR_NO_AVX_256 nr_phy_common nr_common)
 target_compile_definitions(PHY_NR_NO_AVX_256 PUBLIC USE_128BIT)
 
 target_link_libraries(PHY_NR_UE asn1_nr_rrc_hdrs nr_phy_common nr_common UTIL polar smallblock)
+
+if (ENABLE_LDPC_CUDA AND LDPC_GPU_BACKEND STREQUAL "HIP")
+  # these compile the LDPC_CUDA-guarded pinned-memory paths, which call into the
+  # HIP runtime; linked publicly so the consuming executables inherit it
+  target_link_libraries(PHY_NR hip::host)
+  target_link_libraries(PHY_NR_UE hip::host)
+  target_link_libraries(PHY_NR_NO_AVX_256 hip::host)
+endif()
 
 add_library(PHY_RU ${PHY_SRC_RU})
 target_link_libraries(PHY_RU PRIVATE asn1_lte_rrc_hdrs UTIL)
@@ -1981,11 +2024,15 @@ target_link_libraries(ldpctest PRIVATE
   -Wl,--whole-archive crc_byte -Wl,--no-whole-archive
 )
 if (ENABLE_LDPC_CUDA)
-  # ldpctest.c uses cudaHostAlloc(), so include dir/link libr to make available
+  # ldpctest.c uses gpuHostAlloc(), so include dir/link libr to make available
   # TODO don't write it directly into ldpctest, but separate compilation unit?
-  find_package(CUDA REQUIRED)
-  target_link_libraries(ldpctest PRIVATE ${CUDA_LIBRARIES})
-  target_include_directories(ldpctest PRIVATE ${CUDA_INCLUDE_DIRS})
+  if (LDPC_GPU_BACKEND STREQUAL "HIP")
+    target_link_libraries(ldpctest PRIVATE hip::host)
+  else()
+    find_package(CUDA REQUIRED)
+    target_link_libraries(ldpctest PRIVATE ${CUDA_LIBRARIES})
+    target_include_directories(ldpctest PRIVATE ${CUDA_INCLUDE_DIRS})
+  endif()
 endif()
 
 add_library(physim_common OBJECT ${OPENAIR1_DIR}/SIMULATION/NR_PHY/nr_unitary_common.c)
