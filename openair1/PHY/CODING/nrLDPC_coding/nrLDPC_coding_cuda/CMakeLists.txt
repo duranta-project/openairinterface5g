@@ -14,7 +14,6 @@ target_sources(ldpc_cuda PRIVATE
 
                nrLDPC_decoder_cuda.c
                ldpc_encoder_cuda32.c
-               ldpc_input32.c
 
                nrLDPC_coding_segment_encoder_cuda.c
                nrLDPC_coding_segment_decoder_cuda.c
