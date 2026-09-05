@@ -4,13 +4,13 @@
 // generated code for Zc=384, byte encoding
 __global__ void ldpc_BG1_Zc384_worker(uint32_t *c[4],uint32_t *d[4]) {
   uint32_t *c32=c[blockIdx.x];
-  uint32_t *d32=d[blockIdx.x]+8448-2*384;
+  uint32_t *d32=d[blockIdx.x] + 20*384;
 
   int i2 = threadIdx.x;
-  int i1 = blockIdx.y;
-  // copy 20 c values to d
-  if (i1<20) d[blockIdx.x][(i1*384) + i2] = c32[4*384+(2*384*i1)+i2]; 
 
+  int i1 = blockIdx.y;
+  // copy the 20 systematic columns to d, the first 2 are punctured
+  if (i1<20) d[blockIdx.x][(i1*384) + i2] = c32[4*384+(2*384*i1)+i2];
   if (i2 < 384) {
     c32+=i2;
     d32+=i2;
@@ -199,14 +199,13 @@ __global__ void ldpc_BG1_Zc384_worker(uint32_t *c[4],uint32_t *d[4]) {
       d32[17280]=c32[903]^c32[4757]^c32[7695];
 
        break;
-    
-    }
+     }
   }
 }
 extern "C" int ldpc_BG1_Zc384_cuda32(uint32_t *c[4],uint32_t *d[4],int n_inputs,gpuStream_t *stream,int sidx) { 
-
  dim3 numblocks(n_inputs,46);
  ldpc_BG1_Zc384_worker<<<numblocks,384,0,stream[sidx]>>>(c,d);
+ 
  gpuError_t err=gpuPeekAtLastError();
  if (err!=gpuSuccess) {
     printf("cuda error: %s (c %p, d %p)\n",gpuGetErrorString(err),c,d);

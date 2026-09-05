@@ -9,7 +9,7 @@ __global__ void ldpc_BG1_Zc240_worker(uint32_t *c[4],uint32_t *d[4]) {
   int i2 = threadIdx.x;
 
   int i1 = blockIdx.y;
-  // copy 20 c values to d
+  // copy the 20 systematic columns to d, the first 2 are punctured
   if (i1<20) d[blockIdx.x][(i1*240) + i2] = c32[4*240+(2*240*i1)+i2];
   if (i2 < 240) {
     c32+=i2;
@@ -202,9 +202,9 @@ __global__ void ldpc_BG1_Zc240_worker(uint32_t *c[4],uint32_t *d[4]) {
      }
   }
 }
-extern "C" int ldpc_BG1_Zc240_cuda32(uint32_t *c[4],uint32_t *d[4],int n_inputs) { 
+extern "C" int ldpc_BG1_Zc240_cuda32(uint32_t *c[4],uint32_t *d[4],int n_inputs,gpuStream_t *stream,int sidx) { 
  dim3 numblocks(n_inputs,46);
- ldpc_BG1_Zc240_worker<<<numblocks,240>>>(c,d);
+ ldpc_BG1_Zc240_worker<<<numblocks,240,0,stream[sidx]>>>(c,d);
  
  gpuError_t err=gpuPeekAtLastError();
  if (err!=gpuSuccess) {
