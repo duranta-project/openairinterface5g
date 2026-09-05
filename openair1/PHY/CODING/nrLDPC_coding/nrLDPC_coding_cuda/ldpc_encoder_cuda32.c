@@ -156,7 +156,8 @@ uint32_t** LDPCencoder32(uint8_t** input, encoder_implemparams_t* impp)
   int encoder_stream = 0;
 
   AssertFatal(BG == 1, "BG %d is not supported for CUDA version\n", BG);
-  AssertFatal(Zc == 384 || Zc == 176, "Zc %d is not supported for CUDA version \n", Zc);
+  // the supported set of lifting sizes is the one for which a parity check
+  // kernel has been generated, see encode_parity_check_part_cuda() below
 
   if (impp->tinput != NULL)
     start_meas(impp->tinput);
