@@ -232,16 +232,16 @@ int LDPCencoder(unsigned char **inputArray, unsigned char *outputArray, encoder_
     FILE *fd=fopen(fname,"w");
     AssertFatal(fd!=NULL,"cannot open %s\n",fname);
     printf("Writing to %s\n",fname);
-    fprintf(fd,"#include <stdio.h>\n#include <stdint.h>\n#include <cuda_runtime.h>\n");
+    fprintf(fd,"#include <stdio.h>\n#include <stdint.h>\n#include \"PHY/gpu_compat.h\"\n");
 
     fprintf(fd,"// generated code for Zc=%d, byte encoding\n",Zc);
     fprintf(fd,"__global__ void ldpc_BG%d_Zc%d_worker(uint32_t *c[4],uint32_t *d[4]) {\n",BG,Zc);
-    fprintf(fd,"  uint32_t *c32=c[blockIdx.x];\n  uint32_t *d32=d[blockIdx.x] + 20*%d;\n\n",Zc);
+    fprintf(fd,"  uint32_t *c32=c[blockIdx.x];\n  uint32_t *d32=d[blockIdx.x] + %d*%d;\n\n",ncols-2,Zc);
     fprintf(fd,"  int i2 = threadIdx.x;\n");
     fprintf(fd,"\n");
     fprintf(fd,"  int i1 = blockIdx.y;\n");
-    fprintf(fd,"  // copy 20 c values to d\n");
-    fprintf(fd,"  if (i1<20) d[blockIdx.x][(i1*%d) + i2] = c32[4*%d+(2*%d*i1)+i2];",Zc,Zc,Zc);
+    fprintf(fd,"  // copy the %d systematic columns to d, the first 2 are punctured\n",ncols-2);
+    fprintf(fd,"  if (i1<%d) d[blockIdx.x][(i1*%d) + i2] = c32[4*%d+(2*%d*i1)+i2];",ncols-2,Zc,Zc,Zc);
     fprintf(fd,"\n");
     fprintf(fd,"  if (i2 < %d) {\n",Zc);
     fprintf(fd,"    c32+=i2;\n");
@@ -276,13 +276,13 @@ int LDPCencoder(unsigned char **inputArray, unsigned char *outputArray, encoder_
     fprintf(fd,"  }\n");
     fprintf(fd,"}\n");
 
-    fprintf(fd,"extern \"C\" int ldpc_BG%d_Zc%d_cuda32(uint32_t *c[4],uint32_t *d[4],int n_inputs) { \n",BG,Zc);
+    fprintf(fd,"extern \"C\" int ldpc_BG%d_Zc%d_cuda32(uint32_t *c[4],uint32_t *d[4],int n_inputs,gpuStream_t *stream,int sidx) { \n",BG,Zc);
     fprintf(fd," dim3 numblocks(n_inputs,%d);\n",nrows);
-    fprintf(fd," ldpc_BG%d_Zc%d_worker<<<numblocks,%d>>>(c,d);\n",BG,Zc,Zc);
+    fprintf(fd," ldpc_BG%d_Zc%d_worker<<<numblocks,%d,0,stream[sidx]>>>(c,d);\n",BG,Zc,Zc);
     fprintf(fd," \n");
-    fprintf(fd," cudaError_t err=cudaPeekAtLastError();\n");
-    fprintf(fd," if (err!=cudaSuccess) {\n");
-    fprintf(fd,"    printf(\"cuda error: %%s (c %%p, d %%p)\\n\",cudaGetErrorString(err),c,d);\n");
+    fprintf(fd," gpuError_t err=gpuPeekAtLastError();\n");
+    fprintf(fd," if (err!=gpuSuccess) {\n");
+    fprintf(fd,"    printf(\"cuda error: %%s (c %%p, d %%p)\\n\",gpuGetErrorString(err),c,d);\n");
     fprintf(fd,"    exit(-1);\n");
     fprintf(fd," }\n");
     fprintf(fd," return(0);\n");

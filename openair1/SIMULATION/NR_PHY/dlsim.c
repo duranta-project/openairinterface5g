@@ -699,6 +699,7 @@ int main(int argc, char **argv)
       printf("-z Number of RX antennas used in UE\n");
       printf("-I Maximum LDPC decoder iterations\n");
       printf("-P Print DLSCH performances\n");
+      printf("-Q Backoff in dB of the gNB modulation amplitude from full scale (default 36)\n");
       printf("-R N_RB_DL\n");
       printf("-T Enable PTRS, arguments list L_PTRS{0,1,2} K_PTRS{2,4}, e.g. -T 2 0 2 \n");
       printf("-U Change DMRS Config, arguments list DMRS TYPE{0=A,1=B} DMRS AddPos{0:2} DMRS ConfType{1:2}, e.g. -U 3 0 2 1 \n");
