@@ -521,9 +521,10 @@ static void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t
                                                                  mac->frequency_range);
     cfg->ssb_table.ssb_period = *scc->ssb_periodicityServingCell;
     // NSA -> take ssb offset from SCS
-    cfg->ssb_table.ssb_subcarrier_offset = get_ssb_subcarrier_offset(*frequencyInfoDL->absoluteFrequencySSB,
-                                                                     frequencyInfoDL->absoluteFrequencyPointA,
-                                                                     cfg->ssb_config.scs_common);
+    mac->ssb_subcarrier_offset = get_ssb_subcarrier_offset(*frequencyInfoDL->absoluteFrequencySSB,
+                                                           frequencyInfoDL->absoluteFrequencyPointA,
+                                                           cfg->ssb_config.scs_common);
+    cfg->ssb_table.ssb_subcarrier_offset = mac->ssb_subcarrier_offset;
     cfg->ssb_table.ssb_case = set_ssb_case(*scc->ssbSubcarrierSpacing, mac->nr_band);
   }
 
