@@ -5,6 +5,10 @@
 #include "tools_defs.h"
 #include "PHY/impl_defs_top.h"
 #include "simde/x86/avx512.h"
+#if defined(__AVX512F__) && defined(__AVX512BW__)
+// simde current version missed this instruction
+#define simde_mm512_reduce_add_ps _mm512_reduce_add_ps
+#endif
 
 // Compute Energy of a complex signal vector, removing the DC component!
 // input  : points to vector
