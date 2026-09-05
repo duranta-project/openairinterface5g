@@ -242,9 +242,14 @@ if (ENABLE_LDPC_CUDA)
   set(LDPC_GPU_BACKEND "AUTO" CACHE STRING "GPU backend for the LDPC offload (AUTO, CUDA or HIP)")
   set_property(CACHE LDPC_GPU_BACKEND PROPERTY STRINGS AUTO CUDA HIP)
 
+  # CheckLanguage reports CMAKE_HIP_COMPILER without committing to the
+  # language. Both the AUTO decision and the ROCm prefix below need it, so
+  # probe unconditionally: forcing LDPC_GPU_BACKEND=HIP used to skip this and
+  # then fail in find_package(hip) for want of a prefix path.
+  include(CheckLanguage)
+  check_language(HIP)
+
   if (LDPC_GPU_BACKEND STREQUAL "AUTO")
-    include(CheckLanguage)
-    check_language(HIP)
     if (CMAKE_HIP_COMPILER)
       set(LDPC_GPU_BACKEND "HIP")
     else()
