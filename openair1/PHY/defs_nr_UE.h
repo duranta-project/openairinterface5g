@@ -457,7 +457,7 @@ typedef struct PHY_VARS_NR_UE_s {
     int32_t *pdsch_dl_ch_estimates; // [nb_antennas_rx*NR_MAX_NB_LAYERS][pdsch_est_size]
     int16_t *llr[2];               // [2 codewords][llr_buf_max]
 #ifdef LDPC_CUDA
-    // gpu mapped version (cudaHostGetDevicePointer), typically the same for Jetson/GH/GB
+    // gpu mapped version (gpuHostGetDevicePointer), typically the same for Jetson/GH/GB
     int16_t *llr_dev[2];
 #endif
     uint32_t pdsch_buf_size_max;

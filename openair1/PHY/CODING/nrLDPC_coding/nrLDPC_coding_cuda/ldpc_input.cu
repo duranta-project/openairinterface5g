@@ -4,7 +4,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
 /*
 __device__ const uint32_t masks[4] = {0x80,0x8000,0x800000,0x80000000};
 __global__ void ldpc_input_worker(uint32_t **input,uint32_t *cc[4],int block_length,int nseg) {
@@ -82,7 +82,7 @@ __global__ void ldpc_input_worker(uint32_t **input, uint32_t *cc[4], int nseg)
   }
 }
 
-extern "C" int ldpc_input(uint32_t **input, uint32_t *cc[4], int nseg, cudaStream_t *stream, int sidx)
+extern "C" int ldpc_input(uint32_t **input, uint32_t *cc[4], int nseg, gpuStream_t *stream, int sidx)
 {
   int ns = nseg >> 5;
   if ((nseg & 31) > 0)
@@ -91,9 +91,9 @@ extern "C" int ldpc_input(uint32_t **input, uint32_t *cc[4], int nseg, cudaStrea
   dim3 numblocks(ns, 22);
   // printf("input %p\n",input);
   ldpc_input_worker<<<numblocks, 384, 0, stream[sidx]>>>(input, cc, nseg);
-  cudaError_t err = cudaPeekAtLastError();
-  if (err != cudaSuccess) {
-    printf("cuda error: %s (input %p, cc %p, nseg %d, ns %d)\n", cudaGetErrorString(err), input, cc, nseg, ns);
+  gpuError_t err = gpuPeekAtLastError();
+  if (err != gpuSuccess) {
+    printf("cuda error: %s (input %p, cc %p, nseg %d, ns %d)\n", gpuGetErrorString(err), input, cc, nseg, ns);
     exit(-1);
   }
   return (0);

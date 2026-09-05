@@ -19,7 +19,8 @@
 #include "nr-uesoftmodem.h"
 #include "common/config/config_userapi.h"
 #ifdef LDPC_CUDA
-#include "PHY/cuda_alloc.h"
+#include "PHY/gpu_compat.h"
+#include "PHY/gpu_alloc.h"
 #endif
 
 void RCconfig_nrUE_prs(void *cfg)
@@ -333,7 +334,7 @@ void free_nr_ue_dl_harq(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES], int
   for (int j=0; j < 2; j++) {
     for (int i = 0; i < number_of_processes; i++) {
 #ifdef LDPC_CUDA
-      cudaFreeHost(harq_list[j][i].c);
+      gpuFreeHost(harq_list[j][i].c);
 #else
       free_and_zero(harq_list[j][i].c);
 #endif
@@ -357,8 +358,8 @@ void free_nr_ue_ul_harq(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES], int nu
 #ifdef LDPC_CUDA
     {
       // nr_init_ul_harq_processes() makes single allocation(!)
-      cudaFreeHost(harq_list[i].c[0]);
-      cudaFreeHost(harq_list[i].d[0]);
+      gpuFreeHost(harq_list[i].c[0]);
+      gpuFreeHost(harq_list[i].d[0]);
     }
 #else
     for (int r = 0; r < a_segments; r++) {
@@ -385,7 +386,7 @@ void free_nr_ue_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors)
     for (int c = 0; c < 2; c++) {
 #ifdef LDPC_CUDA
       // llr_dev[c] is the device alias of llr[c], not a separate allocation
-      cudaFreeHost(buffers[i].llr[c]);
+      gpuFreeHost(buffers[i].llr[c]);
 #else
       free_and_zero(buffers[i].llr[c]);
 #endif
@@ -417,8 +418,8 @@ void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSE
       init_downlink_harq_status(harq_list[j] + i);
 
 #ifdef LDPC_CUDA
-      harq_list[j][i].c = cudaHostAlloc_or_fail(a_segments * sizeof(uint8_t *) * 1056);
-      harq_list[j][i].cdev = cudaHostGetDevicePointer_or_fail(harq_list[j][i].c);
+      harq_list[j][i].c = gpuHostAlloc_or_fail(a_segments * sizeof(uint8_t *) * 1056);
+      harq_list[j][i].cdev = gpuHostGetDevicePointer_or_fail(harq_list[j][i].c);
 #else
       harq_list[j][i].c = malloc16(a_segments * sizeof(*harq_list[j][i].c) * 1056);
 #endif
@@ -451,13 +452,13 @@ void nr_init_ul_harq_processes(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES],
     size_t total_c_size = a_segments * 8448;
     size_t total_d_size = a_segments * 68 * 384 * sizeof(uint32_t);
 
-    uint8_t *tmp_c = cudaHostAlloc_or_fail(total_c_size);
-    uint8_t *tmp_d = cudaHostAlloc_or_fail(total_d_size);
+    uint8_t *tmp_c = gpuHostAlloc_or_fail(total_c_size);
+    uint8_t *tmp_d = gpuHostAlloc_or_fail(total_d_size);
     memset(tmp_c, 0, total_c_size);
     memset(tmp_d, 0, total_d_size);
 
-    harq_list[i].c = cudaHostAlloc_or_fail(a_segments * sizeof(uint8_t *));
-    harq_list[i].d = cudaHostAlloc_or_fail(a_segments * sizeof(uint8_t *));
+    harq_list[i].c = gpuHostAlloc_or_fail(a_segments * sizeof(uint8_t *));
+    harq_list[i].d = gpuHostAlloc_or_fail(a_segments * sizeof(uint8_t *));
 
     for (int r = 0; r < a_segments; r++) {
       harq_list[i].c[r] = tmp_c + (r * 8448);
@@ -501,8 +502,8 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
     buffers[i].pdsch_dl_ch_estimates = malloc16_clear(ch_est_elems * sizeof(int32_t));
     for (int c = 0; c < 2; c++) {
 #ifdef LDPC_CUDA
-      buffers[i].llr[c] = cudaHostAlloc_or_fail((66 * 3 * 8448) * sizeof(int16_t));
-      buffers[i].llr_dev[c] = cudaHostGetDevicePointer_or_fail(buffers[i].llr[c]);
+      buffers[i].llr[c] = gpuHostAlloc_or_fail((66 * 3 * 8448) * sizeof(int16_t));
+      buffers[i].llr_dev[c] = gpuHostGetDevicePointer_or_fail(buffers[i].llr[c]);
 #else
       buffers[i].llr[c]              = malloc16(llr_buf_max * sizeof(int16_t));
 #endif

@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
 // generated code for Zc=176, byte encoding
 __global__ void ldpc_BG1_Zc176_worker(uint32_t *c[4],uint32_t *d[4]) {
   uint32_t *c32=c[blockIdx.x];
@@ -206,9 +206,9 @@ extern "C" int ldpc_BG1_Zc176_cuda32(uint32_t *c[4],uint32_t *d[4],int n_inputs)
  dim3 numblocks(n_inputs,46);
  ldpc_BG1_Zc176_worker<<<numblocks,176>>>(c,d);
  
- cudaError_t err=cudaPeekAtLastError();
- if (err!=cudaSuccess) {
-    printf("cuda error: %s (c %p, d %p)\n",cudaGetErrorString(err),c,d);
+ gpuError_t err=gpuPeekAtLastError();
+ if (err!=gpuSuccess) {
+    printf("cuda error: %s (c %p, d %p)\n",gpuGetErrorString(err),c,d);
     exit(-1);
  }
  return(0);

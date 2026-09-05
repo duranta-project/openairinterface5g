@@ -232,7 +232,7 @@ int LDPCencoder(unsigned char **inputArray, unsigned char *outputArray, encoder_
     FILE *fd=fopen(fname,"w");
     AssertFatal(fd!=NULL,"cannot open %s\n",fname);
     printf("Writing to %s\n",fname);
-    fprintf(fd,"#include <stdio.h>\n#include <stdint.h>\n#include <cuda_runtime.h>\n");
+    fprintf(fd,"#include <stdio.h>\n#include <stdint.h>\n#include \"PHY/gpu_compat.h\"\n");
 
     fprintf(fd,"// generated code for Zc=%d, byte encoding\n",Zc);
     fprintf(fd,"__global__ void ldpc_BG%d_Zc%d_worker(uint32_t *c[4],uint32_t *d[4]) {\n",BG,Zc);
@@ -280,9 +280,9 @@ int LDPCencoder(unsigned char **inputArray, unsigned char *outputArray, encoder_
     fprintf(fd," dim3 numblocks(n_inputs,%d);\n",nrows);
     fprintf(fd," ldpc_BG%d_Zc%d_worker<<<numblocks,%d>>>(c,d);\n",BG,Zc,Zc);
     fprintf(fd," \n");
-    fprintf(fd," cudaError_t err=cudaPeekAtLastError();\n");
-    fprintf(fd," if (err!=cudaSuccess) {\n");
-    fprintf(fd,"    printf(\"cuda error: %%s (c %%p, d %%p)\\n\",cudaGetErrorString(err),c,d);\n");
+    fprintf(fd," gpuError_t err=gpuPeekAtLastError();\n");
+    fprintf(fd," if (err!=gpuSuccess) {\n");
+    fprintf(fd,"    printf(\"cuda error: %%s (c %%p, d %%p)\\n\",gpuGetErrorString(err),c,d);\n");
     fprintf(fd,"    exit(-1);\n");
     fprintf(fd," }\n");
     fprintf(fd," return(0);\n");

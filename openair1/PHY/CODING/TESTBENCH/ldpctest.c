@@ -17,7 +17,8 @@
 #include "coding_unitary_defs.h"
 #include "common/utils/LOG/log.h"
 #ifdef LDPC_CUDA
-#include "PHY/cuda_alloc.h"
+#include "PHY/gpu_compat.h"
+#include "PHY/gpu_alloc.h"
 #endif
 
 #define MAX_BLOCK_LENGTH 8448
@@ -258,12 +259,12 @@ one_measurement_t test_ldpc(short max_iterations,
 
   // generate input block
 #ifdef LDPC_CUDA
-  test_input_p = cudaHostAlloc_or_fail(n_segments * sizeof(uint8_t *));
+  test_input_p = gpuHostAlloc_or_fail(n_segments * sizeof(uint8_t *));
   test_input = (uint8_t **)test_input_p;
 #endif
   for (int j = 0; j < n_segments; j++) {
 #ifdef LDPC_CUDA
-    test_input[j] = cudaHostAlloc_or_fail(((K + 7) & ~7) / 8);
+    test_input[j] = gpuHostAlloc_or_fail(((K + 7) & ~7) / 8);
 #else
     test_input[j] = malloc16(((K + 7) & ~7) / 8);
     memset(test_input[j], 0, ((K + 7) & ~7) / 8);
@@ -423,14 +424,14 @@ one_measurement_t test_ldpc(short max_iterations,
 
   for (int j = 0; j < n_segments; j++) {
 #ifdef LDPC_CUDA
-    cudaFreeHost(test_input[j]);
+    gpuFreeHost(test_input[j]);
 #else
     free(test_input[j]);
 #endif
     free(channel_input[j]);
   }
 #ifdef LDPC_CUDA
-  cudaFreeHost(test_input);
+  gpuFreeHost(test_input);
 #endif
   free(channel_input_optim);
 
@@ -588,11 +589,11 @@ int main(int argc, char *argv[])
   // find minimum value in all sets of lifting size
   Zc = 0;
 #ifdef LDPC_CUDA
-  estimated_output = cudaHostAlloc_or_fail(sizeof(uint8_t) * n_segments * Kprime);
-  channel_output_fixed = cudaHostAlloc_or_fail(sizeof(int8_t) * n_segments * 68 * 384);
+  estimated_output = gpuHostAlloc_or_fail(sizeof(uint8_t) * n_segments * Kprime);
+  channel_output_fixed = gpuHostAlloc_or_fail(sizeof(int8_t) * n_segments * 68 * 384);
   if (use32bit == 1) {
-    estimated_output_dev = cudaHostGetDevicePointer_or_fail(estimated_output);
-    channel_output_fixed_dev = cudaHostGetDevicePointer_or_fail(channel_output_fixed);
+    estimated_output_dev = gpuHostGetDevicePointer_or_fail(estimated_output);
+    channel_output_fixed_dev = gpuHostGetDevicePointer_or_fail(channel_output_fixed);
     printf("estimated_output_dev %p, channel_output_fixed_dev %p\n", estimated_output_dev, channel_output_fixed_dev);
   }
 #else

@@ -9,7 +9,7 @@
 #ifndef NRLDPC_CUDA_SHARED_PARAM_H_
 #define NRLDPC_CUDA_SHARED_PARAM_H_
 
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
 
 #ifndef MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER
 #define MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER 36

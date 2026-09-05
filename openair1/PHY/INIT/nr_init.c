@@ -27,7 +27,8 @@
 #include "nfapi/open-nFAPI/fapi/inc/nr_fapi_p5_utils.h"
 
 #ifdef LDPC_CUDA
-#include "PHY/cuda_alloc.h"
+#include "PHY/gpu_compat.h"
+#include "PHY/gpu_alloc.h"
 #endif
 
 static void init_DLSCH_struct(PHY_VARS_gNB *gNB);
@@ -189,8 +190,8 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
     }
 #ifdef LDPC_CUDA
     // 144 segments 8448*3 coded bits per segment
-    pusch->llr = cudaHostAlloc_or_fail((144 * 3 * 8448) * sizeof(int16_t));
-    pusch->llr_dev = cudaHostGetDevicePointer_or_fail(pusch->llr);
+    pusch->llr = gpuHostAlloc_or_fail((144 * 3 * 8448) * sizeof(int16_t));
+    pusch->llr_dev = gpuHostGetDevicePointer_or_fail(pusch->llr);
 #else
     pusch->llr = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t)); // 144 segments 3*8448 coded bits per segment
 #endif
@@ -247,7 +248,7 @@ void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
     free_and_zero(pusch_vars->rxdataF_comp);
 
 #ifdef LDPC_CUDA
-    cudaFreeHost(pusch_vars->llr_dev);
+    gpuFreeHost(pusch_vars->llr_dev);
 #else
     free_and_zero(pusch_vars->llr);
 #endif
