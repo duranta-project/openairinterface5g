@@ -80,9 +80,11 @@
 #include "ldpc_BG2_Zc80_byte.c"
 #include "ldpc_BG2_Zc72_byte.c"
 
-static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, short Zc, int simd_size, int ncols)
+static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, short Zc, int simd_size, int ncols, time_stats_t *tinput_memcpy)
 {
   unsigned char c[2 * 22 * Zc * simd_size] __attribute__((aligned(64))); //double size matrix of c
+  if (tinput_memcpy)
+    start_meas(tinput_memcpy);
   for (int i1 = 0; i1 < ncols; i1++)   {
     memcpy(&c[2 * i1 * Zc], &cc[i1 * Zc], Zc * sizeof(unsigned char));
     memcpy(&c[(2 * i1 + 1) * Zc], &cc[i1 * Zc], Zc * sizeof(unsigned char));
@@ -95,6 +97,8 @@ static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, sh
       memcpy(&c[(2 * ncols * Zc * i1)], &c[i1], (2 * ncols * Zc * sizeof(unsigned char)) - i1);
     }
   }
+  if (tinput_memcpy)
+    stop_meas(tinput_memcpy);
   if (BG == 1) {
     switch (Zc) {
       case 176:
