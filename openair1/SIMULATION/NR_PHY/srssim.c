@@ -573,6 +573,11 @@ int main(int argc, char *argv[])
                            &timing_advance_offset,
                            timing_advance_offset_nsec);
 
+      if (srs_est < 0) {
+        stop_meas(&gNB->rx_srs_stats);
+        continue;
+      }
+
       sum_srs_snr += pow(10, (double)snr / 10.0);
 
       int16_t delay_ns = delay * 1e9 / (fp->samples_per_frame * 100);
