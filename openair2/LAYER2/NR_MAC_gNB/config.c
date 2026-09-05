@@ -36,6 +36,44 @@
 #include "nfapi_nr_interface_scf.h"
 #include "utils.h"
 
+static bool check_periodicity(int val, int ideal_period, const frame_structure_t *fs)
+{
+  bool valid_periodicity_for_tdd_period = fs->frame_type == FDD ? true : (val % fs->numb_slots_period == 0);
+  return (ideal_period < val + 1) && valid_periodicity_for_tdd_period;
+}
+
+int set_ideal_period(const nr_cell_sched_t *cell, nr_periodic_channel_t channel_type, int num_pucch_slot)
+{
+  const frame_structure_t *fs = &cell->frame_structure;
+  const int nb_slots_per_period = fs->numb_slots_period;
+  const int n_ul_slots_per_period = get_ul_slots_per_period(fs); // full UL + mixed with UL symbols
+  // 2 reports per UE (RSRP and RI-PMI-CQI)
+  switch (channel_type) {
+    case SRS: {
+      int srs_periodicities[17] = {1, 2, 4, 5, 8, 10, 16, 20, 32, 40, 64, 80, 160, 320, 640, 1280, 2560};
+      int srs_ideal_period = nb_slots_per_period * MAX_MOBILES_PER_GNB;
+      for (int i = 0; i < 17; i++) {
+        if (check_periodicity(srs_periodicities[i], srs_ideal_period, fs))
+          return srs_periodicities[i];
+      }
+      break;
+    }
+    case CSI_RS:
+    case CSI_MEASUREMENTS: {
+      int csi_periodicities[10] = {4, 5, 8, 10, 16, 20, 40, 80, 160, 320};
+      int csi_ideal_period = MAX_MOBILES_PER_GNB * 2 * nb_slots_per_period / (n_ul_slots_per_period * num_pucch_slot);
+      for (int i = 0; i < 10; i++) {
+        if (check_periodicity(csi_periodicities[i], csi_ideal_period, fs))
+          return csi_periodicities[i];
+      }
+      break;
+    }
+    default:
+      AssertFatal(false, "Invalid periodic channel type");
+  }
+  return 0;
+}
+
 c16_t convert_precoder_weight(double complex c_in)
 {
   return (c16_t) {.r = round(SHRT_MAX*creal(c_in)), .i = round(SHRT_MAX*cimag(c_in))};
@@ -401,6 +439,37 @@ int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed)
   int ul_slot_idx_in_period = idx % ul_slot_count; // wrap up the UL slot index within the current TDD period
 
   return ul_slot_idxs[ul_slot_idx_in_period] + period_idx * fs->numb_slots_period;
+}
+
+/**
+ * @brief Get the UL slot index for a slot in a TDD period using the frame structure bitmap
+ * @param fs frame structure
+ * @param slot slot
+ * @param count_mixed indicates whether counting mixed slot with UL symbols or only full UL slots
+ * @param max_period size of the vector to be indicized
+ * @return UL slot index in period
+ */
+int get_ul_period_idx_from_abs_slot(const frame_structure_t *fs, int abs_slot, bool count_mixed, int max_period)
+{
+  DevAssert(fs);
+  // FDD: every slot is UL, compacted index == raw offset
+  if (fs->frame_type == FDD)
+    return abs_slot % max_period;
+  // UL slot indexes in period (same construction as get_ul_slot_offset)
+  int ul_slot_idxs[fs->numb_slots_period];
+  int ul_slot_count = 0;
+  for (int i = 0; i < fs->numb_slots_period; i++) {
+    if ((count_mixed && is_ul_slot(i, fs)) || fs->period_cfg.tdd_slot_bitmap[i].slot_type == TDD_NR_UPLINK_SLOT)
+      ul_slot_idxs[ul_slot_count++] = i;
+  }
+  AssertFatal(fs->numb_slots_period <= max_period, "Invalid max period, smaller than TDD period\n");
+  int slot_period = abs_slot % fs->numb_slots_period;
+  int num_period = (abs_slot % max_period) / fs->numb_slots_period;
+  for (int i = 0; i < ul_slot_count; i++) {
+    if (ul_slot_idxs[i] == slot_period)
+      return i + ul_slot_count * num_period;
+  }
+  return -1; // slot_in_period is not a UL slot under this count_mixed setting
 }
 
 static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, NR_ServingCellConfigCommon_t *scc)
@@ -929,6 +998,20 @@ static void init_ul_tda_info(const NR_PUSCH_TimeDomainResourceAllocationList_t *
   }
 }
 
+static periodic_ue_sched_t config_period_structure(nr_cell_sched_t *cell, nr_periodic_channel_t channel)
+{
+  int max_period = set_ideal_period(cell, SRS, 0);
+  const frame_structure_t *fs = &cell->frame_structure;
+  AssertFatal(max_period > 0 && max_period % fs->numb_slots_period == 0, "Invalid SRS periodicity\n");
+
+  bool count_mixed = channel != SRS;
+  int valid_slots_per_period = count_mixed ? get_ul_slots_per_period(fs) : get_full_ul_slots_per_period(fs);
+  int nb_slots = (max_period / fs->numb_slots_period) * valid_slots_per_period;
+  periodic_ue_sched_t p = {.max_period = max_period, .max_ue_per_slot = 1}; // currently 1 SRS per slot
+  p.list = calloc_or_fail(nb_slots * p.max_ue_per_slot, sizeof(NR_UE_info_t *));
+  return p;
+}
+
 void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config)
 {
   DevAssert(nrmac != NULL);
@@ -962,6 +1045,8 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
   LOG_D(NR_MAC, "Configuring common parameters from NR ServingCellConfig\n");
 
   config_common(cell, config, scc);
+  if (cell->radio_config.do_SRS == PERIODIC_SRS)
+    cell->periodic_srs_config = config_period_structure(cell, SRS);
   fill_beam_index_list(scc, config, cell);
 
   if (NFAPI_MODE == NFAPI_MONOLITHIC) {
@@ -1270,7 +1355,7 @@ bool nr_mac_add_test_ue(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, uint32_t rnt
   bool res = add_connected_nr_ue(nrmac, UE);
   if (!res) {
     LOG_E(NR_MAC, "Error adding UE %04x\n", rnti);
-    delete_nr_ue_data(UE, &nrmac->UE_info.uid_allocator);
+    delete_nr_ue_data(nrmac, UE);
     NR_SCHED_UNLOCK(&nrmac->sched_lock);
     return false;
   }
