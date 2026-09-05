@@ -23,32 +23,42 @@
 // high-throughput cases. The version with "permutex2var" instruction uses less memory (i.e. 1/64th of the memory to store the
 // input), but uses more reads instead of creating 64 shifts of the input with memcpy
 #include "ldpc384_simd512_permutex_byte.c"
-#else
+#else 
 #include "ldpc384_simd512_byte.c"
 #endif
-#else
-#include "ldpc384_byte.c"
 #endif
 #ifdef USE_ALIGNR
 #include "ldpc384_alignr_byte_128.c"
+#include "ldpc352_alignr_byte_128.c"
+#include "ldpc320_alignr_byte_128.c"
+#include "ldpc288_alignr_byte_128.c"
+#include "ldpc256_alignr_byte_128.c"
+#include "ldpc240_alignr_byte_128.c"
+#include "ldpc224_alignr_byte_128.c"
+#include "ldpc208_alignr_byte_128.c"
+#include "ldpc192_alignr_byte_128.c"
+#include "ldpc176_alignr_byte_128.c"
 #else
-#include "ldpc384_byte_128.c"
+#ifndef __AVX512F__
+#include "ldpc384_byte.c"
 #endif
 #include "ldpc352_byte.c"
-#include "ldpc352_byte_128.c"
 #include "ldpc320_byte.c"
-#include "ldpc320_byte_128.c"
 #include "ldpc288_byte.c"
-#include "ldpc288_byte_128.c"
 #include "ldpc256_byte.c"
-#include "ldpc256_byte_128.c"
 #include "ldpc240_byte.c"
 #include "ldpc224_byte.c"
-#include "ldpc224_byte_128.c"
 #include "ldpc208_byte.c"
 #include "ldpc192_byte.c"
-#include "ldpc192_byte_128.c"
 #include "ldpc176_byte.c"
+#include "ldpc384_byte_128.c"
+#include "ldpc352_byte_128.c"
+#include "ldpc320_byte_128.c"
+#include "ldpc288_byte_128.c"
+#include "ldpc256_byte_128.c"
+#include "ldpc224_byte_128.c"
+#include "ldpc192_byte_128.c"
+#endif
 #include "ldpc_BG2_Zc384_byte.c"
 #include "ldpc_BG2_Zc384_byte_128.c"
 #include "ldpc_BG2_Zc352_byte.c"
@@ -82,15 +92,25 @@
 
 static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, short Zc, int simd_size, int ncols, time_stats_t *tinput_memcpy)
 {
-  unsigned char c[2 * 22 * Zc * simd_size] __attribute__((aligned(64))); //double size matrix of c
+  // For the alignr path (aarch64, BG1, Zc=384) the simd_size copies are skipped,
+  // so only one copy is needed — avoid a 32x overallocation on the stack.
+#ifdef USE_ALIGNR
+  int vla_simd = (BG == 1 && Zc >= 176) ? 1 : simd_size;
+#else
+  int vla_simd = simd_size;
+#endif
+  unsigned char c[2 * 22 * Zc * vla_simd] __attribute__((aligned(64))); //double size matrix of c
   if (tinput_memcpy)
     start_meas(tinput_memcpy);
   for (int i1 = 0; i1 < ncols; i1++)   {
     memcpy(&c[2 * i1 * Zc], &cc[i1 * Zc], Zc * sizeof(unsigned char));
     memcpy(&c[(2 * i1 + 1) * Zc], &cc[i1 * Zc], Zc * sizeof(unsigned char));
   }
-#if (defined(USE_PERMUTEX) && defined(__AVX512VBMI__)) || defined(USE_ALIGNR)
-  if (Zc < 384 || BG == 2)
+#if (defined(USE_PERMUTEX) && defined(__AVX512VBMI__)) 
+  if (BG == 2 || Zc < 384)
+#endif
+#if defined(USE_ALIGNR)
+  if (BG == 2)
 #endif
   {
     for (int i1 = 1; i1 < simd_size; i1++) {
