@@ -35,9 +35,7 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
   short block_length = impp->K;
   short BG = impp->BG;
 
-  int nrows=0,ncols=0;
-  int rate=3;
-  int no_punctured_columns,removed_bit;
+  int ncols=0;
   //Table of possible lifting sizes
   char temp;
   int simd_size;
@@ -52,15 +50,11 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
   //determine number of bits in codeword
   if (BG==1)
     {
-      nrows=46; //parity check bits
       ncols=22; //info bits
-      rate=3;
     }
     else if (BG==2)
     {
-      nrows=42; //parity check bits
       ncols=10; // info bits
-      rate=5;
     }
 
 #ifdef DEBUG_LDPC
@@ -75,16 +69,35 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
 #endif
   else simd_size=32;
   unsigned char cc[22*Zc] __attribute__((aligned(64))); //padded input, unpacked, max size
-  unsigned char dd[46*Zc] __attribute__((aligned(64))); //coded parity part output, unpacked, max size
 
-  // calculate number of punctured bits
-  no_punctured_columns=(int)((nrows-2)*Zc+block_length-block_length*rate)/Zc;
-  removed_bit=(nrows-no_punctured_columns-2) * Zc+block_length-(int)(block_length*rate);
-  //printf("%d\n",no_punctured_columns);
-  //printf("%d\n",removed_bit);
+  // Write the parity straight into the caller's buffer instead of into a local
+  // and copying it across. It belongs immediately after the transmitted
+  // systematic bits, so the destination is just output + block_length - 2*Zc.
+  //
+  // Space: the encoder writes nrows*Zc from there, so the caller needs
+  // (Kb + nrows - 2)*Zc bytes, at most (22+44)*384 = 25344 for BG1 and 19200 for
+  // BG2 -- both inside the 68*384 the interface already specifies.
+  //
+  // Alignment: the 128-bit encoders store through simde__m128i, so this address
+  // must be 16-byte aligned. (Kb-2)*Zc is always a multiple of the SIMD width
+  // when Zc is, so it follows from output itself being aligned. The 256/512-bit
+  // encoders use storeu and do not care.
+  AssertFatal(((uintptr_t)output & 15) == 0, "LDPCencoder: output must be 16-byte aligned, got %p\n", output);
+  unsigned char *dd = output + block_length - 2 * Zc;
+
   // unpack input
-  memset(cc,0,sizeof(cc));
-  memset(dd,0,sizeof(dd));
+  //
+  // Only the systematic bits past the payload need zeroing: the unpack below
+  // writes [0, block_length), the encoder reads [0, ncols*Zc), and the gap
+  // between them is filler, which must read as zero. For BG1 at K'=8448 the two
+  // coincide and this is a no-op.
+  //
+  // dd needs no zeroing at all: both encoder paths write every byte of it that
+  // is subsequently read.
+  //
+  // Together these were ~0.2 us per code block, and were outside every timer.
+  if (block_length < ncols * Zc)
+    memset(cc + block_length, 0, ncols * Zc - block_length);
 
   if(impp->tinput != NULL) start_meas(impp->tinput);
   //interleave up to 8 transport-block segements at a time
@@ -214,13 +227,19 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
 #undef CONTRIB
 #endif
 
+  // Accumulate into a local and store once, rather than OR-ing into cc. The
+  // SIMD paths above store whole vectors, so nothing has pre-zeroed the bytes
+  // this loop covers -- and for a block too short for any of those paths, that
+  // is every byte of cc. OR-ing into them would mix in whatever the stack held.
   for (; i_byte < block_length; i_byte++) {
     unsigned int i = i_byte;
+    unsigned char acc = 0;
     for (int j = macro_segment; j < macro_segment_end; j++) {
 
       temp = (input[j][i/8]&(128>>(i&7)))>>(7-(i&7));
-      cc[i] |= (temp << (j-macro_segment));
+      acc |= (temp << (j-macro_segment));
     }
+    cc[i] = acc;
   }
 
   if(impp->tinput != NULL) stop_meas(impp->tinput);
@@ -238,8 +257,8 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
   }
   if (impp->toutput != NULL)
     start_meas(impp->toutput);
+  // the parity is already in place; only the systematic part still needs moving
   memcpy(output,&cc[2*Zc],(block_length-(2*Zc)));
-  memcpy(output+block_length-(2*Zc),dd,((nrows-no_punctured_columns) * Zc-removed_bit));
   if (impp->toutput != NULL)
     stop_meas(impp->toutput);
   return 0;
