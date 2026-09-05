@@ -385,8 +385,8 @@ static bool validate_known_pci(NR_DL_FRAME_PARMS *frame_parms,
 
   __attribute__((aligned(32))) c16_t rxdataF_tmp[frame_parms->nb_antennas_rx][frame_parms->samples_per_slot_wCP];
   uint8_t sss_symbol = SSS_SYMBOL_NB - PSS_SYMBOL_NB;
-  nr_slot_fep(NULL, frame_parms, 0, 0, rxdataF_tmp, link_type_dl, ssb_time_offset, (c16_t **)rxdata);
-  nr_slot_fep(NULL, frame_parms, 0, sss_symbol, rxdataF_tmp, link_type_dl, ssb_time_offset, (c16_t **)rxdata);
+  nr_slot_fep(NULL, frame_parms, 0, 0, 0, rxdataF_tmp, link_type_dl, ssb_time_offset, (c16_t **)rxdata);
+  nr_slot_fep(NULL, frame_parms, 0, 0, sss_symbol, rxdataF_tmp, link_type_dl, ssb_time_offset, (c16_t **)rxdata);
   /* TODO: Once symbol based PDSCH proc is imeplemented, nr_slot_fep() will use
   the new rxdataF buffer format so the following memcpy can be removed. */
   for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {

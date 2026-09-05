@@ -215,7 +215,7 @@ int psbch_pscch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr
     int e_rx_offset = 0;
     /* TODO: Remove loop over symbols in later commit. */
     for (int sym = 0; sym < NR_SYMBOLS_PER_SLOT; sym++) {
-      nr_slot_fep(ue, fp, proc->nr_slot_rx, sym, rxdataF, link_type_sl, 0, ue->common_vars.rxdata);
+      nr_slot_fep(ue, fp, frame_rx, proc->nr_slot_rx, sym, rxdataF, link_type_sl, 0, ue->common_vars.rxdata);
       __attribute__((aligned(32))) c16_t rxdataF_symb[fp->nb_antennas_rx][fp->ofdm_symbol_size];
       for (int aarx = 0; aarx < fp->nb_antennas_rx; aarx++) {
         /* TODO: Remove this buffer reshaping in later commit after rxdataF is in right format */

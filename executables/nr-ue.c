@@ -82,7 +82,7 @@
  *
  */
 
-static void start_process_slot_tx(void* arg) {
+void start_process_slot_tx(void* arg) {
   notifiedFIFO_elt_t *newTx = arg;
   nr_rxtx_thread_data_t *curMsgTx = NotifiedFifoData(newTx);
   int num_ul_actors = get_nrUE_params()->num_ul_actors;
@@ -93,7 +93,7 @@ static void start_process_slot_tx(void* arg) {
   }
 }
 
-static size_t dump_L1_UE_meas_stats(PHY_VARS_NR_UE *ue, char *output, size_t max_len)
+size_t dump_L1_UE_meas_stats(PHY_VARS_NR_UE *ue, char *output, size_t max_len)
 {
   const char *begin = output;
   const char *end = output + max_len;
@@ -108,7 +108,7 @@ static size_t dump_L1_UE_meas_stats(PHY_VARS_NR_UE *ue, char *output, size_t max
   return output - begin;
 }
 
-static void *nrL1_UE_stats_thread(void *param)
+void *nrL1_UE_stats_thread(void *param)
 {
   PHY_VARS_NR_UE *ue = (PHY_VARS_NR_UE *) param;
   const int max_len = 16384;
@@ -132,7 +132,7 @@ static void *nrL1_UE_stats_thread(void *param)
   return NULL;
 }
 
-static int determine_N_TA_offset(PHY_VARS_NR_UE *ue) {
+int determine_N_TA_offset(PHY_VARS_NR_UE *ue) {
   if (ue->sl_mode == 2)
     return 0;
   else {
@@ -242,7 +242,7 @@ static void UE_synch(void *arg) {
   }
 }
 
-static int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
+int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
 {
   if (cfg->cell_config.frame_duplex_type == FDD)
     return NR_UPLINK_SLOT | NR_DOWNLINK_SLOT;
@@ -521,11 +521,11 @@ static int handle_sync_req_from_mac(PHY_VARS_NR_UE *UE)
   return 1;
 }
 
-static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
-                               const UE_nr_rxtx_proc_t *proc,
-                               int *tx_wait_for_dlsch,
-                               nr_phy_data_t *phy_data,
-                               bool *stats_printed)
+int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
+                        const UE_nr_rxtx_proc_t *proc,
+                        int *tx_wait_for_dlsch,
+                        nr_phy_data_t *phy_data,
+                        bool *stats_printed)
 {
   TracyCZone(ctx, true);
   int sampleShift = INT_MAX;

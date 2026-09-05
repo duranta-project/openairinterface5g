@@ -61,6 +61,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include <executables/nr-uesoftmodem.h>
 #include "executables/softmodem-common.h"
 #include "executables/thread-common.h"
+#include "radio/COMMON/ue_split7_interface.h"
 
 #include "nr_nas_msg.h"
 #include "actor.h"
@@ -474,15 +475,54 @@ int main(int argc, char **argv)
     load_module_shlib("imscope_record", NULL, 0, nrPHY_vars_UE_g[0][0]);
   }
 
-  // Launch a temporary high-priority thread to start the UE RU, ensuring radio library threads inherit this priority
-  pthread_t ru_start_thread;
-  threadCreate(&ru_start_thread, nrue_ru_start_thread, NULL, "ru_start_thread", -1, OAI_PRIORITY_RT_MAX);
-  int ret = pthread_join(ru_start_thread, NULL);
-  AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
+  // Split7 manages its own RF device; skip the regular RU start.
+  if (!get_nrUE_params()->use_split7) {
+    // Launch a temporary high-priority thread to start the UE RU, ensuring radio library threads inherit this priority
+    pthread_t ru_start_thread;
+    threadCreate(&ru_start_thread, nrue_ru_start_thread, NULL, "ru_start_thread", -1, OAI_PRIORITY_RT_MAX);
+    int ret = pthread_join(ru_start_thread, NULL);
+    AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
+  }
 
   for (int inst = 0; inst < NB_UE_INST; inst++) {
-    LOG_I(PHY,"Intializing UE Threads for instance %d ...\n", inst);
-    init_NR_UE_threads(nrPHY_vars_UE_g[inst][0]);
+    LOG_I(PHY, "Initializing UE Threads for instance %d ...\n", inst);
+    if (get_nrUE_params()->use_split7) {
+      PHY_VARS_NR_UE *UE = nrPHY_vars_UE_g[inst][0];
+      const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
+
+      ue_split7_device_t *dev = ue_split7_device_create();
+      AssertFatal(dev, "Failed to create ue_split7_device for instance %d\n", inst);
+
+      uint16_t fft_size = (uint16_t)fp->ofdm_symbol_size;
+      uint16_t scs_khz  = (uint16_t)(fp->subcarrier_spacing / 1000);
+      ue_split7_config_t s7cfg;
+      memset(&s7cfg, 0, sizeof(s7cfg));
+      s7cfg.dl_carrier_freq_hz = fp->dl_CarrierFreq;
+      s7cfg.ul_carrier_freq_hz = fp->ul_CarrierFreq;
+      s7cfg.sample_rate_hz     = (uint32_t)fp->samples_per_subframe * 1000;
+      s7cfg.fft_size           = fft_size;
+      s7cfg.num_rx_antennas    = (uint16_t)fp->nb_antennas_rx;
+      s7cfg.num_tx_antennas    = (uint16_t)fp->nb_antennas_tx;
+      s7cfg.cp_len_normal      = (uint16_t)fp->nb_prefix_samples;
+      s7cfg.cp_len_symbol0     = (uint16_t)fp->nb_prefix_samples0;
+      s7cfg.scs_khz            = scs_khz;
+      s7cfg.nr_band            = (uint16_t)get_mac_inst(inst)->nr_band;
+      s7cfg.N_RB_DL            = (uint16_t)fp->N_RB_DL;
+      // Reuse the monolithic UE path's frame_parms instead of re-deriving a subset.
+      s7cfg.frame_parms        = fp;
+
+      ue_split7_status_t rc = dev->configure(dev, &s7cfg);
+      if (rc != UE_SPLIT7_SUCCESS) {
+        LOG_E(PHY, "ue_split7_device configure failed (status %d) for instance %d\n",
+              (int)rc, inst);
+        ue_split7_device_free(dev);
+        exit(1);
+      }
+
+      init_NR_UE_fd_threads(UE, dev);
+    } else {
+      init_NR_UE_threads(nrPHY_vars_UE_g[inst][0]);
+    }
   }
 
   // wait for end of program

@@ -13,6 +13,7 @@
 #include <math.h>
 #include "PHY/nr_phy_common/inc/nr_phy_common.h"
 #include "PHY/CODING/nrPolar_tools/nr_polar_psbch_defs.h"
+#include "PHY/NR_REFSIG/ss_pbch_nr.h"
 #include "common/utils/bits.h"
 
 // Specifies the data that should be copied to the scope during PDSCH RX
@@ -259,7 +260,18 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                 c16_t rho_dl[][NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max],
                 uint16_t ptrs_symb_pos);
 
-int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t slot, int16_t tx_amp, c16_t **txData);
+int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t slot, int16_t tx_amp, openair0_timestamp_t timestamp_tx, c16_t **txData);
+void nr_ue_prach_procedures(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, c16_t **txData);
+bool nr_pbch_detection(const UE_nr_rxtx_proc_t *proc,
+                       const NR_DL_FRAME_PARMS *frame_parms,
+                       int Nid_cell,
+                       int pbch_initial_symbol,
+                       int ssb_start_subcarrier,
+                       int *half_frame_bit,
+                       int *ssb_index,
+                       int *symbol_offset,
+                       fapiPbch_t *result,
+                       const c16_t rxdataF[NR_N_SYMBOLS_SSB][frame_parms->nb_antennas_rx][frame_parms->ofdm_symbol_size]);
 void apply_ntn_config(PHY_VARS_NR_UE *UE,
                       const NR_DL_FRAME_PARMS *fp,
                       int hfn_rx,

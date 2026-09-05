@@ -45,6 +45,7 @@ void nr_symbol_fep(const NR_DL_FRAME_PARMS *frame_parms,
 
 int nr_slot_fep(PHY_VARS_NR_UE *ue,
                 const NR_DL_FRAME_PARMS *frame_parms,
+                unsigned int frame,
                 unsigned int slot,
                 unsigned int symbol,
                 c16_t rxdataF[][frame_parms->samples_per_slot_wCP],
@@ -56,6 +57,17 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
               "slot_fep: symbol must be between 0 and %d\n",
               frame_parms->symbols_per_slot - 1);
   AssertFatal(slot < frame_parms->slots_per_frame, "slot_fep: Ns must be between 0 and %d\n", frame_parms->slots_per_frame - 1);
+
+  // Split7: symbols are already in ue->fd_rxdataF_ring; copy instead of computing the DFT.
+  if (ue && ue->fd_rxdataF_ring) {
+    const unsigned int ring_symbol =
+        ((frame % 2) * frame_parms->slots_per_frame + slot) * frame_parms->symbols_per_slot + symbol;
+    for (unsigned char aa = 0; aa < frame_parms->nb_antennas_rx; aa++)
+      memcpy(&rxdataF[aa][frame_parms->ofdm_symbol_size * symbol],
+             &ue->fd_rxdataF_ring[aa][ring_symbol * frame_parms->ofdm_symbol_size],
+             frame_parms->ofdm_symbol_size * sizeof(c16_t));
+    return 0;
+  }
 
   bool is_sl = (linktype == link_type_sl);
   bool is_synchronized = (ue) ? ue->is_synchronized : false;

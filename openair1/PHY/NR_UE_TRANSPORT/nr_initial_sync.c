@@ -36,7 +36,7 @@ static int ssb_sort(const void *a, const void *b)
   return ((NR_UE_SSB *)b)->metric - ((NR_UE_SSB *)a)->metric;
 }
 
-static bool nr_pbch_detection(const UE_nr_rxtx_proc_t *proc,
+bool nr_pbch_detection(const UE_nr_rxtx_proc_t *proc,
                               const NR_DL_FRAME_PARMS *frame_parms,
                               int Nid_cell,
                               int pbch_initial_symbol,

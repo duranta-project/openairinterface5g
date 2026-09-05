@@ -669,6 +669,7 @@ int main(int argc, char **argv)
         for (int i = UE->symbol_offset + 1; i < UE->symbol_offset + 4; i++) {
           nr_slot_fep(UE,
                       frame_parms,
+                      proc.frame_rx,
                       proc.nr_slot_rx,
                       i % frame_parms->symbols_per_slot,
                       rxdataF,
