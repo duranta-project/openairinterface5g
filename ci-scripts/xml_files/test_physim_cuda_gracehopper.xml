@@ -12,10 +12,14 @@
 
   <testCase>
     <class>Build_Deploy_PhySim</class>
-    <desc>Build and Deploy Physims with CUDA Channel Simulation</desc>
+    <desc>Build and Deploy Physims with CUDA Channel Simulation and LDPC offload</desc>
     <script>scripts/docker-build-and-deploy-physims-cuda.sh</script>
     <node>localhost</node>
-    <ctest-opt>-R cuda.5g.physims</ctest-opt>
+    <!-- cuda.5g.physims are the GPU channel simulation tests; the ldpc_cuda
+         ones (ldpctest/nr_dlsim/nr_ulsim against libldpc_cuda.so) come from
+         openair1/PHY/CODING/nrLDPC_coding/nrLDPC_coding_cuda/CMakeLists.txt.
+         They share the GPU, so run them serially. -->
+    <ctest-opt>-R "cuda.5g.physims|ldpc_cuda"</ctest-opt>
   </testCase>
 
 </testCaseList>
