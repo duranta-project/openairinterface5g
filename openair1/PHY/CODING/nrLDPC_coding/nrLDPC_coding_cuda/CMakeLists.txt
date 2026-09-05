@@ -27,6 +27,7 @@ set(LDPC_GPU_KERNELS
     ldpc_BG1_Zc320_32bit.cu
     ldpc_BG1_Zc288_32bit.cu
     ldpc_BG1_Zc256_32bit.cu
+    ldpc_BG1_Zc240_32bit.cu
     ldpc_BG1_Zc224_32bit.cu
     ldpc_BG1_Zc208_32bit.cu
     ldpc_BG1_Zc192_32bit.cu
