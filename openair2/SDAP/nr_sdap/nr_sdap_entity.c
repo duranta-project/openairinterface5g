@@ -31,8 +31,10 @@ static void remove_ip_if(nr_sdap_entity_t *entity)
 {
   DevAssert(entity != NULL);
   nr_sdap_tun_detach(entity);
-  if (!entity->is_gnb)
+  if (!entity->is_gnb) {
+    qos_flow_manager_destroy(&entity->qos_flow_mgr);
     return;
+  }
   nr_sdap_tun_destroy(entity->ue_id, entity->pdusession_id);
 }
 
@@ -553,17 +555,16 @@ static void nr_sdap_qfi2drb_map_update(nr_sdap_entity_t *entity, const sdap_conf
   }
 
   if (sdap->role == NO_SDAP_HEADER) {
-    /* TS 37.324 §6.2.2.1: with both headers absent, only one DRB per PDU session is allowed */
-    int mapped_drbs = 0;
-    for (int drb = 1; drb <= MAX_DRBS_PER_UE; drb++) {
-      for (int qfi = 0; qfi < SDAP_MAX_QFI; qfi++) {
-        if (entity->qfi2drb_table[qfi].drb_id == drb) {
-          mapped_drbs++;
-          break;
-        }
+    int qfis_on_this_drb = 0;
+    for (int qfi = 0; qfi < SDAP_MAX_QFI; qfi++) {
+      if (entity->qfi2drb_table[qfi].drb_id == sdap->drb_id) {
+        qfis_on_this_drb++;
       }
     }
-    AssertFatal(mapped_drbs <= 1, "PDU session %d: disabled SDAP but %d DRBs mapped\n", entity->pdusession_id, mapped_drbs);
+    AssertFatal(qfis_on_this_drb <= 1,
+                "PDU session %d DRB %d: both SDAP headers absent: at most one QoS flow per DRB\n",
+                entity->pdusession_id,
+                sdap->drb_id);
   }
 }
 
@@ -599,6 +600,12 @@ static void nr_sdap_add_entity(const int is_gnb, const ue_id_t ue_id, const sdap
   sdap_entity->qfi2drb_map_delete = nr_sdap_qfi2drb_map_del;
   sdap_entity->qfi2drb_map = nr_sdap_qfi2drb;
   sdap_entity->pdusession_sock = -1;
+
+  // Initialize QoS flow manager for UL packet filter matching at UE
+  if (!is_gnb) {
+    qos_flow_manager_init(&sdap_entity->qos_flow_mgr, ue_id, sdap->pdusession_id);
+    sdap_entity->use_packet_filters = false; // Disabled by default, enable when packet filters are added
+  }
 
   // set default DRB
   if (sdap->defaultDRB) {
@@ -865,4 +872,80 @@ void set_qfi(uint8_t qfi, uint8_t pduid, ue_id_t ue_id)
   DevAssert(entity != NULL);
   entity->qfi = qfi;
   nr_sdap_tun_store_qfi(ue_id, pduid, qfi);
+}
+
+void nr_sdap_qos_rule_add(ue_id_t ue_id,
+                          int pdusession_id,
+                          uint8_t rule_id,
+                          uint8_t qfi,
+                          uint8_t precedence,
+                          bool is_default,
+                          const packet_filter_decoded_t *pf_list,
+                          int num_pf)
+{
+  nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pdusession_id);
+  if (entity == NULL) {
+    LOG_E(SDAP, "UE %ld PDU session %d: no entity for QoS flow add\n", ue_id, pdusession_id);
+    return;
+  }
+
+  if (!qos_flow_manager_add(&entity->qos_flow_mgr, qfi, rule_id, precedence, is_default, pf_list, num_pf)) {
+    LOG_E(SDAP, "UE %ld PDU session %d: failed to add QoS flow rule %d (QFI %d)\n", ue_id, pdusession_id, rule_id, qfi);
+    return;
+  }
+
+  // Enable packet filter-based matching if we have filters.
+  // Set default_qfi before flipping use_packet_filters so the TUN thread
+  // never sees a window where matching is active but default is 0.
+  if (qos_flow_manager_set_default_qfi(&entity->qos_flow_mgr, entity->qfi)) {
+    entity->use_packet_filters = true;
+    LOG_I(SDAP, "UE %ld PDU session %d: Enabled UL packet filter matching for QFI %d\n", ue_id, pdusession_id, qfi);
+  }
+}
+
+void nr_sdap_qos_rule_remove(ue_id_t ue_id, int pdusession_id, uint8_t rule_id)
+{
+  nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pdusession_id);
+  if (entity == NULL) {
+    LOG_E(SDAP, "UE %ld PDU session %d: no entity for QoS flow remove\n", ue_id, pdusession_id);
+    return;
+  }
+
+  qos_flow_manager_remove(&entity->qos_flow_mgr, rule_id);
+
+  // Disable packet filter matching if no more flows
+  if (is_qos_flow_manager_empty(&entity->qos_flow_mgr)) {
+    entity->use_packet_filters = false;
+    LOG_I(SDAP, "UE %ld PDU session %d: Disabled UL packet filter matching (no flows)\n", ue_id, pdusession_id);
+  }
+}
+
+void nr_sdap_qos_rule_update(ue_id_t ue_id,
+                             int pdusession_id,
+                             uint8_t rule_id,
+                             uint8_t qfi,
+                             uint8_t precedence,
+                             bool is_default,
+                             const packet_filter_decoded_t *pf_list,
+                             int num_pf,
+                             bool replace)
+{
+  nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pdusession_id);
+  if (entity == NULL) {
+    LOG_E(SDAP, "UE %ld PDU session %d: no entity for QoS flow update\n", ue_id, pdusession_id);
+    return;
+  }
+
+  qos_flow_manager_update(&entity->qos_flow_mgr, rule_id, qfi, precedence, is_default, pf_list, num_pf, replace);
+}
+
+void nr_sdap_qos_rule_delete_pf(ue_id_t ue_id, int pdusession_id, uint8_t rule_id, const uint8_t *pf_ids, int num_ids)
+{
+  nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pdusession_id);
+  if (entity == NULL) {
+    LOG_E(SDAP, "UE %ld PDU session %d: no entity for QoS flow packet filter deletion\n", ue_id, pdusession_id);
+    return;
+  }
+
+  qos_flow_manager_delete_pf(&entity->qos_flow_mgr, rule_id, pf_ids, num_ids);
 }

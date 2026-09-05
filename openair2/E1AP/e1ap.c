@@ -5,7 +5,6 @@
 #include "e1ap.h"
 #include "e1ap_common.h"
 #include "gnb_config.h"
-#include "openair2/SDAP/nr_sdap/nr_sdap_entity.h"
 #include "openair3/UTILS/conversions.h"
 #include "openair2/RRC/NR/MESSAGES/asn1_msg.h"
 #include "common/openairinterface5g_limits.h"

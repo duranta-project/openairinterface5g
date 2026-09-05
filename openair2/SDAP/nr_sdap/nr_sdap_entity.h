@@ -11,6 +11,7 @@
 #include "NR_QFI.h"
 #include "NR_SDAP-Config.h"
 #include "common/platform_constants.h"
+#include "nr_sdap_qos_flow_manager.h"
 
 #define SDAP_BITMASK_DC             (0x80)
 #define SDAP_BITMASK_R              (0x40)
@@ -88,6 +89,10 @@ typedef struct nr_sdap_entity_s {
 
   qfi2drb_t default_drb;
   qfi2drb_t qfi2drb_table[SDAP_MAX_QFI];
+
+  /* QoS flow manager for packet filter-based UL traffic matching */
+  qos_flow_manager_t qos_flow_mgr;
+  _Atomic(bool) use_packet_filters;
 
   void (*qfi2drb_map_update)(struct nr_sdap_entity_s *entity, const sdap_config_t *sdap);
   void (*qfi2drb_map_delete)(struct nr_sdap_entity_s *entity, const uint8_t qfi);
@@ -177,4 +182,32 @@ void nr_reconfigure_sdap_entity(NR_SDAP_Config_t *sdap_config, ue_id_t ue_id, in
 void nr_sdap_entity_update_qos_flows(ue_id_t ue_id, sdap_config_t *sdap);
 
 void set_qfi(uint8_t qfi, uint8_t pduid, ue_id_t ue_id);
+
+/** @brief Create a new QoS flow */
+void nr_sdap_qos_rule_add(ue_id_t ue_id,
+                         int pdusession_id,
+                         uint8_t rule_id,
+                         uint8_t qfi,
+                         uint8_t precedence,
+                         bool is_default,
+                         const packet_filter_decoded_t *pf_list,
+                         int num_pf);
+
+/** @brief Remove a QoS flow */
+void nr_sdap_qos_rule_remove(ue_id_t ue_id, int pdusession_id, uint8_t rule_id);
+
+/** @brief Update an existing QoS flow's packet filters
+ * @param replace If true, replace all packet filters; if false, add pf_list to the existing ones */
+void nr_sdap_qos_rule_update(ue_id_t ue_id,
+                            int pdusession_id,
+                            uint8_t rule_id,
+                            uint8_t qfi,
+                            uint8_t precedence,
+                            bool is_default,
+                            const packet_filter_decoded_t *pf_list,
+                            int num_pf,
+                            bool replace);
+
+/** @brief Remove specific packet filters (by ID) from an existing QoS flow */
+void nr_sdap_qos_rule_delete_pf(ue_id_t ue_id, int pdusession_id, uint8_t rule_id, const uint8_t *pf_ids, int num_ids);
 #endif
