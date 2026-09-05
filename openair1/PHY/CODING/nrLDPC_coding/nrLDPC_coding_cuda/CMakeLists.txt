@@ -93,6 +93,21 @@ if(ENABLE_PHYSIM_TESTS)
   add_physim_test(ldpctest.ldpc_cuda.r23 "ldpctest: base graph 1, rate 2/3" ldpctest -v _cuda -r2 -n300 -S64 -s5 -i4)
   add_physim_test(ldpctest.ldpc_cuda.r89 "ldpctest: base graph 1, rate 8/9" ldpctest -v _cuda -r22 -d25 -n300 -S64 -s6 -i4)
 
+  # one test per BG1 lifting size a parity check kernel is generated for. The
+  # block lengths are those of physim.5g.ldpctest.test1..10, which cover Zc=176
+  # to 384; without these the offload is only ever exercised at Zc=384, since
+  # the tests above and all the nr_dlsim/nr_ulsim ones below land on 8448/384.
+  add_physim_test(ldpctest.ldpc_cuda.zc176 "ldpctest: base graph 1, Zc = 176 (block length 3872)" ldpctest -v _cuda -l3872 -n300 -S64 -s10)
+  add_physim_test(ldpctest.ldpc_cuda.zc192 "ldpctest: base graph 1, Zc = 192 (block length 4224)" ldpctest -v _cuda -l4224 -n300 -S64 -s10)
+  add_physim_test(ldpctest.ldpc_cuda.zc208 "ldpctest: base graph 1, Zc = 208 (block length 4576)" ldpctest -v _cuda -l4576 -n300 -S64 -s10)
+  add_physim_test(ldpctest.ldpc_cuda.zc224 "ldpctest: base graph 1, Zc = 224 (block length 4928)" ldpctest -v _cuda -l4928 -n300 -S64 -s10)
+  add_physim_test(ldpctest.ldpc_cuda.zc240 "ldpctest: base graph 1, Zc = 240 (block length 5280)" ldpctest -v _cuda -l5280 -n300 -S64 -s10)
+  add_physim_test(ldpctest.ldpc_cuda.zc256 "ldpctest: base graph 1, Zc = 256 (block length 5632)" ldpctest -v _cuda -l5632 -n300 -S64 -s10)
+  add_physim_test(ldpctest.ldpc_cuda.zc288 "ldpctest: base graph 1, Zc = 288 (block length 6336)" ldpctest -v _cuda -l6336 -n300 -S64 -s10)
+  add_physim_test(ldpctest.ldpc_cuda.zc320 "ldpctest: base graph 1, Zc = 320 (block length 7040)" ldpctest -v _cuda -l7040 -n300 -S64 -s10)
+  add_physim_test(ldpctest.ldpc_cuda.zc352 "ldpctest: base graph 1, Zc = 352 (block length 7744)" ldpctest -v _cuda -l7744 -n300 -S64 -s10)
+  add_physim_test(ldpctest.ldpc_cuda.zc384 "ldpctest: base graph 1, Zc = 384 (block length 8448)" ldpctest -v _cuda -l8448 -n300 -S64 -s10)
+
   add_physim_test(nr_dlsim.ldpc_cuda.9seg_r13 "nr_dlsim: 9 segments, rate 1/3" nr_dlsim -n100 -s20 -e13 -R273 -b273 -x1 -y1 -z1 -P --loader.ldpc.shlibversion _cuda)
   add_physim_test(nr_dlsim.ldpc_cuda.18seg_r23 "nr_dlsim: 18 segments, rate 2/3" nr_dlsim -n100 -s20 -e22 -R273 -b273 -x1 -y1 -z1 -P --loader.ldpc.shlibversion _cuda)
   add_physim_test(nr_dlsim.ldpc_cuda.50seg_r89 "nr_dlsim: 50 segments, rate 8/9" nr_dlsim -n100 -s40 -e27 -R273 -b273 -z2 -x2 -y2 -P --loader.ldpc.shlibversion _cuda)
