@@ -52,7 +52,10 @@ __device__ uint32_t masks[32] = {0x80,       0x40,       0x20,       0x10,      
                                  0x800000,   0x400000,   0x200000,   0x100000,   0x80000,   0x40000,   0x20000,   0x10000,
                                  0x80000000, 0x40000000, 0x20000000, 0x10000000, 0x8000000, 0x4000000, 0x2000000, 0x1000000};
 
-__global__ void ldpc_input_worker(uint32_t **input, uint32_t *cc[4], int nseg)
+/* blockIdx.x: group of (up to) 32 segments, blockIdx.y: base graph column,
+   threadIdx.x: lifting-size index. Each column is stored twice, 2*Zc apart, so
+   that the cyclic shifts of the generated encoder kernels are plain offsets. */
+__global__ void ldpc_input_worker(uint32_t **input, uint32_t *cc[4], int nseg, int Zc, int ncols)
 {
   //  int block_off = blockIdx.y*blockDim.x;
   int i1 = blockIdx.y;
@@ -63,12 +66,12 @@ __global__ void ldpc_input_worker(uint32_t **input, uint32_t *cc[4], int nseg)
     nseg1 = nseg0 + 32;
   else
     nseg1 = nseg0 + (nseg & 31);
-  int bit_offset = i2 + (i1 * 384);
+  int bit_offset = i2 + (i1 * Zc);
   int uint32_offset = bit_offset >> 5;
   uint32_t mask0 = masks[bit_offset & 31];
   uint32_t tmp, jmod;
   uint32_t otmp0;
-  if (bit_offset < 8448) {
+  if (bit_offset < ncols * Zc) {
     tmp = input[nseg0][uint32_offset];
     otmp0 = ((tmp & mask0) > 0);
     for (int j = nseg0 + 1; j < nseg1; j++) {
@@ -77,23 +80,23 @@ __global__ void ldpc_input_worker(uint32_t **input, uint32_t *cc[4], int nseg)
       otmp0 |= (((tmp & mask0) > 0) << jmod);
     }
 
-    cc[blockIdx.x][(2 * i1 * 384) + i2] = otmp0;
-    cc[blockIdx.x][(2 * i1 + 1) * 384 + i2] = otmp0;
+    cc[blockIdx.x][(2 * i1 * Zc) + i2] = otmp0;
+    cc[blockIdx.x][((2 * i1 + 1) * Zc) + i2] = otmp0;
   }
 }
 
-extern "C" int ldpc_input(uint32_t **input, uint32_t *cc[4], int nseg, gpuStream_t *stream, int sidx)
+extern "C" int ldpc_input(uint32_t **input, uint32_t *cc[4], int nseg, int Zc, int ncols, gpuStream_t *stream, int sidx)
 {
   int ns = nseg >> 5;
   if ((nseg & 31) > 0)
     ns++;
 
-  dim3 numblocks(ns, 22);
+  dim3 numblocks(ns, ncols);
   // printf("input %p\n",input);
-  ldpc_input_worker<<<numblocks, 384, 0, stream[sidx]>>>(input, cc, nseg);
+  ldpc_input_worker<<<numblocks, Zc, 0, stream[sidx]>>>(input, cc, nseg, Zc, ncols);
   gpuError_t err = gpuPeekAtLastError();
   if (err != gpuSuccess) {
-    printf("cuda error: %s (input %p, cc %p, nseg %d, ns %d)\n", gpuGetErrorString(err), input, cc, nseg, ns);
+    printf("cuda error: %s (input %p, cc %p, nseg %d, ns %d, Zc %d)\n", gpuGetErrorString(err), input, cc, nseg, ns, Zc);
     exit(-1);
   }
   return (0);

@@ -40,7 +40,7 @@ int cuda_support_set = 0;
 
 extern gpuStream_t encoderStreams[4];
 
-int ldpc_input(uint32_t **input,uint32_t *cc[4],int nseg,gpuStream_t *s,int sidx);
+int ldpc_input(uint32_t **input,uint32_t *cc[4],int nseg,int Zc,int ncols,gpuStream_t *s,int sidx);
 
 void cuda_support_init()
 {
@@ -185,6 +185,8 @@ uint32_t** LDPCencoder32(uint8_t** input, encoder_implemparams_t* impp)
   ldpc_input(pageable || integrated ? (uint32_t**)input : (uint32_t**)input_dev,
              (uint32_t**)c_dev,
              impp->n_segments,
+             Zc,
+             ncols,
              encoderStreams,
              encoder_stream);
   if (impp->tinput != NULL)
@@ -196,7 +198,7 @@ uint32_t** LDPCencoder32(uint8_t** input, encoder_implemparams_t* impp)
   if (!pageable && !integrated) { // this means we are not on shared memory
     AssertFatal(n_inputs <= MAX_SEGx32, "d_devh only allocated till %d, but requested %d\n", MAX_SEGx32, n_inputs);
     for (int r = 0; r < n_inputs; r++)
-      gpuMemcpyAsync(d_host[r], d_devh[r], 68 * 384 * sizeof(uint32_t), gpuMemcpyDeviceToHost, encoderStreams[encoder_stream]);
+      gpuMemcpyAsync(d_host[r], d_devh[r], 68 * Zc * sizeof(uint32_t), gpuMemcpyDeviceToHost, encoderStreams[encoder_stream]);
   }
   gpuStreamSynchronize(encoderStreams[encoder_stream]);
   if (impp->tparity != NULL)
