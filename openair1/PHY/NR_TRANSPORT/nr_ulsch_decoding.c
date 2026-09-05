@@ -35,7 +35,7 @@
 #endif
 
 #ifdef LDPC_CUDA
-#include <cuda_runtime.h>
+#include "PHY/cuda_alloc.h"
 #endif
 
 void free_gNB_ulsch(NR_gNB_ULSCH_t *ulsch, uint16_t N_RB_UL)
@@ -86,11 +86,8 @@ NR_gNB_ULSCH_t new_gNB_ulsch(uint8_t max_ldpc_iterations, uint16_t N_RB_UL)
   harq->b = malloc16_clear(ulsch_bytes * sizeof(*harq->b));
   // Allocate one contiguous buffer fr all c/d arrays to simplify addressing for GPU LDPC offload
 #ifdef LDPC_CUDA
-  cudaError_t err = cudaHostAlloc((void **)&harq->c, a_segments * 8448 * sizeof(*harq->c), cudaHostAllocMapped);
-  AssertFatal(err == cudaSuccess, "CUDA cudaHostAlloc failed for harq->c: %s\n", cudaGetErrorString(err));
-
-  err = cudaHostAlloc((void **)&harq->d, a_segments * 64 * 384 * sizeof(*harq->d), cudaHostAllocMapped);
-  AssertFatal(err == cudaSuccess, "CUDA cudaHostAlloc failed for harq->d: %s\n", cudaGetErrorString(err));
+  harq->c = cudaHostAlloc_or_fail(a_segments * 8448 * sizeof(*harq->c));
+  harq->d = cudaHostAlloc_or_fail(a_segments * 64 * 384 * sizeof(*harq->d));
 #else
   harq->c = malloc16_clear(a_segments * 8448 * sizeof(*harq->c));
   harq->d = malloc16_clear(a_segments * 68 * 384 * sizeof(*harq->d));
