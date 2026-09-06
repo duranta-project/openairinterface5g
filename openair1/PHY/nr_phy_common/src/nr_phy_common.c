@@ -335,6 +335,73 @@ void nr_256qam_llr(const c16_t *rxdataF_comp, const c16_t *ch_mag, const c16_t *
   }
 }
 
+static bool overlap_csi_symbol(int row, int l0, int l1, int symbol)
+{
+  static const int num_l0[18] = {1, 1, 1, 1, 2, 1, 2, 2, 1, 2, 2, 2, 2, 2, 4, 2, 2, 4};
+  int n = num_l0[row - 1];
+  if (symbol >= l0 && symbol < l0 + n)
+    return true;
+  // check also l1 if relevant
+  if (row == 13 || row == 14 || row == 16 || row == 17) {
+    // two consecutive symbols including l1
+    if (symbol >= l1 && symbol < l1 + 2)
+      return true;
+  }
+  return false;
+}
+
+uint32_t build_csi_overlap_bitmap(int row, int l0, int l1, int density, int freq_domain, int dlsch_symbol)
+{
+  if (!overlap_csi_symbol(row, l0, l1, dlsch_symbol))
+    return 0;
+
+  // LS 16 bits for even RBs, MS 16 bits for odd RBs
+  uint32_t csi_res_bitmap = 0;
+  static const int num_k[18] = {1, 1, 1, 1, 1, 4, 2, 2, 6, 3, 4, 4, 3, 3, 3, 4, 4, 4};
+  int num_kp = 1;
+  int mult = 1;
+  int k0_step = 0;
+  int num_k0 = 1;
+  switch (row) {
+    case 1:
+      k0_step = 4;
+      num_k0 = 3;
+      break;
+    case 2:
+      break;
+    case 4:
+      num_kp = 2;
+      mult = 4;
+      k0_step = 2;
+      num_k0 = 2;
+      break;
+    default:
+      num_kp = 2;
+      mult = 2;
+  }
+  int found = 0;
+  int bit = 0;
+  uint32_t temp_res_map = 0;
+  while (found < num_k[row - 1]) {
+    if ((freq_domain >> bit) & 0x01) {
+      for (int k0 = 0; k0 < num_k0; k0++) {
+        for (int kp = 0; kp < num_kp; kp++) {
+          int re = (bit * mult) + (k0 * k0_step) + kp;
+          temp_res_map |= (1 << re);
+        }
+      }
+      found++;
+    }
+    bit++;
+    AssertFatal(bit < 13, "Couldn't find %d positive bits in bitmap %d for CSI freq. domain\n", num_k[row - 1], freq_domain);
+  }
+  if (density < 2)
+    csi_res_bitmap = (temp_res_map << (16 * density));
+  else
+    csi_res_bitmap = (temp_res_map + (temp_res_map << 16));
+  return csi_res_bitmap;
+}
+
 void freq2time(uint16_t ofdm_symbol_size, int16_t *freq_signal, int16_t *time_signal)
 {
   const idft_size_idx_t idft_size = get_idft(ofdm_symbol_size);

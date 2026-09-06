@@ -369,7 +369,7 @@ void nr_generate_csi_rs(const NR_DL_FRAME_PARMS *frame_parms,
                         const uint8_t power_control_offset_ss,
                         const uint8_t cdm_type,
                         c16_t **dataF);
-
+uint32_t build_csi_overlap_bitmap(int row, int l0, int l1, int density, int freq_domain, int dlsch_symbol);
 int nr_get_ssb_start_sc(int scs,
                         int ssb_offset_point_a,
                         int ssb_sco,

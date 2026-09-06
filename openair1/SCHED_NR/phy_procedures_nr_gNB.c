@@ -280,6 +280,24 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
           gNB->dlsch[num_pdsch].pdsch_pdu = &dl_tti_pdu->pdsch_pdu;
           const nfapi_nr_tx_data_request_tlv_t *tlv = &TX_req->pdu_list[tx_data_idx].TLVs[0];
           gNB->dlsch[num_pdsch].pdu = tlv->tag == 0 ? (uint8_t *)tlv->value.direct : (uint8_t *)tlv->value.ptr;
+          int num_found_csi_pdu = 0;
+          for (int k = 0; k < dl_tti_pdu->pdsch_pdu.pdsch_pdu_rel15.maintenance_parms_v3.numCSIRSForRM; k++) {
+            // find the corresponding CSI PDU
+            for (int j = 0; j < DL_req->dl_tti_request_body.nPDUs; j++) {
+              if (i == j)
+                continue;
+              const nfapi_nr_dl_tti_request_pdu_t *other_pdu = &DL_req->dl_tti_request_body.dl_tti_pdu_list[j];
+              if (other_pdu->PDUType == NFAPI_NR_DL_TTI_CSI_RS_PDU_TYPE) {
+                if (other_pdu->csi_rs_pdu.csi_rs_pdu_rel15.maintenance_parms_v3.csiRS_pdu_index_v3
+                    == dl_tti_pdu->pdsch_pdu.pdsch_pdu_rel15.maintenance_parms_v3.csiRSForRM[k]) {
+                  gNB->dlsch[num_pdsch].csi_rm[k] = other_pdu->csi_rs_pdu.csi_rs_pdu_rel15;
+                  num_found_csi_pdu++;
+                }
+              }
+            }
+          }
+          AssertFatal(num_found_csi_pdu == dl_tti_pdu->pdsch_pdu.pdsch_pdu_rel15.maintenance_parms_v3.numCSIRSForRM,
+                      "Couldn't find all the CSI-RS PDU for DLSCH rate matching\n");
           DevAssert(num_pdsch < gNB->max_nb_pdsch);
           num_pdsch++;
         } else {

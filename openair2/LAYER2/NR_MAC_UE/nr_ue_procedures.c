@@ -257,16 +257,6 @@ static void configure_ratematching_csi(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsc
       }
     }
   }
-
-  for (int i = 0; i < dl_config->number_pdus; i++) {
-    // This assumes that CSI-RS are scheduled before this moment which is true in current implementation
-    const fapi_nr_dl_config_request_pdu_t *csi_req = &dl_config->dl_config_list[i];
-    if (csi_req->pdu_type == FAPI_NR_DL_CONFIG_TYPE_CSI_RS) {
-      AssertFatal(dlsch_pdu->numCsiRsForRateMatching < NFAPI_MAX_NUM_CSI_RATEMATCH, "csiRsForRateMatching out of bounds\n");
-      dlsch_pdu->csiRsForRateMatching[dlsch_pdu->numCsiRsForRateMatching] = csi_req->csirs_config_pdu.csirs_config_rel15;
-      dlsch_pdu->numCsiRsForRateMatching++;
-    }
-  }
 }
 
 void nr_ue_decode_BCCH_DL_SCH(NR_UE_MAC_INST_t *mac,
