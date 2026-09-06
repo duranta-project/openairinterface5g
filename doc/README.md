@@ -21,6 +21,7 @@ Beware if you previously pulled the `develop` branch that your repository may be
 - [environment-variables.md](./environment-variables.md): the environment variables used by OAI
 - [tuning_and_security.md](./tuning_and_security.md): performance and security considerations
 - [Supported_Hardware_Operating_System.md](./Supported_Hardware_Operating_System.md): List of supported hardware and operating system for OAI
+- [kpi.md](./kpi.md): Key Performance Indicators for the OpenAirInterface Code Base
 
 There is some general information in the [OpenAirInterface Gitlab Wiki](https://gitlab.eurecom.fr/oai/openairinterface5g/-/wikis/home)
 
