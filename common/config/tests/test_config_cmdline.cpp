@@ -35,6 +35,88 @@ void run_config_test(int argc, char **argv, int expected_numelt, int expected_re
   uniqCfg = nullptr;
 }
 
+TEST(cmdline, cmdline_deprecated_option_warns)
+{
+  char *array[] = {strdup("test_program"), strdup("--prefix.[0].test"), strdup("1")};
+
+  configmodule_interface_t *cfg = load_configmodule(sizeofArray(array), array, CONFIG_ENABLECMDLINEONLY);
+  ASSERT_NE(cfg, nullptr);
+  uniqCfg = cfg;
+
+  paramdef_t params[] = {UINT16PARAM("test", "", PARAMFLAG_DEPRECATED, NULL, 0)};
+  paramlist_def_t list = {"prefix", NULL, 0};
+
+  testing::internal::CaptureStderr();
+  int ret = config_getlist(cfg, &list, params, sizeofArray(params), NULL);
+  std::string captured = testing::internal::GetCapturedStderr();
+
+  EXPECT_EQ(ret, 1);
+  EXPECT_EQ(list.numelt, 1);
+  ASSERT_NE(list.paramarray[0], nullptr);
+  ASSERT_NE(list.paramarray[0][0].u16ptr, nullptr);
+  EXPECT_EQ(*(list.paramarray[0][0].u16ptr), 1);
+  EXPECT_NE(captured.find("deprecated"), std::string::npos);
+  EXPECT_NE(captured.find("--prefix.[0].test"), std::string::npos);
+
+  end_configmodule(cfg);
+  uniqCfg = nullptr;
+
+  for (auto i = 0U; i < sizeofArray(array); i++) {
+    free(array[i]);
+  }
+}
+
+TEST(cmdline, config_file_deprecated_option_warns)
+{
+  const char *conf_path = "test_config.conf";
+
+  char opt_string[256];
+  snprintf(opt_string, sizeof(opt_string), "%s", conf_path);
+
+  char *array[] = {strdup("test_program"), strdup("-O"), strdup(opt_string)};
+
+  configmodule_interface_t *cfg = load_configmodule(sizeofArray(array), array, 0);
+  ASSERT_NE(cfg, nullptr);
+  uniqCfg = cfg;
+
+  paramdef_t params[] = {UINT16PARAM("test", "", 0, NULL, 0),
+                         UINT16PARAM("oldtest", "", PARAMFLAG_DEPRECATED, NULL, 0)};
+  paramlist_def_t list = {"prefix", NULL, 0};
+
+  testing::internal::CaptureStderr();
+  int ret = config_getlist(cfg, &list, params, sizeofArray(params), NULL);
+  std::string captured = testing::internal::GetCapturedStderr();
+
+  EXPECT_EQ(ret, 1);
+  EXPECT_EQ(list.numelt, 1);
+  ASSERT_NE(list.paramarray[0], nullptr);
+  ASSERT_NE(list.paramarray[0][0].u16ptr, nullptr);
+  EXPECT_EQ(*(list.paramarray[0][0].u16ptr), 42);
+  ASSERT_NE(list.paramarray[0][1].u16ptr, nullptr);
+  EXPECT_EQ(*(list.paramarray[0][1].u16ptr), 7);
+  EXPECT_NE(captured.find("deprecated"), std::string::npos);
+  EXPECT_NE(captured.find("oldtest"), std::string::npos);
+
+  end_configmodule(cfg);
+  uniqCfg = nullptr;
+
+  for (auto i = 0U; i < sizeofArray(array); i++) {
+    free(array[i]);
+  }
+}
+
+TEST(cmdline, deprecated_option_annotated_in_help)
+{
+  paramdef_t params[] = {UINT16PARAM("oldtest", "old help\n", PARAMFLAG_DEPRECATED, NULL, 0)};
+
+  testing::internal::CaptureStdout();
+  config_printhelp(params, sizeofArray(params), NULL);
+  std::string captured = testing::internal::GetCapturedStdout();
+
+  EXPECT_NE(captured.find("(deprecated)"), std::string::npos);
+  EXPECT_NE(captured.find("--oldtest"), std::string::npos);
+}
+
 TEST(cmdline, cmdline_new_array)
 {
   char *array[] = {strdup("test_program"), strdup("--prefix.[0].test"), strdup("1")};
