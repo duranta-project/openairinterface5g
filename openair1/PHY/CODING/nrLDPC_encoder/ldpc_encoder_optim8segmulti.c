@@ -35,9 +35,7 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
   short block_length = impp->K;
   short BG = impp->BG;
 
-  int nrows=0,ncols=0;
-  int rate=3;
-  int no_punctured_columns,removed_bit;
+  int ncols=0;
   //Table of possible lifting sizes
   char temp;
   int simd_size;
@@ -52,15 +50,11 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
   //determine number of bits in codeword
   if (BG==1)
     {
-      nrows=46; //parity check bits
       ncols=22; //info bits
-      rate=3;
     }
     else if (BG==2)
     {
-      nrows=42; //parity check bits
       ncols=10; // info bits
-      rate=5;
     }
 
 #ifdef DEBUG_LDPC
@@ -75,16 +69,35 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
 #endif
   else simd_size=32;
   unsigned char cc[22*Zc] __attribute__((aligned(64))); //padded input, unpacked, max size
-  unsigned char dd[46*Zc] __attribute__((aligned(64))); //coded parity part output, unpacked, max size
 
-  // calculate number of punctured bits
-  no_punctured_columns=(int)((nrows-2)*Zc+block_length-block_length*rate)/Zc;
-  removed_bit=(nrows-no_punctured_columns-2) * Zc+block_length-(int)(block_length*rate);
-  //printf("%d\n",no_punctured_columns);
-  //printf("%d\n",removed_bit);
+  // Write the parity straight into the caller's buffer instead of into a local
+  // and copying it across. It belongs immediately after the transmitted
+  // systematic bits, so the destination is just output + block_length - 2*Zc.
+  //
+  // Space: the encoder writes nrows*Zc from there, so the caller needs
+  // (Kb + nrows - 2)*Zc bytes, at most (22+44)*384 = 25344 for BG1 and 19200 for
+  // BG2 -- both inside the 68*384 the interface already specifies.
+  //
+  // Alignment: the 128-bit encoders store through simde__m128i, so this address
+  // must be 16-byte aligned. (Kb-2)*Zc is always a multiple of the SIMD width
+  // when Zc is, so it follows from output itself being aligned. The 256/512-bit
+  // encoders use storeu and do not care.
+  AssertFatal(((uintptr_t)output & 15) == 0, "LDPCencoder: output must be 16-byte aligned, got %p\n", output);
+  unsigned char *dd = output + block_length - 2 * Zc;
+
   // unpack input
-  memset(cc,0,sizeof(cc));
-  memset(dd,0,sizeof(dd));
+  //
+  // Only the systematic bits past the payload need zeroing: the unpack below
+  // writes [0, block_length), the encoder reads [0, ncols*Zc), and the gap
+  // between them is filler, which must read as zero. For BG1 at K'=8448 the two
+  // coincide and this is a no-op.
+  //
+  // dd needs no zeroing at all: both encoder paths write every byte of it that
+  // is subsequently read.
+  //
+  // Together these were ~0.2 us per code block, and were outside every timer.
+  if (block_length < ncols * Zc)
+    memset(cc + block_length, 0, ncols * Zc - block_length);
 
   if(impp->tinput != NULL) start_meas(impp->tinput);
   //interleave up to 8 transport-block segements at a time
@@ -140,37 +153,93 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
 #endif
 
 #ifdef __aarch64__
-  simde__m128i shufmask = simde_mm_set_epi64x(0x0101010101010101, 0x0000000000000000);
-  simde__m128i andmask  = simde_mm_set1_epi64x(0x0102040810204080);  // every 8 bits -> 8 bytes, pattern repeats.
-  simde__m128i zero128   = simde_mm_setzero_si128();
-  simde__m128i masks[8];
-  register simde__m128i c128;
-  masks[0] = simde_mm_set1_epi8(0x1);
-  masks[1] = simde_mm_set1_epi8(0x2);
-  masks[2] = simde_mm_set1_epi8(0x4);
-  masks[3] = simde_mm_set1_epi8(0x8);
-  masks[4] = simde_mm_set1_epi8(0x10);
-  masks[5] = simde_mm_set1_epi8(0x20);
-  masks[6] = simde_mm_set1_epi8(0x40);
-  masks[7] = simde_mm_set1_epi8(0x80);
+  // Direct NEON: broadcast 1 byte to all 8 lanes (ldr-b + dup), VTST bit-test mask.
+  // ns=8 fast path: fully unrolled, 2-level asm-volatile barrier OR-tree, no j-loop
+  // overhead.  Barrier 1 forces 4 independent level-1 ORRs; GCC fills the level-2
+  // ORR latency gap with scalar loop work, letting A72's OoO engine start the next
+  // iteration's address computation while ORRs are still in flight.
+#include <arm_neon.h>
+  static const uint8_t _amask[16] __attribute__((aligned(16))) =
+    {0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01,
+     0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01};
+  const uint8x16_t amask_v = vld1q_u8(_amask);
+  uint8x16_t segmasks[8];
+  for (int k = 0; k < 8; k++) segmasks[k] = vdupq_n_u8(1u << k);
 
-  for (; i_byte < ((block_length >> 4 ) << 4); i_byte += 16) {
-    unsigned int i = i_byte >> 4;
-    c128 = simde_mm_and_si128(simde_mm_cmpeq_epi8(simde_mm_andnot_si128(simde_mm_shuffle_epi8(simde_mm_set1_epi16(((uint16_t*)input[macro_segment])[i]), shufmask),andmask),zero128),masks[0]);
-    for (int j=macro_segment+1; j < macro_segment_end; j++) {    
-      c128 = simde_mm_or_si128(simde_mm_and_si128(simde_mm_cmpeq_epi8(simde_mm_andnot_si128(simde_mm_shuffle_epi8(simde_mm_set1_epi32(((uint16_t*)input[j])[i]), shufmask),andmask),zero128),masks[j-macro_segment]),c128);
+#define CONTRIB(p, bi, k) \
+  vandq_u8(vtstq_u8(vcombine_u8(vld1_dup_u8((p) + (bi)), \
+                                  vld1_dup_u8((p) + (bi) + 1)), amask_v), segmasks[k])
+
+  int ns = (int)(macro_segment_end - macro_segment);
+  if (ns == 8) {
+    // Pre-extract segment base pointers so GCC holds them in registers across the loop.
+    const uint8_t *p0 = input[macro_segment + 0];
+    const uint8_t *p1 = input[macro_segment + 1];
+    const uint8_t *p2 = input[macro_segment + 2];
+    const uint8_t *p3 = input[macro_segment + 3];
+    const uint8_t *p4 = input[macro_segment + 4];
+    const uint8_t *p5 = input[macro_segment + 5];
+    const uint8_t *p6 = input[macro_segment + 6];
+    const uint8_t *p7 = input[macro_segment + 7];
+    for (; i_byte < ((block_length >> 4) << 4); i_byte += 16) {
+      unsigned int bi = i_byte >> 3;
+      uint8x16_t r0 = CONTRIB(p0, bi, 0);
+      uint8x16_t r1 = CONTRIB(p1, bi, 1);
+      uint8x16_t r2 = CONTRIB(p2, bi, 2);
+      uint8x16_t r3 = CONTRIB(p3, bi, 3);
+      uint8x16_t r4 = CONTRIB(p4, bi, 4);
+      uint8x16_t r5 = CONTRIB(p5, bi, 5);
+      uint8x16_t r6 = CONTRIB(p6, bi, 6);
+      uint8x16_t r7 = CONTRIB(p7, bi, 7);
+      // Barrier 1: force all 8 contributions into physical NEON registers before
+      // any ORR starts.  Without this GCC greedily issues each ORR as soon as ONE
+      // input is ready, producing a 7-step serial left-fold (28-cycle critical path).
+      asm volatile ("" : "+w"(r0), "+w"(r1), "+w"(r2), "+w"(r3),
+                         "+w"(r4), "+w"(r5), "+w"(r6), "+w"(r7));
+      // Level-1 ORRs: all 4 are data-independent; A72's 2-wide NEON issues pairs/cycle.
+      uint8x16_t r01 = vorrq_u8(r0, r1);
+      uint8x16_t r23 = vorrq_u8(r2, r3);
+      uint8x16_t r45 = vorrq_u8(r4, r5);
+      uint8x16_t r67 = vorrq_u8(r6, r7);
+      // Barrier 2: force all level-1 results into registers before level-2.
+      // GCC's scheduler then fills the level-2 ORR latency gap with the loop's
+      // scalar work (add i_byte, cmp), placing those instructions between the
+      // level-2 and level-3/4 ORRs.  This lets the A72's OoO engine start the
+      // next iteration's address computation (lsr bi = i_byte>>3) ~4 cycles earlier
+      // than if the scalar work came after all ORRs, hiding load latency for free.
+      asm volatile ("" : "+w"(r01), "+w"(r23), "+w"(r45), "+w"(r67));
+      vst1q_u8(cc + i_byte, vorrq_u8(vorrq_u8(r01, r23), vorrq_u8(r45, r67)));
     }
-    ((simde__m128i *)cc)[i] = c128;
+  } else {
+    uint8x16_t c128_v, vv;
+    for (; i_byte < ((block_length >> 4) << 4); i_byte += 16) {
+      unsigned int bi = i_byte >> 3;
+      vv = vcombine_u8(vld1_dup_u8(input[macro_segment] + bi),
+                       vld1_dup_u8(input[macro_segment] + bi + 1));
+      c128_v = vandq_u8(vtstq_u8(vv, amask_v), segmasks[0]);
+      for (int j = macro_segment + 1; j < macro_segment_end; j++) {
+        vv = vcombine_u8(vld1_dup_u8(input[j] + bi), vld1_dup_u8(input[j] + bi + 1));
+        c128_v = vorrq_u8(vandq_u8(vtstq_u8(vv, amask_v), segmasks[j - macro_segment]), c128_v);
+      }
+      vst1q_u8(cc + i_byte, c128_v);
+    }
   }
+#undef CONTRIB
 #endif
 
+  // Accumulate into a local and store once, rather than OR-ing into cc. The
+  // SIMD paths above store whole vectors, so nothing has pre-zeroed the bytes
+  // this loop covers -- and for a block too short for any of those paths, that
+  // is every byte of cc. OR-ing into them would mix in whatever the stack held.
   for (; i_byte < block_length; i_byte++) {
     unsigned int i = i_byte;
+    unsigned char acc = 0;
     for (int j = macro_segment; j < macro_segment_end; j++) {
 
       temp = (input[j][i/8]&(128>>(i&7)))>>(7-(i&7));
-      cc[i] |= (temp << (j-macro_segment));
+      acc |= (temp << (j-macro_segment));
     }
+    cc[i] = acc;
   }
 
   if(impp->tinput != NULL) stop_meas(impp->tinput);
@@ -178,7 +247,7 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
   if ((BG == 1 && Zc >= 176) || (BG == 2 && Zc >= 72)) {
     //parity check part
     if(impp->tparity != NULL) start_meas(impp->tparity);
-    encode_parity_check_part_optim(cc, dd, BG, Zc, simd_size, ncols);
+    encode_parity_check_part_optim(cc, dd, BG, Zc, simd_size, ncols, impp->tinput_memcpy);
     if(impp->tparity != NULL) stop_meas(impp->tparity);
   } else {
     if (encode_parity_check_part_orig(cc, dd, BG, Zc, Kb, block_length)!=0) {
@@ -188,8 +257,8 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
   }
   if (impp->toutput != NULL)
     start_meas(impp->toutput);
+  // the parity is already in place; only the systematic part still needs moving
   memcpy(output,&cc[2*Zc],(block_length-(2*Zc)));
-  memcpy(output+block_length-(2*Zc),dd,((nrows-no_punctured_columns) * Zc-removed_bit));
   if (impp->toutput != NULL)
     stop_meas(impp->toutput);
   return 0;
