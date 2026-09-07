@@ -6,6 +6,13 @@
   <htmlTabIcon>tasks</htmlTabIcon>
 
   <testCase>
+    <class>Custom_Command</class>
+    <desc>Disable Sleep States on Caracal</desc>
+    <node>caracal</node>
+    <command>sudo cpupower idle-set -D 0</command>
+  </testCase>
+
+  <testCase>
     <class>DeployCoreNetwork</class>
     <desc>Initialize 5G Core</desc>
     <cn_id>oc-cn5g</cn_id>
@@ -142,6 +149,14 @@
     <desc>Terminate 5G Core</desc>
     <always_exec>true</always_exec>
     <cn_id>oc-cn5g</cn_id>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <always_exec>true</always_exec>
+    <desc>Enable Sleep States on Caracal</desc>
+    <node>caracal</node>
+    <command>sudo cpupower idle-set -E</command>
   </testCase>
 
 </testCaseList>
