@@ -11,6 +11,8 @@
 | obelix        | Obelix                | eNB (n40, n78), nrUE | 172.21.19.13, X300 (192.168.60.2)                     |
 | porcepix      | Porcepix              | Executor, EPC, 5GC   | --                                                    |
 | up2           | UP2                   | COTS UE              | Quectel RM520N                                        |
+| up3           | UP3                   | COTS UE, outdoor     | Quectel RM520N                                        |
+| up4           | UP4                   | COTS UE FR2          | Quectel RG530F-EU                                     |
 | nepes         | Nepes                 | gNB (n78), EPC/5GC   | B200mini (30C51EB)                                    |
 | ofqot         | Ofqot                 | gNB (n78)            | B200mini (30C51D4)                                    |
 | idefix        | Idefix                | COTS UE              | Quectel RM500Q                                        |
@@ -30,6 +32,7 @@
 | rocket        | Rocket                | gNB (n77)            | B210 (31F8010)                                        |
 | raspix        | Raspix                | COTS UE              | Quectel RM520N                                        |
 | jetson1-oai   | Jetson1-oai           | nrUE                 | USRP B210                                             |
+| stonechat     | Stonechat             | gNB                  | --                                                    |
 
 > **Note:** The available resources, and their current usage, is indicated here:
 > - [Lockable resources of jenkins-oai](https://jenkins-oai.eurecom.fr/lockable-resources/):
@@ -177,6 +180,7 @@ information on how the images are built.
   - uses RFsimulator, tests FlexRIC/E2 interface and xApps
 - [RAN-gNB-N300-Timing-Phytest-LDPC](https://jenkins-oai.eurecom.fr/view/RAN/job/RAN-gNB-N300-Timing-Phytest-LDPC/)
   https://github.com/duranta-project/openairinterface5g/labels/5G-NR
+  https://github.com/duranta-project/openairinterface5g/labels/nrUE
   - caracal + N310
   - pure performance test through phy-test scheduler, see command line for more details
 - [RAN-L2-Sim-Test-4G](https://jenkins-oai.eurecom.fr/job/RAN-L2-Sim-Test-4G/)
@@ -261,8 +265,8 @@ information on how the images are built.
   - Attenuator (mini circuits RC4DAT-6G-60) - controlled from rocket
 - [RAN-Channel-Simulation](https://jenkins-oai.eurecom.fr/job/RAN-Channel-Simulation/)
   https://github.com/duranta-project/openairinterface5g/labels/5G-NR
-  - gracehopper1-oai
-  - run channel simulation on CPU and GPU using test_channel_scalability
+  - runs on gracehopper1-oai
+  - PHY simulators using CUDA channel simulation, along with several unit tests
 - [RAN-SA-AERIAL-OAIUE-CN5G](https://jenkins-oai.eurecom.fr/job/RAN-SA-AERIAL-OAIUE-CN5G/)
   https://github.com/duranta-project/openairinterface5g/labels/5G-NR
   https://github.com/duranta-project/openairinterface5g/labels/nrUE
@@ -274,6 +278,28 @@ information on how the images are built.
   - OpenShift cluster for CN deployment
   - FHI 7.2 testing with 40 MHz, 4x4 MIMO configuration and 100 MHz, 2x2 MIMO configuration
   - FHI 7.2 Configuration and Performance Management via NETCONF session of an O-RU
+- [RAN-SA-ORU-CN5G](https://jenkins-oai.eurecom.fr/job/RAN-SA-ORU-CN5G/)
+  https://github.com/duranta-project/openairinterface5g/labels/5G-NR
+  - vrtsim deployment for O-RU testing, with gNB and CN running on stonechat, RU and UE running on matix
+  - FHI 7.2 testing with 40 MHz bandwidth, OAI O-RU
+- [RAN-SA-FHI72-FR2-CN5G](https://jenkins-oai.eurecom.fr/view/RAN/job/RAN-SA-FHI72-FR2-CN5G/)
+  https://github.com/duranta-project/openairinterface5g/labels/5G-NR
+  - stonechat + FHI72 + Microamp FR2 O-RU, up4 (Quectel RG530F-EU UE), OAI CN5G
+  - OpenShift cluster for CN deployment
+  - FHI 7.2 testing with 100 MHz bandwidth, 2 layers in DL
+
+### Nightly Test pipelines (scheduled nightly, runs against the latest develop or integration branch)
+- [RAN-SA-FHI72-4x4-CN5G](https://jenkins-oai.eurecom.fr/view/RAN/job/RAN-SA-FHI72-4x4-CN5G/)
+  - stonechat + FHI72 + VVDN, Benetel 550/650, LiteON, Metanoia + OAI CN5G
+  - OpenShift cluster for CN deployment
+  - FHI 7.2 testing with 100 MHz bandwidth, 4 layers in DL, 2 layers in UL
+- [RAN-Nightly-Channel-Simulation](https://jenkins-oai.eurecom.fr/job/RAN-Nightly-Channel-Simulation/)
+  - runs on gracehopper1-oai
+  - `test_channel_scalability` to test GPU channel simulation across different channel configurations
+- [RAN-SA-OAIUE-CN5G-Longrun](https://jenkins-oai.eurecom.fr/job/RAN-SA-OAIUE-CN5G-Longrun/)
+  - 5G-NR SA test setup: gNB on avra + N310, OAIUE on caracal + N310, OAI CN5G
+  - OpenShift cluster for CN deployment and container images for gNB and UE deployment
+  - iperf3 traffic test runs for 1 hour
 
 ## How to reproduce CI results
 
