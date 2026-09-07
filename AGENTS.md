@@ -34,10 +34,20 @@ See `doc/code-style-contrib.md`. In short: 2-space indent, no tabs, 132-column
 limit, respect `.clang-format`, strong types (`c16_t` not `uint32_t` for IQ
 samples), `AssertFatal()`/`DevAssert()` for invariants — not error handling.
 
-Be concise and to the point in responses, commit messages, and code comments.
-Don't leave "in-progress"/WIP/TODO markers or temporary debug logging
-(`LOG_E`/print statements added only to trace a bug) in code you consider
-finished — remove them before reporting the task done.
+Don't leave temporary debug logging (`LOG_E`/print statements added only to
+trace a bug) in code you consider finished — remove it before reporting the
+task done.
+
+## Comments
+
+- Be concise; write for a domain expert, not a beginner.
+- Comment the *why* (a non-obvious constraint, workaround, or invariant), not
+  the *what*.
+- When implementing part of a 3GPP spec, cite the concrete section (e.g.
+  `TS 38.331 §6.2.2`), not just the spec number.
+- Don't narrate the edit ("was X, now Y because Z", "removed old A") — put
+  that in the commit message; describe only the resulting code.
+- Don't leave "in-progress"/WIP/TODO markers in code you consider finished.
 
 ## Verification
 
@@ -95,10 +105,23 @@ sudo ./nr-uesoftmodem -O ../ci-scripts/conf_files/nrue.uicc.yaml -E --rfsim -r 1
 Present what you observe (RRC state, asserts, segfaults, "Bye." on shutdown)
 without declaring pass/fail yourself — that judgment call is the user's.
 
+## Agent commits
+
+- Add an `Assisted-by: <model name>` trailer (e.g. `Assisted-by: Claude Sonnet 5`)
+  to every commit an agent authored or materially edited.
+- Sign off and cryptographically sign every commit (`git commit -s -S`) — see
+  [Signing Commits](CONTRIBUTING.md#signing-commits). `Signed-off-by:` uses the
+  user's identity, not the agent's.
+- Commit messages follow the same rules as code [Comments](#comments): concise,
+  written for a domain expert, spec references cite the section.
+
 ## Notes
 
 - Prefer adding new tests to `ctest` when you write them. Agents should always try to generate
   unit tests for new features or bug fixes.
 - Agents must never post PR comments, create PRs, or push/update remote or upstream branches
   without explicit user instructions.
+- When asked for a PR, put rationale, before/after narrative, alternatives,
+  diagrams, and Verification / test results in the description — not in commits or
+  comments (keep those terse per [Comments](#comments)).
 - Check `CONTRIBUTING.md` for licensing/contribution requirements.
