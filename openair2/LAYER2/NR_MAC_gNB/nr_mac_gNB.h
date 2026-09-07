@@ -93,6 +93,12 @@ typedef enum {
   nrRA_WAIT_Msg4_MsgB_ACK,
 } RA_gNB_state_t;
 
+typedef enum {
+  CSI_RS,
+  CSI_MEASUREMENTS,
+  SRS
+} nr_periodic_channel_t;
+
 static const char *const nrra_text[] =
     {"IDLE", "Msg2", "WAIT_MsgA_PUSCH", "WAIT_Msg3", "Msg3_retransmission", "Msg4", "MsgB", "WAIT_Msg4_MsgB_ACK"};
 
@@ -645,6 +651,25 @@ typedef struct nr_power_control {
   float tpc_in_flight; /// TPCs applied by UE but not yet in average SNR
 } nr_power_control_t;
 
+typedef struct {
+  long *aperiodic_slotOffset;
+  long aperiodic_ResourceTrigger;
+  NR_timer_t aperiodic_srs_timer;
+} NR_sched_aperiodic_srs_t;
+
+typedef struct {
+  int periodic_offset;
+} NR_sched_periodic_srs_t;
+
+typedef struct {
+  long usage;
+  NR_SRS_Resource_t *srs_resource;
+  union {
+    NR_sched_aperiodic_srs_t aperiodic_sched;
+    NR_sched_periodic_srs_t periodic_sched;
+  };
+} NR_sched_srs_t;
+
 /*! \brief scheduling control information set through an API */
 typedef struct {
   /// CCE index and aggregation, should be coherent with cce_list
@@ -727,9 +752,9 @@ typedef struct {
   /// "TransmissionActionIndicator" handling
   NR_timer_t transm_timeout;
 
+  NR_sched_srs_t sched_srs;
   /// sri, ul_ri and tpmi based on SRS
   nr_srs_feedback_t srs_feedback;
-  NR_timer_t aperiodic_srs_trigger;
 
   /// per-LC configuration
   seq_arr_t lc_config;
@@ -1213,6 +1238,12 @@ typedef struct NR_du_stats {
 } NR_du_stats_t;
 
 typedef struct {
+  NR_UE_info_t **list;
+  int max_period; // common multiple of periodicities sharing the table
+  int max_ue_per_slot; // UE capacity per slot instance
+} periodic_ue_sched_t;
+
+typedef struct {
   bool active;
   f1ap_positioning_measurement_req_t meas_req;
 } positioning_measurement_info_t;
@@ -1287,6 +1318,7 @@ typedef struct nr_cell_sched_s {
   NR_Type0_PDCCH_CSS_config_t type0_PDCCH_CSS_config[MAX_NUM_OF_SSB];
   bool first_MIB;
   NR_sched_pdsch_t sib1_pdsch[MAX_NUM_OF_SSB];
+  periodic_ue_sched_t periodic_srs_config;
 
   /// Dedicated UL TDA list, built from frame_structure at config time
   seq_arr_t ul_tda;

@@ -351,6 +351,11 @@ void mac_top_init_gNB(ngran_node_t node_type,
   srand48(0);
 }
 
+static void destroy_periodic_sched(periodic_ue_sched_t p)
+{
+  free(p.list);
+}
+
 void mac_top_destroy_gNB(gNB_MAC_INST *mac)
 {
   for (size_t i = 0; i < sizeofArray(mac->cells); i++) {
@@ -366,14 +371,19 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
   NR_UEs_t *UE_info = &mac->UE_info;
   for (int i = 0; i < sizeofArray(UE_info->connected_ue_list); ++i)
     if (UE_info->connected_ue_list[i])
-      delete_nr_ue_data(UE_info->connected_ue_list[i], &UE_info->uid_allocator);
+      delete_nr_ue_data(mac, UE_info->connected_ue_list[i]);
   for (int i = 0; i < sizeofArray(UE_info->access_ue_list); ++i)
     if (UE_info->access_ue_list[i])
-      delete_nr_ue_data(UE_info->access_ue_list[i], &UE_info->uid_allocator);
+      delete_nr_ue_data(mac, UE_info->access_ue_list[i]);
   if (mac->f1_config.setup_resp)
     free_f1ap_setup_response(mac->f1_config.setup_resp);
   free(mac->f1_config.setup_resp);
   free(mac->positioning_config);
+
+  for (size_t i = 0; i < sizeofArray(mac->cells); i++) {
+    nr_cell_sched_t *cell = &mac->cells[i];
+    destroy_periodic_sched(cell->periodic_srs_config);
+  }
 }
 
 void nr_mac_send_f1_setup_req(void)
