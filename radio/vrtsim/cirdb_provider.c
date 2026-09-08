@@ -133,12 +133,7 @@ static void load_snapshot_and_publish(cirdb_g *G, uint32_t s)
   int next = (G->cur + 1) % NUM_TAPS_BUFFERS;
   cirdb_buffer_t *buf = &G->bufs[next];
 
-  compact_L_out((struct complexf *)buf->taps_blob,
-                (const struct complexf *)G->snapshot_tmp,
-                G->n_tx,
-                G->n_rx,
-                G->L_full,
-                G->L_out);
+  compact_L_out((struct complexf *)buf->taps_blob, (const struct complexf *)G->snapshot_tmp, G->n_tx, G->n_rx, G->L_full, G->L_out);
 
   point_channel_desc(buf->ch, (struct complexf *)buf->taps_blob, G->n_tx, G->n_rx, G->L_out);
 

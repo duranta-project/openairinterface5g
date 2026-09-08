@@ -48,11 +48,11 @@ class zmq_tx_channel {
 
 class zmq_rx_channel {
  public:
-   void *socket_;
-   overflow_buffer<c16_t> buffer_;
-   bool request_sent_;
-   std::atomic<bool> stopped_;
-   zmq_rx_channel(void *s, uint64_t buffer_size) : socket_(s), buffer_(buffer_size), stopped_(false)
+  void *socket_;
+  overflow_buffer<c16_t> buffer_;
+  bool request_sent_;
+  std::atomic<bool> stopped_;
+  zmq_rx_channel(void *s, uint64_t buffer_size) : socket_(s), buffer_(buffer_size), stopped_(false)
   {
   }
   void receive(c16_t *samples, size_t nsamps);
