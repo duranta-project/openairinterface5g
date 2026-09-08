@@ -88,7 +88,7 @@ typedef struct {
 static nas_timer_database_t _nas_timer_db = {
   0,
   1,
-  {},
+  {0},
   NULL
 };
 
@@ -97,7 +97,7 @@ static nas_timer_database_t _nas_timer_db = {
  */
 static pthread_mutex_t _nas_timer_db_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define nas_timer_lock_db()   pthread_mutex_lock(&_nas_timer_db_mutex)  
-#define nas_timer_unlock_db() pthread_mutex_unlock(&_nas_timer_db_mutex
+#define nas_timer_unlock_db() pthread_mutex_unlock(&_nas_timer_db_mutex)
 
 /*
  * The handler executed whenever the system timer expires
