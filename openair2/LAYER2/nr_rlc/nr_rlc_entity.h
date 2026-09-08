@@ -5,6 +5,7 @@
 #ifndef _NR_RLC_ENTITY_H_
 #define _NR_RLC_ENTITY_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "common/utils/time_stat.h"
@@ -116,6 +117,9 @@ typedef struct nr_rlc_entity_s {
   nr_rlc_statistics_t stats;
   time_average_t *txsdu_avg_time_to_tx;
   int             avg_time_is_on;
+
+  /** true = RLC may reject recv_sdu on full TX buffer, false = upper layer owns drop-under-load. */
+  bool do_drop;
 } nr_rlc_entity_t;
 
 nr_rlc_entity_t *new_nr_rlc_entity_am(int rx_maxsize,
@@ -134,18 +138,21 @@ nr_rlc_entity_t *new_nr_rlc_entity_am(int rx_maxsize,
                                       int poll_pdu,
                                       int poll_byte,
                                       int max_retx_threshold,
-                                      int sn_field_length);
+                                      int sn_field_length,
+                                      bool do_drop);
 
 nr_rlc_entity_t *new_nr_rlc_entity_um(int rx_maxsize,
                                       int tx_maxsize,
                                       void (*deliver_sdu)(void *deliver_sdu_data, nr_rlc_entity_t *entity, char *buf, int size),
                                       void *deliver_sdu_data,
                                       int t_reassembly,
-                                      int sn_field_length);
+                                      int sn_field_length,
+                                      bool do_drop);
 
 nr_rlc_entity_t *new_nr_rlc_entity_tm(int tx_maxsize,
                                       void (*deliver_sdu)(void *deliver_sdu_data, nr_rlc_entity_t *entity, char *buf, int size),
-                                      void *deliver_sdu_data);
+                                      void *deliver_sdu_data,
+                                      bool do_drop);
 
 void nr_rlc_entity_um_reconfigure(nr_rlc_entity_t *_entity, int t_reassembly, int *sn_field_length);
 

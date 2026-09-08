@@ -1828,7 +1828,7 @@ void nr_rlc_entity_am_recv_sdu(nr_rlc_entity_t *_entity,
     entity->t_log_buffer_full = entity->t_current;
   }
 
-  if (entity->tx_size + size > entity->tx_maxsize) {
+  if (entity->common.do_drop && entity->tx_size + size > entity->tx_maxsize) {
     entity->sdu_rejected++;
     entity->common.stats.txpdu_dd_pkts++;
     entity->common.stats.txpdu_dd_bytes += size;
@@ -2102,7 +2102,7 @@ void nr_rlc_entity_am_delete(nr_rlc_entity_t *_entity)
 int nr_rlc_entity_am_available_tx_space(nr_rlc_entity_t *_entity)
 {
   nr_rlc_entity_am_t *entity = (nr_rlc_entity_am_t *)_entity;
-  return entity->tx_maxsize - entity->tx_size;
+  return entity->tx_size > entity->tx_maxsize ? 0 : entity->tx_maxsize - entity->tx_size;
 }
 
 int nr_rlc_entity_am_tx_list_occupancy(nr_rlc_entity_t *_entity)
