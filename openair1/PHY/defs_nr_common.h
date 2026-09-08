@@ -46,7 +46,7 @@
 #define MAX_NUM_NR_RE (4*14*273*12)
 
 #define MAX_NUM_NR_SRS_SYMBOLS 4
-#define MAX_NUM_NR_SRS_AP 4
+#define MAX_NUM_NR_SRS_AP 8
 #define NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX 12
 
 #define MAX_DELAY_COMP 20
@@ -96,6 +96,7 @@ typedef struct {
   int N_symb_SRS;
   int n_srs_ports;
   int resource_type;
+  uint8_t srs_noise_num_phases;
 } nr_srs_info_t;
 
 typedef struct NR_DL_FRAME_PARMS_s {
