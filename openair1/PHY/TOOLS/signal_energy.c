@@ -10,8 +10,6 @@
 // input  : points to vector
 // length : length of vector in complex samples
 
-#define shift 4
-
 //-----------------------------------------------------------------
 // Average Power calculation with DC removing
 //-----------------------------------------------------------------

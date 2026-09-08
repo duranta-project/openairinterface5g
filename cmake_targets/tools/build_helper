@@ -491,12 +491,16 @@ install_simde_from_source(){
     git clone https://github.com/simd-everywhere/simde-no-tests.git /tmp/simde
     cd /tmp/simde
     # we can specify a given version of SIMDE (sha-one or tag)
-    if [[ -v SIMDE_VERSION ]]; then
-      git checkout -f $SIMDE_VERSION
-    else
-      # At time of writing, last working commit for OAI: 1c68d9a
-      git checkout 1c68d9ad60bf63f3fb527c4ee3b2319d828ffcc6
+    if [[ ! -v SIMDE_VERSION ]]; then
+      # otherwise install the version CMake expects, so that the two cannot
+      # drift apart and send the build through the CPM fallback
+      SIMDE_VERSION=$(sed -n 's/^set(OAI_SIMDE_VERSION \(.*\))$/\1/p' $OPENAIR_DIR/CMakeLists.txt)
+      if [[ -z "$SIMDE_VERSION" ]]; then
+        echo_error "could not read OAI_SIMDE_VERSION from $OPENAIR_DIR/CMakeLists.txt"
+        exit 1
+      fi
     fi
+    git checkout -f $SIMDE_VERSION
     # Showing which version is used
     git log -n1
     # brute force copy into /usr/include

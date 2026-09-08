@@ -222,6 +222,43 @@ else ()
   set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -march=armv8.2-a")
 endif()
 
+# The AVX512 code paths use a few SIMDe intrinsics that no released SIMDe
+# provides, so OAI assumes an unreleased commit, installed system-wide by
+# build_oai -I. A system-wide install goes stale easily -- e.g. after a rebase
+# onto a develop that assumes a newer one -- and a missing simde_* function is
+# merely an implicit declaration in C: the file compiles with a warning and the
+# build only fails when linking, on an undefined reference that looks like a
+# bug in OAI rather than a stale dependency. Detect it here instead, and fall
+# back to the assumed version, as we do for the other CPM dependencies.
+# Keep in sync with install_simde_from_source() in cmake_targets/tools/build_helper.
+set(OAI_SIMDE_VERSION 1c68d9ad60bf63f3fb527c4ee3b2319d828ffcc6)
+if(AVX512 AND NOT CROSS_COMPILE AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+  include(CheckCSourceCompiles)
+  # -Werror=... so that a missing function fails here, and not only when linking
+  set(CMAKE_REQUIRED_FLAGS "${C_FLAGS_PROCESSOR} -Werror=implicit-function-declaration")
+  check_c_source_compiles("
+    #include <simde/x86/avx512.h>
+    int main(void) {
+      return (int) simde_mm512_reduce_add_ps(simde_mm512_setzero_ps())
+             + simde_mm512_reduce_add_epi32(simde_mm512_cvtepi8_epi32(simde_mm_setzero_si128()));
+    }" HAVE_SIMDE_AVX512_INTRINSICS)
+  unset(CMAKE_REQUIRED_FLAGS)
+  if(NOT HAVE_SIMDE_AVX512_INTRINSICS)
+    message(WARNING "the SIMDe installed on this system is too old for the AVX512 code paths; "
+                    "downloading ${OAI_SIMDE_VERSION} instead. "
+                    "Run ./build_oai -I to install that version system-wide.")
+    CPMAddPackage(NAME simde
+                  GITHUB_REPOSITORY simd-everywhere/simde-no-tests
+                  GIT_TAG ${OAI_SIMDE_VERSION}
+                  DOWNLOAD_ONLY YES)
+    # simde-no-tests holds the headers at the repository root, but they are
+    # included as <simde/...>, so expose the checkout under such a directory
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/simde-include)
+    file(CREATE_LINK ${simde_SOURCE_DIR} ${CMAKE_BINARY_DIR}/simde-include/simde SYMBOLIC)
+    include_directories(SYSTEM BEFORE ${CMAKE_BINARY_DIR}/simde-include)
+  endif()
+endif()
+
 # we need -rdynamic to incorporate all symbols in shared objects, see man page
 set(commonOpts "-pipe -fPIC -Wall -fno-strict-aliasing -rdynamic")
 # GNU C/C++ Compiler might throw many warnings without packed-bitfield-compat, see man page
