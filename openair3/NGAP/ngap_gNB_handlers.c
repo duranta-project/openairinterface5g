@@ -13,6 +13,7 @@
 #include <string.h>
 #include "INTEGER.h"
 #include "ngap_msg_includes.h"
+#include "NGAP_ProcedureCode.h"
 #include "OCTET_STRING.h"
 #include "T.h"
 #include "assertions.h"
@@ -34,6 +35,10 @@
 #include "ngap_messages_types.h"
 #include "oai_asn1.h"
 #include "queue.h"
+
+#ifdef E2_AGENT
+#include "openair2/E2AP/RAN_FUNCTION/setup_msg_store.h"
+#endif
 
 char *ngap_direction2String(int ngap_dir) {
   static char *ngap_direction_String[] = {
@@ -1623,6 +1628,13 @@ int ngap_gNB_handle_message(sctp_assoc_t assoc_id, int32_t stream, const uint8_t
     NGAP_ERROR("Failed to decode PDU\n");
     return -1;
   }
+
+#ifdef E2_AGENT
+  if (pdu.choice.initiatingMessage->procedureCode == NGAP_ProcedureCode_id_NGSetup
+      && pdu.present == NGAP_NGAP_PDU_PR_successfulOutcome) {
+    e2ap_store_setup_resp(E2AP_SETUP_MSG_NGAP, data, data_length);
+  }
+#endif
 
   /* Checking procedure Code and direction of message */
   if (pdu.choice.initiatingMessage->procedureCode >= (long)(sizeof(ngap_messages_callback) / (3 * sizeof(ngap_message_decoded_callback))) || (pdu.present > NGAP_NGAP_PDU_PR_unsuccessfulOutcome)) {

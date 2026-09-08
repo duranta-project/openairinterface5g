@@ -9,6 +9,11 @@
 #include "e1ap_asnc.h"
 #include "common/openairinterface5g_limits.h"
 #include "common/utils/ocp_itti/intertask_interface.h"
+#include "E1AP_ProcedureCode.h"
+
+#ifdef E2_AGENT
+#include "openair2/E2AP/RAN_FUNCTION/setup_msg_store.h"
+#endif
 
 static e1ap_upcp_inst_t *e1ap_inst[NUMBER_OF_gNB_MAX] = {0};
 
@@ -205,6 +210,11 @@ int e1ap_encode_send(E1_t type, sctp_assoc_t assoc_id, E1AP_E1AP_PDU_t *pdu, uin
     LOG_E(E1AP, "%s: Constraint validation failed: %s\n", func, errbuf);
   }
 
+#ifdef E2_AGENT
+  const E1AP_ProcedureCode_t procedureCode = pdu->choice.initiatingMessage->procedureCode;
+  const int present = pdu->present;
+#endif
+
   void *buffer = NULL;
   ssize_t encoded = aper_encode_to_new_buffer(&asn_DEF_E1AP_E1AP_PDU, 0, pdu, &buffer);
   ASN_STRUCT_FREE(asn_DEF_E1AP_E1AP_PDU, pdu);
@@ -213,6 +223,16 @@ int e1ap_encode_send(E1_t type, sctp_assoc_t assoc_id, E1AP_E1AP_PDU_t *pdu, uin
     LOG_E(E1AP, "%s: Failed to encode E1AP message\n", func);
     return -1;
   }
+
+#ifdef E2_AGENT
+  if (procedureCode == E1AP_ProcedureCode_id_gNB_CU_UP_E1Setup) {
+    if (present == E1AP_E1AP_PDU_PR_initiatingMessage)
+      e2ap_store_setup_req(E2AP_SETUP_MSG_E1AP, buffer, encoded);
+    else if (present == E1AP_E1AP_PDU_PR_successfulOutcome)
+      e2ap_store_setup_resp(E2AP_SETUP_MSG_E1AP, buffer, encoded);
+  }
+#endif
+
   MessageDef *message = itti_alloc_new_message((type == CPtype) ? TASK_CUCP_E1 : TASK_CUUP_E1, 0, SCTP_DATA_REQ);
   sctp_data_req_t *s = &message->ittiMsg.sctp_data_req;
   s->assoc_id = assoc_id;
