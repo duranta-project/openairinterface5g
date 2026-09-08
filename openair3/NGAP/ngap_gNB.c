@@ -45,6 +45,10 @@
 #include "sctp_messages_types.h"
 #include "tree.h"
 
+#ifdef E2_AGENT
+#include "openair2/E2AP/RAN_FUNCTION/setup_msg_store.h"
+#endif
+
 static int ngap_gNB_generate_ng_setup_request(
   ngap_gNB_instance_t *instance_p, ngap_gNB_amf_data_t *ngap_amf_data_p);
 
@@ -840,6 +844,9 @@ static int ngap_gNB_generate_ng_setup_request(
     return -1;
   }
 
+#ifdef E2_AGENT
+  e2ap_store_setup_req(E2AP_SETUP_MSG_NGAP, buffer, len);
+#endif
   /* Non UE-Associated signalling -> stream = 0 */
   ngap_gNB_itti_send_sctp_data_req(instance_p->instance, ngap_amf_data_p->assoc_id, buffer, len, 0);
   ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_NGAP_PDU, &pdu);

@@ -4,6 +4,7 @@
 
 #include "e1ap.h"
 #include "e1ap_common.h"
+#include <stdlib.h>
 #include "gnb_config.h"
 #include "openair2/SDAP/nr_sdap/nr_sdap_entity.h"
 #include "openair3/UTILS/conversions.h"
@@ -17,6 +18,11 @@
 #include "openair2/LAYER2/nr_pdcp/cucp_cuup_handler.h"
 #include "lib/e1ap_bearer_context_management.h"
 #include "lib/e1ap_interface_management.h"
+#include "E1AP_ProcedureCode.h"
+
+#ifdef E2_AGENT
+#include "openair2/E2AP/RAN_FUNCTION/setup_msg_store.h"
+#endif
 
 #define E1AP_NUM_MSG_HANDLERS 14
 typedef int (*e1ap_message_processing_t)(sctp_assoc_t assoc_id, e1ap_upcp_inst_t *inst, const E1AP_E1AP_PDU_t *message_p);
@@ -68,6 +74,14 @@ static int e1ap_handle_message(instance_t instance, sctp_assoc_t assoc_id, const
     return -1;
   }
   const E1AP_ProcedureCode_t procedureCode = pdu.choice.initiatingMessage->procedureCode;
+#ifdef E2_AGENT
+  if (procedureCode == E1AP_ProcedureCode_id_gNB_CU_UP_E1Setup) {
+    if (pdu.present == E1AP_E1AP_PDU_PR_initiatingMessage)
+      e2ap_store_setup_req(E2AP_SETUP_MSG_E1AP, data, data_length);
+    else if (pdu.present == E1AP_E1AP_PDU_PR_successfulOutcome)
+      e2ap_store_setup_resp(E2AP_SETUP_MSG_E1AP, data, data_length);
+  }
+#endif
   /* Checking procedure Code and direction of message */
   if ((procedureCode >= E1AP_NUM_MSG_HANDLERS) || (pdu.present > E1AP_E1AP_PDU_PR_unsuccessfulOutcome)
       || (pdu.present <= E1AP_E1AP_PDU_PR_NOTHING)) {

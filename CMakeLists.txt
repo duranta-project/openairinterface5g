@@ -462,6 +462,9 @@ target_link_libraries(ngap PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
 if(ENABLE_TESTS)
   target_compile_definitions(ngap PRIVATE ENABLE_TESTS)
 endif()
+if(E2_AGENT)
+  target_compile_definitions(ngap PRIVATE E2_AGENT)
+endif()
 
 #M2AP
 ##############
