@@ -52,7 +52,10 @@ typedef void *(*nas_timer_callback_t)(void *);
 
 int nas_timer_init(void);
 int nas_timer_start(long sec, nas_timer_callback_t cb, void *args);
+void nas_timer_fire(void *timer_arg);
+int nas_timer_start_ext (instance_t ue_instance_id, long sec, nas_timer_callback_t cb, void *args);
 int nas_timer_stop(int id);
 int nas_timer_restart(int id);
+long nas_timer_get_remaining_sec(int id);
 
 #endif /* __NAS_TIMER_H__ */

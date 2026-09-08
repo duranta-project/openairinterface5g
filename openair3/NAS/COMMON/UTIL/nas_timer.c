@@ -23,6 +23,8 @@ Description Timer utilities
 
 #include <string.h> // memset
 #include <stdlib.h> // malloc, free
+#include <stdbool.h>
+#include <stdio.h>
 #include <sys/time.h>   // setitimer
 #include "intertask_interface.h"
 #include "nas_timer.h"
@@ -44,6 +46,7 @@ Description Timer utilities
  */
 typedef struct {
 long timer_id;          /* Timer id returned by the timer API from ITTI */
+  int id;					  /* Back-reference to NAS-level id */
 
   struct timeval itv;     /* Initial interval timer value         */
   struct timeval tv;      /* Interval timer value                 */
@@ -69,6 +72,7 @@ typedef struct _nas_timer_queue_t {
  * -----------------------------
  * The timer database is managed to provide unique identifier to timer at
  * startup and to maintain an ordered queue of active timer entries.
+ * Note: Index 0 is reserved. Valid timer IDs are strictly 1 .. (TIMER_DATABASE_SIZE - 1)
  */
 typedef struct {
   int timer_id;   /* Identifier of the first available timer entry */
@@ -79,15 +83,21 @@ typedef struct {
 
 /*
  * The timer database
+ * The timer database and its synchronization mutex
  */
 static nas_timer_database_t _nas_timer_db = {
   0,
+  1,
   {},
   NULL
 };
 
-#define nas_timer_lock_db()
-#define nas_timer_unlock_db()
+/*
+ * The handler executed whenever the system timer expires
+ */
+static pthread_mutex_t _nas_timer_db_mutex = PTHREAD_MUTEX_INITIALIZER;
+#define nas_timer_lock_db()   pthread_mutex_lock(&_nas_timer_db_mutex)  
+#define nas_timer_unlock_db() pthread_mutex_unlock(&_nas_timer_db_mutex
 
 /*
  * The handler executed whenever the system timer expires
@@ -97,21 +107,21 @@ static nas_timer_database_t _nas_timer_db = {
 /*
  * -----------------------------------------------------------------------------
  *      Functions used to manage the timer database
+ *      Internal database management functions (Caller must hold lock)
  * -----------------------------------------------------------------------------
  */
-static void _nas_timer_db_init(void);
-
-static int _nas_timer_db_get_id(void);
-static bool _nas_timer_db_is_active(int id);
+static void _nas_timer_db_init_locked(void);
+static int _nas_timer_db_get_id_locked(void);
+static bool _nas_timer_db_is_active_locked(int id);
 static nas_timer_entry_t *_nas_timer_db_create_entry(long sec,
     nas_timer_callback_t cb, void *args);
-static void _nas_timer_db_delete_entry(int id);
+static void _nas_timer_db_delete_entry_locked(int id);
 
-static void _nas_timer_db_insert_entry(int id, nas_timer_entry_t *te);
-static int _nas_timer_db_insert(timer_queue_t *entry);
+static void _nas_timer_db_insert_entry_locked(int id, nas_timer_entry_t *te);
+static int _nas_timer_db_insert_locked(timer_queue_t *entry);
 
-static nas_timer_entry_t *_nas_timer_db_remove_entry(int id);
-static bool _nas_timer_db_remove(timer_queue_t *entry);
+static nas_timer_entry_t *_nas_timer_db_remove_entry_locked(int id);
+static bool _nas_timer_db_remove_locked(timer_queue_t *entry);
 
 /*
  * -----------------------------------------------------------------------------
@@ -145,7 +155,9 @@ static int _nas_timer_sub(const struct timeval *a, const struct timeval *b,
 int nas_timer_init(void)
 {
   /* Initialize the timer database */
-  _nas_timer_db_init();
+  nas_timer_lock_db();
+  _nas_timer_db_init_locked();
+  nas_timer_unlock_db();
 
   return (RETURNok);
 }
@@ -181,29 +193,135 @@ int nas_timer_start(long sec, nas_timer_callback_t cb, void *args)
   }
 
   /* Get an identifier for the new timer entry */
-  id = _nas_timer_db_get_id();
-
-  if (id < 0) {
-    /* No available timer entry found */
+  te = _nas_timer_db_create_entry(sec, cb, args);
+  if (te == NULL) {	  
     return (NAS_TIMER_INACTIVE_ID);
   }
+  
+  nas_timer_lock_db();
+  id = _nas_timer_db_get_id_locked();
+  if (id < 1) {	  
+    nas_timer_unlock_db();
+    free(te);
+    return (NAS_TIMER_INACTIVE_ID);
+  }
+  
+  te->id = id;
+  _nas_timer_db_insert_entry_locked(id, te);
+  nas_timer_unlock_db();
+  
+  ret = timer_setup(sec, 0, TASK_NAS_UE, INSTANCE_DEFAULT, TIMER_PERIODIC, te, &timer_id);
+  if (ret == -1) {	  
+    nas_timer_lock_db();
+    _nas_timer_db_remove_entry_locked(id);
+    _nas_timer_db_delete_entry_locked(id);
+    nas_timer_unlock_db();
+    return NAS_TIMER_INACTIVE_ID;
+  }
+  
+  nas_timer_lock_db();
+  if (_nas_timer_db_is_active_locked(id) && _nas_timer_db.tq[id].entry == te) {
+    te->timer_id = timer_id;
+  }
+  nas_timer_unlock_db();
+  
+  return (id);
+}
 
-  /* Create a new timer entry */
-  te = _nas_timer_db_create_entry(sec, cb, args);
 
+/****************************************************************************
+ **                                                                        **
+ ** Name:    nas_timer_start_ext()                                             **
+ **                                                                        **
+ ** Description: Schedules the execution of the given callback function    **
+ **      upon expiration of the specified time interval specific for 5G NR **
+ **                                                                        **
+ ** Inputs:  sec:       The value of the time interval in seconds  **
+ **      cb:        Function executed upon timer expiration    **
+ **      args:      Callback argument parameters               **
+ **      Others:    None                                       **
+ **                                                                        **
+ ** Outputs:     None                                                      **
+ **      Return:    The timer identifier when successfully     **
+ **             started; NAS_TIMER_INACTIVE_ID otherwise.  **
+ **      Others:    None                                       **
+ **                                                                        **
+ ***************************************************************************/
+int nas_timer_start_ext(instance_t ue_instance_id, long sec, nas_timer_callback_t cb, void *args)
+{
+  int id;
+  nas_timer_entry_t *te;
+  int ret;
+  long timer_id;
+
+  if (sec == 0) {
+     return (NAS_TIMER_INACTIVE_ID);
+  }
+
+   /* Create a new timer entry */
+   te = _nas_timer_db_create_entry(sec, cb, args);
   if (te == NULL) {
     return (NAS_TIMER_INACTIVE_ID);
   }
+ 
+  nas_timer_lock_db();
+  id = _nas_timer_db_get_id_locked();
+  if (id < 1) {
+    nas_timer_unlock_db();
+    free(te);
+     return (NAS_TIMER_INACTIVE_ID);
+   }
 
-  /* Insert the new entry into the timer queue */
-  _nas_timer_db_insert_entry(id, te);
-  ret = timer_setup(sec, 0, TASK_NAS_UE, INSTANCE_DEFAULT, TIMER_PERIODIC, args, &timer_id);
+  te->id = id;
+  _nas_timer_db_insert_entry_locked(id, te);
+  nas_timer_unlock_db();
 
+  ret = timer_setup(sec, 0, TASK_NAS_NRUE, ue_instance_id, TIMER_ONE_SHOT, te, &timer_id);
   if (ret == -1) {
-    return NAS_TIMER_INACTIVE_ID;
+    nas_timer_lock_db();
+    _nas_timer_db_remove_entry_locked(id);
+    _nas_timer_db_delete_entry_locked(id);
+    nas_timer_unlock_db();
+     return NAS_TIMER_INACTIVE_ID;
+   }
+
+  nas_timer_lock_db();
+  if (_nas_timer_db_is_active_locked(id) && _nas_timer_db.tq[id].entry == te) {
+    te->timer_id = timer_id;
   }
-  te->timer_id = timer_id;
+  nas_timer_unlock_db();
+
   return (id);
+}
+ 
+/****************************************************************************
+ ** Name:    nas_timer_fire()                                              **
+ ***************************************************************************/
+void nas_timer_fire(void *timer_arg)  
+{  
+  nas_timer_entry_t *te = (nas_timer_entry_t *)timer_arg;  
+  nas_timer_callback_t cb = NULL;
+  void *cb_args = NULL;
+
+  nas_timer_lock_db();  
+  if (te != NULL) {
+    int id = te->id;
+    if (id >= 1 && id < TIMER_DATABASE_SIZE 
+        && _nas_timer_db.tq[id].id == id 
+        && _nas_timer_db.tq[id].entry == te) {
+      
+      cb = te->cb;
+      cb_args = te->args;
+      
+      _nas_timer_db_remove_entry_locked(id);
+      _nas_timer_db_delete_entry_locked(id);
+    }
+  }
+  nas_timer_unlock_db();  
+  
+  if (cb != NULL) {  
+    cb(cb_args);  
+  }
 }
 
 /****************************************************************************
@@ -221,20 +339,34 @@ int nas_timer_start(long sec, nas_timer_callback_t cb, void *args)
  **      Others:    None                                       **
  **                                                                        **
  ***************************************************************************/
-int nas_timer_stop(int id)
+int nas_timer_stop(int id)	
 {
-  /* Check if the timer entry is active */
-  if (_nas_timer_db_is_active(id)) {
-    nas_timer_entry_t *entry;
-    /* Remove the entry from the timer queue */
-    entry = _nas_timer_db_remove_entry(id);
-    timer_remove(entry->timer_id);
-    /* Delete the timer entry */
-    _nas_timer_db_delete_entry(id);
-    return (NAS_TIMER_INACTIVE_ID);
+  long itti_timer_id = -1;
+  bool is_active = false;
+
+  /* IDs <= 0 (including 0 and -1) are ignored safely */
+  if (id <= 0 || id >= TIMER_DATABASE_SIZE) {
+	 return (NAS_TIMER_INACTIVE_ID);
+   }
+ 
+  nas_timer_lock_db();
+  if (_nas_timer_db_is_active_locked(id)) {
+	nas_timer_entry_t *entry = _nas_timer_db_remove_entry_locked(id);
+	if (entry != NULL) {
+	  itti_timer_id = entry->timer_id;
+	}
+	_nas_timer_db_delete_entry_locked(id);
+	is_active = true;
+  }
+  nas_timer_unlock_db();
+
+  if (is_active) {
+	if (itti_timer_id != -1 && timer_remove(itti_timer_id) != 0) {	
+	  LOG_W(NAS, "nas_timer_stop: ITTI timer for NAS id %d (itti timer_id %ld) was already gone\n", id, itti_timer_id);  
+	}
   }
 
-  return (id);
+  return (NAS_TIMER_INACTIVE_ID);	
 }
 
 /****************************************************************************
@@ -258,18 +390,58 @@ int nas_timer_stop(int id)
  ***************************************************************************/
 int nas_timer_restart(int id)
 {
-  /* Check if the timer entry is active */
-  if (_nas_timer_db_is_active(id)) {
-    /* Remove the entry from the timer queue */
-    nas_timer_entry_t *te = _nas_timer_db_remove_entry(id);
-    /* Initialize its interval timer value */
-    te->tv = te->itv;
-    /* Insert again the entry into the timer queue */
-    _nas_timer_db_insert_entry(id, te);
-    return (id);
+ if (id <= 0 || id >= TIMER_DATABASE_SIZE) {
+   return (NAS_TIMER_INACTIVE_ID);
+ }
+
+ nas_timer_lock_db();
+ if (_nas_timer_db_is_active_locked(id)) {
+   nas_timer_entry_t *te = _nas_timer_db_remove_entry_locked(id);
+   if (te != NULL) {
+	 te->tv = te->itv;
+	 _nas_timer_db_insert_entry_locked(id, te);
+   }
+   nas_timer_unlock_db();
+	return (id);
   }
+ nas_timer_unlock_db();
 
   return (NAS_TIMER_INACTIVE_ID);
+}
+
+
+/****************************************************************************
+ ** Name:    nas_timer_get_remaining_sec()                                 **
+ ***************************************************************************/
+long nas_timer_get_remaining_sec(int id)
+{
+  struct timespec ts;
+  struct timeval current_time, remaining;
+  long rem_sec = 0;
+
+  if (id <= 0 || id >= TIMER_DATABASE_SIZE) {
+    return (NAS_TIMER_INACTIVE_ID);
+  }
+
+  clock_gettime(CLOCK_MONOTONIC, &ts);  
+  current_time.tv_sec  = ts.tv_sec;  
+  current_time.tv_usec = ts.tv_nsec / 1000;
+
+  nas_timer_lock_db();
+  if (!_nas_timer_db_is_active_locked(id)) {
+    nas_timer_unlock_db();
+    return (NAS_TIMER_INACTIVE_ID);
+  }  
+
+  nas_timer_entry_t *te = _nas_timer_db.tq[id].entry;  
+  if (te == NULL || _nas_timer_sub(&te->tv, &current_time, &remaining) < 0) {
+    nas_timer_unlock_db();
+    return 0; /* already expired */
+  }
+  rem_sec = remaining.tv_sec;
+  nas_timer_unlock_db();
+
+  return rem_sec;
 }
 
 /*
@@ -291,18 +463,23 @@ int nas_timer_restart(int id)
  **      Others:    _nas_timer_db                              **
  **                                                                        **
  ***************************************************************************/
-static void _nas_timer_db_init(void)
+static void _nas_timer_db_init_locked(void)
 {
-  int i;
+   int i;
 
-  for (i = 0; i < TIMER_DATABASE_SIZE; i++) {
-    _nas_timer_db.tq[i].id = NAS_TIMER_INACTIVE_ID;
-  }
+  _nas_timer_db.timer_id = 1;
+  _nas_timer_db.head = NULL;
+   for (i = 0; i < TIMER_DATABASE_SIZE; i) {
+	 _nas_timer_db.tq[i].id = NAS_TIMER_INACTIVE_ID;
+	 _nas_timer_db.tq[i].entry = NULL;
+	 _nas_timer_db.tq[i].prev = NULL;
+	 _nas_timer_db.tq[i].next = NULL;
+   }
 }
 
 /****************************************************************************
  **                                                                        **
- ** Name:    _nas_timer_db_get_id()                                    **
+ ** Name:    _nas_timer_db_get_id_locked()                                    **
  **                                                                        **
  ** Description: Gets the identifier of the first available timer entry in **
  **      the queue of active timer entries                         **
@@ -317,33 +494,38 @@ static void _nas_timer_db_init(void)
  **      Others:    _nas_timer_db                              **
  **                                                                        **
  ***************************************************************************/
-static int _nas_timer_db_get_id(void)
+static int _nas_timer_db_get_id_locked(void)
 {
-  int i;
+   int i;
 
-  /* Search from the current timer entry to the last timer entry */
-  for (i = _nas_timer_db.timer_id; i < TIMER_DATABASE_SIZE; i++) {
-    if (_nas_timer_db.tq[i].id < 0 ) {
-      _nas_timer_db.timer_id = i+1;
-      return i;
-    }
+  if (_nas_timer_db.timer_id < 1 || _nas_timer_db.timer_id >= TIMER_DATABASE_SIZE) {
+	_nas_timer_db.timer_id = 1;
   }
 
-  /* Search from the first timer entry to the current timer entry */
-  for (i = 0; i < _nas_timer_db.timer_id; i++) {
-    if (_nas_timer_db.tq[i].id < 0 ) {
-      _nas_timer_db.timer_id = i+1;
-      return i;
-    }
-  }
+  /* Search from current timer entry (>= 1) to the end */
+   for (i = _nas_timer_db.timer_id; i < TIMER_DATABASE_SIZE; i++) {
+	if (_nas_timer_db.tq[i].id < 0) {
+	  _nas_timer_db.timer_id = (i + 1 < TIMER_DATABASE_SIZE) ? i + 1 : 1;
+	   return i;
+	 }
+   }
+
+  /* Wrap around: search from index 1 */
+  for (i = 1; i < _nas_timer_db.timer_id; i++) {
+	if (_nas_timer_db.tq[i].id < 0) {
+	  _nas_timer_db.timer_id = (i + 1 < TIMER_DATABASE_SIZE) ? i + 1 : 1;
+	   return i;
+	 }
+   }
 
   /* No available timer entry found */
-  return (-1);
+   return (-1);
 }
+
 
 /****************************************************************************
  **                                                                        **
- ** Name:    _nas_timer_db_is_active()                                 **
+ ** Name:    _nas_timer_db_is_active_locked()                                 **
  **                                                                        **
  ** Description: Checks whether the entry with the given identifier is     **
  **      active within the queue of active timer entries           **
@@ -357,11 +539,14 @@ static int _nas_timer_db_get_id(void)
  **      Others:    None                                       **
  **                                                                        **
  ***************************************************************************/
-static bool _nas_timer_db_is_active(int id)
+static bool _nas_timer_db_is_active_locked(int id)
 {
-  return ( (id != NAS_TIMER_INACTIVE_ID) &&
-           (_nas_timer_db.tq[id].id != NAS_TIMER_INACTIVE_ID) );
+  if (id <= 0 || id >= TIMER_DATABASE_SIZE) {
+	return false;
+  }
+  return (_nas_timer_db.tq[id].id == id);
 }
+
 
 /****************************************************************************
  **                                                                        **
@@ -381,12 +566,13 @@ static bool _nas_timer_db_is_active(int id)
  **                                                                        **
  ***************************************************************************/
 static nas_timer_entry_t *_nas_timer_db_create_entry(
-  long sec, nas_timer_callback_t cb,
-  void *args)
+  long sec, nas_timer_callback_t cb, void *args)
 {
   nas_timer_entry_t *te = (nas_timer_entry_t *)malloc(sizeof(nas_timer_entry_t));
 
   if (te != NULL) {
+  	te->id = NAS_TIMER_INACTIVE_ID;
+    te->timer_id = -1;
     te->itv.tv_sec = sec;
     te->itv.tv_usec = 0;
     te->tv.tv_sec  = te->itv.tv_sec;
@@ -400,7 +586,7 @@ static nas_timer_entry_t *_nas_timer_db_create_entry(
 
 /****************************************************************************
  **                                                                        **
- ** Name:    _nas_timer_db_delete_entry()                              **
+ ** Name:    _nas_timer_db_delete_entry_locked()                              **
  **                                                                        **
  ** Description: Deletes the entry with the given identifier from the ti-  **
  **      mer database.                                             **
@@ -413,15 +599,23 @@ static nas_timer_entry_t *_nas_timer_db_create_entry(
  **      Others:    _nas_timer_db                              **
  **                                                                        **
  ***************************************************************************/
-static void _nas_timer_db_delete_entry(int id)
+static void _nas_timer_db_delete_entry_locked(int id)
 {
+  if (id <= 0 || id >= TIMER_DATABASE_SIZE) {
+	 return;
+  }
+
   /* The identifier of the timer is valid within the timer queue */
   assert(_nas_timer_db.tq[id].id == id);
 
   /* Delete the timer entry from the queue */
   _nas_timer_db.tq[id].id = NAS_TIMER_INACTIVE_ID;
-  free(_nas_timer_db.tq[id].entry);
-  _nas_timer_db.tq[id].entry = NULL;
+  if (_nas_timer_db.tq[id].entry != NULL) {
+    free(_nas_timer_db.tq[id].entry);
+    _nas_timer_db.tq[id].entry = NULL;
+  }
+  _nas_timer_db.tq[id].prev = NULL;
+  _nas_timer_db.tq[id].next = NULL;
 }
 
 /****************************************************************************
@@ -442,80 +636,66 @@ static void _nas_timer_db_delete_entry(int id)
  **      Others:    _nas_timer_db                              **
  **                                                                        **
  ***************************************************************************/
-static void _nas_timer_db_insert_entry(int id, nas_timer_entry_t *te)
+static void _nas_timer_db_insert_entry_locked(int id, nas_timer_entry_t *te)
 {
-  struct itimerval it;
-  struct timespec  ts;
-  struct timeval   current_time;
-  int restart;
+   struct timespec	ts;
+   struct timeval	current_time;
+ 
+   /* Enqueue the new timer entry */
+   _nas_timer_db.tq[id].id = id;
+   _nas_timer_db.tq[id].entry = te;
 
-  /* Enqueue the new timer entry */
-  _nas_timer_db.tq[id].id = id;
-  _nas_timer_db.tq[id].entry = te;
+   clock_gettime(CLOCK_MONOTONIC, &ts);
+   current_time.tv_sec = ts.tv_sec;
 
-  /* Save its interval timer value */
-  it.it_interval.tv_sec = it.it_interval.tv_usec = 0;
-  it.it_value = te->tv;
-
-  /* Update its interval timer value */
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  current_time.tv_sec = ts.tv_sec;
-  current_time.tv_usec = ts.tv_nsec/1000;
-  /* tv = tv + time() */
-  _nas_timer_add(&te->tv, &current_time, &te->tv);
-
-  /* Insert the new timer entry into the list of active entries */
-  nas_timer_lock_db();
-  restart = _nas_timer_db_insert(&_nas_timer_db.tq[id]);
-  nas_timer_unlock_db();
-
-  (void)(restart);
+  current_time.tv_usec = ts.tv_nsec / 1000;
+   _nas_timer_add(&te->tv, &current_time, &te->tv);
+ 
+  _nas_timer_db_insert_locked(&_nas_timer_db.tq[id]);
 }
 
-static int _nas_timer_db_insert(timer_queue_t *entry)
-{
-  timer_queue_t *prev, *next; /* previous and next entry in the list  */
 
+static int _nas_timer_db_insert_locked(timer_queue_t *entry)
+{
+  timer_queue_t *prev, *next;
+ 
   /*
    * Search the list of timer entries for the first entry with an interval
    * timer value greater than the interval timer value of the new timer entry
    */
-  for (prev = NULL, next = _nas_timer_db.head; next != NULL; next = next->next) {
-    if (_nas_timer_cmp(&next->entry->tv, &entry->entry->tv) > 0) {
-      break;
-    }
+   for (prev = NULL, next = _nas_timer_db.head; next != NULL; next = next->next) {
+     if (_nas_timer_cmp(&next->entry->tv, &entry->entry->tv) > 0) {
+       break;
+     }
 
-    prev = next;
-  }
-
-  /* Insert the new entry in the list of active timer entries */
-  /* prev <-- entry --> next */
-  entry->prev = prev;
-  entry->next = next;
-
+     prev = next;
+   }
+ 
+   entry->prev = prev;
+   entry->next = next;
+ 
   /* Update the pointer from the previous entry */
-  if (entry->next != NULL) {
-    /* prev <-- entry <--> next */
-    entry->next->prev = entry;
-  }
-
+   if (entry->next != NULL) {
+     entry->next->prev = entry;
+   }
+ 
   /* Update the pointer from the next entry */
-  if (entry->prev != NULL) {
-    /* prev <--> entry <--> next */
-    entry->prev->next = entry;
-  } else {
+   if (entry->prev != NULL) {
+     entry->prev->next = entry;
+   } else {
     /* The new entry is the first entry of the list */
-    _nas_timer_db.head = entry;
-    return true;
-  }
-
+     _nas_timer_db.head = entry;
+     return true;
+   }
+ 
   /* The new entry is NOT the first entry of the list */
-  return false;
+   return false;
 }
+
 
 /****************************************************************************
  **                                                                        **
- ** Name:    _nas_timer_db_remove_entry()                              **
+ ** Name:    _nas_timer_db_remove_entry_locked()                              **
  **                                                                        **
  ** Description: Removes the entry with the given identifier from the      **
  **      queue of active timer entries and restarts the system     **
@@ -530,71 +710,49 @@ static int _nas_timer_db_insert(timer_queue_t *entry)
  **      Others:    _nas_timer_db                              **
  **                                                                        **
  ***************************************************************************/
-static nas_timer_entry_t *_nas_timer_db_remove_entry(int id)
+static nas_timer_entry_t *_nas_timer_db_remove_entry_locked(int id)
 {
-  bool restart;
-
-  /* The identifier of the timer is valid within the timer queue */
-  assert(_nas_timer_db.tq[id].id == id);
-
-  /* Remove the timer entry from the list of active entries */
-  nas_timer_lock_db();
-  restart = _nas_timer_db_remove(&_nas_timer_db.tq[id]);
-  nas_timer_unlock_db();
-
-  if (restart) {
-    int rc;
-    /* The entry was the first entry of the list;
-     * the system timer needs to be restarted */
-    struct itimerval it;
-    struct timeval tv;
-    struct timespec ts;
-
-    it.it_interval.tv_sec = it.it_interval.tv_usec = 0;
-
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-
-    tv.tv_sec = ts.tv_sec;
-    tv.tv_usec = ts.tv_nsec/1000;
-    /* tv = tv - time() */
-    rc = _nas_timer_sub(&_nas_timer_db.head->entry->tv, &tv, &it.it_value);
-    timer_remove(_nas_timer_db.head->entry->timer_id);
-    (void) (rc);
+  if (id <= 0 || id >= TIMER_DATABASE_SIZE) {
+	return NULL;
   }
 
-  /* Return a pointer to the removed entry */
-  return (_nas_timer_db.tq[id].entry);
+  _nas_timer_db_remove_locked(&_nas_timer_db.tq[id]);
+   return (_nas_timer_db.tq[id].entry);
 }
 
-static bool _nas_timer_db_remove(timer_queue_t *entry)
+static bool _nas_timer_db_remove_locked(timer_queue_t *entry)
 {
   /* Update the pointer from the previous entry */
   /* prev ---> entry ---> next */
   /* prev <--- entry <--- next */
-  if (entry->next != NULL) {
+   if (entry->next != NULL) {
     /* prev ---> entry ---> next */
     /* prev <-------------- next */
-    entry->next->prev = entry->prev;
-  }
-
+     entry->next->prev = entry->prev;
+   }
+ 
   /* Update the pointer from the next entry */
-  if (entry->prev != NULL) {
+   if (entry->prev != NULL) {
     /* prev --------------> next */
     /* prev <-------------- next */
-    entry->prev->next = entry->next;
-  } else {
+     entry->prev->next = entry->next;
+   } else {
     /* The entry was the first entry of the list */
-    _nas_timer_db.head = entry->next;
+     _nas_timer_db.head = entry->next;
 
-    if (_nas_timer_db.head != NULL) {
+     if (_nas_timer_db.head != NULL) {
       /* Other timers are scheduled to expire */
-      return true;
-    }
-  }
-
+       return true;
+     }
+   }
+ 
   /* The entry was NOT the first entry of the list */
-  return false;
+  entry->prev = NULL;
+  entry->next = NULL;
+
+   return false;
 }
+
 
 /*
  * -----------------------------------------------------------------------------
@@ -652,7 +810,7 @@ static void _nas_timer_add(const struct timeval *a, const struct timeval *b,
   result->tv_sec = a->tv_sec + b->tv_sec;
   result->tv_usec = a->tv_usec + b->tv_usec;
 
-  if (result->tv_usec > 1000000) {
+  if (result->tv_usec >= 1000000) {
     result->tv_sec++;
     result->tv_usec -= 1000000;
   }
@@ -676,7 +834,7 @@ static void _nas_timer_add(const struct timeval *a, const struct timeval *b,
 static int _nas_timer_sub(const struct timeval *a, const struct timeval *b,
                           struct timeval *result)
 {
-  if (_nas_timer_cmp(a,b) > 0 ) {
+  if (_nas_timer_cmp(a,b) >= 0 ) {
     result->tv_sec = a->tv_sec - b->tv_sec;
     result->tv_usec = a->tv_usec - b->tv_usec;
 
