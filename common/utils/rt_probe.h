@@ -48,6 +48,73 @@ typedef struct {
 } rt_probe_config_t;
 
 /**
+ * \typedef rt_probe_l1tx_context_t
+ * \brief L1TX context
+ * \var valid indicates if the L1TX context
+ * is valid for using the record for
+ * performance monitoring
+ * \var frame frame when record was captured
+ * \var slot slot when record was captured
+ * \var dl_pdsch_count number of
+ * Physical DL Shared Channels in the slot
+ * \var dl_prb_total total number of
+ * Physical Ressource Blocks used in the slot
+ * \var dl_tbs_total sum of
+ * Transport Block Sizes in the slot
+ * \var dl_mcs_min minimum
+ * Modulation and Coding Scheme in the slot
+ * \var dl_mcs_max maximum
+ * Modulation and Coding Scheme in the slot
+ * \var dl_mcs_table_min minimum
+ * Modulation and Coding Scheme
+ * Table index in the slot
+ * \var dl_mcs_table_max maximum
+ * Modulation and Coding Scheme
+ * Table index in the slot
+ * \var dl_layers_max maximum number
+ * of transmission layers encountered in the slot
+ * \var dl_rv_nonzero_count number of
+ * Transport Blocks with non zero
+ * Reduncacy Version
+ */
+typedef struct {
+  int valid;
+  int frame;
+  int slot;
+  int dl_pdsch_count;
+  int dl_prb_total;
+  uint64_t dl_tbs_total;
+  int dl_mcs_min;
+  int dl_mcs_max;
+  int dl_mcs_table_min;
+  int dl_mcs_table_max;
+  int dl_layers_max;
+  int dl_rv_nonzero_count;
+} rt_probe_l1tx_context_t;
+
+/**
+ * \brief returns a default invalid TX context
+ */
+static inline rt_probe_l1tx_context_t rt_probe_l1tx_context_invalid(void)
+{
+  rt_probe_l1tx_context_t ctx = {
+      .valid = 0,
+      .frame = -1,
+      .slot = -1,
+      .dl_pdsch_count = 0,
+      .dl_prb_total = 0,
+      .dl_tbs_total = 0,
+      .dl_mcs_min = -1,
+      .dl_mcs_max = -1,
+      .dl_mcs_table_min = -1,
+      .dl_mcs_table_max = -1,
+      .dl_layers_max = -1,
+      .dl_rv_nonzero_count = 0,
+  };
+  return ctx;
+}
+
+/**
  * \typedef rt_probe_capture_record_t
  * \brief captured real-time probe record
  * \var capture_index record index
@@ -60,6 +127,7 @@ typedef struct {
  * late completion threshold for this record
  * \var late true if the record
  * is a late processing
+ * \var ctx L1TX context
  */
 typedef struct {
   uint64_t capture_index;
@@ -69,6 +137,7 @@ typedef struct {
   oai_cputime_t duration_us;
   oai_cputime_t late_threshold_us;
   int late;
+  rt_probe_l1tx_context_t ctx;
 } rt_probe_capture_record_t;
 
 /**
@@ -180,6 +249,20 @@ void rt_probe_dump_capture(rt_probe_t *p);
  * \param p pointer to the probe to flush
  */
 void rt_probe_async_flush_capture(rt_probe_t *p);
+
+/**
+ * \brief capture record with L1TX context with probe from timer
+ * \param p pointer to the probe to capture
+ * \param frame current frame to record
+ * \param slot current slot to record
+ * \param ts timer to record
+ * \param ctx L1TX context
+ */
+void rt_probe_capture_record_with_l1tx_context(rt_probe_t *p,
+                                               int frame,
+                                               int slot,
+                                               time_stats_t *ts,
+                                               const rt_probe_l1tx_context_t *ctx);
 
 /**
  * \brief capture record with probe from timer

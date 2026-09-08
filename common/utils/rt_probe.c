@@ -234,7 +234,7 @@ static void rt_probe_flush_capture_csv(rt_probe_t *p, int final_dump)
 
       if (!p->capture_header_written) {
         fprintf(p->capture_fd,
-                "capture_index,probe_total,frame,slot,duration_us,late_threshold_us,late\n");
+                "capture_index,probe_total,frame,slot,duration_us,late_threshold_us,late,context_valid,dl_pdsch_count,dl_prb_total,dl_tbs_total,dl_mcs_min,dl_mcs_max,dl_mcs_table_min,dl_mcs_table_max,dl_layers_max,dl_rv_nonzero_count\n");
         p->capture_header_written = 1;
       }
     }
@@ -243,14 +243,24 @@ static void rt_probe_flush_capture_csv(rt_probe_t *p, int final_dump)
       const rt_probe_capture_record_t *record = &p->capture_buffer[seq % p->capture_capacity];
 
       fprintf(p->capture_fd,
-              "%lu,%lu,%d,%d,%llu,%llu,%d\n",
+              "%lu,%lu,%d,%d,%llu,%llu,%d,%d,%d,%d,%lu,%d,%d,%d,%d,%d,%d\n",
               record->capture_index,
               record->probe_total,
               record->frame,
               record->slot,
               record->duration_us,
               record->late_threshold_us,
-              record->late);
+              record->late,
+              record->ctx.valid,
+              record->ctx.dl_pdsch_count,
+              record->ctx.dl_prb_total,
+              record->ctx.dl_tbs_total,
+              record->ctx.dl_mcs_min,
+              record->ctx.dl_mcs_max,
+              record->ctx.dl_mcs_table_min,
+              record->ctx.dl_mcs_table_max,
+              record->ctx.dl_layers_max,
+              record->ctx.dl_rv_nonzero_count);
       flushed++;
     }
 
@@ -336,10 +346,11 @@ void rt_probe_async_flush_capture(rt_probe_t *p)
   rt_probe_flush_capture_csv(p, 0);
 }
 
-void rt_probe_capture_record(rt_probe_t *p,
-                             int frame,
-                             int slot,
-                             time_stats_t *ts)
+void rt_probe_capture_record_with_l1tx_context(rt_probe_t *p,
+                                               int frame,
+                                               int slot,
+                                               time_stats_t *ts,
+                                               const rt_probe_l1tx_context_t *ctx)
 {
   if (p == NULL || !p->initialized)
     return;
@@ -370,9 +381,19 @@ void rt_probe_capture_record(rt_probe_t *p,
   record->duration_us = duration_us;
   record->late_threshold_us = p->cfg.late_threshold_us;
   record->late = p->cfg.late_threshold_us > 0 && duration_us > p->cfg.late_threshold_us;
+  record->ctx = ctx != NULL ? *ctx : rt_probe_l1tx_context_invalid();
 
   __atomic_store_n(&p->capture_write_index, write_index + 1, __ATOMIC_RELEASE);
   __atomic_store_n(&p->capture_count, write_index + 1, __ATOMIC_RELAXED);
+}
+
+void rt_probe_capture_record(rt_probe_t *p,
+                             int frame,
+                             int slot,
+                             time_stats_t *ts)
+{
+  rt_probe_l1tx_context_t ctx = rt_probe_l1tx_context_invalid();
+  rt_probe_capture_record_with_l1tx_context(p, frame, slot, ts, &ctx);
 }
 
 void rt_probe_record(rt_probe_t *p, time_stats_t *ts)
