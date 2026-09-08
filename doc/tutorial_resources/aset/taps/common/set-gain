@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Live-control helper for publish_taps.py (Unix control socket).
+
+Gain is in dB by default (converted to linear amplitude for the publisher).
+Use --linear for a raw amplitude multiplier.
+
+Examples:
+  set-gain --dl -20
+  set-gain --ul -6
+  set-gain --dl status
+  set-gain /tmp/vrtsim_taps_ul.ctl -6
+"""
+
+from __future__ import annotations
+
+import argparse
+import math
+import os
+import socket
+import sys
+
+DEFAULT_DL_CTL = os.environ.get("TAPS_DL_CTL_SOCK", "/tmp/vrtsim_taps_dl.ctl")
+DEFAULT_UL_CTL = os.environ.get("TAPS_UL_CTL_SOCK", "/tmp/vrtsim_taps_ul.ctl")
+DEFAULT_CTL = os.environ.get("TAPS_CTL_SOCK", DEFAULT_DL_CTL)
+
+
+def send_cmd(ctl: str, cmd: str) -> str:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.connect(ctl)
+        s.sendall((cmd + "\n").encode())
+        return s.recv(512).decode()
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(
+        description="Set CIR tap gain on publish_taps.py (dB by default)."
+    )
+    p.add_argument(
+        "-l",
+        "--linear",
+        action="store_true",
+        help="interpret gain as linear amplitude (default: dB)",
+    )
+    direction = p.add_mutually_exclusive_group()
+    direction.add_argument("--dl", action="store_true", help="DL control socket")
+    direction.add_argument("--ul", action="store_true", help="UL control socket")
+    p.add_argument(
+        "args",
+        nargs="+",
+        metavar="ARG",
+        help="[control_sock] gain_dB|status|quit",
+    )
+    ns = p.parse_args()
+
+    if ns.dl:
+        ctl = DEFAULT_DL_CTL
+        if len(ns.args) != 1:
+            p.error("with --dl/--ul use: set-gain --dl <gain|status|quit>")
+        action = ns.args[0]
+    elif ns.ul:
+        ctl = DEFAULT_UL_CTL
+        if len(ns.args) != 1:
+            p.error("with --dl/--ul use: set-gain --ul <gain|status|quit>")
+        action = ns.args[0]
+    elif len(ns.args) == 1:
+        ctl, action = DEFAULT_CTL, ns.args[0]
+    elif len(ns.args) == 2:
+        ctl, action = ns.args[0], ns.args[1]
+    else:
+        p.error("expected [control_sock] <gain|status|quit>")
+
+    if action in ("status", "quit"):
+        reply = send_cmd(ctl, action)
+        print(reply, end="" if reply.endswith("\n") else "\n")
+        return 0
+
+    try:
+        val = float(action)
+    except ValueError:
+        p.error(f"expected gain number, status, or quit; got {action!r}")
+
+    if ns.linear:
+        amp = val
+        db = 20.0 * math.log10(abs(amp)) if amp != 0.0 else float("-inf")
+    else:
+        db = val
+        amp = 10.0 ** (db / 20.0)
+
+    reply = send_cmd(ctl, f"gain {amp}")
+    if reply.startswith("ok"):
+        print(f"{reply.rstrip()} ({db:g} dB → amp {amp:.6g})")
+    else:
+        print(reply, end="" if reply.endswith("\n") else "\n")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

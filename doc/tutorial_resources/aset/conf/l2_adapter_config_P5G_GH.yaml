@@ -1,0 +1,179 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+---
+aerial_sdk_version: 26-1-cubb
+#gnb_module
+msg_type: scf_5g_fapi
+phy_class: scf_5g_fapi
+slot_advance: 3
+
+# tick_generator_mode: 0 - poll + sleep; 1 - sleep; 2 - timer_fd
+tick_generator_mode: 1
+
+# Allowed maximum latency of SLOT FAPI messages which send from L2 to L1. Unit: slot
+allowed_fapi_latency: 0
+
+# Allowed tick interval error. Unit: us
+allowed_tick_error: 10
+
+timer_thread_config:
+  name: timer_thread
+  cpu_affinity: 9
+  sched_priority: 99
+message_thread_config:
+  name: msg_processing
+  #core assignment
+  cpu_affinity: 9
+  # thread priority
+  sched_priority: 95
+# Lowest TTI for Ticking
+mu_highest: 1
+dl_tb_loc: 1
+instances:
+  # PHY 0
+  -
+    name: scf_gnb_configure_module_0_instance_0
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_1
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_2
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_3
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_4
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_5
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_6
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_7
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_8
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_9
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_10
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_11
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_12
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_13
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_14
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_15
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_16
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_17
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_18
+    prach_ta_offset_usec: 2.5
+  -
+    name: scf_gnb_configure_module_0_instance_19
+    prach_ta_offset_usec: 2.5
+
+# Config dedicated yaml file for nvipc. Example: nvipc_multi_instances.yaml
+nvipc_config_file: null
+#nvipc_config_file: nvipc_multi_instances.yaml
+
+# Transport settings for nvIPC
+transport:
+  # Transport type: only "shm" for shared memory is supported
+  type: shm
+  # Shared memory transport configuration
+  shm_config:
+    # Prefix used for shared memory object names (e.g., /dev/shm/${prefix}_*)
+    prefix: nvipc
+    # CUDA device ID for GPU memory operations. The cpu_data and cpu_large memory pools will be registered to host pinned memory when cuda_device_id >= 0
+    cuda_device_id: 0
+    # Length of the ring buffer queue for message passing between processes
+    ring_len: 8192
+    # Memory pool size configuration for different buffer types
+    mempool_size:
+      # CPU message buffer pool: used for small control messages
+      cpu_msg:
+        # Size of each buffer in bytes
+        buf_size: 15000
+        # Number of buffers in the pool
+        pool_len: 4096
+      # CPU data buffer pool: used for larger data payloads on CPU
+      cpu_data:
+        # Size of each buffer in bytes
+        buf_size: 576000
+        # Number of buffers in the pool
+        pool_len: 1024
+      # CPU large buffer pool: used for very large data payloads on CPU
+      cpu_large:
+        # Size of each buffer in bytes
+        buf_size: 4096000
+        # Number of buffers in the pool
+        pool_len: 64
+      # CUDA/GPU data buffer pool: used for GPU-accessible data buffers
+      cuda_data:
+        # Size of each buffer in bytes
+        buf_size: 307200
+        # Number of buffers in the pool (0 means pool is disabled)
+        pool_len: 0
+      gpu_data:
+        buf_size: 576000
+        pool_len: 0
+  # PCAP logging and debug configurations
+  app_config:
+    grpc_forward: 0 # Forward nvipc message to a "<prefix>_fw" queue for engineering debug
+    debug_timing: 0 # Saving full timestamps of nvipc message states for engineering debug
+    pcap_enable: 1 # Enable PCAP logging
+    pcap_sync_save: 0 # 0 - Asynchronized saving packets in SHM caching thread; 1 - Synchronized saving packets in caller thread
+    pcap_shm_caching_cpu_core: 10 # CPU core of pcap shared memory caching thread
+    pcap_file_saving_cpu_core: 10 # CPU core of pcap file saving thread
+    pcap_cache_size_bits: 29 # 2^29 = 512MB, size of /dev/shm/${prefix}_pcap
+    pcap_file_size_bits: 31 # 2^31 = 2GB, max size of /var/log/aerial/${prefix}_pcap. Requires pcap_file_size_bits > pcap_cache_size_bits.
+    pcap_max_data_size: 8000 # Max DL/UL FAPI data size to capture reduce pcap size.
+    #msg_filter: [0x02, 0x03, 0x04, 0x05, 0x07, 0x80, 0x81, 0x82, 0x83, 0x86, 0x87, 0x88, 0x89, 0x8F]
+    msg_filter: [] # Example: [0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85]
+    cell_filter: [] # Example: [0, 1, 2, 3]
+
+cell_group: 1
+prepone_h2d_copy: 1
+enable_precoding: 0
+enable_beam_forming: 0
+pusch_dtx_thresholds: 1.0
+# Duplicate the cell configs at the first message
+duplicate_config_all_cells: 0
+pucch_dtx_thresholds: [-100.0, -100.0, 1.0, 1.0, -100.0]
+pusch_dtx_thresholds: 1.0
+ptp: {gps_alpha: 0, gps_beta: 0}
+enableTickDynamicSfnSlot: 1
+...
