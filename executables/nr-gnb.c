@@ -175,7 +175,17 @@ void *L1_tx_thread(void *arg) {
 
      if (slot_type == NR_DOWNLINK_SLOT) {
        rt_probe_record(&gNB->rt_l1_tx_job_probe, &gNB->l1_tx_proc);
-       rt_probe_capture_record(&gNB->rt_l1_tx_job_probe, info->frame, info->slot, &gNB->l1_tx_proc);
+       rt_probe_l1tx_context_t rt_l1tx_ctx = rt_probe_l1tx_context_invalid();
+       if (gNB->rt_l1tx_slot_context.valid &&
+           gNB->rt_l1tx_slot_context.frame == info->frame &&
+           gNB->rt_l1tx_slot_context.slot == info->slot)
+         rt_l1tx_ctx = gNB->rt_l1tx_slot_context;
+
+       rt_probe_capture_record_with_l1tx_context(&gNB->rt_l1_tx_job_probe,
+                                                 info->frame,
+                                                 info->slot,
+                                                 &gNB->l1_tx_proc,
+                                                 &rt_l1tx_ctx);
      }
 
      delNotifiedFIFO_elt(res);

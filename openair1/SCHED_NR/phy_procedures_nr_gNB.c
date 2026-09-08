@@ -423,6 +423,10 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
   for (int i = 0; i < UL_dci_req->numPdus; ++i)
     nr_generate_dci(gNB, &UL_dci_req->ul_dci_pdu_list[i].pdcch_pdu.pdcch_pdu_rel15, &gNB->frame_parms, slot, prb_mask_words);
 
+  rt_probe_l1tx_context_t rt_l1tx_ctx = rt_probe_l1tx_context_invalid();
+  rt_l1tx_ctx.frame = frame;
+  rt_l1tx_ctx.slot = slot;
+
   int num_pdsch = 0;
   for (int i = 0; i < DL_req->dl_tti_request_body.nPDUs; ++i) {
     const nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdu = &DL_req->dl_tti_request_body.dl_tti_pdu_list[i];
@@ -442,6 +446,35 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
       case NFAPI_NR_DL_TTI_PDSCH_PDU_TYPE: {
         int tx_data_idx = dl_tti_pdu->pdsch_pdu.pdsch_pdu_rel15.pduIndex;
         if (tx_data_idx < TX_req->Number_of_PDUs && TX_req->pdu_list[tx_data_idx].PDU_index == tx_data_idx) {
+          const nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch = &dl_tti_pdu->pdsch_pdu.pdsch_pdu_rel15;
+
+          rt_l1tx_ctx.valid = 1;
+          rt_l1tx_ctx.dl_pdsch_count++;
+          rt_l1tx_ctx.dl_prb_total += pdsch->rbSize;
+          if ((int)pdsch->nrOfLayers > rt_l1tx_ctx.dl_layers_max)
+            rt_l1tx_ctx.dl_layers_max = pdsch->nrOfLayers;
+
+          const int codewords = pdsch->NrOfCodewords < 2 ? pdsch->NrOfCodewords : 2;
+          for (int cw = 0; cw < codewords; cw++) {
+            const int mcs = pdsch->mcsIndex[cw];
+            const int mcs_table = pdsch->mcsTable[cw];
+
+            rt_l1tx_ctx.dl_tbs_total += pdsch->TBSize[cw];
+
+            if (rt_l1tx_ctx.dl_mcs_min < 0 || mcs < rt_l1tx_ctx.dl_mcs_min)
+              rt_l1tx_ctx.dl_mcs_min = mcs;
+            if (mcs > rt_l1tx_ctx.dl_mcs_max)
+              rt_l1tx_ctx.dl_mcs_max = mcs;
+
+            if (rt_l1tx_ctx.dl_mcs_table_min < 0 || mcs_table < rt_l1tx_ctx.dl_mcs_table_min)
+              rt_l1tx_ctx.dl_mcs_table_min = mcs_table;
+            if (mcs_table > rt_l1tx_ctx.dl_mcs_table_max)
+              rt_l1tx_ctx.dl_mcs_table_max = mcs_table;
+
+            if (pdsch->rvIndex[cw] != 0)
+              rt_l1tx_ctx.dl_rv_nonzero_count++;
+          }
+
           // reuse dlsch variables, as there are multiple very large memory
           // buffers
           gNB->dlsch[num_pdsch].pdsch_pdu = &dl_tti_pdu->pdsch_pdu;
@@ -461,6 +494,8 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
     }
   }
  
+  gNB->rt_l1tx_slot_context = rt_l1tx_ctx;
+
   if (num_pdsch > 0) {
     LOG_D(PHY, "PDSCH generation started (%d) in frame %d.%d\n", num_pdsch, frame, slot);
     nr_generate_pdsch(gNB, num_pdsch, gNB->dlsch, frame, slot);
