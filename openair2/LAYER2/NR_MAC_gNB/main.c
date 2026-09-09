@@ -289,6 +289,9 @@ void mac_top_init_gNB(ngran_node_t node_type,
         cell->sib1_pdsch[n].time_domain_allocation = -1;
       cell->common_channels.ServingCellConfigCommon = scc;
       cell->radio_config = *config;
+      // simulators and tests build nr_mac_config_t without the config parser and leave srs zeroed
+      if (cell->radio_config.srs.comb == 0)
+        cell->radio_config.srs = (nr_srs_config_t){.comb = 2, .ue_per_symbol = 1, .symbols_per_slot = 1, .last_symbol = 12};
       RC.nrmac[i]->rlc_config = *default_rlc_config;
 
       cell->first_MIB = true;
@@ -368,7 +371,7 @@ periodic_ue_sched_t create_period_structure(nr_cell_sched_t *cell, nr_periodic_c
   bool count_mixed = channel != SRS;
   int valid_slots_per_period = count_mixed ? get_ul_slots_per_period(fs) : get_full_ul_slots_per_period(fs);
   int nb_slots = (max_period / fs->numb_slots_period) * valid_slots_per_period;
-  periodic_ue_sched_t p = {.max_period = max_period, .max_ue_per_slot = 1};
+  periodic_ue_sched_t p = {.max_period = max_period, .max_ue_per_slot = nr_srs_ue_per_slot(&cell->radio_config)};
   p.list = calloc_or_fail(nb_slots * p.max_ue_per_slot, sizeof(NR_UE_info_t *));
   return p;
 }
