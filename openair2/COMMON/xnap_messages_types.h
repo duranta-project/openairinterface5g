@@ -502,4 +502,18 @@ typedef struct {
   uint64_t new_ng_ran_cell_id;
 } xnap_retrieve_ue_context_request_t;
 
+/* 3GPP TS 38.423 9.1.1.9 – Retrieve UE Context Response */
+typedef struct {
+  /* New NG-RAN node UE XnAP ID (M) */
+  uint32_t new_ng_node_ue_xnap_id;
+  /* Old NG-RAN node UE XnAP ID (M) */
+  uint32_t old_ng_node_ue_xnap_id;
+  /* GUAMI (M) */
+  nr_guami_t guami;
+  /* UE Context Information – Retrieve UE Context Response (M)
+   * Reuses the Handover Request UE Context Information container (the
+   * mandatory sub-IEs are identical). */
+  xnap_ue_context_info_t ue_context;
+} xnap_retrieve_ue_context_response_t;
+
 #endif /* XNAP_MESSAGES_TYPES_H_ */

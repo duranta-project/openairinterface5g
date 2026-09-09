@@ -56,6 +56,10 @@
 #include "XNAP_I-RNTI.h"
 #include "XNAP_NG-RAN-CellPCI.h"
 #include "XNAP_MAC-I.h"
+#include "XNAP_RetrieveUEContextResponse.h"
+#include "XNAP_UEContextInfoRetrUECtxtResp.h"
+#include "XNAP_AS-SecurityInformation.h"
+#include "XNAP_CPTransportLayerInformation.h"
 
 #endif // XNAP_LIB_INCLUDES_H
 
