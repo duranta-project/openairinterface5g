@@ -235,7 +235,6 @@ bool is_lcid_suspended(NR_UE_MAC_INST_t *mac, int lcid);
 void nr_ra_contention_resolution_failed(NR_UE_MAC_INST_t *mac);
 void nr_ra_succeeded(NR_UE_MAC_INST_t *mac, const frame_t frame, const int slot);
 void nr_ra_backoff_setting(RA_config_t *ra);
-void nr_get_RA_window(NR_UE_MAC_INST_t *mac);
 void prepare_msg4_msgb_feedback(NR_UE_MAC_INST_t *mac, int pid, int ack_nack);
 void configure_initial_pucch(PUCCH_sched_t *pucch, int res_ind, long *pucch_ResourceCommon);
 void release_PUCCH_SRS(NR_UE_MAC_INST_t *mac);

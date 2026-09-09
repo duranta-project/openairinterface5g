@@ -38,19 +38,22 @@
 
 // table 7.2-1 TS 38.321
 const uint16_t table_7_2_1[16] = {
-    5,    // row index 0
-    10,   // row index 1
-    20,   // row index 2
-    30,   // row index 3
-    40,   // row index 4
-    60,   // row index 5
-    80,   // row index 6
-    120,  // row index 7
-    160,  // row index 8
-    240,  // row index 9
-    320,  // row index 10
-    480,  // row index 11
-    960,  // row index 12
+    5, // row index 0
+    10, // row index 1
+    20, // row index 2
+    30, // row index 3
+    40, // row index 4
+    60, // row index 5
+    80, // row index 6
+    120, // row index 7
+    160, // row index 8
+    240, // row index 9
+    320, // row index 10
+    480, // row index 11
+    960, // row index 12
+    1920, // row index 13
+    // the last values should not be sent but 0 won't be relevant
+    1920, // row index 13
     1920, // row index 13
 };
 
@@ -3959,96 +3962,92 @@ nr_dci_format_t nr_ue_process_dci_indication_pdu(NR_UE_MAC_INST_t *mac, frame_t 
   return format;
 }
 
-static bool check_ra_contention_resolution(const uint8_t *pdu, const uint8_t *cont_res)
+static bool check_ra_contention_resolution(const uint8_t *received, const uint8_t *expected)
 {
   if (IS_SOFTMODEM_IQPLAYER) // Control is bypassed when replaying IQs (BMC)
     return true;
-  for (int i = 0; i < 6; i++) {
-    if (pdu[i] != cont_res[i]) {
-      return false;
-    }
-  }
-  return true;
+  return !memcmp(received, expected, 6);
 }
 
 static int nr_ue_validate_successrar(uint8_t *pduP, int32_t pdu_len, NR_UE_MAC_INST_t *mac, frame_t frameP, int slot)
 {
   // TS 38.321 - Figure 6.1.5a-1: BI MAC subheader
   // TS 38.321 - Figure 6.1.5a-3: SuccessRAR MAC subheader
-  int n = 0;
-  uint8_t E = 1;
-  uint8_t cont_res_id[6];
+  if (pdu_len < 2 * sizeof(NR_MAC_CE_TA)) { // at the end we access this byte
+    LOG_E(NR_MAC, "rar pdu len: %d\n", pdu_len);
+    return 0;
+  }
+
   RA_config_t *ra = &mac->ra;
-  ra->RA_backoff_limit = 0;
-
-  while (n < pdu_len && E) {
-    E = (pduP[n] >> 7) & 0x1;
-    uint8_t SUCESS_RAR_header_T1 = (pduP[n] >> 6) & 0x1;
-    if (SUCESS_RAR_header_T1 == 0) { // T2 exist
-      int SUCESS_RAR_header_T2 = (pduP[n] >> 5) & 0x1;
-      if (SUCESS_RAR_header_T2 == 0) { // BI
-        int bi_ms = table_7_2_1[(pduP[n] & 0x0F)] * ra->scaling_factor_bi;
-        int slots_per_ms = mac->frame_structure.numb_slots_frame / 10;
-        ra->RA_backoff_limit = bi_ms * slots_per_ms;
-        n++;
-      } else { // S
-        n++;
-        // TS 38.321 - Figure 6.2.3a-2: successRAR
-        for (int i = 0; i < 6; ++i)
-          cont_res_id[i] = pduP[n + i];
-        n += 6;
-        // Oct 7
-        ra->MsgB_R = 0;
-        ra->MsgB_CH_ACESS_CPEXT = (pduP[n] >> 5) & 0x3;
-        ra->MsgB_TPC = (pduP[n] >> 3) & 3;
-        ra->MsgB_HARQ_FTI = (int8_t)pduP[n] & 0x7;
-        // Oct 8
-        n++;
-        ra->PUCCH_RI = ((int8_t)pduP[n] >> 4) & 0x0F;
-        // Oct 8 and Oct 9
-        ra->timing_advance_command = ((uint16_t)(pduP[n] & 0xf) << 8) | pduP[n + 1];
-        n += 2;
-        // Oct 10 and Oct 11
-        ra->t_crnti = ((uint16_t)pduP[n] << 8) | pduP[n + 1];
-        n += 2;
-
-        LOG_D(NR_MAC,
-              "successRAR: Contention Resolution ID 0x%02x%02x%02x%02x%02x%02x R 0x%01x CH_ACESS_CPEXT 0x%02x TPC 0x%02x "
-              "HARQ_FTI 0x%03x PUCCH_RI 0x%04x TA 0x%012x CRNTI 0x%04x\n",
-              cont_res_id[0],
-              cont_res_id[1],
-              cont_res_id[2],
-              cont_res_id[3],
-              cont_res_id[4],
-              cont_res_id[5],
-              ra->MsgB_R,
-              ra->MsgB_CH_ACESS_CPEXT,
-              ra->MsgB_TPC,
-              ra->MsgB_HARQ_FTI,
-              ra->PUCCH_RI,
-              ra->timing_advance_command,
-              ra->t_crnti);
-
-        bool ra_success = check_ra_contention_resolution(cont_res_id, ra->cont_res_id);
-
-        if (ra->RA_active && ra_success) {
-          nr_timer_stop(&ra->response_window_timer);
-          nr_ra_succeeded(mac, frameP, slot);
-        } else if (!ra_success) {
-          nr_ra_backoff_setting(ra);
-        }
-      }
-    } else { // RAPID
-      int RAPID = pduP[n] & 0x3F;
-      n++;
+  uint8_t *cur_byte = pduP;
+  uint8_t *end = pduP + pdu_len;
+  bool E = true;
+  while (cur_byte < end && E) {
+    E = (*cur_byte >> 7) & 0x1;
+    uint8_t SUCESS_RAR_header_T1 = (*cur_byte >> 6) & 0x1;
+    if (SUCESS_RAR_header_T1 == 1) {
+      // RAPID
+      int RAPID = *cur_byte++ & 0x3F;
       LOG_D(MAC, "RAPID %d\n", RAPID);
       AssertFatal(false, "FallbackRAR not implemented yet!\n");
+      continue;
+    }
+    // T2 exist
+    int SUCESS_RAR_header_T2 = (*cur_byte >> 5) & 0x1;
+    if (SUCESS_RAR_header_T2 == 0) { // BI
+      int bi_ms = table_7_2_1[*cur_byte & 0x0F];
+      int slots_per_ms = mac->frame_structure.numb_slots_frame / 10;
+      ra->RA_backoff_limit = bi_ms * slots_per_ms;
+      cur_byte++;
+      continue;
+    }
+    // S
+    cur_byte++;
+    // TS 38.321 - Figure 6.2.3a-2: successRAR
+    bool ra_success = check_ra_contention_resolution(cur_byte, ra->cont_res_id);
+    uint8_t *for_log = cur_byte;
+    cur_byte += 6;
+    // byte 7
+    ra->MsgB_R = 0;
+    ra->MsgB_CH_ACESS_CPEXT = (*cur_byte >> 5) & 0x3;
+    ra->MsgB_TPC = (*cur_byte >> 3) & 3;
+    ra->MsgB_HARQ_FTI = *cur_byte & 0x7;
+    // byte 8
+    cur_byte++;
+    ra->PUCCH_RI = (*cur_byte >> 4) & 0x0F;
+    // bytes 8 and 9
+    ra->timing_advance_command = (((uint16_t)*cur_byte & 0xf) << 8) | cur_byte[1];
+    cur_byte += 2;
+    // bytes 10 and 11
+    ra->t_crnti = ((uint16_t)*cur_byte << 8) | cur_byte[1];
+
+    LOG_D(NR_MAC,
+          "successRAR: Contention Resolution ID 0x%02x%02x%02x%02x%02x%02x R 0x%01x CH_ACESS_CPEXT 0x%02x TPC 0x%02x "
+          "HARQ_FTI 0x%03x PUCCH_RI 0x%04x TA 0x%012x CRNTI 0x%04x\n",
+          for_log[0],
+          for_log[1],
+          for_log[2],
+          for_log[3],
+          for_log[4],
+          for_log[5],
+          ra->MsgB_R,
+          ra->MsgB_CH_ACESS_CPEXT,
+          ra->MsgB_TPC,
+          ra->MsgB_HARQ_FTI,
+          ra->PUCCH_RI,
+          ra->timing_advance_command,
+          ra->t_crnti);
+
+    if (ra->RA_active && ra_success) {
+      nr_timer_stop(&ra->response_window_timer);
+      nr_ra_succeeded(mac, frameP, slot);
+    } else if (!ra_success) {
+      nr_ra_backoff_setting(ra);
     }
   }
   const int ta = ((NR_MAC_CE_TA *)pduP)[1].TA_COMMAND;
-
   set_time_alignment(mac, ta, adjustment_ta, frameP, slot);
-  return n;
+  return cur_byte - pduP;
 }
 
 #define MAX_NUM_DATA_IND 1024

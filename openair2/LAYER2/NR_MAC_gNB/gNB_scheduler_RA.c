@@ -1082,11 +1082,11 @@ static void nr_fill_rar(NR_UE_info_t *UE, uint8_t *dlsch_buffer, nfapi_nr_pusch_
   // E = 1, MAC PDU includes another MAC sub-PDU (RAPID)
   // T = 0, Back-off indicator subheader
   // R = 2, Reserved
-  // BI = 0, 5ms
+  // BI = 5, 60 ms (we have about 2 occasions per frame of 10ms)
   rarbi->E = 1;
   rarbi->T = 0;
   rarbi->R = 0;
-  rarbi->BI = 0;
+  rarbi->BI = 5;
 
   /// E/T/RAPID subheader ///
   // E = 0, one only RAR, first and last
