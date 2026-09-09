@@ -212,6 +212,16 @@ typedef struct nr_mac_config_s {
   nr_power_config_t pusch;
   /// SNR threshold needed to put or not a PRB in the black list
   int ul_prbblack_SNR_threshold;
+  /// SRS transmission comb, 2 or 4
+  int srs_comb;
+  /// UEs sharing one periodic SRS symbol through comb offsets, at most srs_comb
+  int srs_ue_per_symbol;
+  /// symbols reserved for periodic SRS at the end of a full UL slot
+  int srs_symbols_per_slot;
+  /// last symbol of a full UL slot that periodic SRS may occupy
+  int srs_last_symbol;
+  /// periodic SRS period in slots, 0 to derive it from the cell capacity
+  int srs_periodicity;
   nr_power_config_t pucch;
   nr_mac_timers_t timer_config;
   int num_dlharq;

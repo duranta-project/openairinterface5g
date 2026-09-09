@@ -1671,6 +1671,23 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
     config.pucch.rssi_threshold = *gpd(params, np, MACRLC_PUCCH_RSSI_THRESHOLD)->iptr;
     config.pucch.target_snrx10 = *gpd(params, np, MACRLC_PUCCHTARGETSNRX10)->iptr;
     config.ul_prbblack_SNR_threshold = *gpd(params, np, MACRLC_UL_PRBBLACK_SNR_THRESHOLD)->iptr;
+    config.srs_comb = *gpd(params, np, MACRLC_SRS_COMB)->iptr;
+    config.srs_ue_per_symbol = *gpd(params, np, MACRLC_SRS_UE_PER_SYMBOL)->iptr;
+    config.srs_symbols_per_slot = *gpd(params, np, MACRLC_SRS_SYMBOLS_PER_SLOT)->iptr;
+    config.srs_last_symbol = *gpd(params, np, MACRLC_SRS_LAST_SYMBOL)->iptr;
+    config.srs_periodicity = *gpd(params, np, MACRLC_SRS_PERIODICITY)->iptr;
+    AssertFatal(config.srs_comb == 2 || config.srs_comb == 4, "srs_comb %d must be 2 or 4\n", config.srs_comb);
+    // startPosition is INTEGER (0..5), which bounds how far the SRS block can reach down
+    AssertFatal(config.srs_symbols_per_slot <= config.srs_last_symbol - 7,
+                "srs_last_symbol %d allows at most %d SRS symbols, not %d\n",
+                config.srs_last_symbol,
+                config.srs_last_symbol - 7,
+                config.srs_symbols_per_slot);
+    AssertFatal(config.srs_ue_per_symbol <= config.srs_comb,
+                "srs_ue_per_symbol %d exceeds the %d offsets of comb %d\n",
+                config.srs_ue_per_symbol,
+                config.srs_comb,
+                config.srs_comb);
     config.pucch.failure_thres = *gpd(params, np, MACRLC_PUCCHFAILURETHRES)->iptr;
     config.pusch.failure_thres = *gpd(params, np, MACRLC_PUSCHFAILURETHRES)->iptr;
 

@@ -662,7 +662,7 @@ static void set_dl_maxmimolayers(NR_PDSCH_ServingCellConfig_t *pdsch_servingcell
 static struct NR_SRS_Resource__resourceType__periodic *configure_periodic_srs(const int uid, const nr_cell_sched_t *cell)
 {
   const frame_structure_t *fs = &cell->frame_structure;
-  int offset = get_ul_slot_offset(fs, uid, false); // only full UL slots for SRS
+  int offset = get_ul_slot_offset(fs, uid / nr_srs_ue_per_slot(&cell->radio_config), false); // only full UL slots for SRS
   // checked for validity in verify_radio_configuration
   AssertFatal(offset < 2560, "Cannot allocate SRS configuration for uid %d, not enough resources\n", uid);
   const int ideal_period = set_ideal_period(cell, SRS, 0);
@@ -807,21 +807,26 @@ static NR_SRS_Resource_t *get_srs_resource(const NR_UE_NR_Capability_t *uecap,
 
   srs_res->ptrs_PortIndex = NULL;
   srs_res->transmissionComb.present = tx_comb;
+  // UEs sharing a slot are separated by comb offset first, then moved to an earlier symbol
+  const int idx_in_slot = uid % nr_srs_ue_per_slot(&cell->radio_config);
+  const int comb_offset = idx_in_slot % cell->radio_config.srs_ue_per_symbol;
   switch (tx_comb) {
     case NR_SRS_Resource__transmissionComb_PR_n2:
       srs_res->transmissionComb.choice.n2 = calloc_or_fail(1, sizeof(*srs_res->transmissionComb.choice.n2));
-      srs_res->transmissionComb.choice.n2->combOffset_n2 = 0;
+      srs_res->transmissionComb.choice.n2->combOffset_n2 = comb_offset;
       srs_res->transmissionComb.choice.n2->cyclicShift_n2 = 0;
       break;
     case NR_SRS_Resource__transmissionComb_PR_n4:
       srs_res->transmissionComb.choice.n4 = calloc_or_fail(1, sizeof(*srs_res->transmissionComb.choice.n4));
-      srs_res->transmissionComb.choice.n4->combOffset_n4 = 0;
+      srs_res->transmissionComb.choice.n4->combOffset_n4 = comb_offset;
       srs_res->transmissionComb.choice.n4->cyclicShift_n4 = 0;
       break;
     default:
       AssertFatal(1 == 0, "Invalid transmission comb %d\n", tx_comb);
   }
-  srs_res->resourceMapping.startPosition = 1;
+  // 38.211 counts startPosition back from symbol 13, so srs_last_symbol 12 gives startPosition 1
+  const int first_position = NR_SYMBOLS_PER_SLOT - 1 - cell->radio_config.srs_last_symbol;
+  srs_res->resourceMapping.startPosition = first_position + idx_in_slot / cell->radio_config.srs_ue_per_symbol;
   srs_res->resourceMapping.nrofSymbols = NR_SRS_Resource__resourceMapping__nrofSymbols_n1;
   srs_res->resourceMapping.repetitionFactor = NR_SRS_Resource__resourceMapping__repetitionFactor_n1;
   srs_res->freqDomainPosition = 0;
@@ -862,8 +867,10 @@ static NR_SetupRelease_SRS_Config_t *get_config_srs(const NR_ServingCellConfigCo
   NR_SRS_Config_t *srs_Config = setup_release_srs_Config->choice.setup;
 
   srs_Config->srs_ResourceToAddModList = calloc_or_fail(1, sizeof(*srs_Config->srs_ResourceToAddModList));
-  NR_SRS_Resource_t *srs_res0 =
-      get_srs_resource(uecap, cell, curr_bwp, uid, res_id, maxMIMO_Layers, NR_SRS_Resource__transmissionComb_PR_n2, do_srs);
+  const NR_SRS_Resource__transmissionComb_PR tx_comb = cell->radio_config.srs_comb == 4
+                                                           ? NR_SRS_Resource__transmissionComb_PR_n4
+                                                           : NR_SRS_Resource__transmissionComb_PR_n2;
+  NR_SRS_Resource_t *srs_res0 = get_srs_resource(uecap, cell, curr_bwp, uid, res_id, maxMIMO_Layers, tx_comb, do_srs);
   asn1cSeqAdd(&srs_Config->srs_ResourceToAddModList->list, srs_res0);
 
   srs_Config->srs_ResourceSetToAddModList = calloc_or_fail(1, sizeof(*srs_Config->srs_ResourceSetToAddModList));
@@ -1084,7 +1091,7 @@ static int tda_cmp(const void *tda_a, const void *tda_b)
 /* \brief Set up a list of time domain allocations as suitable for the TDD
  * pattern. This will be used by get_num_ul_tda(), which requires a specific
  * ordering, hence we qsort() the list at the end according to tda_cmp(). */
-void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc, int min_fb_delay, nr_srs_type_t do_SRS)
+void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc, int min_fb_delay, nr_srs_type_t do_SRS, int pusch_symbols)
 {
   NR_PUSCH_TimeDomainResourceAllocationList_t *tda_list =
       scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList;
@@ -1100,7 +1107,7 @@ void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc, int min_fb_delay, n
 
   // UL TDA index 1 in case of SRS
   if (do_SRS != NO_SRS) {
-    tda = set_TimeDomainResourceAllocation(k2, get_SLIV(0, 12));
+    tda = set_TimeDomainResourceAllocation(k2, get_SLIV(0, pusch_symbols));
     asn1cSeqAdd(&tda_list->list, tda);
   }
 
@@ -1154,7 +1161,7 @@ void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc, int min_fb_delay, n
         tda = set_TimeDomainResourceAllocation(i, get_SLIV(0, 13));
         asn1cSeqAdd(&tda_list->list, tda);
         if (do_SRS != NO_SRS) {
-          tda = set_TimeDomainResourceAllocation(i, get_SLIV(0, 12));
+          tda = set_TimeDomainResourceAllocation(i, get_SLIV(0, pusch_symbols));
           asn1cSeqAdd(&tda_list->list, tda);
         }
       }
@@ -3758,9 +3765,9 @@ static bool verify_radio_configuration(int uid,
 {
   const nr_mac_config_t *configuration = &cell->radio_config;
   const frame_structure_t *fs = &cell->frame_structure;
-  int srs_offset = get_ul_slot_offset(fs, uid, false);
+  int srs_offset = get_ul_slot_offset(fs, uid / nr_srs_ue_per_slot(configuration), false);
   // see configure_periodic_srs
-  if (srs_offset >= 2560) {
+  if (configuration->do_SRS == PERIODIC_SRS && srs_offset >= set_ideal_period(cell, SRS, 0)) {
     LOG_E(NR_RRC, "UID %d, cannot allocate resources for SRS, rejecting UE\n", uid);
     return false;
   }

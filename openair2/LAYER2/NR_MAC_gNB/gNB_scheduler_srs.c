@@ -534,13 +534,14 @@ static bool nr_fill_nfapi_srs(gNB_MAC_INST *nrmac,
                               NR_UE_info_t *UE,
                               int frame,
                               int slot,
-                              NR_sched_srs_t *sched_srs)
+                              NR_sched_srs_t *sched_srs,
+                              uint16_t *srs_symbols)
 {
   int slots_frame = cell->frame_structure.numb_slots_frame;
   int index = ul_buffer_index(frame, slot, slots_frame, cell->UL_tti_req_ahead_size);
   NR_beam_alloc_t beam = beam_allocation_procedure(&cell->beam_info, frame, slot, UE->UE_beam_index, slots_frame);
   if (beam.idx < 0) {
-    LOG_W(NR_MAC, "Cannot allocate aperiodic SRS in any available beam\n");
+    LOG_W(NR_MAC, "Cannot allocate SRS in any available beam\n");
     return false;
   }
 
@@ -550,20 +551,23 @@ static bool nr_fill_nfapi_srs(gNB_MAC_INST *nrmac,
   const uint8_t l0 = NR_SYMBOLS_PER_SLOT - 1 - srs_resource->resourceMapping.startPosition;
   uint16_t mask = SL_to_bitmap(l0, num);
   DevAssert(mask != 0);
+  // comb-multiplexed UEs share a symbol without colliding, which the VRB map cannot express
+  const uint16_t claim = mask & ~*srs_symbols;
   for (int i = 0; i < UE->current_UL_BWP.BWPSize; ++i) {
     int rb = i + UE->current_UL_BWP.BWPStart;
-    uint16_t alloc = vrb_map_UL[rb] & mask;
+    uint16_t alloc = vrb_map_UL[rb] & claim;
     // we allocate SRS regardless of prohibited UL PRBs (already present in VRB map)
     if (alloc != 0 && cell->ulprbbl[rb] == 0) {
-      LOG_W(NR_MAC, "RB %d not free for SRS: alloc 0x%02x for mask 0x%02x\n", rb, alloc, mask);
+      LOG_W(NR_MAC, "RB %d not free for SRS: alloc 0x%02x for mask 0x%02x\n", rb, alloc, claim);
       // resetting the resources allocated for SRS
       reset_beam_status(&cell->beam_info, frame, slot, UE->UE_beam_index, slots_frame, beam.new_beam);
       for (int j = UE->current_UL_BWP.BWPStart; j < rb; ++j)
-        vrb_map_UL[j] &= ~mask;
+        vrb_map_UL[j] &= ~claim;
       return false;
     }
     vrb_map_UL[rb] |= mask;
   }
+  *srs_symbols |= mask;
 
   nfapi_nr_ul_tti_request_t *future_ul_tti_req = &cell->UL_tti_req_ahead[index];
   AssertFatal(future_ul_tti_req->n_pdus <
@@ -604,12 +608,14 @@ void nr_schedule_periodic_srs(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_
   int idx = get_ul_period_idx_from_abs_slot(&cell->frame_structure, abs_slot, false, cell->periodic_srs_config.max_period);
   if (idx < 0) // Not an UL slot
     return;
+  uint16_t srs_symbols = 0;
   for (int i = 0; i < cell->periodic_srs_config.max_ue_per_slot; i++) {
     NR_UE_info_t *UE = *get_periodic_ue(&cell->periodic_srs_config, idx, i);
     if (!UE || (!nr_mac_ue_is_active(UE) && !get_softmodem_params()->phy_test))
       continue;
-    bool ret = nr_fill_nfapi_srs(nrmac, cell, UE, sched_frame, sched_slot, &UE->UE_sched_ctrl.sched_srs);
-    AssertFatal(ret, "Cannot allocate periodic SRS\n");
+    // PRACH and Msg3 can take the SRS symbols, nr_fill_nfapi_srs() reports it
+    if (!nr_fill_nfapi_srs(nrmac, cell, UE, sched_frame, sched_slot, &UE->UE_sched_ctrl.sched_srs, &srs_symbols))
+      continue;
     LOG_D(NR_MAC," %d.%d Scheduling SRS reception for %d.%d\n", frame, slot, sched_frame, sched_slot);
   }
 }
@@ -626,7 +632,8 @@ bool nr_schedule_aperiodic_srs(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_UE
     LOG_E(NR_MAC, "Aperiodic SRS offset %d for trigger state %d doesn't match with K2 %d\n", offset, sched_srs, k2);
     return false;
   }
-  if (!nr_fill_nfapi_srs(nrmac, cell, UE, sched_frame, sched_slot, srs))
+  uint16_t srs_symbols = 0;
+  if (!nr_fill_nfapi_srs(nrmac, cell, UE, sched_frame, sched_slot, srs, &srs_symbols))
     return false;
   LOG_D(NR_MAC,"Scheduling aperiodic SRS reception for %d.%d\n", sched_frame, sched_slot);
   nr_timer_start(&srs->aperiodic_sched.aperiodic_srs_timer);  // restart the timer, we are scheduling aperiodic SRS
