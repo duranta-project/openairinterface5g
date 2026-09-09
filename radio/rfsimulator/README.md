@@ -240,6 +240,19 @@ Example: `0,-2,-3` means the 1st beam is the reference, the 2nd beam has 2 dB ex
 All beam gain is applied once, on the gNB side (on Tx for DL, on Rx for UL), using whichever beam the gNB is currently on.
 The UE's own samples are never touched: DL arrives already scaled, and UL is scaled by the receiver (the gNB), not the sender.
 
+## Runtime commands
+
+### Changing the beam gains
+
+Use telnet command `rfsimulator setbeamgains <gain1,gain2,...>` to replace the gNB's beam gain table at
+runtime, e.g. to script a UE moving through the gNB's beam space over the course of a test without
+restarting the simulator. This changes what each beam id *means* (the fixed table); it has nothing to
+do with which beam is currently *active* — that remains exclusively driven by the real beam management
+code via `trx_set_beams`, and there is no runtime command to override it.
+
+Shrinking the table below the number of beams actually in use will crash on the next lookup against an
+out-of-range beam id; there is no runtime validation against what the gNB is currently sweeping.
+
 ## Programming guide
 
 RFsimulator is attempting to simulate hardware device operation, but there are differences. Like with real hardware,

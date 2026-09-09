@@ -107,6 +107,7 @@ static int rfsimu_setchanmod_cmd(char *buff, int debug, telnet_printfunc_t prnt,
 static int rfsimu_setdistance_cmd(char *buff, int debug, telnet_printfunc_t prnt, void *arg);
 static int rfsimu_getdistance_cmd(char *buff, int debug, telnet_printfunc_t prnt, void *arg);
 static int rfsimu_vtime_cmd(char *buff, int debug, telnet_printfunc_t prnt, void *arg);
+static int rfsimu_set_beam_gains(char *buff, int debug, telnet_printfunc_t prnt, void *arg);
 // clang-format off
 static telnetshell_cmddef_t rfsimu_cmdarray[] = {
     {"show models", "", (cmdfunc_t)rfsimu_setchanmod_cmd, {(webfunc_t)getset_currentchannels_type}, TELNETSRV_CMDFLAG_WEBSRVONLY | TELNETSRV_CMDFLAG_GETWEBTBLDATA, NULL},
@@ -114,6 +115,7 @@ static telnetshell_cmddef_t rfsimu_cmdarray[] = {
     {"setdistance", "<model name> <distance>", (cmdfunc_t)rfsimu_setdistance_cmd, {NULL}, TELNETSRV_CMDFLAG_PUSHINTPOOLQ | TELNETSRV_CMDFLAG_NEEDPARAM },
     {"getdistance", "<model name>", (cmdfunc_t)rfsimu_getdistance_cmd, {NULL}, TELNETSRV_CMDFLAG_PUSHINTPOOLQ},
     {"vtime", "", (cmdfunc_t)rfsimu_vtime_cmd, {NULL}, TELNETSRV_CMDFLAG_PUSHINTPOOLQ | TELNETSRV_CMDFLAG_AUTOUPDATE},
+    {"setbeamgains", "gain1,gain2,...", (cmdfunc_t)rfsimu_set_beam_gains, {NULL}, TELNETSRV_CMDFLAG_PUSHINTPOOLQ | TELNETSRV_CMDFLAG_NEEDPARAM},
     {"", "", NULL},
 };
 // clang-format on
@@ -173,6 +175,7 @@ typedef struct buffer_s {
 typedef struct {
   int enable_beams;
   std::vector<float> beam_gains;
+  std::mutex gains_mutex;
   beam_state_t active;
 } rfsim_beam_ctrl_t;
 
@@ -451,14 +454,16 @@ static void fullwrite(int fd, void *_buf, ssize_t count, rfsimulator_state_t *t)
 
 static float get_beam_gain_db(rfsimulator_state_t *rfsimulator, uint beam_id)
 {
-  if (!rfsimulator->beam_ctrl->enable_beams) {
+  rfsim_beam_ctrl_t *beam_ctrl = rfsimulator->beam_ctrl;
+  if (!beam_ctrl->enable_beams) {
     return 0;
   }
-  AssertFatal(beam_id < rfsimulator->beam_ctrl->beam_gains.size(),
+  std::lock_guard<std::mutex> lock(beam_ctrl->gains_mutex);
+  AssertFatal(beam_id < beam_ctrl->beam_gains.size(),
               "Beam gain for beam %d was not provided (only %zu beam gains configured)\n",
               beam_id,
-              rfsimulator->beam_ctrl->beam_gains.size());
-  return rfsimulator->beam_ctrl->beam_gains[beam_id];
+              beam_ctrl->beam_gains.size());
+  return beam_ctrl->beam_gains[beam_id];
 }
 
 // Called from trx_set_beams(), driven by the real MAC/L2 beam management code. This is the only
@@ -474,13 +479,15 @@ static int rfsimulator_set_beams_vector(openair0_device_t *device, uint16_t *bea
   return 0;
 }
 
-static void process_gains(char *str, rfsim_beam_ctrl_t *beam_ctrl)
+static std::vector<float> parse_beam_gains(const char *str)
 {
+  std::vector<float> gains;
   std::stringstream ss(str);
   std::string token;
-  while (std::getline(ss, token, ',') && beam_ctrl->beam_gains.size() < MAX_BEAMS) {
-    beam_ctrl->beam_gains.push_back(std::stof(token));
+  while (std::getline(ss, token, ',') && gains.size() < MAX_BEAMS) {
+    gains.push_back(std::stof(token));
   }
+  return gains;
 }
 
 static void rfsimulator_readconfig(rfsimulator_state_t *rfsimulator)
@@ -553,13 +560,38 @@ static void rfsimulator_readconfig(rfsimulator_state_t *rfsimulator)
 
   int beam_gains_param_index = config_paramidx_fromname(rfsimuParams, sizeofArray(rfsimuParams), RFSIMU_BEAM_GAINS);
   if (rfsimuParam[beam_gains_param_index].strptr) {
-    process_gains(*rfsimuParam[beam_gains_param_index].strptr, beam_ctrl);
+    beam_ctrl->beam_gains = parse_beam_gains(*rfsimuParam[beam_gains_param_index].strptr);
   }
 
   if (strncasecmp(rfsimulator->ip, "enb", 3) == 0 || strncasecmp(rfsimulator->ip, "server", 3) == 0)
     rfsimulator->role = SIMU_ROLE_SERVER;
   else
     rfsimulator->role = SIMU_ROLE_CLIENT;
+}
+
+// Modifies the fixed beam gain table at runtime, e.g. to script a UE moving through the gNB's beam
+// space over the course of a test, without restarting the simulator. This is unrelated to which beam
+// is currently active -- that's still exclusively driven by the real trx_set_beams() calls -- this
+// only changes what each beam id currently means.
+static int rfsimu_set_beam_gains(char *buff, int debug, telnet_printfunc_t prnt, void *arg)
+{
+  UNUSED(debug);
+  rfsimulator_state_t *t = (rfsimulator_state_t *)arg;
+  rfsim_beam_ctrl_t *beam_ctrl = t->beam_ctrl;
+  AssertFatal(beam_ctrl->enable_beams, "Beam simulation is disabled, cannot set beam gains\n");
+  std::vector<float> gains = parse_beam_gains(buff);
+  if (gains.empty()) {
+    prnt("No valid gains parsed from \"%s\", beam gains left unchanged\n", buff);
+    return CMDSTATUS_FOUND;
+  }
+  {
+    std::lock_guard<std::mutex> lock(beam_ctrl->gains_mutex);
+    beam_ctrl->beam_gains = gains;
+  }
+  prnt("Beam gains set to %zu values; note this will crash on the next lookup if the currently active "
+       "beam id is now out of range\n",
+       gains.size());
+  return CMDSTATUS_FOUND;
 }
 
 static int rfsimu_setchanmod_cmd(char *buff, int debug, telnet_printfunc_t prnt, void *arg)
