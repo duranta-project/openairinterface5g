@@ -1185,6 +1185,7 @@ set(NR_L2_SRC_UE
   ${NR_PDCP_SRC_UE}
   ${NR_SDAP_SRC}
   ${NR_UE_RRC_DIR}/L2_interface_ue.c
+  ${NR_UE_RRC_DIR}/lpp_prs_ue.c
   ${NR_UE_RRC_DIR}/main_ue.c
   ${NR_UE_RRC_DIR}/rrc_UE.c
   ${NR_UE_RRC_DIR}/verify_RRC.c
@@ -1365,7 +1366,7 @@ target_link_libraries(L2_UE PRIVATE asn1_lte_rrc_hdrs)
 
 add_library( NR_L2_UE ${NR_L2_SRC_UE} ${MAC_NR_SRC_UE} )
 target_link_libraries(NR_L2_UE PRIVATE nr_rlc ds alg)
-target_link_libraries(NR_L2_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs nr_common nr_ue_power_procedures nr_ue_ra_procedures)
+target_link_libraries(NR_L2_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs asn1_lpp nr_common nr_ue_power_procedures nr_ue_ra_procedures)
 target_link_libraries(NR_L2_UE PRIVATE nr_nas)
 
 # L3 Libs

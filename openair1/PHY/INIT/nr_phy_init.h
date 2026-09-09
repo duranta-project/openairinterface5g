@@ -24,6 +24,7 @@ void init_nr_transport(PHY_VARS_gNB *gNB);
 void reset_nr_transport(PHY_VARS_gNB *gNB);
 
 void RCconfig_nrUE_prs(void *cfg);
+void nr_ue_apply_pending_prs_configuration(PHY_VARS_NR_UE *ue);
 void init_nr_prs_ue_vars(PHY_VARS_NR_UE *ue);
 void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb);
 void nr_init_ul_harq_processes(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb, int num_ant_tx);
