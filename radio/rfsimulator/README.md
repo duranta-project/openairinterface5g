@@ -222,44 +222,23 @@ beam ID at a time — not a set of concurrent beams. Different antennas may be a
 one beam ID simultaneously. The beam vector sent alongside the samples therefore always has one entry per
 antenna, and there is no separate "concurrent beam count" to configure.
 
+Only the gNB side has a real, switchable beam — a physical property of its antenna array and the
+channel. The UE does not switch beams; it simply sits at a fixed position relative to the gNB's beam
+space, so the loss it experiences depends only on which of the gNB's beams is currently active.
+
 ## Configuration
 
-Several new CLI parameters were added
+Command line parameters to be set on gNB side only.
 
-* `--rfsimulator.[0].enable_beams` : enable beam domain simulation. Should match on server and all clients.
-* `--rfsimulator.[0].beam_gains <comma separated list>` : define a matrix of additional pathloss values (in dB)
-to simulate the effect of different beam combinations in the RF simulator. You provide a comma-separated
-list of numbers, which forms the first row of a square matrix. The rest of the matrix is filled by projecting
-these values onto the diagonals, making it symmetric.
+* `--rfsimulator.[0].enable_beams` : enable beam domain simulation
+* `--rfsimulator.[0].beam_gains <comma separated list>` : one gain/loss value (in dB) per gNB beam id.
+`beam_gains[k]` is the additional pathloss applied, on top of the channel model (if present), whenever
+the gNB's antenna is on beam `k`.
 
- Example list: `0,-2,-3`
- Resulting matrix:
- ```
- [[0,-2,-3],
-  [-2,0,-2],
-  [-3,-2,0]]
- ```
+Example: `0,-2,-3` means the 1st beam is the reference, the 2nd beam has 2 dB extra loss, the 3rd beam has 3 dB extra loss.
 
- The beam gain matrix will be used during beam combining. RX beam selects the row and TX beam selects column.
- Using the example above, if gNB is receiving in beam 1 and the UE is transmitting in beam 1, an additional
- 2 dB pathloss will be applied on top of the pathloss from the channel model (if present).
-
-* `--rfsimulator.[0].beam_ids <beam_ids>` : where `<beam_ids>` is a comma-separated list of initial beam IDs,
-   one per antenna/IQ stream (`nb_tx`/`nb_rx`).
-   For gNB: initial beam ID per antenna, i.e. which beam the gNB transmits/receives on before calling the beam API.
-   For UE: beam position in beam space in the simulation. The UE is not expected to use the beam API for now.
-
-## Runtime commands
-
-### Moving the UE in beam space
-
-Use telnet command `rfsimulator setbeamids <beam_id1,beam_id2,...>` (one beam ID per antenna). It corresponds to
-the `beam_ids` CLI parameter described above and works the same way, replacing the beam ID(s) currently in effect.
-
-### Modifying the gNB beam
-
-It is possible to test the beam domain simulation without implementing the beam APIs. The same telnet command can be used
-to modify the tx/rx beam of the gNB. The gNB does not need to be beam-aware and use the new APIs. 
+All beam gain is applied once, on the gNB side (on Tx for DL, on Rx for UL), using whichever beam the gNB is currently on.
+The UE's own samples are never touched: DL arrives already scaled, and UL is scaled by the receiver (the gNB), not the sender.
 
 ## Programming guide
 
