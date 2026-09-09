@@ -31,7 +31,7 @@ void init_nr_prs_ue_vars(PHY_VARS_NR_UE *ue)
   NR_DL_FRAME_PARMS *const fp  = &ue->frame_parms;
 
   // PRS vars init
-  for(int idx = 0; idx < NR_MAX_PRS_COMB_SIZE; idx++)
+  for(int idx = 0; idx < NR_MAX_PRS_TARGETS; idx++)
   {
     prs_vars[idx] = malloc16_clear(sizeof(NR_UE_PRS));
     // PRS channel estimates

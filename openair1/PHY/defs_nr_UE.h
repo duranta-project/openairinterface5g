@@ -16,6 +16,7 @@
 #endif
 
 #include "defs_nr_common.h"
+#include "openair2/COMMON/nr_ue_prs_config.h"
 #include "PHY/defs_nr_sl_UE.h"
 #include "openair1/PHY/nr_phy_common/inc/nr_ue_phy_meas.h"
 #include "common/utils/threadPool/task_ans.h"
