@@ -177,4 +177,41 @@
 }
 
 /*---------------------------------------------------------------------------------------------------------------------------------------------------------*/
+/* SRS configuration parameters section name */
+#define MACRLC_CONFIG_STRING_SRS_CONFIG      "srs"
+
+/* SRS configuration parameters names   */
+#define MACRLC_SRS_COMB                      "comb"
+#define MACRLC_SRS_UE_PER_SYMBOL             "ue_per_symbol"
+#define MACRLC_SRS_SYMBOLS_PER_SLOT          "symbols_per_slot"
+#define MACRLC_SRS_LAST_SYMBOL               "last_symbol"
+#define MACRLC_SRS_PERIODICITY               "periodicity"
+
+/*-------------------------------------------------------------------------------------------------------------------------------------------------------*/
+/*                                            SRS configuration parameters                                                                               */
+/*   optname                            helpstr   paramflags    XXXptr        defXXXval           type           numelt                                   */
+/*-------------------------------------------------------------------------------------------------------------------------------------------------------*/
+// clang-format off
+#define MACRLC_SRSPARAMS_DESC { \
+  {MACRLC_SRS_COMB, \
+    "SRS transmission comb, 2 or 4", 0, .iptr=NULL, .defintval=2, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s1 = {config_check_intval, {2, 4}, 2}}}, \
+  {MACRLC_SRS_UE_PER_SYMBOL, \
+    "UEs sharing one periodic SRS symbol through comb offsets, at most comb", 0, .iptr=NULL, .defintval=1, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {1, 4}}}}, \
+  {MACRLC_SRS_SYMBOLS_PER_SLOT, \
+    "Symbols reserved for periodic SRS at the end of a full UL slot", 0, .iptr=NULL, .defintval=1, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {1, 6}}}}, \
+  {MACRLC_SRS_LAST_SYMBOL, \
+    "Last symbol of a full UL slot usable by periodic SRS, lower it to reserve the slot tail", 0, .iptr=NULL, \
+    .defintval=12, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {8, 13}}}}, \
+  {MACRLC_SRS_PERIODICITY, \
+    "Periodic SRS period in slots, rounded up to a valid value fitting the TDD period, 0 to derive it from the cell " \
+    "capacity", 0, .iptr=NULL, .defintval=0, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {0, 2560}}}}, \
+}
+// clang-format on
+
+/*---------------------------------------------------------------------------------------------------------------------------------------------------------*/
 #endif
