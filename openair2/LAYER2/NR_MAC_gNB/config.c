@@ -322,6 +322,16 @@ int get_ul_slots_per_period(const frame_structure_t *fs)
 }
 
 /**
+ * @brief Get number of periodic SRS UEs that fit in one full UL slot
+ * @param rc Pointer to the MAC radio configuration
+ * @return Number of UEs, comb offsets times SRS symbols, since each UE SRS resource spans one symbol
+ */
+int nr_srs_ue_per_slot(const nr_mac_config_t *rc)
+{
+  return rc->srs.ue_per_symbol * rc->srs.symbols_per_slot;
+}
+
+/**
  * @brief Get number of full UL slots per period
  * @param fs Pointer to the frame structure
  * @return Number of full UL slots
@@ -1004,6 +1014,9 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
 
   cell->common_channels.ServingCellConfigCommon = scc;
   cell->radio_config = *config;
+  // simulators and tests build nr_mac_config_t without the config parser and leave srs zeroed
+  if (cell->radio_config.srs.comb == 0)
+    cell->radio_config.srs = (nr_srs_config_t){.comb = 2, .ue_per_symbol = 1, .symbols_per_slot = 1, .last_symbol = 12};
   cell->common_channels.mib = get_new_MIB_NR(scc);
   cell->first_MIB = true;
   cell->ul_next = (fsn_t) {.mu = *scc->ssbSubcarrierSpacing};
@@ -1059,7 +1072,8 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
                        scc->tdd_UL_DL_ConfigurationCommon,
                        csi_symbols_in_slot(scc),
                        num_symb_cset);
-  nr_rrc_config_ul_tda(scc, rc->minRXTXTIME, rc->do_SRS);
+  // PUSCH ends where the SRS block starts, counting down from the last SRS symbol
+  nr_rrc_config_ul_tda(scc, rc->minRXTXTIME, rc->do_SRS, rc->srs.last_symbol - rc->srs.symbols_per_slot + 1);
   seq_arr_init(&cell->ul_tda, sizeof(NR_tda_info_t));
   init_ul_tda_info(scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList, &cell->ul_tda);
 
