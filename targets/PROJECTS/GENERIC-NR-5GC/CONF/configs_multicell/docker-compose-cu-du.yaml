@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: MIT
+#
+# CU-DU split deployment for a 2-cell Aerial setup.
+# Uses cu.conf (CU: F1 southbound + AMF) and du.conf (DU: Aerial L1 + F1 northbound).
+# The DU waits for both nv-cubb (L1 ready) and oai-gnb-cu (F1 ready) before starting.
+
+services:
+  nv-cubb:
+    container_name: nv-cubb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities:
+                - gpu
+    network_mode: host
+    shm_size: 4096m
+    privileged: true
+    stdin_open: true
+    tty: true
+    volumes:
+      - /lib/modules:/lib/modules
+      - /dev/hugepages:/dev/hugepages
+      - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
+      - /run/systemd/system:/run/systemd/system
+      - ./cuphycontroller_P5G_WNC_FXN_GH.yaml:/opt/nvidia/cuBB/cuPHY-CP/cuphycontroller/config/cuphycontroller_P5G_WNC_GH.yaml
+      - ./l2_adapter.yaml:/opt/nvidia/cuBB/cuPHY-CP/cuphycontroller/config/l2_adapter_config_P5G_GH.yaml
+      - ./nvipc_multi_instances.yaml:/opt/nvidia/cuBB/cuPHY-CP/cuphycontroller/config/nvipc_multi_instances.yaml
+      - /var/log/aerial:/var/log/aerial
+    userns_mode: host
+    ipc: "shareable"
+    image: nv-cubb:26-1
+    environment:
+      - cuBB_SDK=/opt/nvidia/cuBB
+    command: bash -c "/opt/nvidia/cuBB/run-l1.sh"
+    healthcheck:
+      test: ["CMD-SHELL",'grep -q "L1 is ready!" /tmp/phy.log && echo 0 || echo 1']
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  oai-gnb-cu:
+    image: ${REGISTRY-oaisoftwarealliance/}${GNB_IMG:-oai-gnb-aerial}:${TAG:-develop}
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_NICE
+    environment:
+      USE_ADDITIONAL_OPTIONS: --telnetsrv --telnetsrv.shrmod ci  --log_config.global_log_options level,nocolor,utc_time
+#    entrypoint: "/opt/oai-gnb/bin/entrypoint.sh gdb -ex run --args  /opt/oai-gnb/bin/nr-softmodem  "
+#    command: "/opt/oai-gnb/bin/nr-softmodem"
+    network_mode: host
+    tty: true
+    volumes:
+      - ./cu.conf:/opt/oai-gnb/etc/gnb.conf
+      - ./neighbour-config.conf:/opt/oai-gnb/etc/neighbour-config.conf
+    container_name: oai-gnb-cu
+    healthcheck:
+      test: /bin/bash -c "ps aux | grep -v grep | grep -c softmodem"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  oai-gnb-du:
+    cpuset: "13-16"
+    image: ${REGISTRY-oaisoftwarealliance/}${GNB_IMG:-oai-gnb-aerial}:${TAG:-develop}
+    depends_on:
+      nv-cubb:
+        condition: service_healthy
+      oai-gnb-cu:
+        condition: service_healthy
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_NICE
+      - IPC_LOCK
+    ipc: "container:nv-cubb"
+    environment:
+      USE_ADDITIONAL_OPTIONS: --log_config.global_log_options level,nocolor,utc_time
+      NFAPI_TRACE_LEVEL: error
+#    entrypoint: "/opt/oai-gnb/bin/entrypoint.sh gdb -ex run --args  /opt/oai-gnb/bin/nr-softmodem "
+    network_mode: host
+    shm_size: 4096m
+    tty: true
+    volumes:
+      - ./du.conf:/opt/oai-gnb/etc/gnb.conf
+    container_name: oai-gnb-du
+    healthcheck:
+      test: /bin/bash -c "ps aux | grep -v grep | grep -c softmodem"
+      interval: 10s
+      timeout: 5s
+      retries: 5
