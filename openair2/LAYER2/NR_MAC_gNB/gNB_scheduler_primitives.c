@@ -3011,6 +3011,8 @@ void configure_UE_BWP(nr_cell_sched_t *cell,
   if (is_RA && !UL_BWP->rach_ConfigCommon) {
     LOG_I(NR_MAC, "Cannot perform RA in current BWP, switching to initial BWP\n");
     UE->local_bwp_id = 0;
+    /* Move the UE back to its dedicated BWP once RA/reconfiguration completes */
+    UE->pending_bwp_restore = true;
     configure_UE_BWP(cell, scc, UE, is_RA, target_ss, 0, 0);
     return;
   }
