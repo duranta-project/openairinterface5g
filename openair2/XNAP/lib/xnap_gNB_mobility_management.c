@@ -2220,3 +2220,100 @@ void free_xnap_retrieve_ue_context_response(xnap_retrieve_ue_context_response_t 
 {
   free_xnap_ue_context_info(&msg->ue_context);
 }
+
+/**
+ * @brief XnAP Retrieve UE Context Failure (9.1.1.10) encoding
+ */
+XNAP_XnAP_PDU_t *encode_xnap_retrieve_ue_context_failure(const xnap_retrieve_ue_context_failure_t *msg)
+{
+  XNAP_XnAP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+
+  pdu->present = XNAP_XnAP_PDU_PR_unsuccessfulOutcome;
+  asn1cCalloc(pdu->choice.unsuccessfulOutcome, unsuccMsg);
+  unsuccMsg->procedureCode = XNAP_ProcedureCode_id_retrieveUEContext;
+  unsuccMsg->criticality = XNAP_Criticality_reject;
+  unsuccMsg->value.present = XNAP_UnsuccessfulOutcome__value_PR_RetrieveUEContextFailure;
+
+  XNAP_RetrieveUEContextFailure_t *out = &unsuccMsg->value.choice.RetrieveUEContextFailure;
+
+  /* New NG-RAN node UE XnAP ID (M) 9.2.3.16 */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_RetrieveUEContextFailure_IEs_t, ie1);
+  ie1->id = XNAP_ProtocolIE_ID_id_newNG_RANnodeUEXnAPID;
+  ie1->criticality = XNAP_Criticality_ignore;
+  ie1->value.present = XNAP_RetrieveUEContextFailure_IEs__value_PR_NG_RANnodeUEXnAPID;
+  ie1->value.choice.NG_RANnodeUEXnAPID = msg->new_ng_node_ue_xnap_id;
+
+  /* Cause (M) 9.2.3.2 */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_RetrieveUEContextFailure_IEs_t, ie2);
+  ie2->id = XNAP_ProtocolIE_ID_id_Cause;
+  ie2->criticality = XNAP_Criticality_ignore;
+  ie2->value.present = XNAP_RetrieveUEContextFailure_IEs__value_PR_Cause;
+  xnap_gNB_set_cause(&ie2->value.choice.Cause, &msg->cause);
+
+  return pdu;
+}
+
+/**
+ * @brief XnAP Retrieve UE Context Failure (9.1.1.10) decoding
+ */
+bool decode_xnap_retrieve_ue_context_failure(xnap_retrieve_ue_context_failure_t *out, const XNAP_XnAP_PDU_t *pdu)
+{
+  _EQ_CHECK_INT(pdu->present, XNAP_XnAP_PDU_PR_unsuccessfulOutcome);
+  AssertError(pdu->choice.unsuccessfulOutcome != NULL, return false, "unsuccessfulOutcome is NULL");
+  _EQ_CHECK_LONG(pdu->choice.unsuccessfulOutcome->procedureCode, XNAP_ProcedureCode_id_retrieveUEContext);
+  _EQ_CHECK_INT(pdu->choice.unsuccessfulOutcome->value.present, XNAP_UnsuccessfulOutcome__value_PR_RetrieveUEContextFailure);
+
+  XNAP_RetrieveUEContextFailure_t *in = &pdu->choice.unsuccessfulOutcome->value.choice.RetrieveUEContextFailure;
+  XNAP_RetrieveUEContextFailure_IEs_t *ie;
+
+  XNAP_LIB_FIND_IE(XNAP_RetrieveUEContextFailure_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_newNG_RANnodeUEXnAPID, true);
+  XNAP_LIB_FIND_IE(XNAP_RetrieveUEContextFailure_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_Cause, true);
+
+  for (int i = 0; i < in->protocolIEs.list.count; i++) {
+    DevAssert(in->protocolIEs.list.array[i]);
+    ie = in->protocolIEs.list.array[i];
+
+    switch (ie->id) {
+      case XNAP_ProtocolIE_ID_id_newNG_RANnodeUEXnAPID: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_RetrieveUEContextFailure_IEs__value_PR_NG_RANnodeUEXnAPID);
+        out->new_ng_node_ue_xnap_id = ie->value.choice.NG_RANnodeUEXnAPID;
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_Cause: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_RetrieveUEContextFailure_IEs__value_PR_Cause);
+        out->cause = decode_xnap_cause(&ie->value.choice.Cause);
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_OldtoNewNG_RANnodeResumeContainer:
+      case XNAP_ProtocolIE_ID_id_CriticalityDiagnostics:
+        PRINT_ERROR("XNAP_ProtocolIE_ID_id %ld not handled, skipping\n", ie->id);
+        break;
+
+      default:
+        PRINT_ERROR("XNAP_ProtocolIE_ID_id %ld unknown, skipping\n", ie->id);
+        break;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * @brief XnAP Retrieve UE Context Failure (9.1.1.10) equality function
+ */
+bool eq_xnap_retrieve_ue_context_failure(const xnap_retrieve_ue_context_failure_t *a, const xnap_retrieve_ue_context_failure_t *b)
+{
+  _EQ_CHECK_UINT32(a->new_ng_node_ue_xnap_id, b->new_ng_node_ue_xnap_id);
+  if (!eq_xnap_cause(&a->cause, &b->cause))
+    return false;
+  return true;
+}
+
+/**
+ * @brief XnAP Retrieve UE Context Failure (9.1.1.10) memory management
+ */
+void free_xnap_retrieve_ue_context_failure(xnap_retrieve_ue_context_failure_t *msg)
+{
+  // Nothing to free
+  UNUSED(msg);
+}

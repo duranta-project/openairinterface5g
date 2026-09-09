@@ -516,4 +516,12 @@ typedef struct {
   xnap_ue_context_info_t ue_context;
 } xnap_retrieve_ue_context_response_t;
 
+/* 3GPP TS 38.423 9.1.1.10 – Retrieve UE Context Failure */
+typedef struct {
+  /* New NG-RAN node UE XnAP ID (M) */
+  uint32_t new_ng_node_ue_xnap_id;
+  /* Cause (M) */
+  xnap_cause_t cause;
+} xnap_retrieve_ue_context_failure_t;
+
 #endif /* XNAP_MESSAGES_TYPES_H_ */

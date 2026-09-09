@@ -60,6 +60,7 @@
 #include "XNAP_UEContextInfoRetrUECtxtResp.h"
 #include "XNAP_AS-SecurityInformation.h"
 #include "XNAP_CPTransportLayerInformation.h"
+#include "XNAP_RetrieveUEContextFailure.h"
 
 #endif // XNAP_LIB_INCLUDES_H
 
