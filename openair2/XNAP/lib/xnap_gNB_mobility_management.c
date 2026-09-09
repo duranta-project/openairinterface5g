@@ -1710,3 +1710,251 @@ void free_xnap_ran_paging(xnap_ran_paging_t *msg)
   else
     free(msg->ran_paging_area.ran_area_ids);
 }
+
+/* ======================================================================
+ * 3GPP TS 38.423 – Retrieve UE Context procedure (id-retrieveUEContext)
+ *   9.1.1.8  RETRIEVE UE CONTEXT REQUEST  (initiating message)
+ *   9.1.1.9  RETRIEVE UE CONTEXT RESPONSE (successful outcome)
+ *   9.1.1.10 RETRIEVE UE CONTEXT FAILURE  (unsuccessful outcome)
+ * Only mandatory IEs are implemented.
+ * ====================================================================== */
+
+/**
+ * @brief XnAP UE Context ID (9.2.3.40) encoding
+ */
+static XNAP_UEContextID_t xnap_encode_ue_context_id(const xnap_ue_context_id_t *in)
+{
+  DevAssert(in != NULL);
+
+  XNAP_UEContextID_t out = {0};
+  if (in->choice == XNAP_UE_CONTEXT_ID_RRC_RESUME) {
+    out.present = XNAP_UEContextID_PR_rRCResume;
+    asn1cCalloc(out.choice.rRCResume, resume);
+    if (in->rrc_resume.i_rnti_type == XNAP_I_RNTI_SHORT) {
+      resume->i_rnti.present = XNAP_I_RNTI_PR_i_RNTI_short;
+      IRNTI_SHORT_TO_BIT_STRING(in->rrc_resume.i_rnti, &resume->i_rnti.choice.i_RNTI_short);
+    } else {
+      resume->i_rnti.present = XNAP_I_RNTI_PR_i_RNTI_full;
+      IRNTI_TO_BIT_STRING(in->rrc_resume.i_rnti, &resume->i_rnti.choice.i_RNTI_full);
+    }
+    C_RNTI_TO_BIT_STRING(in->rrc_resume.allocated_c_rnti, &resume->allocated_c_rnti);
+    /* Only the NR branch of NG-RAN-CellPCI is supported (E-UTRA is not). */
+    resume->accessPCI.present = XNAP_NG_RAN_CellPCI_PR_nr;
+    resume->accessPCI.choice.nr = in->rrc_resume.access_pci;
+  } else if (in->choice == XNAP_UE_CONTEXT_ID_RRC_REESTABLISHMENT) {
+    out.present = XNAP_UEContextID_PR_rRRCReestablishment;
+    asn1cCalloc(out.choice.rRRCReestablishment, reest);
+    C_RNTI_TO_BIT_STRING(in->rrc_reest.c_rnti, &reest->c_rnti);
+    /* Only the NR branch of NG-RAN-CellPCI is supported (E-UTRA is not). */
+    reest->failureCellPCI.present = XNAP_NG_RAN_CellPCI_PR_nr;
+    reest->failureCellPCI.choice.nr = in->rrc_reest.failure_cell_pci;
+  } else {
+    AssertError(0, return out, "Unknown UE context ID choice %d\n", in->choice);
+  }
+
+  return out;
+}
+
+/**
+ * @brief XnAP UE Context ID (9.2.3.40) decoding
+ */
+static bool decode_xnap_ue_context_id(const XNAP_UEContextID_t *in, xnap_ue_context_id_t *out)
+{
+  DevAssert(in != NULL);
+  DevAssert(out != NULL);
+
+  switch (in->present) {
+    case XNAP_UEContextID_PR_rRCResume: {
+      const XNAP_UEContextIDforRRCResume_t *resume = in->choice.rRCResume;
+      DevAssert(resume != NULL);
+      out->choice = XNAP_UE_CONTEXT_ID_RRC_RESUME;
+      switch (resume->i_rnti.present) {
+        case XNAP_I_RNTI_PR_i_RNTI_full:
+          out->rrc_resume.i_rnti_type = XNAP_I_RNTI_FULL;
+          out->rrc_resume.i_rnti = BIT_STRING_to_uint64(&resume->i_rnti.choice.i_RNTI_full);
+          break;
+        case XNAP_I_RNTI_PR_i_RNTI_short:
+          out->rrc_resume.i_rnti_type = XNAP_I_RNTI_SHORT;
+          out->rrc_resume.i_rnti = BIT_STRING_to_uint64(&resume->i_rnti.choice.i_RNTI_short);
+          break;
+        default:
+          PRINT_ERROR("Unsupported I-RNTI choice %d\n", resume->i_rnti.present);
+          return false;
+      }
+      out->rrc_resume.allocated_c_rnti = BIT_STRING_to_uint16(&resume->allocated_c_rnti);
+      if (resume->accessPCI.present != XNAP_NG_RAN_CellPCI_PR_nr) {
+        PRINT_ERROR("Unsupported NG-RAN-CellPCI choice %d (only NR is supported, E-UTRA is not)\n", resume->accessPCI.present);
+        return false;
+      }
+      out->rrc_resume.access_pci = resume->accessPCI.choice.nr;
+    } break;
+
+    case XNAP_UEContextID_PR_rRRCReestablishment: {
+      const XNAP_UEContextIDforRRCReestablishment_t *reest = in->choice.rRRCReestablishment;
+      DevAssert(reest != NULL);
+      out->choice = XNAP_UE_CONTEXT_ID_RRC_REESTABLISHMENT;
+      out->rrc_reest.c_rnti = BIT_STRING_to_uint16(&reest->c_rnti);
+      if (reest->failureCellPCI.present != XNAP_NG_RAN_CellPCI_PR_nr) {
+        PRINT_ERROR("Unsupported NG-RAN-CellPCI choice %d (only NR is supported, E-UTRA is not)\n",
+                    reest->failureCellPCI.present);
+        return false;
+      }
+      out->rrc_reest.failure_cell_pci = reest->failureCellPCI.choice.nr;
+    } break;
+
+    default:
+      PRINT_ERROR("Unknown UEContextID.present=%d\n", in->present);
+      return false;
+  }
+
+  return true;
+}
+
+static bool eq_xnap_ue_context_id(const xnap_ue_context_id_t *a, const xnap_ue_context_id_t *b)
+{
+  _EQ_CHECK_INT(a->choice, b->choice);
+  if (a->choice == XNAP_UE_CONTEXT_ID_RRC_RESUME) {
+    _EQ_CHECK_INT(a->rrc_resume.i_rnti_type, b->rrc_resume.i_rnti_type);
+    _EQ_CHECK_UINT64(a->rrc_resume.i_rnti, b->rrc_resume.i_rnti);
+    _EQ_CHECK_INT(a->rrc_resume.allocated_c_rnti, b->rrc_resume.allocated_c_rnti);
+    _EQ_CHECK_INT(a->rrc_resume.access_pci, b->rrc_resume.access_pci);
+  } else {
+    _EQ_CHECK_INT(a->rrc_reest.c_rnti, b->rrc_reest.c_rnti);
+    _EQ_CHECK_INT(a->rrc_reest.failure_cell_pci, b->rrc_reest.failure_cell_pci);
+  }
+  return true;
+}
+
+/**
+ * @brief XnAP Retrieve UE Context Request (9.1.1.8) encoding
+ */
+XNAP_XnAP_PDU_t *encode_xnap_retrieve_ue_context_request(const xnap_retrieve_ue_context_request_t *msg)
+{
+  XNAP_XnAP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+
+  pdu->present = XNAP_XnAP_PDU_PR_initiatingMessage;
+  asn1cCalloc(pdu->choice.initiatingMessage, initMsg);
+  initMsg->procedureCode = XNAP_ProcedureCode_id_retrieveUEContext;
+  initMsg->criticality = XNAP_Criticality_reject;
+  initMsg->value.present = XNAP_InitiatingMessage__value_PR_RetrieveUEContextRequest;
+
+  XNAP_RetrieveUEContextRequest_t *out = &initMsg->value.choice.RetrieveUEContextRequest;
+
+  /* New NG-RAN node UE XnAP ID (M) 9.2.3.16 */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_RetrieveUEContextRequest_IEs_t, ie1);
+  ie1->id = XNAP_ProtocolIE_ID_id_newNG_RANnodeUEXnAPID;
+  ie1->criticality = XNAP_Criticality_reject;
+  ie1->value.present = XNAP_RetrieveUEContextRequest_IEs__value_PR_NG_RANnodeUEXnAPID;
+  ie1->value.choice.NG_RANnodeUEXnAPID = msg->new_ng_node_ue_xnap_id;
+
+  /* UE Context ID (M) 9.2.3.40 */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_RetrieveUEContextRequest_IEs_t, ie2);
+  ie2->id = XNAP_ProtocolIE_ID_id_UEContextID;
+  ie2->criticality = XNAP_Criticality_reject;
+  ie2->value.present = XNAP_RetrieveUEContextRequest_IEs__value_PR_UEContextID;
+  ie2->value.choice.UEContextID = xnap_encode_ue_context_id(&msg->ue_context_id);
+
+  /* MAC-I (M) – single BIT STRING(16) IE, identical for the RRC Resume and
+   * RRC Reestablishment cases; only the value the UE computes differs. */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_RetrieveUEContextRequest_IEs_t, ie3);
+  ie3->id = XNAP_ProtocolIE_ID_id_MAC_I;
+  ie3->criticality = XNAP_Criticality_reject;
+  ie3->value.present = XNAP_RetrieveUEContextRequest_IEs__value_PR_MAC_I;
+  C_RNTI_TO_BIT_STRING(msg->mac_i, &ie3->value.choice.MAC_I);
+
+  /* New NG-RAN Cell Identity (M) 9.2.2.9 – CHOICE { nr, e-utra, ... }; only the
+   * NR branch is supported (E-UTRA is not). */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_RetrieveUEContextRequest_IEs_t, ie4);
+  ie4->id = XNAP_ProtocolIE_ID_id_new_NG_RAN_Cell_Identity;
+  ie4->criticality = XNAP_Criticality_reject;
+  ie4->value.present = XNAP_RetrieveUEContextRequest_IEs__value_PR_NG_RAN_Cell_Identity;
+  ie4->value.choice.NG_RAN_Cell_Identity.present = XNAP_NG_RAN_Cell_Identity_PR_nr;
+  NR_CELL_ID_TO_BIT_STRING(msg->new_ng_ran_cell_id, &ie4->value.choice.NG_RAN_Cell_Identity.choice.nr);
+
+  return pdu;
+}
+
+/**
+ * @brief XnAP Retrieve UE Context Request (9.1.1.8) decoding
+ */
+bool decode_xnap_retrieve_ue_context_request(xnap_retrieve_ue_context_request_t *out, const XNAP_XnAP_PDU_t *pdu)
+{
+  _EQ_CHECK_INT(pdu->present, XNAP_XnAP_PDU_PR_initiatingMessage);
+  AssertError(pdu->choice.initiatingMessage != NULL, return false, "initiatingMessage is NULL");
+  _EQ_CHECK_LONG(pdu->choice.initiatingMessage->procedureCode, XNAP_ProcedureCode_id_retrieveUEContext);
+  _EQ_CHECK_INT(pdu->choice.initiatingMessage->value.present, XNAP_InitiatingMessage__value_PR_RetrieveUEContextRequest);
+
+  XNAP_RetrieveUEContextRequest_t *in = &pdu->choice.initiatingMessage->value.choice.RetrieveUEContextRequest;
+  XNAP_RetrieveUEContextRequest_IEs_t *ie;
+
+  XNAP_LIB_FIND_IE(XNAP_RetrieveUEContextRequest_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_newNG_RANnodeUEXnAPID, true);
+  XNAP_LIB_FIND_IE(XNAP_RetrieveUEContextRequest_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_UEContextID, true);
+  XNAP_LIB_FIND_IE(XNAP_RetrieveUEContextRequest_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_MAC_I, true);
+  XNAP_LIB_FIND_IE(XNAP_RetrieveUEContextRequest_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_new_NG_RAN_Cell_Identity, true);
+
+  for (int i = 0; i < in->protocolIEs.list.count; i++) {
+    DevAssert(in->protocolIEs.list.array[i]);
+    ie = in->protocolIEs.list.array[i];
+
+    switch (ie->id) {
+      case XNAP_ProtocolIE_ID_id_newNG_RANnodeUEXnAPID: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_RetrieveUEContextRequest_IEs__value_PR_NG_RANnodeUEXnAPID);
+        out->new_ng_node_ue_xnap_id = ie->value.choice.NG_RANnodeUEXnAPID;
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_UEContextID: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_RetrieveUEContextRequest_IEs__value_PR_UEContextID);
+        if (!decode_xnap_ue_context_id(&ie->value.choice.UEContextID, &out->ue_context_id))
+          return false;
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_MAC_I: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_RetrieveUEContextRequest_IEs__value_PR_MAC_I);
+        out->mac_i = BIT_STRING_to_uint16(&ie->value.choice.MAC_I);
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_new_NG_RAN_Cell_Identity: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_RetrieveUEContextRequest_IEs__value_PR_NG_RAN_Cell_Identity);
+        const XNAP_NG_RAN_Cell_Identity_t *cell = &ie->value.choice.NG_RAN_Cell_Identity;
+        /* CHOICE { nr, e-utra, choice-extension } – only the NR branch is supported. */
+        if (cell->present != XNAP_NG_RAN_Cell_Identity_PR_nr) {
+          PRINT_ERROR("Unsupported NG-RAN-Cell-Identity choice %d (only NR is supported, E-UTRA is not)\n", cell->present);
+          return false;
+        }
+        BIT_STRING_TO_NR_CELL_IDENTITY(&cell->choice.nr, out->new_ng_ran_cell_id);
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_RRCResumeCause:
+        PRINT_ERROR("XNAP_ProtocolIE_ID_id %ld not handled, skipping\n", ie->id);
+        break;
+
+      default:
+        PRINT_ERROR("XNAP_ProtocolIE_ID_id %ld unknown, skipping\n", ie->id);
+        break;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * @brief XnAP Retrieve UE Context Request (9.1.1.8) equality function
+ */
+bool eq_xnap_retrieve_ue_context_request(const xnap_retrieve_ue_context_request_t *a, const xnap_retrieve_ue_context_request_t *b)
+{
+  _EQ_CHECK_UINT32(a->new_ng_node_ue_xnap_id, b->new_ng_node_ue_xnap_id);
+  if (!eq_xnap_ue_context_id(&a->ue_context_id, &b->ue_context_id))
+    return false;
+  _EQ_CHECK_INT(a->mac_i, b->mac_i);
+  _EQ_CHECK_UINT64(a->new_ng_ran_cell_id, b->new_ng_ran_cell_id);
+  return true;
+}
+
+/**
+ * @brief XnAP Retrieve UE Context Request (9.1.1.8) memory management
+ */
+void free_xnap_retrieve_ue_context_request(xnap_retrieve_ue_context_request_t *msg)
+{
+  // Nothing to free
+  UNUSED(msg);
+}

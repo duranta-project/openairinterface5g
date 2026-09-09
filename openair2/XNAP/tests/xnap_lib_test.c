@@ -785,6 +785,67 @@ static void test_xn_ran_paging(void)
   printf("%s() successful\n", __func__);
 }
 
+/**
+ * 12. XnAP Retrieve UE Context Request (9.1.1.8) – RRC Resume (full/short I-RNTI)
+ *     and RRC Reestablishment variants
+ */
+static void test_xn_retrieve_ue_context_request(void)
+{
+  xnap_retrieve_ue_context_request_t cases[] = {
+      {
+          .new_ng_node_ue_xnap_id = 0x0001ABCD,
+          .ue_context_id = {.choice = XNAP_UE_CONTEXT_ID_RRC_RESUME,
+                            .rrc_resume = {.i_rnti_type = XNAP_I_RNTI_FULL,
+                                           .i_rnti = 0xAABBCCDDEEULL,
+                                           .allocated_c_rnti = 0x1234,
+                                           .access_pci = 511}},
+          .mac_i = 0xBEEF,
+          .new_ng_ran_cell_id = 0x123456789ULL,
+      },
+      {
+          .new_ng_node_ue_xnap_id = 0x00ABCDEF,
+          .ue_context_id = {.choice = XNAP_UE_CONTEXT_ID_RRC_RESUME,
+                            .rrc_resume = {.i_rnti_type = XNAP_I_RNTI_SHORT,
+                                           .i_rnti = 0xA5C3F0ULL,
+                                           .allocated_c_rnti = 0xFFFF,
+                                           .access_pci = 0}},
+          .mac_i = 0x4321,
+          .new_ng_ran_cell_id = 0x0ULL,
+      },
+      {
+          .new_ng_node_ue_xnap_id = 0xFFFFFFFF,
+          .ue_context_id = {.choice = XNAP_UE_CONTEXT_ID_RRC_REESTABLISHMENT,
+                            .rrc_reest = {.c_rnti = 0x9ABC, .failure_cell_pci = 1007}},
+          .mac_i = 0x0001,
+          .new_ng_ran_cell_id = 0xABCDEF012ULL,
+      },
+  };
+
+  for (size_t i = 0; i < sizeof(cases) / sizeof(*cases); i++) {
+    /* ---------- encode ---------- */
+    XNAP_XnAP_PDU_t *xnenc = encode_xnap_retrieve_ue_context_request(&cases[i]);
+    AssertFatal(xnenc != NULL, "encode_xnap_retrieve_ue_context_request failed");
+    XNAP_XnAP_PDU_t *xndec = xnap_encode_decode(xnenc);
+    xnap_msg_free(xnenc);
+
+    /* ---------- decode ---------- */
+    xnap_retrieve_ue_context_request_t decoded = {0};
+    bool ret = decode_xnap_retrieve_ue_context_request(&decoded, xndec);
+    AssertFatal(ret, "decode_xnap_retrieve_ue_context_request failed");
+    xnap_msg_free(xndec);
+
+    /* ---------- equality ---------- */
+    ret = eq_xnap_retrieve_ue_context_request(&cases[i], &decoded);
+    AssertFatal(ret, "XnAP Retrieve UE Context Request mismatch (case %zu)\n", i);
+
+    /* ---------- cleanup ---------- */
+    free_xnap_retrieve_ue_context_request(&decoded);
+    free_xnap_retrieve_ue_context_request(&cases[i]);
+  }
+
+  printf("%s() successful\n", __func__);
+}
+
 int main() {
   printf("Starting XnAP Library Unit Tests...\n");
 
@@ -802,6 +863,9 @@ int main() {
   test_xn_handover_cancel();
   test_xn_handover_success();
   test_xn_ran_paging();
+
+  /* Xn Retrieve UE Context Testing */
+  test_xn_retrieve_ue_context_request();
 
   printf("All XnAP tests passed!\n");
   return 0;
