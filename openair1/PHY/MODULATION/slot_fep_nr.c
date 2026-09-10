@@ -183,44 +183,6 @@ void apply_nr_rotation_symbol_fftshifted_RX(const int symbols_per_slot,
   mult_cpx_vector(rxdataF, shift_rot, rxdataF, nb_rb * NR_NB_SC_PER_RB, 15);
 }
 
-void apply_nr_rotation_symbol_RX(const int symbols_per_slot,
-                                 const int slots_per_subframe,
-                                 const c16_t *shift_rot,
-                                 const int first_carrier_offset,
-                                 c16_t *rxdataF,
-                                 const c16_t *rot,
-                                 int nb_rb,
-                                 int slot,
-                                 int symbol)
-{
-  const int symb_offset = (slot % slots_per_subframe) * symbols_per_slot;
-
-  c16_t rot2 = rot[symbol + symb_offset];
-  rot2.i = -rot2.i;
-  LOG_D(PHY, "slot %d, symb_offset %d rotating by %d.%d\n", slot, symb_offset, rot2.r, rot2.i);
-  c16_t *this_symbol = rxdataF;
-
-  if (nb_rb & 1) {
-    rotate_cpx_vector(this_symbol, rot2, this_symbol, (nb_rb + 1) * 6, 15);
-    rotate_cpx_vector(this_symbol + first_carrier_offset - 6, rot2, this_symbol + first_carrier_offset - 6, (nb_rb + 1) * 6, 15);
-    mult_cpx_vector(this_symbol, shift_rot, this_symbol, (nb_rb + 1) * 6, 15);
-    mult_cpx_vector(this_symbol + first_carrier_offset - 6,
-                    shift_rot + first_carrier_offset - 6,
-                    this_symbol + first_carrier_offset - 6,
-                    (nb_rb + 1) * 6,
-                    15);
-  } else {
-    rotate_cpx_vector(this_symbol, rot2, this_symbol, nb_rb * 6, 15);
-    rotate_cpx_vector(this_symbol + first_carrier_offset, rot2, this_symbol + first_carrier_offset, nb_rb * 6, 15);
-    mult_cpx_vector(this_symbol, shift_rot, this_symbol, nb_rb * 6, 15);
-    mult_cpx_vector(this_symbol + first_carrier_offset,
-                    shift_rot + first_carrier_offset,
-                    this_symbol + first_carrier_offset,
-                    nb_rb * 6,
-                    15);
-  }
-}
-
 void nr_ofdm_demod_and_rx_rotation(c16_t **rxdata,
                                    c16_t **rxdataF,
                                    const NR_DL_FRAME_PARMS *fp,

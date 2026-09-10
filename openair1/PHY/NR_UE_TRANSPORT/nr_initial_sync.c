@@ -154,11 +154,10 @@ static void generate_table(nr_ssb_search_params_t *params,
                            c16_t symbol_rotation[224])
 {
   init_timeshift_rotation(params->ofdm_symbol_size,
+                          params->N_RB_DL * NR_NB_SC_PER_RB,
                           params->nb_prefix_samples,
                           params->ofdm_offset_divisor,
                           timeshift_symbol_rotation);
-  // freq domain data is FFT shifted so shift this too.
-  fftshift_inplace(timeshift_symbol_rotation, params->N_RB_DL * NR_NB_SC_PER_RB, params->ofdm_symbol_size);
   perform_symbol_rotation(params->symbols_per_slot * params->slots_per_frame / 10,
                           params->numerology_index,
                           params->dl_CarrierFreq,
