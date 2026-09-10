@@ -409,6 +409,7 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   }
 
   int harq_pid = dlschCfg->harq_process_nbr;
+  const uint32_t dmrs_symb_bitmap = dlschCfg->dlDmrsSymbPos;
 
   LOG_D(PHY,
         "[UE %d] frame_rx %d, nr_slot_rx %d, harq_pid %d (%d), BWP start %d, start RB %d, end RB %d, symbol_start %d, nb_symbols "
@@ -424,7 +425,7 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
         freq_alloc->last_rb,
         dlschCfg->start_symbol,
         dlschCfg->number_symbols,
-        dlschCfg->dlDmrsSymbPos,
+        dmrs_symb_bitmap,
         dlsch->cw_info.Nl);
 
   const int actor_idx = proc->nr_slot_rx % ue->pdsch_num_actors;
@@ -443,7 +444,7 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
 
   start_meas_nr_ue_phy(ue, DLSCH_CHANNEL_ESTIMATION_STATS);
   for (int m = dlschCfg->start_symbol; m < (dlschCfg->start_symbol + dlschCfg->number_symbols); m++) {
-    if (dlschCfg->dlDmrsSymbPos & (1 << m)) {
+    if (dmrs_symb_bitmap & (1 << m)) {
       for (int nl = 0; nl < dlsch->cw_info.Nl; nl++) { // for MIMO Config: it shall loop over no_layers
         LOG_D(PHY, "PDSCH Channel estimation layer %d, slot %d, symbol %d\n", nl, nr_slot_rx, m);
         uint32_t nvar_tmp = 0;
@@ -464,9 +465,8 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
     }
   }
   stop_meas_nr_ue_phy(ue, DLSCH_CHANNEL_ESTIMATION_STATS);
-  nvar /= (dlschCfg->number_symbols * dlsch->cw_info.Nl * frame_parms->nb_antennas_rx);
-  uint32_t dmrs_mask = dlschCfg->dlDmrsSymbPos;
-  int first_dmrs_symbol = get_first_bit_index_mask(&dmrs_mask, 1, 0, NR_SYMBOLS_PER_SLOT);
+  nvar /= (count_bits(&dmrs_symb_bitmap, 1) * dlsch->cw_info.Nl * frame_parms->nb_antennas_rx);
+  int first_dmrs_symbol = get_first_bit_index_mask(&dmrs_symb_bitmap, 1, 0, NR_SYMBOLS_PER_SLOT);
   nr_ue_measurement_procedures(first_dmrs_symbol, ue, proc, freq_alloc->num_rbs, pdsch_est_size, pdsch_dl_ch_estimates);
 
   // PTRS processing.
@@ -489,7 +489,7 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                        .N_RB = fp->N_RB_DL,
                        .start_symb = dlschCfg->start_symbol,
                        .num_symb = dlschCfg->number_symbols,
-                       .dmrs_symb_pos = dlschCfg->dlDmrsSymbPos,
+                       .dmrs_symb_pos = dmrs_symb_bitmap,
                        .nid = fp->Nid_cell,
                        .nscid = dlschCfg->nscid,
                        .first_carrier_offset = fp->first_carrier_offset,
@@ -511,7 +511,7 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                              ch_est_p,
                              dlschCfg->number_symbols,
                              dlschCfg->start_symbol,
-                             dlschCfg->dlDmrsSymbPos,
+                             dmrs_symb_bitmap,
                              freq_alloc->num_rbs,
                              dlsch->cw_info.Nl,
                              frame_parms->nb_antennas_rx);
@@ -525,7 +525,7 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   else
     dmrs_data_re = 12 - 4 * dlschCfg->n_dmrs_cdm_groups;
 
-  while ((dmrs_data_re == 0) && (dlschCfg->dlDmrsSymbPos & (1 << first_symbol_with_data))) {
+  while ((dmrs_data_re == 0) && (dmrs_symb_bitmap & (1 << first_symbol_with_data))) {
     first_symbol_with_data++;
   }
 

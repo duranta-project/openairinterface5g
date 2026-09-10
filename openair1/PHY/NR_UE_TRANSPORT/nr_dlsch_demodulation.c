@@ -562,11 +562,12 @@ static void nr_dlsch_mmse(uint32_t pdsch_buf_size_max,
 
   // Add noise_var such that: H^h * H + noise_var * I
   if (noise_var != 0) {
-    simde__m128i nvar_128i = simde_mm_set1_epi32(noise_var >> 3);
+    const uint16_t noise_var_q15 = noise_var >> shift;
+    simde__m128i nvar_128i = simde_mm_set_epi16(0, noise_var_q15, 0, noise_var_q15, 0, noise_var_q15, 0, noise_var_q15);
     for (int p = 0; p < nl; p++) {
       simde__m128i *conjH_H_128i = (simde__m128i *)conjH_H_elements[0][p][p];
       for (int k = 0; k < 3 * nb_rb_0; k++) {
-        conjH_H_128i[0] = simde_mm_add_epi32(conjH_H_128i[0], nvar_128i);
+        conjH_H_128i[0] = simde_mm_add_epi16(conjH_H_128i[0], nvar_128i);
         conjH_H_128i++;
       }
     }
