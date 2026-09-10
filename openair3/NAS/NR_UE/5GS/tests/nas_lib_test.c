@@ -107,6 +107,8 @@ static void test_service_request(void)
                        .amfsetid = amf_set_id,
                        .amfpointer = amf_pointer,
                        .tmsi = tmsi},
+      .has_uplink_data_status = true,
+      .uplink_data_status = {[2] = PDU_SESSION_ACTIVE},
       .has_pdu_session_status = true,
       .pdu_session_status = {[2] = PDU_SESSION_ACTIVE, [4] = PDU_SESSION_ACTIVE},
       .fgsnasmessagecontainer = NULL};
@@ -118,7 +120,7 @@ static void test_service_request(void)
   memcpy(nas_container_contents->value, container_data, sizeof(container_data));
   nas_container_contents->length = sizeof(container_data);
 
-  uint8_t expected_encoded_data[] = {0x71,
+  uint8_t expected_encoded_data[] = {0x17,
                                      0x00,
                                      0x07,
                                      0xF4,
@@ -128,6 +130,10 @@ static void test_service_request(void)
                                      (tmsi >> 16) & 0xFF,
                                      (tmsi >> 8) & 0xFF,
                                      tmsi & 0xFF,
+                                     IEI_UPLINK_DATA_STATUS,
+                                     0x02,
+                                     0x04,
+                                     0x00,
                                      IEI_PDU_SESSION_STATUS,
                                      0x02,
                                      0x14,

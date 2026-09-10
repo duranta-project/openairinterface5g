@@ -62,18 +62,6 @@ nrUE_params_t *get_nrUE_params(void)
   return &params;
 }
 
-void create_ue_ip_if(void)
-{
-}
-
-void create_ue_eth_if(void)
-{
-}
-
-void set_qfi(void)
-{
-}
-
 configmodule_interface_t *uniqCfg = NULL;
 
 static nrppa_trp_information_resp_t fill_trp_resp(uint8_t transaction_id)

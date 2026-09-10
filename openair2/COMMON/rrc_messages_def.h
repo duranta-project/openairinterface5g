@@ -45,6 +45,7 @@ MESSAGE_DEF(NAS_INITIAL_UL_TRANSFER_REQ, MESSAGE_PRIORITY_MED, ul_info_transfer_
 MESSAGE_DEF(NAS_DETACH_REQ, MESSAGE_PRIORITY_MED, nas_detach_req_t, nas_detach_req)
 MESSAGE_DEF(NAS_DEREGISTRATION_REQ, MESSAGE_PRIORITY_MED, nas_deregistration_req_t, nas_deregistration_req)
 MESSAGE_DEF(NAS_5GMM_IND, MESSAGE_PRIORITY_MED, nas_5gmm_ind_t, nas_5gmm_ind)
+MESSAGE_DEF(NAS_TUN_REQ, MESSAGE_PRIORITY_MED, nas_tun_req_t, nas_tun_req)
 
 MESSAGE_DEF(NAS_RAB_ESTABLI_RSP, MESSAGE_PRIORITY_MED, rab_establish_rsp_t, nas_rab_est_rsp)
 
@@ -52,6 +53,7 @@ MESSAGE_DEF(NAS_RAB_ESTABLI_RSP, MESSAGE_PRIORITY_MED, rab_establish_rsp_t, nas_
 MESSAGE_DEF(NAS_CELL_SELECTION_CNF, MESSAGE_PRIORITY_MED, cell_info_cnf_t, nas_cell_selection_cnf)
 MESSAGE_DEF(NAS_CELL_SELECTION_IND, MESSAGE_PRIORITY_MED, cell_info_ind_t, nas_cell_selection_ind)
 MESSAGE_DEF(NAS_PAGING_IND, MESSAGE_PRIORITY_MED, paging_ind_t, nas_paging_ind)
+MESSAGE_DEF(NAS_MO_UL_DATA_IND, MESSAGE_PRIORITY_MED, nas_mo_ul_data_ind_t, nas_mo_ul_data_ind)
 MESSAGE_DEF(NAS_CONN_ESTABLI_CNF, MESSAGE_PRIORITY_MED, nas_establish_cnf_t, nas_conn_establi_cnf)
 MESSAGE_DEF(NAS_CONN_RELEASE_IND, MESSAGE_PRIORITY_MED, nas_release_ind_t, nas_conn_release_ind)
 MESSAGE_DEF(NR_NAS_CONN_ESTABLISH_IND, MESSAGE_PRIORITY_MED, nas_establish_ind_t, nr_nas_conn_establish_ind)

@@ -14,6 +14,7 @@
 #include "NR_NAS_defs.h"
 #include "secu_defs.h"
 #include "NR_NAS_defs.h"
+#include "nr_ue_tun.h"
 
 #define INITIAL_REGISTRATION 0b001
 
@@ -77,16 +78,18 @@ typedef struct {
   /* NAS Key Set Identifier associated to the security context */
   uint8_t *ksi;
   plmn_id_t *sn_id;
+  /* Active PDU sessions for PDU session status IE (TS 24.501 8.2.16.3 / 9.11.3.44) */
+  uint8_t psi_status[MAX_NUM_PSI]; /* index 0 is spare */
+  nas_ue_pdu_tun_t pdu_tun[MAX_NUM_PSI];
 } nr_ue_nas_t;
 
 nr_ue_nas_t *get_ue_nas_info(module_id_t module_id);
 void generateRegistrationRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas, bool is_security_mode);
-void generateServiceRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas);
+void generateServiceRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas, bool mo_ul_data);
 void *nas_nrue_task(void *args_p);
 void *nas_nrue(void *args_p);
 void nas_init_nrue(int num_ues);
 int nas_itti_kgnb_refresh_req(instance_t instance, const uint8_t kgnb[32]);
-void nr_ue_create_ip_if(const char *ifnameprefix, const char *ipv4, const char *ipv6, int ue_id, int pdu_session_id);
 void request_pdusession(nr_ue_nas_t *nas, const pdu_session_config_t *pdu);
 nr_ue_nas_t *get_nr_ue_nas_info(uint8_t ue_inst);
 

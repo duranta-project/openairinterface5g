@@ -723,6 +723,47 @@ static void nr_rrc_process_dedicatedNAS_MessageList(NR_UE_RRC_INST_t *rrc, NR_RR
   }
 }
 
+/** @brief RRC notifies SDAP to stop the reader for all active PSI
+ * @note Fetch pdu_tun from NAS */
+static void nr_rrc_ue_tun_stop_readers(ue_id_t ue_id)
+{
+  nr_ue_nas_t *nas = get_ue_nas_info(ue_id);
+  for (int psi = 1; psi < MAX_NUM_PSI; psi++) {
+    nas_ue_pdu_tun_t *t = &nas->pdu_tun[psi];
+    if (nas->psi_status[psi] != PDU_SESSION_INACTIVE && t->sock >= 0)
+      nr_sdap_tun_stop_reader(&t->reader_thread);
+  }
+}
+
+/** @brief RRC notifies SDAP to start the idle listener for all active PSI
+ * @note Fetch pdu_tun from NAS */
+static void nr_rrc_ue_tun_start_idle_listeners(ue_id_t ue_id)
+{
+  nr_ue_nas_t *nas = get_ue_nas_info(ue_id);
+  for (int psi = 1; psi < MAX_NUM_PSI; psi++) {
+    nas_ue_pdu_tun_t *t = &nas->pdu_tun[psi];
+    if (nas->psi_status[psi] != PDU_SESSION_INACTIVE && t->sock >= 0)
+      nr_sdap_tun_start_idle_listener(ue_id, psi, t->sock, &t->reader_thread);
+  }
+}
+
+/** @brief Start the user-plane TUN UL reader for one PDU session
+ * Stop any prior reader on reader_thread, bind sock and qfi onto the SDAP entity, then start the reader
+ * @note reader_thread is NAS pdu_tun state, start/stop only through RRC */
+static void nr_rrc_ue_tun_start_user_plane(ue_id_t ue_id, int pdusession_id, int sock, int qfi, pthread_t *reader_thread)
+{
+  DevAssert(pdusession_id > 0 && pdusession_id < MAX_NUM_PSI);
+  DevAssert(sock >= 0);
+  DevAssert(reader_thread != NULL);
+  nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pdusession_id);
+  DevAssert(entity != NULL);
+  nr_sdap_tun_stop_reader(reader_thread);
+  nr_sdap_tun_bind(entity, sock, qfi);
+  char name[64];
+  snprintf(name, sizeof(name), "ue_tun_read_%ld_p%d", ue_id, pdusession_id);
+  nr_sdap_tun_start_reader(entity, reader_thread, name);
+}
+
 /** @brief Add bearer in PDCP/SDAP for 5GC association (SA) */
 static void rrc_ue_add_bearer(const int ue_id, const NR_DRB_ToAddMod_t *drb, const nr_pdcp_entity_security_keys_and_algos_t *sp)
 {
@@ -2338,6 +2379,8 @@ static void nr_rrc_rrcsetup_fallback(NR_UE_RRC_INST_t *rrc)
   for (int i = 1; i < NR_MAX_NUM_LCID; i++) {
     nr_rrc_release_rlc_entity(rrc, i);
   }
+  // stop UE TUN readers before SDAP delete (connected reader holds entity pointer)
+  nr_rrc_ue_tun_stop_readers(rrc->ue_id);
   nr_sdap_delete_ue_entities(rrc->ue_id);
 
   // indicate to upper layers fallback of the RRC connection
@@ -3470,6 +3513,30 @@ void *rrc_nrue(void *notUsed)
     break;
   }
 
+  case NAS_TUN_REQ: {
+    const nas_tun_req_t *req = &NAS_TUN_REQ(msg_p);
+    DevAssert(req->n_psi >= 0 && req->n_psi <= NAS_TUN_LIST_MAX);
+    if (req->action == NAS_TUN_START_USER_PLANE) {
+      for (int i = 0; i < req->n_psi; i++) {
+        const nas_tun_psi_t *p = &req->psi[i];
+        nr_rrc_ue_tun_start_user_plane(rrc->ue_id, p->pdusession_id, p->sock, p->qfi, p->reader_thread);
+      }
+    } else if (req->action == NAS_TUN_START_IDLE_LISTENER) {
+      nr_rrc_ue_tun_stop_readers(rrc->ue_id);
+      nr_rrc_ue_tun_start_idle_listeners(rrc->ue_id);
+    } else {
+      AssertFatal(false, "unknown NAS_TUN_REQ action %d\n", req->action);
+    }
+    break;
+  }
+
+  case NAS_MO_UL_DATA_IND: {
+    nr_rrc_ue_tun_stop_readers(rrc->ue_id);
+    MessageDef *nas_msg = itti_alloc_new_message(TASK_RRC_NRUE, rrc->ue_id, NAS_MO_UL_DATA_IND);
+    itti_send_msg_to_task(TASK_NAS_NRUE, rrc->ue_id, nas_msg);
+    break;
+  }
+
   default:
     RRCLOG_E("Received unexpected message %s\n", ITTI_MSG_NAME(msg_p));
     break;
@@ -3686,8 +3753,12 @@ void nr_rrc_going_to_IDLE(NR_UE_RRC_INST_t *rrc,
       nr_pdcp_release_drb(rrc->ue_id, i);
     }
   }
-  // stop TUN threads and clean up SDAP entities
+  // Stop UE TUN readers before deleting SDAP entities,
+  // then start idle listeners so MO UL can trigger Service Request while CM-IDLE
+  nr_rrc_ue_tun_stop_readers(rrc->ue_id);
   nr_sdap_delete_ue_entities(rrc->ue_id);
+  if (rrc->nrRrcState != RRC_STATE_DETACH_NR)
+    nr_rrc_ue_tun_start_idle_listeners(rrc->ue_id);
 
   for (int i = 1; i < NR_NUM_SRB; i++) {
     if (rrc->Srb[i] != RB_NOT_PRESENT) {
