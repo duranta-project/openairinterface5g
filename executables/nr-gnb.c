@@ -158,7 +158,7 @@ void *L1_rx_thread(void *arg)
 
      if (slot_type == NR_UPLINK_SLOT) {
        rt_probe_record(&gNB->rt_l1_rx_job_probe,
-                       &gNB->l1_rx_proc);
+                       &gNB->phy_proc_rx);
 
        rt_probe_l1rx_context_t rt_l1rx_ctx =
            rt_probe_l1rx_context_invalid();
@@ -172,7 +172,7 @@ void *L1_rx_thread(void *arg)
            &gNB->rt_l1_rx_job_probe,
            info->frame_rx,
            info->slot_rx,
-           &gNB->l1_rx_proc,
+           &gNB->phy_proc_rx,
            &rt_l1rx_ctx);
      }
 
@@ -195,7 +195,7 @@ void *L1_tx_thread(void *arg) {
      STOP_MEAS_FULL_SLOT(&gNB->l1_tx_proc, slot_type, NR_DOWNLINK_SLOT);
 
      if (slot_type == NR_DOWNLINK_SLOT) {
-       rt_probe_record(&gNB->rt_l1_tx_job_probe, &gNB->l1_tx_proc);
+       rt_probe_record(&gNB->rt_l1_tx_job_probe, &gNB->phy_proc_tx);
        rt_probe_l1tx_context_t rt_l1tx_ctx = rt_probe_l1tx_context_invalid();
        if (gNB->rt_l1tx_slot_context.valid &&
            gNB->rt_l1tx_slot_context.frame == info->frame &&
@@ -205,7 +205,7 @@ void *L1_tx_thread(void *arg) {
        rt_probe_capture_record_with_l1tx_context(&gNB->rt_l1_tx_job_probe,
                                                  info->frame,
                                                  info->slot,
-                                                 &gNB->l1_tx_proc,
+                                                 &gNB->phy_proc_tx,
                                                  &rt_l1tx_ctx);
      }
 

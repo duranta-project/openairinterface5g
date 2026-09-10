@@ -1613,12 +1613,12 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB,
       rt_l1rx_ctx.ul_crc_fail_count++;
   }
 
+  STOP_MEAS_FULL_SLOT(&gNB->phy_proc_rx, slot_type, NR_UPLINK_SLOT);
+
   if (gNB->if_inst && crc_ind->number_crcs > 0)
     gNB->if_inst->nr_crc_indication(crc_ind);
   if (gNB->if_inst && rx_ind->number_of_pdus > 0)
     gNB->if_inst->nr_rx_data_indication(rx_ind);
-
-  STOP_MEAS_FULL_SLOT(&gNB->phy_proc_rx, slot_type, NR_UPLINK_SLOT);
 
   if (n_pucch > 0 || num_pusch > 0) {
     UNUSED(ofdm_symbol_size); // only used if T activated
