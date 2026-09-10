@@ -192,6 +192,19 @@ typedef enum nr_srs_type_e {
   APERIODIC_SRS,
 } nr_srs_type_t;
 
+typedef struct nr_srs_config {
+  /// transmission comb, 2 or 4
+  int comb;
+  /// UEs sharing one symbol through comb offsets, at most comb
+  int ue_per_symbol;
+  /// symbols reserved at the end of a full UL slot
+  int symbols_per_slot;
+  /// last symbol of a full UL slot that SRS may occupy
+  int last_symbol;
+  /// period in slots, 0 to derive it from the cell capacity
+  int periodicity;
+} nr_srs_config_t;
+
 /// Max number of physical RU antenna ports the gNB can be configured with.
 /// Independent of MAX_NUM_SPATIAL_STREAMS (the NFAPI per-PDU wire limit).
 #define NR_MAC_MAX_RU_ANTENNA_PORTS 64
@@ -212,16 +225,7 @@ typedef struct nr_mac_config_s {
   nr_power_config_t pusch;
   /// SNR threshold needed to put or not a PRB in the black list
   int ul_prbblack_SNR_threshold;
-  /// SRS transmission comb, 2 or 4
-  int srs_comb;
-  /// UEs sharing one periodic SRS symbol through comb offsets, at most srs_comb
-  int srs_ue_per_symbol;
-  /// symbols reserved for periodic SRS at the end of a full UL slot
-  int srs_symbols_per_slot;
-  /// last symbol of a full UL slot that periodic SRS may occupy
-  int srs_last_symbol;
-  /// periodic SRS period in slots, 0 to derive it from the cell capacity
-  int srs_periodicity;
+  nr_srs_config_t srs;
   nr_power_config_t pucch;
   nr_mac_timers_t timer_config;
   int num_dlharq;

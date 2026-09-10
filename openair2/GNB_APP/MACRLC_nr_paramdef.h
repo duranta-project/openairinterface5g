@@ -55,11 +55,6 @@
 #define MACRLC_PUCCH_RSSI_THRESHOLD          "pucch_RSSI_Threshold"
 #define MACRLC_STATS_MAX_UE                  "stats_max_ue"
 #define MACRLC_SPATIAL_STREAM_IDX            "spatial_stream_index"
-#define MACRLC_SRS_COMB                      "srs_comb"
-#define MACRLC_SRS_UE_PER_SYMBOL             "srs_ue_per_symbol"
-#define MACRLC_SRS_SYMBOLS_PER_SLOT          "srs_symbols_per_slot"
-#define MACRLC_SRS_LAST_SYMBOL               "srs_last_symbol"
-#define MACRLC_SRS_PERIODICITY               "srs_periodicity"
 
 #define HLP_MACRLC_UL_PRBBLACK "SNR threshold to decide whether a PRB will be blacklisted or not"
 #define HLP_MACRLC_DL_BLER_UP "Upper threshold of BLER to decrease DL MCS"
@@ -82,11 +77,6 @@
 #define HLP_MACRLC_PUCCH_RSSI_THRESHOLD "Limits PUCCH TPC commands based on RSSI to prevent ADC railing. Value range [-1280, 0], unit 0.1 dBm/dBFS"
 #define HLP_MACRLC_STATS_MAX_UE "Maximum number of UEs before disabling periodical output (0 to disable)"
 #define HLP_MACRLC_SPATIAL_STREAM_INDEX "Array of RU antenna ports / eAxCIDs to be used by L1. This may only be applicable for MU-MIMO. Value range [0, 15]"
-#define HLP_MACRLC_SRS_COMB "SRS transmission comb, 2 or 4"
-#define HLP_MACRLC_SRS_UE_PER_SYMBOL "Number of UEs sharing one periodic SRS symbol through comb offsets, at most srs_comb"
-#define HLP_MACRLC_SRS_SYMBOLS_PER_SLOT "Number of symbols reserved for periodic SRS at the end of a full UL slot"
-#define HLP_MACRLC_SRS_LAST_SYMBOL "Last symbol of a full UL slot usable by periodic SRS, lower it to keep the PUCCH tail clear"
-#define HLP_MACRLC_SRS_PERIODICITY "Periodic SRS period in slots, rounded up to a valid value fitting the TDD period, 0 to derive it from the cell capacity"
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*                                            MacRLC  configuration parameters                                                                           */
@@ -137,16 +127,6 @@
   {MACRLC_STATS_MAX_UE,                HLP_MACRLC_STATS_MAX_UE,  0, .iptr=NULL,   .defintval=8,               TYPE_INT,     0}, \
   {MACRLC_SPATIAL_STREAM_IDX,          HLP_MACRLC_SPATIAL_STREAM_INDEX, \
                                                                                0, .uptr=NULL,   .defintarrayval=0,          TYPE_INTARRAY,0}, \
-  {MACRLC_SRS_COMB,                    HLP_MACRLC_SRS_COMB, \
-                                                                               0, .iptr=NULL,   .defintval=2,               TYPE_INT,     0}, \
-  {MACRLC_SRS_UE_PER_SYMBOL,           HLP_MACRLC_SRS_UE_PER_SYMBOL, \
-                                                                               0, .iptr=NULL,   .defintval=1,               TYPE_INT,     0}, \
-  {MACRLC_SRS_SYMBOLS_PER_SLOT,        HLP_MACRLC_SRS_SYMBOLS_PER_SLOT, \
-                                                                               0, .iptr=NULL,   .defintval=1,               TYPE_INT,     0}, \
-  {MACRLC_SRS_LAST_SYMBOL,             HLP_MACRLC_SRS_LAST_SYMBOL, \
-                                                                               0, .iptr=NULL,   .defintval=12,              TYPE_INT,     0}, \
-  {MACRLC_SRS_PERIODICITY,             HLP_MACRLC_SRS_PERIODICITY, \
-                                                                               0, .iptr=NULL,   .defintval=0,               TYPE_INT,     0}, \
 }
 // clang-format off
 
@@ -194,12 +174,44 @@
   { .s2 =  { config_check_intrange, {-1280, 0}} }, /* PUCCH RSSI threshold range */ \
   { .s5 = { NULL } }, \
   { .s2 = { NULL } }, /* Spatial stream index */ \
-  { .s2 = { config_check_intrange, {2, 4} } }, /* SRS comb */ \
-  { .s2 = { config_check_intrange, {1, 4} } }, /* SRS UEs per symbol */ \
-  { .s2 = { config_check_intrange, {1, 6} } }, /* SRS symbols per slot */ \
-  { .s2 = { config_check_intrange, {8, 13} } }, /* SRS last symbol */ \
-  { .s2 = { config_check_intrange, {0, 2560} } }, /* SRS periodicity */ \
 }
+
+/*---------------------------------------------------------------------------------------------------------------------------------------------------------*/
+/* SRS configuration parameters section name */
+#define MACRLC_CONFIG_STRING_SRS_CONFIG      "srs"
+
+/* SRS configuration parameters names   */
+#define MACRLC_SRS_COMB                      "comb"
+#define MACRLC_SRS_UE_PER_SYMBOL             "ue_per_symbol"
+#define MACRLC_SRS_SYMBOLS_PER_SLOT          "symbols_per_slot"
+#define MACRLC_SRS_LAST_SYMBOL               "last_symbol"
+#define MACRLC_SRS_PERIODICITY               "periodicity"
+
+/*-------------------------------------------------------------------------------------------------------------------------------------------------------*/
+/*                                            SRS configuration parameters                                                                               */
+/*   optname                            helpstr   paramflags    XXXptr        defXXXval           type           numelt                                   */
+/*-------------------------------------------------------------------------------------------------------------------------------------------------------*/
+// clang-format off
+#define MACRLC_SRSPARAMS_DESC { \
+  {MACRLC_SRS_COMB, \
+    "SRS transmission comb, 2 or 4", 0, .iptr=NULL, .defintval=2, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s1 = {config_check_intval, {2, 4}, 2}}}, \
+  {MACRLC_SRS_UE_PER_SYMBOL, \
+    "UEs sharing one periodic SRS symbol through comb offsets, at most comb", 0, .iptr=NULL, .defintval=1, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {1, 4}}}}, \
+  {MACRLC_SRS_SYMBOLS_PER_SLOT, \
+    "Symbols reserved for periodic SRS at the end of a full UL slot", 0, .iptr=NULL, .defintval=1, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {1, 6}}}}, \
+  {MACRLC_SRS_LAST_SYMBOL, \
+    "Last symbol of a full UL slot usable by periodic SRS, lower it to reserve the slot tail", 0, .iptr=NULL, \
+    .defintval=12, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {8, 13}}}}, \
+  {MACRLC_SRS_PERIODICITY, \
+    "Periodic SRS period in slots, rounded up to a valid value fitting the TDD period, 0 to derive it from the cell " \
+    "capacity", 0, .iptr=NULL, .defintval=0, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {0, 2560}}}}, \
+}
+// clang-format on
 
 /*---------------------------------------------------------------------------------------------------------------------------------------------------------*/
 #endif

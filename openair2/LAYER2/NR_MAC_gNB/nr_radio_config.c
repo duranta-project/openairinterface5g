@@ -809,7 +809,7 @@ static NR_SRS_Resource_t *get_srs_resource(const NR_UE_NR_Capability_t *uecap,
   srs_res->transmissionComb.present = tx_comb;
   // UEs sharing a slot are separated by comb offset first, then moved to an earlier symbol
   const int idx_in_slot = uid % nr_srs_ue_per_slot(&cell->radio_config);
-  const int comb_offset = idx_in_slot % cell->radio_config.srs_ue_per_symbol;
+  const int comb_offset = idx_in_slot % cell->radio_config.srs.ue_per_symbol;
   switch (tx_comb) {
     case NR_SRS_Resource__transmissionComb_PR_n2:
       srs_res->transmissionComb.choice.n2 = calloc_or_fail(1, sizeof(*srs_res->transmissionComb.choice.n2));
@@ -824,9 +824,9 @@ static NR_SRS_Resource_t *get_srs_resource(const NR_UE_NR_Capability_t *uecap,
     default:
       AssertFatal(1 == 0, "Invalid transmission comb %d\n", tx_comb);
   }
-  // 38.211 counts startPosition back from symbol 13, so srs_last_symbol 12 gives startPosition 1
-  const int first_position = NR_SYMBOLS_PER_SLOT - 1 - cell->radio_config.srs_last_symbol;
-  srs_res->resourceMapping.startPosition = first_position + idx_in_slot / cell->radio_config.srs_ue_per_symbol;
+  // 38.211 counts startPosition back from symbol 13, so last_symbol 12 gives startPosition 1
+  const int first_position = NR_SYMBOLS_PER_SLOT - 1 - cell->radio_config.srs.last_symbol;
+  srs_res->resourceMapping.startPosition = first_position + idx_in_slot / cell->radio_config.srs.ue_per_symbol;
   srs_res->resourceMapping.nrofSymbols = NR_SRS_Resource__resourceMapping__nrofSymbols_n1;
   srs_res->resourceMapping.repetitionFactor = NR_SRS_Resource__resourceMapping__repetitionFactor_n1;
   srs_res->freqDomainPosition = 0;
@@ -867,7 +867,7 @@ static NR_SetupRelease_SRS_Config_t *get_config_srs(const NR_ServingCellConfigCo
   NR_SRS_Config_t *srs_Config = setup_release_srs_Config->choice.setup;
 
   srs_Config->srs_ResourceToAddModList = calloc_or_fail(1, sizeof(*srs_Config->srs_ResourceToAddModList));
-  const NR_SRS_Resource__transmissionComb_PR tx_comb = cell->radio_config.srs_comb == 4
+  const NR_SRS_Resource__transmissionComb_PR tx_comb = cell->radio_config.srs.comb == 4
                                                            ? NR_SRS_Resource__transmissionComb_PR_n4
                                                            : NR_SRS_Resource__transmissionComb_PR_n2;
   NR_SRS_Resource_t *srs_res0 = get_srs_resource(uecap, cell, curr_bwp, uid, res_id, maxMIMO_Layers, tx_comb, do_srs);

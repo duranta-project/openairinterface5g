@@ -1671,23 +1671,25 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
     config.pucch.rssi_threshold = *gpd(params, np, MACRLC_PUCCH_RSSI_THRESHOLD)->iptr;
     config.pucch.target_snrx10 = *gpd(params, np, MACRLC_PUCCHTARGETSNRX10)->iptr;
     config.ul_prbblack_SNR_threshold = *gpd(params, np, MACRLC_UL_PRBBLACK_SNR_THRESHOLD)->iptr;
-    config.srs_comb = *gpd(params, np, MACRLC_SRS_COMB)->iptr;
-    config.srs_ue_per_symbol = *gpd(params, np, MACRLC_SRS_UE_PER_SYMBOL)->iptr;
-    config.srs_symbols_per_slot = *gpd(params, np, MACRLC_SRS_SYMBOLS_PER_SLOT)->iptr;
-    config.srs_last_symbol = *gpd(params, np, MACRLC_SRS_LAST_SYMBOL)->iptr;
-    config.srs_periodicity = *gpd(params, np, MACRLC_SRS_PERIODICITY)->iptr;
-    AssertFatal(config.srs_comb == 2 || config.srs_comb == 4, "srs_comb %d must be 2 or 4\n", config.srs_comb);
+    snprintf(aprefix, sizeof(aprefix), "%s.[%d].%s", MACRLC_LIST, 0, MACRLC_CONFIG_STRING_SRS_CONFIG);
+    GET_PARAMS(SRS_Params, MACRLC_SRSPARAMS_DESC, aprefix);
+    const int n_srs = sizeofArray(SRS_Params);
+    config.srs.comb = *gpd(SRS_Params, n_srs, MACRLC_SRS_COMB)->iptr;
+    config.srs.ue_per_symbol = *gpd(SRS_Params, n_srs, MACRLC_SRS_UE_PER_SYMBOL)->iptr;
+    config.srs.symbols_per_slot = *gpd(SRS_Params, n_srs, MACRLC_SRS_SYMBOLS_PER_SLOT)->iptr;
+    config.srs.last_symbol = *gpd(SRS_Params, n_srs, MACRLC_SRS_LAST_SYMBOL)->iptr;
+    config.srs.periodicity = *gpd(SRS_Params, n_srs, MACRLC_SRS_PERIODICITY)->iptr;
     // startPosition is INTEGER (0..5), which bounds how far the SRS block can reach down
-    AssertFatal(config.srs_symbols_per_slot <= config.srs_last_symbol - 7,
-                "srs_last_symbol %d allows at most %d SRS symbols, not %d\n",
-                config.srs_last_symbol,
-                config.srs_last_symbol - 7,
-                config.srs_symbols_per_slot);
-    AssertFatal(config.srs_ue_per_symbol <= config.srs_comb,
-                "srs_ue_per_symbol %d exceeds the %d offsets of comb %d\n",
-                config.srs_ue_per_symbol,
-                config.srs_comb,
-                config.srs_comb);
+    AssertFatal(config.srs.symbols_per_slot <= config.srs.last_symbol - 7,
+                "SRS last_symbol %d allows at most %d SRS symbols, not %d\n",
+                config.srs.last_symbol,
+                config.srs.last_symbol - 7,
+                config.srs.symbols_per_slot);
+    AssertFatal(config.srs.ue_per_symbol <= config.srs.comb,
+                "SRS ue_per_symbol %d exceeds the %d offsets of comb %d\n",
+                config.srs.ue_per_symbol,
+                config.srs.comb,
+                config.srs.comb);
     config.pucch.failure_thres = *gpd(params, np, MACRLC_PUCCHFAILURETHRES)->iptr;
     config.pusch.failure_thres = *gpd(params, np, MACRLC_PUSCHFAILURETHRES)->iptr;
 
