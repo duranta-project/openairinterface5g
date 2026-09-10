@@ -127,12 +127,9 @@ uint32_t nr_ue_calculate_ssb_rsrp(const NR_DL_FRAME_PARMS *fp,
   uint64_t rsrp = 0;
 
   for (int aarx = 0; aarx < fp->nb_antennas_rx; aarx++) {
-    const c16_t *rxF_sss = rxdataF[aarx];
-    unsigned int re = CIRCULAR_INC(fp->first_carrier_offset, ssb_start_subcarrier + k_start, fp->ofdm_symbol_size);
-    for (int k = k_start; k < k_end; k++) {
-      rsrp += squaredMod(rxF_sss[re]);
-      re = CIRCULAR_INC(re, 1, fp->ofdm_symbol_size);
-    }
+    const c16_t *rxF_sss = rxdataF[aarx] + ssb_start_subcarrier;
+    for (int k = k_start; k < k_end; k++)
+      rsrp += squaredMod(rxF_sss[k]);
   }
 
   rsrp /= fp->nb_antennas_rx * (k_end - k_start);
@@ -265,7 +262,6 @@ static bool search_neighboring_cell(UE_nr_rxtx_proc_t *proc,
       .ofdm_offset_divisor = frame_parms->ofdm_offset_divisor,
       .nb_antennas_rx = frame_parms->nb_antennas_rx,
       .symbols_per_slot = frame_parms->symbols_per_slot,
-      .first_carrier_offset = frame_parms->first_carrier_offset,
       .N_RB_DL = frame_parms->N_RB_DL,
       .rxdata_size = frame_parms->samples_per_slot_wCP,
       .rxdata = rxdata,
@@ -397,7 +393,6 @@ static bool validate_known_pci(NR_DL_FRAME_PARMS *frame_parms,
   nr_sss_params_t p_sss = (nr_sss_params_t){.nb_antennas_rx = frame_parms->nb_antennas_rx,
                                             .samples_per_slot_wCP = frame_parms->samples_per_slot_wCP,
                                             .ofdm_symbol_size = frame_parms->ofdm_symbol_size,
-                                            .first_carrier_offset = frame_parms->first_carrier_offset,
                                             .ssb_start_subcarrier = frame_parms->ssb_start_subcarrier,
                                             .subcarrier_spacing = frame_parms->subcarrier_spacing,
                                             .exclude_nid_cells = NULL,
@@ -600,7 +595,7 @@ void nr_ue_rrc_measurements(PHY_VARS_NR_UE *ue,
   const uint8_t k_left = 48;
   const uint8_t k_right = 183;
   const uint8_t k_length = 8;
-  unsigned int ssb_offset = ue->frame_parms.first_carrier_offset + ue->frame_parms.ssb_start_subcarrier;
+  unsigned int ssb_offset = ue->frame_parms.ssb_start_subcarrier;
   double rx_gain = openair0_cfg_g[ue->rf_map.card].rx_gain[0];
   double rx_gain_offset = openair0_cfg_g[ue->rf_map.card].rx_gain_offset[0];
 
@@ -614,7 +609,7 @@ void nr_ue_rrc_measurements(PHY_VARS_NR_UE *ue,
 
     //-ve spectrum from SSS
     for (int k = k_left; k < k_left + k_length; k++) {
-      int re = (ssb_offset + k) % ue->frame_parms.ofdm_symbol_size;
+      int re = ssb_offset + k;
 
       #ifdef DEBUG_MEAS_RRC
       LOG_I(PHY, "In %s -rxF_sss %d %d\n", __FUNCTION__, rxF_sss[re*2], rxF_sss[re*2 + 1]);
@@ -625,7 +620,7 @@ void nr_ue_rrc_measurements(PHY_VARS_NR_UE *ue,
 
     //+ve spectrum from SSS
     for (int k = k_right; k < k_right + k_length; k++) {
-      int re = (ssb_offset + k) % ue->frame_parms.ofdm_symbol_size;
+      int re = ssb_offset + k;
 
       #ifdef DEBUG_MEAS_RRC
       LOG_I(PHY, "In %s +rxF_sss %d %d\n", __FUNCTION__, rxF_sss[re*2], rxF_sss[re*2 + 1]);
@@ -674,7 +669,7 @@ int nr_sl_psbch_rsrp_measurements(PHY_VARS_NR_UE *ue,
   SL_NR_UE_PSBCH_t *psbch_rx = &sl_phy_params->psbch;
   uint8_t maxsym = (fp->Ncp) ? SL_NR_NUM_SYMBOLS_SSB_EXT_CP : SL_NR_NUM_SYMBOLS_SSB_NORMAL_CP;
   uint8_t numsym = (fp->Ncp) ? 8 : 10;
-  uint32_t re_offset = fp->first_carrier_offset + fp->ssb_start_subcarrier;
+  uint32_t re_offset = fp->ssb_start_subcarrier;
   uint32_t rsrp = 0, num_re = 0;
 
   LOG_D(PHY, "PSBCH RSRP MEAS: numsym:%d, re_offset:%d\n", numsym, re_offset);
@@ -685,9 +680,7 @@ int nr_sl_psbch_rsrp_measurements(PHY_VARS_NR_UE *ue,
 
     for (int re = 0; re < SL_NR_NUM_PSBCH_RE_IN_ONE_SYMBOL; re++) {
       if (re % 4 == 0) { // DMRS RE
-        uint16_t offset = (re_offset + re) % fp->ofdm_symbol_size;
-
-        rsrp += c16amp2(rxF[offset]);
+        rsrp += c16amp2(rxF[re_offset + re]);
         num_re++;
       }
     }

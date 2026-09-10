@@ -178,18 +178,10 @@ static void sl_nr_extract_sss(PHY_VARS_NR_UE *ue,
         rxF_ext = &sss_ext[aarx][sym - SL_NR_FIRST_SSS_SYMBOL][0];
       }
 
-      unsigned int k = CIRCULAR_INC(sl_fp->first_carrier_offset, sl_fp->ssb_start_subcarrier + 2, ofdm_symbol_size);
-      LOG_D(PHY,
-            "firstcarrieroffset:%d, ssb_sc:%d, k:%d, symbol:%d\n",
-            sl_fp->first_carrier_offset,
-            sl_fp->ssb_start_subcarrier,
-            k,
-            sym);
+      const unsigned int k = sl_fp->ssb_start_subcarrier + 2;
+      LOG_D(PHY, "ssb_sc:%d, k:%d, symbol:%d\n", sl_fp->ssb_start_subcarrier, k, sym);
 
-      for (int i = 0; i < SL_NR_PSS_SEQUENCE_LENGTH; i++) {
-        rxF_ext[i] = rxdataF[aarx][sym * ofdm_symbol_size + k];
-        k = CIRCULAR_INC(k, 1, ofdm_symbol_size);
-      }
+      memcpy(rxF_ext, &rxdataF[aarx][sym * ofdm_symbol_size + k], SL_NR_PSS_SEQUENCE_LENGTH * sizeof(c16_t));
     }
 
     LOG_D(PHY, "SIDELINK SLSS SEARCH: EXTRACTION OF PSS, SSS done\n");

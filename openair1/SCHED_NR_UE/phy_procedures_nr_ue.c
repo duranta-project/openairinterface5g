@@ -516,7 +516,6 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                        .dmrs_symb_pos = dlschCfg->dlDmrsSymbPos,
                        .nid = fp->Nid_cell,
                        .nscid = dlschCfg->nscid,
-                       .first_carrier_offset = fp->first_carrier_offset,
                        .ofdm_symbol_size = fp->ofdm_symbol_size,
                        .slot = proc->nr_slot_rx,
                        .rnti = dlsch->rnti};

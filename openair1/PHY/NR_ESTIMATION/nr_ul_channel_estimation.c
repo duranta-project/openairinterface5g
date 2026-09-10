@@ -635,7 +635,6 @@ int nr_pusch_channel_estimation(PHY_VARS_gNB *gNB,
 int nr_srs_ls_channel_estimation(int ant,
                                  int p_index,
                                  uint16_t ofdm_symbol_size,
-                                 uint16_t first_carrier_offset,
                                  uint8_t N_symb_SRS,
                                  const nfapi_nr_srs_pdu_t *srs_pdu,
                                  const nr_srs_info_t *nr_srs_info,
@@ -648,7 +647,6 @@ int nr_srs_ls_channel_estimation(int ant,
   LOG_I(NR_PHY, "Calling %s function\n", __FUNCTION__);
 #endif
 
-  const uint64_t subcarrier_offset_tx = first_carrier_offset + srs_pdu->bwp_start * NR_NB_SC_PER_RB;
   const uint64_t subcarrier_offset = srs_pdu->bwp_start * NR_NB_SC_PER_RB;
 
   const uint8_t N_ap = 1 << srs_pdu->num_ant_ports;
@@ -672,19 +670,16 @@ int nr_srs_ls_channel_estimation(int ant,
     UNUSED(ant);
 #endif
 
-    // Generated SRS signal is FFT shifted. TODO: Remove subcarrier_tx after UE tx implementation is changed.
-    uint subcarrier_tx = CIRCULAR_INC(subcarrier_offset_tx, nr_srs_info->k_0_p[p_index][srs_symb], ofdm_symbol_size);
     uint16_t subcarrier = subcarrier_offset + nr_srs_info->k_0_p[p_index][srs_symb];
 
     c16_t ls_estimated = {0};
     for (int k = 0; k < M_sc_b_SRS; k++) {
       if (k % fd_cdm == 0) {
         ls_estimated = (c16_t){0, 0};
-        uint16_t subcarrier_cdm_tx = subcarrier_tx;
         uint16_t subcarrier_cdm = subcarrier;
 
         for (int cdm_idx = 0; cdm_idx < fd_cdm; cdm_idx++) {
-          c16_t generated_srs = srs_generated_signal[srs_symbol_offset + subcarrier_cdm_tx];
+          c16_t generated_srs = srs_generated_signal[srs_symbol_offset + subcarrier_cdm];
           c16_t received_srs = srs_received_signal[srs_symbol_offset + subcarrier_cdm];
           // We know that nr_srs_info->srs_generated_signal_bits bits are enough to represent the real and imaginary parts of
           // generated_srs. So we only need a nr_srs_info->srs_generated_signal_bits shift to ensure that the result fits into 16
@@ -692,8 +687,7 @@ int nr_srs_ls_channel_estimation(int ant,
           ls_estimated = c16maddConjShift(generated_srs, received_srs, ls_estimated, nr_srs_info->srs_generated_signal_bits);
 
           // Subcarrier increment
-          subcarrier_cdm_tx = CIRCULAR_INC(subcarrier_cdm_tx, K_TC, ofdm_symbol_size);
-          subcarrier_cdm = subcarrier_cdm + K_TC;
+          subcarrier_cdm += K_TC;
         }
       }
 
@@ -703,9 +697,6 @@ int nr_srs_ls_channel_estimation(int ant,
 
 #ifdef SRS_DEBUG
       int subcarrier_log = subcarrier - subcarrier_offset;
-      if (subcarrier_log < 0) {
-        subcarrier_log = subcarrier_log + ofdm_symbol_size;
-      }
       if (subcarrier_log % 12 == 0) {
         LOG_I(NR_PHY, "------------------------------------ %d ------------------------------------\n", subcarrier_log / 12);
         LOG_I(NR_PHY, "\t  __genRe________genIm__|____rxRe_________rxIm__|____lsRe________lsIm_\n");
@@ -722,8 +713,7 @@ int nr_srs_ls_channel_estimation(int ant,
 #endif
 
       // Subcarrier increment
-      subcarrier_tx = CIRCULAR_INC(subcarrier_tx, K_TC, ofdm_symbol_size);
-      subcarrier = subcarrier + K_TC;
+      subcarrier += K_TC;
     } // for (int k = 0; k < M_sc_b_SRS; k++)
 
     // Delay estimation

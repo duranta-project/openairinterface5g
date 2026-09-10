@@ -157,6 +157,8 @@ static void generate_table(nr_ssb_search_params_t *params,
                           params->nb_prefix_samples,
                           params->ofdm_offset_divisor,
                           timeshift_symbol_rotation);
+  // freq domain data is FFT shifted so shift this too.
+  fftshift_inplace(timeshift_symbol_rotation, params->N_RB_DL * NR_NB_SC_PER_RB, params->ofdm_symbol_size);
   perform_symbol_rotation(params->symbols_per_slot * params->slots_per_frame / 10,
                           params->numerology_index,
                           params->dl_CarrierFreq,
@@ -181,16 +183,19 @@ static void do_time_to_freq(nr_ssb_search_params_t *params, uint32_t sample_offs
     rx_offset -= params->nb_prefix_samples / params->ofdm_offset_divisor;
     for (unsigned char aa = 0; aa < params->nb_antennas_rx; aa++) {
       c16_t *rxF = rxdataF[symb][aa];
+      // OFDM Demod
       dft(dftsize, (int16_t *)&params->rxdata[aa][rx_offset], (int16_t *)rxF, 1);
-      apply_nr_rotation_symbol_RX(params->symbols_per_slot,
-                                  params->slots_per_subframe,
-                                  timeshift_symbol_rotation,
-                                  params->first_carrier_offset,
-                                  rxF,
-                                  symbol_rotation,
-                                  params->N_RB_DL,
-                                  0,
-                                  symb);
+      // FFT-shift
+      fftshift_inplace(rxF, params->N_RB_DL * NR_NB_SC_PER_RB, params->ofdm_symbol_size);
+      // Phase compensation
+      apply_nr_rotation_symbol_fftshifted_RX(params->symbols_per_slot,
+                                             params->slots_per_subframe,
+                                             timeshift_symbol_rotation,
+                                             rxF,
+                                             symbol_rotation,
+                                             params->N_RB_DL,
+                                             0,
+                                             symb);
     }
   }
 }
@@ -258,7 +263,6 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
     nr_sss_params_t p_sss = (nr_sss_params_t){.nb_antennas_rx = params->nb_antennas_rx,
                                               .samples_per_slot_wCP = params->samples_per_slot_wCP,
                                               .ofdm_symbol_size = params->ofdm_symbol_size,
-                                              .first_carrier_offset = params->first_carrier_offset,
                                               .ssb_start_subcarrier = params->ssb_start_subcarrier,
                                               .subcarrier_spacing = params->subcarrier_spacing,
                                               .exclude_nid_cells = params->exclude_nid_cells,
@@ -326,7 +330,6 @@ static void nr_scan_ssb(void *arg)
         .ofdm_offset_divisor = fp->ofdm_offset_divisor,
         .nb_antennas_rx = fp->nb_antennas_rx,
         .symbols_per_slot = fp->symbols_per_slot,
-        .first_carrier_offset = fp->first_carrier_offset,
         .N_RB_DL = fp->N_RB_DL,
         .rxdata_size = fp->samples_per_frame,
         .rxdata = rxdataShift,

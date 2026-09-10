@@ -218,6 +218,8 @@ static void configure_SL_UE(PHY_VARS_NR_UE *UE, int mu, int N_RB, int ssb_offset
                           fp->sl_CarrierFreq,
                           fp->symbol_rotation[link_type_sl]);
   init_timeshift_rotation(fp->ofdm_symbol_size, fp->nb_prefix_samples, fp->ofdm_offset_divisor, fp->timeshift_symbol_rotation);
+  // freq domain data is FFT shifted so shift this too.
+  fftshift_inplace(fp->timeshift_symbol_rotation, fp->N_RB_SL * NR_NB_SC_PER_RB, fp->ofdm_symbol_size);
   LOG_I(PHY, "Dumping Sidelink Frame Parameters\n");
   nr_dump_frame_parms(fp);
 }

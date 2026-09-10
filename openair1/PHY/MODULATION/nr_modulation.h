@@ -87,7 +87,6 @@ void nr_beam_precoding(c16_t **txdataF,
 
 void apply_nr_rotation_TX(const NR_DL_FRAME_PARMS *fp,
                           c16_t *txdataF,
-                          bool is_flat_buff,
                           const c16_t *symbol_rotation,
                           int slot,
                           int nb_rb,

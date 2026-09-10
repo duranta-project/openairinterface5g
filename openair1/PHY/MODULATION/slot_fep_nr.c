@@ -25,21 +25,26 @@ void nr_symbol_fep(const NR_DL_FRAME_PARMS *frame_parms,
   AssertFatal(slot < frame_parms->slots_per_frame, "slot_fep: Ns must be between 0 and %d\n", frame_parms->slots_per_frame - 1);
 
   dft_size_idx_t dftsize = get_dft(frame_parms->ofdm_symbol_size);
+  const bool is_sl = (link_type == link_type_sl);
+  const int nb_rb = is_sl ? frame_parms->N_RB_SL : frame_parms->N_RB_DL;
   for (unsigned char aa = 0; aa < frame_parms->nb_antennas_rx; aa++) {
+    // OFDM Demod
     if (dft_stats) start_meas(dft_stats);
     dft(dftsize, (int16_t *)rxdata[aa], (int16_t *)rxdataF[aa], 1);
     if (dft_stats) stop_meas(dft_stats);
 
-    const bool is_sl = (link_type == link_type_sl);
-    apply_nr_rotation_symbol_RX(frame_parms->symbols_per_slot,
-                                frame_parms->slots_per_subframe,
-                                frame_parms->timeshift_symbol_rotation,
-                                frame_parms->first_carrier_offset,
-                                rxdataF[aa],
-                                frame_parms->symbol_rotation[link_type],
-                                is_sl ? frame_parms->N_RB_SL : frame_parms->N_RB_DL,
-                                slot,
-                                symbol);
+    // FFT-shift
+    fftshift_inplace(rxdataF[aa], nb_rb * NR_NB_SC_PER_RB, frame_parms->ofdm_symbol_size);
+
+    // Phase compensation
+    apply_nr_rotation_symbol_fftshifted_RX(frame_parms->symbols_per_slot,
+                                           frame_parms->slots_per_subframe,
+                                           frame_parms->timeshift_symbol_rotation,
+                                           rxdataF[aa],
+                                           frame_parms->symbol_rotation[link_type],
+                                           nb_rb,
+                                           slot,
+                                           symbol);
   }
 }
 

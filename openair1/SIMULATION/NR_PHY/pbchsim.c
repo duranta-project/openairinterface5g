@@ -502,7 +502,6 @@ int main(int argc, char **argv)
           if (cyclic_prefix_type == 1) {
             apply_nr_rotation_TX(frame_parms,
                                  gNB->common_vars.txdataF[aa],
-                                 true,
                                  frame_parms->symbol_rotation[0],
                                  slot,
                                  frame_parms->N_RB_DL,
@@ -523,7 +522,6 @@ int main(int argc, char **argv)
           } else {
             apply_nr_rotation_TX(frame_parms,
                                  gNB->common_vars.txdataF[aa],
-                                 true,
                                  frame_parms->symbol_rotation[0],
                                  slot,
                                  frame_parms->N_RB_DL,

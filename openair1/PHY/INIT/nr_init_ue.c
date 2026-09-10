@@ -260,6 +260,8 @@ int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)
   ue->init_averaging = 1;
   init_symbol_rotation(fp);
   init_timeshift_rotation(fp->ofdm_symbol_size, fp->nb_prefix_samples, fp->ofdm_offset_divisor, fp->timeshift_symbol_rotation);
+  // freq domain data is FFT shifted so shift this too.
+  fftshift_inplace(fp->timeshift_symbol_rotation, fp->N_RB_DL * NR_NB_SC_PER_RB, fp->ofdm_symbol_size);
 
   // initialize to false only for SA since in do-ra and phy-test it is already set to true before getting here
   if (IS_SA_MODE(get_softmodem_params()))

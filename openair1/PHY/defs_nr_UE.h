@@ -544,7 +544,6 @@ typedef struct {
   uint ofdm_offset_divisor;
   int nb_antennas_rx;
   int symbols_per_slot;
-  int first_carrier_offset;
   int N_RB_DL;
   uint32_t rxdata_size;
   c16_t **rxdata;
