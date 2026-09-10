@@ -5,40 +5,60 @@
 #ifndef XNAP_COMMON_H_
 #define XNAP_COMMON_H_
 
-#include "XNAP_XnAP-PDU.h"
-#include "common/openairinterface5g_limits.h"
-#include "oai_asn1.h"
-#include "XNAP_ProtocolIE-Field.h"
-#include "XNAP_InitiatingMessage.h"
-#include "XNAP_ProtocolIE-ContainerPair.h"
-#include "XNAP_ProtocolExtensionField.h"
-#include "XNAP_ProtocolExtensionContainer.h"
-#include "XNAP_asn_constant.h"
+#include "tree.h"
+#include "common/platform_types.h"
+#include "openair2/COMMON/sctp_messages_types.h"
+#include "openair2/COMMON/xnap_messages_types.h"
 
-#ifndef XNAP_PORT
-#define XNAP_PORT 38422
-#endif
+typedef enum {
+  /* SCTP up, XnSetup in progress */
+  XNAP_PEER_STATE_WAITING = 0,
+  /* XnSetup exchange complete */
+  XNAP_PEER_STATE_CONNECTED,
+} xnap_peer_state_t;
 
-#define XNAP_FIND_PROTOCOLIE_BY_ID(IE_TYPE, ie, container, IE_ID, mandatory)                                                   \
-  do {                                                                                                                         \
-    IE_TYPE **ptr;                                                                                                             \
-    ie = NULL;                                                                                                                 \
-    for (ptr = container->protocolIEs.list.array; ptr < &container->protocolIEs.list.array[container->protocolIEs.list.count]; \
-         ptr++) {                                                                                                              \
-      if ((*ptr)->id == IE_ID) {                                                                                               \
-        ie = *ptr;                                                                                                             \
-        break;                                                                                                                 \
-      }                                                                                                                        \
-    }                                                                                                                          \
-    if (mandatory)                                                                                                             \
-      DevAssert(ie != NULL);                                                                                                   \
-  } while (0)
+/* A peer is inserted when SCTP association is live and keyed only by assoc_id
+ * and is removed from the tree the moment its association goes down. */
+typedef struct xnap_peer_s {
+  RB_ENTRY(xnap_peer_s) entry;
+  sctp_assoc_t assoc_id;
+  xnap_peer_state_t state;
+  /* negotiated SCTP in-streams */
+  uint16_t in_streams;
+  /* negotiated SCTP out-streams */
+  uint16_t out_streams;
+  /* filled after Xn Setup Response */
+  uint32_t remote_gnb_id;
+} xnap_peer_t;
 
-ssize_t xnap_generate_initiating_message(uint8_t **buffer,
-                                         uint32_t *length,
-                                         XNAP_ProcedureCode_t procedureCode,
-                                         XNAP_Criticality_t criticality,
-                                         asn_TYPE_descriptor_t *td,
-                                         void *sptr);
+/* Per-local-gNB Xn state, indexed by instance number. */
+typedef struct xnap_gnb_inst_s {
+  /* local gNB's own identity/capabilities */
+  xnap_setup_req_t setup_info;
+  xnap_net_config_t net_config;
+  RB_HEAD(xnap_peer_map, xnap_peer_s) peers;
+  /* set once Xn bring-up (listener bind + initial dials) has been started
+   * for this instance; never cleared, independent of peer connectivity */
+  bool xn_started;
+} xnap_gnb_inst_t;
+
+RB_PROTOTYPE(xnap_peer_map, xnap_peer_s, entry, xnap_peer_compare);
+
+xnap_gnb_inst_t *xnap_get_inst(instance_t instance);
+
+/* Lookup a connected/connecting peer by its (unique) assoc_id. */
+xnap_peer_t *xnap_get_peer_by_assoc(xnap_gnb_inst_t *inst, sctp_assoc_t assoc_id);
+
+/* Allocate a peer for a newly-up SCTP association, insert it in the tree
+ * keyed by assoc_id, and return it. AssertFatal()s if assoc_id is already
+ * present (would indicate an SCTP/ITTI-layer bug). */
+xnap_peer_t *xnap_add_peer(instance_t instance, xnap_gnb_inst_t *inst, sctp_assoc_t assoc_id, uint16_t in_streams, uint16_t out_streams);
+
+/* Remove and free a peer, e.g. on SCTP shutdown/close. */
+void xnap_remove_peer(xnap_gnb_inst_t *inst, xnap_peer_t *peer);
+
+void xnap_create_inst(instance_t instance, xnap_setup_req_t *setup_info, xnap_net_config_t *net_config);
+
+#define XNAP_NON_UE_STREAM_ID 0
 
 #endif /* XNAP_COMMON_H_ */
