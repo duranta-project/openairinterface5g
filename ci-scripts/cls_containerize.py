@@ -395,6 +395,7 @@ class Containerize():
 		if ret.returncode != 0:
 			logging.error(f'No {baseImage} image present, cannot build tests')
 			HTML.CreateHtmlTestRow("Unit test build failed", 'KO', CONST.ALL_PROCESSES_OK)
+			cmd.close()
 			return False
 
 		# build ran-unittests image
@@ -405,6 +406,8 @@ class Containerize():
 		if ret.returncode != 0:
 			logging.error(f'Cannot build unit tests')
 			HTML.CreateHtmlTestRow("Unit test build failed", 'KO', [dockerfile])
+			cmd.run(f'docker image rm --force ran-unittests:{baseTag}')
+			cmd.close()
 			return False
 
 		HTML.CreateHtmlTestRowQueue("Build unit tests", 'OK', [dockerfile])
@@ -413,12 +416,18 @@ class Containerize():
 		# I would like to run it with --rm and mount the ctest result directory to avoid 'docker cp'
 		# below, but then permissions are messed up and we can't remove the directory without sudo
 		# making the next pipeline fail
+		cmd.run('docker rm --force --volumes ran-unittests')
 		ret = cmd.run(f'docker run -a STDOUT {runtime_opt} --shm-size=2g --workdir /oai-ran/build/ --env LD_LIBRARY_PATH=/oai-ran/build/ --name ran-unittests ran-unittests:{baseTag} ctest --no-label-summary -j$(nproc) {ctest_opt}')
 		cmd.run('docker cp ran-unittests:/oai-ran/build/Testing/Temporary/LastTest.log .')
 		archiveArtifact(cmd, ctx, f'{lSourcePath}/LastTest.log')
 		cmd.run('docker cp ran-unittests:/oai-ran/build/Testing/Temporary/LastTestsFailed.log .')
 		archiveArtifact(cmd, ctx, f'{lSourcePath}/LastTestsFailed.log')
 		cmd.run('docker rm ran-unittests')
+		cmd.run(f'docker image rm ran-unittests:{baseTag}')
+		cmd.run(f"docker volume prune --force")
+		cmd.run(f"docker buildx prune --filter until=1h --force")
+		logging.debug(cmd.run("df -h").stdout)
+		logging.debug(cmd.run("docker system df").stdout)
 		cmd.close()
 
 		if ret.returncode == 0:

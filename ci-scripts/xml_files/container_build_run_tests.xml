@@ -6,6 +6,12 @@
   <htmlTabIcon>wrench</htmlTabIcon>
 
   <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace</desc>
+    <node>obelix</node>
+  </testCase>
+
+  <testCase>
     <class>Build_Run_Tests</class>
     <desc>Build and Run UnitTests</desc>
     <dockerfile>docker/Dockerfile.unittest.ubuntu</dockerfile>
