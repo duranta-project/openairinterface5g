@@ -2971,6 +2971,8 @@ static void configure_sched_srs(nr_cell_sched_t *cell, NR_SRS_Config_t *srs_conf
   sched_srs->srs_resource = srs_resource;
   if (srs_type == PERIODIC_SRS) {
     int slot_offset = get_nr_srs_offset(srs_resource->resourceType.choice.periodic->periodicityAndOffset_p);
+    // a reconfiguration still holds an entry, and the offset may have changed
+    reset_periodic_info(cell, UE, SRS);
     set_periodic_info(cell, UE, SRS, slot_offset);
   }
 }

@@ -51,7 +51,8 @@ int set_ideal_period(const nr_cell_sched_t *cell, nr_periodic_channel_t channel_
   switch (channel_type) {
     case SRS: {
       int srs_periodicities[17] = {1, 2, 4, 5, 8, 10, 16, 20, 32, 40, 64, 80, 160, 320, 640, 1280, 2560};
-      int srs_ideal_period = nb_slots_per_period * MAX_MOBILES_PER_GNB;
+      const int srs_period = cell->radio_config.srs.periodicity;
+      int srs_ideal_period = srs_period > 0 ? srs_period : nb_slots_per_period * MAX_MOBILES_PER_GNB;
       for (int i = 0; i < 17; i++) {
         if (check_periodicity(srs_periodicities[i], srs_ideal_period, fs))
           return srs_periodicities[i];
@@ -353,6 +354,16 @@ int get_dl_slots_per_period(const frame_structure_t *fs)
 int get_ul_slots_per_period(const frame_structure_t *fs)
 {
   return fs->frame_type == TDD ? fs->period_cfg.num_ul_slots : fs->numb_slots_frame;
+}
+
+/**
+ * @brief Get number of periodic SRS UEs that fit in one full UL slot
+ * @param rc Pointer to the MAC radio configuration
+ * @return Number of UEs, comb offsets times SRS symbols
+ */
+int nr_srs_ue_per_slot(const nr_mac_config_t *rc)
+{
+  return rc->srs.ue_per_symbol * rc->srs.symbols_per_slot;
 }
 
 /**
@@ -1007,7 +1018,7 @@ static periodic_ue_sched_t config_period_structure(nr_cell_sched_t *cell, nr_per
   bool count_mixed = channel != SRS;
   int valid_slots_per_period = count_mixed ? get_ul_slots_per_period(fs) : get_full_ul_slots_per_period(fs);
   int nb_slots = (max_period / fs->numb_slots_period) * valid_slots_per_period;
-  periodic_ue_sched_t p = {.max_period = max_period, .max_ue_per_slot = 1}; // currently 1 SRS per slot
+  periodic_ue_sched_t p = {.max_period = max_period, .max_ue_per_slot = nr_srs_ue_per_slot(&cell->radio_config)};
   p.list = calloc_or_fail(nb_slots * p.max_ue_per_slot, sizeof(NR_UE_info_t *));
   return p;
 }
@@ -1069,7 +1080,8 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
                        scc->tdd_UL_DL_ConfigurationCommon,
                        csi_symbols_in_slot(scc),
                        num_symb_cset);
-  nr_rrc_config_ul_tda(scc, rc->minRXTXTIME, rc->do_SRS);
+  // PUSCH ends where the SRS block starts, counting down from the last SRS symbol
+  nr_rrc_config_ul_tda(scc, rc->minRXTXTIME, rc->do_SRS, rc->srs.last_symbol - rc->srs.symbols_per_slot + 1);
   seq_arr_init(&cell->ul_tda, sizeof(NR_tda_info_t));
   init_ul_tda_info(scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList, &cell->ul_tda);
   seq_arr_init(&nrmac->pos_act_ue_arr, sizeof(positioning_activation_info_t));
