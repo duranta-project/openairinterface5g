@@ -23,6 +23,8 @@ class ring_buffer {
   size_t push_samples(const T *samples, size_t nsamps);
   size_t push_zeros(size_t num_zeros);
   size_t pop_samples(T *samples, size_t num_samples);
+  // Copy without consuming, skipping skip_from_tail oldest samples; return copied count and leave remaining output untouched.
+  size_t copy_range(T *out, size_t count, size_t skip_from_tail) const;
   void reset();
   void clear_samples();
   size_t size() const;
