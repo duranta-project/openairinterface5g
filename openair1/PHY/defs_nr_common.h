@@ -77,6 +77,18 @@ typedef enum{
 } nr_ssb_type_e;
 
 typedef struct {
+  uint16_t Q_dash_ACK; // number of coded HARQ-ACK symbols
+  uint16_t E_uci_ACK; // number of coded HARQ-ACK bits (including reserved ones)
+  uint16_t E_uci_ACK_actual; // actual number of coded HARQ-ACK bits
+  uint16_t Q_dash_CSI1; // number of coded CSI part 1 symbols
+  uint16_t E_uci_CSI1; // number of coded CSI part 1 bits
+  uint16_t Q_dash_CSI2; // number of coded CSI part 2 symbols
+  uint16_t E_uci_CSI2; // number of coded CSI part 2 bits
+  uint32_t G_ulsch; // bit capacity of ULSCH
+  int O_ack;
+} rate_match_info_uci_t;
+
+typedef struct {
   uint8_t k_0_p[MAX_NUM_NR_SRS_AP][MAX_NUM_NR_SRS_SYMBOLS];
   uint8_t srs_generated_signal_bits;
   int B_SRS;

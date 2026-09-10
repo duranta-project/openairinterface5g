@@ -59,6 +59,27 @@ uint16_t decode_1_2_uci_bit(int8_t *input, int n_bits, int Qm)
   }
 }
 
+// Section 5.4.3 of 38.212
+void nr_rate_matching_smallcodeblock_rx(int16_t *input, int E, int N, int8_t *output)
+{
+  // For small block code N is at most 32 (for K > 2)
+  AssertFatal(N <= 32, "N for small code block is expected to be not larger than 32 but it's %d\n", N);
+  int32_t combined[32] = {0};
+
+  // Soft combine all repetitions
+  for (int k = 0; k < E; k++)
+    combined[k % N] += (int32_t)input[k];
+
+  // Saturate to the int8_t range required by decodeSmallBlock
+  for (int i = 0; i < N; i++) {
+    if (combined[i] > INT8_MAX)
+      combined[i] = INT8_MAX;
+    else if (combined[i] < -INT8_MAX)
+      combined[i] = -INT8_MAX;
+    output[i] = (int8_t)combined[i];
+  }
+}
+
 uint16_t decodeSmallBlock(int8_t *in, uint8_t len)
 {
   uint16_t out = 0;

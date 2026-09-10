@@ -10,16 +10,14 @@
 #define __NR_POLAR_UCI_DEFS__H__
 
 #define NR_POLAR_UCI_PUCCH_MESSAGE_TYPE 2 // int8_t
+#define NR_POLAR_UCI_PUSCH_MESSAGE_TYPE 4
 #define NR_POLAR_PUCCH_CRC_ERROR_CORRECTION_BITS 3
 
-// Ref. 38-212, Section 6.3.1.2.1
-
-
 // Ref. 38-212, Section 6.3.1.3.1
-#define NR_POLAR_PUCCH_N_MAX 10
-#define NR_POLAR_PUCCH_I_IL 0
+#define NR_POLAR_UCI_N_MAX 10
+#define NR_POLAR_UCI_I_IL 0
 
 // Ref. 38-212, Section 6.3.1.4.1
-#define NR_POLAR_PUCCH_I_BIL 1
+#define NR_POLAR_UCI_I_BIL 1
 
 #endif

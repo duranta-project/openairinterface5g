@@ -36,7 +36,8 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
                       int nb_pusch);
 
 void dump_pusch_stats(FILE *fd,PHY_VARS_gNB *gNB);
-
+int get_pusch_cqi(const NR_gNB_PUSCH *pusch, int frame, int slot);
+int get_pusch_ta(const PHY_VARS_gNB *gNB, NR_gNB_PHY_STATS_t *stats, const NR_gNB_PUSCH *pusch, int frame, int slot);
+int get_pusch_rssi(const NR_gNB_PUSCH *pusch, int n_rx);
 NR_gNB_SCH_STATS_t *get_ulsch_stats(PHY_VARS_gNB *gNB,NR_gNB_ULSCH_t *ulsch);
-
 #endif /* NR_ULSCH_H_ */
