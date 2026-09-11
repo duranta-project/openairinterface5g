@@ -469,7 +469,6 @@ typedef struct NR_sched_pssch {
 
   /// UL HARQ PID to use for this UE, or -1 for "any new"
   int8_t sl_harq_pid;
-
   uint8_t nrOfLayers;
   //NR_pusch_dmrs_t dmrs_info;
 } NR_sched_pssch_t;

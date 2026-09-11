@@ -137,7 +137,19 @@ typedef struct {
   struct sl_nr_rx_config_pssch_sci_pdu *pssch_pdu;
   /// Index of current HARQ round for this DLSCH
   uint8_t round;
-  bool new_rx;
+  /// Last received NDI for this HARQ process (0xFF = sentinel, no prior reception)
+  uint8_t last_ndi;
+  /// Sidelink identification information and process ID associated with this RX process.
+  bool sl_identity_valid;
+  uint8_t sl_source_id;
+  uint16_t sl_dest_id;
+  uint8_t sl_cast_type;
+  uint8_t sl_process_id;
+  /// Set to true when the current TB has been successfully decoded (CRC pass).
+  /// Cleared when NDI toggles (new TB). Used by sidelink RX to suppress
+  /// duplicate MAC indications when HARQ retransmissions arrive after the initial
+  /// RV already decoded the TB.
+  bool tb_decoded;
   /////////////////////// ulsch decoding ///////////////////////
   /// flag used to clear d properly
   /// set to true in nr_fill_ulsch() when new_data_indicator is received
