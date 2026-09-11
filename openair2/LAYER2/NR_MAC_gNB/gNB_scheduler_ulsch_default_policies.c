@@ -130,15 +130,59 @@ int nr_ul_tda_select_default(gNB_MAC_INST *mac,
   return n_valid;
 }
 
+
+
+/* Orders the candidates the way nr_ul_proportional_fair() allocates them: by
+ * priority class first, then by the key that is relevant for that class. Both
+ * candidates belong to the same class when a secondary key is used, so the keys
+ * only ever compare comparable things, and the ordering stays a strict weak
+ * ordering as qsort() requires.
+ * mcs_a/mcs_b is the MCS of each candidate as it is known at the calling stage,
+ * see the two comparators below. */
+static int compare_ul_pf(const nr_ul_candidate_t *ca, const nr_ul_candidate_t *cb, int mcs_a, int mcs_b)
+{
+  /* Retransmissions first, then UEs waiting for a default grant, then UEs with data */
+  if (ca->prio_class != cb->prio_class)
+    return ca->prio_class < cb->prio_class ? -1 : 1;
+
+  switch (ca->prio_class) {
+    case NR_UL_PRIO_RETX:
+      /* A retransmission needs an exact number of contiguous RBs: allocating the
+       * largest ones first leaves fewer retx that do not fit in a fragmented map */
+      if (ca->retx_rbSize != cb->retx_rbSize)
+        return ca->retx_rbSize > cb->retx_rbSize ? -1 : 1;
+      return 0;
+
+    case NR_UL_PRIO_SR_CRITICAL:
+    case NR_UL_PRIO_DEFAULT_GRANT:
+      /* Longest waiting SR first, so that a UE gets its grant before reaching
+       * sr_TransMax. UEs scheduled for long inactivity have no SR pending (age 0)
+       * and come last. */
+      if (ca->sr_age_slots != cb->sr_age_slots)
+        return ca->sr_age_slots > cb->sr_age_slots ? -1 : 1;
+      return 0;
+
+    case NR_UL_PRIO_DATA:
+    default: {
+      /* Highest PF weight first. A pending SR is not taken into account here: we
+       * already know from the BSR that the UE has data, so the SR adds nothing and
+       * would only override the PF fairness between UEs that all have data. */
+      const float wa = ul_pf_weight(mcs_a, ca->mcs_table, ca->sched_pusch.nrOfLayers, ca->avg_throughput);
+      const float wb = ul_pf_weight(mcs_b, cb->mcs_table, cb->sched_pusch.nrOfLayers, cb->avg_throughput);
+      return (wa < wb) - (wa > wb);
+    }
+  }
+}
+
+/* Used by the beam selection, which runs before the MCS selection stage: uses
+   current_mcs, sched_pusch.mcs is not set yet at that point. */
 static int compare_ul_pf_ptrs(const void *a, const void *b)
 {
   const nr_ul_candidate_t *ca = *(const nr_ul_candidate_t *const *)a;
   const nr_ul_candidate_t *cb = *(const nr_ul_candidate_t *const *)b;
-  /* retx first (INFINITY weight), then highest PF weight */
-  float wa = ca->is_retx ? INFINITY : ul_pf_weight(ca->current_mcs, ca->mcs_table, ca->sched_pusch.nrOfLayers, ca->avg_throughput);
-  float wb = cb->is_retx ? INFINITY : ul_pf_weight(cb->current_mcs, cb->mcs_table, cb->sched_pusch.nrOfLayers, cb->avg_throughput);
-  return (wa < wb) - (wa > wb);
+  return compare_ul_pf(ca, cb, ca->current_mcs, cb->current_mcs);
 }
+
 
 int nr_ul_beam_select_default(NR_beam_info_t *beam_info,
                               const int16_t *beam_index_list,
@@ -216,16 +260,13 @@ void nr_ul_mcs_select_default(const nr_cell_sched_t *cell, nr_ul_candidate_t *ca
   }
 }
 
+/* Used by the RB allocation, which runs after the MCS selection stage: uses
+   sched_pusch.mcs, which is set by mcs_select. */
 static int compare_ul_pf_rb_ptrs(const void *a, const void *b)
 {
   const nr_ul_candidate_t *ca = *(const nr_ul_candidate_t *const *)a;
   const nr_ul_candidate_t *cb = *(const nr_ul_candidate_t *const *)b;
-  /* retx first, then highest PF weight (uses sched_pusch.mcs, which is set by mcs_select) */
-  float wa =
-      ca->is_retx ? INFINITY : ul_pf_weight(ca->sched_pusch.mcs, ca->mcs_table, ca->sched_pusch.nrOfLayers, ca->avg_throughput);
-  float wb =
-      cb->is_retx ? INFINITY : ul_pf_weight(cb->sched_pusch.mcs, cb->mcs_table, cb->sched_pusch.nrOfLayers, cb->avg_throughput);
-  return (wa < wb) - (wa > wb);
+  return compare_ul_pf(ca, cb, ca->sched_pusch.mcs, cb->sched_pusch.mcs);
 }
 
 static void nr_ul_port_select_default(const nr_ul_sched_params_t *params, nr_ul_candidate_t *cand)
@@ -264,27 +305,38 @@ int nr_ul_proportional_fair(const nr_ul_sched_params_t *params, nr_ul_candidate_
     order[n_active++] = cand;
   qsort(order, n_active, sizeof(*order), compare_ul_pf_rb_ptrs);
 
-  /* Phase 1: HARQ retransmissions (highest priority, exact RBs) */
+  /* Phase 1: HARQ retransmissions (highest priority, exact RBs), largest first */
   for (int j = 0; j < n_active; j++) {
     nr_ul_candidate_t *cand = order[j];
-    if (!cand->is_retx)
+    if (cand->prio_class != NR_UL_PRIO_RETX)
       continue;
+    /* NR_UL_PRIO_RETX is the zero value of the enum: make sure the candidate has
+       really been filled in as a retransmission */
+    DevAssert(cand->is_retx && cand->retx_rbSize > 0);
 
     nr_ul_port_select_default(params, cand);
 
     int rbStart;
     uint16_t *vrb_map = params->vrb_map_UL[cand->alloc_beam_idx];
     int block_len = find_largest_free_block(vrb_map, cand->alloc_slbitmap, cand->bwp_start, cand->bwp_size, &rbStart);
-    if (block_len < cand->retx_rbSize)
+    if (block_len < cand->retx_rbSize) {
+      LOG_D(NR_MAC,
+            "[UE %04x] retx needs %d RB, largest free block is %d, deferring to next slot\n",
+            cand->UE->rnti,
+            cand->retx_rbSize,
+            block_len);
       continue;
+    }
 
     COMMIT_UL_ALLOC(params, cand, rbStart, cand->retx_rbSize, cand->sched_pusch.mcs, n_scheduled);
   }
 
-  /* Phase 2: Inactive UEs (no BSR data, need scheduling for TA/SR) */
+  /* Phase 2: default grant so that the UE can send a BSR, for UEs about to reach
+   * sr_TransMax first, then for UEs with nothing to transmit that we know of
+   * (pending SR or long inactivity). Longest pending SR first in both cases. */
   for (int j = 0; j < n_active; j++) {
     nr_ul_candidate_t *cand = order[j];
-    if (cand->is_retx || (!cand->sched_long_inactivity && cand->sr_cnt == 0))
+    if (cand->prio_class != NR_UL_PRIO_SR_CRITICAL && cand->prio_class != NR_UL_PRIO_DEFAULT_GRANT)
       continue;
 
     nr_ul_port_select_default(params, cand);
@@ -314,7 +366,7 @@ int nr_ul_proportional_fair(const nr_ul_sched_params_t *params, nr_ul_candidate_
   int excess_total_rbs = max_rbSize;
   for (int j = 0, n = 0; j < n_active && n < n_remain_ue + 2; j++) {
     nr_ul_candidate_t *cand = order[j];
-    if (cand->is_retx || cand->sched_long_inactivity || cand->sr_cnt)
+    if (cand->prio_class != NR_UL_PRIO_DATA)
       continue;
 
     nr_ul_port_select_default(params, cand);
@@ -350,7 +402,7 @@ int nr_ul_proportional_fair(const nr_ul_sched_params_t *params, nr_ul_candidate_
   /* allocate up to all UEs checked above */
   for (int j = 0; j < n_active; j++) {
     nr_ul_candidate_t *cand = order[j];
-    if (cand->is_retx || cand->sched_long_inactivity || rbs_ue[j] == 0)
+    if (cand->prio_class != NR_UL_PRIO_DATA || rbs_ue[j] == 0)
       continue;
 
     // give every UE its chunk of data. If total_rbs indicates excess RBs, give

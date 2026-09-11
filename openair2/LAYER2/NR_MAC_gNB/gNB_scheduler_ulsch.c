@@ -32,6 +32,10 @@ static const uint16_t NR_TRANSFORM_PRECODE_RB_LUT[274] = {
 //#define SRS_IND_DEBUG
 #define MAX_NUM_DATA_IND 1024
 
+/* Percentage of sr_TransMax at which a UE waiting for a grant is escalated to
+   NR_UL_PRIO_SR_CRITICAL, i.e. scheduled before all other UEs but retransmissions */
+#define NR_SR_CRITICAL_PERCENT 50
+
 // With SC-FDMA the scheduler in uplink needs to schedule N_PRB=2^x3^y5^z
 // Check 6.3.1.4 of 38.211
 int check_sc_fdma_rbsize(long transform_precoding, uint16_t rb)
@@ -2636,6 +2640,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
   int numUE = 0;
   bool aperiodic_srs_scheduled = false;
   const frame_structure_t *fs = &cell->frame_structure;
+  const int slots_per_frame = fs->numb_slots_frame;
   const float ul_slots_per_s = (float)get_ul_slots_per_period(fs) / fs->numb_slots_period * fs->numb_slots_frame * 100;
 
   UE_iterator (UE_list, UE) {
@@ -2707,6 +2712,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     if (ul_harq_pid >= 0) {
       const NR_sched_pusch_t *retInfo = &sched_ctrl->ul_harq_processes[ul_harq_pid].sched_pusch;
       cand.is_retx = true;
+      cand.prio_class = NR_UL_PRIO_RETX;
       cand.retx_harq_pid = ul_harq_pid;
       cand.retx_rbSize = retInfo->rbSize;
       cand.current_mcs = retInfo->mcs;
@@ -2759,8 +2765,25 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     cand.last_num_sched = sched_ctrl->ul_bler_stats.last_num_sched;
     cand.snrx10 = (int)(sched_ctrl->pusch_pc.avg_snr * 10);
     cand.sr_cnt = sched_ctrl->sr_cnt;
+    // How long the UE has been asking for a grant.
+    cand.sr_age_slots = sched_ctrl->sr_cnt > 0 ? (sched_frame * slots_per_frame + sched_slot - (int)sched_ctrl->sr_first_slot + 1024 * slots_per_frame) % (1024 * slots_per_frame) : 0;
+    /* A UE with pending bytes is scheduled on its PF weight, one without gets a
+       default grant so that it can send a BSR. A UE that is running out of SR
+       retransmissions is served before both: if it reaches sr_TransMax it gives
+       up, releases PUCCH/SRS and has to go through random access again. */
+    const int sr_TransMax = cell->radio_config.timer_config.sr_TransMax;
+    if (sr_TransMax > 0 && sched_ctrl->sr_cnt >= (uint32_t)(sr_TransMax * NR_SR_CRITICAL_PERCENT / 100)) {
+      cand.prio_class = NR_UL_PRIO_SR_CRITICAL;
+      LOG_D(NR_MAC,
+            "[UE %04x] %d/%d SR without grant, scheduling it before all other UEs\n",
+            UE->rnti,
+            sched_ctrl->sr_cnt,
+            sr_TransMax);
+    } else {
+      cand.prio_class = B > 0 ? NR_UL_PRIO_DATA : NR_UL_PRIO_DEFAULT_GRANT;
+    }
     LOG_D(NR_MAC,
-          "[UE %04x][%4d.%2d] b %d, ul_thr_ue %f, mcs %d, SR count %d, UL inactivity %d/%d slots, sched_long_inactivity %d sched_srs %d\n",
+          "[UE %04x][%4d.%2d] b %d, ul_thr_ue %f, mcs %d, SR count %d age %d slots, UL inactivity %d/%d slots, sched_long_inactivity %d sched_srs %d\n",
           UE->rnti,
           frame,
           slot,
@@ -2768,6 +2791,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
           UE->ul_thr_ue,
           cand.current_mcs,
           sched_ctrl->sr_cnt,
+          cand.sr_age_slots,
           inactivity,
           max_inactivity,
           cand.sched_long_inactivity,
