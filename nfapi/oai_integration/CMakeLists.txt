@@ -11,6 +11,7 @@ endif()
 add_library(nfapi_user_lib
         nfapi.c
         nfapi_pnf.c
+        nfapi_pnf_pacing.c
         nfapi_vnf.c
         gnb_ind_vars.c)
 if(OAI_WLS)

@@ -763,7 +763,8 @@ static int nfapi_nr_vnf_p7_start(nfapi_vnf_p7_config_t *config)
   NFAPI_TRACE(NFAPI_TRACE_INFO, "VNF P7 socket created...\n");
 
   // configure the UDP socket options
-  int iptos_value = 0;
+  /* mark P7 traffic as Expedited Forwarding (DSCP EF) for low-latency queuing */
+  int iptos_value = IPTOS_DSCP_EF;
   if (setsockopt(vnf_p7->socket, IPPROTO_IP, IP_TOS, &iptos_value, sizeof(iptos_value)) < 0) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "After setsockopt (IP_TOS) errno: %d\n", errno);
     return -1;

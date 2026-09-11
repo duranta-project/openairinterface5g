@@ -12,7 +12,12 @@
 #define TIMEHR_SEC(_time_hr) ((uint32_t)(_time_hr) >> 20)
 #define TIMEHR_USEC(_time_hr) ((uint32_t)(_time_hr) & 0xFFFFF)
 #define TIME2TIMEHR(_time) (((uint32_t)(_time.tv_sec) & 0xFFF) << 20 | ((uint32_t)(_time.tv_usec) & 0xFFFFF))
-
+/* ============================================================================
+ * DYNAMIC SLOT SLEEP TIMING CONTROL CONSTANTS
+ * ============================================================================ */
+/* Dynamic Target Margin (adaptive to avoid late packets) */
+#define MARGIN_TOLERANCE_US     100    // Target lock threshold
+#define MARGIN_TOLERANCE_LOCKED_US 500    // Smoothed drift unlock threshold
 
 typedef struct {
 	uint8_t* buffer;
@@ -70,19 +75,34 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t slot_offset_filtered;
 	uint16_t zero_count;
 	int32_t adjustment;
+	int32_t slot_adjustment;
 	int32_t insync_minor_adjustment;
 	int32_t insync_minor_adjustment_duration;
+	uint8_t sync_locked;  // Flag: once offset converges within ±10, permanently stop adjusting
+	int32_t consecutive_drift_violations;
+	/* Periodic sync control */
+	uint32_t sync_slot_counter;                // Counter for periodic sync
+	uint32_t sync_period_slots;                // Period between syncs (configurable)
 
 	uint32_t previous_t1;
 	uint32_t previous_t2;
 	int32_t previous_sf_offset_filtered;
 	int32_t previous_slot_offset_filtered;
+	uint8_t initial_timinginfo_received;
 	int sfn_sf;
 	int sfn;
 	int slot;
   int mu; // some 5G slot calculations need the numerology to know the number
           // of slots
-
+	int slot_ahead;
+	uint16_t timing_window;
+	uint8_t timing_info_period;
+	struct timespec next_slot_time;
+	uint32_t slot_duration_us;
+	uint8_t running;
+	pthread_t thread;
+	pthread_mutex_t mutex;
+	pthread_cond_t  initial_timinginfo_cond;
 	int socket;
 	struct sockaddr_in local_addr;
 	struct sockaddr_in remote_addr;
@@ -95,6 +115,12 @@ typedef struct nfapi_vnf_p7_connection_info {
 
 	struct nfapi_vnf_p7_connection_info* next;
 
+	int32_t pending_us;             // Accumulated borrowed time (us) to be repaid incrementally
+	int32_t estimated_mean_late;      // estimated mean delay
+	int32_t estimated_jitter_var;     // estimated jitter variance
+	int32_t last_adjustment_sfn;    // SFN when we made the last upward adjustment
+	int32_t last_adjustment_slot;   // Slot when we made the last upward adjustment
+	int32_t nr_offset_filtered;
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {
@@ -137,5 +163,16 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 void vnf_p7_release_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* header);
 void vnf_p7_release_pdu(vnf_p7_t* vnf_p7, void* pdu);
 
+typedef struct {
+  int32_t worst_late;
+  int32_t worst_early;
+} vnf_timing_stats_t;
+
+/* Function Declaration */
+// Extract timing info points from a timing_info message
+// Returns 1 if at least one valid timing sample was extracted, 0 otherwise.
+int vnf_nr_extract_timing_info(const nfapi_nr_timing_info_t *ind,
+                               nfapi_vnf_p7_connection_info_t *p7_info,
+                               vnf_timing_stats_t *out_stats);
 
 #endif // _VNF_P7_H_

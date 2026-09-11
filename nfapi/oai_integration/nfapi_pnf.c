@@ -18,6 +18,7 @@
 
 #include "nfapi.h"
 #include "nfapi_pnf.h"
+#include "nfapi_pnf_pacing.h"
 #include "common/ran_context.h"
 #include "openair2/PHY_INTERFACE/phy_stub_UE.h"
 
@@ -121,9 +122,13 @@ typedef struct {
   uint8_t first_subframe_ind;
 
   // timing information recevied from the vnf
-  uint8_t timing_window;
+  uint16_t timing_window;
   uint8_t timing_info_mode;
   uint8_t timing_info_period;
+  uint32_t dl_tti_timing_offset;
+  uint32_t ul_tti_timing_offset;
+  uint32_t ul_dci_timing_offset;
+  uint32_t tx_data_timing_offset;
 
 } phy_info;
 
@@ -995,7 +1000,22 @@ int nr_config_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, n
     phy_info->timing_info_mode = 0;
     printf("NO timing info mode provided\n");
   }
-  // TODO: Read the P7 message offset values
+  if (req->nfapi_config.dl_tti_timing_offset.tl.tag == NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET) {
+    phy_info->dl_tti_timing_offset = req->nfapi_config.dl_tti_timing_offset.value;
+    num_tlv++;
+  }
+  if (req->nfapi_config.ul_tti_timing_offset.tl.tag == NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET) {
+    phy_info->ul_tti_timing_offset = req->nfapi_config.ul_tti_timing_offset.value;
+    num_tlv++;
+  }
+  if (req->nfapi_config.ul_dci_timing_offset.tl.tag == NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET) {
+    phy_info->ul_dci_timing_offset = req->nfapi_config.ul_dci_timing_offset.value;
+    num_tlv++;
+  }
+  if (req->nfapi_config.tx_data_timing_offset.tl.tag == NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET) {
+    phy_info->tx_data_timing_offset = req->nfapi_config.tx_data_timing_offset.value;
+    num_tlv++;
+  }
   if (req->nfapi_config.timing_info_period.tl.tag == NFAPI_NR_NFAPI_TIMING_INFO_PERIOD_TAG) {
     printf("timing info period provided value:%d\n", req->nfapi_config.timing_info_period.value);
     phy_info->timing_info_period = req->nfapi_config.timing_info_period.value;
@@ -1657,10 +1677,13 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
   p7_config->subframe_buffer_size = phy_info->timing_window;
   p7_config->slot_buffer_size = phy_info->timing_window; // TODO: check if correct for NR
   printf("subframe_buffer_size configured using phy_info->timing_window:%d\n", phy_info->timing_window);
+  // Reset timing info defaults from nfapi_pnf_p7_config_create, use VNF config values instead
+  p7_config->timing_info_mode_periodic = 0;
+  p7_config->timing_info_mode_aperiodic = 0;
+  p7_config->timing_info_period = phy_info->timing_info_period;
 
   if (phy_info->timing_info_mode & 0x1) {
     p7_config->timing_info_mode_periodic = 1;
-    p7_config->timing_info_period = phy_info->timing_info_period;
   }
 
   if (phy_info->timing_info_mode & 0x2) {
@@ -1749,6 +1772,11 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
   DevAssert(scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG);
   pnf_p7_t* pnf_p7 = (pnf_p7_t*)(p7_config);
   pnf_p7->mu = scs->value;
+  pnf_p7->timing_window = phy_info->timing_window;
+  pnf_p7->dl_tti_timing_offset = phy_info->dl_tti_timing_offset;
+  pnf_p7->ul_tti_timing_offset = phy_info->ul_tti_timing_offset;
+  pnf_p7->ul_dci_timing_offset = phy_info->ul_dci_timing_offset;
+  pnf_p7->tx_data_timing_offset = phy_info->tx_data_timing_offset;
 
   // Need to wait for main thread to create RU structures
   while (config_sync_var < 0) {
@@ -2299,21 +2327,26 @@ void oai_subframe_ind(uint16_t sfn, uint16_t sf) {
   }
 }
 
-#define SLOT_DURATION 800 // in microseconds
 static void maybe_slow_down_pnf(int mu)
 {
-  /* uses a usleep to wait for approximately the same time period (300 us) */
-  static struct timespec last_execution = {0};
-  struct timespec current_execution;
-  clock_gettime(CLOCK_REALTIME, &current_execution);
-  // Calculate elapsed time since last execution
-  long elapsed_time = (current_execution.tv_sec - last_execution.tv_sec) * 1000000; // Convert seconds to microseconds
-  elapsed_time += (current_execution.tv_nsec - last_execution.tv_nsec) / 1000; // Convert nanoseconds to microseconds
-  int duration = SLOT_DURATION >> mu;
-  if (elapsed_time < duration)
-    usleep(duration - elapsed_time);
-  // Update last_execution time
-  last_execution = current_execution;
+  static nfapi_pnf_pacer_t pacer;
+
+  AssertFatal(mu >= 0 && mu <= 4, "Invalid numerology %d\n", mu);
+
+  struct timespec now;
+  AssertFatal(clock_gettime(CLOCK_MONOTONIC, &now) == 0, "clock_gettime() failed: %s\n", strerror(errno));
+  struct timespec deadline;
+  if (!nfapi_pnf_pacer_next(&pacer, mu, now, &deadline))
+    return;
+
+  int ret;
+  do {
+    ret = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &deadline, NULL);
+  } while (ret == EINTR);
+  if (ret != 0) {
+    LOG_E(PHY, "RFsim PNF pacing sleep failed: %s\n", strerror(ret));
+    AssertFatal(clock_gettime(CLOCK_MONOTONIC, &pacer.next_slot) == 0, "clock_gettime() failed: %s\n", strerror(errno));
+  }
 }
 
 void handle_nr_slot_ind(uint16_t sfn, uint16_t slot, NR_Sched_Rsp_t *sched_resp)
@@ -2323,10 +2356,7 @@ void handle_nr_slot_ind(uint16_t sfn, uint16_t slot, NR_Sched_Rsp_t *sched_resp)
   int mu = _this->mu;
 
   if (IS_SOFTMODEM_RFSIM) {
-    // RFsim can run faster than realtime. However, we need to give the VNF
-    // some time to send an answer, so the PNF can run faster than realtime,
-    // but it should not too much. This function will "maybe" slow down, up to
-    // a slot length
+    // Pace RFsim to the NR slot duration so the PNF does not outrun the VNF.
     maybe_slow_down_pnf(mu);
   }
 
@@ -2343,8 +2373,10 @@ void handle_nr_slot_ind(uint16_t sfn, uint16_t slot, NR_Sched_Rsp_t *sched_resp)
   sfnslot_add_slot(mu, &sfn_tx, &slot_tx, slot_ahead); // modify: do in place
 
   // printf("send slot indication for sfn/slot:%4d.%2d current:%4d.%2d\n", sfn_tx, slot_tx, sfn, slot);
+#ifdef ENABLE_WLS
   nfapi_nr_slot_indication_scf_t ind = {.sfn = sfn_tx, .slot = slot_tx};
   oai_nfapi_nr_slot_indication(&ind);
+#endif
 
   // copy data from appropriate p7 slot buffers into channel structures for PHY processing
   nfapi_pnf_p7_get_msgs(config,
@@ -2452,4 +2484,3 @@ int oai_nfapi_nr_rach_indication(nfapi_nr_rach_indication_t *ind) {
   ind->header.message_id = NFAPI_NR_PHY_MSG_TYPE_RACH_INDICATION;
   return nfapi_pnf_p7_nr_rach_ind(p7_config_g, ind);
 }
-
