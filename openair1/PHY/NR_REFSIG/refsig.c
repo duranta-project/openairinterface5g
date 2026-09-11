@@ -24,6 +24,7 @@ static void gold_entry_free(void *ptr)
 static uint32_t *gold_generate(uint32_t key, int length)
 {
   uint32_t *seq;
+  AssertFatal(length > 0, "gold_cache: invalid length=%d\n", length);
   int ret = posix_memalign((void **)&seq, 64, length * sizeof(uint32_t));
   AssertFatal(ret == 0, "gold_generate: out of memory\n");
   unsigned int x1 = 0, x2 = key;

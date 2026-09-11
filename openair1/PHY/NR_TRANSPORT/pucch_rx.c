@@ -1044,6 +1044,7 @@ typedef struct {
 } cw4bit_t;
 static cw4bit_t pucch2_polar_4bit[16] __attribute__((aligned(32)));
 static simde__m128i pucch2_polar_llr_num_lut[256];
+static simde__m128i pucch2_polar_factor_lut[256] __attribute__((aligned(16)));
 
 void init_pucch2_luts()
 {
@@ -1061,6 +1062,11 @@ void init_pucch2_luts()
     *lut_i++ = (i & 0x2) <= 0;
     *lut_i++ = (i & 0x4) <= 0;
     *lut_i++ = (i & 0x8) <= 0;
+  }
+  for (int cw = 0; cw < 256; cw++) {
+    simde__m128i part1 = simde_mm_set_epi64x(0ULL, *(int64_t *)&pucch2_polar_4bit[cw & 15].cw);
+    simde__m128i part2 = simde_mm_set_epi64x(0ULL, *(int64_t *)&pucch2_polar_4bit[cw >> 4].cw);
+    pucch2_polar_factor_lut[cw] = simde_mm_unpacklo_epi16(part1, part2);
   }
   for (int cw = 0; cw < 256; cw++) {
     int16_t *lut_num_i = (int16_t *)&pucch2_polar_llr_num_lut[cw];
@@ -1244,7 +1250,7 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
            symb,
            pucch_pdu->dmrs_scrambling_id);
 #endif
-    uint32_t *sGold = gold_cache(x2, starting_prb / 4 + ngroup / 2);
+    uint32_t *sGold = gold_cache(x2, starting_prb / 4 + (ngroup + 1) / 2);
     // Compute pilot conjugate
     c16_t pil_dmrs[nb_re_dmrs] __attribute__((aligned(32)));
     uint8_t *sGold8 = (uint8_t *)(sGold + starting_prb / 4);
@@ -1357,13 +1363,19 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
   if (nb_bit < 12 && decoderState == 2) { // short blocklength case
     uint64_t corr = 0;
     int cw_ML = 0;
-    for (int cw = 0; cw < 1 << nb_bit; cw++) {
-      uint64_t corr_tmp = 0;
+    // Bit 0 of the message toggles nrSmallBlockBasis[0] (the all-ones basis vector), which negates
+    // every output bit of the codeword. In the correlation domain this means the data-correlation term
+    // for codeword (cw|1) is the exact negation of that for codeword (cw&~1); only the cw-independent
+    // DMRS/pilot reference term (corr32) stays the same. So we only run the expensive correlation once
+    // per even/odd pair and derive both metrics from it -- halving the number of madd/hadd evaluations.
+    for (int cw = 0; cw < 1 << nb_bit; cw += 2) {
+      const simde__m256i *coeff = (simde__m256i *)&pucch2_lut[nb_bit - 3][cw].cw;
+      uint64_t corr_tmp_even = 0;
+      uint64_t corr_tmp_odd = 0;
       for (int symb = 0; symb < nb_symbols; symb++) {
         for (int group = 0; group < ngroup; group++) {
           // do complex correlation
           for (int aa = 0; aa < Prx; aa++) {
-            const simde__m256i *coeff = (simde__m256i *)&pucch2_lut[nb_bit - 3][cw].cw;
             const simde__m256i *rext = (simde__m256i *)r_ext[aa][symb];
             const simde__m256i *rext2 = (simde__m256i *)r_ext2[aa][symb];
             simde__m256i re = simde_mm256_madd_epi16(coeff[0], rext[group]);
@@ -1372,32 +1384,44 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
             simde__m256i im2 = simde_mm256_madd_epi16(coeff[1], rext2[group + 1]);
             re = simde_mm256_add_epi32(re, re2);
             im = simde_mm256_add_epi32(im, im2);
-            re = simde_mm256_hadd_epi32(re, re);
-            re = simde_mm256_hadd_epi32(re, re);
-            im = simde_mm256_hadd_epi32(im, im);
-            im = simde_mm256_hadd_epi32(im, im);
-            int32_t *re32 = (int32_t *)&re;
-            int32_t *im32 = (int32_t *)&im;
-            c64_t prod = (c64_t){re32[0] + re32[5], im32[0] + im32[5]};
-            csum(prod, prod, corr32[symb][group][aa]);
-            corr_tmp += squaredMod(prod);
+            // combine re/im into one register so both reductions share the same hadd chain
+            simde__m256i ri = simde_mm256_hadd_epi32(re, im);
+            ri = simde_mm256_hadd_epi32(ri, ri);
+            int32_t *v = (int32_t *)&ri;
+            c64_t d = (c64_t){v[0] + v[4], v[1] + v[5]};
+            c32_t c = corr32[symb][group][aa];
+            c64_t prod_even = {d.r + c.r, d.i + c.i};
+            c64_t prod_odd  = {-d.r + c.r, -d.i + c.i};
+            corr_tmp_even += squaredMod(prod_even);
+            corr_tmp_odd  += squaredMod(prod_odd);
 #ifdef DEBUG_NR_PUCCH_RX
-            printf("pucch2 cw %d group %d aa %d: (%d,%d)+prod=(%ld,%ld)\n",
+            printf("pucch2 cw %d/%d group %d aa %d: c=(%d,%d) d=(%ld,%ld) even=(%ld,%ld) odd=(%ld,%ld)\n",
                    cw,
+                   cw+1,
                    group,
                    aa,
-                   corr32[symb][group][aa].r,
-                   corr32[symb][group][aa].i,
-                   prod.r,
-                   prod.i);
-
+                   c.r,
+                   c.i,
+                   d.r,
+                   d.i,
+                   prod_even.r,
+                   prod_even.i,
+                   prod_odd.r,
+                   prod_odd.i);
 #endif
           }
         } // group loop
       } // symb loop
-      if (corr_tmp > corr) {
-        corr = corr_tmp;
+      if (corr_tmp_even > corr) {
+        corr = corr_tmp_even;
         cw_ML = cw;
+#ifdef DEBUG_NR_PUCCH_RX
+        printf("slot %d PUCCH2 cw_ML %d, corr %lu\n", slot, cw_ML, corr);
+#endif
+      }
+      if (corr_tmp_odd > corr) {
+        corr = corr_tmp_odd;
+        cw_ML = cw + 1;
 #ifdef DEBUG_NR_PUCCH_RX
         printf("slot %d PUCCH2 cw_ML %d, corr %lu\n", slot, cw_ML, corr);
 #endif
@@ -1408,9 +1432,7 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
     printf("slot %d PUCCH2 cw_ML %d, metric %d \n", slot, cw_ML, corr_dB);
 #endif
     decodedPayload[0] = (uint64_t)cw_ML;
-
   } else if (nb_bit >= 12) { // polar coded case
-
     simde__m128i llrs[pucch_pdu->prb_size * 2 * nb_symbols];
     // non-coherent LLR computation on groups of 4 REs (half-PRBs)
     uint64_t corr = 0;
@@ -1421,19 +1443,16 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
         simde__m128i llr_den = simde_mm_set1_epi16(0);
         for (int cw = 0; cw < 256; cw++) {
           int32_t corr_tmp = 0;
+          simde__m128i factor = pucch2_polar_factor_lut[cw];
           for (int aa = 0; aa < Prx; aa++) {
-            simde__m128i part1 = simde_mm_set_epi64x(0ULL, *(int64_t *)&pucch2_polar_4bit[cw & 15].cw);
-            simde__m128i part2 = simde_mm_set_epi64x(0ULL, *(int64_t *)&pucch2_polar_4bit[cw >> 4].cw);
-            simde__m128i factor = simde_mm_unpacklo_epi16(part1, part2);
             simde__m128i re = *(simde__m128i *)&r_ext[aa][symb][half_prb * 4];
             simde__m128i im = *(simde__m128i *)&r_ext2[aa][symb][half_prb * 4];
             simde__m128i prod_re = simde_mm_madd_epi16(re, factor);
             simde__m128i prod_im = simde_mm_madd_epi16(im, factor);
-            prod_re = simde_mm_hadd_epi32(prod_re, prod_re);
-            prod_im = simde_mm_hadd_epi32(prod_im, prod_im);
-            prod_re = simde_mm_hadd_epi32(prod_re, prod_re);
-            prod_im = simde_mm_hadd_epi32(prod_im, prod_im);
-            simde__m128i prod = simde_mm_srai_epi32(simde_mm_unpacklo_epi32(prod_re, prod_im), 5);
+            // combine re/im into one register so both reductions share the same hadd chain
+            simde__m128i ri = simde_mm_hadd_epi32(prod_re, prod_im);
+            ri = simde_mm_hadd_epi32(ri, ri);
+            simde__m128i prod = simde_mm_srai_epi32(ri, 5);
             c64_t corr64 = (c64_t){corr32[symb][half_prb >> 2][aa].r / (2 * nc_group_size * 4 / 2),
                                    corr32[symb][half_prb >> 2][aa].i / (2 * nc_group_size * 4 / 2)};
             //  _mm_srai_epi64 is missing in SIMDE package, we need to update it

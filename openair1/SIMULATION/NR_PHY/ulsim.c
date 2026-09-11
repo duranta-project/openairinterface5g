@@ -825,7 +825,21 @@ int main(int argc, char *argv[])
   rnti_t rnti = 0x1234;
   int uid = 0;
   int ssb_index = 0;
-  NR_CellGroupConfig_t *secondaryCellGroup = get_default_secondaryCellGroup(scc, UE_Capability_nr, 0, 1, &conf, cell, uid, ssb_index);
+  NR_UE_UL_RRC_info_t sr_info = {.allocated = true,
+                                 .resource = 0,
+                                 .offset = get_ul_slot_offset(&frame_structure, 0, true),
+                                 .period = frame_structure.numb_slots_period};
+  NR_UE_UL_RRC_info_t csimeas_info = sr_info;
+  NR_CellGroupConfig_t *secondaryCellGroup = get_default_secondaryCellGroup(scc,
+                                                                            UE_Capability_nr,
+                                                                            sr_info,
+                                                                            csimeas_info,
+                                                                            0,
+                                                                            1,
+                                                                            &conf,
+                                                                            cell,
+                                                                            uid,
+                                                                            ssb_index);
   secondaryCellGroup->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(rnti, uid, scc, frame);
 
   NR_BCCH_BCH_Message_t *mib = get_new_MIB_NR(scc);

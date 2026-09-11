@@ -354,6 +354,7 @@ int main(int argc, char **argv)
       .num_dlharq = 16,
       .num_ulharq = 16,
       .maxMIMO_layers = bench_target_layers,
+      .first_active_bwp = 1,
       .force_256qam_off = false,
       .timer_config.sr_ProhibitTimer = 0,
       .timer_config.sr_TransMax = 64,
@@ -407,7 +408,14 @@ int main(int argc, char **argv)
   printf("Creating %d test UEs...\n", num_ues);
   for (int u = 0; u < num_ues; u++) {
     rnti_t rnti = 0x1234 + u;
-    NR_CellGroupConfig_t *cg = get_default_secondaryCellGroup(scc, NULL, 0, 1, &conf, cell, u, 0);
+    NR_UE_info_t tempUE = {0};
+    tempUE.uid = u;
+    bool alloc = mac_ul_rrc_periodic_resources(cell, &tempUE, scc, conf.first_active_bwp);
+    if (!alloc) {
+      printf("Couldn't allocate periodic resources for UE %d\n", u);
+      return 1;
+    }
+    NR_CellGroupConfig_t *cg = get_default_secondaryCellGroup(scc, NULL, tempUE.sr_info, tempUE.csimeas_info, 0, 1, &cell->radio_config, cell, u, 0);
     cg->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(rnti, u, scc, 0);
 
     /* Add DRB 1 to CellGroup so nr_mac_add_test_ue registers LCID 4. Default is
@@ -426,6 +434,8 @@ int main(int argc, char **argv)
 
     NR_UE_info_t *UE_info = gNB_mac->UE_info.connected_ue_list[u];
     AssertFatal(UE_info != NULL, "UE %d not found in connected list\n", u);
+    UE_info->sr_info = tempUE.sr_info;
+    UE_info->csimeas_info = tempUE.csimeas_info;
     configure_UE_BWP(cell, scc, UE_info, false, NR_SearchSpace__searchSpaceType_PR_ue_Specific, -1, -1);
 
     /* Create DRB 1 RLC entity (nr_mac_add_test_ue registers the LCID
