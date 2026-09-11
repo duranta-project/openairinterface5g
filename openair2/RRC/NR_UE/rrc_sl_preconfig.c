@@ -123,31 +123,26 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
   sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_Scaling_r16 = calloc(1,sizeof(*sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_Scaling_r16));
   *sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_Scaling_r16 = NR_SL_PSSCH_Config_r16__sl_Scaling_r16_f0p5;
 
-  // PSFCH configuration
+  // PSFCH configuration: always allocate the struct so SL_RESPOOLPARAMS_DESC (used by config_get
+  // below) can safely dereference its fields. The configured period uses the ASN.1 enum index
+  // (0=sl0, 1=sl1, 2=sl2, 3=sl4); if it is sl0, the struct is freed after the conf overlay.
+  // The RB-set bitmap is computed after conf overlay once sl_NumSubchannel_r16 /
+  // sl_RB_Number_r16 have their final values.
   sl_res_pool->sl_PSFCH_Config_r16 = calloc(1, sizeof(*sl_res_pool->sl_PSFCH_Config_r16));
   sl_res_pool->sl_PSFCH_Config_r16->present = NR_SetupRelease_SL_PSFCH_Config_r16_PR_setup;
   sl_res_pool->sl_PSFCH_Config_r16->choice.setup = calloc(1, sizeof(NR_SL_PSFCH_Config_r16_t));
-
-  // Period of PSFCH resource in the unit of slots within this resource pool. If set to sl0, no resource for PSFCH,
-  //and HARQ feedback for all transmissions in the resource pool is disabled.
-  // {sl0, sl1, sl2, sl4}
-  sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16 = calloc(1, sizeof(long));
-
-  // Set of PRBs that are actually used for PSFCH transmission and reception (bitmap)
-  // 0xFFFFFFFFFFFF  (PRBs bitmap) Multiple of sl_NumSubchannel * sl_PSFCH_Period
-  sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_RB_Set_r16 = calloc(1, sizeof(*sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_RB_Set_r16));
-
-  // Number of cyclic shift pairs used for a PSFCH transmission that can be multiplexed in a PRB
-  sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_NumMuxCS_Pair_r16 = calloc(1, sizeof(long));
-
-  // The minimum time gap between PSFCH and the associated PSSCH in the unit of slots {sl2, sl3}
-  sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_MinTimeGapPSFCH_r16 = calloc(1, sizeof(long));
-
-  // Scrambling ID {0..1023} for sequence hopping of the PSFCH used in the resource pool
-  sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16 = calloc(1, sizeof(long));
-
-  // Indicates the number of PSFCH resources available {startSubCH, allocSubCH} for multiplexing HARQ-ACK information in a PSFCH transmission
-  sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_CandidateResourceType_r16 = calloc(1, sizeof(long));
+  NR_SL_PSFCH_Config_r16_t *psfch_init = sl_res_pool->sl_PSFCH_Config_r16->choice.setup;
+  psfch_init->sl_PSFCH_Period_r16 = calloc(1, sizeof(long));
+  *psfch_init->sl_PSFCH_Period_r16 = NR_SL_PSFCH_Config_r16__sl_PSFCH_Period_r16_sl0;
+  psfch_init->sl_NumMuxCS_Pair_r16 = calloc(1, sizeof(long));
+  *psfch_init->sl_NumMuxCS_Pair_r16 = NR_SL_PSFCH_Config_r16__sl_NumMuxCS_Pair_r16_n1;
+  psfch_init->sl_MinTimeGapPSFCH_r16 = calloc(1, sizeof(long));
+  *psfch_init->sl_MinTimeGapPSFCH_r16 = NR_SL_PSFCH_Config_r16__sl_MinTimeGapPSFCH_r16_sl2;
+  psfch_init->sl_PSFCH_HopID_r16 = calloc(1, sizeof(long));
+  *psfch_init->sl_PSFCH_HopID_r16 = 0;
+  psfch_init->sl_PSFCH_CandidateResourceType_r16 = calloc(1, sizeof(long));
+  *psfch_init->sl_PSFCH_CandidateResourceType_r16 = NR_SL_PSFCH_Config_r16__sl_PSFCH_CandidateResourceType_r16_startSubCH;
+  psfch_init->sl_PSFCH_RB_Set_r16 = calloc(1, sizeof(*psfch_init->sl_PSFCH_RB_Set_r16)); // buf filled after conf overlay
 
   // indicates allowed sync sources which are allowed to use this resource pool
   sl_res_pool->sl_SyncAllowed_r16 = calloc(1, sizeof(NR_SL_SyncAllowed_r16_t));
@@ -210,16 +205,12 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
   sl_res_pool->ext1->sl_TimeResource_r16->size = 8;
   sl_res_pool->ext1->sl_TimeResource_r16->bits_unused = 4;
   sl_res_pool->ext1->sl_TimeResource_r16->buf = calloc(sl_res_pool->ext1->sl_TimeResource_r16->size, sizeof(uint8_t));
-  // EX: BITMAP 10101010.. indicating every alternating slot supported for sidelink
-  for (int i=0;i<sl_res_pool->ext1->sl_TimeResource_r16->size;i++) {
-    if (is_txpool) {
-        sl_res_pool->ext1->sl_TimeResource_r16->buf[i] = (is_sl_syncsource) ? 0xF0
-                                                                            : 0x0F;
-    } else {
-        sl_res_pool->ext1->sl_TimeResource_r16->buf[i] = (is_sl_syncsource) ? 0x0F
-                                                                            : 0xF0;
-    }
-  }
+  /* TS 38.214 clause 8 applies this bitmap to logical resource-pool slots.
+   * Make every configured slot available in the default preconfiguration;
+   * Mode-2 resource selection chooses actual transmissions without imposing
+   * an additional sync-role-dependent 50% duty cycle. */
+  memset(sl_res_pool->ext1->sl_TimeResource_r16->buf, 0xff, sl_res_pool->ext1->sl_TimeResource_r16->size);
+  (void)is_sl_syncsource;
 
   // mask out unused bits
   sl_res_pool->ext1->sl_TimeResource_r16->buf[sl_res_pool->ext1->sl_TimeResource_r16->size - 1] &= (0 - (1 << (sl_res_pool->ext1->sl_TimeResource_r16->bits_unused)));
@@ -257,34 +248,63 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
   paramdef_t SL_RSCSELECTIONPARAMS[] = SL_RSRCSELPARAMS_DESC(sl_res_pool);
   sprintf(aprefix_rsc_sel, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0,SL_CONFIG_STRING_RSRC_SEL_PARAMS_LIST, 0);
   config_get(config_get_if(), SL_RSCSELECTIONPARAMS, sizeofArray(SL_RSCSELECTIONPARAMS), aprefix_rsc_sel);
-  LOG_D(NR_RRC, "sl_MaxNumPerReserve %ld, sl_SensingWindow %ld, sl_Priority %ld, sl_SelectionWindow %ld, sl_ResourceReservePeriod1 %ld\n",
+
+  /* The config system writes physical values (ms, slots) into ASN.1 fields
+   * that carry enum indices per TS 38.331.  Convert them now so every
+   * downstream consumer can call nr_sl_rrp_to_ms() / nr_sl_sw_to_ms()
+   * without knowing this quirk.  Reject values that are out of spec. */
+  {
+    struct NR_SL_UE_SelectedConfigRP_r16 *c = sl_res_pool->sl_UE_SelectedConfigRP_r16;
+
+    /* sl_SensingWindow_r16: physical {100, 1100} ms -> enum {ms100=0, ms1100=1} */
+    if (c->sl_SensingWindow_r16) {
+      long v = *c->sl_SensingWindow_r16;
+      AssertFatal(v == 100 || v == 1100,
+                  "Invalid sl_SensingWindow %ld ms (must be 100 or 1100)\n", v);
+      *c->sl_SensingWindow_r16 = (v == 100) ? 0 : 1;
+    }
+
+    /* sl_SelectionWindow_r16: physical {1,5,10,20} -> enum {n1=0,n5=1,n10=2,n20=3} */
+    {
+      static const int sw_ms[] = {1, 5, 10, 20};
+      long *sw = &c->sl_SelectionWindowList_r16->list.array[0]->sl_SelectionWindow_r16;
+      bool found = false;
+      for (int j = 0; j < 4; j++) {
+        if (*sw == sw_ms[j]) { *sw = j; found = true; break; }
+      }
+      AssertFatal(found, "Invalid sl_SelectionWindow %ld (must be 1, 5, 10, or 20)\n", *sw);
+    }
+
+    /* sl_ResourceReservePeriod1_r16: physical {0,100,...,1000} ms -> enum {ms0=0,...,ms1000=10}
+     * Also set the CHOICE present field which the config system leaves at NOTHING. */
+    {
+      NR_SL_ResourceReservePeriod_r16_t *p =
+          c->sl_ResourceReservePeriodList_r16->list.array[0];
+      long v = p->choice.sl_ResourceReservePeriod1_r16;
+      AssertFatal(v >= 0 && v <= 1000 && v % 100 == 0,
+                  "Invalid sl_ResourceReservePeriod %ld ms (must be 0, 100, 200, ..., 1000)\n", v);
+      p->present = NR_SL_ResourceReservePeriod_r16_PR_sl_ResourceReservePeriod1_r16;
+      p->choice.sl_ResourceReservePeriod1_r16 = v / 100;
+    }
+  }
+
+  LOG_D(NR_RRC, "sl_MaxNumPerReserve %ld, sl_SensingWindow %ld (enum), sl_Priority %ld, sl_SelectionWindow %ld (enum), sl_ResourceReservePeriod1 %ld (enum)\n",
         *sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16,
         *sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SensingWindow_r16,
         sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SelectionWindowList_r16->list.array[0]->sl_Priority_r16,
         sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SelectionWindowList_r16->list.array[0]->sl_SelectionWindow_r16,
         sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_ResourceReservePeriodList_r16->list.array[0]->choice.sl_ResourceReservePeriod1_r16);
-  struct NR_SL_PSFCH_Config_r16 *nr_sl_psfch_config = sl_res_pool->sl_PSFCH_Config_r16->choice.setup;
-  if (*nr_sl_psfch_config->sl_PSFCH_Period_r16 > 0) {
-    const uint8_t psfch_periods[] = {0,1,2,4};
-    AssertFatal(*nr_sl_psfch_config->sl_PSFCH_Period_r16 < 4, "sl_PSFCH_Period_r16 index must be less than 4\n");
-    LOG_D(NR_PHY, "Configuring PSFCH Period %d\n", psfch_periods[*nr_sl_psfch_config->sl_PSFCH_Period_r16]);
-    uint8_t psfch_period = psfch_periods[*nr_sl_psfch_config->sl_PSFCH_Period_r16];
-    uint16_t prod_numCh_period = *sl_res_pool->sl_NumSubchannel_r16*psfch_period;
-    uint16_t num_prbs = (*sl_res_pool->sl_RB_Number_r16 / prod_numCh_period) * prod_numCh_period;
-    uint16_t num_bytes = (num_prbs % 8) ? (num_prbs / 8) + 1 : (num_prbs / 8);
-    sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_RB_Set_r16->size = num_bytes;
-
-    sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_RB_Set_r16->bits_unused = (num_prbs % 8) ? 8 - (num_prbs % 8) : 0;
-    sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_RB_Set_r16->buf = calloc(sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_RB_Set_r16->size, sizeof(uint8_t));
-    memset(sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_RB_Set_r16->buf, 0xFF, num_prbs / 8);
-    uint8_t remaining_prbs = 0;
-    for (int i = 8 - (num_prbs % 8); i < 8; i++)
-      remaining_prbs |= 1 << i;
-    if ( num_prbs % 8 != 0 )
-      sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_RB_Set_r16->buf[num_prbs/8] = remaining_prbs;
-    LOG_D(RRC, "M: %d, PRBs %d, size in bytes %d, unused bits %d, full size bytes %d, remaining prbs %d\n", prod_numCh_period, num_prbs, num_bytes, (num_prbs % 8) ? 8 - (num_prbs % 8) : 0, num_prbs / 8, remaining_prbs);
-  } else {
-    LOG_I(NR_RRC,"Freeing sl_PSFCH_Config_r16\n");
+  // After conf overlay: if sl_PSFCH_Period is sl0, PSFCH is disabled and the
+  // optional configuration is absent. Otherwise compute the RB-set bitmap now
+  // that sl_NumSubchannel_r16 / sl_RB_Number_r16 have their configured values.
+  NR_SL_PSFCH_Config_r16_t *psfch = sl_res_pool->sl_PSFCH_Config_r16->choice.setup;
+  AssertFatal(psfch->sl_PSFCH_Period_r16 != NULL, "Missing sl_PSFCH_Period in sidelink resource pool\n");
+  const long sl_psfch_period_idx = *psfch->sl_PSFCH_Period_r16;
+  AssertFatal(sl_psfch_period_idx >= 0 && sl_psfch_period_idx < 4,
+              "sl_PSFCH_Period index must be in [0, 3], configured %ld\n",
+              sl_psfch_period_idx);
+  if (sl_psfch_period_idx == 0) {
+    LOG_I(NR_RRC, "SL PSFCH disabled by resource-pool configuration\n");
     free(sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_CandidateResourceType_r16);
     free(sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16);
     free(sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_MinTimeGapPSFCH_r16);
@@ -294,6 +314,28 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
     free(sl_res_pool->sl_PSFCH_Config_r16->choice.setup);
     free(sl_res_pool->sl_PSFCH_Config_r16);
     sl_res_pool->sl_PSFCH_Config_r16 = NULL;
+  } else {
+    const uint8_t psfch_periods[] = {0, 1, 2, 4};
+    uint8_t psfch_period = psfch_periods[sl_psfch_period_idx];
+    long num_subch = sl_res_pool->sl_NumSubchannel_r16 ? *sl_res_pool->sl_NumSubchannel_r16 : 0;
+    long rb_number = sl_res_pool->sl_RB_Number_r16 ? *sl_res_pool->sl_RB_Number_r16 : 0;
+    uint16_t prod = (uint16_t)(num_subch * psfch_period);
+    uint16_t num_prbs = (prod > 0) ? (uint16_t)((rb_number / prod) * prod) : 0;
+    uint16_t num_bytes = (num_prbs % 8) ? (num_prbs / 8) + 1 : (num_prbs / 8);
+    if (num_bytes == 0)
+      num_bytes = 1;
+    psfch->sl_PSFCH_RB_Set_r16->size = num_bytes;
+    psfch->sl_PSFCH_RB_Set_r16->bits_unused = (num_prbs % 8) ? 8 - (num_prbs % 8) : 0;
+    psfch->sl_PSFCH_RB_Set_r16->buf = calloc(num_bytes, sizeof(uint8_t));
+    memset(psfch->sl_PSFCH_RB_Set_r16->buf, 0xFF, num_prbs / 8);
+    if (num_prbs % 8) {
+      uint8_t remaining = 0;
+      for (int i = 8 - (num_prbs % 8); i < 8; i++)
+        remaining |= 1 << i;
+      psfch->sl_PSFCH_RB_Set_r16->buf[num_prbs / 8] = remaining;
+    }
+    LOG_I(NR_RRC, "SL PSFCH provisioned: period %d, num_subch %ld, rb_number %ld, num_prbs %d, rb_set_bytes %d\n",
+          psfch_period, num_subch, rb_number, num_prbs, num_bytes);
   }
 }
 
