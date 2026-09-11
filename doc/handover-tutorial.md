@@ -101,6 +101,13 @@ Once DU1 is online, you can trigger a handover by issuing this command
 
     echo ci trigger_f1_ho | nc 127.0.0.1 9090 && echo
 
+Alternatively, you can trigger a handover using a xApp. First, recompile RAN
+with `E2_AGENT` enabled, and [build FlexRIC](../openair2/E2AP/README.md#22-flexric). Rerun the RAN nodes, start nearRT-RIC and xApp:
+```bash
+./build/examples/ric/nearRT-RIC
+./build/examples/xApp/c/rc_handover/xapp_rc_handover
+```
+
 You should see how the UE switches from one DU to another. See additional
 information further below.
 
