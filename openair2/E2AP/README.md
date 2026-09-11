@@ -116,6 +116,7 @@ We support E2SM-RC `v1.03` which uses ASN.1 encoding.
 From `O-RAN.WG3.E2SM-RC-v01.03` specification, we implemented:
   * REPORT Service Style 1 ("Message copy" - section 7.4.2) - aperiodic subscription for "RRC Message" and "UE ID"
   * REPORT Service Style 4 ("UE Information" - section 7.4.5) - aperiodic subscription for "UE RRC State Change"
+  * REPORT Service Style 5 ("On Demand Report" - section 7.4.6) - subscription for "UE Context Information"
   * CONTROL Service Style 1 ("Radio Bearer Control" - section 7.6.2) - "QoS flow mapping configuration"; please be aware that this functionality is defined as per O-RAN "To control the multiplexing of QoS flows to a DRB",
     but OAI RAN doesn't support multiple QoS flows in one DRB. Therefore, this use case was adjusted for creation of new DRB, instead of creation of new QoS flow in the existing DRB.
     More information can be found in the branch [qoe-e2](https://github.com/duranta-project/openairinterface5g/tree/qoe-e2). It's not merged due to incompliance with O-RAN specifications.
