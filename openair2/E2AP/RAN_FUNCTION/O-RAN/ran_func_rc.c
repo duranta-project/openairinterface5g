@@ -337,16 +337,8 @@ static void fill_rc_report(ran_func_def_report_t* report)
   report->seq_report_sty[2] = fill_report_style_5("On Demand Report");
 }
 
-static void fill_rc_control(ran_func_def_ctrl_t* ctrl)
+static void fill_rc_radio_bearer_ctrl(seq_ctrl_style_t* ctrl_style)
 {
-  // Sequence of CONTROL styles
-  // [1 - 63]
-  ctrl->sz_seq_ctrl_style = 1;
-  ctrl->seq_ctrl_style = calloc(ctrl->sz_seq_ctrl_style, sizeof(seq_ctrl_style_t));
-  assert(ctrl->seq_ctrl_style != NULL && "Memory exhausted");
-
-  seq_ctrl_style_t* ctrl_style = &ctrl->seq_ctrl_style[0];
-
   // RIC Control Style Type
   // Mandatory
   // 9.3.3
@@ -447,6 +439,17 @@ static void fill_rc_control(ran_func_def_ctrl_t* ctrl)
   // [0- 255]
   ctrl_style->sz_ran_param_ctrl_out = 0;
   ctrl_style->ran_param_ctrl_out = NULL;
+}
+
+static void fill_rc_control(ran_func_def_ctrl_t* ctrl)
+{
+  // Sequence of CONTROL styles
+  // [1 - 63]
+  ctrl->sz_seq_ctrl_style = 1;
+  ctrl->seq_ctrl_style = calloc(ctrl->sz_seq_ctrl_style, sizeof(seq_ctrl_style_t));
+  assert(ctrl->seq_ctrl_style != NULL && "Memory exhausted");
+
+  fill_rc_radio_bearer_ctrl(&ctrl->seq_ctrl_style[0]);
 }
 
 static ran_function_name_t fill_rc_ran_func_name(void)
