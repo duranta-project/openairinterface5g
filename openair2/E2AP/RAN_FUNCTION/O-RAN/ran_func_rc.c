@@ -11,6 +11,7 @@
 #include "../../flexric/src/agent/e2_agent_api.h"
 #include "openair2/E2AP/flexric/src/lib/sm/enc/enc_ue_id.h"
 #include "openair2/E2AP/flexric/src/sm/rc_sm/rc_sm_id.h"
+#include "openair2/RRC/NR/rrc_gNB_du.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -82,16 +83,39 @@ static seq_ev_trg_style_t fill_ev_tr_format_1(const char *ev_style_name)
   return ev_trig_style;
 }
 
+static seq_ev_trg_style_t fill_ev_tr_format_5(const char *ev_style_name)
+{
+  seq_ev_trg_style_t ev_trig_style = {0};
+
+  // RIC Event Trigger Style Type
+  // Mandatory
+  // 9.3.3
+  ev_trig_style.style = 5;
+
+  // RIC Event Trigger Style Name
+  // Mandatory
+  // 9.3.4
+  ev_trig_style.name = cp_str_to_ba(ev_style_name);
+
+  // RIC Event Trigger Format Type
+  // Mandatory
+  // 9.3.5
+  ev_trig_style.format = FORMAT_5_E2SM_RC_EV_TRIGGER_FORMAT;
+
+  return ev_trig_style;
+}
+
 static void fill_rc_ev_trig(ran_func_def_ev_trig_t* ev_trig)
 {
   // Sequence of EVENT TRIGGER styles
   // [1 - 63]
-  ev_trig->sz_seq_ev_trg_style = 2;
+  ev_trig->sz_seq_ev_trg_style = 3;
   ev_trig->seq_ev_trg_style = calloc(ev_trig->sz_seq_ev_trg_style, sizeof(seq_ev_trg_style_t));
   assert(ev_trig->seq_ev_trg_style != NULL && "Memory exhausted");
 
   ev_trig->seq_ev_trg_style[0] = fill_ev_tr_format_1("Message Event");
   ev_trig->seq_ev_trg_style[1] = fill_ev_tr_format_4("UE Information Change");
+  ev_trig->seq_ev_trg_style[2] = fill_ev_tr_format_5("On Demand");
 
   // Sequence of RAN Parameters for L2 Variables
   // [0 - 65535]
@@ -239,16 +263,78 @@ static seq_report_sty_t fill_report_style_1(const char *report_name)
   return report_style;
 }
 
+static seq_report_sty_t fill_report_style_5(const char *report_name)
+{
+  seq_report_sty_t report_style = {0};
+
+  // RIC Report Style Type
+  // Mandatory
+  // 9.3.3
+  report_style.report_type = 5;
+
+  // RIC Report Style Name
+  // Mandatory
+  // 9.3.4
+  report_style.name = cp_str_to_ba(report_name);
+
+  // Supported RIC Event Trigger Style Type
+  // Mandatory
+  // 9.3.3
+  report_style.ev_trig_type = FORMAT_5_E2SM_RC_EV_TRIGGER_FORMAT;
+
+  // RIC Report Action Format Type
+  // Mandatory
+  // 9.3.5
+  report_style.act_frmt_type = FORMAT_1_E2SM_RC_ACT_DEF;
+
+  // RIC Indication Header Format Type
+  // Mandatory
+  // 9.3.5
+  report_style.ind_hdr_type = FORMAT_1_E2SM_RC_IND_HDR;
+
+  // RIC Indication Message Format Type
+  // Mandatory
+  // 9.3.5
+  report_style.ind_msg_type = FORMAT_4_E2SM_RC_IND_MSG;
+
+  // Sequence of RAN Parameters Supported
+  // [0 - 65535]
+  report_style.sz_seq_ran_param = 1;
+  report_style.ran_param = calloc(report_style.sz_seq_ran_param, sizeof(seq_ran_param_3_t));
+  assert(report_style.ran_param != NULL && "Memory exhausted");
+
+  // RAN Parameter ID
+  // Mandatory
+  // 9.3.8
+  // [1- 4294967295]
+  report_style.ran_param[0].id = E2SM_RC_RS5_UE_CONTEXT_INFORMATION;
+
+  // RAN Parameter Name
+  // Mandatory
+  // 9.3.9
+  // [1-150]
+  const char ran_param_name[] = "UE Context Information";
+  report_style.ran_param[0].name = cp_str_to_ba(ran_param_name);
+
+  // RAN Parameter Definition
+  // Optional
+  // 9.3.51
+  report_style.ran_param[0].def = NULL;
+
+  return report_style;
+}
+
 static void fill_rc_report(ran_func_def_report_t* report)
 {
   // Sequence of REPORT styles
   // [1 - 63]
-  report->sz_seq_report_sty = 2;
+  report->sz_seq_report_sty = 3;
   report->seq_report_sty = calloc(report->sz_seq_report_sty, sizeof(seq_report_sty_t));
   assert(report->seq_report_sty != NULL && "Memory exhausted");
 
   report->seq_report_sty[0] = fill_report_style_1("Message Copy");
   report->seq_report_sty[1] = fill_report_style_4("UE Information");
+  report->seq_report_sty[2] = fill_report_style_5("On Demand Report");
 }
 
 static void fill_rc_control(ran_func_def_ctrl_t* ctrl)
@@ -627,6 +713,65 @@ static void send_aper_ric_ind(const uint32_t ric_req_id, rc_ind_data_t* rc_ind_d
   printf("[E2 AGENT] Event for RIC request ID %d generated\n", ric_req_id);
 }
 
+static cell_global_id_t ue_serving_cell_global_id(gNB_RRC_INST* rrc, uint32_t rrc_ue_id)
+{
+  cell_global_id_t cgi = {0};
+
+  nr_rrc_du_container_t* du = get_du_for_ue(rrc, rrc_ue_id);
+  if (du == NULL || seq_arr_size(&du->cells) == 0)
+    return cgi;
+
+  const nr_rrc_cell_container_t* cell = *(nr_rrc_cell_container_t**)seq_arr_at(&du->cells, 0);
+  cgi.type = NR_CGI_RAT_TYPE;
+  cgi.nr_cgi.plmn_id.mcc = cell->info.plmn.mcc;
+  cgi.nr_cgi.plmn_id.mnc = cell->info.plmn.mnc;
+  cgi.nr_cgi.plmn_id.mnc_digit_len = cell->info.plmn.mnc_digit_length;
+  cgi.nr_cgi.nr_cell_id = cell->info.cell_id;
+
+  return cgi;
+}
+
+/* REPORT Service Style 5 ("On Demand Report", E2SM-RC v01.03 7.4.6).
+ * Check if and which RAN Parameter IDs does the Action Definition carry.
+ * Choices are described in section 8.2.5.
+ * The Indication Header Format 1 with ev_trigger_id is optional, so left unset. */
+static rc_ind_data_t* fill_context_info_on_demand(const e2sm_rc_act_def_frmt_1_t *ad)
+{
+  rc_ind_data_t* rc_ind = calloc(1, sizeof(rc_ind_data_t));
+  assert(rc_ind != NULL && "Memory exhausted");
+
+  rc_ind->hdr.format = FORMAT_1_E2SM_RC_IND_HDR;
+
+  rc_ind->msg.format = FORMAT_4_E2SM_RC_IND_MSG;
+
+  for (size_t i = 0; i < ad->sz_param_report_def; i++) {
+    if (ad->param_report_def[i].ran_param_id == E2SM_RC_RS5_UE_CONTEXT_INFORMATION) {
+      const ngran_node_t node_type = get_e2_node_type();
+      gNB_RRC_INST* rrc = RC.nrrrc[0];
+
+      size_t sz = 0;
+      struct rrc_gNB_ue_context_s* rrc_ue_context = NULL;
+      RB_FOREACH(rrc_ue_context, rrc_nr_ue_tree_s, &rrc->rrc_ue_head)
+        sz++;
+
+      rc_ind->msg.frmt_4.sz_seq_ue_info = sz;
+      rc_ind->msg.frmt_4.seq_ue_info = calloc(sz, sizeof(seq_ue_info_t));
+      assert((sz == 0 || rc_ind->msg.frmt_4.seq_ue_info != NULL) && "Memory exhausted");
+
+      size_t i = 0;
+      RB_FOREACH(rrc_ue_context, rrc_nr_ue_tree_s, &rrc->rrc_ue_head) {
+        gNB_RRC_UE_t* ue = &rrc_ue_context->ue_context;
+        rc_ind->msg.frmt_4.seq_ue_info[i].ue_id = fill_ue_id_data[node_type](ue, 0, 0);
+        rc_ind->msg.frmt_4.seq_ue_info[i].ue_ctx_info = NULL;
+        rc_ind->msg.frmt_4.seq_ue_info[i].cell_global_id = ue_serving_cell_global_id(rrc, ue->rrc_ue_id);
+        i++;
+      }
+    }
+  }
+
+  return rc_ind;
+}
+
 static rc_ind_data_t* fill_ue_id(const gNB_RRC_UE_t *rrc_ue_context, const uint16_t cond_id)
 {
   rc_ind_data_t* rc_ind = malloc_or_fail(sizeof(rc_ind_data_t));
@@ -856,7 +1001,10 @@ sm_ag_if_ans_t write_subs_rc_sm(void const* src)
       if (wr_rc->rc.et.format + 1 != report_style) { // wr_rc->rc.et.format is an enum -> initialization starts from 0
         AssertError(false, return ans, "[E2 AGENT] Event Trigger Definition Format %d doesn't correspond to REPORT style %d.\n", wr_rc->rc.et.format + 1, report_style);
       }
-      get_list_for_report_style(ric_req_id, &wr_rc->rc.et, wr_rc->rc.ad->frmt_1.sz_param_report_def, wr_rc->rc.ad->frmt_1.param_report_def);
+      /* RAN Parameter IDs from `On Demand` Report Style 5 are not included in rc_subs_data_t.
+       * Its intention is to send immeditately RIC Indication Message upon RIC Subscription reception. */
+      if (report_style != 5)
+        get_list_for_report_style(ric_req_id, &wr_rc->rc.et, wr_rc->rc.ad->frmt_1.sz_param_report_def, wr_rc->rc.ad->frmt_1.param_report_def);
       break;
     }
 
@@ -867,6 +1015,14 @@ sm_ag_if_ans_t write_subs_rc_sm(void const* src)
   ans.type = SUBS_OUTCOME_SM_AG_IF_ANS_V0;
   ans.subs_out.type = APERIODIC_SUBSCRIPTION_FLRC;
   ans.subs_out.aper.free_aper_subs = free_aperiodic_subscription;
+  ans.subs_out.aper.imm_ind_data = NULL;
+
+  // REPORT Service Style 5 ("On Demand Report"): report immediately. The
+  // actual send is deferred to the caller (after this subscription is fully
+  // registered with the agent) - it can't happen here, since we are still
+  // inside on_subscription and the agent hasn't registered ric_req_id yet.
+  if (report_style == 5)
+    ans.subs_out.aper.imm_ind_data = fill_context_info_on_demand(&wr_rc->rc.ad->frmt_1);
 
   return ans;
 }
