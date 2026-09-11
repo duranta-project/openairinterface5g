@@ -41,8 +41,7 @@ void nr_ue_init_mac_sl(NR_UE_MAC_INST_t *mac)
   mac->SL_MAC_PARAMS->sl_bler.harq_round_max = HARQ_ROUND_MAX;
   init_list(&mac->sl_sensing_data, sizeof(sensing_data_t), 1);
   init_list(&mac->sl_transmit_history, sizeof(frameslot_t), 1);
-  mac->sl_candidate_resources = (List_t*)malloc16_clear(sizeof(List_t*));
-  init_list(mac->sl_candidate_resources, sizeof(sl_resource_info_t), 1);
+  mac->sl_candidate_resources = NULL;
 
   // Assuming only 2 UEs in the system: the SyncRef UE (sync_ref != 0) and the
   // Nearby UE (sync_ref == 0). They must use distinct source IDs, otherwise the
@@ -59,6 +58,10 @@ void nr_ue_init_mac_sl(NR_UE_MAC_INST_t *mac)
     mac->sl_info.list[k]->uid = i;
     NR_SL_UE_sched_ctrl_t *UE_sched_ctrl = &mac->sl_info.list[k]->UE_sched_ctrl;
     UE_sched_ctrl->sl_max_mcs = get_nrUE_params()->mcs;
+    /* Start sidelink at the configured MCS.  Starting the BLER controller at
+     * zero pins sparse traffic to MCS 0 because fewer than four samples are
+     * available in each update interval. */
+    UE_sched_ctrl->sl_bler_stats.mcs = UE_sched_ctrl->sl_max_mcs;
     create_nr_list(&UE_sched_ctrl->available_sl_harq, 16);
     for (int harq = 0; harq < 16; harq++)
       add_tail_nr_list(&UE_sched_ctrl->available_sl_harq, harq);

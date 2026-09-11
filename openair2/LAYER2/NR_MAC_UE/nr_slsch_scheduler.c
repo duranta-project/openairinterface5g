@@ -42,11 +42,50 @@
 #include "NR_MAC_UE/mac_defs_sl.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
 
-#define LOWER_BLER 0.2344
-#define UPPER_BLER 5.547
+#define LOWER_BLER 0.05
+#define UPPER_BLER 0.15
 #define MAX_MCS 28
 
 const uint8_t nr_rv_round_map[4] = {0, 2, 3, 1};
+
+static int get_sl_mcs_from_bler(const NR_bler_options_t *bler_options,
+                                const NR_mac_dir_stats_t *stats,
+                                NR_bler_stats_t *bler_stats,
+                                int max_mcs,
+                                frame_t frame)
+{
+  /* Link adaptation is implementation-specific, but it must not interpret a
+   * low packet arrival rate as a decoding failure. Accumulate enough actual
+   * transmissions for get_mcs_from_bler() to form a BLER sample. */
+  const uint64_t new_transmissions = stats->rounds[0] - bler_stats->rounds[0];
+  if (new_transmissions <= 3)
+    return min(bler_stats->mcs, max_mcs);
+  return get_mcs_from_bler(bler_options, stats, bler_stats, max_mcs, frame);
+}
+
+/* A HARQ TB counts against sched_sl_bytes from its initial transmission until
+ * it is ACKed or discarded.  Keep the release operation in one place because
+ * PSFCH and legacy SLSCH feedback use different completion paths. */
+static void release_nr_ue_sl_harq(NR_SL_UE_sched_ctrl_t *sched_ctrl, int8_t harq_pid)
+{
+  NR_UE_sl_harq_t *harq = &sched_ctrl->sl_harq_processes[harq_pid];
+  const uint32_t tb_size = harq->sched_pssch.tb_size;
+
+  harq->feedback_frame = -1;
+  harq->feedback_slot = -1;
+  harq->is_waiting = false;
+  harq->round = 0;
+  sched_ctrl->sched_sl_bytes -= tb_size;
+  if (sched_ctrl->sched_sl_bytes < 0) {
+    LOG_E(NR_MAC,
+          "sched_sl_bytes underflow (was %d, tb_size %u) releasing HARQ pid %d -- mismatched increment/decrement\n",
+          sched_ctrl->sched_sl_bytes + (int)tb_size,
+          tb_size,
+          harq_pid);
+    sched_ctrl->sched_sl_bytes = 0;
+  }
+  add_tail_nr_list(&sched_ctrl->available_sl_harq, harq_pid);
+}
 
 void reset_sl_harq_list(NR_SL_UE_sched_ctrl_t *sched_ctrl) {
   int harq;
@@ -65,21 +104,19 @@ void reset_sl_harq_list(NR_SL_UE_sched_ctrl_t *sched_ctrl) {
     sched_ctrl->sl_harq_processes[i].round = 0;
     sched_ctrl->sl_harq_processes[i].is_waiting = false;
   }
+  /* All in-flight HARQs were discarded above; reset the byte accounting so it
+   * does not accumulate across resets (e.g. sync loss -> re-init). */
+  sched_ctrl->sched_sl_bytes = 0;
 }
 
 void abort_nr_ue_sl_harq(NR_UE_MAC_INST_t *mac, int8_t harq_pid, NR_SL_UE_info_t *UE_info)
 {
   NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE_info->UE_sched_ctrl;
-  NR_UE_sl_harq_t *harq = &sched_ctrl->sl_harq_processes[harq_pid];
 
-  harq->round = 0;
   UE_info->mac_sl_stats.sl.errors++;
-  add_tail_nr_list(&sched_ctrl->available_sl_harq, harq_pid);
-  /* the transmission failed: the UE won't send the data we expected initially,
-   * so retrieve to correctly schedule after next BSR */
-  sched_ctrl->sched_sl_bytes -= harq->sched_pssch.tb_size;
-  if (sched_ctrl->sched_sl_bytes < 0)
-    sched_ctrl->sched_sl_bytes = 0;
+  /* The transmission failed: release both the HARQ process and its in-flight
+   * byte accounting so data can be retrieved on the next RLC status poll. */
+  release_nr_ue_sl_harq(sched_ctrl, harq_pid);
 }
 
 void handle_nr_ue_sl_harq(module_id_t mod_id,
@@ -90,58 +127,51 @@ void handle_nr_ue_sl_harq(module_id_t mod_id,
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(mod_id);
   NR_UE_SL_SCHED_LOCK(&mac->sl_sched_lock);
-  NR_SL_UE_info_t **UE_SL_temp = (NR_SL_UE_info_t **)&mac->sl_info.list, *UE;
-  // TODO: update for multiple UEs
-  UE=*(UE_SL_temp);
+  NR_SL_UE_info_t *UE = find_UE(mac, src_id);
+  if (UE == NULL) {
+    LOG_W(NR_MAC, "Ignoring PSFCH feedback from unknown sidelink source ID %u\n", src_id);
+    NR_UE_SL_SCHED_UNLOCK(&mac->sl_sched_lock);
+    return;
+  }
   uint8_t num_ack_rcvd = rx_slsch_pdu->num_acks_rcvd;
 
   NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  // TS 38.321 Section 5.22.1.2.1: purge stale entries (feedback_slot < current slot)
+  // before searching for current-slot HARQs. Without this, a HARQ that was mapped to
+  // an earlier PSFCH period but whose PSFCH was never received (DTX/NACK) remains in
+  // the feedback list instead of being queued for retransmission.
+  // update_harq_lists() is also called from the TX scheduler (preprocess()), but that
+  // runs after PSFCH RX in the same slot -- calling it here first is safe and idempotent.
+  update_harq_lists(mac, frame, slot, UE);
   NR_UE_sl_harq_t **matched_harqs = (NR_UE_sl_harq_t **) calloc(sched_ctrl->feedback_sl_harq.len, sizeof(NR_UE_sl_harq_t *));
   int k = find_current_slot_harqs(frame, slot, sched_ctrl, matched_harqs);
   LOG_D(NR_MAC, "Found %d matching HARQ processes vs. num. of received acks %d\n", k, num_ack_rcvd);
-  for (int i = 0; i < num_ack_rcvd; i++) {
+  if (num_ack_rcvd > k)
+    LOG_W(NR_MAC,
+          "Received %u PSFCH results but only %d HARQ processes expect feedback in %4u.%2u\n",
+          num_ack_rcvd,
+          k,
+          frame,
+          slot);
+
+  const int num_matched_acks = min((int)num_ack_rcvd, k);
+  for (int i = 0; i < num_matched_acks; i++) {
     uint8_t ack_nack = rx_slsch_pdu->ack_nack_rcvd[i];
-    uint8_t rx_harq_id = matched_harqs[i]->sl_harq_pid;
-    NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
-    int8_t harq_pid = sched_ctrl->feedback_sl_harq.head;
-    LOG_D(NR_MAC, "Comparing %4u.%2u rx_harq_id vs feedback harq_pid = %d %d\n", frame, slot, rx_harq_id, harq_pid);
-    while (rx_harq_id != harq_pid || harq_pid < 0) {
-      LOG_W(NR_MAC,
-            "Unexpected SLSCH HARQ PID %d (have %d) for src id %4d\n",
-            rx_harq_id,
-            harq_pid,
-            src_id);
-      if (harq_pid < 0) {
-        NR_UE_SL_SCHED_UNLOCK(&mac->sl_sched_lock);
-        return;
-      }
-
-      remove_front_nr_list(&sched_ctrl->feedback_sl_harq);
-      sched_ctrl->sl_harq_processes[harq_pid].is_waiting = false;
-
-      if(sched_ctrl->sl_harq_processes[harq_pid].round >= (HARQ_ROUND_MAX - 1)) {
-        abort_nr_ue_sl_harq(mac, harq_pid, UE);
-      } else {
-        sched_ctrl->sl_harq_processes[harq_pid].round++;
-        add_tail_nr_list(&sched_ctrl->retrans_sl_harq, harq_pid);
-      }
-      harq_pid = sched_ctrl->feedback_sl_harq.head;
-    }
-    remove_front_nr_list(&sched_ctrl->feedback_sl_harq);
+    int8_t harq_pid = matched_harqs[i]->sl_harq_pid;
+    remove_nr_list(&sched_ctrl->feedback_sl_harq, harq_pid);
     NR_UE_sl_harq_t *harq = &sched_ctrl->sl_harq_processes[harq_pid];
     DevAssert(harq->is_waiting);
     harq->feedback_slot = -1;
     harq->is_waiting = false;
     if (!ack_nack) {
       UE->mac_sl_stats.cumul_round[harq->round]++;
-      harq->round = 0;
+      release_nr_ue_sl_harq(sched_ctrl, harq_pid);
       LOG_D(NR_MAC,
             "%4u.%2u Slharq id %d crc passed for src id %4d\n",
             frame,
             slot,
             harq_pid,
             src_id);
-      add_tail_nr_list(&sched_ctrl->available_sl_harq, harq_pid);
     } else if (harq->round >= (HARQ_ROUND_MAX - 1)) {
       UE->mac_sl_stats.cumul_round[HARQ_ROUND_MAX]++;
       LOG_D(NR_MAC,
@@ -157,6 +187,27 @@ void handle_nr_ue_sl_harq(module_id_t mod_id,
             slot,
             harq_pid,
             src_id);
+      add_tail_nr_list(&sched_ctrl->retrans_sl_harq, harq_pid);
+    }
+  }
+  // TS 38.321 Section 5.22.1.2.1 / TS 38.213 Section 16.3: when sl-PSFCH-Period > 1,
+  // multiple PSSCH transmissions map to the same PSFCH slot. If fewer PSFCH PDUs were
+  // decoded than expected (k > num_ack_rcvd), the remaining HARQs received no feedback
+  // (DTX) and must be treated as NACK. When num_ack_rcvd == k this loop runs zero
+  // times -- all matched HARQs had feedback, nothing to do.
+  for (int i = num_matched_acks; i < k; i++) {
+    int8_t harq_pid = matched_harqs[i]->sl_harq_pid;
+    NR_UE_sl_harq_t *harq = &sched_ctrl->sl_harq_processes[harq_pid];
+    UE->mac_sl_stats.slsch_DTX++;
+    LOG_D(NR_MAC, "%4u.%2u DTX: no PSFCH received for HARQ PID %d, treating as NACK\n", frame, slot, harq_pid);
+    remove_nr_list(&sched_ctrl->feedback_sl_harq, harq_pid);
+    harq->is_waiting = false;
+    harq->feedback_slot = -1;
+    if (harq->round >= (HARQ_ROUND_MAX - 1)) {
+      UE->mac_sl_stats.cumul_round[HARQ_ROUND_MAX]++;
+      abort_nr_ue_sl_harq(mac, harq_pid, UE);
+    } else {
+      harq->round++;
       add_tail_nr_list(&sched_ctrl->retrans_sl_harq, harq_pid);
     }
   }
@@ -225,7 +276,6 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
                   ? psfch_periods[*mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16] : 0;
   *slsch_pdu_length_max = 0;
 
-  NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
   //nr_ue_sl_csi_period_offset()
   // Determine current slot is csi-rs schedule slot
   bool csi_req_slot = false;
@@ -243,10 +293,15 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
 
   const int max_mcs_table = mcs_tb_ind == 1 ? 27 : 28;
   int max_mcs = min(sched_ctrl->sl_max_mcs, max_mcs_table);
-  if (sl_bo->harq_round_max == 1)
+  if (cur_harq->round > 0) {
+    // Start the retransmission TBS search with the round-0 MCS. A different
+    // MCS is allowed, but the selected grant must derive the same TBS so that
+    // the stored MAC PDU remains the transport block for this HARQ process.
+    sched_pssch->mcs = cur_harq->sched_pssch.mcs;
+  } else if (sl_bo->harq_round_max == 1) {
     sched_pssch->mcs = max_mcs;
-  else {
-    sched_pssch->mcs = get_mcs_from_bler(sl_bo, stats, &sched_ctrl->sl_bler_stats, max_mcs, frameP);
+  } else {
+    sched_pssch->mcs = get_sl_mcs_from_bler(sl_bo, stats, &sched_ctrl->sl_bler_stats, max_mcs, frameP);
   }
 
   uint16_t sl_max_num_reserve = *mac->sl_tx_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16;
@@ -266,7 +321,10 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   sci_pdu->priority = 0;
   sci_pdu->frequency_resource_assignment.val = compute_FRIV(sl_max_num_reserve, l_subch, n_start_subch1, n_start_subch2, sl_num_subch);
   sci_pdu->time_resource_assignment.val = compute_TRIV(N, t1, t2);
-  sci_pdu->resource_reservation_period.val = mac->SL_MAC_PARAMS->mac_tx_params.rri;
+  /* TS 38.212 8.3.1.1: this field is an index into sl-ResourceReservePeriodList,
+   * not a period in ms.  With a single configured entry the index is always 0
+   * and nbits is 0 (field absent); set val = 0 to be explicit. */
+  sci_pdu->resource_reservation_period.val = 0;
   sci_pdu->dmrs_pattern.val = 0;
   sci_pdu->second_stage_sci_format = 0;
   sci_pdu->number_of_dmrs_port = ri;
@@ -278,6 +336,7 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   */
   int scs = sl_mac->sl_phy_config.sl_config_req.sl_bwp_config.sl_scs;
   const int nr_slots_frame = nr_slots_per_frame[scs];
+  NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
   const int n_ul_slots_period = tdd ? tdd->nrofUplinkSlots + (tdd->nrofUplinkSymbols > 0 ? 1 : 0) : nr_slots_frame;
 
   uint16_t num_subch = sl_get_num_subch(mac->sl_tx_res_pool);
@@ -285,7 +344,7 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   for (int i = 0; i < (n_ul_slots_period * num_subch); i++) {
     SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[i];
     if (slotP == sched_psfch->feedback_slot) {
-        LOG_I(NR_MAC, "%4d.%2d i = %d sched_psfch %p feedback slot %d\n", frameP, slotP, i, sched_psfch, sched_psfch->feedback_slot);
+        LOG_D(NR_MAC, "%4d.%2d i = %d sched_psfch %p feedback slot %d\n", frameP, slotP, i, sched_psfch, sched_psfch->feedback_slot);
         is_feedback_slot = true;
         frameslot_t frame_slot;
         frame_slot.frame = frameP;
@@ -303,17 +362,11 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   SL_ResourcePool_params_t *sl_tx_rsrc_pool = sl_mac->sl_TxPool[pool_id];
   size_t phy_map_sz = ((sl_tx_rsrc_pool->phy_sl_bitmap.size << 3) - sl_tx_rsrc_pool->phy_sl_bitmap.bits_unused);
   bool sl_has_psfch = slot_has_psfch(mac, &sl_tx_rsrc_pool->phy_sl_bitmap, tx_abs_slot, psfch_period, phy_map_sz, mac->SL_MAC_PARAMS->sl_TDD_config);
-  if ((psfch_period == 2 || psfch_period == 4) && (sl_has_psfch)) {
-    if (is_feedback_slot) {
-      sci_pdu->psfch_overhead.val =  1;
-      LOG_D(NR_MAC, "%4d.%2d Setting psfch_overhead 1\n", frameP, slotP);
-    } else {
-        sci_pdu->psfch_overhead.val = 0;
-        LOG_D(NR_MAC, "%4d.%2d Setting psfch_overhead 0\n", frameP, slotP);
-    }
-  } else if ((psfch_period == 2 || psfch_period == 4) && (!sl_has_psfch)) {
-      sci_pdu->psfch_overhead.val = 0;
-  }
+  /* TS 38.214 8.1.3.2: for periods 2 and 4, SCI 1-A signals whether
+   * this PSSCH allocation has the three-symbol PSFCH overhead. */
+  sci_pdu->psfch_overhead.val =
+      (psfch_period == 2 || psfch_period == 4) && sl_has_psfch;
+    LOG_D(NR_MAC, "%4d.%2d Setting psfch_overhead %d\n", frameP, slotP, sci_pdu->psfch_overhead.val);
 
   sci_pdu->reserved.val = mac->is_synced ? 1 : 0;
   sci_pdu->conflict_information_receiver.val = 0;
@@ -323,7 +376,12 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   sci2_pdu->rv_index = nr_rv_round_map[cur_harq->round % 4];
   sci2_pdu->source_id = mac->src_id;
   sci2_pdu->dest_id = dest_id;
-  sci2_pdu->harq_feedback = cur_harq->is_waiting;
+  /* TS 38.212 8.4.1.2: harq_feedback_enabled signals whether this pool has
+   * PSFCH configured.  It is a pool property, not a per-process flag; using
+   * cur_harq->is_waiting (which is false at TX time) would cause the receiver
+   * to classify the transmission as NACK-only or no-feedback and suppress
+   * PSFCH even when psfch_period > 0. */
+  sci2_pdu->harq_feedback = (psfch_period > 0);
   LOG_D(NR_MAC, "%4d.%2d Comparing Setting harq_feedback %d bytes_in_buffer %d sl_harq_pid %d\n", frameP, slotP, sci2_pdu->harq_feedback, rlc_status->bytes_in_buffer, cur_harq ? cur_harq->sl_harq_pid : 0);
   sci2_pdu->cast_type = 1;
   if (format2 == NR_SL_SCI_FORMAT_2C || format2 == NR_SL_SCI_FORMAT_2A) {
@@ -346,6 +404,7 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
     // Fill in for R17 : lowest_subchannel_indices
     sci2_pdu->lowest_subchannel_indices.val = 0;
   }
-  // Set SLSCH
-  *slsch_pdu_length_max = rlc_status->bytes_in_buffer;
+  /* tb_size is derived from MCS + N_RE in fill_pssch_pscch_pdu(); assigning
+   * rlc_status->bytes_in_buffer here was a dead write -- the value is never
+   * read by the caller (it uses pscch_pssch_pdu->tb_size instead). */
 }

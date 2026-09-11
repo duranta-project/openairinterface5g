@@ -95,6 +95,7 @@ NR_gNB_ULSCH_t new_gNB_ulsch(uint8_t max_ldpc_iterations, uint16_t N_RB_UL)
   harq->c = malloc16_clear(a_segments * 8448 * sizeof(*harq->c));
   harq->d = malloc16_clear(a_segments * 68 * 384 * sizeof(*harq->d));
 #endif
+  harq->last_ndi = 0xFF; // default: no NDI received yet for this HARQ process
   return (ulsch);
 }
 

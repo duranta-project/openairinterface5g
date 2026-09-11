@@ -155,6 +155,7 @@ typedef struct {
   int TBS;
   int harq_pid;
   bool rxok;
+  bool is_duplicate;
 } slsch_status_t;
 
 #endif

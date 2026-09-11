@@ -220,7 +220,9 @@ typedef struct {
 #define NR_PSBCH_DMRS_LENGTH_DWORD 20 // ceil(2(QPSK)*NR_PBCH_DMRS_LENGTH/32)
 
 #define PBCH_A 24
-#define NR_SLSCH_RX_MAX 2
+#define NR_SLSCH_RX_MAX 32 // max sl-NrOfHARQ-Processes-r16 per TS 38.321 S5.22.1.4
+                           // TODO: for multi-peer reception this pool must be sized
+                           // as num_peers * NR_MAX_SLSCH_HARQ_PROCESSES
 
 typedef struct {
   bool active;
