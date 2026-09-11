@@ -1044,6 +1044,7 @@ typedef struct {
 } cw4bit_t;
 static cw4bit_t pucch2_polar_4bit[16] __attribute__((aligned(32)));
 static simde__m128i pucch2_polar_llr_num_lut[256];
+static simde__m128i pucch2_polar_factor_lut[256] __attribute__((aligned(16)));
 
 void init_pucch2_luts()
 {
@@ -1061,6 +1062,11 @@ void init_pucch2_luts()
     *lut_i++ = (i & 0x2) <= 0;
     *lut_i++ = (i & 0x4) <= 0;
     *lut_i++ = (i & 0x8) <= 0;
+  }
+  for (int cw = 0; cw < 256; cw++) {
+    simde__m128i part1 = simde_mm_set_epi64x(0ULL, *(int64_t *)&pucch2_polar_4bit[cw & 15].cw);
+    simde__m128i part2 = simde_mm_set_epi64x(0ULL, *(int64_t *)&pucch2_polar_4bit[cw >> 4].cw);
+    pucch2_polar_factor_lut[cw] = simde_mm_unpacklo_epi16(part1, part2);
   }
   for (int cw = 0; cw < 256; cw++) {
     int16_t *lut_num_i = (int16_t *)&pucch2_polar_llr_num_lut[cw];
@@ -1417,10 +1423,8 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
         simde__m128i llr_den = simde_mm_set1_epi16(0);
         for (int cw = 0; cw < 256; cw++) {
           int32_t corr_tmp = 0;
+          simde__m128i factor = pucch2_polar_factor_lut[cw];
           for (int aa = 0; aa < Prx; aa++) {
-            simde__m128i part1 = simde_mm_set_epi64x(0ULL, *(int64_t *)&pucch2_polar_4bit[cw & 15].cw);
-            simde__m128i part2 = simde_mm_set_epi64x(0ULL, *(int64_t *)&pucch2_polar_4bit[cw >> 4].cw);
-            simde__m128i factor = simde_mm_unpacklo_epi16(part1, part2);
             simde__m128i re = *(simde__m128i *)&r_ext[aa][symb][half_prb * 4];
             simde__m128i im = *(simde__m128i *)&r_ext2[aa][symb][half_prb * 4];
             simde__m128i prod_re = simde_mm_madd_epi16(re, factor);
