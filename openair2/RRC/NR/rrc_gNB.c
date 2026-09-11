@@ -288,6 +288,26 @@ const nr_neighbour_cell_t *get_neighbour_cell_by_pci(const neighbour_cell_config
   return NULL;
 }
 
+static bool eq_nr_cell_id(const void *vval, const void *vit)
+{
+  const uint64_t *nrcell_id = (const uint64_t *)vval;
+  const nr_neighbour_cell_t *neighbour = (const nr_neighbour_cell_t *)vit;
+  return neighbour->nrcell_id == *nrcell_id;
+}
+
+const nr_neighbour_cell_t *get_neighbour_cell_by_cell_id(const neighbour_cell_configuration_t *cell, uint64_t nrcell_id)
+{
+  DevAssert(cell);
+  elm_arr_t e = find_if((seq_arr_t *)&cell->neighbour_cells, &nrcell_id, eq_nr_cell_id);
+  if (e.found) {
+    const nr_neighbour_cell_t *neighbour = (const nr_neighbour_cell_t *)e.it;
+    LOG_D(NR_RRC, "Found matching neighbour cell with Cell ID %ld and PCI %d\n", neighbour->nrcell_id, neighbour->physicalCellId);
+    return neighbour;
+  }
+  LOG_E(NR_RRC, "No matching neighbour cell found for NR Cell Identity: %lu\n", nrcell_id);
+  return NULL;
+}
+
 typedef struct deliver_dl_rrc_message_data_s {
   const gNB_RRC_INST *rrc;
   f1ap_dl_rrc_message_t *dl_rrc;
