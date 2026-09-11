@@ -17,6 +17,9 @@ add_subdirectory(LOG)
 add_subdirectory(threadPool)
 add_subdirectory(time_manager)
 add_subdirectory(symbol_reorder)
+set(TS_HIST_BIN_WIDTH_NS "10000" CACHE STRING "time stats histogram bin width") # 10 microseconds in nanoseconds
+set(TS_HIST_SPAN_NS "5000000" CACHE STRING "time stats histogram span") # 5 milliseconds in nanoseconds
+configure_file(time_meas_defs.h.in time_meas_defs.h @ONLY)
 add_library(utils utils.c system.c time_meas.c time_stat.c tuntap_if.c bits.c fsn.c)
 target_include_directories(utils PUBLIC .)
 target_link_libraries(utils PRIVATE ${T_LIB})
