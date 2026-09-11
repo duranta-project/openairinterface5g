@@ -11,6 +11,9 @@
 #include "../../flexric/src/agent/e2_agent_api.h"
 #include "openair2/E2AP/flexric/src/lib/sm/enc/enc_ue_id.h"
 #include "openair2/E2AP/flexric/src/sm/rc_sm/rc_sm_id.h"
+#include "openair2/RRC/NR/rrc_cell_management.h"
+#include "openair2/RRC/NR/rrc_gNB_du.h"
+#include "openair2/RRC/NR/rrc_gNB_mobility.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -82,16 +85,39 @@ static seq_ev_trg_style_t fill_ev_tr_format_1(const char *ev_style_name)
   return ev_trig_style;
 }
 
+static seq_ev_trg_style_t fill_ev_tr_format_5(const char *ev_style_name)
+{
+  seq_ev_trg_style_t ev_trig_style = {0};
+
+  // RIC Event Trigger Style Type
+  // Mandatory
+  // 9.3.3
+  ev_trig_style.style = 5;
+
+  // RIC Event Trigger Style Name
+  // Mandatory
+  // 9.3.4
+  ev_trig_style.name = cp_str_to_ba(ev_style_name);
+
+  // RIC Event Trigger Format Type
+  // Mandatory
+  // 9.3.5
+  ev_trig_style.format = FORMAT_5_E2SM_RC_EV_TRIGGER_FORMAT;
+
+  return ev_trig_style;
+}
+
 static void fill_rc_ev_trig(ran_func_def_ev_trig_t* ev_trig)
 {
   // Sequence of EVENT TRIGGER styles
   // [1 - 63]
-  ev_trig->sz_seq_ev_trg_style = 2;
+  ev_trig->sz_seq_ev_trg_style = 3;
   ev_trig->seq_ev_trg_style = calloc(ev_trig->sz_seq_ev_trg_style, sizeof(seq_ev_trg_style_t));
   assert(ev_trig->seq_ev_trg_style != NULL && "Memory exhausted");
 
   ev_trig->seq_ev_trg_style[0] = fill_ev_tr_format_1("Message Event");
   ev_trig->seq_ev_trg_style[1] = fill_ev_tr_format_4("UE Information Change");
+  ev_trig->seq_ev_trg_style[2] = fill_ev_tr_format_5("On Demand");
 
   // Sequence of RAN Parameters for L2 Variables
   // [0 - 65535]
@@ -239,28 +265,82 @@ static seq_report_sty_t fill_report_style_1(const char *report_name)
   return report_style;
 }
 
+static seq_report_sty_t fill_report_style_5(const char *report_name)
+{
+  seq_report_sty_t report_style = {0};
+
+  // RIC Report Style Type
+  // Mandatory
+  // 9.3.3
+  report_style.report_type = 5;
+
+  // RIC Report Style Name
+  // Mandatory
+  // 9.3.4
+  report_style.name = cp_str_to_ba(report_name);
+
+  // Supported RIC Event Trigger Style Type
+  // Mandatory
+  // 9.3.3
+  report_style.ev_trig_type = FORMAT_5_E2SM_RC_EV_TRIGGER_FORMAT;
+
+  // RIC Report Action Format Type
+  // Mandatory
+  // 9.3.5
+  report_style.act_frmt_type = FORMAT_1_E2SM_RC_ACT_DEF;
+
+  // RIC Indication Header Format Type
+  // Mandatory
+  // 9.3.5
+  report_style.ind_hdr_type = FORMAT_1_E2SM_RC_IND_HDR;
+
+  // RIC Indication Message Format Type
+  // Mandatory
+  // 9.3.5
+  report_style.ind_msg_type = FORMAT_4_E2SM_RC_IND_MSG;
+
+  // Sequence of RAN Parameters Supported
+  // [0 - 65535]
+  report_style.sz_seq_ran_param = 1;
+  report_style.ran_param = calloc(report_style.sz_seq_ran_param, sizeof(seq_ran_param_3_t));
+  assert(report_style.ran_param != NULL && "Memory exhausted");
+
+  // RAN Parameter ID
+  // Mandatory
+  // 9.3.8
+  // [1- 4294967295]
+  report_style.ran_param[0].id = E2SM_RC_RS5_UE_CONTEXT_INFORMATION;
+
+  // RAN Parameter Name
+  // Mandatory
+  // 9.3.9
+  // [1-150]
+  const char ran_param_name[] = "UE Context Information";
+  report_style.ran_param[0].name = cp_str_to_ba(ran_param_name);
+
+  // RAN Parameter Definition
+  // Optional
+  // 9.3.51
+  report_style.ran_param[0].def = NULL;
+
+  return report_style;
+}
+
 static void fill_rc_report(ran_func_def_report_t* report)
 {
   // Sequence of REPORT styles
   // [1 - 63]
-  report->sz_seq_report_sty = 2;
+  report->sz_seq_report_sty = 3;
   report->seq_report_sty = calloc(report->sz_seq_report_sty, sizeof(seq_report_sty_t));
   assert(report->seq_report_sty != NULL && "Memory exhausted");
 
   report->seq_report_sty[0] = fill_report_style_1("Message Copy");
   report->seq_report_sty[1] = fill_report_style_4("UE Information");
+  report->seq_report_sty[2] = fill_report_style_5("On Demand Report");
 }
 
-static void fill_rc_control(ran_func_def_ctrl_t* ctrl)
+static void fill_rc_radio_bearer_ctrl(seq_ctrl_style_t* ctrl_style)
 {
-  // Sequence of CONTROL styles
-  // [1 - 63]
-  ctrl->sz_seq_ctrl_style = 1;
-  ctrl->seq_ctrl_style = calloc(ctrl->sz_seq_ctrl_style, sizeof(seq_ctrl_style_t));
-  assert(ctrl->seq_ctrl_style != NULL && "Memory exhausted");
-
-  seq_ctrl_style_t* ctrl_style = &ctrl->seq_ctrl_style[0];
-
   // RIC Control Style Type
   // Mandatory
   // 9.3.3
@@ -361,6 +441,123 @@ static void fill_rc_control(ran_func_def_ctrl_t* ctrl)
   // [0- 255]
   ctrl_style->sz_ran_param_ctrl_out = 0;
   ctrl_style->ran_param_ctrl_out = NULL;
+}
+
+/* RIC Control Style Types, 7.6. Only the two below are implemented. */
+typedef enum {
+  RC_CTRL_STYLE_RADIO_BEARER = 1,
+  RC_CTRL_STYLE_CONN_MODE_MOBILITY = 3,
+} rc_ctrl_style_type_e;
+
+/** @brief Add a leaf RAN parameter (no nested definition) to a LIST/STRUCTURE item */
+static void fill_ran_param_leaf(ran_param_lst_struct_t* dst, uint32_t id, const char* name)
+{
+  dst->ran_param_id = id;
+  dst->ran_param_name = cp_str_to_ba(name);
+  dst->ran_param_def = NULL;
+}
+
+/** @brief Give a LIST/STRUCTURE item a nested STRUCTURE definition of sz members
+ * @return the member array, for the caller to fill */
+static ran_param_lst_struct_t* fill_ran_param_strct(ran_param_lst_struct_t* dst, uint32_t id, const char* name, size_t sz)
+{
+  dst->ran_param_id = id;
+  dst->ran_param_name = cp_str_to_ba(name);
+
+  dst->ran_param_def = calloc(1, sizeof(ran_param_def_t));
+  AssertFatal(dst->ran_param_def != NULL, "Memory exhausted");
+  dst->ran_param_def->type = STRUCTURE_RAN_PARAMETER_DEF_TYPE;
+  dst->ran_param_def->strct = calloc(1, sizeof(ran_param_type_t));
+  AssertFatal(dst->ran_param_def->strct != NULL, "Memory exhausted");
+
+  ran_param_type_t* strct = dst->ran_param_def->strct;
+  strct->sz_ran_param = sz;
+  strct->ran_param = calloc(sz, sizeof(ran_param_lst_struct_t));
+  AssertFatal(strct->ran_param != NULL, "Memory exhausted");
+
+  return strct->ran_param;
+}
+
+/** @brief Advertise CONTROL Style 3 "Connected mode mobility control", 7.6.4
+ *
+ * Only the Handover Control action is offered, and of its RAN parameters only
+ * Target Primary Cell ID: the handover this triggers moves the UE with its
+ * existing bearers, so there is nothing to say about the PDU session, DRB and
+ * secondary cell lists 8.4.4.1 also defines. Advertising them would invite
+ * CONTROL messages write_ctrl_rc_sm() would have to reject. */
+static void fill_rc_conn_mode_mobility_ctrl(seq_ctrl_style_t* ctrl_style)
+{
+  // RIC Control Style Type. Mandatory. 9.3.3, 6.2.2.2
+  ctrl_style->style_type = RC_CTRL_STYLE_CONN_MODE_MOBILITY;
+
+  // RIC Control Style Name. Mandatory. 9.3.4. [1-150]
+  ctrl_style->name = cp_str_to_ba("Connected mode mobility control");
+
+  // RIC Control Header/Message/Outcome Format Type. Mandatory. 9.3.5
+  ctrl_style->hdr = FORMAT_1_E2SM_RC_CTRL_HDR;
+  ctrl_style->msg = FORMAT_1_E2SM_RC_CTRL_MSG;
+  ctrl_style->out_frmt = FORMAT_1_E2SM_RC_CTRL_OUT;
+
+  // RIC Call Process ID Format Type. Optional
+  ctrl_style->call_proc_id_type = NULL;
+
+  // Sequence of Control Actions. [0-65535]
+  ctrl_style->sz_seq_ctrl_act = 1;
+  ctrl_style->seq_ctrl_act = calloc(ctrl_style->sz_seq_ctrl_act, sizeof(seq_ctrl_act_2_t));
+  AssertFatal(ctrl_style->seq_ctrl_act != NULL, "Memory exhausted");
+
+  seq_ctrl_act_2_t* ctrl_act = &ctrl_style->seq_ctrl_act[0];
+
+  // Control Action ID. Mandatory. 9.3.6. [1-65535]
+  ctrl_act->id = HANDOVER_CONTROL_7_6_4_1;
+
+  // Control Action Name. Mandatory. 9.3.7. [1-150]
+  ctrl_act->name = cp_str_to_ba("Handover Control");
+
+  // Sequence of Associated RAN Parameters. [0-65535]
+  ctrl_act->sz_seq_assoc_ran_param = 1;
+  ctrl_act->assoc_ran_param = calloc(ctrl_act->sz_seq_assoc_ran_param, sizeof(seq_ran_param_3_t));
+  AssertFatal(ctrl_act->assoc_ran_param != NULL, "Memory exhausted");
+
+  /* Target Primary Cell ID
+   *   > CHOICE Target Cell
+   *       > NR Cell ID
+   *           > NR CGI
+   * The E-UTRA branch of the CHOICE is not offered: this is an NR-only CU. */
+  seq_ran_param_3_t* target_cell = &ctrl_act->assoc_ran_param[0];
+  target_cell->id = TARGET_PRIMARY_CELL_ID_8_4_4_1;
+  target_cell->name = cp_str_to_ba("Target Primary Cell ID");
+
+  target_cell->def = calloc(1, sizeof(ran_param_def_t));
+  AssertFatal(target_cell->def != NULL, "Memory exhausted");
+  target_cell->def->type = STRUCTURE_RAN_PARAMETER_DEF_TYPE;
+  target_cell->def->strct = calloc(1, sizeof(ran_param_type_t));
+  AssertFatal(target_cell->def->strct != NULL, "Memory exhausted");
+
+  ran_param_type_t* strct = target_cell->def->strct;
+  strct->sz_ran_param = 1;
+  strct->ran_param = calloc(strct->sz_ran_param, sizeof(ran_param_lst_struct_t));
+  AssertFatal(strct->ran_param != NULL, "Memory exhausted");
+
+  ran_param_lst_struct_t* choice = fill_ran_param_strct(&strct->ran_param[0], CHOICE_TARGET_CELL_8_4_4_1, "CHOICE Target Cell", 1);
+  ran_param_lst_struct_t* nr_cell = fill_ran_param_strct(&choice[0], NR_CELL_8_4_4_1, "NR Cell ID", 1);
+  fill_ran_param_leaf(&nr_cell[0], NR_CGI_8_4_4_1, "NR CGI");
+
+  // Sequence of Associated RAN Parameters for Control Outcome. [0-255]
+  ctrl_style->sz_ran_param_ctrl_out = 0;
+  ctrl_style->ran_param_ctrl_out = NULL;
+}
+
+static void fill_rc_control(ran_func_def_ctrl_t* ctrl)
+{
+  // Sequence of CONTROL styles
+  // [1 - 63]
+  ctrl->sz_seq_ctrl_style = 2;
+  ctrl->seq_ctrl_style = calloc(ctrl->sz_seq_ctrl_style, sizeof(seq_ctrl_style_t));
+  assert(ctrl->seq_ctrl_style != NULL && "Memory exhausted");
+
+  fill_rc_radio_bearer_ctrl(&ctrl->seq_ctrl_style[0]);
+  fill_rc_conn_mode_mobility_ctrl(&ctrl->seq_ctrl_style[1]);
 }
 
 static ran_function_name_t fill_rc_ran_func_name(void)
@@ -627,6 +824,65 @@ static void send_aper_ric_ind(const uint32_t ric_req_id, rc_ind_data_t* rc_ind_d
   printf("[E2 AGENT] Event for RIC request ID %d generated\n", ric_req_id);
 }
 
+static cell_global_id_t ue_serving_cell_global_id(gNB_RRC_INST* rrc, uint32_t rrc_ue_id)
+{
+  cell_global_id_t cgi = {0};
+
+  nr_rrc_du_container_t* du = get_du_for_ue(rrc, rrc_ue_id);
+  if (du == NULL || seq_arr_size(&du->cells) == 0)
+    return cgi;
+
+  const nr_rrc_cell_container_t* cell = *(nr_rrc_cell_container_t**)seq_arr_at(&du->cells, 0);
+  cgi.type = NR_CGI_RAT_TYPE;
+  cgi.nr_cgi.plmn_id.mcc = cell->info.plmn.mcc;
+  cgi.nr_cgi.plmn_id.mnc = cell->info.plmn.mnc;
+  cgi.nr_cgi.plmn_id.mnc_digit_len = cell->info.plmn.mnc_digit_length;
+  cgi.nr_cgi.nr_cell_id = cell->info.cell_id;
+
+  return cgi;
+}
+
+/* REPORT Service Style 5 ("On Demand Report", E2SM-RC v01.03 7.4.6).
+ * Check if and which RAN Parameter IDs does the Action Definition carry.
+ * Choices are described in section 8.2.5.
+ * The Indication Header Format 1 with ev_trigger_id is optional, so left unset. */
+static rc_ind_data_t* fill_context_info_on_demand(const e2sm_rc_act_def_frmt_1_t *ad)
+{
+  rc_ind_data_t* rc_ind = calloc(1, sizeof(rc_ind_data_t));
+  assert(rc_ind != NULL && "Memory exhausted");
+
+  rc_ind->hdr.format = FORMAT_1_E2SM_RC_IND_HDR;
+
+  rc_ind->msg.format = FORMAT_4_E2SM_RC_IND_MSG;
+
+  for (size_t i = 0; i < ad->sz_param_report_def; i++) {
+    if (ad->param_report_def[i].ran_param_id == E2SM_RC_RS5_UE_CONTEXT_INFORMATION) {
+      const ngran_node_t node_type = get_e2_node_type();
+      gNB_RRC_INST* rrc = RC.nrrrc[0];
+
+      size_t sz = 0;
+      struct rrc_gNB_ue_context_s* rrc_ue_context = NULL;
+      RB_FOREACH(rrc_ue_context, rrc_nr_ue_tree_s, &rrc->rrc_ue_head)
+        sz++;
+
+      rc_ind->msg.frmt_4.sz_seq_ue_info = sz;
+      rc_ind->msg.frmt_4.seq_ue_info = calloc(sz, sizeof(seq_ue_info_t));
+      assert((sz == 0 || rc_ind->msg.frmt_4.seq_ue_info != NULL) && "Memory exhausted");
+
+      size_t i = 0;
+      RB_FOREACH(rrc_ue_context, rrc_nr_ue_tree_s, &rrc->rrc_ue_head) {
+        gNB_RRC_UE_t* ue = &rrc_ue_context->ue_context;
+        rc_ind->msg.frmt_4.seq_ue_info[i].ue_id = fill_ue_id_data[node_type](ue, 0, 0);
+        rc_ind->msg.frmt_4.seq_ue_info[i].ue_ctx_info = NULL;
+        rc_ind->msg.frmt_4.seq_ue_info[i].cell_global_id = ue_serving_cell_global_id(rrc, ue->rrc_ue_id);
+        i++;
+      }
+    }
+  }
+
+  return rc_ind;
+}
+
 static rc_ind_data_t* fill_ue_id(const gNB_RRC_UE_t *rrc_ue_context, const uint16_t cond_id)
 {
   rc_ind_data_t* rc_ind = malloc_or_fail(sizeof(rc_ind_data_t));
@@ -856,7 +1112,10 @@ sm_ag_if_ans_t write_subs_rc_sm(void const* src)
       if (wr_rc->rc.et.format + 1 != report_style) { // wr_rc->rc.et.format is an enum -> initialization starts from 0
         AssertError(false, return ans, "[E2 AGENT] Event Trigger Definition Format %d doesn't correspond to REPORT style %d.\n", wr_rc->rc.et.format + 1, report_style);
       }
-      get_list_for_report_style(ric_req_id, &wr_rc->rc.et, wr_rc->rc.ad->frmt_1.sz_param_report_def, wr_rc->rc.ad->frmt_1.param_report_def);
+      /* RAN Parameter IDs from `On Demand` Report Style 5 are not included in rc_subs_data_t.
+       * Its intention is to send immeditately RIC Indication Message upon RIC Subscription reception. */
+      if (report_style != 5)
+        get_list_for_report_style(ric_req_id, &wr_rc->rc.et, wr_rc->rc.ad->frmt_1.sz_param_report_def, wr_rc->rc.ad->frmt_1.param_report_def);
       break;
     }
 
@@ -867,20 +1126,22 @@ sm_ag_if_ans_t write_subs_rc_sm(void const* src)
   ans.type = SUBS_OUTCOME_SM_AG_IF_ANS_V0;
   ans.subs_out.type = APERIODIC_SUBSCRIPTION_FLRC;
   ans.subs_out.aper.free_aper_subs = free_aperiodic_subscription;
+  ans.subs_out.aper.imm_ind_data = NULL;
+
+  // REPORT Service Style 5 ("On Demand Report"): report immediately. The
+  // actual send is deferred to the caller (after this subscription is fully
+  // registered with the agent) - it can't happen here, since we are still
+  // inside on_subscription and the agent hasn't registered ric_req_id yet.
+  if (report_style == 5)
+    ans.subs_out.aper.imm_ind_data = fill_context_info_on_demand(&wr_rc->rc.ad->frmt_1);
 
   return ans;
 }
 
-
-sm_ag_if_ans_t write_ctrl_rc_sm(void const* data)
+/* Radio Bearer Control, 7.6.2. Decodes and reports the requested QoS flow
+ * mapping; applying it is not implemented. */
+static void write_ctrl_radio_bearer(rc_ctrl_req_data_t const* ctrl)
 {
-  assert(data != NULL);
-//  assert(data->type == RAN_CONTROL_CTRL_V1_03 );
-
-  rc_ctrl_req_data_t const* ctrl = (rc_ctrl_req_data_t const*)data;
-
-  assert(ctrl->hdr.format == FORMAT_1_E2SM_RC_CTRL_HDR && "Indication Header Format received not valid");
-  assert(ctrl->msg.format == FORMAT_1_E2SM_RC_CTRL_MSG && "Indication Message Format received not valid");
   assert(ctrl->hdr.frmt_1.ctrl_act_id == 2 && "Currently only QoS flow mapping configuration supported");
 
   printf("QoS flow mapping configuration\n");
@@ -916,13 +1177,134 @@ sm_ag_if_ans_t write_ctrl_rc_sm(void const* data)
   assert(dir == 0 || dir == 1);
 
   printf("qfi = %ld, dir %ld \n", qfi, dir);
+}
 
+/** @brief One member of a STRUCTURE RAN parameter value, by RAN parameter ID */
+static const seq_ran_param_t* strct_member(const seq_ran_param_t* param, uint32_t id, const char* what)
+{
+  if (param->ran_param_val.type != STRUCTURE_RAN_PARAMETER_VAL_TYPE) {
+    LOG_E(NR_RRC, "E2 CONTROL: %s is not a structure\n", what);
+    return NULL;
+  }
+
+  const ran_param_struct_t* strct = param->ran_param_val.strct;
+  for (size_t i = 0; i < strct->sz_ran_param_struct; i++)
+    if (strct->ran_param_struct[i].ran_param_id == id)
+      return &strct->ran_param_struct[i];
+
+  LOG_E(NR_RRC, "E2 CONTROL: %s has no member with RAN Parameter ID %u\n", what, id);
+  return NULL;
+}
+
+static uint64_t nr_cgi_cell_id(const byte_array_t* nr_cgi)
+{
+  const uint8_t* b = nr_cgi->buf;
+  return ((uint64_t)b[3] << 28) | ((uint64_t)b[4] << 20) | ((uint64_t)b[5] << 12) | ((uint64_t)b[6] << 4) | ((uint64_t)b[7] >> 4);
+}
+
+/* Connected mode mobility control, 7.6.4: hand the UE over to the cell the RIC
+ * names in Target Primary Cell ID. */
+static void write_ctrl_conn_mode_mobility(rc_ctrl_req_data_t const* ctrl)
+{
+  if (ctrl->hdr.frmt_1.ctrl_act_id != HANDOVER_CONTROL_7_6_4_1) {
+    LOG_E(NR_RRC, "E2 CONTROL: Style 3 Action %d not supported, only Handover Control\n", ctrl->hdr.frmt_1.ctrl_act_id);
+    return;
+  }
+
+  if (ctrl->hdr.frmt_1.ue_id.type != GNB_UE_ID_E2SM) {
+    printf("[E2 AGENT] RC Control: %d not supported for handover.\n", ctrl->hdr.frmt_1.ue_id.type);
+    return;
+  }
+  if (ctrl->hdr.frmt_1.ue_id.gnb.ran_ue_id == NULL) {
+    printf("[E2 AGENT] RC Control: RAN UE ID not found. Aborting handover.\n");
+    return;
+  }
+  uint32_t rrc_ue_id = *ctrl->hdr.frmt_1.ue_id.gnb.ran_ue_id;
+  rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(RC.nrrrc[0], rrc_ue_id);
+  if (ue_context_p == NULL) {
+    printf("[E2 AGENT] RC Control: UE with rrc_ue_id %d not found. Aborting handover.\n", rrc_ue_id);
+    return;
+  }
+  gNB_RRC_UE_t *ue = &ue_context_p->ue_context;
+
+  if (ctrl->msg.frmt_1.sz_ran_param < 1) {
+    LOG_E(NR_RRC, "E2 CONTROL: Handover Control carries no RAN parameter\n");
+    return;
+  }
+
+  const seq_ran_param_t* target = &ctrl->msg.frmt_1.ran_param[0];
+  if (target->ran_param_id != TARGET_PRIMARY_CELL_ID_8_4_4_1) {
+    LOG_E(NR_RRC, "E2 CONTROL: expected Target Primary Cell ID, got RAN Parameter ID %u\n", target->ran_param_id);
+    return;
+  }
+
+  /* Target Primary Cell ID > CHOICE Target Cell > NR Cell ID > NR CGI. Only the
+   * NR branch of the CHOICE is advertised, so only it is accepted here. */
+  const seq_ran_param_t* choice = strct_member(target, CHOICE_TARGET_CELL_8_4_4_1, "Target Primary Cell ID");
+  if (choice == NULL)
+    return;
+
+  const seq_ran_param_t* nr_cell = strct_member(choice, NR_CELL_8_4_4_1, "CHOICE Target Cell");
+  if (nr_cell == NULL) {
+    LOG_E(NR_RRC, "E2 CONTROL: only the NR branch of CHOICE Target Cell is supported\n");
+    return;
+  }
+
+  const seq_ran_param_t* nr_cgi = strct_member(nr_cell, NR_CGI_8_4_4_1, "NR Cell ID");
+  if (nr_cgi == NULL)
+    return;
+
+  if (nr_cgi->ran_param_val.type != ELEMENT_KEY_FLAG_FALSE_RAN_PARAMETER_VAL_TYPE
+      || nr_cgi->ran_param_val.flag_false->type != OCTET_STRING_RAN_PARAMETER_VALUE) {
+    LOG_E(NR_RRC, "E2 CONTROL: NR CGI is not an octet string element\n");
+    return;
+  }
+
+  uint64_t target_cell_id = nr_cgi_cell_id(&nr_cgi->ran_param_val.flag_false->octet_str_ran);
+  nr_rrc_cell_container_t *source_cell = rrc_get_pcell_for_ue(RC.nrrrc[0], ue);
+  if (source_cell == NULL) {
+    LOG_E(NR_RRC, "cannot get source cell for UE %u\n", rrc_ue_id);
+    return;
+  }
+  nr_rrc_cell_container_t *target_cell = get_cell_by_cell_id(&RC.nrrrc[0]->cells, target_cell_id);
+  if (target_cell == NULL) {
+    LOG_E(NR_RRC, "cannot get target cell for UE %u\n", rrc_ue_id);
+    return;
+  }
+
+  LOG_I(NR_RRC, "E2 CONTROL: Handover Control for UE %u to NR Cell Identity %lu\n", rrc_ue_id, target_cell_id);
+  nr_rrc_trigger_f1_ho(RC.nrrrc[0], ue, source_cell, target_cell);
+}
+
+sm_ag_if_ans_t write_ctrl_rc_sm(void const* data)
+{
+  assert(data != NULL);
+
+  rc_ctrl_req_data_t const* ctrl = (rc_ctrl_req_data_t const*)data;
+
+  assert(ctrl->hdr.format == FORMAT_1_E2SM_RC_CTRL_HDR && "Indication Header Format received not valid");
+  assert(ctrl->msg.format == FORMAT_1_E2SM_RC_CTRL_MSG && "Indication Message Format received not valid");
+
+  /* A CONTROL comes from the RIC, so everything below the format is input, not
+   * an invariant: report what cannot be honoured and leave the RAN running. */
+  switch (ctrl->hdr.frmt_1.ric_style_type) {
+    case RC_CTRL_STYLE_RADIO_BEARER:
+      write_ctrl_radio_bearer(ctrl);
+      break;
+
+    case RC_CTRL_STYLE_CONN_MODE_MOBILITY:
+      write_ctrl_conn_mode_mobility(ctrl);
+      break;
+
+    default:
+      LOG_E(NR_RRC, "E2 CONTROL: RIC Control Style %d not supported\n", ctrl->hdr.frmt_1.ric_style_type);
+      break;
+  }
 
   sm_ag_if_ans_t ans = {.type = CTRL_OUTCOME_SM_AG_IF_ANS_V0};
   ans.ctrl_out.type = RAN_CTRL_V1_3_AGENT_IF_CTRL_ANS_V0;
   return ans;
 }
-
 
 bool read_rc_sm(void* data)
 {
