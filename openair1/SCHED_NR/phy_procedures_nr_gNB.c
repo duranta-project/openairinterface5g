@@ -259,6 +259,10 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
   for (int i = 0; i < UL_dci_req->numPdus; ++i)
     nr_generate_dci(gNB, &UL_dci_req->ul_dci_pdu_list[i].pdcch_pdu.pdcch_pdu_rel15, &gNB->frame_parms, slot);
 
+  rt_probe_l1tx_context_t rt_l1tx_ctx = rt_probe_l1tx_context_invalid();
+  rt_l1tx_ctx.frame = frame;
+  rt_l1tx_ctx.slot = slot;
+
   int num_pdsch = 0;
   for (int i = 0; i < DL_req->dl_tti_request_body.nPDUs; ++i) {
     const nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdu = &DL_req->dl_tti_request_body.dl_tti_pdu_list[i];
@@ -275,6 +279,35 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
       case NFAPI_NR_DL_TTI_PDSCH_PDU_TYPE: {
         int tx_data_idx = dl_tti_pdu->pdsch_pdu.pdsch_pdu_rel15.pduIndex;
         if (tx_data_idx < TX_req->Number_of_PDUs && TX_req->pdu_list[tx_data_idx].PDU_index == tx_data_idx) {
+          const nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch = &dl_tti_pdu->pdsch_pdu.pdsch_pdu_rel15;
+
+          rt_l1tx_ctx.valid = 1;
+          rt_l1tx_ctx.dl_pdsch_count++;
+          rt_l1tx_ctx.dl_prb_total += pdsch->rbSize;
+          if ((int)pdsch->nrOfLayers > rt_l1tx_ctx.dl_layers_max)
+            rt_l1tx_ctx.dl_layers_max = pdsch->nrOfLayers;
+
+          const int codewords = pdsch->NrOfCodewords < 2 ? pdsch->NrOfCodewords : 2;
+          for (int cw = 0; cw < codewords; cw++) {
+            const int mcs = pdsch->mcsIndex[cw];
+            const int mcs_table = pdsch->mcsTable[cw];
+
+            rt_l1tx_ctx.dl_tbs_total += pdsch->TBSize[cw];
+
+            if (rt_l1tx_ctx.dl_mcs_min < 0 || mcs < rt_l1tx_ctx.dl_mcs_min)
+              rt_l1tx_ctx.dl_mcs_min = mcs;
+            if (mcs > rt_l1tx_ctx.dl_mcs_max)
+              rt_l1tx_ctx.dl_mcs_max = mcs;
+
+            if (rt_l1tx_ctx.dl_mcs_table_min < 0 || mcs_table < rt_l1tx_ctx.dl_mcs_table_min)
+              rt_l1tx_ctx.dl_mcs_table_min = mcs_table;
+            if (mcs_table > rt_l1tx_ctx.dl_mcs_table_max)
+              rt_l1tx_ctx.dl_mcs_table_max = mcs_table;
+
+            if (pdsch->rvIndex[cw] != 0)
+              rt_l1tx_ctx.dl_rv_nonzero_count++;
+          }
+
           // reuse dlsch variables, as there are multiple very large memory
           // buffers
           gNB->dlsch[num_pdsch].pdsch_pdu = &dl_tti_pdu->pdsch_pdu;
@@ -294,6 +327,8 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
     }
   }
  
+  gNB->rt_l1tx_slot_context = rt_l1tx_ctx;
+
   if (num_pdsch > 0) {
     LOG_D(PHY, "PDSCH generation started (%d) in frame %d.%d\n", num_pdsch, frame, slot);
     nr_generate_pdsch(gNB, num_pdsch, gNB->dlsch, frame, slot);
@@ -1210,6 +1245,57 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
   NR_gNB_SRS_job_t srs[MAX_NUM_NR_SRS_PDUS];
   int n_srs = spsc_q_get_while(&gNB->srs_queue, get_current_srs, &now, srs, sizeof(*srs), MAX_NUM_NR_SRS_PDUS);
 
+  /*
+   * Build a context for the exact RX frame/slot being processed.
+   *
+   * valid=1 means that this context was built for this frame/slot. It does
+   * not imply that a PUSCH was present.
+   *
+   * PRACH is intentionally excluded: rx_func() may drain PRACH entries
+   * accumulated from more than one radio time instant.
+   */
+  rt_probe_l1rx_context_t rt_l1rx_ctx = rt_probe_l1rx_context_invalid();
+  rt_l1rx_ctx.valid = 1;
+  rt_l1rx_ctx.frame = frame_rx;
+  rt_l1rx_ctx.slot = slot_rx;
+  rt_l1rx_ctx.ul_pucch_job_count = n_pucch;
+  rt_l1rx_ctx.ul_pusch_job_count = n_pusch_jobs;
+  rt_l1rx_ctx.ul_srs_job_count = n_srs;
+
+  for (int i = 0; i < n_pusch_jobs; ++i) {
+    const nfapi_nr_pusch_pdu_t *pusch_pdu = &pusch[i].pusch_pdu;
+
+    rt_l1rx_ctx.ul_pusch_prb_total += pusch_pdu->rb_size;
+
+    const int mcs = pusch_pdu->mcs_index;
+    const int mcs_table = pusch_pdu->mcs_table;
+
+    if (rt_l1rx_ctx.ul_pusch_mcs_min < 0 || mcs < rt_l1rx_ctx.ul_pusch_mcs_min)
+      rt_l1rx_ctx.ul_pusch_mcs_min = mcs;
+    if (mcs > rt_l1rx_ctx.ul_pusch_mcs_max)
+      rt_l1rx_ctx.ul_pusch_mcs_max = mcs;
+
+    if (rt_l1rx_ctx.ul_pusch_mcs_table_min < 0 || mcs_table < rt_l1rx_ctx.ul_pusch_mcs_table_min)
+      rt_l1rx_ctx.ul_pusch_mcs_table_min = mcs_table;
+    if (mcs_table > rt_l1rx_ctx.ul_pusch_mcs_table_max)
+      rt_l1rx_ctx.ul_pusch_mcs_table_max = mcs_table;
+
+    if ((int)pusch_pdu->nrOfLayers > rt_l1rx_ctx.ul_pusch_layers_max)
+      rt_l1rx_ctx.ul_pusch_layers_max = pusch_pdu->nrOfLayers;
+
+    /*
+     * pusch_data is optional in the FAPI PUSCH PDU.
+     * Only consume TBS/RV when DATA is present.
+     */
+    if (pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_DATA) {
+      rt_l1rx_ctx.ul_pusch_data_count++;
+      rt_l1rx_ctx.ul_pusch_tbs_total += pusch_pdu->pusch_data.tb_size;
+
+      if (pusch_pdu->pusch_data.rv_index != 0)
+        rt_l1rx_ctx.ul_pusch_rv_nonzero_count++;
+    }
+  }
+
   LOG_D(PHY,"phy_procedures_gNB_uespec_RX frame %d, slot %d\n",frame_rx,slot_rx);
   {
     // Mask of occupied RBs, per symbol and PRB
@@ -1298,6 +1384,8 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
     }
   }
 
+  rt_l1rx_ctx.ul_pusch_decode_count = num_pusch;
+
   if (num_pusch > 0) {
     START_MEAS_FULL_SLOT(&gNB->ulsch_decoding_stats, slot_type, NR_UPLINK_SLOT);
     int ret_nr_ulsch_procedures = nr_ulsch_procedures(gNB, frame_rx, slot_rx, ulsch_idx_to_decode, num_pusch, UL_INFO);
@@ -1305,6 +1393,15 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
       LOG_E(NR_PHY, "Error in nr_ulsch_procedures, returned %d\n", ret_nr_ulsch_procedures);
     STOP_MEAS_FULL_SLOT(&gNB->ulsch_decoding_stats, slot_type, NR_UPLINK_SLOT);
   }
+
+  for (int i = 0; i < UL_INFO->crc_ind.number_crcs; ++i) {
+    if (UL_INFO->crc_ind.crc_list[i].tb_crc_status == 0)
+      rt_l1rx_ctx.ul_crc_ok_count++;
+    else
+      rt_l1rx_ctx.ul_crc_fail_count++;
+  }
+
+  STOP_MEAS_FULL_SLOT(&gNB->phy_proc_rx, slot_type, NR_UPLINK_SLOT);
 
   UL_INFO->srs_ind.sfn = frame_rx;
   UL_INFO->srs_ind.slot = slot_rx;
@@ -1316,8 +1413,6 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
     stop_meas(&gNB->rx_srs_stats);
   }
 
-  STOP_MEAS_FULL_SLOT(&gNB->phy_proc_rx, slot_type, NR_UPLINK_SLOT);
-
   if (n_pucch > 0 || num_pusch > 0) {
     UNUSED(ofdm_symbol_size); // only used if T activated
     T(T_GNB_PHY_PUCCH_PUSCH_IQ,
@@ -1325,6 +1420,8 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
       T_INT(slot_rx),
       T_BUFFER(&gNB->common_vars.rxdataF[0][0], frame_parms->symbols_per_slot * ofdm_symbol_size * 4));
   }
+
+  gNB->rt_l1rx_slot_context = rt_l1rx_ctx;
 
   return pusch_DTX;
 }

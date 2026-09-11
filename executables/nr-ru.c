@@ -16,6 +16,7 @@
 #include "common/utils/assertions.h"
 #include "common/utils/system.h"
 #include "common/utils/fsn.h"
+#include "common/utils/rt_probe.h"
 #include "common/ran_context.h"
 
 #include "radio/ETHERNET/ethernet_lib.h"
@@ -600,15 +601,39 @@ void ru_tx_func(void *param)
   int slot_tx = info->slot_tx;
 
   // do TX front-end processing if needed (precoding and/or IDFTs)
-  if (ru->feptx_prec)
-    ru->feptx_prec(ru,frame_tx,slot_tx);
+  if (ru->feptx_prec) {
+    time_stats_t feptx_prec_ts;
+    reset_meas(&feptx_prec_ts);
+    start_meas(&feptx_prec_ts);
+
+    ru->feptx_prec(ru, frame_tx, slot_tx);
+
+    stop_meas(&feptx_prec_ts);
+    rt_probe_record(&ru->rt_ru_feptx_prec_call_probe, &feptx_prec_ts);
+  }
 
   // do OFDM with/without TX front-end processing  if needed
-  if (ru->feptx_ofdm)
+  if (ru->feptx_ofdm) {
+    time_stats_t feptx_ofdm_ts;
+    reset_meas(&feptx_ofdm_ts);
+    start_meas(&feptx_ofdm_ts);
+
     ru->feptx_ofdm(ru, frame_tx, slot_tx);
 
-  if (ru->fh_south_out)
+    stop_meas(&feptx_ofdm_ts);
+    rt_probe_record(&ru->rt_ru_feptx_ofdm_call_probe, &feptx_ofdm_ts);
+  }
+
+  if (ru->fh_south_out) {
+    time_stats_t fh_south_out_ts;
+    reset_meas(&fh_south_out_ts);
+    start_meas(&fh_south_out_ts);
+
     ru->fh_south_out(ru, frame_tx, slot_tx, info->timestamp_tx);
+
+    stop_meas(&fh_south_out_ts);
+    rt_probe_record(&ru->rt_ru_tx_fhaul_call_probe, &fh_south_out_ts);
+  }
 }
 
 /* @brief wait for the next RX TTI to be free

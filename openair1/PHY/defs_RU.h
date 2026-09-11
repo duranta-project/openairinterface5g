@@ -18,6 +18,7 @@
 #include "common/utils/threadPool/task_ans.h"
 #include "common/utils/threadPool/thread-pool.h"
 #include "common/utils/threadPool/notified_fifo.h"
+#include "common/utils/rt_probe.h"
 
 #define MAX_BANDS_PER_RRU 4
 #define MAX_RRU_CONFIG_SIZE 1024
@@ -526,6 +527,14 @@ typedef struct RU_t_s {
   time_stats_t ofdm_mod_stats;
   /// Timing statistics (TX)
   time_stats_t ofdm_total_stats;
+  /// Real-time probe for RU FEPTX processing
+  rt_probe_t rt_ru_feptx_probe;
+  /// Real-time probe for RU FEPTX OFDM function pointer calls
+  rt_probe_t rt_ru_feptx_ofdm_call_probe;
+  /// Real-time probe for RU FEPTX precoding function pointer calls
+  rt_probe_t rt_ru_feptx_prec_call_probe;
+  /// Real-time probe for RU TX fronthaul calls
+  rt_probe_t rt_ru_tx_fhaul_call_probe;
   /// Timing wait statistics
   time_stats_t ofdm_demod_wait_stats;
   /// Timing wakeup statistics

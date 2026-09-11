@@ -34,3 +34,7 @@ nfapi_nr_interface_scf
 *.log
 *.out
 CMakeUserPresets.json
+
+# Python bytecode caches
+__pycache__/
+*.py[cod]
