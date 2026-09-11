@@ -1,4 +1,4 @@
 [submodule "openair2/E2AP/flexric"]
 	path = openair2/E2AP/flexric
-	url = https://github.com/duranta-project/flexric.git
-
+	url = https://gitlab.eurecom.fr/mosaic5g/flexric.git
+	branch = remotes/origin/service-models-integration
