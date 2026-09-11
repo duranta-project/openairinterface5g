@@ -1429,11 +1429,10 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
             simde__m128i im = *(simde__m128i *)&r_ext2[aa][symb][half_prb * 4];
             simde__m128i prod_re = simde_mm_madd_epi16(re, factor);
             simde__m128i prod_im = simde_mm_madd_epi16(im, factor);
-            prod_re = simde_mm_hadd_epi32(prod_re, prod_re);
-            prod_im = simde_mm_hadd_epi32(prod_im, prod_im);
-            prod_re = simde_mm_hadd_epi32(prod_re, prod_re);
-            prod_im = simde_mm_hadd_epi32(prod_im, prod_im);
-            simde__m128i prod = simde_mm_srai_epi32(simde_mm_unpacklo_epi32(prod_re, prod_im), 5);
+            // combine re/im into one register so both reductions share the same hadd chain
+            simde__m128i ri = simde_mm_hadd_epi32(prod_re, prod_im);
+            ri = simde_mm_hadd_epi32(ri, ri);
+            simde__m128i prod = simde_mm_srai_epi32(ri, 5);
             c64_t corr64 = (c64_t){corr32[symb][half_prb >> 2][aa].r / (2 * nc_group_size * 4 / 2),
                                    corr32[symb][half_prb >> 2][aa].i / (2 * nc_group_size * 4 / 2)};
             //  _mm_srai_epi64 is missing in SIMDE package, we need to update it
