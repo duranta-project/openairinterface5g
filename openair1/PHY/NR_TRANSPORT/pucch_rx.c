@@ -1363,9 +1363,15 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
   if (nb_bit < 12 && decoderState == 2) { // short blocklength case
     uint64_t corr = 0;
     int cw_ML = 0;
-    for (int cw = 0; cw < 1 << nb_bit; cw++) {
+    // Bit 0 of the message toggles nrSmallBlockBasis[0] (the all-ones basis vector), which negates
+    // every output bit of the codeword. In the correlation domain this means the data-correlation term
+    // for codeword (cw|1) is the exact negation of that for codeword (cw&~1); only the cw-independent
+    // DMRS/pilot reference term (corr32) stays the same. So we only run the expensive correlation once
+    // per even/odd pair and derive both metrics from it -- halving the number of madd/hadd evaluations.
+    for (int cw = 0; cw < 1 << nb_bit; cw += 2) {
       const simde__m256i *coeff = (simde__m256i *)&pucch2_lut[nb_bit - 3][cw].cw;
-      uint64_t corr_tmp = 0;
+      uint64_t corr_tmp_even = 0;
+      uint64_t corr_tmp_odd = 0;
       for (int symb = 0; symb < nb_symbols; symb++) {
         for (int group = 0; group < ngroup; group++) {
           // do complex correlation
@@ -1382,26 +1388,40 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
             simde__m256i ri = simde_mm256_hadd_epi32(re, im);
             ri = simde_mm256_hadd_epi32(ri, ri);
             int32_t *v = (int32_t *)&ri;
-            c64_t prod = (c64_t){v[0] + v[4], v[1] + v[5]};
-            csum(prod, prod, corr32[symb][group][aa]);
-            corr_tmp += squaredMod(prod);
+            c64_t d = (c64_t){v[0] + v[4], v[1] + v[5]};
+            c32_t c = corr32[symb][group][aa];
+            c64_t prod_even = {d.r + c.r, d.i + c.i};
+            c64_t prod_odd  = {-d.r + c.r, -d.i + c.i};
+            corr_tmp_even += squaredMod(prod_even);
+            corr_tmp_odd  += squaredMod(prod_odd);
 #ifdef DEBUG_NR_PUCCH_RX
-            printf("pucch2 cw %d group %d aa %d: (%d,%d)+prod=(%ld,%ld)\n",
+            printf("pucch2 cw %d/%d group %d aa %d: c=(%d,%d) d=(%ld,%ld) even=(%ld,%ld) odd=(%ld,%ld)\n",
                    cw,
+                   cw+1,
                    group,
                    aa,
-                   corr32[symb][group][aa].r,
-                   corr32[symb][group][aa].i,
-                   prod.r,
-                   prod.i);
-
+                   c.r,
+                   c.i,
+                   d.r,
+                   d.i,
+                   prod_even.r,
+                   prod_even.i,
+                   prod_odd.r,
+                   prod_odd.i);
 #endif
           }
         } // group loop
       } // symb loop
-      if (corr_tmp > corr) {
-        corr = corr_tmp;
+      if (corr_tmp_even > corr) {
+        corr = corr_tmp_even;
         cw_ML = cw;
+#ifdef DEBUG_NR_PUCCH_RX
+        printf("slot %d PUCCH2 cw_ML %d, corr %lu\n", slot, cw_ML, corr);
+#endif
+      }
+      if (corr_tmp_odd > corr) {
+        corr = corr_tmp_odd;
+        cw_ML = cw + 1;
 #ifdef DEBUG_NR_PUCCH_RX
         printf("slot %d PUCCH2 cw_ML %d, corr %lu\n", slot, cw_ML, corr);
 #endif
