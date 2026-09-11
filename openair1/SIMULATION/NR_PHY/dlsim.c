@@ -1116,6 +1116,8 @@ int main(int argc, char **argv)
       round = 0;
       UE_harq_process->DLround = round;
       UE_harq_process->first_rx = 1;
+      UE_harq_process->activated_frame = UE_proc.frame_rx;
+      UE_harq_process->activated_slot = UE_proc.nr_slot_rx;
 
       while (round < num_rounds && !UE_harq_process->decodeResult && !stop) {
         reset_sched_response(Sched_INFO, frame, slot, 0, 0);
@@ -1340,6 +1342,9 @@ int main(int argc, char **argv)
 
         pbch_processing(UE, &UE_proc, &phy_data);
         pdcch_processing(UE, &UE_proc, &phy_data);
+        NR_DL_UE_HARQ_t *decode_harq = &UE->dl_harq_processes[0][phy_data.dlsch_config.harq_process_nbr];
+        decode_harq->activated_frame = UE_proc.frame_rx;
+        decode_harq->activated_slot = UE_proc.nr_slot_rx;
         pdsch_processing(UE,
                          &UE_proc,
                          &phy_data);

@@ -460,6 +460,8 @@ int main(int argc, char **argv)
 	NR_UE_DLSCH_t *dlsch0_ue = &dlsch_ue[0];
   NR_DL_UE_HARQ_t *harq_process = &UE->dl_harq_processes[0][harq_pid];
   harq_process->first_rx = 1;
+  harq_process->activated_frame = proc.frame_rx;
+  harq_process->activated_slot = proc.nr_slot_rx;
   fapi_nr_dl_config_dlsch_pdu_rel15_t dlsch_config;
   dlsch_config.cw_info[0].mcs = Imcs;
   dlsch_config.mcs_table = mcs_table;
