@@ -556,6 +556,13 @@ uint16_t get_t2(uint16_t pool_id,
 
 uint16_t time_to_slots(uint8_t mu, uint16_t time);
 
+/* TS 38.331 ASN.1 enum -> physical-unit conversions.
+ * These are the canonical functions for reading sidelink config fields;
+ * use them at every MAC/RRC boundary so the rest of the stack sees ms. */
+uint16_t nr_sl_sensing_window_to_ms(long idx);  /* {ms100=0, ms1100=1} */
+uint16_t nr_sl_sw_to_ms(long idx);              /* {n1=0, n5=1, n10=2, n20=3} */
+uint16_t nr_sl_rrp_to_ms(const NR_SL_ResourceReservePeriod_r16_t *p);
+
 uint8_t get_tproc0(sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id);
 
 void remove_old_sensing_data(frameslot_t *frame_slot,
@@ -582,7 +589,7 @@ List_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,
                                     uint16_t t2,
                                     uint8_t psfch_period);
 
-bool is_sl_slot(NR_UE_MAC_INST_t *mac, BIT_STRING_t *phy_sl_bitmap, uint16_t phy_map_sz, uint64_t abs_slot);
+bool is_sl_slot(NR_UE_MAC_INST_t *mac, BIT_STRING_t *phy_sl_bitmap, size_t phy_map_sz, uint64_t abs_slot);
 
 void validate_selected_sl_slot(bool tx, bool rx, NR_TDD_UL_DL_ConfigCommon_t *conf, frameslot_t frame_slot);
 

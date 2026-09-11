@@ -1305,6 +1305,46 @@ uint16_t time_to_slots(uint8_t mu, uint16_t time) {
   return time_in_slots;
 }
 
+/* TS 38.331: sl_SensingWindow_r16 enum {ms100=0, ms1100=1} -> ms */
+uint16_t nr_sl_sensing_window_to_ms(long idx)
+{
+  static const uint16_t tbl[] = {100, 1100};
+  AssertFatal(idx == 0 || idx == 1,
+              "Invalid sl-SensingWindow enum %ld (0=ms100, 1=ms1100)\n", idx);
+  return tbl[idx];
+}
+
+/* TS 38.331: sl_SelectionWindow_r16 enum {n1=0, n5=1, n10=2, n20=3} -> ms */
+uint16_t nr_sl_sw_to_ms(long idx)
+{
+  static const uint16_t tbl[] = {1, 5, 10, 20};
+  AssertFatal(idx >= 0 && idx <= 3,
+              "Invalid sl-SelectionWindow enum %ld (0=n1, 1=n5, 2=n10, 3=n20)\n", idx);
+  return tbl[idx];
+}
+
+/* TS 38.331: sl-ResourceReservePeriod-r16 -> ms.
+ * period1 enum {ms0=0, ms100=1, ..., ms1000=10}.
+ * period2 INTEGER (1..99): the value is the reservation period in ms.
+ * Returns 0 for absent or ms0 (non-periodic). */
+uint16_t nr_sl_rrp_to_ms(const NR_SL_ResourceReservePeriod_r16_t *p)
+{
+  if (!p || p->present == NR_SL_ResourceReservePeriod_r16_PR_NOTHING)
+    return 0;
+  if (p->present == NR_SL_ResourceReservePeriod_r16_PR_sl_ResourceReservePeriod1_r16) {
+    static const uint16_t tbl[] = {0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000};
+    long idx = p->choice.sl_ResourceReservePeriod1_r16;
+    AssertFatal(idx >= 0 && idx <= 10,
+                "Invalid sl-ResourceReservePeriod1 enum %ld (must be 0..10)\n", idx);
+    return tbl[idx];
+  }
+  /* period2: INTEGER (1..99), expressed directly in ms */
+  long val = p->choice.sl_ResourceReservePeriod2_r16;
+  AssertFatal(val >= 1 && val <= 99,
+              "Invalid sl-ResourceReservePeriod2 %ld (must be 1..99)\n", val);
+  return (uint16_t)val;
+}
+
 uint8_t get_tproc0(sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id) {
   return sl_mac->sl_TxPool[pool_id]->tproc0;
 }
