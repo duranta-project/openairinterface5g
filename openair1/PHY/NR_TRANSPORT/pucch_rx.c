@@ -1358,12 +1358,12 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
     uint64_t corr = 0;
     int cw_ML = 0;
     for (int cw = 0; cw < 1 << nb_bit; cw++) {
+      const simde__m256i *coeff = (simde__m256i *)&pucch2_lut[nb_bit - 3][cw].cw;
       uint64_t corr_tmp = 0;
       for (int symb = 0; symb < nb_symbols; symb++) {
         for (int group = 0; group < ngroup; group++) {
           // do complex correlation
           for (int aa = 0; aa < Prx; aa++) {
-            const simde__m256i *coeff = (simde__m256i *)&pucch2_lut[nb_bit - 3][cw].cw;
             const simde__m256i *rext = (simde__m256i *)r_ext[aa][symb];
             const simde__m256i *rext2 = (simde__m256i *)r_ext2[aa][symb];
             simde__m256i re = simde_mm256_madd_epi16(coeff[0], rext[group]);
@@ -1372,13 +1372,11 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
             simde__m256i im2 = simde_mm256_madd_epi16(coeff[1], rext2[group + 1]);
             re = simde_mm256_add_epi32(re, re2);
             im = simde_mm256_add_epi32(im, im2);
-            re = simde_mm256_hadd_epi32(re, re);
-            re = simde_mm256_hadd_epi32(re, re);
-            im = simde_mm256_hadd_epi32(im, im);
-            im = simde_mm256_hadd_epi32(im, im);
-            int32_t *re32 = (int32_t *)&re;
-            int32_t *im32 = (int32_t *)&im;
-            c64_t prod = (c64_t){re32[0] + re32[5], im32[0] + im32[5]};
+            // combine re/im into one register so both reductions share the same hadd chain
+            simde__m256i ri = simde_mm256_hadd_epi32(re, im);
+            ri = simde_mm256_hadd_epi32(ri, ri);
+            int32_t *v = (int32_t *)&ri;
+            c64_t prod = (c64_t){v[0] + v[4], v[1] + v[5]};
             csum(prod, prod, corr32[symb][group][aa]);
             corr_tmp += squaredMod(prod);
 #ifdef DEBUG_NR_PUCCH_RX
@@ -1408,9 +1406,7 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
     printf("slot %d PUCCH2 cw_ML %d, metric %d \n", slot, cw_ML, corr_dB);
 #endif
     decodedPayload[0] = (uint64_t)cw_ML;
-
   } else if (nb_bit >= 12) { // polar coded case
-
     simde__m128i llrs[pucch_pdu->prb_size * 2 * nb_symbols];
     // non-coherent LLR computation on groups of 4 REs (half-PRBs)
     uint64_t corr = 0;
