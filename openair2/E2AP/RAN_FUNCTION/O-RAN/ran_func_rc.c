@@ -1030,16 +1030,10 @@ sm_ag_if_ans_t write_subs_rc_sm(void const* src)
   return ans;
 }
 
-
-sm_ag_if_ans_t write_ctrl_rc_sm(void const* data)
+/* Radio Bearer Control, 7.6.2. Decodes and reports the requested QoS flow
+ * mapping; applying it is not implemented. */
+static void write_ctrl_radio_bearer(rc_ctrl_req_data_t const* ctrl)
 {
-  assert(data != NULL);
-//  assert(data->type == RAN_CONTROL_CTRL_V1_03 );
-
-  rc_ctrl_req_data_t const* ctrl = (rc_ctrl_req_data_t const*)data;
-
-  assert(ctrl->hdr.format == FORMAT_1_E2SM_RC_CTRL_HDR && "Indication Header Format received not valid");
-  assert(ctrl->msg.format == FORMAT_1_E2SM_RC_CTRL_MSG && "Indication Message Format received not valid");
   assert(ctrl->hdr.frmt_1.ctrl_act_id == 2 && "Currently only QoS flow mapping configuration supported");
 
   printf("QoS flow mapping configuration\n");
@@ -1075,13 +1069,23 @@ sm_ag_if_ans_t write_ctrl_rc_sm(void const* data)
   assert(dir == 0 || dir == 1);
 
   printf("qfi = %ld, dir %ld \n", qfi, dir);
+}
 
+sm_ag_if_ans_t write_ctrl_rc_sm(void const* data)
+{
+  assert(data != NULL);
+
+  rc_ctrl_req_data_t const* ctrl = (rc_ctrl_req_data_t const*)data;
+
+  assert(ctrl->hdr.format == FORMAT_1_E2SM_RC_CTRL_HDR && "Indication Header Format received not valid");
+  assert(ctrl->msg.format == FORMAT_1_E2SM_RC_CTRL_MSG && "Indication Message Format received not valid");
+
+  write_ctrl_radio_bearer(ctrl);
 
   sm_ag_if_ans_t ans = {.type = CTRL_OUTCOME_SM_AG_IF_ANS_V0};
   ans.ctrl_out.type = RAN_CTRL_V1_3_AGENT_IF_CTRL_ANS_V0;
   return ans;
 }
-
 
 bool read_rc_sm(void* data)
 {
