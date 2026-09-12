@@ -529,11 +529,19 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
     int scs = get_softmodem_params()->numerology;
     const int nr_slots_frame = nr_slots_per_frame[scs];
     NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
-    const int n_ul_slots_period = tdd ? tdd->nrofUplinkSlots + (tdd->nrofUplinkSymbols > 0 ? 1 : 0) : nr_slots_frame;
-    uint16_t num_subch = sl_get_num_subch(mac->sl_tx_res_pool);
-    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch = calloc(n_ul_slots_period * num_subch, sizeof(SL_sched_feedback_t));
-    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch->feedback_frame = -1;
-    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch->feedback_slot = -1;
+    /* sched_psfch stores feedback that this UE transmits for PSSCH received
+     * from the RX pool. */
+    uint16_t num_subch = sl_get_num_subch(mac->sl_rx_res_pool);
+    NR_SL_UE_sched_ctrl_t *sched_ctrl = &mac->sl_info.list[0]->UE_sched_ctrl;
+    /* Outgoing PSFCH is scheduled on the sidelink resource-pool time axis,
+     * not the cellular UL-slot axis.  Keep enough entries for one complete
+     * frame of received pool resources and initialize every entry as free. */
+    sched_ctrl->sched_psfch_size = nr_slots_frame * num_subch;
+    sched_ctrl->sched_psfch = calloc(sched_ctrl->sched_psfch_size, sizeof(*sched_ctrl->sched_psfch));
+    for (int i = 0; i < sched_ctrl->sched_psfch_size; i++) {
+      sched_ctrl->sched_psfch[i].feedback_frame = -1;
+      sched_ctrl->sched_psfch[i].feedback_slot = -1;
+    }
 
     int nr_slots_period = nr_slots_frame;
     int nr_ulstart_slot = 0;
@@ -713,11 +721,16 @@ void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
     const int nr_slots_frame = nr_slots_per_frame[scs];
     NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
 
-    const int n_ul_slots_period = tdd ? tdd->nrofUplinkSlots + (tdd->nrofUplinkSymbols > 0 ? 1 : 0) : nr_slots_frame;
-    uint16_t num_subch = sl_get_num_subch(mac->sl_tx_res_pool);
-    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch = calloc(n_ul_slots_period * num_subch, sizeof(SL_sched_feedback_t));
-    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch->feedback_frame = -1;
-    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch->feedback_slot = -1;
+    /* sched_psfch stores feedback that this UE transmits for PSSCH received
+     * from the RX pool. */
+    uint16_t num_subch = sl_get_num_subch(mac->sl_rx_res_pool);
+    NR_SL_UE_sched_ctrl_t *sched_ctrl = &mac->sl_info.list[0]->UE_sched_ctrl;
+    sched_ctrl->sched_psfch_size = nr_slots_frame * num_subch;
+    sched_ctrl->sched_psfch = calloc(sched_ctrl->sched_psfch_size, sizeof(*sched_ctrl->sched_psfch));
+    for (int i = 0; i < sched_ctrl->sched_psfch_size; i++) {
+      sched_ctrl->sched_psfch[i].feedback_frame = -1;
+      sched_ctrl->sched_psfch[i].feedback_slot = -1;
+    }
 
     LOG_I(MAC, "SIDELINK CONFIGs: tdd config period:%ld, mu:%ld, DLslots:%ld,ULslots:%ld Mixedslotsym DL:UL %ld:%ld\n",
                             sl_mac->sl_TDD_config->pattern1.dl_UL_TransmissionPeriodicity,sl_mac->sl_TDD_config->referenceSubcarrierSpacing,

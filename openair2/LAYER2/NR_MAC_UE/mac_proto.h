@@ -530,7 +530,6 @@ int get_feedback_frame_slot(NR_UE_MAC_INST_t *mac, NR_TDD_UL_DL_Pattern_t *tdd,
                             const int nr_slots_frame, uint16_t frame, uint16_t slot,
                             long psfch_period, int *psfch_frame, int *psfch_slot);
 
-int16_t get_feedback_slot(long psfch_period, uint16_t slot);
 
 int get_pssch_to_harq_feedback(uint8_t *pssch_to_harq_feedback,
                                uint8_t psfch_min_time_gap,
