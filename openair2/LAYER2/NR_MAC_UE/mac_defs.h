@@ -469,6 +469,13 @@ typedef struct NR_sched_pssch {
 
   /// UL HARQ PID to use for this UE, or -1 for "any new"
   int8_t sl_harq_pid;
+  uint16_t source_id;
+  uint16_t dest_id;
+  uint8_t cast_type;
+  bool harq_feedback;
+  uint8_t second_stage_sci_format;
+  uint16_t pssch_start_subchannel;
+  uint16_t pssch_num_subchannels;
   uint8_t nrOfLayers;
   //NR_pusch_dmrs_t dmrs_info;
 } NR_sched_pssch_t;
@@ -490,6 +497,16 @@ typedef struct {
   NR_sched_pssch_t sched_pssch;
 } NR_UE_sl_harq_t;
 
+typedef struct {
+  bool valid;
+  uint8_t sci_source_id;
+  uint16_t mac_source_id;
+  uint16_t sci_dest_id;
+  uint8_t mac_dest_id;
+  uint8_t ndi;
+  bool delivered;
+} NR_UE_sl_rx_harq_t;
+
 typedef struct SL_sched_feedback {
   int16_t feedback_slot;
   int16_t feedback_frame;
@@ -508,6 +525,12 @@ typedef struct SL_sched_feedback {
   uint16_t initial_cyclic_shift;
   uint8_t mcs;
   uint8_t bit_len_harq;
+  uint16_t source_id;
+  uint16_t dest_id;
+  uint8_t cast_type;
+  uint8_t second_stage_sci_format;
+  uint16_t pssch_start_subchannel;
+  uint16_t pssch_num_subchannels;
 } SL_sched_feedback_t;
 
 typedef struct {
@@ -519,6 +542,7 @@ typedef struct {
 
   // Used on PSFCH transmitter
   SL_sched_feedback_t *sched_psfch;
+  int sched_psfch_size;
 
   /// total amount of data awaiting for this UE
   uint32_t num_total_bytes;
@@ -528,8 +552,10 @@ typedef struct {
   //
   NR_bler_stats_t sl_bler_stats;
 
-  /// information about every UL HARQ process
+  /// information about every sidelink transmit HARQ process
   NR_UE_sl_harq_t sl_harq_processes[NR_MAX_HARQ_PROCESSES];
+  /// receiving sidelink HARQ state, indexed by the SCI sidelink process ID
+  NR_UE_sl_rx_harq_t sl_rx_harq_processes[NR_MAX_HARQ_PROCESSES];
   /// UL HARQ processes that are free
   NR_list_t available_sl_harq;
   /// UL HARQ processes that await feedback
@@ -868,6 +894,8 @@ typedef struct NR_UE_MAC_INST_s {
   uint64_t ulsch_slot_bitmap[3];
   List_t *sl_candidate_resources;
   uint16_t reselection_timer;
+  int sl_prev_rx_frame; ///< last RX frame scheduled (deduplication guard); initialized to -1
+  int sl_prev_rx_slot;  ///< last RX slot scheduled (deduplication guard); initialized to -1
 
   // PUCCH closed loop power control state
   int G_b_f_c;

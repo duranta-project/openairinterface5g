@@ -26,7 +26,8 @@ typedef enum sl_rx_pdu_type_enum {
   SL_NR_RX_PDU_TYPE_NONE,
   SL_NR_RX_PDU_TYPE_SSB,
   SL_NR_RX_PDU_TYPE_SLSCH,
-  SL_NR_RX_PDU_TYPE_SLSCH_PSFCH  
+  SL_NR_RX_PDU_TYPE_SLSCH_PSFCH,
+  SL_NR_RX_PDU_TYPE_PSFCH
 } sl_rx_pdu_type_enum_t;
 
 //Type of SL-RX CONFIG requests from MAC to PHY
@@ -36,6 +37,8 @@ typedef enum sl_nr_rx_config_type_enum {
   SL_NR_CONFIG_TYPE_RX_PSSCH_SCI,
   SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH,
   SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH,
+  SL_NR_CONFIG_TYPE_RX_PSFCH,
+  SL_NR_CONFIG_TYPE_RX_PSCCH_PSFCH,
   SL_NR_CONFIG_TYPE_RX_MAXIMUM
 } sl_nr_rx_config_type_enum_t;
 
@@ -44,6 +47,7 @@ typedef enum sl_nr_tx_config_type_enum {
   SL_NR_CONFIG_TYPE_TX_PSBCH = SL_NR_CONFIG_TYPE_RX_MAXIMUM + 1,
   SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH,
   SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH,
+  SL_NR_CONFIG_TYPE_TX_PSFCH,
   SL_NR_CONFIG_TYPE_TX_MAXIMUM
 } sl_nr_tx_config_type_enum_t;
 
@@ -88,18 +92,41 @@ typedef struct sl_nr_ssb_pdu {
 
 typedef struct sl_nr_slsch_pdu {
   uint8_t harq_pid;
+  uint8_t ndi;
   uint8_t ack_nack;
+  uint16_t source_id;
+  uint16_t dest_id;
+  uint8_t cast_type;
+  bool harq_feedback;
+  uint8_t second_stage_sci_format;
+  uint16_t pssch_start_subchannel;
+  uint16_t pssch_num_subchannels;
   uint8_t *ack_nack_rcvd;
   uint8_t  num_acks_rcvd;
   uint32_t pdu_length;
   uint8_t* pdu;
 } sl_nr_slsch_pdu_t;
 
+/* A PSFCH resource is configured for one peer and one pending sidelink HARQ
+ * process.  Keep that identity with the decoded bit so standalone PSFCH RX
+ * does not depend on a simultaneous SLSCH PDU to recover the source ID. */
+typedef struct sl_nr_psfch_result {
+  uint16_t peer_id;
+  uint8_t harq_pid;
+  int8_t ack_nack;
+} sl_nr_psfch_result_t;
+
+typedef struct sl_nr_psfch_pdu {
+  uint16_t num_results;
+  sl_nr_psfch_result_t *results;
+} sl_nr_psfch_pdu_t;
+
 typedef struct {
   sl_rx_pdu_type_enum_t pdu_type;
   union {
     sl_nr_ssb_pdu_t ssb_pdu;
     sl_nr_slsch_pdu_t rx_slsch_pdu;
+    sl_nr_psfch_pdu_t rx_psfch_pdu;
   };
 } sl_nr_rx_indication_body_t;
 
@@ -201,9 +228,20 @@ typedef struct sl_nr_rx_config_pssch_pdu {
  //REdundancy version to be used for transmission
   uint8_t rv_index;
   uint8_t ndi;
+  // Sidelink identification information from the decoded second-stage SCI.
+  uint8_t source_id;
+  uint16_t dest_id;
+  uint8_t cast_type;
+  bool harq_feedback;
+  uint8_t second_stage_sci_format;
+  uint16_t pssch_start_subchannel;
+  uint16_t pssch_num_subchannels;
 } sl_nr_rx_config_pssch_pdu_t;
 
 typedef struct sl_nr_tx_rx_config_psfch_pdu {
+  /* MAC-only correlation fields; PHY copies them into the RX indication. */
+  uint16_t peer_id;
+  uint8_t harq_pid;
   //  These fields can be mapped directly to the same fields in nfapi_nr_ul_config_pucch_pdu
   uint8_t freq_hop_flag;
   uint8_t group_hop_flag;

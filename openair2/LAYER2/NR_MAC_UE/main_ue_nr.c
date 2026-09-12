@@ -42,6 +42,8 @@ void nr_ue_init_mac_sl(NR_UE_MAC_INST_t *mac)
   init_list(&mac->sl_sensing_data, sizeof(sensing_data_t), 1);
   init_list(&mac->sl_transmit_history, sizeof(frameslot_t), 1);
   mac->sl_candidate_resources = NULL;
+  mac->sl_prev_rx_frame = -1;
+  mac->sl_prev_rx_slot = -1;
 
   // Assuming only 2 UEs in the system: the SyncRef UE (sync_ref != 0) and the
   // Nearby UE (sync_ref == 0). They must use distinct source IDs, otherwise the

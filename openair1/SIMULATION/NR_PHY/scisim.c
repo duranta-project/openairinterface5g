@@ -69,7 +69,8 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
                         const UE_nr_rxtx_proc_t *proc,
                         nr_phy_data_t *phy_data,
                         int8_t *ack_nack_rcvd,
-                        int num_acks);
+                        int num_acks,
+                        const sl_nr_psfch_pdu_t *rx_psfch);
 
 //////////////////// link stubs (as in psbchsim.c) ////////////////////
 void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req) { abort(); }
@@ -432,7 +433,7 @@ int main(int argc, char **argv)
 
   nr_rx_pssch(UE_RX, &proc, &phy_data_rx, rxFSz, rxdataF, llrs, 0, frame, slot, harq_pid);
 
-  int nbDecode = nr_slsch_procedures(UE_RX, frame, slot, 0, &proc, &phy_data_rx, NULL, 0);
+  int nbDecode = nr_slsch_procedures(UE_RX, frame, slot, 0, &proc, &phy_data_rx, NULL, 0, NULL);
 
   uint8_t *b_rx = UE_RX->slsch[0].harq_process->b;
   int tb_match = (memcmp(b_rx, tb_ref, tb_size) == 0);
@@ -522,10 +523,36 @@ int main(int argc, char **argv)
   int pscch_pass = sci1_match;
   printf("[SCISIM] ===== PSCCH/SCI-1A %s =====\n", pscch_pass ? "PASS" : "FAIL");
 
+  // =====================================================================
+  //  STAGE 3: PSFCH ACK/NACK/DTX (perfect frequency-domain loopback)
+  // =====================================================================
+  sl_nr_tx_rx_config_psfch_pdu_t psfch = {.start_symbol_index = 12,
+                                           .hopping_id = 1,
+                                           .prb = 0,
+                                           .sl_bwp_start = 0,
+                                           .initial_cyclic_shift = 3,
+                                           .nr_of_symbols = 1,
+                                           .bit_len_harq = 1};
+  int8_t psfch_decoded[2];
+  const uint8_t psfch_mcs[2] = {6, 0}; // ACK then NACK
+  for (int i = 0; i < 2; i++) {
+    memset(txdataF_buf, 0, sizeof(txdataF_buf));
+    memset(rxdataF, 0, sizeof(rxdataF));
+    psfch.mcs = psfch_mcs[i];
+    nr_generate_psfch0(UE_TX, txdataF, fp_sl, AMP, slot, &psfch);
+    memcpy(rxdataF[0], txdataF[0], samplesF_per_slot * sizeof(c16_t));
+    psfch_decoded[i] = nr_ue_decode_psfch0(UE_RX, frame, slot, rxdataF, &psfch);
+  }
+  memset(rxdataF, 0, sizeof(rxdataF));
+  int8_t psfch_dtx = nr_ue_decode_psfch0(UE_RX, frame, slot, rxdataF, &psfch);
+  int psfch_pass = psfch_decoded[0] == 0 && psfch_decoded[1] == 1 && psfch_dtx < 0;
+  printf("[SCISIM] PSFCH: ACK=%d NACK=%d DTX=%d\n", psfch_decoded[0], psfch_decoded[1], psfch_dtx);
+  printf("[SCISIM] ===== PSFCH ACK/NACK/DTX %s =====\n", psfch_pass ? "PASS" : "FAIL");
+
   // ------------------------------- summary -----------------------------
-  printf("[SCISIM] SUMMARY: PSSCH/SLSCH=%s  PSCCH/SCI-1A=%s\n",
-         pssch_pass ? "PASS" : "FAIL", pscch_pass ? "PASS" : "FAIL");
+  printf("[SCISIM] SUMMARY: PSSCH/SLSCH=%s  PSCCH/SCI-1A=%s  PSFCH=%s\n",
+         pssch_pass ? "PASS" : "FAIL", pscch_pass ? "PASS" : "FAIL", psfch_pass ? "PASS" : "FAIL");
 
   free(tb_ref);
-  return (pssch_pass && pscch_pass) ? 0 : 1;
+  return (pssch_pass && pscch_pass && psfch_pass) ? 0 : 1;
 }
