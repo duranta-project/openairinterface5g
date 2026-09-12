@@ -7,6 +7,24 @@
 
 #include <stdint.h>
 
+/// Mother code extent N, LBRM soft buffer limit Ncb and RV start k0 of a code segment (38.212 5.4.2.1)
+typedef struct {
+  uint32_t N;
+  uint32_t Ncb;
+  uint32_t k0;
+} nr_ldpc_geometry_t;
+
+/* static inline because the rate matching sources link only into the dlopen'd LDPC modules, while the
+ * DLSCH receive path needs the same geometry. Tbslbrm is in bits, despite the FAPI field name. */
+static inline nr_ldpc_geometry_t nr_ldpc_soft_buffer_geometry(uint32_t Tbslbrm, uint8_t BG, uint16_t Z, uint8_t C, uint8_t rvidx)
+{
+  static const uint8_t index_k0[2][4] = {{0, 17, 33, 56}, {0, 13, 25, 43}}; // 38.212 table 5.4.2.1-2, in units of Zc
+  const uint32_t N = (BG == 1) ? 66 * Z : 50 * Z;
+  const uint32_t Nref = (Tbslbrm && C) ? 3 * Tbslbrm / (2 * C) : N; // R_LBRM = 2/3
+  const uint32_t Ncb = Nref < N ? Nref : N;
+  return (nr_ldpc_geometry_t){.N = N, .Ncb = Ncb, .k0 = (index_k0[BG - 1][rvidx & 3] * Ncb / N) * Z};
+}
+
 /**
  * \brief interleave a code segment after encoding and rate matching
  * \param E size of the code segment in bits
