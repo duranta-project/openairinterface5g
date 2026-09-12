@@ -469,11 +469,8 @@ static void dl_symbol_process(ORU_t *oru, int frame, int slot, int symbol, c16_t
   for (int aatx = 0; aatx < ru->nb_tx; aatx++) {
     // Phase compensation
     rotate_cpx_vector(txDataF[aatx], *rotation, txDataF[aatx], fp->N_RB_DL * NR_NB_SC_PER_RB, 15);
-    // FFT Shift
-    const int num_samp_half = fp->N_RB_DL * NR_NB_SC_PER_RB / 2;
-    const int first_carrier_offset = fp->ofdm_symbol_size - num_samp_half;
-    memcpy(txdataF_shifted + first_carrier_offset, txDataF[aatx], num_samp_half * sizeof(c16_t));
-    memcpy(txdataF_shifted, txDataF[aatx] + num_samp_half, num_samp_half * sizeof(c16_t));
+    // Inverse FFT shift: contiguous PRB format received from the DU -> layout expected by the IDFT
+    fftshift_inverse(txDataF[aatx], txdataF_shifted, fp->N_RB_DL * NR_NB_SC_PER_RB, fp->ofdm_symbol_size);
     fft_and_cp_insertion(ru->nr_frame_parms,
                          txdataF_shifted,
                          (c16_t *)&ru->common.txdata[aatx][slot_offset + symbol_offset],
@@ -697,27 +694,20 @@ static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t 
   c16_t rxdataF_fft[fp->ofdm_symbol_size] __attribute__((aligned(32)));
   nr_symbol_fep_ul(fp, (c16_t *)ru->common.rxdata[aarx], rxdataF_fft, symbol, slot, ru->N_TA_offset);
 
-  // Phase decompensation (conjugate rotation for UL)
-  apply_nr_rotation_symbol_RX(fp->symbols_per_slot,
-                              fp->slots_per_subframe,
-                              fp->timeshift_symbol_rotation,
-                              fp->first_carrier_offset,
-                              rxdataF_fft,
-                              fp->symbol_rotation[link_type_ul],
-                              fp->N_RB_UL,
-                              slot,
-                              symbol);
+  // FFT shift: IDFT output layout -> contiguous PRB format sent to the DU
+  const int nbins = fp->N_RB_UL * NR_NB_SC_PER_RB;
+  c16_t rxdataF[nbins] __attribute__((aligned(32)));
+  fftshift(rxdataF_fft, rxdataF, nbins, fp->ofdm_symbol_size);
 
-  // Inverse FFT shift: split format → contiguous PRB format sent to DU.
-  // DL TX shift:   contiguous[0..N/2-1]   → FFT_input[first_carrier_offset..]  (negative freqs)
-  //                contiguous[N/2..N-1]   → FFT_input[0..N/2-1]               (positive freqs)
-  // UL RX inverse: FFT_out[first_carrier_offset..] → contiguous[0..N/2-1]
-  //                FFT_out[0..N/2-1]              → contiguous[N/2..N-1]
-  const int num_samp_half = fp->N_RB_UL * NR_NB_SC_PER_RB / 2;
-  const int first_carrier_offset = fp->ofdm_symbol_size - num_samp_half;
-  c16_t rxdataF[fp->N_RB_UL * NR_NB_SC_PER_RB];
-  memcpy(rxdataF, rxdataF_fft + first_carrier_offset, num_samp_half * sizeof(c16_t));
-  memcpy(rxdataF + num_samp_half, rxdataF_fft, num_samp_half * sizeof(c16_t));
+  // Phase decompensation (conjugate rotation for UL)
+  apply_nr_rotation_symbol_fftshifted_RX(fp->symbols_per_slot,
+                                         fp->slots_per_subframe,
+                                         fp->timeshift_symbol_rotation,
+                                         rxdataF,
+                                         fp->symbol_rotation[link_type_ul],
+                                         fp->N_RB_UL,
+                                         slot,
+                                         symbol);
 
   oru_fh_rx_send_pusch(oru->fronthaul, (uint32_t *)rxdataF, symbol, job);
 

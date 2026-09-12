@@ -280,24 +280,14 @@ class IQSlotHeatmap {
     scope_data = scope_data_;
     label = label_;
   };
-  // Read in the data from the sink and transform it for the use by the scope
-  void ReadData(float time, int ofdm_symbol_size, int num_symbols, int first_carrier_offset, int num_rb)
+  /* The frequency domain buffers are FFT shifted: the first negative frequency of the
+     carrier is at index 0 and the REs of the whole carrier are contiguous. */
+  void ReadData(float time, int ofdm_symbol_size, int num_symbols, int num_rb)
   {
     auto num_sc = num_rb * NR_NB_SC_PER_RB;
     if (!frozen || next) {
       if (scope_data->is_data_ready) {
         iq_procedure_timer.Add(scope_data->data.time_taken_in_ns);
-        uint16_t first_sc = first_carrier_offset;
-        uint16_t last_sc = first_sc + num_rb * NR_NB_SC_PER_RB;
-        bool wrapped = false;
-        uint16_t wrapped_first_sc = 0;
-        uint16_t wrapped_last_sc = 0;
-        if (last_sc >= ofdm_symbol_size) {
-          last_sc = ofdm_symbol_size - 1;
-          wrapped = true;
-          auto num_sc_left = num_sc - (last_sc - first_sc + 1);
-          wrapped_last_sc = wrapped_first_sc + num_sc_left - 1;
-        }
         timestamp = time;
         scopeGraphData_t *iq_header = scope_data->data.scope_graph_data;
         len = iq_header->lineSz;
@@ -305,18 +295,9 @@ class IQSlotHeatmap {
 
         power.reserve(num_sc * num_symbols);
         for (auto symbol = 0; symbol < num_symbols; symbol++) {
-          int subcarrier = 0;
-          for (auto sc = first_sc; sc <= last_sc; sc++) {
+          for (auto sc = 0; sc < num_sc; sc++) {
             auto source_index = sc + symbol * ofdm_symbol_size;
-            power[subcarrier * num_symbols + symbol] = std::pow(source[source_index].r, 2) + std::pow(source[source_index].i, 2);
-            subcarrier++;
-          }
-          if (wrapped) {
-            for (auto sc = wrapped_first_sc; sc <= wrapped_last_sc; sc++) {
-              auto source_index = sc + symbol * ofdm_symbol_size;
-              power[subcarrier * num_symbols + symbol] = std::pow(source[source_index].r, 2) + std::pow(source[source_index].i, 2);
-              subcarrier++;
-            }
+            power[sc * num_symbols + symbol] = std::pow(source[source_index].r, 2) + std::pow(source[source_index].i, 2);
           }
         }
         max = *std::max_element(power.begin(), power.end());
@@ -327,9 +308,9 @@ class IQSlotHeatmap {
       }
     }
   }
-  void Draw(float time, int ofdm_symbol_size, int num_symbols, int first_carrier_offset, int num_rb)
+  void Draw(float time, int ofdm_symbol_size, int num_symbols, int num_rb)
   {
-    ReadData(time, ofdm_symbol_size, num_symbols, first_carrier_offset, num_rb);
+    ReadData(time, ofdm_symbol_size, num_symbols, num_rb);
     ImGui::BeginGroup();
     if (ImGui::Button(frozen ? "Unfreeze" : "Freeze")) {
       frozen = !frozen;
@@ -550,7 +531,6 @@ void ShowUeScope(void *data_void_ptr, float t)
   //   common_rx_iq_heatmap->Draw(t,
   //                              ue->frame_parms.ofdm_symbol_size,
   //                              ue->frame_parms.symbols_per_slot,
-  //                              ue->frame_parms.first_carrier_offset,
   //                              ue->frame_parms.N_RB_DL);
   // }
   // ImGui::End();
@@ -565,7 +545,6 @@ void ShowGnbScope(void *data_void_ptr, float t)
   //   gnb_heatmap->Draw(t,
   //                     gNB->frame_parms.ofdm_symbol_size,
   //                     gNB->frame_parms.symbols_per_slot,
-  //                     gNB->frame_parms.first_carrier_offset,
   //                     gNB->frame_parms.N_RB_UL);
   //   ImGui::TreePop();
   // }

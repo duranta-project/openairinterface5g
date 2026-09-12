@@ -87,7 +87,7 @@ void sl_map_pss_or_sss(c16_t *txF,
 
   // RE Mapping of SL-PSS, SL-SSS
   for (int l = startsym; l < (startsym + SL_NR_NUM_PSS_OR_SSS_SYMBOLS); l++) {
-    int k = re_offset % symbol_size;
+    int k = re_offset;
     int index = 0, offset = 0;
 
     for (int m = 0; m < SL_NR_NUM_PSBCH_RE_IN_ONE_SYMBOL; m++) {
@@ -116,7 +116,7 @@ void sl_map_pss_or_sss(c16_t *txF,
         index++;
       }
       txF[offset].i = 0;
-      k = (k + 1) % symbol_size;
+      k++;
     }
   }
 }
@@ -228,7 +228,7 @@ void sl_generate_and_map_psbch(c16_t *txF,
 #endif
 
   for (int l = 0; l < numsym;) {
-    int k = re_offset % symbol_size;
+    int k = re_offset;
     int symbol_offset = l * symbol_size;
     int offset = 0;
 
@@ -273,7 +273,7 @@ void sl_generate_and_map_psbch(c16_t *txF,
         index++;
       }
 
-      k = (k + 1) % symbol_size;
+      k++;
     }
 
     LOG_D(PHY,
@@ -318,7 +318,7 @@ void nr_tx_psbch(PHY_VARS_NR_UE *UE, uint32_t frame_tx, uint32_t slot_tx, sl_nr_
   int16_t *sl_pss = &sl_ue_phy_params->init_params.sl_pss[slss_id / 336][0];
   int16_t *sl_sss = &sl_ue_phy_params->init_params.sl_sss[slss_id][0];
 
-  uint16_t re_offset = sl_fp->first_carrier_offset + sl_fp->ssb_start_subcarrier;
+  uint16_t re_offset = sl_fp->ssb_start_subcarrier;
   uint16_t symbol_size = sl_fp->ofdm_symbol_size;
   // TBD: Need to be replaced by function which calculates scaling factor based on psbch tx power
   uint16_t scaling_factor = AMP;

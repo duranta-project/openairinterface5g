@@ -53,7 +53,6 @@ typedef struct {
   uint start_rb;
   uint num_rb;
   uint N_RB;
-  uint first_carrier_offset;
   uint ofdm_symbol_size;
   uint symbols_per_slot;
   uint nid;

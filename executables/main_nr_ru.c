@@ -196,7 +196,11 @@ int main(int argc, char **argv)
   NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
   nr_dump_frame_parms(fp);
   init_symbol_rotation(fp);
-  init_timeshift_rotation(fp->ofdm_symbol_size, fp->nb_prefix_samples, fp->ofdm_offset_divisor, fp->timeshift_symbol_rotation);
+  init_timeshift_rotation(fp->ofdm_symbol_size,
+                          fp->N_RB_UL * NR_NB_SC_PER_RB,
+                          fp->nb_prefix_samples,
+                          fp->ofdm_offset_divisor,
+                          fp->timeshift_symbol_rotation);
   ru->if_south = LOCAL_RF;
   nr_phy_init_RU(oru.ru);
   fill_rf_config(ru, ru->rf_config_file);
