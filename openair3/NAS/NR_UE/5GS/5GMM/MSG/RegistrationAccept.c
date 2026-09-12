@@ -48,17 +48,29 @@ static int encode_fgs_registration_result(byte_array_t buffer, const registratio
 
 /**
  * @brief Allowed NSSAI from Registration Accept according to 3GPP TS 24.501 Table 8.2.7.1.1
+ *
+ * @param content value part of the S-NSSAI IE, bounded by the caller
+ * @return number of octets decoded, or -1 on failure
  */
-static int decode_nssai_ie(nr_nas_msg_snssai_t *nssai, uint8_t *num_slices, uint8_t *buf)
+static int decode_nssai_ie(nr_nas_msg_snssai_t *nssai, uint8_t *num_slices, const byte_array_t content)
 {
-  const int length = *buf; // Length of S-NSSAI IE contents (list of S-NSSAIs)
-  const uint32_t decoded = length + 1; // Length IE (1 octet)
-  buf++;
+  const uint8_t *buf = content.buf;
+  const uint8_t *end = buf + content.len;
   int nssai_cnt = 0;
-  const uint8_t *end = buf + length;
   while (buf < end) {
-    nr_nas_msg_snssai_t *item = nssai + nssai_cnt;
     const int item_len = *buf++; // Length of S-NSSAI IE item
+
+    // The cases below read item_len octets, so the list must hold them
+    if (item_len > end - buf) {
+      PRINT_ERROR("S-NSSAI item claims %d octets, %td left\n", item_len, end - buf);
+      return -1;
+    }
+    if (nssai_cnt == NAS_MAX_NUMBER_SLICES) {
+      PRINT_ERROR("More than %d S-NSSAIs in list\n", NAS_MAX_NUMBER_SLICES);
+      return -1;
+    }
+
+    nr_nas_msg_snssai_t *item = nssai + nssai_cnt;
     switch (item_len) {
       case 1:
         item->sst = *buf++;
@@ -104,12 +116,35 @@ static int decode_nssai_ie(nr_nas_msg_snssai_t *nssai, uint8_t *num_slices, uint
         break;
 
       default:
-        PRINT_ERROR("Unknown length in Allowed S-NSSAI list item\n");
-        break;
+        PRINT_ERROR("Unknown length %d in Allowed S-NSSAI list item\n", item_len);
+        return -1;
     }
   }
   *num_slices = nssai_cnt;
-  return decoded;
+  return content.len;
+}
+
+/** @brief IEs with a two-octet length field (TLV-E) in Registration Accept, TS 24.501 Table 8.2.7.1.1 */
+static bool is_tlv_e_iei(uint8_t iei)
+{
+  switch (iei) {
+    case 0x70: // NSSRG information
+    case 0x72: // PDU session reactivation result error cause
+    case 0x73: // SOR transparent container
+    case 0x74: // Ciphering key data
+    case 0x75: // CAG information list
+    case 0x76: // Operator-defined access category definitions
+    case IEI_5G_GUTI: // 0x77
+    case 0x78: // EAP message
+    case 0x79: // LADN information
+    case 0x7A: // Extended emergency number list
+    case 0x7B: // Service-level-AA container
+    case 0x7C: // Extended CAG information list
+    case 0x7D: // NSAG information
+      return true;
+    default:
+      return false;
+  }
 }
 
 size_t decode_registration_accept(registration_accept_msg *registration_accept, const byte_array_t buffer)
@@ -139,26 +174,45 @@ size_t decode_registration_accept(registration_accept_msg *registration_accept, 
 
   // Decode other Optional IEs
   while (ba.len > 0) {
-    uint8_t iei = ba.buf[0];
+    const uint8_t iei = ba.buf[0];
     UPDATE_BYTE_ARRAY(ba, 1);
+
+    // Type 1/2 (TS 24.007 11.2.4): IEI in bits 8-5, one octet, no length
+    if (iei & 0x80)
+      continue;
+
+    /* Type 4 (TLV) and type 6 (TLV-E) have a one- and two-octet length field
+       respectively. Bound the IE before decoding it: ba.len is a size_t, so an
+       overshooting UPDATE_BYTE_ARRAY() would wrap it, not make it negative. */
+    const size_t len_size = is_tlv_e_iei(iei) ? 2 : 1;
+    if (ba.len < len_size) {
+      PRINT_ERROR("Registration Accept: IEI 0x%02x has a truncated length field\n", iei);
+      return -1;
+    }
+    const size_t content_len = (len_size == 2) ? ((ba.buf[0] << 8) | ba.buf[1]) : ba.buf[0];
+    if (content_len > ba.len - len_size) {
+      PRINT_ERROR("Registration Accept: IEI 0x%02x claims %zu octets, %zu left\n", iei, content_len, ba.len - len_size);
+      return -1;
+    }
+    const byte_array_t content = {.len = content_len, .buf = ba.buf + len_size};
 
     switch (iei) {
 
       case 0x15: // allowed NSSAI
-        dec = decode_nssai_ie(registration_accept->nas_allowed_nssai, &registration_accept->num_allowed_slices, ba.buf);
-        UPDATE_BYTE_ARRAY(ba, dec);
+        if (decode_nssai_ie(registration_accept->nas_allowed_nssai, &registration_accept->num_allowed_slices, content) < 0)
+          return -1;
         break;
 
       case 0x31: // configured NSSAI
-        dec = decode_nssai_ie(registration_accept->config_nssai, &registration_accept->num_configured_slices, ba.buf);
-        UPDATE_BYTE_ARRAY(ba, dec);
+        if (decode_nssai_ie(registration_accept->config_nssai, &registration_accept->num_configured_slices, content) < 0)
+          return -1;
         break;
 
-      default:
-        dec = ba.buf[0] + 1; // content length + 1 byte (Length IE)
-        UPDATE_BYTE_ARRAY(ba, dec);
+      default: // not decoded, and skipped whole by the length above
         break;
     }
+
+    UPDATE_BYTE_ARRAY(ba, len_size + content_len);
   }
   if(ba.len != 0) {
     PRINT_ERROR("Failed to decode registration accept: ba.len = %ld\n", ba.len);
