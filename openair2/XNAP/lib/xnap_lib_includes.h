@@ -49,5 +49,18 @@
 #include "XNAP_RANAreaID-List.h"
 #include "XNAP_RANAreaID.h"
 
+#include "XNAP_RetrieveUEContextRequest.h"
+#include "XNAP_UEContextID.h"
+#include "XNAP_UEContextIDforRRCResume.h"
+#include "XNAP_UEContextIDforRRCReestablishment.h"
+#include "XNAP_I-RNTI.h"
+#include "XNAP_NG-RAN-CellPCI.h"
+#include "XNAP_MAC-I.h"
+#include "XNAP_RetrieveUEContextResponse.h"
+#include "XNAP_UEContextInfoRetrUECtxtResp.h"
+#include "XNAP_AS-SecurityInformation.h"
+#include "XNAP_CPTransportLayerInformation.h"
+#include "XNAP_RetrieveUEContextFailure.h"
+
 #endif // XNAP_LIB_INCLUDES_H
 
