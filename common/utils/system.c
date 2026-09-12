@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <signal.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <string.h>
@@ -39,6 +40,11 @@ static int result_pipe_write;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 static int module_initialized = 0;
+
+static void background_system_signal_handler(int sig)
+{
+  (void)sig;
+}
 
 /********************************************************************/
 /* util functions                                                   */
@@ -177,6 +183,12 @@ void start_background_system(void) {
     close(result_pipe_write);
     close(command_pipe_read);
     return;
+  }
+
+  struct sigaction action = {.sa_handler = background_system_signal_handler, .sa_flags = SA_RESTART};
+  if (sigemptyset(&action.sa_mask) == -1 || sigaction(SIGINT, &action, NULL) == -1 || sigaction(SIGTERM, &action, NULL) == -1) {
+    perror("sigaction");
+    _exit(EXIT_FAILURE);
   }
 
   close(result_pipe_read);

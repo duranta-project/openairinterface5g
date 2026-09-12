@@ -40,6 +40,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 
 #include "UTIL/OPT/opt.h"
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
+#include "openair2/SDAP/nr_sdap/nr_sdap.h"
 
 #include "intertask_interface.h"
 
@@ -522,6 +523,11 @@ int main(int argc, char **argv)
     }
   }
 
+  ret = itti_terminate_and_join_task(TASK_RRC_NRUE, 0);
+  AssertFatal(ret == 0, "Could not terminate TASK_RRC_NRUE: %s\n", strerror(ret));
+  ret = itti_terminate_and_join_task(TASK_NAS_NRUE, 0);
+  AssertFatal(ret == 0, "Could not terminate TASK_NAS_NRUE: %s\n", strerror(ret));
+  nr_sdap_tun_cleanup_ipv4_routes();
   nrue_ru_end();
 
   free_nrLDPC_coding_interface(&nrLDPC_coding_interface);

@@ -50,6 +50,8 @@ typedef enum {
 int esm_ebr_context_create(esm_data_t *esm_data, int ueid, int pid, int ebi, bool is_default,
                            const network_qos_t *qos, const network_tft_t *tft);
 
+void esm_ebr_context_cleanup_ipv4_routes(esm_data_t *esm_data);
+
 int esm_ebr_context_release(nas_user_t *user, int ebi, int *pid, int *bid);
 
 int esm_ebr_context_get_pid(esm_data_t *esm_data, int ebi);

@@ -56,6 +56,18 @@ static int _esm_ebr_context_check_precedence(const network_tft_t *,
 /******************  E X P O R T E D    F U N C T I O N S  ******************/
 /****************************************************************************/
 
+static void cleanup_ipv4_route(esm_data_t *esm_data, int pid)
+{
+  if (esm_data->pdn[pid].ipv4_route_cleanup_pending && remove_ue_ipv4_route(0, pid))
+    esm_data->pdn[pid].ipv4_route_cleanup_pending = false;
+}
+
+void esm_ebr_context_cleanup_ipv4_routes(esm_data_t *esm_data)
+{
+  for (int pid = 0; pid < ESM_DATA_PDN_MAX; ++pid)
+    cleanup_ipv4_route(esm_data, pid);
+}
+
 /****************************************************************************
  **                                                                        **
  ** Name:    esm_ebr_context_create()                                  **
@@ -191,6 +203,7 @@ int esm_ebr_context_create(
               char ifname[IFNAMSIZ];
               tun_generate_ifname(ifname, ifn, 0);
               tun_config(ifname, ip, NULL);
+              esm_ctx->pdn[pid].ipv4_route_cleanup_pending = true;
               setup_ue_ipv4_route(ifname, 0, pid, ip);
             } break;
 
@@ -340,6 +353,8 @@ int esm_ebr_context_release(nas_user_t *user,
     esm_ctx->n_ebrs -= 1;
 
     if (*bid == 0) {
+      cleanup_ipv4_route(esm_ctx, *pid);
+
       /* 3GPP TS 24.301, section 6.4.4.3, 6.4.4.6
        * If the EPS bearer identity is that of the default bearer to a
        * PDN, the UE shall delete all EPS bearer contexts associated to

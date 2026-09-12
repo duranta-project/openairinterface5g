@@ -45,6 +45,7 @@ void create_ue_eth_if(int ue_id, int pdu_session_id, bool is_default);
 void nr_sdap_tun_attach(struct nr_sdap_entity_s *entity);
 void nr_sdap_tun_detach(struct nr_sdap_entity_s *entity);
 void nr_sdap_tun_destroy(ue_id_t ue_id, int pdusession_id);
+void nr_sdap_tun_cleanup_ipv4_routes(void);
 void nr_sdap_tun_store_qfi(ue_id_t ue_id, int pdusession_id, uint8_t qfi);
 
 #endif

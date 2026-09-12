@@ -2248,6 +2248,7 @@ void *nas_nrue(void *args_p)
         break;
 
       case TERMINATE_MESSAGE:
+        itti_free(ITTI_MSG_ORIGIN_ID(msg_p), msg_p);
         itti_exit_task();
         break;
 
