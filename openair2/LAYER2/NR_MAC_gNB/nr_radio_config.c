@@ -3630,10 +3630,11 @@ static NR_SpCellConfig_t *get_initial_SpCellConfig(int uid,
 
   asn1cCallocOne(configDedicated->firstActiveDownlinkBWP_Id, first_active_bwp);
   asn1cCallocOne(uplinkConfig->firstActiveUplinkBWP_Id, first_active_bwp);
-  if (first_active_bwp == 0) {
-    uplinkConfig->initialUplinkBWP = configure_initial_ul_bwp(scc, configuration, cell, maxMIMO_Layers, NULL, uid);
-    configDedicated->initialDownlinkBWP = configure_initial_dl_bwp(scc, bitmap, NULL, configuration);
-  } else {
+  uplinkConfig->initialUplinkBWP = configure_initial_ul_bwp(scc, configuration, cell, maxMIMO_Layers, NULL, uid);
+  configDedicated->initialDownlinkBWP = configure_initial_dl_bwp(scc, bitmap, NULL, configuration);
+  if (first_active_bwp != 0) {
+    // BWP0 (the initial BWP) also gets a real dedicated PDCCH config (ue-Specific search
+    // space, via configure_initial_dl/ul_bwp above) even though it isn't the first active BWP.
     configDedicated->downlinkBWP_ToAddModList = calloc(1, sizeof(*configDedicated->downlinkBWP_ToAddModList));
     NR_BWP_Downlink_t *bwp = config_downlinkBWP(scc, NULL, false, true, configuration);
     asn1cSeqAdd(&configDedicated->downlinkBWP_ToAddModList->list, bwp);
@@ -3994,16 +3995,17 @@ void update_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
   NR_BWP_UplinkDedicated_t *ul_bwp_Dedicated = NULL;
   int curr_bwp = 0;
   int bwp_id = 0;
-  if (uplinkConfig && uplinkConfig->initialUplinkBWP) {
-    ul_bwp_Dedicated = uplinkConfig->initialUplinkBWP;
-    curr_bwp = NRRIV2BW(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
-  } else if (uplinkConfig && uplinkConfig->uplinkBWP_ToAddModList) {
+  if (uplinkConfig && uplinkConfig->firstActiveUplinkBWP_Id && *uplinkConfig->firstActiveUplinkBWP_Id > 0
+      && uplinkConfig->uplinkBWP_ToAddModList) {
     struct NR_UplinkConfig__uplinkBWP_ToAddModList *UL_BWP_list = uplinkConfig->uplinkBWP_ToAddModList;
     AssertFatal(UL_BWP_list->list.count == 1, "We should only have 1 BWP configured at a given time\n");
     NR_BWP_Uplink_t *ul_bwp = UL_BWP_list->list.array[0];
     curr_bwp = NRRIV2BW(ul_bwp->bwp_Common->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
     ul_bwp_Dedicated = ul_bwp->bwp_Dedicated;
     bwp_id = ul_bwp->bwp_Id;
+  } else if (uplinkConfig && uplinkConfig->initialUplinkBWP) {
+    ul_bwp_Dedicated = uplinkConfig->initialUplinkBWP;
+    curr_bwp = NRRIV2BW(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
   }
   if (ul_bwp_Dedicated) {
     NR_PUSCH_Config_t *pusch_Config = ul_bwp_Dedicated->pusch_Config->choice.setup;
@@ -4028,15 +4030,16 @@ void update_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
   // Update DL BWP
   NR_BWP_DownlinkDedicated_t *bwp_Dedicated = NULL;
   int scs = -1;
-  if (spCellConfigDedicated->initialDownlinkBWP) {
-    bwp_Dedicated = spCellConfigDedicated->initialDownlinkBWP;
-    scs = scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.subcarrierSpacing;
-  } else if (spCellConfigDedicated->downlinkBWP_ToAddModList) {
+  if (spCellConfigDedicated->firstActiveDownlinkBWP_Id && *spCellConfigDedicated->firstActiveDownlinkBWP_Id > 0
+      && spCellConfigDedicated->downlinkBWP_ToAddModList) {
     struct NR_ServingCellConfig__downlinkBWP_ToAddModList *DL_BWP_list = spCellConfigDedicated->downlinkBWP_ToAddModList;
     AssertFatal(DL_BWP_list->list.count == 1, "We should only have 1 BWP configured at a given time\n");
     NR_BWP_Downlink_t *bwp = DL_BWP_list->list.array[0];
     bwp_Dedicated = bwp->bwp_Dedicated;
     scs = bwp->bwp_Common->genericParameters.subcarrierSpacing;
+  } else if (spCellConfigDedicated->initialDownlinkBWP) {
+    bwp_Dedicated = spCellConfigDedicated->initialDownlinkBWP;
+    scs = scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.subcarrierSpacing;
   }
   if (bwp_Dedicated) {
     set_dl_mcs_table(scs, configuration->force_256qam_off ? NULL : uecap, bwp_Dedicated, scc);

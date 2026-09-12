@@ -263,6 +263,8 @@ static void nr_rrc_cancel_f1_ho(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
   rrc->mac_rrc.ue_context_release_command(target_ctx->cell->assoc_id, &cmd);
 }
 
+static byte_array_t rrc_gNB_generate_HandoverPreparationInformation(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
+
 void nr_rrc_trigger_f1_ho(gNB_RRC_INST *rrc,
                           gNB_RRC_UE_t *ue,
                           const nr_rrc_cell_container_t *source_cell,
@@ -277,14 +279,24 @@ void nr_rrc_trigger_f1_ho(gNB_RRC_INST *rrc,
     LOG_W(NR_RRC, "UE %u: no DRB configured, cannot trigger handover\n", ue->rrc_ue_id);
     return;
   }
-  uint8_t buf[NR_RRC_BUF_SIZE];
-  int size = do_NR_HandoverPreparationInformation(ue->ue_cap_buffer.buf, ue->ue_cap_buffer.len, buf, sizeof buf);
 
   // Allocate handover context (both CU and DU)
   if (ue->ho_context != NULL) {
     LOG_E(NR_RRC, "Ongoing handover for UE %d, cannot trigger new\n", ue->rrc_ue_id);
     return;
   }
+
+  /* HandoverPreparationInformation including sourceConfig (AS-Config): the target
+   * DU needs the source CellGroupConfig to build a correct delta
+   * RRCReconfiguration (e.g. release the source's dedicated BWPs). Same encoder
+   * as the N2 handover path. */
+  byte_array_t hpi = rrc_gNB_generate_HandoverPreparationInformation(rrc, ue);
+  if (hpi.len <= 0) {
+    free_byte_array(hpi);
+    LOG_E(NR_RRC, "UE %u: failed to generate HandoverPreparationInformation for F1 handover\n", ue->rrc_ue_id);
+    return;
+  }
+
   ue->ho_context = alloc_ho_ctx(HO_CTX_BOTH);
   ue->ho_context->target->cell = target_cell;
 
@@ -292,13 +304,12 @@ void nr_rrc_trigger_f1_ho(gNB_RRC_INST *rrc,
   // see also 38.413 Sec 9.3.1.29 for information on source-CU to target-CU
   // information (Source NG-RAN Node to Target NG-RAN Node Transparent Container)
   // here: target Cell is preselected, target CU has access to UE information
-  // and therefore also the PDU sessions. Orig RRC reconfiguration should be in
-  // handover preparation information
+  // and therefore also the PDU sessions.
   ho_req_ack_t ack = nr_rrc_f1_ho_acknowledge;
   ho_success_t success = nr_rrc_f1_ho_complete;
   ho_cancel_t cancel = nr_rrc_cancel_f1_ho;
-  byte_array_t hpi = {.buf = buf, .len = size};
   nr_initiate_handover(rrc, ue, source_cell, &hpi, ack, success, cancel, NULL);
+  free_byte_array(hpi);
 }
 
 void nr_rrc_finalize_ho(gNB_RRC_UE_t *ue)
