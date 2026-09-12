@@ -356,11 +356,27 @@ int8_t nr_ue_decode_pucch0(PHY_VARS_NR_UE *ue,
   LOG_D(NR_PHY, "PUCCH 0 : maxpos %d\n", maxpos);
 #endif
   index = maxpos;
-  uint8_t ack_nack = !(index&0x01);
-  LOG_D(PHY,
-        "[PSFCH RX] %d.%d HARQ %s\n",
+  /* With no matching PSFCH sequence maxpos remains zero, which used to turn
+   * every DTX/resource mismatch into a NACK.  Require the selected sequence
+   * to exceed the runner-up by 3 dB in power before deciding ACK or NACK. */
+  if (xrtmag <= 0 || xrtmag / 2 <= xrtmag_next) {
+    LOG_A(PHY,
+          "[PSFCH RX] %d.%d DTX: best=%ld runner-up=%ld selected-sequence=%u\n",
         frame,
         slot,
-        ack_nack == 0 ? "ACK" : "NACK");
+          xrtmag,
+          xrtmag_next,
+          maxpos);
+    return -1;
+  }
+  uint8_t ack_nack = !(index&0x01);
+  LOG_A(PHY,
+        "[PSFCH RX] %d.%d HARQ %s: best=%ld runner-up=%ld selected-sequence=%u\n",
+        frame,
+        slot,
+        ack_nack == 0 ? "ACK" : "NACK",
+        xrtmag,
+        xrtmag_next,
+        maxpos);
   return ack_nack;
 }
