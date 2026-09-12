@@ -297,6 +297,7 @@ static void release_dedicated_bwp0_config(NR_UE_MAC_INST_t *mac)
 
 void release_mac_configuration(NR_UE_MAC_INST_t *mac, NR_UE_MAC_reset_cause_t cause)
 {
+  nr_ue_sl_mac_free(mac);
   NR_UE_ServingCell_Info_t *sc = &mac->sc_info;
   /* Partial release for normal no-redirection RRCRelease: RRC keeps the current cell selected for idle camping
    * (TS 38.304 §5.2.5), so keep SIB1/common BWP0/paging PDCCH and drop only connected-mode MAC config. */

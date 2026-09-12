@@ -675,7 +675,6 @@ void preprocess(NR_UE_MAC_INST_t *mac,
                 NR_SetupRelease_SL_PSFCH_Config_r16_t *configured_PSFCH,
                 long psfch_period)
 {
-  nr_store_slsch_buffer(mac, frame, slot);
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
   int scs = sl_mac->sl_phy_config.sl_config_req.sl_bwp_config.sl_scs;
   const int nr_slots_frame = mac->frame_structure.numb_slots_frame;
@@ -1414,6 +1413,43 @@ sl_resource_info_t* get_resource_element(List_t* resource_list, frameslot_t sfn)
   return NULL;
 }
 
+static bool has_current_or_future_candidate(const List_t *resource_list, frameslot_t now, uint8_t mu)
+{
+  const uint64_t now_abs = normalize(&now, mu);
+  const uint64_t cycle_slots = (uint64_t)nr_slots_per_frame[mu] * 1024;
+  for (int i = 0; i < resource_list->size; i++) {
+    const sl_resource_info_t *resource =
+        (const sl_resource_info_t *)((const char *)resource_list->data + i * resource_list->element_size);
+    frameslot_t resource_sfn = resource->sfn;
+    const uint64_t resource_abs = normalize(&resource_sfn, mu);
+    const uint64_t slots_ahead = (resource_abs + cycle_slots - now_abs) % cycle_slots;
+    /* Candidate windows are far shorter than half an SFN cycle.  The modular
+     * comparison therefore distinguishes a wrapped future candidate from an
+     * old candidate just behind the current slot. */
+    if (slots_ahead < cycle_slots / 2)
+      return true;
+  }
+  return false;
+}
+
+static void replace_candidate_resources(NR_UE_MAC_INST_t *mac, List_t *new_resources)
+{
+  if (mac->sl_candidate_resources != NULL) {
+    free_list_mem(mac->sl_candidate_resources);
+    free(mac->sl_candidate_resources);
+  }
+  mac->sl_candidate_resources = new_resources;
+}
+
+void nr_ue_sl_mac_free(NR_UE_MAC_INST_t *mac)
+{
+  /* Release all dynamically-allocated sidelink state so that the MAC instance
+   * can be safely freed or re-initialised without leaking memory. */
+  replace_candidate_resources(mac, NULL);
+  free_list_mem(&mac->sl_sensing_data);
+  free_list_mem(&mac->sl_transmit_history);
+}
+
 size_t dump_mac_stats_sl(NR_UE_MAC_INST_t *mac, char *output, size_t strlen, bool reset_rsrp)
 {
   const char *begin = output;
@@ -1634,29 +1670,50 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
 
   bool rx_allowed = true;
 
-  frameslot_t frame_slot;
-  frame_slot.frame = frame;
-  frame_slot.slot = slot;
+  /* TS 38.214 8.1.4 defines selection relative to the trigger slot n, while
+   * this worker prepares a later physical TX slot. Keep both time axes: the
+   * RX time anchors sensing/selection and the TX time identifies the resource
+   * that can actually be emitted by this invocation. */
+  frameslot_t selection_frame_slot = {.frame = sl_ind->frame_rx, .slot = sl_ind->slot_rx};
+  frameslot_t tx_frame_slot = {.frame = sl_ind->frame_tx, .slot = sl_ind->slot_tx};
 
-  sl_resource_info_t *resource = NULL;
-  if (mac->sl_candidate_resources && mac->sl_candidate_resources->size > 0 && sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX) {
-    LOG_D(NR_MAC, "%4d.%2d sl_candidate_resources %p size %ld, capacity %ld slot_type %d\n", frame, slot, mac->sl_candidate_resources, mac->sl_candidate_resources->size, mac->sl_candidate_resources->capacity, sl_ind->slot_type);
-    resource = get_resource_element(mac->sl_candidate_resources, frame_slot);
-    if (resource) {
-      LOG_D(NR_MAC, "SELECTED_RESOURCE %4d.%2d slot_type %d, num_sl_pscch_rbs %d, sl_max_num_per_reserve %d, sl_min_time_gap_psfch %d, sl_pscch_sym_start %d, \
-            sl_pscch_sym_len %d, sl_psfch_period %d, sl_pssch_sym_start %d, sl_pssch_sym_len %d, sl_subchan_len %d, sl_subchan_size %d\n",
-            resource->sfn.frame, resource->sfn.slot, sl_ind->slot_type,
-            resource->num_sl_pscch_rbs,
-            resource->sl_max_num_per_reserve,
-            resource->sl_min_time_gap_psfch,
-            resource->sl_pscch_sym_start,
-            resource->sl_pscch_sym_len,
-            resource->sl_psfch_period,
-            resource->sl_pssch_sym_start,
-            resource->sl_pssch_sym_len,
-            resource->sl_subchan_len,
-            resource->sl_subchan_size);
-    }
+  /* Refresh the RLC view before looking for a PSSCH resource. Polling only
+   * from preprocess() creates a circular dependency: preprocess() is entered
+   * only after a resource is found, while resource selection is triggered by
+   * the backlog exposed by this status update. */
+  if (sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX
+      || sl_ind->slot_type == SIDELINK_SLOT_TYPE_BOTH)
+    nr_store_slsch_buffer(mac, frame, slot);
+
+  bool backlog_pending = false;
+  SL_UE_iterator(mac->sl_info.list, UE) {
+    NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+    /* Include HARQs waiting for PSFCH feedback: their ACK will free a process
+     * and immediately allow a new TX.  Pre-selecting a resource window now
+     * prevents a 1-2 TX slot gap between ACK arrival and the next transmission. */
+    backlog_pending |= sched_ctrl->num_total_bytes > 0
+                       || sched_ctrl->retrans_sl_harq.len > 0
+                       || sched_ctrl->feedback_sl_harq.len > 0;
+  }
+  /* Track whether the main block refreshes the window this slot.  The
+   * c1/c4/c5/c7 proactive-reselection block must not issue a second
+   * get_candidate_resources() call on the same slot: it would orphan the
+   * freshly-computed window and overwrite mac->sl_candidate_resources with an
+   * identical (but separate) allocation, causing a memory leak and making the
+   * resource pointer obtained below dangle relative to the pointer stored in
+   * mac->sl_candidate_resources. */
+  bool window_refreshed_this_slot = false;
+  if (sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX && backlog_pending
+      && (!mac->sl_candidate_resources
+          || !has_current_or_future_candidate(mac->sl_candidate_resources, tx_frame_slot, mu))) {
+    LOG_D(NR_MAC,
+          "%4d.%2d SL queue pending with no usable candidate; refreshing the selection window\n",
+          frame,
+          slot);
+    List_t *new_resources =
+        get_candidate_resources(&selection_frame_slot, mac, &mac->sl_sensing_data, &mac->sl_transmit_history);
+    replace_candidate_resources(mac, new_resources);
+    window_refreshed_this_slot = true;
   }
 
   nr_sl_transmission_params_t *sl_tx_params = &sl_mac->mac_tx_params;
@@ -1673,16 +1730,50 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
       mac->reselection_timer++;
     } else if (sl_ind->slot_type == 2) {
       if (mac->reselection_timer < p_prime_rsvp_tx) {
-        mac->sl_candidate_resources = get_candidate_resources(&frame_slot, mac, &mac->sl_sensing_data, &mac->sl_transmit_history);
-        if (mac->sl_candidate_resources) {
-          LOG_D(NR_MAC, "%4d.%2d Returned resources %p\n", frame, slot, mac->sl_candidate_resources);
-          print_candidate_list(mac->sl_candidate_resources, __LINE__);
+        if (!window_refreshed_this_slot) {
+          /* Proactive reselection: refresh the window to potentially find better
+           * resources.  Skip if the main block just computed a fresh window on
+           * this same slot -- reusing it avoids a redundant allocation and keeps
+           * mac->sl_candidate_resources consistent with the resource pointer
+           * resolved below. */
+          List_t *new_resources =
+              get_candidate_resources(&selection_frame_slot, mac, &mac->sl_sensing_data, &mac->sl_transmit_history);
+          if (new_resources) {
+            replace_candidate_resources(mac, new_resources);
+            LOG_D(NR_MAC, "%4d.%2d Returned resources %p\n", frame, slot, mac->sl_candidate_resources);
+            print_candidate_list(mac->sl_candidate_resources, __LINE__);
+          }
         }
         is_rsrc_selected = true;
       } else {
         mac->reselection_timer = 0;
         is_rsrc_selected = false;
       }
+    }
+  }
+
+  /* Resolve the current resource only after every possible window refresh.
+   * This keeps the pointer within the live list when proactive reselection
+   * replaces the previous allocation. */
+  sl_resource_info_t *resource = NULL;
+  if (mac->sl_candidate_resources && mac->sl_candidate_resources->size > 0
+      && sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX) {
+    LOG_D(NR_MAC, "%4d.%2d sl_candidate_resources %p size %ld, capacity %ld slot_type %d\n", frame, slot, mac->sl_candidate_resources, mac->sl_candidate_resources->size, mac->sl_candidate_resources->capacity, sl_ind->slot_type);
+    resource = get_resource_element(mac->sl_candidate_resources, tx_frame_slot);
+    if (resource) {
+      LOG_D(NR_MAC, "SELECTED_RESOURCE %4d.%2d slot_type %d, num_sl_pscch_rbs %d, sl_max_num_per_reserve %d, sl_min_time_gap_psfch %d, sl_pscch_sym_start %d, \
+            sl_pscch_sym_len %d, sl_psfch_period %d, sl_pssch_sym_start %d, sl_pssch_sym_len %d, sl_subchan_len %d, sl_subchan_size %d\n",
+            resource->sfn.frame, resource->sfn.slot, sl_ind->slot_type,
+            resource->num_sl_pscch_rbs,
+            resource->sl_max_num_per_reserve,
+            resource->sl_min_time_gap_psfch,
+            resource->sl_pscch_sym_start,
+            resource->sl_pscch_sym_len,
+            resource->sl_psfch_period,
+            resource->sl_pssch_sym_start,
+            resource->sl_pssch_sym_len,
+            resource->sl_subchan_len,
+            resource->sl_subchan_size);
     }
   }
 
@@ -2038,29 +2129,27 @@ List_t* get_candidate_resources_from_slots(frameslot_t *sfn,
 
   List_t *nr_resource_list = (List_t *)malloc16_clear(sizeof(*nr_resource_list));
   init_list(nr_resource_list, sizeof(sl_resource_info_t), 1);
-  sl_resource_info_t *rsrc_info = (sl_resource_info_t *)malloc16_clear(sizeof(*rsrc_info));
   for (int s = 0; s < slot_info->size; s++) {
     for (uint16_t i = 0; i + l_subch <= total_subch; i++) {
         slot_info_t *s_info = (slot_info_t*)((char*)slot_info->data + s * slot_info->element_size);
         frameslot_t frame_slot;
         de_normalize(normalize(sfn, mu) + s_info->slot_offset, mu, &frame_slot);
-        rsrc_info->num_sl_pscch_rbs = s_info->num_sl_pscch_rbs,
-        rsrc_info->sl_pscch_sym_start = s_info->sl_pscch_sym_start,
-        rsrc_info->sl_pscch_sym_len = s_info->sl_pscch_sym_len,
-        rsrc_info->sl_pssch_sym_start = s_info->sl_pssch_sym_start,
-        rsrc_info->sl_pssch_sym_len = s_info->sl_pssch_sym_len,
-        rsrc_info->sl_subchan_size = s_info->sl_sub_chan_size,
-        rsrc_info->sl_subchan_start = i;
-        rsrc_info->sl_subchan_len = l_subch,
-        rsrc_info->sl_max_num_per_reserve = s_info->sl_max_num_per_reserve,
-        rsrc_info->sfn.frame = frame_slot.frame;
-        rsrc_info->sfn.slot = frame_slot.slot;
-        rsrc_info->sl_psfch_period = psfch_period;
-        rsrc_info->sl_min_time_gap_psfch = min_time_gap_psfch;
+        sl_resource_info_t rsrc_info = {.num_sl_pscch_rbs = s_info->num_sl_pscch_rbs,
+                                        .sl_pscch_sym_start = s_info->sl_pscch_sym_start,
+                                        .sl_pscch_sym_len = s_info->sl_pscch_sym_len,
+                                        .sl_pssch_sym_start = s_info->sl_pssch_sym_start,
+                                        .sl_pssch_sym_len = s_info->sl_pssch_sym_len,
+                                        .sl_subchan_size = s_info->sl_sub_chan_size,
+                                        .sl_subchan_start = i,
+                                        .sl_subchan_len = l_subch,
+                                        .sl_max_num_per_reserve = s_info->sl_max_num_per_reserve,
+                                        .sfn = frame_slot,
+                                        .sl_psfch_period = psfch_period,
+                                        .sl_min_time_gap_psfch = min_time_gap_psfch};
         LOG_D(NR_MAC, "abs slot %ld, capacity %ld size %ld subchan: %d/%d slot %d/%ld frame_slot %4d.%2d\n",
               normalize(sfn, mu) + s_info->slot_offset,
-              nr_resource_list->capacity, nr_resource_list->size, i, total_subch, s, slot_info->size, rsrc_info->sfn.frame, rsrc_info->sfn.slot);
-        push_back(nr_resource_list, rsrc_info);
+              nr_resource_list->capacity, nr_resource_list->size, i, total_subch, s, slot_info->size, rsrc_info.sfn.frame, rsrc_info.sfn.slot);
+        push_back(nr_resource_list, &rsrc_info);
     }
   }
   return nr_resource_list;
@@ -2309,6 +2398,18 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
                                                  psfch_period);
 
   if (candidate_slots.size == 0 ) {
+    /* TS 38.214 8.1.4 restricts candidate resources to [n+T1,n+T2], with T2
+     * bounded by the packet delay budget when it is known.  Expanding an empty
+     * window to the reservation period can select a resource after that bound.
+     * Return no resource; the next trigger will construct a new bounded window. */
+    LOG_W(NR_MAC,
+          "%4d.%2d No SL TX slots in selection window [T1=%u T2=%u, PDB=%u ms]; deferring selection\n",
+          frame_slot->frame,
+          frame_slot->slot,
+          t1,
+          t2,
+          sl_tx_params->packet_delay_budget_ms);
+      free_list_mem(&candidate_slots);
     return NULL;
   }
 
@@ -2320,6 +2421,7 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
                                                            total_subch,
                                                            &candidate_slots,
                                                            mu);
+  free_list_mem(&candidate_slots);
   print_candidate_list(candidate_resources, __LINE__);
 
   uint64_t m_total = candidate_resources->size; // total number of candidate single-slot resources
@@ -2488,6 +2590,11 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
               }
             }
           }
+          /* Candidate k no longer exists.  Stop using itr_rsrc and do not
+           * delete the element shifted into the same index for another
+           * projected transmission of the removed candidate. */
+          if (erased)
+            break;
         }
         if (erased) {
           break; // break for proj_reserved_rsc_list

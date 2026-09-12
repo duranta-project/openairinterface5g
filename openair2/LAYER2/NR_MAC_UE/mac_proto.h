@@ -418,6 +418,8 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
                        mac_rlc_status_resp_t *rlc_status,
                        sl_resource_info_t *resource);
 
+void nr_ue_sl_mac_free(NR_UE_MAC_INST_t *mac);
+
 bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
                               nr_sidelink_indication_t *sl_ind,
                               const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
