@@ -567,29 +567,28 @@ void sl_nr_process_rx_ind(int ue_id,
                           sl_nr_ue_mac_params_t *sl_mac,
                           sl_nr_rx_indication_t *rx_ind)
 {
-  uint8_t num_pdus = rx_ind->number_pdus;
-  uint8_t pdu_type = rx_ind->rx_indication_body[num_pdus - 1].pdu_type;
-
-  switch (pdu_type) {
+  for (int pdu_id = 0; pdu_id < rx_ind->number_pdus; pdu_id++) {
+    sl_nr_rx_indication_body_t *body = &rx_ind->rx_indication_body[pdu_id];
+    switch (body->pdu_type) {
     case SL_NR_RX_PDU_TYPE_SSB:
 
-      if (rx_ind->rx_indication_body[num_pdus - 1].ssb_pdu.decode_status) {
+      if (body->ssb_pdu.decode_status) {
         LOG_D(NR_MAC,
               "[UE%d]SL-MAC Received SL-SSB: RSRP:%d dBm/RE, rx_psbch_payload:%x, rx_slss_id:%d\n",
               ue_id,
-              rx_ind->rx_indication_body[num_pdus - 1].ssb_pdu.rsrp_dbm,
-              *((uint32_t *)rx_ind->rx_indication_body[num_pdus - 1].ssb_pdu.psbch_payload),
-              rx_ind->rx_indication_body[num_pdus - 1].ssb_pdu.rx_slss_id);
+              body->ssb_pdu.rsrp_dbm,
+              *((uint32_t *)body->ssb_pdu.psbch_payload),
+              body->ssb_pdu.rx_slss_id);
 
         handle_sl_bch(ue_id,
                       sl_mac,
-                      rx_ind->rx_indication_body[num_pdus - 1].ssb_pdu.psbch_payload,
+                      body->ssb_pdu.psbch_payload,
                       4,
                       hfn,
                       frame,
                       slot,
-                      rx_ind->rx_indication_body[num_pdus - 1].ssb_pdu.rx_slss_id);
-        sl_mac->ssb_rsrp_dBm = rx_ind->rx_indication_body[num_pdus - 1].ssb_pdu.rsrp_dbm;
+                      body->ssb_pdu.rx_slss_id);
+        sl_mac->ssb_rsrp_dBm = body->ssb_pdu.rsrp_dbm;
       } else {
         LOG_I(NR_MAC, "[UE%d]SL-MAC - NO SL-SSB Received\n", ue_id);
       }
@@ -600,17 +599,31 @@ void sl_nr_process_rx_ind(int ue_id,
 
         LOG_D(NR_MAC, "[UE%d]SL-MAC Received SLSCH: rx_slsch_pdu:%p, rx_slsch_len %d, ack_nack %d, harq_pid %d\n",
                          ue_id,
-                         rx_ind->rx_indication_body[num_pdus - 1].rx_slsch_pdu.pdu,
-                         rx_ind->rx_indication_body[num_pdus - 1].rx_slsch_pdu.pdu_length,
-  		                   rx_ind->rx_indication_body[num_pdus - 1].rx_slsch_pdu.ack_nack,
-		                     rx_ind->rx_indication_body[num_pdus - 1].rx_slsch_pdu.harq_pid);
+                         body->rx_slsch_pdu.pdu,
+                         body->rx_slsch_pdu.pdu_length,
+		                   body->rx_slsch_pdu.ack_nack,
+		                     body->rx_slsch_pdu.harq_pid);
 
-        handle_slsch(ue_id, rx_ind, 0); 
+        handle_slsch(ue_id, rx_ind, pdu_id);
+      break;
+
+    case SL_NR_RX_PDU_TYPE_PSFCH:
+      LOG_A(NR_MAC,
+            "[UE%d] %4u.%2u received %u standalone PSFCH result(s)\n",
+            ue_id,
+            frame,
+            slot,
+            body->rx_psfch_pdu.num_results);
+      handle_nr_ue_sl_psfch(ue_id,
+                            frame,
+                            slot,
+                            &body->rx_psfch_pdu);
       break;
 
     default:
       AssertFatal(1 == 0, "Incorrect type received. %s\n", __FUNCTION__);
       break;
+    }
     }
 }
 
