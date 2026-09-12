@@ -26,14 +26,14 @@ static const int16_t table_16_3_1[4][6] = {
                                           {0, 1, 2, 3, 4, 5}
                                        };
 
-typedef struct prbs_set {
-  uint16_t **start_prb;
-  uint16_t **end_prb;
-} prbs_set_t;
-
 typedef struct psfch_params {
   uint16_t m0;
-  prbs_set_t *prbs_sets;
+  uint16_t prb_ordinal_base;
+  uint16_t selected_subchannel;
+  uint16_t num_rbs;
+  uint16_t num_psfch_slots;
+  uint16_t prbs_per_subchannel_slot;
+  uint16_t *rb_set;
 } psfch_params_t;
 
 /**\brief initialize the field in nr_mac instance
@@ -352,7 +352,7 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
                                        NR_SL_PreconfigurationNR_r16_t *sl_preconfiguration,
                                        uint8_t sync_source);
 
-uint8_t count_on_bits(uint8_t* buf, size_t size);
+uint16_t count_on_bits(const uint8_t *buf, size_t size);
 
 void nr_rrc_mac_transmit_slss_req(module_id_t module_id,
                                   uint8_t *sl_mib_payload,
@@ -451,10 +451,8 @@ int config_pssch_sci_pdu_rx(sl_nr_rx_config_pssch_sci_pdu_t *nr_sl_pssch_sci_pdu
                              nr_sci_format_t sci2_format,
                              nr_sci_pdu_t *sci_pdu,
                              uint32_t pscch_Nid,
-                             int pscch_subchannel_index,
                              const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
-                             const NR_SL_ResourcePool_r16_t *sl_res_pool,
-                             bool sl_has_psfch);
+                             const NR_SL_ResourcePool_r16_t *sl_res_pool);
 
 sl_resource_info_t* get_resource_element(List_t* resource_list, frameslot_t sfn);
 
@@ -470,7 +468,8 @@ void extract_pssch_sci_pdu(uint64_t *sci2_payload,
                            int len,
                            const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
                            const NR_SL_ResourcePool_r16_t *sl_res_pool,
-                           nr_sci_pdu_t *sci_pdu);
+                           nr_sci_pdu_t *sci_pdu,
+                           nr_sci_format_t sci2_format);
 
 void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
                           sl_nr_tx_config_pscch_pssch_pdu_t *nr_sl_pssch_pscch_pdu,
@@ -492,15 +491,24 @@ void update_harq_lists(NR_UE_MAC_INST_t *mac, frame_t frame, sub_frame_t slot, N
 
 int find_current_slot_harqs(frame_t frame, sub_frame_t slot, NR_SL_UE_sched_ctrl_t * sched_ctrl, NR_UE_sl_harq_t **matched_harqs);
 
-uint8_t sl_num_slsch_feedbacks(NR_UE_MAC_INST_t *mac);
+int sl_num_slsch_feedbacks(NR_UE_MAC_INST_t *mac);
 
 bool is_feedback_scheduled(NR_UE_MAC_INST_t *mac, int frameP,int slotP);
 
 uint16_t sl_get_num_subch(NR_SL_ResourcePool_r16_t *rpool);
 
-void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx_ind, long psfch_period, uint16_t sched_frame, uint16_t sched_slot, uint8_t ack_nack, psfch_params_t *psfch_params, const int nr_slots_frame, int psfch_index);
+void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac,
+                          sl_nr_rx_indication_t *rx_ind,
+                          int pdu_id,
+                          long psfch_period,
+                          uint16_t sched_frame,
+                          uint16_t sched_slot,
+                          uint8_t ack_nack,
+                          psfch_params_t *psfch_params,
+                          const int nr_slots_frame,
+                          int psfch_index);
 
-void fill_psfch_params_rx(sl_nr_rx_config_request_t *rx_config, sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu, psfch_params_t *psfch_params, NR_UE_sl_harq_t *cur_harq, NR_UE_MAC_INST_t *mac, long psfch_period, const uint16_t slot);
+void fill_psfch_params_rx(sl_nr_rx_config_request_t *rx_config, sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu, psfch_params_t *psfch_params, NR_UE_sl_harq_t *cur_harq, NR_UE_MAC_INST_t *mac, long psfch_period, const uint16_t slot, uint16_t peer_id);
 
 void configure_psfch_params_rx(int module_idP, NR_UE_MAC_INST_t *mac, sl_nr_rx_config_request_t *rx_config);
 
@@ -509,6 +517,8 @@ void reset_sched_psfch(NR_UE_MAC_INST_t *mac, int frameP,int slotP);
 size_t dump_mac_stats_sl(NR_UE_MAC_INST_t *mac, char *output, size_t strlen, bool reset_rsrp);
 
 void handle_nr_ue_sl_harq(module_id_t mod_id, frame_t frame, sub_frame_t slot, sl_nr_slsch_pdu_t *rx_slsch_pdu, uint16_t src_id);
+
+void handle_nr_ue_sl_psfch(module_id_t mod_id, frame_t frame, sub_frame_t slot, const sl_nr_psfch_pdu_t *rx_psfch_pdu);
 
 void abort_nr_ue_sl_harq(NR_UE_MAC_INST_t *mac, int8_t harq_pid, NR_SL_UE_info_t *UE_info);
 
@@ -598,6 +608,10 @@ bool check_t1_within_tproc1(uint8_t mu, uint16_t t1_slots);
 NR_SL_ResourcePool_r16_t* get_resource_pool(NR_UE_MAC_INST_t *mac, uint16_t pool_id);
 
 bool slot_has_psfch(NR_UE_MAC_INST_t *mac, BIT_STRING_t *phy_sl_bitmap, uint64_t abs_index_cur_slot, uint8_t psfch_period, size_t phy_sl_map_size, NR_TDD_UL_DL_ConfigCommon_t *conf);
+size_t sl_abs_slot_to_bit_pos(uint64_t abs_slot, size_t phy_map_sz);
+bool sl_slot_carries_psfch(const BIT_STRING_t *phy_sl_bitmap, size_t phy_map_sz, uint64_t abs_slot, uint8_t psfch_period);
+int64_t get_feedback_abs_slot(const BIT_STRING_t *phy_sl_bitmap, size_t phy_map_sz, uint64_t tx_abs_slot, uint8_t min_time_gap, uint8_t psfch_period);
+int sl_psfch_pssch_slot_index(const BIT_STRING_t *phy_sl_bitmap, size_t phy_map_sz, uint64_t abs_slot, uint8_t psfch_period);
 
 void append_bit(uint8_t *buf, size_t bit_pos, int bit_value);
 
@@ -650,7 +664,6 @@ bool overlapped_resource(uint8_t first_start,
 uint8_t get_random_reselection_counter(uint16_t rri);
 
 uint32_t compute_TRIV(uint8_t N, uint8_t t1, uint8_t t2);
-
 uint32_t compute_FRIV(uint8_t sl_max_num_per_reserve,
                       uint8_t L_sub_chan,
                       uint8_t n_start_subch1,
