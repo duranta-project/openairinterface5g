@@ -41,6 +41,7 @@
 #include "common/platform_constants.h"
 #include "common/ran_context.h"
 #include "collection/linear_alloc.h"
+#include "common/cmake_defs.h"
 
 /* RRC */
 #include "NR_BCCH-BCH-Message.h"
@@ -50,6 +51,7 @@
 
 /* PHY */
 #include "time_meas.h"
+#include "openair1/PHY/defs_nr_common.h"
 
 /* Interface */
 #include "nfapi_nr_interface_scf.h"
@@ -226,6 +228,8 @@ typedef struct nr_mac_config_s {
   /// Sized to the max number of physical RU antenna ports, NOT to be confused
   /// with MAX_NUM_SPATIAL_STREAMS, which bounds the per-PDU NFAPI wire field.
   uint16_t spatial_stream_index[NR_MAC_MAX_RU_ANTENNA_PORTS];
+  /// Enable the UL MU-MIMO scheduler policy
+  bool ul_mu_mimo;
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {
@@ -645,6 +649,16 @@ typedef struct nr_power_control {
   float tpc_in_flight; /// TPCs applied by UE but not yet in average SNR
 } nr_power_control_t;
 
+typedef struct {
+  bool valid;
+  frame_t frame;
+  slot_t slot;
+  uint8_t num_layers;
+  uint8_t num_rx;
+  uint16_t num_prg;
+  c16_t h_srs_eff[MAX_BWP_SIZE][MAX_NUM_NR_SRS_AP][NB_ANTENNAS_RX];
+} nr_srs_eff_channel_info_t;
+
 /*! \brief scheduling control information set through an API */
 typedef struct {
   /// CCE index and aggregation, should be coherent with cce_list
@@ -730,6 +744,8 @@ typedef struct {
   /// sri, ul_ri and tpmi based on SRS
   nr_srs_feedback_t srs_feedback;
   NR_timer_t aperiodic_srs_trigger;
+  // Stores effective SRS channel information (ie., after precoding)
+  nr_srs_eff_channel_info_t srs_eff_channel_info;
 
   /// per-LC configuration
   seq_arr_t lc_config;
@@ -1083,6 +1099,7 @@ struct nr_ul_candidate {
   int priority; ///< LC priority from first DRB (0 if none)
   nssai_t nssai; ///< slice/service type/differentiator from first DRB
   int beam_index;
+  bool has_mu_partner;
 
   /* ── Power control (set by collect, read-only after) ─────────────────────── */
   int ph; ///< power headroom
@@ -1339,6 +1356,9 @@ typedef struct gNB_MAC_INST_s {
   nr_cell_sched_t cells[NR_MAX_CELLS];
 
   NR_UEs_t UE_info;
+
+  /// SRS Periodicity (in slots)
+  int srs_period_slots;
 
   /// DL preprocessor for differentiated scheduling
   nr_pp_impl_dl pre_processor_dl;
