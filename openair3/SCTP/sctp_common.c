@@ -19,6 +19,7 @@
 #include <netinet/sctp.h>
 
 #include "sctp_common.h"
+#include "oai_sctp.h"
 
 /* Pre-bind socket options configuration.
  * See http://linux.die.net/man/7/sctp for more information on these options.
@@ -37,23 +38,23 @@ int sctp_set_init_opt(int sd, uint16_t instreams, uint16_t outstreams,
   init.sinit_max_attempts   = max_attempts;
   init.sinit_max_init_timeo = init_timeout;
 
-  if (setsockopt(sd, IPPROTO_SCTP, SCTP_INITMSG, &init, sizeof(struct sctp_initmsg)) < 0) {
+  if (oai_sctp_setsockopt(sd, IPPROTO_SCTP, SCTP_INITMSG, &init, sizeof(struct sctp_initmsg)) < 0) {
     SCTP_ERROR("setsockopt: %d:%s\n", errno, strerror(errno));
-    close(sd);
+    oai_sctp_close(sd);
     return -1;
   }
 
   int flag = 1;
-  if (setsockopt(sd, IPPROTO_SCTP, SCTP_NODELAY, &flag, sizeof(flag)) < 0) {
+  if (oai_sctp_setsockopt(sd, IPPROTO_SCTP, SCTP_NODELAY, &flag, sizeof(flag)) < 0) {
     SCTP_ERROR("setsockopt SCTP_NODELAY failed: %d:%s\n", errno, strerror(errno));
-    close(sd);
+    oai_sctp_close(sd);
     return -1;
   }
 
   /* Allow socket reuse */
-  if (setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
+  if (oai_sctp_setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
     SCTP_ERROR("setsockopt SO_REUSEADDR failed (%d:%s)\n", errno, strerror(errno));
-    close(sd);
+    oai_sctp_close(sd);
     return -1;
   }
 
@@ -79,7 +80,7 @@ int sctp_get_sockinfo(int sock, uint16_t *instream, uint16_t *outstream,
   if (assoc_id != NULL)
     status.sstat_assoc_id = *assoc_id;
 
-  if (getsockopt(sock, IPPROTO_SCTP, SCTP_STATUS, &status, &i) < 0) {
+  if (oai_sctp_getsockopt(sock, IPPROTO_SCTP, SCTP_STATUS, &status, &i) < 0) {
     SCTP_ERROR("Getsockopt SCTP_STATUS failed: %s\n", strerror(errno));
     return -1;
   }
@@ -122,7 +123,7 @@ int sctp_get_peeraddresses(int sock, struct sockaddr **remote_addr, int *nb_remo
   int nb, j;
   struct sockaddr *temp_addr_p;
 
-  if ((nb = sctp_getpaddrs(sock, -1, &temp_addr_p)) <= 0) {
+  if ((nb = oai_sctp_getpaddrs(sock, -1, &temp_addr_p)) <= 0) {
     SCTP_ERROR("Failed to retrieve peer addresses\n");
     return -1;
   }
@@ -163,7 +164,7 @@ int sctp_get_peeraddresses(int sock, struct sockaddr **remote_addr, int *nb_remo
     *remote_addr = temp_addr_p;
   } else {
     /* We can destroy buffer */
-    sctp_freepaddrs((struct sockaddr*)temp_addr_p);
+    oai_sctp_freepaddrs((struct sockaddr*)temp_addr_p);
   }
 
   return 0;
@@ -174,7 +175,7 @@ int sctp_get_localaddresses(int sock, struct sockaddr **local_addr, int *nb_loca
   int nb, j;
   struct sockaddr *temp_addr_p;
 
-  if ((nb = sctp_getladdrs(sock, -1, &temp_addr_p)) <= 0) {
+  if ((nb = oai_sctp_getladdrs(sock, -1, &temp_addr_p)) <= 0) {
     SCTP_ERROR("Failed to retrieve local addresses\n");
     return -1;
   }
@@ -215,7 +216,7 @@ int sctp_get_localaddresses(int sock, struct sockaddr **local_addr, int *nb_loca
     *local_addr = temp_addr_p;
   } else {
     /* We can destroy buffer */
-    sctp_freeladdrs((struct sockaddr*)temp_addr_p);
+    oai_sctp_freeladdrs((struct sockaddr*)temp_addr_p);
   }
 
   return 0;
