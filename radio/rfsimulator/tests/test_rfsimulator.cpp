@@ -172,16 +172,13 @@ int BeamAt(const BeamSchedule &sched, uint64_t sample_pos)
   return sample_pos >= sched.switch_ts ? sched.new_beam : sched.old_beam;
 }
 
-// Same gain lookup and scaling as get_rx_gain_db()/rfsimulator_read_internal(), including the
-// float powf() call, for a bit-exact match.
-int16_t ExpectedBeamSample(bool sender_is_server,
-                           uint64_t sample_pos,
-                           int rx_beam,
-                           int tx_beam,
-                           const std::vector<float> &gain_diag_db)
+// Only the server has a real, switchable beam now. gain_diag_db[beam_id] is a direct per-beam
+// lookup -- there is no rx/tx combination anymore, since the client contributes no beam of its own
+// (it must not have enable_beams set, or its own read path would scale every DL sample a second time).
+int16_t ExpectedBeamSample(bool sender_is_server, uint64_t sample_pos, int beam_id, const std::vector<float> &gain_diag_db)
 {
   int16_t v = TxPattern(sender_is_server, sample_pos, /*tx_ant=*/0);
-  float gain_dB = gain_diag_db.at(static_cast<size_t>(std::abs(rx_beam - tx_beam)));
+  float gain_dB = gain_diag_db.at(static_cast<size_t>(beam_id));
   float gain_linear = powf(10, gain_dB / 20.0);
   double term = static_cast<double>(v) * static_cast<double>(gain_linear);
   return static_cast<int16_t>(term);
@@ -190,22 +187,20 @@ int16_t ExpectedBeamSample(bool sender_is_server,
 VerifyResult VerifyBeamBlock(const std::vector<c16_t> &rx,
                              uint64_t start_ts,
                              bool peer_is_server,
-                             const BeamSchedule &rx_schedule,
-                             const BeamSchedule &peer_tx_schedule,
+                             const BeamSchedule &server_beam_schedule,
                              const std::vector<float> &gain_diag_db)
 {
   VerifyResult res;
   int mismatches = 0;
   for (size_t i = 0; i < rx.size() && mismatches < 3; i++) {
     uint64_t pos = start_ts + i;
-    int rx_beam = BeamAt(rx_schedule, pos);
-    int tx_beam = BeamAt(peer_tx_schedule, pos);
-    int16_t expected = ExpectedBeamSample(peer_is_server, pos, rx_beam, tx_beam, gain_diag_db);
+    int beam_id = BeamAt(server_beam_schedule, pos);
+    int16_t expected = ExpectedBeamSample(peer_is_server, pos, beam_id, gain_diag_db);
     if (rx[i].r != expected || rx[i].i != expected) {
       res.ok = false;
-      res.details += "idx=" + std::to_string(i) + " ts=" + std::to_string(start_ts) + " rx_beam=" + std::to_string(rx_beam)
-                     + " tx_beam=" + std::to_string(tx_beam) + " got=(" + std::to_string(rx[i].r) + "," + std::to_string(rx[i].i)
-                     + ")" + " want=" + std::to_string(expected) + "\n";
+      res.details += "idx=" + std::to_string(i) + " ts=" + std::to_string(start_ts) + " beam=" + std::to_string(beam_id)
+                     + " got=(" + std::to_string(rx[i].r) + "," + std::to_string(rx[i].i) + ")" + " want=" + std::to_string(expected)
+                     + "\n";
       mismatches++;
     }
   }
@@ -414,8 +409,7 @@ TEST(RFSimulatorBeamTest, GainMatrixAndScheduledSwitchApplyAtExactSample)
   const int settle_reads = 6;
   const int verify_reads = 10;
   const std::vector<float> gain_diag_db = {0.0f, -6.0f, -20.0f};
-  const std::vector<std::string> beam_args =
-      {"--rfsimulator.enable_beams", "1", "--rfsimulator.beam_gains", "0,-6,-20", "--rfsimulator.beam_ids", "0"};
+  const std::vector<std::string> beam_args = {"--rfsimulator.enable_beams", "1", "--rfsimulator.beam_gains", "0,-6,-20"};
 
   openair0_device_t server_device = {0};
   openair0_config_t server_config = {0};
@@ -424,13 +418,15 @@ TEST(RFSimulatorBeamTest, GainMatrixAndScheduledSwitchApplyAtExactSample)
   ASSERT_EQ(server_device.trx_start_func(&server_device), 0);
   ASSERT_NE(server_device.trx_set_beams, nullptr);
 
+  // The client (UE) deliberately gets no beam_args: it has no beam of its own, and turning on
+  // enable_beams there would scale every DL sample a second time using its own (permanently 0)
+  // beam id -- see the README's "Do not set enable_beams/beam_gains on the UE" note.
   openair0_device_t client_device = {0};
   openair0_config_t client_config = {0};
   configmodule_interface_t *client_cfg =
-      StartDevice(client_device, client_config, "test_rfsimulator_beam", "127.0.0.1", port, 1, 1, beam_args);
+      StartDevice(client_device, client_config, "test_rfsimulator_beam", "127.0.0.1", port, 1, 1);
 
-  // Only the server's beam switches, at server_switch_ts (set by the server thread below).
-  const BeamSchedule client_beam_schedule{0, 0, 0};
+  // Only the server has a beam, and only it switches, at server_switch_ts (set by the server thread below).
   std::atomic<uint64_t> server_switch_ts{UINT64_MAX};
   std::atomic<bool> client_connected{false};
 
@@ -483,7 +479,6 @@ TEST(RFSimulatorBeamTest, GainMatrixAndScheduledSwitchApplyAtExactSample)
           VerifyResult v = VerifyBeamBlock(rx_bufs[0],
                                            read_ts,
                                            /*peer_is_server=*/true,
-                                           client_beam_schedule,
                                            server_beam_schedule,
                                            gain_diag_db);
           if (!v.ok) {
@@ -549,7 +544,6 @@ TEST(RFSimulatorBeamTest, GainMatrixAndScheduledSwitchApplyAtExactSample)
                                      read_ts,
                                      /*peer_is_server=*/false,
                                      server_beam_schedule,
-                                     client_beam_schedule,
                                      gain_diag_db);
     if (!v.ok) {
       server_data_ok = false;

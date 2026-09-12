@@ -63,7 +63,7 @@
     <class>Custom_Command</class>
     <desc>Move UE to beam 2 via the rfsimulator's telnet interface and verify the switch was acknowledged</desc>
     <node>localhost</node>
-    <command>echo rfsimulator setbeamids 2 | ncat 192.168.71.150 8091 | grep -q "Beam ids set"</command>
+    <command>echo rfsimulator setbeamgains -10,-5,0,-15 | ncat 192.168.71.140 8091 | grep -q "Beam gains set"</command>
   </testCase>
 
   <testCase>
