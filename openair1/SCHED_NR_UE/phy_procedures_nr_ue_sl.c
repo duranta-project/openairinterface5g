@@ -786,7 +786,7 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
                 0,
                 &is_csi_rs_slot);
     if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH) {
-      ack_nack_rcvd = calloc(phy_data->num_psfch_pdus, sizeof(ack_nack_rcvd));
+      ack_nack_rcvd = calloc(phy_data->num_psfch_pdus, sizeof(*ack_nack_rcvd));
       LOG_D(NR_PHY, "num_psfch_pdus: %d\n", phy_data->num_psfch_pdus);
       for (int k = 0; k < phy_data->num_psfch_pdus; k++) {
         sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu = &phy_data->psfch_pdu_list[k];
@@ -840,7 +840,7 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
       //  continue;
     } else {
       pssch_vars->DTX = 0;
-      int totalDecode = nr_slsch_procedures(ue, frame_rx, nr_slot_rx, 0, proc, phy_data, ack_nack_rcvd, phy_data->num_psfch_pdus);
+      int totalDecode = nr_slsch_procedures(ue, frame_rx, nr_slot_rx, phy_data->nr_sl_pssch_pdu.harq_pid, proc, phy_data, ack_nack_rcvd, phy_data->num_psfch_pdus);
       LOG_D(NR_PHY,
             "Total %d decoded PSSCH detected in %d.%d (%d,%d,%d)\n",
             totalDecode,
@@ -895,7 +895,13 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
 
     LOG_D(NR_PHY,"returned from pscch processing\n");
   }
-  if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SCI) {
+  if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SCI || phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH
+      || phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH) {
+    LOG_D(NR_PHY,
+          "%4d.%2d RX_PSSCH=1 RX_PSFCH=%d\n",
+          frame_rx,
+          nr_slot_rx,
+          phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH ? 1 : 0);
     sl_nr_rx_config_pssch_sci_pdu_t *pssch_pdu = &phy_data->nr_sl_pssch_sci_pdu;
     LOG_D(NR_PHY,"sci2_len = %d\n",pssch_pdu->sci2_len);
     LOG_D(NR_PHY,"sci2_beta_offset = %d\n",pssch_pdu->sci2_beta_offset);
@@ -971,23 +977,29 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
                 frame_rx,
                 nr_slot_rx,
                 0);
+    // Symbol 12: PSFCH processing -- runs after PSSCH symbols (1-9) in the same
+    // slot. PSSCH and PSFCH are present simultaneously per TS 38.211 Section 8.4.3.
     if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH) {
-      ack_nack_rcvd = calloc(phy_data->num_psfch_pdus, sizeof(ack_nack_rcvd));
-      LOG_D(NR_PHY, "num_psfch_pdus: %d\n", phy_data->num_psfch_pdus);
+      LOG_D(NR_PHY, "%4d.%2d PSFCH: processing %d PDUs (symbol 12)\n", frame_rx, nr_slot_rx, phy_data->num_psfch_pdus);
+      ack_nack_rcvd = calloc(phy_data->num_psfch_pdus, sizeof(*ack_nack_rcvd));
       for (int k = 0; k < phy_data->num_psfch_pdus; k++) {
         sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu = &phy_data->psfch_pdu_list[k];
-        LOG_W(NR_PHY, "PSFCH start_symbol_index %d, sl_bwp_start %d, sequence_hop_flag %d, \
-            second_hop_prb %d, prb %d, nr_of_symbols %d, initial_cyclic_shift %d, hopping_id %d, \
-            group_hop_flag %d, freq_hop_flag %d, bit_len_harq %d\n",
-            psfch_pdu->start_symbol_index, psfch_pdu->sl_bwp_start,
-            psfch_pdu->sequence_hop_flag, psfch_pdu->second_hop_prb, psfch_pdu->prb,
-            psfch_pdu->nr_of_symbols, psfch_pdu->initial_cyclic_shift, psfch_pdu->hopping_id,
-            psfch_pdu->group_hop_flag, psfch_pdu->freq_hop_flag, psfch_pdu->bit_len_harq);
+        LOG_D(NR_PHY,
+              "%4d.%2d PSFCH[%d]: start_sym=%d prb=%d bit_len_harq=%d\n",
+              frame_rx,
+              nr_slot_rx,
+              k,
+              psfch_pdu->start_symbol_index,
+              psfch_pdu->prb,
+              psfch_pdu->bit_len_harq);
         nr_slot_fep(ue, fp, proc->nr_slot_rx, psfch_pdu->start_symbol_index, rxdataF, link_type_sl, 0, ue->common_vars.rxdata);
         ack_nack_rcvd[k] = nr_ue_decode_psfch0(ue, frame_rx, nr_slot_rx, rxdataF, psfch_pdu);
+        LOG_D(NR_PHY, "%4d.%2d PSFCH[%d]: decoded ack_nack=%d\n", frame_rx, nr_slot_rx, k, ack_nack_rcvd[k]);
       }
       free(phy_data->psfch_pdu_list);
       phy_data->psfch_pdu_list = NULL;
+    } else {
+      LOG_D(NR_PHY, "%4d.%2d PSFCH: not present in this slot\n", frame_rx, nr_slot_rx);
     }
     NR_gNB_PUSCH *pssch_vars = &ue->pssch_vars[0];
     pssch_vars->ulsch_power_tot = 0;
@@ -1016,7 +1028,14 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
       //  continue;
     } else {
       pssch_vars->DTX = 0;
-      int totalDecode = nr_slsch_procedures(ue, frame_rx, nr_slot_rx, 0, proc, phy_data, ack_nack_rcvd, phy_data->num_psfch_pdus);
+      int totalDecode = nr_slsch_procedures(ue,
+                                            frame_rx,
+                                            nr_slot_rx,
+                                            phy_data->nr_sl_pssch_pdu.harq_pid,
+                                            proc,
+                                            phy_data,
+                                            ack_nack_rcvd,
+                                            phy_data->num_psfch_pdus);
       LOG_A(NR_PHY,
             "Total %d decoded PSSCH detected in %d.%d (%d,%d,%d)\n",
             totalDecode,
