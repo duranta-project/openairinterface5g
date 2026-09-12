@@ -700,7 +700,12 @@ typedef struct {
   int ul_failure_timer;
   int release_timer;
   CSI_report_t CSI_report;
-  bool SR;
+  /// number of SR received for this UE since the last UL grant
+  uint32_t sr_cnt;
+  /// absolute slot (frame * slots_per_frame + slot) of the first SR received
+  /// since the last UL grant, only valid while sr_cnt > 0. The time the UE has
+  /// been waiting for a grant is used as UL scheduling priority
+  uint32_t sr_first_slot;
   /// information about every HARQ process
   NR_UE_harq_t harq_processes[NR_MAX_HARQ_PROCESSES];
   /// HARQ processes that are free
@@ -1060,14 +1065,25 @@ typedef struct nr_ul_sched_params {
   const NR_bler_options_t *bler_opts; ///< UL BLER options (for adapt_ul_mcs)
 } nr_ul_sched_params_t;
 
+/*! \brief UL scheduling priority class of a candidate, in decreasing priority.
+    It selects both the allocation phase a candidate is handled in and the key
+    the candidates of that phase are sorted with, see nr_ul_proportional_fair() */
+typedef enum {
+  NR_UL_PRIO_RETX = 0, ///< HARQ retransmission, needs an exact number of RBs
+  NR_UL_PRIO_SR_CRITICAL, ///< about to reach sr_TransMax: needs a grant now or the UE gives up and starts over with RA
+  NR_UL_PRIO_DEFAULT_GRANT, ///< nothing to transmit that we know of (pending SR or long inactivity), needs a default grant
+  NR_UL_PRIO_DATA, ///< has pending bytes to transmit
+} nr_ul_prio_class_t;
+
 struct nr_ul_candidate {
   /* ── UE identity / scheduling state (set by collect, never modified after) ── */
   NR_UE_info_t *UE;
   uint16_t rnti; ///< UE RNTI (convenience)
   bool is_retx;
+  nr_ul_prio_class_t prio_class;
   int8_t retx_harq_pid;
   int retx_rbSize;
-  bool sched_inactive;
+  bool sched_long_inactivity;
   int sched_srs;
   uint32_t pending_bytes;
   float avg_throughput;
@@ -1113,6 +1129,10 @@ struct nr_ul_candidate {
   int alloc_cce_index;
   int alloc_aggregation_level;
   NR_sched_pdcch_t alloc_sched_pdcch;
+  /// number of SR received since the last UL grant, 0 if none is pending
+  uint32_t sr_cnt;
+  /// slots elapsed since the UE started asking for a grant, 0 if no SR is pending
+  uint32_t sr_age_slots;
 };
 
 typedef struct {
