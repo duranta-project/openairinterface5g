@@ -104,6 +104,7 @@ void reset_sl_harq_list(NR_SL_UE_sched_ctrl_t *sched_ctrl) {
     sched_ctrl->sl_harq_processes[i].round = 0;
     sched_ctrl->sl_harq_processes[i].is_waiting = false;
   }
+  memset(sched_ctrl->sl_rx_harq_processes, 0, sizeof(sched_ctrl->sl_rx_harq_processes));
   /* All in-flight HARQs were discarded above; reset the byte accounting so it
    * does not accumulate across resets (e.g. sync loss -> re-init). */
   sched_ctrl->sched_sl_bytes = 0;
@@ -213,6 +214,106 @@ void handle_nr_ue_sl_harq(module_id_t mod_id,
   }
   free(matched_harqs);
   matched_harqs = NULL;
+  NR_UE_SL_SCHED_UNLOCK(&mac->sl_sched_lock);
+}
+
+static bool nr_list_contains(const NR_list_t *list, int id)
+{
+  for (int cur = list->head; cur >= 0; cur = list->next[cur]) {
+    if (cur == id)
+      return true;
+  }
+  return false;
+}
+
+void handle_nr_ue_sl_psfch(module_id_t mod_id,
+                           frame_t frame,
+                           sub_frame_t slot,
+                           const sl_nr_psfch_pdu_t *rx_psfch_pdu)
+{
+  NR_UE_MAC_INST_t *mac = get_mac_inst(mod_id);
+  NR_UE_SL_SCHED_LOCK(&mac->sl_sched_lock);
+
+  for (int i = 0; i < rx_psfch_pdu->num_results; i++) {
+    const sl_nr_psfch_result_t *result = &rx_psfch_pdu->results[i];
+    NR_SL_UE_info_t *UE = find_UE(mac, result->peer_id);
+    if (UE == NULL) {
+      LOG_W(NR_MAC, "%4u.%2u ignoring PSFCH for unknown peer %u\n", frame, slot, result->peer_id);
+      continue;
+    }
+    if (result->harq_pid >= NR_MAX_HARQ_PROCESSES) {
+      LOG_E(NR_MAC,
+            "%4u.%2u ignoring PSFCH for invalid HARQ PID %u (peer %u)\n",
+            frame,
+            slot,
+            result->harq_pid,
+            result->peer_id);
+      continue;
+    }
+
+    NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+    NR_UE_sl_harq_t *harq = &sched_ctrl->sl_harq_processes[result->harq_pid];
+    const bool in_feedback_list = nr_list_contains(&sched_ctrl->feedback_sl_harq, result->harq_pid);
+    if (!harq->is_waiting || harq->feedback_frame != frame || harq->feedback_slot != slot || !in_feedback_list) {
+      LOG_W(NR_MAC,
+            "%4u.%2u ignoring stale/unexpected PSFCH for peer %u HARQ %u "
+            "(waiting=%d listed=%d expected=%u.%u)\n",
+            frame,
+            slot,
+            result->peer_id,
+            result->harq_pid,
+            harq->is_waiting,
+            in_feedback_list,
+            harq->feedback_frame,
+            harq->feedback_slot);
+      continue;
+    }
+
+    remove_nr_list(&sched_ctrl->feedback_sl_harq, result->harq_pid);
+    harq->feedback_frame = -1;
+    harq->feedback_slot = -1;
+    harq->is_waiting = false;
+
+    if (result->ack_nack < 0)
+      UE->mac_sl_stats.slsch_DTX++;
+
+    /* nr_ue_decode_pucch0() uses 0 for ACK and 1 for NACK.  A negative
+     * decoder result is DTX/invalid and follows the NACK retransmission path. */
+    if (result->ack_nack == 0) {
+      UE->mac_sl_stats.cumul_round[harq->round]++;
+      LOG_D(NR_MAC,
+            "%4u.%2u PSFCH ACK: peer %u HARQ %u completed in round %u\n",
+            frame,
+            slot,
+            result->peer_id,
+            result->harq_pid,
+            harq->round);
+      release_nr_ue_sl_harq(sched_ctrl, result->harq_pid);
+    } else if (harq->round >= HARQ_ROUND_MAX - 1) {
+      UE->mac_sl_stats.cumul_round[HARQ_ROUND_MAX]++;
+      LOG_W(NR_MAC,
+            "%4u.%2u PSFCH %s: peer %u HARQ %u exhausted all rounds\n",
+            frame,
+            slot,
+            result->ack_nack < 0 ? "DTX" : "NACK",
+            result->peer_id,
+            result->harq_pid);
+      abort_nr_ue_sl_harq(mac, result->harq_pid, UE);
+    } else {
+      harq->round++;
+      LOG_D(NR_MAC,
+            "%4u.%2u PSFCH %s: peer %u HARQ %u queued for round %u (RV%u)\n",
+            frame,
+            slot,
+            result->ack_nack < 0 ? "DTX" : "NACK",
+            result->peer_id,
+            result->harq_pid,
+            harq->round,
+            nr_rv_round_map[harq->round]);
+      add_tail_nr_list(&sched_ctrl->retrans_sl_harq, result->harq_pid);
+    }
+  }
+
   NR_UE_SL_SCHED_UNLOCK(&mac->sl_sched_lock);
 }
 
@@ -334,14 +435,9 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   /*Following code will check whether SLSCH was received before and
   its feedback has scheduled for current slot
   */
-  int scs = sl_mac->sl_phy_config.sl_config_req.sl_bwp_config.sl_scs;
-  const int nr_slots_frame = nr_slots_per_frame[scs];
-  NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
-  const int n_ul_slots_period = tdd ? tdd->nrofUplinkSlots + (tdd->nrofUplinkSymbols > 0 ? 1 : 0) : nr_slots_frame;
-
-  uint16_t num_subch = sl_get_num_subch(mac->sl_tx_res_pool);
   bool is_feedback_slot = false;
-  for (int i = 0; i < (n_ul_slots_period * num_subch); i++) {
+  const int sched_psfch_size = mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch_size;
+  for (int i = 0; i < sched_psfch_size; i++) {
     SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[i];
     if (slotP == sched_psfch->feedback_slot) {
         LOG_D(NR_MAC, "%4d.%2d i = %d sched_psfch %p feedback slot %d\n", frameP, slotP, i, sched_psfch, sched_psfch->feedback_slot);
