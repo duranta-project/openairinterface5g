@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include "fgs_nas_utils.h"
 #include "common/utils/utils.h" // text_info_t, TO_ENUM, TO_TEXT
+#include "PacketFilter.h"
 
 /* PDU Session Establish Accept Optional IE Identifiers - TS 24.501 Table 8.3.2.1.1 */
 
@@ -66,6 +67,9 @@ typedef enum { FOREACH_IEI(TO_ENUM) } pduSessionEstablishment_IEI_t;
 
 #define MAX_NUM_QOS_RULES 64
 
+/* Max packet filters per QoS rule - TS 24.501 clause 9.11.4.13 */
+#define MAX_PF_PER_QOS_RULE 15
+
 /* Mandatory Presence IE - TS 24.501 Table 8.3.2.1.1 */
 
 typedef struct packet_filter_create_qos_rule_s {
@@ -100,10 +104,17 @@ typedef struct qos_rule_s {
   uint8_t precendence;
   // QoS Flow Identifier
   uint8_t qfi;
+  // Decoded packet filters
+  packet_filter_decoded_t packet_filters[MAX_PF_PER_QOS_RULE];
+  int num_packet_filters;
+  // Packet filter IDs to delete
+  uint8_t pf_delete_ids[MAX_PF_PER_QOS_RULE];
+  int num_pf_delete;
 } qos_rule_t;
 
 typedef struct auth_qos_rules_s {
   uint16_t length; /* Length of QoS rules IE */
+  int num_rules; /* Number of decoded rules */
   // QoS rules (M)
   qos_rule_t rule[MAX_NUM_QOS_RULES];
 } auth_qos_rule_t; /* QoS Rule as defined in 24.501 Figure 9.11.4.13.2 */
