@@ -57,6 +57,15 @@ Or by providing this the the command line parameters:
 --rfsimulator.[0].options chanmod
 ```
 
+### TLE-based LEO Channel Emulation for ZMQ
+
+A channel emulator is integrated with ZMQ for TLE-based LEO test.
+ZMQ replays offline TLE-generated NTN profiles with `--zmq.[0].options chanmod`. The profile contains delay and UL/DL Doppler data.
+Profile lookup uses elapsed output samples, so channel evolution remains in lockstep with the
+softmodem sample stream. A preload shim makes OCUDU realtime and TAI follow the same simulation clock. See
+[radio/channel_emulation/README.md](../radio/channel_emulation/README.md)
+for architecture and limitations.
+
 ## gNB
 
 The main parameters to cope with the large NTN propagation delay are cellSpecificKoffset, ta-Common, ta-CommonDrift and the ephemeris data (satellite position and velocity vectors).
@@ -202,3 +211,48 @@ So an example NR UE command for FDD, 5MHz BW, 15 kHz SCS, transparent LEO satell
 cd cmake_targets
 sudo ./ran_build/build/nr-uesoftmodem -O ../targets/PROJECTS/GENERIC-NR-5GC/CONF/ue.conf --band 254 -C 2488400000 --CO -873500000 -r 25 --numerology 0 --ssb 60 --rfsim --rfsimulator.[0].prop_delay 20 --rfsimulator.[0].options chanmod --time-sync-I 0.1 --ntn-initial-time-drift -46 --initial-fo 57340 --cont-fo-comp 2
 ```
+
+### LEO test with OCUDU gNB over ZMQ
+
+OAI UE can be tested with OCUDU gNB using TLE-based LEO channel emulation over ZMQ. Check OCUDU project for how to generate NTN configs from TLE data. Follow below steps:
+
+1. **Generate the TLE profile before starting the radio**:
+  ```bash
+  python3 tools/ntn/ntn_tle_profile_generator.py --duration 60 --step 0.01 \
+    --tle-file "$OCUDU_SCENARIO_DIR/tle_updated.txt" \
+    --starting-time-config "$OCUDU_SCENARIO_DIR/sat.yml" \
+    --ue-position-file "$OCUDU_SCENARIO_DIR/ue-position.cfg" \
+    --gateway-position-file "$OCUDU_SCENARIO_DIR/gw-position.cfg" \
+    --out-file /tmp/ntn-profile.csv
+  ```
+  `--tle-file` accepts a standard two- or three-line TLE file, use OCUDU generated `tle_updated.txt`. Use `--starting-time-config` with the matching `sat.yml` to read the
+  serving satellite epoch broadcast by OCUDU, and use the matching `ue-position.cfg` and
+  `gw-position.cfg` files for the link endpoints.
+
+  `--sat-type` supports `transparent` and `regenerative`. DL and UL frequencies default
+  to 2185 MHz and 1995 MHz. See `--help` for frequency overrides.
+
+2. **Initialize the simulation clock and start OCUDU gNB**:
+  ```bash
+  ninja -C cmake_targets/ran_build/build ntn_sim_clock_shim
+  sudo python3 tools/ntn/init_ntn_sim_clock.py /tmp/ntn-profile.csv
+  sudo env OAI_NTN_SIM_CLOCK_SHM=/oai_ntn_sim_clock \
+    LD_PRELOAD="$PWD/cmake_targets/ran_build/build/libntn_sim_clock_shim.so" \
+    /path/to/ocudu_gnb ...
+  ```
+  The shim replaces `CLOCK_REALTIME`, `CLOCK_TAI`, `time()`, and `gettimeofday()` for OCUDU.
+  Monotonic clocks used for scheduling and timeouts are unchanged. `CLOCK_TAI` uses a 37-second
+  UTC offset by default; set `OAI_NTN_TAI_OFFSET` if a different offset is required.
+
+3. **Start the OAI UE**:
+  ```bash
+  python3 tools/ntn/launch_ntn_ue.py --profile /tmp/ntn-profile.csv \
+    --ue-position-file "$OCUDU_SCENARIO_DIR/ue-position.cfg" --ue-config /path/to/nrue.conf \
+    -- ./nr-uesoftmodem ... \
+    --device.name oai_zmqdevif --zmq.[0].options chanmod --zmq.[0].modelname SAT_LEO_TLE \
+    --zmq.[0].ntn_file /tmp/ntn-profile.csv --zmq.[0].tx_channels ... --zmq.[0].rx_channels ...
+  ```
+  The launcher selects the profile row at simulation time zero. It supplies `--initial-fo` and
+  `--ntn-initial-time-drift` before starting the UE. With `--ue-position-file`, it also
+  converts the OCUDU latitude/longitude/altitude to WGS-84 ECEF metres, atomically updates the
+  `position0` block in `--ue-config`, and passes that configuration to the UE with `-O`.
