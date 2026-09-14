@@ -23,6 +23,7 @@
 #include <executables/thread-common.h>
 #include "executables/nr-softmodem.h"
 #include "nr-oru.h"
+#include "PHY/MODULATION/nr_modulation.h"
 #include "common/utils/threadPool/thread-pool.h"
 #include "openair1/PHY/INIT/nr_phy_init.h"
 #include "openair1/SCHED_NR/sched_nr.h"
