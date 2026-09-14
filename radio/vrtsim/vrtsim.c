@@ -663,11 +663,10 @@ static int vrtsim_connect(openair0_device_t *device)
                       ue_sel.want_model_id,
                       u);
 
-          vrtsim_state->cirdb_providers[u] = cirdb_connect(
-                        device->openair0_cfg[0].tx_num_channels,
-                        vrtsim_state->ue_conf[u].rx_ant,
-                        &ue_sel,
-                        &vrtsim_state->channel_desc[u]);
+          vrtsim_state->cirdb_providers[u] = cirdb_connect(device->openair0_cfg[0].tx_num_channels,
+                                                           vrtsim_state->ue_conf[u].rx_ant,
+                                                           &ue_sel,
+                                                           &vrtsim_state->channel_desc[u]);
 
           channel_desc_t *cd = vrtsim_state->channel_desc[u];
           AssertFatal(cd != NULL, "CIRDB failed to create channel_desc for UE %d\n", u);
@@ -698,7 +697,8 @@ static int vrtsim_connect(openair0_device_t *device)
         }
         LOG_A(HW, "VRTSIM: Multi-UE channel taps via CIR DB\n");
       } else {
-        vrtsim_state->cirdb_providers[0] = cirdb_connect(device->openair0_cfg[0].tx_num_channels, vrtsim_state->peer_rx_ant, &sel, &vrtsim_state->channel_desc[0]);
+        vrtsim_state->cirdb_providers[0] =
+            cirdb_connect(device->openair0_cfg[0].tx_num_channels, vrtsim_state->peer_rx_ant, &sel, &vrtsim_state->channel_desc[0]);
         LOG_A(HW, "VRTSIM: channel taps via CIR DB\n");
       }
     } else {
