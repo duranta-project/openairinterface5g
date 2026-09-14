@@ -230,6 +230,7 @@ void mac_set_bwconfig_handler(MessageDef *msg_p, instance_t instance)
     initialUL->locationAndBandwidth = 31624;
     get_softmodem_params()->threequarter_fs = 0;
   } else {
+    NR_SCHED_UNLOCK(&mac->sched_lock);
     LOG_E(NR_MAC, "MAC_SET_BWCONFIG: unhandled bw_value %d\n", bw_value);
     itti_send_msg_to_task(TASK_TELNET, 0, resp_p);
     return;
@@ -244,6 +245,8 @@ void mac_set_bwconfig_handler(MessageDef *msg_p, instance_t instance)
 
   const f1ap_served_cell_info_t *info = &mac->f1_config.setup_req->cell[0].info;
   nr_mac_configure_sib1(cell, &info->plmn, info->nr_cellid, *info->tac);
+
+  NR_SCHED_UNLOCK(&mac->sched_lock);
 
   LOG_D(NR_MAC, "MAC_SET_BWCONFIG: Bandwidth configuration updated to %d MHz\n", bw_value);
   itti_send_msg_to_task(TASK_TELNET, 0, resp_p);
@@ -266,9 +269,11 @@ void mac_stop_modem_handler(MessageDef *msg_p, instance_t instance)
    * a restart, the frame/slot numbers will be different, which "confuses" the
    * scheduler, which has many PUCCH structures filled with expected frame/slot
    * combinations that won't happen. */
+  NR_SCHED_LOCK(&mac->sched_lock);
   UE_iterator((NR_UE_info_t **)mac->UE_info.connected_ue_list, it) {
     nr_mac_trigger_ul_failure(&it->UE_sched_ctrl, 1);
   }
+  NR_SCHED_UNLOCK(&mac->sched_lock);
   usleep(50000);
 
   stop_L1(0);
@@ -299,8 +304,10 @@ void mac_get_o1_stats_handler(MessageDef *msg_p, instance_t instance)
   LOG_D(NR_MAC, "MAC_GET_O1_STATS: MAC instance found\n");
   gNB_MAC_INST *mac = RC.nrmac[instance];
 
+  NR_SCHED_LOCK(&mac->sched_lock);
   LOG_D(NR_MAC, "MAC_GET_O1_STATS: Reading F1 config\n");
   if (!mac->f1_config.setup_req) {
+    NR_SCHED_UNLOCK(&mac->sched_lock);
     LOG_E(NR_MAC, "MAC_GET_O1_STATS: F1 setup_req is NULL\n");
     itti_send_msg_to_task(TASK_TELNET, 0, resp_p);
     return;
@@ -315,6 +322,7 @@ void mac_get_o1_stats_handler(MessageDef *msg_p, instance_t instance)
 
   LOG_D(NR_MAC, "MAC_GET_O1_STATS: Reading cell config\n");
   if (!mac->cells[0].common_channels.ServingCellConfigCommon) {
+    NR_SCHED_UNLOCK(&mac->sched_lock);
     LOG_E(NR_MAC, "MAC_GET_O1_STATS: ServingCellConfigCommon is NULL\n");
     itti_send_msg_to_task(TASK_TELNET, 0, resp_p);
 
@@ -323,6 +331,7 @@ void mac_get_o1_stats_handler(MessageDef *msg_p, instance_t instance)
 
   const NR_ServingCellConfigCommon_t *scc = mac->cells[0].common_channels.ServingCellConfigCommon;
   if (!scc->downlinkConfigCommon || !scc->downlinkConfigCommon->frequencyInfoDL || !scc->uplinkConfigCommon || !scc->uplinkConfigCommon->frequencyInfoUL) {
+    NR_SCHED_UNLOCK(&mac->sched_lock);
     LOG_E(NR_MAC, "MAC_GET_O1_STATS: frequencyInfoDL or frequencyInfoUL is NULL\n");
     itti_send_msg_to_task(TASK_TELNET, 0, resp_p);
 
@@ -397,6 +406,7 @@ void mac_get_o1_stats_handler(MessageDef *msg_p, instance_t instance)
           stats->num_ues, it->rnti, (unsigned long long)rlc.txpdu_bytes, (unsigned long long)rlc.rxpdu_bytes);
     stats->num_ues++;
   }
+  NR_SCHED_UNLOCK(&mac->sched_lock);
   LOG_D(NR_MAC, "MAC_GET_O1_STATS: Processed %d UEs\n", stats->num_ues);
 
   clock_gettime(CLOCK_MONOTONIC, &stats->tp_now);
