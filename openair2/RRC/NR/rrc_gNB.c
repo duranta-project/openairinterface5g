@@ -1693,11 +1693,22 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
   // update with new RNTI, and update secondary UE association
   UE->rnti = msg->crnti;
 
-  /* Update PCell in serving_cells array */
-  DevAssert(cell->info.cell_id == msg->nr_cellid);
-  added = rrc_update_ue_pcell(UE, cell);
+  /* Update PCell in serving_cells array.
+   * Use current_cell (where the request arrived), not cell (found by old physCellId).
+   * After repeated intra-DU HOs the UE may reestablish on a cell whose PCI differs
+   * from the source cell it referenced — current_cell is always the right anchor. */
+  if (cell->info.cell_id != current_cell->info.cell_id)
+    LOG_I(NR_RRC,
+          "UE %d: reestablishment on cell %ld (PCI %d) while old physCellId %ld refers to cell %ld (PCI %d)\n",
+          UE->rrc_ue_id,
+          current_cell->info.cell_id,
+          current_cell->info.pci,
+          physCellId,
+          cell->info.cell_id,
+          cell->info.pci);
+  added = rrc_update_ue_pcell(UE, current_cell);
   if (added == NULL) {
-    LOG_E(NR_RRC, "Reestablishment: failed to add PCell (cell %ld)\n", cell->info.cell_id);
+    LOG_E(NR_RRC, "Reestablishment: failed to add PCell (cell %ld)\n", current_cell->info.cell_id);
     return;
   }
 
@@ -1705,7 +1716,7 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
   bool success = cu_update_f1_ue_data(UE->rrc_ue_id, &ue_data);
   DevAssert(success);
 
-  rrc_gNB_generate_RRCReestablishment(ue_context_p, old_rnti, cell);
+  rrc_gNB_generate_RRCReestablishment(ue_context_p, old_rnti, current_cell);
   return;
 
 fallback_rrc_setup:
