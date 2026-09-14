@@ -93,7 +93,7 @@ typedef enum { SIMU_ROLE_SERVER = 1, SIMU_ROLE_CLIENT } simuRole;
   UINT16PARAM(RFSIMU_SERVER_PORT,       "<port to connect to>\n",                   simOpt, NULL,                             PORT),                  \
   STRLISTPARAM(RFSIMU_OPTIONS_PARAMNAME, RFSIM_CONFIG_HELP_OPTIONS,                 simOpt, NULL,                             NULL),                  \
   STRINGPARAM(RFSIMU_IQFILE,            "<file path to use when saving IQs>\n",     simOpt, NULL,                             "/tmp/rfsimulator.iqs"),\
-  STRINGPARAM(RFSIMU_MODELNAME,         "<channel model name>\n",                   simOpt, NULL,                             "AWGN"),                \
+  STRINGPARAM(RFSIMU_MODELNAME,         "<channel model name>\n",                   simOpt | PARAMFLAG_DEPRECATED, NULL,       "AWGN"),                \
   DOUBLEPARAM(RFSIMU_PLOSS,             "<channel path loss in dB>\n",              simOpt, NULL,                             0),                     \
   DOUBLEPARAM(RFSIMU_FORGETFACT,        "<channel forget factor ((0 to 1)>\n",      simOpt, NULL,                             0),                     \
   UINT64PARAM(RFSIMU_OFFSET,            "<channel offset in samps>\n",              simOpt, NULL,                             0L),                    \
