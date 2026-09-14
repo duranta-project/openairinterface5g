@@ -10,7 +10,7 @@
 
 #include "openair1/PHY/CODING/nrLDPC_decoder/nrLDPCdecoder_defs.h"
 
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
 __device__ __constant__ uint32_t d_lut_numBnInCnGroups_BG1_R13[NR_LDPC_NUM_CN_GROUPS_BG1] = {3, 4,  5, 6, 7, 8, 9, 10, 19};
 __device__ __constant__ uint32_t d_lut_numCnInCnGroups_BG1_R13[NR_LDPC_NUM_CN_GROUPS_BG1] = {1, 5, 18, 8, 5, 2, 2,  1,  4};
 

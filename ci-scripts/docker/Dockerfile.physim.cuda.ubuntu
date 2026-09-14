@@ -27,8 +27,9 @@ RUN cmake -GNinja -DENABLE_PHYSIM_TESTS=ON -DENABLE_TESTS=ON \
         -DCMAKE_C_FLAGS=-Werror -DCMAKE_CXX_FLAGS=-Werror \
         -DPHYSIM_CHECK_FILES="ThresholdsCuda.cmake" \
         -DENABLE_CHANNEL_SIM_CUDA=ON \
+        -DENABLE_LDPC_CUDA=ON \
         -DUSE_UNIFIED_MEMORY=ON \
         -DUSE_ATS_MEMORY=OFF \
         -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/oai-ran/cmake_targets/ran_build/build \
         .. && \
-        ninja nr_ulsim nr_dlsim
+        ninja ldpctest nr_ulsim nr_dlsim

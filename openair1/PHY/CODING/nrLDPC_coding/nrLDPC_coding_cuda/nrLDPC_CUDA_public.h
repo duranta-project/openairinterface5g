@@ -8,12 +8,10 @@
 
 #pragma once
 
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
+#include "PHY/gpu_simd_intrin_compat.h"
 #include <stdint.h>
 #include <stdio.h>
-
-#include <cuda_runtime.h>
-#include <stdint.h>
 
 __device__ __forceinline__ void moveBricks_invput_circ(int8_t *__restrict__ dstBuf,
                                                        uint32_t dstBuf_Offset,
@@ -101,10 +99,10 @@ __device__ __forceinline__ uint32_t __vxor4(const uint32_t a, uint32_t b)
 
 __device__ __forceinline__ uint32_t __vsign4(const uint32_t a, uint32_t b)
 {
-  uint32_t mask = __vcmplts4(b, 0);
-  uint32_t bneg = __vneg4(a);
+  uint32_t mask = gpu_vcmplts4(b, 0);
+  uint32_t bneg = gpu_vneg4(a);
   return (mask & bneg) | (~mask & a);
-  // uint32_t is_zero_mask = __vcmpeq4(b, 0);
+  // uint32_t is_zero_mask = gpu_vcmpeq4(b, 0);
   // return result & (~is_zero_mask);
 }
 
