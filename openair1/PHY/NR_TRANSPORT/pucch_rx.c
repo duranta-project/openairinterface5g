@@ -1452,17 +1452,17 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
 
   LOG_D(PHY, "UCI decoderState %d, payload[0] %llu\n", decoderState, (unsigned long long)decodedPayload[0]);
 
-  // estimate CQI for MAC (from antenna port 0 only)
-  // TODO this computation is wrong -> to be ignored at MAC for now
-  int cqi = 0xff;
-  /*int SNRtimes10 =
-    dB_fixed_times10(signal_energy_nodc((int32_t *)&rxdataF[0][soffset + (l2 * symb_sz) + re_offset[0]],
-    12 * pucch_pdu->prb_size))
-    - (10 * gNB->measurements.n0_power_tot_dB);
-    int cqi,bit_left;
-    if (SNRtimes10 < -640) cqi=0;
-    else if (SNRtimes10 >  635) cqi=255;
-    else cqi=(640+SNRtimes10)/5;*/
+  int max_n0 = gNB->measurements.n0_subband_power_tot_dB[pucch_pdu->bwp_start + pucch_pdu->prb_start];
+  for (int p = 1; p < pucch_pdu->prb_size; p++)
+    max_n0 = max(max_n0, gNB->measurements.n0_subband_power_tot_dB[pucch_pdu->bwp_start + pucch_pdu->prb_start + p]);
+  int SNRtimes10 = dB_fixed_times10(pucch2_lev) - (10 * max_n0);
+  int cqi;
+  if (SNRtimes10 < -640)
+    cqi = 0;
+  else if (SNRtimes10 > 635)
+    cqi = 255;
+  else
+    cqi = (640 + SNRtimes10) / 5;
 
   uci_pdu->harq.harq_bit_len = pucch_pdu->bit_len_harq;
   uci_pdu->pduBitmap = 0;
