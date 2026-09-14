@@ -2347,41 +2347,6 @@ void kill_RU_proc(RU_t *ru) {
   pthread_attr_destroy(&proc->attr_prach_br);
 }
 
-
-void init_precoding_weights(RU_t **rup,int nb_RU,PHY_VARS_eNB *eNB) {
-  int layer,ru_id,aa,re,tb;
-  LTE_DL_FRAME_PARMS *fp = &eNB->frame_parms;
-  RU_t *ru;
-  LTE_eNB_DLSCH_t *dlsch;
-
-  // init precoding weigths
-  for (int dlsch_id=0; dlsch_id<NUMBER_OF_DLSCH_MAX; dlsch_id++) {
-    for (tb=0; tb<2; tb++) {
-      dlsch = eNB->dlsch[dlsch_id][tb];
-
-      for (layer=0; layer<4; layer++) {
-        int nb_tx=0;
-
-        for (ru_id=0; ru_id<nb_RU; ru_id++) {
-          ru = rup[ru_id];
-          nb_tx+=ru->nb_tx;
-        }
-
-        dlsch->ue_spec_bf_weights[layer] = (int32_t **)malloc16(nb_tx*sizeof(int32_t *));
-
-        for (aa=0; aa<nb_tx; aa++) {
-          dlsch->ue_spec_bf_weights[layer][aa] = (int32_t *)malloc16(fp->ofdm_symbol_size*sizeof(int32_t));
-
-          for (re=0; re<fp->ofdm_symbol_size; re++) {
-            dlsch->ue_spec_bf_weights[layer][aa][re] = 0x00007fff;
-          }
-        }
-      }
-    }
-  }
-}
-
-
 void set_function_spec_param(RU_t *ru) {
   int ret;
 
