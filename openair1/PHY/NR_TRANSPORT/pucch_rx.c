@@ -1331,13 +1331,22 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
     // DMRS/pilot reference term (corr32) stays the same. So we only run the expensive correlation once
     // per even/odd pair and derive both metrics from it -- halving the number of madd/hadd evaluations.
     for (int cw = 0; cw < 1 << nb_bit; cw += 2) {
+#if defined(__AVX2__)
       const simde__m256i *coeff = (simde__m256i *)&pucch2_lut[nb_bit - 3][cw].cw;
+#else
+      // No native 256-bit ISA (e.g. aarch64): use 128-bit NEON directly rather than
+      // SIMDe's 256-bit-on-NEON emulation, which is inefficient for the cross-lane
+      // hadd/permute ops this loop relies on.
+      const simde__m128i *coeff = (simde__m128i *)&pucch2_lut[nb_bit - 3][cw].cw;
+#endif
       uint64_t corr_tmp_even = 0;
       uint64_t corr_tmp_odd = 0;
       for (int symb = 0; symb < nb_symbols; symb++) {
         for (int group = 0; group < ngroup; group++) {
           // do complex correlation
           for (int aa = 0; aa < Prx; aa++) {
+            c64_t d;
+#if defined(__AVX2__)
             const simde__m256i *rext = (simde__m256i *)r_ext[aa][symb];
             const simde__m256i *rext2 = (simde__m256i *)r_ext2[aa][symb];
             simde__m256i re = simde_mm256_madd_epi16(coeff[0], rext[group]);
@@ -1346,11 +1355,41 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
             simde__m256i im2 = simde_mm256_madd_epi16(coeff[1], rext2[group + 1]);
             re = simde_mm256_add_epi32(re, re2);
             im = simde_mm256_add_epi32(im, im2);
-            // combine re/im into one register so both reductions share the same hadd chain
             simde__m256i ri = simde_mm256_hadd_epi32(re, im);
             ri = simde_mm256_hadd_epi32(ri, ri);
             int32_t *v = (int32_t *)&ri;
-            c64_t d = (c64_t){v[0] + v[4], v[1] + v[5]};
+            d = (c64_t){v[0] + v[4], v[1] + v[5]};
+#else
+            // Each AVX2 256-bit "group"/"group+1" chunk is, byte-for-byte, two
+            // consecutive 128-bit chunks here: coeff[0]/coeff[1] correspond to
+            // the low/high halves of AVX2's coeff[0], coeff[2]/coeff[3] to
+            // AVX2's coeff[1]. Same mapping for rext/rext2. All reductions
+            // below stay within a single 128-bit register -- no cross-lane
+            // combine except a final plain scalar add.
+            const simde__m128i *rext = (simde__m128i *)r_ext[aa][symb];
+            const simde__m128i *rext2 = (simde__m128i *)r_ext2[aa][symb];
+            int g0 = group * 2, g1 = group * 2 + 1;
+            int g2 = (group + 1) * 2, g3 = (group + 1) * 2 + 1;
+            simde__m128i re_lo = simde_mm_madd_epi16(coeff[0], rext[g0]);
+            simde__m128i im_lo = simde_mm_madd_epi16(coeff[0], rext2[g0]);
+            simde__m128i re_hi = simde_mm_madd_epi16(coeff[1], rext[g1]);
+            simde__m128i im_hi = simde_mm_madd_epi16(coeff[1], rext2[g1]);
+            simde__m128i re2_lo = simde_mm_madd_epi16(coeff[2], rext[g2]);
+            simde__m128i im2_lo = simde_mm_madd_epi16(coeff[2], rext2[g2]);
+            simde__m128i re2_hi = simde_mm_madd_epi16(coeff[3], rext[g3]);
+            simde__m128i im2_hi = simde_mm_madd_epi16(coeff[3], rext2[g3]);
+            re_lo = simde_mm_add_epi32(re_lo, re2_lo);
+            im_lo = simde_mm_add_epi32(im_lo, im2_lo);
+            re_hi = simde_mm_add_epi32(re_hi, re2_hi);
+            im_hi = simde_mm_add_epi32(im_hi, im2_hi);
+            simde__m128i lo_ri = simde_mm_hadd_epi32(re_lo, im_lo);
+            lo_ri = simde_mm_hadd_epi32(lo_ri, lo_ri);
+            simde__m128i hi_ri = simde_mm_hadd_epi32(re_hi, im_hi);
+            hi_ri = simde_mm_hadd_epi32(hi_ri, hi_ri);
+            int32_t *vlo = (int32_t *)&lo_ri;
+            int32_t *vhi = (int32_t *)&hi_ri;
+            d = (c64_t){vlo[0] + vhi[0], vlo[1] + vhi[1]};
+#endif
             c32_t c = corr32[symb][group][aa];
             c64_t prod_even = {d.r + c.r, d.i + c.i};
             c64_t prod_odd  = {-d.r + c.r, -d.i + c.i};
