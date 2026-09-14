@@ -495,11 +495,6 @@ void init_eNB_afterRU(void)
         gNB->common_vars.rxdataF[aa] = (c16_t *)gNB->RU_list[ru_id]->common.rxdataF[i];
       }
     }
-    /* TODO: review this code, there is something wrong.
-     * In monolithic mode, we come here with nb_antennas_rx == 0
-     * (not tested in other modes).
-     */
-    //init_precoding_weights(RC.gNB[inst]);
     init_gNB_Tpool(inst);
   }
 }
