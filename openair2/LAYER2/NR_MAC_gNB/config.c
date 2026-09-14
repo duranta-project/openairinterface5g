@@ -15,6 +15,7 @@
 #include "BIT_STRING.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
+#include "LAYER2/NR_MAC_gNB/nr_radio_config.h"
 #include "GNB_APP/gnb_config.h"
 #include "NR_MIB.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
@@ -962,6 +963,9 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
   LOG_D(NR_MAC, "Configuring common parameters from NR ServingCellConfig\n");
 
   config_common(cell, config, scc);
+  NR_FrequencyInfoDL_t *frequencyInfoDL = scc->downlinkConfigCommon->frequencyInfoDL;
+  int bw = frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
+  config_ul_rrc_info(cell, config, *scc->ssbSubcarrierSpacing, bw);
   fill_beam_index_list(scc, config, cell);
 
   if (NFAPI_MODE == NFAPI_MONOLITHIC) {
@@ -1270,7 +1274,7 @@ bool nr_mac_add_test_ue(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, uint32_t rnt
   bool res = add_connected_nr_ue(nrmac, UE);
   if (!res) {
     LOG_E(NR_MAC, "Error adding UE %04x\n", rnti);
-    delete_nr_ue_data(UE, &nrmac->UE_info.uid_allocator);
+    delete_nr_ue_data(UE, nrmac, &nrmac->UE_info.uid_allocator);
     NR_SCHED_UNLOCK(&nrmac->sched_lock);
     return false;
   }

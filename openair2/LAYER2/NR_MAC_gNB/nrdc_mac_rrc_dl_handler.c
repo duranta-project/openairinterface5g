@@ -7,6 +7,7 @@
 #include "common/utils/LOG/log.h"
 #include "nr_mac_gNB.h"
 #include "mac_proto.h"
+#include "nr_radio_config.h"
 #include "mac_rrc_dl_handler.h"
 #include "openair2/F1AP/f1ap_ids.h"
 #include "openair2/F1AP/lib/f1ap_ue_context.h"
@@ -34,7 +35,22 @@ static NR_UE_info_t *nrdc_create_new_UE(gNB_MAC_INST *mac, nr_cell_sched_t *cell
   /* mimic NSA way to create a new UE (with adaptations) */
   NR_UE_NR_Capability_t *cap = get_ue_nr_cap_from_cg_config_info(cgci);
   int ssb_index = get_ssbidx_from_beam(cell, UE->UE_beam_index);
-  NR_CellGroupConfig_t *cellGroupConfig = get_default_secondaryCellGroup(scc, cap, 1, 1, &cell->radio_config, cell, UE->uid, ssb_index);
+  bool alloc = mac_ul_rrc_periodic_resources(cell, UE, scc, cell->radio_config.first_active_bwp);
+  if (!alloc) {
+    delete_nr_ue_data(UE, mac, &mac->UE_info.uid_allocator);
+    LOG_E(NR_MAC, "Couldn't allocate UL RRC periodic resources\n");
+    return NULL;
+  }
+  NR_CellGroupConfig_t * cellGroupConfig = get_default_secondaryCellGroup(scc,
+                                                                          cap,
+                                                                          UE->sr_info,
+                                                                          UE->csimeas_info,
+                                                                          1,
+                                                                          1,
+                                                                          &cell->radio_config,
+                                                                          cell,
+                                                                          UE->uid,
+                                                                          ssb_index);
 
   cellGroupConfig->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(UE->rnti, UE->uid, scc, mac->frame);
   UE->capability = cap;
@@ -50,7 +66,7 @@ static NR_UE_info_t *nrdc_create_new_UE(gNB_MAC_INST *mac, nr_cell_sched_t *cell
   UE->nrdc_mode = true;
 
   if (!add_new_UE_RA(mac, UE)) {
-    delete_nr_ue_data(UE, &mac->UE_info.uid_allocator);
+    delete_nr_ue_data(UE, mac, &mac->UE_info.uid_allocator);
     LOG_E(NR_MAC, "UE list full while creating new UE\n");
     return NULL;
   }

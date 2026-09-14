@@ -63,6 +63,20 @@ in aggregation level 2 which translates to `uess_agg_levels` set to `[0, 2, 0,
 0, 0]`. For example, to enable one candidate on aggregation levels 2 and 4 set
 `uess_agg_levels` to `[0, 1, 1, 0, 0]`.
 
+## Feedback time for ACK/NACK on PUCCH
+
+Feedback time for DLSCH ACK/NACK on PUCCH is selected by looping among the values on a list
+(either default one or defined by upper layers). If the given element of the list provides
+a feedback slot compatible with the frame configuration and the configured minimum feedback time,
+the scheduler checks if there is an already active PUCCH in the given slot.
+If there is no active PUCCH, it activates one and it increases by one the DAI counter to signal
+the presence of one HARQ process feedback in the given PUCCH occasion.
+If there is an already active PUCCH, it tries to allocate the feedback on that instance
+pending multiple checks including
+* the possibility to schedule HARQ and CSI feedback simultaneously
+* the possibility to transition from a format with 2 bits limit to one without in case the limit is surpassed
+* resource availability in terms of beam, PRBs and PUCCH coderate
+
 ### Examples:
 #### Example 1:
 Say we have 90% PDCCH success rate at aggregation level 1, `pdcch_cl_adjust` will stay at 0
