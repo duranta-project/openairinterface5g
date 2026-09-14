@@ -6,6 +6,13 @@
   <htmlTabIcon>tasks</htmlTabIcon>
 
   <testCase>
+    <class>Custom_Command</class>
+    <desc>Disable Sleep States</desc>
+    <node>caracal</node>
+    <command>sudo cpupower idle-set -D 0</command>
+  </testCase>
+
+  <testCase>
     <class>Pull_Cluster_Image</class>
     <desc>Pull Images from Cluster</desc>
     <images>oai-gnb oai-nr-ue</images>
@@ -77,6 +84,14 @@
     <desc>Clean Test Images on Test Server</desc>
     <node>caracal</node>
     <images>oai-nr-ue oai-gnb</images>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <always_exec>true</always_exec>
+    <desc>Enable Sleep States</desc>
+    <node>caracal</node>
+    <command>sudo cpupower idle-set -E</command>
   </testCase>
 
 </testCaseList>
