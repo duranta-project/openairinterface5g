@@ -18,12 +18,12 @@
 
 #define ERROR_MSG_RET(mSG, aRGS...) do { prnt(mSG, ##aRGS); return 1; } while (0)
 
-static bool get_single_ue_rnti(Rrc_get_single_ue_rnti *ue_rnti_p)
+static bool get_single_ue_rnti(Rrc_get_single_ue_rnti *ue_rnti_p, telnet_printfunc_t prnt)
 {
   MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_SINGLE_UE_RNTI);
   MessageDef *resp_p;
   if (!itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
-    return false;
+    ERROR_MSG_RET("Timeout waiting for RRC response\n");
   }
   *ue_rnti_p = resp_p->ittiMsg.rrc_get_single_ue_rnti;
   free(resp_p);
@@ -50,13 +50,13 @@ int get_single_rnti(char *buf, int debug, telnet_printfunc_t prnt)
     ERROR_MSG_RET("no parameter allowed\n");
 
   Rrc_get_single_ue_rnti single_ue_rnti;
-  if (!get_single_ue_rnti(&single_ue_rnti)) {
+  if (!get_single_ue_rnti(&single_ue_rnti, prnt)) {
     ERROR_MSG_RET("Timeout waiting for RRC response\n");
   }
   if(!check_single_ue_rnti(single_ue_rnti, prnt))
     return -1;
 
-  prnt("single UE RNTI %04x\n", single_ue_rnti);
+  prnt("single UE RNTI %04x\n", single_ue_rnti.rnti);
   return 0;
 }
 
@@ -66,7 +66,7 @@ int add_bearer(char *buf, int debug, telnet_printfunc_t prnt)
   UNUSED(debug);
   Rrc_get_single_ue_rnti single_ue_rnti;
   if (!buf) {
-    if (!get_single_ue_rnti(&single_ue_rnti)) {
+    if (!get_single_ue_rnti(&single_ue_rnti, prnt)) {
       ERROR_MSG_RET("Timeout waiting for RRC response\n");
     }
     if(!check_single_ue_rnti(single_ue_rnti, prnt))
@@ -100,7 +100,7 @@ int release_bearer(char *buf, int debug, telnet_printfunc_t prnt)
   UNUSED(debug);
   Rrc_get_single_ue_rnti single_ue_rnti;
   if (!buf) {
-    if (!get_single_ue_rnti(&single_ue_rnti)) {
+    if (!get_single_ue_rnti(&single_ue_rnti, prnt)) {
       ERROR_MSG_RET("Timeout waiting for RRC response\n");
     }
     if(!check_single_ue_rnti(single_ue_rnti, prnt))

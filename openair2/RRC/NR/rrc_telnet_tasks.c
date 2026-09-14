@@ -183,6 +183,7 @@ void rrc_gnb_generate_rrcrelease_all(MessageDef *msg_p, instance_t instance)
     rrc_gNB_generate_RRCRelease(RC.nrrrc[instance], UE);
     resp_p->ittiMsg.rrc_gnb_generate_rrcrelease_all.nb_releases++;
     resp_p->ittiMsg.rrc_gnb_generate_rrcrelease_all.rrc_gnb_generate_rrcreleases[i].ue_id = ue_context_p->ue_context.rrc_ue_id;
+    i++;
   }
   itti_send_msg_to_task(TASK_TELNET, 0, resp_p);
 }

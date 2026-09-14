@@ -146,7 +146,7 @@ int fetch_du_by_ue_id(char *buf, int debug, telnet_printfunc_t prnt)
   MessageDef *msg_ue_rnti_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_SINGLE_UE_RNTI);
   MessageDef *resp_ue_rnti_p;
   if (!itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_ue_rnti_p, &resp_ue_rnti_p, 1000)) {
-    return false;
+    ERROR_MSG_RET("Timeout waiting for RRC response\n");
   }
   if(!resp_ue_rnti_p->ittiMsg.rrc_get_single_ue_rnti.has_rrc){
     free(resp_ue_rnti_p);
@@ -208,10 +208,10 @@ int rrc_gNB_trigger_f1_ho(char *buf, int debug, telnet_printfunc_t prnt)
     MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, RRC_GET_SINGLE_UE_RNTI);
     MessageDef *resp_p;
     if (!itti_send_and_receive_msg_to_task(TASK_RRC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
-      return false;
+      ERROR_MSG_RET("Timeout waiting for RRC response\n");
     }
     if(!resp_p->ittiMsg.rrc_get_single_ue_rnti.has_rrc){
-      ERROR_MSG_RET("No UE connected\n");
+      ERROR_MSG_RET("No RRC present, cannot list count\n");
     }
     if(!resp_p->ittiMsg.rrc_get_single_ue_rnti.is_single){
       prnt("No ID was provided and multiple UEs are present, first one in list is selected\n");
@@ -433,7 +433,7 @@ static int trigger_ngap_pdu_session_release(char *buf, int debug, telnet_printfu
   msg->nb_pdusessions_torelease = nb_sessions;
 
   if (prnt) {
-    prnt("Triggering NGAP PDU Session Release for gNB_ue_ngap_id=%d: releasing pdusession_id=%d", gNB_ue_ngap_id);
+    prnt("Triggering NGAP PDU Session Release for gNB_ue_ngap_id=%d: releasing pdusession_id=", gNB_ue_ngap_id);
     for (int i = 0; i < nb_sessions; ++i) {
       prnt(" %d,", msg->pdusession_ids[i]);
     }
