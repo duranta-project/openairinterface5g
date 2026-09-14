@@ -95,28 +95,7 @@
 
   <testCase>
     <class>Iperf</class>
-    <desc>iperf (UL/10Mbps/UDP)(30 sec)</desc>
-    <iperf_args>-u -b 10M -t 30 -i 1</iperf_args>
-    <id>oai_ue_jetson2</id>
-    <svr_id>oc-cn5g-00104</svr_id>
-    <iperf_packetloss_threshold>25</iperf_packetloss_threshold>
-    <iperf_bitrate_threshold>80</iperf_bitrate_threshold>
-  </testCase>
-
-  <testCase>
-    <class>Iperf</class>
-    <desc>iperf (DL/10Mbps/UDP)(30 sec)</desc>
-    <iperf_args>-u -b 10M -t 30 -i 1 -R</iperf_args>
-    <id>oai_ue_jetson2</id>
-    <svr_id>oc-cn5g-00104</svr_id>
-    <iperf_packetloss_threshold>25</iperf_packetloss_threshold>
-    <iperf_bitrate_threshold>80</iperf_bitrate_threshold>
-  </testCase>
-
-  <testCase>
-    <class>Iperf</class>
     <desc>iperf (UL/30Mbps/UDP)(30 sec)</desc>
-    <may_fail>true</may_fail>
     <iperf_args>-u -b 30M -t 30 -i 1</iperf_args>
     <id>oai_ue_jetson2</id>
     <svr_id>oc-cn5g-00104</svr_id>
@@ -127,8 +106,18 @@
   <testCase>
     <class>Iperf</class>
     <desc>iperf (DL/30Mbps/UDP)(30 sec)</desc>
-    <may_fail>true</may_fail>
     <iperf_args>-u -b 30M -t 30 -i 1 -R</iperf_args>
+    <id>oai_ue_jetson2</id>
+    <svr_id>oc-cn5g-00104</svr_id>
+    <iperf_packetloss_threshold>25</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>80</iperf_bitrate_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>iperf (DL/50Mbps/UDP)(30 sec)</desc>
+    <may_fail>true</may_fail>
+    <iperf_args>-u -b 50M -t 30 -i 1 -R</iperf_args>
     <id>oai_ue_jetson2</id>
     <svr_id>oc-cn5g-00104</svr_id>
     <iperf_packetloss_threshold>25</iperf_packetloss_threshold>
