@@ -1015,6 +1015,7 @@ typedef struct {
 } cw4bit_t;
 static cw4bit_t pucch2_polar_4bit[16] __attribute__((aligned(32)));
 static simde__m128i pucch2_polar_llr_num_lut[256];
+static simde__m128i pucch2_polar_factor_lut[256] __attribute__((aligned(16)));
 
 void init_pucch2_luts()
 {
@@ -1032,6 +1033,11 @@ void init_pucch2_luts()
     *lut_i++ = (i & 0x2) <= 0;
     *lut_i++ = (i & 0x4) <= 0;
     *lut_i++ = (i & 0x8) <= 0;
+  }
+  for (int cw = 0; cw < 256; cw++) {
+    simde__m128i part1 = simde_mm_set_epi64x(0ULL, *(int64_t *)&pucch2_polar_4bit[cw & 15].cw);
+    simde__m128i part2 = simde_mm_set_epi64x(0ULL, *(int64_t *)&pucch2_polar_4bit[cw >> 4].cw);
+    pucch2_polar_factor_lut[cw] = simde_mm_unpacklo_epi16(part1, part2);
   }
   for (int cw = 0; cw < 256; cw++) {
     int16_t *lut_num_i = (int16_t *)&pucch2_polar_llr_num_lut[cw];
@@ -1319,13 +1325,28 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
   if (nb_bit < 12 && decoderState == 2) { // short blocklength case
     uint64_t corr = 0;
     int cw_ML = 0;
-    for (int cw = 0; cw < 1 << nb_bit; cw++) {
-      uint64_t corr_tmp = 0;
+    // Bit 0 of the message toggles nrSmallBlockBasis[0] (the all-ones basis vector), which negates
+    // every output bit of the codeword. In the correlation domain this means the data-correlation term
+    // for codeword (cw|1) is the exact negation of that for codeword (cw&~1); only the cw-independent
+    // DMRS/pilot reference term (corr32) stays the same. So we only run the expensive correlation once
+    // per even/odd pair and derive both metrics from it -- halving the number of madd/hadd evaluations.
+    for (int cw = 0; cw < 1 << nb_bit; cw += 2) {
+#if defined(__AVX2__)
+      const simde__m256i *coeff = (simde__m256i *)&pucch2_lut[nb_bit - 3][cw].cw;
+#else
+      // No native 256-bit ISA (e.g. aarch64): use 128-bit NEON directly rather than
+      // SIMDe's 256-bit-on-NEON emulation, which is inefficient for the cross-lane
+      // hadd/permute ops this loop relies on.
+      const simde__m128i *coeff = (simde__m128i *)&pucch2_lut[nb_bit - 3][cw].cw;
+#endif
+      uint64_t corr_tmp_even = 0;
+      uint64_t corr_tmp_odd = 0;
       for (int symb = 0; symb < nb_symbols; symb++) {
         for (int group = 0; group < ngroup; group++) {
           // do complex correlation
           for (int aa = 0; aa < Prx; aa++) {
-            const simde__m256i *coeff = (simde__m256i *)&pucch2_lut[nb_bit - 3][cw].cw;
+            c64_t d;
+#if defined(__AVX2__)
             const simde__m256i *rext = (simde__m256i *)r_ext[aa][symb];
             const simde__m256i *rext2 = (simde__m256i *)r_ext2[aa][symb];
             simde__m256i re = simde_mm256_madd_epi16(coeff[0], rext[group]);
@@ -1334,32 +1355,74 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
             simde__m256i im2 = simde_mm256_madd_epi16(coeff[1], rext2[group + 1]);
             re = simde_mm256_add_epi32(re, re2);
             im = simde_mm256_add_epi32(im, im2);
-            re = simde_mm256_hadd_epi32(re, re);
-            re = simde_mm256_hadd_epi32(re, re);
-            im = simde_mm256_hadd_epi32(im, im);
-            im = simde_mm256_hadd_epi32(im, im);
-            int32_t *re32 = (int32_t *)&re;
-            int32_t *im32 = (int32_t *)&im;
-            c64_t prod = (c64_t){re32[0] + re32[5], im32[0] + im32[5]};
-            csum(prod, prod, corr32[symb][group][aa]);
-            corr_tmp += squaredMod(prod);
+            simde__m256i ri = simde_mm256_hadd_epi32(re, im);
+            ri = simde_mm256_hadd_epi32(ri, ri);
+            int32_t *v = (int32_t *)&ri;
+            d = (c64_t){v[0] + v[4], v[1] + v[5]};
+#else
+            // Each AVX2 256-bit "group"/"group+1" chunk is, byte-for-byte, two
+            // consecutive 128-bit chunks here: coeff[0]/coeff[1] correspond to
+            // the low/high halves of AVX2's coeff[0], coeff[2]/coeff[3] to
+            // AVX2's coeff[1]. Same mapping for rext/rext2. All reductions
+            // below stay within a single 128-bit register -- no cross-lane
+            // combine except a final plain scalar add.
+            const simde__m128i *rext = (simde__m128i *)r_ext[aa][symb];
+            const simde__m128i *rext2 = (simde__m128i *)r_ext2[aa][symb];
+            int g0 = group * 2, g1 = group * 2 + 1;
+            int g2 = (group + 1) * 2, g3 = (group + 1) * 2 + 1;
+            simde__m128i re_lo = simde_mm_madd_epi16(coeff[0], rext[g0]);
+            simde__m128i im_lo = simde_mm_madd_epi16(coeff[0], rext2[g0]);
+            simde__m128i re_hi = simde_mm_madd_epi16(coeff[1], rext[g1]);
+            simde__m128i im_hi = simde_mm_madd_epi16(coeff[1], rext2[g1]);
+            simde__m128i re2_lo = simde_mm_madd_epi16(coeff[2], rext[g2]);
+            simde__m128i im2_lo = simde_mm_madd_epi16(coeff[2], rext2[g2]);
+            simde__m128i re2_hi = simde_mm_madd_epi16(coeff[3], rext[g3]);
+            simde__m128i im2_hi = simde_mm_madd_epi16(coeff[3], rext2[g3]);
+            re_lo = simde_mm_add_epi32(re_lo, re2_lo);
+            im_lo = simde_mm_add_epi32(im_lo, im2_lo);
+            re_hi = simde_mm_add_epi32(re_hi, re2_hi);
+            im_hi = simde_mm_add_epi32(im_hi, im2_hi);
+            simde__m128i lo_ri = simde_mm_hadd_epi32(re_lo, im_lo);
+            lo_ri = simde_mm_hadd_epi32(lo_ri, lo_ri);
+            simde__m128i hi_ri = simde_mm_hadd_epi32(re_hi, im_hi);
+            hi_ri = simde_mm_hadd_epi32(hi_ri, hi_ri);
+            int32_t *vlo = (int32_t *)&lo_ri;
+            int32_t *vhi = (int32_t *)&hi_ri;
+            d = (c64_t){vlo[0] + vhi[0], vlo[1] + vhi[1]};
+#endif
+            c32_t c = corr32[symb][group][aa];
+            c64_t prod_even = {d.r + c.r, d.i + c.i};
+            c64_t prod_odd  = {-d.r + c.r, -d.i + c.i};
+            corr_tmp_even += squaredMod(prod_even);
+            corr_tmp_odd  += squaredMod(prod_odd);
 #ifdef DEBUG_NR_PUCCH_RX
-            printf("pucch2 cw %d group %d aa %d: (%d,%d)+prod=(%ld,%ld)\n",
+            printf("pucch2 cw %d/%d group %d aa %d: c=(%d,%d) d=(%ld,%ld) even=(%ld,%ld) odd=(%ld,%ld)\n",
                    cw,
+                   cw+1,
                    group,
                    aa,
-                   corr32[symb][group][aa].r,
-                   corr32[symb][group][aa].i,
-                   prod.r,
-                   prod.i);
-
+                   c.r,
+                   c.i,
+                   d.r,
+                   d.i,
+                   prod_even.r,
+                   prod_even.i,
+                   prod_odd.r,
+                   prod_odd.i);
 #endif
           }
         } // group loop
       } // symb loop
-      if (corr_tmp > corr) {
-        corr = corr_tmp;
+      if (corr_tmp_even > corr) {
+        corr = corr_tmp_even;
         cw_ML = cw;
+#ifdef DEBUG_NR_PUCCH_RX
+        printf("slot %d PUCCH2 cw_ML %d, corr %lu\n", slot, cw_ML, corr);
+#endif
+      }
+      if (corr_tmp_odd > corr) {
+        corr = corr_tmp_odd;
+        cw_ML = cw + 1;
 #ifdef DEBUG_NR_PUCCH_RX
         printf("slot %d PUCCH2 cw_ML %d, corr %lu\n", slot, cw_ML, corr);
 #endif
@@ -1370,9 +1433,7 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
     printf("slot %d PUCCH2 cw_ML %d, metric %d \n", slot, cw_ML, corr_dB);
 #endif
     decodedPayload[0] = (uint64_t)cw_ML;
-
   } else if (nb_bit >= 12) { // polar coded case
-
     simde__m128i llrs[pucch_pdu->prb_size * 2 * nb_symbols];
     // non-coherent LLR computation on groups of 4 REs (half-PRBs)
     uint64_t corr = 0;
@@ -1383,19 +1444,16 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
         simde__m128i llr_den = simde_mm_set1_epi16(0);
         for (int cw = 0; cw < 256; cw++) {
           int32_t corr_tmp = 0;
+          simde__m128i factor = pucch2_polar_factor_lut[cw];
           for (int aa = 0; aa < Prx; aa++) {
-            simde__m128i part1 = simde_mm_set_epi64x(0ULL, *(int64_t *)&pucch2_polar_4bit[cw & 15].cw);
-            simde__m128i part2 = simde_mm_set_epi64x(0ULL, *(int64_t *)&pucch2_polar_4bit[cw >> 4].cw);
-            simde__m128i factor = simde_mm_unpacklo_epi16(part1, part2);
             simde__m128i re = *(simde__m128i *)&r_ext[aa][symb][half_prb * 4];
             simde__m128i im = *(simde__m128i *)&r_ext2[aa][symb][half_prb * 4];
             simde__m128i prod_re = simde_mm_madd_epi16(re, factor);
             simde__m128i prod_im = simde_mm_madd_epi16(im, factor);
-            prod_re = simde_mm_hadd_epi32(prod_re, prod_re);
-            prod_im = simde_mm_hadd_epi32(prod_im, prod_im);
-            prod_re = simde_mm_hadd_epi32(prod_re, prod_re);
-            prod_im = simde_mm_hadd_epi32(prod_im, prod_im);
-            simde__m128i prod = simde_mm_srai_epi32(simde_mm_unpacklo_epi32(prod_re, prod_im), 5);
+            // combine re/im into one register so both reductions share the same hadd chain
+            simde__m128i ri = simde_mm_hadd_epi32(prod_re, prod_im);
+            ri = simde_mm_hadd_epi32(ri, ri);
+            simde__m128i prod = simde_mm_srai_epi32(ri, 5);
             c64_t corr64 = (c64_t){corr32[symb][half_prb >> 2][aa].r / (2 * nc_group_size * 4 / 2),
                                    corr32[symb][half_prb >> 2][aa].i / (2 * nc_group_size * 4 / 2)};
             //  _mm_srai_epi64 is missing in SIMDE package, we need to update it
@@ -1433,17 +1491,17 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
 
   LOG_D(PHY, "UCI decoderState %d, payload[0] %llu\n", decoderState, (unsigned long long)decodedPayload[0]);
 
-  // estimate CQI for MAC (from antenna port 0 only)
-  // TODO this computation is wrong -> to be ignored at MAC for now
-  int cqi = 0xff;
-  /*int SNRtimes10 =
-    dB_fixed_times10(signal_energy_nodc((int32_t *)&rxdataF[0][soffset + (l2 * symb_sz) + re_offset[0]],
-    12 * pucch_pdu->prb_size))
-    - (10 * gNB->measurements.n0_power_tot_dB);
-    int cqi,bit_left;
-    if (SNRtimes10 < -640) cqi=0;
-    else if (SNRtimes10 >  635) cqi=255;
-    else cqi=(640+SNRtimes10)/5;*/
+  int max_n0 = gNB->measurements.n0_subband_power_tot_dB[pucch_pdu->bwp_start + pucch_pdu->prb_start];
+  for (int p = 1; p < pucch_pdu->prb_size; p++)
+    max_n0 = max(max_n0, gNB->measurements.n0_subband_power_tot_dB[pucch_pdu->bwp_start + pucch_pdu->prb_start + p]);
+  int SNRtimes10 = dB_fixed_times10(pucch2_lev) - (10 * max_n0);
+  int cqi;
+  if (SNRtimes10 < -640)
+    cqi = 0;
+  else if (SNRtimes10 > 635)
+    cqi = 255;
+  else
+    cqi = (640 + SNRtimes10) / 5;
 
   uci_pdu->harq.harq_bit_len = pucch_pdu->bit_len_harq;
   uci_pdu->pduBitmap = 0;
