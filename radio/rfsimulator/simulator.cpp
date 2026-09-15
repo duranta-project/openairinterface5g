@@ -907,7 +907,7 @@ static int rfsimulator_write_internal(rfsimulator_state_t *t,
                                       sample_t **samples,
                                       int nsamps,
                                       int nbAnt,
-                                      std::vector<uint16_t> tx_beams,
+                                      std::vector<float> tx_gains_db,
                                       int flags)
 {
   mutexlock(t->Sockmutex);
@@ -919,8 +919,8 @@ static int rfsimulator_write_internal(rfsimulator_state_t *t,
     if (b->conn_sock >= 0) {
       samplesBlockHeader_t header = {(uint32_t)nsamps, (uint32_t)nbAnt, (uint64_t)timestamp, 0, 0};
       fullwrite(b->conn_sock, &header, sizeof(header), t);
-      AssertFatal((uint)nbAnt == tx_beams.size(), "rfsim requires one beam per IQ stream\n");
-      fullwrite(b->conn_sock, tx_beams.data(), sizeof(uint16_t) * nbAnt, t);
+      AssertFatal((uint)nbAnt == tx_gains_db.size(), "rfsim requires one gain value per IQ stream\n");
+      fullwrite(b->conn_sock, tx_gains_db.data(), sizeof(float) * nbAnt, t);
       for (int a = 0; a < nbAnt; a++) {
         fullwrite(b->conn_sock, (void *)samples[a], sampleToByte(nsamps, 1), t);
       }
@@ -976,24 +976,14 @@ static int rfsimulator_write(openair0_device_t *device,
     while ((int)tx_beams.size() < nbAnt)
       tx_beams.push_back(0);
 
-    if (t->beam_ctrl->enable_beams) {
-      // Apply our own beam gain to the outgoing samples here, on the sending side, so the peer
-      // never has to know anything about beams: it just receives already-attenuated samples.
-      std::vector<std::vector<sample_t>> scaled(nbAnt, std::vector<sample_t>(nsamps_beam_map));
-      sample_t *scaled_ptrs[nbAnt];
-      for (int aatx = 0; aatx < nbAnt; aatx++) {
-        float gain_dB = get_beam_gain_db(t, tx_beams[aatx]);
-        float gain_linear = powf(10, gain_dB / 20.0);
-        for (uint32_t s = 0; s < nsamps_beam_map; s++) {
-          scaled[aatx][s].r = samples[aatx][s].r * gain_linear;
-          scaled[aatx][s].i = samples[aatx][s].i * gain_linear;
-        }
-        scaled_ptrs[aatx] = scaled[aatx].data();
-      }
-      rfsimulator_write_internal(t, timestamp, scaled_ptrs, nsamps_beam_map, nbAnt, tx_beams, flags);
-    } else {
-      rfsimulator_write_internal(t, timestamp, samples, nsamps_beam_map, nbAnt, tx_beams, flags);
+    // Look up our own beam gain once per antenna and put it on the wire. The peer just gets 
+    // a plain per-antenna dB value and folds it into its own per-sample pass over the buffer 
+    // (see combine_received_beams() and the no-channel-model loop)
+    std::vector<float> tx_gains_db(nbAnt);
+    for (int aatx = 0; aatx < nbAnt; aatx++) {
+      tx_gains_db[aatx] = get_beam_gain_db(t, tx_beams[aatx]);
     }
+    rfsimulator_write_internal(t, timestamp, samples, nsamps_beam_map, nbAnt, tx_gains_db, flags);
 
     for (int aatx = 0; aatx < nbAnt; aatx++) {
       samples[aatx] += nsamps_beam_map;
@@ -1031,10 +1021,10 @@ static bool add_client(rfsimulator_state_t *t)
   samplesBlockHeader_t header = {1, (uint32_t)t->tx_num_channels, (uint64_t)t->lastWroteTS, 0, 0};
 
   fullwrite(conn_sock, &header, sizeof(header), t);
-  uint16_t beam_ids[t->tx_num_channels];
+  float gains_db[t->tx_num_channels];
   for (int i = 0; i < t->tx_num_channels; i++)
-    beam_ids[i] = 0;
-  fullwrite(conn_sock, beam_ids, sizeof(beam_ids), t);
+    gains_db[i] = 0.0f;
+  fullwrite(conn_sock, gains_db, sizeof(gains_db), t);
 
   c16_t v[t->tx_num_channels];
   memset(v, 0, sizeof(v));
@@ -1071,12 +1061,12 @@ static void process_recv_header(buffer_t *b, bool first_time)
     }
   }
 
-  size_t beam_payload_size = b->th.nbAnt * sizeof(uint16_t);
+  size_t gains_payload_size = b->th.nbAnt * sizeof(float);
   size_t payload_sz = sampleToByte(b->th.size, b->th.nbAnt);
-  b->packet_ptr = static_cast<rfsim_packet_t *>(malloc_or_fail(beam_payload_size + payload_sz + sizeof(samplesBlockHeader_t)));
+  b->packet_ptr = static_cast<rfsim_packet_t *>(malloc_or_fail(gains_payload_size + payload_sz + sizeof(samplesBlockHeader_t)));
   b->packet_ptr->header = b->th;
   b->transferPtr = b->packet_ptr->payload;
-  b->remainToTransfer = payload_sz + beam_payload_size;
+  b->remainToTransfer = payload_sz + gains_payload_size;
   return;
 }
 
@@ -1118,19 +1108,20 @@ static void combine_received_beams(rfsimulator_state_t *t,
       break;
     }
 
-    // The sender's beam id(s) are still on the wire (payload is offset past them below) but are no
-    // longer consulted: gain is entirely a property of this node's own beam (only the gNB has one;
-    // see rfsim_beam_ctrl_t). Accumulate every TX antenna's stream, gain-adjusted for our own RX
-    // beam, into the same-indexed RX antenna buffer.
-    c16_t *buffer = (c16_t *)&pkt->payload[sizeof(uint16_t) * pkt->header.nbAnt];
-    float gain_dB = get_beam_gain_db(t, rx_beam_id);
-    float gain_linear = powf(10, gain_dB / 20.0);
+    // The sender already looked up its own beam gain once per antenna and put it on the wire (see
+    // rfsimulator_write()) -- it never had to touch a sample to do that. Combine it with our own
+    // beam gain (dB values add when the corresponding linear gains multiply) and fold both into
+    // this same per-sample accumulation loop
+    const float *sender_gain_db = reinterpret_cast<const float *>(pkt->payload);
+    c16_t *buffer = (c16_t *)&pkt->payload[sizeof(float) * pkt->header.nbAnt];
+    float own_gain_dB = get_beam_gain_db(t, rx_beam_id);
     uint64_t overlap_start = std::max(start_timestamp, pkt->header.timestamp);
     uint64_t overlap_end = std::min(start_timestamp + num_samples, pkt->header.timestamp + pkt->header.size);
     int write_start_idx = overlap_start - start_timestamp;
     int write_end_idx = overlap_end - start_timestamp;
     int read_start_idx = overlap_start - pkt->header.timestamp;
     for (uint aatx = 0; aatx < pkt->header.nbAnt; aatx++) {
+      float gain_linear = powf(10, (own_gain_dB + sender_gain_db[aatx]) / 20.0);
       c16_t *tx_ant_buffer_in = &buffer[aatx * pkt->header.size + read_start_idx];
       for (int s = write_start_idx; s < write_end_idx; s++) {
         samples[aatx][s].r += tx_ant_buffer_in->r * gain_linear;
@@ -1270,21 +1261,22 @@ static void rfsimulator_read_internal(rfsimulator_state_t *t,
             break;
           }
 
-          // The sender's beam ids are still on the wire (offset accounted for below) but are no
-          // longer consulted here -- see combine_received_beams() for why.
+          // The sender already looked up its own beam gain once per antenna and put it on the wire
+          // (see rfsimulator_write()) -- combine it with our own beam gain below
           uint64_t overlap_start = std::max(read_timestamp, static_cast<int64_t>(pkt->header.timestamp));
           uint64_t overlap_end = std::min(read_timestamp + nsamps, static_cast<int64_t>(pkt->header.timestamp + pkt->header.size));
           int write_start_idx = overlap_start - read_timestamp;
           int write_end_idx = overlap_end - read_timestamp;
           int read_start_idx = overlap_start - pkt->header.timestamp;
-          c16_t *buffer = (c16_t *)&pkt->payload[sizeof(uint16_t) * pkt->header.nbAnt];
+          const float *sender_gain_db = reinterpret_cast<const float *>(pkt->payload);
+          c16_t *buffer = (c16_t *)&pkt->payload[sizeof(float) * pkt->header.nbAnt];
 
           for (int aarx = 0; aarx < nbAnt; aarx++) {
-            float gain_dB = get_beam_gain_db(t, rx_beams[aarx]);
-            float gain_linear = powf(10, gain_dB / 20.0);
+            float own_gain_dB = get_beam_gain_db(t, rx_beams[aarx]);
             double H_awgn_mimo_coeff[pkt->header.nbAnt];
             for (int aatx = 0; aatx < (int)pkt->header.nbAnt; aatx++) {
               uint32_t ant_diff = std::abs(aatx - aarx);
+              float gain_linear = powf(10, (own_gain_dB + sender_gain_db[aatx]) / 20.0);
               H_awgn_mimo_coeff[aatx] = (ant_diff ? (0.2 / ant_diff) : 1.0) * gain_linear;
             }
 
