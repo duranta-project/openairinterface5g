@@ -31,11 +31,8 @@ int get_full_dl_slots_per_period(const frame_structure_t *fs);
 int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed);
 void delete_nr_ue_data(NR_UE_info_t *UE, uid_allocator_t *uia);
 
-void mac_top_init_gNB(ngran_node_t node_type,
-                      NR_ServingCellConfigCommon_t *scc,
-                      const nr_mac_config_t *conf,
-                      const nr_rlc_configuration_t *default_rlc_config,
-                      nr_cell_sched_t **cell);
+void mac_top_init_gNB(ngran_node_t node_type, const nr_rlc_configuration_t *default_rlc_config);
+void mac_init_cell(NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config, nr_cell_sched_t *cell);
 void mac_top_destroy_gNB(gNB_MAC_INST *mac);
 void nr_mac_send_f1_setup_req(void);
 int get_ssbidx_from_beam(const nr_cell_sched_t *cell, int beam_idx);
