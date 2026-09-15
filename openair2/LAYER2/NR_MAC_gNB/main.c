@@ -254,8 +254,6 @@ void mac_top_init_gNB(ngran_node_t node_type, const nr_rlc_configuration_t *defa
   RC.nrmac[0] = (gNB_MAC_INST *)malloc16(sizeof(gNB_MAC_INST));
   bzero(RC.nrmac[0], sizeof(gNB_MAC_INST));
   seq_arr_init(&RC.nrmac[0]->cells, sizeof(nr_cell_sched_t));
-  // Push one zeroed cell slot; callers fill it via mac_init_cell.
-  seq_arr_push(&RC.nrmac[0]->cells, NULL, sizeof(nr_cell_sched_t));
   RC.nrmac[0]->Mod_id = 0;
 
   LOG_D(MAC, "[MAIN] ALLOCATE %zu Bytes for gNB_MAC_INST @ %p\n", sizeof(gNB_MAC_INST), RC.nrmac[0]);
@@ -307,14 +305,9 @@ void mac_top_init_gNB(ngran_node_t node_type, const nr_rlc_configuration_t *defa
 
 void mac_init_cell(NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config, nr_cell_sched_t *cell)
 {
-  nr_mac_pcch_queue_init(&cell->common_channels);
-  for (int n = 0; n < MAX_NUM_OF_SSB; n++)
-    cell->sib1_pdsch[n].time_domain_allocation = -1;
   cell->phy_id = *scc->physCellId;
   cell->common_channels.ServingCellConfigCommon = scc;
   cell->radio_config = *config;
-  cell->first_MIB = true;
-  cell->num_scheduled_prach_rx = 0;
   cell->common_channels.mib = get_new_MIB_NR(scc);
   cell->cset0_bwp_start = 0;
   cell->cset0_bwp_size = 0;
@@ -323,14 +316,8 @@ void mac_init_cell(NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *con
 
 void mac_top_destroy_gNB(gNB_MAC_INST *mac)
 {
-  FOR_EACH_SEQ_ARR (nr_cell_sched_t *, cell, &mac->cells) {
-    free(cell->radio_config.bw_list);
-    NR_COMMON_channels_t *cc = &cell->common_channels;
-    nr_mac_pcch_queue_free(cc);
-    ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, cc->mib);
-    ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, cc->sib1);
-    ASN_STRUCT_FREE(asn_DEF_NR_ServingCellConfigCommon, cc->ServingCellConfigCommon);
-  }
+  FOR_EACH_SEQ_ARR (nr_cell_sched_t *, cell, &mac->cells)
+    nr_mac_cell_free(cell);
   seq_arr_free(&mac->cells, NULL);
   NR_UEs_t *UE_info = &mac->UE_info;
   for (int i = 0; i < sizeofArray(UE_info->connected_ue_list); ++i)

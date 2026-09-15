@@ -1747,7 +1747,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
     mac_top_init_gNB(node_type, &default_rlc_config);
 
     gNB_MAC_INST *nrmac = RC.nrmac[0];
-    nr_cell_sched_t *cell = nr_mac_get_cell_by_phy_id(nrmac, 0);
+    nr_cell_sched_t *cell = nr_mac_cell_alloc(nrmac);
     mac_init_cell(scc, &config, cell);
 
     const paramdef_t *params = MacRLC_ParamList.paramarray[0];
