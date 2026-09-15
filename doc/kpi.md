@@ -119,6 +119,36 @@ With `ulsch_max_frame_inactivity= 0;`
 
 For execution details, see [physical-simulators.md](./physical-simulators.md).
 
+The tables below report the gNB processing time, in microseconds, averaged over
+1000 frames (`-n1000`), for a set of bandwidth, layer, SNR and MCS combinations:
+
+- TX processing is the `PHY proc tx` value reported by `nr_dlsim -P`
+- RX processing is the `Total PHY proc rx` value reported by `nr_ulsim -P`
+- DLSCH encoding is the `DLSCH encoding time` reported by `nr_dlsim -P`
+- ULSCH decoding is the `ULSCH total decoding time` reported by `nr_ulsim -P`
+
+`nr_dlsim` covers the DL only and `nr_ulsim` the UL only, hence the antenna
+configurations do not fully overlap: entries marked `-` are not measured.
+
+#### Example commands
+
+```bash
+# DL: 40 MHz (106 PRB), 1 layer, SNR 20, MCS 15
+./nr_dlsim -n1000 -s20 -S20.2 -e15 -b106 -R106 -X <list of isolated CPUs> -P
+# UL: 40 MHz (106 PRB), 1 layer, SNR 20, MCS 15
+./nr_ulsim -n1000 -s20 -S20 -m15 -r106 -R106 -C8 -P
+```
+
+To obtain the other entries of the tables, adapt the following options:
+
+|Option                                 |Meaning                                                        |
+|---------------------------------------|---------------------------------------------------------------|
+|`-b`/`-R` (nr_dlsim), `-r`/`-R` (nr_ulsim)|Number of PRBs, e.g. `106` for 40 MHz, `273` for 100 MHz    |
+|`-s`/`-S`                              |SNR, e.g. `-s20 -S20.2` (nr_dlsim) or `-s20 -S20` (nr_ulsim)   |
+|`-e` (nr_dlsim), `-m` (nr_ulsim)       |MCS index, e.g. `20` or `25`                                   |
+|`-x` (nr_dlsim), `-W` (nr_ulsim)       |Number of layers, e.g. `-x2` or `-W2`                          |
+|`-z`/`-y`                              |Number of RX/TX antennas, e.g. `-z2 -y2` or `-z4 -y4`          |
+
 #### Test Profile 1
 
 |Parameter   |Value                           |
@@ -126,57 +156,20 @@ For execution details, see [physical-simulators.md](./physical-simulators.md).
 |Machine     |AMD Ryzen 9 7945HX              |
 |Architecture|x86_64                          |
 
-##### nr_dlsim
-
-256 QAM modulation, 6 thread pool cores
-
-DL Processing time is the `PHY proc tx` value reported by `nr_dlsim -P`, for gNB.
-
-###### SNR 20 / MCS 20
-
-|Bandwidth MHz/PRB|Layers|DL Processing (us)|Test Command|
-|-----------------|------|------------------|------------|
-|40(106)|1|66.70|`./nr_dlsim -n1000 -s20 -S20.2 -e20 -b106 -R106 -X 8,9,10,11,12,13,14,15 -P -q1`|
-||2 (2 antennas)|87.96|`./nr_dlsim -n1000 -s20 -S20.2 -e20 -b106 -R106 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z2 -y2`|
-||(4 antennas)|97.09|`./nr_dlsim -n1000 -s20 -S20.2 -e20 -b106 -R106 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z4 -y4`|
-|100(273)|1|104.17|`./nr_dlsim -n1000 -s20 -S20.2 -e20 -b273 -R273 -X 8,9,10,11,12,13,14,15 -P -q1`|
-||2 (2 antennas)|170.40|`./nr_dlsim -n1000 -s20 -S20.2 -e20 -b273 -R273 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z2 -y2`|
-||(4 antennas)|192.94|`./nr_dlsim -n1000 -s20 -S20.2 -e20 -b273 -R273 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z4 -y4`|
-
-###### SNR 30 / MCS 25
-
-|Bandwidth MHz/PRB|Layers|DL Processing (us)|Test Command|
-|-----------------|------|------------------|------------|
-|40(106)|1|67.01|`./nr_dlsim -n1000 -s30 -S30.2 -e25 -b106 -R106 -X 8,9,10,11,12,13,14,15 -P -q1`|
-||2 (2 antennas)|95.87|`./nr_dlsim -n1000 -s30 -S30.2 -e25 -b106 -R106 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z2 -y2`|
-||(4 antennas)|104.97|`./nr_dlsim -n1000 -s30 -S30.2 -e25 -b106 -R106 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z4 -y4`|
-|100(273)|1|109.78|`./nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X 8,9,10,11,12,13,14,15 -P -q1`|
-||2 (2 antennas)|193.51|`./nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z2 -y2`|
-||(4 antennas)|212.92|`./nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z4 -y4`|
-
-##### nr_ulsim
-
-64 QAM modulation, 8 thread pool cores
-
-UL Processing time is the `Total PHY proc rx` value reported by `nr_ulsim -P`, for gNB.
-
-###### SNR 20 / MCS 20
-
-|Bandwidth MHz/PRB|Layers|UL Processing (us)|Test Command|
-|-----------------|------|------------------|------------|
-|40(106)|1|140.17|`./nr_ulsim -n1000 -s20 -S20 -m20 -r106 -R106 -C8 -P`|
-||2|321.56|`./nr_ulsim -n1000 -s20 -S20 -m20 -r106 -R106 -C8 -P -W2 -z2 -y2`|
-|100(273)|1|249.84|`./nr_ulsim -n1000 -s20 -S20 -m20 -r273 -R273 -C8 -P`|
-||2|892.62|`./nr_ulsim -n1000 -s20 -S20 -m20 -r273 -R273 -C8 -P -W2 -z2 -y2`|
-
-###### SNR 30 / MCS 25
-
-|Bandwidth MHz/PRB|Layers|UL Processing (us)|Test Command|
-|-----------------|------|------------------|------------|
-|40(106)|1|107.65|`./nr_ulsim -n1000 -s30 -S30 -m25 -r106 -R106 -C8 -P`|
-||2|305.61|`./nr_ulsim -n1000 -s30 -S30 -m25 -r106 -R106 -C8 -P -W2 -z2 -y2`|
-|100(273)|1|228.84|`./nr_ulsim -n1000 -s30 -S30 -m25 -r273 -R273 -C8 -P`|
-||2|889.85|`./nr_ulsim -n1000 -s30 -S30 -m25 -r273 -R273 -C8 -P -W2 -z2 -y2`|
+|SNR/MCS|Bandwidth MHz/PRB|Configuration|TX Processing - nr_dlsim (us)|DLSCH Encoding - nr_dlsim (us)|RX Processing - nr_ulsim (us)|ULSCH Decoding - nr_ulsim (us)|
+|-------|-----------------|-------------|------------------------------:|--------------------------------:|------------------------------:|--------------------------------:|
+|20/15|40(106)|1 layer|44.86|30.52|119.81|81.85|
+|||2 layers / 2 antennas|52.90|27.51|233.62|121.25|
+|||2 layers / 4 antennas|63.41|27.87|-|-|
+||100(273)|1 layer|57.85|28.70|212.31|139.86|
+|||2 layers / 2 antennas|94.79|38.12|442.09|211.39|
+|||2 layers / 4 antennas|118.37|37.60|-|-|
+|30/25|40(106)|1 layer|41.08|25.64|121.39|77.98|
+|||2 layers / 2 antennas|58.41|31.61|340.42|121.84|
+|||2 layers / 4 antennas|69.55|32.17|-|-|
+||100(273)|1 layer|68.81|37.36|225.67|133.66|
+|||2 layers / 2 antennas|109.75|49.11|748.93|262.83|
+|||2 layers / 4 antennas|140.59|55.78|-|-|
 
 #### Test Profile 2
 
@@ -185,57 +178,20 @@ UL Processing time is the `Total PHY proc rx` value reported by `nr_ulsim -P`, f
 |Machine     |DGX Spark, Cortex-X925, 20 cores|
 |Architecture|aarch64                         |
 
-##### nr_dlsim
-
-256 QAM modulation, 6 thread pool cores
-
-DL Processing time is the `PHY proc tx` value reported by `nr_dlsim -P`, for gNB.
-
-###### SNR 20 / MCS 20
-
-|Bandwidth MHz/PRB|Layers|DL Processing (us)|Test Command|
-|-----------------|------|------------------|------------|
-|40(106)|1|104.04|`./nr_dlsim -n1000 -s20 -S20.2 -e20 -b106 -R106 -X 8,9,10,11,12,13,14,15 -P -q1`|
-||2 (2 antennas)|161.55|`./nr_dlsim -n1000 -s20 -S20.2 -e20 -b106 -R106 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z2 -y2`|
-||(4 antennas)|191.94|`./nr_dlsim -n1000 -s20 -S20.2 -e20 -b106 -R106 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z4 -y4`|
-|100(273)|1|189.12|`./nr_dlsim -n1000 -s20 -S20.2 -e20 -b273 -R273 -X 8,9,10,11,12,13,14,15 -P -q1`|
-||2 (2 antennas)|345.56|`./nr_dlsim -n1000 -s20 -S20.2 -e20 -b273 -R273 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z2 -y2`|
-||(4 antennas)|418.26|`./nr_dlsim -n1000 -s20 -S20.2 -e20 -b273 -R273 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z4 -y4`|
-
-###### SNR 30 / MCS 25
-
-|Bandwidth MHz/PRB|Layers|DL Processing (us)|Test Command|
-|-----------------|------|------------------|------------|
-|40(106)|1|103.05|`./nr_dlsim -n1000 -s30 -S30.2 -e25 -b106 -R106 -X 8,9,10,11,12,13,14,15 -P -q1`|
-||2 (2 antennas)|169.22|`./nr_dlsim -n1000 -s30 -S30.2 -e25 -b106 -R106 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z2 -y2`|
-||(4 antennas)|197.41|`./nr_dlsim -n1000 -s30 -S30.2 -e25 -b106 -R106 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z4 -y4`|
-|100(273)|1|194.23|`./nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X 8,9,10,11,12,13,14,15 -P -q1`|
-||2 (2 antennas)|354.08|`./nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z2 -y2`|
-||(4 antennas)|428.30|`./nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X 8,9,10,11,12,13,14,15 -P -q1 -x2 -z4 -y4`|
-
-##### nr_ulsim
-
-64 QAM modulation, 8 thread pool cores
-
-UL Processing time is the `Total PHY proc rx` value reported by `nr_ulsim -P`, for gNB.
-
-###### SNR 20 / MCS 20
-
-|Bandwidth MHz/PRB|Layers|UL Processing (us)|Test Command|
-|-----------------|------|------------------|------------|
-|40(106)|1|824.76|`./nr_ulsim -n1000 -s20 -S20 -m20 -r106 -R106 -C8 -P`|
-||2|3349.06|`./nr_ulsim -n1000 -s20 -S20 -m20 -r106 -R106 -C8 -P -W2 -z2 -y2`|
-|100(273)|1|1612.73|`./nr_ulsim -n1000 -s20 -S20 -m20 -r273 -R273 -C8 -P`|
-||2|7899.00|`./nr_ulsim -n1000 -s20 -S20 -m20 -r273 -R273 -C8 -P -W2 -z2 -y2`|
-
-###### SNR 30 / MCS 25
-
-|Bandwidth MHz/PRB|Layers|UL Processing (us)|Test Command|
-|-----------------|------|------------------|------------|
-|40(106)|1|656.31|`./nr_ulsim -n1000 -s30 -S30 -m25 -r106 -R106 -C8 -P`|
-||2|3187.49|`./nr_ulsim -n1000 -s30 -S30 -m25 -r106 -R106 -C8 -P -W2 -z2 -y2`|
-|100(273)|1|1509.84|`./nr_ulsim -n1000 -s30 -S30 -m25 -r273 -R273 -C8 -P`|
-||2|7389.53|`./nr_ulsim -n1000 -s30 -S30 -m25 -r273 -R273 -C8 -P -W2 -z2 -y2`|
+|SNR/MCS|Bandwidth MHz/PRB|Configuration|TX Processing - nr_dlsim (us)|DLSCH Encoding - nr_dlsim (us)|RX Processing - nr_ulsim (us)|ULSCH Decoding - nr_ulsim (us)|
+|-------|-----------------|-------------|------------------------------:|--------------------------------:|------------------------------:|--------------------------------:|
+|20/15|40(106)|1 layer|78.87|46.69|156.54|97.61|
+|||2 layers / 2 antennas|112.56|52.44|332.56|147.42|
+|||2 layers / 4 antennas|142.34|54.21|-|-|
+||100(273)|1 layer|126.82|58.30|274.24|168.85|
+|||2 layers / 2 antennas|239.51|91.51|677.19|269.18|
+|||2 layers / 4 antennas|310.43|92.67|-|-|
+|30/25|40(106)|1 layer|81.34|48.89|153.56|92.56|
+|||2 layers / 2 antennas|129.66|69.08|552.92|140.98|
+|||2 layers / 4 antennas|158.74|69.13|-|-|
+||100(273)|1 layer|151.22|82.04|294.53|178.25|
+|||2 layers / 2 antennas|276.59|126.84|1276.87|300.83|
+|||2 layers / 4 antennas|350.57|128.13|-|-|
 
 ## 4. `nr-uesoftmodem`
 
