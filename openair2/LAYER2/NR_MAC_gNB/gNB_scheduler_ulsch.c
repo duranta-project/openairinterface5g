@@ -726,6 +726,18 @@ static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rn
 
 static void handle_msg3_failed_rx(gNB_MAC_INST *mac, NR_RA_t *ra, rnti_t rnti, int harq_round_max)
 {
+  // for CFRA (NSA) do not schedule retransmission of msg3
+  // For RA 2-Step consider RA failed if MsgA-PUSCH not detected
+  if (ra->cfra || ra->ra_type == RA_2_STEP) {
+    LOG_W(NR_MAC,
+          "UE %04x RA failed at state %s (%s reception failed)\n",
+          rnti,
+          nrra_text[ra->ra_state],
+          ra->ra_type == RA_2_STEP ? "MsgA-PUSCH" : "NSA Msg3");
+    nr_release_ra_UE(mac, rnti);
+    return;
+  }
+
   if (ra->msg3_round >= harq_round_max - 1) {
     LOG_W(NR_MAC, "UE %04x RA failed at state %s (Reached msg3 max harq rounds)\n", rnti, nrra_text[ra->ra_state]);
     nr_release_ra_UE(mac, rnti);
@@ -752,7 +764,7 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
   NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   NR_UE_info_t *UE = find_ra_UE(&mac->UE_info, rnti);
   if (!UE) {
-    LOG_E(NR_MAC, "UL SDU discarded. Couldn't finde UE with RNTI %04x \n", rnti);
+    LOG_D(NR_MAC, "UL SDU discarded. Couldn't find UE with RNTI %04x \n", rnti);
     return;
   }
 
@@ -795,16 +807,19 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
     if (cfra)  // no Msg3 on CFRA, no problem
       return;
 
-    if (ra->ra_state != nrRA_WAIT_Msg3)
+    if (ra->ra_type == RA_4_STEP && ra->ra_state != nrRA_WAIT_Msg3)
       return;
 
-    if((frame!=ra->Msg3_frame) || (slot!=ra->Msg3_slot))
+    if (ra->ra_type == RA_2_STEP && ra->ra_state != nrRA_WAIT_MsgA_PUSCH)
+      return;
+
+    if (ra->ra_type == RA_4_STEP && ((frame != ra->Msg3_frame) || (slot != ra->Msg3_slot)))
       return;
 
     if (ul_cqi != 0xff)
       ra->msg3_TPC = nr_mac_get_tpc(&UE->UE_sched_ctrl.pusch_pc);
 
-    handle_msg3_failed_rx(mac, ra, rnti, cell->ul_bler.harq_round_max);
+    handle_msg3_failed_rx(mac, ra, UE->rnti, cell->ul_bler.harq_round_max);
     return;
   }
 
@@ -823,15 +838,15 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
 
 
   if (no_sig) {
-    LOG_W(NR_MAC, "MSG3 ULSCH with no signal\n");
+    LOG_W(NR_MAC, "%s ULSCH with no signal\n", ra->ra_type == RA_2_STEP ? "MsgA-PUSCH" : "MSG3");
     if (!cfra)
-      handle_msg3_failed_rx(mac, ra, rnti, cell->ul_bler.harq_round_max);
+      handle_msg3_failed_rx(mac, ra, UE->rnti, cell->ul_bler.harq_round_max);
     return;
   }
   if (!cfra && ra->ra_type == RA_2_STEP) {
     // random access pusch with RA-RNTI
     if (ra->RA_rnti != rnti) {
-      LOG_E(NR_MAC, "expected TC_RNTI %04x to match current RNTI %04x\n", ra->RA_rnti, rnti);
+      LOG_E(NR_MAC, "expected RA_RNTI %04x to match current RNTI %04x\n", ra->RA_rnti, rnti);
       return;
     }
   }
@@ -839,7 +854,12 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
   // re-initialize ta update variables after RA procedure completion
   UE->UE_sched_ctrl.ta_frame = (frame + 100) % MAX_FRAME_NUMBER;
 
-  LOG_A(NR_MAC, "%4d.%2d PUSCH with TC_RNTI 0x%04x received correctly\n", frame, slot, rnti);
+  LOG_A(NR_MAC,
+        "%4d.%2d PUSCH with %s 0x%04x received correctly\n",
+        frame,
+        slot,
+        ra->ra_type == RA_2_STEP ? "RA_RNTI" : "TC_RNTI",
+        rnti);
 
   NR_UE_sched_ctrl_t *UE_scheduling_control = &UE->UE_sched_ctrl;
   DevAssert(harq_pid >= 0 && harq_pid < 8);
@@ -906,9 +926,10 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
   nr_process_mac_pdu(mac, cell, UE, frame, slot, sdu, sdu_len, harq_pid);
 
   LOG_I(NR_MAC,
-        "Activating scheduling %s for TC_RNTI 0x%04x (state %s)\n",
+        "Activating scheduling %s for %s 0x%04x (state %s)\n",
         ra->ra_type == RA_2_STEP ? "MsgB" : "Msg4",
-        UE->rnti,
+        ra->ra_type == RA_2_STEP ? "MsgB_rnti" : "TC_RNTI",
+        ra->ra_type == RA_2_STEP ? UE->ra->MsgB_rnti : UE->rnti,
         nrra_text[ra->ra_state]);
   ra->ra_state = ra->ra_type == RA_2_STEP ? nrRA_MsgB : nrRA_Msg4;
   LOG_D(NR_MAC, "TC_RNTI 0x%04x next RA state %s\n", UE->rnti, nrra_text[ra->ra_state]);
