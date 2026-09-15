@@ -72,6 +72,13 @@ void nr_rrc_ue_decode_NR_SBCCH_SL_BCH_Message(NR_UE_RRC_INST_t *rrc,
                                               const uint16_t rx_slss_id);
 
 void nr_rrc_set_mac_queue(instance_t instance, notifiedFIFO_t *mac_input_nf);
+/*static*/ NR_RB_status_t get_DRB_status(const NR_UE_RRC_INST_t *rrc, NR_DRB_Identity_t drb_id);
+/*static*/ void set_DRB_status(NR_UE_RRC_INST_t *rrc, NR_DRB_Identity_t drb_id, NR_RB_status_t status);
+bool nr_rrc_process_reconfiguration_v1530(NR_UE_RRC_INST_t *rrc, NR_RRCReconfiguration_v1530_IEs_t *rec_1530, int gNB_index);
+/*static*/ bool nr_rrc_ue_process_masterCellGroup(NR_UE_RRC_INST_t *rrc,
+                                              OCTET_STRING_t *masterCellGroup,
+                                              long *fullConfig,
+                                              int gNB_index);
 /** @}*/
 #endif
 
