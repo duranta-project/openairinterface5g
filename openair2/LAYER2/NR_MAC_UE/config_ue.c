@@ -1000,7 +1000,8 @@ static nr_lcid_rb_t configure_lcid_rb(NR_RLC_BearerConfig_t *rlc_bearer)
 
 static void configure_logicalChannelBearer(NR_UE_MAC_INST_t *mac,
                                            struct NR_CellGroupConfig__rlc_BearerToAddModList *rlc_toadd_list,
-                                           struct NR_CellGroupConfig__rlc_BearerToReleaseList *rlc_torelease_list)
+                                           struct NR_CellGroupConfig__rlc_BearerToReleaseList *rlc_torelease_list,
+                                           bool full_config)
 {
   if (rlc_torelease_list) {
     for (int i = 0; i < rlc_torelease_list->list.count; i++) {
@@ -1023,6 +1024,7 @@ static void configure_logicalChannelBearer(NR_UE_MAC_INST_t *mac,
       nr_lcid_rb_t rb = configure_lcid_rb(rlc_bearer);
       int lc_identity = rlc_bearer->logicalChannelIdentity;
       NR_LogicalChannelConfig_t *mac_lc_config = rlc_bearer->mac_LogicalChannelConfig;
+	  bool is_srb = rb.type == NR_LCID_SRB;
       int j;
       for (j = 0; j < mac->lc_ordered_list.count; j++) {
         if (lc_identity == mac->lc_ordered_list.array[j]->lcid)
@@ -1030,8 +1032,12 @@ static void configure_logicalChannelBearer(NR_UE_MAC_INST_t *mac,
       }
       if (j < mac->lc_ordered_list.count) {
         LOG_D(NR_MAC, "Logical channel %d is already established, Reconfiguring now\n", lc_identity);
-        if (mac_lc_config != NULL)
-          nr_configure_lc_config(mac, mac->lc_ordered_list.array[j], mac_lc_config, rb);
+        if (full_config && is_srb) {  
+          // TS 38.331 full config: force default logical channel config for SRB1/SRB2  
+          set_default_logicalchannelconfig(mac->lc_ordered_list.array[j], rb.choice.srb_id);  
+        } else if (mac_lc_config != NULL) {  
+          nr_configure_lc_config(mac, mac->lc_ordered_list.array[j], mac_lc_config, rb);  
+        }
       } else {
         /* setup of new LCID*/
         nr_lcordered_info_t *lc_info = calloc(1, sizeof(*lc_info));
@@ -1910,6 +1916,18 @@ void nr_rrc_mac_config_req_reset(module_id_t module_id, NR_UE_MAC_reset_cause_t 
       release_mac_configuration(mac, cause);
       nr_ue_mac_default_configs(mac);
       break;
+    case RRC_RECONFIG_FULL_CONFIG:
+      for (int i = mac->lc_ordered_list.count; i > 0; i--) {
+       nr_lcordered_info_t *lc = mac->lc_ordered_list.array[i - 1];
+       if (lc->rb.type == NR_LCID_SRB && lc->rb.choice.srb_id == 0)
+        continue;
+       asn_sequence_del(&mac->lc_ordered_list, i - 1, 1);
+      }
+      reset_ra(mac, true);
+      reset_mac_inst(mac);
+      release_mac_configuration(mac, cause);
+      nr_ue_mac_default_configs(mac);
+  	  break;
     case UL_SYNC_LOST_T430_EXPIRED:
       // TS 38.331 Section 5.2.2.6, TS 38.321 Section 5.2a
       // Flush all HARQ buffers and Stop UL transmissions
@@ -2150,11 +2168,75 @@ void nr_rrc_mac_config_other_sib(module_id_t module_id, NR_SIB19_r17_t *sib19, i
   AssertFatal(!ret, "mutex failed %d\n", ret);
 }
 
+
+static void nr_ue_mac_clear_common_config(NR_UE_MAC_INST_t *mac)  
+{  
+  asn1cFreeStruc(asn_DEF_NR_MIB, mac->mib);  
+  asn1cFreeStruc(asn_DEF_NR_SearchSpace, mac->search_space_zero);  
+  asn1cFreeStruc(asn_DEF_NR_ControlResourceSet, mac->coreset0);  
+  asn1cFreeStruc(asn_DEF_NR_TDD_UL_DL_ConfigCommon, mac->tdd_UL_DL_ConfigurationCommon);  
+  mac->physCellId = 0;  
+  mac->dmrs_TypeA_Position = 0;  
+  // clear common part of BWP0 (PDCCH CORESET/SS lists, PUCCH/PUSCH/RACH common cfg)  
+  NR_BWP_PDCCH_t *pdcch = &mac->config_BWP_PDCCH[0];  
+  for (int i = pdcch->list_Coreset.count; i > 0; i--)  
+    asn_sequence_del(&pdcch->list_Coreset, i - 1, 1);  
+  for (int i = pdcch->list_SS.count; i > 0; i--)  
+    asn_sequence_del(&pdcch->list_SS, i - 1, 1);  
+  if (mac->dl_BWPs.count > 0) {  
+    NR_UE_DL_BWP_t *bwp0 = mac->dl_BWPs.array[0];  
+    asn1cFreeStruc(asn_DEF_NR_PDSCH_Config, bwp0->pdsch_Config); // if held in common part per your struct layout  
+  }  
+  if (mac->ul_BWPs.count > 0) {  
+    NR_UE_UL_BWP_t *ubwp0 = mac->ul_BWPs.array[0];  
+    asn1cFreeStruc(asn_DEF_NR_RACH_ConfigCommon, ubwp0->rach_ConfigCommon);  
+    asn1cFreeStruc(asn_DEF_NR_PUCCH_ConfigCommon, ubwp0->pucch_ConfigCommon);  
+    asn1cFreeStruc(asn_DEF_NR_PUSCH_TimeDomainResourceAllocationList, ubwp0->tdaList_Common);  
+    free_and_zero(ubwp0->msg3_DeltaPreamble);  
+    free_and_zero(ubwp0->p0_NominalWithGrant);  
+  }  
+}
+
+// TS 38.331 ?9.2.2: apply the default semi-persistent scheduling/configured grant configuration  
+// (default = not configured; no DL SPS support in OAI, only UL configuredGrantConfig)  
+static void nr_ue_mac_default_sps_cg_config(NR_UE_MAC_INST_t *mac)  
+{  
+  NR_UE_UL_BWP_t *ul_bwp = mac->current_UL_BWP;  
+  if (ul_bwp && ul_bwp->configuredGrantConfig) {  
+    asn1cFreeStruc(asn_DEF_NR_ConfiguredGrantConfig, ul_bwp->configuredGrantConfig);  
+    ul_bwp->configuredGrantConfig = NULL;  
+  }  
+  // also clear any active/pending CG scheduling state tracked elsewhere in scheduling_info,   
+}
+
+// TS 38.331 ?9.2.2: apply the default MAC main configuration  
+static void nr_ue_mac_default_maccellgroup_config(NR_UE_MAC_INST_t *mac)  
+{  
+  // default: no scheduling request config (SR not configured)  
+  memset(mac->scheduling_info.sr_info, 0, sizeof(mac->scheduling_info.sr_info));  
+  
+  // default: single TAG (tag-Id 0), no dedicated TAG config, timeAlignmentTimer = infinity  
+  for (int i = mac->TAG_list.count; i > 0; i--)  
+    asn_sequence_del(&mac->TAG_list, i - 1, 1);  
+  struct NR_TAG *default_tag = calloc(1, sizeof(*default_tag));  
+  default_tag->tag_Id = 0;  
+  default_tag->timeAlignmentTimer = NR_TimeAlignmentTimer_infinity;  
+  ASN_SEQUENCE_ADD(&mac->TAG_list, default_tag);  
+  mac->tag_Id = 0;  
+  
+  // default: DRX not configured (not implemented in OAI anyway ? no-op placeholder)  
+  // LOG_D(NR_MAC, "DRX default config: not implemented\n");  
+  
+  // re-apply default BSR/PHR timer durations (already existing function)  already done outside caller
+  //nr_ue_mac_default_configs(mac);  
+}
+
 static void handle_reconfiguration_with_sync(NR_UE_MAC_INST_t *mac,
                                              int cc_idP,
                                              int hfn,
                                              int frame,
-                                             const NR_ReconfigurationWithSync_t *reconfWithSync)
+                                             const NR_ReconfigurationWithSync_t *reconfWithSync,
+                                             bool full_config)
 {
   reset_mac_inst(mac);
   mac->crnti = reconfWithSync->newUE_Identity;
@@ -2178,6 +2260,10 @@ static void handle_reconfiguration_with_sync(NR_UE_MAC_INST_t *mac,
   if (!is_cfra)
     mac->msg3_C_RNTI = true;
 
+  if(full_config) {
+	  nr_ue_mac_clear_common_config(mac);
+  }
+
   if (reconfWithSync->spCellConfigCommon) {
     NR_ServingCellConfigCommon_t *scc = reconfWithSync->spCellConfigCommon;
     if (scc->physCellId)
@@ -2189,20 +2275,36 @@ static void handle_reconfiguration_with_sync(NR_UE_MAC_INST_t *mac,
     LOG_D(NR_MAC,"Build SSB list\n");
     build_ssb_list(mac);
 
-    const int bwp_id = 0;
-    if (scc->downlinkConfigCommon)
-      configure_common_BWP_dl(mac, bwp_id, scc->downlinkConfigCommon->initialDownlinkBWP);
-    if (scc->uplinkConfigCommon)
-      configure_common_BWP_ul(mac, bwp_id, scc->uplinkConfigCommon->initialUplinkBWP);
+	const int bwp_id = 0;  
+	if (scc->downlinkConfigCommon) {  
+	  configure_common_BWP_dl(mac, bwp_id, scc->downlinkConfigCommon->initialDownlinkBWP);	
+	  mac->current_DL_BWP = get_dl_bwp_structure(mac, bwp_id, true);  
+	}  
+	if (scc->uplinkConfigCommon) {	
+	  configure_common_BWP_ul(mac, bwp_id, scc->uplinkConfigCommon->initialUplinkBWP);	
+	  mac->current_UL_BWP = get_ul_bwp_structure(mac, bwp_id, true);  
+	}
 
     // Update PDCCH config as MAC configuration has changed
     // Used only in SA mode.
     mac->update_pdcch_config = IS_SA_MODE(get_softmodem_params());
+  }else {
+	  LOG_I(NR_MAC, "spCellConfigCommon is NULL\n");
+  }
+
+  if (full_config) {
+    // 1> apply the default semi-persistent scheduling/configured grant configuration
+    nr_ue_mac_default_sps_cg_config(mac);
   }
 
   mac->state = UE_NOT_SYNC_RECONF;
   ra->ra_state = nrRA_UE_IDLE;
   nr_ue_mac_default_configs(mac);
+  if (full_config) {  
+    // extend nr_ue_mac_default_configs(), or call a separate function here,  
+    // for TAG-list/SR-info reset not currently covered  
+    nr_ue_mac_default_maccellgroup_config(mac);  
+  }
 
   // PHY CONFIG request should be sent, ahead of SYNC request
   // As SYNC request processes the new config
@@ -2967,7 +3069,8 @@ void nr_rrc_mac_config_req_cg(module_id_t module_id,
                               int hfn,
                               int frame,
                               NR_CellGroupConfig_t *cell_group_config,
-                              NR_UE_NR_Capability_t *ue_Capability)
+                              NR_UE_NR_Capability_t *ue_Capability,
+                              bool full_config)
 {
   LOG_I(MAC,"[UE %d] Applying CellGroupConfig from gNodeB\n", module_id);
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
@@ -2984,7 +3087,7 @@ void nr_rrc_mac_config_req_cg(module_id_t module_id,
     mac->servCellIndex = spCellConfig->servCellIndex ? *spCellConfig->servCellIndex : 0;
     if (spCellConfig->reconfigurationWithSync) {
       LOG_A(NR_MAC, "Received reconfigurationWithSync\n");
-      handle_reconfiguration_with_sync(mac, cc_idP, hfn, frame, spCellConfig->reconfigurationWithSync);
+      handle_reconfiguration_with_sync(mac, cc_idP, hfn, frame, spCellConfig->reconfigurationWithSync, full_config);
     }
     if (scd) {
       mac->tag_Id = scd->tag_Id;
@@ -2995,14 +3098,18 @@ void nr_rrc_mac_config_req_cg(module_id_t module_id,
 
   if (cell_group_config->mac_CellGroupConfig)
     configure_maccellgroup(mac, cell_group_config->mac_CellGroupConfig);
+  if (mac->current_UL_BWP)
+    LOG_D(MAC,"[UE %d] Current UL BWP configured with TAG list count: %d\n", module_id, mac->TAG_list.count);
 
-  for (int j = 0; j < mac->TAG_list.count; j++) {
-    // apply the Timing Advance Command for the indicated TAG
-    if (mac->TAG_list.array[j]->tag_Id == mac->tag_Id)
-      configure_timeAlignmentTimer(&mac->time_alignment_timer, mac->TAG_list.array[j]->timeAlignmentTimer, mac->current_UL_BWP->scs);
+  for (int j = 0; j < mac->TAG_list.count; j++) {  
+    // apply the Timing Advance Command for the indicated TAG  
+    if (mac->TAG_list.array[j]->tag_Id == mac->tag_Id) {  
+      AssertFatal(mac->current_UL_BWP, "current_UL_BWP is NULL, cannot configure time alignment timer\n");  
+      configure_timeAlignmentTimer(&mac->time_alignment_timer, mac->TAG_list.array[j]->timeAlignmentTimer, mac->current_UL_BWP->scs);  
+    }  
   }
 
-  configure_logicalChannelBearer(mac, cell_group_config->rlc_BearerToAddModList, cell_group_config->rlc_BearerToReleaseList);
+  configure_logicalChannelBearer(mac, cell_group_config->rlc_BearerToAddModList, cell_group_config->rlc_BearerToReleaseList, full_config);
 
   if (ue_Capability)
     handle_mac_uecap_info(mac, ue_Capability);
