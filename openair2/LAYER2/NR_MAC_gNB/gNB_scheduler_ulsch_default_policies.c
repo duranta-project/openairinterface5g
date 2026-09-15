@@ -131,11 +131,11 @@ int nr_ul_tda_select_default(gNB_MAC_INST *mac,
 }
 
 /* Orders the candidates the way nr_ul_proportional_fair() allocates them:
- * retransmissions, then UEs about to reach sr_TransMax, then UEs waiting for a
- * default grant, then UEs with data, each ordered by the key that matters for
- * it. A secondary key only ever compares candidates the tests above it put in
- * the same group, so the keys only compare comparable things and the ordering
- * stays the strict weak ordering qsort() requires.
+ * retransmissions, then UEs waiting for a default grant, then UEs with data,
+ * each ordered by the key that matters for it. A secondary key only ever
+ * compares candidates the tests above it put in the same group, so the keys
+ * only compare comparable things and the ordering stays the strict weak
+ * ordering qsort() requires.
  * mcs_a/mcs_b is the MCS of each candidate as it is known at the calling stage,
  * see the two comparators below. */
 static int compare_ul_pf(const nr_ul_candidate_t *ca, const nr_ul_candidate_t *cb, int mcs_a, int mcs_b)
@@ -148,21 +148,17 @@ static int compare_ul_pf(const nr_ul_candidate_t *ca, const nr_ul_candidate_t *c
   if (ca->is_retx)
     return (ca->retx_rbSize < cb->retx_rbSize) - (ca->retx_rbSize > cb->retx_rbSize);
 
-  /* A UE running out of SR retransmissions is served before every other UE:
-   * if it reaches sr_TransMax it gives up and has to go
-   * through random access again. */
-  if (ca->sr_critical != cb->sr_critical)
-    return ca->sr_critical ? -1 : 1;
-
   /* Then the UEs waiting for a default grant: nothing to transmit that we know
-   * of, or not scheduled for too long. Longest waiting SR first; UEs taken for
-   * long inactivity have no SR pending (age 0) and come last of those. */
-  const bool dg_a = ca->sr_critical || ca->sched_long_inactivity || ca->pending_bytes == 0;
-  const bool dg_b = cb->sr_critical || cb->sched_long_inactivity || cb->pending_bytes == 0;
+   * of, or not scheduled for too long. Most SRs first: the higher sr_cnt, the
+   * closer the UE is to sr_TransMax, where it gives up and has to go through
+   * random access again. UEs taken for long inactivity have no SR pending
+   * (sr_cnt 0) and come last of those. */
+  const bool dg_a = ca->sched_long_inactivity || ca->pending_bytes == 0;
+  const bool dg_b = cb->sched_long_inactivity || cb->pending_bytes == 0;
   if (dg_a != dg_b)
     return dg_a ? -1 : 1;
   if (dg_a)
-    return (ca->sr_age_slots < cb->sr_age_slots) - (ca->sr_age_slots > cb->sr_age_slots);
+    return (ca->sr_cnt < cb->sr_cnt) - (ca->sr_cnt > cb->sr_cnt);
 
   /* Finally the UEs with data, highest PF weight first. A pending SR is not
    * taken into account here: we already know from the BSR that the UE has data,
@@ -311,8 +307,7 @@ int nr_ul_proportional_fair(const nr_ul_sched_params_t *params, nr_ul_candidate_
   while (n_retx < n_active && order[n_retx]->is_retx)
     n_retx++;
   int n_dg = n_retx;
-  while (n_dg < n_active
-         && (order[n_dg]->sr_critical || order[n_dg]->sched_long_inactivity || order[n_dg]->pending_bytes == 0))
+  while (n_dg < n_active && (order[n_dg]->sched_long_inactivity || order[n_dg]->pending_bytes == 0))
     n_dg++;
 
   /* Phase 1: HARQ retransmissions (highest priority, exact RBs), largest first */
@@ -336,9 +331,9 @@ int nr_ul_proportional_fair(const nr_ul_sched_params_t *params, nr_ul_candidate_
     COMMIT_UL_ALLOC(params, cand, rbStart, cand->retx_rbSize, cand->sched_pusch.mcs, n_scheduled);
   }
 
-  /* Phase 2: default grant so that the UE can send a BSR, for UEs about to reach
-   * sr_TransMax first, then for UEs with nothing to transmit that we know of
-   * (pending SR or long inactivity). Longest pending SR first in both cases. */
+  /* Phase 2: default grant so that the UE can send a BSR, for UEs with nothing
+   * to transmit that we know of (pending SR or long inactivity). Most SRs
+   * first, so that UEs closest to sr_TransMax are served first. */
   for (int j = n_retx; j < n_dg; j++) {
     nr_ul_candidate_t *cand = order[j];
 
