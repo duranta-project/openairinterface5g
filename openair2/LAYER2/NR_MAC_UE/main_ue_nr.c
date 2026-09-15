@@ -306,7 +306,8 @@ void release_mac_configuration(NR_UE_MAC_INST_t *mac, NR_UE_MAC_reset_cause_t ca
 
   // in case of re-establishment we don't need to release initial BWP config common
   int first_bwp_rel = 0; // first BWP to release
-  if (cause == RE_ESTABLISHMENT || cause == RRC_SETUP_REESTAB_RESUME) {
+  if ((cause == RE_ESTABLISHMENT || cause == RRC_SETUP_REESTAB_RESUME || cause == RRC_RECONFIG_FULL_CONFIG)	
+	  && mac->dl_BWPs.count > 0 && mac->ul_BWPs.count > 0) {  
     first_bwp_rel = 1;
     // release dedicated BWP0 config
     NR_UE_DL_BWP_t *bwp = mac->dl_BWPs.array[0];
