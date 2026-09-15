@@ -15,6 +15,7 @@
 #include "executables/nr-uesoftmodem.h"
 #include "openair3/ocp-gtpu/gtp_itf.h"
 #include "SIMULATION/TOOLS/sim.h"
+#include "openair3/NAS/NR_UE/5GS/5GSM/QoS/PacketFilter.h"
 #include <stdlib.h>
 
 RAN_CONTEXT_t RC;
@@ -67,6 +68,37 @@ void create_ue_eth_if(void)
 }
 
 void set_qfi(void)
+{
+}
+
+void nr_sdap_qos_rule_add(ue_id_t ue_id,
+                         int pdusession_id,
+                         uint8_t rule_id,
+                         uint8_t qfi,
+                         uint8_t precedence,
+                         bool is_default,
+                         const packet_filter_decoded_t *pf_list,
+                         int num_pf)
+{
+}
+
+void nr_sdap_qos_rule_remove(ue_id_t ue_id, int pdusession_id, uint8_t rule_id)
+{
+}
+
+void nr_sdap_qos_rule_update(ue_id_t ue_id,
+                            int pdusession_id,
+                            uint8_t rule_id,
+                            uint8_t qfi,
+                            uint8_t precedence,
+                            bool is_default,
+                            const packet_filter_decoded_t *pf_list,
+                            int num_pf,
+                            bool replace)
+{
+}
+
+void nr_sdap_qos_rule_delete_pf(ue_id_t ue_id, int pdusession_id, uint8_t rule_id, const uint8_t *pf_ids, int num_ids)
 {
 }
 
