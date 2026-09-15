@@ -7,9 +7,9 @@ This tutorial describes the steps of deployment 5G OAI RAN, with integrated E2 a
 [[_TOC_]]
 
 # 1. Mandatory prerequisites of FlexRIC before starting with E2 agent
-* [GCC compiler](https://github.com/duranta-project/flexric#111-gcc-compiler)
-* [(opt.) configure Wireshark](https://github.com/duranta-project/flexric#112-opt-wireshark)
-* [Mandatory dependencies](https://github.com/duranta-project/flexric#121-mandatory-dependencies)
+* [GCC compiler](https://gitlab.eurecom.fr/mosaic5g/flexric#111-gcc-compiler)
+* [(opt.) configure Wireshark](https://gitlab.eurecom.fr/mosaic5g/flexric#112-opt-wireshark)
+* [Mandatory dependencies](https://gitlab.eurecom.fr/mosaic5g/flexric#121-mandatory-dependencies)
 
 
 # 2. Deployment
@@ -70,11 +70,11 @@ Instead of cloning the new FlexRIC repository, feel free to use FlexRIC submodul
 cd openairinterface5g/openair2/E2AP/flexric
 git submodule init && git submodule update  # only if OAI RAN wasn't previously compiled with --build-e2 or -DE2_AGENT options
 ```
-and continue as described in the [build FlexRIC section](https://github.com/duranta-project/flexric#22-build-flexric).
+and continue as described in the [build FlexRIC section](https://gitlab.eurecom.fr/mosaic5g/flexric#22-build-flexric).
 
 ### 2.2.2 Case 2: OAI RAN and FlexRIC on different machines
 The [FlexRIC submodule compilation step](#221-case-1-oai-ran-and-flexric-on-the-same-machine) is **mandatory** as the OAI RAN must use the Service Models (which are built as shared libraries).
-To build FlexRIC on the other machine, follow the complete [FlexRIC installation](https://github.com/duranta-project/flexric#2-flexric-installation) process.
+To build FlexRIC on the other machine, follow the complete [FlexRIC installation](https://gitlab.eurecom.fr/mosaic5g/flexric#2-flexric-installation) process.
 
 
 # 3. Service Models available in OAI RAN
@@ -116,10 +116,12 @@ We support E2SM-RC `v1.03` which uses ASN.1 encoding.
 From `O-RAN.WG3.E2SM-RC-v01.03` specification, we implemented:
   * REPORT Service Style 1 ("Message copy" - section 7.4.2) - aperiodic subscription for "RRC Message" and "UE ID"
   * REPORT Service Style 4 ("UE Information" - section 7.4.5) - aperiodic subscription for "UE RRC State Change"
+  * REPORT Service Style 5 ("On Demand Report" - section 7.4.6) - subscription for "UE Context Information"
   * CONTROL Service Style 1 ("Radio Bearer Control" - section 7.6.2) - "QoS flow mapping configuration"; please be aware that this functionality is defined as per O-RAN "To control the multiplexing of QoS flows to a DRB",
     but OAI RAN doesn't support multiple QoS flows in one DRB. Therefore, this use case was adjusted for creation of new DRB, instead of creation of new QoS flow in the existing DRB.
     More information can be found in the branch [qoe-e2](https://github.com/duranta-project/openairinterface5g/tree/qoe-e2). It's not merged due to incompliance with O-RAN specifications.
     We showcased this demo in the O-RAN F2F Osaka meeting. Please feel free to download the [demo video](https://lf-o-ran-sc.atlassian.net/wiki/download/attachments/13566077/oai-flexric-demo-ric.mp4?api=v2) and [accompanying presentation](https://lf-o-ran-sc.atlassian.net/wiki/download/attachments/13566077/oai-FlexRIC-demo.pdf?api=v2).
+  * CONTROL Service Style 3 ("Connected Mode Mobility" - section 7.6.4) - "Handover Control" over F1 or N2 interfaces
 
 ## 3.2 Custom Service Models
 In addition, we support custom Service Models for L2/L3. Please find the KPIs for each layer in the following structs:
@@ -130,7 +132,7 @@ In addition, we support custom Service Models for L2/L3. Please find the KPIs fo
 
 All use plain encoding, i.e., no ASN.1, but write the binary data into network messages.
 
-There exist two additional custom Service Models, SLICE and TC (traffic control), but they are not supported in OAI RAN. They can only be tested with [E2 agent emulators](https://github.com/duranta-project/flexric#4-deployment) within FlexRIC framework.
+There exist two additional custom Service Models, SLICE and TC (traffic control), but they are not supported in OAI RAN. They can only be tested with [E2 agent emulators](https://gitlab.eurecom.fr/mosaic5g/flexric#4-deployment) within FlexRIC framework.
 
 # 4. Start the process
 At this point, we assume the 5G Core Network is already running in the background. For more information, please follow the [5GCN tutorial](../../doc/NR_SA_Tutorial_OAI_CN5G.md).
