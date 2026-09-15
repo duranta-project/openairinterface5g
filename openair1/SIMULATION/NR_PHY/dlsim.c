@@ -1000,7 +1000,7 @@ int main(int argc, char **argv)
   //Configure UE
   NR_BCCH_BCH_Message_t *mib = get_new_MIB_NR(scc);
   nr_rrc_mac_config_req_mib(0, 0, mib->message.choice.mib, false);
-  nr_rrc_mac_config_req_cg(0, 0, 0, 0, UE_CellGroup, UE_Capability_nr);
+  nr_rrc_mac_config_req_cg(0, 0, 0, 0, UE_CellGroup, UE_Capability_nr, false);
 
   asn1cFreeStruc(asn_DEF_NR_CellGroupConfig, UE_CellGroup);
 
