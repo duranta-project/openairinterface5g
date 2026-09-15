@@ -700,7 +700,12 @@ typedef struct {
   int ul_failure_timer;
   int release_timer;
   CSI_report_t CSI_report;
-  bool SR;
+  /// number of SR received for this UE since the last UL grant
+  uint8_t sr_cnt;
+  /// absolute slot (frame * slots_per_frame + slot) of the first SR received
+  /// since the last UL grant, only valid while sr_cnt > 0. The time the UE has
+  /// been waiting for a grant is used as UL scheduling priority
+  uint32_t sr_first_slot;
   /// information about every HARQ process
   NR_UE_harq_t harq_processes[NR_MAX_HARQ_PROCESSES];
   /// HARQ processes that are free
@@ -1067,7 +1072,7 @@ struct nr_ul_candidate {
   bool is_retx;
   int8_t retx_harq_pid;
   int retx_rbSize;
-  bool sched_inactive;
+  bool sched_long_inactivity;
   int sched_srs;
   uint32_t pending_bytes;
   float avg_throughput;
@@ -1113,6 +1118,13 @@ struct nr_ul_candidate {
   int alloc_cce_index;
   int alloc_aggregation_level;
   NR_sched_pdcch_t alloc_sched_pdcch;
+  /// number of SR received since the last UL grant, 0 if none is pending
+  uint8_t sr_cnt;
+  /// slots elapsed since the UE started asking for a grant, 0 if no SR is pending
+  uint32_t sr_age_slots;
+  /// UE is running out of SR retransmissions: it needs a grant now, whether or
+  /// not it has data, or it gives up and has to go through random access again
+  bool sr_critical;
 };
 
 typedef struct {
