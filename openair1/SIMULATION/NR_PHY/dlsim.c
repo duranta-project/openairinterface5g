@@ -1073,6 +1073,7 @@ int main(int argc, char **argv)
     reset_meas(&gNB->dlsch_interleaving_stats);
     reset_meas(&gNB->dlsch_rate_matching_stats);
     reset_meas(&gNB->dlsch_segmentation_stats);
+    reset_meas(&gNB->dlsch_crc_stats);
     reset_meas(&gNB->dlsch_modulation_stats);
     reset_meas(&gNB->dlsch_pdsch_generation_stats);
     reset_meas(&gNB->dlsch_precoding_stats);
@@ -1466,6 +1467,7 @@ int main(int argc, char **argv)
       printDistribution(&gNB->phy_proc_tx,table_tx,"PHY proc tx");
       printStatIndent2(&gNB->dci_generation_stats, "DCI encoding time");
       printStatIndent2(&gNB->dlsch_encoding_stats,"DLSCH encoding time");
+      printStatIndent3(&gNB->dlsch_crc_stats,"DLSCH Outer CRC time");
       printStatIndent3(&gNB->dlsch_segmentation_stats,"DLSCH segmentation time");
       printStatIndent3(&gNB->tinput,"DLSCH LDPC input processing time");
       printStatIndent3(&gNB->tprep,"DLSCH LDPC input preparation time");
