@@ -2,13 +2,13 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
+#include "assertions.h"
 #include "nr_common.h"
+#include "platform_types.h"
+#include <stdint.h>
 #include <string.h>
-#include "SCHED_NR_UE/defs.h"
 #include "nr_estimation.h"
 #include "PHY/NR_REFSIG/nr_refsig.h"
-#include "PHY/NR_REFSIG/dmrs_nr.h"
-#include "PHY/NR_REFSIG/ptrs_nr.h"
 #include "PHY/NR_REFSIG/nr_mod_table.h"
 #include "PHY/NR_TRANSPORT/nr_sch_dmrs.h"
 #include "nr_phy_common.h"
@@ -17,7 +17,6 @@
 #include <openair1/PHY/TOOLS/phy_scope_interface.h>
 #include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_nr_interface.h"
 #include "instrumentation.h"
-#include "executables/nr-softmodem-common.h"
 // #define DEBUG_PDSCH
 // #define DEBUG_PDCCH
 // #define DEBUG_PBCH(a...) printf(a)
@@ -773,6 +772,27 @@ void nr_pdcch_channel_estimation(const NR_DL_FRAME_PARMS *frame_parms,
   }
 }
 
+static void revert_delay(c16_t *dl_ch, uint num_dl_ch, const delay_t *delay, const c16_t delay_table[][NR_MAX_OFDM_SYMBOL_SIZE])
+{
+  int inv_delay_idx = get_delay_idx(-delay->est_delay, MAX_DELAY_COMP);
+  const c16_t *dl_inv_delay_table = delay_table[inv_delay_idx];
+  mult_complex_vectors(dl_ch, dl_inv_delay_table, dl_ch, num_dl_ch, 8);
+}
+
+static inline uint32_t estimate_noise_var(const c16_t *dl_ls_est, const c16_t *dl_ch, uint num_dl_ch)
+{
+  if (num_dl_ch == 0) {
+    LOG_E(NR_PHY, "Couldn't estimate PDSCH N_0\n");
+    return UINT32_MAX;
+  }
+
+  uint64_t noise_amp2 = 0;
+  for (uint k = 0; k < num_dl_ch; k++)
+    noise_amp2 += c16amp2(c16sub(dl_ls_est[k], dl_ch[k]));
+
+  return (uint32_t)(noise_amp2 / num_dl_ch);
+}
+
 static void NFAPI_NR_DMRS_TYPE1_linear_interp(const NR_DL_FRAME_PARMS *frame_parms,
                                               c16_t *rxF,
                                               int delta,
@@ -842,20 +862,11 @@ static void NFAPI_NR_DMRS_TYPE1_linear_interp(const NR_DL_FRAME_PARMS *frame_par
   }
 
   // Revert delay
-  dl_ch = dl_ch0;
-  int nest_count = 0;
-  uint64_t noise_amp2 = 0;
-  int inv_delay_idx = get_delay_idx(-delay.est_delay, MAX_DELAY_COMP);
-  const c16_t *dl_inv_delay_table = frame_parms->delay_table[inv_delay_idx];
-  for (int k = 0; k < idx; k++) {
-    dl_ch[k] = c16mulShift(dl_ch[k], dl_inv_delay_table[k], 8);
-    noise_amp2 += c16amp2(c16sub(dl_ls_est[k], dl_ch[k]));
-    nest_count++;
-  }
+  revert_delay(dl_ch0, idx, &delay, frame_parms->delay_table);
 
-  if (nvar && nest_count > 0) {
-    *nvar = (uint32_t)(noise_amp2 / (nest_count * frame_parms->nb_antennas_rx));
-  }
+  // Estimate noise var
+  if (nvar)
+    *nvar += estimate_noise_var(dl_ls_est, dl_ch0, idx);
 }
 
 static void NFAPI_NR_DMRS_TYPE1_average_prb(const int symb_sz,
@@ -1011,20 +1022,11 @@ static void NFAPI_NR_DMRS_TYPE2_linear_interp(const NR_DL_FRAME_PARMS *frame_par
   }
 
   // Revert delay
-  dl_ch = dl_ch0;
-  int nest_count = 0;
-  uint64_t noise_amp2 = 0;
-  int inv_delay_idx = get_delay_idx(-delay.est_delay, MAX_DELAY_COMP);
-  const c16_t *dl_inv_delay_table = frame_parms->delay_table[inv_delay_idx];
-  for (int k = 0; k < idx; k++) {
-    dl_ch[k] = c16mulShift(dl_ch[k], dl_inv_delay_table[k], 8);
-    noise_amp2 += c16amp2(c16sub(dl_ls_est[k], dl_ch[k]));
-    nest_count++;
-  }
+  revert_delay(dl_ch0, idx, &delay, frame_parms->delay_table);
 
-  if (nvar && nest_count > 0) {
-    *nvar = (uint32_t)(noise_amp2 / (nest_count * frame_parms->nb_antennas_rx));
-  }
+  // Estimate noise var
+  if (nvar)
+    *nvar += estimate_noise_var(dl_ls_est, dl_ch0, idx);
 }
 
 static void NFAPI_NR_DMRS_TYPE2_average_prb(const int symb_sz,
