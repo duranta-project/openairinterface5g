@@ -5,6 +5,11 @@
 #include "NR_MAC_gNB/nr_mac_gNB.h"
 #include "NR_MAC_gNB/nr_mac_cell.h"
 
+int nr_mac_get_cell_idx(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
+{
+  return cell - nr_mac_get_cell_by_phy_id(mac, 0);
+}
+
 nr_cell_sched_t *nr_mac_get_cell_by_phy_id(gNB_MAC_INST *mac, uint16_t phy_id)
 {
   AssertFatal(phy_id < NR_MAX_CELLS, "Invalid phy_id %d\n", phy_id);
