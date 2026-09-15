@@ -39,6 +39,16 @@ do {                                                        \
 
 #define AssertFatal(cOND, fORMAT, aRGS...)          _Assert_(cOND, _Assert_Exit_, fORMAT, ##aRGS)
 
+/* Same fatal behavior as AssertFatal, but for a code path that a legal,
+ * spec-conformant input can reach and that simply isn't implemented yet --
+ * as opposed to an internal invariant being violated. Still aborts (a gNB
+ * that cannot correctly handle a legally-formed PDU must not silently
+ * proceed and transmit something wrong), but the distinct macro name and
+ * message prefix let crash triage (e.g. fuzzer findings) separate "known
+ * feature gap" from "real invariant violation" without reading every call
+ * site's message by hand. */
+#define AssertFatalNotImplemented(cOND, fORMAT, aRGS...) _Assert_(cOND, _Assert_Exit_, "NOT IMPLEMENTED: " fORMAT, ##aRGS)
+
 #define AssertError(cOND, aCTION, fORMAT, aRGS...)  _Assert_(cOND, aCTION, fORMAT, ##aRGS)
 
 

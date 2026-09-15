@@ -1,0 +1,140 @@
+name: Commit Impact Analysis
+
+# Maps the files changed by a commit/PR/push to the CMake executables that
+# link against them, using the CMake File API codemodel-v2 (see
+# ci-scripts/commit_impact.py). Publishes the result as a job artifact and a
+# step summary.
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      commit_range:
+        description: 'Commit, a..b range, or "working"/"staged"'
+        required: false
+        default: 'HEAD'
+
+concurrency:
+  group: commit-impact-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  commit-impact:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Determine commit range
+        id: range
+        run: |
+          case "${{ github.event_name }}" in
+            workflow_dispatch)
+              echo "range=${{ github.event.inputs.commit_range }}" >> "$GITHUB_OUTPUT"
+              ;;
+            pull_request)
+              echo "range=${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+              ;;
+            push)
+              if [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+                echo "range=${{ github.event.before }}..${{ github.sha }}" >> "$GITHUB_OUTPUT"
+              else
+                echo "range=HEAD" >> "$GITHUB_OUTPUT"
+              fi
+              ;;
+            *)
+              echo "range=HEAD" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Cache asn1c (built from source; the slow part of prereq install)
+        id: cache-asn1c
+        uses: actions/cache@v4
+        with:
+          path: /opt/asn1c
+          key: asn1c-${{ runner.os }}-${{ hashFiles('cmake_targets/tools/build_helper') }}
+
+      - name: Install apt packages needed for `cmake` configure
+        # Subset of check_install_oai_software()'s debian branch in
+        # cmake_targets/tools/build_helper: only what CMakeLists.txt's
+        # find_program/find_package/pkg_check_modules calls need at configure
+        # time (asn1c toolchain, libconfig, sctp, openssl). SIMDE and the rest
+        # of build_oai -I's package list are only needed to actually compile,
+        # which this job never does.
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            automake build-essential cmake ninja-build pkg-config git \
+            libconfig-dev libsctp-dev libssl-dev libtool patch openssl zlib1g-dev \
+            bison flex
+
+      - name: Build asn1c from source (cache miss only)
+        if: steps.cache-asn1c.outputs.cache-hit != 'true'
+        run: |
+          source oaienv
+          source cmake_targets/tools/build_helper
+          install_asn1c_from_source
+
+      - name: Cache CPM package sources (googletest, benchmark)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/cpm
+          key: cpm-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Configure default build (ENABLE_TESTS=ON)
+        run: |
+          mkdir -p build/.cmake/api/v1/query
+          touch build/.cmake/api/v1/query/codemodel-v2
+          cmake -S . -B build -DENABLE_TESTS=ON
+
+      - name: Configure fronthaul build (OAI_RU_FRONTHAUL + OAI_FHI72, best-effort)
+        # Covers both OAI's native fronthaul lib (fronthaul/, e.g. nr-oru) and
+        # the vendor xran/FHI 7.2 driver (radio/fhi_72/, e.g. oran_fhlib_5g).
+        # xran itself is only cloned/built by `cmake --build`, not by
+        # configure, so this stays fast even though xran_DOWNLOAD is ON.
+        id: fronthaul
+        continue-on-error: true
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdpdk-dev libnuma-dev
+          mkdir -p build-fronthaul/.cmake/api/v1/query
+          touch build-fronthaul/.cmake/api/v1/query/codemodel-v2
+          cmake -S . -B build-fronthaul -DENABLE_TESTS=ON -DOAI_RU_FRONTHAUL=ON -DOAI_FHI72=ON
+
+      - name: Run commit impact analysis
+        run: |
+          BUILD_DIRS="--build-dir build"
+          if [ "${{ steps.fronthaul.outcome }}" = "success" ]; then
+            BUILD_DIRS="$BUILD_DIRS --build-dir build-fronthaul"
+          else
+            echo "::warning::fronthaul build dir not configured, OAI_RU_FRONTHAUL/OAI_FHI72-gated targets (e.g. nr-oru, oran_fhlib_5g) will not be reported"
+          fi
+
+          python3 ci-scripts/commit_impact.py "${{ steps.range.outputs.range }}" $BUILD_DIRS --all-targets \
+            | tee impact.txt
+          python3 ci-scripts/commit_impact.py "${{ steps.range.outputs.range }}" $BUILD_DIRS --all-targets --json \
+            > impact.json
+
+          {
+            echo "## Commit impact: \`${{ steps.range.outputs.range }}\`"
+            echo '```'
+            cat impact.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload impact artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: commit-impact
+          path: |
+            impact.txt
+            impact.json
+          retention-days: 30

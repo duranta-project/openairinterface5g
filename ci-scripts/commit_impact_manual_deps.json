@@ -1,0 +1,51 @@
+{
+  "_comment": "Manual dependency edges that ci-scripts/commit_impact.py cannot discover from the CMake File API codemodel, because the dependency is a runtime dlopen() of a MODULE library (via shlib_loader / loader.<component>.shlibversion) rather than a CMake target_link_libraries/add_dependencies edge. Each rule fires when a changed file's path starts with any of `path_prefixes`, and adds `executables` to the affected set unconditionally, in addition to whatever the CMake graph finds.",
+  "rules": [
+    {
+      "name": "radios",
+      "description": "Radio driver backends (radio/*) are dlopen'd by shlib_loader at runtime based on the configured RU type; no executable links against them at build time, so they have zero edges in the CMake graph.",
+      "path_prefixes": [
+        "radio/USRP/",
+        "radio/BLADERF/",
+        "radio/IRIS/",
+        "radio/LMSSDR/",
+        "radio/emulator/",
+        "radio/ETHERNET/",
+        "radio/AW2SORI/",
+        "radio/rfsimulator/",
+        "radio/vrtsim/",
+        "radio/zmq/",
+        "radio/fhi_72/",
+        "radio/COMMON/"
+      ],
+      "executables": ["nr-softmodem", "nr-uesoftmodem", "lte-softmodem", "lte-uesoftmodem", "oairu"]
+    },
+    {
+      "name": "vrtsim-oru",
+      "description": "vrtsim is additionally used by nr-oru (on top of the general radios rule above).",
+      "path_prefixes": ["radio/vrtsim/"],
+      "executables": ["nr-oru"]
+    },
+    {
+      "name": "dfts",
+      "description": "The dfts MODULE (DFT/FFT kernels) is dlopen'd at runtime. It also happens to have a CMake add_dependencies(PHY_COMMON dfts) edge today, so commit_impact.py already derives this correctly from the graph -- this rule is kept as an explicit floor in case that build-graph edge is ever refactored away without anyone noticing the impact-analysis regression.",
+      "path_prefixes": ["openair1/PHY/TOOLS/oai_dfts"],
+      "executables": [
+        "nr-softmodem", "nr-uesoftmodem", "lte-softmodem", "lte-uesoftmodem", "oairu", "nr-oru",
+        "dlsim", "ulsim", "nr_dlsim", "nr_ulsim", "nr_dlschsim", "nr_ulschsim",
+        "nr_pbchsim", "nr_psbchsim", "nr_pucchsim", "nr_prachsim", "nr_srssim",
+        "nr_ulsim_mu_mimo", "nr_dlbench"
+      ]
+    },
+    {
+      "name": "ldpc",
+      "description": "LDPC codec variants (ldpc, ldpc_orig, ldpc_ors, ldpc_cuda, ldpc_aal) are dlopen'd MODULEs. They also happen to have CMake add_dependencies(nr-softmodem/nr-uesoftmodem/... ldpc...) edges today, so commit_impact.py already derives this correctly -- this rule is kept as an explicit floor for the same reason as dfts above.",
+      "path_prefixes": [
+        "openair1/PHY/CODING/nrLDPC_coding/",
+        "openair1/PHY/CODING/nrLDPC_encoder/",
+        "openair1/PHY/CODING/nrLDPC_decoder/"
+      ],
+      "executables": ["nr-softmodem", "nr-uesoftmodem"]
+    }
+  ]
+}

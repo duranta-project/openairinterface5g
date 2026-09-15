@@ -398,7 +398,7 @@ static inline void do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
             } break;
           }
         } else
-          AssertFatal(false, "rel15->numDmrsCdmGrpsNoData is %d\n", rel15->numDmrsCdmGrpsNoData);
+          AssertFatalNotImplemented(false, "rel15->numDmrsCdmGrpsNoData is %d\n", rel15->numDmrsCdmGrpsNoData);
       }
     } else {
       txl += dmrs_case00(output,
