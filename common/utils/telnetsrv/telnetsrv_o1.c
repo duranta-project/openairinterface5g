@@ -21,6 +21,7 @@
 #include "openair2/LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.c"
 #include "common/utils/nr/nr_common.h"
+#include "common/utils/ocp_itti/intertask_interface.h"
 
 #define ERROR_MSG_RET(mSG, aRGS...) do { prnt("FAILURE: " mSG, ##aRGS); return 1; } while (0)
 
@@ -66,64 +67,49 @@ static int get_stats(char *buf, int debug, telnet_printfunc_t prnt)
   if (buf)
     ERROR_MSG_RET("no parameter allowed\n");
 
-  gNB_MAC_INST *mac = RC.nrmac[0];
-  AssertFatal(mac != NULL, "need MAC\n");
-  NR_SCHED_LOCK(&mac->sched_lock);
+  MessageDef *msg_p = itti_alloc_new_message(TASK_MAC_GNB, 0, MAC_GET_O1_STATS);
+  MessageDef *resp_p;
 
-  const f1ap_setup_req_t *sr = mac->f1_config.setup_req;
-  const f1ap_served_cell_info_t *cell_info = &sr->cell[0].info;
+  if (!itti_send_and_receive_msg_to_task(TASK_MAC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
+    ERROR_MSG_RET("Timeout waiting for MAC response\n");
+  }
 
-  const NR_ServingCellConfigCommon_t *scc = mac->cells[0].common_channels.ServingCellConfigCommon;
-  const NR_FrequencyInfoDL_t *frequencyInfoDL = scc->downlinkConfigCommon->frequencyInfoDL;
-  const NR_FrequencyInfoUL_t *frequencyInfoUL = scc->uplinkConfigCommon->frequencyInfoUL;
-  frame_type_t frame_type = get_frame_type(*frequencyInfoDL->frequencyBandList.list.array[0], *scc->ssbSubcarrierSpacing);
-  const NR_BWP_t *initialDL = &scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters;
-  const NR_BWP_t *initialUL = &scc->uplinkConfigCommon->initialUplinkBWP->genericParameters;
+  Mac_get_o1_stats *current = &resp_p->ittiMsg.mac_get_o1_stats;
 
-  int scs = initialDL->subcarrierSpacing;
-  AssertFatal(scs == initialUL->subcarrierSpacing, "different SCS for UL/DL not supported!\n");
-  int band = *frequencyInfoDL->frequencyBandList.list.array[0];
-  int nrb = frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
-  AssertFatal(nrb == frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth, "different BW for UL/DL not supported!\n");
-  frequency_range_t fr = band > 256 ? FR2 : FR1;
-  int bw_index = get_supported_band_index(scs, fr, nrb);
-  int bw_mhz = get_supported_bw_mhz(fr, bw_index);
-
-  const dlul_mac_stats_t *stat = &mac->mac_stats;
-  static dlul_mac_stats_t last = {0};
-  int diff_used = stat->dl.used_prb_aggregate - last.dl.used_prb_aggregate;
-  int diff_total = stat->dl.total_prb_aggregate - last.dl.total_prb_aggregate;
+  static uint64_t last_dl_used = 0;
+  static uint64_t last_dl_total = 0;
+  int diff_used = current->dl_used_prb_aggregate - last_dl_used;
+  int diff_total = current->dl_total_prb_aggregate - last_dl_total;
   int load = diff_total > 0 ? 100 * diff_used / diff_total : 0;
-  last = *stat;
+  last_dl_used = current->dl_used_prb_aggregate;
+  last_dl_total = current->dl_total_prb_aggregate;
 
   static struct timespec tp_last = {0};
-  struct timespec tp_now;
-  clock_gettime(CLOCK_MONOTONIC, &tp_now);
-  size_t diff_msec = (tp_now.tv_sec - tp_last.tv_sec) * 1000 + (tp_now.tv_nsec - tp_last.tv_nsec) / 1000000;
-  tp_last = tp_now;
+  size_t diff_msec = (current->tp_now.tv_sec - tp_last.tv_sec) * 1000 +
+                     (current->tp_now.tv_nsec - tp_last.tv_nsec) / 1000000;
+  tp_last = current->tp_now;
+  if (diff_msec == 0) diff_msec = 1; /* Avoid division by zero */
 
-  const int srb_flag = 0;
-  const int rb_id = 1;
-  static b_t last_total[MAX_MOBILES_PER_GNB] = {0}; // TODO: hash table?
+  static long last_total_dl[MAX_MOBILES_PER_GNB] = {0};
+  static long last_total_ul[MAX_MOBILES_PER_GNB] = {0};
+
   ue_stat_t ue_stat[MAX_MOBILES_PER_GNB] = {0};
-  int num_ues = 0;
-  UE_iterator((NR_UE_info_t **)mac->UE_info.connected_ue_list, it) {
-    nr_rlc_statistics_t rlc = {0};
-    nr_rlc_get_statistics(it->rnti, srb_flag, rb_id, &rlc);
-    b_t *lt = &last_total[num_ues];
-    ue_stat_t *ue_s = &ue_stat[num_ues];
-    ue_s->rnti = it->rnti;
-    // static var last_total: we might have old data, larger than what
-    // reports RLC, leading to a huge number -> cut off to zero
-    if (lt->dl > rlc.txpdu_bytes)
-      lt->dl = rlc.txpdu_bytes;
-    if (lt->ul > rlc.rxpdu_bytes)
-      lt->ul = rlc.rxpdu_bytes;
-    ue_s->thr.dl = (rlc.txpdu_bytes - lt->dl) * 8 / diff_msec;
-    ue_s->thr.ul = (rlc.rxpdu_bytes - lt->ul) * 8 / diff_msec;
-    lt->dl = rlc.txpdu_bytes;
-    lt->ul = rlc.rxpdu_bytes;
-    num_ues++;
+  int num_ues = current->num_ues;
+
+  for (int i = 0; i < num_ues; i++) {
+    const rnti_t rnti = current->ue_rlc_stats[i].rnti;
+
+    if (last_total_dl[i] > current->ue_rlc_stats[i].txpdu_bytes)
+      last_total_dl[i] = current->ue_rlc_stats[i].txpdu_bytes;
+    if (last_total_ul[i] > current->ue_rlc_stats[i].rxpdu_bytes)
+      last_total_ul[i] = current->ue_rlc_stats[i].rxpdu_bytes;
+
+    ue_stat[i].rnti = rnti;
+    ue_stat[i].thr.dl = (current->ue_rlc_stats[i].txpdu_bytes - last_total_dl[i]) * 8 / diff_msec;
+    ue_stat[i].thr.ul = (current->ue_rlc_stats[i].rxpdu_bytes - last_total_ul[i]) * 8 / diff_msec;
+
+    last_total_dl[i] = current->ue_rlc_stats[i].txpdu_bytes;
+    last_total_ul[i] = current->ue_rlc_stats[i].rxpdu_bytes;
   }
 
   prnt("{\n");
@@ -132,43 +118,41 @@ static int get_stats(char *buf, int debug, telnet_printfunc_t prnt)
     prnt("    \"BWP\": {\n");
     prnt("      \"dl\": [{\n");
     prnt("        \"" ISINITBWP "\": true,\n");
-    //prnt("      \"" CYCLPREF "\": %ld,\n", *initialDL->cyclicPrefix);
-    prnt("        \"" NUMRBS "\": %ld,\n", NRRIV2BW(initialDL->locationAndBandwidth, MAX_BWP_SIZE));
-    prnt("        \"" STARTRB "\": %ld,\n", NRRIV2PRBOFFSET(initialDL->locationAndBandwidth, MAX_BWP_SIZE));
-    prnt("        \"" BWPSCS "\": %ld\n", 15 * (1U << scs));
+    prnt("        \"" NUMRBS "\": %ld,\n", current->dl_numrbs);
+    prnt("        \"" STARTRB "\": %ld,\n", current->dl_startrb);
+    prnt("        \"" BWPSCS "\": %ld\n", current->dl_bwpscs);
     prnt("      }],\n");
     prnt("      \"ul\": [{\n");
     prnt("        \"" ISINITBWP "\": true,\n");
-    //prnt("      \"" CYCLPREF "\": %ld,\n", *initialUL->cyclicPrefix);
-    prnt("        \"" NUMRBS "\": %ld,\n", NRRIV2BW(initialUL->locationAndBandwidth, MAX_BWP_SIZE));
-    prnt("        \"" STARTRB "\": %ld,\n", NRRIV2PRBOFFSET(initialUL->locationAndBandwidth, MAX_BWP_SIZE));
-    prnt("        \"" BWPSCS "\": %ld\n", 15 * (1U << scs));
+    prnt("        \"" NUMRBS "\": %ld,\n", current->ul_numrbs);
+    prnt("        \"" STARTRB "\": %ld,\n", current->ul_startrb);
+    prnt("        \"" BWPSCS "\": %ld\n", current->ul_bwpscs);
     prnt("      }]\n");
     prnt("    },\n");
 
     prnt("    \"NRCELLDU\": {\n");
-    prnt("      \"" SSBFREQ "\": %ld,\n", *scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencySSB);
-    prnt("      \"" ARFCNDL "\": %ld,\n", frequencyInfoDL->absoluteFrequencyPointA);
-    prnt("      \"" BWDL "\": %ld,\n", bw_mhz);
-    prnt("      \"" ARFCNUL "\": %ld,\n", frequencyInfoUL->absoluteFrequencyPointA ? *frequencyInfoUL->absoluteFrequencyPointA : frequencyInfoDL->absoluteFrequencyPointA);
-    prnt("      \"" BWUL "\": %ld,\n", bw_mhz);
-    prnt("      \"" PCI "\": %ld,\n", *scc->physCellId);
-    prnt("      \"" TAC "\": %ld,\n", *cell_info->tac);
-    prnt("      \"" MCC "\": \"%03d\",\n", cell_info->plmn.mcc);
-    prnt("      \"" MNC "\": \"%0*d\",\n", cell_info->plmn.mnc_digit_length, cell_info->plmn.mnc);
-    prnt("      \"" SD  "\": %d,\n", cell_info->nssai[0].sd);
-    prnt("      \"" SST "\": %d\n", cell_info->nssai[0].sst);
+    prnt("      \"" SSBFREQ "\": %ld,\n", current->ssbFrequency);
+    prnt("      \"" ARFCNDL "\": %ld,\n", current->arfcnDL);
+    prnt("      \"" BWDL "\": %ld,\n", current->bw_mhz);
+    prnt("      \"" ARFCNUL "\": %ld,\n", current->arfcnUL);
+    prnt("      \"" BWUL "\": %ld,\n", current->bw_mhz);
+    prnt("      \"" PCI "\": %ld,\n", current->pci);
+    prnt("      \"" TAC "\": %ld,\n", current->tac);
+    prnt("      \"" MCC "\": \"%03d\",\n", current->mcc);
+    prnt("      \"" MNC "\": \"%0*d\",\n", current->mnc_digit_length, current->mnc);
+    prnt("      \"" SD  "\": %d,\n", current->sd);
+    prnt("      \"" SST "\": %d\n", current->sst);
     prnt("    },\n");
     prnt("    \"device\": {\n");
-    prnt("      \"gnbId\": %d,\n", sr->gNB_DU_id);
-    prnt("      \"gnbName\": \"%s\",\n", sr->gNB_DU_name);
+    prnt("      \"gnbId\": %d,\n", current->gNB_DU_id);
+    prnt("      \"gnbName\": \"%s\",\n", current->gNB_DU_name);
     prnt("      \"vendor\": \"OpenAirInterface\"\n");
     prnt("    }\n");
     prnt("  },\n");
 
     prnt("  \"O1-Operational\": {\n");
-    prnt("    \"frame-type\": \"%s\",\n", frame_type == TDD ? "tdd" : "fdd");
-    prnt("    \"band-number\": %ld,\n", band);
+    prnt("    \"frame-type\": \"%s\",\n", current->frame_type == TDD ? "tdd" : "fdd");
+    prnt("    \"band-number\": %ld,\n", current->band);
     prnt("    \"num-ues\": %d,\n", num_ues);
     prnt("    \"ues\": ["); PRINTLIST_i(num_ues, "%d", ue_stat[i].rnti); prnt("],\n");
     prnt("    \"load\": %d,\n", load);
@@ -178,7 +162,8 @@ static int get_stats(char *buf, int debug, telnet_printfunc_t prnt)
     prnt("  }\n");
   prnt("}\n");
   prnt("OK\n");
-  NR_SCHED_UNLOCK(&mac->sched_lock);
+
+  itti_free(ITTI_MSG_ORIGIN_ID(resp_p), resp_p);
   return 0;
 }
 
@@ -285,62 +270,19 @@ static int set_bwconfig(char *buf, int debug, telnet_printfunc_t prnt)
   if (NULL != (end = strchr(buf, '\r')))
     *end = 0;
 
-  gNB_MAC_INST *mac = RC.nrmac[0];
-  NR_ServingCellConfigCommon_t *scc = mac->cells[0].common_channels.ServingCellConfigCommon;
-  NR_FrequencyInfoDL_t *frequencyInfoDL = scc->downlinkConfigCommon->frequencyInfoDL;
-  NR_BWP_t *initialDL = &scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters;
-  NR_FrequencyInfoUL_t *frequencyInfoUL = scc->uplinkConfigCommon->frequencyInfoUL;
-  NR_BWP_t *initialUL = &scc->uplinkConfigCommon->initialUplinkBWP->genericParameters;
-  if (strcmp(buf, "40") == 0) {
-    *scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencySSB = 641280;
-    frequencyInfoDL->absoluteFrequencyPointA = 640008;
-    AssertFatal(frequencyInfoUL->absoluteFrequencyPointA == NULL, "only handle TDD\n");
-    frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth = 106;
-    initialDL->locationAndBandwidth = 28875;
-    frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth = 106;
-    initialUL->locationAndBandwidth = 28875;
-    get_softmodem_params()->threequarter_fs = 1;
-  } else if (strcmp(buf, "20") == 0) {
-    *scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencySSB = 641280;
-    frequencyInfoDL->absoluteFrequencyPointA = 640596;
-    AssertFatal(frequencyInfoUL->absoluteFrequencyPointA == NULL, "only handle TDD\n");
-    frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth = 51;
-    initialDL->locationAndBandwidth = 13750;
-    frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth = 51;
-    initialUL->locationAndBandwidth = 13750;
-    get_softmodem_params()->threequarter_fs = 0;
-  } else if (strcmp(buf, "100") == 0) {
-    *scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencySSB = 646668;
-    frequencyInfoDL->absoluteFrequencyPointA = 643392;
-    AssertFatal(frequencyInfoUL->absoluteFrequencyPointA == NULL, "only handle TDD\n");
-    frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth = 273;
-    initialDL->locationAndBandwidth = 1099;
-    frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth = 273;
-    initialUL->locationAndBandwidth = 1099;
-    get_softmodem_params()->threequarter_fs = 0;
-  } else if (strcmp(buf, "60") == 0) {
-    *scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencySSB = 621984;
-    frequencyInfoDL->absoluteFrequencyPointA = 620040;
-    AssertFatal(frequencyInfoUL->absoluteFrequencyPointA == NULL, "only handle TDD\n");
-    frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth = 162;
-    initialDL->locationAndBandwidth = 31624;
-    frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth = 162;
-    initialUL->locationAndBandwidth = 31624;
-    get_softmodem_params()->threequarter_fs = 0;
-  } else {
+  int bw_value = atoi(buf);
+  if (bw_value != 20 && bw_value != 40 && bw_value != 60 && bw_value != 100)
     ERROR_MSG_RET("unhandled option %s\n", buf);
+
+  MessageDef *msg_p = itti_alloc_new_message(TASK_MAC_GNB, 0, MAC_SET_BWCONFIG);
+  msg_p->ittiMsg.mac_set_bwconfig.bw_value = bw_value;
+  MessageDef *resp_p;
+
+  if (!itti_send_and_receive_msg_to_task(TASK_MAC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
+    ERROR_MSG_RET("Timeout waiting for MAC response\n");
   }
 
-  nr_cell_sched_t *cell = nr_mac_get_cell_by_phy_id(RC.nrmac[0], 0);
-  free(cell->sched_ctrlSIB1);
-  cell->sched_ctrlSIB1 = NULL;
-
-  free_MIB_NR(cell->common_channels.mib);
-  cell->common_channels.mib = get_new_MIB_NR(scc);
-
-  const f1ap_served_cell_info_t *info = &mac->f1_config.setup_req->cell[0].info;
-  nr_mac_configure_sib1(cell, &info->plmn, info->nr_cellid, *info->tac);
-
+  itti_free(ITTI_MSG_ORIGIN_ID(resp_p), resp_p);
   prnt("OK\n");
   return 0;
 }
@@ -353,17 +295,14 @@ static int stop_modem(char *buf, int debug, telnet_printfunc_t prnt)
   if (!running)
     ERROR_MSG_RET("cannot stop, nr-softmodem not running\n");
 
-  /* make UEs out of sync and wait 50ms to ensure no PUCCH is scheduled. After
-   * a restart, the frame/slot numbers will be different, which "confuses" the
-   * scheduler, which has many PUCCH structures filled with expected frame/slot
-   * combinations that won't happen. */
-  const gNB_MAC_INST *mac = RC.nrmac[0];
-  UE_iterator((NR_UE_info_t **)mac->UE_info.connected_ue_list, it) {
-    nr_mac_trigger_ul_failure(&it->UE_sched_ctrl, 1);
-  }
-  usleep(50000);
+  MessageDef *msg_p = itti_alloc_new_message(TASK_MAC_GNB, 0, MAC_STOP_MODEM);
+  MessageDef *resp_p;
 
-  stop_L1(0);
+  if (!itti_send_and_receive_msg_to_task(TASK_MAC_GNB, TASK_TELNET, msg_p, &resp_p, 1000)) {
+    ERROR_MSG_RET("Timeout waiting for MAC response\n");
+  }
+
+  itti_free(ITTI_MSG_ORIGIN_ID(resp_p), resp_p);
   running = false;
   prnt("OK\n");
   return 0;

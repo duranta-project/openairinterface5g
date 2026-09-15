@@ -59,6 +59,7 @@ typedef struct IttiMsgText_s {
 #include <openair2/COMMON/as_message.h>
 #include <openair2/RRC/LTE/rrc_types.h>
 #include <openair2/COMMON/rrc_messages_types.h>
+#include <openair2/RRC/NR/nr_rrc_messages_types.h>
 #include <openair2/COMMON/e1ap_messages_types.h>
 
 #include <openair3/NAS/COMMON/UTIL/OctetString.h>
@@ -293,6 +294,7 @@ typedef struct {
   TASK_DEF(TASK_CUCP_E1, 200)         \
   TASK_DEF(TASK_CUUP_E1, 200)         \
   TASK_DEF(TASK_NAS_NRUE, 200)        \
+  TASK_DEF(TASK_TELNET, 200)          \
   TASK_DEF(TASK_MAX, 200)
 
 #define TASK_DEF(TaskID, qUEUEsIZE) {qUEUEsIZE, #TaskID},
@@ -406,6 +408,20 @@ extern "C" {
   @returns -1 on failure, 0 otherwise
  **/
 int itti_send_msg_to_task(task_id_t task_id, instance_t instance, MessageDef *message);
+
+/** \brief Send a message to a task (could be itself)
+  \param sending_task_id Task ID
+  \param receiving_task_id Task ID
+  \param sending_message Pointer to the message to send
+  \param receiving_message Pointer to the message to receive
+  \param timeout_ms Timeout in milliseconds (-1 for infinite wait)
+  \return true if message received, false if timeout occurred
+ **/
+bool itti_send_and_receive_msg_to_task(task_id_t sending_task_id,
+                                       task_id_t receiving_task_id,
+                                       MessageDef *sending_message,
+                                       MessageDef **receiving_message,
+                                       int timeout_ms);
 
 /** \brief Add a new fd to monitor.
    NOTE: it is up to the user to read data associated with the fd

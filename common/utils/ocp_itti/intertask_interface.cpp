@@ -223,8 +223,8 @@ typedef struct timer_elm_s {
 
     AssertFatal (nb_events >=0,
                  "epoll_wait failed for task %s, nb fds %d, timeout %lu: %s!\n",
-                 itti_get_task_name(task_id), t->nb_fd_epoll, 
-                 t->next_timer != UINT64_MAX ? t->next_timer-current_time : -1, 
+                 itti_get_task_name(task_id), t->nb_fd_epoll,
+                 t->next_timer != UINT64_MAX ? t->next_timer-current_time : -1,
                  strerror(errno));
     LOG_D(ITTI,"receive on %d descriptors for %s\n", nb_events, itti_get_task_name(task_id));
 
@@ -281,6 +281,76 @@ typedef struct timer_elm_s {
     }
 
     pthread_mutex_unlock (&t->queue_cond_lock);
+  }
+
+  bool itti_send_and_receive_msg_to_task(task_id_t sending_task_id,
+                                               task_id_t receiving_task_id,
+                                               MessageDef *sending_message,
+                                               MessageDef **receiving_message,
+                                               int timeout_ms)
+  {
+    itti_send_msg_to_task(sending_task_id, 0, sending_message);
+
+    task_list_t *t = tasks[receiving_task_id];
+
+    struct timespec tp;
+    clock_gettime(CLOCK_MONOTONIC, &tp);
+    uint64_t start_time = (uint64_t)tp.tv_sec * 1000 + tp.tv_nsec / (1000 * 1000);
+    uint64_t end_time = (timeout_ms >= 0) ? start_time + timeout_ms : UINT64_MAX;
+
+    pthread_mutex_lock(&t->queue_cond_lock);
+
+    if (!t->message_queue.empty()) {
+      *receiving_message = t->message_queue.back();
+      t->message_queue.pop_back();
+      LOG_D(ITTI, "task %s received a message (timeout version)\n", t->admin.name);
+      pthread_mutex_unlock(&t->queue_cond_lock);
+      return true;
+    }
+
+    while (true) {
+      struct epoll_event events[t->nb_fd_epoll];
+
+      clock_gettime(CLOCK_MONOTONIC, &tp);
+      uint64_t current_time = (uint64_t)tp.tv_sec * 1000 + tp.tv_nsec / (1000 * 1000);
+
+      if (current_time >= end_time) {
+        LOG_D(ITTI, "task %s timeout expired, no message received\n", t->admin.name);
+        *receiving_message = NULL;
+        pthread_mutex_unlock(&t->queue_cond_lock);
+        return false;
+      }
+
+      int remaining_timeout = end_time - current_time;
+
+      pthread_mutex_unlock(&t->queue_cond_lock);
+
+      int nb_events = epoll_wait(t->epoll_fd, events, t->nb_fd_epoll, remaining_timeout);
+
+      pthread_mutex_lock(&t->queue_cond_lock);
+
+      if (nb_events == 0) {
+        continue;
+      }
+
+      if (nb_events < 0) {
+        if (errno == EINTR || errno == EAGAIN) {
+          continue;
+        }
+        LOG_E(ITTI, "epoll_wait failed for task %s: %s\n", t->admin.name, strerror(errno));
+        *receiving_message = NULL;
+        pthread_mutex_unlock(&t->queue_cond_lock);
+        return false;
+      }
+
+      if (!t->message_queue.empty()) {
+        *receiving_message = t->message_queue.back();
+        t->message_queue.pop_back();
+        LOG_D(ITTI, "task %s received a message (timeout version)\n", t->admin.name);
+        pthread_mutex_unlock(&t->queue_cond_lock);
+        return true;
+      }
+    }
   }
 
   void itti_poll_msg(task_id_t task_id, MessageDef **received_msg) {

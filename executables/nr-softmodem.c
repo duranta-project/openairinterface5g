@@ -38,6 +38,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
 #include "NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
+#include "LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "PHY/INIT/nr_phy_init.h"
 #include "PHY/TOOLS/phy_scope_interface.h"
 #include "PHY/defs_gNB.h"
@@ -163,7 +164,7 @@ void exit_function(const char *file, const char *function, const int line, const
 
 static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cfg)
 {
-  uint32_t                        gnb_nb = RC.nb_nr_inst; 
+  uint32_t                        gnb_nb = RC.nb_nr_inst;
   uint32_t                        gnb_id_start = 0;
   uint32_t                        gnb_id_end = gnb_id_start + gnb_nb;
   LOG_D(GNB_APP, "%s(gnb_nb:%d)\n", __FUNCTION__, gnb_nb);
@@ -258,6 +259,13 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
       }
     }
 
+    if (NODE_IS_DU(node_type)) {
+      if (itti_create_task (TASK_MAC_GNB, mac_gnb_task, NULL) < 0) {
+        LOG_E(NR_MAC, "Create task for NR MAC gNB failed\n");
+        return -1;
+      }
+    }
+
     // E1AP initialisation, whether the node is a CU or has integrated CU
     if (node_type == ngran_gNB_CU || node_type == ngran_gNB) {
       MessageDef *msg = RCconfig_NR_CU_E1(NULL);
@@ -279,7 +287,7 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
       return -1;
     }
 
-    //Use check on x2ap to consider the NSA scenario 
+    //Use check on x2ap to consider the NSA scenario
     if((is_x2ap_enabled() || IS_SA_MODE(get_softmodem_params())) && (node_type != ngran_gNB_CUCP)) {
       if (itti_create_task (TASK_GTPV1_U, &gtpv1uTask, NULL) < 0) {
         LOG_E(GTPU, "Create task for GTPV1U failed\n");
@@ -615,10 +623,10 @@ int main( int argc, char **argv ) {
     for (ru_id=0; ru_id<RC.nb_RU; ru_id++) {
       RC.ru[ru_id]->rf_map.card=0;
       RC.ru[ru_id]->rf_map.chain = CC_id;
-      if (ru_id==0) sl_ahead = RC.ru[ru_id]->sl_ahead;	
+      if (ru_id==0) sl_ahead = RC.ru[ru_id]->sl_ahead;
       else AssertFatal(RC.ru[ru_id]->sl_ahead != RC.ru[0]->sl_ahead,"RU %d has different sl_ahead %d than RU 0 %d\n",ru_id,RC.ru[ru_id]->sl_ahead,RC.ru[0]->sl_ahead);
     }
-    
+
   }
 
   if (NFAPI_MODE != NFAPI_MODE_PNF)
@@ -630,7 +638,7 @@ int main( int argc, char **argv ) {
 //////////////////////////////////
 //// Init the E2 Agent
 
-  // OAI Wrapper 
+  // OAI Wrapper
   e2_agent_args_t oai_args = RCconfig_NR_E2agent();
 
   if (oai_args.enabled) {

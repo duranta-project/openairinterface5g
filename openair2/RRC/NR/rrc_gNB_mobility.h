@@ -98,7 +98,7 @@ void nr_rrc_apply_target_context(gNB_RRC_UE_t *UE);
 bool nr_rrc_update_cell_assoc_after_ho(gNB_RRC_UE_t *UE);
 
 const nr_neighbour_cell_t *get_neighbour_cell_by_pci(const neighbour_cell_configuration_t *cell, int pci);
-void nr_HO_F1_trigger_telnet(gNB_RRC_INST *rrc, uint32_t rrc_ue_id);
-void nr_HO_N2_trigger_telnet(gNB_RRC_INST *rrc, uint32_t neighbour_pci, uint32_t rrc_ue_id);
+void nr_F1_HO_trigger_telnet(gNB_RRC_INST *rrc, uint32_t rrc_ue_id);
+void nr_N2_HO_trigger_telnet(gNB_RRC_INST *rrc, uint32_t neighbour_pci, uint32_t rrc_ue_id);
 
 #endif /* RRC_GNB_MOBILITY_H_ */
