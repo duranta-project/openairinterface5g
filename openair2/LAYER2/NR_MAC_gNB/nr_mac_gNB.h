@@ -1228,8 +1228,9 @@ typedef struct {
  */
 typedef struct nr_cell_sched_s {
 
-  /// Cell identity: Index in MAC->cell array matches FAPI header->phy_id; CGI used for F1 lookups
+  /// Cell identity: physCellId from config, used for FAPI phy_id lookups
   /// TS 38.473 §9.3.1.12 NR CGI defined by PLMN Identity and NR Cell Identity
+  uint16_t phy_id;
   uint64_t nr_cellid;
   plmn_id_t plmn;
 
@@ -1335,8 +1336,8 @@ typedef struct gNB_MAC_INST_s {
   NR_IF_Module_t                  *if_inst;
   pthread_t                       stats_thread;
 
-  /// Per-cell scheduling contexts
-  nr_cell_sched_t cells[NR_MAX_CELLS];
+  /// Per-cell scheduling contexts (one entry per configured cell, indexed by PCI)
+  seq_arr_t cells;
 
   NR_UEs_t UE_info;
 
