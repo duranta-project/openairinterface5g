@@ -745,6 +745,15 @@ set(SCHED_NR_SRC
 add_library(SCHED_NR_LIB ${SCHED_NR_SRC})
 target_link_libraries(SCHED_NR_LIB PRIVATE asn1_nr_rrc_hdrs UTIL)
 target_link_libraries(SCHED_NR_LIB PRIVATE nfapi_nr_lib nfapi_user_lib) # some FAPI messages pack "subPDUs"
+if(E3_AGENT)
+  # phy_procedures_nr_gNB.c taps rxdataF into the L1-KPM SM, so every consumer of
+  # SCHED_NR_LIB needs those symbols -- not just nr-softmodem. Without this the
+  # phy simulators and nr_dlbench fail to link in an E3_AGENT build.
+  target_link_libraries(SCHED_NR_LIB PRIVATE e3ap)
+endif()
+if(E3_AGENT)
+  target_compile_definitions(SCHED_NR_LIB PRIVATE E3_AGENT)
+endif()
 
 set(SCHED_SRC_RU
   ${OPENAIR1_DIR}/SCHED/ru_procedures.c
