@@ -87,124 +87,29 @@
     <iperf_bitrate_threshold>90</iperf_bitrate_threshold>
   </testCase>
 
+  <!-- One MO SR cycle only: OAI CN5G drops UL UP on repeated reactivation -->
   <testCase>
     <class>Custom_Command</class>
-    <desc>Force RRC_IDLE (UE ID 0)</desc>
+    <desc>gNB NGAP UE Context Release Request (user-inactivity) for rrc_ue_id 1</desc>
     <node>localhost</node>
-    <command>echo ciUE force_RRC_IDLE | ncat 192.168.71.150 8091</command>
+    <command>echo rrc ctx_rel_req 1 | ncat 192.168.71.140 9090 | grep -q "Sent NGAP UE Context Release Request"</command>
   </testCase>
 
   <testCase>
     <class>IdleSleep</class>
-    <desc>Sleep</desc>
+    <desc>Wait for RRCRelease / 5GMM-IDLE</desc>
     <idle_sleep_time_in_sec>1</idle_sleep_time_in_sec>
   </testCase>
 
   <testCase>
     <class>Ping</class>
-    <desc>Ping ext-dn from NR-UE</desc>
+    <desc>MO UL after idle: Ping ext-dn from NR-UE (Service Request)</desc>
     <id>rfsim5g_ue</id>
     <node>localhost</node>
     <svr_id>rfsim5g_ext_dn</svr_id>
     <svr_node>localhost</svr_node>
     <ping_args>-c 20 -i0.5</ping_args>
-    <ping_packetloss_threshold>80</ping_packetloss_threshold>
-  </testCase>
-
-  <testCase>
-    <class>Custom_Command</class>
-    <desc>Force RRC_IDLE (UE ID 0)</desc>
-    <node>localhost</node>
-    <command>echo ciUE force_RRC_IDLE | ncat 192.168.71.150 8091</command>
-  </testCase>
-
-  <testCase>
-    <class>IdleSleep</class>
-    <desc>Sleep</desc>
-    <idle_sleep_time_in_sec>1</idle_sleep_time_in_sec>
-  </testCase>
-
-  <testCase>
-    <class>Ping</class>
-    <desc>Ping ext-dn from NR-UE</desc>
-    <id>rfsim5g_ue</id>
-    <node>localhost</node>
-    <svr_id>rfsim5g_ext_dn</svr_id>
-    <svr_node>localhost</svr_node>
-    <ping_args>-c 20 -i0.5</ping_args>
-    <ping_packetloss_threshold>80</ping_packetloss_threshold>
-  </testCase>
-
-  <testCase>
-    <class>Custom_Command</class>
-    <desc>Force RRC_IDLE (UE ID 0)</desc>
-    <node>localhost</node>
-    <command>echo ciUE force_RRC_IDLE | ncat 192.168.71.150 8091</command>
-  </testCase>
-
-  <testCase>
-    <class>IdleSleep</class>
-    <desc>Sleep</desc>
-    <idle_sleep_time_in_sec>1</idle_sleep_time_in_sec>
-  </testCase>
-
-  <testCase>
-    <class>Ping</class>
-    <desc>Ping ext-dn from NR-UE</desc>
-    <id>rfsim5g_ue</id>
-    <node>localhost</node>
-    <svr_id>rfsim5g_ext_dn</svr_id>
-    <svr_node>localhost</svr_node>
-    <ping_args>-c 20 -i0.5</ping_args>
-    <ping_packetloss_threshold>80</ping_packetloss_threshold>
-  </testCase>
-
-  <testCase>
-    <class>Custom_Command</class>
-    <desc>Force RRC_IDLE (UE ID 0)</desc>
-    <node>localhost</node>
-    <command>echo ciUE force_RRC_IDLE | ncat 192.168.71.150 8091</command>
-  </testCase>
-
-  <testCase>
-    <class>IdleSleep</class>
-    <desc>Sleep</desc>
-    <idle_sleep_time_in_sec>1</idle_sleep_time_in_sec>
-  </testCase>
-
-  <testCase>
-    <class>Ping</class>
-    <desc>Ping ext-dn from NR-UE</desc>
-    <id>rfsim5g_ue</id>
-    <node>localhost</node>
-    <svr_id>rfsim5g_ext_dn</svr_id>
-    <svr_node>localhost</svr_node>
-    <ping_args>-c 20 -i0.5</ping_args>
-    <ping_packetloss_threshold>80</ping_packetloss_threshold>
-  </testCase>
-
-  <testCase>
-    <class>Custom_Command</class>
-    <desc>Force RRC_IDLE (UE ID 0)</desc>
-    <node>localhost</node>
-    <command>echo ciUE force_RRC_IDLE | ncat 192.168.71.150 8091</command>
-  </testCase>
-
-  <testCase>
-    <class>IdleSleep</class>
-    <desc>Sleep</desc>
-    <idle_sleep_time_in_sec>1</idle_sleep_time_in_sec>
-  </testCase>
-
-  <testCase>
-    <class>Ping</class>
-    <desc>Ping ext-dn from NR-UE</desc>
-    <id>rfsim5g_ue</id>
-    <node>localhost</node>
-    <svr_id>rfsim5g_ext_dn</svr_id>
-    <svr_node>localhost</svr_node>
-    <ping_args>-c 20 -i0.5</ping_args>
-    <ping_packetloss_threshold>80</ping_packetloss_threshold>
+    <ping_packetloss_threshold>25</ping_packetloss_threshold>
   </testCase>
 
   <testCase>

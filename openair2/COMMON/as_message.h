@@ -22,6 +22,7 @@ Description Defines the messages supported by the Access Stratum sublayer
 #ifndef __AS_MESSAGE_H__
 #define __AS_MESSAGE_H__
 
+#include <pthread.h>
 #include "commonDef.h"
 #include "networkDef.h"
 /****************************************************************************/
@@ -457,6 +458,36 @@ typedef struct nas_pdu_session_req_s {
   int sd;
   char dnn[103]; /* 24.501 §9.11.2.1A: max length 102 + 0-byte */
 } nas_pdu_session_req_t;
+
+/*
+ * SDAP->RRC->NAS - MO UL data pending while UE has no SDAP entity (e.g. 5GMM-IDLE)
+ * Distinct from paging: NAS may start Service Request (TS 24.501 §5.6.1)
+ */
+typedef struct nas_mo_ul_data_ind_s {
+  char dummy;
+} nas_mo_ul_data_ind_t;
+
+/* NAS->RRC - UE TUN reader lifecycle for a NAS-provided PSI list
+ * (sock/qfi/reader_thread point at NAS pdu_tun state) */
+#define NAS_TUN_LIST_MAX 16 /* MAX_NUM_PSI */
+
+typedef struct nas_tun_psi_s {
+  int pdusession_id;
+  int sock;
+  int qfi;
+  pthread_t *reader_thread;
+} nas_tun_psi_t;
+
+typedef enum {
+  NAS_TUN_START_USER_PLANE = 0,
+  NAS_TUN_START_IDLE_LISTENER,
+} nas_tun_req_action_t;
+
+typedef struct nas_tun_req_s {
+  nas_tun_req_action_t action;
+  int n_psi;
+  nas_tun_psi_t psi[NAS_TUN_LIST_MAX];
+} nas_tun_req_t;
 
 /*
  * --------------------------------------------------------------------------

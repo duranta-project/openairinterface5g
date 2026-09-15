@@ -44,8 +44,6 @@
 #include "openair3/UTILS/conversions.h"
 #include "secu_defs.h"
 #include "utils.h"
-#include "openair2/SDAP/nr_sdap/nr_sdap.h"
-#include "openair2/SDAP/nr_sdap/nr_sdap_entity.h"
 #include "fgs_nas_utils.h"
 #include "fgmm_service_accept.h"
 #include "fgmm_service_reject.h"
@@ -817,6 +815,10 @@ nr_ue_nas_t *get_ue_nas_info(module_id_t module_id)
   if (!nr_ue_nas[module_id].uicc) {
     nr_ue_nas[module_id].uicc = checkUicc(module_id);
     nr_ue_nas[module_id].UE_id = module_id;
+    for (int i = 0; i < MAX_NUM_PSI; i++) {
+      nr_ue_nas[module_id].pdu_tun[i].sock = -1;
+      nr_ue_nas[module_id].pdu_tun[i].qfi = -1;
+    }
   }
   return &nr_ue_nas[module_id];
 }
@@ -1029,7 +1031,7 @@ void generateRegistrationRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas,
   }
 }
 
-void generateServiceRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas)
+void generateServiceRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas, bool mo_ul_data)
 {
   LOG_I(NAS, "Generate initial NAS message: Service Request\n");
   int size = 0;
@@ -1052,17 +1054,24 @@ void generateServiceRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas)
   // 5G-S-TMSI
   size += fill_fgstmsi(&mm_msg->fiveg_s_tmsi, nas->guti);
 
-  // PDU session status is a non-cleartext Service Request IE (TS 24.501 8.2.16.3).
-  // Here configured UE PDU sessions are marked active to trigger the NAS container path.
+  /* Optional non-cleartext IEs (TS 24.501 4.4.6, TS 33.501 6.4.6):
+   * - PDU session status (8.2.16.3 / 9.11.3.44) from preserved 5GSM state
+   * - Uplink data status (8.2.16.2 / 9.11.3.57) if MO UL data pending */
   uint8_t pdu_session_status[MAX_NUM_PSI] = {0};
-  bool has_non_cleartext_ies = false;
-  for (int i = 0; i < nas->uicc->n_pdu_sessions; ++i) {
-    const int pdu_id = nas->uicc->pdu_sessions[i].id;
-    if (pdu_id > 0 && pdu_id < MAX_NUM_PSI) {
-      pdu_session_status[pdu_id] = PDU_SESSION_ACTIVE;
-      has_non_cleartext_ies = true;
+  uint8_t uplink_data_status[MAX_NUM_PSI] = {0};
+  bool has_pdu_session_status = false;
+  bool has_uplink_data_status = false;
+  for (int pdu_id = 1; pdu_id < MAX_NUM_PSI; pdu_id++) {
+    if (nas->psi_status[pdu_id] == PDU_SESSION_INACTIVE)
+      continue;
+    pdu_session_status[pdu_id] = PDU_SESSION_ACTIVE;
+    has_pdu_session_status = true;
+    if (mo_ul_data) {
+      uplink_data_status[pdu_id] = PDU_SESSION_ACTIVE;
+      has_uplink_data_status = true;
     }
   }
+  const bool has_non_cleartext_ies = has_pdu_session_status || has_uplink_data_status;
 
   /* message encoding */
   if (security_protected) {
@@ -1081,12 +1090,22 @@ void generateServiceRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas)
     if (has_non_cleartext_ies) {
       fgmm_nas_message_plain_t full_sr = plain;
       fgs_service_request_msg_t *full_mm_msg = &full_sr.mm_msg.service_request;
-      full_mm_msg->has_pdu_session_status = true;
-      memcpy(full_mm_msg->pdu_session_status, pdu_session_status, sizeof(full_mm_msg->pdu_session_status));
+      if (has_uplink_data_status) {
+        full_mm_msg->has_uplink_data_status = true;
+        memcpy(full_mm_msg->uplink_data_status, uplink_data_status, sizeof(full_mm_msg->uplink_data_status));
+      }
+      if (has_pdu_session_status) {
+        full_mm_msg->has_pdu_session_status = true;
+        memcpy(full_mm_msg->pdu_session_status, pdu_session_status, sizeof(full_mm_msg->pdu_session_status));
+      }
 
-      const int full_sr_size = plain_sr_size + MIN_PDU_SESSION_CONTENTS_LEN + 2;
-      uint8_t *inner_sr = calloc_or_fail(full_sr_size, sizeof(*inner_sr));
-      const int inner_sr_len = mm_msg_encode(&full_sr, inner_sr, full_sr_size);
+      int inner_buf_size = plain_sr_size;
+      if (has_uplink_data_status)
+        inner_buf_size += MIN_PDU_SESSION_CONTENTS_LEN + 2;
+      if (has_pdu_session_status)
+        inner_buf_size += MIN_PDU_SESSION_CONTENTS_LEN + 2;
+      uint8_t *inner_sr = calloc_or_fail(inner_buf_size, sizeof(*inner_sr));
+      const int inner_sr_len = mm_msg_encode(&full_sr, inner_sr, inner_buf_size);
       if (inner_sr_len <= 0) {
         free(inner_sr);
         AssertFatal(false, "Failed to encode Service Request NAS container payload\n");
@@ -1662,23 +1681,26 @@ static int capture_ipv6_addr(const uint8_t *addr, char *ip, size_t len)
  *        and configure the tun interface
  */
 static void process_pdu_session_addr(pdu_session_establishment_accept_msg_t *msg,
-                                     int instance_id,
+                                     nr_ue_nas_t *nas,
                                      int pdu_session_id,
                                      bool is_default)
 {
   uint8_t *addr = msg->pdu_addr_ie.pdu_addr_oct;
+  AssertFatal(pdu_session_id > 0 && pdu_session_id < MAX_NUM_PSI, "invalid PDU session ID %d\n", pdu_session_id);
+  nas_ue_pdu_tun_t *t = &nas->pdu_tun[pdu_session_id];
+  const int ifname_pdu_id = is_default ? -1 : pdu_session_id;
 
   switch (msg->pdu_addr_ie.pdu_type) {
     case PDU_SESSION_TYPE_IPV4: {
       char ip[20];
       capture_ipv4_addr(&addr[0], ip, sizeof(ip));
-      create_ue_ip_if(ip, NULL, instance_id, pdu_session_id, is_default);
+      nr_ue_tun_create_ip_if(t, ip, NULL, nas->UE_id, ifname_pdu_id);
     } break;
 
     case PDU_SESSION_TYPE_IPV6: {
       char ipv6[40];
       capture_ipv6_addr(addr, ipv6, sizeof(ipv6));
-      create_ue_ip_if(NULL, ipv6, instance_id, pdu_session_id, is_default);
+      nr_ue_tun_create_ip_if(t, NULL, ipv6, nas->UE_id, ifname_pdu_id);
     } break;
 
     case PDU_SESSION_TYPE_IPV4V6: {
@@ -1686,7 +1708,7 @@ static void process_pdu_session_addr(pdu_session_establishment_accept_msg_t *msg
       capture_ipv6_addr(addr, ipv6, sizeof(ipv6));
       char ipv4[20];
       capture_ipv4_addr(&addr[IPv6_INTERFACE_ID_LENGTH], ipv4, sizeof(ipv4));
-      create_ue_ip_if(ipv4, ipv6, instance_id, pdu_session_id, is_default);
+      nr_ue_tun_create_ip_if(t, ipv4, ipv6, nas->UE_id, ifname_pdu_id);
     } break;
 
     default:
@@ -1695,10 +1717,53 @@ static void process_pdu_session_addr(pdu_session_establishment_accept_msg_t *msg
   }
 }
 
+/** @brief Set one PSI from a NAS TUN entry */
+static void nas_tun_psi_set(nas_tun_psi_t *out, int pdusession_id, nas_ue_pdu_tun_t *t)
+{
+  out->pdusession_id = pdusession_id;
+  out->sock = t->sock;
+  out->qfi = t->qfi;
+  out->reader_thread = &t->reader_thread;
+}
+
+/** @brief Ask RRC to start the user-plane TUN reader for one PSI */
+static void send_nas_tun_req(nr_ue_nas_t *nas, int pdusession_id)
+{
+  DevAssert(pdusession_id > 0 && pdusession_id < MAX_NUM_PSI);
+  nas_ue_pdu_tun_t *t = &nas->pdu_tun[pdusession_id];
+  DevAssert(t->sock >= 0);
+  MessageDef *msg = itti_alloc_new_message(TASK_NAS_NRUE, nas->UE_id, NAS_TUN_REQ);
+  nas_tun_req_t *req = &NAS_TUN_REQ(msg);
+  req->action = NAS_TUN_START_USER_PLANE;
+  req->n_psi = 1;
+  nas_tun_psi_set(&req->psi[0], pdusession_id, t);
+  itti_send_msg_to_task(TASK_RRC_NRUE, nas->UE_id, msg);
+}
+
+/** @brief Ask RRC to change how TUN uplink is read for this UE
+ * User-plane mode: include every active PDU session so RRC can bind SDAP and start the reader
+ * Idle-listener mode: send only the mode with an empty session list */
+static void send_nas_tun_req_action(nr_ue_nas_t *nas, nas_tun_req_action_t action)
+{
+  MessageDef *msg = itti_alloc_new_message(TASK_NAS_NRUE, nas->UE_id, NAS_TUN_REQ);
+  nas_tun_req_t *req = &NAS_TUN_REQ(msg);
+  req->action = action;
+  if (action == NAS_TUN_START_USER_PLANE) {
+    for (int psi = 1; psi < MAX_NUM_PSI && req->n_psi < NAS_TUN_LIST_MAX; psi++) {
+      nas_ue_pdu_tun_t *t = &nas->pdu_tun[psi];
+      if (nas->psi_status[psi] == PDU_SESSION_INACTIVE || t->sock < 0)
+        continue;
+      nas_tun_psi_set(&req->psi[req->n_psi], psi, t);
+      req->n_psi++;
+    }
+  }
+  itti_send_msg_to_task(TASK_RRC_NRUE, nas->UE_id, msg);
+}
+
 /**
  * @brief Handle PDU Session Establishment Accept and process decoded message
  */
-static void handle_pdu_session_accept(const nr_ue_nas_t *nas, uint8_t *pdu_buffer, uint32_t msg_length, int instance)
+static void handle_pdu_session_accept(nr_ue_nas_t *nas, uint8_t *pdu_buffer, uint32_t msg_length)
 {
   pdu_session_establishment_accept_msg_t msg = {0};
   int size = 0;
@@ -1757,24 +1822,35 @@ static void handle_pdu_session_accept(const nr_ue_nas_t *nas, uint8_t *pdu_buffe
     return;
   }
 
+  AssertFatal(sm_header.pdu_session_id > 0 && sm_header.pdu_session_id < MAX_NUM_PSI,
+              "invalid PDU session ID %d\n",
+              sm_header.pdu_session_id);
+  nas_ue_pdu_tun_t *t = &nas->pdu_tun[sm_header.pdu_session_id];
+
   // Set QFI before starting UE interface thread to avoid early SDUs using 0-initialized QFI.
-  set_qfi(msg.qos_rules.rule->qfi, sm_header.pdu_session_id, instance);
+  nr_ue_tun_store_qfi(t, msg.qos_rules.rule->qfi);
 
   // process PDU Session: pass ID -1 to not append PDU ID to interface
   bool is_default = idx == 0;
   if (msg.pdu_type == PDU_SESSION_TYPE_ETHER) {
-    create_ue_eth_if(instance, sm_header.pdu_session_id, is_default);
+    nr_ue_tun_create_eth_if(t, nas->UE_id, is_default ? -1 : sm_header.pdu_session_id);
   } else if (msg.pdu_addr_ie.pdu_length) {
-    process_pdu_session_addr(&msg, instance, sm_header.pdu_session_id, is_default);
+    process_pdu_session_addr(&msg, nas, sm_header.pdu_session_id, is_default);
   } else {
     LOG_W(NAS, "Unhandled PDU session type %d, ignoring PDU session ID %d\n", msg.pdu_type, sm_header.pdu_session_id);
+    return;
   }
+  DevAssert(t->sock >= 0);
+  /* Track active PDU session for later PDU session status IE (24.501 8.2.16.3) */
+  nas->psi_status[sm_header.pdu_session_id] = PDU_SESSION_ACTIVE;
+  // ask RRC to start connected reader for this PSI
+  send_nas_tun_req(nas, sm_header.pdu_session_id);
 }
 
 /**
  * @brief Handle DL NAS Transport and process piggybacked 5GSM messages
  */
-void handleDownlinkNASTransport(const nr_ue_nas_t *nas, uint8_t * pdu_buffer, int pdu_length, int instance)
+void handleDownlinkNASTransport(nr_ue_nas_t *nas, uint8_t *pdu_buffer, int pdu_length)
 {
   if (pdu_length < 17) {
     LOG_E(NAS, "Received DL NAS Transport message too short (%d)\n", pdu_length);
@@ -1783,7 +1859,7 @@ void handleDownlinkNASTransport(const nr_ue_nas_t *nas, uint8_t * pdu_buffer, in
   uint8_t msg_type = *(pdu_buffer + 16);
   if (msg_type == FGS_PDU_SESSION_ESTABLISHMENT_ACC) {
     LOG_A(NAS, "Received PDU Session Establishment Accept in DL NAS Transport\n");
-    handle_pdu_session_accept(nas, pdu_buffer, pdu_length, instance);
+    handle_pdu_session_accept(nas, pdu_buffer, pdu_length);
   } else {
     LOG_E(NAS, "Received unexpected message in DLinformationTransfer %d\n", msg_type);
   }
@@ -1978,6 +2054,46 @@ static void send_nas_initial_ul_transfer_req(nr_ue_nas_t *nas, const as_nas_info
   itti_send_msg_to_task(TASK_RRC_NRUE, nas->UE_id, msg);
 }
 
+/** @brief Initiate Service Request and send it as initial NAS UL to RRC
+ * Used for MT paging and MO UL-data indication */
+static bool initiate_service_request(nr_ue_nas_t *nas, bool mo_ul_data)
+{
+  if (!nas->guti) {
+    LOG_W(NAS, "[UE %ld] no GUTI available, cannot generate Service Request\n", nas->UE_id);
+    return false;
+  }
+
+  /* TS 24.501 §5.6.1.1.2: while the service request procedure is ongoing the UE
+   * shall not initiate another 5GMM procedure (5GMM-SERVICE-REQUEST-INITIATED state) */
+  if (nas->fiveGMM_state == FGS_SERVICE_REQUEST_INITIATED) {
+    LOG_D(NAS, "[UE %ld] Service Request already pending, ignore\n", nas->UE_id);
+    return false;
+  }
+
+  if (nas->fiveGMM_state != FGS_REGISTERED) {
+    LOG_W(NAS, "[UE %ld] UE not in 5GMM-REGISTERED (state=%d), cannot generate Service Request\n", nas->UE_id, nas->fiveGMM_state);
+    return false;
+  }
+
+  /* If UE is 5GMM-CONNECTED, Service Request is not needed (TS 24.501 §5.6.2.2.1) */
+  if (nas->fiveGMM_mode != FGS_IDLE) {
+    LOG_W(NAS, "[UE %ld] UE already in 5GMM-CONNECTED (mode=%d), dropping Service Request\n", nas->UE_id, nas->fiveGMM_mode);
+    return false;
+  }
+
+  as_nas_info_t initialNasMsg = {0};
+  generateServiceRequest(&initialNasMsg, nas, mo_ul_data);
+  if (initialNasMsg.length <= 0) {
+    LOG_E(NAS, "[UE %ld] Failed to generate Service Request\n", nas->UE_id);
+    return false;
+  }
+  /* TS 24.501 §5.6.1.2: send SERVICE REQUEST, enter 5GMM-SERVICE-REQUEST-INITIATED (§5.1.3.2.1.2.6) */
+  nas->fiveGMM_state = FGS_SERVICE_REQUEST_INITIATED;
+  send_nas_initial_ul_transfer_req(nas, &initialNasMsg);
+  LOG_I(NAS, "[UE %ld] Service Request (%u B) sent to RRC (NAS_INITIAL_UL_TRANSFER_REQ)\n", nas->UE_id, initialNasMsg.length);
+  return true;
+}
+
 static void send_nas_detach_req(nr_ue_nas_t *nas, bool wait_release)
 {
   MessageDef *msg = itti_alloc_new_message(TASK_NAS_NRUE, nas->UE_id, NAS_DETACH_REQ);
@@ -2142,6 +2258,17 @@ static int process_gprs_timer(gprs_timer_t *timer)
   return timer->value * factor;
 }
 
+/** @brief Abort an ongoing Service Request and return to 5GMM-REGISTERED
+ * When fiveGMM_state is 5GMM-SERVICE-REQUEST-INITIATED, set it to 5GMM-REGISTERED
+ * (TS 24.501 clause 5.6.1.5 Service Reject, clause 5.6.1.7 abnormal cases)
+ * @note Does not stop T3517 (not implemented yet) */
+static void abort_service_request(nr_ue_nas_t *nas)
+{
+  DevAssert(nas != NULL);
+  if (nas->fiveGMM_state == FGS_SERVICE_REQUEST_INITIATED)
+    nas->fiveGMM_state = FGS_REGISTERED;
+}
+
 static void handle_service_accept(nr_ue_nas_t *nas, const byte_array_t *buffer)
 {
   LOG_I(NAS, "Received NAS Service Accept message\n");
@@ -2158,13 +2285,15 @@ static void handle_service_accept(nr_ue_nas_t *nas, const byte_array_t *buffer)
           "Received PDU Session %d reactivation result error cause %s\n",
           msg.cause->pdu_session_id,
           print_info(msg.cause->cause, cause_text_info, sizeofArray(cause_text_info)));
+  send_nas_tun_req_action(nas, NAS_TUN_START_USER_PLANE);
 }
 
 static void handle_service_reject(nr_ue_nas_t *nas, const byte_array_t *buffer)
 {
-  /* TS 24.501 §5.6.1.5: abort service request: enter 5GMM-REGISTERED */
-  if (nas->fiveGMM_state == FGS_SERVICE_REQUEST_INITIATED)
-    nas->fiveGMM_state = FGS_REGISTERED;
+  abort_service_request(nas);
+  /* If still 5GMM-IDLE (MO path stopped them for SR), restart idle TUN listeners */
+  if (nas->fiveGMM_mode == FGS_IDLE)
+    send_nas_tun_req_action(nas, NAS_TUN_START_IDLE_LISTENER);
   fgs_service_reject_msg_t msg = {0};
   decode_fgs_service_reject(&msg, buffer);
   // Extract timer t3448 in seconds (optional IE)
@@ -2286,62 +2415,25 @@ void *nas_nrue(void *args_p)
         }
 
         /** Paging for 5GS services (TS 24.501 §5.6.2.2.1) and
-         *  network-triggered Service Request (TS 23.502 §4.2.3.3 step 6):
-         *  - Upon reception of a paging indication the UE shall,
-         *    when 5GMM‑REGISTERED and in 5GMM‑IDLE without suspend indication,
-         *    initiate a Service Request over 3GPP access.
-         *
-         * This implementation currently enforces:
-         *  1. UE has GUTI
-         *  2. UE is 5GMM-REGISTERED
-         *  3. UE is 5GMM-IDLE
+         *  network-triggered Service Request (TS 23.502 §4.2.3.3 step 6)
+         *  Upon reception of a paging indication the UE shall,
+         *  when 5GMM-REGISTERED and in 5GMM-IDLE without suspend indication,
+         *  initiate a Service Request over 3GPP access
          *
          * TODO (future work):
-         *  - Implement T3346 and stop it here if running.
+         *  - Implement T3346 and stop it here if running
          *  - Add explicit "suspend indication" handling for the 5GMM-IDLE-with-suspend case
-         *    as per TS 24.501 §5.6.2.2.1 ("proceed as specified in subclause 5.3.1.5"). */
-        if (!nas->guti) {
-          LOG_W(NAS, "[UE %ld] Paging received but no GUTI available, cannot generate Service Request\n", nas->UE_id);
-          break;
-        }
+         *    as per TS 24.501 §5.6.2.2.1 ("proceed as specified in subclause 5.3.1.5") */
+        LOG_I(NAS, "[UE %ld] Paging: initiate Service Request\n", nas->UE_id);
+        initiate_service_request(nas, false);
+        break;
+      }
 
-        /* TS 24.501 §5.6.1.1.2: while the service request procedure is ongoing the UE
-         * shall not initiate another 5GMM procedure (5GMM-SERVICE-REQUEST-INITIATED state). */
-        if (nas->fiveGMM_state == FGS_SERVICE_REQUEST_INITIATED) {
-          LOG_W(NAS, "[UE %ld] Paging ignored: Service Request already pending\n", nas->UE_id);
-          break;
-        }
-
-        if (nas->fiveGMM_state != FGS_REGISTERED) {
-          LOG_W(NAS,
-                "[UE %ld] Paging received but UE not in 5GMM-REGISTERED state (state=%d), cannot generate Service Request\n",
-                nas->UE_id,
-                nas->fiveGMM_state);
-          break;
-        }
-
-        if (nas->fiveGMM_mode != FGS_IDLE) {
-          // If UE is 5GMM-CONNECTED, Service Request is not needed as connection already exists (TS 24.501 §5.6.2.2.1)
-          LOG_W(NAS,
-                "[UE %ld] Paging received but UE already in 5GMM-CONNECTED (mode=%d), dropping Service Request\n",
-                nas->UE_id,
-                nas->fiveGMM_mode);
-          break;
-        }
-
-        as_nas_info_t initialNasMsg = {0};
-        generateServiceRequest(&initialNasMsg, nas);
-        if (initialNasMsg.length <= 0) {
-          LOG_E(NAS, "[UE %ld] Failed to generate Service Request after paging\n", nas->UE_id);
-          break;
-        }
-        /* TS 24.501 §5.6.1.2: send SERVICE REQUEST, enter 5GMM-SERVICE-REQUEST-INITIATED (§5.1.3.2.1.2.6) */
-        nas->fiveGMM_state = FGS_SERVICE_REQUEST_INITIATED;
-        send_nas_initial_ul_transfer_req(nas, &initialNasMsg);
-        LOG_I(NAS,
-              "[UE %ld] Paging: Service Request (%u B) sent to RRC (NAS_INITIAL_UL_TRANSFER_REQ)\n",
-              nas->UE_id,
-              (unsigned)initialNasMsg.length);
+      case NAS_MO_UL_DATA_IND: {
+        /** MO Service Request for pending UL user data (TS 24.501 clause 5.6.1 case d)
+         * initiate Service Request and include Uplink data status */
+        LOG_D(NAS, "[UE %ld] MO UL data: request Service Request\n", nas->UE_id);
+        initiate_service_request(nas, true);
         break;
       }
 
@@ -2390,7 +2482,7 @@ void *nas_nrue(void *args_p)
         if (msg_type == FGS_REGISTRATION_ACCEPT) {
           handle_registration_accept(nas, ba.buf, ba.len);
         } else if (msg_type == FGS_PDU_SESSION_ESTABLISHMENT_ACC) {
-          handle_pdu_session_accept(nas, ba.buf, ba.len, nas->UE_id);
+          handle_pdu_session_accept(nas, ba.buf, ba.len);
         } else if (msg_type == FGS_SERVICE_ACCEPT) {
           handle_service_accept(nas, &ba);
         }
@@ -2405,9 +2497,8 @@ void *nas_nrue(void *args_p)
               nas->UE_id, ITTI_MSG_NAME (msg_p), nr_release_cause_desc[NR_NAS_CONN_RELEASE_IND (msg_p).cause]);
         /* In N1 mode, upon indication from lower layers that the access stratum connection has been released,
            the UE shall enter 5GMM-IDLE mode and consider the N1 NAS signalling connection released (TS 24.501 §5.3.1.3).
-           If SR incomplete (5GMM-SERVICE-REQUEST-INITIATED) §5.6.1.7 l): abort SR, enter 5GMM-REGISTERED (TODO: stop T3517). */
-        if (nas->fiveGMM_state == FGS_SERVICE_REQUEST_INITIATED)
-          nas->fiveGMM_state = FGS_REGISTERED;
+           If SR incomplete (5GMM-SERVICE-REQUEST-INITIATED) §5.6.1.7 l): abort SR, enter 5GMM-REGISTERED */
+        abort_service_request(nas);
         nas->fiveGMM_mode = FGS_IDLE;
         // TODO handle connection release
         if (nas->termination_procedure) {
@@ -2481,7 +2572,7 @@ void *nas_nrue(void *args_p)
             handle_security_mode_command(nas, &initialNasMsg, pdu_buffer, pdu_length);
             break;
           case FGS_DOWNLINK_NAS_TRANSPORT:
-            handleDownlinkNASTransport(nas, pdu_buffer, pdu_length, nas->UE_id);
+            handleDownlinkNASTransport(nas, pdu_buffer, pdu_length);
             break;
           case FGS_REGISTRATION_ACCEPT:
             handle_registration_accept(nas, pdu_buffer, pdu_length);
@@ -2492,7 +2583,7 @@ void *nas_nrue(void *args_p)
             nas->fiveGMM_state = FGS_DEREGISTERED;
             break;
           case FGS_PDU_SESSION_ESTABLISHMENT_ACC:
-            handle_pdu_session_accept(nas, pdu_buffer, pdu_length, nas->UE_id);
+            handle_pdu_session_accept(nas, pdu_buffer, pdu_length);
             break;
           case FGS_PDU_SESSION_ESTABLISHMENT_REJ:
             LOG_E(NAS, "Received PDU Session Establishment reject\n");
@@ -2527,8 +2618,13 @@ void *nas_nrue(void *args_p)
         const char *ip = "10.0.1.2";
         const int qfi = 7;
         const bool is_default = true;
-        set_qfi(qfi, pdu_session_id, nas->UE_id);
-        create_ue_ip_if(ip, NULL, nas->UE_id, pdu_session_id, is_default);
+        AssertFatal(pdu_session_id > 0 && pdu_session_id < MAX_NUM_PSI, "invalid PDU session ID %d\n", pdu_session_id);
+        nas_ue_pdu_tun_t *t = &nas->pdu_tun[pdu_session_id];
+        nr_ue_tun_store_qfi(t, qfi);
+        nr_ue_tun_create_ip_if(t, ip, NULL, nas->UE_id, is_default ? -1 : pdu_session_id);
+        DevAssert(t->sock >= 0);
+        nas->psi_status[pdu_session_id] = PDU_SESSION_ACTIVE;
+        send_nas_tun_req(nas, pdu_session_id);
         break;
       }
 

@@ -47,9 +47,9 @@ int encode_fgs_service_request(uint8_t *buffer, const fgs_service_request_msg_t 
 
   int encoded = 0;
 
-  // ngKSI + Service type (1 octet) (M)
-  *buffer = ((encode_nas_key_set_identifier(&service_request->naskeysetidentifier, IEI_NULL) & 0x0f) << 4)
-            | (service_request->serviceType & 0x0f);
+  // Service type + ngKSI (1 octet) (M)
+  *buffer = ((service_request->serviceType & 0x0f) << 4)
+            | (encode_nas_key_set_identifier(&service_request->naskeysetidentifier, IEI_NULL) & 0x0f);
   encoded++;
   len -= 1;
 
@@ -60,6 +60,14 @@ int encode_fgs_service_request(uint8_t *buffer, const fgs_service_request_msg_t 
   // encode length of 5GS mobile identity contents
   uint16_t tmp = htons(encoded - LEN_FGS_MOBILE_ID_CONTENTS_SIZE - 1);
   memcpy(buffer + 1, &tmp, sizeof(tmp));
+
+  if (service_request->has_uplink_data_status) {
+    byte_array_t ba = {.buf = buffer + encoded, .len = total_len - encoded};
+    int encoded_rc = encode_pdu_session_ie(&ba, IEI_UPLINK_DATA_STATUS, service_request->uplink_data_status);
+    if (encoded_rc < 0)
+      return -1;
+    encoded += encoded_rc;
+  }
 
   if (service_request->has_pdu_session_status) {
     byte_array_t ba = {.buf = buffer + encoded, .len = total_len - encoded};
@@ -95,9 +103,9 @@ int decode_fgs_service_request(fgs_service_request_msg_t *sr, const uint8_t *buf
     return -1;
 
   // Service type (1/2 octet) (M)
-  sr->serviceType = *buffer & 0x0f;
+  sr->serviceType = *buffer >> 4;
   // KSI (1/2 octet) (M)
-  if ((decoded_rc = decode_nas_key_set_identifier(&sr->naskeysetidentifier, IEI_NULL, *buffer >> 4)) < 0) {
+  if ((decoded_rc = decode_nas_key_set_identifier(&sr->naskeysetidentifier, IEI_NULL, *buffer & 0x0f)) < 0) {
     return decoded_rc;
   }
   decoded++;
@@ -115,6 +123,20 @@ int decode_fgs_service_request(fgs_service_request_msg_t *sr, const uint8_t *buf
     uint8_t iei = buffer[decoded];
 
     switch (iei) {
+      case IEI_UPLINK_DATA_STATUS: {
+        decoded++;
+        byte_array_t ba = create_byte_array(len - decoded, buffer + decoded);
+        decoded_rc = decode_pdu_session_ie(sr->uplink_data_status, &ba);
+        free_byte_array(ba);
+        if (decoded_rc < 0) {
+          LOG_E(NAS, "Failed to decode Uplink data status\n");
+          return -1;
+        }
+        decoded += decoded_rc;
+        sr->has_uplink_data_status = true;
+        break;
+      }
+
       case IEI_PDU_SESSION_STATUS: {
         decoded++;
         byte_array_t ba = create_byte_array(len - decoded, buffer + decoded);
@@ -145,7 +167,6 @@ int decode_fgs_service_request(fgs_service_request_msg_t *sr, const uint8_t *buf
         break;
       }
 
-      case IEI_UPLINK_DATA_STATUS:
       case IEI_ALLOWED_PDU_SESSION_STATUS:
       case IEI_UE_REQUEST_TYPE:
       case IEI_PAGING_RESTRICTION:
@@ -186,6 +207,11 @@ bool eq_fgs_service_request(const fgs_service_request_msg_t *a, const fgs_servic
   _EQ_CHECK_INT(a->fiveg_s_tmsi.amfsetid, b->fiveg_s_tmsi.amfsetid);
   _EQ_CHECK_INT(a->fiveg_s_tmsi.amfpointer, b->fiveg_s_tmsi.amfpointer);
   _EQ_CHECK_UINT32(a->fiveg_s_tmsi.tmsi, b->fiveg_s_tmsi.tmsi);
+  _EQ_CHECK_INT(a->has_uplink_data_status, b->has_uplink_data_status);
+  if (a->has_uplink_data_status && b->has_uplink_data_status) {
+    for (int i = 0; i < MAX_NUM_PSI; i++)
+      _EQ_CHECK_INT(a->uplink_data_status[i], b->uplink_data_status[i]);
+  }
   _EQ_CHECK_INT(a->has_pdu_session_status, b->has_pdu_session_status);
   if (a->has_pdu_session_status && b->has_pdu_session_status) {
     for (int i = 0; i < MAX_NUM_PSI; i++)

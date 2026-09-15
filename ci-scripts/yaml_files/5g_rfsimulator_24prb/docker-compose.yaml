@@ -98,7 +98,9 @@ services:
             - ALL
         environment:
             USE_ADDITIONAL_OPTIONS: --rfsim --log_config.global_log_options level,nocolor,time
-            ASAN_OPTIONS: detect_leaks=0
+                                    --telnetsrv --telnetsrv.listenaddr 192.168.71.140 --telnetsrv.listenport 9090
+                                    --telnetsrv.shrmod ci,rrc
+            ASAN_OPTIONS: detect_leaks=0:detect_odr_violation=0
         depends_on:
             - oai-ext-dn
         networks:
