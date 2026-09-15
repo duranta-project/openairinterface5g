@@ -553,6 +553,17 @@ do {                                                     \
     (bITsTRING)->bits_unused = 0;                        \
 } while (0)
 
+/* I-RNTI short is a 24bit BIT STRING (TS 38.423 9.2.3.55) */
+#define IRNTI_SHORT_TO_BIT_STRING(mACRO, bITsTRING)      \
+do {                                                     \
+    (bITsTRING)->buf = calloc(3, sizeof(uint8_t));       \
+    (bITsTRING)->buf[0] = ((mACRO) >> 16) & 0xff;        \
+    (bITsTRING)->buf[1] = ((mACRO) >> 8) & 0xff;         \
+    (bITsTRING)->buf[2] = ((mACRO) & 0xff);              \
+    (bITsTRING)->size = 3;                               \
+    (bITsTRING)->bits_unused = 0;                        \
+} while (0)
+
 /* Used to format an uint32_t containing an ipv4 address */
 #define IPV4_ADDR    "%u.%u.%u.%u"
 #define IPV4_ADDR_FORMAT(aDDRESS)               \

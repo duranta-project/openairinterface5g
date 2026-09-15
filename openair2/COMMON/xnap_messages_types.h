@@ -450,4 +450,78 @@ typedef struct {
   xnap_ran_paging_area_t ran_paging_area;
 } xnap_ran_paging_t;
 
+/* 3GPP TS 38.423 9.2.3.40 – UE Context ID */
+typedef enum {
+  XNAP_UE_CONTEXT_ID_RRC_RESUME = 1,
+  XNAP_UE_CONTEXT_ID_RRC_REESTABLISHMENT,
+} xnap_ue_context_id_choice_t;
+
+/* I-RNTI variant (3GPP TS 38.423 9.2.3.55): full (40-bit) or short (24-bit) */
+typedef enum {
+  XNAP_I_RNTI_FULL = 0,
+  XNAP_I_RNTI_SHORT,
+} xnap_i_rnti_type_t;
+
+/* UE Context ID for RRC Resume */
+typedef struct {
+  /* I-RNTI type – full or short (M) */
+  xnap_i_rnti_type_t i_rnti_type;
+  /* I-RNTI value – 40-bit if full, 24-bit if short (M) */
+  uint64_t i_rnti;
+  /* Allocated C-RNTI – 16-bit (M) */
+  uint16_t allocated_c_rnti;
+  /* Access PCI – NR PCI, 0..1007 (M) */
+  uint16_t access_pci;
+} xnap_ue_context_id_rrc_resume_t;
+
+/* UE Context ID for RRC Reestablishment */
+typedef struct {
+  /* C-RNTI – 16-bit (M) */
+  uint16_t c_rnti;
+  /* Failure Cell PCI – NR PCI, 0..1007 (M) */
+  uint16_t failure_cell_pci;
+} xnap_ue_context_id_rrc_reest_t;
+
+typedef struct {
+  xnap_ue_context_id_choice_t choice;
+  union {
+    xnap_ue_context_id_rrc_resume_t rrc_resume;
+    xnap_ue_context_id_rrc_reest_t rrc_reest;
+  };
+} xnap_ue_context_id_t;
+
+/* 3GPP TS 38.423 9.1.1.8 – Retrieve UE Context Request */
+typedef struct {
+  /* New NG-RAN node UE XnAP ID (M) */
+  uint32_t new_ng_node_ue_xnap_id;
+  /* UE Context ID (M) */
+  xnap_ue_context_id_t ue_context_id;
+  /* MAC-I – 16-bit (M) */
+  uint16_t mac_i;
+  /* New NG-RAN Cell Identity – NR Cell Identity, 36-bit (M) */
+  uint64_t new_ng_ran_cell_id;
+} xnap_retrieve_ue_context_request_t;
+
+/* 3GPP TS 38.423 9.1.1.9 – Retrieve UE Context Response */
+typedef struct {
+  /* New NG-RAN node UE XnAP ID (M) */
+  uint32_t new_ng_node_ue_xnap_id;
+  /* Old NG-RAN node UE XnAP ID (M) */
+  uint32_t old_ng_node_ue_xnap_id;
+  /* GUAMI (M) */
+  nr_guami_t guami;
+  /* UE Context Information – Retrieve UE Context Response (M)
+   * Reuses the Handover Request UE Context Information container (the
+   * mandatory sub-IEs are identical). */
+  xnap_ue_context_info_t ue_context;
+} xnap_retrieve_ue_context_response_t;
+
+/* 3GPP TS 38.423 9.1.1.10 – Retrieve UE Context Failure */
+typedef struct {
+  /* New NG-RAN node UE XnAP ID (M) */
+  uint32_t new_ng_node_ue_xnap_id;
+  /* Cause (M) */
+  xnap_cause_t cause;
+} xnap_retrieve_ue_context_failure_t;
+
 #endif /* XNAP_MESSAGES_TYPES_H_ */
