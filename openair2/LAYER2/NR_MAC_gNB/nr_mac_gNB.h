@@ -855,6 +855,9 @@ typedef struct NR_UE_info {
   long pdsch_HARQ_ACK_Codebook;
   bool is_redcap;
   bool reestablish_rlc;
+  /// set when configure_UE_BWP() bumped the UE off a dedicated BWP to BWP0 for RA during HO
+  /// consumed after the next RRCReconfigurationComplete to move the UE back to its dedicated first_active_bwp
+  bool pending_bwp_restore;
   NR_RA_t *ra;
   // 3GPP mandates that BWPs are enumerated consecutively, but we only send one (dedicated)
   // BWP to the UE (and modify that BWP on reconfiguration); consequently, the BWP ID for a
