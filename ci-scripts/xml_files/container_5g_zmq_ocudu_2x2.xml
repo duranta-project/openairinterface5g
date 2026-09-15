@@ -65,14 +65,16 @@
 
   <testCase>
     <class>Iperf</class>
-    <desc>Iperf (DL/10Mbps/UDP)(20 sec)</desc>
-    <iperf_args>-u -b 1M -t 20 -R</iperf_args>
+    <desc>Iperf (DL full-buffer TCP, 20 sec) - exercises PUCCH Format 3 HARQ feedback</desc>
+    <!-- Full-buffer DL (no rate cap): keeps PDSCH scheduled in every DDDSU DL slot so the
+         per-UL-slot HARQ-ACK codebook is >2 bits and lands on PUCCH Format 3. If F3 decode
+         breaks, HARQ NACK/DTX -> retransmissions -> TCP throughput collapses below target. -->
+    <iperf_args>-t 20 -R</iperf_args>
     <id>rfsim5g_ue</id>
     <node>localhost</node>
     <svr_id>rfsim5g_ext_dn</svr_id>
     <svr_node>localhost</svr_node>
-    <iperf_packetloss_threshold>5</iperf_packetloss_threshold>
-    <iperf_bitrate_threshold>90</iperf_bitrate_threshold>
+    <iperf_tcp_rate_target>5</iperf_tcp_rate_target>
   </testCase>
 
   <testCase>

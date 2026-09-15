@@ -42,7 +42,7 @@ cell_cfg:
   csi:
     csi_rs_enabled: false
   pucch:
-    formats: f0_and_f2
+    formats: f1_and_f3
     nof_cell_csi_res: 0
 
 log:
