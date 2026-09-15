@@ -584,7 +584,7 @@ int main(int argc, char **argv)
       for (int symb = 0; symb < nrofSymbols; symb++) {
         int i0 = (startingSymbolIndex + symb) * gNB->frame_parms.ofdm_symbol_size;
         for (int re = 0; re < N_RB_DL * 12; re++) {
-          i = i0 + ((gNB->frame_parms.first_carrier_offset + re) % gNB->frame_parms.ofdm_symbol_size);
+          i = i0 + re;
           struct complexd phasor;
           phasor.r = cos(2 * M_PI * phase * re);
           phasor.i = sin(2 * M_PI * phase * re);

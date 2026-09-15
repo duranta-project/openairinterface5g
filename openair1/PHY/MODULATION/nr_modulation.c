@@ -650,7 +650,11 @@ void init_symbol_rotation(NR_DL_FRAME_PARMS *fp)
   }
 }
 
+/* The table is generated FFT shifted, i.e. in the same layout as the frequency domain
+   buffers it is applied to: the rotation of the first negative frequency of the carrier is
+   at index 0 and the nbins rotations of the carrier are contiguous. */
 void init_timeshift_rotation(const int ofdm_symbol_size,
+                             const int nbins,
                              const int nb_prefix_samples,
                              const uint ofdm_offset_divisor,
                              c16_t *timeshift_symbol_rotation)
@@ -671,6 +675,7 @@ void init_timeshift_rotation(const int ofdm_symbol_size,
             timeshift_symbol_rotation[i].i,
             poff);
   }
+  fftshift_inplace(timeshift_symbol_rotation, nbins, ofdm_symbol_size);
 }
 
 c16_t nr_layer_precoder(int sz, c16_t datatx_F_precoding[][sz], const char *prec_matrix, uint8_t n_layers, int32_t re_offset)

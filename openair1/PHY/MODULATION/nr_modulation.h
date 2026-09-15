@@ -87,7 +87,6 @@ void nr_beam_precoding(c16_t **txdataF,
 
 void apply_nr_rotation_TX(const NR_DL_FRAME_PARMS *fp,
                           c16_t *txdataF,
-                          bool is_flat_buff,
                           const c16_t *symbol_rotation,
                           int slot,
                           int nb_rb,
@@ -107,6 +106,7 @@ void perform_symbol_rotation(const int nsymb, const int numerology_index, double
 void init_symbol_rotation(NR_DL_FRAME_PARMS *fp);
 
 void init_timeshift_rotation(const int ofdm_symbol_size,
+                             const int nbins,
                              const int nb_prefix_samples,
                              const uint ofdm_offset_divisor,
                              c16_t *timeshift_symbol_rotation);
@@ -119,16 +119,6 @@ void apply_nr_rotation_symbol_fftshifted_RX(const int symbols_per_slot,
                                             const int nb_rb,
                                             const int slot,
                                             const int symbol);
-
-void apply_nr_rotation_symbol_RX(const int symbols_per_slot,
-                                 const int slots_per_subframe,
-                                 const c16_t *timeshift_symbol_rotation,
-                                 const int first_carrier_offset,
-                                 c16_t *rxdataF,
-                                 const c16_t *rot,
-                                 int nb_rb,
-                                 int slot,
-                                 int symbol);
 
 /*! \brief Perform NR precoding. TS 38.211 V15.4.0 subclause 6.3.1.5
   @param[in] datatx_F_precoding, Pointer to n_layers*re data array

@@ -187,9 +187,7 @@ static int nr_get_csi_rs_signal(const PHY_VARS_NR_UE *ue,
         for (int s = 0; s < CDM_group_size; s++) {
           // loop over frequency resource elements within a group
           for (int kp = 0; kp <= csi_mapping->kprime; kp++) {
-            uint k = CIRCULAR_INC(fp->first_carrier_offset,
-                                  rb * NR_NB_SC_PER_RB + csi_mapping->koverline[cdm_id] + kp,
-                                  fp->ofdm_symbol_size);
+            const uint k = rb * NR_NB_SC_PER_RB + csi_mapping->koverline[cdm_id] + kp;
 
             // loop over time resource elements within a group
             for (int lp = 0; lp <= csi_mapping->lprime; lp++) {
@@ -289,10 +287,8 @@ static int nr_csi_rs_channel_estimation(const NR_DL_FRAME_PARMS *fp,
 
           // loop over frequency resource elements within a group
           for (int kp = 0; kp <= csi_mapping->kprime; kp++) {
-            const uint kinit_rx = CIRCULAR_INC(fp->first_carrier_offset, rb * NR_NB_SC_PER_RB, fp->ofdm_symbol_size);
-            const uint k_rx = CIRCULAR_INC(kinit_rx, csi_mapping->koverline[cdm_id] + kp, fp->ofdm_symbol_size);
-            uint kinit_tx = rb * NR_NB_SC_PER_RB;
-            uint k_tx = kinit_tx + csi_mapping->koverline[cdm_id] + kp;
+            const uint kinit = rb * NR_NB_SC_PER_RB;
+            const uint k = kinit + csi_mapping->koverline[cdm_id] + kp;
 
             // loop over time resource elements within a group
             for (int lp = 0; lp <= csi_mapping->lprime; lp++) {
@@ -300,17 +296,16 @@ static int nr_csi_rs_channel_estimation(const NR_DL_FRAME_PARMS *fp,
               uint64_t symbol_offset = symb * fp->ofdm_symbol_size;
               const c16_t *tx_csi_rs_signal = &csi_rs_generated_signal[port_tx][symbol_offset];
               const c16_t *rx_csi_rs_signal = &csi_rs_received_signal[ant_rx][symbol_offset];
-              c16_t tmp =
-                  c16MulConjShift(tx_csi_rs_signal[k_tx], rx_csi_rs_signal[k_rx], nr_csi_info->csi_rs_generated_signal_bits);
+              c16_t tmp = c16MulConjShift(tx_csi_rs_signal[k], rx_csi_rs_signal[k], nr_csi_info->csi_rs_generated_signal_bits);
               if (csirs_config_pdu->csi_type != 0) {
                 // This is not just the LS estimation for each (k,l), but also the sum of the different contributions
                 // for the sake of optimizing the memory used.
-                csi_rs_ls_estimated_channel[ant_rx][port_tx][kinit_tx].r += tmp.r;
-                csi_rs_ls_estimated_channel[ant_rx][port_tx][kinit_tx].i += tmp.i;
+                csi_rs_ls_estimated_channel[ant_rx][port_tx][kinit].r += tmp.r;
+                csi_rs_ls_estimated_channel[ant_rx][port_tx][kinit].i += tmp.i;
               } else {
                 // for tracking we want estimates of all sub carriers having CSI-RS
-                csi_rs_ls_estimated_channel[ant_rx][port_tx][k_tx].r = tmp.r;
-                csi_rs_ls_estimated_channel[ant_rx][port_tx][k_tx].i = tmp.i;
+                csi_rs_ls_estimated_channel[ant_rx][port_tx][k].r = tmp.r;
+                csi_rs_ls_estimated_channel[ant_rx][port_tx][k].i = tmp.i;
               }
             }
           }
@@ -1051,16 +1046,17 @@ static void nr_csi_im_power_estimation(const PHY_VARS_NR_UE *ue,
 
       const c16_t *rx_signal = &rxdataF[ant_rx][symbol_offset];
 
+      const int dc_sc = frame_parms->N_RB_DL * NR_NB_SC_PER_RB / 2;
       for (int rb = csiim_config_pdu->start_rb; rb < end_rb; rb++) {
-        uint sc0_offset = CIRCULAR_INC(frame_parms->first_carrier_offset, rb * NR_NB_SC_PER_RB, frame_parms->ofdm_symbol_size);
+        const uint sc0_offset = rb * NR_NB_SC_PER_RB;
 
         for (int sc_idx = 0; sc_idx < 4; sc_idx++) {
-          int sc = CIRCULAR_INC(sc0_offset, csiim_config_pdu->k_csiim[sc_idx], frame_parms->ofdm_symbol_size);
+          int sc = sc0_offset + csiim_config_pdu->k_csiim[sc_idx];
 #ifdef NR_CSIIM_DEBUG
           LOG_I(NR_PHY, "(ant_rx %i, sc %i) real %i, imag %i\n", ant_rx, sc, rx_signal[sc].r, rx_signal[sc].i);
 #endif
 
-          if (sc == 0) // skip DC for noise power estimation
+          if (sc == dc_sc) // skip DC for noise power estimation
             continue;
           sum_re += rx_signal[sc].r;
           sum_im += rx_signal[sc].i;
