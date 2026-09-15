@@ -1632,6 +1632,7 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
 
     case SAT_LEO_TRANS:
     case SAT_LEO_REGEN:
+    case SAT_LEO_TLE:
       nb_taps = 1;
       Td = 0;
       channel_length = 1;
@@ -1759,7 +1760,7 @@ int random_channel(channel_desc_t *desc, uint8_t abstraction_flag) {
 
   // For AWGN and SAT_LEO_* channels, the received signal (Srx) is equal to transmitted signal (Stx) plus noise (N), i.e., Srx = Stx + N,
   //  therefore, the channel matrix is the identity matrix.
-  if (desc->modelid == AWGN || desc->modelid == SAT_LEO_TRANS || desc->modelid == SAT_LEO_REGEN) {
+  if (desc->modelid == AWGN || desc->modelid == SAT_LEO_TRANS || desc->modelid == SAT_LEO_REGEN || desc->modelid == SAT_LEO_TLE) {
     for (aarx=0; aarx<desc->nb_rx; aarx++) {
       for (aatx = 0; aatx < desc->nb_tx; aatx++) {
         desc->ch[aarx+(aatx*desc->nb_rx)][0].r = aarx%desc->nb_tx == aatx ? 1.0 : 0.0;

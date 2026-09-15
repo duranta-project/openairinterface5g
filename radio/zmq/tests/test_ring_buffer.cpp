@@ -64,6 +64,48 @@ TEST(CircularBuffer, partialPop)
   }
 }
 
+TEST(CircularBuffer, copyRangeFullyInRange)
+{
+  ring_buffer<cf_t> buffer(4);
+  const cf_t first[] = {{1, 0}, {2, 0}, {3, 0}, {4, 0}};
+  const cf_t second[] = {{5, 0}, {6, 0}};
+  buffer.push_samples(first, 4);
+  buffer.push_samples(second, 2);
+  // Held samples (oldest to newest): {3,4,5,6}.
+
+  cf_t out[3];
+  ASSERT_EQ(buffer.copy_range(out, 3, 1), 3);
+  EXPECT_EQ(out[0].r, 4);
+  EXPECT_EQ(out[1].r, 5);
+  EXPECT_EQ(out[2].r, 6);
+  EXPECT_EQ(buffer.size(), 4);
+}
+
+TEST(CircularBuffer, copyRangePartiallyInFuture)
+{
+  ring_buffer<cf_t> buffer(4);
+  const cf_t data[] = {{1, 0}, {2, 0}, {3, 0}, {4, 0}};
+  buffer.push_samples(data, 4);
+
+  cf_t out[4] = {{-1, -1}, {-1, -1}, {-1, -1}, {-1, -1}};
+  // Only {3,4} are available; the remaining output must retain its sentinel values.
+  ASSERT_EQ(buffer.copy_range(out, 4, 2), 2);
+  EXPECT_EQ(out[0].r, 3);
+  EXPECT_EQ(out[1].r, 4);
+  EXPECT_EQ(out[2].r, -1);
+  EXPECT_EQ(out[3].r, -1);
+}
+
+TEST(CircularBuffer, copyRangeEntirelyInFuture)
+{
+  ring_buffer<cf_t> buffer(4);
+  const cf_t data[] = {{1, 0}, {2, 0}};
+  buffer.push_samples(data, 2);
+
+  cf_t out[3];
+  ASSERT_EQ(buffer.copy_range(out, 3, 2), 0);
+}
+
 TEST(CircularBuffer, popMore)
 {
   ring_buffer cb(10);

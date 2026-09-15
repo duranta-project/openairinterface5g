@@ -221,6 +221,7 @@ typedef enum {
   EPA_high,
   SAT_LEO_TRANS,
   SAT_LEO_REGEN,
+  SAT_LEO_TLE,
 } SCM_t;
 #define CHANNELMOD_MAP_INIT \
   {"custom",custom},\
@@ -258,6 +259,7 @@ typedef enum {
   {"EPA_high",EPA_high},\
   {"SAT_LEO_TRANS",SAT_LEO_TRANS},\
   {"SAT_LEO_REGEN",SAT_LEO_REGEN},\
+  {"SAT_LEO_TLE",SAT_LEO_TLE},\
   {NULL, -1}
 
 #define CONFIG_HLP_SNR     "Set average SNR in dB (for --siml1 option)\n"
