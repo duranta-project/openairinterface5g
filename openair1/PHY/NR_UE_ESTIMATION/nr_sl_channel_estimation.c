@@ -10,6 +10,7 @@
 #include "PHY/NR_REFSIG/nr_refsig.h"
 #include "PHY/NR_REFSIG/sl_refsig_defs.h"
 #include "PHY/NR_REFSIG/dmrs_nr.h"
+#include "PHY/NR_TRANSPORT/nr_sch_dmrs.h"
 #include "PHY/NR_UE_ESTIMATION/filt16a_32.h"
 #include "PHY/nr_phy_common/inc/nr_phy_common.h"
 #include "common/utils/nr/nr_common.h"
@@ -132,7 +133,11 @@ int nr_pssch_channel_estimation(PHY_VARS_NR_UE *ue,
       // For configuration type 1: k = 4*n + 2*k' + delta,
       // where k' is 0 or 1, and delta is in Table 6.4.1.1.3-1 from TS 38.211
       int pilot_cnt = 0;
-      int delta = 0; // nr_pusch_dmrs_delta(pusch_dmrs_type1, p);
+      /* TS 38.211 Tables 6.4.1.1.3-1/8.4.1.1.2-1: the type-1 DM-RS
+       * frequency offset depends on the antenna port (CDM group).  The TX
+       * mapper uses the same shared table through get_delta(); using zero
+       * here only estimates ports in CDM group 0 correctly. */
+      const int delta = get_delta(p, pusch_dmrs_type1);
 
       // DEBUG: coherence of the per-pilot LS estimates. coherence = |sum(ch)|^2 /
       // (N * sum(|ch|^2)) is ~1 when the DMRS correlates coherently (flat channel,
