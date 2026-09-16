@@ -151,7 +151,7 @@ def ExecuteActionWithParam(action, test, ctx, node, oc):
 		core_op = getattr(cls_oaicitest.OaiCiTest, action)
 		success = core_op(cn_id, ctx, HTML)
 
-	elif action == 'DeployWithScript' or action == 'UndeployWithScript':
+	elif action == 'DeployWithScript' or action == 'UndeployWithScript' or action == 'Collect_Logs':
 		script = test.findtext('script')
 		options = test.findtext('options')
 		if action == 'DeployWithScript':
@@ -159,6 +159,8 @@ def ExecuteActionWithParam(action, test, ctx, node, oc):
 			success = cls_oaicitest.DeployWithScript(HTML, node, script, options, deploymentTag)
 		elif action == 'UndeployWithScript':
 			success = cls_oaicitest.UndeployWithScript(HTML, ctx, node, script, options)
+		elif action == 'Collect_Logs':
+			success = cls_oaicitest.CollectLogs(HTML, ctx, node, script, options)
 
 	elif action == 'Deploy_Object' or action == 'Undeploy_Object' or action == "Create_Workspace" or action == "Stop_Object":
 		CONTAINERS.yamlPath = test.findtext('yaml_path')
