@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -47,6 +48,11 @@ typedef struct cirdb_provider_s {
   float speed_mps;
   uint64_t sel_offset;
   uint64_t sel_nbytes;
+
+  /* Rx (UE) trajectory events copied from the selected entry's yaml metadata,
+   * used to log the UE's angle per snapshot for model_id==5 (RT-Beam-forming). */
+  double events[MAX_CIRDB_EVENTS][6];
+  int num_events;
 
   /* Publication control */
   uint32_t L_out;
@@ -118,6 +124,38 @@ static void compact_L_out(struct complexf *dst,
   }
 }
 
+/* Rx (UE) angle, in degrees offset from tx boresight, at CIR snapshot index k --
+ * replays the same event-based linear interpolation generate_moving_rx_cir.py used
+ * to build the trajectory (see build_waypoints() there). Returns NAN if this entry
+ * carries no events (e.g. a plain TDL entry, or truncated by MAX_CIRDB_EVENTS). */
+static double cirdb_angle_at_snapshot(const double events[][6], int num_events, double snapshot_dt_s, uint32_t k)
+{
+  if (num_events <= 0 || snapshot_dt_s <= 0.0)
+    return NAN;
+
+  uint32_t remaining = k;
+  for (int i = 0; i < num_events; i++) {
+    double rxstart_deg = events[i][0];
+    double rxstop_deg = events[i][2];
+    double duration_sec = events[i][5];
+    uint32_t n = (uint32_t)llround(duration_sec / snapshot_dt_s);
+    if (n == 0)
+      continue;
+    if (remaining < n) {
+      double frac = (remaining * snapshot_dt_s) / duration_sec;
+      if (frac < 0.0)
+        frac = 0.0;
+      if (frac > 1.0)
+        frac = 1.0;
+      return rxstart_deg + frac * (rxstop_deg - rxstart_deg);
+    }
+    remaining -= n;
+  }
+  /* k landed past the last computed waypoint (rounding at the final sample) --
+   * clamp to the final event's stop angle. */
+  return events[num_events - 1][2];
+}
+
 /* Load snapshot index s into the next publication buffer and flip */
 static void load_snapshot_and_publish(cirdb_g *G, uint32_t s)
 {
@@ -174,7 +212,7 @@ cirdb_provider_t *cirdb_connect(int num_tx_antennas,
 
   /* Selection request */
   int want_model_id = sel->want_model_id;
-  AssertFatal(want_model_id >= 0 && want_model_id <= 4, "Invalid model_id=%d (valid: 0..4)\n", want_model_id);
+  AssertFatal(want_model_id >= 0 && want_model_id <= 5, "Invalid model_id=%d (valid: 0..5)\n", want_model_id);
   float want_ds = (sel && sel->want_ds_ns > 0) ? sel->want_ds_ns : -1.0f;
   float want_speed = (sel && sel->want_speed_mps > 0) ? sel->want_speed_mps : -1.0f;
 
@@ -261,6 +299,8 @@ cirdb_provider_t *cirdb_connect(int num_tx_antennas,
   G.speed_mps = m.speed_mps;
   G.sel_offset = m.offset_bytes;
   G.sel_nbytes = m.nbytes;
+  G.num_events = m.num_events;
+  memcpy(G.events, m.events, sizeof(G.events));
   G.L_out = (m.L <= MAX_L_PUBLISH ? (uint32_t)m.L : MAX_L_PUBLISH);
   G.snap_idx = 0;
 
@@ -320,6 +360,12 @@ void cirdb_update(cirdb_provider_t *G, uint64_t ns_since_start)
     load_snapshot_and_publish(G, s);
     G->snap_idx = s;
     G->last_step_applied = step;
+
+    if (G->model_id == 5) {
+      double angle_deg = cirdb_angle_at_snapshot(G->events, G->num_events, G->snapshot_dt_s, s);
+      if (!isnan(angle_deg))
+        LOG_I(HW, "CIRDB: UE angle at snapshot %u/%d (t=%.3fs): %.2f deg from tx boresight\n", s, G->S, s * dt_s, angle_deg);
+    }
   }
 }
 

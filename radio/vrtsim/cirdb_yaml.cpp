@@ -130,6 +130,22 @@ int cirdb_yaml_select(const cirdb_select_req_t *req, cirdb_entry_meta_t *out)
       best.pair_order = pair_order;
       best.offset_bytes = e["offset_bytes"].as<uint64_t>(0);
       best.nbytes = e["nbytes"].as<uint64_t>(0);
+
+      best.num_events = 0;
+      auto events_node = e["events"];
+      if (events_node && events_node.IsSequence()) {
+        int ne = static_cast<int>(events_node.size());
+        if (ne > MAX_CIRDB_EVENTS) {
+          LOG_W(HW, "CIRDB YAML: entry has %d events, truncating to MAX_CIRDB_EVENTS=%d\n", ne, MAX_CIRDB_EVENTS);
+          ne = MAX_CIRDB_EVENTS;
+        }
+        for (int ei = 0; ei < ne; ei++) {
+          auto ev = events_node[ei];
+          for (int j = 0; j < 6 && j < (int)ev.size(); j++)
+            best.events[ei][j] = ev[j].as<double>(0.0);
+        }
+        best.num_events = ne;
+      }
     }
   }
 
