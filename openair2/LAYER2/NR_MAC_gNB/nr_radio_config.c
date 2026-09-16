@@ -31,8 +31,6 @@
 #include "utils.h"
 #include "xer_encoder.h"
 
-#define NR_MAX_SUPPORTED_DL_LAYERS 4
-
 /* Default values for measurement gap configuration */
 #define DEFAULT_MGRP NR_GapConfig__mgrp_ms160
 #define DEFAULT_MGTA NR_GapConfig__mgta_ms0dot5
