@@ -1,0 +1,75 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+
+<testCaseList>
+  <htmlTabRef>rfsim-dbt-5gnr-tdd</htmlTabRef>
+  <htmlTabName>Monolithic SA gNB, digital beamforming (DBT)</htmlTabName>
+  <htmlTabIcon>wrench</htmlTabIcon>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy OAI 5G CoreNetwork</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_dbt</yaml_path>
+    <services>mysql oai-amf oai-smf oai-upf oai-ext-dn</services>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy OAI 5G gNB RF sim SA (digital beamforming table configured)</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_dbt</yaml_path>
+    <services>oai-gnb</services>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy OAI 5G NR-UE RF sim SA</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_dbt</yaml_path>
+    <services>oai-nr-ue</services>
+  </testCase>
+
+  <testCase>
+    <class>Attach_UE</class>
+    <desc>Attach OAI UE (Wait for IP)</desc>
+    <id>rfsim5g_ue</id>
+    <node>localhost</node>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Verify the gNB actually applied the digital beamforming table (not the no-BF passthrough)</desc>
+    <node>localhost</node>
+    <command><![CDATA[docker logs rfsim5g-oai-gnb 2>&1 | grep -q "L1 received DBT table with 2 beams"]]></command>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping ext-dn from NR-UE</desc>
+    <id>rfsim5g_ue</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_ext_dn</svr_id>
+    <svr_node>localhost</svr_node>
+    <ping_args>-c 20 -i 0.25</ping_args>
+    <ping_packetloss_threshold>5</ping_packetloss_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Detach_UE</class>
+    <desc>Detach OAI UE</desc>
+    <id>rfsim5g_ue</id>
+    <node>localhost</node>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <always_exec>true</always_exec>
+    <desc>Undeploy all OAI 5G stack</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_dbt</yaml_path>
+    <analysis>
+      <services>oai-gnb=RetxCheck=1,0,0,0 oai-gnb=EndsWithBye oai-nr-ue</services>
+    </analysis>
+  </testCase>
+
+</testCaseList>

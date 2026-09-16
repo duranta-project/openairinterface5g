@@ -15,6 +15,7 @@
 #include "time_meas.h"
 #include "defs_common.h"
 #include "nfapi_nr_interface_scf.h"
+#include "common/utils/nr/nr_common.h"
 #include "common/utils/threadPool/task_ans.h"
 #include "common/utils/threadPool/thread-pool.h"
 #include "common/utils/threadPool/notified_fifo.h"
@@ -447,6 +448,10 @@ typedef struct RU_t_s {
   int half_slot_parallelization;
   /// FAPI confiuration
   nfapi_nr_config_request_scf_t  config;
+  /// beam_idx -> &config.dbt_config.dig_beam_list[i] lookup table, built once from config.dbt_config
+  /// when it is loaded (config.dbt_config.dig_beam_list[b].beam_idx is arbitrary, not tied to its
+  /// position in the list, hence the indirection). NULL where no beam is configured for that index.
+  const nfapi_nr_dig_beam_t *dbt_lut[NFAPI_NR_MAX_DBT_BEAM_IDX];
   /// Frame parameters
   struct LTE_DL_FRAME_PARMS_s *frame_parms;
   struct NR_DL_FRAME_PARMS_s *nr_frame_parms;

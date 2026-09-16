@@ -22,6 +22,22 @@
 
 #include <time.h>
 
+// Looks up the DBT entry for a given FAPI beam index via ru->dbt_lut (built once in
+// build_dbt_lut() when the DBT is loaded), a direct array access instead of a scan over
+// dig_beam_list (whose entries' beam_idx is arbitrary, not tied to their list position).
+static const nfapi_nr_dig_beam_t *find_dig_beam(const RU_t *ru, uint16_t beam_idx)
+{
+  AssertFatal(beam_idx < NFAPI_NR_MAX_DBT_BEAM_IDX, "beam_idx %u exceeds OAI's supported max %u\n", beam_idx, NFAPI_NR_MAX_DBT_BEAM_IDX);
+  return ru->dbt_lut[beam_idx];
+}
+
+// dig_beam_weight_Re/Im are uint16_t only because that is the wire type in the SCF nFAPI struct
+static c16_t dig_beam_weight(const nfapi_nr_dig_beam_t *beam, int txru)
+{
+  const nfapi_nr_txru_t *w = &beam->txru_list[txru];
+  return (c16_t){.r = (int16_t)w->dig_beam_weight_Re, .i = (int16_t)w->dig_beam_weight_Im};
+}
+
 // RU OFDM Modulator gNodeB
 // OFDM modulation core routine, generates a first_symbol to first_symbol+num_symbols on a particular slot and TX antenna port
 void nr_feptx0(RU_t *ru, int tti_tx, int first_symbol, int num_symbols, int aa)
@@ -143,26 +159,75 @@ void nr_feptx_ofdm(RU_t *ru,int frame_tx,int tti_tx)
         dB_fixed(signal_energy_nodc((c16_t *)ru->common.txdataF_BF[aa], 2 * slot_sizeF)));
 }
 
+// Digital-beamforming precoding for one TX antenna, one slot
+static void nr_feptx_prec_bf_antenna(RU_t *ru, int slot_tx, int aa)
+{
+  PHY_VARS_gNB *gNB = ru->gNB_list[0];
+  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+
+  // Digital beamforming: cfg->dbt_config is a per-antenna weight table (Category A, DU-side
+  // combining - the RU/xran fronthaul just streams whatever lands in txdataF_BF)
+  for (int s = 0; s < fp->symbols_per_slot; ++s) {
+    uint16_t beam_idx = gNB->common_vars.beam_id[slot_tx * fp->symbols_per_slot + s][aa];
+    const nfapi_nr_dig_beam_t *dig_beam = find_dig_beam(ru, beam_idx);
+    AssertFatal(dig_beam != NULL, "No DBT entry for beam_id %d on antenna %d\n", beam_idx, aa);
+    const c16_t w = dig_beam_weight(dig_beam, aa);
+    rotate_cpx_vector(&gNB->common_vars.txdataF[aa][s * fp->ofdm_symbol_size],
+                       w,
+                       (c16_t *)&ru->common.txdataF_BF[aa][s * fp->ofdm_symbol_size],
+                       fp->ofdm_symbol_size,
+                       15);
+  }
+}
+
+static void nr_feptx_prec_task(void *arg)
+{
+  feptx_cmd_t *cmd = (feptx_cmd_t *)arg;
+  nr_feptx_prec_bf_antenna(cmd->ru, cmd->slot, cmd->aid);
+  completed_task_ans(cmd->ans);
+}
+
 void nr_feptx_prec(RU_t *ru, int frame_tx, int slot_tx)
 {
-  PHY_VARS_gNB **gNB_list = ru->gNB_list;
   AssertFatal(ru->num_gNB == 1, "Cannot handle more than 1 gNB\n");
-  PHY_VARS_gNB *gNB = gNB_list[0];
-  nfapi_nr_config_request_scf_t *cfg = &ru->gNB_list[0]->gNB_config;
+  PHY_VARS_gNB *gNB = ru->gNB_list[0];
+  nfapi_nr_config_request_scf_t *cfg = &gNB->gNB_config;
   NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
   start_meas(&ru->precoding_stats);
 
   if (nr_slot_select(cfg,frame_tx,slot_tx) == NR_UPLINK_SLOT)
     return;
 
-  // If there is no digital beamforming we just need to copy the data to RU
-  if (ru->config.dbt_config.num_dig_beams == 0 || ru->gNB_list[0]->common_vars.analog_bf) {
-    for (int i = 0; i < fp->nb_antennas_tx; ++i) {
-      memcpy(ru->common.txdataF_BF[i], gNB->common_vars.txdataF[i], fp->samples_per_slot_wCP * sizeof(int32_t));
+  const int nt = fp->nb_antennas_tx;
+
+  bool apply_dbt = ru->config.dbt_config.num_dig_beams > 0 && !gNB->common_vars.analog_bf && ru->do_precoding;
+  if (!apply_dbt) {
+    for (int aa = 0; aa < nt; ++aa)
+      memcpy(ru->common.txdataF_BF[aa], gNB->common_vars.txdataF[aa], fp->samples_per_slot_wCP * sizeof(int32_t));
+  } else if (nt == 1) {
+    LOG_A(PHY, "Applying digital beamforming for single antenna case\n");
+    // Common case (rfsim, small test setups): dispatching to the thread pool would be pure
+    // overhead with nothing to parallelize against.
+    nr_feptx_prec_bf_antenna(ru, slot_tx, 0);
+  } else {
+    LOG_A(PHY, "Applying digital beamforming for multi-antenna case\n");
+    feptx_cmd_t arr[nt - 1];
+    task_ans_t ans;
+    init_task_ans(&ans, nt - 1);
+    for (int aa = 1; aa < nt; aa++) {
+      feptx_cmd_t *cmd = &arr[aa - 1];
+      cmd->ru = ru;
+      cmd->slot = slot_tx;
+      cmd->aid = aa;
+      cmd->ans = &ans;
+      task_t t = {.func = nr_feptx_prec_task, .args = cmd};
+      pushTpool(ru->threadPool, t);
     }
-  }  else {
-    AssertFatal(false, "This needs to be fixed by using appropriate beams from config\n");
+    // Antenna 0 runs on this thread while the pool works antennas 1..nt-1 concurrently.
+    nr_feptx_prec_bf_antenna(ru, slot_tx, 0);
+    join_task_ans(&ans);
   }
+
   stop_meas(&ru->precoding_stats);
 }
 
@@ -180,17 +245,31 @@ void nr_feptx(void *arg)
   if (aa == 0)
     start_meas(&ru->precoding_stats);
 
-  // If there is no digital beamforming we just need to copy the data to RU
-  if (ru->config.dbt_config.num_dig_beams == 0 || ru->gNB_list[0]->common_vars.analog_bf) {
+  const NR_DL_FRAME_PARMS *fp = &ru->gNB_list[0]->frame_parms;
+  bool apply_dbt = ru->config.dbt_config.num_dig_beams > 0 && !ru->gNB_list[0]->common_vars.analog_bf && ru->do_precoding;
+  if (!apply_dbt) {
     // Inverse FFT shift
-    const NR_DL_FRAME_PARMS *fp = &ru->gNB_list[0]->frame_parms;
     for (uint s = startSymbol; s < startSymbol + numSymbols; s++)
       fftshift_inverse(ru->gNB_list[0]->common_vars.txdataF[aa] + s * fp->ofdm_symbol_size,
                        (c16_t *)ru->common.txdataF_BF[aa] + s * fp->ofdm_symbol_size,
                        fp->N_RB_DL * NR_NB_SC_PER_RB,
                        fp->ofdm_symbol_size);
   } else {
-    AssertFatal(false, "This needs to be fixed by using appropriate beams from config\n");
+    // Digital beamforming, fused with the inverse FFT shift: apply the per-antenna DBT weight
+    const int nbins = fp->N_RB_DL * NR_NB_SC_PER_RB;
+    const int half = nbins / 2;
+    for (uint s = startSymbol; s < startSymbol + numSymbols; s++) {
+      uint16_t beam_idx = ru->gNB_list[0]->common_vars.beam_id[slot * fp->symbols_per_slot + s][aa];
+      const nfapi_nr_dig_beam_t *dig_beam = find_dig_beam(ru, beam_idx);
+      AssertFatal(dig_beam != NULL, "No DBT entry for beam_id %d on antenna %d\n", beam_idx, aa);
+      const c16_t w = dig_beam_weight(dig_beam, aa);
+      const c16_t *in = ru->gNB_list[0]->common_vars.txdataF[aa] + s * fp->ofdm_symbol_size;
+      c16_t *out = (c16_t *)ru->common.txdataF_BF[aa] + s * fp->ofdm_symbol_size;
+      // negative-freq half -> back
+      rotate_cpx_vector(in, w, out + fp->ofdm_symbol_size - half, half, 15);
+      // dc + positive-freq half -> front
+      rotate_cpx_vector(in + half, w, out, half, 15);
+    }
   }
 
   if (aa == 0)
