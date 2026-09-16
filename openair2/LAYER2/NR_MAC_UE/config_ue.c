@@ -2051,10 +2051,18 @@ static void nr_mac_start_ra(NR_UE_MAC_INST_t *mac, module_id_t module_id, nr_mac
       mac->state = UE_PERFORMING_RA;
       break;
     case NR_MAC_RA_START_REESTABLISHMENT: {
-      fapi_nr_synch_request_t sync_req = {.target_Nid_cell = mac->physCellId, .ssb_bw_scan = false};
+      // Blind scan: the found cell may differ from what RRC/MAC last believed, so wait for a
+      // fresh MIB and SIB1 before starting RA.
+      LOG_A(NR_MAC, "RA re-establishment: starting blind cell search, MAC common config discarded\n");
+      // Discard any dedicated CFRA config from a prior handover attempt; it targets the wrong cell.
+      if (mac->ra.rach_ConfigDedicated) {
+        asn1cFreeStruc(asn_DEF_NR_RACH_ConfigDedicated, mac->ra.rach_ConfigDedicated);
+        mac->ra.rach_ConfigDedicated = NULL;
+      }
+      fapi_nr_synch_request_t sync_req = {.target_Nid_cell = -1, .ssb_bw_scan = true};
       reset_mac_inst(mac);
       nr_ue_mac_default_configs(mac);
-      nr_ue_reset_sync_state(mac, true);
+      nr_ue_reset_sync_state(mac, false); // never UE_NOT_SYNC_RECONF here -- always reacquire MIB+SIB1, see above
       release_mac_configuration(mac, RE_ESTABLISHMENT);
       for (int j = 0; j < mac->lc_ordered_list.count; j++) {
         nr_lcordered_info_t *lc = mac->lc_ordered_list.array[j];

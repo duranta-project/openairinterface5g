@@ -859,6 +859,16 @@ void *UE_thread(void *arg)
 
     AssertFatal(!syncRunning, "At this point synchronization can't be running\n");
 
+    // Drain pending RRC->MAC messages here too, not just in UE_dl_preprocessing(): otherwise a
+    // redirect sent while stuck retrying an unreachable target would never be seen.
+    notifiedFIFO_elt_t *rrc_elt;
+    while ((rrc_elt = pollNotifiedFIFO(&mac->input_nf)) != NULL) {
+      process_msg_rcc_to_mac(NotifiedFifoData(rrc_elt), UE->Mod_id);
+      delNotifiedFIFO_elt(rrc_elt);
+    }
+    if (handle_sync_req_from_mac(UE) == 0)
+      continue;
+
     if (!UE->is_synchronized) {
       int sz = compute_sync_size(UE);
       for (int i = 0; i < fp->nb_antennas_rx; i++)
@@ -937,10 +947,6 @@ void *UE_thread(void *arg)
       }
       continue;
     }
-
-    /* check if MAC has sent sync request */
-    if (handle_sync_req_from_mac(UE) == 0)
-      continue;
 
     // start of normal case, the UE is in sync
     absolute_slot++;
