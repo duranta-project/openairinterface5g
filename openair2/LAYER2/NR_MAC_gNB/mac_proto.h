@@ -206,26 +206,9 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
                           int r_pucch,
                           int is_common);
 
-int get_pdsch_to_harq_feedback(NR_PUCCH_Config_t *pucch_Config,
-                               nr_dci_format_t dci_format,
-                               uint8_t *pdsch_to_harq_feedback);
-
 int nr_get_pucch_resource(NR_ControlResourceSet_t *coreset,
                           NR_PUCCH_Config_t *pucch_Config,
                           int CCEIndex);
-
-void nr_configure_pucch(nfapi_nr_pucch_pdu_t *pucch_pdu,
-                        NR_ServingCellConfigCommon_t *scc,
-                        NR_UE_info_t *UE,
-                        uint8_t pucch_resource,
-                        uint16_t O_csi,
-                        uint16_t O_ack,
-                        uint8_t O_sr,
-                        int r_pucch,
-                        nr_beam_mode_t mode,
-                        uint16_t ant_port_idx,
-                        uint16_t *ssi,
-                        uint16_t num_ant);
 
 void find_search_space(int ss_type,
                        NR_BWP_Downlink_t *bwp,
@@ -269,14 +252,6 @@ void fill_dci_pdu_rel15(const NR_UE_ServingCell_Info_t *servingCellInfo,
                         NR_ControlResourceSet_t *coreset,
                         long pdsch_HARQ_ACK_Codebook,
                         uint16_t cset0_bwp_size);
-
-void set_r_pucch_parms(int rsetindex,
-                       int r_pucch,
-                       int bwp_size,
-                       int *prb_start,
-                       int *second_hop_prb,
-                       int *nr_of_symbols,
-                       int *start_symbol_index);
 
 /* find coreset within the search space */
 NR_ControlResourceSet_t *get_coreset(nr_cell_sched_t *cell,
