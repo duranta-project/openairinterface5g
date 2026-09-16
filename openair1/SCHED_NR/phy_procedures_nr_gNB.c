@@ -873,7 +873,9 @@ static void handle_srs(fsn_t now,
                                                 &timing_advance_offset,
                                                 timing_advance_offset_nsec);
 
-  if ((snr * 10) < gNB->srs_thres) {
+  // Measurement outputs are valid on raw success (including 0), before SNR thresholding.
+  const bool estimate_valid = srs_est >= 0;
+  if (estimate_valid && (snr * 10) < gNB->srs_thres) {
     srs_est = -1;
   }
 
@@ -913,6 +915,8 @@ static void handle_srs(fsn_t now,
   start_meas(&gNB->srs_report_tlv_stats);
   switch (srs_indication->srs_usage) {
     case NFAPI_NR_SRS_BEAMMANAGEMENT: {
+      // Keep the existing beam report on failure: wide-band and per-PRG SNR fields
+      // use the invalid value 0xFF without reading unavailable estimates.
       start_meas(&gNB->srs_beam_report_stats);
       nfapi_nr_srs_beamforming_report_t nr_srs_bf_report;
       nr_srs_bf_report.prg_size = srs_pdu->beamforming.prg_size;
@@ -930,6 +934,10 @@ static void handle_srs(fsn_t now,
     }
 
     case NFAPI_NR_SRS_CODEBOOK: {
+      if (!estimate_valid) {
+        srs_indication->report_type = 0;
+        break;
+      }
       start_meas(&gNB->srs_iq_matrix_stats);
       nfapi_nr_srs_normalized_channel_iq_matrix_t nr_srs_channel_iq_matrix;
       fill_srs_channel_matrix(&nr_srs_channel_iq_matrix,
@@ -951,12 +959,15 @@ static void handle_srs(fsn_t now,
 
     case NFAPI_NR_SRS_POSITIONING: {
       nfapi_nr_srs_toa_vendor_ext_indication_t *srs_toa_vendor_ext_ind = srs_toa_v_ext;
-      srs_toa_vendor_ext_ind->sfn = now.f;
-      srs_toa_vendor_ext_ind->slot = now.s;
-      srs_toa_vendor_ext_ind->rnti = srs_pdu->rnti;
-      srs_toa_vendor_ext_ind->num_ta = nb_antennas_rx;
-      for (int ta_idx = 0; ta_idx < nb_antennas_rx; ta_idx++) {
-        srs_toa_vendor_ext_ind->ta_offset_nsec[ta_idx] = timing_advance_offset_nsec[ta_idx];
+      srs_toa_vendor_ext_ind->num_ta = 0;
+      if (estimate_valid) {
+        srs_toa_vendor_ext_ind->sfn = now.f;
+        srs_toa_vendor_ext_ind->slot = now.s;
+        srs_toa_vendor_ext_ind->rnti = srs_pdu->rnti;
+        srs_toa_vendor_ext_ind->num_ta = nb_antennas_rx;
+        for (int ta_idx = 0; ta_idx < nb_antennas_rx; ta_idx++) {
+          srs_toa_vendor_ext_ind->ta_offset_nsec[ta_idx] = timing_advance_offset_nsec[ta_idx];
+        }
       }
       break;
     }
