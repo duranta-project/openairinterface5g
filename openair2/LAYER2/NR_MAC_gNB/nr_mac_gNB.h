@@ -1302,6 +1302,7 @@ typedef struct nr_cell_sched_s {
   /// Per-cell KPI statistics
   NR_du_stats_t du_stats;
   uint64_t num_scheduled_prach_rx;
+  int max_csi_bits;
 
   // Per-cell MAC function execution performance profiler
   /// processing time of gNB scheduler
