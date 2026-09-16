@@ -973,6 +973,12 @@ static void nr_ue_meas_reset(meas_t *meas_cell, bool csi_meas)
     meas_cell->ss_rsrp_dBm.init = false;
 }
 
+/** @brief Invalidate the source PCell snapshot (ho_source), zeroing its stored keys. */
+static void nr_rrc_clear_ho_source(NR_UE_RRC_INST_t *rrc)
+{
+  memset(&rrc->ho_source, 0, sizeof(rrc->ho_source));
+}
+
 static void nr_rrc_process_reconfigurationWithSync(NR_UE_RRC_INST_t *rrc,
                                                    NR_ReconfigurationWithSync_t *reconfigurationWithSync,
                                                    int gNB_index)
@@ -998,6 +1004,25 @@ static void nr_rrc_process_reconfigurationWithSync(NR_UE_RRC_INST_t *rrc,
     }
   }
 
+  // Snapshot the source PCell's identity/security state before it's overwritten by the target's,
+  // so T304 expiry can restore it (TS 38.331 5.3.5.8.3). Only meaningful when AS security is
+  // active, which re-establishment (5.3.7) requires anyway.
+  nr_rrc_clear_ho_source(rrc);
+  if (rrc->as_security_activated) {
+    rrc->ho_source.valid = true;
+    rrc->ho_source.phyCellID = rrc->phyCellID;
+    rrc->ho_source.rnti = rrc->rnti;
+    memcpy(rrc->ho_source.kgnb, rrc->kgnb, sizeof(rrc->ho_source.kgnb));
+    memcpy(rrc->ho_source.nh, rrc->nh, sizeof(rrc->ho_source.nh));
+    rrc->ho_source.nhcc = rrc->nhcc;
+    rrc->ho_source.cipheringAlgorithm = rrc->cipheringAlgorithm;
+    rrc->ho_source.integrityProtAlgorithm = rrc->integrityProtAlgorithm;
+    rrc->ho_source.keyToUse = rrc->keyToUse;
+  }
+  RRCLOG_W("Snapshotting source PCell state: phyCellID=%d, rnti=%d, nhcc=%ld\n",
+           rrc->ho_source.phyCellID,
+           rrc->ho_source.rnti,
+           rrc->ho_source.nhcc);
   l3_measurements_t *l3m = &rrcNB->l3_measurements;
   for (int i = 0; i < NUMBER_OF_NEIGHBORING_CELLS_MAX; i++) {
     nr_ue_meas_reset(&l3m->neighboring_cell[i], false);
@@ -1026,6 +1051,7 @@ static void nr_rrc_process_reconfigurationWithSync(NR_UE_RRC_INST_t *rrc,
     // T304 is stopped upon completion of RA procedure which is not done in phy-test mode
     int t304_value = nr_rrc_get_T304(reconfigurationWithSync->t304);
     nr_timer_setup(&tac->T304, t304_value, 10); // 10ms step
+    RRCLOG_W("Starting T304 timer with value %d ms\n", t304_value);
     nr_timer_start(&tac->T304);
   }
   rrc->rnti = reconfigurationWithSync->newUE_Identity;
@@ -3234,6 +3260,8 @@ static void nr_rrc_handle_ra_indication(NR_UE_RRC_INST_t *rrc, bool ra_succeeded
     // procedures described in 5.3.5.3 of 38.331 when
     // reconfigurationWithSync is included in spCellConfig
     nr_timer_stop(&timers->T304);
+    // handover completed, the source PCell snapshot is no longer needed
+    nr_rrc_clear_ho_source(rrc);
 
     // TODO apply the parts of the CQI reporting configuration,
     // the scheduling request configuration and the sounding RS
@@ -3608,6 +3636,10 @@ static void nr_rrc_initiate_rrcReestablishment(NR_UE_RRC_INST_t *rrc, NR_Reestab
   // reset MAC
   // release spCellConfig, if configured
   // perform cell selection in accordance with the cell selection process
+  RRCLOG_A("Initiating RRC re-establishment (cause=%s)\n",
+           cause == 0   ? "reconfigurationFailure"
+           : cause == 1 ? "handoverFailure"
+                        : "otherFailure");
   nr_rrc_trigger_mac_ra(rrc, NR_MAC_RA_START_REESTABLISHMENT);
 }
 
@@ -3669,6 +3701,57 @@ void handle_rlf_detection(NR_UE_RRC_INST_t *rrc)
     NR_Release_Cause_t cause = rrc->as_security_activated ? RRC_CONNECTION_FAILURE : OTHER;
     nr_rrc_going_to_IDLE(rrc, cause, NULL);
   }
+}
+
+/** @brief T304 (MCG) expiry, TS 38.331 5.3.5.8.3. DAPS unsupported: only the non-DAPS branch
+ * applies -- revert to the source PCell's identity/security context and initiate re-establishment
+ * (5.3.7). MAC is not reverted: re-establishment RA does a blind cell search and reacquires MIB+SIB1.
+ * VarRLF-Report is not implemented. */
+void handle_t304_expiry(NR_UE_RRC_INST_t *rrc)
+{
+  // Indicate MAC to release dedicated preambles / msgA PUSCH resources provided in rach-ConfigDedicated
+  nr_mac_rrc_message_t rrc_msg = {0};
+  rrc_msg.payload_type = NR_MAC_RRC_CONFIG_RESET;
+  rrc_msg.payload.config_reset.cause = T304_EXPIRED;
+  nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+
+  if (rrc->ho_source.valid) {
+    rrc->phyCellID = rrc->ho_source.phyCellID;
+    rrc->rnti = rrc->ho_source.rnti;
+    memcpy(rrc->kgnb, rrc->ho_source.kgnb, sizeof(rrc->kgnb));
+    memcpy(rrc->nh, rrc->ho_source.nh, sizeof(rrc->nh));
+    rrc->nhcc = rrc->ho_source.nhcc;
+    rrc->cipheringAlgorithm = rrc->ho_source.cipheringAlgorithm;
+    rrc->integrityProtAlgorithm = rrc->ho_source.integrityProtAlgorithm;
+    rrc->keyToUse = rrc->ho_source.keyToUse;
+    // TS 38.331 5.3.7.3: don't rely on SIB1 cached from before the handover -- force a fresh SIB1
+    // fetch once the source PCell's MIB is decoded again. Without this, MAC stays stuck in
+    // UE_NOT_SYNC/UE_RECEIVING_SIB and RRC never asks it to start RA.
+    rrc->perNB[0].SInfo.sib1_validity = false;
+    rrc->perNB[0].SInfo.sib_pending = false;
+  }
+  // TODO revert the rest of the source PCell config (5.3.5.8.3 NOTE 1). Not verified, from code reading only: measConfig seems
+  // re-sent after re-establishment as add/mod only (F1 HO: CU may re-send the target's); RB/cell group config seems replaced
+  // unless HO changes DRBs or PDCP/SDAP/RLC config (5.3.7.2/5.3.7.4); arfcn_ssb seems overwritten by the selected cell's MIB.
+  // TODO store the handover failure information in VarRLF-Report (38.331 5.3.10.5), not implemented
+  // 5.3.10.3 in 38.331
+  bool srb2 = rrc->Srb[2] != RB_NOT_PRESENT;
+  bool any_drb = false;
+  for (int i = 0; i < MAX_DRBS_PER_UE; i++) {
+    if (rrc->status_DRBs[i] != RB_NOT_PRESENT) {
+      any_drb = true;
+      break;
+    }
+  }
+
+  RRCLOG_A("T304 expired: initiating RRC re-establishment (cause=handoverFailure) inside handle_t304_expiry\n");
+  if (rrc->as_security_activated && srb2 && any_drb) // initiate the connection re-establishment procedure
+    nr_rrc_initiate_rrcReestablishment(rrc, NR_ReestablishmentCause_handoverFailure);
+  else {
+    NR_Release_Cause_t cause = rrc->as_security_activated ? RRC_CONNECTION_FAILURE : OTHER;
+    nr_rrc_going_to_IDLE(rrc, cause, NULL);
+  }
+  nr_rrc_clear_ho_source(rrc);
 }
 
 void nr_rrc_going_to_IDLE(NR_UE_RRC_INST_t *rrc,

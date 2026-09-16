@@ -520,6 +520,19 @@ static int handle_sync_req_from_mac(PHY_VARS_NR_UE *UE)
   return 1;
 }
 
+/** @brief Process what RRC thread sent to MAC */
+static void nr_ue_dequeue_rrc_to_mac_msgs(PHY_VARS_NR_UE *UE)
+{
+  do {
+    notifiedFIFO_elt_t *elt = pollNotifiedFIFO(&get_mac_inst(UE->Mod_id)->input_nf);
+    if (!elt) {
+      break;
+    }
+    process_msg_rcc_to_mac(NotifiedFifoData(elt), UE->Mod_id);
+    delNotifiedFIFO_elt(elt);
+  } while (true);
+}
+
 static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
                                const UE_nr_rxtx_proc_t *proc,
                                int *tx_wait_for_dlsch,
@@ -532,15 +545,7 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
   if (UE->sl_mode == 2)
     fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
 
-  // process what RRC thread sent to MAC
-  do {
-    notifiedFIFO_elt_t *elt = pollNotifiedFIFO(&get_mac_inst(UE->Mod_id)->input_nf);
-    if (!elt) {
-      break;
-    }
-    process_msg_rcc_to_mac(NotifiedFifoData(elt), UE->Mod_id);
-    delNotifiedFIFO_elt(elt);
-  } while (true);
+  nr_ue_dequeue_rrc_to_mac_msgs(UE);
 
   if (UE->if_inst)
     UE->if_inst->slot_indication(UE->Mod_id, false);
@@ -855,6 +860,14 @@ void *UE_thread(void *arg)
 
     AssertFatal(!syncRunning, "At this point synchronization can't be running\n");
 
+    // Out of sync, UE_dl_preprocessing() doesn't run. So, dequeue here, so that a sync request sent
+    // meanwhile (e.g. re-establishment after T304 expiry) is applied before the next search.
+    if (!UE->is_synchronized)
+      nr_ue_dequeue_rrc_to_mac_msgs(UE);
+    /* check if MAC has sent sync request */
+    if (handle_sync_req_from_mac(UE) == 0)
+      continue;
+
     if (!UE->is_synchronized) {
       int sz = compute_sync_size(UE);
       for (int i = 0; i < fp->nb_antennas_rx; i++)
@@ -933,10 +946,6 @@ void *UE_thread(void *arg)
       }
       continue;
     }
-
-    /* check if MAC has sent sync request */
-    if (handle_sync_req_from_mac(UE) == 0)
-      continue;
 
     // start of normal case, the UE is in sync
     absolute_slot++;
