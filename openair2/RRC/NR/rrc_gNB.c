@@ -3023,7 +3023,7 @@ static void rrc_CU_process_ue_modification_required(MessageDef *msg_p, instance_
    * may be executed or both could be skipped."
    * By design, CU-CP will trigger UE Context Setup Modification Request and DU does not send
    * Modification Required during re-establishment. */
-  if (!UE->f1_ue_context_active) {
+  if (!UE->f1_ue_context_active && !NODE_IS_MONOLITHIC(rrc->node_type)) {
     LOG_W(NR_RRC,
           "UE %d: UE Context Modification Required received while UE Context Setup is pending (CU UE ID %d), refusing\n",
           UE->rrc_ue_id,
@@ -3036,6 +3036,17 @@ static void rrc_CU_process_ue_modification_required(MessageDef *msg_p, instance_
     };
     rrc->mac_rrc.ue_context_modification_refuse(msg_p->ittiMsgHeader.originInstance, &refuse);
     return;
+  }
+  if (!UE->f1_ue_context_active) {
+    // Monolithic mode has no real F1 split, so f1_ue_context_active never gets set --
+    // it's only set via a real E1AP/core-network bearer setup. Without this, a UE hitting
+    // this path would be permanently refused and released eventhough it's otherwise healthy.
+    // The CU-DU race guarded against above doesn't apply here so accept config.
+    UE->f1_ue_context_active = true;
+    LOG_I(NR_RRC,
+          "UE %d: monolithic mode, no F1 UE Context Setup pending -- accepting UE Context Modification Required instead of "
+          "refusing\n",
+          UE->rrc_ue_id);
   }
 
   if (required->du_to_cu_rrc_information && required->du_to_cu_rrc_information->cellGroupConfig) {
