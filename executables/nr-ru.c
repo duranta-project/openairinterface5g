@@ -39,6 +39,7 @@ static int DEFRUTPCORES[] = {-1,-1,-1,-1};
 #include "ENB_APP/enb_paramdef.h"
 #include "GNB_APP/gnb_paramdef.h"
 #include "common/config/config_userapi.h"
+#include "LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
 
 #include <openair1/PHY/TOOLS/phy_scope_interface.h>
 
@@ -595,6 +596,10 @@ void *ru_thread(void *param)
   sprintf(threadname,"ru_thread %u",ru->idx);
   LOG_I(PHY,"Starting RU %d (%s,%s) on cpu %d\n",ru->idx,NB_functions[ru->function],NB_timing[ru->if_timing],sched_getcpu());
   ru->config = gNB->gNB_config;
+  // Copy the VNF/operator-declared logical-port-per-physical-chain mapping so RU-side TX fan-out
+  // (nr_feptx_prec()/nr_feptx() in nr_ru_procedures.c) can use it instead of assuming a pattern.
+  AssertFatal(RC.nrmac[0] != NULL, "RC.nrmac[0] not initialized before ru_thread() started\n");
+  memcpy(ru->spatial_stream_index, RC.nrmac[0]->cells[0].radio_config.spatial_stream_index, sizeof(ru->spatial_stream_index));
 
   nr_init_frame_parms(&ru->config, fp);
   nr_dump_frame_parms(fp);

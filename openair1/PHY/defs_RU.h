@@ -429,6 +429,8 @@ typedef struct RU_t_s {
   int nb_rx;
   /// number of TX paths on device
   int nb_tx;
+  /// Copy MAC's radio_config.spatial_stream_index sized to NR_MAC_MAX_RU_ANTENNA_PORTS (openair2/LAYER2/NR_MAC_gNB/nr_mac_gNB.h)
+  uint16_t spatial_stream_index[64];
   /// maximum PDSCH RS EPRE
   int max_pdschReferenceSignalPower;
   /// maximum RX gain

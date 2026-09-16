@@ -155,10 +155,16 @@ void nr_feptx_prec(RU_t *ru, int frame_tx, int slot_tx)
   if (nr_slot_select(cfg,frame_tx,slot_tx) == NR_UPLINK_SLOT)
     return;
 
-  // If there is no digital beamforming we just need to copy the data to RU
+  // Support digital beamforming table, or analog beamforming by mapping physical tx chains via spatial_stream_index[]
   if (ru->config.dbt_config.num_dig_beams == 0 || ru->gNB_list[0]->common_vars.analog_bf) {
-    for (int i = 0; i < fp->nb_antennas_tx; ++i) {
-      memcpy(ru->common.txdataF_BF[i], gNB->common_vars.txdataF[i], fp->samples_per_slot_wCP * sizeof(int32_t));
+    for (int i = 0; i < ru->nb_tx; ++i) {
+      int src = ru->spatial_stream_index[i];
+      AssertFatal(src >= 0 && src < fp->nb_antennas_tx,
+                  "spatial_stream_index[%d]=%d out of range for %d logical DL antenna port(s)\n",
+                  i,
+                  src,
+                  fp->nb_antennas_tx);
+      memcpy(ru->common.txdataF_BF[i], gNB->common_vars.txdataF[src], fp->samples_per_slot_wCP * sizeof(int32_t));
     }
   }  else {
     AssertFatal(false, "This needs to be fixed by using appropriate beams from config\n");
@@ -180,12 +186,18 @@ void nr_feptx(void *arg)
   if (aa == 0)
     start_meas(&ru->precoding_stats);
 
-  // If there is no digital beamforming we just need to copy the data to RU
+  // Support digital beamforming table, or analog beamforming by mapping physical tx chains via spatial_stream_index[]
   if (ru->config.dbt_config.num_dig_beams == 0 || ru->gNB_list[0]->common_vars.analog_bf) {
     // Inverse FFT shift
     const NR_DL_FRAME_PARMS *fp = &ru->gNB_list[0]->frame_parms;
+    int src = ru->spatial_stream_index[aa];
+    AssertFatal(src >= 0 && src < fp->nb_antennas_tx,
+                "spatial_stream_index[%d]=%d out of range for %d logical DL antenna port(s)\n",
+                aa,
+                src,
+                fp->nb_antennas_tx);
     for (uint s = startSymbol; s < startSymbol + numSymbols; s++)
-      fftshift_inverse(ru->gNB_list[0]->common_vars.txdataF[aa] + s * fp->ofdm_symbol_size,
+      fftshift_inverse(ru->gNB_list[0]->common_vars.txdataF[src] + s * fp->ofdm_symbol_size,
                        (c16_t *)ru->common.txdataF_BF[aa] + s * fp->ofdm_symbol_size,
                        fp->N_RB_DL * NR_NB_SC_PER_RB,
                        fp->ofdm_symbol_size);
@@ -207,13 +219,13 @@ void nr_feptx(void *arg)
 void nr_feptx_tp(RU_t *ru, int frame_tx, int slot)
 {
   nfapi_nr_config_request_scf_t *cfg = &ru->gNB_list[0]->gNB_config;
-  const NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
 
   if (nr_slot_select(cfg, frame_tx, slot) == NR_UPLINK_SLOT)
     return;
   start_meas(&ru->ofdm_total_stats);
 
-  int nt = fp->nb_antennas_tx;
+  // nr_feptx() maps each tx chain to its source stream via spatial_stream_index[].
+  int nt = ru->nb_tx;
   size_t const sz = nt + (ru->half_slot_parallelization > 0) * nt;
   feptx_cmd_t arr[sz];
   task_ans_t ans;
