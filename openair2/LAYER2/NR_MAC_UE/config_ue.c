@@ -1111,7 +1111,8 @@ void nr_rrc_mac_config_req_mib(module_id_t module_id, int cc_idP, NR_MIB_t *mib,
   if (get_softmodem_params()->phy_test)
     mac->state = UE_CONNECTED;
   else if (mac->state == UE_NOT_SYNC_RECONF)
-    mac->state = UE_PERFORMING_RA;
+    // cell other than the serving cell: wait for its SIB1 before RA
+    mac->state = mac->physCellId == mac->phy_config.config_req.cell_config.phy_cell_id ? UE_PERFORMING_RA : UE_NOT_SYNC;
 
   ret = pthread_mutex_unlock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
@@ -1901,6 +1902,16 @@ void nr_rrc_mac_config_req_reset(module_id_t module_id, NR_UE_MAC_reset_cause_t 
       // Flush all HARQ buffers and Stop UL transmissions
       handle_ulsync_loss(mac);
       break;
+    case T304_EXPIRED:
+      // TS 38.331 5.3.5.8.3: release rach-ConfigDedicated, revert back to the source PCell
+      if (mac->ra.rach_ConfigDedicated)
+        asn1cFreeStruc(asn_DEF_NR_RACH_ConfigDedicated, mac->ra.rach_ConfigDedicated);
+      mac->physCellId = mac->ho_source.physCellId;
+      mac->phy_config.config_req.carrier_config.dl_frequency = mac->ho_source.dl_frequency;
+      mac->phy_config.config_req.carrier_config.uplink_frequency = mac->ho_source.uplink_frequency;
+      mac->frequency_range = mac->ho_source.frequency_range;
+      mac->numerology = mac->ho_source.numerology;
+      break;
     default:
       AssertFatal(false, "Invalid MAC reset cause %d\n", cause);
   }
@@ -2037,7 +2048,9 @@ static void nr_mac_start_ra(NR_UE_MAC_INST_t *mac, module_id_t module_id, nr_mac
       mac->state = UE_PERFORMING_RA;
       break;
     case NR_MAC_RA_START_REESTABLISHMENT: {
-      fapi_nr_synch_request_t sync_req = {.target_Nid_cell = mac->physCellId, .ssb_bw_scan = false};
+      // cell selection on any PCI, intra-frequency only for now
+      LOG_A(NR_MAC, "RA re-establishment: starting cell selection\n");
+      fapi_nr_synch_request_t sync_req = {.target_Nid_cell = -1, .ssb_bw_scan = true};
       reset_mac_inst(mac);
       nr_ue_mac_default_configs(mac);
       nr_ue_reset_sync_state(mac, true);
@@ -2142,6 +2155,12 @@ static void handle_reconfiguration_with_sync(NR_UE_MAC_INST_t *mac,
                                              int frame,
                                              const NR_ReconfigurationWithSync_t *reconfWithSync)
 {
+  mac->ho_source.physCellId = mac->physCellId;
+  mac->ho_source.dl_frequency = mac->phy_config.config_req.carrier_config.dl_frequency;
+  mac->ho_source.uplink_frequency = mac->phy_config.config_req.carrier_config.uplink_frequency;
+  mac->ho_source.frequency_range = mac->frequency_range;
+  mac->ho_source.numerology = mac->numerology;
+
   reset_mac_inst(mac);
   mac->crnti = reconfWithSync->newUE_Identity;
   LOG_I(NR_MAC, "Configuring CRNTI %x\n", mac->crnti);
