@@ -7,7 +7,9 @@
 
 #        define MAX_MOBILES_PER_GNB 16
 #        define NUMBER_OF_eNB_MAX 1
+#ifndef NUMBER_OF_gNB_MAX
 #        define NUMBER_OF_gNB_MAX 1
+#endif
 #        define NUMBER_OF_RU_MAX 2
 #        define NUMBER_OF_NR_RU_MAX 2
 #        define NUMBER_OF_UCI_MAX 16
