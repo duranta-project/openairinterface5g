@@ -16,6 +16,8 @@
 #include "common/ngran_types.h"
 #include "openair2/LAYER2/nr_pdcp/nr_pdcp_configuration.h"
 
+#define NR_MAX_SUPPORTED_DL_LAYERS 4
+
 void set_cset_offset(uint16_t);
 void get_K1_K2(int N1, int N2, int *K1, int *K2, int layers);
 int get_NTN_Koffset(const NR_ServingCellConfigCommon_t *scc);
