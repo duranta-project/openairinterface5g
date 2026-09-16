@@ -1610,6 +1610,7 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
   const char *srs_type_s = *gnb_p[GNB_DO_SRS_IDX].strptr;
   config.do_SRS = config_get_processedint(cfg, &gnb_p[GNB_DO_SRS_IDX]);
   config.max_num_rsrp = *gnb_p[GNB_LIMIT_RSRP_REPORT_IDX].iptr;
+  AssertFatal(config.max_num_rsrp <= 4, "Invalid value %d for max number of RSRP (can't be more than 4\n", config.max_num_rsrp);
   const char *report_type_s = *gnb_p[GNB_CONFIG_REP_IDX].strptr;
   config.report_type = config_get_processedint(cfg, &gnb_p[GNB_CONFIG_REP_IDX]);
   config.force_256qam_off = *gnb_p[GNB_FORCE256QAMOFF_IDX].iptr;
