@@ -615,8 +615,26 @@ int main( int argc, char **argv ) {
     for (ru_id=0; ru_id<RC.nb_RU; ru_id++) {
       RC.ru[ru_id]->rf_map.card=0;
       RC.ru[ru_id]->rf_map.chain = CC_id;
-      if (ru_id==0) sl_ahead = RC.ru[ru_id]->sl_ahead;	
+      if (ru_id == 0)
+        sl_ahead = RC.ru[ru_id]->sl_ahead;
       else AssertFatal(RC.ru[ru_id]->sl_ahead != RC.ru[0]->sl_ahead,"RU %d has different sl_ahead %d than RU 0 %d\n",ru_id,RC.ru[ru_id]->sl_ahead,RC.ru[0]->sl_ahead);
+      if (RC.nb_nr_L1_inst > 0) {
+        int pusch_ants = RC.nrmac[0]->cells[0].radio_config.pusch_AntennaPorts;
+        int ru_nb_rx = RC.ru[ru_id]->nb_rx;
+        AssertFatal(pusch_ants <= ru_nb_rx,
+                    "pusch_AntennaPorts (%d) exceeds RU %d's physical nb_rx (%d) -- cannot combine more antennas than exist\n",
+                    pusch_ants,
+                    ru_id,
+                    ru_nb_rx);
+        if (pusch_ants < ru_nb_rx)
+          LOG_W(NR_MAC,
+                "pusch_AntennaPorts (%d) is less than RU %d's physical nb_rx (%d) -- %d antenna(s) of UL receive "
+                "diversity are unused; this can silently reduce UL SNR (e.g. PUCCH format-0 SR detection)\n",
+                pusch_ants,
+                ru_id,
+                ru_nb_rx,
+                ru_nb_rx - pusch_ants);
+      }
     }
     
   }
