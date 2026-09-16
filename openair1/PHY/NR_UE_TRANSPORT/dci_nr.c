@@ -191,7 +191,8 @@ static void nr_pdcch_extract_rbs_single(uint32_t rxdataF_sz,
                                         uint8_t *coreset_freq_dom,
                                         uint32_t rb_offset,
                                         uint32_t coreset_nbr_rb,
-                                        uint32_t n_BWP_start)
+                                        uint32_t n_BWP_start,
+                                        bool apply_coreset_bitmap)
 {
   /*
    * This function is demapping DM-RS PDCCH RE
@@ -221,7 +222,11 @@ static void nr_pdcch_extract_rbs_single(uint32_t rxdataF_sz,
     int start = rb_offset / 6;
     int size = coreset_nbr_rb / 6;
     for (int rb_group = start; rb_group < start + size; rb_group++) {
-      if (0 && (coreset_freq_dom[rb_group / 8] & (1 << (7 - (rb_group & 7)))) == 0) {
+      /* A DL CORESET uses the 45-bit frequencyDomainResources bitmap from
+       * TS 38.331.  PSCCH currently reaches this shared extractor through a
+       * compatibility structure whose first two bytes carry start-RB and
+       * number-of-RBs directly, so bitmap filtering applies only to PDCCH. */
+      if (apply_coreset_bitmap && (coreset_freq_dom[rb_group / 8] & (1 << (7 - (rb_group & 7)))) == 0) {
         continue;
       }
       for (int rb = 0; rb < 6; rb++) {
@@ -325,7 +330,8 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
                               coreset->frequency_domain_resource,
                               rb_offset, // coreset->rb_offset?
                               n_rb,
-                              phy_pdcch_config->pdcch_config[ss_idx].BWPStart);
+                              phy_pdcch_config->pdcch_config[ss_idx].BWPStart,
+                              !pscch_processing);
 
   LOG_D(NR_PHY_DCI, "in channel level function (dl_ch_estimates_ext -> dl_ch_estimates_ext)\n");
   int avg[fp->nb_antennas_rx];
