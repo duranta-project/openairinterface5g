@@ -934,11 +934,22 @@ static void test_bearer_context_modification_required(void)
   };
   pdu_session_to_remove_t rem2 = pdu_session_rem_template(6); // no cause
 
+  pdu_session_required_to_mod_t mod = {
+      .sessionId = 7,
+      .numDRB2Modify = 1,
+  };
+  mod.DRBnGRanModList[0].id = 1;
+  mod.DRBnGRanModList[0].cause.type = E1AP_CAUSE_RADIO_NETWORK;
+  mod.DRBnGRanModList[0].cause.value = E1AP_RADIO_CAUSE_PDCP_COUNT_WRAP_AROUND;
+
   e1ap_bearer_mod_required_t orig = {
       .gNB_cu_cp_ue_id = 0x1234,
       .gNB_cu_up_ue_id = 0x5678,
+      .numPDUSessionsMod = 1,
       .numPDUSessionsRem = 2,
   };
+  orig.pduSessionMod = calloc_or_fail(1, sizeof(*orig.pduSessionMod));
+  orig.pduSessionMod[0] = mod;
   orig.pduSessionRem = calloc_or_fail(2, sizeof(*orig.pduSessionRem));
   orig.pduSessionRem[0] = rem1;
   orig.pduSessionRem[1] = rem2;
