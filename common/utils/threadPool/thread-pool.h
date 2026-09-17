@@ -42,6 +42,35 @@ typedef struct {
 /// @param task task description
 void pushTpool(tpool_t *tpool, task_t task);
 
+/// @brief Dispatch one task of a batch that the caller will immediately join on, running the
+///        last task on the calling thread instead of handing it to a worker.
+///
+/// The caller of a push-loop-then-join_task_ans() sequence blocks in the join doing nothing
+/// while a worker is woken to perform work the caller could have done in the same time.
+/// Executing the final task inline removes one wakeup and one context switch per batch, and
+/// makes the calling thread an executor: a batch of N tasks then needs only N-1 workers to
+/// run N-ways parallel. That matters most where the per-task work is small or cores are
+/// scarce -- a DU in a container with few cores, or low-core targets generally.
+///
+/// The caller must still init_task_ans(&ans, n) for the full batch and join_task_ans(&ans)
+/// afterwards; the inline task signals completion through completed_task_ans() exactly as a
+/// worker-run task does. With a NULL tpool every task runs inline, as before.
+///
+/// Caveat: the calling thread absorbs one whole task, so where task durations are uneven the
+/// caller may draw a long one and finish after the workers. Prefer it where the tasks of a
+/// batch are of comparable size.
+///
+/// @param tpool threadpool to use
+/// @param task task description
+/// @param is_last true if this is the final task of the batch
+static inline void pushTpool_batch(tpool_t *tpool, task_t task, bool is_last)
+{
+  if (tpool == NULL || is_last)
+    task.func(task.args);
+  else
+    pushTpool(tpool, task);
+}
+
 /// @brief Abort tpool, stop all threads and return
 /// @param t 
 void abortTpool(tpool_t *t);
