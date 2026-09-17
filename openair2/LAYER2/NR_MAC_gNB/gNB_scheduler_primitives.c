@@ -1107,7 +1107,7 @@ static uint32_t compute_srs_resource_indicator(long *maxMIMO_Layers,
         AssertFatal(false, "MIMO on PUSCH not supported, maxMIMO_Layers needs to be set to 1\n");
       int count = srs_non_codebook_nb_res(srs_config);
       int lsum = srs_binomial_sum(count, Lmax);
-      if (lsum > 0 && ceil(log2(lsum)) > 0) {
+      if (lsum > 0 && ceil_log2_u32(lsum) > 0) {
         switch(Lmax) {
           case 1:
             val = table_7_3_1_1_2_28[count-2][srs_feedback->sri];
@@ -1902,7 +1902,7 @@ void fill_dci_pdu_rel15(const NR_UE_ServingCell_Info_t *servingCellInfo,
     switch (rnti_type) {
       case TYPE_RA_RNTI_:
         // Freq domain assignment
-        fsize = (int)ceil(log2((N_RB * (N_RB + 1)) >> 1));
+        fsize = ceil_log2_u32((N_RB * (N_RB + 1)) >> 1);
         pos = fsize;
         *dci_pdu |= (((uint64_t)dci_pdu_rel15->frequency_domain_assignment.val & ((1 << fsize) - 1)) << (dci_size - pos));
         LOG_D(NR_MAC,
@@ -1952,7 +1952,7 @@ void fill_dci_pdu_rel15(const NR_UE_ServingCell_Info_t *servingCellInfo,
               dci_size - pos,
               *dci_pdu);
         // Freq domain assignment (275rb >> fsize = 16)
-        fsize = (int)ceil(log2((N_RB * (N_RB + 1)) >> 1));
+        fsize = ceil_log2_u32((N_RB * (N_RB + 1)) >> 1);
         pos += fsize;
         *dci_pdu |= (((uint64_t)dci_pdu_rel15->frequency_domain_assignment.val & ((1 << fsize) - 1)) << (dci_size - pos));
         LOG_D(NR_MAC,
@@ -2053,7 +2053,7 @@ void fill_dci_pdu_rel15(const NR_UE_ServingCell_Info_t *servingCellInfo,
         pos += 2;
         *dci_pdu |= (dci_pdu_rel15->short_messages & 0xff) * (1ULL << (dci_size - pos - 8));
         pos += 8;
-        fsize = (int)ceil(log2((N_RB * (N_RB + 1)) >> 1));
+        fsize = ceil_log2_u32((N_RB * (N_RB + 1)) >> 1);
         *dci_pdu |= (dci_pdu_rel15->frequency_domain_assignment.val & ((1U << fsize) - 1)) * (1ULL << (dci_size - pos - fsize));
         pos += fsize;
         *dci_pdu |= (dci_pdu_rel15->time_domain_assignment.val & 0xf) * (1ULL << (dci_size - pos - 4));
@@ -2079,7 +2079,7 @@ void fill_dci_pdu_rel15(const NR_UE_ServingCell_Info_t *servingCellInfo,
       case TYPE_SI_RNTI_:
         pos = 1;
         // Freq domain assignment 0-16 bit
-        fsize = (int)ceil(log2((N_RB * (N_RB + 1)) >> 1));
+        fsize = ceil_log2_u32((N_RB * (N_RB + 1)) >> 1);
         LOG_D(NR_MAC, "fsize = %i\n", fsize);
         for (int i = 0; i < fsize; i++)
           *dci_pdu |= (((uint64_t)dci_pdu_rel15->frequency_domain_assignment.val >> (fsize - i - 1)) & 1) << (dci_size - pos++);
@@ -2109,7 +2109,7 @@ void fill_dci_pdu_rel15(const NR_UE_ServingCell_Info_t *servingCellInfo,
         // indicating a DL DCI format 1bit
         *dci_pdu |= ((uint64_t)dci_pdu_rel15->format_indicator & 1) << (dci_size - pos++);
         // Freq domain assignment 0-16 bit
-        fsize = (int)ceil(log2((N_RB * (N_RB + 1)) >> 1));
+        fsize = ceil_log2_u32((N_RB * (N_RB + 1)) >> 1);
         for (int i = 0; i < fsize; i++)
           *dci_pdu |= (((uint64_t)dci_pdu_rel15->frequency_domain_assignment.val >> (fsize - i - 1)) & 1) << (dci_size - pos++);
         // Time domain assignment 4 bit
@@ -2783,7 +2783,7 @@ static void set_sched_pucch_list(NR_UE_sched_ctrl_t *sched_ctrl,
 
   // PUCCH list size is given by the number of UL slots in the PUCCH period
   // the length PUCCH period is determined by max_fb_time since we may need to prepare PUCCH for ACK/NACK max_fb_time slots ahead
-  const int list_size = n_ul_slots_period << (int)ceil(log2((ul_bwp->max_fb_time + NTN_gNB_Koffset) / fs->numb_slots_period + 1));
+  const int list_size = n_ul_slots_period << ceil_log2_u32((ul_bwp->max_fb_time + NTN_gNB_Koffset) / fs->numb_slots_period + 1);
 
   if (!sched_ctrl->sched_pucch) {
     sched_ctrl->sched_pucch = calloc_or_fail(list_size, sizeof(*sched_ctrl->sched_pucch));

@@ -2836,7 +2836,7 @@ static nfapi_nr_ue_csi_payload_t get_ssb_sinr_payload(NR_UE_MAC_INST_t *mac,
 
       AssertFatal(nb_ssb > 0, "No SSB found in the resource set\n");
       AssertFatal(nb_meas <= 4,"Can't report more than 4 RSRPs\n");
-      int ssbri_bits = ceil(log2(nb_ssb));
+      int ssbri_bits = ceil_log2_u32(nb_ssb);
 
       // map SSB index to SSB resource table index, copy measurements, sort in descending order
       NR_RSRP_meas_t sorted_sinr_measurements[nb_ssb];
@@ -2936,7 +2936,7 @@ static nfapi_nr_ue_csi_payload_t get_ssb_rsrp_payload(NR_UE_MAC_INST_t *mac,
 
       AssertFatal(nb_ssb > 0,"No SSB found in the resource set\n");
       AssertFatal(nb_meas <= 4,"Can't report more than 4 RSRPs\n");
-      int ssbri_bits = ceil(log2(nb_ssb));
+      int ssbri_bits = ceil_log2_u32(nb_ssb);
 
       // map SSB index to SSB resource table index, copy measurements, sort in descending order
       NR_RSRP_meas_t sorted_rsrp_measurements[nb_ssb];
@@ -3491,7 +3491,7 @@ static void extract_10_ra_rnti(dci_pdu_rel15_t *dci_pdu_rel15, const uint8_t *dc
   LOG_D(NR_MAC_DCI, "Received dci 1_0 RA rnti\n");
 
   // Freq domain assignment
-  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, (int)ceil(log2((N_RB * (N_RB + 1)) >> 1)));
+  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, ceil_log2_u32((N_RB * (N_RB + 1)) >> 1));
   // Time domain assignment
   EXTRACT_DCI_ITEM(dci_pdu_rel15->time_domain_assignment.val, 4);
   // VRB to PRB mapping
@@ -3507,7 +3507,7 @@ static uint8_t extract_10_si_rnti(dci_pdu_rel15_t *dci_pdu_rel15, const uint8_t 
   LOG_D(NR_MAC_DCI, "Received dci 1_0 SI rnti\n");
 
   // Freq domain assignment 0-16 bit
-  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, (int)ceil(log2((N_RB * (N_RB + 1)) >> 1)));
+  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, ceil_log2_u32((N_RB * (N_RB + 1)) >> 1));
   // Time domain assignment 4 bit
   EXTRACT_DCI_ITEM(dci_pdu_rel15->time_domain_assignment.val, 4);
   // VRB to PRB mapping 1 bit
@@ -3529,7 +3529,7 @@ static void extract_10_p_rnti(dci_pdu_rel15_t *dci_pdu_rel15, const uint8_t *dci
   // Short Messages
   EXTRACT_DCI_ITEM(dci_pdu_rel15->short_messages, 8);
   // Freq domain assignment
-  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, ceil(log2((N_RB * (N_RB + 1)) >> 1)));
+  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, ceil_log2_u32((N_RB * (N_RB + 1)) >> 1));
   // Time domain assignment
   EXTRACT_DCI_ITEM(dci_pdu_rel15->time_domain_assignment.val, 4);
   // VRB to PRB mapping
@@ -3549,7 +3549,7 @@ static bool extract_10_c_rnti(NR_UE_MAC_INST_t *mac,
   LOG_D(NR_MAC_DCI, "Received dci 1_0 C rnti\n");
 
   // Freq domain assignment (275rb >> fsize = 16)
-  int fsize = (int)ceil(log2((N_RB * (N_RB + 1)) >> 1));
+  int fsize = ceil_log2_u32((N_RB * (N_RB + 1)) >> 1);
   EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, fsize);
   bool pdcch_order = true;
   for (int i = 0; i < fsize; i++) {
@@ -3626,7 +3626,7 @@ static void extract_10_tc_rnti(dci_pdu_rel15_t *dci_pdu_rel15, const uint8_t *dc
   LOG_D(NR_MAC_DCI, "Received dci 1_0 TC rnti\n");
 
   // Freq domain assignment 0-16 bit
-  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, (int)ceil(log2((N_RB * (N_RB + 1)) >> 1)));
+  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, ceil_log2_u32((N_RB * (N_RB + 1)) >> 1));
   // Time domain assignment - 4 bits
   EXTRACT_DCI_ITEM(dci_pdu_rel15->time_domain_assignment.val, 4);
   // VRB to PRB mapping - 1 bit
@@ -3742,7 +3742,7 @@ static void extract_01_c_rnti(dci_pdu_rel15_t *dci_pdu_rel15, const uint8_t *dci
   // BWP Indicator
   EXTRACT_DCI_ITEM(dci_pdu_rel15->bwp_indicator.val, dci_pdu_rel15->bwp_indicator.nbits);
   // Freq domain assignment  max 16 bit
-  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, (int)ceil(log2((N_RB * (N_RB + 1)) >> 1)));
+  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, ceil_log2_u32((N_RB * (N_RB + 1)) >> 1));
   // Time domain assignment
   EXTRACT_DCI_ITEM(dci_pdu_rel15->time_domain_assignment.val, dci_pdu_rel15->time_domain_assignment.nbits);
   // Not supported yet - skip for now

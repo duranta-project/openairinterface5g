@@ -4,6 +4,7 @@
 
 #include "mac_defs.h"
 #include "mac_proto.h"
+#include "common/utils/bits.h"
 
 #define SL_DEBUG
 
@@ -393,13 +394,13 @@ uint8_t sl_determine_sci_1a_len(uint16_t *num_subchannels,
 
   //Determine bits for Freq and Time Resource assignment
   if (sl_MaxNumPerReserve == 3) {
-    num_bits = ceil(log2(n_subch * (n_subch + 1) * (2*n_subch + 1)/6));
+    num_bits = ceil_log2_u32(n_subch * (n_subch + 1) * (2*n_subch + 1) / 6);
     sci_1a_len += num_bits;
     sci_1a->frequency_resource_assignment.nbits = num_bits;
     sci_1a_len += 9;
     sci_1a->time_resource_assignment.nbits = 9;
   } else {
-    num_bits = ceil(log2((n_subch * (n_subch + 1)) >> 1));
+    num_bits = ceil_log2_u32((n_subch * (n_subch + 1)) >> 1);
     sci_1a_len += num_bits;
     sci_1a->frequency_resource_assignment.nbits = num_bits;
     sci_1a_len += 5;
@@ -419,7 +420,7 @@ uint8_t sl_determine_sci_1a_len(uint16_t *num_subchannels,
   #define SL_IE_ENABLED 0
   if (selectedconfigRP &&
       selectedconfigRP->sl_MultiReserveResource_r16 == SL_IE_ENABLED) {
-    num_bits = ceil(log2(n_rsvperiod));
+    num_bits = ceil_log2_u32(n_rsvperiod);
     sci_1a_len += num_bits;
     sci_1a->resource_reservation_period.nbits = num_bits;
   } else
@@ -444,7 +445,7 @@ uint8_t sl_determine_sci_1a_len(uint16_t *num_subchannels,
                           "Number of DMRS Patterns should be 1or2or3. Resource Pool Configuration Error.\n");
 
   if (n_dmrspatterns) {
-    num_bits = ceil(log2(n_dmrspatterns));
+    num_bits = ceil_log2_u32(n_dmrspatterns);
     sci_1a_len += num_bits;
     sci_1a->dmrs_pattern.nbits = num_bits;
   }
