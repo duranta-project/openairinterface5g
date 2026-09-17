@@ -1,0 +1,91 @@
+#/*
+# * O-RU runtime image (doc/tutorial_resources/aset/README.md)
+# * Tag: oai-nr-oru-aset:latest
+# *
+# * Build contexts aset-ran-base / aset-ran-build must be supplied by Compose
+# * (additional_contexts -> service:ran-base / service:ran-build) or manually:
+# *   --build-context aset-ran-build=docker-image://ran-build-fhi72-aset:latest
+# * Do not FROM the published image tag here: with COMPOSE_BAKE that races and
+# * packages the previous ran-build while the new one is still compiling.
+# */
+ARG UBUNTU_IMAGE=ubuntu:noble
+ARG BUILD_IMAGE=aset-ran-build
+FROM aset-ran-base AS ran-base
+FROM ${BUILD_IMAGE} AS ran-build
+
+FROM ${UBUNTU_IMAGE} AS oai-nr-oru
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Europe
+
+RUN apt-get update && \
+    apt-get upgrade --yes && \
+    apt-get install --yes \
+        software-properties-common \
+        procps \
+        pkg-config \
+        libsctp1 \
+        tzdata \
+        libconfig9 \
+        openssl \
+        net-tools \
+        iperf \
+        iproute2 \
+        iputils-ping \
+        gdb \
+        pciutils \
+        libpcap-dev \
+        xz-utils \
+        libnuma-dev \
+        libatomic1 \
+        libibverbs1 \
+        ibverbs-providers \
+        rdma-core \
+        libyaml-cpp-dev \
+        libnanomsg5 \
+        libforms2 \
+        libx11-6 \
+        libxpm4 && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/nr-oru/bin
+COPY --from=ran-build \
+    /oai-ran/cmake_targets/ran_build/build/nr-oru ./
+COPY ./docker/scripts/nr_oru_entrypoint.sh ./entrypoint.sh
+
+COPY --from=ran-build \
+    /oai-ran/cmake_targets/ran_build/build/liboai_transpro.so \
+    /oai-ran/cmake_targets/ran_build/build/libparams_libconfig.so \
+    /oai-ran/cmake_targets/ran_build/build/libdfts.so \
+    /oai-ran/cmake_targets/ran_build/build/libparams_yaml.so \
+    /oai-ran/cmake_targets/ran_build/build/libvrtsim.so \
+    /oai-ran/cmake_targets/ran_build/build/libnrscope.so \
+    /usr/local/lib/
+
+## Libxran library
+COPY --from=ran-build \
+    /opt/phy/fhi_lib/lib/build/libxran.so \
+    /opt/phy/fhi_lib/lib/build/
+
+COPY --from=ran-build \
+    /oai-ran/cmake_targets/ran_build/build/liboran_fhlib_5g.so \
+    /usr/local/lib/
+
+COPY --from=ran-build /opt/oai-arm-libs/ /usr/local/lib/
+
+COPY --from=ran-build /opt/oai-dpdk-lib/ /tmp/oai-dpdk-lib/
+COPY --from=ran-build /opt/oai-dpdk-libdir /tmp/oai-dpdk-libdir
+RUN DPDK_LIBDIR=$(cat /tmp/oai-dpdk-libdir) && \
+    mkdir -p "/usr/local/lib/${DPDK_LIBDIR}" && \
+    cp -a /tmp/oai-dpdk-lib/. "/usr/local/lib/${DPDK_LIBDIR}/" && \
+    rm -rf /tmp/oai-dpdk-lib /tmp/oai-dpdk-libdir
+
+RUN ldconfig && \
+    echo "---- ldd on nr-oru ----" && \
+    ldd /opt/nr-oru/bin/nr-oru
+
+WORKDIR /opt/nr-oru
+
+COPY --from=ran-base /usr/local/bin/yq /usr/local/bin/yq
+COPY --from=ran-base /tini /tini
+ENTRYPOINT ["/tini", "-v", "--", "/opt/nr-oru/bin/entrypoint.sh"]
+CMD ["/opt/nr-oru/bin/nr-oru"]

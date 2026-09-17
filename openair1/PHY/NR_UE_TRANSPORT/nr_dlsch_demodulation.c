@@ -217,7 +217,7 @@ static void nr_dlsch_extract_rbs(uint32_t rxdataF_sz,
   while (find_next_rb_block(freq_alloc->bitmap, dlsch_config->BWPSize, &pos, &block_start, &block_end)) {
     int start_rb = block_start + dlsch_config->BWPStart;
     int nb_rb = block_end - block_start + 1;
-    const int start_re = CIRCULAR_INC(fp->first_carrier_offset, start_rb * NR_NB_SC_PER_RB, fp->ofdm_symbol_size);
+    const int start_re = start_rb * NR_NB_SC_PER_RB;
     for (int aarx = 0; aarx < fp->nb_antennas_rx; aarx++) {
       c16_t *rxF_ext = rxdataF_ext[aarx] + offset;
       c16_t *rxF = &rxdataF[aarx][symbol * fp->ofdm_symbol_size];
@@ -225,16 +225,8 @@ static void nr_dlsch_extract_rbs(uint32_t rxdataF_sz,
         int32_t *dl_ch0 = &dl_ch_estimates[(l * fp->nb_antennas_rx) + aarx][validDmrsEst * fp->ofdm_symbol_size];
         c16_t *dl_ch0_ext = dl_ch_estimates_ext[(l * fp->nb_antennas_rx) + aarx] + offset;
         if (!is_ptrs && pilots == 0 && csi_res_bitmap == 0) { // data symbol only
-          if (l == 0) {
-            if (start_re + nb_rb * NR_NB_SC_PER_RB <= fp->ofdm_symbol_size) {
-              memcpy(rxF_ext, &rxF[start_re], nb_rb * NR_NB_SC_PER_RB * sizeof(int32_t));
-            } else {
-              int neg_length = fp->ofdm_symbol_size - start_re;
-              int pos_length = nb_rb * NR_NB_SC_PER_RB - neg_length;
-              memcpy(rxF_ext, &rxF[start_re], neg_length * sizeof(int32_t));
-              memcpy(&rxF_ext[neg_length], rxF, pos_length * sizeof(int32_t));
-            }
-          }
+          if (l == 0)
+            memcpy(rxF_ext, &rxF[start_re], nb_rb * NR_NB_SC_PER_RB * sizeof(int32_t));
           memcpy(dl_ch0_ext, dl_ch0, nb_rb * NR_NB_SC_PER_RB * sizeof(int32_t));
         } else {
           int j = 0;
@@ -251,7 +243,7 @@ static void nr_dlsch_extract_rbs(uint32_t rxdataF_sz,
                 dl_ch0_ext[j] = *(c16_t *)(dl_ch0 + re);
                 j++;
               }
-              k = CIRCULAR_INC(k, 1, fp->ofdm_symbol_size);
+              k++;
             }
             dl_ch0 += 12;
           }

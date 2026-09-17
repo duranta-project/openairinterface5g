@@ -642,7 +642,6 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
                        .dmrs_symb_pos = rel15_ul_ref->ul_dmrs_symb_pos,
                        .nid = fp->Nid_cell,
                        .nscid = rel15_ul_ref->scid,
-                       .first_carrier_offset = 0,
                        .ofdm_symbol_size = fp->ofdm_symbol_size,
                        .slot = slot,
                        .rnti = rel15_ul_ref->rnti};
