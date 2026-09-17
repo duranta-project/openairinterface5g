@@ -808,6 +808,26 @@ nr_srs_info_t nr_srs_rx_procedures(PHY_VARS_gNB *gNB,
                                        ? gNB->measurements.n0_subband_power_avg_dB - dB_fixed(nb_antennas_rx)
                                        : dB_fixed(max(noise_power_avg, 1));
 
+    // Temp log
+    const int srs_noise_dB = dB_fixed(max(noise_power_avg, 1));
+    const int n0_noise_per_ant_dB = gNB->measurements.n0_subband_power_avg_dB - dB_fixed(nb_antennas_rx);
+    if (nr_srs_info.srs_noise_num_phases > 0)
+      LOG_I(NR_PHY,
+            "%d.%d RNTI %04x: noise per antenna: SRS %d dB (lin %u) vs I0 %d dB (n0_subband_power_avg_dB %d over %d ant), "
+            "diff %d dB, signal %d dB, noise phases %d/%d\n",
+            frame_rx,
+            slot_rx,
+            srs_pdu->rnti,
+            srs_noise_dB,
+            noise_power_avg,
+            n0_noise_per_ant_dB,
+            gNB->measurements.n0_subband_power_avg_dB,
+            nb_antennas_rx,
+            srs_noise_dB - n0_noise_per_ant_dB,
+            dB_fixed(signal_power_avg),
+            nr_srs_info.srs_noise_num_phases,
+            2 << srs_pdu->comb_size);
+
     *snr = dB_fixed(signal_power_avg) - noise_power_avg_dB;
 
     for (int rb = 0; rb < m_SRS_b; rb++) {
