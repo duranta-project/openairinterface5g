@@ -61,6 +61,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include <executables/nr-uesoftmodem.h>
 #include "executables/softmodem-common.h"
 #include "executables/thread-common.h"
+#include "radio/COMMON/ue_split7_interface.h"
 
 #include "nr_nas_msg.h"
 #include "actor.h"
@@ -398,7 +399,7 @@ int main(int argc, char **argv)
                   nrue_get_cell_count());
       nrUE_cell_params_t cell = *nrue_get_cell(cell_id);
 
-      AssertFatal(cell.used_by_ue == -1,
+      AssertFatal(cell.used_by_ue == -1 || get_nrUE_params()->use_split7,
                   "Cell %d is already used by UE %d and cannot also be used by UE %d as cells map 1:1 to RUs and RU sharing is not implemented\n",
                   cell_id,
                   cell.used_by_ue,
@@ -454,7 +455,10 @@ int main(int argc, char **argv)
         sl_ue_phy_init(UE_CC);
       }
 
-      cell_id++; // initially connect each UE and carrier to its own cell
+      // Split7 instances share one physical device/cell by design (see nr-fd-ue.c);
+      // every other mode connects each UE/carrier to its own cell.
+      if (!get_nrUE_params()->use_split7)
+        cell_id++;
     }
   }
 
@@ -474,15 +478,63 @@ int main(int argc, char **argv)
     load_module_shlib("imscope_record", NULL, 0, nrPHY_vars_UE_g[0][0]);
   }
 
-  // Launch a temporary high-priority thread to start the UE RU, ensuring radio library threads inherit this priority
-  pthread_t ru_start_thread;
-  threadCreate(&ru_start_thread, nrue_ru_start_thread, NULL, "ru_start_thread", -1, OAI_PRIORITY_RT_MAX);
-  int ret = pthread_join(ru_start_thread, NULL);
-  AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
+  // Split7 manages its own RF device; skip the regular RU start.
+  if (!get_nrUE_params()->use_split7) {
+    // Launch a temporary high-priority thread to start the UE RU, ensuring radio library threads inherit this priority
+    pthread_t ru_start_thread;
+    threadCreate(&ru_start_thread, nrue_ru_start_thread, NULL, "ru_start_thread", -1, OAI_PRIORITY_RT_MAX);
+    int ret = pthread_join(ru_start_thread, NULL);
+    AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
+  }
 
-  for (int inst = 0; inst < NB_UE_INST; inst++) {
-    LOG_I(PHY,"Intializing UE Threads for instance %d ...\n", inst);
-    init_NR_UE_threads(nrPHY_vars_UE_g[inst][0]);
+  if (get_nrUE_params()->use_split7) {
+    // Multiple split7 UE instances share ONE Low-PHY device/RF chain and ONE FD
+    // thread driving all of them (see init_NR_UE_fd_threads()/UE_fd_thread() in
+    // nr-fd-ue.c) -- not one device+thread per instance. Configure the device
+    // once from instance 0's frame_parms (every instance must share the same
+    // numerology/cell to be spatially co-located on one antenna).
+    PHY_VARS_NR_UE *UE0 = nrPHY_vars_UE_g[0][0];
+    const NR_DL_FRAME_PARMS *fp = &UE0->frame_parms;
+
+    ue_split7_device_t *dev = ue_split7_device_create();
+    AssertFatal(dev, "Failed to create ue_split7_device\n");
+
+    uint16_t fft_size = (uint16_t)fp->ofdm_symbol_size;
+    uint16_t scs_khz = (uint16_t)(fp->subcarrier_spacing / 1000);
+    ue_split7_config_t s7cfg;
+    memset(&s7cfg, 0, sizeof(s7cfg));
+    s7cfg.dl_carrier_freq_hz = fp->dl_CarrierFreq;
+    s7cfg.ul_carrier_freq_hz = fp->ul_CarrierFreq;
+    s7cfg.sample_rate_hz     = (uint32_t)fp->samples_per_subframe * 1000;
+    s7cfg.fft_size           = fft_size;
+    s7cfg.num_rx_antennas    = (uint16_t)fp->nb_antennas_rx;
+    s7cfg.num_tx_antennas    = (uint16_t)fp->nb_antennas_tx;
+    s7cfg.cp_len_normal      = (uint16_t)fp->nb_prefix_samples;
+    s7cfg.cp_len_symbol0     = (uint16_t)fp->nb_prefix_samples0;
+    s7cfg.scs_khz            = scs_khz;
+    s7cfg.nr_band            = (uint16_t)get_mac_inst(0)->nr_band;
+    s7cfg.N_RB_DL            = (uint16_t)fp->N_RB_DL;
+    // Reuse the monolithic UE path's frame_parms instead of re-deriving a subset.
+    s7cfg.frame_parms        = fp;
+
+    ue_split7_status_t rc = dev->configure(dev, &s7cfg);
+    if (rc != UE_SPLIT7_SUCCESS) {
+      LOG_E(PHY, "ue_split7_device configure failed (status %d)\n", (int)rc);
+      ue_split7_device_free(dev);
+      exit(1);
+    }
+
+    PHY_VARS_NR_UE *UE_list[MAX_NUM_NR_UE_INST];
+    for (int inst = 0; inst < NB_UE_INST; inst++)
+      UE_list[inst] = nrPHY_vars_UE_g[inst][0];
+
+    LOG_I(PHY, "Initializing shared split7 FD thread for %d UE instance(s) ...\n", NB_UE_INST);
+    init_NR_UE_fd_threads(UE_list, NB_UE_INST, dev);
+  } else {
+    for (int inst = 0; inst < NB_UE_INST; inst++) {
+      LOG_I(PHY, "Initializing UE Threads for instance %d ...\n", inst);
+      init_NR_UE_threads(nrPHY_vars_UE_g[inst][0]);
+    }
   }
 
   // wait for end of program

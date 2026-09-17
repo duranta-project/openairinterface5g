@@ -88,6 +88,13 @@ bool is_csi_rs_in_symbol(fapi_nr_dl_config_csirs_pdu_rel15_t csirs_config_pdu, i
 
 /*@}*/
 
+void nr_fill_dl_indication(nr_downlink_indication_t *dl_ind,
+                           fapi_nr_dci_indication_t *dci_ind,
+                           fapi_nr_rx_indication_t *rx_ind,
+                           const UE_nr_rxtx_proc_t *proc,
+                           PHY_VARS_NR_UE *ue,
+                           void *phy_data);
+
 /*! \brief This function prepares the dl rx indication
  */
 void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,

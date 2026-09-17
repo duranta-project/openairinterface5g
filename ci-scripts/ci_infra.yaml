@@ -406,6 +406,16 @@ rfsim5g_ue_pdu_2:
   DetachScript: docker stop rfsim5g-oai-nr-ue
   MTU: 1500
 
+# second co-located UE instance (--num-ues 2) sharing the same split7 device/process as rfsim5g_ue
+rfsim5g_ue_split7_2:
+  Host: "%%current_host%%"
+  NetworkScript: docker exec rfsim5g-oai-nr-ue ip a show dev oaitun_ue2
+  CmdPrefix: docker exec rfsim5g-oai-nr-ue
+  IF: oaitun_ue2
+  AttachScript: docker start rfsim5g-oai-nr-ue
+  DetachScript: docker stop rfsim5g-oai-nr-ue
+  MTU: 1500
+
 rfsim5g_ue2:
   Host: "%%current_host%%"
   NetworkScript: docker exec rfsim5g-oai-nr-ue2 ip a show dev oaitun_ue1

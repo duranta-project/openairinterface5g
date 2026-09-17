@@ -434,6 +434,7 @@ nr_initial_sync_t sl_nr_slss_search(PHY_VARS_NR_UE *UE, UE_nr_rxtx_proc_t *proc,
         for (int symbol = 0; symbol < SL_NR_NUMSYM_SLSS_NORMAL_CP; symbol++) {
           nr_slot_fep(UE,
                       frame_parms,
+                      proc->frame_rx,
                       proc->nr_slot_rx,
                       symbol,
                       rxdataF,

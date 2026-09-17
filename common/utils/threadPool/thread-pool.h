@@ -4,6 +4,17 @@
 
 #ifndef THREAD_POOL_H
 #define THREAD_POOL_H
+
+/* C11 _Atomic(T) is not a keyword in C++; map it to std::atomic<T>. Guarded so
+ * this stays idempotent if another header already defines it -- with -Werror,
+ * an unconditional #define here would fail the build on macro redefinition. */
+#ifdef __cplusplus
+#include <atomic>
+#ifndef _Atomic
+#define _Atomic(T) std::atomic<T>
+#endif
+#endif
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <malloc.h>

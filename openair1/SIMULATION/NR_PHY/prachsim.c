@@ -643,7 +643,7 @@ int main(int argc, char **argv){
   c16_t *tx[frame_parms->nb_antennas_rx];
   for (int i = 0; i < frame_parms->nb_antennas_rx; i++)
     tx[i] = txdata[i] + slot_start;
-  generate_nr_prach(UE, 0, frame, slot, AMP, tx);
+  generate_nr_prach(UE, 0, frame, slot, AMP, 0, tx);
 
   /* tx_lev_dB not used later, no need to set */
   //tx_lev_dB = dB_fixed(tx_lev);
