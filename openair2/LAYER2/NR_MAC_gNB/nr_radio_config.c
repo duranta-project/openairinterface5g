@@ -1883,6 +1883,27 @@ static NR_BWP_Downlink_t *config_downlinkBWP(const NR_ServingCellConfigCommon_t 
   return bwp;
 }
 
+static NR_PUCCH_Config_t *config_pucch(const NR_ServingCellConfigCommon_t *scc,
+                                       const nr_mac_config_t *configuration,
+                                       const nr_cell_sched_t *cell,
+                                       const NR_UE_NR_Capability_t *uecap,
+                                       int bwp_size,
+                                       int scs,
+                                       int uid)
+{
+  NR_PUCCH_Config_t *pucch_Config = calloc(1, sizeof(*pucch_Config));
+  pucch_Config->resourceSetToAddModList = calloc(1, sizeof(*pucch_Config->resourceSetToAddModList));
+  pucch_Config->resourceSetToReleaseList = NULL;
+  pucch_Config->resourceToAddModList = calloc(1, sizeof(*pucch_Config->resourceToAddModList));
+  pucch_Config->resourceToReleaseList = NULL;
+  config_pucch_resset0(scc, pucch_Config, uid, bwp_size, uecap, &configuration->pdsch_AntennaPorts);
+  config_pucch_resset1(scc, pucch_Config, uid, bwp_size, uecap, &configuration->pdsch_AntennaPorts);
+  set_pucch_power_config(pucch_Config);
+  scheduling_request_config(cell, pucch_Config, scs);
+  set_dl_DataToUL_ACK(pucch_Config, configuration->minRXTXTIME);
+  return pucch_Config;
+}
+
 static NR_BWP_Uplink_t *config_uplinkBWP(bool is_SA,
                                          int uid,
                                          int maxMIMO_Layers,
@@ -1923,19 +1944,9 @@ static NR_BWP_Uplink_t *config_uplinkBWP(bool is_SA,
 
   ubwp->bwp_Dedicated->pucch_Config = calloc(1,sizeof(*ubwp->bwp_Dedicated->pucch_Config));
   ubwp->bwp_Dedicated->pucch_Config->present = NR_SetupRelease_PUCCH_Config_PR_setup;
-  NR_PUCCH_Config_t *pucch_Config = calloc(1,sizeof(*pucch_Config));
-  ubwp->bwp_Dedicated->pucch_Config->choice.setup = pucch_Config;
-  pucch_Config->resourceSetToAddModList = calloc(1,sizeof(*pucch_Config->resourceSetToAddModList));
-  pucch_Config->resourceSetToReleaseList = NULL;
-  pucch_Config->resourceToAddModList = calloc(1,sizeof(*pucch_Config->resourceToAddModList));
-  pucch_Config->resourceToReleaseList = NULL;
-  config_pucch_resset0(scc, pucch_Config, uid, curr_bwp, uecap, &configuration->pdsch_AntennaPorts);
-  config_pucch_resset1(scc, pucch_Config, uid, curr_bwp, uecap, &configuration->pdsch_AntennaPorts);
-  set_pucch_power_config(pucch_Config);
-  scheduling_request_config(cell, pucch_Config, ubwp->bwp_Common->genericParameters.subcarrierSpacing);
-  set_dl_DataToUL_ACK(pucch_Config, configuration->minRXTXTIME);
+  int scs = ubwp->bwp_Common->genericParameters.subcarrierSpacing;
+  ubwp->bwp_Dedicated->pucch_Config->choice.setup = config_pucch(scc, configuration, cell, uecap, curr_bwp, scs, uid);
   ubwp->bwp_Dedicated->pusch_Config = config_pusch(configuration, scc, uecap);
-
   ubwp->bwp_Dedicated->srs_Config = get_config_srs(scc,
                                                    NULL,
                                                    cell,
@@ -3382,16 +3393,8 @@ static NR_BWP_UplinkDedicated_t *configure_initial_ul_bwp(const NR_ServingCellCo
   int curr_bwp = NRRIV2BW(genericParameters->locationAndBandwidth, MAX_BWP_SIZE);
   initialUplinkBWP->pucch_Config = calloc(1, sizeof(*initialUplinkBWP->pucch_Config));
   initialUplinkBWP->pucch_Config->present = NR_SetupRelease_PUCCH_Config_PR_setup;
-  NR_PUCCH_Config_t *pucch_Config = calloc(1, sizeof(*pucch_Config));
-  initialUplinkBWP->pucch_Config->choice.setup = pucch_Config;
-  pucch_Config->resourceSetToAddModList = calloc(1, sizeof(*pucch_Config->resourceSetToAddModList));
-  pucch_Config->resourceSetToReleaseList = NULL;
-  pucch_Config->resourceToAddModList = calloc(1, sizeof(*pucch_Config->resourceToAddModList));
-  pucch_Config->resourceToReleaseList = NULL;
-  config_pucch_resset0(scc, pucch_Config, id, curr_bwp, uecap, &configuration->pdsch_AntennaPorts);
-  config_pucch_resset1(scc, pucch_Config, id, curr_bwp, uecap, &configuration->pdsch_AntennaPorts);
-  set_pucch_power_config(pucch_Config);
-
+  int scs = genericParameters->subcarrierSpacing;
+  initialUplinkBWP->pucch_Config->choice.setup = config_pucch(scc, configuration, cell, uecap, curr_bwp, scs, id);
   initialUplinkBWP->pusch_Config = config_pusch(configuration, scc, uecap);
   initialUplinkBWP->srs_Config = get_config_srs(scc,
                                                 uecap,
@@ -3403,8 +3406,6 @@ static NR_BWP_UplinkDedicated_t *configure_initial_ul_bwp(const NR_ServingCellCo
                                                 configuration->minRXTXTIME,
                                                 configuration->do_SRS);
 
-  scheduling_request_config(cell, pucch_Config, scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.subcarrierSpacing);
-  set_dl_DataToUL_ACK(pucch_Config, configuration->minRXTXTIME);
   return initialUplinkBWP;
 }
 
