@@ -634,8 +634,8 @@ static void copy_srs_info(const nfapi_nr_srs_pdu_t *srs_config_pdu, nr_srs_info_
   nr_srs_info->n_SRS_cs = srs_config_pdu->cyclic_shift;
   nr_srs_info->n_ID_SRS = srs_config_pdu->sequence_id;
   // It adjusts the SRS allocation to align with the common resource block grid in multiples of four
-  nr_srs_info->n_shift = srs_config_pdu->frequency_position;
-  nr_srs_info->n_RRC = srs_config_pdu->frequency_shift;
+  nr_srs_info->n_shift = srs_config_pdu->frequency_shift;
+  nr_srs_info->n_RRC = srs_config_pdu->frequency_position;
   nr_srs_info->groupOrSequenceHopping = srs_config_pdu->group_or_sequence_hopping;
   nr_srs_info->l_offset = srs_config_pdu->time_start_position;
   nr_srs_info->T_SRS = srs_config_pdu->t_srs;
@@ -783,27 +783,57 @@ nr_srs_info_t nr_srs_rx_procedures(PHY_VARS_gNB *gNB,
     signal_power_avg = max(signal_power_avg, 1);
 
     uint32_t noise_power_avg = 0;
-    int16_t noise_power_per_rb[srs_pdu->bwp_size];
-    memset(noise_power_per_rb, 0, srs_pdu->bwp_size * sizeof(int16_t));
-    for (int ant_rx_ind = 0; ant_rx_ind < nb_antennas_rx; ant_rx_ind++) {
-      uint32_t noise_power_per_ant = 0;
-      nr_srs_noise_power_estimation(ofdm_symbol_size,
-                                    N_symb_SRS,
-                                    srs_pdu,
-                                    &nr_srs_info,
-                                    signal_power_avg,
-                                    srs_received_noise[ant_rx_ind],
-                                    &noise_power_per_ant,
-                                    noise_power_per_rb);
-      noise_power_avg += noise_power_per_ant;
+    uint32_t noise_power_per_rb[srs_pdu->bwp_size];
+    if (nr_srs_info.srs_noise_num_phases) {
+      memset(noise_power_per_rb, 0, srs_pdu->bwp_size * sizeof(uint32_t));
+      for (int ant_rx_ind = 0; ant_rx_ind < nb_antennas_rx; ant_rx_ind++) {
+        uint32_t noise_power_per_ant = 0;
+        nr_srs_noise_power_estimation(ofdm_symbol_size,
+                                      N_symb_SRS,
+                                      srs_pdu,
+                                      &nr_srs_info,
+                                      signal_power_avg,
+                                      srs_received_noise[ant_rx_ind],
+                                      &noise_power_per_ant,
+                                      noise_power_per_rb);
+        noise_power_avg += noise_power_per_ant;
+      }
+      noise_power_avg /= nb_antennas_rx;
     }
 
-    noise_power_avg /= nb_antennas_rx;
-    *snr = dB_fixed(signal_power_avg) - dB_fixed(max(noise_power_avg, 1));
-
     const uint16_t m_SRS_b = get_m_srs(srs_pdu->config_index, srs_pdu->bandwidth_index);
+
+    // noise power in the case of no empty subcarriers use I0 measurements
+    const int noise_power_avg_dB = nr_srs_info.srs_noise_num_phases == 0
+                                       ? gNB->measurements.n0_subband_power_avg_dB - dB_fixed(nb_antennas_rx)
+                                       : dB_fixed(max(noise_power_avg, 1));
+
+    // Temp log
+    const int srs_noise_dB = dB_fixed(max(noise_power_avg, 1));
+    const int n0_noise_per_ant_dB = gNB->measurements.n0_subband_power_avg_dB - dB_fixed(nb_antennas_rx);
+    if (nr_srs_info.srs_noise_num_phases > 0)
+      LOG_I(NR_PHY,
+            "%d.%d RNTI %04x: noise per antenna: SRS %d dB (lin %u) vs I0 %d dB (n0_subband_power_avg_dB %d over %d ant), "
+            "diff %d dB, signal %d dB, noise phases %d/%d\n",
+            frame_rx,
+            slot_rx,
+            srs_pdu->rnti,
+            srs_noise_dB,
+            noise_power_avg,
+            n0_noise_per_ant_dB,
+            gNB->measurements.n0_subband_power_avg_dB,
+            nb_antennas_rx,
+            srs_noise_dB - n0_noise_per_ant_dB,
+            dB_fixed(signal_power_avg),
+            nr_srs_info.srs_noise_num_phases,
+            2 << srs_pdu->comb_size);
+
+    *snr = dB_fixed(signal_power_avg) - noise_power_avg_dB;
+
     for (int rb = 0; rb < m_SRS_b; rb++) {
-      snr_per_rb[rb] = dB_fixed(signal_power_avg) - dB_fixed(max(noise_power_per_rb[rb] / nb_antennas_rx, 1));
+      snr_per_rb[rb] = nr_srs_info.srs_noise_num_phases == 0
+                           ? *snr
+                           : dB_fixed(signal_power_avg) - dB_fixed(max(noise_power_per_rb[rb] / nb_antennas_rx, 1));
     }
     stop_meas(&gNB->srs_channel_estimation_stats);
 
