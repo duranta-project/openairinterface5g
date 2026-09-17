@@ -277,7 +277,7 @@ def _run_script(HTML, ctx, node, script, options, timeout=600, tag=None, collect
 	opt = opt.replace('%%log_dir%%', remote_dir)
 	log_files = []
 	with cls_cmd.getConnection(node) as c:
-		if collect_logs and c.run(f'rm -rf {remote_dir} && mkdir {remote_dir}').returncode != 0:
+		if collect_logs and c.run(f'mkdir {remote_dir}').returncode != 0:
 			logging.error("cannot create directory for log collection")
 			return False
 		ret = c.exec_script(script, timeout, opt)
@@ -290,7 +290,7 @@ def _run_script(HTML, ctx, node, script, options, timeout=600, tag=None, collect
 				for f in ret_ls.stdout.split("\n"):
 					name = archiveArtifact(c, ctx, f)
 					log_files.append(name)
-				c.run(f'rm -rf {remote_dir}', silent=True)
+			c.run(f'rm -rf {remote_dir}')
 	message = []
 	if ret.returncode != 0:
 		# script failed: report its error in HTML

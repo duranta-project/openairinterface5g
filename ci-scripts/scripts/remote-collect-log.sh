@@ -12,8 +12,4 @@ REMOTE=${3}
 LOCAL_FILE=${LOG_DIR}/$(basename ${LOG_FILE})
 
 set -x
-ssh ${REMOTE} "tail -n 10000 '${LOG_FILE}'" > ${LOCAL_FILE} < /dev/null
-status=$?
-set +x
-
-[ $status -eq 0 ] || die "cannot collect ${LOG_FILE} from ${REMOTE}"
+ssh ${REMOTE} "tail -n 10000 '${LOG_FILE}'" > ${LOCAL_FILE} < /dev/null || die "cannot collect ${LOG_FILE} from ${REMOTE}"
