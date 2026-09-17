@@ -89,9 +89,9 @@ void nr_normal_prefix_mod(c16_t *txdataF,
   }
 }
 
+/* txdataF is FFT shifted, i.e. the REs of the carrier are contiguous starting at index 0. */
 void apply_nr_rotation_TX(const NR_DL_FRAME_PARMS *fp,
                           c16_t *txdataF,
-                          bool is_flat_buff,
                           const c16_t *symbol_rotation,
                           int slot,
                           int nb_rb,
@@ -113,17 +113,7 @@ void apply_nr_rotation_TX(const NR_DL_FRAME_PARMS *fp,
       this_rotation.r,
       this_rotation.i);
 
-    if (is_flat_buff)
-      rotate_cpx_vector(this_symbol, this_rotation, this_symbol, nb_rb * NR_NB_SC_PER_RB, 15);
-    else {
-      c16_t *this_symbol_neg = this_symbol + fp->first_carrier_offset;
-      if (nb_rb & 1) {
-        this_symbol_neg -= 6;
-        nb_rb += 1;
-      }
-      rotate_cpx_vector(this_symbol, this_rotation, this_symbol, nb_rb * 6, 15);
-      rotate_cpx_vector(this_symbol_neg, this_rotation, this_symbol_neg, nb_rb * 6, 15);
-    }
+    rotate_cpx_vector(this_symbol, this_rotation, this_symbol, nb_rb * NR_NB_SC_PER_RB, 15);
   }
 }
                        

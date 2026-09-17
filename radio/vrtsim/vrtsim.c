@@ -76,7 +76,7 @@ typedef enum { ROLE_SERVER = 1, ROLE_CLIENT } role;
      {"cirdb_yaml",             "Absolute path to CIR DB YAML file (optional, overrides cirdb-path)", 0, .strptr = &vrtsim_state->cirdb_yaml, .defstrval = NULL, TYPE_STRING, 0}, \
      {"cirdb_file",             "Absolute path to CIR DB binary file (optional, overrides cirdb-path)", 0, .strptr = &vrtsim_state->cirdb_file, .defstrval = NULL, TYPE_STRING, 0}, \
      /* CIR DB selection knobs */ \
-     {"cirdb_model_id",         "Preferred TDL model id 0..4", 0, .iptr  = &vrtsim_state->cirdb_model_id,  .defintval = 0,    TYPE_INT,    0}, \
+     {"cirdb_model_id",         "Preferred TDL/RT model id 0..5 (5=RT-Beam-forming)", 0, .iptr  = &vrtsim_state->cirdb_model_id,  .defintval = 0,    TYPE_INT,    0}, \
      {"cirdb_ds_ns",            "Desired RMS delay spread in ns", 0, .dblptr = &vrtsim_state->cirdb_ds_ns, .defdblval = 10.0, TYPE_DOUBLE, 0}, \
      {"cirdb_speed_mps",        "Desired speed in m/s", 0, .dblptr = &vrtsim_state->cirdb_speed_mps, .defdblval = 1.5, TYPE_DOUBLE, 0}, \
      {"cirdb_aoa_deg",          "Desired AoA in degrees (TDL-D/E only)", 0, .dblptr = &vrtsim_state->cirdb_aoa_deg, .defdblval = 0.0, TYPE_DOUBLE, 0}, \
@@ -408,6 +408,17 @@ static client_info_t client_read_info(char *socket_path, uint32_t connection_tim
   return client_info;
 }
 
+// 0..4: TDL-A..E; 5: RT-Beam-forming (ray-traced CIR from the raytracing-channel-emulator)
+static const char *cirdb_model_id_label(int model_id)
+{
+  static const char *tdl_labels[] = {"TDL-A", "TDL-B", "TDL-C", "TDL-D", "TDL-E"};
+  if (model_id >= 0 && model_id <= 4)
+    return tdl_labels[model_id];
+  if (model_id == 5)
+    return "RT-Beam-forming";
+  return "unknown";
+}
+
 static void parse_ue_config(vrtsim_state_t *vrtsim_state)
 {
   AssertFatal(vrtsim_state->num_ues > 0 && vrtsim_state->num_ues <= MAX_NUM_UES,
@@ -427,7 +438,13 @@ static void parse_ue_config(vrtsim_state_t *vrtsim_state)
 
     paramdef_t ue_params[] = {
         {"antennas", "Antenna config e.g. \"1x2\"", 0, .strptr = &antennas, .defstrval = NULL, TYPE_STRING, 0},
-        {"model_id", "TDL model id 0..4", 0, .iptr = &model_id, .defintval = vrtsim_state->cirdb_model_id, TYPE_INT, 0},
+        {"model_id",
+         "TDL/RT model id 0..5 (5=RT-Beam-forming)",
+         0,
+         .iptr = &model_id,
+         .defintval = vrtsim_state->cirdb_model_id,
+         TYPE_INT,
+         0},
         {"ds_ns", "Delay spread in ns", 0, .dblptr = &ds_ns, .defdblval = vrtsim_state->cirdb_ds_ns, TYPE_DOUBLE, 0},
         {"speed_mps", "Speed in m/s", 0, .dblptr = &speed_mps, .defdblval = vrtsim_state->cirdb_speed_mps, TYPE_DOUBLE, 0},
         {"aoa_deg",
@@ -464,7 +481,7 @@ static void parse_ue_config(vrtsim_state_t *vrtsim_state)
       vrtsim_state->ue_conf[i].rx_ant = 1;
     }
 
-    AssertFatal(model_id >= 0 && model_id <= 4, "Invalid model_id %d for UE %d (must be 0-4)\n", model_id, i);
+    AssertFatal(model_id >= 0 && model_id <= 5, "Invalid model_id %d for UE %d (must be 0-5)\n", model_id, i);
     AssertFatal(ds_ns > 0, "Invalid ds_ns %.1f for UE %d (must be > 0)\n", ds_ns, i);
     AssertFatal(speed_mps >= 0, "Invalid speed_mps %.1f for UE %d (must be >= 0)\n", speed_mps, i);
 
@@ -474,12 +491,12 @@ static void parse_ue_config(vrtsim_state_t *vrtsim_state)
     vrtsim_state->ue_conf[i].cir_conf.aoa_deg = aoa_deg;
 
     LOG_I(HW,
-          "VRTSIM: UE %d configuration: UE_tx=%d UE_rx=%d, Model %d (TDL-%c), DS %.1fns, Speed %.1fm/s, AoA %.1fdeg\n",
+          "VRTSIM: UE %d configuration: UE_tx=%d UE_rx=%d, Model %d (%s), DS %.1fns, Speed %.1fm/s, AoA %.1fdeg\n",
           i,
           vrtsim_state->ue_conf[i].tx_ant,
           vrtsim_state->ue_conf[i].rx_ant,
           model_id,
-          'A' + model_id,
+          cirdb_model_id_label(model_id),
           ds_ns,
           speed_mps,
           aoa_deg);
@@ -581,10 +598,10 @@ static int vrtsim_connect(openair0_device_t *device)
       vrtsim_state->cirdb_aoa_deg = vrtsim_state->ue.cir_conf.aoa_deg;
 
       LOG_I(HW,
-            "VRTSIM: UE %d channel - Model %d (TDL-%c), DS %.1fns, Speed %.1fm/s, AoA %.1fdeg\n",
+            "VRTSIM: UE %d channel - Model %d (%s), DS %.1fns, Speed %.1fm/s, AoA %.1fdeg\n",
             vrtsim_state->ue_id,
             vrtsim_state->cirdb_model_id,
-            'A' + vrtsim_state->cirdb_model_id,
+            cirdb_model_id_label(vrtsim_state->cirdb_model_id),
             vrtsim_state->cirdb_ds_ns,
             vrtsim_state->cirdb_speed_mps,
             vrtsim_state->cirdb_aoa_deg);
@@ -636,8 +653,8 @@ static int vrtsim_connect(openair0_device_t *device)
       cirdb_select_opts_t sel = (cirdb_select_opts_t){0};
       sel.yaml_path = yaml_path;
       sel.bin_path = bin_path;
-      AssertFatal(vrtsim_state->cirdb_model_id >= 0 && vrtsim_state->cirdb_model_id <= 4,
-                  "Invalid cirdb_model_id=%d (valid: 0..4)\n",
+      AssertFatal(vrtsim_state->cirdb_model_id >= 0 && vrtsim_state->cirdb_model_id <= 5,
+                  "Invalid cirdb_model_id=%d (valid: 0..5)\n",
                   vrtsim_state->cirdb_model_id);
       sel.want_model_id = vrtsim_state->cirdb_model_id;
       sel.want_ds_ns = (float)(vrtsim_state->cirdb_ds_ns > 0.0 ? vrtsim_state->cirdb_ds_ns : -1.0);
@@ -658,7 +675,7 @@ static int vrtsim_connect(openair0_device_t *device)
           ue_sel.want_speed_mps = vrtsim_state->ue_conf[u].cir_conf.speed_mps;
           ue_sel.want_aoa_deg = (float)vrtsim_state->ue_conf[u].cir_conf.aoa_deg;
 
-          AssertFatal(ue_sel.want_model_id >= 0 && ue_sel.want_model_id <= 4,
+          AssertFatal(ue_sel.want_model_id >= 0 && ue_sel.want_model_id <= 5,
                       "Invalid CIRDB model_id=%d for UE %d\n",
                       ue_sel.want_model_id,
                       u);
@@ -686,12 +703,12 @@ static int vrtsim_connect(openair0_device_t *device)
                 cd->nb_rx);
           LOG_I(HW,
                 "VRTSIM: UE %d channel model configuration: channel model antenna dimension %dx%d (RU_tx x UE_rx), Model %d "
-                "(TDL-%c), DS %.1fns, Speed %.1fm/s, AoA %.1fdeg\n",
+                "(%s), DS %.1fns, Speed %.1fm/s, AoA %.1fdeg\n",
                 u,
                 device->openair0_cfg[0].tx_num_channels,
                 vrtsim_state->ue_conf[u].rx_ant,
                 ue_sel.want_model_id,
-                'A' + ue_sel.want_model_id,
+                cirdb_model_id_label(ue_sel.want_model_id),
                 ue_sel.want_ds_ns,
                 ue_sel.want_speed_mps,
                 ue_sel.want_aoa_deg);
@@ -1007,6 +1024,86 @@ static int vrtsim_read(openair0_device_t *device, openair0_timestamp_t *ptimesta
   return nsamps;
 }
 
+// DFT of a complex CIR (length cir_len) onto fft_sz bins -> H_fft[k].
+static void vrtsim_cir_to_hfreq(cf_t *hf, const struct complexf *cir, int cir_len, int fft_sz)
+{
+  for (int k = 0; k < fft_sz; k++) {
+    float re = 0.0f;
+    float im = 0.0f;
+    for (int l = 0; l < cir_len; l++) {
+      float phase = -2.0f * (float)M_PI * (float)k * (float)l / (float)fft_sz;
+      float co = cosf(phase);
+      float si = sinf(phase);
+      re += cir[l].r * co - cir[l].i * si;
+      im += cir[l].r * si + cir[l].i * co;
+    }
+    hf[k].r = re;
+    hf[k].i = im;
+  }
+}
+
+// O-RU scope: Y[tx][k] = X[tx][k] * H_fft[ref_rx][tx][k] using the current server DL channel model.
+static int vrtsim_dl_post_freq_scope(openair0_device_t *device,
+                                     c16_t *y_out,
+                                     const c16_t *x_in,
+                                     int fft_sz,
+                                     int n_tx,
+                                     int ref_rx)
+{
+  if (!device || !y_out || !x_in || fft_sz <= 0 || n_tx <= 0)
+    return -1;
+  vrtsim_state_t *vrtsim_state = (vrtsim_state_t *)device->priv;
+  if (!vrtsim_state || vrtsim_state->role != ROLE_SERVER)
+    return -1;
+  if (!(vrtsim_state->chanmod || vrtsim_state->taps_socket || vrtsim_state->use_cirdb))
+    return -1;
+
+  channel_desc_t *chan_desc = NULL;
+#ifdef OAI_VRTSIM_TAPS_CLIENT
+  if (vrtsim_state->taps_client)
+    chan_desc = taps_client_get_model(vrtsim_state->taps_client, 0);
+#endif
+  if (!chan_desc && vrtsim_state->channel_desc[0])
+    chan_desc = vrtsim_state->channel_desc[0];
+  if (!chan_desc || !chan_desc->ch_ps)
+    return -1;
+
+  const int nb_tx = chan_desc->nb_tx;
+  const int nb_rx = chan_desc->nb_rx;
+  if (ref_rx < 0 || ref_rx >= nb_rx)
+    ref_rx = 0;
+  n_tx = min(n_tx, nb_tx);
+
+  const int cir_len = (int)chan_desc->channel_length;
+  if (cir_len <= 0)
+    return -1;
+
+  float pathloss_linear = 1.0f;
+  if (!vrtsim_state->taps_socket && !vrtsim_state->use_cirdb)
+    pathloss_linear = powf(10.0f, (float)chan_desc->path_loss_dB / 20.0f);
+
+  cf_t hf[fft_sz] __attribute__((aligned(32)));
+  for (int aatx = 0; aatx < n_tx; aatx++) {
+    const int idx = ref_rx + aatx * nb_rx;
+    struct complexf cir_scaled[cir_len];
+    const struct complexf *cir = chan_desc->ch_ps[idx];
+    for (int l = 0; l < cir_len; l++) {
+      cir_scaled[l].r = cir[l].r * pathloss_linear;
+      cir_scaled[l].i = cir[l].i * pathloss_linear;
+    }
+    vrtsim_cir_to_hfreq(hf, cir_scaled, cir_len, fft_sz);
+    c16_t *y = &y_out[aatx * fft_sz];
+    const c16_t *x = &x_in[aatx * fft_sz];
+    for (int k = 0; k < fft_sz; k++) {
+      const float xr = (float)x[k].r;
+      const float xi = (float)x[k].i;
+      y[k].r = (int16_t)lroundf(xr * hf[k].r - xi * hf[k].i);
+      y[k].i = (int16_t)lroundf(xr * hf[k].i + xi * hf[k].r);
+    }
+  }
+  return 0;
+}
+
 static void vrtsim_end(openair0_device_t *device)
 {
   vrtsim_state_t *vrtsim_state = (vrtsim_state_t *)device->priv;
@@ -1152,6 +1249,8 @@ __attribute__((__visibility__("default"))) int device_init(openair0_device_t *de
     channel_pipeline_init(noise_power);
     initNamedTpool(vrtsim_state->thread_pool_cores, &vrtsim_state->tpool, false, "vrtsim_chanmod");
 #endif
+    if (vrtsim_state->role == ROLE_SERVER)
+      device->trx_dl_post_freq_scope_func = vrtsim_dl_post_freq_scope;
   }
   openair0_cfg->rx_gain[0] = 0;
   return 0;

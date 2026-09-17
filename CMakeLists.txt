@@ -1025,10 +1025,10 @@ else()
   add_library(PHY_NR ${PHY_NR_SRC})
   add_library(PHY_NR_UE ${PHY_NR_UE_SRC})
 endif()
-target_link_libraries(PHY_NR nr_phy_common nr_common nr_fapi_p5 polar smallblock ds)
+target_link_libraries(PHY_NR PHY_NR_COMMON nr_phy_common nr_common nr_fapi_p5 polar smallblock ds)
 
 add_library(PHY_NR_NO_AVX_256 ${PHY_NR_SRC})
-target_link_libraries(PHY_NR_NO_AVX_256 nr_phy_common nr_common)
+target_link_libraries(PHY_NR_NO_AVX_256 PHY_NR_COMMON nr_phy_common nr_common)
 target_compile_definitions(PHY_NR_NO_AVX_256 PUBLIC USE_128BIT)
 
 target_link_libraries(PHY_NR_UE asn1_nr_rrc_hdrs nr_phy_common nr_common UTIL polar smallblock)
@@ -1789,6 +1789,7 @@ if (OAI_RU_FRONTHAUL)
     ${OPENAIR_DIR}/openair1/SCHED/phy_procedures_lte_common.c
     ${OPENAIR_DIR}/executables/main_nr_ru.c
     ${OPENAIR_DIR}/executables/nr-oru.c
+    ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
   )
   target_link_libraries(nr-oru PRIVATE
     UTIL NR_PHY_RU PHY_NR shlib_loader dl oru_fh MAC_NR_COMMON PHY_NR_COMMON

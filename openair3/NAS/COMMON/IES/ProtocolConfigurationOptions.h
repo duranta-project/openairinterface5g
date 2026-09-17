@@ -17,6 +17,9 @@
 // arbitrary value, theoricaly can be greater than defined (250/3)
 #define PROTOCOL_CONFIGURATION_OPTIONS_MAXIMUM_PROTOCOL_ID_OR_CONTAINER_ID 16
 
+/* Container header: 2 octet protocol/container identifier + 1 octet length */
+#define PROTOCOL_CONFIGURATION_OPTIONS_CONTAINER_HEADER_LENGTH 3
+
 
 /* 3GPP TS 24.008 Table 10.5.154
  * MS to network table

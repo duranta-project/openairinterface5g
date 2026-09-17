@@ -3,29 +3,26 @@
  */
 
 #include <sched.h>
+#include <execinfo.h>
+#include <signal.h>
 #include <string.h>
+#include <unistd.h>
 #include "assertions.h"
-#include "PHY/types.h"
 #include "PHY/defs_RU.h"
 #include "common/oai_version.h"
 #include "common/config/config_userapi.h"
-#include "common/utils/load_module_shlib.h"
 #include "common/ran_context.h"
-#include "radio/ETHERNET/if_defs.h"
-#include "PHY/phy_vars.h"
-#include "PHY/phy_extern.h"
-#include "PHY/TOOLS/phy_scope_interface.h"
 #include "common/utils/LOG/log.h"
-#include "openair2/ENB_APP/enb_paramdef.h"
 #include "system.h"
 #include "nfapi/oai_integration/vendor_ext.h"
 #include <executables/softmodem-common.h>
 #include <executables/thread-common.h>
 #include "executables/nr-softmodem.h"
+#include "PHY/TOOLS/phy_scope_interface.h"
 #include "nr-oru.h"
 #include "common/utils/threadPool/thread-pool.h"
-#include "openair1/PHY/INIT/nr_phy_init.h"
 #include "openair1/SCHED_NR/sched_nr.h"
+#include "PHY/MODULATION/nr_modulation.h"
 
 pthread_cond_t sync_cond;
 pthread_mutex_t sync_mutex;
@@ -143,6 +140,17 @@ static void sig_handler(int sig_num)
   oai_exit = 1;
 }
 
+static void oru_crash_handler(int sig)
+{
+  void *bt[64];
+  int n = backtrace(bt, 64);
+  fprintf(stderr, "\n=== nr-oru caught signal %d (%s), backtrace: ===\n", sig, strsignal(sig));
+  backtrace_symbols_fd(bt, n, STDERR_FILENO);
+  fflush(stderr);
+  signal(sig, SIG_DFL);
+  raise(sig);
+}
+
 uint16_t nr_du[838];
 
 uint64_t downlink_frequency[MAX_NUM_CCs][4];
@@ -196,7 +204,11 @@ int main(int argc, char **argv)
   NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
   nr_dump_frame_parms(fp);
   init_symbol_rotation(fp);
-  init_timeshift_rotation(fp->ofdm_symbol_size, fp->nb_prefix_samples, fp->ofdm_offset_divisor, fp->timeshift_symbol_rotation);
+  init_timeshift_rotation(fp->ofdm_symbol_size,
+                          fp->N_RB_UL * NR_NB_SC_PER_RB,
+                          fp->nb_prefix_samples,
+                          fp->ofdm_offset_divisor,
+                          fp->timeshift_symbol_rotation);
   ru->if_south = LOCAL_RF;
   nr_phy_init_RU(oru.ru);
   fill_rf_config(ru, ru->rf_config_file);
@@ -229,8 +241,20 @@ int main(int argc, char **argv)
   ret = ru->rfdevice.trx_start_func(&ru->rfdevice);
   AssertFatal(ret == 0, "RU %u: trx_start_func() ret %d: cannot start rfdevice\n", ru->idx, ret);
 
-  // Signal handler
+  if (IS_SOFTMODEM_DOSCOPE) {
+    scopeParms_t p = {
+        .argc = &argc,
+        .argv = argv,
+        .ru = ru,
+        .gNB = NULL,
+    };
+    load_softscope("nr", &p);
+  }
+
   signal(SIGINT, sig_handler);
+  signal(SIGTERM, sig_handler);
+  signal(SIGSEGV, oru_crash_handler);
+  signal(SIGABRT, oru_crash_handler);
 
   ret = oru_fh_start(oru.fronthaul);
   AssertFatal(ret == 0, "Cannot start O-RU fronthaul\n");
@@ -318,6 +342,9 @@ int main(int argc, char **argv)
   }
 
   oru_fh_stop(oru.fronthaul);
+
+  if (IS_SOFTMODEM_DOSCOPE)
+    end_forms();
 
   if (ru->rfdevice.trx_stop_func) {
     ru->rfdevice.trx_stop_func(&ru->rfdevice);

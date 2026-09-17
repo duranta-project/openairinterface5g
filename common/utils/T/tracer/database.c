@@ -47,7 +47,7 @@ typedef struct {
   buffer value;
 } parser;
 
-void *my_bsearch(const void *key, const void *base,
+void *my_bsearch(void *key, void *base,
                  size_t nmemb, size_t size,
                  int (*compar)(const void *, const void *))
 {

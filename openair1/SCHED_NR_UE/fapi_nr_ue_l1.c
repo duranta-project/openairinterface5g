@@ -25,7 +25,8 @@ static void configure_dlsch(NR_UE_DLSCH_t *dlsch,
                             fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_config_pdu,
                             NR_UE_MAC_INST_t *mac,
                             int cw_idx,
-                            int rnti)
+                            int rnti,
+                            const fapi_nr_dl_config_request_t *dl_config)
 {
   const uint8_t current_harq_pid = dlsch_config_pdu->harq_process_nbr;
   dlsch->active = true;
@@ -44,14 +45,16 @@ static void configure_dlsch(NR_UE_DLSCH_t *dlsch,
     return;
   }
 
+  /* Do not clear first_rx on a retransmission: decode never ran still needs to re-segment. */
   if (dlsch->cw_info.new_data_indicator) {
     dlsch_harq->first_rx = true;
     dlsch_harq->DLround = 0;
   } else {
-    dlsch_harq->first_rx = false;
     dlsch_harq->DLround++;
   }
   downlink_harq_process(dlsch_harq, current_harq_pid, dlsch->cw_info.new_data_indicator, dlsch->cw_info.rv, dlsch->rnti_type);
+  dlsch_harq->activated_frame = dl_config->sfn;
+  dlsch_harq->activated_slot = dl_config->slot;
   if (dlsch_harq->status != NR_ACTIVE) {
     // dlsch_harq->status not ACTIVE due to false retransmission
     // Reset the following flag to skip PDSCH procedures in that case and retrasmit harq status
@@ -197,7 +200,7 @@ static void nr_ue_scheduled_response_dl(NR_UE_MAC_INST_t *mac,
         for (int c = 0; c < n_codewords; c++) {
           NR_UE_DLSCH_t *dlsch = &phy_data->dlsch[c];
           dlsch->rnti_type = rnti_type;
-          configure_dlsch(dlsch, phy->dl_harq_processes[c], dlsch_config_pdu, mac, c, pdu->dlsch_config_pdu.rnti);
+          configure_dlsch(dlsch, phy->dl_harq_processes[c], dlsch_config_pdu, mac, c, pdu->dlsch_config_pdu.rnti, dl_config);
         }
       } break;
       case FAPI_NR_CONFIG_TA_COMMAND:
