@@ -33,21 +33,28 @@ pipeline {
       steps {
         script {
           if (params.mergeWithTarget) {
-            echo "PR triggered - checking out merge ref for PR #${params.requestNumber}"
+            echo "PR triggered - merging PR #${params.requestNumber} into latest ${params.targetBranch}"
             try {
               checkout([
                 $class: 'GitSCM',
-                branches: [[name: "refs/remotes/origin/pr/${params.requestNumber}/merge"]],
+                branches: [[name: "refs/remotes/origin/${params.targetBranch}"]],
                 userRemoteConfigs: [[
                   url: params.targetRepo,
-                  refspec: "+refs/pull/${params.requestNumber}/merge:refs/remotes/origin/pr/${params.requestNumber}/merge",
+                  refspec: "+refs/heads/${params.targetBranch}:refs/remotes/origin/${params.targetBranch} " +
+                           "+refs/pull/${params.requestNumber}/head:refs/remotes/origin/pr/${params.requestNumber}/head",
                   credentialsId: 'github-jenkins-duranta'
                 ]]
               ])
             } catch (e) {
-              error("Checkout failed for PR #${params.requestNumber} - " +
-                    "merge ref not found. The PR likely has a conflict with ${params.targetBranch} " +
-                    "that must be resolved before CI can run. (${e.message})")
+              error("Checkout failed for ${params.targetBranch} / PR #${params.requestNumber} " +
+                    "from ${params.targetRepo}. (${e.message})")
+            }
+            if (sh(returnStatus: true, script: "git -c user.email=oaicicdteam@openairinterface.org " +
+                   "-c user.name='Duranta Jenkins' merge --no-edit --no-ff ${params.sourceCommit}") != 0) {
+              def conflicts = sh(returnStdout: true, script: 'git diff --name-only --diff-filter=U || true').trim()
+              error("PR #${params.requestNumber} (${params.sourceCommit}) does not merge into ${params.targetBranch}." +
+                    (conflicts ? " Rebase onto ${params.targetBranch}, resolve the conflicts and push again." +
+                                 "\nConflicting files:\n${conflicts}" : ""))
             }
           } else {
             echo "Push triggered - checking out branch ${params.targetBranch}"
