@@ -347,6 +347,7 @@ int main(int argc, char **argv)
              get_nrUE_params()->uecap_file,
              get_nrUE_params()->reconfig_file,
              get_nrUE_params()->rbconfig_file,
+             get_nrUE_params()->ue_capability_rx2tx,
              nrue_get_cell(0)->numerology);
 
   // start time manager with some reasonable default for the running mode

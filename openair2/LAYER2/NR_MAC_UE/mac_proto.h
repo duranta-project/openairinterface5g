@@ -83,7 +83,7 @@ typedef struct nr_neighbor_cell_info {
 void nr_rrc_mac_config_req_meas(module_id_t module_id, const nr_neighbor_cell_info_t *neighbor_cells, int num_neighbors);
 
 /**\brief initialization NR UE MAC instance(s)*/
-NR_UE_MAC_INST_t * nr_l2_init_ue(int nb_inst, int numerology);
+NR_UE_MAC_INST_t * nr_l2_init_ue(int nb_inst, int numerology, int rx2tx_capability);
 
 /**\brief fetch MAC instance by module_id
    \param module_id index of MAC instance(s)*/

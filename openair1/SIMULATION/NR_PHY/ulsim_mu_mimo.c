@@ -733,7 +733,7 @@ int main(int argc, char *argv[])
 
     init_nr_ue_transport(UE[u]);
 
-    UE_mac[u] = nr_l2_init_ue(u, mu);
+    UE_mac[u] = nr_l2_init_ue(u, mu, 3);
     ue_init_config_request(UE_mac[u], get_slots_per_frame_from_scs(mu));
     UE[u]->if_inst = nr_ue_if_module_init(u);
     UE[u]->if_inst->scheduled_response = nr_ue_scheduled_response;

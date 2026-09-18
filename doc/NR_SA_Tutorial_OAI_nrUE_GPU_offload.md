@@ -241,8 +241,8 @@ cmake -B build/ -G Ninja -DENABLE_LDPC_CUDA=ON -DCMAKE_CUDA_COMPILER=<nvcc-locat
 ninja -C build/ ldpc_cuda nr-softmodem nr-cuup nr-uesoftmodem oai_usrpdevif params_libconfig coding rfsimulator dfts params_yaml vrtsim rf_emulator
 ``` 
 
-Note: By default, the minimum RX-to-TX latency
-(`NR_UE_CAPABILITY_SLOT_RX_TO_TX`) by the UE is set to `3`. You can improve
+Note: By default, the minimum RX-to-TX latency (command line parameter
+`ue-capability-rx2tx`) by the UE is set to `3`. You can improve
 stability by increasing this number to `6` in `common/utils/nr/nr_common.h`. We
 plan on making this configurable in the future to simplify the handling.
 
