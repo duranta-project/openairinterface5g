@@ -176,9 +176,8 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
 
   RCconfig_verify(cfg, node_type);
 
-  nr_cell_sched_t *cell = NULL; // This is still assuming RC.nb_nr_macrlc_inst is always 1, need to find a better way when RC.nb_nr_macrlc_inst is > 1
   if (RC.nb_nr_macrlc_inst > 0)
-    RCconfig_nr_macrlc(cfg, &cell);
+    RCconfig_nr_macrlc(cfg);
 
   if (RC.nb_nr_L1_inst > 0) {
     int ret = l1_north_init_gNB();
@@ -723,7 +722,7 @@ int main( int argc, char **argv ) {
     stop_L1(0);
 
   if (RC.nb_nr_macrlc_inst > 0) {
-    DevAssert(RC.nb_nr_macrlc_inst == 1);
+    DevAssert(RC.nb_nr_macrlc_inst >= 1);
     mac_top_destroy_gNB(RC.nrmac[0]);
   }
 
