@@ -23,3 +23,8 @@ target_link_libraries(benchmark_nr_rlc_am_entity PRIVATE benchmark::benchmark nr
 add_dependencies(tests benchmark_nr_rlc_am_entity)
 add_test(NAME benchmark_nr_rlc_am_entity
   COMMAND ./benchmark_nr_rlc_am_entity)
+
+add_executable(test_retired_nacks test_retired_nacks.c)
+target_link_libraries(test_retired_nacks PRIVATE nr_rlc_core minimal_lib)
+add_dependencies(tests test_retired_nacks)
+add_test(NAME test_retired_nacks COMMAND test_retired_nacks)

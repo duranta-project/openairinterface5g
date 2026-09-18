@@ -65,6 +65,12 @@ static inline int sn_compare_tx(void *_entity, int a, int b)
   return modulus_tx(entity, a) - modulus_tx(entity, b);
 }
 
+/* TS 38.322, 5.2.3.1.1 and 5.3.2: retired SNs are outside the retransmission window. */
+static inline int sn_is_stale_tx(nr_rlc_entity_am_t *entity, int sn)
+{
+  return modulus_tx(entity, sn) >= entity->window_size;
+}
+
 nr_rlc_sdu_segment_t *nr_rlc_tx_sdu_segment_list_add(nr_rlc_entity_am_t *entity,
     nr_rlc_sdu_segment_t *list, nr_rlc_sdu_segment_t *sdu_segment)
 {
@@ -391,6 +397,13 @@ static void process_control_pdu(nr_rlc_entity_am_t *entity,
       int cur_so_start = i == 0 ?         so_start : 0;
       int cur_so_end   = i == range - 1 ? so_end : -1;
 
+      /* STATUS PDUs can arrive after a newer STATUS has already advanced
+       * TX_Next_Ack. Ignore NACKs that have consequently fallen behind the
+       * transmit window while still applying the current ACK_SN.
+       */
+      if (sn_is_stale_tx(entity, cur_nack_sn))
+        continue;
+
       /* check that current nack is > previous nack and <= ack
        * if not then reject the control PDU
        */
@@ -478,6 +491,8 @@ static void process_control_pdu(nr_rlc_entity_am_t *entity,
       int cur_so_start = i == 0 ?         so_start : 0;
       int cur_so_end   = i == range - 1 ? so_end : -1;
 
+      if (sn_is_stale_tx(entity, cur_nack_sn))
+        continue;
 
 process_next_pdu:
       /* process smallest SN either from wait_list or retransmit list */
