@@ -3,6 +3,7 @@
  */
 
 #include "gnb_config_ng.h"
+#include <stdbool.h>
 #include <stdint.h>
 #include "assertions.h"
 #include "common/ran_context.h"
@@ -33,7 +34,8 @@ int RCconfig_NR_NG(MessageDef *msg_p, uint32_t i)
     // Output a list of all gNBs.
     GET_PARAMS_LIST(GNBParamList, GNBParams, GNBPARAMS_DESC, GNB_CONFIG_STRING_GNB_LIST, NULL);
     if (GNBParamList.numelt > 0) {
-      for (k = 0; k < GNBParamList.numelt; k++) {
+      bool found = false;
+      for (k = 0; k < GNBParamList.numelt && !found; k++) {
         if (GNBParamList.paramarray[k][GNB_GNB_ID_IDX].uptr == NULL) {
           // Calculate a default gNB ID
           if (IS_SA_MODE(get_softmodem_params())) {
@@ -136,6 +138,7 @@ int RCconfig_NR_NG(MessageDef *msg_p, uint32_t i)
             NGAP_REGISTER_GNB_REQ(msg_p).gnb_ip_address.ipv6 = 0;
             NGAP_REGISTER_GNB_REQ(msg_p).gnb_ip_address.ipv4 = 1;
 
+            found = true;
             break;
           }
         }
