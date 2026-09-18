@@ -32,19 +32,19 @@ class TestScriptDeployment(unittest.TestCase):
     def test_simple_deployment(self):
         script = 'tests/scripts/deploy-with-script.sh'
         options = 'WILL PASS'
-        success = cls_oaicitest.DeployWithScript(self.html, self.node, script, options, self.tag)
+        success = cls_oaicitest.Custom_Script(self.html, self.ctx, self.node, script, options)
         self.assertTrue(success)
 
     def test_simple_deployment_fail(self):
         script = 'tests/scripts/deploy-with-script.sh'
         options = 'WILLFAIL'
-        success = cls_oaicitest.DeployWithScript(self.html, self.node, script, options, self.tag)
+        success = cls_oaicitest.Custom_Script(self.html, self.ctx, self.node, script, options)
         self.assertFalse(success)
 
     def test_simple_undeployment(self):
         script = 'tests/scripts/undeploy-with-script.sh'
         options = '%%log_dir%% WILL PASS'
-        success = cls_oaicitest.UndeployWithScript(self.html, self.ctx, self.node, script, options)
+        success = cls_oaicitest.Custom_Script(self.html, self.ctx, self.node, script, options)
         self.assertTrue(success)
         # verify logs were created
         files = os.listdir(self.tmpdir)
@@ -54,7 +54,7 @@ class TestScriptDeployment(unittest.TestCase):
     def test_simple_undeployment_fail(self):
         script = 'tests/scripts/undeploy-with-script.sh'
         options = '%%log_dir%% WILLFAILL'
-        success = cls_oaicitest.UndeployWithScript(self.html, self.ctx, self.node, script, options)
+        success = cls_oaicitest.Custom_Script(self.html, self.ctx, self.node, script, options)
         self.assertFalse(success)
         # verify logs were created
         files = os.listdir(self.tmpdir)

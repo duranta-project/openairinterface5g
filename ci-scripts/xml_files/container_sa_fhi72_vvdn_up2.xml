@@ -131,6 +131,15 @@
   </testCase>
 
   <testCase>
+    <class>Collect_Logs</class>
+    <always_exec>true</always_exec>
+    <desc>Collect logs from VVDN RU</desc>
+    <node>cacofonix</node>
+    <script>scripts/remote-collect-log.sh</script>
+    <options>/var/log/synctimingptp2.log %%log_dir%% vvdn</options>
+  </testCase>
+
+  <testCase>
     <class>Clean_Test_Server_Images</class>
     <always_exec>true</always_exec>
     <desc>Clean Test Images on Test Server</desc>
