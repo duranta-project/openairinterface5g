@@ -34,6 +34,8 @@ typedef struct nr_ho_source_cu {
   /// old (source) CellGroupConfig (to send the cellGroupConfig in case of
   /// reestablishment)
   byte_array_t old_cgc;
+  /// NR Cell Identity of the target cell
+  uint64_t target_nci;
   /// function pointer to announce the handover cancellation, e.g.,
   /// reestablishment
   ho_cancel_t ho_cancel;
@@ -98,6 +100,7 @@ void nr_rrc_apply_target_context(gNB_RRC_UE_t *UE);
 bool nr_rrc_update_cell_assoc_after_ho(gNB_RRC_UE_t *UE);
 
 const nr_neighbour_cell_t *get_neighbour_cell_by_pci(const neighbour_cell_configuration_t *cell, int pci);
+const nr_neighbour_cell_t *get_neighbour_cell_by_cell_id(const neighbour_cell_configuration_t *cell, uint64_t nrcell_id);
 void nr_HO_F1_trigger_telnet(gNB_RRC_INST *rrc, uint32_t rrc_ue_id);
 void nr_HO_N2_trigger_telnet(gNB_RRC_INST *rrc, uint32_t neighbour_pci, uint32_t rrc_ue_id);
 

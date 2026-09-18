@@ -288,6 +288,42 @@ const nr_neighbour_cell_t *get_neighbour_cell_by_pci(const neighbour_cell_config
   return NULL;
 }
 
+static bool eq_nr_cell_id(const void *vval, const void *vit)
+{
+  const uint64_t *nrcell_id = (const uint64_t *)vval;
+  const nr_neighbour_cell_t *neighbour = (const nr_neighbour_cell_t *)vit;
+  return neighbour->nrcell_id == *nrcell_id;
+}
+
+const nr_neighbour_cell_t *get_neighbour_cell_by_cell_id(const neighbour_cell_configuration_t *cell, uint64_t nrcell_id)
+{
+  DevAssert(cell);
+  elm_arr_t e = find_if((seq_arr_t *)&cell->neighbour_cells, &nrcell_id, eq_nr_cell_id);
+  if (e.found) {
+    const nr_neighbour_cell_t *neighbour = (const nr_neighbour_cell_t *)e.it;
+    LOG_D(NR_RRC, "Found matching neighbour cell with Cell ID %ld and PCI %d\n", neighbour->nrcell_id, neighbour->physicalCellId);
+    return neighbour;
+  }
+  LOG_E(NR_RRC, "No matching neighbour cell found for NR Cell Identity: %lu\n", nrcell_id);
+  return NULL;
+}
+
+void nr_rrc_mark_ho_completed(const gNB_RRC_INST *rrc, const uint64_t from_cell_id, const uint64_t to_cell_id)
+{
+  const neighbour_cell_configuration_t *cfg = get_neighbour_cell_config(rrc, from_cell_id);
+  if (!cfg)
+    return;
+  const nr_neighbour_cell_t *nc = get_neighbour_cell_by_cell_id(cfg, to_cell_id);
+  if (!nc)
+    return;
+  ((nr_neighbour_cell_t *)nc)->stats.ho_success_count++;
+  LOG_I(NR_RRC,
+        "marking neighbour relation cell %lu -> cell %lu as HO-completed (count %d)\n",
+        from_cell_id,
+        to_cell_id,
+        ((nr_neighbour_cell_t *)nc)->stats.ho_success_count);
+}
+
 typedef struct deliver_dl_rrc_message_data_s {
   const gNB_RRC_INST *rrc;
   f1ap_dl_rrc_message_t *dl_rrc;

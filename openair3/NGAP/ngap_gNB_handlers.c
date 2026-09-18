@@ -23,6 +23,7 @@
 #include "ngap_common.h"
 #include "ngap_gNB_decoder.h"
 #include "ngap_gNB_defs.h"
+#include "ngap_gNB_encoder.h"
 #include "ngap_gNB_nnsf.h"
 #include "ngap_gNB_management_procedures.h"
 #include "ngap_gNB_mobility_management.h"
@@ -34,6 +35,10 @@
 #include "ngap_messages_types.h"
 #include "oai_asn1.h"
 #include "queue.h"
+
+#ifdef E2_AGENT
+#include "openair2/E2AP/RAN_FUNCTION/setup_msg_store.h"
+#endif
 
 char *ngap_direction2String(int ngap_dir) {
   static char *ngap_direction_String[] = {
@@ -164,6 +169,13 @@ static int ngap_gNB_handle_ng_setup_response(sctp_assoc_t assoc_id, uint32_t str
   ngap_gNB_amf_data_t       *amf_desc_p;
   int i;
   DevAssert(pdu != NULL);
+#ifdef E2_AGENT
+  uint8_t *buffer = NULL;
+  uint32_t len = 0;
+  if (ngap_gNB_encode_pdu(pdu, &buffer, &len) == 0)
+    e2ap_store_setup_resp(E2AP_SETUP_MSG_NGAP, buffer, len);
+  free(buffer);
+#endif
   container = &pdu->choice.successfulOutcome->value.choice.NGSetupResponse;
 
   /* NG Setup Response == Non UE-related procedure -> stream 0 */

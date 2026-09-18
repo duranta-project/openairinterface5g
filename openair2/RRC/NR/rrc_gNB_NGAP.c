@@ -1708,6 +1708,11 @@ int rrc_gNB_process_NGAP_UE_CONTEXT_RELEASE_COMMAND(MessageDef *msg_p, instance_
   }
 
   gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
+
+  // Counts the number of F1 and N2 handovers to target_nci cell.
+  if (UE->ho_context && UE->ho_context->source)
+    nr_rrc_mark_ho_completed(rrc, UE->ho_context->source->cell->info.cell_id, UE->ho_context->source->target_nci);
+
   UE->an_release = true;
 #ifdef E2_AGENT
   signal_rrc_state_changed_to(UE, RRC_IDLE_RRC_STATE_E2SM_RC);

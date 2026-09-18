@@ -74,7 +74,7 @@ done, follow below steps to trigger a handover:
 
 Start the CU including telnet support:
 
-    sudo ./nr-softmodem -O ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-cu.sa.f1.conf --telnetsrv --telnetsrv.shrmod ci
+    sudo ./nr-softmodem -O ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-cu.sa.f1.conf --telnetsrv --telnetsrv.shrmod ci --telnetsrv.listenaddr 127.0.0.2
 
 Start DU0:
 
@@ -86,7 +86,7 @@ able to serve two RFsim clients, one DU each; see below for more info). Proceed
 by starting the UE, and let it connect completely (this should make the error
 go away):
 
-    sudo ./nr-uesoftmodem -C 3450720000 -r 106 --numerology 1 --ssb 516 -O <config>  --rfsim --rfsimulator.[0].serveraddr server
+    sudo ./nr-uesoftmodem -r 106 --numerology 1 --band 78 -C 3450720000 --rfsim --uicc0.imsi 001010000000001 -O ../../../ci-scripts/conf_files/nrue.uicc.conf --rfsimulator.[0].serveraddr server
 
 Note how the RFsimulator roles have been switched, and RFsim server is at the
 UE side; _this is important_. Replace `<config>` with the UE configuration
@@ -99,7 +99,14 @@ Once the UE is connected, start DU1:
 
 Once DU1 is online, you can trigger a handover by issuing this command
 
-    echo ci trigger_f1_ho | nc 127.0.0.1 9090 && echo
+    echo ci trigger_f1_ho | nc 127.0.0.2 9090 && echo
+
+Alternatively, you can trigger a handover using a xApp. First, recompile RAN
+with `E2_AGENT` enabled, and [build FlexRIC](../openair2/E2AP/README.md#22-flexric). Rerun the RAN nodes, start nearRT-RIC and xApp:
+```bash
+./build/examples/ric/nearRT-RIC
+./build/examples/xApp/c/rc_handover/xapp_rc_handover
+```
 
 You should see how the UE switches from one DU to another. See additional
 information further below.
@@ -468,7 +475,7 @@ Run the 5G Core Network if not already running.
 2. Start the source gNB (gNB-PCI0) e.g.
 
 ```sh
-sudo ./nr-softmodem -O ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.fr1.106PRB.pci0.rfsim.conf --telnetsrv --telnetsrv.shrmod ci --gNBs.[0].min_rxtxtime 6 --rfsim --rfsimulator.[0].serveraddr 127.0.0.1
+sudo ./nr-softmodem -O ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.fr1.106PRB.pci0.rfsim.conf --telnetsrv --telnetsrv.shrmod ci --telnetsrv.listenaddr 127.0.0.2 --gNBs.[0].min_rxtxtime 6 --rfsim --rfsimulator.[0].serveraddr 127.0.0.1
 ```
 
 3. Start the UE e.g.
@@ -482,7 +489,7 @@ Ensure the UE successfully registers with the network.
 4. Start the target gNB (gNB-PCI1) e.g.
 
 ```sh
-sudo ./nr-softmodem -O ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.fr1.106PRB.pci1.rfsim.conf --rfsim --telnetsrv --telnetsrv.shrmod ci --gNBs.[0].min_rxtxtime 6 --rfsimulator.[0].serveraddr 127.0.0.1
+sudo ./nr-softmodem -O ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.fr1.106PRB.pci1.rfsim.conf --rfsim --telnetsrv --telnetsrv.shrmod ci --telnetsrv.listenaddr 127.0.0.3 --gNBs.[0].min_rxtxtime 6 --rfsimulator.[0].serveraddr 127.0.0.1
 ```
 
 **Note for same-machine setup:** When running both gNBs on the same machine,
@@ -498,10 +505,17 @@ add the following network interface options to the target gNB command, e.g.:
 From gNB-PCI0, trigger handover on target gNB with PCI 1 for UE ID 1:
 
 ```sh
-echo ci trigger_n2_ho 1,1 | nc 127.0.0.1 9090 && echo
+echo ci trigger_n2_ho 1,1 | nc 127.0.0.2 9090 && echo
 ```
 where the input parameters correspond to the PCI of the neighbor cell and the
 RRC ID of the UE.
+
+Alternatively, you can trigger a handover using a xApp. First, recompile RAN
+with `E2_AGENT` enabled, and [build FlexRIC](../openair2/E2AP/README.md#22-flexric). Rerun the RAN nodes, start nearRT-RIC and xApp:
+```bash
+./build/examples/ric/nearRT-RIC
+./build/examples/xApp/c/rc_handover/xapp_rc_handover
+```
 
 This will initiate the N2 handover on the source gNB.
 
