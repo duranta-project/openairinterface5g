@@ -695,14 +695,20 @@ void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
                                   cfg->sl_bwp_config.sl_scs,
                                   cfg->sl_bwp_config.sl_num_symbols,
                                   cfg->sl_bwp_config.sl_start_symbol);
-    // why is this not set ?!
-    sl_mac->sl_TDD_config->pattern1.nrofDownlinkSlots = 6;
 
     if (ret == 0) {
       //sl_tdd_config bytes are all 1's - no TDD config present use all slots for sidelink.
       //Spec not clear -- TBD...
       sl_mac->sl_TDD_config->pattern1.nrofUplinkSlots =
                         NR_NUMBER_OF_SUBFRAMES_PER_FRAME*(1<<cfg->sl_bwp_config.sl_scs);
+      // nrofDownlinkSlots = 0 (all slots are SL, already set by decoder)
+    } else {
+      // Derive nrofDownlinkSlots from total slots per period minus SL (UL) slots.
+      // sl_decode_sl_TDD_Config does not set nrofDownlinkSlots.
+      const int mu = cfg->sl_bwp_config.sl_scs;
+      const int slots_per_period =
+          nr_slots_per_frame[mu] / get_nb_periods_per_frame(sl_mac->sl_TDD_config->pattern1.dl_UL_TransmissionPeriodicity);
+      sl_mac->sl_TDD_config->pattern1.nrofDownlinkSlots = slots_per_period - sl_mac->sl_TDD_config->pattern1.nrofUplinkSlots;
     }
 
     // TODO Necessary?
