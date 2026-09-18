@@ -86,6 +86,12 @@ void setup_ue_ipv4_route(const char* ifname, int instance_id, int pdu_session_id
 int tuntap_alloc(int flag, const char *dev);
 
 /*!
+ * \brief Clear O_NONBLOCK on a TUN/TAP fd (for blocking read threads)
+ * \param[in] fd TUN/TAP file descriptor
+ */
+void tuntap_reblock(int fd);
+
+/*!
  * \brief This function destroys the TUN or TAP interface
  * \param[in] dev name of the interface
  */
