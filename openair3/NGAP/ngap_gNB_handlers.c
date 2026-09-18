@@ -23,6 +23,7 @@
 #include "ngap_common.h"
 #include "ngap_gNB_decoder.h"
 #include "ngap_gNB_defs.h"
+#include "ngap_gNB_encoder.h"
 #include "ngap_gNB_nnsf.h"
 #include "ngap_gNB_management_procedures.h"
 #include "ngap_gNB_mobility_management.h"
@@ -35,6 +36,10 @@
 #include "oai_asn1.h"
 #include "queue.h"
 
+#ifdef E2_AGENT
+#include "openair2/E2AP/RAN_FUNCTION/setup_msg_store.h"
+#endif
+
 char *ngap_direction2String(int ngap_dir) {
   static char *ngap_direction_String[] = {
     "", /* Nothing */
@@ -44,6 +49,46 @@ char *ngap_direction2String(int ngap_dir) {
   };
   return(ngap_direction_String[ngap_dir]);
 }
+
+static void ngap_send_register_gnb_cnf(ngap_gNB_instance_t *inst)
+{
+  MessageDef *message_p = itti_alloc_new_message(TASK_NGAP, 0, NGAP_REGISTER_GNB_CNF);
+  ngap_register_gnb_cnf_t *cnf = &NGAP_REGISTER_GNB_CNF(message_p);
+
+  cnf->nb_amf = inst->ngap_amf_associated_nb;
+  cnf->gNB_id = inst->gNB_id;
+  cnf->tac = inst->tac;
+  cnf->num_plmn = inst->num_plmn;
+  memcpy(cnf->plmn, inst->plmn, inst->num_plmn * sizeof(*inst->plmn));
+
+  int r = 0;
+  ngap_gNB_amf_data_t *amf_node;
+  struct served_guami_s *guami;
+  struct plmn_identity_s *plmn;
+  struct served_region_id_s *region;
+  RB_FOREACH(amf_node, ngap_amf_map, &inst->ngap_amf_head) {
+    STAILQ_FOREACH(guami, &amf_node->served_guami, next) {
+      if (r >= NGAP_MAX_NB_AMF_REGIONS)
+        break;
+      ngap_amf_region_info_t *amf_region = &cnf->amf_region_info[r];
+      STAILQ_FOREACH(plmn, &guami->served_plmns, next) {
+        amf_region->plmn.mcc = plmn->mcc;
+        amf_region->plmn.mnc = plmn->mnc;
+        amf_region->plmn.mnc_digit_length = plmn->mnc_digit_length;
+        break;
+      }
+      STAILQ_FOREACH(region, &guami->served_region_ids, next) {
+        amf_region->amf_region_id = region->amf_region_id;
+        break;
+      }
+      r++;
+    }
+  }
+  cnf->num_amf_regions = r;
+
+  itti_send_msg_to_task(TASK_GNB_APP, inst->instance, message_p);
+}
+
 void ngap_handle_ng_setup_message(ngap_gNB_amf_data_t *amf_desc_p, int sctp_shutdown) {
   if (sctp_shutdown) {
     /* A previously connected AMF has been shutdown */
@@ -85,9 +130,7 @@ void ngap_handle_ng_setup_message(ngap_gNB_amf_data_t *amf_desc_p, int sctp_shut
 
     /* If there are no more pending messages, inform gNB app */
     if (amf_desc_p->ngap_gNB_instance->ngap_amf_pending_nb == 0) {
-      MessageDef *message_p = itti_alloc_new_message(TASK_NGAP, 0, NGAP_REGISTER_GNB_CNF);
-      NGAP_REGISTER_GNB_CNF(message_p).nb_amf = amf_desc_p->ngap_gNB_instance->ngap_amf_associated_nb;
-      itti_send_msg_to_task(TASK_GNB_APP, amf_desc_p->ngap_gNB_instance->instance, message_p);
+      ngap_send_register_gnb_cnf(amf_desc_p->ngap_gNB_instance);
     }
   }
 }
@@ -164,6 +207,13 @@ static int ngap_gNB_handle_ng_setup_response(sctp_assoc_t assoc_id, uint32_t str
   ngap_gNB_amf_data_t       *amf_desc_p;
   int i;
   DevAssert(pdu != NULL);
+#ifdef E2_AGENT
+  uint8_t *buffer = NULL;
+  uint32_t len = 0;
+  if (ngap_gNB_encode_pdu(pdu, &buffer, &len) == 0)
+    e2ap_store_setup_resp(E2AP_SETUP_MSG_NGAP, buffer, len);
+  free(buffer);
+#endif
   container = &pdu->choice.successfulOutcome->value.choice.NGSetupResponse;
 
   /* NG Setup Response == Non UE-related procedure -> stream 0 */

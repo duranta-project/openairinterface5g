@@ -70,6 +70,7 @@ __global__ void gather_zero_pad_tx_block_kernel(const c16_t *const *__restrict__
                                                 int num_samples_tx_sig0,
                                                 int x_len,
                                                 int block_len,
+                                                int num_blocks_max,
                                                 cufftComplex *__restrict__ tx_time)
 {
   int aatx = blockIdx.y;
@@ -91,7 +92,7 @@ __global__ void gather_zero_pad_tx_block_kernel(const c16_t *const *__restrict__
       val.y = (float)s.i;
     }
   }
-  tx_time[(aatx * GPU_MAX_NUM_BLOCKS + block) * GPU_FFT_SIZE + idx] = val;
+  tx_time[(aatx * num_blocks_max + block) * GPU_FFT_SIZE + idx] = val;
 }
 
 // blockIdx.y indexes `channel` in the caller's link order (rx * nb_tx + aatx, matching
@@ -120,6 +121,7 @@ __global__ void gather_zero_pad_channel_kernel(const cf_t *const *__restrict__ c
 __global__ void freq_multiply_accumulate_block_kernel(const cufftComplex *__restrict__ tx_freq,
                                                       const cufftComplex *__restrict__ chan_freq,
                                                       int nb_tx,
+                                                      int num_blocks_max,
                                                       cufftComplex *__restrict__ rx_freq_accum)
 {
   int rx = blockIdx.y;
@@ -129,13 +131,13 @@ __global__ void freq_multiply_accumulate_block_kernel(const cufftComplex *__rest
     return;
   cufftComplex acc = {0.0f, 0.0f};
   for (int aatx = 0; aatx < nb_tx; aatx++) {
-    cufftComplex a = tx_freq[(aatx * GPU_MAX_NUM_BLOCKS + block) * GPU_FFT_SIZE + bin];
+    cufftComplex a = tx_freq[(aatx * num_blocks_max + block) * GPU_FFT_SIZE + bin];
     int link = rx * nb_tx + aatx;
     cufftComplex b = chan_freq[link * GPU_FFT_SIZE + bin];
     acc.x += a.x * b.x - a.y * b.y;
     acc.y += a.x * b.y + a.y * b.x;
   }
-  rx_freq_accum[(rx * GPU_MAX_NUM_BLOCKS + block) * GPU_FFT_SIZE + bin] = acc;
+  rx_freq_accum[(rx * num_blocks_max + block) * GPU_FFT_SIZE + bin] = acc;
 }
 
 // Overlap-add: each block's inverse-FFT result covers GPU_FFT_SIZE samples of the full linear
@@ -144,6 +146,7 @@ __global__ void freq_multiply_accumulate_block_kernel(const cufftComplex *__rest
 __global__ void scatter_add_block_kernel(const cufftComplex *__restrict__ rx_time,
                                          int block_len,
                                          int accum_len,
+                                         int num_blocks_max,
                                          cufftComplex *__restrict__ rx_accum)
 {
   int rx = blockIdx.y;
@@ -154,7 +157,7 @@ __global__ void scatter_add_block_kernel(const cufftComplex *__restrict__ rx_tim
   int pos = block * block_len + idx;
   if (pos >= accum_len)
     return;
-  cufftComplex v = rx_time[(rx * GPU_MAX_NUM_BLOCKS + block) * GPU_FFT_SIZE + idx];
+  cufftComplex v = rx_time[(rx * num_blocks_max + block) * GPU_FFT_SIZE + idx];
   float scale = 1.0f / (float)GPU_FFT_SIZE;
   atomicAdd(&rx_accum[rx * accum_len + pos].x, v.x * scale);
   atomicAdd(&rx_accum[rx * accum_len + pos].y, v.y * scale);
@@ -198,6 +201,19 @@ struct GpuContext {
   curandState_t *curand_states;
   size_t curand_states_size;
 
+  // Actual antenna counts the buffers/plans below were sized for at init time (this session's
+  // real nb_tx/nb_rx, not the architectural GPU_MAX_NUM_TX_ANT/GPU_MAX_NUM_RX_ANT worst case --
+  // see the sizing comment in cuda_channel_pipeline_init()).
+  int num_tx_antenna;
+  int num_rx_antenna;
+  // Session-actual channel_length bound and the num_blocks_max/accum_len_max it (together with
+  // max_samples) implies -- replaces GPU_MAX_CHANNEL_LENGTH/GPU_MAX_NUM_BLOCKS/GPU_MAX_ACCUM_LEN
+  // for buffer sizing, cuFFT plan batch counts, and the per-antenna block stride baked into the
+  // gather/multiply/scatter kernels above.
+  int max_channel_length;
+  int num_blocks_max;
+  int accum_len_max;
+
   cufftHandle tx_plan;
   cufftHandle chan_plan;
   cufftHandle rx_plan;
@@ -211,8 +227,16 @@ struct GpuContext {
   cufftComplex *d_rx_accum;
 };
 
-// max_samples is agnotic of num TX antennas as it allocs for worst case define above
-extern "C" void *cuda_channel_pipeline_init(int max_samples, int num_tx_antenna)
+// max_samples/GPU_MAX_NUM_BLOCKS stay sized for the architectural worst case (per-call sample
+// count legitimately varies within one session, e.g. a short Msg3 grant vs. a full-slot PUSCH
+// grant), but num_tx_antenna/num_rx_antenna are FIXED for the lifetime of a vrtsim connection --
+// so size every buffer and cuFFT plan's batch dimension to the actual antenna counts instead of
+// the fixed GPU_MAX_NUM_TX_ANT/GPU_MAX_NUM_RX_ANT=64 worst case. cuFFT bakes its batch count into
+// the plan at creation time and always transforms the full batch on every cufftExecC2C() call, so
+// leaving this at 64 meant every single call paid for transforming up to 64 antennas' worth of
+// data even when e.g. only 4 were actually in use (16-32x wasted GPU work, independent of the
+// real antenna count or channel content) -- this was the dominant cost, not the FFT math itself.
+extern "C" void *cuda_channel_pipeline_init(int max_samples, int num_tx_antenna, int num_rx_antenna, int max_channel_length)
 {
   int dev = 0;
   struct cudaDeviceProp prop;
@@ -234,16 +258,33 @@ extern "C" void *cuda_channel_pipeline_init(int max_samples, int num_tx_antenna)
               "num_tx_antenna %d exceeds the fixed max %d the preallocated GPU buffers/plans support\n",
               num_tx_antenna,
               GPU_MAX_NUM_TX_ANT);
+  AssertFatal(num_rx_antenna > 0 && num_rx_antenna <= GPU_MAX_NUM_RX_ANT,
+              "num_rx_antenna %d exceeds the fixed max %d the preallocated GPU buffers/plans support\n",
+              num_rx_antenna,
+              GPU_MAX_NUM_RX_ANT);
+  AssertFatal(max_channel_length > 0 && max_channel_length < GPU_FFT_SIZE && max_channel_length <= GPU_MAX_CHANNEL_LENGTH,
+              "max_channel_length %d must be in (0, min(%d, %d))\n",
+              max_channel_length,
+              GPU_FFT_SIZE,
+              GPU_MAX_CHANNEL_LENGTH);
 
-  // Sized for the worst case (GPU_MAX_SAMPLES symbol samples x GPU_MAX_NUM_RX_ANT antennas)
-  // Calling cufftPlan1d during runtime will use too many cycles and lead to UE disconnection
-  ctx->curand_states_size = (size_t)GPU_MAX_SAMPLES * GPU_MAX_NUM_RX_ANT;
+  ctx->num_tx_antenna = num_tx_antenna;
+  ctx->num_rx_antenna = num_rx_antenna;
+  ctx->max_channel_length = max_channel_length;
+  int block_len_max = GPU_FFT_SIZE - max_channel_length + 1;
+  ctx->num_blocks_max = ((max_samples + max_channel_length - 1) + block_len_max - 1) / block_len_max;
+  ctx->accum_len_max = (ctx->num_blocks_max - 1) * block_len_max + GPU_FFT_SIZE;
+
+  // Sized for the worst case in samples, but the ACTUAL antenna count and channel_length bound
+  // for this session. Calling cufftPlan1d during runtime will use too many cycles and lead to UE
+  // disconnection.
+  ctx->curand_states_size = (size_t)GPU_MAX_SAMPLES * num_rx_antenna;
   ctx->curand_states = (curandState_t *)create_and_init_curand_states_cuda(ctx->curand_states_size, time(NULL));
 
-  const size_t tx_needed = (size_t)GPU_MAX_NUM_TX_ANT * GPU_MAX_NUM_BLOCKS * GPU_FFT_SIZE;
-  const size_t chan_needed = (size_t)GPU_MAX_NUM_LINKS * GPU_FFT_SIZE;
-  const size_t rx_needed = (size_t)GPU_MAX_NUM_RX_ANT * GPU_MAX_NUM_BLOCKS * GPU_FFT_SIZE;
-  const size_t rx_accum_needed = (size_t)GPU_MAX_NUM_RX_ANT * GPU_MAX_ACCUM_LEN;
+  const size_t tx_needed = (size_t)num_tx_antenna * ctx->num_blocks_max * GPU_FFT_SIZE;
+  const size_t chan_needed = (size_t)num_tx_antenna * num_rx_antenna * GPU_FFT_SIZE;
+  const size_t rx_needed = (size_t)num_rx_antenna * ctx->num_blocks_max * GPU_FFT_SIZE;
+  const size_t rx_accum_needed = (size_t)num_rx_antenna * ctx->accum_len_max;
 
   CHECK_CUDA(cudaMalloc(&ctx->d_tx_time, tx_needed * sizeof(cufftComplex)));
   CHECK_CUDA(cudaMalloc(&ctx->d_tx_freq, tx_needed * sizeof(cufftComplex)));
@@ -253,12 +294,14 @@ extern "C" void *cuda_channel_pipeline_init(int max_samples, int num_tx_antenna)
   CHECK_CUDA(cudaMalloc(&ctx->d_rx_time, rx_needed * sizeof(cufftComplex)));
   CHECK_CUDA(cudaMalloc(&ctx->d_rx_accum, rx_accum_needed * sizeof(cufftComplex)));
 
-  // Created once, for the worst-case batch count, and never re-planned: this is what removes the
-  // per-call cufftDestroy/cufftPlan1d churn that used to happen whenever the incoming symbol size
-  // (and therefore num_blocks) changed.
-  CHECK_CUFFT(cufftPlan1d(&ctx->tx_plan, GPU_FFT_SIZE, CUFFT_C2C, GPU_MAX_NUM_TX_ANT * GPU_MAX_NUM_BLOCKS));
-  CHECK_CUFFT(cufftPlan1d(&ctx->chan_plan, GPU_FFT_SIZE, CUFFT_C2C, GPU_MAX_NUM_LINKS));
-  CHECK_CUFFT(cufftPlan1d(&ctx->rx_plan, GPU_FFT_SIZE, CUFFT_C2C, GPU_MAX_NUM_RX_ANT * GPU_MAX_NUM_BLOCKS));
+  // Created once, for this session's actual (nb_tx, nb_rx) batch count, and never re-planned:
+  // this is what removes the per-call cufftDestroy/cufftPlan1d churn that used to happen whenever
+  // the incoming symbol size (and therefore num_blocks) changed -- nb_tx/nb_rx themselves don't
+  // change within a session, so sizing plans to them costs nothing at call time while eliminating
+  // the wasted-batch overhead described above.
+  CHECK_CUFFT(cufftPlan1d(&ctx->tx_plan, GPU_FFT_SIZE, CUFFT_C2C, num_tx_antenna * ctx->num_blocks_max));
+  CHECK_CUFFT(cufftPlan1d(&ctx->chan_plan, GPU_FFT_SIZE, CUFFT_C2C, num_tx_antenna * num_rx_antenna));
+  CHECK_CUFFT(cufftPlan1d(&ctx->rx_plan, GPU_FFT_SIZE, CUFFT_C2C, num_rx_antenna * ctx->num_blocks_max));
   cufftSetStream(ctx->tx_plan, ctx->stream);
   cufftSetStream(ctx->chan_plan, ctx->stream);
   cufftSetStream(ctx->rx_plan, ctx->stream);
@@ -309,10 +352,6 @@ extern "C" void cuda_channel_pipeline(void *context_handle,
   AssertFatal(rx_sig0, "No rx_sig0 provided\n");
   AssertFatal(num_samples_rx_sig0 == num_samples || rx_sig1, "No rx_sig1 provided\n");
   AssertFatal(channel_length < GPU_FFT_SIZE, "channel_length must be below the fixed %d-point block FFT size\n", GPU_FFT_SIZE);
-  AssertFatal(channel_length <= GPU_MAX_CHANNEL_LENGTH,
-              "channel_length %d exceeds the fixed max %d the preallocated GPU buffers/plans support\n",
-              channel_length,
-              GPU_MAX_CHANNEL_LENGTH);
   AssertFatal(num_samples <= GPU_MAX_SAMPLES, "num_samples %d exceeds fixed max %d\n", num_samples, GPU_MAX_SAMPLES);
   AssertFatal(nb_tx > 0 && nb_tx <= GPU_MAX_NUM_TX_ANT, "nb_tx %d exceeds fixed max %d\n", nb_tx, GPU_MAX_NUM_TX_ANT);
   AssertFatal(nb_rx > 0 && nb_rx <= GPU_MAX_NUM_RX_ANT, "nb_rx %d exceeds fixed max %d\n", nb_rx, GPU_MAX_NUM_RX_ANT);
@@ -321,6 +360,18 @@ extern "C" void cuda_channel_pipeline(void *context_handle,
               nb_tx * nb_rx,
               GPU_MAX_NUM_LINKS);
   GpuContext *ctx = (GpuContext *)context_handle;
+  AssertFatal(nb_tx <= ctx->num_tx_antenna,
+              "nb_tx %d exceeds the %d this session's GPU plans were sized for\n",
+              nb_tx,
+              ctx->num_tx_antenna);
+  AssertFatal(nb_rx <= ctx->num_rx_antenna,
+              "nb_rx %d exceeds the %d this session's GPU plans were sized for\n",
+              nb_rx,
+              ctx->num_rx_antenna);
+  AssertFatal(channel_length <= ctx->max_channel_length,
+              "channel_length %d exceeds the %d this session's GPU plans were sized for\n",
+              channel_length,
+              ctx->max_channel_length);
 
   int x_len = num_samples + channel_length - 1;
   int window_offset = channel_length - 1;
@@ -331,8 +382,14 @@ extern "C" void cuda_channel_pipeline(void *context_handle,
   int block_len = GPU_FFT_SIZE - channel_length + 1;
   int num_blocks = (x_len + block_len - 1) / block_len;
   int accum_len = (num_blocks - 1) * block_len + GPU_FFT_SIZE;
-  AssertFatal(num_blocks <= GPU_MAX_NUM_BLOCKS, "num_blocks %d exceeds fixed max %d\n", num_blocks, GPU_MAX_NUM_BLOCKS);
-  AssertFatal(accum_len <= GPU_MAX_ACCUM_LEN, "accum_len %d exceeds fixed max %d\n", accum_len, GPU_MAX_ACCUM_LEN);
+  AssertFatal(num_blocks <= ctx->num_blocks_max,
+              "num_blocks %d exceeds the %d this session's GPU plans were sized for\n",
+              num_blocks,
+              ctx->num_blocks_max);
+  AssertFatal(accum_len <= ctx->accum_len_max,
+              "accum_len %d exceeds the %d this session's GPU plans were sized for\n",
+              accum_len,
+              ctx->accum_len_max);
 
   nvtxRangePushA("memset_rx_accum");
   CHECK_CUDA(cudaMemsetAsync(ctx->d_rx_accum, 0, (size_t)nb_rx * accum_len * sizeof(cufftComplex), ctx->stream));
@@ -347,6 +404,7 @@ extern "C" void cuda_channel_pipeline(void *context_handle,
                                                                          num_samples_tx_sig0,
                                                                          x_len,
                                                                          block_len,
+                                                                         ctx->num_blocks_max,
                                                                          ctx->d_tx_time);
   nvtxRangePop();
 
@@ -368,6 +426,7 @@ extern "C" void cuda_channel_pipeline(void *context_handle,
   freq_multiply_accumulate_block_kernel<<<mulBlocks, threads, 0, ctx->stream>>>(ctx->d_tx_freq,
                                                                                 ctx->d_chan_freq,
                                                                                 nb_tx,
+                                                                                ctx->num_blocks_max,
                                                                                 ctx->d_rx_freq_accum);
   nvtxRangePop();
 
@@ -377,7 +436,11 @@ extern "C" void cuda_channel_pipeline(void *context_handle,
 
   nvtxRangePushA("scatter_add");
   dim3 scatterBlocks((GPU_FFT_SIZE + threads - 1) / threads, nb_rx, num_blocks);
-  scatter_add_block_kernel<<<scatterBlocks, threads, 0, ctx->stream>>>(ctx->d_rx_time, block_len, accum_len, ctx->d_rx_accum);
+  scatter_add_block_kernel<<<scatterBlocks, threads, 0, ctx->stream>>>(ctx->d_rx_time,
+                                                                       block_len,
+                                                                       accum_len,
+                                                                       ctx->num_blocks_max,
+                                                                       ctx->d_rx_accum);
   nvtxRangePop();
 
   nvtxRangePushA("extract_and_noise");

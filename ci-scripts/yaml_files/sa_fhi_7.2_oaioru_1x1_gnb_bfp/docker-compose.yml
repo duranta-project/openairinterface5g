@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT
+
+# Variant of sa_fhi_7.2_oaioru_1x1_gnb that deploys the gNB with BFP compression:
+# the conf file to mount is picked by GNB_CONF in .env, so no docker file is
+# duplicated. The core network, setup scripts and service definitions are the
+# base compose's.
+include:
+    - ../sa_fhi_7.2_oaioru_1x1_gnb/docker-compose.yml

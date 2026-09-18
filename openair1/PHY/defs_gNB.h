@@ -336,11 +336,6 @@ typedef struct {
   int prach_I0;
 } PHY_MEASUREMENTS_gNB;
 
-// the current RRC resource allocation is that each UE gets its
-// "own" PUCCH resource (for F0) in a dedicated PRB in each slot
-// therefore, we can have up to "number of UE" UCI PDUs
-#define MAX_NUM_NR_UCI_PDUS MAX_MOBILES_PER_GNB
-
 /// Top-level PHY Data Structure for gNB
 typedef struct PHY_VARS_gNB_s {
   /// Module ID indicator for this instance
@@ -434,9 +429,9 @@ typedef struct PHY_VARS_gNB_s {
   time_stats_t dlsch_layer_mapping_stats;
   time_stats_t dlsch_resource_mapping_stats;
   time_stats_t dlsch_precoding_stats;
+  time_stats_t dlsch_crc_stats;
 
   time_stats_t dci_generation_stats;
-  time_stats_t phase_comp_stats;
   time_stats_t rx_pusch_stats;
   time_stats_t rx_pusch_init_stats;
   time_stats_t rx_pusch_symbol_processing_stats;
@@ -460,6 +455,8 @@ typedef struct PHY_VARS_gNB_s {
   time_stats_t srs_report_tlv_stats;
   time_stats_t srs_beam_report_stats;
   time_stats_t srs_iq_matrix_stats;
+  time_stats_t pucch01_proc_rx;
+  time_stats_t pucch23_proc_rx;
 
   notifiedFIFO_t resp_L1;
   notifiedFIFO_t L1_tx_out;

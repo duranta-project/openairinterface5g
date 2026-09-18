@@ -64,7 +64,7 @@ typedef struct {
 } NR_UE_ULSCH_t;
 
 typedef struct {
-  /// Indicator of first reception
+  /// Set on new data; cleared after nr_dlsch_decoding() segments the TB. Stays set if decode never ran.
   uint8_t first_rx;
   /// DLSCH status flag indicating
   NR_SCH_status_t status;
@@ -97,6 +97,9 @@ typedef struct {
   /// Number of segments processed so far
   uint32_t processedSegments;
   decode_abort_t abort_decode;
+  /* Slot of the grant that armed this process. A late decode only retires if it still matches. */
+  int activated_frame;
+  int activated_slot;
 } NR_DL_UE_HARQ_t;
 
 typedef struct {

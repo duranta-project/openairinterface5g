@@ -1,0 +1,97 @@
+-- L1-KPM Service Model ASN.1 Definitions
+--
+-- Copyright (c) 2026 Institute for Intelligent Networked Systems (INSI)
+-- at Northeastern University. All rights reserved.
+-- SPDX-License-Identifier: LicenseRef-CSSL-1.0
+--
+-- Portions of this ASN.1 grammar are derived from NVIDIA Aerial E3
+-- message schemas.
+--
+-- Original source:
+-- https://github.com/NVIDIA/aerial-sample-apps (dapps/docs/e3_message_schemas.json)
+--
+-- Original copyright:
+-- Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+--
+-- NVIDIA publishes the JSON Schema; this ASN.1 grammar is an independently
+-- authored translation. Modifications and additions by Institute for Intelligent Networked
+-- Systems (INSI) at Northeastern University are identified separately.
+--
+-- PHY-layer KPM SM at RAN Function ID 2. Telemetry-only: emits one
+-- indication payload per UL slot (or per period), referencing the
+-- /e3_ran_buffers POSIX shm region for the actual IQ bytes.
+--
+-- Field-for-field equivalent to the JSON schema in l1_kpm_enc.c
+-- so a dApp supporting both encodings can reuse most parsing logic:
+--
+--   {
+--     "iq_samples": { "shm_name", "fh_buffer_index", "fh_write_index" },
+--     "timestamp": uint64 ns,
+--     "sfn":       uint16,
+--     "slot":      uint16,
+--     "cell_id":   uint16,
+--     "n_rx_ant":  uint16,
+--     "valid_symbol_mask": uint16 (14-bit UL-symbol bitmap)
+--   }
+--
+-- Usage with E3 Protocol:
+-- - L1KPM-Indication is encoded into E3-IndicationMessage.protocolData
+--   and shipped to dApps on the ASN.1 channel. Aerial dApps on the JSON
+--   channel receive the equivalent payload via l1_kpm_enc.c.
+
+L1-KPM-SM DEFINITIONS AUTOMATIC TAGS ::= BEGIN
+
+-- ============================================================================
+-- IQ-sample shm reference (parallels JSON `iq_samples` object)
+-- ============================================================================
+
+L1KPM-ShmRef ::= SEQUENCE {
+    shmName         OCTET STRING (SIZE (1..63)),                   -- "/e3_ran_buffers"
+    fhBufferIndex   INTEGER (0..255),                              -- which of the 2 FH buffers
+    fhWriteIndex    INTEGER (0..4294967295)                        -- row within that buffer
+}
+
+-- ============================================================================
+-- Top-level indication payload (E3-IndicationMessage.protocolData)
+-- ============================================================================
+--
+-- timestamp is unconstrained INTEGER so the full uint64 nanosecond range
+-- fits without bias; asn1c maps it to a NativeInteger (long), so the encoder
+-- is allocator-free (no INTEGER_t scratch buffer to free per call).
+--
+-- cellId and nRxAnt are OPTIONAL: they round-trip from PHY today but
+-- aerial dApps' stock subscription only grants the four core IDs
+-- (iq_samples, timestamp, sfn, slot). Marking them OPTIONAL costs one
+-- preamble bit each on the wire but lets a future granted-list shrink
+-- the payload further without a schema change.
+--
+-- validSymbolMask is a 14-bit bitmap: bit s set = symbol s of this slot
+-- carries genuine off-air UL per the TDD config (0x3FFF on FDD and pure
+-- UL slots). Mixed slots are FFT'd whole, so their leading DL/guard
+-- symbols hold the gNB's own TX leakage; consumers use this mask to
+-- discard them. OPTIONAL like cellId/nRxAnt.
+
+L1KPM-Indication ::= SEQUENCE {
+    iqSamplesRef        L1KPM-ShmRef OPTIONAL,
+    timestamp           INTEGER,
+    sfn                 INTEGER (0..65535),
+    slot                INTEGER (0..65535),
+    cellId              INTEGER (0..65535) OPTIONAL,
+    nRxAnt              INTEGER (0..65535) OPTIONAL,
+    validSymbolMask     INTEGER (0..16383) OPTIONAL
+}
+
+-- ============================================================================
+-- RAN function descriptor (advertised in E3-SetupResponse.ranFunctionList).
+-- Opaque to dApps; mirrors Spectrum-RanFunctionData so the setup response
+-- carries a non-empty ranFunctionData (that OCTET STRING is SIZE(1..32768)).
+-- ============================================================================
+
+L1KPM-RanFunctionData ::= SEQUENCE {
+    name            OCTET STRING (SIZE (1..32)),
+    version         INTEGER (0..65535),
+    description     OCTET STRING (SIZE (1..128))
+}
+
+END

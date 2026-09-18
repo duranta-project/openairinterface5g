@@ -460,9 +460,9 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
     // Frequency domain allocation according to 8.3 of TS 38.213
     int mask;
     if (ibwp_size < 180)
-      mask = (1 << ((int) ceil(log2((ibwp_size*(ibwp_size+1))>>1)))) - 1;
+      mask = (1 << (ceil_log2_u32((ibwp_size * (ibwp_size + 1)) >>1 ))) - 1;
     else
-      mask = (1 << (28 - (int)(ceil(log2((ibwp_size*(ibwp_size+1))>>1))))) - 1;
+      mask = (1 << (28 - (ceil_log2_u32((ibwp_size * (ibwp_size + 1)) >>1)))) - 1;
 
     dci_field_t f_alloc;
     f_alloc.val = rar_grant->Msg3_f_alloc & mask;

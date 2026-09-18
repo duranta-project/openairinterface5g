@@ -43,6 +43,7 @@ add_library(e2_ran_func_cuup STATIC
             ${UE_ID_COMMON_E2SM_SRCS}
             init_ran_func.c
             read_setup_ran.c
+            setup_msg_store.c
             O-RAN/ran_e2sm_ue_id.c
             O-RAN/ran_func_kpm.c
             O-RAN/ran_func_kpm_subs.c
@@ -63,6 +64,7 @@ add_library(e2_ran_func_du_cucp_cuup STATIC
             ${UE_ID_COMMON_E2SM_SRCS}
             init_ran_func.c
             read_setup_ran.c
+            setup_msg_store.c
             O-RAN/ran_e2sm_ue_id.c
             O-RAN/ran_func_kpm.c
             O-RAN/ran_func_kpm_subs.c

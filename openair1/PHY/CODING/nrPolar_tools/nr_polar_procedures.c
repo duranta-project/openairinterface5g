@@ -80,19 +80,11 @@ static void polar_encode_bits(uint8_t *in_out, size_t N)
   }
 }
 
-static uint32_t log2_floor(uint32_t x)
-{
-  if (x == 0)
-    return 0;
-  uint32_t clz = __builtin_clz(x);
-  return 31U - clz;
-}
-
 static void polar_encode_bytes(uint8_t *in_out, size_t N)
 {
   size_t brnch_sz = 1;
   size_t n_brnch = N >> 4;
-  size_t const blck_pwr = log2_floor(N);
+  size_t const blck_pwr = floor_log2_u32(N);
   for (size_t stage = 3; stage < blck_pwr; ++stage) {
     for (size_t brnch = 0; brnch < n_brnch; ++brnch) {
       for (size_t byte = 0; byte < brnch_sz; ++byte) {
@@ -148,10 +140,10 @@ uint32_t nr_polar_output_length(uint16_t K, uint16_t E, uint8_t n_max)
   int n_1, n_2, n_min = 5;
   double R_min = 1.0 / 8;
 
-  if ((E <= (9.0 / 8) * pow(2, ceil(log2(E)) - 1)) && (K / E < 9.0 / 16)) {
-    n_1 = ceil(log2(E)) - 1;
+  if ((E <= (9.0 / 8) * pow(2, ceil_log2_u32(E) - 1)) && (K / E < 9.0 / 16)) {
+    n_1 = ceil_log2_u32(E) - 1;
   } else {
-    n_1 = ceil(log2(E));
+    n_1 = ceil_log2_u32(E);
   }
 
   n_2 = ceil(log2(K / R_min));

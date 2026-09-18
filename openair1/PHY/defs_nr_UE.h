@@ -372,7 +372,6 @@ typedef struct PHY_VARS_NR_UE_s {
   int dlsch_received[NUMBER_OF_CONNECTED_gNB_MAX];
   int dlsch_received_last[NUMBER_OF_CONNECTED_gNB_MAX];
   int dlsch_fer[NUMBER_OF_CONNECTED_gNB_MAX];
-  uint8_t init_sync_frame;
   /// temporary offset during cell search prior to MIB decoding
   int ssb_offset;
   uint16_t symbol_offset; /// offset in terms of symbols for detected ssb in sync
@@ -491,7 +490,6 @@ typedef struct {
 typedef struct {
   bool cell_detected;
   int rx_offset;
-  int frame_id;
 } nr_initial_sync_t;
 
 typedef struct {
@@ -502,7 +500,6 @@ typedef struct {
   int rxdata_sz;
   NR_DL_FRAME_PARMS *fp;
   UE_nr_rxtx_proc_t *proc;
-  int nFrames;
   int halfFrameBit;
   int symbolOffset;
   int ssbIndex;
@@ -544,7 +541,6 @@ typedef struct {
   uint ofdm_offset_divisor;
   int nb_antennas_rx;
   int symbols_per_slot;
-  int first_carrier_offset;
   int N_RB_DL;
   uint32_t rxdata_size;
   c16_t **rxdata;

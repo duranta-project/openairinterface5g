@@ -41,7 +41,7 @@ static uint16_t nr_pbch_extract(const NR_DL_FRAME_PARMS *frame_parms,
               symbol);
 
   for (aarx=0; aarx<frame_parms->nb_antennas_rx; aarx++) {
-    unsigned int rx_offset = CIRCULAR_INC(frame_parms->first_carrier_offset, ssb_start_subcarrier, frame_parms->ofdm_symbol_size);
+    unsigned int rx_offset = ssb_start_subcarrier;
     const struct complex16 *rxF = rxdataF[aarx];
     struct complex16 *rxF_ext = rxdataF_ext[aarx];
 #ifdef DEBUG_PBCH
@@ -79,7 +79,7 @@ static uint16_t nr_pbch_extract(const NR_DL_FRAME_PARMS *frame_parms,
             j++;
           }
 
-          rx_offset = CIRCULAR_INC(rx_offset, 1, frame_parms->ofdm_symbol_size);
+          rx_offset++;
         }
 
         rxF_ext+=9;
@@ -102,11 +102,11 @@ static uint16_t nr_pbch_extract(const NR_DL_FRAME_PARMS *frame_parms,
               j++;
             }
 
-            rx_offset = CIRCULAR_INC(rx_offset, 1, frame_parms->ofdm_symbol_size);
+            rx_offset++;
           }
           rxF_ext+=9;
         } else {
-          rx_offset = CIRCULAR_INC(rx_offset, 12, frame_parms->ofdm_symbol_size);
+          rx_offset += 12;
         }
       }
     }
