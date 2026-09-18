@@ -191,6 +191,34 @@ int rrc_gNB_trigger_f1_ho(char *buf, int debug, telnet_printfunc_t prnt)
   return 0;
 }
 
+/** @brief Trigger F1 handover to next cell in round-robin order
+ *  @param buf: optional RRC UE ID (int)
+ *  @param debug: Debug flag
+ *  @param prnt: Print function
+ *  @return 0 on success, -1 on failure */
+int rrc_gNB_trigger_f1_ho_rr(char *buf, int debug, telnet_printfunc_t prnt)
+{
+  UNUSED(debug);
+  if (!RC.nrrrc)
+    ERROR_MSG_RET("no RRC present, cannot trigger handover\n");
+  rrc_gNB_ue_context_t *ue = NULL;
+  if (!buf) {
+    ue = get_single_rrc_ue();
+    if (!ue)
+      ERROR_MSG_RET("no single UE in RRC present\n");
+  } else {
+    ue_id_t ue_id = strtol(buf, NULL, 10);
+    ue = rrc_gNB_get_ue_context(RC.nrrrc[0], ue_id);
+    if (!ue)
+      ERROR_MSG_RET("could not find UE with ue_id %d in RRC\n", ue_id);
+  }
+
+  gNB_RRC_UE_t *UE = &ue->ue_context;
+  nr_HO_F1_trigger_telnet_rr(RC.nrrrc[0], UE->rrc_ue_id);
+  prnt("RRC F1 round-robin handover triggered for UE %u\n", UE->rrc_ue_id);
+  return 0;
+}
+
 /** @brief Trigger N2 handover for UE
  *  @param buf: Neighbour PCI, SCell PCI, RRC UE ID
  *  @param debug: Debug flag
@@ -409,6 +437,7 @@ static telnetshell_cmddef_t cicmds[] = {
     {"force_ue_release", "[rnti(hex,opt)]", force_ue_release},
     {"force_ul_failure", "[rnti(hex,opt)]", force_ul_failure},
     {"trigger_f1_ho", "[rrc_ue_id(int,opt)]", rrc_gNB_trigger_f1_ho},
+    {"trigger_f1_ho_rr", "[rrc_ue_id(int,opt)]", rrc_gNB_trigger_f1_ho_rr},
     {"fetch_du_by_ue_id", "[rrc_ue_id(int,opt)]", fetch_du_by_ue_id},
     {"get_current_bwp", "[rnti(hex,opt)]", get_current_bwp},
     {"trigger_bwp_switch", "newBWPId [rnti(hex,opt)]", trigger_bwp_switch},
