@@ -418,6 +418,69 @@ void nr_HO_F1_trigger_telnet(gNB_RRC_INST *rrc, uint32_t rrc_ue_id)
   nr_rrc_trigger_f1_ho(rrc, ue, source_cell, target_cell);
 }
 
+/* Select the next cell on @target_du after @source_cell in array order,
+ * wrapping around to the first cell. Returns NULL if target_du has only
+ * one cell (i.e. source_cell is the only entry). */
+static nr_rrc_cell_container_t *select_next_target_cell(const nr_rrc_du_container_t *target_du,
+                                                        const nr_rrc_cell_container_t *source_cell)
+{
+  size_t n = seq_arr_size(&target_du->cells);
+  if (n < 2)
+    return NULL;
+
+  /* Find the index of source_cell */
+  size_t source_idx = 0;
+  for (size_t i = 0; i < n; i++) {
+    nr_rrc_cell_container_t **cell_ptr = seq_arr_at((seq_arr_t *)&target_du->cells, i);
+    if (*cell_ptr == source_cell) {
+      source_idx = i;
+      break;
+    }
+  }
+
+  nr_rrc_cell_container_t **next_ptr = seq_arr_at((seq_arr_t *)&target_du->cells, (source_idx + 1) % n);
+  return *next_ptr;
+}
+
+void nr_HO_F1_trigger_telnet_rr(gNB_RRC_INST *rrc, uint32_t rrc_ue_id)
+{
+  rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(rrc, rrc_ue_id);
+  if (ue_context_p == NULL) {
+    LOG_E(NR_RRC, "cannot find UE context for UE ID %d\n", rrc_ue_id);
+    return;
+  }
+  gNB_RRC_UE_t *ue = &ue_context_p->ue_context;
+  nr_rrc_du_container_t *source_du = get_du_for_ue(rrc, ue->rrc_ue_id);
+  if (source_du == NULL) {
+    f1_ue_data_t ue_data = cu_get_f1_ue_data(rrc_ue_id);
+    LOG_E(NR_RRC, "cannot get source gNB-DU with assoc_id %d for UE %u\n", ue_data.du_assoc_id, ue->rrc_ue_id);
+    return;
+  }
+  nr_rrc_cell_container_t *source_cell = rrc_get_pcell_for_ue(rrc, ue);
+  if (source_cell == NULL) {
+    LOG_E(NR_RRC, "cannot get source cell for UE %u\n", ue->rrc_ue_id);
+    return;
+  }
+
+  nr_rrc_du_container_t *target_du = find_target_du(rrc, source_du->assoc_id);
+  if (target_du == NULL)
+    target_du = source_du;
+
+  nr_rrc_cell_container_t *target_cell = select_next_target_cell(target_du, source_cell);
+  if (target_cell == NULL) {
+    LOG_E(NR_RRC, "No target cell found for UE %u (no second cell available)\n", ue->rrc_ue_id);
+    return;
+  }
+
+  LOG_I(NR_RRC,
+        "UE %u: round-robin HO trigger → target PCI %d (source PCI %d)\n",
+        ue->rrc_ue_id,
+        target_cell->info.pci,
+        source_cell->info.pci);
+
+  nr_rrc_trigger_f1_ho(rrc, ue, source_cell, target_cell);
+}
+
 /** @brief Generate the HandoverPreparationInformation to be carried
  * in the RRC Container (9.3.1.29 of 3GPP TS 38.413) of the Source
  * NG-RAN Node to Target NG-RAN Node Transparent Container IE */
