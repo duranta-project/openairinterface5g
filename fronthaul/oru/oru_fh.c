@@ -266,14 +266,14 @@ int oru_fh_get_utc_anchor_point(void *handle, uint64_t *hyper_frame, uint32_t *f
   *slot = absolute_slot % slots_per_frame;
 
   uint64_t total_syms_per_sec = (NR_SYMBOLS_PER_SLOT * 1000) << fh->cfg.numerology;
-  uint64_t ns_per_symbol = 1000000000 / total_syms_per_sec;
   uint64_t leftover_syms = absolute_gps_symbol % total_syms_per_sec;
   /* Invert get_gps_ns(): system_sec = gps_sec + epoch - clock_to_gps */
   int64_t clock_to_gps = (fh->io.timer.timebase == FH_CLOCK_TAI)
                              ? -(int64_t)GPS_TAI_LAG_SECONDS
                              : (int64_t)GPS_UTC_LEAP_SECONDS;
   ts->tv_sec = (absolute_gps_symbol / total_syms_per_sec) + GPS_EPOCH_OFFSET_UNIX - clock_to_gps;
-  ts->tv_nsec = leftover_syms * ns_per_symbol;
+  // Retain the slot duration from TS 38.211, 4.3.2; rounding each symbol first biases the slot anchor.
+  ts->tv_nsec = leftover_syms * 1000000000ULL / total_syms_per_sec;
   return 0;
 }
 
