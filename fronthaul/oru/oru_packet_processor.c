@@ -39,7 +39,9 @@
 #define MAX_TDD_PATTERN_LENGTH_MS 10
 #define MAX_SLOTS_PER_MS 4
 #define SYMBOL_BITMASK_SIZE ((NR_SYMBOLS_PER_SLOT * MAX_TDD_PATTERN_LENGTH_MS * MAX_SLOTS_PER_MS + 7) / 8)
-#define MAX_RX_FRAGMENTS 4
+// O-RAN CUS, 5.5 allows application fragmentation; retain each fragment until symbol assembly.
+// A 273-PRB symbol needs ten uncompressed or six BFP9 fragments at MTU 1500.
+#define MAX_RX_FRAGMENTS 16
 #define MAX_MBUFS_PER_SYMBOL 64
 #define MAX_SLOTS_PER_FRAME 160
 #define XRAN_IQ_BITS_UNCOMPRESSED 16 /* xRAN table 7.7.1.1-1: udIqWidth=0 means 16-bit samples */
@@ -444,6 +446,7 @@ void handle_uplane_packet(void *context, void *pkt)
   } else {
     LOG_W(HW, "ORU: Dropping extra segment for Ant %d, sym %lu\n", Ant_ID, target_absolute_symbol);
     rte_pktmbuf_free(pkt);
+    return;
   }
   job->received_iq += num_prbu == 0 ? ctx->num_prb : num_prbu;
   job->comp_method = (fh_comp_method_t)compMeth;
