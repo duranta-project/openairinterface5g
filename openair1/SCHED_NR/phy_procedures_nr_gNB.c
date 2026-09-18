@@ -107,7 +107,8 @@ void nr_common_signal_procedures(PHY_VARS_gNB *gNB, int frame, int slot, const n
     fp->print_ue_help_cmdline_log = false;
     if (fp->dl_CarrierFreq != fp->ul_CarrierFreq)
       LOG_A(PHY,
-            "Cell 0 command line parameters for OAI UE: -C %lu --CO %ld -r %d --numerology %d --ssb %d %s\n",
+            "Cell %d command line parameters for OAI UE: -C %lu --CO %ld -r %d --numerology %d --ssb %d %s\n",
+            fp->Nid_cell,
             fp->dl_CarrierFreq,
             fp->ul_CarrierFreq - fp->dl_CarrierFreq,
             fp->N_RB_DL,
@@ -116,7 +117,8 @@ void nr_common_signal_procedures(PHY_VARS_gNB *gNB, int frame, int slot, const n
             fp->threequarter_fs ? "-E" : "");
     else
       LOG_A(PHY,
-            "Cell 0 command line parameters for OAI UE: -C %lu -r %d --numerology %d --ssb %d %s\n",
+            "Cell %d command line parameters for OAI UE: -C %lu -r %d --numerology %d --ssb %d %s\n",
+            fp->Nid_cell,
             fp->dl_CarrierFreq,
             fp->N_RB_DL,
             scs,
