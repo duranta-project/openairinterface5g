@@ -67,7 +67,7 @@ static void tx_func(processingData_L1tx_t *info)
 
   clear_slot_beamid(gNB, slot_tx);
 
-  nfapi_nr_slot_indication_scf_t ind = {.header = {.phy_id = 0}, .sfn = frame_tx, .slot = slot_tx};
+  nfapi_nr_slot_indication_scf_t ind = {.header = {.phy_id = gNB->frame_parms.Nid_cell}, .sfn = frame_tx, .slot = slot_tx};
   start_meas(&gNB->slot_indication_stats);
   // this variable is very big (multiple MB), so we put it into static storage
   // to not overflow the stack while still having it in local (function) scope
@@ -180,7 +180,7 @@ static void rx_func(processingData_L1_t *info)
     UL_INFO.frame = frame_rx;
     UL_INFO.slot = slot_rx;
     UL_INFO.module_id = gNB->Mod_id;
-    UL_INFO.phy_id = gNB->CC_id;
+    UL_INFO.phy_id = gNB->frame_parms.Nid_cell;
     // Do PRACH RU processing
     UL_INFO.rach_ind.header.transmit_timestamp = 0;
     UL_INFO.rach_ind.pdu_list = UL_INFO.prach_pdu_indication_list;
