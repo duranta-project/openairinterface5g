@@ -106,9 +106,11 @@ void nr_generate_pucch0(c16_t **txdataF,
 #endif
     c16_t *txdataFptr = txdataF[0] + l2 * frame_parms->ofdm_symbol_size;
     const int32_t amp = amp16;
+    // TS 38.211, 6.3.2.2.1: use hop index 0 throughout a non-hopping PUCCH.
+    const unsigned group = u[pucch_pdu->freq_hop_flag ? l : 0];
     for (int n=0; n<12; n++) {
       const c16_t angle = {lround(32767 * cos(alpha * n)), lround(32767 * sin(alpha * n))};
-      const c16_t table = {table_5_2_2_2_2_Re[u[l]][n], table_5_2_2_2_2_Im[u[l]][n]};
+      const c16_t table = {table_5_2_2_2_2_Re[group][n], table_5_2_2_2_2_Im[group][n]};
       txdataFptr[re_offset] = c16mulRealShift(c16mulShift(angle, table, 15), amp, 15);
 #ifdef DEBUG_NR_PUCCH_TX
       printf(
