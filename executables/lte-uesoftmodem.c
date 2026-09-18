@@ -615,6 +615,12 @@ int main( int argc, char **argv ) {
   if (PHY_vars_UE_g[0][0]->rfdevice.trx_end_func)
     PHY_vars_UE_g[0][0]->rfdevice.trx_end_func(&PHY_vars_UE_g[0][0]->rfdevice);
 
+#if defined(NAS_BUILT_IN_UE)
+  if (!IS_SOFTMODEM_NOS1 && NB_UE_INST > 0) {
+    int ret = itti_terminate_and_join_task(TASK_NAS_UE, UE_MODULE_ID_TO_INSTANCE(0));
+    AssertFatal(ret == 0, "Could not terminate TASK_NAS_UE: %s\n", strerror(ret));
+  }
+#endif
   pdcp_module_cleanup();
   terminate_opt();
   logClean();

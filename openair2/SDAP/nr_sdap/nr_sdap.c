@@ -24,6 +24,7 @@ typedef struct sdap_tun_iface_s {
   int sock;
   char *ifname;
   int qfi;
+  bool ipv4_route_cleanup_pending;
   struct sdap_tun_iface_s *next;
 } sdap_tun_iface_t;
 
@@ -49,6 +50,18 @@ static sdap_tun_iface_t *sdap_tun_iface_lookup(ue_id_t ue_id, int pdusession_id)
       return it;
   }
   return NULL;
+}
+
+static void cleanup_iface_ipv4_route(sdap_tun_iface_t *iface)
+{
+  if (iface->ipv4_route_cleanup_pending && remove_ue_ipv4_route((int)iface->ue_id, iface->pdusession_id))
+    iface->ipv4_route_cleanup_pending = false;
+}
+
+void nr_sdap_tun_cleanup_ipv4_routes(void)
+{
+  for (sdap_tun_iface_t *iface = sdap_tun_iface_list; iface != NULL; iface = iface->next)
+    cleanup_iface_ipv4_route(iface);
 }
 
 void nr_sdap_tun_store_qfi(ue_id_t ue_id, int pdusession_id, uint8_t qfi)
@@ -271,6 +284,7 @@ void nr_sdap_tun_destroy(ue_id_t ue_id, int pdusession_id)
     LOG_D(SDAP, "nr_sdap_tun_destroy: no iface (ue=%ld, pdu=%d)\n", ue_id, pdusession_id);
     return;
   }
+  cleanup_iface_ipv4_route(iface);
   close(iface->sock);
   tuntap_destroy(iface->ifname);
   LOG_I(SDAP, "Destroyed TUN dataplane for UE %ld PDU session %d (%s)\n", iface->ue_id, iface->pdusession_id, iface->ifname);
@@ -318,6 +332,9 @@ void create_ue_ip_if(const char *ipv4, const char *ipv6, int ue_id, int pdu_sess
 
   tun_config(ifname, ipv4, ipv6);
   if (ipv4) {
+    sdap_tun_iface_t *iface = sdap_tun_iface_lookup(ue_id, pdu_session_id);
+    DevAssert(iface != NULL);
+    iface->ipv4_route_cleanup_pending = true;
     setup_ue_ipv4_route(ifname, ue_id, pdu_session_id, ipv4);
   }
 }

@@ -263,11 +263,16 @@ bool tap_config(const char* ifname)
   return success;
 }
 
-void setup_ue_ipv4_route(const char* ifname, int instance_id, int pdu_session_id, const char *ipv4)
+static int get_ue_ipv4_route_table_id(int instance_id, int pdu_session_id)
 {
   /* This needs to be unique per (instance_id, pdu_session_id) */
   // UE0, PDU1 = 10001, UE1, PDU1 = 10101, UE15, PDU15 = 11515 ...
-  int table_id = 10000 + instance_id * 100 + pdu_session_id;
+  return 10000 + instance_id * 100 + pdu_session_id;
+}
+
+void setup_ue_ipv4_route(const char *ifname, int instance_id, int pdu_session_id, const char *ipv4)
+{
+  int table_id = get_ue_ipv4_route_table_id(instance_id, pdu_session_id);
 
   char command_line[500];
   int res = sprintf(command_line,
@@ -286,6 +291,27 @@ void setup_ue_ipv4_route(const char* ifname, int instance_id, int pdu_session_id
     return;
   }
   background_system(command_line);
+}
+
+bool remove_ue_ipv4_route(int instance_id, int pdu_session_id)
+{
+  const int table_id = get_ue_ipv4_route_table_id(instance_id, pdu_session_id);
+
+  char command_line[500];
+  const int res = snprintf(command_line,
+                           sizeof(command_line),
+                           "ip -4 rule flush table %d; r=$?; ip -4 route flush table %d; s=$?; test $r -eq 0 && test $s -eq 0",
+                           table_id,
+                           table_id);
+  if (res < 0 || res >= (int)sizeof(command_line)) {
+    LOG_E(UTIL, "Could not create ip rule/route cleanup string\n");
+    return false;
+  }
+  if (background_system(command_line) != 0) {
+    LOG_E(UTIL, "Could not remove IPv4 policy routing for table %d\n", table_id);
+    return false;
+  }
+  return true;
 }
 
 int tun_generate_ifname(char *ifname, const char *ifprefix, int instance_id)
