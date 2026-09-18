@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
+#include <limits.h>
 #include <stdlib.h>
 
 #include "assertions.h"
@@ -309,6 +310,72 @@ void nr_rrc_finalize_ho(gNB_RRC_UE_t *ue)
   ue->ho_context = NULL;
 }
 
+/* Extract RSRP (dBm, TS 38.133 Table 10.1.6.1-1) from an NR cell result.
+ * Returns INT_MIN if no result is present. */
+static int rsrp_from_nr_cell_results(const struct NR_MeasResultNR__measResult__cellResults *cr)
+{
+  if (cr->resultsSSB_Cell && cr->resultsSSB_Cell->rsrp)
+    return *cr->resultsSSB_Cell->rsrp - 157;
+  if (cr->resultsCSI_RS_Cell && cr->resultsCSI_RS_Cell->rsrp)
+    return *cr->resultsCSI_RS_Cell->rsrp - 157;
+  return INT_MIN;
+}
+
+/* Select the best target cell on @target_du (excluding @source_cell) using
+ * the UE's most recent measurement report. Candidates are ranked by RSRP
+ * from both the neighbour-cell and serving-MO measurement lists. Falls back
+ * to the first non-source cell when no measurement data is available. */
+static nr_rrc_cell_container_t *select_best_target_cell(const nr_rrc_du_container_t *target_du,
+                                                        const nr_rrc_cell_container_t *source_cell,
+                                                        const NR_MeasResults_t *meas_results)
+{
+  nr_rrc_cell_container_t *best_cell = NULL;
+  int best_rsrp = INT_MIN;
+
+  FOR_EACH_SEQ_ARR (nr_rrc_cell_container_t **, cell_ptr, &target_du->cells) {
+    nr_rrc_cell_container_t *candidate = *cell_ptr;
+    if (candidate == source_cell)
+      continue;
+
+    int rsrp = INT_MIN;
+
+    if (meas_results) {
+      /* Search neighbour-cell measurement list */
+      if (meas_results->measResultNeighCells
+          && meas_results->measResultNeighCells->present == NR_MeasResults__measResultNeighCells_PR_measResultListNR) {
+        const NR_MeasResultListNR_t *neigh_list = meas_results->measResultNeighCells->choice.measResultListNR;
+        for (int i = 0; i < neigh_list->list.count; i++) {
+          const NR_MeasResultNR_t *entry = neigh_list->list.array[i];
+          if (entry->physCellId && *entry->physCellId == candidate->info.pci) {
+            rsrp = rsrp_from_nr_cell_results(&entry->measResult.cellResults);
+            break;
+          }
+        }
+      }
+
+      /* Search serving-MO list (covers SCells already configured on the UE) */
+      if (rsrp == INT_MIN) {
+        for (int i = 0; i < meas_results->measResultServingMOList.list.count; i++) {
+          const NR_MeasResultServMO_t *entry = meas_results->measResultServingMOList.list.array[i];
+          if (entry->measResultServingCell.physCellId && *entry->measResultServingCell.physCellId == candidate->info.pci) {
+            rsrp = rsrp_from_nr_cell_results(&entry->measResultServingCell.measResult.cellResults);
+            break;
+          }
+        }
+      }
+    }
+
+    /* Prefer the measured candidate with the highest RSRP; when no
+     * measurement is available keep the first candidate as fallback. */
+    if (best_cell == NULL || rsrp > best_rsrp) {
+      best_cell = candidate;
+      best_rsrp = rsrp;
+    }
+  }
+
+  return best_cell;
+}
+
 void nr_HO_F1_trigger_telnet(gNB_RRC_INST *rrc, uint32_t rrc_ue_id)
 {
   rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(rrc, rrc_ue_id);
@@ -331,22 +398,22 @@ void nr_HO_F1_trigger_telnet(gNB_RRC_INST *rrc, uint32_t rrc_ue_id)
 
   nr_rrc_du_container_t *target_du = find_target_du(rrc, source_du->assoc_id);
   if (target_du == NULL) {
-    // No second DU found — fall back to intra-DU inter-cell HO (e.g. monolithic mode with 2 cells)
+    // No second DU found — fall back to intra-DU inter-cell HO
     target_du = source_du;
   }
 
-  // For target cell, get the first cell from target DU that is not the source cell
-  nr_rrc_cell_container_t *target_cell = NULL;
-  FOR_EACH_SEQ_ARR (nr_rrc_cell_container_t **, cell_ptr, &target_du->cells) {
-    if (*cell_ptr != source_cell) {
-      target_cell = *cell_ptr;
-      break;
-    }
-  }
+  nr_rrc_cell_container_t *target_cell = select_best_target_cell(target_du, source_cell, ue->measResults);
   if (target_cell == NULL) {
     LOG_E(NR_RRC, "No target cell found for UE %u (no second cell available)\n", ue->rrc_ue_id);
     return;
   }
+
+  LOG_I(NR_RRC,
+        "UE %u: telnet HO trigger → target PCI %d (source PCI %d)%s\n",
+        ue->rrc_ue_id,
+        target_cell->info.pci,
+        source_cell->info.pci,
+        ue->measResults ? " [measurement-based]" : " [no measurements, first available cell]");
 
   nr_rrc_trigger_f1_ho(rrc, ue, source_cell, target_cell);
 }
