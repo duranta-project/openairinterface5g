@@ -457,15 +457,21 @@ int main(int argc, char **argv)
       if (UE_CC->sl_mode) {
         AssertFatal(UE_CC->sl_mode == 2, "Only Sidelink mode 2 supported. Mode 1 not yet supported\n");
         DevAssert(mac->if_module != NULL && mac->if_module->sl_phy_config_request != NULL);
+        // Patch antenna counts from CLI and push to PHY so sl_config is fully populated.
         nr_sl_phy_config_t *phycfg = &mac->SL_MAC_PARAMS->sl_phy_config;
         phycfg->sl_config_req.sl_carrier_config.sl_num_rx_ant = get_nrUE_params()->nb_antennas_rx;
         phycfg->sl_config_req.sl_carrier_config.sl_num_tx_ant = get_nrUE_params()->nb_antennas_tx;
         mac->if_module->sl_phy_config_request(phycfg);
+        // Derive sl_frame_params (N_RB_SL, ofdm_symbol_size, nb_antennas_tx ...) from sl_config
+        // before HARQ buffer allocation and PHY signal init.
         sl_nr_ue_phy_params_t *sl_phy = &UE_CC->SL_UE_PHY_PARAMS;
         nr_init_frame_parms_ue_sl(&sl_phy->sl_frame_params,
                                   &sl_phy->sl_config,
                                   get_softmodem_params()->threequarter_fs,
                                   get_nrUE_params()->ofdm_offset_divisor);
+        // Allocate SL HARQ buffers now that N_RB_SL and nb_antennas_tx are known.
+        init_nr_ue_sl_transport(UE_CC);
+
         sl_ue_phy_init(UE_CC);
       }
 

@@ -326,6 +326,9 @@ void term_nr_ue_signal(PHY_VARS_NR_UE *ue)
     free_and_zero(ue->prs_vars[idx]);
   }
 
+  if (ue->sl_mode)
+    term_nr_ue_sl_transport(ue);
+
   sl_ue_free(ue);
 }
 
@@ -404,12 +407,22 @@ void term_nr_ue_transport(PHY_VARS_NR_UE *ue)
 {
   const int N_RB_DL = ue->frame_parms.N_RB_DL;
   const int N_RB_UL = ue->frame_parms.N_RB_UL;
-  const int N_RB_SL = ue->SL_UE_PHY_PARAMS.sl_frame_params.N_RB_UL;
   free_nr_ue_dl_harq(ue->dl_harq_processes, NR_MAX_HARQ_PROCESSES, N_RB_DL);
   free_nr_ue_ul_harq(ue->ul_harq_processes, NR_MAX_HARQ_PROCESSES, N_RB_UL, ue->frame_parms.nb_antennas_tx);
-  free_nr_ue_ul_harq(ue->sl_harq_processes, NR_MAX_HARQ_PROCESSES, N_RB_SL, ue->SL_UE_PHY_PARAMS.sl_frame_params.nb_antennas_tx);
   free_nr_ue_pdsch_buffers(ue->pdsch_scratch, ue->pdsch_num_actors);
   free_and_zero(ue->pdsch_scratch);
+}
+
+void init_nr_ue_sl_transport(PHY_VARS_NR_UE *ue)
+{
+  NR_DL_FRAME_PARMS *sl_fp = &ue->SL_UE_PHY_PARAMS.sl_frame_params;
+  nr_init_ul_harq_processes(ue->sl_harq_processes, NR_MAX_HARQ_PROCESSES, sl_fp->N_RB_SL, sl_fp->nb_antennas_tx);
+}
+
+void term_nr_ue_sl_transport(PHY_VARS_NR_UE *ue)
+{
+  NR_DL_FRAME_PARMS *sl_fp = &ue->SL_UE_PHY_PARAMS.sl_frame_params;
+  free_nr_ue_ul_harq(ue->sl_harq_processes, NR_MAX_HARQ_PROCESSES, sl_fp->N_RB_SL, sl_fp->nb_antennas_tx);
 }
 
 void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb)
@@ -532,7 +545,6 @@ void init_nr_ue_transport(PHY_VARS_NR_UE *ue)
 {
   nr_init_dl_harq_processes(ue->dl_harq_processes, NR_MAX_HARQ_PROCESSES, ue->frame_parms.N_RB_DL);
   nr_init_ul_harq_processes(ue->ul_harq_processes, NR_MAX_HARQ_PROCESSES, ue->frame_parms.N_RB_UL, ue->frame_parms.nb_antennas_tx);
-  nr_init_ul_harq_processes(ue->sl_harq_processes, NR_MAX_HARQ_PROCESSES, 106, ue->frame_parms.nb_antennas_tx);
   const int num_actors = get_nrUE_params()->num_dl_actors > 0 ? get_nrUE_params()->num_dl_actors : 1;
   ue->pdsch_num_actors = num_actors;
   ue->pdsch_scratch = calloc_or_fail(num_actors, sizeof(*ue->pdsch_scratch));
