@@ -20,7 +20,7 @@
  * Aliases NFAPI_CC_MAX which itself tracks NFAPI_MAX_CC; using
  * NFAPI_PHY_MAX here makes clear that this is a per-PHY (not
  * per-carrier-component) limit at the cuBB transport boundary. */
-#define NFAPI_PHY_MAX NFAPI_CC_MAX
+#define NFAPI_PHY_MAX NR_MAX_CELLS
 
 int get_cpu_msg_buf_size();
 int get_cpu_data_buf_size();

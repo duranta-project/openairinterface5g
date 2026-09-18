@@ -171,14 +171,15 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
   LOG_D(PHY, "%s() Task ready initialize structures\n", __FUNCTION__);
 
 #ifdef ENABLE_AERIAL
-  AssertFatal(NFAPI_MODE == NFAPI_MODE_AERIAL,"Can only be run with '--nfapi AERIAL' when compiled with AERIAL support, if you want to run other (n)FAPI modes, please run ./build_oai without -w AERIAL");
+  if (NODE_IS_DU(node_type) || NODE_IS_MONOLITHIC(node_type)){
+    AssertFatal(NFAPI_MODE == NFAPI_MODE_AERIAL,"Can only be run with '--nfapi AERIAL' when compiled with AERIAL support, if you want to run other (n)FAPI modes, please run ./build_oai without -w AERIAL");
+  }
 #endif
 
   RCconfig_verify(cfg, node_type);
 
-  nr_cell_sched_t *cell = NULL; // This is still assuming RC.nb_nr_macrlc_inst is always 1, need to find a better way when RC.nb_nr_macrlc_inst is > 1
   if (RC.nb_nr_macrlc_inst > 0)
-    RCconfig_nr_macrlc(cfg, &cell);
+    RCconfig_nr_macrlc(cfg);
 
   if (RC.nb_nr_L1_inst > 0) {
     int ret = l1_north_init_gNB();
@@ -652,8 +653,10 @@ int main( int argc, char **argv ) {
   }
 
 #ifdef ENABLE_AERIAL
-  gNB_MAC_INST *nrmac = RC.nrmac[0];
-  nvIPC_Init(nrmac->nvipc_params_s);
+  if (NFAPI_MODE == NFAPI_MODE_AERIAL && (NODE_IS_DU(node_type) || NODE_IS_MONOLITHIC(node_type))) {
+    gNB_MAC_INST *nrmac = RC.nrmac[0];
+    nvIPC_Init(nrmac->nvipc_params_s);
+  }
 #endif
 
   for (int idx = 0; idx < RC.nb_nr_L1_inst; idx++)
@@ -723,7 +726,7 @@ int main( int argc, char **argv ) {
     stop_L1(0);
 
   if (RC.nb_nr_macrlc_inst > 0) {
-    DevAssert(RC.nb_nr_macrlc_inst == 1);
+    DevAssert(RC.nb_nr_macrlc_inst >= 1);
     mac_top_destroy_gNB(RC.nrmac[0]);
   }
 
