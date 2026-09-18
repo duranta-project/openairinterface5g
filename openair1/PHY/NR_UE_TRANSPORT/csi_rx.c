@@ -1315,6 +1315,10 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
     trs_freq_correction(ue, trs_cfo);
   }
 
+  // Keep TS 38.214, 5.1.6.1.1 tracking processing without publishing an unrequested CSI report.
+  if (csirs_config_pdu->measurement_bitmap == 0)
+    return;
+
   // Send CSI measurements to MAC
   if (!ue->if_inst || !ue->if_inst->dl_indication)
     return;
