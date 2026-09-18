@@ -265,16 +265,23 @@ def Deploy_Physim(ctx, HTML, node, workdir, script, options):
 		logging.error('\u001B[1m Physical Simulator Fail\u001B[0m')
 	return test_status
 
-# Run a script on a node, and optionally collect the logs it produced.
-# %%image_tag%% is replaced with tag, and %%log_dir%% with a directory on the node
-# from which all files are archived.
-def _run_script(HTML, ctx, node, script, options, timeout=600, tag=None, collect_logs=False):
-	# unique per invocation so concurrent log-collecting testcases on the same node cannot clash
-	remote_dir = f'/tmp/ci-log-collect-{uuid.uuid4().hex[:8]}'
+# Run a script on a node. Options containing %%log_dir%% ask for a directory on
+# the node: it is created, and every file the script places there is archived.
+# All other placeholders are substituted by the caller (see main.py),
+# so any that is left here is a typo or an unknown one.
+def Custom_Script(HTML, ctx, node, script, options, timeout=600):
 	logging.debug(f'Run script {script} on node: {node}')
 	opt = options or ''
-	opt = opt.replace('%%image_tag%%', tag) if tag else opt
+	collect_logs = '%%log_dir%%' in opt
+	# unique per invocation so concurrent log-collecting testcases on the same node cannot clash
+	remote_dir = f'/tmp/ci-log-collect-{uuid.uuid4().hex[:8]}'
 	opt = opt.replace('%%log_dir%%', remote_dir)
+	unknown = sorted(set(re.findall(r'%%\w+%%', opt)))
+	if unknown:
+		msg = f'unknown placeholder(s) in options of {script}: {" ".join(unknown)}'
+		logging.error(msg)
+		HTML.CreateHtmlTestRowQueue(f'{script} on node {node}', 'KO', [msg])
+		return False
 	log_files = []
 	with cls_cmd.getConnection(node) as c:
 		if collect_logs and c.run(f'mkdir {remote_dir}').returncode != 0:
@@ -299,18 +306,6 @@ def _run_script(HTML, ctx, node, script, options, timeout=600, tag=None, collect
 		message.append("Log files:\n" + "\n".join(os.path.basename(f) for f in log_files))
 	HTML.CreateHtmlTestRowQueue(f'{script} on node {node}', 'OK' if ret.returncode == 0 else 'KO', message)
 	return ret.returncode == 0
-
-def Custom_Script(HTML, node, script, args, ctx=None):
-	return _run_script(HTML, ctx, node, script, args, timeout=90)
-
-def DeployWithScript(HTML, node, script, options, tag):
-	return _run_script(HTML, None, node, script, options, tag=tag)
-
-def UndeployWithScript(HTML, ctx, node, script, options):
-	return _run_script(HTML, ctx, node, script, options, collect_logs=True)
-
-def CollectLogs(HTML, ctx, node, script, options):
-	return _run_script(HTML, ctx, node, script, options, collect_logs=True)
 
 #-----------------------------------------------------------
 # OaiCiTest Class Definition

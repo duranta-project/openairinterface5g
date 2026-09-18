@@ -151,16 +151,15 @@ def ExecuteActionWithParam(action, test, ctx, node, oc):
 		core_op = getattr(cls_oaicitest.OaiCiTest, action)
 		success = core_op(cn_id, ctx, HTML)
 
-	elif action == 'DeployWithScript' or action == 'UndeployWithScript' or action == 'Collect_Logs':
+	elif action in ['Custom_Script', 'DeployWithScript', 'UndeployWithScript', 'Collect_Logs']:
 		script = test.findtext('script')
-		options = test.findtext('options')
-		if action == 'DeployWithScript':
-			deploymentTag = ctx.g.branch
-			success = cls_oaicitest.DeployWithScript(HTML, node, script, options, deploymentTag)
-		elif action == 'UndeployWithScript':
-			success = cls_oaicitest.UndeployWithScript(HTML, ctx, node, script, options)
-		elif action == 'Collect_Logs':
-			success = cls_oaicitest.CollectLogs(HTML, ctx, node, script, options)
+		options = test.findtext('options') or test.findtext('args') or ''
+		timeout = int(test.findtext('timeout') or 600)
+		# Allow referencing repository workspace path and image tag in XML
+		script = script.replace("%%workspace%%", ctx.g.workspace)
+		options = options.replace("%%workspace%%", ctx.g.workspace)
+		options = options.replace("%%image_tag%%", ctx.g.branch)
+		success = cls_oaicitest.Custom_Script(HTML, ctx, node, script, options, timeout)
 
 	elif action == 'Deploy_Object' or action == 'Undeploy_Object' or action == "Create_Workspace" or action == "Stop_Object":
 		CONTAINERS.yamlPath = test.findtext('yaml_path')
@@ -213,13 +212,6 @@ def ExecuteActionWithParam(action, test, ctx, node, oc):
 		# Allow referencing repository workspace path in XML via %%workspace%%
 		command = command.replace("%%workspace%%", ctx.g.workspace)
 		success = cls_oaicitest.Custom_Command(HTML, node, command)
-
-	elif action == 'Custom_Script':
-		script = test.findtext('script')
-		args = test.findtext('args')
-		# Allow referencing repository workspace path in XML via %%workspace%%
-		script = script.replace("%%workspace%%", ctx.g.workspace)
-		success = cls_oaicitest.Custom_Script(HTML, node, script, args)
 
 	elif action == 'Pull_Cluster_Image':
 		tag_prefix = test.findtext('tag_prefix') or ""
