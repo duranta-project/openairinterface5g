@@ -67,7 +67,7 @@ static void tx_func(processingData_L1tx_t *info)
 
   clear_slot_beamid(gNB, slot_tx);
 
-  nfapi_nr_slot_indication_scf_t ind = {.header = {.phy_id = 0}, .sfn = frame_tx, .slot = slot_tx};
+  nfapi_nr_slot_indication_scf_t ind = {.header = {.phy_id = gNB->frame_parms.Nid_cell}, .sfn = frame_tx, .slot = slot_tx};
   start_meas(&gNB->slot_indication_stats);
   // this variable is very big (multiple MB), so we put it into static storage
   // to not overflow the stack while still having it in local (function) scope
@@ -175,7 +175,7 @@ static void rx_func(processingData_L1_t *info)
     LOG_D(NR_PHY, "%d.%d Starting RX processing\n", frame_rx, slot_rx);
 
     // UE-specific RX processing for subframe n
-    NR_UL_IND_t UL_INFO = {.frame = frame_rx, .slot = slot_rx, .module_id = gNB->Mod_id, .phy_id = gNB->CC_id};
+    NR_UL_IND_t UL_INFO = {.frame = frame_rx, .slot = slot_rx, .module_id = gNB->Mod_id, .phy_id = gNB->frame_parms.Nid_cell};
     // Do PRACH RU processing
     UL_INFO.rach_ind.pdu_list = UL_INFO.prach_pdu_indication_list;
     UL_INFO.rach_ind.number_of_pdus = 0;
