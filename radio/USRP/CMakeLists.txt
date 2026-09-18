@@ -9,6 +9,7 @@ add_library(oai_usrpdevif MODULE usrp_lib.cpp usrp_converters.cpp)
 target_link_libraries(oai_usrpdevif PRIVATE ${UHD_LIBRARIES})
 target_include_directories(oai_usrpdevif PRIVATE ${UHD_INCLUDE_DIRS})
 target_link_libraries(oai_usrpdevif PRIVATE log_headers)
+target_link_libraries(oai_usrpdevif PRIVATE tmytek_spi_config)
 set_target_properties(oai_usrpdevif PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 add_custom_command(TARGET oai_usrpdevif POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E create_symlink liboai_usrpdevif.so liboai_device.so
