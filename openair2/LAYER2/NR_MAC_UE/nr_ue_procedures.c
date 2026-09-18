@@ -452,10 +452,19 @@ static void set_harq_status(NR_UE_MAC_INST_t *mac,
 {
   NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[harq_id][cw_id];
   const NR_PUCCH_Config_t *pucch_Config = mac->current_UL_BWP ? mac->current_UL_BWP->pucch_Config : NULL;
+  const NR_PUCCH_ConfigCommon_t *pucch_ConfigCommon = mac->current_UL_BWP ? mac->current_UL_BWP->pucch_ConfigCommon : NULL;
   current_harq->active = true;
   current_harq->ack_received = false;
   current_harq->pucch_resource_indicator = pucch_id;
-  current_harq->pucch_resource_common = !nr_ue_has_dedicated_pucch_resource_set(pucch_Config);
+  // TS 38.213: PRI applies to the resource set at DCI detection
+  // No dedicated PUCCH-ResourceSet yet: freeze pucch-ResourceCommon (9.2.1), else -1 (9.2.3)
+  if (!nr_ue_has_dedicated_pucch_resource_set(pucch_Config)) {
+    AssertFatal(pucch_ConfigCommon && pucch_ConfigCommon->pucch_ResourceCommon,
+                "pucch_ResourceCommon required for Table 9.2.1-1 HARQ-ACK\n");
+    current_harq->pucch_ResourceCommon = *pucch_ConfigCommon->pucch_ResourceCommon;
+  } else {
+    current_harq->pucch_ResourceCommon = -1;
+  }
   current_harq->n_CCE = n_CCE;
   current_harq->N_CCE = N_CCE;
   current_harq->dai_cumul = 0;
@@ -2329,6 +2338,8 @@ static void merge_resources(PUCCH_sched_t *res, int num_res, NR_PUCCH_Config_t *
     merge_pair(res, i, pucch_Config);
 }
 
+/* @brief Order PUCCH occasions in the slot and merge overlapping ones.
+ * The UE multiplexes HARQ-ACK information, SR, and CSI reports (TS 38.213 9.2.5.1, 9.2.5.2) */
 void multiplex_pucch_resource(NR_UE_MAC_INST_t *mac, PUCCH_sched_t *pucch, int num_res)
 {
   NR_PUCCH_Config_t *pucch_Config = mac->current_UL_BWP->pucch_Config;
@@ -2341,7 +2352,7 @@ void multiplex_pucch_resource(NR_UE_MAC_INST_t *mac, PUCCH_sched_t *pucch, int n
       o++;
       j++;
     } else {
-      if (o > 0) {
+      if (o > 0) { // if there are overlapping resources, merge them
         merge_resources(&pucch[j - o], o + 1, pucch_Config);
         // move the resources to occupy the places left empty
         int num_empty = o;
@@ -2359,7 +2370,7 @@ void multiplex_pucch_resource(NR_UE_MAC_INST_t *mac, PUCCH_sched_t *pucch, int n
   }
 }
 
-void configure_initial_pucch(PUCCH_sched_t *pucch, int res_ind, long *pucch_ResourceCommon)
+void configure_initial_pucch(PUCCH_sched_t *pucch, int res_ind, int pucch_ResourceCommon)
 {
   /* see TS 38.213 9.2.1  PUCCH Resource Sets */
   int delta_PRI = res_ind;
@@ -2369,9 +2380,11 @@ void configure_initial_pucch(PUCCH_sched_t *pucch, int res_ind, long *pucch_Reso
     AssertFatal(1 == 0, "PUCCH No compatible pucch format found\n");
   int r_PUCCH = ((2 * n_CCE_0) / N_CCE_0) + (2 * delta_PRI);
   pucch->initial_pucch_id = r_PUCCH;
-  pucch->pucch_resource = NULL;
-  AssertFatal(pucch_ResourceCommon, "pucch_ResourceCommon NULL\n");
-  pucch->pucch_ResourceCommon = *pucch_ResourceCommon;
+  pucch->pucch_resource = NULL; // not a dedicated PUCCH-Resource
+  AssertFatal(pucch_ResourceCommon >= 0 && pucch_ResourceCommon < sizeofArray(initial_pucch_resource),
+              "invalid pucch_ResourceCommon %d\n",
+              pucch_ResourceCommon);
+  pucch->pucch_ResourceCommon = pucch_ResourceCommon; // Table 9.2.1-1 row index
 }
 
 /*******************************************************************
@@ -2408,7 +2421,8 @@ bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sche
   uint32_t dai_total[NR_DL_MAX_NB_CW][NR_MAX_HARQ_PROCESSES] = {{0},{0}}; /* for multiple cells */
   int number_harq_feedback = 0;
   uint32_t dai_max = 0;
-  bool pucch_common = false;
+  /* Aggregated Table 9.2.1-1 row for this PUCCH occasion, -1 if all HARQs are dedicated */
+  int occasion_pucch_ResourceCommon = -1;
 
   NR_UE_DL_BWP_t *current_DL_BWP = mac->current_DL_BWP;
   NR_UE_UL_BWP_t *current_UL_BWP = mac->current_UL_BWP;
@@ -2477,8 +2491,14 @@ bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sche
             pucch->harq_ack_pucch_res_ind = temp_ind;
             pucch->n_CCE = current_harq->n_CCE;
             pucch->N_CCE = current_harq->N_CCE;
-            if (current_harq->pucch_resource_common)
-              pucch_common = true;
+            // Collect 9.2.1 set index for this occasion, all common HARQs must agree
+            if (current_harq->pucch_ResourceCommon >= 0) {
+              AssertFatal(occasion_pucch_ResourceCommon < 0 || occasion_pucch_ResourceCommon == current_harq->pucch_ResourceCommon,
+                          "mixed occasion pucch_ResourceCommon %d vs %d\n",
+                          occasion_pucch_ResourceCommon,
+                          current_harq->pucch_ResourceCommon);
+              occasion_pucch_ResourceCommon = current_harq->pucch_ResourceCommon;
+            }
             LOG_D(NR_MAC,"%4d.%2d Sent %d ack on harq pid %d\n", frame, slot, current_harq->ack, dl_harq_pid);
           }
         }
@@ -2560,9 +2580,17 @@ bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sche
   }
 
   NR_PUCCH_Config_t *pucch_Config = current_UL_BWP ? current_UL_BWP->pucch_Config : NULL;
-  if (pucch_common || !nr_ue_has_dedicated_pucch_resource_set(pucch_Config))
-    configure_initial_pucch(pucch, res_ind, current_UL_BWP->pucch_ConfigCommon->pucch_ResourceCommon);
-  else {
+  // Any HARQ on 9.2.1 keeps the whole occasion on Table 9.2.1-1 (PRI/set at DCI)
+  // Else if dedicated ResourceSet still absent at TX, use current BWP pucch-ResourceCommon
+  if (occasion_pucch_ResourceCommon >= 0 || !nr_ue_has_dedicated_pucch_resource_set(pucch_Config)) {
+    int pucch_ResourceCommon = occasion_pucch_ResourceCommon;
+    if (pucch_ResourceCommon < 0) { // Fall back to active BWP pucch-ResourceCommon
+      AssertFatal(current_UL_BWP && current_UL_BWP->pucch_ConfigCommon && current_UL_BWP->pucch_ConfigCommon->pucch_ResourceCommon,
+                  "pucch_ResourceCommon NULL\n");
+      pucch_ResourceCommon = *current_UL_BWP->pucch_ConfigCommon->pucch_ResourceCommon;
+    }
+    configure_initial_pucch(pucch, res_ind, pucch_ResourceCommon);
+  } else {
     int resource_set_id = find_pucch_resource_set(pucch_Config, O_ACK);
     int n_list = pucch_Config->resourceSetToAddModList->list.count;
     AssertFatal(resource_set_id < n_list, "Invalid PUCCH resource set id %d\n", resource_set_id);
