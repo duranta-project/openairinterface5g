@@ -499,13 +499,15 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
    * set and easing L2 cache pressure. */
   const int max_layers = min(fp->nb_antennas_rx, NR_MAX_NB_LAYERS);
   const uint32_t llr_buf_max = NR_NB_SC_PER_RB * NR_SYMBOLS_PER_SLOT * fp->N_RB_DL * 8 * max_layers;
-  const size_t comp_elems = (size_t)NR_SYMBOLS_PER_SLOT * max_layers * pdsch_buf_size_max;
+  /* Buffers are now 1-symbol-wide: channel compensation writes into them and
+   * LLR+demapping consumes them within the same nr_rx_pdsch() call, so there
+   * is no need to keep slot-wide storage. */
+  const size_t comp_elems = (size_t)max_layers * pdsch_buf_size_max;
   const size_t ch_est_elems = (size_t)fp->nb_antennas_rx * max_layers * pdsch_est_size;
 
   /* rho_dl is only needed for 2-layer ML LLR computation; skip the
    * allocation entirely when ML is disabled to reduce memory footprint. */
-  const size_t rho_elems =
-      do_ml ? (size_t)NR_SYMBOLS_PER_SLOT * max_layers * max_layers * pdsch_buf_size_max : 0;
+  const size_t rho_elems = do_ml ? (size_t)max_layers * max_layers * pdsch_buf_size_max : 0;
 
   for (int i = 0; i < num_actors; i++) {
     buffers[i].pdsch_buf_size_max           = pdsch_buf_size_max;
