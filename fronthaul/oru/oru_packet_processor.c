@@ -1211,8 +1211,13 @@ void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int
     if (prach_compressed)
       header_length += sizeof(struct data_section_compression_hdr);
     const uint prach_length = 139;
+    // O-RAN CUS, 8.3.2: uncompressed U-plane sections carry all 12 complex REs of each advertised PRB.
     size_t data_len = prach_compressed ? (size_t)FH_COMP_PRB_BYTES(job->iq_width) * FH_PRACH_NUM_PRBS
-                                       : (size_t)(prach_length + ctx->prach_kbar) * 2 * sizeof(uint16_t);
+                                       : (size_t)num_ul_rbs * NR_NB_SC_PER_RB * sizeof(c16_t);
+    if (!prach_compressed && data_len < (ctx->prach_kbar + prach_length * 2) * sizeof(uint16_t)) {
+      rte_pktmbuf_free(pkt);
+      continue;
+    }
 
     char *buf = rte_pktmbuf_append(pkt, (uint16_t)(header_length + data_len));
     if (buf == NULL) {
@@ -1262,7 +1267,7 @@ void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int
       iq_data_start = (uint8_t *)(data_section_header + 1);
       const uint16_t *raw = (const uint16_t *)txdataF[aarx];
       uint16_t *dst = (uint16_t *)iq_data_start;
-      memset(dst, 0, (prach_length + ctx->prach_kbar) * 2 * sizeof(uint16_t));
+      memset(dst, 0, data_len);
       for (int i = 0; i < prach_length * 2; i++)
         dst[ctx->prach_kbar + i] = rte_cpu_to_be_16(raw[i]);
     }
