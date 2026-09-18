@@ -1059,63 +1059,33 @@ int nr_rate_matching_ldpc(uint32_t Tbslbrm,
          Tbslbrm);
 #endif
 
-  if (Foffset > E) {
-    LOG_E(PHY,
-          "nr_rate_matching: invalid parameters (Foffset %d > E %d) F %d, k0 %d, Ncb %d, rvidx %d, Tbslbrm %d\n",
-          Foffset,
-          E,
-          F,
-          ind,
-          Ncb,
-          rvidx,
-          Tbslbrm);
+  // TS 38.212, 5.4.2.1 selects E non-NULL bits; E need not reach the filler offset.
+  if (Foffset > Ncb || F > Ncb - Foffset || F == Ncb) {
+    LOG_E(PHY, "nr_rate_matching: invalid filler interval (offset %d, length %d, Ncb %d)\n", Foffset, F, Ncb);
     return -1;
   }
-  if (Foffset > Ncb) {
-    LOG_E(PHY, "nr_rate_matching: invalid parameters (Foffset %d > Ncb %d)\n", Foffset, Ncb);
-    return -1;
-  }
-
-  if (ind >= Foffset && ind < (F + Foffset))
-    ind = F + Foffset;
 
   uint32_t k = 0;
-  if (ind < Foffset) { // case where we have some bits before the filler and the rest after
-    memcpy((void *)e, (void *)(d + ind), Foffset - ind);
+  while (k < E) {
+    if (ind < Foffset) {
+      const uint32_t count = min(Foffset - ind, E - k);
+      memcpy(e + k, d + ind, count);
+      ind += count;
+      k += count;
+    }
 
-    if (E + F <= Ncb - ind) { // E+F doesn't contain all coded bits
-      memcpy((void *)(e + Foffset - ind), (void *)(d + Foffset + F), E - Foffset + ind);
-      k = E;
-    } else {
-      memcpy((void *)(e + Foffset - ind), (void *)(d + Foffset + F), Ncb - Foffset - F);
-      k = Ncb - F - ind;
-    }
-  } else {
-    if (E <= Ncb - ind) { // E+F doesn't contain all coded bits
-      memcpy((void *)(e), (void *)(d + ind), E);
-      k = E;
-    } else {
-      memcpy((void *)(e), (void *)(d + ind), Ncb - ind);
-      k = Ncb - ind;
-    }
-  }
+    if (ind >= Foffset && ind < Foffset + F)
+      ind = Foffset + F;
 
-  while (k < E) { // case where we do repetitions (low mcs)
-    // chunk before filler: d[0 .. Foffset)
-    if (Foffset > 0) {
-      uint32_t n = min(Foffset, E - k);
-      memcpy(e + k, d, n);
-      k += n;
-      if (k >= E)
-        break;
+    if (ind < Ncb) {
+      const uint32_t count = min(Ncb - ind, E - k);
+      memcpy(e + k, d + ind, count);
+      ind += count;
+      k += count;
     }
-    // chunk after filler: d[Foffset+F .. Ncb)
-    uint32_t after = Ncb - Foffset - F;
-    if (after > 0) {
-      uint32_t n = min(after, E - k);
-      memcpy(e + k, d + Foffset + F, n);
-      k += n;
-    }
+
+    if (ind == Ncb)
+      ind = 0;
   }
 
   return 0;
@@ -1151,12 +1121,8 @@ int nr_rate_matching_ldpc_rx_simd(uint32_t Tbslbrm,
   const uint32_t N = geo.N;
   const uint32_t Ncb = geo.Ncb;
   uint32_t ind = geo.k0;
-  if (Foffset > E) {
-    LOG_E(PHY, "nr_rate_matching: invalid parameters (Foffset %d > E %d)\n", Foffset, E);
-    return -1;
-  }
-  if (Foffset > Ncb) {
-    LOG_E(PHY, "nr_rate_matching: invalid parameters (Foffset %d > Ncb %d)\n", Foffset, Ncb);
+  if (Foffset > Ncb || F > Ncb - Foffset || F == Ncb) {
+    LOG_E(PHY, "nr_rate_matching: invalid filler interval (offset %d, length %d, Ncb %d)\n", Foffset, F, Ncb);
     return -1;
   }
 
@@ -1224,12 +1190,8 @@ int nr_rate_matching_ldpc_rx(uint32_t Tbslbrm,
   const uint32_t N = geo.N;
   const uint32_t Ncb = geo.Ncb;
   uint32_t ind = geo.k0;
-  if (Foffset > E) {
-    LOG_E(PHY, "nr_rate_matching: invalid parameters (Foffset %d > E %d)\n", Foffset, E);
-    return -1;
-  }
-  if (Foffset > Ncb) {
-    LOG_E(PHY, "nr_rate_matching: invalid parameters (Foffset %d > Ncb %d)\n", Foffset, Ncb);
+  if (Foffset > Ncb || F > Ncb - Foffset || F == Ncb) {
+    LOG_E(PHY, "nr_rate_matching: invalid filler interval (offset %d, length %d, Ncb %d)\n", Foffset, F, Ncb);
     return -1;
   }
 
