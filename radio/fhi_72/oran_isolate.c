@@ -38,6 +38,12 @@ notifiedFIFO_t oran_sync_fifo_prach;
 
 int trx_oran_start(openair0_device_t *device)
 {
+  (void)device;
+  return 0;
+}
+
+int trx_oran_start_streaming(openair0_device_t *device)
+{
   printf("ORAN: %s\n", __FUNCTION__);
 
   oran_eth_state_t *s = device->priv;
@@ -357,6 +363,7 @@ __attribute__((__visibility__("default"))) int transport_init(openair0_device_t 
   device->host_type = RAU_HOST;
   device->transp_type = ETHERNET_TP;
   device->trx_start_func = trx_oran_start;
+  device->thirdparty_startstreaming = trx_oran_start_streaming;
   device->trx_get_stats_func = trx_oran_get_stats;
   device->trx_end_func = trx_oran_end;
   device->trx_stop_func = trx_oran_stop;

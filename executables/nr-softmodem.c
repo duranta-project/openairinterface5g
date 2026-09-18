@@ -31,6 +31,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include <pthread.h>
 #include <sched.h>
 #include <simple_executable.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -85,6 +86,7 @@ pthread_mutex_t sync_mutex;
 int sync_var=-1; //!< protected by mutex \ref sync_mutex.
 int config_sync_var=-1;
 int oai_exit = 0;
+atomic_bool is_l1_ready = false;
 
 uint64_t downlink_frequency[MAX_NUM_CCs][4];
 int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
@@ -701,6 +703,7 @@ int main( int argc, char **argv ) {
     }
 
     // connect the TX/RX buffers
+    atomic_store_explicit(&is_l1_ready, true, memory_order_release);
     pthread_mutex_lock(&sync_mutex);
     sync_var=0;
     pthread_cond_broadcast(&sync_cond);
