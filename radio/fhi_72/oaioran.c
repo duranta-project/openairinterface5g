@@ -31,6 +31,7 @@
 
 // Declare variable useful for the send buffer function
 volatile bool first_call_set = false;
+extern atomic_bool is_l1_ready;
 
 int xran_is_prach_slot(uint8_t PortId, uint32_t subframe_id, uint32_t slot_id, uint8_t mu);
 #include "common/utils/LOG/log.h"
@@ -132,7 +133,7 @@ void oai_xran_fh_rx_callback(void *pCallbackTag, xran_status_t status, uint8_t m
     // if xran did not call xran_physide_dl_tti callback, it's not ready yet.
     // wait till first callback to advance counters, because otherwise users
     // would see periodic output with only "0" in stats counters
-    if (!first_call_set)
+    if (!first_call_set || !atomic_load_explicit(&is_l1_ready, memory_order_acquire))
       return;
     uint32_t slot2 = slot + (subframe * slots_in_sf);
     rx_RU[ru_id][slot2] = 1;
@@ -206,7 +207,7 @@ void oai_xran_fh_rx_prach_callback(void *pCallbackTag, xran_status_t status, uin
     // if xran did not call xran_physide_dl_tti callback, it's not ready yet.
     // wait till first callback to advance counters, because otherwise users
     // would see periodic output with only "0" in stats counters
-    if (!first_call_set)
+    if (!first_call_set || !atomic_load_explicit(&is_l1_ready, memory_order_acquire))
       return;
     uint32_t slot2 = slot + (subframe * slots_in_sf);
     rx_RU[ru_id][slot2] = 1;

@@ -48,6 +48,7 @@ static int DEFRUTPCORES[] = {-1,-1,-1,-1};
 #include "executables/nr-softmodem-common.h"
 
 static void NRRCconfig_RU(configmodule_interface_t *cfg);
+int start_streaming(RU_t *ru);
 
 /*************************************************************/
 /* Southbound Fronthaul functions, RCC/RAU                   */
@@ -608,6 +609,9 @@ void *ru_thread(void *param)
     ret = openair0_transport_load(&ru->ifdevice, &ru->openair0_cfg);
     AssertFatal(ret == 0, "RU %u: openair0_transport_init() ret %d: cannot initialize transport protocol\n", ru->idx, ret);
 
+    if (ru->ifdevice.thirdparty_startstreaming)
+      ru->start_rf = start_streaming;
+
     if (ru->ifdevice.get_internal_parameter) {
       /* it seems the device can "overwrite" (request?) to set the callbacks
        * for fh_south_in()/fh_south_out() differently */
@@ -1152,4 +1156,3 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg)
   } // j=0..num_rus
   return;
 }
-
