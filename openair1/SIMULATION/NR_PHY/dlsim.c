@@ -765,7 +765,6 @@ int main(int argc, char **argv)
 
   AssertFatal((gNB->if_inst = NR_IF_Module_init(0)) != NULL, "Cannot register interface");
   gNB->if_inst->NR_PHY_config_req = nr_phy_config_request;
-  gNB->num_pdsch_symbols_per_thread = num_pdsch_symbols_per_thread;
 
   NR_ServingCellConfigCommon_t *scc = calloc(1,sizeof(*scc));;
   prepare_scc(scc);
@@ -882,6 +881,7 @@ int main(int argc, char **argv)
   // nr_mac_config_scc()
   gNB_mac->pre_processor_dl = nr_dlsim_preprocessor;
   phy_init_nr_gNB(gNB);
+  gNB->num_pdsch_symbols_per_thread = num_pdsch_symbols_per_thread;
   N_RB_DL = gNB->frame_parms.N_RB_DL;
   NR_UE_info_t *UE_info = RC.nrmac[0]->UE_info.connected_ue_list[0];
 
@@ -1070,6 +1070,7 @@ int main(int argc, char **argv)
 
     reset_meas(&gNB->phy_proc_tx);
     reset_meas(&gNB->dlsch_scrambling_stats);
+    reset_meas(&gNB->dlsch_crc_stats);
     reset_meas(&gNB->dlsch_modulation_stats);
     reset_meas(&gNB->dlsch_pdsch_generation_stats);
     reset_meas(&gNB->dlsch_precoding_stats);
@@ -1077,7 +1078,6 @@ int main(int argc, char **argv)
     reset_meas(&gNB->dlsch_resource_mapping_stats);
     reset_meas(&gNB->dlsch_encoding_stats);
     reset_meas(&gNB->dci_generation_stats);
-    reset_meas(&gNB->phase_comp_stats);
 
     uint32_t errors_scrambling[16] = {0};
     int n_errors[16] = {0};
@@ -1448,14 +1448,23 @@ int main(int argc, char **argv)
       printStatIndent3(&gNB->dlsch_ldpc_encode_stats,"LDPC encoding time");
       printStatIndent2(&gNB->dlsch_modulation_stats,"DLSCH modulation time");
       printStatIndent2(&gNB->dlsch_scrambling_stats, "DLSCH scrambling time");
+      printStatIndent3(&gNB->dlsch_crc_stats,"DLSCH Outer CRC time");
       printStatIndent2(&gNB->dlsch_pdsch_generation_stats,"DLSCH PDSCH Generation time");
-      printStatIndent3(&gNB->dlsch_layer_mapping_stats,"DLSCH Layer Mapping time");
-      gNB->dlsch_resource_mapping_stats.trials = gNB->dlsch_layer_mapping_stats.trials;
-      printStatIndent3(&gNB->dlsch_resource_mapping_stats,"DLSCH Resource Mapping time");
-      gNB->dlsch_precoding_stats.trials = gNB->dlsch_layer_mapping_stats.trials;
-      printStatIndent3(&gNB->dlsch_precoding_stats,"DLSCH Precoding time");
-      if (gNB->phase_comp)
-        printStatIndent2(&gNB->phase_comp_stats, "Phase Compensation");
+      printStatIndent3(&gNB->dlsch_scrambling_stats, "DLSCH scrambling time");
+      if (gNB->dlsch_layer_mapping_stats.trials > 0) {
+        printStatIndent3(&gNB->dlsch_modulation_stats, "DLSCH modulation time");
+        printStatIndent3(&gNB->dlsch_layer_mapping_stats, "DLSCH Layer Mapping time");
+      } else {
+        printStatIndent3(&gNB->dlsch_modulation_stats, "DLSCH mod/lm time");
+      }
+      if (num_pdsch_symbols_per_thread == 0) {
+        gNB->dlsch_resource_mapping_stats.trials = gNB->dlsch_modulation_stats.trials;
+        if (gNB->dlsch_precoding_stats.trials > 0)
+          printStatIndent3(&gNB->dlsch_resource_mapping_stats, "DLSCH Resource Mapping time");
+        gNB->dlsch_precoding_stats.trials = gNB->dlsch_modulation_stats.trials;
+        if (gNB->dlsch_precoding_stats.trials > 0)
+          printStatIndent3(&gNB->dlsch_precoding_stats, "DLSCH Precoding time");
+      }
 
       if (use_cuda) {
         printStatIndent(&pipeline_stats, "GPU Channel Pipeline");

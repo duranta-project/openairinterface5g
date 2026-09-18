@@ -434,9 +434,9 @@ typedef struct PHY_VARS_gNB_s {
   time_stats_t dlsch_layer_mapping_stats;
   time_stats_t dlsch_resource_mapping_stats;
   time_stats_t dlsch_precoding_stats;
+  time_stats_t dlsch_crc_stats;
 
   time_stats_t dci_generation_stats;
-  time_stats_t phase_comp_stats;
   time_stats_t rx_pusch_stats;
   time_stats_t rx_pusch_init_stats;
   time_stats_t rx_pusch_symbol_processing_stats;

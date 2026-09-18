@@ -385,6 +385,7 @@ int main(int argc, char **argv)
   RC.gNB[0] = malloc16_clear(sizeof(*(RC.gNB[0])));
   gNB = RC.gNB[0];
   gNB->ofdm_offset_divisor = UINT_MAX;
+  gNB->phase_comp = true;
   frame_parms = &gNB->frame_parms; //to be initialized I suppose (maybe not necessary for PBCH)
   frame_parms->nb_antennas_tx = n_tx;
   frame_parms->nb_antennas_rx = n_rx;
@@ -478,6 +479,7 @@ int main(int argc, char **argv)
   __attribute__ ((aligned(32))) c16_t rxdataF[UE->frame_parms.nb_antennas_rx][rxdataF_sz];
   nfapi_nr_dl_tti_ssb_pdu ssb_pdu[64] = {0};
   if (input_fd==NULL) {
+    const int prb_mask_words = (frame_parms->N_RB_DL + 63) / 64;
 
     for (i=0; i<frame_parms->Lmax; i++) {
       if((SSB_positions >> i) & 0x01) {
@@ -495,20 +497,11 @@ int main(int argc, char **argv)
         for (aa=0; aa<gNB->frame_parms.nb_antennas_tx; aa++)
           memset(gNB->common_vars.txdataF[aa], 0, frame_parms->samples_per_slot_wCP * sizeof(int32_t));
 
-        nr_common_signal_procedures (gNB,frame,slot, &ssb_pdu[i]);
+        nr_common_signal_procedures(gNB, frame, slot, &ssb_pdu[i], prb_mask_words);
 
         int samp = get_samples_slot_timestamp(frame_parms, slot);
         for (aa = 0; aa < gNB->frame_parms.nb_antennas_tx; aa++) {
           if (cyclic_prefix_type == 1) {
-            apply_nr_rotation_TX(frame_parms,
-                                 gNB->common_vars.txdataF[aa],
-                                 true,
-                                 frame_parms->symbol_rotation[0],
-                                 slot,
-                                 frame_parms->N_RB_DL,
-                                 0,
-                                 12);
-
             for (int i = 0; i < 12; i++)
               fftshift_inverse_inplace(gNB->common_vars.txdataF[aa] + i * frame_parms->ofdm_symbol_size,
                                        frame_parms->N_RB_DL * NR_NB_SC_PER_RB,
@@ -521,15 +514,6 @@ int main(int argc, char **argv)
                          frame_parms->nb_prefix_samples,
                          CYCLIC_PREFIX);
           } else {
-            apply_nr_rotation_TX(frame_parms,
-                                 gNB->common_vars.txdataF[aa],
-                                 true,
-                                 frame_parms->symbol_rotation[0],
-                                 slot,
-                                 frame_parms->N_RB_DL,
-                                 0,
-                                 14);
-
             for (int i = 0; i < 14; i++)
               fftshift_inverse_inplace(gNB->common_vars.txdataF[aa] + i * frame_parms->ofdm_symbol_size,
                                        frame_parms->N_RB_DL * NR_NB_SC_PER_RB,
