@@ -1243,12 +1243,26 @@ void test_uplink_prb_offset()
   printf("Uplink PRB offset passed!\n");
 }
 
-void test_prach_generation()
+static void test_send_mbuf_sequence(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+{
+  uint8_t *expected = io_controller;
+  for (uint32_t i = 0; i < num_mbufs; i++) {
+    const struct xran_ecpri_hdr *hdr = rte_pktmbuf_mtod(mbufs[i], const struct xran_ecpri_hdr *);
+    const uint16_t eaxc = rte_be_to_cpu_16(hdr->ecpri_xtc_id);
+    assert(eaxc < 16);
+    assert(hdr->ecpri_seq_id.bits.seq_id == expected[eaxc]);
+    expected[eaxc]++;
+    g_packets_sent++;
+    rte_pktmbuf_free(mbufs[i]);
+  }
+}
+
+void test_prach_generation(int prach_eaxc_offset, bool check_sequence)
 {
   printf("Testing PRACH generation...\n");
   int mu = 1;
   int num_prb = 100;
-  int prach_eaxc_offset = 4;
+  uint8_t expected_sequence[16] = {0};
   g_packets_sent = 0;
   void *ctx = init_packet_processor(mu,
                                     num_prb,
@@ -1262,8 +1276,8 @@ void test_prach_generation()
                                     0,
                                     5,
                                     test_alloc_mbuf,
-                                    test_send_mbuf_prach,
-                                    NULL,
+                                    check_sequence ? test_send_mbuf_sequence : test_send_mbuf_prach,
+                                    expected_sequence,
                                     1500,
                                     prach_eaxc_offset,
                                     FH_COMP_NONE,
@@ -1332,6 +1346,19 @@ void test_prach_generation()
   // Attempting to write a 5th symbol should not send a packet, as the job should be deactivated
   write_prach_iq(ctx, txdataF, 1, frameId, slot_in_frame, startSymbolId + 4);
   assert(g_packets_sent == 4);
+
+  if (check_sequence) {
+    // Interleave both channel types, including an overlapping PUSCH antenna and sequence wrap.
+    ul_job_t job = {.frame = frameId, .slot_in_frame = slot_in_frame, .symbol = startSymbolId, .num_symbols = 1, .num_prb = 1};
+    for (int i = 0; i < 300; i++) {
+      for (int antenna = 0; antenna < 2; antenna++) {
+        job.antenna_id = antenna;
+        write_ul_iq(ctx, iq_input, startSymbolId, &job);
+      }
+      write_prach_iq(ctx, txdataF, 1, frameId, slot_in_frame, startSymbolId);
+    }
+    assert(g_packets_sent == 4 + 300 * 3);
+  }
 
   cleanup_packet_processor(ctx);
   printf("PRACH generation passed!\n");
@@ -1777,7 +1804,12 @@ int main(int argc, char **argv)
   usleep(10000);
   test_uplink_large_mtu();
   usleep(10000);
-  test_prach_generation();
+  test_prach_generation(4, false);
+  const int offsets[] = {0, 1, 4, 15};
+  for (unsigned i = 0; i < sizeof(offsets) / sizeof(offsets[0]); i++) {
+    usleep(10000);
+    test_prach_generation(offsets[i], true);
+  }
   usleep(10000);
   test_hyper_frame_calculation();
   usleep(10000);

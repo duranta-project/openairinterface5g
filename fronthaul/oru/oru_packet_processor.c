@@ -35,6 +35,7 @@
 #define NUM_CONCURRENT_DL_SYMBOL_WINDOWS MAX_CONCURRENT_DL_JOBS
 #define NUM_CONCURRENT_UL_SYMBOL_WINDOWS 128
 #define MAX_ANTENNAS 4
+#define NUM_RU_PORT_IDS 16 // The eAxC layout allocates four bits to the RU port.
 #define NR_NUMBER_OF_SUBFRAMES_PER_FRAME 10
 #define MAX_TDD_PATTERN_LENGTH_MS 10
 #define MAX_SLOTS_PER_MS 4
@@ -120,7 +121,8 @@ typedef struct {
   alloc_func_t alloc_func;
   send_func_t send_func;
   void *io_controller;
-  _Atomic(uint8_t) pusch_seq_id[MAX_ANTENNAS];
+  // O-RAN CUS, 5.1.3.2.8: sequence IDs advance per U-plane UL eAxC, not per channel type.
+  _Atomic(uint8_t) ul_seq_id[NUM_RU_PORT_IDS];
   size_t mtu;
   fh_comp_method_t dl_comp_method;
 } oru_packet_processor_context_t;
@@ -1095,7 +1097,7 @@ void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *j
 
     struct xran_ecpri_hdr *ecpri_header = (struct xran_ecpri_hdr *)buf;
     uint16_t ecpri_payload_size = (uint16_t)(header_length - 4 + data_len);
-    fill_ecpri_header(ecpri_header, &ctx->eaxcid_config, ECPRI_IQ_DATA, ecpri_payload_size, 0, aarx, ctx->pusch_seq_id[aarx]++, 0);
+    fill_ecpri_header(ecpri_header, &ctx->eaxcid_config, ECPRI_IQ_DATA, ecpri_payload_size, 0, aarx, ctx->ul_seq_id[aarx]++, 0);
 
     struct radio_app_common_hdr *radio_app_header = (struct radio_app_common_hdr *)(ecpri_header + 1);
     fill_radio_app_header(radio_app_header, 0, XRAN_DIR_UL, frame, slot_in_frame, symbol, mu);
@@ -1234,7 +1236,7 @@ void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int
                       ecpri_payload_size,
                       0,
                       aarx + ctx->prach_eaxc_offset,
-                      ctx->pusch_seq_id[aarx]++,
+                      ctx->ul_seq_id[(aarx + ctx->prach_eaxc_offset) & (NUM_RU_PORT_IDS - 1)]++,
                       0);
 
     struct radio_app_common_hdr *radio_app_header = (struct radio_app_common_hdr *)(ecpri_header + 1);
