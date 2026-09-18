@@ -455,12 +455,13 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   pdsch_scratch_t *scratch = &ue->pdsch_scratch[actor_idx];
   const uint32_t pdsch_est_size = scratch->pdsch_est_size;
   const uint32_t pdsch_buf_size_max = scratch->pdsch_buf_size_max;
+  const int max_layers = min(ue->frame_parms.nb_antennas_rx, NR_MAX_NB_LAYERS);
   int32_t (*pdsch_dl_ch_estimates)[pdsch_est_size] = (int32_t (*)[pdsch_est_size])scratch->pdsch_dl_ch_estimates;
-  c16_t (*rxdataF_comp)[NR_MAX_NB_LAYERS][pdsch_buf_size_max] = (c16_t (*)[NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->rxdataF_comp;
-  c16_t (*dl_ch_mag)[NR_MAX_NB_LAYERS][pdsch_buf_size_max]    = (c16_t (*)[NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->dl_ch_mag;
-  c16_t (*dl_ch_magb)[NR_MAX_NB_LAYERS][pdsch_buf_size_max]   = (c16_t (*)[NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->dl_ch_magb;
-  c16_t (*dl_ch_magr)[NR_MAX_NB_LAYERS][pdsch_buf_size_max]   = (c16_t (*)[NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->dl_ch_magr;
-  c16_t (*rho_dl)[NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max] = (c16_t (*)[NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->rho_dl;
+  c16_t(*rxdataF_comp)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->rxdataF_comp;
+  c16_t(*dl_ch_mag)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->dl_ch_mag;
+  c16_t(*dl_ch_magb)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->dl_ch_magb;
+  c16_t(*dl_ch_magr)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->dl_ch_magr;
+  c16_t(*rho_dl)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->rho_dl;
 
   NR_DL_FRAME_PARMS *frame_parms = &ue->frame_parms;
   uint32_t nvar = 0;
@@ -553,63 +554,54 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
     first_symbol_with_data++;
   }
 
-  uint32_t dl_valid_re[NR_SYMBOLS_PER_SLOT] = {0};
-
   int32_t log2_maxh = 0;
 
   start_meas_nr_ue_phy(ue, RX_PDSCH_STATS);
-  pdsch_scope_req_t scope_req = {.copy_chanest_to_scope = false, .copy_rxdataF_to_scope = false, .scope_rxdataF_offset = 0};
+  pdsch_scope_req_t scope_req = {0};
+  /* rxdataF_comp is 1-symbol-wide and overwritten each nr_rx_pdsch() call, so we lock
+   * before the loop and copy each symbol's data inside nr_rx_pdsch while it is still in
+   * the buffer.  The lock uses the same upper-bound RE count as the other scope buffers. */
   if (UEScopeHasTryLock(ue)) {
     metadata mt = {.frame = proc->frame_rx, .slot = proc->nr_slot_rx};
-    scope_req.copy_chanest_to_scope = UETryLockScopeData(ue,
-                                                         pdschChanEstimates,
-                                                         sizeof(c16_t),
-                                                         1,
-                                                         freq_alloc->num_rbs * NR_NB_SC_PER_RB * dlschCfg->number_symbols,
-                                                         &mt);
-    scope_req.copy_rxdataF_to_scope = UETryLockScopeData(ue,
-                                                         pdschRxdataF,
-                                                         sizeof(c16_t),
-                                                         1,
-                                                         freq_alloc->num_rbs * NR_NB_SC_PER_RB * dlschCfg->number_symbols,
-                                                         &mt);
+    int total_re = freq_alloc->num_rbs * NR_NB_SC_PER_RB * dlschCfg->number_symbols;
+    scope_req.copy_chanest_to_scope = UETryLockScopeData(ue, pdschChanEstimates, sizeof(c16_t), 1, total_re, &mt);
+    scope_req.copy_rxdataF_to_scope = UETryLockScopeData(ue, pdschRxdataF, sizeof(c16_t), 1, total_re, &mt);
+    scope_req.copy_rxdataF_comp_to_scope = UETryLockScopeData(ue, pdschRxdataF_comp, sizeof(c16_t), 1, total_re, &mt);
   }
 
+  int16_t *llr_out = llr;
   for (int m = dlschCfg->start_symbol; m < (dlschCfg->number_symbols + dlschCfg->start_symbol); m++) {
-    bool first_symbol_flag = false;
-    if (m == first_symbol_with_data)
-      first_symbol_flag = true;
-
-    // process DLSCH received symbols in the slot
-    // symbol by symbol processing (if data/DMRS are multiplexed is checked inside the function)
-    if (nr_rx_pdsch(ue,
-                    proc,
-                    dlsch,
-                    freq_alloc,
-                    dlschCfg,
-                    dlsch_harq,
-                    m,
-                    first_symbol_flag,
-                    harq_pid,
-                    pdsch_est_size,
-                    pdsch_dl_ch_estimates,
-                    llr,
-                    dl_valid_re,
-                    rxdataF,
-                    &log2_maxh,
-                    pdsch_buf_size_max,
-                    frame_parms->nb_antennas_rx,
-                    rxdataF_comp,
-                    dl_ch_mag,
-                    dl_ch_magb,
-                    dl_ch_magr,
-                    cpe[m],
-                    IS_BIT_SET(ptrs_symb_pos, m) ? ptrs_re_symbol : 0,
-                    nvar,
-                    &scope_req,
-                    rho_dl,
-                    IS_BIT_SET(ptrs_symb_pos, m))
-        < 0) {
+    uint32_t nb_re = nr_rx_pdsch(ue,
+                            proc,
+                            dlsch,
+                            freq_alloc,
+                            dlschCfg,
+                            dlsch_harq,
+                            m,
+                            (m == first_symbol_with_data),
+                            harq_pid,
+                            pdsch_est_size,
+                            pdsch_dl_ch_estimates,
+                            llr_out,
+                            rxdataF,
+                            &log2_maxh,
+                            pdsch_buf_size_max,
+                            frame_parms->nb_antennas_rx,
+                            max_layers,
+                            rxdataF_comp,
+                            dl_ch_mag,
+                            dl_ch_magb,
+                            dl_ch_magr,
+                            cpe[m],
+                            IS_BIT_SET(ptrs_symb_pos, m) ? ptrs_re_symbol : 0,
+                            nvar,
+                            &scope_req,
+                            rho_dl,
+                            IS_BIT_SET(ptrs_symb_pos, m));
+    if (nb_re == 0) {
+      if (scope_req.copy_rxdataF_comp_to_scope) {
+        UEunlockScopeData(ue, pdschRxdataF_comp)
+      }
       if (scope_req.copy_chanest_to_scope) {
         UEunlockScopeData(ue, pdschChanEstimates);
       }
@@ -618,8 +610,12 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
       }
       return -1;
     }
+    llr_out += (size_t)nb_re * dlsch->cw_info.qamModOrder * dlsch->cw_info.Nl;
   } // CRNTI active
   stop_meas_nr_ue_phy(ue, RX_PDSCH_STATS);
+  if (scope_req.copy_rxdataF_comp_to_scope) {
+    UEunlockScopeData(ue, pdschRxdataF_comp)
+  }
   if (scope_req.copy_chanest_to_scope) {
     UEunlockScopeData(ue, pdschChanEstimates);
   }
