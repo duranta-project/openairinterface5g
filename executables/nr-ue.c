@@ -37,14 +37,14 @@
  *  - PUCCH/PUSCH (transmission of acknowledgements, CSI, ... or data).
  *
  *  Time between reception of the slot and related transmission depends on UE processing performance.
- *  It is defined by the value NR_UE_CAPABILITY_SLOT_RX_TO_TX.
+ *  It is defined by the value command line parameter ue-capability-rx2tx.
  *
  *  In NR, network gives the duration between Rx slot and Tx slot in the DCI:
  *  - for reception of a PDSCH and its associated acknowledgment slot (with a PUCCH or a PUSCH),
  *  - for reception of an uplink grant and its associated PUSCH slot.
  *
  *  So duration between reception and it associated transmission depends on its transmission slot given in the DCI.
- *  NR_UE_CAPABILITY_SLOT_RX_TO_TX means the minimum duration but higher duration can be given by the network because UE can support it.
+ *  ue-capability-rx2tx means the minimum duration but higher duration can be given by the network because UE can support it.
  *
  *                                                                                                    Slot k
  *                                                                                  -------+------------+--------
@@ -780,7 +780,7 @@ void *UE_thread(void *arg)
 
   bool ntn_targetcell = false;
   int ntn_koffset = 0;
-  int duration_rx_to_tx = NR_UE_CAPABILITY_SLOT_RX_TO_TX;
+  int duration_rx_to_tx = get_nrUE_params()->ue_capability_rx2tx;
   int timing_advance = UE->timing_advance + UE->timing_advance_ntn;
   UE->N_TA_offset = determine_N_TA_offset(UE);
   NR_UE_MAC_INST_t *mac = get_mac_inst(UE->Mod_id);
@@ -1104,11 +1104,11 @@ void *UE_thread(void *arg)
   return NULL;
 }
 
-void init_NR_UE(int nb_inst, char *uecap_file, char *reconfig_file, char *rbconfig_file, int numerology)
+void init_NR_UE(int nb_inst, char *uecap_file, char *reconfig_file, char *rbconfig_file, int rx2tx, int numerology)
 {
   for (int instance_id = 0; instance_id < nb_inst; instance_id++) {
     NR_UE_RRC_INST_t* rrc = nr_rrc_init_ue(uecap_file, instance_id, get_nrUE_params()->nb_antennas_tx);
-    NR_UE_MAC_INST_t *mac = nr_l2_init_ue(instance_id, numerology);
+    NR_UE_MAC_INST_t *mac = nr_l2_init_ue(instance_id, numerology, rx2tx);
 
     nr_rrc_set_mac_queue(instance_id, &mac->input_nf);
     mac->if_module = nr_ue_if_module_init(instance_id);

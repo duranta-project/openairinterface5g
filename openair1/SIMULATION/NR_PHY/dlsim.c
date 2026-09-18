@@ -973,7 +973,7 @@ int main(int argc, char **argv)
 
   init_nr_ue_transport(UE);
 
-  UE_mac = nr_l2_init_ue(0, mu);
+  UE_mac = nr_l2_init_ue(0, mu, 3);
   ue_init_config_request(UE_mac, get_slots_per_frame_from_scs(mu));
 
   UE->if_inst = nr_ue_if_module_init(0);
