@@ -274,15 +274,19 @@ cases, persists to `{dl,ul}_bler_stats.mcs`.
 
 ### `nr_dl_proportional_fair`, `nr_ul_proportional_fair`
 
-Proportional-fair scheduler with three phases:
+Proportional-fair scheduler with three phases, plus a fourth in UL:
 
 - **Phase 1 — Retransmissions:** find the largest free block >= `retx_rbSize`.
 - **Phase 2 — Minimal-grant UEs:** in DL, targets UEs with no pending RLC data
   (`pending_bytes == 0`) that still need a TA command or beam-switch MAC CE. In UL,
-  targets inactive UEs (`sched_inactive`) that need scheduling for TA/SR. Both get a
-  minimum grant (`min_rb`).
+  targets inactive UEs (`sched_long_inactivity`) that need scheduling for TA/SR and UEs with SR and a small amount of 
+  pending data. Both get a minimum grant (`min_rb`).
 - **Phase 3 — New data:** sort by PF weight (`pending_bytes / avg_throughput`), allocate
-  the largest free block to each UE in order.
+  the largest free block to each UE in order. Half the available grants are reserved to this phase if needed.
+- **Phase 4 — Unused reserve (UL only):** the grants held back for phase 3 are a cap on
+  phase 2, not a promise to phase 3. Whatever it could not place, goes back to the
+  minimal-grant UEs rather than being wasted in a slot whose budget is already spoken
+  for.
 
 The UL policy also checks PHR (Power Headroom) and adjusts MCS/RBs accordingly.
 All phases use `COMMIT_ALLOC` / `COMMIT_UL_ALLOC` to validate CCE (and PUCCH on DL).
