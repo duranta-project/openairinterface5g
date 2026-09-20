@@ -13,3 +13,8 @@ add_test(NAME test_fsn COMMAND ./test_fsn)
 add_executable(test_bits test_bits.c)
 add_dependencies(tests test_bits)
 add_test(NAME test_bits COMMAND ./test_bits)
+
+add_executable(test_seqlock test_seqlock.c)
+add_dependencies(tests test_seqlock)
+target_link_libraries(test_seqlock PRIVATE pthread)
+add_test(NAME test_seqlock COMMAND ./test_seqlock)

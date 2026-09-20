@@ -12,6 +12,7 @@ target_include_directories(e3_sm_worker PUBLIC
 target_link_directories(e3_sm_worker PRIVATE ${CLIBE3_LIBRARY_DIRS})
 target_link_libraries(e3_sm_worker pthread LOG)
 
+add_subdirectory(spectrum_sm)
 add_subdirectory(l1_kpm_sm)
 
 add_library(service_models INTERFACE)
@@ -22,6 +23,7 @@ target_include_directories(service_models INTERFACE
 )
 
 target_link_libraries(service_models INTERFACE
+    ${SPECTRUM_SM_LIBRARY}
     ${L1_KPM_SM_LIBRARY}
     e3_sm_worker
     log_headers

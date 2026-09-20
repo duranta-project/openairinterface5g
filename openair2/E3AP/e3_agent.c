@@ -5,6 +5,7 @@
 #include "e3_agent.h"
 #include "e3_log.h"
 #include "config/e3_config.h"
+#include "service_models/spectrum_sm/spectrum_sm.h"
 #include "service_models/l1_kpm_sm/l1_kpm_sm.h"
 
 // TODO replace pthreads with itti or use a faster way
@@ -33,6 +34,7 @@ typedef struct {
 } e3_sm_registration_t;
 
 static const e3_sm_registration_t e3_service_models[] = {
+    {E3_SM_ID_SPECTRUM, "Spectrum", create_spectrum_sm_model, spectrum_sm_set_handle, spectrum_telemetry_set_period_us},
     {E3_SM_ID_KPM, "L1-KPM", create_l1_kpm_sm_model, l1_kpm_sm_set_handle, l1_kpm_sm_set_period_us},
 };
 

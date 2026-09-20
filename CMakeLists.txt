@@ -1242,6 +1242,15 @@ set (MAC_NR_SRC
   ${NR_GNB_MAC_DIR}/nrdc_mac_rrc_dl_handler.c
  )
 
+# Sensing MAC sources: only with the E3 agent. Call sites in the shared
+# MAC sources are gated with #ifdef E3_AGENT.
+if(E3_AGENT)
+  list(APPEND MAC_NR_SRC
+    ${NR_GNB_MAC_DIR}/gNB_scheduler_ul_sensing.c
+    ${NR_GNB_MAC_DIR}/gNB_scheduler_ul_sensing_aerial.c
+  )
+endif()
+
 
 set (MAC_SRC_UE
   ${PHY_INTERFACE_DIR}/phy_stub_UE.c
@@ -1320,6 +1329,9 @@ add_library(L2_NR
   ${MAC_NR_SRC}
   ${GNB_APP_SRC}
   )
+if(E3_AGENT)
+  target_compile_definitions(L2_NR PRIVATE E3_AGENT)
+endif()
 target_link_libraries(L2_NR PRIVATE ds alg)
 target_link_libraries(L2_NR PRIVATE f1ap_lib)
 target_link_libraries(L2_NR PRIVATE nfapi_nr_user_lib)
