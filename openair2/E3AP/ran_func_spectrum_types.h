@@ -43,27 +43,27 @@ typedef struct {
 extern "C" {
 #endif
 
-/* --- Controls the Spectrum SM applies to the RAN ------------------------- *
- * Declared with the same header on both sides -- the definition in
- * ran_func_spectrum_prb_block.c and the weak fallback in the SM library -- so
- * the compiler, not the linker, checks that they agree. The types are only
- * forward declared: the SM does not need the MAC headers. */
 struct gNB_MAC_INST_s;
 struct nr_cell_sched_s;
 
 typedef enum { PRB_BLOCK_DIR_DL = 0, PRB_BLOCK_DIR_UL = 1 } prb_block_dir_t;
 
-/* The MAC instance and cell the service models act on. False before MAC init. */
+/* False before MAC init. */
 bool e3_spectrum_default_cell(struct gNB_MAC_INST_s **mac, struct nr_cell_sched_s **cell);
 
-/* Install (mask != NULL) or clear (NULL) the sensing policy: per slot, the
- * symbols to keep free of UL data. False if the cell has no sensing state. */
+/* Thread-local, consumed by the next set_prb_block_mask() on this thread; 0 or unset = the dApp's own decision. */
+void prb_block_set_pending_procedure(uint32_t sequence_id);
+
+/* Scheduler thread, inside the slot deadline: must not block. Weak no-op default in ran_func_spectrum_prb_block.c. */
+void prb_block_on_air_hook(uint32_t sequence_id, uint16_t sfn, uint16_t slot);
+
+/* A later install replaced one that never reached the air. Weak no-op default. */
+void prb_block_superseded_hook(uint32_t sequence_id);
+
+/* Per-slot symbols to keep free of UL data; NULL clears. */
 bool set_sensing_policy(struct nr_cell_sched_s *cell, const uint16_t *mask, int n_slots);
 
-/* Replace a direction's PRB block (NULL/len 0 = clear). REPLACE semantics: the
- * dApp sends the full current set on every change. False if the cell has no
- * block state. Takes the MAC instance too: the registry scan an install triggers
- * runs under its sched_lock. */
+/* REPLACE semantics: the full current set on every change; NULL/len 0 clears. The registry scan runs under mac->sched_lock. */
 bool set_prb_block_mask(struct gNB_MAC_INST_s *mac,
                         struct nr_cell_sched_s *cell,
                         prb_block_dir_t dir,
