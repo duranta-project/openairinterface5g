@@ -72,8 +72,11 @@ static void e2_e3_bridge(uint32_t dapp_id,
                          size_t report_size,
                          uint32_t sequence_id)
 {
-  (void)sequence_id; /* correlation id of the dApp's detection; not used by the E2 relay yet */
-  E3_LOG_D("Received dApp report for RAN function %u from dApp %u (%zu bytes)\n", ran_function_id, dapp_id, report_size);
+  E3_LOG_D("Received dApp report for RAN function %u from dApp %u (%zu bytes, seq=%u)\n",
+           ran_function_id,
+           dapp_id,
+           report_size,
+           sequence_id);
 #ifdef E2_AGENT
   if (!report_data && report_size > 0) {
     E3_LOG_E("Invalid dApp report payload: report_data is NULL while report_size=%zu\n", report_size);

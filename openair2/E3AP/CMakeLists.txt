@@ -1,29 +1,21 @@
 # SPDX-License-Identifier: LicenseRef-CSSL-1.0
 
-# Opt-in build-time gate: a build cannot know which E3Configuration.encoding a
-# conf will select, so this is empty by default and the checks below only warn.
-# A deployment that does know its conf can pin it (-DE3_REQUIRED_ENCODINGS=json).
+# Opt-in gate (e.g. -DE3_REQUIRED_ENCODINGS=json); empty means the checks below only warn.
 set(E3_REQUIRED_ENCODINGS "" CACHE STRING "E3 wire encodings the linked libe3 must provide (asn1;json;protobuf); empty = no build-time requirement")
 
 find_package(PkgConfig REQUIRED)
 # libe3's C API is not stable across minor releases: 0.2.0 adds a correlation
 # id (sequence_id) to the control and report callbacks and to
-# e3_agent_send_xapp_control(), so stay inside the 0.2 series. It also covers
-# the .pc Cflags below: 0.1.3 is the first release whose Cflags are safe to
-# consume as compile definitions (earlier ones exported a quoted
-# -DLATREC_DEFAULT_DIR whose quotes pkg-config strips).
+# e3_agent_send_xapp_control(), so stay inside the 0.2 series.
 pkg_check_modules(CLIBE3 REQUIRED libe3>=0.2.0 libe3<0.3.0)
 
 if(NOT CLIBE3_FOUND)
     message(FATAL_ERROR "libe3 not found and required for E3 Agent")
 endif()
 
-# Two constraints make pkg_check_modules report the version per module.
 message(STATUS "Using for E3AP libe3 version: ${CLIBE3_libe3_VERSION}")
 
-# libe3's feature macros, as bare names for target_compile_definitions().
-# libe3.pc is generated from the libe3 target's INTERFACE_COMPILE_DEFINITIONS,
-# so what this reports cannot drift from the binary we link.
+# libe3's feature macros (from libe3.pc), as bare names for target_compile_definitions().
 set(CLIBE3_COMPILE_DEFS "")
 foreach(_def IN LISTS CLIBE3_CFLAGS_OTHER)
     if(_def MATCHES "^-D(.+)$")
@@ -35,10 +27,7 @@ endforeach()
 unset(_def)
 message(STATUS "libe3 capabilities: ${CLIBE3_COMPILE_DEFS}")
 
-# The E3SM codecs compile every wire format and pick at runtime, so which
-# encoders libe3 has is the only thing deciding what this gNB can serve. An
-# encoding libe3 lacks previously surfaced only as a null encoder inside libe3,
-# reported as a generic agent-init failure that named nothing.
+# The encoders libe3 has decide which wire formats this gNB can serve.
 set(CLIBE3_ENCODINGS "")
 foreach(_enc asn1 json protobuf)
     string(TOUPPER "${_enc}" _enc_upper)
@@ -57,8 +46,7 @@ if(NOT CLIBE3_ENCODINGS)
         "with at least one of them ON.")
 endif()
 
-# Not an error: a JSON-only deployment builds libe3 with ASN1=OFF on purpose
-# and sets the key explicitly. e3_readconfig() fails the run if one does not.
+# Only a warning: a JSON-only libe3 is legitimate if the conf sets encoding explicitly.
 if(NOT "asn1" IN_LIST CLIBE3_ENCODINGS)
     message(WARNING
         "libe3 ${CLIBE3_libe3_VERSION} has no asn1 encoder, but asn1 is the "
@@ -68,8 +56,6 @@ if(NOT "asn1" IN_LIST CLIBE3_ENCODINGS)
 endif()
 
 foreach(_enc IN LISTS E3_REQUIRED_ENCODINGS)
-    # Checked against the accepted names first, so a typo reads as a typo
-    # rather than as "libe3 was built without <nonexistent encoder>".
     if(NOT _enc MATCHES "^(asn1|json|protobuf)$")
         message(FATAL_ERROR
             "E3_REQUIRED_ENCODINGS: unknown encoding '${_enc}' "
@@ -91,7 +77,7 @@ unset(_enc_upper)
 include_directories(${CLIBE3_INCLUDE_DIRS})
 
 add_subdirectory(service_models)
-add_library(e3ap e3_agent.c config/e3_config.c)
+add_library(e3ap e3_agent.c config/e3_config.c e3_pending_ctrl.c)
 
 # target_link_libraries(e3ap PUBLIC OCP_ITTI) # TODO
 
