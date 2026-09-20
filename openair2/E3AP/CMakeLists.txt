@@ -18,7 +18,6 @@ if(NOT CLIBE3_FOUND)
     message(FATAL_ERROR "libe3 not found and required for E3 Agent")
 endif()
 
-# Two constraints make pkg_check_modules report the version per module.
 message(STATUS "Using for E3AP libe3 version: ${CLIBE3_libe3_VERSION}")
 
 # libe3's feature macros, as bare names for target_compile_definitions().
@@ -91,7 +90,7 @@ unset(_enc_upper)
 include_directories(${CLIBE3_INCLUDE_DIRS})
 
 add_subdirectory(service_models)
-add_library(e3ap e3_agent.c config/e3_config.c)
+add_library(e3ap e3_agent.c config/e3_config.c e3_pending_ctrl.c)
 
 # target_link_libraries(e3ap PUBLIC OCP_ITTI) # TODO
 
