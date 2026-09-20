@@ -712,6 +712,13 @@ static void nr_pdsch_symbol_processing(void *arg)
    number of chunks follows the pool width. */
 #define NR_PDSCH_MOD_MIN_CHUNK_SYMS 2048
 
+/* NR_PDSCH_NO_MODCHUNK=1 forces the serial path (A/B testing); read once at load time. */
+static bool nr_pdsch_no_modchunk;
+static void __attribute__((constructor)) nr_pdsch_read_modchunk_env(void)
+{
+  nr_pdsch_no_modchunk = getenv("NR_PDSCH_NO_MODCHUNK") != NULL;
+}
+
 static inline uint32_t nr_gcd_u32(uint32_t a, uint32_t b)
 {
   while (b) { uint32_t t = a % b; a = b; b = t; }
@@ -744,15 +751,13 @@ static void nr_pdsch_scramble_modulate_chunk(void *arg)
   for (uint32_t i = 0; i < d->n_words; i++)
     out[i] = in[i] ^ seq[i];
 
-  c16_t mod_symbs[d->n_syms] __attribute__((aligned(64)));
-  nr_modulation(out, d->bit_len, d->Qm, (int16_t *)mod_symbs);
-
   // tl[l][k] is tx_layers[l][sym_off / n_layers + k]
   c16_t (*tl)[d->layerSz] = (c16_t (*)[d->layerSz])(d->tx_base + d->sym_off / d->n_layers);
   // required by the aligned SIMD stores in layer mapping
   DevAssert(((uintptr_t)tl & 63) == 0);
-  c16_t (*ms)[d->n_syms] = &mod_symbs;
-  nr_layer_mapping(1, d->n_syms, ms, d->n_layers, d->layerSz, d->n_syms, tl);
+  // selects the right strategy for the layer count, so every rank can be chunked
+  const bool ok = nr_modulation_layer_mapping(out, d->bit_len, d->Qm, d->n_layers, d->layerSz, tl);
+  DevAssert(ok);
 
   completed_task_ans(d->ans);
 }
@@ -829,8 +834,6 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   const uint32_t roundedSz = (encoded_length + 31) / 32;
 
   /* Split scramble+modulate+layer-map over the pool when the allocation is large enough.
-     Restricted to <= 2 layers, where nr_modulation_layer_mapping() itself uses
-     modulate-then-deinterleave, which is what the chunk worker does.
      A chunk boundary must be:
        - 32-bit aligned (the scrambler XORs whole words);
        - a whole number of per-layer symbols (unit = Qm * n_layers bits), so each chunk
@@ -843,7 +846,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   const uint32_t align_unit = 16u * unit; // 16 c16_t = 64 B per layer
   const uint32_t granule_bits = (32u / nr_gcd_u32(32u, align_unit)) * align_unit;
   const uint32_t granules_total = (encoded_length + granule_bits - 1) / granule_bits;
-  if (gNB->num_pdsch_symbols_per_thread > 0 && rel15->nrOfLayers <= 2) {
+  if (gNB->num_pdsch_symbols_per_thread > 0 && !nr_pdsch_no_modchunk) {
     /* one chunk per worker plus one for the caller, which runs the last inline */
     const uint32_t by_pool = (uint32_t)gNB->threadPool.len_thr + 1;
     const uint32_t by_size = (encoded_length / Qm) / NR_PDSCH_MOD_MIN_CHUNK_SYMS;
