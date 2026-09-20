@@ -10,6 +10,7 @@
 #include "nr_dci.h"
 #include "nr_sch_dmrs.h"
 #include "PHY/MODULATION/nr_modulation.h"
+#include "PHY/NR_REFSIG/nr_refsig.h"
 #include "PHY/NR_REFSIG/dmrs_nr.h"
 #include "PHY/NR_REFSIG/ptrs_nr.h"
 #include "common/utils/nr/nr_common.h"
@@ -707,11 +708,59 @@ static void nr_pdsch_symbol_processing(void *arg)
   completed_task_ans(rdata->ans);
 }
 
+/* Minimum chunk size in symbols, so small allocations stay serial. Above it, the
+   number of chunks follows the pool width. */
+#define NR_PDSCH_MOD_MIN_CHUNK_SYMS 2048
+
+static inline uint32_t nr_gcd_u32(uint32_t a, uint32_t b)
+{
+  while (b) { uint32_t t = a % b; a = b; b = t; }
+  return a;
+}
+
+/* Parallel scramble + modulate + layer-map over a chunk of the codeword.
+ * The three stages have no cross-element dependency, so chunks are independent.
+ * Chunk boundaries are granule-aligned (see do_one_dlsch()); only the last chunk may be
+ * short, and its rounded-up word count is covered by the slack on scrambled_output. */
+typedef struct {
+  const uint32_t *in;      // encoder output
+  const uint32_t *seq;     // gold sequence, from the caller's gold_cache()
+  uint32_t *scrambled;     // shared buffer, this chunk writes [word_off, word_off+n_words)
+  c16_t *tx_base;          // &tx_layers[0][0]
+  int layerSz;
+  uint32_t word_off, n_words, bit_len, sym_off, n_syms;
+  uint16_t Qm;
+  uint8_t n_layers;
+  task_ans_t *ans;
+} pdschModChunk_t;
+
+static void nr_pdsch_scramble_modulate_chunk(void *arg)
+{
+  pdschModChunk_t *d = (pdschModChunk_t *)arg;
+
+  uint32_t *out = d->scrambled + d->word_off;
+  const uint32_t *in = d->in + d->word_off;
+  const uint32_t *seq = d->seq + d->word_off;
+  for (uint32_t i = 0; i < d->n_words; i++)
+    out[i] = in[i] ^ seq[i];
+
+  c16_t mod_symbs[d->n_syms] __attribute__((aligned(64)));
+  nr_modulation(out, d->bit_len, d->Qm, (int16_t *)mod_symbs);
+
+  // tl[l][k] is tx_layers[l][sym_off / n_layers + k]
+  c16_t (*tl)[d->layerSz] = (c16_t (*)[d->layerSz])(d->tx_base + d->sym_off / d->n_layers);
+  // required by the aligned SIMD stores in layer mapping
+  DevAssert(((uintptr_t)tl & 63) == 0);
+  c16_t (*ms)[d->n_syms] = &mod_symbs;
+  nr_layer_mapping(1, d->n_syms, ms, d->n_layers, d->layerSz, d->n_syms, tl);
+
+  completed_task_ans(d->ans);
+}
+
 static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSCH_t *dlsch, int frame, int slot)
 {
   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
 
-  time_stats_t *dlsch_scrambling_stats = &gNB->dlsch_scrambling_stats;
   time_stats_t *dlsch_modulation_stats = &gNB->dlsch_modulation_stats;
   time_stats_t *dlsch_layer_clear_stats = &gNB->dlsch_layer_clear_stats;
   freq_alloc_bitmap_t *freq_alloc = &dlsch->freq_alloc;
@@ -759,8 +808,13 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
 
   int layerSz2 = (layerSz + 63) & ~63;
   c16_t tx_layers[rel15->nrOfLayers][layerSz2] __attribute__((aligned(64)));
+  /* Clear only the tail of each layer: the layer mapping writes [0, layer_used) of every
+     layer, which is all the symbol tasks read. */
+  const uint32_t layer_used = (encoded_length / Qm) / rel15->nrOfLayers;
   START_MEAS_FULL_SLOT(dlsch_layer_clear_stats, slot_type, NR_DOWNLINK_SLOT);
-  memset(tx_layers, 0, sizeof(tx_layers));
+  if (layer_used < (uint32_t)layerSz2)
+    for (int l = 0; l < rel15->nrOfLayers; l++)
+      memset(&tx_layers[l][layer_used], 0, ((uint32_t)layerSz2 - layer_used) * sizeof(c16_t));
   STOP_MEAS_FULL_SLOT(dlsch_layer_clear_stats, slot_type, NR_DOWNLINK_SLOT);
 
   /* A single codeword. TS 38.211 only uses a second one above 4 layers, this PHY is capped
@@ -771,17 +825,78 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
               rel15->NrOfCodewords,
               NR_MAX_NB_LAYERS);
 
-  START_MEAS_FULL_SLOT(dlsch_scrambling_stats, slot_type, NR_DOWNLINK_SLOT);
   uint32_t scrambled_output[(encoded_length >> 5) + 4]; // modulator access by 4 bytes in some cases
-  memset(scrambled_output, 0, sizeof(scrambled_output));
-  nr_pdsch_codeword_scrambling(input_ptr, encoded_length, 0 /* q: the only codeword */,
-                               rel15->dataScramblingId, rel15->rnti, scrambled_output);
-  STOP_MEAS_FULL_SLOT(dlsch_scrambling_stats, slot_type, NR_DOWNLINK_SLOT);
+  const uint32_t roundedSz = (encoded_length + 31) / 32;
+
+  /* Split scramble+modulate+layer-map over the pool when the allocation is large enough.
+     Restricted to <= 2 layers, where nr_modulation_layer_mapping() itself uses
+     modulate-then-deinterleave, which is what the chunk worker does.
+     A chunk boundary must be:
+       - 32-bit aligned (the scrambler XORs whole words);
+       - a whole number of per-layer symbols (unit = Qm * n_layers bits), so each chunk
+         writes a contiguous, disjoint slice of every layer;
+       - 64-byte aligned within a layer, for the aligned SIMD stores in layer mapping:
+         a multiple of 16 * unit gives a per-layer offset that is a multiple of 16 c16_t.
+     lcm(32, 16 * unit) satisfies all three. */
+  uint32_t nb_chunks = 1;
+  const uint32_t unit = (uint32_t)Qm * rel15->nrOfLayers;
+  const uint32_t align_unit = 16u * unit; // 16 c16_t = 64 B per layer
+  const uint32_t granule_bits = (32u / nr_gcd_u32(32u, align_unit)) * align_unit;
+  const uint32_t granules_total = (encoded_length + granule_bits - 1) / granule_bits;
+  if (gNB->num_pdsch_symbols_per_thread > 0 && rel15->nrOfLayers <= 2) {
+    /* one chunk per worker plus one for the caller, which runs the last inline */
+    const uint32_t by_pool = (uint32_t)gNB->threadPool.len_thr + 1;
+    const uint32_t by_size = (encoded_length / Qm) / NR_PDSCH_MOD_MIN_CHUNK_SYMS;
+    nb_chunks = by_pool < by_size ? by_pool : by_size;
+    if (nb_chunks > granules_total)
+      nb_chunks = granules_total;
+    if (nb_chunks < 1)
+      nb_chunks = 1;
+  }
 
   START_MEAS_FULL_SLOT(dlsch_modulation_stats, slot_type, NR_DOWNLINK_SLOT);
-  const bool mapped_ok =
-      nr_modulation_layer_mapping(scrambled_output, encoded_length, Qm, rel15->nrOfLayers, layerSz2, tx_layers);
-  AssertFatal(mapped_ok, "Unsupported modulation/layer mapping for Qm %d, %d layers\n", Qm, rel15->nrOfLayers);
+  if (nb_chunks > 1) {
+    /* only the trailing slack the modulator may over-read: the chunks tile [0, roundedSz) */
+    memset(scrambled_output + roundedSz, 0, (sizeof(scrambled_output) / 4 - roundedSz) * 4);
+    // gold_cache() is thread-local: fetch the sequence once here and share it
+    const uint32_t *seq = gold_cache((rel15->rnti << 15) + (0 << 14) + rel15->dataScramblingId, roundedSz);
+    pdschModChunk_t cd[nb_chunks];
+    task_ans_t mans;
+    init_task_ans(&mans, nb_chunks);
+    for (uint32_t c = 0; c < nb_chunks; c++) {
+      const uint32_t b0 = ((granules_total * c) / nb_chunks) * granule_bits;
+      uint32_t b1 = ((granules_total * (c + 1)) / nb_chunks) * granule_bits;
+      if (b1 > encoded_length || c == nb_chunks - 1)
+        b1 = encoded_length;
+      cd[c] = (pdschModChunk_t){.in = (const uint32_t *)input_ptr,
+                                .seq = seq,
+                                .scrambled = scrambled_output,
+                                .tx_base = &tx_layers[0][0],
+                                .layerSz = layerSz2,
+                                .word_off = b0 / 32,
+                                .n_words = ((b1 + 31) / 32) - (b0 / 32),
+                                .bit_len = b1 - b0,
+                                .sym_off = b0 / Qm,
+                                .n_syms = (b1 - b0) / Qm,
+                                .Qm = Qm,
+                                .n_layers = rel15->nrOfLayers,
+                                .ans = &mans};
+      if (c < nb_chunks - 1) {
+        task_t t = {.func = &nr_pdsch_scramble_modulate_chunk, .args = &cd[c]};
+        pushTpool(&gNB->threadPool, t);
+      } else {
+        nr_pdsch_scramble_modulate_chunk(&cd[c]); // last one inline, like the symbol tasks
+      }
+    }
+    join_task_ans(&mans);
+  } else {
+    memset(scrambled_output, 0, sizeof(scrambled_output));
+    nr_pdsch_codeword_scrambling(input_ptr, encoded_length, 0 /* q: the only codeword */,
+                                 rel15->dataScramblingId, rel15->rnti, scrambled_output);
+    const bool mapped_ok =
+        nr_modulation_layer_mapping(scrambled_output, encoded_length, Qm, rel15->nrOfLayers, layerSz2, tx_layers);
+    AssertFatal(mapped_ok, "Unsupported modulation/layer mapping for Qm %d, %d layers\n", Qm, rel15->nrOfLayers);
+  }
   STOP_MEAS_FULL_SLOT(dlsch_modulation_stats, slot_type, NR_DOWNLINK_SLOT);
 
   /// Layer Precoding and Antenna port mapping

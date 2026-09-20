@@ -234,7 +234,6 @@ static void nrL1_stats_init_sorted_list(PHY_VARS_gNB *gNB, RU_t *ru, unsigned in
   init_sorted_list_meas(&gNB->ru_tx_func_stats, size);
   init_sorted_list_meas(&gNB->dlsch_encoding_stats, size);
   init_sorted_list_meas(&gNB->dlsch_ldpc_encode_stats, size);
-  init_sorted_list_meas(&gNB->dlsch_scrambling_stats, size);
   init_sorted_list_meas(&gNB->dlsch_layer_clear_stats, size);
   init_sorted_list_meas(&gNB->dlsch_modulation_stats, size);
   init_sorted_list_meas(&gNB->dlsch_pdsch_generation_stats, size);
@@ -270,7 +269,6 @@ static void nrL1_stats_free_sorted_list(PHY_VARS_gNB *gNB, RU_t *ru)
   free_sorted_list_meas(&gNB->ru_tx_func_stats);
   free_sorted_list_meas(&gNB->dlsch_encoding_stats);
   free_sorted_list_meas(&gNB->dlsch_ldpc_encode_stats);
-  free_sorted_list_meas(&gNB->dlsch_scrambling_stats);
   free_sorted_list_meas(&gNB->dlsch_layer_clear_stats);
   free_sorted_list_meas(&gNB->dlsch_modulation_stats);
   free_sorted_list_meas(&gNB->dlsch_pdsch_generation_stats);
@@ -307,7 +305,6 @@ static void nrL1_stats_reset(PHY_VARS_gNB *gNB, RU_t *ru)
   reset_meas(&gNB->ru_tx_func_stats);
   reset_meas(&gNB->dlsch_encoding_stats);
   reset_meas(&gNB->dlsch_ldpc_encode_stats);
-  reset_meas(&gNB->dlsch_scrambling_stats);
   reset_meas(&gNB->dlsch_layer_clear_stats);
   reset_meas(&gNB->dlsch_modulation_stats);
   reset_meas(&gNB->dlsch_resource_mapping_stats);
@@ -359,8 +356,7 @@ static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size
   output += print_meas_log(&gNB->dlsch_encoding_stats, "DLSCH encoding", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->dlsch_ldpc_encode_stats, "LDPC encoding", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->dlsch_layer_clear_stats, "DLSCH tx_layers clear", NULL, NULL, output, end - output);
-  output += print_meas_log(&gNB->dlsch_scrambling_stats, "DLSCH scrambling", NULL, NULL, output, end-output);
-  output += print_meas_log(&gNB->dlsch_modulation_stats, "DLSCH modulation", NULL, NULL, output, end - output);
+  output += print_meas_log(&gNB->dlsch_modulation_stats, "DLSCH scrambling+modulation", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->dlsch_pdsch_generation_stats, "PDSCH generation", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->phy_proc_rx, "L1 Rx processing", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->pucch01_proc_rx, "PUCCH01 reception", NULL, NULL, output, end - output);
