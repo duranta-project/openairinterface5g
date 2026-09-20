@@ -1,0 +1,939 @@
+# The NR LDPC Encoder: Algebraic Factoring and What Followed
+
+*Design note, revised 2026-08-12. Describes how the encoders in this directory are
+generated and why they look the way they do. Supersedes the original pre-implementation
+proposal.*
+
+---
+
+## Summary
+
+The generated 5G NR LDPC encoders expanded every parity row into a XOR of shifted
+systematic terms. That is correct but throws away the base graph's structure: the four
+core parity groups `P0..P3` end up pre-inverted into every row that references them, so
+rows that should cost a handful of terms cost 70 to 171.
+
+Recovering that structure symbolically over GF(2) reduces the arithmetic by 6.6x (BG1)
+and 8.5x (BG2), identically at every lifting size. Realising it took three further steps
+that mattered as much as the algebra: software-pipelining the kernel so no loop barrier
+is needed, balancing what goes in each stage, and — the largest single effect on small
+cores — abandoning the pre-rotated input layout.
+
+Measured end to end, LDPC parity generation is 4.8x to 12x faster depending on base graph
+and CPU, and the encoder is no longer the dominant cost of DLSCH encoding. With parity no
+longer dominating, the surrounding data movement became visible in turn; removing two
+unnecessary buffer clears and an output copy took a further 11-13% off the whole encoder
+call (section 9).
+
+```
+ldpctest, parity generation, us/CB      BG1 K'=8448 r1/3      BG2 K'=3840 r1/5
+  Cortex-A72   (LX2160A)                97.80 ->  14.73        91.86 ->  7.76
+  Cortex-A76   (RK3588)                 25.10 ->   5.28        22.78 ->  2.97
+  Neoverse V2  (GH200)                  10.87 ->   2.16        10.37 ->  1.34
+  Cortex-X925  (GB10)                    8.48 ->   1.44         5.95 ->  0.87
+
+x86, prep + parity generation, ns/CB    BG1 Zc=384            BG2 Zc=384
+  EPYC 9374F   Genoa (Zen 4)             12098 ->   955        8513 ->  491
+  EPYC 9575F   Turin (Zen 5)              7080 ->   490        4029 ->  277
+  Ryzen AI MAX+ Strix Halo (Zen 5)        6849 ->   474        3871 ->  263
+  Xeon Gold 6433N Sapphire Rapids        15604 ->   964       11211 ->  499
+  Xeon Gold 6154  Skylake-SP             36148 ->  1022        9592 ->  501
+
+nr_dlsim, MCS 27 / 273 PRB, GH200       DLSCH encoding 99.92 -> 64.69 us/slot
+                                        Eff Throughput 100.00, BLER 0.0
+```
+
+(x86 figures are against the best available stock configuration, and include the input
+preparation each one requires -- see section 7.2, which explains why leaving that out
+inverts the ranking of the two stock paths.)
+
+---
+
+## 1. What the encoder has to compute
+
+For BG1 the base graph is 46 x 68 over lifting size `Zc`: 22 systematic columns, four
+*core* parity columns (22..25), and 42 *extension* parity columns (26..67), one per
+extension row. BG2 is 42 x 52 with 10 systematic columns and the same four-column core.
+
+Every nonzero entry is a cyclic shift, so a row is a GF(2) sum of shifted copies of
+column groups. Writing `rot(X,s)` for a cyclic shift by `s` within a group, the base
+graph says:
+
+```text
+core rows      0..3     involve systematic columns and columns 22..25 (dual diagonal)
+extension rows i >= 4   involve systematic columns, a subset of 22..25,
+                        and their own column 26+(i-4) with shift 0
+```
+
+The extension column appearing exactly once, with shift zero, is what makes encoding
+straightforward: once `P0..P3` are known, every extension row is a direct sum.
+
+---
+
+## 2. The original architecture: full expansion
+
+The stock generator solved for `P0..P3` symbolically and substituted the result into
+every row that referenced them. What it emitted was, for each of the 46 rows, a single
+flat XOR over shifted systematic groups:
+
+```c
+d2[0] = XOR(alignr(c2[20],c2[19],3), XOR(alignr(c2[5],c2[4],12), ... ));   // ~70 terms
+```
+
+This has a real advantage: all 46 rows are independent, so there is no dependency chain
+anywhere and the scheduler has unlimited freedom. It is also what made per-row selection
+conceivable, since no row needs any other.
+
+The cost is that the four core groups are pre-inverted into everything. Term counts from
+the repository's own tables (`no_shift_values_*`, `pointer_shift_values_*`,
+`Gen_shift_values_*_Z_*`):
+
+```text
+BG1  2109 terms across 46 rows     rows 8, 11, 31 alone cost 171, 156, 153
+BG2  1473 terms across 42 rows
+```
+
+For BG1 Zc=384 at 128 bit that is 2063 `xor` plus 1986 `alignr` per chunk iteration,
+over 24 iterations — about 97k SIMD ALU operations per code block.
+
+*Incidental:* the tables contain two redundant term pairs in row 8 (175 counted, 171
+distinct), which the stock generator emitted as real work. GF(2) normalisation during
+generation removes them.
+
+---
+
+## 3. Recovering the base graph
+
+### 3.1 The kernel/extension split
+
+For extension row `i >= 4`, seek
+
+```text
+P_i = R_i(S) + rot(P0,s0) + rot(P1,s1) + rot(P2,s2) + rot(P3,s3)
+```
+
+where `R_i(S)` holds only systematic terms and most of the `Pk` terms are absent. This is
+the structure the expansion destroyed, and it is recoverable by symmetric difference over
+GF(2): if `rot(Pk,s)` is a summand of `P_i`, then `P_i xor rot(Pk,s)` is sparse.
+
+### 3.2 Back-substituting the kernel
+
+The original proposal scoped this to `i >= 4` and treated `P0..P3` as a fixed cost. That
+left the largest single block untouched: after factoring the extension rows, the four
+kernel rows are 336 of the 534 remaining terms — 63%.
+
+The kernel factors against itself, via the dual-diagonal back-substitution the expansion
+had eliminated. BG1 at Zc=384:
+
+```text
+P0 :  67 terms   seed: the four core rows' systematic parts summed; irreducible
+P1 :  84 terms -> rot(P0,1) + 17 systematic  = 18
+P2 : 101 terms -> P0 + P1    + 16 systematic = 18
+P3 :  84 terms -> rot(P0,1)  + 17 systematic = 18
+```
+
+`336 -> 121`, and the total from `534 -> 319`. So:
+
+```text
+extension factoring only     2109 -> 534    3.94x
++ kernel back-substitution   2109 -> 319    6.60x
+```
+
+The kernel is a dependency chain, not four independent rows — `P0 -> P1 -> P2` and
+`P0 -> P3` — which becomes the central implementation problem in section 5.
+
+### 3.3 Extension rows
+
+17 of BG1's 42 extension rows reference the kernel; the other 25 are already sparse (2 to
+8 terms) and are emitted unchanged. The dense ones collapse completely:
+
+```text
+P5  :  73 -> rot(P0,157)                 + 6      P30 : 104 -> rot(P2, 90)              + 3
+P8  : 171 -> rot(P0,67) + rot(P2,170)    + 7      P31 : 153 -> rot(P0,258)+rot(P3,256)  + 2
+P11 : 156 -> rot(P0,334)+ rot(P1,115)    + 5      P32 : 104 -> rot(P2,287)              + 3
+P13 :  88 -> rot(P1,370)                 + 4      P35 :  70 -> rot(P0,266)              + 3
+P15 :  89 -> rot(P3,269)                 + 5      P37 :  86 -> rot(P1,115)              + 2
+P16 :  71 -> rot(P0, 57)                 + 4      P42 : 103 -> rot(P2,218)              + 2
+P20 :  71 -> rot(P0, 59)                 + 4      P43 :  87 -> rot(P3,168)              + 3
+P24 :  71 -> rot(P0,234)                 + 4      P44 :  70 -> rot(P0,274)              + 3
+P29 :  87 -> rot(P3, 78)                 + 3
+```
+
+The worst case after factoring is 9 terms (row 8, from 171). There is no row for which
+the expanded form is cheaper, so the per-row DIRECT/FACTORED choice the original proposal
+called for does not exist.
+
+### 3.4 Why the residual is the base graph
+
+This is not a search that happens to succeed — it recovers 38.212 Table 5.3.2-2. After
+factoring, the residual of row `i` is exactly that row's systematic base-graph entries,
+and the shifts are the base-graph values for columns 22..25:
+
+```text
+row 4  -> 2 residual, no kernel reference     BG1 row 4 = {col 0, col 1, col 26}
+row 5  -> 6 residual + P0                     BG1 row 5 = 6 systematic + col 22
+```
+
+The consequence that matters practically: **the structure cannot depend on `Zc`**, because
+the base graph does not. Verified over all 51 BG1 lifting sizes — identical residual counts
+and kernel-reference sets throughout, with a constant factored total of 319 terms for every
+`Zc >= 20`. Below that the ratio degrades (2.13x at Zc=2) only because shift collisions
+modulo a small `Zc` make the *expanded* form artificially cheap; those sizes never reach
+the SIMD encoders.
+
+It also means no new table is needed. The generator derives everything from the shift
+tables already in the tree.
+
+### 3.5 The one structural variation
+
+The kernel reference *pattern* is identical at every `Zc` (`P1<-P0`, `P2<-P0,P1`,
+`P3<-P0`), as are the residual counts (67/17/16/17) and the residual column sets. Only the
+shift constants vary, in two families:
+
+```text
+46 of 51 Zc                P1=rot(P0,1)  P2=P0+P1        P3=rot(P0,1)
+5  of 51 Zc  {13,26,52,104,208}   P1=rot(P0,0)  P2=rot(P0,105)  P3=rot(P0,0)
+```
+
+The second family is the `a=13` lifting set, and it is not really a second case: 105 mod
+13/26/52/104 = 1. It is one base-graph constant reduced modulo `Zc`. Only Zc=208 is in the
+live dispatch set, and it is the one lifting size where the pipeline lag of section 5.1
+exceeds one chunk.
+
+### 3.6 BG2
+
+BG2 was listed as a non-goal ("unless the factoring framework makes it trivial"). It was
+trivial, and it factors better:
+
+```text
+BG2  1473 -> 173 terms   8.04x - 8.57x     (BG1: 6.27x - 6.61x)
+```
+
+Its kernel is structurally simpler — all three back-substitution shifts are zero:
+
+```text
+P1 = P0 + 6 systematic
+P2 = P1 + 8 systematic
+P3 = P0 + 8 systematic
+```
+
+so it is entirely chunk-local and needs no pipelining at all. 27 of its 38 extension rows
+reference the kernel. The same generator handles both base graphs with no BG-specific code
+beyond `nrows`/`ncols`.
+
+---
+
+## 4. Deriving it
+
+`ldpc_generate_factored.c`, reachable as `gen_code == 5`. Rows are built as GF(2) sets of
+`(column, shift)` monomials directly from the shift tables, then factored by symmetric
+difference. Three things it has to get right:
+
+**Candidate shifts by correlation, not enumeration.** For rows `A` and `B`,
+
+```text
+|A xor rot(B,s)| = |A| + |B| - 2*hist[s]        hist[s] = |A intersect rot(B,s)|
+```
+
+so one pass over matching-column term pairs ranks every shift at once.
+
+**Ties at the top matter.** Several shifts can give the same residual size while only one
+admits a good *second* reference. Taking a single locally-best first shift silently
+produces non-minimal results on exactly the four rows that need two references (BG1 rows
+2, 8, 11, 31). The generator tries all shifts within a slack of the best. This was found
+the hard way, twice.
+
+**Guards, not assumptions.** It refuses to emit — rather than emitting something wrong —
+when a kernel row references another kernel row non-chunk-locally, or when the pipeline
+lag would not fit the loop. The latter correctly rejects Zc=16, where a parity group is a
+single chunk.
+
+Generator-time equivalence is checked by reconstruction; runtime equivalence by the tests
+in section 7.
+
+---
+
+## 5. From algebra to code
+
+The 6.6x is an operation count. Getting it took four decisions, and the first two moved
+the result more than the algebra did.
+
+### 5.1 A loop barrier costs more than the arithmetic saves
+
+Kernel back-substitution alone removes 10.2% of BG1's terms. Emitted the obvious way — all
+chunks of `P0`, barrier, then everything else — it came out **slower than the unfactored
+encoder**:
+
+```text
+reference expanded  (2109 terms)   14637 ns/CB   1.000x
+split-loop          (1894 terms)   14641 ns/CB   0.992x   <- slower
+software-pipelined  (1894 terms)   11107 ns/CB   1.318x
+```
+
+Identical arithmetic in both of the factored rows. The entire difference is structure.
+
+The fix is to pipeline rather than split: at chunk `i2` compute `P0[i2]`, and in the same
+iteration compute the kernel rows for chunk `i2-LAG`, whose `P0` reads are then all
+satisfied by chunks already produced. `LAG = max(shift/W)+1` is derived per lifting size
+and per width; it is 1 almost everywhere and 7 for Zc=208 at 128 bit. An epilogue handles
+the final `LAG` chunks, where the rotations wrap.
+
+### 5.2 Stage rebalancing is worth 1.4x
+
+Once the extension rows are factored too, a barrier before them is unavoidable — they
+reference kernel shifts up to 370 bytes, 23 of 24 chunks, so no lag covers it. But *what
+goes in each stage* matters:
+
+```text
+naive 2-stage      (319 terms)   3508 ns/CB   4.173x
+rebalanced stages  (319 terms)   2518 ns/CB   5.813x
+```
+
+The naive split puts the kernel in stage 1 and all 42 extension rows in stage 2. Stage 1
+is then a thin serial chain — `P0 -> kt -> P1 -> P2`, ~121 terms covering four dependent
+steps. Moving the 25 extension rows that *don't* reference the kernel into stage 1 gives
+the scheduler ~100 independent terms to overlap it against. Same arithmetic, same barrier,
+1.4x faster.
+
+### 5.3 Reading the kernel
+
+`rot(Pk,s)` at arbitrary `s` is served from a doubled scratch copy of `P0..P3`
+(`4 * 2 * Zc` = 3 KB), so any rotation is one unaligned load at a constant offset. Within
+stage 1 the lag bound guarantees the read stays inside what has been produced, so the
+kernel is read straight from the output there and the scratch is built once, afterwards.
+
+### 5.4 The shift mechanism is ISA-specific, and measured
+
+Three ways exist to obtain a byte-rotated vector:
+
+```text
+alignr / ext          128-bit only in practice: on AVX2 and AVX512 it is lane-local
+                      and cannot express a full-width rotation at all
+permutex2var_epi8     AVX512+VBMI, a true cross-64-byte permute
+unaligned load        from the doubled buffer; works on every ISA, no shuffle
+```
+
+Two measurements decided this. First, `vpermi2b` costs **1.73x an unaligned 64-byte load**
+on Sapphire Rapids (0.742 vs 0.428 ns/op) — it issues on one port while loads have several.
+Corroborated independently: the stock 512-bit permutex encoder does *half* the loop
+iterations of the stock 256-bit one and still takes 1.55x longer.
+
+Second, at 128 bit the unaligned-load form is *not* better, despite isolated
+microbenchmarks suggesting a 3-4% gain. In `ldpctest` it is consistently slower:
+
+```text
+parity generation      alignr        uniform loadu
+BG1 K'=8448 r1/3       2.100 us      2.196 us       +4.6%
+BG2 K'=3840 r1/5       1.250 us      1.390 us      +11.0%
+```
+
+`alignr` keeps systematic operands in registers across the many rows that share them,
+which the load form gives up; that only shows under real register and cache pressure. So
+the emitter chooses by width: **alignr at 128 bit, unaligned load at 256/512** where
+alignr cannot work anyway.
+
+### 5.5 The input layout: the largest effect on small cores
+
+The stock encoders that cannot use `alignr` read a *pre-rotated* input — the systematic
+buffer replicated `simd_size` times so every shift becomes an aligned load. That trades
+memory footprint for instruction count, and the trade is far worse than it looks.
+
+```text
+BG1 Zc=384, x86 AVX2      2 * 22 * 384 * 64 = 1.03 MB per code block
+BG2 Zc=384, aarch64       2 * 10 * 384 * 32 =  245 KB per code block
+factored (any width)      2 * ncols * Zc    = 16.9 KB (BG1) / 7.7 KB (BG2)
+```
+
+Every factored encoder indexes the doubled buffer directly, so the replication is needed
+only for lifting sizes with no factored variant. On aarch64 BG1 was already on alignr, but
+**BG2 was not on alignr on any platform** — it paid the full 245 KB.
+
+The penalty is twofold, and both halves are measurable. The copy itself:
+
+```text
+BG2 Zc=384 input preparation   4.867 -> 0.122 us    stack VLA 540 KB -> 16.9 KB
+```
+
+and, separately, the locality of *reading* a 245 KB buffer — see section 8, where it turns
+out to be the dominant term on small cores.
+
+---
+
+## 6. Width selection is a microarchitecture question
+
+The factored representation is width-independent — the same 319 / 173 terms whatever the
+register size — so the same factorisation feeds a 128-, 256- and 512-bit emitter. Which to
+*use* is not an ISA question: Zen 4, Zen 5 and Sapphire Rapids all define `__AVX512F__`,
+but Zen 4 executes 512-bit operations as 2x256.
+
+```text
+factored, BG1 Zc=384, ns/CB              128     256     512   -> best
+  EPYC 9374F      Genoa      (Zen 4)    1922     808     872      256
+  EPYC 9575F      Turin      (Zen 5)    1516     630     438      512
+  Ryzen AI MAX+   Strix Halo (Zen 5)    1448     612     425      512
+  Xeon Gold 6433N Sapphire Rapids       2488    1012     827      512
+```
+
+The best achievable is nearly identical on Genoa and Sapphire Rapids (808 vs 827 ns) but
+reached at *different widths*. Evaluating on Genoa alone would have concluded AVX512 was
+not worth building.
+
+A CPUID family table can express this only for parts that have been tested, and cannot
+express within-family variation, so the width was initially **measured at startup**: encode a
+dummy block at each compiled width, keep the fastest, prefer the narrower on a tie, about
+0.6 ms once per process from an ELF constructor at dlopen.
+
+**That turned out to be the wrong instrument, and it is now opt-in.** A short hot-L1 burst is
+not representative. On a Xeon Gold 6354 (Ice Lake-SP), BG1 Zc=384, us/CB:
+
+```text
+                 startup burst    sustained (ldpctest, pinned, 3 x 300)
+  128-bit            2.082              5.515
+  256-bit            0.866              3.290
+  512-bit            1.189              2.111
+  ->                 picks 256          512 is best, by 1.56x
+```
+
+The ranking **inverts**. Both widths slow down once the working set no longer fits in L1,
+but 256 degrades far worse — 3.8x against 512's 1.8x — because it runs four times the loop
+iterations over the same data. Trusting the burst costs 57% on BG1 there (3.3% on BG2, where
+the two widths are nearly equal anyway).
+
+So the CPUID table is the default. `OAI_LDPC_CALIBRATE=1` enables the measurement anyway;
+`OAI_LDPC_SIMD_WIDTH` overrides everything.
+
+**Sustained measurements on all five x86 parts** — `ldpctest` parity generation, pinned,
+3 x 200 trials, us/CB, each width forced:
+
+```text
+                              BG1 K'=8448              BG2 K'=3840          table  best
+                          128     256     512      128     256     512
+  Genoa      (Zen 4)     2.409   1.220   1.212    1.215   0.665   0.700     256    256/512*
+  Turin      (Zen 5)     1.800   0.839   0.633    0.864   0.460   0.369     512    512
+  Strix Halo (Zen 5)     2.340   1.122   0.849    1.152   0.606   0.473     512    512
+  Sapphire Rapids        3.739   1.574   1.338    1.569   0.782   0.676     512    512
+  Ice Lake-SP            5.515   3.290   2.111    1.496   0.969   0.928     512    512
+
+  * Genoa is the only split verdict: BG1 is a tie (512 ahead by 0.7%, inside noise)
+    while BG2 favours 256 by 5%. The table's 256 wins one and ties the other.
+```
+
+**The table is right on all five parts. The calibration is right on four.** It agrees
+everywhere except Ice Lake-SP, where it picks 256 and costs 57% on BG1. That is the whole
+case for defaulting to the table.
+
+This also settles a doubt raised when the Zen 4 entry rested only on an 8% burst margin:
+under sustained load it holds. The concern was that the mechanism which inverted on Ice
+Lake-SP — fewer iterations winning once the working set leaves L1 — would favour 512
+everywhere. It does move Genoa's BG1 from "256 by 8%" to "512 by 0.7%", i.e. to a tie, but
+not far enough to change the choice, and BG2 still prefers 256.
+
+---
+
+## 7. Measurements
+
+### 7.1 aarch64, ldpctest, pinned
+
+```text
+parity generation (us)          stock  factored  speedup      encoder total  speedup
+BG1 K'=8448 r1/3
+  Cortex-A72   (LX2160A)        97.80    14.73    6.64x      104.16 -> 20.88  4.99x
+  Cortex-A76   (RK3588)         25.10     5.28    4.76x       27.83 ->  7.83  3.55x
+  Neoverse V2  (GH200)          10.87     2.16    5.04x       11.93 ->  3.23  3.69x
+  Cortex-X925  (GB10)            8.48     1.44    5.88x        9.29 ->  2.24  4.14x
+BG2 K'=3840 r1/5
+  Cortex-A72                    91.86     7.76   11.84x       96.23 -> 12.08  7.97x
+  Cortex-A76                    22.78     2.97    7.66x       24.67 ->  4.65  5.30x
+  Neoverse V2                   10.37     1.34    7.77x       11.09 ->  2.04  5.44x
+  Cortex-X925                    5.95     0.87    6.87x        6.46 ->  1.35  4.77x
+```
+
+**`tparity` wraps the input preparation** — the "prep" statistic is nested inside it, not a
+sibling. The parity column therefore includes the doubling, and for stock BG2 the
+replication. This matters when comparing against the encoder-only figures below.
+
+Rate does not affect the encoder: `-r/-d` never reaches it, and for K'=8448 BG1 the
+puncturing terms are zero, so the r1/3, r2/3 and r22/25 rows are three measurements of an
+identical computation. Their spread is a useful noise estimate — 0.2% on the GH200, ~4% on
+the A72.
+
+### 7.2 x86, input preparation plus parity generation
+
+All five parts, one harness, same flags, everything in the same binary. Each variant pays
+only the input preparation it actually requires, which is what `ldpctest` reports as
+`parity`. ns per code block, Zc=384:
+
+```text
+BG1                            enc only   prep    prep+enc      best stock -> best factored
+  Genoa (Zen 4)
+    stock AVX512 permutex        11939      160      12098
+    stock AVX2 256               10936    13219      24155      12098 ->  955   12.67x
+    factored 256 (chosen)          807      147        955
+  Turin (Zen 5)
+    stock AVX512 permutex         7002       78       7080
+    stock AVX2 256                5320     7016      12336       7080 ->  490   14.45x
+    factored 512 (chosen)          429       61        490
+  Strix Halo (Zen 5)
+    stock AVX512 permutex         6795       54       6849
+    stock AVX2 256                5064     6012      11075       6849 ->  474   14.47x
+    factored 512 (chosen)          417       56        474
+  Sapphire Rapids
+    stock AVX512 permutex        15418      186      15604
+    stock AVX2 256                9984    25669      35653      15604 ->  964   16.20x
+    factored 512 (chosen)          815      149        964
+  Skylake-SP (Xeon Gold 6154)                                   -- no permutex path --
+    stock AVX2 256                9549    26599      36148      36148 -> 1022   35.38x
+    factored 512 (chosen)          687      335       1022
+
+BG2                            enc only   prep    prep+enc      stock -> best factored
+  Genoa            stock         6247     2266       8513        8513 ->  491   17.36x
+                   factored 256   433       58        491
+  Turin            stock         2653     1376       4029        4029 ->  277   14.54x
+                   factored 512   249       28        277
+  Strix Halo       stock         2519     1352       3871        3871 ->  263   14.72x
+                   factored 512   237       26        263
+  Sapphire Rapids  stock         5191     6021      11211       11211 ->  499   22.47x
+                   factored 512   449       50        499
+  Skylake-SP       stock         5239     4353       9592        9592 ->  501   19.14x
+                   factored 512   386      115        501
+```
+
+Factored output verified identical to stock on every machine, and the chosen factored width
+matches what section 6 selects: 256 on Genoa, 512 on the other three. Skylake-SP is the
+exception and is discussed below.
+
+**Skylake-SP has no permutex path.** It predates AVX512VBMI, so `permutex2var_epi8` is
+unavailable and the only stock encoder is the AVX2 one that replicates the systematic bits.
+Its stock baseline is therefore the expensive branch of the trade above — 26.6 us of
+preparation per code block against Sapphire Rapids' 0.19 us on permutex — which is why the
+BG1 ratio is 35.4x rather than the 12.7x-16.2x seen elsewhere. That number measures the
+absence of a stock fast path, not extra merit in the factored encoders; BG2, where no part
+has a permutex path, lands at 19.1x, inside the 14.5x-22.5x range of the others.
+
+**Its width verdict is unsettled.** This harness is a hot-L1 loop and puts factored 512
+ahead of 256 on BG1 (1022 vs 1278 ns prep+enc). Forced-width `ldpctest` under sustained load
+reverses it, 256 ahead by 4.4% (1.575 vs 1.648 us/CB, 9 x 1000 trials). Section 6's own
+method is the sustained one, and the appendix explains why isolated microbenchmarks are
+distrusted here, so the sustained result should win — but the mechanism would be AVX-512
+licence-based downclocking, which is not the L1-residency effect that inverted Ice Lake-SP,
+and it points the opposite way. The part is left out of section 6's table until that is
+resolved; see section 11.
+
+**Correction.** An earlier revision of this note claimed the AVX512 permutex path was a
+pessimisation, on the grounds that its *encoder function* is 1.1x to 1.5x slower than the
+stock AVX2 one. That was measured with the input already prepared, which hides the whole
+point of the permutex path: it needs only the doubled input, while stock AVX2 replicates
+the systematic bits `simd_size` times — 1.03 MB per code block at BG1 Zc=384, costing 6.0
+to 25.7 us. Counting that, **permutex is the better stock choice on all four parts**, by
+1.62x (Strix Halo), 1.74x (Turin), 2.00x (Genoa) and 2.29x (Sapphire Rapids). The dispatch
+selecting it under `__AVX512VBMI__` is correct.
+
+The lesson is the one in section 5.5: an encoder that reads a pre-rotated input is trading
+memory traffic for instruction count, and any comparison that starts from a prepared buffer
+scores only one side of that trade. The `prep` column above is why the factored encoders are
+measured with their own preparation throughout.
+
+What does survive from that earlier measurement is the primitive cost —
+`permutex2var_epi8` is 1.73x an unaligned 64-byte load on Sapphire Rapids (section 5.4) —
+and that is what justifies the factored encoders using loads rather than permutes. Being
+better than permutex *and* needing no replication is why factored beats both stock paths by
+12.7x to 22.5x here.
+
+### 7.3 Full chain
+
+```text
+nr_dlsim, MCS 27 / 273 PRB / 1 layer, GH200      stock    factored
+  DLSCH encoding time                            99.92 ->  64.69 us   1.54x
+    LDPC parity generation                       11.36 ->   2.27 us   5.00x
+    segmentation                                  5.74 ->   5.76 us     -
+    LDPC input processing                         1.86 ->   1.85 us     -
+    scrambling                                    2.53 ->   2.33 us     -
+  Eff Throughput 100.00, Channel BLER 0.0, Avg round 1.00 on both
+```
+
+35 us saved per slot at full bandwidth and highest MCS. The LDPC encoder is no longer the
+dominant cost of DLSCH encoding: of the remaining 64.69 us, parity is about 9 us (four code
+blocks) against 5.76 us of segmentation.
+
+### 7.4 Code size
+
+```text
+.text per encoder     BG1 Zc=384   25236 -> 5108 bytes   4.9x
+                      BG2 Zc=384    9008 -> 2888 bytes   3.1x
+```
+
+### 7.5 Correctness
+
+```text
+70 generated encoders x 1000 trials   vs a scalar reference built from the shift tables,
+                                      independent of any existing encoder
+30 dispatched (BG,Zc) x 200 trials    through encode_parity_check_part_optim, at each of
+  x 4 width settings x 5 machines     auto/128/256/512, on aarch64, Genoa, Turin,
+                                      Strix Halo and Sapphire Rapids
+same, with NO_FACTORED                the fallback path is unaffected
+ldpctest                              BLER 0/100 at 3.5 dB
+nr_dlsim MCS27 273PRB                 BLER 0.0 at 100.00 throughput
+```
+
+Trial patterns include all-zero, all-one, single-bit and full random *bytes* — random bytes
+rather than 0/1 exercise all eight bit planes per trial. All widths produce bit-identical
+output.
+
+---
+
+## 8. Where the speedup actually comes from
+
+Two hypotheses were advanced and both were wrong; hardware counters settled it.
+
+**It is not the instruction cache.** The stock BG1 encoder is 25 KB of `.text`, which
+looked like a problem for small cores. It is not: on Zen 4 (32 KB L1I, *smaller* than the
+A72's 48 KB) it takes 0.3 L1I refills per code block, and on the A72 itself 0.1. The loop
+body executes 24 times per code block and stays resident.
+
+Decomposing cycles into instructions and IPC, per code block, 128-bit encoders:
+
+```text
+Cortex-A72        cycles    insn    IPC       cyc ratio = insn ratio x IPC ratio
+  BG1 stock       195966  190337   0.97
+  BG1 factored     25936   28774   1.11        7.56x   =   6.61x   x   1.14x
+  BG2 stock       129854   70837   0.55
+  BG2 factored     12191   15354   1.26       10.65x   =   4.61x   x   2.29x
+
+Zen 4
+  BG1 stock       102247  204899   2.00
+  BG1 factored      8242   23397   2.84       12.40x   =   8.76x   x   1.42x
+  BG2 stock        30083   47722   1.59
+  BG2 factored      4211   11703   2.78        7.14x
+```
+
+**BG1 is an instruction-count win and nothing else** — 6.61x measured against 6.60x from
+the term count, with a small IPC bonus.
+
+**BG2 is a data-cache result.** Its instruction ratio is only 4.61x, *below* its 8.51x term
+ratio, because the factored version issues more instructions per term:
+
+```text
+instructions per term    BG1 stock 3.77   BG1 factored 3.76
+                         BG2 stock 2.00   BG2 factored 3.70
+```
+
+Stock BG2 is the only one of the four not on alignr: pre-rotated aligned loads cost ~2
+instructions per term instead of ~3.8. It pays for that with the 245 KB replicated buffer
+against a 32 KB L1D — hence IPC 0.55. The factored version reads a 7.7 KB doubled buffer
+that fits, and runs at 1.26. **BG2 wins 10.65x despite issuing more instructions, purely on
+locality**, and the effect scales inversely with memory subsystem quality:
+
+```text
+BG2 speedup    A72 11.84x  |  Neoverse V2 7.77x  |  A76 7.66x  |  X925 6.87x
+                 (weakest)                                        (strongest)
+```
+
+This is direct evidence for the AVX2 case: that path uses the same layout at 1.03 MB per
+code block, so the win there is likely larger than the term count alone predicts.
+
+---
+
+## 9. The input and output path
+
+Once parity generation came down, the surrounding data movement became a third of the
+encoder call. Breakdown on falcon-gh200, pinned, before any of this section's work:
+
+```text
+                     BG1 K'=8448        BG2 K'=3840
+total                  3.163 us           1.985 us
+  input (unpack)       0.506  16%         0.229  12%
+  prep  (doubling)     0.248   8%         0.117   6%    <- nested inside parity
+  encoder proper       1.866  59%         1.181  59%
+  output (2 memcpys)   0.343  11%         0.258  13%
+  unaccounted          0.200   6%         0.200  10%
+```
+
+Two changes landed, one was tried and reverted.
+
+### 9.1 Buffers that did not need zeroing
+
+Two memsets ran before every code block, outside every timer:
+
+```c
+memset(cc,0,sizeof(cc));   //  8448 B at Zc=384
+memset(dd,0,sizeof(dd));   // 17664 B
+```
+
+`dd` needs none: both encoder paths write every byte the output copy subsequently reads.
+`cc` only needs the filler gap `[block_length, ncols*Zc)` zeroed, since the unpack writes
+below it and the encoder reads no further; at BG1 K'=8448 the two coincide and it becomes a
+no-op.
+
+```text
+total encoder call    BG1  3.163 -> 3.018 us   4.6%
+                      BG2  1.985 -> 1.934 us   6.7%
+```
+
+The unaccounted row above drops from 0.200 to ~0.06 us on both base graphs, which is where
+these were hiding.
+
+### 9.2 Parity written in place
+
+The encoder wrote parity into a local `dd[46*Zc]` and then copied it to
+`output + block_length - 2*Zc`. Pointing it at that address directly removes both.
+
+Space works out: the encoder writes `nrows*Zc` from there, needing `(Kb+nrows-2)*Zc`, at
+most 25344 bytes for BG1 and 19200 for BG2, inside the 68*384 the interface already
+specifies. Alignment works out too: the 128-bit encoders store through `simde__m128i`, and
+`(Kb-2)*Zc` is always a multiple of the SIMD width when `Zc` is, so 16-byte alignment
+follows from `output` being aligned — 64 in the production caller, 16 via `malloc16` in
+ldpctest. Asserted rather than assumed. The 256/512-bit encoders use `storeu` and do not
+care.
+
+```text
+output stage          BG1  0.343 -> 0.114 us      total  3.018 -> 2.807 us   7.0%
+                      BG2  0.258 -> 0.052 us      total  1.934 -> 1.720 us  11.1%
+```
+
+The residual tracks the bytes still copied: BG1 keeps 7680 of 25344, 30%, and the stage
+retains 33% of its cost.
+
+Cumulative for the two: **BG1 3.163 -> 2.807 (11.3%), BG2 1.985 -> 1.720 (13.4%)**.
+
+### 9.3 What was tried and did not work
+
+The doubling still costs 0.25 us (BG1). Replacing its two per-column memcpys with a loop
+that reads each column once and writes both copies — 2*ncols*Zc of reads becoming ncols*Zc
+for the same writes — made it *worse*: 0.254 -> 0.285 us. glibc's memcpy beats a hand loop
+at this size. Reverted.
+
+### 9.4 Why this path is hard to optimise further
+
+That experiment exposed a measurement problem. It touched only the prep loop, yet the
+*unpack* stage, which it did not modify, moved and moved back:
+
+```text
+input stage, identical unpack source
+  committed              0.488  0.500  0.501  0.489
+  + unrelated prep edit  0.341  0.343  0.350
+  reverted               0.500  0.501  0.489
+```
+
+`ldpc_encode_parity_check.c` is `#include`d into the same translation unit as the unpack,
+so any edit reshuffles code layout and register allocation across the whole file. A 30%
+swing in an untouched stage.
+
+**That swing is larger than what remains to be won here** — prep at 0.25 us and the
+systematic copy at 0.11 us, against ~0.15 us of layout noise. A real improvement cannot be
+distinguished from a lucky rebuild by timing alone.
+
+The remaining idea is sound in principle: have the unpack write straight into the doubled
+encoder layout and into `output`, eliminating both. But it means rewriting four SIMD
+bit-transpose variants (AVX512-VBMI, AVX2, NEON, scalar) for a theoretical ~0.36 us that
+cannot currently be verified. At slot level that is ~0.8 us of `nr_dlsim`'s 64.69 us, about
+1.2%.
+
+**Before attempting it, switch to instructions retired rather than wall time.** Instruction
+count is layout-insensitive and answers "did this remove work" directly, with timing as a
+secondary check. `icache_probe.c` already does this for the encoders; extending it to wrap
+the whole `LDPCencoder` call is straightforward.
+
+Current state of the call:
+
+```text
+                     BG1 K'=8448        BG2 K'=3840
+total                  2.807 us           1.720 us
+  input (unpack)       0.497  18%         0.226  13%
+  prep  (doubling)     0.252   9%         0.119   7%
+  encoder proper       1.887  67%         1.262  73%
+  output (1 memcpy)    0.120   4%         0.050   3%
+  unaccounted          0.064   2%         0.057   3%
+```
+
+---
+
+## 10. Next phase: per-RV puncturing
+
+The encoder currently computes all 46 parity rows for every transmission, whatever the
+rate matcher will actually consume. That is measurable directly — the rate never reaches
+the encoder, so the cost is flat:
+
+```text
+BG1 K'=8448 stock encoding    rate 1/3   12.618 us
+                              rate 2/3   12.021 us
+                              rate 22/25 11.966 us
+```
+
+At high rate most of those rows are discarded. Generating only the rows a given
+`(E, RV, Ncb, filler)` selects is the remaining structural saving, and the factored
+encoder makes it considerably easier than the expanded one would have.
+
+### 9.1 What the windows cost
+
+Approximate row ranges for the idealised full-buffer case, with the factored cost of each
+window (kernel build included):
+
+```text
+case                      direct  factored  speedup   kernel needed
+rate 1/3   all rows         2105       319    6.60x   P0..P3
+2/3  RV0   P0..P12           772       180    4.29x   P0..P3
+2/3  RV1   P0..P29          1298       259    5.01x   P0..P3
+2/3  RV2   P13..P45         1333       260    5.13x   P0..P3
+2/3  RV3   P36..P45          368       157    2.34x   P0..P3
+8/9  RV0   P0..P4            338       123    2.75x   P0..P3
+8/9  RV1   P0..P21          1117       227    4.92x   P0..P3
+8/9  RV2   P13..P37         1055       231    4.57x   P0..P3
+8/9  RV3   P36..P45          368       157    2.34x   P0..P3
+```
+
+Against the 319 terms of a full generation, a selected window costs 123 to 260 — so on top
+of Phase 1 this is worth about **1.2-1.3x typically, and up to 2.6x** in the most
+favourable case (8/9 RV0). On the `nr_dlsim` budget that is roughly 1-2 us of a 64.69 us
+slot today; it becomes proportionally more attractive once the input/output path in
+section 9 is addressed, and on any platform where parity is a larger share.
+
+### 9.2 Two simplifications the factoring provides
+
+**No direct-versus-factored decision.** The original proposal expected a per-window mode
+choice, on the theory that a tail window excluding the kernel might prefer direct
+generation. Measurement says otherwise: factoring wins in *every* window, including RV3.
+Only 4 of the 10 rows in P36..P45 reference the kernel, but they carry 346 of the window's
+368 terms — paying 121 to build the kernel in order to remove 346 is clearly profitable.
+So the runtime always factors, and there is no second code path to write or validate.
+
+**The kernel chain prunes.** Dependencies are `P0 -> P1 -> P2` and `P0 -> P3`, so a
+selection touching only P0-referencing rows needs 67 terms rather than 121. Build the
+transitive closure of the kernels the selected rows actually reference. In the windows
+above the closure happens to be all four every time, so this is a refinement rather than
+the main effect — but it is nearly free to implement.
+
+### 9.3 Implementation notes
+
+- Derive the row ranges from the **existing** 38.212 rate-matching walk rather than
+  duplicating that logic in the encoder. One or two contiguous parity intervals is the
+  natural representation; a small row mask is equally workable.
+- Use the exact integer `E`. Nominal rates do not align to whole `Zc` groups, so a
+  hard-coded per-MCS encoder would be wrong as well as unmaintainable.
+- Computing a whole parity group when only part of it is consumed is the right first
+  implementation; partial-group generation is not worth the complexity.
+- The L1 is stateless across HARQ transmissions, so each slot independently computes what
+  that `(E, RV)` needs. No HARQ state, no cross-slot caching.
+
+### 9.4 What makes this riskier than Phase 1
+
+Phase 1 could not change the transmitted bits — it computes the same 46 rows and was
+verified bit-exact against a scalar reference. Row selection couples the encoder to the
+rate matcher, and the failure mode is a wrong codeword rather than a slow one. The cases
+that need care are exactly the awkward ones: filler bits, LBRM / reduced `Ncb`,
+circular-buffer wraparound, and `E` not divisible by `Zc`.
+
+Validation should compare the **final rate-matched bitstream** — not the parity rows —
+against the current implementation, for RV 0..3 across representative `E` spanning ~1/3
+through above 8/9, at every supported `Zc`.
+
+---
+
+## 11. What is not done
+
+```text
+BG2 Zc 72/88/104/120       8-byte aligned only; stock 64-bit encoders retained. The
+                           generator is parameterised on shift/mask, so a 64-bit path
+                           is a small change, but untested.
+Zc = 16                    a parity group is one chunk; correctly rejected. Not dispatched.
+AVX512 permutex path       nothing to do. An earlier revision listed this as a
+                           pessimisation; that was an artefact of measuring the encoder
+                           with the input already prepared. Counting the replication it
+                           avoids, it is the better stock path on all four parts that
+                           have it. Skylake-SP predates AVX512VBMI and has no permutex
+                           encoder at all. See the correction in section 7.2.
+RISC-V RVV                 ported against the expanded encoder in a separate context, not
+                           re-ported. `vslideup`/`vslidedown` have no lane restriction, and
+                           the unaligned-load form works directly.
+input/output processing    partly done, see section 9: buffer clears and the parity copy
+                           removed, 11-13% off the encoder call. What remains is the
+                           doubling (0.25 us) and the systematic copy (0.11 us), which
+                           need the unpack to write both layouts directly -- four SIMD
+                           variants, and not measurable by timing alone given the code
+                           layout sensitivity documented in 9.4.
+stock encoder ASAN         the stock path reports a negative-size memcpy under ASAN on both
+                           AMD machines. Pre-existing, not on the factored path, unexplained.
+Skylake-SP width           the CPUID table picks 512 for every Intel part. On a Xeon Gold
+                           6154 sustained ldpctest puts 256 ahead on BG1 by 4.4%, while the
+                           hot-loop harness of 7.2 puts 512 ahead by 25%. If the sustained
+                           result holds the table needs an Intel model check, since the
+                           likely mechanism -- AVX-512 licence downclocking -- is specific
+                           to Skylake/Cascade Lake. Unresolved, so the part is absent from
+                           the section 6 table and the table's default is unchanged.
+```
+
+---
+
+## Appendix: measurement method, and what it cost to get right
+
+Platform notes: `falcon-gh200` (Neoverse V2, 72 cores), `dgx2-oai` (GB10, Cortex-X925),
+`rock-5a` (RK3588, Cortex-A76 cores 4-7), `lx2160acex7` (LX2160A, Cortex-A72),
+`peafowl` (EPYC 9374F, Genoa), `murrelet` (EPYC 9575F, Turin), `hafnium` (Ryzen AI MAX+ 395,
+Strix Halo), `blabber` (Xeon Gold 6433N, Sapphire Rapids), `caracal` (Xeon Gold
+6154, Skylake-SP).
+
+`bench_factored_ab.sh` A/Bs the two configurations through `ldpctest`, rebuilding only
+`libldpc.so`. `icache_probe.c` reads cycles/instructions/L1I through `perf_event_open`
+directly, so no perf userspace tool is needed.
+
+Things that produced plausible but wrong numbers, all of which now fail loudly instead:
+
+```text
+sed pattern containing /*     '*' is a regex metacharacter, so the NO_FACTORED marker was
+                              never removed and both columns measured stock -> uniform 1.00x
+generator probed on PATH      ninja installed but a Makefile-configured tree
+libldpc.so is dlopen'd        ldpctest has no build dependency on it, so 'make ldpctest'
+                              left the previous module in place and the A/B compared a
+                              build against itself -> uniform 1.00x again
+hardcoded build directory     -> a full table of n/a rather than an error
+repo-relative include path    on remote machines the harness compiled the checked-out
+                              branch's file, not the one under test
+```
+
+The script now md5s `libldpc.so` between the two builds and refuses to print numbers if
+they match. That guard caught the third case.
+
+Two measurement lessons worth keeping:
+
+**Isolated microbenchmarks misled twice on this workload**, both times in the optimistic
+direction — the uniform-loadu decision (section 5.4) and the earlier 6.8x figure for BG1
+Zc=384. Absolute encoder timings move 5.81x-6.80x for the same comparison purely with
+binary layout. Prefer `ldpctest` and `nr_dlsim`.
+
+**Pin the benchmark.** Unpinned on a 72-core host the same binary drifts 9-10% from
+scheduler migration alone; pinned to an isolated core the spread is 1.1%. The machine was
+idle in both cases.
+
+**Disable C-states, and check that they are.** The physim CI brackets its runs with
+`cpupower idle-set -D 0` / `-E` (`ci-scripts/xml_files/t2_offload_physim_enc_dec.xml`).
+Leaving them enabled inflates `nr_dlsim` DLSCH encoding by roughly 1.9x, uniformly across
+rows -- which against a two-sided AVG +/- ABS_VAR threshold is indistinguishable from a
+regression, and was chased as one for most of a session. With them disabled a develop build
+reproduces the CI values within 5% on 11 of the 12 offload rows, and run-to-run spread falls
+from 17% to under 3.4%. Pinned hot-loop harnesses like `bench_x86_prep_encode` care far
+less, since the core never idles, but the setting is worth confirming rather than assuming:
+`for s in /sys/devices/system/cpu/cpu<N>/cpuidle/state*; do cat $s/disable; done` should
+print 1 for every state.
+
+**Reproduce a known CI run before trusting a new machine.** The above was caught by
+measuring develop first and comparing against a recent Jenkins artifact, rather than by
+measuring the branch and reasoning about the delta. On an unfamiliar host that check costs
+one build and settles whether the method is sound.
+
+**Below roughly 0.2 us, wall time stops being a usable signal in this file.** Everything in
+`ldpc_encode_parity_check.c` is `#include`d into one translation unit with the unpack, so
+any edit shifts code layout for all of it -- measured at 30% on a stage that was not
+touched (section 9.4). Use instructions retired for changes at that scale.
+
+---
+
+## Source files
+
+```text
+ldpc_generate_factored.c              symbolic factoring and emission (gen_code == 5)
+ldpc_encoder.c                        generator hook
+ldpc_encode_parity_check.c            width dispatch, calibration, input preparation
+ldpc{Zc}_factored_byte_{128,256,512}.c        BG1, 38/22/10 encoders
+ldpc_BG2_Zc{Zc}_factored_byte_{128,256,512}.c BG2
+bench_factored_ab.sh                  stock vs factored through ldpctest
+icache_probe.c                        cycles/instructions/L1I via perf_event_open
+```
