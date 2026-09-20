@@ -116,3 +116,19 @@ endif()
 # object after the generated T_IDs.h that the LOG macros include.
 target_link_libraries(e3_ran_func_du PRIVATE asn1_nr_rrc_hdrs log_headers)
 target_link_libraries(L2_NR PRIVATE e3_ran_func_du)
+
+# Export libe3 as a usage requirement of e3ap rather than relying on the
+# directory-scoped include_directories() above, which no other directory sees.
+# e3_agent.h includes <libe3/c_api.h>, so anything that includes it needs the
+# include path.
+target_include_directories(e3ap PUBLIC ${CLIBE3_INCLUDE_DIRS})
+
+# PR #204 merged the dApp-report bridge in e3_agent.c behind #ifdef E2_AGENT,
+# but nothing defined E2_AGENT for this target, so that code has never been
+# compiled. Define it, and put the RAN function's extern header on the include
+# path, when the E2 agent is built too.
+if(E2_AGENT)
+    target_link_libraries(e3ap PUBLIC e2_ran_func_cuup e2_ran_func_du_cucp_cuup)
+    target_compile_definitions(e3ap PRIVATE E2_AGENT)
+    target_include_directories(e3ap PUBLIC ${OPENAIR_DIR}/openair2/E2AP/RAN_FUNCTION/O-RAN)
+endif()
