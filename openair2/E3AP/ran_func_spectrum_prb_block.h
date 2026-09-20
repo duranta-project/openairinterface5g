@@ -24,6 +24,10 @@ typedef struct prb_block_state_s {
   bool active_dl;
   bool active_ul;
   bool needs_ul_full_stamp; /* one-shot: next apply stamps mask_ul into every ring slice */
+  /* The xApp procedure whose control this install carries out, or 0 when the
+   * block was the dApp's own decision. Reported once the mask is on the air,
+   * so the RAN can tell that xApp when its decision took effect. */
+  uint32_t pending_sequence_id;
   uint16_t mask_dl[MAX_BWP_SIZE]; /* per-PRB symbol bitmap (absolute PRB index) */
   uint16_t mask_ul[MAX_BWP_SIZE];
   uint16_t prev_mask_dl[MAX_BWP_SIZE]; /* bits dropped from mask_dl, still in the ring */

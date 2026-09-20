@@ -75,6 +75,30 @@ void prb_block_detach(const nr_cell_sched_t *cell)
  * retire timer, and for UL requests a one-shot full-ring stamp. After a UL
  * install, Event A scans the periodic-allocation registry for PUCCH/SRS the new
  * block now lands on (collision_handler). */
+/* Set by prb_block_set_pending_procedure() and consumed by the next install on
+ * the same thread. Thread-local because the control handler and the scheduler
+ * tick are different threads, and only the handler knows which xApp procedure
+ * it is carrying out. */
+static _Thread_local uint32_t g_pending_procedure;
+
+void prb_block_set_pending_procedure(uint32_t sequence_id)
+{
+  g_pending_procedure = sequence_id;
+}
+
+/* Weak defaults: a gNB built without the E3 agent has nobody to report to. */
+__attribute__((weak)) void prb_block_on_air_hook(uint32_t sequence_id, uint16_t sfn, uint16_t slot)
+{
+  (void)sequence_id;
+  (void)sfn;
+  (void)slot;
+}
+
+__attribute__((weak)) void prb_block_superseded_hook(uint32_t sequence_id)
+{
+  (void)sequence_id;
+}
+
 bool set_prb_block_mask(gNB_MAC_INST *mac, nr_cell_sched_t *cell, prb_block_dir_t dir, const uint16_t *mask, int len)
 {
   prb_block_state_t *st = block_state(cell);
@@ -120,9 +144,28 @@ bool set_prb_block_mask(gNB_MAC_INST *mac, nr_cell_sched_t *cell, prb_block_dir_
   *retire_at = st->apply_counter + cell->vrb_map_UL_size;
   /* Request a one-shot full-ring UL stamp on the next tick (closes the expand
    * race; no-op for DL, which has no ring). */
-  if (dir == PRB_BLOCK_DIR_UL)
+  uint32_t superseded_procedure = 0;
+  if (dir == PRB_BLOCK_DIR_UL) {
     st->needs_ul_full_stamp = true;
+    /* Take the LAST procedure id. Masks replace rather than accumulate, so of
+     * several installs landing between two ticks it is the last one's mask that
+     * reaches the vrb maps -- and an acknowledgment has to name the control
+     * whose mask was actually applied. The one it displaces is reported below. */
+    if (st->pending_sequence_id != g_pending_procedure)
+      superseded_procedure = st->pending_sequence_id;
+    st->pending_sequence_id = g_pending_procedure;
+  }
+  /* Consumed either way: a procedure names one install, and leaving it set
+   * would misattribute the next block the dApp decides on its own. */
+  g_pending_procedure = 0;
   pthread_mutex_unlock(&st->lock);
+
+  /* Outside the lock, and only for a procedure that was actually displaced.
+   * Zero means nothing was waiting -- the slot held an install the dApp decided
+   * on its own -- and an id equal to the incoming one is the same procedure
+   * installing again, which must not be answered twice. */
+  if (superseded_procedure != 0)
+    prb_block_superseded_hook(superseded_procedure);
 
   /* Event A: a (new) block is now live — scan the periodic-allocation registry
    * and report which configured PUCCH/SRS (UL) or NZP-CSI-RS (DL) it lands on,
@@ -437,6 +480,10 @@ void apply_prb_block_masks(nr_cell_sched_t *cell, frame_t frame, slot_t slot)
    * (harmless no-op then) so the flag is always consumed. */
   const bool do_ul_full_stamp = st->needs_ul_full_stamp;
   st->needs_ul_full_stamp = false;
+  const uint32_t stamp_sequence_id = st->pending_sequence_id;
+  /* Cleared with the rest of the window's state: this procedure is reported
+   * below and must not be named again by a later tick. */
+  st->pending_sequence_id = 0;
 
   if (!dl_on && !ul_on && !do_ul_full_stamp) {
     pthread_mutex_unlock(&st->lock);
@@ -478,6 +525,13 @@ void apply_prb_block_masks(nr_cell_sched_t *cell, frame_t frame, slot_t slot)
     }
   }
   pthread_mutex_unlock(&st->lock);
+
+  /* The mask is now in the vrb maps. Report the instant to whoever is waiting
+   * on the procedure that installed it. Weak hook: a build without the E3 agent
+   * links a no-op. Runs on the scheduler thread inside the slot deadline, so an
+   * implementation must not block. */
+  if (do_ul_full_stamp && stamp_sequence_id != 0)
+    prb_block_on_air_hook(stamp_sequence_id, (uint16_t)frame, (uint16_t)slot);
 }
 
 /* A UE's dedicated configuration was (re)applied. Idempotent, so this covers

@@ -87,3 +87,10 @@ __attribute__((weak)) bool set_prb_block_mask(struct gNB_MAC_INST_s *mac,
   (void)len;
   return false;
 }
+
+/* Weak stub for prb_block_set_pending_procedure, same reasoning as
+ * set_prb_block_mask above: without a MAC there is no install to name. */
+__attribute__((weak)) void prb_block_set_pending_procedure(uint32_t sequence_id)
+{
+  (void)sequence_id;
+}

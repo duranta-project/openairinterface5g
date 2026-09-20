@@ -56,6 +56,22 @@ typedef enum { PRB_BLOCK_DIR_DL = 0, PRB_BLOCK_DIR_UL = 1 } prb_block_dir_t;
 /* The MAC instance and cell the service models act on. False before MAC init. */
 bool e3_spectrum_default_cell(struct gNB_MAC_INST_s **mac, struct nr_cell_sched_s **cell);
 
+/* Name the xApp procedure the next set_prb_block_mask() on this thread carries
+ * out. Thread-local and consumed by that call, so the MAC keeps no E3 header
+ * while the scheduler tick can still report back to the right procedure. Leave
+ * it unset (or pass 0) for a block the dApp decided on its own. */
+void prb_block_set_pending_procedure(uint32_t sequence_id);
+
+/* Called on the scheduler thread once an install reaches the air. Weak default
+ * in ran_func_spectrum_prb_block.c (a no-op), so nothing has to define it. Runs
+ * inside the slot deadline: implementations must not block. */
+void prb_block_on_air_hook(uint32_t sequence_id, uint16_t sfn, uint16_t slot);
+
+/* Called when a later install replaces one that has not reached the air yet, so
+ * whoever waits on the replaced procedure learns it was applied and then
+ * superseded. Weak, same as above. */
+void prb_block_superseded_hook(uint32_t sequence_id);
+
 /* Install (mask != NULL) or clear (NULL) the sensing policy: per slot, the
  * symbols to keep free of UL data. False if the cell has no sensing state. */
 bool set_sensing_policy(struct nr_cell_sched_s *cell, const uint16_t *mask, int n_slots);
