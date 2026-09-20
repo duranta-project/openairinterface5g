@@ -1879,6 +1879,12 @@ if(E2_AGENT)
   target_link_libraries(nr-cuup PRIVATE e2_agent e2_agent_arg e2_ran_func_cuup)
   target_compile_definitions(nr-cuup PRIVATE ${E2AP_VERSION} ${KPM_VERSION} E2_AGENT)
 endif()
+if(E3_AGENT)
+  # e2_ran_func_cuup carries the E2SM-DAPP RAN function, which calls into the E3
+  # agent, so nr-cuup has to resolve those symbols too.
+  target_link_libraries(nr-cuup PRIVATE e3ap)
+  target_compile_definitions(nr-cuup PRIVATE E3_AGENT)
+endif()
 
 # nr-uesoftmodem is  UE implementation
 #######################################

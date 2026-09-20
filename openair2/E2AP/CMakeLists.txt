@@ -84,6 +84,13 @@ set(SM_ENCODING_GTP "PLAIN" CACHE STRING "The GTP SM encoding to use")
 set_property(CACHE SM_ENCODING_GTP PROPERTY STRINGS "PLAIN")
 message(STATUS "Selected GTP SM_ENCODING: ${SM_ENCODING_GTP}")
 
+# E2SM-DAPP Service Model
+if(E3_AGENT)
+  set(SM_ENCODING_DAPP "ASN" CACHE STRING "The DAPP SM encoding to use")
+  set_property(CACHE SM_ENCODING_DAPP PROPERTY STRINGS "ASN")
+  message(STATUS "Selected DAPP SM_ENCODING: ${SM_ENCODING_DAPP}")
+endif()
+
 
 if(E2AP_VERSION STREQUAL "E2AP_V1")
   add_library(e2ap_ran_func_obj OBJECT 
