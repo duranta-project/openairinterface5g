@@ -713,6 +713,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
 
   time_stats_t *dlsch_scrambling_stats = &gNB->dlsch_scrambling_stats;
   time_stats_t *dlsch_modulation_stats = &gNB->dlsch_modulation_stats;
+  time_stats_t *dlsch_layer_clear_stats = &gNB->dlsch_layer_clear_stats;
   freq_alloc_bitmap_t *freq_alloc = &dlsch->freq_alloc;
   const nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15 = &dlsch->pdsch_pdu->pdsch_pdu_rel15;
   const int layerSz = frame_parms->N_RB_DL * frame_parms->symbols_per_slot * NR_NB_SC_PER_RB;
@@ -758,7 +759,9 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
 
   int layerSz2 = (layerSz + 63) & ~63;
   c16_t tx_layers[rel15->nrOfLayers][layerSz2] __attribute__((aligned(64)));
+  START_MEAS_FULL_SLOT(dlsch_layer_clear_stats, slot_type, NR_DOWNLINK_SLOT);
   memset(tx_layers, 0, sizeof(tx_layers));
+  STOP_MEAS_FULL_SLOT(dlsch_layer_clear_stats, slot_type, NR_DOWNLINK_SLOT);
 
   /* A single codeword. TS 38.211 only uses a second one above 4 layers, this PHY is capped
      at NR_MAX_NB_LAYERS == 4, and the scheduler sets NrOfCodewords = 1 unconditionally --
