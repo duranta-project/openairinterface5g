@@ -1283,7 +1283,11 @@ NR_MeasConfig_t *get_MeasConfig(gNB_RRC_UE_t *ue,
         continue;
       }
       int meas_idx = allocate_measurement_id(ue);
-      int meas_obj_id = neighbour_measurement_object_id[i];
+      /* Intra-frequency neighbours are measured through the serving-frequency
+       * measurement object. Keep the dedicated object for inter-frequency A3. */
+      int meas_obj_id = neigh_cell->absoluteFrequencySSB == ft->carrierFreq
+                            ? serving_cell_measobj_id
+                            : neighbour_measurement_object_id[i];
       NR_MeasIdToAddMod_t *measid_A3 = get_MeasId(meas_idx, reportConfigId, meas_obj_id);
       asn1cSeqAdd(&mc->measIdToAddModList->list, measid_A3);
       i++;
