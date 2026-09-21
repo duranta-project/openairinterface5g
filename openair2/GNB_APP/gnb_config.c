@@ -769,10 +769,17 @@ static int get_prb_blacklist(uint16_t *prbbl)
   return num_prbbl;
 }
 
-/* L1 needs bf_method for DAS; a split-mode L1 has no MACRLCs section, so no DAS */
+/* L1 needs bf_method for DAS. Only a PNF legitimately has no MACRLCs section to read it
+ * from, and it cannot do DAS at all; anywhere else a missing section would silently cost
+ * the operator the beamforming they asked for. */
 static nr_bf_method_t get_bf_method(int idx)
 {
   GET_PARAMS_LIST(MacRLC_ParamList, MacRLC_Params, MACRLCPARAMS_DESC, MACRLC_LIST, NULL, MACRLCPARAMS_CHECK);
+  if (MacRLC_ParamList.numelt == 0) {
+    AssertFatal(NFAPI_MODE == NFAPI_MODE_PNF || NFAPI_MODE == NFAPI_MODE_STANDALONE_PNF,
+                "no " MACRLC_LIST " section to read " MACRLC_BF_METHOD " from\n");
+    return BF_METHOD_STRAIGHT_WIRE;
+  }
   if (idx >= MacRLC_ParamList.numelt)
     return BF_METHOD_STRAIGHT_WIRE;
   // config_get_processedint() takes only paramdef_t *, so cast const away
@@ -837,7 +844,8 @@ void RCconfig_NR_L1(void)
       gNB->phase_comp = *gpd(params, np, L1_PHASE_COMP)->uptr;
       gNB->dmrs_num_antennas_per_thread = *gpd(params, np, L1_NUM_ANTENNAS_PER_THREAD)->uptr;
       AssertFatal(*gpd(params, np, L1_ANALOG_DAS_REMOVED)->iptr == -1,
-                  "enable_das removed from the L1s section, set bf_method = \"das\" in the MACRLCs section instead\n");
+                  "enable_das removed from the L1s section, set " MACRLC_BF_METHOD " = \"das\" in the " MACRLC_LIST
+                  " section instead (not possible with a split L1, where DAS is unsupported)\n");
       gNB->enable_analog_das = get_bf_method(j) == BF_METHOD_DAS;
       if (gNB->enable_analog_das)
         LOG_I(NR_PHY, "L1 configured for a distributed antenna system (DAS)\n");
@@ -1915,6 +1923,17 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
         default:
           AssertFatal(false, "unhandled " MACRLC_BF_METHOD " %d\n", beam_info->bf_method);
       }
+      /* Only Aerial applies a digital beam table. The table does reach a native L1, over
+       * P5 or directly, but nr_feptx_prec() copies the samples through instead of
+       * precoding them, so the weights would silently have no effect. */
+      AssertFatal(!have_dbt || NFAPI_MODE == NFAPI_MODE_AERIAL,
+                  "a digital beam table is only supported with Aerial, the native L1 does not apply the weights\n");
+      /* An nFAPI PNF has no MACRLCs section, so RCconfig_NR_L1() cannot derive DAS there
+       * and the split L1 would silently run without it. Beam IDs meant for the RU or the
+       * fronthaul do travel in every FAPI PDU, so predefined without a table is fine. */
+      AssertFatal(beam_info->bf_method != BF_METHOD_DAS || NFAPI_MODE != NFAPI_MODE_VNF,
+                  MACRLC_BF_METHOD " \"das\" is not supported with a split L1: the PNF has no " MACRLC_LIST
+                  " section to read it from\n");
       /* Aerial applies the beam weights, and the SRS-based precoder, per physical antenna
        * and cannot derive that count from the logical antenna ports. */
       if (NFAPI_MODE == NFAPI_MODE_AERIAL
