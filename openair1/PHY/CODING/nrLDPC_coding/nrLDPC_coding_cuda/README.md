@@ -49,6 +49,34 @@ efficiency, we recommend using the following official NVIDIA developer tools:
   helps verify SM occupancy, shared memory usage, and the execution efficiency
   of the SIMD4 vectorized PTX instructions.
 
+## AMD GPU Support (HIP / ROCm)
+
+The same decoder sources can be compiled for **AMD GPUs** with the ROCm/HIP toolchain (`hipcc`) instead of NVIDIA's `nvcc`. This is achieved with a thin, compile-time compatibility layer — no separate code path is maintained:
+
+* `openair1/PHY/gpu_compat.h` — maps the CUDA runtime API onto HIP (`cudaMalloc` → `gpuMalloc` → `hipMalloc`, streams, events, graphs, error handling, …).
+* `openair1/PHY/gpu_simd_intrin_compat.h` — provides the DP4A-style SIMD intrinsics (`__vminu4`, `__vabs4`, `__vcmpeq4`, …) as portable `gpu_v*` helpers with CUDA, HIP-device, and host fallbacks.
+* `openair1/PHY/gpu_alloc.h` — the pinned, device-mapped host allocations used by the LDPC_CUDA-guarded host code.
+
+The backend is selected at compile time from the compiler's own macros, and CMake picks the toolchain: with `ENABLE_LDPC_CUDA=ON`, `LDPC_GPU_BACKEND` defaults to HIP if a HIP compiler is installed and to CUDA otherwise. Set `-DLDPC_GPU_BACKEND=CUDA` or `=HIP` to force one when both are present. The build produces the **same plugin** `libldpc_cuda.so` with the **same `_cuda` shlibversion**, so every `ldpctest`, `nr_dlsim` and `nr_ulsim` command below is **identical** regardless of whether the plugin was built with CUDA or HIP.
+
+### Tested AMD System Configuration
+
+The HIP backend has been successfully compiled and verified on:
+
+* **GPU:** AMD Radeon 8060S (Ryzen AI MAX+ 395, `gfx1151`)
+* **ROCm:** 7.2.4 (`hipcc` / AMD clang 22)
+* **CMake:** 3.28.3
+* **GCC (host C/C++ compiler):** 12.3.0
+
+Other AMD targets can be added via the GPU architecture list in `openair1/PHY/CODING/nrLDPC_coding/nrLDPC_coding_cuda/CMakeLists.txt` (`HIP_ARCHITECTURES`, e.g. `gfx90a` for MI210, `gfx1151` for Ryzen AI MAX+).
+
+### Monitoring & Profiling (ROCm)
+
+The AMD equivalents of the NVIDIA tools above are:
+
+* **`rocm-smi`**: real-time monitoring of VRAM usage, GPU utilization and power (equivalent to `nvidia-smi`).
+* **`rocprofv3` / `rocprof`**: system-wide and kernel-level profiling, including HIP Graph execution timelines (equivalent to `nsys` / `ncu`).
+
 ## Unit Test
 
 ### Build
@@ -60,6 +88,29 @@ cmake -B build/ -G Ninja -DENABLE_LDPC_CUDA=ON -DCMAKE_CUDA_COMPILER=/usr/local/
 ninja -C build/
 ctest --test-dir build/ -R ldpc_cuda
 ```
+
+#### Building for AMD GPUs (HIP / ROCm)
+
+Nothing changes on the command line: on a machine with ROCm installed and no
+CUDA, the same invocation builds the plugin with `hipcc`.
+
+```bash
+./build_oai --ninja --phy_simulators --build-lib ldpc_cuda
+```
+
+Equivalently, invoking CMake directly:
+
+```bash
+cmake <src_dir> -GNinja -DENABLE_PHYSIM_TESTS=ON -DENABLE_LDPC_CUDA=ON
+ninja ldpc_cuda ldpctest nr_dlsim nr_ulsim
+```
+
+`cmake` reports which backend it picked (`LDPC GPU offload: selected the HIP
+backend`). The ROCm installation prefix is derived from the HIP compiler, so
+`CMAKE_PREFIX_PATH` does not have to be set. Add `-DLDPC_GPU_BACKEND=CUDA` on a
+machine that has both toolchains and should build for NVIDIA.
+
+The resulting `libldpc_cuda.so` links against `libamdhip64.so`; verify with `ldd libldpc_cuda.so`. From here on, all test commands are the same as for the CUDA build (the plugin keeps the `_cuda` shlibversion).
 
 ### ldpctest
 
@@ -73,7 +124,7 @@ ctest --test-dir build/ -R ldpc_cuda
 * `-s`: Starting SNR in dBm.
 * `-i`: Maximum number of iterations. (Note: Due to internal index offset
   implementation, the parameter `-i4` executes 5 decoding iterations.)
-* `-v _cuda `: Enable GPU decoder. Omit this parameter for CPU baseline.
+* `-v _cuda `: Enable GPU decoder (loads `libldpc_cuda.so`, whether built with CUDA or HIP). Omit this parameter for CPU baseline.
 
 #### Latency & Baseline Test
 
@@ -114,10 +165,9 @@ Run the following commands to benchmark the maximum GPU throughput:
 ### Downlink Simulator (dlsim)
 
 `nr_dlsim` is used to simulate the physical downlink shared channel (PDSCH). To
-offload LDPC decoding to the GPU, you must specify the CUDA shared library and
-enable the GPU flag.
+offload LDPC decoding to the GPU, you must specify the GPU shared library.
 
-* `--loader.ldpc.shlibversion _cuda`: Directs the dynamic loader to use the CUDA-accelerated LDPC library.
+* `--loader.ldpc.shlibversion _cuda`: Directs the dynamic loader to use the GPU-accelerated LDPC library (`libldpc_cuda.so`, CUDA or HIP build).
 
 Unlike `ldpctest` where you can manually set the number of segments, in
 `nr_dlsim`, the number of segments (Code Blocks) is determined dynamically by the
