@@ -17,6 +17,7 @@ def doBuild = true
 def do4Gtest = false
 def do5Gtest = false
 def do5GUeTest = false
+def doORUtest = false
 
 // list of failing stages
 def failingStages = ""
@@ -105,6 +106,7 @@ pipeline {
               message += "- ${gitBaseUrl}/labels/5G-NR (perform 5G tests)\n"
               message += "- ${gitBaseUrl}/labels/nrUE (perform only 5G-UE related tests including physims excluding LDPC tests)\n"
               message += "- ${gitBaseUrl}/labels/CI (perform both 4G and 5G tests)\n"
+              message += "- ${gitBaseUrl}/labels/O-RU (perform only O-RU tests)\n"
               githubPRComment comment: githubPRMessage(message)
               error('Not performing CI due to lack of mandatory labels')
             }
@@ -122,6 +124,9 @@ pipeline {
             if (env.GITHUB_PR_LABELS.contains('nrUE')) {
               do5GUeTest = true
             }
+            if (env.GITHUB_PR_LABELS.contains('O-RU')) {
+              doORUtest = true
+            }
             if (env.GITHUB_PR_LABELS.contains('documentation')) {
               doBuild = false
             }
@@ -136,6 +141,7 @@ pipeline {
             do4Gtest    = ${do4Gtest}
             do5Gtest    = ${do5Gtest}
             do5GUeTest  = ${do5GUeTest}
+            doORUtest   = ${doORUtest}
           """
         }
       }
@@ -828,7 +834,7 @@ pipeline {
           }
         }
         stage ("SA-ORU-CN5G") {
-          when { expression {do5Gtest} }
+          when { expression {do5Gtest || doORUtest} }
           steps {
             script {
               triggerDownstreamJob ('RAN-SA-ORU-CN5G')

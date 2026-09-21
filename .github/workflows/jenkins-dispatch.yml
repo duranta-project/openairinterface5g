@@ -63,6 +63,7 @@ jobs:
             "${{ vars.NRUE_LABEL }}" \
             "${{ vars.LTE_LABEL }}" \
             "${{ vars.CI_LABEL }}" \
+            "${{ vars.ORU_LABEL }}" \
             "${{ vars.RETRIGGER_CI_LABEL }}"; do
             if echo "$PR_LABELS" | grep -qxF "$label"; then
               exit 0
