@@ -55,6 +55,18 @@ enum scopeDataType {
   gNbTimeDomainSamples,
   pdschChanEstimates,
   pdschRxdataF,
+  // Standalone O-RU frequency-domain I/Q constellation taps. Each buffer holds one OFDM
+  // symbol for ALL antenna ports (colSz = number of ports, antenna-major layout), so the
+  // O-RU I/Q window shows a fixed 4 plots regardless of antenna count. The four categories
+  // form the DL/UL x pre/post-channel matrix:
+  //   oruDLpreFreq  : DL before the channel  (from 7.2 FH; clean L1 TX)
+  //   oruDLpostFreq : DL after the channel   (vrtsim server-TX output; staged)
+  //   oruULpreFreq  : UL before the channel  (generated on the UE; staged)
+  //   oruULpostFreq : UL after the channel   (O-RU RX after FFT+rotation)
+  oruDLpreFreq,
+  oruDLpostFreq,
+  oruULpreFreq,
+  oruULpostFreq,
   EXTRA_SCOPE_TYPES
 };
 
@@ -82,11 +94,14 @@ typedef struct scopeData_s {
   char **argv;
   RU_t *ru;
   PHY_VARS_gNB *gNB;
-  scopeGraphData_t *liveData[MAX_SCOPE_TYPES];
+  scopeGraphData_t *liveData[EXTRA_SCOPE_TYPES];
   void (*copyData)(void *, enum scopeDataType, void *data, int elementSz, int colSz, int lineSz, int offset, metadata *meta);
   pthread_mutex_t copyDataMutex;
-  scopeGraphData_t *copyDataBufs[MAX_SCOPE_TYPES][COPIES_MEM];
-  int copyDataBufsIdx[MAX_SCOPE_TYPES];
+  scopeGraphData_t *copyDataBufs[EXTRA_SCOPE_TYPES][COPIES_MEM];
+  int copyDataBufsIdx[EXTRA_SCOPE_TYPES];
+  // Bumped by copyData() on every new copy; scope-side plots use it to redraw only when the
+  // RT path actually produced new samples (avoids repainting stale/empty buffers).
+  uint64_t liveDataCnt[EXTRA_SCOPE_TYPES];
   void (*scopeUpdater)(enum PlotTypeGnbIf plotType, int numElements);
   bool (*tryLockScopeData)(enum scopeDataType type, int elementSz, int colSz, int lineSz, metadata *meta);
   void (*copyDataUnsafeWithOffset)(enum scopeDataType type, void *dataIn, size_t size, size_t offset, int copy_index);
