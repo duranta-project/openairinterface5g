@@ -117,14 +117,30 @@ static void copy_ul_tti_req(nfapi_nr_ul_tti_request_t *to, nfapi_nr_ul_tti_reque
 
 static void nr_fill_pusch_fapi_groups(nfapi_nr_ul_tti_request_t *UL_tti_req)
 {
-  // Single User MIMO
   UL_tti_req->n_group = 0;
+  bool grouped[MAX_UL_PDUS_PER_SLOT] = {0}; // size to the pdus_list bound
   for (int i = 0; i < UL_tti_req->n_pdus; i++) {
-    if (UL_tti_req->pdus_list[i].pdu_type != NFAPI_NR_UL_CONFIG_PUSCH_PDU_TYPE)
+    if (UL_tti_req->pdus_list[i].pdu_type != NFAPI_NR_UL_CONFIG_PUSCH_PDU_TYPE || grouped[i])
       continue;
     nfapi_nr_ul_tti_request_number_of_groups_t *group = &UL_tti_req->groups_list[UL_tti_req->n_group];
     group->n_ue = 0;
     group->ue_list[group->n_ue++].pdu_idx = i;
+    grouped[i] = true;
+    const nfapi_nr_pusch_pdu_t *pi = &UL_tti_req->pdus_list[i].pusch_pdu;
+    // find PDUs sharing the exact RB region — MU partners
+    for (int k = i + 1; k < UL_tti_req->n_pdus; k++) {
+      if (UL_tti_req->pdus_list[k].pdu_type != NFAPI_NR_UL_CONFIG_PUSCH_PDU_TYPE || grouped[k])
+        continue;
+      const nfapi_nr_pusch_pdu_t *pk = &UL_tti_req->pdus_list[k].pusch_pdu;
+      if (pk->rb_start == pi->rb_start && pk->rb_size == pi->rb_size) {
+        AssertFatal(group->n_ue < 2,
+                    "more than 2 PDUs share RB region [%u,+%u); scheduler invariant violated\n",
+                    pi->rb_start,
+                    pi->rb_size);
+        group->ue_list[group->n_ue++].pdu_idx = k;
+        grouped[k] = true;
+      }
+    }
     UL_tti_req->n_group++;
   }
 }
