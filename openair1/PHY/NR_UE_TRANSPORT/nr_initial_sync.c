@@ -49,7 +49,7 @@ static bool nr_pbch_detection(const UE_nr_rxtx_proc_t *proc,
                               int *ssb_index,
                               int *symbol_offset,
                               fapiPbch_t *result,
-                              const c16_t rxdataF[NR_N_SYMBOLS_SSB][frame_parms->nb_antennas_rx][frame_parms->ofdm_symbol_size])
+                              const c16_t rxdataF[][frame_parms->nb_antennas_rx][frame_parms->ofdm_symbol_size])
 {
   const int N_L = (frame_parms->Lmax == 4) ? 4 : 8;
   const int N_hf = (frame_parms->Lmax == 4) ? 2 : 1;
@@ -151,16 +151,35 @@ static void compensate_freq_offset(c16_t **x, const int nb_antennas_rx, const in
   }
 }
 
-/* Offset of the cyclic prefix of symbol `symb` from the first sample of an SS/PBCH block.
-   Called with symb == NR_N_SYMBOLS_SSB, it gives the size of the whole block. */
-static int ssb_symbol_offset(int ofdm_symbol_size, int nb_prefix_samples, int symb)
+/* Cyclic prefix of symbol `symb` of an SS/PBCH block, counted from the first symbol of the
+   block. The first symbol of every half subframe carries a longer prefix (TS 38.211 5.3.1).
+   Only the sidelink block can contain such a symbol: it always starts on the first symbol of
+   a slot, whereas the downlink block never does. */
+static int ssb_symbol_prefix_samples(const nr_ssb_search_params_t *params, int symb)
 {
-  return symb * (nb_prefix_samples + ofdm_symbol_size);
+  if (params->sidelink && (symb % (7 << params->numerology_index)) == 0)
+    return params->nb_prefix_samples0;
+  return params->nb_prefix_samples;
 }
 
-int nr_ssb_block_size(const NR_DL_FRAME_PARMS *fp)
+/* Offset of the cyclic prefix of symbol `symb` from the first sample of the block. Called
+   with symb == ssb_num_symbols, it gives the size of the whole block. */
+static int ssb_symbol_offset(const nr_ssb_search_params_t *params, int symb)
 {
-  return ssb_symbol_offset(fp->ofdm_symbol_size, fp->nb_prefix_samples, NR_N_SYMBOLS_SSB);
+  int offset = 0;
+  for (int s = 0; s < symb; s++)
+    offset += ssb_symbol_prefix_samples(params, s) + params->ofdm_symbol_size;
+  return offset;
+}
+
+int nr_ssb_block_size(const NR_DL_FRAME_PARMS *fp, bool sidelink)
+{
+  const nr_ssb_search_params_t params = {.ofdm_symbol_size = fp->ofdm_symbol_size,
+                                         .nb_prefix_samples = fp->nb_prefix_samples,
+                                         .nb_prefix_samples0 = fp->nb_prefix_samples0,
+                                         .numerology_index = fp->numerology_index,
+                                         .sidelink = sidelink};
+  return ssb_symbol_offset(&params, sidelink ? SL_N_SYMBOLS_SSB : NR_N_SYMBOLS_SSB);
 }
 
 /* rxdataF should be 16 bytes aligned */
@@ -169,13 +188,13 @@ static void generate_table(nr_ssb_search_params_t *params,
                            c16_t symbol_rotation[224])
 {
   init_timeshift_rotation(params->ofdm_symbol_size,
-                          params->N_RB_DL * NR_NB_SC_PER_RB,
+                          params->N_RB * NR_NB_SC_PER_RB,
                           params->nb_prefix_samples,
                           params->ofdm_offset_divisor,
                           timeshift_symbol_rotation);
   perform_symbol_rotation(params->symbols_per_slot * params->slots_per_frame / 10,
                           params->numerology_index,
-                          params->dl_CarrierFreq,
+                          params->carrier_freq,
                           symbol_rotation);
 }
 
@@ -189,10 +208,8 @@ static void do_time_to_freq(nr_ssb_search_params_t *params, uint32_t sample_offs
       (c16_t(*)[params->nb_antennas_rx][params->ofdm_symbol_size])params->rxdataF;
   dft_size_idx_t dftsize = get_dft(params->ofdm_symbol_size);
 
-  for (int symb = 0; symb < NR_N_SYMBOLS_SSB; symb++) {
-    // For Sidelink 16 frames worth of samples is processed to find SSB, for 5G-NR 2.
-    unsigned int rx_offset = sample_offset + params->nb_prefix_samples;
-    rx_offset += symb * (params->nb_prefix_samples + params->ofdm_symbol_size);
+  for (int symb = 0; symb < params->ssb_num_symbols; symb++) {
+    unsigned int rx_offset = sample_offset + ssb_symbol_offset(params, symb) + ssb_symbol_prefix_samples(params, symb);
     // use OFDM symbol from within 1/8th of the CP to avoid ISI
     rx_offset -= params->nb_prefix_samples / params->ofdm_offset_divisor;
     for (unsigned char aa = 0; aa < params->nb_antennas_rx; aa++) {
@@ -200,14 +217,14 @@ static void do_time_to_freq(nr_ssb_search_params_t *params, uint32_t sample_offs
       // OFDM Demod
       dft(dftsize, (int16_t *)&params->rxdata[aa][rx_offset], (int16_t *)rxF, 1);
       // FFT-shift
-      fftshift_inplace(rxF, params->N_RB_DL * NR_NB_SC_PER_RB, params->ofdm_symbol_size);
+      fftshift_inplace(rxF, params->N_RB * NR_NB_SC_PER_RB, params->ofdm_symbol_size);
       // Phase compensation
       apply_nr_rotation_symbol_fftshifted_RX(params->symbols_per_slot,
                                              params->slots_per_subframe,
                                              timeshift_symbol_rotation,
                                              rxF,
                                              symbol_rotation,
-                                             params->N_RB_DL,
+                                             params->N_RB,
                                              0,
                                              symb);
     }
@@ -230,40 +247,27 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
                                       .nb_prefix_samples = params->nb_prefix_samples,
                                       .subcarrier_spacing = params->subcarrier_spacing,
                                       .fo_flag = params->fo_flag,
+                                      .sidelink = params->sidelink,
                                       .target_Nid_cell = params->target_nid_cell,
                                       .pssTime = (c16_t *)pssTime};
   nr_pss_info_t pss_info = pss_search_time_nr(&p_pss);
+
+  /* Symbols of the block the correlation can have peaked on. The downlink block carries a
+     single PSS on its first symbol. The sidelink block carries the same PSS on its symbols 1
+     and 2, so the correlation peaks on both of them and the block may start one symbol
+     earlier than the peak alone suggests: both hypotheses have to be tried. */
+  const int pss_symbol[] = {params->sidelink ? PSS0_SL_SYMBOL_NB : 0, PSS1_SL_SYMBOL_NB};
+  const int num_pss_symbols = params->sidelink ? 2 : 1;
+  const int ssb_size = ssb_symbol_offset(params, params->ssb_num_symbols);
 
   // This is the frequency offset that will be applied in the compensation,
   // and it takes into account the values already applied previously during the loop.
   int f_off_to_comp = 0;
 
-  for (int p = 0; p < NUMBER_PSS_SEQUENCE; p++) {
+  for (int p = 0; p < nr_num_pss_sequences(params->sidelink); p++) {
     pss_detection_result_t *pss_res = &pss_info.pss_elem_info[p];
     if (!pss_res->success)
       continue;
-
-    // The correlation peaks on the body of the PSS symbol, i.e. after its cyclic prefix.
-    const int ssb_time_offset = pss_res->pos - params->nb_prefix_samples;
-    const int ssb_size = ssb_symbol_offset(params->ofdm_symbol_size, params->nb_prefix_samples, NR_N_SYMBOLS_SSB);
-
-#ifdef DEBUG_INITIAL_SYNCH
-    LOG_I(PHY,
-          "Initial sync : Estimated PSS position %d, Nid2 %d, ssb time offset %d\n",
-          pss_res->pos,
-          pss_res->nid2,
-          ssb_time_offset);
-#endif
-
-    // Check that the whole block fits within the buffer
-    if (ssb_time_offset < 0 || ssb_time_offset + ssb_size > params->rxdata_size) {
-      LOG_D(PHY,
-            "SSB does not fit in the buffer (sync_pos %d, ssb_time_offset %d, buffer_size %d)\n",
-            pss_res->pos,
-            ssb_time_offset,
-            params->rxdata_size);
-      continue;
-    }
 
     // Apply frequency offset compensation if requested
     if (params->apply_freq_offset && pss_res->freq_offset != 0) {
@@ -272,40 +276,66 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
       f_off_to_comp *= -1;
     }
 
-    // Extract SSB symbols to frequency domain
-    // Symbol ordering: 0=PSS, 1=PBCH, 2=SSS, 3=PBCH
-    do_time_to_freq(params, ssb_time_offset);
+    for (int h = 0; h < num_pss_symbols; h++) {
+      // The correlation peaks on the body of the PSS symbol, i.e. after its cyclic prefix.
+      const int ssb_time_offset =
+          pss_res->pos - ssb_symbol_offset(params, pss_symbol[h]) - ssb_symbol_prefix_samples(params, pss_symbol[h]);
 
-    // Perform SSS detection
-    nr_sss_params_t p_sss = (nr_sss_params_t){.nb_antennas_rx = params->nb_antennas_rx,
-                                              .samples_per_slot_wCP = params->samples_per_slot_wCP,
-                                              .ofdm_symbol_size = params->ofdm_symbol_size,
-                                              .ssb_start_subcarrier = params->ssb_start_subcarrier,
-                                              .subcarrier_spacing = params->subcarrier_spacing,
-                                              .exclude_nid_cells = params->exclude_nid_cells,
-                                              .num_exclude_nid_cells = params->num_exclude_nid_cells};
+#ifdef DEBUG_INITIAL_SYNCH
+      LOG_I(PHY,
+            "Initial sync : Estimated PSS position %d, Nid2 %d, ssb time offset %d\n",
+            pss_res->pos,
+            pss_res->nid2,
+            ssb_time_offset);
+#endif
 
-    c16_t(*rxdataF)[params->nb_antennas_rx][params->ofdm_symbol_size] =
-        (c16_t(*)[params->nb_antennas_rx][params->ofdm_symbol_size])params->rxdataF;
-    params->sss_res = rx_sss_nr(&p_sss, pss_res, -1, rxdataF);
+      // Check that the whole block fits within the buffer
+      if (ssb_time_offset < 0 || ssb_time_offset + ssb_size > params->rxdata_size) {
+        LOG_D(PHY,
+              "SSB does not fit in the buffer (sync_pos %d, ssb_time_offset %d, buffer_size %d)\n",
+              pss_res->pos,
+              ssb_time_offset,
+              params->rxdata_size);
+        continue;
+      }
 
-    if (!params->sss_res.success || params->sss_res.nid_cell < 0) {
-      continue;
+      // Extract the block symbols to frequency domain
+      // Downlink symbol ordering: 0=PSS, 1=PBCH, 2=SSS, 3=PBCH
+      // Sidelink symbol ordering: 0=PSBCH, 1,2=PSS, 3,4=SSS, 5..12=PSBCH
+      do_time_to_freq(params, ssb_time_offset);
+
+      // Perform SSS detection
+      nr_sss_params_t p_sss = (nr_sss_params_t){.nb_antennas_rx = params->nb_antennas_rx,
+                                                .samples_per_slot_wCP = params->samples_per_slot_wCP,
+                                                .ofdm_symbol_size = params->ofdm_symbol_size,
+                                                .ssb_start_subcarrier = params->ssb_start_subcarrier,
+                                                .subcarrier_spacing = params->subcarrier_spacing,
+                                                .sidelink = params->sidelink,
+                                                .exclude_nid_cells = params->exclude_nid_cells,
+                                                .num_exclude_nid_cells = params->num_exclude_nid_cells};
+
+      c16_t(*rxdataF)[params->nb_antennas_rx][params->ofdm_symbol_size] =
+          (c16_t(*)[params->nb_antennas_rx][params->ofdm_symbol_size])params->rxdataF;
+      params->sss_res = rx_sss_nr(&p_sss, pss_res, -1, rxdataF);
+
+      if (!params->sss_res.success || params->sss_res.nid_cell < 0)
+        continue;
+
+      params->pss_res = *pss_res;
+      params->ssb_time_offset = ssb_time_offset;
+      if (params->validate_candidate && !params->validate_candidate(params->validate_ctx, params))
+        continue;
+      return true;
     }
-
-    params->pss_res = *pss_res;
-    params->ssb_time_offset = ssb_time_offset;
-    if (params->validate_candidate && !params->validate_candidate(params->validate_ctx, params))
-      continue;
-    return true;
   }
 
   return false;
 }
 
-/* Decode the PBCH of a candidate block whose PSS and SSS have just been detected. This is
-   what confirms the candidate: when it fails, the search carries on with the next one
-   instead of giving up. */
+/* Decode the (P)SBCH of a candidate block whose PSS and SSS have just been detected. This is
+   what confirms the candidate: a correlation peak landing on the wrong symbol of a real
+   block still passes the SSS detection, because the sidelink block repeats both PSS and SSS
+   on two consecutive symbols. */
 static bool nr_validate_ssb_candidate(void *ctx, const nr_ssb_search_params_t *params)
 {
   nr_ue_ssb_scan_t *ssbInfo = (nr_ue_ssb_scan_t *)ctx;
@@ -315,6 +345,9 @@ static bool nr_validate_ssb_candidate(void *ctx, const nr_ssb_search_params_t *p
 
   ssbInfo->nidCell = params->sss_res.nid_cell;
   ssbInfo->ssbOffset = params->ssb_time_offset;
+
+  if (ssbInfo->sidelink)
+    return sl_nr_psbch_detection(ssbInfo, rxdataF);
 
   if (!nr_pbch_detection(ssbInfo->proc,
                          fp,
@@ -339,36 +372,40 @@ static void nr_scan_ssb(void *arg)
 {
   /*   Initial synchronisation
    *
-   *                                 1 radio frame = 10 ms
+   *                          scan window = 1 subframe + one SS/PBCH block
    *     <--------------------------------------------------------------------------->
    *     -----------------------------------------------------------------------------
    *     |                                 Received UE data buffer                    |
    *     ----------------------------------------------------------------------------
    *                     --------------------------
-   *     <-------------->| pss | pbch | sss | pbch |
+   *     <-------------->| pss | pbch | sss | pbch |          (downlink)
    *                     --------------------------
-   *          sync_pos            SS/PBCH block
+   *      ssb_time_offset        SS/PBCH block
+   *
+   *                     ------------------------------------------
+   *     <-------------->|psbch|pss|pss|sss|sss|psbch sym5-sym12|  (sidelink)
+   *                     ------------------------------------------
+   *      ssb_time_offset            SL-SSB block
    */
 
   nr_ue_ssb_scan_t *ssbInfo = (nr_ue_ssb_scan_t *)arg;
   c16_t **rxdata = ssbInfo->rxdata;
   const NR_DL_FRAME_PARMS *fp = ssbInfo->fp;
+  const bool sl = ssbInfo->sidelink;
+  const int num_symbols = sl ? SL_N_SYMBOLS_SSB : NR_N_SYMBOLS_SSB;
 
   // Generate PSS time signal for this GSCN.
   __attribute__((aligned(32))) c16_t pssTime[NUMBER_PSS_SEQUENCE][fp->ofdm_symbol_size];
-  const int pss_sequence = get_softmodem_params()->sl_mode == 0 ? NUMBER_PSS_SEQUENCE : NUMBER_PSS_SEQUENCE_SL;
-  for (int nid2 = 0; nid2 < pss_sequence; nid2++)
-    generate_pss_nr_time(fp->ofdm_symbol_size, fp->first_carrier_offset, nid2, ssbInfo->gscnInfo.ssbFirstSC, pssTime[nid2]);
+  for (int nid2 = 0; nid2 < nr_num_pss_sequences(sl); nid2++)
+    generate_pss_nr_time(fp->ofdm_symbol_size, fp->first_carrier_offset, nid2, ssbInfo->gscnInfo.ssbFirstSC, sl, pssTime[nid2]);
 
-  __attribute__((aligned(32))) c16_t rxdataF[NR_N_SYMBOLS_SSB][fp->nb_antennas_rx][fp->ofdm_symbol_size];
+  __attribute__((aligned(32))) c16_t rxdataF[num_symbols][fp->nb_antennas_rx][fp->ofdm_symbol_size];
 
-  // initial sync performed on two successive frames, if pbch passes on first frame, no need to process second frame
-  // only one frame is used for simulation tools
   if (ssbInfo->freqOffset)
     compensate_freq_offset(rxdata, fp->nb_antennas_rx, ssbInfo->rxdata_sz, ssbInfo->freqOffset, fp->samples_per_subframe * 1000);
 
   nr_ssb_search_params_t search_params = {
-      .dl_CarrierFreq = fp->dl_CarrierFreq,
+      .carrier_freq = sl ? fp->sl_CarrierFreq : fp->dl_CarrierFreq,
       .sampling_rate = fp->samples_per_subframe * 1000,
       .slots_per_frame = fp->slots_per_frame,
       .slots_per_subframe = fp->slots_per_subframe,
@@ -377,7 +414,9 @@ static void nr_scan_ssb(void *arg)
       .ofdm_offset_divisor = fp->ofdm_offset_divisor,
       .nb_antennas_rx = fp->nb_antennas_rx,
       .symbols_per_slot = fp->symbols_per_slot,
-      .N_RB_DL = fp->N_RB_DL,
+      .N_RB = sl ? fp->N_RB_SL : fp->N_RB_DL,
+      .ssb_num_symbols = num_symbols,
+      .sidelink = sl,
       .rxdata_size = ssbInfo->rxdata_sz,
       .rxdata = rxdata,
       .nb_prefix_samples = fp->nb_prefix_samples,
@@ -412,19 +451,20 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
                                   nr_gscn_info_t gscnInfo[MAX_GSCN_BAND],
                                   int numGscn)
 {
-  NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
+  NR_DL_FRAME_PARMS *fp = nrue_frame_parms(ue);
+  const bool sl = ue->sl_mode == SL_MODE2_SUPPORTED;
 
   /* The scan window is one subframe long, plus one block so that a block starting anywhere
      inside that subframe is entirely covered. The caller slides the window by one subframe
      between two calls, so every sample is scanned exactly once. */
-  const int scan_sz = fp->samples_per_subframe + nr_ssb_block_size(fp);
+  const int scan_sz = fp->samples_per_subframe + nr_ssb_block_size(fp, sl);
   AssertFatal(scan_sz <= input_sz, "sync buffer of %d samples is too small, need %d\n", input_sz, scan_sz);
 
   // Perform SSB scanning in parallel. One GSCN per thread.
   LOG_I(NR_PHY,
         "Starting cell search with center freq: %ld, bandwidth: %d. Scanning for %d number of GSCN.\n",
-        fp->dl_CarrierFreq,
-        fp->N_RB_DL,
+        sl ? fp->sl_CarrierFreq : fp->dl_CarrierFreq,
+        sl ? fp->N_RB_SL : fp->N_RB_DL,
         numGscn);
   DevAssert(numGscn);
   task_ans_t ans;
@@ -433,7 +473,9 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
   for (int s = 0; s < numGscn; s++) {
     nr_ue_ssb_scan_t *ssbInfo = &ssb_info[s];
     *ssbInfo = (nr_ue_ssb_scan_t){.gscnInfo = gscnInfo[s],
-                                  .fp = &ue->frame_parms,
+                                  .fp = fp,
+                                  .ue = ue,
+                                  .sidelink = sl,
                                   .proc = proc,
                                   .syncRes.cell_detected = false,
                                   .foFlag = ue->UE_fo_compensation,
@@ -483,17 +525,21 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
 
   // Set globals based on detected cell
   if (res) {
-    fp->Nid_cell = res->nidCell;
-    fp->ssb_start_subcarrier = res->gscnInfo.ssbFirstSC;
-    fp->half_frame_bit = res->halfFrameBit;
-    fp->ssb_index = res->ssbIndex;
-    ue->symbol_offset = res->symbolOffset;
     ue->common_vars.freq_offset = res->freqOffset;
     ue->adjust_rxgain = res->adjust_rxgain;
+    if (sl) {
+      sl_nr_apply_slss_sync(ue, proc, res);
+    } else {
+      fp->Nid_cell = res->nidCell;
+      fp->ssb_start_subcarrier = res->gscnInfo.ssbFirstSC;
+      fp->half_frame_bit = res->halfFrameBit;
+      fp->ssb_index = res->ssbIndex;
+      ue->symbol_offset = res->symbolOffset;
+    }
   }
 
   // In initial sync, we indicate PBCH to MAC after the scan is complete.
-  if (ue->if_inst && ue->if_inst->dl_indication) {
+  if (!sl && ue->if_inst && ue->if_inst->dl_indication) {
     fapi_nr_rx_indication_t rx_ind;
     rx_ind.number_pdus = 0;
     nr_fill_rx_indication(&rx_ind, FAPI_NR_RX_PDU_TYPE_SSB, ue, 0, 0, NULL, proc, res ? (void *)&res->pbchResult : NULL);
@@ -509,12 +555,12 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
     ue->if_inst->dl_indication(&dl_indication);
   }
 
-  LOG_D(PHY, "nr_initial sync ue RB_DL %d\n", fp->N_RB_DL);
+  LOG_D(PHY, "nr_initial sync ue N_RB %d\n", sl ? fp->N_RB_SL : fp->N_RB_DL);
 
   if (res) {
     /* The block starts at symbol res->symbolOffset of the frame, known from the decoded
-       PBCH. Turn it into the subframe the block belongs to and the position of the start of
-       that subframe inside the scanned buffer, so that the caller can align its sample
+       (P)SBCH. Turn it into the subframe the block belongs to and the position of the start
+       of that subframe inside the scanned buffer, so that the caller can align its sample
        stream to a subframe boundary. */
     const int symbols_per_subframe = fp->symbols_per_slot * fp->slots_per_subframe;
     const int symbol_in_subframe = res->symbolOffset % symbols_per_subframe;
@@ -539,7 +585,7 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
           res->syncRes.sync_subframe,
           res->syncRes.rx_offset);
     LOG_I(PHY, "[UE %d] Measured Carrier Frequency offset %d Hz\n", ue->Mod_id, res->freqOffset);
-    LOG_A(PHY, "Initial sync successful, PCI: %d\n", fp->Nid_cell);
+    LOG_A(PHY, "Initial sync successful, %s: %d\n", sl ? "SLSS id" : "PCI", res->nidCell);
     return res->syncRes;
   } else {
 #ifdef DEBUG_INITIAL_SYNC

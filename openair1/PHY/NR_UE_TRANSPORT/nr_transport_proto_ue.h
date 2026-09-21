@@ -8,6 +8,7 @@
 #ifndef __NR_TRANSPORT_PROTO_UE__H__
 #define __NR_TRANSPORT_PROTO_UE__H__
 #include "PHY/defs_nr_UE.h"
+#include "PHY/NR_REFSIG/ss_pbch_nr.h"
 #include "SCHED_NR_UE/defs.h"
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
 #include <math.h>
@@ -157,7 +158,7 @@ double nr_ue_pbch_freq_offset(const NR_DL_FRAME_PARMS *frame_parms,
 #endif
 
 /* Size in samples, cyclic prefixes included, of an SS/PBCH block. */
-int nr_ssb_block_size(const NR_DL_FRAME_PARMS *fp);
+int nr_ssb_block_size(const NR_DL_FRAME_PARMS *fp, bool sidelink);
 
 /*!
   \brief This function performs the initial cell search procedure - PSS detection, SSS detection and PBCH detection.  At the
@@ -295,7 +296,12 @@ int nr_psbch_decode(PHY_VARS_NR_UE *ue,
 
 void nr_tx_psbch(PHY_VARS_NR_UE *UE, uint32_t frame_tx, uint32_t slot_tx, sl_nr_tx_config_psbch_pdu_t *psbch_vars, c16_t **txdataF);
 
-nr_initial_sync_t sl_nr_slss_search(PHY_VARS_NR_UE *UE, UE_nr_rxtx_proc_t *proc, int num_frames, int input_sz, c16_t **input);
+/* Decode the PSBCH of a sidelink SS/PSBCH block whose symbols have already been demodulated
+   into rxdataF by the common SSB search, and fill in the SL-MIB contents of ssbInfo. */
+bool sl_nr_psbch_detection(nr_ue_ssb_scan_t *ssbInfo,
+                           const c16_t rxdataF[SL_N_SYMBOLS_SSB][ssbInfo->fp->nb_antennas_rx][ssbInfo->fp->ofdm_symbol_size]);
+/* Store a successful sidelink search result in the UE context and report it to MAC. */
+void sl_nr_apply_slss_sync(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, const nr_ue_ssb_scan_t *res);
 
 // Reuse already existing PBCH functions
 void nr_pbch_channel_compensation(const struct complex16 rxdataF_ext[][PBCH_MAX_RE_PER_SYMBOL],

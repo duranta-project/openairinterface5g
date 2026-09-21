@@ -507,13 +507,15 @@ typedef struct {
   nr_gscn_info_t gscnInfo;
   int foFlag;
   int targetNidCell;
+  bool sidelink; // scan for a sidelink SS/PSBCH block instead of a downlink SS/PBCH block
+  PHY_VARS_NR_UE *ue;
   c16_t **rxdata;
   int rxdata_sz;
   NR_DL_FRAME_PARMS *fp;
   UE_nr_rxtx_proc_t *proc;
   int halfFrameBit;
   /* Symbol carrying the first symbol of the detected block, counted from the start of the
-     frame. Known only once the PBCH payload is decoded. */
+     frame. Known only once the (P)SBCH payload is decoded. */
   int symbolOffset;
   int ssbIndex;
   /* Offset of the first sample of the detected block inside the scanned buffer. */
@@ -521,7 +523,10 @@ typedef struct {
   int nidCell;
   int freqOffset;
   nr_initial_sync_t syncRes;
-  fapiPbch_t pbchResult;
+  fapiPbch_t pbchResult; // downlink only
+  uint8_t psbchPayload[4]; // sidelink only
+  int slotOffset; // sidelink only: slot of the frame carrying the SL-SSB, from SL-MIB
+  int frameNumber; // sidelink only: DFN from SL-MIB
   int pssCorrPeakPower;
   int pssCorrAvgPower;
   int adjust_rxgain;
@@ -547,7 +552,7 @@ typedef struct {
 // Common SSB search parameters - used by both initial sync and neighbor cell search
 typedef struct nr_ssb_search_params_s nr_ssb_search_params_t;
 struct nr_ssb_search_params_s {
-  uint64_t dl_CarrierFreq;
+  uint64_t carrier_freq;
   uint sampling_rate;
   int slots_per_frame;
   int slots_per_subframe;
@@ -556,7 +561,12 @@ struct nr_ssb_search_params_s {
   uint ofdm_offset_divisor;
   int nb_antennas_rx;
   int symbols_per_slot;
-  int N_RB_DL;
+  int N_RB;
+  /* Number of symbols of the SS/PBCH block to demodulate into rxdataF. */
+  int ssb_num_symbols;
+  /* Search the sidelink SS/PSBCH block instead of the downlink SS/PBCH block. The two differ
+     by the PSS/SSS sequences and their position inside the block. */
+  bool sidelink;
   uint32_t rxdata_size;
   c16_t **rxdata;
   int nb_prefix_samples;
@@ -573,8 +583,8 @@ struct nr_ssb_search_params_s {
   void *pssTime; // Pre-generated PSS time sequences
   /* Optional check of a candidate block, run once its SSS has been detected and its symbols
      demodulated into rxdataF. Returning false makes the search carry on with the next
-     candidate. Initial sync uses it to decode the PBCH, which is what tells a real block
-     apart from a correlation peak landing on the wrong samples. */
+     candidate. Initial sync uses it to decode the (P)SBCH, which is what tells a real block
+     apart from a correlation peak landing on the wrong symbol. */
   bool (*validate_candidate)(void *ctx, const nr_ssb_search_params_t *params);
   void *validate_ctx;
   // Output parameters
