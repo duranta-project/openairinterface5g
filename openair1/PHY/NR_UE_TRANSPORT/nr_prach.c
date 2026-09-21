@@ -98,7 +98,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
     LOG_I(PHY, "PRACH [UE %d] High-speed mode, NCS %d\n", ue->Mod_id, NCS);
 #endif
 
-    uint16_t nr_du[NR_PRACH_SEQ_LEN_L - 1];
+    uint16_t nr_du[NR_PRACH_SEQ_LEN_L];
     nr_fill_du(N_ZC, prach_root_sequence_map, nr_du);
     int preamble_index0 = preamble_index;
     // set preamble_offset to initial rootSequenceIndex and look if we need more root sequences for this

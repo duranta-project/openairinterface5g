@@ -111,8 +111,15 @@ void nr_ofdm_mod_symbol(const NR_DL_FRAME_PARMS *fp,
 void nr_prach_ofdm_mod(const c16_t *prachF, int dftlen, int ncp, int repetitions, c16_t *scratch, c16_t *txdata)
 {
   idft(get_idft(dftlen), (int16_t *)prachF, (int16_t *)scratch, 1);
-  memcpy(txdata, scratch + dftlen - ncp, ncp * sizeof(c16_t));
-  txdata += ncp;
+  // Format C2 can have a cyclic prefix longer than one waveform body.
+  int offset = (dftlen - ncp % dftlen) % dftlen;
+  while (ncp > 0) {
+    const int length = min(ncp, dftlen - offset);
+    memcpy(txdata, scratch + offset, length * sizeof(*txdata));
+    txdata += length;
+    ncp -= length;
+    offset = 0;
+  }
   for (int i = 0; i < repetitions; i++) {
     memcpy(txdata, scratch, dftlen * sizeof(c16_t));
     txdata += dftlen;
