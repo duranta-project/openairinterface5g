@@ -96,7 +96,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
     LOG_I(PHY, "PRACH [UE %d] High-speed mode, NCS %d\n", ue->Mod_id, NCS);
 #endif
 
-    uint16_t nr_du[NR_PRACH_SEQ_LEN_L - 1];
+    uint16_t nr_du[NR_PRACH_SEQ_LEN_L];
     nr_fill_du(N_ZC, prach_root_sequence_map, nr_du);
     int preamble_index0 = preamble_index;
     // set preamble_offset to initial rootSequenceIndex and look if we need more root sequences for this
@@ -331,8 +331,15 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   }
 
   c16_t *out = txData[0] + prach_start;
-  memcpy(out, prach + dftlen - Ncp, Ncp * sizeof(*prach));
-  out += Ncp;
+  // C2 can have a cyclic prefix longer than one IDFT body.
+  int offset = (dftlen - Ncp % dftlen) % dftlen;
+  for (int remaining = Ncp; remaining > 0;) {
+    const int length = min(remaining, dftlen - offset);
+    memcpy(out, prach + offset, length * sizeof(*prach));
+    out += length;
+    remaining -= length;
+    offset = 0;
+  }
   const int copies[11] = {1, 2, 4, 4, 2, 4, 6, 2, 12, 1, 4};
   DevAssert(prach_fmt_id < sizeofArray(copies));
   for (int i = 0; i < copies[prach_fmt_id]; i++) {
