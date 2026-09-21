@@ -165,6 +165,10 @@ int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)
   LOG_I(PHY, "Initializing UE vars for gNB TXant %u, UE RXant %u\n", fp->nb_antennas_tx, fp->nb_antennas_rx);
 
   phy_init_nr_top(ue);
+  if (!ue->sl_mode) {
+    ue->prach_lut = nr_prach_lut_create();
+    nr_ue_prepare_prach(ue);
+  }
   // many memory allocation sizes are hard coded
   AssertFatal( fp->nb_antennas_rx <= 4, "hard coded allocation for ue_common_vars->dl_ch_estimates[gNB_id]" );
   AssertFatal( nb_connected_gNB <= NUMBER_OF_CONNECTED_gNB_MAX, "n_connected_gNB is too large" );
@@ -285,6 +289,8 @@ static void sl_ue_free(PHY_VARS_NR_UE *UE)
 void term_nr_ue_signal(PHY_VARS_NR_UE *ue)
 {
   const NR_DL_FRAME_PARMS* fp = &ue->frame_parms;
+  nr_prach_lut_destroy(ue->prach_lut);
+  ue->prach_lut = NULL;
   phy_term_nr_top();
 
   NR_UE_COMMON* common_vars = &ue->common_vars;

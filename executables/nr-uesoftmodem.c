@@ -440,9 +440,11 @@ int main(int argc, char **argv)
 
   nrue_ru_stop();
 
-  if (nrPHY_vars_UE_g && nrPHY_vars_UE_g[0]) {
+  for (int inst = 0; inst < NB_UE_INST; inst++) {
+    if (!nrPHY_vars_UE_g || !nrPHY_vars_UE_g[inst])
+      continue;
     for (int CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
-      PHY_VARS_NR_UE *phy_vars = nrPHY_vars_UE_g[0][CC_id];
+      PHY_VARS_NR_UE *phy_vars = nrPHY_vars_UE_g[inst][CC_id];
       if (phy_vars) {
         int ret = pthread_join(phy_vars->main_thread, NULL);
         AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
@@ -450,6 +452,8 @@ int main(int argc, char **argv)
           ret = pthread_join(phy_vars->stat_thread, NULL);
           AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
         }
+        nr_prach_lut_destroy(phy_vars->prach_lut);
+        phy_vars->prach_lut = NULL;
       }
     }
   }

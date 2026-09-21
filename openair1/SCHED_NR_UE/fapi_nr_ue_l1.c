@@ -406,6 +406,8 @@ void nr_ue_phy_config_request(nr_phy_config_t *phy_config)
   if(phy_config != NULL) {
     phy->received_config_request = true;
     memcpy(nrUE_config, &phy_config->config_req, sizeof(fapi_nr_config_request_t));
+    phy->prach_preparation = phy_config->prach_preparation;
+    nr_ue_prepare_prach(phy);
   }
 }
 

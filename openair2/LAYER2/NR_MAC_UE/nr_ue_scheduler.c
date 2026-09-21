@@ -1605,43 +1605,9 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
             pdu->prach_config_pdu.prach_start_symbol,
             pdu->prach_config_pdu.num_ra);
 
-      switch (format) { // single PRACH format
-        case 0:
-          pdu->prach_config_pdu.prach_format = 0;
-          break;
-        case 1:
-          pdu->prach_config_pdu.prach_format = 1;
-          break;
-        case 2:
-          pdu->prach_config_pdu.prach_format = 2;
-          break;
-        case 3:
-          pdu->prach_config_pdu.prach_format = 3;
-          break;
-        case 0xa1:
-          pdu->prach_config_pdu.prach_format = 4;
-          break;
-        case 0xa2:
-          pdu->prach_config_pdu.prach_format = 5;
-          break;
-        case 0xa3:
-          pdu->prach_config_pdu.prach_format = 6;
-          break;
-        case 0xb1:
-          pdu->prach_config_pdu.prach_format = 7;
-          break;
-        case 0xb4:
-          pdu->prach_config_pdu.prach_format = 8;
-          break;
-        case 0xc0:
-          pdu->prach_config_pdu.prach_format = 9;
-          break;
-        case 0xc2:
-          pdu->prach_config_pdu.prach_format = 10;
-          break;
-        default:
-          AssertFatal(false, "Invalid PRACH format");
-      }
+      const int format_id = nr_ue_prach_format_id(format);
+      AssertFatal(format_id >= 0, "Invalid PRACH format");
+      pdu->prach_config_pdu.prach_format = format_id;
 
       pdu->prach_config_pdu.ra_PreambleIndex = ra->ra_PreambleIndex;
       pdu->prach_config_pdu.prach_tx_power = get_prach_tx_power(mac);

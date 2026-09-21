@@ -131,12 +131,20 @@ typedef struct {
     struct NR_UE_MAC_INST_s *mac;
 } nr_scheduled_response_t;
 
+/* Resolved MAC information for UE-local waveform preparation, outside the FAPI payload. */
+typedef struct {
+  uint8_t num_formats;
+  uint8_t formats[2];
+  uint16_t ncs[2];
+} nr_prach_preparation_t;
+
 typedef struct {
     /// module id
     uint8_t Mod_id;
     /// component carrier id
     uint8_t CC_id;
-    
+    nr_prach_preparation_t prach_preparation;
+
     /// NR UE FAPI-like P5 message
     /// physical layer configuration request structure
     fapi_nr_config_request_t config_req;
