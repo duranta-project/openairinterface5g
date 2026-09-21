@@ -55,6 +55,12 @@ static rrc_gNB_ue_context_t *rrc_gNB_allocate_new_ue_context(gNB_RRC_INST *rrc_i
     return NULL;
   }
 
+  if (pthread_mutex_init(&new_p->ue_context.context_mutex, NULL) != 0) {
+    LOG_E(NR_RRC, "Cannot initialize mutex for new UE context\n");
+    free(new_p);
+    return NULL;
+  }
+
   uid_t uid = uid_linear_allocator_new(&rrc_instance_pP->uid_allocator);
   if (uid == UINT_MAX) {
     LOG_E(NR_RRC, "Cannot allocate new UE context, no free UID\n");
@@ -123,6 +129,7 @@ void rrc_gNB_free_mem_ue_context(rrc_gNB_ue_context_t *const ue_context_pP)
 //-----------------------------------------------------------------------------
 {
   LOG_T(NR_RRC, " Clearing UE context 0x%p (free internal structs)\n", ue_context_pP);
+  pthread_mutex_destroy(&ue_context_pP->ue_context.context_mutex);
   free(ue_context_pP);
 }
 
