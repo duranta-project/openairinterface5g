@@ -100,8 +100,8 @@ int create_tasks_nrue(uint32_t ue_nb) {
 
   if (ue_nb > 0) {
     LOG_I(NR_RRC,"create TASK_RRC_NRUE \n");
-    const ittiTask_parms_t parmsRRC = {NULL, rrc_nrue};
-    if (itti_create_task(TASK_RRC_NRUE, rrc_nrue_task, &parmsRRC) < 0) {
+    /* PRACH table preparation requires the RRC task even with --no-itti-threads. */
+    if (itti_create_task(TASK_RRC_NRUE, rrc_nrue_task, NULL) < 0) {
       LOG_E(NR_RRC, "Create task for RRC UE failed\n");
       return -1;
     }
@@ -444,16 +444,22 @@ int main(int argc, char **argv)
     for (int inst = 0; inst < NB_UE_INST; inst++)
       UE_list[inst] = nrPHY_vars_UE_g[inst][0];
     term_NR_UE_fd(UE_list, NB_UE_INST);
-  } else if (nrPHY_vars_UE_g && nrPHY_vars_UE_g[0]) {
-    for (int CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
-      PHY_VARS_NR_UE *phy_vars = nrPHY_vars_UE_g[0][CC_id];
-      if (phy_vars) {
-        int ret = pthread_join(phy_vars->main_thread, NULL);
+  }
+  for (int inst = 0; inst < NB_UE_INST; inst++) {
+    PHY_VARS_NR_UE *phy_vars = nrPHY_vars_UE_g[inst][0];
+    if (!get_nrUE_params()->use_ue_fd) {
+      int ret = pthread_join(phy_vars->main_thread, NULL);
+      AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
+      if (!IS_SOFTMODEM_NOSTATS) {
+        ret = pthread_join(phy_vars->stat_thread, NULL);
         AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
-        if (!IS_SOFTMODEM_NOSTATS) {
-          ret = pthread_join(phy_vars->stat_thread, NULL);
-          AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
-        }
+      }
+    }
+    for (int CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
+      phy_vars = nrPHY_vars_UE_g[inst][CC_id];
+      if (phy_vars) {
+        nr_prach_lut_destroy(phy_vars->prach_lut);
+        phy_vars->prach_lut = NULL;
       }
     }
   }

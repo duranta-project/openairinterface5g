@@ -311,6 +311,8 @@ static void sl_ue_free(PHY_VARS_NR_UE *UE)
 void term_nr_ue_signal(PHY_VARS_NR_UE *ue)
 {
   const NR_DL_FRAME_PARMS* fp = &ue->frame_parms;
+  nr_prach_lut_destroy(ue->prach_lut);
+  ue->prach_lut = NULL;
   phy_term_nr_top();
 
   free_and_zero(ue->measurements.rx_spatial_power);

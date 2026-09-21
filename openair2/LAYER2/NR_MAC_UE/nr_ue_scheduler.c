@@ -1585,6 +1585,12 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
 
   if (is_ul_slot(slotP, &mac->frame_structure)) {
     if (slotP == prach_occasion_info->slot) {
+      fapi_nr_prach_config_t *prach_config = &mac->phy_config.config_req.prach_config;
+      if ((unsigned)prach_occasion_info->fdm >= prach_config->num_prach_fd_occasions
+          || !prach_config->num_prach_fd_occasions_list) {
+        LOG_E(NR_MAC, "PRACH frequency occasion %d is not configured\n", prach_occasion_info->fdm);
+        return;
+      }
       fapi_nr_ul_config_request_pdu_t *pdu = lockGet_ul_config(mac, frameP, slotP, FAPI_NR_UL_CONFIG_TYPE_PRACH);
       if (!pdu) {
         LOG_E(NR_MAC, "Error in PRACH allocation\n");
@@ -1592,7 +1598,6 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
       }
 
       int format = prach_occasion_info->format;
-      fapi_nr_prach_config_t *prach_config = &mac->phy_config.config_req.prach_config;
       pdu->prach_config_pdu = (fapi_nr_ul_config_prach_pdu){
           .phys_cell_id = mac->physCellId,
           .num_prach_ocas = 1,
@@ -1611,43 +1616,9 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
             pdu->prach_config_pdu.prach_start_symbol,
             pdu->prach_config_pdu.num_ra);
 
-      switch (format) { // single PRACH format
-        case 0:
-          pdu->prach_config_pdu.prach_format = 0;
-          break;
-        case 1:
-          pdu->prach_config_pdu.prach_format = 1;
-          break;
-        case 2:
-          pdu->prach_config_pdu.prach_format = 2;
-          break;
-        case 3:
-          pdu->prach_config_pdu.prach_format = 3;
-          break;
-        case 0xa1:
-          pdu->prach_config_pdu.prach_format = 4;
-          break;
-        case 0xa2:
-          pdu->prach_config_pdu.prach_format = 5;
-          break;
-        case 0xa3:
-          pdu->prach_config_pdu.prach_format = 6;
-          break;
-        case 0xb1:
-          pdu->prach_config_pdu.prach_format = 7;
-          break;
-        case 0xb4:
-          pdu->prach_config_pdu.prach_format = 8;
-          break;
-        case 0xc0:
-          pdu->prach_config_pdu.prach_format = 9;
-          break;
-        case 0xc2:
-          pdu->prach_config_pdu.prach_format = 10;
-          break;
-        default:
-          AssertFatal(false, "Invalid PRACH format");
-      }
+      const int format_id = nr_ue_prach_format_id(format);
+      AssertFatal(format_id >= 0, "Invalid PRACH format");
+      pdu->prach_config_pdu.prach_format = format_id;
 
       pdu->prach_config_pdu.ra_PreambleIndex = ra->ra_PreambleIndex;
       pdu->prach_config_pdu.prach_tx_power = get_prach_tx_power(mac);
@@ -2633,8 +2604,14 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
     ra_resource_selection(mac);
   }
 
-  if (mac->state == UE_PERFORMING_RA && ra->ra_state == nrRA_GENERATE_PREAMBLE)
-    nr_ue_prach_scheduler(mac, frame_tx, slot_tx);
+  if (mac->state == UE_PERFORMING_RA && ra->ra_state == nrRA_GENERATE_PREAMBLE) {
+    /* Common configuration may have changed while this RA procedure was waiting for a response. */
+    if (nr_ue_prepare_prach_config(mac, ra->ra_config_index, ra->zeroCorrelationZoneConfig, ra->restricted_set_config)
+        && mac->if_module && mac->if_module->phy_config_request)
+      mac->if_module->phy_config_request(&mac->phy_config);
+    if (!mac->prach_lut_pending)
+      nr_ue_prach_scheduler(mac, frame_tx, slot_tx);
+  }
 
   bool BSRsent = false;
   if (mac->state == UE_CONNECTED) {

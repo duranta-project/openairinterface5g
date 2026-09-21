@@ -169,6 +169,16 @@ void init_nr_ue_vars(PHY_VARS_NR_UE *ue, uint8_t UE_id)
   // initialize all signal buffers
   init_nr_ue_signal(ue, nb_connected_gNB);
 
+  if (!ue->sl_mode) {
+    /* NSA configuration can arrive before frame parameters. Build before starting the sample loop. */
+    ue->prach_lut_config = nr_ue_prach_lut_config(ue, get_nrUE_params()->use_ue_fd);
+    if (ue->prach_lut_config.num_keys) {
+      ue->prach_lut = nr_prach_lut_build(&ue->prach_lut_config);
+      AssertFatal(ue->prach_lut, "Could not prepare PRACH lookup tables\n");
+    }
+    ue->prach_lut_initialized = true;
+  }
+
   // intialize transport
   init_nr_ue_transport(ue);
 

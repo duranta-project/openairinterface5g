@@ -118,6 +118,9 @@ void nr_ofdm_mod_symbol(const NR_DL_FRAME_PARMS *fp,
                         c16_t *txdataF,
                         c16_t *txdata);
 
+/// Copy the cyclic prefix and repetitions of an already transformed PRACH waveform.
+void nr_prach_copy_body(const c16_t *body, int dftlen, int ncp, int repetitions, c16_t *txdata);
+
 /// PRACH preamble in time: IDFT of dftlen bins (native layout), CP of the last ncp
 /// samples, then the IDFT output repeated.
 /// @param scratch dftlen samples, 32-byte aligned

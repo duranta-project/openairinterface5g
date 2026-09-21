@@ -108,22 +108,27 @@ void nr_ofdm_mod_symbol(const NR_DL_FRAME_PARMS *fp,
   PHY_ofdm_mod_shifted((const int *)txdataF, (int *)txdata, fp->ofdm_symbol_size, 1, cp, CYCLIC_PREFIX, n_re);
 }
 
-void nr_prach_ofdm_mod(const c16_t *prachF, int dftlen, int ncp, int repetitions, c16_t *scratch, c16_t *txdata)
+void nr_prach_copy_body(const c16_t *body, int dftlen, int ncp, int repetitions, c16_t *txdata)
 {
-  idft(get_idft(dftlen), (int16_t *)prachF, (int16_t *)scratch, 1);
   // Format C2 can have a cyclic prefix longer than one waveform body.
   int offset = (dftlen - ncp % dftlen) % dftlen;
   while (ncp > 0) {
     const int length = min(ncp, dftlen - offset);
-    memcpy(txdata, scratch + offset, length * sizeof(*txdata));
+    memcpy(txdata, body + offset, length * sizeof(*txdata));
     txdata += length;
     ncp -= length;
     offset = 0;
   }
   for (int i = 0; i < repetitions; i++) {
-    memcpy(txdata, scratch, dftlen * sizeof(c16_t));
+    memcpy(txdata, body, dftlen * sizeof(c16_t));
     txdata += dftlen;
   }
+}
+
+void nr_prach_ofdm_mod(const c16_t *prachF, int dftlen, int ncp, int repetitions, c16_t *scratch, c16_t *txdata)
+{
+  idft(get_idft(dftlen), (int16_t *)prachF, (int16_t *)scratch, 1);
+  nr_prach_copy_body(scratch, dftlen, ncp, repetitions, txdata);
 }
 
 /* txdataF is FFT shifted, i.e. the REs of the carrier are contiguous starting at index 0. */
