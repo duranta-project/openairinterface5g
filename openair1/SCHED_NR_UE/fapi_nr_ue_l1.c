@@ -379,7 +379,7 @@ static void nr_ue_scheduled_response_ul(PHY_VARS_NR_UE *phy, fapi_nr_ul_config_r
 
 int8_t nr_ue_scheduled_response(nr_scheduled_response_t *scheduled_response)
 {
-  PHY_VARS_NR_UE *phy = nrPHY_vars_UE_g[scheduled_response->module_id][scheduled_response->CC_id];
+  PHY_VARS_NR_UE *phy = nrPHY_vars_UE_g[scheduled_response->module_id][0];
   AssertFatal(!scheduled_response->dl_config || !scheduled_response->ul_config || !scheduled_response->sl_rx_config
                   || !scheduled_response->sl_tx_config,
               "phy_data parameter will be cast to two different types!\n");

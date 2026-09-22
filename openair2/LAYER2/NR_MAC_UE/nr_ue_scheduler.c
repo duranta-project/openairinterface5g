@@ -1331,7 +1331,6 @@ void nr_ue_dl_scheduler(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info
 
   nr_scheduled_response_t scheduled_response = {.dl_config = dl_config,
                                                 .module_id = mac->ue_id,
-                                                .CC_id = dl_info->cc_id,
                                                 .phy_data = dl_info->phy_data,
                                                 .mac = mac};
   if (mac->if_module != NULL && mac->if_module->scheduled_response != NULL)
@@ -1617,8 +1616,7 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
       release_ul_config(pdu, false);
       nr_scheduled_response_t scheduled_response = {.ul_config = mac->ul_config_request + slotP,
                                                     .mac = mac,
-                                                    .module_id = mac->ue_id,
-                                                    .CC_id = 0 /*TBR fix*/};
+                                                    .module_id = mac->ue_id};
       if(mac->if_module != NULL && mac->if_module->scheduled_response != NULL)
         mac->if_module->scheduled_response(&scheduled_response);
 

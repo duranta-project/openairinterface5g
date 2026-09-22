@@ -344,7 +344,6 @@ static void sl_schedule_rx_actions(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_I
 
     nr_scheduled_response_t scheduled_response = {.sl_rx_config = &rx_config,
                                                   .module_id = sl_ind->module_id,
-                                                  .CC_id = sl_ind->cc_id,
                                                   .phy_data = sl_ind->phy_data,
                                                   .mac = mac};
 
@@ -391,7 +390,6 @@ static void sl_schedule_tx_actions(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_I
 
     nr_scheduled_response_t scheduled_response = {.sl_tx_config = &tx_config,
                                                   .module_id = sl_ind->module_id,
-                                                  .CC_id = sl_ind->cc_id,
                                                   .phy_data = sl_ind->phy_data,
                                                   .mac = mac};
 

@@ -399,8 +399,6 @@ void processSlotTX(void *arg)
       if (UE->if_inst != NULL && UE->if_inst->sl_indication != NULL) {
         start_meas(&UE->ue_ul_indication_stats);
         nr_sidelink_indication_t sl_indication = {.module_id = UE->Mod_id,
-                                                  .gNB_index = proc->gNB_id,
-                                                  .cc_id = UE->CC_id,
                                                   .hfn_tx = proc->hfn_tx,
                                                   .frame_tx = proc->frame_tx,
                                                   .slot_tx = proc->nr_slot_tx,
@@ -431,8 +429,6 @@ void processSlotTX(void *arg)
       if (UE->if_inst != NULL && UE->if_inst->ul_indication != NULL) {
         start_meas(&UE->ue_ul_indication_stats);
         nr_uplink_indication_t ul_indication = {.module_id = UE->Mod_id,
-                                                .gNB_index = proc->gNB_id,
-                                                .cc_id = UE->CC_id,
                                                 .frame = proc->frame_tx,
                                                 .slot = proc->nr_slot_tx,
                                                 .phy_data = &phy_data};

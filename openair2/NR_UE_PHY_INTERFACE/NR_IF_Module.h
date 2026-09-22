@@ -75,10 +75,6 @@ typedef struct {
 typedef struct {
     /// module id
     module_id_t module_id;
-    /// gNB index
-    uint32_t gNB_index;
-    /// component carrier id
-    int cc_id;
     /// hyper frame number rx
     int hfn_rx;
     /// frame rx
