@@ -42,7 +42,7 @@
     <class>Custom_Script</class>
     <desc>Configure 30 MHz bandwidth on WNC RU</desc>
     <node>gracehopper1-oai</node>
-    <script>scripts/set-wnc-bandwidth.sh</script>
+    <script>scripts/set-wnc-params.sh</script>
     <args>30</args>
   </testCase>
 
@@ -162,7 +162,7 @@
     <always_exec>true</always_exec>
     <desc>Configure 100 MHz bandwidth on WNC RU</desc>
     <node>gracehopper1-oai</node>
-    <script>scripts/set-wnc-bandwidth.sh</script>
+    <script>scripts/set-wnc-params.sh</script>
     <args>100</args>
   </testCase>
 
