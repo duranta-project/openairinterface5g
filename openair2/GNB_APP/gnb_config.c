@@ -58,6 +58,7 @@
 #include "utils.h"
 #include "x2ap_messages_types.h"
 #include "gnb_config_common.h"
+#include "lpp_prs.h"
 #include "positioning_nr_paramdef.h"
 #include "f1ap_cu_task.h"
 #include "openair3/NRPPA/nrppa_gNB_config.h"
@@ -731,6 +732,12 @@ void RCconfig_nr_prs(void)
       LOG_I(PHY, "MutingPattern2 \t\t[%s\b\b]\n", str[6]);
       LOG_I(PHY, "-----------------------------------------\n");
       LOG_I(PHY, "PRS is transmitted according to this configuration, not from FAPI DL_TTI.request PRS PDUs of the MAC\n");
+
+      AssertFatal(RC.nrmac != NULL && RC.nrmac[j] != NULL, "gNB MAC instance %d is unavailable\n", j);
+      print_lpp_nr_dl_tdoa_assistance_data(RC.gNB[j],
+                                          RC.nrmac[j],
+                                          PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN1_LIST].numelt,
+                                          PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN2_LIST].numelt);
     } // for j
   }
   else

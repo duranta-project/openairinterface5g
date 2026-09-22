@@ -1282,6 +1282,7 @@ set (GNB_APP_SRC
   ${OPENAIR2_DIR}/GNB_APP/gnb_config_common.c
   ${OPENAIR2_DIR}/GNB_APP/gnb_config_ng.c
   ${OPENAIR2_DIR}/GNB_APP/gnb_config_xn.c
+  ${OPENAIR2_DIR}/GNB_APP/lpp_prs.c
   )
 
 set (MCE_APP_SRC
@@ -1322,7 +1323,7 @@ add_library(L2_NR
 if(E3_AGENT)
   target_compile_definitions(L2_NR PRIVATE E3_AGENT)
 endif()
-target_link_libraries(L2_NR PRIVATE ds alg)
+target_link_libraries(L2_NR PRIVATE ds alg asn1_lpp)
 target_link_libraries(L2_NR PRIVATE f1ap f1ap_lib)
 target_link_libraries(L2_NR PRIVATE nfapi_nr_user_lib)
 target_link_libraries(L2_NR PRIVATE nrppa)
