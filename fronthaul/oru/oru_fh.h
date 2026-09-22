@@ -73,18 +73,32 @@ void oru_fh_cleanup(void *handle);
 int oru_fh_get_ready_jobs(void *handle);
 
 /**
- * @brief Read downlink symbol data (IQ samples) from the Fronthaul interface.
+ * @brief Read downlink symbol data from the Fronthaul interface as raw, unassembled IQ streams.
+ *
+ * Each returned stream is one continuous, decompressed PRB run - see dl_iq_stream_t in
+ * oru_packet_processor.h for the full contract. Placing/summing them into the final per-antenna
+ * buffer is the caller's job, not this function's.
  *
  * @param handle Pointer to the fronthaul handle.
- * @param txdataF Array of pointers to buffers to store the received frequency-domain IQ samples (per TX antenna).
- * @param nb_tx Number of TX antennas.
+ * @param streams Caller-owned array, at least max_streams entries.
+ * @param iq_arena Caller-owned scratch, at least MAX_DL_IQ_STREAMS_PER_SYMBOL * num_prb * NR_NB_SC_PER_RB
+ *                 uint32_t (num_prb as configured for this fronthaul instance).
+ * @param max_streams Capacity of `streams` (pass MAX_DL_IQ_STREAMS_PER_SYMBOL).
  * @param hyper_frame Absolute GPS hyper-frame number
  * @param frame Pointer to store the frame number of the read symbol.
  * @param slot Pointer to store the slot number of the read symbol.
  * @param symbol Pointer to store the symbol number.
- * @return 0 on success or -1 on failure
+ * @return Number of streams filled in (0..max_streams; 0 is a normal "nothing scheduled" outcome,
+ *         not an error), or -1 on failure (invalid handle).
  */
-int oru_fh_tx_read_symbol(void *handle, uint32_t **txdataF, int nb_tx, uint64_t *hyper_frame, int *frame, int *slot, int *symbol);
+int oru_fh_tx_read_symbol(void *handle,
+                          dl_iq_stream_t *streams,
+                          uint32_t *iq_arena,
+                          int max_streams,
+                          uint64_t *hyper_frame,
+                          int *frame,
+                          int *slot,
+                          int *symbol);
 
 /**
  * @brief Get the UTC anchor point mapping between 5G time and system time.

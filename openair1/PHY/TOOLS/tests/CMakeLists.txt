@@ -12,6 +12,12 @@ add_dependencies(tests benchmark_rotate_vector)
 add_test(NAME benchmark_rotate_vector
   COMMAND ./benchmark_rotate_vector)
 
+add_executable(test_rotate_add_cpx_vector test_rotate_add_cpx_vector.cpp)
+target_link_libraries(test_rotate_add_cpx_vector PRIVATE GTest::gtest benchmark::benchmark UTIL PHY_NR)
+add_dependencies(tests test_rotate_add_cpx_vector)
+add_test(NAME test_rotate_add_cpx_vector
+  COMMAND ./test_rotate_add_cpx_vector)
+
 add_executable(benchmark_dot_product benchmark_dot_product.cpp)
 target_link_libraries(benchmark_dot_product PRIVATE benchmark::benchmark UTIL PHY_NR)
 add_dependencies(tests benchmark_dot_product)
