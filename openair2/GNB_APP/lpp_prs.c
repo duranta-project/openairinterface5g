@@ -36,9 +36,9 @@
 #include "LPP_ProvideAssistanceData.h"
 #include "NR_BCCH-DL-SCH-Message.h"
 #include "PHY/defs_gNB.h"
-#include "NR_MAC_gNB/mac_proto.h"
-#include "NR_MAC_gNB/nr_mac_gNB.h"
-#include "asn_SEQUENCE_OF.h"
+#include "LAYER2/NR_MAC_gNB/mac_proto.h"
+#include "LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
+#include "common/utils/oai_asn1.h"
 #include "constraints.h"
 #include "common/utils/LOG/log.h"
 #include "uper_encoder.h"
@@ -49,23 +49,11 @@
 #define LPP_PRS_TRP_INDEX 0
 #define LPP_PRS_DL_PRS_ID 0
 
-static void *lpp_calloc(size_t size)
-{
-  void *ptr = calloc(1, size);
-  AssertFatal(ptr != NULL, "could not allocate LPP PRS assistance data\n");
-  return ptr;
-}
-
 static long *new_long(long value)
 {
-  long *ptr = lpp_calloc(sizeof(*ptr));
-  *ptr = value;
+  long *ptr;
+  asn1cCallocOne(ptr, value);
   return ptr;
-}
-
-static void add_to_sequence(void *list, void *element)
-{
-  AssertFatal(ASN_SEQUENCE_ADD(list, element) == 0, "could not extend LPP PRS ASN.1 sequence\n");
 }
 
 static bool map_resource_bandwidth(uint16_t num_rb, long *encoded_bandwidth)
@@ -194,7 +182,7 @@ static bool set_periodicity(LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotOffset_
   switch (scs) {
     case 0: {
       asn_period->present = LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotOffset_r16_PR_scs15_r16;
-      asn_period->choice.scs15_r16 = lpp_calloc(sizeof(*asn_period->choice.scs15_r16));
+      asn_period->choice.scs15_r16 = calloc_or_fail(1, sizeof(*asn_period->choice.scs15_r16));
       struct LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotOffset_r16__scs15_r16 *inner =
           asn_period->choice.scs15_r16;
       switch (period) {
@@ -221,7 +209,7 @@ static bool set_periodicity(LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotOffset_
     }
     case 1: {
       asn_period->present = LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotOffset_r16_PR_scs30_r16;
-      asn_period->choice.scs30_r16 = lpp_calloc(sizeof(*asn_period->choice.scs30_r16));
+      asn_period->choice.scs30_r16 = calloc_or_fail(1, sizeof(*asn_period->choice.scs30_r16));
       struct LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotOffset_r16__scs30_r16 *inner =
           asn_period->choice.scs30_r16;
       switch (period) {
@@ -248,7 +236,7 @@ static bool set_periodicity(LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotOffset_
     }
     case 2: {
       asn_period->present = LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotOffset_r16_PR_scs60_r16;
-      asn_period->choice.scs60_r16 = lpp_calloc(sizeof(*asn_period->choice.scs60_r16));
+      asn_period->choice.scs60_r16 = calloc_or_fail(1, sizeof(*asn_period->choice.scs60_r16));
       struct LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotOffset_r16__scs60_r16 *inner =
           asn_period->choice.scs60_r16;
       switch (period) {
@@ -275,7 +263,7 @@ static bool set_periodicity(LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotOffset_
     }
     case 3: {
       asn_period->present = LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotOffset_r16_PR_scs120_r16;
-      asn_period->choice.scs120_r16 = lpp_calloc(sizeof(*asn_period->choice.scs120_r16));
+      asn_period->choice.scs120_r16 = calloc_or_fail(1, sizeof(*asn_period->choice.scs120_r16));
       struct LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotOffset_r16__scs120_r16 *inner =
           asn_period->choice.scs120_r16;
       switch (period) {
@@ -357,7 +345,7 @@ static bool validate_prs_config(const NR_gNB_PRS *prs, const NR_ServingCellConfi
 
 static void set_bit_string36(BIT_STRING_t *bit_string, uint64_t value)
 {
-  bit_string->buf = lpp_calloc(5);
+  bit_string->buf = calloc_or_fail(1, 5);
   bit_string->size = 5;
   bit_string->bits_unused = 4;
   bit_string->buf[0] = (value >> 28) & 0xff;
@@ -373,14 +361,14 @@ static void add_decimal_digits(void *list, unsigned value, unsigned digits)
   for (unsigned i = 1; i < digits; ++i)
     divisor *= 10;
   for (unsigned i = 0; i < digits; ++i) {
-    add_to_sequence(list, new_long(value / divisor % 10));
+    asn1cSeqAdd(list, new_long(value / divisor % 10));
     divisor /= 10;
   }
 }
 
-static LPP_NCGI_r15_t *create_ncgi(const f1ap_served_cell_info_t *cell)
+static LPP_NCGI_r15_t *create_ncgi(const nr_cell_sched_t *cell)
 {
-  LPP_NCGI_r15_t *ncgi = lpp_calloc(sizeof(*ncgi));
+  LPP_NCGI_r15_t *ncgi = calloc_or_fail(1, sizeof(*ncgi));
   add_decimal_digits(&ncgi->mcc_r15.list, cell->plmn.mcc, 3);
   add_decimal_digits(&ncgi->mnc_r15.list, cell->plmn.mnc, cell->plmn.mnc_digit_length);
   set_bit_string36(&ncgi->nr_cellidentity_r15, cell->nr_cellid);
@@ -400,9 +388,9 @@ static LPP_DL_PRS_QCL_Info_r16_t *create_qcl(const NR_ServingCellConfigCommon_t 
 {
   if (ssb_index < 0)
     return NULL;
-  LPP_DL_PRS_QCL_Info_r16_t *qcl = lpp_calloc(sizeof(*qcl));
+  LPP_DL_PRS_QCL_Info_r16_t *qcl = calloc_or_fail(1, sizeof(*qcl));
   qcl->present = LPP_DL_PRS_QCL_Info_r16_PR_ssb_r16;
-  qcl->choice.ssb_r16 = lpp_calloc(sizeof(*qcl->choice.ssb_r16));
+  qcl->choice.ssb_r16 = calloc_or_fail(1, sizeof(*qcl->choice.ssb_r16));
   qcl->choice.ssb_r16->pci_r16 = *scc->physCellId;
   qcl->choice.ssb_r16->ssb_Index_r16 = ssb_index;
   qcl->choice.ssb_r16->rs_Type_r16 = LPP_DL_PRS_QCL_Info_r16__ssb_r16__rs_Type_r16_typeD;
@@ -414,7 +402,7 @@ static LPP_NR_DL_PRS_Resource_r16_t *create_resource(const prs_config_t *cfg,
                                                       int ssb_index,
                                                       const NR_ServingCellConfigCommon_t *scc)
 {
-  LPP_NR_DL_PRS_Resource_r16_t *resource = lpp_calloc(sizeof(*resource));
+  LPP_NR_DL_PRS_Resource_r16_t *resource = calloc_or_fail(1, sizeof(*resource));
   long unused_comb;
   int resource_present = 0;
   bool mapped = map_comb_size(cfg->CombSize, &unused_comb, &resource_present);
@@ -452,7 +440,7 @@ static bool set_muting_pattern(LPP_NR_MutingPattern_r16_t *pattern, const uint32
   }
   bits->size = (length + 7) / 8;
   bits->bits_unused = bits->size * 8 - length;
-  bits->buf = lpp_calloc(bits->size);
+  bits->buf = calloc_or_fail(1, bits->size);
   for (size_t i = 0; i < length; ++i) {
     if (values[i] > 1) {
       LOG_E(GNB_APP, "Cannot generate NR-DL-TDOA assistance data: muting pattern element %zu is not binary\n", i);
@@ -469,7 +457,7 @@ static bool add_muting(LPP_NR_DL_PRS_ResourceSet_r16_t *set,
                        size_t pattern2_length)
 {
   if (pattern1_length > 0) {
-    set->dl_PRS_MutingOption1_r16 = lpp_calloc(sizeof(*set->dl_PRS_MutingOption1_r16));
+    set->dl_PRS_MutingOption1_r16 = calloc_or_fail(1, sizeof(*set->dl_PRS_MutingOption1_r16));
     long repetition;
     switch (cfg->MutingBitRepetition) {
       case 1: repetition = LPP_DL_PRS_MutingOption1_r16__dl_prs_MutingBitRepetitionFactor_r16_n1; break;
@@ -489,7 +477,7 @@ static bool add_muting(LPP_NR_DL_PRS_ResourceSet_r16_t *set,
       return false;
   }
   if (pattern2_length > 0) {
-    set->dl_PRS_MutingOption2_r16 = lpp_calloc(sizeof(*set->dl_PRS_MutingOption2_r16));
+    set->dl_PRS_MutingOption2_r16 = calloc_or_fail(1, sizeof(*set->dl_PRS_MutingOption2_r16));
     if (!set_muting_pattern(&set->dl_PRS_MutingOption2_r16->nr_option2_muting_r16,
                             cfg->MutingPattern2,
                             pattern2_length))
@@ -506,7 +494,7 @@ static LPP_NR_DL_PRS_ResourceSet_r16_t *create_resource_set(const NR_gNB_PRS *pr
                                                             size_t pattern2_length)
 {
   const prs_config_t *cfg = &prs->prs_cfg[0];
-  LPP_NR_DL_PRS_ResourceSet_r16_t *set = lpp_calloc(sizeof(*set));
+  LPP_NR_DL_PRS_ResourceSet_r16_t *set = calloc_or_fail(1, sizeof(*set));
   set->nr_DL_PRS_ResourceSetID_r16 = LPP_PRS_RESOURCE_SET_ID;
   if (!set_periodicity(&set->dl_PRS_Periodicity_and_ResourceSetSlotOffset_r16,
                        scs,
@@ -521,7 +509,7 @@ static LPP_NR_DL_PRS_ResourceSet_r16_t *create_resource_set(const NR_gNB_PRS *pr
   }
   set->dl_PRS_ResourcePower_r16 = scc->ss_PBCH_BlockPower;
   for (int i = 0; i < prs->NumPRSResources; ++i)
-    add_to_sequence(&set->dl_PRS_ResourceList_r16.list, create_resource(&prs->prs_cfg[i], i, ssb_index, scc));
+    asn1cSeqAdd(&set->dl_PRS_ResourceList_r16.list, create_resource(&prs->prs_cfg[i], i, ssb_index, scc));
   return set;
 }
 
@@ -529,14 +517,14 @@ static void copy_bit_string(BIT_STRING_t *destination, const BIT_STRING_t *sourc
 {
   destination->size = source->size;
   destination->bits_unused = source->bits_unused;
-  destination->buf = lpp_calloc(source->size);
+  destination->buf = calloc_or_fail(1, source->size);
   memcpy(destination->buf, source->buf, source->size);
 }
 
 static LPP_NR_SSB_Config_r16_t *create_ssb_config(const NR_ServingCellConfigCommon_t *scc)
 {
   const NR_FrequencyInfoDL_t *dl = scc->downlinkConfigCommon->frequencyInfoDL;
-  LPP_NR_SSB_Config_r16_t *ssb = lpp_calloc(sizeof(*ssb));
+  LPP_NR_SSB_Config_r16_t *ssb = calloc_or_fail(1, sizeof(*ssb));
   ssb->nr_PhysCellID_r16 = *scc->physCellId;
   ssb->nr_ARFCN_r16 = *dl->absoluteFrequencySSB;
   ssb->ss_PBCH_BlockPower_r16 = scc->ss_PBCH_BlockPower;
@@ -544,7 +532,7 @@ static LPP_NR_SSB_Config_r16_t *create_ssb_config(const NR_ServingCellConfigComm
   ssb->ssb_periodicity_r16 = *scc->ssb_periodicityServingCell;
   ssb->ssb_SubcarrierSpacing_r16 = *scc->ssbSubcarrierSpacing;
   ssb->sfn_SSB_Offset_r16 = 0;
-  ssb->ssb_PositionsInBurst_r16 = lpp_calloc(sizeof(*ssb->ssb_PositionsInBurst_r16));
+  ssb->ssb_PositionsInBurst_r16 = calloc_or_fail(1, sizeof(*ssb->ssb_PositionsInBurst_r16));
   switch (scc->ssb_PositionsInBurst->present) {
     case NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_shortBitmap:
       ssb->ssb_PositionsInBurst_r16->present = LPP_NR_SSB_Config_r16__ssb_PositionsInBurst_r16_PR_shortBitmap_r16;
@@ -568,25 +556,23 @@ static LPP_NR_SSB_Config_r16_t *create_ssb_config(const NR_ServingCellConfigComm
 }
 
 static LPP_NR_DL_PRS_AssistanceData_r16_t *create_prs_assistance_data(const PHY_VARS_gNB *gNB,
-                                                                      const gNB_MAC_INST *mac,
+                                                                      const nr_cell_sched_t *cell,
                                                                       long bandwidth,
                                                                       size_t pattern1_length,
                                                                       size_t pattern2_length)
 {
   const NR_gNB_PRS *prs = &gNB->prs_vars;
-  const NR_ServingCellConfigCommon_t *scc = mac->cells[0].common_channels.ServingCellConfigCommon;
+  const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   const NR_FrequencyInfoDL_t *dl = scc->downlinkConfigCommon->frequencyInfoDL;
   const long scs = dl->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing;
   const int ssb_index = first_active_ssb(scc);
-  const f1ap_setup_req_t *setup = mac->f1_config.setup_req;
-  const f1ap_served_cell_info_t *cell = setup != NULL && setup->num_cells_available > 0 ? &setup->cell[0].info : NULL;
 
   LPP_NR_DL_PRS_ResourceSet_r16_t *resource_set =
       create_resource_set(prs, scc, scs, ssb_index, pattern1_length, pattern2_length);
   if (resource_set == NULL)
     return NULL;
 
-  LPP_NR_DL_PRS_AssistanceDataPerTRP_r16_t *trp = lpp_calloc(sizeof(*trp));
+  LPP_NR_DL_PRS_AssistanceDataPerTRP_r16_t *trp = calloc_or_fail(1, sizeof(*trp));
   trp->dl_PRS_ID_r16 = LPP_PRS_DL_PRS_ID;
   trp->nr_PhysCellID_r16 = new_long(*scc->physCellId);
   trp->nr_CellGlobalID_r16 = cell != NULL ? create_ncgi(cell) : NULL;
@@ -595,9 +581,9 @@ static LPP_NR_DL_PRS_AssistanceData_r16_t *create_prs_assistance_data(const PHY_
   trp->nr_DL_PRS_SFN0_Offset_r16.integerSubframeOffset_r16 = 0;
   trp->nr_DL_PRS_ExpectedRSTD_r16 = 0;
   trp->nr_DL_PRS_ExpectedRSTD_Uncertainty_r16 = 0;
-  add_to_sequence(&trp->nr_DL_PRS_Info_r16.nr_DL_PRS_ResourceSetList_r16.list, resource_set);
+  asn1cSeqAdd(&trp->nr_DL_PRS_Info_r16.nr_DL_PRS_ResourceSetList_r16.list, resource_set);
 
-  LPP_NR_DL_PRS_AssistanceDataPerFreq_r16_t *frequency = lpp_calloc(sizeof(*frequency));
+  LPP_NR_DL_PRS_AssistanceDataPerFreq_r16_t *frequency = calloc_or_fail(1, sizeof(*frequency));
   frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_SubcarrierSpacing_r16 = scs;
   frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_ResourceBandwidth_r16 = bandwidth;
   frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_StartPRB_r16 = prs->prs_cfg[0].RBOffset;
@@ -608,93 +594,94 @@ static LPP_NR_DL_PRS_AssistanceData_r16_t *create_prs_assistance_data(const PHY_
   frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_CombSizeN_r16 = frequency_comb;
   frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_CyclicPrefix_r16 =
       LPP_NR_DL_PRS_PositioningFrequencyLayer_r16__dl_PRS_CyclicPrefix_r16_normal;
-  add_to_sequence(&frequency->nr_DL_PRS_AssistanceDataPerFreq_r16.list, trp);
+  asn1cSeqAdd(&frequency->nr_DL_PRS_AssistanceDataPerFreq_r16.list, trp);
 
-  LPP_NR_DL_PRS_AssistanceData_r16_t *assistance = lpp_calloc(sizeof(*assistance));
+  LPP_NR_DL_PRS_AssistanceData_r16_t *assistance = calloc_or_fail(1, sizeof(*assistance));
   assistance->nr_DL_PRS_ReferenceInfo_r16.dl_PRS_ID_r16 = LPP_PRS_DL_PRS_ID;
   assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceSetID_r16 = new_long(LPP_PRS_RESOURCE_SET_ID);
   assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16 =
-      lpp_calloc(sizeof(*assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16));
+      calloc_or_fail(1, sizeof(*assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16));
   for (int i = 0; i < prs->NumPRSResources; ++i)
-    add_to_sequence(&assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16->list, new_long(i));
-  add_to_sequence(&assistance->nr_DL_PRS_AssistanceDataList_r16.list, frequency);
-  assistance->nr_SSB_Config_r16 = lpp_calloc(sizeof(*assistance->nr_SSB_Config_r16));
-  add_to_sequence(&assistance->nr_SSB_Config_r16->list, create_ssb_config(scc));
+    asn1cSeqAdd(&assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16->list, new_long(i));
+  asn1cSeqAdd(&assistance->nr_DL_PRS_AssistanceDataList_r16.list, frequency);
+  assistance->nr_SSB_Config_r16 = calloc_or_fail(1, sizeof(*assistance->nr_SSB_Config_r16));
+  asn1cSeqAdd(&assistance->nr_SSB_Config_r16->list, create_ssb_config(scc));
   return assistance;
 }
 
 static LPP_LPP_Message_t *create_message(const PHY_VARS_gNB *gNB,
-                                         const gNB_MAC_INST *mac,
+                                         const nr_cell_sched_t *cell,
                                          long bandwidth,
                                          size_t pattern1_length,
                                          size_t pattern2_length)
 {
   const NR_gNB_PRS *prs = &gNB->prs_vars;
   LPP_NR_DL_PRS_AssistanceData_r16_t *assistance =
-      create_prs_assistance_data(gNB, mac, bandwidth, pattern1_length, pattern2_length);
+      create_prs_assistance_data(gNB, cell, bandwidth, pattern1_length, pattern2_length);
   if (assistance == NULL)
     return NULL;
 
-  LPP_DL_SelectedPRS_ResourceSetIndex_r16_t *selected_set = lpp_calloc(sizeof(*selected_set));
+  LPP_DL_SelectedPRS_ResourceSetIndex_r16_t *selected_set = calloc_or_fail(1, sizeof(*selected_set));
   selected_set->nr_DL_SelectedPRS_ResourceSetIndex_r16 = LPP_PRS_RESOURCE_SET_ID;
-  selected_set->dl_SelectedPRS_ResourceIndexList_r16 = lpp_calloc(sizeof(*selected_set->dl_SelectedPRS_ResourceIndexList_r16));
+  selected_set->dl_SelectedPRS_ResourceIndexList_r16 =
+      calloc_or_fail(1, sizeof(*selected_set->dl_SelectedPRS_ResourceIndexList_r16));
   for (int i = 0; i < prs->NumPRSResources; ++i) {
-    LPP_DL_SelectedPRS_ResourceIndex_r16_t *selected_resource = lpp_calloc(sizeof(*selected_resource));
+    LPP_DL_SelectedPRS_ResourceIndex_r16_t *selected_resource = calloc_or_fail(1, sizeof(*selected_resource));
     selected_resource->nr_DL_SelectedPRS_ResourceIdIndex_r16 = i;
-    add_to_sequence(&selected_set->dl_SelectedPRS_ResourceIndexList_r16->list, selected_resource);
+    asn1cSeqAdd(&selected_set->dl_SelectedPRS_ResourceIndexList_r16->list, selected_resource);
   }
-  LPP_NR_SelectedDL_PRS_IndexPerTRP_r16_t *selected_trp = lpp_calloc(sizeof(*selected_trp));
+  LPP_NR_SelectedDL_PRS_IndexPerTRP_r16_t *selected_trp = calloc_or_fail(1, sizeof(*selected_trp));
   selected_trp->nr_SelectedTRP_Index_r16 = LPP_PRS_TRP_INDEX;
   selected_trp->dl_SelectedPRS_ResourceSetIndexList_r16 =
-      lpp_calloc(sizeof(*selected_trp->dl_SelectedPRS_ResourceSetIndexList_r16));
-  add_to_sequence(&selected_trp->dl_SelectedPRS_ResourceSetIndexList_r16->list, selected_set);
-  LPP_NR_SelectedDL_PRS_PerFreq_r16_t *selected_frequency = lpp_calloc(sizeof(*selected_frequency));
+      calloc_or_fail(1, sizeof(*selected_trp->dl_SelectedPRS_ResourceSetIndexList_r16));
+  asn1cSeqAdd(&selected_trp->dl_SelectedPRS_ResourceSetIndexList_r16->list, selected_set);
+  LPP_NR_SelectedDL_PRS_PerFreq_r16_t *selected_frequency = calloc_or_fail(1, sizeof(*selected_frequency));
   selected_frequency->nr_SelectedDL_PRS_FrequencyLayerIndex_r16 = LPP_PRS_FREQUENCY_LAYER_INDEX;
   selected_frequency->nr_SelectedDL_PRS_IndexListPerFreq_r16 =
-      lpp_calloc(sizeof(*selected_frequency->nr_SelectedDL_PRS_IndexListPerFreq_r16));
-  add_to_sequence(&selected_frequency->nr_SelectedDL_PRS_IndexListPerFreq_r16->list, selected_trp);
-  LPP_NR_SelectedDL_PRS_IndexList_r16_t *selected = lpp_calloc(sizeof(*selected));
-  add_to_sequence(&selected->list, selected_frequency);
+      calloc_or_fail(1, sizeof(*selected_frequency->nr_SelectedDL_PRS_IndexListPerFreq_r16));
+  asn1cSeqAdd(&selected_frequency->nr_SelectedDL_PRS_IndexListPerFreq_r16->list, selected_trp);
+  LPP_NR_SelectedDL_PRS_IndexList_r16_t *selected = calloc_or_fail(1, sizeof(*selected));
+  asn1cSeqAdd(&selected->list, selected_frequency);
 
-  LPP_NR_DL_TDOA_ProvideAssistanceData_r16_t *tdoa = lpp_calloc(sizeof(*tdoa));
+  LPP_NR_DL_TDOA_ProvideAssistanceData_r16_t *tdoa = calloc_or_fail(1, sizeof(*tdoa));
   tdoa->nr_DL_PRS_AssistanceData_r16 = assistance;
   tdoa->nr_SelectedDL_PRS_IndexList_r16 = selected;
 
-  LPP_ProvideAssistanceData_r9_IEs_t *provide_r9 = lpp_calloc(sizeof(*provide_r9));
-  provide_r9->ext2 = lpp_calloc(sizeof(*provide_r9->ext2));
+  LPP_ProvideAssistanceData_r9_IEs_t *provide_r9 = calloc_or_fail(1, sizeof(*provide_r9));
+  provide_r9->ext2 = calloc_or_fail(1, sizeof(*provide_r9->ext2));
   provide_r9->ext2->nr_DL_TDOA_ProvideAssistanceData_r16 = tdoa;
-  LPP_ProvideAssistanceData_t *provide = lpp_calloc(sizeof(*provide));
+  LPP_ProvideAssistanceData_t *provide = calloc_or_fail(1, sizeof(*provide));
   provide->criticalExtensions.present = LPP_ProvideAssistanceData__criticalExtensions_PR_c1;
-  provide->criticalExtensions.choice.c1 = lpp_calloc(sizeof(*provide->criticalExtensions.choice.c1));
+  provide->criticalExtensions.choice.c1 = calloc_or_fail(1, sizeof(*provide->criticalExtensions.choice.c1));
   provide->criticalExtensions.choice.c1->present =
       LPP_ProvideAssistanceData__criticalExtensions__c1_PR_provideAssistanceData_r9;
   provide->criticalExtensions.choice.c1->choice.provideAssistanceData_r9 = provide_r9;
 
-  LPP_LPP_Message_t *message = lpp_calloc(sizeof(*message));
-  message->transactionID = lpp_calloc(sizeof(*message->transactionID));
+  LPP_LPP_Message_t *message = calloc_or_fail(1, sizeof(*message));
+  message->transactionID = calloc_or_fail(1, sizeof(*message->transactionID));
   message->transactionID->initiator = LPP_Initiator_locationServer;
   message->transactionID->transactionNumber = 0;
   message->endTransaction = false;
-  message->lpp_MessageBody = lpp_calloc(sizeof(*message->lpp_MessageBody));
+  message->lpp_MessageBody = calloc_or_fail(1, sizeof(*message->lpp_MessageBody));
   message->lpp_MessageBody->present = LPP_LPP_MessageBody_PR_c1;
-  message->lpp_MessageBody->choice.c1 = lpp_calloc(sizeof(*message->lpp_MessageBody->choice.c1));
+  message->lpp_MessageBody->choice.c1 = calloc_or_fail(1, sizeof(*message->lpp_MessageBody->choice.c1));
   message->lpp_MessageBody->choice.c1->present = LPP_LPP_MessageBody__c1_PR_provideAssistanceData;
   message->lpp_MessageBody->choice.c1->choice.provideAssistanceData = provide;
   return message;
 }
 
 void print_lpp_nr_dl_tdoa_assistance_data(const PHY_VARS_gNB *gNB,
-                                          const gNB_MAC_INST *mac,
+                                          const nr_cell_sched_t *cell,
                                           size_t muting_pattern1_length,
                                           size_t muting_pattern2_length)
 {
-  AssertFatal(gNB != NULL && mac != NULL, "cannot create LPP PRS assistance data without gNB and MAC instances\n");
-  const NR_ServingCellConfigCommon_t *scc = mac->cells[0].common_channels.ServingCellConfigCommon;
+  AssertFatal(gNB != NULL && cell != NULL, "cannot create LPP PRS assistance data without gNB and cell instances\n");
+  const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   long bandwidth;
   if (!validate_prs_config(&gNB->prs_vars, scc, &bandwidth))
     return;
 
-  LPP_LPP_Message_t *message = create_message(gNB, mac, bandwidth, muting_pattern1_length, muting_pattern2_length);
+  LPP_LPP_Message_t *message = create_message(gNB, cell, bandwidth, muting_pattern1_length, muting_pattern2_length);
   if (message == NULL)
     return;
 
@@ -741,7 +728,7 @@ static bool encode_uper_to_octet_string(const asn_TYPE_descriptor_t *type,
 
 static NR_BCCH_DL_SCH_Message_t *create_rrc_possib_message(const LPP_AssistanceDataSIBelement_r15_t *sib_element)
 {
-  NR_SIBpos_r16_t *sibpos = lpp_calloc(sizeof(*sibpos));
+  NR_SIBpos_r16_t *sibpos = calloc_or_fail(1, sizeof(*sibpos));
   if (!encode_uper_to_octet_string(&asn_DEF_LPP_AssistanceDataSIBelement_r15,
                                    sib_element,
                                    &sibpos->assistanceDataSIB_Element_r16,
@@ -750,44 +737,45 @@ static NR_BCCH_DL_SCH_Message_t *create_rrc_possib_message(const LPP_AssistanceD
     return NULL;
   }
 
-  PosSystemInformation_r16_IEs__posSIB_TypeAndInfo_r16__Member *member = lpp_calloc(sizeof(*member));
+  PosSystemInformation_r16_IEs__posSIB_TypeAndInfo_r16__Member *member = calloc_or_fail(1, sizeof(*member));
   member->present = NR_PosSystemInformation_r16_IEs__posSIB_TypeAndInfo_r16__Member_PR_posSib6_1_r16;
   member->choice.posSib6_1_r16 = sibpos;
 
-  NR_PosSystemInformation_r16_IEs_t *pos_information = lpp_calloc(sizeof(*pos_information));
-  add_to_sequence(&pos_information->posSIB_TypeAndInfo_r16.list, member);
+  NR_PosSystemInformation_r16_IEs_t *pos_information = calloc_or_fail(1, sizeof(*pos_information));
+  asn1cSeqAdd(&pos_information->posSIB_TypeAndInfo_r16.list, member);
 
-  NR_SystemInformation_t *system_information = lpp_calloc(sizeof(*system_information));
+  NR_SystemInformation_t *system_information = calloc_or_fail(1, sizeof(*system_information));
   system_information->criticalExtensions.present =
       NR_SystemInformation__criticalExtensions_PR_criticalExtensionsFuture_r16;
   system_information->criticalExtensions.choice.criticalExtensionsFuture_r16 =
-      lpp_calloc(sizeof(*system_information->criticalExtensions.choice.criticalExtensionsFuture_r16));
+      calloc_or_fail(1, sizeof(*system_information->criticalExtensions.choice.criticalExtensionsFuture_r16));
   system_information->criticalExtensions.choice.criticalExtensionsFuture_r16->present =
       NR_SystemInformation__criticalExtensions__criticalExtensionsFuture_r16_PR_posSystemInformation_r16;
   system_information->criticalExtensions.choice.criticalExtensionsFuture_r16->choice.posSystemInformation_r16 =
       pos_information;
 
-  NR_BCCH_DL_SCH_Message_t *message = lpp_calloc(sizeof(*message));
+  NR_BCCH_DL_SCH_Message_t *message = calloc_or_fail(1, sizeof(*message));
   message->message.present = NR_BCCH_DL_SCH_MessageType_PR_c1;
-  message->message.choice.c1 = lpp_calloc(sizeof(*message->message.choice.c1));
+  message->message.choice.c1 = calloc_or_fail(1, sizeof(*message->message.choice.c1));
   message->message.choice.c1->present = NR_BCCH_DL_SCH_MessageType__c1_PR_systemInformation;
   message->message.choice.c1->choice.systemInformation = system_information;
   return message;
 }
 
-void print_rrc_possib_prs_assistance_data(const PHY_VARS_gNB *gNB,
-                                          gNB_MAC_INST *mac,
-                                          size_t muting_pattern1_length,
-                                          size_t muting_pattern2_length)
+void configure_rrc_possib_prs_assistance_data(const PHY_VARS_gNB *gNB,
+                                              nr_cell_sched_t *cell,
+                                              size_t muting_pattern1_length,
+                                              size_t muting_pattern2_length,
+                                              uint32_t periodicity_frames)
 {
-  AssertFatal(gNB != NULL && mac != NULL, "cannot create PRS PosSIB without gNB and MAC instances\n");
-  const NR_ServingCellConfigCommon_t *scc = mac->cells[0].common_channels.ServingCellConfigCommon;
+  AssertFatal(gNB != NULL && cell != NULL, "cannot create PRS PosSIB without gNB and cell instances\n");
+  const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   long bandwidth;
   if (!validate_prs_config(&gNB->prs_vars, scc, &bandwidth))
     return;
 
   LPP_NR_DL_PRS_AssistanceData_r16_t *assistance =
-      create_prs_assistance_data(gNB, mac, bandwidth, muting_pattern1_length, muting_pattern2_length);
+      create_prs_assistance_data(gNB, cell, bandwidth, muting_pattern1_length, muting_pattern2_length);
   if (assistance == NULL)
     return;
 
@@ -798,7 +786,7 @@ void print_rrc_possib_prs_assistance_data(const PHY_VARS_gNB *gNB,
                               "NR-DL-PRS-AssistanceData-r16"))
     goto cleanup;
 
-  sib_element = lpp_calloc(sizeof(*sib_element));
+  sib_element = calloc_or_fail(1, sizeof(*sib_element));
   if (!encode_uper_to_octet_string(&asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16,
                                    assistance,
                                    &sib_element->assistanceDataElement_r15,
@@ -819,7 +807,7 @@ void print_rrc_possib_prs_assistance_data(const PHY_VARS_gNB *gNB,
   xer_fprint(stdout, &asn_DEF_LPP_AssistanceDataSIBelement_r15, sib_element);
   LOG_I(GNB_APP, "PRS PosSIB BCCH-DL-SCH-Message:\n");
   xer_fprint(stdout, &asn_DEF_NR_BCCH_DL_SCH_Message, rrc_message);
-  if (!nr_mac_configure_pos_sib(mac, rrc_message))
+  if (!nr_mac_configure_pos_sib(cell, rrc_message, periodicity_frames))
     LOG_E(GNB_APP, "failed to deliver PRS PosSIB message to NR MAC\n");
 
 cleanup:

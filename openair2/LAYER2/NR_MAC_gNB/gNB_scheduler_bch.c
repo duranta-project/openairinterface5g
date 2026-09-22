@@ -531,8 +531,7 @@ static void sib_sched_control(nr_cell_sched_t *cell,
                               NR_SearchSpace_t *ss,
                               nfapi_nr_dl_tti_request_t *DL_req,
                               nfapi_nr_tx_data_request_t *TX_req,
-                              const uint8_t *sib_bcch_pdu,
-                              int num_total_bytes,
+                              const byte_array_t sib,
                               const char *sib_name)
 {
   AssertFatal(is_dl_slot(slot, &cell->frame_structure),
@@ -598,7 +597,7 @@ static void sib_sched_control(nr_cell_sched_t *cell,
       .ant_port_idx = {.numSpatialStreamIndices = 1, .spatialStreamIndices[0] = sidx[beam.idx]}};
 
   uint16_t *vrb_map = cc->vrb_map[beam.idx];
-  bool success = update_rb_mcs_tbs(&sched_pdsch_otherSI, num_total_bytes, vrb_map);
+  bool success = update_rb_mcs_tbs(&sched_pdsch_otherSI, sib.len, vrb_map);
   AssertFatal(success, "Couldn't allocate TBS for %s\n", sib_name);
 
   for (int rb = 0; rb < sched_pdsch_otherSI.rbSize; rb++) {
@@ -623,13 +622,13 @@ static void sib_sched_control(nr_cell_sched_t *cell,
   nfapi_nr_pdu_t *tx_req = &TX_req->pdu_list[ntx_req];
 
   // Data to be transmitted
-  AssertFatal(sched_pdsch_otherSI.tb_size >= num_total_bytes,
-              "%s transport block (%d bytes) is smaller than its payload (%d bytes)\n",
+  AssertFatal(sched_pdsch_otherSI.tb_size >= sib.len,
+              "%s transport block (%d bytes) is smaller than its payload (%zu bytes)\n",
               sib_name,
               sched_pdsch_otherSI.tb_size,
-              num_total_bytes);
-  memcpy(tx_req->TLVs[0].value.direct, sib_bcch_pdu, num_total_bytes);
-  memset(tx_req->TLVs[0].value.direct + num_total_bytes, 0, sched_pdsch_otherSI.tb_size - num_total_bytes);
+              sib.len);
+  memcpy(tx_req->TLVs[0].value.direct, sib.buf, sib.len);
+  memset(tx_req->TLVs[0].value.direct + sib.len, 0, sched_pdsch_otherSI.tb_size - sib.len);
 
   tx_req->PDU_index = pdu_index;
   tx_req->num_TLV = 1;
@@ -647,7 +646,7 @@ static void sib_sched_control(nr_cell_sched_t *cell,
     T_INT(frame),
     T_INT(slot),
     T_INT(0), // harq_pid
-    T_BUFFER(sib_bcch_pdu, num_total_bytes));
+    T_BUFFER(sib.buf, sib.len));
 }
 
 // This function verifies if we need to schedule otherSIB in frame and slot
@@ -750,8 +749,7 @@ void schedule_nr_other_sib(nr_cell_sched_t *cell,
                         ss,
                         DL_req,
                         TX_req,
-                        cc->other_sib_bcch_pdu[0],
-                        cc->other_sib_bcch_length[0],
+                        (byte_array_t){.buf = cc->other_sib_bcch_pdu[0], .len = cc->other_sib_bcch_length[0]},
                         "otherSIB");
     }
     if (!schedInfo17)
@@ -775,8 +773,7 @@ void schedule_nr_other_sib(nr_cell_sched_t *cell,
                         ss,
                         DL_req,
                         TX_req,
-                        cc->other_sib_bcch_pdu[1],
-                        cc->other_sib_bcch_length[1],
+                        (byte_array_t){.buf = cc->other_sib_bcch_pdu[1], .len = cc->other_sib_bcch_length[1]},
                         "SIB19");
     }
   }
@@ -877,8 +874,7 @@ void schedule_nr_pos_sib(nr_cell_sched_t *cell,
                         ss,
                         DL_req,
                         TX_req,
-                        cc->pos_sib_bcch_pdu,
-                        cc->pos_sib_bcch_length,
+                        (byte_array_t){.buf = cc->pos_sib_bcch_pdu, .len = cc->pos_sib_bcch_length},
                         "posSibType6-1");
     }
   }
