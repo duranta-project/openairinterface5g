@@ -514,7 +514,7 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
           preamble_shift += N_ZC;
       }
     } else { // This is the high-speed case
-      uint16_t nr_du[NR_PRACH_SEQ_LEN_L - 1];
+      uint16_t nr_du[NR_PRACH_SEQ_LEN_L];
       nr_fill_du(N_ZC, prach_root_sequence_map, nr_du);
       // set preamble_offset to initial rootSequenceIndex and look if we need more root sequences for this
       // preamble index and find the corresponding cyclic shift
