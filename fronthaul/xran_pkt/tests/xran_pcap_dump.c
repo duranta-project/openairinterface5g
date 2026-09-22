@@ -13,6 +13,13 @@
 #include <rte_ether.h>
 #include <rte_byteorder.h>
 #include "xran_pkt_api.h"
+#include "xran_pkt_bfw.h"
+
+void exit_function(const char *file, const char *function, const int line, const char *s, const int assertflag)
+{
+  fprintf(stderr, "Error at %s:%s:%d - %s\n", file, function, line, s ? s : "None");
+  exit(1);
+}
 
 const char *fft_size_to_string(enum xran_cp_fftsize fft_size)
 {
@@ -49,6 +56,7 @@ struct xran_eaxcid_config g_eaxcid_config = {.mask_cuPortId = 0xF000,
 struct dump_ctx {
   struct rte_mempool *mp;
   int pkt_count;
+  int error_count; // bumped on any malformed/unparseable content, so this doubles as a regression check
 };
 
 void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char *packet)
@@ -131,6 +139,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
             (struct xran_cp_radioapp_common_header *)rte_pktmbuf_adj(mbuf, sizeof(struct xran_ecpri_hdr));
         if (apphdr == NULL) {
           printf("  Error: issue extracting apphdr\n");
+          ctx->error_count++;
         } else {
           uint32_t fields = rte_be_to_cpu_32(apphdr->field.all_bits);
           uint8_t frame = (fields >> 16) & 0xFF;
@@ -181,6 +190,39 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
                        section->hdr.u1.common.numPrbc,
                        section->hdr.u.s1.numSymbol,
                        section->hdr.u.s1.beamId);
+                // Extensions sit right after the section-1 header. extType/ef live in the
+                // extension's first byte (bits 6-0 / bit 7) and extLen in its second byte -
+                // the same raw-byte layout struct xran_cp_radioapp_section_ext1 uses, no
+                // 16-bit byte-order conversion needed (see its comment).
+                uint8_t *ext_ptr = (uint8_t *)section + sizeof(struct xran_cp_radioapp_section1);
+                int ef = section->hdr.u.s1.ef;
+                while (ef) {
+                  uint8_t extType = ext_ptr[0] & 0x7F;
+                  uint8_t next_ef = (ext_ptr[0] >> 7) & 1;
+                  uint8_t extLen = ext_ptr[1];
+                  if (extLen == 0) {
+                    printf("      malformed extension: extLen=0 (would loop forever)\n");
+                    ctx->error_count++;
+                    break;
+                  }
+                  if (extType == XRAN_CP_SECTIONEXTCMD_1) {
+                    c16_t weights[64];
+                    int n = xran_decode_bfw_ext1(ext_ptr, (size_t)extLen * 4, weights, 64);
+                    if (n < 0) {
+                      printf("      [Ext1] malformed beamforming-weights extension\n");
+                      ctx->error_count++;
+                    } else {
+                      printf("      [Ext1] %d beamforming weight(s):", n);
+                      for (int w = 0; w < n; w++)
+                        printf(" (%d%+di)", weights[w].r, weights[w].i);
+                      printf("\n");
+                    }
+                  } else {
+                    printf("      [Ext%d] unsupported extension type, skipping\n", extType);
+                  }
+                  ext_ptr += (size_t)extLen * 4;
+                  ef = next_ef;
+                }
               }
               break;
             }
@@ -231,17 +273,18 @@ int main(int argc, char *argv[])
     return 1;
   }
 
-  struct dump_ctx ctx = {.mp = mp, .pkt_count = 0};
+  struct dump_ctx ctx = {.mp = mp, .pkt_count = 0, .error_count = 0};
 
   printf("Dumping packets from %s...\n", argv[1]);
   if (pcap_loop(pcap, 0, packet_handler, (u_char *)&ctx) < 0) {
     fprintf(stderr, "Error: pcap_loop failed\n");
+    ctx.error_count++;
   }
 
-  printf("Dumping complete. %d packets processed.\n", ctx.pkt_count);
+  printf("Dumping complete. %d packets processed, %d error(s).\n", ctx.pkt_count, ctx.error_count);
 
   pcap_close(pcap);
   rte_mempool_free(mp);
 
-  return 0;
+  return ctx.error_count > 0 ? 1 : 0;
 }
