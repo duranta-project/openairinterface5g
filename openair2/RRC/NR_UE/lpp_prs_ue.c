@@ -110,6 +110,8 @@ static bool map_muting(const LPP_NR_DL_PRS_ResourceSet_r16_t *set, nr_ue_prs_res
 #define READ_PERIOD(INNER, TABLE, PERIOD, OFFSET) do { \
   const int index = (INNER)->present - 1; \
   if (index < 0 || index >= (int)sizeofArray(TABLE)) return false; \
+  /* The UE PHY currently stores PRS periods and offsets in 16 bits. */ \
+  if ((TABLE)[index] > UINT16_MAX) return false; \
   (PERIOD) = (TABLE)[index]; \
   memcpy(&(OFFSET), &(INNER)->choice, sizeof(OFFSET)); \
 } while (0)
@@ -122,7 +124,7 @@ static bool map_periodicity(const LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotO
   static const uint16_t scs15[] = {4, 5, 8, 10, 16, 20, 32, 40, 64, 80, 160, 320, 640, 1280, 2560, 5120, 10240};
   static const uint16_t scs30[] = {8, 10, 16, 20, 32, 40, 64, 80, 128, 160, 320, 640, 1280, 2560, 5120, 10240, 20480};
   static const uint16_t scs60[] = {16, 20, 32, 40, 64, 80, 128, 160, 256, 320, 640, 1280, 2560, 5120, 10240, 20480, 40960};
-  static const uint16_t scs120[] = {32, 40, 64, 80, 128, 160, 256, 320, 512, 640, 1280, 2560, 5120, 10240, 20480, 40960, 81920};
+  static const uint32_t scs120[] = {32, 40, 64, 80, 128, 160, 256, 320, 512, 640, 1280, 2560, 5120, 10240, 20480, 40960, 81920};
   switch (asn_period->present) {
     case LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotOffset_r16_PR_scs15_r16:
       if (asn_period->choice.scs15_r16 == NULL) return false;
