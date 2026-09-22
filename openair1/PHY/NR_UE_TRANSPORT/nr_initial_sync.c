@@ -132,7 +132,7 @@ static bool nr_pbch_detection(const UE_nr_rxtx_proc_t *proc,
     }
   }
 
-  LOG_W(PHY, "Initial sync: pbch not decoded, ssb index %d\n", frame_parms->ssb_index);
+  LOG_D(PHY, "Initial sync: pbch not decoded, ssb index %d\n", frame_parms->ssb_index);
   return false;
 }
 
