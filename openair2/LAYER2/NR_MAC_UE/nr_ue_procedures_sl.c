@@ -360,7 +360,7 @@ uint16_t sl_get_subchannel_size(NR_SL_ResourcePool_r16_t *rpool)
 
   subch_size = num_rbs/num_subch;
 
-  LOG_I(NR_MAC, "Subch_size:%d, numRBS:%d, num_subch:%d\n",
+  LOG_D(NR_MAC, "Subch_size:%d, numRBS:%d, num_subch:%d\n",
                                           subch_size,num_rbs,num_subch);
 
   return (subch_size);

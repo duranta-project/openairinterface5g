@@ -353,7 +353,8 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
   const uint32_t rxdataF_sz = fp->samples_per_slot_wCP;
   __attribute__((aligned(32))) c16_t rxdataF[fp->nb_antennas_rx][rxdataF_sz];
 
-  if ((frame_rx&127) == 0) {
+  static bool show_once = true;
+  if ((frame_rx&127) == 0 && show_once) {
       LOG_I(NR_PHY,"============================================\n");
 
       LOG_A(NR_PHY,"[UE%d] %d:%d PSBCH Stats: TX %u, RX ok %u, RX not ok %u\n",
@@ -385,6 +386,9 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
                                                       sl_phy_params->psfch.num_psfch_tx
                                                       );
       LOG_I(NR_PHY,"============================================\n");
+      show_once = false;
+  } else if ((frame_rx & 127) != 0) {
+    show_once = true;
   }
     
   if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSBCH) {
