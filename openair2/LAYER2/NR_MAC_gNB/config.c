@@ -974,7 +974,6 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
               "SSB Bitmap type %d is not valid\n",
               scc->ssb_PositionsInBurst->present);
 
-  cell->max_csi_bits = estimate_max_num_csi_bits(scc, config);
   const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
   const int n = get_slots_per_frame_from_scs(*scc->ssbSubcarrierSpacing);
   const int size = n << ceil_log2_u32((NTN_gNB_Koffset + 13) / n + 1); // 13 is upper limit for max_fb_time
@@ -998,6 +997,30 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
 
   config_common(cell, config, scc);
   fill_beam_index_list(scc, config, cell);
+  int max_csi_bits = estimate_max_num_csi_bits(scc, config);
+  int scs = *scc->ssbSubcarrierSpacing;
+  int bwp_size = NRRIV2BW(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
+  cell->pucch_res_bwp[0] = configure_pucch_radio_resources(&cell->frame_structure, bwp_size, scs, max_csi_bits);
+  LOG_I(NR_MAC,
+        "BWP 0 PUCCH resource configuration: HARQ res %d HARQ res PRBs %d Periodic res %d Perioidc res PRBs %d periodicity %d\n",
+        cell->pucch_res_bwp[0].nb_harq_res,
+        cell->pucch_res_bwp[0].nb_prb_harq_res,
+        cell->pucch_res_bwp[0].nb_periodic_res,
+        cell->pucch_res_bwp[0].nb_prb_periodic_res,
+        cell->pucch_res_bwp[0].periodicity);
+  for (int i = 0; i < config->num_additional_bwps; i++) {
+    bwp_size = NRRIV2BW(config->bwp_config[i].location_and_bw, MAX_BWP_SIZE);
+    int j = config->bwp_config[i].id;
+    cell->pucch_res_bwp[j] = configure_pucch_radio_resources(&cell->frame_structure, bwp_size, scs, max_csi_bits);
+    LOG_I(NR_MAC,
+          "BWP %d PUCCH resource configuration: HARQ res %d HARQ res PRBs %d Periodic res %d Perioidc res PRBs %d periodicity %d\n",
+          j,
+          cell->pucch_res_bwp[j].nb_harq_res,
+          cell->pucch_res_bwp[j].nb_prb_harq_res,
+          cell->pucch_res_bwp[j].nb_periodic_res,
+          cell->pucch_res_bwp[j].nb_prb_periodic_res,
+          cell->pucch_res_bwp[j].periodicity);
+  }
 
   if (NFAPI_MODE == NFAPI_MONOLITHIC) {
     // nothing to be sent in the other cases

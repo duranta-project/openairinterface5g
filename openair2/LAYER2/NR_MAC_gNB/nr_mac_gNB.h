@@ -63,7 +63,6 @@
 #include "NR_TAG.h"
 
 /* Defs */
-#define MAX_NUM_BWP 5
 #define MAX_NUM_CORESET 12
 /*!\brief Maximum number of random access process */
 #define NR_NB_RA_PROC_MAX 16 // set to 16 for multiple CFRA at the same time
@@ -213,7 +212,7 @@ typedef struct nr_mac_config_s {
   // BWP information
   int num_additional_bwps;
   int first_active_bwp;
-  nr_bwp_config_t bwp_config[4];
+  nr_bwp_config_t bwp_config[NR_MAX_NUM_BWP];
   /// beamforming weight matrix size
   int nb_bfw[2];
   int32_t *bw_list;
@@ -1216,6 +1215,15 @@ typedef struct NR_du_stats {
   uint32_t ss_rsrp_ssb_dist[NR_KPM_NB_SSB][NR_KPM_SS_RSRP_NB_LEVELS];
 } NR_du_stats_t;
 
+typedef struct nr_pucch_radio_res_s {
+  int nb_harq_res;
+  int nb_prb_harq_res;
+  int nb_periodic_res;
+  int nb_prb_periodic_res;
+  int periodicity;
+  int max_served_ues;
+} nr_pucch_radio_res_t;
+
 typedef struct {
   bool active;
   f1ap_positioning_measurement_req_t meas_req;
@@ -1303,7 +1311,7 @@ typedef struct nr_cell_sched_s {
   /// Per-cell KPI statistics
   NR_du_stats_t du_stats;
   uint64_t num_scheduled_prach_rx;
-  int max_csi_bits;
+  nr_pucch_radio_res_t pucch_res_bwp[NR_MAX_NUM_BWP + 1]; // including initial BWP
 
   // Per-cell MAC function execution performance profiler
   /// processing time of gNB scheduler
