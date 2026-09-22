@@ -71,6 +71,8 @@ int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
     Transport Block.
     @param[in] phy_vars_ue pointer to ue variables
     @param[in] ulsch Pointer to ULSCH descriptor
+    @param[in] pscch_pssch_pdu Pointer to PSSCH descriptor. Non-null means PSSCH is used here
+    @param[in] sl_harq_pid Index of harq_pid for PSSCH
     @param[in] frame frame index
     @param[in] slot slot index
     @param[in] G array of Gs
@@ -80,6 +82,8 @@ int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
 */
 int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
                       NR_UE_ULSCH_t *ulsch,
+                      sl_nr_tx_config_pscch_pssch_pdu_t *pscch_pssch_pdu,
+                      uint8_t sl_harq_pid,
                       const uint32_t frame,
                       const uint8_t slot,
                       unsigned int *G,

@@ -1910,6 +1910,8 @@ target_link_libraries(nr-uesoftmodem PRIVATE
   time_management softmodem_common
   -Wl,--end-group dl)
 
+# TODO for sidelink
+target_link_libraries(nr-uesoftmodem PRIVATE PHY_NR)
 target_link_libraries(nr-uesoftmodem PRIVATE pthread m CONFIG_LIB rt nr_ue_phy_meas)
 target_link_libraries(nr-uesoftmodem PRIVATE ${T_LIB})
 target_link_libraries(nr-uesoftmodem PRIVATE nr_nas lib_uicc usim_lib SECURITY)

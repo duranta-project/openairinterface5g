@@ -80,6 +80,21 @@ uint64_t        sidelink_frequency[MAX_NUM_CCs][4];
 // UE and OAI config variables
 double            cpuf;
 
+// TODO sidelink: avoid linker errors for including gNB
+NR_IF_Module_t *NR_IF_Module_init(int Mod_id) { abort(); return NULL; }
+int get_nr_prach_duration(uint8_t prach_format) { abort(); return 0; }
+int beam_index_allocation(bool das,
+                          int fapi_beam_index,
+                          NR_gNB_COMMON *common_vars,
+                          int slot,
+                          int symbols_per_slot,
+                          int bitmap_symbols)
+{
+  abort(); return 0;
+}
+int nr_slot_select() { abort(); }
+int get_first_ant_idx() { abort(); }
+
 int create_tasks_nrue(uint32_t ue_nb) {
   LOG_D(NR_RRC, "%s(ue_nb:%d)\n", __FUNCTION__, ue_nb);
   itti_wait_ready(1);

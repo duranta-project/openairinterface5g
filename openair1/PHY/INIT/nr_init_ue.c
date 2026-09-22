@@ -9,6 +9,7 @@
 #include "PHY/MODULATION/nr_modulation.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_ue.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
+#include "PHY/NR_TRANSPORT/nr_ulsch.h"
 #include "PHY/NR_REFSIG/pss_nr.h"
 #include "PHY/NR_REFSIG/ul_ref_seq_nr.h"
 #include "PHY/NR_REFSIG/sl_refsig_defs.h"
@@ -656,4 +657,32 @@ void sl_ue_phy_init(PHY_VARS_NR_UE *UE)
     }
   }
   nr_init_pscch_dmrs(sl_fp, pscch_dmrs_rx, UE->SL_UE_PHY_PARAMS.sl_config.sl_DMRS_ScrambleId);
+
+  // SLSCH allocation
+  UE->max_nb_slsch = NR_SLSCH_RX_MAX;
+  UE->slsch = (NR_gNB_ULSCH_t *)malloc16(UE->max_nb_slsch * sizeof(NR_gNB_ULSCH_t));
+  for (int i = 0; i < UE->max_nb_slsch; i++) {
+    LOG_I(PHY, "Allocating Transport Channel Buffers for SLSCH %d/%d\n", i, UE->max_nb_slsch);
+    UE->slsch[i] = new_gNB_ulsch(UE->max_ldpc_iterations, sl_fp->N_RB_UL);
+  }
+
+  // PSSCH vars allocation
+  int Prx = sl_fp->nb_antennas_rx;
+  int N_RB_UL = sl_fp->N_RB_UL;
+  int n_buf = 2 * Prx;
+  int nb_re_pusch = N_RB_UL * NR_NB_SC_PER_RB;
+  int nb_re_pusch2 = nb_re_pusch + (nb_re_pusch & 7);
+  UE->pssch_thres = 10;
+  UE->pssch_vars = (NR_gNB_PUSCH *)malloc16_clear(UE->max_nb_slsch * sizeof(NR_gNB_PUSCH));
+  for (int SLSCH_id = 0; SLSCH_id < NR_SLSCH_RX_MAX; SLSCH_id++) {
+    NR_gNB_PUSCH *pssch = &UE->pssch_vars[SLSCH_id];
+    pssch->ul_ch_estimates = malloc16(n_buf * sizeof(int32_t *));
+    pssch->rxdataF_comp = malloc16(n_buf * sizeof(int32_t *));
+    for (int i = 0; i < n_buf; i++) {
+      pssch->ul_ch_estimates[i] = malloc16_clear(sizeof(int32_t) * sl_fp->ofdm_symbol_size * sl_fp->symbols_per_slot);
+      pssch->rxdataF_comp[i] = malloc16_clear(sizeof(int32_t) * nb_re_pusch2 * sl_fp->symbols_per_slot);
+    }
+    pssch->llr = malloc16_clear((8 * ((3 * 8 * 6144) + 12)) * sizeof(int16_t));
+    pssch->ul_valid_re_per_slot = malloc16_clear(sizeof(int16_t) * sl_fp->symbols_per_slot);
+  }
 }

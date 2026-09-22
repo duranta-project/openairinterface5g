@@ -209,6 +209,7 @@ typedef struct {
 #define NR_PSBCH_DMRS_LENGTH 297 // in mod symbols
 #define NR_PSBCH_DMRS_LENGTH_DWORD 20 // ceil(2(QPSK)*NR_PBCH_DMRS_LENGTH/32)
 #define PBCH_A 24
+#define NR_SLSCH_RX_MAX 2
 
 typedef struct {
   bool active;
@@ -272,6 +273,10 @@ typedef struct {
   int ssb_start;
   int used_by_ue;
 } nrUE_cell_params_t;
+
+// forward declarations for PSSCH reusing PUSCH
+struct NR_gNB_ULSCH_s;
+struct NR_gNB_PUSCH_s;
 
 /// Top-level PHY Data Structure for UE
 typedef struct PHY_VARS_NR_UE_s {
@@ -443,11 +448,17 @@ typedef struct PHY_VARS_NR_UE_s {
   // Sidelink parameters
   sl_nr_sidelink_mode_t sl_mode;
   sl_nr_ue_phy_params_t SL_UE_PHY_PARAMS;
+  int max_nb_slsch;
+  // we use the gNB ULSCH context for SLSCH reception
+  struct NR_gNB_ULSCH_s *slsch;
+  struct NR_gNB_PUSCH_s *pssch_vars;
   int pscch_dmrs_gold_init;
   /// PDCCH DMRS for TX
   uint32_t ***nr_gold_pscch_dmrs;
   /// PSCCH DMRS for RX
   uint32_t ***nr_gold_pscch;
+  /// PSSCH signal detection threshold
+  int pssch_thres;
   Actor_t sync_actor;
   Actor_t *dl_actors;
   Actor_t *ul_actors;
