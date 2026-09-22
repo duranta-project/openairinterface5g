@@ -468,6 +468,13 @@ typedef struct PHY_VARS_NR_UE_s {
 } PHY_VARS_NR_UE;
 typedef struct pdsch_scratch_s pdsch_scratch_t;
 
+/* Frame parameters the UE synchronises and receives on: the sidelink ones in sidelink mode 2,
+   the downlink ones otherwise. */
+static inline NR_DL_FRAME_PARMS *nrue_frame_parms(PHY_VARS_NR_UE *ue)
+{
+  return ue->sl_mode == SL_MODE2_SUPPORTED ? &ue->SL_UE_PHY_PARAMS.sl_frame_params : &ue->frame_parms;
+}
+
 typedef struct {
   openair0_timestamp_t timestamp_tx;
   int gNB_id;
@@ -489,7 +496,11 @@ typedef struct {
 
 typedef struct {
   bool cell_detected;
+  /* Number of samples to drop, counted from the end of the scan window, to land on the start
+     of subframe sync_subframe of the decoded frame. */
   int rx_offset;
+  /* Subframe of the decoded frame the detected SS/PBCH block belongs to. */
+  uint sync_subframe;
 } nr_initial_sync_t;
 
 typedef struct {
@@ -501,8 +512,11 @@ typedef struct {
   NR_DL_FRAME_PARMS *fp;
   UE_nr_rxtx_proc_t *proc;
   int halfFrameBit;
+  /* Symbol carrying the first symbol of the detected block, counted from the start of the
+     frame. Known only once the PBCH payload is decoded. */
   int symbolOffset;
   int ssbIndex;
+  /* Offset of the first sample of the detected block inside the scanned buffer. */
   int ssbOffset;
   int nidCell;
   int freqOffset;
@@ -531,7 +545,8 @@ typedef struct {
 } sss_detection_result_t;
 
 // Common SSB search parameters - used by both initial sync and neighbor cell search
-typedef struct {
+typedef struct nr_ssb_search_params_s nr_ssb_search_params_t;
+struct nr_ssb_search_params_s {
   uint64_t dl_CarrierFreq;
   uint sampling_rate;
   int slots_per_frame;
@@ -556,10 +571,18 @@ typedef struct {
   bool fo_flag; // frequency offset estimation flag for pss_synchro_nr()
   void *rxdataF; // Pre-allocated rxdataF buffer
   void *pssTime; // Pre-generated PSS time sequences
+  /* Optional check of a candidate block, run once its SSS has been detected and its symbols
+     demodulated into rxdataF. Returning false makes the search carry on with the next
+     candidate. Initial sync uses it to decode the PBCH, which is what tells a real block
+     apart from a correlation peak landing on the wrong samples. */
+  bool (*validate_candidate)(void *ctx, const nr_ssb_search_params_t *params);
+  void *validate_ctx;
   // Output parameters
   pss_detection_result_t pss_res;
   sss_detection_result_t sss_res;
-} nr_ssb_search_params_t;
+  /* Offset of the first sample of the detected block inside rxdata. */
+  int ssb_time_offset;
+};
 
 typedef struct nr_phy_data_tx_s {
   NR_UE_ULSCH_t ulsch;

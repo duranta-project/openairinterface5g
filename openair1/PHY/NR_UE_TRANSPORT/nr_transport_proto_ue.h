@@ -156,6 +156,9 @@ double nr_ue_pbch_freq_offset(const NR_DL_FRAME_PARMS *frame_parms,
 #define modOrder(I_MCS,I_TBS) ((I_MCS-I_TBS)*2+2) // Find modulation order from I_TBS and I_MCS
 #endif
 
+/* Size in samples, cyclic prefixes included, of an SS/PBCH block. */
+int nr_ssb_block_size(const NR_DL_FRAME_PARMS *fp);
+
 /*!
   \brief This function performs the initial cell search procedure - PSS detection, SSS detection and PBCH detection.  At the
   end, the basic frame parameters are known (Frame configuration - TDD/FDD and cyclic prefix length,
