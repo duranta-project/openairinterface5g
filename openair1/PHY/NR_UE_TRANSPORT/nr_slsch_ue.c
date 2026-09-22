@@ -96,7 +96,7 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
   LOG_D(PHY,"nr_ue_ulsch_procedures hard_id %d %d.%d\n",harq_pid,frame,slot);
 
   int Wf[2], Wt[2];
-  int l_prime[2], delta;
+  int l_prime[2] = {0}, delta;
   uint8_t nb_dmrs_re_per_rb;
   int i;
   int sample_offsetF, N_RE_prime;
@@ -325,7 +325,6 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
       uint8_t is_dmrs_sym = 0;
       uint8_t is_csi_rs_sym = 0;
       uint16_t dmrs_idx = 0;
-      int16_t csi_rs_rb = 0;
       int is_pscch_sym = 0;
       if (l<(start_symbol + pscch_pssch_pdu->pscch_numsym)) { 
         is_pscch_sym = 1; 
@@ -333,7 +332,6 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
 
       if (is_csi_rs_slot && l == csi_params->symb_l0) {
         is_csi_rs_sym = 1;
-        csi_rs_rb = csi_params->start_rb;
       }
 
       if ((ul_dmrs_symb_pos >> l) & 0x01) {

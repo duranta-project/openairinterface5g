@@ -504,7 +504,6 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
                               pssch_pdu->l_subch,
                               pssch_pdu->subchannel_size,
                               pssch_pdu->targetCodeRate);
-    int nb_re_dmrs = 6;
 
     uint32_t rb_size                   = pssch_pdu->num_subch*pssch_pdu->subchannel_size;
     int sci1_dmrs_overlap = pssch_pdu->dmrs_symbol_position & dmrs_pscch_mask[pssch_pdu->pscch_numsym-2];

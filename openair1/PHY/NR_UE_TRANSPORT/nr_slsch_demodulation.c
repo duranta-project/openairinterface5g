@@ -764,6 +764,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
                                     &nvar_tmp);
         nvar += nvar_tmp;
       }
+      (void) nvar; // prevent warning
 /*
       PHY_MEASUREMENTS_gNB *meas = ue->sl_measurements;
       gNB_I0_measurements(meas, frame_parms,ulsch, pusch_vars, symbol, nrOfLayers);
