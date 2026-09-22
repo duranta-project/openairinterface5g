@@ -291,6 +291,69 @@
     <command>echo ci fetch_du_by_ue_id | ncat 192.168.71.150 9090 | grep "3585"</command>
   </testCase>
 
+  <!-- Re-establishment mid-HO at source: UE is on DU-PCI1 (source, DU id 3585);
+       degrade the target DU-PCI0's channel so the HO's Random Access never
+       succeeds, T304 expires, and the UE re-establishes back on the source. -->
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Simulate severe DL radio channel disruption on target DU-PCI0 (ploss 55)</desc>
+    <node>localhost</node>
+    <command>echo channelmod modify 0 ploss 55 | ncat 192.168.71.181 8091</command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Trigger Handover to unreachable target DU-PCI0</desc>
+    <node>localhost</node>
+    <command>echo ci trigger_f1_ho | ncat 192.168.71.150 9090</command>
+  </testCase>
+
+  <testCase>
+    <class>IdleSleep</class>
+    <desc>Sleep for T304 (~2s) expiry and re-establishment at source to complete</desc>
+    <idle_sleep_time_in_sec>10</idle_sleep_time_in_sec>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Restore DL radio channel on DU-PCI0 (ploss 20)</desc>
+    <node>localhost</node>
+    <command>echo channelmod modify 0 ploss 20 | ncat 192.168.71.181 8091</command>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping ext-dn from NR-UE after re-establishment at source</desc>
+    <id>rfsim5g_ue</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_ext_dn</svr_id>
+    <svr_node>localhost</svr_node>
+    <ping_args>-c 20 -i0.5 -w25</ping_args>
+    <ping_packetloss_threshold>80</ping_packetloss_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Verify UE landed back on source DU-PCI1 (3585), not the failed target DU-PCI0</desc>
+    <node>localhost</node>
+    <command>echo ci fetch_du_by_ue_id | ncat 192.168.71.150 9090 | grep "3585"</command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Verify a second re-establishment was counted (1st was the earlier force_reestab test)</desc>
+    <node>localhost</node>
+    <command>echo ci get_reestab_count | ncat 192.168.71.150 9090 | grep -E 'UE RNTI [0-9a-f]{4} reestab 2'</command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Verify the re-establishment cause was Handover Failure (T304 path, not a generic RLF)</desc>
+    <node>localhost</node>
+    <command>docker logs rfsim5g-oai-cu 2>&amp;1 | grep -E 'Reestablishment RNTI [0-9a-f]{4} req C-RNTI [0-9a-f]{4} physCellId [0-9]+ cause Handover Failure'</command>
+  </testCase>
+
   <testCase>
     <class>Undeploy_Object</class>
     <always_exec>true</always_exec>
