@@ -19,6 +19,12 @@
 #include "RRC/NR_UE/L2_interface_ue.h"
 #include "oai_asn1.h"
 
+#define EARTH_MU          3.986004418e14   // m^3/s^2
+#define SMA_OFFSET_M      6500000.0
+#define SMA_STEP_M        4.249e-3
+#define ECC_STEP           1.431e-8
+#define ANGLE_STEP_RAD     2.341e-8
+
 #define ASIGN_P_VAL(dst, src) \
   do {                        \
     if (src)                  \
@@ -339,6 +345,205 @@ static void prepare_ue_sat_ta(const NR_PositionVelocity_r17_t *sat_pos, fapi_nr_
   ntn_ta->vel_sat_90 = vel_sat_90;
 }
 
+static position_t rotate_orbital_to_eci(position_t p,
+                                        double raan,
+                                        double inclination,
+                                        double arg_periapsis)
+{
+  /*
+   * Classical orbital transformation:
+   *
+   * ECI = R3(-RAAN) * R1(-inclination) * R3(-argument_of_periapsis) * PQW
+   *
+   */
+  const double cosO = cos(raan);
+  const double sinO = sin(raan);
+
+  const double cosi = cos(inclination);
+  const double sini = sin(inclination);
+
+  const double cosw = cos(arg_periapsis);
+  const double sinw = sin(arg_periapsis);
+
+  position_t out = {0};
+
+  out.X =
+      (cosO*cosw - sinO*sinw*cosi) * p.X +
+      (-cosO*sinw - sinO*cosw*cosi) * p.Y;
+
+  out.Y =
+      (sinO*cosw + cosO*sinw*cosi) * p.X +
+      (-sinO*sinw + cosO*cosw*cosi) * p.Y;
+
+  out.Z =
+      (sinw*sini) * p.X +
+      (cosw*sini) * p.Y;
+
+  return out;
+}
+
+
+// prepare data for orbit propagation based on SIB19 EphemerisInfo orbital-r17
+static void prepare_ue_sat_ta_from_orbital(const NR_Orbital_r17_t *sat_pos, fapi_nr_ntn_config_t *ntn_ta)
+{
+  long semi_major_axis_raw = 0;
+
+  /* semiMajorAxis-r17 is INTEGER_t */
+  if (asn_INTEGER2long(&sat_pos->semiMajorAxis_r17,
+                       &semi_major_axis_raw) != 0) {
+    LOG_E(NR_MAC,"Cannot decode semiMajorAxis-r17\n");
+    return;
+  }
+
+  /* Decode TS 38.331 orbital parameters */
+  const double semi_major_axis = SMA_OFFSET_M + ((double)semi_major_axis_raw * SMA_STEP_M);
+  const double eccentricity = (double)sat_pos->eccentricity_r17 * ECC_STEP;
+  const double arg_periapsis = (double)sat_pos->periapsis_r17 * ANGLE_STEP_RAD;
+  const double raan = (double)sat_pos->longitude_r17 * ANGLE_STEP_RAD;
+  double inclination = sat_pos->inclination_r17 * ANGLE_STEP_RAD;
+  const double mean_anomaly = (double)sat_pos->meanAnomaly_r17 * ANGLE_STEP_RAD;
+
+  LOG_I(NR_MAC,
+        "Converted decoded NTN Orbital information:\n"
+        "sma=%f m ecc=%e omega=%f rad RAAN=%f rad inc=%f rad mean_a=%f rad\n",
+        semi_major_axis,
+        eccentricity,
+        arg_periapsis,
+        raan,
+        inclination,
+        mean_anomaly);
+
+  /*
+   * Solve Kepler equation:
+   *
+   * M = E - e*sin(E)
+   *
+   */
+  double eccentric_anomaly = mean_anomaly;
+
+  for (int i = 0; i < 10; i++) {
+    double delta =
+        (eccentric_anomaly -
+         eccentricity * sin(eccentric_anomaly) -
+         mean_anomaly)
+        /
+        (1.0 -
+         eccentricity * cos(eccentric_anomaly));
+
+    eccentric_anomaly -= delta;
+    if (fabs(delta) < 1e-12)
+      break;
+  }
+
+  /* True anomaly */
+  const double true_anomaly =
+      atan2(sqrt(1.0 - eccentricity * eccentricity) *
+            sin(eccentric_anomaly),
+            cos(eccentric_anomaly) - eccentricity);
+
+  /* Orbital radius */
+  const double radius =
+      semi_major_axis *
+      (1.0 - eccentricity *
+       cos(eccentric_anomaly));
+
+  /* Position in perifocal frame (PQW) */
+  position_t pos_pf = {
+    radius * cos(true_anomaly),
+    radius * sin(true_anomaly),
+    0
+  };
+
+
+  /* Velocity in perifocal frame */
+  const double velocity_factor =
+      sqrt(EARTH_MU /
+           (semi_major_axis *
+            (1.0 - eccentricity * eccentricity)));
+
+  position_t vel_pf = {
+    -velocity_factor * sin(true_anomaly),
+     velocity_factor * (eccentricity +
+                        cos(true_anomaly)),
+     0
+  };
+
+  /* PQW -> ECI */
+  position_t pos_sat =
+      rotate_orbital_to_eci(pos_pf,
+                            raan,
+                            inclination,
+                            arg_periapsis);
+
+  position_t vel_sat =
+      rotate_orbital_to_eci(vel_pf,
+                            raan,
+                            inclination,
+                            arg_periapsis);
+
+  /* Calculate TA helper values */
+  const double radius_m =
+      sqrt(pos_sat.X * pos_sat.X +
+           pos_sat.Y * pos_sat.Y +
+           pos_sat.Z * pos_sat.Z);
+  const double velocity_mps =
+      sqrt(vel_sat.X * vel_sat.X +
+           vel_sat.Y * vel_sat.Y +
+           vel_sat.Z * vel_sat.Z);
+
+  double omega = 0;
+  position_t pos_sat_90 = {0};
+  position_t vel_sat_90 = {0};
+
+  if (velocity_mps > 1000) {
+    omega =
+        velocity_mps /
+        (radius_m * 1000.0);
+
+    double scaling =
+        radius_m / velocity_mps;
+
+    pos_sat_90 =
+        (position_t) {
+          vel_sat.X * scaling,
+          vel_sat.Y * scaling,
+          vel_sat.Z * scaling
+        };
+
+    scaling =
+        -velocity_mps / radius_m;
+
+    vel_sat_90 =
+        (position_t) {
+          pos_sat.X * scaling,
+          pos_sat.Y * scaling,
+          pos_sat.Z * scaling
+        };
+  } else {
+    pos_sat_90 = pos_sat;
+    vel_sat_90 = vel_sat;
+  }
+
+  LOG_I(NR_MAC,
+        "Satellite orbital radius %f m\n"
+        "Position ECI {%f,%f,%f} m\n"
+        "Velocity ECI {%f,%f,%f} m/s\n",
+        radius_m,
+        pos_sat.X,
+        pos_sat.Y,
+        pos_sat.Z,
+        vel_sat.X,
+        vel_sat.Y,
+        vel_sat.Z);
+
+  ntn_ta->omega = omega;
+  ntn_ta->pos_sat_0 = pos_sat;
+  ntn_ta->pos_sat_90 = pos_sat_90;
+  ntn_ta->vel_sat_0 = vel_sat;
+  ntn_ta->vel_sat_90 = vel_sat_90;
+}
+
+
 // populate ntn_ta structure from mac
 static void configure_ntn_ta(fapi_nr_ntn_config_t *ntn_ta,
                              const NR_NTN_Config_r17_t *ntn_Config_r17,
@@ -403,8 +608,13 @@ static void configure_ntn_ta(fapi_nr_ntn_config_t *ntn_ta,
       const NR_PositionVelocity_r17_t *position_velocity = ephemeris_info->choice.positionVelocity_r17;
       AssertFatal(position_velocity, "position_velocity should not be NULL here\n");
       prepare_ue_sat_ta(position_velocity, ntn_ta);
+    } else if (ephemeris_info->present == NR_EphemerisInfo_r17_PR_orbital_r17) {  
+      LOG_I(NR_MAC, "NTN Config orbital_r17\n");
+      const NR_Orbital_r17_t *orbital = ephemeris_info->choice.orbital_r17;  
+      AssertFatal(orbital, "orbital should not be NULL here\n");  
+      prepare_ue_sat_ta_from_orbital(orbital, ntn_ta);  
     } else {
-      LOG_W(NR_MAC, "NR UE currently supports only ephemerisInfo_r17 of type positionVelocity_r17\n");
+      LOG_W(NR_MAC, "NR UE currently supports only ephemerisInfo_r17 of type positionVelocity_r17 or orbital_r17\n");
       ntn_ta->omega = 0;
       ntn_ta->pos_sat_0 = (position_t){0, 0, 0};
       ntn_ta->pos_sat_90 = (position_t){0, 0, 0};

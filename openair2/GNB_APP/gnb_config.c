@@ -65,6 +65,8 @@ static int DEFENBS[] = {0};
 static int DEFBFW[] = {0x00007fff};
 static int DEFRUTPCORES[] = {-1,-1,-1,-1};
 
+static long ephemeris_semi_major_axis = LONG_MAX;
+
 /**
  * @brief Helper define to allocate and initialize SetupRelease structures
  */
@@ -164,6 +166,19 @@ void prepare_scc(NR_ServingCellConfigCommon_t *scc)
   scc->ext2->ntn_Config_r17->ta_Info_r17->ta_CommonDrift_r17 = calloc_or_fail(1, sizeof(*scc->ext2->ntn_Config_r17->ta_Info_r17->ta_CommonDrift_r17));
 
   scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present = NR_EphemerisInfo_r17_PR_positionVelocity_r17;
+
+  LOG_I(PHY, "Preparing scc for orbital_r17 and positionVelocity_r17\n");
+
+  scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17 =
+      calloc_or_fail(1, sizeof(*scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17));
+  scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->eccentricity_r17 = LONG_MAX;
+  scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->periapsis_r17 = LONG_MAX;
+  scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->longitude_r17 = LONG_MAX;
+  scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->inclination_r17 = LONG_MAX;
+  scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->meanAnomaly_r17 = LONG_MAX;
+  asn_long2INTEGER(&scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->semiMajorAxis_r17,  
+					ephemeris_semi_major_axis);  
+
   scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17 =
       calloc_or_fail(1, sizeof(*scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17));
   scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17->positionX_r17 = LONG_MAX;
@@ -571,6 +586,19 @@ void fix_scc(NR_ServingCellConfigCommon_t *scc, uint64_t ssbmap)
     free(scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17);
     free(scc->ext2->ntn_Config_r17->ephemerisInfo_r17);
     scc->ext2->ntn_Config_r17->ephemerisInfo_r17 = NULL;
+  }
+  if (ephemeris_semi_major_axis == LONG_MAX  
+	  && scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->eccentricity_r17 == LONG_MAX  
+	  && scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->periapsis_r17 == LONG_MAX  
+	  && scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->longitude_r17 == LONG_MAX  
+	  && scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->inclination_r17 == LONG_MAX	
+	  && scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->meanAnomaly_r17 == LONG_MAX) {  
+	free(scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17);  
+	free(scc->ext2->ntn_Config_r17->ephemerisInfo_r17);  
+	scc->ext2->ntn_Config_r17->ephemerisInfo_r17 = NULL;  
+  } else {	
+	asn_long2INTEGER(&scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->semiMajorAxis_r17,	
+					  ephemeris_semi_major_axis);  
   }
 
   if (!scc->ext2->ntn_Config_r17->ntn_UlSyncValidityDuration_r17 &&
