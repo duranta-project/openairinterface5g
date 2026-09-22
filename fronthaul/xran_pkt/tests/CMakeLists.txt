@@ -24,3 +24,9 @@ add_test(NAME test_xran_pcap_dump_real_capture
                  $<TARGET_FILE:xran_pcap_dump>)
 set_property(TEST test_xran_pcap_dump_real_capture PROPERTY LABELS fronthaul)
 
+add_executable(test_xran_pkt_bfw test_xran_pkt_bfw.c)
+target_link_libraries(test_xran_pkt_bfw PRIVATE xran_pkt)
+target_include_directories(test_xran_pkt_bfw PRIVATE ../)
+add_dependencies(tests test_xran_pkt_bfw)
+add_test(NAME test_xran_pkt_bfw COMMAND test_xran_pkt_bfw)
+set_property(TEST test_xran_pkt_bfw PROPERTY LABELS fronthaul)
