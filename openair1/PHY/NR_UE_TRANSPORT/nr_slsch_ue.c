@@ -233,13 +233,9 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
 //  for (int i=0;i<(Gsci2>>5)+1;i++) LOG_I(NR_PHY,"sci2_encoded[%d] %x\n",i,sci2_encoded_output[i]); 
 //  for (int g=0;g<G;g++) LOG_I(NR_PHY,"coded_output_f[%d] %d\n",g,harq_process_ul_ue->f[g]);
 //  LOG_I(NR_PHY,"Scrambling with Nid %x\n",phy_data->pscch_Nid);
-  nr_pusch_codeword_scrambling(harq_process_ul_ue->f,
-                               G,
-                               phy_data->pscch_Nid,
-                               1010,
-                               false,
-			       NULL,
-                               scrambled_output);
+  // 
+  uint32_t n_RNTI = 1010;
+  nr_codeword_scrambling(harq_process_ul_ue->f, G, 0, phy_data->pscch_Nid, n_RNTI, scrambled_output);
   if (Nl==1) 
     nr_sci_scrambling(sci2_encoded_output,
                         Gsci2,

@@ -12,6 +12,7 @@
 #include "executables/nr-uesoftmodem.h"
 #include "PHY/nr_phy_common/inc/nr_phy_common.h"
 #include "SCHED_NR_UE/defs.h"
+#include "PHY/nr_phy_common/inc/nr_compute_llr.h"
 #include "openair1/PHY/MODULATION/modulation_UE.h"
 #include "PHY/sse_intrin.h"
 
@@ -700,7 +701,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
   int sci2_left = sci2_re;
   if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_CSI_RS) {
     *is_csi_rs_slot = true;
-    csi_params = (nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *)&phy_data->csirs_vars.csirs_config_pdu;
+    csi_params = (nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *)&phy_data->csirs_vars->csirs_config_pdu;
   } else {
     *is_csi_rs_slot = false;
   }
@@ -859,13 +860,13 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
             csi_params->nr_of_rbs);
       if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_CSI_RS) {
         // FIXIT: Reconsider index of csirs_vars[0] for multiple connected UEs case
-        if (phy_data->csirs_vars.active == 1) {
+        if (phy_data->csirs_vars->active == 1) {
           LOG_D(NR_PHY, "%d.%d Received CSI-RS\n", proc->frame_rx, proc->nr_slot_rx);
 	  /*
           nr_slot_fep(ue, frame_parms, proc, symbol, rxdataF, link_type_sl);
           nr_ue_csi_rs_procedures(ue, proc, rxdataF, (fapi_nr_dl_config_csirs_pdu_rel15_t*)&phy_data->csirs_vars.csirs_config_pdu);
 */
-	  phy_data->csirs_vars.active = 0;
+	  phy_data->csirs_vars->active = 0;
         }
       }
     }

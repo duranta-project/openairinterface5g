@@ -132,8 +132,7 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
                       int8_t *ack_nack_rcvd,
                       uint8_t num_acks)
 {
-  nrLDPC_TB_decoding_parameters_t TB;
-  memset(&TB, 0, sizeof(TB));
+  nrLDPC_TB_decoding_parameters_t TB = {0};
   nrLDPC_slot_decoding_parameters_t slot_parameters = {.frame = frame,
                                                        .slot = nr_tti_rx,
                                                        .nb_TBs = 1,
@@ -240,60 +239,50 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
   TB.abort_decode = &harq_process->abort_decode;
   set_abort(&harq_process->abort_decode, false);
 
-  nrLDPC_segment_decoding_parameters_t segments[max_num_segments];
-  memset(segments, 0, sizeof(segments));
+  
+  int E = nr_get_E(TB.G, TB.C, TB.Qm, TB.nb_layers, 0);
+  AssertFatal(E > 0, "impossible E %d\n", E);
 
-  TB.segments = segments;
-
-  uint32_t r_offset = 0;
+  TB.llr = slsch_llr;
+  TB.d = harq_process->d;
+  TB.c = harq_process->c;
+  TB.E = E;
+  TB.first_rE2 = TB.C;
+  TB.E2 = TB.E;
+  TB.R = nr_get_R_ldpc_decoder(TB.rv_index, TB.E, TB.BG, TB.Z, &harq_process->llrLen, harq_process->round);
+  for (int r = 0; r < TB.C; r++)
+    TB.decodeSuccess[r] = false;
+  TB.d_to_be_cleared = harq_process->harq_to_be_cleared;
+  reset_meas(&TB.ts_ldpc_decode);
   for (int r = 0; r < TB.C; r++) {
-    nrLDPC_segment_decoding_parameters_t *segment_parameters = &TB.segments[r];
-    segment_parameters->E = nr_get_E(TB.G, TB.C, TB.Qm, TB.nb_layers, r);
-    segment_parameters->R = nr_get_R_ldpc_decoder(TB.rv_index,
-                                                  segment_parameters->E,
-                                                  TB.BG,
-                                                  TB.Z,
-                                                  &harq_process->llrLen,
-                                                  harq_process->round);
-    segment_parameters->llr = slsch_llr + r_offset;
-    segment_parameters->d = harq_process->d[r];
-    segment_parameters->d_to_be_cleared = &harq_process->d_to_be_cleared[r];
-    segment_parameters->c = harq_process->c[r];
-    segment_parameters->decodeSuccess = false;
-
-    reset_meas(&segment_parameters->ts_deinterleave);
-    reset_meas(&segment_parameters->ts_rate_unmatch);
-    reset_meas(&segment_parameters->ts_ldpc_decode);
-
-    r_offset += segment_parameters->E;
-  }
-  if (harq_process->harq_to_be_cleared) {
-    for (int r = 0; r < TB.C; r++) {
-      harq_process->d_to_be_cleared[r] = true;
+    int Etmp = nr_get_E(TB.G, TB.C, TB.Qm, TB.nb_layers, r);
+    if (TB.E != Etmp) {
+      TB.E2 = Etmp;
+      TB.R2 = nr_get_R_ldpc_decoder(TB.rv_index, TB.E2, TB.BG, TB.Z, &harq_process->llrLen, harq_process->round);
+      TB.first_rE2 = r;
+      break;
     }
-    harq_process->harq_to_be_cleared = false;
   }
 
   int ret_decoder = UE->nrLDPC_coding_interface.nrLDPC_coding_decoder(&slot_parameters);
 
   // post decode
-
-
-  uint32_t offset = 0;
+  uint32_t offset = 0, r_offset = 0;
   for (int r = 0; r < TB.C; r++) {
-    nrLDPC_segment_decoding_parameters_t nrLDPC_segment_decoding_parameters = TB.segments[r];
-    // Copy c to b in case of decoding success
-    if (nrLDPC_segment_decoding_parameters.decodeSuccess) {
-      memcpy(harq_process->b + offset,
-             harq_process->c[r],
-             (harq_process->K >> 3) - (harq_process->F >> 3) - ((harq_process->C > 1) ? 3 : 0));
+    uint32_t seg_len = (harq_process->K >> 3) - (harq_process->F >> 3) - ((harq_process->C > 1) ? 3 : 0);
+    if (TB.decodeSuccess[r]) {
+      memcpy(harq_process->b + offset, harq_process->c + r_offset, seg_len);
     } else {
-      LOG_D(PHY, "sidelink segment error %d/%d\n", r, harq_process->C);
-      LOG_D(PHY, "SLSCH %d in error\n", SLSCH_id);
+      LOG_D(PHY, "Segment %d/%d in error\n", r, TB.C);
     }
-    offset += ((harq_process->K >> 3) - (harq_process->F >> 3) - ((harq_process->C > 1) ? 3 : 0));
-
+    offset += seg_len;
+    r_offset += (harq_process->K >> 3);
   }
+  bool crcok = (harq_process->processedSegments == TB.C);
+  if (!crcok)
+    LOG_D(PHY, "SLSCH in error\n");
+
+  harq_process->harq_to_be_cleared = false;
 
   return ret_decoder;
 }
