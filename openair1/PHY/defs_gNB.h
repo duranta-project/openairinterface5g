@@ -102,6 +102,8 @@ typedef struct {
 typedef struct {
   /// Nfapi DLSCH PDU
   const nfapi_nr_dl_tti_pdsch_pdu *pdsch_pdu;
+  // for rate-matching around CSI-RS
+  nfapi_nr_dl_tti_csi_rs_pdu_rel15_t csi_rm[MAX_CSI_RS_RM];
   /// freq allocation information
   freq_alloc_bitmap_t freq_alloc;
   /// pointer to pdu from MAC interface (this is "a" in 36.212)
@@ -120,6 +122,8 @@ typedef struct {
   uint8_t *f;
   /// REs unavailable for DLSCH (overlapping with PTRS, CSIRS etc.)
   uint32_t unav_res;
+  uint32_t csi_re_count[NR_SYMBOLS_PER_SLOT];
+  uint32_t csi_res_bitmap[NR_SYMBOLS_PER_SLOT];
 } NR_gNB_DLSCH_t;
 
 typedef struct {
