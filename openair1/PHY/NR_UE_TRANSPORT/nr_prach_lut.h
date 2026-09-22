@@ -3,7 +3,9 @@
 #define NR_PRACH_LUT_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+
 #include "common/platform_types.h"
 
 /* Only quantities affecting the IDFT body; CP, repetitions and slot placement are separate. */
@@ -26,10 +28,6 @@ typedef struct {
 } nr_prach_lut_config_t;
 
 typedef struct nr_prach_lut_s nr_prach_lut_t;
-typedef struct {
-  const c16_t *samples;
-  int32_t power;
-} nr_prach_lut_view_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,17 +42,16 @@ int32_t nr_prach_generate_waveform(const nr_prach_waveform_key_t *key,
                                    const c16_t roots[64][839],
                                    c16_t *waveform);
 
-/* Creation, configuration and destruction belong to initialization/configuration threads. */
-nr_prach_lut_t *nr_prach_lut_create(void);
-void nr_prach_lut_configure(nr_prach_lut_t *lut, const nr_prach_lut_config_t *config);
+bool nr_prach_lut_config_equal(const nr_prach_lut_config_t *a, const nr_prach_lut_config_t *b);
+nr_prach_lut_t *nr_prach_lut_build(const nr_prach_lut_config_t *config);
 void nr_prach_lut_destroy(nr_prach_lut_t *lut);
-
-/* A successful acquire pins the immutable samples until release. Neither operation waits or allocates. */
-bool nr_prach_lut_acquire(nr_prach_lut_t *lut,
-                          const nr_prach_waveform_key_t *key,
-                          uint8_t preamble_index,
-                          nr_prach_lut_view_t *view);
-void nr_prach_lut_release(nr_prach_lut_t *lut);
+const nr_prach_lut_config_t *nr_prach_lut_config(const nr_prach_lut_t *lut);
+bool nr_prach_lut_copy(const nr_prach_lut_t *lut,
+                       const nr_prach_waveform_key_t *key,
+                       uint8_t preamble,
+                       c16_t *out,
+                       size_t capacity,
+                       int32_t *power);
 
 #ifdef __cplusplus
 }

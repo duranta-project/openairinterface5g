@@ -225,6 +225,7 @@ void ul_ports_config(NR_UE_MAC_INST_t *mac,
                      nfapi_nr_ue_pusch_pdu_t *pusch_config_pdu,
                      dci_pdu_rel15_t *dci);
 
+bool nr_ue_prepare_prach_config(NR_UE_MAC_INST_t *mac, int config_index, int zero_correlation_zone, int restricted_set);
 bool init_RA(NR_UE_MAC_INST_t *mac);
 
 /* Random Access */

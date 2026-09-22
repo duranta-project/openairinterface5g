@@ -2595,8 +2595,14 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
     ra_resource_selection(mac);
   }
 
-  if (mac->state == UE_PERFORMING_RA && ra->ra_state == nrRA_GENERATE_PREAMBLE)
-    nr_ue_prach_scheduler(mac, frame_tx, slot_tx);
+  if (mac->state == UE_PERFORMING_RA && ra->ra_state == nrRA_GENERATE_PREAMBLE) {
+    /* Common configuration may have changed while this RA procedure was waiting for a response. */
+    if (nr_ue_prepare_prach_config(mac, ra->ra_config_index, ra->zeroCorrelationZoneConfig, ra->restricted_set_config)
+        && mac->if_module && mac->if_module->phy_config_request)
+      mac->if_module->phy_config_request(&mac->phy_config);
+    if (!mac->prach_lut_pending)
+      nr_ue_prach_scheduler(mac, frame_tx, slot_tx);
+  }
 
   bool BSRsent = false;
   if (mac->state == UE_CONNECTED) {

@@ -166,8 +166,13 @@ int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)
 
   phy_init_nr_top(ue);
   if (!ue->sl_mode) {
-    ue->prach_lut = nr_prach_lut_create();
-    nr_ue_prepare_prach(ue);
+    /* NSA configuration can arrive before frame parameters. Build before starting the sample loop. */
+    ue->prach_lut_config = nr_ue_prach_lut_config(ue);
+    if (ue->prach_lut_config.num_keys) {
+      ue->prach_lut = nr_prach_lut_build(&ue->prach_lut_config);
+      AssertFatal(ue->prach_lut, "Could not prepare PRACH lookup tables\n");
+    }
+    ue->prach_lut_initialized = true;
   }
   // many memory allocation sizes are hard coded
   AssertFatal( fp->nb_antennas_rx <= 4, "hard coded allocation for ue_common_vars->dl_ch_estimates[gNB_id]" );

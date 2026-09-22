@@ -277,11 +277,8 @@ static nr_prach_waveform_key_t prach_waveform_key(const NR_DL_FRAME_PARMS *fp,
                                    .amplitude = amplitude};
 }
 
-void nr_ue_prepare_prach(PHY_VARS_NR_UE *ue)
+nr_prach_lut_config_t nr_ue_prach_lut_config(const PHY_VARS_NR_UE *ue)
 {
-  /* NSA may deliver configuration before frame parameters and the worker exist. */
-  if (!ue->prach_lut)
-    return;
   const NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
   const fapi_nr_prach_config_t *prach = &ue->nrUE_config.prach_config;
   const nr_prach_preparation_t *preparation = &ue->prach_preparation;
@@ -302,11 +299,16 @@ void nr_ue_prepare_prach(PHY_VARS_NR_UE *ue)
                                                  .prach_format = format,
                                                  .restricted_set = prach->restricted_set_config,
                                                  .num_cs = preparation->ncs[f]};
-        config.keys[config.num_keys++] = prach_waveform_key(fp, &ue->nrUE_config, &pdu, AMP, dftlen);
+        const nr_prach_waveform_key_t key = prach_waveform_key(fp, &ue->nrUE_config, &pdu, AMP, dftlen);
+        bool duplicate = false;
+        for (unsigned i = 0; i < config.num_keys; i++)
+          duplicate |= nr_prach_waveform_key_equal(&config.keys[i], &key);
+        if (!duplicate)
+          config.keys[config.num_keys++] = key;
       }
     }
   }
-  nr_prach_lut_configure(ue->prach_lut, &config);
+  return config;
 }
 
 static void place_prach(c16_t *out, const c16_t *body, int dftlen, int ncp, int format)
@@ -344,11 +346,8 @@ static int32_t generate_uncached_prach(const nr_prach_waveform_key_t *key, uint8
   return power;
 }
 
-int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t slot, int16_t tx_amp, c16_t **txData)
+static int prach_start_sample(const NR_DL_FRAME_PARMS *fp, const fapi_nr_ul_config_prach_pdu *pdu, uint8_t slot)
 {
-  const NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
-  const fapi_nr_ul_config_prach_pdu *pdu = &ue->prach_vars[gNB_id]->prach_pdu;
-  const fapi_nr_prach_config_t *config = &ue->nrUE_config.prach_config;
   const int prachStartSymbol = pdu->prach_start_symbol;
   int prach_start;
   if (prachStartSymbol == 0) {
@@ -368,29 +367,71 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
       prach_start = (fp->ofdm_symbol_size + fp->nb_prefix_samples) * prachStartSymbol;
   }
 
+  return prach_start;
+}
+
+/* Called by scheduled_response with mac->if_mutex held, before table replacement is possible. */
+bool nr_ue_select_prach_waveform(PHY_VARS_NR_UE *ue, uint8_t gNB_id, uint8_t slot, int16_t amplitude)
+{
+  NR_UE_PRACH *prach = ue->prach_vars[gNB_id];
+  const fapi_nr_ul_config_prach_pdu *pdu = &prach->prach_pdu;
+  const fapi_nr_prach_config_t *config = &ue->nrUE_config.prach_config;
+  prach->waveform_ready = false;
+  if (pdu->num_ra >= config->num_prach_fd_occasions)
+    return false;
+  int dftlen, ncp;
+  prach_dimensions(&ue->frame_parms,
+                   config->prach_sequence_length,
+                   config->prach_sub_c_spacing,
+                   pdu->prach_format,
+                   pdu->prach_start_symbol,
+                   slot,
+                   &dftlen,
+                   &ncp);
+  const nr_prach_waveform_key_t key = prach_waveform_key(&ue->frame_parms, &ue->nrUE_config, pdu, amplitude, dftlen);
+  if (!nr_prach_lut_copy(ue->prach_lut,
+                         &key,
+                         pdu->ra_PreambleIndex,
+                         prach->waveform,
+                         sizeofArray(prach->waveform),
+                         &prach->waveform_power))
+    return false;
+  prach->waveform_length = dftlen;
+  prach->prefix_length = ncp;
+  prach->waveform_start = prach_start_sample(&ue->frame_parms, pdu, slot);
+  prach->waveform_ready = true;
+  return true;
+}
+
+int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t slot, int16_t tx_amp, c16_t **txData)
+{
+  NR_UE_PRACH *prach = ue->prach_vars[gNB_id];
+  const fapi_nr_ul_config_prach_pdu *pdu = &prach->prach_pdu;
+  LOG_I(PHY, "PRACH [UE %d] in frame.slot %d.%d, preambleIndex = %d\n", ue->Mod_id, frame, slot, pdu->ra_PreambleIndex);
+  if (prach->waveform_ready) {
+    place_prach(txData[0] + prach->waveform_start,
+                prach->waveform,
+                prach->waveform_length,
+                prach->prefix_length,
+                pdu->prach_format);
+    return prach->waveform_power;
+  }
+  /* Standalone PHY simulators do not use the MAC/RRC preparation handoff. */
+  const NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
+  const fapi_nr_prach_config_t *config = &ue->nrUE_config.prach_config;
   int dftlen, ncp;
   prach_dimensions(fp,
                    config->prach_sequence_length,
                    config->prach_sub_c_spacing,
                    pdu->prach_format,
-                   prachStartSymbol,
+                   pdu->prach_start_symbol,
                    slot,
                    &dftlen,
                    &ncp);
   const nr_prach_waveform_key_t key = prach_waveform_key(fp, &ue->nrUE_config, pdu, tx_amp, dftlen);
-  LOG_I(PHY,
-        "PRACH [UE %d] in frame.slot %d.%d, position %d, preambleIndex = %d\n",
-        ue->Mod_id,
-        frame,
-        slot,
-        key.frequency_start * 2,
-        pdu->ra_PreambleIndex);
-  nr_prach_lut_view_t view;
-  if (nr_prach_lut_acquire(ue->prach_lut, &key, pdu->ra_PreambleIndex, &view)) {
-    place_prach(txData[0] + prach_start, view.samples, dftlen, ncp, pdu->prach_format);
-    const int32_t power = view.power;
-    nr_prach_lut_release(ue->prach_lut);
-    return power;
-  }
-  return generate_uncached_prach(&key, pdu->ra_PreambleIndex, txData[0] + prach_start, ncp, pdu->prach_format);
+  return generate_uncached_prach(&key,
+                                 pdu->ra_PreambleIndex,
+                                 txData[0] + prach_start_sample(fp, pdu, slot),
+                                 ncp,
+                                 pdu->prach_format);
 }

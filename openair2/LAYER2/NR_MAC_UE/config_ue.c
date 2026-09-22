@@ -27,7 +27,7 @@
       dst = -1;               \
   } while (0)
 
-static bool nr_ue_prepare_prach_config(NR_UE_MAC_INST_t *mac, int config_index, int zero_correlation_zone, int restricted_set)
+bool nr_ue_prepare_prach_config(NR_UE_MAC_INST_t *mac, int config_index, int zero_correlation_zone, int restricted_set)
 {
   const nr_prach_info_t info = get_nr_prach_occasion_info_from_index(config_index,
                                                                      mac->frequency_range,
@@ -3083,6 +3083,7 @@ void nr_rrc_mac_config_req_cg(module_id_t module_id,
 void nr_rrc_mac_config_req_meas(module_id_t module_id, const nr_neighbor_cell_info_t *neighbor_cells, int num_neighbors)
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  mutexlock(mac->if_mutex);
 
   for (int i = 0; i < num_neighbors && i < NUMBER_OF_NEIGHBORING_CELLS_MAX; i++) {
     fapi_nr_neighboring_cell_t *phy_cell = &mac->phy_config.config_req.meas_config.nr_neighboring_cell[i];
@@ -3093,4 +3094,5 @@ void nr_rrc_mac_config_req_meas(module_id_t module_id, const nr_neighbor_cell_in
   }
 
   mac->if_module->phy_config_request(&mac->phy_config);
+  mutexunlock(mac->if_mutex);
 }

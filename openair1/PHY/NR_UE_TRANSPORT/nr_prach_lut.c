@@ -7,39 +7,16 @@
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
 
 #include <limits.h>
-#include <pthread.h>
-#include <sched.h>
-#include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
-#define NR_PRACH_LUT_MAX_PREAMBLES 64
-#define NR_PRACH_LUT_ALIGNMENT 64
-
-typedef struct {
-  uint64_t generation;
-  unsigned num_keys;
-  unsigned num_preambles;
-  nr_prach_waveform_key_t keys[NR_PRACH_LUT_MAX_KEYS];
-  c16_t *samples[NR_PRACH_LUT_MAX_KEYS][NR_PRACH_LUT_MAX_PREAMBLES];
-  int32_t power[NR_PRACH_LUT_MAX_KEYS][NR_PRACH_LUT_MAX_PREAMBLES];
-} nr_prach_lut_table_t;
+#define NR_PRACH_LUT_PREAMBLES 64
 
 struct nr_prach_lut_s {
-  pthread_t worker;
-  pthread_mutex_t config_mutex;
-  pthread_cond_t config_cond;
-  nr_prach_lut_config_t configured;
-  nr_prach_lut_config_t pending;
-  uint64_t pending_generation;
-  bool configured_valid;
-  bool pending_valid;
-  atomic_bool stop;
-  atomic_uint_fast64_t generation;
-  _Atomic(nr_prach_lut_table_t *) published;
-  atomic_uint_fast64_t readers;
+  nr_prach_lut_config_t config;
+  c16_t *rows[NR_PRACH_LUT_MAX_KEYS];
+  int32_t power[NR_PRACH_LUT_MAX_KEYS][NR_PRACH_LUT_PREAMBLES];
 };
 
 bool nr_prach_waveform_key_equal(const nr_prach_waveform_key_t *a, const nr_prach_waveform_key_t *b)
@@ -49,17 +26,30 @@ bool nr_prach_waveform_key_equal(const nr_prach_waveform_key_t *a, const nr_prac
          && a->dftlen == b->dftlen && a->frequency_start == b->frequency_start && a->amplitude == b->amplitude;
 }
 
-static bool config_is_valid(const nr_prach_lut_config_t *config)
+bool nr_prach_lut_config_equal(const nr_prach_lut_config_t *a, const nr_prach_lut_config_t *b)
 {
-  if (config == NULL || config->num_keys > NR_PRACH_LUT_MAX_KEYS || config->num_preambles > NR_PRACH_LUT_MAX_PREAMBLES)
+  if (a == NULL || b == NULL || a->num_keys > NR_PRACH_LUT_MAX_KEYS || a->num_keys != b->num_keys
+      || a->num_preambles != b->num_preambles)
     return false;
 
-  for (unsigned i = 0; i < config->num_keys; ++i) {
-    const nr_prach_waveform_key_t *key = &config->keys[i];
+  for (unsigned key = 0; key < a->num_keys; ++key)
+    if (!nr_prach_waveform_key_equal(&a->keys[key], &b->keys[key]))
+      return false;
+
+  return true;
+}
+
+static bool config_is_valid(const nr_prach_lut_config_t *config)
+{
+  if (config == NULL || config->num_keys > NR_PRACH_LUT_MAX_KEYS || config->num_preambles != NR_PRACH_LUT_PREAMBLES)
+    return false;
+
+  for (unsigned key_index = 0; key_index < config->num_keys; ++key_index) {
+    const nr_prach_waveform_key_t *key = &config->keys[key_index];
     const int zc_length = key->sequence_length == 0 ? 839 : 139;
     if ((key->sequence_length != 0 && key->sequence_length != 1) || key->root_sequence_index < 0
         || key->root_sequence_index >= zc_length - 1 || key->num_root_sequences <= 0
-        || key->num_root_sequences > NR_PRACH_LUT_MAX_PREAMBLES || key->restricted_set < 0 || key->restricted_set > 1
+        || key->num_root_sequences > NR_PRACH_LUT_PREAMBLES || key->restricted_set < 0 || key->restricted_set > 1
         || (key->restricted_set == 1 && key->ncs == 0) || key->ncs < 0 || key->ncs >= zc_length || key->dftlen <= 0
         || key->frequency_start < 0 || key->frequency_start >= key->dftlen || key->amplitude < INT16_MIN
         || key->amplitude > INT16_MAX)
@@ -69,275 +59,62 @@ static bool config_is_valid(const nr_prach_lut_config_t *config)
   return true;
 }
 
-static void copy_or_disable_config(nr_prach_lut_config_t *destination, const nr_prach_lut_config_t *source)
+static bool allocation_size(const nr_prach_waveform_key_t *key, size_t *bytes)
 {
-  if (config_is_valid(source))
-    *destination = *source;
-  else
-    memset(destination, 0, sizeof(*destination));
-}
-
-static bool config_equal(const nr_prach_lut_config_t *a, const nr_prach_lut_config_t *b)
-{
-  if (a->num_keys != b->num_keys || a->num_preambles != b->num_preambles)
+  if ((size_t)key->dftlen > SIZE_MAX / (NR_PRACH_LUT_PREAMBLES * sizeof(c16_t)))
     return false;
 
-  for (unsigned i = 0; i < a->num_keys; ++i)
-    if (!nr_prach_waveform_key_equal(&a->keys[i], &b->keys[i]))
-      return false;
-
+  *bytes = NR_PRACH_LUT_PREAMBLES * (size_t)key->dftlen * sizeof(c16_t);
   return true;
 }
 
-static bool generation_is_obsolete(const nr_prach_lut_t *lut, uint64_t generation)
+static int key_index(const nr_prach_lut_t *lut, const nr_prach_waveform_key_t *key)
 {
-  return atomic_load_explicit(&lut->stop, memory_order_seq_cst)
-         || atomic_load_explicit(&lut->generation, memory_order_seq_cst) != generation;
-}
-
-static int table_key_index(const nr_prach_lut_table_t *table, const nr_prach_waveform_key_t *key)
-{
-  for (unsigned i = 0; i < table->num_keys; ++i)
-    if (nr_prach_waveform_key_equal(&table->keys[i], key))
-      return i;
+  for (unsigned index = 0; index < lut->config.num_keys; ++index)
+    if (nr_prach_waveform_key_equal(&lut->config.keys[index], key))
+      return index;
   return -1;
 }
 
-static void table_free(nr_prach_lut_table_t *table)
+nr_prach_lut_t *nr_prach_lut_build(const nr_prach_lut_config_t *config)
 {
-  if (table == NULL)
-    return;
-
-  for (unsigned key = 0; key < table->num_keys; ++key)
-    for (unsigned preamble = 0; preamble < table->num_preambles; ++preamble)
-      free(table->samples[key][preamble]);
-
-  free(table);
-}
-
-static c16_t *allocate_row(int dftlen)
-{
-  if (dftlen <= 0 || (size_t)dftlen > SIZE_MAX / sizeof(c16_t))
+  if (!config_is_valid(config))
     return NULL;
 
-  c16_t *row = NULL;
-  const size_t bytes = (size_t)dftlen * sizeof(*row);
-  if (posix_memalign((void **)&row, NR_PRACH_LUT_ALIGNMENT, bytes) != 0)
-    return NULL;
-
-  return row;
-}
-
-static nr_prach_lut_table_t *build_table(nr_prach_lut_t *lut, const nr_prach_lut_config_t *config, uint64_t generation)
-{
-  if (generation_is_obsolete(lut, generation))
-    return NULL;
-
-  nr_prach_lut_table_t *table = calloc(1, sizeof(*table));
-  if (table == NULL)
-    return NULL;
-
-  table->generation = generation;
-  table->num_preambles = config->num_preambles;
-  for (unsigned source_key = 0; source_key < config->num_keys; ++source_key) {
-    if (table_key_index(table, &config->keys[source_key]) < 0)
-      table->keys[table->num_keys++] = config->keys[source_key];
-  }
-
-  for (unsigned key_index = 0; key_index < table->num_keys; ++key_index) {
-    if (generation_is_obsolete(lut, generation)) {
-      table_free(table);
-      return NULL;
-    }
-
-    const nr_prach_waveform_key_t *key = &table->keys[key_index];
-    c16_t roots[64][839] __attribute__((aligned(NR_PRACH_LUT_ALIGNMENT)));
-    memset(roots, 0, sizeof(roots));
-    compute_nr_prach_seq((uint8_t)key->sequence_length, (uint8_t)key->num_root_sequences, (uint8_t)key->root_sequence_index, roots);
-
-    for (unsigned preamble = 0; preamble < table->num_preambles; ++preamble) {
-      if (generation_is_obsolete(lut, generation)) {
-        table_free(table);
-        return NULL;
-      }
-
-      c16_t *row = allocate_row(key->dftlen);
-      if (row == NULL) {
-        table_free(table);
-        return NULL;
-      }
-
-      const int32_t power = nr_prach_generate_waveform(key, preamble, roots, row);
-      if (power < 0) {
-        free(row);
-        table_free(table);
-        return NULL;
-      }
-      table->power[key_index][preamble] = power;
-      table->samples[key_index][preamble] = row;
-
-      if (generation_is_obsolete(lut, generation)) {
-        table_free(table);
-        return NULL;
-      }
-    }
-  }
-
-  return table;
-}
-
-static void wait_for_readers(nr_prach_lut_t *lut)
-{
-  while (atomic_load_explicit(&lut->readers, memory_order_seq_cst) != 0)
-    usleep(1000);
-}
-
-static void *nr_prach_lut_worker(void *opaque)
-{
-  nr_prach_lut_t *lut = opaque;
-
-  while (true) {
-    nr_prach_lut_config_t config;
-    uint64_t generation;
-
-    pthread_mutex_lock(&lut->config_mutex);
-    while (!lut->pending_valid && !atomic_load_explicit(&lut->stop, memory_order_seq_cst))
-      pthread_cond_wait(&lut->config_cond, &lut->config_mutex);
-
-    if (atomic_load_explicit(&lut->stop, memory_order_seq_cst)) {
-      pthread_mutex_unlock(&lut->config_mutex);
-      break;
-    }
-
-    config = lut->pending;
-    generation = lut->pending_generation;
-    lut->pending_valid = false;
-    pthread_mutex_unlock(&lut->config_mutex);
-
-    nr_prach_lut_table_t *candidate = build_table(lut, &config, generation);
-    if (candidate == NULL)
-      continue;
-
-    nr_prach_lut_table_t *retired = NULL;
-    pthread_mutex_lock(&lut->config_mutex);
-    if (!atomic_load_explicit(&lut->stop, memory_order_seq_cst)
-        && atomic_load_explicit(&lut->generation, memory_order_seq_cst) == candidate->generation) {
-      retired = atomic_exchange_explicit(&lut->published, candidate, memory_order_seq_cst);
-      candidate = NULL;
-    }
-    pthread_mutex_unlock(&lut->config_mutex);
-
-    table_free(candidate);
-    if (retired != NULL) {
-      wait_for_readers(lut);
-      table_free(retired);
-    }
-  }
-
-  return NULL;
-}
-
-nr_prach_lut_t *nr_prach_lut_create(void)
-{
   nr_prach_lut_t *lut = calloc(1, sizeof(*lut));
   if (lut == NULL)
     return NULL;
 
-  if (pthread_mutex_init(&lut->config_mutex, NULL) != 0) {
-    free(lut);
-    return NULL;
-  }
+  lut->config = *config;
+  for (unsigned key_index = 0; key_index < config->num_keys; ++key_index) {
+    const nr_prach_waveform_key_t *key = &config->keys[key_index];
+    size_t bytes;
+    if (!allocation_size(key, &bytes)) {
+      nr_prach_lut_destroy(lut);
+      return NULL;
+    }
 
-  if (pthread_cond_init(&lut->config_cond, NULL) != 0) {
-    pthread_mutex_destroy(&lut->config_mutex);
-    free(lut);
-    return NULL;
-  }
+    c16_t(*prach_lut)[key->dftlen] = aligned_alloc(64, bytes);
+    if (prach_lut == NULL) {
+      nr_prach_lut_destroy(lut);
+      return NULL;
+    }
+    lut->rows[key_index] = (c16_t *)prach_lut;
 
-  atomic_init(&lut->stop, false);
-  atomic_init(&lut->generation, 0);
-  atomic_init(&lut->published, NULL);
-  atomic_init(&lut->readers, 0);
-  if (!atomic_is_lock_free(&lut->published) || !atomic_is_lock_free(&lut->readers) || !atomic_is_lock_free(&lut->generation)) {
-    pthread_cond_destroy(&lut->config_cond);
-    pthread_mutex_destroy(&lut->config_mutex);
-    free(lut);
-    return NULL;
-  }
-
-  pthread_attr_t attr;
-  int error = pthread_attr_init(&attr);
-  if (error == 0) {
-    error = pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
-    if (error == 0)
-      error = pthread_attr_setschedpolicy(&attr, SCHED_OTHER);
-    if (error == 0)
-      error = pthread_create(&lut->worker, &attr, nr_prach_lut_worker, lut);
-    (void)pthread_attr_destroy(&attr);
-  }
-
-  if (error != 0) {
-    pthread_cond_destroy(&lut->config_cond);
-    pthread_mutex_destroy(&lut->config_mutex);
-    free(lut);
-    return NULL;
-  }
-
-  return lut;
-}
-
-void nr_prach_lut_configure(nr_prach_lut_t *lut, const nr_prach_lut_config_t *config)
-{
-  if (lut == NULL)
-    return;
-
-  nr_prach_lut_config_t copied;
-  copy_or_disable_config(&copied, config);
-
-  pthread_mutex_lock(&lut->config_mutex);
-  if (lut->configured_valid && config_equal(&lut->configured, &copied)) {
-    pthread_mutex_unlock(&lut->config_mutex);
-    return;
-  }
-
-  lut->configured = copied;
-  lut->configured_valid = true;
-  lut->pending = copied;
-  lut->pending_generation = atomic_fetch_add_explicit(&lut->generation, 1, memory_order_seq_cst) + 1;
-  lut->pending_valid = true;
-  pthread_cond_signal(&lut->config_cond);
-  pthread_mutex_unlock(&lut->config_mutex);
-}
-
-bool nr_prach_lut_acquire(nr_prach_lut_t *lut,
-                          const nr_prach_waveform_key_t *key,
-                          uint8_t preamble_index,
-                          nr_prach_lut_view_t *view)
-{
-  if (lut == NULL || key == NULL || view == NULL)
-    return false;
-
-  atomic_fetch_add_explicit(&lut->readers, 1, memory_order_seq_cst);
-  nr_prach_lut_table_t *table = atomic_load_explicit(&lut->published, memory_order_seq_cst);
-  const uint64_t generation = atomic_load_explicit(&lut->generation, memory_order_seq_cst);
-
-  if (table != NULL && table->generation == generation && preamble_index < table->num_preambles) {
-    const int key_index = table_key_index(table, key);
-    if (key_index >= 0) {
-      view->samples = table->samples[key_index][preamble_index];
-      view->power = table->power[key_index][preamble_index];
-      return true;
+    c16_t roots[64][839] __attribute__((aligned(64)));
+    memset(roots, 0, sizeof(roots));
+    compute_nr_prach_seq((uint8_t)key->sequence_length, (uint8_t)key->num_root_sequences, (uint8_t)key->root_sequence_index, roots);
+    for (unsigned preamble = 0; preamble < NR_PRACH_LUT_PREAMBLES; ++preamble) {
+      const int32_t power = nr_prach_generate_waveform(key, preamble, roots, prach_lut[preamble]);
+      if (power < 0) {
+        nr_prach_lut_destroy(lut);
+        return NULL;
+      }
+      lut->power[key_index][preamble] = power;
     }
   }
 
-  atomic_fetch_sub_explicit(&lut->readers, 1, memory_order_seq_cst);
-  return false;
-}
-
-void nr_prach_lut_release(nr_prach_lut_t *lut)
-{
-  if (lut != NULL)
-    atomic_fetch_sub_explicit(&lut->readers, 1, memory_order_seq_cst);
+  return lut;
 }
 
 void nr_prach_lut_destroy(nr_prach_lut_t *lut)
@@ -345,19 +122,36 @@ void nr_prach_lut_destroy(nr_prach_lut_t *lut)
   if (lut == NULL)
     return;
 
-  pthread_mutex_lock(&lut->config_mutex);
-  atomic_store_explicit(&lut->stop, true, memory_order_seq_cst);
-  atomic_fetch_add_explicit(&lut->generation, 1, memory_order_seq_cst);
-  lut->pending_valid = false;
-  pthread_cond_broadcast(&lut->config_cond);
-  pthread_mutex_unlock(&lut->config_mutex);
-
-  pthread_join(lut->worker, NULL);
-  nr_prach_lut_table_t *retired = atomic_exchange_explicit(&lut->published, NULL, memory_order_seq_cst);
-  wait_for_readers(lut);
-  table_free(retired);
-
-  pthread_cond_destroy(&lut->config_cond);
-  pthread_mutex_destroy(&lut->config_mutex);
+  for (unsigned key = 0; key < lut->config.num_keys; ++key)
+    free(lut->rows[key]);
   free(lut);
+}
+
+const nr_prach_lut_config_t *nr_prach_lut_config(const nr_prach_lut_t *lut)
+{
+  return lut == NULL ? NULL : &lut->config;
+}
+
+bool nr_prach_lut_copy(const nr_prach_lut_t *lut,
+                       const nr_prach_waveform_key_t *key,
+                       uint8_t preamble,
+                       c16_t *out,
+                       size_t capacity,
+                       int32_t *power)
+{
+  if (lut == NULL || key == NULL || out == NULL || power == NULL || preamble >= NR_PRACH_LUT_PREAMBLES)
+    return false;
+
+  const int index = key_index(lut, key);
+  if (index < 0)
+    return false;
+
+  const nr_prach_waveform_key_t *stored_key = &lut->config.keys[index];
+  if (capacity < (size_t)stored_key->dftlen || lut->rows[index] == NULL)
+    return false;
+
+  const c16_t(*prach_lut)[stored_key->dftlen] = (const c16_t(*)[stored_key->dftlen])lut->rows[index];
+  memcpy(out, prach_lut[preamble], (size_t)stored_key->dftlen * sizeof(*out));
+  *power = lut->power[index][preamble];
+  return true;
 }
