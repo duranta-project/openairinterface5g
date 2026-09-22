@@ -33,6 +33,9 @@ void fh_compress_prbs(fh_comp_method_t method, int iq_bits, int n_prb, const int
 void fh_decompress_prbs(fh_comp_method_t method, int iq_bits, int n_prb, const int8_t *src, int16_t *dst);
 void fh_compress_prach(fh_comp_method_t method, int iq_bits, int kbar, const int16_t *src, int8_t *dst);
 
+void fh_decompress_block(fh_comp_method_t method, int iq_bits, int n_vals, const int8_t *src, int16_t *dst);
+int32_t unpack_bits(const uint8_t *stream, int offset, int width);
+
 #ifdef __cplusplus
 }
 #endif
