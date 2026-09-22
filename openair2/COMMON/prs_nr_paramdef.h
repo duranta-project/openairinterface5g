@@ -45,6 +45,8 @@
 #define CONFIG_STRING_PRS_MUTING_PATTERN1_LIST              "MutingPattern1"
 #define CONFIG_STRING_PRS_MUTING_PATTERN2_LIST              "MutingPattern2"
 #define CONFIG_STRING_PRS_MUTING_BIT_REPETITION             "MutingBitRepetition"
+#define CONFIG_STRING_BROADCAST_POS_SIB                     "BroadcastPosSIB"
+#define CONFIG_STRING_POS_SIB_PERIODICITY                   "PosSIBPeriodicity"
 
 /* Help string for PRS parameters */
 #define HELP_STRING_GNB_ID                                  "gNB index for UE (<= CombSize)\n"
@@ -63,6 +65,8 @@
 #define HELP_STRING_PRS_MUTING_PATTERN1_LIST                "Muting bit pattern option-1, specified as [] or a binary-valued vector of length 2, 4, 6, 8, 16, or 32\n"
 #define HELP_STRING_PRS_MUTING_PATTERN2_LIST                "Muting bit pattern option-2, specified as [] or a binary-valued vector of length 2, 4, 6, 8, 16, or 32\n"
 #define HELP_STRING_PRS_MUTING_BIT_REPETITION               "Muting bit repetition factor, specified as 1, 2, 4, or 8\n"
+#define HELP_STRING_BROADCAST_POS_SIB                       "Broadcast PRS assistance data in posSibType6-1; requires an ordinary SI schedule (for example, cu_sibs = [2])\n"
+#define HELP_STRING_POS_SIB_PERIODICITY                     "PosSIB periodicity in radio frames (8, 16, 32, 64, 128, 256, or 512)\n"
 
 
 /*----------------------------------------------------------------------------------------------------------------------------------------------------------------*/
@@ -86,7 +90,9 @@
   {CONFIG_STRING_PRS_ID_LIST,                   HELP_STRING_PRS_ID_LIST,                  0,  .uptr=NULL,         .defintarrayval=0,          TYPE_UINTARRAY,  0},  \
   {CONFIG_STRING_PRS_MUTING_PATTERN1_LIST,      HELP_STRING_PRS_MUTING_PATTERN1_LIST,     0,  .uptr=NULL,         .defintarrayval=0,          TYPE_UINTARRAY,  0},  \
   {CONFIG_STRING_PRS_MUTING_PATTERN2_LIST,      HELP_STRING_PRS_MUTING_PATTERN2_LIST,     0,  .uptr=NULL,         .defintarrayval=0,          TYPE_UINTARRAY,  0},  \
-  {CONFIG_STRING_PRS_MUTING_BIT_REPETITION,     HELP_STRING_PRS_MUTING_BIT_REPETITION,    0,  .uptr=NULL,         .defuintval=0,              TYPE_UINT,       0}   \
+  {CONFIG_STRING_PRS_MUTING_BIT_REPETITION,     HELP_STRING_PRS_MUTING_BIT_REPETITION,    0,  .uptr=NULL,         .defuintval=0,              TYPE_UINT,       0},  \
+  {CONFIG_STRING_BROADCAST_POS_SIB,             HELP_STRING_BROADCAST_POS_SIB, PARAMFLAG_BOOL, .iptr=NULL,       .defintval=0,               TYPE_INT,        0},  \
+  {CONFIG_STRING_POS_SIB_PERIODICITY,           HELP_STRING_POS_SIB_PERIODICITY,          0,  .uptr=NULL,         .defuintval=16,             TYPE_UINT,       0}   \
 }
 // clang-format on
 
@@ -106,6 +112,8 @@
 #define PRS_MUTING_PATTERN1_LIST                     13
 #define PRS_MUTING_PATTERN2_LIST                     14
 #define PRS_MUTING_BIT_REPETITION                    15
+#define BROADCAST_POS_SIB                            16
+#define POS_SIB_PERIODICITY                          17
 
 /*----------------------------------------------------------------------------------------------------------------------------------------------------*/
 

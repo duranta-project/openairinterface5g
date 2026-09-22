@@ -733,15 +733,21 @@ void RCconfig_nr_prs(void)
       LOG_I(PHY, "-----------------------------------------\n");
       LOG_I(PHY, "PRS is transmitted according to this configuration, not from FAPI DL_TTI.request PRS PDUs of the MAC\n");
 
-      AssertFatal(RC.nrmac != NULL && RC.nrmac[j] != NULL, "gNB MAC instance %d is unavailable\n", j);
+      AssertFatal(RC.nrmac != NULL && RC.nrmac[0] != NULL, "gNB MAC instance is unavailable\n");
+      gNB_MAC_INST *mac = RC.nrmac[0];
+      NR_SCHED_LOCK(&mac->sched_lock);
+      nr_cell_sched_t *cell = nr_mac_get_cell_by_phy_id(mac, j);
       print_lpp_nr_dl_tdoa_assistance_data(RC.gNB[j],
-                                          RC.nrmac[j],
-                                          PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN1_LIST].numelt,
-                                          PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN2_LIST].numelt);
-      print_rrc_possib_prs_assistance_data(RC.gNB[j],
-                                          RC.nrmac[j],
-                                          PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN1_LIST].numelt,
-                                          PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN2_LIST].numelt);
+                                           cell,
+                                           PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN1_LIST].numelt,
+                                           PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN2_LIST].numelt);
+      if (*PRS_ParamList.paramarray[j][BROADCAST_POS_SIB].iptr)
+        configure_rrc_possib_prs_assistance_data(RC.gNB[j],
+                                                 cell,
+                                                 PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN1_LIST].numelt,
+                                                 PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN2_LIST].numelt,
+                                                 *PRS_ParamList.paramarray[j][POS_SIB_PERIODICITY].uptr);
+      NR_SCHED_UNLOCK(&mac->sched_lock);
     } // for j
   }
   else
