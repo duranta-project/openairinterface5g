@@ -59,6 +59,7 @@
 #include "x2ap_messages_types.h"
 #include "gnb_config_common.h"
 #include "trp_info_nr_paramdef.h"
+#include "lpp_prs.h"
 #include "f1ap_cu_task.h"
 #include "openair3/NRPPA/nrppa_gNB_config.h"
 
