@@ -202,6 +202,7 @@ static void sl_init_frame_parameters(PHY_VARS_NR_UE *UE)
 
 static void configure_SL_UE(PHY_VARS_NR_UE *UE, int mu, int N_RB, int ssb_offset, int slss_id)
 {
+  UE->sl_mode = SL_MODE2_SUPPORTED;
   sl_nr_phy_config_request_t *config = &UE->SL_UE_PHY_PARAMS.sl_config;
   NR_DL_FRAME_PARMS *fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
 
@@ -512,6 +513,9 @@ int main(int argc, char **argv)
   /*****configure UE *************************/
   UE_TX = calloc(1, sizeof(PHY_VARS_NR_UE));
   UE_RX = calloc(1, sizeof(PHY_VARS_NR_UE));
+  // blind search, as init_nr_ue_vars() does in the real UE
+  UE_TX->target_Nid_cell = -1;
+  UE_RX->target_Nid_cell = -1;
   LOG_I(PHY, "Configure UE-TX and sidelink UE-TX.\n");
   configure_NR_UE(UE_TX, mu, N_RB_DL);
   configure_SL_UE(UE_TX, mu, N_RB_DL, ssb_offset, 0xFFFF);
@@ -621,18 +625,45 @@ int main(int argc, char **argv)
       }
 
       if (UE_RX->is_synchronized == 0) {
+        /* The search scans one subframe at a time, over a window holding the subframe being
+           scanned and the one after it, exactly like the UE does with its sample stream.
+           Slide that window over the generated frame until the SL-SSB is found. */
         nr_initial_sync_t ret = {false, 0};
         UE_nr_rxtx_proc_t proc = {0};
         // Should not have SLSS id configured. Search should find SLSS id from TX UE
         UE_RX->SL_UE_PHY_PARAMS.sl_config.sl_sync_source.rx_slss_id = 0xFFFF;
-        ret = sl_nr_slss_search(UE_RX, &proc, 1, frame_length_complex_samples, UE_RX->common_vars.rxdata);
-        printf("Sidelink SLSS search returns status:%d, rx_offset:%d\n", ret.cell_detected, ret.rx_offset);
+        const int sf_sz = frame_parms->samples_per_subframe;
+        nr_gscn_info_t gscnInfo[MAX_GSCN_BAND] = {0};
+        gscnInfo[0].ssbFirstSC = frame_parms->ssb_start_subcarrier;
+        c16_t *window[frame_parms->nb_antennas_rx];
+        for (int aa = 0; aa < frame_parms->nb_antennas_rx; aa++)
+          window[aa] = malloc16_clear(2 * sf_sz * sizeof(c16_t));
+        // one subframe more than a frame, wrapping around, so that a block sitting in the
+        // last subframe still gets a full window
+        for (int sf = 0; sf <= NR_NUMBER_OF_SUBFRAMES_PER_FRAME && !ret.cell_detected; sf++) {
+          const int sf_in_frame = sf % NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
+          for (int aa = 0; aa < frame_parms->nb_antennas_rx; aa++) {
+            memcpy(window[aa], window[aa] + sf_sz, sf_sz * sizeof(c16_t));
+            memcpy(window[aa] + sf_sz, &UE_RX->common_vars.rxdata[aa][sf_in_frame * sf_sz], sf_sz * sizeof(c16_t));
+          }
+          ret = nr_initial_sync(&proc, UE_RX, 2 * sf_sz, window, gscnInfo, 1);
+        }
+        for (int aa = 0; aa < frame_parms->nb_antennas_rx; aa++)
+          free(window[aa]);
+        printf("Sidelink SLSS search returns status:%d, subframe:%u, rx_offset:%d\n",
+               ret.cell_detected,
+               ret.sync_subframe,
+               ret.rx_offset);
         if (!ret.cell_detected)
           sl_uerx->psbch.rx_errors = 1;
         else {
           AssertFatal(UE_RX->SL_UE_PHY_PARAMS.sync_params.N_sl_id == slss_id,
                       "DETECTED INCORRECT SLSS ID in SEARCH.CHECK id:%d\n",
                       UE_RX->SL_UE_PHY_PARAMS.sync_params.N_sl_id);
+          AssertFatal(UE_RX->SL_UE_PHY_PARAMS.sync_params.slot_offset == slot_tx,
+                      "DETECTED INCORRECT SLOT in SEARCH. slot:%d, expected:%d\n",
+                      UE_RX->SL_UE_PHY_PARAMS.sync_params.slot_offset,
+                      slot_tx);
           sl_uerx->psbch.rx_ok = 1;
         }
       } else

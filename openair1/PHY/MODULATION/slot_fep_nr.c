@@ -67,8 +67,7 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
   unsigned int nb_prefix_samples = frame_parms->nb_prefix_samples;
   unsigned int nb_prefix_samples0 = (is_synchronized || is_sl) ? frame_parms->nb_prefix_samples0 : nb_prefix_samples;
 
-  // For Sidelink 16 frames worth of samples is processed to find SSB, for 5G-NR 2.
-  const unsigned int total_samples = (is_sl) ? 16 * frame_parms->samples_per_frame : 2 * frame_parms->samples_per_frame;
+  const unsigned int total_samples = 2 * frame_parms->samples_per_frame;
 
   unsigned int rx_offset = get_samples_slot_timestamp(frame_parms, slot);
   const unsigned int abs_symbol = slot * frame_parms->symbols_per_slot + symbol;

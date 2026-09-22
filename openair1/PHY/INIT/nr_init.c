@@ -314,6 +314,8 @@ void nr_phy_config_request_sim(PHY_VARS_gNB *gNB,
       exit(-1);
   }
 
+  gNB_config->ssb_table.case_v3.value = set_ssb_case(mu, nr_band);
+
   frequency_range_t frequency_range = get_freq_range_from_band(nr_band);
   int bw_index = get_supported_band_index(mu, frequency_range, N_RB_DL);
   gNB_config->carrier_config.dl_bandwidth.value = get_supported_bw_mhz(frequency_range, bw_index);

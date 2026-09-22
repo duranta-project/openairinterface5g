@@ -253,7 +253,7 @@ static bool search_neighboring_cell(UE_nr_rxtx_proc_t *proc,
                                     int num_exclude_nid_cells)
 {
   nr_ssb_search_params_t search_params = {
-      .dl_CarrierFreq = frame_parms->dl_CarrierFreq,
+      .carrier_freq = frame_parms->dl_CarrierFreq,
       .sampling_rate = frame_parms->samples_per_subframe * 1000,
       .slots_per_frame = frame_parms->slots_per_frame,
       .slots_per_subframe = frame_parms->slots_per_subframe,
@@ -262,7 +262,9 @@ static bool search_neighboring_cell(UE_nr_rxtx_proc_t *proc,
       .ofdm_offset_divisor = frame_parms->ofdm_offset_divisor,
       .nb_antennas_rx = frame_parms->nb_antennas_rx,
       .symbols_per_slot = frame_parms->symbols_per_slot,
-      .N_RB_DL = frame_parms->N_RB_DL,
+      .N_RB = frame_parms->N_RB_DL,
+      .ssb_num_symbols = NR_N_SYMBOLS_SSB,
+      .sidelink = false,
       .rxdata_size = rxdata_size,
       .rxdata = rxdata,
       .nb_prefix_samples = frame_parms->nb_prefix_samples,
@@ -456,6 +458,7 @@ static void search_new_neighboring_cell(UE_nr_rxtx_proc_t *proc, PHY_VARS_NR_UE 
                          frame_parms->first_carrier_offset,
                          nid2_idx,
                          frame_parms->ssb_start_subcarrier,
+                         false,
                          pssTime[nid2_idx]);
   }
 
@@ -511,6 +514,7 @@ static void do_neighboring_cell_measurements(UE_nr_rxtx_proc_t *proc, PHY_VARS_N
                          frame_parms->first_carrier_offset,
                          nid2_idx,
                          frame_parms->ssb_start_subcarrier,
+                         false,
                          pssTime[nid2_idx]);
   }
 

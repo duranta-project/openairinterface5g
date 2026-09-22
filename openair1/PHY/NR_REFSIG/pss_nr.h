@@ -31,7 +31,8 @@ typedef struct {
   int nb_prefix_samples;
   int subcarrier_spacing;
   bool fo_flag;
-  int target_Nid_cell;
+  bool sidelink; // search the sidelink PSS (2 sequences) instead of the downlink one (3)
+  int target_Nid_cell; // -1 for a blind search, else the PCI (downlink) or SLSS id (sidelink)
   c16_t *pssTime;
 } pss_search_t;
 
@@ -45,8 +46,14 @@ void generate_pss_nr_time(int ofdm_symbol_size,
                           int first_carrier_offset,
                           const int N_ID_2,
                           int ssbFirstSCS,
+                          bool sidelink,
                           c16_t pssTime[ofdm_symbol_size]);
-void generate_pss_nr(const int N_ID_2, int16_t *pss);
+void generate_pss_nr(const int N_ID_2, bool sidelink, int16_t *pss);
+/* Number of N_ID_2 hypotheses to search: 3 in the downlink, 2 in the sidelink. */
+static inline int nr_num_pss_sequences(bool sidelink)
+{
+  return sidelink ? NUMBER_PSS_SEQUENCE_SL : NUMBER_PSS_SEQUENCE;
+}
 #endif /* PSS_NR_H */
 
 

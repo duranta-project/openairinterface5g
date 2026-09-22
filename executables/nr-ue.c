@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
+#include "PHY/defs_nr_UE.h"
 #include "PHY/defs_nr_common.h"
 #define _GNU_SOURCE // For pthread_setname_np
 #include <pthread.h>
@@ -15,12 +16,10 @@
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 #include "executables/softmodem-common.h"
 #include "radio/COMMON/common_lib.h"
-#include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "openair1/PHY/TOOLS/phy_scope_interface.h"
 #include "instrumentation.h"
 #include "common/utils/threadPool/notified_fifo.h"
-#include "position_interface.h"
 #include "nr_phy_common.h"
 #include "PHY/MODULATION/nr_modulation.h"
 #include "common/utils/time_manager/time_manager.h"
@@ -186,40 +185,35 @@ typedef struct {
   nr_gscn_info_t gscnInfo[MAX_GSCN_BAND];
   int numGscn;
   int rx_offset;
+  uint sync_subframe;
 } syncData_t;
 
-static void UE_synch(void *arg) {
-  syncData_t *syncD = (syncData_t *)arg;
+static bool UE_synch(syncData_t *syncD)
+{
   PHY_VARS_NR_UE *UE = syncD->UE;
   UE->is_synchronized = 0;
 
   if (UE->target_Nid_cell != -1) {
-    LOG_W(NR_PHY, "Starting re-sync detection for target Nid_cell %i\n", UE->target_Nid_cell);
+    LOG_I(NR_PHY, "Starting re-sync detection for target Nid_cell %i\n", UE->target_Nid_cell);
   } else {
-    LOG_W(NR_PHY, "Starting sync detection\n");
+    LOG_I(NR_PHY, "Starting sync detection\n");
   }
 
   LOG_I(PHY, "[UE thread Synch] Running Initial Synch \n");
 
   uint64_t dl_carrier, ul_carrier;
-  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
-  nr_initial_sync_t ret = {0};
-  if (UE->sl_mode == 2) {
-    fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
-    dl_carrier = fp->sl_CarrierFreq;
-    ul_carrier = fp->sl_CarrierFreq;
-    ret = sl_nr_slss_search(UE, &syncD->proc, SL_NR_SSB_REPETITION_IN_FRAMES, syncD->input_sz, syncD->input);
+  if (UE->sl_mode == SL_MODE2_SUPPORTED) {
+    dl_carrier = UE->SL_UE_PHY_PARAMS.sl_frame_params.sl_CarrierFreq;
+    ul_carrier = dl_carrier;
   } else {
     nr_get_carrier_frequencies(UE, &dl_carrier, &ul_carrier);
-    ret = nr_initial_sync(&syncD->proc, UE, syncD->input_sz, syncD->input, syncD->gscnInfo, syncD->numGscn);
   }
+  nr_initial_sync_t ret = nr_initial_sync(&syncD->proc, UE, syncD->input_sz, syncD->input, syncD->gscnInfo, syncD->numGscn);
 
   if (ret.cell_detected) {
     syncD->rx_offset = ret.rx_offset;
+    syncD->sync_subframe = ret.sync_subframe;
     const int freq_offset = UE->common_vars.freq_offset; // frequency offset computed with pss in initial sync
-    const int hw_slot_offset =
-        ((ret.rx_offset << 1) / fp->samples_per_subframe * fp->slots_per_subframe)
-        + round((float)((ret.rx_offset << 1) % fp->samples_per_subframe) / fp->samples_per_slot0);
 
     UE->freq_offset = freq_offset - UE->dl_Doppler_shift;
     if (!get_nrUE_params()->cont_fo_comp) {
@@ -231,7 +225,7 @@ static void UE_synch(void *arg) {
       nrue_ru_adjust_rx_gain(UE, UE->adjust_rxgain);
     }
 
-    LOG_I(PHY, "Got synch: hw_slot_offset %d, carrier off %d Hz\n", hw_slot_offset, freq_offset);
+    LOG_I(PHY, "Got synch: subframe offset %d samples, carrier off %d Hz\n", syncD->rx_offset, freq_offset);
 
     UE->is_synchronized = 1;
   } else {
@@ -241,8 +235,9 @@ static void UE_synch(void *arg) {
     if (gain_change)
       LOG_I(PHY, "synch retry: Rx gain increased \n");
     else
-      LOG_E(PHY, "synch Failed: \n");
+      LOG_I(PHY, "SSB not detected in this subframe. Going to next subframe\n");
   }
+  return ret.cell_detected;
 }
 
 static int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
@@ -627,10 +622,7 @@ void UE_dl_processing(void *arg) {
 
 void dummyWrite(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, int writeBlockSize)
 {
-  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
-  if (UE->sl_mode == 2)
-    fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
-
+  const NR_DL_FRAME_PARMS *fp = nrue_frame_parms(UE);
   c16_t *dummy_tx[fp->nb_antennas_tx];
   c16_t dummy_tx_data[writeBlockSize];
   memset(dummy_tx_data, 0, sizeof(dummy_tx_data));
@@ -641,26 +633,11 @@ void dummyWrite(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, int writeBlo
   AssertFatal(writeBlockSize == tmp, "write to reorder function failed %d", tmp);
 }
 
-static int compute_sync_size(PHY_VARS_NR_UE *UE)
-{
-  int sz = 0;
-  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
-  // two frames for initial sync
-  int num_frames = 2;
-  // In Sidelink worst case SL-SSB can be sent once in 16 frames
-  if (UE->sl_mode == 2) {
-    fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
-    num_frames = SL_NR_PSBCH_REPETITION_IN_FRAMES;
-  }
-  for (int slot_rx = 0; slot_rx < fp->slots_per_subframe; slot_rx++)
-    sz += get_samples_per_slot(slot_rx, fp);
-  sz *= num_frames * NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
-  return sz;
-}
-
+/* Read sz samples from the radio. If result is NULL the samples are discarded, otherwise
+   they are written to result[antenna]. */
 static void readFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int duration_rx_to_tx, int sz, c16_t **result)
 {
-  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
+  const NR_DL_FRAME_PARMS *fp = nrue_frame_parms(UE);
   c16_t *rxp[fp->nb_antennas_rx];
   if (!result) {
     int sz = 0;
@@ -698,12 +675,31 @@ static void readFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int d
     free(rxp[0]);
 }
 
+/* Length of the initial sync sample window, in subframes: the subframe being scanned plus
+   the following one, which holds the tail of a block starting at the very end of the scanned
+   subframe. */
+#define NUM_SYNC_WINDOW_SUBFRAMES 2
+
+/* Slide the initial sync window by one subframe: the scan covers the first subframe of the
+   window plus the beginning of the second one, so that a block starting anywhere in the
+   first subframe is fully contained in the window. The second subframe is therefore only
+   partially scanned and is kept to become the first subframe of the next window. */
+static void readSyncWindow(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int duration_rx_to_tx, c16_t **window)
+{
+  const NR_DL_FRAME_PARMS *fp = nrue_frame_parms(UE);
+  const int sz = fp->samples_per_subframe;
+  const int kept = (NUM_SYNC_WINDOW_SUBFRAMES - 1) * sz;
+  c16_t *tail[fp->nb_antennas_rx];
+  for (int i = 0; i < fp->nb_antennas_rx; i++) {
+    memmove(window[i], window[i] + sz, kept * sizeof(**window));
+    tail[i] = window[i] + kept;
+  }
+  readFrame(UE, timestamp, duration_rx_to_tx, sz, tail);
+}
+
 static void syncInFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int duration_rx_to_tx, openair0_timestamp_t rx_offset)
 {
-  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
-  if (UE->sl_mode == 2)
-    fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
-
+  const NR_DL_FRAME_PARMS *fp = nrue_frame_parms(UE);
   LOG_I(PHY, "Resynchronizing RX by %ld samples\n", rx_offset);
 
   int size = rx_offset;
@@ -785,9 +781,8 @@ void *UE_thread(void *arg)
   UE->N_TA_offset = determine_N_TA_offset(UE);
   NR_UE_MAC_INST_t *mac = get_mac_inst(UE->Mod_id);
 
-  bool syncRunning = false;
   const int nb_slot_frame = fp->slots_per_frame;
-  int absolute_slot = 0, decoded_frame_rx = MAX_FRAME_NUMBER - 1, skipped_frames = 0;
+  int absolute_slot = 0, decoded_frame_rx = MAX_FRAME_NUMBER - 1;
   int tx_wait_for_dlsch[NR_MAX_SLOTS_PER_FRAME];
 
   for(int i = 0; i < NUM_PROCESS_SLOT_TX_BARRIERS; i++) {
@@ -797,91 +792,58 @@ void *UE_thread(void *arg)
   int intialSyncOffset = 0;
   openair0_timestamp_t sync_timestamp;
   bool stats_printed = false;
+  uint sync_subframe = 0;
 
+  const uint sync_sz = fp->samples_per_subframe / 2;
   if (get_softmodem_params()->sync_ref && UE->sl_mode == 2) {
     UE->is_synchronized = 1;
   } else {
     //warm up the RF board
     openair0_timestamp_t tmp;
     for (int i = 0; i < 50; i++)
-      readFrame(UE, &tmp, duration_rx_to_tx, compute_sync_size(UE), NULL);
+      readFrame(UE, &tmp, duration_rx_to_tx, sync_sz, NULL);
   }
 
   c16_t *sync_buf[fp->nb_antennas_rx];
   memset(sync_buf, 0, sizeof(sync_buf)); // mandatory for CI compile options
+  const uint sync_buff_sz = NUM_SYNC_WINDOW_SUBFRAMES * fp->samples_per_subframe;
+  for (int i = 0; i < fp->nb_antennas_rx; i++)
+    sync_buf[i] = malloc16_clear(sync_buff_sz * sizeof(**sync_buf));
 
   while (!oai_exit) {
-    if (syncRunning) {
-      notifiedFIFO_elt_t *res = pollNotifiedFIFO(&nf);
-
-      if (res) {
-        syncRunning = false;
-        for (int i = 0; i < fp->nb_antennas_rx; i++)
-          free(sync_buf[i]);
-        if (UE->is_synchronized) {
-          UE->synch_request.received_synch_request = 0;
-          if (UE->sl_mode == SL_MODE2_SUPPORTED)
-            decoded_frame_rx = UE->SL_UE_PHY_PARAMS.sync_params.DFN;
-          else {
-            // We must wait the RRC layer decoded the MIB and sent us the frame number
-            notifiedFIFO_elt_t *elt = pullNotifiedFIFO(&mac->input_nf);
-            AssertFatal(elt != NULL, "fifo error while waiting for MIB");
-            process_msg_rcc_to_mac(NotifiedFifoData(elt), UE->Mod_id);
-            delNotifiedFIFO_elt(elt);
-            decoded_frame_rx = mac->mib_frame;
-          }
-          LOG_A(PHY, "UE synchronized! decoded_frame_rx=%d skipped_frames=%d\n", decoded_frame_rx, skipped_frames);
-          // shift the frame index with all the frames we trashed meanwhile we perform the synch search
-          syncData_t *syncMsg = (syncData_t *)NotifiedFifoData(res);
-          decoded_frame_rx = (decoded_frame_rx + skipped_frames) % MAX_FRAME_NUMBER;
-          intialSyncOffset = syncMsg->rx_offset;
-        }
-        delNotifiedFIFO_elt(res);
-        stream_status = STREAM_STATUS_UNSYNC;
-      } else {
-        if (IS_SOFTMODEM_IQPLAYER || IS_SOFTMODEM_IQRECORDER) {
-          /* For IQ recorder-player we force synchronization to happen in a fixed duration so that
-             the replay runs in sync with recorded samples.
-          */
-          openair0_config_t *cfg0 = &openair0_cfg_g[UE->rf_map.card];
-          const unsigned int sync_in_frames = cfg0->recplay_conf->u_f_sync;
-          while (skipped_frames != sync_in_frames) {
-            readFrame(UE, &sync_timestamp, duration_rx_to_tx, compute_sync_size(UE), NULL);
-            skipped_frames += 2;
-          }
-        } else {
-          readFrame(UE, &sync_timestamp, duration_rx_to_tx, compute_sync_size(UE), NULL);
-          skipped_frames += UE->sl_mode == 2 ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2;
-        }
-        continue;
-      }
-    }
-
-    AssertFatal(!syncRunning, "At this point synchronization can't be running\n");
-
     if (!UE->is_synchronized) {
-      int sz = compute_sync_size(UE);
-      for (int i = 0; i < fp->nb_antennas_rx; i++)
-        sync_buf[i] = malloc(sz * sizeof(**sync_buf));
-      readFrame(UE, &sync_timestamp, duration_rx_to_tx, sz, sync_buf);
-      notifiedFIFO_elt_t *Msg = newNotifiedFIFO_elt(sizeof(syncData_t), 0, &nf, UE_synch);
-      syncData_t *syncMsg = (syncData_t *)NotifiedFifoData(Msg);
-      *syncMsg = (syncData_t){.input = sync_buf, .input_sz = sz};
+      readSyncWindow(UE, &sync_timestamp, duration_rx_to_tx, sync_buf);
+      syncData_t syncD = (syncData_t){.input = sync_buf, .input_sz = sync_buff_sz};
       if (UE->UE_scan_carrier) {
         // Get list of GSCN in this band for UE's bandwidth and center frequency.
-        LOG_W(PHY, "UE set to scan all GSCN in current bandwidth\n");
-        syncMsg->numGscn =
-            get_scan_ssb_first_sc(fp->dl_CarrierFreq, fp->N_RB_DL, nrue_get_band(UE), fp->numerology_index, syncMsg->gscnInfo);
+        LOG_I(PHY, "UE set to scan all GSCN in current bandwidth\n");
+        syncD.numGscn =
+            get_scan_ssb_first_sc(fp->dl_CarrierFreq, fp->N_RB_DL, nrue_get_band(UE), fp->numerology_index, syncD.gscnInfo);
       } else {
-        LOG_W(PHY, "SSB position provided\n");
-        syncMsg->gscnInfo[0] = (nr_gscn_info_t){.ssbFirstSC = fp->ssb_start_subcarrier};
-        syncMsg->numGscn = 1;
+        LOG_I(PHY, "SSB position provided\n");
+        syncD.gscnInfo[0] = (nr_gscn_info_t){.ssbFirstSC = fp->ssb_start_subcarrier};
+        syncD.numGscn = 1;
       }
-      syncMsg->UE = UE;
-      memset(&syncMsg->proc, 0, sizeof(syncMsg->proc));
-      pushNotifiedFIFO(&UE->sync_actor.fifo, Msg);
-      skipped_frames = UE->sl_mode == 2 ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2; // the capture for decoding
-      syncRunning = true;
+      syncD.UE = UE;
+      memset(&syncD.proc, 0, sizeof(syncD.proc));
+      if (UE_synch(&syncD)) {
+        stream_status = STREAM_STATUS_UNSYNC;
+        UE->synch_request.received_synch_request = 0;
+        if (UE->sl_mode == SL_MODE2_SUPPORTED)
+          decoded_frame_rx = UE->SL_UE_PHY_PARAMS.sync_params.DFN;
+        else {
+          // TODO: remove this. only 4 LSB of SFN is enough for init sync.
+          // We must wait the RRC layer decoded the MIB and sent us the frame number
+          notifiedFIFO_elt_t *elt = pullNotifiedFIFO(&mac->input_nf);
+          AssertFatal(elt != NULL, "fifo error while waiting for MIB");
+          process_msg_rcc_to_mac(NotifiedFifoData(elt), UE->Mod_id);
+          delNotifiedFIFO_elt(elt);
+          decoded_frame_rx = mac->mib_frame;
+        }
+        LOG_A(PHY, "UE synchronized! decoded_frame_rx=%d\n", decoded_frame_rx);
+        intialSyncOffset = syncD.rx_offset;
+        sync_subframe = syncD.sync_subframe;
+      }
       continue;
     }
 
@@ -889,8 +851,6 @@ void *UE_thread(void *arg)
       stream_status = STREAM_STATUS_SYNCING;
       syncInFrame(UE, &sync_timestamp, duration_rx_to_tx, intialSyncOffset);
       nrue_ru_write_reorder_clear_context(UE);
-      shiftForNextFrame = -(skipped_frames)*UE->max_pos_acc
-                          * get_nrUE_params()->time_sync_I; // compensate for the time drift that happened during initial sync
       LOG_I(PHY, "max_pos_acc = %d, shiftForNextFrame = %d\n", UE->max_pos_acc, shiftForNextFrame);
       // read in first symbol
       int ret = nrue_ru_read(UE,
@@ -908,10 +868,11 @@ void *UE_thread(void *arg)
         decoded_hfn_rx++;
       // we do ++ first in the regular processing, so it will be begin of frame;
       absolute_slot = (decoded_hfn_rx * MAX_FRAME_NUMBER + decoded_frame_rx) * nb_slot_frame - 1;
-      if (UE->sl_mode == 2) {
-        // Set to the slot where the SL-SSB was decoded
-        absolute_slot += UE->SL_UE_PHY_PARAMS.sync_params.slot_offset;
-      }
+      /* The synchronisation search ran on a window of NUM_SYNC_WINDOW_SUBFRAMES subframes
+         ending at the current stream position, and rx_offset aligned the stream to the start
+         of subframe sync_subframe as seen at the start of that window. The stream therefore
+         sits that many subframes past the start of subframe sync_subframe. */
+      absolute_slot += (sync_subframe + NUM_SYNC_WINDOW_SUBFRAMES) * fp->slots_per_subframe;
       // With the correct frame and slot numbers, we can now fix the UL timing
       fix_ntn_epoch_hfn(UE, decoded_hfn_rx, decoded_frame_rx);
       if (UE->nrUE_config.ntn_config.params_changed) {

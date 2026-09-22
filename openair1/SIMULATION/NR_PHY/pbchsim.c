@@ -21,6 +21,7 @@
 #include "PHY/MODULATION/modulation_UE.h"
 #include "PHY/MODULATION/nr_modulation.h"
 #include "PHY/INIT/nr_phy_init.h"
+#include "PHY/NR_REFSIG/pss_nr.h"
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 #include "PHY/NR_UE_ESTIMATION/nr_estimation.h"
@@ -83,13 +84,14 @@ void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
 }
 
 configmodule_interface_t *uniqCfg = NULL;
+
 int main(int argc, char **argv)
 {
   stop = false;
   __attribute__((unused)) struct sigaction oldaction;
   sigaction(SIGINT, &sigint_action, &oldaction);
 
-  int i,aa,start_symbol;
+  int i, aa;
   double sigma2, sigma2_dB=10,SNR,snr0=-2.0,snr1=2.0;
   double cfo=0;
   uint8_t snr1set=0;
@@ -392,7 +394,6 @@ int main(int argc, char **argv)
   frame_parms->nb_antenna_ports_gNB = n_tx;
   frame_parms->N_RB_DL = N_RB_DL;
   frame_parms->Nid_cell = Nid_cell;
-  frame_parms->ssb_type = nr_ssb_type_C;
   frame_parms->freq_range = mu<2 ? FR1 : FR2;
 
   nr_phy_config_request_sim(gNB, N_RB_DL, N_RB_DL, mu, Nid_cell, SSB_positions);
@@ -434,6 +435,10 @@ int main(int argc, char **argv)
   }
 
   frame_length_complex_samples = frame_parms->samples_per_subframe*NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
+  /* Initial sync scans one subframe plus one SS/PBCH block, so the window that starts on the
+     last subframe of the frame reaches one block into the next one. */
+  const int scan_length_complex_samples = frame_parms->samples_per_subframe + nr_ssb_block_size(frame_parms, false);
+  const int rx_length_complex_samples = frame_length_complex_samples + nr_ssb_block_size(frame_parms, false);
   frame_length_complex_samples_no_prefix = frame_parms->samples_per_subframe_wCP;
 
   s_re = malloc(2*sizeof(double*));
@@ -447,8 +452,8 @@ int main(int argc, char **argv)
 
     s_re[i] = malloc16_clear(frame_length_complex_samples*sizeof(double));
     s_im[i] = malloc16_clear(frame_length_complex_samples*sizeof(double));
-    r_re[i] = malloc16_clear(frame_length_complex_samples*sizeof(double));
-    r_im[i] = malloc16_clear(frame_length_complex_samples*sizeof(double));
+    r_re[i] = malloc16_clear(rx_length_complex_samples * sizeof(double));
+    r_im[i] = malloc16_clear(rx_length_complex_samples * sizeof(double));
     printf("Allocating %d samples for txdata\n",frame_length_complex_samples);
     txdata[i] = malloc16_clear(frame_length_complex_samples * sizeof(c16_t));
   }
@@ -462,6 +467,8 @@ int main(int argc, char **argv)
 
   UE = malloc16_clear(sizeof(*UE));
   memcpy(&UE->frame_parms,frame_parms,sizeof(UE->frame_parms));
+  // blind search, as init_nr_ue_vars() does in the real UE
+  UE->target_Nid_cell = -1;
   //phy_init_nr_top(UE); //called from init_nr_ue_signal
   if (run_initial_sync==1)  UE->is_synchronized = 0;
   else                      UE->is_synchronized = 1;
@@ -481,8 +488,21 @@ int main(int argc, char **argv)
   if (input_fd==NULL) {
     const int prb_mask_words = (frame_parms->N_RB_DL + 63) / 64;
 
-    for (i=0; i<frame_parms->Lmax; i++) {
-      if((SSB_positions >> i) & 0x01) {
+    /* One slot at a time: the whole slot is modulated in one go, so every block it carries
+       has to be in txdataF by then, or the blocks would overwrite each other. */
+    for (int slot = 0; slot < frame_parms->slots_per_frame; slot++) {
+      bool slot_carries_ssb = false;
+      for (i = 0; i < frame_parms->Lmax; i++) {
+        if (!((SSB_positions >> i) & 0x01))
+          continue;
+        if (nr_get_ssb_start_symbol(frame_parms, i) / frame_parms->symbols_per_slot != slot)
+          continue;
+
+        if (!slot_carries_ssb) {
+          for (aa = 0; aa < gNB->frame_parms.nb_antennas_tx; aa++)
+            memset(gNB->common_vars.txdataF[aa], 0, frame_parms->samples_per_slot_wCP * sizeof(int32_t));
+          slot_carries_ssb = true;
+        }
 
         const int sc_offset = frame_parms->freq_range == FR1 ? ssb_subcarrier_offset<<mu : ssb_subcarrier_offset;
         const int prb_offset = frame_parms->freq_range == FR1 ? gNB->gNB_config.ssb_table.ssb_offset_point_a.value<<mu : gNB->gNB_config.ssb_table.ssb_offset_point_a.value << (mu - 2);
@@ -491,14 +511,10 @@ int main(int argc, char **argv)
         ssb_pdu[i].ssb_pdu_rel15.SsbSubcarrierOffset = sc_offset;
         ssb_pdu[i].ssb_pdu_rel15.ssbOffsetPointA = prb_offset;
 
-        start_symbol = nr_get_ssb_start_symbol(frame_parms,i);
-        int slot = start_symbol/14;
-
-        for (aa=0; aa<gNB->frame_parms.nb_antennas_tx; aa++)
-          memset(gNB->common_vars.txdataF[aa], 0, frame_parms->samples_per_slot_wCP * sizeof(int32_t));
-
         nr_common_signal_procedures(gNB, frame, slot, &ssb_pdu[i], prb_mask_words);
+      }
 
+      if (slot_carries_ssb) {
         int samp = get_samples_slot_timestamp(frame_parms, slot);
         for (aa = 0; aa < gNB->frame_parms.nb_antennas_tx; aa++) {
           if (cyclic_prefix_type == 1) {
@@ -514,24 +530,20 @@ int main(int argc, char **argv)
                          frame_parms->nb_prefix_samples,
                          CYCLIC_PREFIX);
           } else {
-            for (int i = 0; i < 14; i++)
+            for (int i = 0; i < NR_SYMBOLS_PER_SLOT; i++)
               fftshift_inverse_inplace(gNB->common_vars.txdataF[aa] + i * frame_parms->ofdm_symbol_size,
                                        frame_parms->N_RB_DL * NR_NB_SC_PER_RB,
                                        frame_parms->ofdm_symbol_size);
 
-            PHY_ofdm_mod((int *)gNB->common_vars.txdataF[aa],
-                         (int *)&txdata[aa][samp],
-                         frame_parms->ofdm_symbol_size,
-                         1,
-                         frame_parms->nb_prefix_samples0,
-                         CYCLIC_PREFIX);
-
-            PHY_ofdm_mod((int *)gNB->common_vars.txdataF[aa] + frame_parms->ofdm_symbol_size,
-                         (int *)&txdata[aa][samp + frame_parms->nb_prefix_samples0 + frame_parms->ofdm_symbol_size],
-                         frame_parms->ofdm_symbol_size,
-                         13,
-                         frame_parms->nb_prefix_samples,
-                         CYCLIC_PREFIX);
+            bool was_symbol_used[NR_SYMBOLS_PER_SLOT];
+            for (int i = 0; i < NR_SYMBOLS_PER_SLOT; i++)
+              was_symbol_used[i] = true;
+            nr_normal_prefix_mod(gNB->common_vars.txdataF[aa],
+                                 &txdata[aa][samp],
+                                 frame_parms->symbols_per_slot,
+                                 frame_parms,
+                                 slot,
+                                 was_symbol_used);
           }
         }
       }
@@ -570,11 +582,19 @@ int main(int argc, char **argv)
     n_errors_payload = 0;
 
     for (trial = 0; trial < n_trials && !stop; trial++) {
+      /* The burst keeps the positions in the frame the standard gives it, and the frame as
+         a whole is read from a sample drawn at random, which is what a UE tuning in at an
+         arbitrary instant sees. The frame is read as a loop, the burst repeating from one
+         frame to the next. */
+      int frame_offset = 0;
+      if (UE->is_synchronized == 0 && input_fd == NULL)
+        frame_offset = min((int)(uniformrandom() * frame_length_complex_samples), frame_length_complex_samples - 1);
 
-      for (i=0; i<frame_length_complex_samples; i++) {
+      for (i = 0; i < rx_length_complex_samples; i++) {
+        const int src = (frame_offset + i) % frame_length_complex_samples;
         for (aa=0; aa<frame_parms->nb_antennas_tx; aa++) {
-          r_re[aa][i] = (double)txdata[aa][i].r;
-          r_im[aa][i] = (double)txdata[aa][i].i;
+          r_re[aa][i] = (double)txdata[aa][src].r;
+          r_im[aa][i] = (double)txdata[aa][src].i;
         }
       }
 
@@ -587,29 +607,29 @@ int main(int argc, char **argv)
       //printf("sigma2 %f (%f dB), tx_lev %f (%f dB)\n",sigma2,sigma2_dB,txlev,10*log10((double)txlev));
 
       if(eps!=0.0)
-        rf_rx(r_re,  // real part of txdata
-           r_im,  // imag part of txdata
-           NULL,  // interference real part
-           NULL, // interference imag part
-           0,  // interference power
-           frame_parms->nb_antennas_rx,  // number of rx antennas
-           frame_length_complex_samples,  // number of samples in frame
-           1.0e9/fs,   //sampling time (ns)
-           cfo,	// frequency offset in Hz
-           0.0, // drift (not implemented)
-           0.0, // noise figure (not implemented)
-           0.0, // rx gain in dB ?
-           200, // 3rd order non-linearity in dB ?
-           &ip, // initial phase
-           30.0e3,  // phase noise cutoff in kHz
-           -500.0, // phase noise amplitude in dBc
-           0.0,  // IQ imbalance (dB),
-	   0.0); // IQ phase imbalance (rad)
+        rf_rx(r_re, // real part of txdata
+              r_im, // imag part of txdata
+              NULL, // interference real part
+              NULL, // interference imag part
+              0, // interference power
+              frame_parms->nb_antennas_rx, // number of rx antennas
+              rx_length_complex_samples, // number of samples received
+              1.0e9 / fs, // sampling time (ns)
+              cfo, // frequency offset in Hz
+              0.0, // drift (not implemented)
+              0.0, // noise figure (not implemented)
+              0.0, // rx gain in dB ?
+              200, // 3rd order non-linearity in dB ?
+              &ip, // initial phase
+              30.0e3, // phase noise cutoff in kHz
+              -500.0, // phase noise amplitude in dBc
+              0.0, // IQ imbalance (dB),
+              0.0); // IQ phase imbalance (rad)
 
       c16_t *rxdata[frame_parms->nb_antennas_rx];
       for (aa = 0; aa < frame_parms->nb_antennas_rx; aa++)
-        rxdata[aa] = malloc(frame_length_complex_samples * sizeof(**rxdata));
-      for (i=0; i<frame_length_complex_samples; i++) {
+        rxdata[aa] = malloc(rx_length_complex_samples * sizeof(**rxdata));
+      for (i = 0; i < rx_length_complex_samples; i++) {
         for (aa=0; aa<frame_parms->nb_antennas_rx; aa++) {
           rxdata[aa][i].r = (short)(r_re[aa][i] + sqrt(sigma2 / 2) * gaussdouble(0.0, 1.0));
           rxdata[aa][i].i = (short)(r_im[aa][i] + sqrt(sigma2 / 2) * gaussdouble(0.0, 1.0));
@@ -626,10 +646,46 @@ int main(int argc, char **argv)
         nr_gscn_info_t gscnInfo[MAX_GSCN_BAND] = {0};
         const int numGscn = 1;
         gscnInfo[0].ssbFirstSC = frame_parms->ssb_start_subcarrier;
-        nr_initial_sync_t ret = nr_initial_sync(&proc, UE, frame_length_complex_samples, rxdata, gscnInfo, numGscn);
-        printf("nr_initial_sync1 returns %s\n", ret.cell_detected ? "cell detected" : "cell not detected");
-        if (!ret.cell_detected)
+        /* Initial sync scans one subframe at a time, so slide its window over the frame
+           until a block of the burst falls inside it, as the UE does with its stream. */
+        nr_initial_sync_t ret = {0};
+        int subframe = 0;
+        int window_offset = 0;
+        for (; subframe < NR_NUMBER_OF_SUBFRAMES_PER_FRAME && !ret.cell_detected; subframe++) {
+          window_offset = subframe * frame_parms->samples_per_subframe;
+          c16_t *window[frame_parms->nb_antennas_rx];
+          for (aa = 0; aa < frame_parms->nb_antennas_rx; aa++)
+            window[aa] = rxdata[aa] + window_offset;
+          ret = nr_initial_sync(&proc, UE, scan_length_complex_samples, window, gscnInfo, numGscn);
+        }
+        printf("nr_initial_sync1 on the frame read from sample %d returns %s after %d subframe(s)\n",
+               frame_offset,
+               ret.cell_detected ? "cell detected" : "cell not detected",
+               subframe);
+        if (!ret.cell_detected) {
           n_errors++;
+        } else {
+          /* rx_offset has to point at the first sample of subframe sync_subframe, so that
+             the UE can align its sample stream on a subframe boundary. Take it back to the
+             sample of the frame it names and compare with where that subframe was put. */
+          const int spf = frame_parms->samples_per_frame;
+          const int found = (frame_offset + window_offset + ret.rx_offset) % spf;
+          const int expected = (ret.sync_subframe % NR_NUMBER_OF_SUBFRAMES_PER_FRAME) * frame_parms->samples_per_subframe;
+          // distance between the two, the shorter way around the frame
+          int error = (found - expected + spf) % spf;
+          if (error > spf / 2)
+            error -= spf;
+          // the PSS is correlated every PSS_STEP samples, so the position is only that accurate
+          if (abs(error) >= PSS_STEP) {
+            printf("subframe alignment is off by %d samples: rx_offset %d and subframe %u point at sample %d, expected %d\n",
+                   error,
+                   ret.rx_offset,
+                   ret.sync_subframe,
+                   found,
+                   expected);
+            n_errors++;
+          }
+        }
       }
       else {
         UE_nr_rxtx_proc_t proc={0};
