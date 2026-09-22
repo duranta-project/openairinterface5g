@@ -521,24 +521,20 @@ int main(int argc, char **argv)
                          frame_parms->nb_prefix_samples,
                          CYCLIC_PREFIX);
           } else {
-            for (int i = 0; i < 14; i++)
+            for (int i = 0; i < NR_SYMBOLS_PER_SLOT; i++)
               fftshift_inverse_inplace(gNB->common_vars.txdataF[aa] + i * frame_parms->ofdm_symbol_size,
                                        frame_parms->N_RB_DL * NR_NB_SC_PER_RB,
                                        frame_parms->ofdm_symbol_size);
 
-            PHY_ofdm_mod((int *)gNB->common_vars.txdataF[aa],
-                         (int *)&txdata[aa][samp],
-                         frame_parms->ofdm_symbol_size,
-                         1,
-                         frame_parms->nb_prefix_samples0,
-                         CYCLIC_PREFIX);
-
-            PHY_ofdm_mod((int *)gNB->common_vars.txdataF[aa] + frame_parms->ofdm_symbol_size,
-                         (int *)&txdata[aa][samp + frame_parms->nb_prefix_samples0 + frame_parms->ofdm_symbol_size],
-                         frame_parms->ofdm_symbol_size,
-                         13,
-                         frame_parms->nb_prefix_samples,
-                         CYCLIC_PREFIX);
+            bool was_symbol_used[NR_SYMBOLS_PER_SLOT];
+            for (int i = 0; i < NR_SYMBOLS_PER_SLOT; i++)
+              was_symbol_used[i] = true;
+            nr_normal_prefix_mod(gNB->common_vars.txdataF[aa],
+                                 &txdata[aa][samp],
+                                 frame_parms->symbols_per_slot,
+                                 frame_parms,
+                                 slot,
+                                 was_symbol_used);
           }
         }
       }
