@@ -45,7 +45,8 @@ uint32_t nr_get_G_SL(uint16_t nb_rb, uint16_t nb_symb_sch, uint8_t nb_re_dmrs, u
 
 void compute_nr_prach_seq(uint8_t short_sequence, uint8_t num_sequences, uint8_t rootSequenceIndex, c16_t X_u[64][839]);
 
-void nr_fill_du(uint16_t N_ZC, const uint16_t *prach_root_sequence_map, uint16_t nr_du[NR_PRACH_SEQ_LEN_L - 1]);
+// The table is indexed by root number and requires N_ZC entries.
+void nr_fill_du(uint16_t N_ZC, const uint16_t *prach_root_sequence_map, uint16_t *nr_du);
 
 void nr_codeword_scrambling(uint8_t *in,
                             uint32_t size,

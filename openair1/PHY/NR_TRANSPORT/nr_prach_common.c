@@ -38,7 +38,7 @@ static int modulo_multiplicative_inverse(const int a, const int m)
 }
 
 // This function computes the du
-void nr_fill_du(uint16_t N_ZC, const uint16_t* prach_root_sequence_map, uint16_t nr_du[NR_PRACH_SEQ_LEN_L - 1])
+void nr_fill_du(uint16_t N_ZC, const uint16_t* prach_root_sequence_map, uint16_t *nr_du)
 {
 
   uint16_t iu,u,p;
