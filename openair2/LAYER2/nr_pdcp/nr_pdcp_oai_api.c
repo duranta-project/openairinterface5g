@@ -643,15 +643,12 @@ void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, const nr_pdcp_e
   sdap.pdusession_id = 1;
   sdap.drb_id = slrb_id;
 
-  int is_gnb = 0; // SL is only for UE side, so is_gnb is always false
-  sdap_role_t role_dl = is_gnb ? SDAP_DL_TX : SDAP_DL_RX;
   int role = 0;
-  if (s->sl_SDAP_Config_r16 && s->sl_SDAP_Config_r16->sl_SDAP_Header_r16 == NR_SL_SDAP_Config_r16__sl_SDAP_Header_r16_present)
-  {
-    role |= role_dl;
+  if (s->sl_SDAP_Config_r16 && s->sl_SDAP_Config_r16->sl_SDAP_Header_r16 == NR_SL_SDAP_Config_r16__sl_SDAP_Header_r16_present) {
+    role |= SDAP_UL_TX | SDAP_DL_RX;
   }
   sdap.role = role;
-  sdap.defaultDRB = s->sl_SDAP_Config_r16 && s->sl_SDAP_Config_r16->sl_DefaultRB_r16 == true ? true : false;
+  sdap.defaultDRB = s->sl_SDAP_Config_r16 && s->sl_SDAP_Config_r16->sl_DefaultRB_r16;
 
   if (s->sl_SDAP_Config_r16->sl_MappedQoS_Flows_r16) {
     sdap.mappedQFIs2AddCount = s->sl_SDAP_Config_r16->sl_MappedQoS_Flows_r16->choice.sl_MappedQoS_FlowsList_r16->list.count;
