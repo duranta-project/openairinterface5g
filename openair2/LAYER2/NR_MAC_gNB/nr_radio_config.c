@@ -1959,13 +1959,14 @@ static NR_PUCCH_Resource_t *config_pucch_resource(int format, int id, int startP
   return pucch;
 }
 
-// PUCCH resource set 0 for configuration with O_uci <= 2 bits and/or a positive or negative SR (section 9.2.1 of 38.213)
-static void config_pucch_resset0(NR_PUCCH_Config_t *pucch_Config,
-                                 int id_start,
-                                 const nr_pucch_radio_res_t *pucch_res_config)
+static void config_pucch_resset(NR_PUCCH_Config_t *pucch_Config,
+                                int id_start,
+                                int set_id,
+                                int format,
+                                const nr_pucch_radio_res_t *pucch_res_config)
 {
   NR_PUCCH_ResourceSet_t *pucchresset = calloc(1, sizeof(*pucchresset));
-  pucchresset->pucch_ResourceSetId = 0;
+  pucchresset->pucch_ResourceSetId = set_id;
   pucchresset->maxPayloadSize = NULL;
 
   for (int i = 0; i < pucch_res_config->nb_harq_res; i++) {
@@ -1973,42 +1974,25 @@ static void config_pucch_resset0(NR_PUCCH_Config_t *pucch_Config,
     *pucchid = id_start + i;
     asn1cSeqAdd(&pucchresset->resourceList.list,pucchid);
     int start_prb = i * pucch_res_config->nb_prb_harq_res;
-    NR_PUCCH_Resource_t *pucchres0 = config_pucch_resource(0, *pucchid, start_prb, 1);
-    asn1cSeqAdd(&pucch_Config->resourceToAddModList->list, pucchres0);
+    int prb_size = format == 0 ? 1 : pucch_res_config->nb_prb_harq_res;
+    NR_PUCCH_Resource_t *pucchres = config_pucch_resource(format, *pucchid, start_prb, prb_size);
+    asn1cSeqAdd(&pucch_Config->resourceToAddModList->list, pucchres);
   }
   asn1cSeqAdd(&pucch_Config->resourceSetToAddModList->list, pucchresset);
 }
 
-// PUCCH resource set 1 for configuration with O_uci > 2 bits (currently format2)
-static void config_pucch_resset1(NR_PUCCH_Config_t *pucch_Config,
-                                 int id_start,
-                                 const nr_pucch_radio_res_t *pucch_res_config)
+static void config_pucch_format2(NR_PUCCH_Config_t *pucch_Config)
 {
-  NR_PUCCH_ResourceSet_t *pucchresset = calloc(1, sizeof(*pucchresset));
-  pucchresset->pucch_ResourceSetId = 1;
-  pucchresset->maxPayloadSize = NULL;
-
-  for (int i = 0; i < pucch_res_config->nb_harq_res; i++) {
-    NR_PUCCH_ResourceId_t *pucchressetid = calloc(1, sizeof(*pucchressetid));
-    *pucchressetid = id_start + i;
-    asn1cSeqAdd(&pucchresset->resourceList.list,pucchressetid);
-    int start_prb = i * pucch_res_config->nb_prb_harq_res;
-    NR_PUCCH_Resource_t *pucchres2 = config_pucch_resource(2, *pucchressetid, start_prb, pucch_res_config->nb_prb_harq_res);
-    asn1cSeqAdd(&pucch_Config->resourceToAddModList->list, pucchres2);
-  }
-  asn1cSeqAdd(&pucch_Config->resourceSetToAddModList->list, pucchresset);
-
-  pucch_Config->format2 = calloc(1,sizeof(*pucch_Config->format2));
+  pucch_Config->format2 = calloc(1, sizeof(*pucch_Config->format2));
   pucch_Config->format2->present = NR_SetupRelease_PUCCH_FormatConfig_PR_setup;
-  NR_PUCCH_FormatConfig_t *pucchfmt2 = calloc(1,sizeof(*pucchfmt2));
+  NR_PUCCH_FormatConfig_t *pucchfmt2 = calloc(1, sizeof(*pucchfmt2));
   pucch_Config->format2->choice.setup = pucchfmt2;
   pucchfmt2->interslotFrequencyHopping = NULL;
   pucchfmt2->additionalDMRS = NULL;
-  pucchfmt2->maxCodeRate = calloc(1,sizeof(*pucchfmt2->maxCodeRate));
+  pucchfmt2->maxCodeRate = calloc(1, sizeof(*pucchfmt2->maxCodeRate));
   *pucchfmt2->maxCodeRate = NR_PUCCH_MaxCodeRate_zeroDot15;
   pucchfmt2->nrofSlots = NULL;
   pucchfmt2->pi2BPSK = NULL;
-
   // to check UE capabilities for that in principle
   pucchfmt2->simultaneousHARQ_ACK_CSI = calloc(1,sizeof(*pucchfmt2->simultaneousHARQ_ACK_CSI));
   *pucchfmt2->simultaneousHARQ_ACK_CSI = NR_PUCCH_FormatConfig__simultaneousHARQ_ACK_CSI_true;
@@ -2041,8 +2025,8 @@ static NR_PUCCH_Config_t *config_pucch(const nr_mac_config_t *configuration,
   // maxNrofPUCCH-ResourcesPerSet = 32 sets the max number of PUCCH resources per HARQ
   // we give ID starting from 0 (to nb_harq_res - 1) to set 0
   // we give ID starting from nb_harq_res to set 1
-  config_pucch_resset0(pucch_Config, 0, pucch_res_config);
-  config_pucch_resset1(pucch_Config, pucch_res_config->nb_harq_res, pucch_res_config);
+  config_pucch_resset(pucch_Config, 0, 0, 0, pucch_res_config);
+  config_pucch_resset(pucch_Config, pucch_res_config->nb_harq_res, 1, 2, pucch_res_config);
   // we give ID nb_harq_res * 2 to resource for SR and nb_harq_res * 2 + 1 to the one for CSI meas
   int multi_periodic_offset = (uid % pucch_res_config->nb_periodic_res) * pucch_res_config->nb_prb_periodic_res;
   int start_prb = pucch_res_config->nb_harq_res * pucch_res_config->nb_prb_harq_res + multi_periodic_offset;
@@ -2056,6 +2040,7 @@ static NR_PUCCH_Config_t *config_pucch(const nr_mac_config_t *configuration,
   set_pucch_power_config(pucch_Config);
   scheduling_request_config(cell, pucch_Config, uid, pucch_res_config->nb_harq_res * 2, pucch_res_config);
   set_dl_DataToUL_ACK(pucch_Config, configuration->minRXTXTIME);
+  config_pucch_format2(pucch_Config);
   return pucch_Config;
 }
 
