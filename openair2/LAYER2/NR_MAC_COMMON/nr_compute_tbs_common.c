@@ -84,6 +84,54 @@ uint32_t nr_compute_tbs(uint16_t Qm,
   LOG_D(NR_MAC, "Ninfo %u nbp_re %d nb_re %d Qm %d, R %d, tbs %d bits\n", Ninfo, nbp_re, nb_re, Qm, R, nr_tbs);
   return nr_tbs;
 }
+uint32_t nr_compute_tbs_sl(uint16_t Qm,
+                           uint16_t R,
+                           uint16_t nb_re,
+                           uint8_t Nl)
+{
+
+  LOG_D(NR_MAC, "In %s: nb_re %d, Nl %d\n", __FUNCTION__, nb_re,Nl);
+
+  // Intermediate number of information bits
+  // Rx1024 is tabulated as 10 times the actual code rate
+  const uint32_t R_5 = R/5; // R can be fractional so we can't divide by 10
+  // So we ned to right shift by 11 (10 for x1024 and 1 additional as above)
+  const uint32_t Ninfo = ((nb_re * R_5 * Qm * Nl)>>11);
+
+  uint32_t nr_tbs=0;
+  uint32_t Np_info, C, n;
+
+  if (Ninfo <=3824) {
+    n = max(3, floor(log2(Ninfo)) - 6);
+      Np_info = max(24, (Ninfo>>n)<<n);
+      for (int i=0; i<INDEX_MAX_TBS_TABLE; i++) {
+        if (Tbstable_nr[i] >= Np_info){
+          nr_tbs = Tbstable_nr[i];
+          break;
+        }
+      }
+  } else {
+    n = log2(Ninfo-24)-5;
+    Np_info = max(3840, (ROUNDIDIV((Ninfo-24),(1<<n)))<<n);
+
+    if (R <= 2560) {
+        C = CEILIDIV((Np_info+24),3816);
+        nr_tbs = (C<<3)*CEILIDIV((Np_info+24),(C<<3)) - 24;
+    } else {
+      if (Np_info > 8424){
+          C = CEILIDIV((Np_info+24),8424);
+          nr_tbs = (C<<3)*CEILIDIV((Np_info+24),(C<<3)) - 24;
+      } else {
+        nr_tbs = ((CEILIDIV((Np_info+24),8))<<3) - 24;
+      }
+    }
+  }
+
+  LOG_D(NR_MAC, "In %s: Ninfo %u nb_re %d Qm %d, R %d, tbs %d bits\n", __FUNCTION__, Ninfo, nb_re, Qm, R, nr_tbs);
+
+  return nr_tbs;
+
+}
 
 //tbslbrm calculation according to 5.4.2.1 of 38.212
 uint32_t nr_compute_tbslbrm(uint16_t table, uint16_t nb_rb, uint8_t Nl)

@@ -11,6 +11,8 @@
 #include <stdbool.h>
 #include "common/utils/nr/nr_common.h"
 #include "common/utils/LOG/log.h"
+#include "common/utils/collection/linear_alloc.h"
+
 #include "NR_CellGroupConfig.h"
 
 #define MAX_FRAME_NUMBER 0x400
@@ -69,6 +71,14 @@ typedef struct {
   uint8_t R: 2;       // octet 1 [7:6]
 } __attribute__ ((__packed__)) NR_MAC_SUBHEADER_FIXED;
 
+// 38321 section 6.1.6 Figure 6.1.6-1
+typedef struct {
+  uint8_t V: 4; // octet 1 [7:4]
+  uint8_t R: 4; // octet 1 [3:0]
+  uint16_t  SRC: 16; // octet 2, octet 3
+  uint8_t DST: 8; // octet 4
+}__attribute__ ((__packed__)) NR_SLSCH_MAC_SUBHEADER_FIXED;
+
 static inline int get_mac_len(uint8_t *pdu, uint32_t pdu_len, uint16_t *mac_ce_len, uint16_t *mac_subheader_len)
 {
   if (pdu_len < sizeof(NR_MAC_SUBHEADER_SHORT))
@@ -91,6 +101,17 @@ static inline int get_mac_len(uint8_t *pdu, uint32_t pdu_len, uint16_t *mac_ce_l
 
   return true;
 }
+
+// SL BSR MAC CEs
+// TS 38.321 ch. 6.1.3.33
+// Short BSR for a specific logical channel group ID
+typedef struct {
+  uint8_t destination_index: 5;    // octet 1 MSB
+  uint8_t LcgID: 3;                // octet 1 LSB
+  uint8_t Buffer_size: 8;
+} __attribute__ ((__packed__)) NR_SL_BSR_SHORT;
+
+typedef NR_SL_BSR_SHORT NR_SL_BSR_SHORT_TRUNCATED;
 
 // BSR MAC CEs
 // TS 38.321 ch. 6.1.3.1
@@ -399,6 +420,23 @@ typedef struct {
 
 #define NR_MAX_NUM_LCGID              8
 
+#define SL_SCH_LCID_SCCH_PC5_NOT_PROT              0	// SCCH carrying PC5-S messages that are not protected
+#define SL_SCH_LCID_SCCH_PC5_DSMC                  1    // SCCH carrying PC5-S messages "Direct Security Mode Command" and "Direct Security Mode Complete"
+#define SL_SCH_LCID_SCCH_PC5_PROT                  2	// SCCH carrying other PC5-S messages that are protected
+#define SL_SCH_LCID_SCCH_PC5_RRC                   3	// SCCH carrying PC5-RRC messages
+#define SL_SCH_LCID_4_19                           4    // 4–19	Identity of the logical channel
+#define SL_SCH_LCID_20_55                          20   // 20–55	Reserved
+#define SL_SCH_LCID_SCCH_RRC_SL_RLC0               56	// SCCH carrying RRC messages delivered via SL-RLC0 as specified in TS 38.331 [5]
+#define SL_SCH_LCID_SCCH_RRC_SL_RLC1               57	// SCCH carrying RRC message delivered via SL-RLC1 as specified in TS 38.331 [5]
+#define SL_SCH_LCID_SCCH_SL_DISCOVERY              58	// SCCH for Sidelink Discovery Messages
+#define SL_SCH_LCID_SL_INTER_UE_COORD_REQ          59	// Sidelink Inter-UE Coordination Request
+#define SL_SCH_LCID_SL_INTER_UE_COORD_INFO         60	// Sidelink Inter-UE Coordination Information
+#define SL_SCH_LCID_SL_DRX_CMD                     61	// Sidelink DRX Command
+#define SL_SCH_LCID_SL_CSI_REPORT                  62	// Sidelink CSI Reporting
+#define SL_SCH_LCID_SL_PADDING                     63	// Padding
+
+#define MAX_RLC_SDU_SUBHEADER_SIZE          3
+
 //=========
 // DCI defs
 //=========
@@ -485,6 +523,25 @@ typedef struct nr_csi_report {
   int N1;
   int N2;
 } nr_csi_report_t;
+
+// 38321 sec. 6.1.3.35
+typedef struct {
+  uint8_t RI: 1; // 7th bit
+  uint8_t CQI: 4; // 3-6 bits
+  uint8_t R: 3; // 0-2 bits
+} __attribute__ ((__packed__)) nr_sl_csi_report_t;
+
+// 38321 sec. 6.1.3.34
+typedef struct {
+  uint8_t C1: 1; // 1st bit
+  uint8_t C2: 1; // 2nd bit
+  uint8_t C3: 1; // 3rd bit
+  uint8_t C4: 1; // 4th bit
+  uint8_t C5: 1; // 5th bit
+  uint8_t C6: 1; // 6th bit
+  uint8_t C7: 1; // 7th bit
+  uint8_t C8: 1; // 8th bit
+} __attribute__ ((__packed__)) nr_sl_config_grant_t;
 
 typedef enum {
   NR_SRS_SRI_0 = 0,
@@ -604,6 +661,24 @@ typedef enum {
   RA_4_STEP = 0,
   RA_2_STEP = 1,
 } nr_ra_type_t;
+
+// TODO should not be here, move back!
+typedef struct NR_bler_stats {
+  frame_t last_frame;
+  float bler;
+  uint8_t mcs;
+  uint64_t rounds[8];
+  int last_num_sched; // scheduling count at last BLER update (for activity guard)
+} NR_bler_stats_t;
+
+/*! \brief NR_list_t is a "list" (of users, HARQ processes, slices, ...).
+ *  * Especially useful in the scheduler and to keep "classes" of users. */
+typedef struct {
+  int head;
+  int *next;
+  int tail;
+  int len;
+} NR_list_t;
 
 #endif /*__LAYER2_MAC_H__ */
 

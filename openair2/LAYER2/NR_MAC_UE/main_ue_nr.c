@@ -33,6 +33,38 @@ void send_pcch_rrc(int ue_id, const uint8_t *sdu, sdu_size_t sdu_len, void *data
   itti_send_msg_to_task(TASK_RRC_NRUE, ue_id, message_p);
 }
 
+void nr_ue_init_mac_sl(NR_UE_MAC_INST_t *mac)
+{
+  int k = 0;
+  
+  mac->SL_MAC_PARAMS = CALLOC(1, sizeof(sl_nr_ue_mac_params_t));
+  mac->SL_MAC_PARAMS->sl_bler.harq_round_max = HARQ_ROUND_MAX;
+  init_list(&mac->sl_sensing_data, sizeof(sensing_data_t), 1);
+  init_list(&mac->sl_transmit_history, sizeof(frameslot_t), 1);
+  mac->sl_candidate_resources = (List_t*)malloc16_clear(sizeof(List_t*));
+  init_list(mac->sl_candidate_resources, sizeof(sl_resource_info_t), 1);
+
+  // TODO here: previously src_id from config, now hardcoded. is necessary?
+  mac->src_id = 1;
+
+  for (int i = 0; i < CUR_SL_UE_CONNECTIONS + 1; i++) {
+    if (mac->src_id == i)
+	  continue;
+    mac->sl_info.list[k] = calloc(1, sizeof(NR_SL_UE_info_t));
+    mac->sl_info.list[k]->uid = i;
+    NR_SL_UE_sched_ctrl_t *UE_sched_ctrl = &mac->sl_info.list[k]->UE_sched_ctrl;
+    UE_sched_ctrl->rx_csi_report.RI = 0;
+    UE_sched_ctrl->rx_csi_report.CQI = 0;
+    UE_sched_ctrl->sl_max_mcs = 9; // TODO configurable
+    create_nr_list(&UE_sched_ctrl->available_sl_harq, 16);
+    for (int harq = 0; harq < 16; harq++)
+      add_tail_nr_list(&UE_sched_ctrl->available_sl_harq, harq);
+    create_nr_list(&UE_sched_ctrl->feedback_sl_harq, 16);
+    create_nr_list(&UE_sched_ctrl->retrans_sl_harq, 16);
+    k++;
+  }
+}
+
 void nr_ue_init_mac(NR_UE_MAC_INST_t *mac)
 {
   LOG_I(NR_MAC, "[UE%d] Initializing MAC\n", mac->ue_id);
@@ -55,6 +87,7 @@ void nr_ue_init_mac(NR_UE_MAC_INST_t *mac)
   mac->phy_config.config_req.ntn_config.params_changed = false;
   initNotifiedFIFO(&mac->input_nf);
   reset_mac_inst(mac);
+  nr_ue_init_mac_sl(mac);
 
   // need to inizialize because might not been setup (optional timer)
   nr_timer_stop(&mac->scheduling_info.sr_DelayTimer);

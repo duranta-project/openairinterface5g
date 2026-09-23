@@ -251,3 +251,25 @@ bool is_mixed_slot(const slot_t slot, const frame_structure_t *fs)
   const tdd_period_config_t *pc = &fs->period_cfg;
   return pc->tdd_slot_bitmap[s].slot_type == TDD_NR_MIXED_SLOT;
 }
+
+/**
+ * @brief Get the first UL slot index in period
+ * @param fs frame structure
+ * @param mixed indicates whether to include in the count also mixed slot with UL symbols or only full UL slot
+ * @return slot index
+ */
+int get_first_ul_slot(const frame_structure_t *fs, bool mixed)
+{
+  DevAssert(fs);
+
+  if (fs->frame_type == TDD) {
+    for (int i = 0; i < fs->numb_slots_period; i++) {
+      if ((mixed && is_ul_slot(i, fs)) || fs->period_cfg.tdd_slot_bitmap[i].slot_type == TDD_NR_UPLINK_SLOT) {
+        return i;
+      }
+    }
+  }
+
+  return 0; // FDD
+}
+

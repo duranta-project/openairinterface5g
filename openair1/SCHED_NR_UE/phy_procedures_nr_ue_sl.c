@@ -11,6 +11,7 @@
 #include "common/utils/LOG/log.h"
 //#include "common/utils/utils.h"
 //#include "common/utils/LOG/vcd_signal_dumper.h"
+#include "utils/nr/nr_common.h"
 #include "UTIL/OPT/opt.h"
 #include "intertask_interface.h"
 #include "T.h"
