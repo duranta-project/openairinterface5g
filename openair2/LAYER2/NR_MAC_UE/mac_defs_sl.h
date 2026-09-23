@@ -10,7 +10,11 @@
 #include "NR_TDD-UL-DL-ConfigCommon.h"
 #include "NR_MAC_COMMON/nr_mac.h"
 #include "NR_UE_PHY_INTERFACE/NR_IF_Module.h"
+#include "nr_ue_sci.h"
+#include <pthread.h>
+#include "mac_defs.h"
 
+#define HARQ_ROUND_MAX 4
 #define SL_NR_MAC_NUM_RX_RESOURCE_POOLS 1
 #define SL_NR_MAC_NUM_TX_RESOURCE_POOLS 1
 
@@ -25,6 +29,24 @@
 #define NR_SBCCH_SL_BCH 0xFF
 
 #define sci_field_t dci_field_t
+
+#define NR_UE_SL_SCHED_LOCK(lock)                                        \
+  do {                                                             \
+    int rc = pthread_mutex_lock(lock);                             \
+    AssertFatal(rc == 0, "error while locking scheduler mutex\n"); \
+  } while (0)
+
+#define NR_UE_SL_SCHED_UNLOCK(lock)                                      \
+  do {                                                             \
+    int rc = pthread_mutex_unlock(lock);                           \
+    AssertFatal(rc == 0, "error while locking scheduler mutex\n"); \
+  } while (0)
+
+#define NR_UE_SL_SCHED_ENSURE_LOCKED(lock)\
+  do {\
+    int rc = pthread_mutex_trylock(lock); \
+    AssertFatal(rc == EBUSY, "this function should be called with the scheduler mutex locked\n");\
+  } while (0)
 
 typedef struct sidelink_sci_format_1a_fields {
 
@@ -78,6 +100,7 @@ typedef struct SL_ResourcePool_params {
   //This holds the structure from RRC
   NR_SL_ResourcePool_r16_t *respool;
 
+  BIT_STRING_t phy_sl_bitmap;
   //NUM Subchannels in this resource pool
   uint16_t num_subch;
 
@@ -87,6 +110,13 @@ typedef struct SL_ResourcePool_params {
   //SCI-1A configuration according to RESPOOL configured.
   sidelink_sci_format_1a_fields_t sci_1a;
 
+  uint8_t tproc0;  // T_proc0 in slots
+  uint8_t tproc1;  // T_proc1 in slots
+  uint16_t t0;      // T0 - Sensing window
+  uint8_t t1; // T1 - The offset in number of slots between the slot in which the resource
+              // selection is triggered and the start of the selection window
+  uint16_t t2;  // T2 - The configured value of T2 (end of selection window)
+  uint8_t t2min; // t2min
 } SL_ResourcePool_params_t;
 
 typedef struct sl_ssb_timealloc {
@@ -113,6 +143,23 @@ typedef struct sl_bch_params {
 
 } sl_bch_params_t;
 
+/**
+ * \brief Structure to pass parameters to trigger the selection of candidate
+ * resources as per TR 38.214 Section 8.1.4
+ */
+typedef struct {
+    uint8_t priority;    // L1 priority prio_TX
+    uint16_t packet_delay_budget_ms;   // remaining packet delay budget
+    uint16_t l_subch;    // L_subCH; number of subchannels to be used
+    uint16_t rri;        // resource reservation interval
+    uint16_t resel_counter;       // C_resel counter
+    int sl_thresh_rsrp;  // A threshold in dBm used for sensing based UE autonomous resource selection
+    float sl_res_ratio;  /* The percentage threshold to indicate the
+                                 minimum number of candidate single-slot
+                                 resources to be selected using sensing procedure.
+                              */
+} nr_sl_transmission_params_t;
+
 typedef struct sl_stored_tti_req {
   uint32_t sl_action;
   int frame;
@@ -130,6 +177,29 @@ typedef struct sl_nr_ue_mac_params {
   //Holds either the TDD config from RRC
   //or TDD config decoded from SL-MIB
   NR_TDD_UL_DL_ConfigCommon_t *sl_TDD_config;
+  nr_sl_transmission_params_t  mac_tx_params;
+
+  // CSI params configured locally
+  uint8_t symb_l0;
+  uint8_t csi_type;
+  uint8_t power_control_offset;
+  uint8_t power_control_offset_ss;
+  uint8_t freq_density;
+  uint8_t subcarrier_spacing;
+  uint8_t cyclic_prefix;
+  uint16_t start_rb;
+  uint16_t nr_of_rbs;
+  uint8_t row;
+  uint16_t freq_domain;
+  uint8_t cdm_type;
+  uint16_t scramb_id;
+  uint8_t measurement_bitmap;
+  uint8_t sl_LatencyBoundCSI_Report;
+
+  // configured grant harq parameters
+  uint8_t sl_Num_HARQ_Processes;
+  uint8_t sl_HARQ_ProcID_offset;
+  uint16_t sl_Periodic_RRI;
 
   //Configured from RRC
   uint32_t sl_MaxNumConsecutiveDTX;
@@ -159,6 +229,7 @@ typedef struct sl_nr_ue_mac_params {
 
   uint16_t decoded_DFN;
   uint16_t decoded_slot;
+  NR_bler_options_t sl_bler;
 
   uint32_t N_SL_SLOTS;
   uint16_t N_SSB_16frames;

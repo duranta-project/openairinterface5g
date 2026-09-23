@@ -408,7 +408,6 @@ uint16_t get_pm_index(const nr_cell_sched_t *cell,
                       int xp_pdsch_antenna_ports);
 
 int get_mcs_from_SINRx10(int mcs_table, int SINRx10, int Nl);
-uint8_t get_mcs_from_cqi(int mcs_table, int cqi_table, int cqi_idx);
 
 uint8_t get_dl_nrOfLayers(const NR_UE_sched_ctrl_t *sched_ctrl, const nr_dci_format_t dci_format);
 
