@@ -2,7 +2,7 @@
 
 <testCaseList>
   <htmlTabRef>rfsim-5gnr-f1</htmlTabRef>
-  <htmlTabName>CU-DU F1 split</htmlTabName>
+  <htmlTabName>CU-DU F1 split - 2-Step RA</htmlTabName>
   <htmlTabIcon>wrench</htmlTabIcon>
 
   <testCase>
