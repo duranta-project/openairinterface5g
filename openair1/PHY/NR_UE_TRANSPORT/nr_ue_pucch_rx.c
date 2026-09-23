@@ -250,9 +250,8 @@ int8_t nr_ue_decode_pucch0(PHY_VARS_NR_UE *ue,
   for (int l=0; l<pucch_pdu->nr_of_symbols; l++) {
     uint8_t l2 = l + pucch_pdu->start_symbol_index;
 
-    re_offset[l] = (12 * prb_offset[l]) + frame_parms->first_carrier_offset;
-    if (re_offset[l] >= frame_parms->ofdm_symbol_size)
-      re_offset[l] -= frame_parms->ofdm_symbol_size;
+    // rxdataF is FFT shifted by nr_slot_fep(), matching nr_generate_pucch0() on TX
+    re_offset[l] = 12 * prb_offset[l];
 
     for (int aa = 0; aa < frame_parms->nb_antennas_rx; aa++) {
       LOG_D(NR_PHY, "soffset %i, soffset + l2*frame_parms->ofdm_symbol_size %i %i re_offset[%d] %i\n",

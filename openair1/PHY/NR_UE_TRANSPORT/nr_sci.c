@@ -70,7 +70,9 @@ uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
   int rb_offset = pdcch_pdu_rel15->FreqDomainResource[0];
   int n_rb = pdcch_pdu_rel15->FreqDomainResource[1];
 
-  cset_start_sc = frame_parms->first_carrier_offset + (pdcch_pdu_rel15->BWPStart + rb_offset) * NR_NB_SC_PER_RB;
+  // txdataF is FFT shifted (see apply_nr_rotation_TX()): the REs of the carrier are
+  // contiguous from index 0, so the RE index is the subcarrier number itself.
+  cset_start_sc = (pdcch_pdu_rel15->BWPStart + rb_offset) * NR_NB_SC_PER_RB;
 
   c16_t mod_dmrs[pdcch_pdu_rel15->StartSymbolIndex+pdcch_pdu_rel15->DurationSymbols][(((n_rb+rb_offset+pdcch_pdu_rel15->BWPStart)*6+15)>>5)<<5] __attribute__((aligned(16)));
 
