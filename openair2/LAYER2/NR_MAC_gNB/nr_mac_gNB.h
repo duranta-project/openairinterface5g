@@ -426,6 +426,7 @@ typedef struct NR_sched_pucch {
   uint8_t dai_c;
   uint8_t timing_indicator;
   uint8_t resource_indicator;
+  int resource_id;
   int r_pucch;
   int prb_start;
   int second_hop_prb;

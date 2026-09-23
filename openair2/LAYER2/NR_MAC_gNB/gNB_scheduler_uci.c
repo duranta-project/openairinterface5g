@@ -58,7 +58,7 @@ static void set_r_pucch_parms(int rsetindex,
 static void nr_configure_pucch(nfapi_nr_pucch_pdu_t *pucch_pdu,
                                NR_ServingCellConfigCommon_t *scc,
                                NR_UE_info_t *UE,
-                               uint8_t pucch_resource,
+                               int resource_id,
                                uint16_t O_csi,
                                uint16_t O_ack,
                                uint8_t O_sr,
@@ -68,21 +68,12 @@ static void nr_configure_pucch(nfapi_nr_pucch_pdu_t *pucch_pdu,
                                uint16_t *ssi,
                                uint16_t num_ant)
 {
-  NR_PUCCH_Resource_t *pucchres;
   NR_PUCCH_FormatConfig_t *pucchfmt;
   NR_UE_UL_BWP_t *current_BWP = &UE->current_UL_BWP;
-
-  int res_found = 0;
-
   pucch_pdu->bit_len_harq = O_ack;
   pucch_pdu->bit_len_csi_part1 = O_csi;
-
-  uint16_t O_uci = O_csi + O_ack;
-
   NR_PUSCH_Config_t *pusch_Config = current_BWP->pusch_Config;
-
   long *pusch_id = pusch_Config ? pusch_Config->dataScramblingIdentityPUSCH : NULL;
-
   long *id0 = NULL;
   if (pusch_Config &&
       pusch_Config->dmrs_UplinkForPUSCH_MappingTypeA != NULL &&
@@ -129,18 +120,14 @@ static void nr_configure_pucch(nfapi_nr_pucch_pdu_t *pucch_pdu,
   NR_PUCCH_Config_t *pucch_Config = current_BWP->pucch_Config;
   if (r_pucch < 0 || pucch_Config) {
     LOG_D(NR_MAC, "pucch_acknak: Filling dedicated configuration for PUCCH\n");
-
-    int resource_id = get_pucch_resourceid(pucch_Config, O_uci, pucch_resource);
-
-    AssertFatal(pucch_Config->resourceToAddModList!=NULL,
-                "PUCCH resourceToAddModList is null\n");
-
+    int res_found = 0;
+    AssertFatal(pucch_Config->resourceToAddModList != NULL, "PUCCH resourceToAddModList is null\n");
     int n_list = pucch_Config->resourceToAddModList->list.count;
     AssertFatal(n_list > 0, "PUCCH resourceToAddModList is empty\n");
 
     // going through the list of PUCCH resources to find the one indexed by resource_id
     for (int i = 0; i < n_list; i++) {
-      pucchres = pucch_Config->resourceToAddModList->list.array[i];
+      NR_PUCCH_Resource_t *pucchres = pucch_Config->resourceToAddModList->list.array[i];
       if (pucchres->pucch_ResourceId == resource_id) {
         res_found = 1;
         pucch_pdu->prb_start = pucchres->startingPRB;
@@ -342,7 +329,7 @@ static void nr_fill_nfapi_pucch(nr_cell_sched_t *cell, frame_t frame, slot_t slo
   nr_configure_pucch(pucch_pdu,
                      scc,
                      UE,
-                     pucch->resource_indicator,
+                     pucch->resource_id,
                      pucch->csi_bits,
                      pucch->dai_c,
                      pucch->sr_flag,
@@ -457,77 +444,71 @@ void nr_schedule_pucch(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frame
   }
 }
 
-static int find_pucch_resource_index(const NR_PUCCH_Config_t *pucch_Config, int resset_idx, int pucch_idx)
+static bool test_pucch23_vrb_occupation(NR_PUCCH_Resource_t *pucchres, uint16_t *vrb_map_UL, int bwp_start)
 {
-  // resset_idx 0 for f0 and f1, resset_idx 1 for f2 and f3
-  const NR_PUCCH_ResourceSet_t *pucchresset = pucch_Config->resourceSetToAddModList->list.array[resset_idx];
-  const int n = pucchresset->resourceList.list.count;
-  int res_index = 0;
-  for (; res_index < n; res_index++)
-    if (*pucchresset->resourceList.list.array[res_index] == pucch_idx)
+  int start = pucchres->startingPRB;
+  int len = 1;
+  uint64_t mask = 0;
+  switch(pucchres->format.present) {
+    case NR_PUCCH_Resource__format_PR_format2 :
+      len = pucchres->format.choice.format2->nrofPRBs;
+      mask = SL_to_bitmap(pucchres->format.choice.format2->startingSymbolIndex, pucchres->format.choice.format2->nrofSymbols);
       break;
-  return res_index < n ? res_index : -1;
+    case NR_PUCCH_Resource__format_PR_format3 :
+      len = pucchres->format.choice.format3->nrofPRBs;
+      mask = SL_to_bitmap(pucchres->format.choice.format3->startingSymbolIndex, pucchres->format.choice.format3->nrofSymbols);
+      break;
+    case NR_PUCCH_Resource__format_PR_format4:
+      mask = SL_to_bitmap(pucchres->format.choice.format4->startingSymbolIndex, pucchres->format.choice.format4->nrofSymbols);
+      break;
+    default:
+      AssertFatal(false, "Invalid PUCCH format type\n");
+  }
+  // verify resources are free
+  for (int i = start; i < start + len; ++i) {
+    if((vrb_map_UL[i + bwp_start] & mask) != 0) {
+      return false;
+    }
+  }
+  return true;
 }
 
-static bool pucch23_vrb_occupation(nr_cell_sched_t *cell,
-                                   NR_PUCCH_Config_t *pucch_Config,
-                                   NR_sched_pucch_t *curr_pucch,
-                                   NR_beam_alloc_t beam,
-                                   int res_id,
-                                   int bwp_start,
-                                   int sched_frame,
-                                   int sched_slot)
+static void set_pucch23_vrb_occupation(NR_PUCCH_Resource_t *pucchres, uint16_t *vrb_map_UL, int bwp_start)
 {
-  const int n_slots_frame = cell->frame_structure.numb_slots_frame;
-  const int index = ul_buffer_index(sched_frame, sched_slot, n_slots_frame, cell->vrb_map_UL_size);
-  uint16_t *vrb_map_UL = &cell->common_channels.vrb_map_UL[beam.idx][index * MAX_BWP_SIZE];
-  const int m = pucch_Config->resourceToAddModList->list.count;
-  for (int j = 0; j < m; j++) {
-    NR_PUCCH_Resource_t *pucchres = pucch_Config->resourceToAddModList->list.array[j];
-    if (pucchres->pucch_ResourceId != res_id)
-      continue;
-    int start = pucchres->startingPRB;
-    int len = 1;
-    uint64_t mask = 0;
-    switch(pucchres->format.present) {
-      case NR_PUCCH_Resource__format_PR_format2 :
-        len = pucchres->format.choice.format2->nrofPRBs;
-        mask = SL_to_bitmap(pucchres->format.choice.format2->startingSymbolIndex, pucchres->format.choice.format2->nrofSymbols);
-        curr_pucch->simultaneous_harqcsi = pucch_Config->format2->choice.setup->simultaneousHARQ_ACK_CSI;
-        LOG_D(NR_MAC,
-              "%d.%d Allocating PUCCH format 2, startPRB %d, nPRB %d, simulHARQ %d, num_bits %d\n",
-               sched_frame,
-               sched_slot,
-               start,
-               len,
-               curr_pucch->simultaneous_harqcsi,
-               curr_pucch->csi_bits);
-        break;
-      case NR_PUCCH_Resource__format_PR_format3 :
-        len = pucchres->format.choice.format3->nrofPRBs;
-        mask = SL_to_bitmap(pucchres->format.choice.format3->startingSymbolIndex, pucchres->format.choice.format3->nrofSymbols);
-        curr_pucch->simultaneous_harqcsi = pucch_Config->format3->choice.setup->simultaneousHARQ_ACK_CSI;
-        break;
-      case NR_PUCCH_Resource__format_PR_format4:
-        mask = SL_to_bitmap(pucchres->format.choice.format4->startingSymbolIndex, pucchres->format.choice.format4->nrofSymbols);
-        curr_pucch->simultaneous_harqcsi = pucch_Config->format4->choice.setup->simultaneousHARQ_ACK_CSI;
-        break;
-      default:
-        AssertFatal(false, "Invalid PUCCH format type\n");
-    }
-    // verify resources are free
-    for (int i = start; i < start + len; ++i) {
-      if((vrb_map_UL[i + bwp_start] & mask) != 0) {
-        LOG_E(NR_MAC, "VRB MAP in %4d.%2d not free. Can't schedule CSI reporting on PUCCH.\n", sched_frame, sched_slot);
-        return false;
-      }
-    }
-    // reserve resources
-    for (int i = start; i < start + len; ++i)
-      vrb_map_UL[i + bwp_start] |= mask;
-    return true;
+  int start = pucchres->startingPRB;
+  int len = 1;
+  uint64_t mask = 0;
+  switch(pucchres->format.present) {
+    case NR_PUCCH_Resource__format_PR_format2 :
+      len = pucchres->format.choice.format2->nrofPRBs;
+      mask = SL_to_bitmap(pucchres->format.choice.format2->startingSymbolIndex, pucchres->format.choice.format2->nrofSymbols);
+      break;
+    case NR_PUCCH_Resource__format_PR_format3 :
+      len = pucchres->format.choice.format3->nrofPRBs;
+      mask = SL_to_bitmap(pucchres->format.choice.format3->startingSymbolIndex, pucchres->format.choice.format3->nrofSymbols);
+      break;
+    case NR_PUCCH_Resource__format_PR_format4:
+      mask = SL_to_bitmap(pucchres->format.choice.format4->startingSymbolIndex, pucchres->format.choice.format4->nrofSymbols);
+      break;
+    default:
+      AssertFatal(false, "Invalid PUCCH format type\n");
   }
-  return false;
+  // reserve resources
+  for (int i = start; i < start + len; ++i)
+    vrb_map_UL[i + bwp_start] |= mask;
+}
+
+static NR_PUCCH_Resource_t *get_pucch_resource(const NR_PUCCH_Config_t *pucch_Config, const NR_PUCCH_ResourceId_t *resource_id)
+{
+  DevAssert(resource_id);
+  DevAssert(pucch_Config->resourceSetToAddModList);
+  for (int n = 0; n < pucch_Config->resourceToAddModList->list.count; n++) {
+    NR_PUCCH_Resource_t *resource = pucch_Config->resourceToAddModList->list.array[n];
+    if (resource->pucch_ResourceId == *resource_id)
+      return resource;
+  }
+  LOG_E(NR_MAC, "Couldn't find PUCCH resource with ID %ld\n", *resource_id);
+  return NULL;
 }
 
 void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frame, slot_t slot)
@@ -572,8 +553,6 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
 
       AssertFatal(is_ul_slot(sched.s, &cell->frame_structure), "CSI reporting slot %d is not set for an uplink slot\n", sched.s);
       LOG_D(NR_MAC, "CSI reporting in frame %d slot %d CSI report ID %ld\n", sched.f, sched.s, csirep->reportConfigId);
-      int res_index = find_pucch_resource_index(pucch_Config, 1, pucchcsires->pucch_Resource); // index 1 for F2
-      AssertFatal(res_index >= 0, "PUCCH resource with index %ld not found among PUCCH resources\n", pucchcsires->pucch_Resource);
       const int pucch_index = get_pucch_index(sched.f, sched.s, &cell->frame_structure, sched_ctrl->sched_pucch_size);
       NR_sched_pucch_t *curr_pucch = &sched_ctrl->sched_pucch[pucch_index];
       if (curr_pucch->active) {
@@ -585,75 +564,27 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
       NR_beam_alloc_t beam = beam_allocation_procedure(&cell->beam_info, sched.f, sched.s, UE->UE_beam_index, n_slots_frame);
       AssertFatal(beam.idx >= 0, "Cannot allocate CSI measurements on PUCCH in any available beam\n");
       curr_pucch->beam_idx = beam.idx;
-      const NR_PUCCH_ResourceSet_t *pucchresset = pucch_Config->resourceSetToAddModList->list.array[1]; // set with formats >1
-      bool ret = pucch23_vrb_occupation(cell,
-                                        pucch_Config,
-                                        curr_pucch,
-                                        beam,
-                                        *pucchresset->resourceList.list.array[res_index],
-                                        ul_bwp->BWPStart,
-                                        sched.f,
-                                        sched.s);
-
+      const int n_slots_frame = cell->frame_structure.numb_slots_frame;
+      const int index = ul_buffer_index(sched.f, sched.s, n_slots_frame, cell->vrb_map_UL_size);
+      NR_PUCCH_Resource_t *csires = get_pucch_resource(pucch_Config, &pucchcsires->pucch_Resource);
+      bool ret = test_pucch23_vrb_occupation(csires,
+                                             &cell->common_channels.vrb_map_UL[beam.idx][index * MAX_BWP_SIZE],
+                                             ul_bwp->BWPStart);
       if (!ret) {
         LOG_E(NR_MAC, "Resources not free to schedule CSI report\n");
         reset_beam_status(&cell->beam_info, sched.f, sched.s, UE->UE_beam_index, n_slots_frame, beam.new_beam);
         continue;
       }
+      set_pucch23_vrb_occupation(csires, &cell->common_channels.vrb_map_UL[beam.idx][index * MAX_BWP_SIZE], ul_bwp->BWPStart);
       curr_pucch->r_pucch = -1;
       curr_pucch->frame = sched.f;
       curr_pucch->ul_slot = sched.s;
-      curr_pucch->resource_indicator = res_index;
+      curr_pucch->resource_indicator = -1; // HARQ resource indicator
+      curr_pucch->resource_id = pucchcsires->pucch_Resource;
       curr_pucch->csi_bits += nr_get_csi_bitlen(&UE->csi_report_template[csi_report_id]);
       curr_pucch->active = true;
     }
   }
-}
-
-int get_pucch_resourceid(NR_PUCCH_Config_t *pucch_Config, int O_uci, int pucch_resource)
-{
-  NR_PUCCH_ResourceId_t *resource_id = NULL;
-  AssertFatal(pucch_Config->resourceSetToAddModList != NULL, "PUCCH resourceSetToAddModList is null\n");
-
-  int n_set = pucch_Config->resourceSetToAddModList->list.count;
-  AssertFatal(n_set > 0, "PUCCH resourceSetToAddModList is empty\n");
-
-  LOG_D(NR_MAC, "UCI n_set= %d\n", n_set);
-
-  int N2 = 2;
-  // procedure to select pucch resource id from resource sets according to
-  // number of uci bits and pucch resource indicator pucch_resource
-  // ( see table 9.2.3.2 in 38.213)
-  for (int i = 0; i < n_set; i++) {
-    NR_PUCCH_ResourceSet_t *pucchresset = pucch_Config->resourceSetToAddModList->list.array[i];
-    int n_list = pucchresset->resourceList.list.count;
-    if (pucchresset->pucch_ResourceSetId == 0 && O_uci < 3) {
-      if (pucch_resource < n_list)
-        resource_id = pucchresset->resourceList.list.array[pucch_resource];
-      else
-        AssertFatal(1 == 0,
-                    "Couldn't find pucch resource indicator %d in PUCCH resource set %d for %d UCI bits",
-                    pucch_resource,
-                    i,
-                    O_uci);
-    }
-    if (pucchresset->pucch_ResourceSetId == 1 && O_uci > 2) {
-      int N3 = pucchresset->maxPayloadSize != NULL ? *pucchresset->maxPayloadSize : 1706;
-      if (N2 < O_uci && N3 > O_uci) {
-        if (pucch_resource < n_list)
-          resource_id = pucchresset->resourceList.list.array[pucch_resource];
-        else
-          AssertFatal(1 == 0,
-                      "Couldn't find pucch resource indicator %d in PUCCH resource set %d for %d UCI bits",
-                      pucch_resource,
-                      i,
-                      O_uci);
-      } else
-        N2 = N3;
-    }
-  }
-  AssertFatal(resource_id != NULL, "Couldn't find any matching PUCCH resource in the PUCCH resource sets");
-  return *resource_id;
 }
 
 static void handle_dl_harq(nr_cell_sched_t *cell, NR_UE_info_t * UE, int8_t harq_pid, bool success, int harq_round_max)
@@ -1399,26 +1330,20 @@ static bool test_pucch0_vrb_occupation(const NR_PUCCH_Resource_t *resource,
   return true;
 }
 
-static NR_PUCCH_Resource_t *get_pucch_resource(const NR_PUCCH_Config_t *pucch_Config, const NR_PUCCH_ResourceId_t *resource_id)
-{
-  DevAssert(resource_id);
-  DevAssert(pucch_Config->resourceSetToAddModList);
-  for (int n = 0; n < pucch_Config->resourceToAddModList->list.count; n++) {
-    NR_PUCCH_Resource_t *resource = pucch_Config->resourceToAddModList->list.array[n];
-    if (resource->pucch_ResourceId == *resource_id)
-      return resource;
-  }
-  LOG_E(NR_MAC, "Couldn't find PUCCH resource with ID %ld\n", *resource_id);
-  return NULL;
-}
-
-static void set_pucch_allocation(const NR_PUCCH_Resource_t *resource, NR_sched_pucch_t *pucch, int resource_ind)
+static void set_pucch_allocation(const NR_PUCCH_Resource_t *resource, NR_sched_pucch_t *pucch, int resource_ind, int id)
 {
   pucch->second_hop_prb = resource->secondHopPRB != NULL ?  *resource->secondHopPRB : 0;
-  pucch->nr_of_symb = resource->format.choice.format0->nrofSymbols;
-  pucch->start_symb = resource->format.choice.format0->startingSymbolIndex;
+  if (resource->format.present == NR_PUCCH_Resource__format_PR_format0) {
+    pucch->nr_of_symb = resource->format.choice.format0->nrofSymbols;
+    pucch->start_symb = resource->format.choice.format0->startingSymbolIndex;
+  } else if (resource->format.present == NR_PUCCH_Resource__format_PR_format2) {
+    pucch->nr_of_symb = resource->format.choice.format2->nrofSymbols;
+    pucch->start_symb = resource->format.choice.format2->startingSymbolIndex;
+  } else
+    AssertFatal(false, "PUCCH format not yet supported\n");
   pucch->prb_start = resource->startingPRB;
   pucch->resource_indicator = resource_ind;
+  pucch->resource_id = id;
 }
 
 static bool find_pucch_allocation(const NR_UE_UL_BWP_t *ul_bwp,
@@ -1426,18 +1351,25 @@ static bool find_pucch_allocation(const NR_UE_UL_BWP_t *ul_bwp,
                                   const int r_pucch,
                                   const int bwp_start,
                                   const int bwp_size,
-                                  NR_sched_pucch_t *pucch)
+                                  NR_sched_pucch_t *pucch,
+                                  bool is_short_pucch)
 {
   if (r_pucch < 0) {
     NR_PUCCH_Config_t *pucch_Config = ul_bwp->pucch_Config;
     // PUCCH resource set for F0 or 1 is the one with index 0
     DevAssert(pucch_Config->resourceSetToAddModList);
-    const NR_PUCCH_ResourceSet_t *pucchresset = pucch_Config->resourceSetToAddModList->list.array[0];
+    int set_index = is_short_pucch ? 0 : 1;
+    const NR_PUCCH_ResourceSet_t *pucchresset = pucch_Config->resourceSetToAddModList->list.array[set_index];
     for (int i = 0; i < pucchresset->resourceList.list.count; i++) {
       NR_PUCCH_ResourceId_t *resource_id = pucchresset->resourceList.list.array[i];
       NR_PUCCH_Resource_t *resource = get_pucch_resource(pucch_Config, resource_id);
-      if (test_pucch0_vrb_occupation(resource, vrb_map_UL, bwp_start, bwp_size)) {
-        set_pucch_allocation(resource, pucch, i);
+      bool valid_allocation = false;
+      if (is_short_pucch && test_pucch0_vrb_occupation(resource, vrb_map_UL, bwp_start, bwp_size))
+        valid_allocation = true;
+      if (!is_short_pucch && test_pucch23_vrb_occupation(resource, vrb_map_UL, bwp_start))
+        valid_allocation = true;
+      if (valid_allocation) {
+        set_pucch_allocation(resource, pucch, i, *resource_id);
         return true; // we found a valid occasion (otherwise we try with the following one)
       }
     }
@@ -1455,7 +1387,7 @@ static bool find_pucch_allocation(const NR_UE_UL_BWP_t *ul_bwp,
   }
 }
 
-static void set_reset_pucch0_vrb_occupation(const NR_sched_pucch_t *pucch, uint16_t *vrb_map_UL, const int bwp_start, bool set)
+static void set_pucch0_vrb_occupation(const NR_sched_pucch_t *pucch, uint16_t *vrb_map_UL, const int bwp_start)
 {
   for (int l = 0; l < pucch->nr_of_symb; l++) {
     uint16_t symb = SL_to_bitmap(pucch->start_symb + l, 1);
@@ -1464,18 +1396,13 @@ static void set_reset_pucch0_vrb_occupation(const NR_sched_pucch_t *pucch, uint1
       prb = pucch->second_hop_prb;
     else
       prb = pucch->prb_start;
-    if (set)
-      vrb_map_UL[bwp_start + prb] |= symb;
-    else
-      vrb_map_UL[bwp_start + prb] &= ~symb;
+    vrb_map_UL[bwp_start + prb] |= symb;
   }
 }
 
-static bool check_bits_vs_coderate_limit(NR_PUCCH_Config_t *pucch_Config, int O_uci, int pucch_resource)
+static bool check_bits_vs_coderate_limit(NR_PUCCH_Config_t *pucch_Config, int O_uci, int resource_id)
 {
-  int resource_id = get_pucch_resourceid(pucch_Config, O_uci, pucch_resource);
   AssertFatal(pucch_Config->resourceToAddModList != NULL, "PUCCH resourceToAddModList is null\n");
-
   int n_list = pucch_Config->resourceToAddModList->list.count;
   AssertFatal(n_list > 0, "PUCCH resourceToAddModList is empty\n");
 
@@ -1589,48 +1516,53 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
             curr_pucch->dai_c,
             curr_pucch->csi_bits);
 
+      // in common PUCCH we can transmit at most 2 bits
+      if (curr_pucch->dai_c == 2 && curr_pucch->csi_bits == 0 && !pucch_Config)
+        continue;
       // if there is CSI but simultaneous HARQ+CSI is disable we can't schedule
       if (curr_pucch->csi_bits > 0 && !curr_pucch->simultaneous_harqcsi)
-        continue;
-      // check if the number of bits to be scheduled can fit in current PUCCH
-      // according to PUCCH code rate (if not we search for another allocation)
-      // the number of bits in the check need to include possible SR (1 bit)
-      // and the ack/nack bit to be scheduled (1 bit)
-      // so the number of bits already scheduled in current pucch + SR flag + 1
-      int tot_bits = curr_pucch->csi_bits + curr_pucch->dai_c + curr_pucch->sr_flag + 1;
-      if (curr_pucch->csi_bits + curr_pucch->dai_c > 2
-          && !check_bits_vs_coderate_limit(pucch_Config, tot_bits, curr_pucch->resource_indicator))
         continue;
       // TODO temporarily limit ack/nak to 3 bits because of performances of polar for PUCCH (required for > 11 bits)
       if (curr_pucch->csi_bits > 0 && curr_pucch->dai_c >= 3)
         continue;
 
-      // otherwise we can schedule in this active PUCCH
-      // no need to check VRB occupation because already done when PUCCH has been activated
+      const int index = ul_buffer_index(frame_slot.f, frame_slot.s, n_slots_frame, cell->vrb_map_UL_size);
+      NR_beam_alloc_t beam = beam_allocation_procedure(&cell->beam_info, frame_slot.f, frame_slot.s, ue_beam, n_slots_frame);
+      AssertFatal(beam.idx >= 0, "Beam should have been allocated with previous PUCCH allocation, it should be available\n");
+      uint16_t *vrb_map_UL = &cell->common_channels.vrb_map_UL[beam.idx][index * MAX_BWP_SIZE];
+
+      // if there is SR or CSI and no HARQ, the multiplexing would be on the HARQ resource
+      // so we would need to switch, but before we need to find an available resource
+      NR_sched_pucch_t new_pucch = *curr_pucch;
+      if ((curr_pucch->sr_flag || curr_pucch->csi_bits > 0) && curr_pucch->dai_c == 0) {
+        bool is_short_pucch = curr_pucch->csi_bits == 0 ? true : false;
+        if (!find_pucch_allocation(ul_bwp, vrb_map_UL, r_pucch, bwp_start, bwp_size, &new_pucch, is_short_pucch))
+          continue;
+      }
+
+      // check if the number of bits to be scheduled can fit in current PUCCH
+      // according to PUCCH code rate (if not we search for another allocation)
+      // the number of bits in the check need to include possible SR (1 bit)
+      // and the ack/nack bit to be scheduled (1 bit)
+      // so the number of bits already scheduled in current pucch + SR flag + 1
+      int tot_bits = curr_pucch->csi_bits + curr_pucch->dai_c + curr_pucch->sr_flag;
+      if (curr_pucch->csi_bits + curr_pucch->dai_c > 2
+          && !check_bits_vs_coderate_limit(pucch_Config, tot_bits + 1, new_pucch.resource_id))
+        continue;
+
+       // if we switched to a new PUCCH resource, we copy to current PUCCH
+       if (curr_pucch->resource_indicator != new_pucch.resource_indicator)
+         *curr_pucch = new_pucch;
+
       curr_pucch->timing_indicator = f;
       // if we already reached the limit for PUCCH F0 or 1, we need to switch to another format
       if (curr_pucch->dai_c == 2 && curr_pucch->csi_bits == 0) {
-        if (!pucch_Config) // in common PUCCH we can transmit at most 2 bits
-          continue;
-        const int index = ul_buffer_index(frame_slot.f, frame_slot.s, n_slots_frame, cell->vrb_map_UL_size);
-        NR_beam_alloc_t beam = beam_allocation_procedure(&cell->beam_info, frame_slot.f, frame_slot.s, ue_beam, n_slots_frame);
-        AssertFatal(beam.idx >= 0, "Beam should have been already allocated when setting PUCCH0, so it should be available\n");
-        uint16_t *vrb_map_UL = &cell->common_channels.vrb_map_UL[beam.idx][index * MAX_BWP_SIZE];
-        // resetting PUCCH0 occupation
-        set_reset_pucch0_vrb_occupation(curr_pucch, vrb_map_UL, bwp_start, false);
         const NR_PUCCH_ResourceSet_t *pucchresset = pucch_Config->resourceSetToAddModList->list.array[1];
-        bool ret = pucch23_vrb_occupation(cell,
-                                          pucch_Config,
-                                          curr_pucch,
-                                          beam,
-                                          *pucchresset->resourceList.list.array[curr_pucch->resource_indicator],
-                                          bwp_start,
-                                          frame_slot.f,
-                                          frame_slot.s);
-        if (!ret) {  // if we can't allocate a PUCCH able to carry more than 2 bits we need to keep looking
-          set_reset_pucch0_vrb_occupation(curr_pucch, vrb_map_UL, bwp_start, true);
-          continue;
-        }
+        curr_pucch->resource_id = *pucchresset->resourceList.list.array[curr_pucch->resource_indicator];
+        NR_PUCCH_Resource_t *resource = get_pucch_resource(pucch_Config,
+                                                           pucchresset->resourceList.list.array[curr_pucch->resource_indicator]);
+        // no need to check for availablility, the slot was already reserved by the PUCCH 0
+        set_pucch23_vrb_occupation(resource, vrb_map_UL, bwp_start);
       }
       curr_pucch->dai_c++;
       LOG_D(NR_MAC,
@@ -1667,7 +1599,7 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
       // checking if in ul_slot the resources potentially to be assigned to this PUCCH are available
       const int index = ul_buffer_index(frame_slot.f, frame_slot.s, n_slots_frame, cell->vrb_map_UL_size);
       uint16_t *vrb_map_UL = &cell->common_channels.vrb_map_UL[beam.idx][index * MAX_BWP_SIZE];
-      bool valid = find_pucch_allocation(ul_bwp, vrb_map_UL, r_pucch, bwp_start, bwp_size, curr_pucch);
+      bool valid = find_pucch_allocation(ul_bwp, vrb_map_UL, r_pucch, bwp_start, bwp_size, curr_pucch, true);
       if(!valid) {
         LOG_D(NR_MAC,
               "DL %4d.%2d, UL_ACK %4d.%2d PRB resources for this occasion are already occupied, move to the following occasion\n",
@@ -1696,7 +1628,7 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
             f,
             curr_pucch->dai_c);
       // blocking resources for current PUCCH in VRB map
-      set_reset_pucch0_vrb_occupation(curr_pucch, vrb_map_UL, bwp_start, true);
+      set_pucch0_vrb_occupation(curr_pucch, vrb_map_UL, bwp_start);
       return pucch_index; // index of current PUCCH structure
     }
   }
@@ -1736,14 +1668,11 @@ void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t SFN, sl
       AssertFatal(is_ul_slot(sched.s, &cell->frame_structure), "SR slot %d is not set for an uplink slot\n", sched.s);
       LOG_D(NR_MAC, "%4d.%2d Scheduling Request UE %04x identified\n", sched.f, sched.s, UE->rnti);
       NR_PUCCH_ResourceId_t *PucchResourceId = srConf->resource;
-      int idx = find_pucch_resource_index(pucch_Config, 0, *PucchResourceId); // index 0 for F0
-      AssertFatal(idx >= 0, "PUCCH resource with index %ld not found among PUCCH resources\n", *PucchResourceId);
       const int pucch_index = get_pucch_index(sched.f, sched.s, &cell->frame_structure, sched_ctrl->sched_pucch_size);
       NR_sched_pucch_t *curr_pucch = &sched_ctrl->sched_pucch[pucch_index];
       if (curr_pucch->active
           && curr_pucch->frame == sched.f
-          && curr_pucch->ul_slot == sched.s
-          && curr_pucch->resource_indicator == idx)
+          && curr_pucch->ul_slot == sched.s)
         curr_pucch->sr_flag = true;
       else if (curr_pucch->active) {
         LOG_E(NR_MAC,
@@ -1771,14 +1700,14 @@ void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t SFN, sl
           LOG_E(NR_MAC, "Cannot schedule SR. PRBs not available\n");
           continue;
         }
-        set_pucch_allocation(resource, curr_pucch, idx);
+        set_pucch_allocation(resource, curr_pucch, -1, *PucchResourceId);
         curr_pucch->beam_idx = beam.idx;
         curr_pucch->frame = sched.f;
         curr_pucch->ul_slot = sched.s;
         curr_pucch->sr_flag = true;
         curr_pucch->r_pucch = -1;
         curr_pucch->active = true;
-        set_reset_pucch0_vrb_occupation(curr_pucch, vrb_map_UL, bwp_start, true);
+        set_pucch0_vrb_occupation(curr_pucch, vrb_map_UL, bwp_start);
       }
     }
   }
