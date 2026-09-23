@@ -741,7 +741,7 @@ void RCconfig_nr_prs(void)
                                            cell,
                                            PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN1_LIST].numelt,
                                            PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN2_LIST].numelt);
-      if (*PRS_ParamList.paramarray[j][BROADCAST_POS_SIB].iptr)
+      if (!get_softmodem_params()->phy_test && *PRS_ParamList.paramarray[j][BROADCAST_POS_SIB].iptr)
         configure_rrc_possib_prs_assistance_data(RC.gNB[j],
                                                  cell,
                                                  PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN1_LIST].numelt,
