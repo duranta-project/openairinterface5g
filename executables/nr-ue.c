@@ -958,8 +958,35 @@ void *UE_thread(void *arg)
     curMsg.proc.hfn_tx      = ((absolute_slot + duration_rx_to_tx) / nb_slot_frame) / MAX_FRAME_NUMBER;
     if (UE->received_config_request) {
       if (UE->sl_mode) {
+        NR_UE_MAC_INST_t *mac = get_mac_inst(UE->Mod_id);
+        uint8_t pool_id = 0;
+
+        // Temporarily setting this to this initial NON_NR_SIDELINK_SLOT slot type.
+        // Later we should properly determine if the current slot is an NR_DOWNLINK_SLOT, NR_UPLINK_SLOT, or NR_MIXED_SLOT
         curMsg.proc.rx_slot_type = sl_nr_ue_slot_select(sl_cfg, curMsg.proc.nr_slot_rx, TDD);
         curMsg.proc.tx_slot_type = sl_nr_ue_slot_select(sl_cfg, curMsg.proc.nr_slot_tx, TDD);
+
+        SL_ResourcePool_params_t *sl_tx_rsrc_pool = mac->SL_MAC_PARAMS->sl_TxPool[pool_id];
+        uint16_t phy_map_sz_tx = ((sl_tx_rsrc_pool->phy_sl_bitmap.size << 3) - sl_tx_rsrc_pool->phy_sl_bitmap.bits_unused);
+        bool sl_tx_slot = is_sl_slot(mac, &sl_tx_rsrc_pool->phy_sl_bitmap, phy_map_sz_tx, absolute_slot + duration_rx_to_tx);
+        if (sl_tx_slot) {
+          frameslot_t frame_slot_tx;
+          frame_slot_tx.frame = curMsg.proc.frame_tx;
+          frame_slot_tx.slot = curMsg.proc.nr_slot_tx;
+          validate_selected_sl_slot(true, false, mac->SL_MAC_PARAMS->sl_TDD_config, frame_slot_tx);
+          curMsg.proc.tx_slot_type = NR_SIDELINK_SLOT;
+        }
+
+        SL_ResourcePool_params_t *sl_rx_rsrc_pool = mac->SL_MAC_PARAMS->sl_RxPool[pool_id];
+        uint16_t phy_map_sz_rx = ((sl_rx_rsrc_pool->phy_sl_bitmap.size << 3) - sl_rx_rsrc_pool->phy_sl_bitmap.bits_unused);
+        bool sl_rx_slot = is_sl_slot(mac, &sl_rx_rsrc_pool->phy_sl_bitmap, phy_map_sz_rx, absolute_slot);
+        if (sl_rx_slot) {
+          frameslot_t frame_slot_rx;
+          frame_slot_rx.frame = curMsg.proc.frame_rx;
+          frame_slot_rx.slot = curMsg.proc.nr_slot_rx;
+          validate_selected_sl_slot(false, true, mac->SL_MAC_PARAMS->sl_TDD_config, frame_slot_rx);
+          curMsg.proc.rx_slot_type = NR_SIDELINK_SLOT;
+        }
       } else {
         curMsg.proc.rx_slot_type = nr_ue_slot_select(cfg, curMsg.proc.nr_slot_rx);
         curMsg.proc.tx_slot_type = nr_ue_slot_select(cfg, curMsg.proc.nr_slot_tx);
