@@ -1,0 +1,186 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+#
+# Exhaustive, high-SINR structural-parameter sweeps for the NR PHY simulators.
+# See README.md for the schema and for how to add a new channel/group.
+
+channels:
+
+  nr_pucchsim:
+    binary: nr_pucchsim
+    groups:
+      - name: format0_1bit_prb_sweep_51rb
+        fixed_args: ["-R", "51", "-P", "0", "-b", "1", "-i", "1", "-n", "1000"]
+        sinr: 20
+        axis: {flag: "-r", range: [0, 50]}
+      - name: format0_2bit_prb_sweep_51rb
+        fixed_args: ["-R", "51", "-P", "0", "-b", "2", "-i", "1", "-n", "1000"]
+        sinr: 20
+        axis: {flag: "-r", range: [0, 50]}
+      - name: format0_1bit_prb_sweep_106rb
+        fixed_args: ["-R", "106", "-P", "0", "-b", "1", "-i", "1", "-n", "1000"]
+        sinr: 20
+        axis: {flag: "-r", range: [0, 105]}
+      - name: format0_2bit_prb_sweep_106rb
+        fixed_args: ["-R", "106", "-P", "0", "-b", "2", "-i", "1", "-n", "1000"]
+        sinr: 20
+        axis: {flag: "-r", range: [0, 105]}
+      - name: format0_1bit_prb_sweep_273rb
+        fixed_args: ["-R", "273", "-P", "0", "-b", "1", "-i", "1", "-n", "1000"]
+        sinr: 20
+        axis: {flag: "-r", range: [0, 272]}
+      - name: format1_ack_prb_sweep_51rb
+        fixed_args: ["-R", "51", "-P", "1", "-i", "4", "-b", "1", "-B", "1", "-n", "1000"]
+        sinr: 20
+        axis: {flag: "-r", range: [0, 50]}
+      - name: format1_ack_prb_sweep_106rb
+        fixed_args: ["-R", "106", "-P", "1", "-i", "4", "-b", "1", "-B", "1", "-n", "1000"]
+        sinr: 20
+        axis: {flag: "-r", range: [0, 105]}
+      - name: format1_ack_prb_sweep_273rb
+        fixed_args: ["-R", "273", "-P", "1", "-i", "4", "-b", "1", "-B", "1", "-n", "1000"]
+        sinr: 20
+        axis: {flag: "-r", range: [0, 272]}
+      - name: format0_2bit_prb_sweep_273rb
+        fixed_args: ["-R", "273", "-P", "0", "-b", "2", "-i", "1", "-n", "1000"]
+        sinr: 20
+        axis: {flag: "-r", range: [0, 272]}
+      # format 2's RX requires the PRB offset to be a multiple of 4
+      - name: format2_4bit_prb_sweep_106rb
+        fixed_args: ["-R", "106", "-P", "2", "-b", "4", "-n", "1000"]
+        sinr: 20
+        axis: {flag: "-r", range: [0, 104], step: 4}
+      - name: format2_4bit_prb_sweep_273rb
+        fixed_args: ["-R", "273", "-P", "2", "-b", "4", "-n", "1000"]
+        sinr: 20
+        axis: {flag: "-r", range: [0, 268], step: 4}
+      # format 1 supports 4..14 OFDM symbols
+      - name: format1_num_symbols_sweep_106rb
+        fixed_args: ["-R", "106", "-P", "1", "-b", "1", "-B", "1", "-r", "0", "-n", "1000"]
+        sinr: 20
+        axis: {flag: "-i", range: [4, 14]}
+      # no numerology_sweep: nr_pucchsim runs at a fixed internal mu
+
+  nr_pbchsim:
+    binary: nr_pbchsim
+    groups:
+      - name: subcarrier_offset_sweep_25rb
+        fixed_args: ["-R", "25", "-m", "0", "-n", "30"]
+        sinr: -6
+        axis: {flag: "-c", range: [0, 23]}
+      - name: subcarrier_offset_sweep_106rb
+        fixed_args: ["-R", "106", "-n", "30"]
+        sinr: -6
+        axis: {flag: "-c", range: [0, 23]}
+      - name: subcarrier_offset_sweep_273rb
+        fixed_args: ["-R", "273", "-n", "30"]
+        sinr: -6
+        axis: {flag: "-c", range: [0, 23]}
+      - name: numerology_sweep
+        fixed_args: ["-n", "30"]
+        sinr: -6
+        axis: {flag: ["-m", "-R"], values: [[0, 25], [1, 106], [3, 32]]}
+
+  nr_dlschsim:
+    binary: nr_dlschsim
+    groups:
+      - name: mcs_sweep_106rb
+        fixed_args: ["-R", "106", "-n", "300"]
+        sinr: 30
+        axis: {flag: "-m", range: [0, 27]}
+      - name: mcs_sweep_273rb
+        fixed_args: ["-R", "273", "-n", "300"]
+        sinr: 30
+        axis: {flag: "-m", range: [0, 27]}
+
+  nr_ulschsim:
+    binary: nr_ulschsim
+    groups:
+      - name: mcs_sweep_106rb
+        fixed_args: ["-R", "106", "-n", "300"]
+        sinr: 30
+        axis: {flag: "-m", range: [0, 27]}
+      - name: mcs_sweep_273rb
+        fixed_args: ["-R", "273", "-n", "300"]
+        sinr: 30
+        axis: {flag: "-m", range: [0, 27]}
+
+  nr_prachsim:
+    binary: nr_prachsim
+    groups:
+      - name: ncs_config_sweep_106rb
+        fixed_args: ["-R", "106", "-n", "50"]
+        sinr: 20
+        axis: {flag: "-Z", range: [0, 15]}
+      - name: ncs_config_sweep_273rb
+        fixed_args: ["-R", "273", "-n", "50"]
+        sinr: 20
+        axis: {flag: "-Z", range: [0, 15]}
+      - name: numerology_sweep
+        fixed_args: ["-n", "50"]
+        sinr: 20
+        axis: {flag: ["-m", "-R"], values: [[0, 25], [1, 106], [3, 32]]}
+      # PRACH format is derived from config_index (-c) via the 3GPP
+      # config-index-to-format table, looked up against this simulator's
+      # hardcoded frame=1/subframe=9 scenario. One config_index per reachable
+      # format (0/3/4/5/6/7/8/9/10); formats 1/2 are unreachable by this
+      # harness, 11/12/13 are unimplemented in the RX path. -Z 1 (a non-default
+      # NCS_config) keeps this group's axis isolated to config_index alone.
+      - name: prach_format_sweep_106rb
+        fixed_args: ["-R", "106", "-n", "50", "-Z", "1"]
+        sinr: 20
+        axis: {flag: "-c", values: [0, 40, 67, 87, 110, 133, 145, 169, 189]}
+
+  nr_dlsim:
+    binary: nr_dlsim
+    groups:
+      # no -b/-e: PDSCH size defaults to N_RB_DL - rbStart
+      - name: pdsch_start_prb_sweep_106rb
+        fixed_args: ["-R", "106", "-n", "300"]
+        sinr: 30
+        axis: {flag: "-a", range: [0, 105]}
+      - name: pdsch_start_prb_sweep_273rb
+        fixed_args: ["-R", "273", "-n", "300"]
+        sinr: 30
+        axis: {flag: "-a", range: [0, 272]}
+      - name: numerology_sweep
+        fixed_args: ["-n", "300"]
+        sinr: 30
+        axis: {flag: ["-m", "-R"], values: [[0, 25], [1, 106], [3, 32]]}
+      # no symbol-count sweep: nr_dlsim exposes no such CLI flag for PDSCH
+
+  nr_ulsim:
+    binary: nr_ulsim
+    groups:
+      - name: pusch_start_prb_sweep_106rb
+        fixed_args: ["-R", "106", "-r", "1", "-m", "9", "-n", "300"]
+        sinr: 25
+        axis: {flag: "-w", range: [0, 105]}
+      - name: pusch_start_prb_sweep_273rb
+        fixed_args: ["-R", "273", "-r", "1", "-m", "9", "-n", "300"]
+        sinr: 25
+        axis: {flag: "-w", range: [0, 272]}
+      # -r 50: a 1 RB allocation is below the minimum LDPC codeword size
+      - name: pusch_num_symbols_sweep_106rb
+        fixed_args: ["-R", "106", "-r", "50", "-m", "9", "-n", "300"]
+        sinr: 25
+        axis: {flag: "-b", range: [1, 14]}
+      - name: numerology_sweep
+        fixed_args: ["-r", "1", "-m", "9", "-n", "300"]
+        sinr: 25
+        axis: {flag: ["-u", "-R"], values: [[0, 25], [1, 106], [3, 32]]}
+
+  nr_srssim:
+    binary: nr_srssim
+    groups:
+      - name: cyclic_shift_sweep_106rb
+        fixed_args: ["-R", "106", "-n", "300"]
+        sinr: 25
+        axis: {flag: "-i", range: [0, 7]}
+      - name: numerology_sweep
+        fixed_args: ["-n", "300"]
+        sinr: 25
+        axis: {flag: ["-u", "-R"], values: [[0, 25], [1, 106], [3, 32]]}
+      - name: cyclic_shift_sweep_273rb
+        fixed_args: ["-R", "273", "-n", "300"]
+        sinr: 25
+        axis: {flag: "-i", range: [0, 7]}
