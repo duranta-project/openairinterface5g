@@ -320,7 +320,9 @@ void nr_pssch_extract_rbs(int rxFSz,
 #endif
 
   uint8_t is_data_re;
-  start_re = (frame_parms->first_carrier_offset + (rb_start + bwp_start) * NR_NB_SC_PER_RB)%frame_parms->ofdm_symbol_size;
+  // rxdataF is FFT shifted by nr_slot_fep(): the REs of the carrier are contiguous
+  // from index 0, so the RE index is the subcarrier number itself.
+  start_re = ((rb_start + bwp_start) * NR_NB_SC_PER_RB) % frame_parms->ofdm_symbol_size;
   nb_re_pusch = NR_NB_SC_PER_RB * rb_size;
 
   for (aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
@@ -657,8 +659,9 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
   int dmrs_symbol = INVALID_VALUE;
   int cl_done = 0;
 
-  bwp_start_subcarrier = ((rb_start + bwp_start)*NR_NB_SC_PER_RB + frame_parms->first_carrier_offset) % frame_parms->ofdm_symbol_size;
-  LOG_D(PHY,"pusch %d.%d : bwp_start_subcarrier %d, rb_start %d, first_carrier_offset %d\n", frame,slot,bwp_start_subcarrier, rb_start, frame_parms->first_carrier_offset);
+  // rxdataF is FFT shifted by nr_slot_fep(), see nr_pssch_extract_rbs()
+  bwp_start_subcarrier = ((rb_start + bwp_start) * NR_NB_SC_PER_RB) % frame_parms->ofdm_symbol_size;
+  LOG_D(PHY, "pusch %d.%d : bwp_start_subcarrier %d, rb_start %d\n", frame, slot, bwp_start_subcarrier, rb_start);
   LOG_D(PHY,"pusch %d.%d : ul_dmrs_symb_pos %x\n",frame,slot,ul_dmrs_symb_pos);
   LOG_D(PHY,"ulsch RX %x : start_rb %d nb_rb %d Nl %d Tpmi %d bwp_start %d start_sc %d start_symbol %d num_symbols %d cdmgrpsnodata %d num_dmrs %d dmrs_ports %d\n",
           rnti,rb_start,rb_size,

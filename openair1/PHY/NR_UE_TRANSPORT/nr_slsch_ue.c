@@ -119,7 +119,7 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
   uint8_t mod_order         = pscch_pssch_pdu->mod_order;
   uint16_t rnti             = 0;
   uint8_t cdm_grps_no_data  = 1;
-  uint16_t start_sc         = frame_parms->first_carrier_offset + start_rb*NR_NB_SC_PER_RB;
+  uint16_t start_sc         = start_rb*NR_NB_SC_PER_RB; // txdataF is FFT shifted
   uint16_t Tpmi             = 0;
  
   if (start_sc >= frame_parms->ofdm_symbol_size)
