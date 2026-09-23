@@ -532,7 +532,7 @@ void init_nr_ue_transport(PHY_VARS_NR_UE *ue)
 {
   nr_init_dl_harq_processes(ue->dl_harq_processes, NR_MAX_HARQ_PROCESSES, ue->frame_parms.N_RB_DL);
   nr_init_ul_harq_processes(ue->ul_harq_processes, NR_MAX_HARQ_PROCESSES, ue->frame_parms.N_RB_UL, ue->frame_parms.nb_antennas_tx);
-  nr_init_ul_harq_processes(ue->sl_harq_processes, NR_MAX_HARQ_PROCESSES, ue->SL_UE_PHY_PARAMS.sl_frame_params.N_RB_UL, ue->frame_parms.nb_antennas_tx);
+  nr_init_ul_harq_processes(ue->sl_harq_processes, NR_MAX_HARQ_PROCESSES, 106, ue->frame_parms.nb_antennas_tx);
   const int num_actors = get_nrUE_params()->num_dl_actors > 0 ? get_nrUE_params()->num_dl_actors : 1;
   ue->pdsch_num_actors = num_actors;
   ue->pdsch_scratch = calloc_or_fail(num_actors, sizeof(*ue->pdsch_scratch));
