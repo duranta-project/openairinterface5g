@@ -1232,6 +1232,31 @@ static void set_dl_DataToUL_ACK(NR_PUCCH_Config_t *pucch_Config, int min_feedbac
               min_feedback_time);
 }
 
+static NR_PUCCH_Resource_t *config_pucch_resource(int format, int id, int startPrb, int nbPrb)
+{
+  NR_PUCCH_Resource_t *pucch = calloc(1, sizeof(*pucch));
+  pucch->pucch_ResourceId = id;
+  pucch->startingPRB = startPrb;
+  pucch->intraSlotFrequencyHopping = NULL;
+  pucch->secondHopPRB = NULL;
+  if (format == 0) {
+    pucch->format.present = NR_PUCCH_Resource__format_PR_format0;
+    pucch->format.choice.format0 = calloc(1, sizeof(*pucch->format.choice.format0));
+    pucch->format.choice.format0->initialCyclicShift = 0;
+    pucch->format.choice.format0->nrofSymbols = 1;
+    pucch->format.choice.format0->startingSymbolIndex = 13;
+  } else if (format == 2) {
+    pucch->format.present = NR_PUCCH_Resource__format_PR_format2;
+    pucch->format.choice.format2 = calloc(1, sizeof(*pucch->format.choice.format2));
+    pucch->format.choice.format2->nrofPRBs = nbPrb;
+    pucch->format.choice.format2->nrofSymbols = 1;
+    pucch->format.choice.format2->startingSymbolIndex = 13;
+  } else
+    AssertFatal(false, "PUCCH format %d not supported yet\n", format);
+
+  return pucch;
+}
+
 // PUCCH resource set 0 for configuration with O_uci <= 2 bits and/or a positive or negative SR (section 9.2.1 of 38.213)
 static void config_pucch_resset0(const NR_ServingCellConfigCommon_t *scc,
                                  NR_PUCCH_Config_t *pucch_Config,
@@ -1253,22 +1278,14 @@ static void config_pucch_resset0(const NR_ServingCellConfigCommon_t *scc,
   }
 
   int pucch2_size = get_pucch2_size(ap->N1 * ap->N2 * ap->XP);
-  NR_PUCCH_Resource_t *pucchres0 = calloc(1,sizeof(*pucchres0));
-  pucchres0->pucch_ResourceId = *pucchid;
   int num_pucch2 = get_nb_pucch2_per_slot(scc, curr_bwp, ap);
-  pucchres0->startingPRB = (pucch2_size * num_pucch2) + uid;
+  int start_prb = (pucch2_size * num_pucch2) + uid;
   // checked for validity in verify_radio_configuration
-  AssertFatal(pucchres0->startingPRB < curr_bwp, "Not enough resources in current BWP (size %d) to allocate uid %d\n", curr_bwp, uid);
-  pucchres0->intraSlotFrequencyHopping = NULL;
-  pucchres0->secondHopPRB = NULL;
-  pucchres0->format.present = NR_PUCCH_Resource__format_PR_format0;
-  pucchres0->format.choice.format0 = calloc(1,sizeof(*pucchres0->format.choice.format0));
-  pucchres0->format.choice.format0->initialCyclicShift = 0;
-  pucchres0->format.choice.format0->nrofSymbols = 1;
-  pucchres0->format.choice.format0->startingSymbolIndex = 13;
-  asn1cSeqAdd(&pucch_Config->resourceToAddModList->list,pucchres0);
+  AssertFatal(start_prb < curr_bwp, "Not enough resources in current BWP (size %d) to allocate uid %d\n", curr_bwp, uid);
 
-  asn1cSeqAdd(&pucch_Config->resourceSetToAddModList->list,pucchresset);
+  NR_PUCCH_Resource_t *pucchres0 = config_pucch_resource(0, *pucchid, start_prb, 1);
+  asn1cSeqAdd(&pucch_Config->resourceToAddModList->list, pucchres0);
+  asn1cSeqAdd(&pucch_Config->resourceSetToAddModList->list, pucchresset);
 }
 
 
@@ -1293,19 +1310,9 @@ static void config_pucch_resset1(const NR_ServingCellConfigCommon_t *scc,
   }
 
   int pucch2_size = get_pucch2_size(ap->N1 * ap->N2 * ap->XP);
-  NR_PUCCH_Resource_t *pucchres2 = calloc(1,sizeof(*pucchres2));
-  pucchres2->pucch_ResourceId = *pucchressetid;
   int num_pucch2 = get_nb_pucch2_per_slot(scc, curr_bwp, ap);
-  pucchres2->startingPRB = pucch2_size * (uid % num_pucch2);
-  pucchres2->intraSlotFrequencyHopping = NULL;
-  pucchres2->secondHopPRB = NULL;
-  pucchres2->format.present = NR_PUCCH_Resource__format_PR_format2;
-  pucchres2->format.choice.format2 = calloc(1,sizeof(*pucchres2->format.choice.format2));
-  pucchres2->format.choice.format2->nrofPRBs = pucch2_size;
-  pucchres2->format.choice.format2->nrofSymbols = 1;
-  pucchres2->format.choice.format2->startingSymbolIndex = 13;
+  NR_PUCCH_Resource_t *pucchres2 = config_pucch_resource(2, *pucchressetid, pucch2_size * (uid % num_pucch2), pucch2_size);
   asn1cSeqAdd(&pucch_Config->resourceToAddModList->list,pucchres2);
-
   asn1cSeqAdd(&pucch_Config->resourceSetToAddModList->list,pucchresset);
 
   pucch_Config->format2 = calloc(1,sizeof(*pucch_Config->format2));
