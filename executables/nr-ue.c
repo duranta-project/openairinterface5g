@@ -722,6 +722,17 @@ static void syncInFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int
   }
 }
 
+// Keeps RRC timers (T310/T311/T304/...) advancing while out of sync: one RRC tick per frame read from the radio.
+static void out_of_sync_rrc_timer_tick(PHY_VARS_NR_UE *UE, int num_frames, int *frame, int *hfn)
+{
+  for (int i = 0; i < num_frames; i++) {
+    nr_ue_rrc_timer_trigger(UE->Mod_id, *hfn, *frame, 0);
+    *frame = (*frame + 1) % MAX_FRAME_NUMBER;
+    if (*frame == 0)
+      (*hfn)++;
+  }
+}
+
 static inline int get_firstSymSamp(uint16_t slot, const NR_DL_FRAME_PARMS *fp)
 {
   return get_samples_symbol_duration(fp, slot, 0, 1);
@@ -789,6 +800,8 @@ void *UE_thread(void *arg)
   const int nb_slot_frame = fp->slots_per_frame;
   int absolute_slot = 0, decoded_frame_rx = MAX_FRAME_NUMBER - 1, skipped_frames = 0;
   int tx_wait_for_dlsch[NR_MAX_SLOTS_PER_FRAME];
+  // out-of-sync RRC timer tick frame/hfn (see out_of_sync_rrc_timer_tick())
+  int out_of_sync_rrc_tick_frame = 0, out_of_sync_rrc_tick_hfn = 0;
 
   for(int i = 0; i < NUM_PROCESS_SLOT_TX_BARRIERS; i++) {
     dynamic_barrier_init(&UE->process_slot_tx_barriers[i]);
@@ -848,10 +861,13 @@ void *UE_thread(void *arg)
           while (skipped_frames != sync_in_frames) {
             readFrame(UE, &sync_timestamp, duration_rx_to_tx, compute_sync_size(UE), NULL);
             skipped_frames += 2;
+            out_of_sync_rrc_timer_tick(UE, 2, &out_of_sync_rrc_tick_frame, &out_of_sync_rrc_tick_hfn);
           }
         } else {
           readFrame(UE, &sync_timestamp, duration_rx_to_tx, compute_sync_size(UE), NULL);
-          skipped_frames += UE->sl_mode == 2 ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2;
+          const int num_frames_read = (UE->sl_mode == 2) ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2;
+          skipped_frames += num_frames_read;
+          out_of_sync_rrc_timer_tick(UE, num_frames_read, &out_of_sync_rrc_tick_frame, &out_of_sync_rrc_tick_hfn);
         }
         continue;
       }
@@ -860,6 +876,9 @@ void *UE_thread(void *arg)
     AssertFatal(!syncRunning, "At this point synchronization can't be running\n");
 
     if (!UE->is_synchronized) {
+      // seed the out-of-sync tick from the last known synchronized frame/hfn
+      out_of_sync_rrc_tick_frame = (absolute_slot / nb_slot_frame) % MAX_FRAME_NUMBER;
+      out_of_sync_rrc_tick_hfn = (absolute_slot / nb_slot_frame) / MAX_FRAME_NUMBER;
       int sz = compute_sync_size(UE);
       for (int i = 0; i < fp->nb_antennas_rx; i++)
         sync_buf[i] = malloc(sz * sizeof(**sync_buf));
@@ -881,6 +900,7 @@ void *UE_thread(void *arg)
       memset(&syncMsg->proc, 0, sizeof(syncMsg->proc));
       pushNotifiedFIFO(&UE->sync_actor.fifo, Msg);
       skipped_frames = UE->sl_mode == 2 ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2; // the capture for decoding
+      out_of_sync_rrc_timer_tick(UE, skipped_frames, &out_of_sync_rrc_tick_frame, &out_of_sync_rrc_tick_hfn);
       syncRunning = true;
       continue;
     }
