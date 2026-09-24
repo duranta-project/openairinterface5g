@@ -1022,6 +1022,11 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
           cell->pucch_res_bwp[j].periodicity);
   }
 
+  if (!IS_SA_MODE(get_softmodem_params())) {
+    bwp_size = scc->uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
+    cell->pucch_res_bwp[1] = configure_pucch_radio_resources(&cell->frame_structure, bwp_size, scs, max_csi_bits);
+  }
+
   if (NFAPI_MODE == NFAPI_MONOLITHIC) {
     // nothing to be sent in the other cases
     NR_PHY_Config_t phycfg = {.phy_id = 0, .cfg = &cell->config};
