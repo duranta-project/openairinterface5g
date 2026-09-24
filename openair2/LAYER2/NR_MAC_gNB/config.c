@@ -1103,6 +1103,11 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
           cell->pucch_res_bwp[j].periodicity);
   }
 
+  if (!IS_SA_MODE(get_softmodem_params())) {
+    bwp_size = scc->uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
+    cell->pucch_res_bwp[1] = configure_pucch_radio_resources(&cell->frame_structure, bwp_size, scs, max_csi_bits);
+  }
+
   find_SSB_and_RO_available(cell);
 
   int num_symb_cset = 1;
