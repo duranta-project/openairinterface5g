@@ -15,7 +15,7 @@
     <desc>Build and Deploy PhySim with timing check</desc>
     <script>scripts/docker-build-and-deploy-physims.sh</script>
     <node>localhost</node>
-    <ctest-opt>-R 5g -R "nr_dlsim|nr_ulsim|ldpctest" -E physim.5g.nr_dlsim.mcs.mimo.test9 -j1</ctest-opt>
+    <ctest-opt>-R 5g -R "nr_dlsim|nr_ulsim|ldpctest|physim.5g.nr_pucchsim.test25|physim.5g.nr_pucchsim.test26" -E physim.5g.nr_dlsim.mcs.mimo.test9 -j1</ctest-opt>
   </testCase>
 
 </testCaseList>

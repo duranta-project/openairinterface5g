@@ -666,7 +666,6 @@ int main(int argc, char **argv)
     print_meas_row("    layer mapping", &gNB->dlsch_layer_mapping_stats, count);
     print_meas_row("    precoding", &gNB->dlsch_precoding_stats, count);
     print_meas_row("    resource mapping", &gNB->dlsch_resource_mapping_stats, count);
-    print_meas_row("    phase compensation", &gNB->phase_comp_stats, count);
     printf("  ---------------------------------------------------------------------------\n");
   }
 

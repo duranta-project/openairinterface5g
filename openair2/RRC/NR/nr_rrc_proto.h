@@ -101,6 +101,12 @@ void rrc_f1_ue_context_setup_for_target_du(const gNB_RRC_INST *rrc,
                                            const byte_array_t *ho_prep_info);
 const neighbour_cell_configuration_t *get_neighbour_cell_config(const gNB_RRC_INST *rrc, int cell_id);
 
+/** @brief Record that a UE has successfully completed an F1 or N2 handover from
+ *         from_cell_id to to_cell_id, incrementing that neighbour relation's
+ *         ho_success_count count. No-op if from_cell_id has no configured
+ *         neighbour to_cell_id. */
+void nr_rrc_mark_ho_completed(const gNB_RRC_INST *rrc, const uint64_t from_cell_id, const uint64_t to_cell_id);
+
 void nr_rrc_transfer_protected_rrc_message(const gNB_RRC_INST *rrc,
                                            const gNB_RRC_UE_t *ue_p,
                                            uint8_t srb_id,

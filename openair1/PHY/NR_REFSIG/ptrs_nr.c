@@ -171,8 +171,6 @@ uint16_t get_ptrs_re_bitmap(uint rb, uint k_re_ref, uint k_ptrs, uint k_rb_ref)
 static cd_t get_ptrs_phase_diff(const c16_t *rxF,
                                 const c16_t *chest,
                                 const uint32_t *gold_seq,
-                                uint first_sc_offset,
-                                uint ofdm_symbol_size,
                                 uint k_ptrs,
                                 uint k_rb_ref,
                                 uint k_re_ref,
@@ -185,12 +183,11 @@ static cd_t get_ptrs_phase_diff(const c16_t *rxF,
   uint i = 0;
 
   while (k_re < (start_rb + k_rb_ref + n_rb) * NR_NB_SC_PER_RB) {
-    const uint rx_re = CIRCULAR_INC(k_re, first_sc_offset, ofdm_symbol_size);
     // Get pilot symbol
     const c16_t pilot = get_modulated(gold_seq, i++, true); // Already a conjugate
 
     // Coherent complex correlation with DMRS estimates as reference:
-    const c32_t re_phase_diff = c32x16mulConj(chest[k_re], c16mulShift(rxF[rx_re], pilot, shift));
+    const c32_t re_phase_diff = c32x16mulConj(chest[k_re], c16mulShift(rxF[k_re], pilot, shift));
 
     // Sum differences over REs
     phase_diff.r += re_phase_diff.r;
@@ -217,8 +214,6 @@ static cd_t estimate_ptrs_symbol_phase(const c16_t *rxdataF,
   return get_ptrs_phase_diff(rxdataF + symbol * p->ofdm_symbol_size,
                              chest + dmrs_idx * p->ofdm_symbol_size,
                              gold_seq,
-                             p->first_carrier_offset,
-                             p->ofdm_symbol_size,
                              p->k_ptrs,
                              k_rb_ref,
                              p->k_re_ref,

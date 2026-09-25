@@ -29,7 +29,10 @@ class ChannelConvolutionTest : public ::testing::TestWithParam<std::tuple<int, i
   void SetUp() override
   {
 #ifdef CHANNEL_SIM_CUDA
-    gpu_context = cuda_channel_pipeline_init(MAX_SAMPLE_LENGTH, 4);
+    const int nb_rx = std::get<0>(GetParam());
+    const int nb_tx = std::get<1>(GetParam());
+    const int channel_length = 16;
+    gpu_context = cuda_channel_pipeline_init(MAX_SAMPLE_LENGTH, nb_tx, nb_rx, channel_length);
 #endif
     tpool = init_tpool(8);
     channel_pipeline_init(0.0f);

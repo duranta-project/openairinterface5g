@@ -6,6 +6,7 @@
 
 #include "common/utils/nr/nr_common.h"
 #include "common/utils/LOG/log.h"
+#include "common/utils/bits.h"
 #include <math.h>
 
 //Table 5.1.2.2-2
@@ -54,7 +55,8 @@ uint32_t nr_compute_tbs(uint16_t Qm,
   uint32_t nr_tbs = 0;
   uint32_t Np_info, C, n;
   if (Ninfo <= NR_MAX_PDSCH_TBS) {
-    n = max(3, floor(log2(Ninfo)) - 6);
+    int val = floor_log2_u32(Ninfo);
+    n = max(3, val - 6);
     Np_info = max(24, (Ninfo >> n) << n);
     for (int i = 0; i < INDEX_MAX_TBS_TABLE; i++) {
       if (Tbstable_nr[i] >= Np_info){
@@ -103,7 +105,8 @@ uint32_t nr_compute_tbslbrm(uint16_t table, uint16_t nb_rb, uint8_t Nl)
   uint32_t nr_tbs = 0;
   uint32_t Np_info, n;
   if (Ninfo <= NR_MAX_PDSCH_TBS) {
-    n = max(3, floor(log2(Ninfo)) - 6);
+    int val = floor_log2_u32(Ninfo);
+    n = max(3, val - 6);
     Np_info = max(24, (Ninfo >> n) << n);
     for (int i = 0; i < INDEX_MAX_TBS_TABLE; i++) {
       if (Tbstable_nr[i] >= Np_info){

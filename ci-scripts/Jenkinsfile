@@ -105,59 +105,48 @@ pipeline {
             String[] myXmlTestSuite = testXMLFile.split("\\r?\\n")
             for (xmlFile in myXmlTestSuite) {
               if (fileExists(xmlFile)) {
-                mainPythonAllXmlFiles += "--XMLTestFile=" + xmlFile + " "
+                mainPythonAllXmlFiles += xmlFile + " "
                 echo "Test XML file         :   ${xmlFile}"
               } else {
                 echo "Test XML file ${xmlFile}: no such file"
               }
             }
-            sh """
-              python3 main.py --mode=InitiateHtml --repository=${testRepository} \
-                              --branch=${testBranch} ${mainPythonAllXmlFiles}
-            """
             if (runWithOC) {
               withCredentials([usernamePassword(credentialsId: "${params.OC_Credentials}", usernameVariable: 'OC_Username', passwordVariable: 'OC_Password')]) {
-                for (xmlFile in myXmlTestSuite) {
-                  if (fileExists(xmlFile)) {
-                    try {
-                      timeout (time: 60, unit: 'MINUTES') {
-                        sh """
-                          python3 main.py --mode=TesteNB --repository=${testRepository} \
-                                          --branch=${testBranch} \
-                                          --ranAllowMerge=${mergeWithTarget} --targetBranch=${targetBranch} \
-                                          --workspace=${params.workspace} --XMLTestFile=${xmlFile} \
-                                          --OCUserName=${OC_Username} --OCPassword=${OC_Password} --OCProjectName=${OC_ProjectName} \
-                                          ${flexricOption}
-                        """
-                      }
-                    } catch (Exception e) {
-                      currentBuild.result = 'FAILURE'
-                      buildStageStatus = false
-                    }
+                try {
+                  timeout (time: 90, unit: 'MINUTES') {
+                    sh """
+                      python3 main.py --repository=${testRepository} \
+                                      --branch=${testBranch} \
+                                      --ranAllowMerge=${mergeWithTarget} --targetBranch=${targetBranch} \
+                                      --workspace=${params.workspace} \
+                                      --OCUserName=${OC_Username} --OCPassword=${OC_Password} --OCProjectName=${OC_ProjectName} \
+                                      ${flexricOption} \
+                                      ${mainPythonAllXmlFiles}
+                    """
                   }
+                } catch (Exception e) {
+                  currentBuild.result = 'FAILURE'
+                  buildStageStatus = false
                 }
               }
             } else {
-              for (xmlFile in myXmlTestSuite) {
-                if (fileExists(xmlFile)) {
-                  try {
-                    timeout (time: 60, unit: 'MINUTES') {
-                      sh """
-                        python3 main.py --mode=TesteNB --repository=${testRepository} \
-                                        --branch=${testBranch} \
-                                        --ranAllowMerge=${mergeWithTarget} --targetBranch=${targetBranch} \
-                                        --workspace=${params.workspace} --XMLTestFile=${xmlFile} \
-                                        ${flexricOption}
-                      """
-                    }
-                  } catch (Exception e) {
-                    currentBuild.result = 'FAILURE'
-                    buildStageStatus = false
-                  }
+              try {
+                timeout (time: 90, unit: 'MINUTES') {
+                  sh """
+                    python3 main.py --repository=${testRepository} \
+                                    --branch=${testBranch} \
+                                    --ranAllowMerge=${mergeWithTarget} --targetBranch=${targetBranch} \
+                                    --workspace=${params.workspace} \
+                                    ${flexricOption} \
+                                    ${mainPythonAllXmlFiles}
+                  """
                 }
+              } catch (Exception e) {
+                currentBuild.result = 'FAILURE'
+                buildStageStatus = false
               }
             }
-          sh "python3 main.py --mode=FinalizeHtml --finalStatus=${buildStageStatus}"
           }
         }
       }

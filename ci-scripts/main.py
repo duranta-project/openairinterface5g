@@ -468,6 +468,8 @@ elif mode == "all-in-one":
 			HTML.CreateHtmlTabFooter(True)
 
 	HTML.CreateHtmlFooter(final_status)
+	ret = 0 if final_status else 1
+	sys.exit(ret)
 else:
 	sys.exit(f'Invalid mode {mode}')
 sys.exit(0)

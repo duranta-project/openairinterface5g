@@ -217,7 +217,11 @@ static void configure_SL_UE(PHY_VARS_NR_UE *UE, int mu, int N_RB, int ssb_offset
                           fp->numerology_index,
                           fp->sl_CarrierFreq,
                           fp->symbol_rotation[link_type_sl]);
-  init_timeshift_rotation(fp->ofdm_symbol_size, fp->nb_prefix_samples, fp->ofdm_offset_divisor, fp->timeshift_symbol_rotation);
+  init_timeshift_rotation(fp->ofdm_symbol_size,
+                          fp->N_RB_SL * NR_NB_SC_PER_RB,
+                          fp->nb_prefix_samples,
+                          fp->ofdm_offset_divisor,
+                          fp->timeshift_symbol_rotation);
   LOG_I(PHY, "Dumping Sidelink Frame Parameters\n");
   nr_dump_frame_parms(fp);
 }
@@ -621,7 +625,7 @@ int main(int argc, char **argv)
         UE_nr_rxtx_proc_t proc = {0};
         // Should not have SLSS id configured. Search should find SLSS id from TX UE
         UE_RX->SL_UE_PHY_PARAMS.sl_config.sl_sync_source.rx_slss_id = 0xFFFF;
-        ret = sl_nr_slss_search(UE_RX, &proc, 1);
+        ret = sl_nr_slss_search(UE_RX, &proc, 1, frame_length_complex_samples, UE_RX->common_vars.rxdata);
         printf("Sidelink SLSS search returns status:%d, rx_offset:%d\n", ret.cell_detected, ret.rx_offset);
         if (!ret.cell_detected)
           sl_uerx->psbch.rx_errors = 1;
