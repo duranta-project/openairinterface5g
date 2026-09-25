@@ -409,6 +409,21 @@ void nr_ue_phy_config_request(nr_phy_config_t *phy_config)
   }
 }
 
+void nr_ue_prs_config_request(uint8_t module_id, uint8_t cc_id, const nr_ue_prs_configuration_t *configuration)
+{
+  if (configuration == NULL || module_id >= MAX_MOBILES_PER_GNB || cc_id >= MAX_NUM_CCs)
+    return;
+
+  PHY_VARS_NR_UE *phy = nrPHY_vars_UE_g[module_id][cc_id];
+  if (phy == NULL)
+    return;
+
+  pthread_mutex_lock(&phy->prs_config_mutex);
+  phy->pending_prs_config = *configuration;
+  phy->prs_config_pending = true;
+  pthread_mutex_unlock(&phy->prs_config_mutex);
+}
+
 void nr_ue_synch_request(nr_synch_request_t *synch_request)
 {
   fapi_nr_synch_request_t *synch_req = &nrPHY_vars_UE_g[synch_request->Mod_id][synch_request->CC_id]->synch_request.synch_req;

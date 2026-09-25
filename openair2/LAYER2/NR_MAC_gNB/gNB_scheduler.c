@@ -193,6 +193,7 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_
     if (IS_SA_MODE(get_softmodem_params())) {
       schedule_nr_sib1(cell, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
       schedule_nr_other_sib(cell, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
+      schedule_nr_pos_sib(cell, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
       schedule_nr_pcch(gNB, cell, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
     }
   }

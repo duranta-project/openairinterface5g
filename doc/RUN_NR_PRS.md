@@ -42,15 +42,25 @@ prs_config = (
   MutingPattern1        = [];
   MutingPattern2        = [];
   MutingBitRepetition   = 1;
+  BroadcastPosSIB       = 0;
+  PosSIBPeriodicity     = 16;
 }
 );
 ```
+
+Set `BroadcastPosSIB` to `1` to broadcast the configured PRS assistance data in
+`posSibType6-1`. `PosSIBPeriodicity` accepts 8, 16, 32, 64, 128, 256, or 512
+radio frames and defaults to 16. PosSIB broadcasting is disabled by default.
+Because PosSI uses the ordinary SI window configured in SIB1, broadcasting a
+PosSIB also requires at least one SIB2-SIB14 in the ordinary SI schedule. For
+example, configure `cu_sibs = [2]` in the corresponding `gNBs` entry. Startup
+stops with a configuration error if `BroadcastPosSIB` is enabled without one.
 
 The nrUE config has `Active_gNBs` to specify the number of active gNBs
 transmitting PRS simultaneously. Help strings for all PRS parameters are
 documented in `openair2/COMMON/prs_nr_paramdef.h`.
 
-> Note: PRS transmission and reception can only be validated in `phy-test` mode.
+> Note: PRS transmission and reception happens directly in layer 1 and layer 2 is unaware of the PRS. Therefore, it is recommended to use PRS only in `phy-test` mode. If not, PRS might collide with other channels, leading to unexpected behavior. 
 
 ## gNB in `phy-test` mode
 

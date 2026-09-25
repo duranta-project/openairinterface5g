@@ -20,14 +20,19 @@
 #include "NR_RRCReconfiguration.h"
 #include "NR_MeasConfig.h"
 #include "NR_UL-DCCH-Message.h"
+#include "NR_PosSystemInformation-r16-IEs.h"
+#include "NR_SIBpos-r16.h"
 #include "uper_encoder.h"
 #include "uper_decoder.h"
+#include "LPP_AssistanceDataSIBelement-r15.h"
+#include "LPP_NR-DL-PRS-AssistanceData-r16.h"
 
 #include "rrc_defs.h"
 #include "rrc_proto.h"
 #include "verify_RRC.h"
 #include "L2_interface_ue.h"
 #include "LAYER2/NR_MAC_UE/mac_proto.h"
+#include "lpp_prs_ue.h"
 
 #include "intertask_interface.h"
 
@@ -129,6 +134,76 @@ static void nr_rrc_send_msg_to_mac(NR_UE_RRC_INST_t *rrc, nr_mac_rrc_message_t *
   pushNotifiedFIFO(rrc->mac_input_nf, nf_msg);
 }
 
+static void nr_rrc_decode_pos_sib_prs(NR_UE_RRC_INST_t *rrc, const NR_SIBpos_r16_t *pos_sib)
+{
+  LPP_AssistanceDataSIBelement_r15_t *element = NULL;
+  LPP_NR_DL_PRS_AssistanceData_r16_t *assistance = NULL;
+  const OCTET_STRING_t *outer = &pos_sib->assistanceDataSIB_Element_r16;
+  asn_dec_rval_t result = uper_decode_complete(NULL,
+                                                &asn_DEF_LPP_AssistanceDataSIBelement_r15,
+                                                (void **)&element,
+                                                outer->buf,
+                                                outer->size);
+  if (result.code != RC_OK || element == NULL) {
+    LOG_E(NR_RRC, "[UE] Failed to decode PosSIB AssistanceDataSIBelement-r15\n");
+    return;
+  }
+
+  const OCTET_STRING_t *inner = &element->assistanceDataElement_r15;
+  result = uper_decode_complete(NULL,
+                                &asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16,
+                                (void **)&assistance,
+                                inner->buf,
+                                inner->size);
+  if (result.code != RC_OK || assistance == NULL) {
+    LOG_E(NR_RRC, "[UE] Failed to decode PosSIB NR-DL-PRS-AssistanceData-r16\n");
+    ASN_STRUCT_FREE(asn_DEF_LPP_AssistanceDataSIBelement_r15, element);
+    return;
+  }
+
+  nr_ue_prs_configuration_t *configuration = calloc(1, sizeof(*configuration));
+  if (lpp_nr_prs_assistance_to_configuration(assistance, NR_PRS_SOURCE_POS_SIB, configuration)) {
+    static uint32_t generation;
+    configuration->generation = ++generation;
+    nr_mac_rrc_message_t message = {0};
+    message.payload_type = NR_MAC_RRC_CONFIG_PRS;
+    message.payload.config_prs.configuration = configuration;
+    nr_rrc_send_msg_to_mac(rrc, &message);
+    LOG_I(NR_RRC, "[UE] PosSIB configured %u PRS target(s)\n", configuration->num_targets);
+  } else {
+    LOG_E(NR_RRC, "[UE] PosSIB contains unsupported NR-DL-PRS-AssistanceData-r16\n");
+    free(configuration);
+  }
+
+  ASN_STRUCT_FREE(asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16, assistance);
+  ASN_STRUCT_FREE(asn_DEF_LPP_AssistanceDataSIBelement_r15, element);
+}
+
+static void nr_rrc_decode_pos_system_information(NR_UE_RRC_INST_t *rrc,
+                                                  NR_UE_RRC_SI_INFO *SI_info,
+                                                  const NR_SystemInformation_t *si)
+{
+  const struct NR_SystemInformation__criticalExtensions__criticalExtensionsFuture_r16 *future =
+      si->criticalExtensions.choice.criticalExtensionsFuture_r16;
+  if (future == NULL
+      || future->present != NR_SystemInformation__criticalExtensions__criticalExtensionsFuture_r16_PR_posSystemInformation_r16
+      || future->choice.posSystemInformation_r16 == NULL) {
+    LOG_D(NR_RRC, "[UE] Received unsupported future SystemInformation extension\n");
+    return;
+  }
+
+  const NR_PosSystemInformation_r16_IEs_t *pos_information = future->choice.posSystemInformation_r16;
+  for (int i = 0; i < pos_information->posSIB_TypeAndInfo_r16.list.count; ++i) {
+    const PosSystemInformation_r16_IEs__posSIB_TypeAndInfo_r16__Member *member =
+        pos_information->posSIB_TypeAndInfo_r16.list.array[i];
+    if (member->present == NR_PosSystemInformation_r16_IEs__posSIB_TypeAndInfo_r16__Member_PR_posSib6_1_r16
+        && member->choice.posSib6_1_r16 != NULL)
+      nr_rrc_decode_pos_sib_prs(rrc, member->choice.posSib6_1_r16);
+    else
+      LOG_D(NR_RRC, "[UE] Ignoring unsupported PosSIB type %d\n", member->present);
+  }
+  SI_info->possi_validity = true;
+}
 /** @brief Ask MAC to start or restart random access
  * @param rrc   UE RRC instance
  * @param cause Why RA is started (setup, T300, post-SIB, re-establishment) */
@@ -285,10 +360,19 @@ static void nr_rrc_process_ntnconfig(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *S
 
 static void nr_decode_SI(NR_UE_RRC_SI_INFO *SI_info, NR_SystemInformation_t *si, NR_UE_RRC_INST_t *rrc, int hfn, int frame)
 {
-  if (si->criticalExtensions.present != NR_SystemInformation__criticalExtensions_PR_systemInformation) {
-    LOG_W(NR_RRC, "Not implemented SystemInformation criticalExtension version\n");
+  if (si->criticalExtensions.present == NR_SystemInformation__criticalExtensions_PR_criticalExtensionsFuture_r16) {
+    nr_rrc_decode_pos_system_information(rrc, SI_info, si);
     return;
   }
+
+  if (si->criticalExtensions.present != NR_SystemInformation__criticalExtensions_PR_systemInformation) {
+    LOG_D(NR_RRC, "[UE] Unknown criticalExtension version (not Rel16)\n");
+    return;
+  }
+
+  LOG_D(NR_RRC,
+        "[UE] si->criticalExtensions.choice.NR_SystemInformation_t->sib_TypeAndInfo.list.count %d\n",
+        si->criticalExtensions.choice.systemInformation->sib_TypeAndInfo.list.count);
 
   NR_SIB19_r17_t *sib19 = NULL;
   for (int i = 0; i < si->criticalExtensions.choice.systemInformation->sib_TypeAndInfo.list.count; i++) {
@@ -427,6 +511,40 @@ static void nr_rrc_configure_default_SI(NR_UE_RRC_SI_INFO *SI_info,
   }
 }
 
+static void nr_rrc_configure_pos_si(NR_UE_RRC_SI_INFO *SI_info,
+                                    const NR_SIB1_v1610_IEs_t *sib1_v1610,
+                                    int scheduling_index)
+{
+  SI_info->possi_configured = false;
+  SI_info->possi_validity = false;
+  SI_info->possi_scheduling_index = -1;
+  if (!sib1_v1610 || !sib1_v1610->posSI_SchedulingInfo_r16)
+    return;
+
+  const NR_PosSI_SchedulingInfo_r16_t *pos_scheduling = sib1_v1610->posSI_SchedulingInfo_r16;
+  for (int i = 0; i < pos_scheduling->posSchedulingInfoList_r16.list.count; i++) {
+    const NR_PosSchedulingInfo_r16_t *pos_schedule = pos_scheduling->posSchedulingInfoList_r16.list.array[i];
+    bool carries_pos_sib6_1 = false;
+    for (int j = 0; j < pos_schedule->posSIB_MappingInfo_r16.list.count; j++) {
+      const NR_PosSIB_Type_r16_t *mapping = pos_schedule->posSIB_MappingInfo_r16.list.array[j];
+      if (mapping->posSibType_r16 == NR_PosSIB_Type_r16__posSibType_r16_posSibType6_1) {
+        carries_pos_sib6_1 = true;
+        break;
+      }
+    }
+    if (pos_schedule->offsetToSI_Used_r16
+        || pos_schedule->posSI_BroadcastStatus_r16
+               != NR_PosSchedulingInfo_r16__posSI_BroadcastStatus_r16_broadcasting
+        || !carries_pos_sib6_1)
+      continue;
+
+    AssertFatal(scheduling_index < MAX_SI_GROUPS, "Exceeding max number of SI groups configured\n");
+    SI_info->possi_configured = true;
+    SI_info->possi_scheduling_index = scheduling_index;
+    return;
+  }
+}
+
 static bool verify_NTN_access(const NR_UE_RRC_SI_INFO *SI_info, const NR_SIB1_v1700_IEs_t *sib1_v1700)
 {
   // SIB1 indicates if NTN access is present in the cell
@@ -520,6 +638,9 @@ static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_inf
   SI_info->si_windowlength = (sib1->si_SchedulingInfo) ? sib1->si_SchedulingInfo->si_WindowLength : 0;
   // configure default SI
   nr_rrc_configure_default_SI(SI_info, sib1->si_SchedulingInfo, si_SchedInfo_v1700);
+  const int normal_si_count = sib1->si_SchedulingInfo ? sib1->si_SchedulingInfo->schedulingInfoList.list.count : 0;
+  const int rel17_si_count = si_SchedInfo_v1700 ? si_SchedInfo_v1700->schedulingInfoList2_r17.list.count : 0;
+  nr_rrc_configure_pos_si(SI_info, sib1->nonCriticalExtension, normal_si_count + rel17_si_count);
   rrc->is_NTN_UE = verify_NTN_access(SI_info, sib1_v1700);
   if (rrc->is_NTN_UE)
     get_sib19_schedinfo(SI_info, si_SchedInfo_v1700);
@@ -2031,6 +2152,8 @@ static int check_si_status(NR_UE_RRC_SI_INFO *SI_info)
       }
     }
   }
+  if (SI_info->possi_configured && !SI_info->possi_validity)
+    return 2 + SI_info->possi_scheduling_index;
   return 0;
 }
 
@@ -2269,7 +2392,7 @@ static void nr_rrc_ue_decode_NR_BCCH_DL_SCH_Message(NR_UE_RRC_INST_t *rrc,
         bcch_message->message.choice.c1->choice.systemInformationBlockType1 = NULL;
         break;
       case NR_BCCH_DL_SCH_MessageType__c1_PR_systemInformation:
-        RRCLOG_I("%d:%d Decoding SI\n", frame, slot);
+        RRCLOG_D("%d:%d Decoding SI\n", frame, slot);
         NR_SystemInformation_t *si = bcch_message->message.choice.c1->choice.systemInformation;
         nr_decode_SI(SI_info, si, rrc, hfn, frame);
         break;

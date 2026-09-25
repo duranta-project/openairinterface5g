@@ -171,8 +171,11 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
   RCconfig_verify(cfg, node_type);
 
   nr_cell_sched_t *cell = NULL; // This is still assuming RC.nb_nr_macrlc_inst is always 1, need to find a better way when RC.nb_nr_macrlc_inst is > 1
-  if (RC.nb_nr_macrlc_inst > 0)
+  if (RC.nb_nr_macrlc_inst > 0) {
     RCconfig_nr_macrlc(cfg, &cell);
+    if (RC.nb_nr_L1_inst > 0 && NFAPI_MODE != NFAPI_MODE_AERIAL)
+      RCconfig_nr_prs();
+  }
 
   if (RC.nb_nr_L1_inst > 0) {
     int ret = l1_north_init_gNB();
@@ -545,9 +548,6 @@ int main( int argc, char **argv ) {
     init_gNB();
     // Initialize L1
     RCconfig_NR_L1();
-    // Initialize Positioning Reference Signal configuration
-    if(NFAPI_MODE != NFAPI_MODE_PNF && NFAPI_MODE != NFAPI_MODE_AERIAL)
-      RCconfig_nr_prs();
   }
 
   // don't create if node doesn't connect to RRC/S1/GTP

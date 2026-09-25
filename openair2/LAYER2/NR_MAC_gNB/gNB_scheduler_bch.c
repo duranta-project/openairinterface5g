@@ -524,24 +524,27 @@ struct NR_SchedulingInfo2_r17 *find_sib19_sched_info(const struct NR_SI_Scheduli
   return NULL;
 }
 
-static void other_sib_sched_control(nr_cell_sched_t *cell,
-                                    frame_t frame,
-                                    slot_t slot,
-                                    int beam_index,
-                                    NR_SearchSpace_t *ss,
-                                    nfapi_nr_dl_tti_request_t *DL_req,
-                                    nfapi_nr_tx_data_request_t *TX_req,
-                                    int payload_idx)
+static void sib_sched_control(nr_cell_sched_t *cell,
+                              frame_t frame,
+                              slot_t slot,
+                              int beam_index,
+                              NR_SearchSpace_t *ss,
+                              nfapi_nr_dl_tti_request_t *DL_req,
+                              nfapi_nr_tx_data_request_t *TX_req,
+                              const uint8_t *sib_bcch_pdu,
+                              int num_total_bytes,
+                              const char *sib_name)
 {
   AssertFatal(is_dl_slot(slot, &cell->frame_structure),
-              "Trying to schedule otherSIB in slot %d which is not DL. Wrong Configuration\n",
+              "Trying to schedule %s in slot %d which is not DL. Wrong Configuration\n",
+              sib_name,
               slot);
   NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   int n_slots_frame = cell->frame_structure.numb_slots_frame;
   beam_index = get_beam_from_ssbidx(cell, beam_index);
   NR_beam_alloc_t beam = beam_allocation_procedure(&cell->beam_info, frame, slot, beam_index, n_slots_frame);
-  AssertFatal(beam.idx >= 0, "Cannot allocate otherSIB corresponding for SSB number %d in any available beam\n", beam_index);
-  LOG_D(NR_MAC, "(%d.%d) otherSIB payload %d transmission for ssb number %d\n", frame, slot, payload_idx, beam_index);
+  AssertFatal(beam.idx >= 0, "Cannot allocate %s corresponding for SSB number %d in any available beam\n", sib_name, beam_index);
+  LOG_D(NR_MAC, "(%d.%d) %s transmission for ssb number %d\n", frame, slot, sib_name, beam_index);
 
   NR_COMMON_channels_t *cc = &cell->common_channels;
   int ssb_index = get_ssbidx_from_beam(cell, beam_index);
@@ -576,7 +579,7 @@ static void other_sib_sched_control(nr_cell_sched_t *cell,
                                        coreset,
                                        0);
 
-  AssertFatal(cce_index >= 0, "Could not find CCE for otherSIB DCI\n");
+  AssertFatal(cce_index >= 0, "Could not find CCE for %s DCI\n", sib_name);
 
   // Mark the corresponding RBs as used
   fill_pdcch_vrb_map(cell, cell->sched_pdcch_otherSI, cce_index, aggregation_level, beam.idx);
@@ -593,10 +596,8 @@ static void other_sib_sched_control(nr_cell_sched_t *cell,
       .ant_port_idx = {.numSpatialStreamIndices = 1, .spatialStreamIndices[0] = sidx[beam.idx]}};
 
   uint16_t *vrb_map = cc->vrb_map[beam.idx];
-  uint8_t *sib_bcch_pdu = cc->other_sib_bcch_pdu[payload_idx];
-  int num_total_bytes = cc->other_sib_bcch_length[payload_idx];
   bool success = update_rb_mcs_tbs(&sched_pdsch_otherSI, num_total_bytes, vrb_map);
-  AssertFatal(success, "Couldn't allocate TBS for other SIB\n");
+  AssertFatal(success, "Couldn't allocate TBS for %s\n", sib_name);
 
   for (int rb = 0; rb < sched_pdsch_otherSI.rbSize; rb++) {
     vrb_map[rb + type0_PDCCH_CSS_config->cset_start_rb] |= SL_to_bitmap(tda_info.startSymbolIndex, tda_info.nrOfSymbols);
@@ -620,7 +621,13 @@ static void other_sib_sched_control(nr_cell_sched_t *cell,
   nfapi_nr_pdu_t *tx_req = &TX_req->pdu_list[ntx_req];
 
   // Data to be transmitted
-  memcpy(tx_req->TLVs[0].value.direct, sib_bcch_pdu, sched_pdsch_otherSI.tb_size);
+  AssertFatal(sched_pdsch_otherSI.tb_size >= num_total_bytes,
+              "%s transport block (%d bytes) is smaller than its payload (%d bytes)\n",
+              sib_name,
+              sched_pdsch_otherSI.tb_size,
+              num_total_bytes);
+  memcpy(tx_req->TLVs[0].value.direct, sib_bcch_pdu, num_total_bytes);
+  memset(tx_req->TLVs[0].value.direct + num_total_bytes, 0, sched_pdsch_otherSI.tb_size - num_total_bytes);
 
   tx_req->PDU_index = pdu_index;
   tx_req->num_TLV = 1;
@@ -653,8 +660,9 @@ static bool test_other_sib_sched_occasion(int window_pos,
 {
   int x = (window_pos - 1) * window_len;
   int T = 8 << period;
-  int test_frame = (frame - rel_frame) % MAX_FRAME_NUMBER;
   int si_slot = (x % n_slots_frame) + rel_slot;
+  int test_frame = (frame - rel_frame - si_slot / n_slots_frame + MAX_FRAME_NUMBER) % MAX_FRAME_NUMBER;
+  si_slot %= n_slots_frame;
   bool res = ((test_frame % T) != (x / n_slots_frame)) || (si_slot != slot);
   return res;
 }
@@ -733,7 +741,16 @@ void schedule_nr_other_sib(nr_cell_sched_t *cell,
                                         rel_slot[ssb]))
         continue;
 
-      other_sib_sched_control(cell, frame, slot, ssb, ss, DL_req, TX_req, 0);
+      sib_sched_control(cell,
+                        frame,
+                        slot,
+                        ssb,
+                        ss,
+                        DL_req,
+                        TX_req,
+                        cc->other_sib_bcch_pdu[0],
+                        cc->other_sib_bcch_length[0],
+                        "otherSIB");
     }
     if (!schedInfo17)
       continue;
@@ -749,7 +766,118 @@ void schedule_nr_other_sib(nr_cell_sched_t *cell,
                                         rel_slot[ssb]))
         continue;
 
-      other_sib_sched_control(cell, frame, slot, ssb, ss, DL_req, TX_req, 1);
+      sib_sched_control(cell,
+                        frame,
+                        slot,
+                        ssb,
+                        ss,
+                        DL_req,
+                        TX_req,
+                        cc->other_sib_bcch_pdu[1],
+                        cc->other_sib_bcch_length[1],
+                        "SIB19");
+    }
+  }
+}
+
+static bool schedules_pos_sib_type6_1(const NR_PosSchedulingInfo_r16_t *schedule)
+{
+  for (int i = 0; i < schedule->posSIB_MappingInfo_r16.list.count; i++) {
+    const NR_PosSIB_Type_r16_t *mapping = schedule->posSIB_MappingInfo_r16.list.array[i];
+    if (mapping->posSibType_r16 == NR_PosSIB_Type_r16__posSibType_r16_posSibType6_1)
+      return true;
+  }
+  return false;
+}
+
+void schedule_nr_pos_sib(nr_cell_sched_t *cell,
+                         frame_t frame,
+                         slot_t slot,
+                         nfapi_nr_dl_tti_request_t *DL_req,
+                         nfapi_nr_tx_data_request_t *TX_req)
+{
+  NR_COMMON_channels_t *cc = &cell->common_channels;
+  if (!cc->pos_sib_active || cc->pos_sib_bcch_length <= 0)
+    return;
+
+  NR_SIB1_t *sib1 = cc->sib1->message.choice.c1->choice.systemInformationBlockType1;
+  NR_SI_SchedulingInfo_t *sched_info = sib1->si_SchedulingInfo;
+  NR_SIB1_v1610_IEs_t *sib1_v1610 = sib1->nonCriticalExtension;
+  NR_PosSI_SchedulingInfo_r16_t *pos_sched_info = sib1_v1610 ? sib1_v1610->posSI_SchedulingInfo_r16 : NULL;
+  if (!sched_info || !pos_sched_info)
+    return;
+
+  NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
+  NR_PDCCH_ConfigCommon_t *pdcch_common =
+      scc->downlinkConfigCommon->initialDownlinkBWP->pdcch_ConfigCommon->choice.setup;
+  NR_SearchSpaceId_t *ss_id = pdcch_common->searchSpaceOtherSystemInformation;
+  AssertFatal(ss_id, "searchSpaceOtherSystemInformation not present\n");
+  NR_SearchSpace_t *ss = NULL;
+  for (int i = 0; i < pdcch_common->commonSearchSpaceList->list.count; i++) {
+    if (pdcch_common->commonSearchSpaceList->list.array[i]->searchSpaceId == *ss_id)
+      ss = pdcch_common->commonSearchSpaceList->list.array[i];
+  }
+  AssertFatal(ss, "searchSpaceOtherSystemInformation not found\n");
+
+  const int n_slots_frame = cell->frame_structure.numb_slots_frame;
+  const int window_length_sl = 5 << sched_info->si_WindowLength;
+  const int window_length_f = (window_length_sl + n_slots_frame - 1) / n_slots_frame;
+  const int num_ssb = cc->num_active_ssb;
+  int monitoring_period;
+  int monitoring_offset;
+  get_monitoring_period_offset(ss, &monitoring_period, &monitoring_offset);
+
+  int temp_slot = monitoring_offset % n_slots_frame;
+  int temp_frame = monitoring_offset / n_slots_frame;
+  int rel_slot[num_ssb];
+  int rel_frame[num_ssb];
+  int ssb = 0;
+  while (ssb < num_ssb) {
+    AssertFatal(temp_frame < window_length_f,
+                "Couldn't fit %d SSB in PosSI window length of %d slots\n",
+                num_ssb,
+                window_length_sl);
+    if (is_dl_slot(temp_slot, &cell->frame_structure)) {
+      rel_slot[ssb] = temp_slot;
+      rel_frame[ssb] = temp_frame;
+      ssb++;
+    }
+    temp_frame += (temp_slot + monitoring_period) / n_slots_frame;
+    temp_slot = (temp_slot + monitoring_period) % n_slots_frame;
+  }
+
+  const int first_pos_window = sched_info->schedulingInfoList.list.count + 1;
+  for (int ssb = 0; ssb < num_ssb; ssb++) {
+    for (int i = 0; i < pos_sched_info->posSchedulingInfoList_r16.list.count; i++) {
+      const NR_PosSchedulingInfo_r16_t *pos_schedule =
+          pos_sched_info->posSchedulingInfoList_r16.list.array[i];
+      if (pos_schedule->offsetToSI_Used_r16
+          || pos_schedule->posSI_BroadcastStatus_r16
+                 != NR_PosSchedulingInfo_r16__posSI_BroadcastStatus_r16_broadcasting
+          || !schedules_pos_sib_type6_1(pos_schedule))
+        continue;
+
+      if (test_other_sib_sched_occasion(first_pos_window + i,
+                                        window_length_sl,
+                                        pos_schedule->posSI_Periodicity_r16,
+                                        n_slots_frame,
+                                        frame,
+                                        slot,
+                                        rel_frame[ssb],
+                                        rel_slot[ssb]))
+        continue;
+
+      LOG_D(NR_MAC, "(%d.%d) scheduling posSibType6-1 for SSB %d\n", frame, slot, ssb);
+      sib_sched_control(cell,
+                        frame,
+                        slot,
+                        ssb,
+                        ss,
+                        DL_req,
+                        TX_req,
+                        cc->pos_sib_bcch_pdu,
+                        cc->pos_sib_bcch_length,
+                        "posSibType6-1");
     }
   }
 }

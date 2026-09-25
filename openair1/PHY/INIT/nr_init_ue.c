@@ -23,6 +23,122 @@
 #include <cuda_runtime.h>
 #endif
 
+static bool nr_ue_validate_prs_configuration(const nr_ue_prs_configuration_t *configuration)
+{
+  if (configuration->num_targets > NR_MAX_PRS_TARGETS)
+    return false;
+
+  for (unsigned int target_id = 0; target_id < configuration->num_targets; ++target_id) {
+    const nr_ue_prs_target_config_t *target = &configuration->targets[target_id];
+    if (target->num_resources > NR_MAX_PRS_RESOURCES_PER_TARGET)
+      return false;
+
+    for (unsigned int resource_id = 0; resource_id < target->num_resources; ++resource_id) {
+      const nr_ue_prs_resource_config_t *resource = &target->resources[resource_id];
+      if (resource->resource_set_period == 0 || resource->resource_repetition == 0
+          || resource->resource_time_gap == 0 || resource->num_rbs == 0
+          || resource->num_symbols == 0 || resource->comb_size == 0)
+        return false;
+      if (resource->muting_pattern1_length > NR_MAX_PRS_MUTING_PATTERN_LENGTH
+          || resource->muting_pattern2_length > NR_MAX_PRS_MUTING_PATTERN_LENGTH)
+        return false;
+    }
+  }
+  return true;
+}
+
+static void nr_ue_copy_prs_resource(prs_config_t *destination, const nr_ue_prs_resource_config_t *source)
+{
+  memset(destination, 0, sizeof(*destination));
+  destination->PRSResourceSetPeriod[0] = source->resource_set_period;
+  destination->PRSResourceSetPeriod[1] = source->resource_set_offset;
+  destination->PRSResourceOffset = source->resource_offset;
+  destination->PRSResourceRepetition = source->resource_repetition;
+  destination->PRSResourceTimeGap = source->resource_time_gap;
+  destination->NumRB = source->num_rbs;
+  destination->NumPRSSymbols = source->num_symbols;
+  destination->SymbolStart = source->symbol_start;
+  destination->RBOffset = source->rb_offset;
+  destination->CombSize = source->comb_size;
+  destination->REOffset = source->re_offset;
+  memcpy(destination->MutingPattern1, source->muting_pattern1, sizeof(destination->MutingPattern1));
+  memcpy(destination->MutingPattern2, source->muting_pattern2, sizeof(destination->MutingPattern2));
+  destination->MutingBitRepetition = source->muting_bit_repetition;
+  destination->NPRSID = source->nprs_id;
+}
+
+static void nr_ue_apply_prs_configuration(PHY_VARS_NR_UE *ue, const nr_ue_prs_configuration_t *configuration)
+{
+  AssertFatal(nr_ue_validate_prs_configuration(configuration), "Invalid PRS configuration from source %d\n", configuration->source);
+
+  nr_ue_prs_configuration_t value = *configuration;
+  value.generation = 0;
+  if (ue->prs_config_active && memcmp(&value, &ue->active_prs_config, sizeof(value)) == 0)
+    return;
+
+  for (unsigned int target_id = 0; target_id < value.num_targets; ++target_id) {
+    NR_UE_PRS *destination = ue->prs_vars[target_id];
+    const nr_ue_prs_target_config_t *source = &value.targets[target_id];
+    destination->NumPRSResources = source->num_resources;
+    for (unsigned int resource_id = 0; resource_id < source->num_resources; ++resource_id)
+      nr_ue_copy_prs_resource(&destination->prs_resource[resource_id].prs_cfg, &source->resources[resource_id]);
+  }
+  ue->prs_active_gNBs = value.num_targets;
+  ue->active_prs_config = value;
+  ue->prs_config_active = true;
+  LOG_I(PHY, "Applied %u PRS target(s) from source %d (generation %u)\n",
+        configuration->num_targets, configuration->source, configuration->generation);
+}
+
+static void nr_ue_prs_configuration_from_legacy(PHY_VARS_NR_UE *ue, nr_ue_prs_configuration_t *configuration)
+{
+  memset(configuration, 0, sizeof(*configuration));
+  configuration->source = NR_PRS_SOURCE_CONFIG_FILE;
+  configuration->num_targets = ue->prs_active_gNBs;
+  for (unsigned int target_id = 0; target_id < configuration->num_targets; ++target_id) {
+    const NR_UE_PRS *source = ue->prs_vars[target_id];
+    nr_ue_prs_target_config_t *target = &configuration->targets[target_id];
+    target->num_resources = source->NumPRSResources;
+    target->normal_cyclic_prefix = true;
+    for (unsigned int resource_id = 0; resource_id < target->num_resources; ++resource_id) {
+      const prs_config_t *resource = &source->prs_resource[resource_id].prs_cfg;
+      nr_ue_prs_resource_config_t *destination = &target->resources[resource_id];
+      destination->resource_set_period = resource->PRSResourceSetPeriod[0];
+      destination->resource_set_offset = resource->PRSResourceSetPeriod[1];
+      destination->resource_offset = resource->PRSResourceOffset;
+      destination->resource_repetition = resource->PRSResourceRepetition;
+      destination->resource_time_gap = resource->PRSResourceTimeGap;
+      destination->num_rbs = resource->NumRB;
+      destination->num_symbols = resource->NumPRSSymbols;
+      destination->symbol_start = resource->SymbolStart;
+      destination->rb_offset = resource->RBOffset;
+      destination->comb_size = resource->CombSize;
+      destination->re_offset = resource->REOffset;
+      memcpy(destination->muting_pattern1, resource->MutingPattern1, sizeof(destination->muting_pattern1));
+      memcpy(destination->muting_pattern2, resource->MutingPattern2, sizeof(destination->muting_pattern2));
+      destination->muting_bit_repetition = resource->MutingBitRepetition;
+      destination->nprs_id = resource->NPRSID;
+      destination->resource_id = resource_id;
+    }
+  }
+}
+
+void nr_ue_apply_pending_prs_configuration(PHY_VARS_NR_UE *ue)
+{
+  nr_ue_prs_configuration_t configuration;
+  bool pending = false;
+  pthread_mutex_lock(&ue->prs_config_mutex);
+  if (ue->prs_config_pending) {
+    configuration = ue->pending_prs_config;
+    ue->prs_config_pending = false;
+    pending = true;
+  }
+  pthread_mutex_unlock(&ue->prs_config_mutex);
+
+  if (pending)
+    nr_ue_apply_prs_configuration(ue, &configuration);
+}
+
 void RCconfig_nrUE_prs(void *cfg)
 {
   int j = 0, k = 0, gNB_id = 0;
@@ -34,9 +150,12 @@ void RCconfig_nrUE_prs(void *cfg)
   paramlist_def_t gParamList = {CONFIG_STRING_PRS_LIST,NULL,0};
   paramdef_t gParams[] = PRS_GLOBAL_PARAMS_DESC;
   config_getlist(config_get_if(), &gParamList, gParams, sizeofArray(gParams), NULL);
+  ue->prs_active_gNBs = 0;
   if (gParamList.numelt > 0)
   {
     ue->prs_active_gNBs = *(gParamList.paramarray[j][PRS_ACTIVE_GNBS_IDX].uptr);
+    AssertFatal(ue->prs_active_gNBs <= NR_MAX_PRS_TARGETS,
+                "Configured %d PRS targets; maximum is %d\n", ue->prs_active_gNBs, NR_MAX_PRS_TARGETS);
   } else {
     LOG_I(PHY,"%s configuration NOT found..!! Skipped configuring UE for the PRS reception\n", CONFIG_STRING_PRS_CONFIG);
   }
@@ -57,6 +176,10 @@ void RCconfig_nrUE_prs(void *cfg)
 
         memset(n,0,sizeof(n));
         ue->prs_vars[gNB_id]->NumPRSResources = *(PRS_ParamList.paramarray[j][NUM_PRS_RESOURCES].uptr);
+        AssertFatal(ue->prs_vars[gNB_id]->NumPRSResources <= NR_MAX_PRS_RESOURCES_PER_TARGET,
+                    "Configured %d PRS resources; maximum is %d\n",
+                    ue->prs_vars[gNB_id]->NumPRSResources,
+                    NR_MAX_PRS_RESOURCES_PER_TARGET);
         for (k = 0; k < ue->prs_vars[gNB_id]->NumPRSResources; k++)
         {
           prs_config = &ue->prs_vars[gNB_id]->prs_resource[k].prs_cfg;
@@ -122,6 +245,10 @@ void RCconfig_nrUE_prs(void *cfg)
       LOG_I(PHY,"No %s configuration found..!!\n", PRS_ParamList.listname);
     }
   }
+
+  nr_ue_prs_configuration_t configuration;
+  nr_ue_prs_configuration_from_legacy(ue, &configuration);
+  nr_ue_apply_prs_configuration(ue, &configuration);
 }
 
 void init_nr_prs_ue_vars(PHY_VARS_NR_UE *ue)
@@ -130,7 +257,10 @@ void init_nr_prs_ue_vars(PHY_VARS_NR_UE *ue)
   NR_DL_FRAME_PARMS *const fp  = &ue->frame_parms;
 
   // PRS vars init
-  for(int idx = 0; idx < NR_MAX_PRS_COMB_SIZE; idx++)
+  pthread_mutex_init(&ue->prs_config_mutex, NULL);
+  ue->prs_config_pending = false;
+  ue->prs_config_active = false;
+  for(int idx = 0; idx < NR_MAX_PRS_TARGETS; idx++)
   {
     prs_vars[idx] = malloc16_clear(sizeof(NR_UE_PRS));
     // PRS channel estimates

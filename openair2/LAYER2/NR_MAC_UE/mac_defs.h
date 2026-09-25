@@ -513,7 +513,8 @@ typedef struct {
 
 typedef enum {
   NR_SI_INFO,
-  NR_SI_INFO_v1700
+  NR_SI_INFO_v1700,
+  NR_POS_SI_INFO_r16
 } nr_si_info_type;
 
 typedef struct {

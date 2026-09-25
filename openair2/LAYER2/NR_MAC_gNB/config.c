@@ -19,12 +19,15 @@
 #include "NR_MIB.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
 #include "NR_BCCH-BCH-Message.h"
+#include "NR_PosSI-SchedulingInfo-r16.h"
+#include "NR_PosSIB-Type-r16.h"
 #include "NR_ServingCellConfigCommon.h"
 #include "NR_MIB.h"
 #include "SCHED_NR/phy_frame_config_nr.h"
 #include "T.h"
 #include "asn_internal.h"
 #include "assertions.h"
+#include "constraints.h"
 #include "common/ran_context.h"
 #include "common/utils/T/T.h"
 #include "common/utils/nr/nr_common.h"
@@ -34,7 +37,9 @@
 #include "nfapi_interface.h"
 #include "nfapi_nr_interface.h"
 #include "nfapi_nr_interface_scf.h"
+#include "oai_asn1.h"
 #include "utils.h"
+#include "uper_encoder.h"
 
 c16_t convert_precoder_weight(double complex c_in)
 {
@@ -990,6 +995,53 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
   seq_arr_init(&nrmac->pos_act_ue_arr, sizeof(positioning_activation_info_t));
 }
 
+static bool get_pos_sib_periodicity(uint32_t frames, long *periodicity)
+{
+  switch (frames) {
+    case 8:
+      *periodicity = NR_PosSchedulingInfo_r16__posSI_Periodicity_r16_rf8;
+      return true;
+    case 16:
+      *periodicity = NR_PosSchedulingInfo_r16__posSI_Periodicity_r16_rf16;
+      return true;
+    case 32:
+      *periodicity = NR_PosSchedulingInfo_r16__posSI_Periodicity_r16_rf32;
+      return true;
+    case 64:
+      *periodicity = NR_PosSchedulingInfo_r16__posSI_Periodicity_r16_rf64;
+      return true;
+    case 128:
+      *periodicity = NR_PosSchedulingInfo_r16__posSI_Periodicity_r16_rf128;
+      return true;
+    case 256:
+      *periodicity = NR_PosSchedulingInfo_r16__posSI_Periodicity_r16_rf256;
+      return true;
+    case 512:
+      *periodicity = NR_PosSchedulingInfo_r16__posSI_Periodicity_r16_rf512;
+      return true;
+    default:
+      return false;
+  }
+}
+
+static bool configure_pos_sib_schedule(nr_cell_sched_t *cell);
+
+static bool has_ordinary_si(int num_cu_sib, const f1ap_sib_msg_t cu_sib[num_cu_sib], seq_arr_t *du_sibs)
+{
+  for (int i = 0; i < num_cu_sib; i++) {
+    if (cu_sib[i].SI_type >= NR_SIB_2 && cu_sib[i].SI_type <= NR_SIB_14)
+      return true;
+  }
+
+  if (du_sibs) {
+    FOR_EACH_SEQ_ARR (nr_SIBs_t *, sib, du_sibs) {
+      if (sib->SIB_type >= NR_SIB_2 && sib->SIB_type <= NR_SIB_14)
+        return true;
+    }
+  }
+  return false;
+}
+
 bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1ap_sib_msg_t cu_sib[num_cu_sib])
 {
   NR_COMMON_channels_t *cc = &cell->common_channels;
@@ -997,6 +1049,9 @@ bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1a
   int num_du_sib = 0;
   if (du_SIBs)
     num_du_sib = du_SIBs->size;
+  AssertFatal(cc->pos_sib_bcch_length == 0 || has_ordinary_si(num_cu_sib, cu_sib, du_SIBs),
+              "BroadcastPosSIB requires an ordinary SI schedule; configure at least one SIB2-SIB14 "
+              "(for example, cu_sibs = [2])\n");
   if (num_cu_sib + num_du_sib == 0)
     return false; /* no updates */
 
@@ -1088,6 +1143,144 @@ bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1a
 
   ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfo);
   ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfov17);
+  if (cc->pos_sib_bcch_length > 0 && !configure_pos_sib_schedule(cell))
+    return false;
+  return true;
+}
+
+static int encode_pos_sib_message(const NR_BCCH_DL_SCH_Message_t *message,
+                                  uint8_t buffer[NR_MAX_SIB_LENGTH / 8],
+                                  const char *name)
+{
+  char error_buffer[256];
+  size_t error_length = sizeof(error_buffer);
+  if (asn_check_constraints(&asn_DEF_NR_BCCH_DL_SCH_Message, message, error_buffer, &error_length) != 0) {
+    LOG_E(NR_MAC, "%s violates BCCH-DL-SCH ASN.1 constraints: %.*s\n", name, (int)error_length, error_buffer);
+    return -1;
+  }
+
+  memset(buffer, 0, NR_MAX_SIB_LENGTH / 8);
+  asn_enc_rval_t encoded =
+      uper_encode_to_buffer(&asn_DEF_NR_BCCH_DL_SCH_Message, NULL, message, buffer, NR_MAX_SIB_LENGTH / 8);
+  if (encoded.encoded <= 0 || encoded.encoded > NR_MAX_SIB_LENGTH) {
+    const char *failed_type = encoded.failed_type ? encoded.failed_type->name : "unknown";
+    LOG_E(NR_MAC,
+          "cannot encode %s within the %d-bit BCCH-DL-SCH limit (failed type %s, encoded %zd bits)\n",
+          name,
+          NR_MAX_SIB_LENGTH,
+          failed_type,
+          encoded.encoded);
+    return -1;
+  }
+  return (encoded.encoded + 7) / 8;
+}
+
+static bool configure_pos_sib_schedule(nr_cell_sched_t *cell)
+{
+  NR_COMMON_channels_t *cc = &cell->common_channels;
+  if (!cc->sib1) {
+    LOG_E(NR_MAC, "cannot configure PosSIB before SIB1 is available\n");
+    return false;
+  }
+
+  NR_SIB1_t *sib1 = cc->sib1->message.choice.c1->choice.systemInformationBlockType1;
+  if (!sib1->si_SchedulingInfo) {
+    LOG_D(NR_MAC, "deferring PosSIB activation until si-SchedulingInfo is available in SIB1\n");
+    return false;
+  }
+
+  bool created_v1610 = false;
+  NR_SIB1_v1610_IEs_t *sib1_v1610 = sib1->nonCriticalExtension;
+  if (!sib1_v1610) {
+    sib1_v1610 = calloc_or_fail(1, sizeof(*sib1_v1610));
+    sib1->nonCriticalExtension = sib1_v1610;
+    created_v1610 = true;
+  }
+
+  long periodicity;
+  if (!get_pos_sib_periodicity(cc->pos_sib_periodicity, &periodicity)) {
+    LOG_E(NR_MAC, "invalid PosSIB periodicity %u radio frames\n", cc->pos_sib_periodicity);
+    return false;
+  }
+
+  NR_PosSI_SchedulingInfo_r16_t *pos_schedule = calloc_or_fail(1, sizeof(*pos_schedule));
+  NR_PosSchedulingInfo_r16_t *schedule_entry = calloc_or_fail(1, sizeof(*schedule_entry));
+  schedule_entry->posSI_Periodicity_r16 = periodicity;
+  schedule_entry->posSI_BroadcastStatus_r16 =
+      NR_PosSchedulingInfo_r16__posSI_BroadcastStatus_r16_broadcasting;
+
+  NR_PosSIB_Type_r16_t *mapping = calloc_or_fail(1, sizeof(*mapping));
+  mapping->posSibType_r16 = NR_PosSIB_Type_r16__posSibType_r16_posSibType6_1;
+  asn1cSeqAdd(&schedule_entry->posSIB_MappingInfo_r16.list, mapping);
+  asn1cSeqAdd(&pos_schedule->posSchedulingInfoList_r16.list, schedule_entry);
+
+  NR_PosSI_SchedulingInfo_r16_t *old_schedule = sib1_v1610->posSI_SchedulingInfo_r16;
+  sib1_v1610->posSI_SchedulingInfo_r16 = pos_schedule;
+
+  uint8_t sib1_buffer[NR_MAX_SIB_LENGTH / 8];
+  const int sib1_length = encode_pos_sib_message(cc->sib1, sib1_buffer, "SIB1 with PosSI scheduling");
+  if (sib1_length < 0) {
+    sib1_v1610->posSI_SchedulingInfo_r16 = old_schedule;
+    ASN_STRUCT_FREE(asn_DEF_NR_PosSI_SchedulingInfo_r16, pos_schedule);
+    if (created_v1610) {
+      sib1->nonCriticalExtension = NULL;
+      free(sib1_v1610);
+    }
+    return false;
+  }
+
+  ASN_STRUCT_FREE(asn_DEF_NR_PosSI_SchedulingInfo_r16, old_schedule);
+  cc->pos_sib_active = true;
+  memcpy(cc->sib1_bcch_pdu, sib1_buffer, sizeof(cc->sib1_bcch_pdu));
+  cc->sib1_bcch_length = sib1_length;
+
+  LOG_I(NR_MAC,
+        "activated %d-byte posSibType6-1 message with rf%u periodicity\n",
+        cc->pos_sib_bcch_length,
+        cc->pos_sib_periodicity);
+  return true;
+}
+
+bool nr_mac_configure_pos_sib(gNB_MAC_INST *nrmac,
+                              const NR_BCCH_DL_SCH_Message_t *pos_sib,
+                              uint32_t periodicity_frames)
+{
+  if (!nrmac || !pos_sib) {
+    LOG_E(NR_MAC, "cannot configure PosSIB without MAC and BCCH-DL-SCH message\n");
+    return false;
+  }
+
+  long periodicity;
+  if (!get_pos_sib_periodicity(periodicity_frames, &periodicity)) {
+    LOG_E(NR_MAC,
+          "PosSIB periodicity must be one of 8, 16, 32, 64, 128, 256, or 512 (got %u)\n",
+          periodicity_frames);
+    return false;
+  }
+
+  uint8_t pos_sib_buffer[NR_MAX_SIB_LENGTH / 8];
+  const int pos_sib_length = encode_pos_sib_message(pos_sib, pos_sib_buffer, "PosSIB");
+  if (pos_sib_length < 0)
+    return false;
+
+  NR_SCHED_LOCK(&nrmac->sched_lock);
+  nr_cell_sched_t *cell = &nrmac->cells[0];
+  NR_COMMON_channels_t *cc = &cell->common_channels;
+  memcpy(cc->pos_sib_bcch_pdu, pos_sib_buffer, sizeof(cc->pos_sib_bcch_pdu));
+  cc->pos_sib_bcch_length = pos_sib_length;
+  cc->pos_sib_periodicity = (uint16_t)periodicity_frames;
+  cc->pos_sib_active = false;
+
+  bool activated = false;
+  NR_SIB1_t *sib1 = NULL;
+  if (cc->sib1)
+    sib1 = cc->sib1->message.choice.c1->choice.systemInformationBlockType1;
+  if (sib1 && sib1->si_SchedulingInfo)
+    activated = configure_pos_sib_schedule(cell);
+  NR_SCHED_UNLOCK(&nrmac->sched_lock);
+
+  if (!activated)
+    LOG_I(NR_MAC, "stored %d-byte PosSIB pending SIB1 SI scheduling configuration\n", pos_sib_length);
   return true;
 }
 

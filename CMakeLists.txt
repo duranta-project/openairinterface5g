@@ -1185,6 +1185,7 @@ set(NR_L2_SRC_UE
   ${NR_PDCP_SRC_UE}
   ${NR_SDAP_SRC}
   ${NR_UE_RRC_DIR}/L2_interface_ue.c
+  ${NR_UE_RRC_DIR}/lpp_prs_ue.c
   ${NR_UE_RRC_DIR}/main_ue.c
   ${NR_UE_RRC_DIR}/rrc_UE.c
   ${NR_UE_RRC_DIR}/verify_RRC.c
@@ -1283,6 +1284,7 @@ set (GNB_APP_SRC
   ${OPENAIR2_DIR}/GNB_APP/gnb_config_common.c
   ${OPENAIR2_DIR}/GNB_APP/gnb_config_ng.c
   ${OPENAIR2_DIR}/GNB_APP/gnb_config_xn.c
+  ${OPENAIR2_DIR}/GNB_APP/lpp_prs.c
   )
 
 set (MCE_APP_SRC
@@ -1320,7 +1322,7 @@ add_library(L2_NR
   ${MAC_NR_SRC}
   ${GNB_APP_SRC}
   )
-target_link_libraries(L2_NR PRIVATE ds alg)
+target_link_libraries(L2_NR PRIVATE ds alg asn1_lpp)
 target_link_libraries(L2_NR PRIVATE f1ap_lib)
 target_link_libraries(L2_NR PRIVATE nfapi_nr_user_lib)
 target_link_libraries(L2_NR PRIVATE nrppa)
@@ -1362,7 +1364,7 @@ target_link_libraries(L2_UE PRIVATE asn1_lte_rrc_hdrs)
 
 add_library( NR_L2_UE ${NR_L2_SRC_UE} ${MAC_NR_SRC_UE} )
 target_link_libraries(NR_L2_UE PRIVATE nr_rlc)
-target_link_libraries(NR_L2_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs nr_common nr_ue_power_procedures nr_ue_ra_procedures)
+target_link_libraries(NR_L2_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs asn1_lpp nr_common nr_ue_power_procedures nr_ue_ra_procedures)
 target_link_libraries(NR_L2_UE PRIVATE nr_nas)
 
 include_directories("${OPENAIR2_DIR}/NR_UE_PHY_INTERFACE")

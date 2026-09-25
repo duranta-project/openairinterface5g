@@ -13,6 +13,7 @@
 #include "fapi_nr_ue_interface.h"
 #include "openair2/NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "nfapi/open-nFAPI/nfapi/public_inc/sidelink_nr_ue_interface.h"
+#include "openair2/COMMON/nr_ue_prs_config.h"
 
 typedef enum sl_sidelink_slot_type {
 
@@ -191,6 +192,10 @@ typedef void (nr_sl_ue_scheduled_response_f)(nr_scheduled_response_t *sl_schedul
  */
 typedef void (nr_ue_phy_config_request_f)(nr_phy_config_t *phy_config);
 
+typedef void (nr_ue_prs_config_request_f)(uint8_t module_id,
+                                           uint8_t cc_id,
+                                           const nr_ue_prs_configuration_t *configuration);
+
 /*
  * Generic type of an application-defined callback to return various
  * types of data to the application.
@@ -244,6 +249,7 @@ typedef void (nr_ue_sl_indication_f)(nr_sidelink_indication_t *sl_info);
 typedef struct nr_ue_if_module_s {
   nr_ue_scheduled_response_f *scheduled_response;
   nr_ue_phy_config_request_f *phy_config_request;
+  nr_ue_prs_config_request_f *prs_config_request;
   nr_ue_sl_phy_config_request_f *sl_phy_config_request;
   nr_ue_synch_request_f      *synch_request;
   nr_ue_dl_indication_f      *dl_indication;
@@ -273,4 +279,3 @@ void nr_ue_sl_indication(nr_sidelink_indication_t *sl_indication);
 void print_ue_mac_stats(const module_id_t mod, const int frame_rx, const int slot_rx);
 
 #endif
-

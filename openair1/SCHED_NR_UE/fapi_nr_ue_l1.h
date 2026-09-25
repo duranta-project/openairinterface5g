@@ -23,6 +23,7 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
 /**\brief NR UE FAPI-like P5 message, physical configuration from L2 to configure L1
    \param scheduled_response including transmission config(dl_config, ul_config) and data transmission (tx_req)*/
 void nr_ue_phy_config_request(nr_phy_config_t *phy_config);
+void nr_ue_prs_config_request(uint8_t module_id, uint8_t cc_id, const nr_ue_prs_configuration_t *configuration);
 void nr_ue_sl_phy_config_request(nr_sl_phy_config_t *phy_config);
 
 /**\brief NR UE FAPI message to schedule a synchronization with target gNB

@@ -1141,6 +1141,7 @@ int pbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_da
   }
 
   // Check for PRS slot - section 7.4.1.7.4 in 3GPP rel16 38.211
+  nr_ue_apply_pending_prs_configuration(ue);
   for(int gNB_id = 0; gNB_id < ue->prs_active_gNBs; gNB_id++)
   {
     __attribute__((aligned(32))) c16_t rxdataF[ue->frame_parms.nb_antennas_rx][ue->frame_parms.samples_per_slot_wCP];
