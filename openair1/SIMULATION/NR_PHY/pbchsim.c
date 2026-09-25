@@ -462,6 +462,8 @@ int main(int argc, char **argv)
 
   UE = malloc16_clear(sizeof(*UE));
   memcpy(&UE->frame_parms,frame_parms,sizeof(UE->frame_parms));
+  // Initial acquisition is blind: search all three PSS sequences, as nr-uesoftmodem does.
+  UE->target_Nid_cell = -1;
   //phy_init_nr_top(UE); //called from init_nr_ue_signal
   if (run_initial_sync==1)  UE->is_synchronized = 0;
   else                      UE->is_synchronized = 1;
