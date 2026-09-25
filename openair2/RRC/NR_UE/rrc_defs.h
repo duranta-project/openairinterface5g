@@ -264,6 +264,17 @@ typedef struct NR_UE_RRC_INST_s {
   notifiedFIFO_t *mac_input_nf;
   /* NAS PDU deferred until UL-DCCH exists: consumed in RRCSetupComplete/RRCResumeComplete dedicatedNAS-Message */
   as_nas_info_t pending_initial_nas;
+  /// Snapshot of the source PCell's identity/security state, taken right before a received
+  /// reconfigurationWithSync (handover command) starts mutating it. Used to revert back to the
+  /// source PCell upon T304 expiry, as mandated by TS 38.331 5.3.5.8.3.
+  struct {
+    bool valid;
+    uint32_t phyCellID;
+    rnti_t rnti;
+    uint8_t kgnb[32];
+    uint8_t nh[32];
+    uint64_t nhcc;
+  } ho_source;
 } NR_UE_RRC_INST_t;
 
 #define RRCLOG_D(f, ...) LOG_D(NR_RRC, "[UE %ld] RNTI 0x%04x " f, rrc->ue_id, rrc->rnti __VA_OPT__(, ) __VA_ARGS__)
