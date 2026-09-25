@@ -821,10 +821,8 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
             if (ri_bitlen)
               r_index = evaluate_ri_report(payload, ri_bitlen, csi_report->csi_meas_bitlen.ri_restriction, cumul_bits, sched_ctrl);
             cumul_bits += ri_bitlen;
-            if (ri_bitlen) {
-              skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
-              pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
-            }
+            skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
+            pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
             sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = csi_report_id;
             cumul_bits += pmi_bitlen;
             evaluate_cqi_report(cell, payload, csi_report, cumul_bits, r_index, UE, cqi_table);
@@ -841,10 +839,8 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
             cumul_bits += ri_bitlen;
             li_bitlen = evaluate_li_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
             cumul_bits += li_bitlen;
-            if (ri_bitlen) {
-              skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
-              pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
-            }
+            skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
+            pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
             sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = csi_report_id;
             cumul_bits += pmi_bitlen;
             evaluate_cqi_report(cell, payload, csi_report, cumul_bits, r_index, UE, cqi_table);
