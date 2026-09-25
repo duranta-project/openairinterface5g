@@ -251,6 +251,9 @@ int config_process_cmdline(configmodule_interface_t *cfg, paramdef_t *cfgoptions
           int ret;
           cfg->argv_info[i] |= CONFIG_CMDLINEOPT_PROCESSED;
 
+          if ((cfgoptions[n].paramflags & PARAMFLAG_DEPRECATED) != 0)
+            fprintf(stderr, "[CONFIG] option %s is deprecated and will be removed in a future release\n", cfg->argv[i]);
+
           if (c > 0) {
             pp = cfg->argv[i + 1];
 
