@@ -16,13 +16,18 @@ static uint8_t aerial_unpack_nr_rx_data_indication_body(nfapi_nr_rx_data_pdu_t *
                                                         uint8_t *end,
                                                         nfapi_p7_codec_config_t *config)
 {
+  /* SCF222.10.04 layout (scf_fapi_rx_data_pdu_t in cuBB scf_5g_fapi.h):
+   *   handle(4) rnti(2) rapid(1) harq_id(1) pdu_len(4) pdu_tag(1) pdu[]
+   * ul_cqi/timing_advance/rssi have moved to CRC.indication's
+   * scf_fapi_ul_meas_common_t. */
   if (!(pull32(ppReadPackedMsg, &value->handle, end) && pull16(ppReadPackedMsg, &value->rnti, end)
-        && pull8(ppReadPackedMsg, &value->harq_id, end) &&
-        // For Aerial, RX_DATA.indication PDULength is changed to 32 bit field
-        pull32(ppReadPackedMsg, &value->pdu_length, end) && pull8(ppReadPackedMsg, &value->ul_cqi, end)
-        && pull16(ppReadPackedMsg, &value->timing_advance, end) && pull16(ppReadPackedMsg, &value->rssi, end))) {
+        && pull8(ppReadPackedMsg, &value->rapid, end) && pull8(ppReadPackedMsg, &value->harq_id, end)
+        && pull32(ppReadPackedMsg, &value->pdu_length, end) && pull8(ppReadPackedMsg, &value->pdu_tag, end))) {
     return 0;
   }
+  value->ul_cqi = 0;
+  value->timing_advance = 0;
+  value->rssi = 0;
 
   // Allocate space for the pdu to be unpacked later
   value->pdu = nfapi_p7_allocate(sizeof(*value->pdu) * value->pdu_length, config);
@@ -40,8 +45,9 @@ uint8_t aerial_unpack_nr_rx_data_indication(uint8_t **ppReadPackedMsg,
   // For Aerial unpacking, the PDU data is packed in pDataMsg, and we read it after unpacking the PDU headers
 
   nfapi_nr_rx_data_indication_t *pNfapiMsg = (nfapi_nr_rx_data_indication_t *)msg;
-  // Unpack SFN, slot, nPDU
+  // Unpack SFN, slot, control_length (10.04), nPDU
   if (!(pull16(ppReadPackedMsg, &pNfapiMsg->sfn, end) && pull16(ppReadPackedMsg, &pNfapiMsg->slot, end)
+        && pull16(ppReadPackedMsg, &pNfapiMsg->control_length, end)
         && pull16(ppReadPackedMsg, &pNfapiMsg->number_of_pdus, end))) {
     return 0;
   }

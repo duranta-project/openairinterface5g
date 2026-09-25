@@ -18,6 +18,8 @@ static void fill_crc_indication_CRC(nfapi_nr_crc_t *crc)
       crc->cb_crc_status[cb] = rand8();
     }
   }
+  // SCF222.10.04 carries the SNR as ul_sinr_metric inside ul_meas_common; the
+  // pack/unpack translate it to/from the legacy ul_cqi encoding losslessly.
   crc->ul_cqi = rand8();
   crc->timing_advance = rand16_range(0, 63);
   crc->rssi = rand16_range(0, 1280);
