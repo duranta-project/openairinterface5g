@@ -202,3 +202,58 @@ So an example NR UE command for FDD, 5MHz BW, 15 kHz SCS, transparent LEO satell
 cd cmake_targets
 sudo ./ran_build/build/nr-uesoftmodem -O ../targets/PROJECTS/GENERIC-NR-5GC/CONF/ue.conf --band 254 -C 2488400000 --CO -873500000 -r 25 --numerology 0 --ssb 60 --rfsim --rfsimulator.[0].prop_delay 20 --rfsimulator.[0].options chanmod --time-sync-I 0.1 --ntn-initial-time-drift -46 --initial-fo 57340 --cont-fo-comp 2
 ```
+
+
+### Interoperability testing with OCUDU gNB
+> Follow the [OCUDU documentation](https://docs.ocudu.org/tutorials/ntn/) to build gNB and install the external GNU radio emulator
+
+1. GNU Radio Emulator
+  - [geo_ntn_channel_emulator.py](https://gitlab.com/ocudu/ocudu_docs/-/blob/main/docs/tutorials/ntn/assets/geo_ntn_channel_emulator.py)
+```bash
+python3 geo_ntn_channel_emulator.py --channel-delay-us=119680 --samp-rate=7.68e6
+```
+
+2. OCUDU gNB
+   - [gnb_zmq.yml](https://gitlab.com/ocudu/ocudu_docs/-/blob/main/docs/tutorials/ntn/assets/gnb_zmq.yml)
+       <details>
+       <summary>modify the following value </summary>
+    
+       ```bash
+       # Update amf and zmq related IP address based on your setup
+    
+       # Set the exchanged samples with the GNU Radio emulator 
+       ru_sdr:
+         srate: 7.68
+       ```
+    
+       </details>
+
+   - [geo_ntn.yml](https://gitlab.com/ocudu/ocudu_docs/-/blob/main/docs/tutorials/ntn/assets/geo_ntn.yml)
+       <details>
+       <summary>modify the following value </summary>
+    
+       ```bash
+       # Set Preamble Format 
+       prach:
+         prach_config_index: 27
+       ```
+    
+       </details>
+
+```bash
+sudo ./apps/gnb/gnb -c gnb_zmq.yml -c geo_ntn.yml
+```
+
+3. OAI nrUE
+In the `ue.conf`, it includes `position0`, needed to compute UE-specific timing advance/Doppler against the satellite ephemeris signaled in SIB19.
+We calculated this value from the geodetic position used when testing this same OCUDU gNB against an [Amarisoft UE](https://gitlab.com/ocudu/ocudu_docs/-/blob/main/docs/tutorials/ntn/assets/ue-nr-ntn-geo.cfg?ref_type=heads#L38), converted to ECEF via the standard WGS84 geodetic-to-ECEF formula:
+    ```bash
+    position0 = {
+      x = -4242224.3;
+      y =  4755940.1;
+      z =  -253924.6;
+    };
+    ```
+```bash
+sudo ./nr-uesoftmodem -O ../targets/PROJECTS/GENERIC-NR-5GC/CONF/ue.conf --band 256 -C 2185000000 --CO -190000000 -r 25 --numerology 0 --ssb 60 --uecap_file ../targets/PROJECTS/GENERIC-NR-5GC/CONF/uecap_ports1.xml --device.name oai_zmqdevif --zmq.[0].tx_channels tcp://127.0.0.1:2101 --zmq.[0].rx_channels tcp://127.0.0.1:2100
+```
