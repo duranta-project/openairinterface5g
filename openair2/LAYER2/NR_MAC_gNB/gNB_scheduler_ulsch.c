@@ -878,7 +878,8 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
 
     // Only trigger RRCReconfiguration if UE is not performing RRCReestablishment
     // The RRCReconfiguration will be triggered by the RRCReestablishmentComplete
-    if (!old_UE->reconfigCellGroup) {
+    // reconfigCellGroup: same-DU re-establishment, reestablish_rlc: cross-DU re-establishment
+    if (!old_UE->reconfigCellGroup && !old_UE->reestablish_rlc) {
       LOG_I(NR_MAC, "Received UL_SCH_LCID_C_RNTI with C-RNTI 0x%04x, triggering RRC Reconfiguration\n", crnti);
       // Trigger RRCReconfiguration
       nr_mac_trigger_reconfiguration(mac, cell, old_UE, -1, -1);
