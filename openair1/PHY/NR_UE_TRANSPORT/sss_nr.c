@@ -206,7 +206,7 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
   pss_ch_est_nr(params->nb_antennas_rx, pss->nid2, pss_ext, sss_ext, sss_comp);
 
   // now do the SSS detection based on the precomputed sequences in PHY/LTE_TRANSPORT/sss.h
-  sss_detection_result_t res = {.metric = -INT_MAX};
+  sss_detection_result_t res = {.metric = -INT_MAX, .second_metric = -INT_MAX};
 
   /* for phase evaluation, one uses an array of possible phase shifts */
   /* then a correlation is done between received signal with a shift pĥase and the reference signal */
@@ -239,6 +239,7 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
       metric >>= SCALING_METRIC_SSS_NR;
       // if the current metric is better than the last save it
       if (metric > res.metric) {
+        res.second_metric = res.metric;
         res.metric = metric;
         res.nid_cell = Nid2 + 3 * n1;
         res.phase = idx;
@@ -252,7 +253,8 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
               res.metric,
               res.phase);
 #endif
-      }
+      } else if (metric > res.second_metric)
+        res.second_metric = metric;
     }
     // we try progressively rotation between pss and sss
     // but pss and sss are in phase at emission

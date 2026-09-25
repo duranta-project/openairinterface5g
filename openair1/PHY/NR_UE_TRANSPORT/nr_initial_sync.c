@@ -44,6 +44,7 @@ static bool nr_pbch_detection(const UE_nr_rxtx_proc_t *proc,
                               int *ssb_index,
                               int *symbol_offset,
                               fapiPbch_t *result,
+                              nr_initial_sync_t *sync_res,
                               const c16_t rxdataF[NR_N_SYMBOLS_SSB][frame_parms->nb_antennas_rx][frame_parms->ofdm_symbol_size])
 {
   const int N_L = (frame_parms->Lmax == 4) ? 4 : 8;
@@ -70,10 +71,17 @@ static bool nr_pbch_detection(const UE_nr_rxtx_proc_t *proc,
     }
   }
   qsort(best_ssb, N_L * N_hf, sizeof(NR_UE_SSB), ssb_sort);
+  sync_res->trace.pbch_attempted = true;
+  sync_res->trace.pbch_success = false;
+  sync_res->trace.pbch_dmrs_best_metric = best_ssb[0].metric;
+  sync_res->trace.pbch_dmrs_second_metric = N_L * N_hf > 1 ? best_ssb[1].metric : 0;
+  sync_res->trace.pbch_decode_attempts = 0;
+  sync_res->trace.failure_reason = NR_SYNC_FAILURE_PBCH;
 
   const int nb_ant = frame_parms->nb_antennas_rx;
   const int estimateSz = frame_parms->ofdm_symbol_size;
   for (NR_UE_SSB *ssb = best_ssb; ssb < best_ssb + N_L * N_hf; ssb++) {
+    sync_res->trace.pbch_decode_attempts++;
     // computing channel estimation for selected best ssb
     int16_t pbch_e_rx[NR_POLAR_PBCH_E];
 
@@ -123,6 +131,8 @@ static bool nr_pbch_detection(const UE_nr_rxtx_proc_t *proc,
                           symbol_offset,
                           result)) {
       LOG_A(PHY, "Initial sync: pbch decoded sucessfully, ssb index %d\n", *ssb_index);
+      sync_res->trace.pbch_success = true;
+      sync_res->trace.failure_reason = NR_SYNC_FAILURE_NONE;
       return true;
     }
   }
@@ -198,6 +208,7 @@ static void do_time_to_freq(nr_ssb_search_params_t *params, uint32_t sample_offs
  */
 bool nr_search_ssb_common(nr_ssb_search_params_t *params)
 {
+  params->failure_reason = NR_SYNC_FAILURE_PSS;
   const uint32_t pssTime_sz = params->ofdm_symbol_size;
   c16_t(*pssTime)[pssTime_sz] = (c16_t(*)[pssTime_sz])params->pssTime;
 
@@ -223,6 +234,7 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
 
   // Check that SSB fits within buffer
   if (ssb_time_offset + NR_N_SYMBOLS_SSB * (params->ofdm_symbol_size + params->nb_prefix_samples) >= params->rxdata_size) {
+    params->failure_reason = NR_SYNC_FAILURE_SSB_BOUNDARY;
     LOG_D(PHY,
           "SSB extends beyond buffer boundary (sync_pos %d, ssb_offset %d, buffer_size %d)\n",
           params->pss_res.pos,
@@ -253,14 +265,59 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
   params->sss_res = rx_sss_nr(&p_sss, &params->pss_res, -1, rxdataF);
 
   if (!params->sss_res.success || params->sss_res.nid_cell < 0) {
+    params->failure_reason = NR_SYNC_FAILURE_SSS;
     return false;
   }
 
   // Check if we should exclude the serving cell
-  if (params->exclude_nid_cell >= 0 && params->sss_res.nid_cell == params->exclude_nid_cell)
+  if (params->exclude_nid_cell >= 0 && params->sss_res.nid_cell == params->exclude_nid_cell) {
+    params->failure_reason = NR_SYNC_FAILURE_EXCLUDED_PCI;
     return false;
+  }
 
+  params->failure_reason = NR_SYNC_FAILURE_NONE;
   return true;
+}
+
+static void copy_search_trace(nr_initial_sync_t *sync_res, const nr_ssb_search_params_t *search_params, int initial_freq_offset)
+{
+  sync_res->trace.failure_reason = search_params->failure_reason;
+  sync_res->trace.pss_success = search_params->pss_res.success;
+  sync_res->trace.pss_nid2 = search_params->pss_res.nid2;
+  sync_res->trace.pss_position = search_params->pss_res.pos;
+  sync_res->trace.pss_peak_db = search_params->pss_res.peak;
+  sync_res->trace.pss_avg_db = search_params->pss_res.avg;
+  sync_res->trace.pss_peak_raw = search_params->pss_res.peak_raw;
+  sync_res->trace.pss_avg_raw = search_params->pss_res.avg_raw;
+  sync_res->trace.pss_second_sequence_peak_raw = search_params->pss_res.second_sequence_peak_raw;
+  sync_res->trace.pss_freq_offset = search_params->pss_res.freq_offset;
+  sync_res->trace.sss_success = search_params->sss_res.success;
+  sync_res->trace.sss_nid_cell = search_params->sss_res.nid_cell;
+  sync_res->trace.sss_metric = search_params->sss_res.metric;
+  sync_res->trace.sss_second_metric = search_params->sss_res.second_metric;
+  sync_res->trace.sss_phase = search_params->sss_res.phase;
+  sync_res->trace.sss_freq_offset = search_params->sss_res.freq_offset;
+  sync_res->trace.initial_freq_offset = initial_freq_offset;
+  sync_res->trace.total_freq_offset = initial_freq_offset + search_params->pss_res.freq_offset + search_params->sss_res.freq_offset;
+}
+
+static int sync_trace_rank(const nr_initial_sync_t *sync_res)
+{
+  if (sync_res->trace.pbch_attempted)
+    return 3;
+  if (sync_res->trace.sss_success)
+    return 2;
+  if (sync_res->trace.pss_success)
+    return 1;
+  return 0;
+}
+
+static bool sync_trace_is_better(const nr_initial_sync_t *candidate, const nr_initial_sync_t *current)
+{
+  const int candidate_rank = sync_trace_rank(candidate);
+  const int current_rank = sync_trace_rank(current);
+  return candidate_rank > current_rank
+         || (candidate_rank == current_rank && candidate->trace.pss_peak_raw > current->trace.pss_peak_raw);
 }
 
 static void nr_scan_ssb(void *arg)
@@ -327,10 +384,17 @@ static void nr_scan_ssb(void *arg)
         .pssTime = pssTime,
     };
 
-    ssbInfo->syncRes.frame_id = frame_id;
-    ssbInfo->syncRes.cell_detected = nr_search_ssb_common(&search_params);
+    nr_initial_sync_t frame_res = {
+        .cell_detected = false,
+        .frame_id = frame_id,
+        .trace.failure_reason = NR_SYNC_FAILURE_PSS,
+    };
+    frame_res.cell_detected = nr_search_ssb_common(&search_params);
+    copy_search_trace(&frame_res, &search_params, ssbInfo->freqOffset);
 
-    if (!ssbInfo->syncRes.cell_detected) {
+    if (!frame_res.cell_detected) {
+      if (sync_trace_is_better(&frame_res, &ssbInfo->syncRes))
+        ssbInfo->syncRes = frame_res;
       continue;
     }
 
@@ -342,26 +406,30 @@ static void nr_scan_ssb(void *arg)
 #ifdef DEBUG_INITIAL_SYNCH
     LOG_I(PHY,
           "TDD Normal prefix: sss detection result; %d, CellId %d metric %d, phase %d, measured offset %d\n",
-          ssbInfo->syncRes.cell_detected,
+          frame_res.cell_detected,
           ssbInfo->nidCell,
           sss_metric,
           sss_phase,
-          ssbInfo->syncRes.rx_offset);
+          frame_res.rx_offset);
 #endif
     ssbInfo->freqOffset += search_params.pss_res.freq_offset + search_params.sss_res.freq_offset;
+    frame_res.trace.total_freq_offset = ssbInfo->freqOffset;
 
-    if (ssbInfo->syncRes.cell_detected) { // we got sss channel
-      ssbInfo->syncRes.cell_detected = nr_pbch_detection(ssbInfo->proc,
-                                                         ssbInfo->fp,
-                                                         ssbInfo->nidCell,
-                                                         1,
-                                                         ssbInfo->gscnInfo.ssbFirstSC,
-                                                         &ssbInfo->halfFrameBit,
-                                                         &ssbInfo->ssbIndex,
-                                                         &ssbInfo->symbolOffset,
-                                                         &ssbInfo->pbchResult,
-                                                         rxdataF); // start pbch detection at first symbol after pss
-      if (ssbInfo->syncRes.cell_detected) {
+    if (frame_res.cell_detected) { // we got sss channel
+      frame_res.cell_detected = nr_pbch_detection(ssbInfo->proc,
+                                                   ssbInfo->fp,
+                                                   ssbInfo->nidCell,
+                                                   1,
+                                                   ssbInfo->gscnInfo.ssbFirstSC,
+                                                   &ssbInfo->halfFrameBit,
+                                                   &ssbInfo->ssbIndex,
+                                                   &ssbInfo->symbolOffset,
+                                                   &ssbInfo->pbchResult,
+                                                   &frame_res,
+                                                   rxdataF); // start pbch detection at first symbol after pss
+      if (frame_res.cell_detected || sync_trace_is_better(&frame_res, &ssbInfo->syncRes))
+        ssbInfo->syncRes = frame_res;
+      if (frame_res.cell_detected) {
         uint32_t rsrp_avg = nr_ue_calculate_ssb_rsrp(ssbInfo->fp, rxdataF[2], ssbInfo->gscnInfo.ssbFirstSC);
         int rsrp_db_per_re = 10 * log10(rsrp_avg);
         ssbInfo->adjust_rxgain = TARGET_RX_POWER - rsrp_db_per_re;
@@ -397,6 +465,7 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
                                   .fp = &ue->frame_parms,
                                   .proc = proc,
                                   .syncRes.cell_detected = false,
+                                  .syncRes.trace.failure_reason = NR_SYNC_FAILURE_PSS,
                                   .nFrames = n_frames,
                                   .foFlag = ue->UE_fo_compensation,
                                   .freqOffset = ue->initial_fo,
@@ -420,6 +489,7 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
 
   // Collect the scan results
   nr_ue_ssb_scan_t *res = NULL;
+  nr_initial_sync_t best_failure = {.cell_detected = false, .trace.failure_reason = NR_SYNC_FAILURE_PSS};
   join_task_ans(&ans);
   for (int i = 0; i < numGscn; i++) {
     nr_ue_ssb_scan_t *ssbInfo = &ssb_info[i];
@@ -434,6 +504,9 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
       // take the first cell detected
       if (!res)
         res = ssbInfo;
+    } else {
+      if (sync_trace_is_better(&ssbInfo->syncRes, &best_failure))
+        best_failure = ssbInfo->syncRes;
     }
     for (int ant = 0; ant < fp->nb_antennas_rx; ant++) {
       free(ssbInfo->rxdata[ant]);
@@ -524,6 +597,6 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
     // we might add a low-pass filter here later
     ue->measurements.rx_power_avg[0] = rx_power / fp->nb_antennas_rx;
     ue->measurements.rx_power_avg_dB[0] = dB_fixed(ue->measurements.rx_power_avg[0]);
-    return (nr_initial_sync_t){.cell_detected = false};
+    return best_failure;
   }
 }

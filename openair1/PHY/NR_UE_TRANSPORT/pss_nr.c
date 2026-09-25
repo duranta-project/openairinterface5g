@@ -179,6 +179,7 @@ pss_detection_result_t pss_search_time_nr(const pss_search_t *p)
   }
 
   int64_t avg[NUMBER_PSS_SEQUENCE] = {0};
+  int64_t sequence_peak[NUMBER_PSS_SEQUENCE] = {0};
   int64_t peak_value = 0;
   unsigned int peak_position = 0;
   unsigned int pss_source = 0;
@@ -197,6 +198,8 @@ pss_detection_result_t pss_search_time_nr(const pss_search_t *p)
 
       /* calculate the absolute value of sync_corr[n] */
       avg[pss] += pss_corr_ue;
+      if (pss_corr_ue > sequence_peak[pss])
+        sequence_peak[pss] = pss_corr_ue;
       if (pss_corr_ue > peak_value) {
         peak_value = pss_corr_ue;
         peak_position = n;
@@ -208,6 +211,13 @@ pss_detection_result_t pss_search_time_nr(const pss_search_t *p)
       }
     }
     avg[pss] /= (p->rxdata_length / 4);
+  }
+
+  int64_t second_sequence_peak_value = 0;
+  for (int i = 0; pss_space[i] != -1; i++) {
+    const int pss = pss_space[i];
+    if (pss != pss_source && sequence_peak[pss] > second_sequence_peak_value)
+      second_sequence_peak_value = sequence_peak[pss];
   }
 
   double ffo_est = 0;
@@ -233,8 +243,20 @@ pss_detection_result_t pss_search_time_nr(const pss_search_t *p)
 #endif
   }
 
-  if (peak_value == 0 || peak_value < 5 * avg[pss_source])
-    return (pss_detection_result_t){.success = false};
+  const pss_detection_result_t result = {
+      .success = peak_value != 0 && peak_value >= 5 * avg[pss_source],
+      .nid2 = pss_source,
+      .pos = peak_position,
+      .freq_offset = ffo_est * p->subcarrier_spacing,
+      .peak = peak_value > 0 ? dB_fixed64(peak_value) : -127,
+      .avg = avg[pss_source] > 0 ? dB_fixed64(avg[pss_source]) : -127,
+      .peak_raw = peak_value,
+      .avg_raw = avg[pss_source],
+      .second_sequence_peak_raw = second_sequence_peak_value,
+  };
+
+  if (!result.success)
+    return result;
 
   LOG_D(PHY,
       "[UE] nr_synchro_time: Sync source (nid2) = %d, Peak found at pos %d, val = %ld (%d dB power over signal avg %d dB), ffo "
@@ -255,12 +277,7 @@ pss_detection_result_t pss_search_time_nr(const pss_search_t *p)
   }
 #endif
 
-  return (pss_detection_result_t){.success = true,
-                                  .nid2 = pss_source,
-                                  .pos = peak_position,
-                                  .freq_offset = ffo_est * p->subcarrier_spacing,
-                                  .peak = dB_fixed64(peak_value),
-                                  .avg = dB_fixed64(avg[pss_source])};
+  return result;
 }
 
 void sl_generate_pss(SL_NR_UE_INIT_PARAMS_t *sl_init_params, uint8_t n_sl_id2, uint16_t scaling)

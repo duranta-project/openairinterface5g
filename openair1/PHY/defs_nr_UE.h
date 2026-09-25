@@ -479,10 +479,46 @@ typedef struct {
   int hfn_rx;
 } UE_nr_rxtx_proc_t;
 
+typedef enum {
+  NR_SYNC_FAILURE_NONE = 0,
+  NR_SYNC_FAILURE_PSS,
+  NR_SYNC_FAILURE_SSB_BOUNDARY,
+  NR_SYNC_FAILURE_SSS,
+  NR_SYNC_FAILURE_EXCLUDED_PCI,
+  NR_SYNC_FAILURE_PBCH,
+} nr_sync_failure_t;
+
+typedef struct {
+  nr_sync_failure_t failure_reason;
+  bool pss_success;
+  int pss_nid2;
+  int pss_position;
+  int pss_peak_db;
+  int pss_avg_db;
+  uint64_t pss_peak_raw;
+  uint64_t pss_avg_raw;
+  uint64_t pss_second_sequence_peak_raw;
+  int pss_freq_offset;
+  bool sss_success;
+  int sss_nid_cell;
+  int32_t sss_metric;
+  int32_t sss_second_metric;
+  int sss_phase;
+  int sss_freq_offset;
+  bool pbch_attempted;
+  bool pbch_success;
+  uint64_t pbch_dmrs_best_metric;
+  uint64_t pbch_dmrs_second_metric;
+  int pbch_decode_attempts;
+  int initial_freq_offset;
+  int total_freq_offset;
+} nr_initial_sync_trace_t;
+
 typedef struct {
   bool cell_detected;
   int rx_offset;
   int frame_id;
+  nr_initial_sync_trace_t trace;
 } nr_initial_sync_t;
 
 typedef struct {
@@ -515,12 +551,16 @@ typedef struct {
   int freq_offset; // PSS frequency offset estimate
   int peak; // PSS correlation peak power
   int avg; // PSS correlation average power
+  uint64_t peak_raw;
+  uint64_t avg_raw;
+  uint64_t second_sequence_peak_raw;
 } pss_detection_result_t;
 
 typedef struct {
   bool success;
   int nid_cell; // detected PCI
   int32_t metric; // SSS detection metric
+  int32_t second_metric; // second-best candidate among the hypotheses evaluated
   int freq_offset; // SSS frequency offset estimate
   int phase; // SSS phase
 } sss_detection_result_t;
@@ -554,6 +594,7 @@ typedef struct {
   // Output parameters
   pss_detection_result_t pss_res;
   sss_detection_result_t sss_res;
+  nr_sync_failure_t failure_reason;
 } nr_ssb_search_params_t;
 
 typedef struct nr_phy_data_tx_s {
