@@ -1,0 +1,123 @@
+#!/bin/bash
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
+# file configure
+# brief OAI simple configure file to provide a auto tools entry with standardized name: confulre, then 'make' 
+
+function print_help() {
+    echo "
+By default, it creates a build directory and creates building files in this directory
+The external packages needs to be installed before   
+See doc/BUILD.md for more details 
+The simplest starting point is to:
+install asn1c from source (in doc/BUILD.md: you can also just install asn1c like this ...)
+Then, running ./configure will fail on the packages missing in your Linux, you can install by trial/error
+              
+Possible options are all cmake available options, and OpenAirInterface specific options
+  *** input/output directory
+  --build-dir
+    The building directory (instead of 'current directory'/build)
+  The input file is the current directory file CMakeLists.txt
+
+  *** Binary generation options ***
+  -GNinja or -G\"Unix Makefiles\"
+    cmake method to use Ninja or other build tools (default to standard make)
+  -DCMAKE_C_COMPILER=gcc-4.2 -DCMAKE_CXX_COMPILER=g++-4.2
+    choose compiler
+  -DCMAKE_BUILD_TYPE=Release|RelWithDebInfo|MinSizeRel|Debug
+    predefined cmake options to the compiles (Debug adds -O0 for example)
+  -DAVX512=OFF
+    block AVX512 instructions generation (AVX2 is mandatory in OAI)
+  -DSANITIZE_ADDRESS=True -DSANITIZE_UNDEFINED=True -DSANITIZE_THREAD=True
+    gcc/clang sanitizers 
+
+  *** memory dimensioning
+  -DUE_EXPANSION=True
+    Change the maximum managed UEs in one Cell for 4G and 5G nodeB for 40 to 256
+  -DNB_ANTENNAS_RX=xxx
+    limit the number of managable RX antennas at runtime
+  -DNB_ANTENNAS_TX=xxx
+    limit the number of managable TX antennas at runtime
+
+
+  *** Features generation options ***
+  -DOAI_xxx=ON
+    Enable specific RF boards or simulation
+    xxx can be: USRP BLADERF LMSSDR IRIS SIMU AW2SORI AERIAL ETHERNET FHI72 FHI72_MPLANE
+    WLS (WLS for nfapi instead of regular sockets interface)
+  -DENABLE_xxx=ON
+    enable specific add-on
+    xxx can be
+      TELNETSRV
+      ENBSCOPE UESCOPE NRSCOPE IMSCOPE IMSCOPE_RECORD
+      OAI_IQPLAYER
+      WEBSRV
+      LDPC_CUDA LPDC_AAL LDPC_XDMA
+  -DE2_AGENT=ON
+     Enable the E2 Agent
+
+  *** Tracing options **
+  -DENABLE_LTTNG=ON
+    use lttng as trace output
+  -DT_TRACER=ON
+    Enable T tracer tool instead of regular trace output
+  -DT_TRACER_GUI
+    Adds a GUI to T tracer
+  -DUE_DEBUG_TRACE=ON
+    Adds more traces in UE
+  -DENABLE_VCD_FIFO=ON
+    enable VCD trace tool (deprecated)
+  -DTRACE_ASN1C_ENC_DEC=ON
+    Enable asn1c internal traces via OAI logging system (huge trace)
+  -DTRACY_ENABLE=ON
+    Enable tracy code profiler instrumentation 
+  
+  *** testing options ***
+  -DENABLE_PHYSIM_TESTS=ON
+     create test scripts to run a set of physical layer auto-tests
+     more details in doc/physical-simulators.md
+     if you run "ctest" after compilation, a set of prepared executions will run
+  -DENABLE_TESTS
+     create unitary test scripts based on ctest googletest
+     more details in docs/UnitTests.md
+     if you run "ctest" after compilation, a set of prepared executions will run
+
+  *** documentation generation
+  -DGENERATE_DOXYGEN=ON
+  generate doxygen documentation
+
+--build-lib <libraries>
+   Build optional shared library, <libraries> can be one or several of $OPTIONAL_LIBRARIES or \"all\"
+-h | --help
+   Print this help"
+}
+
+args=()
+BUILD_DIR=build
+until [ -z "$1"         ]
+do         
+    case "$1" in
+        -d | --build-dir)
+            BUILD_DIR=$2   
+            shift 2;;
+        -h | --help)
+            print_help
+            exit 1;;
+        *)
+            args+=("$1")
+            shift;;
+    esac
+done
+
+cur_dir=$PWD
+mkdir -p "$BUILD_DIR" || exit
+pushd "$BUILD_DIR" || exit 
+cmake -DT_TRACER=OFF "${args[@]}" "$cur_dir"
+if [ -f build.ninja ] ; then
+    cmd=ninja
+else
+    cmd="make -j$(nproc)"
+fi
+popd
+echo "all:" > Makefile
+echo -e "\\tcd $BUILD_DIR; $cmd" >> Makefile
