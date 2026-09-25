@@ -125,6 +125,12 @@
 #define PRACH_MASK_INDEX                54
 #define RESERVED_NR_DCI                 55
 
+// when we have received gNB RA_backoff_limit
+// it is in slots, we have only about 1 rach slot every 10 slots
+// TS 38.321 chap Random Access Response reception tells us '0' so re-send immediatly the RACH
+// but it generates too much collisions with OAI gNB that process one RACH per slot
+#define NO_GNB_RA_BACKOFF 50
+
 // Define the UE L2 states with X-Macro
 #define NR_UE_L2_STATES \
   UE_STATE(UE_NOT_SYNC) \
