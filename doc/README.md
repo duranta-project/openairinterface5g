@@ -40,7 +40,7 @@ There is some general information in the [OpenAirInterface Gitlab Wiki](https://
 - [nrUE-specific configuration and modes](./runmodem-nrue.md)
     * Specific OAI modes (phy-test, do-ra, noS1)
 - [NR UE blind CFO-PSS search](./nr-ue-pss-cfo-search.md)
-- [Manual RFsim NTN tutorial for the blind CFO-PSS receiver](./nr-ue-pss-cfo-rfsim-tutorial.md)
+- [Manual RFsim NTN tutorial for the blind CFO-PSS receiver](./ntn-blind-receiver-rfsim-tutorial.md)
 - [How to run OAI with O-RAN 7.2 FHI](./ORAN_FHI7.2_Tutorial.md)
 - [How to run a 5G-NSA setup](./TESTING_OAI_NSA_COTS_UE.md)
 - [How to run a 4G setup using L1 simulator](./L1SIM.md) _Note: we recommend the RFsimulator_
