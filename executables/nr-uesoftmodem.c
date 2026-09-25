@@ -157,14 +157,41 @@ static void set_UE_options(int CC_id, PHY_VARS_NR_UE *UE, int ru_id)
   UE->max_ldpc_iterations  = nrUE_params.max_ldpc_iterations;
   UE->UE_scan_carrier      = nrUE_params.UE_scan_carrier;
   UE->UE_fo_compensation   = nrUE_params.UE_fo_compensation;
+  UE->pss_cfo_search = (nr_pss_cfo_search_config_t){
+      .enabled = nrUE_params.UE_pss_cfo_search,
+      .coarse_span_hz = nrUE_params.pss_cfo_coarse_span_hz,
+      .coarse_step_hz = nrUE_params.pss_cfo_coarse_step_hz,
+      .fine_span_hz = nrUE_params.pss_cfo_fine_span_hz,
+      .fine_step_hz = nrUE_params.pss_cfo_fine_step_hz,
+  };
+  int coarse_bins = 0;
+  int fine_bins = 0;
+  const nr_pss_cfo_search_status_t pss_cfo_status =
+      nr_pss_cfo_search_validate_config(&UE->pss_cfo_search, &coarse_bins, &fine_bins);
+  AssertFatal(pss_cfo_status == NR_PSS_CFO_SEARCH_OK,
+              "Invalid CFO-PSS search grid: %s\n",
+              nr_pss_cfo_search_status_name(pss_cfo_status));
+  AssertFatal(!UE->pss_cfo_search.enabled || UE->UE_fo_compensation,
+              "--ue-pss-cfo-search requires --ue-fo-compensation\n");
   UE->chest_freq           = nrUE_params.chest_freq;
   UE->chest_time           = nrUE_params.chest_time;
   UE->no_timing_correction = nrUE_params.no_timing_correction;
   UE->initial_fo           = nrUE_params.initial_fo;
   UE->cont_fo_comp         = nrUE_params.cont_fo_comp;
 
-  LOG_I(PHY,"Set UE_fo_compensation %d, UE_scan_carrier %d, UE_no_timing_correction %d \n, chest-freq %d, chest-time %d\n",
-        UE->UE_fo_compensation, UE->UE_scan_carrier, UE->no_timing_correction, UE->chest_freq, UE->chest_time);
+  LOG_I(PHY,
+        "Set UE_fo_compensation %d, UE_pss_cfo_search %d (%d/%d Hz coarse, %d/%d Hz fine), "
+        "UE_scan_carrier %d, UE_no_timing_correction %d, chest-freq %d, chest-time %d\n",
+        UE->UE_fo_compensation,
+        UE->pss_cfo_search.enabled,
+        UE->pss_cfo_search.coarse_span_hz,
+        UE->pss_cfo_search.coarse_step_hz,
+        UE->pss_cfo_search.fine_span_hz,
+        UE->pss_cfo_search.fine_step_hz,
+        UE->UE_scan_carrier,
+        UE->no_timing_correction,
+        UE->chest_freq,
+        UE->chest_time);
 }
 
 static void set_fp_options(int cell_id, int ru_id)
@@ -481,4 +508,3 @@ int main(int argc, char **argv)
   printf("Bye.\n");
   return 0;
 }
-

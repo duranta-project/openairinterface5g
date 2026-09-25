@@ -18,6 +18,7 @@
 #include "PHY/NR_REFSIG/sss_nr.h"
 #include "PHY/NR_REFSIG/nr_refsig.h"
 #include "PHY/TOOLS/tools_defs.h"
+#include "nr_pss_cfo_search.h"
 #include "nr-uesoftmodem.h"
 
 //#define DEBUG_INITIAL_SYNCH
@@ -221,7 +222,53 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
                                       .fo_flag = params->fo_flag,
                                       .target_Nid_cell = params->target_nid_cell,
                                       .pssTime = (c16_t *)pssTime};
-  params->pss_res = pss_search_time_nr(&p_pss);
+  if (params->pss_cfo_search.enabled && params->target_nid_cell == -1) {
+    if (!params->apply_freq_offset) {
+      LOG_E(PHY, "CFO-PSS search requires frequency-offset compensation\n");
+      params->pss_res = (pss_detection_result_t){.success = false, .pos = -1};
+      return false;
+    }
+
+    const c16_t *rxdata[params->nb_antennas_rx];
+    const c16_t *pss_references[NUMBER_PSS_SEQUENCE];
+    for (int antenna = 0; antenna < params->nb_antennas_rx; ++antenna)
+      rxdata[antenna] = params->rxdata[antenna];
+    for (int nid2 = 0; nid2 < NUMBER_PSS_SEQUENCE; ++nid2)
+      pss_references[nid2] = pssTime[nid2];
+
+    const nr_pss_cfo_coarse_search_t stage1_search = {
+        .rxdata = rxdata,
+        .nb_antennas_rx = params->nb_antennas_rx,
+        .rxdata_length = params->rxdata_size,
+        .ofdm_symbol_size = params->ofdm_symbol_size,
+        .pss_time = {pss_references[0], pss_references[1], pss_references[2]},
+        .sampling_rate_hz = params->sampling_rate,
+    };
+    const nr_pss_cfo_search_result_t stage1 = nr_pss_cfo_search_stage1(&stage1_search, &params->pss_cfo_search);
+    params->pss_cfo_search_used = true;
+    params->pss_cfo_coarse_hz = stage1.coarse_cfo_hz;
+    params->pss_cfo_fine_hz = stage1.fine_cfo_hz;
+    params->pss_second_timing_peak_raw = stage1.second_timing_peak_raw;
+    params->pss_cfo_coarse_bins = stage1.coarse_bins_evaluated;
+    params->pss_cfo_fine_bins = stage1.fine_bins_evaluated;
+    params->pss_cfo_diagnostic_passes = stage1.diagnostic_passes_evaluated;
+    params->pss_res = stage1.pss;
+    if (stage1.status != NR_PSS_CFO_SEARCH_OK) {
+      LOG_D(PHY, "CFO-PSS Stage 1 finished with status %s\n", nr_pss_cfo_search_status_name(stage1.status));
+      return false;
+    }
+    LOG_D(PHY,
+          "CFO-PSS Stage 1 selected coarse %d Hz, fine %d Hz, total %d Hz, NID2 %d, position %d\n",
+          stage1.coarse_cfo_hz,
+          stage1.fine_cfo_hz,
+          stage1.pss.freq_offset,
+          stage1.pss.nid2,
+          stage1.pss.pos);
+  } else {
+    if (params->pss_cfo_search.enabled)
+      LOG_D(PHY, "Using original PSS detector for targeted cell search\n");
+    params->pss_res = pss_search_time_nr(&p_pss);
+  }
 
   if (!params->pss_res.success)
     return false;
@@ -290,6 +337,13 @@ static void copy_search_trace(nr_initial_sync_t *sync_res, const nr_ssb_search_p
   sync_res->trace.pss_peak_raw = search_params->pss_res.peak_raw;
   sync_res->trace.pss_avg_raw = search_params->pss_res.avg_raw;
   sync_res->trace.pss_second_sequence_peak_raw = search_params->pss_res.second_sequence_peak_raw;
+  sync_res->trace.pss_cfo_search_used = search_params->pss_cfo_search_used;
+  sync_res->trace.pss_cfo_coarse_hz = search_params->pss_cfo_coarse_hz;
+  sync_res->trace.pss_cfo_fine_hz = search_params->pss_cfo_fine_hz;
+  sync_res->trace.pss_second_timing_peak_raw = search_params->pss_second_timing_peak_raw;
+  sync_res->trace.pss_cfo_coarse_bins = search_params->pss_cfo_coarse_bins;
+  sync_res->trace.pss_cfo_fine_bins = search_params->pss_cfo_fine_bins;
+  sync_res->trace.pss_cfo_diagnostic_passes = search_params->pss_cfo_diagnostic_passes;
   sync_res->trace.pss_freq_offset = search_params->pss_res.freq_offset;
   sync_res->trace.sss_success = search_params->sss_res.success;
   sync_res->trace.sss_nid_cell = search_params->sss_res.nid_cell;
@@ -380,6 +434,7 @@ static void nr_scan_ssb(void *arg)
         .exclude_nid_cell = -1, // No exclusion for initial sync
         .apply_freq_offset = ssbInfo->foFlag,
         .fo_flag = ssbInfo->foFlag,
+        .pss_cfo_search = ssbInfo->pssCfoSearch,
         .rxdataF = rxdataF,
         .pssTime = pssTime,
     };
@@ -468,6 +523,7 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
                                   .syncRes.trace.failure_reason = NR_SYNC_FAILURE_PSS,
                                   .nFrames = n_frames,
                                   .foFlag = ue->UE_fo_compensation,
+                                  .pssCfoSearch = ue->pss_cfo_search,
                                   .freqOffset = ue->initial_fo,
                                   .targetNidCell = ue->target_Nid_cell};
     ssbInfo->rxdata = malloc16_clear(fp->nb_antennas_rx * sizeof(c16_t *));

@@ -29,6 +29,7 @@
 #include "assertions.h"
 #include "common/utils/barrier/barrier.h"
 #include "common/utils/actor/actor.h"
+#include "NR_UE_TRANSPORT/nr_pss_cfo_search_config.h"
 //#include "openair1/SCHED_NR_UE/defs.h"
 
 #define msg(aRGS...) LOG_D(PHY, ##aRGS)
@@ -284,6 +285,8 @@ typedef struct PHY_VARS_NR_UE_s {
   int UE_scan_carrier;
   /// \brief Indicator that UE should enable estimation and compensation of frequency offset
   int UE_fo_compensation;
+  /// CFO-PSS Stage 1 configuration for blind initial access
+  nr_pss_cfo_search_config_t pss_cfo_search;
   /// IF frequency for RF
   uint64_t if_freq;
   /// UL IF frequency offset for RF
@@ -498,6 +501,13 @@ typedef struct {
   uint64_t pss_peak_raw;
   uint64_t pss_avg_raw;
   uint64_t pss_second_sequence_peak_raw;
+  bool pss_cfo_search_used;
+  int pss_cfo_coarse_hz;
+  int pss_cfo_fine_hz;
+  uint64_t pss_second_timing_peak_raw;
+  int pss_cfo_coarse_bins;
+  int pss_cfo_fine_bins;
+  int pss_cfo_diagnostic_passes;
   int pss_freq_offset;
   bool sss_success;
   int sss_nid_cell;
@@ -524,6 +534,7 @@ typedef struct {
 typedef struct {
   nr_gscn_info_t gscnInfo;
   int foFlag;
+  nr_pss_cfo_search_config_t pssCfoSearch;
   int targetNidCell;
   c16_t **rxdata;
   int rxdata_sz;
@@ -589,10 +600,18 @@ typedef struct {
   int exclude_nid_cell; // -1 for no exclusion, or serving cell PCI to exclude
   bool apply_freq_offset; // whether to compensate frequency offset
   bool fo_flag; // frequency offset estimation flag for pss_synchro_nr()
+  nr_pss_cfo_search_config_t pss_cfo_search; // enabled only for blind initial access
   void *rxdataF; // Pre-allocated rxdataF buffer
   void *pssTime; // Pre-generated PSS time sequences
   // Output parameters
   pss_detection_result_t pss_res;
+  bool pss_cfo_search_used;
+  int pss_cfo_coarse_hz;
+  int pss_cfo_fine_hz;
+  uint64_t pss_second_timing_peak_raw;
+  int pss_cfo_coarse_bins;
+  int pss_cfo_fine_bins;
+  int pss_cfo_diagnostic_passes;
   sss_detection_result_t sss_res;
   nr_sync_failure_t failure_reason;
 } nr_ssb_search_params_t;

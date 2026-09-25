@@ -215,7 +215,9 @@ static void log_initial_sync_trace(const syncData_t *syncD, const nr_initial_syn
         "INITIAL_SYNC_TRACE_V1,attempt=%" PRIu64 ",rx_timestamp=%" PRId64
         ",cell_detected=%d,failure_code=%d,failure_stage=%s,frame_id=%d,num_gscn=%d,gscn=%d,ssb_first_sc=%d"
         ",pss_success=%d,pss_nid2=%d,pss_position=%d,pss_peak_db=%d,pss_avg_db=%d,pss_peak_raw=%" PRIu64
-        ",pss_avg_raw=%" PRIu64 ",pss_second_sequence_peak_raw=%" PRIu64 ",pss_freq_offset_hz=%d"
+        ",pss_avg_raw=%" PRIu64 ",pss_second_sequence_peak_raw=%" PRIu64
+        ",pss_cfo_search=%d,pss_cfo_coarse_hz=%d,pss_cfo_fine_hz=%d,pss_second_timing_peak_raw=%" PRIu64
+        ",pss_cfo_coarse_bins=%d,pss_cfo_fine_bins=%d,pss_cfo_diagnostic_passes=%d,pss_freq_offset_hz=%d"
         ",sss_success=%d,sss_nid_cell=%d,sss_metric=%d,sss_second_metric=%d,sss_phase=%d,sss_freq_offset_hz=%d"
         ",pbch_attempted=%d,pbch_success=%d,pbch_dmrs_best_metric=%" PRIu64 ",pbch_dmrs_second_metric=%" PRIu64
         ",pbch_decode_attempts=%d,initial_freq_offset_hz=%d,total_freq_offset_hz=%d,ue_dl_doppler_hz=%.3f\n",
@@ -236,6 +238,13 @@ static void log_initial_sync_trace(const syncData_t *syncD, const nr_initial_syn
         trace->pss_peak_raw,
         trace->pss_avg_raw,
         trace->pss_second_sequence_peak_raw,
+        trace->pss_cfo_search_used,
+        trace->pss_cfo_coarse_hz,
+        trace->pss_cfo_fine_hz,
+        trace->pss_second_timing_peak_raw,
+        trace->pss_cfo_coarse_bins,
+        trace->pss_cfo_fine_bins,
+        trace->pss_cfo_diagnostic_passes,
         trace->pss_freq_offset,
         trace->sss_success,
         trace->sss_nid_cell,

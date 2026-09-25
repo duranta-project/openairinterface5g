@@ -176,8 +176,9 @@ int main(int argc, char **argv)
     exit_fun("[NR_PBCHSIM] Error, configuration module init failed\n");
   }
 
+  int enable_pss_cfo_search = 0;
   int c;
-  while ((c = getopt(argc, argv, "--:O:c:F:g:hIL:m:M:n:N:o:P:R:s:S:T:x:y:z:")) != -1) {
+  while ((c = getopt(argc, argv, "--:O:c:F:g:hIL:m:M:n:N:o:P:QR:s:S:T:x:y:z:")) != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
     if (c == 1 || c == '-' || c == 'O')
@@ -303,6 +304,10 @@ int main(int argc, char **argv)
         printf("Illegal PBCH phase (0-3) got %d\n",pbch_phase);
       break;
 
+    case 'Q':
+      enable_pss_cfo_search = 1;
+      break;
+
     case 'R':
       N_RB_DL = atoi(optarg);
       break;
@@ -388,6 +393,7 @@ int main(int argc, char **argv)
       //printf("-O oversampling factor (1,2,4,8,16)\n");
       //printf("-p Use extended prefix mode\n");
       printf("-P PBCH phase, allowed values 0-3\n");
+      printf("-Q Enable the experimental CFO-PSS Stage 1 detector\n");
       printf("-R N_RB_DL\n");
       printf("-s Starting SNR, runs from SNR0 to SNR0 + 10 dB if not -S given. If -n 1, then just SNR is simulated\n");
       printf("-S Ending SNR, runs from SNR0 to SNR1\n");
@@ -409,7 +415,9 @@ int main(int argc, char **argv)
     fprintf(trace_fd,
             "trial,snr_db,cfo_injected_hz,cell_detected,failure_code,failure_stage,"
             "pss_success,pss_nid2,pss_position,pss_peak_db,pss_avg_db,pss_peak_raw,pss_avg_raw,"
-            "pss_second_sequence_peak_raw,pss_freq_offset_hz,sss_success,sss_nid_cell,sss_metric,"
+            "pss_second_sequence_peak_raw,pss_cfo_search,pss_cfo_coarse_hz,pss_cfo_fine_hz,"
+            "pss_second_timing_peak_raw,pss_cfo_coarse_bins,pss_cfo_fine_bins,pss_cfo_diagnostic_passes,"
+            "pss_freq_offset_hz,sss_success,sss_nid_cell,sss_metric,"
             "sss_second_metric,sss_phase,sss_freq_offset_hz,pbch_attempted,pbch_success,"
             "pbch_dmrs_best_metric,pbch_dmrs_second_metric,pbch_decode_attempts,"
             "initial_freq_offset_hz,total_freq_offset_hz,rng_seed,pci_tx\n");
@@ -518,6 +526,16 @@ int main(int argc, char **argv)
   if (init_nr_ue_signal(UE, 1) != 0) {
     printf("Error at UE NR initialisation\n");
     exit(-1);
+  }
+  if (enable_pss_cfo_search) {
+    UE->UE_fo_compensation = 1;
+    UE->pss_cfo_search = (nr_pss_cfo_search_config_t){
+        .enabled = true,
+        .coarse_span_hz = NR_PSS_CFO_SEARCH_DEFAULT_COARSE_SPAN_HZ,
+        .coarse_step_hz = NR_PSS_CFO_SEARCH_DEFAULT_COARSE_STEP_HZ,
+        .fine_span_hz = NR_PSS_CFO_SEARCH_DEFAULT_FINE_SPAN_HZ,
+        .fine_step_hz = NR_PSS_CFO_SEARCH_DEFAULT_FINE_STEP_HZ,
+    };
   }
 
   // generate signal
@@ -699,6 +717,7 @@ int main(int argc, char **argv)
         if (trace_fd != NULL) {
           fprintf(trace_fd,
                   "%d,%.1f,%.0f,%d,%d,%s,%d,%d,%d,%d,%d,%" PRIu64 ",%" PRIu64 ",%" PRIu64
+                  ",%d,%d,%d,%" PRIu64 ",%d,%d,%d"
                   ",%d,%d,%d,%d,%d,%d,%d,%d,%d,%" PRIu64 ",%" PRIu64 ",%d,%d,%d,%s,%u\n",
                   trial,
                   SNR,
@@ -714,6 +733,13 @@ int main(int argc, char **argv)
                   ret.trace.pss_peak_raw,
                   ret.trace.pss_avg_raw,
                   ret.trace.pss_second_sequence_peak_raw,
+                  ret.trace.pss_cfo_search_used,
+                  ret.trace.pss_cfo_coarse_hz,
+                  ret.trace.pss_cfo_fine_hz,
+                  ret.trace.pss_second_timing_peak_raw,
+                  ret.trace.pss_cfo_coarse_bins,
+                  ret.trace.pss_cfo_fine_bins,
+                  ret.trace.pss_cfo_diagnostic_passes,
                   ret.trace.pss_freq_offset,
                   ret.trace.sss_success,
                   ret.trace.sss_nid_cell,
