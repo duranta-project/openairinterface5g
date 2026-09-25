@@ -24,6 +24,7 @@
 #include "nr_phy_common.h"
 #include "common/utils/time_manager/time_manager.h"
 #include "log.h"
+#include <inttypes.h>
 
 /*
  *  NR SLOT PROCESSING SEQUENCE
@@ -180,7 +181,77 @@ typedef struct {
   nr_gscn_info_t gscnInfo[MAX_GSCN_BAND];
   int numGscn;
   int rx_offset;
+  uint64_t attempt_id;
+  openair0_timestamp_t rx_timestamp;
 } syncData_t;
+
+static const char *initial_sync_failure_name(nr_sync_failure_t failure_reason)
+{
+  switch (failure_reason) {
+    case NR_SYNC_FAILURE_NONE:
+      return "none";
+    case NR_SYNC_FAILURE_PSS:
+      return "pss";
+    case NR_SYNC_FAILURE_SSB_BOUNDARY:
+      return "ssb_boundary";
+    case NR_SYNC_FAILURE_SSS:
+      return "sss";
+    case NR_SYNC_FAILURE_EXCLUDED_PCI:
+      return "excluded_pci";
+    case NR_SYNC_FAILURE_PBCH:
+      return "pbch";
+    default:
+      return "unknown";
+  }
+}
+
+static void log_initial_sync_trace(const syncData_t *syncD, const nr_initial_sync_t *ret)
+{
+  const PHY_VARS_NR_UE *UE = syncD->UE;
+  const nr_initial_sync_trace_t *trace = &ret->trace;
+  const int gscn = syncD->numGscn == 1 ? syncD->gscnInfo[0].gscn : -1;
+  const int ssb_first_sc = syncD->numGscn == 1 ? syncD->gscnInfo[0].ssbFirstSC : -1;
+  LOG_I(NR_PHY,
+        "INITIAL_SYNC_TRACE_V1,attempt=%" PRIu64 ",rx_timestamp=%" PRId64
+        ",cell_detected=%d,failure_code=%d,failure_stage=%s,frame_id=%d,num_gscn=%d,gscn=%d,ssb_first_sc=%d"
+        ",pss_success=%d,pss_nid2=%d,pss_position=%d,pss_peak_db=%d,pss_avg_db=%d,pss_peak_raw=%" PRIu64
+        ",pss_avg_raw=%" PRIu64 ",pss_second_sequence_peak_raw=%" PRIu64 ",pss_freq_offset_hz=%d"
+        ",sss_success=%d,sss_nid_cell=%d,sss_metric=%d,sss_second_metric=%d,sss_phase=%d,sss_freq_offset_hz=%d"
+        ",pbch_attempted=%d,pbch_success=%d,pbch_dmrs_best_metric=%" PRIu64 ",pbch_dmrs_second_metric=%" PRIu64
+        ",pbch_decode_attempts=%d,initial_freq_offset_hz=%d,total_freq_offset_hz=%d,ue_dl_doppler_hz=%.3f\n",
+        syncD->attempt_id,
+        syncD->rx_timestamp,
+        ret->cell_detected,
+        trace->failure_reason,
+        initial_sync_failure_name(trace->failure_reason),
+        ret->frame_id,
+        syncD->numGscn,
+        gscn,
+        ssb_first_sc,
+        trace->pss_success,
+        trace->pss_nid2,
+        trace->pss_position,
+        trace->pss_peak_db,
+        trace->pss_avg_db,
+        trace->pss_peak_raw,
+        trace->pss_avg_raw,
+        trace->pss_second_sequence_peak_raw,
+        trace->pss_freq_offset,
+        trace->sss_success,
+        trace->sss_nid_cell,
+        trace->sss_metric,
+        trace->sss_second_metric,
+        trace->sss_phase,
+        trace->sss_freq_offset,
+        trace->pbch_attempted,
+        trace->pbch_success,
+        trace->pbch_dmrs_best_metric,
+        trace->pbch_dmrs_second_metric,
+        trace->pbch_decode_attempts,
+        trace->initial_freq_offset,
+        trace->total_freq_offset,
+        UE->dl_Doppler_shift);
+}
 
 static void UE_synch(void *arg) {
   syncData_t *syncD = (syncData_t *)arg;
@@ -206,6 +277,8 @@ static void UE_synch(void *arg) {
   } else {
     nr_get_carrier_frequencies(UE, &dl_carrier, &ul_carrier);
     ret = nr_initial_sync(&syncD->proc, UE, 2, syncD->gscnInfo, syncD->numGscn);
+    if (get_nrUE_params()->initial_sync_trace)
+      log_initial_sync_trace(syncD, &ret);
   }
 
   if (ret.cell_detected) {
@@ -778,6 +851,7 @@ void *UE_thread(void *arg)
   int intialSyncOffset = 0;
   openair0_timestamp_t sync_timestamp;
   bool stats_printed = false;
+  uint64_t sync_attempts = 0;
 
   if (get_softmodem_params()->sync_ref && UE->sl_mode == 2) {
     UE->is_synchronized = 1;
@@ -856,6 +930,8 @@ void *UE_thread(void *arg)
         syncMsg->numGscn = 1;
       }
       syncMsg->UE = UE;
+      syncMsg->attempt_id = ++sync_attempts;
+      syncMsg->rx_timestamp = sync_timestamp;
       memset(&syncMsg->proc, 0, sizeof(syncMsg->proc));
       pushNotifiedFIFO(&UE->sync_actor.fifo, Msg);
       trashed_frames = 0;

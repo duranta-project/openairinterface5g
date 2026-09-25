@@ -23,6 +23,7 @@ extern uint16_t ue_id_g;
 #define  CONFIG_HLP_NTN_INIT_TIME_DRIFT    "Initial NTN DL time drift (feeder link and service link), given in µs/s\n"
 #define  CONFIG_HLP_AUTONOMOUS_TA          "Autonomously update TA based on DL drift (useful if main contribution to DL drift is movement, e.g. LEO satellite)\n"
 #define  CONFIG_HLP_INITIAL_FO             "Initially compensated DL frequency offset (e.g. known Doppler shift in NTN LEO scenario)\n"
+#define  CONFIG_HLP_INITIAL_SYNC_TRACE     "Emit one structured log record per NR initial synchronization attempt\n"
 #define  CONFIG_HLP_FREQ_SYNC_P            "coefficient for Proportional part of continuous frequency offset compensation PI controller\n"
 #define  CONFIG_HLP_FREQ_SYNC_I            "coefficient for Integrating part of continuous frequency offset compensation PI controller\n"
 #define  CONFIG_HLP_CONT_FO_COMP           "Enable continuous frequency offset (FO) estimation and (pre-)compensation and specify main FO source (1 = local oscillator, 2 = Doppler shift, 3 = Don't consider residual DL FO in UL FO pre-compensation)\n"
@@ -72,6 +73,7 @@ extern uint16_t ue_id_g;
   {"ntn-initial-time-drift",       CONFIG_HLP_NTN_INIT_TIME_DRIFT, 0,           .dblptr=&(nrUE_params.ntn_init_time_drift),  .defdblval=0.0,    TYPE_DOUBLE,   0}, \
   {"autonomous-ta",                CONFIG_HLP_AUTONOMOUS_TA,   PARAMFLAG_BOOL,  .iptr=&(nrUE_params.autonomous_ta),          .defintval=0,      TYPE_INT,      0}, \
   {"initial-fo",                   CONFIG_HLP_INITIAL_FO,      0,               .dblptr=&(nrUE_params.initial_fo),           .defdblval=0.0,    TYPE_DOUBLE,   0}, \
+  {"initial-sync-trace",           CONFIG_HLP_INITIAL_SYNC_TRACE, PARAMFLAG_BOOL, .iptr=&(nrUE_params.initial_sync_trace),   .defintval=0,      TYPE_INT,      0}, \
   {"freq-sync-P",                  CONFIG_HLP_FREQ_SYNC_P,     0,               .dblptr=&(nrUE_params.freq_sync_P),          .defdblval=0.01,   TYPE_DOUBLE,   0}, \
   {"freq-sync-I",                  CONFIG_HLP_FREQ_SYNC_I,     0,               .dblptr=&(nrUE_params.freq_sync_I),          .defdblval=0.001,  TYPE_DOUBLE,   0}, \
   {"cont-fo-comp",                 CONFIG_HLP_CONT_FO_COMP,    0,               .iptr=&(nrUE_params.cont_fo_comp),           .defintval=0,      TYPE_INT,      0}, \
@@ -103,6 +105,7 @@ typedef struct {
   double ntn_init_time_drift;
   int autonomous_ta;
   double initial_fo;
+  int initial_sync_trace;
   double freq_sync_P;
   double freq_sync_I;
   int cont_fo_comp;
