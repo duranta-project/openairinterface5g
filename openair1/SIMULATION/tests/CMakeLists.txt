@@ -289,6 +289,8 @@ add_physim_test(physim.5g.nr_prachsim.test5 "120kHz SCS, 32 PRBs, Prach format A
 add_physim_test(physim.5g.nr_prachsim.test6 "120kHz SCS, 66 PRBs, Prach format A2" nr_prachsim -a -s -30 -n 300 -p 32 -R 66 -m 3 -c52)
 add_physim_test(physim.5g.nr_prachsim.test7 "120kHz SCS, 66 PRBs, High Speed Enabled" nr_prachsim -a -s -30 -n 300 -R 66 -m 3 -c52 -H)
 add_physim_test(physim.5g.nr_prachsim.test8 "15kHz SCS, 25 PRBs" nr_prachsim -a -s -30 -n 300 -p 99 -R 25 -m 0)
+add_physim_test(physim.5g.nr_prachsim.test9 "Long PRACH, NCS=0, 2 RX antennas and 2 workers" nr_prachsim -a -s -30 -n 300 -p 63 -R 106 -c 4 -Z 0 -z 2 -X -1,-1)
+add_physim_test(physim.5g.nr_prachsim.test10 "Short PRACH, 2 RX antennas and 2 workers" nr_prachsim -a -s -30 -n 300 -p 63 -R 106 -z 2 -X -1,-1)
 
 ####################################################################################
 ######                           nr_psbchsim unit test                        ######

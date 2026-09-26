@@ -117,6 +117,7 @@ int main(int argc, char **argv){
       loglvl = OAILOG_INFO;
   uint8_t snr1set = 0, ue_speed1set = 0, transmission_mode = 1, n_tx = 1, n_rx = 1, awgn_flag = 0, msg1_frequencystart = 0, num_prach_fd_occasions = 1, prach_format=0;
   uint8_t config_index = 98, prach_sequence_length = 1, restrictedSetConfig = 0;
+  char gNBthreads[128] = "n";
   uint16_t Nid_cell = 0, preamble_tx = 0, format0, format1;
   uint32_t tx_lev = 10000, prach_errors = 0; //,tx_lev_dB;
   uint64_t SSB_positions = 0x01;
@@ -143,8 +144,7 @@ int main(int argc, char **argv){
   randominit();
 
   int c;
-  while ((c = getopt (argc, argv, "--:O:hHaA:Cc:l:r:p:g:m:n:s:S:t:x:y:v:V:z:N:F:d:Z:L:R:E")) != -1) {
-
+  while ((c = getopt(argc, argv, "--:O:hHaA:Cc:l:r:p:g:m:n:s:S:t:x:y:v:V:z:N:F:d:Z:L:R:EX:")) != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
     if (c == 1 || c == '-' || c == 'O')
@@ -329,6 +329,11 @@ int main(int argc, char **argv){
 
       break;
 
+    case 'X':
+      strncpy(gNBthreads, optarg, sizeof(gNBthreads) - 1);
+      gNBthreads[sizeof(gNBthreads) - 1] = 0;
+      break;
+
     case 'N':
       Nid_cell = atoi(optarg);
       break;
@@ -359,6 +364,7 @@ int main(int argc, char **argv){
       printf("-S Ending SNR, runs from SNR0 to SNR1\n");
       printf("-g [A,B,C,D,E,F,G,I,N] Use 3GPP SCM (A,B,C,D) or 36-101 (E-EPA,F-EVA,G-ETU) or Rayleigh1 (I) or Rayleigh1_800 (N) models (ignores delay spread and Ricean factor)\n");
       printf("-z Number of RX antennas used in gNB\n");
+      printf("-X gNB thread-pool cores (e.g. -1,-1 for two unpinned workers, n disables workers)\n");
       printf("-N Nid_cell\n");
       printf("-O oversampling factor (1,2,4,8,16)\n");
       //    printf("-f PRACH format (0=1,1=2,2=3,3=4)\n");
@@ -391,6 +397,7 @@ int main(int argc, char **argv){
   RC.nb_RU = 1;
 
   gNB          = RC.gNB[0];
+  initNamedTpool(gNBthreads, &gNB->threadPool, false, "gNB-tpool");
   ru           = RC.ru[0];
   frame_parms  = &gNB->frame_parms;
   prach_config = &gNB->gNB_config.prach_config;
@@ -438,7 +445,7 @@ int main(int argc, char **argv){
   ru->gNB_list[0]    = gNB;
   gNB->num_RU = 1;
   gNB->gNB_config.carrier_config.num_tx_ant.value = 1;
-  gNB->gNB_config.carrier_config.num_rx_ant.value = 1;
+  gNB->gNB_config.carrier_config.num_rx_ant.value = n_rx;
   if (mu == 0)
     gNB->gNB_config.tdd_table.tdd_period.value = 7;
   else if (mu == 1)
@@ -545,7 +552,8 @@ int main(int argc, char **argv){
 
   nfapi_nr_prach_pdu_t prach_pdu = {0};
   prach_pdu.num_cs                                                                      = get_NCS(NCS_config, format0, restrictedSetConfig);
-  prach_config->num_prach_fd_occasions_list[fd_occasion].num_root_sequences.value        = 1+(64/(N_ZC/prach_pdu.num_cs));
+  prach_config->num_prach_fd_occasions_list[fd_occasion].num_root_sequences.value =
+      prach_pdu.num_cs == 0 ? 64 : 1 + (64 / (N_ZC / prach_pdu.num_cs));
   prach_pdu.prach_format                                                                = prach_format;
 
   // Configure UE
@@ -767,7 +775,7 @@ int main(int argc, char **argv){
                 "ncs %d,num_seq %d\n",
                 prach_pdu.num_cs,
                 prach_config->num_prach_fd_occasions_list[fd_occasion].num_root_sequences.value);
-        rx_prach_out_t out = rx_nr_prach(in, prachOccasion);
+        rx_prach_out_t out = rx_nr_prach(in, prachOccasion, &gNB->threadPool);
 
         //        printf(" preamble_energy %d preamble_rx %d preamble_tx %d \n", out.max_preamble_energy, out.max_preamble,
         //        preamble_tx);
@@ -812,6 +820,8 @@ int main(int argc, char **argv){
       break;
   } // SNR loop
   free_channel_desc_scm(UE2gNB);
+
+  abortTpool(&gNB->threadPool);
 
   nr_phy_free_RU(ru);
   free(RC.ru[0]);

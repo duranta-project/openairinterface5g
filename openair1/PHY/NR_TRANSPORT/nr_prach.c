@@ -405,16 +405,85 @@ void rx_nr_prach_ru_rep(prach_item_t *p,
   rx_nr_prach_ru_internal_rep(p, 0, rxdata, fp, N_TA_offset, rep, &params, rxsigF);
 }
 
-rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
+typedef struct {
+  int root;
+  int16_t shift;
+} prach_preamble_t;
+
+typedef struct {
+  const prach_item_t *in;
+  int occasion;
+  int start;
+  int end;
+  const int *root_indices;
+  int32_t *prach_ifft;
+  task_ans_t *ans;
+} prach_root_correlation_task_t;
+
+static void correlate_prach_roots(void *arg)
+{
+  prach_root_correlation_task_t *task = arg;
+  const prach_item_t *in = task->in;
+  const int nb_rx = in->nb_rx;
+  const int N_ZC = in->prach_sequence_length == 0 ? 839 : 139;
+  const int dft_sz = N_ZC == 839 ? 1024 : 256;
+
+  for (int root = task->start; root < task->end; root++) {
+    c16_t *Xu = in->Xu[task->root_indices[root]];
+    int32_t prach_ifft[dft_sz] __attribute__((aligned(32)));
+    LOG_D(PHY, "PRACH RX new dft preamble_offset-first_nonzero_root_idx %d\n", task->root_indices[root]);
+
+    memset(prach_ifft, 0, sizeof(prach_ifft));
+    if (LOG_DUMPFLAG(DEBUG_PRACH)) {
+      LOG_M("prach_rxF0.m", "prach_rxF0", in->prach_buf[0][task->occasion], N_ZC, 1, 1);
+      LOG_M("prach_rxF1.m", "prach_rxF1", in->prach_buf[1][task->occasion], 6144, 1, 1);
+    }
+
+    c16_t prachF[dft_sz] __attribute__((aligned(32)));
+    for (int aa = 0; aa < nb_rx; aa++) {
+      const c16_t *rx = in->prach_buf[aa][task->occasion];
+      // Do componentwise product with Xu* on each antenna
+      for (int offset = 0; offset < N_ZC; offset++)
+        prachF[offset] = c16MulConjShift(Xu[offset], rx[offset], 15);
+
+      memset(prachF + N_ZC, 0, sizeof(*prachF) * (dft_sz - N_ZC));
+      // Now do IFFT of size 1024 (N_ZC=839) or 256 (N_ZC=139)
+      c16_t prach_ifft_tmp[dft_sz] __attribute__((aligned(32)));
+      idft(get_idft(dft_sz), (int16_t *)prachF, (int16_t *)prach_ifft_tmp, 1);
+      // Compute energy and accumulate over receive antennas
+      for (int i = 0; i < dft_sz; i++)
+        prach_ifft[i] += squaredMod(prach_ifft_tmp[i]);
+
+      if (LOG_DUMPFLAG(DEBUG_PRACH)) {
+        if (aa == 0)
+          LOG_M("prach_rxF_comp0.m", "prach_rxF_comp0", prachF, 1024, 1, 1);
+        if (aa == 1)
+          LOG_M("prach_rxF_comp1.m", "prach_rxF_comp1", prachF, 1024, 1, 1);
+      }
+    }
+
+    // Normalize energy over ifft and receive antennas into the completed root row.
+    int32_t *correlation = task->prach_ifft + root * dft_sz;
+    if (N_ZC == 839) {
+      for (int i = 0; i < 1024; i++)
+        correlation[i] = (prach_ifft[i] >> 10) / nb_rx;
+    } else {
+      for (int i = 0; i < 256; i++)
+        correlation[i] = (prach_ifft[i] >> 8) / nb_rx;
+    }
+  }
+
+  if (task->ans)
+    completed_task_ans(task->ans);
+}
+
+rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion, tpool_t *tpool)
 {
   rx_prach_out_t out = {};
   uint16_t preamble_index0 = 0;
   uint16_t numshift = 0;
   int first_nonzero_root_idx = 0;
   bool new_dft = false;
-  int log2_ifft_size = 10;
-
-  const int nb_rx = in->nb_rx;
   const int NCS = in->pdu.num_cs;
   const int prach_fmt = in->pdu.prach_format;
   const int N_ZC = in->prach_sequence_length == 0 ? 839 : 139;
@@ -445,10 +514,13 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
     NCS2 = N_ZC;
 
   int preamble_offset = 0, preamble_offset_old = 99;
-
   int16_t preamble_shift = 0;
   const int dft_sz = N_ZC == 839 ? 1024 : 256;
-  int32_t prach_ifft[dft_sz] __attribute__((aligned(32)));
+  const int log2_ifft_size = N_ZC == 839 ? 10 : 8;
+  prach_preamble_t preambles[64];
+  int root_indices[64];
+  int nroots = 0;
+
   for (int preamble_index = 0; preamble_index < 64; preamble_index++) {
     if (LOG_DEBUGFLAG(DEBUG_PRACH)) {
       int en = dB_fixed(signal_energy((int32_t *)in->prach_buf[0][occasion], N_ZC == 839 ? 840 : 140));
@@ -457,13 +529,13 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
     }
     if (in->restricted_set == 0) {
       // This is the relative offset in the root sequence table (5.7.2-4 from 36.211) for the given preamble index
-      preamble_offset = ((NCS==0)? preamble_index : (preamble_index/(N_ZC/NCS)));
+      preamble_offset = ((NCS == 0) ? preamble_index : (preamble_index / (N_ZC / NCS)));
 
       if (preamble_offset != preamble_offset_old) {
         preamble_offset_old = preamble_offset;
         new_dft = true;
         // This is the \nu corresponding to the preamble index
-        preamble_shift  = 0;
+        preamble_shift = 0;
       } else {
         preamble_shift -= NCS;
 
@@ -472,7 +544,7 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
       }
     } else { // This is the high-speed case
       new_dft = false;
-      uint16_t nr_du[NR_PRACH_SEQ_LEN_L - 1];
+      uint16_t nr_du[NR_PRACH_SEQ_LEN_L];
       nr_fill_du(N_ZC, prach_root_sequence_map, nr_du);
       // set preamble_offset to initial rootSequenceIndex and look if we need more root sequences for this
       // preamble index and find the corresponding cyclic shift
@@ -510,14 +582,14 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
         }
       }
 
-      if (n_shift_ra>0)
+      if (n_shift_ra > 0)
         preamble_shift = -(d_start * (preamble_index0 / n_shift_ra)
                            + (preamble_index0 % n_shift_ra) * NCS); // minus because the channel is h(t -\tau + Cv)
       else
         preamble_shift = 0;
 
       if (preamble_shift < 0)
-        preamble_shift+=N_ZC;
+        preamble_shift += N_ZC;
 
       preamble_index0++;
 
@@ -528,14 +600,14 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
     // Compute DFT of RX signal (conjugate in->rxsigF[occasion], results in conjugate output) for each new rootSequenceIndex
     if (LOG_DEBUGFLAG(DEBUG_PRACH)) {
       int en = dB_fixed(signal_energy((int32_t *)in->prach_buf[0][occasion], 840));
-      if (en>60)
+      if (en > 60)
         LOG_D(PHY,
               "frame %d, slot %d : preamble index %d, NCS %d, N_ZC/NCS %d: offset %d, preamble shift %d , en %d)\n",
               in->frame,
               in->slot,
               preamble_index,
               NCS,
-              N_ZC / NCS,
+              NCS == 0 ? 0 : N_ZC / NCS,
               preamble_offset,
               preamble_shift,
               en);
@@ -547,61 +619,68 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
           preamble_offset,
           preamble_shift,
           new_dft);
+    new_dft = false;
 
-    if (new_dft) {
-      new_dft = false;
+    const int root_index = preamble_offset - first_nonzero_root_idx;
+    int root = 0;
+    while (root < nroots && root_indices[root] != root_index)
+      root++;
+    if (root == nroots)
+      root_indices[nroots++] = root_index;
+    preambles[preamble_index] = (prach_preamble_t){.root = root, .shift = preamble_shift};
+  } // preamble_index
 
-      c16_t *Xu = in->Xu[preamble_offset - first_nonzero_root_idx];
-      LOG_D(PHY,"PRACH RX new dft preamble_offset-first_nonzero_root_idx %d\n",preamble_offset-first_nonzero_root_idx);
+#if defined(__aarch64__)
+  // SVE2 IDFT scratch is allocated per thread on first use; keep it on the L1 caller.
+  tpool = NULL;
+#endif
 
-      memset(prach_ifft, 0, sizeof(prach_ifft));
-      if (LOG_DUMPFLAG(DEBUG_PRACH)) {
-        LOG_M("prach_rxF0.m", "prach_rxF0", in->prach_buf[0][occasion], N_ZC, 1, 1);
-        LOG_M("prach_rxF1.m", "prach_rxF1", in->prach_buf[1][occasion], 6144, 1, 1);
-      }
-      c16_t prachF[dft_sz] __attribute__((aligned(32)));
-      for (int aa = 0; aa < nb_rx; aa++) {
-        // Do componentwise product with Xu* on each antenna
-        for (int offset = 0; offset < N_ZC; offset++) {
-          prachF[offset] = c16MulConjShift(Xu[offset], in->prach_buf[aa][occasion][offset], 15);
-        }
-        memset(prachF + N_ZC, 0, sizeof(*prachF) * (dft_sz - N_ZC));
-        // Now do IFFT of size 1024 (N_ZC=839) or 256 (N_ZC=139)
-        c16_t prach_ifft_tmp[dft_sz] __attribute__((aligned(32)));
-        idft(get_idft(dft_sz), (int16_t *)prachF, (int16_t *)prach_ifft_tmp, 1);
-        // compute energy and accumulate over receive antennas
-        for (int i = 0; i < dft_sz; i++)
-          prach_ifft[i] += squaredMod(prach_ifft_tmp[i]);
-
-        if (LOG_DUMPFLAG(DEBUG_PRACH)) {
-          if (aa == 0)
-            LOG_M("prach_rxF_comp0.m","prach_rxF_comp0", prachF, 1024, 1, 1);
-          if (aa == 1)
-            LOG_M("prach_rxF_comp1.m","prach_rxF_comp1", prachF, 1024, 1, 1);
-        }
-
-      } // antennas_rx
-
-      // Normalization of energy over ifft and receive antennas
-      if (N_ZC == 839) {
-        log2_ifft_size = 10;
-        for (int i = 0; i < 1024; i++)
-          prach_ifft[i] = (prach_ifft[i]>>log2_ifft_size)/nb_rx;
+  int32_t prach_ifft[nroots][dft_sz] __attribute__((aligned(32)));
+  // Keep small correlations inline to avoid queue and join overhead.
+  const int correlation_bins = nroots * dft_sz * in->nb_rx;
+  if (tpool == NULL || tpool->len_thr == 0 || nroots == 1 || correlation_bins < 4096 || LOG_DUMPFLAG(DEBUG_PRACH)) {
+    prach_root_correlation_task_t task = {
+        .in = in,
+        .occasion = occasion,
+        .start = 0,
+        .end = nroots,
+        .root_indices = root_indices,
+        .prach_ifft = &prach_ifft[0][0],
+    };
+    correlate_prach_roots(&task);
+  } else {
+    const int ngroups = min(nroots, (int)tpool->len_thr + 1);
+    prach_root_correlation_task_t tasks[ngroups];
+    task_ans_t ans;
+    init_task_ans(&ans, ngroups);
+    for (int group = 0; group < ngroups; group++) {
+      tasks[group] = (prach_root_correlation_task_t){
+          .in = in,
+          .occasion = occasion,
+          .start = group * nroots / ngroups,
+          .end = (group + 1) * nroots / ngroups,
+          .root_indices = root_indices,
+          .prach_ifft = &prach_ifft[0][0],
+          .ans = &ans,
+      };
+      if (group < ngroups - 1) {
+        task_t pool_task = {.func = correlate_prach_roots, .args = &tasks[group]};
+        pushTpool(tpool, pool_task);
       } else {
-        log2_ifft_size = 8;
-        for (int i = 0; i < 256; i++)
-          prach_ifft[i] = (prach_ifft[i]>>log2_ifft_size)/nb_rx;
+        correlate_prach_roots(&tasks[group]);
       }
+    }
+    join_task_ans(&ans);
+  }
 
-    } // new dft
-
-    // check energy in nth time shift, for
-
-    int preamble_shift2 = preamble_shift == 0 ? 0 : (preamble_shift << log2_ifft_size) / N_ZC;
+  for (int preamble_index = 0; preamble_index < 64; preamble_index++) {
+    const prach_preamble_t *preamble = &preambles[preamble_index];
+    const int32_t *correlation = prach_ifft[preamble->root];
+    const int preamble_shift2 = preamble->shift == 0 ? 0 : (preamble->shift << log2_ifft_size) / N_ZC;
 
     for (int i = 0; i < NCS2; i++) {
       const int peak_bin = preamble_shift2 + i;
-      const int levdB = dB_fixed_times10(prach_ifft[peak_bin]);
+      const int levdB = dB_fixed_times10(correlation[peak_bin]);
       if (levdB > out.max_preamble_energy || (levdB == out.max_preamble_energy && out.max_preamble_delay_raw > i)) {
         LOG_D(NR_PHY_RACH, "preamble_index %d, delay %d en %d dB > %d dB\n", preamble_index, i, levdB, out.max_preamble_energy);
         out.max_preamble_energy = levdB;
