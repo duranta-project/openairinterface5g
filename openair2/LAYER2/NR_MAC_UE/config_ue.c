@@ -27,6 +27,30 @@
       dst = -1;               \
   } while (0)
 
+bool nr_ue_prepare_prach_config(NR_UE_MAC_INST_t *mac, int config_index, int zero_correlation_zone, int restricted_set)
+{
+  const nr_prach_info_t info = get_nr_prach_occasion_info_from_index(config_index,
+                                                                     mac->frequency_range,
+                                                                     mac->phy_config.config_req.cell_config.frame_duplex_type);
+  nr_prach_preparation_t preparation = {0};
+  const int last_format = (info.format >> 8) == 0xff ? info.format & 0xff : info.format >> 8;
+  const int formats[] = {info.N_t_slot > 1 ? info.format & 0xff : last_format, last_format};
+  for (int i = 0; i < 2; i++) {
+    const int id = nr_ue_prach_format_id(formats[i]);
+    if (id < 0 || (i > 0 && formats[i] == formats[0]))
+      continue;
+    const int n = preparation.num_formats++;
+    preparation.formats[n] = id;
+    preparation.ncs[n] = get_NCS(zero_correlation_zone, formats[i], restricted_set);
+  }
+  nr_prach_preparation_t *previous = &mac->phy_config.prach_preparation;
+  const bool changed = previous->num_formats != preparation.num_formats || previous->formats[0] != preparation.formats[0]
+                       || previous->formats[1] != preparation.formats[1] || previous->ncs[0] != preparation.ncs[0]
+                       || previous->ncs[1] != preparation.ncs[1];
+  *previous = preparation;
+  return changed;
+}
+
 // Build the list of all the valid/transmitted SSBs according to the config
 static void build_ssb_list(NR_UE_MAC_INST_t *mac)
 {
@@ -249,6 +273,10 @@ static void config_common_ue_sa(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommo
   }
 
   cfg->prach_config.restricted_set_config = rach_ConfigCommon->restrictedSetConfig;
+  nr_ue_prepare_prach_config(mac,
+                             rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex,
+                             rach_ConfigCommon->rach_ConfigGeneric.zeroCorrelationZoneConfig,
+                             rach_ConfigCommon->restrictedSetConfig);
 
   AssertFatal(rach_ConfigCommon->rach_ConfigGeneric.msg1_FDM < 4,
               "msg1 FDM identifier %ld undefined (0,1,2,3)\n", rach_ConfigCommon->rach_ConfigGeneric.msg1_FDM);
@@ -580,6 +608,10 @@ static void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t
     }
 
     cfg->prach_config.restricted_set_config = rach_ConfigCommon->restrictedSetConfig;
+    nr_ue_prepare_prach_config(mac,
+                               rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex,
+                               rach_ConfigCommon->rach_ConfigGeneric.zeroCorrelationZoneConfig,
+                               rach_ConfigCommon->restrictedSetConfig);
 
     AssertFatal(rach_ConfigCommon->rach_ConfigGeneric.msg1_FDM < 4,
                 "msg1 FDM identifier %ld undefined (0,1,2,3)\n", rach_ConfigCommon->rach_ConfigGeneric.msg1_FDM);
@@ -2990,6 +3022,13 @@ void nr_rrc_mac_config_req_cg(module_id_t module_id,
       mac->tag_Id = scd->tag_Id;
       configure_servingcell_info(mac, scd);
       configure_BWPs(mac, scd);
+      const NR_RACH_ConfigCommon_t *rach = mac->current_UL_BWP ? mac->current_UL_BWP->rach_ConfigCommon : NULL;
+      if (rach
+          && nr_ue_prepare_prach_config(mac,
+                                        rach->rach_ConfigGeneric.prach_ConfigurationIndex,
+                                        rach->rach_ConfigGeneric.zeroCorrelationZoneConfig,
+                                        rach->restrictedSetConfig))
+        mac->if_module->phy_config_request(&mac->phy_config);
     }
   }
 
@@ -3016,6 +3055,7 @@ void nr_rrc_mac_config_req_cg(module_id_t module_id,
 void nr_rrc_mac_config_req_meas(module_id_t module_id, const nr_neighbor_cell_info_t *neighbor_cells, int num_neighbors)
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  mutexlock(mac->if_mutex);
 
   for (int i = 0; i < num_neighbors && i < NUMBER_OF_NEIGHBORING_CELLS_MAX; i++) {
     fapi_nr_neighboring_cell_t *phy_cell = &mac->phy_config.config_req.meas_config.nr_neighboring_cell[i];
@@ -3026,4 +3066,5 @@ void nr_rrc_mac_config_req_meas(module_id_t module_id, const nr_neighbor_cell_in
   }
 
   mac->if_module->phy_config_request(&mac->phy_config);
+  mutexunlock(mac->if_mutex);
 }

@@ -258,6 +258,9 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                      c16_t rho_dl[][pdsch_buf_size_max],
                      uint16_t ptrs_symb_pos);
 
+nr_prach_lut_config_t nr_ue_prach_lut_config(const PHY_VARS_NR_UE *ue);
+bool nr_ue_select_prach_waveform(PHY_VARS_NR_UE *ue, uint8_t gNB_id, uint8_t slot, int16_t amplitude);
+
 int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t slot, int16_t tx_amp, c16_t **txData);
 void apply_ntn_config(PHY_VARS_NR_UE *UE,
                       const NR_DL_FRAME_PARMS *fp,

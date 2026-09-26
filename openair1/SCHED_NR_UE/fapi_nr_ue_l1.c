@@ -13,9 +13,11 @@
 #include "harq_nr.h"
 #include "openair2/NR_UE_PHY_INTERFACE/NR_IF_Module.h"
 #include "PHY/defs_nr_UE.h"
+#include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 #include "PHY/impl_defs_nr.h"
 #include "utils.h"
 #include "SCHED_NR_UE/phy_sch_processing_time.h"
+#include "intertask_interface.h"
 
 const char *const dl_pdu_type[] = {"DCI", "DLSCH", "RA_DLSCH", "SI_DLSCH", "P_DLSCH", "CSI_RS", "CSI_IM", "TA"};
 const char *const ul_pdu_type[] = {"PRACH", "PUCCH", "PUSCH", "SRS"};
@@ -351,6 +353,8 @@ static void nr_ue_scheduled_response_ul(PHY_VARS_NR_UE *phy, fapi_nr_ul_config_r
 
       case FAPI_NR_UL_CONFIG_TYPE_PRACH: {
         phy->prach_vars[0]->prach_pdu = pdu->prach_config_pdu;
+        AssertFatal(nr_ue_select_prach_waveform(phy, 0, ul_config->slot, AMP),
+                    "Scheduled PRACH does not match its prepared lookup table\n");
         phy->prach_vars[0]->active = true;
         phy->timing_advance = 0;
         pdu->pdu_type = FAPI_NR_UL_CONFIG_TYPE_DONE; // not handle it any more
@@ -406,7 +410,38 @@ void nr_ue_phy_config_request(nr_phy_config_t *phy_config)
   if(phy_config != NULL) {
     phy->received_config_request = true;
     memcpy(nrUE_config, &phy_config->config_req, sizeof(fapi_nr_config_request_t));
+    phy->prach_preparation = phy_config->prach_preparation;
+    if (phy->prach_lut_initialized) {
+      const nr_prach_lut_config_t config = nr_ue_prach_lut_config(phy);
+      if (!nr_prach_lut_config_equal(&config, &phy->prach_lut_config)) {
+        phy->prach_lut_config = config;
+        get_mac_inst(phy_config->Mod_id)->prach_lut_pending = true;
+        /* Runtime configuration runs on the sample loop. Only RRC builds the full table. */
+        MessageDef *msg = itti_alloc_new_message(TASK_MAC_UE, 0, NR_RRC_MAC_PRACH_LUT_REQ);
+        NR_RRC_MAC_PRACH_LUT_REQ(msg).cc_id = phy_config->CC_id;
+        NR_RRC_MAC_PRACH_LUT_REQ(msg).config = config;
+        itti_send_msg_to_task(TASK_RRC_NRUE, phy_config->Mod_id, msg);
+      }
+    }
   }
+}
+
+void nr_ue_build_prach_lut(module_id_t module_id, uint8_t cc_id, const nr_prach_lut_config_t *config)
+{
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  PHY_VARS_NR_UE *phy = nrPHY_vars_UE_g[module_id][cc_id];
+  nr_prach_lut_t *lut = config->num_keys ? nr_prach_lut_build(config) : NULL;
+  mutexlock(mac->if_mutex);
+  if (nr_prach_lut_config_equal(config, &phy->prach_lut_config)) {
+    AssertFatal(lut || !config->num_keys, "Could not prepare PRACH lookup tables\n");
+    nr_prach_lut_t *old = phy->prach_lut;
+    phy->prach_lut = lut;
+    mac->prach_lut_pending = false;
+    lut = old;
+  }
+  mutexunlock(mac->if_mutex);
+  /* The selected row was copied while holding if_mutex; TX does not retain this table. */
+  nr_prach_lut_destroy(lut);
 }
 
 void nr_ue_synch_request(nr_synch_request_t *synch_request)

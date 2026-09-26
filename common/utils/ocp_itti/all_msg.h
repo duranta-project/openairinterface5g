@@ -17,3 +17,6 @@
 #include "openair2/COMMON/ngap_messages_def.h"
 #include "openair2/COMMON/nrppa_messages_def.h"
 #include "openair2/COMMON/xnap_messages_def.h"
+
+/* Append to preserve existing ITTI message numbers. */
+MESSAGE_DEF(NR_RRC_MAC_PRACH_LUT_REQ, MESSAGE_PRIORITY_MED, nr_rrc_mac_prach_lut_req_t, nr_rrc_mac_prach_lut_req)

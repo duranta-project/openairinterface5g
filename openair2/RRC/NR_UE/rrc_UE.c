@@ -30,6 +30,7 @@
 #include "LAYER2/NR_MAC_UE/mac_proto.h"
 
 #include "intertask_interface.h"
+#include "SCHED_NR_UE/fapi_nr_ue_l1.h"
 
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "nr-uesoftmodem.h"
@@ -3342,6 +3343,10 @@ void *rrc_nrue(void *notUsed)
     break;
 
   case MESSAGE_TEST:
+    break;
+
+  case NR_RRC_MAC_PRACH_LUT_REQ:
+    nr_ue_build_prach_lut(instance, NR_RRC_MAC_PRACH_LUT_REQ(msg_p).cc_id, &NR_RRC_MAC_PRACH_LUT_REQ(msg_p).config);
     break;
 
   case NR_RRC_MAC_SYNC_IND: {

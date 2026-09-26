@@ -12,6 +12,13 @@
 #include <LTE_DRX-Config.h>
 #include "OCTET_STRING.h"
 #include "NR_MAC_gNB/mac_config.h"
+#include "PHY/NR_UE_TRANSPORT/nr_prach_lut.h"
+
+#define NR_RRC_MAC_PRACH_LUT_REQ(mSGpTR) (mSGpTR)->ittiMsg.nr_rrc_mac_prach_lut_req
+typedef struct {
+  uint8_t cc_id;
+  nr_prach_lut_config_t config;
+} nr_rrc_mac_prach_lut_req_t;
 
 //-------------------------------------------------------------------------------------------//
 // Defines to access message fields.

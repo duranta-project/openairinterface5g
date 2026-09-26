@@ -68,6 +68,7 @@
 #include "PHY/TOOLS/tools_defs.h"
 #include "common/platform_types.h"
 #include "NR_UE_TRANSPORT/nr_transport_ue.h"
+#include "NR_UE_TRANSPORT/nr_prach_lut.h"
 #include "openair1/PHY/defs_common.h"
 
 #if defined(UPGRADE_RAT_NR)
@@ -214,6 +215,13 @@ typedef struct {
   bool active;
   int num_prach_slots;
   fapi_nr_ul_config_prach_pdu prach_pdu;
+  /* Selected LUT row survives replacement; maximum body is 24576 * 8 samples. */
+  c16_t waveform[196608];
+  bool waveform_ready;
+  int waveform_length;
+  int prefix_length;
+  int waveform_start;
+  int32_t waveform_power;
 } NR_UE_PRACH;
 
 typedef struct {
@@ -340,6 +348,10 @@ typedef struct PHY_VARS_NR_UE_s {
   nr_synch_request_t synch_request;
 
   NR_UE_PRACH *prach_vars[NUMBER_OF_CONNECTED_gNB_MAX];
+  nr_prach_lut_t *prach_lut;
+  nr_prach_lut_config_t prach_lut_config;
+  bool prach_lut_initialized;
+  nr_prach_preparation_t prach_preparation;
   NR_UE_PRS *prs_vars[NR_MAX_PRS_COMB_SIZE];
   uint8_t prs_active_gNBs;
   NR_DL_UE_HARQ_t dl_harq_processes[2][NR_MAX_HARQ_PROCESSES];

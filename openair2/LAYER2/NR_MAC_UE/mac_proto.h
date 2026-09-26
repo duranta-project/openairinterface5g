@@ -17,6 +17,16 @@
 #define NR_DL_MAX_DAI                            (4)                      /* TS 38.213 table 9.1.3-1 Value of counter DAI for DCI format 1_0 and 1_1 */
 #define NR_DL_MAX_NB_CW                          (2)                      /* number of downlink code word */
 
+/* Translate the PRACH table's format notation to the UE FAPI format ID. */
+static inline int nr_ue_prach_format_id(int format)
+{
+  const int formats[] = {0, 1, 2, 3, 0xa1, 0xa2, 0xa3, 0xb1, 0xb4, 0xc0, 0xc2};
+  for (int i = 0; i < sizeof(formats) / sizeof(formats[0]); i++)
+    if (formats[i] == format)
+      return i;
+  return -1;
+}
+
 /**\brief initialize the field in nr_mac instance
    \param mac      MAC pointer */
 void nr_ue_init_mac(NR_UE_MAC_INST_t *mac);
@@ -215,6 +225,7 @@ void ul_ports_config(NR_UE_MAC_INST_t *mac,
                      nfapi_nr_ue_pusch_pdu_t *pusch_config_pdu,
                      dci_pdu_rel15_t *dci);
 
+bool nr_ue_prepare_prach_config(NR_UE_MAC_INST_t *mac, int config_index, int zero_correlation_zone, int restricted_set);
 bool init_RA(NR_UE_MAC_INST_t *mac);
 
 /* Random Access */
