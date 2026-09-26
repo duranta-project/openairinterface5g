@@ -34,6 +34,7 @@ typedef enum {
 #define CHANMODEL_FREE_RSQRT_6     1<<1
 #define CHANMODEL_FREE_RSQRT_NTAPS 1<<2
 #define CHANMODEL_FREE_AMPS        1<<3
+#define CHANMODEL_FREE_RSQRT_NTXRX 1 << 4
 #define SHR3 (jz = jsr, jsr ^= (jsr << 13), jsr ^= (jsr >> 17), jsr ^= (jsr << 5), jz + jsr)
 
 typedef enum {

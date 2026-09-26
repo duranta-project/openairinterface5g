@@ -348,6 +348,7 @@ void tdlModel(int  tdl_paths, double *tdl_delays, double *tdl_amps_dB, double DS
   printf("TDL : %f Ms/s, nb_taps %d, Td %e, channel_length %d\n",chan_desc->sampling_rate,tdl_paths,chan_desc->Td,chan_desc->channel_length);
   double sum_amps = 0;
   chan_desc->amps           = calloc(chan_desc->nb_taps, sizeof(double));
+  chan_desc->free_flags |= CHANMODEL_FREE_AMPS;
 
   for (int i = 0; i<chan_desc->nb_taps; i++) {
     chan_desc->amps[i]      = pow(10,.1*tdl_amps_dB[i]);
@@ -427,6 +428,7 @@ void tdlModel(int  tdl_paths, double *tdl_delays, double *tdl_amps_dB, double DS
   }
 
   chan_desc->R_sqrt = calloc(matrix_size, sizeof(*chan_desc->R_sqrt));
+  chan_desc->free_flags |= CHANMODEL_FREE_RSQRT_NTXRX;
   for (int row = 0; row < matrix_size; row++) {
     chan_desc->R_sqrt[row] = calloc(matrix_size, sizeof(**chan_desc->R_sqrt));
     if (correlation_matrix[row] == NULL) {
@@ -1716,6 +1718,10 @@ void free_channel_desc_scm(channel_desc_t *ch) {
 
   if(ch->free_flags&CHANMODEL_FREE_RSQRT_NTAPS)
     for (int i = 0; i<ch->nb_taps; i++)
+      free(ch->R_sqrt[i]);
+
+  if (ch->free_flags & CHANMODEL_FREE_RSQRT_NTXRX)
+    for (int i = 0; i < ch->nb_tx * ch->nb_rx; i++)
       free(ch->R_sqrt[i]);
 
   free(ch->R_sqrt);
