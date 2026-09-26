@@ -113,7 +113,7 @@ NR_UE_L2_STATE_t nr_ue_get_sync_state(module_id_t mod_id)
   return mac->state;
 }
 
-NR_UE_MAC_INST_t *nr_l2_init_ue(int instance_id, int numerology)
+NR_UE_MAC_INST_t *nr_l2_init_ue(int instance_id, int numerology, int rx2tx_capability)
 {
   AssertFatal(instance_id < MAX_NUM_NR_UE_INST, "instance_id %d is out of range\n", instance_id);
   AssertFatal(nr_ue_mac_inst[instance_id] == NULL, "MAC instance %d already initialized\n", instance_id);
@@ -122,6 +122,7 @@ NR_UE_MAC_INST_t *nr_l2_init_ue(int instance_id, int numerology)
   NR_UE_MAC_INST_t *mac = nr_ue_mac_inst[instance_id];
   mac->ue_id = instance_id;
   mac->numerology = numerology;
+  mac->rx2tx_capability = rx2tx_capability;
   nr_ue_init_mac(mac);
   int ret = pthread_mutex_init(&mac->if_mutex, NULL);
   AssertFatal(ret == 0, "Mutex init failed\n");

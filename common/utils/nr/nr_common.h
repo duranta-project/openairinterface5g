@@ -45,11 +45,6 @@
   R(TYPE_TPC_SRS_RNTI_)                                           \
   R(TYPE_MCS_C_RNTI_)
 
-/* FFS_NR_TODO it defines ue capability which is the number of slots        */
-/* - between reception of pdsch and transmission of its acknowlegment  (k1) */
-/* - between reception of un uplink grant and its related transmission (k2) */
-#define NR_UE_CAPABILITY_SLOT_RX_TO_TX (3)
-
 #define R(k) k ,
 typedef enum { RNTI_NAMES } nr_rnti_type_t;
 #undef R

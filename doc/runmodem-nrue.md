@@ -106,6 +106,7 @@ Here are some useful command line options for the NR UE:
 | `--usrp-args`            | Equivalent to the `sdr_addrs` field in the gNB config file. Used to identify the USRP and set some basic parameters (like the clock source).  |
 | `--clock-source`         | Sets the clock source (internal or external).                                                                 |
 | `--time-source`          | Sets the time source (internal or external).                                                                  |
+| `--ue-capability-rx2tx`  | Sets the minimum number of slots for the UE between RX command and TX of corresponding channel.               |
 
 You can view all available options by typing:
 

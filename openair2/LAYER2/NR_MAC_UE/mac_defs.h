@@ -621,6 +621,7 @@ typedef struct NR_UE_MAC_INST_s {
   int ssb_start_subcarrier;
   uint64_t dl_frequency;
   int numerology;
+  int rx2tx_capability;
 
   NR_SSB_meas_t ssb_measurements[MAX_NB_SSB];
   NR_CSIRS_meas_t csirs_measurements;
@@ -660,9 +661,9 @@ static inline int GET_NTN_UE_K_OFFSET(const fapi_nr_ntn_config_t *ntn_ta, int sc
   return (int)ntn_ta->cell_specific_k_offset << scs;
 }
 
-static inline long GET_DURATION_RX_TO_TX(const fapi_nr_ntn_config_t *ntn_ta, int scs)
+static inline long GET_DURATION_RX_TO_TX(const NR_UE_MAC_INST_t *mac, int scs)
 {
-  return NR_UE_CAPABILITY_SLOT_RX_TO_TX + (ntn_ta->cell_specific_k_offset << scs);
+  return mac->rx2tx_capability + (mac->phy_config.config_req.ntn_config.cell_specific_k_offset << scs);
 }
 
 /*@}*/

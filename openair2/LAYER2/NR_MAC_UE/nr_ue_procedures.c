@@ -1169,17 +1169,17 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
     // that can process the MSG3. Also assume that RAR is sent in the same slot as DCI (k0 == 0)
     // This is not perfect as the MSG3 might end up being scheduled later, so we could be
     // halting the UL scheduler for a longer time than necessary.
-    feedback_ti = max(1 + GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, dlsch_pdu->SubcarrierSpacing),
+    feedback_ti = max(1 + GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
                       get_delta_for_k2(mac->current_UL_BWP->scs) + get_j_for_k2(mac->current_UL_BWP->scs));
   }
 
   if (rnti_type != TYPE_RA_RNTI_ && rnti_type != TYPE_SI_RNTI_) {
     if (!get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dci->harq_pid.val)) {
       feedback_ti = 1 + dci->pdsch_to_harq_feedback_timing_indicator.val + ntn_ue_koffset;
-      AssertFatal(feedback_ti >= GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, dlsch_pdu->SubcarrierSpacing),
+      AssertFatal(feedback_ti >= GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
                   "PDSCH to HARQ feedback time (%d) needs to be higher than DURATION_RX_TO_TX (%ld).\n",
                   feedback_ti,
-                  GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, dlsch_pdu->SubcarrierSpacing));
+                  GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing));
       // set the harq status at MAC for feedback
       const int tpc[] = {-1, 0, 1, 3};
       set_harq_status(mac,
@@ -1476,11 +1476,11 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
   const int tpc[] = {-1, 0, 1, 3};
   if (!get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dci->harq_pid.val)) {
     feedback_ti = pucch_Config->dl_DataToUL_ACK->list.array[dci->pdsch_to_harq_feedback_timing_indicator.val][0] + ntn_ue_koffset;
-    AssertFatal(feedback_ti >= GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, dlsch_pdu->SubcarrierSpacing),
+    AssertFatal(feedback_ti >= GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
                 "PDSCH to HARQ feedback time (%d) needs to be higher than DURATION_RX_TO_TX (%ld). Min feedback time set in config "
                 "file (min_rxtxtime).\n",
                 feedback_ti,
-                GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, dlsch_pdu->SubcarrierSpacing));
+                GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing));
   }
 
 

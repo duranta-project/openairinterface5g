@@ -149,7 +149,7 @@ void apply_ntn_config(PHY_VARS_NR_UE *UE,
   const int mu = fp->numerology_index;
   const int koffset = ntn_config_params->cell_specific_k_offset;
 
-  *duration_rx_to_tx = NR_UE_CAPABILITY_SLOT_RX_TO_TX + (koffset << mu);
+  *duration_rx_to_tx += (koffset << mu);
   if (koffset > *ntn_koffset)
     *timing_advance += get_samples_slot_duration(fp, slot_rx, (koffset - *ntn_koffset) << mu);
   else if (koffset < *ntn_koffset)
