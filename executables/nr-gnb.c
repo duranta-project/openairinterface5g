@@ -355,6 +355,7 @@ static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size
                            end - output);
   output += print_meas_log(&gNB->dlsch_encoding_stats, "DLSCH encoding", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->dlsch_ldpc_encode_stats, "LDPC encoding", NULL, NULL, output, end - output);
+  output += print_meas_log(&gNB->dlsch_layer_clear_stats, "DLSCH tx_layers clear", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->dlsch_scrambling_stats, "DLSCH scrambling", NULL, NULL, output, end-output);
   output += print_meas_log(&gNB->dlsch_modulation_stats, "DLSCH modulation", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->dlsch_pdsch_generation_stats, "PDSCH generation", NULL, NULL, output, end - output);
