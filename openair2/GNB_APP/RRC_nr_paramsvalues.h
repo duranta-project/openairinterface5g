@@ -106,6 +106,14 @@
 #define GNB_CONFIG_STRING_EPHEMERIS_VELOCITY_VX                          "velocityVX-r17"
 #define GNB_CONFIG_STRING_EPHEMERIS_VELOCITY_VY                          "velocityVY-r17"
 #define GNB_CONFIG_STRING_EPHEMERIS_VELOCITY_VZ                          "velocityVZ-r17"
+
+#define GNB_CONFIG_STRING_EPHEMERIS_SEMI_MAJOR_AXIS                      "semiMajorAxis-r17"
+#define GNB_CONFIG_STRING_EPHEMERIS_ECCENTRICITY                         "eccentricity-r17"
+#define GNB_CONFIG_STRING_EPHEMERIS_PERIAPSIS                            "periapsis-r17"
+#define GNB_CONFIG_STRING_EPHEMERIS_LONGITUDE                            "longitude-r17"
+#define GNB_CONFIG_STRING_EPHEMERIS_INCLINATION                          "inclination-r17"
+#define GNB_CONFIG_STRING_EPHEMERIS_MEAN_ANOMALY                         "meanAnomaly-r17"
+
 #define GNB_CONFIG_STRING_TA_COMMON                                      "ta-Common-r17"
 #define GNB_CONFIG_STRING_TA_COMMONDRIFT                                 "ta-CommonDrift-r17"
 
@@ -182,7 +190,13 @@
 {GNB_CONFIG_STRING_EPHEMERIS_VELOCITY_VZ,NULL,0,.i64ptr=&scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17->velocityVZ_r17,.defint64val=LONG_MAX,TYPE_INT64,0}, \
 {GNB_CONFIG_STRING_TA_COMMON,NULL,0,.i64ptr=&scc->ext2->ntn_Config_r17->ta_Info_r17->ta_Common_r17,.defint64val=-1,TYPE_INT64,0}, \
 {GNB_CONFIG_STRING_TA_COMMONDRIFT,NULL,0,.i64ptr=scc->ext2->ntn_Config_r17->ta_Info_r17->ta_CommonDrift_r17,.defint64val=0,TYPE_INT64,0}, \
-{GNB_CONFIG_STRING_MSG1SUBCARRIERSPACING,NULL,0,.i64ptr=scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->msg1_SubcarrierSpacing,.defint64val=-1,TYPE_INT64,0}}
+{GNB_CONFIG_STRING_MSG1SUBCARRIERSPACING,NULL,0,.i64ptr=scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->msg1_SubcarrierSpacing,.defint64val=-1,TYPE_INT64,0}, \
+{GNB_CONFIG_STRING_EPHEMERIS_SEMI_MAJOR_AXIS,NULL,0,.i64ptr=&ephemeris_semi_major_axis,.defint64val=LONG_MAX,TYPE_INT64,0}, \
+{GNB_CONFIG_STRING_EPHEMERIS_ECCENTRICITY,NULL,0,.i64ptr=&scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->eccentricity_r17,.defint64val=LONG_MAX,TYPE_INT64,0}, \
+{GNB_CONFIG_STRING_EPHEMERIS_PERIAPSIS,NULL,0,.i64ptr=&scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->periapsis_r17,.defint64val=LONG_MAX,TYPE_INT64,0}, \
+{GNB_CONFIG_STRING_EPHEMERIS_LONGITUDE,NULL,0,.i64ptr=&scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->longitude_r17,.defint64val=LONG_MAX,TYPE_INT64,0}, \
+{GNB_CONFIG_STRING_EPHEMERIS_INCLINATION,NULL,0,.i64ptr=&scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->inclination_r17,.defint64val=LONG_MAX,TYPE_INT64,0}, \
+{GNB_CONFIG_STRING_EPHEMERIS_MEAN_ANOMALY,NULL,0,.i64ptr=&scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17->meanAnomaly_r17,.defint64val=LONG_MAX,TYPE_INT64,0}}
 
 #define SCC_PATTERN2_STRING_CONFIG     "pattern2"
 

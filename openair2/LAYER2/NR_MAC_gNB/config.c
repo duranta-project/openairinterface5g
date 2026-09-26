@@ -1091,92 +1091,142 @@ bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1a
   return true;
 }
 
-static void nr_update_sib19_cell(nr_cell_sched_t *cell, const gnb_sat_position_update_t *sat_position)
-{
-  NR_COMMON_channels_t *cc = &cell->common_channels;
-  NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
-  const vector_t *pos = &sat_position->position;
-  const vector_t *vel = &sat_position->velocity;
+static void nr_update_sib19_cell(nr_cell_sched_t *cell, const gnb_sat_position_update_t *sat_position)  
+{  
+  NR_COMMON_channels_t *cc = &cell->common_channels;  
+  NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;  
+  const vector_t *pos = &sat_position->position;  
+  const vector_t *vel = &sat_position->velocity;  
+  
+  if (!scc->ext2->ntn_Config_r17->epochTime_r17)  
+    scc->ext2->ntn_Config_r17->epochTime_r17 = calloc(1, sizeof(*scc->ext2->ntn_Config_r17->epochTime_r17));  
+  
+  NR_EpochTime_r17_t *epoch_time_r17 = scc->ext2->ntn_Config_r17->epochTime_r17;  
+  epoch_time_r17->sfn_r17 = sat_position->sfn;  
+  epoch_time_r17->subFrameNR_r17 = sat_position->subframe;  
+  
+  if (!scc->ext2->ntn_Config_r17->ta_Info_r17)  
+    scc->ext2->ntn_Config_r17->ta_Info_r17 = calloc(1, sizeof(*scc->ext2->ntn_Config_r17->ta_Info_r17));  
+  
+  NR_TA_Info_r17_t *sib19_ta_info = scc->ext2->ntn_Config_r17->ta_Info_r17;  
+  
+  sib19_ta_info->ta_Common_r17 = sat_position->delay;  
+  
+  if (sat_position->drift) {  
+    if (!sib19_ta_info->ta_CommonDrift_r17)  
+      sib19_ta_info->ta_CommonDrift_r17 = calloc(1, sizeof(*sib19_ta_info->ta_CommonDrift_r17));  
+    *sib19_ta_info->ta_CommonDrift_r17 = sat_position->drift;  
+  } else  
+    free_and_zero(sib19_ta_info->ta_CommonDrift_r17);  
+  
+  if (sat_position->accel) {  
+    if (!sib19_ta_info->ta_CommonDriftVariant_r17)  
+      sib19_ta_info->ta_CommonDriftVariant_r17 = calloc(1, sizeof(*sib19_ta_info->ta_CommonDriftVariant_r17));  
+    *sib19_ta_info->ta_CommonDriftVariant_r17 = sat_position->accel;  
+  } else  
+    free_and_zero(sib19_ta_info->ta_CommonDriftVariant_r17);  
+  
+  if (!scc->ext2->ntn_Config_r17->ephemerisInfo_r17) {  
+    scc->ext2->ntn_Config_r17->ephemerisInfo_r17 = calloc(1, sizeof(*scc->ext2->ntn_Config_r17->ephemerisInfo_r17));  
+    scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present = NR_EphemerisInfo_r17_PR_NOTHING;  
+  }  
+  
+  if (sat_position->use_orbital) {  
+    if (scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present != NR_EphemerisInfo_r17_PR_orbital_r17) {  
+      if (scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present == NR_EphemerisInfo_r17_PR_positionVelocity_r17)  
+        free_and_zero(scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17);  
+      scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17 =  
+          calloc(1, sizeof(*scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17));  
+      scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present = NR_EphemerisInfo_r17_PR_orbital_r17;  
+    }  
+  
+    NR_Orbital_r17_t *sib19_Orbital = scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17;  
+  
+    // --- compute raw values first, before any logging that references them ---  
+    long raw_sma  = (long)((sat_position->semi_major_axis - 6500000.0) / 4.249e-3);  
+    long raw_ecc  = (long)(sat_position->eccentricity  / 1.431e-8);  
+    long raw_per  = (long)(sat_position->periapsis     / 2.341e-8);  
+    long raw_lon  = (long)(sat_position->longitude     / 2.341e-8);  
+    long raw_inc  = (long)(sat_position->inclination   / 2.341e-8);  
+    long raw_ma   = (long)(sat_position->mean_anomaly  / 2.341e-8);  
+  
+    LOG_D(NR_MAC, "orbital raw: sma=%ld ecc=%ld per=%ld lon=%ld inc=%ld M=%ld\n",  
+          raw_sma, raw_ecc, raw_per, raw_lon, raw_inc, raw_ma);  
+  
+    // --- per-field ASN.1 constraint check (Orbital-r17, nr-rrc-17.3.0.asn1) ---  
+	double mean_anomaly = sat_position->mean_anomaly;  
+	mean_anomaly = fmod(mean_anomaly, 2.0 * M_PI);	
+	if (mean_anomaly < 0)  
+	  mean_anomaly += 2.0 * M_PI;  
 
-  if (!scc->ext2->ntn_Config_r17->epochTime_r17)
-    scc->ext2->ntn_Config_r17->epochTime_r17 = calloc(1, sizeof(*scc->ext2->ntn_Config_r17->epochTime_r17));
+    asn_long2INTEGER(&sib19_Orbital->semiMajorAxis_r17, raw_sma);
+    sib19_Orbital->eccentricity_r17  = raw_ecc;
+    sib19_Orbital->periapsis_r17     = raw_per;
+    sib19_Orbital->longitude_r17     = raw_lon;
+    sib19_Orbital->inclination_r17   = raw_inc;
+	sib19_Orbital->meanAnomaly_r17 = (long)(mean_anomaly / 2.341e-8);
+    //sib19_Orbital->meanAnomaly_r17   = raw_ma;
+  } else {  
+    if (scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present != NR_EphemerisInfo_r17_PR_positionVelocity_r17) {  
+      if (scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present == NR_EphemerisInfo_r17_PR_orbital_r17)  
+        free_and_zero(scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17);  
+      scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17 =  
+          calloc(1, sizeof(*scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17));  
+      scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present = NR_EphemerisInfo_r17_PR_positionVelocity_r17;  
+    }
+    NR_PositionVelocity_r17_t *sib19_PosVel = scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17;  
+    sib19_PosVel->positionX_r17 = pos->X;
+    sib19_PosVel->positionY_r17 = pos->Y;
+    sib19_PosVel->positionZ_r17 = pos->Z;
+    sib19_PosVel->velocityVX_r17 = vel->X;
+    sib19_PosVel->velocityVY_r17 = vel->Y;
+    sib19_PosVel->velocityVZ_r17 = vel->Z;
+  }  
 
-  NR_EpochTime_r17_t *epoch_time_r17 = scc->ext2->ntn_Config_r17->epochTime_r17;
-  epoch_time_r17->sfn_r17 = sat_position->sfn;
-  epoch_time_r17->subFrameNR_r17 = sat_position->subframe;
-
-  if (!scc->ext2->ntn_Config_r17->ta_Info_r17)
-    scc->ext2->ntn_Config_r17->ta_Info_r17 = calloc(1, sizeof(*scc->ext2->ntn_Config_r17->ta_Info_r17));
-
-  NR_TA_Info_r17_t *sib19_ta_info = scc->ext2->ntn_Config_r17->ta_Info_r17;
-
-  // SIB19 provides Round trip delay on feeder link (between gNB and SAT).
-  sib19_ta_info->ta_Common_r17 = sat_position->delay;
-
-  if (sat_position->drift) {
-    if (!sib19_ta_info->ta_CommonDrift_r17)
-      sib19_ta_info->ta_CommonDrift_r17 = calloc(1, sizeof(*sib19_ta_info->ta_CommonDrift_r17));
-    *sib19_ta_info->ta_CommonDrift_r17 = sat_position->drift;
-  } else
-    free_and_zero(sib19_ta_info->ta_CommonDrift_r17);
-
-  if (sat_position->accel) {
-    if (!sib19_ta_info->ta_CommonDriftVariant_r17)
-      sib19_ta_info->ta_CommonDriftVariant_r17 = calloc(1, sizeof(*sib19_ta_info->ta_CommonDriftVariant_r17));
-    *sib19_ta_info->ta_CommonDriftVariant_r17 = sat_position->accel;
-  } else
-    free_and_zero(sib19_ta_info->ta_CommonDriftVariant_r17);
-
-  // Currently PositionVelocity is supported and not yet the OrbitalParams
-  if (!scc->ext2->ntn_Config_r17->ephemerisInfo_r17) {
-    scc->ext2->ntn_Config_r17->ephemerisInfo_r17 = calloc(1, sizeof(*scc->ext2->ntn_Config_r17->ephemerisInfo_r17));
-    scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present = NR_EphemerisInfo_r17_PR_NOTHING;
-  }
-  if (scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present == NR_EphemerisInfo_r17_PR_orbital_r17) {
-    ASN_STRUCT_FREE(asn_DEF_NR_Orbital_r17, scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17);
-    scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17 = NULL;
-    scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present = NR_EphemerisInfo_r17_PR_NOTHING;
-  }
-  if (!scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17)
-    scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17 =
-        calloc(1, sizeof(*scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17));
-
-  scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present = NR_EphemerisInfo_r17_PR_positionVelocity_r17;
-  NR_PositionVelocity_r17_t *sib19_PosVel = scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17;
-
-  sib19_PosVel->positionX_r17 = pos->X;
-  sib19_PosVel->positionY_r17 = pos->Y;
-  sib19_PosVel->positionZ_r17 = pos->Z;
-  sib19_PosVel->velocityVX_r17 = vel->X;
-  sib19_PosVel->velocityVY_r17 = vel->Y;
-  sib19_PosVel->velocityVZ_r17 = vel->Z;
-
-  NR_SystemInformation_IEs_t *sysInfov17 = calloc(1, sizeof(*sysInfov17)); // for othersibs
-  struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type_du = calloc(1, sizeof(*type_du));
-  type_du->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib19_v1700;
-  NR_SIB19_r17_t *sib19 = get_SIB19_NR(cc->ServingCellConfigCommon);
-  type_du->choice.sib19_v1700 = sib19;
-  add_sib_to_systeminformation(sysInfov17, type_du);
-
-  cc->other_sib_bcch_length[1] = encode_sysinfo_ie(sysInfov17, cc->other_sib_bcch_pdu[1], sizeof(cc->other_sib_bcch_pdu[1]));
-  AssertFatal(cc->other_sib_bcch_length[1] > 0, "could not encode SIB19\n");
-  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfov17);
+  NR_SystemInformation_IEs_t *sysInfov17 = calloc(1, sizeof(*sysInfov17));  
+  struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type_du = calloc(1, sizeof(*type_du));  
+  type_du->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib19_v1700;  
+  NR_SIB19_r17_t *sib19 = get_SIB19_NR(cc->ServingCellConfigCommon);  
+  type_du->choice.sib19_v1700 = sib19;  
+  add_sib_to_systeminformation(sysInfov17, type_du);  
+  
+  cc->other_sib_bcch_length[1] = encode_sysinfo_ie(sysInfov17, cc->other_sib_bcch_pdu[1], sizeof(cc->other_sib_bcch_pdu[1]));  
+  AssertFatal(cc->other_sib_bcch_length[1] > 0, "could not encode SIB19\n");  
+  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfov17);  
 }
+
 
 bool nr_update_sib19(const gnb_sat_position_update_t *sat_position)
 {
   gNB_MAC_INST *nrmac = RC.nrmac[0];
   AssertFatal(nrmac != NULL, "no MAC instance\n");
 
-  const vector_t *pos = &sat_position->position;
-  const vector_t *vel = &sat_position->velocity;
-
   LOG_D(NR_MAC, "SFN = %d, SubFrame = %d\n", sat_position->sfn, sat_position->subframe);
   LOG_D(NR_MAC, "TA_Common: value %d, %f msec\n", sat_position->delay, sat_position->delay * 4.072e-6);
   LOG_D(NR_MAC, "TA_CommonDrift: value %d, = %f µsec/sec\n", sat_position->drift, sat_position->drift * 0.2e-3);
   LOG_D(NR_MAC, "TA_CommonDriftVariant: value %d, %f µsec/sec^2\n", sat_position->accel, sat_position->accel * 0.2e-4);
-  LOG_D(NR_MAC, "SAT Position: values %d/%d/%d, %.3f/%3f/%3f metres in X/Y/Z\n", pos->X, pos->Y, pos->Z, pos->X * 1.3, pos->Y * 1.3, pos->Z * 1.3);
-  LOG_D(NR_MAC, "SAT Velocity: values %d/%d/%d, %.3f/%3f/%3f m/s in X/Y/Z\n", vel->X, vel->Y, vel->Z, vel->X * 0.06, vel->Y * 0.06, vel->Z * 0.06);
+
+  if(sat_position->use_orbital) {
+    LOG_D(NR_MAC,
+  		"SAT Orbital parameters:\n"
+  		"  Semi major axis: %.6f\n"
+  		"  Eccentricity:	%.6f\n"
+  		"  Periapsis:		%.6f\n"
+  		"  Longitude:		%.6f\n"
+  		"  Inclination: 	%.6f\n"
+  		"  Mean anomaly:	%.6f\n",
+  		sat_position->semi_major_axis,
+  		sat_position->eccentricity,
+  		sat_position->periapsis,
+  		sat_position->longitude,
+  		sat_position->inclination,
+  		sat_position->mean_anomaly);
+  } else {
+    const vector_t *pos = &sat_position->position;
+    const vector_t *vel = &sat_position->velocity;
+	LOG_D(NR_MAC, "SAT Position: values %d/%d/%d, %.3f/%3f/%3f metres in X/Y/Z\n", pos->X, pos->Y, pos->Z, pos->X * 1.3, pos->Y * 1.3, pos->Z * 1.3);
+	LOG_D(NR_MAC, "SAT Velocity: values %d/%d/%d, %.3f/%3f/%3f m/s in X/Y/Z\n", vel->X, vel->Y, vel->Z, vel->X * 0.06, vel->Y * 0.06, vel->Z * 0.06);
+  }
 
   NR_SCHED_LOCK(&nrmac->sched_lock);
   bool updated = false;
