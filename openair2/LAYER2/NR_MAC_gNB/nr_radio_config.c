@@ -31,12 +31,13 @@
 #include "utils.h"
 #include "xer_encoder.h"
 
-#define NR_MAX_SUPPORTED_DL_LAYERS 4
-
 /* Default values for measurement gap configuration */
 #define DEFAULT_MGRP NR_GapConfig__mgrp_ms160
 #define DEFAULT_MGTA NR_GapConfig__mgta_ms0dot5
 #define DEFAULT_MGL NR_GapConfig__mgl_ms6
+
+#define MAX_NUM_REPORTS_UE 2 // max 2 reports per UE TODO check if we can dynamically evaluate this based on do_CSI
+#define MAX_NUM_PUCCH_RES_PER_SET 8 // PUCCH resource indicator field in DCI format 1_0/1_1 is fixed at 3 bits
 
 const uint8_t slotsperframe[5] = {10, 20, 40, 80, 160};
 
@@ -197,32 +198,91 @@ static NR_SetupRelease_PDSCH_ConfigCommon_t *clone_pdsch_configcommon(const NR_S
   return clone;
 }
 
-static int get_pucch2_size(const int num_ant_ports)
+static int get_nb_pucch2_prb(int max_bits)
 {
-  // TODO the logic to set the number of PRBs needs to be improved
-  //      it should involve the code rate parameter and the max number of bits to be transmitted
-  return (num_ant_ports <= 4 ? 8 : 12);
+  // assuming a coderate of 0.25
+  AssertFatal(max_bits < 54, "max_bits %d requires more than 16 PRBs for PUCCH F2, not supported", max_bits);
+  if (max_bits < 12)
+    return 4;
+  if (max_bits < 20)
+    return 8;
+  else
+    return 16;
 }
 
-static int get_nb_pucch2_per_slot(const NR_ServingCellConfigCommon_t *scc, int bwp_size, const nr_pdsch_AntennaPorts_t *ap)
+// slot-based PUCCH periodicities per SCS (symbol-based entries 2sym/7sym/6sym excluded —
+// not representable by nb_periodic_res/periodicity, which operate in slot units)
+// combination of CSI report and SR allowed periodicities
+static const int periodicities_15khz[] = {4, 5, 8, 10, 16, 20, 40, 80};
+static const int periodicities_30khz[] = {4, 8, 10, 16, 20, 40, 80, 160};
+static const int periodicities_60khz[] = {4, 8, 16, 20, 40, 80, 160, 320};
+static const int periodicities_120khz[] = {4, 8, 16, 40, 80, 160, 320};
+
+static void get_valid_periodicities(int scs, const int **table, int *nb_entries)
 {
-  const NR_TDD_UL_DL_Pattern_t *tdd = scc->tdd_UL_DL_ConfigurationCommon ? &scc->tdd_UL_DL_ConfigurationCommon->pattern1 : NULL;
-  const int n_slots_frame = slotsperframe[*scc->ssbSubcarrierSpacing];
-  int ul_slots_period = tdd ? tdd->nrofUplinkSlots + (tdd->nrofUplinkSymbols > 0) : n_slots_frame;
-  int n_slots_period = tdd ? n_slots_frame/get_nb_periods_per_frame(tdd->dl_UL_TransmissionPeriodicity) : n_slots_frame;
-  int max_meas_report_period = 320; // slots
-  int max_csi_reports = MAX_MOBILES_PER_GNB << 1; // 2 reports per UE (RSRP and RI-PMI-CQI)
-  int available_report_occasions = max_meas_report_period * ul_slots_period / n_slots_period;
-  int nb_pucch2 = (max_csi_reports / (available_report_occasions + 1)) + 1;
-  int pucch2_size = get_pucch2_size(ap->N1 * ap->N2 * ap->XP);
-  // in current implementation we need (nb_pucch2 * pucch2_size) prbs for PUCCH2
-  // and MAX_MOBILES_PER_GNB prbs for PUCCH1
-  // checked for validity in verify_radio_configuration
-  AssertFatal((nb_pucch2 * pucch2_size) + MAX_MOBILES_PER_GNB <= bwp_size,
-              "Cannot allocate all required PUCCH resources for max number of %d UEs in BWP with %d PRBs\n",
-              MAX_MOBILES_PER_GNB,
-              bwp_size);
-  return nb_pucch2;
+  switch (scs) {
+    case 0:
+      *table = periodicities_15khz;
+      *nb_entries = sizeof(periodicities_15khz) / sizeof(int);
+      break;
+    case 1:
+      *table = periodicities_30khz;
+      *nb_entries = sizeof(periodicities_30khz) / sizeof(int);
+      break;
+    case 2:
+      *table = periodicities_60khz;
+      *nb_entries = sizeof(periodicities_60khz) / sizeof(int);
+      break;
+    case 3:
+      *table = periodicities_120khz;
+      *nb_entries = sizeof(periodicities_120khz) / sizeof(int);
+      break;
+    default:
+      AssertFatal(false, "Invalid SCS index %d", scs);
+  }
+}
+
+static nr_pucch_radio_res_t get_nb_periodic_pucch_per_slot(const frame_structure_t *fs, int min_period, int max_period, int scs)
+{
+  AssertFatal(min_period <= max_period, "min_periodicity %d must be <= max_periodicity %d", min_period, max_period);
+  int ul_slots_period = get_ul_slots_per_period(fs);
+  int max_csi_reports = MAX_MOBILES_PER_GNB * MAX_NUM_REPORTS_UE;
+
+  // find the minimum valid periodicity that is a multiple of numb_slots_period
+  // and offers enough UL occasions to serve all reports with a single PUCCH resource
+  nr_pucch_radio_res_t res = {0};
+  const int *valid_periodicities;
+  int nb_valid_periodicities;
+  get_valid_periodicities(scs, &valid_periodicities, &nb_valid_periodicities);
+  res.max_served_ues = MAX_MOBILES_PER_GNB; // this function always sizes nb_periodic_res to serve MAX_MOBILES_PER_GNB
+  int period = 0;
+  for (int i = 0; i < nb_valid_periodicities; i++) {
+    if (valid_periodicities[i] < min_period || valid_periodicities[i] > max_period)
+      continue;
+    if (valid_periodicities[i] % fs->numb_slots_period != 0)
+      continue;
+    period = valid_periodicities[i];
+    int nb_cycles = period / fs->numb_slots_period;
+    int available_report_occasions = nb_cycles * ul_slots_period;
+    if (available_report_occasions >= max_csi_reports) {
+      res.periodicity = period;
+      res.nb_periodic_res = 1; // one PUCCH resource suffices
+      return res;
+    }
+  }
+
+  // no single periodicity value in range covers all reports -> fall back to
+  // max_periodicity and compute how many parallel PUCCH resources are needed
+  int periodicity = period;
+  AssertFatal(periodicity != 0 && periodicity % fs->numb_slots_period == 0,
+              "periodicity %d is not a multiple of numb_slots_period %d",
+              periodicity,
+              fs->numb_slots_period);
+  int nb_cycles = periodicity / fs->numb_slots_period;
+  int available_report_occasions = nb_cycles * ul_slots_period;
+  res.nb_periodic_res = (max_csi_reports + available_report_occasions - 1) / available_report_occasions;
+  res.periodicity = periodicity;
+  return res;
 }
 
 NR_SearchSpace_t *rrc_searchspace_config(bool is_common,
@@ -1234,98 +1294,6 @@ static void set_dl_DataToUL_ACK(NR_PUCCH_Config_t *pucch_Config, int min_feedbac
               min_feedback_time);
 }
 
-// PUCCH resource set 0 for configuration with O_uci <= 2 bits and/or a positive or negative SR (section 9.2.1 of 38.213)
-static void config_pucch_resset0(const NR_ServingCellConfigCommon_t *scc,
-                                 NR_PUCCH_Config_t *pucch_Config,
-                                 int uid,
-                                 int curr_bwp,
-                                 const NR_UE_NR_Capability_t *uecap,
-                                 const nr_pdsch_AntennaPorts_t *ap)
-{
-  NR_PUCCH_ResourceSet_t *pucchresset = calloc(1,sizeof(*pucchresset));
-  pucchresset->pucch_ResourceSetId = 0;
-  NR_PUCCH_ResourceId_t *pucchid = calloc(1,sizeof(*pucchid));
-  *pucchid = 0;
-  asn1cSeqAdd(&pucchresset->resourceList.list,pucchid);
-  pucchresset->maxPayloadSize = NULL;
-
-  if(uecap) {
-    long *pucch_F0_2WithoutFH = uecap->phy_Parameters.phy_ParametersFRX_Diff->pucch_F0_2WithoutFH;
-    AssertFatal(pucch_F0_2WithoutFH == NULL,"UE does not support PUCCH F0 without frequency hopping. Current configuration is without FH\n");
-  }
-
-  int pucch2_size = get_pucch2_size(ap->N1 * ap->N2 * ap->XP);
-  NR_PUCCH_Resource_t *pucchres0 = calloc(1,sizeof(*pucchres0));
-  pucchres0->pucch_ResourceId = *pucchid;
-  int num_pucch2 = get_nb_pucch2_per_slot(scc, curr_bwp, ap);
-  pucchres0->startingPRB = (pucch2_size * num_pucch2) + uid;
-  // checked for validity in verify_radio_configuration
-  AssertFatal(pucchres0->startingPRB < curr_bwp, "Not enough resources in current BWP (size %d) to allocate uid %d\n", curr_bwp, uid);
-  pucchres0->intraSlotFrequencyHopping = NULL;
-  pucchres0->secondHopPRB = NULL;
-  pucchres0->format.present = NR_PUCCH_Resource__format_PR_format0;
-  pucchres0->format.choice.format0 = calloc(1,sizeof(*pucchres0->format.choice.format0));
-  pucchres0->format.choice.format0->initialCyclicShift = 0;
-  pucchres0->format.choice.format0->nrofSymbols = 1;
-  pucchres0->format.choice.format0->startingSymbolIndex = 13;
-  asn1cSeqAdd(&pucch_Config->resourceToAddModList->list,pucchres0);
-
-  asn1cSeqAdd(&pucch_Config->resourceSetToAddModList->list,pucchresset);
-}
-
-
-// PUCCH resource set 1 for configuration with O_uci > 2 bits (currently format2)
-static void config_pucch_resset1(const NR_ServingCellConfigCommon_t *scc,
-                                 NR_PUCCH_Config_t *pucch_Config,
-                                 int uid,
-                                 int curr_bwp,
-                                 const NR_UE_NR_Capability_t *uecap,
-                                 const nr_pdsch_AntennaPorts_t *ap)
-{
-  NR_PUCCH_ResourceSet_t *pucchresset=calloc(1,sizeof(*pucchresset));
-  pucchresset->pucch_ResourceSetId = 1;
-  NR_PUCCH_ResourceId_t *pucchressetid=calloc(1,sizeof(*pucchressetid));
-  *pucchressetid = 2;
-  asn1cSeqAdd(&pucchresset->resourceList.list,pucchressetid);
-  pucchresset->maxPayloadSize = NULL;
-
-  if(uecap) {
-    long *pucch_F0_2WithoutFH = uecap->phy_Parameters.phy_ParametersFRX_Diff->pucch_F0_2WithoutFH;
-    AssertFatal(pucch_F0_2WithoutFH == NULL,"UE does not support PUCCH F2 without frequency hopping. Current configuration is without FH\n");
-  }
-
-  int pucch2_size = get_pucch2_size(ap->N1 * ap->N2 * ap->XP);
-  NR_PUCCH_Resource_t *pucchres2 = calloc(1,sizeof(*pucchres2));
-  pucchres2->pucch_ResourceId = *pucchressetid;
-  int num_pucch2 = get_nb_pucch2_per_slot(scc, curr_bwp, ap);
-  pucchres2->startingPRB = pucch2_size * (uid % num_pucch2);
-  pucchres2->intraSlotFrequencyHopping = NULL;
-  pucchres2->secondHopPRB = NULL;
-  pucchres2->format.present = NR_PUCCH_Resource__format_PR_format2;
-  pucchres2->format.choice.format2 = calloc(1,sizeof(*pucchres2->format.choice.format2));
-  pucchres2->format.choice.format2->nrofPRBs = pucch2_size;
-  pucchres2->format.choice.format2->nrofSymbols = 1;
-  pucchres2->format.choice.format2->startingSymbolIndex = 13;
-  asn1cSeqAdd(&pucch_Config->resourceToAddModList->list,pucchres2);
-
-  asn1cSeqAdd(&pucch_Config->resourceSetToAddModList->list,pucchresset);
-
-  pucch_Config->format2 = calloc(1,sizeof(*pucch_Config->format2));
-  pucch_Config->format2->present = NR_SetupRelease_PUCCH_FormatConfig_PR_setup;
-  NR_PUCCH_FormatConfig_t *pucchfmt2 = calloc(1,sizeof(*pucchfmt2));
-  pucch_Config->format2->choice.setup = pucchfmt2;
-  pucchfmt2->interslotFrequencyHopping = NULL;
-  pucchfmt2->additionalDMRS = NULL;
-  pucchfmt2->maxCodeRate = calloc(1,sizeof(*pucchfmt2->maxCodeRate));
-  *pucchfmt2->maxCodeRate = NR_PUCCH_MaxCodeRate_zeroDot15;
-  pucchfmt2->nrofSlots = NULL;
-  pucchfmt2->pi2BPSK = NULL;
-
-  // to check UE capabilities for that in principle
-  pucchfmt2->simultaneousHARQ_ACK_CSI = calloc(1,sizeof(*pucchfmt2->simultaneousHARQ_ACK_CSI));
-  *pucchfmt2->simultaneousHARQ_ACK_CSI = NR_PUCCH_FormatConfig__simultaneousHARQ_ACK_CSI_true;
-}
-
 static void set_pucch_power_config(NR_PUCCH_Config_t *pucch_Config)
 {
   pucch_Config->pucch_PowerControl = calloc(1,sizeof(*pucch_Config->pucch_PowerControl));
@@ -1363,68 +1331,66 @@ static void set_pucch_power_config(NR_PUCCH_Config_t *pucch_Config)
   asn1cSeqAdd(&pucch_Config->spatialRelationInfoToAddModList->list,pucchspatial);
 }
 
-static void set_SR_periodandoffset(const nr_cell_sched_t *cell, NR_SchedulingRequestResourceConfig_t *schedulingRequestResourceConfig, int scs)
+static void set_SR_periodandoffset(const frame_structure_t *fs,
+                                   NR_SchedulingRequestResourceConfig_t *schedulingRequestResourceConfig,
+                                   const nr_pucch_radio_res_t *pucch_res_config,
+                                   int uid)
 {
-  const frame_structure_t *fs = &cell->frame_structure;
-  int sr_slot = 1; // in FDD SR in slot 1
-  if (fs->frame_type == TDD)
-    sr_slot = get_first_ul_slot(fs, true);
-
+  int idx = uid / pucch_res_config->nb_periodic_res;
+  int offset = get_ul_slot_offset(fs, idx, true);
   schedulingRequestResourceConfig->periodicityAndOffset = calloc(1,sizeof(*schedulingRequestResourceConfig->periodicityAndOffset));
-
-  if(sr_slot < 10 && scs < NR_SubcarrierSpacing_kHz60){
+  if (pucch_res_config->periodicity == 10) {
     schedulingRequestResourceConfig->periodicityAndOffset->present = NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl10;
-    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl10 = sr_slot;
+    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl10 = offset;
     return;
   }
-  else if(sr_slot < 20 && scs < NR_SubcarrierSpacing_kHz120){
+  else if (pucch_res_config->periodicity == 20) {
     schedulingRequestResourceConfig->periodicityAndOffset->present = NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl20;
-    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl20 = sr_slot;
+    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl20 = offset;
     return;
   }
-  else if(sr_slot < 40){
+  else if (pucch_res_config->periodicity == 40) {
     schedulingRequestResourceConfig->periodicityAndOffset->present = NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl40;
-    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl40 = sr_slot;
+    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl40 = offset;
     return;
   }
-  else if(sr_slot < 80 || scs == NR_SubcarrierSpacing_kHz15){
+  else if (pucch_res_config->periodicity == 80) {
     schedulingRequestResourceConfig->periodicityAndOffset->present = NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl80;
-    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl80 = sr_slot;
+    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl80 = offset;
     return;
   }
-  else if(sr_slot < 160 || scs == NR_SubcarrierSpacing_kHz30){
+  else if (pucch_res_config->periodicity == 160) {
     schedulingRequestResourceConfig->periodicityAndOffset->present = NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl160;
-    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl160 = sr_slot;
+    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl160 = offset;
     return;
   }
-  else if(sr_slot < 320 || scs == NR_SubcarrierSpacing_kHz60){
+  else if (pucch_res_config->periodicity == 320) {
     schedulingRequestResourceConfig->periodicityAndOffset->present = NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl320;
-    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl320 = sr_slot;
+    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl320 = offset;
     return;
   }
-  else {
+  else if (pucch_res_config->periodicity == 640) {
     schedulingRequestResourceConfig->periodicityAndOffset->present = NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl640;
-    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl640 = sr_slot;
+    schedulingRequestResourceConfig->periodicityAndOffset->choice.sl640 = offset;
+    return;
   }
+  AssertFatal(false, "Invalid periodicity %d for SR\n", pucch_res_config->periodicity);
 }
 
-static void scheduling_request_config(const nr_cell_sched_t *cell, NR_PUCCH_Config_t *pucch_Config, int scs)
+static void scheduling_request_config(const nr_cell_sched_t *cell,
+                                      NR_PUCCH_Config_t *pucch_Config,
+                                      int uid,
+                                      int pucchressetid,
+                                      const nr_pucch_radio_res_t *pucch_res_config)
 {
-  // format with <=2 bits in pucch resource set 0
-  NR_PUCCH_ResourceSet_t *pucchresset = pucch_Config->resourceSetToAddModList->list.array[0];
-  // assigning the 1st pucch resource in the set to scheduling request
-  NR_PUCCH_ResourceId_t *pucchressetid = pucchresset->resourceList.list.array[0];
-
-  pucch_Config->schedulingRequestResourceToAddModList = calloc(1,sizeof(*pucch_Config->schedulingRequestResourceToAddModList));
-  NR_SchedulingRequestResourceConfig_t *schedulingRequestResourceConfig = calloc(1,sizeof(*schedulingRequestResourceConfig));
+  pucch_Config->schedulingRequestResourceToAddModList = calloc(1, sizeof(*pucch_Config->schedulingRequestResourceToAddModList));
+  NR_SchedulingRequestResourceConfig_t *schedulingRequestResourceConfig = calloc(1, sizeof(*schedulingRequestResourceConfig));
   schedulingRequestResourceConfig->schedulingRequestResourceId = 1;
   schedulingRequestResourceConfig->schedulingRequestID = 0;
-
-  set_SR_periodandoffset(cell, schedulingRequestResourceConfig, scs);
-
-  schedulingRequestResourceConfig->resource = calloc(1,sizeof(*schedulingRequestResourceConfig->resource));
-  *schedulingRequestResourceConfig->resource = *pucchressetid;
-  asn1cSeqAdd(&pucch_Config->schedulingRequestResourceToAddModList->list,schedulingRequestResourceConfig);
+  set_SR_periodandoffset(&cell->frame_structure, schedulingRequestResourceConfig, pucch_res_config, uid);
+  schedulingRequestResourceConfig->resource = calloc(1, sizeof(*schedulingRequestResourceConfig->resource));
+  *schedulingRequestResourceConfig->resource = pucchressetid;
+  asn1cSeqAdd(&pucch_Config->schedulingRequestResourceToAddModList->list, schedulingRequestResourceConfig);
 }
 
 static void set_ul_mcs_table(const NR_UE_NR_Capability_t *cap,
@@ -1885,13 +1851,207 @@ static NR_BWP_Downlink_t *config_downlinkBWP(const NR_ServingCellConfigCommon_t 
   return bwp;
 }
 
+static int get_required_prbs(nr_pucch_radio_res_t *res)
+{
+  return res->nb_harq_res * res->nb_prb_harq_res + res->nb_prb_periodic_res * res->nb_periodic_res;
+}
+
+// compute PUCCH resources for each BWP
+nr_pucch_radio_res_t configure_pucch_radio_resources(const frame_structure_t *fs, int bwp_size, int scs, int max_bits)
+{
+  // set min period at slots per frame and max at 320
+  int min_period = fs->numb_slots_frame;
+  int max_period = 320;
+  nr_pucch_radio_res_t res = get_nb_periodic_pucch_per_slot(fs, min_period, max_period, scs);
+  res.nb_prb_periodic_res = get_nb_pucch2_prb(max_bits);
+  // by default 8 HARQ resources
+  res.nb_harq_res = MAX_NUM_PUCCH_RES_PER_SET; // TODO compute automatically depending TDD and how many UE we can serve per period
+  // by default HARQ has twice as many PRBs as periodic (capped at 16)
+  res.nb_prb_harq_res = res.nb_prb_periodic_res > 8 ? 16 : res.nb_prb_periodic_res * 2;
+
+  int required_prbs = get_required_prbs(&res);
+  int diff_prb = bwp_size - required_prbs;
+  if (diff_prb < 0) { // more PRBs set than what available in the BWP, we need to reduce resources
+    // TODO if the diff is small enough that an increase of coderate would allow for periodic
+    // to work with less resources -> we reduce
+
+    // if we had more redundancy in HARQ PRBs we reduce to the same as periodic
+    if (res.nb_prb_harq_res > res.nb_prb_periodic_res) {
+      res.nb_prb_harq_res = res.nb_prb_periodic_res;
+      required_prbs = get_required_prbs(&res);
+      diff_prb = bwp_size - required_prbs;
+      if (diff_prb >= 0)
+        return res;
+    }
+    // reduce number of HARQ resources
+    // we can serve less UEs per period but they can still attach
+    while (res.nb_harq_res > 1) {
+      res.nb_harq_res--;
+      required_prbs = get_required_prbs(&res);
+      diff_prb = bwp_size - required_prbs;
+      if (diff_prb >= 0)
+        return res;
+    }
+    // if there are multiple periodic resources per symbol
+    // we reduce at the cost of being able to serve less UEs
+    while (res.nb_periodic_res > 1) {
+      res.nb_periodic_res--;
+      required_prbs = get_required_prbs(&res);
+      diff_prb = bwp_size - required_prbs;
+      int nb_cycles = res.periodicity / fs->numb_slots_period;
+      int available_report_occasions = nb_cycles * get_ul_slots_per_period(fs);
+      res.max_served_ues = (res.nb_periodic_res * available_report_occasions) / MAX_NUM_REPORTS_UE;
+      if (diff_prb >= 0)
+        return res;
+    }
+    AssertFatal(false, "Couldn't configure PUCCH radio resources for BWP with size %d\n", bwp_size);
+    return res; // never reached, to avoid compiler complaining
+  } else if (diff_prb >= res.nb_prb_periodic_res) { // we have available resources to distribute
+    // we reduce periodicity to verify if we can fit the possible increase of PRBs
+    nr_pucch_radio_res_t new_res = res;
+    int new_max_period = res.periodicity / 2;
+    while (diff_prb >= new_res.nb_prb_periodic_res && new_max_period >= min_period) {
+      new_res = get_nb_periodic_pucch_per_slot(fs, min_period, new_max_period, scs);
+      new_res.nb_prb_periodic_res = res.nb_prb_periodic_res;
+      new_res.nb_harq_res = res.nb_harq_res;
+      new_res.nb_prb_harq_res = res.nb_prb_harq_res;
+      required_prbs = get_required_prbs(&new_res);
+      diff_prb = bwp_size - required_prbs;
+      if (diff_prb >= 0)
+        res = new_res; // only keep it if it actually still fits
+      new_max_period /= 2;
+    }
+    diff_prb = bwp_size - get_required_prbs(&res); // re-sync diff_prb with the actual resources we are using
+    if (diff_prb < res.nb_prb_harq_res)
+      return res;
+    // we increase the number of HARQ resource number to a max of MAX_NUM_PUCCH_RES_PER_SET
+    int num_add_harq_res = diff_prb / res.nb_prb_harq_res;
+    res.nb_harq_res = res.nb_harq_res + num_add_harq_res < MAX_NUM_PUCCH_RES_PER_SET ?
+                      res.nb_harq_res + num_add_harq_res :
+                      MAX_NUM_PUCCH_RES_PER_SET;
+    return res;
+  } else  // we have an optimal value
+    return res;
+}
+
+static NR_PUCCH_Resource_t *config_pucch_resource(int format, int id, int startPrb, int nbPrb)
+{
+  NR_PUCCH_Resource_t *pucch = calloc(1, sizeof(*pucch));
+  pucch->pucch_ResourceId = id;
+  pucch->startingPRB = startPrb;
+  pucch->intraSlotFrequencyHopping = NULL;
+  pucch->secondHopPRB = NULL;
+  if (format == 0) {
+    pucch->format.present = NR_PUCCH_Resource__format_PR_format0;
+    pucch->format.choice.format0 = calloc(1, sizeof(*pucch->format.choice.format0));
+    pucch->format.choice.format0->initialCyclicShift = 0;
+    pucch->format.choice.format0->nrofSymbols = 1;
+    pucch->format.choice.format0->startingSymbolIndex = 13;
+  } else if (format == 2) {
+    pucch->format.present = NR_PUCCH_Resource__format_PR_format2;
+    pucch->format.choice.format2 = calloc(1, sizeof(*pucch->format.choice.format2));
+    pucch->format.choice.format2->nrofPRBs = nbPrb;
+    pucch->format.choice.format2->nrofSymbols = 1;
+    pucch->format.choice.format2->startingSymbolIndex = 13;
+  } else
+    AssertFatal(false, "PUCCH format %d not supported yet\n", format);
+
+  return pucch;
+}
+
+static void config_pucch_resset(NR_PUCCH_Config_t *pucch_Config,
+                                int id_start,
+                                int set_id,
+                                int format,
+                                const nr_pucch_radio_res_t *pucch_res_config)
+{
+  NR_PUCCH_ResourceSet_t *pucchresset = calloc(1, sizeof(*pucchresset));
+  pucchresset->pucch_ResourceSetId = set_id;
+  pucchresset->maxPayloadSize = NULL;
+
+  for (int i = 0; i < pucch_res_config->nb_harq_res; i++) {
+    NR_PUCCH_ResourceId_t *pucchid = calloc(1, sizeof(*pucchid));
+    *pucchid = id_start + i;
+    asn1cSeqAdd(&pucchresset->resourceList.list,pucchid);
+    int start_prb = i * pucch_res_config->nb_prb_harq_res;
+    int prb_size = format == 0 ? 1 : pucch_res_config->nb_prb_harq_res;
+    NR_PUCCH_Resource_t *pucchres = config_pucch_resource(format, *pucchid, start_prb, prb_size);
+    asn1cSeqAdd(&pucch_Config->resourceToAddModList->list, pucchres);
+  }
+  asn1cSeqAdd(&pucch_Config->resourceSetToAddModList->list, pucchresset);
+}
+
+static void config_pucch_format2(NR_PUCCH_Config_t *pucch_Config)
+{
+  pucch_Config->format2 = calloc(1, sizeof(*pucch_Config->format2));
+  pucch_Config->format2->present = NR_SetupRelease_PUCCH_FormatConfig_PR_setup;
+  NR_PUCCH_FormatConfig_t *pucchfmt2 = calloc(1, sizeof(*pucchfmt2));
+  pucch_Config->format2->choice.setup = pucchfmt2;
+  pucchfmt2->interslotFrequencyHopping = NULL;
+  pucchfmt2->additionalDMRS = NULL;
+  pucchfmt2->maxCodeRate = calloc(1, sizeof(*pucchfmt2->maxCodeRate));
+  *pucchfmt2->maxCodeRate = NR_PUCCH_MaxCodeRate_zeroDot15;
+  pucchfmt2->nrofSlots = NULL;
+  pucchfmt2->pi2BPSK = NULL;
+  // to check UE capabilities for that in principle
+  pucchfmt2->simultaneousHARQ_ACK_CSI = calloc(1,sizeof(*pucchfmt2->simultaneousHARQ_ACK_CSI));
+  *pucchfmt2->simultaneousHARQ_ACK_CSI = NR_PUCCH_FormatConfig__simultaneousHARQ_ACK_CSI_true;
+}
+
+// need a function to set the same in CSI MeasConfig configuration which is called in a different function
+static int get_csi_pucch_id(const nr_pucch_radio_res_t *pucch_res_config)
+{
+  return pucch_res_config->nb_harq_res * 2 + 1;
+}
+
+static NR_PUCCH_Config_t *config_pucch(const nr_mac_config_t *configuration,
+                                       const nr_cell_sched_t *cell,
+                                       const NR_UE_NR_Capability_t *uecap,
+                                       const nr_pucch_radio_res_t *pucch_res_config,
+                                       int scs,
+                                       int uid)
+{
+  if(uecap) {
+    long *pucch_F0_2WithoutFH = uecap->phy_Parameters.phy_ParametersFRX_Diff->pucch_F0_2WithoutFH;
+    AssertFatal(pucch_F0_2WithoutFH == NULL,
+                "UE does not support PUCCH F0 without frequency hopping. Current configuration is without FH\n");
+  }
+  NR_PUCCH_Config_t *pucch_Config = calloc(1, sizeof(*pucch_Config));
+  pucch_Config->resourceSetToAddModList = calloc(1, sizeof(*pucch_Config->resourceSetToAddModList));
+  pucch_Config->resourceSetToReleaseList = NULL;
+  pucch_Config->resourceToAddModList = calloc(1, sizeof(*pucch_Config->resourceToAddModList));
+  pucch_Config->resourceToReleaseList = NULL;
+  // Info to compute pucch_ResourceId (0 to maxNrofPUCCH-Resources - 1) with maxNrofPUCCH-Resources = 128
+  // maxNrofPUCCH-ResourcesPerSet = 32 sets the max number of PUCCH resources per HARQ
+  // we give ID starting from 0 (to nb_harq_res - 1) to set 0
+  // we give ID starting from nb_harq_res to set 1
+  config_pucch_resset(pucch_Config, 0, 0, 0, pucch_res_config);
+  config_pucch_resset(pucch_Config, pucch_res_config->nb_harq_res, 1, 2, pucch_res_config);
+  // we give ID nb_harq_res * 2 to resource for SR and nb_harq_res * 2 + 1 to the one for CSI meas
+  int multi_periodic_offset = (uid % pucch_res_config->nb_periodic_res) * pucch_res_config->nb_prb_periodic_res;
+  int start_prb = pucch_res_config->nb_harq_res * pucch_res_config->nb_prb_harq_res + multi_periodic_offset;
+  NR_PUCCH_Resource_t *pucchres_sr = config_pucch_resource(0, pucch_res_config->nb_harq_res * 2, start_prb, 1);
+  asn1cSeqAdd(&pucch_Config->resourceToAddModList->list, pucchres_sr);
+  NR_PUCCH_Resource_t *pucchres_csi = config_pucch_resource(2,
+                                                            get_csi_pucch_id(pucch_res_config),
+                                                            start_prb,
+                                                            pucch_res_config->nb_prb_periodic_res);
+  asn1cSeqAdd(&pucch_Config->resourceToAddModList->list, pucchres_csi);
+  set_pucch_power_config(pucch_Config);
+  scheduling_request_config(cell, pucch_Config, uid, pucch_res_config->nb_harq_res * 2, pucch_res_config);
+  set_dl_DataToUL_ACK(pucch_Config, configuration->minRXTXTIME);
+  config_pucch_format2(pucch_Config);
+  return pucch_Config;
+}
+
 static NR_BWP_Uplink_t *config_uplinkBWP(bool is_SA,
                                          int uid,
                                          int maxMIMO_Layers,
                                          const nr_mac_config_t *configuration,
                                          const nr_cell_sched_t *cell,
                                          const NR_ServingCellConfigCommon_t *scc,
-                                         const NR_UE_NR_Capability_t *uecap)
+                                         const NR_UE_NR_Capability_t *uecap,
+                                         const nr_pucch_radio_res_t *pucch_config)
 {
   NR_BWP_Uplink_t *ubwp = calloc_or_fail(1, sizeof(*ubwp));
   ubwp->bwp_Id = 1;
@@ -1925,19 +2085,9 @@ static NR_BWP_Uplink_t *config_uplinkBWP(bool is_SA,
 
   ubwp->bwp_Dedicated->pucch_Config = calloc(1,sizeof(*ubwp->bwp_Dedicated->pucch_Config));
   ubwp->bwp_Dedicated->pucch_Config->present = NR_SetupRelease_PUCCH_Config_PR_setup;
-  NR_PUCCH_Config_t *pucch_Config = calloc(1,sizeof(*pucch_Config));
-  ubwp->bwp_Dedicated->pucch_Config->choice.setup = pucch_Config;
-  pucch_Config->resourceSetToAddModList = calloc(1,sizeof(*pucch_Config->resourceSetToAddModList));
-  pucch_Config->resourceSetToReleaseList = NULL;
-  pucch_Config->resourceToAddModList = calloc(1,sizeof(*pucch_Config->resourceToAddModList));
-  pucch_Config->resourceToReleaseList = NULL;
-  config_pucch_resset0(scc, pucch_Config, uid, curr_bwp, uecap, &configuration->pdsch_AntennaPorts);
-  config_pucch_resset1(scc, pucch_Config, uid, curr_bwp, uecap, &configuration->pdsch_AntennaPorts);
-  set_pucch_power_config(pucch_Config);
-  scheduling_request_config(cell, pucch_Config, ubwp->bwp_Common->genericParameters.subcarrierSpacing);
-  set_dl_DataToUL_ACK(pucch_Config, configuration->minRXTXTIME);
+  int scs = ubwp->bwp_Common->genericParameters.subcarrierSpacing;
+  ubwp->bwp_Dedicated->pucch_Config->choice.setup = config_pucch(configuration, cell, uecap, pucch_config, scs, uid);
   ubwp->bwp_Dedicated->pusch_Config = config_pusch(configuration, scc, uecap);
-
   ubwp->bwp_Dedicated->srs_Config = get_config_srs(scc,
                                                    NULL,
                                                    cell,
@@ -1963,53 +2113,50 @@ static void set_phr_config(NR_MAC_CellGroupConfig_t *mac_CellGroupConfig)
   mac_CellGroupConfig->phr_Config->choice.setup->phr_Tx_PowerFactorChange = NR_PHR_Config__phr_Tx_PowerFactorChange_dB1;
 }
 
-static void set_csi_meas_periodicity(const nr_cell_sched_t *cell,
-                                     const NR_ServingCellConfigCommon_t *scc,
+static void set_csi_meas_periodicity(const frame_structure_t *fs,
+                                     const nr_pucch_radio_res_t *pucch_res,
                                      NR_CSI_ReportConfig_t *csirep,
                                      int uid,
-                                     int curr_bwp,
-                                     const nr_pdsch_AntennaPorts_t *antennaports,
                                      bool is_rsrp)
 {
-  const int ideal_period = set_ideal_period(cell, true);
-  const int num_pucch2 = get_nb_pucch2_per_slot(scc, curr_bwp, antennaports);
-  const int idx = (uid * 2 / num_pucch2) + is_rsrp;
-  const frame_structure_t *fs = &cell->frame_structure;
+  int rep_idx = is_rsrp ? uid : MAX_MOBILES_PER_GNB + uid;
+  int idx = rep_idx / pucch_res->nb_periodic_res;
   int offset = get_ul_slot_offset(fs, idx, true);
-  LOG_D(NR_MAC, "set_csi_meas_periodicity: uid = %d, offset = %d, ideal_period = %d", uid, offset, ideal_period);
+  LOG_D(NR_MAC, "set_csi_meas_periodicity: uid = %d, offset = %d, ideal_period = %d\n", uid, offset, pucch_res->periodicity);
   // checked for validity in verify_radio_configuration
   AssertFatal(offset < 320, "Not enough UL slots to accomodate all possible UEs. Need to rework the implementation\n");
-  if (check_periodicity(4, ideal_period, fs)) {
+  if (pucch_res->periodicity == 4) {
     csirep->reportConfigType.choice.periodic->reportSlotConfig.present = NR_CSI_ReportPeriodicityAndOffset_PR_slots4;
     csirep->reportConfigType.choice.periodic->reportSlotConfig.choice.slots4 = offset;
-  } else if (check_periodicity(5, ideal_period, fs)) {
+  } else if (pucch_res->periodicity == 5) {
     csirep->reportConfigType.choice.periodic->reportSlotConfig.present = NR_CSI_ReportPeriodicityAndOffset_PR_slots5;
     csirep->reportConfigType.choice.periodic->reportSlotConfig.choice.slots5 = offset;
-  } else if (check_periodicity(8, ideal_period, fs)) {
+  } else if (pucch_res->periodicity == 8) {
     csirep->reportConfigType.choice.periodic->reportSlotConfig.present = NR_CSI_ReportPeriodicityAndOffset_PR_slots8;
     csirep->reportConfigType.choice.periodic->reportSlotConfig.choice.slots8 = offset;
-  } else if (check_periodicity(10, ideal_period, fs)) {
+  } else if (pucch_res->periodicity == 10) {
     csirep->reportConfigType.choice.periodic->reportSlotConfig.present = NR_CSI_ReportPeriodicityAndOffset_PR_slots10;
     csirep->reportConfigType.choice.periodic->reportSlotConfig.choice.slots10 = offset;
-  } else if (check_periodicity(16, ideal_period, fs)) {
+  } else if (pucch_res->periodicity == 16) {
     csirep->reportConfigType.choice.periodic->reportSlotConfig.present = NR_CSI_ReportPeriodicityAndOffset_PR_slots16;
     csirep->reportConfigType.choice.periodic->reportSlotConfig.choice.slots16 = offset;
-  } else if (check_periodicity(20, ideal_period, fs)) {
+  } else if (pucch_res->periodicity == 20) {
     csirep->reportConfigType.choice.periodic->reportSlotConfig.present = NR_CSI_ReportPeriodicityAndOffset_PR_slots20;
     csirep->reportConfigType.choice.periodic->reportSlotConfig.choice.slots20 = offset;
-  } else if (check_periodicity(40, ideal_period, fs)) {
+  } else if (pucch_res->periodicity == 40) {
     csirep->reportConfigType.choice.periodic->reportSlotConfig.present = NR_CSI_ReportPeriodicityAndOffset_PR_slots40;
     csirep->reportConfigType.choice.periodic->reportSlotConfig.choice.slots40 = offset;
-  } else if (check_periodicity(80, ideal_period, fs)) {
+  } else if (pucch_res->periodicity == 80) {
     csirep->reportConfigType.choice.periodic->reportSlotConfig.present = NR_CSI_ReportPeriodicityAndOffset_PR_slots80;
     csirep->reportConfigType.choice.periodic->reportSlotConfig.choice.slots80 = offset;
-  } else if (check_periodicity(160, ideal_period, fs)) {
+  } else if (pucch_res->periodicity == 160) {
     csirep->reportConfigType.choice.periodic->reportSlotConfig.present = NR_CSI_ReportPeriodicityAndOffset_PR_slots160;
     csirep->reportConfigType.choice.periodic->reportSlotConfig.choice.slots160 = offset;
-  } else {
+  } else if (pucch_res->periodicity == 320) {
     csirep->reportConfigType.choice.periodic->reportSlotConfig.present = NR_CSI_ReportPeriodicityAndOffset_PR_slots320;
     csirep->reportConfigType.choice.periodic->reportSlotConfig.choice.slots320 = offset;
-  }
+  } else
+    AssertFatal(false, "Invalid periodicity %d for CSI measurement report\n", pucch_res->periodicity);
 }
 
 static NR_CodebookConfig_t *config_csi_codebook(const nr_pdsch_AntennaPorts_t *antennaports, const int max_layers)
@@ -2122,7 +2269,7 @@ static NR_CodebookConfig_t *config_csi_codebook(const nr_pdsch_AntennaPorts_t *a
 
 static void config_csi_meas_report(const nr_cell_sched_t *cell,
                                    NR_CSI_MeasConfig_t *csi_MeasConfig,
-                                   const NR_ServingCellConfigCommon_t *servingcellconfigcommon,
+                                   const nr_pucch_radio_res_t *pucch_res,
                                    NR_PUCCH_CSI_Resource_t *pucchcsires,
                                    struct NR_SetupRelease_PDSCH_Config *pdsch_Config,
                                    const nr_pdsch_AntennaPorts_t *antennaports,
@@ -2158,7 +2305,7 @@ static void config_csi_meas_report(const nr_cell_sched_t *cell,
   csirep->nzp_CSI_RS_ResourcesForInterference = NULL;
   csirep->reportConfigType.present = NR_CSI_ReportConfig__reportConfigType_PR_periodic;
   csirep->reportConfigType.choice.periodic = calloc(1, sizeof(*csirep->reportConfigType.choice.periodic));
-  set_csi_meas_periodicity(cell, servingcellconfigcommon, csirep, uid, curr_bwp, antennaports, false);
+  set_csi_meas_periodicity(&cell->frame_structure, pucch_res, csirep, uid, false);
   asn1cSeqAdd(&csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list, pucchcsires);
   csirep->reportQuantity.present = NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_PMI_CQI;
   csirep->reportQuantity.choice.cri_RI_PMI_CQI = (NULL_t)0;
@@ -2219,6 +2366,7 @@ static long config_nrofReportedRS(const NR_UE_NR_Capability_t *uecap,
 static void config_rsrp_meas_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
                                     const NR_UE_NR_Capability_t *uecap,
                                     const NR_ServingCellConfigCommon_t *servingcellconfigcommon,
+                                    const nr_pucch_radio_res_t *pucch_res,
                                     NR_PUCCH_CSI_Resource_t *pucchcsires,
                                     const nr_mac_config_t *configuration,
                                     const nr_cell_sched_t *cell,
@@ -2253,7 +2401,7 @@ static void config_rsrp_meas_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
   csirep->nzp_CSI_RS_ResourcesForInterference = NULL;
   csirep->reportConfigType.present = NR_CSI_ReportConfig__reportConfigType_PR_periodic;
   csirep->reportConfigType.choice.periodic = calloc(1, sizeof(*csirep->reportConfigType.choice.periodic));
-  set_csi_meas_periodicity(cell, servingcellconfigcommon, csirep, uid, curr_bwp, pdschap, true);
+  set_csi_meas_periodicity(&cell->frame_structure, pucch_res, csirep, uid, true);
   asn1cSeqAdd(&csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list, pucchcsires);
   if (configuration->report_type == SSB_SINR) {
     csirep->reportQuantity.present = NR_CSI_ReportConfig__reportQuantity_PR_none;
@@ -3377,6 +3525,7 @@ static NR_BWP_UplinkDedicated_t *configure_initial_ul_bwp(const NR_ServingCellCo
                                                           const nr_cell_sched_t *cell,
                                                           int maxMIMO_Layers,
                                                           const NR_UE_NR_Capability_t *uecap,
+                                                          const nr_pucch_radio_res_t *pucch_res_config,
                                                           int id)
 {
   NR_BWP_UplinkDedicated_t *initialUplinkBWP = calloc(1, sizeof(*initialUplinkBWP));
@@ -3384,16 +3533,8 @@ static NR_BWP_UplinkDedicated_t *configure_initial_ul_bwp(const NR_ServingCellCo
   int curr_bwp = NRRIV2BW(genericParameters->locationAndBandwidth, MAX_BWP_SIZE);
   initialUplinkBWP->pucch_Config = calloc(1, sizeof(*initialUplinkBWP->pucch_Config));
   initialUplinkBWP->pucch_Config->present = NR_SetupRelease_PUCCH_Config_PR_setup;
-  NR_PUCCH_Config_t *pucch_Config = calloc(1, sizeof(*pucch_Config));
-  initialUplinkBWP->pucch_Config->choice.setup = pucch_Config;
-  pucch_Config->resourceSetToAddModList = calloc(1, sizeof(*pucch_Config->resourceSetToAddModList));
-  pucch_Config->resourceSetToReleaseList = NULL;
-  pucch_Config->resourceToAddModList = calloc(1, sizeof(*pucch_Config->resourceToAddModList));
-  pucch_Config->resourceToReleaseList = NULL;
-  config_pucch_resset0(scc, pucch_Config, id, curr_bwp, uecap, &configuration->pdsch_AntennaPorts);
-  config_pucch_resset1(scc, pucch_Config, id, curr_bwp, uecap, &configuration->pdsch_AntennaPorts);
-  set_pucch_power_config(pucch_Config);
-
+  int scs = genericParameters->subcarrierSpacing;
+  initialUplinkBWP->pucch_Config->choice.setup = config_pucch(configuration, cell, uecap, pucch_res_config, scs, id);
   initialUplinkBWP->pusch_Config = config_pusch(configuration, scc, uecap);
   initialUplinkBWP->srs_Config = get_config_srs(scc,
                                                 uecap,
@@ -3405,8 +3546,6 @@ static NR_BWP_UplinkDedicated_t *configure_initial_ul_bwp(const NR_ServingCellCo
                                                 configuration->minRXTXTIME,
                                                 configuration->do_SRS);
 
-  scheduling_request_config(cell, pucch_Config, scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.subcarrierSpacing);
-  set_dl_DataToUL_ACK(pucch_Config, configuration->minRXTXTIME);
   return initialUplinkBWP;
 }
 
@@ -3467,6 +3606,7 @@ static NR_CSI_MeasConfig_t *get_csiMeasConfig(const NR_ServingCellConfig_t *conf
                                               const nr_mac_config_t *config,
                                               const nr_cell_sched_t *cell,
                                               int uid,
+                                              const nr_pucch_radio_res_t *pucch_res,
                                               int bwp_id,
                                               uint64_t bitmap,
                                               int ssb_index)
@@ -3528,7 +3668,7 @@ static NR_CSI_MeasConfig_t *get_csiMeasConfig(const NR_ServingCellConfig_t *conf
   csires1->resourceType = NR_CSI_ResourceConfig__resourceType_periodic;
   asn1cSeqAdd(&csi_MeasConfig->csi_ResourceConfigToAddModList->list, csires1);
 
-  int pucch_Resource = 2;
+  int pucch_Resource = get_csi_pucch_id(pucch_res);
   if (config->do_CSIRS) {
     NR_CSI_ResourceConfig_t *csires0 = calloc(1, sizeof(*csires0));
     csires0->csi_ResourceConfigId = bwp_id;
@@ -3563,7 +3703,7 @@ static NR_CSI_MeasConfig_t *get_csiMeasConfig(const NR_ServingCellConfig_t *conf
     pucchcsi->pucch_Resource = pucch_Resource;
     config_csi_meas_report(cell,
                            csi_MeasConfig,
-                           scc,
+                           pucch_res,
                            pucchcsi,
                            pdsch_Config,
                            &config->pdsch_AntennaPorts,
@@ -3578,6 +3718,7 @@ static NR_CSI_MeasConfig_t *get_csiMeasConfig(const NR_ServingCellConfig_t *conf
   config_rsrp_meas_report(csi_MeasConfig,
                           uecap,
                           scc,
+                          pucch_res,
                           pucchrsrp,
                           config,
                           cell,
@@ -3624,6 +3765,7 @@ static NR_SpCellConfig_t *get_initial_SpCellConfig(int uid,
   set_dl_maxmimolayers(pdsch_servingcellconfig, scc, NULL, configuration->maxMIMO_layers);
 
   uint64_t bitmap = get_ssb_bitmap(scc);
+  const nr_pucch_radio_res_t *pucch_config = &cell->pucch_res_bwp[configuration->first_active_bwp];
   int first_active_bwp = 0;
   if (!redcap && configuration->num_additional_bwps > 0)
     first_active_bwp = configuration->first_active_bwp > 0 ? 1 : 0;
@@ -3631,14 +3773,14 @@ static NR_SpCellConfig_t *get_initial_SpCellConfig(int uid,
   asn1cCallocOne(configDedicated->firstActiveDownlinkBWP_Id, first_active_bwp);
   asn1cCallocOne(uplinkConfig->firstActiveUplinkBWP_Id, first_active_bwp);
   if (first_active_bwp == 0) {
-    uplinkConfig->initialUplinkBWP = configure_initial_ul_bwp(scc, configuration, cell, maxMIMO_Layers, NULL, uid);
+    uplinkConfig->initialUplinkBWP = configure_initial_ul_bwp(scc, configuration, cell, maxMIMO_Layers, NULL, pucch_config, uid);
     configDedicated->initialDownlinkBWP = configure_initial_dl_bwp(scc, bitmap, NULL, configuration);
   } else {
     configDedicated->downlinkBWP_ToAddModList = calloc(1, sizeof(*configDedicated->downlinkBWP_ToAddModList));
     NR_BWP_Downlink_t *bwp = config_downlinkBWP(scc, NULL, false, true, configuration);
     asn1cSeqAdd(&configDedicated->downlinkBWP_ToAddModList->list, bwp);
     uplinkConfig->uplinkBWP_ToAddModList = calloc(1, sizeof(*uplinkConfig->uplinkBWP_ToAddModList));
-    NR_BWP_Uplink_t *ubwp = config_uplinkBWP(true, uid, maxMIMO_Layers, configuration, cell, scc, NULL);
+    NR_BWP_Uplink_t *ubwp = config_uplinkBWP(true, uid, maxMIMO_Layers, configuration, cell, scc, NULL, pucch_config);
     asn1cSeqAdd(&uplinkConfig->uplinkBWP_ToAddModList->list, ubwp);
   }
 
@@ -3650,6 +3792,7 @@ static NR_SpCellConfig_t *get_initial_SpCellConfig(int uid,
                                                                     configuration,
                                                                     cell,
                                                                     uid,
+                                                                    pucch_config,
                                                                     first_active_bwp,
                                                                     bitmap,
                                                                     ssb_index);
@@ -3807,29 +3950,10 @@ static bool verify_radio_configuration(int uid,
     return false; // cannot allocate resources for CSI-RS
   }
 
-  const nr_pdsch_AntennaPorts_t *ap = &configuration->pdsch_AntennaPorts;
-  int pucch2_size = get_pucch2_size(ap->N1 * ap->N2 * ap->XP);
-  int curr_bwp = NRRIV2BW(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
-  int num_pucch2 = get_nb_pucch2_per_slot(scc, curr_bwp, ap);
-  int pucchres0_startingPRB = (pucch2_size * num_pucch2) + uid;
-  // see config_pucch_resset0
-  if (pucchres0_startingPRB >= curr_bwp) {
-    LOG_E(NR_RRC, "UID %d, cannot allocate resources for PUCCH0, rejecting UE\n", uid);
-    return false; // cannot allocate resources for PUCCH0
+  if (uid >= cell->pucch_res_bwp[configuration->first_active_bwp].max_served_ues) {
+    LOG_E(NR_RRC, "UID %d cannot allocate resources for PUCCH, rejecting UE\n", uid);
+    return false;
   }
-  // see get_nb_pucch2_per_slot
-  if ((num_pucch2 * pucch2_size) + MAX_MOBILES_PER_GNB > curr_bwp) {
-    LOG_E(NR_RRC, "UID %d, cannot allocate resources for PUCCH2, rejecting UE\n", uid);
-    return false; // cannot allocate resources for PUCCH2
-  }
-  const int idx = (uid * 2 / num_pucch2) + 1;
-  int offset = get_ul_slot_offset(fs, idx, true);
-  // see set_csi_meas_periodicity
-  if (offset >= 320) {
-    LOG_E(NR_RRC, "UID %d, cannot allocate resources for CSI reporting, rejecting UE\n", uid);
-    return false; // cannot allocate resources for CSI report
-  }
-
   return true;
 }
 
@@ -3884,6 +4008,7 @@ NR_CellGroupConfig_t *update_cellGroupConfig_for_reconfig(NR_CellGroupConfig_t *
   NR_UplinkConfig_t *uplinkConfig = configDedicated->uplinkConfig;
   uint64_t bitmap = get_ssb_bitmap(scc);
   nr_mac_config_t local_config = *configuration;
+  const nr_pucch_radio_res_t *pucch_res_config = new_bwp >= 0 ? &cell->pucch_res_bwp[new_bwp] : &cell->pucch_res_bwp[old_bwp];
   if (new_bwp >= 0) {
     *configDedicated->firstActiveDownlinkBWP_Id = new_bwp != 0;  // 1 for any BWP != 0
     *uplinkConfig->firstActiveUplinkBWP_Id = new_bwp != 0;  // 1 for any BWP != 0
@@ -3895,7 +4020,13 @@ NR_CellGroupConfig_t *update_cellGroupConfig_for_reconfig(NR_CellGroupConfig_t *
         configDedicated->initialDownlinkBWP = calloc_or_fail(1, sizeof(*configDedicated->initialDownlinkBWP));
       if (!uplinkConfig->initialUplinkBWP)
         uplinkConfig->initialUplinkBWP = calloc_or_fail(1, sizeof(*uplinkConfig->initialUplinkBWP));
-      uplinkConfig->initialUplinkBWP = configure_initial_ul_bwp(scc, &local_config, cell, ul_maxMIMO_Layers, uecap, uid);
+      uplinkConfig->initialUplinkBWP = configure_initial_ul_bwp(scc,
+                                                                &local_config,
+                                                                cell,
+                                                                ul_maxMIMO_Layers,
+                                                                uecap,
+                                                                pucch_res_config,
+                                                                uid);
       configDedicated->initialDownlinkBWP = configure_initial_dl_bwp(scc, bitmap, uecap, &local_config);
     } else {
       if (!configDedicated->downlinkBWP_ToAddModList)
@@ -3904,7 +4035,7 @@ NR_CellGroupConfig_t *update_cellGroupConfig_for_reconfig(NR_CellGroupConfig_t *
       asn1cSeqAdd(&configDedicated->downlinkBWP_ToAddModList->list, dl_bwp);
       if (!uplinkConfig->uplinkBWP_ToAddModList)
         uplinkConfig->uplinkBWP_ToAddModList = calloc_or_fail(1, sizeof(*uplinkConfig->uplinkBWP_ToAddModList));
-      NR_BWP_Uplink_t *ul_bwp = config_uplinkBWP(true, uid, ul_maxMIMO_Layers, &local_config, cell, scc, uecap);
+      NR_BWP_Uplink_t *ul_bwp = config_uplinkBWP(true, uid, ul_maxMIMO_Layers, &local_config, cell, scc, uecap, pucch_res_config);
       asn1cSeqAdd(&uplinkConfig->uplinkBWP_ToAddModList->list, ul_bwp);
     }
   }
@@ -3920,6 +4051,7 @@ NR_CellGroupConfig_t *update_cellGroupConfig_for_reconfig(NR_CellGroupConfig_t *
                                                                            &local_config,
                                                                            cell,
                                                                            uid,
+                                                                           pucch_res_config,
                                                                            *uplinkConfig->firstActiveUplinkBWP_Id,
                                                                            bitmap,
                                                                            ssb_index);
@@ -4162,8 +4294,16 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
 
   // Uplink BWPs
   int firstActiveUplinkBWP_Id = 1;
+  const nr_pucch_radio_res_t *pucch_res_config = &cell->pucch_res_bwp[firstActiveUplinkBWP_Id];
   ulConfig->uplinkBWP_ToAddModList = calloc(1, sizeof(*ulConfig->uplinkBWP_ToAddModList));
-  NR_BWP_Uplink_t *ubwp = config_uplinkBWP(false, uid, maxMIMO_Layers, configuration, cell, servingcellconfigcommon, uecap);
+  NR_BWP_Uplink_t *ubwp = config_uplinkBWP(false,
+                                           uid,
+                                           maxMIMO_Layers,
+                                           configuration,
+                                           cell,
+                                           servingcellconfigcommon,
+                                           uecap,
+                                           pucch_res_config);
   asn1cSeqAdd(&ulConfig->uplinkBWP_ToAddModList->list, ubwp);
   ulConfig->firstActiveUplinkBWP_Id = calloc(1, sizeof(*ulConfig->firstActiveUplinkBWP_Id));
   *ulConfig->firstActiveUplinkBWP_Id = firstActiveUplinkBWP_Id;
@@ -4223,6 +4363,7 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
                                                                     configuration,
                                                                     cell,
                                                                     uid,
+                                                                    pucch_res_config,
                                                                     firstActiveUplinkBWP_Id,
                                                                     bitmap,
                                                                     ssb_index);
