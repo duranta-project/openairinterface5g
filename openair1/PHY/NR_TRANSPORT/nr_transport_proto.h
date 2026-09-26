@@ -128,6 +128,10 @@ typedef struct rx_prach_out {
 rx_prach_out_t rx_nr_prach(const prach_item_t *, int occasion);
 
 void rx_nr_prach_ru(prach_item_t *, int32_t **, NR_DL_FRAME_PARMS *frame_parms, int N_TA_offset, bool das);
+void init_nr_prach_ru(RU_t *ru);
+void free_nr_prach_ru(RU_t *ru);
+void process_nr_prach_ru(RU_t *ru, const fsn_t *now);
+void publish_nr_prach_ru(RU_t *ru);
 void rx_nr_prach_ru_rep(prach_item_t *p,
                         int32_t **rxdata,
                         NR_DL_FRAME_PARMS *fp,

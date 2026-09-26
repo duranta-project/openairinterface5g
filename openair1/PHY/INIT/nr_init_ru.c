@@ -8,6 +8,7 @@
 #include "openair1/PHY/defs_RU.h"
 #include "openair1/PHY/defs_nr_common.h"
 #include "openair1/PHY/defs_gNB.h"
+#include "openair1/PHY/NR_TRANSPORT/nr_transport_proto.h"
 
 void nr_phy_init_RU(RU_t *ru)
 {
@@ -90,6 +91,8 @@ void nr_phy_init_RU(RU_t *ru)
 
 void nr_phy_free_RU(RU_t *ru)
 {
+  // RU workers have stopped before their input snapshots are released.
+  free_nr_prach_ru(ru);
   LOG_D(PHY, "Freeing RU signal buffers (if_south %s) nb_tx %d\n", ru_if_types[ru->if_south], ru->nb_tx);
   int nb_tx_streams = ru->nb_tx;
   int nb_rx_streams = ru->nb_rx;

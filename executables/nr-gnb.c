@@ -169,21 +169,29 @@ static void rx_func(processingData_L1_t *info)
 
   T(T_GNB_PHY_UL_TICK, T_INT(gNB->Mod_id), T_INT(frame_rx), T_INT(slot_rx));
 
+  NR_UL_IND_t UL_INFO = {.frame = frame_rx, .slot = slot_rx, .module_id = gNB->Mod_id, .phy_id = gNB->CC_id};
+  UL_INFO.rach_ind.pdu_list = UL_INFO.prach_pdu_indication_list;
+  prach_item_t p;
+  // Async RU results can arrive in any slot. Keep the original PRACH timing
+  // and flush before combining different frame/slot values or exceeding FAPI capacity.
+  while (spsc_q_get(&gNB->prach_l1rx_queue, &p, sizeof(p))) {
+    if (UL_INFO.rach_ind.number_of_pdus > 0
+        && (UL_INFO.rach_ind.sfn != p.frame || UL_INFO.rach_ind.slot != p.slot
+            || UL_INFO.rach_ind.number_of_pdus + p.pdu.num_prach_ocas > MAX_NUM_NR_RX_RACH_PDUS)) {
+      gNB->if_inst->NR_UL_indication(&UL_INFO);
+      UL_INFO.rach_ind.number_of_pdus = 0;
+    }
+    L1_nr_prach_procedures(gNB, &p, &UL_INFO.rach_ind);
+  }
+  if (UL_INFO.rach_ind.number_of_pdus > 0) {
+    gNB->if_inst->NR_UL_indication(&UL_INFO);
+    UL_INFO.rach_ind.number_of_pdus = 0;
+  }
+
   // RX processing
   int rx_slot_type = nr_slot_select(cfg, frame_rx, slot_rx);
   if (rx_slot_type == NR_UPLINK_SLOT || rx_slot_type == NR_MIXED_SLOT) {
     LOG_D(NR_PHY, "%d.%d Starting RX processing\n", frame_rx, slot_rx);
-
-    // UE-specific RX processing for subframe n
-    NR_UL_IND_t UL_INFO = {.frame = frame_rx, .slot = slot_rx, .module_id = gNB->Mod_id, .phy_id = gNB->CC_id};
-    // Do PRACH RU processing
-    UL_INFO.rach_ind.pdu_list = UL_INFO.prach_pdu_indication_list;
-    UL_INFO.rach_ind.number_of_pdus = 0;
-    // even if processing is late, we might collect all PRACH
-    // the last PRACH's frame/slot is when all UE's appear to have accessed
-    prach_item_t p;
-    while (spsc_q_get(&gNB->prach_l1rx_queue, &p, sizeof(p)))
-      L1_nr_prach_procedures(gNB, &p, &UL_INFO.rach_ind);
 
     // apply the rx signal rotation here
     if (gNB->phase_comp) {

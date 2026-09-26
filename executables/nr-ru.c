@@ -654,6 +654,12 @@ void *ru_thread(void *param)
   pthread_cond_signal(&RC.ru_cond);
   pthread_mutex_unlock(&RC.ru_mutex);
   wait_sync("ru_thread");
+  if (oai_exit)
+    return &ru_thread_status;
+
+  // gNB initialization has loaded the DFT backend before PRACH preparation.
+  if (ru->feprx)
+    init_nr_prach_ru(ru);
 
   // Start RF device if any
   if (ru->start_rf) {
@@ -753,18 +759,12 @@ void *ru_thread(void *param)
 
         // Do PRACH RU processing
         fsn_t now = {.f = proc->frame_rx, .s = proc->tti_rx, .mu = fp->numerology_index};
-        prach_item_t p;
-        while (get_next_nr_prach(&gNB->prach_ru_queue, &now, &p)) {
-          // need to extract RACH data for later processing by rx_nr_prach()
-          rx_nr_prach_ru(&p, ru->common.rxdata, ru->nr_frame_parms, ru->N_TA_offset, gNB->enable_analog_das);
-          bool success = spsc_q_put(&gNB->prach_l1rx_queue, &p, sizeof(p));
-          // assume prach_l1rx_queue never full: prach_ru_queue filled at
-          // constant pace, but prach_l1rx_queue emptied as fast as possible,
-          // see rx_func()
-          DevAssert(success);
-        } // end if (prach_id >= 0)
+        process_nr_prach_ru(ru, &now);
       } // end if (ru->feprx)
     } // end if (slot_type == NR_UPLINK_SLOT || slot_type == NR_MIXED_SLOT) {
+
+    // Forward completed PRACH even during downlink slots in a TDD gap.
+    publish_nr_prach_ru(ru);
 
     notifiedFIFO_elt_t *resTx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0, &gNB->L1_tx_out, NULL);
     resTx->key = proc->tti_tx;

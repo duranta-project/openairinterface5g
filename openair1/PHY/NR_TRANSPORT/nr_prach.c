@@ -11,6 +11,7 @@
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
 #include "openair1/PHY/NR_TRANSPORT/nr_prach.h"
+#include "openair2/LAYER2/NR_MAC_COMMON/nr_prach_config.h"
 
 typedef struct {
   int reps;
@@ -220,6 +221,11 @@ void init_nr_prach(PHY_VARS_gNB *gNB)
 
 void reset_nr_prach(PHY_VARS_gNB *gNB)
 {
+  prach_item_t p;
+  while (spsc_q_get(&gNB->prach_ru_queue, &p, sizeof(p)))
+    free_nr_prach_entry(&p);
+  while (spsc_q_get(&gNB->prach_l1rx_queue, &p, sizeof(p)))
+    free_nr_prach_entry(&p);
   spsc_q_free(&gNB->prach_ru_queue);
   spsc_q_free(&gNB->prach_l1rx_queue);
 }
@@ -306,8 +312,28 @@ void nr_schedule_rx_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_p
     }
   }
   bool found = spsc_q_put(&gNB->prach_ru_queue, &prach, sizeof(prach));
-  if (!found)
+  if (!found) {
     LOG_W(NR_PHY, "%4d.%2d PRACH occ queue is full: dropping PRACH request\n", SFN, Slot);
+    free_nr_prach_entry(&prach);
+  }
+}
+
+static void prach_dft_combine(const c16_t *samples, const prach_ru_params_t *params, c16_t *rxsigF)
+{
+  c16_t tmp[params->dftlen] __attribute__((aligned(32)));
+  dft(params->dftsize, (int16_t *)samples, (int16_t *)tmp, 1);
+  // Coherent combining assumes the channel is unchanged across repetitions.
+  int k = params->k;
+  for (int j = 0; j < params->N_ZC; j++, k++) {
+    if (k == params->dftlen)
+      k = 0;
+    rxsigF[j] = c16add(rxsigF[j], tmp[k]);
+  }
+}
+
+static int prach_sample_offset(const prach_item_t *p, NR_DL_FRAME_PARMS *fp, int N_TA_offset, const prach_ru_params_t *params)
+{
+  return (int)get_samples_slot_timestamp(fp, p->slot) + params->sample_offset_slot - N_TA_offset + params->Ncp;
 }
 
 static void rx_nr_prach_ru_internal_rep(prach_item_t *p,
@@ -320,26 +346,24 @@ static void rx_nr_prach_ru_internal_rep(prach_item_t *p,
                                         c16_t (*rxsigF)[NR_PRACH_SEQ_LEN_L])
 {
   AssertFatal(rep >= 0 && rep < params->reps, "rep %d is out of range (reps = %d)\n", rep, params->reps);
+  const int offset = prach_sample_offset(p, fp, N_TA_offset, params) + rep * params->dftlen;
+  for (int aa = 0; aa < p->nb_rx; aa++)
+    prach_dft_combine((c16_t *)&rxdata[ant_offset + aa][offset], params, rxsigF[aa]);
+}
 
-  int slot2 = p->prach_sequence_length ? p->slot : p->slot;
-  int sample_offset = get_samples_slot_timestamp(fp, slot2) + params->sample_offset_slot - N_TA_offset + params->Ncp + rep * params->dftlen;
-
-  for (int aa = 0; aa < p->nb_rx; aa++) {
-    int idx = ant_offset + aa;
-    c16_t *prach2 = (c16_t *)&rxdata[idx][sample_offset];
-
-    // do DFT for the specific repetition
-    c16_t tmp[params->dftlen] __attribute__((aligned(32)));
-    dft(params->dftsize, (int16_t *)prach2, (int16_t *)tmp, 1);
-    // Coherent combining of PRACH repetitions (assumes channel does not change, to be revisted for "long" PRACH)
-    LOG_D(PHY, "Doing PRACH combining of repetition %d/%d N_ZC %d\n", rep, params->reps, params->N_ZC);
-    int k2 = params->k;
-    for (int j = 0; j < params->N_ZC; j++, k2++) {
-      if (k2 == params->dftlen)
-        k2 = 0;
-      rxsigF[aa][j] = c16add(rxsigF[aa][j], tmp[k2]);
-    }
+static int prach_ant_start(const prach_item_t *p, int occasion, bool das)
+{
+  int ant_offset = 0;
+  if (p->pdu.beamforming.dig_bf_interface > 1) {
+    AssertFatal(occasion < p->pdu.beamforming.dig_bf_interface,
+                "Num of PRACH Occasions must be same as number of beams in beamforming mode\n");
+    ant_offset = occasion * p->nb_rx;
   }
+  // TODO: Remove assumption of contiguous ports after DAS is properly handled in beamforming
+  return get_first_ant_idx(das,
+                           p->nb_rx,
+                           p->pdu.beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx,
+                           p->pdu.param_v4.numSpatialStreamIndices > 0 ? p->pdu.param_v4.spatialStreamIndices[ant_offset] : 0);
 }
 
 static void rx_nr_prach_ru_internal(prach_item_t *p,
@@ -354,20 +378,7 @@ static void rx_nr_prach_ru_internal(prach_item_t *p,
   c16_t rxsigF_tmp[p->nb_rx][NR_PRACH_SEQ_LEN_L];
   memset(rxsigF_tmp, 0, sizeof(rxsigF_tmp));
 
-  const uint8_t num_beams = p->pdu.beamforming.dig_bf_interface;
-  // When more than one beams, then each occasion is on one beam
-  int ant_offset = 0;
-  if (num_beams > 1) {
-    AssertFatal(prachOccasion < num_beams, "Num of PRACH Occasions must be same as number of beams in beamforming mode\n");
-    ant_offset = prachOccasion * p->nb_rx;
-  }
-
-  // TODO: Remove assumption of contiguous ports after DAS is properly handled in beamforming
-  uint16_t ant_start =
-      get_first_ant_idx(das,
-                        p->nb_rx,
-                        p->pdu.beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx,
-                        p->pdu.param_v4.numSpatialStreamIndices > 0 ? p->pdu.param_v4.spatialStreamIndices[ant_offset] : 0);
+  const int ant_start = prach_ant_start(p, prachOccasion, das);
 
   for (int rep = 0; rep < params.reps; rep++) {
     rx_nr_prach_ru_internal_rep(p, ant_start, rxdata, fp, N_TA_offset, rep, &params, rxsigF_tmp);
@@ -403,6 +414,173 @@ void rx_nr_prach_ru_rep(prach_item_t *p,
   int prachStartSymbol = p->pdu.prach_start_symbol + prachOccasion * N_dur;
   prach_ru_params_t params = get_prach_ru_params(p, prachStartSymbol, fp);
   rx_nr_prach_ru_internal_rep(p, 0, rxdata, fp, N_TA_offset, rep, &params, rxsigF);
+}
+
+// Match the existing scheduled/result queue capacity, independently of worker count.
+#define NR_PRACH_RU_JOBS 16
+
+typedef struct {
+  prach_item_t p;
+  prach_ru_params_t params[NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX];
+  c16_t *samples;
+  bool expired;
+  atomic_bool done;
+} nr_prach_ru_job_t;
+
+struct nr_prach_ru_s {
+  nr_prach_ru_job_t jobs[NR_PRACH_RU_JOBS];
+  size_t sample_capacity;
+  unsigned head;
+  unsigned count;
+};
+
+void init_nr_prach_ru(RU_t *ru)
+{
+  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+  const nfapi_nr_prach_config_t *cfg = &ru->config.prach_config;
+  if (!ru->threadPool || ru->threadPool->len_thr == 0)
+    return;
+  struct nr_prach_ru_s *ctx = calloc_or_fail(1, sizeof(*ctx));
+  ru->prach = ctx;
+  // Short occasions fit in one slot; long formats may span several slots.
+  int samples = fp->samples_per_subframe / fp->slots_per_subframe;
+  prach_item_t p = {.prach_sequence_length = cfg->prach_sequence_length.value,
+                    .numerology_index = fp->numerology_index,
+                    .mu = cfg->prach_sub_c_spacing.value};
+  p.pdu.prach_format =
+      p.prach_sequence_length ? 4 : get_format0(cfg->prach_ConfigurationIndex.value, fp->frame_type, fp->freq_range);
+  prach_ru_params_t params = get_prach_ru_params(&p, 0, fp);
+  if (!p.prach_sequence_length)
+    samples = params.reps * params.dftlen;
+  ctx->sample_capacity = (size_t)samples * ru->nb_rx;
+  for (int i = 0; i < NR_PRACH_RU_JOBS; i++) {
+    ctx->jobs[i].samples = malloc16_clear(ctx->sample_capacity * sizeof(c16_t));
+    DevAssert(ctx->jobs[i].samples);
+    atomic_init(&ctx->jobs[i].done, false);
+  }
+  // Initialize the selected DFT backend before workers can call it concurrently.
+  c16_t *out = malloc16_clear(params.dftlen * sizeof(c16_t));
+  DevAssert(out);
+  dft(params.dftsize, (int16_t *)ctx->jobs[0].samples, (int16_t *)out, 1);
+  free(out);
+}
+
+void free_nr_prach_ru(RU_t *ru)
+{
+  struct nr_prach_ru_s *ctx = ru->prach;
+  if (!ctx)
+    return;
+  for (int i = 0; i < NR_PRACH_RU_JOBS; i++) {
+    free(ctx->jobs[i].samples);
+    free_nr_prach_entry(&ctx->jobs[i].p);
+  }
+  free(ctx);
+  ru->prach = NULL;
+}
+
+static void prach_ru_task(void *arg)
+{
+  nr_prach_ru_job_t *job = arg;
+  prach_item_t *p = &job->p;
+  if (job->expired) {
+    LOG_W(NR_PHY, "%4d.%2d PRACH request expired before RU preprocessing\n", p->frame, p->slot);
+    free_nr_prach_entry(p);
+    p->prach_buf = NULL;
+  } else {
+    size_t offset = 0;
+    for (int oc = 0; oc < p->pdu.num_prach_ocas; oc++) {
+      const prach_ru_params_t *params = &job->params[oc];
+      for (int aa = 0; aa < p->nb_rx; aa++) {
+        c16_t rxsigF[NR_PRACH_SEQ_LEN_L] = {0};
+        for (int rep = 0; rep < params->reps; rep++) {
+          prach_dft_combine(job->samples + offset, params, rxsigF);
+          offset += params->dftlen;
+        }
+        memcpy(p->prach_buf[aa][oc], rxsigF, params->N_ZC * sizeof(c16_t));
+      }
+    }
+  }
+  // Make the complete output visible before the RU forwards it to L1.
+  atomic_store_explicit(&job->done, true, memory_order_release);
+}
+
+void publish_nr_prach_ru(RU_t *ru)
+{
+  struct nr_prach_ru_s *ctx = ru->prach;
+  if (!ctx)
+    return;
+  while (ctx->count) {
+    nr_prach_ru_job_t *job = &ctx->jobs[ctx->head];
+    if (!atomic_load_explicit(&job->done, memory_order_acquire))
+      break;
+    // Keep submission order and retain ownership if L1's result queue is full.
+    if (job->p.prach_buf && !spsc_q_put(&ru->gNB_list[0]->prach_l1rx_queue, &job->p, sizeof(job->p)))
+      break;
+    job->p.prach_buf = NULL;
+    ctx->head = (ctx->head + 1) % NR_PRACH_RU_JOBS;
+    ctx->count--;
+  }
+}
+
+static bool prach_due(const void *data, void *user)
+{
+  const prach_item_t *p = data;
+  const fsn_t *now = user;
+  const fsn_t end = fsn_add_delta((fsn_t){p->frame, p->slot, now->mu}, p->num_slots - 1);
+  return fsn_equal(end, *now) || fsn_in_the_past(end, *now);
+}
+
+void process_nr_prach_ru(RU_t *ru, const fsn_t *now)
+{
+  PHY_VARS_gNB *gNB = ru->gNB_list[0];
+  struct nr_prach_ru_s *ctx = ru->prach;
+  if (!ctx) {
+    prach_item_t p;
+    while (get_next_nr_prach(&gNB->prach_ru_queue, now, &p)) {
+      rx_nr_prach_ru(&p, ru->common.rxdata, ru->nr_frame_parms, ru->N_TA_offset, gNB->enable_analog_das);
+      bool success = spsc_q_put(&gNB->prach_l1rx_queue, &p, sizeof(p));
+      DevAssert(success);
+    }
+    return;
+  }
+  publish_nr_prach_ru(ru);
+  // Backpressure leaves requests in the scheduled queue; a worker reclaims
+  // expired requests without accessing samples that the radio has overwritten.
+  while (ctx->count < NR_PRACH_RU_JOBS) {
+    nr_prach_ru_job_t *job = &ctx->jobs[(ctx->head + ctx->count) % NR_PRACH_RU_JOBS];
+    if (!spsc_q_get_if(&gNB->prach_ru_queue, prach_due, (void *)now, &job->p, sizeof(job->p)))
+      break;
+    prach_item_t *p = &job->p;
+    const fsn_t end = fsn_add_delta((fsn_t){p->frame, p->slot, now->mu}, p->num_slots - 1);
+    job->expired = !fsn_equal(end, *now);
+    atomic_store_explicit(&job->done, false, memory_order_relaxed);
+    if (!job->expired) {
+      NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+      const int duration = get_nr_prach_duration(p->pdu.prach_format);
+      DevAssert(p->pdu.num_prach_ocas <= NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX);
+      size_t copied = 0;
+      for (int oc = 0; oc < p->pdu.num_prach_ocas; oc++) {
+        job->params[oc] = get_prach_ru_params(p, p->pdu.prach_start_symbol + oc * duration, fp);
+        const prach_ru_params_t *params = &job->params[oc];
+        int offset = prach_sample_offset(p, fp, ru->N_TA_offset, params);
+        const int frame_samples = fp->samples_per_frame;
+        offset = (offset % frame_samples + frame_samples) % frame_samples;
+        const int length = params->reps * params->dftlen;
+        const int first = min(length, fp->samples_per_frame - offset);
+        const int ant = prach_ant_start(p, oc, gNB->enable_analog_das);
+        DevAssert(ant + p->nb_rx <= ru->nb_rx);
+        DevAssert(copied + (size_t)p->nb_rx * length <= ctx->sample_capacity);
+        for (int aa = 0; aa < p->nb_rx; aa++) {
+          memcpy(job->samples + copied, ru->common.rxdata[ant + aa] + offset, first * sizeof(c16_t));
+          if (first < length)
+            memcpy(job->samples + copied + first, ru->common.rxdata[ant + aa], (length - first) * sizeof(c16_t));
+          copied += length;
+        }
+      }
+    }
+    ctx->count++;
+    pushTpool(ru->threadPool, (task_t){.func = prach_ru_task, .args = job});
+  }
 }
 
 rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)

@@ -375,6 +375,7 @@ typedef enum {
 typedef struct RU_t_s {
   /// ThreadPool for RU        
   tpool_t *threadPool;
+  struct nr_prach_ru_s *prach;
   /// index of this ru
   uint32_t idx;
   /// pointer to first RU
