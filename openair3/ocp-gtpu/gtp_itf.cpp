@@ -1415,6 +1415,15 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
 
     while (next_extension_header_type != NO_MORE_EXT_HDRS) {
       extension_header_length = msgBuf[offset];
+      /* TS 29.281 §5.2.1: Extension Header Length is expressed in 4-octet
+       * units and must be >= 1. Reject 0 (would stall offset, causing an
+       * infinite loop) and any length that would run past the received
+       * buffer. */
+      if (extension_header_length == 0
+          || offset + (uint32_t)extension_header_length * EXT_HDR_LNTH_OCTET_UNITS > msgBufLen) {
+        LOG_E(GTPU, "gtp-u received header is malformed, ignore gtp packet\n");
+        return GTPNOK;
+      }
       switch (next_extension_header_type) {
         case PDU_SESSION_CONTAINER: {
           if (offset + sizeof(PDUSessionContainerT) > msgBufLen) {
