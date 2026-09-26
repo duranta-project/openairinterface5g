@@ -34,6 +34,7 @@ target_include_directories(l1_kpm_sm PUBLIC
 # it lets CMake repeat them on the link line instead of relying on the executable
 # to wrap them in --start-group, which the phy simulators do not do.
 target_link_libraries(l1_kpm_sm e3ap)
+target_compile_definitions(l1_kpm_sm PRIVATE ${CLIBE3_COMPILE_DEFS})
 target_link_directories(l1_kpm_sm PRIVATE ${CLIBE3_LIBRARY_DIRS})
 target_link_libraries(l1_kpm_sm
     rt

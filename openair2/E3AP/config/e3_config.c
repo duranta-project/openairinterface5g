@@ -3,12 +3,67 @@
  */
 
 #include "e3_config.h"
+
+#include <stdbool.h>
+
 #include "../e3_log.h"
 #include "common/utils/LOG/log.h"
 #include "common/config/config_paramdesc.h"
 #include "common/config/config_userapi.h"
 
 #define E3CONFIG_SECTION "E3Configuration"
+
+/* Which E3AP encoders the linked libe3 was built with. The macros reach us from
+ * libe3.pc, as CLIBE3_COMPILE_DEFS in openair2/E3AP/CMakeLists.txt. Selecting an
+ * encoding libe3 lacks otherwise surfaces only as a null encoder inside libe3,
+ * reported as a generic agent-init failure that names nothing. */
+#ifdef LIBE3_ENABLE_ASN1
+#define E3_ENC_ASN1_NAME " asn1"
+#else
+#define E3_ENC_ASN1_NAME ""
+#endif
+#ifdef LIBE3_ENABLE_JSON
+#define E3_ENC_JSON_NAME " json"
+#else
+#define E3_ENC_JSON_NAME ""
+#endif
+#ifdef LIBE3_ENABLE_PROTOBUF
+#define E3_ENC_PROTOBUF_NAME " protobuf"
+#else
+#define E3_ENC_PROTOBUF_NAME ""
+#endif
+#define E3_AVAILABLE_ENCODINGS E3_ENC_ASN1_NAME E3_ENC_JSON_NAME E3_ENC_PROTOBUF_NAME
+
+/**
+ * @brief Whether the linked libe3 can serve the given E3AP wire encoding.
+ * @param encoding One of the E3_ENCODING_* values.
+ * @return true if libe3 was built with the matching encoder.
+ */
+static bool e3_encoding_available(int encoding)
+{
+  switch (encoding) {
+    case E3_ENCODING_ASN1:
+#ifdef LIBE3_ENABLE_ASN1
+      return true;
+#else
+      return false;
+#endif
+    case E3_ENCODING_JSON:
+#ifdef LIBE3_ENABLE_JSON
+      return true;
+#else
+      return false;
+#endif
+    case E3_ENCODING_PROTOBUF:
+#ifdef LIBE3_ENABLE_PROTOBUF
+      return true;
+#else
+      return false;
+#endif
+    default:
+      return false;
+  }
+}
 
 #define simOpt PARAMFLAG_NOFREE | PARAMFLAG_CMDLINE_NOPREFIXENABLED
 
@@ -64,6 +119,12 @@ void e3_readconfig(e3_cmdline_config_t *config)
   config->link_layer = config_get_processedint(config_get_if(), &e3_params[E3_LINK_IDX]);
   config->transport_layer = config_get_processedint(config_get_if(), &e3_params[E3_TRANSPORT_IDX]);
   config->encoding = config_get_processedint(config_get_if(), &e3_params[E3_ENCODING_IDX]);
+  AssertFatal(e3_encoding_available(config->encoding),
+              "E3Configuration.encoding=\"%s\" is not compiled into the linked libe3, which "
+              "provides:%s. Set encoding to one of those, or rebuild libe3 with the matching "
+              "-DLIBE3_ENABLE_<ENCODING>=ON\n",
+              s_encoding ? s_encoding : "asn1",
+              E3_AVAILABLE_ENCODINGS[0] ? E3_AVAILABLE_ENCODINGS : " (none)");
   /* setup_port, subscriber_port, publisher_port written directly by config_get via u16ptr */
 
   config->enabled_sms = e3_params[E3_ENABLED_SMS_IDX].iptr;
