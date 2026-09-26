@@ -61,7 +61,8 @@ void nr_rrc_mac_config_req_cg(module_id_t module_id,
                               int hfn,
                               int frame,
                               NR_CellGroupConfig_t *cell_group_config,
-                              NR_UE_NR_Capability_t *ue_Capability);
+                              NR_UE_NR_Capability_t *ue_Capability,
+                              bool full_config);
 
 void nr_rrc_mac_config_req_mib(module_id_t module_id, int cc_idP, NR_MIB_t *mibP, bool barred);
 void nr_rrc_mac_sched_sib(module_id_t module_id, int sched_sib);
