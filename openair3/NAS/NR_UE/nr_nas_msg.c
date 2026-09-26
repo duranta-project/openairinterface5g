@@ -2377,6 +2377,7 @@ void *nas_nrue(void *args_p)
         break;
 
       case TERMINATE_MESSAGE:
+        itti_free(ITTI_MSG_ORIGIN_ID(msg_p), msg_p);
         itti_exit_task();
         break;
 
@@ -2637,6 +2638,13 @@ void *nas_nrue(void *args_p)
     AssertFatal(result == EXIT_SUCCESS, "Failed to free memory (%d)!\n", result);
   }
   return NULL;
+}
+
+void nas_nrue_cleanup_ipv4_routes(void)
+{
+  for (int ue_id = 0; ue_id < MAX_NUM_NR_UE_INST; ue_id++)
+    for (int psi = 1; psi < MAX_NUM_PSI; psi++)
+      nr_ue_tun_cleanup_ipv4_route(&nr_ue_nas[ue_id].pdu_tun[psi], ue_id);
 }
 
 void nas_init_nrue(int num_ues) {

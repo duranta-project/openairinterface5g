@@ -522,6 +522,11 @@ int main(int argc, char **argv)
     }
   }
 
+  ret = itti_terminate_and_join_task(TASK_RRC_NRUE, 0);
+  AssertFatal(ret == 0, "Could not terminate TASK_RRC_NRUE: %s\n", strerror(ret));
+  ret = itti_terminate_and_join_task(TASK_NAS_NRUE, 0);
+  AssertFatal(ret == 0, "Could not terminate TASK_NAS_NRUE: %s\n", strerror(ret));
+  nas_nrue_cleanup_ipv4_routes();
   nrue_ru_end();
 
   free_nrLDPC_coding_interface(&nrLDPC_coding_interface);
