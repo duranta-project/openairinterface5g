@@ -230,7 +230,8 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
   pthread_mutex_unlock(&ctx->mutex_store);
   if (pthread_mutex_trylock(&ctx->mutex_write) == 0) {
     // We have the write exclusivity
-    if (llabs(timestamp - ctx->nextTS) < MAX_GAP) { // We are writing in sequence of the previous write
+    // Ignore overlapping / rewritten samples.
+    if (timestamp < ctx->nextTS || (timestamp - ctx->nextTS) < MAX_GAP) { // We are writing in sequence of the previous write
       if (flags || IS_SOFTMODEM_RFSIM) {
         if (nrue_ru_write)
           wroteSamples = nrue_ru_write(UE, timestamp, txp, nsamps, nbAnt, flags);
