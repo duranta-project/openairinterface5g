@@ -575,6 +575,23 @@ static bool wait_free_rx_tti(notifiedFIFO_t *L1_rx_out, bool rx_tti_busy[RU_RX_S
   return true;
 }
 
+// Builds ru->dbt_lut, a beam_idx -> &dig_beam_list[i] lookup table, from ru->config.dbt_config.
+// dig_beam_list[b].beam_idx is arbitrary (assigned in config_common(), bounded there by
+// NFAPI_NR_MAX_DBT_BEAM_IDX), not tied to its position in the list, hence the indirection.
+static void build_dbt_lut(RU_t *ru)
+{
+  memset(ru->dbt_lut, 0, sizeof(ru->dbt_lut));
+  const nfapi_nr_dbt_pdu_t *dbt = &ru->config.dbt_config;
+  for (int b = 0; b < dbt->num_dig_beams; ++b) {
+    const nfapi_nr_dig_beam_t *beam = &dbt->dig_beam_list[b];
+    AssertFatal(beam->beam_idx < NFAPI_NR_MAX_DBT_BEAM_IDX,
+                "DBT beam_idx %u exceeds OAI's supported max %u\n",
+                beam->beam_idx,
+                NFAPI_NR_MAX_DBT_BEAM_IDX);
+    ru->dbt_lut[beam->beam_idx] = beam;
+  }
+}
+
 void *ru_thread(void *param)
 {
   static int ru_thread_status;
@@ -595,6 +612,7 @@ void *ru_thread(void *param)
   sprintf(threadname,"ru_thread %u",ru->idx);
   LOG_I(PHY,"Starting RU %d (%s,%s) on cpu %d\n",ru->idx,NB_functions[ru->function],NB_timing[ru->if_timing],sched_getcpu());
   ru->config = gNB->gNB_config;
+  build_dbt_lut(ru);
 
   nr_init_frame_parms(&ru->config, fp);
   nr_dump_frame_parms(fp);
@@ -1131,6 +1149,7 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg)
 
     ru->nb_tx = *param[RU_NB_TX_IDX].uptr;
     ru->nb_rx = *param[RU_NB_RX_IDX].uptr;
+    ru->do_precoding = *param[RU_DO_PRECODING].iptr;
     ru->att_tx = *param[RU_ATT_TX_IDX].uptr;
     ru->att_rx = *param[RU_ATT_RX_IDX].uptr;
     ru->if_frequency = *param[RU_IF_FREQUENCY].u64ptr;

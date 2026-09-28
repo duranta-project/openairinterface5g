@@ -18,6 +18,9 @@
 #define MAX_SI_GROUPS 3
 #define NR_MAX_PDSCH_TBS 3824
 #define MAX_NUM_BEAM_PERIODS 4
+// OAI-side cap on nfapi_nr_dig_beam_t.beam_idx (not part of the SCF wire format, which allows
+// 0~65535): keeps the RU's beam_idx -> dig_beam_list lookup table a small, fixed size.
+#define NFAPI_NR_MAX_DBT_BEAM_IDX 512
 #define MAX_BWP_SIZE 275
 #define NR_MAX_NUM_BWP 4
 #define NR_MAX_HARQ_PROCESSES 32
