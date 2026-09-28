@@ -28,13 +28,13 @@
 */
 
 //--------------------------CUDA Area---------------------------
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
 #include "nrLDPC_CUDA_shared_param.h"
 
-extern cudaStream_t decoderStreams[MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4];
+extern gpuStream_t decoderStreams[MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4];
 static bool decoder_streamsCreated = false;
 static volatile int cuda_graph_breaker = 0;// 0 by default to enable the CUDA graph
-cudaError_t Err;
+gpuError_t Err;
 
 int8_t* cnProcBuf_dev;
 int8_t* bnProcBuf_dev;
@@ -48,26 +48,26 @@ extern int pageable, integrated;
 
 int cuda_support_init_decoder()
 {
-  // use cudaMalloc for all inner buffers
-  cudaError_t err;
+  // use gpuMalloc for all inner buffers
+  gpuError_t err;
 
-  err = cudaMalloc((void**)&cnProcBuf_dev, sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_SIZE_CN_PROC_BUF);
-  AssertFatal(err == cudaSuccess, "CUDA Error (cnProcBuf_dev): %s\n", cudaGetErrorString(err));
+  err = gpuMalloc((void**)&cnProcBuf_dev, sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_SIZE_CN_PROC_BUF);
+  AssertFatal(err == gpuSuccess, "CUDA Error (cnProcBuf_dev): %s\n", gpuGetErrorString(err));
 
-  err = cudaMalloc((void**)&bnProcBuf_dev, sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_SIZE_BN_PROC_BUF);
-  AssertFatal(err == cudaSuccess, "CUDA Error (bnProcBuf_dev): %s\n", cudaGetErrorString(err));
+  err = gpuMalloc((void**)&bnProcBuf_dev, sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_SIZE_BN_PROC_BUF);
+  AssertFatal(err == gpuSuccess, "CUDA Error (bnProcBuf_dev): %s\n", gpuGetErrorString(err));
 
-  err = cudaMalloc((void**)&llrRes_dev, sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_MAX_NUM_LLR);
-  AssertFatal(err == cudaSuccess, "CUDA Error (llrRes_dev): %s\n", cudaGetErrorString(err));
+  err = gpuMalloc((void**)&llrRes_dev, sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_MAX_NUM_LLR);
+  AssertFatal(err == gpuSuccess, "CUDA Error (llrRes_dev): %s\n", gpuGetErrorString(err));
 
-  err = cudaMalloc((void**)&llrProcBuf_dev, sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_MAX_NUM_LLR);
-  AssertFatal(err == cudaSuccess, "CUDA Error (llrProcBuf_dev): %s\n", cudaGetErrorString(err));
+  err = gpuMalloc((void**)&llrProcBuf_dev, sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_MAX_NUM_LLR);
+  AssertFatal(err == gpuSuccess, "CUDA Error (llrProcBuf_dev): %s\n", gpuGetErrorString(err));
 
-  err = cudaMalloc((void**)&p_llr_dev, sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_MAX_NUM_LLR);
-  AssertFatal(err == cudaSuccess, "CUDA Error (p_llr_dev): %s\n", cudaGetErrorString(err));
-  cudaMemset(p_llr_dev, 0, sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_MAX_NUM_LLR);
-  err = cudaMalloc((void**)&p_out_dev, sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_MAX_NUM_LLR);
-  AssertFatal(err == cudaSuccess, "CUDA Error (p_llr_dev): %s\n", cudaGetErrorString(err));
+  err = gpuMalloc((void**)&p_llr_dev, sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_MAX_NUM_LLR);
+  AssertFatal(err == gpuSuccess, "CUDA Error (p_llr_dev): %s\n", gpuGetErrorString(err));
+  gpuMemset(p_llr_dev, 0, sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_MAX_NUM_LLR);
+  err = gpuMalloc((void**)&p_out_dev, sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_MAX_NUM_LLR);
+  AssertFatal(err == gpuSuccess, "CUDA Error (p_llr_dev): %s\n", gpuGetErrorString(err));
 
   printf("[CUDA] Intermediate buffers allocated in Device Memory.\n");
 
@@ -76,7 +76,7 @@ int cuda_support_init_decoder()
 
 static ldpc_cuda_bridge_t* stream_bridges[8];
 
-extern cudaError_t nrLDPC_decoder_cuda_GraphRecord(ldpc_cuda_bridge_t* buffer,
+extern gpuError_t nrLDPC_decoder_cuda_GraphRecord(ldpc_cuda_bridge_t* buffer,
                                                    uint32_t numLLR,
                                                    int8_t* cnProcBuf,
                                                    int8_t* bnProcBuf,
@@ -89,15 +89,15 @@ extern cudaError_t nrLDPC_decoder_cuda_GraphRecord(ldpc_cuda_bridge_t* buffer,
                                                    uint8_t numMaxIter,
                                                    uint8_t n_segments,
                                                    e_nrLDPC_outMode outMode,
-                                                   cudaStream_t* streams,
+                                                   gpuStream_t* streams,
                                                    uint8_t CudaStreamIdx,
-                                                   cudaGraph_t* graphPtr,
-                                                   cudaGraphExec_t* graphExecPtr,
+                                                   gpuGraph_t* graphPtr,
+                                                   gpuGraphExec_t* graphExecPtr,
                                                    uint8_t* isCreatedFlag);
 
-extern cudaError_t nrLDPC_decoder_cuda_GraphExecute(cudaGraphExec_t graphExec,
-                                                    cudaStream_t stream,
-                                                    cudaEvent_t* doneEvent,
+extern gpuError_t nrLDPC_decoder_cuda_GraphExecute(gpuGraphExec_t graphExec,
+                                                    gpuStream_t stream,
+                                                    gpuEvent_t* doneEvent,
                                                     uint8_t CudaStreamIdx);
 
 extern void nrLDPC_decoder_cuda_NormalExecute(ldpc_cuda_bridge_t* buffer,
@@ -113,9 +113,9 @@ extern void nrLDPC_decoder_cuda_NormalExecute(ldpc_cuda_bridge_t* buffer,
                                               uint8_t numMaxIter,
                                               uint8_t n_segments,
                                               e_nrLDPC_outMode outMode,
-                                              cudaStream_t* streams,
+                                              gpuStream_t* streams,
                                               uint8_t CudaStreamIdx,
-                                              cudaEvent_t* doneEvent);
+                                              gpuEvent_t* doneEvent);
 
 static inline uint32_t nrLDPC_decoder_core_dynamic(int8_t* p_llr,
                                                    int8_t* p_out,
@@ -136,8 +136,8 @@ typedef struct {
   uint8_t numMaxIter;
   uint16_t n_segments;
   e_nrLDPC_outMode outMode;
-  cudaGraph_t graph;
-  cudaGraphExec_t exec;
+  gpuGraph_t graph;
+  gpuGraphExec_t exec;
   ldpc_cuda_bridge_t* bridge_ptr;
   bool occupied;
 } gpu_graph_node_t;
@@ -155,7 +155,7 @@ void init_decoder_warmup()
   // run-time traffic, but running them ensures the GPU pipeline is ready.
   // =====================================================================
 
-  cudaError_t err_warmup = cudaSuccess;
+  gpuError_t err_warmup = gpuSuccess;
 
   // Sample configurations for warmup
   uint32_t Z_list[] = {320, 352, 384};
@@ -171,10 +171,10 @@ void init_decoder_warmup()
   size_t output_size_bytes = 8448 * max_n_segs * sizeof(int8_t);
 
   // Allocate Pinned/Mapped Memory for Zero-Copy access (GH200 friendly)
-  cudaError_t err = cudaHostAlloc((void**)&dummy_input_llr, input_size_bytes, cudaHostAllocMapped);
-  AssertFatal(err == cudaSuccess, "cudaHostAlloc() dummy_input_llr: %s\n", cudaGetErrorString(err));
-  err = cudaHostAlloc((void**)&dummy_output_bits, output_size_bytes, cudaHostAllocMapped);
-  AssertFatal(err == cudaSuccess, "cudaHostAlloc() dummy_output_bits: %s\n", cudaGetErrorString(err));
+  gpuError_t err = gpuHostAlloc((void**)&dummy_input_llr, input_size_bytes, gpuHostAllocMapped);
+  AssertFatal(err == gpuSuccess, "gpuHostAlloc() dummy_input_llr: %s\n", gpuGetErrorString(err));
+  err = gpuHostAlloc((void**)&dummy_output_bits, output_size_bytes, gpuHostAllocMapped);
+  AssertFatal(err == gpuSuccess, "gpuHostAlloc() dummy_output_bits: %s\n", gpuGetErrorString(err));
 
   memset(dummy_input_llr, 0, input_size_bytes);
   memset(dummy_output_bits, 0, output_size_bytes);
@@ -214,9 +214,9 @@ void init_decoder_warmup()
                                                      &gpu_graph_cache[node_idx].graph,
                                                      &gpu_graph_cache[node_idx].exec,
                                                      (uint8_t*)&gpu_graph_cache[node_idx].occupied);
-        if (err_warmup != cudaSuccess) {
+        if (err_warmup != gpuSuccess) {
           cuda_graph_breaker = 1; // Once a graph recording fails, forbidden the graph recording permanently
-          printf("[CUDA] Warmup Graph Record Failed (err=%s). Circuit breaker triggered\n", cudaGetErrorString(err_warmup));
+          printf("[CUDA] Warmup Graph Record Failed (err=%s). Circuit breaker triggered\n", gpuGetErrorString(err_warmup));
           break;
         }
 
@@ -242,17 +242,17 @@ void init_decoder_warmup()
           nrLDPC_decoder_cuda_GraphExecute(gpu_graph_cache[i].exec, decoderStreams[0], NULL, 0);
         }
       }
-      cudaDeviceSynchronize();
+      gpuDeviceSynchronize();
       printf("[CUDA] Driver warm-up complete. Executed %d dummy graphs.\n", dynamic_cache_idx);
 
     for (int i = 0; i < dynamic_cache_idx; i++) {
         if (gpu_graph_cache[i].occupied) {
             if (gpu_graph_cache[i].exec) {
-                cudaGraphExecDestroy(gpu_graph_cache[i].exec);
+                gpuGraphExecDestroy(gpu_graph_cache[i].exec);
                 gpu_graph_cache[i].exec = NULL;
             }
             if (gpu_graph_cache[i].graph) {
-                cudaGraphDestroy(gpu_graph_cache[i].graph);
+                gpuGraphDestroy(gpu_graph_cache[i].graph);
                 gpu_graph_cache[i].graph = NULL;
             }
             
@@ -309,11 +309,11 @@ void init_decoder_warmup()
                                           NULL);
       }
     }
-    cudaDeviceSynchronize();
+    gpuDeviceSynchronize();
     printf("[CUDA] Driver warm-up complete with normal execution\n");
   }
-  cudaFreeHost(dummy_input_llr);
-  cudaFreeHost(dummy_output_bits);
+  gpuFreeHost(dummy_input_llr);
+  gpuFreeHost(dummy_output_bits);
 }
 void init_decoder_gpu_structures()
 {
@@ -321,8 +321,8 @@ void init_decoder_gpu_structures()
   // Bridge for graphs
   for (int i = 0; i < MAX_GRAPH_CACHE_SIZE; i++) {
     if (gpu_graph_cache[i].bridge_ptr == NULL) {
-      cudaError_t err  = cudaHostAlloc((void**)&gpu_graph_cache[i].bridge_ptr, sizeof(ldpc_cuda_bridge_t), cudaHostAllocMapped);
-      AssertFatal(err == cudaSuccess, "cudaHostAlloc() gpu_graph_cache: %s\n", cudaGetErrorString(err));
+      gpuError_t err  = gpuHostAlloc((void**)&gpu_graph_cache[i].bridge_ptr, sizeof(ldpc_cuda_bridge_t), gpuHostAllocMapped);
+      AssertFatal(err == gpuSuccess, "gpuHostAlloc() gpu_graph_cache: %s\n", gpuGetErrorString(err));
 
       gpu_graph_cache[i].bridge_ptr->p_llr_ptr = NULL;
       gpu_graph_cache[i].bridge_ptr->p_out_ptr = NULL;
@@ -333,8 +333,8 @@ void init_decoder_gpu_structures()
   // Bridge for normal execute
   for (int i = 0; i < 8; i++) {
     if (stream_bridges[i] == NULL) {
-      cudaError_t err = cudaHostAlloc((void**)&stream_bridges[i], sizeof(ldpc_cuda_bridge_t), cudaHostAllocMapped);
-      AssertFatal(err == cudaSuccess, "cudaHostAlloc() stream_bridges: %s\n", cudaGetErrorString(err));
+      gpuError_t err = gpuHostAlloc((void**)&stream_bridges[i], sizeof(ldpc_cuda_bridge_t), gpuHostAllocMapped);
+      AssertFatal(err == gpuSuccess, "gpuHostAlloc() stream_bridges: %s\n", gpuGetErrorString(err));
       stream_bridges[i]->p_llr_ptr = NULL;
       stream_bridges[i]->p_out_ptr = NULL;
     }
@@ -363,9 +363,9 @@ void free_graphs()
   for (int i = 0; i < MAX_GRAPH_CACHE_SIZE; i++) {
     if (gpu_graph_cache[i].occupied) {
       if (gpu_graph_cache[i].exec)
-        cudaGraphExecDestroy(gpu_graph_cache[i].exec);
+        gpuGraphExecDestroy(gpu_graph_cache[i].exec);
       if (gpu_graph_cache[i].graph)
-        cudaGraphDestroy(gpu_graph_cache[i].graph);
+        gpuGraphDestroy(gpu_graph_cache[i].graph);
       gpu_graph_cache[i].occupied = false;
     }
   }
@@ -375,7 +375,7 @@ void free_graphs()
 extern int cuda_support_set;
 
 bool encoder_streamsCreated = false;
-cudaStream_t encoderStreams[4];
+gpuStream_t encoderStreams[4];
 void cuda_support_init();
 
 int32_t LDPCinit_cuda()
@@ -386,14 +386,14 @@ int32_t LDPCinit_cuda()
   }
   if (!decoder_streamsCreated) {
     for (int s = 0; s < 8; ++s) {
-      cudaStreamCreateWithFlags(&decoderStreams[s], cudaStreamNonBlocking);
+      gpuStreamCreateWithFlags(&decoderStreams[s], gpuStreamNonBlocking);
     }
     decoder_streamsCreated = true;
   }
 
   if (!encoder_streamsCreated) {
     for (int s = 0; s < 4; ++s) {
-      cudaStreamCreateWithFlags(&encoderStreams[s], cudaStreamNonBlocking);
+      gpuStreamCreateWithFlags(&encoderStreams[s], gpuStreamNonBlocking);
     }
     encoder_streamsCreated = true;
   }
@@ -407,36 +407,36 @@ int32_t LDPCinit_cuda()
 
 int32_t LDPCshutdown_cuda()
 {
-  if (cnProcBuf_dev) { cudaFree(cnProcBuf_dev); cnProcBuf_dev = NULL; }
-  if (bnProcBuf_dev) { cudaFree(bnProcBuf_dev); bnProcBuf_dev = NULL; }
-  if (llrRes_dev)   { cudaFree(llrRes_dev);   llrRes_dev = NULL; }
-  if (llrProcBuf_dev) { cudaFree(llrProcBuf_dev); llrProcBuf_dev = NULL; }
+  if (cnProcBuf_dev) { gpuFree(cnProcBuf_dev); cnProcBuf_dev = NULL; }
+  if (bnProcBuf_dev) { gpuFree(bnProcBuf_dev); bnProcBuf_dev = NULL; }
+  if (llrRes_dev)   { gpuFree(llrRes_dev);   llrRes_dev = NULL; }
+  if (llrProcBuf_dev) { gpuFree(llrProcBuf_dev); llrProcBuf_dev = NULL; }
 
-  if (p_llr_dev)   { cudaFree(p_llr_dev);   p_llr_dev = NULL; }
-  if (p_out_dev)   { cudaFree(p_out_dev);   p_out_dev = NULL; }
+  if (p_llr_dev)   { gpuFree(p_llr_dev);   p_llr_dev = NULL; }
+  if (p_out_dev)   { gpuFree(p_out_dev);   p_out_dev = NULL; }
 
   for (int i = 0; i < MAX_GRAPH_CACHE_SIZE; i++) {
     if (gpu_graph_cache[i].bridge_ptr) {
-        cudaFreeHost(gpu_graph_cache[i].bridge_ptr);
+        gpuFreeHost(gpu_graph_cache[i].bridge_ptr);
         gpu_graph_cache[i].bridge_ptr = NULL;
     }
 }
   for (int i = 0; i < 8; i++) {
     if (stream_bridges[i]) {
-        cudaFreeHost(stream_bridges[i]);
+        gpuFreeHost(stream_bridges[i]);
         stream_bridges[i] = NULL;
     }
 }
 
   for (int s = 0; s < 8; ++s) {
     if (decoder_streamsCreated) {
-      cudaStreamDestroy(decoderStreams[s]);
+      gpuStreamDestroy(decoderStreams[s]);
     }
   }
 
   for (int s = 0; s < 4; s++) {
     if (encoder_streamsCreated) {
-      cudaStreamDestroy(encoderStreams[s]);
+      gpuStreamDestroy(encoderStreams[s]);
     }
   }
 
@@ -488,7 +488,7 @@ static inline uint32_t nrLDPC_decoder_core_dynamic(int8_t* p_llr,
                                                    t_nrLDPC_time_stats* p_profiler,
                                                    decode_abort_t* ab)
 {
-  cudaError_t err_core = cudaSuccess;
+  gpuError_t err_core = gpuSuccess;
   bool graph_executed = false;
   uint16_t Z = p_decParams->Z;
   uint8_t BG = p_decParams->BG;
@@ -499,7 +499,7 @@ static inline uint32_t nrLDPC_decoder_core_dynamic(int8_t* p_llr,
   // Calculate LLR size per segment based on Rate
   uint32_t numLLR = (R == 13) ? NR_LDPC_NCOL_BG1_R13 * Z : ((R == 89) ? NR_LDPC_NCOL_BG1_R89 * Z : NR_LDPC_NCOL_BG1_R23 * Z);
   if (p_llr != p_llr_dev)
-    cudaMemcpyAsync(p_llr_dev, p_llr, n_segments * 68 * 384, cudaMemcpyHostToDevice, decoderStreams[0]);
+    gpuMemcpyAsync(p_llr_dev, p_llr, n_segments * 68 * 384, gpuMemcpyHostToDevice, decoderStreams[0]);
 
   // Output size safety: assume worst-case unpacked bytes (K * n_segments)
   size_t total_output_size = n_segments * K * sizeof(int8_t);
@@ -530,7 +530,7 @@ static inline uint32_t nrLDPC_decoder_core_dynamic(int8_t* p_llr,
                                                   decoderStreams[0],
                                                   NULL, // doneEvent
                                                   0); // Stream Index
-      if (err_core == cudaSuccess) {
+      if (err_core == gpuSuccess) {
         graph_executed = true;
       } else {
         cuda_graph_breaker = 1;
@@ -571,10 +571,10 @@ static inline uint32_t nrLDPC_decoder_core_dynamic(int8_t* p_llr,
                                                  &gpu_graph_cache[new_idx].exec,
                                                  (uint8_t*)&gpu_graph_cache[new_idx].occupied);
 
-      if (err_core == cudaSuccess) {
+      if (err_core == gpuSuccess) {
         err_core = nrLDPC_decoder_cuda_GraphExecute(gpu_graph_cache[new_idx].exec, decoderStreams[0], NULL, 0);
 
-        if (err_core == cudaSuccess) {
+        if (err_core == gpuSuccess) {
           graph_executed = true;
           dynamic_cache_idx++;
         } else {
@@ -620,14 +620,14 @@ static inline uint32_t nrLDPC_decoder_core_dynamic(int8_t* p_llr,
   if (!pageable && !integrated) {
     // Copy Output from Device to Host
     if (outMode == nrLDPC_outMode_BIT) {
-      cudaMemcpyAsync(p_out, p_out_dev, total_output_size >> 3, cudaMemcpyDeviceToHost, decoderStreams[0]);
+      gpuMemcpyAsync(p_out, p_out_dev, total_output_size >> 3, gpuMemcpyDeviceToHost, decoderStreams[0]);
     }
     if (outMode == nrLDPC_outMode_BITINT8) {
-      cudaMemcpyAsync(p_out, p_out_dev, total_output_size, cudaMemcpyDeviceToHost, decoderStreams[0]);
+      gpuMemcpyAsync(p_out, p_out_dev, total_output_size, gpuMemcpyDeviceToHost, decoderStreams[0]);
     }
   }
 
-  cudaStreamSynchronize(decoderStreams[0]);
+  gpuStreamSynchronize(decoderStreams[0]);
   if (p_decParams->check_crc) {
     for (int r = 0; r < n_segments; r++) {
       //      if (r<=1) for (int i=0;i<(K>>3);i++) printf("byte (%d,%d) %x\n",r,i,((uint8_t*)(p_out+r*(K>>3)))[i]);

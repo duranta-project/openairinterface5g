@@ -18,7 +18,7 @@
 #include <syscall.h>
 #include <time.h>
 #include <pthread.h>
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
 
 #include "nrLDPC_CUDA_shared_param.h"
 
@@ -34,11 +34,11 @@
 
 #define USE_GPU_FOR_RM_DEINTER 1
 
-cudaStream_t decoderStreams[MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4];
+gpuStream_t decoderStreams[MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4];
 
 int d_array_size = 0;
 
-void launch_deinterleave_i16(int Qm, int E1, int E2, int C, int r_firstE2,int16_t* e, const int16_t* f,cudaStream_t *s,int8_t sidx);
+void launch_deinterleave_i16(int Qm, int E1, int E2, int C, int r_firstE2,int16_t* e, const int16_t* f,gpuStream_t *s,int8_t sidx);
 int nr_rate_matching_ldpc_rx_cuda(uint32_t Tbslbrm,
                                   uint8_t BG,
                                   uint16_t Z,
@@ -54,7 +54,7 @@ int nr_rate_matching_ldpc_rx_cuda(uint32_t Tbslbrm,
                                   uint32_t r_firstE2,
                                   uint32_t F,
                                   uint32_t Foffset,
-                                  cudaStream_t *s,
+                                  gpuStream_t *s,
                                   int8_t sidx);
 
 extern int pageable, integrated;
@@ -98,11 +98,11 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
 
   // for PCIe GPU copy llrs to device memory
   if (!pageable && !integrated) {
-    LOG_I(NR_PHY, "cudaMemcpyAsynch llr->harq_f_dev\n");
-    cudaMemcpyAsync(harq_f_dev,
+    LOG_I(NR_PHY, "gpuMemcpyAsynch llr->harq_f_dev\n");
+    gpuMemcpyAsync(harq_f_dev,
                     segs->llr,
                     ((r_firstE2 * E1) + (C - r_firstE2) * E2) * sizeof(int16_t),
-                    cudaMemcpyHostToDevice,
+                    gpuMemcpyHostToDevice,
                     decoderStreams[0]);
   }
 #if 0
@@ -126,14 +126,14 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
                           decoderStreams,
                           0);
 #if 0
-  cudaError_t err;
+  gpuError_t err;
   if (1/*segs->rv_index == 2*/) {
     int16_t elocal[E2];
     for (int r=0;r<C;r++) {
       int E = r<r_firstE2 ? E1 : E2;
       int r_off = r<r_firstE2 ? (r*E1) : ((r_firstE2*E1) + (r-r_firstE2)*E2);
-      err = cudaMemcpyAsync(elocal,&harq_e_dev[r_off],sizeof(elocal),cudaMemcpyDeviceToHost,decoderStreams[0]);
-      AssertFatal(err == cudaSuccess,"cudaMemcpyAsync failed with error %s, r_off %d\n",cudaGetErrorString(err),r_off);
+      err = gpuMemcpyAsync(elocal,&harq_e_dev[r_off],sizeof(elocal),gpuMemcpyDeviceToHost,decoderStreams[0]);
+      AssertFatal(err == gpuSuccess,"gpuMemcpyAsync failed with error %s, r_off %d\n",gpuGetErrorString(err),r_off);
       for (int i=0;i<E;i++) {
 	 if (elocal[i] != segs->llr[r_off + ((i<(E/2)) ? 2*i : (-E+1+2*i))])  { 
             printf("e(%d,%d,%d) %d",r,i,E,elocal[i]);
@@ -146,10 +146,10 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   // printf("Running RM with id %d, d_to_be_cleared %d, rv_idx %d, Z %d, C %d, E1 %d, E2 %d, F %d,r_firstE2
   // %d\n",segs->harq_unique_pid,segs->d_to_be_cleared,segs->rv_index,Z,C,E1,E2,segs->F,r_firstE2);
 #if 0
-  if (segs->d_to_be_cleared == 1) err = cudaMemsetAsync(harq_d_array[segs->harq_unique_pid],0,C*68*Z*sizeof(int16_t),decoderStreams[0]);
-  AssertFatal(err==cudaSuccess,"cudaMemsetAsync failed with error %s on harq_d_array[%d] %p for %d bytes\n",cudaGetErrorString(err),segs->harq_unique_pid,harq_d_array[segs->harq_unique_pid],C*68*Z*sizeof(int16_t));
-  cudaMemsetAsync(p_llr_dev,0,C*68*Z*sizeof(int8_t),decoderStreams[0]);
-  AssertFatal(err==cudaSuccess,"cudaMemsetAsync failed on p_llr_dev %p\n",p_llr_dev);
+  if (segs->d_to_be_cleared == 1) err = gpuMemsetAsync(harq_d_array[segs->harq_unique_pid],0,C*68*Z*sizeof(int16_t),decoderStreams[0]);
+  AssertFatal(err==gpuSuccess,"gpuMemsetAsync failed with error %s on harq_d_array[%d] %p for %d bytes\n",gpuGetErrorString(err),segs->harq_unique_pid,harq_d_array[segs->harq_unique_pid],C*68*Z*sizeof(int16_t));
+  gpuMemsetAsync(p_llr_dev,0,C*68*Z*sizeof(int8_t),decoderStreams[0]);
+  AssertFatal(err==gpuSuccess,"gpuMemsetAsync failed on p_llr_dev %p\n",p_llr_dev);
 #endif
   AssertFatal(segs->harq_unique_pid < d_array_size, "harq_unique_pid %d > %d\n", segs->harq_unique_pid, d_array_size);
   nr_rate_matching_ldpc_rx_cuda(segs->tbslbrm,
@@ -170,11 +170,11 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
                                 decoderStreams,
                                 0);
   for (int r = 0; r < C; ++r) {
-    cudaMemsetAsync(p_llr_dev + (size_t)r * segLen, 0, sizeof(int8_t) * 2 * Z, decoderStreams[0]);
+    gpuMemsetAsync(p_llr_dev + (size_t)r * segLen, 0, sizeof(int8_t) * 2 * Z, decoderStreams[0]);
 #if 0
      int8_t llr_local[segLen];
      if (r==1 && segs->rv_index==2) {
-       cudaMemcpyAsync(llr_local,p_llr_dev+(size_t)r*segLen,sizeof(int8_t)*segLen,cudaMemcpyDeviceToHost,decoderStreams[0]);
+       gpuMemcpyAsync(llr_local,p_llr_dev+(size_t)r*segLen,sizeof(int8_t)*segLen,gpuMemcpyDeviceToHost,decoderStreams[0]);
        for (int i=0;i<segLen;i++) printf("llr(%d,%d,%d/%d) %d\n",segs->rv_index,r,i,segLen,llr_local[i]);
      }
 #endif
@@ -261,27 +261,27 @@ void LDPCint_rm_init(int max_num_pxsch)
 {
   LOG_I(NR_PHY, "RM init for %d pxsch\n", max_num_pxsch);
   LOG_I(NR_PHY, "Allocating device array for harq_d/harq_e \n");
-  cudaError_t err = cudaMalloc((void **)&harq_e_dev, MAXE * sizeof(int16_t));
-  AssertFatal(err == cudaSuccess, "CUDA Error (harq_e_dev): %s\n", cudaGetErrorString(err));
+  gpuError_t err = gpuMalloc((void **)&harq_e_dev, MAXE * sizeof(int16_t));
+  AssertFatal(err == gpuSuccess, "CUDA Error (harq_e_dev): %s\n", gpuGetErrorString(err));
   harq_d_array = malloc(sizeof(int16_t *) * max_num_pxsch);
-  err = cudaMalloc((void *)&harq_d_array_dev, sizeof(int16_t *) * max_num_pxsch);
-  AssertFatal(err == cudaSuccess, "CUDA Error (harq_d_array_dev): %s\n", cudaGetErrorString(err));
+  err = gpuMalloc((void *)&harq_d_array_dev, sizeof(int16_t *) * max_num_pxsch);
+  AssertFatal(err == gpuSuccess, "CUDA Error (harq_d_array_dev): %s\n", gpuGetErrorString(err));
   LOG_I(PHY, "Allocated %ld bytes for harq_d_array_dev @ %p\n", sizeof(int16_t *) * max_num_pxsch, harq_d_array_dev);
   for (int i = 0; i < max_num_pxsch; i++) {
-    err = cudaMalloc((void **)&harq_d_array[i],
+    err = gpuMalloc((void **)&harq_d_array[i],
                      MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * OAI_LDPC_DECODER_MAX_NUM_LLR * sizeof(int16_t));
     LOG_I(PHY,
           "Allocating %ld bytes for harq_d_array[%d] @ %p\n",
           MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * OAI_LDPC_DECODER_MAX_NUM_LLR * sizeof(int16_t),
           i,
           harq_d_array[i]);
-    AssertFatal(err == cudaSuccess, "CUDA Error (harq_d_dev): %s\n", cudaGetErrorString(err));
+    AssertFatal(err == gpuSuccess, "CUDA Error (harq_d_dev): %s\n", gpuGetErrorString(err));
   }
-  cudaMemcpy(harq_d_array_dev, harq_d_array, sizeof(int16_t *) * max_num_pxsch, cudaMemcpyHostToDevice);
+  gpuMemcpy(harq_d_array_dev, harq_d_array, sizeof(int16_t *) * max_num_pxsch, gpuMemcpyHostToDevice);
   if (!pageable && !integrated) {
     LOG_I(PHY, "Allocating device array for harq_f \n");
-    err = cudaMalloc((void **)&harq_f_dev, MAXE * sizeof(int16_t));
-    AssertFatal(err == cudaSuccess, "CUDA Error (harq_f_dev): %s\n", cudaGetErrorString(err));
+    err = gpuMalloc((void **)&harq_f_dev, MAXE * sizeof(int16_t));
+    AssertFatal(err == gpuSuccess, "CUDA Error (harq_f_dev): %s\n", gpuGetErrorString(err));
   }
   d_array_size = max_num_pxsch;
 }
