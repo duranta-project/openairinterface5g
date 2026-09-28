@@ -1995,9 +1995,11 @@ target_link_libraries(nr_dlschsim PRIVATE
 target_link_libraries(nr_dlschsim PRIVATE asn1_nr_rrc_hdrs)
 
 add_executable(nr_pbchsim ${OPENAIR1_DIR}/SIMULATION/NR_PHY/pbchsim.c)
+# initial sync is shared between the downlink and the sidelink, so the sidelink UE procedures
+# are pulled in as well
 target_link_libraries(nr_pbchsim PRIVATE
-  -Wl,--start-group UTIL SIMU PHY_NR_COMMON PHY_NR PHY_NR_UE SCHED_NR_LIB CONFIG_LIB MAC_NR_COMMON -Wl,--end-group
-  m pthread ${T_LIB} ITTI dl physim_common
+  -Wl,--start-group UTIL SIMU PHY_NR_COMMON PHY_NR PHY_NR_UE SCHED_NR_LIB SCHED_NR_UE_LIB MAC_UE_NR CONFIG_LIB MAC_NR_COMMON -Wl,--end-group
+  m pthread ${T_LIB} ITTI dl physim_common softmodem_common
 )
 target_link_libraries(nr_pbchsim PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
 

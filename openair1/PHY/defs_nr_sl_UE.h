@@ -43,7 +43,6 @@
 #define SL_NR_NUM_IDs_IN_PSS 2
 #define SL_NR_NUM_IDs_IN_SSS 336
 #define SL_NR_NUM_SLSS_IDs 672
-#define SL_NR_PSBCH_REPETITION_IN_FRAMES 16
 
 typedef enum sl_nr_sidelink_mode { SL_NOT_SUPPORTED = 0, SL_MODE1_SUPPORTED, SL_MODE2_SUPPORTED } sl_nr_sidelink_mode_t;
 
@@ -75,8 +74,6 @@ typedef struct SL_NR_SYNC_PARAMS {
   // Freq Offset calculated
   int32_t freq_offset;
 
-  uint32_t remaining_frames;
-  uint32_t rx_offset;
   uint32_t slot_offset;
   uint16_t N_sl_id2; // id2 determined from PSS during sync ref UE selection
   uint16_t N_sl_id1; // id2 determined from SSS during sync ref UE selection

@@ -19,7 +19,6 @@
 
 #include "PHY/defs_nr_UE.h"
 #include "PHY/MODULATION/modulation_UE.h"
-#include "executables/softmodem-common.h"
 #include "PHY/NR_REFSIG/ss_pbch_nr.h"
 
 #define DEFINE_VARIABLES_SSS_NR_H
@@ -81,12 +80,13 @@ static void init_context_sss_nr(int N_ID_2, int start_nid1, int nb_nid1, int16_t
 
 static void pss_ch_est_nr(int nb_antennas_rx,
                           int nid2,
+                          bool sidelink,
                           c16_t pss_ext[nb_antennas_rx][LENGTH_PSS_NR],
                           c16_t sss_ext[nb_antennas_rx][LENGTH_SSS_NR],
                           c16_t sss_comp[LENGTH_SSS_NR])
 {
   int16_t pss[LENGTH_PSS_NR];
-  generate_pss_nr(nid2, pss);
+  generate_pss_nr(nid2, sidelink, pss);
   for (int aarx = 0; aarx < nb_antennas_rx; aarx++) {
     c16_t *sss_ext2 = sss_ext[aarx];
     c16_t *pss_ext2 = pss_ext[aarx];
@@ -119,16 +119,17 @@ static void pss_sss_extract_nr(
     nr_sss_params_t *params,
     c16_t pss_ext[params->nb_antennas_rx][LENGTH_PSS_NR],
     c16_t sss_ext[params->nb_antennas_rx][LENGTH_SSS_NR],
-    const c16_t rxdataF[NR_N_SYMBOLS_SSB][params->nb_antennas_rx]
+    const c16_t rxdataF[][params->nb_antennas_rx]
                        [params->ofdm_symbol_size]) // add flag to indicate extracting only PSS, only SSS, or both
 {
   AssertFatal(params->nb_antennas_rx > 0, "nb antennas as sss_ext is not set to any value\n");
-  const int pss_symbol = 0;
-  const int sss_symbol =
-      get_softmodem_params()->sl_mode == 0 ? (SSS_SYMBOL_NB - PSS_SYMBOL_NB) : (SSS0_SL_SYMBOL_NB - PSS0_SL_SYMBOL_NB);
+  // Symbol indices relative to the first symbol of the block, which carries the PSS in the
+  // downlink and the first PSBCH symbol in the sidelink.
+  const int pss_symbol = params->sidelink ? PSS0_SL_SYMBOL_NB : 0;
+  const int sss_symbol = params->sidelink ? SSS0_SL_SYMBOL_NB : (SSS_SYMBOL_NB - PSS_SYMBOL_NB);
 
-  const unsigned int k = params->ssb_start_subcarrier
-                         + (get_softmodem_params()->sl_mode == 0 ? PSS_SSS_SUB_CARRIER_START : PSS_SSS_SUB_CARRIER_START_SL);
+  const unsigned int k =
+      params->ssb_start_subcarrier + (params->sidelink ? PSS_SSS_SUB_CARRIER_START_SL : PSS_SSS_SUB_CARRIER_START);
 
   for (int aarx = 0; aarx < params->nb_antennas_rx; aarx++) {
     memcpy(pss_ext[aarx], &rxdataF[pss_symbol][aarx][k], LENGTH_PSS_NR * sizeof(c16_t));
@@ -136,9 +137,9 @@ static void pss_sss_extract_nr(
   }
 }
 
-static bool skip_pci(int Nid1, int Nid2, const uint16_t *exclude_nid_cells, int num_exclude_nid_cells)
+static bool skip_pci(bool sidelink, int Nid1, int Nid2, const uint16_t *exclude_nid_cells, int num_exclude_nid_cells)
 {
-  int current_pci = Nid2 + (3 * Nid1);
+  int current_pci = nr_cell_id(sidelink, Nid1, Nid2);
   for (int i = 0; i < num_exclude_nid_cells; i++) {
     if (current_pci == exclude_nid_cells[i]) {
       return true;
@@ -162,13 +163,13 @@ static bool skip_pci(int Nid1, int Nid2, const uint16_t *exclude_nid_cells, int 
 sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
                                  pss_detection_result_t *pss,
                                  int target_Nid_cell,
-                                 c16_t rxdataF[NR_N_SYMBOLS_SSB][params->nb_antennas_rx][params->ofdm_symbol_size])
+                                 const c16_t rxdataF[][params->nb_antennas_rx][params->ofdm_symbol_size])
 {
   c16_t pss_ext[params->nb_antennas_rx][LENGTH_PSS_NR];
   c16_t sss_ext[params->nb_antennas_rx][LENGTH_SSS_NR];
   pss_sss_extract_nr(params, pss_ext, sss_ext, rxdataF); /* subframe */
   const int Nid2 = pss->nid2;
-  AssertFatal(Nid2 >= 0 && Nid2 < NUMBER_PSS_SEQUENCE, "Wrong nid2: %d\n", Nid2);
+  AssertFatal(Nid2 >= 0 && Nid2 < nr_num_pss_sequences(params->sidelink), "Wrong nid2: %d\n", Nid2);
 
 #ifdef DEBUG_PLOT_SSS
   write_output("rxsig0.m","rxs0",&ue->common_vars.rxdata[0][0],ue->frame_parms.samples_per_subframe,1,1);
@@ -180,15 +181,15 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
   // get conjugated channel estimate from PSS, H* = R* \cdot PSS
   // and do channel estimation and compensation based on PSS
   c16_t sss_comp[LENGTH_SSS_NR] = {};
-  pss_ch_est_nr(params->nb_antennas_rx, Nid2, pss_ext, sss_ext, sss_comp);
+  pss_ch_est_nr(params->nb_antennas_rx, Nid2, params->sidelink, pss_ext, sss_ext, sss_comp);
 
   int nid1_start = 0;
   int nb_nid1 = NUMBER_SSS_SEQUENCE;
   if (target_Nid_cell != -1) {
-    if (target_Nid_cell % NUMBER_PSS_SEQUENCE != Nid2) {
+    if (nr_cell_id_to_nid2(params->sidelink, target_Nid_cell) != Nid2) {
       LOG_E(PHY, "calling sss detection with incoherent context %d, %d\n", Nid2, target_Nid_cell);
     } else {
-      nid1_start = target_Nid_cell / NUMBER_PSS_SEQUENCE;
+      nid1_start = nr_cell_id_to_nid1(params->sidelink, target_Nid_cell);
       nb_nid1 = 1;
     }
   }
@@ -220,7 +221,7 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
     const c64_t rot = (c64_t){round(cos(angle) * INT16_MAX), round(sin(angle) * INT16_MAX)};
     for (int n = 0; n < nb_nid1; n++) { // all possible Nid1 values
       int n1 = nid1_start + n;
-      if (skip_pci(n1, Nid2, params->exclude_nid_cells, params->num_exclude_nid_cells))
+      if (skip_pci(params->sidelink, n1, Nid2, params->exclude_nid_cells, params->num_exclude_nid_cells))
         continue;
       int64_t metric = 0;
       for (int i = 0; i < LENGTH_SSS_NR; i++) {
@@ -261,7 +262,7 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
     res.success = false;
     return res;
   } else {
-    res.nid_cell = Nid2 + NUMBER_PSS_SEQUENCE * Nid1;
+    res.nid_cell = nr_cell_id(params->sidelink, Nid1, Nid2);
     res.success = true;
   }
 
