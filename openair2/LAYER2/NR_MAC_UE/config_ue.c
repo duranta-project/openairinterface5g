@@ -73,31 +73,17 @@ static void set_tdd_config_nr_ue(fapi_nr_tdd_table_t *tdd_table, const frame_str
   const tdd_period_config_t *pc = &fs->period_cfg;
   for (int i = 0; i < fs->numb_slots_period; i++) {
     fapi_nr_max_tdd_periodicity_t *period_list = &tdd_table->max_tdd_periodicity_list[i];
-    period_list->max_num_of_symbol_per_slot_list =
-      malloc(NR_SYMBOLS_PER_SLOT * sizeof(*period_list->max_num_of_symbol_per_slot_list));
     if (pc->tdd_slot_bitmap[i].slot_type == TDD_NR_DOWNLINK_SLOT) {
-      for (int s = 0; s < NR_SYMBOLS_PER_SLOT; s++) {
-        period_list->max_num_of_symbol_per_slot_list[s].slot_config = 0;
-      }
+      period_list->num_dl_ul_symbols_list.num_dl = NR_SYMBOLS_PER_SLOT;
     }
     if (pc->tdd_slot_bitmap[i].slot_type == TDD_NR_UPLINK_SLOT) {
-      for (int s = 0; s < NR_SYMBOLS_PER_SLOT; s++) {
-        period_list->max_num_of_symbol_per_slot_list[s].slot_config = 1;
-      }
+      period_list->num_dl_ul_symbols_list.num_ul = NR_SYMBOLS_PER_SLOT;
     }
     if (pc->tdd_slot_bitmap[i].slot_type == TDD_NR_MIXED_SLOT) {
       int dl_symb = pc->tdd_slot_bitmap[i].num_dl_symbols;
       int ul_symb = pc->tdd_slot_bitmap[i].num_ul_symbols;
-      int g_symb = NR_SYMBOLS_PER_SLOT - dl_symb - ul_symb;
-      for (int s = 0; s < dl_symb; s++) {
-        period_list->max_num_of_symbol_per_slot_list[s].slot_config = 0;
-      }
-      for (int s = dl_symb; s < dl_symb + g_symb; s++) {
-        period_list->max_num_of_symbol_per_slot_list[s].slot_config = 2;
-      }
-      for (int s = dl_symb + g_symb; s < NR_SYMBOLS_PER_SLOT; s++) {
-        period_list->max_num_of_symbol_per_slot_list[s].slot_config = 1;
-      }
+      period_list->num_dl_ul_symbols_list.num_dl = dl_symb;
+      period_list->num_dl_ul_symbols_list.num_ul = ul_symb;
     }
   }
 }

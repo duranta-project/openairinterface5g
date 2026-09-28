@@ -676,12 +676,13 @@ typedef struct
 
 typedef struct 
 {
-  uint8_t slot_config; //For each symbol in each slot a uint8_t value is provided indicating: 0: DL slot 1: UL slot 2: Guard slot
-} fapi_nr_max_num_of_symbol_per_slot_t;
+  uint8_t num_dl; // Number of DL symbols in slot.
+  uint8_t num_ul; // Number of UL symbols in slot.
+} fapi_nr_num_dl_ul_symbols_t;
 
 typedef struct 
 {
-  fapi_nr_max_num_of_symbol_per_slot_t *max_num_of_symbol_per_slot_list;
+  fapi_nr_num_dl_ul_symbols_t num_dl_ul_symbols_list;
 } fapi_nr_max_tdd_periodicity_t;
 
 typedef struct 

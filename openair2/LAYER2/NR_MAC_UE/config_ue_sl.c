@@ -25,11 +25,6 @@ void sl_ue_mac_free(NR_UE_MAC_INST_t *mac)
 
   // @todo: maybe this should be done by phy
   if (tdd_list) {
-    int mu = sl_config->sl_bwp_config.sl_scs;
-    int nb_slots_to_set = (1 << mu) * NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
-    for (int i=0; i<nb_slots_to_set; i++) {
-      free_and_zero(tdd_list[i].max_num_of_symbol_per_slot_list);
-    }
     free_and_zero(sl_config->tdd_table.max_tdd_periodicity_list);
   }
 
@@ -47,6 +42,8 @@ void sl_set_tdd_config_nr_ue(fapi_nr_tdd_table_t *tdd_table,
                              int mu,
                              NR_TDD_UL_DL_Pattern_t *pattern)
 {
+  const int nrofDownlinkSlots = pattern->nrofDownlinkSlots;
+  const int nrofDownlinkSymbols = pattern->nrofDownlinkSymbols;
   const int nrofUplinkSlots = pattern->nrofUplinkSlots;
   const int nrofUplinkSymbols = pattern->nrofUplinkSymbols;
   const int nb_periods_per_frame = get_nb_periods_per_frame(pattern->dl_UL_TransmissionPeriodicity);
@@ -58,24 +55,19 @@ void sl_set_tdd_config_nr_ue(fapi_nr_tdd_table_t *tdd_table,
 
   tdd_table->max_tdd_periodicity_list = (fapi_nr_max_tdd_periodicity_t *) malloc(nb_slots_per_period * sizeof(fapi_nr_max_tdd_periodicity_t));
 
-  for(int memory_alloc = 0 ; memory_alloc < nb_slots_per_period; memory_alloc++)
-    tdd_table->max_tdd_periodicity_list[memory_alloc].max_num_of_symbol_per_slot_list =
-      (fapi_nr_max_num_of_symbol_per_slot_t *) malloc(NR_SYMBOLS_PER_SLOT*sizeof(fapi_nr_max_num_of_symbol_per_slot_t));
-
-  int slot_number = (nb_slots_per_period - nrofUplinkSlots) - (nrofUplinkSymbols ? 1 : 0);
-  if (nrofUplinkSymbols != 0) {
-    for(int number_of_symbol = NR_SYMBOLS_PER_SLOT - nrofUplinkSymbols; number_of_symbol < NR_SYMBOLS_PER_SLOT; number_of_symbol++) {
-      tdd_table->max_tdd_periodicity_list[slot_number].max_num_of_symbol_per_slot_list[number_of_symbol].slot_config = 1;
-    }
+  uint slot_number = 0;
+  for (; slot_number < nrofDownlinkSlots; slot_number++) {
+    tdd_table->max_tdd_periodicity_list[slot_number].num_dl_ul_symbols_list.num_dl = NR_SYMBOLS_PER_SLOT;
+  }
+  if (nrofDownlinkSymbols != 0 || nrofUplinkSymbols != 0) {
+    tdd_table->max_tdd_periodicity_list[slot_number].num_dl_ul_symbols_list.num_dl = nrofDownlinkSymbols;
+    tdd_table->max_tdd_periodicity_list[slot_number].num_dl_ul_symbols_list.num_ul = nrofUplinkSymbols;
     slot_number++;
   }
-  while(slot_number < nb_slots_per_period) {
-    for (int number_of_symbol = 0; number_of_symbol < nrofUplinkSlots * NR_SYMBOLS_PER_SLOT; number_of_symbol++) {
-      tdd_table->max_tdd_periodicity_list[slot_number].max_num_of_symbol_per_slot_list[number_of_symbol%NR_SYMBOLS_PER_SLOT].slot_config = 1;
-      if((number_of_symbol + 1) % NR_SYMBOLS_PER_SLOT == 0)
-        slot_number++;
-    }
+  for (; slot_number < nrofUplinkSlots; slot_number++) {
+    tdd_table->max_tdd_periodicity_list[slot_number].num_dl_ul_symbols_list.num_ul = NR_SYMBOLS_PER_SLOT;
   }
+  AssertFatal(slot_number == nb_slots_per_period, "Inconsistent TDD config\n");
 }
 
 //Prepares the PHY config to be sent to PHY. Prepares from the Valus from MAC context.
