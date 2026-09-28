@@ -193,9 +193,18 @@ int get_pucch_resourceid(NR_PUCCH_Config_t *pucch_Config, int O_uci, int pucch_r
 void nr_schedule_periodic_srs(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frame, int slot);
 bool nr_schedule_aperiodic_srs(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_UE_info_t *UE, int sched_frame, int sched_slot, int k2, int sched_srs);
 void nr_csirs_scheduling(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, nfapi_nr_dl_tti_request_t *DL_req);
-
+uint16_t configure_csi_pdu(nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csi_pdu,
+                           uint8_t csi_type,
+                           uint16_t csi_index,
+                           long scramblingID,
+                           long powerControlOffset,
+                           long *powerControlOffsetSS,
+                           const NR_CSI_RS_ResourceMapping_t *resourceMapping,
+                           const NR_UE_DL_BWP_t *dl_bwp,
+                           const int stream_index,
+                           const uint16_t fapi_beam);
 void nr_csi_meas_reporting(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frameP, slot_t slotP);
-
+uint16_t get_fapi_csi_index(nfapi_nr_dl_tti_request_body_t *dl_req, nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu);
 void nr_measgap_scheduling(gNB_MAC_INST *nr_mac, const nr_cell_sched_t *cell, frame_t frame, sub_frame_t slot);
 
 int nr_acknack_scheduling(nr_cell_sched_t *cell,

@@ -10,7 +10,7 @@
 #define __openair_SCHED_H__
 
 #include "PHY/defs_nr_UE.h"
-
+#include "common/utils/bits.h"
 
 /*enum THREAD_INDEX { OPENAIR_THREAD_INDEX = 0,
                     TOP_LEVEL_SCHEDULER_THREAD_INDEX,
@@ -67,7 +67,7 @@ void phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
 
 int pbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
 void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
-
+uint32_t compute_csi_rm_unav_res(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_config, freq_alloc_bitmap_t *freq_alloc);
 void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
 
 void processSlotTX(void *arg);
