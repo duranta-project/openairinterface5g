@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #include "collection/tree.h"
 #include "collection/linear_alloc.h"
 #include "common/utils/ds/seq_arr.h"
@@ -188,6 +189,7 @@ typedef struct gNB_RRC_UE_s {
 
   bool as_security_active;
   bool f1_ue_context_active;
+  pthread_mutex_t context_mutex;
 
   byte_array_t ue_cap_buffer;
   NR_UE_NR_Capability_t*             UE_Capability_nr;
