@@ -1016,26 +1016,23 @@ void *UE_thread(void *arg)
         LOG_E(PHY,"can't compensate: diff =%d\n", first_symbols);
     }
 
-    // use previous timing_advance value to compute writeTimestamp
-    const openair0_timestamp_t writeTimestamp =
-        rx_timestamp + get_samples_slot_duration(fp, slot_nr, duration_rx_to_tx) - firstSymSamp - UE->N_TA_offset - timing_advance;
-
-    // Calculate TX deadline, approximately 1 symbol before the first sample should be written
-    const uint64_t samples_diff = writeTimestamp - rx_timestamp - fp->ofdm_symbol_size;
-    const float deadline_us = samples_diff * 1e3 / fp->samples_per_subframe;
-    const uint64_t absolute_deadline_us = current_time.tv_sec * 1e6 + current_time.tv_nsec * 1e-3 + deadline_us;
+    // RX slot processing. We launch and forget.
+    notifiedFIFO_elt_t *newRx = newNotifiedFIFO_elt(sizeof(nr_rxtx_thread_data_t), curMsg.proc.nr_slot_tx, NULL, UE_dl_processing);
+    nr_rxtx_thread_data_t *curMsgRx = (nr_rxtx_thread_data_t *)NotifiedFifoData(newRx);
+    *curMsgRx = (nr_rxtx_thread_data_t){.proc = curMsg.proc, .UE = UE};
+    int ret = UE_dl_preprocessing(UE, &curMsgRx->proc, tx_wait_for_dlsch, &curMsgRx->phy_data, &stats_printed);
+    if (ret != INT_MAX)
+      shiftForNextFrame = ret;
 
     // but use current UE->timing_advance value to compute writeBlockSize
     int writeBlockSize = get_samples_per_slot((slot_nr + duration_rx_to_tx) % nb_slot_frame, fp) - iq_shift_to_apply;
     int new_timing_advance = UE->timing_advance + UE->timing_advance_ntn;
     if (new_timing_advance != timing_advance) {
-      writeBlockSize -= new_timing_advance - timing_advance;
       timing_advance = new_timing_advance;
     }
     int new_N_TA_offset = determine_N_TA_offset(UE);
     if (new_N_TA_offset != UE->N_TA_offset) {
       LOG_I(PHY, "N_TA_offset changed from %d to %d\n", UE->N_TA_offset, new_N_TA_offset);
-      writeBlockSize -= new_N_TA_offset - UE->N_TA_offset;
       UE->N_TA_offset = new_N_TA_offset;
     }
     if (writeBlockSize < 0) {
@@ -1044,16 +1041,18 @@ void *UE_thread(void *arg)
       writeBlockSize = 0;
     }
 
+    // use current timing_advance value to compute writeTimestamp
+    const openair0_timestamp_t writeTimestamp =
+        rx_timestamp + get_samples_slot_duration(fp, slot_nr, duration_rx_to_tx) - firstSymSamp - UE->N_TA_offset - timing_advance;
+
+    // Calculate TX deadline, approximately 1 symbol before the first sample should be written
+    const uint64_t samples_diff = writeTimestamp - rx_timestamp - fp->ofdm_symbol_size;
+    const float deadline_us = samples_diff * 1e3 / fp->samples_per_subframe;
+    const uint64_t absolute_deadline_us = current_time.tv_sec * 1e6 + current_time.tv_nsec * 1e-3 + deadline_us;
+
     if (curMsg.proc.nr_slot_rx == 0)
       nr_ue_rrc_timer_trigger(UE->Mod_id, curMsg.proc.hfn_rx, curMsg.proc.frame_rx, curMsg.proc.gNB_id);
 
-    // RX slot processing. We launch and forget.
-    notifiedFIFO_elt_t *newRx = newNotifiedFIFO_elt(sizeof(nr_rxtx_thread_data_t), curMsg.proc.nr_slot_tx, NULL, UE_dl_processing);
-    nr_rxtx_thread_data_t *curMsgRx = (nr_rxtx_thread_data_t *)NotifiedFifoData(newRx);
-    *curMsgRx = (nr_rxtx_thread_data_t){.proc = curMsg.proc, .UE = UE};
-    int ret = UE_dl_preprocessing(UE, &curMsgRx->proc, tx_wait_for_dlsch, &curMsgRx->phy_data, &stats_printed);
-    if (ret != INT_MAX)
-      shiftForNextFrame = ret;
     if (get_nrUE_params()->num_dl_actors > 0) {
       pushNotifiedFIFO(&UE->dl_actors[curMsg.proc.nr_slot_rx % get_nrUE_params()->num_dl_actors].fifo, newRx);
     } else {
