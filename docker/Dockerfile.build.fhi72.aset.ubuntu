@@ -5,8 +5,7 @@
 # * cannot supply DPDK 22.11, aarch64 xRAN+Arm RAL, mlx5, or OAI_VRTSIM_TAPS_CLIENT.
 # *
 # *   - DPDK 22.11.x -> /usr/local (-Dplatform=generic)
-# *   - xRAN K release (11.1.5) from openairinterface/o-du-phy
-# *     (ASET FH MTU kept <= 9582 / typically 8192 - see aset conf mtu comments)
+# *   - xRAN K release (11.1.8) from openairinterface/o-du-phy
 # *   - OAI: gNB, nr-oru, nr-UE, vrtsim, oran_fhlib_5g, taps client
 # * Tag: ran-build-fhi72-aset:latest
 # * Compose supplies aset-ran-base via additional_contexts (service:ran-base).
@@ -15,7 +14,7 @@
 FROM aset-ran-base AS ran-base
 
 ARG DPDK_VERSION=22.11.11
-ARG xran_VERSION=11.1.5
+ARG xran_VERSION=11.1.8
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Europe
 RUN apt-get update && \
@@ -57,7 +56,6 @@ RUN pip3 install --no-cache-dir pyelftools && \
 ## xRAN K release / FHI library
 ## TARGET defaults to `uname -m` (aarch64 or x86_64) and the Makefile gates the avx512 flags on
 ## x86_64, so the K release needs no explicit target - unlike the F release, which wanted armv8.
-## Jumbo/mlx5: do not raise ASET FH mtu above 9582 (9600-18); stock libxran mbuf pool is tight.
 RUN git clone https://github.com/openairinterface/o-du-phy.git /opt/phy && \
     cd /opt/phy && \
     git checkout ${xran_VERSION} && \
