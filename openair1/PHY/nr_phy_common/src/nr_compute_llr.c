@@ -3292,10 +3292,10 @@ void nr_256qam_llr(const c16_t *rxdataF_comp,
     xmm1 = simde_mm256_unpackhi_epi64(xmm3, xmm5); // A1 B1 C1 D1 A5 B5 C5 D5
     xmm2 = simde_mm256_unpacklo_epi64(xmm4, xmm6); // A2 B2 C2 D2 A6 B6 C6 D6
     xmm3 = simde_mm256_unpackhi_epi64(xmm4, xmm6); // A3 B3 C3 D3 A7 B7 C7 D7
-    *llr256++ = simde_mm256_permute2x128_si256(xmm0, xmm1, 0x20); // A0 B0 C0 D0 A1 B1 C1 D1
-    *llr256++ = simde_mm256_permute2x128_si256(xmm2, xmm3, 0x20); // A2 B2 C2 D2 A3 B3 C3 D3
-    *llr256++ = simde_mm256_permute2x128_si256(xmm0, xmm1, 0x31); // A4 B4 C4 D4 A5 B5 C5 D5
-    *llr256++ = simde_mm256_permute2x128_si256(xmm2, xmm3, 0x31); // A6 B6 C6 D6 A7 B7 C7 D7
+    simde_mm256_storeu_si256(llr256++, simde_mm256_permute2x128_si256(xmm0, xmm1, 0x20)); // A0 B0 C0 D0 A1 B1 C1 D1
+    simde_mm256_storeu_si256(llr256++, simde_mm256_permute2x128_si256(xmm2, xmm3, 0x20)); // A2 B2 C2 D2 A3 B3 C3 D3
+    simde_mm256_storeu_si256(llr256++, simde_mm256_permute2x128_si256(xmm0, xmm1, 0x31)); // A4 B4 C4 D4 A5 B5 C5 D5
+    simde_mm256_storeu_si256(llr256++, simde_mm256_permute2x128_si256(xmm2, xmm3, 0x31)); // A6 B6 C6 D6 A7 B7 C7 D7
     ch_magc++;
     ch_magb++;
     ch_maga++;
