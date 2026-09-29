@@ -699,6 +699,21 @@ bool commit_alloc(const nr_dl_sched_params_t *params, nr_dl_candidate_t *cand)
   return true;
 }
 
+static bool check_increase_mcs(const NR_UE_sched_ctrl_t *sched_ctrl, const NR_sched_pdsch_t *sched_pdsch, int init_mcs)
+{
+  // only in case we need to check ACK for reconfig
+  if (sched_pdsch->action != ack_reconfig)
+    return false;
+  if (sched_pdsch->mcs == 27)
+    return false;
+  // limit the increas to 3
+  if (sched_pdsch->mcs > init_mcs + 3)
+    return false;
+  // if buffer is larger than TBS we increase MCS
+  return sched_ctrl->rlc_status[1].bytes_in_buffer > sched_pdsch->tb_size;
+}
+
+
 static void nr_dl_schedule(gNB_MAC_INST *mac,
                            nr_cell_sched_t *cell,
                            post_process_pdsch_t *pp_pdsch,
@@ -835,25 +850,34 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
       sched_pdsch.dl_harq_pid = sched_ctrl->available_dl_harq.head;
       sched_pdsch.dmrs_parms = dmrs;
 
-      /* Compute actual TBS (policy allocated max rbSize, nr_find_nb_rb gives actual) */
-      const int oh = 3 * 4 + (sched_ctrl->ta_apply ? 2 : 0);
-      nr_find_nb_rb(Qm,
-                    R,
-                    1,
-                    l,
-                    sched_pdsch.tda_info.nrOfSymbols,
-                    dmrs.N_PRB_DMRS * dmrs.N_DMRS_SLOT,
-                    sched_ctrl->num_total_bytes + oh,
-                    5,
-                    sched_pdsch.rbSize,
-                    &sched_pdsch.tb_size,
-                    &sched_pdsch.rbSize);
-
       sched_pdsch.action = NULL;
       int srb1 = 1;
       if (UE->reconfigCellGroup && sched_ctrl->rlc_status[srb1].bytes_in_buffer > 10)
         sched_pdsch.action = ack_reconfig;
 
+      /* Compute actual TBS (policy allocated max rbSize, nr_find_nb_rb gives actual) */
+      const int oh = 3 * 4 + (sched_ctrl->ta_apply ? 2 : 0);
+
+      while (true) {
+        nr_find_nb_rb(sched_pdsch.Qm,
+                      sched_pdsch.R,
+                      1,
+                      l,
+                      sched_pdsch.tda_info.nrOfSymbols,
+                      dmrs.N_PRB_DMRS * dmrs.N_DMRS_SLOT,
+                      sched_ctrl->num_total_bytes + oh,
+                      5,
+                      sched_pdsch.rbSize,
+                      &sched_pdsch.tb_size,
+                      &sched_pdsch.rbSize);
+
+        // if SRB1 message we want to send it all in one piece in PDSCH if possible
+        if (!check_increase_mcs(sched_ctrl, &sched_pdsch, mcs))
+          break;
+        sched_pdsch.mcs++;
+        sched_pdsch.R = nr_get_code_rate_dl(sched_pdsch.mcs, dl_bwp->mcsTableIdx);
+        sched_pdsch.Qm = nr_get_Qm_dl(sched_pdsch.mcs, dl_bwp->mcsTableIdx);
+      }
       // Map antenna ports for this UE
       const nr_pdsch_AntennaPorts_t *p = &cell->radio_config.pdsch_AntennaPorts;
       const uint16_t num_log_ports = p->XP * p->N1 * p->N2;
