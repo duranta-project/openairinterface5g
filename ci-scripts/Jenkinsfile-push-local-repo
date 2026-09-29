@@ -118,5 +118,11 @@ pipeline {
         """
       }
     }
+    stage('Push develop to internal repository') {
+      when { expression { !params.mergeWithTarget && params.targetBranch == 'develop' } }
+      steps {
+        sh "git push internal-repo ${params.sourceCommit}:refs/heads/develop"
+      }
+    }
   }
 }
