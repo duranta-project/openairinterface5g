@@ -112,10 +112,8 @@ t_nrPolar_params *nr_polar_params(int8_t messageType, uint16_t messageLength, ui
     // printf("Initializing polar parameters for DCI (K %d, E %d, L
     // %d)\n",newPolarInitNode->payloadBits,newPolarInitNode->encoderLength,aggregation_level);
 
-  } else if (messageType == NR_POLAR_UCI_PUCCH_MESSAGE_TYPE) {
-    AssertFatal(aggregation_level > 2,
-                "Aggregation level (%d) for PUCCH 2 encoding is NPRB and should be > 2\n",
-                aggregation_level);
+  } else if (messageType == NR_POLAR_UCI_PUCCH_MESSAGE_TYPE || messageType == NR_POLAR_UCI_PUSCH_MESSAGE_TYPE) {
+    AssertFatal(aggregation_level > 2, "Aggregation level %d for PUCCH 2 encoding is NPRB and should be > 2\n", aggregation_level);
     AssertFatal(messageLength > 11, "Message length %d is too short for polar encoding of UCI\n", messageLength);
 
     // TS 38.212 - Section 6.3.1.2.1 UCI encoded by Polar code
@@ -127,7 +125,9 @@ t_nrPolar_params *nr_polar_params(int8_t messageType, uint16_t messageLength, ui
     } else {
       AssertFatal(1 == 0, "L = %i is an invalid value\n", L);
     }
-    newPolarInitNode->encoderLength = aggregation_level * 16;
+
+    // For UCI on PUSCH the encoder length (value E at rate matching output) is computed outside and passed as aggregation level
+    newPolarInitNode->encoderLength = messageType == NR_POLAR_UCI_PUCCH_MESSAGE_TYPE ? aggregation_level * 16 : aggregation_level;
     newPolarInitNode->i_seg = 0;
     if ((messageLength >= 360 && newPolarInitNode->encoderLength >= 1088) || (messageLength >= 1013)) {
       newPolarInitNode->i_seg = 1;
@@ -135,8 +135,8 @@ t_nrPolar_params *nr_polar_params(int8_t messageType, uint16_t messageLength, ui
     }
 
     // TS 38.212 - Section 6.3.1.3.1 UCI encoded by Polar code
-    newPolarInitNode->n_max = NR_POLAR_PUCCH_N_MAX;
-    newPolarInitNode->i_il = NR_POLAR_PUCCH_I_IL;
+    newPolarInitNode->n_max = NR_POLAR_UCI_N_MAX;
+    newPolarInitNode->i_il = NR_POLAR_UCI_I_IL;
     newPolarInitNode->crcParityBits = L;
     int Kr = messageLength + L;
     if (Kr >= 18 && Kr <= 25) {
@@ -153,7 +153,7 @@ t_nrPolar_params *nr_polar_params(int8_t messageType, uint16_t messageLength, ui
       AssertFatal(1 == 0, "Kr = %i is an invalid value\n", Kr);
     }
 
-    newPolarInitNode->i_bil = NR_POLAR_PUCCH_I_BIL;
+    newPolarInitNode->i_bil = NR_POLAR_UCI_I_BIL;
     newPolarInitNode->payloadBits = messageLength;
     newPolarInitNode->crcCorrectionBits = NR_POLAR_PUCCH_CRC_ERROR_CORRECTION_BITS;
     // LOG_D(PHY,"New polar node, encoderLength %d, aggregation_level %d\n",newPolarInitNode->encoderLength,aggregation_level);
