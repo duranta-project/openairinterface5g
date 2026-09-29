@@ -793,6 +793,7 @@ int main(int argc, char **argv)
                                 .do_SRS = 0,
                                 .num_dlharq = 16,
                                 .num_ulharq = 16,
+                                .max_num_rsrp = 1,
                                 .maxMIMO_layers = g_nrOfLayers,
                                 .force_256qam_off = false,
                                 .timer_config.sr_ProhibitTimer = 0,

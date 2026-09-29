@@ -929,6 +929,41 @@ static void init_ul_tda_info(const NR_PUSCH_TimeDomainResourceAllocationList_t *
   }
 }
 
+// 6.3.1.1.2 of 38.212
+static int estimate_max_num_csi_bits(const NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config)
+{
+  // SSB meas bits
+  uint64_t ssb_bitmap = get_ssb_bitmap(scc);
+  uint32_t num_ssb = count_bits64(ssb_bitmap);
+  int max_rep = config->max_num_rsrp > 0 ? config->max_num_rsrp : 4;
+  int num_rep = min(num_ssb, max_rep);
+  int ssb_bits = 7 + (num_rep - 1) * 4; // Best SSB meas 7 bits / additional diff 4 bits
+  int index_bits = (num_ssb > 1 ? ceil_log2_u32(num_ssb) : 0) * num_rep;  // ceil(log2(num_ssb))
+  int csi_bits = 0;
+  if (config->do_CSIRS) {
+    // CSI meas bits
+    // TODO assuming CQI-RI-PMI only and wideband CQI only
+    int conf_layers = config->maxMIMO_layers;
+    int layers = conf_layers > 0 ? min(NR_MAX_SUPPORTED_DL_LAYERS, conf_layers) : NR_MAX_SUPPORTED_DL_LAYERS;
+    int cqi_bits = layers > 4 ? 8 : 4;
+    int ri_bits = layers > 1 ? ceil_log2_u32(layers) : 0; // ceil(log2(layers))
+    int pmi_bits = 2;
+    int num_ant_ports = config->pdsch_AntennaPorts.N1 * config->pdsch_AntennaPorts.N2 * config->pdsch_AntennaPorts.XP;
+    if (num_ant_ports > 2) {
+      // TODO assuming codebookMode 1
+      int o1 = config->pdsch_AntennaPorts.N1 > 1 ? 4 : 1;
+      int bits_i11 = ceil_log2_u32(o1 * config->pdsch_AntennaPorts.N1);
+      int o2 = config->pdsch_AntennaPorts.N2 > 1 ? 4 : 1;
+      int bits_i12 = ceil_log2_u32(o2 * config->pdsch_AntennaPorts.N2);
+      int bits_i13 = num_ant_ports > 4 ? 2 : 1;
+      int bits_i2 = num_ant_ports < 4 ? 2 : 1;
+      pmi_bits = bits_i11 + bits_i12 + bits_i13 + bits_i2;
+    }
+    csi_bits = pmi_bits + ri_bits + cqi_bits;
+  }
+  return max(csi_bits, ssb_bits + index_bits);
+}
+
 void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config)
 {
   DevAssert(nrmac != NULL);
@@ -949,8 +984,7 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
     num_beams = cell->beam_info.beams_per_period;
   for (int i = 0; i < num_beams; i++) {
     cell->common_channels.vrb_map_UL[i] = calloc(size * MAX_BWP_SIZE, sizeof(uint16_t));
-    AssertFatal(cell->common_channels.vrb_map_UL[i],
-                "could not allocate memory for cell->common_channels.vrb_map_UL[%d]\n", i);
+    AssertFatal(cell->common_channels.vrb_map_UL[i], "could not allocate memory for cell->common_channels.vrb_map_UL[%d]\n", i);
   }
 
   cell->UL_tti_req_ahead_size = size;
@@ -963,6 +997,35 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
 
   config_common(cell, config, scc);
   fill_beam_index_list(scc, config, cell);
+  int max_csi_bits = estimate_max_num_csi_bits(scc, config);
+  int scs = *scc->ssbSubcarrierSpacing;
+  int bwp_size = NRRIV2BW(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
+  cell->pucch_res_bwp[0] = configure_pucch_radio_resources(&cell->frame_structure, bwp_size, scs, max_csi_bits);
+  LOG_I(NR_MAC,
+        "BWP 0 PUCCH resource configuration: HARQ res %d HARQ res PRBs %d Periodic res %d Perioidc res PRBs %d periodicity %d\n",
+        cell->pucch_res_bwp[0].nb_harq_res,
+        cell->pucch_res_bwp[0].nb_prb_harq_res,
+        cell->pucch_res_bwp[0].nb_periodic_res,
+        cell->pucch_res_bwp[0].nb_prb_periodic_res,
+        cell->pucch_res_bwp[0].periodicity);
+  for (int i = 0; i < config->num_additional_bwps; i++) {
+    bwp_size = NRRIV2BW(config->bwp_config[i].location_and_bw, MAX_BWP_SIZE);
+    int j = config->bwp_config[i].id;
+    cell->pucch_res_bwp[j] = configure_pucch_radio_resources(&cell->frame_structure, bwp_size, scs, max_csi_bits);
+    LOG_I(NR_MAC,
+          "BWP %d PUCCH resource configuration: HARQ res %d HARQ res PRBs %d Periodic res %d Perioidc res PRBs %d periodicity %d\n",
+          j,
+          cell->pucch_res_bwp[j].nb_harq_res,
+          cell->pucch_res_bwp[j].nb_prb_harq_res,
+          cell->pucch_res_bwp[j].nb_periodic_res,
+          cell->pucch_res_bwp[j].nb_prb_periodic_res,
+          cell->pucch_res_bwp[j].periodicity);
+  }
+
+  if (!IS_SA_MODE(get_softmodem_params())) {
+    bwp_size = scc->uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
+    cell->pucch_res_bwp[1] = configure_pucch_radio_resources(&cell->frame_structure, bwp_size, scs, max_csi_bits);
+  }
 
   if (NFAPI_MODE == NFAPI_MONOLITHIC) {
     // nothing to be sent in the other cases
