@@ -724,7 +724,10 @@ static int vrtsim_connect(openair0_device_t *device)
 #ifdef CHANNEL_SIM_CUDA
     // RX / TX antenna config known per UE config -> init with optimized config rather than worst case config (64TX64RX)
     int max_rx_ant = vrtsim_state->peer_rx_ant;
-    int max_channel_length = vrtsim_state->channel_desc[0] ? vrtsim_state->channel_desc[0]->channel_length : 1;
+    // Taps supplied by the taps client are dynamic and no channel descriptor is available here.
+    int max_channel_length = vrtsim_state->taps_socket
+                                 ? MAX_TAPS_LEN
+                                 : (vrtsim_state->channel_desc[0] ? vrtsim_state->channel_desc[0]->channel_length : 1);
     if (vrtsim_state->role == ROLE_SERVER && vrtsim_state->num_ues > 1) {
       for (int u = 0; u < vrtsim_state->num_ues; u++) {
         if (vrtsim_state->ue_conf[u].rx_ant > max_rx_ant)
