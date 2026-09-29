@@ -241,15 +241,19 @@ cuphydriver_config:
       # that edge, so the O-RU classifies most DL U-plane as "Packets late" and drops it
       # (incl. SSB -> UE never syncs). Raise to 450000 to match the OAI DU's T1a_up=(300,450).
       T1a_max_up_ns: 450000
-      Ta4_min_ns: 84000
-      # Ta4 is cuBB's UL U-plane RX window. A real O-RU has already captured the whole slot
-      # over the air, so it bursts all 14 UL symbols back-to-back and they land inside a narrow
-      # window. The vrtsim O-RU instead PACES the UL symbols across the slot (~35.7 us/symbol at
-      # mu=1), so the window must span a full slot (~500 us) or the later symbols arrive after
-      # Ta4_max and get dropped -> incomplete TB -> every PUSCH CRC fails. The stock 280000
-      # (~5.5 symbols wide) dropped ~2/3 of UL packets. Widen to 600000 to cover all 14 symbols
-      # plus margin. cuBB supports much wider windows (its SRS default Ta4_max is 1831 us).
-      Ta4_max_ns: 600000
+      # Ta4 is cuBB's UL U-plane RX window, measured from OTA. The vrtsim O-RU now bursts UL
+      # U-plane back-to-back: its OTA-delay histogram clusters at +1..+2 symbols (~36-71 us),
+      # not spread across the slot. The old 84000 (~2.35 symbols) opened the window AFTER those
+      # arrivals, so >99% of UL packets were classified "early" (before Ta4_min). Drop the floor
+      # below the RU's send delay so the same arrivals count as on-time.
+      Ta4_min_ns: 20000
+      # With arrivals bounded at ~71 us, the window no longer needs to span a full slot. The old
+      # 600000 (~1.2 slots at mu=1) kept the UL order kernel open across the next slot boundary,
+      # so consecutive slots' order runs overlapped and the channel task's 1 ms waitOrderLaunch
+      # budget was blown -> EXIT_L1. 200000 (~5.6 symbols) covers the +71 us max arrival with wide
+      # margin while completing well inside the 500 us slot. The order kernel still exits early on
+      # ORDER_KERNEL_EXIT_PRB once all PRBs land; this is only the safety timeout.
+      Ta4_max_ns: 200000
       Tcp_adv_dl_ns: 125000
       ul_u_plane_tx_offset_ns: 280000
       fh_len_range: 0
