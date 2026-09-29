@@ -1367,8 +1367,7 @@ const char table_38211_6_3_1_5_5[22][4][2] = {
     {{'1', '1'}, {'o', 'o'}, {'j', 'o'}, {'1', 'n'}}  // tpmi 21
 };
 
-static void get_precoder_matrix_coef(char *w,
-                                     const uint8_t ul_ri,
+static char get_precoder_matrix_coef(const uint8_t ul_ri,
                                      const uint16_t num_ue_srs_ports,
                                      const long transform_precoding,
                                      const uint8_t tpmi,
@@ -1377,19 +1376,19 @@ static void get_precoder_matrix_coef(char *w,
 {
   if (ul_ri == 0) {
     if (num_ue_srs_ports == 2) {
-      *w = table_38211_6_3_1_5_1[tpmi][uI][layer_idx];
+      return table_38211_6_3_1_5_1[tpmi][uI][layer_idx];
     } else {
       if (transform_precoding == NR_PUSCH_Config__transformPrecoder_enabled) {
-        *w = table_38211_6_3_1_5_2[tpmi][uI][layer_idx];
+        return table_38211_6_3_1_5_2[tpmi][uI][layer_idx];
       } else {
-        *w = table_38211_6_3_1_5_3[tpmi][uI][layer_idx];
+        return table_38211_6_3_1_5_3[tpmi][uI][layer_idx];
       }
     }
   } else if (ul_ri == 1) {
     if (num_ue_srs_ports == 2) {
-      *w = table_38211_6_3_1_5_4[tpmi][uI][layer_idx];
+      return table_38211_6_3_1_5_4[tpmi][uI][layer_idx];
     } else {
-      *w = table_38211_6_3_1_5_5[tpmi][uI][layer_idx];
+      return table_38211_6_3_1_5_5[tpmi][uI][layer_idx];
     }
   } else {
     AssertFatal(1 == 0, "Function get_precoder_matrix_coef() does not support %i layers yet!\n", ul_ri + 1);
@@ -1416,7 +1415,6 @@ static int nr_srs_tpmi_estimation(const NR_PUSCH_Config_t *pusch_Config,
   c16_t *channel_matrix16 = (c16_t *)channel_matrix;
   uint32_t max_precoded_signal_power = 0;
   int additional_max_tpmi = -1;
-  char w;
 
   uint8_t max_tpmi = get_max_tpmi(pusch_Config, num_ue_srs_ports, &nrOfLayers, &additional_max_tpmi);
   uint8_t end_tpmi_loop = additional_max_tpmi > max_tpmi ? additional_max_tpmi : max_tpmi;
@@ -1441,7 +1439,7 @@ static int nr_srs_tpmi_estimation(const NR_PUSCH_Config_t *pusch_Config,
         for (int uI = 0; uI < num_ue_srs_ports; uI++) {
           for (int layer_idx = 0; layer_idx < nrOfLayers; layer_idx++) {
             uint16_t index = uI * num_gnb_antenna_elements * num_prgs + index_gI_pI;
-            get_precoder_matrix_coef(&w, ul_ri, num_ue_srs_ports, transform_precoding, tpmi, uI, layer_idx);
+            char w = get_precoder_matrix_coef(ul_ri, num_ue_srs_ports, transform_precoding, tpmi, uI, layer_idx);
             c16_t h_times_w = nr_h_times_w(channel_matrix16[index], w);
 
             precoded_channel_matrix_re[index_gI_pI] += h_times_w.r;
