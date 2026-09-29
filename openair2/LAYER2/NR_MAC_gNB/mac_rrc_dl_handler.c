@@ -12,6 +12,7 @@
 #include "F1AP_CauseRadioNetwork.h"
 #include "NR_HandoverPreparationInformation.h"
 #include "NR_CG-ConfigInfo.h"
+#include "NR_RRCReconfiguration.h"
 #include "openair3/ocp-gtpu/gtp_itf.h"
 #include "openair2/LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
 #include "lib/f1ap_rrc_message_transfer.h"
@@ -438,6 +439,53 @@ static NR_UE_NR_Capability_t *get_ue_nr_cap(int rnti, uint8_t *buf, uint32_t len
   return cap;
 }
 
+/* \brief return the source cell's master CellGroupConfig (still held by the UE) from
+ * HandoverPreparationInformation.sourceConfig.rrcReconfiguration.masterCellGroup.
+ * NULL if ho_prep_info is absent/malformed or carries no spCellConfigDedicated. */
+static NR_CellGroupConfig_t *get_source_dedicated_config_from_ho_prep_info(const uint8_t *buf, uint32_t len)
+{
+  if (buf == NULL || len == 0)
+    return NULL;
+
+  NR_HandoverPreparationInformation_t *hpi = NULL;
+  asn_dec_rval_t rv = uper_decode_complete(NULL, &asn_DEF_NR_HandoverPreparationInformation, (void **)&hpi, buf, len);
+  if (rv.code != RC_OK || !hpi
+      || hpi->criticalExtensions.present != NR_HandoverPreparationInformation__criticalExtensions_PR_c1
+      || !hpi->criticalExtensions.choice.c1
+      || hpi->criticalExtensions.choice.c1->present
+             != NR_HandoverPreparationInformation__criticalExtensions__c1_PR_handoverPreparationInformation
+      || !hpi->criticalExtensions.choice.c1->choice.handoverPreparationInformation) {
+    LOG_W(NR_MAC, "cannot decode HandoverPreparationInformation, ignoring source dedicated BWP config\n");
+    ASN_STRUCT_FREE(asn_DEF_NR_HandoverPreparationInformation, hpi);
+    return NULL;
+  }
+
+  NR_RRCReconfiguration_t *reconf = NULL;
+  NR_CellGroupConfig_t *src_cg = NULL;
+  const NR_AS_Config_t *src = hpi->criticalExtensions.choice.c1->choice.handoverPreparationInformation->sourceConfig;
+  if (src) {
+    rv = uper_decode_complete(NULL, &asn_DEF_NR_RRCReconfiguration, (void **)&reconf, src->rrcReconfiguration.buf, src->rrcReconfiguration.size);
+    if (rv.code == RC_OK && reconf
+        && reconf->criticalExtensions.present == NR_RRCReconfiguration__criticalExtensions_PR_rrcReconfiguration
+        && reconf->criticalExtensions.choice.rrcReconfiguration
+        && reconf->criticalExtensions.choice.rrcReconfiguration->nonCriticalExtension
+        && reconf->criticalExtensions.choice.rrcReconfiguration->nonCriticalExtension->masterCellGroup) {
+      const OCTET_STRING_t *mcg = reconf->criticalExtensions.choice.rrcReconfiguration->nonCriticalExtension->masterCellGroup;
+      rv = uper_decode_complete(NULL, &asn_DEF_NR_CellGroupConfig, (void **)&src_cg, mcg->buf, mcg->size);
+      if (rv.code != RC_OK || !src_cg || !src_cg->spCellConfig || !src_cg->spCellConfig->spCellConfigDedicated) {
+        ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, src_cg);
+        src_cg = NULL;
+      }
+    }
+  }
+  if (!src_cg)
+    LOG_W(NR_MAC, "HO: HandoverPreparationInformation carries no usable source spCellConfigDedicated\n");
+
+  ASN_STRUCT_FREE(asn_DEF_NR_RRCReconfiguration, reconf);
+  ASN_STRUCT_FREE(asn_DEF_NR_HandoverPreparationInformation, hpi);
+  return src_cg;
+}
+
 /* \brief return UE capabilties from HandoverPreparationInformation.
  *
  * The HandoverPreparationInformation contains more, but for the moment, let's
@@ -525,7 +573,11 @@ NR_CellGroupConfig_t *clone_CellGroupConfig(const NR_CellGroupConfig_t *orig)
   return cloned;
 }
 
-static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac, nr_cell_sched_t *cell, uint32_t cu_id, const NR_CG_ConfigInfo_t *cgci)
+static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac,
+                                   nr_cell_sched_t *cell,
+                                   uint32_t cu_id,
+                                   const NR_CG_ConfigInfo_t *cgci,
+                                   const NR_ServingCellConfig_t *source_dedicated)
 {
   const bool is_SA = IS_SA_MODE(get_softmodem_params());
   rnti_t rnti;
@@ -551,6 +603,9 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac, nr_cell_sched_t *cell, uin
   if (is_SA) {
     cellGroupConfig = get_initial_cellGroupConfig(UE->uid, UE->is_redcap, scc, cell, &mac->rlc_config, ssb_index);
     cellGroupConfig->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(UE->rnti, UE->uid, scc, mac->frame);
+    if (source_dedicated)
+      release_stale_ho_source_bwps(cellGroupConfig->spCellConfig->spCellConfigDedicated, source_dedicated);
+    UE->local_bwp_id = cell->radio_config.first_active_bwp;
   } else {
     NR_UE_NR_Capability_t *cap = get_ue_nr_cap_from_cg_config_info(cgci);
     cellGroupConfig = get_default_secondaryCellGroup(scc, cap, 1, 1, &cell->radio_config, cell, UE->uid, ssb_index);
@@ -698,11 +753,20 @@ void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
   if (cu2du->meas_timing_config != NULL)
     mtc = get_nr_mtc(cu2du->meas_timing_config->buf, cu2du->meas_timing_config->len);
 
+  /* Handover target: fetch the source's master CellGroupConfig, so create_new_UE()
+   * below can release whatever dedicated BWP the target doesn't itself configure. */
+  NR_CellGroupConfig_t *source_cg = NULL;
+  if (cu2du->ho_prep_info != NULL)
+    source_cg = get_source_dedicated_config_from_ho_prep_info(cu2du->ho_prep_info->buf, cu2du->ho_prep_info->len);
+  const NR_ServingCellConfig_t *source_dedicated = source_cg ? source_cg->spCellConfig->spCellConfigDedicated : NULL;
+
   /* inclusion of CG-ConfigInfo in SA mode is interpreted
    * as NR-DC activation in the DU
    */
-  if (is_SA && cg_configinfo)
+  if (is_SA && cg_configinfo) {
+    ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, source_cg);
     return nrdc_ue_context_setup_request(req);
+  }
 
   AssertFatal(is_SA || (cg_configinfo != NULL), "CG-ConfigInfo needed for NSA/phy-test/do-ra\n");
 
@@ -710,7 +774,7 @@ void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
 
   NR_UE_info_t *UE = NULL;
   if (!ue_id_provided) {
-    UE = create_new_UE(mac, cell, req->gNB_CU_ue_id, cg_configinfo);
+    UE = create_new_UE(mac, cell, req->gNB_CU_ue_id, cg_configinfo, source_dedicated);
   } else {
     DevAssert(is_SA);
     UE = find_nr_UE(&mac->UE_info, *req->gNB_DU_ue_id);
@@ -750,6 +814,7 @@ void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
     // only to be done if we did not already update through the cg_configinfo
     update_cellGroupConfig(new_CellGroup, UE->uid, UE->capability, cell, scc);
   }
+  ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, source_cg);
 
   /* During re-establishment, prepare CellGroupConfig for UE Context Setup response.
    * Per TS 38.401 §8.7: when a UE re-establishes on a different DU, the CU triggers
@@ -884,6 +949,15 @@ void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
     // we re-configure the BWP to apply the CellGroup and to use UE specific Search Space with DCIX1
     configure_UE_BWP(cell, scc, UE, false, NR_SearchSpace__searchSpaceType_PR_ue_Specific, -1, -1);
     nr_mac_clean_cellgroup(UE->CellGroup);
+
+    // Restore dedicated BWP if configure_UE_BWP() bumped the UE to BWP0 for RA
+    if (UE->pending_bwp_restore) {
+      UE->pending_bwp_restore = false;
+      int bwp_id = cell->radio_config.first_active_bwp;
+      LOG_A(NR_MAC, "UE %04x: Restoring dedicated BWP %d after RA parking on BWP0 by RRCReconfiguration(nr_mac_trigger_reconfiguration)\n", UE->rnti, bwp_id);
+      // BWP switch (beam arg = -1); UE->local_bwp_id is updated on UE Context Modification Confirm
+      nr_mac_trigger_reconfiguration(mac, cell, UE, bwp_id, -1);
+    }
   }
 
   if (ue_cap != NULL) {
