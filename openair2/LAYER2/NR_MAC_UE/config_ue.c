@@ -2941,8 +2941,9 @@ static void handle_mac_uecap_info(NR_UE_MAC_INST_t *mac, NR_UE_NR_Capability_t *
       int dl_bw_mhz = mac->phy_config.config_req.carrier_config.dl_bandwidth;
       if (!supported_bw_comparison(dl_bw_mhz, &fs_dl_cc->supportedBandwidthDL, fs_dl_cc->channelBW_90mhz))
         continue;
-      if (fs_dl_cc->maxNumberMIMO_LayersPDSCH)
-        mac->uecap_maxMIMO_PDSCH_layers = 2 << *fs_dl_cc->maxNumberMIMO_LayersPDSCH;
+      // No "oneLayer" value exists: single-layer PDSCH is baseline and never reported,
+      // so absence here means 1 layer, not "unknown" (PDSCH always needs >= 1).
+      mac->uecap_maxMIMO_PDSCH_layers = fs_dl_cc->maxNumberMIMO_LayersPDSCH ? 2 << *fs_dl_cc->maxNumberMIMO_LayersPDSCH : 1;
     }
   }
   if (ue_Capability->featureSets->featureSetsUplinkPerCC) {
