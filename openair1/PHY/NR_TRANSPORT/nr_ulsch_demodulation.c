@@ -813,12 +813,8 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       rdata->layer_offsets = layer_offset;
       rdata->layers_attenuation = total_layers ? log2_approx(max_ch >> 11) : 0;
 
-      if (rel15_ul_ref->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS) {
-        nr_pusch_symbol_processing(rdata);
-      } else {
-        task_t t = {.func = &nr_pusch_symbol_processing, .args = rdata};
-        pushTpool(&gNB->threadPool, t);
-      }
+      task_t t = {.func = &nr_pusch_symbol_processing, .args = rdata};
+      pushTpool(&gNB->threadPool, t);
 
       LOG_D(PHY, "%d.%d Added symbol %d to process, in pipe\n", frame, slot, symbol);
     } else {
