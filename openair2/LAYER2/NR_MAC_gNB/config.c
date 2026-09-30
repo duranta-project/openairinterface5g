@@ -1235,13 +1235,13 @@ void prepare_du_configuration_update(gNB_MAC_INST *mac,
   mac->mac_rrc.gnb_du_configuration_update(&update);
 }
 
-void nr_mac_configure_sib1(nr_cell_sched_t *cell, const plmn_id_t *plmn, uint64_t cellID, int tac)
+void nr_mac_configure_sib1(nr_cell_sched_t *cell, uint64_t cellID, int tac, int num_plmn, const f1ap_served_plmn_info_t *served_plmn_list)
 {
   AssertFatal(IS_SA_MODE(get_softmodem_params()), "error: SIB1 only applicable for SA\n");
 
   NR_COMMON_channels_t *cc = &cell->common_channels;
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
-  NR_BCCH_DL_SCH_Message_t *sib1 = get_SIB1_NR(scc, plmn, cellID, tac, &cell->radio_config);
+  NR_BCCH_DL_SCH_Message_t *sib1 = get_SIB1_NR(scc, cellID, tac, &cell->radio_config, num_plmn, served_plmn_list);
   cc->sib1 = sib1;
   cc->sib1_bcch_length = encode_SIB_NR(sib1, cc->sib1_bcch_pdu, sizeof(cc->sib1_bcch_pdu));
   AssertFatal(cc->sib1_bcch_length > 0, "could not encode SIB1\n");
