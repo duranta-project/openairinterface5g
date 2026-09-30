@@ -3,7 +3,7 @@
 Fronthaul stack for 7.2x split using DPDK. Currently supports O-RU only; O-DU support is not implemented.
 
 The shared receive, send and timer components are described in the
-[fronthaul core documentation](./core/README.md).
+[fronthaul core documentation](./common/README.md).
 
 ## Architecture overview
 
@@ -19,7 +19,7 @@ graph TD
         oru_io["oru_io"]
         oru_pkt["oru_packet_processor"]
     end
-    subgraph fronthaul_core ["Fronthaul Core (core/)"]
+    subgraph fronthaul_common ["Fronthaul Common (common/)"]
         direction LR
         fh_rx["fh_recv (RX)"]
         fh_tx["fh_send (TX)"]
@@ -28,7 +28,7 @@ graph TD
         fh_rx --> fh_tx
         fh_tx --> fh_timer
     end
-    subgraph protocol ["Protocol Layer (xran_pkt/)"]
+    subgraph protocol ["Protocol Layer (common/xran_pkt/)"]
         xran_api["xran_pkt_api"]
     end
     dpdk[("DPDK / NIC")]
