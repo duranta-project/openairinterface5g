@@ -23,9 +23,13 @@
     int ret = sem_post(&sem);                                                                  \
     AssertFatal(ret == 0, "sem_post(): ret=%d, errno=%d (%s)\n", ret, errno, strerror(errno)); \
   }
+/* POSIX sem_wait(), ERRORS: retry EINTR before treating the task as complete. */
 #define semwait(sem)                                                                           \
   {                                                                                            \
-    int ret = sem_wait(&sem);                                                                  \
+    int ret;                                                                                 \
+    do {                                                                                     \
+      ret = sem_wait(&sem);                                                                   \
+    } while (ret == -1 && errno == EINTR);                                                     \
     AssertFatal(ret == 0, "sem_wait(): ret=%d, errno=%d (%s)\n", ret, errno, strerror(errno)); \
   }
 #define semdestroy(sem)                                                                           \
