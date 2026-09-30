@@ -228,28 +228,31 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
     if (!pss_res->success)
       continue;
 
-    int freq_offset_pss = pss_res->freq_offset;
-    int sync_pos = pss_res->pos;
-
-    const int ssb_time_offset = sync_pos - params->nb_prefix_samples;
+    // The correlation peaks on the body of the PSS symbol, i.e. after its cyclic prefix.
+    const int ssb_time_offset = pss_res->pos - params->nb_prefix_samples;
+    const int ssb_size = NR_N_SYMBOLS_SSB * (params->ofdm_symbol_size + params->nb_prefix_samples);
 
 #ifdef DEBUG_INITIAL_SYNCH
-    LOG_I(PHY, "Initial sync : Estimated PSS position %d, Nid2 %d, ssb time offset %d\n", sync_pos, p, ssb_time_offset);
+    LOG_I(PHY,
+          "Initial sync : Estimated PSS position %d, Nid2 %d, ssb time offset %d\n",
+          pss_res->pos,
+          pss_res->nid2,
+          ssb_time_offset);
 #endif
 
-    // Check that SSB fits within buffer
-    if (ssb_time_offset + NR_N_SYMBOLS_SSB * (params->ofdm_symbol_size + params->nb_prefix_samples) >= params->rxdata_size) {
+    // Check that the whole block fits within the buffer
+    if (ssb_time_offset < 0 || ssb_time_offset + ssb_size > params->rxdata_size) {
       LOG_D(PHY,
-            "SSB extends beyond buffer boundary (sync_pos %d, ssb_time_offset %d, buffer_size %d)\n",
-            sync_pos,
+            "SSB does not fit in the buffer (sync_pos %d, ssb_time_offset %d, buffer_size %d)\n",
+            pss_res->pos,
             ssb_time_offset,
             params->rxdata_size);
-      return false;
+      continue;
     }
 
     // Apply frequency offset compensation if requested
-    if (params->apply_freq_offset && freq_offset_pss != 0) {
-      f_off_to_comp += freq_offset_pss;
+    if (params->apply_freq_offset && pss_res->freq_offset != 0) {
+      f_off_to_comp += pss_res->freq_offset;
       compensate_freq_offset(params->rxdata, params->nb_antennas_rx, params->rxdata_size, f_off_to_comp, params->sampling_rate);
       f_off_to_comp *= -1;
     }
@@ -276,10 +279,45 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
     }
 
     params->pss_res = *pss_res;
+    params->ssb_time_offset = ssb_time_offset;
+    if (params->validate_candidate && !params->validate_candidate(params->validate_ctx, params))
+      continue;
     return true;
   }
 
   return false;
+}
+
+/* Decode the PBCH of a candidate block whose PSS and SSS have just been detected. This is
+   what confirms the candidate: when it fails, the search carries on with the next one
+   instead of giving up. */
+static bool nr_validate_ssb_candidate(void *ctx, const nr_ssb_search_params_t *params)
+{
+  nr_ue_ssb_scan_t *ssbInfo = (nr_ue_ssb_scan_t *)ctx;
+  const NR_DL_FRAME_PARMS *fp = ssbInfo->fp;
+  const c16_t(*rxdataF)[fp->nb_antennas_rx][fp->ofdm_symbol_size] =
+      (const c16_t(*)[fp->nb_antennas_rx][fp->ofdm_symbol_size])params->rxdataF;
+
+  ssbInfo->nidCell = params->sss_res.nid_cell;
+  ssbInfo->ssbOffset = params->ssb_time_offset;
+
+  if (!nr_pbch_detection(ssbInfo->proc,
+                         fp,
+                         ssbInfo->nidCell,
+                         1, // start pbch detection at first symbol after pss
+                         ssbInfo->gscnInfo.ssbFirstSC,
+                         &ssbInfo->halfFrameBit,
+                         &ssbInfo->ssbIndex,
+                         &ssbInfo->symbolOffset,
+                         &ssbInfo->pbchResult,
+                         rxdataF))
+    return false;
+
+  uint32_t rsrp_avg = nr_ue_calculate_ssb_rsrp(fp, rxdataF[2], ssbInfo->gscnInfo.ssbFirstSC);
+  int rsrp_db_per_re = 10 * log10(rsrp_avg);
+  ssbInfo->adjust_rxgain = TARGET_RX_POWER - rsrp_db_per_re;
+  LOG_I(PHY, "pbch rx ok. rsrp:%d dB/RE, adjust_rxgain:%d dB\n", rsrp_db_per_re, ssbInfo->adjust_rxgain);
+  return true;
 }
 
 static void nr_scan_ssb(void *arg)
@@ -339,44 +377,16 @@ static void nr_scan_ssb(void *arg)
       .fo_flag = ssbInfo->foFlag,
       .rxdataF = rxdataF,
       .pssTime = pssTime,
+      .validate_candidate = nr_validate_ssb_candidate,
+      .validate_ctx = ssbInfo,
   };
 
   ssbInfo->syncRes.cell_detected = nr_search_ssb_common(&search_params);
 
   ssbInfo->pssCorrAvgPower = search_params.pss_res.avg;
   ssbInfo->pssCorrPeakPower = search_params.pss_res.peak;
-  ssbInfo->ssbOffset = search_params.pss_res.pos - search_params.nb_prefix_samples;
-  ssbInfo->nidCell = search_params.sss_res.nid_cell;
-
-#ifdef DEBUG_INITIAL_SYNCH
-  LOG_I(PHY,
-        "TDD Normal prefix: sss detection result; %d, CellId %d metric %d, phase %d, measured offset %d\n",
-        ssbInfo->syncRes.cell_detected,
-        ssbInfo->nidCell,
-        sss_metric,
-        sss_phase,
-        ssbInfo->syncRes.rx_offset);
-#endif
   ssbInfo->freqOffset += search_params.pss_res.freq_offset + search_params.sss_res.freq_offset;
 
-  if (ssbInfo->syncRes.cell_detected) { // we got sss channel
-    ssbInfo->syncRes.cell_detected = nr_pbch_detection(ssbInfo->proc,
-                                                       ssbInfo->fp,
-                                                       ssbInfo->nidCell,
-                                                       1,
-                                                       ssbInfo->gscnInfo.ssbFirstSC,
-                                                       &ssbInfo->halfFrameBit,
-                                                       &ssbInfo->ssbIndex,
-                                                       &ssbInfo->symbolOffset,
-                                                       &ssbInfo->pbchResult,
-                                                       rxdataF); // start pbch detection at first symbol after pss
-    if (ssbInfo->syncRes.cell_detected) {
-      uint32_t rsrp_avg = nr_ue_calculate_ssb_rsrp(ssbInfo->fp, rxdataF[2], ssbInfo->gscnInfo.ssbFirstSC);
-      int rsrp_db_per_re = 10 * log10(rsrp_avg);
-      ssbInfo->adjust_rxgain = TARGET_RX_POWER - rsrp_db_per_re;
-      LOG_I(PHY, "pbch rx ok. rsrp:%d dB/RE, adjust_rxgain:%d dB\n", rsrp_db_per_re, ssbInfo->adjust_rxgain);
-    }
-  }
   completed_task_ans(ssbInfo->ans);
 }
 
