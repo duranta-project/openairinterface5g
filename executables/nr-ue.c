@@ -214,9 +214,6 @@ static void UE_synch(void *arg) {
   if (ret.cell_detected) {
     syncD->rx_offset = ret.rx_offset;
     const int freq_offset = UE->common_vars.freq_offset; // frequency offset computed with pss in initial sync
-    const int hw_slot_offset =
-        ((ret.rx_offset << 1) / fp->samples_per_subframe * fp->slots_per_subframe)
-        + round((float)((ret.rx_offset << 1) % fp->samples_per_subframe) / fp->samples_per_slot0);
 
     UE->freq_offset = freq_offset - UE->dl_Doppler_shift;
     if (!get_nrUE_params()->cont_fo_comp) {
@@ -228,7 +225,7 @@ static void UE_synch(void *arg) {
       nrue_ru_adjust_rx_gain(UE, UE->adjust_rxgain);
     }
 
-    LOG_I(PHY, "Got synch: hw_slot_offset %d, carrier off %d Hz\n", hw_slot_offset, freq_offset);
+    LOG_I(PHY, "Got synch: frame starting at sample %d of the sync window, carrier off %d Hz\n", ret.rx_offset, freq_offset);
 
     UE->is_synchronized = 1;
   } else {
@@ -631,23 +628,6 @@ void dummyWrite(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, int writeBlo
   AssertFatal(writeBlockSize == tmp, "write to reorder function failed %d", tmp);
 }
 
-static int compute_sync_size(PHY_VARS_NR_UE *UE)
-{
-  int sz = 0;
-  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
-  // two frames for initial sync
-  int num_frames = 2;
-  // In Sidelink worst case SL-SSB can be sent once in 16 frames
-  if (UE->sl_mode == 2) {
-    fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
-    num_frames = SL_NR_PSBCH_REPETITION_IN_FRAMES;
-  }
-  for (int slot_rx = 0; slot_rx < fp->slots_per_subframe; slot_rx++)
-    sz += get_samples_per_slot(slot_rx, fp);
-  sz *= num_frames * NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
-  return sz;
-}
-
 static void readFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int duration_rx_to_tx, int sz, c16_t **result)
 {
   const NR_DL_FRAME_PARMS *fp = nrue_frame_parms(UE);
@@ -687,6 +667,53 @@ static void readFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int d
   }
   if (!result)
     free(rxp[0]);
+}
+
+/* Initial sync scans windows of sync_window_frames() frames plus one SS/PBCH block, and moves
+   the window by sync_window_frames() frames from one scan to the next. Consecutive windows
+   thus overlap by one block, so that a block cut by the end of a window is complete at the
+   start of the next one: every block of the stream is entirely contained in a window. Two
+   frames cover the 20 ms SS/PBCH burst periodicity a UE assumes for initial access (TS 38.213
+   4.1), whereas a SL-SSB may only be sent once every 16 frames. */
+static int sync_window_frames(const PHY_VARS_NR_UE *UE)
+{
+  return UE->sl_mode == SL_MODE2_SUPPORTED ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2;
+}
+
+static int sync_block_size(PHY_VARS_NR_UE *UE)
+{
+  return nr_ssb_block_size(nrue_frame_parms(UE), UE->sl_mode == SL_MODE2_SUPPORTED);
+}
+
+/* Read the next initial sync window. It starts with one block, taken from head when the window
+   carries on from the samples read before, or read from the stream otherwise, and goes on with
+   sync_window_frames() frames read from the stream. */
+static void readSyncWindow(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int duration_rx_to_tx, c16_t **window, c16_t **head)
+{
+  const NR_DL_FRAME_PARMS *fp = nrue_frame_parms(UE);
+  const int block_sz = sync_block_size(UE);
+  const int step = sync_window_frames(UE) * fp->samples_per_frame;
+  if (!head) {
+    readFrame(UE, timestamp, duration_rx_to_tx, block_sz + step, window);
+    return;
+  }
+  c16_t *next[fp->nb_antennas_rx];
+  for (int i = 0; i < fp->nb_antennas_rx; i++) {
+    memmove(window[i], head[i], block_sz * sizeof(**window));
+    next[i] = window[i] + block_sz;
+  }
+  readFrame(UE, timestamp, duration_rx_to_tx, step, next);
+}
+
+/* Discard sync_window_frames() frames of the stream while a scan runs, keeping their last
+   block in tail, from which the next window starts. The windows thus stay sync_window_frames()
+   frames apart, and tail plays the part the end of the previous window would have played. */
+static void skipSyncWindow(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int duration_rx_to_tx, c16_t **tail)
+{
+  const NR_DL_FRAME_PARMS *fp = nrue_frame_parms(UE);
+  const int block_sz = sync_block_size(UE);
+  readFrame(UE, timestamp, duration_rx_to_tx, sync_window_frames(UE) * fp->samples_per_frame - block_sz, NULL);
+  readFrame(UE, timestamp, duration_rx_to_tx, block_sz, tail);
 }
 
 static void syncInFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int duration_rx_to_tx, openair0_timestamp_t rx_offset)
@@ -792,11 +819,26 @@ void *UE_thread(void *arg)
     //warm up the RF board
     openair0_timestamp_t tmp;
     for (int i = 0; i < 50; i++)
-      readFrame(UE, &tmp, duration_rx_to_tx, compute_sync_size(UE), NULL);
+      readFrame(UE, &tmp, duration_rx_to_tx, sync_window_frames(UE) * fp->samples_per_frame, NULL);
   }
 
+  const int sync_frames = sync_window_frames(UE);
+  const int sync_block_sz = sync_block_size(UE);
+  const int sync_window_sz = sync_frames * fp->samples_per_frame + sync_block_sz;
   c16_t *sync_buf[fp->nb_antennas_rx];
-  memset(sync_buf, 0, sizeof(sync_buf)); // mandatory for CI compile options
+  // last block of the sync window
+  c16_t *sync_buf_end[fp->nb_antennas_rx];
+  // last block of the samples discarded while a scan runs
+  c16_t *sync_tail[fp->nb_antennas_rx];
+  for (int i = 0; i < fp->nb_antennas_rx; i++) {
+    sync_buf[i] = malloc16(sync_window_sz * sizeof(**sync_buf));
+    sync_buf_end[i] = sync_buf[i] + sync_window_sz - sync_block_sz;
+    sync_tail[i] = malloc16(sync_block_sz * sizeof(**sync_tail));
+  }
+  // first block of the next sync window, NULL when it has to be read from the stream
+  c16_t **sync_window_head = NULL;
+  // frames discarded since the start of the scan
+  int discarded_frames = 0;
 
   while (!oai_exit) {
     if (syncRunning) {
@@ -804,8 +846,6 @@ void *UE_thread(void *arg)
 
       if (res) {
         syncRunning = false;
-        for (int i = 0; i < fp->nb_antennas_rx; i++)
-          free(sync_buf[i]);
         if (UE->is_synchronized) {
           UE->synch_request.received_synch_request = 0;
           if (UE->sl_mode == SL_MODE2_SUPPORTED)
@@ -818,11 +858,20 @@ void *UE_thread(void *arg)
             delNotifiedFIFO_elt(elt);
             decoded_frame_rx = mac->mib_frame;
           }
-          LOG_A(PHY, "UE synchronized! decoded_frame_rx=%d skipped_frames=%d\n", decoded_frame_rx, skipped_frames);
-          // shift the frame index with all the frames we trashed meanwhile we perform the synch search
+          /* rx_offset is where the frame of the detected block starts in the window, possibly
+             before the window. The stream went on to the end of the window and then through
+             the discarded frames: align it on the start of the next frame, and shift the frame
+             index with all the frames the stream went past. */
           syncData_t *syncMsg = (syncData_t *)NotifiedFifoData(res);
+          const int past = sync_window_sz - syncMsg->rx_offset;
+          intialSyncOffset = (fp->samples_per_frame - past % fp->samples_per_frame) % fp->samples_per_frame;
+          skipped_frames = (past + intialSyncOffset) / fp->samples_per_frame + discarded_frames;
+          LOG_A(PHY, "UE synchronized! decoded_frame_rx=%d skipped_frames=%d\n", decoded_frame_rx, skipped_frames);
           decoded_frame_rx = (decoded_frame_rx + skipped_frames) % MAX_FRAME_NUMBER;
-          intialSyncOffset = syncMsg->rx_offset;
+          // a later resynchronisation starts over from the stream
+          sync_window_head = NULL;
+        } else {
+          sync_window_head = discarded_frames ? sync_tail : sync_buf_end;
         }
         delNotifiedFIFO_elt(res);
         stream_status = STREAM_STATUS_UNSYNC;
@@ -833,13 +882,13 @@ void *UE_thread(void *arg)
           */
           openair0_config_t *cfg0 = &openair0_cfg_g[UE->rf_map.card];
           const unsigned int sync_in_frames = cfg0->recplay_conf->u_f_sync;
-          while (skipped_frames != sync_in_frames) {
-            readFrame(UE, &sync_timestamp, duration_rx_to_tx, compute_sync_size(UE), NULL);
-            skipped_frames += 2;
+          while (sync_frames + discarded_frames < sync_in_frames) {
+            skipSyncWindow(UE, &sync_timestamp, duration_rx_to_tx, sync_tail);
+            discarded_frames += sync_frames;
           }
         } else {
-          readFrame(UE, &sync_timestamp, duration_rx_to_tx, compute_sync_size(UE), NULL);
-          skipped_frames += UE->sl_mode == 2 ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2;
+          skipSyncWindow(UE, &sync_timestamp, duration_rx_to_tx, sync_tail);
+          discarded_frames += sync_frames;
         }
         continue;
       }
@@ -848,13 +897,10 @@ void *UE_thread(void *arg)
     AssertFatal(!syncRunning, "At this point synchronization can't be running\n");
 
     if (!UE->is_synchronized) {
-      int sz = compute_sync_size(UE);
-      for (int i = 0; i < fp->nb_antennas_rx; i++)
-        sync_buf[i] = malloc(sz * sizeof(**sync_buf));
-      readFrame(UE, &sync_timestamp, duration_rx_to_tx, sz, sync_buf);
+      readSyncWindow(UE, &sync_timestamp, duration_rx_to_tx, sync_buf, sync_window_head);
       notifiedFIFO_elt_t *Msg = newNotifiedFIFO_elt(sizeof(syncData_t), 0, &nf, UE_synch);
       syncData_t *syncMsg = (syncData_t *)NotifiedFifoData(Msg);
-      *syncMsg = (syncData_t){.input = sync_buf, .input_sz = sz};
+      *syncMsg = (syncData_t){.input = sync_buf, .input_sz = sync_window_sz};
       if (UE->UE_scan_carrier) {
         // Get list of GSCN in this band for UE's bandwidth and center frequency.
         LOG_W(PHY, "UE set to scan all GSCN in current bandwidth\n");
@@ -868,7 +914,7 @@ void *UE_thread(void *arg)
       syncMsg->UE = UE;
       memset(&syncMsg->proc, 0, sizeof(syncMsg->proc));
       pushNotifiedFIFO(&UE->sync_actor.fifo, Msg);
-      skipped_frames = UE->sl_mode == 2 ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2; // the capture for decoding
+      discarded_frames = 0;
       syncRunning = true;
       continue;
     }
@@ -1083,6 +1129,14 @@ void *UE_thread(void *arg)
                            newTx);
     stream_status = STREAM_STATUS_SYNCED;
     tx_wait_for_dlsch[slot] = 0;
+  }
+
+  // the scan may still be reading the sync window
+  if (syncRunning)
+    flush_actor(&UE->sync_actor);
+  for (int i = 0; i < fp->nb_antennas_rx; i++) {
+    free(sync_buf[i]);
+    free(sync_tail[i]);
   }
   LOG_W(NR_PHY, "UE main thread is ending\n");
   return NULL;
