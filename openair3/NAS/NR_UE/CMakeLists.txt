@@ -6,7 +6,7 @@ add_library(nr_ue_tun STATIC nr_ue_tun.c)
 target_include_directories(nr_ue_tun PUBLIC .)
 target_link_libraries(nr_ue_tun PUBLIC utils)
 
-add_library(nr_nas STATIC nr_nas_msg.c)
+add_library(nr_nas STATIC nr_nas_msg.c nas_plmn_select.c)
 target_link_libraries(nr_nas PUBLIC asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
 target_link_libraries(nr_nas PUBLIC
     fgs_lib
