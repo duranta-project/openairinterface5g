@@ -15,25 +15,21 @@ services:
             - /usr/lib/modules:/usr/lib/modules
     oai-du:
         image: ${REGISTRY-oaisoftwarealliance/}oai-gnb-fhi72-t2:${TAG:-develop}
-        cap_add:
-            - IPC_LOCK
-            - SYS_NICE
-        cap_drop:
-            - ALL
         container_name: oai-gnb
+        privileged: true
+        network_mode: "host"
         environment:
             TZ: Europe/Paris
-            USE_ADDITIONAL_OPTIONS: --thread-pool 13,14,15,16,17,18,19,20 --loader.ldpc.shlibversion _aal --log_config.global_log_options level,nocolor,utc_time
+            USE_ADDITIONAL_OPTIONS: --thread-pool 13,14,15,16,17,18,19,20 --device.name oran_fhlib_5g_mplane --loader.ldpc.shlibversion _aal --log_config.global_log_options level,nocolor,utc_time
         devices:
             - /dev/vfio:/dev/vfio/
         volumes:
-            - ../../conf_files/gnb-du.sa.band77.273prb.fhi72.4x4-4L-benetel550.conf:/opt/oai-gnb/etc/gnb.conf
+            - ../../conf_files/gnb-du.sa.band78.273prb.fhi72.4x4-benetel550-9b-mplane.conf:/opt/oai-gnb/etc/gnb.conf
             - /dev/hugepages:/dev/hugepages
+            - /home/oaicicd/.ssh/id_rsa.pub:/opt/oai-gnb/etc/id_rsa.pub
+            - /home/oaicicd/.ssh/id_rsa:/opt/oai-gnb/etc/id_rsa
         # Please change these values based on your system
         cpuset: "7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23"
-        networks:
-            oai-net:
-                ipv4_address: 172.21.10.20
         depends_on:
            dpdk-init:
              condition: service_completed_successfully
@@ -44,16 +40,3 @@ services:
            interval: 5s
            timeout: 5s
            retries: 10
-
-networks:
-    oai-net:
-        driver: macvlan
-        name: oai-net
-        ipam:
-            config:
-                - subnet: "172.21.8.0/22"
-                  ip_range: "172.21.10.20/32"
-                  gateway: "172.21.11.254"
-        driver_opts:
-            com.docker.network.bridge.name: "oai-net"
-            parent: bond0
