@@ -623,10 +623,7 @@ void UE_dl_processing(void *arg) {
 
 void dummyWrite(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, int writeBlockSize)
 {
-  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
-  if (UE->sl_mode == 2)
-    fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
-
+  const NR_DL_FRAME_PARMS *fp = nrue_frame_parms(UE);
   c16_t *dummy_tx[fp->nb_antennas_tx];
   c16_t dummy_tx_data[writeBlockSize];
   memset(dummy_tx_data, 0, sizeof(dummy_tx_data));
@@ -656,7 +653,7 @@ static int compute_sync_size(PHY_VARS_NR_UE *UE)
 
 static void readFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int duration_rx_to_tx, int sz, c16_t **result)
 {
-  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
+  const NR_DL_FRAME_PARMS *fp = nrue_frame_parms(UE);
   c16_t *rxp[fp->nb_antennas_rx];
   if (!result) {
     int sz = 0;
@@ -697,10 +694,7 @@ static void readFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int d
 
 static void syncInFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int duration_rx_to_tx, openair0_timestamp_t rx_offset)
 {
-  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
-  if (UE->sl_mode == 2)
-    fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
-
+  const NR_DL_FRAME_PARMS *fp = nrue_frame_parms(UE);
   LOG_I(PHY, "Resynchronizing RX by %ld samples\n", rx_offset);
 
   int size = rx_offset;

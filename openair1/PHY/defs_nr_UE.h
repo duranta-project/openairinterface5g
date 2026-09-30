@@ -470,6 +470,13 @@ typedef struct PHY_VARS_NR_UE_s {
 } PHY_VARS_NR_UE;
 typedef struct pdsch_scratch_s pdsch_scratch_t;
 
+/* Frame parameters the UE synchronises and receives on: the sidelink ones in sidelink mode 2,
+   the downlink ones otherwise. */
+static inline NR_DL_FRAME_PARMS *nrue_frame_parms(PHY_VARS_NR_UE *ue)
+{
+  return ue->sl_mode == SL_MODE2_SUPPORTED ? &ue->SL_UE_PHY_PARAMS.sl_frame_params : &ue->frame_parms;
+}
+
 typedef struct {
   openair0_timestamp_t timestamp_tx;
   int gNB_id;
