@@ -199,23 +199,24 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
     float snr = nr_mac_get_snr(&sched_ctrl->pusch_pc);
     float rssi = nr_mac_get_rssi(&sched_ctrl->pusch_pc);
     float diff_target = (snr * 10.0f - sched_ctrl->pusch_pc.target_snrx10) / 10.0f;
-    output = st_append(
-        output,
-        end,
-        ", ulsch_errors %" PRIu64
-        ", ulsch_DTX %d, BLER %.5f MCS (%d) %d (Qm %d deltaMCS %d) NPRB %d SNR %.1f (%+.1f) RSSI %.1f CCE fail %d\n",
-        stats->ul.errors,
-        stats->ulsch_DTX,
-        sched_ctrl->ul_bler_stats.bler,
-        UE->current_UL_BWP.mcs_table,
-        sched_ctrl->ul_bler_stats.mcs,
-        nr_get_Qm_ul(sched_ctrl->ul_bler_stats.mcs, UE->current_UL_BWP.mcs_table),
-        UE->mac_stats.deltaMCS,
-        UE->mac_stats.NPRB,
-        snr,
-        diff_target,
-        rssi,
-        sched_ctrl->ul_cce_fail);
+    output = st_append(output,
+                       end,
+                       ", ulsch_errors %" PRIu64
+                       ", ulsch_DTX %d, BLER %.5f MCS (%d) %d (Qm %d deltaMCS %d) NPRB %d SNR %.1f (%+.1f) RSSI %.1f CCE fail %d "
+                       "MU-MIMO co-scheduled %u\n",
+                       stats->ul.errors,
+                       stats->ulsch_DTX,
+                       sched_ctrl->ul_bler_stats.bler,
+                       UE->current_UL_BWP.mcs_table,
+                       sched_ctrl->ul_bler_stats.mcs,
+                       nr_get_Qm_ul(sched_ctrl->ul_bler_stats.mcs, UE->current_UL_BWP.mcs_table),
+                       UE->mac_stats.deltaMCS,
+                       UE->mac_stats.NPRB,
+                       snr,
+                       diff_target,
+                       rssi,
+                       sched_ctrl->ul_cce_fail,
+                       UE->mac_stats.mu_coscheduled);
 
     // normally a UE should have at least one LCID, 1 in SA or 4 in NSA/phy-test
     output = st_append(output, end, "UE %04x: LCID ", UE->rnti);

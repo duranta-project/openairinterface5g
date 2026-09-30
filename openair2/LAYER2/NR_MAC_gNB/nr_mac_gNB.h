@@ -802,6 +802,7 @@ typedef struct NR_mac_stats {
   char srs_stats[50]; // Statistics may differ depending on SRS usage
   int deltaMCS;
   int NPRB;
+  uint32_t mu_coscheduled; // number of UL MU-MIMO co-scheduling events of the UE
 } NR_mac_stats_t;
 
 typedef struct NR_bler_options {

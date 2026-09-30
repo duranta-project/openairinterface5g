@@ -324,6 +324,9 @@ static bool mu_coschedule_partner(const nr_ul_sched_params_t *params,
   }
 
   partner->scheduled = true;
+  anchor->UE->mac_stats.mu_coscheduled++;
+  partner->UE->mac_stats.mu_coscheduled++;
+
   return true;
 }
 
