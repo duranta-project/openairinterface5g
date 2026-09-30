@@ -137,9 +137,6 @@ typedef struct f1ap_served_cell_info_s {
   uint16_t nr_pci;
   // 5GS TAC (Optional)
   uint32_t *tac;
-  // Compatibility bridge (removed once O1 migrates): legacy single-PLMN slice list
-  uint16_t num_ssi;
-  nssai_t nssai[MAX_NUM_SLICES];
   // Served PLMN list (each PLMN carries its own TAI Slice Support List, 38.473 §9.3.1.10)
   // For MOCN, num_plmn>=1 and served_plmn_list[0..num_plmn-1] hold all broadcast PLMNs and slices.
   uint16_t num_plmn;

@@ -466,13 +466,15 @@ static F1AP_Served_Cell_Information_t encode_served_cell_info(const f1ap_served_
   }
   // Served PLMNs 1..<maxnoofBPLMNs>
   // MOCN: emit one ServedPLMNs_Item per broadcast PLMN with its own slice list.
-  // Compat bridge: num_plmn==0 (legacy producer not yet migrated) falls back to the
-  // primary PLMN with its legacy slice list (num_ssi/nssai); removed once O1 migrates.
-  int num_splmn = c->num_plmn > 0 ? c->num_plmn : 1;
-  for (int i = 0; i < num_splmn; i++) {
-    const plmn_id_t *p = (c->num_plmn > 0) ? &c->served_plmn_list[i].plmn : &c->plmn;
-    int ns = (c->num_plmn > 0) ? c->served_plmn_list[i].num_nssai : c->num_ssi;
-    const nssai_t *nssai = (c->num_plmn > 0) ? c->served_plmn_list[i].nssai : c->nssai;
+  // At least one served PLMN is mandatory; guard the fixed-size array.
+  AssertFatal(c->num_plmn > 0 && c->num_plmn <= F1AP_MAX_NB_PLMNS,
+              "num_plmn %d must be in [1, %d]\n",
+              c->num_plmn,
+              F1AP_MAX_NB_PLMNS);
+  for (int i = 0; i < c->num_plmn; i++) {
+    const plmn_id_t *p = &c->served_plmn_list[i].plmn;
+    int ns = c->served_plmn_list[i].num_nssai;
+    const nssai_t *nssai = c->served_plmn_list[i].nssai;
     asn1cSequenceAdd(scell_info.servedPLMNs.list, F1AP_ServedPLMNs_Item_t, servedPLMN_item);
     // PLMN Identity (M)
     MCC_MNC_TO_PLMNID(p->mcc, p->mnc, p->mnc_digit_length, &servedPLMN_item->pLMN_Identity);
@@ -895,18 +897,19 @@ bool decode_f1ap_setup_request(const F1AP_F1AP_PDU_t *pdu, f1ap_setup_req_t *out
 
 static f1ap_served_cell_info_t copy_f1ap_served_cell_info(const f1ap_served_cell_info_t *src)
 {
+  AssertFatal(src->num_plmn > 0 && src->num_plmn <= F1AP_MAX_NB_PLMNS,
+              "num_plmn %d must be in [1, %d]\n",
+              src->num_plmn,
+              F1AP_MAX_NB_PLMNS);
+
   f1ap_served_cell_info_t dst = {
     .plmn = src->plmn,
     .nr_cellid = src->nr_cellid,
     .nr_pci = src->nr_pci,
-    .num_ssi = src->num_ssi, // compat bridge
     .num_plmn = src->num_plmn,
     .mode = src->mode,
   };
 
-  // compat bridge: copy legacy slice list (removed once O1 migrates)
-  for (int i = 0; i < src->num_ssi; ++i)
-    dst.nssai[i] = src->nssai[i];
   // Deep-copy per-PLMN slice lists (MOCN: each PLMN may carry its own slice support list)
   for (int i = 0; i < src->num_plmn; ++i)
     dst.served_plmn_list[i] = src->served_plmn_list[i];
