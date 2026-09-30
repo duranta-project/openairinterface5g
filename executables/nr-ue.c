@@ -671,8 +671,8 @@ static void readFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int d
   }
 
   for (int remain = sz; remain > 0;) {
-    for (int slot_rx = 0; slot_rx < fp->slots_per_subframe; slot_rx++) {
-      int readBlockSize = min(get_samples_per_slot(slot_rx, fp), sz);
+    for (int slot_rx = 0; slot_rx < fp->slots_per_subframe && remain > 0; slot_rx++) {
+      int readBlockSize = min(get_samples_per_slot(slot_rx, fp), remain);
       int tmp = nrue_ru_read(UE, timestamp, (void **)rxp, readBlockSize, fp->nb_antennas_rx);
       UEscopeCopy(UE, ueTimeDomainSamplesBeforeSync, rxp[0], sizeof(c16_t), 1, readBlockSize, 0);
       AssertFatal(readBlockSize == tmp, "read rf board failed %d", tmp);
@@ -682,7 +682,8 @@ static void readFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int d
       remain -= readBlockSize;
       if (IS_SOFTMODEM_RFSIM) {
         int slot_tx = (slot_rx + duration_rx_to_tx) % fp->slots_per_frame;
-        int writeBlockSize = get_samples_per_slot(slot_tx, fp);
+        // keep the TX stream contiguous when less than a slot was read
+        int writeBlockSize = readBlockSize + get_samples_per_slot(slot_tx, fp) - get_samples_per_slot(slot_rx, fp);
         int ta = UE->timing_advance + UE->timing_advance_ntn;
         const openair0_timestamp_t writeTimestamp =
             *timestamp + get_samples_slot_duration(fp, slot_rx, duration_rx_to_tx) - UE->N_TA_offset - ta;
