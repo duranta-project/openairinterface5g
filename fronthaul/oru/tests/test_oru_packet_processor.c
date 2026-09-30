@@ -1816,6 +1816,107 @@ void test_large_delay_profile()
   printf("Large delay profile test passed!\n");
 }
 
+// Sends a DL section-1 C-plane packet with the given raw extension bytes appended after the section.
+static void send_cplane_with_ext1(void *ctx, const uint8_t *ext, size_t ext_len)
+{
+  struct rte_mbuf *mbuf = rte_pktmbuf_alloc(mp);
+  assert(mbuf != NULL);
+  struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(mbuf, sizeof(struct xran_ecpri_hdr));
+  ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, 0);
+  ecpri->ecpri_seq_id.bits.seq_id = 1;
+  struct xran_cp_radioapp_section1_header *apphdr =
+      (struct xran_cp_radioapp_section1_header *)rte_pktmbuf_append(mbuf, sizeof(struct xran_cp_radioapp_section1_header));
+  memset(apphdr, 0, sizeof(*apphdr));
+  apphdr->cmnhdr.field.dataDirection = XRAN_DIR_DL;
+  apphdr->cmnhdr.field.payloadVer = XRAN_PAYLOAD_VER;
+  apphdr->cmnhdr.sectionType = XRAN_CP_SECTIONTYPE_1;
+  apphdr->cmnhdr.field.all_bits = rte_cpu_to_be_32(apphdr->cmnhdr.field.all_bits);
+  struct xran_cp_radioapp_section1 *sec =
+      (struct xran_cp_radioapp_section1 *)rte_pktmbuf_append(mbuf, sizeof(struct xran_cp_radioapp_section1));
+  memset(sec, 0, sizeof(*sec));
+  sec->hdr.u.s1.numSymbol = 1;
+  sec->hdr.u.s1.ef = 1;
+  *((uint64_t *)sec) = rte_be_to_cpu_64(*((uint64_t *)sec));
+  if (ext_len > 0) {
+    uint8_t *dst = (uint8_t *)rte_pktmbuf_append(mbuf, ext_len);
+    assert(dst != NULL);
+    memcpy(dst, ext, ext_len);
+  }
+  handle_cplane_packet(ctx, mbuf);
+}
+
+void test_cplane_section_extension_1(void)
+{
+  printf("Testing C-Plane section extension parsing...\n");
+  void *ctx = init_packet_processor(1,
+                                    273,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    0);
+  assert(ctx != NULL);
+  handle_absolute_symbol_tick(ctx, 1000);
+  set_num_bf_weights_ext1(ctx, 2);
+
+  // ext1, BFP 8-bit, exponent 0, 2 weights: 3 hdr + 1 param + 4 IQ bytes = 2 words, no padding
+  const uint8_t ext1[] = {XRAN_CP_SECTIONEXTCMD_1, 2, 0x81, 0x00, 4, (uint8_t)-4, 100, (uint8_t)-100};
+  oru_packet_processor_stats_t stats;
+
+  send_cplane_with_ext1(ctx, ext1, sizeof(ext1));
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext1_received == 1 && stats.cplane_err_sect_ext == 0);
+
+  // Unsupported extension (ef=1, 1 word) chained in front of ext1: skipped, ext1 still parsed
+  uint8_t chained[4 + sizeof(ext1)] = {0x80 | XRAN_CP_SECTIONEXTCMD_6, 1, 0, 0};
+  memcpy(chained + 4, ext1, sizeof(ext1));
+  send_cplane_with_ext1(ctx, chained, sizeof(chained));
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext1_received == 2 && stats.cplane_err_sect_ext == 0);
+
+  // ext1 carrying fewer weights than configured
+  set_num_bf_weights_ext1(ctx, 4);
+  send_cplane_with_ext1(ctx, ext1, sizeof(ext1));
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext1_received == 3 && stats.cplane_err_sect_ext == 1);
+
+  // num_bf_weights = 0: ext1 counted but not decoded
+  set_num_bf_weights_ext1(ctx, 0);
+  send_cplane_with_ext1(ctx, ext1, sizeof(ext1));
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext1_received == 4 && stats.cplane_err_sect_ext == 1);
+
+  // extLen = 0
+  const uint8_t zero_len[] = {XRAN_CP_SECTIONEXTCMD_1, 0, 0x81, 0x00};
+  send_cplane_with_ext1(ctx, zero_len, sizeof(zero_len));
+  // extLen past the end of the packet
+  const uint8_t overrun[] = {XRAN_CP_SECTIONEXTCMD_1, 3, 0x81, 0x00, 4, (uint8_t)-4, 100, (uint8_t)-100};
+  send_cplane_with_ext1(ctx, overrun, sizeof(overrun));
+  // ef set on the section but no extension present
+  send_cplane_with_ext1(ctx, NULL, 0);
+  // Last extension claims another one follows
+  uint8_t dangling[sizeof(ext1)];
+  memcpy(dangling, ext1, sizeof(ext1));
+  dangling[0] |= 0x80;
+  send_cplane_with_ext1(ctx, dangling, sizeof(dangling));
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_sect_ext == 5);
+
+  cleanup_packet_processor(ctx);
+  printf("C-Plane section extension parsing passed!\n");
+}
+
 int main(int argc, char **argv)
 {
   setup_dpdk(argc, argv);
@@ -1824,6 +1925,8 @@ int main(int argc, char **argv)
   test_init_cleanup();
   usleep(10000);
   test_cplane_timing_errors();
+  usleep(10000);
+  test_cplane_section_extension_1();
   usleep(10000);
   test_cplane_uplane_match();
   usleep(10000);

@@ -37,6 +37,9 @@ set_property(TEST test_oru_pcap_1 PROPERTY LABELS fronthaul)
 add_test(NAME test_oru_pcap_frag COMMAND ${CMAKE_CURRENT_BINARY_DIR}/run_oru_pcap_test.sh https://github.com/bpodrygajlo/openairinterface5g/releases/download/fhi72-pcaps/capture-oai-odu-4x4-273prb-truncated.pcap.xz $<TARGET_FILE:test_oru_pcap> 1090 3 1 6 4 5 1500 4 -- ${DPDK_TEST_ARGS} "--file-prefix=test_oru_pcap_frag")
 set_property(TEST test_oru_pcap_frag PROPERTY LABELS fronthaul)
 
+add_test(NAME test_oru_pcap_ext1 COMMAND ${CMAKE_CURRENT_BINARY_DIR}/run_oru_pcap_test.sh https://github.com/ConnorBlasie/openairinterface5g/releases/download/ext1-pcaps/capture-xran-odu-catb-4x32-273prb-ext1.pcap.xz $<TARGET_FILE:test_oru_pcap> 262 3 1 6 4 5 9600 4 32 384 --xran-ext1-reference 384 3072 -- ${DPDK_TEST_ARGS} "--file-prefix=test_oru_pcap_ext1")
+set_property(TEST test_oru_pcap_ext1 PROPERTY LABELS fronthaul)
+
 add_dependencies(tests test_oru_pcap)
 
 add_executable(test_oru_fh test_oru_fh.c)

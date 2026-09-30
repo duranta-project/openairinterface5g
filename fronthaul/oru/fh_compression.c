@@ -20,7 +20,7 @@ static void pack_bits(uint8_t *stream, int offset, int32_t val, int width)
   }
 }
 
-static int32_t unpack_bits(const uint8_t *stream, int offset, int width)
+int32_t unpack_bits(const uint8_t *stream, int offset, int width)
 {
   uint32_t bits = 0;
   for (int i = 0; i < width; i++) {
@@ -71,11 +71,11 @@ static void bfp_compress_prb(const int16_t *src, int8_t *dst, int iq_bits)
     pack_bits(out, i * iq_bits, src[i] >> exponent, iq_bits);
 }
 
-static void bfp_decompress_prb(const int8_t *src, int16_t *dst, int iq_bits)
+static void bfp_decompress_block(const int8_t *src, int16_t *dst, int iq_bits, int n_vals)
 {
   int exponent = (int)(uint8_t)src[0];
   const uint8_t *in = (const uint8_t *)(src + 1);
-  for (int i = 0; i < FH_VALS_PER_PRB; i++)
+  for (int i = 0; i < n_vals; i++)
     dst[i] = (int16_t)(unpack_bits(in, i * iq_bits, iq_bits) << exponent);
 }
 
@@ -108,11 +108,11 @@ static void blkscale_compress_prb(const int16_t *src, int8_t *dst, int iq_bits)
   }
 }
 
-static void blkscale_decompress_prb(const int8_t *src, int16_t *dst, int iq_bits)
+static void blkscale_decompress_block(const int8_t *src, int16_t *dst, int iq_bits, int n_vals)
 {
   int shift = (int)(uint8_t)src[0];
   const uint8_t *in = (const uint8_t *)(src + 1);
-  for (int i = 0; i < FH_VALS_PER_PRB; i++)
+  for (int i = 0; i < n_vals; i++)
     dst[i] = (int16_t)(unpack_bits(in, i * iq_bits, iq_bits) << shift);
 }
 
@@ -164,10 +164,10 @@ static void ulaw_compress_prb(const int16_t *src, int8_t *dst, int iq_bits)
     pack_bits(out, i * iq_bits, ulaw_encode(src[i], iq_bits), iq_bits);
 }
 
-static void ulaw_decompress_prb(const int8_t *src, int16_t *dst, int iq_bits)
+static void ulaw_decompress_block(const int8_t *src, int16_t *dst, int iq_bits, int n_vals)
 {
   const uint8_t *in = (const uint8_t *)(src + 1);
-  for (int i = 0; i < FH_VALS_PER_PRB; i++)
+  for (int i = 0; i < n_vals; i++)
     dst[i] = ulaw_decode((int16_t)unpack_bits(in, i * iq_bits, iq_bits), iq_bits);
 }
 
@@ -198,24 +198,28 @@ void fh_compress_prbs(fh_comp_method_t method, int iq_bits, int n_prb, const int
 
 void fh_decompress_prbs(fh_comp_method_t method, int iq_bits, int n_prb, const int8_t *src, int16_t *dst)
 {
-  AssertFatal(method != FH_COMP_NONE, "fh_decompress_prbs called with FH_COMP_NONE\n");
-  AssertFatal(iq_bits >= 1 && iq_bits <= 16, "iq_bits %d out of range [1..16]\n", iq_bits);
   const int src_stride = FH_COMP_PRB_BYTES(iq_bits);
   const int dst_stride = FH_VALS_PER_PRB;
-  for (int p = 0; p < n_prb; p++) {
-    switch (method) {
-      case FH_COMP_BFP:
-        bfp_decompress_prb(src + p * src_stride, dst + p * dst_stride, iq_bits);
-        break;
-      case FH_COMP_BLKSCALE:
-        blkscale_decompress_prb(src + p * src_stride, dst + p * dst_stride, iq_bits);
-        break;
-      case FH_COMP_ULAW:
-        ulaw_decompress_prb(src + p * src_stride, dst + p * dst_stride, iq_bits);
-        break;
-      default:
-        AssertFatal(0, "Unsupported compression method %d\n", method);
-    }
+  for (int p = 0; p < n_prb; p++)
+    fh_decompress_block(method, iq_bits, FH_VALS_PER_PRB, src + p * src_stride, dst + p * dst_stride);
+}
+
+void fh_decompress_block(fh_comp_method_t method, int iq_bits, int n_vals, const int8_t *src, int16_t *dst)
+{
+  AssertFatal(method != FH_COMP_NONE, "fh_decompress_block called with FH_COMP_NONE\n");
+  AssertFatal(iq_bits >= 1 && iq_bits <= 16, "iq_bits %d out of range [1..16]\n", iq_bits);
+  switch (method) {
+    case FH_COMP_BFP:
+      bfp_decompress_block(src, dst, iq_bits, n_vals);
+      break;
+    case FH_COMP_BLKSCALE:
+      blkscale_decompress_block(src, dst, iq_bits, n_vals);
+      break;
+    case FH_COMP_ULAW:
+      ulaw_decompress_block(src, dst, iq_bits, n_vals);
+      break;
+    default:
+      AssertFatal(0, "Unsupported compression method %d\n", method);
   }
 }
 
