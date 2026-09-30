@@ -540,7 +540,8 @@ typedef struct {
 } sss_detection_result_t;
 
 // Common SSB search parameters - used by both initial sync and neighbor cell search
-typedef struct {
+typedef struct nr_ssb_search_params_s nr_ssb_search_params_t;
+struct nr_ssb_search_params_s {
   uint64_t dl_CarrierFreq;
   uint sampling_rate;
   int slots_per_frame;
@@ -565,10 +566,18 @@ typedef struct {
   bool fo_flag; // frequency offset estimation flag for pss_synchro_nr()
   void *rxdataF; // Pre-allocated rxdataF buffer
   void *pssTime; // Pre-generated PSS time sequences
+  /* Optional check of a candidate block, run once its SSS has been detected and its symbols
+     demodulated into rxdataF. Returning false makes the search carry on with the next
+     candidate. Initial sync uses it to decode the PBCH, which is what tells a real block
+     apart from a correlation peak landing on the wrong samples. */
+  bool (*validate_candidate)(void *ctx, const nr_ssb_search_params_t *params);
+  void *validate_ctx;
   // Output parameters
   pss_detection_result_t pss_res;
   sss_detection_result_t sss_res;
-} nr_ssb_search_params_t;
+  /* Offset of the first sample of the detected block inside rxdata. */
+  int ssb_time_offset;
+};
 
 typedef struct nr_phy_data_tx_s {
   NR_UE_ULSCH_t ulsch;
