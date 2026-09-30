@@ -17,7 +17,6 @@
 #include <assert.h>
 #include <errno.h>
 #include <math.h>
-#include <nr-uesoftmodem.h>
 
 #include "PHY/defs_nr_UE.h"
 
@@ -33,31 +32,34 @@
 // #define DBG_PSS_NR
 
 /*******************************************************************
-*
-* NAME :         generate_pss_nr
-*
-* PARAMETERS :   N_ID_2 : element 2 of physical layer cell identity
-*                value : { 0, 1, 2}
-*
-* RETURN :       generate binary pss sequence (this is a m-sequence)
-*
-* DESCRIPTION :  3GPP TS 38.211 7.4.2.2 Primary synchronisation signal
-*                Sequence generation
-*
-*********************************************************************/
+ *
+ * NAME :         generate_pss_nr
+ *
+ * PARAMETERS :   N_ID_2 : element 2 of physical layer cell identity
+ *                value : { 0, 1, 2}
+ *
+ * RETURN :       generate binary pss sequence (this is a m-sequence)
+ *
+ * DESCRIPTION :  3GPP TS 38.211 7.4.2.2 Primary synchronisation signal (downlink)
+ *                3GPP TS 38.211 8.4.2.2 Sidelink primary synchronisation signal
+ *                Sequence generation. The two only differ by the extra cyclic shift of 22
+ *                applied to the m-sequence in the sidelink.
+ *
+ *********************************************************************/
 
-void generate_pss_nr(const int N_ID_2, int16_t *pss)
+void generate_pss_nr(const int N_ID_2, bool sidelink, int16_t *pss)
 {
-  AssertFatal(N_ID_2 >= 0 && N_ID_2 < NUMBER_PSS_SEQUENCE, "Illegal N_ID_2 %d\n", N_ID_2);
+  AssertFatal(N_ID_2 >= 0 && N_ID_2 < nr_num_pss_sequences(sidelink), "Illegal N_ID_2 %d\n", N_ID_2);
   int16_t x[LENGTH_PSS_NR];
 #define INITIAL_PSS_NR (7)
   const int16_t x_initial[INITIAL_PSS_NR] = {0, 1, 1, 0, 1, 1, 1};
   memcpy(x, x_initial, sizeof(x_initial));
 
+  const int shift = sidelink ? 22 : 0;
   for (int i = 0; i < (LENGTH_PSS_NR - INITIAL_PSS_NR); i++)
     x[i + INITIAL_PSS_NR] = (x[i + 4] + x[i]) % 2;
   for (int n=0; n < LENGTH_PSS_NR; n++) {
-    const int m = (n + 43 * N_ID_2) % (LENGTH_PSS_NR);
+    const int m = (n + shift + 43 * N_ID_2) % (LENGTH_PSS_NR);
     pss[n] = 1 - 2 * x[m];
   }
 }
@@ -87,14 +89,15 @@ void generate_pss_nr_time(int ofdm_symbol_size,
                           int first_carrier_offset,
                           const int N_ID_2,
                           int ssbFirstSCS,
+                          bool sidelink,
                           c16_t pssTime[ofdm_symbol_size])
 {
-  unsigned int subcarrier_start = get_softmodem_params()->sl_mode == 0 ? PSS_SSS_SUB_CARRIER_START : PSS_SSS_SUB_CARRIER_START_SL;
+  unsigned int subcarrier_start = sidelink ? PSS_SSS_SUB_CARRIER_START_SL : PSS_SSS_SUB_CARRIER_START;
   c16_t synchroF_tmp[ofdm_symbol_size] __attribute__((aligned(32)));
   memset(synchroF_tmp, 0, sizeof(synchroF_tmp));
   unsigned int k = CIRCULAR_INC(first_carrier_offset, ssbFirstSCS + subcarrier_start, ofdm_symbol_size);
   int16_t pss[LENGTH_PSS_NR];
-  generate_pss_nr(N_ID_2, pss);
+  generate_pss_nr(N_ID_2, sidelink, pss);
   for (int i = 0; i < LENGTH_PSS_NR; i++) {
     synchroF_tmp[k] = (c16_t){.r = pss[i] * ((1U << SCALING_PSS_NR) - 1)};
     k = CIRCULAR_INC(k, 1, ofdm_symbol_size);
@@ -176,7 +179,7 @@ nr_pss_info_t pss_search_time_nr(const pss_search_t *p)
   }
 
   c16_t(*pssTime)[p->ofdm_symbol_size] = (c16_t(*)[p->ofdm_symbol_size])p->pssTime;
-  const int max_nid2 = get_softmodem_params()->sl_mode == 0 ? NUMBER_PSS_SEQUENCE : NUMBER_PSS_SEQUENCE_SL;
+  const int max_nid2 = nr_num_pss_sequences(p->sidelink);
 
   /* Search pss in the received buffer each 4 samples which ensures a memory alignment on 128 bits (32 bits x 4 ) */
   /* This is required by SIMD (single instruction Multiple Data) Extensions of Intel processors. */
@@ -184,7 +187,7 @@ nr_pss_info_t pss_search_time_nr(const pss_search_t *p)
   int pss_start = 0;
   int pss_end = max_nid2;
   if (p->target_Nid_cell != -1) {
-    pss_start = p->target_Nid_cell % NUMBER_PSS_SEQUENCE;
+    pss_start = nr_cell_id_to_nid2(p->sidelink, p->target_Nid_cell);
     pss_end = pss_start + 1;
   }
   int pss_count = 0;
