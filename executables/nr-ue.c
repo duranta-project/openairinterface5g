@@ -202,17 +202,14 @@ static void UE_synch(void *arg) {
   LOG_I(PHY, "[UE thread Synch] Running Initial Synch \n");
 
   uint64_t dl_carrier, ul_carrier;
-  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
-  nr_initial_sync_t ret = {0};
-  if (UE->sl_mode == 2) {
-    fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
+  const NR_DL_FRAME_PARMS *fp = nrue_frame_parms(UE);
+  if (UE->sl_mode == SL_MODE2_SUPPORTED) {
     dl_carrier = fp->sl_CarrierFreq;
     ul_carrier = fp->sl_CarrierFreq;
-    ret = sl_nr_slss_search(UE, &syncD->proc, SL_NR_SSB_REPETITION_IN_FRAMES, syncD->input_sz, syncD->input);
   } else {
     nr_get_carrier_frequencies(UE, &dl_carrier, &ul_carrier);
-    ret = nr_initial_sync(&syncD->proc, UE, syncD->input_sz, syncD->input, syncD->gscnInfo, syncD->numGscn);
   }
+  nr_initial_sync_t ret = nr_initial_sync(&syncD->proc, UE, syncD->input_sz, syncD->input, syncD->gscnInfo, syncD->numGscn);
 
   if (ret.cell_detected) {
     syncD->rx_offset = ret.rx_offset;
@@ -899,10 +896,6 @@ void *UE_thread(void *arg)
         decoded_hfn_rx++;
       // we do ++ first in the regular processing, so it will be begin of frame;
       absolute_slot = (decoded_hfn_rx * MAX_FRAME_NUMBER + decoded_frame_rx) * nb_slot_frame - 1;
-      if (UE->sl_mode == 2) {
-        // Set to the slot where the SL-SSB was decoded
-        absolute_slot += UE->SL_UE_PHY_PARAMS.sync_params.slot_offset;
-      }
       // With the correct frame and slot numbers, we can now fix the UL timing
       fix_ntn_epoch_hfn(UE, decoded_hfn_rx, decoded_frame_rx);
       if (UE->nrUE_config.ntn_config.params_changed) {

@@ -18,6 +18,10 @@
 #ifndef SS_PBCH_NR_H
 #define SS_PBCH_NR_H
 
+#include <stdbool.h>
+
+#include "PHY/defs_nr_sl_UE.h"
+
 /* PSS parameters */
 #define  NUMBER_PSS_SEQUENCE          (3)
 #define  NUMBER_PSS_SEQUENCE_SL       (2)
@@ -40,17 +44,38 @@
 #define  SSS_SYMBOL_NB                ((2) + OFFSET_SS_PBCH)
 #define  PBCH_LAST_SYMBOL_NB          ((3) + OFFSET_SS_PBCH)
 
+/* symbol numbers inside the sidelink SS/PSBCH block, see TS 38.211 8.4.3.1
+   symbol 0 and symbols 5 to 12 carry PSBCH */
+#define PSS0_SL_SYMBOL_NB (1)
+#define PSS1_SL_SYMBOL_NB (2)
+#define SSS0_SL_SYMBOL_NB (3)
+#define SSS1_SL_SYMBOL_NB (4)
 
-#define  OFFSET_SS_PSBCH              -1
-#define  PSS0_SL_SYMBOL_NB            ((1) + OFFSET_SS_PSBCH)
-#define  PSS1_SL_SYMBOL_NB            ((2) + OFFSET_SS_PSBCH)
-#define  SSS0_SL_SYMBOL_NB            ((3) + OFFSET_SS_PSBCH)
-#define  SSS1_SL_SYMBOL_NB            ((4) + OFFSET_SS_PSBCH)
+/* Mapping between the cell identity and the two sequence indices carried by PSS (N_ID_2)
+   and SSS (N_ID_1). Downlink: N_cell_ID = 3 * N_ID_1 + N_ID_2 (TS 38.211 7.4.2.1).
+   Sidelink: NID_SL = N_ID_1 + 336 * N_ID_2 (TS 38.211 8.4.2.1). */
+static inline int nr_cell_id(bool sidelink, int nid1, int nid2)
+{
+  return sidelink ? nid1 + SL_NR_NUM_IDs_IN_SSS * nid2 : nid2 + NUMBER_PSS_SEQUENCE * nid1;
+}
+
+static inline int nr_cell_id_to_nid1(bool sidelink, int cell_id)
+{
+  return sidelink ? cell_id % SL_NR_NUM_IDs_IN_SSS : cell_id / NUMBER_PSS_SEQUENCE;
+}
+
+static inline int nr_cell_id_to_nid2(bool sidelink, int cell_id)
+{
+  return sidelink ? cell_id / SL_NR_NUM_IDs_IN_SSS : cell_id % NUMBER_PSS_SEQUENCE;
+}
 
 /* SS/PBCH parameters */
 #define  N_RB_SS_PBCH_BLOCK           (20)
 #define  NB_SYMBOLS_PBCH              (3)
+/* number of symbols of an SS/PBCH block initial sync has to demodulate: PSS, PBCH, SSS,
+   PBCH for the downlink, the whole SS/PSBCH block for the sidelink */
 #define  NR_N_SYMBOLS_SSB             (4)
+#define SL_N_SYMBOLS_SSB SL_NR_NUM_SYMBOLS_SSB_NORMAL_CP
 
 #define IQ_SIZE sizeof(c16_t) /* I and Q are alternatively stored into buffers */
 
