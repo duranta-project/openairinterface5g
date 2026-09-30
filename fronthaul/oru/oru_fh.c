@@ -26,6 +26,17 @@ typedef struct {
   void *packet_processor;
 } oru_fh_t;
 
+// DPDK Linux GSG, 9.1.2: --vdev accepts a device name followed by optional comma-separated arguments.
+static int get_dpdk_device_name(const char *devargs, char *name, size_t name_size)
+{
+  size_t len = strcspn(devargs, ",");
+  if (len == 0 || len >= name_size)
+    return -1;
+  memcpy(name, devargs, len);
+  name[len] = '\0';
+  return 0;
+}
+
 static void rx_cb(struct rte_mbuf **pkts, uint16_t n, void *user_data)
 {
   oru_fh_t *fh = (oru_fh_t *)user_data;
@@ -76,14 +87,24 @@ void *oru_fh_init(oru_fh_config_t *cfg)
   char *argv[64];
   int argc = 0;
   char vdev_args[MAX_RU_PORTS][64];
+  char device_names[MAX_RU_PORTS][RTE_DEV_NAME_MAX_LEN];
   int vdev_idx = 0;
   argv[argc++] = "oru_fh";
   for (int i = 0; i < cfg->dpdk_conf.num_dpdk_devices; i++) {
-    if (strchr(cfg->dpdk_conf.dpdk_devices[i], ':')) {
+    const char *devargs = cfg->dpdk_conf.dpdk_devices[i];
+    if (get_dpdk_device_name(devargs, device_names[i], sizeof(device_names[i])) < 0) {
+      LOG_E(HW, "Invalid DPDK device argument: %s\n", devargs);
+      return NULL;
+    }
+    if (strchr(device_names[i], ':')) {
       argv[argc++] = "-a";
       argv[argc++] = cfg->dpdk_conf.dpdk_devices[i];
     } else {
-      snprintf(vdev_args[vdev_idx], sizeof(vdev_args[vdev_idx]), "--vdev=%s", cfg->dpdk_conf.dpdk_devices[i]);
+      int n = snprintf(vdev_args[vdev_idx], sizeof(vdev_args[vdev_idx]), "--vdev=%s", cfg->dpdk_conf.dpdk_devices[i]);
+      if (n < 0 || (size_t)n >= sizeof(vdev_args[vdev_idx])) {
+        LOG_E(HW, "DPDK virtual device argument is too long: %s\n", devargs);
+        return NULL;
+      }
       argv[argc++] = vdev_args[vdev_idx++];
     }
   }
@@ -158,8 +179,8 @@ void *oru_fh_init(oru_fh_config_t *cfg)
   fh->io_config.clock_timebase = cfg->clock_timebase;
   fh->io_config.num_ports = cfg->dpdk_conf.num_dpdk_devices;
   for (int i = 0; i < cfg->dpdk_conf.num_dpdk_devices; i++) {
-    if (rte_eth_dev_get_port_by_name(cfg->dpdk_conf.dpdk_devices[i], &fh->io_config.port_ids[i]) < 0) {
-      fprintf(stderr, "DPDK device %s not found\n", cfg->dpdk_conf.dpdk_devices[i]);
+    if (rte_eth_dev_get_port_by_name(device_names[i], &fh->io_config.port_ids[i]) < 0) {
+      fprintf(stderr, "DPDK device %s not found (configured as %s)\n", device_names[i], cfg->dpdk_conf.dpdk_devices[i]);
       free(fh);
       return NULL;
     }
