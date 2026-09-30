@@ -19,6 +19,7 @@
 #include "T.h"
 
 #include "assertions.h"
+#include "common/utils/rt_probe.h"
 
 #include <time.h>
 
@@ -250,6 +251,8 @@ void nr_feptx_tp(RU_t *ru, int frame_tx, int slot)
   join_task_ans(&ans);
 
   stop_meas(&ru->ofdm_total_stats);
+
+  rt_probe_record(&ru->rt_ru_feptx_probe, &ru->ofdm_total_stats);
 }
 
 // core RX FEP routine, called by threads in RU thread-pool
