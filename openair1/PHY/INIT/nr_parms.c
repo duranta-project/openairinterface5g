@@ -41,15 +41,16 @@ int nr_get_ssb_start_symbol(const NR_DL_FRAME_PARMS *fp, uint8_t i_ssb)
       symbol = case_AC[i_ssb % 2] + 14*n;
       break;
     case NR_MU_1:
-      if (type == 1){ // case B
+      if (type == nr_ssb_type_B) { // case B
         n = i_ssb >> 2;
-        symbol = case_BD[i_ssb % 4] + 28*n;
-       }
-       if (type == 2){ // case C
-         n = i_ssb >> 1;
-         symbol = case_AC[i_ssb % 2] + 14*n;
-       }
-       break;
+        symbol = case_BD[i_ssb % 4] + 28 * n;
+      } else if (type == nr_ssb_type_C) { // case C
+        n = i_ssb >> 1;
+        symbol = case_AC[i_ssb % 2] + 14 * n;
+      } else {
+        AssertFatal(false, "Invalid SS/PBCH block case %d for numerology index %d\n", type, mu);
+      }
+      break;
      case NR_MU_3: // case D
        n_temp = i_ssb >> 2;
        n = n_temp + (n_temp >> 2);
