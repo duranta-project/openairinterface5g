@@ -1,0 +1,75 @@
+diff --git a/server/external_taps/cir_generator.py b/server/external_taps/cir_generator.py
+index 12c028b..9298e64 100644
+--- a/server/external_taps/cir_generator.py
++++ b/server/external_taps/cir_generator.py
+@@ -179,13 +179,18 @@ def _ula_steering(n: int, spacing_wl: float, angle_deg: float) -> np.ndarray:
+     a /= np.sqrt(np.maximum(1e-12, np.vdot(a, a).real)).astype(np.float32)
+     return a
+ 
+-def _gen_snapshot(rng, n_tx, n_rx, L, pow_sqrt, k1_db, shadow_sigma_db=0.0):
++def _gen_snapshot(rng, n_tx, n_rx, L, pow_sqrt, k1_db, shadow_sigma_db=0.0, los_enable=True):
+     h = (rng.standard_normal((n_tx, n_rx, L), dtype=np.float32) +
+          1j * rng.standard_normal((n_tx, n_rx, L), dtype=np.float32)) / np.sqrt(2.0)
+ 
+     h *= pow_sqrt[None, None, :]
+ 
+-    if k1_db is not None and L > 0:
++    # When los_enable is True, _apply_corr_and_coupling() overwrites tap 0 with a
++    # proper (deterministic-AoA) Rician mix using the real steering vectors. Doing
++    # the K-factor mix here too would double up: it would splice a random-phase
++    # pseudo-LOS term into a value that's about to be replaced anyway. Only mix
++    # here when there's no deterministic steering to fall back on.
++    if k1_db is not None and L > 0 and not los_enable:
+         K = np.float32(10.0 ** (k1_db / 10.0))
+         s = np.sqrt(K / (K + 1.0)).astype(np.float32)
+         n = np.sqrt(1.0 / (K + 1.0)).astype(np.float32)
+@@ -193,8 +198,11 @@ def _gen_snapshot(rng, n_tx, n_rx, L, pow_sqrt, k1_db, shadow_sigma_db=0.0):
+         h[..., 0] = s * np.exp(1j * phi) + n * h[..., 0]
+ 
+     if shadow_sigma_db and shadow_sigma_db > 0.0:
+-        s_db = rng.normal(0.0, shadow_sigma_db, size=(n_tx, n_rx)).astype(np.float32)
+-        scale = np.power(10.0, s_db * 0.05, dtype=np.float32)[..., None]
++        # Shadow/blockage is a per-link large-scale effect shared by every antenna
++        # element at both ends (elements are wavelength-scale apart, not far enough
++        # to see independent obstructions) -- one draw per snapshot, not per antenna pair.
++        s_db = rng.normal(0.0, shadow_sigma_db)
++        scale = np.power(10.0, s_db * 0.05, dtype=np.float32)
+         h *= scale
+ 
+     return h.astype(np.complex64, copy=False)
+@@ -248,26 +256,29 @@ def _write_entry_data(fh, rng, n_tx, n_rx, S, L, pow_lin, k1_db, shadow_sigma_db
+     use_shadow = shadow_sigma_db is not None and shadow_sigma_db > 0.0
+     ar1 = use_shadow and shadow_corr_time_s is not None and shadow_corr_time_s > 0.0
+ 
++    # Shadow/blockage is a per-link large-scale effect shared by every antenna
++    # element at both ends -- draw one scalar per snapshot, not one per antenna pair,
++    # so it doesn't randomly rotate the array's spatial signature antenna-by-antenna.
+     if use_shadow and not ar1:
+-        s_db = rng.normal(0.0, shadow_sigma_db, size=(n_tx, n_rx)).astype(np.float32)
+-        fixed_scale = np.power(10.0, 0.05 * s_db, dtype=np.float32)[..., None]
++        s_db = rng.normal(0.0, shadow_sigma_db)
++        fixed_scale = np.power(10.0, 0.05 * s_db, dtype=np.float32)
+     else:
+         fixed_scale = None
+ 
+     if ar1:
+-        x_db = rng.normal(0.0, shadow_sigma_db, size=(n_tx, n_rx)).astype(np.float32)
++        x_db = float(rng.normal(0.0, shadow_sigma_db))
+         phi = float(np.exp(-snapshot_dt_s / shadow_corr_time_s))
+         sigma_w = float(shadow_sigma_db * np.sqrt(max(1e-12, 1.0 - phi * phi)))
+ 
+     for _ in range(S):
+-        h = _gen_snapshot(rng, n_tx, n_rx, L, pow_sqrt, k1_db, shadow_sigma_db=0.0)
++        h = _gen_snapshot(rng, n_tx, n_rx, L, pow_sqrt, k1_db, shadow_sigma_db=0.0, los_enable=los_enable)
+         h = _apply_corr_and_coupling(h, Rtx_sqrt, Rrx_sqrt, Ctx, Crx, k1_db,
+                                      los_enable, los_aod_deg, los_aoa_deg, spacing_wl)
+         if use_shadow:
+             if ar1:
+-                w = rng.normal(0.0, sigma_w, size=(n_tx, n_rx)).astype(np.float32)
++                w = float(rng.normal(0.0, sigma_w))
+                 x_db = phi * x_db + w
+-                scale = np.power(10.0, 0.05 * x_db, dtype=np.float32)[..., None]
++                scale = np.power(10.0, 0.05 * x_db, dtype=np.float32)
+                 h *= scale
+             else:
+                 h *= fixed_scale

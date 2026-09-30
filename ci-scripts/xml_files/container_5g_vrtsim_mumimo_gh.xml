@@ -1,0 +1,181 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+<testCaseList>
+  <htmlTabName>UL MU-MIMO gNB vrtsim + CIRDB</htmlTabName>
+
+  <testCase>
+    <class>Pull_Local_Registry</class>
+    <desc>Pull Images from Local Registry</desc>
+    <node>localhost</node>
+    <images>oai-gnb oai-nr-ue</images>
+    <tag_prefix>arm_</tag_prefix>
+  </testCase>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace</desc>
+    <node>localhost</node>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy OAI 5G CoreNetwork</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_vrtsim_mumimo</yaml_path>
+    <services>mysql oai-amf oai-smf oai-upf oai-ext-dn</services>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy OAI 5G gNB (UL MU-MIMO) + UE RF sim SA</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_vrtsim_mumimo</yaml_path>
+    <services>oai-gnb oai-nr-ue0 oai-nr-ue1</services>
+  </testCase>
+
+  <testCase>
+    <class>Attach_UE</class>
+    <desc>Attach OAI UE 1 (Wait for IP)</desc>
+    <id>rfsim5g_ue</id>
+    <node>localhost</node>
+  </testCase>
+
+  <testCase>
+    <class>Attach_UE</class>
+    <desc>Attach OAI UE 2 (Wait for IP)</desc>
+    <id>rfsim5g_ue2</id>
+    <node>localhost</node>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping ext-dn from NR-UE</desc>
+    <id>rfsim5g_ue</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_ext_dn</svr_id>
+    <svr_node>localhost</svr_node>
+    <ping_args>-c 20 -i 0.25</ping_args>
+    <ping_packetloss_threshold>5</ping_packetloss_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping NR-UE from ext-dn</desc>
+    <id>rfsim5g_ext_dn</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_ue</svr_id>
+    <svr_node>localhost</svr_node>
+    <ping_args>-c 20 -i 0.25</ping_args>
+    <ping_packetloss_threshold>5</ping_packetloss_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping ext-dn from UE 2</desc>
+    <id>rfsim5g_ue2</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_ext_dn</svr_id>
+    <svr_node>localhost</svr_node>
+    <ping_args>-c 20 -i 0.25</ping_args>
+    <ping_packetloss_threshold>5</ping_packetloss_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping UE 2 from ext-dn</desc>
+    <id>rfsim5g_ext_dn</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_ue2</svr_id>
+    <svr_node>localhost</svr_node>
+    <ping_args>-c 20 -i 0.25</ping_args>
+    <ping_packetloss_threshold>5</ping_packetloss_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>Iperf UE 1 (DL/3Mbps/UDP)(30 sec)</desc>
+    <iperf_args>-u -b 3M -t 30 -R</iperf_args>
+    <id>rfsim5g_ue</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_ext_dn</svr_id>
+    <svr_node>localhost</svr_node>
+    <iperf_packetloss_threshold>5</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>90</iperf_bitrate_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>Iperf UE 2 (DL/3Mbps/UDP)(30 sec)</desc>
+    <iperf_args>-u -b 3M -t 30 -R</iperf_args>
+    <id>rfsim5g_ue2</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_ext_dn</svr_id>
+    <svr_node>localhost</svr_node>
+    <iperf_packetloss_threshold>5</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>90</iperf_bitrate_threshold>
+  </testCase>
+
+  <!-- Both UEs push UL UDP traffic concurrently (Iperf's <id> list runs one
+       thread per UE), offered slightly above the cell capacity (~6.2 Mbps per
+       UE at vrtsim.timescale 0.2) so the cell runs at full load and the
+       scheduler has to SRS-pair and co-schedule them to carry it. Far more
+       would delay iperf3's control connection behind the queued data until
+       the receiver report fails. 120 s at vrtsim.timescale 0.2 stays within
+       the 40 s of CIRDB snapshots. -->
+  <testCase>
+    <class>Iperf</class>
+    <desc>Iperf UE 1+2 concurrent (UL/6.5Mbps per UE/UDP)(120 sec)</desc>
+    <iperf_args>-u -b 13M -t 120</iperf_args>
+    <id>rfsim5g_ue rfsim5g_ue2</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_ext_dn</svr_id>
+    <svr_node>localhost</svr_node>
+    <iperf_profile>balanced</iperf_profile>
+    <iperf_packetloss_threshold>10</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>85</iperf_bitrate_threshold>
+  </testCase>
+
+  <!-- Converts the received bitrates of the concurrent traffic above to the
+       over-the-air rate at vrtsim.timescale and validates their sum. -->
+  <testCase>
+    <class>Custom_Script</class>
+    <desc>Check cumulative UL throughput across both UEs</desc>
+    <node>localhost</node>
+    <script>scripts/check_ul_mumimo_cumulative_throughput.sh</script>
+    <options>50 0.2</options>
+  </testCase>
+
+  <!-- Throughput passing doesn't by itself prove the UEs were ever actually
+       paired onto shared resources: ordinary per-UE PF scheduling could hit
+       the same numbers. This checks the gNB log's periodic per-UE
+       "MU-MIMO co-scheduled N" stats field (incremented in
+       mu_coschedule_partner() each time that UE was actually paired) for a
+       healthy, repeated count, not just a single lucky pairing. The minimum
+       scales with the traffic duration and vrtsim.timescale above. -->
+  <testCase>
+    <class>Custom_Script</class>
+    <desc>Check UL MU-MIMO co-scheduling events occurred</desc>
+    <node>localhost</node>
+    <script>scripts/check_mu_mimo_coscheduling.sh</script>
+    <options>9000</options>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <always_exec>true</always_exec>
+    <desc>Undeploy all OAI 5G stack</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_vrtsim_mumimo</yaml_path>
+    <analysis>
+      <services>oai-gnb=EndsWithBye oai-nr-ue0 oai-nr-ue1</services>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Clean_Test_Server_Images</class>
+    <always_exec>true</always_exec>
+    <desc>Clean Test Images on Test Server</desc>
+    <node>localhost</node>
+    <images>oai-gnb oai-nr-ue</images>
+  </testCase>
+
+</testCaseList>
