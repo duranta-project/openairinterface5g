@@ -98,12 +98,6 @@ void nr_rlc_enqueue_data_req(const protocol_ctxt_t *ctxt_pP,
   abort();
 }
 
-int nr_rlc_get_available_tx_space(const rnti_t rntiP, const logical_chan_id_t channel_idP)
-{
-  abort();
-  return 0;
-}
-
 f1ap_cudu_inst_t *getCxt(instance_t instanceP)
 {
   // the E1 module uses F1's getCxt() to decide whether there is F1-U and if

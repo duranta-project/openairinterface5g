@@ -18,6 +18,7 @@ struct NR_RLC_Config;
 struct NR_LogicalChannelConfig;
 
 int nr_rlc_module_init(nr_rlc_op_mode_t mode);
+
 typedef struct nr_rlc_data_ind {
   logical_chan_id_t ch;
   uint8_t *buf;

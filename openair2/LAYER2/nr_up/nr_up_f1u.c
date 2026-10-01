@@ -17,15 +17,31 @@ static void nr_up_f1u_dl_user_data(const nr_up_user_data_req_t *req)
   const f1ap_cudu_inst_t *inst = getCxt(0);
   DevAssert(req);
   DevAssert(inst);
-  LOG_D(NR_UP, "%s(): (drb %u) sending message to gtp size %zu\n", __func__, req->drb_id, req->pdu.len);
-  gtpv1uSendDirectWithNRUSeqNum(inst->gtpInst, req->ue_id, req->drb_id, req->pdu.buf, req->pdu.len, req->report_polling);
+  LOG_D(NR_UP,
+        "%s(): (drb %u) sending message to gtp size %zu, report_polling %d, pdcp_sn %u\n",
+        __func__,
+        req->drb_id,
+        req->pdu.len,
+        req->report_polling,
+        req->pdcp_sn);
+  gtpv1uSendDirectWithNRUSeqNum(inst->gtpInst, req->ue_id, req->drb_id, req->pdu.buf, req->pdu.len, req->report_polling, req->pdcp_sn);
   nr_up_consume_dbs(req->ue_id, req->drb_id, req->pdu.len);
 }
 
-/** @brief Binds the F1-U nr-up backend on iface */
+/** @brief GTP DDDS RX adapter: apply Desired Buffer Size into the CU budget */
+void nr_up_f1u_ddds_indication(ue_id_t ue_id, rb_id_t drb_id, uint32_t dbs)
+{
+  nr_up_if_t *iface = get_nr_up_if();
+  DevAssert(iface);
+  DevAssert(iface->up_ddds_indication);
+  iface->up_ddds_indication(ue_id, drb_id, dbs);
+}
+
+/** @brief Binds the F1-U nr-up backend on iface (CU side) */
 void nr_up_init_f1u(nr_up_if_t *iface)
 {
   DevAssert(iface);
   nr_up_manager_init();
   iface->up_user_data = nr_up_f1u_dl_user_data;
+  iface->up_ddds_indication = nr_up_sync_dbs;
 }

@@ -17,7 +17,7 @@ add_library(nr_rlc STATIC
             nr_rlc_data_req_queue.c
 )
 # L2_NR: for PDCP
-target_link_libraries(nr_rlc PUBLIC pthread f1ap nr_rlc_core log_headers)
+target_link_libraries(nr_rlc PUBLIC pthread f1ap nr_rlc_core log_headers nr_up_ddds_policy)
 target_include_directories(nr_rlc PRIVATE ../../..)
 target_link_libraries(nr_rlc PRIVATE asn1_lte_rrc asn1_nr_rrc)
 

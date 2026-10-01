@@ -6,6 +6,7 @@
 #define NR_UP_FLOW_CONTROL_H
 
 #include "nr_up.h"
+#include "nr_up_ddds_policy.h"
 
 void nr_up_flow_control_log_drop(void);
 nr_up_flow_control_action_t nr_up_flow_control_precheck(const nr_up_user_data_req_t *req);

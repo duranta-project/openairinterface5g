@@ -131,7 +131,37 @@ nr_up_dbs_t nr_up_manager_get_dbs(ue_id_t ue_id, rb_id_t drb_id)
   return dbs;
 }
 
-/** @brief Subtract bytes from the available desired buffer size for a DRB */
+/** @brief Copy cached DDDS report state under the manager lock. */
+nr_up_ddds_t nr_up_get_ddds(ue_id_t ue_id, rb_id_t drb_id)
+{
+  nr_up_ddds_t ddds = {0};
+  nr_up_manager_lock();
+  nr_up_desired_buffer_t *db = nr_up_manager_lookup_drb(ue_id, drb_id);
+  if (db == NULL) {
+    nr_up_manager_unlock();
+    LOG_W(NR_UP, "%s(): ue %lx drb %ld missing, skip\n", __func__, ue_id, drb_id);
+    return ddds;
+  }
+  ddds = db->ddds_report;
+  nr_up_manager_unlock();
+  return ddds;
+}
+
+/** @brief Store DDDS report state under the manager lock. */
+void nr_up_set_ddds(ue_id_t ue_id, rb_id_t drb_id, nr_up_ddds_t ddds)
+{
+  nr_up_manager_lock();
+  nr_up_desired_buffer_t *db = nr_up_manager_lookup_drb(ue_id, drb_id);
+  if (db == NULL) {
+    nr_up_manager_unlock();
+    LOG_W(NR_UP, "%s(): ue %lx drb %ld missing, skip\n", __func__, ue_id, drb_id);
+    return;
+  }
+  db->ddds_report = ddds;
+  nr_up_manager_unlock();
+}
+
+/** @brief Subtract bytes from the available desired buffer size for a DRB. */
 void nr_up_consume_dbs(ue_id_t ue_id, rb_id_t drb_id, size_t bytes)
 {
   if (bytes == 0) {
@@ -186,4 +216,29 @@ bool nr_up_report_polling(ue_id_t ue_id, rb_id_t drb_id)
 
   nr_up_manager_unlock();
   return false; /* No stale budget */
+}
+
+/** @brief Remap per-DRB budget entries when F1 reestablishment changes the UE id */
+void nr_up_update_ue_id(ue_id_t old_ue_id, ue_id_t new_ue_id)
+{
+  if (old_ue_id == new_ue_id) {
+    return;
+  }
+  nr_up_manager_lock();
+  for (rb_id_t drb_id = 1; drb_id <= MAX_DRBS_PER_UE; drb_id++) {
+    nr_up_desired_buffer_t *st = nr_up_manager_lookup_drb(old_ue_id, drb_id);
+    if (st == NULL) {
+      continue;
+    }
+    AssertFatal(nr_up_manager_lookup_drb(new_ue_id, drb_id) == NULL,
+                "%s(): ue %lx drb %ld already present\n",
+                __func__,
+                new_ue_id,
+                drb_id);
+    /* Detach, then reinsert under the new UE id key. */
+    hashtable_remove(&g_nr_up_manager.drbs, NR_UP_DRB_BUDGET_KEY(old_ue_id, drb_id), NULL);
+    hashtable_rc_t rc = hashtable_insert(&g_nr_up_manager.drbs, NR_UP_DRB_BUDGET_KEY(new_ue_id, drb_id), st, free);
+    DevAssert(rc == HASH_TABLE_OK);
+  }
+  nr_up_manager_unlock();
 }

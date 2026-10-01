@@ -13,6 +13,7 @@
 #include "common/utils/LOG/log.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "openair2/LAYER2/nr_up/nr_up.h"
+#include "openair2/LAYER2/nr_up/nr_up_ddds_policy.h"
 
 /* NR PDCP and RLC both use "big locks". In some cases a thread may do
  * lock(rlc) followed by lock(pdcp) (typically when running 'rx_sdu').
@@ -80,10 +81,21 @@ static void *nr_rlc_data_req_queue_thread(void *_)
           item->rb_idP,
           desired_buffer_size);
     if (item->report_polling && !item->srb_flagP && desired_buffer_size >= 0) {
-      nr_up_if_t *iface = get_nr_up_if();
-      DevAssert(iface && iface->up_ddds_indication);
-      LOG_D(RLC, "Send DDDS indication to pdcp_ue_id %ld\n", item->pdcp_ue_id);
-      iface->up_ddds_indication(item->pdcp_ue_id, item->rb_idP, desired_buffer_size);
+      const uint32_t space = desired_buffer_size;
+      nr_up_ddds_t ddds = nr_up_get_ddds(item->pdcp_ue_id, item->rb_idP);
+      if (nr_up_ddds_precheck(&ddds, space, true)) {
+        nr_up_set_ddds(item->pdcp_ue_id, item->rb_idP, ddds);
+        nr_up_if_t *iface = get_nr_up_if();
+        DevAssert(iface != NULL && iface->up_send_ddds != NULL);
+        LOG_D(RLC, "Send DDDS for pdcp_ue_id %ld\n", item->pdcp_ue_id);
+        const nr_up_ddds_req_t req = {
+            .ue_id = item->pdcp_ue_id,
+            .drb_id = item->rb_idP,
+            .desired_buffer_size = space,
+            .report_ddds = true,
+        };
+        iface->up_send_ddds(&req);
+      }
     }
 
     if (pthread_mutex_lock(&g_nr_rlc_data_req_queue.m) != 0) {

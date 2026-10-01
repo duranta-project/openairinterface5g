@@ -49,7 +49,8 @@ typedef struct gtpv1u_gnb_delete_tunnel_req_s gtpv1u_gnb_delete_tunnel_req_t;
                               unsigned char *const sdu_buffer_pP,
                               const pdcp_transmission_mode_t modeP,
                               const uint32_t *sourceL2Id,
-                              const uint32_t *destinationL2Id);
+                              const uint32_t *destinationL2Id,
+                              bool is_poll);
 
   typedef bool (*gtpCallbackSDAP)(protocol_ctxt_t  *ctxt_pP,
                                   const ue_id_t        ue_id,
@@ -78,6 +79,9 @@ typedef struct gtpv1u_gnb_delete_tunnel_req_s gtpv1u_gnb_delete_tunnel_req_t;
   } gtpv1u_error_indication_ind_t;
 
   typedef void (*gtpv1u_error_indication_cb_fn_t)(const gtpv1u_error_indication_ind_t *ind);
+
+  /** @brief CU F1-U: NR-U DL DATA DELIVERY STATUS received (Desired Buffer Size) */
+  typedef void (*gtpDddsCallback)(ue_id_t ue_id, rb_id_t rb_id, uint32_t desired_buffer_size);
 
   typedef struct openAddr_s {
     char originHost[HOST_NAME_MAX];
@@ -118,7 +122,8 @@ typedef struct gtpv1u_gnb_delete_tunnel_req_s gtpv1u_gnb_delete_tunnel_req_t;
                                gtpv1u_gnb_create_tunnel_resp_t *const create_tunnel_resp_pP,
                                gtpCallback callBack,
                                gtpCallbackSDAP callBackSDAP,
-                               gtpv1u_error_indication_cb_fn_t errorIndicationCallBack);
+                               gtpv1u_error_indication_cb_fn_t errorIndicationCallBack,
+                               gtpDddsCallback dddsCallBack);
 
   int gtpv1u_update_ue_id(const instance_t instanceP, ue_id_t old_ue_id, ue_id_t new_ue_id);
 
@@ -131,7 +136,8 @@ typedef struct gtpv1u_gnb_delete_tunnel_req_s gtpv1u_gnb_delete_tunnel_req_t;
                              transport_layer_addr_t remoteAddr,
                              gtpCallback callBack,
                              gtpCallbackSDAP callBackSDAP,
-                             gtpv1u_error_indication_cb_fn_t errorIndicationCallBack);
+                             gtpv1u_error_indication_cb_fn_t errorIndicationCallBack,
+                             gtpDddsCallback dddsCallBack);
 
   void GtpuUpdateTunnelOutgoingAddressAndTeid(instance_t instance,
                                     ue_id_t ue_id,
@@ -142,7 +148,15 @@ typedef struct gtpv1u_gnb_delete_tunnel_req_s gtpv1u_gnb_delete_tunnel_req_t;
   int newGtpuDeleteOneTunnel(instance_t instance, ue_id_t ue_id, int rb_id);
   int newGtpuDeleteAllTunnels(instance_t instance, ue_id_t ue_id);
 
-  void gtpv1uSendDirect(instance_t instance, ue_id_t ue_id, int bearer_id, uint8_t *buf, size_t len, bool seqNumFlag, bool npduNumFlag);
+  void gtpv1uSendDirect(instance_t instance,
+                        ue_id_t ue_id,
+                        int bearer_id,
+                        uint8_t *buf,
+                        size_t len,
+                        bool seqNumFlag,
+                        bool npduNumFlag,
+                        bool send_ddds,
+                        uint32_t desired_buffer_size);
   void gtpv1uSendDirectWithQFI(instance_t instance, ue_id_t ue_id, int bearer_id, int qfi, uint8_t *buf, size_t len);
 
   void gtpv1uSendDirectWithNRUSeqNum(instance_t instance,
@@ -150,7 +164,8 @@ typedef struct gtpv1u_gnb_delete_tunnel_req_s gtpv1u_gnb_delete_tunnel_req_t;
                                      int bearer_id,
                                      uint8_t *buf,
                                      size_t len,
-                                     bool report_polling);
+                                     bool report_polling,
+                                     uint32_t pdcp_sn);
 
   instance_t gtpv1Init(openAddr_t context);
   int gtpv1Term(instance_t inst);

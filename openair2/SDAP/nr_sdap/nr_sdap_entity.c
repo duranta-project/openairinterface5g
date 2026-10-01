@@ -337,7 +337,7 @@ nr_sdap_rx_entity(nr_sdap_entity_t *entity, int drb_id, int is_gnb, int pdusessi
       /* N3-U tunnel with no SDAP header: no QFI marking */
       DevAssert(qfi == -1);
       LOG_D(SDAP, "UL SDAP->GTP: ue=%lu pdu_session=%d payload_len=%d\n", ue_id, pdusession_id, size);
-      gtpv1uSendDirect(*N3GTPUInst, ue_id, pdusession_id, (uint8_t *)buf, size, false, false);
+      gtpv1uSendDirect(*N3GTPUInst, ue_id, pdusession_id, (uint8_t *)buf, size, false, false, false, 0);
     }
   } else { //nrUE
     /*

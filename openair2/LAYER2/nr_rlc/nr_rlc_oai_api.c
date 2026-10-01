@@ -12,6 +12,7 @@
 #include "nr_rlc_entity.h"
 #include "nr_rlc_oai_api.h"
 #include "nr_rlc_data_req_queue.h"
+#include "openair2/LAYER2/nr_up/nr_up.h"
 #include "NR_RLC-BearerConfig.h"
 #include "NR_DRB-ToAddMod.h"
 #include "NR_DRB-ToAddModList.h"
@@ -25,7 +26,6 @@
 #include "openair2/F1AP/f1ap_du_rrc_message_transfer.h"
 #include "openair2/F1AP/f1ap_common.h"
 #include "openair2/F1AP/f1ap_ids.h"
-#include "openair3/ocp-gtpu/gtp_itf.h"
 #include <stdint.h>
 
 #include <executables/softmodem-common.h>
@@ -500,17 +500,19 @@ rb_found:
         F1AP_UL_RRC_MESSAGE(msg).rrc_container_length = size;
         itti_send_msg_to_task(TASK_DU_F1, ENB_MODULE_ID_TO_INSTANCE(0 /*ctxt_pP->module_id*/), msg);
         return;
-      } else {
-        LOG_D(RLC, "Received uplink user-plane traffic at RLC-DU to be sent to the CU, size %d \n", size);
-        const f1ap_cudu_inst_t *inst = getCxt(0);
-        DevAssert(inst);
-        gtpv1uSendDirect(inst->gtpInst, ue->ue_id, rb_id, (uint8_t*) buf, size, false, false);
-        return;
       }
     }
   }
 
-  /* UE or monolithic gNB */
+  /* DRB UL: nr-up backend (F1-U or mono/UE direct) */
+  if (!is_srb) {
+    nr_up_if_t *iface = get_nr_up_if();
+    DevAssert(iface != NULL && iface->ul_user_data != NULL);
+    iface->ul_user_data(&ctx, ue->ue_id, rb_id, (uint8_t *)buf, size, entity->available_tx_space(entity));
+    return;
+  }
+
+  /* SRB: UE or monolithic direct RLC to local PDCP */
   memblock = malloc16(size);
   if (memblock == NULL) {
     LOG_E(RLC, "%s:%d:%s: ERROR: malloc16 failed\n", __FILE__, __LINE__, __FUNCTION__);

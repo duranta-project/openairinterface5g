@@ -856,8 +856,10 @@ bool cu_f1u_data_req(protocol_ctxt_t  *ctxt_pP,
                      unsigned char *const sdu_buffer,
                      const pdcp_transmission_mode_t mode,
                      const uint32_t *const sourceL2Id,
-                     const uint32_t *const destinationL2Id)
+                     const uint32_t *const destinationL2Id,
+                     bool is_poll)
 {
+  UNUSED(is_poll);
   do_pdcp_data_ind(ctxt_pP, srb_flagP, rb_id, sdu_buffer_size, sdu_buffer);
   return true;
 }
