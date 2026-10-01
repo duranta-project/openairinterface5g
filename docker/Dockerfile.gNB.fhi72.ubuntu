@@ -59,6 +59,7 @@ COPY --from=gnb-build \
     /oai-ran/cmake_targets/ran_build/build/librfsimulator.so \
     /oai-ran/cmake_targets/ran_build/build/liboran_fhlib_5g.so \
     /oai-ran/cmake_targets/ran_build/build/liboran_fhlib_5g_mplane.so \
+    /oai-ran/cmake_targets/ran_build/build/libdu_fhlib_native.so \
     /oai-ran/cmake_targets/ran_build/build/libcoding.so \
     /oai-ran/cmake_targets/ran_build/build/libparams_libconfig.so \
     /oai-ran/cmake_targets/ran_build/build/libdfts.so \
@@ -94,6 +95,7 @@ RUN ldconfig && \
     echo "---- ldd on shared libraries ----" && \
     ldd /usr/local/lib/librfsimulator.so \
         /usr/local/lib/liboai_transpro.so \
+        /usr/local/lib/libdu_fhlib_native.so \
         /usr/local/lib/libcoding.so \
         /usr/local/lib/libparams_libconfig.so \
         /usr/local/lib/libdfts.so \
