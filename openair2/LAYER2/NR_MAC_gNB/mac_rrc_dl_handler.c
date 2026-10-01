@@ -1063,9 +1063,11 @@ static void process_reestablishment(gNB_MAC_INST *mac, uint32_t new_dl_rrc_id, u
   if (!oldUE) {
     /* No matching UE-associated logical F1-connection for the old gNB-DU UE F1AP ID.
      * Per TS 38.473, if there's no matching connection, there's nothing to release. */
+    // Cross-DU re-establishment: hold off reconfiguration on Msg3 C-RNTI
     LOG_W(NR_MAC,
           "DL RRC Message Transfer: old gNB-DU UE F1AP ID %04x has no matching UE-associated F1-connection, nothing to relese\n",
           old_dl_rrc_id);
+    UE->reestablish_rlc = true;
     /* Clean up any F1 UE data associated with the old gNB-DU UE F1AP ID */
     if (du_exists_f1_ue_data(old_dl_rrc_id))
       du_remove_f1_ue_data(old_dl_rrc_id);
