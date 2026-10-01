@@ -90,11 +90,7 @@ int sl_nr_ue_slot_select(const sl_nr_phy_config_request_t *cfg, int slot, uint8_
 
   const fapi_nr_max_tdd_periodicity_t *current_slot = &tdd_table->max_tdd_periodicity_list[rel_slot];
 
-  for (int symbol_count = 0; symbol_count < NR_SYMBOLS_PER_SLOT; symbol_count++) {
-    if (current_slot->max_num_of_symbol_per_slot_list[symbol_count].slot_config == 1) {
-      ul_sym++;
-    }
-  }
+  ul_sym = current_slot->num_dl_ul_symbols_list.num_ul;
 
   if (ul_sym == NR_SYMBOLS_PER_SLOT) {
     slot_type = NR_SIDELINK_SLOT;

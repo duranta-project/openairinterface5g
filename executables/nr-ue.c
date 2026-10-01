@@ -3,6 +3,7 @@
  */
 
 #include "PHY/defs_nr_common.h"
+#include "PHY/impl_defs_nr.h"
 #define _GNU_SOURCE // For pthread_setname_np
 #include <pthread.h>
 #include "executables/nr-ue-ru.h"
@@ -245,6 +246,40 @@ static void UE_synch(void *arg) {
   }
 }
 
+static uint num_ul_symbols_slot(const fapi_nr_config_request_t *cfg, int nr_slot)
+{
+  if (cfg->cell_config.frame_duplex_type == FDD)
+    return 0;
+
+  const fapi_nr_tdd_table_t *tdd_table = &cfg->tdd_table;
+  if (tdd_table->max_tdd_periodicity_list == NULL) {
+    LOG_E(NR_PHY, "No TDD table present in PHY config\n");
+    return 0;
+  }
+
+  int rel_slot = nr_slot % tdd_table->tdd_period_in_slots;
+
+  const fapi_nr_max_tdd_periodicity_t *current_slot = &tdd_table->max_tdd_periodicity_list[rel_slot];
+  return current_slot->num_dl_ul_symbols_list.num_ul;
+}
+
+static uint num_dl_symbols_slot(const fapi_nr_config_request_t *cfg, int nr_slot)
+{
+  if (cfg->cell_config.frame_duplex_type == FDD)
+    return 0;
+
+  const fapi_nr_tdd_table_t *tdd_table = &cfg->tdd_table;
+  if (tdd_table->max_tdd_periodicity_list == NULL) {
+    LOG_E(NR_PHY, "No TDD table present in PHY config\n");
+    return 0;
+  }
+
+  int rel_slot = nr_slot % tdd_table->tdd_period_in_slots;
+
+  const fapi_nr_max_tdd_periodicity_t *current_slot = &tdd_table->max_tdd_periodicity_list[rel_slot];
+  return current_slot->num_dl_ul_symbols_list.num_dl;
+}
+
 static int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
 {
   if (cfg->cell_config.frame_duplex_type == FDD)
@@ -258,23 +293,13 @@ static int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
 
   const fapi_nr_max_tdd_periodicity_t *current_slot = &tdd_table->max_tdd_periodicity_list[rel_slot];
 
-  // if the 1st symbol is UL the whole slot is UL
-  if (current_slot->max_num_of_symbol_per_slot_list[0].slot_config == 1)
+  if (current_slot->num_dl_ul_symbols_list.num_dl == NR_SYMBOLS_PER_SLOT)
+    return NR_DOWNLINK_SLOT;
+
+  if (current_slot->num_dl_ul_symbols_list.num_ul == NR_SYMBOLS_PER_SLOT)
     return NR_UPLINK_SLOT;
 
-  // if the 1st symbol is flexible the whole slot is mixed
-  if (current_slot->max_num_of_symbol_per_slot_list[0].slot_config == 2)
-    return NR_MIXED_SLOT;
-
-  for (int i = 1; i < NR_SYMBOLS_PER_SLOT; i++) {
-    // if the 1st symbol is DL and any other is not, the slot is mixed
-    if (current_slot->max_num_of_symbol_per_slot_list[i].slot_config != 0) {
-      return NR_MIXED_SLOT;
-    }
-  }
-
-  // if here, all the symbols where DL
-  return NR_DOWNLINK_SLOT;
+  return NR_MIXED_SLOT;
 }
 
 static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **txp)
@@ -295,6 +320,7 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
 
   radio_tx_burst_flag_t flags = TX_BURST_INVALID;
 
+  const int curr_slot_type = nr_ue_slot_select(cfg, slot);
   if (UE->received_config_request) {
     if (fp->frame_type == FDD || get_softmodem_params()->continuous_tx) {
       flags = TX_BURST_MIDDLE;
@@ -305,15 +331,14 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
         flags = TX_BURST_START_AND_END;
     } else {
       int slots_frame = fp->slots_per_frame;
-      int curr_slot = nr_ue_slot_select(cfg, slot);
-      if (curr_slot != NR_DOWNLINK_SLOT) {
+      if (curr_slot_type != NR_DOWNLINK_SLOT) {
         int next_slot = nr_ue_slot_select(cfg, (slot + 1) % slots_frame);
-        int prev_slot = nr_ue_slot_select(cfg, (slot + slots_frame - 1) % slots_frame);
-        if (prev_slot == NR_DOWNLINK_SLOT)
+        uint num_ul_symbols = num_ul_symbols_slot(cfg, slot);
+        if (curr_slot_type == NR_MIXED_SLOT)
           flags = TX_BURST_START;
         else if (next_slot == NR_DOWNLINK_SLOT)
           flags = TX_BURST_END;
-        else
+        else if (num_ul_symbols > 0)
           flags = TX_BURST_MIDDLE;
       }
     }
@@ -351,6 +376,19 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
 
     writeTimestamp += dummyBlockSize;
     writeBlockSize -= dummyBlockSize;
+  }
+
+  // if mixed slot, set start of burst in first guard symbol.
+  if (curr_slot_type == NR_MIXED_SLOT) {
+    const uint num_dl_symbols = num_dl_symbols_slot(cfg, slot);
+    const uint num_zero_samples = get_samples_symbol_timestamp(fp, slot, num_dl_symbols);
+    int tmp = nrue_ru_write_reorder(UE, writeTimestamp, (void **)txp, num_zero_samples, fp->nb_antennas_tx, TX_BURST_INVALID);
+    AssertFatal(tmp == num_zero_samples, "write samples to reorder function failed %d", tmp);
+
+    writeTimestamp += num_zero_samples;
+    writeBlockSize -= num_zero_samples;
+    for (int ant = 0; ant < fp->nb_antennas_tx; ant++)
+      txp[ant] += num_zero_samples;
   }
 
   // pre-compensate UL frequency offset
