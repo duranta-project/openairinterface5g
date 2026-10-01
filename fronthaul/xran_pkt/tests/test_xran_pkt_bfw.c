@@ -194,6 +194,30 @@ static void test_malformed_inputs_rejected(void)
   printf("ext1 malformed-input rejection passed!\n");
 }
 
+static void test_section_ext_len(void)
+{
+  printf("Testing section extension length...\n");
+  uint8_t ext1[8] = {0x81, 2}; // ef=1, extType=1, extLen=2
+  size_t len = 0;
+  assert(xran_section_ext_len(XRAN_CP_SECTIONEXTCMD_1, ext1, sizeof(ext1), &len) == XRAN_BFW_OK && len == 8);
+  assert(xran_section_ext_len(XRAN_CP_SECTIONEXTCMD_1, ext1, 7, &len) == XRAN_BFW_ERR_TRUNCATED); // runs past the packet
+  assert(xran_section_ext_len(XRAN_CP_SECTIONEXTCMD_1, ext1, 1, &len) == XRAN_BFW_ERR_TRUNCATED);
+  ext1[1] = 0;
+  assert(xran_section_ext_len(XRAN_CP_SECTIONEXTCMD_1, ext1, sizeof(ext1), &len) == XRAN_BFW_ERR_EXT_LEN); // reserved
+  assert(len == 8); // not written on error
+  // extLen is 16 bits for ext11/19/20: 0x0102 words
+  uint8_t ext11[0x102 * 4] = {11, 0x01, 0x02};
+  assert(xran_section_ext_len(XRAN_CP_SECTIONEXTCMD_11, ext11, sizeof(ext11), &len) == XRAN_BFW_OK && len == 0x102 * 4);
+  assert(xran_section_ext_len(XRAN_CP_SECTIONEXTCMD_11, ext11, 2, &len) == XRAN_BFW_ERR_TRUNCATED);
+  assert(xran_section_ext_len(XRAN_CP_SECTIONEXTCMD_19, ext11, sizeof(ext11), &len) == XRAN_BFW_OK && len == 0x102 * 4);
+  assert(xran_section_ext_len(XRAN_CP_SECTIONEXTCMD_20, ext11, sizeof(ext11), &len) == XRAN_BFW_OK && len == 0x102 * 4);
+  // Any other type has an 8-bit extLen: 1 word
+  assert(xran_section_ext_len(XRAN_CP_SECTIONEXTCMD_6, ext11, sizeof(ext11), &len) == XRAN_BFW_OK && len == 4);
+  assert(xran_section_ext_len(XRAN_CP_SECTIONEXTCMD_1, NULL, sizeof(ext11), &len) == XRAN_BFW_ERR_ARG);
+  assert(xran_section_ext_len(XRAN_CP_SECTIONEXTCMD_1, ext1, sizeof(ext1), NULL) == XRAN_BFW_ERR_ARG);
+  printf("section extension length passed!\n");
+}
+
 static void test_strerror(void)
 {
   printf("Testing error descriptions...\n");
@@ -215,6 +239,7 @@ int main(void)
   test_ulaw_known_vector();
   test_weight_count_mismatch_rejected();
   test_malformed_inputs_rejected();
+  test_section_ext_len();
   test_strerror();
   printf("All xran_pkt_bfw tests passed!\n");
   return 0;

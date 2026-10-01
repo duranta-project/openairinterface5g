@@ -846,6 +846,17 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
   oru_pcap_cplane_commit_prach(snap);
 }
 
+// Decodes the weights of an ext1 of ext_len bytes. They are only validated: applying them is a later stage.
+// Returns false if they don't decode.
+static bool parse_section_ext1(oru_packet_processor_context_t *ctx, const uint8_t *ext, size_t ext_len)
+{
+  ctx->stats.cplane_ext1_received++;
+  if (ctx->num_bf_weights == 0)
+    return true;
+  c16_t weights[ORU_MAX_BF_WEIGHTS];
+  return xran_decode_bfw_ext1(ext, ext_len, ctx->num_bf_weights, weights) == XRAN_BFW_OK;
+}
+
 // Walks the section extensions following a section-1 header. Returns false if any extension is malformed.
 static bool parse_section1_extensions(oru_packet_processor_context_t *ctx, void *pkt, struct xran_cp_radioapp_section1 *section)
 {
@@ -853,27 +864,26 @@ static bool parse_section1_extensions(oru_packet_processor_context_t *ctx, void 
   const uint8_t *end = (const uint8_t *)section + rte_pktmbuf_data_len((struct rte_mbuf *)pkt);
   bool ext_flag = section->hdr.u.s1.ef;
 
-  // Iterate overchain of extensions until ef chain end with 0
+  // Walk the extension chain until ef is 0
   while (ext_flag) {
-    if (end - ext < 2)
+    if (ext >= end)
       return false;
-    // extType/ef are in the first byte, extLen (4-byte words) in the second
+    // extType/ef are in the first byte, followed by an 8- or 16-bit extLen (4-byte words)
     uint8_t ext_type = ext[0] & 0x7F;
     ext_flag = ext[0] & 0x80;
-    size_t ext_len = (size_t)ext[1] * 4;
-    if (ext_len == 0 || ext_len > (size_t)(end - ext))
+    size_t ext_len;
+    if (xran_section_ext_len(ext_type, ext, end - ext, &ext_len) != XRAN_BFW_OK)
       return false;
-    if (ext_type == XRAN_CP_SECTIONEXTCMD_1) {
-      ctx->stats.cplane_ext1_received++;
-      if (ctx->num_bf_weights > 0) {
-        // Current implementation does NOT use weight values - only checks for return vals
-        // Multiple iters will overwrite weights[]
-        // Handling weights[] will be handled in later integration stage PR
-        c16_t weights[ORU_MAX_BF_WEIGHTS];
-        if (xran_decode_bfw_ext1(ext, ext_len, ctx->num_bf_weights, weights) < 0)
-          return false;
-      }
+    bool valid = true;
+    switch (ext_type) {
+      case XRAN_CP_SECTIONEXTCMD_1:
+        valid = parse_section_ext1(ctx, ext, ext_len);
+        break;
+      default: // skipped
+        break;
     }
+    if (!valid)
+      return false;
     ext += ext_len;
   }
   return true;
