@@ -19,6 +19,8 @@ typedef struct nr_up_dl_transfer_req_s {
   ue_id_t ue_id;
   uint8_t drb_id;
   int sdu_id;
+  /** PDCP SN for F1-U Report Delivered */
+  uint32_t pdcp_sn;
   byte_array_t pdu;
 } nr_up_dl_transfer_req_t;
 
