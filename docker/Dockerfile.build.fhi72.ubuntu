@@ -93,10 +93,12 @@ RUN /bin/sh oaienv && \
       --ninja --gNB --nrRU \
       --build-lib "telnetsrv enbscope uescope nrscope" \
       -t oran_fhlib_5g_mplane --cmake-opt -Dxran_LOCATION=/opt/phy/fhi_lib/lib \
+      -t du_fhlib_native \
       --build-e2 --cmake-opt -DKPM_VERSION=$KPM_VERSION --cmake-opt -DE2AP_VERSION=$E2AP_VERSION && \
     # Mainly to see if the sanitize option was perfectly executed
     ldd ran_build/build/nr-softmodem && \
     ldd ran_build/build/liboran_fhlib_5g.so && \
+    ldd ran_build/build/libdu_fhlib_native.so && \
     ldd /opt/phy/fhi_lib/lib/build/libxran.so
 
 ## Build FlexRIC for SM Models

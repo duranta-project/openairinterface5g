@@ -235,13 +235,19 @@ void oru_fh_cleanup(void *handle)
   free(fh);
 }
 
-int oru_fh_tx_read_symbol(void *handle, uint32_t **txdataF, int nb_tx, uint64_t *hyper_frame, int *frame, int *slot, int *symbol)
+int oru_fh_tx_read_symbol(void *handle,
+                          dl_iq_stream_t *streams,
+                          uint32_t *iq_arena,
+                          int max_streams,
+                          uint64_t *hyper_frame,
+                          int *frame,
+                          int *slot,
+                          int *symbol)
 {
   if (!handle)
     return -1;
   oru_fh_t *fh = (oru_fh_t *)handle;
-  read_dl_iq(fh->packet_processor, txdataF, nb_tx, hyper_frame, frame, slot, symbol);
-  return 0;
+  return read_dl_iq_streams(fh->packet_processor, streams, iq_arena, max_streams, hyper_frame, frame, slot, symbol);
 }
 
 int oru_fh_get_ready_jobs(void *handle)
@@ -282,6 +288,13 @@ void oru_fh_rx_send_prach(void *handle, uint32_t **prachF, int nb_rx, int frame,
   oru_fh_t *fh = (oru_fh_t *)handle;
   AssertFatal(fh, "Invalid handle\n");
   write_prach_iq(fh->packet_processor, prachF, nb_rx, frame, slot, symbol);
+}
+
+int oru_fh_get_prach_beam_id(void *handle, int slot, int stream)
+{
+  oru_fh_t *fh = (oru_fh_t *)handle;
+  AssertFatal(fh, "Invalid handle\n");
+  return get_prach_beam_id(fh->packet_processor, slot, stream);
 }
 
 int oru_fh_poll_ul_job(void *handle, ul_job_t *job) {
