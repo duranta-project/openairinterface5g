@@ -17,8 +17,8 @@ static nr_up_dl_transfer_response_t nr_up_f1u_deliver_drb(const nr_up_dl_transfe
   const f1ap_cudu_inst_t *inst = getCxt(0);
   DevAssert(req);
   DevAssert(inst);
-  LOG_D(NR_UP, "%s(): (drb %u) sending message to gtp size %zu\n", __func__, req->drb_id, req->pdu.len);
-  gtpv1uSendDirectWithNRUSeqNum(inst->gtpInst, req->ue_id, req->drb_id, req->pdu.buf, req->pdu.len);
+  LOG_D(NR_UP, "%s(): (drb %u) sending message to gtp size %zu pdcp_sn %u\n", __func__, req->drb_id, req->pdu.len, req->pdcp_sn);
+  gtpv1uSendDirectWithNRUSeqNum(inst->gtpInst, req->ue_id, req->drb_id, req->pdu.buf, req->pdu.len, req->pdcp_sn);
   nr_up_drb_budget_consume(req->ue_id, req->drb_id, req->pdu.len);
   return NR_UP_DL_OK;
 }
