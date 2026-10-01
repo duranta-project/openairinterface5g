@@ -99,7 +99,7 @@ static bool decode_xnap_ue_history_information(const XNAP_UEHistoryInformation_t
     XNAP_LastVisitedNGRANCellInformation_t *nr = &lv->choice.nG_RAN_Cell;
     ue_history_info_t *cell = &out->ue_history_info[i];
 
-    cell->xnap_cell_type = XNAP_LastVisitedCell_Item_PR_nG_RAN_Cell;
+    cell->xnap_cell_type = XNAP_LAST_VISITED_CELL_NR;
     cell->last_visited_cell_info = create_byte_array(nr->size, nr->buf);
   }
 
@@ -357,7 +357,7 @@ XNAP_XnAP_PDU_t *encode_xnap_handover_request(const xnap_handover_req_t *req)
 
   for (int i = 0; i < req->num_last_visited_cells; i++) {
     asn1cSequenceAdd(ie6->value.choice.UEHistoryInformation.list, XNAP_LastVisitedCell_Item_t, lastVisitedCellItem);
-    if (req->ue_history_info[i].xnap_cell_type == XNAP_LastVisitedCell_Item_PR_nG_RAN_Cell) {
+    if (req->ue_history_info[i].xnap_cell_type == XNAP_LAST_VISITED_CELL_NR) {
       lastVisitedCellItem->present = XNAP_LastVisitedCell_Item_PR_nG_RAN_Cell;
       XNAP_LastVisitedNGRANCellInformation_t *nrInfo = &lastVisitedCellItem->choice.nG_RAN_Cell;
       OCTET_STRING_fromBuf(nrInfo,
