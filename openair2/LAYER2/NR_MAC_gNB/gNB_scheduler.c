@@ -128,6 +128,21 @@ static void nr_fill_pusch_fapi_groups(nfapi_nr_ul_tti_request_t *UL_tti_req)
   }
 }
 
+/// Count down the time left until the epoch of a SIB19 that nr_update_sib19() placed with a lead. Once the epoch has
+/// passed, the UE would read its SFN as the next SFN cycle, so that SIB19 is not broadcast until the next update.
+static void advance_external_sib19_epoch(NR_COMMON_channels_t *cc, int frame, int subframe)
+{
+  if (!cc->sib19_external_epoch || cc->sib19_epoch_remaining_ms == 0)
+    return;
+  const int cycle_ms = MAX_FRAME_NUMBER * NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
+  const int now_ms = frame * NR_NUMBER_OF_SUBFRAMES_PER_FRAME + subframe;
+  const int elapsed_ms = (now_ms - cc->sib19_epoch_last_ms + cycle_ms) % cycle_ms;
+  cc->sib19_epoch_last_ms = now_ms;
+  cc->sib19_epoch_remaining_ms = max(0, cc->sib19_epoch_remaining_ms - elapsed_ms);
+  if (cc->sib19_epoch_remaining_ms == 0)
+    LOG_W(NR_MAC, "%d.%d: SIB19 epoch passed without a newer update, SIB19 not broadcast until the next one\n", frame, subframe);
+}
+
 void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_t frame, slot_t slot, NR_Sched_Rsp_t *sched_info)
 {
   protocol_ctxt_t ctxt = {0};
@@ -143,6 +158,10 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_
   clear_beam_information(&cell->beam_info, frame, slot, slots_frame);
 
   gNB->frame = frame;
+  gNB->subframe = slot / (slots_frame / NR_NUMBER_OF_SUBFRAMES_PER_FRAME);
+  // from now on, nr_update_sib19() can count a lead from this time
+  __atomic_store_n(&gNB->sched_time_valid, true, __ATOMIC_RELEASE);
+  advance_external_sib19_epoch(cc, frame, gNB->subframe);
   start_meas(&cell->gNB_scheduler);
 
   int num_beams = 1;

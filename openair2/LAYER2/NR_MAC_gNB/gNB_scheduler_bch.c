@@ -737,7 +737,8 @@ void schedule_nr_other_sib(nr_cell_sched_t *cell,
 
       other_sib_sched_control(cell, frame, slot, cc->ssb_index[ssb], ss, DL_req, TX_req, 0);
     }
-    if (!schedInfo17)
+    // a SIB19 whose epoch has passed would be read as one for the next SFN cycle
+    if (!schedInfo17 || (cc->sib19_external_epoch && cc->sib19_epoch_remaining_ms == 0))
       continue;
     for (int i = 0; i < schedInfo17->schedulingInfoList2_r17.list.count; i++) {
       NR_SchedulingInfo2_r17_t *schedulingInfo2_r17 = schedInfo17->schedulingInfoList2_r17.list.array[i];
