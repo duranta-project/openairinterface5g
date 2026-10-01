@@ -15,6 +15,7 @@
 #include "openair2/GNB_APP/gnb_config.h"
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
 #include "common/utils/time_manager/time_manager.h"
+#include "openair2/LAYER2/nr_up/nr_up.h"
 
 RAN_CONTEXT_t RC;
 THREAD_STRUCT thread_struct;
@@ -127,9 +128,10 @@ int main(int argc, char **argv)
   // (may be overwritten in configuration file or command line)
   void nr_pdcp_ms_tick(void);
   time_manager_tick_function_t tick_functions[] = {
+    nr_up_ms_tick,
     nr_pdcp_ms_tick
   };
-  int tick_functions_count = 1;
+  int tick_functions_count = sizeofArray(tick_functions);
   time_manager_start(tick_functions, tick_functions_count, TIME_SOURCE_REALTIME);
 
   // strdup to put the sring in the core file for post mortem identification
