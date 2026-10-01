@@ -334,10 +334,12 @@ typedef struct {
   uint8_t num_last_visited_cells;
   ue_history_info_t *ue_history_info;
   /* Routing fields — not part of the XnAP PDU */
-  // RRC UE identity at source, used to create XNAP↔RRC mapping
+  // source RRC->XNAP: RRC UE identity at source
   uint32_t rrc_ue_id;
-  // SCTP association to the target gNB
+  // source RRC->XNAP: SCTP association to the target gNB
   sctp_assoc_t target_assoc_id;
+  // target XNAP->RRC: XnAP UE ID allocated by XNAP, bound by RRC to the new UE
+  uint32_t t_ng_node_ue_xnap_id;
 } xnap_handover_req_t;
 
 /* QoS Flows Admitted Item */
