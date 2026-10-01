@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: MIT
+
+# E3 agent test: a core-less RFsim gNB per wire encoding, deployed one at a
+# time (they publish the same ports). The dApp runs on the test host
+# (scripts/run-e3-dapp.sh): it reaches the gNB's E3 endpoints on the published
+# ports and reads the IQ from /dev/shm, which the container shares with the host.
+
+x-gnb-e3: &gnb-e3
+    image: ${REGISTRY-oaisoftwarealliance/}oai-gnb-e3:${TAG:-develop}
+    cap_drop:
+        - ALL
+    cap_add:
+        - NET_ADMIN  # for interface bringup
+        - NET_RAW
+    ipc: host
+    ports:
+        - "9990:9990"  # E3 setup
+        - "9991:9991"  # E3 publisher
+        - "9999:9999"  # E3 subscriber
+    networks:
+        public_net:
+    volumes:
+        - ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.106prb.rfsim.e3.conf:/opt/oai-gnb/etc/gnb.conf
+    healthcheck:
+        test: /bin/bash -c "pgrep nr-softmodem"
+        interval: 10s
+        timeout: 5s
+        retries: 5
+
+services:
+    oai-gnb-asn1:
+        <<: *gnb-e3
+        container_name: rfsim5g-oai-gnb-e3-asn1
+        environment:
+            USE_ADDITIONAL_OPTIONS: --rfsim --rfsimulator.[0].serveraddr server --gNBs.[0].min_rxtxtime 6 --gNBs.[0].amf_ip_address.[0].ipv4 127.0.0.99 --E3Configuration.encoding asn1 --log_config.global_log_options level,nocolor,time
+
+    oai-gnb-json:
+        <<: *gnb-e3
+        container_name: rfsim5g-oai-gnb-e3-json
+        environment:
+            USE_ADDITIONAL_OPTIONS: --rfsim --rfsimulator.[0].serveraddr server --gNBs.[0].min_rxtxtime 6 --gNBs.[0].amf_ip_address.[0].ipv4 127.0.0.99 --E3Configuration.encoding json --log_config.global_log_options level,nocolor,time
+
+    oai-gnb-protobuf:
+        <<: *gnb-e3
+        container_name: rfsim5g-oai-gnb-e3-protobuf
+        environment:
+            USE_ADDITIONAL_OPTIONS: --rfsim --rfsimulator.[0].serveraddr server --gNBs.[0].min_rxtxtime 6 --gNBs.[0].amf_ip_address.[0].ipv4 127.0.0.99 --E3Configuration.encoding protobuf --log_config.global_log_options level,nocolor,time
+
+networks:
+    public_net:
+        driver: bridge
+        name: rfsim5g-oai-public-net
+        ipam:
+            config:
+                - subnet: 192.168.71.128/26
+        driver_opts:
+            com.docker.network.bridge.name: "rfsim5g-public"
