@@ -228,13 +228,12 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
                       printf("      [Ext1] %d bytes, weights not decoded (num_bf_weights not given)\n", extLen * 4);
                     } else if (extType == XRAN_CP_SECTIONEXTCMD_1) {
                       c16_t weights[MAX_BF_WEIGHTS];
-                      int n = xran_decode_bfw_ext1(ext_ptr, (size_t)extLen * 4, ctx->num_bf_weights, weights);
-                      if (n < 0) {
+                      if (xran_decode_bfw_ext1(ext_ptr, (size_t)extLen * 4, ctx->num_bf_weights, weights) != XRAN_BFW_OK) {
                         printf("      [Ext1] malformed beamforming-weights extension\n");
                         ctx->error_count++;
                       } else {
-                        printf("      [Ext1] %d beamforming weight(s):", n);
-                        for (int w = 0; w < n; w++)
+                        printf("      [Ext1] %d beamforming weight(s):", ctx->num_bf_weights);
+                        for (int w = 0; w < ctx->num_bf_weights; w++)
                           printf(" (%d%+di)", weights[w].r, weights[w].i);
                         printf("\n");
                       }

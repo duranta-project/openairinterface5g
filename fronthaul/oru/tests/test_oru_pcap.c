@@ -176,7 +176,7 @@ static void ref_check_cplane(const uint8_t *p, const uint8_t *end, int ant)
             (long)(end - ext));
   REF_CHECK(ext[2] == 0, "bfwCompHdr 0x%02x, expected uncompressed 16-bit", ext[2]);
   c16_t w[REF_NUM_BF_ELM];
-  REF_CHECK(xran_decode_bfw_ext1(ext, end - ext, REF_NUM_BF_ELM, w) == REF_NUM_BF_ELM, "ext1 decode failed");
+  REF_CHECK(xran_decode_bfw_ext1(ext, end - ext, REF_NUM_BF_ELM, w) == XRAN_BFW_OK, "ext1 decode failed");
   // xran zero-pads ext1 to the 4-byte boundary (xran_decode_bfw_ext1() does not check this yet)
   for (const uint8_t *pad = ext + 3 + REF_NUM_BF_ELM * 4; pad < end; pad++)
     REF_CHECK(*pad == 0, "ext1 padding byte 0x%02x", *pad);

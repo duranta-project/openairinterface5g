@@ -64,8 +64,7 @@ static void test_bfp_known_vector(void)
   size_t len = build_ext1(buf, XRAN_BFWCOMPMETHOD_BLKFLOAT, 8, 8, 0 /* exponent */, iq, 2);
 
   c16_t weights[2];
-  int n = xran_decode_bfw_ext1(buf, len, 2, weights);
-  assert(n == 2);
+  assert(xran_decode_bfw_ext1(buf, len, 2, weights) == XRAN_BFW_OK);
   assert(weights[0].r == 4 && weights[0].i == -4);
   assert(weights[1].r == 100 && weights[1].i == -100);
   printf("ext1 BFP known-vector check passed!\n");
@@ -80,8 +79,7 @@ static void test_bfp_odd_width_known_vector(void)
   size_t len = build_ext1(buf, XRAN_BFWCOMPMETHOD_BLKFLOAT, 9, 9, 0, iq, 3);
 
   c16_t weights[3];
-  int n = xran_decode_bfw_ext1(buf, len, 3, weights);
-  assert(n == 3);
+  assert(xran_decode_bfw_ext1(buf, len, 3, weights) == XRAN_BFW_OK);
   for (int i = 0; i < 3; i++)
     assert(weights[i].r == iq[2 * i] && weights[i].i == iq[2 * i + 1]);
   printf("ext1 BFP 9-bit check passed!\n");
@@ -96,8 +94,7 @@ static void test_none_known_vector(void)
   size_t len = build_ext1(buf, XRAN_BFWCOMPMETHOD_NONE, 0 /* -> iq_bits=16 */, 16, 0, iq, 2);
 
   c16_t weights[2];
-  int n = xran_decode_bfw_ext1(buf, len, 2, weights);
-  assert(n == 2);
+  assert(xran_decode_bfw_ext1(buf, len, 2, weights) == XRAN_BFW_OK);
   assert(weights[0].r == 12345 && weights[0].i == -12345);
   assert(weights[1].r == 1 && weights[1].i == -1);
   printf("ext1 NONE known-vector check passed!\n");
@@ -112,8 +109,7 @@ static void test_blkscale_known_vector(void)
   size_t len = build_ext1(buf, XRAN_BFWCOMPMETHOD_BLKSCALE, 8, 8, 0 /* shift */, iq, 1);
 
   c16_t weights[1];
-  int n = xran_decode_bfw_ext1(buf, len, 1, weights);
-  assert(n == 1);
+  assert(xran_decode_bfw_ext1(buf, len, 1, weights) == XRAN_BFW_OK);
   assert(weights[0].r == 10 && weights[0].i == -10);
   printf("ext1 BLKSCALE known-vector check passed!\n");
 }
@@ -130,8 +126,7 @@ static void test_ulaw_known_vector(void)
   size_t len = build_ext1(buf, XRAN_BFWCOMPMETHOD_ULAW, 8, 8, 0 /* comp param unused by ulaw decode */, iq, 1);
 
   c16_t weights[1];
-  int n = xran_decode_bfw_ext1(buf, len, 1, weights);
-  assert(n == 1);
+  assert(xran_decode_bfw_ext1(buf, len, 1, weights) == XRAN_BFW_OK);
   assert(weights[0].r == 3935 && weights[0].i == -3935);
   printf("ext1 ULAW known-vector check passed!\n");
 }
@@ -150,8 +145,8 @@ static void test_weight_count_mismatch_rejected(void)
 
   c16_t weights[8];
   memset(weights, 0x5A, sizeof(weights));
-  assert(xran_decode_bfw_ext1(buf, len, 3, weights) == -1);
-  assert(xran_decode_bfw_ext1(buf, len, 8, weights) == -1);
+  assert(xran_decode_bfw_ext1(buf, len, 3, weights) == XRAN_BFW_ERR_EXT_LEN);
+  assert(xran_decode_bfw_ext1(buf, len, 8, weights) == XRAN_BFW_ERR_EXT_LEN);
   // Nothing written on rejection.
   for (int i = 0; i < 8; i++)
     assert(weights[i].r == 0x5A5A && weights[i].i == 0x5A5A);
@@ -160,8 +155,8 @@ static void test_weight_count_mismatch_rejected(void)
   int16_t iq4[8] = {1, -1, 2, -2, 3, -3, 4, -4};
   len = build_ext1(buf, XRAN_BFWCOMPMETHOD_BLKFLOAT, 8, 8, 0, iq4, 4);
   assert(len == 12);
-  assert(xran_decode_bfw_ext1(buf, len, 2, weights) == -1);
-  assert(xran_decode_bfw_ext1(buf, len, 4, weights) == 4);
+  assert(xran_decode_bfw_ext1(buf, len, 2, weights) == XRAN_BFW_ERR_EXT_LEN);
+  assert(xran_decode_bfw_ext1(buf, len, 4, weights) == XRAN_BFW_OK);
   printf("ext1 weight count mismatch rejection passed!\n");
 }
 
@@ -174,29 +169,41 @@ static void test_malformed_inputs_rejected(void)
   c16_t weights[1];
 
   // Truncated buffer (len smaller than extLen*4 claims).
-  assert(xran_decode_bfw_ext1(buf, len - 1, 1, weights) == -1);
-  // NULL/zero-sized arguments.
-  assert(xran_decode_bfw_ext1(NULL, len, 1, weights) == -1);
-  assert(xran_decode_bfw_ext1(buf, len, 1, NULL) == -1);
-  assert(xran_decode_bfw_ext1(buf, len, 0, weights) == -1);
-  assert(xran_decode_bfw_ext1(buf, 2, 1, weights) == -1);
+  assert(xran_decode_bfw_ext1(buf, len - 1, 1, weights) == XRAN_BFW_ERR_TRUNCATED);
+  assert(xran_decode_bfw_ext1(buf, 2, 1, weights) == XRAN_BFW_ERR_TRUNCATED);
+  // NULL/zero-sized arguments are caller errors (AssertError() logs them).
+  assert(xran_decode_bfw_ext1(NULL, len, 1, weights) == XRAN_BFW_ERR_ARG);
+  assert(xran_decode_bfw_ext1(buf, len, 1, NULL) == XRAN_BFW_ERR_ARG);
+  assert(xran_decode_bfw_ext1(buf, len, 0, weights) == XRAN_BFW_ERR_ARG);
 
   // extLen claiming more words than the weights need.
   buf[1]++;
-  assert(xran_decode_bfw_ext1(buf, sizeof(buf), 1, weights) == -1);
+  assert(xran_decode_bfw_ext1(buf, sizeof(buf), 1, weights) == XRAN_BFW_ERR_EXT_LEN);
   buf[1]--;
   // extLen = 0.
   uint8_t saved = buf[1];
   buf[1] = 0;
-  assert(xran_decode_bfw_ext1(buf, len, 1, weights) == -1);
+  assert(xran_decode_bfw_ext1(buf, len, 1, weights) == XRAN_BFW_ERR_EXT_LEN);
   buf[1] = saved;
 
   // Beamspace and reserved bfwCompMeth values come from the wire and must not abort.
   for (int meth = XRAN_BFWCOMPMETHOD_BEAMSPACE; meth <= 0xF; meth++) {
     buf[2] = (uint8_t)((meth & 0x0F) | (8 << 4));
-    assert(xran_decode_bfw_ext1(buf, len, 1, weights) == -1);
+    assert(xran_decode_bfw_ext1(buf, len, 1, weights) == XRAN_BFW_ERR_COMP_METH);
   }
   printf("ext1 malformed-input rejection passed!\n");
+}
+
+static void test_strerror(void)
+{
+  printf("Testing error descriptions...\n");
+  const char *unknown = xran_bfw_strerror(1);
+  for (int err = XRAN_BFW_ERR_TOO_MANY_BUNDLES; err <= XRAN_BFW_OK; err++) {
+    assert(strcmp(xran_bfw_strerror(err), unknown) != 0);
+    for (int other = err + 1; other <= XRAN_BFW_OK; other++)
+      assert(strcmp(xran_bfw_strerror(err), xran_bfw_strerror(other)) != 0);
+  }
+  printf("error descriptions passed!\n");
 }
 
 int main(void)
@@ -208,6 +215,7 @@ int main(void)
   test_ulaw_known_vector();
   test_weight_count_mismatch_rejected();
   test_malformed_inputs_rejected();
+  test_strerror();
   printf("All xran_pkt_bfw tests passed!\n");
   return 0;
 }
