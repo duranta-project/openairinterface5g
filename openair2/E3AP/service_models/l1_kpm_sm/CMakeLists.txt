@@ -22,18 +22,14 @@ if(OAI_USRP)
 endif()
 
 
-target_include_directories(l1_kpm_sm PUBLIC
-    ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/openair1
-    ${CMAKE_SOURCE_DIR}/openair2/E3AP
-    ${CLIBE3_INCLUDE_DIRS}
-)
+target_include_directories(l1_kpm_sm PUBLIC ${CLIBE3_INCLUDE_DIRS})
 
 # The SM calls back into the agent for e3_get_encoding(), while the agent links
 # the SM to register it: a genuine cycle between two static libraries. Declaring
 # it lets CMake repeat them on the link line instead of relying on the executable
 # to wrap them in --start-group, which the phy simulators do not do.
 target_link_libraries(l1_kpm_sm e3ap)
+target_compile_definitions(l1_kpm_sm PRIVATE ${CLIBE3_COMPILE_DEFS})
 target_link_directories(l1_kpm_sm PRIVATE ${CLIBE3_LIBRARY_DIRS})
 target_link_libraries(l1_kpm_sm
     rt

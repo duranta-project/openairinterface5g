@@ -1320,6 +1320,9 @@ add_library(L2_NR
   ${MAC_NR_SRC}
   ${GNB_APP_SRC}
   )
+if(E3_AGENT)
+  target_compile_definitions(L2_NR PRIVATE E3_AGENT)
+endif()
 target_link_libraries(L2_NR PRIVATE ds alg)
 target_link_libraries(L2_NR PRIVATE f1ap_lib)
 target_link_libraries(L2_NR PRIVATE nfapi_nr_user_lib)
