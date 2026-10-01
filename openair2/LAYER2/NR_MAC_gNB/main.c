@@ -39,6 +39,7 @@
 #include "system.h"
 #include "time_meas.h"
 #include "utils.h"
+#include "gNB_scheduler_ulsch_MU_MIMO_policies.h"
 
 #define MACSTATSSTRLEN 36256
 
@@ -198,23 +199,24 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
     float snr = nr_mac_get_snr(&sched_ctrl->pusch_pc);
     float rssi = nr_mac_get_rssi(&sched_ctrl->pusch_pc);
     float diff_target = (snr * 10.0f - sched_ctrl->pusch_pc.target_snrx10) / 10.0f;
-    output = st_append(
-        output,
-        end,
-        ", ulsch_errors %" PRIu64
-        ", ulsch_DTX %d, BLER %.5f MCS (%d) %d (Qm %d deltaMCS %d) NPRB %d SNR %.1f (%+.1f) RSSI %.1f CCE fail %d\n",
-        stats->ul.errors,
-        stats->ulsch_DTX,
-        sched_ctrl->ul_bler_stats.bler,
-        UE->current_UL_BWP.mcs_table,
-        sched_ctrl->ul_bler_stats.mcs,
-        nr_get_Qm_ul(sched_ctrl->ul_bler_stats.mcs, UE->current_UL_BWP.mcs_table),
-        UE->mac_stats.deltaMCS,
-        UE->mac_stats.NPRB,
-        snr,
-        diff_target,
-        rssi,
-        sched_ctrl->ul_cce_fail);
+    output = st_append(output,
+                       end,
+                       ", ulsch_errors %" PRIu64
+                       ", ulsch_DTX %d, BLER %.5f MCS (%d) %d (Qm %d deltaMCS %d) NPRB %d SNR %.1f (%+.1f) RSSI %.1f CCE fail %d "
+                       "MU-MIMO co-scheduled %u\n",
+                       stats->ul.errors,
+                       stats->ulsch_DTX,
+                       sched_ctrl->ul_bler_stats.bler,
+                       UE->current_UL_BWP.mcs_table,
+                       sched_ctrl->ul_bler_stats.mcs,
+                       nr_get_Qm_ul(sched_ctrl->ul_bler_stats.mcs, UE->current_UL_BWP.mcs_table),
+                       UE->mac_stats.deltaMCS,
+                       UE->mac_stats.NPRB,
+                       snr,
+                       diff_target,
+                       rssi,
+                       sched_ctrl->ul_cce_fail,
+                       UE->mac_stats.mu_coscheduled);
 
     // normally a UE should have at least one LCID, 1 in SA or 4 in NSA/phy-test
     output = st_append(output, end, "UE %04x: LCID ", UE->rnti);
@@ -296,6 +298,7 @@ void mac_top_init_gNB(ngran_node_t node_type,
 
       cell->cset0_bwp_start = 0;
       cell->cset0_bwp_size = 0;
+      RC.nrmac[i]->srs_period_slots = 0;
 
       cell->ul_next = (fsn_t) {.mu = *scc->ssbSubcarrierSpacing};
       RC.nrmac[i]->print_ue_stats = true;
@@ -308,7 +311,11 @@ void mac_top_init_gNB(ngran_node_t node_type,
       RC.nrmac[i]->ul_tda_select = nr_ul_tda_select_default;
       RC.nrmac[i]->ul_beam_select = nr_ul_beam_select_default;
       RC.nrmac[i]->ul_mcs_select = nr_ul_mcs_select_default;
-      RC.nrmac[i]->ul_rb_alloc = nr_ul_proportional_fair;
+      if (config->ul_mu_mimo) {
+        RC.nrmac[i]->ul_rb_alloc = nr_ul_pf_mu_mimo;
+      } else {
+        RC.nrmac[i]->ul_rb_alloc = nr_ul_proportional_fair;
+      }
 
       RC.nrmac[i]->dl_lcid_alloc = nr_dl_lcid_alloc_default;
 
