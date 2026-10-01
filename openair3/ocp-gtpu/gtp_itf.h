@@ -149,7 +149,13 @@ typedef struct gtpv1u_gnb_delete_tunnel_req_s gtpv1u_gnb_delete_tunnel_req_t;
   void gtpv1uSendDirect(instance_t instance, ue_id_t ue_id, int bearer_id, uint8_t *buf, size_t len, bool seqNumFlag, bool npduNumFlag);
   void gtpv1uSendDirectWithQFI(instance_t instance, ue_id_t ue_id, int bearer_id, int qfi, uint8_t *buf, size_t len);
 
-  void gtpv1uSendDirectWithNRUSeqNum(instance_t instance, ue_id_t ue_id, int bearer_id, uint8_t *buf, size_t len, uint32_t pdcp_sn);
+  void gtpv1uSendDirectWithNRUSeqNum(instance_t instance,
+                                     ue_id_t ue_id,
+                                     int bearer_id,
+                                     uint8_t *buf,
+                                     size_t len,
+                                     uint32_t pdcp_sn,
+                                     bool report_polling);
 
   instance_t gtpv1Init(openAddr_t context);
   int gtpv1Term(instance_t inst);

@@ -324,7 +324,8 @@ static void _gtpv1uSendDirect(instance_t instance,
                               bool seqNumFlag,
                               bool npduNumFlag,
                               int32_t nru_seqnum,
-                              uint32_t pdcp_sn)
+                              uint32_t pdcp_sn,
+                              bool report_polling)
 {
   pthread_mutex_lock(&globGtp.gtp_lock);
   getInstRetVoid(compatInst(instance));
@@ -390,12 +391,19 @@ static void _gtpv1uSendDirect(instance_t instance,
     ext[extension_count] = {
       .type = GTPU_EXT_DL_USER_DATA,
       .dl_user_data = {
+        .report_polling = report_polling,
         .nru_sequence_number = nru_sn,
         .report_delivered = false,
         .nr_pdcp_pdu_sn = pdcp_sn,
-      }
+      },
     };
-    LOG_D(GTPU, "DL USER DATA TX: ue %ld bearer %d nru_sn %u pdcp_sn %u\n", ue_id, bearer_id, nru_sn, pdcp_sn);
+    LOG_D(GTPU,
+          "DL USER DATA TX: ue %ld bearer %d nru_sn %u pdcp_sn %u report_polling %d\n",
+          ue_id,
+          bearer_id,
+          nru_sn,
+          pdcp_sn,
+          report_polling);
     extension_count++;
   }
 
@@ -420,7 +428,7 @@ void gtpv1uSendDirectWithQFI(instance_t instance, ue_id_t ue_id, int bearer_id, 
               "Invalid QFI %d for gtpv1uSendDirectWithQFI (expected 0..%d)\n",
               qfi,
               MAX_QOS_FLOWS - 1);
-  _gtpv1uSendDirect(instance, ue_id, bearer_id, qfi, buf, len, false, false, -1, 0);
+  _gtpv1uSendDirect(instance, ue_id, bearer_id, qfi, buf, len, false, false, -1, 0, false);
 }
 
 /** Send GTP-U packet with no QFI marking for F1-U tunnel
@@ -433,11 +441,17 @@ void gtpv1uSendDirect(instance_t instance,
                       bool seqNumFlag,
                       bool npduNumFlag)
 {
-  _gtpv1uSendDirect(instance, ue_id, bearer_id, NO_QFI, buf, len, seqNumFlag, npduNumFlag, -1, 0);
+  _gtpv1uSendDirect(instance, ue_id, bearer_id, NO_QFI, buf, len, seqNumFlag, npduNumFlag, -1, 0, false);
 }
 
 /** @brief Send GTP-U G-PDU with NR-U DL USER DATA */
-void gtpv1uSendDirectWithNRUSeqNum(instance_t instance, ue_id_t ue_id, int bearer_id, uint8_t *buf, size_t len, uint32_t pdcp_sn)
+void gtpv1uSendDirectWithNRUSeqNum(instance_t instance,
+                                   ue_id_t ue_id,
+                                   int bearer_id,
+                                   uint8_t *buf,
+                                   size_t len,
+                                   uint32_t pdcp_sn,
+                                   bool report_polling)
 {
   pthread_mutex_lock(&globGtp.gtp_lock);
   getInstRetVoid(compatInst(instance));
@@ -456,7 +470,7 @@ void gtpv1uSendDirectWithNRUSeqNum(instance_t instance, ue_id_t ue_id, int beare
 
   pthread_mutex_unlock(&globGtp.gtp_lock);
 
-  _gtpv1uSendDirect(instance, ue_id, bearer_id, NO_QFI, buf, len, false, false, nru_seqnum, pdcp_sn);
+  _gtpv1uSendDirect(instance, ue_id, bearer_id, NO_QFI, buf, len, false, false, nru_seqnum, pdcp_sn, report_polling);
 }
 
 static void fillDlDeliveryStatusReport(gtpu_extension_header_t *ext,
