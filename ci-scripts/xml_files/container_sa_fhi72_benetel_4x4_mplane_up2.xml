@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabName>100 MHz 4x4 TDD SA Benetel</htmlTabName>
+  <htmlTabName>100 MHz 4x4 TDD SA Benetel M-plane</htmlTabName>
   <testCase>
     <class>DeployCoreNetwork</class>
     <desc>Initialize 5G Core</desc>
