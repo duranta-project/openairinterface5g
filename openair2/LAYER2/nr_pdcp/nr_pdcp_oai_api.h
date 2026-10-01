@@ -26,6 +26,12 @@ bool nr_pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
                       const sdu_size_t sdu_buffer_size,
                       uint8_t *const sdu_buffer);
 
+void do_pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
+                      const srb_flag_t srb_flagP,
+                      const rb_id_t rb_id,
+                      const sdu_size_t sdu_buffer_size,
+                      uint8_t *const sdu_buffer);
+
 void nr_pdcp_add_srbs(eNB_flag_t enb_flag,
                       ue_id_t UEid,
                       NR_SRB_ToAddModList_t *const srb2add_list,
@@ -66,17 +72,6 @@ bool nr_pdcp_check_integrity_srb(ue_id_t ue_id,
                                  const uint8_t *msg,
                                  int msg_size,
                                  const nr_pdcp_integrity_data_t *msg_integrity);
-
-bool cu_f1u_data_req(protocol_ctxt_t  *ctxt_pP,
-                     const srb_flag_t srb_flagP,
-                     const rb_id_t rb_id,
-                     const mui_t muiP,
-                     const confirm_t confirmP,
-                     const sdu_size_t sdu_buffer_size,
-                     unsigned char *const sdu_buffer,
-                     const pdcp_transmission_mode_t mode,
-                     const uint32_t *const sourceL2Id,
-                     const uint32_t *const destinationL2Id);
 
 typedef void (*deliver_pdu)(void *data, ue_id_t ue_id, int srb_id,
                             char *buf, int size, int sdu_id);

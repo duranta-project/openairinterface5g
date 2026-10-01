@@ -51,6 +51,32 @@
 #include "lib/f1ap_ue_context.h"
 #include "rrc_gNB_asn1.h"
 
+/** @brief GTP gtpCallback adapter: ignore is_poll, forward to nr_pdcp_data_req_drb */
+static bool nsa_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
+                                  const srb_flag_t srb_flagP,
+                                  const rb_id_t rb_id,
+                                  const mui_t muiP,
+                                  const confirm_t confirmP,
+                                  const sdu_size_t sdu_buffer_size,
+                                  unsigned char *const sdu_buffer,
+                                  const pdcp_transmission_mode_t mode,
+                                  const uint32_t *const sourceL2Id,
+                                  const uint32_t *const destinationL2Id,
+                                  bool is_poll)
+{
+  UNUSED(is_poll);
+  return nr_pdcp_data_req_drb(ctxt_pP,
+                              srb_flagP,
+                              rb_id,
+                              muiP,
+                              confirmP,
+                              sdu_buffer_size,
+                              sdu_buffer,
+                              mode,
+                              sourceL2Id,
+                              destinationL2Id);
+}
+
 // In case of phy-test and do-ra mode, read UE capabilities directly from file
 // and put it into a CG-ConfigInfo field
 static int cg_config_info_from_ue_cap_file(uint32_t maxlen, uint8_t buf[maxlen])
@@ -295,7 +321,7 @@ void rrc_add_nsa_user(gNB_RRC_INST *rrc, x2ap_ENDC_sgnb_addition_req_t *m, sctp_
       create_tunnel_req.num_tunnels    = m->nb_e_rabs_tobeadded;
       RB_INSERT(rrc_nr_ue_tree_s, &RC.nrrrc[rrc->module_id]->rrc_ue_head, ue_context_p);
       if (!IS_SOFTMODEM_NOS1) {
-        gtpv1u_create_s1u_tunnel(rrc->module_id, &create_tunnel_req, &create_tunnel_resp, nr_pdcp_data_req_drb);
+        gtpv1u_create_s1u_tunnel(rrc->module_id, &create_tunnel_req, &create_tunnel_resp, nsa_pdcp_data_req_drb);
         DevAssert(create_tunnel_resp.num_tunnels == 1);
         UE->nsa_gtp_teid[0] = create_tunnel_resp.enb_S1u_teid[0];
         UE->nsa_gtp_addrs[0] = create_tunnel_resp.enb_addr;
@@ -336,7 +362,7 @@ void rrc_add_nsa_user(gNB_RRC_INST *rrc, x2ap_ENDC_sgnb_addition_req_t *m, sctp_
         .dst_addr.length = 32,
       };
       gtpv1u_gnb_create_tunnel_resp_t resp = {0};
-      int ret = gtpv1u_create_ngu_tunnel(f1inst, &req, &resp, NULL, NULL, NULL);
+      int ret = gtpv1u_create_ngu_tunnel(f1inst, &req, &resp, NULL, NULL, NULL, NULL);
       AssertFatal(ret == 0, "gtpv1u_create_ngu_tunnel failed: ret %d\n", ret);
       AssertFatal(resp.gnb_addr.length == sizeof(in_addr_t),
                   "GTP tunnel response address length %d does not match IPv4 size %zu\n",

@@ -80,8 +80,8 @@ static void *nr_rlc_data_req_queue_thread(void *_)
           item->rb_idP,
           desired_buffer_size);
     if (item->report_polling && !item->srb_flagP && desired_buffer_size >= 0) {
-      LOG_D(RLC, "Sync DBS pdcp_ue_id=%ld DRB=%ld dbs=%d\n", item->pdcp_ue_id, item->rb_idP, desired_buffer_size);
-      nr_up_sync_dbs(item->pdcp_ue_id, item->rb_idP, desired_buffer_size);
+      LOG_D(RLC, "DDS tx (poll) pdcp_ue_id=%ld DRB=%ld dbs=%d\n", item->pdcp_ue_id, item->rb_idP, desired_buffer_size);
+      nr_up_data_delivery_status(item->pdcp_ue_id, item->rb_idP, desired_buffer_size, true, NULL, 0);
     }
 
     if (pthread_mutex_lock(&g_nr_rlc_data_req_queue.m) != 0) {

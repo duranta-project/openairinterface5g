@@ -54,6 +54,31 @@ static const uint16_t S1AP_INTEGRITY_EIA2_MASK = 0x4000;
 
 #define INTEGRITY_ALGORITHM_NONE LTE_SecurityAlgorithmConfig__integrityProtAlgorithm_eia0_v920
 
+/** @brief GTP gtpCallback adapter: ignore is_poll, forward to pdcp_data_req */
+static bool s1u_pdcp_data_req(protocol_ctxt_t *ctxt_pP,
+                              const srb_flag_t srb_flagP,
+                              const rb_id_t rb_id,
+                              const mui_t muiP,
+                              const confirm_t confirmP,
+                              const sdu_size_t sdu_buffer_size,
+                              unsigned char *const sdu_buffer,
+                              const pdcp_transmission_mode_t mode,
+                              const uint32_t *const sourceL2Id,
+                              const uint32_t *const destinationL2Id,
+                              bool is_poll)
+{
+  UNUSED(is_poll);
+  return pdcp_data_req(ctxt_pP,
+                       srb_flagP,
+                       rb_id,
+                       muiP,
+                       confirmP,
+                       sdu_buffer_size,
+                       sdu_buffer,
+                       mode,
+                       sourceL2Id,
+                       destinationL2Id);
+}
 
 void extract_imsi(uint8_t *pdu_buf, uint32_t pdu_len, rrc_eNB_ue_context_t *ue_context_pP) {
   /* Process NAS message locally to get the IMSI */
@@ -894,7 +919,7 @@ int rrc_eNB_process_S1AP_INITIAL_CONTEXT_SETUP_REQ(MessageDef *msg_p, const char
 
       create_tunnel_req.rnti       = ue_context_p->ue_context.rnti; // warning put zero above
       //      create_tunnel_req.num_tunnels    = i;
-      ret = gtpv1u_create_s1u_tunnel(instance, &create_tunnel_req, &create_tunnel_resp, pdcp_data_req);
+      ret = gtpv1u_create_s1u_tunnel(instance, &create_tunnel_req, &create_tunnel_resp, s1u_pdcp_data_req);
 
       if ( ret != 0 ) {
         LOG_E(RRC,"rrc_eNB_process_S1AP_INITIAL_CONTEXT_SETUP_REQ : gtpv1u_create_s1u_tunnel failed,start to release UE %x\n",ue_context_p->ue_context.rnti);
@@ -1205,7 +1230,7 @@ int rrc_eNB_process_S1AP_E_RAB_SETUP_REQ(MessageDef *msg_p, const char *msg_name
       create_tunnel_req.rnti       = ue_context_p->ue_context.rnti; // warning put zero above
       create_tunnel_req.num_tunnels    = e_rab_done;
       // NN: not sure if we should create a new tunnel: need to check teid, etc.
-      ret = gtpv1u_create_s1u_tunnel(instance, &create_tunnel_req, &create_tunnel_resp, pdcp_data_req);
+      ret = gtpv1u_create_s1u_tunnel(instance, &create_tunnel_req, &create_tunnel_resp, s1u_pdcp_data_req);
 
       if ( ret != 0 ) {
         LOG_E(RRC,"rrc_eNB_process_S1AP_E_RAB_SETUP_REQ : gtpv1u_create_s1u_tunnel failed,start to release UE %x\n",ue_context_p->ue_context.rnti);
@@ -1876,7 +1901,7 @@ int rrc_eNB_send_PATH_SWITCH_REQ(const protocol_ctxt_t *const ctxt_pP,
   S1AP_PATH_SWITCH_REQ (msg_p).nb_of_e_rabs = e_rabs_done;
   create_tunnel_req.rnti           = ue_context_pP->ue_context.rnti;
   create_tunnel_req.num_tunnels    = e_rabs_done;
-  gtpv1u_create_s1u_tunnel(ctxt_pP->instance, &create_tunnel_req, &create_tunnel_resp, pdcp_data_req);
+  gtpv1u_create_s1u_tunnel(ctxt_pP->instance, &create_tunnel_req, &create_tunnel_resp, s1u_pdcp_data_req);
   rrc_eNB_process_GTPV1U_CREATE_TUNNEL_RESP(ctxt_pP, &create_tunnel_resp, &inde_list[0]);
 
   for (e_rab = 0; e_rab < e_rabs_done; e_rab++) {
