@@ -18,6 +18,8 @@
 #define MAX_SI_GROUPS 3
 #define NR_MAX_PDSCH_TBS 3824
 #define MAX_NUM_BEAM_PERIODS 4
+// OAI limit on digital beam table beam IDs (FAPI allows 0..32767): bounds L1's beam ID lookup table
+#define NR_MAX_DBT_BEAM_IDX 512
 #define MAX_BWP_SIZE 275
 #define NR_MAX_NUM_BWP 4
 #define NR_MAX_HARQ_PROCESSES 32
