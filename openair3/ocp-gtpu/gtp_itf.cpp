@@ -1256,6 +1256,22 @@ static int gtpv1uSendErrorIndication(int h, const struct sockaddr_in *dst, teid_
   return rc;
 }
 
+/** @brief Find the te2ue_mapping entry by outgoing_teid */
+static map<uint64_t, ueidData_t>::iterator gtpv1u_find_tunnel_by_outgoing_teid(teid_t outgoing_teid)
+{
+  auto tunnel = globGtp.te2ue_mapping.end();
+  for (auto it = globGtp.te2ue_mapping.begin(); it != globGtp.te2ue_mapping.end(); ++it) {
+    if (it->second.outgoing_teid != outgoing_teid)
+      continue;
+    if (tunnel != globGtp.te2ue_mapping.end()) {
+      LOG_W(GTPU, "outgoing TEID 0x%x: multiple te2ue_mapping matches, using first\n", outgoing_teid);
+      break;
+    }
+    tunnel = it;
+  }
+  return tunnel;
+}
+
 /** @brief Handle incoming GTP-U Error Indication (7.3.1, TS 29.281).
  * Decodes mandatory IEs (Table 7.3.1-1: TEID-I 8.3, Peer Address 8.4). */
 static int Gtpv1uHandleError(int h, uint8_t *msgBuf, uint32_t msgBufLen, const struct sockaddr_in *addr)
@@ -1283,9 +1299,10 @@ static int Gtpv1uHandleError(int h, uint8_t *msgBuf, uint32_t msgBufLen, const s
         peer_str,
         IPV4_ADDR_FORMAT(addr->sin_addr.s_addr));
 
-  /* Invoke per-tunnel callback when TEID-I maps to te2ue_mapping (TS 23.527 §5.3.3.1). */
+  /* Invoke per-tunnel callback when TEID-I maps to te2ue_mapping
+   * TEID-I is the triggering UL G-PDU TEID (= local outgoing_teid) (TS 23.527 clause 5.3.3.1) */
   pthread_mutex_lock(&globGtp.gtp_lock);
-  const auto tunnel = globGtp.te2ue_mapping.find(indication.teid_i);
+  const auto tunnel = gtpv1u_find_tunnel_by_outgoing_teid(indication.teid_i);
   if (tunnel == globGtp.te2ue_mapping.end()) {
     pthread_mutex_unlock(&globGtp.gtp_lock);
     LOG_W(GTPU, "[%d] GTP Error Indication TEID-I 0x%x: no tunnel mapping, drop\n", h, indication.teid_i);
