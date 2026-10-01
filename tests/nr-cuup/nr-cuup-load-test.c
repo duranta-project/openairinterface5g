@@ -23,7 +23,14 @@ configmodule_interface_t *uniqCfg;
 #define DL 0
 #define UL 1
 
-int nr_rlc_get_available_tx_space(const rnti_t rntiP, const logical_chan_id_t channel_idP) { abort(); return 0; } /* in GTP */
+/* Fake DU Report Polling: return hardcoded DBS */
+static uint32_t fake_du_poll_ddds(ue_id_t ue_id, rb_id_t rb_id)
+{
+  UNUSED(ue_id);
+  UNUSED(rb_id);
+  return RLC_TX_MAXSIZE; /* CU DL budget for 10 Mbps across 20 ms polls */
+}
+
 softmodem_params_t *get_softmodem_params(void) { static softmodem_params_t p = {0}; return &p; }; /* in ITTI */
 void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req) { abort(); } /* CU-UP */
 void e1_bearer_context_modif(const e1ap_bearer_mod_req_t *req) { abort(); } /* CU-UP */
@@ -200,7 +207,7 @@ static up_params_t setup_cuup_ue_ng(sctp_assoc_t assoc_id, const e1ap_nssai_t *n
   /* create the local tunnel (i.e., as if we were UPF) with N3-U bearer mappings */
   transport_layer_addr_t null_addr = {.length = 32};
   /* Intentionally disable non-SDAP callback on NG-U: this test must fail if packets arrive without QFI. */
-  teid_t teid_lo = newGtpuCreateTunnel(gtp_inst, ue_id, pdu_id, pdu_id, -1, null_addr, NULL, recv_ng, NULL, NULL);
+  teid_t teid_lo = newGtpuCreateTunnel(gtp_inst, ue_id, pdu_id, pdu_id, -1, null_addr, NULL, recv_ng, NULL, NULL, NULL);
   UP_TL_information_t tnl = {.teId = teid_lo};
   memcpy(&tnl.tlAddress, &addr_lo, 4);
 
@@ -302,7 +309,8 @@ static void setup_cuup_ue_f1(sctp_assoc_t assoc_id, uint32_t ue_id, instance_t g
   /* create tunnel (i.e., as if we were DU) */
   transport_layer_addr_t addr = {.length = 32};
   memcpy(addr.buffer, &rm.tl_info.tlAddress, 4);
-  teid_t teid_lo = newGtpuCreateTunnel(gtp_inst, ue_id, drb_id, drb_id, rm.tl_info.teId, addr, recv_f1, NULL, NULL, NULL);
+  teid_t teid_lo =
+      newGtpuCreateTunnel(gtp_inst, ue_id, drb_id, drb_id, rm.tl_info.teId, addr, recv_f1, NULL, NULL, NULL, fake_du_poll_ddds);
 
   up_params_t lo = {.tl_info.teId = teid_lo, .cell_group_id = rm.cell_group_id};
   inet_pton(AF_INET, ip, &lo.tl_info.tlAddress);
