@@ -29,6 +29,7 @@
 #include "openair2/F1AP/f1ap_ids.h"
 #include "openair2/SDAP/nr_sdap/nr_sdap.h"
 #include "openair3/ocp-gtpu/gtp_itf.h"
+#include "nr_up/nr_up_pdcp_if.h"
 
 static NR_DRB_ToAddMod_t *get_rrc_drb_to_addmod(const DRB_nGRAN_to_setup_t *drb,
                                                 const long sessionId,
@@ -122,7 +123,7 @@ static UP_TL_information_t f1_drb_gtpu_create(const instance_t f1inst,
   LOG_I(GTPU, "Incoming DRB %d / PDU Session %d - UL TEID %d\n", req->incoming_rb_id, req->pdusession_id, req->outgoing_teid);
 
   gtpv1u_gnb_create_tunnel_resp_t resp = {0};
-  int ret = gtpv1u_create_ngu_tunnel(f1inst, req, &resp, cu_f1u_data_req, NULL, NULL);
+  int ret = gtpv1u_create_ngu_tunnel(f1inst, req, &resp, cu_f1u_data_req, NULL, NULL, nr_up_dl_budget_sync);
   AssertFatal(ret >= 0, "Unable to create GTP-U tunnel for F1-U\n");
   AssertFatal(resp.gnb_addr.length == sizeof(in_addr_t),
               "GTP tunnel response address length %d does not match IPv4 size %zu\n",
@@ -150,7 +151,7 @@ static UP_TL_information_t n3_gtpu_create(const gtpv1u_gnb_create_tunnel_req_t *
   LOG_I(GTPU, "N3 GTP-U tunnel: PDUSession=%d/UL TEID=0x%08x\n", req->pdusession_id, req->outgoing_teid);
 
   gtpv1u_gnb_create_tunnel_resp_t resp = {0};
-  int ret = gtpv1u_create_ngu_tunnel(n3inst, req, &resp, nr_pdcp_data_req_drb, sdap_data_req, n3_error_indication);
+  int ret = gtpv1u_create_ngu_tunnel(n3inst, req, &resp, nr_pdcp_data_req_drb, sdap_data_req, n3_error_indication, NULL);
   AssertFatal(ret >= 0, "Unable to create GTP-U tunnel for N3\n");
   AssertFatal(resp.gnb_addr.length == sizeof(in_addr_t),
               "GTP tunnel response address length %d does not match IPv4 size %zu\n",

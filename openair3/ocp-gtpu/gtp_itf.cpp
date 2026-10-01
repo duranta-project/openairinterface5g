@@ -134,6 +134,7 @@ typedef struct {
   teid_t outgoing_teid;
   gtpCallbackSDAP callBackSDAP;
   gtpv1u_error_indication_cb_fn_t errorIndicationCallBack;
+  gtpv1u_ddds_cb_fn_t dlDataDeliveryStatusCallBack;
   /** PDU Session ID (1..255) */
   uint16_t pdusession_id;
 } ueidData_t;
@@ -696,7 +697,8 @@ teid_t newGtpuCreateTunnel(instance_t instance,
                            transport_layer_addr_t remoteAddr,
                            gtpCallback callBack,
                            gtpCallbackSDAP callBackSDAP,
-                           gtpv1u_error_indication_cb_fn_t errorIndicationCallBack)
+                           gtpv1u_error_indication_cb_fn_t errorIndicationCallBack,
+                           gtpv1u_ddds_cb_fn_t dlDataDeliveryStatusCallBack)
 {
   pthread_mutex_lock(&globGtp.gtp_lock);
   getInstRetInt(compatInst(instance));
@@ -720,6 +722,7 @@ teid_t newGtpuCreateTunnel(instance_t instance,
   globGtp.te2ue_mapping[incoming_teid].callBack = callBack;
   globGtp.te2ue_mapping[incoming_teid].callBackSDAP = callBackSDAP;
   globGtp.te2ue_mapping[incoming_teid].errorIndicationCallBack = errorIndicationCallBack;
+  globGtp.te2ue_mapping[incoming_teid].dlDataDeliveryStatusCallBack = dlDataDeliveryStatusCallBack;
   globGtp.te2ue_mapping[incoming_teid].pdusession_id = (uint8_t)outgoing_bearer_id;
 
   gtpv1u_bearer_t bearer = {
@@ -797,6 +800,7 @@ int gtpv1u_create_s1u_tunnel(instance_t instance,
                                       create_tunnel_req->sgw_addr[i],
                                       callBack,
                                       NULL,
+                                      NULL,
                                       NULL);
     create_tunnel_resp->status = 0;
     create_tunnel_resp->rnti = create_tunnel_req->rnti;
@@ -857,7 +861,8 @@ int gtpv1u_create_ngu_tunnel(const instance_t instance,
                              gtpv1u_gnb_create_tunnel_resp_t *const create_tunnel_resp,
                              gtpCallback callBack,
                              gtpCallbackSDAP callBackSDAP,
-                             gtpv1u_error_indication_cb_fn_t errorIndicationCallBack)
+                             gtpv1u_error_indication_cb_fn_t errorIndicationCallBack,
+                             gtpv1u_ddds_cb_fn_t dlDataDeliveryStatusCallBack)
 {
   LOG_D(GTPU,
         "[%ld] Create tunnel for UE ID %lu, outgoing TEID 0x%x\n",
@@ -878,7 +883,8 @@ int gtpv1u_create_ngu_tunnel(const instance_t instance,
                                     create_tunnel_req->dst_addr,
                                     callBack,
                                     callBackSDAP,
-                                    errorIndicationCallBack);
+                                    errorIndicationCallBack,
+                                    dlDataDeliveryStatusCallBack);
   /* Fill response */
   create_tunnel_resp->status = 0;
   create_tunnel_resp->ue_id = create_tunnel_req->ue_id;
@@ -1487,6 +1493,9 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
                   uedata.incoming_rb_id,
                   ddds.desired_buffer_size,
                   ddds.highest_transmitted_nr_pdcp_sn_present ? ddds.highest_transmitted_nr_pdcp_sn : 0u);
+            if (uedata.dlDataDeliveryStatusCallBack != nullptr) {
+              uedata.dlDataDeliveryStatusCallBack(uedata.ue_id, uedata.incoming_rb_id, ddds.desired_buffer_size);
+            }
           } else {
             LOG_W(GTPU, "NR-RAN container type: %d not supported \n", PDU_type);
           }
