@@ -19,6 +19,8 @@ typedef struct nr_up_drb_budget_s {
   uint32_t available_tx_bytes;
   // When the budget was last synced
   struct timespec last_budget_sync;
+  // When Report Polling was last taken (zero = never)
+  struct timespec last_status_poll;
   // Rate-limits congestion DROP warnings
   nr_up_drb_dl_drop_log_t dl_drop_log;
 } nr_up_drb_budget_t;
