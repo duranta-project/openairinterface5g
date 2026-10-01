@@ -25,10 +25,10 @@ void exit_function(const char *file, const char *function, const int line, const
   abort();
 }
 
-int nr_rlc_get_available_tx_space(const rnti_t rntiP, const logical_chan_id_t channel_idP)
+static uint32_t test_ddds_poll(ue_id_t ue_id, rb_id_t rb_id)
 {
-  UNUSED(rntiP);
-  UNUSED(channel_idP);
+  UNUSED(ue_id);
+  UNUSED(rb_id);
   return 4096;
 }
 void *get_softmodem_params(void)
@@ -101,13 +101,13 @@ static void run_basic_test(uint32_t ue_id,
    * don't provide an address yet, hence "null_addr". Install the callback
    * specific to this test. */
   transport_layer_addr_t null_addr = {.length = 32};
-  teid_t t1 = newGtpuCreateTunnel(ep1, ue_id, pdu_id, pdu_id, -1, null_addr, callBack, callBackSDAP, NULL, NULL);
+  teid_t t1 = newGtpuCreateTunnel(ep1, ue_id, pdu_id, pdu_id, -1, null_addr, callBack, callBackSDAP, NULL, NULL, NULL);
 
   /* Create the sending end on ep2. We have ep1's address/TEID, so create the
    * remote endpoint. Don't provide a callback, as this is supposed to be
    * unidirectional. */
   transport_layer_addr_t tl_addr1 = get_tl_addr(AF_INET, ip1);
-  teid_t t2 = newGtpuCreateTunnel(ep2, ue_id, pdu_id, pdu_id, t1, tl_addr1, NULL, NULL, NULL, NULL);
+  teid_t t2 = newGtpuCreateTunnel(ep2, ue_id, pdu_id, pdu_id, t1, tl_addr1, NULL, NULL, NULL, NULL, NULL);
 
   EXPECT_NE(t1, t2); // cannot be the same TEIDs
 
@@ -230,10 +230,10 @@ static void run_multi_qos_flows_test(uint32_t ue_id, long pdu_id, const uint8_t 
   EXPECT_NE(ep1, ep2);
 
   transport_layer_addr_t null_addr = {.length = 32};
-  teid_t t1 = newGtpuCreateTunnel(ep1, ue_id, pdu_id, pdu_id, -1, null_addr, NULL, recv_multi_qfi_same_pdu, NULL, NULL);
+  teid_t t1 = newGtpuCreateTunnel(ep1, ue_id, pdu_id, pdu_id, -1, null_addr, NULL, recv_multi_qfi_same_pdu, NULL, NULL, NULL);
 
   transport_layer_addr_t tl_addr1 = get_tl_addr(AF_INET, ip1);
-  teid_t t2 = newGtpuCreateTunnel(ep2, ue_id, pdu_id, pdu_id, t1, tl_addr1, NULL, NULL, NULL, NULL);
+  teid_t t2 = newGtpuCreateTunnel(ep2, ue_id, pdu_id, pdu_id, t1, tl_addr1, NULL, NULL, NULL, NULL, NULL);
   EXPECT_NE(t1, t2);
 
   in_addr_t addr2 = get_addr(AF_INET, ip2);
@@ -360,9 +360,9 @@ TEST(gtp, nrup_ddds)
   ASSERT_GE(ep2, 1);
 
   transport_layer_addr_t null_addr = {.length = 32};
-  teid_t t1 = newGtpuCreateTunnel(ep1, ue_id, pdu_id, pdu_id, -1, null_addr, NULL, NULL, NULL, NULL);
+  teid_t t1 = newGtpuCreateTunnel(ep1, ue_id, pdu_id, pdu_id, -1, null_addr, NULL, NULL, NULL, NULL, test_ddds_poll);
   transport_layer_addr_t tl_addr1 = get_tl_addr(AF_INET, ip1);
-  teid_t t2 = newGtpuCreateTunnel(ep2, ue_id, pdu_id, pdu_id, t1, tl_addr1, NULL, NULL, NULL, NULL);
+  teid_t t2 = newGtpuCreateTunnel(ep2, ue_id, pdu_id, pdu_id, t1, tl_addr1, NULL, NULL, NULL, NULL, NULL);
   in_addr_t addr2 = get_addr(AF_INET, ip2);
   GtpuUpdateTunnelOutgoingAddressAndTeid(ep1, ue_id, pdu_id, addr2, t2);
 
@@ -374,7 +374,7 @@ TEST(gtp, nrup_ddds)
 
   gtpu_extension_header_t ext = {
       .type = GTPU_EXT_DL_USER_DATA,
-      .dl_user_data = {.nru_sequence_number = 1, .report_delivered = true, .nr_pdcp_pdu_sn = 5},
+      .dl_user_data = {.report_polling = true, .nru_sequence_number = 1},
   };
   uint8_t pkt[256];
   const int pkt_len = build_gtpu_nrup(pkt, sizeof(pkt), t1, &ext);
