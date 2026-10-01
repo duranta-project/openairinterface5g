@@ -22,6 +22,12 @@ add_dependencies(tests test_fh_compression)
 add_test(NAME test_fh_compression COMMAND test_fh_compression)
 set_property(TEST test_fh_compression PROPERTY LABELS fronthaul)
 
+add_executable(test_oru_beamforming test_oru_beamforming.cpp)
+target_link_libraries(test_oru_beamforming PRIVATE oru_beamforming log_headers GTest::gtest)
+add_dependencies(tests test_oru_beamforming)
+add_test(NAME test_oru_beamforming COMMAND test_oru_beamforming)
+set_property(TEST test_oru_beamforming PROPERTY LABELS fronthaul)
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PCAP REQUIRED libpcap)
 
@@ -31,11 +37,14 @@ target_link_libraries(test_oru_pcap PRIVATE oru_packet_processor log_headers ${d
 target_include_directories(test_oru_pcap PRIVATE ${dpdk_INCLUDE_DIRS} ${PCAP_INCLUDE_DIRS})
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/run_oru_pcap_test.sh DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
-add_test(NAME test_oru_pcap_1 COMMAND ${CMAKE_CURRENT_BINARY_DIR}/run_oru_pcap_test.sh https://github.com/bpodrygajlo/openairinterface5g/releases/download/fhi72-pcaps/capture-oai-odu-4x4-273prb-truncated.pcap.xz $<TARGET_FILE:test_oru_pcap> 1090 3 1 6 4 5 9600 4 -- ${DPDK_TEST_ARGS} "--file-prefix=test_oru_pcap_1")
+add_test(NAME test_oru_pcap_1 COMMAND ${CMAKE_CURRENT_BINARY_DIR}/run_oru_pcap_test.sh https://github.com/bpodrygajlo/openairinterface5g/releases/download/fhi72-pcaps/capture-oai-odu-4x4-273prb-truncated.pcap.xz $<TARGET_FILE:test_oru_pcap> 1 1090 3 1 6 4 5 9600 4 -- ${DPDK_TEST_ARGS} "--file-prefix=test_oru_pcap_1")
 set_property(TEST test_oru_pcap_1 PROPERTY LABELS fronthaul)
 
-add_test(NAME test_oru_pcap_frag COMMAND ${CMAKE_CURRENT_BINARY_DIR}/run_oru_pcap_test.sh https://github.com/bpodrygajlo/openairinterface5g/releases/download/fhi72-pcaps/capture-oai-odu-4x4-273prb-truncated.pcap.xz $<TARGET_FILE:test_oru_pcap> 1090 3 1 6 4 5 1500 4 -- ${DPDK_TEST_ARGS} "--file-prefix=test_oru_pcap_frag")
+add_test(NAME test_oru_pcap_frag COMMAND ${CMAKE_CURRENT_BINARY_DIR}/run_oru_pcap_test.sh https://github.com/bpodrygajlo/openairinterface5g/releases/download/fhi72-pcaps/capture-oai-odu-4x4-273prb-truncated.pcap.xz $<TARGET_FILE:test_oru_pcap> 1 1090 3 1 6 4 5 1500 4 -- ${DPDK_TEST_ARGS} "--file-prefix=test_oru_pcap_frag")
 set_property(TEST test_oru_pcap_frag PROPERTY LABELS fronthaul)
+
+add_test(NAME test_oru_pcap_beamids COMMAND ${CMAKE_CURRENT_BINARY_DIR}/run_oru_pcap_test.sh https://github.com/bpodrygajlo/openairinterface5g/releases/download/fhi72-pcaps-gnb-sa-band257-132prb-2x2/fronthaul.pcap.xz $<TARGET_FILE:test_oru_pcap> 3 1146820 3 1 10 2 5 9216 0 -- ${DPDK_TEST_ARGS} "--file-prefix=test_oru_pcap_beamids")
+set_property(TEST test_oru_pcap_beamids PROPERTY LABELS fronthaul)
 
 add_dependencies(tests test_oru_pcap)
 
