@@ -17,6 +17,16 @@ void exit_function(const char *file, const char *function, const int line, const
   exit(1);
 }
 
+// Writes the low width bits of v MSB first at bit_offset (buf must be zeroed)
+static void pack_value(uint8_t *buf, size_t bit_offset, int32_t v, int width)
+{
+  uint32_t bits = (uint32_t)v & ((1u << width) - 1);
+  for (int b = 0; b < width; b++) {
+    size_t bo = bit_offset + b;
+    buf[bo / 8] |= (uint8_t)(((bits >> (width - 1 - b)) & 1u) << (7 - bo % 8));
+  }
+}
+
 // Builds a well-formed ext1 buffer by hand: 3-byte fixed header, optional 1-byte
 // comp param, then n_weights (bfwI, bfwQ) pairs packed at iq_bits width, zero-padded
 // to a 4-byte boundary. Returns the total length written.
@@ -38,20 +48,55 @@ static size_t build_ext1(uint8_t *buf,
     buf[3] = comp_param;
     bit_offset += 8;
   }
-  for (int i = 0; i < 2 * n_weights; i++) {
-    int32_t v = iq_pairs[i];
-    uint32_t bits = (uint32_t)(v & ((1 << iq_bits) - 1));
-    for (int b = 0; b < iq_bits; b++) {
-      size_t bo = bit_offset + i * iq_bits + b;
-      int pos = bo / 8;
-      int shift = 7 - (bo % 8);
-      buf[pos] |= (uint8_t)(((bits >> (iq_bits - 1 - b)) & 1u) << shift);
-    }
-  }
+  for (int i = 0; i < 2 * n_weights; i++)
+    pack_value(buf, bit_offset + i * iq_bits, iq_pairs[i], iq_bits);
   size_t total_bits = bit_offset + (size_t)2 * n_weights * iq_bits;
   size_t total_bytes = (total_bits + 7) / 8;
   size_t padded = ((total_bytes + 3) / 4) * 4;
   buf[1] = (uint8_t)(padded / 4);
+  return padded;
+}
+
+typedef struct {
+  bool disable_bfws;
+  bool rad;
+  uint8_t bundle_offset;
+  uint8_t num_bund_prb;
+  uint8_t comp_meth;
+  uint8_t iq_width_field; // bfwIqWidth as sent, 0 = 16 bits
+  int iq_bits;
+  int n_weights;
+  int n_bundles;
+  const uint8_t *comp_params; // one per bundle, unused if NONE
+  const uint16_t *beam_ids; // raw 16-bit field, contInd included
+  const int16_t *iq; // n_bundles * 2 * n_weights values
+} ext11_desc_t;
+
+// Builds a well-formed ext11 buffer by hand (CUS v21 Tables 7.7.11-1/-2): 6-byte header (5 if disableBFWs), then
+// per bundle [bfwCompParam] contInd|beamId [(bfwI, bfwQ)+], zero-padded to a 4-byte boundary. Returns the length.
+static size_t build_ext11(uint8_t *buf, const ext11_desc_t *d)
+{
+  memset(buf, 0, 1024);
+  buf[0] = 11; // extType=11, ef=0
+  buf[3] = (uint8_t)((d->disable_bfws << 7) | (d->rad << 6) | (d->bundle_offset & 0x3F));
+  buf[4] = d->num_bund_prb;
+  size_t offset = 5;
+  if (!d->disable_bfws)
+    buf[offset++] = (uint8_t)((d->comp_meth & 0x0F) | (d->iq_width_field << 4));
+  for (int b = 0; b < d->n_bundles; b++) {
+    if (!d->disable_bfws && d->comp_meth != XRAN_BFWCOMPMETHOD_NONE)
+      buf[offset++] = d->comp_params[b];
+    buf[offset++] = d->beam_ids[b] >> 8;
+    buf[offset++] = d->beam_ids[b] & 0xFF;
+    if (d->disable_bfws)
+      continue;
+    for (int i = 0; i < 2 * d->n_weights; i++)
+      pack_value(buf, offset * 8 + i * d->iq_bits, d->iq[2 * b * d->n_weights + i], d->iq_bits);
+    offset += ((size_t)2 * d->n_weights * d->iq_bits + 7) / 8;
+  }
+  size_t padded = (offset + 3) & ~(size_t)3;
+  buf[1] = (uint8_t)((padded / 4) >> 8);
+  buf[2] = (uint8_t)(padded / 4);
   return padded;
 }
 
@@ -221,6 +266,241 @@ static void test_section_ext_len(void)
   printf("section extension length passed!\n");
 }
 
+static void test_ext11_none_known_vector(void)
+{
+  printf("Testing ext11 NONE decode with an orphan PRB bundle...\n");
+  // 5 PRBs, 2 per bundle: bundles {0,1} {2,3} {4}, 2 weights each, 16-bit.
+  // The middle beamId has contInd set, which is not part of the beamId.
+  uint16_t beam_ids[3] = {5, 0x8000 | 0x7001, 0x7FFF};
+  int16_t iq[12] = {12345, -12345, 1, -1, 2, -2, 3, -3, -32768, 32767, 0, 0};
+  ext11_desc_t d = {.rad = true,
+                    .num_bund_prb = 2,
+                    .comp_meth = XRAN_BFWCOMPMETHOD_NONE,
+                    .iq_width_field = 0,
+                    .iq_bits = 16,
+                    .n_weights = 2,
+                    .n_bundles = 3,
+                    .beam_ids = beam_ids,
+                    .iq = iq};
+  uint8_t buf[1024];
+  size_t len = build_ext11(buf, &d);
+  assert(len == 36); // 6 + 3 * (2 + 8) = 36
+
+  xran_bfw_ext11_hdr_t hdr;
+  uint16_t ids[4];
+  c16_t w[8];
+  assert(xran_decode_bfw_ext11(buf, len, 5, 2, 4, &hdr, ids, w) == 3);
+  assert(!hdr.disableBFWs && hdr.RAD && hdr.bundleOffset == 0 && hdr.numBundPrb == 2);
+  assert(hdr.bfwCompMeth == XRAN_BFWCOMPMETHOD_NONE && hdr.bfwIqWidth == 16);
+  assert(ids[0] == 5 && ids[1] == 0x7001 && ids[2] == 0x7FFF);
+  for (int i = 0; i < 6; i++)
+    assert(w[i].r == iq[2 * i] && w[i].i == iq[2 * i + 1]);
+  printf("ext11 NONE known-vector check passed!\n");
+}
+
+static void test_ext11_bfp_per_bundle_exponent(void)
+{
+  printf("Testing ext11 BFP decode uses each bundle's own exponent...\n");
+  // 9-bit mantissas (bundles not byte aligned), exponent 0 then 3.
+  uint8_t exps[2] = {0, 3};
+  uint16_t beam_ids[2] = {1, 2};
+  int16_t iq[8] = {255, -256, 1, -1, 100, -100, -7, 7};
+  ext11_desc_t d = {.rad = true,
+                    .num_bund_prb = 1,
+                    .comp_meth = XRAN_BFWCOMPMETHOD_BLKFLOAT,
+                    .iq_width_field = 9,
+                    .iq_bits = 9,
+                    .n_weights = 2,
+                    .n_bundles = 2,
+                    .comp_params = exps,
+                    .beam_ids = beam_ids,
+                    .iq = iq};
+  uint8_t buf[1024];
+  size_t len = build_ext11(buf, &d);
+  assert(len == 24); // 6 + 2 * (1 + 2 + 5) = 22, padded to 24
+  xran_bfw_ext11_hdr_t hdr;
+  uint16_t ids[2];
+  c16_t w[4];
+  assert(xran_decode_bfw_ext11(buf, len, 2, 2, 2, &hdr, ids, w) == 2);
+  assert(hdr.bfwCompMeth == XRAN_BFWCOMPMETHOD_BLKFLOAT && hdr.bfwIqWidth == 9);
+  assert(ids[0] == 1 && ids[1] == 2);
+  assert(w[0].r == 255 && w[0].i == -256 && w[1].r == 1 && w[1].i == -1);
+  assert(w[2].r == 800 && w[2].i == -800 && w[3].r == -56 && w[3].i == 56);
+  printf("ext11 BFP per-bundle exponent check passed!\n");
+}
+
+static void test_ext11_blkscale_ulaw(void)
+{
+  printf("Testing ext11 BLKSCALE and ULAW decode...\n");
+  uint8_t params[1] = {2};
+  uint16_t beam_ids[1] = {9};
+  int16_t iq[2] = {10, -10};
+  ext11_desc_t d = {.rad = true,
+                    .num_bund_prb = 4,
+                    .comp_meth = XRAN_BFWCOMPMETHOD_BLKSCALE,
+                    .iq_width_field = 8,
+                    .iq_bits = 8,
+                    .n_weights = 1,
+                    .n_bundles = 1,
+                    .comp_params = params,
+                    .beam_ids = beam_ids,
+                    .iq = iq};
+  uint8_t buf[1024];
+  size_t len = build_ext11(buf, &d);
+  xran_bfw_ext11_hdr_t hdr;
+  uint16_t ids[1];
+  c16_t w[1];
+  assert(xran_decode_bfw_ext11(buf, len, 4, 1, 1, &hdr, ids, w) == 1);
+  assert(ids[0] == 9 && w[0].r == 40 && w[0].i == -40);
+
+  // ULAW: same expansion as test_ulaw_known_vector, (32, -32) -> (3935, -3935)
+  iq[0] = 32;
+  iq[1] = -32;
+  d.comp_meth = XRAN_BFWCOMPMETHOD_ULAW;
+  len = build_ext11(buf, &d);
+  assert(xran_decode_bfw_ext11(buf, len, 4, 1, 1, &hdr, ids, w) == 1);
+  assert(hdr.bfwCompMeth == XRAN_BFWCOMPMETHOD_ULAW);
+  assert(ids[0] == 9 && w[0].r == 3935 && w[0].i == -3935);
+  printf("ext11 BLKSCALE/ULAW check passed!\n");
+}
+
+static void test_ext11_disable_bfws(void)
+{
+  printf("Testing ext11 with disableBFWs carries beamIds only...\n");
+  // No bfwCompHdr: 5-byte header + 3 beamIds = 11 bytes, padded to 12.
+  uint16_t beam_ids[3] = {7, 8, 0x8000 | 9};
+  ext11_desc_t d = {.disable_bfws = true, .num_bund_prb = 3, .n_weights = 4, .n_bundles = 3, .beam_ids = beam_ids};
+  uint8_t buf[1024];
+  size_t len = build_ext11(buf, &d);
+  assert(len == 12);
+
+  xran_bfw_ext11_hdr_t hdr;
+  uint16_t ids[3];
+  c16_t w[12];
+  memset(w, 0x5A, sizeof(w));
+  assert(xran_decode_bfw_ext11(buf, len, 9, 4, 3, &hdr, ids, w) == 3);
+  assert(hdr.disableBFWs && !hdr.RAD && hdr.numBundPrb == 3);
+  assert(ids[0] == 7 && ids[1] == 8 && ids[2] == 9);
+  for (int i = 0; i < 12; i++) // no weights written
+    assert(w[i].r == 0x5A5A && w[i].i == 0x5A5A);
+  // 10 PRBs would need 4 bundles: 13 bytes, padded to 16
+  assert(xran_decode_bfw_ext11(buf, len, 10, 4, 4, &hdr, ids, w) == -1);
+  printf("ext11 disableBFWs check passed!\n");
+}
+
+static void test_ext11_bundle_offset(void)
+{
+  printf("Testing ext11 bundleOffset shifts the bundle boundaries...\n");
+  // 4 PRBs, 4 per bundle: 1 bundle, or 2 with bundleOffset 1 (the first bundle starts 1 PRB before startPrbc).
+  uint16_t beam_ids[2] = {1, 2};
+  ext11_desc_t d = {.disable_bfws = true, .bundle_offset = 1, .num_bund_prb = 4, .n_bundles = 2, .beam_ids = beam_ids};
+  uint8_t buf[1024];
+  size_t len = build_ext11(buf, &d);
+  xran_bfw_ext11_hdr_t hdr;
+  uint16_t ids[2];
+  c16_t w[2];
+  assert(xran_decode_bfw_ext11(buf, len, 4, 1, 2, &hdr, ids, w) == 2);
+  assert(hdr.bundleOffset == 1 && ids[0] == 1 && ids[1] == 2);
+  // Without the offset the same 4 PRBs are one bundle: 7 bytes, padded to 8, not 12
+  buf[3] &= ~0x3F;
+  assert(xran_decode_bfw_ext11(buf, len, 4, 1, 2, &hdr, ids, w) == -1);
+  printf("ext11 bundleOffset check passed!\n");
+}
+
+static void test_ext11_count_mismatch_rejected(void)
+{
+  printf("Testing ext11 decode rejects weight/PRB counts that don't match extLen...\n");
+  // 4 PRBs, 1 per bundle, 2 x 16-bit weights: 6 + 4 * 10 = 46, padded to 48.
+  uint16_t beam_ids[4] = {1, 2, 3, 4};
+  int16_t iq[16] = {0};
+  ext11_desc_t d = {.rad = true,
+                    .num_bund_prb = 1,
+                    .comp_meth = XRAN_BFWCOMPMETHOD_NONE,
+                    .iq_bits = 16,
+                    .n_weights = 2,
+                    .n_bundles = 4,
+                    .beam_ids = beam_ids,
+                    .iq = iq};
+  uint8_t buf[1024];
+  size_t len = build_ext11(buf, &d);
+  assert(len == 48);
+
+  xran_bfw_ext11_hdr_t hdr;
+  memset(&hdr, 0x5A, sizeof(hdr));
+  uint16_t ids[8];
+  c16_t w[32];
+  memset(w, 0x5A, sizeof(w));
+  assert(xran_decode_bfw_ext11(buf, len, 4, 1, 8, &hdr, ids, w) == -1); // fewer weights than sent
+  assert(xran_decode_bfw_ext11(buf, len, 4, 3, 8, &hdr, ids, w) == -1); // more weights than sent
+  assert(xran_decode_bfw_ext11(buf, len, 3, 2, 8, &hdr, ids, w) == -1); // fewer PRBs than sent
+  assert(xran_decode_bfw_ext11(buf, len, 5, 2, 8, &hdr, ids, w) == -1); // more PRBs than sent
+  assert(xran_decode_bfw_ext11(buf, len, 4, 2, 3, &hdr, ids, w) == -1); // more bundles than the caller has room for
+  // Nothing written on rejection
+  for (int i = 0; i < 32; i++)
+    assert(w[i].r == 0x5A5A && w[i].i == 0x5A5A);
+  assert(hdr.numBundPrb == 0x5A);
+  assert(xran_decode_bfw_ext11(buf, len, 4, 2, 4, &hdr, ids, w) == 4);
+  printf("ext11 count mismatch rejection passed!\n");
+}
+
+static void test_ext11_malformed_inputs_rejected(void)
+{
+  printf("Testing ext11 decode rejects malformed input...\n");
+  uint8_t exps[1] = {0};
+  uint16_t beam_ids[1] = {1};
+  int16_t iq[2] = {1, -1};
+  ext11_desc_t d = {.rad = true,
+                    .num_bund_prb = 1,
+                    .comp_meth = XRAN_BFWCOMPMETHOD_BLKFLOAT,
+                    .iq_width_field = 8,
+                    .iq_bits = 8,
+                    .n_weights = 1,
+                    .n_bundles = 1,
+                    .comp_params = exps,
+                    .beam_ids = beam_ids,
+                    .iq = iq};
+  uint8_t buf[1024];
+  size_t len = build_ext11(buf, &d);
+  assert(len == 12);
+  xran_bfw_ext11_hdr_t hdr;
+  uint16_t ids[1];
+  c16_t w[1];
+  assert(xran_decode_bfw_ext11(buf, len, 1, 1, 1, &hdr, ids, w) == 1);
+
+  // Truncated buffer and NULL/zero-sized arguments
+  assert(xran_decode_bfw_ext11(buf, len - 1, 1, 1, 1, &hdr, ids, w) == -1);
+  assert(xran_decode_bfw_ext11(buf, 4, 1, 1, 1, &hdr, ids, w) == -1);
+  assert(xran_decode_bfw_ext11(NULL, len, 1, 1, 1, &hdr, ids, w) == -1);
+  assert(xran_decode_bfw_ext11(buf, len, 1, 1, 1, NULL, ids, w) == -1);
+  assert(xran_decode_bfw_ext11(buf, len, 1, 1, 1, &hdr, NULL, w) == -1);
+  assert(xran_decode_bfw_ext11(buf, len, 1, 1, 1, &hdr, ids, NULL) == -1);
+  assert(xran_decode_bfw_ext11(buf, len, 0, 1, 1, &hdr, ids, w) == -1);
+  assert(xran_decode_bfw_ext11(buf, len, 1, 0, 1, &hdr, ids, w) == -1);
+  assert(xran_decode_bfw_ext11(buf, len, 1, 1, 0, &hdr, ids, w) == -1);
+
+  // extLen one word too long, and 0; the upper extLen byte must be used
+  buf[2]++;
+  assert(xran_decode_bfw_ext11(buf, sizeof(buf), 1, 1, 1, &hdr, ids, w) == -1);
+  buf[2] = 0;
+  assert(xran_decode_bfw_ext11(buf, len, 1, 1, 1, &hdr, ids, w) == -1);
+  buf[1] = 1;
+  buf[2] = 3;
+  assert(xran_decode_bfw_ext11(buf, sizeof(buf), 1, 1, 1, &hdr, ids, w) == -1);
+  buf[1] = 0;
+
+  // numBundPrb 0 is reserved
+  buf[4] = 0;
+  assert(xran_decode_bfw_ext11(buf, len, 1, 1, 1, &hdr, ids, w) == -1);
+  buf[4] = 1;
+
+  // Beamspace and reserved bfwCompMeth values come from the wire and must not abort
+  for (int meth = XRAN_BFWCOMPMETHOD_BEAMSPACE; meth <= 0xF; meth++) {
+    buf[5] = (uint8_t)(meth | (8 << 4));
+    assert(xran_decode_bfw_ext11(buf, len, 1, 1, 1, &hdr, ids, w) == -1);
+  }
+  printf("ext11 malformed-input rejection passed!\n");
+}
+
 int main(void)
 {
   test_bfp_known_vector();
@@ -231,6 +511,13 @@ int main(void)
   test_weight_count_mismatch_rejected();
   test_malformed_inputs_rejected();
   test_section_ext_len();
+  test_ext11_none_known_vector();
+  test_ext11_bfp_per_bundle_exponent();
+  test_ext11_blkscale_ulaw();
+  test_ext11_disable_bfws();
+  test_ext11_bundle_offset();
+  test_ext11_count_mismatch_rejected();
+  test_ext11_malformed_inputs_rejected();
   printf("All xran_pkt_bfw tests passed!\n");
   return 0;
 }
