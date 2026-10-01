@@ -61,6 +61,9 @@ void rrc_gNB_send_NGAP_PDUSESSION_RESOURCE_NOTIFY(gNB_RRC_INST *rrc, gNB_RRC_UE_
 
 void nr_rrc_pdcp_config_security(gNB_RRC_UE_t *UE, bool enable_ciphering);
 
+NR_CipheringAlgorithm_t rrc_gNB_select_ciphering(const gNB_RRC_INST *rrc, uint16_t algorithms);
+e_NR_IntegrityProtAlgorithm rrc_gNB_select_integrity(const gNB_RRC_INST *rrc, uint16_t algorithms);
+
 int rrc_gNB_process_PAGING_IND(gNB_RRC_INST *rrc, const instance_t instance, const ngap_paging_ind_t *msg);
 
 void rrc_gNB_send_NGAP_HANDOVER_REQUIRED(gNB_RRC_INST *rrc,

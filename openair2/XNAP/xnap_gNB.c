@@ -14,6 +14,8 @@
 #include "xnap_common.h"
 #include "xnap_gNB.h"
 #include "lib/xnap_gNB_interface_management.h"
+#include "lib/xnap_gNB_mobility_management.h"
+#include "xnap_ids.h"
 #include "xnap_gNB_itti_messaging.h"
 #include "xnap_gNB_handlers.h"
 #include "xnap_gNB_encoder.h"
@@ -35,6 +37,48 @@ static void xnap_gNB_generate_xn_setup_request(instance_t instance, xnap_gnb_ins
         instance, peer->assoc_id, length);
 
   /* XnSetup is non-UE-associated signalling — always stream 0 */
+  xnap_gNB_itti_send_sctp_data(instance, peer->assoc_id, buffer, length, XNAP_NON_UE_STREAM_ID);
+}
+
+/* Source gNB: RRC triggers Xn HO — allocate and store XnAP UE ID, send HandoverRequest */
+static void xnap_gNB_generate_handover_request(instance_t instance, xnap_handover_req_t *req)
+{
+  xnap_gnb_inst_t *inst = xnap_get_inst(instance);
+  AssertFatal(inst != NULL, "Xn instance %ld not found\n", instance);
+
+  xnap_peer_t *peer = xnap_get_peer_by_assoc(inst, req->target_assoc_id);
+  if (peer == NULL) {
+    LOG_E(XNAP, "[gNB %ld] HandoverRequest: no peer for assoc_id %d\n",
+          instance, req->target_assoc_id);
+    return;
+  }
+  if (peer->state != XNAP_PEER_STATE_CONNECTED) {
+    LOG_E(XNAP, "[gNB %ld] HandoverRequest: peer assoc_id %d not connected\n",
+          instance, req->target_assoc_id);
+    return;
+  }
+
+  /* Allocate the source XnAP UE ID carried in the HandoverRequest */
+  req->s_ng_node_ue_xnap_id = xn_alloc_ue_id();
+
+  /* Record the rrc_ue_id mapping under the allocated s_ng_node_ue_xnap_id so
+   * incoming HandoverRequestAck / Failure can be routed back to the right UE */
+  xn_ue_data_t ue_data = {.rrc_ue_id = req->rrc_ue_id, .target_assoc_id = req->target_assoc_id};
+  bool ok = xn_add_ue_data(req->s_ng_node_ue_xnap_id, &ue_data);
+  AssertFatal(ok, "[gNB %ld] Failed to store UE data for xnap_ue_id %u\n", instance, req->s_ng_node_ue_xnap_id);
+
+  XNAP_XnAP_PDU_t *pdu = encode_xnap_handover_request(req);
+  AssertFatal(pdu != NULL, "[gNB %ld] encode_xnap_handover_request() failed\n", instance);
+
+  uint8_t *buffer = NULL;
+  uint32_t length = 0;
+  int rc = xnap_gNB_encode_pdu(pdu, &buffer, &length);
+  ASN_STRUCT_FREE(asn_DEF_XNAP_XnAP_PDU, pdu);
+  AssertFatal(rc == 0, "[gNB %ld] encode_pdu() failed for HandoverRequest\n", instance);
+
+  LOG_I(XNAP, "[gNB %ld] Sending HandoverRequest to peer assoc_id %d xnap_ue_id %u rrc_ue_id %u (%u bytes)\n",
+        instance, req->target_assoc_id, req->s_ng_node_ue_xnap_id, req->rrc_ue_id, length);
+
   xnap_gNB_itti_send_sctp_data(instance, peer->assoc_id, buffer, length, XNAP_NON_UE_STREAM_ID);
 }
 
@@ -185,6 +229,7 @@ void *xnap_task(void *args)
 {
   UNUSED(args);
   LOG_I(XNAP, "Starting XnAP task\n");
+  xn_init_ue_data();
   itti_mark_task_ready(TASK_XNAP);
 
   while (1) {
@@ -213,6 +258,10 @@ void *xnap_task(void *args)
 
       case SCTP_DATA_IND:
         xnap_gNB_handle_sctp_data_ind(instance, &SCTP_DATA_IND(msg));
+        break;
+
+      case XNAP_HANDOVER_REQ:
+        xnap_gNB_generate_handover_request(instance, &XNAP_HANDOVER_REQ(msg));
         break;
 
       default:

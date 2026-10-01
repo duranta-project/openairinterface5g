@@ -72,6 +72,7 @@
 #include "uper_encoder.h"
 #include "utils.h"
 #include "x2ap_messages_types.h"
+#include "rrc_gNB_XNAP.h"
 #include "xer_encoder.h"
 #include "E1AP/lib/e1ap_bearer_context_management.h"
 #include "E1AP/lib/e1ap_interface_management.h"
@@ -4124,6 +4125,10 @@ void *rrc_gnb_task(void *args_p)
 
       case XNAP_PEER_SHUTDOWN_IND:
         rrc_remove_xn_candidate(RC.nrrrc[instance], XNAP_PEER_SHUTDOWN_IND(msg_p).gnb_id);
+        break;
+
+      case XNAP_HANDOVER_REQ:
+        rrc_gNB_process_XNAP_HANDOVER_REQUEST(RC.nrrrc[instance], &XNAP_HANDOVER_REQ(msg_p));
         break;
 
       default:
