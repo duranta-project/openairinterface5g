@@ -44,7 +44,10 @@ int e3_get_encoding(void);
 int e3_init();
 int e3_destroy();
 
-int e3_send_xapp_control(uint32_t dapp_id, uint32_t ran_function_id, const uint8_t *data, size_t len);
+/* Forward an xApp control to a dApp. sequence_id is the correlation id of the
+ * xApp procedure the control belongs to; the dApp carries it back on the control
+ * it re-issues. 0 when there is no procedure to correlate. */
+int e3_send_xapp_control(uint32_t dapp_id, uint32_t sequence_id, uint32_t ran_function_id, const uint8_t *data, size_t len);
 
 /**
  * @brief Get all connected dApps and their RAN function subscriptions.

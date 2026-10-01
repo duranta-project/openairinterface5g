@@ -32,6 +32,13 @@
 #define E3_LOG_I(x, args...) LOG_I(E3AP, "[AGENT] " x, ##args)
 #define E3_LOG_D(x, args...) LOG_D(E3AP, "[AGENT] " x, ##args)
 
+/* Spectrum service model. Tag matches the SM's own log_tag, which
+ * e3_sm_worker.c prints dynamically -- keep them identical. */
+#define SPEC_LOG_E(x, args...) LOG_E(E3AP, "[SPECTRUM-SM] " x, ##args)
+#define SPEC_LOG_W(x, args...) LOG_W(E3AP, "[SPECTRUM-SM] " x, ##args)
+#define SPEC_LOG_I(x, args...) LOG_I(E3AP, "[SPECTRUM-SM] " x, ##args)
+#define SPEC_LOG_D(x, args...) LOG_D(E3AP, "[SPECTRUM-SM] " x, ##args)
+
 /* L1-KPM service model */
 #define KPM_LOG_E(x, args...) LOG_E(E3AP, "[KPM-SM] " x, ##args)
 #define KPM_LOG_W(x, args...) LOG_W(E3AP, "[KPM-SM] " x, ##args)

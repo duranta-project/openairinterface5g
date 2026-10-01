@@ -251,3 +251,13 @@ bool is_mixed_slot(const slot_t slot, const frame_structure_t *fs)
   const tdd_period_config_t *pc = &fs->period_cfg;
   return pc->tdd_slot_bitmap[s].slot_type == TDD_NR_MIXED_SLOT;
 }
+
+/* True if the slot can carry any uplink reception: an UL slot, or any MIXED one.
+ * is_ul_slot() alone is not enough because it also requires num_ul_symbols > 0
+ * on a MIXED slot, so a MIXED slot with none would be missed -- the PHY treats
+ * every UL/MIXED slot as an uplink slot, and anything that must line up with it
+ * (e.g. the sensing publish) needs the same predicate. */
+bool is_ul_or_mixed_slot(const slot_t slot, const frame_structure_t *fs)
+{
+  return is_ul_slot(slot, fs) || is_mixed_slot(slot, fs);
+}
