@@ -320,7 +320,7 @@ static void deliver_sdu_drb(void *_ue, nr_pdcp_entity_t *entity,
 }
 
 /** @brief Hands a PDCP DRB PDU to nr-up for DL delivery */
-static void deliver_pdu_drb(void *data, ue_id_t ue_id, int rb_id, char *buf, int size, int sdu_id)
+static void deliver_pdu_drb(void *data, ue_id_t ue_id, int rb_id, char *buf, int size, int sdu_id, uint32_t pdcp_sn)
 {
   DevAssert(data == NULL);
   DevAssert(buf != NULL && size > 0);
@@ -333,6 +333,7 @@ static void deliver_pdu_drb(void *data, ue_id_t ue_id, int rb_id, char *buf, int
       .ue_id = ue_id,
       .drb_id = rb_id,
       .sdu_id = sdu_id,
+      .pdcp_sn = pdcp_sn,
       .pdu = pdu,
   };
   const nr_up_dl_transfer_response_t rc = nr_up_dl_transfer(&req);
@@ -851,9 +852,10 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
     return 0;
   }
 
+  const uint32_t pdcp_sn = rb->stats.txpdu_sn;
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 
-  deliver_pdu_drb(NULL, ue_id, rb_id, pdu_buf, pdu_size, muiP);
+  deliver_pdu_drb(NULL, ue_id, rb_id, pdu_buf, pdu_size, muiP, pdcp_sn);
   return 1;
 }
 

@@ -322,7 +322,8 @@ static void _gtpv1uSendDirect(instance_t instance,
                               size_t len,
                               bool seqNumFlag,
                               bool npduNumFlag,
-                              int32_t nru_seqnum)
+                              int32_t nru_seqnum,
+                              uint32_t pdcp_sn)
 {
   pthread_mutex_lock(&globGtp.gtp_lock);
   getInstRetVoid(compatInst(instance));
@@ -384,13 +385,16 @@ static void _gtpv1uSendDirect(instance_t instance,
   }
 
   if (nru_seqnum != -1) {
+    const uint32_t nru_sn = nru_seqnum;
     ext[extension_count] = {
       .type = GTPU_EXT_DL_USER_DATA,
       .dl_user_data = {
-        .nru_sequence_number = (uint32_t)nru_seqnum,
+        .nru_sequence_number = nru_sn,
+        .report_delivered = false,
+        .nr_pdcp_pdu_sn = pdcp_sn,
       }
     };
-    LOG_D(GTPU, "DL USER DATA TX: ue %ld bearer %d nru_sn %u\n", ue_id, bearer_id, (uint32_t)nru_seqnum);
+    LOG_D(GTPU, "DL USER DATA TX: ue %ld bearer %d nru_sn %u pdcp_sn %u\n", ue_id, bearer_id, nru_sn, pdcp_sn);
     extension_count++;
   }
 
@@ -415,7 +419,7 @@ void gtpv1uSendDirectWithQFI(instance_t instance, ue_id_t ue_id, int bearer_id, 
               "Invalid QFI %d for gtpv1uSendDirectWithQFI (expected 0..%d)\n",
               qfi,
               MAX_QOS_FLOWS - 1);
-  _gtpv1uSendDirect(instance, ue_id, bearer_id, qfi, buf, len, false, false, -1);
+  _gtpv1uSendDirect(instance, ue_id, bearer_id, qfi, buf, len, false, false, -1, 0);
 }
 
 /** Send GTP-U packet with no QFI marking for F1-U tunnel
@@ -428,14 +432,11 @@ void gtpv1uSendDirect(instance_t instance,
                       bool seqNumFlag,
                       bool npduNumFlag)
 {
-  _gtpv1uSendDirect(instance, ue_id, bearer_id, NO_QFI, buf, len, seqNumFlag, npduNumFlag, -1);
+  _gtpv1uSendDirect(instance, ue_id, bearer_id, NO_QFI, buf, len, seqNumFlag, npduNumFlag, -1, 0);
 }
 
-void gtpv1uSendDirectWithNRUSeqNum(instance_t instance,
-                                   ue_id_t ue_id,
-                                   int bearer_id,
-                                   uint8_t *buf,
-                                   size_t len)
+/** @brief Send GTP-U G-PDU with NR-U DL USER DATA */
+void gtpv1uSendDirectWithNRUSeqNum(instance_t instance, ue_id_t ue_id, int bearer_id, uint8_t *buf, size_t len, uint32_t pdcp_sn)
 {
   pthread_mutex_lock(&globGtp.gtp_lock);
   getInstRetVoid(compatInst(instance));
@@ -454,7 +455,7 @@ void gtpv1uSendDirectWithNRUSeqNum(instance_t instance,
 
   pthread_mutex_unlock(&globGtp.gtp_lock);
 
-  _gtpv1uSendDirect(instance, ue_id, bearer_id, NO_QFI, buf, len, false, false, nru_seqnum);
+  _gtpv1uSendDirect(instance, ue_id, bearer_id, NO_QFI, buf, len, false, false, nru_seqnum, pdcp_sn);
 }
 
 static void fillDlDeliveryStatusReport(gtpu_extension_header_t *ext,
