@@ -8,6 +8,7 @@ import groovy.transform.Field
 @Field def branch = ''
 @Field def gitLocalBranch = ''
 @Field def downstreamResults = [:]
+@Field def downstreamUrls = [:]
 
 // Location of the executor node
 def nodeExecutor = params.nodeExecutor
@@ -184,7 +185,8 @@ pipeline {
         failure {
           script {
             currentBuild.result = 'FAILURE'
-            failingStages += '\n * Internal-Repo-Push - merge validation failed (merge conflict, git operation failure, or internal CI error)'
+            def jobUrl = downstreamUrls['RAN-Internal-Repo-Push'] ?: BUILD_URL
+            failingStages += "\n * [Internal-Repo-Push](${jobUrl}) - merge validation failed (merge conflict, git operation failure, or internal CI error)"
           }
         }
       }
@@ -979,7 +981,7 @@ pipeline {
   }
 }
 
-// ----  Slave Job functions
+// ----  Downstream Job functions
 
 def triggerDownstreamJob (jobName) {
   // Workaround for the "cancelled" pipeline notification
@@ -998,13 +1000,14 @@ def triggerDownstreamJob (jobName) {
       string(name: 'repository', value: String.valueOf(params.ciRepositoryURL)),
       string(name: 'branch', value: String.valueOf(branch))
     ], propagate: false
+  downstreamUrls[jobName] = localStatus.getAbsoluteUrl()
   def localResult = localStatus.getResult()
-  echo "${jobName} Slave Job status is ${localResult}"
+  echo "${jobName} Downstream Job status is ${localResult}"
   downstreamResults[jobName] = localStatus.resultIsBetterOrEqualTo('SUCCESS') ? 'SUCCESS' : 'FAILURE'
   if (localStatus.resultIsBetterOrEqualTo('SUCCESS')) {
-    echo "${jobName} Slave Job is OK"
+    echo "${jobName} Downstream Job is OK"
   } else {
-    error "${jobName} Slave Job is KO"
+    error "${jobName} Downstream Job is KO"
   }
 }
 
@@ -1019,12 +1022,12 @@ def triggerCN5GDownstreamJob (jobName) {
       string(name: 'FULL_RAN_TAG', value: String.valueOf(fullRanTag))
     ], propagate: false
   def localResult = localStatus.getResult()
-  echo "${jobName} Slave Job status is ${localResult}"
+  echo "${jobName} Downstream Job status is ${localResult}"
   downstreamResults[jobName] = localStatus.resultIsBetterOrEqualTo('SUCCESS') ? 'SUCCESS' : 'FAILURE'
   if (localStatus.resultIsBetterOrEqualTo('SUCCESS')) {
-    echo "${jobName} Slave Job is OK"
+    echo "${jobName} Downstream Job is OK"
   } else {
-    error "${jobName} Slave Job is KO"
+    error "${jobName} Downstream Job is KO"
   }
 }
 
