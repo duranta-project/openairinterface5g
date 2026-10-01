@@ -3,6 +3,7 @@
  */
 
 #include "nr_up.h"
+#include "nr_up_ddds_policy.h"
 
 #include <pthread.h>
 #include <stdatomic.h>
@@ -150,7 +151,68 @@ nr_up_dbs_t nr_up_manager_get_dbs(ue_id_t ue_id, rb_id_t drb_id)
   return dbs;
 }
 
-/** @brief Subtract bytes from the available desired buffer size for a DRB */
+/** @brief Copy cached DDDS report state under the manager lock. */
+nr_up_ddds_t nr_up_get_ddds(ue_id_t ue_id, rb_id_t drb_id)
+{
+  nr_up_ddds_t ddds = {0};
+  nr_up_manager_lock();
+  nr_up_desired_buffer_t *db = nr_up_manager_lookup_drb(ue_id, drb_id);
+  if (db == NULL) {
+    nr_up_manager_unlock();
+    LOG_W(NR_UP, "%s(): ue %lx drb %ld missing, skip\n", __func__, ue_id, drb_id);
+    return ddds;
+  }
+  ddds = db->ddds_report;
+  nr_up_manager_unlock();
+  return ddds;
+}
+
+/** @brief Store DDDS report state under the manager lock. */
+void nr_up_set_ddds(ue_id_t ue_id, rb_id_t drb_id, nr_up_ddds_t ddds)
+{
+  nr_up_manager_lock();
+  nr_up_desired_buffer_t *db = nr_up_manager_lookup_drb(ue_id, drb_id);
+  if (db == NULL) {
+    nr_up_manager_unlock();
+    LOG_W(NR_UP, "%s(): ue %lx drb %ld missing, skip\n", __func__, ue_id, drb_id);
+    return;
+  }
+  db->ddds_report = ddds;
+  nr_up_manager_unlock();
+}
+
+/** @brief DDDS TX toward the peer. TS 38.425 clause 5.4.2.1.
+ * Sends when a DDDS report is due, or when len > 0 (UL G-PDU, DDDS optional). */
+void nr_up_ddds_tx(ue_id_t ue_id, rb_id_t drb_id, uint32_t space, bool is_poll, uint8_t *buf, size_t len)
+{
+  nr_up_ddds_t ddds = nr_up_get_ddds(ue_id, drb_id);
+  const bool report = nr_up_ddds_precheck(&ddds, space, is_poll);
+  if (report)
+    nr_up_set_ddds(ue_id, drb_id, ddds);
+  if (!report && len == 0)
+    return;
+
+  nr_up_if_t *iface = get_nr_up_if();
+  DevAssert(iface != NULL && iface->up_send_ddds != NULL);
+  const nr_up_ddds_req_t req = {
+      .ue_id = ue_id,
+      .drb_id = drb_id,
+      .desired_buffer_size = space,
+      .report_ddds = report,
+      .pdu = {.buf = buf, .len = len},
+  };
+  iface->up_send_ddds(&req);
+}
+
+/** @brief RLC UL DRB leave through the active nr-up backend (F1-U or mono/UE). */
+void nr_up_ul_user_data(protocol_ctxt_t *ctxt, ue_id_t rlc_ue_id, rb_id_t drb_id, uint8_t *buf, size_t len, int tx_space)
+{
+  nr_up_if_t *iface = get_nr_up_if();
+  DevAssert(iface != NULL && iface->ul_user_data != NULL);
+  iface->ul_user_data(ctxt, rlc_ue_id, drb_id, buf, len, tx_space);
+}
+
+/** @brief Subtract bytes from the available desired buffer size for a DRB. */
 void nr_up_consume_dbs(ue_id_t ue_id, rb_id_t drb_id, size_t bytes)
 {
   if (bytes == 0) {
@@ -205,4 +267,24 @@ bool nr_up_report_polling(ue_id_t ue_id, rb_id_t drb_id)
 
   nr_up_manager_unlock();
   return false; /* No stale budget */
+}
+
+/** @brief Remap the UE budget entry when F1 reestablishment changes the UE id */
+void nr_up_update_ue_id(ue_id_t old_ue_id, ue_id_t new_ue_id)
+{
+  if (old_ue_id == new_ue_id) {
+    return;
+  }
+  nr_up_manager_lock();
+  nr_up_ue_state_t *ue = nr_up_manager_lookup_ue(old_ue_id);
+  if (ue == NULL) {
+    nr_up_manager_unlock();
+    return;
+  }
+  AssertFatal(nr_up_manager_lookup_ue(new_ue_id) == NULL, "%s(): ue %lx already present\n", __func__, new_ue_id);
+  /* Detach, then reinsert under the new UE id key. */
+  hashtable_remove(&g_nr_up_manager.ues, NR_UP_UE_KEY(old_ue_id), NULL);
+  hashtable_rc_t rc = hashtable_insert(&g_nr_up_manager.ues, NR_UP_UE_KEY(new_ue_id), ue, free);
+  DevAssert(rc == HASH_TABLE_OK);
+  nr_up_manager_unlock();
 }
