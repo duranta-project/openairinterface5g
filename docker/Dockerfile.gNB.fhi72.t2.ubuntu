@@ -44,12 +44,23 @@ COPY ./docker/scripts/check-prach-io.sh ./check-prach-io.sh
 
 COPY --from=gnb-build \
     /oai-ran/build/liboai_transpro.so \
+    /oai-ran/cmake_targets/ran_build/build/liboran_fhlib_5g.so \
+    /oai-ran/cmake_targets/ran_build/build/liboran_fhlib_5g_mplane.so \
     /oai-ran/build/libcoding.so \
     /oai-ran/build/libparams_libconfig.so \
     /oai-ran/build/libdfts.so \
     /oai-ran/build/libldpc*.so \
     /oai-ran/build/libparams_yaml.so \
+    /usr/local/lib/libnetconf2.so \
+    /usr/local/lib/libyang.so \
     /usr/local/lib/
+
+# default is CUS (no M plane)
+RUN ln -s /usr/local/lib/liboran_fhlib_5g.so /usr/local/lib/liboai_transpro.so
+
+COPY --from=gnb-build \
+    /oai-ran/radio/fhi_72/mplane/yang/models/ \
+    /oai-ran/radio/fhi_72/mplane/yang/models/
 
 ## Libxran library
 COPY --from=gnb-build \
