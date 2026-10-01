@@ -491,7 +491,7 @@ int main(int argc, char *argv[])
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
-  set_num_bf_weights_ext1(ctx, num_bf_weights);
+  set_num_bf_weights(ctx, num_bf_weights);
 
   char errbuf[PCAP_ERRBUF_SIZE];
   pcap_t *pcap = pcap_open_offline(argv[1], errbuf);
@@ -657,7 +657,11 @@ int main(int argc, char *argv[])
   printf("  Out of Mbufs: %lu\n", stats.out_of_mbufs);
   printf("  Application Too Slow Errors: %lu\n", stats.application_too_slow);
   printf("  C-Plane Section Extension 1 received: %lu\n", stats.cplane_ext1_received);
-  printf("  C-Plane Malformed Section Extension Errors: %lu\n", stats.cplane_err_sect_ext);
+  printf("  C-Plane Section Extension 11 received: %lu\n", stats.cplane_ext11_received);
+  printf("  C-Plane Malformed Section Extension 1 Errors: %lu\n", stats.cplane_err_sect_ext1);
+  printf("  C-Plane Malformed Section Extension 11 Errors: %lu\n", stats.cplane_err_sect_ext11);
+  printf("  C-Plane Malformed Section Extension Chain Errors: %lu\n", stats.cplane_err_sect_ext_chain);
+  printf("  C-Plane Malformed Section Extension Other Errors: %lu\n", stats.cplane_err_sect_ext_other);
 
   pcap_close(pcap);
   cleanup_packet_processor(ctx);
@@ -667,8 +671,13 @@ int main(int argc, char *argv[])
     free(txdataF[i]);
   free(dl_iq_arena);
 
-  if (stats.cplane_err_sect_ext != 0) {
-    printf("FAIL: %lu malformed section extension(s)\n", stats.cplane_err_sect_ext);
+  if (stats.cplane_err_sect_ext1 != 0 || stats.cplane_err_sect_ext11 != 0 || stats.cplane_err_sect_ext_chain != 0
+      || stats.cplane_err_sect_ext_other != 0) {
+    printf("FAIL: %lu malformed ext1, %lu malformed ext11, %lu malformed extension chains, %lu malformed other extensions\n",
+           stats.cplane_err_sect_ext1,
+           stats.cplane_err_sect_ext11,
+           stats.cplane_err_sect_ext_chain,
+           stats.cplane_err_sect_ext_other);
     return 1;
   }
   if (stats.cplane_ext1_received < min_ext1_received) {
