@@ -626,6 +626,11 @@ typedef struct
 	nfapi_nr_ul_tti_request_t  ul_tti_req;
 	nfapi_nr_ul_dci_request_t  ul_dci_req;
 	nfapi_nr_tx_data_request_t tx_data_req;
+	// Receive timestamps for timing calculation (time when packet was received)
+	uint32_t dl_tti_recv_time_hr;
+	uint32_t ul_tti_recv_time_hr;
+	uint32_t ul_dci_recv_time_hr;
+	uint32_t tx_data_recv_time_hr;
 
 	//TODO: check these two later
 	//nfapi_lbt_dl_config_request_t* lbt_dl_config_req;
