@@ -12,6 +12,7 @@
 #include "openair2/F1AP/lib/f1ap_ue_context.h"
 #include "openair2/F1AP/f1ap_common.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
+#include "openair2/LAYER2/nr_up/nr_up_du.h"
 #include "openair3/ocp-gtpu/gtp_itf.h"
 
 static NR_UE_info_t *nrdc_create_new_UE(gNB_MAC_INST *mac, nr_cell_sched_t *cell, uint32_t cu_id, const NR_CG_ConfigInfo_t *cgci)
@@ -162,6 +163,7 @@ void nrdc_ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
   nr_mac_remove_lcid(&UE->UE_sched_ctrl, lcid);
   nr_rlc_release_entity(UE->rnti, lcid);
   newGtpuDeleteOneTunnel(f1inst, UE->rnti, drb_id);
+  nr_up_du_release_drb(UE->rnti, drb_id);
 
   /* remove the RLC from UE->CellGroup->rlc_BearerToAddModList */
   NR_CellGroupConfig_t *cellGroupConfig = UE->CellGroup;
