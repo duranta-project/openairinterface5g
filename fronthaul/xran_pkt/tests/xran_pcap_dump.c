@@ -16,6 +16,7 @@
 #include "xran_pkt_bfw.h"
 
 #define MAX_BF_WEIGHTS 64
+#define MAX_EXT11_BUNDLES (255 + 63) // numPrbc (up to 255) + bundleOffset (up to 63)
 
 void exit_function(const char *file, const char *function, const int line, const char *s, const int assertflag)
 {
@@ -78,9 +79,44 @@ static bool dump_ext1(const struct dump_ctx *ctx, const uint8_t *ext, size_t ext
   return true;
 }
 
+// Prints the header, beamIds and weights of an ext11 of ext_len bytes for a section of num_prb PRBs. Returns false if
+// they don't decode.
+static bool dump_ext11(const struct dump_ctx *ctx, const uint8_t *ext, size_t ext_len, int num_prb)
+{
+  xran_bfw_ext11_hdr_t ext11;
+  int n;
+  uint16_t beam_ids[MAX_EXT11_BUNDLES];
+  c16_t weights[MAX_EXT11_BUNDLES * MAX_BF_WEIGHTS];
+  xran_bfw_err_t err =
+      xran_decode_bfw_ext11(ext, ext_len, num_prb, ctx->num_bf_weights, MAX_EXT11_BUNDLES, &ext11, &n, beam_ids, weights);
+  if (err != XRAN_BFW_OK) {
+    printf("      [Ext11] malformed flexible beamforming-weights extension: %s\n", xran_bfw_strerror(err));
+    return false;
+  }
+  printf("      [Ext11] disableBFWs: %d  RAD: %d  bundleOffset: %d  numBundPrb: %d",
+         ext11.disableBFWs,
+         ext11.RAD,
+         ext11.bundleOffset,
+         ext11.numBundPrb);
+  if (!ext11.disableBFWs)
+    printf("  bfwCompMeth: %d  bfwIqWidth: %d", ext11.bfwCompMeth, ext11.bfwIqWidth);
+  printf("  %d bundle(s)\n", n);
+  for (int b = 0; b < n; b++) {
+    printf("        bundle %d beamId %d", b, beam_ids[b]);
+    if (!ext11.disableBFWs) {
+      printf(":");
+      const c16_t *w = weights + b * ctx->num_bf_weights;
+      for (int i = 0; i < ctx->num_bf_weights; i++)
+        printf(" (%d%+di)", w[i].r, w[i].i);
+    }
+    printf("\n");
+  }
+  return true;
+}
+
 // Prints the extension chain that follows a section-1 header at ext, if ef is set. Extensions that don't decode are
 // counted as errors. Returns the end of the chain (the next section), or NULL if the chain can't be followed.
-static uint8_t *dump_section_extensions(struct dump_ctx *ctx, uint8_t *ext, const uint8_t *end, bool ef)
+static uint8_t *dump_section_extensions(struct dump_ctx *ctx, uint8_t *ext, const uint8_t *end, bool ef, int num_prb)
 {
   while (ef) {
     if (ext >= end) {
@@ -99,10 +135,14 @@ static uint8_t *dump_section_extensions(struct dump_ctx *ctx, uint8_t *ext, cons
       return NULL;
     }
     bool valid = true;
-    if (ext_type == XRAN_CP_SECTIONEXTCMD_1 && ctx->num_bf_weights == 0)
-      printf("      [Ext1] %zu bytes, weights not decoded (num_bf_weights not given)\n", ext_len);
+    if ((ext_type == XRAN_CP_SECTIONEXTCMD_1 || ext_type == XRAN_CP_SECTIONEXTCMD_11) && ctx->num_bf_weights == 0)
+      printf("      [Ext%d] %zu bytes, weights not decoded (num_bf_weights not given)\n", ext_type, ext_len);
+    else if (ext_type == XRAN_CP_SECTIONEXTCMD_11 && num_prb == 0)
+      printf("      [Ext11] %zu bytes, not decoded (numPrbc 0: carrier PRB count unknown)\n", ext_len);
     else if (ext_type == XRAN_CP_SECTIONEXTCMD_1)
       valid = dump_ext1(ctx, ext, ext_len);
+    else if (ext_type == XRAN_CP_SECTIONEXTCMD_11)
+      valid = dump_ext11(ctx, ext, ext_len, num_prb);
     else
       printf("      [Ext%d] unsupported extension type, skipping\n", ext_type);
     if (!valid)
@@ -255,7 +295,8 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
                   sec_ptr = dump_section_extensions(ctx,
                                                     sec_ptr + sizeof(struct xran_cp_radioapp_section1),
                                                     pkt_end,
-                                                    sec_copy.hdr.u.s1.ef);
+                                                    sec_copy.hdr.u.s1.ef,
+                                                    sec_copy.hdr.u1.common.numPrbc);
                   malformed = sec_ptr == NULL;
                 }
               }
