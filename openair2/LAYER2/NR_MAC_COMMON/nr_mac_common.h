@@ -414,4 +414,19 @@ bool nr_pcch_type2_po_mo_in_range(int frame, int slot, int slots_per_frame, int 
 uint16_t nr_pdcch_monitoring_symbols_mask(const BIT_STRING_t *symbols_in_slot, uint8_t sps);
 
 uint8_t getNRBG(uint16_t bwp_size, uint16_t bwp_start, long rbg_size_config);
+
+/// SIB19 epochTime-r17 is an SFN and a subframe, so an epoch is unambiguous only less than one SFN cycle ahead
+#define NR_SIB19_MAX_EPOCH_LEAD_MS (MAX_FRAME_NUMBER * NR_NUMBER_OF_SUBFRAMES_PER_FRAME - 1)
+
+/** @brief SIB19 epochTime-r17 (TS 38.331) lying lead_ms after a given frame and subframe.
+ *
+ * For SIB19 updates from a source that describes the satellite at a future instant but does not know
+ * the SFN of the gNB: the epoch is placed lead_ms ahead of the current frame and subframe of the gNB.
+ *
+ * @param frame          current frame, 0 to MAX_FRAME_NUMBER - 1
+ * @param subframe       current subframe, 0 to NR_NUMBER_OF_SUBFRAMES_PER_FRAME - 1
+ * @param lead_ms        lead of the epoch, 0 to NR_SIB19_MAX_EPOCH_LEAD_MS
+ * @param epoch_sfn      [out] SFN of the epoch
+ * @param epoch_subframe [out] subframe of the epoch */
+void nr_sib19_epoch_from_lead(int frame, int subframe, int lead_ms, int *epoch_sfn, int *epoch_subframe);
 #endif
