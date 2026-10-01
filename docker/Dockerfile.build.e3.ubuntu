@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
+#---------------------------------------------------------------------
+#
+# Dockerfile for the Open-Air-Interface RAN Build with the E3 agent
+#               Valid for UBUNTU 24.04
+#
+# The E3 agent needs the external libe3 library (not vendored in OAI); it is
+# installed here, in this variant only, so no other image depends on it.
+#
+#---------------------------------------------------------------------
+
+FROM ran-base:latest AS ran-build-e3
+
+ARG LIBE3_VERSION=0.2.3
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Europe
+
+# build_libe3 -I installs the prerequisites with sudo; --install runs as root here, so it does not.
+# The E3 service models build against json-c and protobuf-c.
+RUN apt-get update && \
+    apt-get install --yes \
+        sudo \
+        libjson-c-dev \
+        libprotobuf-c-dev \
+        protobuf-c-compiler && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 --branch $LIBE3_VERSION https://github.com/wineslab/libe3 /opt/libe3 && \
+    cd /opt/libe3 && \
+    ./build_libe3 -I && \
+    ./build_libe3 --ninja --all-encodings --disable-tests --disable-examples --install
+
+RUN rm -Rf /oai-ran
+WORKDIR /oai-ran
+COPY . .
+
+## Build and install OAI
+RUN /bin/sh oaienv && \
+    cd cmake_targets && \
+    mkdir -p log && \
+    ./build_oai -c --ninja --gNB -w SIMU --build-e3 \
+      --noavx512 \
+      --build-tool-opt -k10 \
+      --cmake-opt -DCMAKE_C_FLAGS="-Werror" --cmake-opt -DCMAKE_CXX_FLAGS="-Werror" && \
+    echo "---- ldd on executables ----" && \
+    ldd ran_build/build/nr-softmodem && \
+    echo "---- ldd on shared libraries ----" && \
+    ldd ran_build/build/*.so
