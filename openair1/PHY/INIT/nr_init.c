@@ -112,6 +112,18 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
   AssertFatal(Prx > 0 && Prx < 9,"Prx %d is not supported\n", Prx);
   LOG_D(PHY, "[gNB %d]About to wait for gNB to be configured\n", gNB->Mod_id);
 
+  const nfapi_nr_dbt_pdu_t *dbt_config = &cfg->dbt_config;
+  memset(common_vars->dbt_lut, 0, sizeof(common_vars->dbt_lut));
+  // beam_idx is arbitrary, not the position in dig_beam_list
+  for (int b = 0; b < dbt_config->num_dig_beams; ++b) {
+    const nfapi_nr_dig_beam_t *beam = &dbt_config->dig_beam_list[b];
+    AssertFatal(beam->beam_idx < NR_MAX_DBT_BEAM_IDX,
+                "DBT beam_idx %u exceeds the supported maximum %d\n",
+                beam->beam_idx,
+                NR_MAX_DBT_BEAM_IDX - 1);
+    common_vars->dbt_lut[beam->beam_idx] = beam;
+  }
+
   while(gNB->configured == 0)
     usleep(10000);
 

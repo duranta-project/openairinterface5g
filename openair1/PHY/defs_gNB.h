@@ -12,6 +12,7 @@
 #include "common/platform_constants.h"
 #include "defs_nr_common.h"
 #include "common/utils/bits.h"
+#include "common/utils/nr/nr_common.h"
 #include "CODING/nrPolar_tools/nr_polar_pbch_defs.h"
 #include "openair2/NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface.h"
@@ -222,12 +223,15 @@ typedef struct {
   /// - first index: tx antenna [0..16) where 16 is the total supported antenna ports.
   /// - second index: sample [0..ofdm_symbol_size*symbols_per_frame)
   c16_t **txdataF;
-  /// \brief Analogue beam ID for each [symbol, antenna] pair
+  /// \brief Beam ID for each [symbol, antenna] pair
   /// - first index: symbol [slot * fp->symbols_per_slot + sym_idx]
   /// - second index: logical antenna [0..nb_rx/nb_tx]
   uint16_t **beam_id;
   int num_beams_period;
+  /// beam IDs are forwarded to the radio or fronthaul
   bool analog_bf;
+  /// digital beam table entry for each beam ID, NULL if the ID is not in the table
+  const nfapi_nr_dig_beam_t *dbt_lut[NR_MAX_DBT_BEAM_IDX];
   int32_t *debugBuff;
   int32_t debugBuff_sample_offset;
 } NR_gNB_COMMON;
