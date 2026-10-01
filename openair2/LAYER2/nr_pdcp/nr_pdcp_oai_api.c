@@ -112,11 +112,11 @@ typedef struct {
 
 static pdcp_data_ind_queue pq;
 
-static void do_pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
-                             const srb_flag_t srb_flagP,
-                             const rb_id_t rb_id,
-                             const sdu_size_t sdu_buffer_size,
-                             uint8_t *const sdu_buffer)
+void do_pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
+                      const srb_flag_t srb_flagP,
+                      const rb_id_t rb_id,
+                      const sdu_size_t sdu_buffer_size,
+                      uint8_t *const sdu_buffer)
 {
   nr_pdcp_ue_t *ue;
   nr_pdcp_entity_t *rb;
@@ -901,21 +901,6 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
   };
   nr_up_deliver_pdu_drb(&req);
   return 1;
-}
-
-bool cu_f1u_data_req(protocol_ctxt_t  *ctxt_pP,
-                     const srb_flag_t srb_flagP,
-                     const rb_id_t rb_id,
-                     const mui_t muiP,
-                     const confirm_t confirmP,
-                     const sdu_size_t sdu_buffer_size,
-                     unsigned char *const sdu_buffer,
-                     const pdcp_transmission_mode_t mode,
-                     const uint32_t *const sourceL2Id,
-                     const uint32_t *const destinationL2Id)
-{
-  do_pdcp_data_ind(ctxt_pP, srb_flagP, rb_id, sdu_buffer_size, sdu_buffer);
-  return true;
 }
 
 /*
