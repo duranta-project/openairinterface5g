@@ -199,6 +199,28 @@ static void test_malformed_inputs_rejected(void)
   printf("ext1 malformed-input rejection passed!\n");
 }
 
+static void test_section_ext_len(void)
+{
+  printf("Testing section extension length...\n");
+  uint8_t ext1[8] = {0x81, 2}; // ef=1, extType=1, extLen=2
+  assert(xran_section_ext_len(ext1, sizeof(ext1)) == 8);
+  assert(xran_section_ext_len(ext1, 7) == -1); // runs past the packet
+  assert(xran_section_ext_len(ext1, 1) == -1);
+  ext1[1] = 0;
+  assert(xran_section_ext_len(ext1, sizeof(ext1)) == -1); // extLen 0 is reserved
+  // extLen is 16 bits for ext11/19/20: 0x0102 words
+  uint8_t ext11[0x102 * 4] = {11, 0x01, 0x02};
+  assert(xran_section_ext_len(ext11, sizeof(ext11)) == 0x102 * 4);
+  assert(xran_section_ext_len(ext11, 2) == -1);
+  ext11[0] = 19;
+  assert(xran_section_ext_len(ext11, sizeof(ext11)) == 0x102 * 4);
+  ext11[0] = 20;
+  assert(xran_section_ext_len(ext11, sizeof(ext11)) == 0x102 * 4);
+  ext11[0] = 12; // 8-bit extLen: 1 word
+  assert(xran_section_ext_len(ext11, sizeof(ext11)) == 4);
+  printf("section extension length passed!\n");
+}
+
 int main(void)
 {
   test_bfp_known_vector();
@@ -208,6 +230,7 @@ int main(void)
   test_ulaw_known_vector();
   test_weight_count_mismatch_rejected();
   test_malformed_inputs_rejected();
+  test_section_ext_len();
   printf("All xran_pkt_bfw tests passed!\n");
   return 0;
 }

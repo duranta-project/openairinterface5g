@@ -855,14 +855,12 @@ static bool parse_section1_extensions(oru_packet_processor_context_t *ctx, void 
 
   // Iterate overchain of extensions until ef chain end with 0
   while (ext_flag) {
-    if (end - ext < 2)
+    // extType/ef are in the first byte, followed by an 8- or 16-bit extLen (4-byte words)
+    int ext_len = xran_section_ext_len(ext, end > ext ? end - ext : 0);
+    if (ext_len < 0)
       return false;
-    // extType/ef are in the first byte, extLen (4-byte words) in the second
     uint8_t ext_type = ext[0] & 0x7F;
     ext_flag = ext[0] & 0x80;
-    size_t ext_len = (size_t)ext[1] * 4;
-    if (ext_len == 0 || ext_len > (size_t)(end - ext))
-      return false;
     if (ext_type == XRAN_CP_SECTIONEXTCMD_1) {
       ctx->stats.cplane_ext1_received++;
       if (ctx->num_bf_weights > 0) {

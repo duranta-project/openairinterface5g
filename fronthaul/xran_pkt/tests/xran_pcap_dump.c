@@ -203,32 +203,24 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
                          sec_copy.hdr.u.s1.numSymbol,
                          sec_copy.hdr.u.s1.beamId);
                   // Extensions sit right after the section-1 header. extType/ef live in the
-                  // extension's first byte (bits 6-0 / bit 7) and extLen in its second byte -
-                  // the same raw-byte layout struct xran_cp_radioapp_section_ext1 uses, no
-                  // 16-bit byte-order conversion needed (see its comment).
+                  // extension's first byte (bits 6-0 / bit 7), followed by an 8- or 16-bit extLen.
                   uint8_t *ext_ptr = sec_ptr + sizeof(struct xran_cp_radioapp_section1);
                   int ef = sec_copy.hdr.u.s1.ef;
                   while (ef) {
-                    if (pkt_end - ext_ptr < 2) {
-                      printf("      malformed extension: header past end of packet\n");
+                    int ext_len = xran_section_ext_len(ext_ptr, pkt_end > ext_ptr ? pkt_end - ext_ptr : 0);
+                    if (ext_len < 0) {
+                      printf("      malformed extension: extLen 0 or past end of packet\n");
                       ctx->error_count++;
                       malformed = true;
                       break;
                     }
                     uint8_t extType = ext_ptr[0] & 0x7F;
                     uint8_t next_ef = (ext_ptr[0] >> 7) & 1;
-                    uint8_t extLen = ext_ptr[1];
-                    if (extLen == 0 || (size_t)extLen * 4 > (size_t)(pkt_end - ext_ptr)) {
-                      printf("      malformed extension: extLen=%d\n", extLen);
-                      ctx->error_count++;
-                      malformed = true;
-                      break;
-                    }
                     if (extType == XRAN_CP_SECTIONEXTCMD_1 && ctx->num_bf_weights == 0) {
-                      printf("      [Ext1] %d bytes, weights not decoded (num_bf_weights not given)\n", extLen * 4);
+                      printf("      [Ext1] %d bytes, weights not decoded (num_bf_weights not given)\n", ext_len);
                     } else if (extType == XRAN_CP_SECTIONEXTCMD_1) {
                       c16_t weights[MAX_BF_WEIGHTS];
-                      int n = xran_decode_bfw_ext1(ext_ptr, (size_t)extLen * 4, ctx->num_bf_weights, weights);
+                      int n = xran_decode_bfw_ext1(ext_ptr, ext_len, ctx->num_bf_weights, weights);
                       if (n < 0) {
                         printf("      [Ext1] malformed beamforming-weights extension\n");
                         ctx->error_count++;
@@ -241,7 +233,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
                     } else {
                       printf("      [Ext%d] unsupported extension type, skipping\n", extType);
                     }
-                    ext_ptr += (size_t)extLen * 4;
+                    ext_ptr += ext_len;
                     ef = next_ef;
                   }
                   sec_ptr = ext_ptr;
