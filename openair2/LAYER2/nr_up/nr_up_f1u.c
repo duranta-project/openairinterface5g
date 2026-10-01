@@ -30,4 +30,5 @@ void nr_up_init_f1u(nr_up_if_t *iface)
   nr_up_manager_init();
   iface->deliver_drb = nr_up_f1u_deliver_drb;
   iface->dl_congestion_precheck = nr_up_drb_budget_precheck;
+  iface->budget_sync = nr_up_drb_budget_sync;
 }
