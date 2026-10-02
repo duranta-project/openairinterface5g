@@ -764,7 +764,7 @@ static int startServer(openair0_device_t *device)
 
   struct addrinfo hints = {
       .ai_flags = AI_PASSIVE,
-      .ai_family = AF_INET6,
+      .ai_family = AF_UNSPEC,
       .ai_socktype = SOCK_STREAM,
   };
 
@@ -777,26 +777,34 @@ static int startServer(openair0_device_t *device)
 
   int enable = 1;
   int disable = 0;
-  for (rp = results; rp != NULL; rp = rp->ai_next) {
-    sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-    if (sock == -1) {
-      continue;
-    }
+  const int families[] = {AF_INET6, AF_INET}; // prefer dual-stack IPv6, fall back to IPv4
+  for (int f = 0; f < 2 && sock < 0; f++) {
+    for (rp = results; rp != NULL; rp = rp->ai_next) {
+      if (rp->ai_family != families[f])
+        continue;
 
-    if (setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &disable, sizeof(int)) != 0) {
-      continue;
-    }
+      sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+      if (sock == -1)
+        continue;
 
-    if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) != 0) {
-      continue;
-    }
+      if (rp->ai_family == AF_INET6 && setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &disable, sizeof(int)) != 0) {
+        close(sock);
+        sock = -1;
+        continue;
+      }
 
-    if (bind(sock, rp->ai_addr, rp->ai_addrlen) == 0) {
-      break;
-    }
+      if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) != 0) {
+        close(sock);
+        sock = -1;
+        continue;
+      }
 
-    close(sock);
-    sock = -1;
+      if (bind(sock, rp->ai_addr, rp->ai_addrlen) == 0)
+        break;
+
+      close(sock);
+      sock = -1;
+    }
   }
 
   freeaddrinfo(results);
