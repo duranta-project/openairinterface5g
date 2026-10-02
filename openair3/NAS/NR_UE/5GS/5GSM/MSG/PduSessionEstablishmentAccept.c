@@ -5,52 +5,10 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "PduSessionEstablishmentAccept.h"
+#include "fgsm_lib.h"
 #include "common/utils/LOG/log.h"
 #include "common/utils/utils.h" // text_info_t, TO_ENUM, TO_TEXT
 #include "fgs_nas_utils.h"
-
-/**
- * @brief Returns the size of the single QoS rule IE
- */
-static uint8_t get_len_qos_rule(qos_rule_t *rule)
-{
-  return rule->length + sizeof(rule->id) + sizeof(rule->length);
-}
-
-/**
- * @brief Decode QoS Rule (9.11.4.13 of 3GPP TS 24.501)
- */
-static qos_rule_t decode_qos_rule(uint8_t *buf)
-{
-  qos_rule_t qos_rule = {0};
-  // octet 4
-  qos_rule.id = *buf++;
-  // octet 5 - 6
-  GET_SHORT(buf, qos_rule.length);
-  buf += sizeof(qos_rule.length);
-  // octet 7
-  qos_rule.oc = (*(buf)&0xE0) >> 5;
-  qos_rule.dqr = (*(buf)&0x10) >> 4;
-  qos_rule.nb_pf = *buf++ & 0x0F;
-  // octet 8 - m
-  for (int i = 0; i < qos_rule.nb_pf; i++) {
-    packet_filter_t pf;
-    if (qos_rule.oc == ROC_CREATE_NEW_QOS_RULE || qos_rule.oc == ROC_MODIFY_QOS_RULE_ADD_PF
-        || qos_rule.oc == ROC_MODIFY_QOS_RULE_REPLACE_PF) {
-      pf.pf_type.type_1.pf_dir = (*buf & 0x30) >> 4;
-      pf.pf_type.type_1.pf_id = *buf++ & 0x0F;
-      pf.pf_type.type_1.length = *buf++;
-      buf += pf.pf_type.type_1.length; // skip PF content
-    } else if (qos_rule.oc == ROC_MODIFY_QOS_RULE_DELETE_PF) {
-      pf.pf_type.type_2.pf_id = *buf++;
-    }
-  }
-  // octet m + 1
-  qos_rule.precendence = *buf++;
-  // octet m + 2
-  qos_rule.qfi = *buf++ & 0x3F;
-  return qos_rule;
-}
 
 /**
  * @brief PDU session establishment accept (8.3.2 of 3GPP TS 24.501)

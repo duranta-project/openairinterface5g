@@ -1361,7 +1361,7 @@ target_link_libraries(L2_UE PRIVATE nfapi_pnf_lib)
 target_link_libraries(L2_UE PRIVATE asn1_lte_rrc_hdrs)
 
 add_library( NR_L2_UE ${NR_L2_SRC_UE} ${MAC_NR_SRC_UE} )
-target_link_libraries(NR_L2_UE PRIVATE nr_rlc)
+target_link_libraries(NR_L2_UE PRIVATE nr_rlc ds alg)
 target_link_libraries(NR_L2_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs nr_common nr_ue_power_procedures nr_ue_ra_procedures)
 target_link_libraries(NR_L2_UE PRIVATE nr_nas)
 

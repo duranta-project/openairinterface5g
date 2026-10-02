@@ -128,6 +128,15 @@ static void *sdap_tun_read_thread(void *arg)
 
     bool dc = entity->tun.is_gnb ? false : SDAP_HDR_UL_DATA_PDU;
 
+    uint8_t qfi;
+    if (!entity->tun.is_gnb && entity->use_packet_filters) {
+      // UE uplink packet matching based on packet filters
+      qfi = nr_sdap_match_ul_packet(entity, (uint8_t *)rx_buf, len);
+    } else {
+      // gNB or packet filters disabled: use fixed QFI
+      qfi = entity->qfi;
+    }
+
     entity->tx_entity(entity,
                       &ctxt,
                       SRB_FLAG_NO,
@@ -138,7 +147,7 @@ static void *sdap_tun_read_thread(void *arg)
                       PDCP_TRANSMISSION_MODE_DATA,
                       NULL,
                       NULL,
-                      entity->qfi,
+                      qfi,
                       dc);
   }
 

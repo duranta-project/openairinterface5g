@@ -3,6 +3,9 @@
  */
 
 #include "nr_sdap_entity.h"
+#include <arpa/inet.h>
+#include <netinet/ip.h>
+#include <netinet/ip6.h>
 #include <openair2/LAYER2/nr_pdcp/nr_pdcp_oai_api.h>
 #include <openair3/ocp-gtpu/gtp_itf.h>
 #include <stdlib.h>
@@ -12,6 +15,7 @@
 #include "T.h"
 #include "assertions.h"
 #include "common/utils/T/T.h"
+#include "common/utils/alg/find.h"
 #include "gtpv1_u_messages_types.h"
 #include "intertask_interface.h"
 #include "rlc.h"
@@ -29,6 +33,12 @@ static nr_sdap_entity_info sdap_info;
 
 instance_t *N3GTPUInst = NULL;
 
+static void free_qos_rule(void *ptr)
+{
+  qos_rule_t *rule = ptr;
+  seq_arr_free(&rule->packet_filters, NULL);
+}
+
 /** @brief Tear down gNB TUN dataplane for one SDAP entity
  * Skip UE entities: NAS owns the TUN fd so it survives SDAP delete in 5GMM-IDLE
  * (needed for MO Service Request UL and re-bind after UP restore, TS 24.501 clause 5.6.1) */
@@ -37,8 +47,11 @@ static void remove_ip_if(nr_sdap_entity_t *entity)
   DevAssert(entity != NULL);
   sdap_tun_endpoint_t *tun = &entity->tun;
 
-  if (!tun->is_gnb)
+  if (!tun->is_gnb) {
+    pthread_mutex_destroy(&entity->qos_rules_lock);
+    seq_arr_free(&entity->qos_rules, free_qos_rule);
     return; /* UE: NAS owns the TUN fd, do not close/destroy */
+  }
   if (tun->sock < 0)
     return;
 
@@ -567,17 +580,16 @@ static void nr_sdap_qfi2drb_map_update(nr_sdap_entity_t *entity, const sdap_conf
   }
 
   if (sdap->role == NO_SDAP_HEADER) {
-    /* TS 37.324 §6.2.2.1: with both headers absent, only one DRB per PDU session is allowed */
-    int mapped_drbs = 0;
-    for (int drb = 1; drb <= MAX_DRBS_PER_UE; drb++) {
-      for (int qfi = 0; qfi < SDAP_MAX_QFI; qfi++) {
-        if (entity->qfi2drb_table[qfi].drb_id == drb) {
-          mapped_drbs++;
-          break;
-        }
+    int qfis_on_this_drb = 0;
+    for (int qfi = 0; qfi < SDAP_MAX_QFI; qfi++) {
+      if (entity->qfi2drb_table[qfi].drb_id == sdap->drb_id) {
+        qfis_on_this_drb++;
       }
     }
-    AssertFatal(mapped_drbs <= 1, "PDU session %d: disabled SDAP but %d DRBs mapped\n", entity->tun.pdusession_id, mapped_drbs);
+    AssertFatal(qfis_on_this_drb <= 1,
+                "PDU session %d DRB %d: both SDAP headers absent: at most one QoS flow per DRB\n",
+        entity->tun.pdusession_id,
+                sdap->drb_id);
   }
 }
 
@@ -620,6 +632,13 @@ static void nr_sdap_add_entity(const int is_gnb, const ue_id_t ue_id, const sdap
   sdap_entity->qfi2drb_map_delete = nr_sdap_qfi2drb_map_del;
   sdap_entity->qfi2drb_map = nr_sdap_qfi2drb;
   sdap_entity->tun.sock = -1;
+
+  // Initialize QoS rules for UL packet filter matching at UE
+  if (!is_gnb) {
+    seq_arr_init(&sdap_entity->qos_rules, sizeof(qos_rule_t));
+    pthread_mutex_init(&sdap_entity->qos_rules_lock, NULL);
+    sdap_entity->use_packet_filters = false; // Disabled by default, enable when packet filters are added
+  }
 
   // set default DRB
   if (sdap->defaultDRB) {
@@ -842,4 +861,357 @@ void nr_reconfigure_sdap_entity(NR_SDAP_Config_t *sdap_config, ue_id_t ue_id, in
   /* QFI to DRB mapping */
   sdap_config_t sdap = nr_sdap_get_config(is_gnb, sdap_config, drb_id);
   sdap_entity->qfi2drb_map_update(sdap_entity, &sdap);
+}
+
+static bool eq_rule_id(const void *value, const void *it)
+{
+  return *(const uint8_t *)value == ((const qos_rule_t *)it)->rule_id;
+}
+
+static qos_rule_t *find_qos_rule(seq_arr_t *rules, uint8_t rule_id)
+{
+  elm_arr_t found = find_if(rules, &rule_id, eq_rule_id);
+  return found.found ? found.it : NULL;
+}
+
+static int compare_precedence(const void *a, const void *b)
+{
+  const qos_rule_t *rule_a = a;
+  const qos_rule_t *rule_b = b;
+  return rule_a->precedence - rule_b->precedence;
+}
+
+static void sort_qos_rules(seq_arr_t *rules)
+{
+  qsort(rules->data, seq_arr_size(rules), sizeof(qos_rule_t), compare_precedence);
+}
+
+static void add_packet_filters(seq_arr_t *filters, const packet_filter_decoded_t *pf_list, int num_pf)
+{
+  if (pf_list == NULL)
+    return;
+  for (int i = 0; i < num_pf; ++i)
+    seq_arr_push_back(filters, (void *)&pf_list[i], sizeof(packet_filter_decoded_t));
+}
+
+static bool ipv4_match(struct in_addr pkt_addr, struct in_addr filter_addr, struct in_addr mask)
+{
+  return (pkt_addr.s_addr & mask.s_addr) == (filter_addr.s_addr & mask.s_addr);
+}
+
+static bool ipv6_match(const struct in6_addr *pkt_addr, const struct in6_addr *filter_addr, uint8_t prefix_len)
+{
+  uint8_t bytes = prefix_len / 8;
+  uint8_t bits = prefix_len % 8;
+
+  if (memcmp(pkt_addr, filter_addr, bytes) != 0)
+    return false;
+
+  if (bits > 0) {
+    uint8_t mask = 0xFF << (8 - bits);
+    if ((pkt_addr->s6_addr[bytes] & mask) != (filter_addr->s6_addr[bytes] & mask))
+      return false;
+  }
+
+  return true;
+}
+
+static bool packet_filter_match(const packet_filter_decoded_t *pf, const uint8_t *ip_pkt, size_t pkt_len)
+{
+  if (pkt_len < 20)
+    return false;
+
+  uint8_t ip_version = (ip_pkt[0] >> 4) & 0x0F;
+  struct iphdr ip4_hdr;
+  struct ip6_hdr ip6_hdr;
+  struct iphdr *ip4 = NULL;
+  struct ip6_hdr *ip6 = NULL;
+  uint8_t protocol = 0;
+  uint16_t src_port = 0;
+  uint16_t dst_port = 0;
+  const uint8_t *transport_hdr = NULL;
+
+  if (ip_version == 4) {
+    uint8_t ihl = ip_pkt[0] & 0x0F;
+    size_t header_len = (size_t)ihl * 4;
+    if (ihl < 5 || header_len > pkt_len)
+      return false;
+
+    memcpy(&ip4_hdr, ip_pkt, sizeof(ip4_hdr));
+    ip4 = &ip4_hdr;
+    protocol = ip4->protocol;
+    transport_hdr = ip_pkt + header_len;
+  } else if (ip_version == 6) {
+    if (pkt_len < sizeof(ip6_hdr))
+      return false;
+
+    memcpy(&ip6_hdr, ip_pkt, sizeof(ip6_hdr));
+    ip6 = &ip6_hdr;
+    protocol = ip6->ip6_nxt;
+    transport_hdr = ip_pkt + sizeof(ip6_hdr);
+  } else {
+    return false;
+  }
+
+  if ((protocol == IPPROTO_TCP || protocol == IPPROTO_UDP) && transport_hdr + 4 <= ip_pkt + pkt_len) {
+    uint16_t src_port_be;
+    uint16_t dst_port_be;
+    memcpy(&src_port_be, transport_hdr, sizeof(src_port_be));
+    memcpy(&dst_port_be, transport_hdr + 2, sizeof(dst_port_be));
+    src_port = ntohs(src_port_be);
+    dst_port = ntohs(dst_port_be);
+  }
+
+  const bool ul = pf->direction == PF_DIR_UPLINK || pf->direction == PF_DIR_BIDIRECTIONAL;
+
+  for (int i = 0; i < pf->num_components; ++i) {
+    const packet_filter_component_t *comp = &pf->components[i];
+    bool match = false;
+
+    switch (comp->type) {
+      case PF_COMP_MATCH_ALL:
+        match = true;
+        break;
+      case PF_COMP_IPV4_REMOTE_ADDR:
+        if (ip4 && ul)
+          match = ipv4_match(*(struct in_addr *)&ip4->daddr, comp->value.ipv4.addr, comp->value.ipv4.mask);
+        else if (ip4)
+          match = ipv4_match(*(struct in_addr *)&ip4->saddr, comp->value.ipv4.addr, comp->value.ipv4.mask);
+        break;
+      case PF_COMP_IPV4_LOCAL_ADDR:
+        if (ip4 && ul)
+          match = ipv4_match(*(struct in_addr *)&ip4->saddr, comp->value.ipv4.addr, comp->value.ipv4.mask);
+        else if (ip4)
+          match = ipv4_match(*(struct in_addr *)&ip4->daddr, comp->value.ipv4.addr, comp->value.ipv4.mask);
+        break;
+      case PF_COMP_IPV6_REMOTE_ADDR_PREFIX:
+        if (ip6 && ul)
+          match = ipv6_match(&ip6->ip6_dst, &comp->value.ipv6.addr, comp->value.ipv6.prefix_len);
+        else if (ip6)
+          match = ipv6_match(&ip6->ip6_src, &comp->value.ipv6.addr, comp->value.ipv6.prefix_len);
+        break;
+      case PF_COMP_IPV6_LOCAL_ADDR_PREFIX:
+        if (ip6 && ul)
+          match = ipv6_match(&ip6->ip6_src, &comp->value.ipv6.addr, comp->value.ipv6.prefix_len);
+        else if (ip6)
+          match = ipv6_match(&ip6->ip6_dst, &comp->value.ipv6.addr, comp->value.ipv6.prefix_len);
+        break;
+      case PF_COMP_PROTOCOL_ID_NEXT_HDR:
+        match = protocol == comp->value.protocol;
+        break;
+      case PF_COMP_SINGLE_REMOTE_PORT:
+        match = ul ? dst_port == comp->value.single_port : src_port == comp->value.single_port;
+        break;
+      case PF_COMP_SINGLE_LOCAL_PORT:
+        match = ul ? src_port == comp->value.single_port : dst_port == comp->value.single_port;
+        break;
+      case PF_COMP_REMOTE_PORT_RANGE:
+        match = ul ? dst_port >= comp->value.port_range.port_low && dst_port <= comp->value.port_range.port_high
+                   : src_port >= comp->value.port_range.port_low && src_port <= comp->value.port_range.port_high;
+        break;
+      case PF_COMP_LOCAL_PORT_RANGE:
+        match = ul ? src_port >= comp->value.port_range.port_low && src_port <= comp->value.port_range.port_high
+                   : dst_port >= comp->value.port_range.port_low && dst_port <= comp->value.port_range.port_high;
+        break;
+      default:
+        LOG_W(SDAP, "Packet filter %d: matching failed for component type 0x%02x\n", pf->pf_id, comp->type);
+        break;
+    }
+
+    if (!match)
+      return false;
+  }
+
+  return true;
+}
+
+uint8_t nr_sdap_match_ul_packet(nr_sdap_entity_t *entity, const uint8_t *ip_pkt, size_t pkt_len)
+{
+  pthread_mutex_lock(&entity->qos_rules_lock);
+
+  FOR_EACH_SEQ_ARR (qos_rule_t *, rule, &entity->qos_rules) {
+    if (seq_arr_size(&rule->packet_filters) == 0 || rule->is_default)
+      continue;
+
+    FOR_EACH_SEQ_ARR (packet_filter_decoded_t *, filter, &rule->packet_filters) {
+      if (filter->direction != PF_DIR_UPLINK && filter->direction != PF_DIR_BIDIRECTIONAL)
+        continue;
+      if (packet_filter_match(filter, ip_pkt, pkt_len)) {
+        uint8_t qfi = rule->qfi;
+        LOG_D(SDAP,
+              "UE %lu PDU session %d: UL packet matched QFI %d (rule %d, filter %d)\n",
+              entity->tun.ue_id,
+              entity->tun.pdusession_id,
+              qfi,
+              rule->rule_id,
+              filter->pf_id);
+        pthread_mutex_unlock(&entity->qos_rules_lock);
+        return qfi;
+      }
+    }
+  }
+
+  uint8_t default_qfi = entity->qfi;
+  LOG_D(SDAP,
+        "UE %lu PDU session %d: UL packet did not match any filter, using default QFI %d\n",
+        entity->tun.ue_id,
+        entity->tun.pdusession_id,
+        default_qfi);
+  pthread_mutex_unlock(&entity->qos_rules_lock);
+  return default_qfi;
+}
+
+void nr_sdap_qos_rule_add(ue_id_t ue_id,
+                          int pdusession_id,
+                          uint8_t rule_id,
+                          uint8_t qfi,
+                          uint8_t precedence,
+                          bool is_default,
+                          const packet_filter_decoded_t *pf_list,
+                          int num_pf)
+{
+  nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pdusession_id);
+  if (entity == NULL || entity->tun.is_gnb) {
+    LOG_E(SDAP, "UE %ld PDU session %d: no UE entity for QoS rule add\n", ue_id, pdusession_id);
+    return;
+  }
+
+  qos_rule_t rule = {.qfi = qfi, .rule_id = rule_id, .precedence = precedence, .is_default = is_default};
+  seq_arr_init(&rule.packet_filters, sizeof(packet_filter_decoded_t));
+  add_packet_filters(&rule.packet_filters, pf_list, num_pf);
+
+  pthread_mutex_lock(&entity->qos_rules_lock);
+  seq_arr_push_back(&entity->qos_rules, &rule, sizeof(rule));
+  sort_qos_rules(&entity->qos_rules);
+  if (is_default)
+    entity->qfi = qfi;
+
+  entity->use_packet_filters = true;
+  pthread_mutex_unlock(&entity->qos_rules_lock);
+  LOG_I(SDAP,
+        "UE %ld PDU session %d: Added QoS rule %d (QFI %d, precedence %d, %d filters%s)\n",
+        ue_id,
+        pdusession_id,
+        rule_id,
+        qfi,
+        precedence,
+        num_pf,
+        is_default ? " (default)" : "");
+}
+
+void nr_sdap_qos_rule_remove(ue_id_t ue_id, int pdusession_id, uint8_t rule_id)
+{
+  nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pdusession_id);
+  if (entity == NULL || entity->tun.is_gnb) {
+    LOG_E(SDAP, "UE %ld PDU session %d: no UE entity for QoS rule remove\n", ue_id, pdusession_id);
+    return;
+  }
+
+  pthread_mutex_lock(&entity->qos_rules_lock);
+  qos_rule_t *rule = find_qos_rule(&entity->qos_rules, rule_id);
+  if (rule != NULL) {
+    LOG_I(SDAP, "UE %ld PDU session %d: Removing QoS rule %d (QFI %d)\n", ue_id, pdusession_id, rule_id, rule->qfi);
+    seq_arr_erase_deep(&entity->qos_rules, rule, free_qos_rule);
+  } else {
+    LOG_W(SDAP, "UE %ld PDU session %d: QoS rule %d not found for removal\n", ue_id, pdusession_id, rule_id);
+  }
+  if (seq_arr_size(&entity->qos_rules) == 0) {
+    entity->use_packet_filters = false;
+    LOG_I(SDAP, "UE %ld PDU session %d: Disabled UL packet filter matching (no rules)\n", ue_id, pdusession_id);
+  }
+  pthread_mutex_unlock(&entity->qos_rules_lock);
+}
+
+void nr_sdap_qos_rule_update(ue_id_t ue_id,
+                             int pdusession_id,
+                             uint8_t rule_id,
+                             uint8_t qfi,
+                             uint8_t precedence,
+                             bool is_default,
+                             const packet_filter_decoded_t *pf_list,
+                             int num_pf,
+                             bool replace)
+{
+  nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pdusession_id);
+  if (entity == NULL || entity->tun.is_gnb) {
+    LOG_E(SDAP, "UE %ld PDU session %d: no UE entity for QoS rule update\n", ue_id, pdusession_id);
+    return;
+  }
+
+  pthread_mutex_lock(&entity->qos_rules_lock);
+  qos_rule_t *rule = find_qos_rule(&entity->qos_rules, rule_id);
+  if (rule == NULL) {
+    LOG_W(SDAP, "UE %ld PDU session %d: QoS rule %d not found for update\n", ue_id, pdusession_id, rule_id);
+    pthread_mutex_unlock(&entity->qos_rules_lock);
+    return;
+  }
+
+  rule->qfi = qfi;
+  rule->precedence = precedence;
+  rule->is_default = is_default;
+  if (replace) {
+    seq_arr_free(&rule->packet_filters, NULL);
+    seq_arr_init(&rule->packet_filters, sizeof(packet_filter_decoded_t));
+    add_packet_filters(&rule->packet_filters, pf_list, num_pf);
+    LOG_I(SDAP,
+          "UE %ld PDU session %d: Replaced packet filters for QoS rule %d (QFI %d) - now %zu filters\n",
+          ue_id,
+          pdusession_id,
+          rule_id,
+          rule->qfi,
+          seq_arr_size(&rule->packet_filters));
+  } else {
+    size_t old_size = seq_arr_size(&rule->packet_filters);
+    add_packet_filters(&rule->packet_filters, pf_list, num_pf);
+    LOG_I(SDAP,
+          "UE %ld PDU session %d: Added %zu packet filters to QoS rule %d (QFI %d) - now %zu filters\n",
+          ue_id,
+          pdusession_id,
+          seq_arr_size(&rule->packet_filters) - old_size,
+          rule_id,
+          rule->qfi,
+          seq_arr_size(&rule->packet_filters));
+  }
+  if (is_default)
+    entity->qfi = qfi;
+  sort_qos_rules(&entity->qos_rules);
+  pthread_mutex_unlock(&entity->qos_rules_lock);
+}
+
+void nr_sdap_qos_rule_delete_pf(ue_id_t ue_id, int pdusession_id, uint8_t rule_id, const uint8_t *pf_ids, int num_ids)
+{
+  nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pdusession_id);
+  if (entity == NULL || entity->tun.is_gnb) {
+    LOG_E(SDAP, "UE %ld PDU session %d: no UE entity for QoS rule packet filter deletion\n", ue_id, pdusession_id);
+    return;
+  }
+
+  pthread_mutex_lock(&entity->qos_rules_lock);
+  qos_rule_t *rule = find_qos_rule(&entity->qos_rules, rule_id);
+  if (rule == NULL) {
+    LOG_W(SDAP, "UE %ld PDU session %d: QoS rule %d not found for packet filter deletion\n", ue_id, pdusession_id, rule_id);
+    pthread_mutex_unlock(&entity->qos_rules_lock);
+    return;
+  }
+
+  int removed = 0;
+  for (int i = 0; i < num_ids; ++i) {
+    FOR_EACH_SEQ_ARR (packet_filter_decoded_t *, filter, &rule->packet_filters) {
+      if (filter->pf_id == pf_ids[i]) {
+        seq_arr_erase(&rule->packet_filters, filter);
+        removed++;
+        break;
+      }
+    }
+  }
+  LOG_I(SDAP,
+        "UE %ld PDU session %d: Deleted %d/%d packet filters from QoS rule %d (QFI %d) - now %zu filters\n",
+        ue_id,
+        pdusession_id,
+        removed,
+        num_ids,
+        rule_id,
+        rule->qfi,
+        seq_arr_size(&rule->packet_filters));
+  pthread_mutex_unlock(&entity->qos_rules_lock);
 }

@@ -105,20 +105,28 @@ int encode_fgs_uplink_nas_transport(const fgs_uplink_nas_transport_msg *fgs_up_n
 
   IES_ENCODE_U8(buffer, encoded, fgs_up_nas_transport->pdusessionid);
 
-  // set request type
-  *(buffer + encoded) = (0x8 << 4) | (fgs_up_nas_transport->requesttype & 0x7);
-  encoded++;
-
-  if ((encode_result = encode_nssai(&fgs_up_nas_transport->snssai, 0x22, buffer + encoded)) < 0) {
-    return encode_result;
-  } else {
-    encoded += encode_result;
+  // Conditionally encode request type if present
+  if (fgs_up_nas_transport->requesttype_present) {
+    *(buffer + encoded) = (0x8 << 4) | (fgs_up_nas_transport->requesttype & 0x7);
+    encoded++;
   }
 
-  if ((encode_result = encode_dnn(&fgs_up_nas_transport->dnn, 0x25, buffer + encoded)) < 0) {
-    return encode_result;
-  } else {
-    encoded += encode_result;
+  // Conditionally encode S-NSSAI if present
+  if (fgs_up_nas_transport->snssai_present) {
+    if ((encode_result = encode_nssai(&fgs_up_nas_transport->snssai, 0x22, buffer + encoded)) < 0) {
+      return encode_result;
+    } else {
+      encoded += encode_result;
+    }
+  }
+
+  // Conditionally encode DNN if present
+  if (fgs_up_nas_transport->dnn_present) {
+    if ((encode_result = encode_dnn(&fgs_up_nas_transport->dnn, 0x25, buffer + encoded)) < 0) {
+      return encode_result;
+    } else {
+      encoded += encode_result;
+    }
   }
 
   return encoded;

@@ -6,11 +6,15 @@
 #define _NR_SDAP_ENTITY_H_
 
 #include <assertions.h>
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include "NR_QFI.h"
 #include "NR_SDAP-Config.h"
+#include "common/5g_packet_filter.h"
+#include "common/5g_qos_rules.h"
 #include "common/platform_constants.h"
+#include "common/utils/ds/seq_arr.h"
 
 #define SDAP_BITMASK_DC             (0x80)
 #define SDAP_BITMASK_R              (0x40)
@@ -83,6 +87,14 @@ typedef struct sdap_tun_endpoint_s {
   bool is_gnb;
 } sdap_tun_endpoint_t;
 
+typedef struct qos_rule_s {
+  uint8_t qfi;
+  uint8_t rule_id;
+  uint8_t precedence;
+  bool is_default;
+  seq_arr_t packet_filters;
+} qos_rule_t;
+
 typedef struct nr_sdap_entity_s {
   sdap_tun_endpoint_t tun;
   pthread_t pdusession_thread;
@@ -90,6 +102,10 @@ typedef struct nr_sdap_entity_s {
 
   qfi2drb_t default_drb;
   qfi2drb_t qfi2drb_table[SDAP_MAX_QFI];
+
+  seq_arr_t qos_rules;
+  pthread_mutex_t qos_rules_lock;
+  _Atomic(bool) use_packet_filters;
 
   void (*qfi2drb_map_update)(struct nr_sdap_entity_s *entity, const sdap_config_t *sdap);
   void (*qfi2drb_map_delete)(struct nr_sdap_entity_s *entity, const uint8_t qfi);
@@ -121,6 +137,8 @@ typedef struct nr_sdap_entity_s {
   /* List of entities */
   struct nr_sdap_entity_s *next_entity;
 } nr_sdap_entity_t;
+
+uint8_t nr_sdap_match_ul_packet(nr_sdap_entity_t *entity, const uint8_t *ip_pkt, size_t pkt_len);
 
 /*
  * TS 37.324 5.3 QoS flow to DRB Mapping 

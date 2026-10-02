@@ -40,6 +40,8 @@ The following table lists NAS messages with dedicated `encode_*` / `decode_*` co
 | 5GMM  | Deregistration Request (UE originating)   | yes      | no       | no         |
 | 5GSM  | PDU Session Establishment Request         | yes      | no       | no         |
 | 5GSM  | PDU Session Establishment Accept          | no       | yes      | no         |
+| 5GSM  | PDU Session Modification Command          | no       | yes      | no         |
+| 5GSM  | PDU Session Modification Complete         | yes      | no       | no         |
 
 ### Runtime-handled messages
 
@@ -53,6 +55,7 @@ These network-originated messages are handled in [`nr_nas_msg.c`](../openair3/NA
 * PDU Session Establishment Reject
 * Service Accept
 * Service Reject
+* PDU Session Modification Command
 
 ## Integration testing
 
