@@ -175,3 +175,5 @@ networks:
                 - subnet: 192.168.70.128/26
         driver_opts:
             com.docker.network.bridge.name: "oai-cn5g"
+            # Only needed when the core network and the RAN are deployed on different machines
+            # com.docker.network.bridge.gateway_mode_ipv4: "nat-unprotected"
