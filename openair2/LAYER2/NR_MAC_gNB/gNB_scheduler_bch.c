@@ -539,13 +539,16 @@ static void other_sib_sched_control(nr_cell_sched_t *cell,
   NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   int n_slots_frame = cell->frame_structure.numb_slots_frame;
   beam_index = get_beam_from_ssbidx(cell, beam_index);
+  int ssb_index = get_ssbidx_from_beam(cell, beam_index);
+  NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_CSS_config = &cell->type0_PDCCH_CSS_config[ssb_index];
+  if (type0_PDCCH_CSS_config->num_rbs == 0) {
+    return;
+  }
   NR_beam_alloc_t beam = beam_allocation_procedure(&cell->beam_info, frame, slot, beam_index, n_slots_frame);
   AssertFatal(beam.idx >= 0, "Cannot allocate otherSIB corresponding for SSB number %d in any available beam\n", beam_index);
   LOG_D(NR_MAC, "(%d.%d) otherSIB payload %d transmission for ssb number %d\n", frame, slot, payload_idx, beam_index);
 
   NR_COMMON_channels_t *cc = &cell->common_channels;
-  int ssb_index = get_ssbidx_from_beam(cell, beam_index);
-  NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_CSS_config = &cell->type0_PDCCH_CSS_config[ssb_index];
   NR_PDSCH_ConfigCommon_t *pdsch_ConfigCommon = scc->downlinkConfigCommon->initialDownlinkBWP->pdsch_ConfigCommon->choice.setup;
   int time_domain_allocation = 1;
   NR_tda_info_t tda_info = set_tda_info_from_list(pdsch_ConfigCommon->pdsch_TimeDomainAllocationList, time_domain_allocation);
