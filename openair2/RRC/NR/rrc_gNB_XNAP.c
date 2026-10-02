@@ -311,3 +311,84 @@ int rrc_gNB_process_XNAP_HANDOVER_REQUEST(gNB_RRC_INST *rrc, xnap_handover_req_t
   trigger_bearer_setup(rrc, UE, UE->ambr.dl_br);
   return 0;
 }
+
+void rrc_gNB_send_XNAP_HANDOVER_REQ_ACK(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, byte_array_t ho_command)
+{
+  nr_ho_target_cu_t *target = UE->ho_context->target;
+
+  int num_admitted = seq_arr_size(&UE->pduSessions);
+  xnap_pdusession_admitted_item_t *admitted = NULL;
+  if (num_admitted > 0) {
+    admitted = calloc(num_admitted, sizeof(*admitted));
+    AssertFatal(admitted != NULL, "calloc failed for admitted PDU sessions\n");
+    int idx = 0;
+    FOR_EACH_SEQ_ARR (rrc_pdu_session_param_t *, p, &UE->pduSessions) {
+      p->status = PDU_SESSION_STATUS_ESTABLISHED;
+      admitted[idx].pdusession_id = p->param.pdusession_id;
+      int num_qos = seq_arr_size(&p->param.qos);
+      admitted[idx].num_qos = num_qos;
+      if (num_qos > 0) {
+        admitted[idx].qos_list = calloc(num_qos, sizeof(*admitted[idx].qos_list));
+        AssertFatal(admitted[idx].qos_list != NULL, "calloc failed for admitted QoS list\n");
+        for (int j = 0; j < num_qos; j++) {
+          nr_rrc_qos_t *qos = seq_arr_at(&p->param.qos, j);
+          admitted[idx].qos_list[j].qfi = qos->qos.qfi;
+        }
+      }
+      idx++;
+    }
+  }
+
+  /* Allocate the target XnAP UE ID here so it is known for UE Context Release */
+  target->tar_ue_xnap_id = xn_alloc_target_ue_id();
+
+  MessageDef *msg = itti_alloc_new_message(TASK_RRC_GNB, rrc->module_id, XNAP_HANDOVER_REQ_ACK);
+  xnap_handover_req_ack_t *ack = &XNAP_HANDOVER_REQ_ACK(msg);
+  *ack = (xnap_handover_req_ack_t){
+    .s_ng_node_ue_xnap_id = target->src_ue_xnap_id,
+    .t_ng_node_ue_xnap_id = target->tar_ue_xnap_id,
+    .num_pdu_admitted = num_admitted,
+    .pdusession_admitted_list = admitted,
+    .target2source = copy_byte_array(ho_command),
+    .rrc_ue_id = UE->rrc_ue_id,
+    .source_assoc_id = target->source_assoc_id,
+  };
+
+  LOG_I(NR_RRC, "UE %d: sending XNAP_HANDOVER_REQ_ACK s_xn_ue_id %u source_assoc_id %d\n",
+        UE->rrc_ue_id, target->src_ue_xnap_id, target->source_assoc_id);
+
+  itti_send_msg_to_task(TASK_XNAP, rrc->module_id, msg);
+}
+
+/* @brief Source gNB processes Handover Request Acknowledge from the target gNB:
+ *  stores target routing fields and sends the HandoverCommand to the UE. */
+void rrc_gNB_process_XNAP_HANDOVER_REQ_ACK(gNB_RRC_INST *rrc, const xnap_handover_req_ack_t *msg)
+{
+  rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(rrc, msg->rrc_ue_id);
+  if (!ue_context_p) {
+    LOG_W(NR_RRC, "Xn HandoverRequestAck: unknown rrc_ue_id %u\n", msg->rrc_ue_id);
+    return;
+  }
+  gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
+
+  if (!UE->ho_context || !UE->ho_context->source) {
+    LOG_W(NR_RRC, "UE %u: Xn HandoverRequestAck but no source handover context — dropping\n", UE->rrc_ue_id);
+    return;
+  }
+
+  UE->ho_context->source->src_ue_xnap_id = msg->s_ng_node_ue_xnap_id;
+  UE->ho_context->source->tar_ue_xnap_id = msg->t_ng_node_ue_xnap_id;
+  UE->ho_context->source->tar_assoc_id = msg->source_assoc_id;
+
+  byte_array_t buffer = doRRCReconfiguration_from_HandoverCommand(msg->target2source);
+  if (!buffer.buf || buffer.len == 0) {
+    LOG_E(NR_RRC, "UE %d: failed to decode HandoverCommand from Xn HO Request Ack\n", UE->rrc_ue_id);
+    free_byte_array(buffer);
+    return;
+  }
+
+  rrc_gNB_trigger_reconfiguration_for_handover(rrc, UE, buffer.buf, buffer.len);
+  LOG_A(NR_RRC, "Xn HO: sent RRCReconfiguration (HO Command) to UE %u/RNTI %04x\n",
+        UE->rrc_ue_id, UE->rnti);
+  free_byte_array(buffer);
+}
