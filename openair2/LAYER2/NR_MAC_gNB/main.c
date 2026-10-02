@@ -351,6 +351,11 @@ void mac_top_init_gNB(ngran_node_t node_type,
   srand48(0);
 }
 
+static void destroy_periodic_sched(periodic_ue_sched_t p)
+{
+  free(p.list);
+}
+
 void mac_top_destroy_gNB(gNB_MAC_INST *mac)
 {
   for (size_t i = 0; i < sizeofArray(mac->cells); i++) {

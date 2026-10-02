@@ -347,19 +347,13 @@ uint64_t get_ssb_bitmap(const NR_ServingCellConfigCommon_t *scc)
   return bitmap;
 }
 
-typedef enum {
-  CSI_RS,
-  CSI_MEASUREMENTS,
-  SRS
-} nr_periodic_channel_t;
-
 static bool check_periodicity(int val, int ideal_period, const frame_structure_t *fs)
 {
   bool valid_periodicity_for_tdd_period = fs->frame_type == FDD ? true : (val % fs->numb_slots_period == 0);
   return (ideal_period < val + 1) && valid_periodicity_for_tdd_period;
 }
 
-static int set_ideal_period(const nr_cell_sched_t *cell, nr_periodic_channel_t channel_type, int num_pucch_slot)
+int set_ideal_period(const nr_cell_sched_t *cell, nr_periodic_channel_t channel_type, int num_pucch_slot)
 {
   const frame_structure_t *fs = &cell->frame_structure;
   const int nb_slots_per_period = fs->numb_slots_period;
