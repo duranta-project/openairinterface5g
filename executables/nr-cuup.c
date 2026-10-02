@@ -85,6 +85,16 @@ int nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
   return -1;
 }
 
+void nr_rlc_enqueue_data_req(const protocol_ctxt_t *ctxt_pP,
+                             srb_flag_t srb_flagP,
+                             rb_id_t rb_idP,
+                             int sdu_id,
+                             sdu_size_t sdu_sizeP,
+                             uint8_t *sdu_pP)
+{
+  abort();
+}
+
 int nr_rlc_get_available_tx_space(const rnti_t rntiP, const logical_chan_id_t channel_idP)
 {
   abort();
