@@ -1320,6 +1320,9 @@ add_library(L2_NR
   ${MAC_NR_SRC}
   ${GNB_APP_SRC}
   )
+if(E3_AGENT)
+  target_compile_definitions(L2_NR PRIVATE E3_AGENT)
+endif()
 target_link_libraries(L2_NR PRIVATE ds alg)
 target_link_libraries(L2_NR PRIVATE f1ap_lib)
 target_link_libraries(L2_NR PRIVATE nfapi_nr_user_lib)
@@ -1806,7 +1809,7 @@ if (OAI_RU_FRONTHAUL)
     ${OPENAIR_DIR}/executables/nr-oru.c
   )
   target_link_libraries(nr-oru PRIVATE
-    UTIL NR_PHY_RU PHY_NR shlib_loader dl oru_fh MAC_NR_COMMON PHY_NR_COMMON
+    UTIL NR_PHY_RU PHY_NR shlib_loader dl oru_fh oru_beamforming MAC_NR_COMMON PHY_NR_COMMON
     radio_common softmodem_common nfapi_pnf_lib symbol_reorder)
   target_link_libraries(nr-oru PRIVATE pthread m CONFIG_LIB rt ${T_LIB} utils
     barrier actor nfapi_user_lib)

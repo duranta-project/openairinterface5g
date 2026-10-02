@@ -35,6 +35,9 @@
 #include "nfapi_nr_interface.h"
 #include "nfapi_nr_interface_scf.h"
 #include "utils.h"
+#ifdef E3_AGENT
+#include "openair2/E3AP/ran_func_spectrum_extern.h"
+#endif /* E3_AGENT */
 
 c16_t convert_precoder_weight(double complex c_in)
 {
@@ -987,6 +990,12 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
   nr_rrc_config_ul_tda(scc, rc->minRXTXTIME, rc->do_SRS);
   seq_arr_init(&cell->ul_tda, sizeof(NR_tda_info_t));
   init_ul_tda_info(scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList, &cell->ul_tda);
+
+#ifdef E3_AGENT
+  /* The cell's frame structure is known now: let the Spectrum RAN function bind
+   * to it. It owns its configuration (E3Configuration) and state. */
+  e3_spectrum_mac_attach_cell(cell);
+#endif /* E3_AGENT */
   seq_arr_init(&nrmac->pos_act_ue_arr, sizeof(positioning_activation_info_t));
 }
 

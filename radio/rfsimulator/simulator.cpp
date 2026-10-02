@@ -1555,7 +1555,7 @@ extern "C" __attribute__((__visibility__("default"))) int device_init(openair0_d
   device->openair0_cfg = openair0_cfg;
   device->priv = rfsimulator;
   device->trx_write_init = rfsimulator_write_init;
-  device->trx_set_beams = rfsimulator->beam_ctrl->enable_beams ? rfsimulator_set_beams_vector : nullptr;
+  device->trx_set_beams = rfsimulator_set_beams_vector;
 
   for (int i = 0; i < MAX_FD_RFSIMU; i++)
     rfsimulator->buf[i].conn_sock = -1;
