@@ -159,7 +159,7 @@ void build_polar_tables(t_nrPolar_params *polarParams);
 
 void nr_polar_print_polarParams(void);
 
-t_nrPolar_params *nr_polar_params(int8_t messageType, uint16_t messageLength, uint8_t aggregation_level);
+t_nrPolar_params *nr_polar_params(int8_t messageType, uint16_t messageLength, int aggregation_level);
 
 uint16_t nr_polar_aggregation_prime(uint8_t aggregation_level);
 

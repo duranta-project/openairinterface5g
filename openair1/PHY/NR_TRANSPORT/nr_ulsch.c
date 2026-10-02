@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
+#include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "PHY/NR_TRANSPORT/nr_ulsch.h"
 #include "SCHED_NR/sched_nr.h"
 
@@ -149,6 +150,67 @@ void reset_active_ulsch(PHY_VARS_gNB *gNB, int frame)
             ulsch->slot);
     }
   }
+}
+
+int get_pusch_ta(const PHY_VARS_gNB *gNB, NR_gNB_PHY_STATS_t *stats, const NR_gNB_PUSCH *pusch, int frame, int slot)
+{
+  int timing_advance_update = 0xffff;
+  // Get estimated timing advance for MAC
+  const int sync_pos = pusch->delay.est_delay;
+  if (stats)
+    stats->ulsch_stats.sync_pos = sync_pos;
+
+  if (pusch->delay.valid) {
+    // do some integer rounding to improve TA accuracy
+    // scale the 16 factor in N_TA calculation in 38.213 section 4.2 according to the used FFT size
+    uint16_t bw_scaling = 16 * gNB->frame_parms.ofdm_symbol_size / 2048;
+    int sync_pos_rounded;
+    if (sync_pos > 0)
+      sync_pos_rounded = sync_pos + (bw_scaling / 2) - 1;
+    else
+      sync_pos_rounded = sync_pos - (bw_scaling / 2) + 1;
+    timing_advance_update = sync_pos_rounded / bw_scaling;
+    // put timing advance command in 0..63 range
+    timing_advance_update += 31;
+    timing_advance_update = max(timing_advance_update, 0);
+    timing_advance_update = min(timing_advance_update, 63);
+
+    LOG_D(NR_PHY,
+          "%d.%d : Received PUSCH : Estimated timing advance PUSCH is  = %d, timing_advance_update is %d\n",
+          frame,
+          slot,
+          sync_pos,
+          timing_advance_update);
+  }
+
+  return timing_advance_update;
+}
+
+int get_pusch_rssi(const NR_gNB_PUSCH *pusch, int n_rx)
+{
+  return 1280 - (10 * dB_fixed(32767 * 32767) - dB_fixed_times10(pusch->ulsch_power_tot / n_rx));
+}
+
+int get_pusch_cqi(const NR_gNB_PUSCH *pusch, int frame, int slot)
+{
+  // estimate UL_CQI for MAC
+  int SNRtimes10 = dB_fixed_x10(pusch->ulsch_power_tot) - dB_fixed_x10(pusch->ulsch_noise_power_tot);
+  LOG_D(NR_PHY,
+        "%d.%d: Estimated SNR for PUSCH is = %f dB (ulsch_power %f, noise %f)\n",
+        frame,
+        slot,
+        SNRtimes10 / 10.0,
+        dB_fixed_x10(pusch->ulsch_power_tot) / 10.0,
+        dB_fixed_x10(pusch->ulsch_noise_power_tot) / 10.0);
+
+  int cqi;
+  if (SNRtimes10 < -640)
+    cqi = 0;
+  else if (SNRtimes10 > 635)
+    cqi = 255;
+  else
+    cqi = (640 + SNRtimes10) / 5;
+  return cqi;
 }
 
 void dump_pusch_stats(FILE *fd, PHY_VARS_gNB *gNB)
