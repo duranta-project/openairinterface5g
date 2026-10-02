@@ -11,6 +11,7 @@
 #include "nr_rlc_ue_manager.h"
 #include "nr_rlc_entity.h"
 #include "nr_rlc_oai_api.h"
+#include "nr_rlc_data_req_queue.h"
 #include "NR_RLC-BearerConfig.h"
 #include "NR_DRB-ToAddMod.h"
 #include "NR_DRB-ToAddModList.h"
@@ -408,6 +409,10 @@ int nr_rlc_module_init(nr_rlc_op_mode_t mode)
     inited_ue = 1;
 
   nr_rlc_ue_manager = new_nr_rlc_ue_manager(mode);
+
+  /* Async queue is for colocated PDCP->RLC only (mono gNB / UE) */
+  if (mode != NR_RLC_OP_MODE_SPLIT_GNB)
+    nr_rlc_data_req_queue_init();
 
   if (pthread_mutex_unlock(&lock)) abort();
 
