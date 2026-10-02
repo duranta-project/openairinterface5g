@@ -3,6 +3,7 @@
  */
 
 #include <map>
+#include <atomic>
 using namespace std;
 
 #ifdef __cplusplus
@@ -140,6 +141,30 @@ typedef struct {
   pthread_t t;
 } gtpThread_t;
 
+/* Counters are bumped on every datagram, including ones that are dropped before
+   any lock is taken, so they are atomic rather than guarded by gtp_lock: a
+   flood of malformed or unknown-TEID traffic would otherwise serialise the
+   whole GTP-U subsystem on the stats update. Relaxed ordering is enough, these
+   are counters and nothing is published through them. The public gtpu_stats_t
+   stays a plain struct so gtp_itf.h remains includable from C; gtpu_get_stats()
+   loads this into one. */
+struct gtpuStats {
+  std::atomic<uint64_t> tx_pkts{0};
+  std::atomic<uint64_t> tx_bytes{0};
+  std::atomic<uint64_t> tx_drop_no_tunnel{0};
+  std::atomic<uint64_t> tx_drop_send_fail{0};
+  std::atomic<uint64_t> rx_pkts{0};
+  std::atomic<uint64_t> rx_bytes{0};
+  std::atomic<uint64_t> rx_drop_malformed{0};
+  std::atomic<uint64_t> rx_drop_unknown_teid{0};
+  std::atomic<uint64_t> rx_drop_refused{0};
+};
+
+static inline void gtpuBump(std::atomic<uint64_t> &c, uint64_t n = 1)
+{
+  c.fetch_add(n, std::memory_order_relaxed);
+}
+
 class gtpEndPoint {
  public:
   openAddr_t addr;
@@ -148,7 +173,7 @@ class gtpEndPoint {
   int ipVersion;
   gtpThread_t thrData;
   map<uint64_t, teidData_t> ue2te_mapping;
-  gtpu_stats_t stats = {};
+  gtpuStats stats;
   // we use the same port number for source and destination address
   // this allow using non standard gtp port number (different from 2152)
   // and so, for example tu run 4G and 5G cores on one system
@@ -184,26 +209,6 @@ class gtpEndPoints {
 
 static gtpEndPoints globGtp;
 
-static void gtpu_stat_drop(int h, uint64_t gtpu_stats_t::*counter)
-{
-  pthread_mutex_lock(&globGtp.gtp_lock);
-  auto it = globGtp.instances.find(h);
-  if (it != globGtp.instances.end())
-    it->second.stats.*counter += 1;
-  pthread_mutex_unlock(&globGtp.gtp_lock);
-}
-
-static void gtpu_stat_rx_ok(int h, uint64_t bytes)
-{
-  pthread_mutex_lock(&globGtp.gtp_lock);
-  auto it = globGtp.instances.find(h);
-  if (it != globGtp.instances.end()) {
-    it->second.stats.rx_pkts++;
-    it->second.stats.rx_bytes += bytes;
-  }
-  pthread_mutex_unlock(&globGtp.gtp_lock);
-}
-
 // note TEid 0 is reserved for specific usage: echo req/resp, error and supported extensions
 static teid_t gtpv1uNewTeid(void)
 {
@@ -235,6 +240,22 @@ instance_t legacyInstanceMapping = 0;
     return GTPNOK;                                           \
   }                                                          \
   gtpEndPoint *inst = &instChk->second;
+
+/* Resolve an endpoint once so the per-datagram paths can bump their atomic
+   counters without taking gtp_lock at all. The getInstRet* macros above cannot
+   serve here: they unlock and return on a miss, which suits a caller already
+   inside the critical section, not one that wants a pointer back. instances is
+   a std::map, so the node address stays valid once the lock is dropped; only
+   erasing this very instance would invalidate it, which is the same assumption
+   the send path already makes when it uses a bearer after unlocking. */
+static gtpEndPoint *gtpuInstance(uint64_t h)
+{
+  pthread_mutex_lock(&globGtp.gtp_lock);
+  auto it = globGtp.instances.find(compatInst(h));
+  gtpEndPoint *inst = it == globGtp.instances.end() ? NULL : &it->second;
+  pthread_mutex_unlock(&globGtp.gtp_lock);
+  return inst;
+}
 
 #define getUeRetVoid(insT, Ue)                                                                                    \
   auto ptrUe = insT->ue2te_mapping.find(Ue);                                                                      \
@@ -350,7 +371,7 @@ static void _gtpv1uSendDirect(instance_t instance,
 
   if (ptr2 == ptrUe->second.bearers.end()) {
     LOG_E(GTPU, "[%ld] GTP-U instance: sending a packet to a non existant UE:RAB: %lx/%x\n", instance, ue_id, bearer_id);
-    inst->stats.tx_drop_no_tunnel++;
+    gtpuBump(inst->stats.tx_drop_no_tunnel);
     pthread_mutex_unlock(&globGtp.gtp_lock);
     return;
   }
@@ -415,17 +436,13 @@ static void _gtpv1uSendDirect(instance_t instance,
 
   DevAssert(compatInst(instance) == bearer.sock_fd);
   int send_ok = gtpv1uCreateAndSendMsg(&bearer, GTP_GPDU, buf, len, seqNumFlag, npduNumFlag, ext, extension_count);
-  int h = compatInst(instance);
+  /* inst was resolved under the lock above and the counters are atomic, so
+     neither of these needs the lock back. */
   if (send_ok != GTPNOK) {
-    pthread_mutex_lock(&globGtp.gtp_lock);
-    auto it = globGtp.instances.find(h);
-    if (it != globGtp.instances.end()) {
-      it->second.stats.tx_pkts++;
-      it->second.stats.tx_bytes += len;
-    }
-    pthread_mutex_unlock(&globGtp.gtp_lock);
+    gtpuBump(inst->stats.tx_pkts);
+    gtpuBump(inst->stats.tx_bytes, len);
   } else {
-    gtpu_stat_drop(h, &gtpu_stats_t::tx_drop_send_fail);
+    gtpuBump(inst->stats.tx_drop_send_fail);
   }
 }
 
@@ -468,7 +485,7 @@ void gtpv1uSendDirectWithNRUSeqNum(instance_t instance,
 
   if (ptr2 == ptrUe->second.bearers.end()) {
     LOG_E(GTPU, "[%ld] GTP-U instance: sending a packet to a non existant UE:RAB: %lx/%x\n", instance, ue_id, bearer_id);
-    inst->stats.tx_drop_no_tunnel++;
+    gtpuBump(inst->stats.tx_drop_no_tunnel);
     pthread_mutex_unlock(&globGtp.gtp_lock);
     return;
   }
@@ -1136,13 +1153,14 @@ static int Gtpv1uHandleEndMarker(int h, uint8_t *msgBuf)
   return !GTPNOK;
 }
 
-static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const struct sockaddr_in *addr)
+static int Gtpv1uHandleGpdu(int h, gtpEndPoint *inst, uint8_t *msgBuf, uint32_t msgBufLen, const struct sockaddr_in *addr)
 {
   Gtpv1uMsgHeaderT *msgHdr = (Gtpv1uMsgHeaderT *)msgBuf;
 
   if (msgHdr->version != 1 || msgHdr->PT != 1) {
     LOG_E(GTPU, "[%d] Received a packet that is not GTP header\n", h);
-    gtpu_stat_drop(h, &gtpu_stats_t::rx_drop_malformed);
+    if (inst)
+      gtpuBump(inst->stats.rx_drop_malformed);
     return GTPNOK;
   }
 
@@ -1152,7 +1170,8 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
   if (tunnel == globGtp.te2ue_mapping.end()) {
     LOG_E(GTPU, "[%d] Received a incoming packet on unknown TEID (0x%x) Dropping!\n", h, ntohl(msgHdr->teid));
     pthread_mutex_unlock(&globGtp.gtp_lock);
-    gtpu_stat_drop(h, &gtpu_stats_t::rx_drop_unknown_teid);
+    if (inst)
+      gtpuBump(inst->stats.rx_drop_unknown_teid);
     return GTPNOK;
   }
   ueidData_t uedata = tunnel->second;
@@ -1291,9 +1310,13 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
                                        rqi,
                                        uedata.pdusession_id)) {
         LOG_E(GTPU, "[%d] down layer refused incoming SDAP packet\n", h);
-        gtpu_stat_drop(h, &gtpu_stats_t::rx_drop_refused);
+        if (inst)
+          gtpuBump(inst->stats.rx_drop_refused);
       } else {
-        gtpu_stat_rx_ok(h, sdu_buffer_size);
+        if (inst) {
+          gtpuBump(inst->stats.rx_pkts);
+          gtpuBump(inst->stats.rx_bytes, sdu_buffer_size);
+        }
       }
     } else {
       /* Non-SDAP callback path: direct TEID-to-incoming_rb_id delivery via callBack.
@@ -1306,9 +1329,13 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
                   ntohl(msgHdr->teid));
       if (!uedata.callBack(&ctxt, srb_flag, rb_id, mui, confirm, sdu_buffer_size, sdu_buffer, mode, &sourceL2Id, &destinationL2Id)) {
         LOG_E(GTPU, "[%d] down layer refused incoming packet\n", h);
-        gtpu_stat_drop(h, &gtpu_stats_t::rx_drop_refused);
+        if (inst)
+          gtpuBump(inst->stats.rx_drop_refused);
       } else {
-        gtpu_stat_rx_ok(h, sdu_buffer_size);
+        if (inst) {
+          gtpuBump(inst->stats.rx_pkts);
+          gtpuBump(inst->stats.rx_bytes, sdu_buffer_size);
+        }
       }
     }
   }
@@ -1364,18 +1391,25 @@ static bool gtpv1uReceiveHandleMessage(int h, uint8_t buf[VLEN][BUFSIZE])
     return false;
   }
 
+  /* Resolved once for the whole batch: the counters below are bumped per
+     datagram, and looking the endpoint up each time would put gtp_lock on the
+     path of every packet, rogue ones included. */
+  gtpEndPoint *inst = gtpuInstance(h);
+
   for (int i = 0; i < ret; ++i) {
     int udpDataLen = msgs[i].msg_len;
     uint8_t *udpData = buf[i];
     if (udpDataLen < (int)sizeof(Gtpv1uMsgHeaderT)) {
       LOG_W(GTPU, "[%d] received malformed gtp packet \n", h);
-      gtpu_stat_drop(h, &gtpu_stats_t::rx_drop_malformed);
+      if (inst)
+        gtpuBump(inst->stats.rx_drop_malformed);
       continue;
     }
     Gtpv1uMsgHeaderT *msg = (Gtpv1uMsgHeaderT *)udpData;
     if ((int)(ntohs(msg->msgLength) + sizeof(Gtpv1uMsgHeaderT)) != udpDataLen) {
       LOG_W(GTPU, "[%d] received malformed gtp packet length\n", h);
-      gtpu_stat_drop(h, &gtpu_stats_t::rx_drop_malformed);
+      if (inst)
+        gtpuBump(inst->stats.rx_drop_malformed);
       continue;
     }
     LOG_D(GTPU, "[%d] Received GTP data, msg type: %x\n", h, msg->msgType);
@@ -1400,7 +1434,7 @@ static bool gtpv1uReceiveHandleMessage(int h, uint8_t buf[VLEN][BUFSIZE])
         break;
 
       case GTP_GPDU:
-        Gtpv1uHandleGpdu(h, udpData, udpDataLen, &addr[i]);
+        Gtpv1uHandleGpdu(h, inst, udpData, udpDataLen, &addr[i]);
         break;
 
       default:
@@ -1502,7 +1536,16 @@ bool gtpu_get_stats(instance_t instance, gtpu_stats_t *out)
     pthread_mutex_unlock(&globGtp.gtp_lock);
     return false;
   }
-  *out = it->second.stats;
+  const gtpuStats &st = it->second.stats;
+  out->tx_pkts = st.tx_pkts.load(std::memory_order_relaxed);
+  out->tx_bytes = st.tx_bytes.load(std::memory_order_relaxed);
+  out->tx_drop_no_tunnel = st.tx_drop_no_tunnel.load(std::memory_order_relaxed);
+  out->tx_drop_send_fail = st.tx_drop_send_fail.load(std::memory_order_relaxed);
+  out->rx_pkts = st.rx_pkts.load(std::memory_order_relaxed);
+  out->rx_bytes = st.rx_bytes.load(std::memory_order_relaxed);
+  out->rx_drop_malformed = st.rx_drop_malformed.load(std::memory_order_relaxed);
+  out->rx_drop_unknown_teid = st.rx_drop_unknown_teid.load(std::memory_order_relaxed);
+  out->rx_drop_refused = st.rx_drop_refused.load(std::memory_order_relaxed);
   pthread_mutex_unlock(&globGtp.gtp_lock);
   return true;
 }
