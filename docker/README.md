@@ -26,6 +26,7 @@ For all platforms, the strategy for building docker/podman images is the same:
    -  lte-UE
    -  nr-UE
    -  nr-cuup
+   -  nr-oru
    These target images will only contain:
    -  the generated executable (for example `lte-softmodem`)
    -  the generated shared libraries (for example `liboai_usrpdevif.so`)
@@ -35,14 +36,20 @@ For all platforms, the strategy for building docker/podman images is the same:
 * From the `ran-build-fhi72` image, we can build target image for:
    -  gNB/DU (with FHI 7.2)
 
-Note that on every push to develop (i.e., typically after integrating merge
-requests), we build all images and push them to [Docker Hub](https://hub.docker.com/u/oaisoftwarealliance). To pull them, do
+Note that on every push to develop (i.e., typically when integration branch is merged),
+we build all images and push them to [Docker Hub](https://hub.docker.com/u/oaisoftwarealliance)
+in [RAN-DockerHub-Push](https://jenkins-oai.eurecom.fr/job/RAN-DockerHub-Push/) pipeline. Images
+tagged develop are overwritten, and new images are published with the corresponding integration
+week tag.
+To pull them, do:
 
 ```bash
 docker pull oaisoftwarealliance/oai-gnb:develop
 docker pull oaisoftwarealliance/oai-nr-ue:develop
 docker pull oaisoftwarealliance/oai-enb:develop
 docker pull oaisoftwarealliance/oai-lte-ue:develop
+docker pull oaisoftwarealliance/oai-gnb-fhi72:develop
+docker pull oaisoftwarealliance/oai-nr-cuup:develop
 ```
 Have a look at [this README](../ci-scripts/yaml_files/5g_rfsimulator/README.md) to get some information on how to use the images.
 
@@ -62,6 +69,7 @@ Targets can be:
 -  `gNB.fhi` for an image named `oai-gnb-fhi72`
 -  `lteUE` for an image named `oai-lte-ue`
 -  `nrUE` for an image named `oai-nr-ue`
+-  `nrORU` for an image named `oai-nr-oru`
 
 The currently-supported OS are:
 
@@ -71,13 +79,13 @@ The currently-supported OS are:
 
 For more details regarding the build on an Openshift Cluster, see [OpenShift README](../openshift/README.md).
 
-# 3. Building using `docker` under Ubuntu 22.04 #
+# 3. Building using `docker` under Ubuntu 24.04 #
 
 ## 3.1. Pre-requisites ##
 
 * `git` installed
 * `docker-ce` installed
-* Pulling `ubuntu:jammy` from DockerHub
+* Pulling `ubuntu:noble` from DockerHub
 
 The docker files in this directory rely on [automatic Docker platform
 arguments](https://docs.docker.com/reference/dockerfile/#automatic-platform-args-in-the-global-scope)
@@ -210,7 +218,7 @@ podman build --tag ran-build-fhi72:latest --file docker/Dockerfile.build.fhi72.r
 For example, the eNB:
 
 ```bash
-podman build --target oai-enb --tag oai-gnb:latest --file docker/Dockerfile.eNB.rhel9 .
+podman build --target oai-enb --tag oai-enb:latest --file docker/Dockerfile.eNB.rhel9 .
 ```
 
 To build gNB/DU with 7.2 fronthaul support:
