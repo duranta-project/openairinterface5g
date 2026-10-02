@@ -1179,13 +1179,25 @@ bool nr_update_sib19(const gnb_sat_position_update_t *sat_position)
   LOG_D(NR_MAC, "SAT Velocity: values %d/%d/%d, %.3f/%3f/%3f m/s in X/Y/Z\n", vel->X, vel->Y, vel->Z, vel->X * 0.06, vel->Y * 0.06, vel->Z * 0.06);
 
   NR_SCHED_LOCK(&nrmac->sched_lock);
+  gnb_sat_position_update_t update = *sat_position;
+  if (update.epoch_lead_ms > 0) {
+    // the source does not know our SFN: the epoch is the instant it describes, its lead ahead of now
+    nr_sib19_epoch_from_lead(nrmac->frame, nrmac->subframe, update.epoch_lead_ms, &update.sfn, &update.subframe);
+    LOG_D(NR_MAC,
+          "Epoch SFN = %d, SubFrame = %d, %d ms ahead of %d.%u\n",
+          update.sfn,
+          update.subframe,
+          update.epoch_lead_ms,
+          nrmac->frame,
+          nrmac->subframe);
+  }
   bool updated = false;
   for (int i = 0; i < NR_MAX_CELLS; i++) {
     nr_cell_sched_t *cell = &nrmac->cells[i];
     NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
     if (!scc || !scc->ext2 || !scc->ext2->ntn_Config_r17)
       continue;
-    nr_update_sib19_cell(cell, sat_position);
+    nr_update_sib19_cell(cell, &update);
     updated = true;
   }
   NR_SCHED_UNLOCK(&nrmac->sched_lock);

@@ -5443,3 +5443,12 @@ uint16_t nr_pdcch_monitoring_symbols_mask(const BIT_STRING_t *symbols_in_slot, u
               NR_SYMBOLS_PER_SLOT);
   return (symbols_in_slot->buf[0] << (sps - 8)) | (symbols_in_slot->buf[1] >> (16 - sps));
 }
+
+void nr_sib19_epoch_from_lead(int frame, int subframe, int lead_ms, int *epoch_sfn, int *epoch_subframe)
+{
+  const int now = frame * NR_NUMBER_OF_SUBFRAMES_PER_FRAME + subframe;
+  const int epoch = now + lead_ms;
+
+  *epoch_subframe = epoch % NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
+  *epoch_sfn = (epoch / NR_NUMBER_OF_SUBFRAMES_PER_FRAME) % MAX_FRAME_NUMBER;
+}
