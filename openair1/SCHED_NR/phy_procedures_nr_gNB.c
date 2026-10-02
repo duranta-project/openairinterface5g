@@ -1096,6 +1096,14 @@ static void handle_pucch(PHY_VARS_gNB *gNB, c16_t **rxdataF, const NR_gNB_PUCCH_
       nr_decode_pucch0(gNB, rxdataF, pucch->frame, pucch->slot, uci_pdu_format0, pucch_pdu);
       stop_meas(&gNB->pucch01_proc_rx);
       break;
+    case 1:
+      uci->pdu_type = NFAPI_NR_UCI_FORMAT_0_1_PDU_TYPE;
+      uci->pdu_size = sizeof(nfapi_nr_uci_pucch_pdu_format_0_1_t);
+      nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_pdu_format1 = &uci->pucch_pdu_format_0_1;
+      start_meas(&gNB->pucch01_proc_rx);
+      nr_decode_pucch1(gNB, rxdataF, pucch->frame, pucch->slot, uci_pdu_format1, pucch_pdu);
+      stop_meas(&gNB->pucch01_proc_rx);
+      break;
     case 2:
       uci->pdu_type = NFAPI_NR_UCI_FORMAT_2_3_4_PDU_TYPE;
       uci->pdu_size = sizeof(nfapi_nr_uci_pucch_pdu_format_2_3_4_t);
@@ -1104,8 +1112,16 @@ static void handle_pucch(PHY_VARS_gNB *gNB, c16_t **rxdataF, const NR_gNB_PUCCH_
       nr_decode_pucch2(gNB, rxdataF, pucch->frame, pucch->slot, uci_pdu_format2, pucch_pdu);
       stop_meas(&gNB->pucch23_proc_rx);
       break;
+    case 3:
+      uci->pdu_type = NFAPI_NR_UCI_FORMAT_2_3_4_PDU_TYPE;
+      uci->pdu_size = sizeof(nfapi_nr_uci_pucch_pdu_format_2_3_4_t);
+      nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_pdu_format3 = &uci->pucch_pdu_format_2_3_4;
+      start_meas(&gNB->pucch23_proc_rx);
+      nr_decode_pucch3(gNB, rxdataF, pucch->frame, pucch->slot, uci_pdu_format3, pucch_pdu);
+      stop_meas(&gNB->pucch23_proc_rx);
+      break;
     default:
-      AssertFatal(1 == 0, "Only PUCCH formats 0 and 2 are currently supported\n");
+      AssertFatal(1 == 0, "Only PUCCH formats 0-3 are currently supported\n");
   }
 }
 

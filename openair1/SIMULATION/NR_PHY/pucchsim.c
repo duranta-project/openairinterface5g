@@ -110,6 +110,7 @@ int main(int argc, char **argv)
   int nr_frame_tx = 0;
   uint64_t actual_payload = 0;
   bool random_payload = true;
+  bool no_hop = false; // -e: disable intra-slot frequency hopping (format 3 no-hop test)
   int nr_bit = 1; // maximum value possible is 2
   uint8_t m0 = 0; // higher layer paramater initial cyclic shift
   uint8_t nrofSymbols = 1; // number of OFDM symbols can be 1-2 for format 1
@@ -144,7 +145,7 @@ int main(int argc, char **argv)
 
   int c;
   int nrofSymbols_set = 0;
-  while ((c = getopt(argc, argv, "--:O:f:hA:f:g:i:I:P:B:b:t:T:m:n:r:o:s:S:x:y:z:N:F:GR:IL:q:cd:C")) != -1) {
+  while ((c = getopt(argc, argv, "--:O:f:hA:f:g:i:I:P:B:b:t:T:m:n:r:o:s:S:x:y:z:N:F:GR:IL:q:cd:Ce")) != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
     if (c == 1 || c == '-' || c == 'O')
@@ -326,6 +327,9 @@ int main(int argc, char **argv)
         print_perf = 1;
         cpu_meas_enabled = 1;
         break;
+      case 'e':
+        no_hop = true;
+        break;
       default:
       case 'h':
         printf(
@@ -379,12 +383,13 @@ int main(int argc, char **argv)
 
   printf("Initializing gNodeB for mu %d, N_RB_DL %d, n_rx %d\n", mu, N_RB_DL, n_rx);
 
-  if ((format != 0) && (format != 1) && (format != 2)) {
+  if ((format != 0) && (format != 1) && (format != 2) && (format != 3)) {
     printf("PUCCH format %d not supported\n", format);
     exit(0);
   }
 
-  AssertFatal(((format < 2) && (nr_bit < 3) && (actual_payload < 5)) || ((format == 2) && (nr_bit > 2) && (nr_bit < 65)),
+  AssertFatal(((format < 2) && (nr_bit < 3) && (actual_payload < 5)) || ((format == 2) && (nr_bit > 2) && (nr_bit < 65))
+                  || ((format == 3) && (nr_bit > 2) && (nr_bit < 12)),
               "illegal combination format %d, nr_bit %d\n",
               format,
               nr_bit);
@@ -528,6 +533,27 @@ int main(int argc, char **argv)
     pucch_tx_pdu.dmrs_scrambling_id = dmrs_scrambling_id;
     pucch_tx_pdu.data_scrambling_id = data_scrambling_id;
     pucch_tx_pdu.second_hop_prb = startingPRB_intraSlotHopping;
+  } else if (format == 3) {
+    pucch_tx_pdu.format_type = 3;
+    pucch_tx_pdu.rnti = 0x1234;
+    pucch_tx_pdu.n_bit = nr_bit;
+    pucch_tx_pdu.payload = actual_payload;
+    pucch_tx_pdu.nr_of_symbols = nrofSymbols;
+    pucch_tx_pdu.start_symbol_index = startingSymbolIndex;
+    pucch_tx_pdu.bwp_start = 0;
+    pucch_tx_pdu.prb_start = startingPRB;
+    pucch_tx_pdu.prb_size = nrofPRB;
+    pucch_tx_pdu.hopping_id = hopping_id;
+    pucch_tx_pdu.group_hop_flag = 0;
+    pucch_tx_pdu.sequence_hop_flag = 0;
+    pucch_tx_pdu.dmrs_scrambling_id = dmrs_scrambling_id;
+    pucch_tx_pdu.data_scrambling_id = data_scrambling_id;
+    // 4-symbol PUCCH 3 with intra-slot frequency hopping is not supported by the receiver
+    if (nrofSymbols > 1 && nrofSymbols != 4 && !no_hop) {
+      pucch_tx_pdu.freq_hop_flag = 1;
+      pucch_tx_pdu.second_hop_prb = N_RB_DL - nrofPRB;
+    } else
+      pucch_tx_pdu.freq_hop_flag = 0;
   }
 
   pucch_GroupHopping_t PUCCH_GroupHopping = pucch_tx_pdu.group_hop_flag + (pucch_tx_pdu.sequence_hop_flag << 1);
@@ -547,8 +573,10 @@ int main(int argc, char **argv)
         nr_generate_pucch0(txdataF, frame_parms, amp, nr_slot_tx, &pucch_tx_pdu);
       } else if (format == 1 && do_DTX == 0) {
         nr_generate_pucch1(txdataF, frame_parms, amp, nr_slot_tx, &pucch_tx_pdu);
-      } else if (do_DTX == 0) {
+      } else if (format == 2 && do_DTX == 0) {
         nr_generate_pucch2(txdataF, frame_parms, amp, nr_slot_tx, &pucch_tx_pdu);
+      } else if (format == 3 && do_DTX == 0) {
+        nr_generate_pucch3_4(txdataF, frame_parms, amp, nr_slot_tx, &pucch_tx_pdu);
       }
 
       // SNR Computation
@@ -756,9 +784,10 @@ int main(int argc, char **argv)
             ack_nack_errors++;
         }
 
-      } else if (format == 2) {
+      } else if (format == 2 || format == 3) {
         nfapi_nr_uci_pucch_pdu_format_2_3_4_t uci_pdu = {0};
         pucch_pdu.rnti = 0x1234;
+        pucch_pdu.format_type = format;
         pucch_pdu.subcarrier_spacing = 1;
         pucch_pdu.group_hop_flag = PUCCH_GroupHopping & 1;
         pucch_pdu.sequence_hop_flag = (PUCCH_GroupHopping >> 1) & 1;
@@ -774,13 +803,19 @@ int main(int argc, char **argv)
         pucch_pdu.prb_start = startingPRB;
         pucch_pdu.dmrs_scrambling_id = dmrs_scrambling_id;
         pucch_pdu.data_scrambling_id = data_scrambling_id;
-        if (nrofSymbols > 1) {
+        pucch_pdu.param_v4.numSpatialStreamIndices = n_rx;
+        // 4-symbol PUCCH 3 with intra-slot frequency hopping is not supported by the receiver;
+        // -e (no_hop) disables hopping for format 3 (no-hop coherent-combining test)
+        if (nrofSymbols > 1 && !(format == 3 && nrofSymbols == 4) && !(format == 3 && no_hop)) {
           pucch_pdu.freq_hop_flag = 1;
-          pucch_pdu.second_hop_prb = N_RB_DL - 1;
+          pucch_pdu.second_hop_prb = (format == 3) ? (N_RB_DL - nrofPRB) : (N_RB_DL - 1);
         } else
           pucch_pdu.freq_hop_flag = 0;
         start_meas(&gNB->pucch23_proc_rx);
-        nr_decode_pucch2(gNB, rxdataF, nr_frame_tx, nr_slot_tx, &uci_pdu, &pucch_pdu);
+        if (format == 3)
+          nr_decode_pucch3(gNB, rxdataF, nr_frame_tx, nr_slot_tx, &uci_pdu, &pucch_pdu);
+        else
+          nr_decode_pucch2(gNB, rxdataF, nr_frame_tx, nr_slot_tx, &uci_pdu, &pucch_pdu);
         stop_meas(&gNB->pucch23_proc_rx);
         if (uci_pdu.csi_part1.csi_part1_crc == 1) // missed reception
           ack_nack_errors++;
