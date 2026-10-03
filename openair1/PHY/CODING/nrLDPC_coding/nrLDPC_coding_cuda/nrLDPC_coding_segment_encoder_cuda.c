@@ -17,8 +17,6 @@
 //#define DEBUG_LDPC_ENCODING
 //#define DEBUG_LDPC_ENCODING_FREE 1
 
-static const uint8_t index_k0[2][4] = {{0, 17, 33, 56}, {0, 13, 25, 43}};
-
 extern uint32_t **d_host;
 
 static void unpack_output(uint32_t *f,
@@ -486,17 +484,9 @@ static int nr_rate_matching_ldpc32(uint32_t Tbslbrm,
     return -1;
   }
 
-  // Bit selection
-  uint32_t N = (BG == 1) ? (66 * Z) : (50 * Z);
-  uint32_t Ncb;
-  if (Tbslbrm == 0)
-    Ncb = N;
-  else {
-    uint32_t Nref = 3 * Tbslbrm / (2 * C); // R_LBRM = 2/3
-    Ncb = min(N, Nref);
-  }
-
-  uint32_t ind = (index_k0[BG - 1][rvidx] * Ncb / N) * Z;
+  const nr_ldpc_geometry_t geo = nr_ldpc_soft_buffer_geometry(Tbslbrm, BG, Z, C, rvidx);
+  const uint32_t Ncb = geo.Ncb;
+  uint32_t ind = geo.k0;
 
 #ifdef RM_DEBUG
   printf("nr_rate_matching_ldpc: E %u, F %u, Foffset %u, k0 %u, Ncb %u, rvidx %d, Tbslbrm %u\n",
@@ -509,58 +499,34 @@ static int nr_rate_matching_ldpc32(uint32_t Tbslbrm,
          Tbslbrm);
 #endif
 
-  if (Foffset > E) {
-    LOG_E(PHY,
-          "nr_rate_matching: invalid parameters (Foffset %d > E %d) F %d, k0 %d, Ncb %d, rvidx %d, Tbslbrm %d\n",
-          Foffset,
-          E,
-          F,
-          ind,
-          Ncb,
-          rvidx,
-          Tbslbrm);
+  // TS 38.212, 5.4.2.1 selects E non-NULL bits; E need not reach the filler offset.
+  // F == Ncb would leave no non-filler bits and the loop below would never advance
+  if (Foffset > Ncb || F > Ncb - Foffset || F == Ncb) {
+    LOG_E(PHY, "nr_rate_matching: invalid filler interval (offset %u, length %u, Ncb %u)\n", Foffset, F, Ncb);
     return -1;
   }
-  if (Foffset > Ncb) {
-    LOG_E(PHY, "nr_rate_matching: invalid parameters (Foffset %d > Ncb %d)\n", Foffset, Ncb);
-    return -1;
-  }
-
-  if (ind >= Foffset && ind < (F + Foffset))
-    ind = F + Foffset;
 
   uint32_t k = 0;
-  if (ind < Foffset) { // case where we have some bits before the filler and the rest after
-    memcpy((void *)e, (void *)(d + ind), (Foffset - ind) << 2);
-
-    if (E + F <= Ncb - ind) { // E+F doesn't contain all coded bits
-      memcpy((void *)(e + Foffset - ind), (void *)(d + Foffset + F), (E - Foffset + ind) << 2);
-      k = E;
-    } else {
-      memcpy((void *)(e + Foffset - ind), (void *)(d + Foffset + F), (Ncb - Foffset - F) << 2);
-      k = Ncb - F - ind;
+  while (k < E) {
+    if (ind < Foffset) {
+      const uint32_t count = min(Foffset - ind, E - k);
+      memcpy(e + k, d + ind, count * sizeof(*e));
+      ind += count;
+      k += count;
     }
-  } else {
-    if (E <= Ncb - ind) { // E+F doesn't contain all coded bits
-      memcpy((void *)(e), (void *)(d + ind), E << 2);
-      k = E;
-    } else {
-      memcpy((void *)(e), (void *)(d + ind), (Ncb - ind) << 2);
-      k = Ncb - ind;
+
+    if (ind >= Foffset && ind < Foffset + F)
+      ind = Foffset + F;
+
+    if (ind < Ncb) {
+      const uint32_t count = min(Ncb - ind, E - k);
+      memcpy(e + k, d + ind, count * sizeof(*e));
+      ind += count;
+      k += count;
     }
-  }
 
-  while (k < E) { // case where we do repetitions (low mcs)
-    for (ind = 0; (ind < Ncb) && (k < E); ind++) {
-#ifdef RM_DEBUG
-      printf("RM_TX k%u Ind: %u (%d)\n", k, ind, d[ind]);
-#endif
-
-      if (ind == Foffset)
-        ind = F + Foffset; // skip filler bits
-
-      e[k++] = d[ind];
-    }
+    if (ind == Ncb)
+      ind = 0;
   }
 
   return 0;
@@ -842,50 +808,47 @@ static void ldpcnblocks(nrLDPC_TB_encoding_parameters_t *nrLDPC_TB_encoding_para
   }
 
   for (int r = 0; r < n_seg2; r++) {
+    int ret = 0;
     if (r <= r_shift)
-      nr_rate_matching_ldpc32(Tbslbrm,
-                              impp.BG,
-                              impp.Zc,
-                              d_host[r],
-                              e + (r * E),
-                              impp.n_segments,
-                              impp.F,
-                              impp.K - impp.F - 2 * impp.Zc,
-                              nrLDPC_TB_encoding_parameters->rv_index,
-                              E);
+      ret |= nr_rate_matching_ldpc32(Tbslbrm,
+                                     impp.BG,
+                                     impp.Zc,
+                                     d_host[r],
+                                     e + (r * E),
+                                     impp.n_segments,
+                                     impp.F,
+                                     impp.K - impp.F - 2 * impp.Zc,
+                                     nrLDPC_TB_encoding_parameters->rv_index,
+                                     E);
     if (r >= r_shift)
-      nr_rate_matching_ldpc32(Tbslbrm,
-                              impp.BG,
-                              impp.Zc,
-                              d_host[r],
-                              e2 + ((r - r_shift) * E2),
-                              impp.n_segments,
-                              impp.F,
-                              impp.K - impp.F - 2 * impp.Zc,
-                              nrLDPC_TB_encoding_parameters->rv_index,
-                              E2);
+      ret |= nr_rate_matching_ldpc32(Tbslbrm,
+                                     impp.BG,
+                                     impp.Zc,
+                                     d_host[r],
+                                     e2 + ((r - r_shift) * E2),
+                                     impp.n_segments,
+                                     impp.F,
+                                     impp.K - impp.F - 2 * impp.Zc,
+                                     nrLDPC_TB_encoding_parameters->rv_index,
+                                     E2);
+    if (ret < 0)
+      LOG_E(NR_PHY,
+            "Rate matching failed, segment group %d (A %u, G %u, E %u, E2 %u, Kr %d, F %d, Zc %d, rv %d), sending zeroed block\n",
+            r,
+            A,
+            G,
+            E,
+            E2,
+            impp.K,
+            impp.F,
+            impp.Zc,
+            nrLDPC_TB_encoding_parameters->rv_index);
     /*
      if (r==(n_seg2-1)) {
        for (int i=0;i<16;i++) printf("rm: %x %x\n",d[n_seg2-1][i],e2[((n_seg2-1)*E2)+i]);
      }
      */
   }
-  if (impp.K - impp.F - 2 * impp.Zc > E) {
-    LOG_E(PHY, "dlsch coding A %d  Kr %d G %d (nb_rb %d, mod_order %d)\n", A, impp.K, G, nb_rb, (int)mod_order);
-
-    LOG_E(NR_PHY,
-          "Rate Matching, Code segments 0..%d (coded bits (G) %u, E %d, Kr %d, Filler bits %d, Filler offset %d mod_order %d, "
-          "nb_rb %d)...\n",
-          impp.n_segments,
-          G,
-          E,
-          impp.K,
-          impp.F,
-          impp.K - impp.F - 2 * impp.Zc,
-          mod_order,
-          nb_rb);
-  }
-
   // printf("interleaving r_shift %d, n_seg2 %d\n",r_shift,n_seg2);
 
   for (int r = 0; r <= r_shift; r++)

@@ -173,6 +173,8 @@ void update_dmrs_config(NR_BWP_Downlink_t *bwp, int8_t *dmrs_arg);
 
 /* specific dlsim DL preprocessor: uses rbStart/rbSize/mcs/nrOfLayers from command line of dlsim */
 int g_mcsIndex = 9, g_mcsTableIdx = 0, g_rbStart = 0, g_rbSize = 0, g_nrOfLayers = 1, g_pmi = 0, g_nb_rb_ranges = 0, N_RB_DL = 106;
+/* PRBs used by retransmissions (0: same as initial), keeping the initial TBS through a reserved MCS index */
+int g_retx_rbSize = 0;
 nr_pdsch_allocation_type_t alloc_type = PDSCH_TYPE1;
 #define MAX_RB_RANGES 16
 typedef struct {
@@ -264,6 +266,24 @@ void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_pro
                                        0 /* N_PRB_oh, 0 for initialBWP */,
                                        0 /* tb_scaling */,
                                        sched_pdsch.nrOfLayers) >> 3;
+
+  /* retransmission on a smaller allocation: same TBS and code rate, signalled with the reserved MCS index
+   * of the same modulation (38.214 5.1.3.1), as a gNB may do e.g. in a TDD special slot */
+  static uint32_t first_tb_size[NR_MAX_HARQ_PROCESSES];
+  static uint16_t first_R[NR_MAX_HARQ_PROCESSES];
+  const int pid = pp_pdsch->slot;
+  if (sched_ctrl->harq_processes[pid].round == 0) {
+    first_tb_size[pid] = sched_pdsch.tb_size;
+    first_R[pid] = sched_pdsch.R;
+  } else if (g_retx_rbSize > 0) {
+    AssertFatal(alloc_type == PDSCH_TYPE1, "-K only supported with resource allocation type 1\n");
+    sched_pdsch.rbSize = g_retx_rbSize;
+    const int first_reserved = current_BWP->mcsTableIdx == 1 ? 28 : 29; // 256QAM table: 28..31 = Qm 2..8
+    sched_pdsch.mcs = first_reserved + sched_pdsch.Qm / 2 - 1;
+    AssertFatal(nr_get_code_rate_dl(sched_pdsch.mcs, current_BWP->mcsTableIdx) == 0, "MCS %d is not reserved\n", sched_pdsch.mcs);
+    sched_pdsch.tb_size = first_tb_size[pid];
+    sched_pdsch.R = first_R[pid];
+  }
 
   const nr_pdsch_AntennaPorts_t *p = &cell->radio_config.pdsch_AntennaPorts;
   sched_pdsch.ant_port_idx.numSpatialStreamIndices = p->XP * p->N1 * p->N2;
@@ -440,7 +460,7 @@ int main(int argc, char **argv)
   void *d_channel_coeffs_gpu = NULL;
 #endif
 
-  while ((c = getopt(argc, argv, "--:O:f:hA:p:g:i:n:s:S:t:v:x:y:z:o:H:M:N:F:GR:d:D:PI:L:a:b:e:m:w:T:U:q:X:Y:Z:Q:E")) != -1) {
+  while ((c = getopt(argc, argv, "--:O:f:hA:p:g:i:n:s:S:t:v:x:y:z:o:H:M:N:F:GR:d:D:PI:L:a:b:e:m:w:T:U:q:X:Y:Z:Q:EK:")) != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
     if (c == 1 || c == '-' || c == 'O')
@@ -578,6 +598,10 @@ int main(int argc, char **argv)
       do_ml = true;
       break;
 
+    case 'K':
+      g_retx_rbSize = atoi(optarg);
+      break;
+
     case 'P':
       print_perf=1;
       cpu_meas_enabled = 1;
@@ -678,6 +702,7 @@ int main(int argc, char **argv)
       printf("-d number of dlsch threads, 0: no dlsch parallelization\n");
       printf("-e MSC index\n");
       printf("-E Enable ML-based LLR for 2-layer MIMO (QPSK/16QAM/64QAM). Default: MMSE equalization\n");
+      printf("-K Number of PRBs for retransmissions, keeping the initial TBS (reserved MCS index). Default: same as initial\n");
       printf("-f <flag> Enable optional feature flag. Available flags:\n");
 #ifdef CHANNEL_SIM_CUDA
       printf("          cuda    Enable CUDA channel simulation\n");

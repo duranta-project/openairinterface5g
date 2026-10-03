@@ -105,6 +105,7 @@ add_physim_test(physim.5g.nr_dlsim.basic.test5 "HARQ test 33% TP 3 rounds" nr_dl
 add_physim_test(physim.5g.nr_dlsim.basic.test6 "HARQ test 50% TP 2 rounds" nr_dlsim -P -n300 -s5 -S7 -t50)
 add_physim_test(physim.5g.nr_dlsim.basic.test7 "25 PRBs, 15 kHz SCS" nr_dlsim -P -n300 -m0 -e0 -R25 -b25 -i 2 1 0)
 add_physim_test(physim.5g.nr_dlsim.basic.test8 "32 PRBs, 120 kHz SCS" nr_dlsim -P -n300 -s5 -m3 -R32 -b32)
+add_physim_test(physim.5g.nr_dlsim.basic.test9 "HARQ retx on 60 of 106 PRBs (E < Foffset) 50% TP 2 rounds" nr_dlsim -P -n100 -e27 -s17 -S18 -K60 -t50)
 add_physim_test(physim.5g.nr_dlsim.offset.test1 "106 PRB 25 PDSCH-Offset" nr_dlsim -P -n300 -R106 -a25 -s5)
 add_physim_test(physim.5g.nr_dlsim.offset.test2 "106 PRB 51 PDSCH-Offset" nr_dlsim -P -n300 -R106 -a51 -s5)
 add_physim_test(physim.5g.nr_dlsim.offset.test3 "217 PRB 100 PDSCH-PRBs" nr_dlsim -P -n300 -R217 -b100 -s5)
