@@ -60,7 +60,8 @@ void nr_qpsk_llr_2layer(c16_t *stream0_in, c16_t *stream1_in, int16_t *stream0_o
   simde__m128i ONE_OVER_2_SQRT_2 = simde_mm_set1_epi16(23170); // round(2 ^ 16 / (2 * sqrt(2)))
 
   // In each iteration, we take 8 complex symbols
-  for (int i = 0; i < length >> 2; i += 2) {
+  const int len128 = 2 * (int)((length + 7) / 8);
+  for (int i = 0; i < len128; i += 2) {
     /// Compute real and imaginary parts of MF output for stream 0 (desired stream)
     simde__m128i y0r, y0i;
     oai_mm_separate_real_imag_parts(&y0r, &y0i, stream0_128i_in[i], stream0_128i_in[i + 1]);
@@ -209,7 +210,8 @@ void nr_qpsk_llr_2layer(c16_t *stream0_in, c16_t *stream1_in, int16_t *stream0_o
   simde__m256i ONE_OVER_2_SQRT_2 = simde_mm256_set1_epi16(23170); // round(2 ^ 16 / (2 * sqrt(2)))
 
   // In each iteration, we take 16 complex symbols
-  for (int i = 0; i < length >> 3; i += 2) {
+  const int len256 = 2 * (int)((length + 15) / 16);
+  for (int i = 0; i < len256; i += 2) {
     /// Compute real and imaginary parts of MF output for stream 0 (desired stream)
     simde__m256i y0r, y0i;
     oai_mm256_separate_real_imag_parts(&y0r, &y0i, stream0_256i_in[i], stream0_256i_in[i + 1]);
@@ -648,7 +650,8 @@ void nr_qam16_llr_2layer(c16_t *stream0_in,
   simde__m128i y1i;
 
   // In one iteration, we deal with 8 REs
-  for (int i = 0; i < length >> 2; i += 2) {
+  const int len128 = 2 * (int)((length + 7) / 8);
+  for (int i = 0; i < len128; i += 2) {
     // Get rho
     oai_mm_separate_real_imag_parts(&xmm2, &xmm3, rho01_128i[i], rho01_128i[i + 1]);
     rho_rpi = simde_mm_adds_epi16(xmm2, xmm3); // rho = Re(rho) + Im(rho)
@@ -870,7 +873,8 @@ void nr_qam16_llr_2layer(c16_t *stream0_in,
   simde__m256i y1i;
 
   // In one iteration, we deal with 8 REs
-  for (int i = 0; i < length >> 3; i += 2) {
+  const int len256 = 2 * (int)((length + 15) / 16);
+  for (int i = 0; i < len256; i += 2) {
     // Get rho
     oai_mm256_separate_real_imag_parts(&xmm2, &xmm3, rho01_256i[i], rho01_256i[i + 1]);
     rho_rpi = simde_mm256_adds_epi16(xmm2, xmm3); // rho = Re(rho) + Im(rho)
@@ -1129,7 +1133,8 @@ void nr_qam64_llr_2layer(c16_t *stream0_in,
   simde__m128i two_ch_mag_int_with_sigma2;
   simde__m128i three_ch_mag_int_with_sigma2;
 
-  for (int i = 0; i < length >> 2; i += 2) {
+  const int len128 = 2 * (int)((length + 7) / 8);
+  for (int i = 0; i < len128; i += 2) {
     // Get rho
     simde__m128i xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7, xmm8;
     oai_mm_separate_real_imag_parts(&xmm2, &xmm3, rho01_128i[i], rho01_128i[i + 1]);
@@ -1813,8 +1818,7 @@ void nr_qam64_llr_2layer(c16_t *stream0_in,
   simde__m256i two_ch_mag_int_with_sigma2;
   simde__m256i three_ch_mag_int_with_sigma2;
 
-  uint32_t len256 = length >> 3;
-
+  const int len256 = 2 * (int)((length + 15) / 16);
   for (int i = 0; i < len256; i += 2) {
     // Get rho
     simde__m256i xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7, xmm8;
