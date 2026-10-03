@@ -208,6 +208,12 @@ add_physim_test(physim.5g.nr_pucchsim.test46 "Format 1 (NACK,ACK) number of symb
 add_physim_test(physim.5g.nr_pucchsim.test47 "Format 1 (ACK,ACK) number of symbols = 14, 273PRB"   nr_pucchsim -R 273 -z8 -i 14 -P 1 -b 2 -B 3 -s-8 -n1000)
 add_physim_test(physim.5g.nr_pucchsim.test48 "Format 2 13-bit 16/273 PRB" nr_pucchsim -R 273 -i 1 -P 2 -q 16 -b 13 -n300)
 
+# Two-symbol format 0 without and with frequency hopping; a nonzero hopping ID gives a nonzero sequence group u[0].
+add_physim_test(physim.5g.nr_pucchsim.test49 "Format 0 2-symbol non-hopping ACK and SR"
+  nr_pucchsim -R 106 -N 40 -i 2 -P 0 -b 2 -c -s 10 -S 10 -n 100)
+add_physim_test(physim.5g.nr_pucchsim.test50 "Format 0 2-symbol hopping"
+  nr_pucchsim -R 106 -N 40 -i 2 -P 0 -b 2 -H -s 10 -S 10 -n 100)
+
 ####################################################################################
 ######                           nr_ulsim unit test                           ######
 ####################################################################################
@@ -507,6 +513,8 @@ if(ENABLE_PHYSIM_TESTS)
     physim.5g.nr_ulschsim.test2
     physim.5g.nr_ulschsim.test4
     physim.5g.nr_pucchsim.test1
+    physim.5g.nr_pucchsim.test49
+    physim.5g.nr_pucchsim.test50
     physim.5g.nr_pucchsim.test2
     physim.5g.nr_pucchsim.test4
     physim.5g.nr_pucchsim.test5

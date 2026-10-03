@@ -104,6 +104,7 @@ int main(int argc, char **argv)
   uint64_t SSB_positions = 0x01;
   channel_desc_t *UE2gNB;
   int format = 0;
+  bool format0_freq_hop = false;
   FILE *input_fd = NULL;
   int16_t amp = 0x7FFF;
   int nr_slot_tx = 0;
@@ -144,7 +145,7 @@ int main(int argc, char **argv)
 
   int c;
   int nrofSymbols_set = 0;
-  while ((c = getopt(argc, argv, "--:O:f:hA:f:g:i:I:P:B:b:t:T:m:n:r:o:s:S:x:y:z:N:F:GR:IL:q:cd:C")) != -1) {
+  while ((c = getopt(argc, argv, "--:O:f:hA:f:g:i:I:P:B:b:t:T:m:n:r:o:s:S:x:y:z:N:F:GR:IL:q:cd:CH")) != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
     if (c == 1 || c == '-' || c == 'O')
@@ -286,6 +287,9 @@ int main(int argc, char **argv)
       case 'L':
         loglvl = atoi(optarg);
         break;
+      case 'H':
+        format0_freq_hop = true;
+        break;
       case 'i':
         nrofSymbols = (uint8_t)atoi(optarg);
         nrofSymbols_set = 1;
@@ -347,6 +351,7 @@ int main(int argc, char **argv)
         printf("-i Enter number of ofdm symbols for pucch\n");
         printf("-I Starting symbol index for pucch\n");
         printf("-h This message\n");
+        printf("-H Enable frequency hopping for two-symbol PUCCH format 0\n");
         printf("-m initial cyclic shift m0\n");
         printf("-n Number of frames to simulate\n");
         printf("-N Nid_cell\n");
@@ -388,6 +393,7 @@ int main(int argc, char **argv)
               "illegal combination format %d, nr_bit %d\n",
               format,
               nr_bit);
+  AssertFatal(!format0_freq_hop || (format == 0 && nrofSymbols == 2), "-H requires PUCCH format 0 with two symbols\n");
   int do_DTX = 0;
   if ((format < 2) && (actual_payload == 4))
     do_DTX = 1;
@@ -491,7 +497,7 @@ int main(int argc, char **argv)
     pucch_tx_pdu.hopping_id = hopping_id;
     pucch_tx_pdu.group_hop_flag = 0;
     pucch_tx_pdu.sequence_hop_flag = 0;
-    pucch_tx_pdu.freq_hop_flag = 0;
+    pucch_tx_pdu.freq_hop_flag = format0_freq_hop;
     pucch_tx_pdu.mcs = mcs;
     pucch_tx_pdu.initial_cyclic_shift = 0;
     pucch_tx_pdu.second_hop_prb = startingPRB_intraSlotHopping;
@@ -690,11 +696,9 @@ int main(int argc, char **argv)
         pucch_pdu.prb_size = 1;
         pucch_pdu.bwp_start = 0;
         pucch_pdu.bwp_size = N_RB_DL;
-        if (nrofSymbols > 1) {
-          pucch_pdu.freq_hop_flag = 1;
-          pucch_pdu.second_hop_prb = N_RB_DL - 1;
-        } else
-          pucch_pdu.freq_hop_flag = 0;
+        /* Use the same frequency-hopping configuration at the UE and gNB. */
+        pucch_pdu.freq_hop_flag = pucch_tx_pdu.freq_hop_flag;
+        pucch_pdu.second_hop_prb = pucch_tx_pdu.second_hop_prb;
 
         start_meas(&gNB->pucch01_proc_rx);
         nr_decode_pucch0(gNB, rxdataF, nr_frame_tx, nr_slot_tx, &uci_pdu, &pucch_pdu);

@@ -203,8 +203,10 @@ void nr_decode_pucch0(PHY_VARS_gNB *gNB,
   const int16_t *x_re[2], *x_im[2];
   x_re[0] = table_5_2_2_2_2_Re[u[0]];
   x_im[0] = table_5_2_2_2_2_Im[u[0]];
-  x_re[1] = table_5_2_2_2_2_Re[u[1]];
-  x_im[1] = table_5_2_2_2_2_Im[u[1]];
+  // TS 38.211, 6.3.2.2.1: both non-hopping symbols use frequency-hop index 0.
+  const unsigned second_group = u[pucch_pdu->freq_hop_flag ? 1 : 0];
+  x_re[1] = table_5_2_2_2_2_Re[second_group];
+  x_im[1] = table_5_2_2_2_2_Im[second_group];
 
   const uint8_t num_sp_streams = pucch_pdu->param_v4.numSpatialStreamIndices;
 
