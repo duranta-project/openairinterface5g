@@ -6,6 +6,7 @@
 #include "../nr_rlc_entity_am.h"
 #include "../nr_rlc_pdu.h"
 #include "common/utils/assertions.h"
+#include "common/utils/LOG/log.h"
 #include <string.h>
 
 static void deliver_sdu(void *data, nr_rlc_entity_t *entity, char *buf, int size)
@@ -75,6 +76,7 @@ static void check_retired_nack(int sn_bits, int start_sn, int nack_range)
 
 int main(void)
 {
+  logInit();
   for (int sn_bits = 12; sn_bits <= 18; sn_bits += 6) {
     check_retired_nack(sn_bits, 10, 1);
     check_retired_nack(sn_bits, 10, 3);
