@@ -43,9 +43,12 @@ static inline void nr_ldpc_cuda_unpack_output_scalar(const uint32_t *f,
   }
 }
 
-#ifdef __AVX2__
+#if defined(__AVX2__) || defined(__aarch64__)
+#define NR_LDPC_CUDA_UNPACK_SIMD 1
+
 /* Gather bit s2 of p[0..31] into one word. p has no alignment requirement: segment slices start at
- * multiples of E words, which are not 32-byte aligned unless E % 8 == 0. */
+ * multiples of E words, which are not vector aligned in general. */
+#ifdef __AVX2__
 static inline uint32_t nr_ldpc_cuda_gather_bit32(const uint32_t *p, int s2)
 {
   const simde__m256i shift0 = simde_mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
@@ -60,6 +63,20 @@ static inline uint32_t nr_ldpc_cuda_gather_bit32(const uint32_t *p, int s2)
   return simde_mm_extract_epi32(x, 0) | simde_mm_extract_epi32(x, 1) | simde_mm_extract_epi32(x, 2)
          | simde_mm_extract_epi32(x, 3);
 }
+#else
+static inline uint32_t nr_ldpc_cuda_gather_bit32(const uint32_t *p, int s2)
+{
+  static const int32_t lane[4] = {0, 1, 2, 3};
+  const int32x4_t to_bit0 = vdupq_n_s32(-s2);
+  const uint32x4_t one = vdupq_n_u32(1);
+  uint32x4_t acc = vdupq_n_u32(0);
+  for (int j = 0; j < 8; j++) {
+    uint32x4_t v = vandq_u32(vshlq_u32(vld1q_u32(p + 4 * j), to_bit0), one);
+    acc = vorrq_u32(acc, vshlq_u32(v, vaddq_s32(vld1q_s32(lane), vdupq_n_s32(4 * j))));
+  }
+  return vaddvq_u32(acc); // lanes hold disjoint bits
+}
+#endif
 
 /* OR the n low bits of w into the output stream at bit_index, without touching words past the last bit */
 static inline void nr_ldpc_cuda_put_bits(uint32_t *output_p, uint32_t *bit_index, uint32_t w, uint32_t n)
@@ -71,7 +88,7 @@ static inline void nr_ldpc_cuda_put_bits(uint32_t *output_p, uint32_t *bit_index
   *bit_index += n;
 }
 
-static inline void nr_ldpc_cuda_unpack_output_avx2(const uint32_t *f,
+static inline void nr_ldpc_cuda_unpack_output_simd(const uint32_t *f,
                                                    uint32_t E,
                                                    const uint32_t *f2,
                                                    uint32_t E2,
@@ -110,8 +127,8 @@ static inline void nr_ldpc_cuda_unpack_output(const uint32_t *f,
                                               uint32_t nb_segments,
                                               uint8_t *output)
 {
-#ifdef __AVX2__
-  nr_ldpc_cuda_unpack_output_avx2(f, E, f2, E2, E2_first_segment32, E2_first_segment, nb_segments, output);
+#ifdef NR_LDPC_CUDA_UNPACK_SIMD
+  nr_ldpc_cuda_unpack_output_simd(f, E, f2, E2, E2_first_segment32, E2_first_segment, nb_segments, output);
 #else
   nr_ldpc_cuda_unpack_output_scalar(f, E, f2, E2, E2_first_segment32, E2_first_segment, nb_segments, output);
 #endif
