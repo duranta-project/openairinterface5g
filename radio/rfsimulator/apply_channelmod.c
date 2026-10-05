@@ -8,8 +8,166 @@
 #include "openair2/LAYER2/NR_MAC_gNB/mac_config.h"
 #include "rfsimulator.h"
 
+static double vec_dist(const double a[3], const double b[3])
+{
+  const double dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+  return sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+// Radial velocity of the satellite (pos_sat, vel_sat) w.r.t. a static ground point, >0 when moving away.
+static double range_rate(const double pos_gnd[3], const double pos_sat[3], const double vel_sat[3])
+{
+  const double dist = vec_dist(pos_sat, pos_gnd);
+  double v = 0;
+  for (int k = 0; k < 3; k++)
+    v += vel_sat[k] * (pos_sat[k] - pos_gnd[k]);
+  return v / dist;
+}
+
+// Satellite position and velocity at time t (s), interpolated from the orbit trace.
+// Clamped to the first/last sample outside of the trace.
+static void interp_sat_trace(channel_desc_t *cd, double t, double pos[3], double vel[3])
+{
+  const sat_trace_sample_t *tr = cd->sat_trace;
+  const int n = cd->sat_trace_len;
+  if (n == 1 || t <= tr[0].t || t >= tr[n - 1].t) {
+    const sat_trace_sample_t *smp = (n == 1 || t <= tr[0].t) ? &tr[0] : &tr[n - 1];
+    memcpy(pos, smp->pos, sizeof(smp->pos));
+    memcpy(vel, smp->vel, sizeof(smp->vel));
+    return;
+  }
+
+  // time is mostly monotonic: start the search from the last interval used
+  int idx = cd->sat_trace_last_idx;
+  if (idx >= n - 1)
+    idx = 0;
+  while (idx < n - 2 && tr[idx + 1].t < t)
+    idx++;
+  while (idx > 0 && tr[idx].t > t)
+    idx--;
+  cd->sat_trace_last_idx = idx;
+
+  const sat_trace_sample_t *a = &tr[idx];
+  const sat_trace_sample_t *b = &tr[idx + 1];
+  const double frac = cd->sat_interp_zoh ? 0.0 : (t - a->t) / (b->t - a->t);
+  for (int k = 0; k < 3; k++) {
+    pos[k] = a->pos[k] + frac * (b->pos[k] - a->pos[k]);
+    vel[k] = a->vel[k] + frac * (b->vel[k] - a->vel[k]);
+  }
+}
+
+// Distance, velocity and acceleration of a ground point to satellite link, such that the distance is exact at
+// t, t + 5 s and t + 10 s (same approximation as for the built-in orbit, used for SIB19 ta-Common/Drift/DriftVariant):
+//   d(t +  5) = d(t) +  5 * vel +  25 * acc
+//   d(t + 10) = d(t) + 10 * vel + 100 * acc
+static void trace_link_dynamics(channel_desc_t *cd, double t, const double pos_gnd[3], double *dist, double *vel, double *acc)
+{
+  const int last_idx = cd->sat_trace_last_idx;
+  double pos_sat[3], vel_sat[3];
+  interp_sat_trace(cd, t, pos_sat, vel_sat);
+  const double d0 = vec_dist(pos_gnd, pos_sat);
+  interp_sat_trace(cd, t + 5, pos_sat, vel_sat);
+  const double d5 = vec_dist(pos_gnd, pos_sat);
+  interp_sat_trace(cd, t + 10, pos_sat, vel_sat);
+  const double d10 = vec_dist(pos_gnd, pos_sat);
+  // keep the lookup position for the next call at time ~t
+  cd->sat_trace_last_idx = last_idx;
+
+  *dist = d0;
+  *vel = 2 * (d5 - d0) / 5 - (d10 - d0) / 10;
+  // when the satellite disappears behind the horizon acc might become negative, what is invalid
+  *acc = fmax((d10 - d0) / 50 - (d5 - d0) / 25, 0);
+}
+
+// LEO satellite channel driven by an orbit trace (satellite ECEF position/velocity over time).
+// SAT_LEO_TRANS: UE <-> SAT <-> gNB at pos_gnb, delay and Doppler of both links are applied.
+// SAT_LEO_REGEN: the gNB is on the satellite, only the service link is applied.
+static void update_sat_trace_channel_model(channel_desc_t *channelDesc, int nbSamples, uint64_t TS)
+{
+  const double t = (TS > channelDesc->start_TS ? TS - channelDesc->start_TS : 0) / channelDesc->sampling_rate;
+  double pos_sat[3], vel_sat[3];
+  interp_sat_trace(channelDesc, t, pos_sat, vel_sat);
+
+  const bool transparent = channelDesc->modelid == SAT_LEO_TRANS;
+  const double *pos_ue = channelDesc->pos_ue;
+  const double *pos_gnb = channelDesc->pos_gnb;
+  const double c = (double)SPEED_OF_LIGHT;
+  const double f_c = channelDesc->center_freq;
+
+  const double dist_service = vec_dist(pos_ue, pos_sat);
+  const double vel_service = range_rate(pos_ue, pos_sat, vel_sat);
+  const double dist_feeder = transparent ? vec_dist(pos_gnb, pos_sat) : 0;
+  const double vel_feeder = transparent ? range_rate(pos_gnb, pos_sat, vel_sat) : 0;
+
+  const double prop_delay = (dist_service + dist_feeder) / c;
+  if (channelDesc->enable_dynamic_delay)
+    channelDesc->channel_offset = prop_delay * channelDesc->sampling_rate;
+
+  double f_doppler_service, f_doppler_feeder;
+  if (channelDesc->is_uplink) {
+    f_doppler_service = -vel_service / c * f_c;
+    f_doppler_feeder = -vel_feeder / c * f_c;
+  } else {
+    f_doppler_service = -vel_service / (c + vel_service) * f_c;
+    f_doppler_feeder = -vel_feeder / c * f_c;
+  }
+  const double f_doppler = f_doppler_service + f_doppler_feeder;
+  if (channelDesc->enable_dynamic_Doppler)
+    channelDesc->Doppler_phase_inc = 2 * M_PI * f_doppler / channelDesc->sampling_rate;
+
+  if (TS / (unsigned int)channelDesc->sampling_rate != (TS + nbSamples) / (unsigned int)channelDesc->sampling_rate) {
+    LOG_I(HW,
+          "Satellite orbit (trace): time %f s, Position = (%f, %f, %f), Velocity = (%f, %f, %f)\n",
+          t,
+          pos_sat[0],
+          pos_sat[1],
+          pos_sat[2],
+          vel_sat[0],
+          vel_sat[1],
+          vel_sat[2]);
+    LOG_I(HW,
+          "%s delay %f ms, Doppler service link %f kHz, feeder link %f kHz, total %f kHz\n",
+          channelDesc->is_uplink ? "Uplink" : "Downlink",
+          prop_delay * 1000,
+          f_doppler_service / 1000,
+          f_doppler_feeder / 1000,
+          f_doppler / 1000);
+  }
+
+  if (!channelDesc->is_uplink)
+    return;
+
+  const int samples_per_subframe = channelDesc->sampling_rate / 1000;
+  const int abs_subframe = TS / samples_per_subframe;
+  if (abs_subframe % 10 == 0) { // update SIB19 information for the next frame
+    // ta-Common covers the feeder link only; for SAT_LEO_REGEN there is none, the UE computes the
+    // service link delay itself from the ephemeris
+    double dist_sib19 = 0, vel_sib19 = 0, acc_sib19 = 0;
+    if (transparent)
+      trace_link_dynamics(channelDesc, t, pos_gnb, &dist_sib19, &vel_sib19, &acc_sib19);
+    gnb_sat_position_update_t sat_position = {
+        .sfn = (abs_subframe / 10 + 1) % 1024,
+        .subframe = 0,
+        .delay = 2 * dist_sib19 / (c * 4.072e-9),
+        .drift = 2 * vel_sib19 / (c * 0.2e-9),
+        .accel = 2 * acc_sib19 / (c * 0.2e-10),
+        .position.X = pos_sat[0] / 1.3,
+        .position.Y = pos_sat[1] / 1.3,
+        .position.Z = pos_sat[2] / 1.3,
+        .velocity.X = vel_sat[0] / 0.06,
+        .velocity.Y = vel_sat[1] / 0.06,
+        .velocity.Z = vel_sat[2] / 0.06,
+    };
+    nr_update_sib19(&sat_position);
+  }
+}
+
 void update_channel_model(channel_desc_t *channelDesc, int nbSamples, uint64_t TS)
 {
+  if (channelDesc->sat_trace != NULL && (channelDesc->enable_dynamic_delay || channelDesc->enable_dynamic_Doppler)) {
+    update_sat_trace_channel_model(channelDesc, nbSamples, TS);
+    return;
+  }
   if ((channelDesc->sat_height > 0)
       && (channelDesc->enable_dynamic_delay
           || channelDesc->enable_dynamic_Doppler)) { // model for transparent satellite on circular orbit

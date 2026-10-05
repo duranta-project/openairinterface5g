@@ -5,6 +5,7 @@
 #include "common_lib.h"
 #include <gtest/gtest.h>
 #include "common/config/config_userapi.h"
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -32,11 +33,16 @@ void exit_function(const char *file, const char *function, const int line, const
   exit(EXIT_FAILURE);
 }
 // Stub: apply_channelmod.c needs this symbol, normally provided by the gNB MAC library.
+// Records the last update, checked by the satellite trace tests.
+static gnb_sat_position_update_t last_sib19_update;
+static int sib19_update_count;
 bool nr_update_sib19(const gnb_sat_position_update_t *sat_position)
 {
-  (void)sat_position;
+  last_sib19_update = *sat_position;
+  sib19_update_count++;
   return true;
 }
+void update_channel_model(channel_desc_t *channelDesc, int nbSamples, uint64_t TS);
 }
 
 namespace {
@@ -581,6 +587,171 @@ TEST(RFSimulatorBeamTest, GainMatrixAndScheduledSwitchApplyAtExactSample)
   if (joined)
     StopDevice(client_device, client_cfg);
 }
+
+namespace {
+
+constexpr double kSampleRate = 7.68e6;
+constexpr uint64_t kCenterFreq = 2000000000;
+constexpr double kC = SPEED_OF_LIGHT;
+constexpr double kOrbitZ = 6377900.0 + 600e3;
+constexpr double kSatVel = 7000.0;
+
+// Satellite at (0, 0, kOrbitZ) at t = 0, moving along +x with constant velocity: linear interpolation is exact.
+std::array<double, 3> SatPos(double t)
+{
+  return {kSatVel * t, 0, kOrbitZ};
+}
+
+double Dist(const std::array<double, 3> &a, const double b[3])
+{
+  return std::sqrt((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]));
+}
+
+// Writes a trace with time in ms and shuffled columns, to also cover the header parsing.
+std::string WriteTrace(int nb_rows)
+{
+  char path[] = "/tmp/sat_trace_XXXXXX";
+  int fd = mkstemp(path);
+  EXPECT_GE(fd, 0);
+  FILE *fp = fdopen(fd, "w");
+  fprintf(fp, "time_ms,vel_x,vel_y,vel_z,pos_x,pos_y,pos_z\n");
+  for (int i = 0; i < nb_rows; i++) {
+    const auto pos = SatPos(i);
+    fprintf(fp, "%d,%f,0,0,%f,%f,%f\n", i * 1000, kSatVel, pos[0], pos[1], pos[2]);
+  }
+  fclose(fp);
+  return path;
+}
+
+class SatTraceTest : public ::testing::Test {
+ protected:
+  void SetUp() override
+  {
+    trace_path_ = WriteTrace(21);
+  }
+  void TearDown() override
+  {
+    if (desc_)
+      free_channel_desc_scm(desc_);
+    unlink(trace_path_.c_str());
+  }
+  channel_desc_t *MakeDesc(SCM_t model, bool is_uplink)
+  {
+    desc_ = new_channel_desc_scm(1, 1, model, kSampleRate, kCenterFreq, 5e6, 0, 0, CORR_LEVEL_LOW, 0, 0, 0, -100);
+    EXPECT_NE(desc_, nullptr);
+    EXPECT_EQ(load_sat_trace(desc_, trace_path_.c_str()), 0);
+    set_channeldesc_direction(desc_, is_uplink);
+    desc_->start_TS = 0;
+    // UE 100 km off the satellite ground track, gNB right below the satellite at t = 0
+    desc_->pos_ue[0] = 0;
+    desc_->pos_ue[1] = 100e3;
+    desc_->pos_ue[2] = 6377900.0;
+    desc_->pos_gnb[0] = 0;
+    desc_->pos_gnb[1] = 0;
+    desc_->pos_gnb[2] = 6377900.0;
+    return desc_;
+  }
+  // radial velocity of the satellite w.r.t. a ground point at time t
+  static double RangeRate(const double gnd[3], double t)
+  {
+    const auto pos = SatPos(t);
+    return kSatVel * (pos[0] - gnd[0]) / Dist(pos, gnd);
+  }
+  std::string trace_path_;
+  channel_desc_t *desc_ = nullptr;
+};
+
+TEST_F(SatTraceTest, LoadTrace)
+{
+  channel_desc_t *cd = MakeDesc(SAT_LEO_REGEN, false);
+  ASSERT_EQ(cd->sat_trace_len, 21);
+  EXPECT_DOUBLE_EQ(cd->sat_trace[2].t, 2.0);
+  EXPECT_DOUBLE_EQ(cd->sat_trace[2].pos[0], 2 * kSatVel);
+  EXPECT_DOUBLE_EQ(cd->sat_trace[2].pos[2], kOrbitZ);
+  EXPECT_DOUBLE_EQ(cd->sat_trace[2].vel[0], kSatVel);
+  EXPECT_STREQ(cd->sat_trace_file, trace_path_.c_str());
+}
+
+TEST_F(SatTraceTest, RejectsInvalidTrace)
+{
+  channel_desc_t *cd = MakeDesc(SAT_LEO_REGEN, false);
+  char path[] = "/tmp/sat_trace_bad_XXXXXX";
+  int fd = mkstemp(path);
+  ASSERT_GE(fd, 0);
+  FILE *fp = fdopen(fd, "w");
+  fprintf(fp, "time_s,pos_x,pos_y,pos_z,vel_x,vel_y\n0,1,2,3,4,5\n");
+  fclose(fp);
+  EXPECT_EQ(load_sat_trace(cd, path), -1) << "missing vel_z column";
+  fp = fopen(path, "w");
+  fprintf(fp, "time_s,pos_x,pos_y,pos_z,vel_x,vel_y,vel_z\n1,0,0,0,0,0,0\n1,0,0,0,0,0,0\n");
+  fclose(fp);
+  EXPECT_EQ(load_sat_trace(cd, path), -1) << "time not increasing";
+  unlink(path);
+  // the previously loaded trace is kept
+  EXPECT_EQ(cd->sat_trace_len, 21);
+}
+
+TEST_F(SatTraceTest, RegenDownlinkInterpolated)
+{
+  channel_desc_t *cd = MakeDesc(SAT_LEO_REGEN, false);
+  const double t = 2.5;
+  update_channel_model(cd, 64, t * kSampleRate);
+
+  const double dist = Dist(SatPos(t), cd->pos_ue);
+  EXPECT_EQ(cd->channel_offset, (uint64_t)(dist / kC * kSampleRate));
+  const double rr = RangeRate(cd->pos_ue, t);
+  const double f_doppler = -rr / (kC + rr) * kCenterFreq;
+  EXPECT_NEAR(cd->Doppler_phase_inc, 2 * M_PI * f_doppler / kSampleRate, 1e-6);
+}
+
+TEST_F(SatTraceTest, ZeroOrderHold)
+{
+  channel_desc_t *cd = MakeDesc(SAT_LEO_REGEN, false);
+  cd->sat_interp_zoh = true;
+  update_channel_model(cd, 64, 2.5 * kSampleRate);
+  EXPECT_EQ(cd->channel_offset, (uint64_t)(Dist(SatPos(2), cd->pos_ue) / kC * kSampleRate));
+}
+
+TEST_F(SatTraceTest, ClampedAfterTraceEnd)
+{
+  channel_desc_t *cd = MakeDesc(SAT_LEO_REGEN, false);
+  update_channel_model(cd, 64, 100 * kSampleRate);
+  EXPECT_EQ(cd->channel_offset, (uint64_t)(Dist(SatPos(20), cd->pos_ue) / kC * kSampleRate));
+}
+
+TEST_F(SatTraceTest, TransparentUplinkAndSib19)
+{
+  channel_desc_t *cd = MakeDesc(SAT_LEO_TRANS, true);
+  const double t = 3.0; // multiple of 10 ms: SIB19 is updated
+  const int count = sib19_update_count;
+  update_channel_model(cd, 64, t * kSampleRate);
+
+  const double dist_service = Dist(SatPos(t), cd->pos_ue);
+  const double dist_feeder = Dist(SatPos(t), cd->pos_gnb);
+  EXPECT_EQ(cd->channel_offset, (uint64_t)((dist_service + dist_feeder) / kC * kSampleRate));
+  const double f_doppler = -(RangeRate(cd->pos_ue, t) + RangeRate(cd->pos_gnb, t)) / kC * kCenterFreq;
+  EXPECT_NEAR(cd->Doppler_phase_inc, 2 * M_PI * f_doppler / kSampleRate, 1e-6);
+
+  ASSERT_EQ(sib19_update_count, count + 1);
+  EXPECT_EQ(last_sib19_update.sfn, (int)(t * 100 + 1) % 1024);
+  EXPECT_NEAR(last_sib19_update.delay, 2 * dist_feeder / (kC * 4.072e-9), 1);
+  EXPECT_NEAR(last_sib19_update.position.X, SatPos(t)[0] / 1.3, 1);
+  EXPECT_NEAR(last_sib19_update.position.Z, kOrbitZ / 1.3, 1);
+  EXPECT_NEAR(last_sib19_update.velocity.X, kSatVel / 0.06, 1);
+  // drift fitted over [t, t + 10 s] is close to the feeder link range rate at t + 2.5 s or so: just check the sign
+  EXPECT_GT(last_sib19_update.drift, 0);
+}
+
+TEST_F(SatTraceTest, RegenUplinkHasNoFeederLink)
+{
+  channel_desc_t *cd = MakeDesc(SAT_LEO_REGEN, true);
+  update_channel_model(cd, 64, 3.0 * kSampleRate);
+  EXPECT_EQ(cd->channel_offset, (uint64_t)(Dist(SatPos(3.0), cd->pos_ue) / kC * kSampleRate));
+  EXPECT_EQ(last_sib19_update.delay, 0u);
+  EXPECT_EQ(last_sib19_update.drift, 0);
+}
+
+} // namespace
 
 int main(int argc, char **argv)
 {
