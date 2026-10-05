@@ -93,8 +93,8 @@ void check(unpack_fn unpack, const unpack_case &c, std::mt19937 &rng)
 void check_all(const unpack_case &c, std::mt19937 &rng)
 {
   check(nr_ldpc_cuda_unpack_output_scalar, c, rng);
-#ifdef __AVX2__
-  check(nr_ldpc_cuda_unpack_output_avx2, c, rng);
+#ifdef NR_LDPC_CUDA_UNPACK_SIMD
+  check(nr_ldpc_cuda_unpack_output_simd, c, rng);
 #endif
 }
 
