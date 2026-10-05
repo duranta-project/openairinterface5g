@@ -123,6 +123,40 @@ static void xnap_gNB_generate_handover_request_acknowledge(instance_t instance, 
   xnap_gNB_itti_send_sctp_data(instance, peer->assoc_id, buffer, length, XNAP_NON_UE_STREAM_ID);
 }
 
+/* Target gNB: RRC rejects a HandoverRequest — encode and send HandoverPreparationFailure to source */
+static void xnap_gNB_generate_handover_prep_failure(instance_t instance, xnap_handover_preparation_failure_t *msg)
+{
+  xnap_gnb_inst_t *inst = xnap_get_inst(instance);
+  AssertFatal(inst != NULL, "Xn instance %ld not found\n", instance);
+
+  xnap_peer_t *peer = xnap_get_peer_by_assoc(inst, msg->assoc_id);
+  if (peer == NULL) {
+    LOG_E(XNAP, "[gNB %ld] HandoverPreparationFailure: no peer for assoc_id %d\n",
+          instance, msg->assoc_id);
+    return;
+  }
+  if (peer->state != XNAP_PEER_STATE_CONNECTED) {
+    LOG_E(XNAP, "[gNB %ld] HandoverPreparationFailure: peer assoc_id %d not connected\n",
+          instance, msg->assoc_id);
+    return;
+  }
+
+  XNAP_XnAP_PDU_t *pdu = encode_xnap_handover_preparation_failure(msg);
+  AssertFatal(pdu != NULL, "[gNB %ld] encode_xnap_handover_preparation_failure() failed\n", instance);
+
+  uint8_t *buffer = NULL;
+  uint32_t length = 0;
+  int rc = xnap_gNB_encode_pdu(pdu, &buffer, &length);
+  ASN_STRUCT_FREE(asn_DEF_XNAP_XnAP_PDU, pdu);
+  AssertFatal(rc == 0, "[gNB %ld] encode_pdu() failed for HandoverPreparationFailure\n", instance);
+
+  LOG_I(XNAP, "[gNB %ld] Sending HandoverPreparationFailure to source assoc_id %d s_xnap_ue_id %u "
+        "cause group %d value %d (%u bytes)\n",
+        instance, msg->assoc_id, msg->s_ng_node_ue_xnap_id, msg->cause.type, msg->cause.value, length);
+
+  xnap_gNB_itti_send_sctp_data(instance, msg->assoc_id, buffer, length, XNAP_NON_UE_STREAM_ID);
+}
+
 /* Create the Xn instance, bind a local SCTP listener (for incoming Xn
  * connections), and dial every configured candidate gNB */
 static void xnap_gNB_handle_register_gnb(instance_t instance, xnap_register_gnb_req_t *req)
@@ -307,6 +341,10 @@ void *xnap_task(void *args)
 
       case XNAP_HANDOVER_REQ_ACK:
         xnap_gNB_generate_handover_request_acknowledge(instance, &XNAP_HANDOVER_REQ_ACK(msg));
+        break;
+
+      case XNAP_HANDOVER_PREP_FAILURE:
+        xnap_gNB_generate_handover_prep_failure(instance, &XNAP_HANDOVER_PREP_FAILURE(msg));
         break;
 
       default:

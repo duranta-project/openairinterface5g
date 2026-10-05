@@ -41,6 +41,7 @@ uint32_t xn_alloc_ue_id(void);
 bool xn_add_ue_data(uint32_t xn_ue_id, const xn_ue_data_t *data);
 bool xn_exists_ue_data(uint32_t xn_ue_id);
 xn_ue_data_t xn_get_ue_data(uint32_t xn_ue_id);
+bool xn_remove_ue_data(uint32_t xn_ue_id);
 
 /* Target-side table: keyed on t_ng_node_ue_xnap_id */
 uint32_t xn_alloc_target_ue_id(void);

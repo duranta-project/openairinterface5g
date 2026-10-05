@@ -60,6 +60,7 @@ typedef void (*ho_req_ack_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
 typedef void (*ho_success_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
 typedef void (*ho_failure_t)(gNB_RRC_INST *rrc, uint32_t gnb_ue_id, ngap_handover_failure_t *msg);
 typedef void (*ho_trigger_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
+typedef void (*ho_prep_failure_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
 
 typedef struct nr_ho_target_cu {
   /// pointer to the (target) cell container
@@ -78,8 +79,10 @@ typedef struct nr_ho_target_cu {
   ho_req_ack_t ho_req_ack;
   /// function pointer to announce handover success
   ho_success_t ho_success;
-  /// function pointer to announce the handover failure
+  /// function pointer to announce the handover failure (N2)
   ho_failure_t ho_failure;
+  /// function pointer to announce the handover preparation failure (Xn)
+  ho_prep_failure_t ho_prep_failure;
   /* Xn HO routing: set in rrc_gNB_process_XNAP_HANDOVER_REQUEST, used by
    * nr_rrc_xn_ho_acknowledge to build XNAP_HANDOVER_REQ_ACK. */
   // source XnAP UE ID from incoming HandoverRequest

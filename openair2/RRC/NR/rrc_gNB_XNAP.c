@@ -217,17 +217,26 @@ int rrc_gNB_process_XNAP_HANDOVER_REQUEST(gNB_RRC_INST *rrc, xnap_handover_req_t
   nr_rrc_cell_container_t *cell = get_cell_by_cell_id(&rrc->cells, req->target_cgi.nrcell_id);
   if (!cell) {
     LOG_E(NR_RRC, "Xn HandoverRequest: no cell with NR Cell ID 0x%lx\n", req->target_cgi.nrcell_id);
+    xnap_cause_t cause = {.type = XNAP_CAUSE_RADIO_NETWORK,
+                          .value = XNAP_CAUSE_RADIO_NETWORK_LAYER_CELL_NOT_AVAILABLE};
+    rrc_gNB_send_XNAP_HANDOVER_PREP_FAILURE(rrc, req->s_ng_node_ue_xnap_id, req->target_assoc_id, cause);
     return -1;
   }
 
   nr_rrc_du_container_t *du = get_du_by_assoc_id(rrc, cell->assoc_id);
   if (!du) {
     LOG_E(NR_RRC, "Xn HandoverRequest: no DU for assoc_id %d\n", cell->assoc_id);
+    xnap_cause_t cause = {.type = XNAP_CAUSE_RADIO_NETWORK,
+                          .value = XNAP_CAUSE_RADIO_NETWORK_LAYER_NO_RADIO_RESOURCES_AVAILABLE_IN_TARGET_CELL};
+    rrc_gNB_send_XNAP_HANDOVER_PREP_FAILURE(rrc, req->s_ng_node_ue_xnap_id, req->target_assoc_id, cause);
     return -1;
   }
 
   if (!is_cuup_associated(rrc)) {
     LOG_E(NR_RRC, "Xn HandoverRequest: no CU-UP associated — rejecting\n");
+    xnap_cause_t cause = {.type = XNAP_CAUSE_MISC,
+                          .value = XNAP_CAUSE_MISC_NOT_ENOUGH_USER_PLANE_PROCESSING_RESOURCES};
+    rrc_gNB_send_XNAP_HANDOVER_PREP_FAILURE(rrc, req->s_ng_node_ue_xnap_id, req->target_assoc_id, cause);
     return -1;
   }
 
@@ -391,4 +400,82 @@ void rrc_gNB_process_XNAP_HANDOVER_REQ_ACK(gNB_RRC_INST *rrc, const xnap_handove
   LOG_A(NR_RRC, "Xn HO: sent RRCReconfiguration (HO Command) to UE %u/RNTI %04x\n",
         UE->rrc_ue_id, UE->rnti);
   free_byte_array(buffer);
+}
+
+/** @brief Send Handover Preparation Failure (TS 38.423 §9.1.1.3) from target to source via Xn. */
+void rrc_gNB_send_XNAP_HANDOVER_PREP_FAILURE(gNB_RRC_INST *rrc,
+                                             uint32_t s_ng_node_ue_xnap_id,
+                                             sctp_assoc_t assoc_id,
+                                             xnap_cause_t cause)
+{
+  LOG_I(NR_RRC, "Sending XNAP Handover Preparation Failure for s_xnap_ue_id %u (cause group %d value %d)\n",
+        s_ng_node_ue_xnap_id, cause.type, cause.value);
+
+  MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, XNAP_HANDOVER_PREP_FAILURE);
+  XNAP_HANDOVER_PREP_FAILURE(msg_p) = (xnap_handover_preparation_failure_t){
+    .s_ng_node_ue_xnap_id = s_ng_node_ue_xnap_id,
+    .cause = cause,
+    .assoc_id = assoc_id,
+  };
+  itti_send_msg_to_task(TASK_XNAP, rrc->module_id, msg_p);
+}
+
+/* @brief Source gNB processes Handover Preparation Failure from the target gNB:
+ * the HO preparation is over, the UE stays on the source cell. */
+int rrc_gNB_process_XNAP_HANDOVER_PREP_FAILURE(gNB_RRC_INST *rrc, const xnap_handover_preparation_failure_t *msg)
+{
+  rrc_gNB_ue_context_t *ue_ctx = rrc_gNB_get_ue_context(rrc, msg->rrc_ue_id);
+  if (ue_ctx == NULL) {
+    LOG_W(NR_RRC, "Xn Handover Preparation Failure: unknown rrc_ue_id %u\n", msg->rrc_ue_id);
+    return -1;
+  }
+  gNB_RRC_UE_t *UE = &ue_ctx->ue_context;
+
+  if (!UE->ho_context || !UE->ho_context->source) {
+    LOG_W(NR_RRC, "UE %u: Xn Handover Preparation Failure but no source handover context — dropping\n",
+          UE->rrc_ue_id);
+    return -1;
+  }
+
+  LOG_E(NR_RRC, "UE %u: Xn Handover Preparation Failure from target (cause group %d value %d) — HO aborted, UE stays on source\n",
+        UE->rrc_ue_id, msg->cause.type, msg->cause.value);
+
+  nr_rrc_finalize_ho(UE);
+  return 0;
+}
+
+/** @brief Abort an ongoing Xn handover at the target gNB: release the resources prepared
+ * for the incoming UE (CU-UP bearers, target DU context) and remove the UE context. */
+void rrc_gNB_xn_ho_target_abort(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const char *why)
+{
+  AssertFatal(UE->ho_context != NULL && UE->ho_context->target != NULL,
+              "UE %u: Xn HO target abort without target handover context\n", UE->rrc_ue_id);
+
+  LOG_E(NR_RRC, "UE %u: aborting Xn handover at target: %s\n", UE->rrc_ue_id, why);
+
+  if (ue_associated_to_cuup(UE)) {
+    sctp_assoc_t assoc_id = get_existing_cuup_for_ue(UE);
+    e1ap_cause_t cause = {.type = E1AP_CAUSE_RADIO_NETWORK, .value = E1AP_RADIO_CAUSE_NORMAL_RELEASE};
+    e1ap_bearer_release_cmd_t cmd = {
+      .gNB_cu_cp_ue_id = UE->rrc_ue_id,
+      .gNB_cu_up_ue_id = UE->rrc_ue_id,
+      .cause = cause,
+    };
+    rrc->cucp_cuup.bearer_context_release(assoc_id, &cmd);
+  }
+
+  nr_ho_target_cu_t *target = UE->ho_context->target;
+  if (target->du_ue_id != 0 && target->cell != NULL) {
+    f1ap_ue_context_rel_cmd_t cmd = {
+      .gNB_CU_ue_id = UE->rrc_ue_id,
+      .gNB_DU_ue_id = target->du_ue_id,
+      .cause = F1AP_CAUSE_RADIO_NETWORK,
+      .cause_value = 5, // 5 = F1AP_CauseRadioNetwork_interaction_with_other_procedure
+    };
+    rrc->mac_rrc.ue_context_release_command(target->cell->assoc_id, &cmd);
+  }
+
+  rrc_gNB_ue_context_t *ue_ctx = rrc_gNB_get_ue_context(rrc, UE->rrc_ue_id);
+  nr_rrc_finalize_ho(UE);
+  rrc_remove_ue(rrc, ue_ctx);
 }

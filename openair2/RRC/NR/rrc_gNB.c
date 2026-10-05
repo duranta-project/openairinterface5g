@@ -4135,6 +4135,10 @@ void *rrc_gnb_task(void *args_p)
         rrc_gNB_process_XNAP_HANDOVER_REQ_ACK(RC.nrrrc[instance], &XNAP_HANDOVER_REQ_ACK(msg_p));
         break;
 
+      case XNAP_HANDOVER_PREP_FAILURE:
+        rrc_gNB_process_XNAP_HANDOVER_PREP_FAILURE(RC.nrrrc[instance], &XNAP_HANDOVER_PREP_FAILURE(msg_p));
+        break;
+
       default:
         LOG_E(NR_RRC, "[gNB %ld] Received unexpected message %s\n", instance, msg_name_p);
         break;

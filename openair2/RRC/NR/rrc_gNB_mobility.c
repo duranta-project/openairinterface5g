@@ -143,14 +143,15 @@ void nr_rrc_apply_target_context(gNB_RRC_UE_t *UE)
  * \param target_du the DU towards which to handover. Note: currently, the CU
  * is limited to one cell per DU, so DU and cell are equivalent here.
  * \param ho_ctxt contextual data for the type of handover (F1, N2, Xn) */
-static void nr_initiate_handover(const gNB_RRC_INST *rrc,
+static bool nr_initiate_handover(const gNB_RRC_INST *rrc,
                                  gNB_RRC_UE_t *ue,
                                  const nr_rrc_cell_container_t *source_cell,
                                  byte_array_t *ho_prep_info,
                                  ho_req_ack_t ack,
                                  ho_success_t success,
                                  ho_cancel_t cancel,
-                                 ho_failure_t failure)
+                                 ho_failure_t failure,
+                                 ho_prep_failure_t prep_failure)
 {
   DevAssert(rrc != NULL);
   DevAssert(ue != NULL);
@@ -163,7 +164,7 @@ static void nr_initiate_handover(const gNB_RRC_INST *rrc,
   for (int i = 0; i < NR_RRC_TRANSACTION_IDENTIFIER_NUMBER; ++i) {
     if (ue->xids[i] != RRC_ACTION_NONE) {
       LOG_E(NR_RRC, "UE %d: ongoig transaction %d (action %d), cannot trigger handover\n", ue->rrc_ue_id, i, ue->xids[i]);
-      return;
+      return false;
     }
   }
 
@@ -176,6 +177,7 @@ static void nr_initiate_handover(const gNB_RRC_INST *rrc,
   ho_ctx->target->ho_req_ack = ack;
   ho_ctx->target->ho_success = success;
   ho_ctx->target->ho_failure = failure;
+  ho_ctx->target->ho_prep_failure = prep_failure;
 
   const f1_ue_data_t ue_data = cu_get_f1_ue_data(ue->rrc_ue_id);
   if (source_cell != NULL) {
@@ -206,6 +208,7 @@ static void nr_initiate_handover(const gNB_RRC_INST *rrc,
         target_cell->info.pci);
 
   rrc_f1_ue_context_setup_for_target_du(rrc, ue, target_cell, ho_prep_info);
+  return true;
 }
 
 typedef struct {
@@ -361,7 +364,7 @@ void nr_rrc_trigger_f1_ho(gNB_RRC_INST *rrc,
   ho_success_t success = nr_rrc_f1_ho_complete;
   ho_cancel_t cancel = nr_rrc_cancel_f1_ho;
   byte_array_t hpi = {.buf = buf, .len = size};
-  nr_initiate_handover(rrc, ue, source_cell, &hpi, ack, success, cancel, NULL);
+  nr_initiate_handover(rrc, ue, source_cell, &hpi, ack, success, cancel, NULL, NULL);
 }
 
 void nr_rrc_finalize_ho(gNB_RRC_UE_t *ue)
@@ -606,7 +609,7 @@ void nr_rrc_trigger_n2_ho_target(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue)
   ho_success_t success = nr_rrc_n2_ho_complete;
   ho_failure_t failure = nr_rrc_n2_ho_failure;
 
-  nr_initiate_handover(rrc, ue, NULL, &ue->ho_context->target->ue_ho_prep_info, ack, success, NULL, failure);
+  nr_initiate_handover(rrc, ue, NULL, &ue->ho_context->target->ue_ho_prep_info, ack, success, NULL, failure, NULL);
   FREE_AND_ZERO_BYTE_ARRAY(ue->ho_context->target->ue_ho_prep_info);
 
   NR_UE_NR_Capability_t *ue_cap = get_ue_nr_capability(ue->rnti, ue->ue_cap_buffer.buf, ue->ue_cap_buffer.len);
@@ -718,6 +721,18 @@ void nr_HO_N2_trigger_telnet(gNB_RRC_INST *rrc, uint32_t neighbour_pci, uint32_t
   nr_rrc_trigger_n2_ho(rrc, UE, neighbour);
 }
 
+/** @brief Callback function to trigger Xn Handover Preparation Failure on the target gNB,
+ *         to inform the source gNB that the preparation of resources has failed, and
+ *         release the resources prepared for the incoming UE. */
+static void nr_rrc_xn_ho_failure(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
+{
+  nr_ho_target_cu_t *target = UE->ho_context->target;
+  xnap_cause_t cause = {.type = XNAP_CAUSE_RADIO_NETWORK,
+                        .value = XNAP_CAUSE_RADIO_NETWORK_LAYER_UNSPECIFIED};
+  rrc_gNB_send_XNAP_HANDOVER_PREP_FAILURE(rrc, target->src_ue_xnap_id, target->source_assoc_id, cause);
+  rrc_gNB_xn_ho_target_abort(rrc, UE, "handover preparation failed at target");
+}
+
 /** @brief Callback invoked when F1 UE Context Setup is complete during Xn HO:
  *         encode the HandoverCommand and send Handover Request Acknowledge to source. */
 static void nr_rrc_xn_ho_acknowledge(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
@@ -728,8 +743,10 @@ static void nr_rrc_xn_ho_acknowledge(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
   AssertFatal(previous_data.secondary_ue == -1, "there was already a DU present\n");
   nr_rrc_apply_target_context(UE);
 
+  nr_ho_target_cu_t *target = UE->ho_context->target;
   if (!nr_rrc_update_cell_assoc_after_ho(UE)) {
     LOG_E(NR_RRC, "UE %d: Xn HO acknowledge failed — cell association update failed\n", UE->rrc_ue_id);
+    target->ho_prep_failure(rrc, UE);
     return;
   }
 
@@ -737,6 +754,7 @@ static void nr_rrc_xn_ho_acknowledge(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
   if (hoCommand.len < 0) {
     LOG_E(NR_RRC, "UE %d: Xn HO acknowledge failed — HandoverCommand encoding failed\n", UE->rrc_ue_id);
     free_byte_array(hoCommand);
+    target->ho_prep_failure(rrc, UE);
     return;
   }
 
@@ -749,7 +767,11 @@ static void nr_rrc_xn_ho_acknowledge(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
 void nr_rrc_trigger_xn_ho_target(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue)
 {
   ho_req_ack_t ack = nr_rrc_xn_ho_acknowledge;
-  nr_initiate_handover(rrc, ue, NULL, &ue->ho_context->target->ue_ho_prep_info, ack, NULL, NULL, NULL);
+  ho_prep_failure_t prep_failure = nr_rrc_xn_ho_failure;
+  if (!nr_initiate_handover(rrc, ue, NULL, &ue->ho_context->target->ue_ho_prep_info, ack, NULL, NULL, NULL, prep_failure)) {
+    nr_rrc_xn_ho_failure(rrc, ue);
+    return;
+  }
   FREE_AND_ZERO_BYTE_ARRAY(ue->ho_context->target->ue_ho_prep_info);
 }
 

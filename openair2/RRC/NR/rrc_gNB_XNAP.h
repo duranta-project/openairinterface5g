@@ -18,4 +18,13 @@ void rrc_gNB_send_XNAP_HANDOVER_REQ_ACK(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, byt
 
 void rrc_gNB_process_XNAP_HANDOVER_REQ_ACK(gNB_RRC_INST *rrc, const xnap_handover_req_ack_t *msg);
 
+void rrc_gNB_send_XNAP_HANDOVER_PREP_FAILURE(gNB_RRC_INST *rrc,
+                                             uint32_t s_ng_node_ue_xnap_id,
+                                             sctp_assoc_t assoc_id,
+                                             xnap_cause_t cause);
+
+int rrc_gNB_process_XNAP_HANDOVER_PREP_FAILURE(gNB_RRC_INST *rrc, const xnap_handover_preparation_failure_t *msg);
+
+void rrc_gNB_xn_ho_target_abort(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const char *why);
+
 #endif /* RRC_GNB_XNAP_H_ */
