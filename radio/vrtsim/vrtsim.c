@@ -873,7 +873,8 @@ static int vrtsim_write_with_chanmod(vrtsim_state_t *vrtsim_state,
                           nb_rx,
                           noise_power);
 #else
-    channel_pipeline(&vrtsim_state->tpool,
+    channel_pipeline(vrtsim_state->channel_pipeline_context,
+                     &vrtsim_state->tpool,
                      (const cf_t **)channel_impulse_response_p,
                      (const c16_t **)saved_samples_ptr,
                      (const c16_t **)input_ptr,
@@ -1055,6 +1056,7 @@ static void vrtsim_end(openair0_device_t *device)
     cuda_channel_pipeline_shutdown(vrtsim_state->channel_pipeline_context);
 #else
     abortTpool(&vrtsim_state->tpool);
+    channel_pipeline_shutdown(vrtsim_state->channel_pipeline_context);
 #endif
     if (vrtsim_state->use_cirdb) {
       for (int p = 0; p < MAX_NUM_UES; p++) {
@@ -1179,7 +1181,7 @@ __attribute__((__visibility__("default"))) int device_init(openair0_device_t *de
     int16_t noise_power = noise_power_dBFS == INVALID_DBFS_VALUE ? 0 : (int16_t)(32767.0 / powf(10.0, .05 * -noise_power_dBFS));
     LOG_A(HW, "VRTSIM: Noise power %d sample value\n", noise_power);
 #ifndef CHANNEL_SIM_CUDA
-    channel_pipeline_init(noise_power);
+    vrtsim_state->channel_pipeline_context = channel_pipeline_init(noise_power);
     initNamedTpool(vrtsim_state->thread_pool_cores, &vrtsim_state->tpool, false, "vrtsim_chanmod");
 #endif
   }
