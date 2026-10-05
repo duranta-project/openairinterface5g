@@ -101,9 +101,15 @@ static void fill_channel_desc(channel_desc_t *chan_desc, struct complexd *R_sqrt
 
   if (chan_desc->delays == NULL) {
     chan_desc->delays = malloc(nb_taps * sizeof(*chan_desc->delays));
-    const double delta_tau = chan_desc->Td / nb_taps;
-    for (int i = 0; i < nb_taps; i++)
-      chan_desc->delays[i] = i * delta_tau;
+    if (nb_taps == 1) {
+      chan_desc->delays[0] = 0;
+      chan_desc->channel_length = 1;
+    } else {
+      const double delta_tau = 0.1;
+      for (int i = 0; i < nb_taps; i++)
+        chan_desc->delays[i] = i * delta_tau;
+      chan_desc->channel_length = 11 + 2 * chan_desc->sampling_rate * delta_tau * nb_taps;
+    }
   }
 
   chan_desc->random_aoa = random_aoa;
@@ -419,19 +425,17 @@ static void tdlModel(const int tdl_paths,
   int nb_rx = chan_desc->nb_rx;
   int nb_tx = chan_desc->nb_tx;
   chan_desc->nb_taps = tdl_paths;
-  chan_desc->Td = tdl_delays[tdl_paths - 1] * DS_TDL;
-  printf("last path (%d) at %f * %e = %e\n", tdl_paths - 1, tdl_delays[tdl_paths - 1], DS_TDL, chan_desc->Td);
-  chan_desc->channel_length = 2 * chan_desc->sampling_rate * chan_desc->Td + 1
-                              + 2 / (M_PI * M_PI) * log(4 * M_PI * chan_desc->sampling_rate * chan_desc->Td);
-  printf("TDL : %f Ms/s, nb_taps %d, Td %e, channel_length %d\n",
-         chan_desc->sampling_rate,
-         tdl_paths,
-         chan_desc->Td,
-         chan_desc->channel_length);
   init_amps(chan_desc, tdl_amps_dB);
   chan_desc->delays = malloc(chan_desc->nb_taps * sizeof(*chan_desc->delays));
   for (int i = 0; i < chan_desc->nb_taps; i++)
     chan_desc->delays[i] = tdl_delays[i] * DS_TDL;
+  const int max_delay = chan_desc->sampling_rate * chan_desc->delays[chan_desc->nb_taps - 1];
+  chan_desc->channel_length = 2 * max_delay + 1 + 2 / (M_PI * M_PI) * log(4 * M_PI * max_delay);
+  printf("TDL : %f Ms/s, nb_taps %d, Td %e, channel_length %d\n",
+         chan_desc->sampling_rate,
+         tdl_paths,
+         chan_desc->delays[chan_desc->nb_taps - 1],
+         chan_desc->channel_length);
 
   chan_desc->aoa = 0;
   chan_desc->random_aoa = 0;
@@ -631,11 +635,10 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       free(chan_desc);
       return (NULL);
 
-    case SCM_C:
-      chan_desc->nb_taps = 18;
-      chan_desc->Td = 4.625;
-      chan_desc->channel_length = 2 * chan_desc->sampling_rate * chan_desc->Td + 1
-                                  + 2 / (M_PI * M_PI) * log(4 * M_PI * chan_desc->sampling_rate * chan_desc->Td);
+    case SCM_C: {
+      chan_desc->nb_taps = sizeofArray(scm_c_delays);
+      const int max_delay = chan_desc->sampling_rate * scm_c_delays[chan_desc->nb_taps - 1];
+      chan_desc->channel_length = 2 * max_delay + 1 + 2 / (M_PI * M_PI) * log(4 * M_PI * max_delay);
       init_amps(chan_desc, scm_c_amps_dB);
       init_delays(chan_desc, scm_c_delays);
       chan_desc->ricean_factor = 1;
@@ -661,14 +664,13 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
           LOG_W(OCM, "correlation matrix not implemented for nb_tx==%d and nb_rx==%d, using identity\n", nb_tx, nb_rx);
         }
       }
-      break;
+    } break;
 
-    case SCM_D:
+    case SCM_D: {
       LOG_W(OCM, "This is not the real SCM-D model! It is just SCM-C with an additional Rice factor!\n");
-      chan_desc->nb_taps = 18;
-      chan_desc->Td = 4.625;
-      chan_desc->channel_length = 2 * chan_desc->sampling_rate * chan_desc->Td + 1
-                                  + 2 / (M_PI * M_PI) * log(4 * M_PI * chan_desc->sampling_rate * chan_desc->Td);
+      chan_desc->nb_taps = sizeofArray(scm_c_delays);
+      const int max_delay = chan_desc->sampling_rate * scm_c_delays[chan_desc->nb_taps - 1];
+      chan_desc->channel_length = 2 * max_delay + 1 + 2 / (M_PI * M_PI) * log(4 * M_PI * max_delay);
       init_amps(chan_desc, scm_c_amps_dB);
       init_delays(chan_desc, scm_c_delays);
       chan_desc->ricean_factor = 0.1;
@@ -696,8 +698,7 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
           LOG_W(OCM, "correlation matrix not implemented for nb_tx==%d and nb_rx==%d, using identity\n", nb_tx, nb_rx);
         }
       }
-
-      break;
+    } break;
       /*  tapped delay line (TDL)  channel model from TR 38.901 Section 7.7.2 */
 #define tdl_m(MoDel)                                                                    \
   DevAssert(sizeof(tdl_##MoDel##_amps_dB) == sizeof(tdl_##MoDel##_delays));             \
@@ -735,11 +736,10 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       tdlModel(tdl_paths, tdl_delays, tdl_amps_dB, DS_TDL, chan_desc);
     } break;
 
-    case EPA:
-      chan_desc->nb_taps = 7;
-      chan_desc->Td = .410;
-      chan_desc->channel_length = 2 * chan_desc->sampling_rate * chan_desc->Td + 1
-                                  + 2 / (M_PI * M_PI) * log(4 * M_PI * chan_desc->sampling_rate * chan_desc->Td);
+    case EPA: {
+      chan_desc->nb_taps = sizeofArray(epa_delays);
+      const int max_delay = chan_desc->sampling_rate * epa_delays[chan_desc->nb_taps - 1];
+      chan_desc->channel_length = 2 * max_delay + 1 + 2 / (M_PI * M_PI) * log(4 * M_PI * max_delay);
       init_amps(chan_desc, epa_amps_dB);
       init_delays(chan_desc, epa_delays);
       chan_desc->ricean_factor = 1;
@@ -759,13 +759,12 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
           LOG_W(OCM, "correlation matrix only implemented for nb_tx==2 and nb_rx==2, using identity\n");
         }
       }
-      break;
+    } break;
 
     case EPA_low:
-      chan_desc->nb_taps = 7;
-      chan_desc->Td = .410;
-      chan_desc->channel_length = 2 * chan_desc->sampling_rate * chan_desc->Td + 1
-                                  + 2 / (M_PI * M_PI) * log(4 * M_PI * chan_desc->sampling_rate * chan_desc->Td);
+      chan_desc->nb_taps = sizeofArray(epa_delays);
+      const int max_delay = chan_desc->sampling_rate * epa_delays[chan_desc->nb_taps - 1];
+      chan_desc->channel_length = 2 * max_delay + 1 + 2 / (M_PI * M_PI) * log(4 * M_PI * max_delay);
       init_amps(chan_desc, epa_amps_dB);
       init_delays(chan_desc, epa_delays);
       chan_desc->ricean_factor = 1;
@@ -780,11 +779,10 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       }
       break;
 
-    case EPA_high:
-      chan_desc->nb_taps = 7;
-      chan_desc->Td = .410;
-      chan_desc->channel_length = 2 * chan_desc->sampling_rate * chan_desc->Td + 1
-                                  + 2 / (M_PI * M_PI) * log(4 * M_PI * chan_desc->sampling_rate * chan_desc->Td);
+    case EPA_high: {
+      chan_desc->nb_taps = sizeofArray(epa_delays);
+      const int max_delay = chan_desc->sampling_rate * epa_delays[chan_desc->nb_taps - 1];
+      chan_desc->channel_length = 2 * max_delay + 1 + 2 / (M_PI * M_PI) * log(4 * M_PI * max_delay);
       init_amps(chan_desc, epa_amps_dB);
       init_delays(chan_desc, epa_delays);
       chan_desc->ricean_factor = 1;
@@ -798,13 +796,12 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       } else {
         printf("Correlation matrices are implemented for 2 x 2 only");
       }
-      break;
+    } break;
 
-    case EPA_medium:
-      chan_desc->nb_taps = 7;
-      chan_desc->Td = .410;
-      chan_desc->channel_length = 2 * chan_desc->sampling_rate * chan_desc->Td + 1
-                                  + 2 / (M_PI * M_PI) * log(4 * M_PI * chan_desc->sampling_rate * chan_desc->Td);
+    case EPA_medium: {
+      chan_desc->nb_taps = sizeofArray(epa_delays);
+      const int max_delay = chan_desc->sampling_rate * epa_delays[chan_desc->nb_taps - 1];
+      chan_desc->channel_length = 2 * max_delay + 1 + 2 / (M_PI * M_PI) * log(4 * M_PI * max_delay);
       init_amps(chan_desc, epa_amps_dB);
       init_delays(chan_desc, epa_delays);
       chan_desc->ricean_factor = 1;
@@ -818,13 +815,12 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       } else {
         printf("Correlation matrices are implemented for 2 x 2 only");
       }
-      break;
+    } break;
 
-    case EVA:
-      chan_desc->nb_taps = 9;
-      chan_desc->Td = 2.51;
-      chan_desc->channel_length = 2 * chan_desc->sampling_rate * chan_desc->Td + 1
-                                  + 2 / (M_PI * M_PI) * log(4 * M_PI * chan_desc->sampling_rate * chan_desc->Td);
+    case EVA: {
+      chan_desc->nb_taps = sizeofArray(eva_delays);
+      const int max_delay = chan_desc->sampling_rate * eva_delays[chan_desc->nb_taps - 1];
+      chan_desc->channel_length = 2 * max_delay + 1 + 2 / (M_PI * M_PI) * log(4 * M_PI * max_delay);
       init_amps(chan_desc, eva_amps_dB);
       init_delays(chan_desc, eva_delays);
       chan_desc->ricean_factor = 1;
@@ -844,13 +840,12 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
           LOG_W(OCM, "correlation matrix only implemented for nb_tx==2 and nb_rx==2, using identity\n");
         }
       }
-      break;
+    } break;
 
-    case ETU:
-      chan_desc->nb_taps = 9;
-      chan_desc->Td = 5.0;
-      chan_desc->channel_length = 2 * chan_desc->sampling_rate * chan_desc->Td + 1
-                                  + 2 / (M_PI * M_PI) * log(4 * M_PI * chan_desc->sampling_rate * chan_desc->Td);
+    case ETU: {
+      chan_desc->nb_taps = sizeofArray(etu_delays);
+      const int max_delay = chan_desc->sampling_rate * etu_delays[chan_desc->nb_taps - 1];
+      chan_desc->channel_length = 2 * max_delay + 1 + 2 / (M_PI * M_PI) * log(4 * M_PI * max_delay);
       init_amps(chan_desc, etu_amps_dB);
       init_delays(chan_desc, etu_delays);
       chan_desc->ricean_factor = 1;
@@ -870,13 +865,12 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
           LOG_W(OCM, "correlation matrix only implemented for nb_tx==2 and nb_rx==2, using identity\n");
         }
       }
-      break;
+    } break;
 
-    case MBSFN:
-      chan_desc->nb_taps = 18;
-      chan_desc->Td = 28.58;
-      chan_desc->channel_length = 2 * chan_desc->sampling_rate * chan_desc->Td + 1
-                                  + 2 / (M_PI * M_PI) * log(4 * M_PI * chan_desc->sampling_rate * chan_desc->Td);
+    case MBSFN: {
+      chan_desc->nb_taps = sizeofArray(mbsfn_delays);
+      const int max_delay = chan_desc->sampling_rate * mbsfn_delays[chan_desc->nb_taps - 1];
+      chan_desc->channel_length = 2 * max_delay + 1 + 2 / (M_PI * M_PI) * log(4 * M_PI * max_delay);
       init_amps(chan_desc, mbsfn_amps_dB);
       init_delays(chan_desc, mbsfn_delays);
       chan_desc->ricean_factor = 1;
@@ -891,11 +885,9 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
           chan_desc->R_sqrt[i][j] = (cd_t){1.0, 0.0};
         LOG_W(OCM, "correlation matrix only implemented for nb_tx==2 and nb_rx==2, using identity\n");
       }
-      break;
+    } break;
 
     case Rayleigh8:
-      chan_desc->Td = 0.8;
-      chan_desc->channel_length = 11 + 2 * sampling_rate * chan_desc->Td;
       chan_desc->ricean_factor = 1;
       chan_desc->aoa = .03;
       chan_desc->max_Doppler = 0;
@@ -904,8 +896,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       break;
 
     case Rice8:
-      chan_desc->Td = 0.8;
-      chan_desc->channel_length = 11 + 2 * sampling_rate * chan_desc->Td;
       chan_desc->ricean_factor = 0.1;
       chan_desc->aoa = 0.7854;
       chan_desc->max_Doppler = 0;
@@ -914,8 +904,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       break;
 
     case Rayleigh1: // MIMO Test uses Rayleigh1
-      chan_desc->Td = 0;
-      chan_desc->channel_length = 1;
       chan_desc->ricean_factor = 0.0;
       chan_desc->aoa = .03;
       chan_desc->max_Doppler = 0;
@@ -924,8 +912,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       break;
 
     case Rayleigh1_800:
-      chan_desc->Td = 0;
-      chan_desc->channel_length = 1;
       chan_desc->ricean_factor = 1;
       chan_desc->aoa = .03;
       chan_desc->max_Doppler = 800;
@@ -934,8 +920,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       break;
 
     case Rayleigh1_corr:
-      chan_desc->Td = 0;
-      chan_desc->channel_length = 1;
       chan_desc->ricean_factor = 1;
       chan_desc->aoa = .03;
       chan_desc->max_Doppler = 0;
@@ -951,8 +935,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       break;
 
     case Rayleigh1_anticorr:
-      chan_desc->Td = 0;
-      chan_desc->channel_length = 1;
       chan_desc->ricean_factor = 1;
       chan_desc->aoa = .03;
       chan_desc->max_Doppler = 0;
@@ -968,8 +950,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       break;
 
     case Rice1:
-      chan_desc->Td = 0;
-      chan_desc->channel_length = 1;
       chan_desc->ricean_factor = 0.1;
       chan_desc->aoa = 0.7854;
       chan_desc->max_Doppler = 0;
@@ -978,8 +958,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       break;
 
     case AWGN:
-      chan_desc->Td = 0;
-      chan_desc->channel_length = 1;
       chan_desc->ricean_factor = 0.0;
       chan_desc->aoa = 0.0;
       chan_desc->max_Doppler = 0;
@@ -989,8 +967,7 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       break;
 
     case TS_SHIFT:
-      chan_desc->nb_taps = 2;
-      chan_desc->Td = chan_desc->delays[1];
+      chan_desc->nb_taps = sizeofArray(ts_shift_delays);
       chan_desc->channel_length = 10;
       chan_desc->ricean_factor = 0.0;
       chan_desc->aoa = 0.0;
@@ -1002,8 +979,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       break;
 
     case Rice1_corr:
-      chan_desc->Td = 0;
-      chan_desc->channel_length = 1;
       chan_desc->ricean_factor = 0.1;
       chan_desc->aoa = .03;
       chan_desc->max_Doppler = 0;
@@ -1019,8 +994,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       break;
 
     case Rice1_anticorr:
-      chan_desc->Td = 0;
-      chan_desc->channel_length = 1;
       chan_desc->ricean_factor = 0.1;
       chan_desc->aoa = .03;
       chan_desc->max_Doppler = 0;
@@ -1036,8 +1009,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       break;
 
     case Rayleigh1_orthogonal:
-      chan_desc->Td = 0;
-      chan_desc->channel_length = 1;
       chan_desc->ricean_factor = 1;
       chan_desc->aoa = 0.03;
       chan_desc->max_Doppler = 0;
@@ -1051,8 +1022,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       break;
 
     case Rayleigh1_orth_eff_ch_TM4_prec_real:
-      chan_desc->Td = 0;
-      chan_desc->channel_length = 1;
       chan_desc->ricean_factor = 1;
       chan_desc->aoa = 0.03;
       chan_desc->max_Doppler = 0;
@@ -1066,8 +1035,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       break;
 
     case Rayleigh1_orth_eff_ch_TM4_prec_imag:
-      chan_desc->Td = 0;
-      chan_desc->channel_length = 1;
       chan_desc->ricean_factor = 1;
       chan_desc->aoa = 0.03;
       chan_desc->max_Doppler = 0;
@@ -1085,9 +1052,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
         R_sqrt_ptr2 = R_sqrt_22_orth_eff_ch_TM4_prec_real;
       else
         R_sqrt_ptr2 = NULL;
-
-      chan_desc->Td = 0.8;
-      chan_desc->channel_length = 11 + 2 * sampling_rate * chan_desc->Td;
       chan_desc->ricean_factor = 1;
       chan_desc->aoa = .03;
       chan_desc->max_Doppler = 0;
@@ -1096,8 +1060,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       break;
 
     case Rayleigh8_orth_eff_ch_TM4_prec_imag:
-      chan_desc->Td = 0.8;
-      chan_desc->channel_length = 11 + 2 * sampling_rate * chan_desc->Td;
       chan_desc->ricean_factor = 1;
       chan_desc->aoa = .03;
       chan_desc->max_Doppler = 0;
@@ -1112,8 +1074,6 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
 
     case SAT_LEO_TRANS:
     case SAT_LEO_REGEN:
-      chan_desc->Td = 0;
-      chan_desc->channel_length = 1;
       chan_desc->ricean_factor = 0.0;
       chan_desc->aoa = 0.0;
       chan_desc->max_Doppler = 0;
@@ -1480,7 +1440,11 @@ static void display_channelmodel(channel_desc_t *cd,int debug, telnet_printfunc_
   prnt("model owner: %s\n",(cd->module_id != 0)?module_id_str[cd->module_id]:"not set");
   prnt("nb_tx: %i    nb_rx: %i    taps: %i bandwidth: %lf    sampling: %lf\n",cd->nb_tx, cd->nb_rx, cd->nb_taps, cd->channel_bandwidth, cd->sampling_rate);
   prnt("channel length: %i    Max path delay: %lf   ricean fact.: %lf    angle of arrival: %lf (randomized:%s)\n",
-       cd->channel_length, cd->Td, cd->ricean_factor, cd->aoa, (cd->random_aoa?"Yes":"No"));
+       cd->channel_length,
+       cd->delays[cd->nb_taps - 1],
+       cd->ricean_factor,
+       cd->aoa,
+       (cd->random_aoa ? "Yes" : "No"));
   prnt("max Doppler: %lf    path loss: %lf  noise: %lf rchannel offset: %lu    forget factor; %lf\n",
        cd->max_Doppler,
        cd->path_loss_dB,
