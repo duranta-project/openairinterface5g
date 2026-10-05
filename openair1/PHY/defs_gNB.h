@@ -425,6 +425,10 @@ typedef struct PHY_VARS_gNB_s {
   time_stats_t dlsch_ldpc_encode_stats;
   time_stats_t dlsch_modulation_stats;
   time_stats_t dlsch_scrambling_stats;
+  /* The tx_layers[] clear before modulation.  At 273 PRB / 2 layers it is a 358 KB
+   * memset sitting inside dlsch_pdsch_generation_stats but outside both the scrambling
+   * and modulation counters, so it was invisible in the breakdown. */
+  time_stats_t dlsch_layer_clear_stats;
   time_stats_t dlsch_pdsch_generation_stats;
   time_stats_t dlsch_layer_mapping_stats;
   time_stats_t dlsch_resource_mapping_stats;

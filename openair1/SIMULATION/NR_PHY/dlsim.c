@@ -1070,6 +1070,7 @@ int main(int argc, char **argv)
 
     reset_meas(&gNB->phy_proc_tx);
     reset_meas(&gNB->dlsch_scrambling_stats);
+    reset_meas(&gNB->dlsch_layer_clear_stats);
     reset_meas(&gNB->dlsch_crc_stats);
     reset_meas(&gNB->dlsch_modulation_stats);
     reset_meas(&gNB->dlsch_pdsch_generation_stats);
@@ -1455,6 +1456,7 @@ int main(int argc, char **argv)
       printStatIndent2(&gNB->dlsch_scrambling_stats, "DLSCH scrambling time");
       printStatIndent3(&gNB->dlsch_crc_stats,"DLSCH Outer CRC time");
       printStatIndent2(&gNB->dlsch_pdsch_generation_stats,"DLSCH PDSCH Generation time");
+      printStatIndent3(&gNB->dlsch_layer_clear_stats, "DLSCH tx_layers clear time");
       printStatIndent3(&gNB->dlsch_scrambling_stats, "DLSCH scrambling time");
       if (gNB->dlsch_layer_mapping_stats.trials > 0) {
         printStatIndent3(&gNB->dlsch_modulation_stats, "DLSCH modulation time");
