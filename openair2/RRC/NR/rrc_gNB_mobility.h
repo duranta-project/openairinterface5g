@@ -50,7 +50,7 @@ typedef struct nr_ho_source_cu {
 /* acknowledgement of handover request. buf+len is the RRC Reconfiguration */
 typedef void (*ho_req_ack_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
 typedef void (*ho_success_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
-typedef void (*ho_failure_t)(gNB_RRC_INST *rrc, uint32_t gnb_ue_id, ngap_handover_failure_t *msg);
+typedef void (*ho_failure_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
 typedef void (*ho_trigger_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
 
 typedef struct nr_ho_target_cu {
@@ -70,7 +70,8 @@ typedef struct nr_ho_target_cu {
   ho_req_ack_t ho_req_ack;
   /// function pointer to announce handover success
   ho_success_t ho_success;
-  /// function pointer to announce the handover failure
+  /// function pointer to announce the handover preparation failure at the target
+  /// (N2: Handover Failure to the AMF; Xn: Handover Preparation Failure to the source gNB)
   ho_failure_t ho_failure;
 } nr_ho_target_cu_t;
 
@@ -87,7 +88,7 @@ void nr_rrc_trigger_f1_ho(gNB_RRC_INST *rrc,
                           const nr_rrc_cell_container_t *source_cell,
                           const nr_rrc_cell_container_t *target_cell);
 void nr_rrc_finalize_ho(gNB_RRC_UE_t *ue);
-void nr_rrc_n2_ho_failure(gNB_RRC_INST *rrc, uint32_t gnb_ue_id, ngap_handover_failure_t *msg);
+void nr_rrc_n2_ho_failure(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
 
 void nr_rrc_trigger_n2_ho(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue, const nr_neighbour_cell_t *neighbour_config);
 void nr_rrc_trigger_xn_ho(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue, const nr_neighbour_cell_t *neighbour_config);
