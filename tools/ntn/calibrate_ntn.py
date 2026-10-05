@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
 """Compute the NTN configuration values matching an orbital trace.
 
 Given a trace (see generate_orbital_trace.py) and the UE / gNB ground positions used in the

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
 """Download and filter TLE data from CelesTrak.
 
 Usage examples:

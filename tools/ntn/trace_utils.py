@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
 """Shared coordinate helpers for the NTN trace tools."""
 
 from __future__ import annotations

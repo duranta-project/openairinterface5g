@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
 """LEO orbital trace generator using Skyfield + SGP4."""
 
 from __future__ import annotations
