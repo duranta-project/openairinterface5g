@@ -45,7 +45,8 @@ static void fill_dl_tti_request_pdcch_pdu(nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdu
     pdu->dci_pdu[dl_dci].AggregationLevel = rand8();
     fill_dl_tti_request_beamforming(&pdu->dci_pdu[dl_dci].precodingAndBeamforming);
     pdu->dci_pdu[dl_dci].beta_PDCCH_1_0 = rand8();
-    pdu->dci_pdu[dl_dci].powerControlOffsetSS = rand8();
+    // SCF222.10.04 powerControlOffsetSSProfileNR: int8 dB in -8..8
+    pdu->dci_pdu[dl_dci].powerControlOffsetSSProfileNR = (int8_t)rand8_range(0, 16) - 8;
     pdu->dci_pdu[dl_dci].PayloadSizeBits = rand16_range(0, DCI_PAYLOAD_BYTE_LEN * 8);
     generate_payload(pdu->dci_pdu[dl_dci].PayloadSizeBits, pdu->dci_pdu[dl_dci].Payload);
   }
@@ -107,6 +108,8 @@ static void fill_dl_tti_request_pdsch_pdu(nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdu
   fill_dl_tti_request_beamforming(&pdu->precodingAndBeamforming);
   pdu->powerControlOffset = rand8_range(0, 23);
   pdu->powerControlOffsetSS = rand8_range(0, 3);
+  // SCF222.10.04 powerControlOffsetSSProfileNR: int8 dB in -8..8
+  pdu->powerControlOffsetSSProfileNR = (int8_t)rand8_range(0, 16) - 8;
   // Check pduBitMap bit 1 to add or not CBG parameters
   if (pdu->pduBitmap & 0b10) {
     pdu->isLastCbPresent = rand8_range(0, 1);
@@ -158,6 +161,8 @@ static void fill_dl_tti_request_csi_rs_pdu(nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *p
   pdu->scramb_id = rand16_range(0, 1023);
   pdu->power_control_offset = rand8_range(0, 23);
   pdu->power_control_offset_ss = rand8_range(0, 3);
+  // SCF222.10.04 powerControlOffsetSSProfileNR: int8 dB in -8..8
+  pdu->power_control_offset_ss_profile_nr = (int8_t)rand8_range(0, 16) - 8;
   fill_dl_tti_request_beamforming(&pdu->precodingAndBeamforming);
   pdu->param_v4.numSpatialStreamIndices = get_num_spatial_streams();
   for (int n = 0; n < pdu->param_v4.numSpatialStreamIndices; n++)

@@ -64,6 +64,8 @@ static void fill_uci_indication_PUSCH(nfapi_nr_uci_pusch_pdu_t *pdu)
   pdu->pduBitmap = rand8_range(0, 0b1110) & 0b1110; // Bit 0 is always unused
   pdu->handle = rand32();
   pdu->rnti = rand16_range(1, 65535);
+  // SCF222.10.04 carries the SNR as ul_sinr_metric inside ul_meas_common; the
+  // pack/unpack translate it to/from the legacy ul_cqi encoding losslessly.
   pdu->ul_cqi = rand8();
   pdu->timing_advance = rand16_range(0, 63);
   pdu->rssi = rand16_range(0, 1280);
@@ -89,6 +91,8 @@ static void fill_uci_indication_PUCCH_0_1(nfapi_nr_uci_pucch_pdu_format_0_1_t *p
   pdu->handle = rand32();
   pdu->rnti = rand16_range(1, 65535);
   pdu->pucch_format = rand8_range(0, 1);
+  // SCF222.10.04 carries the SNR as ul_sinr_metric inside ul_meas_common; the
+  // pack/unpack translate it to/from the legacy ul_cqi encoding losslessly.
   pdu->ul_cqi = rand8();
   pdu->timing_advance = rand16_range(0, 63);
   pdu->rssi = rand16_range(0, 1280);
@@ -109,6 +113,8 @@ static void fill_uci_indication_PUCCH_2_3_4(nfapi_nr_uci_pucch_pdu_format_2_3_4_
   pdu->handle = rand32();
   pdu->rnti = rand16_range(1, 65535);
   pdu->pucch_format = rand8_range(0, 2);
+  // SCF222.10.04 carries the SNR as ul_sinr_metric inside ul_meas_common; the
+  // pack/unpack translate it to/from the legacy ul_cqi encoding losslessly.
   pdu->ul_cqi = rand8();
   pdu->timing_advance = rand16_range(0, 63);
   pdu->rssi = rand16_range(0, 1280);

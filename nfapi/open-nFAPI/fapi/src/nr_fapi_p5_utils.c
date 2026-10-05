@@ -523,7 +523,7 @@ void copy_param_response(const nfapi_nr_param_response_scf_t *src, nfapi_nr_para
 
   if (src->cell_param.config_tlvs_to_report_list) {
     dst->cell_param.config_tlvs_to_report_list =
-        calloc(src->cell_param.num_config_tlvs_to_report.value, sizeof(nfapi_uint8_tlv_t *));
+        calloc(src->cell_param.num_config_tlvs_to_report.value, sizeof(*dst->cell_param.config_tlvs_to_report_list));
     for (int i = 0; i < src->cell_param.num_config_tlvs_to_report.value; ++i) {
       COPY_TLV(dst->cell_param.config_tlvs_to_report_list[i], src->cell_param.config_tlvs_to_report_list[i]);
     }
