@@ -33,6 +33,7 @@ TESTCASES="$@"
 
 python3 main.py --repository=NONE --branch=${CURRENT_BRANCH} \
     --targetBranch=NONE \
+    --logdir logs \
     --workspace=${REPO_PATH} \
 	--local --datefmt="%H:%M:%S" \
     ${TESTCASES}

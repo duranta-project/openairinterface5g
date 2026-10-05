@@ -11,6 +11,7 @@
 # Parsing Command Line Arguements
 #-----------------------------------------------------------
 import argparse
+import os
 from cls_ci_helper import GlobalTestCtx, OcCtx
 
 def strToBool(s):
@@ -22,9 +23,13 @@ def strToBool(s):
 
 def ArgsParse(argvs, CONTAINERS):
 
+    # backwards compatible logDir that plays nicely with existing Jenkinsfile
+    defLogDir = f"{os.getcwd()}/../cmake_targets/log"
+
     p = argparse.ArgumentParser(description="OAI CI driver", ) #formatter_class?
     p.add_argument('--local', '-l', action='store_true', default=False, help='Force local execution: rewrites the test xml script before running to always execute on localhost. Assumes images are available locally, will not remove any images and will run inside the current repo directory')
     p.add_argument('--datefmt', '-f', help="date format to prepend to logs")
+    p.add_argument('--logdir', '-d', default=defLogDir, help="directory where to place log files") # TODO change default once Jenkins uses --logdir
     p.add_argument('--repository', '-r', default='', help="OAI RAN Repository URL")
     p.add_argument('--ranAllowMerge', type=strToBool, default=False, help="Allow Merge Request (with target branch) (true or false)") # TODO remove once Jenkins uses --merge
     p.add_argument('--merge', action='store_true', default=False, help="Allow Merge Request (with target branch) (true or false)")
@@ -47,4 +52,4 @@ def ArgsParse(argvs, CONTAINERS):
 
     CONTAINERS.flexricTag = args.FlexRicTag
 
-    return args.local, args.datefmt, args.xmls, g, oc
+    return args.local, args.datefmt, args.xmls, g, oc, args.logdir
