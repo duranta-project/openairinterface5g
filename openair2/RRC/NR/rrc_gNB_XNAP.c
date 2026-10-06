@@ -578,3 +578,12 @@ int rrc_gNB_process_XNAP_SN_STATUS_TRANSFER(gNB_RRC_INST *rrc, instance_t instan
 
   return 0;
 }
+
+/** @brief Release the UE context at the source after Path Switch Ack (TS 38.423 §9.1.1.5).
+ *  Xn UE Context Release message not sent yet; only finalizes the HO at target. */
+void rrc_gNB_send_XNAP_UE_CONTEXT_RELEASE(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
+{
+  UNUSED(rrc);
+  LOG_W(NR_RRC, "UE %u: Xn UE Context Release not implemented, finalizing  HO at target only\n", UE->rrc_ue_id);
+  nr_rrc_finalize_ho(UE);
+}

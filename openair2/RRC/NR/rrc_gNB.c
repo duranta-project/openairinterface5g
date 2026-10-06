@@ -2314,8 +2314,12 @@ static void handle_rrcReconfigurationComplete(gNB_RRC_INST *rrc, gNB_RRC_UE_t *U
     LOG_A(NR_RRC, "handover for UE %d/RNTI %04x complete!\n", UE->rrc_ue_id, UE->rnti);
     DevAssert(UE->ho_context->target != NULL);
 
-    UE->ho_context->target->ho_success(rrc, UE);
-    nr_rrc_finalize_ho(UE);
+    if (UE->ho_context->target->ho_success)
+      UE->ho_context->target->ho_success(rrc, UE);
+    /* ho_reconfig_ack: N2/F1 finalise immediately; Xn triggers Path Switch Request
+     * (ho_context freed later inside rrc_gNB_send_XNAP_UE_CONTEXT_RELEASE) */
+    if (UE->ho_context && UE->ho_context->target->ho_reconfig_ack)
+      UE->ho_context->target->ho_reconfig_ack(rrc, UE);
   }
 
   f1_ue_data_t ue_data = cu_get_f1_ue_data(UE->rrc_ue_id);
@@ -4118,6 +4122,10 @@ void *rrc_gnb_task(void *args_p)
 
       case NR_RRC_NRDC_TIMEOUT:
         rrc_gnb_nrdc_timeout(RC.nrrrc[instance], &NR_RRC_NRDC_TIMEOUT(msg_p));
+        break;
+
+      case NGAP_PATH_SWITCH_REQ_ACK:
+        rrc_gNB_process_NGAP_PATH_SWITCH_REQUEST_ACKNOWLEDGEMENT(RC.nrrrc[instance], instance, &NGAP_PATH_SWITCH_REQ_ACK(msg_p));
         break;
 
       /* Messages from XNAP task */

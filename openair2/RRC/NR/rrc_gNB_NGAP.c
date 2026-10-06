@@ -2233,3 +2233,93 @@ int rrc_gNB_process_NGAP_DL_RAN_STATUS_TRANSFER(MessageDef *msg_p, instance_t in
 
   return 0;
 }
+
+void rrc_gNB_send_NGAP_PATH_SWITCH_REQUEST(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
+{
+  LOG_I(NR_RRC, "UE %u: sending NGAP Path Switch Request\n", UE->rrc_ue_id);
+
+  nr_rrc_cell_container_t *cell = rrc_get_pcell_for_ue(rrc, UE);
+  AssertFatal(cell != NULL, "UE %u: no primary cell found for Path Switch Request\n", UE->rrc_ue_id);
+
+  MessageDef *msg_p = itti_alloc_new_message(TASK_RRC_GNB, 0, NGAP_PATH_SWITCH_REQ);
+  ngap_path_switch_req_t *req = &NGAP_PATH_SWITCH_REQ(msg_p);
+  memset(req, 0, sizeof(*req));
+
+  req->gNB_ue_ngap_id = UE->rrc_ue_id;
+  req->amf_ue_ngap_id = UE->amf_ue_ngap_id;
+  req->user_info = (user_location_information_t){
+    .nrCellIdentity = cell->info.cell_id,
+    .target_ng_ran.tac = cell->info.tac,
+    .target_ng_ran.targetgNBId = rrc->node_id,
+    .target_ng_ran.plmn_identity = cell->info.plmn,
+  };
+  req->security_capabilities = UE->security_capabilities;
+
+  req->nb_of_pdusessions = 0;
+  FOR_EACH_SEQ_ARR(rrc_pdu_session_param_t *, session, &UE->pduSessions) {
+    if (session->status != PDU_SESSION_STATUS_ESTABLISHED)
+      continue;
+    DevAssert(req->nb_of_pdusessions < NR_MAX_NB_PDU_SESSIONS);
+    int idx = req->nb_of_pdusessions++;
+    pdusession_t *p = &session->param;
+    req->pdusessions_tobeswitched[idx].pdusession_id = p->pdusession_id;
+    req->pdusessions_tobeswitched[idx].n3_outgoing   = p->n3_outgoing;
+    req->pdusessions_tobeswitched[idx].nb_of_qos_flow = 0;
+    FOR_EACH_SEQ_ARR(pdusession_level_qos_parameter_t *, qp, &p->qos) {
+      DevAssert(req->pdusessions_tobeswitched[idx].nb_of_qos_flow < MAX_QOS_FLOWS);
+      int qidx = req->pdusessions_tobeswitched[idx].nb_of_qos_flow++;
+      req->pdusessions_tobeswitched[idx].associated_qos_flows[qidx].qfi = qp->qfi;
+    }
+  }
+
+  itti_send_msg_to_task(TASK_NGAP, rrc->module_id, msg_p);
+}
+
+int rrc_gNB_process_NGAP_PATH_SWITCH_REQUEST_ACKNOWLEDGEMENT(gNB_RRC_INST *rrc,
+                                                             instance_t instance,
+                                                             const ngap_path_switch_req_ack_t *msg)
+{
+  LOG_I(NR_RRC, "UE %u: received NGAP Path Switch Request Acknowledgement\n", msg->gNB_ue_ngap_id);
+
+  rrc_gNB_ue_context_t *ue_ctx = rrc_gNB_get_ue_context(rrc, msg->gNB_ue_ngap_id);
+  if (ue_ctx == NULL) {
+    LOG_E(NR_RRC, "[gNB %ld] Path Switch Req Ack: no UE context for gNB_ue_ngap_id %u\n",
+          instance, msg->gNB_ue_ngap_id);
+    return -1;
+  }
+  gNB_RRC_UE_t *UE = &ue_ctx->ue_context;
+
+  /* Update security context */
+  UE->nh_ncc = msg->nh_ncc;
+  memcpy(UE->nh, msg->next_security_key, SECURITY_KEY_LENGTH);
+  LOG_I(NR_RRC, "UE %u: security context updated — nh_ncc=%d\n", UE->rrc_ue_id, UE->nh_ncc);
+
+  /* Update N3 incoming tunnel per PDU session */
+  for (int i = 0; i < msg->nb_of_pdusessions; ++i) {
+    const path_switch_request_ack_pdusession_t *sw = &msg->pdusessions_switched[i];
+    bool found = false;
+    FOR_EACH_SEQ_ARR(rrc_pdu_session_param_t *, session, &UE->pduSessions) {
+      if (session->param.pdusession_id != sw->pdusession_id)
+        continue;
+      found = true;
+      if (sw->pathSwitchReqAckTransfer.n3_incoming != NULL)
+        session->param.n3_incoming = *sw->pathSwitchReqAckTransfer.n3_incoming;
+      LOG_I(NR_RRC, "UE %u: updated N3 incoming for PDU session %d\n",
+            UE->rrc_ue_id, sw->pdusession_id);
+      break;
+    }
+    if (!found)
+      LOG_W(NR_RRC, "UE %u: PDU session %d from Path Switch Ack not found\n",
+            UE->rrc_ue_id, sw->pdusession_id);
+  }
+
+  /* Release UE context at source via callback registered during Xn HO setup */
+  AssertFatal(UE->ho_context != NULL && UE->ho_context->target != NULL,
+              "UE %u: ho_context missing on Path Switch Ack\n", UE->rrc_ue_id);
+  AssertFatal(UE->ho_context->target->ho_release_source != NULL,
+              "UE %u: ho_release_source callback not set\n", UE->rrc_ue_id);
+  UE->ho_context->target->ho_release_source(rrc, UE);
+  /* ho_context freed inside ho_release_source (rrc_gNB_send_XNAP_UE_CONTEXT_RELEASE) */
+
+  return 0;
+}

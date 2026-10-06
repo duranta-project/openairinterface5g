@@ -35,4 +35,6 @@ int rrc_gNB_send_XNAP_SN_STATUS_TRANSFER(gNB_RRC_INST *rrc,
 
 int rrc_gNB_process_XNAP_SN_STATUS_TRANSFER(gNB_RRC_INST *rrc, instance_t instance, const xnap_sn_status_transfer_t *msg);
 
+void rrc_gNB_send_XNAP_UE_CONTEXT_RELEASE(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE);
+
 #endif /* RRC_GNB_XNAP_H_ */

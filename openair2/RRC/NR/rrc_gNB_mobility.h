@@ -18,6 +18,7 @@ typedef struct gNB_RRC_UE_s gNB_RRC_UE_t;
 typedef struct NR_CellGroupConfig NR_CellGroupConfig_t;
 
 typedef void (*ho_cancel_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
+typedef void (*ho_reconfig_ack_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
 typedef int (*ho_status_transfer_t)(gNB_RRC_INST *rrc,
                                     gNB_RRC_UE_t *UE,
                                     const int n_to_mod,
@@ -79,6 +80,11 @@ typedef struct nr_ho_target_cu {
   ho_req_ack_t ho_req_ack;
   /// function pointer to announce handover success
   ho_success_t ho_success;
+  /// function pointer called after RRC reconfiguration complete
+  /// (N2/F1: nr_rrc_ho_finalize_cb; Xn: nr_rrc_xn_ho_path_switch)
+  ho_reconfig_ack_t ho_reconfig_ack;
+  /// function pointer to release the UE context at the source (Xn only; NULL for N2/F1)
+  ho_reconfig_ack_t ho_release_source;
   /// function pointer to announce the handover failure (N2)
   ho_failure_t ho_failure;
   /// function pointer to announce the handover preparation failure (Xn)
