@@ -156,3 +156,12 @@ xn_target_ue_data_t xn_get_target_ue_data(uint32_t t_xnap_ue_id)
   pthread_mutex_unlock(&xn_target_ue_mutex);
   return result;
 }
+
+bool xn_remove_target_ue_data(uint32_t t_xnap_ue_id)
+{
+  pthread_mutex_lock(&xn_target_ue_mutex);
+  DevAssert(xn_target_ue_mapping != NULL);
+  hashtable_rc_t rc = hashtable_remove(xn_target_ue_mapping, t_xnap_ue_id);
+  pthread_mutex_unlock(&xn_target_ue_mutex);
+  return rc == HASH_TABLE_OK;
+}

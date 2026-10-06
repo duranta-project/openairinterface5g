@@ -48,5 +48,6 @@ uint32_t xn_alloc_target_ue_id(void);
 bool xn_add_target_ue_data(uint32_t t_xn_ue_id, const xn_target_ue_data_t *data);
 bool xn_exists_target_ue_data(uint32_t t_xnap_ue_id);
 xn_target_ue_data_t xn_get_target_ue_data(uint32_t t_xnap_ue_id);
+bool xn_remove_target_ue_data(uint32_t t_xnap_ue_id);
 
 #endif /* XNAP_IDS_H_ */

@@ -2967,11 +2967,16 @@ static void rrc_CU_process_ue_context_release_complete(MessageDef *msg_p)
       return;
   }
 
-  if (UE->an_release) {
-    /* only trigger release if it has been requested by core
-     * otherwise, it might be CU that requested release on a DU during normal
-     * operation (i.e, handover) */
+  if (UE->an_release)
     rrc_gNB_send_NGAP_UE_CONTEXT_RELEASE_COMPLETE(0, UE->rrc_ue_id, &UE->pduSessions);
+
+  /* Only remove the UE if the DU that confirmed the release is still its current DU:
+   * after an F1 handover, the old DU's completion must not tear down the live context */
+  if (cu_get_f1_ue_data(UE->rrc_ue_id).du_assoc_id == msg_p->ittiMsgHeader.originInstance) {
+    /* with an_release, UE Context Release Complete above also releases the NGAP context;
+     * otherwise (e.g. Xn HO source) release it locally, without AMF signalling */
+    if (!UE->an_release)
+      rrc_gNB_send_NGAP_UE_CONTEXT_LOCAL_RELEASE(UE->rrc_ue_id);
     rrc_remove_ue(RC.nrrrc[0], ue_context_p);
   }
 }
@@ -4151,6 +4156,10 @@ void *rrc_gnb_task(void *args_p)
 
       case XNAP_SN_STATUS_TRANSFER:
         rrc_gNB_process_XNAP_SN_STATUS_TRANSFER(RC.nrrrc[instance], instance, &XNAP_SN_STATUS_TRANSFER(msg_p));
+        break;
+
+      case XNAP_UE_CONTEXT_RELEASE:
+        rrc_gNB_process_XNAP_UE_CONTEXT_RELEASE(RC.nrrrc[instance], instance, &XNAP_UE_CONTEXT_RELEASE(msg_p));
         break;
 
       default:

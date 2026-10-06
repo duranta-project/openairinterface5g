@@ -359,6 +359,32 @@ static int xnap_gNB_handle_sn_status_transfer(instance_t instance,
   return 0;
 }
 
+/* Source gNB: receives UE Context Release from target — decode and forward to RRC */
+static int xnap_gNB_handle_ue_context_release(instance_t instance,
+                                               sctp_assoc_t assoc_id,
+                                               uint32_t stream,
+                                               xnap_gnb_inst_t *inst,
+                                               xnap_peer_t *peer,
+                                               XNAP_XnAP_PDU_t *pdu)
+{
+  UNUSED(stream);
+  UNUSED(peer);
+  UNUSED(inst);
+  LOG_I(XNAP, "[gNB %ld] Received UE Context Release from assoc_id %d\n", instance, assoc_id);
+
+  xnap_ue_context_release_t msg = {0};
+  if (!decode_xnap_ue_context_release(&msg, pdu)) {
+    LOG_E(XNAP, "[gNB %ld] Failed to decode UE Context Release from assoc_id %d\n",
+          instance, assoc_id);
+    return -1;
+  }
+
+  MessageDef *itti_msg = itti_alloc_new_message(TASK_XNAP, instance, XNAP_UE_CONTEXT_RELEASE);
+  XNAP_UE_CONTEXT_RELEASE(itti_msg) = msg;
+  itti_send_msg_to_task(TASK_RRC_GNB, instance, itti_msg);
+  return 0;
+}
+
 /* Callback table
  * Indexed by [procedureCode][direction-1]
  * where direction is:  0 = initiatingMessage, 1 = successfulOutcome, 2 = unsuccessfulOutcome
@@ -371,7 +397,7 @@ static const xnap_message_decoded_callback xnap_messages_callback[][3] = {
   {0, 0, 0}, /*  3 retrieveUEContext */
   {0, 0, 0}, /*  4 rANPaging */
   {0, 0, 0}, /*  5 xnUAddressIndication */
-  {0, 0, 0}, /*  6 uEContextRelease */
+  {xnap_gNB_handle_ue_context_release, 0, 0}, /*  6 uEContextRelease */
   {0, 0, 0}, /*  7 sNGRANnodeAdditionPreparation */
   {0, 0, 0}, /*  8 sNGRANnodeReconfigurationCompletion */
   {0, 0, 0}, /*  9 mNGRANnodeinitiatedSNGRANnodeModificationPrep */
