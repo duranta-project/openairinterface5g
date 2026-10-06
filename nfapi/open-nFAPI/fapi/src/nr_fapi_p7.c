@@ -103,9 +103,10 @@ int fapi_nr_p7_message_pack(void *pMessageBuf, void *pPackedBuf, uint32_t packed
   }
 
   // check for a valid message length
-  uintptr_t msgHead = (uintptr_t)pPacketBodyFieldStart;
-  uintptr_t msgEnd = (uintptr_t)pPacketBodyField;
-  uint32_t packedMsgLen = msgEnd - msgHead;
+  const uintptr_t msgStart = (uintptr_t)pPackedBuf;
+  const uintptr_t msgHead = (uintptr_t)pPacketBodyFieldStart;
+  const uintptr_t msgEnd = (uintptr_t)pPacketBodyField;
+  uint32_t packedMsgLen = get_packed_msg_len(msgHead, msgEnd);
   if (packedMsgLen > packedBufLen) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "Packed message length error %d, buffer supplied %d\n", packedMsgLen, packedBufLen);
     return -1;
@@ -118,7 +119,8 @@ int fapi_nr_p7_message_pack(void *pMessageBuf, void *pPackedBuf, uint32_t packed
   if (!push32(packedMsgLen, &pPackedLengthField, pPackMessageEnd))
     return -1;
 
-  return packedMsgLen;
+  // Return the total message length, not just the body length
+  return get_packed_msg_len(msgStart, msgEnd);
 }
 
 bool fapi_nr_p7_message_unpack(void *pMessageBuf,
