@@ -19,6 +19,7 @@
 #define XNAP_HANDOVER_REQ(mSGpTR)         (mSGpTR)->ittiMsg.xnap_handover_req
 #define XNAP_HANDOVER_REQ_ACK(mSGpTR)     (mSGpTR)->ittiMsg.xnap_handover_req_ack
 #define XNAP_HANDOVER_PREP_FAILURE(mSGpTR) (mSGpTR)->ittiMsg.xnap_handover_prep_failure
+#define XNAP_SN_STATUS_TRANSFER(mSGpTR)   (mSGpTR)->ittiMsg.xnap_sn_status_transfer
 
 typedef struct {
   // PLMN Identity (M)

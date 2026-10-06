@@ -134,3 +134,25 @@ bool xn_add_target_ue_data(uint32_t t_xn_ue_id, const xn_target_ue_data_t *data)
   pthread_mutex_unlock(&xn_target_ue_mutex);
   return ret;
 }
+
+bool xn_exists_target_ue_data(uint32_t t_xnap_ue_id)
+{
+  pthread_mutex_lock(&xn_target_ue_mutex);
+  DevAssert(xn_target_ue_mapping != NULL);
+  hashtable_rc_t rc = hashtable_is_key_exists(xn_target_ue_mapping, t_xnap_ue_id);
+  pthread_mutex_unlock(&xn_target_ue_mutex);
+  return rc == HASH_TABLE_OK;
+}
+
+xn_target_ue_data_t xn_get_target_ue_data(uint32_t t_xnap_ue_id)
+{
+  pthread_mutex_lock(&xn_target_ue_mutex);
+  DevAssert(xn_target_ue_mapping != NULL);
+  void *data = NULL;
+  hashtable_rc_t rc = hashtable_get(xn_target_ue_mapping, t_xnap_ue_id, &data);
+  AssertFatal(rc == HASH_TABLE_OK && data != NULL,
+              "t_xnap_ue_id %u not found in target UE mapping\n", t_xnap_ue_id);
+  xn_target_ue_data_t result = *(xn_target_ue_data_t *)data;
+  pthread_mutex_unlock(&xn_target_ue_mutex);
+  return result;
+}
