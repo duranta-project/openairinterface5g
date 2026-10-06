@@ -38,7 +38,7 @@ add_library(ldpc_cuda MODULE
             ldpc_deinterleave.cu
             ldpc_rate_matching.cu
 )
-set_target_properties(ldpc_cuda PROPERTIES CUDA_ARCHITECTURES "80;87;90")
+set_target_properties(ldpc_cuda PROPERTIES CUDA_ARCHITECTURES "80;87;90;121")
 # we need to find the right include directory, but ti seems that
 # enable_language(CUDA) does not make this available(?), so also use the CUDA package
 find_package(CUDA REQUIRED)
