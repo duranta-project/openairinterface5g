@@ -1203,7 +1203,111 @@ do { \
     nrLDPC_OutPut_BG1_cuda_stream_core(llrRes, Z, R, outMode, buffer, numLLR, K, q_streams, q_idx); \
 } while (0)
 
+// Early-termination chunks: the prologue does the LLR pre-processing, then `iters` full iterations (check nodes then bit
+// nodes; the regular bit-node kernels also store the posterior LLRs) and the hard decision; a continuation chunk does
+// `iters` more iterations and the hard decision. The host checks the code-block CRCs between chunks.
+#define ENQUEUE_LDPC_DECODER_CHUNK(q_streams, q_idx, prologue, iters)                                                             \
+  do {                                                                                                                            \
+    uint8_t ZcIdx = get_lut_col_index_host(Z);                                                                                    \
+    if (prologue)                                                                                                                 \
+      nrLDPC_llrPreProc_BG1_cuda_stream_core(buffer, numLLR, llrProcBuf, cnProcBuf, Z, ZcIdx, R, q_streams, q_idx);               \
+    for (int i = 0; i < (iters); i++) {                                                                                           \
+      if (R == 13) {                                                                                                              \
+        nrLDPC_cnProc_BG1_R13_cuda_stream_core(cnProcBuf, bnProcBuf, n_segments, Z, ZcIdx, q_streams, q_idx);                     \
+        nrLDPC_bnProc_BG1_R13_cuda_stream_core(bnProcBuf, cnProcBuf, llrProcBuf, llrRes, n_segments, Z, ZcIdx, q_streams, q_idx); \
+      } else if (R == 23) {                                                                                                       \
+        nrLDPC_cnProc_BG1_R23_cuda_stream_core(cnProcBuf, bnProcBuf, n_segments, Z, ZcIdx, q_streams, q_idx);                     \
+        nrLDPC_bnProc_BG1_R23_cuda_stream_core(bnProcBuf, cnProcBuf, llrProcBuf, llrRes, n_segments, Z, ZcIdx, q_streams, q_idx); \
+      } else if (R == 89) {                                                                                                       \
+        nrLDPC_cnProc_BG1_R89_cuda_stream_core(cnProcBuf, bnProcBuf, n_segments, Z, ZcIdx, q_streams, q_idx);                     \
+        nrLDPC_bnProc_BG1_R89_cuda_stream_core(bnProcBuf, cnProcBuf, llrProcBuf, llrRes, n_segments, Z, ZcIdx, q_streams, q_idx); \
+      }                                                                                                                           \
+    }                                                                                                                             \
+    nrLDPC_OutPut_BG1_cuda_stream_core(llrRes, Z, R, outMode, buffer, numLLR, K, q_streams, q_idx);                               \
+  } while (0)
+
+static void set_kernel_dims(uint8_t CudaStreamIdx, uint32_t Z, uint8_t n_segments)
+{
+  Kdim_R13_Edge[CudaStreamIdx].block = dim3(Z >> 2, 4, 1);
+  Kdim_R13_Edge[CudaStreamIdx].grid = dim3((num_TotalBlocks_BG1_R13_Edge + 3) >> 2, n_segments, 1);
+  Kdim_R23_Edge[CudaStreamIdx].block = dim3(Z >> 2, 4, 1);
+  Kdim_R23_Edge[CudaStreamIdx].grid = dim3((num_TotalBlocks_BG1_R23_Edge + 3) >> 2, n_segments, 1);
+  Kdim_R89_Edge[CudaStreamIdx].block = dim3(Z >> 2, 4, 1);
+  Kdim_R89_Edge[CudaStreamIdx].grid = dim3((num_TotalBlocks_BG1_R89_Edge + 3) >> 2, n_segments, 1);
+  Kdim_llr[CudaStreamIdx].block = dim3(Z >> 2, 4, 1);
+  Kdim_llr[CudaStreamIdx].grid = dim3((num_TotalBlocks_llr_llrRes + 3) >> 2, n_segments, 1);
+  Kdim_cn_R13_Node[CudaStreamIdx].block = dim3(Z >> 2, 4, 1);
+  Kdim_cn_R13_Node[CudaStreamIdx].grid = dim3((num_TotalBlocks_cn_BG1_R13_Node + 3) >> 2, n_segments, 1);
+  Kdim_bn_R13_Node[CudaStreamIdx].block = dim3(Z >> 2, 4, 1);
+  Kdim_bn_R13_Node[CudaStreamIdx].grid = dim3((num_TotalBlocks_bn_BG1_R13_Node + 3) >> 2, n_segments, 1);
+  Kdim_cn_R23_Node[CudaStreamIdx].block = dim3(Z >> 2, 4, 1);
+  Kdim_cn_R23_Node[CudaStreamIdx].grid = dim3((num_TotalBlocks_cn_BG1_R23_Node + 3) >> 2, n_segments, 1);
+  Kdim_bn_R23_Node[CudaStreamIdx].block = dim3(Z >> 2, 4, 1);
+  Kdim_bn_R23_Node[CudaStreamIdx].grid = dim3((num_TotalBlocks_bn_BG1_R23_Node + 3) >> 2, n_segments, 1);
+  Kdim_cn_R89_Node[CudaStreamIdx].block = dim3(Z >> 2, 4, 1);
+  Kdim_cn_R89_Node[CudaStreamIdx].grid = dim3((num_TotalBlocks_cn_BG1_R89_Node + 3) >> 2, n_segments, 1);
+  Kdim_bn_R89_Node[CudaStreamIdx].block = dim3(Z >> 2, 4, 1);
+  Kdim_bn_R89_Node[CudaStreamIdx].grid = dim3((num_TotalBlocks_bn_BG1_R89_Node + 3) >> 2, n_segments, 1);
+}
+
   extern "C" {
+
+  // Record one early-termination chunk (see ENQUEUE_LDPC_DECODER_CHUNK) as a CUDA graph on stream CudaStreamIdx.
+  cudaError_t nrLDPC_decoder_cuda_GraphRecordChunk(ldpc_cuda_bridge_t *buffer,
+                                                   uint32_t numLLR,
+                                                   int8_t *cnProcBuf,
+                                                   int8_t *bnProcBuf,
+                                                   int8_t *llrRes,
+                                                   int8_t *llrProcBuf,
+                                                   uint32_t Z,
+                                                   uint32_t K,
+                                                   uint8_t R,
+                                                   uint8_t n_segments,
+                                                   e_nrLDPC_outMode outMode,
+                                                   int prologue,
+                                                   int iters,
+                                                   cudaStream_t *streams,
+                                                   uint8_t CudaStreamIdx,
+                                                   cudaGraph_t *graphPtr,
+                                                   cudaGraphExec_t *graphExecPtr)
+  {
+    cudaStream_t stream = streams[CudaStreamIdx];
+    set_kernel_dims(CudaStreamIdx, Z, n_segments);
+    cudaError_t err = cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal);
+    if (err != cudaSuccess)
+      return err;
+    ENQUEUE_LDPC_DECODER_CHUNK(streams, CudaStreamIdx, prologue, iters);
+    err = cudaStreamEndCapture(stream, graphPtr);
+    if (err != cudaSuccess)
+      return err;
+    err = cudaGraphInstantiate(graphExecPtr, *graphPtr, NULL, NULL, 0);
+    if (err != cudaSuccess) {
+      cudaGraphDestroy(*graphPtr);
+      *graphPtr = NULL;
+    }
+    return err;
+  }
+
+  // Same chunk launched directly (no graph).
+  void nrLDPC_decoder_cuda_NormalExecuteChunk(ldpc_cuda_bridge_t *buffer,
+                                              uint32_t numLLR,
+                                              int8_t *cnProcBuf,
+                                              int8_t *bnProcBuf,
+                                              int8_t *llrRes,
+                                              int8_t *llrProcBuf,
+                                              uint32_t Z,
+                                              uint32_t K,
+                                              uint8_t R,
+                                              uint8_t n_segments,
+                                              e_nrLDPC_outMode outMode,
+                                              int prologue,
+                                              int iters,
+                                              cudaStream_t *streams,
+                                              uint8_t CudaStreamIdx)
+  {
+    set_kernel_dims(CudaStreamIdx, Z, n_segments);
+    ENQUEUE_LDPC_DECODER_CHUNK(streams, CudaStreamIdx, prologue, iters);
+  }
 
   cudaError_t nrLDPC_decoder_cuda_GraphRecord(ldpc_cuda_bridge_t *buffer,
                                               uint32_t numLLR,
