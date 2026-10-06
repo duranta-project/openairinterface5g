@@ -95,6 +95,32 @@ static void xnap_gNB_generate_handover_request(instance_t instance, xnap_handove
   xnap_gNB_itti_send_sctp_data(instance, peer->assoc_id, buffer, length, XNAP_NON_UE_STREAM_ID);
 }
 
+static void xnap_gNB_generate_handover_prep_failure(instance_t instance, xnap_handover_preparation_failure_t *msg);
+
+/* Target gNB: the HandoverRequestAck was not sent: if the peer is up, send a
+ * HandoverPreparationFailure so the source ends the handover, and let the target
+ * RRC abort the prepared UE */
+static void xnap_gNB_handover_request_ack_not_sent(instance_t instance, const xn_ue_data_t *ue, bool peer_up)
+{
+  const xnap_cause_t cause = {.type = XNAP_CAUSE_RADIO_NETWORK, .value = XNAP_CAUSE_RADIO_NETWORK_LAYER_UNSPECIFIED};
+  xn_remove_target_ue(ue->t_ng_node_ue_xnap_id);
+  if (peer_up) {
+    xnap_handover_preparation_failure_t fail = {.s_ng_node_ue_xnap_id = ue->s_ng_node_ue_xnap_id,
+                                                .cause = cause,
+                                                .rrc_ue_id = ue->rrc_ue_id,
+                                                .t_ng_node_ue_xnap_id = ue->t_ng_node_ue_xnap_id,
+                                                .assoc_id = ue->assoc_id};
+    xnap_gNB_generate_handover_prep_failure(instance, &fail);
+  }
+  MessageDef *cancel = itti_alloc_new_message(TASK_XNAP, instance, XNAP_HANDOVER_CANCEL);
+  XNAP_HANDOVER_CANCEL(cancel) = (xnap_handover_cancel_t){
+      .s_ng_node_ue_xnap_id = ue->s_ng_node_ue_xnap_id,
+      .cause = cause,
+      .rrc_ue_id = ue->rrc_ue_id,
+  };
+  itti_send_msg_to_task(TASK_RRC_GNB, instance, cancel);
+}
+
 /* Target gNB: target RRC sends ACK — fill the XnAP UE IDs of the handover, send HandoverRequestAck */
 static void xnap_gNB_generate_handover_request_acknowledge(instance_t instance, xnap_handover_req_ack_t *ack)
 {
@@ -113,11 +139,13 @@ static void xnap_gNB_generate_handover_request_acknowledge(instance_t instance, 
   if (peer == NULL) {
     LOG_E(XNAP, "[gNB %ld] HandoverRequestAck: no peer for source_assoc_id %d\n",
           instance, ue_data.assoc_id);
+    xnap_gNB_handover_request_ack_not_sent(instance, &ue_data, false);
     return;
   }
   if (peer->state != XNAP_PEER_STATE_CONNECTED) {
     LOG_E(XNAP, "[gNB %ld] HandoverRequestAck: peer assoc_id %d not connected\n",
           instance, ue_data.assoc_id);
+    xnap_gNB_handover_request_ack_not_sent(instance, &ue_data, false);
     return;
   }
 
@@ -129,7 +157,7 @@ static void xnap_gNB_generate_handover_request_acknowledge(instance_t instance, 
   if (xnap_gNB_encode_pdu(pdu, &buffer, &length) < 0) {
     LOG_E(XNAP, "[gNB %ld] Failed to encode HandoverRequestAck (rrc_ue_id %u)\n", instance, ack->rrc_ue_id);
     ASN_STRUCT_FREE(asn_DEF_XNAP_XnAP_PDU, pdu);
-    xn_remove_target_ue(ack->t_ng_node_ue_xnap_id);
+    xnap_gNB_handover_request_ack_not_sent(instance, &ue_data, true);
     return;
   }
   ASN_STRUCT_FREE(asn_DEF_XNAP_XnAP_PDU, pdu);
