@@ -179,10 +179,107 @@ typedef struct nrppa_ng_ran_cgi_s {
   uint64_t nr_cellid;
 } nrppa_ng_ran_cgi_t;
 
+typedef enum nrppa_subcarrier_spacing_e {
+  NRPPA_SUBCARRIER_SPACING_15KHZ,
+  NRPPA_SUBCARRIER_SPACING_30KHZ,
+  NRPPA_SUBCARRIER_SPACING_60KHZ,
+  NRPPA_SUBCARRIER_SPACING_120KHZ
+} nrppa_subcarrier_spacing_pr;
+
+typedef enum nrppa_prs_comb_size_e {
+  NRPPA_PRS_COMB_SIZE_N2 = 0,
+  NRPPA_PRS_COMB_SIZE_N4,
+  NRPPA_PRS_COMB_SIZE_N6,
+  NRPPA_PRS_COMB_SIZE_N12
+} nrppa_prs_comb_size_pr;
+
+typedef enum nrppa_prs_cp_type_e { NRPPA_PRS_CP_TYPE_NORMAL = 0, NRPPA_PRS_CP_TYPE_EXTENDED } nrppa_prs_cp_type_pr;
+
+typedef enum nrppa_prs_resource_set_periodicity_e {
+  NRPPA_PRS_PERIODICITY_N4 = 0,
+  NRPPA_PRS_PERIODICITY_N5,
+  NRPPA_PRS_PERIODICITY_N8,
+  NRPPA_PRS_PERIODICITY_N10,
+  NRPPA_PRS_PERIODICITY_N16,
+  NRPPA_PRS_PERIODICITY_N20,
+  NRPPA_PRS_PERIODICITY_N32,
+  NRPPA_PRS_PERIODICITY_N40,
+  NRPPA_PRS_PERIODICITY_N64,
+  NRPPA_PRS_PERIODICITY_N80,
+  NRPPA_PRS_PERIODICITY_N160,
+  NRPPA_PRS_PERIODICITY_N320,
+  NRPPA_PRS_PERIODICITY_N640,
+  NRPPA_PRS_PERIODICITY_N1280,
+  NRPPA_PRS_PERIODICITY_N2560,
+  NRPPA_PRS_PERIODICITY_N5120,
+  NRPPA_PRS_PERIODICITY_N10240,
+  NRPPA_PRS_PERIODICITY_N20480,
+  NRPPA_PRS_PERIODICITY_N40960,
+  NRPPA_PRS_PERIODICITY_N81920
+} nrppa_prs_resource_set_periodicity_pr;
+
+typedef enum nrppa_prs_repetition_factor_e {
+  NRPPA_PRS_REPETITION_RF1 = 0,
+  NRPPA_PRS_REPETITION_RF2,
+  NRPPA_PRS_REPETITION_RF4,
+  NRPPA_PRS_REPETITION_RF6,
+  NRPPA_PRS_REPETITION_RF8,
+  NRPPA_PRS_REPETITION_RF16,
+  NRPPA_PRS_REPETITION_RF32
+} nrppa_prs_repetition_factor_pr;
+
+typedef enum nrppa_prs_time_gap_e {
+  NRPPA_PRS_TIME_GAP_TG1 = 0,
+  NRPPA_PRS_TIME_GAP_TG2,
+  NRPPA_PRS_TIME_GAP_TG4,
+  NRPPA_PRS_TIME_GAP_TG8,
+  NRPPA_PRS_TIME_GAP_TG16,
+  NRPPA_PRS_TIME_GAP_TG32
+} nrppa_prs_time_gap_pr;
+
+typedef enum nrppa_prs_num_symbols_e {
+  NRPPA_PRS_NUM_SYMBOLS_N2 = 0,
+  NRPPA_PRS_NUM_SYMBOLS_N4,
+  NRPPA_PRS_NUM_SYMBOLS_N6,
+  NRPPA_PRS_NUM_SYMBOLS_N12
+} nrppa_prs_num_symbols_pr;
+
+typedef struct nrppa_prs_resource_s {
+  uint8_t prs_resource_id;
+  uint16_t sequence_id;
+  uint8_t re_offset;
+  uint16_t resource_slot_offset;
+  uint8_t resource_symbol_offset;
+} nrppa_prs_resource_t;
+
+typedef struct nrppa_prs_resource_set_s {
+  uint8_t prs_resource_set_id;
+  nrppa_subcarrier_spacing_pr subcarrier_spacing;
+  uint8_t prs_bandwidth;
+  uint16_t start_prb;
+  uint32_t point_a;
+  nrppa_prs_comb_size_pr comb_size;
+  nrppa_prs_cp_type_pr cp_type;
+  nrppa_prs_resource_set_periodicity_pr resource_set_periodicity;
+  uint32_t resource_set_slot_offset;
+  nrppa_prs_repetition_factor_pr resource_repetition_factor;
+  nrppa_prs_time_gap_pr resource_time_gap;
+  nrppa_prs_num_symbols_pr resource_number_of_symbols;
+  int8_t prs_resource_transmit_power;
+  uint8_t prs_resource_list_length;
+  nrppa_prs_resource_t *prs_resource;
+} nrppa_prs_resource_set_t;
+
+typedef struct nrppa_prs_configuration_s {
+  uint8_t prs_resource_set_list_length;
+  nrppa_prs_resource_set_t *prs_resource_set;
+} nrppa_prs_configuration_t;
+
 typedef union nrppa_trp_information_type_response_item_c {
   uint16_t pci_nr;
   nrppa_ng_ran_cgi_t ng_ran_cgi;
   uint32_t nr_arfcn;
+  nrppa_prs_configuration_t prs_configuration;
   nrppa_geographical_coordinates_t geographical_coordinates;
 } nrppa_trp_information_type_response_item_u;
 
@@ -212,13 +309,6 @@ typedef struct nrppa_trp_information_s {
   uint32_t trp_id;
   nrppa_trp_information_type_response_list_t trp_information_type_response_list;
 } nrppa_trp_information_t;
-
-typedef enum nrppa_subcarrier_spacing_e {
-  NRPPA_SUBCARRIER_SPACING_15KHZ,
-  NRPPA_SUBCARRIER_SPACING_30KHZ,
-  NRPPA_SUBCARRIER_SPACING_60KHZ,
-  NRPPA_SUBCARRIER_SPACING_120KHZ
-} nrppa_subcarrier_spacing_pr;
 
 typedef struct nrppa_scs_specific_carrier_s {
   uint32_t offset_to_carrier;
