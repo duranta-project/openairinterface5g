@@ -44,6 +44,20 @@ int ldpc_input(uint32_t **input,uint32_t *cc[4],int nseg,cudaStream_t *s,int sid
 
 void cuda_support_init()
 {
+  {
+    // OAI_CUDA_SCHED=spin|yield|block (default yield): how a host thread waits for the GPU (cudaStreamSynchronize). The LDPC
+    // decoder waits for the GPU at least once per transport block; with blocking sync each wake-up cost about 100 us on a
+    // DGX Spark (GB10). Must be set before the CUDA context is created.
+    const char *sch = getenv("OAI_CUDA_SCHED");
+    if (!sch || !*sch)
+      sch = "yield";
+    const unsigned f = !strcmp(sch, "spin") ? cudaDeviceScheduleSpin
+                       : !strcmp(sch, "block") ? cudaDeviceScheduleBlockingSync
+                                               : cudaDeviceScheduleYield;
+    const cudaError_t e = cudaSetDeviceFlags(f);
+    if (e != cudaSuccess)
+      printf("[CUDA] cudaSetDeviceFlags(%s): %s\n", sch, cudaGetErrorString(e));
+  }
   int dev = 0;
   struct cudaDeviceProp prop;
   cudaGetDeviceProperties(&prop, dev);
