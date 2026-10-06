@@ -64,12 +64,34 @@ static nr_up_dl_transfer_response_t nr_up_f1u_deliver_drb(const nr_up_dl_transfe
   return NR_UP_DL_OK;
 }
 
+/** @brief Empty F1-U DL USER DATA with Report Polling=1 (TS 38.425 clause 5.5.3.3) */
+static void nr_up_f1u_request_status_poll(ue_id_t ue_id, rb_id_t drb_id)
+{
+  const f1ap_cudu_inst_t *inst = getCxt(0);
+  DevAssert(inst);
+  if (!nr_up_f1u_try_report_polling(ue_id, drb_id)) {
+    return;
+  }
+  LOG_D(NR_UP, "%s(): (drb %ld) empty Report Polling while DL stalled\n", __func__, drb_id);
+  gtpv1uSendDirectWithNRUSeqNum(inst->gtpInst, ue_id, drb_id, NULL, 0, 0, true);
+}
+
+/** @brief Precheck for F1-U DL congestion: drop and request status poll if needed */
+static nr_up_congestion_action_t nr_up_f1u_dl_congestion_precheck(ue_id_t ue_id, rb_id_t drb_id, size_t pdu_len)
+{
+  const nr_up_congestion_action_t action = nr_up_drb_budget_precheck(ue_id, drb_id, pdu_len);
+  if (action == NR_UP_CONGESTION_DROP) {
+    nr_up_f1u_request_status_poll(ue_id, drb_id);
+  }
+  return action;
+}
+
 /** @brief Binds the F1-U nr-up backend on iface */
 void nr_up_init_f1u(nr_up_if_t *iface)
 {
   DevAssert(iface);
   nr_up_manager_init();
   iface->deliver_drb = nr_up_f1u_deliver_drb;
-  iface->dl_congestion_precheck = nr_up_drb_budget_precheck;
+  iface->dl_congestion_precheck = nr_up_f1u_dl_congestion_precheck;
   iface->budget_sync = nr_up_drb_budget_sync;
 }
