@@ -651,3 +651,273 @@ static inline uint32_t nrLDPC_decoder_core_dynamic(int8_t* p_llr,
   }
   return numMaxIter;
 }
+
+/* -------------------------------------------------------------------------------------------------------------------
+ * Concurrent, early-terminating decoder used by the segment decoder (PDSCH/PUSCH).
+ *
+ * Contexts: the legacy path above has one set of device buffers and one graph cache, so every transport block (TB)
+ * was decoded under a single global mutex. Here each context has its own processing buffers, input/output buffers,
+ * deinterleaver/rate-recovery scratch, mapped bridge, CUDA stream (decoderStreams[ctx]), launch-dimension slot
+ * (the Kdim_* arrays have 8 entries, indexed by stream) and graph cache. Up to LDPC_CUDA_MAX_CTX TBs are in flight.
+ * OAI_CUDA_LDPC_CTX sets the number of contexts (default 4).
+ *
+ * Early termination: the decoder runs in chunks of OAI_CUDA_LDPC_CHUNK iterations (default 2), each ending with the
+ * hard decision; between chunks the host checks the CRC of every code block not yet decoded - the same test the CPU
+ * decoder applies after every iteration - and keeps the output of each code block from the chunk where it first
+ * passed. It stops when all code blocks passed or the iteration budget (numMaxIter + 1 check/bit-node rounds, as the
+ * full-length path) is used up.
+ * ------------------------------------------------------------------------------------------------------------------- */
+#include <pthread.h>
+#define LDPC_CUDA_MAX_CTX 8
+#define LDPC_CUDA_CTX_GRAPHS 64
+#define LDPC_CUDA_MAXE (4 * 14 * 273 * 12 * 8)
+
+extern cudaError_t nrLDPC_decoder_cuda_GraphRecordChunk(ldpc_cuda_bridge_t* buffer,
+                                                        uint32_t numLLR,
+                                                        int8_t* cnProcBuf,
+                                                        int8_t* bnProcBuf,
+                                                        int8_t* llrRes,
+                                                        int8_t* llrProcBuf,
+                                                        uint32_t Z,
+                                                        uint32_t K,
+                                                        uint8_t R,
+                                                        uint8_t n_segments,
+                                                        e_nrLDPC_outMode outMode,
+                                                        int prologue,
+                                                        int iters,
+                                                        cudaStream_t* streams,
+                                                        uint8_t CudaStreamIdx,
+                                                        cudaGraph_t* graphPtr,
+                                                        cudaGraphExec_t* graphExecPtr);
+extern void nrLDPC_decoder_cuda_NormalExecuteChunk(ldpc_cuda_bridge_t* buffer,
+                                                   uint32_t numLLR,
+                                                   int8_t* cnProcBuf,
+                                                   int8_t* bnProcBuf,
+                                                   int8_t* llrRes,
+                                                   int8_t* llrProcBuf,
+                                                   uint32_t Z,
+                                                   uint32_t K,
+                                                   uint8_t R,
+                                                   uint8_t n_segments,
+                                                   e_nrLDPC_outMode outMode,
+                                                   int prologue,
+                                                   int iters,
+                                                   cudaStream_t* streams,
+                                                   uint8_t CudaStreamIdx);
+
+typedef struct {
+  uint32_t Z, numLLR;
+  uint8_t R, n_segments, prologue, iters;
+  cudaGraph_t graph;
+  cudaGraphExec_t exec;
+} ldpc_chunk_graph_t;
+
+typedef struct {
+  pthread_mutex_t mutex;
+  int8_t *cnProcBuf, *bnProcBuf, *llrRes, *llrProcBuf; // decoder working buffers (device)
+  int8_t* llr; // decoder input: code block r at r * 68 * 384 (device)
+  int8_t* out; // hard decisions, C * K/8 bytes (device)
+  uint8_t* out_host; // pinned mirror of out
+  int16_t* harq_e; // deinterleaver output (device)
+  int16_t* harq_f; // input LLRs copied to the device (discrete GPUs only)
+  ldpc_cuda_bridge_t* bridge; // mapped host memory read by the kernels: llr / out pointers
+  ldpc_chunk_graph_t graphs[LDPC_CUDA_CTX_GRAPHS];
+  int n_graphs;
+} ldpc_cuda_ctx_t;
+
+static ldpc_cuda_ctx_t ldpc_ctx[LDPC_CUDA_MAX_CTX];
+static int ldpc_n_ctx = 0;
+static int ldpc_chunk = 2;
+
+#define CTX_ALLOC(ptr, bytes)                                                            \
+  do {                                                                                   \
+    cudaError_t e_ = cudaMalloc((void**)&(ptr), (bytes));                                \
+    AssertFatal(e_ == cudaSuccess, "cudaMalloc " #ptr ": %s\n", cudaGetErrorString(e_)); \
+  } while (0)
+
+void ldpc_cuda_ctx_init(void)
+{
+  if (ldpc_n_ctx)
+    return;
+  int n = getenv("OAI_CUDA_LDPC_CTX") ? atoi(getenv("OAI_CUDA_LDPC_CTX")) : 4;
+  n = n < 1 ? 1 : (n > LDPC_CUDA_MAX_CTX ? LDPC_CUDA_MAX_CTX : n);
+  ldpc_chunk = getenv("OAI_CUDA_LDPC_CHUNK") ? atoi(getenv("OAI_CUDA_LDPC_CHUNK")) : 2;
+  if (ldpc_chunk < 1)
+    ldpc_chunk = 1;
+  const size_t nseg = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4;
+  for (int i = 0; i < n; i++) {
+    ldpc_cuda_ctx_t* c = &ldpc_ctx[i];
+    pthread_mutex_init(&c->mutex, NULL);
+    CTX_ALLOC(c->cnProcBuf, nseg * NR_LDPC_SIZE_CN_PROC_BUF);
+    CTX_ALLOC(c->bnProcBuf, nseg * NR_LDPC_SIZE_BN_PROC_BUF);
+    CTX_ALLOC(c->llrRes, nseg * NR_LDPC_MAX_NUM_LLR);
+    CTX_ALLOC(c->llrProcBuf, nseg * NR_LDPC_MAX_NUM_LLR);
+    CTX_ALLOC(c->llr, nseg * 68 * 384);
+    cudaMemset(c->llr, 0, nseg * 68 * 384);
+    CTX_ALLOC(c->out, nseg * NR_LDPC_MAX_NUM_LLR);
+    CTX_ALLOC(c->harq_e, LDPC_CUDA_MAXE * sizeof(int16_t));
+    c->harq_f = NULL;
+    if (!pageable && !integrated)
+      CTX_ALLOC(c->harq_f, LDPC_CUDA_MAXE * sizeof(int16_t));
+    cudaError_t e = cudaHostAlloc((void**)&c->out_host, nseg * NR_LDPC_MAX_NUM_LLR, cudaHostAllocDefault);
+    AssertFatal(e == cudaSuccess, "cudaHostAlloc out_host: %s\n", cudaGetErrorString(e));
+    e = cudaHostAlloc((void**)&c->bridge, sizeof(ldpc_cuda_bridge_t), cudaHostAllocMapped);
+    AssertFatal(e == cudaSuccess, "cudaHostAlloc bridge: %s\n", cudaGetErrorString(e));
+    c->bridge->p_llr_ptr = c->llr;
+    c->bridge->p_out_ptr = c->out;
+    c->n_graphs = 0;
+    // warm-up: one short chunk on this context's stream (driver/JIT initialisation)
+    nrLDPC_decoder_cuda_NormalExecuteChunk(c->bridge,
+                                           NR_LDPC_NCOL_BG1_R23 * 384,
+                                           c->cnProcBuf,
+                                           c->bnProcBuf,
+                                           c->llrRes,
+                                           c->llrProcBuf,
+                                           384,
+                                           22 * 384,
+                                           23,
+                                           1,
+                                           nrLDPC_outMode_BIT,
+                                           1,
+                                           1,
+                                           decoderStreams,
+                                           i);
+    cudaStreamSynchronize(decoderStreams[i]);
+  }
+  ldpc_n_ctx = n;
+  printf("[CUDA] %d concurrent LDPC decoder contexts, early termination every %d iteration(s)\n", n, ldpc_chunk);
+}
+
+int ldpc_cuda_ctx_acquire(void)
+{
+  static int rr = 0;
+  const int start = __sync_fetch_and_add(&rr, 1);
+  for (int k = 0; k < ldpc_n_ctx; k++) {
+    const int i = (start + k) % ldpc_n_ctx;
+    if (pthread_mutex_trylock(&ldpc_ctx[i].mutex) == 0)
+      return i;
+  }
+  const int i = start % ldpc_n_ctx;
+  pthread_mutex_lock(&ldpc_ctx[i].mutex);
+  return i;
+}
+
+void ldpc_cuda_ctx_release(int ci)
+{
+  pthread_mutex_unlock(&ldpc_ctx[ci].mutex);
+}
+
+int8_t* ldpc_cuda_ctx_llr(int ci)
+{
+  return ldpc_ctx[ci].llr;
+}
+int16_t* ldpc_cuda_ctx_harq_e(int ci)
+{
+  return ldpc_ctx[ci].harq_e;
+}
+int16_t* ldpc_cuda_ctx_harq_f(int ci)
+{
+  return ldpc_ctx[ci].harq_f;
+}
+
+static void ldpc_ctx_run_chunk(int ci, uint32_t Z, uint8_t R, uint32_t numLLR, uint8_t C, int prologue, int iters)
+{
+  ldpc_cuda_ctx_t* c = &ldpc_ctx[ci];
+  const uint32_t K = 22 * Z;
+  if (cuda_graph_breaker == 0) {
+    for (int g = 0; g < c->n_graphs; g++) {
+      ldpc_chunk_graph_t* x = &c->graphs[g];
+      if (x->Z == Z && x->R == R && x->numLLR == numLLR && x->n_segments == C && x->prologue == prologue && x->iters == iters) {
+        if (cudaGraphLaunch(x->exec, decoderStreams[ci]) == cudaSuccess)
+          return;
+        break;
+      }
+    }
+    if (c->n_graphs < LDPC_CUDA_CTX_GRAPHS) {
+      ldpc_chunk_graph_t* x = &c->graphs[c->n_graphs];
+      if (nrLDPC_decoder_cuda_GraphRecordChunk(c->bridge,
+                                               numLLR,
+                                               c->cnProcBuf,
+                                               c->bnProcBuf,
+                                               c->llrRes,
+                                               c->llrProcBuf,
+                                               Z,
+                                               K,
+                                               R,
+                                               C,
+                                               nrLDPC_outMode_BIT,
+                                               prologue,
+                                               iters,
+                                               decoderStreams,
+                                               ci,
+                                               &x->graph,
+                                               &x->exec)
+          == cudaSuccess) {
+        x->Z = Z;
+        x->R = R;
+        x->numLLR = numLLR;
+        x->n_segments = C;
+        x->prologue = prologue;
+        x->iters = iters;
+        c->n_graphs++;
+        if (cudaGraphLaunch(x->exec, decoderStreams[ci]) == cudaSuccess)
+          return;
+      }
+    }
+  }
+  nrLDPC_decoder_cuda_NormalExecuteChunk(c->bridge,
+                                         numLLR,
+                                         c->cnProcBuf,
+                                         c->bnProcBuf,
+                                         c->llrRes,
+                                         c->llrProcBuf,
+                                         Z,
+                                         K,
+                                         R,
+                                         C,
+                                         nrLDPC_outMode_BIT,
+                                         prologue,
+                                         iters,
+                                         decoderStreams,
+                                         ci);
+}
+
+/* Decode the C code blocks in context ci (input already in ldpc_cuda_ctx_llr(ci)). p_out receives C * K/8 bytes.
+   Returns the number of iterations used (<= numMaxIter) if every code block passed its CRC, numMaxIter + 1 otherwise;
+   *n_passed is the number of code blocks that passed. */
+int32_t LDPCdecoder_cuda_ctx(int ci, t_nrLDPC_dec_params* p_decParams, uint8_t* p_out, int* n_passed)
+{
+  ldpc_cuda_ctx_t* c = &ldpc_ctx[ci];
+  const uint32_t Z = p_decParams->Z;
+  const uint8_t R = p_decParams->R;
+  const uint8_t C = p_decParams->n_segments;
+  const uint32_t K = 22 * Z;
+  const uint32_t Kb = K >> 3;
+  const uint32_t numLLR = (R == 13) ? NR_LDPC_NCOL_BG1_R13 * Z : ((R == 89) ? NR_LDPC_NCOL_BG1_R89 * Z : NR_LDPC_NCOL_BG1_R23 * Z);
+  const int budget = p_decParams->numMaxIter + 1;
+  uint8_t done[MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4] = {0};
+  int ndone = 0, it = 0;
+  while (it < budget) {
+    const int k = (budget - it) < ldpc_chunk ? (budget - it) : ldpc_chunk;
+    ldpc_ctx_run_chunk(ci, Z, R, numLLR, C, it == 0, k);
+    cudaMemcpyAsync(c->out_host, c->out, (size_t)C * Kb, cudaMemcpyDeviceToHost, decoderStreams[ci]);
+    cudaStreamSynchronize(decoderStreams[ci]);
+    it += k;
+    for (int r = 0; r < C; r++) {
+      if (done[r])
+        continue;
+      if (p_decParams->check_crc(c->out_host + (size_t)r * Kb, p_decParams->Kprime, p_decParams->crc_type)) {
+        memcpy(p_out + (size_t)r * Kb, c->out_host + (size_t)r * Kb, Kb);
+        done[r] = 1;
+        ndone++;
+      }
+    }
+    if (ndone == C)
+      break;
+  }
+  for (int r = 0; r < C; r++) // code blocks that never passed: last hard decision
+    if (!done[r])
+      memcpy(p_out + (size_t)r * Kb, c->out_host + (size_t)r * Kb, Kb);
+  *n_passed = ndone;
+  return ndone == C ? it - 1 : p_decParams->numMaxIter + 1;
+}

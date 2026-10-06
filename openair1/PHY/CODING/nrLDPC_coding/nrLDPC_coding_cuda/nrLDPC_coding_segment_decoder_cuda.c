@@ -71,6 +71,14 @@ extern int32_t LDPCdecoder_cuda(t_nrLDPC_dec_params *p_decParams,
                                 t_nrLDPC_time_stats *p_profiler,
                                 decode_abort_t *ab);
 
+extern int ldpc_cuda_ctx_acquire(void);
+extern void ldpc_cuda_ctx_release(int ci);
+extern int8_t *ldpc_cuda_ctx_llr(int ci);
+extern int16_t *ldpc_cuda_ctx_harq_e(int ci);
+extern int16_t *ldpc_cuda_ctx_harq_f(int ci);
+extern int32_t LDPCdecoder_cuda_ctx(int ci, t_nrLDPC_dec_params *p_decParams, uint8_t *p_out, int *n_passed);
+extern void ldpc_cuda_ctx_init(void);
+
 void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
 {
   // arg points to RDATA array (nrLDPC_decoding_parameters_t *RDATA)
@@ -83,27 +91,28 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   const int K = segs->K;
   const int Kprime = K - segs->F;
   const int segLen = Kc * Z; // int16 length; after packing we store int8 [segLen]
-  t_nrLDPC_time_stats procTime = {0};
-  t_nrLDPC_time_stats *p_procTime = &procTime;
 
 #ifdef USE_GPU_FOR_RM_DEINTER
   int E1 = segs->E;
   int E2 = segs->E2;
   int r_firstE2 = segs->first_rE2;
 
-  LOG_D(NR_PHY, "locking decoder (llr %p)\n", segs->llr);
-  pthread_mutex_lock(&decoder_mutex);
+  // one of several independent decoder contexts (buffers, stream, graphs): TBs of different slots decode concurrently
+  const int ci = ldpc_cuda_ctx_acquire();
+  int8_t *const llr_dev = ldpc_cuda_ctx_llr(ci);
+  int16_t *const e_dev = ldpc_cuda_ctx_harq_e(ci);
+  int16_t *const f_dev = ldpc_cuda_ctx_harq_f(ci);
 
   *segs->processedSegments = 0;
 
   // for PCIe GPU copy llrs to device memory
   if (!pageable && !integrated) {
-    LOG_I(NR_PHY, "cudaMemcpyAsynch llr->harq_f_dev\n");
-    cudaMemcpyAsync(harq_f_dev,
+    LOG_I(NR_PHY, "cudaMemcpyAsynch llr->f_dev\n");
+    cudaMemcpyAsync(f_dev,
                     segs->llr,
                     ((r_firstE2 * E1) + (C - r_firstE2) * E2) * sizeof(int16_t),
                     cudaMemcpyHostToDevice,
-                    decoderStreams[0]);
+                    decoderStreams[ci]);
   }
 #if 0
   if (1/*segs->rv_index==2*/)
@@ -115,16 +124,8 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
       }
     }
 #endif
-  LOG_D(NR_PHY, "deinter: e %p llr %p\n", harq_e_dev, pageable || integrated ? segs->llr : harq_f_dev);
-  launch_deinterleave_i16(segs->Qm,
-                          E1,
-                          E2,
-                          C,
-                          r_firstE2,
-                          harq_e_dev,
-                          pageable || integrated ? segs->llr : harq_f_dev,
-                          decoderStreams,
-                          0);
+  LOG_D(NR_PHY, "deinter: e %p llr %p\n", e_dev, pageable || integrated ? segs->llr : f_dev);
+  launch_deinterleave_i16(segs->Qm, E1, E2, C, r_firstE2, e_dev, pageable || integrated ? segs->llr : f_dev, decoderStreams, ci);
 #if 0
   cudaError_t err;
   if (1/*segs->rv_index == 2*/) {
@@ -132,7 +133,7 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
     for (int r=0;r<C;r++) {
       int E = r<r_firstE2 ? E1 : E2;
       int r_off = r<r_firstE2 ? (r*E1) : ((r_firstE2*E1) + (r-r_firstE2)*E2);
-      err = cudaMemcpyAsync(elocal,&harq_e_dev[r_off],sizeof(elocal),cudaMemcpyDeviceToHost,decoderStreams[0]);
+      err = cudaMemcpyAsync(elocal,&e_dev[r_off],sizeof(elocal),cudaMemcpyDeviceToHost,decoderStreams[ci]);
       AssertFatal(err == cudaSuccess,"cudaMemcpyAsync failed with error %s, r_off %d\n",cudaGetErrorString(err),r_off);
       for (int i=0;i<E;i++) {
 	 if (elocal[i] != segs->llr[r_off + ((i<(E/2)) ? 2*i : (-E+1+2*i))])  { 
@@ -146,18 +147,18 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   // printf("Running RM with id %d, d_to_be_cleared %d, rv_idx %d, Z %d, C %d, E1 %d, E2 %d, F %d,r_firstE2
   // %d\n",segs->harq_unique_pid,segs->d_to_be_cleared,segs->rv_index,Z,C,E1,E2,segs->F,r_firstE2);
 #if 0
-  if (segs->d_to_be_cleared == 1) err = cudaMemsetAsync(harq_d_array[segs->harq_unique_pid],0,C*68*Z*sizeof(int16_t),decoderStreams[0]);
+  if (segs->d_to_be_cleared == 1) err = cudaMemsetAsync(harq_d_array[segs->harq_unique_pid],0,C*68*Z*sizeof(int16_t),decoderStreams[ci]);
   AssertFatal(err==cudaSuccess,"cudaMemsetAsync failed with error %s on harq_d_array[%d] %p for %d bytes\n",cudaGetErrorString(err),segs->harq_unique_pid,harq_d_array[segs->harq_unique_pid],C*68*Z*sizeof(int16_t));
-  cudaMemsetAsync(p_llr_dev,0,C*68*Z*sizeof(int8_t),decoderStreams[0]);
-  AssertFatal(err==cudaSuccess,"cudaMemsetAsync failed on p_llr_dev %p\n",p_llr_dev);
+  cudaMemsetAsync(llr_dev,0,C*68*Z*sizeof(int8_t),decoderStreams[ci]);
+  AssertFatal(err==cudaSuccess,"cudaMemsetAsync failed on llr_dev %p\n",llr_dev);
 #endif
   AssertFatal(segs->harq_unique_pid < d_array_size, "harq_unique_pid %d > %d\n", segs->harq_unique_pid, d_array_size);
   nr_rate_matching_ldpc_rx_cuda(segs->tbslbrm,
                                 segs->BG,
                                 Z,
                                 harq_d_array[segs->harq_unique_pid],
-                                harq_e_dev,
-                                p_llr_dev,
+                                e_dev,
+                                llr_dev,
                                 K,
                                 C, // TB segments count
                                 segs->rv_index,
@@ -168,15 +169,15 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
                                 segs->F,
                                 Kprime - 2 * Z,
                                 decoderStreams,
-                                0);
+                                ci);
   // The GPU rate recovery and the decoder place segment r at r * 68 * 384 (fixed maximum stride), not at r * Kc * Z
   const size_t segStride = 68 * 384;
   for (int r = 0; r < C; ++r) {
-    cudaMemsetAsync(p_llr_dev + (size_t)r * segStride, 0, sizeof(int8_t) * 2 * Z, decoderStreams[0]);
+    cudaMemsetAsync(llr_dev + (size_t)r * segStride, 0, sizeof(int8_t) * 2 * Z, decoderStreams[ci]);
 #if 0
      int8_t llr_local[segLen];
      if (r==1 && segs->rv_index==2) {
-       cudaMemcpyAsync(llr_local,p_llr_dev+(size_t)r*segLen,sizeof(int8_t)*segLen,cudaMemcpyDeviceToHost,decoderStreams[0]);
+       cudaMemcpyAsync(llr_local,llr_dev+(size_t)r*segLen,sizeof(int8_t)*segLen,cudaMemcpyDeviceToHost,decoderStreams[ci]);
        for (int i=0;i<segLen;i++) printf("llr(%d,%d,%d/%d) %d\n",segs->rv_index,r,i,segLen,llr_local[i]);
      }
 #endif
@@ -239,7 +240,8 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
 
   LOG_D(NR_PHY, "decoder (llr %p): %d segments, Z %d, R %d \n", segs->llr, C, Z, segs->R);
 
-  int decodeIterations = LDPCdecoder_cuda(&decParams, p_llr_dev, segs->c, p_procTime, segs->abort_decode);
+  int n_passed = 0;
+  int decodeIterations = LDPCdecoder_cuda_ctx(ci, &decParams, segs->c, &n_passed);
   stop_meas(&segs->ts_ldpc_decode);
 
   if (decodeIterations <= segs->max_ldpc_iterations) {
@@ -254,7 +256,7 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
     LOG_D(NR_PHY, "Set all segs->decodeSuccess to false\n");
   }
   LOG_D(NR_PHY, "unlocking decoder (llr %p)\n", segs->llr);
-  pthread_mutex_unlock(&decoder_mutex);
+  ldpc_cuda_ctx_release(ci);
 }
 
 #define MAXE 4 * 14 * 273 * 12 * 8 // 4 antennas, 14 symbols, 273 PRBs, 12 RE/prb, 8 bits/RE
@@ -297,6 +299,7 @@ int32_t nrLDPC_coding_init_cuda(int max_num_pxsch)
 
   LDPCinit_cuda();
   LDPCint_rm_init(max_num_pxsch);
+  ldpc_cuda_ctx_init();
   return 0;
 }
 
