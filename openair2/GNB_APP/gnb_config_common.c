@@ -21,14 +21,22 @@ uint16_t set_snssai_config(nssai_t *nssai, const int max_num_ssi, uint8_t k, uin
                   SNSSAIPARAMS_CHECK);
   uint16_t num_ssi = SNSSAIParamList.numelt;
   AssertFatal(num_ssi < max_num_ssi, "S-NSSAI size %d exceeds the max array size %d", num_ssi, max_num_ssi);
-  for (int s = 0; s < num_ssi; ++s) {
-    nssai[s].sst = *SNSSAIParamList.paramarray[s][GNB_SLICE_SERVICE_TYPE_IDX].uptr;
-    // SD is optional
-    // 0xffffff is "no SD", see 23.003 Sec 28.4.2
-    nssai[s].sd = *SNSSAIParamList.paramarray[s][GNB_SLICE_DIFFERENTIATOR_IDX].uptr;
-    AssertFatal(nssai[s].sd <= 0xffffff, "SD cannot be bigger than 0xffffff, but is %d\n", nssai[s].sd);
-  }
+  for (int s = 0; s < num_ssi; ++s)
+    nssai[s] = extract_nssai_from_params(SNSSAIParamList.paramarray[s], sizeofArray(SNSSAIParams));
   return num_ssi;
+}
+
+/** @brief Extract S-NSSAI from parameter array
+ * @param[in] params Parameter array containing S-NSSAI fields
+ * @return nssai_t structure filled from parameters */
+nssai_t extract_nssai_from_params(const paramdef_t *params, int n_params)
+{
+  // SD is optional
+  // 0xffffff is "no SD", see 23.003 Sec 28.4.2
+  nssai_t nssai = {.sst = *gpd(params, n_params, GNB_CONFIG_STRING_SLICE_SERVICE_TYPE)->uptr,
+                   .sd = *gpd(params, n_params, GNB_CONFIG_STRING_SLICE_DIFFERENTIATOR)->uptr};
+  AssertFatal(nssai.sd <= 0xffffff, "SD cannot be bigger than 0xffffff, but is %d\n", nssai.sd);
+  return nssai;
 }
 
 /** @brief Extract PLMN from parameter array
