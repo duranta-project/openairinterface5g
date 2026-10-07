@@ -62,6 +62,7 @@
 /* MAC */
 #include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "LAYER2/NR_MAC_gNB/mac_config.h"
+#include "LAYER2/NR_MAC_gNB/slicing.h"
 #include "NR_TAG.h"
 
 /* Defs */

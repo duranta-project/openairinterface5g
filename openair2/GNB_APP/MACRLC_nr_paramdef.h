@@ -186,5 +186,36 @@
   { .s5 = { NULL } }, /* removed beam_weights */ \
 }
 
+/* RAN slicing RRM policies (cf. TS 28.541 RRMPolicyRatio), list inside MACRLCs.[x] */
+#define MACRLC_SLICING_LIST                  "slicing"
+#define MACRLC_SLICING_RESOURCE_TYPE         "resource_type"
+#define MACRLC_SLICING_DEDICATED_RATIO       "dedicatedRatio"
+#define MACRLC_SLICING_MIN_RATIO             "minRatio"
+#define MACRLC_SLICING_MAX_RATIO             "maxRatio"
+/* each policy member contains PLMN (GNBPLMNPARAMS_DESC) and S-NSSAI (GNBSNSSAIPARAMS_DESC) */
+#define MACRLC_SLICING_POLICY_MEMBER_LIST    "policy_member"
+
+#define HLP_MACRLC_SLICING_RESOURCE_TYPE "Resource type the policy applies to: both, dl, ul"
+#define HLP_MACRLC_SLICING_DEDICATED     "Dedicated resource ratio in percent [0,100]"
+#define HLP_MACRLC_SLICING_MIN           "Minimum (prioritized) resource ratio in percent [0,100]"
+#define HLP_MACRLC_SLICING_MAX           "Maximum resource ratio in percent [0,100]"
+
+#define MACRLC_SLICING_RATIO_CHECK &(checkedparam_t){.s2a = {config_check_dblrange, {0.0, 100.0}}}
+// clang-format off
+#define MACRLC_SLICINGPARAMS_DESC { \
+  {MACRLC_SLICING_RESOURCE_TYPE,   HLP_MACRLC_SLICING_RESOURCE_TYPE, 0, .strptr=NULL, .defstrval="both", TYPE_STRING, 0, \
+    .chkPptr = &(checkedparam_t){.s3a = {config_checkstr_assign_integer, \
+                                         {"both", "dl", "ul"}, \
+                                         {NR_SLICE_RESOURCE_BOTH, NR_SLICE_RESOURCE_DL, NR_SLICE_RESOURCE_UL}, \
+                                         3}}}, \
+  {MACRLC_SLICING_DEDICATED_RATIO, HLP_MACRLC_SLICING_DEDICATED,     0, .dblptr=NULL, .defdblval=0.0,    TYPE_DOUBLE, 0, \
+    .chkPptr = MACRLC_SLICING_RATIO_CHECK}, \
+  {MACRLC_SLICING_MIN_RATIO,       HLP_MACRLC_SLICING_MIN,           0, .dblptr=NULL, .defdblval=0.0,    TYPE_DOUBLE, 0, \
+    .chkPptr = MACRLC_SLICING_RATIO_CHECK}, \
+  {MACRLC_SLICING_MAX_RATIO,       HLP_MACRLC_SLICING_MAX,           0, .dblptr=NULL, .defdblval=100.0,  TYPE_DOUBLE, 0, \
+    .chkPptr = MACRLC_SLICING_RATIO_CHECK}, \
+}
+// clang-format on
+
 /*---------------------------------------------------------------------------------------------------------------------------------------------------------*/
 #endif
