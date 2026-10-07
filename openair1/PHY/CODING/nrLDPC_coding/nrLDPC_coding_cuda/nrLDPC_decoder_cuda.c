@@ -44,7 +44,7 @@ int8_t* llrProcBuf_dev;
 int8_t* p_llr_dev;
 int8_t* p_out_dev;
 
-extern int pageable, integrated;
+extern int pageable, integrated, pageable_uses_host;
 
 int cuda_support_init_decoder()
 {
@@ -670,7 +670,9 @@ static inline uint32_t nrLDPC_decoder_core_dynamic(int8_t* p_llr,
 #include <pthread.h>
 #define LDPC_CUDA_MAX_CTX 8
 #define LDPC_CUDA_CTX_GRAPHS 64
+#define LDPC_ET_CTX_GRAPHS 256
 #define LDPC_CUDA_MAXE (4 * 14 * 273 * 12 * 8)
+#define LDPC_ET_THREADS 256 // threads per code block of the CRC kernel
 
 extern cudaError_t nrLDPC_decoder_cuda_GraphRecordChunk(ldpc_cuda_bridge_t* buffer,
                                                         uint32_t numLLR,
@@ -704,6 +706,58 @@ extern void nrLDPC_decoder_cuda_NormalExecuteChunk(ldpc_cuda_bridge_t* buffer,
                                                    int iters,
                                                    cudaStream_t* streams,
                                                    uint8_t CudaStreamIdx);
+extern cudaError_t nrLDPC_decoder_cuda_EnqueueET(ldpc_cuda_bridge_t* buffer,
+                                                 uint32_t numLLR,
+                                                 int8_t* cnProcBuf,
+                                                 int8_t* bnProcBuf,
+                                                 int8_t* llrRes,
+                                                 int8_t* llrProcBuf,
+                                                 uint32_t Z,
+                                                 uint32_t K,
+                                                 uint8_t R,
+                                                 uint8_t n_segments,
+                                                 int budget,
+                                                 int chunk,
+                                                 uint8_t* out,
+                                                 int32_t* pass_it,
+                                                 ldpc_cuda_et_state_t* st,
+                                                 uint8_t* copy_dst,
+                                                 const uint8_t* copy_src,
+                                                 size_t copy_bytes,
+                                                 cudaStream_t* streams,
+                                                 uint8_t CudaStreamIdx,
+                                                 cudaStream_t side_stream,
+                                                 cudaEvent_t ev_fork,
+                                                 cudaEvent_t ev_join,
+                                                 cudaGraph_t graphs[2],
+                                                 cudaGraphExec_t execs[2],
+                                                 cudaEvent_t ev_first);
+
+extern void nrLDPC_decoder_cuda_ETSetup(cudaStream_t stream,
+                                        ldpc_cuda_et_state_t* st,
+                                        int32_t* pass_it,
+                                        int C,
+                                        int Cb,
+                                        uint32_t nbytes,
+                                        uint32_t crc_deg,
+                                        uint32_t crc_low,
+                                        const uint32_t* xpow);
+
+// Graphs are recorded per (Z, R, bucket of the number of code blocks, iteration budget): a handful serve every TB size.
+// A shape seen for the first time is decoded with direct launches while the background recorder (ldpc_et_recorder())
+// records its graphs, used from then on.
+typedef enum { ET_GRAPH_PENDING, ET_GRAPH_READY, ET_GRAPH_FAILED } ldpc_et_graph_state_t;
+typedef struct {
+  uint32_t Z;
+  uint8_t R, n_segments; // n_segments: the bucket
+  int budget, chunk;
+  uint32_t numLLR;
+  ldpc_et_graph_state_t state;
+  uint64_t last_use; // LRU eviction
+  // first chunk, then the remaining ones (NULL if the budget is a single chunk)
+  cudaGraph_t graph[2];
+  cudaGraphExec_t exec[2];
+} ldpc_et_graph_t;
 
 typedef struct {
   uint32_t Z, numLLR;
@@ -723,11 +777,38 @@ typedef struct {
   ldpc_cuda_bridge_t* bridge; // mapped host memory read by the kernels: llr / out pointers
   ldpc_chunk_graph_t graphs[LDPC_CUDA_CTX_GRAPHS];
   int n_graphs;
+  // device-side early termination
+  ldpc_cuda_et_state_t* st; // (device)
+  // et_host: pass_it (iterations after which each code block passed, 0 if it did not), then the hard decision of each
+  // code block from the chunk where it first passed. Pinned host memory, written by the GPU directly (zero copy) on GPUs
+  // coherent with the host, else copied from et_dev at the end of the decode.
+  uint8_t* et_host;
+  uint8_t* et_dev; // device view of et_host (zero copy) or device buffer
+  cudaStream_t side_stream; // side branch (CRC checks) of the direct launches
+  cudaEvent_t ev_fork, ev_join;
+  cudaEvent_t ev_first; // end of the first part of a decode
+  pthread_mutex_t et_graphs_mutex; // et_graphs is shared with the background recorder
+  ldpc_et_graph_t et_graphs[LDPC_ET_CTX_GRAPHS];
+  int n_et_graphs;
+  uint64_t et_uses;
 } ldpc_cuda_ctx_t;
 
 static ldpc_cuda_ctx_t ldpc_ctx[LDPC_CUDA_MAX_CTX];
 static int ldpc_n_ctx = 0;
 static int ldpc_chunk = 2;
+static int ldpc_et_gpu = 1; // CRC checks and early termination on the GPU (OAI_CUDA_LDPC_ET=gpu|host)
+static int ldpc_et_zero_copy = 0; // GPU coherent with the host (integrated, or ATS/NVLink-C2C): output written in place
+#define LDPC_ET_PASS_IT_BYTES (MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * sizeof(int32_t))
+#define LDPC_ET_MAX_L ((NR_LDPC_ZMAX * 22 / 8 + LDPC_ET_THREADS - 1) / LDPC_ET_THREADS) // bytes per CRC thread
+// CRC combining factors per CRC type (CRC24_A, CRC24_B, CRC16) and bytes per thread L (see ldpc_et_crc_kernel())
+static uint32_t* ldpc_et_xpow[3][LDPC_ET_MAX_L + 1];
+static const uint32_t ldpc_et_crc_deg[3] = {24, 24, 16};
+static const uint32_t ldpc_et_crc_low[3] = {0x864cfb, 0x800063, 0x1021};
+// buckets of the number of code blocks a graph is recorded for: at most 1/3 padding above 4
+static const uint8_t ldpc_et_buckets[] =
+    {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4};
+
+static void ldpc_et_recorder_start(void);
 
 #define CTX_ALLOC(ptr, bytes)                                                            \
   do {                                                                                   \
@@ -744,6 +825,27 @@ void ldpc_cuda_ctx_init(void)
   ldpc_chunk = getenv("OAI_CUDA_LDPC_CHUNK") ? atoi(getenv("OAI_CUDA_LDPC_CHUNK")) : 2;
   if (ldpc_chunk < 1)
     ldpc_chunk = 1;
+  ldpc_et_gpu = !(getenv("OAI_CUDA_LDPC_ET") && !strcmp(getenv("OAI_CUDA_LDPC_ET"), "host"));
+  // pageable alone is not enough: x86 + HMM reports it for discrete GPUs, whose host memory is behind PCIe
+  ldpc_et_zero_copy = integrated || pageable_uses_host;
+  for (int type = 0; type < 3; type++) {
+    const uint32_t deg = ldpc_et_crc_deg[type], low = ldpc_et_crc_low[type];
+    for (int L = 1; L <= LDPC_ET_MAX_L; L++) {
+      // thread t takes bytes [t L, (t+1) L) of the zero-padded message: factor x^(8 L (T-1-t)) mod g
+      uint32_t xpow[LDPC_ET_THREADS];
+      uint32_t v = 1;
+      for (int t = LDPC_ET_THREADS - 1; t >= 0; t--) {
+        xpow[t] = v;
+        for (int k = 0; k < 8 * L; k++) {
+          v <<= 1;
+          if (v & (1u << deg))
+            v ^= (1u << deg) | low;
+        }
+      }
+      CTX_ALLOC(ldpc_et_xpow[type][L], sizeof(xpow));
+      cudaMemcpy(ldpc_et_xpow[type][L], xpow, sizeof(xpow), cudaMemcpyHostToDevice);
+    }
+  }
   const size_t nseg = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4;
   for (int i = 0; i < n; i++) {
     ldpc_cuda_ctx_t* c = &ldpc_ctx[i];
@@ -766,6 +868,26 @@ void ldpc_cuda_ctx_init(void)
     c->bridge->p_llr_ptr = c->llr;
     c->bridge->p_out_ptr = c->out;
     c->n_graphs = 0;
+    CTX_ALLOC(c->st, sizeof(ldpc_cuda_et_state_t));
+    const size_t et_bytes = LDPC_ET_PASS_IT_BYTES + nseg * NR_LDPC_MAX_NUM_LLR;
+    e = cudaHostAlloc((void**)&c->et_host, et_bytes, ldpc_et_zero_copy ? cudaHostAllocMapped : cudaHostAllocDefault);
+    AssertFatal(e == cudaSuccess, "cudaHostAlloc et_host: %s\n", cudaGetErrorString(e));
+    if (ldpc_et_zero_copy) {
+      e = cudaHostGetDevicePointer((void**)&c->et_dev, c->et_host, 0);
+      AssertFatal(e == cudaSuccess, "cudaHostGetDevicePointer et_host: %s\n", cudaGetErrorString(e));
+    } else {
+      CTX_ALLOC(c->et_dev, et_bytes);
+    }
+    e = cudaStreamCreateWithFlags(&c->side_stream, cudaStreamNonBlocking);
+    AssertFatal(e == cudaSuccess, "cudaStreamCreate side_stream: %s\n", cudaGetErrorString(e));
+    e = cudaEventCreateWithFlags(&c->ev_fork, cudaEventDisableTiming);
+    AssertFatal(e == cudaSuccess, "cudaEventCreate: %s\n", cudaGetErrorString(e));
+    e = cudaEventCreateWithFlags(&c->ev_join, cudaEventDisableTiming);
+    AssertFatal(e == cudaSuccess, "cudaEventCreate: %s\n", cudaGetErrorString(e));
+    e = cudaEventCreateWithFlags(&c->ev_first, cudaEventDisableTiming);
+    AssertFatal(e == cudaSuccess, "cudaEventCreate: %s\n", cudaGetErrorString(e));
+    c->n_et_graphs = 0;
+    pthread_mutex_init(&c->et_graphs_mutex, NULL);
     // warm-up: one short chunk on this context's stream (driver/JIT initialisation)
     nrLDPC_decoder_cuda_NormalExecuteChunk(c->bridge,
                                            NR_LDPC_NCOL_BG1_R23 * 384,
@@ -785,7 +907,12 @@ void ldpc_cuda_ctx_init(void)
     cudaStreamSynchronize(decoderStreams[i]);
   }
   ldpc_n_ctx = n;
-  printf("[CUDA] %d concurrent LDPC decoder contexts, early termination every %d iteration(s)\n", n, ldpc_chunk);
+  ldpc_et_recorder_start();
+  printf("[CUDA] %d concurrent LDPC decoder contexts, early termination every %d iteration(s), CRC on the %s%s\n",
+         n,
+         ldpc_chunk,
+         ldpc_et_gpu ? "GPU" : "host",
+         ldpc_et_gpu ? (ldpc_et_zero_copy ? ", output zero-copy" : ", output copied") : "");
 }
 
 int ldpc_cuda_ctx_acquire(void)
@@ -882,6 +1009,165 @@ static void ldpc_ctx_run_chunk(int ci, uint32_t Z, uint8_t R, uint32_t numLLR, u
                                          ci);
 }
 
+static int ldpc_et_bucket(int C)
+{
+  int i = 0;
+  while (ldpc_et_buckets[i] < C)
+    i++;
+  return ldpc_et_buckets[i];
+}
+
+/* Background graph recorder: records the graphs of the shapes queued by ldpc_ctx_et_graph(), off the decoding threads.
+   It captures on its own stream, side stream, events and launch-dimension slot (LDPC_ET_REC_SLOT), so it never interferes
+   with a decode in progress on the context; capture launches nothing. */
+#define LDPC_ET_REC_QUEUE 64
+static struct {
+  pthread_mutex_t mutex;
+  pthread_cond_t cond;
+  struct {
+    int ci;
+    ldpc_et_graph_t* x;
+  } q[LDPC_ET_REC_QUEUE];
+  int head, n;
+  cudaStream_t stream, side_stream;
+  cudaEvent_t ev_fork, ev_join;
+} ldpc_et_rec;
+
+static void* ldpc_et_recorder(void* arg)
+{
+  (void)arg;
+  cudaStream_t streams[LDPC_ET_REC_SLOT + 1];
+  streams[LDPC_ET_REC_SLOT] = ldpc_et_rec.stream;
+  while (1) {
+    pthread_mutex_lock(&ldpc_et_rec.mutex);
+    while (ldpc_et_rec.n == 0)
+      pthread_cond_wait(&ldpc_et_rec.cond, &ldpc_et_rec.mutex);
+    const int ci = ldpc_et_rec.q[ldpc_et_rec.head].ci;
+    ldpc_et_graph_t* x = ldpc_et_rec.q[ldpc_et_rec.head].x;
+    ldpc_et_rec.head = (ldpc_et_rec.head + 1) % LDPC_ET_REC_QUEUE;
+    ldpc_et_rec.n--;
+    pthread_mutex_unlock(&ldpc_et_rec.mutex);
+
+    ldpc_cuda_ctx_t* c = &ldpc_ctx[ci];
+    cudaGraph_t graph[2] = {NULL, NULL};
+    cudaGraphExec_t exec[2] = {NULL, NULL};
+    cudaError_t err =
+        nrLDPC_decoder_cuda_EnqueueET(c->bridge,
+                                      x->numLLR,
+                                      c->cnProcBuf,
+                                      c->bnProcBuf,
+                                      c->llrRes,
+                                      c->llrProcBuf,
+                                      x->Z,
+                                      22 * x->Z,
+                                      x->R,
+                                      x->n_segments,
+                                      x->budget,
+                                      x->chunk,
+                                      c->et_dev + LDPC_ET_PASS_IT_BYTES,
+                                      (int32_t*)c->et_dev,
+                                      c->st,
+                                      c->et_host,
+                                      c->et_dev,
+                                      ldpc_et_zero_copy ? 0 : LDPC_ET_PASS_IT_BYTES + (size_t)x->n_segments * (22 * x->Z / 8),
+                                      streams,
+                                      LDPC_ET_REC_SLOT,
+                                      ldpc_et_rec.side_stream,
+                                      ldpc_et_rec.ev_fork,
+                                      ldpc_et_rec.ev_join,
+                                      graph,
+                                      exec,
+                                      NULL);
+    for (int g = 0; g < 2 && err == cudaSuccess; g++) // upload now rather than at the first launch
+      if (exec[g])
+        err = cudaGraphUpload(exec[g], ldpc_et_rec.stream);
+    if (err == cudaSuccess)
+      err = cudaStreamSynchronize(ldpc_et_rec.stream);
+    if (err != cudaSuccess) {
+      LOG_W(PHY, "CUDA LDPC: graph recording failed (Z %u R %d C %d): %s\n", x->Z, x->R, x->n_segments, cudaGetErrorString(err));
+      cudaGetLastError();
+    }
+    pthread_mutex_lock(&c->et_graphs_mutex);
+    memcpy(x->graph, graph, sizeof(graph));
+    memcpy(x->exec, exec, sizeof(exec));
+    x->state = err == cudaSuccess ? ET_GRAPH_READY : ET_GRAPH_FAILED;
+    pthread_mutex_unlock(&c->et_graphs_mutex);
+  }
+  return NULL;
+}
+
+static void ldpc_et_recorder_start(void)
+{
+  pthread_mutex_init(&ldpc_et_rec.mutex, NULL);
+  pthread_cond_init(&ldpc_et_rec.cond, NULL);
+  cudaError_t e = cudaStreamCreateWithFlags(&ldpc_et_rec.stream, cudaStreamNonBlocking);
+  AssertFatal(e == cudaSuccess, "cudaStreamCreate: %s\n", cudaGetErrorString(e));
+  e = cudaStreamCreateWithFlags(&ldpc_et_rec.side_stream, cudaStreamNonBlocking);
+  AssertFatal(e == cudaSuccess, "cudaStreamCreate: %s\n", cudaGetErrorString(e));
+  e = cudaEventCreateWithFlags(&ldpc_et_rec.ev_fork, cudaEventDisableTiming);
+  AssertFatal(e == cudaSuccess, "cudaEventCreate: %s\n", cudaGetErrorString(e));
+  e = cudaEventCreateWithFlags(&ldpc_et_rec.ev_join, cudaEventDisableTiming);
+  AssertFatal(e == cudaSuccess, "cudaEventCreate: %s\n", cudaGetErrorString(e));
+  pthread_t t;
+  AssertFatal(pthread_create(&t, NULL, ldpc_et_recorder, NULL) == 0, "pthread_create failed\n");
+  pthread_detach(t);
+}
+
+/* Graphs of the early-terminating decode for Cb code blocks if recorded, NULL otherwise: decode with direct launches.
+   A shape seen for the first time is queued for the background recorder. The cache keeps the most recently used ones. */
+static const ldpc_et_graph_t* ldpc_ctx_et_graph(int ci, uint32_t Z, uint8_t R, uint32_t numLLR, int Cb, int budget, int chunk)
+{
+  ldpc_cuda_ctx_t* c = &ldpc_ctx[ci];
+  pthread_mutex_lock(&c->et_graphs_mutex);
+  c->et_uses++;
+  ldpc_et_graph_t* lru = NULL;
+  for (int g = 0; g < c->n_et_graphs; g++) {
+    ldpc_et_graph_t* x = &c->et_graphs[g];
+    if (x->Z == Z && x->R == R && x->n_segments == Cb && x->budget == budget && x->chunk == chunk) {
+      x->last_use = c->et_uses;
+      pthread_mutex_unlock(&c->et_graphs_mutex);
+      return x->state == ET_GRAPH_READY ? x : NULL;
+    }
+    if (x->state != ET_GRAPH_PENDING && (!lru || x->last_use < lru->last_use))
+      lru = x;
+  }
+  pthread_mutex_lock(&ldpc_et_rec.mutex);
+  const bool queue_full = ldpc_et_rec.n == LDPC_ET_REC_QUEUE;
+  pthread_mutex_unlock(&ldpc_et_rec.mutex);
+  ldpc_et_graph_t* x = NULL;
+  if (!queue_full && c->n_et_graphs < LDPC_ET_CTX_GRAPHS) {
+    x = &c->et_graphs[c->n_et_graphs++];
+  } else if (!queue_full && lru) { // evict: the previous decode on this context may still run its graphs
+    x = lru;
+    cudaStreamSynchronize(decoderStreams[ci]);
+    for (int g = 0; g < 2; g++) {
+      if (x->exec[g])
+        cudaGraphExecDestroy(x->exec[g]);
+      if (x->graph[g])
+        cudaGraphDestroy(x->graph[g]);
+    }
+  }
+  if (x) {
+    *x = (ldpc_et_graph_t){.Z = Z,
+                           .R = R,
+                           .n_segments = Cb,
+                           .budget = budget,
+                           .chunk = chunk,
+                           .numLLR = numLLR,
+                           .state = ET_GRAPH_PENDING,
+                           .last_use = c->et_uses};
+    pthread_mutex_lock(&ldpc_et_rec.mutex);
+    const int tail = (ldpc_et_rec.head + ldpc_et_rec.n) % LDPC_ET_REC_QUEUE;
+    ldpc_et_rec.q[tail].ci = ci;
+    ldpc_et_rec.q[tail].x = x;
+    ldpc_et_rec.n++;
+    pthread_cond_signal(&ldpc_et_rec.cond);
+    pthread_mutex_unlock(&ldpc_et_rec.mutex);
+  }
+  pthread_mutex_unlock(&c->et_graphs_mutex);
+  return NULL;
+}
+
 /* Decode the C code blocks in context ci (input already in ldpc_cuda_ctx_llr(ci)). p_out receives C * K/8 bytes.
    Returns the number of iterations used (<= numMaxIter) if every code block passed its CRC, numMaxIter + 1 otherwise;
    *n_passed is the number of code blocks that passed. */
@@ -895,6 +1181,80 @@ int32_t LDPCdecoder_cuda_ctx(int ci, t_nrLDPC_dec_params* p_decParams, uint8_t* 
   const uint32_t Kb = K >> 3;
   const uint32_t numLLR = (R == 13) ? NR_LDPC_NCOL_BG1_R13 * Z : ((R == 89) ? NR_LDPC_NCOL_BG1_R89 * Z : NR_LDPC_NCOL_BG1_R23 * Z);
   const int budget = p_decParams->numMaxIter + 1;
+  const int chunk = ldpc_chunk < budget ? ldpc_chunk : budget;
+  const int crc =
+      p_decParams->crc_type == CRC24_A ? 0 : (p_decParams->crc_type == CRC24_B ? 1 : (p_decParams->crc_type == CRC16 ? 2 : -1));
+  if (ldpc_et_gpu && crc >= 0 && !(p_decParams->Kprime & 7)) {
+    cudaStream_t stream = decoderStreams[ci];
+    const int Cb = ldpc_et_bucket(C);
+    const ldpc_et_graph_t* et = cuda_graph_breaker == 0 ? ldpc_ctx_et_graph(ci, Z, R, numLLR, Cb, budget, chunk) : NULL;
+    const uint32_t nbytes = p_decParams->Kprime >> 3;
+    nrLDPC_decoder_cuda_ETSetup(stream,
+                                c->st,
+                                (int32_t*)c->et_dev,
+                                C,
+                                Cb,
+                                nbytes,
+                                ldpc_et_crc_deg[crc],
+                                ldpc_et_crc_low[crc],
+                                ldpc_et_xpow[crc][(nbytes + LDPC_ET_THREADS - 1) / LDPC_ET_THREADS]);
+    // enqueue the whole decode, first chunk then the remaining ones, but first wait for the first one only: done if
+    // every code block passed
+    if (et) {
+      AssertFatal(cudaGraphLaunch(et->exec[0], stream) == cudaSuccess, "cudaGraphLaunch failed\n");
+      if (et->exec[1]) {
+        cudaEventRecord(c->ev_first, stream);
+        AssertFatal(cudaGraphLaunch(et->exec[1], stream) == cudaSuccess, "cudaGraphLaunch failed\n");
+      }
+    } else {
+      nrLDPC_decoder_cuda_EnqueueET(c->bridge,
+                                    numLLR,
+                                    c->cnProcBuf,
+                                    c->bnProcBuf,
+                                    c->llrRes,
+                                    c->llrProcBuf,
+                                    Z,
+                                    K,
+                                    R,
+                                    Cb,
+                                    budget,
+                                    chunk,
+                                    c->et_dev + LDPC_ET_PASS_IT_BYTES,
+                                    (int32_t*)c->et_dev,
+                                    c->st,
+                                    c->et_host,
+                                    c->et_dev,
+                                    ldpc_et_zero_copy ? 0 : LDPC_ET_PASS_IT_BYTES + (size_t)Cb * Kb,
+                                    decoderStreams,
+                                    ci,
+                                    c->side_stream,
+                                    c->ev_fork,
+                                    c->ev_join,
+                                    NULL,
+                                    NULL,
+                                    c->ev_first);
+    }
+    const int32_t* pass_it = (const int32_t*)c->et_host;
+    bool all_passed = false;
+    if (budget > chunk) {
+      cudaEventSynchronize(c->ev_first);
+      int r = 0;
+      while (r < C && pass_it[r] > 0)
+        r++;
+      all_passed = r == C;
+    }
+    if (!all_passed)
+      cudaStreamSynchronize(stream);
+    int n_done = 0, it_max = 0;
+    for (int r = 0; r < C; r++) {
+      n_done += pass_it[r] > 0;
+      it_max = pass_it[r] > it_max ? pass_it[r] : it_max;
+    }
+    memcpy(p_out, c->et_host + LDPC_ET_PASS_IT_BYTES, (size_t)C * Kb);
+    *n_passed = n_done;
+    return n_done == C ? it_max - 1 : p_decParams->numMaxIter + 1;
+  }
+  // CRC on the host (OAI_CUDA_LDPC_ET=host, or a CRC the GPU check does not handle)
   uint8_t done[MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4] = {0};
   int ndone = 0, it = 0;
   while (it < budget) {
