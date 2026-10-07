@@ -738,6 +738,47 @@ void RCconfig_nr_prs(void)
   }
 }
 
+static nr_mac_prs_config_t *RCconfig_nr_prs_mac(void)
+{
+  GET_PARAMS_LIST(PRS_ParamList, PRS_Params, PRS_PARAMS_DESC, CONFIG_STRING_PRS_CONFIG, NULL);
+  if (PRS_ParamList.numelt == 0) {
+    LOG_I(GNB_APP, "No PRS configuration found: PRS cannot be reported over NRPPa\n");
+    return NULL;
+  }
+  paramdef_t *p = PRS_ParamList.paramarray[0];
+  uint8_t n = *(p[NUM_PRS_RESOURCES].uptr);
+  if (n == 0)
+    return NULL;
+  AssertFatal(n <= NR_MAC_MAX_PRS_RESOURCES, "Too many PRS resources (%d)\n", n);
+
+  nr_mac_prs_config_t *out = calloc_or_fail(1, sizeof(*out));
+  out->period = p[PRS_RESOURCE_SET_PERIOD_LIST].uptr[0];
+  out->offset = p[PRS_RESOURCE_SET_PERIOD_LIST].uptr[1];
+  out->num_rb = *(p[PRS_NUM_RB].uptr);
+  out->rb_offset = *(p[PRS_RB_OFFSET].uptr);
+  out->comb_size = *(p[PRS_COMB_SIZE].uptr);
+  out->repetition = *(p[PRS_RESOURCE_REPETITION].uptr);
+  out->time_gap = *(p[PRS_RESOURCE_TIME_GAP].uptr);
+  out->num_prs_resources = n;
+  for (int k = 0; k < n; k++) {
+    nr_mac_prs_resource_t *r = &out->resource[k];
+    r->sequence_id = p[PRS_ID_LIST].uptr[k];
+    r->re_offset = p[PRS_RE_OFFSET_LIST].uptr[k];
+    r->slot_offset = p[PRS_RESOURCE_OFFSET_LIST].uptr[k];
+    r->symbol_start = p[PRS_SYMBOL_START_LIST].uptr[k];
+    r->num_symbols = p[PRS_NUM_SYMBOLS_LIST].uptr[k];
+  }
+  LOG_I(GNB_APP,
+        "MAC PRS configuration: %d resource(s), NumRB %d, CombSize %d, period [%d, %d]\n",
+        n,
+        out->num_rb,
+        out->comb_size,
+        out->period,
+        out->offset);
+
+  return out;
+}
+
 #define ALL_SYMBOLS_TAKEN 0x3FFF
 
 /**
@@ -1980,6 +2021,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
 
   nr_mac_cell_config_scc(cell, scc, &config);
   nrmac->positioning_config = RCconfig_nr_positioning();
+  nrmac->prs_config = RCconfig_nr_prs_mac();
 
   if (strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "local_RRC") == 0) {
     // check number of instances is same as RRC/PDCP
