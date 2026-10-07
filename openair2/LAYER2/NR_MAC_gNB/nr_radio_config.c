@@ -4524,6 +4524,198 @@ int encode_measgap_config(const measgap_config_t *c, uint8_t *buf)
   return (int)((enc_rval_mgc.encoded + 7) >> 3);
 }
 
+#define NR_MAC_PRS_TX_POWER_DBM 0
+
+static f1ap_prs_comb_size_pr prs_comb_size_to_f1ap(uint8_t comb_size)
+{
+  switch (comb_size) {
+    case 2:
+      return F1AP_PRS_COMB_SIZE_N2;
+    case 4:
+      return F1AP_PRS_COMB_SIZE_N4;
+    case 6:
+      return F1AP_PRS_COMB_SIZE_N6;
+    case 12:
+      return F1AP_PRS_COMB_SIZE_N12;
+    default:
+      AssertFatal(false, "PRS CombSize %d not representable in F1AP\n", comb_size);
+      return F1AP_PRS_COMB_SIZE_N2;
+  }
+}
+
+static f1ap_prs_resource_set_periodicity_pr prs_period_to_f1ap(uint32_t period)
+{
+  switch (period) {
+    case 4:
+      return F1AP_PRS_PERIODICITY_N4;
+    case 5:
+      return F1AP_PRS_PERIODICITY_N5;
+    case 8:
+      return F1AP_PRS_PERIODICITY_N8;
+    case 10:
+      return F1AP_PRS_PERIODICITY_N10;
+    case 16:
+      return F1AP_PRS_PERIODICITY_N16;
+    case 20:
+      return F1AP_PRS_PERIODICITY_N20;
+    case 32:
+      return F1AP_PRS_PERIODICITY_N32;
+    case 40:
+      return F1AP_PRS_PERIODICITY_N40;
+    case 64:
+      return F1AP_PRS_PERIODICITY_N64;
+    case 80:
+      return F1AP_PRS_PERIODICITY_N80;
+    case 160:
+      return F1AP_PRS_PERIODICITY_N160;
+    case 320:
+      return F1AP_PRS_PERIODICITY_N320;
+    case 640:
+      return F1AP_PRS_PERIODICITY_N640;
+    case 1280:
+      return F1AP_PRS_PERIODICITY_N1280;
+    case 2560:
+      return F1AP_PRS_PERIODICITY_N2560;
+    case 5120:
+      return F1AP_PRS_PERIODICITY_N5120;
+    case 10240:
+      return F1AP_PRS_PERIODICITY_N10240;
+    case 20480:
+      return F1AP_PRS_PERIODICITY_N20480;
+    case 40960:
+      return F1AP_PRS_PERIODICITY_N40960;
+    case 81920:
+      return F1AP_PRS_PERIODICITY_N81920;
+    default:
+      AssertFatal(false, "PRS period %u not representable in F1AP\n", period);
+      return F1AP_PRS_PERIODICITY_N4;
+  }
+}
+
+static f1ap_prs_repetition_factor_pr prs_repetition_to_f1ap(uint8_t repetition)
+{
+  switch (repetition) {
+    case 1:
+      return F1AP_PRS_REPETITION_RF1;
+    case 2:
+      return F1AP_PRS_REPETITION_RF2;
+    case 4:
+      return F1AP_PRS_REPETITION_RF4;
+    case 6:
+      return F1AP_PRS_REPETITION_RF6;
+    case 8:
+      return F1AP_PRS_REPETITION_RF8;
+    case 16:
+      return F1AP_PRS_REPETITION_RF16;
+    case 32:
+      return F1AP_PRS_REPETITION_RF32;
+    default:
+      AssertFatal(false, "PRS repetition %d not representable in F1AP\n", repetition);
+      return F1AP_PRS_REPETITION_RF1;
+  }
+}
+
+static f1ap_prs_time_gap_pr prs_time_gap_to_f1ap(uint8_t time_gap)
+{
+  switch (time_gap) {
+    case 1:
+      return F1AP_PRS_TIME_GAP_TG1;
+    case 2:
+      return F1AP_PRS_TIME_GAP_TG2;
+    case 4:
+      return F1AP_PRS_TIME_GAP_TG4;
+    case 8:
+      return F1AP_PRS_TIME_GAP_TG8;
+    case 16:
+      return F1AP_PRS_TIME_GAP_TG16;
+    case 32:
+      return F1AP_PRS_TIME_GAP_TG32;
+    default:
+      AssertFatal(false, "PRS time gap %d not representable in F1AP\n", time_gap);
+      return F1AP_PRS_TIME_GAP_TG1;
+  }
+}
+
+static f1ap_prs_num_symbols_pr prs_num_symbols_to_f1ap(uint8_t num_symbols)
+{
+  switch (num_symbols) {
+    case 2:
+      return F1AP_PRS_NUM_SYMBOLS_N2;
+    case 4:
+      return F1AP_PRS_NUM_SYMBOLS_N4;
+    case 6:
+      return F1AP_PRS_NUM_SYMBOLS_N6;
+    case 12:
+      return F1AP_PRS_NUM_SYMBOLS_N12;
+    default:
+      AssertFatal(false, "PRS NumPRSSymbols %d not representable in F1AP\n", num_symbols);
+      return F1AP_PRS_NUM_SYMBOLS_N2;
+  }
+}
+
+static f1ap_subcarrier_spacing_pr prs_scs_to_f1ap(uint8_t scs)
+{
+  switch (scs) {
+    case 0:
+      return F1AP_SUBCARRIER_SPACING_15KHZ;
+    case 1:
+      return F1AP_SUBCARRIER_SPACING_30KHZ;
+    case 2:
+      return F1AP_SUBCARRIER_SPACING_60KHZ;
+    case 3:
+      return F1AP_SUBCARRIER_SPACING_120KHZ;
+    default:
+      AssertFatal(false, "SCS %d not allowed for PRS in NRPPa\n", scs);
+      return F1AP_SUBCARRIER_SPACING_15KHZ;
+  }
+}
+
+static void fill_prs_configuration(f1ap_prs_configuration_t *out,
+                                   const nr_mac_prs_config_t *cfg,
+                                   const f1ap_served_cell_info_t *du_cell)
+{
+  out->prs_resource_set_list_length = 1;
+  out->prs_resource_set = calloc_or_fail(1, sizeof(*out->prs_resource_set));
+  f1ap_prs_resource_set_t *set = &out->prs_resource_set[0];
+
+  set->prs_resource_set_id = 0;
+  if (du_cell->mode == F1AP_MODE_FDD) {
+    set->subcarrier_spacing = prs_scs_to_f1ap(du_cell->fdd.dl_tbw.scs);
+    set->point_a = du_cell->fdd.dl_freqinfo.arfcn;
+  } else {
+    set->subcarrier_spacing = prs_scs_to_f1ap(du_cell->tdd.tbw.scs);
+    set->point_a = du_cell->tdd.freqinfo.arfcn;
+  }
+  AssertFatal(cfg->num_rb >= 24 && cfg->num_rb <= 272 && (cfg->num_rb - 24) % 4 == 0,
+              "PRS NumRB %d not representable in NRPPa (24..272 in steps of 4)\n",
+              cfg->num_rb);
+  set->prs_bandwidth = (cfg->num_rb - 20) / 4;
+  set->start_prb = cfg->rb_offset;
+  set->comb_size = prs_comb_size_to_f1ap(cfg->comb_size);
+  set->cp_type = F1AP_PRS_CP_TYPE_NORMAL;
+  set->resource_set_periodicity = prs_period_to_f1ap(cfg->period);
+  set->resource_set_slot_offset = cfg->offset;
+  set->resource_repetition_factor = prs_repetition_to_f1ap(cfg->repetition);
+  set->resource_time_gap = prs_time_gap_to_f1ap(cfg->time_gap);
+  for (int k = 1; k < cfg->num_prs_resources; k++)
+    AssertFatal(cfg->resource[k].num_symbols == cfg->resource[0].num_symbols,
+                "PRS resources %d and 0 have different NumPRSSymbols: NRPPa has one value per resource set\n",
+                k);
+  set->resource_number_of_symbols = prs_num_symbols_to_f1ap(cfg->resource[0].num_symbols);
+  set->prs_resource_transmit_power = NR_MAC_PRS_TX_POWER_DBM;
+
+  set->prs_resource_list_length = cfg->num_prs_resources;
+  set->prs_resource = calloc_or_fail(cfg->num_prs_resources, sizeof(*set->prs_resource));
+  for (int k = 0; k < cfg->num_prs_resources; k++) {
+    f1ap_prs_resource_t *r = &set->prs_resource[k];
+    r->prs_resource_id = k;
+    r->sequence_id = cfg->resource[k].sequence_id;
+    r->re_offset = cfg->resource[k].re_offset;
+    r->resource_slot_offset = cfg->resource[k].slot_offset;
+    r->resource_symbol_offset = cfg->resource[k].symbol_start;
+  }
+}
+
 void create_trp_info_item(const f1ap_trp_information_req_t *req,
                           f1ap_trp_information_t *trp_info_item,
                           positioning_config_t *positioning_config,
@@ -4566,7 +4758,8 @@ void create_trp_info_item(const f1ap_trp_information_req_t *req,
         }
         break;
       case F1AP_TRP_INFORMATION_TYPE_ITEM_PRS_CONFIG:
-        AssertFatal(false, "PRS config not supported\n");
+        trp_info_type_resp_item->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION;
+        fill_prs_configuration(&trp_info_type_resp_item->choice.prs_configuration, mac->prs_config, du_cell);
         break;
       case F1AP_TRP_INFORMATION_TYPE_ITEM_SSB_CONFIG:
         AssertFatal(false, "SSB config not supported\n");
