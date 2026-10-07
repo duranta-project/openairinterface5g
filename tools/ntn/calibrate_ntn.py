@@ -91,15 +91,16 @@ def main():
 
     if args.gnb is None:
         return
-    # TRANS: feeder link in ta-Common, both links in the channel
+    # TRANS: feeder link in ta-Common, delay of both links in the channel, feeder link Doppler compensated
+    # by the network, so the UE sees the service link Doppler only
     feeder = link(rows, parse_position_triplet(args.gnb))
     f_delay_drift = (feeder[1][0] - feeder[0][0]) / dt
     print_mode(
         "SAT_LEO_TRANS",
         feeder[0][0] + service[0][0],
-        doppler_hz(feeder[0][1], args.fc) + doppler_hz(service[0][1], args.fc),
+        doppler_hz(service[0][1], args.fc),
         2 * max(f[0] + s[0] for f, s in zip(feeder, service)) * 1e3,
-        2 * f_delay_drift,
+        f_delay_drift + s_delay_drift,
         round(2 * feeder[0][0] / TA_UNIT),
         round(2 * f_delay_drift / DRIFT_UNIT),
     )

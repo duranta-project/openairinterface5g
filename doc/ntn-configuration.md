@@ -67,7 +67,8 @@ The trace mode is enabled per channel model with these parameters:
 The satellite state at time `t` after the UE connected is interpolated from the trace (held at the last sample after the
 trace end). From it, the channel model computes
 
-- `SAT_LEO_TRANS`: delay and Doppler of the service link (UE - satellite) plus the feeder link (satellite - gNB),
+- `SAT_LEO_TRANS`: delay of the service link (UE - satellite) plus the feeder link (satellite - gNB), and Doppler of the
+  service link only, the feeder link Doppler being compensated by the network as with the built-in orbit,
 - `SAT_LEO_REGEN`: delay and Doppler of the service link only, the gNB being on the satellite.
 
 As with the built-in orbit, the UL channel model (gNB side) updates SIB19 every frame:

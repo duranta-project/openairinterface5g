@@ -729,7 +729,8 @@ TEST_F(SatTraceTest, TransparentUplinkAndSib19)
   const double dist_service = Dist(SatPos(t), cd->pos_ue);
   const double dist_feeder = Dist(SatPos(t), cd->pos_gnb);
   EXPECT_EQ(cd->channel_offset, (uint64_t)((dist_service + dist_feeder) / kC * kSampleRate));
-  const double f_doppler = -(RangeRate(cd->pos_ue, t) + RangeRate(cd->pos_gnb, t)) / kC * kCenterFreq;
+  // the feeder link Doppler is compensated by the network: service link only
+  const double f_doppler = -RangeRate(cd->pos_ue, t) / kC * kCenterFreq;
   EXPECT_NEAR(cd->Doppler_phase_inc, 2 * M_PI * f_doppler / kSampleRate, 1e-6);
 
   ASSERT_EQ(sib19_update_count, count + 1);
@@ -740,6 +741,19 @@ TEST_F(SatTraceTest, TransparentUplinkAndSib19)
   EXPECT_NEAR(last_sib19_update.velocity.X, kSatVel / 0.06, 1);
   // drift fitted over [t, t + 10 s] is close to the feeder link range rate at t + 2.5 s or so: just check the sign
   EXPECT_GT(last_sib19_update.drift, 0);
+}
+
+TEST_F(SatTraceTest, TransparentDownlinkFeederDelayOnly)
+{
+  channel_desc_t *cd = MakeDesc(SAT_LEO_TRANS, false);
+  const double t = 3.0;
+  update_channel_model(cd, 64, t * kSampleRate);
+
+  const double dist = Dist(SatPos(t), cd->pos_ue) + Dist(SatPos(t), cd->pos_gnb);
+  EXPECT_EQ(cd->channel_offset, (uint64_t)(dist / kC * kSampleRate));
+  const double rr = RangeRate(cd->pos_ue, t);
+  const double f_doppler = -rr / (kC + rr) * kCenterFreq;
+  EXPECT_NEAR(cd->Doppler_phase_inc, 2 * M_PI * f_doppler / kSampleRate, 1e-6);
 }
 
 TEST_F(SatTraceTest, RegenUplinkHasNoFeederLink)

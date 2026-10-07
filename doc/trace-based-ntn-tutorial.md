@@ -65,7 +65,7 @@ The values in the `SAT_LEO_TRANS` part of the output are used in step 3 and step
   ta-CommonDrift-r17       = -227522
   cellSpecificKoffset_r17  = 16   # max RTT 15.19 ms
   rfsimulator.prop_delay   = 8   # one-way delay 7.60 ms
-  --initial-fo             = 113269   # DL Doppler 113.27 kHz
+  --initial-fo             = 56634   # DL Doppler 56.63 kHz
   --ntn-initial-time-drift = -46   # us/s
 ```
 
@@ -147,7 +147,7 @@ In a second terminal, start the UE with `--initial-fo` and `--ntn-initial-time-d
 ```bash
 cd $OAI/cmake_targets/ran_build/build
 sudo ./nr-uesoftmodem -O ~/ntn-trace/ue.conf --rfsim \
-  --time-sync-I 0.1 --ntn-initial-time-drift -46 --initial-fo 113269 --cont-fo-comp 2
+  --time-sync-I 0.1 --ntn-initial-time-drift -46 --initial-fo 56634 --cont-fo-comp 2
 ```
 
 ## 5. Check the result
@@ -163,7 +163,7 @@ e.g. on the UE (downlink):
 
 ```
 [HW]     I Satellite orbit (trace): time 1.527598 s, Position = (-4159095.464254, -5105924.336753, 1421262.916823), Velocity = (4101.531461, -1675.481363, 5940.566668)
-[HW]     I Downlink delay 7.526002 ms, Doppler service link 56.582101 kHz, feeder link 56.580814 kHz, total 113.162915 kHz
+[HW]     I Downlink delay 7.526002 ms, Doppler service link 56.582101 kHz
 ```
 
 The UE receives SIB19 with the satellite position from the trace, then attaches:

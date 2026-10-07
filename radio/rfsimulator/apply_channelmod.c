@@ -80,8 +80,13 @@ static void trace_link_dynamics(channel_desc_t *cd, double t, const double pos_g
 }
 
 // LEO satellite channel driven by an orbit trace (satellite ECEF position/velocity over time).
-// SAT_LEO_TRANS: UE <-> SAT <-> gNB at pos_gnb, delay and Doppler of both links are applied.
-// SAT_LEO_REGEN: the gNB is on the satellite, only the service link is applied.
+// Service link: UE <-> SAT. Feeder link: SAT <-> gNB at pos_gnb (SAT_LEO_TRANS only).
+// - Delay, which the UE compensates in its TA (38.300 16.14.2.2):
+//   - SAT_LEO_TRANS: service link + feeder link, the feeder link part is signalled as Common TA in SIB19.
+//   - SAT_LEO_REGEN: service link only, the gNB is on the satellite.
+// - Doppler, which the UE pre-compensates (38.300 16.14.2.2):
+//   - both modes: service link only. The feeder link Doppler is left to the network, which compensates it,
+//     as in the built-in circular orbit model.
 static void update_sat_trace_channel_model(channel_desc_t *channelDesc, int nbSamples, uint64_t TS)
 {
   const double t = (TS > channelDesc->start_TS ? TS - channelDesc->start_TS : 0) / channelDesc->sampling_rate;
@@ -96,22 +101,21 @@ static void update_sat_trace_channel_model(channel_desc_t *channelDesc, int nbSa
 
   const double dist_service = vec_dist(pos_ue, pos_sat);
   const double vel_service = range_rate(pos_ue, pos_sat, vel_sat);
-  const double dist_feeder = transparent ? vec_dist(pos_gnb, pos_sat) : 0;
-  const double vel_feeder = transparent ? range_rate(pos_gnb, pos_sat, vel_sat) : 0;
 
+  // [NOBUG] Delay/TA: only service link for SAT_LEO_REGEN; plus feeder link for SAT_LEO_TRANS
+  double dist_feeder = 0;
+  if (transparent)
+    dist_feeder = vec_dist(pos_gnb, pos_sat);
   const double prop_delay = (dist_service + dist_feeder) / c;
   if (channelDesc->enable_dynamic_delay)
     channelDesc->channel_offset = prop_delay * channelDesc->sampling_rate;
 
-  double f_doppler_service, f_doppler_feeder;
-  if (channelDesc->is_uplink) {
-    f_doppler_service = -vel_service / c * f_c;
-    f_doppler_feeder = -vel_feeder / c * f_c;
-  } else {
-    f_doppler_service = -vel_service / (c + vel_service) * f_c;
-    f_doppler_feeder = -vel_feeder / c * f_c;
-  }
-  const double f_doppler = f_doppler_service + f_doppler_feeder;
+  // [NOBUG] Doppler: service link only in both modes
+  double f_doppler;
+  if (channelDesc->is_uplink) // UE -> SAT: moving receiver
+    f_doppler = -vel_service / c * f_c;
+  else // SAT -> UE: moving transmitter
+    f_doppler = -vel_service / (c + vel_service) * f_c;
   if (channelDesc->enable_dynamic_Doppler)
     channelDesc->Doppler_phase_inc = 2 * M_PI * f_doppler / channelDesc->sampling_rate;
 
@@ -126,11 +130,9 @@ static void update_sat_trace_channel_model(channel_desc_t *channelDesc, int nbSa
           vel_sat[1],
           vel_sat[2]);
     LOG_I(HW,
-          "%s delay %f ms, Doppler service link %f kHz, feeder link %f kHz, total %f kHz\n",
+          "%s delay %f ms, Doppler service link %f kHz\n",
           channelDesc->is_uplink ? "Uplink" : "Downlink",
           prop_delay * 1000,
-          f_doppler_service / 1000,
-          f_doppler_feeder / 1000,
           f_doppler / 1000);
   }
 
