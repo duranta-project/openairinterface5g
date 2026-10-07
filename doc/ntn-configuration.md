@@ -74,10 +74,10 @@ trace end). From it, the channel model computes
 As with the built-in orbit, the UL channel model (gNB side) updates SIB19 every frame:
 the ephemeris with the satellite position and velocity, and for `SAT_LEO_TRANS` `ta-Common`, `ta-CommonDrift` and `ta-CommonDriftVariant` from the feeder link.
 
-The initial SIB19 values in the gNB configuration, `cellSpecificKoffset_r17`, `rfsimulator.prop_delay` and the UE options `--initial-fo` and `--ntn-initial-time-drift` must match the trace start. `tools/ntn/calibrate_ntn.py` computes them:
+The initial SIB19 values in the gNB configuration, `cellSpecificKoffset_r17`, `rfsimulator.prop_delay` and the UE options `--initial-fo` and `--ntn-initial-time-drift` must match the trace start. `tools/ntn/calc_ntn_parameters.py` computes them:
 
 ```
-python3 tools/ntn/calibrate_ntn.py tools/ntn/data/orbital_trace_s_300.csv \
+python3 tools/ntn/calc_ntn_parameters.py tools/ntn/data/orbital_trace_s_300.csv \
   --ue=-3310204.0,-5006785.1,2157610.7 --gnb=-3310204.0,-5006785.1,2157610.7 --fc 2488400000
 ```
 An example using the sample trace is provided in `targets/PROJECTS/GENERIC-NR-5GC/CONF/channelmod_rfsimu_LEO_trace.conf`.

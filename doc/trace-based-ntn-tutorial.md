@@ -50,7 +50,7 @@ Here, UE and gNB are both placed below the middle of the pass:
 
 ```bash
 POS=-3310204.0,-5006785.1,2157610.7
-python3 $OAI/tools/ntn/calibrate_ntn.py $TRACE --ue=$POS --gnb=$POS --fc 2488400000
+python3 $OAI/tools/ntn/calc_ntn_parameters.py $TRACE --ue=$POS --gnb=$POS --fc 2488400000
 ```
 
 The values in the `SAT_LEO_TRANS` part of the output are used in step 3 and step 4:

@@ -1,13 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: LicenseRef-CSSL-1.0
 
-"""Compute the NTN configuration values matching an orbital trace.
-
-Given a trace (see generate_orbital_trace.py) and the UE / gNB ground positions used in the
-channelmod section, print the SIB19 parameters for the gNB configuration and the UE command
-line options for both SAT_LEO_TRANS and SAT_LEO_REGEN. Values are taken at trace start (t = 0),
-which is where the rfsimulator channel model starts. Nothing is written: apply after review.
-"""
+"""Print the gNB (SIB19) and UE parameters matching an orbital trace at its start."""
 
 from __future__ import annotations
 
@@ -25,7 +19,6 @@ DRIFT_UNIT = 0.2e-9  # s/s, ta-CommonDrift-r17
 
 
 def load_trace(path: str) -> list[tuple[float, tuple, tuple]]:
-    """Return [(t_s, pos, vel)], accepting time_s or time_ms and any column order."""
     rows = []
     with open(path) as f:
         reader = csv.DictReader(f)
@@ -41,7 +34,6 @@ def load_trace(path: str) -> list[tuple[float, tuple, tuple]]:
 
 
 def link(rows, ground):
-    """Per-sample (one-way delay s, range rate m/s) between ground and satellite."""
     out = []
     for _, pos, vel in rows:
         _, rng, rate = look_angles(pos, ground, vel)
@@ -77,32 +69,39 @@ def main():
         print(f"  --initial-fo             = {round(doppler0)}   # DL Doppler {doppler0 / 1e3:.2f} kHz")
         print(f"  --ntn-initial-time-drift = {round(ue_drift_s_s * 1e6)}   # us/s")
 
-    # REGEN: gNB on the satellite, service link only
     s_delay_drift = (service[1][0] - service[0][0]) / dt
+
+    # SAT_LEO_REGEN: gNB is on the satellite, only service link for both delay and doppler
     print_mode(
         "SAT_LEO_REGEN",
-        service[0][0],
-        doppler_hz(service[0][1], args.fc),
-        2 * max(d for d, _ in service) * 1e3,
-        s_delay_drift,
-        0,
-        0,
+        # [NOBUG] Delay/TA: service link only
+        delay0=service[0][0],
+        rtt_max_ms=2 * max(s[0] for s in service) * 1e3,
+        ue_drift_s_s=s_delay_drift,
+        # [NOBUG] Doppler: service link only
+        doppler0=doppler_hz(service[0][1], args.fc),
+        # [NOBUG] Common TA: none, the UE computes the service link delay from the ephemeris
+        ta_common=0,
+        ta_drift=0,
     )
 
     if args.gnb is None:
         return
-    # TRANS: feeder link in ta-Common, delay of both links in the channel, feeder link Doppler compensated
-    # by the network, so the UE sees the service link Doppler only
     feeder = link(rows, parse_position_triplet(args.gnb))
     f_delay_drift = (feeder[1][0] - feeder[0][0]) / dt
+
+    # SAT_LEO_TRANS: UE <-> SAT <-> gNB on the ground
     print_mode(
         "SAT_LEO_TRANS",
-        feeder[0][0] + service[0][0],
-        doppler_hz(service[0][1], args.fc),
-        2 * max(f[0] + s[0] for f, s in zip(feeder, service)) * 1e3,
-        f_delay_drift + s_delay_drift,
-        round(2 * feeder[0][0] / TA_UNIT),
-        round(2 * f_delay_drift / DRIFT_UNIT),
+        # [NOBUG] Delay/TA: service link + feeder link
+        delay0=service[0][0] + feeder[0][0],
+        rtt_max_ms=2 * max(s[0] + f[0] for s, f in zip(service, feeder)) * 1e3,
+        ue_drift_s_s=s_delay_drift + f_delay_drift,
+        # [NOBUG] Doppler: service link only, the feeder link Doppler is compensated by the network
+        doppler0=doppler_hz(service[0][1], args.fc),
+        # [NOBUG] Common TA: feeder link round trip, signalled in SIB19
+        ta_common=round(2 * feeder[0][0] / TA_UNIT),
+        ta_drift=round(2 * f_delay_drift / DRIFT_UNIT),
     )
 
 

@@ -8,7 +8,7 @@ Helpers for the trace-driven LEO satellite channel model of the rfsimulator
 | --- | --- | --- |
 | `download_tle.py` | download/filter TLEs from CelesTrak | - |
 | `generate_orbital_trace.py` | propagate one TLE (SGP4) over a pass, write the trace CSV | `numpy`, `skyfield` |
-| `calibrate_ntn.py` | SIB19 / UE parameters matching a trace and ground positions | - |
+| `calc_ntn_parameters.py` | SIB19 / UE parameters matching a trace and ground positions | - |
 
 `data/` holds the default TLE (`default_leo600.tle`, a 600 km polar orbit) and a
 300 s sample trace (`orbital_trace_s_300.csv`, Starlink DTC pass).
@@ -41,7 +41,7 @@ python3 generate_orbital_trace.py -g s -t 600 --tle starlink_dtc.tle --sat-index
   --gnd-position '{"x": -2706714.0, "y": -4261882.0, "z": 3885680.0}' -o trace.csv
 
 # 3. gNB/UE configuration values for this trace (UE and gNB positions as in channelmod)
-python3 calibrate_ntn.py trace.csv --ue=-2706714,-4261882,3885680 --gnb=-2706714,-4261882,3885680 --fc 2488400000
+python3 calc_ntn_parameters.py trace.csv --ue=-2706714,-4261882,3885680 --gnb=-2706714,-4261882,3885680 --fc 2488400000
 ```
 
 `-g ms` writes a trace with 1 ms resolution (`time_ms`), `-t` is then in ms.
