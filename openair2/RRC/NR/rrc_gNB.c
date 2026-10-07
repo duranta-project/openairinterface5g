@@ -1316,7 +1316,10 @@ static void rrc_gNB_process_RRCReestablishmentComplete(gNB_RRC_INST *rrc, gNB_RR
   f1_ue_data_t ue_data = cu_get_f1_ue_data(ue_p->rrc_ue_id);
   RETURN_IF_INVALID_ASSOC_ID(ue_data.du_assoc_id);
 
-  bool different_du_detected = !ue_p->f1_ue_context_active;
+  pthread_mutex_lock(&ue_p->context_mutex);
+  bool context_active = ue_p->f1_ue_context_active;
+  pthread_mutex_unlock(&ue_p->context_mutex);
+  bool different_du_detected = !context_active;
   if (different_du_detected) {
     /** Handle UE access on a different DU than the original one
      * Per 38.401 8.7: "If the UE accessed from a gNB-DU other than the original
@@ -1708,7 +1711,9 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
             old_du_ue_id);
 
       // on a new DU: we will have to send f1_ue_context again
+      pthread_mutex_lock(&UE->context_mutex);
       UE->f1_ue_context_active = false;
+      pthread_mutex_unlock(&UE->context_mutex);
 
       // Update f1_ue_data after release
       bool success = cu_update_f1_ue_data(UE->rrc_ue_id, &ue_data);
@@ -2778,7 +2783,9 @@ static void rrc_CU_process_ue_context_setup_response(MessageDef *msg_p, instance
     return;
   }
   gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
+  pthread_mutex_lock(&UE->context_mutex);
   UE->f1_ue_context_active = true;
+  pthread_mutex_unlock(&UE->context_mutex);
 
   if (UE->nrdc && rrc_gnb_nrdc_wait_for_f1_context_setup_response(UE))
     return nrdc_rrc_CU_process_ue_context_setup_response(UE, rrc, resp);
@@ -3060,7 +3067,10 @@ static void rrc_CU_process_ue_modification_required(MessageDef *msg_p, instance_
    * may be executed or both could be skipped."
    * By design, CU-CP will trigger UE Context Setup Modification Request and DU does not send
    * Modification Required during re-establishment. */
-  if (!UE->f1_ue_context_active) {
+  pthread_mutex_lock(&UE->context_mutex);
+  bool context_active = UE->f1_ue_context_active;
+  pthread_mutex_unlock(&UE->context_mutex);
+  if (!context_active) {
     LOG_W(NR_RRC,
           "UE %d: UE Context Modification Required received while UE Context Setup is pending (CU UE ID %d), refusing\n",
           UE->rrc_ue_id,
@@ -3324,7 +3334,10 @@ static void rrc_send_f1_ue_context_modification_request(const gNB_RRC_INST *rrc,
   DevAssert(rrc);
   DevAssert(ue_p);
   DevAssert(n_drbs > 0 || n_rel_drbs > 0);
-  AssertFatal(ue_p->f1_ue_context_active, "logic error: calling ue context modification when context not established\n");
+  pthread_mutex_lock(&ue_p->context_mutex);
+  bool context_active = ue_p->f1_ue_context_active;
+  pthread_mutex_unlock(&ue_p->context_mutex);
+  AssertFatal(context_active, "logic error: calling ue context modification when context not established\n");
   AssertFatal(ue_p->Srb[1].Active && ue_p->Srb[2].Active, "SRBs should already be active\n");
   AssertFatal(!NODE_IS_DU(rrc->node_type), "illegal node type DU!\n");
 
@@ -3501,7 +3514,10 @@ static void rrc_gNB_process_e1_bearer_context_setup_resp(e1ap_bearer_setup_resp_
     return;
   }
 
-  if (!UE->f1_ue_context_active)
+  pthread_mutex_lock(&UE->context_mutex);
+  bool context_active = UE->f1_ue_context_active;
+  pthread_mutex_unlock(&UE->context_mutex);
+  if (!context_active)
     rrc_f1_ue_context_setup_from_e1_response(rrc, ue_context_p, resp);
   else {
     /* Instruction towards the DU for DRB configuration and tunnel creation */
@@ -3632,7 +3648,10 @@ void rrc_gNB_process_e1_bearer_context_modif_resp(const e1ap_bearer_modif_resp_t
 
   if (n_f1_drbs > 0 || n_f1_drbs_rel > 0) {
     // Send F1 UE Context Modification Request for DRBs to setup or release
-    if (ue->f1_ue_context_active)
+    pthread_mutex_lock(&ue->context_mutex);
+    bool context_active = ue->f1_ue_context_active;
+    pthread_mutex_unlock(&ue->context_mutex);
+    if (context_active)
       rrc_send_f1_ue_context_modification_request(rrc, ue, n_f1_drbs, f1_drbs, n_f1_drbs_rel, f1_drbs_rel);
     else
       LOG_W(NR_RRC, "UE %d has DRB(s) to be set up or released but F1 UE context is not active\n", ue->rrc_ue_id);
@@ -4304,7 +4323,10 @@ void rrc_f1_ue_context_setup_from_e1_response(const gNB_RRC_INST *rrc,
                                               const e1ap_bearer_setup_resp_t *resp)
 {
   gNB_RRC_UE_t *ue_p = &ue_context_pP->ue_context;
-  AssertFatal(!ue_p->f1_ue_context_active, "logic error: ue context already active\n");
+  pthread_mutex_lock(&ue_p->context_mutex);
+  bool context_active = ue_p->f1_ue_context_active;
+  pthread_mutex_unlock(&ue_p->context_mutex);
+  AssertFatal(!context_active, "logic error: ue context already active\n");
 
   AssertFatal(!NODE_IS_DU(rrc->node_type), "illegal node type DU!\n");
 

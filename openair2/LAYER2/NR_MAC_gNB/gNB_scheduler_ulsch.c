@@ -681,10 +681,14 @@ static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rn
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   int8_t harq_pid = sched_ctrl->feedback_ul_harq.head;
   LOG_D(NR_MAC, "Comparing crc harq_id vs feedback harq_pid = %d %d\n", crc_harq_id, harq_pid);
-  while (crc_harq_id != harq_pid || harq_pid < 0) {
+
+  if (harq_pid < 0) {
+    LOG_W(NR_MAC, "Received UL HARQ feedback with PID %d but feedback list is empty for RNTI 0x%04x\n", crc_harq_id, rnti);
+    return;
+  }
+
+  while (crc_harq_id != harq_pid) {
     LOG_W(NR_MAC, "Unexpected ULSCH HARQ PID %d (have %d) for RNTI 0x%04x\n", crc_harq_id, harq_pid, rnti);
-    if (harq_pid < 0)
-      return;
 
     remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
     sched_ctrl->ul_harq_processes[harq_pid].is_waiting = false;
@@ -696,6 +700,11 @@ static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rn
       add_tail_nr_list(&sched_ctrl->retrans_ul_harq, harq_pid);
     }
     harq_pid = sched_ctrl->feedback_ul_harq.head;
+
+    if (harq_pid < 0) {
+      LOG_W(NR_MAC, "No matching HARQ PID %d in feedback list for RNTI 0x%04x\n", crc_harq_id, rnti);
+      return;
+    }
   }
   remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
   NR_UE_ul_harq_t *harq = &sched_ctrl->ul_harq_processes[harq_pid];
