@@ -94,7 +94,7 @@ application_config read_config(const std::filesystem::path &config_path)
         serial_number,
         require_string(value, "BEAM_CONFIG", context),
         require_frequency(value, context),
-      require_rf_mode(value, context),
+        require_rf_mode(value, context),
     };
     config.beamformers.push_back(std::move(beamformer));
   }

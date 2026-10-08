@@ -2,31 +2,68 @@
 
 This directory contains two separate parts:
 
-- `tmytek_spi_config.h` and the OAI and NI USRP driver provide timestamped runtime beam switching.
+- `tmytek_spi_config.h` and the OAI-integrated NI USRP driver provide timestamped runtime beam switching.
 - `tlkcore/` provides optional Ethernet-only TMYTEK array initialization and keeps the arrays in fast-parallel mode while OAI runs.
 
 The updated TLKCore controller does not include or depend on `lib_usrp_spi` for this workflow. Fast beam steering is implemented using the USRP library integrated within OAI.
 
 ### Build TLKCore
 
-Clone the vendor examples outside the OAI source tree:
+#### 1. Clone the vendor examples
 
 ```bash
-mkdir -p workarea
-cd workarea
+mkdir -p /home/user/workarea
+cd /home/user/workarea
 git clone https://github.com/tmytek/tlkcore-examples
-cd tlkcore-examples/examples/C_Cpp/lib_tlkcore_cpp
-mkdir build
+```
+
+#### 2. Install build prerequisites
+
+On Debian or Ubuntu, install the compiler, CMake, Python development files, pybind11, and pip:
+
+```bash
+sudo apt-get update
+sudo apt-get install build-essential cmake python3-dev python3-pip pybind11-dev
+```
+
+The vendor C++ wrapper also requires the Python packages listed in `requirements.txt`. Use the system `python3` installation and follow the vendor [Python sample guide](https://github.com/tmytek/tlkcore-examples/blob/master/examples/Python/README.md). TMYTEK currently supports Python 3.8, 3.10, and 3.12. Use the same selected Python version for the vendor Python extension modules and `libtlkcore_lib.so`.
+
+#### 3. Install vendor Python dependencies
+
+```bash
+cd /home/user/workarea/tlkcore-examples/examples/C_Cpp/lib_tlkcore_cpp
+python3 -m pip install -r requirements.txt
+```
+
+The vendor `requirements.txt` includes `psutil`, `pyserial`, `ft4222`, and `pybind11-global`. Use the Python version supported by the checked-out vendor example when installing these dependencies.
+
+#### 4. Build and install the TLKCore C++ wrapper
+
+```bash
+cd /home/user/workarea/tlkcore-examples/examples/C_Cpp/lib_tlkcore_cpp
+mkdir -p build
 cd build
 cmake ..
 make install
 ```
 
-Use the Python and pybind11 options described by the vendor project if the default Python version is not suitable. The resulting `libtlkcore_lib.so` is expected at:
+If CMake cannot find pybind11, use the Python and pybind11 CMake options described by the vendor project. The resulting `libtlkcore_lib.so` is expected at:
 
 ```text
 tlkcore-examples/examples/C_Cpp/lib_tlkcore_cpp/libtlkcore_lib.so
 ```
+
+### OAI controller dependency
+
+The OAI `tlkcore_fbs` controller uses the header-only [nlohmann/json](https://github.com/nlohmann/json) library to parse `device.conf`. Install the development package before configuring the optional OAI target:
+
+```bash
+sudo apt-get update
+sudo apt-get install nlohmann-json3-dev
+test -f /usr/include/nlohmann/json.hpp
+```
+
+If the package is installed in a non-standard location, provide its include directory with `CMAKE_INCLUDE_PATH` when configuring the build. The controller also requires a C++17 compiler, which is provided by the `build-essential` package above.
 
 ### Provide vendor antenna assets
 
@@ -56,7 +93,7 @@ The exact filenames depend on the antenna kit, beamformer serial number, and ope
 
 ### Build the Ethernet-only controller
 
-Configure OAI with the optional target enabled. The target requires the TLKCore clone root, but does not require UHD or Boost:
+Configure OAI with the optional target enabled. The TLKCore controller itself does not add a separate UHD or Boost dependency, but `OAI_USRP=ON` requires the normal OAI USRP/UHD build dependencies:
 
 `DOAI_TLKCORE_ROOT` points to the C++ wrapper root used at build time. The runtime `--tlkcore-root` path is different: it points to the vendor Python directory containing `tlkcore/` and `TMYConfig.py`.
 
@@ -175,13 +212,27 @@ The reference deployment contains two independent RF chains:
 
 The gNB and UE beamformers exchange the downlink signal over the air. Measurement reports travel back over the wired uplink between the OAI UE and OAI gNB. Connect each X410 to its corresponding local beamformer and downconverter, and connect each X410 to its OAI host before starting the software.
 
-![OAI NI USRP and mmWave antenna-array setup](OAI_NIUSRP_mmWave_Antenna_Arrays_Setup.png)
+```text
+				 Downlink over the air
+	  +----------------------------------------------+
+	  |                                              v
+  +-----------+   +-----------+   +----------------+  +----------------+
+  | OAI gNB   |-->| NI USRP   |-->| Up/downconverter|->| gNB beamformer |
+  +-----------+   | X410      |   +----------------+  +----------------+
+	  ^         +-----------+
+	  | wired measurement reports
+	  |
+  +-----------+   +-----------+   +----------------+  +----------------+
+  | OAI UE    |<--| NI USRP   |<--| Up/downconverter|<-| UE beamformer  |
+  +-----------+   | X410      |   +----------------+  +----------------+
+			+-----------+
+```
 
-The diagram shows the logical signal path and does not replace the hardware vendor's cabling, clocking, power, or frequency-converter configuration requirements.
+This diagram shows the logical signal path and does not replace the hardware vendor's cabling, clocking, power, or frequency-converter configuration requirements.
 
 ### Configuration assets
 
-The given configuration templates references:
+The configuration template references:
 
 - `CustomBatch8Beams_D2310E003-28.csv`
 - `CustomBatchBeams_D2310L020-28.csv`

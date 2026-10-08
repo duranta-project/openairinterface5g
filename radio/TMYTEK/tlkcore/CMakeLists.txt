@@ -16,6 +16,11 @@ if (NOT EXISTS "${OAI_TLKCORE_LIBRARY}")
   message(FATAL_ERROR "TLKCore library not found: ${OAI_TLKCORE_LIBRARY}")
 endif()
 
+find_path(NLOHMANN_JSON_INCLUDE_DIR nlohmann/json.hpp)
+if (NOT NLOHMANN_JSON_INCLUDE_DIR)
+  message(FATAL_ERROR "nlohmann/json.hpp not found; install nlohmann-json3-dev or provide CMAKE_INCLUDE_PATH")
+endif()
+
 add_executable(tlkcore_fbs
   src/tlkcore_fbs.cpp
 )
@@ -25,7 +30,10 @@ set_target_properties(tlkcore_fbs PROPERTIES
   BUILD_RPATH "${OAI_TLKCORE_ROOT}/lib_tlkcore_cpp"
   INSTALL_RPATH "${OAI_TLKCORE_ROOT}/lib_tlkcore_cpp"
 )
-target_include_directories(tlkcore_fbs PRIVATE ${OAI_TLKCORE_INCLUDE_DIR})
+target_include_directories(tlkcore_fbs PRIVATE
+  ${OAI_TLKCORE_INCLUDE_DIR}
+  ${NLOHMANN_JSON_INCLUDE_DIR}
+)
 target_compile_options(tlkcore_fbs PRIVATE -Wno-comment)
 target_link_libraries(tlkcore_fbs PRIVATE ${OAI_TLKCORE_LIBRARY})
 
