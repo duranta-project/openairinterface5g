@@ -173,6 +173,7 @@ typedef struct {
   uint8_t serving_cell_id;
   /* SCTP association ID of the DU that owns this cell (for fast lookup) */
   sctp_assoc_t assoc_id;
+  uint16_t pci;
 } ue_serving_cell_t;
 
 /* forward declaration */

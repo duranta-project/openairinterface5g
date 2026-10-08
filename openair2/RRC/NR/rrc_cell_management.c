@@ -305,7 +305,7 @@ ue_serving_cell_t *rrc_add_ue_serving_cell(gNB_RRC_UE_t *ue, const nr_rrc_cell_c
         serving_cell_id == RRC_PCELL_INDEX ? "PCell" : "SCell",
         cell->info.cell_id,
         cell->assoc_id);
-  ue_serving_cell_t new_cell = {.nci = cell->info.cell_id, .serving_cell_id = serving_cell_id, .assoc_id = cell->assoc_id};
+  ue_serving_cell_t new_cell = {.nci = cell->info.cell_id, .serving_cell_id = serving_cell_id, .assoc_id = cell->assoc_id, .pci = cell->info.pci};
 
   size_t elt_size = sizeof(ue_serving_cell_t);
   if (serving_cell_id == RRC_PCELL_INDEX) {

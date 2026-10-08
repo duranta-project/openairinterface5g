@@ -101,8 +101,8 @@ rrc_gNB_ue_context_t *rrc_gNB_get_ue_context_by_rnti_any_du(gNB_RRC_INST *rrc_in
   {
     if (ue_context_p->ue_context.rnti != rntiP)
       continue;
-    const nr_rrc_cell_container_t *pcell = pci >= 0 ? rrc_get_pcell_for_ue(rrc_instance_pP, &ue_context_p->ue_context) : NULL;
-    if (pci < 0 || (pcell != NULL && pcell->info.pci == pci)) {
+    const ue_serving_cell_t *pcell = pci >= 0 ? ue_get_pcell_entry(&ue_context_p->ue_context) : NULL;
+    if (pci < 0 || (pcell != NULL && pcell->pci == pci)) {
       rrc_gNB_ue_context_update_time(ue_context_p);
       return ue_context_p;
     }
