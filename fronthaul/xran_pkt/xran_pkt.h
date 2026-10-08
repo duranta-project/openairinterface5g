@@ -262,6 +262,15 @@ struct radio_app_common_hdr {
 
 } __rte_packed;
 
+enum xran_compression_method {
+  XRAN_COMPMETHOD_NONE = 0,
+  XRAN_COMPMETHOD_BLKFLOAT = 1,
+  XRAN_COMPMETHOD_BLKSCALE = 2,
+  XRAN_COMPMETHOD_ULAW = 3,
+  XRAN_COMPMETHOD_MODULATION = 4,
+  XRAN_COMPMETHOD_MAX
+};
+
 /**
  ******************************************************************************
  * @ingroup xran_common_pkt
