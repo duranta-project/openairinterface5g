@@ -31,6 +31,7 @@ add_library(ldpc_cuda MODULE
             ldpc_BG1_Zc320_32bit.cu
             ldpc_BG1_Zc288_32bit.cu
             ldpc_BG1_Zc256_32bit.cu
+            ldpc_BG1_Zc240_32bit.cu
             ldpc_BG1_Zc224_32bit.cu
             ldpc_BG1_Zc208_32bit.cu
             ldpc_BG1_Zc192_32bit.cu
@@ -75,6 +76,7 @@ if(ENABLE_PHYSIM_TESTS)
   add_physim_test(ldpctest.ldpc_cuda.r13 "ldpctest: base graph 1, rate 1/3" ldpctest -v _cuda -r1 -n300 -S64 -s4 -i4)
   add_physim_test(ldpctest.ldpc_cuda.r23 "ldpctest: base graph 1, rate 2/3" ldpctest -v _cuda -r2 -n300 -S64 -s5 -i4)
   add_physim_test(ldpctest.ldpc_cuda.r89 "ldpctest: base graph 1, rate 8/9" ldpctest -v _cuda -r22 -d25 -n300 -S64 -s6 -i4)
+  add_physim_test(ldpctest.ldpc_cuda.zc176 "ldpctest: base graph 1, lifting size 176" ldpctest -v _cuda -l3872 -S8 -s10 -n100)
 
   add_physim_test(nr_dlsim.ldpc_cuda.9seg_r13 "nr_dlsim: 9 segments, rate 1/3" nr_dlsim -n100 -s20 -e13 -R273 -b273 -x1 -y1 -z1 -P --loader.ldpc.shlibversion _cuda)
   add_physim_test(nr_dlsim.ldpc_cuda.18seg_r23 "nr_dlsim: 18 segments, rate 2/3" nr_dlsim -n100 -s20 -e22 -R273 -b273 -x1 -y1 -z1 -P --loader.ldpc.shlibversion _cuda)

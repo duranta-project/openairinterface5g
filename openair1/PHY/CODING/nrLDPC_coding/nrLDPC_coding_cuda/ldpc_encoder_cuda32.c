@@ -42,7 +42,7 @@ int cuda_support_set = 0;
 
 extern cudaStream_t encoderStreams[4];
 
-int ldpc_input(uint32_t **input,uint32_t *cc[4],int nseg,cudaStream_t *s,int sidx);
+int ldpc_input(uint32_t **input, uint32_t *cc[4], int nseg, int Zc, cudaStream_t *s, int sidx);
 
 void cuda_support_init()
 {
@@ -171,7 +171,6 @@ uint32_t** LDPCencoder32(uint8_t** input, encoder_implemparams_t* impp)
   int encoder_stream = 0;
 
   AssertFatal(BG == 1, "BG %d is not supported for CUDA version\n", BG);
-  AssertFatal(Zc == 384 || Zc == 176, "Zc %d is not supported for CUDA version \n", Zc);
 
   if (impp->tinput != NULL)
     start_meas(impp->tinput);
@@ -198,9 +197,10 @@ uint32_t** LDPCencoder32(uint8_t** input, encoder_implemparams_t* impp)
       cudaMemcpyAsync(input_devh[r], input[r], block_length >> 3, cudaMemcpyHostToDevice, encoderStreams[encoder_stream]);
     }
   }
-  ldpc_input(pageable || integrated ? (uint32_t**)input : (uint32_t**)input_dev,
-             (uint32_t**)c_dev,
+  ldpc_input(pageable || integrated ? (uint32_t **)input : (uint32_t **)input_dev,
+             (uint32_t **)c_dev,
              impp->n_segments,
+             Zc,
              encoderStreams,
              encoder_stream);
   if (impp->tinput != NULL)
