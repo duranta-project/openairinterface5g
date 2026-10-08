@@ -17,6 +17,7 @@
 #include "nrLDPC_CUDA_BnProcKernel_BG1.h"
 #include "nrLDPC_CUDA_mPassKernel_BG1.h"
 #include "nrLDPC_CUDA_shared_param.h"
+#include "nrLDPC_coding_cuda_ctx.h"
 
 #ifndef JETSON_TARGET
 #define CUDA_THREADS 1024
@@ -1588,25 +1589,30 @@ __global__ void ldpc_et_crc_kernel(const int8_t *__restrict__ llrRes,
     return err;
   }
 
-  // Record one early-termination chunk (see ENQUEUE_LDPC_DECODER_CHUNK) as a CUDA graph on stream CudaStreamIdx.
-  gpuError_t nrLDPC_decoder_cuda_GraphRecordChunk(ldpc_cuda_bridge_t *buffer,
-                                                  uint32_t numLLR,
-                                                  int8_t *cnProcBuf,
-                                                  int8_t *bnProcBuf,
-                                                  int8_t *llrRes,
-                                                  int8_t *llrProcBuf,
+  // Locals of context c that the ENQUEUE_* macros use
+#define LDPC_CTX_BUFFERS(c)               \
+  ldpc_cuda_bridge_t *buffer = c->bridge; \
+  int8_t *cnProcBuf = c->cnProcBuf;       \
+  int8_t *bnProcBuf = c->bnProcBuf;       \
+  int8_t *llrRes = c->llrRes;             \
+  int8_t *llrProcBuf = c->llrProcBuf;     \
+  const e_nrLDPC_outMode outMode = nrLDPC_outMode_BIT
+
+  // Record one early-termination chunk (see ENQUEUE_LDPC_DECODER_CHUNK) of context c as a CUDA graph on its stream.
+  gpuError_t nrLDPC_decoder_cuda_GraphRecordChunk(ldpc_cuda_ctx_t *c,
                                                   uint32_t Z,
-                                                  uint32_t K,
                                                   uint8_t R,
+                                                  uint32_t numLLR,
                                                   uint8_t n_segments,
-                                                  e_nrLDPC_outMode outMode,
                                                   int prologue,
                                                   int iters,
-                                                  gpuStream_t *streams,
-                                                  uint8_t CudaStreamIdx,
                                                   gpuGraph_t *graphPtr,
                                                   gpuGraphExec_t *graphExecPtr)
   {
+    LDPC_CTX_BUFFERS(c);
+    const uint32_t K = 22 * Z;
+    gpuStream_t *streams = c->lane.streams;
+    const uint8_t CudaStreamIdx = c->lane.slot;
     gpuStream_t stream = streams[CudaStreamIdx];
     set_kernel_dims(CudaStreamIdx, Z, n_segments);
     gpuError_t err = gpuStreamBeginCapture(stream, gpuStreamCaptureModeThreadLocal);
@@ -1617,30 +1623,24 @@ __global__ void ldpc_et_crc_kernel(const int8_t *__restrict__ llrRes,
   }
 
   // Same chunk launched directly (no graph).
-  void nrLDPC_decoder_cuda_NormalExecuteChunk(ldpc_cuda_bridge_t *buffer,
-                                              uint32_t numLLR,
-                                              int8_t *cnProcBuf,
-                                              int8_t *bnProcBuf,
-                                              int8_t *llrRes,
-                                              int8_t *llrProcBuf,
+  void nrLDPC_decoder_cuda_NormalExecuteChunk(ldpc_cuda_ctx_t *c,
                                               uint32_t Z,
-                                              uint32_t K,
                                               uint8_t R,
+                                              uint32_t numLLR,
                                               uint8_t n_segments,
-                                              e_nrLDPC_outMode outMode,
                                               int prologue,
-                                              int iters,
-                                              gpuStream_t *streams,
-                                              uint8_t CudaStreamIdx)
+                                              int iters)
   {
+    LDPC_CTX_BUFFERS(c);
+    const uint32_t K = 22 * Z;
+    gpuStream_t *streams = c->lane.streams;
+    const uint8_t CudaStreamIdx = c->lane.slot;
     set_kernel_dims(CudaStreamIdx, Z, n_segments);
     ENQUEUE_LDPC_DECODER_CHUNK(streams, CudaStreamIdx, prologue, iters);
   }
 
   // Per-decode setup (see ldpc_et_setup_kernel()), before the graphs
-  void nrLDPC_decoder_cuda_ETSetup(gpuStream_t stream,
-                                   ldpc_cuda_et_state_t *st,
-                                   int32_t *pass_it,
+  void nrLDPC_decoder_cuda_ETSetup(ldpc_cuda_ctx_t *c,
                                    int C,
                                    int Cb,
                                    uint32_t nbytes,
@@ -1648,7 +1648,9 @@ __global__ void ldpc_et_crc_kernel(const int8_t *__restrict__ llrRes,
                                    uint32_t crc_low,
                                    const uint32_t *xpow)
   {
-    ldpc_et_setup_kernel<<<1, LDPC_ET_THREADS, 0, stream>>>(st, pass_it, C, Cb, nbytes, crc_deg, crc_low, xpow);
+    gpuStream_t stream = c->lane.streams[c->lane.slot];
+    int32_t *pass_it = (int32_t *)c->et_dev;
+    ldpc_et_setup_kernel<<<1, LDPC_ET_THREADS, 0, stream>>>(c->st, pass_it, C, Cb, nbytes, crc_deg, crc_low, xpow);
   }
 
   // Early-terminating decode for n_segments code blocks (a bucket: the TB's own count and CRC parameters are set by
@@ -1667,35 +1669,27 @@ __global__ void ldpc_et_crc_kernel(const int8_t *__restrict__ llrRes,
   // second graph it runs on a side branch (side_stream) next to the following check-node kernel, and only the following
   // bit-node kernel waits for it. That check-node kernel may not see the code blocks that just passed and process them
   // once more, which does not change their output.
-  gpuError_t nrLDPC_decoder_cuda_EnqueueET(ldpc_cuda_bridge_t *buffer,
-                                           uint32_t numLLR,
-                                           int8_t *cnProcBuf,
-                                           int8_t *bnProcBuf,
-                                           int8_t *llrRes,
-                                           int8_t *llrProcBuf,
-                                           uint32_t Z,
-                                           uint32_t K,
-                                           uint8_t R,
-                                           uint8_t n_segments,
-                                           int budget,
-                                           int chunk,
-                                           uint8_t *out,
-                                           int32_t *pass_it,
-                                           ldpc_cuda_et_state_t *st,
-                                           uint8_t *copy_dst,
-                                           const uint8_t *copy_src,
-                                           size_t copy_bytes,
-                                           gpuStream_t *streams,
-                                           uint8_t CudaStreamIdx,
-                                           gpuStream_t side_stream,
-                                           gpuEvent_t ev_fork,
-                                           gpuEvent_t ev_join,
-                                           gpuGraph_t graphs[2],
-                                           gpuGraphExec_t execs[2],
-                                           gpuEvent_t ev_first)
+  gpuError_t nrLDPC_decoder_cuda_EnqueueET(ldpc_cuda_ctx_t *c, ldpc_et_graph_t *g, const ldpc_cuda_lane_t *lane, bool record)
   {
-    const bool direct = graphs == NULL;
-    const uint32_t Kb = K >> 3;
+    LDPC_CTX_BUFFERS(c);
+    (void)outMode;
+    const uint32_t Z = g->Z, K = 22 * Z, Kb = K >> 3, numLLR = g->numLLR;
+    const uint8_t R = g->R, n_segments = g->n_segments;
+    const int budget = g->budget, chunk = g->chunk;
+    // output (out, pass_it) in et_dev, copied to et_host at the end of each part if not zero copy
+    uint8_t *out = c->et_dev + LDPC_ET_PASS_IT_BYTES;
+    int32_t *pass_it = (int32_t *)c->et_dev;
+    ldpc_cuda_et_state_t *st = c->st;
+    uint8_t *copy_dst = c->et_host;
+    const uint8_t *copy_src = c->et_dev;
+    const size_t copy_bytes = c->et_copy ? LDPC_ET_PASS_IT_BYTES + (size_t)n_segments * Kb : 0;
+    gpuStream_t *streams = lane->streams;
+    const uint8_t CudaStreamIdx = lane->slot;
+    gpuStream_t side_stream = lane->side_stream;
+    gpuEvent_t ev_fork = lane->ev_fork, ev_join = lane->ev_join, ev_first = c->ev_first;
+    gpuGraph_t *graphs = record ? g->graph : NULL;
+    gpuGraphExec_t *execs = record ? g->exec : NULL;
+    const bool direct = !record;
     const uint8_t *skip = st->done;
     const uint8_t ZcIdx = get_lut_col_index_host(Z);
     gpuStream_t stream = streams[CudaStreamIdx];
