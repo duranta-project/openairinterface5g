@@ -6,6 +6,8 @@
 
 #include "slicing.h"
 #include "nr_mac_gNB.h"
+#include "gNB_scheduler_dlsch_default_policies.h"
+#include "gNB_scheduler_ulsch_default_policies.h"
 
 static const char *resource_type_str[] = {"both", "dl", "ul"};
 
@@ -152,4 +154,170 @@ const nr_slice_policy_t *get_slice_by_id(const nr_cell_sched_t *cell, uint32_t i
 {
   const nr_slice_policy_t key = {.id = id};
   return bsearch(&key, seq_arr_front(&cell->slices), seq_arr_size(&cell->slices), sizeof(key), cmp_slice_id);
+}
+
+// /** @brief DL RB allocation with fixed slice partitioning: each DL slice reserves minRatio of
+//  * the RBs in every slot, in order of slices; UEs without slice share the remaining RBs. Within
+//  * each partition, nr_dl_proportional_fair() allocates RBs to the slice's UEs. */
+
+static const nr_slice_policy_t no_slice = {.id = 0, .dedicated_ratio = 0, .min_ratio = 0, .max_ratio = 100};
+
+/* print per-slice PRB sums about once per second (every 100 frames), then reset */
+static void log_prbs(const char *dir, const seq_arr_t *slices, uint64_t *prb_sum, int *n_slots, int *last_frame, int frame)
+{
+  if (frame % 100 != 0 || frame == *last_frame)
+    return;
+  *last_frame = frame;
+  const int n_slices = seq_arr_size(slices);
+  for (int i = 0; i <= n_slices; i++) {
+    const nr_slice_policy_t *s = i < n_slices ? seq_arr_at(slices, i) : &no_slice;
+    LOG_I(NR_MAC, "%s slice %u PRBs: %lu in %d slots\n", dir, s->id, (unsigned long)prb_sum[i], *n_slots);
+    prb_sum[i] = 0;
+  }
+  *n_slots = 0;
+}
+
+int nr_dl_slicing_fixed(const nr_dl_sched_params_t *params, nr_dl_candidate_t *cand, int n)
+{
+  static uint64_t prb_sum[NR_MAX_SLICES + 1];
+  static float credit[NR_MAX_SLICES + 1]; /* unspent fractional/small RB entitlement, carried to next slot */
+  static int n_slots = 0, last_frame = -1;
+  const int min_rb = 5; /* min_rbSize of nr_dl_proportional_fair() */
+  const seq_arr_t *slices = &params->cell->slices;
+  const int n_slices = seq_arr_size(slices);
+  const int n_rb = params->n_rb_avail[0];
+  nr_dl_sched_params_t p = *params;
+
+  bool skipped[n];
+  for (int c = 0; c < n; c++)
+    skipped[c] = cand[c].skipped;
+
+  /* slice n_slices = UEs without a slice */
+  int members[n_slices + 1], reserve[n_slices + 1];
+  float entitled[n_slices + 1];
+  int n_active = 0, reserved = 0;
+  for (int i = 0; i <= n_slices; i++) {
+    const nr_slice_policy_t *s = i < n_slices ? seq_arr_at(slices, i) : &no_slice;
+    members[i] = 0;
+    for (int c = 0; c < n; c++)
+      members[i] += !skipped[c] && cand[c].slice_id == s->id;
+    n_active += members[i] > 0;
+    if (members[i] == 0)
+      credit[i] = 0;
+    /* active slice reserves minRatio, idle slice only its dedicatedRatio (+ carried credit) */
+    entitled[i] = n_rb * (members[i] > 0 ? s->min_ratio : s->dedicated_ratio) / 100 + credit[i];
+    reserve[i] = entitled[i];
+    reserved += reserve[i];
+  }
+
+  int rb_left = n_rb, n_sched = 0;
+  for (int i = 0; i <= n_slices; i++) {
+    if (members[i] == 0)
+      continue; /* idle: its dedicated reservation stays blocked */
+    const nr_slice_policy_t *s = i < n_slices ? seq_arr_at(slices, i) : &no_slice;
+
+    /* own reservation + equal share of unreserved RBs, capped at maxRatio */
+    reserved -= reserve[i];
+    int budget = reserve[i] + (rb_left - reserve[i] - reserved) / n_active--;
+    budget = min(budget, (int)(n_rb * s->max_ratio / 100 + credit[i]));
+
+    int used = 0;
+    const int ue_left = params->max_num_ue - n_sched;
+    if (budget >= min_rb && ue_left > 0) { /* PF asserts on fewer RBs, divides by UEs */
+      for (int c = 0; c < n; c++)
+        cand[c].skipped = skipped[c] || cand[c].slice_id != s->id;
+      for (int b = 0; b < p.num_beams; b++)
+        p.n_rb_avail[b] = budget;
+      p.max_num_ue = min(members[i], ue_left);
+      n_sched += nr_dl_proportional_fair(&p, cand, n);
+      for (int c = 0; c < n; c++)
+        if (!cand[c].skipped && cand[c].scheduled)
+          used += cand[c].sched_pdsch.rbSize;
+    }
+    /* carry what the slice was entitled to but did not get (bounded) */
+    credit[i] = max(0.0f, min(entitled[i] - used, (float)min_rb));
+    if (s->id == 1 && params->frame % 100 == 0)
+      LOG_I(NR_MAC, "DBG slot %d.%d: entitled %.2f budget %d used %d credit %.2f\n",
+            params->frame, params->slot, entitled[i], budget, used, credit[i]);
+    /* unused dedicated RBs are lost for everybody */
+    rb_left -= used + max(0, (int)(n_rb * s->dedicated_ratio / 100) - used);
+    prb_sum[i] += used;
+  }
+  n_slots++;
+  log_prbs("DL", slices, prb_sum, &n_slots, &last_frame, params->frame);
+
+  for (int c = 0; c < n; c++) /* caller checks skipped afterwards */
+    cand[c].skipped = skipped[c];
+  return n_sched;
+}
+
+int nr_ul_slicing_fixed(const nr_ul_sched_params_t *params, nr_ul_candidate_t *cand, int n)
+{
+  static uint64_t prb_sum[NR_MAX_SLICES + 1];
+  static float credit[NR_MAX_SLICES + 1]; /* unspent fractional/small RB entitlement, carried to next slot */
+  static int n_slots = 0, last_frame = -1;
+  const int min_rb = params->min_rb;
+  const seq_arr_t *slices = &params->cell->slices;
+  const int n_slices = seq_arr_size(slices);
+  const int n_rb = params->n_rb_avail[0];
+  nr_ul_sched_params_t p = *params;
+
+  bool skipped[n];
+  for (int c = 0; c < n; c++)
+    skipped[c] = cand[c].skipped;
+
+  /* slice n_slices = UEs without a slice */
+  int members[n_slices + 1], reserve[n_slices + 1];
+  float entitled[n_slices + 1];
+  int n_active = 0, reserved = 0;
+  for (int i = 0; i <= n_slices; i++) {
+    const nr_slice_policy_t *s = i < n_slices ? seq_arr_at(slices, i) : &no_slice;
+    members[i] = 0;
+    for (int c = 0; c < n; c++)
+      members[i] += !skipped[c] && cand[c].slice_id == s->id;
+    n_active += members[i] > 0;
+    if (members[i] == 0)
+      credit[i] = 0;
+    /* active slice reserves minRatio, idle slice only its dedicatedRatio (+ carried credit) */
+    entitled[i] = n_rb * (members[i] > 0 ? s->min_ratio : s->dedicated_ratio) / 100 + credit[i];
+    reserve[i] = entitled[i];
+    reserved += reserve[i];
+  }
+
+  int rb_left = n_rb, n_sched = 0;
+  for (int i = 0; i <= n_slices; i++) {
+    if (members[i] == 0)
+      continue; /* idle: its dedicated reservation stays blocked */
+    const nr_slice_policy_t *s = i < n_slices ? seq_arr_at(slices, i) : &no_slice;
+
+    /* own reservation + equal share of unreserved RBs, capped at maxRatio */
+    reserved -= reserve[i];
+    int budget = reserve[i] + (rb_left - reserve[i] - reserved) / n_active--;
+    budget = min(budget, (int)(n_rb * s->max_ratio / 100 + credit[i]));
+
+    int used = 0;
+    const int ue_left = params->max_num_ue - n_sched;
+    if (budget >= min_rb && ue_left > 0) { /* PF asserts on fewer RBs, divides by UEs */
+      for (int c = 0; c < n; c++)
+        cand[c].skipped = skipped[c] || cand[c].slice_id != s->id;
+      for (int b = 0; b < p.num_beams; b++)
+        p.n_rb_avail[b] = budget;
+      p.max_num_ue = min(max(members[i], 2), ue_left); /* UL PF needs >= 2 for default grants */
+      n_sched += nr_ul_proportional_fair(&p, cand, n);
+      for (int c = 0; c < n; c++)
+        if (!cand[c].skipped && cand[c].scheduled)
+          used += cand[c].sched_pusch.rbSize;
+    }
+    /* carry what the slice was entitled to but did not get (bounded) */
+    credit[i] = max(0.0f, min(entitled[i] - used, (float)min_rb));
+    /* unused dedicated RBs are lost for everybody */
+    rb_left -= used + max(0, (int)(n_rb * s->dedicated_ratio / 100) - used);
+    prb_sum[i] += used;
+  }
+  n_slots++;
+  log_prbs("UL", slices, prb_sum, &n_slots, &last_frame, params->frame);
+
+  for (int c = 0; c < n; c++) /* caller checks skipped afterwards */
+    cand[c].skipped = skipped[c];
+  return n_sched;
 }

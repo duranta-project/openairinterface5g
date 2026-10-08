@@ -1875,6 +1875,13 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
   // Read per-cell slice policies
   config.num_slice_policies = config_slicing(idx, &config.slice_policies);
   LOG_A(NR_MAC, "read %d slices\n", config.num_slice_policies);
+  /*
+      if (seq_arr_size(&cell->slices) > 0) {
+        LOG_I(NR_MAC, "slices configured, using slice scheduler\n");
+        nrmac->dl_rb_alloc = nr_dl_slicing_fixed;
+        nrmac->ul_rb_alloc = nr_ul_slicing_fixed;
+      }
+      */
 
   return config;
 }
