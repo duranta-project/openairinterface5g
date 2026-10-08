@@ -49,6 +49,38 @@ efficiency, we recommend using the following official NVIDIA developer tools:
   helps verify SM occupancy, shared memory usage, and the execution efficiency
   of the SIMD4 vectorized PTX instructions.
 
+## Library Parameters
+
+The library is selected with `--loader.ldpc.shlibversion _cuda`. The following optional parameters of the
+`nrLDPC_coding_cuda` section can be set on the command line of the PHY simulators, nr-softmodem and
+nr-uesoftmodem, or in a configuration file:
+
+- `nrLDPC_coding_cuda.num_contexts` - number of decoder contexts, i.e. transport blocks decoded concurrently, each
+  with its own buffers and CUDA stream (1 to 8, default *4*).
+
+- `nrLDPC_coding_cuda.crc_check_interval` - early termination: number of decoder iterations between two checks of
+  the code block CRCs (1 to 64, default *2*). A code block that passes its CRC is not processed any further, and the
+  decoding stops when all code blocks passed or the maximum number of iterations is reached, so the error rate does
+  not depend on this value, only the decoding time.
+
+- `nrLDPC_coding_cuda.crc_check` - where the code block CRCs are checked during decoding: *gpu* (default) or *host*.
+
+- `nrLDPC_coding_cuda.wait_mode` - how a host thread waits for the GPU: *spin*, *yield* (default) or *block*.
+  Blocking costs a wake-up latency at least once per transport block (about 100 us on a DGX Spark).
+
+Example:
+```
+nrLDPC_coding_cuda : {
+  num_contexts : 8;
+};
+
+loader : {
+  ldpc : {
+    shlibversion : "_cuda";
+  };
+};
+```
+
 ## Unit Test
 
 ### Build

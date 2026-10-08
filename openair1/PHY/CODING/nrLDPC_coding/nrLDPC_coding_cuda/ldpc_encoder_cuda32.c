@@ -16,6 +16,7 @@
 #include "openair1/PHY/CODING/nrLDPC_defs.h"
 #include "PHY/sse_intrin.h"
 #include "openair1/PHY/CODING/nrLDPC_extern.h"
+#include "nrLDPC_coding_cuda_config.h"
 
 #include <cuda_runtime.h>
 
@@ -44,19 +45,17 @@ int ldpc_input(uint32_t **input,uint32_t *cc[4],int nseg,cudaStream_t *s,int sid
 
 void cuda_support_init()
 {
+  const ldpc_cuda_wait_mode_t wait_mode = ldpc_cuda_get_config()->wait_mode;
   {
-    // OAI_CUDA_SCHED=spin|yield|block (default yield): how a host thread waits for the GPU (cudaStreamSynchronize). The LDPC
-    // decoder waits for the GPU at least once per transport block; with blocking sync each wake-up cost about 100 us on a
-    // DGX Spark (GB10). Must be set before the CUDA context is created.
-    const char *sch = getenv("OAI_CUDA_SCHED");
-    if (!sch || !*sch)
-      sch = "yield";
-    const unsigned f = !strcmp(sch, "spin") ? cudaDeviceScheduleSpin
-                       : !strcmp(sch, "block") ? cudaDeviceScheduleBlockingSync
-                                               : cudaDeviceScheduleYield;
+    // How a host thread waits for the GPU (cudaStreamSynchronize): the LDPC decoder waits for the GPU at least once per
+    // transport block; with blocking sync each wake-up cost about 100 us on a DGX Spark (GB10). Must be set before the
+    // CUDA context is created.
+    const unsigned f = wait_mode == LDPC_CUDA_WAIT_SPIN    ? cudaDeviceScheduleSpin
+                       : wait_mode == LDPC_CUDA_WAIT_BLOCK ? cudaDeviceScheduleBlockingSync
+                                                           : cudaDeviceScheduleYield;
     const cudaError_t e = cudaSetDeviceFlags(f);
     if (e != cudaSuccess)
-      printf("[CUDA] cudaSetDeviceFlags(%s): %s\n", sch, cudaGetErrorString(e));
+      LOG_W(NR_PHY, "CUDA LDPC: wait mode %s: %s\n", ldpc_cuda_wait_mode_names[wait_mode], cudaGetErrorString(e));
   }
   int dev = 0;
   struct cudaDeviceProp prop;
@@ -78,6 +77,7 @@ void cuda_support_init()
   LOG_I(NR_PHY, "Uses host page tables:           %s\n", pageable_uses_host ? "YES" : "NO");
   LOG_I(NR_PHY, "Host Register supported:         %s\n", register_host ? "YES" : "NO");
   LOG_I(NR_PHY, "Integrated (shared) Memory       %s\n", integrated ? "YES" : "NO");
+  LOG_I(NR_PHY, "Host wait for the GPU:           %s\n", ldpc_cuda_wait_mode_names[wait_mode]);
 
   if (!pageable && !integrated) {
     LOG_I(NR_PHY, "Allocating c,d,cc arrays for GPU \n");

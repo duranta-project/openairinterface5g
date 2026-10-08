@@ -15,6 +15,7 @@ SET(CUDA_VERBOSE_BUILD ON)
 add_library(ldpc_cuda MODULE
             # main entry
             nrLDPC_coding_cuda.c
+            nrLDPC_coding_cuda_config.c
 
             nrLDPC_decoder_cuda.c
             ldpc_encoder_cuda32.c

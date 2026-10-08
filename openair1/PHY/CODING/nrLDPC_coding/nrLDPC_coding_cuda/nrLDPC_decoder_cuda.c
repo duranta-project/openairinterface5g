@@ -30,6 +30,7 @@
 //--------------------------CUDA Area---------------------------
 #include <cuda_runtime.h>
 #include "nrLDPC_CUDA_shared_param.h"
+#include "nrLDPC_coding_cuda_config.h"
 
 extern cudaStream_t decoderStreams[MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4];
 static bool decoder_streamsCreated = false;
@@ -657,18 +658,15 @@ static inline uint32_t nrLDPC_decoder_core_dynamic(int8_t* p_llr,
  *
  * Contexts: the legacy path above has one set of device buffers and one graph cache, so every transport block (TB)
  * was decoded under a single global mutex. Here each context has its own processing buffers, input/output buffers,
- * deinterleaver/rate-recovery scratch, mapped bridge, CUDA stream (decoderStreams[ctx]), launch-dimension slot
- * (the Kdim_* arrays have 8 entries, indexed by stream) and graph cache. Up to LDPC_CUDA_MAX_CTX TBs are in flight.
- * OAI_CUDA_LDPC_CTX sets the number of contexts (default 4).
+ * deinterleaver/rate-recovery scratch, mapped bridge, CUDA stream (decoderStreams[ctx]), launch-dimension slot (the
+ * Kdim_* arrays, indexed by stream) and graph cache. Up to nrLDPC_coding_cuda.num_contexts TBs are in flight.
  *
- * Early termination: the decoder runs in chunks of OAI_CUDA_LDPC_CHUNK iterations (default 2), each ending with the
- * hard decision; between chunks the host checks the CRC of every code block not yet decoded - the same test the CPU
- * decoder applies after every iteration - and keeps the output of each code block from the chunk where it first
- * passed. It stops when all code blocks passed or the iteration budget (numMaxIter + 1 check/bit-node rounds, as the
- * full-length path) is used up.
+ * Early termination: every nrLDPC_coding_cuda.crc_check_interval iterations, a kernel checks the CRC of every code
+ * block not yet decoded (the test of check_crc()); a code block that passes keeps that hard decision and is skipped by
+ * every later kernel. The decode stops when all code blocks passed or the iteration budget (numMaxIter + 1
+ * check/bit-node rounds, as the full-length path) is used up. See LDPCdecoder_cuda_ctx().
  * ------------------------------------------------------------------------------------------------------------------- */
 #include <pthread.h>
-#define LDPC_CUDA_MAX_CTX 8
 #define LDPC_CUDA_CTX_GRAPHS 64
 #define LDPC_ET_CTX_GRAPHS 256
 #define LDPC_CUDA_MAXE (4 * 14 * 273 * 12 * 8)
@@ -796,7 +794,7 @@ typedef struct {
 static ldpc_cuda_ctx_t ldpc_ctx[LDPC_CUDA_MAX_CTX];
 static int ldpc_n_ctx = 0;
 static int ldpc_chunk = 2;
-static int ldpc_et_gpu = 1; // CRC checks and early termination on the GPU (OAI_CUDA_LDPC_ET=gpu|host)
+static int ldpc_et_gpu = 1; // CRC checks and early termination on the GPU (nrLDPC_coding_cuda.crc_check)
 static int ldpc_et_zero_copy = 0; // GPU coherent with the host (integrated, or ATS/NVLink-C2C): output written in place
 #define LDPC_ET_PASS_IT_BYTES (MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * sizeof(int32_t))
 #define LDPC_ET_MAX_L ((NR_LDPC_ZMAX * 22 / 8 + LDPC_ET_THREADS - 1) / LDPC_ET_THREADS) // bytes per CRC thread
@@ -820,12 +818,12 @@ void ldpc_cuda_ctx_init(void)
 {
   if (ldpc_n_ctx)
     return;
-  int n = getenv("OAI_CUDA_LDPC_CTX") ? atoi(getenv("OAI_CUDA_LDPC_CTX")) : 4;
-  n = n < 1 ? 1 : (n > LDPC_CUDA_MAX_CTX ? LDPC_CUDA_MAX_CTX : n);
-  ldpc_chunk = getenv("OAI_CUDA_LDPC_CHUNK") ? atoi(getenv("OAI_CUDA_LDPC_CHUNK")) : 2;
-  if (ldpc_chunk < 1)
-    ldpc_chunk = 1;
-  ldpc_et_gpu = !(getenv("OAI_CUDA_LDPC_ET") && !strcmp(getenv("OAI_CUDA_LDPC_ET"), "host"));
+  const ldpc_cuda_config_t* cfg = ldpc_cuda_get_config();
+  const int n = cfg->num_contexts;
+  AssertFatal(n >= 1 && n <= LDPC_CUDA_MAX_CTX, "%d decoder contexts, must be within [1, %d]\n", n, LDPC_CUDA_MAX_CTX);
+  AssertFatal(cfg->crc_check_interval >= 1, "CRC check interval %d, must be at least 1\n", cfg->crc_check_interval);
+  ldpc_chunk = cfg->crc_check_interval;
+  ldpc_et_gpu = cfg->crc_check == LDPC_CUDA_CRC_CHECK_GPU;
   // pageable alone is not enough: x86 + HMM reports it for discrete GPUs, whose host memory is behind PCIe
   ldpc_et_zero_copy = integrated || pageable_uses_host;
   for (int type = 0; type < 3; type++) {
@@ -908,11 +906,12 @@ void ldpc_cuda_ctx_init(void)
   }
   ldpc_n_ctx = n;
   ldpc_et_recorder_start();
-  printf("[CUDA] %d concurrent LDPC decoder contexts, early termination every %d iteration(s), CRC on the %s%s\n",
-         n,
-         ldpc_chunk,
-         ldpc_et_gpu ? "GPU" : "host",
-         ldpc_et_gpu ? (ldpc_et_zero_copy ? ", output zero-copy" : ", output copied") : "");
+  LOG_I(NR_PHY,
+        "CUDA LDPC: %d concurrent decoder contexts, early termination every %d iteration(s), CRC on the %s%s\n",
+        n,
+        ldpc_chunk,
+        ldpc_et_gpu ? "GPU" : "host",
+        ldpc_et_gpu ? (ldpc_et_zero_copy ? ", output zero-copy" : ", output copied") : "");
 }
 
 int ldpc_cuda_ctx_acquire(void)
@@ -1254,7 +1253,7 @@ int32_t LDPCdecoder_cuda_ctx(int ci, t_nrLDPC_dec_params* p_decParams, uint8_t* 
     *n_passed = n_done;
     return n_done == C ? it_max - 1 : p_decParams->numMaxIter + 1;
   }
-  // CRC on the host (OAI_CUDA_LDPC_ET=host, or a CRC the GPU check does not handle)
+  // CRC on the host (nrLDPC_coding_cuda.crc_check host, or a CRC the GPU check does not handle)
   uint8_t done[MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4] = {0};
   int ndone = 0, it = 0;
   while (it < budget) {
