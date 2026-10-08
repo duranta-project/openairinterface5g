@@ -1015,7 +1015,7 @@ struct nr_dl_candidate {
   int bwp_size; ///< UE's BWP size
   uint64_t fiveQI; ///< 5QI from first DRB's QoS config (0 if none)
   int priority; ///< LC priority from first DRB (lower = higher priority, 0 if none)
-  nssai_t nssai; ///< slice/service type/differentiator from first DRB
+  uint32_t slice_id; ///< ID of the UE's DL slice (0 if none)
 
   bool skipped; ///< true if dropped by TDA/beam select (skip in downstream stages)
   bool scheduled; ///< true if accepted by the RB-allocation policy
@@ -1136,7 +1136,7 @@ struct nr_ul_candidate {
   int bwp_size;
   uint64_t fiveQI; ///< 5QI from first DRB's QoS config (0 if none)
   int priority; ///< LC priority from first DRB (0 if none)
-  nssai_t nssai; ///< slice/service type/differentiator from first DRB
+  uint32_t slice_id; ///< ID of the UE's UL slice (0 if none)
   int beam_index;
 
   /* ── Power control (set by collect, read-only after) ─────────────────────── */

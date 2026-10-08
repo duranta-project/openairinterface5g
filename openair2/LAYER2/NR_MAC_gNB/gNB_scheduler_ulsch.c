@@ -2763,15 +2763,13 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
 
     bwp_info_t bi = get_pusch_bwp_start_size(UE);
 
-    /* QoS / slice info, extract from first DRB for external policies */
+    /* QoS info, extract from first DRB for external policies */
     uint64_t fiveQI = 0;
     int lc_priority = 0;
-    nssai_t nssai = {0, 0xFFFFFF};
     for (int j = 0; j < seq_arr_size(&sched_ctrl->lc_config); j++) {
       const nr_lc_config_t *c = seq_arr_at(&sched_ctrl->lc_config, j);
       if (c->lcid >= 4) {
         lc_priority = c->priority;
-        nssai = c->nssai;
         for (int q = 0; q < NR_MAX_NUM_QFI; q++) {
           if (c->qos_config[q].fiveQI > 0) {
             fiveQI = c->qos_config[q].fiveQI;
@@ -2797,7 +2795,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     cand.pcmax = sched_ctrl->pcmax;
     cand.fiveQI = fiveQI;
     cand.priority = lc_priority;
-    cand.nssai = nssai;
+    cand.slice_id = UE->ul_slice_id;
     cand.cqi = cqi;
     cand.beam_rsrp = UE->beam_rsrp;
     cand.beam_sinr = UE->beam_sinr;
