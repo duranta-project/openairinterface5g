@@ -10,6 +10,7 @@
 #define __FAPI_NR_UE_L1_H__
 
 #include "NR_IF_Module.h"
+#include "PHY/NR_UE_TRANSPORT/nr_prach_lut.h"
 #include "openair2/NR_UE_PHY_INTERFACE/NR_IF_Module.h"
 #include "openair2/LAYER2/NR_MAC_UE/mac_proto.h"
 
@@ -23,6 +24,8 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
 /**\brief NR UE FAPI-like P5 message, physical configuration from L2 to configure L1
    \param scheduled_response including transmission config(dl_config, ul_config) and data transmission (tx_req)*/
 void nr_ue_phy_config_request(nr_phy_config_t *phy_config);
+/* Existing RRC task: build outside the MAC mutex, install matching tables under it. */
+void nr_ue_build_prach_lut(module_id_t module_id, uint8_t cc_id, const nr_prach_lut_config_t *config);
 void nr_ue_sl_phy_config_request(nr_sl_phy_config_t *phy_config);
 
 /**\brief NR UE FAPI message to schedule a synchronization with target gNB

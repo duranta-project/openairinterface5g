@@ -650,6 +650,7 @@ typedef struct NR_UE_MAC_INST_s {
   pthread_mutex_t if_mutex;
   ue_mac_stats_t stats;
   notifiedFIFO_t input_nf;
+  bool prach_lut_pending; /* Protected by if_mutex; defer PRACH until RRC has built the matching table. */
   // set when mac configuration changes during reconf with sync
   // reset when pdcch config is changed after pbch read after reconf
   bool update_pdcch_config;
