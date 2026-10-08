@@ -110,6 +110,7 @@ int32_t nrLDPC_coding_decoder(nrLDPC_slot_decoding_parameters_t *slot_params)
       .threadPool = slot_params->threadPool,
       .TBs = tbCPU,
   };
+  AssertFatal(slot_params->nb_TBs <= 32, "%d TBs, at most 32 supported\n", slot_params->nb_TBs);
   int offset[32];
   nrLDPC_TB_decoding_parameters_t *tbGPU[32];
   int nb_gpu = 0;
@@ -123,11 +124,11 @@ int32_t nrLDPC_coding_decoder(nrLDPC_slot_decoding_parameters_t *slot_params)
       cpu.TBs[cpu.nb_TBs++] = *tbp;
     }
   }
-  // TBs decode concurrently, each in its own decoder context (see ldpc_cuda_ctx_acquire()): all but the last one in the
-  // thread pool, the last one in this thread
+  // TBs decode concurrently, each in its own decoder context (see ldpc_cuda_ctx_acquire()), in the thread pool; the last
+  // one in this thread unless it decodes the TBs the CPU handles
   task_ans_t ans;
   cuda_tb_task_t tasks[32];
-  const int nb_pushed = slot_params->threadPool && nb_gpu > 1 ? nb_gpu - 1 : 0;
+  const int nb_pushed = !slot_params->threadPool ? 0 : (cpu.nb_TBs > 0 ? nb_gpu : (nb_gpu > 1 ? nb_gpu - 1 : 0));
   if (nb_pushed > 0) {
     init_task_ans(&ans, nb_pushed);
     for (int i = 0; i < nb_pushed; i++) {

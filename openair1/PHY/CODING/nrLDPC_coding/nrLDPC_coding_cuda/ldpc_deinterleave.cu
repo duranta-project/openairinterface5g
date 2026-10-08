@@ -105,7 +105,11 @@ __global__ void deinterleave_i16_8(int16_t* __restrict__ e,
 }
 
 // Qm = 10 (1024QAM, TS 38.212 5.4.2.2): bit j of each 10-bit group goes to row j of the E/10 x 10 matrix
-__global__ void deinterleave_i16_10(int16_t* e, const int16_t* f, const int E1, const int E2, const int r_firstE2)
+__global__ void deinterleave_i16_10(int16_t* __restrict__ e,
+                                    const int16_t* __restrict__ f,
+                                    const int E1,
+                                    const int E2,
+                                    const int r_firstE2)
 {
   int g = (int)(blockIdx.x * blockDim.x + threadIdx.x);
   int r = (int)blockIdx.y;

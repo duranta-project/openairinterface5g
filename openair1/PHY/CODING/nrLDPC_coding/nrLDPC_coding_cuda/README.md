@@ -64,9 +64,14 @@ nr-uesoftmodem, or in a configuration file:
   not depend on this value, only the decoding time.
 
 - `nrLDPC_coding_cuda.crc_check` - where the code block CRCs are checked during decoding: *gpu* (default) or *host*.
+  The host check, with a round trip to the host every `crc_check_interval` iterations, is slower; it is meant for
+  comparison and debugging.
 
 - `nrLDPC_coding_cuda.wait_mode` - how a host thread waits for the GPU: *spin*, *yield* (default) or *block*.
-  Blocking costs a wake-up latency at least once per transport block (about 100 us on a DGX Spark).
+  Blocking costs a wake-up latency at least once per transport block (about 100 us on a DGX Spark). This setting
+  applies to the whole process, i.e. also to other CUDA code running in it.
+
+`ldpctest` uses the code block decoder (`LDPCdecoder_cuda()`), to which only `wait_mode` applies.
 
 Example:
 ```
