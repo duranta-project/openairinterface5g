@@ -78,6 +78,7 @@ extern int16_t *ldpc_cuda_ctx_harq_e(int ci);
 extern int16_t *ldpc_cuda_ctx_harq_f(int ci);
 extern int32_t LDPCdecoder_cuda_ctx(int ci, t_nrLDPC_dec_params *p_decParams, uint8_t *p_out, int *n_passed);
 extern void ldpc_cuda_ctx_init(void);
+extern void ldpc_cuda_ctx_shutdown(void);
 
 void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
 {
@@ -307,6 +308,7 @@ void LDPCshutdown_cuda(void);
 
 int32_t nrLDPC_coding_shutdown_cuda(void)
 {
+  ldpc_cuda_ctx_shutdown(); // before LDPCshutdown_cuda(), which destroys the decoder streams
   LDPCshutdown_cuda();
   return 0;
 }
