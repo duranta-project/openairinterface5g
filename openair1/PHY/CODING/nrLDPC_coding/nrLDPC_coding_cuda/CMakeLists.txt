@@ -87,4 +87,9 @@ if(ENABLE_PHYSIM_TESTS)
   add_physim_test(nr_ulsim.ldpc_cuda.18seg_r23 "nr_ulsim: 18 segments, rate 2/3" nr_ulsim -n100 -s20 -m22 -R273 -r273 -W1 -y1 -z1 -P --loader.ldpc.shlibversion _cuda)
   add_physim_test(nr_ulsim.ldpc_cuda.50seg_r89 "nr_ulsim: 50 segments, rate 8/9" nr_ulsim -n100 -s40 -m27 -R273 -r273 -W2 -I9 -y2 -z2 -P --loader.ldpc.shlibversion _cuda)
 
+  # non-default library parameters: 1 context, CRC check every 3 of 10 iterations (last chunk shorter), blocking wait
+  add_physim_test(nr_dlsim.ldpc_cuda.18seg_r23_options "nr_dlsim: 18 segments, rate 2/3, 1 context, CRC check every 3 iterations, blocking wait" nr_dlsim -n100 -s20 -e22 -R273 -b273 -x1 -y1 -z1 -I9 -P --loader.ldpc.shlibversion _cuda --nrLDPC_coding_cuda.num_contexts 1 --nrLDPC_coding_cuda.crc_check_interval 3 --nrLDPC_coding_cuda.wait_mode block)
+  # code block stride fix for Z < 384 (99 % BLER before, 0 % after, as the CPU decoder)
+  add_physim_test(nr_dlsim.ldpc_cuda.9seg_z352_256qam "nr_dlsim: 9 segments, Z 352, 256QAM MCS 24" nr_dlsim -n100 -s24 -S24.1 -e24 -q1 -R106 -b72 -I20 -P --loader.ldpc.shlibversion _cuda)
+
 endif()
