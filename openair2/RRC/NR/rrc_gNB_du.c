@@ -21,7 +21,6 @@
 #include "constr_TYPE.h"
 #include "executables/softmodem-common.h"
 #include "f1ap_messages_types.h"
-#include "ngap_messages_types.h"
 #include "nr_rrc_defs.h"
 #include "NR_SIB2.h"
 #include "NR_SIB3.h"
@@ -867,22 +866,21 @@ static int invalidate_du_connections(gNB_RRC_INST *rrc, sctp_assoc_t assoc_id)
     if (UE->ho_context != NULL)
       LOG_W(NR_RRC, "DU disconnected while handover for UE %d active\n", ue_id);
 
-    // Remove SCells from this DU for this UE
-    rrc_remove_ue_scells_from_du(UE, assoc_id);
-
     f1_ue_data_t ue_data = cu_get_f1_ue_data(ue_id);
-    if (ue_data.du_assoc_id != assoc_id)
+    if (ue_data.du_assoc_id != assoc_id) {
+      rrc_remove_ue_scells_from_du(UE, assoc_id);
       continue; /* this UE is on another DU */
+    }
     if (IS_SA_MODE(get_softmodem_params())) {
       /* this UE belongs to the DU that disconnected, set du_assoc_id to 0,
-       * meaning DU is offline, then trigger release request */
+       * meaning DU is offline */
       ue_data.du_assoc_id = 0;
       bool success = cu_update_f1_ue_data(ue_id, &ue_data);
       DevAssert(success);
-      ngap_cause_t cause = {.type = NGAP_CAUSE_RADIO_NETWORK, .value = NGAP_CAUSE_RADIO_NETWORK_RADIO_CONNECTION_WITH_UE_LOST};
-      rrc_gNB_send_NGAP_UE_CONTEXT_RELEASE_REQ(0, ue_context_p, cause);
+      UE->f1_ue_context_active = false;
       count++;
     } else {
+      rrc_remove_ue_scells_from_du(UE, assoc_id);
       seq_arr_push_back(&ue_context_to_remove, &ue_context_p, sizeof(ue_context_p));
     }
   }
