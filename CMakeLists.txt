@@ -1157,6 +1157,7 @@ set(L2_NR_SRC
   ${NR_RRC_DIR}/rrc_gNB_cuup.c
   ${NR_RRC_DIR}/rrc_gNB_du.c
   ${NR_RRC_DIR}/rrc_gNB_mobility.c
+  ${NR_RRC_DIR}/rrc_telnet_tasks.c
   ${NR_RRC_DIR}/rrc_gNB_NRPPA.c
   ${NR_RRC_DIR}/rrc_gNB_nrdc.c
   )
@@ -1240,6 +1241,7 @@ set (MAC_NR_SRC
   ${NR_GNB_MAC_DIR}/nr_radio_config.c
   ${NR_GNB_MAC_DIR}/nr_pos_ue_context.c
   ${NR_GNB_MAC_DIR}/nrdc_mac_rrc_dl_handler.c
+  ${NR_GNB_MAC_DIR}/mac_telnet_tasks.c
  )
 
 
