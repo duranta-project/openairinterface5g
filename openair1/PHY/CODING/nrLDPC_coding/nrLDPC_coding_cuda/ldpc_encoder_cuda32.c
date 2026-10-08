@@ -25,11 +25,12 @@
 
 #include "ldpc_encode_parity_check_cuda.c"
 
-#define MAX_SEGx32 4
+// groups of 32 code blocks the encoder processes, for the largest transport block
+#define MAX_SEGx32 ((MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 + 31) / 32)
 
 uint32_t *c_dev;
 uint32_t **c_host;
-uint32_t *c_devh[4];
+uint32_t *c_devh[MAX_SEGx32];
 uint32_t *d_dev;
 uint32_t **d_host;
 uint32_t *d_devh[MAX_SEGx32];
@@ -82,13 +83,13 @@ void cuda_support_init()
 
   if (!pageable && !integrated) {
     LOG_I(NR_PHY, "Allocating c,d,cc arrays for GPU \n");
-    c_dev = gpuMalloc_or_fail(4 * sizeof(uint32_t*));
-    c_host = gpuHostAlloc_or_fail(4 * sizeof(uint32_t*), gpuHostAllocDefault);
-    for (int i = 0; i < 4; i++) {
+    c_dev = gpuMalloc_or_fail(MAX_SEGx32 * sizeof(uint32_t *));
+    c_host = gpuHostAlloc_or_fail(MAX_SEGx32 * sizeof(uint32_t *), gpuHostAllocDefault);
+    for (int i = 0; i < MAX_SEGx32; i++) {
       c_devh[i] = gpuMalloc_or_fail(2 * 22 * 384 * sizeof(uint32_t));
       c_host[i] = gpuHostAlloc_or_fail(2 * 22 * 384 * sizeof(uint32_t), gpuHostAllocDefault);
     }
-    gpuError_t err = gpuMemcpy(c_dev, c_devh, 4 * sizeof(uint32_t*), gpuMemcpyHostToDevice);
+    gpuError_t err = gpuMemcpy(c_dev, c_devh, MAX_SEGx32 * sizeof(uint32_t *), gpuMemcpyHostToDevice);
     AssertFatal(err == gpuSuccess, "CUDA Error (memcpy c_devh -> c_dev): %s\n", gpuGetErrorString(err));
     d_dev = gpuMalloc_or_fail(MAX_SEGx32 * sizeof(uint32_t*));
     d_host = gpuHostAlloc_or_fail(MAX_SEGx32 * sizeof(uint32_t*), gpuHostAllocDefault);
@@ -108,16 +109,16 @@ void cuda_support_init()
     AssertFatal(err == gpuSuccess, "CUDA Error (memcpy cc_devh -> d_dev): %s\n", gpuGetErrorString(err));
   } else {
     LOG_I(NR_PHY, "Allocating c,d,cc arrays for CPU/GPU shared-memory\n");
-    c_host = gpuHostAlloc_or_fail(4 * sizeof(uint32_t*), gpuHostAllocMapped | gpuHostAllocPortable);
+    c_host = gpuHostAlloc_or_fail(MAX_SEGx32 * sizeof(uint32_t *), gpuHostAllocMapped | gpuHostAllocPortable);
     c_dev = gpuHostGetDevicePointer_or_fail(c_host);
     LOG_I(NR_PHY, "c_host %p, c_dev %p\n", c_host, c_dev);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < MAX_SEGx32; i++) {
       c_host[i] = gpuHostAlloc_or_fail(2 * 22 * 384 * sizeof(uint32_t), gpuHostAllocMapped);
       c_devh[i] = gpuHostGetDevicePointer_or_fail(c_host[i]);
     }
-    gpuError_t err = gpuMemcpy(c_dev, c_devh, 4 * sizeof(uint32_t*), gpuMemcpyHostToDevice);
+    gpuError_t err = gpuMemcpy(c_dev, c_devh, MAX_SEGx32 * sizeof(uint32_t *), gpuMemcpyHostToDevice);
     AssertFatal(err == gpuSuccess, "CUDA Error (memcpy c_devh -> c_dev): %s\n", gpuGetErrorString(err));
-    d_host = gpuHostAlloc_or_fail(4 * sizeof(uint32_t*), gpuHostAllocMapped);
+    d_host = gpuHostAlloc_or_fail(MAX_SEGx32 * sizeof(uint32_t *), gpuHostAllocMapped);
     d_dev = gpuHostGetDevicePointer_or_fail(d_host);
     LOG_I(NR_PHY, "d_host %p, d_dev %p\n", d_host, d_dev);
     for (int i = 0; i < MAX_SEGx32; i++) {
@@ -167,6 +168,7 @@ uint32_t** LDPCencoder32(uint8_t** input, encoder_implemparams_t* impp)
 #endif
 
   int n_inputs = (impp->n_segments / 32) + (((impp->n_segments & 31) > 0) ? 1 : 0);
+  AssertFatal(n_inputs <= MAX_SEGx32, "%d code blocks, at most %d supported\n", impp->n_segments, MAX_SEGx32 * 32);
   //  uint32_t  cc[4][22*Zc]; //padded input, unpacked, max size
 
   int ret = pthread_mutex_lock(&encoder_mutex);
@@ -190,7 +192,6 @@ uint32_t** LDPCencoder32(uint8_t** input, encoder_implemparams_t* impp)
     start_meas(impp->tparity);
   encode_parity_check_part_cuda((uint32_t**)c_dev, (uint32_t**)d_dev, BG, Zc, Kb, ncols, n_inputs, encoderStreams, encoder_stream);
   if (!pageable && !integrated) { // this means we are not on shared memory
-    AssertFatal(n_inputs <= MAX_SEGx32, "d_devh only allocated till %d, but requested %d\n", MAX_SEGx32, n_inputs);
     for (int r = 0; r < n_inputs; r++)
       gpuMemcpyAsync_or_fail(d_host[r], d_devh[r], 68 * Zc * sizeof(uint32_t), gpuMemcpyDeviceToHost, encoderStreams[encoder_stream]);
   }
