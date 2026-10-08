@@ -21,6 +21,7 @@
 #include <cuda_runtime.h>
 
 #include "nrLDPC_CUDA_shared_param.h"
+#include "nrLDPC_coding_cuda_ctx.h"
 
 // #define gNB_DEBUG_TRACE
 
@@ -60,15 +61,6 @@ int nr_rate_matching_ldpc_rx_cuda(uint32_t Tbslbrm,
 extern int pageable, integrated;
 int16_t **harq_d_array;
 int16_t *harq_d_array_dev;
-
-extern int ldpc_cuda_ctx_acquire(void);
-extern void ldpc_cuda_ctx_release(int ci);
-extern int8_t *ldpc_cuda_ctx_llr(int ci);
-extern int16_t *ldpc_cuda_ctx_harq_e(int ci);
-extern int16_t *ldpc_cuda_ctx_harq_f(int ci);
-extern int LDPCdecoder_cuda_ctx(int ci, t_nrLDPC_dec_params *p_decParams, uint8_t *p_out, bool *passed);
-extern void ldpc_cuda_ctx_init(void);
-extern void ldpc_cuda_ctx_shutdown(void);
 
 void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
 {
