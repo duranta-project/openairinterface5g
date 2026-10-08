@@ -16,6 +16,7 @@
 #include "openair1/PHY/CODING/nrLDPC_defs.h"
 #include "PHY/sse_intrin.h"
 #include "openair1/PHY/CODING/nrLDPC_extern.h"
+#include "nrLDPC_coding_cuda_config.h"
 
 #include <cuda_runtime.h>
 
@@ -23,11 +24,12 @@
 
 #include "ldpc_encode_parity_check_cuda.c"
 
-#define MAX_SEGx32 4
+// groups of 32 code blocks the encoder processes, for the largest transport block
+#define MAX_SEGx32 ((MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 + 31) / 32)
 
 uint32_t *c_dev;
 uint32_t **c_host;
-uint32_t *c_devh[4];
+uint32_t *c_devh[MAX_SEGx32];
 uint32_t *d_dev;
 uint32_t **d_host;
 uint32_t *d_devh[MAX_SEGx32];
@@ -40,10 +42,22 @@ int cuda_support_set = 0;
 
 extern cudaStream_t encoderStreams[4];
 
-int ldpc_input(uint32_t **input,uint32_t *cc[4],int nseg,cudaStream_t *s,int sidx);
+int ldpc_input(uint32_t **input, uint32_t *cc[4], int nseg, int Zc, cudaStream_t *s, int sidx);
 
 void cuda_support_init()
 {
+  // How a host thread waits for the GPU (cudaStreamSynchronize() and alike), for the whole process: the LDPC decoder waits
+  // for the GPU at least once per transport block; with blocking sync each wake-up cost about 100 us on a DGX Spark
+  // (GB10). Set before the CUDA context is created if possible.
+  const ldpc_cuda_wait_mode_t wait_mode = ldpc_cuda_get_config()->wait_mode;
+  const unsigned flags = wait_mode == LDPC_CUDA_WAIT_SPIN    ? cudaDeviceScheduleSpin
+                         : wait_mode == LDPC_CUDA_WAIT_BLOCK ? cudaDeviceScheduleBlockingSync
+                                                             : cudaDeviceScheduleYield;
+  const cudaError_t e = cudaSetDeviceFlags(flags);
+  if (e != cudaSuccess) {
+    LOG_W(NR_PHY, "CUDA LDPC: wait mode %s: %s\n", ldpc_cuda_wait_mode_names[wait_mode], cudaGetErrorString(e));
+    cudaGetLastError(); // not fatal: clear it
+  }
   int dev = 0;
   struct cudaDeviceProp prop;
   cudaGetDeviceProperties(&prop, dev);
@@ -64,20 +78,21 @@ void cuda_support_init()
   LOG_I(NR_PHY, "Uses host page tables:           %s\n", pageable_uses_host ? "YES" : "NO");
   LOG_I(NR_PHY, "Host Register supported:         %s\n", register_host ? "YES" : "NO");
   LOG_I(NR_PHY, "Integrated (shared) Memory       %s\n", integrated ? "YES" : "NO");
+  LOG_I(NR_PHY, "Host wait for the GPU:           %s\n", ldpc_cuda_wait_mode_names[wait_mode]);
 
   if (!pageable && !integrated) {
     LOG_I(NR_PHY, "Allocating c,d,cc arrays for GPU \n");
-    cudaError_t err = cudaMalloc((void**)&c_dev, 4 * sizeof(uint32_t*));
+    cudaError_t err = cudaMalloc((void **)&c_dev, MAX_SEGx32 * sizeof(uint32_t *));
     AssertFatal(err == cudaSuccess, "CUDA Error (c_dev): %s\n", cudaGetErrorString(err));
-    err = cudaHostAlloc((void**)&c_host, 4 * sizeof(uint32_t*), cudaHostAllocDefault);
+    err = cudaHostAlloc((void **)&c_host, MAX_SEGx32 * sizeof(uint32_t *), cudaHostAllocDefault);
     AssertFatal(err == cudaSuccess, "CUDA Error (c_host): %s\n", cudaGetErrorString(err));
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < MAX_SEGx32; i++) {
       err = cudaMalloc((void**)&c_devh[i], 2 * 22 * 384 * sizeof(uint32_t));
       AssertFatal(err == cudaSuccess, "CUDA Error (c_devh[%d]): %s\n", i, cudaGetErrorString(err));
       err = cudaHostAlloc((void**)&c_host[i], 2 * 22 * 384 * sizeof(uint32_t), cudaHostAllocDefault);
       AssertFatal(err == cudaSuccess, "CUDA Error (chost[%d]): %s\n", i, cudaGetErrorString(err));
     }
-    err = cudaMemcpy(c_dev, c_devh, 4 * sizeof(uint32_t*), cudaMemcpyHostToDevice);
+    err = cudaMemcpy(c_dev, c_devh, MAX_SEGx32 * sizeof(uint32_t *), cudaMemcpyHostToDevice);
     AssertFatal(err == cudaSuccess, "CUDA Error (memcpy c_devh -> c_dev): %s\n", cudaGetErrorString(err));
     err = cudaMalloc((void**)&d_dev, MAX_SEGx32 * sizeof(uint32_t*));
     AssertFatal(err == cudaSuccess, "CUDA Error: %s\n", cudaGetErrorString(err));
@@ -105,20 +120,20 @@ void cuda_support_init()
     AssertFatal(err == cudaSuccess, "CUDA Error (memcpy cc_devh -> d_dev): %s\n", cudaGetErrorString(err));
   } else {
     LOG_I(NR_PHY, "Allocating c,d,cc arrays for CPU/GPU shared-memory\n");
-    cudaError_t err = cudaHostAlloc((void**)&c_host, 4 * sizeof(uint32_t*), cudaHostAllocMapped | cudaHostAllocPortable);
+    cudaError_t err = cudaHostAlloc((void **)&c_host, MAX_SEGx32 * sizeof(uint32_t *), cudaHostAllocMapped | cudaHostAllocPortable);
     AssertFatal(err == cudaSuccess, "CUDA Error (c_host): %s\n", cudaGetErrorString(err));
     err = cudaHostGetDevicePointer((void**)&c_dev, c_host, 0);
     AssertFatal(err == cudaSuccess, "CUDA Error (c_dev): %s\n", cudaGetErrorString(err));
     LOG_I(NR_PHY, "c_host %p, c_dev %p\n", c_host, c_dev);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < MAX_SEGx32; i++) {
       err = cudaHostAlloc((void**)&c_host[i], 2 * 22 * 384 * sizeof(uint32_t), cudaHostAllocMapped);
       AssertFatal(err == cudaSuccess, "CUDA Error (c_host[%d]): %s\n", i, cudaGetErrorString(err));
       err = cudaHostGetDevicePointer((void**)&c_devh[i], c_host[i], 0);
       AssertFatal(err == cudaSuccess, "CUDA Error (c_devh[%d]): %s\n", i, cudaGetErrorString(err));
     }
-    err = cudaMemcpy(c_dev, c_devh, 4 * sizeof(uint32_t*), cudaMemcpyHostToDevice);
+    err = cudaMemcpy(c_dev, c_devh, MAX_SEGx32 * sizeof(uint32_t *), cudaMemcpyHostToDevice);
     AssertFatal(err == cudaSuccess, "CUDA Error (memcpy c_devh -> c_dev): %s\n", cudaGetErrorString(err));
-    err = cudaHostAlloc((void**)&d_host, 4 * sizeof(uint32_t*), cudaHostAllocMapped);
+    err = cudaHostAlloc((void **)&d_host, MAX_SEGx32 * sizeof(uint32_t *), cudaHostAllocMapped);
     AssertFatal(err == cudaSuccess, "CUDA Error (d_host): %s\n", cudaGetErrorString(err));
     err = cudaHostGetDevicePointer((void**)&d_dev, d_host, 0);
     AssertFatal(err == cudaSuccess, "CUDA Error cudaHostGetDevicePointer(d_dev): %s\n", cudaGetErrorString(err));
@@ -156,7 +171,6 @@ uint32_t** LDPCencoder32(uint8_t** input, encoder_implemparams_t* impp)
   int encoder_stream = 0;
 
   AssertFatal(BG == 1, "BG %d is not supported for CUDA version\n", BG);
-  AssertFatal(Zc == 384 || Zc == 176, "Zc %d is not supported for CUDA version \n", Zc);
 
   if (impp->tinput != NULL)
     start_meas(impp->tinput);
@@ -173,6 +187,7 @@ uint32_t** LDPCencoder32(uint8_t** input, encoder_implemparams_t* impp)
 #endif
 
   int n_inputs = (impp->n_segments / 32) + (((impp->n_segments & 31) > 0) ? 1 : 0);
+  AssertFatal(n_inputs <= MAX_SEGx32, "%d code blocks, at most %d supported\n", impp->n_segments, MAX_SEGx32 * 32);
   //  uint32_t  cc[4][22*Zc]; //padded input, unpacked, max size
 
   int ret = pthread_mutex_lock(&encoder_mutex);
@@ -182,9 +197,10 @@ uint32_t** LDPCencoder32(uint8_t** input, encoder_implemparams_t* impp)
       cudaMemcpyAsync(input_devh[r], input[r], block_length >> 3, cudaMemcpyHostToDevice, encoderStreams[encoder_stream]);
     }
   }
-  ldpc_input(pageable || integrated ? (uint32_t**)input : (uint32_t**)input_dev,
-             (uint32_t**)c_dev,
+  ldpc_input(pageable || integrated ? (uint32_t **)input : (uint32_t **)input_dev,
+             (uint32_t **)c_dev,
              impp->n_segments,
+             Zc,
              encoderStreams,
              encoder_stream);
   if (impp->tinput != NULL)
@@ -194,7 +210,6 @@ uint32_t** LDPCencoder32(uint8_t** input, encoder_implemparams_t* impp)
     start_meas(impp->tparity);
   encode_parity_check_part_cuda((uint32_t**)c_dev, (uint32_t**)d_dev, BG, Zc, Kb, ncols, n_inputs, encoderStreams, encoder_stream);
   if (!pageable && !integrated) { // this means we are not on shared memory
-    AssertFatal(n_inputs <= MAX_SEGx32, "d_devh only allocated till %d, but requested %d\n", MAX_SEGx32, n_inputs);
     for (int r = 0; r < n_inputs; r++)
       cudaMemcpyAsync(d_host[r], d_devh[r], 68 * 384 * sizeof(uint32_t), cudaMemcpyDeviceToHost, encoderStreams[encoder_stream]);
   }

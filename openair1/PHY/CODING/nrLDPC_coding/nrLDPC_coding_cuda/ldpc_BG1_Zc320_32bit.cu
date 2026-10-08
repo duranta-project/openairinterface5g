@@ -202,9 +202,9 @@ __global__ void ldpc_BG1_Zc320_worker(uint32_t *c[4],uint32_t *d[4]) {
      }
   }
 }
-extern "C" int ldpc_BG1_Zc320_cuda32(uint32_t *c[4],uint32_t *d[4],int n_inputs) { 
+extern "C" int ldpc_BG1_Zc320_cuda32(uint32_t *c[4],uint32_t *d[4],int n_inputs,cudaStream_t *stream,int sidx) { 
  dim3 numblocks(n_inputs,46);
- ldpc_BG1_Zc320_worker<<<numblocks,320>>>(c,d);
+ ldpc_BG1_Zc320_worker<<<numblocks,320,0,stream[sidx]>>>(c,d);
  
  cudaError_t err=cudaPeekAtLastError();
  if (err!=cudaSuccess) {
