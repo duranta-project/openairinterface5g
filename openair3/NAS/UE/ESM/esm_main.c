@@ -77,6 +77,7 @@ void esm_main_initialize(nas_user_t *user, esm_indication_callback_t cb)
 
   for (i = 0; i < ESM_DATA_PDN_MAX + 1; i++) {
     esm_data->pdn[i].pid = -1;
+    esm_data->pdn[i].ipv4_route_cleanup_pending = false;
     esm_data->pdn[i].is_active = false;
     esm_data->pdn[i].data = NULL;
   }

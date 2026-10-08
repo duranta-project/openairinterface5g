@@ -26,6 +26,7 @@ typedef struct timer_elm_s {
     task_info_t admin;
     ittiTask_parms_t task_parms;
     pthread_t thread;
+    bool thread_created = false;
     pthread_mutex_t queue_cond_lock;
     std::vector<MessageDef *> message_queue;
     std::map<long,timer_elm_t> timer_map;
@@ -312,8 +313,26 @@ typedef struct timer_elm_s {
                  (char *)itti_get_task_name(task_id),
                  -1,
                  OAI_PRIORITY_RT);
+    t->thread_created = true;
     LOG_D(ITTI,"Created Posix thread %s\n",  itti_get_task_name(task_id) );
     return 0;
+  }
+
+  int itti_terminate_and_join_task(task_id_t task_id, instance_t instance)
+  {
+    task_list_t *t = tasks[task_id];
+    if (!t->thread_created)
+      return 0;
+
+    MessageDef *msg = itti_alloc_new_message(TASK_UNKNOWN, 0, TERMINATE_MESSAGE);
+    int ret = itti_send_msg_to_task(task_id, instance, msg);
+    if (ret != 0)
+      return ret;
+
+    ret = pthread_join(t->thread, NULL);
+    if (ret == 0)
+      t->thread_created = false;
+    return ret;
   }
 
   void itti_exit_task(void) {
