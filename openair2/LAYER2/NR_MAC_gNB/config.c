@@ -380,7 +380,9 @@ int get_ul_slots_per_frame(const frame_structure_t *fs)
  * @param count_mixed indicates whether counting mixed slot with UL symbols (e.g. for SRS) or only full UL slots
  * @return slot index offset
  */
-int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed)
+/* UL slots of the period, in order: full UL slots, plus mixed slots with UL symbols if count_mixed.
+ * With a cell, the slots it reserves for spectrum sensing are left out: no UE transmits there. */
+static int ul_slot_offset(const frame_structure_t *fs, const nr_cell_sched_t *cell, int idx, bool count_mixed)
 {
   DevAssert(fs);
 
@@ -396,15 +398,30 @@ int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed)
   count also mixed slots with UL symbols if flag count_mixed is present */
   for (int i = 0; i < fs->numb_slots_period; i++) {
     if ((count_mixed && is_ul_slot(i, fs)) || fs->period_cfg.tdd_slot_bitmap[i].slot_type == TDD_NR_UPLINK_SLOT) {
+#ifdef E3_AGENT
+      if (cell && nr_mac_ul_slot_is_sensing_reserved(cell, i))
+        continue;
+#endif /* E3_AGENT */
       ul_slot_idxs[ul_slot_count++] = i;
     }
   }
+  AssertFatal(ul_slot_count > 0, "no UL slot left in the TDD period for periodic UCI/SRS\n");
 
   // Compute slot index offset
   int period_idx = idx / ul_slot_count; // wrap up the count of complete TDD periods spanned by the index
   int ul_slot_idx_in_period = idx % ul_slot_count; // wrap up the UL slot index within the current TDD period
 
   return ul_slot_idxs[ul_slot_idx_in_period] + period_idx * fs->numb_slots_period;
+}
+
+int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed)
+{
+  return ul_slot_offset(fs, NULL, idx, count_mixed);
+}
+
+int get_cell_ul_slot_offset(const nr_cell_sched_t *cell, int idx, bool count_mixed)
+{
+  return ul_slot_offset(&cell->frame_structure, cell, idx, count_mixed);
 }
 
 /**

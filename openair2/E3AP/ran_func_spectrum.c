@@ -249,6 +249,39 @@ static void check_ul_tda_ordering(const nr_cell_sched_t *cell)
   }
 }
 
+/* Msg3 has to land, k2 + delta slots after a Msg2 in a DL slot, in a UL slot that is not reserved for
+ * sensing; with no such pair no UE can ever attach. Refuse that configuration at startup instead of
+ * letting random access time out. */
+static void check_msg3_reachable(const nr_cell_sched_t *cell, const e3_spectrum_cell_t *rec)
+{
+  const frame_structure_t *fs = &cell->frame_structure;
+  const NR_BWP_UplinkCommon_t *ul = cell->common_channels.ServingCellConfigCommon->uplinkConfigCommon->initialUplinkBWP;
+  const NR_PUSCH_TimeDomainResourceAllocationList_t *tdas = ul->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList;
+  if (tdas == NULL)
+    return;
+  const int delta = get_delta_for_k2(ul->genericParameters.subcarrierSpacing);
+  for (int s = 0; s < rec->period; s++) {
+    if (!is_dl_slot(s, fs))
+      continue;
+    for (int i = 0; i < tdas->list.count; i++) {
+      const long k2 = tdas->list.array[i]->k2 ? *tdas->list.array[i]->k2 : 0;
+      const int m = (s + k2 + delta) % rec->period;
+      if (!is_ul_slot(m, fs) || rec->reserved[m])
+        continue;
+      int start, len;
+      SLIV2SL(tdas->list.array[i]->startSymbolAndLength, &start, &len);
+      const uint16_t bits = SL_to_bitmap(start, len);
+      if ((get_ul_bitmap(fs, m) & bits) == bits)
+        return;
+    }
+  }
+  AssertFatal(false,
+              "sensing_target_slots reserve every UL slot Msg3 can use (k2 + %d slots after a DL slot, with this "
+              "TDD pattern and the initial UL BWP TDA list): no UE could complete random access. Reserve another "
+              "UL slot for sensing.\n",
+              delta);
+}
+
 /* Mark which entries of the cell's UL TDA list are the operator's extra shapes,
  * so the selector can prefer them once a sensing policy is active. The list is
  * the shared one -- it carries no such flag -- so the table lives here. */
@@ -318,6 +351,7 @@ void e3_spectrum_mac_attach_cell(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
                 rec->period - 1);
     rec->reserved[s] = true;
   }
+  check_msg3_reachable(cell, rec);
   if (cfg->num_extra_tdas > 0) {
     check_ul_tda_ordering(cell);
     mark_extra_tdas(rec, cfg);
