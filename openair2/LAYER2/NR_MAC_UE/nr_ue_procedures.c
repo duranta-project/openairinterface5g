@@ -3769,13 +3769,12 @@ static void extract_01_c_rnti(dci_pdu_rel15_t *dci_pdu_rel15, const uint8_t *dci
   EXTRACT_DCI_ITEM(dci_pdu_rel15->ul_sul_indicator.val, dci_pdu_rel15->ul_sul_indicator.nbits);
   // BWP Indicator
   EXTRACT_DCI_ITEM(dci_pdu_rel15->bwp_indicator.val, dci_pdu_rel15->bwp_indicator.nbits);
-  // Freq domain assignment  max 16 bit
-  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, ceil_log2_u32((N_RB * (N_RB + 1)) >> 1));
+  // Freq domain assignment, width from nr_dci_size() (RA type 0, 1 or dynamicSwitch)
+  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, dci_pdu_rel15->frequency_domain_assignment.nbits);
   // Time domain assignment
   EXTRACT_DCI_ITEM(dci_pdu_rel15->time_domain_assignment.val, dci_pdu_rel15->time_domain_assignment.nbits);
-  // Not supported yet - skip for now
-  // Frequency hopping flag – 1 bit
-  // EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_hopping_flag.val, 1);
+  // Frequency hopping flag – 0 or 1 bit (present if frequencyHopping is configured and RA type is not 0)
+  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_hopping_flag.val, dci_pdu_rel15->frequency_hopping_flag.nbits);
   // MCS  5 bit
   EXTRACT_DCI_ITEM(dci_pdu_rel15->mcs, 5);
   // New data indicator 1bit
