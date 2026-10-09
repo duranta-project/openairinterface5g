@@ -117,10 +117,17 @@ without one, the ID is forwarded unchanged to the radio or the fronthaul.
 A DBT is only meaningful for `predefined`. Configuring one together with
 `straight-wire` or `das` is rejected at startup.
 
-It is also only supported with Aerial for the time being. The table does reach a
-native L1, but `nr_feptx_prec()` copies the samples through instead of precoding
-them, so the weights would have no effect; configuring a table without Aerial is
-rejected rather than silently ignored.
+Both Aerial and the native L1 apply the table, the native L1 for split 8 and for
+a 7.2 category A RU alike. Every TX antenna of the `RUs` section transmits the
+logical antenna ports weighted by the entry of their beam for that antenna, so
+the number of logical ports and of TX antennas can differ.
+
+- The beam is taken per PDU (SSB, PDCCH, CSI-RS and PDSCH), and per DCI for
+  PDCCH. A PDU uses one beam over all its RBs: per-PRG (frequency-selective)
+  beams are not supported.
+- PDUs on the same resources add up, as needed for several beams on the same
+  resources (MU-MIMO).
+- PRS is not beamformed: it is transmitted on the first TX antenna.
 
 The table can come from either of two places, checked in this order:
 
@@ -198,17 +205,17 @@ you.
 
 The number of weights per beam must equal the number of physical antenna ports,
 and a mismatch is rejected at startup. Under Aerial that count is `num_tx_ant`
-of the [`Aerial` section](#aerial-section). Should a native L1 gain DBT support,
-it would instead be the sum of `nb_tx` over the `RUs` section.
+of the [`Aerial` section](#aerial-section); for a native L1 it is the sum of
+`nb_tx` over the `RUs` section.
 
 ### Beam IDs and their relation to `ssb_beams`
 
-Beam IDs name the rows of the table; they are arbitrary 16-bit values and do not
-have to start at zero, be contiguous, or be sorted, but they must be unique — a
-table listing the same ID twice is rejected at startup. A table typically holds
-many more beams than there are SSBs, so `ssb_beams` selects the subset used for
-SSB/PRACH, one entry per transmitted SSB. Every ID listed in `ssb_beams` must
-appear in the table, otherwise startup fails with
+Beam IDs name the rows of the table; they are arbitrary values below 512 and do
+not have to start at zero, be contiguous, or be sorted, but they must be unique
+— a table listing the same ID twice is rejected at startup. A table typically
+holds many more beams than there are SSBs, so `ssb_beams` selects the subset
+used for SSB/PRACH, one entry per transmitted SSB. Every ID listed in
+`ssb_beams` must appear in the table, otherwise startup fails with
 
 ```
 ssb_beams[<i>] = <id> is not a beam of the digital beam table (<n> entries)
@@ -217,6 +224,8 @@ ssb_beams[<i>] = <id> is not a beam of the digital beam table (<n> entries)
 With a table configured, L1 resolves each beam ID through it; without one, the
 IDs are passed on to the RU or the fronthaul unchanged.
 
+For an example with a digital beam table on a native L1, see
+[`gnb.sa.band78.106prb.rfsim.dbt.conf`](../ci-scripts/conf_files/gnb.sa.band78.106prb.rfsim.dbt.conf).
 For an example without a digital beam table, see
 [`gnb.sa.band257.u3.66prb.rfsim.4beams.conf`](../ci-scripts/conf_files/gnb.sa.band257.u3.66prb.rfsim.4beams.conf),
 which maps the four transmitted SSBs onto four beams.
