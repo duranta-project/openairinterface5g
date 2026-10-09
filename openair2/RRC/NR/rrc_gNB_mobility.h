@@ -18,6 +18,7 @@ typedef struct gNB_RRC_UE_s gNB_RRC_UE_t;
 typedef struct NR_CellGroupConfig NR_CellGroupConfig_t;
 
 typedef void (*ho_cancel_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
+typedef void (*ho_reconfig_ack_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
 typedef int (*ho_status_transfer_t)(gNB_RRC_INST *rrc,
                                     gNB_RRC_UE_t *UE,
                                     const int n_to_mod,
@@ -45,6 +46,14 @@ typedef struct nr_ho_source_cu {
   ho_status_transfer_t ho_status_transfer;
   /// old (source) downlink tunnel
   gtpu_tunnel_t old_du_tunnel_config;
+  /* Xn HO routing: allocated when sending HandoverRequest */
+  // source NG-RAN node UE XnAP ID
+  uint32_t src_ue_xnap_id;
+  /* Xn HO routing: set after receiving HandoverRequestAcknowledge */
+  // target NG-RAN node UE XnAP ID
+  uint32_t tar_ue_xnap_id;
+  // SCTP association to the target gNB
+  sctp_assoc_t tar_assoc_id;
 } nr_ho_source_cu_t;
 
 /* acknowledgement of handover request. buf+len is the RRC Reconfiguration */
@@ -52,6 +61,7 @@ typedef void (*ho_req_ack_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
 typedef void (*ho_success_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
 typedef void (*ho_failure_t)(gNB_RRC_INST *rrc, uint32_t gnb_ue_id, ngap_handover_failure_t *msg);
 typedef void (*ho_trigger_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
+typedef void (*ho_prep_failure_t)(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
 
 typedef struct nr_ho_target_cu {
   /// pointer to the (target) cell container
@@ -70,8 +80,23 @@ typedef struct nr_ho_target_cu {
   ho_req_ack_t ho_req_ack;
   /// function pointer to announce handover success
   ho_success_t ho_success;
-  /// function pointer to announce the handover failure
+  /// function pointer called after RRC reconfiguration complete
+  /// (N2/F1: nr_rrc_ho_finalize_cb; Xn: nr_rrc_xn_ho_path_switch)
+  ho_reconfig_ack_t ho_reconfig_ack;
+  /// function pointer to release the UE context at the source (Xn only; NULL for N2/F1)
+  ho_reconfig_ack_t ho_release_source;
+  /// function pointer to announce the handover failure (N2)
   ho_failure_t ho_failure;
+  /// function pointer to announce the handover preparation failure (Xn)
+  ho_prep_failure_t ho_prep_failure;
+  /* Xn HO routing: set in rrc_gNB_process_XNAP_HANDOVER_REQUEST, used by
+   * nr_rrc_xn_ho_acknowledge to build XNAP_HANDOVER_REQ_ACK. */
+  // source XnAP UE ID from incoming HandoverRequest
+  uint32_t src_ue_xnap_id;
+  // target XnAP UE ID, allocated when sending HandoverRequestAcknowledge
+  uint32_t tar_ue_xnap_id;
+  // SCTP association back to the source gNB
+  sctp_assoc_t source_assoc_id;
 } nr_ho_target_cu_t;
 
 typedef struct nr_handover_context_s {
@@ -90,10 +115,12 @@ void nr_rrc_finalize_ho(gNB_RRC_UE_t *ue);
 void nr_rrc_n2_ho_failure(gNB_RRC_INST *rrc, uint32_t gnb_ue_id, ngap_handover_failure_t *msg);
 
 void nr_rrc_trigger_n2_ho(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue, const nr_neighbour_cell_t *neighbour_config);
+void nr_rrc_trigger_xn_ho(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue, const nr_neighbour_cell_t *neighbour_config);
 
 void rrc_gNB_trigger_reconfiguration_for_handover(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue, uint8_t *rrc_reconf, int rrc_reconf_len);
 
 void nr_rrc_trigger_n2_ho_target(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
+void nr_rrc_trigger_xn_ho_target(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
 
 byte_array_t *get_meas_timing_config(const NR_MeasurementTimingConfiguration_t *mtc, const NR_MeasConfig_t *measConfig);
 
@@ -103,10 +130,12 @@ bool nr_rrc_update_cell_assoc_after_ho(gNB_RRC_UE_t *UE);
 
 void rrc_add_xn_candidate(gNB_RRC_INST *rrc, uint32_t gnb_id, sctp_assoc_t assoc_id);
 void rrc_remove_xn_candidate(gNB_RRC_INST *rrc, uint32_t gnb_id);
+const rrc_xn_candidate_t *rrc_find_xn_candidate(const gNB_RRC_INST *rrc, uint32_t gnb_id);
 
 const nr_neighbour_cell_t *get_neighbour_cell_by_pci(const neighbour_cell_configuration_t *cell, int pci);
 const nr_neighbour_cell_t *get_neighbour_cell_by_cell_id(const neighbour_cell_configuration_t *cell, uint64_t nrcell_id);
 void nr_HO_F1_trigger_telnet(gNB_RRC_INST *rrc, uint32_t rrc_ue_id);
 void nr_HO_N2_trigger_telnet(gNB_RRC_INST *rrc, uint32_t neighbour_pci, uint32_t rrc_ue_id);
+void nr_HO_Xn_trigger_telnet(gNB_RRC_INST *rrc, uint32_t neighbour_pci, uint32_t rrc_ue_id);
 
 #endif /* RRC_GNB_MOBILITY_H_ */

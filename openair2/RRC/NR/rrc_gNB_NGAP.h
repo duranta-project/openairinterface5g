@@ -50,6 +50,7 @@ int rrc_gNB_process_NGAP_UE_CONTEXT_RELEASE_REQ(MessageDef *msg_p, instance_t in
 int rrc_gNB_process_NGAP_UE_CONTEXT_RELEASE_COMMAND(MessageDef *msg_p, instance_t instance);
 
 void rrc_gNB_send_NGAP_UE_CONTEXT_RELEASE_COMPLETE(instance_t instance, uint32_t gNB_ue_ngap_id, seq_arr_t *pduSessions);
+void rrc_gNB_send_NGAP_UE_CONTEXT_LOCAL_RELEASE(uint32_t gNB_ue_ngap_id);
 
 void rrc_gNB_send_NGAP_UE_CAPABILITIES_IND(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const NR_UECapabilityInformation_t *const ue_cap_info);
 
@@ -60,6 +61,9 @@ void rrc_gNB_send_NGAP_PDUSESSION_RELEASE_RESPONSE(gNB_RRC_INST *rrc, gNB_RRC_UE
 void rrc_gNB_send_NGAP_PDUSESSION_RESOURCE_NOTIFY(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, uint8_t xid);
 
 void nr_rrc_pdcp_config_security(gNB_RRC_UE_t *UE, bool enable_ciphering);
+
+NR_CipheringAlgorithm_t rrc_gNB_select_ciphering(const gNB_RRC_INST *rrc, uint16_t algorithms);
+e_NR_IntegrityProtAlgorithm rrc_gNB_select_integrity(const gNB_RRC_INST *rrc, uint16_t algorithms);
 
 int rrc_gNB_process_PAGING_IND(gNB_RRC_INST *rrc, const instance_t instance, const ngap_paging_ind_t *msg);
 
@@ -88,5 +92,9 @@ int rrc_gNB_send_NGAP_ul_ran_status_transfer(gNB_RRC_INST *rrc,
                                              const e1_pdcp_status_info_t *pdcp_status);
 
 int rrc_gNB_process_NGAP_DL_RAN_STATUS_TRANSFER(MessageDef *msg_p, instance_t instance);
+
+void rrc_gNB_send_NGAP_PATH_SWITCH_REQUEST(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE);
+
+int rrc_gNB_process_NGAP_PATH_SWITCH_REQUEST_ACKNOWLEDGEMENT(gNB_RRC_INST *rrc, instance_t instance, const ngap_path_switch_req_ack_t *msg);
 
 #endif
