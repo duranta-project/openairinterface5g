@@ -121,6 +121,8 @@ timer is a typedef struct `time_stats_t` that can be started with `start_meas`,
 stopped with `stop_meas`, merged in another timer with `merge_meas` and reset
 with `reset_meas`.  The start, stop and merge functions have `_on_dl` and
 `_on_ul` variants to measure only full DL or UL slots.  Tracking the full
-distibution of processing times is optional and requires to enable the sorted
-list of the timer with `init_time_stats_sorted_list`.  Then the list shall be
-released with `free_time_stats_sorted_list` when finishing to use it.
+distribution of processing times is enabled by default using histograms.  The
+histogram is automatically managed when a timer is reset and does not require
+explicit initialization or freeing. Each timer contains a histogram structure
+(`time_hist_t`) that records the distribution of processing times
+in configurable bins.

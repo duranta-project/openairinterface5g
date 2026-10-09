@@ -98,6 +98,7 @@ static size_t dump_L1_UE_meas_stats(PHY_VARS_NR_UE *ue, char *output, size_t max
 {
   const char *begin = output;
   const char *end = output + max_len;
+  output += print_meas_log_header(NULL, NULL, output, end - output, cpu_meas_enabled);
   for (int i = 0; i < MAX_CPU_STAT_TYPE; i++) {
     output += print_meas_log(&ue->phy_cpu_stats.cpu_time_stats[i],
                              ue->phy_cpu_stats.cpu_time_stats[i].meas_name,

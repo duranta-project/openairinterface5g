@@ -225,77 +225,6 @@ static void rx_func(processingData_L1_t *info)
 
 }
 
-static void nrL1_stats_init_sorted_list(PHY_VARS_gNB *gNB, RU_t *ru, unsigned int size)
-{
-  init_sorted_list_meas(&gNB->l1_tx_proc, size);
-  init_sorted_list_meas(&gNB->l1_rx_proc, size);
-  init_sorted_list_meas(&gNB->phy_proc_tx, size);
-  init_sorted_list_meas(&gNB->gnb_tx_procedures_stats, size);
-  init_sorted_list_meas(&gNB->ru_tx_func_stats, size);
-  init_sorted_list_meas(&gNB->dlsch_encoding_stats, size);
-  init_sorted_list_meas(&gNB->dlsch_ldpc_encode_stats, size);
-  init_sorted_list_meas(&gNB->dlsch_scrambling_stats, size);
-  init_sorted_list_meas(&gNB->dlsch_modulation_stats, size);
-  init_sorted_list_meas(&gNB->dlsch_pdsch_generation_stats, size);
-  init_sorted_list_meas(&gNB->phy_proc_rx, size);
-  init_sorted_list_meas(&gNB->pucch01_proc_rx, size);
-  init_sorted_list_meas(&gNB->pucch23_proc_rx, size);
-  init_sorted_list_meas(&gNB->ulsch_decoding_stats, size);
-  init_sorted_list_meas(&gNB->ts_ldpc_decode, size);
-  init_sorted_list_meas(&gNB->ul_indication_stats, size);
-  init_sorted_list_meas(&gNB->slot_indication_stats, size);
-  init_sorted_list_meas(&gNB->rx_pusch_stats, size);
-  init_sorted_list_meas(&gNB->rx_prach, size);
-  if (ru->feprx) {
-    init_sorted_list_meas(&ru->ofdm_demod_stats, size);
-  }
-  if (ru->feptx_prec) {
-    init_sorted_list_meas(&ru->precoding_stats, size);
-  }
-  if (ru->feptx_ofdm) {
-    init_sorted_list_meas(&ru->txdataF_copy_stats, size);
-    init_sorted_list_meas(&ru->ofdm_mod_stats, size);
-    init_sorted_list_meas(&ru->ofdm_total_stats, size);
-  }
-  init_sorted_list_meas(&ru->tx_fhaul, size);
-}
-
-static void nrL1_stats_free_sorted_list(PHY_VARS_gNB *gNB, RU_t *ru)
-{
-  free_sorted_list_meas(&gNB->l1_tx_proc);
-  free_sorted_list_meas(&gNB->l1_rx_proc);
-  free_sorted_list_meas(&gNB->phy_proc_tx);
-  free_sorted_list_meas(&gNB->gnb_tx_procedures_stats);
-  free_sorted_list_meas(&gNB->ru_tx_func_stats);
-  free_sorted_list_meas(&gNB->dlsch_encoding_stats);
-  free_sorted_list_meas(&gNB->dlsch_ldpc_encode_stats);
-  free_sorted_list_meas(&gNB->dlsch_scrambling_stats);
-  free_sorted_list_meas(&gNB->dlsch_modulation_stats);
-  free_sorted_list_meas(&gNB->dlsch_pdsch_generation_stats);
-  free_sorted_list_meas(&gNB->phy_proc_rx);
-  free_sorted_list_meas(&gNB->pucch01_proc_rx);
-  free_sorted_list_meas(&gNB->pucch23_proc_rx);
-  free_sorted_list_meas(&gNB->ulsch_decoding_stats);
-  free_sorted_list_meas(&gNB->ts_ldpc_decode);
-  free_sorted_list_meas(&gNB->ul_indication_stats);
-  free_sorted_list_meas(&gNB->slot_indication_stats);
-  free_sorted_list_meas(&gNB->rx_pusch_stats);
-  free_sorted_list_meas(&gNB->rx_prach);
-  if (ru->feprx) {
-    free_sorted_list_meas(&ru->ofdm_demod_stats);
-  }
-  if (ru->feptx_prec) {
-    free_sorted_list_meas(&ru->precoding_stats);
-  }
-  if (ru->feptx_ofdm) {
-    free_sorted_list_meas(&ru->txdataF_copy_stats);
-    free_sorted_list_meas(&ru->ofdm_mod_stats);
-    free_sorted_list_meas(&ru->ofdm_total_stats);
-    free_sorted_list_meas(&ru->txdataF_copy_stats);
-  }
-  free_sorted_list_meas(&ru->tx_fhaul);
-}
-
 static void nrL1_stats_reset(PHY_VARS_gNB *gNB, RU_t *ru)
 {
   reset_meas(&gNB->l1_tx_proc);
@@ -395,13 +324,12 @@ static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size
 
   output += print_meas_log(&ru->tx_fhaul,"tx_fhaul",NULL,NULL, output, end - output);
 
-  if (cpu_meas_enabled == TIME_STATS_ADVANCED_MODE) {
+  if (cpu_meas_enabled == TIME_STATS_INSTANT_MODE) {
     nrL1_stats_reset(gNB, ru);
   }
   return output - begin;
 }
 
-#define SORTED_LIST_SIZE 2048
 void *nrL1_stats_thread(void *param) {
   PHY_VARS_gNB     *gNB      = (PHY_VARS_gNB *)param;
   RU_t *ru = RC.ru[0];
@@ -412,10 +340,6 @@ void *nrL1_stats_thread(void *param) {
   if (!fd) {
     LOG_W(NR_PHY, "Cannot open nrL1_stats.log: %d, %s\n", errno, strerror(errno));
     return NULL;
-  }
-
-  if (cpu_meas_enabled == TIME_STATS_ADVANCED_MODE) {
-    nrL1_stats_init_sorted_list(gNB, ru, SORTED_LIST_SIZE);
   }
 
   nrL1_stats_reset(gNB, ru);
@@ -432,10 +356,6 @@ void *nrL1_stats_thread(void *param) {
     dump_L1_meas_stats(gNB, ru, output, L1STATSSTRLEN);
     fprintf(fd,"%s\n",output);
     fflush(fd);
-  }
-
-  if (cpu_meas_enabled == TIME_STATS_ADVANCED_MODE) {
-    nrL1_stats_free_sorted_list(gNB, ru);
   }
 
   fclose(fd);

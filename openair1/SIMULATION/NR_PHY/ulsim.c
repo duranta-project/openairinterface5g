@@ -953,7 +953,6 @@ int main(int argc, char *argv[])
   time_stats_t channel_stats = {0};
   time_stats_t noise_stats = {0};
   time_stats_t pipeline_stats = {0};
-  init_sorted_list_meas(&gNB->phy_proc_rx, max_rounds * n_trials);
 
   nr_phy_data_tx_t phy_data = {0};
 
@@ -1164,7 +1163,6 @@ int main(int argc, char *argv[])
   //---------------
   int ret = 1;
   int srs_ret = do_SRS;
-  init_sorted_list_meas(&gNB->phy_proc_tx, 4 * n_trials);
   for (SNR = snr0; SNR <= snr1 && !stop; SNR += snr_step) {
 
     int error_flag = 0;
@@ -1901,7 +1899,6 @@ int main(int argc, char *argv[])
           length_dmrs,
           num_dmrs_cdm_grps_no_data);
 
-  free_sorted_list_meas(&gNB->phy_proc_rx);
   free_MIB_NR(mib);
 
   free_nrLDPC_coding_interface(&gNB->nrLDPC_coding_interface);

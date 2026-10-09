@@ -181,9 +181,9 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
                                           llr_round);
   for (int r = 0; r < TB_parameters.C; r++)
     TB_parameters.decodeSuccess[r] = false;
-  reset_meas(&TB_parameters.ts_ldpc_decode);
 
   for (int r = 0; r < TB_parameters.C; r++) {
+    reset_single_meas(&TB_parameters.ts_ldpc_decode[r]);
     int Etmp = nr_get_E(TB_parameters.G, TB_parameters.C, TB_parameters.Qm, TB_parameters.nb_layers, r);
     if (Etmp != TB_parameters.E) {
       TB_parameters.E2 = Etmp;
@@ -206,12 +206,15 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
   }
 
   bool crcok = true;
-  for (int r = 0; r < TB_parameters.C; r++)
+  for (int r = 0; r < TB_parameters.C; r++) {
+    merge_single_meas(&phy_vars_ue->phy_cpu_stats.cpu_time_stats[DLSCH_LDPC_DECODING_STATS], &TB_parameters.ts_ldpc_decode[r]);
+
     if (TB_parameters.decodeSuccess[r] == false) {
       LOG_D(PHY, "downlink segment error %d/%d\n", r, harq_process->C);
       crcok = false;
       break;
     }
+  }
 
   if (crcok) {
     uint8_t *output = b;
@@ -226,8 +229,6 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
     LOG_D(PHY, "frame=%d, slot=%d, first_rx=%d, rv_index=%d\n",
           proc->frame_rx, proc->nr_slot_rx, TB_parameters.d_to_be_cleared, cw_info->rv);
   }
-
-  merge_meas(&phy_vars_ue->phy_cpu_stats.cpu_time_stats[DLSCH_LDPC_DECODING_STATS], &TB_parameters.ts_ldpc_decode);
 
   kpiStructure.nb_total++;
   kpiStructure.blockSize = cw_info->TBS;

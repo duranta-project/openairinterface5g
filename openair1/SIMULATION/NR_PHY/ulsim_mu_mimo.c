@@ -755,7 +755,6 @@ int main(int argc, char *argv[])
 
   time_stats_t channel_stats = {0};
   time_stats_t noise_stats = {0};
-  init_sorted_list_meas(&gNB->phy_proc_rx, max_rounds * n_trials);
   uint32_t errors_decoding = 0;
 
   uint16_t pdu_bit_map = PUSCH_PDU_BITMAP_PUSCH_DATA;
@@ -1481,7 +1480,6 @@ int main(int argc, char *argv[])
       length_dmrs,
       num_dmrs_cdm_grps_no_data);
 
-  free_sorted_list_meas(&gNB->phy_proc_rx);
   free_MIB_NR(mib);
 
   free_nrLDPC_coding_interface(&gNB->nrLDPC_coding_interface);

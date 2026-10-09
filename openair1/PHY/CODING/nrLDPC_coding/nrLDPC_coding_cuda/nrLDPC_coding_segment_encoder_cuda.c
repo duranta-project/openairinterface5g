@@ -760,9 +760,9 @@ static void ldpcnblocks(nrLDPC_TB_encoding_parameters_t *nrLDPC_TB_encoding_para
     for (int r = 0; r < nrLDPC_TB_encoding_parameters->C; r++) {
       input_host[r] = (uint32_t *)nrLDPC_TB_encoding_parameters->segments[r].c;
     }
-  start_meas(&nrLDPC_TB_encoding_parameters->segments[impp.first_seg].ts_ldpc_encode);
+  start_single_meas(&nrLDPC_TB_encoding_parameters->segments[impp.first_seg].ts_ldpc_encode);
   LDPCencoder32(nrLDPC_TB_encoding_parameters->c_dev ? nrLDPC_TB_encoding_parameters->c_dev : (uint8_t **)input_host, &impp);
-  stop_meas(&nrLDPC_TB_encoding_parameters->segments[impp.first_seg].ts_ldpc_encode);
+  stop_single_meas(&nrLDPC_TB_encoding_parameters->segments[impp.first_seg].ts_ldpc_encode);
   // Compute where to place in output buffer that is concatenation of all segments
 
 #ifdef DEBUG_LDPC_ENCODING

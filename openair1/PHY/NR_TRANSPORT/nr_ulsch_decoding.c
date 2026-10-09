@@ -271,8 +271,8 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
     for (int r = 0; r < TB_parameters->C; r++)
       TB_parameters->decodeSuccess[r] = false;
     TB_parameters->d_to_be_cleared = harq_process->harq_to_be_cleared;
-    reset_meas(&TB_parameters->ts_ldpc_decode);
     for (int r = 0; r < TB_parameters->C; r++) {
+      reset_single_meas(&TB_parameters->ts_ldpc_decode[r]);
       int Etmp = nr_get_E(TB_parameters->G, TB_parameters->C, TB_parameters->Qm, TB_parameters->nb_layers, r);
       if (TB_parameters->E != Etmp) {
         TB_parameters->E2 = Etmp;
@@ -310,12 +310,12 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
       }
       offset += seg_len;
       r_offset += (harq_process->K >> 3);
+
+      MERGE_SINGLE_MEAS_FULL_SLOT(&phy_vars_gNB->ts_ldpc_decode, &TB_parameters->ts_ldpc_decode[r], slot_type, NR_UPLINK_SLOT);
     }
     bool crcok = (harq_process->processedSegments == TB_parameters->C);
     if (!crcok)
       LOG_D(PHY, "ULSCH %d in error\n", ULSCH_id);
-
-    MERGE_MEAS_FULL_SLOT(&phy_vars_gNB->ts_ldpc_decode, &TB_parameters->ts_ldpc_decode, slot_type, NR_UPLINK_SLOT);
 
     harq_process->harq_to_be_cleared = false;
   }

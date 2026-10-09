@@ -323,9 +323,9 @@ int decoder_xdma(nrLDPC_TB_decoding_parameters_t *TB_params, int frame_rx, int s
   //==================================================================
   //  Xilinx FPGA LDPC decoding function -> nrLDPC_decoder_FPGA()
   //==================================================================
-  start_meas(&TB_params->ts_ldpc_decode);
+  start_single_meas(&TB_params->ts_ldpc_decode[0]);
   (void)nrLDPC_decoder_FPGA(&multi_indata[0], &multi_outdata[0], dec_conf);
-  stop_meas(&TB_params->ts_ldpc_decode);
+  stop_single_meas(&TB_params->ts_ldpc_decode[0]);
 #if USE_OUTPUT_PARALLELIZATION
   // Copy to external buffer using the threadpool
   args_fpga_post_decode_t post_decode_args[MAX_CB];

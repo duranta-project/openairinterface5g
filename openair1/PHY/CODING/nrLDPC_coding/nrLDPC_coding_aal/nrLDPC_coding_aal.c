@@ -827,8 +827,8 @@ static int pmd_lcore_ldpc_dec(void *arg)
 
   // Start timer
   // We report timing only once in (0,0) since the timers are merged at the end
-  time_stats_t *ts_decode = &nrLDPC_slot_decoding_parameters->TBs[0].ts_ldpc_decode;
-  if(ts_decode != NULL) start_meas(ts_decode);
+  time_single_t *ts_decode = &nrLDPC_slot_decoding_parameters->TBs[0].ts_ldpc_decode[0];
+  if(ts_decode != NULL) start_single_meas(ts_decode);
 
   uint16_t enq = 0, deq = 0;
   while (enq < num_segments) {
@@ -844,7 +844,7 @@ static int pmd_lcore_ldpc_dec(void *arg)
   }
 
   // Stop timer
-  if(ts_decode != NULL) stop_meas(ts_decode);
+  if(ts_decode != NULL) stop_single_meas(ts_decode);
 
   if (deq == enq) {
     ret = retrieve_ldpc_dec_op(ops_deq, nrLDPC_slot_decoding_parameters);
@@ -904,8 +904,8 @@ static int pmd_lcore_ldpc_enc(void *arg)
   set_ldpc_enc_op(ops_enq, bufs->inputs, bufs->hard_outputs, nrLDPC_slot_encoding_parameters);
 
   // We report timing only once in (0,0) since the timers are merged at the end
-  time_stats_t *ts_ldpc_encode = &nrLDPC_slot_encoding_parameters->TBs[0].segments[0].ts_ldpc_encode;
-  if(ts_ldpc_encode != NULL) start_meas(ts_ldpc_encode);
+  time_single_t *ts_ldpc_encode = &nrLDPC_slot_encoding_parameters->TBs[0].segments[0].ts_ldpc_encode;
+  if(ts_ldpc_encode != NULL) start_single_meas(ts_ldpc_encode);
 
   uint16_t enq = 0, deq = 0;
   while (enq < num_segments) {
@@ -919,7 +919,7 @@ static int pmd_lcore_ldpc_enc(void *arg)
     time_out++;
     DevAssert(time_out <= TIME_OUT_POLL);
   }
-  if(ts_ldpc_encode != NULL) stop_meas(ts_ldpc_encode);
+  if(ts_ldpc_encode != NULL) stop_single_meas(ts_ldpc_encode);
   // We report timing only once in (0,0) since the timers are merged at the end
   ret = retrieve_ldpc_enc_op(ops_deq, nrLDPC_slot_encoding_parameters);
   AssertFatal(ret == 0, "Failed to retrieve LDPC encoding op!");

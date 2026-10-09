@@ -11,5 +11,6 @@
 #define START_MEAS_FULL_SLOT(ts, current, type) if (current == type) { start_meas(ts); }
 #define STOP_MEAS_FULL_SLOT(ts, current, type) if (current == type) { stop_meas(ts); }
 #define MERGE_MEAS_FULL_SLOT(dst, src, current, type) if (current == type) { merge_meas(dst, src); }
+#define MERGE_SINGLE_MEAS_FULL_SLOT(dst, src, current, type) if (current == type) { merge_single_meas(dst, src); }
 
 #endif /* __NR_PHY_MEAS__H__ */
