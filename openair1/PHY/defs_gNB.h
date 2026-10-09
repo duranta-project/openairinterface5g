@@ -231,7 +231,9 @@ typedef struct {
   /// with a digital beam table: scratch buffer the CSI-RS ports are generated in before being beamformed,
   /// nb_antennas_tx slots long. NULL otherwise.
   c16_t *csirs_scratch;
-  /// \brief Beam ID for each [symbol, antenna] pair
+  /// \brief Beam ID for each [symbol, antenna] pair, forwarded to the radio or fronthaul
+  /// (analog beamforming, FAPI beam IDs with the MSB set). NULL otherwise. A PDU whose beam IDs
+  /// have the MSB clear is beamformed by L1 with dbt_lut and leaves no beam ID here.
   /// - first index: symbol [slot * fp->symbols_per_slot + sym_idx]
   /// - second index: logical antenna [0..nb_rx/nb_tx]
   uint16_t **beam_id;
