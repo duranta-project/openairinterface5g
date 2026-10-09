@@ -51,6 +51,8 @@ static f1ap_sib_msg_t encode_sib2(void)
 int test_other_sib_ssb_index(uint64_t ssb_bitmap)
 {
   NR_ServingCellConfigCommon_t *scc = calloc_or_fail(1, sizeof(*scc));
+
+  // config Serving Cell
   prepare_scc(scc);
   uint64_t sim_bitmap;
   fill_scc_sim(scc, &sim_bitmap, 106, 106, 1, 1);
@@ -70,12 +72,16 @@ int test_other_sib_ssb_index(uint64_t ssb_bitmap)
   const nr_rlc_configuration_t rlc_config = {0};
   RC.nb_nr_macrlc_inst = 1;
   nr_cell_sched_t *cell;
+
+  // config MAC
   mac_top_init_gNB(ngran_gNB, scc, &conf, &rlc_config, &cell);
   RC.nrmac[0]->if_inst->NR_PHY_config_req = phy_config_req_stub;
   cell->beam_info = (NR_beam_info_t){.beam_mode = NO_BEAM_MODE, .beams_per_period = 1};
   nr_mac_config_scc(RC.nrmac[0], cell, scc, &conf);
 
   const plmn_id_t plmn = {.mcc = 1, .mnc = 1, .mnc_digit_length = 2};
+
+  // config SIB-1 and SIB-2
   nr_mac_configure_sib1(cell, &plmn, 12345678, 1);
   f1ap_sib_msg_t sib2 = encode_sib2();
   AssertFatal(nr_mac_configure_other_sib(cell, 1, &sib2), "could not configure SIB2\n");
@@ -94,7 +100,9 @@ int test_other_sib_ssb_index(uint64_t ssb_bitmap)
       schedule_nr_mib(cell, frame, slot, &rsp->DL_req);
       schedule_nr_sib1(cell, frame, slot, &rsp->DL_req, &rsp->TX_req);
       const int first_pdu = dl->nPDUs;
+      // function under test
       schedule_nr_other_sib(cell, frame, slot, &rsp->DL_req, &rsp->TX_req);
+      // only inspect other-SI DCIs, excluding SIB1 DCIs
       for (int i = first_pdu; i < dl->nPDUs; i++) {
         if (dl->dl_tti_pdu_list[i].PDUType != NFAPI_NR_DL_TTI_PDCCH_PDU_TYPE)
           continue;

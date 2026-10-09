@@ -16,6 +16,7 @@ TEST_P(OtherSibSsbIndex, OtherSiInCoreset0)
   EXPECT_GT(test_other_sib_ssb_index(GetParam()), 0);
 }
 
+// 0x1: SSB index 0, 0x2: index 1, 0x6: index 1 and 2
 INSTANTIATE_TEST_SUITE_P(SsbBitmap, OtherSibSsbIndex, testing::Values(0x1, 0x2, 0x6), testing::PrintToStringParamName());
 
 int main(int argc, char **argv)
