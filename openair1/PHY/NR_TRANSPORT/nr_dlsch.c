@@ -8,6 +8,7 @@
 
 #include "nr_dlsch.h"
 #include "nr_dci.h"
+#include "nr_dbt.h"
 #include "nr_sch_dmrs.h"
 #include "PHY/MODULATION/nr_modulation.h"
 #include "PHY/NR_REFSIG/dmrs_nr.h"
@@ -922,6 +923,35 @@ static void nr_pdsch_symbol_processing(void *arg)
     const size_t txdataF_offset_per_symbol = l_symbol * symbol_sz;
     const uint16_t num_log_ports =
         rel15->param_v4.numberCodewords ? rel15->param_v4.spatialStreamsCw[0].numSpatialStreamIndices : 0;
+    // with a digital beam table, precoding and beamforming in one step, from the layers onto the TXRUs;
+    // nr_dbt_beamform() also applies the phase compensation
+    const nfapi_nr_tx_precoding_and_beamforming_t *pb = &rel15->precodingAndBeamforming;
+    if (nr_dbt_pdu(&gNB->common_vars, pb)) {
+      const int pmi = pb->prgs_list[0].pm_idx;
+      const nfapi_nr_pm_pdu_t *pm = pmi ? &gNB->gNB_config.pmi_list.pmi_pdu[pmi - 1] : NULL; // pmi 0 is identity matrix
+      AssertFatal(!pm || pm->pm_idx == pmi, "PMI %d doesn't match to the one in precoding matrix %d\n", pmi, pm->pm_idx);
+      int pos = 0;
+      int block_start, block_end;
+      while (find_next_rb_block(freq_alloc->bitmap, rel15->BWPSize, &pos, &block_start, &block_end)) {
+        const int start_sc = get_block_start_sc(block_start, rel15->BWPStart, symbol_sz);
+        const c16_t *in[rel15->nrOfLayers];
+        for (int layer = 0; layer < rel15->nrOfLayers; layer++)
+          in[layer] = txdataF_precoding[layer] + start_sc;
+        nr_dbt_beamform(gNB,
+                        pb,
+                        pm,
+                        num_log_ports,
+                        rel15->nrOfLayers,
+                        slot,
+                        l_symbol,
+                        rel15->BWPStart + freq_alloc->first_rb,
+                        rel15->BWPStart + block_start,
+                        block_end - block_start + 1,
+                        in);
+      }
+      stop_meas(&rdata->dlsch_precoding_stats);
+      continue;
+    }
     // 2 ports / 2 layers: precode both antennas in one pass (radix-2 butterfly),
     // on targets where it is a win (see NR_PDSCH_2X2_FASTPATH). Otherwise, and
     // for 4-port/2-layer (num_log_ports==4), fall through to the generic path.
@@ -1147,20 +1177,27 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   const uint16_t symb_bitmap = SL_to_bitmap(rel15->StartSymbolIndex, rel15->NrOfSymbols);
   uint16_t ant_to_map[frame_parms->nb_antennas_tx];
   const uint16_t num_log_ports = rel15->param_v4.numberCodewords ? rel15->param_v4.spatialStreamsCw[0].numSpatialStreamIndices : 0;
-  for (int ant = 0; ant < num_log_ports; ant++) {
+  // beamformed with the digital beam table, the PDSCH reaches every baseband port and leaves no beam ID
+  const bool dbt = nr_dbt_pdu(&gNB->common_vars, pb);
+  for (int ant = 0; ant < num_log_ports && !dbt; ant++) {
     const uint16_t beam_id = pb->prgs_list[0].dig_bf_interface_list[ant].beam_idx;
     ant_to_map[ant] = get_first_ant_idx(gNB->enable_analog_das,
                                                   frame_parms->nb_antennas_tx / gNB->common_vars.num_beams_period,
                                                   beam_id,
                                                   rel15->param_v4.spatialStreamsCw[0].spatialStreamIndices[ant]);
-    beam_index_allocation(beam_id,
-                          ant_to_map[ant],
-                          1,
-                          frame_parms->symbols_per_slot,
-                          slot,
-                          symb_bitmap,
-                          frame_parms->nb_antennas_tx,
-                          gNB->common_vars.beam_id);
+    AssertFatal(ant_to_map[ant] < gNB->common_vars.num_tx_bb,
+                "PDSCH on port %d of %d\n",
+                ant_to_map[ant],
+                gNB->common_vars.num_tx_bb);
+    if (ant < pb->dig_bf_interfaces)
+      beam_index_allocation(beam_id,
+                            ant_to_map[ant],
+                            1,
+                            frame_parms->symbols_per_slot,
+                            slot,
+                            symb_bitmap,
+                            gNB->common_vars.num_tx_bb,
+                            gNB->common_vars.beam_id);
   }
 
   // spawn symbol threads
