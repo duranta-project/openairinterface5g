@@ -125,7 +125,7 @@ int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
          return -1;
       segment_parameters->c = harq_process->c[r];
       segment_parameters->E = E;
-      reset_meas(&segment_parameters->ts_ldpc_encode);
+      reset_single_meas(&segment_parameters->ts_ldpc_encode);
 
     } // TB_parameters->C
   } // pusch_id
@@ -137,7 +137,7 @@ int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
     nrLDPC_TB_encoding_parameters_t *TB_parameters = &TBs[pusch_id];
     for (int r = 0; r < TB_parameters->C; r++) {
       nrLDPC_segment_encoding_parameters_t *segment_parameters = &TB_parameters->segments[r];
-      merge_meas(&ue->phy_cpu_stats.cpu_time_stats[ULSCH_LDPC_ENCODING_STATS], &segment_parameters->ts_ldpc_encode);
+      merge_single_meas(&ue->phy_cpu_stats.cpu_time_stats[ULSCH_LDPC_ENCODING_STATS], &segment_parameters->ts_ldpc_encode);
     }
   }
 
