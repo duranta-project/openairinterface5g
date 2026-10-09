@@ -690,8 +690,7 @@ static void set_dl_maxmimolayers(NR_PDSCH_ServingCellConfig_t *pdsch_servingcell
 
 static struct NR_SRS_Resource__resourceType__periodic *configure_periodic_srs(const int uid, const nr_cell_sched_t *cell)
 {
-  const frame_structure_t *fs = &cell->frame_structure;
-  int offset = get_ul_slot_offset(fs, uid, false); // only full UL slots for SRS
+  int offset = get_cell_ul_slot_offset(cell, uid, false); // only full UL slots for SRS
   // checked for validity in verify_radio_configuration
   AssertFatal(offset < 2560, "Cannot allocate SRS configuration for uid %d, not enough resources\n", uid);
   const int ideal_period = get_ideal_period(cell, SRS, 0);
@@ -1427,7 +1426,7 @@ static void set_SR_periodandoffset(const nr_cell_sched_t *cell, NR_SchedulingReq
   const frame_structure_t *fs = &cell->frame_structure;
   int sr_slot = 1; // in FDD SR in slot 1
   if (fs->frame_type == TDD)
-    sr_slot = get_first_ul_slot(fs, true);
+    sr_slot = get_cell_ul_slot_offset(cell, 0, true); // first UL slot a UE may transmit in
 
   schedulingRequestResourceConfig->periodicityAndOffset = calloc(1,sizeof(*schedulingRequestResourceConfig->periodicityAndOffset));
 
@@ -2039,8 +2038,7 @@ static void set_csi_meas_periodicity(const nr_cell_sched_t *cell,
   const int num_pucch2 = get_nb_pucch2_per_slot(scc, curr_bwp, antennaports->N1 * antennaports->N2 * antennaports->XP);
   const int ideal_period = get_ideal_period(cell, CSI_MEASUREMENTS, num_pucch2);
   const int idx = (uid * 2 / num_pucch2) + is_rsrp;
-  const frame_structure_t *fs = &cell->frame_structure;
-  int offset = get_ul_slot_offset(fs, idx, true);
+  int offset = get_cell_ul_slot_offset(cell, idx, true);
   LOG_D(NR_MAC, "set_csi_meas_periodicity: uid = %d, offset = %d, ideal_period = %d", uid, offset, ideal_period);
   // checked for validity in verify_radio_configuration
   AssertFatal(offset < 320, "Not enough UL slots to accomodate all possible UEs. Need to rework the implementation\n");
@@ -3860,7 +3858,7 @@ static bool verify_radio_configuration(int uid,
 {
   const nr_mac_config_t *configuration = &cell->radio_config;
   const frame_structure_t *fs = &cell->frame_structure;
-  int srs_offset = get_ul_slot_offset(fs, uid, false);
+  int srs_offset = get_cell_ul_slot_offset(cell, uid, false);
   // see configure_periodic_srs
   if (srs_offset >= 2560) {
     LOG_E(NR_RRC, "UID %d, cannot allocate resources for SRS, rejecting UE\n", uid);
@@ -3892,7 +3890,7 @@ static bool verify_radio_configuration(int uid,
     return false; // cannot allocate resources for PUCCH2
   }
   const int idx = (uid * 2 / num_pucch2) + 1;
-  int offset = get_ul_slot_offset(fs, idx, true);
+  int offset = get_cell_ul_slot_offset(cell, idx, true);
   // see set_csi_meas_periodicity
   if (offset >= 320) {
     LOG_E(NR_RRC, "UID %d, cannot allocate resources for CSI reporting, rejecting UE\n", uid);

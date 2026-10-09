@@ -1170,7 +1170,8 @@ static void nr_generate_Msg3_retransmission(nr_cell_sched_t *cell,
   ra->Msg3_slot = sched.s;
 }
 
-static bool get_feasible_msg3_tda(const NR_ServingCellConfigCommon_t *scc,
+static bool get_feasible_msg3_tda(const nr_cell_sched_t *cell,
+                                  const NR_ServingCellConfigCommon_t *scc,
                                   int mu_delta,
                                   const NR_PUSCH_TimeDomainResourceAllocationList_t *tda_list,
                                   int frame,
@@ -1191,6 +1192,11 @@ static bool get_feasible_msg3_tda(const NR_ServingCellConfigCommon_t *scc,
     fsn_t temp = get_fb_frame_slot(frame, slot, *tda_list->list.array[i]->k2 + mu_delta, slots_per_frame, NTN_gNB_Koffset);
     if (fs->frame_type == TDD && !is_ul_slot(temp.s, fs))
       continue;
+#ifdef E3_AGENT
+    /* reserved for spectrum sensing: the scheduler will not let Msg3 in */
+    if (nr_mac_ul_slot_is_sensing_reserved(cell, temp.s))
+      continue;
+#endif /* E3_AGENT */
 
     int s = get_slot_idx_in_period(temp.s, fs);
     const tdd_bitmap_t *bm = &fs->period_cfg.tdd_slot_bitmap[s];
@@ -1773,7 +1779,8 @@ static bool nr_generate_Msg2(gNB_MAC_INST *nr_mac,
   // §5.1.4 does not clearly exclude Msg3, and UL TA might still be useful.
   // Before the change in this commit, we used CFRA but required Msg3, which
   // COTS UE would often (but not always) send.
-  bool ret = get_feasible_msg3_tda(scc,
+  bool ret = get_feasible_msg3_tda(cell,
+                                   scc,
                                    get_delta_for_k2(ul_bwp->scs),
                                    ul_bwp->tdaList_Common,
                                    frameP,
