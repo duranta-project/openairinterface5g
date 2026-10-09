@@ -2255,7 +2255,7 @@ static void config_rsrp_meas_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
   csirep->reportConfigType.choice.periodic = calloc(1, sizeof(*csirep->reportConfigType.choice.periodic));
   set_csi_meas_periodicity(cell, servingcellconfigcommon, csirep, uid, curr_bwp, pdschap, true);
   asn1cSeqAdd(&csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list, pucchcsires);
-  if (configuration->report_type == SSB_SINR) {
+  if (configuration->report_type == SSB_SINR && uecap && uecap->accessStratumRelease >= NR_AccessStratumRelease_rel16) {
     csirep->reportQuantity.present = NR_CSI_ReportConfig__reportQuantity_PR_none;
     csirep->reportQuantity.choice.none = (NULL_t)0;
     csirep->ext2 = calloc(1, sizeof(*csirep->ext2));
