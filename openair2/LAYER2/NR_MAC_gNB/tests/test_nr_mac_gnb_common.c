@@ -13,7 +13,6 @@
 #include "e1ap_messages_types.h"
 #include "executables/softmodem-common.h"
 #include "PHY/defs_common.h"
-#include "test_nr_mac_gnb.h"
 
 RAN_CONTEXT_t RC;
 int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
@@ -35,6 +34,7 @@ void e1_bearer_release_cmd(const struct e1ap_bearer_release_cmd_s *cmd) { (void)
 // referenced by gnb_config.c, avoids linking the PHY
 int l1_north_init_gNB(void) { abort(); }
 
+// called from main() in test_nr_mac_gnb.cpp
 void nr_mac_gnb_test_init(void)
 {
   logInit();

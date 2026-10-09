@@ -18,7 +18,6 @@
 #include "NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "NR_SIB2.h"
 #include "openair1/SIMULATION/NR_PHY/nr_unitary_defs.h"
-#include "test_nr_mac_gnb.h"
 
 static void phy_config_req_stub(NR_PHY_Config_t *cfg)
 {
