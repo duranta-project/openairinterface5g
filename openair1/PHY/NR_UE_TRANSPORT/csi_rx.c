@@ -1202,7 +1202,8 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
                      csirs_config_pdu->scramb_id,
                      csirs_config_pdu->power_control_offset_ss,
                      csirs_config_pdu->cdm_type,
-                     csi_info->csi_rs_generated_signal);
+                     csi_info->csi_rs_generated_signal,
+                     0);
 
   csi_info->csi_rs_generated_signal_bits = log2_approx(AMP);
 

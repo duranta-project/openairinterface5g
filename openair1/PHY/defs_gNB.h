@@ -229,6 +229,9 @@ typedef struct {
   int num_tx_bb;
   /// L1 applies the digital beam table to the DL channels
   bool dbt;
+  /// with a digital beam table: scratch buffer the CSI-RS ports are generated in before being beamformed,
+  /// nb_antennas_tx slots long. NULL otherwise.
+  c16_t *csirs_scratch;
   /// \brief Beam ID for each [symbol, antenna] pair
   /// - first index: symbol [slot * fp->symbols_per_slot + sym_idx]
   /// - second index: logical antenna [0..nb_rx/nb_tx]
