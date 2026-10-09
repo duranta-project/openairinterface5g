@@ -9,6 +9,8 @@
 #include "common/config/config_userapi.h"
 #include "openair1/PHY/phy_extern_nr_ue.h"
 
+#include <errno.h>
+
 /* NR UE RU configuration section name */
 #define CONFIG_STRING_NRUE_RU_LIST "RUs"
 
@@ -428,16 +430,26 @@ int nrue_ru_adjust_rx_gain(PHY_VARS_NR_UE *UE, int gain_change)
   return gain_change;
 }
 
-int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **buff, int nsamps, int num_antennas)
+int nrue_ru_read(PHY_VARS_NR_UE *UE,
+                 openair0_timestamp_t *ptimestamp,
+                 void **buff,
+                 int nsamps,
+                 int num_antennas,
+                 nr_ue_tx_deadline_anchor_t *deadline_anchor)
 {
   openair0_device_t *dev = &openair0_dev[UE->rf_map.card];
   openair0_timestamp_t tmp_timestamp;
   int ret = dev->trx_read_func(dev, &tmp_timestamp, buff, nsamps, num_antennas);
+  struct timespec monotonic_time = {0};
+  const int clock_status = deadline_anchor == NULL ? 0 : clock_gettime(CLOCK_MONOTONIC, &monotonic_time);
+  const int clock_error = clock_status == 0 ? 0 : errno;
   if (!dev->firstTS_initialized) {
     dev->firstTS = tmp_timestamp;
     dev->firstTS_initialized = true;
   }
   *ptimestamp = tmp_timestamp - dev->firstTS;
+  if (deadline_anchor != NULL)
+    *deadline_anchor = nr_ue_tx_deadline_make_anchor(*ptimestamp, ret, clock_status == 0 ? &monotonic_time : NULL, clock_error);
 
   if (UE->Mod_id != 0)
     return ret;
