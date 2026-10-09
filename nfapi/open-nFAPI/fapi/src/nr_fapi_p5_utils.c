@@ -1260,8 +1260,8 @@ void dump_config_request(const nfapi_nr_config_request_scf_t *msg)
     depth++;
     for (int k = 0; k < dbt_config->num_txrus; k++) {
       const nfapi_nr_txru_t *tx_ru = &dig_beam->txru_list[k];
-      INDENTED_GENERIC_PRINT("Dig Beam Weight Real", "0x%02x", tx_ru->dig_beam_weight_Re);
-      INDENTED_GENERIC_PRINT("Dig Beam Weight Imaginary", "0x%02x", tx_ru->dig_beam_weight_Im);
+      INDENTED_GENERIC_PRINT("Dig Beam Weight Real", "%d", tx_ru->dig_beam_weight_Re);
+      INDENTED_GENERIC_PRINT("Dig Beam Weight Imaginary", "%d", tx_ru->dig_beam_weight_Im);
     }
     depth--;
   }
@@ -1284,8 +1284,8 @@ void dump_config_request(const nfapi_nr_config_request_scf_t *msg)
     for (int k = 0; k < pm_pdu->numLayers; k++) {
       for (int l = 0; l < pm_pdu->num_ant_ports; l++) {
         const nfapi_nr_pm_weights_t *pm_weights = &pm_pdu->weights[k][l];
-        INDENTED_GENERIC_PRINT("Dig Beam Weight Real", "0x%02x", pm_weights->r);
-        INDENTED_GENERIC_PRINT("Dig Beam Weight Imaginary", "0x%02x", pm_weights->i);
+        INDENTED_GENERIC_PRINT("Dig Beam Weight Real", "%d", pm_weights->r);
+        INDENTED_GENERIC_PRINT("Dig Beam Weight Imaginary", "%d", pm_weights->i);
       }
     }
     depth--;
