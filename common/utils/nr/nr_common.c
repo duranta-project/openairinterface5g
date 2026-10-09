@@ -998,6 +998,8 @@ int get_ssb_subcarrier_offset(uint32_t absoluteFrequencySSB, uint32_t absoluteFr
   if (scs > 2) // FR2
     scaling <<= (scs - 2);
   int sco_limit = scs == 1 ? 24 : 12;
+  AssertFatal(absolute_diff % scaling == 0,
+              "Point A and SSB frequency are not spaced by a multiple of subcarrier spacing. Need to change one of the two.\n");
   int subcarrier_offset = (absolute_diff / scaling) % sco_limit;
   // 30kHz is the only case where k_SSB is expressed in terms of a different SCS (15kHz)
   // the assertion is to avoid having an offset of half a subcarrier
@@ -1017,11 +1019,12 @@ uint32_t get_ssb_offset_to_pointA(uint32_t absoluteFrequencySSB,
   const int scaling_5khz = absoluteFrequencyPointA < 600000 ? 3 : 1;
   const int scaling = (absoluteFrequencyPointA >= 2016667) ? 1 << (ssbSubcarrierSpacing - 2) : 1 << ssbSubcarrierSpacing;
   const int scaled_abs_diff = absolute_diff / (scaling_5khz * scaling);
+  AssertFatal(absolute_diff % (scaling_5khz * scaling) == 0,
+              "Point A and SSB frequency are not spaced by a multiple of subcarrier spacing. Need to change one of the two.\n");
   // absoluteFrequencySSB is the central frequency of SSB which is made by 20RBs in total
-  const int ssb_offset_scaling = (frequency_range == FR2) ? 1 << (ssbSubcarrierSpacing - 2) : 1 << ssbSubcarrierSpacing;
-  const int ssb_offset_point_a = ((scaled_abs_diff / 12) - 10) * ssb_offset_scaling;
+  const int ssb_offset_point_a = ((scaled_abs_diff / 12) - 10) * scaling;
   // Offset to point A needs to be divisible by scaling
-  AssertFatal(ssb_offset_point_a % ssb_offset_scaling == 0, "PRB offset %d not valid for scs %d\n", ssb_offset_point_a, ssbSubcarrierSpacing);
+  AssertFatal(ssb_offset_point_a % scaling == 0, "PRB offset %d not valid for scs %d\n", ssb_offset_point_a, ssbSubcarrierSpacing);
   AssertFatal(ssb_offset_point_a >= 0, "ssb offset is negative %d for scs %d\n", ssb_offset_point_a, ssbSubcarrierSpacing);
   return ssb_offset_point_a;
 }
