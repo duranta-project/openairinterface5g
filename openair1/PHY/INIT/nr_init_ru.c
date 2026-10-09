@@ -22,7 +22,14 @@ void nr_phy_init_RU(RU_t *ru)
   int nb_rx_streams = ru->nb_rx;
   LOG_I(NR_PHY, "nb_tx_streams %d, nb_rx_streams %d\n", nb_tx_streams, nb_rx_streams);
 
-  if ((nb_tx_streams > fp->nb_antennas_tx) || (nb_rx_streams > fp->nb_antennas_rx))
+  // with a digital beam table, L1 combines the TX logical ports onto every baseband port; RX is not beamformed
+  const nfapi_nr_dbt_pdu_t *dbt = &ru->config.dbt_config;
+  if (dbt->num_dig_beams > 0)
+    AssertFatal(dbt->num_txrus == nb_tx_streams,
+                "digital beam table has %d weights per beam, but the RU has %d TX antennas\n",
+                dbt->num_txrus,
+                nb_tx_streams);
+  if ((dbt->num_dig_beams == 0 && nb_tx_streams > fp->nb_antennas_tx) || (nb_rx_streams > fp->nb_antennas_rx))
     LOG_W(NR_PHY, "There could be unused baseband ports because of fewer logical ports.\n");
 
   if (ru->if_south <= REMOTE_IF5) { // this means REMOTE_IF5 or LOCAL_RF, so allocate memory for time-domain signals 

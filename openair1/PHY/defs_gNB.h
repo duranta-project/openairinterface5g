@@ -222,7 +222,13 @@ typedef struct {
   /// For IFFT_FPGA this points to the same memory as PHY_vars->rx_vars[a].RX_DMA_BUFFER. //?
   /// - first index: tx antenna [0..16) where 16 is the total supported antenna ports.
   /// - second index: sample [0..ofdm_symbol_size*symbols_per_frame)
+  /// With a digital beam table, these are the num_tx_bb baseband ports: each PDU is generated on its
+  /// logical antenna ports in a temporary buffer and beamformed onto them (nr_dbt_beamform()).
   c16_t **txdataF;
+  /// number of txdataF buffers: the baseband ports of the digital beam table, or nb_antennas_tx
+  int num_tx_bb;
+  /// L1 applies the digital beam table to the DL channels
+  bool dbt;
   /// \brief Beam ID for each [symbol, antenna] pair
   /// - first index: symbol [slot * fp->symbols_per_slot + sym_idx]
   /// - second index: logical antenna [0..nb_rx/nb_tx]

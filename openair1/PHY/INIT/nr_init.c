@@ -172,8 +172,10 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
       common_vars->beam_id[i] = (uint16_t *)malloc16_clear(num_antenna_ports * sizeof(**common_vars->beam_id));
   }
 
-  common_vars->txdataF = (c16_t **)malloc16_clear(Ptx * sizeof(*common_vars->txdataF));
-  for (int j = 0; j < Ptx; j++)
+  common_vars->dbt = cfg->dbt_config.num_dig_beams > 0;
+  common_vars->num_tx_bb = common_vars->dbt ? cfg->dbt_config.num_txrus : Ptx;
+  common_vars->txdataF = (c16_t **)malloc16_clear(common_vars->num_tx_bb * sizeof(*common_vars->txdataF));
+  for (int j = 0; j < common_vars->num_tx_bb; j++)
     common_vars->txdataF[j] = (c16_t *)malloc16_clear(fp->samples_per_slot_wCP * sizeof(**common_vars->txdataF));
   common_vars->debugBuff = (int32_t*)malloc16_clear(fp->samples_per_frame*sizeof(int32_t)*100);	
   common_vars->debugBuff_sample_offset = 0; 
@@ -238,7 +240,7 @@ void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
   }
   free_and_zero(common_vars->beam_id);
 
-  for (int i = 0; i < gNB->frame_parms.nb_antennas_tx; i++) {
+  for (int i = 0; i < common_vars->num_tx_bb; i++) {
     free_and_zero(common_vars->txdataF[i]);
   }
   free_and_zero(common_vars->txdataF);
