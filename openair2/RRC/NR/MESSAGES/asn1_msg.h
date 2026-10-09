@@ -58,6 +58,7 @@ typedef struct {
   bool masterKeyUpdate;
   int nextHopChainingCount;
   byte_array_t ue_cap;
+  bool force_full_config;
 } nr_rrc_reconfig_param_t;
 
 /*
