@@ -16,7 +16,6 @@
 #include "NR_UL-CCCH-Message.h"
 #include "f1ap_messages_types.h"
 #include "common/platform_types.h"
-#include "openair2/LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_configuration.h"
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_mac.h"
 struct NR_MeasurementTimingConfiguration;
@@ -29,6 +28,7 @@ typedef struct nr_mac_timers nr_mac_timers_t;
 typedef struct measgap_config measgap_config_t;
 typedef struct gNB_MAC_INST_s gNB_MAC_INST;
 typedef struct nr_cell_sched_s nr_cell_sched_t;
+typedef struct nr_pucch_radio_res_s nr_pucch_radio_res_t;
 
 void nr_rrc_config_dl_tda(NR_PDSCH_TimeDomainResourceAllocationList_t *pdsch_TimeDomainAllocationList,
                           frame_type_t frame_type,
@@ -74,7 +74,7 @@ void free_SIB1_NR(NR_BCCH_DL_SCH_Message_t *sib1);
 int encode_SIB_NR(NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size);
 void add_sib_to_systeminformation(NR_SystemInformation_IEs_t *si, struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type);
 NR_SIB19_r17_t *get_SIB19_NR(const NR_ServingCellConfigCommon_t *scc);
-
+nr_pucch_radio_res_t configure_pucch_radio_resources(const frame_structure_t *fs, int bwp_size, int scs, int max_bits);
 NR_CellGroupConfig_t *get_initial_cellGroupConfig(int uid,
                                                   bool redcap,
                                                   const NR_ServingCellConfigCommon_t *scc,
