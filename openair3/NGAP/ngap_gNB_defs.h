@@ -149,7 +149,7 @@ typedef struct ngap_gNB_amf_data_s {
   char *amf_name;
 
   /* AMF NGAP IP address */
-  net_ip_address_t amf_s1_ip;
+  net_ip_address_t amf_ng_ip;
 
   /* List of served GUAMI per AMF. There is one GUAMI per RAT with a max
    * number of 8 RATs but in our case only one is used. The LTE related pool
