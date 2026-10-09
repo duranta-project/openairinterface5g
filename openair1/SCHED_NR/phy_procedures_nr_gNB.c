@@ -267,7 +267,7 @@ void clear_slot_beamid(PHY_VARS_gNB *gNB, int slot)
   int slot_sz = fp->symbols_per_slot;
   if (gNB->common_vars.beam_id)
     for (int i = 0; i < slot_sz; i++) {
-      memset(gNB->common_vars.beam_id[slot * slot_sz + i], 0, fp->nb_antennas_tx * sizeof(**gNB->common_vars.beam_id));
+      memset(gNB->common_vars.beam_id[slot * slot_sz + i], 0, gNB->common_vars.num_tx_bb * sizeof(**gNB->common_vars.beam_id));
     }
 }
 
@@ -400,7 +400,7 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
   const int prb_mask_words = (fp->N_RB_DL + 63) >> 6;
 
   // clear the transmit data array and beam index for the current slot
-  for (int aa = 0; aa < fp->nb_antennas_tx; aa++) {
+  for (int aa = 0; aa < gNB->common_vars.num_tx_bb; aa++) {
     memset(gNB->common_vars.txdataF[aa], 0, fp->samples_per_slot_wCP * sizeof(**gNB->common_vars.txdataF));
   }
 
@@ -466,7 +466,7 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
     nr_generate_pdsch(gNB, num_pdsch, gNB->dlsch, frame, slot);
   }
 
-  for (int aa = 0; aa < fp->nb_antennas_tx; aa++) {
+  for (int aa = 0; aa < gNB->common_vars.num_tx_bb; aa++) {
     T(T_GNB_PHY_DL_OUTPUT_SIGNAL,
       T_INT(0),
       T_INT(frame),

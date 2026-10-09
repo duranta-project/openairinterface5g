@@ -165,16 +165,18 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
    * RU to copy/recover freq-domain memory from there */
   common_vars->rxdataF = malloc16_clear(Prx * sizeof(*common_vars->rxdataF));
 
+  common_vars->num_tx_bb = common_vars->dbt_lut ? cfg->dbt_config.num_txrus : Ptx;
+
   /* beam_id array is common for tx and rx so the max number of both is taken */
-  const unsigned int num_antenna_ports = max(Ptx, Prx);
+  const unsigned int num_antenna_ports = max(common_vars->num_tx_bb, Prx);
   if (cfg->analog_beamforming_ve.analog_bf_vendor_ext.value) {
     common_vars->beam_id = (uint16_t **)malloc16(fp->slots_per_frame * fp->symbols_per_slot * sizeof(*common_vars->beam_id));
     for (int i = 0; i < fp->slots_per_frame * fp->symbols_per_slot; i++)
       common_vars->beam_id[i] = (uint16_t *)malloc16_clear(num_antenna_ports * sizeof(**common_vars->beam_id));
   }
 
-  common_vars->txdataF = (c16_t **)malloc16_clear(Ptx * sizeof(*common_vars->txdataF));
-  for (int j = 0; j < Ptx; j++)
+  common_vars->txdataF = (c16_t **)malloc16_clear(common_vars->num_tx_bb * sizeof(*common_vars->txdataF));
+  for (int j = 0; j < common_vars->num_tx_bb; j++)
     common_vars->txdataF[j] = (c16_t *)malloc16_clear(fp->samples_per_slot_wCP * sizeof(**common_vars->txdataF));
 
   // PRACH
@@ -238,7 +240,7 @@ void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
   }
   free_and_zero(common_vars->beam_id);
 
-  for (int i = 0; i < gNB->frame_parms.nb_antennas_tx; i++) {
+  for (int i = 0; i < common_vars->num_tx_bb; i++) {
     free_and_zero(common_vars->txdataF[i]);
   }
   free_and_zero(common_vars->txdataF);
