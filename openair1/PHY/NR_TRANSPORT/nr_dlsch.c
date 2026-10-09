@@ -8,6 +8,7 @@
 
 #include "nr_dlsch.h"
 #include "nr_dci.h"
+#include "nr_dbt.h"
 #include "nr_sch_dmrs.h"
 #include "PHY/MODULATION/nr_modulation.h"
 #include "PHY/NR_REFSIG/dmrs_nr.h"
@@ -587,7 +588,7 @@ static void nr_pdsch_symbol_processing(void *arg)
   c16_t mod_dmrs[(n_dmrs + 63) & ~63] __attribute__((aligned(64)));
   const int symbol_sz = frame_parms->ofdm_symbol_size;
 
-  c16_t **txdataF = gNB->common_vars.txdataF;
+  const bool dbt = gNB->common_vars.dbt;
   const int symb_offset = (slot % frame_parms->slots_per_subframe) * frame_parms->symbols_per_slot;
 
   for (int l_symbol = rdata->startSymbol; l_symbol < rdata->startSymbol + rdata->numSymbols; l_symbol++) {
@@ -642,9 +643,17 @@ static void nr_pdsch_symbol_processing(void *arg)
     stop_meas(&rdata->dlsch_resource_mapping_stats);
 
     start_meas(&rdata->dlsch_precoding_stats);
-    const size_t txdataF_offset_per_symbol = l_symbol * symbol_sz;
     const uint16_t num_log_ports =
         rel15->param_v4.numberCodewords ? rel15->param_v4.spatialStreamsCw[0].numSpatialStreamIndices : 0;
+    // with a digital beam table, the logical ports of the symbol go to a temporary buffer, then are beamformed
+    // onto txdataF
+    c16_t ports_buf[dbt ? max(num_log_ports, 1) : 1][dbt ? symbol_sz : 1] __attribute__((aligned(64)));
+    c16_t *ports[frame_parms->nb_antennas_tx];
+    if (dbt)
+      for (int ant = 0; ant < num_log_ports; ant++)
+        ports[rdata->ant_to_map[ant]] = ports_buf[ant];
+    c16_t **out = dbt ? ports : gNB->common_vars.txdataF;
+    const size_t out_offset = dbt ? 0 : l_symbol * symbol_sz;
     // 2 ports / 2 layers: precode both antennas in one pass (radix-2 butterfly),
     // on targets where it is a win (see NR_PDSCH_2X2_FASTPATH). Otherwise, and
     // for 4-port/2-layer (num_log_ports==4), fall through to the generic path.
@@ -654,7 +663,7 @@ static void nr_pdsch_symbol_processing(void *arg)
       int pos = 0;
       int block_start, block_end;
       while (find_next_rb_block(freq_alloc->bitmap, rel15->BWPSize, &pos, &block_start, &block_end)) {
-        do_txdataF_2x2(txdataF,
+        do_txdataF_2x2(out,
                        symbol_sz,
                        txdataF_precoding,
                        gNB,
@@ -663,14 +672,14 @@ static void nr_pdsch_symbol_processing(void *arg)
                        ant1,
                        block_start,
                        block_end - block_start + 1,
-                       txdataF_offset_per_symbol);
+                       out_offset);
 
-        if (gNB->phase_comp) {
+        if (!dbt && gNB->phase_comp) {
           const int start_sc = get_block_start_sc(block_start, rel15->BWPStart, symbol_sz);
           const int nsc = (block_end - block_start + 1) * NR_NB_SC_PER_RB;
           const c16_t rot = frame_parms->symbol_rotation[0][symb_offset + l_symbol];
-          c16_t *psc0 = &txdataF[ant0][txdataF_offset_per_symbol + start_sc];
-          c16_t *psc1 = &txdataF[ant1][txdataF_offset_per_symbol + start_sc];
+          c16_t *psc0 = &out[ant0][out_offset + start_sc];
+          c16_t *psc1 = &out[ant1][out_offset + start_sc];
           rotate_cpx_vector(psc0, rot, psc0, nsc, 15);
           rotate_cpx_vector(psc1, rot, psc1, nsc, 15);
         }
@@ -682,7 +691,7 @@ static void nr_pdsch_symbol_processing(void *arg)
         int pos = 0;
         int block_start, block_end;
         while (find_next_rb_block(freq_alloc->bitmap, rel15->BWPSize, &pos, &block_start, &block_end)) {
-          do_txdataF(txdataF,
+          do_txdataF(out,
                      symbol_sz,
                      txdataF_precoding,
                      gNB,
@@ -690,15 +699,32 @@ static void nr_pdsch_symbol_processing(void *arg)
                      rdata->ant_to_map[ant],
                      block_start,
                      block_end - block_start + 1,
-                     txdataF_offset_per_symbol);
+                     out_offset);
 
-          if (gNB->phase_comp) {
+          if (!dbt && gNB->phase_comp) {
             const int start_sc = get_block_start_sc(block_start, rel15->BWPStart, symbol_sz);
-            c16_t *pdsch_sc = &txdataF[rdata->ant_to_map[ant]][txdataF_offset_per_symbol + start_sc];
+            c16_t *pdsch_sc = &out[rdata->ant_to_map[ant]][out_offset + start_sc];
             const c16_t rot = frame_parms->symbol_rotation[0][symb_offset + l_symbol];
             rotate_cpx_vector(pdsch_sc, rot, pdsch_sc, (block_end - block_start + 1) * NR_NB_SC_PER_RB, 15);
           }
         }
+      }
+    }
+    // nr_dbt_beamform() also applies the phase compensation
+    if (dbt) {
+      for (int ant = 0; ant < num_log_ports; ant++) {
+        int pos = 0;
+        int block_start, block_end;
+        while (find_next_rb_block(freq_alloc->bitmap, rel15->BWPSize, &pos, &block_start, &block_end))
+          nr_dbt_beamform(gNB,
+                          &rel15->precodingAndBeamforming,
+                          ant,
+                          slot,
+                          l_symbol,
+                          rel15->BWPStart + freq_alloc->first_rb,
+                          rel15->BWPStart + block_start,
+                          block_end - block_start + 1,
+                          ports_buf[ant] + get_block_start_sc(block_start, rel15->BWPStart, symbol_sz));
       }
     }
     stop_meas(&rdata->dlsch_precoding_stats);

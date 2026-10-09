@@ -11,3 +11,9 @@ target_link_libraries(test_llr_no_avx_256 PRIVATE PHY_NR_NO_AVX_256 GTest::gtest
 add_dependencies(tests test_llr_no_avx_256)
 add_test(NAME test_llr_no_avx_256
   COMMAND ./test_llr_no_avx_256)
+
+add_executable(test_nr_dbt test_nr_dbt.c)
+target_link_libraries(test_nr_dbt PRIVATE PHY_NR minimal_lib)
+add_dependencies(tests test_nr_dbt)
+add_test(NAME test_nr_dbt
+  COMMAND ./test_nr_dbt)

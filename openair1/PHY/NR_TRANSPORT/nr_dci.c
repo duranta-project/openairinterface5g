@@ -13,6 +13,7 @@
 #include "PHY/MODULATION/nr_modulation.h"
 #include "common/utils/nr/nr_common.h"
 #include "SCHED_NR/sched_nr.h"
+#include "nr_dbt.h"
 
 //#define DEBUG_PDCCH_DMRS
 //#define DEBUG_DCI
@@ -72,6 +73,7 @@ void nr_generate_dci(PHY_VARS_gNB *gNB,
       max_ant_idx = idx;
   }
   const int n_ant_mask = max_ant_idx + 1;
+  const bool dbt = gNB->common_vars.dbt;
   uint64_t local_phase_comp_prb_mask[n_ant_mask][frame_parms->symbols_per_slot][prb_mask_words];
   memset(local_phase_comp_prb_mask, 0, sizeof(local_phase_comp_prb_mask));
   // fill reg list per symbol
@@ -204,7 +206,11 @@ void nr_generate_dci(PHY_VARS_gNB *gNB,
 
     /// Resource mapping
     uint16_t amp = gNB->TX_AMP;
-    c16_t *txdataF = gNB->common_vars.txdataF[dci_spatial_stream_index];
+    // with a digital beam table, the DCI is generated in a temporary buffer holding the CORESET symbols, then
+    // beamformed onto txdataF
+    c16_t dci_buf[dbt ? pdcch_pdu_rel15->DurationSymbols * frame_parms->ofdm_symbol_size : 1] __attribute__((aligned(32)));
+    c16_t *out = dbt ? dci_buf : gNB->common_vars.txdataF[dci_spatial_stream_index];
+    const int first_symbol = dbt ? cset_start_symb : 0;
 
     int num_regs = dci_pdu->AggregationLevel * NR_NB_REG_PER_CCE / pdcch_pdu_rel15->DurationSymbols;
     /*Mapping the encoded DCI along with the DMRS */
@@ -228,7 +234,7 @@ void nr_generate_dci(PHY_VARS_gNB *gNB,
 
         for (int m = 0; m < NR_NB_SC_PER_RB; m++) {
           if (m == (k_prime << 2) + 1) { // DMRS if not already mapped
-            txdataF[l * frame_parms->ofdm_symbol_size + k] = c16mulRealShift(mod_dmrs[l][dmrs_idx], amp, 15);
+            out[(l - first_symbol) * frame_parms->ofdm_symbol_size + k] = c16mulRealShift(mod_dmrs[l][dmrs_idx], amp, 15);
 
 #ifdef DEBUG_PDCCH_DMRS
             LOG_I(NR_PHY_DCI,
@@ -236,15 +242,15 @@ void nr_generate_dci(PHY_VARS_gNB *gNB,
                   dmrs_idx,
                   l,
                   k,
-                  txdataF[l * frame_parms->ofdm_symbol_size + k].r,
-                  txdataF[l * frame_parms->ofdm_symbol_size + k].i);
+                  out[(l - first_symbol) * frame_parms->ofdm_symbol_size + k].r,
+                  out[(l - first_symbol) * frame_parms->ofdm_symbol_size + k].i);
 #endif
 
             dmrs_idx++;
             k_prime++;
 
           } else { // DCI payload
-            txdataF[l * frame_parms->ofdm_symbol_size + k] = c16mulRealShift(mod_dci[dci_idx], amp, 15);
+            out[(l - first_symbol) * frame_parms->ofdm_symbol_size + k] = c16mulRealShift(mod_dci[dci_idx], amp, 15);
             dci_idx++;
           }
 
@@ -259,9 +265,27 @@ void nr_generate_dci(PHY_VARS_gNB *gNB,
           "DCI: payloadSize = %d | payload = %llx\n",
           dci_pdu->PayloadSizeBits,
           *(unsigned long long *)dci_pdu->Payload);
+
+    // every REG with the beam of its DCI; nr_dbt_beamform() also applies the phase compensation
+    if (dbt) {
+      const int cset_rb = pdcch_pdu_rel15->BWPStart + rb_offset;
+      for (int symbol_idx = 0; symbol_idx < pdcch_pdu_rel15->DurationSymbols; symbol_idx++)
+        for (int reg_count = 0; reg_count < num_regs; reg_count++) {
+          const int rb = cset_rb + reg_list[d][reg_count];
+          nr_dbt_beamform(gNB,
+                          &dci_pdu->precodingAndBeamforming,
+                          0,
+                          slot,
+                          cset_start_symb + symbol_idx,
+                          cset_rb,
+                          rb,
+                          1,
+                          out + symbol_idx * frame_parms->ofdm_symbol_size + rb * NR_NB_SC_PER_RB);
+        }
+    }
   } // for (int d=0;d<pdcch_pdu_rel15->numDlDci;d++)
 
-  if (!gNB->phase_comp)
+  if (dbt || !gNB->phase_comp)
     return;
 
   const int symb_offset = (slot % frame_parms->slots_per_subframe) * frame_parms->symbols_per_slot;
