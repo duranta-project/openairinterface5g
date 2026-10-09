@@ -5,6 +5,7 @@
 #include "common/utils/fsn.h"
 #include "PHY/defs_gNB.h"
 #include "sched_nr.h"
+#include "PHY/NR_TRANSPORT/nr_dbt.h"
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "PHY/NR_TRANSPORT/nr_dlsch.h"
 #include "PHY/NR_TRANSPORT/nr_ulsch.h"
@@ -190,7 +191,6 @@ void nr_common_signal_procedures(PHY_VARS_gNB *gNB, int frame, int slot, const n
   }
   LOG_D(PHY,"SS TX: frame %d, slot %d, start_symbol %d\n", frame, slot, ssb_start_symbol);
   const nfapi_nr_tx_precoding_and_beamforming_t *pb = &pdu->precoding_and_beamforming;
-  c16_t **txdataF = gNB->common_vars.txdataF;
   // beam number in a scenario with multiple concurrent beams
   uint16_t sym_bitmap = SL_to_bitmap(ssb_start_symbol, 4); // 4 ssb symbols
   uint16_t beam_id = pb->prgs_list[0].dig_bf_interface_list[0].beam_idx;
@@ -200,17 +200,25 @@ void nr_common_signal_procedures(PHY_VARS_gNB *gNB, int frame, int slot, const n
                                         (pdu->param_v4.spatialStreamIndexPresent ? pdu->param_v4.spatialStreamIndex : 0));
   beam_index_allocation(beam_id, ant_port, 1, fp->symbols_per_slot, slot, sym_bitmap, fp->nb_antennas_tx, gNB->common_vars.beam_id);
 
-  nr_generate_pss(txdataF[ant_port], gNB->TX_AMP, ssb_start_symbol, cfg, fp);
-  nr_generate_sss(txdataF[ant_port], gNB->TX_AMP, ssb_start_symbol, cfg->cell_config.phy_cell_id.value, fp);
+  // with a digital beam table, the SSB is generated in a temporary buffer, then beamformed onto txdataF
+  const bool dbt = gNB->common_vars.dbt;
+  c16_t ssb_buf[dbt ? NR_N_SYMBOLS_SSB * fp->ofdm_symbol_size : 1] __attribute__((aligned(32)));
+  if (dbt)
+    memset(ssb_buf, 0, sizeof(ssb_buf));
+  c16_t *out = dbt ? ssb_buf : gNB->common_vars.txdataF[ant_port];
+  const int out_start_symbol = dbt ? 0 : ssb_start_symbol;
+
+  nr_generate_pss(out, gNB->TX_AMP, out_start_symbol, cfg, fp);
+  nr_generate_sss(out, gNB->TX_AMP, out_start_symbol, cfg->cell_config.phy_cell_id.value, fp);
 
   uint16_t slots_per_hf = (fp->slots_per_frame) >> 1;
   int n_hf = slot < slots_per_hf ? 0 : 1;
 
   int hf = fp->Lmax == 4 ? n_hf : 0;
   nr_generate_pbch_dmrs(nr_gold_pbch(fp->Lmax, gNB->gNB_config.cell_config.phy_cell_id.value, hf, ssb_index & 7),
-                        txdataF[ant_port],
+                        out,
                         gNB->TX_AMP,
-                        ssb_start_symbol,
+                        out_start_symbol,
                         cfg,
                         fp);
 
@@ -224,20 +232,36 @@ void nr_common_signal_procedures(PHY_VARS_gNB *gNB, int frame, int slot, const n
   }
 #endif
 
-  nr_generate_pbch(gNB, ssb_pdu, txdataF[ant_port], ssb_start_symbol, n_hf, frame, cfg, fp);
+  nr_generate_pbch(gNB, ssb_pdu, out, out_start_symbol, n_hf, frame, cfg, fp);
+
+  const int ssb_start_prb = fp->ssb_start_subcarrier / NR_NB_SC_PER_RB;
+  const int ssb_nb_prb = (fp->ssb_start_subcarrier % NR_NB_SC_PER_RB + 240 + NR_NB_SC_PER_RB - 1) / NR_NB_SC_PER_RB;
+  if (dbt) {
+    // nr_dbt_beamform() also applies the phase compensation
+    const int num_rb = min(ssb_nb_prb, fp->N_RB_DL - ssb_start_prb);
+    for (int s = 0; s < NR_N_SYMBOLS_SSB; s++)
+      nr_dbt_beamform(gNB,
+                      pb,
+                      0,
+                      slot,
+                      ssb_start_symbol + s,
+                      ssb_start_prb,
+                      ssb_start_prb,
+                      num_rb,
+                      ssb_buf + s * fp->ofdm_symbol_size + ssb_start_prb * NR_NB_SC_PER_RB);
+    return;
+  }
 
   if (!gNB->phase_comp)
     return;
 
   uint64_t local_phase_comp_prb_mask[fp->symbols_per_slot][prb_mask_words];
   memset(local_phase_comp_prb_mask, 0, sizeof(local_phase_comp_prb_mask));
-  const int ssb_start_prb = fp->ssb_start_subcarrier / NR_NB_SC_PER_RB;
-  const int ssb_nb_prb = (fp->ssb_start_subcarrier % NR_NB_SC_PER_RB + 240 + NR_NB_SC_PER_RB - 1) / NR_NB_SC_PER_RB;
   for (int symbol = ssb_start_symbol; symbol < ssb_start_symbol + NR_N_SYMBOLS_SSB; symbol++)
     mark_prb_range(&local_phase_comp_prb_mask[0][0], prb_mask_words, symbol, ssb_start_prb, ssb_nb_prb);
 
   /* the SSB was written to txdataF[ant_port] above, so rotate that port -- not port 0 */
-  c16_t *ssb_txdataF[] = {txdataF[ant_port]};
+  c16_t *ssb_txdataF[] = {out};
   apply_nr_rotation_TX_masked(fp, ssb_txdataF, 1, fp->symbol_rotation[0], slot, &local_phase_comp_prb_mask[0][0], prb_mask_words);
 }
 
