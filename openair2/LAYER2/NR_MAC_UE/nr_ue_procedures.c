@@ -438,6 +438,23 @@ static inline bool nr_ue_has_dedicated_pucch_resource_set(const NR_PUCCH_Config_
   return cfg && cfg->resourceSetToAddModList && cfg->resourceSetToAddModList->list.array[0];
 }
 
+// TS 38.213 clause 9.2.3: HARQ-ACK cannot be reported earlier than the UE RX-to-TX processing time
+// (--ue-capability-rx2tx). Such feedback is skipped; the gNB sees DTX and retransmits.
+static bool feedback_time_feasible(const NR_UE_MAC_INST_t *mac, int feedback_ti, int scs, frame_t frame, int slot)
+{
+  const long rx2tx = GET_DURATION_RX_TO_TX(mac, scs);
+  if (feedback_ti >= rx2tx)
+    return true;
+  LOG_W(NR_MAC,
+        "%4d.%2d PDSCH-to-HARQ feedback time %d is shorter than the UE RX-to-TX time %ld, HARQ-ACK not sent "
+        "(gNB min_rxtxtime or dl-DataToUL-ACK below ue-capability-rx2tx)\n",
+        frame,
+        slot,
+        feedback_ti,
+        rx2tx);
+  return false;
+}
+
 static void set_harq_status(NR_UE_MAC_INST_t *mac,
                             uint8_t pucch_id,
                             uint8_t harq_id,
@@ -1176,10 +1193,10 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   if (rnti_type != TYPE_RA_RNTI_ && rnti_type != TYPE_SI_RNTI_) {
     if (!get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dci->harq_pid.val)) {
       feedback_ti = 1 + dci->pdsch_to_harq_feedback_timing_indicator.val + ntn_ue_koffset;
-      AssertFatal(feedback_ti >= GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
-                  "PDSCH to HARQ feedback time (%d) needs to be higher than DURATION_RX_TO_TX (%ld).\n",
-                  feedback_ti,
-                  GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing));
+      if (!feedback_time_feasible(mac, feedback_ti, dlsch_pdu->SubcarrierSpacing, frame, slot))
+        feedback_ti = 0;
+    }
+    if (feedback_ti) {
       // set the harq status at MAC for feedback
       const int tpc[] = {-1, 0, 1, 3};
       set_harq_status(mac,
@@ -1473,14 +1490,14 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
   // according to TS 38.213 Table 9.2.3-1
   const int ntn_ue_koffset = GET_NTN_UE_K_OFFSET(&mac->phy_config.config_req.ntn_config, dlsch_pdu->SubcarrierSpacing);
   uint16_t feedback_ti = 0;
+  bool skip_feedback = false;
   const int tpc[] = {-1, 0, 1, 3};
   if (!get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dci->harq_pid.val)) {
     feedback_ti = pucch_Config->dl_DataToUL_ACK->list.array[dci->pdsch_to_harq_feedback_timing_indicator.val][0] + ntn_ue_koffset;
-    AssertFatal(feedback_ti >= GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
-                "PDSCH to HARQ feedback time (%d) needs to be higher than DURATION_RX_TO_TX (%ld). Min feedback time set in config "
-                "file (min_rxtxtime).\n",
-                feedback_ti,
-                GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing));
+    if (!feedback_time_feasible(mac, feedback_ti, dlsch_pdu->SubcarrierSpacing, frame, slot)) {
+      feedback_ti = 0;
+      skip_feedback = true;
+    }
   }
 
 
@@ -1512,17 +1529,18 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
         mac->stats.dl.rounds[current_harq->round]++;
       accumulate_dl_stats(mac, dlsch_pdu, &dlsch_pdu->cw_info[0], number_rbs);
       // set the harq status at MAC for feedback
-      set_harq_status(mac,
-                      dci->pucch_resource_indicator,
-                      dci->harq_pid.val,
-                      0,
-                      tpc[dci->tpc],
-                      feedback_ti,
-                      dci->dai[0].val,
-                      dci_ind->n_CCE,
-                      dci_ind->N_CCE,
-                      frame,
-                      slot);
+      if (!skip_feedback)
+        set_harq_status(mac,
+                        dci->pucch_resource_indicator,
+                        dci->harq_pid.val,
+                        0,
+                        tpc[dci->tpc],
+                        feedback_ti,
+                        dci->dai[0].val,
+                        dci_ind->n_CCE,
+                        dci_ind->N_CCE,
+                        frame,
+                        slot);
       cw_idx++;
     } else
       return -1;
@@ -1545,17 +1563,18 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
         mac->stats.dl.rounds[current_harq->round]++;
       accumulate_dl_stats(mac, dlsch_pdu, &dlsch_pdu->cw_info[1], number_rbs);
       // set the harq status at MAC for feedback
-      set_harq_status(mac,
-                      dci->pucch_resource_indicator,
-                      dci->harq_pid.val,
-                      1,
-                      tpc[dci->tpc],
-                      feedback_ti,
-                      dci->dai[0].val,
-                      dci_ind->n_CCE,
-                      dci_ind->N_CCE,
-                      frame,
-                      slot);
+      if (!skip_feedback)
+        set_harq_status(mac,
+                        dci->pucch_resource_indicator,
+                        dci->harq_pid.val,
+                        1,
+                        tpc[dci->tpc],
+                        feedback_ti,
+                        dci->dai[0].val,
+                        dci_ind->n_CCE,
+                        dci_ind->N_CCE,
+                        frame,
+                        slot);
       cw_idx++;
     } else
       return -1;
@@ -3291,6 +3310,12 @@ static void handle_rar_reception(NR_UE_MAC_INST_t *mac, NR_MAC_RAR *rar, frame_t
   int slot_tx = 0;
   const int ntn_ue_koffset = GET_NTN_UE_K_OFFSET(&mac->phy_config.config_req.ntn_config, mac->current_UL_BWP->scs);
   int ret = nr_ue_pusch_scheduler(mac, 1, frame, slot, &frame_tx, &slot_tx, tda_info.k2 + ntn_ue_koffset);
+  if (ret == -1 && !ra->cfra) {
+    // Msg3 cannot be sent at the indicated slot (offset below the UE RX-to-TX time): without Msg3 the contention
+    // resolution timer never starts, so handle it like an unsuccessful RAR reception (TS 38.321 5.1.4: backoff, retry)
+    nr_rar_not_successful(mac);
+    return;
+  }
 
   // TA command
   const int ta = rar->TA2 + (rar->TA1 << 5);

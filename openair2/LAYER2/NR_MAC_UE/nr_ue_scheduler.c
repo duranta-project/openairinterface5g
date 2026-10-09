@@ -1023,10 +1023,13 @@ void nr_ue_aperiodic_srs_scheduling(NR_UE_MAC_INST_t *mac, long resource_trigger
   }
 
   int scs = mac->current_UL_BWP->scs;
-  AssertFatal(slot_offset > GET_DURATION_RX_TO_TX(mac, scs),
-              "Slot offset between DCI and aperiodic SRS (%d) needs to be higher than DURATION_RX_TO_TX (%ld)\n",
-              slot_offset,
-              GET_DURATION_RX_TO_TX(mac, scs));
+  if (slot_offset <= GET_DURATION_RX_TO_TX(mac, scs)) {
+    LOG_E(NR_MAC,
+          "Slot offset between DCI and aperiodic SRS (%d) is not larger than the UE RX-to-TX time (%ld), SRS not sent\n",
+          slot_offset,
+          GET_DURATION_RX_TO_TX(mac, scs));
+    return;
+  }
   int n_slots_frame = mac->frame_structure.numb_slots_frame;
   int sched_slot = (slot + slot_offset) % n_slots_frame;
   if (!is_ul_slot(sched_slot, &mac->frame_structure)) {
@@ -2773,25 +2776,31 @@ int nr_ue_pusch_scheduler(const NR_UE_MAC_INST_t *mac,
 
     delta = get_delta_for_k2(mu);
 
-    AssertFatal((k2 + delta) > GET_DURATION_RX_TO_TX(mac, mu),
-                "Slot offset (%ld) for Msg3 needs to be higher than DURATION_RX_TO_TX (%ld). Please set min_rxtxtime at least to "
-                "%ld in gNB config file or gNBs.[0].min_rxtxtime=%ld via command line.\n",
-                k2,
-                GET_DURATION_RX_TO_TX(mac, mu),
-                GET_DURATION_RX_TO_TX(mac, mu),
-                GET_DURATION_RX_TO_TX(mac, mu));
-
+    if (k2 + delta <= GET_DURATION_RX_TO_TX(mac, mu)) {
+      LOG_E(NR_MAC,
+            "%4d.%2d Msg3 slot offset %ld is not larger than the UE RX-to-TX time %ld, Msg3 not sent. Set the gNB "
+            "min_rxtxtime to at least %ld or lower ue-capability-rx2tx\n",
+            current_frame,
+            current_slot,
+            k2 + delta,
+            GET_DURATION_RX_TO_TX(mac, mu),
+            GET_DURATION_RX_TO_TX(mac, mu));
+      return -1;
+    }
 
     get_pusch_frame_slot(current_frame, current_slot, k2, delta, slots_per_frame, frame_tx, slot_tx);
   } else {
-    AssertFatal(k2 >= GET_DURATION_RX_TO_TX(mac, mu),
-                "Slot offset K2 (%ld) needs to be higher than DURATION_RX_TO_TX (%ld). Please set min_rxtxtime at least to %ld in "
-                "gNB config file or gNBs.[0].min_rxtxtime=%ld via command line.\n",
-                k2,
-                GET_DURATION_RX_TO_TX(mac, mu),
-                GET_DURATION_RX_TO_TX(mac, mu),
-                GET_DURATION_RX_TO_TX(mac, mu));
-
+    if (k2 < GET_DURATION_RX_TO_TX(mac, mu)) {
+      LOG_E(NR_MAC,
+            "%4d.%2d PUSCH slot offset K2 %ld is shorter than the UE RX-to-TX time %ld, grant dropped. Set the gNB "
+            "min_rxtxtime to at least %ld or lower ue-capability-rx2tx\n",
+            current_frame,
+            current_slot,
+            k2,
+            GET_DURATION_RX_TO_TX(mac, mu),
+            GET_DURATION_RX_TO_TX(mac, mu));
+      return -1;
+    }
 
     if (k2 < 0) { // This can happen when a false DCI is received
       LOG_W(PHY, "%d.%d. Received k2 %ld\n", current_frame, current_slot, k2);
