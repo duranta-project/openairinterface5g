@@ -99,6 +99,23 @@ size_t ring_buffer<T>::pop_samples(T *samples, size_t num_samples)
 }
 
 template <typename T>
+size_t ring_buffer<T>::copy_range(T *out, size_t count, size_t skip_from_tail) const
+{
+  if (skip_from_tail >= size_)
+    return 0;
+  const size_t n = std::min(count, size_ - skip_from_tail);
+  const size_t start = (tail_ + skip_from_tail) % max_size_;
+  if (start + n > max_size_) {
+    const size_t first_chunk = max_size_ - start;
+    memcpy(out, &buffer_[start], first_chunk * sizeof(T));
+    memcpy(out + first_chunk, &buffer_[0], (n - first_chunk) * sizeof(T));
+  } else {
+    memcpy(out, &buffer_[start], n * sizeof(T));
+  }
+  return n;
+}
+
+template <typename T>
 void ring_buffer<T>::clear_samples()
 {
   head_ = 0;

@@ -41,6 +41,7 @@
 #include <zmq.h>
 #include "zmq_imported.h"
 #include "zmq_simd.h"
+#include "channel_emulation.h"
 
 #define ZMQ_SECTION "zmq"
 #define ZMQ_TX_CHANNELS "tx_channels"
@@ -375,6 +376,8 @@ extern "C" __attribute__((__visibility__("default"))) int device_init(openair0_d
   device->openair0_cfg = openair0_cfg;
   device->priv = zmq_state;
   device->trx_write_init = zmq_write_init;
+  AssertFatal(install_channel_emulation(device, openair0_cfg, zmq_array_section.c_str()),
+              "Could not initialize channel emulation\n");
 
   return 0;
 }

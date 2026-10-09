@@ -7,7 +7,7 @@ add_test(NAME test_ring_buffer
   COMMAND ./test_ring_buffer)
 
 add_executable(test_zmq_radio test_zmq_radio.cpp)
-target_link_libraries(test_zmq_radio PRIVATE zmq_radio_static UTIL CONFIG_LIB GTest::gtest zmq)
+target_link_libraries(test_zmq_radio PRIVATE zmq_radio_static UTIL CONFIG_LIB GTest::gtest zmq shlib_loader)
 add_dependencies(tests test_zmq_radio)
 add_test(NAME test_zmq_radio
     COMMAND ./test_zmq_radio)
