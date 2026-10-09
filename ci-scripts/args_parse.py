@@ -21,7 +21,7 @@ def strToBool(s):
         return False
     raise argparse.ArgumentTypeError(f"cannot interpret '{s}' as boolean")
 
-def ArgsParse(argvs, CONTAINERS):
+def ArgsParse(argvs):
 
     # backwards compatible logDir that plays nicely with existing Jenkinsfile
     defLogDir = f"{os.getcwd()}/../cmake_targets/log"
@@ -46,10 +46,8 @@ def ArgsParse(argvs, CONTAINERS):
     args = p.parse_args()
 
     merge = args.ranAllowMerge or args.merge
-    g = GlobalTestCtx(args.repository, args.workspace, args.branch, merge, args.targetBranch)
+    g = GlobalTestCtx(args.repository, args.workspace, args.branch, merge, args.targetBranch, args.FlexRicTag)
 
     oc = OcCtx(args.OCUserName, args.OCPassword, args.OCProjectName)
-
-    CONTAINERS.flexricTag = args.FlexRicTag
 
     return args.local, args.datefmt, args.xmls, g, oc, args.logdir
