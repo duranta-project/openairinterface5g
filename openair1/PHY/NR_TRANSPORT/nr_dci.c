@@ -13,6 +13,7 @@
 #include "PHY/MODULATION/nr_modulation.h"
 #include "common/utils/nr/nr_common.h"
 #include "SCHED_NR/sched_nr.h"
+#include "nr_dbt.h"
 
 //#define DEBUG_PDCCH_DMRS
 //#define DEBUG_DCI
@@ -60,10 +61,13 @@ void nr_generate_dci(PHY_VARS_gNB *gNB,
   /* DCIs in one PDU can go to different antenna ports (dci_spatial_stream_index below), so
      the mask is per port: rotating them all on port 0 would leave the others unrotated and
      rotate port 0 over PRBs that are not its own. Sized by the highest index actually used,
-     which is 1 entry in the common single-port case. */
+     which is 1 entry in the common single-port case. A DCI beamformed with the digital beam
+     table is not rotated in place, so it takes no entry. */
   uint16_t max_ant_idx = 0;
   for (int d = 0; d < pdcch_pdu_rel15->numDlDci; d++) {
     const nfapi_nr_dl_dci_pdu_t *dp = &pdcch_pdu_rel15->dci_pdu[d];
+    if (nr_dbt_pdu(&gNB->common_vars, &dp->precodingAndBeamforming))
+      continue;
     const uint16_t idx = get_first_ant_idx(gNB->enable_analog_das,
                                            frame_parms->nb_antennas_tx / gNB->common_vars.num_beams_period,
                                            dp->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx,
@@ -108,15 +112,24 @@ void nr_generate_dci(PHY_VARS_gNB *gNB,
                                                           beam_id,
                                                           get_dci_ant_port_index(&pdcch_pdu_rel15->param_v4, d));
 
-    beam_index_allocation(beam_id,
-                          dci_spatial_stream_index,
-                          1, // Only one antenna port for DCI
-                          frame_parms->symbols_per_slot,
-                          slot,
-                          symb_bitmap,
-                          frame_parms->nb_antennas_tx,
-                          gNB->common_vars.num_beams_period,
-                          gNB->common_vars.beam_id);
+    const nfapi_nr_tx_precoding_and_beamforming_t *pb = &dci_pdu->precodingAndBeamforming;
+    const bool dbt = nr_dbt_pdu(&gNB->common_vars, pb);
+    if (!dbt) {
+      AssertFatal(dci_spatial_stream_index < gNB->common_vars.num_tx_bb,
+                  "DCI on port %d of %d\n",
+                  dci_spatial_stream_index,
+                  gNB->common_vars.num_tx_bb);
+      if (pb->dig_bf_interfaces > 0)
+        beam_index_allocation(beam_id,
+                              dci_spatial_stream_index,
+                              1, // Only one antenna port for DCI
+                              frame_parms->symbols_per_slot,
+                              slot,
+                              symb_bitmap,
+                              gNB->common_vars.num_tx_bb,
+                              gNB->common_vars.num_beams_period,
+                              gNB->common_vars.beam_id);
+    }
 
     LOG_D(NR_PHY_DCI, "pdcch: Coreset rb_offset %d, nb_rb %d BWP Start %d\n", rb_offset, n_rb, pdcch_pdu_rel15->BWPStart);
     LOG_D(NR_PHY_DCI,
@@ -205,7 +218,11 @@ void nr_generate_dci(PHY_VARS_gNB *gNB,
 
     /// Resource mapping
     uint16_t amp = gNB->TX_AMP;
-    c16_t *txdataF = gNB->common_vars.txdataF[dci_spatial_stream_index];
+    // beamformed with the digital beam table, the DCI is generated in a temporary buffer holding the CORESET
+    // symbols, then beamformed onto txdataF
+    c16_t dci_buf[dbt ? pdcch_pdu_rel15->DurationSymbols * frame_parms->ofdm_symbol_size : 1] __attribute__((aligned(32)));
+    c16_t *out = dbt ? dci_buf : gNB->common_vars.txdataF[dci_spatial_stream_index];
+    const int first_symbol = dbt ? cset_start_symb : 0;
 
     int num_regs = dci_pdu->AggregationLevel * NR_NB_REG_PER_CCE / pdcch_pdu_rel15->DurationSymbols;
     /*Mapping the encoded DCI along with the DMRS */
@@ -229,7 +246,7 @@ void nr_generate_dci(PHY_VARS_gNB *gNB,
 
         for (int m = 0; m < NR_NB_SC_PER_RB; m++) {
           if (m == (k_prime << 2) + 1) { // DMRS if not already mapped
-            txdataF[l * frame_parms->ofdm_symbol_size + k] = c16mulRealShift(mod_dmrs[l][dmrs_idx], amp, 15);
+            out[(l - first_symbol) * frame_parms->ofdm_symbol_size + k] = c16mulRealShift(mod_dmrs[l][dmrs_idx], amp, 15);
 
 #ifdef DEBUG_PDCCH_DMRS
             LOG_I(NR_PHY_DCI,
@@ -237,21 +254,21 @@ void nr_generate_dci(PHY_VARS_gNB *gNB,
                   dmrs_idx,
                   l,
                   k,
-                  txdataF[l * frame_parms->ofdm_symbol_size + k].r,
-                  txdataF[l * frame_parms->ofdm_symbol_size + k].i);
+                  out[(l - first_symbol) * frame_parms->ofdm_symbol_size + k].r,
+                  out[(l - first_symbol) * frame_parms->ofdm_symbol_size + k].i);
 #endif
 
             dmrs_idx++;
             k_prime++;
 
           } else { // DCI payload
-            txdataF[l * frame_parms->ofdm_symbol_size + k] = c16mulRealShift(mod_dci[dci_idx], amp, 15);
+            out[(l - first_symbol) * frame_parms->ofdm_symbol_size + k] = c16mulRealShift(mod_dci[dci_idx], amp, 15);
             dci_idx++;
           }
 
           k++;
         } // m
-        if (gNB->phase_comp)
+        if (gNB->phase_comp && !dbt)
           mark_prb(&local_phase_comp_prb_mask[dci_spatial_stream_index][0][0], prb_mask_words, l, reg_prb);
       } // reg_count
     } // symbol_idx
@@ -260,8 +277,20 @@ void nr_generate_dci(PHY_VARS_gNB *gNB,
           "DCI: payloadSize = %d | payload = %llx\n",
           dci_pdu->PayloadSizeBits,
           *(unsigned long long *)dci_pdu->Payload);
+
+    // every REG with the beam of its DCI; nr_dbt_beamform() also applies the phase compensation
+    if (dbt) {
+      const int cset_rb = pdcch_pdu_rel15->BWPStart + rb_offset;
+      for (int symbol_idx = 0; symbol_idx < pdcch_pdu_rel15->DurationSymbols; symbol_idx++)
+        for (int reg_count = 0; reg_count < num_regs; reg_count++) {
+          const int rb = cset_rb + reg_list[d][reg_count];
+          const c16_t *in = out + symbol_idx * frame_parms->ofdm_symbol_size + rb * NR_NB_SC_PER_RB;
+          nr_dbt_beamform(gNB, pb, NULL, 1, 1, slot, cset_start_symb + symbol_idx, cset_rb, rb, 1, &in);
+        }
+    }
   } // for (int d=0;d<pdcch_pdu_rel15->numDlDci;d++)
 
+  // the DCIs not beamformed with the digital beam table, whose PRBs are marked
   if (!gNB->phase_comp)
     return;
 
