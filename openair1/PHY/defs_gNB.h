@@ -228,6 +228,9 @@ typedef struct {
   c16_t **txdataF;
   /// number of txdataF buffers: the baseband ports of the digital beam table, or nb_antennas_tx
   int num_tx_bb;
+  /// with a digital beam table: scratch buffer the CSI-RS ports are generated in before being beamformed,
+  /// nb_antennas_tx slots long. NULL otherwise.
+  c16_t *csirs_scratch;
   /// \brief Beam ID for each [symbol, antenna] pair
   /// - first index: symbol [slot * fp->symbols_per_slot + sym_idx]
   /// - second index: logical antenna [0..nb_rx/nb_tx]
