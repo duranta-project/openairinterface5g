@@ -15,8 +15,6 @@ import re
 import time
 import os
 
-import cls_oai_html
-import constants as CONST
 import cls_containerize
 import cls_cmd
 from cls_ci_helper import archiveArtifact
@@ -134,13 +132,13 @@ class Cluster:
 		with cls_cmd.getConnection(node) as cmd:
 			succeeded = OC_login(cmd, oc.username, oc.password, CI_OC_RAN_NAMESPACE)
 			if not succeeded:
-				HTML.CreateHtmlTestRow('N/A', 'KO', CONST.OC_LOGIN_FAIL)
+				HTML.CreateHtmlTestRowQueue('N/A', 'KO', ['Could not log onto cluster'])
 				return False
 			ret = cmd.run(f'oc whoami -t | docker login -u oaicicd --password-stdin {OCRegistry}')
 			if ret.returncode != 0:
 				logging.error(f'cannot authenticate at registry')
 				OC_logout(cmd)
-				HTML.CreateHtmlTestRow('N/A', 'KO', CONST.OC_LOGIN_FAIL)
+				HTML.CreateHtmlTestRowQueue('N/A', 'KO', ['Could not log onto cluster'])
 				return False
 			tag = ctx.g.branch
 			registry = f'{OCRegistry}/{CI_OC_RAN_NAMESPACE}'
@@ -197,7 +195,7 @@ class Cluster:
 		# logging to OC Cluster and then switch to corresponding project
 		succeeded = OC_login(cmd, oc.username, oc.password, CI_OC_RAN_NAMESPACE)
 		if not succeeded:
-			HTML.CreateHtmlTestRow('N/A', 'KO', CONST.OC_LOGIN_FAIL)
+			HTML.CreateHtmlTestRowQueue('N/A', 'KO', ['Could not log onto cluster'])
 			cmd.close()
 			return False
 

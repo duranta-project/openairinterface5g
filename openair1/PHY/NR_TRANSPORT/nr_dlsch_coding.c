@@ -118,6 +118,7 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
                       uint8_t slot,
                       unsigned char *output)
 {
+  time_stats_t *dlsch_crc_stats = &gNB->dlsch_crc_stats;
   nrLDPC_TB_encoding_parameters_t TBs[n_dlsch];
   memset(TBs, 0, sizeof(TBs));
 
@@ -158,6 +159,7 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
       phy_stats->dlsch_stats.current_Qm = rel15->qamModOrder[0];
     }
 
+    start_meas(dlsch_crc_stats);
     int max_bytes = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers * 1056;
     int B;
     if (A > NR_MAX_PDSCH_TBS) {
@@ -183,6 +185,7 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
       memcpy(dlsch->b, a, (A / 8) + 3); // using 3 bytes to mimic the case of 24 bit crc
     }
 
+    stop_meas(dlsch_crc_stats);
     nrLDPC_TB_encoding_parameters_t *TB_parameters = &TBs[i];
 
     // The harq_pid is not unique among the active HARQ processes in the instance so we use i instead

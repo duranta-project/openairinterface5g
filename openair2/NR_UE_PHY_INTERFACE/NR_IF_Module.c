@@ -279,7 +279,6 @@ static uint32_t nr_ue_dl_processing(NR_UE_MAC_INST_t *mac, nr_downlink_indicatio
       nr_scheduled_response_t scheduled_response = {.dl_config = dl_config,
                                                     .mac = mac,
                                                     .module_id = dl_info->module_id,
-                                                    .CC_id = dl_info->cc_id,
                                                     .phy_data = dl_info->phy_data};
       nr_ue_if_module_inst[dl_info->module_id]->scheduled_response(&scheduled_response);
       memset(def_dci_pdu_rel15, 0, sizeof(*def_dci_pdu_rel15));

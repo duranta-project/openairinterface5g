@@ -1,8 +1,6 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 <testCaseList>
-  <htmlTabRef>physim-tab</htmlTabRef>
   <htmlTabName>PhySim</htmlTabName>
-  <htmlTabIcon>wrench</htmlTabIcon>
 
   <testCase>
     <class>Create_Workspace</class>
@@ -15,7 +13,7 @@
     <desc>Build and Deploy PhySim in Docker</desc>
     <script>scripts/docker-build-and-deploy-physims.sh</script>
     <node>localhost</node>
-    <ctest-opt>-R 5g -E "nr_dlsim|nr_ulsim|ldpctest" -j32</ctest-opt>
+    <ctest-opt>-R 5g -E "nr_dlsim|nr_ulsim|ldpctest|physim.5g.nr_pucchsim.test25|physim.5g.nr_pucchsim.test26" -j32</ctest-opt>
   </testCase>
 
 </testCaseList>

@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>build-tab</htmlTabRef>
   <htmlTabName>Build Images with T2 support</htmlTabName>
-  <htmlTabIcon>wrench</htmlTabIcon>
   <testCase>
     <class>Create_Workspace</class>
     <desc>Create new Workspace for server 0</desc>

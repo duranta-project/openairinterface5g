@@ -453,7 +453,10 @@ typedef struct timer_elm_s {
     signal(SIGTERM, handler);
     signal(SIGINT, handler);
 
-    rc = sem_wait(&itti_sem_block);
+    // POSIX sem_wait(), ERRORS: EINTR does not mean the semaphore was acquired.
+    do {
+      rc = sem_wait(&itti_sem_block);
+    } while (rc == -1 && errno == EINTR);
     AssertFatal(rc == 0, "error in sem_wait(): %d %s\n", errno, strerror(errno));
   }
 

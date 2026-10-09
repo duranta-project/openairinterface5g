@@ -2705,7 +2705,7 @@ static uint8_t compute_srs_resource_indicator_size(long *maxMIMO_Layers, NR_PUSC
       // parameter srs-ResourceSetToAddModList, and associated with the higher layer parameter usage of value codeBook.
       int count = srs_codebook_nb_res(srs_config);
       if (count > 0)
-        nbits = ceil(log2(count));
+        nbits = ceil_log2_u32(count);
 #ifdef DEBUG_SRS_RESOURCE_IND
       LOG_I(NR_MAC, "srs_config->srs_ResourceSetToAddModList->list.count = %i\n", srs_config->srs_ResourceSetToAddModList->list.count);
       LOG_I(NR_MAC, "count = %i\n", count);
@@ -2732,7 +2732,7 @@ static uint8_t compute_srs_resource_indicator_size(long *maxMIMO_Layers, NR_PUSC
       int count = srs_non_codebook_nb_res(srs_config);
       int lsum = srs_binomial_sum(count, Lmax);
       if (lsum > 0)
-        nbits = ceil(log2(lsum));
+        nbits = ceil_log2_u32(lsum);
 #ifdef DEBUG_SRS_RESOURCE_IND
       LOG_I(NR_MAC, "srs_config->srs_ResourceSetToAddModList->list.count = %i\n", srs_config->srs_ResourceSetToAddModList->list.count);
       LOG_I(NR_MAC, "count = %i\n", count);
@@ -3009,7 +3009,8 @@ uint16_t nr_dci_size(const NR_UE_DL_BWP_t *DL_BWP,
       size += 20;
       // HARQ pid - 4bits , Spec 38.212 section 7.3.1.1.1
       dci_pdu->harq_pid.nbits = 4;
-      dci_pdu->frequency_domain_assignment.nbits = (uint8_t)ceil(log2((N_RB * (N_RB + 1)) >>1)); // Freq domain assignment -- hopping scenario to be updated
+      // Freq domain assignment -- hopping scenario to be updated
+      dci_pdu->frequency_domain_assignment.nbits = ceil_log2_u32((N_RB * (N_RB + 1)) >> 1);
       size += dci_pdu->frequency_domain_assignment.nbits;
       if (alt_size) {
         if(alt_size >= size)
@@ -3060,18 +3061,19 @@ uint16_t nr_dci_size(const NR_UE_DL_BWP_t *DL_BWP,
         if (pusch_Config->resourceAllocation == 0)
           dci_pdu->frequency_domain_assignment.nbits = numRBG;
         else if (pusch_Config->resourceAllocation == 1)
-          dci_pdu->frequency_domain_assignment.nbits = (int)ceil(log2((N_RB * (N_RB + 1)) >> 1));
-        else
-          dci_pdu->frequency_domain_assignment.nbits = ((int)ceil(log2((N_RB * (N_RB + 1)) >> 1)) > numRBG) ? (int)ceil(log2((N_RB * (N_RB + 1)) >> 1)) + 1 : numRBG + 1;
-      }
-      else
-        dci_pdu->frequency_domain_assignment.nbits = (int)ceil(log2((N_RB * (N_RB + 1)) >> 1));
+          dci_pdu->frequency_domain_assignment.nbits = ceil_log2_u32((N_RB * (N_RB + 1)) >> 1);
+        else {
+          int val = ceil_log2_u32((N_RB * (N_RB + 1)) >> 1);
+          dci_pdu->frequency_domain_assignment.nbits = val > numRBG ? val + 1 : numRBG + 1;
+        }
+      } else
+        dci_pdu->frequency_domain_assignment.nbits = ceil_log2_u32((N_RB * (N_RB + 1)) >> 1);
       LOG_D(NR_MAC, "PUSCH Frequency Domain Assignment nbits %d, N_RB %d\n", dci_pdu->frequency_domain_assignment.nbits, N_RB);
       size += dci_pdu->frequency_domain_assignment.nbits;
       // Time domain assignment
       NR_PUSCH_TimeDomainResourceAllocationList_t *tdalistul = get_ul_tdalist(UL_BWP, coreset->controlResourceSetId, ss_type, rnti_type);
       num_entries = tdalistul ?  tdalistul->list.count : 16; // 16 in default table
-      dci_pdu->time_domain_assignment.nbits = (int)ceil(log2(num_entries));
+      dci_pdu->time_domain_assignment.nbits = ceil_log2_u32(num_entries);
       LOG_D(NR_MAC, "PUSCH Time Domain Allocation nbits %d, pusch_Config %p\n", dci_pdu->time_domain_assignment.nbits, pusch_Config);
       size += dci_pdu->time_domain_assignment.nbits;
       // Frequency Hopping flag
@@ -3176,7 +3178,7 @@ uint16_t nr_dci_size(const NR_UE_DL_BWP_t *DL_BWP,
       size = 28;
       // HARQ pid - 4 bits. Spec 38.212 section 7.3.1.2.1
       dci_pdu->harq_pid.nbits = 4;
-      dci_pdu->frequency_domain_assignment.nbits = (uint8_t)ceil(log2((N_RB * (N_RB + 1)) >> 1)); // Freq domain assignment
+      dci_pdu->frequency_domain_assignment.nbits = ceil_log2_u32((N_RB * (N_RB + 1)) >> 1); // Freq domain assignment
       size += dci_pdu->frequency_domain_assignment.nbits;
       if(ss_type == NR_SearchSpace__searchSpaceType_PR_ue_Specific && alt_size >= size)
         size += alt_size - size; // Padding to match 0_0 size
@@ -3215,14 +3217,16 @@ uint16_t nr_dci_size(const NR_UE_DL_BWP_t *DL_BWP,
       if (pdsch_Config && pdsch_Config->resourceAllocation == 0)
          dci_pdu->frequency_domain_assignment.nbits = numRBG;
       else if (pdsch_Config == NULL || pdsch_Config->resourceAllocation == 1)
-         dci_pdu->frequency_domain_assignment.nbits = (int)ceil(log2((N_RB * (N_RB + 1)) >> 1));
-      else
-         dci_pdu->frequency_domain_assignment.nbits = ((int)ceil(log2((N_RB * (N_RB + 1)) >> 1)) > numRBG) ? (int)ceil(log2((N_RB * (N_RB + 1)) >> 1)) + 1 : numRBG + 1;
+         dci_pdu->frequency_domain_assignment.nbits = ceil_log2_u32((N_RB * (N_RB + 1)) >> 1);
+      else {
+        int val = ceil_log2_u32((N_RB * (N_RB + 1)) >> 1);
+        dci_pdu->frequency_domain_assignment.nbits = val > numRBG ? val + 1 : numRBG + 1;
+      }
       size += dci_pdu->frequency_domain_assignment.nbits;
       LOG_D(NR_MAC,"dci_pdu->frequency_domain_assignment.nbits %d (N_RB %d)\n",dci_pdu->frequency_domain_assignment.nbits,N_RB);
       NR_PDSCH_TimeDomainResourceAllocationList_t *tdalist = get_dl_tdalist(DL_BWP, coreset->controlResourceSetId, ss_type, rnti_type);
       num_entries = tdalist ?  tdalist->list.count : 16; // 16 in default table
-      dci_pdu->time_domain_assignment.nbits = (int)ceil(log2(num_entries));
+      dci_pdu->time_domain_assignment.nbits = ceil_log2_u32(num_entries);
       LOG_D(NR_MAC,"pdsch tda.nbits= %d\n",dci_pdu->time_domain_assignment.nbits);
       size += dci_pdu->time_domain_assignment.nbits;
       // VRB to PRB mapping 
@@ -3249,8 +3253,8 @@ uint16_t nr_dci_size(const NR_UE_DL_BWP_t *DL_BWP,
       // ZP CSI-RS trigger
       if (pdsch_Config && 
           pdsch_Config->aperiodic_ZP_CSI_RS_ResourceSetsToAddModList != NULL) {
-        uint8_t nZP = pdsch_Config->aperiodic_ZP_CSI_RS_ResourceSetsToAddModList->list.count;
-        dci_pdu->zp_csi_rs_trigger.nbits = (int)ceil(log2(nZP+1));
+        uint32_t nZP = pdsch_Config->aperiodic_ZP_CSI_RS_ResourceSetsToAddModList->list.count;
+        dci_pdu->zp_csi_rs_trigger.nbits = ceil_log2_u32(nZP + 1);
       }
       size += dci_pdu->zp_csi_rs_trigger.nbits;
       // TB1- MCS 5, NDI 1, RV 2
@@ -3275,8 +3279,8 @@ uint16_t nr_dci_size(const NR_UE_DL_BWP_t *DL_BWP,
       // PUCCH resource indicator
       size += 3;
       // PDSCH to HARQ timing indicator
-      uint8_t I = (pucch_Config && pucch_Config->dl_DataToUL_ACK) ? pucch_Config->dl_DataToUL_ACK->list.count : 8;
-      dci_pdu->pdsch_to_harq_feedback_timing_indicator.nbits = (int)ceil(log2(I));
+      uint32_t I = (pucch_Config && pucch_Config->dl_DataToUL_ACK) ? pucch_Config->dl_DataToUL_ACK->list.count : 8;
+      dci_pdu->pdsch_to_harq_feedback_timing_indicator.nbits = ceil_log2_u32(I);
       size += dci_pdu->pdsch_to_harq_feedback_timing_indicator.nbits;
       LOG_D(NR_MAC,"dci_pdu->pdsch_to_harq_feedback_timing_indicator.nbits %d\n",dci_pdu->pdsch_to_harq_feedback_timing_indicator.nbits);
       // Antenna ports
@@ -4478,7 +4482,7 @@ static void compute_rsrp_or_sinr_bitlen(const NR_CSI_ReportConfig_t *csi_reportc
     csi_report->CSI_report_bitlen.nb_ssbri_cri = 2;
 
   if (nb_resources) {
-    csi_report->CSI_report_bitlen.cri_ssbri_bitlen = ceil(log2 (nb_resources));
+    csi_report->CSI_report_bitlen.cri_ssbri_bitlen = ceil_log2_u32(nb_resources);
     if (is_RSRP_configured) {
       csi_report->CSI_report_bitlen.rsrp_bitlen = 7; // From spec 38.212 Table 6.3.1.1.2-6: CRI, SSBRI, and RSRP
       csi_report->CSI_report_bitlen.diff_rsrp_bitlen = 4; // From spec 38.212 Table 6.3.1.1.2-6: CRI, SSBRI, and RSRP
@@ -4524,7 +4528,7 @@ static uint8_t compute_ri_bitlen(const NR_CSI_ReportConfig_t *csi_reportconfig, 
   // codebook type1 single panel
   if (type1single->nrOfAntennaPorts.present == NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts_PR_two) {
     nb_allowed_ri = number_of_bits_set(ri_restriction);
-    ri_bitlen = ceil(log2(nb_allowed_ri));
+    ri_bitlen = ceil_log2_u32(nb_allowed_ri);
     // from the spec 38.212 and table  6.3.1.1.2-3: RI, LI, CQI, and CRI of codebookType=typeI-SinglePanel
     ri_bitlen = ri_bitlen < 1 ? ri_bitlen : 1;
     csi_report->csi_meas_bitlen.ri_bitlen = ri_bitlen;
@@ -4534,7 +4538,7 @@ static uint8_t compute_ri_bitlen(const NR_CSI_ReportConfig_t *csi_reportconfig, 
         NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_two_one_TypeI_SinglePanel_Restriction) {
       // 4 ports
       nb_allowed_ri = number_of_bits_set(ri_restriction);
-      ri_bitlen = ceil(log2(nb_allowed_ri));
+      ri_bitlen = ceil_log2_u32(nb_allowed_ri);
       // from the spec 38.212 and table  6.3.1.1.2-3: RI, LI, CQI, and CRI of codebookType=typeI-SinglePanel
       ri_bitlen = ri_bitlen < 2 ? ri_bitlen : 2;
       csi_report->csi_meas_bitlen.ri_bitlen = ri_bitlen;
@@ -4542,7 +4546,7 @@ static uint8_t compute_ri_bitlen(const NR_CSI_ReportConfig_t *csi_reportconfig, 
     else {
       // more than 4 ports
       nb_allowed_ri = number_of_bits_set(ri_restriction);
-      ri_bitlen = ceil(log2(nb_allowed_ri));
+      ri_bitlen = ceil_log2_u32(nb_allowed_ri);
       csi_report->csi_meas_bitlen.ri_bitlen = ri_bitlen;
     }
   }
@@ -4567,9 +4571,10 @@ static void compute_li_bitlen(const NR_CSI_ReportConfig_t *csi_reportconfig, uin
       else
         LOG_E(NR_MAC, "Only type1 single panel codebook configuration is supported\n");
       // codebook type1 single panel
-      if (type1single)
-        csi_report->csi_meas_bitlen.li_bitlen[i] = ceil(log2(i + 1)) < 2 ? ceil(log2(i + 1)) : 2;
-      else
+      if (type1single) {
+        int val = ceil_log2_u32(i + 1);
+        csi_report->csi_meas_bitlen.li_bitlen[i] = val < 2 ? val : 2;
+      } else
         csi_report->csi_meas_bitlen.li_bitlen[i] = 0;
     }
   }
@@ -4674,24 +4679,24 @@ static void set_bitlen_size_singlepanel(CSI_Meas_bitlen_t *csi_bitlen, int n1, i
     case 1:
       if(n2 > 1) {
         if (codebook_mode == 1) {
-          csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1));
-          csi_bitlen->pmi_i12_bitlen[i] = ceil(log2(n2 * o2));
+          csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1);
+          csi_bitlen->pmi_i12_bitlen[i] = ceil_log2_u32(n2 * o2);
           csi_bitlen->pmi_x2_bitlen[i] = 2;
         }
         else {
-          csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1 / 2));
-          csi_bitlen->pmi_i12_bitlen[i] = ceil(log2(n2 * o2 / 2));
+          csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1 / 2);
+          csi_bitlen->pmi_i12_bitlen[i] = ceil_log2_u32(n2 * o2 / 2);
           csi_bitlen->pmi_x2_bitlen[i] = 4;
         }
       }
       else{
         if (codebook_mode == 1) {
-          csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1));
-          csi_bitlen->pmi_i12_bitlen[i] = ceil(log2(n2 * o2));
+          csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1);
+          csi_bitlen->pmi_i12_bitlen[i] = ceil_log2_u32(n2 * o2);
           csi_bitlen->pmi_x2_bitlen[i] = 2;
         }
         else {
-          csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1 / 2));
+          csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1 / 2);
           csi_bitlen->pmi_i12_bitlen[i] = 0;
           csi_bitlen->pmi_x2_bitlen[i] = 4;
         }
@@ -4701,12 +4706,12 @@ static void set_bitlen_size_singlepanel(CSI_Meas_bitlen_t *csi_bitlen, int n1, i
     case 2:
       if(n1 * n2 == 2) {
         if (codebook_mode == 1) {
-          csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1));
-          csi_bitlen->pmi_i12_bitlen[i] = ceil(log2(n2 * o2));
+          csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1);
+          csi_bitlen->pmi_i12_bitlen[i] = ceil_log2_u32(n2 * o2);
           csi_bitlen->pmi_x2_bitlen[i] = 1;
         }
         else {
-          csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1 / 2));
+          csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1 / 2);
           csi_bitlen->pmi_i12_bitlen[i] = 0;
           csi_bitlen->pmi_x2_bitlen[i] = 3;
         }
@@ -4715,24 +4720,24 @@ static void set_bitlen_size_singlepanel(CSI_Meas_bitlen_t *csi_bitlen, int n1, i
       else {
         if(n2 > 1) {
           if (codebook_mode == 1) {
-            csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1));
-            csi_bitlen->pmi_i12_bitlen[i] = ceil(log2(n2 * o2));
+            csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1);
+            csi_bitlen->pmi_i12_bitlen[i] = ceil_log2_u32(n2 * o2);
             csi_bitlen->pmi_x2_bitlen[i] = 1;
           }
           else {
-            csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1 / 2));
-            csi_bitlen->pmi_i12_bitlen[i] = ceil(log2(n2 * o2 / 2));
+            csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1 / 2);
+            csi_bitlen->pmi_i12_bitlen[i] = ceil_log2_u32(n2 * o2 / 2);
             csi_bitlen->pmi_x2_bitlen[i] = 3;
           }
         }
         else{
           if (codebook_mode == 1) {
-            csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1));
-            csi_bitlen->pmi_i12_bitlen[i] = ceil(log2(n2 * o2));
+            csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1);
+            csi_bitlen->pmi_i12_bitlen[i] = ceil_log2_u32(n2 * o2);
             csi_bitlen->pmi_x2_bitlen[i] = 1;
           }
           else {
-            csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1 / 2));
+            csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1 / 2);
             csi_bitlen->pmi_i12_bitlen[i] = 0;
             csi_bitlen->pmi_x2_bitlen[i] = 3;
           }
@@ -4743,21 +4748,21 @@ static void set_bitlen_size_singlepanel(CSI_Meas_bitlen_t *csi_bitlen, int n1, i
     case 3:
     case 4:
       if(n1*n2 == 2) {
-        csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1));
-        csi_bitlen->pmi_i12_bitlen[i] = ceil(log2(n2 * o2));
+        csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1);
+        csi_bitlen->pmi_i12_bitlen[i] = ceil_log2_u32(n2 * o2);
         csi_bitlen->pmi_i13_bitlen[i] = 0;
         csi_bitlen->pmi_x2_bitlen[i] = 1;
       }
       else {
         if(n1*n2 >= 8) {
-          csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1 / 2));
-          csi_bitlen->pmi_i12_bitlen[i] = ceil(log2(n2 * o2));
+          csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1 / 2);
+          csi_bitlen->pmi_i12_bitlen[i] = ceil_log2_u32(n2 * o2);
           csi_bitlen->pmi_i13_bitlen[i] = 2;
           csi_bitlen->pmi_x2_bitlen[i] = 1;
         }
         else {
-          csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1));
-          csi_bitlen->pmi_i12_bitlen[i] = ceil(log2(n2 * o2));
+          csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1);
+          csi_bitlen->pmi_i12_bitlen[i] = ceil_log2_u32(n2 * o2);
           csi_bitlen->pmi_i13_bitlen[i] = 2;
           csi_bitlen->pmi_x2_bitlen[i] = 1;
         }
@@ -4765,29 +4770,29 @@ static void set_bitlen_size_singlepanel(CSI_Meas_bitlen_t *csi_bitlen, int n1, i
       break;
     case 5:
     case 6:
-      csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1));
-      csi_bitlen->pmi_i12_bitlen[i] = ceil(log2(n2 * o2));
+      csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1);
+      csi_bitlen->pmi_i12_bitlen[i] = ceil_log2_u32(n2 * o2);
       csi_bitlen->pmi_i13_bitlen[i] = 0;
       csi_bitlen->pmi_x2_bitlen[i] = 1;
       break;
     case 7:
     case 8:
       if(n1 == 4 && n2 == 1) {
-        csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1));
-        csi_bitlen->pmi_i12_bitlen[i] = ceil(log2(n2 * o2 / 2));
+        csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1);
+        csi_bitlen->pmi_i12_bitlen[i] = ceil_log2_u32(n2 * o2 / 2);
         csi_bitlen->pmi_i13_bitlen[i] = 0;
         csi_bitlen->pmi_x2_bitlen[i] = 1;
       }
       else {
         if(n1 > 2 && n2 == 2) {
-          csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1));
-          csi_bitlen->pmi_i12_bitlen[i] = ceil(log2(n2 * o2 / 2));
+          csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1);
+          csi_bitlen->pmi_i12_bitlen[i] = ceil_log2_u32(n2 * o2 / 2);
           csi_bitlen->pmi_i13_bitlen[i] = 0;
           csi_bitlen->pmi_x2_bitlen[i] = 1;
         }
         else {
-          csi_bitlen->pmi_i11_bitlen[i] = ceil(log2(n1 * o1));
-          csi_bitlen->pmi_i12_bitlen[i] = ceil(log2(n2 * o2));
+          csi_bitlen->pmi_i11_bitlen[i] = ceil_log2_u32(n1 * o1);
+          csi_bitlen->pmi_i12_bitlen[i] = ceil_log2_u32(n2 * o2);
           csi_bitlen->pmi_i13_bitlen[i] = 0;
           csi_bitlen->pmi_x2_bitlen[i] = 1;
         }
@@ -4974,18 +4979,18 @@ void compute_csi_bitlen(const NR_CSI_MeasConfig_t *csi_MeasConfig, nr_csi_report
           compute_rsrp_or_sinr_bitlen(csi_reportconfig, nb_resources, csi_report, true);
           break;
         case (NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_CQI):
-          csi_report->csi_meas_bitlen.cri_bitlen = ceil(log2(nb_resources));
+          csi_report->csi_meas_bitlen.cri_bitlen = ceil_log2_u32(nb_resources);
           csi_report->csi_meas_bitlen.ri_restriction = compute_ri_bitlen(csi_reportconfig, csi_report);
           compute_cqi_bitlen(csi_reportconfig, csi_report->csi_meas_bitlen.ri_restriction, csi_report);
           break;
         case (NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_PMI_CQI):
-          csi_report->csi_meas_bitlen.cri_bitlen = ceil(log2(nb_resources));
+          csi_report->csi_meas_bitlen.cri_bitlen = ceil_log2_u32(nb_resources);
           csi_report->csi_meas_bitlen.ri_restriction = compute_ri_bitlen(csi_reportconfig, csi_report);
           compute_cqi_bitlen(csi_reportconfig, csi_report->csi_meas_bitlen.ri_restriction, csi_report);
           compute_pmi_bitlen(csi_reportconfig, csi_report->csi_meas_bitlen.ri_restriction, csi_report);
           break;
         case (NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_LI_PMI_CQI):
-          csi_report->csi_meas_bitlen.cri_bitlen = ceil(log2(nb_resources));
+          csi_report->csi_meas_bitlen.cri_bitlen = ceil_log2_u32(nb_resources);
           csi_report->csi_meas_bitlen.ri_restriction = compute_ri_bitlen(csi_reportconfig, csi_report);
           compute_li_bitlen(csi_reportconfig, csi_report->csi_meas_bitlen.ri_restriction, csi_report);
           compute_cqi_bitlen(csi_reportconfig, csi_report->csi_meas_bitlen.ri_restriction, csi_report);

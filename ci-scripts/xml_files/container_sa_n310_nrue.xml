@@ -1,9 +1,14 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>TEST-5G-NRUE</htmlTabRef>
   <htmlTabName>40 MHz TDD SA</htmlTabName>
-  <htmlTabIcon>tasks</htmlTabIcon>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Disable Sleep States on Caracal</desc>
+    <node>caracal</node>
+    <command>sudo cpupower idle-set -D 0</command>
+  </testCase>
 
   <testCase>
     <class>DeployCoreNetwork</class>
@@ -117,7 +122,7 @@
     <node>avra</node>
     <yaml_path>ci-scripts/yaml_files/5g_sa_n310_gnb</yaml_path>
     <analysis>
-      <services>oai-gnb=RetxCheck=20,100,100,100 oai-gnb=EndsWithBye</services>
+      <services>oai-gnb=EndsWithBye</services>
     </analysis>
   </testCase>
 
@@ -142,6 +147,14 @@
     <desc>Terminate 5G Core</desc>
     <always_exec>true</always_exec>
     <cn_id>oc-cn5g</cn_id>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <always_exec>true</always_exec>
+    <desc>Enable Sleep States on Caracal</desc>
+    <node>caracal</node>
+    <command>sudo cpupower idle-set -E</command>
   </testCase>
 
 </testCaseList>

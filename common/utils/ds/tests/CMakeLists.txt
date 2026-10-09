@@ -16,3 +16,13 @@ add_dependencies(tests test_spsc_q)
 add_test(NAME test_spsc_q COMMAND test_spsc_q)
 add_executable(test_spsc_q_perf test_spsc_q_perf.cpp)
 target_link_libraries(test_spsc_q_perf PRIVATE ds benchmark::benchmark)
+
+add_executable(test_work_q test_work_q.cpp)
+target_link_libraries(test_work_q ds GTest::gtest)
+add_dependencies(tests test_work_q)
+add_test(NAME test_work_q COMMAND test_work_q)
+
+add_executable(test_seqlock test_seqlock.c)
+target_link_libraries(test_seqlock PRIVATE pthread)
+add_dependencies(tests test_seqlock)
+add_test(NAME test_seqlock COMMAND test_seqlock)

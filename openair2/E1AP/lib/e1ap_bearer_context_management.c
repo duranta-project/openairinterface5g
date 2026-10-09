@@ -2793,6 +2793,67 @@ static bool e1_decode_pdu_session_to_remove_item(pdu_session_to_remove_t *out, c
   return true;
 }
 
+/** @brief Encode DRB Required To Modify Item (NG-RAN) */
+static void e1_encode_drb_required_to_mod_item(E1AP_DRB_Required_To_Modify_Item_NG_RAN_t *out,
+                                               const DRB_nGRAN_required_to_mod_t *in)
+{
+  // DRB ID (M)
+  out->dRB_ID = in->id;
+  // Cause (O)
+  if (in->cause.type != E1AP_CAUSE_NOTHING)
+    asn1cCallocOne(out->cause, e1_encode_cause_ie(&in->cause));
+}
+
+/** @brief Decode DRB Required To Modify Item (NG-RAN) */
+static bool e1_decode_drb_required_to_mod_item(DRB_nGRAN_required_to_mod_t *out,
+                                               const E1AP_DRB_Required_To_Modify_Item_NG_RAN_t *in)
+{
+  *out = (DRB_nGRAN_required_to_mod_t){0};
+  // DRB ID (M)
+  out->id = in->dRB_ID;
+  // Cause (O)
+  if (in->cause != NULL)
+    out->cause = e1_decode_cause_ie(in->cause);
+  return true;
+}
+
+/** @brief Encode PDU Session Resource Required To Modify Item */
+static void e1_encode_pdu_session_required_to_mod_item(E1AP_PDU_Session_Resource_Required_To_Modify_Item_t *out,
+                                                       const pdu_session_required_to_mod_t *in)
+{
+  // PDU Session ID (M)
+  out->pDU_Session_ID = in->sessionId;
+  // DRB Required To Modify List (O)
+  if (in->numDRB2Modify > 0) {
+    out->dRB_Required_To_Modify_List_NG_RAN = calloc_or_fail(1, sizeof(*out->dRB_Required_To_Modify_List_NG_RAN));
+    for (int i = 0; i < in->numDRB2Modify; i++) {
+      asn1cSequenceAdd(out->dRB_Required_To_Modify_List_NG_RAN->list, E1AP_DRB_Required_To_Modify_Item_NG_RAN_t, drb);
+      e1_encode_drb_required_to_mod_item(drb, &in->DRBnGRanModList[i]);
+    }
+  }
+}
+
+/** @brief Decode PDU Session Resource Required To Modify Item */
+static bool e1_decode_pdu_session_required_to_mod_item(pdu_session_required_to_mod_t *out,
+                                                       const E1AP_PDU_Session_Resource_Required_To_Modify_Item_t *in)
+{
+  *out = (pdu_session_required_to_mod_t){0};
+  // PDU Session ID (M)
+  out->sessionId = in->pDU_Session_ID;
+  // DRB Required To Modify List (O)
+  if (in->dRB_Required_To_Modify_List_NG_RAN != NULL) {
+    const E1AP_DRB_Required_To_Modify_List_NG_RAN_t *drbList = in->dRB_Required_To_Modify_List_NG_RAN;
+    out->numDRB2Modify = drbList->list.count;
+    if (out->numDRB2Modify <= 0 || out->numDRB2Modify > E1AP_MAX_NUM_DRBS) {
+      PRINT_ERROR("DRB Required To Modify List count %d out of range (1..%d)\n", out->numDRB2Modify, E1AP_MAX_NUM_DRBS);
+      return false;
+    }
+    for (int i = 0; i < drbList->list.count; i++)
+      CHECK_E1AP_DEC(e1_decode_drb_required_to_mod_item(&out->DRBnGRanModList[i], drbList->list.array[i]));
+  }
+  return true;
+}
+
 /** @brief Bearer Context Modification Required encoding (9.2.2.7, 3GPP TS 38.463)
  *         gNB-CU-UP -> gNB-CU-CP */
 E1AP_E1AP_PDU_t *encode_E1_bearer_context_mod_required(const e1ap_bearer_mod_required_t *msg)
@@ -2828,6 +2889,20 @@ E1AP_E1AP_PDU_t *encode_E1_bearer_context_mod_required(const e1ap_bearer_mod_req
   sys->present = E1AP_System_BearerContextModificationRequired_PR_nG_RAN_BearerContextModificationRequired;
   E1AP_ProtocolIE_Container_4932P33_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
   sys->choice.nG_RAN_BearerContextModificationRequired = (struct E1AP_ProtocolIE_Container *)msgNGRAN_list;
+
+  // NG-RAN PDU Session Resource Required To Modify List (O)
+  if (msg->numPDUSessionsMod > 0 && msg->pduSessionMod != NULL) {
+    asn1cSequenceAdd(msgNGRAN_list->list, E1AP_NG_RAN_BearerContextModificationRequired_t, msgNGRAN);
+    msgNGRAN->id = E1AP_ProtocolIE_ID_id_PDU_Session_Resource_Required_To_Modify_List;
+    msgNGRAN->criticality = E1AP_Criticality_reject;
+    msgNGRAN->value.present = E1AP_NG_RAN_BearerContextModificationRequired__value_PR_PDU_Session_Resource_Required_To_Modify_List;
+    E1AP_PDU_Session_Resource_Required_To_Modify_List_t *pdu2Mod =
+        &msgNGRAN->value.choice.PDU_Session_Resource_Required_To_Modify_List;
+    for (const pdu_session_required_to_mod_t *i = msg->pduSessionMod; i < msg->pduSessionMod + msg->numPDUSessionsMod; i++) {
+      asn1cSequenceAdd(pdu2Mod->list, E1AP_PDU_Session_Resource_Required_To_Modify_Item_t, ie);
+      e1_encode_pdu_session_required_to_mod_item(ie, i);
+    }
+  }
 
   // NG-RAN PDU Session Resource To Remove List (O)
   if (msg->numPDUSessionsRem > 0 && msg->pduSessionRem != NULL) {
@@ -2892,6 +2967,24 @@ bool decode_E1_bearer_context_mod_required(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
             for (int j = 0; j < msgNGRAN_list->list.count; j++) {
               const E1AP_NG_RAN_BearerContextModificationRequired_t *msgNGRAN = msgNGRAN_list->list.array[j];
               switch (msgNGRAN->id) {
+                case E1AP_ProtocolIE_ID_id_PDU_Session_Resource_Required_To_Modify_List: {
+                  _EQ_CHECK_INT(
+                      msgNGRAN->value.present,
+                      E1AP_NG_RAN_BearerContextModificationRequired__value_PR_PDU_Session_Resource_Required_To_Modify_List);
+                  const E1AP_PDU_Session_Resource_Required_To_Modify_List_t *modList =
+                      &msgNGRAN->value.choice.PDU_Session_Resource_Required_To_Modify_List;
+                  out->numPDUSessionsMod = modList->list.count;
+                  if (out->numPDUSessionsMod <= 0 || out->numPDUSessionsMod > NR_MAX_NB_PDU_SESSIONS) {
+                    PRINT_ERROR("PDU Session Resource Required To Modify List count %d out of range (1..%d)\n",
+                                out->numPDUSessionsMod,
+                                NR_MAX_NB_PDU_SESSIONS);
+                    return false;
+                  }
+                  out->pduSessionMod = calloc_or_fail(out->numPDUSessionsMod, sizeof(*out->pduSessionMod));
+                  for (int k = 0; k < modList->list.count; k++)
+                    CHECK_E1AP_DEC(e1_decode_pdu_session_required_to_mod_item(&out->pduSessionMod[k], modList->list.array[k]));
+                  break;
+                }
                 case E1AP_ProtocolIE_ID_id_PDU_Session_Resource_To_Remove_List: {
                   _EQ_CHECK_INT(msgNGRAN->value.present,
                                 E1AP_NG_RAN_BearerContextModificationRequired__value_PR_PDU_Session_Resource_To_Remove_List);
@@ -2934,7 +3027,11 @@ bool decode_E1_bearer_context_mod_required(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
 e1ap_bearer_mod_required_t cp_bearer_context_mod_required(const e1ap_bearer_mod_required_t *msg)
 {
   e1ap_bearer_mod_required_t cp = *msg;
-  cp.pduSessionRem = NULL;
+  if (msg->numPDUSessionsMod > 0 && msg->pduSessionMod != NULL) {
+    cp.pduSessionMod = calloc_or_fail(msg->numPDUSessionsMod, sizeof(*cp.pduSessionMod));
+    for (int i = 0; i < msg->numPDUSessionsMod; i++)
+      cp.pduSessionMod[i] = msg->pduSessionMod[i];
+  }
   if (msg->numPDUSessionsRem > 0 && msg->pduSessionRem != NULL) {
     cp.pduSessionRem = calloc_or_fail(msg->numPDUSessionsRem, sizeof(*cp.pduSessionRem));
     for (int i = 0; i < msg->numPDUSessionsRem; i++)
@@ -2948,6 +3045,19 @@ bool eq_bearer_context_mod_required(const e1ap_bearer_mod_required_t *a, const e
 {
   _EQ_CHECK_INT(a->gNB_cu_cp_ue_id, b->gNB_cu_cp_ue_id);
   _EQ_CHECK_INT(a->gNB_cu_up_ue_id, b->gNB_cu_up_ue_id);
+  _EQ_CHECK_INT(a->numPDUSessionsMod, b->numPDUSessionsMod);
+  _EQ_CHECK_OPTIONAL_PTR(a, b, pduSessionMod);
+  if (a->pduSessionMod != NULL && b->pduSessionMod != NULL) {
+    for (int i = 0; i < a->numPDUSessionsMod; i++) {
+      _EQ_CHECK_LONG(a->pduSessionMod[i].sessionId, b->pduSessionMod[i].sessionId);
+      _EQ_CHECK_INT(a->pduSessionMod[i].numDRB2Modify, b->pduSessionMod[i].numDRB2Modify);
+      for (int j = 0; j < a->pduSessionMod[i].numDRB2Modify; j++) {
+        _EQ_CHECK_LONG(a->pduSessionMod[i].DRBnGRanModList[j].id, b->pduSessionMod[i].DRBnGRanModList[j].id);
+        _EQ_CHECK_INT(a->pduSessionMod[i].DRBnGRanModList[j].cause.type, b->pduSessionMod[i].DRBnGRanModList[j].cause.type);
+        _EQ_CHECK_INT(a->pduSessionMod[i].DRBnGRanModList[j].cause.value, b->pduSessionMod[i].DRBnGRanModList[j].cause.value);
+      }
+    }
+  }
   _EQ_CHECK_INT(a->numPDUSessionsRem, b->numPDUSessionsRem);
   _EQ_CHECK_OPTIONAL_PTR(a, b, pduSessionRem);
   if (a->pduSessionRem != NULL && b->pduSessionRem != NULL) {
@@ -2963,6 +3073,7 @@ bool eq_bearer_context_mod_required(const e1ap_bearer_mod_required_t *a, const e
 /** @brief E1AP Bearer Context Modification Required: free */
 void free_e1ap_context_mod_required(const e1ap_bearer_mod_required_t *msg)
 {
+  free(msg->pduSessionMod);
   free(msg->pduSessionRem);
 }
 

@@ -28,6 +28,13 @@ void nr_modulation(const uint32_t *in,
                    uint16_t mod_order,
                    int16_t *out);
 
+bool nr_modulation_layer_mapping(const uint32_t *in,
+                                 uint32_t length,
+                                 uint16_t mod_order,
+                                 uint8_t n_layers,
+                                 int layerSz,
+                                 c16_t tx_layers[][layerSz]);
+
 /*! \brief Perform NR layer mapping. TS 38.211 V15.4.0 subclause 7.3.1.3
   @param[in] mod_symbs, double Pointer to modulated symbols for each codeword
   @param[in] n_layers, number of layers
@@ -87,7 +94,6 @@ void nr_beam_precoding(c16_t **txdataF,
 
 void apply_nr_rotation_TX(const NR_DL_FRAME_PARMS *fp,
                           c16_t *txdataF,
-                          bool is_flat_buff,
                           const c16_t *symbol_rotation,
                           int slot,
                           int nb_rb,
@@ -107,6 +113,7 @@ void perform_symbol_rotation(const int nsymb, const int numerology_index, double
 void init_symbol_rotation(NR_DL_FRAME_PARMS *fp);
 
 void init_timeshift_rotation(const int ofdm_symbol_size,
+                             const int nbins,
                              const int nb_prefix_samples,
                              const uint ofdm_offset_divisor,
                              c16_t *timeshift_symbol_rotation);
@@ -119,16 +126,6 @@ void apply_nr_rotation_symbol_fftshifted_RX(const int symbols_per_slot,
                                             const int nb_rb,
                                             const int slot,
                                             const int symbol);
-
-void apply_nr_rotation_symbol_RX(const int symbols_per_slot,
-                                 const int slots_per_subframe,
-                                 const c16_t *timeshift_symbol_rotation,
-                                 const int first_carrier_offset,
-                                 c16_t *rxdataF,
-                                 const c16_t *rot,
-                                 int nb_rb,
-                                 int slot,
-                                 int symbol);
 
 /*! \brief Perform NR precoding. TS 38.211 V15.4.0 subclause 6.3.1.5
   @param[in] datatx_F_precoding, Pointer to n_layers*re data array
@@ -171,5 +168,21 @@ void fftshift(const c16_t *in, c16_t *out, int nbins, int fft_size);
 void fftshift_inplace(c16_t *in, int nbins, int fft_size);
 void fftshift_inverse(const c16_t *in, c16_t *out, int nbins, int fft_size);
 void fftshift_inverse_inplace(c16_t *in, int nbins, int fft_size);
+
+/*! \brief Fast 2-port / 2-layer precoder: writes both antenna outputs in one
+   pass, exploiting that every 2x2 codebook weight is +/-1 or +/-j times a
+   common scale. See nr_modulation.c for details.
+  @param[in]  txdataF_res_mapped Tx data after resource mapping (2 layers).
+  @param[in]  weights            2x2 precoding matrix weights [layer][port].
+  @param[in]  re_cnt             Number of RE to write, should be multiple of 4.
+  @param[out] txdataF_precoded_ant0/ant1  Precoded data for antenna ports 0 and 1.
+*/
+void nr_layer_precoder_2x2_simd(const int symSz,
+                                const c16_t txdataF_res_mapped[2][symSz],
+                                c16_t weights[NR_MAX_NB_LAYERS][NR_MAX_CSI_PORTS],
+                                const int sc_offset,
+                                const int re_cnt,
+                                c16_t *txdataF_precoded_ant0,
+                                c16_t *txdataF_precoded_ant1);
 
 #endif

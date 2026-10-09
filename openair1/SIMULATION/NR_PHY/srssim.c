@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "common/utils/nr/nr_common.h"
@@ -525,6 +526,7 @@ int main(int argc, char *argv[])
     reset_meas(&gNB->srs_timing_advance_stats);
 
     double sum_srs_snr = 0;
+    int valid_srs_estimates = 0;
     int tao_ns_count = 0;
     for (trial = 0; trial < n_trials && !stop; trial++) {
       // Estimate noise power from the transmitter level and SNR
@@ -576,6 +578,12 @@ int main(int argc, char *argv[])
                            &timing_advance_offset,
                            timing_advance_offset_nsec);
 
+      if (srs_est < 0) {
+        stop_meas(&gNB->rx_srs_stats);
+        continue;
+      }
+
+      valid_srs_estimates++;
       sum_srs_snr += pow(10, (double)snr / 10.0);
 
       int16_t delay_ns = delay * 1e9 / (fp->samples_per_frame * 100);
@@ -591,8 +599,16 @@ int main(int argc, char *argv[])
       stop_meas(&gNB->rx_srs_stats);
     } // trail loop
     float tao_ns_rate = (float)tao_ns_count / (n_trials * n_rx);
-    float SRS_SNR_dB = 10 * log10(sum_srs_snr / n_trials);
-    printf("Actual SNR : %f, Estimated SNR from SRS %f (dB), TA offset success rate %f %%\n", SNR, SRS_SNR_dB, tao_ns_rate * 100);
+    float SRS_SNR_dB = NAN;
+    if (valid_srs_estimates > 0) {
+      SRS_SNR_dB = 10 * log10(sum_srs_snr / valid_srs_estimates);
+      printf("Actual SNR : %f, Estimated SNR from SRS %f (dB), TA offset success rate %f %%\n", SNR, SRS_SNR_dB, tao_ns_rate * 100);
+    } else {
+      printf("Actual SNR : %f, Estimated SNR from SRS unavailable (no valid estimates), TA offset success rate %f %%\n",
+             SNR,
+             tao_ns_rate * 100);
+    }
+    printf("Valid SRS estimates: %d/%d\n", valid_srs_estimates, trial);
 
     if (print_perf == 1) {
       printf("\ngNB RX\n");
@@ -605,12 +621,14 @@ int main(int argc, char *argv[])
     }
 
     int srs_ret = 1;
-    if (SNR > 30 && SRS_SNR_dB > 30) {
-      srs_ret = 0;
-    } else if (SNR >= SRS_SNR_dB) {
-      srs_ret = SRS_SNR_dB >= 0.7 * SNR ? 0 : 1;
-    } else if (SRS_SNR_dB > SNR) {
-      srs_ret = SNR >= 0.7 * SRS_SNR_dB ? 0 : 1;
+    if (valid_srs_estimates > 0) {
+      if (SNR > 30 && SRS_SNR_dB > 30) {
+        srs_ret = 0;
+      } else if (SNR >= SRS_SNR_dB) {
+        srs_ret = SRS_SNR_dB >= 0.7 * SNR ? 0 : 1;
+      } else if (SRS_SNR_dB > SNR) {
+        srs_ret = SNR >= 0.7 * SRS_SNR_dB ? 0 : 1;
+      }
     }
 
     if (tao_ns_rate > 0.9 && srs_ret == 0) {

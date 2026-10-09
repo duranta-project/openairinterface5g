@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>test-5g-fhi72-4x4-vvdn-monolithic</htmlTabRef>
   <htmlTabName>100 MHz 4x4 TDD SA VVDN Monolithic</htmlTabName>
-  <htmlTabIcon>tasks</htmlTabIcon>
   <testCase>
     <class>DeployCoreNetwork</class>
     <desc>Initialize 5G Core</desc>
@@ -142,6 +140,15 @@
     <yaml_path>ci-scripts/yaml_files/sa_fhi_7.2_vvdn_4x4_monolithic_gnb</yaml_path>
     <services>oai-gnb-monolithic</services>
     <node>stonechat</node>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Script</class>
+    <always_exec>true</always_exec>
+    <desc>Collect logs from VVDN RU</desc>
+    <node>cacofonix</node>
+    <script>scripts/remote-collect-log.sh</script>
+    <options>/var/log/synctimingptp2.log %%log_dir%% vvdn</options>
   </testCase>
 
   <testCase>

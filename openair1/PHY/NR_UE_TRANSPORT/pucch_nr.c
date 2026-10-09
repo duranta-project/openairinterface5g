@@ -98,7 +98,7 @@ void nr_generate_pucch0(c16_t **txdataF,
                                                  pucch_pdu->start_symbol_index,
                                                  nr_slot_tx);
     int l2 = l + pucch_pdu->start_symbol_index;
-    int re_offset = CIRCULAR_INC(frame_parms->first_carrier_offset, NR_NB_SC_PER_RB * prb_offset[l], frame_parms->ofdm_symbol_size);
+    int re_offset = NR_NB_SC_PER_RB * prb_offset[l];
 
     //txptr = &txdataF[0][re_offset];
 #ifdef DEBUG_NR_PUCCH_TX
@@ -112,19 +112,18 @@ void nr_generate_pucch0(c16_t **txdataF,
       txdataFptr[re_offset] = c16mulRealShift(c16mulShift(angle, table, 15), amp, 15);
 #ifdef DEBUG_NR_PUCCH_TX
       printf(
-          "\t [nr_generate_pucch0] mapping to RE \t amp=%d \tofdm_symbol_size=%d \tN_RB_DL=%d \tfirst_carrier_offset=%d "
+          "\t [nr_generate_pucch0] mapping to RE \t amp=%d \tofdm_symbol_size=%d \tN_RB_DL=%d "
           "\ttxptr(%u)=(x_n(l=%d,n=%d)=(%d,%d))\n",
           amp,
           frame_parms->ofdm_symbol_size,
           frame_parms->N_RB_DL,
-          frame_parms->first_carrier_offset,
           (l2 * frame_parms->ofdm_symbol_size) + re_offset,
           l2,
           n,
           txdataFptr[re_offset].r,
           txdataFptr[re_offset].i);
 #endif
-      re_offset = CIRCULAR_INC(re_offset, 1, frame_parms->ofdm_symbol_size);
+      re_offset++;
     }
   }
 }
@@ -405,34 +404,28 @@ void nr_generate_pucch1(c16_t **txdataF,
       startingPRB = pucch_pdu->second_hop_prb + pucch_pdu->bwp_start;
     }
 
-    // Same RE-mapping pattern as nr_generate_pucch0()/nr_generate_pucch2(): keep the
-    // per-symbol base offset and the within-symbol subcarrier offset separate, and only
-    // combine them at the point of access. The subcarrier offset alone wraps circularly
-    // within [0, ofdm_symbol_size) as n advances.
-    const uint32_t symbol_offset = (l + startingSymbolIndex) * frame_parms->ofdm_symbol_size;
-    re_offset = CIRCULAR_INC(frame_parms->first_carrier_offset, 12 * startingPRB, frame_parms->ofdm_symbol_size);
+    re_offset = (l + startingSymbolIndex) * frame_parms->ofdm_symbol_size + NR_NB_SC_PER_RB * startingPRB;
 
-    for (int n = 0; n < 12; n++) {
+    for (int n = 0; n < NR_NB_SC_PER_RB; n++) {
       if (l%2 == 1) { // mapping PUCCH according to TS38.211 subclause 6.4.1.3.1
-        txdataF[0][symbol_offset + re_offset] = z[i + n];
+        txdataF[0][re_offset] = z[i + n];
 #ifdef DEBUG_NR_PUCCH_TX
-        printf("\t [nr_generate_pucch1] mapping PUCCH to RE \t amp=%d \tofdm_symbol_size=%d \tN_RB_DL=%d \tfirst_carrier_offset=%d \tz_pucch[%d]=txptr(%u)=(x_n(l=%d,n=%d)=(%d,%d))\n",
-               amp, frame_parms->ofdm_symbol_size, frame_parms->N_RB_DL, frame_parms->first_carrier_offset, i + n, symbol_offset + re_offset,
-               l, n, txdataF[0][symbol_offset + re_offset].r, txdataF[0][symbol_offset + re_offset].i);
+        printf("\t [nr_generate_pucch1] mapping PUCCH to RE \t amp=%d \tofdm_symbol_size=%d \tN_RB_DL=%d \tz_pucch[%d]=txptr(%u)=(x_n(l=%d,n=%d)=(%d,%d))\n",
+               amp, frame_parms->ofdm_symbol_size, frame_parms->N_RB_DL, i + n, re_offset,
+               l, n, txdataF[0][re_offset].r, txdataF[0][re_offset].i);
 #endif
       }
 
       if (l % 2 == 0) { // mapping DM-RS signal according to TS38.211 subclause 6.4.1.3.1
-        txdataF[0][symbol_offset + re_offset] = z_dmrs[i + n];
+        txdataF[0][re_offset] = z_dmrs[i + n];
 #ifdef DEBUG_NR_PUCCH_TX
-        printf("\t [nr_generate_pucch1] mapping DM-RS to RE \t amp=%d \tofdm_symbol_size=%d \tN_RB_DL=%d \tfirst_carrier_offset=%d \tz_dm-rs[%d]=txptr(%u)=(x_n(l=%d,n=%d)=(%d,%d))\n",
-               amp, frame_parms->ofdm_symbol_size, frame_parms->N_RB_DL, frame_parms->first_carrier_offset, i+n, symbol_offset + re_offset,
-               l, n, txdataF[0][symbol_offset + re_offset].r, txdataF[0][symbol_offset + re_offset].i);
+        printf("\t [nr_generate_pucch1] mapping DM-RS to RE \t amp=%d \tofdm_symbol_size=%d \tN_RB_DL=%d \tz_dm-rs[%d]=txptr(%u)=(x_n(l=%d,n=%d)=(%d,%d))\n",
+               amp, frame_parms->ofdm_symbol_size, frame_parms->N_RB_DL, i+n, re_offset,
+               l, n, txdataF[0][re_offset].r, txdataF[0][re_offset].i);
 #endif
-//      printf("gNb l=%d\ti=%d\treoffset=%d\tre=%d\tim=%d\n",l,i,re_offset,z_dmrs_re[i+n],z_dmrs_im[i+n]);
       }
 
-      re_offset = CIRCULAR_INC(re_offset, 1, frame_parms->ofdm_symbol_size);
+      re_offset++;
     }
 
     if (l % 2 == 1)
@@ -669,7 +662,7 @@ void nr_generate_pucch2(c16_t **txdataF,
     int symbol_offset = (l + startingSymbolIndex) * frame_parms->ofdm_symbol_size;
     for (int rb = 0; rb < pucch_pdu->prb_size; rb++) {
       const int baseRB = rb + startingPRB;
-      int re_offset = CIRCULAR_INC(frame_parms->first_carrier_offset, 12 * baseRB, frame_parms->ofdm_symbol_size);
+      int re_offset = NR_NB_SC_PER_RB * baseRB;
       int k=0;
 #ifdef DEBUG_NR_PUCCH_TX
       int kk=0;
@@ -682,12 +675,11 @@ void nr_generate_pucch2(c16_t **txdataF,
 #ifdef DEBUG_NR_PUCCH_TX
           printf(
               "\t [nr_generate_pucch2] (n=%d) mapping PUCCH to RE \t amp=%d \tofdm_symbol_size=%d \tN_RB_DL=%d "
-              "\tfirst_carrier_offset=%d \tz_pucch[%d]=txptr(%d)=(x_n(l=%d,n=%d)=(%d,%d))\n",
+              "\tz_pucch[%d]=txptr(%d)=(x_n(l=%d,n=%d)=(%d,%d))\n",
               n,
               amp,
               frame_parms->ofdm_symbol_size,
               frame_parms->N_RB_DL,
-              frame_parms->first_carrier_offset,
               k,
               re_offset,
               l,
@@ -705,12 +697,11 @@ void nr_generate_pucch2(c16_t **txdataF,
 #ifdef DEBUG_NR_PUCCH_TX
           printf(
               "\t [nr_generate_pucch2] (n=%d) mapping DM-RS to RE \t amp=%d \tofdm_symbol_size=%d \tN_RB_DL=%d "
-              "\tfirst_carrier_offset=%d \tz_dm-rs[%d]=txptr(%d)=(x_n(l=%d,n=%d)=(%d,%d))\n",
+              "\tz_dm-rs[%d]=txptr(%d)=(x_n(l=%d,n=%d)=(%d,%d))\n",
               n,
               amp,
               frame_parms->ofdm_symbol_size,
               frame_parms->N_RB_DL,
-              frame_parms->first_carrier_offset,
               kk,
               re_offset,
               l,
@@ -721,8 +712,6 @@ void nr_generate_pucch2(c16_t **txdataF,
 #endif
         }
         re_offset++;
-        if (re_offset >= frame_parms->ofdm_symbol_size)
-          re_offset -= frame_parms->ofdm_symbol_size;
       }
 
       outSample += 8;
@@ -1099,65 +1088,23 @@ void nr_generate_pucch3_4(c16_t **txdataF,
     alpha = nr_cyclic_shift_hopping(pucch_pdu->hopping_id,m0,mcs,l,startingSymbolIndex,nr_slot_tx);
 
     for (int rb=0; rb<nrofPRB; rb++) {
-      const bool nb_rb_is_even = frame_parms->N_RB_DL & 1;
-      const int halfRBs = frame_parms->N_RB_DL / 2;
       const int baseRB = rb + startingPRB;
       if ((intraSlotFrequencyHopping == 1) && (l<floor(nrofSymbols/2))) { // intra-slot hopping enabled, we need to calculate new offset PRB
         startingPRB = startingPRB + pucch_pdu->second_hop_prb;
       }
-      re_offset = ((l + startingSymbolIndex) * frame_parms->ofdm_symbol_size);
-      //startingPRB = startingPRB + rb;
-      if (nb_rb_is_even) {
-        if (baseRB < halfRBs) { // if number RBs in bandwidth is even and current PRB is lower band
-          re_offset += 12 * baseRB + frame_parms->first_carrier_offset;
-#ifdef DEBUG_NR_PUCCH_TX
-        printf("1   ");
-#endif
-        }
-
-        else { // if number RBs in bandwidth is even and current PRB is upper band
-          re_offset += 12 * (baseRB - halfRBs);
-#ifdef DEBUG_NR_PUCCH_TX
-        printf("2   ");
-#endif
-        }
-      } else {
-        if (baseRB < halfRBs) { // if number RBs in bandwidth is odd  and current PRB is lower band
-          re_offset += 12 * baseRB + frame_parms->first_carrier_offset;
-#ifdef DEBUG_NR_PUCCH_TX
-        printf("3   ");
-#endif
-        } else if (baseRB > halfRBs) { // if number RBs in bandwidth is odd  and current PRB is upper band
-          re_offset += 12 * (baseRB - halfRBs) + 6;
-#ifdef DEBUG_NR_PUCCH_TX
-        printf("4   ");
-#endif
-        } else { // if number RBs in bandwidth is odd  and current PRB contains DC
-          re_offset += 12 * baseRB + frame_parms->first_carrier_offset;
-#ifdef DEBUG_NR_PUCCH_TX
-        printf("5   ");
-#endif
-        }
-      }
+      re_offset = (l + startingSymbolIndex) * frame_parms->ofdm_symbol_size + NR_NB_SC_PER_RB * baseRB;
 
 #ifdef DEBUG_NR_PUCCH_TX
       printf("re_offset=%u,baseRB=%d\n", re_offset, baseRB);
 #endif
 
-      //txptr = &txdataF[0][re_offset];
-      for (int n=0; n<12; n++) {
-        if ((n == 6) && baseRB == halfRBs && !nb_rb_is_even) {
-          // if number RBs in bandwidth is odd  and current PRB contains DC, we need to recalculate the offset when n=6 (for second
-          // half PRB)
-          re_offset = ((l + startingSymbolIndex) * frame_parms->ofdm_symbol_size);
-        }
-
+      for (int n = 0; n < NR_NB_SC_PER_RB; n++) {
         if (table_6_4_1_3_3_2_1_dmrs_positions[nrofSymbols-4][l] == 0) { // mapping PUCCH according to TS38.211 subclause 6.3.2.5.3
           txdataF[0][re_offset] = z[n + k];
 #ifdef DEBUG_NR_PUCCH_TX
           printf(
               "\t [nr_generate_pucch3_4] (l=%d,rb=%d,n=%d,k=%d) mapping PUCCH to RE \t amp=%d \tofdm_symbol_size=%d \tN_RB_DL=%d "
-              "\tfirst_carrier_offset=%d \tz_pucch[%d]=txptr(%u)=(z(l=%d,n=%d)=(%d,%d))\n",
+              "\tz_pucch[%d]=txptr(%u)=(z(l=%d,n=%d)=(%d,%d))\n",
               l,
               rb,
               n,
@@ -1165,7 +1112,6 @@ void nr_generate_pucch3_4(c16_t **txdataF,
               amp,
               frame_parms->ofdm_symbol_size,
               frame_parms->N_RB_DL,
-              frame_parms->first_carrier_offset,
               n + k,
               re_offset,
               l,
@@ -1180,7 +1126,7 @@ void nr_generate_pucch3_4(c16_t **txdataF,
 #ifdef DEBUG_NR_PUCCH_TX
           printf(
               "\t [nr_generate_pucch3_4] (l=%d,rb=%d,n=%d,j=%d) mapping DM-RS to RE \t amp=%d \tofdm_symbol_size=%d \tN_RB_DL=%d "
-              "\tfirst_carrier_offset=%d \tz_dm-rs[%d]=txptr(%u)=(r_u_v(l=%d,n=%d)=(%d,%d))\n",
+              "\tz_dm-rs[%d]=txptr(%u)=(r_u_v(l=%d,n=%d)=(%d,%d))\n",
               l,
               rb,
               n,
@@ -1188,7 +1134,6 @@ void nr_generate_pucch3_4(c16_t **txdataF,
               amp,
               frame_parms->ofdm_symbol_size,
               frame_parms->N_RB_DL,
-              frame_parms->first_carrier_offset,
               n + j,
               re_offset,
               l,

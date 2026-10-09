@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>TEST-AERIAL-SA</htmlTabRef>
   <htmlTabName>AERIAL 100 MHz TDD SA</htmlTabName>
-  <htmlTabIcon>tasks</htmlTabIcon>
 
   <testCase>
     <class>Pull_Local_Registry</class>
@@ -19,7 +17,7 @@
     <desc>Configure 100 MHz bandwidth on WNC RU</desc>
     <node>gracehopper1-oai</node>
     <script>scripts/set-wnc-bandwidth.sh</script>
-    <args>100</args>
+    <options>100</options>
   </testCase>
 
   <testCase>

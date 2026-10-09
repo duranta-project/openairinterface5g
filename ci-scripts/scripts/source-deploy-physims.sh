@@ -19,7 +19,7 @@ JSON_RES=$?
 # to be able to initialize DPDK
 sudo setcap cap_dac_override,cap_sys_admin+ep nr_ulsim
 sudo setcap cap_dac_override,cap_sys_admin+ep nr_dlsim
-ctest ${CTEST_OPT} --output-junit ${DIR}/results-run.xml --test-output-size-passed 100000 --test-output-size-failed 100000 &>> ${DIR}/physim_log.txt
+numactl --cpunodebind=1 --membind=1 ctest ${CTEST_OPT} --output-junit ${DIR}/results-run.xml --test-output-size-passed 100000 --test-output-size-failed 100000 &>> ${DIR}/physim_log.txt
 RUN_RES=$?
 cp Testing/Temporary/LastTestsFailed.log ${DIR}/
 cp Testing/Temporary/LastTest.log ${DIR}/

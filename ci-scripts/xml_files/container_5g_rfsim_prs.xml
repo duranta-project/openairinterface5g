@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>rfsim-5gnr-prs</htmlTabRef>
   <htmlTabName>Monolithic gNB with PRS</htmlTabName>
-  <htmlTabIcon>wrench</htmlTabIcon>
 
   <testCase>
     <class>Pull_Local_Registry</class>
@@ -45,7 +43,7 @@
     <desc>Set and verify distance at 50, 100, 150 m</desc>
     <node>localhost</node>
     <script>scripts/set-and-verify-distance-prs.sh</script>
-    <args>50 100 150</args>
+    <options>50 100 150</options>
   </testCase>
 
   <testCase>

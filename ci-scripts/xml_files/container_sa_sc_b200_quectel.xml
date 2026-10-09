@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>TEST-SA-FR1-SC-PATTERN2-FDMA-B200</htmlTabRef>
   <htmlTabName>40 MHz TDD (pattern2) SA with SC-FDMA</htmlTabName>
-  <htmlTabIcon>tasks</htmlTabIcon>
 
   <testCase>
     <class>Custom_Command</class>

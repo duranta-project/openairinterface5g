@@ -1,0 +1,185 @@
+-- Spectrum Service Model ASN.1 Definitions
+--
+-- Copyright (c) 2026 Institute for Intelligent Networked Systems (INSI)
+-- at Northeastern University. All rights reserved.
+-- SPDX-License-Identifier: LicenseRef-CSSL-1.0
+--
+-- This service model extends E3 messages for spectrum sharing applications
+--
+-- Usage with E3 Protocol:
+-- - Spectrum-SensingIndication structures are encoded into the protocolData field of E3-IndicationMessage
+-- - Spectrum-DAppControlData structures are encoded into the actionData field of E3-DAppControlAction
+-- - Spectrum-DAppReportData structures are encoded into the reportData field of E3-DAppReport
+-- - Spectrum-XAppControlData structures are encoded into the xAppControlData field of E3-XAppControlAction
+--
+-- Each "*Data" envelope is a single-member SEQUENCE holding a Payload CHOICE:
+-- the CHOICE alternative is the type discriminator on the ASN.1 wire. The JSON
+-- encoding adds an explicit type key (e.g. "controlType") next to the payload
+-- for readability; that key is produced and checked by the codecs and is not a
+-- schema field.
+
+SPECTRUM-SM DEFINITIONS AUTOMATIC TAGS ::= BEGIN
+
+-- ============================================================================
+-- SM SPECTRUM RAN FUNCTION DATA STRUCTURES  
+-- ============================================================================
+
+-- Spectrum RAN function data
+Spectrum-RanFunctionData ::= SEQUENCE {
+    name                    OCTET STRING (SIZE (1..32)),
+    version                 INTEGER (0..65535),
+    description             OCTET STRING (SIZE (1..128))
+}
+
+-- ============================================================================
+-- INDICATION MESSAGE STRUCTURES
+-- ============================================================================
+
+-- Sensing-range telemetry indication (one per MAC sensing publish). The
+-- sensing ranges are NOT inline: they are written out-of-band into the
+-- /e3_l2_sensing POSIX shm ring; this payload carries only a reference into
+-- that ring, so the message stays small (a few dozen bytes) regardless of how
+-- many tiles the slot held. A dApp maps the named region read-only and reads
+-- the ranges (raw sensing_range_t records) at the given write index, after
+-- checking the ring slot's own (sfn, slot) tag against this indication
+-- (torn/wrap guard).
+--
+-- timestamp   : CLOCK_MONOTONIC nanoseconds at the publish point. Monotonic, not
+--               realtime, because this indication cannot leave the host: it
+--               carries only a reference into the local /e3_l2_sensing shm ring,
+--               so a dApp elsewhere could not dereference it. Monotonic shares an
+--               origin across processes on one host, which is exactly the span
+--               this measures. Never difference it against
+--               Spectrum-DAppReportData.timestamp, which is realtime.
+-- sfn / slot  : frame and slot the snapshot belongs to.
+-- beam        : OPTIONAL - set 0..3 when the upstream sensing scheduler grows
+--               multi-beam support; the writer currently always emits 0.
+-- shmName     : POSIX shm region holding the ranges, e.g. "/e3_l2_sensing".
+-- shmWriteIdx : ring slot index just written (the ranges for this (sfn,slot)).
+-- nRanges     : number of sensing_range_t records live at that index, 0..128.
+Spectrum-SensingIndication ::= SEQUENCE {
+    timestamp    INTEGER,
+    sfn          INTEGER (0..65535),
+    slot         INTEGER (0..65535),
+    beam         INTEGER (0..3) OPTIONAL,
+    shmName      OCTET STRING,
+    shmWriteIdx  INTEGER (0..65535),
+    nRanges      INTEGER (0..128)
+}
+
+-- ============================================================================
+-- CONTROL ACTION STRUCTURES  
+-- ============================================================================
+
+-- PRB Blacklist Control (main control message used by spectrum dApp)
+Spectrum-PRBBlacklistControl ::= SEQUENCE {
+    blacklistedPRBs   SEQUENCE (SIZE (0..maxPRBs)) OF INTEGER (0..maxPRBIndex),     -- List of PRB indices
+    samplingThreshold       INTEGER (0..100) OPTIONAL,                              -- Sampling ratio for the IQ captures, one delivery each samplingThreshold
+    validityPeriod          INTEGER (1..3600) OPTIONAL                              -- How long this blacklist is valid (seconds)
+}
+
+-- Sensing Policy Control: per-slot 14-bit symbol bitmap consumed by the
+-- masked UL TDA selector.  Bit s set in maskPerSlot[k] => "for slot k of
+-- the frame, prefer TDAs that don't claim symbol s for the UE so that
+-- symbol stays free for sensing".  Length of maskPerSlot MUST equal the
+-- gNB's numb_slots_frame (e.g. 20 at numerology 1).  deactivate=TRUE clears the
+-- policy regardless of the mask.
+Spectrum-SensingPolicyControl ::= SEQUENCE {
+    maskPerSlot             SEQUENCE (SIZE (1..maxSlotsFrame)) OF INTEGER (0..maxSymbolMask),
+    deactivate              BOOLEAN DEFAULT FALSE,
+    validityPeriod          INTEGER (1..3600) OPTIONAL
+}
+
+-- Extensibility marker (...) keeps the ASN.1 wire bit-width stable when new
+-- alternatives are added.  Without it, extending a 1-alt CHOICE to 2
+-- alternatives would change the APER encoding width from 0 bits to 1 bit and
+-- silently break every existing deployment.
+Spectrum-DAppControlPayload ::= CHOICE {
+    prbBlacklistControl     Spectrum-PRBBlacklistControl,
+    ...,
+    sensingPolicyControl    Spectrum-SensingPolicyControl
+}
+
+-- Top-level dApp control PDU carried by E3-DAppControlAction.actionData
+Spectrum-DAppControlData ::= SEQUENCE {
+    controlPayload          Spectrum-DAppControlPayload
+}
+
+-- ============================================================================
+-- dAPP REPORT STRUCTURES
+-- ============================================================================
+
+Spectrum-PRBBlacklistReport ::= SEQUENCE {
+    blacklistedPRBs         SEQUENCE (SIZE (0..maxPRBs)) OF INTEGER (0..maxPRBIndex)     -- List of PRB indices
+}
+
+Spectrum-DAppReportPayload ::= CHOICE {
+    prbBlacklistReport      Spectrum-PRBBlacklistReport,
+    ...
+}
+
+-- Top-level dApp report PDU carried by E3-DAppReport.reportData
+--
+-- timestamp is CLOCK_REALTIME nanoseconds at the dApp, taken when the report is
+-- built. The gNB relays reportData without decoding it, so the value reaches the
+-- xApp unchanged.
+--
+-- CLOCK_REALTIME, unlike Spectrum-SensingIndication.timestamp above: this report
+-- is always sent on to an xApp and therefore changes host, while the sensing
+-- indication is meant to stay on the same host (it carries only a reference into
+-- a local POSIX shm ring, so it is useless anywhere else). The two fields share a
+-- name but not a clock and must never be differenced against each other.
+--
+-- OPTIONAL: absent means "no producer reference". A dApp that does not stamp is
+-- sending a normal message, not a malformed one, so no codec on this path may
+-- reject it. Same convention as the E3AP envelope timestamp in libe3.
+Spectrum-DAppReportData ::= SEQUENCE {
+    timestamp               INTEGER OPTIONAL,
+    reportPayload           Spectrum-DAppReportPayload
+}
+
+-- ============================================================================
+-- xAPP CONTROL ACTION STRUCTURES  
+-- ============================================================================
+
+
+Spectrum-PRBBlockedControl ::= SEQUENCE {
+    blockedPRBs             SEQUENCE (SIZE (0..maxPRBs)) OF INTEGER (0..maxPRBIndex)
+}
+
+-- Spectrum Configuration Control
+Spectrum-ConfigControl ::= SEQUENCE {
+    noiseFloorThreshold     INTEGER (-100..100) OPTIONAL,                   -- Update noise floor threshold
+    averagingFrames         INTEGER (1..255) OPTIONAL,                      -- Update averaging window
+    enable                  BOOLEAN OPTIONAL                                -- Enable/disable spectrum monitoring
+}
+
+Spectrum-XAppControlPayload ::= CHOICE {
+    prbBlockedControl       Spectrum-PRBBlockedControl,
+    configControl           Spectrum-ConfigControl,
+    ...
+}
+
+-- Top-level xApp control PDU carried by E3-XAppControlAction.xAppControlData
+--
+-- timestamp is CLOCK_REALTIME nanoseconds at the xApp, taken when the control is
+-- built. The gNB forwards xAppControlData without decoding it, so the value
+-- reaches the dApp unchanged. Realtime for the same reason as the report above:
+-- this message always changes host.
+Spectrum-XAppControlData ::= SEQUENCE {
+    timestamp               INTEGER OPTIONAL,
+    controlPayload          Spectrum-XAppControlPayload
+}
+
+
+-- ============================================================================
+-- CONSTANTS AND CONSTRAINTS
+-- ============================================================================
+
+-- Maximum values based on 5G NR specifications
+maxPRBs                     INTEGER ::= 273                                 -- Maximum PRBs in 5G NR
+maxPRBIndex                 INTEGER ::= 272                                 -- maxPRBs - 1
+maxSlotsFrame               INTEGER ::= 160                                 -- slots per frame at 3GPP numerology 4 (worst case); 20 at numerology 1 (30 kHz SCS)
+maxSymbolMask               INTEGER ::= 16383                               -- 14-bit symbol bitmap = (1 << 14) - 1
+
+END

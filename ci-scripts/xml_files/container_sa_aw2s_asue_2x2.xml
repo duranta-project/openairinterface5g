@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>TEST-5G-2x2-AW2S</htmlTabRef>
   <htmlTabName>20 MHz TDD 2x2 SA</htmlTabName>
-  <htmlTabIcon>tasks</htmlTabIcon>
 
   <testCase>
     <class>Pull_Cluster_Image</class>

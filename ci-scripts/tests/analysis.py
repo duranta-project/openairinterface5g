@@ -14,7 +14,6 @@ import yaml
 sys.path.append('./') # to find OAI imports below
 import cls_analysis
 import cls_oai_html
-import constants
 
 class TestAnalysis(unittest.TestCase):
 	def setUp(self):

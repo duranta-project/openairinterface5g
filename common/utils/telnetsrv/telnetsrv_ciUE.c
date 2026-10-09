@@ -20,6 +20,7 @@
 #include "openair1/PHY/defs_nr_UE.h"
 #include "openair3/NAS/NR_UE/nr_nas_msg.h"
 #include "openair1/PHY/phy_extern_nr_ue.h"
+#include "common/utils/utils.h"
 
 #define TELNETSERVERCODE
 #include "telnetsrv.h"
@@ -66,6 +67,71 @@ int get_sync_state(char *buf, int debug, telnet_printfunc_t prnt)
   return 0;
 }
 
+/** @brief Print UE NAS 5GMM mode */
+static int get_nas_mode(char *buf, int debug, telnet_printfunc_t prnt)
+{
+  UNUSED(debug);
+  int ue_id = -1;
+  if (buf && buf[0] != '\0') {
+    ue_id = strtol(buf, NULL, 10);
+    if (ue_id < 0)
+      ERROR_MSG_RET("UE ID needs to be positive\n");
+  } else {
+    ue_id = get_default_ue_id();
+    if (ue_id < 0)
+      ERROR_MSG_RET("No default UE context found\n");
+  }
+
+  nr_ue_nas_t *nas = get_ue_nas_info(ue_id);
+  if (!nas)
+    ERROR_MSG_RET("No NAS context found for UE_ID %d\n", ue_id);
+
+  static const char *const nas_mode_str[] = {
+      [FGS_NOT_CONNECTED] = "FGS_NOT_CONNECTED",
+      [FGS_IDLE] = "FGS_IDLE",
+      [FGS_CONNECTED] = "FGS_CONNECTED",
+  };
+  unsigned nas_idx = nas->fiveGMM_mode;
+  if (nas_idx >= sizeofArray(nas_mode_str) || nas_mode_str[nas_idx] == NULL)
+    ERROR_MSG_RET("Unknown NAS mode %u\n", nas_idx);
+  prnt("UE NAS mode = %s\n", nas_mode_str[nas_idx]);
+  return 0;
+}
+
+/** @brief Print UE RRC state */
+static int get_rrc_state(char *buf, int debug, telnet_printfunc_t prnt)
+{
+  UNUSED(debug);
+  int ue_id = -1;
+  if (buf && buf[0] != '\0') {
+    ue_id = strtol(buf, NULL, 10);
+    if (ue_id < 0)
+      ERROR_MSG_RET("UE ID needs to be positive\n");
+  } else {
+    ue_id = get_default_ue_id();
+    if (ue_id < 0)
+      ERROR_MSG_RET("No default UE context found\n");
+  }
+
+  NR_UE_RRC_INST_t *rrc = get_NR_UE_rrc_inst(0);
+  if (!rrc)
+    ERROR_MSG_RET("No RRC context found\n");
+  if (rrc->ue_id != ue_id)
+    ERROR_MSG_RET("UE_ID %d does not match RRC ue_id %ld\n", ue_id, rrc->ue_id);
+
+  static const char *const rrc_state_str[] = {
+      [RRC_STATE_IDLE_NR] = "RRC_STATE_IDLE_NR",
+      [RRC_STATE_INACTIVE_NR] = "RRC_STATE_INACTIVE_NR",
+      [RRC_STATE_CONNECTED_NR] = "RRC_STATE_CONNECTED_NR",
+      [RRC_STATE_DETACH_NR] = "RRC_STATE_DETACH_NR",
+  };
+  unsigned rrc_idx = rrc->nrRrcState;
+  if (rrc_idx >= sizeofArray(rrc_state_str) || rrc_state_str[rrc_idx] == NULL)
+    ERROR_MSG_RET("Unknown RRC state %u\n", rrc_idx);
+  prnt("UE RRC state = %s\n", rrc_state_str[rrc_idx]);
+  return 0;
+}
+
 /**
  * Force RLF on UE
  */
@@ -76,19 +142,6 @@ int force_rlf(char *buf, int debug, telnet_printfunc_t prnt)
   UNUSED(prnt);
   NR_UE_RRC_INST_t *rrc = get_NR_UE_rrc_inst(0);
   handle_rlf_detection(rrc);
-  return 0;
-}
-
-/**
- * Send UE to RRC_IDLE
- */
-int force_RRC_IDLE(char *buf, int debug, telnet_printfunc_t prnt)
-{
-  UNUSED(debug);
-  UNUSED(buf);
-  UNUSED(prnt);
-  NR_UE_RRC_INST_t *rrc = get_NR_UE_rrc_inst(0);
-  nr_rrc_going_to_IDLE(rrc, OTHER, NULL);
   return 0;
 }
 
@@ -178,8 +231,9 @@ static int add_pdu_session(char *buf, int debug, telnet_printfunc_t prnt)
 /* Telnet shell command definitions */
 static telnetshell_cmddef_t cicmds[] = {
   {"sync_state", "[UE_ID(int,opt)]", get_sync_state},
+  {"rrc_state", "[UE_ID(int,opt)]", get_rrc_state},
+  {"nas_mode", "[UE_ID(int,opt)]", get_nas_mode},
   {"force_rlf", "", force_rlf},
-  {"force_RRC_IDLE", "", force_RRC_IDLE},
   {"force_crnti_ra", "", force_crnti_ra},
   {"deregistration", "", force_deregistration},
   {"get_max_dl_toa", "[ant]", get_dl_toa},

@@ -9,6 +9,13 @@
 #include "common/utils/ds/byte_array.h"
 #include "common/platform_types.h"
 #include "common/platform_constants.h"
+#include "openair2/COMMON/sctp_messages_types.h"
+
+#define XNAP_MAX_NB_CANDIDATES 8
+
+#define XNAP_REGISTER_GNB_REQ(mSGpTR)     (mSGpTR)->ittiMsg.xnap_register_gnb_req
+#define XNAP_SETUP_IND(mSGpTR)            (mSGpTR)->ittiMsg.xnap_setup_ind
+#define XNAP_PEER_SHUTDOWN_IND(mSGpTR)    (mSGpTR)->ittiMsg.xnap_peer_shutdown_ind
 
 typedef struct {
   // PLMN Identity (M)
@@ -59,6 +66,32 @@ typedef struct {
   uint16_t num_tai;
   xnap_tai_support_t *tai_support;
 } xnap_setup_resp_t;
+
+typedef struct xnap_sctp_s {
+  uint16_t sctp_in_streams;
+  uint16_t sctp_out_streams;
+} xnap_sctp_t;
+
+typedef struct xnap_net_config_t {
+  char *gnb_xn_interface_ip_address;
+  uint8_t nb_of_candidate_gNBs;
+  char *candidate_gnb_address_for_xnc[XNAP_MAX_NB_CANDIDATES];
+  xnap_sctp_t sctp_streams;
+} xnap_net_config_t;
+
+typedef struct xnap_register_gnb_req_s {
+  xnap_setup_req_t ng_setup_info;
+  xnap_net_config_t net_config;
+} xnap_register_gnb_req_t;
+
+typedef struct xnap_setup_ind_s {
+  uint32_t gnb_id;
+  sctp_assoc_t assoc_id;
+} xnap_setup_ind_t;
+
+typedef struct xnap_peer_shutdown_ind_s {
+  uint32_t gnb_id;
+} xnap_peer_shutdown_ind_t;
 
 typedef enum xnap_cause_radio_network_e {
     XNAP_CAUSE_RADIO_NETWORK_LAYER_CELL_NOT_AVAILABLE,
@@ -264,7 +297,7 @@ typedef struct {
   // RRC Context (M)(3GPP TS 38.331 11.2.2 HandoverPreparationInformation message)
   byte_array_t rrc_context;
   // PDU Session Resources To Be Setup List (M)
-  uint8_t num_pdu;
+  uint16_t num_pdu;
   xnap_pdusession_resources_tobe_setup_item_t *pdusession_resources_tobe_setup_list;
 } xnap_ue_context_info_t;
 
@@ -449,5 +482,80 @@ typedef struct {
   /* RAN Paging Area (M) */
   xnap_ran_paging_area_t ran_paging_area;
 } xnap_ran_paging_t;
+
+/* 3GPP TS 38.423 9.2.3.40 – UE Context ID */
+typedef enum {
+  XNAP_UE_CONTEXT_ID_NOTHING = 0,
+  XNAP_UE_CONTEXT_ID_RRC_RESUME,
+  XNAP_UE_CONTEXT_ID_RRC_REESTABLISHMENT,
+} xnap_ue_context_id_choice_t;
+
+/* I-RNTI variant (3GPP TS 38.423 9.2.3.46): full (40-bit) or short (24-bit) */
+typedef enum {
+  XNAP_I_RNTI_FULL = 0,
+  XNAP_I_RNTI_SHORT,
+} xnap_i_rnti_type_t;
+
+/* UE Context ID for RRC Resume */
+typedef struct {
+  /* I-RNTI type – full or short (M) */
+  xnap_i_rnti_type_t i_rnti_type;
+  /* I-RNTI value – 40-bit if full, 24-bit if short (M) */
+  uint64_t i_rnti;
+  /* Allocated C-RNTI – 16-bit (M) */
+  uint16_t allocated_c_rnti;
+  /* Access PCI – NR PCI, 0..1007 (M) */
+  uint16_t access_pci;
+} xnap_ue_context_id_rrc_resume_t;
+
+/* UE Context ID for RRC Reestablishment */
+typedef struct {
+  /* C-RNTI – 16-bit (M) */
+  uint16_t c_rnti;
+  /* Failure Cell PCI – NR PCI, 0..1007 (M) */
+  uint16_t failure_cell_pci;
+} xnap_ue_context_id_rrc_reest_t;
+
+typedef struct {
+  xnap_ue_context_id_choice_t choice;
+  union {
+    xnap_ue_context_id_rrc_resume_t rrc_resume;
+    xnap_ue_context_id_rrc_reest_t rrc_reest;
+  };
+} xnap_ue_context_id_t;
+
+/* 3GPP TS 38.423 9.1.1.8 – Retrieve UE Context Request */
+typedef struct {
+  /* New NG-RAN node UE XnAP ID (M) */
+  uint32_t new_ng_node_ue_xnap_id;
+  /* UE Context ID (M) */
+  xnap_ue_context_id_t ue_context_id;
+  /* MAC-I (M) – 16-bit integrity code */
+  uint16_t integrity_protection;
+  /* New NG-RAN Cell Identity (M) – 36-bit NR cell */
+  uint64_t new_cell_id;
+} xnap_retrieve_ue_context_request_t;
+
+/* 3GPP TS 38.423 9.1.1.9 – Retrieve UE Context Response */
+typedef struct {
+  /* New NG-RAN node UE XnAP ID (M) */
+  uint32_t new_ng_node_ue_xnap_id;
+  /* Old NG-RAN node UE XnAP ID (M) */
+  uint32_t old_ng_node_ue_xnap_id;
+  /* GUAMI (M) */
+  nr_guami_t guami;
+  /* UE Context Information – Retrieve UE Context Response (M)
+   * Reuses the Handover Request UE Context Information container (the
+   * mandatory sub-IEs are identical). */
+  xnap_ue_context_info_t ue_context;
+} xnap_retrieve_ue_context_response_t;
+
+/* 3GPP TS 38.423 9.1.1.10 – Retrieve UE Context Failure */
+typedef struct {
+  /* New NG-RAN node UE XnAP ID (M) */
+  uint32_t new_ng_node_ue_xnap_id;
+  /* Cause (M) */
+  xnap_cause_t cause;
+} xnap_retrieve_ue_context_failure_t;
 
 #endif /* XNAP_MESSAGES_TYPES_H_ */

@@ -58,18 +58,6 @@ nrUE_params_t *get_nrUE_params(void)
   return &params;
 }
 
-void create_ue_ip_if(void)
-{
-}
-
-void create_ue_eth_if(void)
-{
-}
-
-void set_qfi(void)
-{
-}
-
 int nr_rlc_get_available_tx_space(const rnti_t rntiP, const logical_chan_id_t channel_idP)
 {
   abort();

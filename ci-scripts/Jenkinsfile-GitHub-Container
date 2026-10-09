@@ -8,6 +8,7 @@ import groovy.transform.Field
 @Field def branch = ''
 @Field def gitLocalBranch = ''
 @Field def downstreamResults = [:]
+@Field def downstreamUrls = [:]
 
 // Location of the executor node
 def nodeExecutor = params.nodeExecutor
@@ -17,6 +18,7 @@ def doBuild = true
 def do4Gtest = false
 def do5Gtest = false
 def do5GUeTest = false
+def doORUtest = false
 
 // list of failing stages
 def failingStages = ""
@@ -105,6 +107,7 @@ pipeline {
               message += "- ${gitBaseUrl}/labels/5G-NR (perform 5G tests)\n"
               message += "- ${gitBaseUrl}/labels/nrUE (perform only 5G-UE related tests including physims excluding LDPC tests)\n"
               message += "- ${gitBaseUrl}/labels/CI (perform both 4G and 5G tests)\n"
+              message += "- ${gitBaseUrl}/labels/O-RU (perform only O-RU tests)\n"
               githubPRComment comment: githubPRMessage(message)
               error('Not performing CI due to lack of mandatory labels')
             }
@@ -122,6 +125,9 @@ pipeline {
             if (env.GITHUB_PR_LABELS.contains('nrUE')) {
               do5GUeTest = true
             }
+            if (env.GITHUB_PR_LABELS.contains('O-RU')) {
+              doORUtest = true
+            }
             if (env.GITHUB_PR_LABELS.contains('documentation')) {
               doBuild = false
             }
@@ -136,6 +142,7 @@ pipeline {
             do4Gtest    = ${do4Gtest}
             do5Gtest    = ${do5Gtest}
             do5GUeTest  = ${do5GUeTest}
+            doORUtest   = ${doORUtest}
           """
         }
       }
@@ -178,7 +185,8 @@ pipeline {
         failure {
           script {
             currentBuild.result = 'FAILURE'
-            failingStages += '\n * Internal-Repo-Push - merge validation failed (merge conflict, git operation failure, or internal CI error)'
+            def jobUrl = downstreamUrls['RAN-Internal-Repo-Push'] ?: BUILD_URL
+            failingStages += "\n * [Internal-Repo-Push](${jobUrl}) - merge validation failed (merge conflict, git operation failure, or internal CI error)"
           }
         }
       }
@@ -828,7 +836,7 @@ pipeline {
           }
         }
         stage ("SA-ORU-CN5G") {
-          when { expression {do5Gtest} }
+          when { expression {do5Gtest || doORUtest} }
           steps {
             script {
               triggerDownstreamJob ('RAN-SA-ORU-CN5G')
@@ -973,7 +981,7 @@ pipeline {
   }
 }
 
-// ----  Slave Job functions
+// ----  Downstream Job functions
 
 def triggerDownstreamJob (jobName) {
   // Workaround for the "cancelled" pipeline notification
@@ -992,13 +1000,14 @@ def triggerDownstreamJob (jobName) {
       string(name: 'repository', value: String.valueOf(params.ciRepositoryURL)),
       string(name: 'branch', value: String.valueOf(branch))
     ], propagate: false
+  downstreamUrls[jobName] = localStatus.getAbsoluteUrl()
   def localResult = localStatus.getResult()
-  echo "${jobName} Slave Job status is ${localResult}"
+  echo "${jobName} Downstream Job status is ${localResult}"
   downstreamResults[jobName] = localStatus.resultIsBetterOrEqualTo('SUCCESS') ? 'SUCCESS' : 'FAILURE'
   if (localStatus.resultIsBetterOrEqualTo('SUCCESS')) {
-    echo "${jobName} Slave Job is OK"
+    echo "${jobName} Downstream Job is OK"
   } else {
-    error "${jobName} Slave Job is KO"
+    error "${jobName} Downstream Job is KO"
   }
 }
 
@@ -1013,12 +1022,12 @@ def triggerCN5GDownstreamJob (jobName) {
       string(name: 'FULL_RAN_TAG', value: String.valueOf(fullRanTag))
     ], propagate: false
   def localResult = localStatus.getResult()
-  echo "${jobName} Slave Job status is ${localResult}"
+  echo "${jobName} Downstream Job status is ${localResult}"
   downstreamResults[jobName] = localStatus.resultIsBetterOrEqualTo('SUCCESS') ? 'SUCCESS' : 'FAILURE'
   if (localStatus.resultIsBetterOrEqualTo('SUCCESS')) {
-    echo "${jobName} Slave Job is OK"
+    echo "${jobName} Downstream Job is OK"
   } else {
-    error "${jobName} Slave Job is KO"
+    error "${jobName} Downstream Job is KO"
   }
 }
 

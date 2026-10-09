@@ -821,10 +821,8 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
             if (ri_bitlen)
               r_index = evaluate_ri_report(payload, ri_bitlen, csi_report->csi_meas_bitlen.ri_restriction, cumul_bits, sched_ctrl);
             cumul_bits += ri_bitlen;
-            if (ri_bitlen) {
-              skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
-              pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
-            }
+            skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
+            pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
             sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = csi_report_id;
             cumul_bits += pmi_bitlen;
             evaluate_cqi_report(cell, payload, csi_report, cumul_bits, r_index, UE, cqi_table);
@@ -841,10 +839,8 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
             cumul_bits += ri_bitlen;
             li_bitlen = evaluate_li_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
             cumul_bits += li_bitlen;
-            if (ri_bitlen) {
-              skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
-              pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
-            }
+            skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
+            pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
             sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = csi_report_id;
             cumul_bits += pmi_bitlen;
             evaluate_cqi_report(cell, payload, csi_report, cumul_bits, r_index, UE, cqi_table);
@@ -906,6 +902,19 @@ static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t * UE, in
     return NULL;
   }
   return harq;
+}
+
+/* Count the SRs a UE sent since its last UL grant. */
+static void nr_mac_sr_received(NR_UE_info_t *UE, nr_cell_sched_t *cell)
+{
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  /* saturate: a UE starved past 255 SRs would wrap back to lowest priority */
+  if (sched_ctrl->sr_cnt < UINT8_MAX)
+    sched_ctrl->sr_cnt++;
+  /* warn once, on the SR that reaches the limit: the UE then falls back to RA */
+  int trans_max = cell->radio_config.timer_config.sr_TransMax;
+  if (trans_max > 0 && sched_ctrl->sr_cnt == trans_max)
+    LOG_W(NR_MAC, "UE %04x: %d SR received, reached configured sr_TransMax %d before UL grant\n", UE->rnti, sched_ctrl->sr_cnt, trans_max);
 }
 
 void handle_nr_uci_pucch_0_1(module_id_t mod_id, int cell_id, frame_t frame, slot_t slot, const nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_01)
@@ -986,7 +995,7 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, int cell_id, frame_t frame, slo
   if (uci_01->pduBitmap & 0x1) {
     if (uci_01->sr.sr_indication && uci_01->sr.sr_confidence_level == 0 && uci_01->ul_cqi >= 148) {
       // SR detected with SNR >= 10dB
-      sched_ctrl->SR |= true;
+      nr_mac_sr_received(UE, cell);
       LOG_D(NR_MAC, "SR UE %04x ul_cqi %d\n", uci_01->rnti, uci_01->ul_cqi);
     }
 
@@ -1026,7 +1035,7 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, int cell_id, frame_t frame, s
 
   if (uci_234->pduBitmap & 0x1) {
     if (uci_234->sr.sr_payload && uci_234->sr.sr_payload[0])
-      sched_ctrl->SR = true;
+      nr_mac_sr_received(UE, cell);
     free(uci_234->sr.sr_payload);
   }
 

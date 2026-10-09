@@ -5,9 +5,6 @@
 #
 #   Required Python Version
 #     Python 3.x
-#
-#   Required Python Package
-#     pexpect
 #---------------------------------------------------------------------
 
 
@@ -20,10 +17,9 @@ import os
 import logging
 import concurrent.futures
 import json
+import uuid
 
 #import our libs
-import constants as CONST
-
 import cls_module
 import cls_corenetwork
 import cls_analysis
@@ -230,22 +226,43 @@ def Custom_Command(HTML, node, command):
     HTML.CreateHtmlTestRowQueue(command, status, message)
     return status == 'OK' or status == 'Warning'
 
-def Custom_Script(HTML, node, script, args):
-	logging.info(f"Executing custom script on {node}")
+# Run a script on a node. Options containing %%log_dir%% ask for a directory on
+# the node: it is created, and every file the script places there is archived.
+def Custom_Script(HTML, ctx, node, script, options, timeout=600):
+	logging.debug(f'Run script {script} on node: {node}')
+	opt = options or ''
+	collect_logs = '%%log_dir%%' in opt
+	# unique per invocation so concurrent log-collecting testcases on the same node cannot clash
+	remote_dir = f'/tmp/ci-log-collect-{uuid.uuid4().hex[:8]}'
+	opt = opt.replace('%%log_dir%%', remote_dir)
+	log_files = []
+	message = ''
 	with cls_cmd.getConnection(node) as c:
-		ret = c.exec_script(script, 90, args)
-	logging.debug(f"Custom_Script: {script} on node: {node} - return code {ret.returncode}, output:\n{ret.stdout}")
-	status = 'OK'
-	message = [ret.stdout]
-	if ret.returncode != 0:
-		status = 'KO'
-	HTML.CreateHtmlTestRowQueue(script, status, message)
-	return status == 'OK' or status == 'Warning'
+		if collect_logs and c.run(f'mkdir {remote_dir}').returncode != 0:
+			logging.error("cannot create directory for log collection")
+			return False
+		ret = c.exec_script(script, timeout, opt)
+		message = ret.stdout
+		logging.debug(f'"{script}" finished with code {ret.returncode}, output:\n{ret.stdout}')
+		if collect_logs:
+			ret_ls = c.run(f'ls {remote_dir}/*')
+			if ret_ls.returncode != 0:
+				logging.error("cannot enumerate log files")
+			else:
+				for f in ret_ls.stdout.split("\n"):
+					name = archiveArtifact(c, ctx, f)
+					log_files.append(name)
+			c.run(f'rm -rf {remote_dir}')
+	if collect_logs:
+		message += "\n\nLog files:\n" + "\n".join(os.path.basename(f) for f in log_files)
+	# one message: every element is rendered as a separate box in HTML
+	HTML.CreateHtmlTestRowQueue(f'{script} on node {node}', 'OK' if ret.returncode == 0 else 'KO', [message])
+	return ret.returncode == 0
 
 def IdleSleep(HTML, idle_sleep_time):
 	logging.debug(f"sleep for {idle_sleep_time} seconds")
 	time.sleep(idle_sleep_time)
-	HTML.CreateHtmlTestRow(f"{idle_sleep_time} sec", 'OK', CONST.ALL_PROCESSES_OK)
+	HTML.CreateHtmlTestRowQueue(f"{idle_sleep_time} sec", 'OK', [])
 	return True
 
 def Deploy_Physim(ctx, HTML, node, workdir, script, options):
@@ -264,7 +281,7 @@ def Deploy_Physim(ctx, HTML, node, workdir, script, options):
 	test_status, test_summary, test_result = cls_analysis.Analysis.analyze_physim(result_junit, details_json, ctx.logPath)
 	if test_summary:
 		if test_status:
-			HTML.CreateHtmlTestRow('N/A', 'OK', CONST.ALL_PROCESSES_OK)
+			HTML.CreateHtmlTestRowQueue('N/A', 'OK', [])
 			HTML.CreateHtmlTestRowPhySimTestResult(test_summary, test_result)
 			logging.info('\u001B[1m Physical Simulator Pass\u001B[0m')
 		else:
@@ -275,38 +292,6 @@ def Deploy_Physim(ctx, HTML, node, workdir, script, options):
 		HTML.CreateHtmlTestRowQueue('Physical simulator failed', 'KO', [test_result])
 		logging.error('\u001B[1m Physical Simulator Fail\u001B[0m')
 	return test_status
-
-def DeployWithScript(HTML, node, script, options, tag):
-	logging.debug(f'Deploy with script {script} on node: {node}')
-	opt = options.replace('%%image_tag%%', tag)
-	with cls_cmd.getConnection(node) as c:
-		ret = c.exec_script(script, 600, opt)
-	logging.debug(f'"{script}" finished with code {ret.returncode}, output:\n{ret.stdout}')
-	HTML.CreateHtmlTestRowQueue(f'on node {node}', 'OK' if ret.returncode == 0 else 'KO', [f'{ret.stdout}'])
-	return ret.returncode == 0
-
-def UndeployWithScript(HTML, ctx, node, script, options):
-	logging.debug(f'Undeploy with script {script} on node: {node}')
-	remote_dir = '/tmp/undeploy'
-	opt = options.replace('%%log_dir%%', remote_dir)
-	with cls_cmd.getConnection(node) as c:
-		# create a directory for log collection
-		c.run(f'rm -rf {remote_dir}')
-		ret = c.run(f'mkdir {remote_dir}')
-		if ret.returncode != 0:
-			logging.error("cannot create directory for log collection")
-			return False
-		ret = c.exec_script(script, 600, opt)
-		logging.debug(f'"{script}" finished with code {ret.returncode}, output:\n{ret.stdout}')
-		ret_ls = c.run(f'ls -1 {remote_dir}')
-		files = ret_ls.stdout.strip().splitlines()
-		log_files = []
-		for lf in files:
-			name = archiveArtifact(c, ctx, f'{remote_dir}/{lf}')
-			log_files.append(name)
-	msg = "Log files:\n" + "\n".join([os.path.basename(lf) for lf in log_files])
-	HTML.CreateHtmlTestRowQueue(f'on node {node}', 'OK' if ret.returncode == 0 else 'KO', [f'{ret.stdout}\n\n{msg}'])
-	return ret.returncode == 0
 
 #-----------------------------------------------------------
 # OaiCiTest Class Definition

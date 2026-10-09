@@ -1,8 +1,6 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 <testCaseList>
-  <htmlTabRef>epc-undeploy-tab</htmlTabRef>
   <htmlTabName>EPC-Undeploy</htmlTabName>
-  <htmlTabIcon>log-out</htmlTabIcon>
 
   <testCase>
     <class>UndeployCoreNetwork</class>

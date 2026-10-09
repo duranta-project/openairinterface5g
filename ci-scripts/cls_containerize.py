@@ -5,9 +5,6 @@
 #
 #   Required Python Version
 #     Python 3.x
-#
-#   Required Python Package
-#     pexpect
 #---------------------------------------------------------------------
 
 #-----------------------------------------------------------
@@ -21,7 +18,6 @@ import os
 # OAI Testing modules
 #-----------------------------------------------------------
 import cls_cmd
-import constants as CONST
 import cls_analysis
 from cls_ci_helper import archiveArtifact
 
@@ -281,7 +277,7 @@ class Containerize():
 			cmd.run(f"docker image prune --force")
 			cmd.close()
 			logging.error('\u001B[1m Building OAI Images Failed\u001B[0m')
-			HTML.CreateHtmlTestRow(self.imageKind, 'KO', CONST.ALL_PROCESSES_OK)
+			HTML.CreateHtmlTestRowQueue(self.imageKind, 'KO', [])
 			return False
 		else:
 			result = re.search(r'Size *= *(?P<size>[0-9\-]+) *bytes', cmd.getBefore())
@@ -389,7 +385,8 @@ class Containerize():
 		ret = cmd.run(f"docker image inspect --format=\'Size = {{{{.Size}}}} bytes\' {baseImage}:{baseTag}")
 		if ret.returncode != 0:
 			logging.error(f'No {baseImage} image present, cannot build tests')
-			HTML.CreateHtmlTestRow("Unit test build failed", 'KO', CONST.ALL_PROCESSES_OK)
+			HTML.CreateHtmlTestRowQueue("Unit test build failed", 'KO', [])
+			cmd.close()
 			return False
 
 		# build ran-unittests image
@@ -399,7 +396,9 @@ class Containerize():
 		archiveArtifact(cmd, ctx, logfile)
 		if ret.returncode != 0:
 			logging.error(f'Cannot build unit tests')
-			HTML.CreateHtmlTestRow("Unit test build failed", 'KO', [dockerfile])
+			HTML.CreateHtmlTestRowQueue("Unit test build failed", 'KO', [dockerfile])
+			cmd.run(f'docker image rm --force ran-unittests:{baseTag}')
+			cmd.close()
 			return False
 
 		HTML.CreateHtmlTestRowQueue("Build unit tests", 'OK', [dockerfile])
@@ -408,12 +407,18 @@ class Containerize():
 		# I would like to run it with --rm and mount the ctest result directory to avoid 'docker cp'
 		# below, but then permissions are messed up and we can't remove the directory without sudo
 		# making the next pipeline fail
+		cmd.run('docker rm --force --volumes ran-unittests')
 		ret = cmd.run(f'docker run -a STDOUT {runtime_opt} --shm-size=2g --workdir /oai-ran/build/ --env LD_LIBRARY_PATH=/oai-ran/build/ --name ran-unittests ran-unittests:{baseTag} ctest --no-label-summary -j$(nproc) {ctest_opt}')
 		cmd.run('docker cp ran-unittests:/oai-ran/build/Testing/Temporary/LastTest.log .')
 		archiveArtifact(cmd, ctx, f'{lSourcePath}/LastTest.log')
 		cmd.run('docker cp ran-unittests:/oai-ran/build/Testing/Temporary/LastTestsFailed.log .')
 		archiveArtifact(cmd, ctx, f'{lSourcePath}/LastTestsFailed.log')
 		cmd.run('docker rm ran-unittests')
+		cmd.run(f'docker image rm ran-unittests:{baseTag}')
+		cmd.run(f"docker volume prune --force")
+		cmd.run(f"docker buildx prune --filter until=1h --force")
+		logging.debug(cmd.run("df -h").stdout)
+		logging.debug(cmd.run("docker system df").stdout)
 		cmd.close()
 
 		if ret.returncode == 0:
@@ -432,7 +437,7 @@ class Containerize():
 			msg = 'Could not log into local registry'
 			logging.error(msg)
 			ssh.close()
-			HTML.CreateHtmlTestRow(msg, 'KO', CONST.ALL_PROCESSES_OK)
+			HTML.CreateHtmlTestRowQueue(msg, 'KO', [])
 			return False
 
 		orgTag = 'develop'
@@ -449,7 +454,7 @@ class Containerize():
 				msg = f'Could not push {image} to local registry : {imageTag}'
 				logging.error(msg)
 				ssh.close()
-				HTML.CreateHtmlTestRow(msg, 'KO', CONST.ALL_PROCESSES_OK)
+				HTML.CreateHtmlTestRowQueue(msg, 'KO', [])
 				return False
 			# Creating a develop tag on the local private registry
 			if not ctx.g.merge:
@@ -464,11 +469,11 @@ class Containerize():
 			msg = 'Could not log off from local registry'
 			logging.error(msg)
 			ssh.close()
-			HTML.CreateHtmlTestRow(msg, 'KO', CONST.ALL_PROCESSES_OK)
+			HTML.CreateHtmlTestRowQueue(msg, 'KO', [])
 			return False
 
 		ssh.close()
-		HTML.CreateHtmlTestRow('N/A', 'OK', CONST.ALL_PROCESSES_OK)
+		HTML.CreateHtmlTestRowQueue('N/A', 'OK', [])
 		return True
 
 	def Pull_Image(cmd, images, tag, tag_prefix, registry, username, password):

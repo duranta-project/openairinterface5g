@@ -29,7 +29,6 @@ typedef struct {
   int nb_antennas_rx;
   int samples_per_slot_wCP;
   int ofdm_symbol_size;
-  int first_carrier_offset;
   int ssb_start_subcarrier;
   int subcarrier_spacing;
   const uint16_t *exclude_nid_cells;

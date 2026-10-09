@@ -5,9 +5,6 @@
 #
 #   Required Python Version
 #     Python 3.x
-#
-#   Required Python Package
-#     pexpect
 #---------------------------------------------------------------------
 
 
@@ -16,7 +13,6 @@
 # Import Components
 #-----------------------------------------------------------
 
-import constants as CONST
 
 
 import cls_oaicitest		 #main class for OAI CI test framework
@@ -35,11 +31,10 @@ import cls_oai_html
 # Import Libs
 #-----------------------------------------------------------
 import sys		# arg
-import re		# reg
 import time		# sleep
 import os
-import subprocess
 import lxml.etree as ET
+from collections import namedtuple
 import logging
 import signal
 import traceback
@@ -151,15 +146,6 @@ def ExecuteActionWithParam(action, test, ctx, node, oc):
 		core_op = getattr(cls_oaicitest.OaiCiTest, action)
 		success = core_op(cn_id, ctx, HTML)
 
-	elif action == 'DeployWithScript' or action == 'UndeployWithScript':
-		script = test.findtext('script')
-		options = test.findtext('options')
-		if action == 'DeployWithScript':
-			deploymentTag = ctx.g.branch
-			success = cls_oaicitest.DeployWithScript(HTML, node, script, options, deploymentTag)
-		elif action == 'UndeployWithScript':
-			success = cls_oaicitest.UndeployWithScript(HTML, ctx, node, script, options)
-
 	elif action == 'Deploy_Object' or action == 'Undeploy_Object' or action == "Create_Workspace" or action == "Stop_Object":
 		CONTAINERS.yamlPath = test.findtext('yaml_path')
 		CONTAINERS.services = test.findtext('services')
@@ -214,10 +200,13 @@ def ExecuteActionWithParam(action, test, ctx, node, oc):
 
 	elif action == 'Custom_Script':
 		script = test.findtext('script')
-		args = test.findtext('args')
-		# Allow referencing repository workspace path in XML via %%workspace%%
+		options = test.findtext('options') or ''
+		timeout = int(test.findtext('timeout') or 600)
+		# Allow referencing repository workspace path and image tag in XML
 		script = script.replace("%%workspace%%", ctx.g.workspace)
-		success = cls_oaicitest.Custom_Script(HTML, node, script, args)
+		options = options.replace("%%workspace%%", ctx.g.workspace)
+		options = options.replace("%%image_tag%%", ctx.g.branch)
+		success = cls_oaicitest.Custom_Script(HTML, ctx, node, script, options, timeout)
 
 	elif action == 'Pull_Cluster_Image':
 		tag_prefix = test.findtext('tag_prefix') or ""
@@ -298,8 +287,6 @@ def run_tests(g_ctx, logPath, HTML, all_tests):
 # MAIN PART
 #-----------------------------------------------------------
 
-mode = ''
-
 CiTestObj = cls_oaicitest.OaiCiTest()
  
 HTML = cls_oai_html.HTMLManagement()
@@ -312,7 +299,7 @@ CONTAINERS = cls_containerize.Containerize()
 import args_parse
 # Force local execution, move all execution targets to localhost
 force_local = False
-mode, force_local, date_fmt, final_status, g_ctx, oc = args_parse.ArgsParse(sys.argv,HTML,CONTAINERS)
+force_local, date_fmt, xmls, g_ctx, oc = args_parse.ArgsParse(sys.argv, CONTAINERS)
 fmt = "%(levelname)8s: %(message)s"
 if date_fmt:
     fmt = "[%(asctime)s] %(levelname)s %(message)s"
@@ -320,118 +307,46 @@ logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format=fmt, datefmt=
 
 
 #-----------------------------------------------------------
-# mode amd XML class (action) analysis
+# XML class (action) analysis
 #-----------------------------------------------------------
 cwd = os.getcwd()
 
-if re.match('^InitiateHtml$', mode, re.IGNORECASE):
-	count = 0
-	foundCount = 0
-	while (count < HTML.nbTestXMLfiles):
-		xml_test_file = sys.path[0] + "/" + HTML.testXMLfiles[count]
-		if (os.path.isfile(xml_test_file)):
-			try:
-				xmlTree = ET.parse(xml_test_file)
-			except Exception as e:
-				print(f"Error: {e} while parsing file: {xml_test_file}.")
-			xmlRoot = xmlTree.getroot()
-			HTML.htmlTabRefs.append(xmlRoot.findtext('htmlTabRef',default='test-tab-' + str(count)))
-			HTML.htmlTabNames.append(xmlRoot.findtext('htmlTabName',default='test-tab-' + str(count)))
-			HTML.htmlTabIcons.append(xmlRoot.findtext('htmlTabIcon',default='info-sign'))
-			foundCount += 1
-		count += 1
-	if foundCount != HTML.nbTestXMLfiles:
-		HTML.nbTestXMLfiles=foundCount
-	
-	HTML.CreateHtmlHeader(g_ctx.repository, g_ctx.branch)
-elif re.match('^FinalizeHtml$', mode, re.IGNORECASE):
-	logging.info('\u001B[1m----------------------------------------\u001B[0m')
-	logging.info('\u001B[1m  Creating HTML footer \u001B[0m')
-	logging.info('\u001B[1m----------------------------------------\u001B[0m')
-
-	HTML.CreateHtmlFooter(final_status)
-elif re.match('^TesteNB$', mode, re.IGNORECASE):
-	logging.info('\u001B[1m----------------------------------------\u001B[0m')
-	logging.info('\u001B[1m  Starting Scenario: ' + HTML.testXMLfiles[0] + '\u001B[0m')
-	logging.info('\u001B[1m----------------------------------------\u001B[0m')
-	if g_ctx.repository == '' or g_ctx.branch == '' or g_ctx.workspace == '':
-		sys.exit(f'Insufficient Parameters: {g_ctx.repository=}, {g_ctx.branch=}, {g_ctx.workspace=}')
-	if HTML.nbTestXMLfiles != 1:
-		sys.exit(f'Only one XML file per TesteNB call supported')
-	#read test_case_list.xml file
-	# if no parameters for XML file, use default value
-	if (HTML.nbTestXMLfiles != 1):
-		xml_test_file = cwd + "/test_case_list.xml"
-	else:
-		xml_test_file = cwd + "/" + HTML.testXMLfiles[0]
-
-	signal.signal(signal.SIGINT, receive_signal)
-
-	# directory where all log artifacts will be placed
-	logPath = f"{cwd}/../cmake_targets/log/{xml_test_file.split('/')[-1]}.d"
-	# we run from within ci-scripts, but the logPath is absolute, so replace
-	# the ci-scripts/..; if it does not exist, nothing will happen
-	logPath = logPath.replace(r'/ci-scripts/..', '')
-	logging.info(f"placing all artifacts for this run in {logPath}/")
-	with cls_cmd.LocalCmd() as c:
-		c.run(f"rm -rf {logPath}")
-		c.run(f"mkdir -p {logPath}")
-
-	xmlTree = ET.parse(xml_test_file)
-	xmlRoot = xmlTree.getroot()
-	all_tests=xmlRoot.findall('testCase')
-
-	HTML.htmlTabRefs.append(xmlRoot.findtext('htmlTabRef',default='test-tab-0'))
-	HTML.htmlTabNames.append(xmlRoot.findtext('htmlTabName',default='Test-0'))
-	HTML.CreateHtmlTabHeader()
-	HTML.startTime=int(round(time.time() * 1000))
-
-	success = run_tests(g_ctx, logPath, HTML, all_tests)
-
-	if not success:
-		logging.error('\u001B[1;37;41mScenario failed\u001B[0m')
-		HTML.CreateHtmlTabFooter(False)
-		sys.exit('Failed Scenario')
-	else:
-		logging.info('\u001B[1;37;42mScenario passed\u001B[0m')
-		HTML.CreateHtmlTabFooter(True)
-elif mode == "all-in-one":
+if __name__ == "__main__":
 	if g_ctx.repository == '' or g_ctx.branch == '' or g_ctx.workspace == '':
 		sys.exit(f'Insufficient Parameters: {g_ctx.repository=}, {g_ctx.branch=}, {g_ctx.workspace=}')
 	count = 0
 	foundCount = 0
-	while (count < HTML.nbTestXMLfiles):
-		xml_test_file = sys.path[0] + "/" + HTML.testXMLfiles[count]
-		if (os.path.isfile(xml_test_file)):
-			try:
-				xmlTree = ET.parse(xml_test_file)
-			except Exception as e:
-				print(f"Error: {e} while parsing file: {xml_test_file}.")
-			xmlRoot = xmlTree.getroot()
-			HTML.htmlTabRefs.append(xmlRoot.findtext('htmlTabRef'))
-			HTML.htmlTabNames.append(xmlRoot.findtext('htmlTabName'))
-			HTML.htmlTabIcons.append(xmlRoot.findtext('htmlTabIcon'))
-			foundCount += 1
-		count += 1
-	if foundCount != HTML.nbTestXMLfiles:
-		HTML.nbTestXMLfiles=foundCount
+	TestXML = namedtuple("TestXML", ["filename", "title"])
+	test_xmls = []
+	for x in xmls:
+		xml_test_file = f"{sys.path[0]}/{x}"
+		logging.info(f"open and parse file {xml_test_file}")
+		if not os.path.isfile(xml_test_file):
+			logging.error(f"no such file {xml_test_file}")
+			sys.exit(1)
+		try:
+			xmlTree = ET.parse(xml_test_file)
+		except Exception as e:
+			logging.error(f"while parsing file {xml_test_file}: {e}")
+			sys.exit(1)
+		root = xmlTree.getroot()
+		t = TestXML(x, root.findtext('htmlTabName'))
+		test_xmls.append(t)
 
-	HTML.CreateHtmlHeader(g_ctx.repository, g_ctx.branch)
+	HTML.CreateHtmlHeader(g_ctx.repository, g_ctx.branch, test_xmls)
 
 	signal.signal(signal.SIGINT, receive_signal)
-
-	xmls = HTML.testXMLfiles
 
 	final_status = True
-	for xml in xmls:
+	for i, xml in enumerate(test_xmls):
 		logging.info('\u001B[1m----------------------------------------\u001B[0m')
-		logging.info(f'\u001B[1m  Starting Scenario: {xml}\u001B[0m')
+		logging.info(f'\u001B[1m  Starting Scenario: {xml.filename}\u001B[0m')
 		logging.info('\u001B[1m----------------------------------------\u001B[0m')
 
-		xml_test_file = f"{cwd}/{xml}"
+		xml_test_file = f"{cwd}/{xml.filename}"
 
 		# directory where all log artifacts will be placed
-		logPath = f"{cwd}/../cmake_targets/log/{xml}.d"
+		logPath = f"{cwd}/../cmake_targets/log/{xml.filename}.d"
 		# we run from within ci-scripts, but the logPath is absolute, so replace
 		# the ci-scripts/..; if it does not exist, nothing will happen
 		logPath = logPath.replace(r'/ci-scripts/..', '')
@@ -444,30 +359,19 @@ elif mode == "all-in-one":
 		xmlRoot = xmlTree.getroot()
 		all_tests = xmlRoot.findall('testCase')
 
-		HTML.testXMLfiles = [xml]
-		HTML.nbTestXMLfiles = 1
-		HTML.htmlTabRefs = [xmlRoot.findtext('htmlTabRef')]
-		HTML.htmlTabNames = [xmlRoot.findtext('htmlTabName')]
-		HTML.htmlTabIcons = [xmlRoot.findtext('htmlTabIcon')]
-
-		# reset that we created a header (this "logic" makes no sense and will
-		# be removed once we removed the different modes)
-		HTML.htmlHeaderCreated = False
-		HTML.CreateHtmlTabHeader()
+		HTML.CreateHtmlTabHeader(xml.filename, i)
 		HTML.startTime=int(round(time.time() * 1000))
 
 		success = run_tests(g_ctx, logPath, HTML, all_tests)
 
-		HTML.htmlFooterCreated = False
 		if not success:
-			logging.error('\u001B[1;37;41mScenario failed\u001B[0m')
-			HTML.CreateHtmlTabFooter(False)
+			logging.error(f'\u001B[1;37;41mScenario {xml.filename} failed\u001B[0m')
+			HTML.CreateHtmlTabFooter(False, i)
 			final_status = False
 		else:
-			logging.info('\u001B[1;37;42mScenario passed\u001B[0m')
-			HTML.CreateHtmlTabFooter(True)
+			logging.info(f'\u001B[1;37;42mScenario {xml.filename} passed\u001B[0m')
+			HTML.CreateHtmlTabFooter(True, i)
 
 	HTML.CreateHtmlFooter(final_status)
-else:
-	sys.exit(f'Invalid mode {mode}')
-sys.exit(0)
+	ret = 0 if final_status else 1
+	sys.exit(ret)

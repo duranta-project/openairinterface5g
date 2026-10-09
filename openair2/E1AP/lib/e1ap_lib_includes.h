@@ -69,6 +69,9 @@
 // E1 Bearer Context Modification Required / Confirm
 #include "E1AP_BearerContextModificationRequired.h"
 #include "E1AP_System-BearerContextModificationRequired.h"
+#include "E1AP_PDU-Session-Resource-Required-To-Modify-Item.h"
+#include "E1AP_DRB-Required-To-Modify-List-NG-RAN.h"
+#include "E1AP_DRB-Required-To-Modify-Item-NG-RAN.h"
 #include "E1AP_BearerContextModificationConfirm.h"
 // E1 Bearer Context Modification Response
 #include "E1AP_PDU-Session-Resource-Modified-Item.h"

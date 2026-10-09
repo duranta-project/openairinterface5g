@@ -27,7 +27,7 @@ services:
         devices:
             - /dev/vfio:/dev/vfio/
         volumes:
-            - ../../conf_files/ru.band77.mu1.106prb.1x1.conf:/opt/nr-oru/etc/nr-oru.conf
+            - ../../conf_files/${RU_CONF:-ru.band77.mu1.106prb.1x1.conf}:/opt/nr-oru/etc/nr-oru.conf
             - /dev/hugepages:/dev/hugepages
             - tmp_data:/tmp/
         cpuset: "2,3,4,5,6"

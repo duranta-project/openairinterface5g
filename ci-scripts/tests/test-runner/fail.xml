@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>test</htmlTabRef>
   <htmlTabName>Manual testing</htmlTabName>
-  <htmlTabIcon>wrench</htmlTabIcon>
   <testCase>
     <class>Custom_Command</class>
     <desc>This should succeed</desc>

@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>gNB-PHY-Test-100-4x4-FHI72</htmlTabRef>
   <htmlTabName>Timing phytest 100 MHz 4x4 FHI7.2</htmlTabName>
-  <htmlTabIcon>tasks</htmlTabIcon>
 
   <testCase>
     <class>Custom_Script</class>

@@ -433,6 +433,7 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   }
 
   int harq_pid = dlschCfg->harq_process_nbr;
+  const uint32_t dmrs_symb_bitmap = dlschCfg->dlDmrsSymbPos;
 
   LOG_D(PHY,
         "[UE %d] frame_rx %d, nr_slot_rx %d, harq_pid %d (%d), BWP start %d, start RB %d, end RB %d, symbol_start %d, nb_symbols "
@@ -448,26 +449,27 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
         freq_alloc->last_rb,
         dlschCfg->start_symbol,
         dlschCfg->number_symbols,
-        dlschCfg->dlDmrsSymbPos,
+        dmrs_symb_bitmap,
         dlsch->cw_info.Nl);
 
   const int actor_idx = proc->nr_slot_rx % ue->pdsch_num_actors;
   pdsch_scratch_t *scratch = &ue->pdsch_scratch[actor_idx];
   const uint32_t pdsch_est_size = scratch->pdsch_est_size;
   const uint32_t pdsch_buf_size_max = scratch->pdsch_buf_size_max;
+  const int max_layers = min(ue->frame_parms.nb_antennas_rx, NR_MAX_NB_LAYERS);
   int32_t (*pdsch_dl_ch_estimates)[pdsch_est_size] = (int32_t (*)[pdsch_est_size])scratch->pdsch_dl_ch_estimates;
-  c16_t (*rxdataF_comp)[NR_MAX_NB_LAYERS][pdsch_buf_size_max] = (c16_t (*)[NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->rxdataF_comp;
-  c16_t (*dl_ch_mag)[NR_MAX_NB_LAYERS][pdsch_buf_size_max]    = (c16_t (*)[NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->dl_ch_mag;
-  c16_t (*dl_ch_magb)[NR_MAX_NB_LAYERS][pdsch_buf_size_max]   = (c16_t (*)[NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->dl_ch_magb;
-  c16_t (*dl_ch_magr)[NR_MAX_NB_LAYERS][pdsch_buf_size_max]   = (c16_t (*)[NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->dl_ch_magr;
-  c16_t (*rho_dl)[NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max] = (c16_t (*)[NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS][pdsch_buf_size_max])scratch->rho_dl;
+  c16_t(*rxdataF_comp)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->rxdataF_comp;
+  c16_t(*dl_ch_mag)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->dl_ch_mag;
+  c16_t(*dl_ch_magb)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->dl_ch_magb;
+  c16_t(*dl_ch_magr)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->dl_ch_magr;
+  c16_t(*rho_dl)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->rho_dl;
 
   NR_DL_FRAME_PARMS *frame_parms = &ue->frame_parms;
   uint32_t nvar = 0;
 
   start_meas_nr_ue_phy(ue, DLSCH_CHANNEL_ESTIMATION_STATS);
   for (int m = dlschCfg->start_symbol; m < (dlschCfg->start_symbol + dlschCfg->number_symbols); m++) {
-    if (dlschCfg->dlDmrsSymbPos & (1 << m)) {
+    if (dmrs_symb_bitmap & (1 << m)) {
       for (int nl = 0; nl < dlsch->cw_info.Nl; nl++) { // for MIMO Config: it shall loop over no_layers
         LOG_D(PHY, "PDSCH Channel estimation layer %d, slot %d, symbol %d\n", nl, nr_slot_rx, m);
         uint32_t nvar_tmp = 0;
@@ -488,9 +490,8 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
     }
   }
   stop_meas_nr_ue_phy(ue, DLSCH_CHANNEL_ESTIMATION_STATS);
-  nvar /= (dlschCfg->number_symbols * dlsch->cw_info.Nl * frame_parms->nb_antennas_rx);
-  uint32_t dmrs_mask = dlschCfg->dlDmrsSymbPos;
-  int first_dmrs_symbol = get_first_bit_index_mask(&dmrs_mask, 1, 0, NR_SYMBOLS_PER_SLOT);
+  nvar /= (count_bits(&dmrs_symb_bitmap, 1) * dlsch->cw_info.Nl * frame_parms->nb_antennas_rx);
+  int first_dmrs_symbol = get_first_bit_index_mask(&dmrs_symb_bitmap, 1, 0, NR_SYMBOLS_PER_SLOT);
   nr_ue_measurement_procedures(first_dmrs_symbol, ue, proc, freq_alloc->num_rbs, pdsch_est_size, pdsch_dl_ch_estimates);
 
   // PTRS processing.
@@ -513,10 +514,9 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                        .N_RB = fp->N_RB_DL,
                        .start_symb = dlschCfg->start_symbol,
                        .num_symb = dlschCfg->number_symbols,
-                       .dmrs_symb_pos = dlschCfg->dlDmrsSymbPos,
+                       .dmrs_symb_pos = dmrs_symb_bitmap,
                        .nid = fp->Nid_cell,
                        .nscid = dlschCfg->nscid,
-                       .first_carrier_offset = fp->first_carrier_offset,
                        .ofdm_symbol_size = fp->ofdm_symbol_size,
                        .slot = proc->nr_slot_rx,
                        .rnti = dlsch->rnti};
@@ -535,7 +535,7 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                              ch_est_p,
                              dlschCfg->number_symbols,
                              dlschCfg->start_symbol,
-                             dlschCfg->dlDmrsSymbPos,
+                             dmrs_symb_bitmap,
                              freq_alloc->num_rbs,
                              dlsch->cw_info.Nl,
                              frame_parms->nb_antennas_rx);
@@ -549,77 +549,65 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   else
     dmrs_data_re = 12 - 4 * dlschCfg->n_dmrs_cdm_groups;
 
-  while ((dmrs_data_re == 0) && (dlschCfg->dlDmrsSymbPos & (1 << first_symbol_with_data))) {
+  while ((dmrs_data_re == 0) && (dmrs_symb_bitmap & (1 << first_symbol_with_data))) {
     first_symbol_with_data++;
   }
-
-  uint32_t dl_valid_re[NR_SYMBOLS_PER_SLOT] = {0};
 
   int32_t log2_maxh = 0;
 
   start_meas_nr_ue_phy(ue, RX_PDSCH_STATS);
-  pdsch_scope_req_t scope_req = {.copy_chanest_to_scope = false, .copy_rxdataF_to_scope = false, .scope_rxdataF_offset = 0};
+  pdsch_scope_req_t scope_req = {0};
+  /* rxdataF_comp is 1-symbol-wide and overwritten each nr_rx_pdsch() call, so we lock
+   * before the loop and copy each symbol's data inside nr_rx_pdsch while it is still in
+   * the buffer.  The lock uses the same upper-bound RE count as the other scope buffers. */
   if (UEScopeHasTryLock(ue)) {
     metadata mt = {.frame = proc->frame_rx, .slot = proc->nr_slot_rx};
-    scope_req.copy_chanest_to_scope = UETryLockScopeData(ue,
-                                                         pdschChanEstimates,
-                                                         sizeof(c16_t),
-                                                         1,
-                                                         freq_alloc->num_rbs * NR_NB_SC_PER_RB * dlschCfg->number_symbols,
-                                                         &mt);
-    scope_req.copy_rxdataF_to_scope = UETryLockScopeData(ue,
-                                                         pdschRxdataF,
-                                                         sizeof(c16_t),
-                                                         1,
-                                                         freq_alloc->num_rbs * NR_NB_SC_PER_RB * dlschCfg->number_symbols,
-                                                         &mt);
+    int total_re = freq_alloc->num_rbs * NR_NB_SC_PER_RB * dlschCfg->number_symbols;
+    scope_req.copy_chanest_to_scope = UETryLockScopeData(ue, pdschChanEstimates, sizeof(c16_t), 1, total_re, &mt);
+    scope_req.copy_rxdataF_to_scope = UETryLockScopeData(ue, pdschRxdataF, sizeof(c16_t), 1, total_re, &mt);
+    scope_req.copy_rxdataF_comp_to_scope = UETryLockScopeData(ue, pdschRxdataF_comp, sizeof(c16_t), 1, total_re, &mt);
   }
 
+  int16_t *llr_out = llr;
   for (int m = dlschCfg->start_symbol; m < (dlschCfg->number_symbols + dlschCfg->start_symbol); m++) {
-    bool first_symbol_flag = false;
-    if (m == first_symbol_with_data)
-      first_symbol_flag = true;
+    // Symbol fully occupied by DMRS with no multiplexed data (e.g. DMRS Type 1 with
+    // n_dmrs_cdm_groups == 2): skip the call entirely, nr_rx_pdsch would just report 0 REs.
+    if (dmrs_data_re == 0 && (dlschCfg->dlDmrsSymbPos & (1 << m)))
+      continue;
 
-    // process DLSCH received symbols in the slot
-    // symbol by symbol processing (if data/DMRS are multiplexed is checked inside the function)
-    if (nr_rx_pdsch(ue,
-                    proc,
-                    dlsch,
-                    freq_alloc,
-                    dlschCfg,
-                    dlsch_harq,
-                    m,
-                    first_symbol_flag,
-                    harq_pid,
-                    pdsch_est_size,
-                    pdsch_dl_ch_estimates,
-                    llr,
-                    dl_valid_re,
-                    rxdataF,
-                    &log2_maxh,
-                    pdsch_buf_size_max,
-                    frame_parms->nb_antennas_rx,
-                    rxdataF_comp,
-                    dl_ch_mag,
-                    dl_ch_magb,
-                    dl_ch_magr,
-                    cpe[m],
-                    IS_BIT_SET(ptrs_symb_pos, m) ? ptrs_re_symbol : 0,
-                    nvar,
-                    &scope_req,
-                    rho_dl,
-                    IS_BIT_SET(ptrs_symb_pos, m))
-        < 0) {
-      if (scope_req.copy_chanest_to_scope) {
-        UEunlockScopeData(ue, pdschChanEstimates);
-      }
-      if (scope_req.copy_rxdataF_to_scope) {
-        UEunlockScopeData(ue, pdschRxdataF);
-      }
-      return -1;
-    }
+    uint32_t nb_re = nr_rx_pdsch(ue,
+                                 proc,
+                                 dlsch,
+                                 freq_alloc,
+                                 dlschCfg,
+                                 dlsch_harq,
+                                 m,
+                                 (m == first_symbol_with_data),
+                                 harq_pid,
+                                 pdsch_est_size,
+                                 pdsch_dl_ch_estimates,
+                                 llr_out,
+                                 rxdataF,
+                                 &log2_maxh,
+                                 pdsch_buf_size_max,
+                                 frame_parms->nb_antennas_rx,
+                                 max_layers,
+                                 rxdataF_comp,
+                                 dl_ch_mag,
+                                 dl_ch_magb,
+                                 dl_ch_magr,
+                                 cpe[m],
+                                 IS_BIT_SET(ptrs_symb_pos, m) ? ptrs_re_symbol : 0,
+                                 nvar,
+                                 &scope_req,
+                                 rho_dl,
+                                 IS_BIT_SET(ptrs_symb_pos, m));
+    llr_out += (size_t)nb_re * dlsch->cw_info.qamModOrder * dlsch->cw_info.Nl;
   } // CRNTI active
   stop_meas_nr_ue_phy(ue, RX_PDSCH_STATS);
+  if (scope_req.copy_rxdataF_comp_to_scope) {
+    UEunlockScopeData(ue, pdschRxdataF_comp)
+  }
   if (scope_req.copy_chanest_to_scope) {
     UEunlockScopeData(ue, pdschChanEstimates);
   }
@@ -705,8 +693,20 @@ static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
   // exit dlsch procedures as there are no active dlsch
   NR_DL_UE_HARQ_t *dl_harq = &ue->dl_harq_processes[cw_idx][harq_pid];
   if (dl_harq->status != NR_ACTIVE) {
-    // don't wait anymore
-    LOG_E(NR_PHY, "Internal error  nr_ue_dlsch_procedure() called but no active cw on slot %d, harq %d\n", nr_slot_rx, harq_pid);
+    /* Grant arrived (dlsch active, LLRs demodulated) but the HARQ process is no longer ACTIVE. */
+    LOG_E(NR_PHY, "Internal error nr_ue_dlsch_procedure() no active cw slot %d harq %d (now %d.%d status %d activated %d.%d)\n",
+          nr_slot_rx, harq_pid, frame_rx, nr_slot_rx, dl_harq->status, dl_harq->activated_frame, dl_harq->activated_slot);
+    if (config->k1_feedback) {
+      const int ack_nack_slot_and_frame = (proc->nr_slot_rx + config->k1_feedback) + proc->frame_rx * fp->slots_per_frame;
+      dynamic_barrier_join(&ue->process_slot_tx_barriers[ack_nack_slot_and_frame % NUM_PROCESS_SLOT_TX_BARRIERS]);
+    }
+    return;
+  }
+
+  /* Late finish of a TB that no longer owns the PID: do not decode, ACK, or write HARQ state. */
+  if (dl_harq->activated_frame != frame_rx || dl_harq->activated_slot != nr_slot_rx) {
+    LOG_W(NR_PHY, "%d.%d DLSCH harq %d late decode skipped, re-armed %d.%d first_rx %d\n",
+          frame_rx, nr_slot_rx, harq_pid, dl_harq->activated_frame, dl_harq->activated_slot, dl_harq->first_rx);
     if (config->k1_feedback) {
       const int ack_nack_slot_and_frame = (proc->nr_slot_rx + config->k1_feedback) + proc->frame_rx * fp->slots_per_frame;
       dynamic_barrier_join(&ue->process_slot_tx_barriers[ack_nack_slot_and_frame % NUM_PROCESS_SLOT_TX_BARRIERS]);

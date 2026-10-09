@@ -39,6 +39,9 @@
 #include "system.h"
 #include "time_meas.h"
 #include "utils.h"
+#ifdef E3_AGENT
+#include "openair2/E3AP/ran_func_spectrum_extern.h"
+#endif /* E3_AGENT */
 
 #define MACSTATSSTRLEN 36256
 
@@ -363,6 +366,9 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
     ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, cc->mib);
     ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, cc->sib1);
     ASN_STRUCT_FREE(asn_DEF_NR_ServingCellConfigCommon, cc->ServingCellConfigCommon);
+#ifdef E3_AGENT
+    e3_spectrum_mac_detach_cell(cell);
+#endif /* E3_AGENT */
   }
   NR_UEs_t *UE_info = &mac->UE_info;
   for (int i = 0; i < sizeofArray(UE_info->connected_ue_list); ++i)

@@ -18,25 +18,15 @@
 #ifndef SS_PBCH_NR_H
 #define SS_PBCH_NR_H
 
-/************** DEFINE ********************************************/
-
-#define VOID_PARAMETER                (void)   /* avoid a compiler warning for unused parameters of function */
-
 /* PSS parameters */
 #define  NUMBER_PSS_SEQUENCE          (3)
 #define  NUMBER_PSS_SEQUENCE_SL       (2)
 #define  PSS_SSS_SUB_CARRIER_START    (56)
-#define  PSS_SSS_SUB_CARRIER_START_SL (2)
-#define  INVALID_PSS_SEQUENCE         (NUMBER_PSS_SEQUENCE)
-#define  LENGTH_PSS_NR                (127)
-#define  N_SC_RB                      (12)     /* Resource block size in frequency domain expressed as a number if subcarriers */
+#define PSS_SSS_SUB_CARRIER_START_SL (2)
+#define LENGTH_PSS_NR (127)
 // We scale down the reference PSS signal in freq to not saturate inside the idft when we generate the corresponding time domain
 // signal
 #define SCALING_PSS_NR (12)
-#define  SCALING_CE_PSS_NR            (13)     /* scaling channel estimation based on ps */
-#define  PSS_IFFT_SIZE                (256)
-
-#define  PSS_SC_START_NR              (52)     /* see from TS 38.211 table 7.4.3.1-1: Resources within an SS/PBCH block for PSS... */
 
 /* define ofdm symbol offset in the SS/PBCH block of NR synchronisation */
 #ifdef NR_UNIT_TEST
@@ -65,7 +55,7 @@
 #define IQ_SIZE sizeof(c16_t) /* I and Q are alternatively stored into buffers */
 
 /* SS/PBCH parameters :  see from TS 38.211 table 7.4.3.1-1: Resources within an SS/PBCH block for PSS... */
-#define  DMRS_PBCH_PER_RB             (N_SC_RB >> 4)               /* at 0+v, 4+v, 8+v for a resource block with v = NcellID modulo 4 */
+#define DMRS_PBCH_PER_RB (NR_NB_SC_PER_RB >> 4) /* at 0+v, 4+v, 8+v for a resource block with v = NcellID modulo 4 */
 #define  DMRS_END_FIRST_PART          (44)
 #define  DMRS_START_SECOND_PART       (192)
 #define  DMRS_END_SECOND_PART         (236)

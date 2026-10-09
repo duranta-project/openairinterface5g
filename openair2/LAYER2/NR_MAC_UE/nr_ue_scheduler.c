@@ -460,9 +460,9 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
     // Frequency domain allocation according to 8.3 of TS 38.213
     int mask;
     if (ibwp_size < 180)
-      mask = (1 << ((int) ceil(log2((ibwp_size*(ibwp_size+1))>>1)))) - 1;
+      mask = (1 << (ceil_log2_u32((ibwp_size * (ibwp_size + 1)) >>1 ))) - 1;
     else
-      mask = (1 << (28 - (int)(ceil(log2((ibwp_size*(ibwp_size+1))>>1))))) - 1;
+      mask = (1 << (28 - (ceil_log2_u32((ibwp_size * (ibwp_size + 1)) >>1)))) - 1;
 
     dci_field_t f_alloc;
     f_alloc.val = rar_grant->Msg3_f_alloc & mask;
@@ -687,7 +687,9 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
     /* HARQ_PROCESS_NUMBER */
     pusch_config_pdu->pusch_data.harq_process_id = pid;
 
-    if (NR_DMRS_ulconfig != NULL)
+    if (dci_format == NR_UL_DCI_FORMAT_0_0)
+      add_pos = pusch_config_pdu->frequency_hopping ? pusch_dmrs_pos1 : pusch_dmrs_pos2;
+    else if (NR_DMRS_ulconfig != NULL)
       add_pos = (NR_DMRS_ulconfig->dmrs_AdditionalPosition == NULL) ? 2 : *NR_DMRS_ulconfig->dmrs_AdditionalPosition;
 
     /* DMRS */
@@ -1331,7 +1333,6 @@ void nr_ue_dl_scheduler(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info
 
   nr_scheduled_response_t scheduled_response = {.dl_config = dl_config,
                                                 .module_id = mac->ue_id,
-                                                .CC_id = dl_info->cc_id,
                                                 .phy_data = dl_info->phy_data,
                                                 .mac = mac};
   if (mac->if_module != NULL && mac->if_module->scheduled_response != NULL)
@@ -1617,8 +1618,7 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
       release_ul_config(pdu, false);
       nr_scheduled_response_t scheduled_response = {.ul_config = mac->ul_config_request + slotP,
                                                     .mac = mac,
-                                                    .module_id = mac->ue_id,
-                                                    .CC_id = 0 /*TBR fix*/};
+                                                    .module_id = mac->ue_id};
       if(mac->if_module != NULL && mac->if_module->scheduled_response != NULL)
         mac->if_module->scheduled_response(&scheduled_response);
 
@@ -1690,6 +1690,7 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
   } // if is_nr_UL_slot
 }
 
+/** @brief Schedule UCI from an overlapping PUCCH onto PUSCH (TS 38.213 clause 9.2.5.3) */
 static bool schedule_uci_on_pusch(NR_UE_MAC_INST_t *mac,
                                   frame_t frame_tx,
                                   int slot_tx,
@@ -1710,8 +1711,8 @@ static bool schedule_uci_on_pusch(NR_UE_MAC_INST_t *mac,
       int nr_of_symbols = 0;
       int start_symbol_index = 0;
       if (pucch->initial_pucch_id > -1 && pucch->pucch_resource == NULL) {
-        const int idx = *current_UL_BWP->pucch_ConfigCommon->pucch_ResourceCommon;
-        const initial_pucch_resource_t pucch_resourcecommon = get_initial_pucch_resource(idx);
+        // Common HARQ: symbols from Table 9.2.1-1 row on the occasion (frozen at DCI)
+        const initial_pucch_resource_t pucch_resourcecommon = get_initial_pucch_resource(pucch->pucch_ResourceCommon);
         start_symbol_index = pucch_resourcecommon.startingSymbolIndex;
         nr_of_symbols = pucch_resourcecommon.nrofSymbols;
       }
@@ -1855,8 +1856,23 @@ static void nr_ue_pucch_scheduler(NR_UE_MAC_INST_t *mac, frame_t frame, int slot
   if (num_res == 1 && pucch[0].n_sr > 0 && pucch[0].sr_payload == 0)
     return;
 
-  if (num_res > 1)
+  // Common HARQ (TS 38.213 clause 9.2.1, Table 9.2.1-1): keep only ACK in this slot, drop dedicated resources
+  int common_harq = -1;
+  for (int i = 0; i < num_res; i++) {
+    if (pucch[i].pucch_resource == NULL && pucch[i].n_harq > 0) {
+      common_harq = i;
+      break;
+    }
+  }
+  if (common_harq >= 0) {
+    const PUCCH_sched_t harq = pucch[common_harq];
+    memset(pucch, 0, sizeof(pucch));
+    pucch[0] = harq;
+    num_res = 1;
+  } else if (num_res > 1) {
+    // multiplex dedicated PUCCH-Resource (TS 38.213 clause 9.2.5.1 / 9.2.5.2)
     multiplex_pucch_resource(mac, pucch, num_res);
+  }
 
   for (int j = 0; j < num_res; j++) {
     if (pucch[j].n_harq + pucch[j].n_sr + pucch[j].csi_payload.p1_bits != 0) {

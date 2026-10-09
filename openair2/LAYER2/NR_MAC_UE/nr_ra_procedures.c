@@ -1163,8 +1163,10 @@ void prepare_msg4_msgb_feedback(NR_UE_MAC_INST_t *mac, int pid, int ack_nack)
                          .n_harq = 1};
   current_harq->active = false;
   current_harq->ack_received = false;
-  const NR_UE_UL_BWP_t *current_UL_BWP = mac->current_UL_BWP;
-  configure_initial_pucch(&pucch, current_harq->pucch_resource_indicator, current_UL_BWP->pucch_ConfigCommon->pucch_ResourceCommon);
+  // Msg4/MsgB HARQ set on TC-RNTI DCI:
+  // reuse Table 9.2.1-1 row frozen there, do not re-read active BWP ConfigCommon
+  DevAssert(current_harq->pucch_ResourceCommon >= 0);
+  configure_initial_pucch(&pucch, current_harq->pucch_resource_indicator, current_harq->pucch_ResourceCommon);
 
   RA_config_t *ra = &mac->ra;
   ra->ra_pucch = calloc_or_fail(1, sizeof(*ra->ra_pucch));

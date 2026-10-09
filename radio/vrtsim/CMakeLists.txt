@@ -31,9 +31,10 @@ add_boolean_option(OAI_VRTSIM_TAPS_CLIENT OFF "Enable taps client" ON)
 if (OAI_VRTSIM_TAPS_CLIENT)
   target_link_libraries(vrtsim PRIVATE taps_client)
 
-  file(DOWNLOAD
+  download_file(
     "https://gitlab.eurecom.fr/oai/raytracing-channel-emulator/-/raw/59589ad2a534881810b2aa7dd81e63066245bb8d/server/api/taps.fbs?inline=false"
     ${CMAKE_SOURCE_DIR}/taps.fbs
+    RETRIES 3
   )
 
   set(TAPS_IF_PATH ${CMAKE_SOURCE_DIR}/taps.fbs)

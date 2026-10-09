@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>rfsim-fr2-66prb-5gnr-tdd</htmlTabRef>
   <htmlTabName>Monolithic FR2 gNB</htmlTabName>
-  <htmlTabIcon>wrench</htmlTabIcon>
 
   <testCase>
     <class>Pull_Local_Registry</class>
@@ -63,7 +61,7 @@
     <class>Custom_Command</class>
     <desc>Move UE to beam 2 via the rfsimulator's telnet interface and verify the switch was acknowledged</desc>
     <node>localhost</node>
-    <command>echo rfsimulator setbeamids 2 | ncat 192.168.71.150 8091 | grep -q "Beam ids set"</command>
+    <command>echo rfsimulator setbeamgains -10,-5,0,-15 | ncat 192.168.71.140 8091 | grep -q "Beam gains set"</command>
   </testCase>
 
   <testCase>

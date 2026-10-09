@@ -116,10 +116,12 @@ We support E2SM-RC `v1.03` which uses ASN.1 encoding.
 From `O-RAN.WG3.E2SM-RC-v01.03` specification, we implemented:
   * REPORT Service Style 1 ("Message copy" - section 7.4.2) - aperiodic subscription for "RRC Message" and "UE ID"
   * REPORT Service Style 4 ("UE Information" - section 7.4.5) - aperiodic subscription for "UE RRC State Change"
+  * REPORT Service Style 5 ("On Demand Report" - section 7.4.6) - subscription for "UE Context Information"
   * CONTROL Service Style 1 ("Radio Bearer Control" - section 7.6.2) - "QoS flow mapping configuration"; please be aware that this functionality is defined as per O-RAN "To control the multiplexing of QoS flows to a DRB",
     but OAI RAN doesn't support multiple QoS flows in one DRB. Therefore, this use case was adjusted for creation of new DRB, instead of creation of new QoS flow in the existing DRB.
     More information can be found in the branch [qoe-e2](https://github.com/duranta-project/openairinterface5g/tree/qoe-e2). It's not merged due to incompliance with O-RAN specifications.
     We showcased this demo in the O-RAN F2F Osaka meeting. Please feel free to download the [demo video](https://lf-o-ran-sc.atlassian.net/wiki/download/attachments/13566077/oai-flexric-demo-ric.mp4?api=v2) and [accompanying presentation](https://lf-o-ran-sc.atlassian.net/wiki/download/attachments/13566077/oai-FlexRIC-demo.pdf?api=v2).
+  * CONTROL Service Style 3 ("Connected Mode Mobility" - section 7.6.4) - "Handover Control" over F1 or N2 interfaces
 
 ## 3.2 Custom Service Models
 In addition, we support custom Service Models for L2/L3. Please find the KPIs for each layer in the following structs:

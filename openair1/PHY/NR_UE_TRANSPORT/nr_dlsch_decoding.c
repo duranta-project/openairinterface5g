@@ -6,7 +6,6 @@
  */
 
 #include "PHY/defs_nr_UE.h"
-#include "SCHED_NR_UE/harq_nr.h"
 #include "PHY/CODING/coding_extern.h"
 #include "PHY/CODING/coding_defs.h"
 #include "PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface.h"
@@ -64,6 +63,11 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
   AssertFatal(dmrs_Type == 0 || dmrs_Type == 1, "Illegal dmrs_type %d\n", dmrs_Type);
   fapi_nr_dl_cw_info_t *cw_info = &dlsch->cw_info;
   NR_DL_UE_HARQ_t *harq_process = &phy_vars_ue->dl_harq_processes[cw_idx][dlsch_config->harq_process_nbr];
+  if (harq_process->activated_frame != proc->frame_rx || harq_process->activated_slot != proc->nr_slot_rx) {
+    LOG_W(PHY, "%d.%d DLSCH harq %d late decode aborted, re-armed %d.%d\n",
+          proc->frame_rx, proc->nr_slot_rx, harq_pid, harq_process->activated_frame, harq_process->activated_slot);
+    return;
+  }
   LOG_D(PHY, "Round %d RV idx %d\n", harq_process->DLround, cw_info->rv);
   uint8_t nb_re_dmrs;
   if (dmrs_Type == NFAPI_NR_DMRS_TYPE1)
@@ -135,6 +139,12 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
   if (LOG_DEBUGFLAG(DEBUG_DLSCH_DECOD))
     LOG_I(PHY, "Segmentation: C %d, K %d\n", harq_process->C, harq_process->K);
 
+  TB_parameters.d_to_be_cleared = harq_process->first_rx == 1;
+  /* Buffer now holds this TB. Clear first_rx only after that, so a skipped decode still re-segments. */
+  harq_process->first_rx = 0;
+  /* Restart llrLen when the buffer is cleared, even if DLround is already non-zero. */
+  const int llr_round = TB_parameters.d_to_be_cleared ? 0 : harq_process->DLround;
+
   TB_parameters.max_ldpc_iterations = dlsch->max_ldpc_iterations;
   TB_parameters.rv_index = cw_info->rv;
   TB_parameters.tbslbrm = dlsch_config->tbslbrm;
@@ -168,8 +178,7 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
                                           TB_parameters.BG,
                                           TB_parameters.Z,
                                           &harq_process->llrLen,
-                                          harq_process->DLround);
-  TB_parameters.d_to_be_cleared = harq_process->first_rx == 1;
+                                          llr_round);
   for (int r = 0; r < TB_parameters.C; r++)
     TB_parameters.decodeSuccess[r] = false;
   reset_meas(&TB_parameters.ts_ldpc_decode);
@@ -183,7 +192,7 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
                                                TB_parameters.BG,
                                                TB_parameters.Z,
                                                &harq_process->llrLen,
-                                               harq_process->DLround);
+                                               llr_round);
       TB_parameters.first_rE2 = r;
       break;
     }
@@ -214,7 +223,8 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
       in += harq_process->K / 8;
     }
   } else {
-    LOG_D(PHY, "frame=%d, slot=%d, first_rx=%d, rv_index=%d\n", proc->frame_rx, proc->nr_slot_rx, harq_process->first_rx, cw_info->rv);
+    LOG_D(PHY, "frame=%d, slot=%d, first_rx=%d, rv_index=%d\n",
+          proc->frame_rx, proc->nr_slot_rx, TB_parameters.d_to_be_cleared, cw_info->rv);
   }
 
   merge_meas(&phy_vars_ue->phy_cpu_stats.cpu_time_stats[DLSCH_LDPC_DECODING_STATS], &TB_parameters.ts_ldpc_decode);
@@ -282,9 +292,22 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
     }
   }
 
+  /* LOG_D only: this runs on a SCHED_FIFO thread; LOG_I formatting was enough to miss slot deadlines. */
+  if (harq_process->DLround > 0 || !harq_process->decodeResult)
+    LOG_D(PHY, "%d.%d DL HARQ combine harq %d r%d rv %d %s cleared %d llrLen %d E %d G %d\n",
+          proc->frame_rx, proc->nr_slot_rx, harq_pid, harq_process->DLround, TB_parameters.rv_index,
+          harq_process->decodeResult ? "ok" : "nok", TB_parameters.d_to_be_cleared,
+          harq_process->llrLen, TB_parameters.E, TB_parameters.G);
+
   if (harq_process->decodeResult) {
     LOG_D(PHY, "%d.%d DLSCH received ok \n", proc->frame_rx, proc->nr_slot_rx);
-    harq_process->status = NR_SCH_IDLE;
+    /* Only retire if this decode still owns the PID; a late finish must not idle a newer grant. */
+    if (harq_process->activated_frame == proc->frame_rx && harq_process->activated_slot == proc->nr_slot_rx) {
+      harq_process->status = NR_SCH_IDLE;
+    } else {
+      LOG_W(PHY, "%d.%d DLSCH harq %d decoded ok but re-armed %d.%d, not retiring\n",
+            proc->frame_rx, proc->nr_slot_rx, harq_pid, harq_process->activated_frame, harq_process->activated_slot);
+    }
     dlsch->last_iteration_cnt = dlsch->max_ldpc_iterations - 1;
   } else {
     LOG_D(PHY, "%d.%d DLSCH received nok \n", proc->frame_rx, proc->nr_slot_rx);

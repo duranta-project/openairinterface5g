@@ -256,6 +256,8 @@ branch, and add at least one of these labels when opening the pull request:
   5G tests
 - https://github.com/duranta-project/openairinterface5g/labels/nrUE: perform
   only 5G-UE related tests including physims
+- https://github.com/duranta-project/openairinterface5g/labels/O-RU: perform
+  only O-RU tests
 
 Failure to add a label simply not run the CI. If in doubt about the
 right label, add both 4G and 5G labels. The CI posts the results in the

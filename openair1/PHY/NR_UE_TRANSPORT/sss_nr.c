@@ -127,20 +127,12 @@ static void pss_sss_extract_nr(
   const int sss_symbol =
       get_softmodem_params()->sl_mode == 0 ? (SSS_SYMBOL_NB - PSS_SYMBOL_NB) : (SSS0_SL_SYMBOL_NB - PSS0_SL_SYMBOL_NB);
 
-  for (int aarx = 0; aarx < params->nb_antennas_rx; aarx++) {
-    const c16_t *pss_rxF = rxdataF[pss_symbol][aarx];
-    const c16_t *sss_rxF = rxdataF[sss_symbol][aarx];
-    c16_t *pss_rxF_ext = pss_ext[aarx];
-    c16_t *sss_rxF_ext = sss_ext[aarx];
-    unsigned int k = CIRCULAR_INC(params->first_carrier_offset + params->ssb_start_subcarrier,
-                                  get_softmodem_params()->sl_mode == 0 ? PSS_SSS_SUB_CARRIER_START : PSS_SSS_SUB_CARRIER_START_SL,
-                                  params->ofdm_symbol_size);
+  const unsigned int k = params->ssb_start_subcarrier
+                         + (get_softmodem_params()->sl_mode == 0 ? PSS_SSS_SUB_CARRIER_START : PSS_SSS_SUB_CARRIER_START_SL);
 
-    for (int i = 0; i < LENGTH_PSS_NR; i++) {
-      pss_rxF_ext[i] = pss_rxF[k];
-      sss_rxF_ext[i] = sss_rxF[k];
-      k = CIRCULAR_INC(k, 1, params->ofdm_symbol_size);
-    }
+  for (int aarx = 0; aarx < params->nb_antennas_rx; aarx++) {
+    memcpy(pss_ext[aarx], &rxdataF[pss_symbol][aarx][k], LENGTH_PSS_NR * sizeof(c16_t));
+    memcpy(sss_ext[aarx], &rxdataF[sss_symbol][aarx][k], LENGTH_SSS_NR * sizeof(c16_t));
   }
 }
 

@@ -13,6 +13,23 @@
 uint64_t reverse_bits(uint64_t in, int n_bits);
 void reverse_bits_u8(uint8_t const* in, size_t sz, uint8_t* out);
 
+// to compute ceil(log2(n))
+static inline int ceil_log2_u32(uint32_t n)
+{
+  if (n <= 1)
+    return 0;
+  return 32 - __builtin_clz(n - 1);
+}
+
+// to compute floor(log2(n))
+static inline uint32_t floor_log2_u32(uint32_t x)
+{
+  if (x == 0)
+    return 0;
+  uint32_t clz = __builtin_clz(x);
+  return 31U - clz;
+}
+
 static inline int get_last_bit_index(const uint32_t *arr, int sz)
 {
   AssertFatal(sz > 0, "Invalid size %d to get the first bit of array\n", sz);

@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>cn5g-stop-tab</htmlTabRef>
   <htmlTabName>CN5G-Stop</htmlTabName>
-  <htmlTabIcon>log-in</htmlTabIcon>
 
   <testCase>
     <class>UndeployCoreNetwork</class>
