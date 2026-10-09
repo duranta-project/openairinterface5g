@@ -10,6 +10,7 @@ add_subdirectory(MESSAGES)
 set(SPECTRUM_SM_SOURCES
     spectrum_sm.c
     spectrum_enc.c
+    spectrum_dec.c
     spectrum_sensing_ring.c
     ran_func_spectrum_stub.c
 )
@@ -19,6 +20,8 @@ add_library(spectrum_sm STATIC ${SPECTRUM_SM_SOURCES})
 
 # Include directories
 target_include_directories(spectrum_sm PUBLIC ${CLIBE3_INCLUDE_DIRS})
+
+target_compile_definitions(spectrum_sm PRIVATE ${CLIBE3_COMPILE_DEFS})
 
 target_link_directories(spectrum_sm PRIVATE ${CLIBE3_LIBRARY_DIRS})
 target_link_libraries(spectrum_sm spectrum_sm_asn1 json-c pthread LOG)

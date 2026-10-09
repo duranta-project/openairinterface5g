@@ -93,6 +93,9 @@ set(spectrum_sm_source
     E3SM_Spectrum-DAppControlData.c
     E3SM_Spectrum-PRBBlacklistReport.c
     E3SM_Spectrum-DAppReportPayload.c
+    E3SM_Spectrum-ApplyOutcomeData.c
+    E3SM_Spectrum-ApplyOutcomePayload.c
+    E3SM_Spectrum-PRBBlockApplyOutcome.c
     E3SM_Spectrum-DAppReportData.c
     E3SM_Spectrum-PRBBlockedControl.c
     E3SM_Spectrum-XAppControlPayload.c
@@ -190,6 +193,9 @@ set(spectrum_sm_headers
     E3SM_Spectrum-DAppControlData.h
     E3SM_Spectrum-PRBBlacklistReport.h
     E3SM_Spectrum-DAppReportPayload.h
+    E3SM_Spectrum-ApplyOutcomeData.h
+    E3SM_Spectrum-ApplyOutcomePayload.h
+    E3SM_Spectrum-PRBBlockApplyOutcome.h
     E3SM_Spectrum-DAppReportData.h
     E3SM_Spectrum-PRBBlockedControl.h
     E3SM_Spectrum-XAppControlPayload.h
