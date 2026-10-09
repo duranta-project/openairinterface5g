@@ -53,7 +53,6 @@ void nr_ue_init_mac(NR_UE_MAC_INST_t *mac)
   mac->msg3_C_RNTI = false;
   mac->sr_fallback_ra_triggered = false;
   mac->phy_config.config_req.ntn_config.params_changed = false;
-  initNotifiedFIFO(&mac->input_nf);
   reset_mac_inst(mac);
 
   // need to inizialize because might not been setup (optional timer)
@@ -93,6 +92,9 @@ void nr_ue_mac_default_configs(NR_UE_MAC_INST_t *mac)
 
 void nr_ue_send_synch_request(NR_UE_MAC_INST_t *mac, module_id_t module_id, int cc_id, const fapi_nr_synch_request_t *sync_req)
 {
+  // Callers hold if_mutex. In-flight PHY indications still belong to the old acquisition.
+  mac->mib_accepting = false;
+  mac->mib_received = false;
   // Sending to PHY a request to resync
   mac->synch_request.Mod_id = module_id;
   mac->synch_request.CC_id = cc_id;
@@ -100,9 +102,22 @@ void nr_ue_send_synch_request(NR_UE_MAC_INST_t *mac, module_id_t module_id, int 
   mac->if_module->synch_request(&mac->synch_request);
 }
 
+uint64_t nr_ue_start_mib_acquisition(NR_UE_MAC_INST_t *mac)
+{
+  mutexlock(mac->if_mutex);
+  mac->mib_generation++;
+  mac->mib_accepting = true;
+  mac->mib_received = false;
+  uint64_t generation = mac->mib_generation;
+  mutexunlock(mac->if_mutex);
+  return generation;
+}
+
 void nr_ue_reset_sync_state(NR_UE_MAC_INST_t *mac, bool reconf)
 {
-  // reset synchornization status
+  mac->mib_accepting = false;
+  mac->mib_received = false;
+  // reset synchronization status
   mac->state = reconf ? UE_NOT_SYNC_RECONF : UE_NOT_SYNC;
   mac->ra.ra_state = nrRA_UE_IDLE;
 }
@@ -120,6 +135,7 @@ NR_UE_MAC_INST_t *nr_l2_init_ue(int instance_id, int numerology, int rx2tx_capab
   nr_ue_mac_inst[instance_id] = calloc_or_fail(1, sizeof(NR_UE_MAC_INST_t));
 
   NR_UE_MAC_INST_t *mac = nr_ue_mac_inst[instance_id];
+  initNotifiedFIFO(&mac->input_nf);
   mac->ue_id = instance_id;
   mac->numerology = numerology;
   mac->rx2tx_capability = rx2tx_capability;

@@ -152,10 +152,8 @@ void nr_ue_decode_mib(NR_UE_MAC_INST_t *mac, int cc_id)
 
   if (mac->mib->cellBarred == NR_MIB__cellBarred_barred) {
     LOG_W(MAC, "Cell is barred. Going back to sync mode.\n");
-    mac->synch_request.Mod_id = mac->ue_id;
-    mac->synch_request.CC_id = cc_id;
     mac->synch_request.synch_req.target_Nid_cell = -1;
-    mac->if_module->synch_request(&mac->synch_request);
+    nr_ue_send_synch_request(mac, mac->ue_id, cc_id, &mac->synch_request.synch_req);
     return;
   }
 

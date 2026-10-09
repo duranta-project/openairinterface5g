@@ -449,6 +449,7 @@ typedef struct {
 } nr_mac_rrc_config_cg_t;
 typedef struct {
   NR_BCCH_BCH_Message_t *bcch;
+  nr_ue_mib_metadata_t mib_metadata;
   bool access_barred;
 } nr_mac_rrc_config_mib_t;
 typedef struct {

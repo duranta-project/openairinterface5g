@@ -113,21 +113,13 @@ static int handle_bcch_bch(NR_UE_MAC_INST_t *mac,
                            long ssb_arfcn,
                            uint16_t cell_id)
 {
-  mac->mib_ssb = ssb_index_mod8;
-  mac->physCellId = cell_id;
-  mac->mib_additional_bits = additional_bits;
-  mac->ssb_start_subcarrier = ssb_start_subcarrier;
-  if(ssb_length == 64) {
-    mac->frequency_range = FR2;
-    uint8_t ab = additional_bits & 0xff;
-    uint8_t out;
-    reverse_bits_u8(&ab, 1, &out);
-    mac->mib_ssb += (out & 0x7) << 3;
-  }
-  else
-    mac->frequency_range = FR1;
-  //  fixed 3 bytes MIB PDU
-  nr_mac_rrc_data_ind_ue(mac->ue_id, gNB_index, 0, 0, 0, cell_id, ssb_arfcn, NR_BCCH_BCH, (uint8_t *) pduP, 3);
+  const nr_ue_mib_metadata_t metadata = {.generation = mac->mib_generation,
+                                         .cell_id = cell_id,
+                                         .additional_bits = additional_bits,
+                                         .ssb_index = ssb_index_mod8,
+                                         .ssb_length = ssb_length,
+                                         .ssb_start_subcarrier = ssb_start_subcarrier};
+  nr_mac_rrc_mib_ind_ue(mac->ue_id, gNB_index, ssb_arfcn, pduP, &metadata);
   return 0;
 }
 

@@ -9,6 +9,9 @@ typedef uint32_t channel_t;
 #ifndef _L2_INTERFACE_UE_H_
 #define _L2_INTERFACE_UE_H_
 void nr_mac_rrc_sync_ind(const module_id_t module_id, const frame_t frame, const bool in_sync);
+void nr_mac_rrc_mib_ind_ue(module_id_t module_id, uint8_t gnb, long arfcn, const uint8_t *pdu,
+                           const nr_ue_mib_metadata_t *metadata);
+
 void nr_mac_rrc_data_ind_ue(const module_id_t module_id,
                             const uint8_t gNB_index,
                             const int hfn,
@@ -29,6 +32,8 @@ void nr_mac_rrc_inactivity_timer_ind(const module_id_t mod_id);
 void nr_mac_rrc_msg3_ind(const module_id_t mod_id, const int rnti, bool prepare_payload);
 void nr_ue_rrc_timer_trigger(int instance, int hfn, int frame, int gnb_id);
 void nr_mac_rrc_ra_ind(const module_id_t mod_id, bool success);
+bool nr_ue_wait_for_mib(int instance_id, uint64_t generation, int *frame);
+bool nr_rrc_mac_resync_request(const nr_mac_rrc_message_t *msg);
 void process_msg_rcc_to_mac(nr_mac_rrc_message_t *msg, int instance_id);
 void nr_mac_rrc_verification_failed(const module_id_t mod_id);
 #endif
