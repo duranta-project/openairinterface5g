@@ -315,14 +315,38 @@ static void nr_generate_csi_rs_gNB(PHY_VARS_gNB *gNB, int slot, const nfapi_nr_d
   const int group_sz = get_cdm_group_size(csi_params->cdm_type);
   const uint16_t start_port = mapping_parms.j[0] * group_sz; // Start port of this CSI config
   const uint16_t num_ports = mapping_parms.size * group_sz;
-  beam_index_allocation(beam_id,
-                        ant_port_offset + start_port,
-                        num_ports,
-                        gNB->frame_parms.symbols_per_slot,
-                        slot,
-                        csi_bitmap,
-                        gNB->frame_parms.nb_antennas_tx,
-                        gNB->common_vars.beam_id);
+  // beamformed with the digital beam table, the CSI-RS is generated in a scratch buffer holding its symbols, then
+  // beamformed onto txdataF
+  const bool dbt = nr_dbt_pdu(&gNB->common_vars, pb);
+  if (!dbt) {
+    AssertFatal(ant_port_offset + start_port + num_ports <= gNB->common_vars.num_tx_bb,
+                "CSI-RS on ports %d..%d of %d\n",
+                ant_port_offset + start_port,
+                ant_port_offset + start_port + num_ports - 1,
+                gNB->common_vars.num_tx_bb);
+    if (pb->dig_bf_interfaces > 0)
+      beam_index_allocation(beam_id,
+                            ant_port_offset + start_port,
+                            num_ports,
+                            gNB->frame_parms.symbols_per_slot,
+                            slot,
+                            csi_bitmap,
+                            gNB->common_vars.num_tx_bb,
+                            gNB->common_vars.beam_id);
+  }
+  const int first_symbol = dbt ? __builtin_ctz(csi_bitmap) : 0;
+  const int num_symbols = dbt ? 32 - __builtin_clz(csi_bitmap) - first_symbol : 0;
+  const size_t port_sz = num_symbols * gNB->frame_parms.ofdm_symbol_size;
+  c16_t *csi_ports[start_port + num_ports];
+  if (dbt) {
+    AssertFatal(num_ports <= gNB->frame_parms.nb_antennas_tx,
+                "%d CSI-RS ports, at most %d supported\n",
+                num_ports,
+                gNB->frame_parms.nb_antennas_tx);
+    memset(gNB->common_vars.csirs_scratch, 0, num_ports * port_sz * sizeof(*gNB->common_vars.csirs_scratch));
+    for (int p = 0; p < start_port + num_ports; p++)
+      csi_ports[p] = p < start_port ? NULL : gNB->common_vars.csirs_scratch + (p - start_port) * port_sz;
+  }
 
   nr_generate_csi_rs(&gNB->frame_parms,
                      &mapping_parms,
@@ -337,7 +361,32 @@ static void nr_generate_csi_rs_gNB(PHY_VARS_gNB *gNB, int slot, const nfapi_nr_d
                      csi_params->scramb_id,
                      csi_params->power_control_offset_ss,
                      csi_params->cdm_type,
-                     gNB->common_vars.txdataF + ant_port_offset);
+                     dbt ? csi_ports : gNB->common_vars.txdataF + ant_port_offset,
+                     first_symbol);
+
+  if (dbt) {
+    // nr_dbt_beamform() also applies the phase compensation
+    for (int p = start_port; p < start_port + num_ports; p++) {
+      for (int l = first_symbol; l < first_symbol + num_symbols; l++) {
+        if (!((csi_bitmap >> l) & 1))
+          continue;
+        const c16_t *in = csi_ports[p] + (l - first_symbol) * gNB->frame_parms.ofdm_symbol_size;
+        const int start_rb = csi_params->start_rb;
+        if (csi_params->freq_density > 1) {
+          const c16_t *rbs = in + start_rb * NR_NB_SC_PER_RB;
+          nr_dbt_beamform(gNB, pb, NULL, 1, 1, slot, l, start_rb, start_rb, csi_params->nr_of_rbs, &rbs);
+          continue;
+        }
+        // density 0.5: only every other RB carries CSI-RS
+        for (int rb = start_rb; rb < start_rb + csi_params->nr_of_rbs; rb++)
+          if (csi_params->freq_density == (rb % 2)) {
+            const c16_t *rbs = in + rb * NR_NB_SC_PER_RB;
+            nr_dbt_beamform(gNB, pb, NULL, 1, 1, slot, l, start_rb, rb, 1, &rbs);
+          }
+      }
+    }
+    return;
+  }
 
   if (!gNB->phase_comp)
     return;
