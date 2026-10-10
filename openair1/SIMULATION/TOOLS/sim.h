@@ -276,6 +276,7 @@ typedef enum {
   {"max_chan",                    "Max number of runtime models",     0,                                  .uptr=&max_chan,              .defintval=10,                    TYPE_UINT,   0}, \
   {CHANNELMOD_MODELLIST_PARANAME, CHANNELMOD_HELP_MODELLIST,          0,                                  .strptr=&modellist_name,      .defstrval="DefaultChannelList",  TYPE_STRING, 0}, \
   {"noise_power_dBFS",            CHANNELMOD_HELP_NOISE_POWER,        0,                                  .iptr=&noise_power_dBFS,      .defintval=INVALID_DBFS_VALUE,    TYPE_INT,    0 },\
+  {"use_orbital", "use Keplerian orbital_r17 ephemeris instead of positionVelocity_r17\n",  PARAMFLAG_BOOL, .iptr=&use_orbital, .defintval=0, TYPE_INT, 0},\
 }
 // clang-format on
 

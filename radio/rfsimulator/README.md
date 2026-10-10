@@ -189,6 +189,20 @@ So, additionally to other parameters, this parameter should be given when execut
 --rfsimulator.[0].prop_delay 238.74
 ```
 
+### Selecting Keplerian orbital ephemeris for the LEO satellite channel model  
+  
+By default, when a `SAT_LEO_TRANS`/`SAT_LEO_REGEN` channel model computes the  
+satellite's circular-orbit position/velocity, it reports it to the gNB MAC  
+using the `positionVelocity-r17` representation of SIB19. To instead report  
+it using the `orbital-r17` (Keplerian elements) representation, pass:
+--channelmod.use_orbital 1
+
+on the gNB command line. If not provided, this defaults to `false` and the  
+existing `positionVelocity-r17` behaviour is used.  
+  
+See [`ntn-configuration.md`](../../doc/ntn-configuration.md#keplerian-orbital-parameters-orbital-r17)  
+for the field definitions and scale factors of `orbital-r17`.  
+
 Note:
 
 To successfully establish a connection with such a GEO satellite channel, both gNB and UE need to have the NTN support configured.

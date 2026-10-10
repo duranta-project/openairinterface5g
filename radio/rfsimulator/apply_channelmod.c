@@ -8,6 +8,8 @@
 #include "openair2/LAYER2/NR_MAC_gNB/mac_config.h"
 #include "rfsimulator.h"
 
+extern int get_use_orbital(void);
+
 void update_channel_model(channel_desc_t *channelDesc, int nbSamples, uint64_t TS)
 {
   if ((channelDesc->sat_height > 0)
@@ -119,7 +121,7 @@ void update_channel_model(channel_desc_t *channelDesc, int nbSamples, uint64_t T
 
       if (TS / (unsigned int)channelDesc->sampling_rate != (TS + nbSamples) / (unsigned int)channelDesc->sampling_rate) {
         LOG_I(HW,
-              "Satellite orbit: time %f s, Position = (%f, %f, %f), Velocity = (%f, %f, %f)\n",
+              "Satellite orbits: time %f s, Position = (%f, %f, %f), Velocity = (%f, %f, %f)\n",
               t,
               pos_sat_x,
               pos_sat_y,
@@ -146,7 +148,24 @@ void update_channel_model(channel_desc_t *channelDesc, int nbSamples, uint64_t T
             .velocity.X = vel_sat_x / 0.06,
             .velocity.Y = vel_sat_y / 0.06,
             .velocity.Z = vel_sat_z / 0.06,
+
+			// Degenerate Keplerian representation of the existing circular-orbit model:  
+			// - circular orbit => eccentricity = 0, semiMajorAxis = radius_sat (constant radius)  
+			// - orbital plane is the YZ plane (x always 0), ground station on +Z axis	
+			//	 => this is a polar orbit => inclination = 90 deg = pi/2 rad  
+			// - ascending node / periapsis are arbitrary/undefined for a circular polar  
+			//	 orbit as parametrized here (x always 0 by construction) => fix both at 0  
+			// - meanAnomaly == true anomaly == argument of latitude for e=0, growing  
+			//	 linearly with time at the same angular rate w_sat already computed above  
+			.use_orbital = get_use_orbital(),  
+			.semi_major_axis = radius_sat,			// meters; a = r for circular orbit  
+			.eccentricity = 0.0,					// circular orbit  
+			.periapsis = M_PI / 2.0,
+            .longitude = 3.0 * M_PI / 2.0,    // was 0.0 — RAAN, O (equivalently -M_PI/2 normalized to [0,2p))  
+            .inclination = M_PI / 2.0,
+            .mean_anomaly = fmod(w_sat * t, 2.0 * M_PI),
         };
+
         // Here we update the SIB19 information directly in the gNB MAC layer.
         // Without rf-simulaor, in a real system or with an external channel emulator, the SIB19 updates would
         // be provided via an external interface (e.g. O-RAN E2 interface) to the MAC layer (in the O-DU).

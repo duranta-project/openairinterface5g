@@ -22,6 +22,14 @@ typedef struct gnb_sat_position_update_s {
   uint32_t accel;
   vector_t position;
   vector_t velocity;
+
+  bool use_orbital;  
+  double semi_major_axis;  
+  double eccentricity;	
+  double periapsis;  
+  double longitude;  
+  double inclination;  
+  double mean_anomaly; 
 } gnb_sat_position_update_t;
 
 bool nr_update_sib19(const gnb_sat_position_update_t *sat_position);

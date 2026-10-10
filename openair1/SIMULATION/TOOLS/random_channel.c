@@ -57,6 +57,7 @@ static unsigned int max_chan;
 static channel_desc_t **defined_channels;
 static char *modellist_name;
 static int noise_power_dBFS = INVALID_DBFS_VALUE;
+static int use_orbital = 0;
 
 void fill_channel_desc(channel_desc_t *chan_desc,
                        uint8_t nb_tx,
@@ -2331,6 +2332,10 @@ int load_channellist(uint8_t nb_tx, uint8_t nb_rx, double sampling_rate, uint64_
 
 int get_noise_power_dBFS(void) {
   return noise_power_dBFS;
+}
+
+int get_use_orbital(void) { 
+  return use_orbital; 
 }
 
 #ifdef RANDOM_CHANNEL_MAIN
