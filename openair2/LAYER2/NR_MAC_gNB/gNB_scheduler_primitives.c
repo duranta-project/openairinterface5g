@@ -3756,12 +3756,14 @@ void send_initial_ul_rrc_message(int rnti, const uint8_t *sdu, sdu_size_t sdu_le
 {
   gNB_MAC_INST *mac = RC.nrmac[0];
   NR_UE_info_t *UE = (NR_UE_info_t *)data;
-  NR_SCHED_ENSURE_LOCKED(&mac->sched_lock);
+  NR_SCHED_LOCK(&mac->sched_lock);
 
   uint8_t du2cu[1024];
   int encoded_len = 0;
   if (UE->CellGroup)
     encoded_len = encode_cellGroupConfig(UE->CellGroup, du2cu, sizeof(du2cu));
+
+  NR_SCHED_UNLOCK(&mac->sched_lock);
 
   DevAssert(mac->f1_config.setup_req != NULL);
   AssertFatal(mac->f1_config.setup_req->num_cells_available == 1, "can handle only one cell\n");
