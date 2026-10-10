@@ -10,7 +10,7 @@ TEST(CircularBuffer, simplePushPop)
   ring_buffer cb(10);
   cf_t data[10];
   for (int i = 0; i < 10; i++) {
-    data[i] = { (float)i, (float)(i + 1)};
+    data[i] = {(float)i, (float)(i + 1)};
   }
   ASSERT_EQ(cb.push_samples(data, 10), 0);
 
