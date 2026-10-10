@@ -1660,7 +1660,6 @@ static int8_t nr_ue_process_dci(NR_UE_MAC_INST_t *mac,
 
 void nr_ue_process_l1_measurements(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, fapi_nr_l1_measurements_t *l1_measurements)
 {
-  LOG_D(NR_MAC, "(%d.%d) Received measurements from L1\n", frame, slot);
   bool csi_meas = l1_measurements->meas_type == NFAPI_NR_CSI_MEAS;
   if (!csi_meas && !l1_measurements->is_neighboring_cell) {
     int ssb_index = l1_measurements->ssb_index;
