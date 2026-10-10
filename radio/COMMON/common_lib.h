@@ -142,6 +142,7 @@ typedef enum {
   RU_GPIO_CONTROL_NONE,
   RU_GPIO_CONTROL_GENERIC,
   RU_GPIO_CONTROL_INTERDIGITAL,
+  RU_GPIO_CONTROL_TMYTEK,
 } gpio_control_t;
 
 /*! \brief defines the direction of each symbol. Int values intentional and

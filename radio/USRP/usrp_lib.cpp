@@ -17,6 +17,9 @@
 #include <uhd/convert.hpp>
 #include <uhd/usrp/multi_usrp.hpp>
 #include <uhd/version.hpp>
+#if UHD_VERSION >= 4010000
+#include <uhd/features/spi_getter_iface.hpp>
+#endif
 #include <boost/lexical_cast.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/thread.hpp>
@@ -30,6 +33,7 @@
 #include "common_lib.h"
 #include "assertions.h"
 #include "system.h"
+#include "tmytek_spi_config.h"
 
 #include "common/utils/LOG/vcd_signal_dumper.h"
 
@@ -44,6 +48,14 @@
  */
 extern int usrp_tx_thread;
 
+typedef struct {
+  //! SPI interface to the beamformer
+  uhd::spi_iface::sptr spi_ref;
+  //! SPI transaction configuration
+  uhd::spi_config_t spi_config;
+  tmytek_pin_map_t pins;
+  tmytek_rf_mode_t mode;
+} tmytek_spi_state_t;
 
 typedef struct {
 
@@ -74,6 +86,9 @@ typedef struct {
   char *gpio_bank;
   //! last beam id actually programmed via trx_set_beam(); UINT16_MAX means none yet
   uint16_t last_beam_id;
+
+  //! TMYTEK-only SPI state; NULL for other GPIO controllers
+  tmytek_spi_state_t *tmytek_spi;
 
   // --------------------------------
   // Debug and output control
@@ -281,6 +296,91 @@ static void trx_usrp_start_generic_gpio(usrp_state_t *s)
   s->usrp->set_gpio_attr(s->gpio_bank, "OUT", MAN_MASK, 0xfff);
 }
 
+static void trx_usrp_tmytek_set_mode(usrp_state_t *s, tmytek_rf_mode_t mode)
+{
+  AssertFatal(s->tmytek_spi != NULL, "TMYTEK SPI state is not initialized\n");
+  tmytek_spi_state_t *tmytek_spi = s->tmytek_spi;
+  const tmytek_pin_map_t *pin_map = &tmytek_spi->pins;
+  const uint32_t tx_en = mode == TMYTEK_MODE_TX ? 1 << pin_map->tx_en : 0;
+  const uint32_t rx_en = mode == TMYTEK_MODE_TX ? 0 : 1 << pin_map->rx_en;
+  s->usrp->set_gpio_attr(s->gpio_bank, "OUT", tx_en, 1 << pin_map->tx_en);
+  s->usrp->set_gpio_attr(s->gpio_bank, "OUT", rx_en, 1 << pin_map->rx_en);
+  tmytek_spi->mode = mode;
+}
+
+static void trx_usrp_start_tmytek_spi(openair0_device_t *device, usrp_state_t *s)
+{
+  AssertFatal(device->type == USRP_X400_DEV, "TMYTEK beamformer control can only be used together with an X400\n");
+#if UHD_VERSION >= 4010000
+  s->tmytek_spi = new tmytek_spi_state_t();
+  tmytek_spi_state_t *tmytek_spi = s->tmytek_spi;
+  uhd::rfnoc::radio_control &radio = s->usrp->get_radio_control();
+  AssertFatal(radio.has_feature<uhd::features::spi_getter_iface>(),
+              "device has no SPI feature, the FPGA image is probably not up to date\n");
+
+  tmytek_spi->pins = tmytek_default_pin_map();
+  const tmytek_pin_map_t *pin_map = &tmytek_spi->pins;
+
+  // hand the four SPI pins over to the SPI engine, the remaining ones stay with the radio
+  std::vector<std::string> sources(12, "DB0_RF0");
+  sources[pin_map->clk] = "DB0_SPI";
+  sources[pin_map->sdi] = "DB0_SPI";
+  sources[pin_map->sdo] = "DB0_SPI";
+  sources[pin_map->cs] = "DB0_SPI";
+  s->usrp->set_gpio_src("GPIO0", sources);
+
+  uhd::features::spi_periph_config_t periph_cfg;
+  periph_cfg.periph_clk = pin_map->clk;
+  periph_cfg.periph_sdi = pin_map->sdi;
+  periph_cfg.periph_sdo = pin_map->sdo;
+  periph_cfg.periph_cs = pin_map->cs;
+  tmytek_spi->spi_ref = radio.get_feature<uhd::features::spi_getter_iface>().get_spi_ref({periph_cfg});
+
+  const uint32_t outputs = (1 << pin_map->clk) | (1 << pin_map->sdo) | (1 << pin_map->cs) | (1 << pin_map->gpio_sdi) | (1 << pin_map->ldb)
+                           | (1 << pin_map->tx_en) | (1 << pin_map->rx_en);
+  s->usrp->set_gpio_attr(s->gpio_bank, "DDR", outputs, 0xfff);
+  // no ATR, the beamformer is driven by timed commands only
+  s->usrp->set_gpio_attr(s->gpio_bank, "CTRL", 0x0, outputs);
+  s->usrp->set_gpio_attr(s->gpio_bank, "OUT", 0x0, outputs);
+  s->usrp->set_gpio_attr(s->gpio_bank, "OUT", 1 << pin_map->ldb, 1 << pin_map->ldb);
+
+  tmytek_spi->spi_config.divider = TMYTEK_SPI_CLK_DIVIDER;
+  tmytek_spi->spi_config.use_custom_divider = true;
+  tmytek_spi->spi_config.mosi_edge = uhd::spi_config_t::EDGE_RISE;
+  tmytek_spi->spi_config.miso_edge = uhd::spi_config_t::EDGE_FALL;
+
+  trx_usrp_tmytek_set_mode(s, TMYTEK_MODE_TX);
+
+  LOG_I(HW,
+        "TMYTEK SPI on bank %s: CS %d, CLK %d, SDO %d, SDI %d, LDB %d\n",
+        s->gpio_bank,
+        pin_map->cs,
+        pin_map->clk,
+        pin_map->sdo,
+        pin_map->sdi,
+        pin_map->ldb);
+#else
+  UNUSED(s);
+  AssertFatal(false, "TMYTEK beamformer control requires UHD 4.1 or later\n");
+#endif
+}
+
+/*! \brief Select a beam from the TMYTEK codebook
+ * \param s USRP state with an initialized SPI interface
+ * \param beam_id beam index, 1-based as defined by TMYTEK
+ */
+static void trx_usrp_tmytek_update_beam(usrp_state_t *s, int beam_id)
+{
+  AssertFatal(s->tmytek_spi != NULL, "TMYTEK SPI state is not initialized\n");
+  tmytek_spi_state_t *tmytek_spi = s->tmytek_spi;
+  const tmytek_pin_map_t *pin_map = &tmytek_spi->pins;
+  const uint32_t payload = tmytek_beam_payload(tmytek_spi->mode, beam_id);
+  tmytek_spi->spi_ref->write_spi(0, tmytek_spi->spi_config, payload, TMYTEK_SPI_PAYLOAD_BITS);
+  // the beamformer latches the new phase settings on a low pulse
+  s->usrp->set_gpio_attr(s->gpio_bank, "OUT", 0, 1 << pin_map->ldb);
+  s->usrp->set_gpio_attr(s->gpio_bank, "OUT", 1 << pin_map->ldb, 1 << pin_map->ldb);
+}
+
 /*! \brief Called to start the USRP transceiver. Return 0 if OK, < 0 if error
     @param device pointer to the device structure specific to the RF hardware target
 */
@@ -294,8 +394,9 @@ static int trx_usrp_start(openair0_device_t *device)
   if (device->type == USRP_X400_DEV) {
     // Set every pin on GPIO0 to be controlled by DB0_RF0
     std::vector<std::string> sxx{12, "DB0_RF0"};
-    s->gpio_bank = (char *) "GPIO0";
-    s->usrp->set_gpio_src(s->gpio_bank, sxx);
+    s->usrp->set_gpio_src("GPIO0", sxx);
+    // set_gpio_src() uses the connector name (GPIO0), set_gpio_attr() the radio bank name (GPIOA = DB0)
+    s->gpio_bank = (char *)"GPIOA";
   }
 #endif
 
@@ -307,6 +408,9 @@ static int trx_usrp_start(openair0_device_t *device)
       break;
     case RU_GPIO_CONTROL_INTERDIGITAL:
       trx_usrp_start_interdigital_gpio(device, s);
+      break;
+    case RU_GPIO_CONTROL_TMYTEK:
+      trx_usrp_start_tmytek_spi(device, s);
       break;
     default:
       AssertFatal(false, "illegal GPIO controller %d\n", device->openair0_cfg->gpio_controller);
@@ -380,6 +484,21 @@ static int trx_set_beam(openair0_device_t *device, uint16_t *beams, int num_beam
     return 0;
   s->last_beam_id = beam_id;
 
+  timestamp -= device->openair0_cfg->command_line_sample_advance + device->openair0_cfg->tx_sample_advance;
+  // trx_set_beam() can run concurrently with trx_usrp_write_thread() (--usrp-tx-thread-config 1),
+  // which writes s->tx_md that cannot be reused here. Instead, create a new time variable
+  const uhd::time_spec_t beam_time_spec = uhd::time_spec_t::from_ticks(timestamp, s->sample_rate);
+
+  if (device->openair0_cfg->gpio_controller == RU_GPIO_CONTROL_TMYTEK) {
+    // OAI beam IDs are 0-based, the TMYTEK codebook is 1-based
+    const int tmytek_beam_id = beam_id + 1;
+    AssertFatal(tmytek_beam_id_valid(tmytek_beam_id), "beam %d is outside the TMYTEK codebook\n", beam_id);
+    s->usrp->set_command_time(beam_time_spec);
+    trx_usrp_tmytek_update_beam(s, tmytek_beam_id);
+    s->usrp->clear_command_time();
+    return 0;
+  }
+
   uint32_t gpio = 0;
   switch (device->openair0_cfg->gpio_controller) {
     case RU_GPIO_CONTROL_GENERIC:
@@ -397,11 +516,6 @@ static int trx_set_beam(openair0_device_t *device, uint16_t *beams, int num_beam
     default:
       AssertFatal(false, "illegal GPIO controller for beam handling %d\n", device->openair0_cfg->gpio_controller);
   }
-  // bit 13 enables gpio
-  timestamp -= device->openair0_cfg->command_line_sample_advance + device->openair0_cfg->tx_sample_advance;
-  // trx_set_beam() can run concurrently with trx_usrp_write_thread() (--usrp-tx-thread-config 1),
-  // which writes s->tx_md that cannot be reused here. Instead, create a new time variable
-  const uhd::time_spec_t beam_time_spec = uhd::time_spec_t::from_ticks(timestamp, s->sample_rate);
 
   // push GPIO bits
   s->usrp->set_command_time(beam_time_spec);
@@ -432,6 +546,8 @@ static void trx_usrp_end(openair0_device_t *device)
   /* finish tx and rx */
   trx_usrp_send_end_of_burst(s);
   trx_usrp_finish_rx(s);
+  delete s->tmytek_spi;
+  s->tmytek_spi = NULL;
   /* set tx_stream, rx_stream, and usrp to NULL to clear/free them */
   s->tx_stream = NULL;
   s->rx_stream = NULL;
