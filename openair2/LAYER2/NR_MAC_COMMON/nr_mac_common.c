@@ -5206,6 +5206,18 @@ int get_FeedbackDisabled(NR_DownlinkHARQ_FeedbackDisabled_r17_t *downlinkHARQ_Fe
   return (downlinkHARQ_FeedbackDisabled_r17->buf[byte_index] >> (7 - bit_index)) & 1;
 }
 
+uint32_t nr_get_ul_harq_modeb_mask(const NR_UplinkHARQ_mode_r17_t *uplinkHARQ_mode_r17)
+{
+  AssertFatal(uplinkHARQ_mode_r17->size == 4, "uplinkHARQ-mode-r17 must be 32 bits\n");
+  uint32_t mask = 0;
+  for (int pid = 0; pid < 32; pid++) {
+    // TS 38.331: leftmost bit is HARQ process 0, bit 0 means mode B
+    if (!((uplinkHARQ_mode_r17->buf[pid / 8] >> (7 - pid % 8)) & 1))
+      mask |= 1U << pid;
+  }
+  return mask;
+}
+
 int nr_get_prach_or_ul_mu(const NR_MsgA_ConfigCommon_r16_t *msgacc,
                           const NR_RACH_ConfigCommon_t *rach_ConfigCommon,
                           const int ul_mu)

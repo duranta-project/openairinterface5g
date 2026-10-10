@@ -579,6 +579,7 @@ typedef struct {
   NR_DownlinkHARQ_FeedbackDisabled_r17_t *downlinkHARQ_FeedbackDisabled_r17;
   long *nrofHARQ_ProcessesForPDSCH_v1700;
   long *nrofHARQ_ProcessesForPUSCH_r17;
+  uint32_t ul_harq_modeb_mask;
 } NR_UE_ServingCell_Info_t;
 
 typedef enum {

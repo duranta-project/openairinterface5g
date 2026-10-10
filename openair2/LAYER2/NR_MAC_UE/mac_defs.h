@@ -462,6 +462,9 @@ typedef struct nr_lcordered_info_s {
   uint32_t bucket_size;
   bool sr_DelayTimerApplied;
   bool lc_SRMask;
+  // allowedHARQ-mode-r17
+  bool harq_mode_configured;
+  bool harq_mode_b;
   nr_lcid_rb_t rb;
   bool rb_suspended;
 } nr_lcordered_info_t;

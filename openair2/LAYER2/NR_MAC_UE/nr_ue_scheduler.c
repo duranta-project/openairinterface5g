@@ -2258,15 +2258,17 @@ static bool get_dataavailability_buffers(uint8_t total_active_lcids,
   return false;
 }
 
-static uint select_logical_channels(NR_UE_MAC_INST_t *mac, nr_lcordered_info_t *active_lcids[])
+static uint select_logical_channels(NR_UE_MAC_INST_t *mac, nr_lcordered_info_t *active_lcids[], int harq_pid)
 {
-  // (TODO: selection of logical channels for logical channel prioritization procedure as per 5.4.3.1.2 Selection of logical
-  // channels, TS38.321)
+  // check allowedHARQ-mode for logical channel prioritization procedure as per 5.4.3.1.2, TS 38.321
+  const bool mode_b = (mac->sc_info.ul_harq_modeb_mask >> harq_pid) & 1;
   int nb = 0;
   // selection of logical channels with Bj > 0
   for (int i = 0; i < mac->lc_ordered_list.count; i++) {
     nr_lcordered_info_t *lc_info = mac->lc_ordered_list.array[i];
     if (lc_info->rb_suspended)
+      continue;
+    if (lc_info->harq_mode_configured && lc_info->harq_mode_b != mode_b)
       continue;
     int lcid = lc_info->lcid;
     NR_LC_SCHEDULING_INFO *sched_info = get_scheduling_info_from_lcid(mac, lcid);
@@ -2424,6 +2426,7 @@ static bool nr_ue_get_sdu(NR_UE_MAC_INST_t *mac,
                           slot_t slot,
                           uint8_t *ulsch_buffer,
                           const uint32_t buflen,
+                          int harq_pid,
                           int tx_power,
                           int P_CMAX,
                           bool *BSRsent)
@@ -2456,7 +2459,7 @@ static bool nr_ue_get_sdu(NR_UE_MAC_INST_t *mac,
     return false;
   }
   nr_lcordered_info_t *lcids_bj_pos[mac->lc_ordered_list.count];
-  int avail_lcids_count = select_logical_channels(mac, lcids_bj_pos);
+  int avail_lcids_count = select_logical_channels(mac, lcids_bj_pos, harq_pid);
 
   // multiplex in the order of highest priority
   do {
@@ -2646,7 +2649,15 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
                                       tp_enabled,
                                       pdu->rb_size,
                                       pdu->rb_start);
-            if (nr_ue_get_sdu(mac, frame_tx, slot_tx, ulsch_input_buffer, TBS_bytes, tx_power, P_CMAX, &BSRsent)) {
+            if (nr_ue_get_sdu(mac,
+                              frame_tx,
+                              slot_tx,
+                              ulsch_input_buffer,
+                              TBS_bytes,
+                              pdu->pusch_data.harq_process_id,
+                              tx_power,
+                              P_CMAX,
+                              &BSRsent)) {
               pdu->tx_request_body.fapiTxPdu = ulsch_input_buffer;
               pdu->tx_request_body.pdu_length = TBS_bytes;
               number_of_pdus++;

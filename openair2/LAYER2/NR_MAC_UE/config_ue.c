@@ -925,6 +925,7 @@ static void set_default_logicalchannelconfig(nr_lcordered_info_t *lc_info, int s
   lc_info->priority = srb_id == 2 ? 3 : 1;
   lc_info->pbr = UINT_MAX;
   lc_info->bucket_size = UINT_MAX;
+  lc_info->harq_mode_configured = false;
 }
 
 static void nr_configure_lc_config(NR_UE_MAC_INST_t *mac,
@@ -949,6 +950,11 @@ static void nr_configure_lc_config(NR_UE_MAC_INST_t *mac,
   lc_info->sr_id = ul_parm->schedulingRequestID ? *ul_parm->schedulingRequestID : -1;
   lc_info->sr_DelayTimerApplied = ul_parm->logicalChannelSR_DelayTimerApplied;
   lc_info->lc_SRMask = ul_parm->logicalChannelSR_Mask;
+  const long *allowed_harq_mode = ul_parm->ext2 ? ul_parm->ext2->allowedHARQ_mode_r17 : NULL;
+  lc_info->harq_mode_configured = allowed_harq_mode != NULL;
+  lc_info->harq_mode_b =
+      allowed_harq_mode
+      && *allowed_harq_mode == NR_LogicalChannelConfig__ul_SpecificParameters__ext2__allowedHARQ_mode_r17_harqModeB;
   lc_info->pbr = nr_get_pbr(ul_parm->prioritisedBitRate);
   // if logicalChannelGroup we release LCGID and set it to invalid
   lc_sched_info->LCGID = ul_parm->logicalChannelGroup ? *ul_parm->logicalChannelGroup : NR_INVALID_LCGID;
@@ -2763,6 +2769,7 @@ static void configure_servingcell_info(NR_UE_MAC_INST_t *mac, NR_ServingCellConf
         free_and_zero(sc_info->xOverhead_PUSCH);
         free_and_zero(sc_info->maxMIMO_Layers_PUSCH);
         free_and_zero(sc_info->nrofHARQ_ProcessesForPUSCH_r17);
+        sc_info->ul_harq_modeb_mask = 0;
         break;
       case NR_SetupRelease_PUSCH_ServingCellConfig_PR_setup: {
         NR_PUSCH_ServingCellConfig_t *pusch_servingcellconfig = scd->uplinkConfig->pusch_ServingCellConfig->choice.setup;
@@ -2775,10 +2782,20 @@ static void configure_servingcell_info(NR_UE_MAC_INST_t *mac, NR_ServingCellConf
                                      pusch_servingcellconfig->codeBlockGroupTransmission,
                                      NR_PUSCH_CodeBlockGroupTransmission_t,
                                      asn_DEF_NR_PUSCH_CodeBlockGroupTransmission);
-        if (pusch_servingcellconfig->ext3)
+        if (pusch_servingcellconfig->ext3) {
           UPDATE_IE(sc_info->nrofHARQ_ProcessesForPUSCH_r17, pusch_servingcellconfig->ext3->nrofHARQ_ProcessesForPUSCH_r17, long);
-        else
+          if (pusch_servingcellconfig->ext3->uplinkHARQ_mode_r17) {
+            const struct NR_SetupRelease_UplinkHARQ_mode_r17 *mode = pusch_servingcellconfig->ext3->uplinkHARQ_mode_r17;
+            if (mode->present == NR_SetupRelease_UplinkHARQ_mode_r17_PR_setup) {
+              sc_info->ul_harq_modeb_mask = nr_get_ul_harq_modeb_mask(&mode->choice.setup);
+              LOG_I(NR_MAC, "UL HARQ mode-B bitmap: 0x%08x\n", sc_info->ul_harq_modeb_mask);
+            } else if (mode->present == NR_SetupRelease_UplinkHARQ_mode_r17_PR_release) {
+              sc_info->ul_harq_modeb_mask = 0;
+            }
+          }
+        } else {
           free_and_zero(sc_info->nrofHARQ_ProcessesForPUSCH_r17);
+        }
         break;
       }
       default:
