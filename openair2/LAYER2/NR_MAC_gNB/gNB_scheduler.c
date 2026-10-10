@@ -147,6 +147,7 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_
   clear_beam_information(&cell->beam_info, frame, slot, slots_frame);
 
   gNB->frame = frame;
+  gNB->subframe = slot / (slots_frame / NR_NUMBER_OF_SUBFRAMES_PER_FRAME);
   start_meas(&cell->gNB_scheduler);
 
   int num_beams = 1;
