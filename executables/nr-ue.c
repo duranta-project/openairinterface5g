@@ -695,8 +695,8 @@ static void readFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int d
     for (int slot_rx = 0; slot_rx < fp->slots_per_subframe; slot_rx++) {
       int readBlockSize = min(get_samples_per_slot(slot_rx, fp), sz);
       int tmp = nrue_ru_read(UE, timestamp, (void **)rxp, readBlockSize, fp->nb_antennas_rx);
-      UEscopeCopy(UE, ueTimeDomainSamplesBeforeSync, rxp[0], sizeof(c16_t), 1, readBlockSize, 0);
       AssertFatal(readBlockSize == tmp, "read rf board failed %d", tmp);
+      UEscopeCopy(UE, ueTimeDomainSamplesBeforeSync, rxp[0], sizeof(c16_t), 1, readBlockSize, 0);
       if (result)
         for (int i = 0; i < fp->nb_antennas_rx; i++)
           rxp[i] += readBlockSize;
@@ -1042,9 +1042,9 @@ void *UE_thread(void *arg)
     const int readBlockSize = get_readBlockSize(slot_nr, fp) - iq_shift_to_apply;
     openair0_timestamp_t rx_timestamp;
     int tmp = nrue_ru_read(UE, &rx_timestamp, (void **)rxp, readBlockSize, fp->nb_antennas_rx);
+    AssertFatal(readBlockSize == tmp, "read to rf board failed %d", tmp);
     metadata meta = {.slot =  curMsg.proc.nr_slot_rx, .frame =  curMsg.proc.frame_rx};
     UEscopeCopyWithMetadata(UE, ueTimeDomainSamples, rxp[0] - firstSymSamp, sizeof(c16_t), 1, readBlockSize, 0, &meta);
-    AssertFatal(readBlockSize == tmp, "read to rf board failed %d", tmp);
     struct timespec current_time;
     if (clock_gettime(CLOCK_REALTIME, &current_time)) {
       LOG_E(PHY, "clock_gettime failed\n");
