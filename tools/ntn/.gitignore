@@ -1,0 +1,7 @@
+# User-downloaded TLEs and generated traces; only the samples in data/ are tracked
+*.tle
+*.csv
+!/data/default_leo600.tle
+!/data/orbital_trace_s_300.csv
+
+__pycache__/

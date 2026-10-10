@@ -42,6 +42,16 @@ typedef enum {
   CORR_LEVEL_HIGH
 } corr_level_t;
 
+/// one sample of a satellite orbit trace
+typedef struct {
+  /// time since trace start (s)
+  double t;
+  /// satellite ECEF position (m)
+  double pos[3];
+  /// satellite ECEF velocity (m/s)
+  double vel[3];
+} sat_trace_sample_t;
+
 typedef struct {
   ///Number of tx antennas
   uint8_t nb_tx;
@@ -127,6 +137,20 @@ typedef struct {
   float *Doppler_phase_cur;
   /// flag indicating if channel direction is UL or DL
   bool is_uplink;
+  /// satellite orbit trace file (NULL: use the built-in circular orbit)
+  char *sat_trace_file;
+  /// satellite orbit trace samples, sorted by time
+  sat_trace_sample_t *sat_trace;
+  /// number of samples in sat_trace
+  int sat_trace_len;
+  /// index of the last trace interval used, to speed up the lookup
+  int sat_trace_last_idx;
+  /// trace interpolation: false = linear, true = zero-order hold
+  bool sat_interp_zoh;
+  /// UE ECEF position (m), used in trace mode
+  double pos_ue[3];
+  /// gNB (ground station) ECEF position (m), used in trace mode for SAT_LEO_TRANS
+  double pos_gnb[3];
 } channel_desc_t;
 
 typedef struct {
@@ -287,6 +311,14 @@ typedef enum {
 #define CHANNELMOD_MODEL_FF_PNAME "forgetfact"
 #define CHANNELMOD_MODEL_CO_PNAME "offset"
 #define CHANNELMOD_MODEL_DT_PNAME "ds_tdl"
+#define CHANNELMOD_MODEL_TRACE_PNAME "sat_trace_file"
+#define CHANNELMOD_MODEL_ZOH_PNAME "sat_interp_zoh"
+#define CHANNELMOD_MODEL_POS_UE_X_PNAME "pos_ue_x"
+#define CHANNELMOD_MODEL_POS_UE_Y_PNAME "pos_ue_y"
+#define CHANNELMOD_MODEL_POS_UE_Z_PNAME "pos_ue_z"
+#define CHANNELMOD_MODEL_POS_GNB_X_PNAME "pos_gnb_x"
+#define CHANNELMOD_MODEL_POS_GNB_Y_PNAME "pos_gnb_y"
+#define CHANNELMOD_MODEL_POS_GNB_Z_PNAME "pos_gnb_z"
 
 // clang-format off
 #define CHANNELMOD_MODEL_PARAMS_DESC {  \
@@ -297,6 +329,14 @@ typedef enum {
     {CHANNELMOD_MODEL_FF_PNAME,   "channel forget factor ((0 to 1)\n", 0,  .dblptr=NULL,             .defdblval=0,                     TYPE_DOUBLE,    0 }, \
     {CHANNELMOD_MODEL_CO_PNAME,   "channel offset in samps\n",         0,  .iptr=NULL,               .defintval=0,                     TYPE_INT,       0 }, \
     {CHANNELMOD_MODEL_DT_PNAME,   "delay spread for TDL models\n",     0,  .dblptr=NULL,             .defdblval=0,                     TYPE_DOUBLE,    0 }, \
+    {CHANNELMOD_MODEL_TRACE_PNAME,     "satellite orbit trace CSV (SAT_LEO_*)\n", 0, .strptr=NULL, .defstrval="",       TYPE_STRING, 0 }, \
+    {CHANNELMOD_MODEL_ZOH_PNAME,       "trace interp: 0=linear, 1=ZOH\n",       0, .iptr=NULL,   .defintval=0,        TYPE_INT,    0 }, \
+    {CHANNELMOD_MODEL_POS_UE_X_PNAME,  "UE ECEF X (m), trace mode\n",           0, .dblptr=NULL, .defdblval=0,        TYPE_DOUBLE, 0 }, \
+    {CHANNELMOD_MODEL_POS_UE_Y_PNAME,  "UE ECEF Y (m), trace mode\n",           0, .dblptr=NULL, .defdblval=0,        TYPE_DOUBLE, 0 }, \
+    {CHANNELMOD_MODEL_POS_UE_Z_PNAME,  "UE ECEF Z (m), trace mode\n",           0, .dblptr=NULL, .defdblval=6377900,  TYPE_DOUBLE, 0 }, \
+    {CHANNELMOD_MODEL_POS_GNB_X_PNAME, "gNB ECEF X (m), trace mode\n",          0, .dblptr=NULL, .defdblval=0,        TYPE_DOUBLE, 0 }, \
+    {CHANNELMOD_MODEL_POS_GNB_Y_PNAME, "gNB ECEF Y (m), trace mode\n",          0, .dblptr=NULL, .defdblval=0,        TYPE_DOUBLE, 0 }, \
+    {CHANNELMOD_MODEL_POS_GNB_Z_PNAME, "gNB ECEF Z (m), trace mode\n",          0, .dblptr=NULL, .defdblval=6377900,  TYPE_DOUBLE, 0 }, \
 }
 // clang-format on
 
@@ -339,6 +379,7 @@ channel_desc_t *find_channel_desc_fromname(const char *modelname);
 \param ch points to the model, which cannot be used after calling this fuction
 */
 void free_channel_desc_scm(channel_desc_t *ch);
+int load_sat_trace(channel_desc_t *desc, const char *filepath);
 
 /**
 \brief This set the ownerid of a model descriptor, can be later used to check what module created a channel model

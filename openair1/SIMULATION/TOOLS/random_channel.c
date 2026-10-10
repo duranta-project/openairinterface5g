@@ -540,6 +540,98 @@ double get_normalization_ch_factor(channel_desc_t *desc)
   return sqrt((N_average * desc->nb_tx * desc->nb_rx) / accumulated_ch_power);
 }
 
+// Load a satellite orbit trace CSV. The header names the columns: "time_s" or "time_ms",
+// "pos_x", "pos_y", "pos_z" (ECEF, m) and "vel_x", "vel_y", "vel_z" (ECEF, m/s), in any order.
+int load_sat_trace(channel_desc_t *desc, const char *filepath)
+{
+  FILE *fp = fopen(filepath, "r");
+  if (!fp) {
+    LOG_E(OCM, "Cannot open satellite trace file %s\n", filepath);
+    return -1;
+  }
+
+  char line[1024];
+  if (!fgets(line, sizeof(line), fp)) {
+    LOG_E(OCM, "Empty satellite trace file %s\n", filepath);
+    fclose(fp);
+    return -1;
+  }
+  line[strcspn(line, "\r\n")] = '\0';
+
+  // column index of t, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z
+  const char *names[] = {"time_s", "pos_x", "pos_y", "pos_z", "vel_x", "vel_y", "vel_z"};
+  int col[7] = {-1, -1, -1, -1, -1, -1, -1};
+  double time_scale = 1.0;
+  int ncols = 0;
+  for (char *tok = strtok(line, ","); tok; tok = strtok(NULL, ","), ncols++) {
+    while (*tok == ' ')
+      tok++;
+    if (strcmp(tok, "time_ms") == 0) {
+      col[0] = ncols;
+      time_scale = 1e-3;
+      continue;
+    }
+    for (int k = 0; k < 7; k++)
+      if (strcmp(tok, names[k]) == 0)
+        col[k] = ncols;
+  }
+  for (int k = 0; k < 7; k++) {
+    if (col[k] < 0) {
+      LOG_E(OCM, "Satellite trace %s: missing column %s\n", filepath, names[k]);
+      fclose(fp);
+      return -1;
+    }
+  }
+
+  int len = 0;
+  int cap = 1024;
+  sat_trace_sample_t *trace = malloc(cap * sizeof(*trace));
+  AssertFatal(trace != NULL, "out of memory\n");
+  while (fgets(line, sizeof(line), fp)) {
+    if (line[0] == '\0' || line[0] == '\n' || line[0] == '\r')
+      continue;
+    double vals[16] = {0};
+    char *p = line;
+    for (int c = 0; c < ncols && c < 16 && *p; c++) {
+      vals[c] = strtod(p, &p);
+      if (*p == ',')
+        p++;
+    }
+    if (len == cap) {
+      cap *= 2;
+      trace = realloc(trace, cap * sizeof(*trace));
+      AssertFatal(trace != NULL, "out of memory\n");
+    }
+    sat_trace_sample_t *smp = &trace[len++];
+    smp->t = vals[col[0]] * time_scale;
+    for (int k = 0; k < 3; k++) {
+      smp->pos[k] = vals[col[1 + k]];
+      smp->vel[k] = vals[col[4 + k]];
+    }
+    if (len > 1 && smp->t <= trace[len - 2].t) {
+      LOG_E(OCM, "Satellite trace %s: time not strictly increasing at row %d\n", filepath, len);
+      free(trace);
+      fclose(fp);
+      return -1;
+    }
+  }
+  fclose(fp);
+  if (len == 0) {
+    LOG_E(OCM, "Satellite trace %s has no data rows\n", filepath);
+    free(trace);
+    return -1;
+  }
+
+  free(desc->sat_trace);
+  desc->sat_trace = trace;
+  desc->sat_trace_len = len;
+  desc->sat_trace_last_idx = 0;
+  free(desc->sat_trace_file);
+  desc->sat_trace_file = strdup(filepath);
+  LOG_I(OCM, "Loaded satellite trace %s: %d samples, %.3f-%.3f s\n", filepath, len, trace[0].t, trace[len - 1].t);
+  return 0;
+}
+
 channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
                                      uint8_t nb_rx,
                                      SCM_t channel_model,
@@ -1641,6 +1733,9 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       chan_desc->sat_height = 600e3;
       chan_desc->enable_dynamic_delay = true;
       chan_desc->enable_dynamic_Doppler = true;
+      // trace mode defaults, overwritten by load_channellist()
+      chan_desc->pos_ue[2] = 6377900;
+      chan_desc->pos_gnb[2] = 6377900;
       fill_channel_desc(chan_desc,nb_tx,
                         nb_rx,
                         nb_taps,
@@ -1724,6 +1819,8 @@ void free_channel_desc_scm(channel_desc_t *ch) {
   free(ch->chF);
   free(ch->a);
   free(ch->model_name);
+  free(ch->sat_trace_file);
+  free(ch->sat_trace);
   free(ch);
 }
 
@@ -2064,8 +2161,11 @@ static void display_channelmodel(channel_desc_t *cd,int debug, telnet_printfunc_
        cd->forgetting_factor);
   prnt("Initial phase: %lf   nb_path: %i \n",
        cd->ip, cd->nb_paths);
-  if (cd->modelid == SAT_LEO_TRANS || cd->modelid == SAT_LEO_REGEN)
+  if (cd->modelid == SAT_LEO_TRANS || cd->modelid == SAT_LEO_REGEN) {
     prnt("satellite orbit height: %f\n", cd->sat_height);
+    if (cd->sat_trace_file)
+      prnt("satellite trace: %s (%d samples)\n", cd->sat_trace_file, cd->sat_trace_len);
+  }
 
   for (int i=0; i<cd->nb_taps ; i++) {
     prnt("taps: %i   lin. ampli. : %lf    delay: %lf \n",i,cd->amps[i], cd->delays[i]);
@@ -2293,6 +2393,19 @@ int load_channellist(uint8_t nb_tx, uint8_t nb_rx, double sampling_rate, uint64_
   int pindex_PL = config_paramidx_fromname(achannel_params,numparams, CHANNELMOD_MODEL_PL_PNAME );
   int pindex_NP = config_paramidx_fromname(achannel_params,numparams, CHANNELMOD_MODEL_NP_PNAME );
   int pindex_TYPE = config_paramidx_fromname(achannel_params,numparams, CHANNELMOD_MODEL_TYPE_PNAME);
+  int pindex_TRACE = config_paramidx_fromname(achannel_params, numparams, CHANNELMOD_MODEL_TRACE_PNAME);
+  int pindex_ZOH = config_paramidx_fromname(achannel_params, numparams, CHANNELMOD_MODEL_ZOH_PNAME);
+  const char *pos_ue_pnames[3] = {CHANNELMOD_MODEL_POS_UE_X_PNAME,
+                                  CHANNELMOD_MODEL_POS_UE_Y_PNAME,
+                                  CHANNELMOD_MODEL_POS_UE_Z_PNAME};
+  const char *pos_gnb_pnames[3] = {CHANNELMOD_MODEL_POS_GNB_X_PNAME,
+                                   CHANNELMOD_MODEL_POS_GNB_Y_PNAME,
+                                   CHANNELMOD_MODEL_POS_GNB_Z_PNAME};
+  int pindex_POS_UE[3], pindex_POS_GNB[3];
+  for (int k = 0; k < 3; k++) {
+    pindex_POS_UE[k] = config_paramidx_fromname(achannel_params, numparams, pos_ue_pnames[k]);
+    pindex_POS_GNB[k] = config_paramidx_fromname(achannel_params, numparams, pos_gnb_pnames[k]);
+  }
 
   for (int i=0; i<channel_list.numelt; i++) {
     int modid = modelid_fromstrtype( *(channel_list.paramarray[i][pindex_TYPE].strptr) );
@@ -2322,6 +2435,20 @@ int load_channellist(uint8_t nb_tx, uint8_t nb_rx, double sampling_rate, uint64_
                                                          *(channel_list.paramarray[i][pindex_NP].dblptr));
     AssertFatal( (channeldesc_p!= NULL), "Could not allocate channel %s type %s \n",*(channel_list.paramarray[i][pindex_NAME].strptr), *(channel_list.paramarray[i][pindex_TYPE].strptr));
     channeldesc_p->model_name = strdup(*(channel_list.paramarray[i][pindex_NAME].strptr));
+
+    const char *trace_path = *(channel_list.paramarray[i][pindex_TRACE].strptr);
+    if (trace_path != NULL && trace_path[0] != '\0') {
+      AssertFatal(modid == SAT_LEO_TRANS || modid == SAT_LEO_REGEN,
+                  "%s is only supported for SAT_LEO_TRANS/SAT_LEO_REGEN (model %s)\n",
+                  CHANNELMOD_MODEL_TRACE_PNAME,
+                  channeldesc_p->model_name);
+      AssertFatal(load_sat_trace(channeldesc_p, trace_path) == 0, "Failed to load satellite trace %s\n", trace_path);
+      channeldesc_p->sat_interp_zoh = *(channel_list.paramarray[i][pindex_ZOH].iptr) != 0;
+      for (int k = 0; k < 3; k++) {
+        channeldesc_p->pos_ue[k] = *(channel_list.paramarray[i][pindex_POS_UE[k]].dblptr);
+        channeldesc_p->pos_gnb[k] = *(channel_list.paramarray[i][pindex_POS_GNB[k]].dblptr);
+      }
+    }
     LOG_I(OCM,"Model %s type %s allocated from config file, list %s\n",*(channel_list.paramarray[i][pindex_NAME].strptr),
           *(channel_list.paramarray[i][pindex_TYPE].strptr), modellist_name);
   } /* for loop on channel_list */
