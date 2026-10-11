@@ -199,7 +199,7 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
     harq_process->Z = TB_parameters->Z;
     harq_process->F = TB_parameters->F;
 
-    uint16_t a_segments = MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER * TB_parameters->nb_layers; // number of segments to be allocated
+    uint16_t a_segments = MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * TB_parameters->nb_layers; // number of segments to be allocated
     if (TB_parameters->C > a_segments) {
       LOG_E(PHY, "nr_segmentation.c: too many segments %d, A %d\n", harq_process->C, TB_parameters->A);
       return (-1);

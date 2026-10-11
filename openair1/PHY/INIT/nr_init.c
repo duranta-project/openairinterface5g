@@ -168,7 +168,7 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
   init_nr_prach(gNB);
 
   int N_RB_UL = cfg->carrier_config.ul_grid_size[cfg->ssb_config.scs_common.value].value;
-  int n_buf = Prx*max_ul_mimo_layers;
+  int n_buf = Prx * max_ul_mimo_layers;
 
   int nb_re_pusch = N_RB_UL * NR_NB_SC_PER_RB;
   int nb_re_pusch2 = ceil_mod(nb_re_pusch, 16);
@@ -185,8 +185,7 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
     for (int i = 0; i < max_ul_mimo_layers; i++) {
       pusch->rxdataF_comp[i] = (c16_t *)malloc16_clear(sizeof(**pusch->rxdataF_comp) * nb_re_pusch2 * fp->symbols_per_slot);
     }
-    // 144 segments 8448*3 coded bits per segment
-    int max_size = 144 * 3 * NR_MAX_BLOCK_LENGTH;
+    int max_size = MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * max_ul_mimo_layers * 3 * NR_MAX_BLOCK_LENGTH;
 #ifdef LDPC_CUDA
     pusch->ulsch_llrs = gpuHostAlloc_or_fail(max_size * sizeof(int16_t), gpuHostAllocMapped);
     pusch->llr_dev = gpuHostGetDevicePointer_or_fail(pusch->ulsch_llrs);

@@ -31,7 +31,7 @@
 void free_gNB_dlsch(NR_gNB_DLSCH_t *dlsch, uint16_t N_RB, const NR_DL_FRAME_PARMS *frame_parms)
 {
   int max_layers = min(frame_parms->nb_antennas_tx, NR_MAX_NB_LAYERS);
-  uint16_t a_segments = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * max_layers;
+  uint16_t a_segments = MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * max_layers;
 
   if (N_RB != 273) {
     a_segments = a_segments * N_RB;
@@ -64,14 +64,14 @@ void free_gNB_dlsch(NR_gNB_DLSCH_t *dlsch, uint16_t N_RB, const NR_DL_FRAME_PARM
 NR_gNB_DLSCH_t new_gNB_dlsch(NR_DL_FRAME_PARMS *frame_parms, uint16_t N_RB)
 {
   int max_layers = min(frame_parms->nb_antennas_tx, NR_MAX_NB_LAYERS);
-  uint16_t a_segments = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * max_layers; // number of segments to be allocated
+  uint16_t a_segments = MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * max_layers; // number of segments to be allocated
 
   if (N_RB != 273) {
     a_segments = a_segments * N_RB;
     a_segments = a_segments / 273 + 1;
   }
 
-  LOG_D(PHY, "Allocating %d segments (MAX %d, N_PRB %d)\n", a_segments, MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER, N_RB);
+  LOG_D(PHY, "Allocating %d segments (MAX %d, N_PRB %d)\n", a_segments, MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER, N_RB);
   uint32_t dlsch_bytes = a_segments * 1056; // allocated bytes per segment
   NR_gNB_DLSCH_t dlsch = {0};
 
@@ -151,7 +151,7 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
     }
 
     start_meas(dlsch_crc_stats);
-    int max_bytes = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers * 1056;
+    int max_bytes = MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers * 1056;
     int B;
     if (A > NR_MAX_PDSCH_TBS) {
       // Add 24-bit crc (polynomial A) to payload
@@ -192,7 +192,7 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
                                         &TB_parameters->F,
                                         TB_parameters->BG);
 
-    if (TB_parameters->C > MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers) {
+    if (TB_parameters->C > MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers) {
       LOG_E(PHY, "nr_segmentation.c: too many segments %d, B %d\n", TB_parameters->C, B);
       return (-1);
     }
