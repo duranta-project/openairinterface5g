@@ -19,7 +19,10 @@ Two things sit on top of that enforcement:
   PUCCH, SIB). When one of those lands inside the block, the gNB skips that
   reservation gracefully (with a rate-limited warning) instead of failing an
   assertion — a block that hits a dynamically-scheduled channel degrades it,
-  it does not crash the gNB.
+  it does not crash the gNB. For PRACH and Msg3 the uplink reservation skips RBs
+  occupied only by the dApp block (one rate-limited summary per call site: the first
+  five, then every 1000th); any other occupancy still asserts, except on a slot reserved
+  for sensing, where the map is legitimately pre-stamped.
 
 - **Collision detection for fixed per-UE signals.** PUCCH, SRS and NZP-CSI-RS sit
   on fixed PRBs assigned to each UE by RRC. The gNB keeps a small per-UE table of
@@ -31,6 +34,9 @@ Two things sit on top of that enforcement:
   This is **detection only** today: it tells an operator which UEs a block
   disturbs, and is the place where a future version would move the affected signal
   off the blocked PRBs (via an RRC reconfiguration) instead of just logging.
+
+While a block is active the gNB logs the blocked PRB ranges
+(`[PRB-BLOCK] active blocked PRBs: UL(n)=[...] DL(n)=[...]`) once every 128 frames at slot 0.
 
 The rest of this document lists behaviors the block control surface exposes but
 does **not** mitigate. Most are pre-existing gNB design choices, not faults of the
@@ -54,6 +60,17 @@ synchronizing or attaching** (it cannot decode the broadcast / the SIB1 control
 channel). Keep the dApp's mask off the cell-common PRBs, or expect the broadcast
 and random-access path to degrade while such a block is active.
 
+The same holds for the scheduled cell-common transmissions. When a block leaves no free CCE
+bundle, TDA or TB allocation for SIB1 or another SIB, the occasion is skipped (rate-limited
+log, beam reservation released) instead of asserting; SIB1 repeats about every 160 ms, so one
+lost occasion is preferable to a crash. The SSB fill ORs into the VRB map instead of assigning,
+because block bits may already be stamped for the slot. Msg3 honours the block: its free-RB
+search runs on `vrb_map_UL`, so a wide block starves Msg3 and random access fails ("No space");
+exempting Msg3 from the block is not implemented. A Msg3 reservation that collides with the block
+is skipped, the PHY fails the Msg3 decode on the interfered RBs and the UE retries. For 2-step
+RA the MsgA-PUSCH region is also stamped into `vrb_map_UL`, so the sensing scan does not report
+those PRBs as free.
+
 ## SRS beamManagement reports overwrite the operator PRB blacklist
 
 `handle_nr_srs_measurements()` (`gNB_scheduler_ulsch.c`) rebuilds `cell->ulprbbl`
@@ -76,9 +93,19 @@ If the block overlaps a UE's dedicated PUCCH (scheduling request, periodic CSI,
 HARQ-ACK) or its SRS, the gNB skips that reception gracefully (a rate-limited
 warning) rather than asserting, and the collision is reported by the detection
 described above. That UE loses SR/CSI/SRS for as long as the block overlaps those
-PRBs (buffer-status-driven uplink still flows via other grants) and recovers on the
-next occasion once the block lifts. Keep the uplink mask off connected UEs'
-dedicated PUCCH/SRS PRBs, or accept transient SR/CSI/SRS loss.
+PRBs. A short block is tolerated (buffer-status-driven uplink still flows via other
+grants) and the UE recovers on the next occasion once it lifts, but a block that stays
+over the PUCCH makes the gNB log `Cannot schedule SR` and `Detected UL Failure`, and the
+UE falls back to random access, which also fails while the block covers the PRACH PRBs
+(the lowest PRBs in this cell). Keep the uplink mask off connected UEs' dedicated
+PUCCH/SRS PRBs.
+
+Detection only knows RRC-configured, periodic signals. Aperiodic (DCI-triggered) SRS is
+not registered, so a block over it is not reported. A periodic SRS is registered over the
+whole UL BWP, because OAI reserves the whole BWP for a scheduled SRS and the actual SRS
+bandwidth is not derived, so the report over-estimates the span. PUCCH entries cover every
+configured resource, including the second hop; NZP-CSI-RS entries are clipped to the DL
+BWP. Cell-wide signals (SSB, CORESET0, PRACH) are not tracked.
 
 ## CSI-RS still transmits on blocked downlink PRBs
 
@@ -127,8 +154,17 @@ the stamp split across several ticks.
 After the block shrinks or clears, freed uplink PRBs may stay marked as occupied for
 up to one uplink-ring cycle until the ring slices are refreshed; the gNB tracks the
 just-released bits so collision checks and sensing stay coherent across that window.
+Each direction keeps a `prev_mask` of the bits the latest change released; readers
+(collision checks, sensing, the test that a conflict is only the dApp block) use
+`mask | prev_mask`, so a stale ring bit is attributed to the block and not treated as a
+scheduler conflict. A mask that re-blocks a PRB removes it from `prev_mask`, and
+`prev_mask` is cleared one ring length after the change. Every UL install also requests a
+one-shot stamp of the new mask into every ring slice on the next tick, which closes the
+expand race for lookahead slots; the steady-state stamp touches only the previous-slot
+slice, where the scheduler seeds its map. DL has no ring and is stamped into the current
+slot's map only.
 
-The ring holds `vrb_map_UL_size` slots (`nr_mac_config_scc()`): the slots per frame
+The ring holds `vrb_map_UL_size` slots (`nr_mac_cell_config_scc()`): the slots per frame
 times the smallest power of two that covers the K-offset plus the 13-slot maximum
 feedback delay. For a terrestrial cell that is 20 slots, i.e. 10 ms, at 30 kHz
 (and 10 ms at 60 and 120 kHz), and 20 slots, i.e. 20 ms, at 15 kHz; an NTN K-offset

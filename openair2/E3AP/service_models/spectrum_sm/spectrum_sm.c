@@ -563,7 +563,6 @@ static e3_error_t spectrum_sm_process_control(e3_service_model_handle_t *sm_hand
                                               uint32_t sequence_id)
 {
   (void)dapp_id;
-  (void)sequence_id; /* controls are not correlated to a detection */
 
   spectrum_sm_context_t *ctx = (spectrum_sm_context_t *)sm_context;
   if (!ctx || !sm_handle || ran_function_id != E3_SM_ID_SPECTRUM) {

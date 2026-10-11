@@ -38,6 +38,16 @@ git clone --branch 0.2.3 https://github.com/wineslab/libe3 && cd libe3
 The build then finds it with no further setup. A libe3 installed elsewhere (`--prefix DIR`) needs
 `DIR/lib/pkgconfig` on `PKG_CONFIG_PATH` when building OAI.
 
+The libe3 feature macros (`LIBE3_ENABLE_ASN1`, `LIBE3_ENABLE_JSON`, `LIBE3_ENABLE_PROTOBUF`)
+are read from `libe3.pc`, which libe3 generates from its own compile definitions, so they
+cannot drift from the linked library; they are applied to `e3ap`. The E3SM codecs compile every
+wire format and choose at runtime, so the encoders libe3 was built with decide which
+`E3Configuration.encoding` values the gNB can serve. CMake fails if libe3 has no encoder at all and
+warns when `asn1` (the default) is missing; `e3_readconfig()` aborts at startup, naming the
+available encodings, when the configured one is not compiled in. A deployment that knows its conf
+can make the build strict with `-DE3_REQUIRED_ENCODINGS=json` (a list of `asn1;json;protobuf`,
+empty by default).
+
 ## Build OAI with the E3 Agent
 
 The E3 Agent is **opt-in** and gated behind the `E3_AGENT` CMake option (`OFF` by default).
@@ -88,7 +98,8 @@ the wire by a RAN-function id and registered with the agent at startup.
 | 1 | Spectrum SM | uplink sensing ranges: the free time-frequency tiles of each UL slot | [`service_models/spectrum_sm`](service_models/spectrum_sm/README.md) |
 | 2 | L1-KPM SM | post-FFT IQ from the PHY | [`service_models/l1_kpm_sm`](service_models/l1_kpm_sm/README.md) |
 
-Both are telemetry-out only. Code is split by what it depends on:
+Both stream telemetry to the dApp; the Spectrum SM also accepts controls (a PRB block and a
+sensing policy, see its README). Code is split by what it depends on:
 
 - `service_models/<sm>/` holds the message definitions (ASN.1 and Protocol Buffers),
   the encoders and the SM callbacks. `service_models/e3_sm_worker.c` (the telemetry
