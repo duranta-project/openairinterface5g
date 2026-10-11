@@ -424,7 +424,7 @@ void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSE
 #else
       harq_list[j][i].c = malloc16(a_segments * sizeof(*harq_list[j][i].c) * 1056);
 #endif
-      harq_list[j][i].d = malloc16(a_segments * sizeof(*harq_list[j][i].d) * 3 * 8448);
+      harq_list[j][i].d = malloc16(a_segments * sizeof(*harq_list[j][i].d) * 3 * NR_MAX_BLOCK_LENGTH);
       init_abort(&harq_list[j][i].abort_decode);
       harq_list[j][i].status  = 0;
       harq_list[j][i].DLround = 0;
@@ -450,7 +450,7 @@ void nr_init_ul_harq_processes(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES],
     harq_list[i].payload_AB = malloc16_clear(ulsch_bytes);
 
 #ifdef LDPC_CUDA
-    size_t total_c_size = a_segments * 8448;
+    size_t total_c_size = a_segments * NR_MAX_BLOCK_LENGTH;
 
     uint8_t *tmp_c = gpuHostAlloc_or_fail(total_c_size, gpuHostAllocMapped);
     memset(tmp_c, 0, total_c_size);
@@ -458,14 +458,14 @@ void nr_init_ul_harq_processes(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES],
     harq_list[i].c = gpuHostAlloc_or_fail(a_segments * sizeof(uint8_t *), gpuHostAllocMapped);
 
     for (int r = 0; r < a_segments; r++) {
-      harq_list[i].c[r] = tmp_c + (r * 8448);
+      harq_list[i].c[r] = tmp_c + (r * NR_MAX_BLOCK_LENGTH);
     }
 
 #else
     harq_list[i].c = malloc16(a_segments * sizeof(uint8_t *));
 
     for (int r = 0; r < a_segments; r++) {
-      harq_list[i].c[r] = malloc16_clear(8448);
+      harq_list[i].c[r] = malloc16_clear(NR_MAX_BLOCK_LENGTH);
     }
 #endif
 
@@ -509,10 +509,10 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
      * NR_MAX_NB_LAYERS == 4, so llr[1] is never needed. */
     for (int c = 0; c < 1; c++) {
 #ifdef LDPC_CUDA
-      buffers[i].llr[c] = gpuHostAlloc_or_fail((66 * 3 * 8448) * sizeof(int16_t), gpuHostAllocMapped);
+      buffers[i].llr[c] = gpuHostAlloc_or_fail((66 * 3 * NR_MAX_BLOCK_LENGTH) * sizeof(int16_t), gpuHostAllocMapped);
       buffers[i].llr_dev[c] = gpuHostGetDevicePointer_or_fail(buffers[i].llr[c]);
 #else
-      buffers[i].llr[c]              = malloc16(llr_buf_max * sizeof(int16_t));
+      buffers[i].llr[c] = malloc16(llr_buf_max * sizeof(int16_t));
 #endif
     }
     buffers[i].llr[1] = NULL;

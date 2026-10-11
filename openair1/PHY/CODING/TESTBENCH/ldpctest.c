@@ -21,8 +21,6 @@
 #include "PHY/gpu_alloc.h"
 #endif
 
-#define MAX_BLOCK_LENGTH 8448
-
 #ifndef malloc16
 #define malloc16(x) memalign(32, x)
 #endif
