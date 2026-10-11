@@ -95,3 +95,41 @@ bool remove_slice(nr_cell_sched_t *cell, nr_slice_policy_t *slice)
   seq_arr_erase(&cell->slices, slice);
   return true;
 }
+
+void num_associated_ues_slice(NR_UEs_t *UEs, const nr_slice_policy_t *slice, int *num_dl, int *num_ul)
+{
+  *num_dl = 0;
+  *num_ul = 0;
+  FOR_EACH_CONNECTED_UE(UEs, UE) {
+    if (UE->dl_slice_id == slice->id)
+      (*num_dl)++;
+    if (UE->ul_slice_id == slice->id)
+      (*num_ul)++;
+  }
+}
+
+static bool eq_plmn(const plmn_id_t *a, const plmn_id_t *b)
+{
+  return a->mcc == b->mcc && a->mnc == b->mnc && a->mnc_digit_length == b->mnc_digit_length;
+}
+
+/** @brief Get the slice for PLMN and S-NSSAI in direction dir (DL or UL)
+ * @return the first slice containing a matching policy member, or NULL if none */
+const nr_slice_policy_t *get_slice(const nr_cell_sched_t *cell,
+                                   const plmn_id_t *plmn,
+                                   const nssai_t *nssai,
+                                   nr_slice_resource_type_t dir)
+{
+  DevAssert(dir == NR_SLICE_RESOURCE_DL || dir == NR_SLICE_RESOURCE_UL);
+  for (int i = 0; i < seq_arr_size(&cell->slices); ++i) {
+    const nr_slice_policy_t *s = seq_arr_at(&cell->slices, i);
+    if (!applies_to(s->resource_type, dir))
+      continue;
+    for (int m = 0; m < s->num_members; ++m) {
+      const nr_slice_policy_member_t *pm = &s->members[m];
+      if (eq_plmn(&pm->plmn, plmn) && pm->nssai.sst == nssai->sst && pm->nssai.sd == nssai->sd)
+        return s;
+    }
+  }
+  return NULL;
+}
