@@ -185,17 +185,18 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
     for (int i = 0; i < max_ul_mimo_layers; i++) {
       pusch->rxdataF_comp[i] = (c16_t *)malloc16_clear(sizeof(**pusch->rxdataF_comp) * nb_re_pusch2 * fp->symbols_per_slot);
     }
-#ifdef LDPC_CUDA
     // 144 segments 8448*3 coded bits per segment
-    pusch->ulsch_llrs = gpuHostAlloc_or_fail((144 * 3 * 8448) * sizeof(int16_t), gpuHostAllocMapped);
+    int max_size = 144 * 3 * NR_MAX_BLOCK_LENGTH;
+#ifdef LDPC_CUDA
+    pusch->ulsch_llrs = gpuHostAlloc_or_fail(max_size * sizeof(int16_t), gpuHostAllocMapped);
     pusch->llr_dev = gpuHostGetDevicePointer_or_fail(pusch->ulsch_llrs);
 #else
-    pusch->ulsch_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t)); // 144 segments 3*8448 coded bits per segment
+    pusch->ulsch_llrs = (int16_t *)malloc16_clear(max_size * sizeof(int16_t));
 #endif
     // TODO refine the size
-    pusch->ack_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t));
-    pusch->csi1_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t));
-    pusch->csi2_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t));
+    pusch->ack_llrs = (int16_t *)malloc16_clear(max_size * sizeof(int16_t));
+    pusch->csi1_llrs = (int16_t *)malloc16_clear(max_size * sizeof(int16_t));
+    pusch->csi2_llrs = (int16_t *)malloc16_clear(max_size * sizeof(int16_t));
     pusch->ul_valid_re_per_slot = (int16_t *)malloc16_clear(sizeof(int16_t) * fp->symbols_per_slot);
   } // ulsch_id
 }

@@ -85,18 +85,14 @@ NR_gNB_DLSCH_t new_gNB_dlsch(NR_DL_FRAME_PARMS *frame_parms, uint16_t N_RB)
   dlsch.c_dev = gpuHostGetDevicePointer_or_fail(dlsch.c_devh);
 #endif
   for (int r = 0; r < a_segments; r++) {
-    // account for filler in first segment and CRCs for multiple segment case
-    // [hna] 8448 is the maximum CB size in NR
-    //       68*348 = 68*(maximum size of Zc)
-    //       In section 5.3.2 in 38.212, the for loop is up to N + 2*Zc (maximum size of N is 66*Zc, therefore 68*Zc)
 #ifdef LDPC_CUDA
-    dlsch.c[r] = gpuHostAlloc_or_fail((8448 / 8) * sizeof(uint8_t), gpuHostAllocMapped);
+    dlsch.c[r] = gpuHostAlloc_or_fail((NR_MAX_BLOCK_LENGTH / 8) * sizeof(uint8_t), gpuHostAllocMapped);
     ((uint8_t **)dlsch.c_devh)[r] = gpuHostGetDevicePointer_or_fail(dlsch.c[r]);
 #else
-    dlsch.c[r] = malloc16(8448 / 8);
+    dlsch.c[r] = malloc16(NR_MAX_BLOCK_LENGTH / 8);
 #endif
     AssertFatal(dlsch.c[r], "cannot allocate dlsch->c[%d]\n", r);
-    bzero(dlsch.c[r], 8448 / 8);
+    bzero(dlsch.c[r], NR_MAX_BLOCK_LENGTH / 8);
   }
 
   dlsch.f = malloc16(N_RB * frame_parms->symbols_per_slot * NR_NB_SC_PER_RB * 8 * NR_MAX_NB_LAYERS);
