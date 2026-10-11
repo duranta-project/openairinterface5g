@@ -86,6 +86,17 @@ dApp ──(E3 control, RF=1)──► E3 agent ──► spectrum_sm_process_co
 Each handler decodes the payload, drives the MAC, and replies with a positive or
 negative message ACK (a negative ACK is paired with a `LOG_W` naming the cause).
 
+The payload is decoded in the wire format selected by `E3Configuration.encoding`; the
+agent serves one encoding per run, so a control in another format fails to decode and
+is NACKed. Both controls travel in `Spectrum-DAppControlData`: APER with a
+`controlPayload` CHOICE in ASN.1, a `control_payload` oneof in Protocol Buffers, and
+`{"controlType": ..., "controlPayload": {"prbBlacklistControl" | "sensingPolicyControl": {...}}}`
+in JSON, where `controlType` is an optional convenience key (checked when present) and
+the payload key is the discriminator. `blacklistedPRBs` is required: an explicit empty
+array clears the block, a missing or mistyped key is a malformed control and is NACKed.
+List lengths and elements are range-checked against the ASN.1 bounds (273 PRBs, indices
+0..272; 160 slots, symbol mask 0..16383) before narrowing to 16 bits.
+
 ### PRB block (control_id 1)
 
 `Spectrum-PRBBlacklistControl` carries `blacklistedPRBs` (the full current list of PRB
@@ -109,16 +120,34 @@ Spectrum-PRBBlacklistControl ::= SEQUENCE {
    carries no direction field, so the one list drives UL and DL.
 
 A non-empty list **replaces** the persistent block set; an **empty list clears**
-it. The dApp sends the full current list on every change.
+it. The dApp sends the full current list on every change. The UL and DL installs
+take the block lock separately, so a tick landing between them can see the new UL set
+with the old DL set for one slot.
 
 The block is per-cell state owned by `ran_func_spectrum_prb_block.c`, allocated
 by `prb_block_attach()` from `e3_spectrum_mac_attach_cell()`; no block data lives
 in the MAC structures.
 Enforcement is a per-slot stamp: `apply_prb_block_masks()` OR's the block bitmap
 into `vrb_map` (DL) and `vrb_map_UL` at slot start, so every downstream
-scheduling step treats blocked PRBs as occupied. Static control channels are
-protected and per-channel collisions are reported; see
-`PRB_BLOCK_LIMITATIONS.md` and the policy notes in `ran_func_spectrum_prb_block.c`.
+scheduling step treats blocked PRBs as occupied. Fixed cell-channel reservations
+skip a block that lands on them instead of asserting, and per-UE signals the block
+hits are logged; see `PRB_BLOCK_LIMITATIONS.md`.
+
+When an xApp decision is relayed through the dApp, the control handler registers the
+procedure's sequence id with `prb_block_set_pending_procedure()` just before
+`set_prb_block_mask()`. The id is thread-local and consumed by that install, so a later
+block the dApp decides on its own is never attributed to the xApp; masks replace rather
+than accumulate, so if several UL installs land between two ticks the last id is the one
+acknowledged. A displaced non-zero id is reported through `prb_block_superseded_hook()`
+once the block lock is released (re-installing the same id is not a supersede). After the
+mask has been OR'd into the maps, the scheduler thread calls
+`prb_block_on_air_hook(sequence_id, sfn, slot)` exactly once; it runs inside the slot
+deadline and must not block. Both hooks are weak no-ops in a gNB built without the E3 agent.
+
+`set_prb_block_mask()` runs on the SM control thread. After an install it re-checks the
+per-UE signal registry against the effective DL and UL masks. The registry has no lock of
+its own, so the scan runs under the MAC `sched_lock`, taken after the block lock is
+released (the scheduler takes `sched_lock` first and the block lock second).
 
 ### Sensing policy (control_id 2)
 
@@ -140,6 +169,51 @@ cleared regardless of the mask. `set_sensing_policy()` validates the mask length
 against the MAC's slots-per-frame and returns false (→ negative ACK) on mismatch.
 The MAC sensing scan/reserve/publish machinery itself is documented in
 [README.md](README.md).
+
+The policy state (a per-slot symbol bitmap, an active flag and a mutex) lives behind
+`cell->sched_stateful_data` and is inactive until a mask is installed; a null mask or
+`n_slots == 0` clears it. The UL TDA selector snapshots the mask once per call and scores
+each TDA of the same-k2 run that fits the slot (higher wins): an extra operator TDA while
+a policy is active, then zero overlap with the mask, then fewer overlapping symbols, then
+`nrOfSymbols x free RBs`. It enumerates the whole same-k2 run instead of using the shared
+`get_num_ul_tda()` window, which is what lets extra TDAs be appended without reordering the
+shared list. A retransmission keeps its original TDA when its symbols still fit, otherwise
+it is refit with its original TBS or deferred. A new transmission with an aperiodic SRS
+trigger takes the same-start, one-symbol-shorter TDA, or loses the trigger if there is
+none, as the default selector does.
+
+### xApp control outcome
+
+A control that originates from an xApp is tracked in a fixed table of 64 entries
+(`e3_pending_ctrl.c`) keyed by the procedure's sequence id, which is what the acknowledge
+must name for the xApp to learn which decision was applied. Three threads touch an entry:
+the flexric thread that ran the E2 control callback opens it, the E3 control handler records
+the install (mask written into the MAC), and the MAC thread records the slot that put it on
+air. Only the MAC thread has a deadline, so it does one clock read and a few atomic stores,
+with no lock and no allocation; the entry's state is released last so the relay thread never
+sees a half-written outcome. A failed install completes immediately as a failure. A control
+whose mask is replaced before any tick reports its install timestamp and no on-air timestamp.
+An entry that waits longer than the timeout (150 ms, deliberately shorter than FlexRIC's
+`PENDING_CTRL_TIMEOUT_NS` so the gNB gives up first) is retired by a sweep and reported with
+`ok=false` and the timestamps it has. When the table is full the bridge answers immediately
+instead of deferring. The sensing policy has no apply outcome and opens no entry.
+
+### Apply outcome
+
+What the gNB reports back for an applied control. It belongs to the Service Model, not to
+E3AP or the E2SM-DAPP envelope: "applied" means something different for each control, and a
+PRB block is only in effect once the scheduler has put the mask on the air, which is later
+than the control handler returning. The E2SM-DAPP control outcome carries the PDU as an
+opaque octet string, the same way it carries a control.
+
+`Spectrum-PRBBlockApplyOutcome` holds `installedTimestamp` (mask written into the MAC),
+`onAirTimestamp` (first scheduler tick that applies it; later than the install by up to a
+slot and not by a fixed amount, because the install runs on the control thread and the tick
+on the MAC thread) and the `sfn`/`slot` of that tick. `Spectrum-ApplyOutcomeData.timestamp`
+is when the outcome itself was built. All instants are CLOCK_REALTIME nanoseconds at the
+gNB, the clock of `Spectrum-DAppReportData.timestamp`, so an xApp can difference them; zero
+or absent means the event did not happen. They are payload fields, not latrec records:
+latrec is CLOCK_MONOTONIC and the two must not be differenced.
 
 ---
 
