@@ -64,6 +64,7 @@ nr_cell_sched_t *nr_mac_cell_alloc(gNB_MAC_INST *mac, NR_ServingCellConfigCommon
   new_cell.num_scheduled_prach_rx = 0;
   new_cell.cset0_bwp_start = 0;
   new_cell.cset0_bwp_size = 0;
+  seq_arr_init(&new_cell.slices, sizeof(nr_slice_policy_t));
   seq_arr_push_back(&mac->cells, &new_cell, sizeof(new_cell));
   return seq_arr_at(&mac->cells, seq_arr_size(&mac->cells) - 1);
 }
@@ -96,4 +97,10 @@ void nr_mac_cell_free(nr_cell_sched_t *cell)
   e3_spectrum_mac_detach_cell(cell);
 #endif /* E3_AGENT */
   destroy_periodic_sched(cell->periodic_srs_config);
+  while (seq_arr_size(&cell->slices) > 0) {
+    bool removed = remove_slice(cell, seq_arr_front(&cell->slices));
+    DevAssert(removed);
+  }
+  seq_arr_free(&cell->slices, NULL);
+  free(cell->radio_config.slice_policies);
 }

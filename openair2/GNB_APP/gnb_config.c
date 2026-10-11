@@ -1572,9 +1572,9 @@ static void config_spatial_stream_index(const paramdef_t *param, const size_t np
 }
 
 /** @brief Read slicing RRM policies of MACRLCs.[idx]
- * @param[out] policies array of NR_MAX_SLICES policies to fill
+ * @param[out] policies allocated array of policies, NULL if none
  * @return number of policies read */
-static int config_slicing(int idx, nr_slice_policy_t policies[NR_MAX_SLICES])
+static int config_slicing(int idx, nr_slice_policy_t **policies)
 {
   char prefix[MAX_OPTNAME_SIZE * 2 + 8];
   snprintf(prefix, sizeof(prefix), "%s.[%d]", MACRLC_LIST, idx);
@@ -1582,10 +1582,11 @@ static int config_slicing(int idx, nr_slice_policy_t policies[NR_MAX_SLICES])
   const int np = sizeofArray(SlicingParams);
   const int n = SlicingParamList.numelt;
   AssertFatal(n <= NR_MAX_SLICES, "%s: %d slices configured, maximum is %d\n", prefix, n, NR_MAX_SLICES);
+  *policies = n > 0 ? calloc_or_fail(n, sizeof(**policies)) : NULL;
 
   for (int i = 0; i < n; ++i) {
     paramdef_t *params = SlicingParamList.paramarray[i];
-    nr_slice_policy_t *p = &policies[i];
+    nr_slice_policy_t *p = &(*policies)[i];
     p->resource_type = config_get_processedint(config_get_if(), (paramdef_t *)gpd(params, np, MACRLC_SLICING_RESOURCE_TYPE));
     p->dedicated_ratio = *gpd(params, np, MACRLC_SLICING_DEDICATED_RATIO)->dblptr;
     p->min_ratio = *gpd(params, np, MACRLC_SLICING_MIN_RATIO)->dblptr;
@@ -1872,9 +1873,8 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
   config_spatial_stream_index(macrlc_p, macrlc_np, &config, *num_tx);
 
   // Read per-cell slice policies
-  nr_slice_policy_t policies[NR_MAX_SLICES];
-  const int n_slices = config_slicing(idx, policies);
-  LOG_A(NR_MAC, "read %d slices\n", n_slices);
+  config.num_slice_policies = config_slicing(idx, &config.slice_policies);
+  LOG_A(NR_MAC, "read %d slices\n", config.num_slice_policies);
 
   return config;
 }

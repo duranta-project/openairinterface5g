@@ -256,6 +256,9 @@ typedef struct nr_mac_config_s {
   /// Sized to the max number of physical RU antenna ports, NOT to be confused
   /// with MAX_NUM_SPATIAL_STREAMS, which bounds the per-PDU NFAPI wire field.
   uint16_t spatial_stream_index[NR_MAC_MAX_RU_ANTENNA_PORTS];
+  /// RAN slicing RRM policies, added as slices when configuring the cell
+  int num_slice_policies;
+  nr_slice_policy_t *slice_policies;
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {
@@ -912,7 +915,7 @@ typedef struct NR_UE_info {
   bool nrdc_mode;
 } NR_UE_info_t;
 
-typedef struct {
+typedef struct NR_UEs_s {
   /// scheduling control info
   seq_arr_t connected_ues_list; // has pointers to NR_UE_info_t
   hash_table_t connected_ues; // has pointers to NR_UE_info_t
@@ -1353,6 +1356,11 @@ typedef struct nr_cell_sched_s {
 
   /// Optional opaque state for stateful custom scheduling policies
   void *sched_stateful_data;
+
+  /// Admitted slices, list of nr_slice_policy_t
+  seq_arr_t slices;
+  /// ID of the last added slice
+  uint32_t last_slice_id;
 
   /// Per-cell KPI statistics
   NR_du_stats_t du_stats;
