@@ -192,10 +192,11 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
 #else
     pusch->ulsch_llrs = (int16_t *)malloc16_clear(max_size * sizeof(int16_t));
 #endif
-    // TODO refine the size
-    pusch->ack_llrs = (int16_t *)malloc16_clear(max_size * sizeof(int16_t));
-    pusch->csi1_llrs = (int16_t *)malloc16_clear(max_size * sizeof(int16_t));
-    pusch->csi2_llrs = (int16_t *)malloc16_clear(max_size * sizeof(int16_t));
+    // max coded UCI bits on PUSCH: N_L * Q_m * (symbols * N_RB_UL * NR_NB_SC_PER_RB)
+    int max_uci_size = max_ul_mimo_layers * 8 * fp->symbols_per_slot * nb_re_pusch;
+    pusch->ack_llrs = (int16_t *)malloc16_clear(max_uci_size * sizeof(int16_t));
+    pusch->csi1_llrs = (int16_t *)malloc16_clear(max_uci_size * sizeof(int16_t));
+    pusch->csi2_llrs = (int16_t *)malloc16_clear(max_uci_size * sizeof(int16_t));
     pusch->ul_valid_re_per_slot = (int16_t *)malloc16_clear(sizeof(int16_t) * fp->symbols_per_slot);
   } // ulsch_id
 }
