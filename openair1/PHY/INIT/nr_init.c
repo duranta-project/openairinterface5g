@@ -185,7 +185,8 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
     for (int i = 0; i < max_ul_mimo_layers; i++) {
       pusch->rxdataF_comp[i] = (c16_t *)malloc16_clear(sizeof(**pusch->rxdataF_comp) * nb_re_pusch2 * fp->symbols_per_slot);
     }
-    int max_size = MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * max_ul_mimo_layers * 3 * NR_MAX_BLOCK_LENGTH;
+    int max_segments = MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * N_RB_UL / (273 + 1);
+    int max_size = max_segments * max_ul_mimo_layers * 3 * NR_MAX_BLOCK_LENGTH;
 #ifdef LDPC_CUDA
     pusch->ulsch_llrs = gpuHostAlloc_or_fail(max_size * sizeof(int16_t), gpuHostAllocMapped);
     pusch->llr_dev = gpuHostGetDevicePointer_or_fail(pusch->ulsch_llrs);
