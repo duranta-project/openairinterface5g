@@ -21,7 +21,7 @@ def strToBool(s):
         return False
     raise argparse.ArgumentTypeError(f"cannot interpret '{s}' as boolean")
 
-def ArgsParse(argvs):
+def ArgsParse():
 
     # backwards compatible logDir that plays nicely with existing Jenkinsfile
     defLogDir = f"{os.getcwd()}/../cmake_targets/log"

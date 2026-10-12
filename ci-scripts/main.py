@@ -290,8 +290,7 @@ def run_tests(g_ctx, logPath, HTML, all_tests, filename):
 
 import args_parse
 # Force local execution, move all execution targets to localhost
-force_local = False
-force_local, date_fmt, xmls, g_ctx, oc, logDir = args_parse.ArgsParse(sys.argv)
+force_local, date_fmt, xmls, g_ctx, oc, logDir = args_parse.ArgsParse()
 fmt = "%(levelname)8s: %(message)s"
 if date_fmt:
     fmt = "[%(asctime)s] %(levelname)s %(message)s"
@@ -300,8 +299,6 @@ logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format=fmt, datefmt=
 if __name__ == "__main__":
 	if g_ctx.repository == '' or g_ctx.branch == '' or g_ctx.workspace == '':
 		sys.exit(f'Insufficient Parameters: {g_ctx.repository=}, {g_ctx.branch=}, {g_ctx.workspace=}')
-	count = 0
-	foundCount = 0
 	logging.info(f"placing all artifacts for this run in {logDir}/")
 	TestXML = namedtuple("TestXML", ["filename", "logPath", "title"])
 	test_xmls = []
