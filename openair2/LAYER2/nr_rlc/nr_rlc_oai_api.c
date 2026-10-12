@@ -408,6 +408,7 @@ int nr_rlc_module_init(nr_rlc_op_mode_t mode)
     inited_ue = 1;
 
   nr_rlc_ue_manager = new_nr_rlc_ue_manager(mode);
+  nr_rlc_free_thread_start();
 
   if (pthread_mutex_unlock(&lock)) abort();
 
