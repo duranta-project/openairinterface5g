@@ -53,5 +53,8 @@ void nr_rlc_free_sdu_segment_list(nr_rlc_sdu_segment_t *l);
  * held the lock up to 2.4 ms while the MAC scheduler waited for it under sched_lock. */
 void nr_rlc_defer_free_begin(void);
 void nr_rlc_defer_free_end(void);
+/* start the rlc_free thread that end() then hands the frees to; call from a non-RT
+ * init path, the thread inherits the caller's affinity */
+void nr_rlc_free_thread_start(void);
 
 #endif /* _NR_RLC_SDU_H_ */
