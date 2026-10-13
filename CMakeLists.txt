@@ -606,6 +606,7 @@ target_link_libraries(f1ap PRIVATE ngap nr_rrc ds f1ap_lib)
 target_include_directories(f1ap PRIVATE ${F1AP_DIR}/lib)
 if(E2_AGENT)
   target_compile_definitions(f1ap PRIVATE E2_AGENT)
+  target_link_libraries(f1ap PRIVATE e2ap_setup_store)
 endif()
 
 # LPP

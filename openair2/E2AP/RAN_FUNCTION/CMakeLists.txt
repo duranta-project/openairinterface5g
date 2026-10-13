@@ -1,5 +1,12 @@
 # SPDX-License-Identifier: LicenseRef-CSSL-1.0
 
+# Minimal library exposing only e2ap_store/get_setup_req/resp, used by F1AP
+# (and NGAP/E1AP via nr-softmodem) to capture Setup PDUs for the E2 Node
+# Component Configuration. Kept separate so that sim tools (nr_ulsim, etc.)
+# can resolve these symbols through libf1ap without pulling in the full E2 RAN
+# function stack.
+add_library(e2ap_setup_store STATIC setup_msg_store.c)
+
 set(UE_ID_COMMON_E2SM_SRCS
   ../flexric/src/sm/rc_sm/ie/asn/AMFPointer.c
   ../flexric/src/sm/rc_sm/ie/asn/AMFRegionID.c
