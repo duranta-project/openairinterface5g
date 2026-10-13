@@ -591,6 +591,11 @@ typedef struct NR_UE_MAC_INST_s {
   uint8_t mib_ssb;
   uint32_t mib_additional_bits;
   int mib_frame;
+  // Protected by if_mutex. A generation starts only after old PHY work is drained.
+  uint64_t mib_generation;
+  unsigned int mib_pending_sync; // RRC resynchronization requests not yet processed by MAC
+  bool mib_accepting;
+  bool mib_received;
 
   nr_csi_report_t csi_report_template[MAX_CSI_REPORTCONFIG];
 

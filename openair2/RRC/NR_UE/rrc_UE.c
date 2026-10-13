@@ -126,6 +126,12 @@ static void nr_rrc_send_msg_to_mac(NR_UE_RRC_INST_t *rrc, nr_mac_rrc_message_t *
   notifiedFIFO_elt_t *nf_msg = newNotifiedFIFO_elt(sizeof(nr_mac_rrc_message_t), 0, NULL, NULL);
   nr_mac_rrc_message_t *rrc_msg = NotifiedFifoData(nf_msg);
   memcpy(rrc_msg, msg, sizeof(nr_mac_rrc_message_t));
+  if (nr_rrc_mac_resync_request(msg)) {
+    NR_UE_MAC_INST_t *mac = get_mac_inst(rrc->ue_id);
+    mutexlock(mac->if_mutex);
+    mac->mib_pending_sync++;
+    mutexunlock(mac->if_mutex);
+  }
   pushNotifiedFIFO(rrc->mac_input_nf, nf_msg);
 }
 
@@ -2037,20 +2043,10 @@ static void nr_rrc_ue_decode_NR_BCCH_BCH_Message(NR_UE_RRC_INST_t *rrc,
                                                  const uint32_t phycellid,
                                                  const long ssb_arfcn,
                                                  uint8_t *const bufferP,
-                                                 const uint8_t buffer_len)
+                                                 const uint8_t buffer_len,
+                                                 const nr_ue_mib_metadata_t *mib_metadata)
 {
-  // MIB received on the target cell. Now process target ntncfg once new timing is received.
-  if (phycellid == rrc->phyCellID && rrc->target_ntncfg) {
-    rrc->process_target_ntncfg = true;
-  }
-
   NR_BCCH_BCH_Message_t *bcch_message = NULL;
-  if (rrc->phyCellID != phycellid || rrc->arfcn_ssb != ssb_arfcn) {
-    RRCLOG_I("BCCH update: phyCellID %d->%u, arfcn_ssb %ld->%ld\n", rrc->phyCellID, phycellid, rrc->arfcn_ssb, ssb_arfcn);
-  }
-  rrc->phyCellID = phycellid;
-  rrc->arfcn_ssb = ssb_arfcn;
-
   asn_dec_rval_t dec_rval = uper_decode_complete(NULL,
                                                  &asn_DEF_NR_BCCH_BCH_Message,
                                                  (void **)&bcch_message,
@@ -2059,11 +2055,36 @@ static void nr_rrc_ue_decode_NR_BCCH_BCH_Message(NR_UE_RRC_INST_t *rrc,
 
   if ((dec_rval.code != RC_OK) || (dec_rval.consumed == 0)) {
     RRCLOG_E("NR_BCCH_BCH decode error\n");
+    ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, bcch_message);
+    return;
+  }
+  if (bcch_message->message.present != NR_BCCH_BCH_MessageType_PR_mib) {
+    RRCLOG_E("RRC-received BCCH message is not a MIB\n");
+    ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, bcch_message);
     return;
   }
   if (LOG_DEBUGFLAG(DEBUG_ASN1))
     xer_fprint(stdout, &asn_DEF_NR_BCCH_BCH_Message, (void *)bcch_message);
-    
+
+  // Validate after decoding and serialize RRC effects with acquisition changes.
+  NR_UE_MAC_INST_t *mac = get_mac_inst(rrc->ue_id);
+  mutexlock(mac->if_mutex);
+  if (!mac->mib_accepting || mac->mib_pending_sync || mib_metadata->generation != mac->mib_generation) {
+    mutexunlock(mac->if_mutex);
+    ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, bcch_message);
+    return;
+  }
+  // MIB received on the target cell. Now process target ntncfg once new timing is received.
+  if (phycellid == rrc->phyCellID && rrc->target_ntncfg) {
+    rrc->process_target_ntncfg = true;
+  }
+
+  if (rrc->phyCellID != phycellid || rrc->arfcn_ssb != ssb_arfcn) {
+    RRCLOG_I("BCCH update: phyCellID %d->%u, arfcn_ssb %ld->%ld\n", rrc->phyCellID, phycellid, rrc->arfcn_ssb, ssb_arfcn);
+  }
+  rrc->phyCellID = phycellid;
+  rrc->arfcn_ssb = ssb_arfcn;
+
   // Actions following cell selection while T311 is running
   NR_UE_Timers_Constants_t *timers = &rrc->timers_and_constants;
   if (nr_timer_is_active(&timers->T311)) {
@@ -2082,30 +2103,26 @@ static void nr_rrc_ue_decode_NR_BCCH_BCH_Message(NR_UE_RRC_INST_t *rrc,
   int get_sib = 0;
   if (IS_SA_MODE(get_softmodem_params())
       && !SI_info->sib_pending
-      && bcch_message->message.present == NR_BCCH_BCH_MessageType_PR_mib
       && !barred
       && rrc->nrRrcState != RRC_STATE_DETACH_NR) {
     // to schedule MAC to get SI if required
     get_sib = check_si_status(SI_info);
   }
-  if (bcch_message->message.present == NR_BCCH_BCH_MessageType_PR_mib) {
-    nr_mac_rrc_message_t rrc_msg = {0};
-    rrc_msg.payload_type = NR_MAC_RRC_CONFIG_MIB;
-    nr_mac_rrc_config_mib_t *config_mib = &rrc_msg.payload.config_mib;
-    config_mib->bcch = bcch_message;
-    config_mib->access_barred = barred;
-    nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
-    if (get_sib) {
-      SI_info->sib_pending = true;
-      nr_mac_rrc_message_t sib_msg = {0};
-      sib_msg.payload_type = NR_MAC_RRC_SCHED_SIB;
-      sib_msg.payload.sched_sib.get_sib = get_sib;
-      nr_rrc_send_msg_to_mac(rrc, &sib_msg);
-    }
-  } else {
-    RRCLOG_E("RRC-received BCCH message is not a MIB\n");
-    ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, bcch_message);
+  nr_mac_rrc_message_t rrc_msg = {0};
+  rrc_msg.payload_type = NR_MAC_RRC_CONFIG_MIB;
+  nr_mac_rrc_config_mib_t *config_mib = &rrc_msg.payload.config_mib;
+  config_mib->bcch = bcch_message;
+  config_mib->access_barred = barred;
+  config_mib->mib_metadata = *mib_metadata;
+  nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+  if (get_sib) {
+    SI_info->sib_pending = true;
+    nr_mac_rrc_message_t sib_msg = {0};
+    sib_msg.payload_type = NR_MAC_RRC_SCHED_SIB;
+    sib_msg.payload.sched_sib.get_sib = get_sib;
+    nr_rrc_send_msg_to_mac(rrc, &sib_msg);
   }
+  mutexunlock(mac->if_mutex);
   return;
 }
 
@@ -3398,7 +3415,13 @@ void *rrc_nrue(void *notUsed)
     RRCLOG_D("Received %s: gNB %d\n", ITTI_MSG_NAME(msg_p), NR_RRC_MAC_BCCH_DATA_IND(msg_p).gnb_index);
     NRRrcMacBcchDataInd *bcch = &NR_RRC_MAC_BCCH_DATA_IND(msg_p);
     if (bcch->is_bch)
-      nr_rrc_ue_decode_NR_BCCH_BCH_Message(rrc, bcch->gnb_index, bcch->phycellid, bcch->ssb_arfcn, bcch->sdu, bcch->sdu_size);
+      nr_rrc_ue_decode_NR_BCCH_BCH_Message(rrc,
+                                         bcch->gnb_index,
+                                         bcch->phycellid,
+                                         bcch->ssb_arfcn,
+                                         bcch->sdu,
+                                         bcch->sdu_size,
+                                         &bcch->mib_metadata);
     else
       nr_rrc_ue_decode_NR_BCCH_DL_SCH_Message(rrc, bcch->gnb_index, bcch->sdu, bcch->sdu_size, bcch->hfn, bcch->frame, bcch->slot);
     break;

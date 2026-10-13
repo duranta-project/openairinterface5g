@@ -8,6 +8,7 @@
 
 #include "L2_interface_ue.h"
 #include "assertions.h"
+#include "executables/softmodem-common.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac.h"
 #include "openair2/LAYER2/NR_MAC_UE/mac_proto.h"
 
@@ -46,7 +47,6 @@ void nr_mac_rrc_data_ind_ue(const module_id_t module_id,
   sdu_size_t sdu_size = 0;
   MessageDef *message_p;
   switch(channel) {
-    case NR_BCCH_BCH:
     case NR_BCCH_DL_SCH:
       message_p = itti_alloc_new_message(TASK_MAC_UE, 0, NR_RRC_MAC_BCCH_DATA_IND);
       memset(NR_RRC_MAC_BCCH_DATA_IND (message_p).sdu, 0, BCCH_SDU_SIZE);
@@ -78,7 +78,7 @@ void nr_mac_rrc_data_ind_ue(const module_id_t module_id,
       NR_RRC_MAC_BCCH_DATA_IND (message_p).gnb_index = gNB_index;
       NR_RRC_MAC_BCCH_DATA_IND (message_p).phycellid = cellid;
       NR_RRC_MAC_BCCH_DATA_IND (message_p).ssb_arfcn = arfcn;
-      NR_RRC_MAC_BCCH_DATA_IND (message_p).is_bch = (channel == NR_BCCH_BCH);
+      NR_RRC_MAC_BCCH_DATA_IND (message_p).is_bch = false;
       itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(module_id), message_p);
       break;
     case NR_SBCCH_SL_BCH:
@@ -109,8 +109,40 @@ void nr_mac_rrc_data_ind_ue(const module_id_t module_id,
   }
 }
 
+void nr_mac_rrc_mib_ind_ue(module_id_t module_id, uint8_t gnb, long arfcn, const uint8_t *pdu,
+                           const nr_ue_mib_metadata_t *metadata)
+{
+  MessageDef *message = itti_alloc_new_message(TASK_MAC_UE, 0, NR_RRC_MAC_BCCH_DATA_IND);
+  NRRrcMacBcchDataInd *bcch = &NR_RRC_MAC_BCCH_DATA_IND(message);
+  *bcch = (NRRrcMacBcchDataInd){.is_bch = true};
+  bcch->gnb_index = gnb;
+  bcch->phycellid = metadata->cell_id;
+  bcch->ssb_arfcn = arfcn;
+  bcch->sdu_size = 3;
+  memcpy(bcch->sdu, pdu, bcch->sdu_size);
+  bcch->mib_metadata = *metadata;
+  itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(module_id), message);
+}
+
+bool nr_rrc_mac_resync_request(const nr_mac_rrc_message_t *msg)
+{
+  switch (msg->payload_type) {
+    case NR_MAC_RRC_CONFIG_CG: {
+      const NR_SpCellConfig_t *spcell = msg->payload.config_cg.cellGroupConfig->spCellConfig;
+      return spcell && spcell->reconfigurationWithSync;
+    }
+    case NR_MAC_RRC_CONFIG_RESET:
+      return msg->payload.config_reset.cause == GO_TO_IDLE || msg->payload.config_reset.cause == DETACH;
+    case NR_MAC_RRC_START_RA:
+      return msg->payload.start_ra.cause == NR_MAC_RA_START_REESTABLISHMENT;
+    default:
+      return false;
+  }
+}
+
 void process_msg_rcc_to_mac(nr_mac_rrc_message_t *msg, int instance_id)
 {
+  bool resync = nr_rrc_mac_resync_request(msg);
   switch (msg->payload_type) {
     case NR_MAC_RRC_CONFIG_RESET:
       nr_rrc_mac_config_req_reset(instance_id, msg->payload.config_reset.cause);
@@ -128,7 +160,8 @@ void process_msg_rcc_to_mac(nr_mac_rrc_message_t *msg, int instance_id)
       nr_rrc_mac_config_req_mib(instance_id,
                                 0,
                                 msg->payload.config_mib.bcch->message.choice.mib,
-                                msg->payload.config_mib.access_barred);
+                                msg->payload.config_mib.access_barred,
+                                &msg->payload.config_mib.mib_metadata);
       ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, msg->payload.config_mib.bcch);
       break;
     case NR_MAC_RRC_CONFIG_SIB1: {
@@ -156,6 +189,49 @@ void process_msg_rcc_to_mac(nr_mac_rrc_message_t *msg, int instance_id)
     default:
       LOG_E(NR_MAC, "Unexpected msg from RRC: %d\n", msg->payload_type);
   }
+  if (resync) {
+    NR_UE_MAC_INST_t *mac = get_mac_inst(instance_id);
+    mutexlock(mac->if_mutex);
+    DevAssert(mac->mib_pending_sync > 0);
+    mac->mib_pending_sync--;
+    mutexunlock(mac->if_mutex);
+  }
+}
+
+bool nr_ue_wait_for_mib(int instance_id, uint64_t generation, int *frame)
+{
+  NR_UE_MAC_INST_t *mac = get_mac_inst(instance_id);
+  while (!oai_exit) {
+    mutexlock(mac->if_mutex);
+    bool current = mac->mib_accepting && mac->mib_generation == generation;
+    bool received = current && mac->mib_received && !mac->mib_pending_sync;
+    if (received)
+      *frame = mac->mib_frame;
+    mutexunlock(mac->if_mutex);
+    if (!current || received)
+      return received;
+
+    // Periodically check shutdown even if RRC has no response to send.
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_nsec += 100000000;
+    if (deadline.tv_nsec >= 1000000000) {
+      deadline.tv_nsec -= 1000000000;
+      deadline.tv_sec++;
+    }
+    notifiedFIFO_elt_t *elt = pullNotifiedFIFO_timeout(&mac->input_nf, &deadline);
+    if (elt) {
+      process_msg_rcc_to_mac(NotifiedFifoData(elt), instance_id);
+      delNotifiedFIFO_elt(elt);
+    } else {
+      mutexlock(mac->input_nf.lockF);
+      bool aborted = mac->input_nf.abortFIFO;
+      mutexunlock(mac->input_nf.lockF);
+      if (aborted)
+        return false;
+    }
+  }
+  return false;
 }
 
 void nr_mac_rrc_verification_failed(const module_id_t mod_id)

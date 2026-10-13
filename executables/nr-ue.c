@@ -814,6 +814,7 @@ void *UE_thread(void *arg)
   NR_UE_MAC_INST_t *mac = get_mac_inst(UE->Mod_id);
 
   bool syncRunning = false;
+  uint64_t mib_generation = 0;
   const int nb_slot_frame = fp->slots_per_frame;
   int absolute_slot = 0, decoded_frame_rx = MAX_FRAME_NUMBER - 1, skipped_frames = 0;
   int tx_wait_for_dlsch[NR_MAX_SLOTS_PER_FRAME];
@@ -850,18 +851,18 @@ void *UE_thread(void *arg)
         for (int i = 0; i < fp->nb_antennas_rx; i++)
           free(sync_buf[i]);
         if (UE->is_synchronized) {
-          UE->synch_request.received_synch_request = 0;
-          out_of_sync_rrc_tick_seeded = false;
           if (UE->sl_mode == SL_MODE2_SUPPORTED)
             decoded_frame_rx = UE->SL_UE_PHY_PARAMS.sync_params.DFN;
           else {
-            // We must wait the RRC layer decoded the MIB and sent us the frame number
-            notifiedFIFO_elt_t *elt = pullNotifiedFIFO(&mac->input_nf);
-            AssertFatal(elt != NULL, "fifo error while waiting for MIB");
-            process_msg_rcc_to_mac(NotifiedFifoData(elt), UE->Mod_id);
-            delNotifiedFIFO_elt(elt);
-            decoded_frame_rx = mac->mib_frame;
+            // RRC may return old MIBs or unrelated messages before this acquisition's MIB.
+            if (!nr_ue_wait_for_mib(UE->Mod_id, mib_generation, &decoded_frame_rx)) {
+              UE->is_synchronized = 0;
+              delNotifiedFIFO_elt(res);
+              stream_status = STREAM_STATUS_UNSYNC;
+              continue;
+            }
           }
+          out_of_sync_rrc_tick_seeded = false;
           LOG_A(PHY, "UE synchronized! decoded_frame_rx=%d skipped_frames=%d\n", decoded_frame_rx, skipped_frames);
           // shift the frame index with all the frames we trashed meanwhile we perform the synch search
           syncData_t *syncMsg = (syncData_t *)NotifiedFifoData(res);
@@ -895,6 +896,10 @@ void *UE_thread(void *arg)
     AssertFatal(!syncRunning, "At this point synchronization can't be running\n");
 
     if (!UE->is_synchronized) {
+      handle_sync_req_from_mac(UE);
+      // The previous sync job has finished; the sync-request handler drains DL/UL actors.
+      if (UE->sl_mode != SL_MODE2_SUPPORTED)
+        mib_generation = nr_ue_start_mib_acquisition(mac);
       // seed the out-of-sync tick once from the last known synchronized frame/hfn:
       // absolute_slot doesn't advance while out of sync, so failed sync attempts must not re-seed
       if (!out_of_sync_rrc_tick_seeded) {

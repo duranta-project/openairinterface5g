@@ -10,6 +10,7 @@
 
 #include "mac_defs.h"
 #include "NR_MAC_UE/mac_proto.h"
+#include "bits.h"
 #include "NR_MAC-CellGroupConfig.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "common/utils/nr/nr_common.h"
@@ -1088,11 +1089,29 @@ void nr_rrc_mac_sched_sib(module_id_t module_id, int sched_sib)
     mac->state = UE_RECEIVING_SIB;
 }
 
-void nr_rrc_mac_config_req_mib(module_id_t module_id, int cc_idP, NR_MIB_t *mib, bool barred)
+void nr_rrc_mac_config_req_mib(module_id_t module_id, int cc_idP, NR_MIB_t *mib, bool barred,
+                               const nr_ue_mib_metadata_t *pbch)
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
   int ret = pthread_mutex_lock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
+  if (pbch) {
+    if (!mac->mib_accepting || mac->mib_pending_sync || pbch->generation != mac->mib_generation) {
+      mutexunlock(mac->if_mutex);
+      return;
+    }
+    mac->physCellId = pbch->cell_id;
+    mac->mib_additional_bits = pbch->additional_bits;
+    mac->mib_ssb = pbch->ssb_index;
+    mac->ssb_start_subcarrier = pbch->ssb_start_subcarrier;
+    mac->frequency_range = pbch->ssb_length == 64 ? FR2 : FR1;
+    if (mac->frequency_range == FR2) {
+      uint8_t bits = pbch->additional_bits;
+      uint8_t reversed;
+      reverse_bits_u8(&bits, 1, &reversed);
+      mac->mib_ssb += (reversed & 7) << 3;
+    }
+  }
   AssertFatal(mib, "MIB should not be NULL\n");
   if (!mac->mib)
     mac->mib = calloc(1, sizeof(*mac->mib));
@@ -1113,6 +1132,9 @@ void nr_rrc_mac_config_req_mib(module_id_t module_id, int cc_idP, NR_MIB_t *mib,
   else if (mac->state == UE_NOT_SYNC_RECONF)
     mac->state = UE_PERFORMING_RA;
 
+  // A barred MIB may request another acquisition while being decoded.
+  if (pbch)
+    mac->mib_received = mac->mib_accepting;
   ret = pthread_mutex_unlock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
 }
@@ -2194,10 +2216,8 @@ static void handle_reconfiguration_with_sync(NR_UE_MAC_INST_t *mac,
   // As SYNC request processes the new config
   mac->if_module->phy_config_request(&mac->phy_config);
   mac->phy_config.config_req.ntn_config.params_changed = false;
-  mac->synch_request.Mod_id = mac->ue_id;
-  mac->synch_request.CC_id = cc_idP;
   mac->synch_request.synch_req.target_Nid_cell = mac->physCellId;
-  mac->if_module->synch_request(&mac->synch_request);
+  nr_ue_send_synch_request(mac, mac->ue_id, cc_idP, &mac->synch_request.synch_req);
 }
 
 static void configure_physicalcellgroup(NR_UE_MAC_INST_t *mac,
