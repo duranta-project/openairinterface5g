@@ -21,12 +21,48 @@ RUN apt-get update && \
         wget \
         xz-utils \
         pkg-config \
-	python3-pyelftools \
+        python3-pyelftools \
+        libpcre3-dev \
+        libssh-dev \
+        libxml2-dev \
+        libpam0g \
         libnuma-dev && \
     rm -rf /var/lib/apt/lists/*
 
 RUN rm -Rf /oai-ran
 WORKDIR /oai-ran
+
+RUN git clone https://github.com/CESNET/libyang.git && \
+    cd libyang && \
+    git checkout v2.1.111 && \
+    mkdir build && cd build && \
+    cmake -DENABLE_TESTS=OFF \
+      -DENABLE_VALGRIND_TESTS=OFF \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      -DCMAKE_INSTALL_RPATH=/usr/local/lib \
+      -DPLUGINS_DIR=/usr/local/lib/libyang \
+      -DPLUGINS_DIR_EXTENSIONS=/usr/local/lib/libyang/extensions \
+      -DPLUGINS_DIR_TYPES=/usr/local/lib/libyang/types \
+      -DYANG_MODULE_DIR=/usr/local/share/yang/modules/libyang .. && \
+   make && \
+   make install
+
+RUN git clone https://github.com/CESNET/libnetconf2.git && \
+    cd libnetconf2 && \
+    git checkout v2.1.37 && \
+    mkdir build && cd build && \
+    cmake -DENABLE_TESTS=OFF \
+      -DENABLE_EXAMPLES=OFF \
+      -DENABLE_VALGRIND_TESTS=OFF \
+      -DCLIENT_SEARCH_DIR=/usr/local/share/yang/modules \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      -DCMAKE_INSTALL_RPATH=/usr/local/lib \
+      -DLIBYANG_INCLUDE_DIR=/usr/local/include \
+      -DLIBYANG_LIBRARY=/usr/local/lib/libyang.so \
+      -DLY_VERSION_PATH=/usr/local/include \
+      -DYANG_MODULE_DIR=/usr/local/share/yang/modules/libnetconf2 .. && \
+     make && \
+     make install
 
 ## Copy T2 patch
 COPY ./$T2_PATCH /opt/.
@@ -53,7 +89,7 @@ FROM ran-base AS ran-build-fhi72-t2
 ## Run build_oai to build the target image, if T2 patch present, build with T2 support
 RUN /bin/sh oaienv && \ 
     taskset -c 0-$(grep ^processor /proc/cpuinfo | wc -l) \
-    cmake -B build/ -GNinja -DOAI_FHI72=ON \
+    cmake -B build/ -GNinja -DOAI_FHI72=ON -DOAI_FHI72_MPLANE=ON \
           -Dxran_LOCATION=/opt/phy/fhi_lib/lib \
           -DENABLE_LDPC_AAL=ON && \
     ninja -C build/
