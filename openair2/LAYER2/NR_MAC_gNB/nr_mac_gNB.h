@@ -203,6 +203,8 @@ typedef struct nr_srs_config {
   int last_symbol;
   /// period in slots, 0 to derive it from the cell capacity
   int periodicity;
+  /// grant one PUSCH in each periodic SRS slot (needed by Aerial)
+  bool padding_grant;
 } nr_srs_config_t;
 
 /// Max number of physical RU antenna ports the gNB can be configured with.

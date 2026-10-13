@@ -186,6 +186,7 @@
 #define MACRLC_SRS_SYMBOLS_PER_SLOT          "symbols_per_slot"
 #define MACRLC_SRS_LAST_SYMBOL               "last_symbol"
 #define MACRLC_SRS_PERIODICITY               "periodicity"
+#define MACRLC_SRS_PADDING_GRANT             "padding_grant"
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*                                            SRS configuration parameters                                                                               */
@@ -210,6 +211,9 @@
     "Periodic SRS period in slots, rounded up to a valid value fitting the TDD period, 0 to derive it from the cell " \
     "capacity", 0, .iptr=NULL, .defintval=0, TYPE_INT, 0, \
     .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {0, 2560}}}}, \
+  {MACRLC_SRS_PADDING_GRANT, \
+    "Grant one PUSCH in each periodic SRS slot, needed by Aerial in SINGLE_SECT_MODE, which drops an SRS PDU with " \
+    "no PUSCH in the same slot", PARAMFLAG_BOOL, .iptr=NULL, .defintval=0, TYPE_INT, 0}, \
 }
 // clang-format on
 

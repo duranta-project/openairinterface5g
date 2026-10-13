@@ -1678,6 +1678,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
     config.srs.symbols_per_slot = *gpd(SRS_Params, n_srs, MACRLC_SRS_SYMBOLS_PER_SLOT)->iptr;
     config.srs.last_symbol = *gpd(SRS_Params, n_srs, MACRLC_SRS_LAST_SYMBOL)->iptr;
     config.srs.periodicity = *gpd(SRS_Params, n_srs, MACRLC_SRS_PERIODICITY)->iptr;
+    config.srs.padding_grant = *gpd(SRS_Params, n_srs, MACRLC_SRS_PADDING_GRANT)->iptr;
     // startPosition is INTEGER (0..5), which bounds how far the SRS block can reach down
     AssertFatal(config.srs.symbols_per_slot <= config.srs.last_symbol - 7,
                 "SRS last_symbol %d allows at most %d SRS symbols, not %d\n",
@@ -1691,14 +1692,15 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
                 config.srs.comb);
     if (config.do_SRS != PERIODIC_SRS
         && (config.srs.ue_per_symbol != 1 || config.srs.symbols_per_slot != 1 || config.srs.last_symbol != 12
-            || config.srs.periodicity != 0)) {
+            || config.srs.periodicity != 0 || config.srs.padding_grant)) {
       LOG_W(GNB_APP,
-            "SRS ue_per_symbol, symbols_per_slot, last_symbol, periodicity ignored for non-periodic SRS, "
+            "SRS ue_per_symbol, symbols_per_slot, last_symbol, periodicity, padding_grant ignored for non-periodic SRS, "
             "using defaults\n");
       config.srs.ue_per_symbol = 1;
       config.srs.symbols_per_slot = 1;
       config.srs.last_symbol = 12;
       config.srs.periodicity = 0;
+      config.srs.padding_grant = 0;
     }
     config.pucch.failure_thres = *gpd(params, np, MACRLC_PUCCHFAILURETHRES)->iptr;
     config.pusch.failure_thres = *gpd(params, np, MACRLC_PUSCHFAILURETHRES)->iptr;

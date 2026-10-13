@@ -2615,6 +2615,25 @@ static int nr_ue_max_ul_inactivity_slots(const frame_structure_t *fs, int ulsch_
   return ulsch_max_frame_inactivity > 0 ? ulsch_max_frame_inactivity * fs->numb_slots_frame : fs->numb_slots_period;
 }
 
+/* Aerial in SINGLE_SECT_MODE drops an SRS PDU with no PUSCH in the same slot,
+   so the first active UE sounding in the slot gets a default grant. */
+static const NR_UE_info_t *srs_padding_ue(nr_cell_sched_t *cell, int sched_frame, int sched_slot)
+{
+  periodic_ue_sched_t *p = &cell->periodic_srs_config;
+  if (!cell->radio_config.srs.padding_grant || !p->list)
+    return NULL;
+  const frame_structure_t *fs = &cell->frame_structure;
+  const int idx = get_ul_period_idx_from_abs_slot(fs, sched_frame * fs->numb_slots_frame + sched_slot, false, p->max_period);
+  if (idx < 0)
+    return NULL;
+  for (int i = 0; i < p->max_ue_per_slot; i++) {
+    const NR_UE_info_t *UE = *get_periodic_ue(p, idx, i);
+    if (UE && nr_mac_ue_is_active(UE))
+      return UE;
+  }
+  return NULL;
+}
+
 static int collect_ul_candidates(gNB_MAC_INST *mac,
                                  nr_cell_sched_t *cell,
                                  NR_UE_info_t *UE_list[],
@@ -2631,6 +2650,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
   const frame_structure_t *fs = &cell->frame_structure;
   const float ul_slots_per_s = (float)get_ul_slots_per_period(fs) / fs->numb_slots_period * fs->numb_slots_frame * 100;
   const int max_inactivity = nr_ue_max_ul_inactivity_slots(fs, cell->ulsch_max_frame_inactivity);
+  const NR_UE_info_t *padding_UE = srs_padding_ue(cell, sched_frame, sched_slot);
 
   UE_iterator (UE_list, UE) {
     if (UE->pcell != cell)
@@ -2695,10 +2715,11 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     cand.beam_rsrp = UE->beam_rsrp;
     cand.beam_sinr = UE->beam_sinr;
 
-    /* Check if retransmission is necessary */
+    /* Check if retransmission is necessary. With padding_grant (Aerial), the SRS
+     * padding UE defers it, as it rarely fits the shortened PUSCH of an SRS slot. */
     int ul_harq_pid = sched_ctrl->retrans_ul_harq.head;
     LOG_D(NR_MAC, "collect_ul_candidates: UE %04x harq_pid %d\n", UE->rnti, ul_harq_pid);
-    if (ul_harq_pid >= 0) {
+    if (ul_harq_pid >= 0 && UE != padding_UE) {
       const NR_sched_pusch_t *retInfo = &sched_ctrl->ul_harq_processes[ul_harq_pid].sched_pusch;
       cand.is_retx = true;
       cand.retx_harq_pid = ul_harq_pid;
@@ -2720,12 +2741,14 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
 
     const int inactivity = nr_ue_ul_inactivity_slots(fs, sched_ctrl, sched_frame, sched_slot);
     const bool long_inactivity = inactivity >= max_inactivity;
+    const bool srs_padding = UE == padding_UE;
 
     /* Consider the UE if (1) we think it has more bytes awaiting than what we
-     * scheduled, (2) it requested a grant through SR, or (3) we did not schedule
+     * scheduled, (2) it requested a grant through SR, (3) we did not schedule
      * it for too long, in which case we give it a default grant so that it can
-     * send a BSR. */
-    if ((B == 0 && sched_ctrl->sr_cnt == 0 && !long_inactivity) || nr_timer_is_active(&sched_ctrl->transm_interrupt))
+     * send a BSR, or (4) it carries the SRS padding grant of this slot. */
+    if ((B == 0 && sched_ctrl->sr_cnt == 0 && !long_inactivity && !srs_padding)
+        || nr_timer_is_active(&sched_ctrl->transm_interrupt))
       continue;
 
     /* Update BLER stats; MCS adaptation is done by ul_mcs_select pipeline stage */
@@ -2740,7 +2763,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     } else
       cand.sched_srs = 0;
     cand.retx_harq_pid = -1;
-    cand.sched_long_inactivity = long_inactivity;
+    cand.sched_long_inactivity = long_inactivity || srs_padding;
     cand.pending_bytes = B;
     cand.bler = sched_ctrl->ul_bler_stats.bler;
     cand.bler_updated = bler_updated;
