@@ -100,6 +100,8 @@ typedef struct {
   int n_CCE;
   // N_CCE number of CCEs in the CORESET of the PDCCH reception (TS 38.213 9.2.1, used for r_PUCCH)
   int N_CCE;
+  // aggregation level L: the PDCCH occupies CCEs n_CCE to n_CCE + L - 1
+  uint8_t aggregation_level;
   int cset_start;
   uint8_t payloadSize;
   uint8_t payloadBits[16] __attribute__((aligned(16))); // will be cast as uint64
