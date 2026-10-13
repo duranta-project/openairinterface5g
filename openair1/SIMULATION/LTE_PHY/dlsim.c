@@ -1267,20 +1267,7 @@ int main(int argc, char **argv) {
   UE->high_speed_flag = 1;
   UE->ch_est_alpha=0;
 
-  // initialize sorted lists for timers for which we want the distribution
-  init_sorted_list_meas(&eNB->phy_proc_tx, n_frames * num_rounds);
-  init_sorted_list_meas(&eNB->ofdm_mod_stats, n_frames * num_rounds);
-  init_sorted_list_meas(&eNB->dlsch_modulation_stats, n_frames * num_rounds);
-  init_sorted_list_meas(&eNB->dlsch_encoding_stats, n_frames * num_rounds);
-  init_sorted_list_meas(&UE->phy_proc_rx[0], n_frames * num_rounds);
-  init_sorted_list_meas(&UE->phy_proc_rx[1], n_frames * num_rounds);
   time_stats_t phy_proc_rx_tot;
-  init_sorted_list_meas(&phy_proc_rx_tot, 2 * n_frames * num_rounds);
-  init_sorted_list_meas(&UE->ofdm_demod_stats, n_frames * num_rounds);
-  init_sorted_list_meas(&UE->dlsch_rx_pdcch_stats, n_frames * num_rounds);
-  init_sorted_list_meas(&UE->dlsch_decoding_stats[0], n_frames * num_rounds);
-  init_sorted_list_meas(&UE->dlsch_decoding_stats[1], n_frames * num_rounds);
-
   for (ch_realization=0; ch_realization<n_ch_rlz; ch_realization++) {
     if(abstx) {
       printf("**********************Channel Realization Index = %d **************************\n", ch_realization);
@@ -2012,19 +1999,6 @@ int main(int argc, char **argv) {
         break;
     }// SNR
   } //ch_realization
-
-  // free sorted lists for timers for which we wanted the distribution
-  free_sorted_list_meas(&eNB->phy_proc_tx);
-  free_sorted_list_meas(&eNB->ofdm_mod_stats);
-  free_sorted_list_meas(&eNB->dlsch_modulation_stats);
-  free_sorted_list_meas(&eNB->dlsch_encoding_stats);
-  free_sorted_list_meas(&UE->phy_proc_rx[0]);
-  free_sorted_list_meas(&UE->phy_proc_rx[1]);
-  free_sorted_list_meas(&phy_proc_rx_tot);
-  free_sorted_list_meas(&UE->ofdm_demod_stats);
-  free_sorted_list_meas(&UE->dlsch_rx_pdcch_stats);
-  free_sorted_list_meas(&UE->dlsch_decoding_stats[0]);
-  free_sorted_list_meas(&UE->dlsch_decoding_stats[1]);
 
   fclose(bler_fd);
 
