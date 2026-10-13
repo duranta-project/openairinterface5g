@@ -491,17 +491,17 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
 
     res->syncRes.rx_offset = res->ssbOffset - sync_pos_frame;
 
-    LOG_I(PHY, "[UE%d] In synch, rx_offset %d samples\n", ue->Mod_id, res->syncRes.rx_offset);
+    LOG_I(PHY, "[UE %d] In synch, rx_offset %d samples\n", ue->Mod_id, res->syncRes.rx_offset);
     LOG_I(PHY, "[UE %d] Measured Carrier Frequency offset %d Hz\n", ue->Mod_id, res->freqOffset);
     LOG_A(PHY, "Initial sync successful, PCI: %d\n", fp->Nid_cell);
     return res->syncRes;
   } else {
 #ifdef DEBUG_INITIAL_SYNC
-    LOG_I(PHY,"[UE%d] Initial sync : PBCH not ok\n",ue->Mod_id);
-    LOG_I(PHY, "[UE%d] Initial sync : Estimated PSS position %d, Nid2 %d\n", ue->Mod_id, sync_pos, ue->common_vars.nid2);
-    LOG_I(PHY,"[UE%d] Initial sync : Estimated Nid_cell %d, Frame_type %d\n",ue->Mod_id,
+    LOG_I(PHY,"[UE %d] Initial sync : PBCH not ok\n",ue->Mod_id);
+    LOG_I(PHY, "[UE %d] Initial sync : Estimated PSS position %d, Nid2 %d\n", ue->Mod_id, sync_pos, ue->common_vars.nid2);
+    LOG_I(PHY,"[UE %d] Initial sync : Estimated Nid_cell %d, Frame_type %d\n",ue->Mod_id,
           fp->Nid_cell,fp->frame_type);
-    LOG_I(PHY, "[UE%d] Initial sync failed : Estimated power: %d dB\n", ue->Mod_id, ue->measurements.rx_power_avg_dB[0]);
+    LOG_I(PHY, "[UE %d] Initial sync failed : Estimated power: %d dB\n", ue->Mod_id, ue->measurements.rx_power_avg_dB[0]);
 #endif
     // gain control
     // we are not synched, so we cannot use rssi measurement (which is based on channel estimates)

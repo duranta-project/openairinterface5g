@@ -234,7 +234,7 @@ static void UE_synch(void *arg) {
       nrue_ru_adjust_rx_gain(UE, UE->adjust_rxgain);
     }
 
-    LOG_I(PHY, "Got synch: hw_slot_offset %d, carrier off %d Hz\n", hw_slot_offset, freq_offset);
+    LOG_I(PHY, "[UE %d] Got synch: hw_slot_offset %d, carrier off %d Hz\n", UE->Mod_id, hw_slot_offset, freq_offset);
 
     UE->is_synchronized = 1;
   } else {
@@ -724,7 +724,7 @@ static void syncInFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int
   if (UE->sl_mode == 2)
     fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
 
-  LOG_I(PHY, "Resynchronizing RX by %ld samples\n", rx_offset);
+  LOG_I(NR_PHY, "[UE %d] Resynchronizing RX by %ld samples\n", UE->Mod_id, rx_offset);
 
   int size = rx_offset;
   while (size > 0) {
