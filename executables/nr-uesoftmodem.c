@@ -59,6 +59,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "PHY/TOOLS/nr_phy_scope.h"
 #include "executables/nr-ue-ru.h"
 #include <executables/nr-uesoftmodem.h>
+#include "executables/position_interface.h"
 #include "executables/softmodem-common.h"
 #include "executables/thread-common.h"
 
@@ -387,10 +388,15 @@ int main(int argc, char **argv)
 
   int cell_id = 0;
   for (int inst = 0; inst < NB_UE_INST; inst++) {
+    // Read the configured UE position before startup argument validation, independently of SIB19 reception.
+    get_position_coordinates(inst, &nrPHY_vars_UE_g[inst][0]->position);
+
     NR_UE_MAC_INST_t *mac = get_mac_inst(inst);
 
     for (int CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
       PHY_VARS_NR_UE *UE_CC = nrPHY_vars_UE_g[inst][CC_id];
+      if (CC_id > 0)
+        UE_CC->position = nrPHY_vars_UE_g[inst][0]->position;
 
       AssertFatal(cell_id >= 0 && cell_id < nrue_get_cell_count(),
                   "There are not enough cell definitions for all UEs! NB_UE_INST = %d, MAX_NUM_CCs = %d, nrue_cell_count = %d\n",

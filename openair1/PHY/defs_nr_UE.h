@@ -372,6 +372,7 @@ typedef struct PHY_VARS_NR_UE_s {
   int64_t max_pos_iir; /// Timing offset IIR filter
   int max_pos_acc; /// Timing offset accumuluated error for PI filter
 
+  position_t position; /// configured UE position in ECEF coordinates, in metres
   double initial_fo; /// initial frequency offset provided by the user
   int cont_fo_comp; /// flag enabling the continuous frequency offset estimation and compensation
   double freq_offset; /// currently compensated DL frequency offset (without dl_Doppler_shift)
