@@ -240,6 +240,28 @@ union xran_cp_radioapp_section_ext3_non_first {
   } all_bits;
 } __attribute__((__packed__));
 
+/**
+ * @ingroup xran_cp_pkt
+ *
+ * @description
+ *      Flexible Beamforming Weights Extension Type(ExtType 11) defined in 5.4.7.11
+ *      CUS v21 7.7.11, adds bundleOffset and contInd.
+ *      extLen is 16 bits, so the first 4 bytes are converted as one 32-bit word.
+ *      The structure is reordered for byte order conversion.
+ */
+struct xran_cp_radioapp_section_ext11 {
+  uint32_t bundleOffset: 6; /**< CUS v21 7.7.11.10 PRB bundle offset (reserved before) */
+  uint32_t RAD: 1; /**< 5.4.7.11.8 reset after PRB discontinuity */
+  uint32_t disableBFWs: 1; /**< 5.4.7.11.6 only beamIds are carried, no weights */
+  uint32_t extLen: 16; /**< 5.4.6.3 extension length, in 32bits words */
+  uint32_t extType: 7; /**< 5.4.6.1 extension type */
+  uint32_t ef: 1; /**< 5.4.6.2 extension flag */
+  uint8_t numBundPrb; /**< 5.4.7.11.3 number of bundled PRBs per beamforming weights, 0 is reserved */
+  /* bfwCompHdr, absent if disableBFWs = 1 */
+  uint8_t bfwCompMeth: 4; /**< 5.4.7.11.1 Beamforming weight Compression method (5.4.7.1.1) */
+  uint8_t bfwIqWidth: 4; /**< 5.4.7.11.1 Beamforming weight IQ bit width (5.4.7.1.1) */
+} __attribute__((__packed__));
+
 /**********************************************************
  * Scheduling and Beam-forming Commands 5.4.2
  **********************************************************/
