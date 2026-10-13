@@ -2,15 +2,8 @@
 # SPDX-License-Identifier: LicenseRef-CSSL-1.0
 
 #
-# Drives the E3 agent of a gNB container (yaml_files/5g_rfsimulator_e3) with the
-# spectrum dApp of the dApp library, run on the test host, and checks both sides:
-#
-#   setup -> subscribe (Spectrum RF=1 + L1-KPM RF=2) -> indications flowing on
-#   both -> dApp reads the IQ and sends a PRB-block control -> release
-#
-# The gNB is deployed and stopped by the pipeline; the proof rides on the gNB
-# log (docker logs), the dApp's own stats log and the dApp exit code. A clean
-# gNB shutdown is checked by the pipeline (Undeploy analysis, EndsWithBye).
+# Runs the dApp library's spectrum example against the gNB container of
+# yaml_files/5g_rfsimulator_e3 and checks the dApp stats and the gNB log.
 #
 # Usage: run-e3-dapp.sh <encoding> <gnb-container>
 #   encoding        asn1 | json | protobuf, the one the gNB was started with
@@ -20,11 +13,8 @@
 #        SKIP_PIP     set to 1 to use the python3 on PATH and its dApp library as is
 #        BOOT_TIMEOUT_S  wait for the gNB to reach Frame.Slot (default: 90)
 #
-# The dApp is the PyPI `dapps` package; it runs its shipped example
-# (`python -m examples.spectrum_dapp`), headless, for a bounded window. It is
-# installed into a throwaway virtual environment. Its E3 binding, libe3py, is
-# built by pip against the libe3 installed on the test host, so the host needs
-# libe3 of the same release (./build_libe3 --all-encodings --install).
+# The dApp is installed from PyPI into a throwaway venv; libe3py is built against the
+# host's libe3 (./build_libe3 --all-encodings --install) and pinned to its version.
 
 set -u
 
@@ -49,14 +39,14 @@ if [ "${SKIP_PIP}" != "1" ]; then
     python3 -m venv "${WORK}/venv" \
         || { echo "[e3-ci] cannot create a virtual environment (python3-venv)" >&2; exit 2; }
     PY="${WORK}/venv/bin/python"
-    "${PY}" -m pip install -U "${DAPPS_SPEC}" > "${WORK}/pip.log" 2>&1 \
-        || { echo "[e3-ci] pip install '${DAPPS_SPEC}' failed:" >&2; tail -20 "${WORK}/pip.log" >&2; exit 2; }
+    LIBE3_VER="$(pkg-config --modversion libe3 2>/dev/null)" \
+        || { echo "[e3-ci] libe3 is not installed on this host (pkg-config libe3)" >&2; exit 2; }
+    "${PY}" -m pip install -U "${DAPPS_SPEC}" "libe3py==${LIBE3_VER}" > "${WORK}/pip.log" 2>&1 \
+        || { echo "[e3-ci] pip install '${DAPPS_SPEC}' libe3py==${LIBE3_VER} failed:" >&2; tail -20 "${WORK}/pip.log" >&2; exit 2; }
 fi
-# The shipped example must import from the installed package.
 "${PY}" -c "import e3interface, spectrum.spectrum_dapp, examples.spectrum_dapp" 2>/dev/null \
     || { echo "[e3-ci] dApp library not importable (need dapps>=0.2.3 with its shipped examples)" >&2; exit 2; }
 
-# ---- the gNB is up -----------------------------------------------------------
 waited=0
 until gnb_log | grep -q "Frame.Slot"; do
     sleep 2; waited=$((waited + 2))
@@ -67,9 +57,7 @@ until gnb_log | grep -q "Frame.Slot"; do
 done
 echo "[e3-ci] ${ENC}: gNB up after ${waited}s"
 
-# ---- run the spectrum dApp (headless, bounded) ---------------------------------
-# The dApp exits on its own --timed; timeout is a defensive upper bound. It writes
-# to a fixed /tmp/{e3,dapp}.log; truncate them so this run is isolated.
+# The dApp writes fixed /tmp/{e3,dapp}.log; truncate them to isolate this run.
 : > /tmp/dapp.log 2>/dev/null; : > /tmp/e3.log 2>/dev/null
 rc=0
 timeout $((DAPP_TIMED + 30)) \
@@ -78,7 +66,6 @@ timeout $((DAPP_TIMED + 30)) \
     > "${WORK}/dapp.out" 2>&1 || rc=$?
 cp -f /tmp/dapp.log "${WORK}/dapp.stats" 2>/dev/null
 
-# ---- dApp side -----------------------------------------------------------------
 [ "${rc}" -eq 0 ] || { fail "${ENC}: dApp exited ${rc} (expected 0)"; tail -20 "${WORK}/dapp.out" >&2; }
 grep -q "E3 Setup Response outcome: True" "${WORK}/dapp.stats" \
     || fail "${ENC}: dApp setup not accepted (no 'outcome: True')"
@@ -87,7 +74,6 @@ grep -q "E3 Setup Response outcome: True" "${WORK}/dapp.stats" \
 grep -qE "\[SHM\] final stats: handled=[1-9][0-9]* read_drops=0 " "${WORK}/dapp.stats" \
     || fail "${ENC}: dApp did not process IQ (want handled>0, read_drops=0): $(grep -o '\[SHM\] final stats:.*' "${WORK}/dapp.stats" | tail -1)"
 
-# ---- gNB side ------------------------------------------------------------------
 sleep 2
 gnb_log > "${WORK}/gnb.log"
 for expect in \
