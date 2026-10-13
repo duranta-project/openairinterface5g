@@ -130,7 +130,7 @@
 // it is in slots, we have only about 1 rach slot every 10 slots
 // TS 38.321 chap Random Access Response reception tells us '0' so re-send immediatly the RACH
 // but it generates too much collisions with OAI gNB that process one RACH per slot
-#define NO_GNB_RA_BACKOFF 50
+#define NO_GNB_RA_BACKOFF 200
 
 // Define the UE L2 states with X-Macro
 #define NR_UE_L2_STATES \

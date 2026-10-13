@@ -705,8 +705,8 @@ static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
 
   /* Late finish of a TB that no longer owns the PID: do not decode, ACK, or write HARQ state. */
   if (dl_harq->activated_frame != frame_rx || dl_harq->activated_slot != nr_slot_rx) {
-    LOG_W(NR_PHY, "%d.%d DLSCH harq %d late decode skipped, re-armed %d.%d first_rx %d\n",
-          frame_rx, nr_slot_rx, harq_pid, dl_harq->activated_frame, dl_harq->activated_slot, dl_harq->first_rx);
+    LOG_W(NR_PHY, "[UE %d] %d.%d DLSCH harq %d late decode skipped, re-armed %d.%d first_rx %d\n",
+          ue->Mod_id, frame_rx, nr_slot_rx, harq_pid, dl_harq->activated_frame, dl_harq->activated_slot, dl_harq->first_rx);
     if (config->k1_feedback) {
       const int ack_nack_slot_and_frame = (proc->nr_slot_rx + config->k1_feedback) + proc->frame_rx * fp->slots_per_frame;
       dynamic_barrier_join(&ue->process_slot_tx_barriers[ack_nack_slot_and_frame % NUM_PROCESS_SLOT_TX_BARRIERS]);
