@@ -32,8 +32,8 @@ docker tag oai-nr-cuup oai-ci/oai-nr-cuup:${CURRENT_BRANCH}
 TESTCASES="$@"
 
 python3 main.py --repository=NONE --branch=${CURRENT_BRANCH} \
-    --ranAllowMerge=false \
     --targetBranch=NONE \
+    --logdir logs \
     --workspace=${REPO_PATH} \
 	--local --datefmt="%H:%M:%S" \
     ${TESTCASES}
