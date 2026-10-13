@@ -1,15 +1,19 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
-# OpenAirInterface documentation overview
+# Duranta openairinterface5g Documentation Overview
 
-This is the general overview page of the OpenAirInterface documentation.
-This page groups links to general information, tutorials, design documents, radio integration, and special-purpose libraries.
+This page is the entry point to the Duranta openairinterface5g documentation. It
+links to general information, tutorials, design documents, images, libraries,
+radios, testing and developer tools.
 
-**IMPORTANT NOTE:**
-Before reading this documentation, we strongly advise you to keep your own repository rebased on `develop`
-or at least to checkout the documentation on the version of the repository you are using.
-Then the documentation will better reflect the features available in your repository so that you may avoid some errors.
-Beware if you previously pulled the `develop` branch that your repository may be now behind `develop`.
+> [!IMPORTANT]
+> Keep your repository rebased on `develop`, or read the documentation of the
+> version you are using, so that it matches the features available in your
+> repository. If you pulled `develop` some time ago, your repository may now be
+> behind it.
+
+More general information is available in the
+[OpenAirInterface GitLab wiki](https://gitlab.eurecom.fr/oai/openairinterface5g/-/wikis/home).
 
 [[_TOC_]]
 
@@ -22,8 +26,6 @@ Beware if you previously pulled the `develop` branch that your repository may be
 - [tuning_and_security.md](./tuning_and_security.md): performance and security considerations
 - [Supported_Hardware_Operating_System.md](./Supported_Hardware_Operating_System.md): List of supported hardware and operating system for OAI
 - [kpi.md](./kpi.md): Key Performance Indicators for the OpenAirInterface Code Base
-
-There is some general information in the [OpenAirInterface Gitlab Wiki](https://gitlab.eurecom.fr/oai/openairinterface5g/-/wikis/home)
 
 ## Tutorials
 
