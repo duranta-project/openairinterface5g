@@ -917,8 +917,15 @@ void olla_update(int *est_snrx10, olla_stats_t *s, frame_t frame)
   // channel as (base) snrx10_equiv. also, in case of no CQI, this will set the SNR base
   bool stale_delta = ((frame - s->last_frame + 1024) % 1024) > 299 && (s->acks + s->nacks > 100);
   if (stale_delta) {
-    int snrx10 = s->snrx10_equiv + s->delta_olla * 10.f;
-    *s = olla_init(snrx10, frame);
+    s->snrx10_equiv = s->snrx10_equiv + s->delta_olla * 10.f;
+    s->delta_olla = 0.0f;
+    s->last_frame = frame;
+  }
+  /* "trim" acks/nacks to have "windowed" BLER/SNR estimate react if channel
+   * changes fundamentally, even in long-lived connections */
+  if (s->acks + s->nacks > 3000) {
+    s->acks /= 2;
+    s->nacks /= 2;
   }
 }
 
