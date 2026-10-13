@@ -3342,9 +3342,12 @@ void *rrc_nrue(void *notUsed)
     break;
 
   case NR_RRC_MAC_SYNC_IND: {
-    nr_sync_msg_t sync_msg = NR_RRC_MAC_SYNC_IND(msg_p).in_sync ? IN_SYNC : OUT_OF_SYNC;
-    NR_UE_Timers_Constants_t *tac = &rrc->timers_and_constants;
-    handle_rlf_sync(tac, sync_msg);
+    // TS 38.331 5.3.10.1: radio link failure detection applies in RRC_CONNECTED.
+    if (rrc->nrRrcState == RRC_STATE_CONNECTED_NR) {
+      nr_sync_msg_t sync_msg = NR_RRC_MAC_SYNC_IND(msg_p).in_sync ? IN_SYNC : OUT_OF_SYNC;
+      NR_UE_Timers_Constants_t *tac = &rrc->timers_and_constants;
+      handle_rlf_sync(tac, sync_msg);
+    }
   } break;
 
   case NRRRC_FRAME_PROCESS:
