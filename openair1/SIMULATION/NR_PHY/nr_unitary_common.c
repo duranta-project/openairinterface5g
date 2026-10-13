@@ -77,3 +77,8 @@ void configure_nr_nfapi_vnf(eth_params_t params)
 void trs_freq_correction(PHY_VARS_NR_UE *ue, int cfo)
 {
 }
+
+void get_position_coordinates(int Mod_id, position_t *position)
+{
+  AssertFatal(false, "NTN UE position is not supported by PHY simulators\n");
+}

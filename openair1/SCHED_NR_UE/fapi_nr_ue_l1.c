@@ -15,6 +15,7 @@
 #include "PHY/defs_nr_UE.h"
 #include "PHY/impl_defs_nr.h"
 #include "utils.h"
+#include "executables/position_interface.h"
 #include "SCHED_NR_UE/phy_sch_processing_time.h"
 
 const char *const dl_pdu_type[] = {"DCI", "DLSCH", "RA_DLSCH", "SI_DLSCH", "P_DLSCH", "CSI_RS", "CSI_IM", "TA"};
@@ -404,6 +405,8 @@ void nr_ue_phy_config_request(nr_phy_config_t *phy_config)
   PHY_VARS_NR_UE *phy = nrPHY_vars_UE_g[phy_config->Mod_id][phy_config->CC_id];
   fapi_nr_config_request_t *nrUE_config = &phy->nrUE_config;
   if(phy_config != NULL) {
+    if (phy_config->config_req.ntn_config.cell_specific_k_offset != 0)
+      get_position_coordinates(phy_config->Mod_id, &phy->position);
     phy->received_config_request = true;
     memcpy(nrUE_config, &phy_config->config_req, sizeof(fapi_nr_config_request_t));
   }
