@@ -48,17 +48,17 @@ int ldpc_input(uint32_t **input,uint32_t *cc[4],int nseg,int Zc,int ncols,gpuStr
 
 void cuda_support_init()
 {
+  // How a host thread waits for the GPU (gpuStreamSynchronize() and alike), for the whole process: the LDPC decoder waits
+  // for the GPU at least once per transport block; with blocking sync each wake-up cost about 100 us on a DGX Spark
+  // (GB10). Set before the CUDA context is created if possible.
   const ldpc_cuda_wait_mode_t wait_mode = ldpc_cuda_get_config()->wait_mode;
-  {
-    // How a host thread waits for the GPU (gpuStreamSynchronize): the LDPC decoder waits for the GPU at least once per
-    // transport block; with blocking sync each wake-up cost about 100 us on a DGX Spark (GB10). Must be set before the
-    // CUDA context is created.
-    const unsigned f = wait_mode == LDPC_CUDA_WAIT_SPIN    ? gpuDeviceScheduleSpin
-                       : wait_mode == LDPC_CUDA_WAIT_BLOCK ? gpuDeviceScheduleBlockingSync
-                                                           : gpuDeviceScheduleYield;
-    const gpuError_t e = gpuSetDeviceFlags(f);
-    if (e != gpuSuccess)
-      LOG_W(NR_PHY, "CUDA LDPC: wait mode %s: %s\n", ldpc_cuda_wait_mode_names[wait_mode], gpuGetErrorString(e));
+  const unsigned flags = wait_mode == LDPC_CUDA_WAIT_SPIN    ? gpuDeviceScheduleSpin
+                         : wait_mode == LDPC_CUDA_WAIT_BLOCK ? gpuDeviceScheduleBlockingSync
+                                                             : gpuDeviceScheduleYield;
+  const gpuError_t e = gpuSetDeviceFlags(flags);
+  if (e != gpuSuccess) {
+    LOG_W(NR_PHY, "CUDA LDPC: wait mode %s: %s\n", ldpc_cuda_wait_mode_names[wait_mode], gpuGetErrorString(e));
+    gpuGetLastError(); // not fatal: clear it
   }
   int dev = 0;
   gpuDeviceProp_t prop;

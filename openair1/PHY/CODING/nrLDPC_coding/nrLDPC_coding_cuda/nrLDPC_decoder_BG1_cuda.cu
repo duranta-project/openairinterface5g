@@ -71,7 +71,7 @@ __global__ void cnProcKernel_BG1_R13_int8_Edge(const int8_t *__restrict__ d_cnBu
                                                int8_t *__restrict__ d_bnBufAll,
                                                uint32_t Zc,
                                                uint32_t ZcIdx,
-                                               const uint8_t *__restrict__ skip)
+                                               const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -128,7 +128,7 @@ __global__ void cnProcKernel_BG1_R13_int8_Node(const int8_t *__restrict__ d_cnBu
                                                int8_t *__restrict__ d_bnBufAll,
                                                uint32_t Zc,
                                                uint32_t ZcIdx,
-                                               const uint8_t *__restrict__ skip)
+                                               const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -183,7 +183,7 @@ __global__ void bnProcKernel_BG1_R13_int8_Edge(const int8_t *__restrict__ d_bnPr
                                                int8_t *__restrict__ d_llrRes,
                                                uint32_t Zc,
                                                uint32_t ZcIdx,
-                                               const uint8_t *__restrict__ skip)
+                                               const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -229,7 +229,7 @@ __global__ void bnProcKernel_BG1_R13_int8_Node(const int8_t *__restrict__ d_bnPr
                                                int8_t *__restrict__ d_llrRes,
                                                uint32_t Zc,
                                                uint32_t ZcIdx,
-                                               const uint8_t *__restrict__ skip)
+                                               const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -300,7 +300,7 @@ __global__ void bnProcKernel_BG1_R13_int8_Edge_last(const int8_t *__restrict__ d
                                                     int8_t *__restrict__ d_llrRes,
                                                     uint32_t Zc,
                                                     uint32_t ZcIdx,
-                                                    const uint8_t *__restrict__ skip)
+                                                    const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -346,7 +346,7 @@ __global__ void bnProcKernel_BG1_R13_int8_Node_last(const int8_t *__restrict__ d
                                                     int8_t *__restrict__ d_llrRes,
                                                     uint32_t Zc,
                                                     uint32_t ZcIdx,
-                                                    const uint8_t *__restrict__ skip)
+                                                    const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -419,7 +419,7 @@ __global__ void cnProcKernel_BG1_R23_int8_Edge(const int8_t *__restrict__ d_cnBu
                                                int8_t *__restrict__ d_bnBufAll,
                                                uint32_t Zc,
                                                uint32_t ZcIdx,
-                                               const uint8_t *__restrict__ skip)
+                                               const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -476,7 +476,7 @@ __global__ void cnProcKernel_BG1_R23_int8_Node(const int8_t *__restrict__ d_cnBu
                                                int8_t *__restrict__ d_bnBufAll,
                                                uint32_t Zc,
                                                uint32_t ZcIdx,
-                                               const uint8_t *__restrict__ skip)
+                                               const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -530,7 +530,7 @@ __global__ void bnProcKernel_BG1_R23_int8_Edge(const int8_t *__restrict__ d_bnPr
                                                int8_t *__restrict__ d_llrRes,
                                                uint32_t Zc,
                                                uint32_t ZcIdx,
-                                               const uint8_t *__restrict__ skip)
+                                               const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -577,7 +577,7 @@ __global__ void bnProcKernel_BG1_R23_int8_Node(const int8_t *__restrict__ d_bnPr
                                                int8_t *__restrict__ d_llrRes,
                                                uint32_t Zc,
                                                uint32_t ZcIdx,
-                                               const uint8_t *__restrict__ skip)
+                                               const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -647,7 +647,7 @@ __global__ void bnProcKernel_BG1_R23_int8_Edge_last(const int8_t *__restrict__ d
                                                     int8_t *__restrict__ d_llrRes,
                                                     uint32_t Zc,
                                                     uint32_t ZcIdx,
-                                                    const uint8_t *__restrict__ skip)
+                                                    const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -694,7 +694,7 @@ __global__ void bnProcKernel_BG1_R23_int8_Node_last(const int8_t *__restrict__ d
                                                     int8_t *__restrict__ d_llrRes,
                                                     uint32_t Zc,
                                                     uint32_t ZcIdx,
-                                                    const uint8_t *__restrict__ skip)
+                                                    const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -764,7 +764,7 @@ __global__ void cnProcKernel_BG1_R89_int8_Edge(const int8_t *__restrict__ d_cnBu
                                                int8_t *__restrict__ d_bnBufAll,
                                                uint32_t Zc,
                                                uint32_t ZcIdx,
-                                               const uint8_t *__restrict__ skip)
+                                               const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -821,7 +821,7 @@ __global__ void cnProcKernel_BG1_R89_int8_Node(const int8_t *__restrict__ d_cnBu
                                                int8_t *__restrict__ d_bnBufAll,
                                                uint32_t Zc,
                                                uint32_t ZcIdx,
-                                               const uint8_t *__restrict__ skip)
+                                               const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -875,7 +875,7 @@ __global__ void bnProcKernel_BG1_R89_int8_Edge(const int8_t *__restrict__ d_bnPr
                                                int8_t *__restrict__ d_llrRes,
                                                uint32_t Zc,
                                                uint32_t ZcIdx,
-                                               const uint8_t *__restrict__ skip)
+                                               const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -922,7 +922,7 @@ __global__ void bnProcKernel_BG1_R89_int8_Node(const int8_t *__restrict__ d_bnPr
                                                int8_t *__restrict__ d_llrRes,
                                                uint32_t Zc,
                                                uint32_t ZcIdx,
-                                               const uint8_t *__restrict__ skip)
+                                               const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -992,7 +992,7 @@ __global__ void bnProcKernel_BG1_R89_int8_Edge_last(const int8_t *__restrict__ d
                                                     int8_t *__restrict__ d_llrRes,
                                                     uint32_t Zc,
                                                     uint32_t ZcIdx,
-                                                    const uint8_t *__restrict__ skip)
+                                                    const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -1039,7 +1039,7 @@ __global__ void bnProcKernel_BG1_R89_int8_Node_last(const int8_t *__restrict__ d
                                                     int8_t *__restrict__ d_llrRes,
                                                     uint32_t Zc,
                                                     uint32_t ZcIdx,
-                                                    const uint8_t *__restrict__ skip)
+                                                    const uint8_t *skip)
 {
   uint32_t lane = threadIdx.x;
   uint32_t row = (blockIdx.x << 2) + threadIdx.y;
@@ -1159,7 +1159,7 @@ __global__ void llrOutPut_Kernel_BG1_int8_BIG_stream(uint32_t R,
                                                      ldpc_cuda_bridge_t *d_buffer,
                                                      uint32_t numLLR,
                                                      uint32_t K,
-                                                     const uint8_t *__restrict__ skip)
+                                                     const uint8_t *skip)
 {
   uint32_t segIdx = blockIdx.y;
   if (skip && skip[segIdx]) // code block already decoded (early termination)
@@ -1416,51 +1416,16 @@ static inline uint32_t get_lut_col_index_host(uint32_t Zc)
 // Early-termination chunks: the prologue does the LLR pre-processing, then `iters` full iterations (check nodes then bit
 // nodes; the regular bit-node kernels also store the posterior LLRs) and the hard decision; a continuation chunk does
 // `iters` more iterations and the hard decision. The host checks the code-block CRCs between chunks.
-#define ENQUEUE_LDPC_DECODER_CHUNK(q_streams, q_idx, prologue, iters, skip)                                         \
+#define ENQUEUE_LDPC_DECODER_CHUNK(q_streams, q_idx, prologue, iters)                                               \
   do {                                                                                                              \
     uint8_t ZcIdx = get_lut_col_index_host(Z);                                                                      \
     if (prologue)                                                                                                   \
       nrLDPC_llrPreProc_BG1_cuda_stream_core(buffer, numLLR, llrProcBuf, cnProcBuf, Z, ZcIdx, R, q_streams, q_idx); \
     for (int i = 0; i < (iters); i++) {                                                                             \
-      if (R == 13) {                                                                                                \
-        nrLDPC_cnProc_BG1_R13_cuda_stream_core(cnProcBuf, bnProcBuf, n_segments, Z, ZcIdx, q_streams, q_idx, skip); \
-        nrLDPC_bnProc_BG1_R13_cuda_stream_core(bnProcBuf,                                                           \
-                                               cnProcBuf,                                                           \
-                                               llrProcBuf,                                                          \
-                                               llrRes,                                                              \
-                                               n_segments,                                                          \
-                                               Z,                                                                   \
-                                               ZcIdx,                                                               \
-                                               q_streams,                                                           \
-                                               q_idx,                                                               \
-                                               skip);                                                               \
-      } else if (R == 23) {                                                                                         \
-        nrLDPC_cnProc_BG1_R23_cuda_stream_core(cnProcBuf, bnProcBuf, n_segments, Z, ZcIdx, q_streams, q_idx, skip); \
-        nrLDPC_bnProc_BG1_R23_cuda_stream_core(bnProcBuf,                                                           \
-                                               cnProcBuf,                                                           \
-                                               llrProcBuf,                                                          \
-                                               llrRes,                                                              \
-                                               n_segments,                                                          \
-                                               Z,                                                                   \
-                                               ZcIdx,                                                               \
-                                               q_streams,                                                           \
-                                               q_idx,                                                               \
-                                               skip);                                                               \
-      } else if (R == 89) {                                                                                         \
-        nrLDPC_cnProc_BG1_R89_cuda_stream_core(cnProcBuf, bnProcBuf, n_segments, Z, ZcIdx, q_streams, q_idx, skip); \
-        nrLDPC_bnProc_BG1_R89_cuda_stream_core(bnProcBuf,                                                           \
-                                               cnProcBuf,                                                           \
-                                               llrProcBuf,                                                          \
-                                               llrRes,                                                              \
-                                               n_segments,                                                          \
-                                               Z,                                                                   \
-                                               ZcIdx,                                                               \
-                                               q_streams,                                                           \
-                                               q_idx,                                                               \
-                                               skip);                                                               \
-      }                                                                                                             \
+      ENQUEUE_LDPC_CN(q_streams, q_idx, NULL);                                                                      \
+      ENQUEUE_LDPC_BN(q_streams, q_idx, NULL, 0);                                                                   \
     }                                                                                                               \
-    nrLDPC_OutPut_BG1_cuda_stream_core(llrRes, Z, R, outMode, buffer, numLLR, K, q_streams, q_idx, skip);           \
+    nrLDPC_OutPut_BG1_cuda_stream_core(llrRes, Z, R, outMode, buffer, numLLR, K, q_streams, q_idx, NULL);           \
   } while (0)
 
 static void set_kernel_dims(uint8_t CudaStreamIdx, uint32_t Z, uint8_t n_segments)
@@ -1492,7 +1457,6 @@ static void set_kernel_dims(uint8_t CudaStreamIdx, uint32_t Z, uint8_t n_segment
 // block; thread t takes the remainder of bytes [t L, (t+1) L) of the message left-padded with zero bytes to
 // L * LDPC_ET_THREADS (which leaves the remainder unchanged), multiplies it by xpow[t] = x^(8 L (T-1-t)) mod g
 // (precomputed on the host) and the products are XORed.
-#define LDPC_ET_THREADS 256
 
 // a * b mod (x^deg + low), polynomials of degree < deg
 __device__ __forceinline__ uint32_t gf2_mulmod(uint32_t a, uint32_t b, uint32_t low, uint32_t deg)
@@ -1535,7 +1499,8 @@ __global__ void ldpc_et_setup_kernel(ldpc_cuda_et_state_t *st,
 
 // Hard decision and CRC check after `it` iterations. A code block that passes is skipped by every later kernel; its hard
 // decision goes to out and `it` to pass_it. On the last chunk (`final`) the code blocks that never passed write their last
-// hard decision and pass_it 0. out and pass_it are mapped host memory: no copy back to the host.
+// hard decision and pass_it 0. out and pass_it are mapped host memory on GPUs coherent with the host, else device memory
+// copied to the host at the end of the decode (see nrLDPC_decoder_cuda_EnqueueET()).
 __global__ void ldpc_et_crc_kernel(const int8_t *__restrict__ llrRes,
                                    uint32_t R,
                                    uint32_t Zc,
@@ -1546,7 +1511,7 @@ __global__ void ldpc_et_crc_kernel(const int8_t *__restrict__ llrRes,
                                    int it,
                                    int final)
 {
-  __shared__ uint8_t hd[NR_LDPC_ZMAX * 22 / 8];
+  __shared__ uint8_t hd[LDPC_ET_MAX_KB];
   __shared__ uint32_t warp_rem[LDPC_ET_THREADS / 32];
   const int r = blockIdx.x;
   const int t = threadIdx.x;
@@ -1608,6 +1573,21 @@ __global__ void ldpc_et_crc_kernel(const int8_t *__restrict__ llrRes,
 
   extern "C" {
 
+  // Record and instantiate a graph from the work captured on `stream` since gpuStreamBeginCapture()
+  static gpuError_t et_end_capture(gpuStream_t stream, gpuGraph_t *graphPtr, gpuGraphExec_t *graphExecPtr)
+  {
+    gpuError_t err = gpuStreamEndCapture(stream, graphPtr);
+    if (err != gpuSuccess)
+      return err;
+    err = gpuGraphInstantiateWithFlags(graphExecPtr, *graphPtr, 0);
+    if (err != gpuSuccess) {
+      gpuGraphDestroy(*graphPtr);
+      *graphPtr = NULL;
+      *graphExecPtr = NULL;
+    }
+    return err;
+  }
+
   // Record one early-termination chunk (see ENQUEUE_LDPC_DECODER_CHUNK) as a CUDA graph on stream CudaStreamIdx.
   gpuError_t nrLDPC_decoder_cuda_GraphRecordChunk(ldpc_cuda_bridge_t *buffer,
                                                   uint32_t numLLR,
@@ -1632,16 +1612,8 @@ __global__ void ldpc_et_crc_kernel(const int8_t *__restrict__ llrRes,
     gpuError_t err = gpuStreamBeginCapture(stream, gpuStreamCaptureModeThreadLocal);
     if (err != gpuSuccess)
       return err;
-    ENQUEUE_LDPC_DECODER_CHUNK(streams, CudaStreamIdx, prologue, iters, NULL);
-    err = gpuStreamEndCapture(stream, graphPtr);
-    if (err != gpuSuccess)
-      return err;
-    err = gpuGraphInstantiate(graphExecPtr, *graphPtr, NULL, NULL, 0);
-    if (err != gpuSuccess) {
-      gpuGraphDestroy(*graphPtr);
-      *graphPtr = NULL;
-    }
-    return err;
+    ENQUEUE_LDPC_DECODER_CHUNK(streams, CudaStreamIdx, prologue, iters);
+    return et_end_capture(stream, graphPtr, graphExecPtr);
   }
 
   // Same chunk launched directly (no graph).
@@ -1662,21 +1634,7 @@ __global__ void ldpc_et_crc_kernel(const int8_t *__restrict__ llrRes,
                                               uint8_t CudaStreamIdx)
   {
     set_kernel_dims(CudaStreamIdx, Z, n_segments);
-    ENQUEUE_LDPC_DECODER_CHUNK(streams, CudaStreamIdx, prologue, iters, NULL);
-  }
-
-  // Record and instantiate a graph from the work captured on `stream` since gpuStreamBeginCapture()
-  static gpuError_t et_end_capture(gpuStream_t stream, gpuGraph_t *graphPtr, gpuGraphExec_t *graphExecPtr)
-  {
-    gpuError_t err = gpuStreamEndCapture(stream, graphPtr);
-    if (err != gpuSuccess)
-      return err;
-    err = gpuGraphInstantiate(graphExecPtr, *graphPtr, NULL, NULL, 0);
-    if (err != gpuSuccess) {
-      gpuGraphDestroy(*graphPtr);
-      *graphPtr = NULL;
-    }
-    return err;
+    ENQUEUE_LDPC_DECODER_CHUNK(streams, CudaStreamIdx, prologue, iters);
   }
 
   // Per-decode setup (see ldpc_et_setup_kernel()), before the graphs
@@ -1705,10 +1663,10 @@ __global__ void ldpc_et_crc_kernel(const int8_t *__restrict__ llrRes,
   // (copy_bytes 0), to device memory then copied in one piece from copy_src to copy_dst at the end of each graph
   // otherwise. The kernels skip the code blocks that already passed, so the chunks after the last one passed cost only
   // their launches.
-  // The CRC kernel only reads llrRes, which the check-node kernels do not touch: within the second graph it runs on a side
-  // branch (side_stream) next to the following check-node kernel, and only the following bit-node kernel waits for it.
-  // That check-node kernel may not see the code blocks that just passed and process them once more, which does not
-  // change their output.
+  // The CRC kernel reads llrRes, which the check-node kernels do not touch, and sets st->done, which they read: within the
+  // second graph it runs on a side branch (side_stream) next to the following check-node kernel, and only the following
+  // bit-node kernel waits for it. That check-node kernel may not see the code blocks that just passed and process them
+  // once more, which does not change their output.
   gpuError_t nrLDPC_decoder_cuda_EnqueueET(ldpc_cuda_bridge_t *buffer,
                                            uint32_t numLLR,
                                            int8_t *cnProcBuf,
@@ -1798,7 +1756,7 @@ __global__ void ldpc_et_crc_kernel(const int8_t *__restrict__ llrRes,
         graphs[g] = NULL;
       }
     }
-    return err;
+    return direct ? gpuGetLastError() : err; // direct launches: launch errors
   }
 
   gpuError_t nrLDPC_decoder_cuda_GraphRecord(ldpc_cuda_bridge_t *buffer,
