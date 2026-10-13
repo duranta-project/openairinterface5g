@@ -45,7 +45,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   int k = 12 * n_ra_prb - 6 * fp->N_RB_UL;
   const int prachStartSymbol = prach_pdu->prach_start_symbol;
 
-  LOG_D(PHY,"Generate NR PRACH %d.%d\n", frame, slot);
+  LOG_D(PHY,"[UE %d] Generate NR PRACH %d.%d\n", ue->Mod_id, frame, slot);
 
   if (nrUE_config->prach_config.root_seq_computed == 0) {
     compute_nr_prach_seq(nrUE_config->prach_config.prach_sequence_length,
@@ -93,7 +93,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   } else { // This is the high-speed case
 
 #ifdef NR_PRACH_DEBUG
-    LOG_I(PHY, "PRACH [UE %d] High-speed mode, NCS %d\n", ue->Mod_id, NCS);
+    LOG_I(PHY, "[UE %d] PRACH High-speed mode, NCS %d\n", ue->Mod_id, NCS);
 #endif
 
     uint16_t nr_du[NR_PRACH_SEQ_LEN_L - 1];
@@ -154,7 +154,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
 #ifdef NR_PRACH_DEBUG
   if (NCS > 0)
     LOG_I(PHY,
-          "PRACH [UE %d] generate PRACH in frame.slot %d.%d for RootSeqIndex %d, Preamble Index %d, PRACH Format %s, NCS %d "
+          "[UE %d] generate PRACH %d.%d for RootSeqIndex %d, Preamble Index %d, PRACH Format %s, NCS %d "
           "(N_ZC %d): Preamble_offset %d, Preamble_shift %d msg1 frequency start %d\n",
           ue->Mod_id,
           frame,
@@ -179,7 +179,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   k += kbar;
 
   LOG_I(PHY,
-        "PRACH [UE %d] in frame.slot %d.%d, placing PRACH in position %d, Msg1/MsgA-Preamble frequency start %d (k1 %d), "
+        "[UE %d] %d.%d, PRACH position %d, Msg1/MsgA-Preamble freq start %d (k1 %d), "
         "preamble_offset %d, first_nonzero_root_idx %d, preambleIndex = %d\n",
         ue->Mod_id,
         frame,
@@ -280,7 +280,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   }
 
 #ifdef NR_PRACH_DEBUG
-  LOG_I(PHY, "PRACH [UE %d] Ncp %d, dftlen %d \n", ue->Mod_id, Ncp, dftlen);
+  LOG_I(PHY, "[UE %d] Ncp %d, dftlen %d \n", ue->Mod_id, Ncp, dftlen);
 #endif
 
   /********************************************************
