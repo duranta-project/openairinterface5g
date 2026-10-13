@@ -2468,12 +2468,14 @@ bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sche
               dl_harq_pid, current_harq->ul_frame, current_harq->ul_slot);
         /* check if current tx slot should transmit downlink acknowlegment */
         if (current_harq->ul_frame == frame && current_harq->ul_slot == slot) {
+          // TS 38.213 9.2.3: all HARQ-ACK bits of the slot go into the codebook; the PUCCH resource follows the PRI of
+          // the last DCI (highest counter DAI), earlier DCIs may carry a different PRI
           if (res_ind != -1 && res_ind != current_harq->pucch_resource_indicator)
-            LOG_E(NR_MAC,
-                  "Value of pucch_resource_indicator %d not matching with what set before %d (Possibly due to a false DCI) \n",
+            LOG_D(NR_MAC,
+                  "pucch_resource_indicator %d differs from an earlier DCI (%d) for the same slot, using the last DCI's\n",
                   current_harq->pucch_resource_indicator,
                   res_ind);
-          else {
+          {
             if (!current_harq->ack_received)
               LOG_E(NR_MAC, "DLSCH ACK/NACK reporting initiated for harq pid %d before DLSCH decoding completed\n", dl_harq_pid);
 
@@ -2501,15 +2503,12 @@ bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sche
               ack_data[code_word][dai_index] = 0;
             }
             dai[code_word][dai_index] = (dai_index % 4) + 1; // value between 1 and 4
-            int temp_ind = current_harq->pucch_resource_indicator;
-            AssertFatal(res_ind == -1 || res_ind == temp_ind,
-                        "Current resource index %d does not match with previous resource index %d\n",
-                        temp_ind,
-                        res_ind);
-            res_ind = temp_ind;
-            pucch->harq_ack_pucch_res_ind = temp_ind;
-            pucch->n_CCE = current_harq->n_CCE;
-            pucch->N_CCE = current_harq->N_CCE;
+            if (current_harq->dai_cumul >= dai_max) { // last DCI so far (counter DAI order) defines the PUCCH resource
+              res_ind = current_harq->pucch_resource_indicator;
+              pucch->harq_ack_pucch_res_ind = res_ind;
+              pucch->n_CCE = current_harq->n_CCE;
+              pucch->N_CCE = current_harq->N_CCE;
+            }
             // Collect 9.2.1 set index for this occasion, all common HARQs must agree
             if (current_harq->pucch_ResourceCommon >= 0) {
               AssertFatal(occasion_pucch_ResourceCommon < 0 || occasion_pucch_ResourceCommon == current_harq->pucch_ResourceCommon,
