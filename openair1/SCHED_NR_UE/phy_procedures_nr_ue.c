@@ -179,7 +179,16 @@ int get_tx_amp_prach(int power_dBm, int power_max_dBm, int N_RB_UL){
 // - handle RAR TA application as per ch 4.2 TS 38.213
 void ue_ta_procedures(PHY_VARS_NR_UE *ue, int slot_tx, int frame_tx)
 {
-  if (frame_tx == ue->ta_frame && slot_tx == ue->ta_slot) {
+  // TS 38.213 4.2: the adjustment applies from the first UL slot n + k + 1 on. The command reaches L1 only after the
+  // PDSCH carrying the MAC CE is decoded, when the TX processing (slot_tx = slot_rx + rx-to-tx) may already be past
+  // the target slot: apply it at the first TX slot at or after the target.
+  const int slots_per_frame = ue->frame_parms.slots_per_frame;
+  const int total_slots = MAX_FRAME_NUMBER * slots_per_frame;
+  const int late =
+      ue->ta_frame < 0 ? -1 : ((frame_tx - ue->ta_frame) * slots_per_frame + slot_tx - ue->ta_slot + total_slots) % total_slots;
+  if (late >= 0 && late < total_slots / 2) {
+    if (late > 0)
+      LOG_D(PHY, "[UE %d] %d.%d applying TA command %d slots after its target slot\n", ue->Mod_id, frame_tx, slot_tx, late);
     uint16_t ofdm_symbol_size = ue->frame_parms.ofdm_symbol_size;
 
     // convert time factor "16 * 64 * T_c / (2^mu)" in N_TA calculation in TS38.213 section 4.2 to samples by multiplying with
