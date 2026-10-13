@@ -87,6 +87,8 @@ extern uint16_t ue_id_g;
   {"extra-pdu-id",                 CONFIG_HLP_EXTRA_PDU_ID,    0,               .iptr=&nrUE_params.extra_pdu_id,             .defintval=-1,     TYPE_INT,      0}, \
   {"disable-blind-search",         CONFIG_HLP_DISABLE_BLIND_SEARCH, PARAMFLAG_BOOL, .iptr=&nrUE_params.disable_blind_search, .defintval=0,      TYPE_INT,      0}, \
   {"ue-capability-rx2tx",          CONFIG_HLP_RX2TX,           0,               .iptr=&nrUE_params.ue_capability_rx2tx,      .defintval=3,      TYPE_INT,      0}, \
+  {"ue-split7",                    "Use Split 7.1 freq-domain I/O (ue_split7_device)",  PARAMFLAG_BOOL,  .iptr=&nrUE_params.use_split7, .defintval=0, TYPE_INT, 0}, \
+  {"ue-split7-sync-timeout",       "Split 7.1 sync search timeout in ms (default 5000)", 0, .iptr=&nrUE_params.split7_sync_timeout_ms, .defintval=5000, TYPE_INT, 0}, \
 }
 // clang-format on
 
@@ -132,6 +134,8 @@ typedef struct {
   int extra_pdu_id;
   int disable_blind_search;
   int ue_capability_rx2tx;
+  int use_split7; // enable Split 7.1 freq-domain UE thread
+  int split7_sync_timeout_ms;  // sync search timeout for Split 7.1 device
 } nrUE_params_t;
 extern uint64_t get_nrUE_optmask(void);
 extern uint64_t set_nrUE_optmask(uint64_t bitmask);
@@ -143,4 +147,11 @@ extern void init_NR_UE(int, char *, char *, char *, int, int);
 extern void init_NR_UE_threads(PHY_VARS_NR_UE *ue);
 void *UE_thread(void *arg);
 void init_nr_ue_vars(PHY_VARS_NR_UE *ue, uint8_t UE_id);
+
+// In nr-fd-ue.c
+struct ue_split7_device;
+// Starts ONE shared FD thread driving all num_ues instances (their own
+// RRC/MAC/PHY state, own dl_actors/ul_actors) against one shared split7
+// device -- not one thread+device per instance.
+void init_NR_UE_fd_threads(PHY_VARS_NR_UE **UE_list, int num_ues, struct ue_split7_device *dev);
 #endif

@@ -645,7 +645,7 @@ int main(int argc, char **argv)
         int16_t pbch_e_rx[NR_POLAR_PBCH_E];
         uint8_t log2_maxh = 0;
         for (int i = UE->symbol_offset + 1; i < UE->symbol_offset + 4; i++) {
-          nr_slot_fep(UE, frame_parms, proc.nr_slot_rx, i % frame_parms->symbols_per_slot, rxdataF, link_type_dl, 0, rxdata);
+          nr_slot_fep(UE, frame_parms, proc.frame_rx, proc.nr_slot_rx, i % frame_parms->symbols_per_slot, rxdataF, link_type_dl, 0, rxdata);
           __attribute__((aligned(32))) struct complex16 rxdataF_symb[frame_parms->nb_antennas_rx][frame_parms->ofdm_symbol_size];
           __attribute__((aligned(32))) struct complex16 dl_ch_estimates[frame_parms->nb_antennas_rx][frame_parms->ofdm_symbol_size];
 
