@@ -2490,58 +2490,55 @@ bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sche
               dl_harq_pid, current_harq->ul_frame, current_harq->ul_slot);
         /* check if current tx slot should transmit downlink acknowlegment */
         if (current_harq->ul_frame == frame && current_harq->ul_slot == slot) {
-          if (res_ind != -1 && res_ind != current_harq->pucch_resource_indicator)
-            LOG_E(NR_MAC,
-                  "Value of pucch_resource_indicator %d not matching with what set before %d (Possibly due to a false DCI) \n",
-                  current_harq->pucch_resource_indicator,
-                  res_ind);
-          else {
-            if (!current_harq->ack_received)
-              LOG_E(NR_MAC, "DLSCH ACK/NACK reporting initiated for harq pid %d before DLSCH decoding completed\n", dl_harq_pid);
+          // TS 38.213 9.2.3: all HARQ-ACK bits of the slot go into the codebook; the PUCCH resource follows the PRI of
+          // the last DCI (highest counter DAI), earlier DCIs may carry a different PRI
+          if (!current_harq->ack_received)
+            LOG_E(NR_MAC, "DLSCH ACK/NACK reporting initiated for harq pid %d before DLSCH decoding completed\n", dl_harq_pid);
 
-            if (get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dl_harq_pid)) {
-              LOG_W(NR_MAC, "skipping DLSCH ACK/NACK reporting for harq pid %d\n", dl_harq_pid);
-              current_harq->active = false;
-              current_harq->ack_received = false;
-              continue;
-            }
+          if (get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dl_harq_pid)) {
+            LOG_W(NR_MAC, "skipping DLSCH ACK/NACK reporting for harq pid %d\n", dl_harq_pid);
+            current_harq->active = false;
+            current_harq->ack_received = false;
+            continue;
+          }
 
-            if (current_harq->dai_cumul == 0) {
-              LOG_E(NR_MAC,"PUCCH Downlink DAI is invalid\n");
-              return false;
-            } else if (current_harq->dai_cumul > dai_max) {
-              dai_max = current_harq->dai_cumul;
-            }
+          if (current_harq->dai_cumul == 0) {
+            LOG_E(NR_MAC,"PUCCH Downlink DAI is invalid\n");
+            return false;
+          } else if (current_harq->dai_cumul > dai_max) {
+            dai_max = current_harq->dai_cumul;
+          }
 
-            number_harq_feedback++;
-            int dai_index = current_harq->dai_cumul - 1;
-            if (current_harq->ack_received) {
-              ack_data[code_word][dai_index] = current_harq->ack;
-              current_harq->active = false;
-              current_harq->ack_received = false;
-            } else {
-              ack_data[code_word][dai_index] = 0;
-            }
-            dai[code_word][dai_index] = (dai_index % 4) + 1; // value between 1 and 4
-            int temp_ind = current_harq->pucch_resource_indicator;
-            AssertFatal(res_ind == -1 || res_ind == temp_ind,
-                        "Current resource index %d does not match with previous resource index %d\n",
-                        temp_ind,
-                        res_ind);
-            res_ind = temp_ind;
-            pucch->harq_ack_pucch_res_ind = temp_ind;
+          number_harq_feedback++;
+          int dai_index = current_harq->dai_cumul - 1;
+          if (current_harq->ack_received) {
+            ack_data[code_word][dai_index] = current_harq->ack;
+            current_harq->active = false;
+            current_harq->ack_received = false;
+          } else {
+            ack_data[code_word][dai_index] = 0;
+          }
+          dai[code_word][dai_index] = (dai_index % 4) + 1; // value between 1 and 4
+          if (current_harq->dai_cumul >= dai_max) { // last DCI so far (counter DAI order) defines the PUCCH resource
+            if (res_ind != -1 && res_ind != current_harq->pucch_resource_indicator)
+              LOG_D(NR_MAC,
+                    "pucch_resource_indicator %d of a later DCI replaces %d for the same slot\n",
+                    current_harq->pucch_resource_indicator,
+                    res_ind);
+            res_ind = current_harq->pucch_resource_indicator;
+            pucch->harq_ack_pucch_res_ind = res_ind;
             pucch->n_CCE = current_harq->n_CCE;
             pucch->N_CCE = current_harq->N_CCE;
-            // Collect 9.2.1 set index for this occasion, all common HARQs must agree
-            if (current_harq->pucch_ResourceCommon >= 0) {
-              AssertFatal(occasion_pucch_ResourceCommon < 0 || occasion_pucch_ResourceCommon == current_harq->pucch_ResourceCommon,
-                          "mixed occasion pucch_ResourceCommon %d vs %d\n",
-                          occasion_pucch_ResourceCommon,
-                          current_harq->pucch_ResourceCommon);
-              occasion_pucch_ResourceCommon = current_harq->pucch_ResourceCommon;
-            }
-            LOG_D(NR_MAC,"%4d.%2d Sent %d ack on harq pid %d\n", frame, slot, current_harq->ack, dl_harq_pid);
           }
+          // Collect 9.2.1 set index for this occasion, all common HARQs must agree
+          if (current_harq->pucch_ResourceCommon >= 0) {
+            AssertFatal(occasion_pucch_ResourceCommon < 0 || occasion_pucch_ResourceCommon == current_harq->pucch_ResourceCommon,
+                        "mixed occasion pucch_ResourceCommon %d vs %d\n",
+                        occasion_pucch_ResourceCommon,
+                        current_harq->pucch_ResourceCommon);
+            occasion_pucch_ResourceCommon = current_harq->pucch_ResourceCommon;
+          }
+          LOG_D(NR_MAC,"%4d.%2d Sent %d ack on harq pid %d\n", frame, slot, current_harq->ack, dl_harq_pid);
         }
       }
     }
