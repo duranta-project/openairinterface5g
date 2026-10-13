@@ -174,7 +174,7 @@ static int get_ulsyncvalidityduration_timer_value(NR_NTN_Config_r17_t *ntncfg)
   return retval;
 }
 
-static void get_epochtime_from_sib19scheduling(NR_UE_RRC_SI_INFO *SI_info, int *frame, int *subframe)
+static void get_epochtime_from_sib19scheduling(NR_UE_RRC_SI_INFO *SI_info, int *frame, int *subframe, int scs)
 {
   // TS 38.331 section 5.2.2.3.2
   // SI-window starts at the slot #a, where a = x mod N
@@ -182,7 +182,7 @@ static void get_epochtime_from_sib19scheduling(NR_UE_RRC_SI_INFO *SI_info, int *
   // N is the number of slots in a radio frame
   int wl_slots = 5 << SI_info->si_windowlength;
   int x = (SI_info->sib19_windowposition - 1) * wl_slots;
-  int slots_per_subframe = 1 << SI_info->scs;
+  int slots_per_subframe = 1 << scs;
   int N = slots_per_subframe * 10;
   int slot_end_sib19_window = (x % N) + wl_slots;
 
@@ -205,7 +205,11 @@ static void get_epochtime_from_sib19scheduling(NR_UE_RRC_SI_INFO *SI_info, int *
         slot);
 }
 
-static int eval_epoch_time(NR_UE_RRC_SI_INFO *SI_info, NR_NTN_Config_r17_t *ntncfg, int frame, bool is_targetcell)
+static int eval_epoch_time(NR_UE_RRC_INST_t *rrc,
+                           NR_UE_RRC_SI_INFO *SI_info,
+                           NR_NTN_Config_r17_t *ntncfg,
+                           int frame,
+                           bool is_targetcell)
 {
   int epoch_frame = 0, epoch_subframe = 0;
   int diff_frames = 0;
@@ -218,7 +222,7 @@ static int eval_epoch_time(NR_UE_RRC_SI_INFO *SI_info, NR_NTN_Config_r17_t *ntnc
     // If no EPOCH time is sent, epochtime points to SIB19 window end slot in the current scheduling window
     epoch_frame = frame;
     epoch_subframe = 0;
-    get_epochtime_from_sib19scheduling(SI_info, &epoch_frame, &epoch_subframe);
+    get_epochtime_from_sib19scheduling(SI_info, &epoch_frame, &epoch_subframe, rrc->scs);
     // Adding epochTime IE in SIB19, later MAC will use it.
     ntncfg->epochTime_r17 = CALLOC(1, sizeof(NR_EpochTime_r17_t));
     ntncfg->epochTime_r17->sfn_r17 = epoch_frame;
@@ -264,7 +268,7 @@ static void nr_rrc_process_ntnconfig(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *S
 {
   SI_info->SInfo_r17.sib19_validity = true;
   // Check if Epochtime is sent or not
-  int diff_frames = eval_epoch_time(SI_info, ntncfg, frame, is_targetcell);
+  int diff_frames = eval_epoch_time(rrc, SI_info, ntncfg, frame, is_targetcell);
 
   if (ntncfg->ntn_UlSyncValidityDuration_r17) { // ulsyncvalidity duration configured
     int val430_ms = 0, sib19_timer_ms = 0;
@@ -531,7 +535,7 @@ static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_inf
   }
 
   AssertFatal(sib1->servingCellConfigCommon, "configuration issue in SIB1\n");
-  SI_info->scs = sib1->servingCellConfigCommon->downlinkConfigCommon.initialDownlinkBWP.genericParameters.subcarrierSpacing;
+  rrc->scs = sib1->servingCellConfigCommon->downlinkConfigCommon.initialDownlinkBWP.genericParameters.subcarrierSpacing;
   SI_info->si_windowlength = (sib1->si_SchedulingInfo) ? sib1->si_SchedulingInfo->si_WindowLength : 0;
   // configure default SI
   nr_rrc_configure_default_SI(SI_info, sib1->si_SchedulingInfo, si_SchedInfo_v1700);
@@ -1951,6 +1955,7 @@ NR_UE_RRC_INST_t* nr_rrc_init_ue(char* uecap_file, int instance_id, int num_ant_
   /* 5G-S-TMSI starts unset (sentinel UINT64_MAX). NAS_5GMM_IND populates it on registration */
   rrc->fiveG_S_TMSI = UINT64_MAX;
   rrc->access_barred = false;
+  rrc->nr_band = get_softmodem_params()->band;
 
   FILE *f = NULL;
   if (uecap_file) {
