@@ -74,6 +74,12 @@ typedef struct {
   int8_t* p_out_ptr;
 } ldpc_cuda_bridge_t;
 
+// early termination CRC kernel: threads per code block, bytes of a code block's hard decision (K = 22 Zc bits at most)
+// and bytes per thread
+#define LDPC_ET_THREADS 256
+#define LDPC_ET_MAX_KB (22 * 384 / 8)
+#define LDPC_ET_MAX_L ((LDPC_ET_MAX_KB + LDPC_ET_THREADS - 1) / LDPC_ET_THREADS)
+
 // launch-dimension slots (Kdim_* arrays), indexed by stream: up to 8 decoder contexts, then the background graph recorder
 #define LDPC_CUDA_KDIM_SLOTS 9
 #define LDPC_ET_REC_SLOT 8

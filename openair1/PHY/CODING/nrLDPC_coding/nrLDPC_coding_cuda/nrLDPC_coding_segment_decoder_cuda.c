@@ -59,25 +59,15 @@ int nr_rate_matching_ldpc_rx_cuda(uint32_t Tbslbrm,
                                   int8_t sidx);
 
 extern int pageable, integrated;
-extern int8_t *p_llr_dev, *p_out_dev;
 int16_t **harq_d_array;
 int16_t *harq_d_array_dev;
-int16_t *harq_e_dev;
-int16_t *harq_f_dev;
-pthread_mutex_t decoder_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-extern int32_t LDPCdecoder_cuda(t_nrLDPC_dec_params *p_decParams,
-                                int8_t *p_llr,
-                                uint8_t *p_out,
-                                t_nrLDPC_time_stats *p_profiler,
-                                decode_abort_t *ab);
 
 extern int ldpc_cuda_ctx_acquire(void);
 extern void ldpc_cuda_ctx_release(int ci);
 extern int8_t *ldpc_cuda_ctx_llr(int ci);
 extern int16_t *ldpc_cuda_ctx_harq_e(int ci);
 extern int16_t *ldpc_cuda_ctx_harq_f(int ci);
-extern int32_t LDPCdecoder_cuda_ctx(int ci, t_nrLDPC_dec_params *p_decParams, uint8_t *p_out, int *n_passed);
+extern int LDPCdecoder_cuda_ctx(int ci, t_nrLDPC_dec_params *p_decParams, uint8_t *p_out, bool *passed);
 extern void ldpc_cuda_ctx_init(void);
 extern void ldpc_cuda_ctx_shutdown(void);
 
@@ -89,10 +79,8 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   // use seg0 as canonical
   const int C = segs->C;
   const int Z = segs->Z;
-  const int Kc = segs->BG == 2 ? 52 : 68;
   const int K = segs->K;
   const int Kprime = K - segs->F;
-  const int segLen = Kc * Z; // int16 length; after packing we store int8 [segLen]
 
 #ifdef USE_GPU_FOR_RM_DEINTER
   int E1 = segs->E;
@@ -109,7 +97,7 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
 
   // for PCIe GPU copy llrs to device memory
   if (!pageable && !integrated) {
-    LOG_I(NR_PHY, "gpuMemcpyAsynch llr->f_dev\n");
+    LOG_D(NR_PHY, "gpuMemcpyAsynch llr->f_dev\n");
     gpuMemcpyAsync_or_fail(f_dev,
                            segs->llr,
                            ((r_firstE2 * E1) + (C - r_firstE2) * E2) * sizeof(int16_t),
@@ -185,6 +173,8 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   }
 
 #else // USE_GPU_FOR_RM_DEINTER
+  const int Kc = segs->BG == 2 ? 52 : 68;
+  const int segLen = Kc * Z; // int16 length; after packing we store int8 [segLen]
   int16_t *z_local = (int16_t *)alloca(sizeof(int16_t) * segLen); // segLen is safe small
   for (int r = 0; r < C; ++r) {
     // deinterleave
@@ -241,32 +231,24 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
 
   LOG_D(NR_PHY, "decoder (llr %p): %d segments, Z %d, R %d \n", segs->llr, C, Z, segs->R);
 
-  int n_passed = 0;
-  int decodeIterations = LDPCdecoder_cuda_ctx(ci, &decParams, segs->c, &n_passed);
+  // as the CPU decoder: per code block, the output if it passed its CRC, else zeros. segs->abort_decode is not used: the
+  // decoder always runs to the end of the code blocks' early termination or iteration budget.
+  bool passed[MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4];
+  *segs->processedSegments = LDPCdecoder_cuda_ctx(ci, &decParams, segs->c, passed);
   stop_meas(&segs->ts_ldpc_decode);
-
-  if (decodeIterations <= segs->max_ldpc_iterations) {
-    *segs->processedSegments = C;
-    for (int r = 0; r < C; r++)
-      segs->decodeSuccess[r] = true;
-    LOG_D(NR_PHY, "Set all segs->decodeSuccess to true\n");
-  } else {
-    memset(segs->c, 0, C * (K >> 3));
-    for (int r = 0; r < C; r++)
-      segs->decodeSuccess[r] = false;
-    LOG_D(NR_PHY, "Set all segs->decodeSuccess to false\n");
+  for (int r = 0; r < C; r++) {
+    segs->decodeSuccess[r] = passed[r];
+    if (!passed[r])
+      memset(segs->c + r * (K >> 3), 0, K >> 3);
   }
-  LOG_D(NR_PHY, "unlocking decoder (llr %p)\n", segs->llr);
+  LOG_D(NR_PHY, "%d/%d code blocks decoded\n", *segs->processedSegments, C);
   ldpc_cuda_ctx_release(ci);
 }
-
-#define MAXE 4 * 14 * 273 * 12 * 8 // 4 antennas, 14 symbols, 273 PRBs, 12 RE/prb, 8 bits/RE
 
 void LDPCint_rm_init(int max_num_pxsch)
 {
   LOG_I(NR_PHY, "RM init for %d pxsch\n", max_num_pxsch);
-  LOG_I(NR_PHY, "Allocating device array for harq_d/harq_e \n");
-  harq_e_dev = gpuMalloc_or_fail(MAXE * sizeof(int16_t));
+  LOG_I(NR_PHY, "Allocating device array for harq_d\n");
   harq_d_array = malloc(sizeof(int16_t *) * max_num_pxsch);
   harq_d_array_dev = gpuMalloc_or_fail(sizeof(int16_t *) * max_num_pxsch);
   LOG_I(PHY, "Allocated %ld bytes for harq_d_array_dev @ %p\n", sizeof(int16_t *) * max_num_pxsch, harq_d_array_dev);
@@ -278,11 +260,8 @@ void LDPCint_rm_init(int max_num_pxsch)
           i,
           harq_d_array[i]);
   }
-  gpuMemcpy(harq_d_array_dev, harq_d_array, sizeof(int16_t *) * max_num_pxsch, gpuMemcpyHostToDevice);
-  if (!pageable && !integrated) {
-    LOG_I(PHY, "Allocating device array for harq_f \n");
-    harq_f_dev = gpuMalloc_or_fail(MAXE * sizeof(int16_t));
-  }
+  const gpuError_t err = gpuMemcpy(harq_d_array_dev, harq_d_array, sizeof(int16_t *) * max_num_pxsch, gpuMemcpyHostToDevice);
+  AssertFatal(err == gpuSuccess, "GPU error (harq_d_array_dev): %s\n", gpuGetErrorString(err));
   d_array_size = max_num_pxsch;
 }
 
