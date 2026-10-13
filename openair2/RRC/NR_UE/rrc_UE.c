@@ -9,6 +9,7 @@
 #define RRC_UE
 #define RRC_UE_C
 
+#include "NR_UE-CapabilityRequestFilterNR.h"
 #include "LTE_MeasObjectToAddMod.h"
 #include "NR_DL-DCCH-Message.h"        //asn_DEF_NR_DL_DCCH_Message
 #include "NR_DL-CCCH-Message.h"        //asn_DEF_NR_DL_CCCH_Message
@@ -2884,11 +2885,42 @@ static void nr_rrc_ue_process_ueCapabilityEnquiry(NR_UE_RRC_INST_t *rrc, NR_UECa
   c1->present = NR_UL_DCCH_MessageType__c1_PR_ueCapabilityInformation;
   asn1cCalloc(c1->choice.ueCapabilityInformation, info);
   info->rrc_TransactionIdentifier = UECapabilityEnquiry->rrc_TransactionIdentifier;
-  if (!rrc->UECap.UE_NR_Capability) {
-    rrc->UECap.UE_NR_Capability = CALLOC(1, sizeof(NR_UE_NR_Capability_t));
-    asn1cSequenceAdd(rrc->UECap.UE_NR_Capability->rf_Parameters.supportedBandListNR.list, NR_BandNR_t, nr_bandnr);
-    nr_bandnr->bandNR = 1;
+
+  if (UECapabilityEnquiry->criticalExtensions.present != NR_UECapabilityEnquiry__criticalExtensions_PR_ueCapabilityEnquiry) {
+    RRCLOG_E("Invalid criticalExtensions option in UECapabilityEnquiry\n");
+    return;
   }
+  NR_UECapabilityEnquiry_IEs_t *ueCapabilityEnquiry_ie = UECapabilityEnquiry->criticalExtensions.choice.ueCapabilityEnquiry;
+  /* frequencyBandListFilter of the (only supported) rat-Type nr request: UE-CapabilityRequestFilterNR, UPER in an OCTET STRING */
+  NR_UE_CapabilityRequestFilterNR_t *nr_filter = NULL;
+  for (int i = 0; i < ueCapabilityEnquiry_ie->ue_CapabilityRAT_RequestList.list.count; i++) {
+    NR_UE_CapabilityRAT_Request_t *req = ueCapabilityEnquiry_ie->ue_CapabilityRAT_RequestList.list.array[i];
+    if (req->rat_Type != NR_RAT_Type_nr)
+      continue;
+    if (req->capabilityRequestFilter && !nr_filter) {
+      asn_dec_rval_t r = uper_decode(NULL,
+                                     &asn_DEF_NR_UE_CapabilityRequestFilterNR,
+                                     (void **)&nr_filter,
+                                     req->capabilityRequestFilter->buf,
+                                     req->capabilityRequestFilter->size,
+                                     0,
+                                     0);
+      if (r.code != RC_OK) {
+        RRCLOG_E("could not decode UE-CapabilityRequestFilterNR\n");
+        ASN_STRUCT_FREE(asn_DEF_NR_UE_CapabilityRequestFilterNR, nr_filter);
+        nr_filter = NULL;
+      }
+    } else if (req->capabilityRequestFilter && nr_filter) {
+      RRCLOG_W("Multiple rat-Type NR entries in ue-CapabilityRAT-RequestList not handled, ignoring the following ones\n");
+    }
+  }
+
+  const NR_FreqBandList_t *band_filter = nr_filter ? nr_filter->frequencyBandListFilter : NULL;
+  const OCTET_STRING_t *enq_ext = ueCapabilityEnquiry_ie->ue_CapabilityEnquiryExt;
+
+  nr_rrc_ue_update_capability(rrc, band_filter, enq_ext);
+  ASN_STRUCT_FREE(asn_DEF_NR_UE_CapabilityRequestFilterNR, nr_filter); // nr_rrc_ue_update_capability() copied what it needs
+
   xer_fprint(stdout, &asn_DEF_NR_UE_NR_Capability, (void *)rrc->UECap.UE_NR_Capability);
 
   asn_enc_rval_t enc_rval = uper_encode_to_buffer(&asn_DEF_NR_UE_NR_Capability,
@@ -2899,10 +2931,6 @@ static void nr_rrc_ue_process_ueCapabilityEnquiry(NR_UE_RRC_INST_t *rrc, NR_UECa
   AssertFatal (enc_rval.encoded > 0, "ASN1 message encoding failed (%s, %lu)!\n", enc_rval.failed_type->name, enc_rval.encoded);
   rrc->UECap.sdu_size = (enc_rval.encoded + 7) / 8;
   RRCLOG_I("NR Capability encoded, %d bytes (%zd bits)\n", rrc->UECap.sdu_size, enc_rval.encoded + 7);
-  NR_UECapabilityEnquiry_IEs_t *ueCapabilityEnquiry_ie = UECapabilityEnquiry->criticalExtensions.choice.ueCapabilityEnquiry;
-  AssertFatal(UECapabilityEnquiry->criticalExtensions.present == NR_UECapabilityEnquiry__criticalExtensions_PR_ueCapabilityEnquiry,
-              "UECapabilityEnquiry->criticalExtensions.present (%d) != UECapabilityEnquiry__criticalExtensions_PR_c1 (%d)\n",
-              UECapabilityEnquiry->criticalExtensions.present,NR_UECapabilityEnquiry__criticalExtensions_PR_ueCapabilityEnquiry);
 
   NR_UECapabilityInformation_t *ueCapabilityInformation = ul_dcch_msg.message.choice.c1->choice.ueCapabilityInformation;
   ueCapabilityInformation->criticalExtensions.present = NR_UECapabilityInformation__criticalExtensions_PR_ueCapabilityInformation;
