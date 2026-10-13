@@ -35,7 +35,18 @@ void nr_rrc_config_dl_tda(NR_PDSCH_TimeDomainResourceAllocationList_t *pdsch_Tim
                           const NR_TDD_UL_DL_ConfigCommon_t *tdd_UL_DL_ConfigurationCommon,
                           int csi_symbols,
                           int len_coreset);
-void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc, int min_fb_delay, nr_srs_type_t do_SRS);
+/* A (start symbol, length) shape of an extra UL time-domain allocation. */
+typedef struct nr_ul_tda_shape {
+  int start_symbol;
+  int num_symbols;
+} nr_ul_tda_shape_t;
+/* Build the UL TDA list for the TDD pattern. num_extra/extra append further
+ * shapes, each replicated for every k2 already in the list (none: 0, NULL). */
+void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc,
+                          int min_fb_delay,
+                          nr_srs_type_t do_SRS,
+                          int num_extra,
+                          const nr_ul_tda_shape_t *extra);
 NR_SearchSpace_t *rrc_searchspace_config(bool is_common,
                                          int searchspaceid,
                                          int coresetid,

@@ -16,6 +16,8 @@
 #include "spectrum_sensing_ring.h" /* SPECTRUM_SENSING_RING_SHM_NAME */
 #include "../../e3_agent.h" /* e3_get_encoding() */
 #include "E3SM_Spectrum-SensingIndication.h"
+#include "E3SM_Spectrum-ApplyOutcomeData.h"
+#include "E3SM_Spectrum-PRBBlockApplyOutcome.h"
 #include "aper_encoder.h"
 #ifdef E3_SM_HAVE_PROTOBUF
 #include "e3sm_spectrum.pb-c.h"
@@ -265,4 +267,62 @@ int spectrum_encode_indication(const nr_mac_sensing_publish_meta_t *meta,
     }
     return written;
   }
+}
+
+int spectrum_encode_apply_outcome(const spectrum_apply_outcome_t *outcome, uint8_t **encoded_data, size_t *encoded_size)
+{
+  if (!outcome || !encoded_data || !encoded_size) {
+    return E3_SM_ERROR_INVALID_PARAM;
+  }
+
+  *encoded_data = NULL;
+  *encoded_size = 0;
+
+  E3SM_Spectrum_ApplyOutcomeData_t data;
+  memset(&data, 0, sizeof(data));
+
+  E3SM_Spectrum_PRBBlockApplyOutcome_t prb;
+  memset(&prb, 0, sizeof(prb));
+
+  /* Every member is OPTIONAL, so asn1c renders each as a pointer and a value
+   * we do not have is simply left absent -- which is what a timed-out control
+   * reports, rather than a zero that reads like an instant. */
+  long installed = (long)outcome->installed_ts_ns;
+  long on_air = (long)outcome->on_air_ts_ns;
+  long sfn = outcome->sfn;
+  long slot = outcome->slot;
+
+  if (outcome->installed_ts_ns != 0)
+    prb.installedTimestamp = &installed;
+  if (outcome->on_air_ts_ns != 0) {
+    prb.onAirTimestamp = &on_air;
+    prb.sfn = &sfn;
+    prb.slot = &slot;
+  }
+
+  data.applyOutcomePayload.present = E3SM_Spectrum_ApplyOutcomePayload_PR_prbBlockApplyOutcome;
+  data.applyOutcomePayload.choice.prbBlockApplyOutcome = &prb;
+
+  long built = (long)outcome->built_ts_ns;
+  if (outcome->built_ts_ns != 0)
+    data.timestamp = &built;
+
+  uint8_t buffer[512];
+  asn_enc_rval_t enc_ret = aper_encode_to_buffer(&asn_DEF_E3SM_Spectrum_ApplyOutcomeData, NULL, &data, buffer, sizeof(buffer));
+
+  /* Nothing to free: every pointer above is to a stack local, deliberately,
+   * so this path allocates once and only for the caller's buffer. */
+  if (enc_ret.encoded == -1) {
+    return E3_ENCODE_FAILED;
+  }
+
+  *encoded_size = (enc_ret.encoded + 7) / 8;
+  *encoded_data = malloc(*encoded_size);
+  if (!(*encoded_data)) {
+    *encoded_size = 0;
+    return E3_SM_ERROR_MEMORY;
+  }
+
+  memcpy(*encoded_data, buffer, *encoded_size);
+  return E3_SUCCESS;
 }

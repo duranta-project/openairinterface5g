@@ -25,7 +25,7 @@ from cls_ci_helper import archiveArtifact
 # Helper functions used here and in other classes
 # (e.g., cls_cluster.py)
 #-----------------------------------------------------------
-IMAGES = ['oai-enb', 'oai-lte-ru', 'oai-lte-ue', 'oai-gnb', 'oai-nr-cuup', 'oai-gnb-aw2s', 'oai-nr-ue', 'oai-enb-asan', 'oai-gnb-asan', 'oai-lte-ue-asan', 'oai-nr-ue-asan', 'oai-nr-cuup-asan', 'oai-gnb-aerial', 'oai-gnb-fhi72', 'oai-gnb-fhi72-t2', 'oai-nr-oru']
+IMAGES = ['oai-enb', 'oai-lte-ru', 'oai-lte-ue', 'oai-gnb', 'oai-nr-cuup', 'oai-gnb-aw2s', 'oai-nr-ue', 'oai-enb-asan', 'oai-gnb-asan', 'oai-lte-ue-asan', 'oai-nr-ue-asan', 'oai-nr-cuup-asan', 'oai-gnb-aerial', 'oai-gnb-fhi72', 'oai-gnb-fhi72-t2', 'oai-gnb-e3', 'oai-nr-oru']
 DEFAULT_REGISTRY = "gracehopper3-oai.sboai.cs.eurecom.fr"
 
 def CreateWorkspace(host, sourcePath, repository, branch):
@@ -223,6 +223,10 @@ class Containerize():
 			imageNames.append(('oai-gnb', 'gNB', 'oai-gnb', ''))
 			imageNames.append(('oai-nr-cuup', 'nr-cuup', 'oai-nr-cuup', ''))
 			imageNames.append(('oai-nr-ue', 'nrUE', 'oai-nr-ue', ''))
+		result = re.search('e3', self.imageKind)
+		if result is not None:
+			imageNames.append(('ran-build-e3', 'build.e3', 'ran-build-e3', ''))
+			imageNames.append(('oai-gnb', 'gNB.e3', 'oai-gnb-e3', ''))
 		result = re.search('fhi72-t2', self.imageKind)
 		if result is not None:
 			imageNames.append(('ran-build-fhi72-t2', 'build.fhi72.t2', 'ran-build-fhi72-t2', ''))
@@ -301,6 +305,8 @@ class Containerize():
 				cmd.run(f'sed -i -e "s#{buildImage}:latest#{buildImage}-asan:{imageTag}#" docker/Dockerfile.{pattern}{dockerfileprefix}')
 			elif "fhi72" in name or name == "oai-nr-oru":
 				cmd.run(f'sed -i -e "s#ran-build-fhi72:latest#ran-build-fhi72:{imageTag}#" docker/Dockerfile.{pattern}{dockerfileprefix}')
+			elif name == "oai-gnb-e3":
+				cmd.run(f'sed -i -e "s#ran-build-e3:latest#ran-build-e3:{imageTag}#" docker/Dockerfile.{pattern}{dockerfileprefix}')
 			elif image != 'ran-build':
 				cmd.run(f'sed -i -e "s#{buildImage}:latest#{buildImage}:{imageTag}#" docker/Dockerfile.{pattern}{dockerfileprefix}')
 			if image == 'oai-gnb-aerial':
@@ -341,7 +347,7 @@ class Containerize():
 			cmd.run(f"docker image prune --force")
 		cmd.run(f'docker logout {DEFAULT_REGISTRY}')
 		# Remove all intermediate build images and clean up
-		cmd.run(f"docker image rm ran-build:{imageTag} ran-build-asan:{imageTag} ran-build-fhi72:{imageTag} || true")
+		cmd.run(f"docker image rm ran-build:{imageTag} ran-build-asan:{imageTag} ran-build-fhi72:{imageTag} ran-build-e3:{imageTag} || true")
 		cmd.run(f"docker volume prune --force")
 
 		# Remove some cached artifacts to prevent out of diskspace problem
