@@ -334,6 +334,8 @@ typedef struct {
   uint16_t MsgB_rnti;
   /// Temporary CRNTI
   uint16_t t_crnti;
+  /// a downlink assignment was received for this Temporary C-RNTI (TS 38.321 5.3.1)
+  bool t_crnti_dl_assigned;
   /// Random-access procedure flag
   bool RA_active;
   /// Random-access preamble index
