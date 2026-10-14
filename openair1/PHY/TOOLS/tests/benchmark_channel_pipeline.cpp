@@ -11,6 +11,7 @@
 #include "oai_cuda.h"
 #include "common/config/config_userapi.h"
 #include <memory>
+#include <string>
 #include "benchmark/benchmark.h"
 #include "test_channel_pipeline_tools.h"
 #include "channel_pipeline.h"
@@ -155,10 +156,23 @@ static void BM_channel_convolution_cpu(benchmark::State &state)
 
 static void BM_channel_convolution_tpool(benchmark::State &state)
 {
-  int nb_rx = state.range(0);
-  int nb_tx = state.range(1);
-  int num_samples = state.range(2);
-  int channel_length = state.range(3);
+  auto isa = (channel_pipeline_isa_t)state.range(0);
+  auto method = (channel_pipeline_method_t)state.range(1);
+  int nb_rx = state.range(2);
+  int nb_tx = state.range(3);
+  int num_samples = state.range(4);
+  int channel_length = state.range(5);
+  channel_pipeline_t *pipeline = channel_pipeline_init(0.0f);
+  if (!channel_pipeline_set_isa(pipeline, isa)) {
+    channel_pipeline_shutdown(pipeline);
+    state.SkipWithMessage("ISA not supported on this machine");
+    return;
+  }
+  channel_pipeline_set_method(pipeline, method);
+  state.SetLabel(std::string(channel_pipeline_isa_name(isa))
+                 + (method == CHANNEL_PIPELINE_METHOD_FFT      ? "/fft"
+                    : method == CHANNEL_PIPELINE_METHOD_DIRECT ? "/direct"
+                                                               : "/auto"));
 
   size_t num_input_samples = num_samples + channel_length - 1;
   std::vector<c16_t *> input(nb_tx);
@@ -184,11 +198,11 @@ static void BM_channel_convolution_tpool(benchmark::State &state)
   }
 
   void *tpool = init_tpool(16);
-  channel_pipeline_init(0.0f);
 
   size_t total_samples = 0;
   for (auto _ : state) {
-    channel_pipeline(tpool,
+    channel_pipeline(pipeline,
+                     tpool,
                      (const cf_t **)channel.data(),
                      (const c16_t **)input.data(),
                      nullptr,
@@ -205,7 +219,7 @@ static void BM_channel_convolution_tpool(benchmark::State &state)
   }
   state.counters["MSPS"] = benchmark::Counter(total_samples / 1000000.f, benchmark::Counter::kIsRate);
 
-  channel_pipeline_shutdown();
+  channel_pipeline_shutdown(pipeline);
 
   destroy_tpool(tpool);
 
@@ -240,12 +254,53 @@ BENCHMARK(BM_channel_convolution_cpu)
 
 BENCHMARK(BM_channel_convolution_tpool)
     ->ArgsProduct({
+        {CHANNEL_PIPELINE_ISA_SCALAR,
+         CHANNEL_PIPELINE_ISA_AVX2,
+         CHANNEL_PIPELINE_ISA_AVX512,
+         CHANNEL_PIPELINE_ISA_NEON,
+         CHANNEL_PIPELINE_ISA_SVE2},
+        {CHANNEL_PIPELINE_METHOD_AUTO, CHANNEL_PIPELINE_METHOD_DIRECT, CHANNEL_PIPELINE_METHOD_FFT},
         {1, 2, 4}, // nb_rx
         {1, 2, 4}, // nb_tx
-        {1024, 2048, 30720}, // num_samples
-        {8, 16, 32, 64}, // channel_length
+        {1024, 2048, 30720, 61440}, // num_samples
+        {8, 16, 32, 64, 128}, // channel_length
     })
-    ->Iterations(10);
+    ->UseRealTime()
+    ->MinTime(0.1);
+
+// 8x2 (rx x tx)
+BENCHMARK(BM_channel_convolution_tpool)
+    ->ArgsProduct({
+        {CHANNEL_PIPELINE_ISA_SCALAR,
+         CHANNEL_PIPELINE_ISA_AVX2,
+         CHANNEL_PIPELINE_ISA_AVX512,
+         CHANNEL_PIPELINE_ISA_NEON,
+         CHANNEL_PIPELINE_ISA_SVE2},
+        {CHANNEL_PIPELINE_METHOD_AUTO, CHANNEL_PIPELINE_METHOD_DIRECT, CHANNEL_PIPELINE_METHOD_FFT},
+        {8}, // nb_rx
+        {2}, // nb_tx
+        {1024, 2048, 30720, 61440}, // num_samples
+        {8, 16, 32, 64, 128}, // channel_length
+    })
+    ->UseRealTime()
+    ->MinTime(0.1);
+
+// 2x8 (rx x tx)
+BENCHMARK(BM_channel_convolution_tpool)
+    ->ArgsProduct({
+        {CHANNEL_PIPELINE_ISA_SCALAR,
+         CHANNEL_PIPELINE_ISA_AVX2,
+         CHANNEL_PIPELINE_ISA_AVX512,
+         CHANNEL_PIPELINE_ISA_NEON,
+         CHANNEL_PIPELINE_ISA_SVE2},
+        {CHANNEL_PIPELINE_METHOD_AUTO, CHANNEL_PIPELINE_METHOD_DIRECT, CHANNEL_PIPELINE_METHOD_FFT},
+        {2}, // nb_rx
+        {8}, // nb_tx
+        {1024, 2048, 30720, 61440}, // num_samples
+        {8, 16, 32, 64, 128}, // channel_length
+    })
+    ->UseRealTime()
+    ->MinTime(0.1);
 
 int main(int argc, char **argv)
 {
