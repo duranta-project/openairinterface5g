@@ -447,6 +447,7 @@ static void set_harq_status(NR_UE_MAC_INST_t *mac,
                             uint8_t dai,
                             int n_CCE,
                             int N_CCE,
+                            bool new_data,
                             frame_t frame,
                             int slot)
 {
@@ -458,7 +459,12 @@ static void set_harq_status(NR_UE_MAC_INST_t *mac,
   current_harq->pucch_resource_indicator = pucch_id;
   // TS 38.213: PRI applies to the resource set at DCI detection
   // No dedicated PUCCH-ResourceSet yet: freeze pucch-ResourceCommon (9.2.1), else -1 (9.2.3)
-  if (!nr_ue_has_dedicated_pucch_resource_set(pucch_Config)) {
+  // A retransmission keeps the set of its TB initial transmission: once Msg4 is decoded, RRCSetup
+  // applies the dedicated PUCCH-Config, but the gNB has not received the Msg4 HARQ-ACK and
+  // retransmits it expecting the HARQ-ACK on pucch-ResourceCommon
+  if (!new_data && current_harq->pucch_ResourceCommon >= 0) {
+    // keep the frozen pucch-ResourceCommon
+  } else if (!nr_ue_has_dedicated_pucch_resource_set(pucch_Config)) {
     AssertFatal(pucch_ConfigCommon && pucch_ConfigCommon->pucch_ResourceCommon,
                 "pucch_ResourceCommon required for Table 9.2.1-1 HARQ-ACK\n");
     current_harq->pucch_ResourceCommon = *pucch_ConfigCommon->pucch_ResourceCommon;
@@ -1192,6 +1198,7 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
                       dci->dai[0].val,
                       dci_ind->n_CCE,
                       dci_ind->N_CCE,
+                      dlsch_pdu->cw_info[0].new_data_indicator,
                       frame,
                       slot);
     }
@@ -1522,6 +1529,7 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
                       dci->dai[0].val,
                       dci_ind->n_CCE,
                       dci_ind->N_CCE,
+                      dlsch_pdu->cw_info[0].new_data_indicator,
                       frame,
                       slot);
       cw_idx++;
@@ -1555,6 +1563,7 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
                       dci->dai[0].val,
                       dci_ind->n_CCE,
                       dci_ind->N_CCE,
+                      dlsch_pdu->cw_info[1].new_data_indicator,
                       frame,
                       slot);
       cw_idx++;
