@@ -98,7 +98,7 @@ typedef struct {
   int ss_type;
   // n_CCE index of first CCE for PDCCH reception
   int n_CCE;
-  // N_CCE is L, or number of CCEs for DCI
+  // N_CCE number of CCEs in the CORESET of the PDCCH reception (TS 38.213 9.2.1, used for r_PUCCH)
   int N_CCE;
   int cset_start;
   uint8_t payloadSize;
