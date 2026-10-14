@@ -1682,6 +1682,12 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
 
         LOG_D(NR_MAC, "ra->ra_state %s\n", nrra_ue_text[ra->ra_state]);
         ra->ra_state = nrRA_WAIT_MSGB;
+        // TS 38.321 5.1.4a: start msgB-ResponseWindow at the first PDCCH occasion after the MsgA PUSCH transmission.
+        // As for the RAR window, it is started here adding the slots up to the MsgA PUSCH and the rx to tx offset
+        int add_slots_msgb =
+            msgA_PUSCH_Resource->msgA_PUSCH_TimeDomainOffset_r16 + 1 + GET_DURATION_RX_TO_TX(mac, mac->current_DL_BWP->scs);
+        nr_timer_setup(&ra->response_window_timer, ra->response_window_setup_time + add_slots_msgb, 1);
+        nr_timer_start(&ra->response_window_timer);
         ra->t_crnti = 0;
         mac->crnti = 0;
         ra->ra_rnti = 0;
