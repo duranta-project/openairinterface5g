@@ -191,13 +191,24 @@ static int8_t handle_pcch(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_in
 // Note: sdu should always be processed because data and timing advance updates are transmitted by the UE
 static int8_t handle_dlsch(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info, int pdu_id)
 {
+  fapi_nr_rx_indication_body_t *rx = &dl_info->rx_ind->rx_indication_body[pdu_id];
   if (mac->ra.ra_state != nrRA_WAIT_RAR) // no HARQ for MSG2
-    update_harq_status(mac,
-                       dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.harq_pid,
-                       dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.cw_idx,
-                       dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.ack_nack);
-  if(dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.ack_nack)
-    nr_ue_send_sdu(mac, dl_info, pdu_id);
+    update_harq_status(mac, rx->pdsch_pdu.harq_pid, rx->pdsch_pdu.cw_idx, rx->pdsch_pdu.ack_nack);
+  if (!rx->pdsch_pdu.ack_nack)
+    return 0;
+  // TS 38.321 5.3.2.2: a retransmission of a TB already successfully decoded is acknowledged
+  // but not delivered again (e.g. Msg4 retransmitted because the gNB missed its HARQ-ACK)
+  // During contention resolution always deliver: the NDI of the first TC-RNTI assignment is toggled
+  if (rx->pdu_type == FAPI_NR_RX_PDU_TYPE_DLSCH) {
+    NR_UE_DL_HARQ_STATUS_t *harq = &mac->dl_harq_info[rx->pdsch_pdu.harq_pid][rx->pdsch_pdu.cw_idx];
+    bool contention_resolution = mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION || mac->ra.ra_state == nrRA_WAIT_MSGB;
+    if (harq->round > 0 && harq->tb_delivered && !contention_resolution) {
+      LOG_D(NR_MAC, "HARQ pid %d: retransmission of an already delivered TB, not delivered again\n", rx->pdsch_pdu.harq_pid);
+      return 0;
+    }
+    harq->tb_delivered = true;
+  }
+  nr_ue_send_sdu(mac, dl_info, pdu_id);
 
   return 0;
 }
