@@ -1110,6 +1110,11 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   int nb_re_dmrs = ((dlsch_pdu->dmrsConfigType == NFAPI_NR_DMRS_TYPE1) ? 6 : 4) * dlsch_pdu->n_dmrs_cdm_groups;
   int nb_rb_oh = mac->sc_info.xOverhead_PDSCH ? nb_rb_oh = 6 * (1 + *mac->sc_info.xOverhead_PDSCH) : 0;
   NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[dci->harq_pid.val][0];
+  // TS 38.321 5.3.1: the NDI of the first downlink assignment for this Temporary C-RNTI is considered toggled
+  if (rnti_type == TYPE_TC_RNTI_ && !mac->msg3_C_RNTI && !mac->ra.t_crnti_dl_assigned) {
+    current_harq->last_ndi = -1;
+    mac->ra.t_crnti_dl_assigned = true;
+  }
   if (!get_cw_info(current_harq,
                    dlsch_pdu,
                    dl_conf_req->pdu_type,
@@ -3364,6 +3369,7 @@ static void handle_rar_reception(NR_UE_MAC_INST_t *mac, NR_MAC_RAR *rar, frame_t
     // if the RA preamble is selected among the contention-based RA Preambles
     if (!ra->cfra) {
       ra->t_crnti = rar->TCRNTI_2 + (rar->TCRNTI_1 << 8);
+      ra->t_crnti_dl_assigned = false;
       rnti = ra->t_crnti;
       if (!mac->msg3_C_RNTI)
         nr_mac_rrc_msg3_ind(mac->ue_id, rnti, false);
