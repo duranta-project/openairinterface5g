@@ -3443,10 +3443,16 @@ static void nr_ue_process_rar(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *d
       n_subPDUs++;
       LOG_I(NR_MAC, "[UE %d][RAPROC][RA-RNTI %04x] Got RAPID RAR subPDU\n", mac->ue_id, rnti);
     } else {
-      int bi_ms = table_7_2_1[((NR_RA_HEADER_BI *)rarh)->BI] * ra->scaling_factor_bi;
+      // PREAMBLE_BACKOFF = BI (Table 7.2-1) x SCALING_FACTOR_BI
+      int bi_ms = table_7_2_1[((NR_RA_HEADER_BI *)rarh)->BI];
       int slots_per_ms = mac->frame_structure.numb_slots_frame / 10;
-      ra->RA_backoff_limit = bi_ms * slots_per_ms;
-      LOG_I(NR_MAC, "[UE %d][RAPROC][RA-RNTI %04x] Got BI RAR subPDU %d ms\n", mac->ue_id, rnti, bi_ms);
+      ra->RA_backoff_limit = bi_ms * slots_per_ms * ra->scaling_factor_bi_x4 / 4;
+      LOG_I(NR_MAC,
+            "[UE %d][RAPROC][RA-RNTI %04x] Got BI RAR subPDU %d ms (scaling factor %d/4)\n",
+            mac->ue_id,
+            rnti,
+            bi_ms,
+            ra->scaling_factor_bi_x4);
       if (((NR_RA_HEADER_BI *)rarh)->E == 1) {
         rarh += sizeof(NR_RA_HEADER_BI);
         continue;
@@ -4021,6 +4027,8 @@ static int nr_ue_validate_successrar(uint8_t *pduP, int32_t pdu_len, NR_UE_MAC_I
   }
 
   RA_config_t *ra = &mac->ra;
+  // TS 38.321 5.1.4a: PREAMBLE_BACKOFF is set by the Backoff Indicator of this MSGB, 0 ms if there is none
+  ra->RA_backoff_limit = 0;
   uint8_t *cur_byte = pduP;
   uint8_t *end = pduP + pdu_len;
   bool E = true;
@@ -4037,9 +4045,10 @@ static int nr_ue_validate_successrar(uint8_t *pduP, int32_t pdu_len, NR_UE_MAC_I
     // T2 exist
     int SUCESS_RAR_header_T2 = (*cur_byte >> 5) & 0x1;
     if (SUCESS_RAR_header_T2 == 0) { // BI
+      // PREAMBLE_BACKOFF = BI (Table 7.2-1) x SCALING_FACTOR_BI
       int bi_ms = table_7_2_1[*cur_byte & 0x0F];
       int slots_per_ms = mac->frame_structure.numb_slots_frame / 10;
-      ra->RA_backoff_limit = bi_ms * slots_per_ms;
+      ra->RA_backoff_limit = bi_ms * slots_per_ms * ra->scaling_factor_bi_x4 / 4;
       cur_byte++;
       continue;
     }
@@ -4080,11 +4089,11 @@ static int nr_ue_validate_successrar(uint8_t *pduP, int32_t pdu_len, NR_UE_MAC_I
           ra->timing_advance_command,
           ra->t_crnti);
 
+    // a successRAR for another UE does not end the procedure: keep monitoring until msgB-ResponseWindow expires,
+    // then the MSGB reception is not successful (backoff in nr_rar_not_successful()) (TS 38.321 5.1.4a)
     if (ra->RA_active && ra_success) {
       nr_timer_stop(&ra->response_window_timer);
       nr_ra_succeeded(mac, frameP, slot);
-    } else if (!ra_success) {
-      nr_ra_backoff_setting(ra);
     }
   }
   const int ta = ((NR_MAC_CE_TA *)pduP)[1].TA_COMMAND;
