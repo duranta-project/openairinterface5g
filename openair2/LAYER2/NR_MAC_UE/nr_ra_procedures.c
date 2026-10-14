@@ -863,7 +863,17 @@ bool init_RA(NR_UE_MAC_INST_t *mac)
   else
     prach_resources->preamble_power_ramping_step = rach_ConfigGeneric->powerRampingStep << 1;
 
-  ra->scaling_factor_bi = 1;
+  // SCALING_FACTOR_BI = 1, or scalingFactorBI of ra-Prioritization (ra-PrioritizationTwoStep for 2-step RA type)
+  // configured in rach-ConfigDedicated (reconfiguration with sync)
+  // TODO ra-Prioritization of beamFailureRecoveryConfig and ra-PrioritizationForAccessIdentity
+  ra->scaling_factor_bi_x4 = 4;
+  if (rach_Dedicated && !ra->cfra) {
+    const NR_RA_Prioritization_t *prio = ra->ra_type == RA_2_STEP
+                                             ? (rach_Dedicated->ext1 ? rach_Dedicated->ext1->ra_PrioritizationTwoStep_r16 : NULL)
+                                             : rach_Dedicated->ra_Prioritization;
+    if (prio && prio->scalingFactorBI)
+      ra->scaling_factor_bi_x4 = *prio->scalingFactorBI; // zero, dot25, dot5, dot75 = 0..3 quarters
+  }
 
   if (ra->ra_type == RA_2_STEP && twostep_generic && twostep_generic->msgA_PreambleReceivedTargetPower_r16)
     ra->preambleReceivedTargetPower_config = *twostep_generic->msgA_PreambleReceivedTargetPower_r16;
@@ -1039,11 +1049,14 @@ void nr_ra_succeeded(NR_UE_MAC_INST_t *mac, const frame_t frame, const int slot)
 
 void nr_ra_backoff_setting(RA_config_t *ra)
 {
-  // select a random backoff time according to a uniform distribution
-  // between 0 and the PREAMBLE_BACKOFF
-  uint64_t r=  rdtsc_oai();
-  int random_backoff = ra->RA_backoff_limit ? ((r>>3) & INT32_MAX)  % ra->RA_backoff_limit : NO_GNB_RA_BACKOFF;
-  LOG_W(NR_MAC, "backoff: %d in %d %lu limit\n", random_backoff, ra->RA_backoff_limit, (r>>3)  & INT32_MAX);
+  // TS 38.321 5.1.4, 5.1.4a and 5.1.5: select a random backoff time according to a uniform distribution
+  // between 0 and the PREAMBLE_BACKOFF, then perform the Random Access Resource selection after the backoff time.
+  // PREAMBLE_BACKOFF is 0 when no Backoff Indicator was received: the resource selection is done immediately
+  // (the timer then expires at the next slot)
+  if (!ra->backoff_seed) // the RA context is reset with memset: seed lazily, distinct per UE in the same process
+    ra->backoff_seed = (unsigned int)rdtsc_oai() ^ (unsigned int)(uintptr_t)ra;
+  int random_backoff = ra->RA_backoff_limit > 0 ? rand_r(&ra->backoff_seed) % (ra->RA_backoff_limit + 1) : 0;
+  LOG_I(NR_MAC, "RA backoff: %d slots (PREAMBLE_BACKOFF %d slots)\n", random_backoff, ra->RA_backoff_limit);
   nr_timer_setup(&ra->RA_backoff_timer, random_backoff, 1);
   nr_timer_start(&ra->RA_backoff_timer);
 }
