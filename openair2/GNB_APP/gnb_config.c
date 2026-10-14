@@ -263,7 +263,8 @@ void fill_scc_sim(NR_ServingCellConfigCommon_t *scc, uint64_t *ssb_bitmap, int N
       tdd_UL_DL_Config->pattern1.dl_UL_TransmissionPeriodicity = NR_TDD_UL_DL_Pattern__dl_UL_TransmissionPeriodicity_ms10;
       break;
     case 1 :
-      *frequencyInfoDL->absoluteFrequencySSB = 641032;
+      // SSB on RBs 33..52; carriers narrower than that get it on RBs 2..21
+      *frequencyInfoDL->absoluteFrequencySSB = N_RB_DL < 53 ? 640288 : 641032;
       *frequencyInfoDL->frequencyBandList.list.array[0] = 78;
       frequencyInfoDL->absoluteFrequencyPointA = 640000;
       tdd_UL_DL_Config->pattern1.dl_UL_TransmissionPeriodicity = NR_TDD_UL_DL_Pattern__dl_UL_TransmissionPeriodicity_ms5;
