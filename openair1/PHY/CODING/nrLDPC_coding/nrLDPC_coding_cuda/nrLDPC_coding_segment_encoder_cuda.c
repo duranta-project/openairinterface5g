@@ -11,7 +11,7 @@
 #include "openair1/PHY/CODING/nrLDPC_defs.h"
 #include "openair1/PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface.h"
 #include "common/utils/LOG/log.h"
-#include "nrLDPC_cuda_unpack_output.h"
+#include "ldpc_unpack_output_cuda32.h"
 
 #include <syscall.h>
 
@@ -414,7 +414,7 @@ static void ldpcnblocks(nrLDPC_TB_encoding_parameters_t *nrLDPC_TB_encoding_para
     for (int i=E2-16;i<E2;i++) printf("intl (f offset %d): %x %x\n",(n_seg2-1)*E2,e2[((n_seg2-1)*E2)+i],f2[((n_seg2-1)*E2)+i]);
     */
 
-  nr_ldpc_cuda_unpack_output(f, E, f2, E2, r_shift, r_shift2, nrLDPC_TB_encoding_parameters->C, output);
+  nr_unpack_output_ldpc32(f, E, f2, E2, r_shift, r_shift2, nrLDPC_TB_encoding_parameters->C, output);
 }
 
 int nrLDPC_coding_encoder32(nrLDPC_slot_encoding_parameters_t *nrLDPC_slot_encoding_parameters,

@@ -14,7 +14,7 @@
 #include <unistd.h>
 
 extern "C" {
-#include "openair1/PHY/CODING/nrLDPC_coding/nrLDPC_coding_cuda/nrLDPC_cuda_unpack_output.h"
+#include "openair1/PHY/CODING/nrLDPC_coding/nrLDPC_coding_cuda/ldpc_unpack_output_cuda32.h"
 }
 
 namespace {
@@ -33,7 +33,10 @@ class guarded {
     p = (uint32_t *)(base + len - page - bytes);
     memset(p, 0, bytes);
   }
-  ~guarded() { munmap(base, len); }
+  ~guarded()
+  {
+    munmap(base, len);
+  }
   uint32_t *p;
 
  private:
@@ -45,7 +48,7 @@ struct unpack_case {
   uint32_t E, E2, nb_segments, E2_first_segment;
 };
 
-// segment s, bit i, from the layout documented in nrLDPC_cuda_unpack_output.h
+// segment s, bit i, from the layout documented in ldpc_unpack_output_cuda32.h
 std::vector<uint8_t> reference_bits(const unpack_case &c, const uint32_t *f, const uint32_t *f2)
 {
   const uint32_t E2_first_segment32 = c.E2_first_segment >> 5;
@@ -92,23 +95,23 @@ void check(unpack_fn unpack, const unpack_case &c, std::mt19937 &rng)
 
 void check_all(const unpack_case &c, std::mt19937 &rng)
 {
-  check(nr_ldpc_cuda_unpack_output_scalar, c, rng);
-#ifdef NR_LDPC_CUDA_UNPACK_SIMD
-  check(nr_ldpc_cuda_unpack_output_simd, c, rng);
+  check(nr_unpack_output_ldpc32_scalar, c, rng);
+#ifdef NR_UNPACK_OUTPUT_LDPC32_SIMD
+  check(nr_unpack_output_ldpc32_simd, c, rng);
 #endif
 }
 
 } // namespace
 
 // nr_ulsim.ldpc_cuda.50seg_r89 on x86: E2 = 9420 (16-byte offset slices) and more than 32 segments
-TEST(ldpc_cuda_unpack_output, ulsim_50seg_r89)
+TEST(ldpc_unpack_output_cuda32, ulsim_50seg_r89)
 {
   std::mt19937 rng(1);
   for (uint32_t E2_first_segment : {0u, 10u, 32u, 33u, 50u})
     check_all({9432, 9420, 50, E2_first_segment}, rng);
 }
 
-TEST(ldpc_cuda_unpack_output, all_alignments_and_tails)
+TEST(ldpc_unpack_output_cuda32, all_alignments_and_tails)
 {
   std::mt19937 rng(2);
   for (uint32_t E = 1; E <= 80; E++)
@@ -116,7 +119,7 @@ TEST(ldpc_cuda_unpack_output, all_alignments_and_tails)
       check_all({E, E + (E & 1 ? 1u : 0u), nb_segments, nb_segments / 2}, rng);
 }
 
-TEST(ldpc_cuda_unpack_output, random)
+TEST(ldpc_unpack_output_cuda32, random)
 {
   std::mt19937 rng(3);
   for (int n = 0; n < 500; n++) {
