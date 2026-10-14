@@ -787,7 +787,8 @@ static void configure_ss_coreset(NR_BWP_PDCCH_t *pdcch, NR_PDCCH_Config_t *pdcch
       NR_ControlResourceSetId_t id = *pdcch_Config->controlResourceSetToReleaseList->list.array[i];
       for (int j = 0; j < pdcch->list_Coreset.count; j++) {
         if (id == pdcch->list_Coreset.array[j]->controlResourceSetId) {
-          asn_sequence_del(&pdcch->list_Coreset, j, 1);
+          asn1cFreeStruc(asn_DEF_NR_ControlResourceSet, pdcch->list_Coreset.array[j]);
+          asn_sequence_del(&pdcch->list_Coreset, j, 0);
           break;
         }
       }
@@ -1666,8 +1667,10 @@ static void configure_dedicated_BWP_dl(NR_UE_MAC_INST_t *mac, int bwp_id, NR_BWP
     }
     if (dl_dedicated->pdcch_Config) {
       if (dl_dedicated->pdcch_Config->present == NR_SetupRelease_PDCCH_Config_PR_release) {
-        for (int i = pdcch->list_Coreset.count; i > 0 ; i--)
-          asn_sequence_del(&pdcch->list_Coreset, i - 1, 1);
+        for (int i = pdcch->list_Coreset.count; i > 0; i--) {
+          asn1cFreeStruc(asn_DEF_NR_ControlResourceSet, pdcch->list_Coreset.array[i - 1]);
+          asn_sequence_del(&pdcch->list_Coreset, i - 1, 0);
+        }
         for (int i = pdcch->list_SS.count; i > 0 ; i--)
           asn_sequence_del(&pdcch->list_SS, i - 1, 1);
       }
@@ -2843,8 +2846,10 @@ void release_dl_BWP(NR_UE_MAC_INST_t *mac, int index)
 
   NR_BWP_PDCCH_t *pdcch = &mac->config_BWP_PDCCH[bwp_id];
   release_common_ss_cset(pdcch);
-  for (int i = pdcch->list_Coreset.count; i > 0 ; i--)
-    asn_sequence_del(&pdcch->list_Coreset, i - 1, 1);
+  for (int i = pdcch->list_Coreset.count; i > 0; i--) {
+    asn1cFreeStruc(asn_DEF_NR_ControlResourceSet, pdcch->list_Coreset.array[i - 1]);
+    asn_sequence_del(&pdcch->list_Coreset, i - 1, 0);
+  }
   for (int i = pdcch->list_SS.count; i > 0 ; i--)
     asn_sequence_del(&pdcch->list_SS, i - 1, 1);
 }

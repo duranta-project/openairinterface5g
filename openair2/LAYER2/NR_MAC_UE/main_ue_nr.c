@@ -234,8 +234,10 @@ static void release_dedicated_bwp0_config(NR_UE_MAC_INST_t *mac)
   if (mac->dl_BWPs.count > 0) {
     NR_UE_DL_BWP_t *bwp = mac->dl_BWPs.array[0];
     NR_BWP_PDCCH_t *pdcch = &mac->config_BWP_PDCCH[0];
-    for (int i = pdcch->list_Coreset.count; i > 0; i--)
-      asn_sequence_del(&pdcch->list_Coreset, i - 1, 1);
+    for (int i = pdcch->list_Coreset.count; i > 0; i--) {
+      asn1cFreeStruc(asn_DEF_NR_ControlResourceSet, pdcch->list_Coreset.array[i - 1]);
+      asn_sequence_del(&pdcch->list_Coreset, i - 1, 0);
+    }
     for (int i = pdcch->list_SS.count; i > 0; i--)
       asn_sequence_del(&pdcch->list_SS, i - 1, 1);
     asn1cFreeStruc(asn_DEF_NR_PDSCH_Config, bwp->pdsch_Config);
@@ -312,8 +314,10 @@ void release_mac_configuration(NR_UE_MAC_INST_t *mac, NR_UE_MAC_reset_cause_t ca
     // release dedicated BWP0 config
     NR_UE_DL_BWP_t *bwp = mac->dl_BWPs.array[0];
     NR_BWP_PDCCH_t *pdcch = &mac->config_BWP_PDCCH[0];
-    for (int i = pdcch->list_Coreset.count; i > 0 ; i--)
-      asn_sequence_del(&pdcch->list_Coreset, i - 1, 1);
+    for (int i = pdcch->list_Coreset.count; i > 0; i--) {
+      asn1cFreeStruc(asn_DEF_NR_ControlResourceSet, pdcch->list_Coreset.array[i - 1]);
+      asn_sequence_del(&pdcch->list_Coreset, i - 1, 0);
+    }
     for (int i = pdcch->list_SS.count; i > 0 ; i--)
       asn_sequence_del(&pdcch->list_SS, i - 1, 1);
     asn1cFreeStruc(asn_DEF_NR_PDSCH_Config, bwp->pdsch_Config);
