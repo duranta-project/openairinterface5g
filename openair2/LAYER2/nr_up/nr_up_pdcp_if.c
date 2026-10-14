@@ -34,14 +34,11 @@ nr_up_congestion_action_t nr_up_dl_congestion_precheck(ue_id_t ue_id, rb_id_t rb
   return iface->dl_congestion_precheck(ue_id, rb_id, pdu_len);
 }
 
-/** @brief Sync the per-DRB TX budget through the active nr-up backend.
- * Does nothing when budget_sync is unset (e.g. UE). */
+/** @brief Sync the per-DRB TX budget through the active nr-up backend */
 void nr_up_dl_budget_sync(ue_id_t ue_id, rb_id_t drb_id, uint32_t tx_space)
 {
   nr_up_if_t *iface = get_nr_up_if();
   DevAssert(iface);
-  if (iface->budget_sync == NULL) {
-    return;
-  }
+  DevAssert(iface->budget_sync);
   iface->budget_sync(ue_id, drb_id, tx_space);
 }
