@@ -195,6 +195,7 @@ typedef struct nr_mac_config_s {
   int pusch_AntennaPorts;
   int minRXTXTIME;
   int do_CSIRS;
+  bool do_aperiodic_CSI_report;
   nr_srs_type_t do_SRS;
   int do_TCI;
   int max_num_rsrp;
