@@ -109,7 +109,7 @@ int main(int argc, char **argv)
   uint16_t nb_rb = 50;
   uint8_t Imcs = 9;
   uint8_t Nl = 1;
-  uint8_t max_ldpc_iterations = 5;
+  uint8_t max_ldpc_iterations = 6;
   uint8_t mcs_table = 0;
 
   double DS_TDL = .03;
