@@ -126,12 +126,6 @@
 #define PRACH_MASK_INDEX                54
 #define RESERVED_NR_DCI                 55
 
-// when we have received gNB RA_backoff_limit
-// it is in slots, we have only about 1 rach slot every 10 slots
-// TS 38.321 chap Random Access Response reception tells us '0' so re-send immediatly the RACH
-// but it generates too much collisions with OAI gNB that process one RACH per slot
-#define NO_GNB_RA_BACKOFF 200
-
 // Define the UE L2 states with X-Macro
 #define NR_UE_L2_STATES \
   UE_STATE(UE_NOT_SYNC) \
@@ -353,8 +347,12 @@ typedef struct {
   int response_window_setup_time;
   /// Random-access backoff timer
   NR_timer_t RA_backoff_timer;
+  /// PREAMBLE_BACKOFF (TS 38.321 5.1.1) in slots, 0 when no Backoff Indicator was received
   int RA_backoff_limit;
-  uint8_t scaling_factor_bi;
+  /// SCALING_FACTOR_BI (TS 38.321 5.1.1) in quarters: 4 = 1, ra-Prioritization scalingFactorBI 0..3 = 0, 0.25, 0.5, 0.75
+  uint8_t scaling_factor_bi_x4;
+  /// seed of the uniform backoff draw (rand_r), per UE
+  unsigned int backoff_seed;
   /// Flag to indicate whether preambles Group A is selected
   bool RA_GroupA;
   /// RA max number of preamble transmissions
