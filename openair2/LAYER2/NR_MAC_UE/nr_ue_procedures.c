@@ -734,9 +734,10 @@ static bool get_cw_info(NR_UE_DL_HARQ_STATUS_t *current_harq,
   if (pdu_type != FAPI_NR_DL_CONFIG_TYPE_SI_DLSCH && pdu_type != FAPI_NR_DL_CONFIG_TYPE_RA_DLSCH
       && pdu_type != FAPI_NR_DL_CONFIG_TYPE_P_DLSCH) {
     current_harq->last_ndi = ndi;
-    if (cw_info->new_data_indicator)
+    if (cw_info->new_data_indicator) {
       current_harq->round = 0;
-    else
+      current_harq->tb_delivered = false;
+    } else
       current_harq->round++;
   }
   cw_info->qamModOrder = nr_get_Qm_dl(cw_info->mcs, dlsch_pdu->mcs_table);
