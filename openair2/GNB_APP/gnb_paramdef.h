@@ -78,6 +78,7 @@ typedef enum {
 #define GNB_CONFIG_STRING_PUSCHANTENNAPORTS             "pusch_AntennaPorts"
 #define GNB_CONFIG_STRING_DOTCI                         "do_TCI"
 #define GNB_CONFIG_STRING_DOCSIRS                       "do_CSIRS"
+#define GNB_CONFIG_STRING_APERIODIC_CSIREP              "do_aperiodic_CSI_report"
 #define GNB_CONFIG_STRING_DOSRS                         "do_SRS"
 #define GNB_CONFIG_STRING_NRCELLID                      "nr_cellid"
 #define GNB_CONFIG_STRING_MINRXTXTIME                   "min_rxtxtime"
@@ -141,6 +142,7 @@ typedef enum {
 {GNB_CONFIG_STRING_PUSCHANTENNAPORTS,            NULL,   0,            .iptr=NULL,  .defintval=1,                 TYPE_INT,       0},  \
 {GNB_CONFIG_STRING_DOTCI,                        NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
 {GNB_CONFIG_STRING_DOCSIRS,                      NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
+{GNB_CONFIG_STRING_APERIODIC_CSIREP,             NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
 {GNB_CONFIG_STRING_DOSRS,        GNB_CONFIG_HLP_DOSRS,   0,           .strptr=NULL, .defstrval="none",            TYPE_STRING,    0},  \
 {GNB_CONFIG_STRING_NRCELLID,                     NULL,   0,            .u64ptr=NULL,.defint64val=1,               TYPE_UINT64,    0},  \
 {GNB_CONFIG_STRING_MINRXTXTIME,                  NULL,   0,            .iptr=NULL,  .defintval=2,                 TYPE_INT,       0},  \
@@ -186,27 +188,28 @@ typedef enum {
 #define GNB_PUSCH_ANTENNAPORTS_IDX      16
 #define GNB_DO_TCI_IDX                  17
 #define GNB_DO_CSIRS_IDX                18
-#define GNB_DO_SRS_IDX                  19
-#define GNB_NRCELLID_IDX                20
-#define GNB_MINRXTXTIME_IDX             21
-#define GNB_ULPRBBLACKLIST_IDX          22
-#define GNB_UMONDEFAULTDRB_IDX          23
-#define GNB_FORCE256QAMOFF_IDX          24
-#define GNB_ENABLE_SDAP_IDX             25
-#define GNB_GNB_DU_ID_IDX               26
-#define GNB_GNB_CU_UP_ID_IDX            27
-#define GNB_USE_DELTA_MCS_IDX           28
-#define GNB_FORCEUL256QAMOFF_IDX        29
-#define GNB_MAXMIMOLAYERS_IDX           30
-#define GNB_DISABLE_HARQ_IDX            31
-#define GNB_NUM_DL_HARQ_IDX             32
-#define GNB_NUM_UL_HARQ_IDX             33
-#define GNB_UESS_AGG_LEVEL_LIST_IDX     34
-#define GNB_CU_SIBS_IDX                 35
-#define GNB_DU_SIBS_IDX                 36
-#define GNB_CONFIG_REP_IDX              37
-#define GNB_1ST_ACTIVE_BWP_IDX          38
-#define GNB_LIMIT_RSRP_REPORT_IDX       39
+#define GNB_APERIODIC_CSIREP_IDX        19
+#define GNB_DO_SRS_IDX                  20
+#define GNB_NRCELLID_IDX                21
+#define GNB_MINRXTXTIME_IDX             22
+#define GNB_ULPRBBLACKLIST_IDX          23
+#define GNB_UMONDEFAULTDRB_IDX          24
+#define GNB_FORCE256QAMOFF_IDX          25
+#define GNB_ENABLE_SDAP_IDX             26
+#define GNB_GNB_DU_ID_IDX               27
+#define GNB_GNB_CU_UP_ID_IDX            28
+#define GNB_USE_DELTA_MCS_IDX           29
+#define GNB_FORCEUL256QAMOFF_IDX        30
+#define GNB_MAXMIMOLAYERS_IDX           31
+#define GNB_DISABLE_HARQ_IDX            32
+#define GNB_NUM_DL_HARQ_IDX             33
+#define GNB_NUM_UL_HARQ_IDX             34
+#define GNB_UESS_AGG_LEVEL_LIST_IDX     35
+#define GNB_CU_SIBS_IDX                 36
+#define GNB_DU_SIBS_IDX                 37
+#define GNB_CONFIG_REP_IDX              38
+#define GNB_1ST_ACTIVE_BWP_IDX          39
+#define GNB_LIMIT_RSRP_REPORT_IDX       40
 
 #define TRACKING_AREA_CODE_OKRANGE {0x0001,0xFFFD}
 #define NUM_DL_HARQ_OKVALUES {2,4,6,8,10,12,16,32}
@@ -217,6 +220,7 @@ typedef enum {
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
   { .s2 = { config_check_intrange, TRACKING_AREA_CODE_OKRANGE } },\
+  { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \

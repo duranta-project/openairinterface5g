@@ -629,6 +629,7 @@ void RCconfig_verify(configmodule_interface_t *cfg, ngran_node_t node_type)
     verify_gnb_param_notset(gnbp, GNB_MINRXTXTIME_IDX, GNB_CONFIG_STRING_MINRXTXTIME);
     verify_gnb_param_notset(gnbp, GNB_DO_TCI_IDX, GNB_CONFIG_STRING_DOTCI);
     verify_gnb_param_notset(gnbp, GNB_DO_CSIRS_IDX, GNB_CONFIG_STRING_DOCSIRS);
+    verify_gnb_param_notset(gnbp, GNB_DO_CSIRS_IDX, GNB_CONFIG_STRING_APERIODIC_CSIREP);
     verify_gnb_param_notset(gnbp, GNB_DO_SRS_IDX, GNB_CONFIG_STRING_DOSRS);
     verify_gnb_param_notset(gnbp, GNB_FORCE256QAMOFF_IDX, GNB_CONFIG_STRING_FORCE256QAMOFF);
     verify_gnb_param_notset(gnbp, GNB_MAXMIMOLAYERS_IDX, GNB_CONFIG_STRING_MAXMIMOLAYERS);
@@ -1565,6 +1566,7 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
   LOG_I(GNB_APP, "minTXRXTIME %d\n", config.minRXTXTIME);
   config.do_TCI = *gnb_p[GNB_DO_TCI_IDX].iptr;
   config.do_CSIRS = *gnb_p[GNB_DO_CSIRS_IDX].iptr;
+  config.do_aperiodic_CSI_report = *gnb_p[GNB_APERIODIC_CSIREP_IDX].iptr;
   const char *srs_type_s = *gnb_p[GNB_DO_SRS_IDX].strptr;
   config.do_SRS = config_get_processedint(cfg, &gnb_p[GNB_DO_SRS_IDX]);
   config.max_num_rsrp = *gnb_p[GNB_LIMIT_RSRP_REPORT_IDX].iptr;
