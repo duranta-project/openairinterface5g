@@ -126,6 +126,13 @@
 #define PRACH_MASK_INDEX                54
 #define RESERVED_NR_DCI                 55
 
+// RA backoff limit in slots when no Backoff Indicator was received from the gNB.
+// TS 38.321 (Random Access Response reception) gives PREAMBLE_BACKOFF = 0, i.e. an immediate retry, but then all UEs
+// that collided retry together at each RACH occasion: with the OAI gNB (one detected preamble per occasion, PRACH I0
+// rising with the RACH load) it blocks the random access. Not 3GPP compliant: the backoff is drawn uniformly in
+// [0, NO_GNB_RA_BACKOFF_LIMIT] instead
+#define NO_GNB_RA_BACKOFF_LIMIT 200
+
 // Define the UE L2 states with X-Macro
 #define NR_UE_L2_STATES \
   UE_STATE(UE_NOT_SYNC) \
