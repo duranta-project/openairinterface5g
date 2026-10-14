@@ -1051,12 +1051,17 @@ void nr_ra_backoff_setting(RA_config_t *ra)
 {
   // TS 38.321 5.1.4, 5.1.4a and 5.1.5: select a random backoff time according to a uniform distribution
   // between 0 and the PREAMBLE_BACKOFF, then perform the Random Access Resource selection after the backoff time.
-  // PREAMBLE_BACKOFF is 0 when no Backoff Indicator was received: the resource selection is done immediately
-  // (the timer then expires at the next slot)
+  // Not 3GPP compliant: when no Backoff Indicator was received, PREAMBLE_BACKOFF should be 0 (immediate retry);
+  // we draw in [0, NO_GNB_RA_BACKOFF_LIMIT] instead, see NO_GNB_RA_BACKOFF_LIMIT
   if (!ra->backoff_seed) // the RA context is reset with memset: seed lazily, distinct per UE in the same process
     ra->backoff_seed = (unsigned int)rdtsc_oai() ^ (unsigned int)(uintptr_t)ra;
-  int random_backoff = ra->RA_backoff_limit > 0 ? rand_r(&ra->backoff_seed) % (ra->RA_backoff_limit + 1) : 0;
-  LOG_I(NR_MAC, "RA backoff: %d slots (PREAMBLE_BACKOFF %d slots)\n", random_backoff, ra->RA_backoff_limit);
+  const int limit = ra->RA_backoff_limit > 0 ? ra->RA_backoff_limit : NO_GNB_RA_BACKOFF_LIMIT;
+  int random_backoff = rand_r(&ra->backoff_seed) % (limit + 1);
+  LOG_I(NR_MAC,
+        "RA backoff: %d slots (limit %d slots%s)\n",
+        random_backoff,
+        limit,
+        ra->RA_backoff_limit > 0 ? "" : ", no Backoff Indicator received");
   nr_timer_setup(&ra->RA_backoff_timer, random_backoff, 1);
   nr_timer_start(&ra->RA_backoff_timer);
 }
