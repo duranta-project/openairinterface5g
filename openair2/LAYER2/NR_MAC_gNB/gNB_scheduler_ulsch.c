@@ -2010,7 +2010,8 @@ static int apply_ul_retransmission(gNB_MAC_INST *nrmac,
   }
 
   DevAssert(new_sched.time_domain_allocation == tda);
-  post_process_ulsch(nrmac, cell, pp_pusch, UE, &new_sched, 0);
+  nr_aperiodic_channel_t no_aperiodic = {0};
+  post_process_ulsch(nrmac, cell, pp_pusch, UE, &new_sched, no_aperiodic);
 
   const uint16_t retx_slbitmap = SL_to_bitmap(new_sched.tda_info.startSymbolIndex, new_sched.tda_info.nrOfSymbols);
   for (int rb = 0; rb < new_sched.rbSize; rb++)
@@ -2085,7 +2086,7 @@ static int apply_ul_new_transmission(gNB_MAC_INST *nrmac,
                                  sched.nrOfLayers)
                   >> 3;
 
-  post_process_ulsch(nrmac, cell, pp_pusch, UE, &sched, cand->sched_srs);
+  post_process_ulsch(nrmac, cell, pp_pusch, UE, &sched, cand->sched_aperiodic);
 
   for (int rb = 0; rb < sched.rbSize; rb++)
     rballoc_mask[sched.rbStart + bi.bwpStart + rb] |= slbitmap;
@@ -2388,7 +2389,7 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
                         post_process_pusch_t *pusch,
                         NR_UE_info_t *UE,
                         NR_sched_pusch_t *sched_pusch,
-                        int sched_srs)
+                        nr_aperiodic_channel_t sched_aperiodic)
 {
   frame_t frame = pusch->frame;
   slot_t slot = pusch->slot;
@@ -2583,9 +2584,15 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
 
   cur_harq->sched_pusch.tpc_pusch = tpc;
 
-  if (sched_srs > 0) {
-    if (!nr_schedule_aperiodic_srs(nr_mac, cell, UE, sched_pusch->frame, sched_pusch->slot, sched_pusch->tda_info.k2, sched_srs))
-      sched_srs = 0;  // if we can't schedule aperiodic SRS we do not set the DCI field to trigger the UE transmission
+  if (sched_aperiodic.sched_srs > 0) {
+    if (!nr_schedule_aperiodic_srs(nr_mac,
+                                   cell,
+                                   UE,
+                                   sched_pusch->frame,
+                                   sched_pusch->slot,
+                                   sched_pusch->tda_info.k2,
+                                   sched_aperiodic.sched_srs))
+      sched_aperiodic.sched_srs = 0;  // if we can't schedule aperiodic SRS we do not set the DCI field to trigger the transmission
   }
   fill_dci_pdu_rel15(&UE->sc_info,
                      &UE->current_DL_BWP,
@@ -2594,7 +2601,7 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
                      &uldci_payload,
                      current_BWP->dci_format,
                      TYPE_C_RNTI_,
-                     sched_srs,
+                     sched_aperiodic.sched_srs,
                      ss,
                      coreset,
                      UE->pdsch_HARQ_ACK_Codebook,
@@ -2633,7 +2640,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
                                  int sched_slot)
 {
   int numUE = 0;
-  bool aperiodic_srs_scheduled = false;
+  bool aperiodic_channel_scheduled = false;
   const frame_structure_t *fs = &cell->frame_structure;
   const float ul_slots_per_s = (float)get_ul_slots_per_period(fs) / fs->numb_slots_period * fs->numb_slots_frame * 100;
   const int max_inactivity = nr_ue_max_ul_inactivity_slots(fs, cell->ulsch_max_frame_inactivity);
@@ -2740,11 +2747,11 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     bool bler_updated = update_bler_stats(&cell->ul_bler, stats, &sched_ctrl->ul_bler_stats, frame);
 
     cand.is_retx = false;
-    if (!aperiodic_srs_scheduled) {
-      cand.sched_srs = verify_aperiodic_srs(cell, sched_slot, k2, &sched_ctrl->aperiodic_srs_trigger, current_BWP);
-      aperiodic_srs_scheduled = cand.sched_srs > 0;
+    if (!aperiodic_channel_scheduled) {
+      cand.sched_aperiodic.sched_srs = verify_aperiodic_srs(cell, sched_slot, k2, &sched_ctrl->aperiodic_srs_trigger, current_BWP);
+      aperiodic_channel_scheduled = cand.sched_aperiodic.sched_srs > 0;
     } else
-      cand.sched_srs = 0;
+      memset(&cand.sched_aperiodic, 0, sizeof(cand.sched_aperiodic));
     cand.retx_harq_pid = -1;
     cand.sched_long_inactivity = long_inactivity;
     cand.pending_bytes = B;
@@ -2767,7 +2774,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
           inactivity,
           max_inactivity,
           cand.sched_long_inactivity,
-          cand.sched_srs);
+          cand.sched_aperiodic.sched_srs);
 
     candidates[numUE++] = cand;
   }

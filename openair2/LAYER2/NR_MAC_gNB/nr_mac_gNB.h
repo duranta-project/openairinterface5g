@@ -1065,6 +1065,11 @@ typedef struct nr_ul_sched_params {
   const NR_bler_options_t *bler_opts; ///< UL BLER options (for adapt_ul_mcs)
 } nr_ul_sched_params_t;
 
+typedef struct {
+  int sched_srs;
+  int sched_csirep;
+} nr_aperiodic_channel_t;
+
 struct nr_ul_candidate {
   /* ── UE identity / scheduling state (set by collect, never modified after) ── */
   NR_UE_info_t *UE;
@@ -1073,7 +1078,7 @@ struct nr_ul_candidate {
   int8_t retx_harq_pid;
   int retx_rbSize;
   bool sched_long_inactivity;
-  int sched_srs;
+  nr_aperiodic_channel_t sched_aperiodic;
   uint32_t pending_bytes;
   float avg_throughput;
   float bler;

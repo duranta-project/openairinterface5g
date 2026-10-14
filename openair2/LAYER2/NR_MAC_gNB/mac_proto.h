@@ -577,7 +577,7 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
                         post_process_pusch_t *pusch,
                         NR_UE_info_t *UE,
                         NR_sched_pusch_t *sched_pusch,
-                        int sched_srs);
+                        nr_aperiodic_channel_t sched_aperiodic);
 
 float nr_mac_get_snr(const nr_power_control_t *pc);
 float nr_mac_get_rssi(const nr_power_control_t *pc);

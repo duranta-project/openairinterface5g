@@ -339,7 +339,8 @@ void nr_ul_preprocessor_phytest(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, pos
                   >> 3;
 
   /* save allocation to FAPI structures */
-  post_process_ulsch(nr_mac, cell, pp_pusch, UE, &sched, 0);
+  nr_aperiodic_channel_t no_aperiodic = {0};
+  post_process_ulsch(nr_mac, cell, pp_pusch, UE, &sched, no_aperiodic);
 
   /* mark the corresponding RBs as used */
   fill_pdcch_vrb_map(cell,
