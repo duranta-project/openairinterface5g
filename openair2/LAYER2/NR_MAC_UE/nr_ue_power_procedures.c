@@ -369,7 +369,8 @@ int16_t get_pucch_tx_power_ue(NR_UE_MAC_INST_t *mac,
       NR_PRACH_RESOURCES_t *prach_res = &mac->ra.prach_resources;
       float DELTA_P_rampup_requested = (prach_res->preamble_power_ramping_cnt - 1) * prach_res->preamble_power_ramping_step;
       float DELTA_P_rampup = P_CMAX - (P_O_PUCCH + pathloss + delta_F_PUCCH + DELTA_TF + sum_delta_pucch);
-      DELTA_P_rampup = max(min(0, DELTA_P_rampup), DELTA_P_rampup_requested);
+      // TS 38.213 7.2.1: min(max(0, P_CMAX - (P_O_PUCCH + PL + delta_F_PUCCH + delta_TF + delta_PUCCH)), requested)
+      DELTA_P_rampup = min(DELTA_P_rampup_requested, max(0, DELTA_P_rampup));
       mac->G_b_f_c = DELTA_P_rampup + sum_delta_pucch;
       mac->pucch_power_control_initialized = true;
     }
