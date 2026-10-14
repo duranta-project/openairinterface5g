@@ -116,10 +116,10 @@ int nr_ul_tda_select_default(gNB_MAC_INST *mac,
       cand->retx_rbSize = needed;
     } else {
       NR_tda_info_t *srs_best = NULL;
-      if (cand->sched_srs > 0) {
+      if (cand->sched_aperiodic.sched_srs > 0) {
         srs_best = get_new_tda_for_srs(cell, best);
         if (!srs_best)
-          cand->sched_srs = 0;
+          cand->sched_aperiodic.sched_srs = 0;
       }
       const NR_tda_info_t *new_best = srs_best ? srs_best : best;
       int tda = seq_arr_dist(&cell->ul_tda, seq_arr_front(&cell->ul_tda),new_best);
