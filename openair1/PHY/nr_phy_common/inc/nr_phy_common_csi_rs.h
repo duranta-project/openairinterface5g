@@ -22,6 +22,7 @@ typedef struct {
 
 csi_mapping_parms_t get_csi_mapping_parms(int row, int b, int l0, int l1);
 int get_cdm_group_size(int cdm_type);
+// dataF[p] holds port p from symbol first_symbol on, which is 0 for a slot-sized buffer
 void nr_generate_csi_rs(const NR_DL_FRAME_PARMS *frame_parms,
                         const csi_mapping_parms_t *phy_csi_parms,
                         const int16_t amp,
@@ -35,6 +36,7 @@ void nr_generate_csi_rs(const NR_DL_FRAME_PARMS *frame_parms,
                         const uint16_t scramb_id,
                         const uint8_t power_control_offset_ss,
                         const uint8_t cdm_type,
-                        c16_t **dataF);
+                        c16_t **dataF,
+                        int first_symbol);
 
 #endif /* __NR_PHY_COMMON_CSI_RS__H__ */

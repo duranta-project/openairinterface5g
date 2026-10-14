@@ -8,6 +8,7 @@
 
 #include "nr_dlsch.h"
 #include "nr_dci.h"
+#include "nr_dbt.h"
 #include "nr_sch_dmrs.h"
 #include "PHY/MODULATION/nr_modulation.h"
 #include "PHY/NR_REFSIG/dmrs_nr.h"
@@ -922,6 +923,35 @@ static void nr_pdsch_symbol_processing(void *arg)
     const size_t txdataF_offset_per_symbol = l_symbol * symbol_sz;
     const uint16_t num_log_ports =
         rel15->param_v4.numberCodewords ? rel15->param_v4.spatialStreamsCw[0].numSpatialStreamIndices : 0;
+    // with a digital beam table, precoding and beamforming in one step, from the layers onto the TXRUs;
+    // nr_dbt_beamform() also applies the phase compensation
+    if (gNB->common_vars.dbt) {
+      const nfapi_nr_tx_precoding_and_beamforming_t *pb = &rel15->precodingAndBeamforming;
+      const int pmi = pb->prgs_list[0].pm_idx;
+      const nfapi_nr_pm_pdu_t *pm = pmi ? &gNB->gNB_config.pmi_list.pmi_pdu[pmi - 1] : NULL; // pmi 0 is identity matrix
+      AssertFatal(!pm || pm->pm_idx == pmi, "PMI %d doesn't match to the one in precoding matrix %d\n", pmi, pm->pm_idx);
+      int pos = 0;
+      int block_start, block_end;
+      while (find_next_rb_block(freq_alloc->bitmap, rel15->BWPSize, &pos, &block_start, &block_end)) {
+        const int start_sc = get_block_start_sc(block_start, rel15->BWPStart, symbol_sz);
+        const c16_t *in[rel15->nrOfLayers];
+        for (int layer = 0; layer < rel15->nrOfLayers; layer++)
+          in[layer] = txdataF_precoding[layer] + start_sc;
+        nr_dbt_beamform(gNB,
+                        pb,
+                        pm,
+                        num_log_ports,
+                        rel15->nrOfLayers,
+                        slot,
+                        l_symbol,
+                        rel15->BWPStart + freq_alloc->first_rb,
+                        rel15->BWPStart + block_start,
+                        block_end - block_start + 1,
+                        in);
+      }
+      stop_meas(&rdata->dlsch_precoding_stats);
+      continue;
+    }
     // 2 ports / 2 layers: precode both antennas in one pass (radix-2 butterfly),
     // on targets where it is a win (see NR_PDSCH_2X2_FASTPATH). Otherwise, and
     // for 4-port/2-layer (num_log_ports==4), fall through to the generic path.
