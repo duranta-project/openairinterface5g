@@ -1905,6 +1905,56 @@ static int verify_aperiodic_srs(nr_cell_sched_t *cell, int slot, int k2, NR_time
   return 0;
 }
 
+static int find_aperiodic_trigger_for_report(const NR_CSI_MeasConfig_t *csi_measconfig, int report_id)
+{
+  if (!csi_measconfig->aperiodicTriggerStateList
+      || csi_measconfig->aperiodicTriggerStateList->present != NR_SetupRelease_CSI_AperiodicTriggerStateList_PR_setup)
+    return -1;
+  for (int i = 0; i < csi_measconfig->aperiodicTriggerStateList->choice.setup->list.count; i++) {
+    NR_CSI_AperiodicTriggerState_t *state = csi_measconfig->aperiodicTriggerStateList->choice.setup->list.array[i];
+    for (int k = 0; k < state->associatedReportConfigInfoList.list.count; k++) {
+      if (state->associatedReportConfigInfoList.list.array[k]->reportConfigId == report_id)
+        return i;
+    }
+  }
+  return -1;
+}
+
+static int verify_aperiodic_csi_report(const nr_cell_sched_t *cell,
+                                       const NR_CSI_MeasConfig_t *csi_measconfig,
+                                       nr_dci_format_t dci_format,
+                                       int k2,
+                                       NR_timer_t *aperiodic_csirep)
+{
+  if (!cell->radio_config.do_aperiodic_CSI_report
+      || dci_format == NR_UL_DCI_FORMAT_0_0
+      || !csi_measconfig
+      || !csi_measconfig->csi_ReportConfigToAddModList)
+    return 0;
+
+  int sched_csirep = 0;
+  if (nr_timer_expired(aperiodic_csirep)) {
+    for (int i = 0; i < csi_measconfig->csi_ReportConfigToAddModList->list.count; i++) {
+      NR_CSI_ReportConfig_t *csirep = csi_measconfig->csi_ReportConfigToAddModList->list.array[i];
+      if (csirep->reportConfigType.present != NR_CSI_ReportConfig__reportConfigType_PR_aperiodic)
+        continue;
+      struct NR_CSI_ReportConfig__reportConfigType__aperiodic *aperiodic = csirep->reportConfigType.choice.aperiodic;
+      for (int k = 0; k < aperiodic->reportSlotOffsetList.list.count; k++) {
+        // looking for a slot offset that match the K2 of PUSCH
+        if (*aperiodic->reportSlotOffsetList.list.array[k] == k2) {
+          int trigger = find_aperiodic_trigger_for_report(csi_measconfig, csirep->reportConfigId);
+          if (trigger >= 0) {
+            AssertFatal(sched_csirep == 0 || sched_csirep == trigger + 1, "Only single trigger state supported for now\n");
+            sched_csirep = trigger + 1;
+          }
+          break;
+        }
+      }
+    }
+  }
+  return sched_csirep;
+}
+
 /* Check retx feasibility against a new TDA.
  * Refits rbSize via nr_find_nb_rb so the new TDA preserves TBS.
  * Returns the new rbSize needed (>0), or 0 if infeasible. */
@@ -2594,6 +2644,10 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
                                    sched_aperiodic.sched_srs))
       sched_aperiodic.sched_srs = 0;  // if we can't schedule aperiodic SRS we do not set the DCI field to trigger the transmission
   }
+  if (sched_aperiodic.sched_csirep > 0) {
+    if (!nr_schedule_aperiodic_csi_report(UE, pusch_pdu, sched_aperiodic.sched_csirep))
+      sched_aperiodic.sched_csirep = 0;
+  }
   fill_dci_pdu_rel15(&UE->sc_info,
                      &UE->current_DL_BWP,
                      current_BWP,
@@ -2602,6 +2656,7 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
                      current_BWP->dci_format,
                      TYPE_C_RNTI_,
                      sched_aperiodic.sched_srs,
+                     sched_aperiodic.sched_csirep,
                      ss,
                      coreset,
                      UE->pdsch_HARQ_ACK_Codebook,
@@ -2640,7 +2695,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
                                  int sched_slot)
 {
   int numUE = 0;
-  bool aperiodic_channel_scheduled = false;
+  bool aperiodic_srs_scheduled = false;
   const frame_structure_t *fs = &cell->frame_structure;
   const float ul_slots_per_s = (float)get_ul_slots_per_period(fs) / fs->numb_slots_period * fs->numb_slots_frame * 100;
   const int max_inactivity = nr_ue_max_ul_inactivity_slots(fs, cell->ulsch_max_frame_inactivity);
@@ -2747,11 +2802,16 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     bool bler_updated = update_bler_stats(&cell->ul_bler, stats, &sched_ctrl->ul_bler_stats, frame);
 
     cand.is_retx = false;
-    if (!aperiodic_channel_scheduled) {
+    if (!aperiodic_srs_scheduled) {
       cand.sched_aperiodic.sched_srs = verify_aperiodic_srs(cell, sched_slot, k2, &sched_ctrl->aperiodic_srs_trigger, current_BWP);
-      aperiodic_channel_scheduled = cand.sched_aperiodic.sched_srs > 0;
+      aperiodic_srs_scheduled = cand.sched_aperiodic.sched_srs > 0;
     } else
       memset(&cand.sched_aperiodic, 0, sizeof(cand.sched_aperiodic));
+    cand.sched_aperiodic.sched_csirep = verify_aperiodic_csi_report(cell,
+                                                                    UE->sc_info.csi_MeasConfig,
+                                                                    current_BWP->dci_format,
+                                                                    k2,
+                                                                    &sched_ctrl->aperiodic_csirep_trigger);
     cand.retx_harq_pid = -1;
     cand.sched_long_inactivity = long_inactivity;
     cand.pending_bytes = B;
@@ -2763,7 +2823,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     cand.snrx10 = (int)(sched_ctrl->pusch_pc.avg_snr * 10);
     cand.sr_cnt = sched_ctrl->sr_cnt;
     LOG_D(NR_MAC,
-          "[UE %04x][%4d.%2d] b %d, ul_thr_ue %f, mcs %d, SR count %d, UL inactivity %d/%d slots, sched_long_inactivity %d sched_srs %d\n",
+          "[UE %04x][%4d.%2d] b %d, ul_thr_ue %f, mcs %d, SR count %d, UL inactivity %d/%d slots, sched_long_inactivity %d sched_csirep %d sched_srs %d\n",
           UE->rnti,
           frame,
           slot,
@@ -2774,6 +2834,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
           inactivity,
           max_inactivity,
           cand.sched_long_inactivity,
+          cand.sched_aperiodic.sched_csirep,
           cand.sched_aperiodic.sched_srs);
 
     candidates[numUE++] = cand;

@@ -1748,6 +1748,7 @@ static void prepare_dci_X1(const NR_UE_ServingCell_Info_t *servingCellInfo,
                            const NR_ControlResourceSet_t *coreset,
                            dci_pdu_rel15_t *dci_pdu_rel15,
                            int srs_request,
+                           int csi_request,
                            nr_dci_format_t format)
 {
   const NR_PDSCH_Config_t *pdsch_Config = current_BWP ? current_BWP->pdsch_Config : NULL;
@@ -1764,6 +1765,7 @@ static void prepare_dci_X1(const NR_UE_ServingCell_Info_t *servingCellInfo,
         AssertFatal(1==0,"Supplementary Uplink currently not supported\n");
       // SRS request
       dci_pdu_rel15->srs_request.val = srs_request;
+      dci_pdu_rel15->csi_request.val = csi_request;
       dci_pdu_rel15->ulsch_indicator = 1;
       break;
     case NR_DL_DCI_FORMAT_1_1:
@@ -1825,6 +1827,7 @@ void fill_dci_pdu_rel15(const NR_UE_ServingCell_Info_t *servingCellInfo,
                         int dci_format,
                         int rnti_type,
                         int srs_request,
+                        int csi_request,
                         NR_SearchSpace_t *ss,
                         NR_ControlResourceSet_t *coreset,
                         long pdsch_HARQ_ACK_Codebook,
@@ -1893,7 +1896,7 @@ void fill_dci_pdu_rel15(const NR_UE_ServingCell_Info_t *servingCellInfo,
   pdcch_dci_pdu->PayloadSizeBits = dci_size;
   AssertFatal(dci_size <= 64, "DCI sizes above 64 bits not yet supported");
   if (dci_format == NR_DL_DCI_FORMAT_1_1 || dci_format == NR_UL_DCI_FORMAT_0_1)
-    prepare_dci_X1(servingCellInfo, current_DL_BWP, coreset, dci_pdu_rel15, srs_request, dci_format);
+    prepare_dci_X1(servingCellInfo, current_DL_BWP, coreset, dci_pdu_rel15, srs_request, csi_request, dci_format);
 
   /// Payload generation
   switch (dci_format) {
@@ -3262,6 +3265,10 @@ bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
     nr_timer_setup(&sched_ctrl->aperiodic_srs_trigger, 160, 1); // for now aperiodic hardcoded every 160 slots
     nr_timer_start(&sched_ctrl->aperiodic_srs_trigger);
   }
+  if (UE->pcell->radio_config.do_aperiodic_CSI_report) {
+    nr_timer_setup(&sched_ctrl->aperiodic_csirep_trigger, 160, 1); // for now aperiodic hardcoded every 160 slots
+    nr_timer_start(&sched_ctrl->aperiodic_csirep_trigger);
+  }
   reset_srs_stats(UE);
 
   // Initialize bler_stats
@@ -3879,6 +3886,7 @@ void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
       beam_switching_procedure(mac, cell, UE, sched_ctrl->UE_mac_ce_ctrl.tci_state_ind.tciStateId);
     }
     nr_timer_tick(&sched_ctrl->aperiodic_srs_trigger);
+    nr_timer_tick(&sched_ctrl->aperiodic_csirep_trigger);
   }
 }
 

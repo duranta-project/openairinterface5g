@@ -150,7 +150,7 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id,
                                frame_t frame,
                                slot_t slot,
                                const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_234);
-
+void handle_nr_uci_pusch(module_id_t mod_id, int cell_id, frame_t frame, slot_t slot, nfapi_nr_uci_pusch_pdu_t *pusch_pdu);
 void config_uldci(const NR_UE_ServingCell_Info_t *sc_info,
                   const nfapi_nr_pusch_pdu_t *pusch_pdu,
                   dci_pdu_rel15_t *dci_pdu_rel15,
@@ -193,7 +193,7 @@ int get_pucch_resourceid(NR_PUCCH_Config_t *pucch_Config, int O_uci, int pucch_r
 void nr_schedule_periodic_srs(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frame, int slot);
 bool nr_schedule_aperiodic_srs(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_UE_info_t *UE, int sched_frame, int sched_slot, int k2, int sched_srs);
 void nr_csirs_scheduling(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, nfapi_nr_dl_tti_request_t *DL_req);
-
+bool nr_schedule_aperiodic_csi_report(NR_UE_info_t *UE, nfapi_nr_pusch_pdu_t *pusch_pdu, int trig_id);
 void nr_csi_meas_reporting(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frameP, slot_t slotP);
 
 void nr_measgap_scheduling(gNB_MAC_INST *nr_mac, const nr_cell_sched_t *cell, frame_t frame, sub_frame_t slot);
@@ -265,6 +265,7 @@ void fill_dci_pdu_rel15(const NR_UE_ServingCell_Info_t *servingCellInfo,
                         int dci_format,
                         int rnti_type,
                         int srs_request,
+                        int csi_request,
                         NR_SearchSpace_t *ss,
                         NR_ControlResourceSet_t *coreset,
                         long pdsch_HARQ_ACK_Codebook,

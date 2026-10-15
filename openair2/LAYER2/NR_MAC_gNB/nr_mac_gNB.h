@@ -732,7 +732,7 @@ typedef struct {
   /// sri, ul_ri and tpmi based on SRS
   nr_srs_feedback_t srs_feedback;
   NR_timer_t aperiodic_srs_trigger;
-
+  NR_timer_t aperiodic_csirep_trigger;
   /// per-LC configuration
   seq_arr_t lc_config;
 

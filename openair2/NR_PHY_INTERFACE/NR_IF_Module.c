@@ -81,28 +81,29 @@ static void handle_nr_uci(NR_UL_IND_t *UL_info)
   for (int i = 0; i < num_ucis; i++) {
     switch (uci_list[i].pdu_type) {
       case NFAPI_NR_UCI_PUSCH_PDU_TYPE:
-        LOG_E(MAC, "%s(): unhandled NFAPI_NR_UCI_PUSCH_PDU_TYPE\n", __func__);
+        nfapi_nr_uci_pusch_pdu_t *pusch_pdu = &uci_list[i].pusch_pdu;
+        handle_nr_uci_pusch(mod_id, cell_id, frame, slot, pusch_pdu);
         break;
-
       case NFAPI_NR_UCI_FORMAT_0_1_PDU_TYPE: {
         const nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_pdu = &uci_list[i].pucch_pdu_format_0_1;
-        LOG_D(NR_MAC, "The received uci has sfn slot %d %d, num_ucis %d and pdu_size %d\n",
-                UL_info->uci_ind.sfn, UL_info->uci_ind.slot, num_ucis, uci_list[i].pdu_size);
+        LOG_D(NR_MAC,
+              "The received uci has sfn slot %d %d, num_ucis %d and pdu_size %d\n",
+              UL_info->uci_ind.sfn,
+              UL_info->uci_ind.slot,
+              num_ucis,
+              uci_list[i].pdu_size);
         handle_nr_uci_pucch_0_1(mod_id, cell_id, frame, slot, uci_pdu);
         break;
       }
-
-        case NFAPI_NR_UCI_FORMAT_2_3_4_PDU_TYPE: {
-          const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_pdu = &uci_list[i].pucch_pdu_format_2_3_4;
-          handle_nr_uci_pucch_2_3_4(mod_id, cell_id, frame, slot, uci_pdu);
-          break;
-        }
+      case NFAPI_NR_UCI_FORMAT_2_3_4_PDU_TYPE: {
+        const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_pdu = &uci_list[i].pucch_pdu_format_2_3_4;
+        handle_nr_uci_pucch_2_3_4(mod_id, cell_id, frame, slot, uci_pdu);
+        break;
+      }
       LOG_D(MAC, "UCI handled \n");
     }
   }
-
   UL_info->uci_ind.num_ucis = 0;
-
 }
 
 struct sfn_slot {
@@ -418,8 +419,7 @@ static void NR_UL_indication(NR_UL_IND_t *UL_info)
   nfapi_nr_uci_indication_t *uci_ind = NULL;
   nfapi_nr_rx_data_indication_t *rx_ind = NULL;
   nfapi_nr_crc_indication_t *crc_ind = NULL;
-  if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL)
-  {
+  if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL) {
     if (gnb_rach_ind_queue.num_items > 0) {
       LOG_D(NR_MAC, "gnb_rach_ind_queue size = %zu\n", gnb_rach_ind_queue.num_items);
       rach_ind = get_queue(&gnb_rach_ind_queue);
