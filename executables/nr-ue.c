@@ -715,6 +715,16 @@ static void readFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int d
     free(rxp[0]);
 }
 
+static int sync_frame_start(int decoded_frame, int skipped_frames, int samples_per_frame, int *rx_offset)
+{
+  // Sometimes offset is negative meaning we need to skip ahead to next frame
+  if (*rx_offset < 0) {
+    *rx_offset += samples_per_frame;
+    decoded_frame++;
+  }
+  return (decoded_frame + skipped_frames) % MAX_FRAME_NUMBER;
+}
+
 static void syncInFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int duration_rx_to_tx, openair0_timestamp_t rx_offset)
 {
   const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
@@ -865,7 +875,7 @@ void *UE_thread(void *arg)
           LOG_A(PHY, "UE synchronized! decoded_frame_rx=%d skipped_frames=%d\n", decoded_frame_rx, skipped_frames);
           // shift the frame index with all the frames we trashed meanwhile we perform the synch search
           syncData_t *syncMsg = (syncData_t *)NotifiedFifoData(res);
-          decoded_frame_rx = (decoded_frame_rx + skipped_frames) % MAX_FRAME_NUMBER;
+          decoded_frame_rx = sync_frame_start(decoded_frame_rx, skipped_frames, fp->samples_per_frame, &syncMsg->rx_offset);
           intialSyncOffset = syncMsg->rx_offset;
         }
         delNotifiedFIFO_elt(res);
