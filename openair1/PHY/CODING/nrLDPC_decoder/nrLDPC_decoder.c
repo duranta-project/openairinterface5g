@@ -198,7 +198,7 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
     // estimated after only one iteration
 
     // First iteration finished
-    uint32_t numIter = 0;
+    uint32_t numIter = 1;
     int32_t pcRes = 1; // pcRes is 0 if the ldpc decoder is succesful
     while ((numIter < numMaxIter) && (pcRes != 0)) {
       if (check_abort(ab)) {
@@ -283,6 +283,7 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
             else // if (outMode == nrLDPC_outMode_BITINT8)
               nrLDPC_llr2bit(p_out, p_llrOut, numLLR);
             if (p_decParams->check_crc((uint8_t*)p_out, p_decParams->Kprime, p_decParams->crc_type)) {
+              numIter++;
               LOG_D(PHY, "Segment CRC OK, exiting LDPC decoder\n");
               break;
             } else {
