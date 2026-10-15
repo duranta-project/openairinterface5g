@@ -13,10 +13,9 @@
 #include "SCHED_NR_UE/fapi_nr_ue_l1.h"
 #include "bits.h"
 #include "openair2/RRC/NR_UE/L2_interface_ue.h"
+#include "executables/nr-uesoftmodem.h"
 
-#define MAX_IF_MODULES 100
-
-static nr_ue_if_module_t *nr_ue_if_module_inst[MAX_IF_MODULES];
+static nr_ue_if_module_t *nr_ue_if_module_inst[MAX_NUM_NR_UE_INST];
 
 void print_ue_mac_stats(const module_id_t mod, const int frame_rx, const int slot_rx)
 {
@@ -398,6 +397,7 @@ void nr_ue_slot_indication(uint8_t mod_id, bool is_tx)
 
 nr_ue_if_module_t *nr_ue_if_module_init(uint32_t module_id)
 {
+  AssertFatal(module_id < MAX_NUM_NR_UE_INST, "UE %u: at most %d UEs per process\n", module_id, MAX_NUM_NR_UE_INST);
   if (nr_ue_if_module_inst[module_id] == NULL) {
     nr_ue_if_module_inst[module_id] = (nr_ue_if_module_t *)malloc(sizeof(nr_ue_if_module_t));
     memset((void*)nr_ue_if_module_inst[module_id],0,sizeof(nr_ue_if_module_t));

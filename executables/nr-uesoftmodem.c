@@ -254,6 +254,7 @@ int main(int argc, char **argv)
   char *pckg = strdup(OAI_PACKAGE_VERSION);
   LOG_I(HW, "Version: %s\n", pckg);
 
+  AssertFatal(NB_UE_INST <= MAX_NUM_NR_UE_INST, "%d UEs requested, at most %d per process\n", NB_UE_INST, MAX_NUM_NR_UE_INST);
   nrPHY_vars_UE_g = calloc_or_fail(NB_UE_INST, sizeof(*nrPHY_vars_UE_g));
   for (int inst = 0; inst < NB_UE_INST; inst++) {
     nrPHY_vars_UE_g[inst] = calloc_or_fail(MAX_NUM_CCs, sizeof(*nrPHY_vars_UE_g[inst]));
