@@ -785,10 +785,18 @@ int trx_usrp_set_freq(openair0_device_t *device, openair0_config_t *openair0_cfg
   usrp_state_t *s = (usrp_state_t *)device->priv;
   printf("Setting USRP TX Freq %f, RX Freq %f, tune_offset: %f\n", openair0_cfg[0].tx_freq[0], openair0_cfg[0].rx_freq[0], openair0_cfg[0].tune_offset);
 
-  uhd::tune_request_t tx_tune_req(openair0_cfg[0].tx_freq[0], openair0_cfg[0].tune_offset);
-  uhd::tune_request_t rx_tune_req(openair0_cfg[0].rx_freq[0], openair0_cfg[0].tune_offset);
-  s->usrp->set_tx_freq(tx_tune_req);
-  s->usrp->set_rx_freq(rx_tune_req);
+  // retune every channel: devices with one LO per channel (e.g. X410/ZBX) otherwise keep channels > 0 on the old
+  // frequency, which breaks multi-antenna reception after a frequency-offset correction
+  for (size_t i = 0; i < s->usrp->get_tx_num_channels(); i++) {
+    const double f = i < (size_t)openair0_cfg[0].tx_num_channels && openair0_cfg[0].tx_freq[i] ? openair0_cfg[0].tx_freq[i]
+                                                                                               : openair0_cfg[0].tx_freq[0];
+    s->usrp->set_tx_freq(uhd::tune_request_t(f, openair0_cfg[0].tune_offset), i);
+  }
+  for (size_t i = 0; i < s->usrp->get_rx_num_channels(); i++) {
+    const double f = i < (size_t)openair0_cfg[0].rx_num_channels && openair0_cfg[0].rx_freq[i] ? openair0_cfg[0].rx_freq[i]
+                                                                                               : openair0_cfg[0].rx_freq[0];
+    s->usrp->set_rx_freq(uhd::tune_request_t(f, openair0_cfg[0].tune_offset), i);
+  }
 
   return(0);
 }
@@ -820,7 +828,8 @@ int trx_usrp_set_gains(openair0_device_t *device,
 {
   usrp_state_t *s = (usrp_state_t *)device->priv;
   ::uhd::gain_range_t gain_range_tx = s->usrp->get_tx_gain_range(0);
-  s->usrp->set_tx_gain(gain_range_tx.stop()-openair0_cfg[0].tx_gain[0]);
+  for (size_t i = 0; i < s->usrp->get_tx_num_channels(); i++)
+    s->usrp->set_tx_gain(gain_range_tx.stop() - openair0_cfg[0].tx_gain[0], i);
   ::uhd::gain_range_t gain_range = s->usrp->get_rx_gain_range(0);
 
   // limit to maximum gain
@@ -831,7 +840,8 @@ int trx_usrp_set_gains(openair0_device_t *device,
     return gain_diff;
   }
 
-  s->usrp->set_rx_gain(openair0_cfg[0].rx_gain[0]-openair0_cfg[0].rx_gain_offset[0]);
+  for (size_t i = 0; i < s->usrp->get_rx_num_channels(); i++)
+    s->usrp->set_rx_gain(openair0_cfg[0].rx_gain[0] - openair0_cfg[0].rx_gain_offset[0], i);
   LOG_I(HW,"Setting USRP RX gain to %f (rx_gain %f,gain_range.stop() %f)\n",
         openair0_cfg[0].rx_gain[0]-openair0_cfg[0].rx_gain_offset[0],
         openair0_cfg[0].rx_gain[0],gain_range.stop());
