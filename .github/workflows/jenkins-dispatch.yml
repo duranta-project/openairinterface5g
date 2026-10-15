@@ -45,8 +45,49 @@ jobs:
             exit 1
           fi
 
+  verify-commit-emails:
+    runs-on: ubuntu-24.04
+
+    if: github.event_name == 'pull_request_target'
+
+    steps:
+      - name: Check trailer emails
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Rejecting noreply (e.g. GitHub private) and AI tool emails in Signed-off-by/Co-authored-by"
+
+          # Signed-off-by/Co-authored-by line whose <email> contains noreply/no-reply/no_reply
+          # (e.g. noreply@anthropic.com, 12345678+user@users.noreply.github.com)
+          # or is exactly cursoragent@cursor.com or copilot@github.com. Matched case-insensitively.
+          INVALID_TRAILER_REGEX='^(signed-off-by|co-authored-by):.*<([^>]*no[-_]?reply[^>]*|cursoragent@cursor\.com|copilot@github\.com)>'
+
+          INVALID=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits" \
+            | jq -r --arg re "$INVALID_TRAILER_REGEX" '
+                .[]
+                | .sha[:7] as $sha
+                | .commit.message | split("\n")[]
+                | select(test($re; "i"))
+                | "- \($sha): `\(.)`"')
+
+          if [ -n "$INVALID" ]; then
+            echo -e "Commits with invalid trailer emails:\n$INVALID"
+            gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body "$(cat <<EOF
+          **Validation:**
+          The following commit(s) have a Signed-off-by or Co-authored-by with a noreply or AI tool email:
+
+          $INVALID
+
+          Please use a real, non-anonymous email address.
+          Do not use a GitHub private email (e.g. \`*@users.noreply.github.com\`) or an AI tool email (e.g. \`noreply@anthropic.com\`, \`copilot@github.com\`).
+          For detailed instructions, refer to the [CONTRIBUTING.md](https://github.com/duranta-project/openairinterface5g/blob/develop/CONTRIBUTING.md) file at the root of this repository.
+          EOF
+          )"
+            exit 1
+          fi
+
   check-labels:
-    needs: verify-signed-commits
+    needs: [verify-signed-commits, verify-commit-emails]
     runs-on: ubuntu-24.04
 
     if: github.event_name == 'pull_request_target'
