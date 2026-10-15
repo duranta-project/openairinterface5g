@@ -9,7 +9,7 @@
 #include "common/utils/threadPool/thread-pool.h"
 #include "PHY/defs_nr_UE.h"
 
-#define MAX_NUM_NR_UE_INST 32
+#define MAX_NUM_NR_UE_INST 64
 extern int NB_UE_INST;
 extern uint16_t ue_id_g;
 
