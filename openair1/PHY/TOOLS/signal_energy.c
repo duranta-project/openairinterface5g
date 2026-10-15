@@ -52,6 +52,26 @@ uint32_t signal_energy_nodc(const c16_t *input, uint32_t length)
   int i = 0;
   float acc = 0;
 
+#if defined(AVX2)
+  /* one PRB is by far the most frequent length (noise power per RB): handle it with a
+     fully unrolled, branch-free sequence instead of walking the generic loops below */
+  if (length == NR_NB_SC_PER_RB) {
+    const simde__m256i input_8 = simde_mm256_loadu_si256((const simde__m256i *)input);
+    const simde__m256i power_8 = simde_mm256_madd_epi16(input_8, input_8);
+    const simde__m128i input_4 = simde_mm_loadu_si128((const simde__m128i *)(input + 8));
+    const simde__m128i power_4 = simde_mm_madd_epi16(input_4, input_4);
+    simde__m128 power = simde_mm_add_ps(simde_mm256_extractf128_ps(simde_mm256_cvtepi32_ps(power_8), 1),
+                                        simde_mm256_castps256_ps128(simde_mm256_cvtepi32_ps(power_8)));
+    power = simde_mm_add_ps(power, simde_mm_cvtepi32_ps(power_4));
+    const simde__m128 sum2 = simde_mm_add_ps(power, simde_mm_movehl_ps(power, power));
+    const simde__m128 sum1 = simde_mm_add_ss(sum2, simde_mm_shuffle_ps(sum2, sum2, 1));
+    const simde__m128 average = simde_mm_div_ss(sum1, simde_mm_set_ss(NR_NB_SC_PER_RB));
+    const int32_t truncated = simde_mm_cvttss_si32(average);
+    const simde__m128 fraction = simde_mm_sub_ss(average, simde_mm_cvtsi32_ss(simde_mm_setzero_ps(), truncated));
+    return truncated + simde_mm_comige_ss(fraction, simde_mm_set_ss(0.5f));
+  }
+#endif
+
 #if defined(__AVX512F__) && defined(__AVX512BW__)
   simde__m512 acc512 = {};
   for (; i < (length & ~15); i += 16) {
