@@ -127,6 +127,8 @@ void SetNonDefault(configmodule_interface_t *cfg, const YAML::Node &node, paramd
 void GetParam(configmodule_interface_t *cfg, const YAML::Node &node, paramdef_t *param)
 {
   if (node && node[std::string(param->optname)]) {
+    if (param->paramflags & PARAMFLAG_DEPRECATED)
+      fprintf(stderr, "[CONFIG] option %s is deprecated and will be removed in a future release\n", param->optname);
     SetNonDefault(cfg, node, param);
   } else {
     config_common_getdefault(cfg, param, nullptr);
