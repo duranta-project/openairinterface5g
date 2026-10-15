@@ -88,7 +88,7 @@ static int16_t ssb_index_from_prach(nr_cell_sched_t *cell,
   NR_RACH_ConfigCommon_t *rach_ConfigCommon = scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup;
   uint8_t config_index = rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex;
   uint8_t fdm = cfg->prach_config.num_prach_fd_occasions.value;
-  
+
   uint8_t total_RApreambles = MAX_NUM_NR_PRACH_PREAMBLES;
   if (rach_ConfigCommon->totalNumberOfRA_Preambles != NULL)
     total_RApreambles = *rach_ConfigCommon->totalNumberOfRA_Preambles;
@@ -811,7 +811,7 @@ void nr_initiate_ra_proc(module_id_t module_idP,
 
   // Configure RA BWP
   configure_UE_BWP(cell, scc, UE, true, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
- 
+
   NR_SCHED_UNLOCK(&nr_mac->sched_lock);
 }
 
@@ -1090,7 +1090,7 @@ static bool get_feasible_msg3_tda(const NR_ServingCellConfigCommon_t *scc,
     NR_beam_alloc_t beam = beam_allocation_procedure(beam_info, temp.f, temp.s, ue_beam_idx, slots_per_frame);
     if (beam.idx < 0)
       continue;
-      
+
     // is in mixed slot with more or equal than 3 symbols, or UL slot
     ra->Msg3_frame = temp.f;
     ra->Msg3_slot = temp.s;
