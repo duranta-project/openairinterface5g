@@ -121,7 +121,8 @@ void process_msg_rcc_to_mac(nr_mac_rrc_message_t *msg, int instance_id)
                                msg->payload.config_cg.hfn,
                                msg->payload.config_cg.frame,
                                msg->payload.config_cg.cellGroupConfig,
-                               msg->payload.config_cg.UE_NR_Capability);
+                               msg->payload.config_cg.UE_NR_Capability,
+                               msg->payload.config_cg.full_config);
       ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, msg->payload.config_cg.cellGroupConfig);
       break;
     case NR_MAC_RRC_CONFIG_MIB:

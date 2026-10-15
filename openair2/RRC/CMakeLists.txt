@@ -2,3 +2,4 @@
 
 add_subdirectory(LTE)
 add_subdirectory(NR)
+add_subdirectory(NR_UE)
