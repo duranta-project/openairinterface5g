@@ -348,4 +348,17 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
 
 NR_SearchSpace_t *get_common_search_space(const NR_UE_MAC_INST_t *mac, const NR_SearchSpaceId_t ss_id);
 void update_pdcch_config(NR_UE_MAC_INST_t *mac);
+/*static*/ int resolve_ro_mask(NR_UE_MAC_INST_t *mac);
+/*static*/ int select_cbra_ssb(NR_UE_MAC_INST_t *mac, NR_RSRP_Range_t *thr_ie);
+/*static*/ int select_cfra_ssb_index(NR_UE_MAC_INST_t *mac,  
+                                 NR_CFRA_SSB_Resource_t **resources, int count,  
+                                 NR_RSRP_Range_t *thr_ie);
+/*static*/ bool ssb_rsrp_above_threshold(NR_UE_MAC_INST_t *mac, int ssb, NR_RSRP_Range_t *thr_ie);
+
+/*static*/ void select_prach_occasion(RA_config_t *ra,  
+                                  int nb_tx_ssb,  
+                                  int n,  
+                                  prach_occasion_info_t ra_occasions_period[],
+                                  int num_ra_occasions_period);
+
 #endif
