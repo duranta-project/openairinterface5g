@@ -72,6 +72,7 @@
 #include "uper_encoder.h"
 #include "utils.h"
 #include "x2ap_messages_types.h"
+#include "rrc_gNB_XNAP.h"
 #include "xer_encoder.h"
 #include "E1AP/lib/e1ap_bearer_context_management.h"
 #include "E1AP/lib/e1ap_interface_management.h"
@@ -1872,10 +1873,19 @@ static void process_Event_Based_Measurement_Report(gNB_RRC_INST *rrc,
             if (neighbourCellRSRP > best_rsrp) {
               // UE can send multiple neighbour cells A3 event report in 1 Meas Report. So, we need to find the best neighbour
               best_rsrp = neighbourCellRSRP;
-              LOG_I(NR_RRC, "HO LOG: Serving Cell RSRP: %d - Best Neighbor RSRP: %d ! Trigger N2 HO\n", servingCellRSRP, best_rsrp);
-              nr_rrc_trigger_n2_ho(rrc, ue, neighbour);
+              const rrc_xn_candidate_t *xn_cand = rrc_find_xn_candidate(rrc, neighbour->gNB_ID);
+              if (xn_cand) {
+                LOG_I(NR_RRC, "HO LOG: Serving RSRP: %d Best Neighbour RSRP: %d — Trigger Xn HO (assoc_id %d)\n",
+                      servingCellRSRP, best_rsrp, xn_cand->assoc_id);
+                nr_rrc_trigger_xn_ho(rrc, ue, neighbour);
+                LOG_D(NR_RRC, "HO LOG: Trigger Xn HO for the neighbour gnb: %u cell: %lu\n", neighbour->gNB_ID, neighbour->nrcell_id);
+              } else {
+                LOG_I(NR_RRC, "HO LOG: Serving RSRP: %d Best Neighbour RSRP: %d — Trigger N2 HO (no Xn)\n",
+                      servingCellRSRP, best_rsrp);
+                nr_rrc_trigger_n2_ho(rrc, ue, neighbour);
+                LOG_D(NR_RRC, "HO LOG: Trigger N2 HO for the neighbour gnb: %u cell: %lu\n", neighbour->gNB_ID, neighbour->nrcell_id);
+              }
             }
-            LOG_D(NR_RRC, "HO LOG: Trigger N2 HO for the neighbour gnb: %u cell: %lu\n", neighbour->gNB_ID, neighbour->nrcell_id);
           }
         } else if (target_cell && neighbour) {
           /* we know the cell and are connected to the DU! */
@@ -2276,8 +2286,12 @@ static void handle_rrcReconfigurationComplete(gNB_RRC_INST *rrc, gNB_RRC_UE_t *U
     LOG_A(NR_RRC, "handover for UE %d/RNTI %04x complete!\n", UE->rrc_ue_id, UE->rnti);
     DevAssert(UE->ho_context->target != NULL);
 
-    UE->ho_context->target->ho_success(rrc, UE);
-    nr_rrc_finalize_ho(UE);
+    if (UE->ho_context->target->ho_success)
+      UE->ho_context->target->ho_success(rrc, UE);
+    /* ho_reconfig_ack: N2/F1 finalise immediately; Xn triggers Path Switch Request
+     * (ho_context freed later inside rrc_gNB_send_XNAP_UE_CONTEXT_RELEASE) */
+    if (UE->ho_context && UE->ho_context->target->ho_reconfig_ack)
+      UE->ho_context->target->ho_reconfig_ack(rrc, UE);
   }
 
   f1_ue_data_t ue_data = cu_get_f1_ue_data(UE->rrc_ue_id);
@@ -2569,7 +2583,7 @@ void store_du_f1u_tunnel(const f1ap_drb_setup_t *drbs, int n, gNB_RRC_UE_t *ue)
 
 static DRB_nGRAN_to_mod_t get_e1_drb_mod_pdcp_status(const drb_t *drb,
                                                      bearer_context_pdcp_config_t *pdcp_config,
-                                                     const ngap_drb_status_t *drb_status)
+                                                     const rrc_drb_pdcp_status_t *drb_status)
 {
   DevAssert(drb_status);
   DevAssert(pdcp_config);
@@ -2582,9 +2596,9 @@ static DRB_nGRAN_to_mod_t get_e1_drb_mod_pdcp_status(const drb_t *drb,
   *drb_to_mod.pdcp_config = *pdcp_config;
   drb_to_mod.pdcp_status = calloc_or_fail(1, sizeof(*drb_to_mod.pdcp_status));
   drb_to_mod.pdcp_status->dl_count.hfn = drb_status->dl_count.hfn;
-  drb_to_mod.pdcp_status->dl_count.sn = drb_status->dl_count.pdcp_sn;
+  drb_to_mod.pdcp_status->dl_count.sn = drb_status->dl_count.sn;
   drb_to_mod.pdcp_status->ul_count.hfn = drb_status->ul_count.hfn;
-  drb_to_mod.pdcp_status->ul_count.sn = drb_status->ul_count.pdcp_sn;
+  drb_to_mod.pdcp_status->ul_count.sn = drb_status->ul_count.sn;
   return drb_to_mod;
 }
 
@@ -2660,8 +2674,8 @@ static void e1_request_pdcp_status(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
   free_e1ap_context_mod_request(&req);
 }
 
-/** @brief Notify CU-UP with PDCP status during handover */
-void e1_notify_pdcp_status(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const ngap_drb_status_t *drb_status)
+/** @brief Notify CU-UP with PDCP status during handover (N2 or Xn) */
+void e1_notify_pdcp_status(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const rrc_drb_pdcp_status_t *drb_status)
 {
   if (!is_cuup_associated(rrc) || !drb_status)
     return;
@@ -2675,6 +2689,8 @@ void e1_notify_pdcp_status(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const ngap_drb_s
   req.pduSessionMod = calloc_or_fail(num_pdu_sessions, sizeof(*req.pduSessionMod));
 
   FOR_EACH_SEQ_ARR(drb_t *, drb, &UE->drbs) {
+    if (drb->drb_id != drb_status->drb_id)
+      continue;
     LOG_I(NR_RRC, "Forward PDCP Status to CU-UP (drb_id=%d)\n", drb->drb_id);
     bearer_context_pdcp_config_t pdcp_config = set_bearer_context_pdcp_config(drb->pdcp_config, rrc->configuration.um_on_default_drb, UE->redcap_cap);
     DRB_nGRAN_to_mod_t drb_to_mod = get_e1_drb_mod_pdcp_status(drb, &pdcp_config, drb_status);
@@ -2926,11 +2942,16 @@ static void rrc_CU_process_ue_context_release_complete(MessageDef *msg_p)
       return;
   }
 
-  if (UE->an_release) {
-    /* only trigger release if it has been requested by core
-     * otherwise, it might be CU that requested release on a DU during normal
-     * operation (i.e, handover) */
+  if (UE->an_release)
     rrc_gNB_send_NGAP_UE_CONTEXT_RELEASE_COMPLETE(0, UE->rrc_ue_id, &UE->pduSessions);
+
+  /* Only remove the UE if the DU that confirmed the release is still its current DU:
+   * after an F1 handover, the old DU's completion must not tear down the live context */
+  if (cu_get_f1_ue_data(UE->rrc_ue_id).du_assoc_id == msg_p->ittiMsgHeader.originInstance) {
+    /* with an_release, UE Context Release Complete above also releases the NGAP context;
+     * otherwise (e.g. Xn HO source) release it locally, without AMF signalling */
+    if (!UE->an_release)
+      rrc_gNB_send_NGAP_UE_CONTEXT_LOCAL_RELEASE(UE->rrc_ue_id);
     rrc_remove_ue(RC.nrrrc[0], ue_context_p);
   }
 }
@@ -4083,6 +4104,10 @@ void *rrc_gnb_task(void *args_p)
         rrc_gnb_nrdc_timeout(RC.nrrrc[instance], &NR_RRC_NRDC_TIMEOUT(msg_p));
         break;
 
+      case NGAP_PATH_SWITCH_REQ_ACK:
+        rrc_gNB_process_NGAP_PATH_SWITCH_REQUEST_ACKNOWLEDGEMENT(RC.nrrrc[instance], instance, &NGAP_PATH_SWITCH_REQ_ACK(msg_p));
+        break;
+
       /* Messages from XNAP task */
       case XNAP_SETUP_IND:
         rrc_add_xn_candidate(RC.nrrrc[instance], XNAP_SETUP_IND(msg_p).gnb_id, XNAP_SETUP_IND(msg_p).assoc_id);
@@ -4090,6 +4115,26 @@ void *rrc_gnb_task(void *args_p)
 
       case XNAP_PEER_SHUTDOWN_IND:
         rrc_remove_xn_candidate(RC.nrrrc[instance], XNAP_PEER_SHUTDOWN_IND(msg_p).gnb_id);
+        break;
+
+      case XNAP_HANDOVER_REQ:
+        rrc_gNB_process_XNAP_HANDOVER_REQUEST(RC.nrrrc[instance], &XNAP_HANDOVER_REQ(msg_p));
+        break;
+
+      case XNAP_HANDOVER_REQ_ACK:
+        rrc_gNB_process_XNAP_HANDOVER_REQ_ACK(RC.nrrrc[instance], &XNAP_HANDOVER_REQ_ACK(msg_p));
+        break;
+
+      case XNAP_HANDOVER_PREP_FAILURE:
+        rrc_gNB_process_XNAP_HANDOVER_PREP_FAILURE(RC.nrrrc[instance], &XNAP_HANDOVER_PREP_FAILURE(msg_p));
+        break;
+
+      case XNAP_SN_STATUS_TRANSFER:
+        rrc_gNB_process_XNAP_SN_STATUS_TRANSFER(RC.nrrrc[instance], instance, &XNAP_SN_STATUS_TRANSFER(msg_p));
+        break;
+
+      case XNAP_UE_CONTEXT_RELEASE:
+        rrc_gNB_process_XNAP_UE_CONTEXT_RELEASE(RC.nrrrc[instance], instance, &XNAP_UE_CONTEXT_RELEASE(msg_p));
         break;
 
       default:
