@@ -25,6 +25,7 @@
     {"nssai_sst", "NSSAI slice type\n",           .defintval=1,        .type=TYPE_UINT8,  .chkPptr=&(checkedparam_t){.s2 = {config_check_intrange, {0, 127}}}}, \
     {"nssai_sd",  "NSSAI slice differentiator\n", .defintval=0xffffff, .type=TYPE_UINT32, .chkPptr=&(checkedparam_t){.s2 = {config_check_intrange, {0, 0xffffff}}}}, \
     {"dnn",       "PDU session DNN (APN)\n",      .defstrval="oai",    .type=TYPE_STRING, .chkPptr=&(checkedparam_t){.s4 = {config_check_dnn}}}, \
+    {"ifname",    "interface name\n",             .defstrval=NULL,     .type=TYPE_STRING, .chkPptr=&(checkedparam_t){.s4 = {config_check_ifname}}}, \
 }
 // clang-format on
 
@@ -54,6 +55,19 @@ static int config_check_dnn(configmodule_interface_t *cfg, paramdef_t *param)
   return 0;
 }
 
+static int config_check_ifname(configmodule_interface_t *cfg, paramdef_t *param)
+{
+  UNUSED(cfg);
+  if (!param->strptr)
+    return 0; // nothing provided, stack will auto-generate ifname
+  const char *ifname = *param->strptr;
+  int ifname_len = strlen(ifname);
+  // TODO: valid interface name characters?
+  if (ifname_len >= 16)
+    return -1;
+  return 0;
+}
+
 int get_pdu_session_configs(const char *uiccName, pdu_session_config_t *configs, int max_len)
 {
   paramdef_t pdu_sess_params[] = PDU_SESS_PARAMS_DESC;
@@ -77,6 +91,9 @@ int get_pdu_session_configs(const char *uiccName, pdu_session_config_t *configs,
     pdu->nssai.sst = *gpd(p, npsp, "nssai_sst")->iptr;
     pdu->nssai.sd = *gpd(p, npsp, "nssai_sd")->iptr;
     pdu->dnn = strdup(*gpd(p, npsp, "dnn")->strptr);
+    char **strptr = gpd(p, npsp, "ifname")->strptr;
+    if (strptr)
+      pdu->ifname = *strptr;
   }
 
   return num;
