@@ -10,6 +10,9 @@ This document describes the CUDA-based GPU acceleration pipeline for the OAI cha
 
 The result is a complete, high-performance pipeline integrated into the OAI simulators. The feature is supported by a new benchmark suite created to validate correctness and analyze performance across a wide range of channel models and hardware configurations.
 
+For automated CPU-versus-GPU validation on dedicated test servers, see the
+[GPU channel-emulation test runner](../gpu_acceleration_test/README.md).
+
 ## Implementation
 
 This feature is implemented across a set of new CUDA source files and integrated into the existing OAI simulation framework.

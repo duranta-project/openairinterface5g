@@ -48,6 +48,9 @@ pipelines:
 * 5G PHY simulators: `openair1/SIMULATION/NR_PHY/`
 * Coding unit tests: `openair1/PHY/CODING/TESTBENCH/`
 
+The [AWGN BLER table documentation](../openair1/SIMULATION/NR_PHY/BLER_SIMULATIONS/AWGN/README.md) describes the
+provided SISO and MIMO simulation results and how to generate new tables.
+
 Example:
 
 ```bash
