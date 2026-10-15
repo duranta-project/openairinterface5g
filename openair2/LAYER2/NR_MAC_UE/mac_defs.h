@@ -190,6 +190,7 @@ typedef enum {
   RE_ESTABLISHMENT,
   RRC_SETUP_REESTAB_RESUME,
   UL_SYNC_LOST_T430_EXPIRED,
+  T304_EXPIRED,
   REJECT,
 } NR_UE_MAC_reset_cause_t;
 
@@ -654,6 +655,15 @@ typedef struct NR_UE_MAC_INST_s {
   // set when mac configuration changes during reconf with sync
   // reset when pdcch config is changed after pbch read after reconf
   bool update_pdcch_config;
+
+  /// source PCell PCI and carrier configuration, to revert back to the source PCell upon T304 expiry
+  struct {
+    long physCellId;
+    fapi_nr_ue_carrier_config_t carrier_config;
+    frequency_range_t frequency_range;
+    uint16_t nr_band;
+    int numerology;
+  } ho_source;
 } NR_UE_MAC_INST_t;
 
 static inline int GET_NTN_UE_K_OFFSET(const fapi_nr_ntn_config_t *ntn_ta, int scs)
