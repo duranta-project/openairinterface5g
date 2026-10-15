@@ -48,7 +48,7 @@ if(E3_AGENT)
   # independent lookups that disagreed would link one libe3 and compile against
   # another's headers. Keep it identical to openair2/E3AP/CMakeLists.txt.
   find_package(PkgConfig REQUIRED)
-  pkg_check_modules(CLIBE3 REQUIRED libe3>=0.0.10 libe3<0.2.0)
+  pkg_check_modules(CLIBE3 REQUIRED libe3>=0.3.0)
 
   set(DAPP_RAN_FUNC_SRC
     O-RAN/ran_func_dapp.c

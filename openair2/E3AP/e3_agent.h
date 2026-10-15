@@ -56,6 +56,16 @@ int e3_destroy();
  * @param len Payload length.
  * @return 0 on success, -1 otherwise.
  */
+/**
+ * @brief Start the relay that sends deferred control acknowledges.
+ *
+ * write_ctrl_dapp_sm() answers an xApp control with NONE and leaves the
+ * procedure open; this relay closes it once the mask is on the air, or retires
+ * it if the dApp never answered. Called once by e3_init(), after the agent is
+ * up, since a completion has nowhere to go before then.
+ */
+void start_dapp_ctrl_ack_relay(void);
+
 int e3_send_xapp_control(uint32_t dapp_id, uint32_t sequence_id, uint32_t ran_function_id, const uint8_t *data, size_t len);
 
 /**

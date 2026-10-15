@@ -5,6 +5,7 @@
 #include "ran_func_dapp.h"
 
 #include "openair2/E2AP/flexric/src/util/time_now_us.h"
+#include "e3_pending_ctrl.h"
 
 #include <stdatomic.h>
 
@@ -351,7 +352,8 @@ void notify_dapp_status_changed(void)
 void generate_e2_indication_from_e3_dapp_report(uint32_t ran_function_id,
                                                 uint32_t dapp_id,
                                                 size_t report_size,
-                                                const uint8_t* report_data)
+                                                const uint8_t* report_data,
+                                                uint32_t sequence_id)
 {
   if (report_data == NULL || report_size == 0) {
     return;
@@ -383,6 +385,9 @@ void generate_e2_indication_from_e3_dapp_report(uint32_t ran_function_id,
     hdr->ran_function_id = ran_function_id;
     hdr->dapp_id = dapp_id;
     hdr->timestamp_ns = time_now_ns();
+    /* Correlation id the dApp assigned to this detection; the xApp echoes it on
+     * the control it derives, closing the loop. 0 = unassigned. */
+    hdr->sequence_id = (int64_t)sequence_id;
 
     if (f1_req != NULL && cell != NULL) {
       hdr->node_type = (uint8_t)RC.nrrrc[0]->node_type;
@@ -487,13 +492,35 @@ sm_ag_if_ans_t write_ctrl_dapp_sm(void const* data)
 #if defined(E3_AGENT)
       uint32_t ran_function_id = ctrl->hdr.frmt_1.ran_function_id;
       uint32_t dapp_id = ctrl->hdr.frmt_1.dapp_id;
+      uint32_t sequence_id = (uint32_t)ctrl->hdr.frmt_1.sequence_id;
 
       uint32_t data_size = ctrl->msg.frmt_1.data_size;
       const uint8_t* payload = ctrl->msg.frmt_1.data;
 
-      if (e3_send_xapp_control(dapp_id, ran_function_id, payload, data_size) != 0) {
-        printf("[RAN FUNC DAPP CTRL] Failed to forward xApp control via E3 agent\n");
+      /* Nothing to correlate a later completion against, so this control can
+       * only ever be answered now. Say so immediately rather than deferring an
+       * acknowledge that could never be matched to it. */
+      if (sequence_id == 0) {
+        LOG_W(E3AP, "[RAN FUNC DAPP CTRL] xApp control carries no sequence id; acknowledging without applying\n");
+        break;
       }
+
+      if (!e3_pending_ctrl_open(sequence_id)) {
+        LOG_W(E3AP, "[RAN FUNC DAPP CTRL] pending control table full; acknowledging immediately\n");
+        break;
+      }
+
+      if (e3_send_xapp_control(dapp_id, sequence_id, ran_function_id, payload, data_size) != 0) {
+        printf("[RAN FUNC DAPP CTRL] Failed to forward xApp control via E3 agent\n");
+        /* Retire the slot we just opened: nothing is coming back for it. */
+        e3_pending_ctrl_installed(sequence_id, 0, false);
+        break;
+      }
+
+      /* Deferred: the acknowledge goes out from the relay once the mask this
+       * control asks for is on the air. See e3_pending_ctrl.h. */
+      ans.type = NONE_SM_AG_IF_ANS_V0;
+      return ans;
 #endif
 
       break;
@@ -503,10 +530,12 @@ sm_ag_if_ans_t write_ctrl_dapp_sm(void const* data)
       AssertError(false, return ans, "[RAN FUNC DAPP CTRL] Unsupported Control Message format %d", ctrl->msg.format);
   }
 
+  /* Reached only when the control could not be deferred. */
   ans.type = CTRL_OUTCOME_SM_AG_IF_ANS_V0;
   ans.ctrl_out.type = DAPP_AGENT_IF_CTRL_ANS_V0;
   ans.ctrl_out.dapp.format = FORMAT_1_E2SM_DAPP_CTRL_OUT;
   ans.ctrl_out.dapp.frmt_1.timestamp_ns = time_now_ns();
+  ans.ctrl_out.dapp.frmt_1.sequence_id = ctrl->hdr.frmt_1.sequence_id;
   return ans;
 }
 
