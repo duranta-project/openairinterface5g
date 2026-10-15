@@ -14,7 +14,9 @@
 #include "openair2/F1AP/f1ap_ids.h"
 #include "openair2/GNB_APP/gnb_config.h"
 #include "nr_pdcp/nr_pdcp_oai_api.h"
+#include "nr_up/nr_up_direct.h"
 #include "common/utils/time_manager/time_manager.h"
+#include "common/utils/utils.h"
 
 RAN_CONTEXT_t RC;
 THREAD_STRUCT thread_struct;
@@ -85,21 +87,24 @@ ngran_node_t get_node_type()
   return ngran_gNB_CUUP;
 }
 
-rlc_op_status_t nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
-                                const srb_flag_t srb_flagP,
-                                const rb_id_t rb_idP,
-                                const mui_t muiP,
-                                sdu_size_t sdu_sizeP,
-                                uint8_t *sdu_pP)
+/** @brief Stub for when nr_up_direct is not linked
+ * Softmodem links the strong version from nr_up_direct, nr-cuup keeps
+ * this stub for linking PDCP shared lib */
+void nr_up_init_direct(nr_up_if_t *iface)
 {
-  abort();
-  return 0;
+  UNUSED(iface);
+  AssertFatal(0, "nr_up_init_direct() reached in nr-cuup\n");
 }
 
-int nr_rlc_get_available_tx_space(const rnti_t rntiP, const logical_chan_id_t channel_idP)
+int nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
+                    const srb_flag_t srb_flagP,
+                    const rb_id_t rb_idP,
+                    const mui_t muiP,
+                    sdu_size_t sdu_sizeP,
+                    uint8_t *sdu_pP)
 {
   abort();
-  return 0;
+  return -1;
 }
 
 f1ap_cudu_inst_t *getCxt(instance_t instanceP)

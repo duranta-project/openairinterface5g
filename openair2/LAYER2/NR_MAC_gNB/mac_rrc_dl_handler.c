@@ -62,6 +62,12 @@ bool DURecvCb(protocol_ctxt_t *ctxt_pP,
   return true;
 }
 
+/** @brief RLC TX headroom for F1-U DDDS Desired Buffer Size */
+static int DUGetTxSpace(ue_id_t ue_id, rb_id_t rb_id)
+{
+  return nr_rlc_get_available_tx_space(ue_id, rb_id + 3); // DRB ID to LCID
+}
+
 /** @brief Fill and send request to create GTP-U tunnel on F1 */
 static f1ap_up_tnl_t f1_drb_gtpu_create(const gtpv1u_gnb_create_tunnel_req_t *req)
 {
@@ -72,7 +78,7 @@ static f1ap_up_tnl_t f1_drb_gtpu_create(const gtpv1u_gnb_create_tunnel_req_t *re
   instance_t f1inst = get_f1_gtp_instance();
   DevAssert(f1inst >= 0);
   gtpv1u_gnb_create_tunnel_resp_t resp = {0};
-  int ret = gtpv1u_create_ngu_tunnel(f1inst, req, &resp, DURecvCb, NULL, NULL);
+  int ret = gtpv1u_create_ngu_tunnel(f1inst, req, &resp, DURecvCb, NULL, NULL, NULL, DUGetTxSpace);
   AssertFatal(ret >= 0, "Unable to create GTP Tunnel for F1-U\n");
   AssertFatal(resp.gnb_addr.length == sizeof(in_addr_t),
               "GTP tunnel response address length %d does not match IPv4 size %zu\n",

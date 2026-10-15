@@ -33,6 +33,7 @@
 #include "nr_pdcp/nr_pdcp_entity.h"
 #include "nr_pdcp/nr_pdcp_oai_api.h"
 #include "nr_rlc/nr_rlc_oai_api.h"
+#include "nr_up/nr_up_du.h"
 #include "openair2/F1AP/f1ap_ids.h"
 #include "openair2/F1AP/lib/f1ap_interface_management.h"
 #include "seq_arr.h"
@@ -340,6 +341,8 @@ void mac_top_init_gNB(ngran_node_t node_type,
     nr_rlc_op_mode_t mode = NODE_IS_MONOLITHIC(node_type) ? NR_RLC_OP_MODE_MONO_GNB : NR_RLC_OP_MODE_SPLIT_GNB;
     int success = nr_rlc_module_init(mode);
     AssertFatal(success == 0,"Could not initialize RLC layer\n");
+    if (mode == NR_RLC_OP_MODE_SPLIT_GNB)
+      nr_up_init_du();
   } else {
     RC.nrmac = NULL;
   }
