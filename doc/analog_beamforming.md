@@ -69,3 +69,22 @@ In case of DAS, since each beam corresponds to a specific antenna port, the `bea
 The implementation is still work in progress.
 
 The first dimension of the Tx and Rx buffers contains the number of Tx/Rx antennas which is at least the number of logical antenna ports.
+
+### Beam signalling to the radio
+
+L1 stores the beam index of each symbol in `gNB->common_vars.beam_id[slot * symbols_per_slot + symbol][antenna]`. Once per slot, the RU walks that table and calls the radio API `trx_set_beams(device, beams, num_beams, timestamp)` whenever the beam changes from one symbol to the next. The timestamp allows the radio driver to apply the beam at the right sample, ahead of the corresponding transmission. A radio driver that cannot steer beams leaves `trx_set_beams` unset.
+
+### Beam control of an external beamformer over USRP
+
+The USRP driver programs an external beamformer through the GPIO connector of the radio. The type of beamformer is selected with the `gpio_controller` parameter in the `RUs` section of the configuration file, which accepts:
+- `generic`: the beam index is written to the GPIO pins directly, which limits the number of beams to 8
+- `interdigital`: for the InterDigital mmWave frontend
+- `tmytek`: for TMYTEK beamformers, where the beam index is sent over SPI
+
+If `gpio_controller` is omitted, beam control is disabled. Note that this parameter also sets up the TDD switching signals of the frontend, so it is required whenever such a frontend is attached, even without analog beamforming.
+
+The `tmytek` controller requires a USRP X410 and UHD 4.1 or later, because it relies on the SPI engine of the radio. The beam index provided by L1 is translated into a write of the beamformer phase register, followed by a pulse of the latch pin. The SPI protocol configuration is described in `radio/TMYTEK/tmytek_spi_config.h`, separately from the USRP driver that carries it. Beam indices are 0-based in OAI and 1-based in the TMYTEK codebook, so `beam_weights = [0, 1, 2]` selects the first three beams of the codebook. The gain registers of the beamformer are not written at runtime and have to be programmed when the array is initialised.
+
+### TMYTEK integration
+
+See the [TMYTEK beam control guide](../radio/TMYTEK/README.md) for the hardware setup and integration instructions.

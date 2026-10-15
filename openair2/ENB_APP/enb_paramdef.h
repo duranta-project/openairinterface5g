@@ -84,7 +84,7 @@ typedef enum {
 #define HLP_RU_NUM_INTERFACES "Number of network interfaces for RU"
 #define HLP_RU_HALF_SLOT_PARALLELIZATION "run half slots in parallel in RU FEP"
 #define HLP_RU_RU_THREAD_CORE "id of core to pin ru_thread, -1 is default"
-#define HLP_RU_GPIO_CONTROL "set the GPIO control type for the RU"
+#define HLP_RU_GPIO_CONTROL "set the GPIO control type for the RU: generic, interdigital or tmytek"
 
 #define RU_LOCAL_IF_NAME_IDX          0
 #define RU_LOCAL_ADDRESS_IDX          1
