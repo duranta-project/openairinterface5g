@@ -9,6 +9,26 @@
 // #define RM_DEBUG 1
 #define USE128BIT
 
+/* Qm = 10 interleaving of 8 columns: byte shuffles that build output bytes 16k..16k+15 from the 8-byte rows 0..7 of
+ * column pairs w[a] and w[a+1] (a = max(k - 1, 0)) and the 2-byte rows 8, 9 of the 8 columns q (-1 clears the byte) */
+static const int8_t interleave_qm10_idx[5][3][16] __attribute__((aligned(16))) = {
+    {{0, 1, 2, 3, 4, 5, 6, 7, -1, -1, 8, 9, 10, 11, 12, 13},
+     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+     {-1, -1, -1, -1, -1, -1, -1, -1, 0, 1, -1, -1, -1, -1, -1, -1}},
+    {{14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+     {-1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, -1, -1, 8, 9},
+     {-1, -1, 2, 3, -1, -1, -1, -1, -1, -1, -1, -1, 4, 5, -1, -1}},
+    {{10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+     {-1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7},
+     {-1, -1, -1, -1, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1, -1, -1}},
+    {{-1, -1, 8, 9, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1},
+     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3},
+     {8, 9, -1, -1, -1, -1, -1, -1, -1, -1, 10, 11, -1, -1, -1, -1}},
+    {{4, 5, 6, 7, -1, -1, 8, 9, 10, 11, 12, 13, 14, 15, -1, -1},
+     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+     {-1, -1, -1, -1, 12, 13, -1, -1, -1, -1, -1, -1, -1, -1, 14, 15}},
+};
+
 void nr_interleaving_ldpc(uint32_t E, uint8_t Qm, uint8_t *e, uint8_t *f)
 {
   const uint32_t EQm = E / Qm;
@@ -421,6 +441,55 @@ void nr_interleaving_ldpc(uint32_t E, uint8_t Qm, uint8_t *e, uint8_t *f)
         *f++ = *e6++;
         *f++ = *e7++;
       }
+    } break;
+    case 10: {
+      // 1024QAM, TS 38.212 5.4.2.2: bit j of each 10-bit group comes from row j of the E/10 x 10 matrix
+      uint32_t i = 0;
+      // 16 columns at a time: rows 0..7 through a 8x16 byte transpose, rows 8 and 9 as byte pairs
+      for (; i + 16 <= EQm; i += 16) {
+        simde__m128i r[10];
+#pragma GCC unroll 16
+        for (int j = 0; j < 10; j++)
+          r[j] = simde_mm_loadu_si128((simde__m128i *)(e + j * EQm + i));
+        simde__m128i t[8], u[8], w[8];
+#pragma GCC unroll 16
+        for (int j = 0; j < 4; j++) {
+          t[2 * j] = simde_mm_unpacklo_epi8(r[2 * j], r[2 * j + 1]); // rows 2j, 2j+1 of columns 0..7
+          t[2 * j + 1] = simde_mm_unpackhi_epi8(r[2 * j], r[2 * j + 1]); // columns 8..15
+        }
+#pragma GCC unroll 16
+        for (int j = 0; j < 2; j++) {
+          u[4 * j] = simde_mm_unpacklo_epi16(t[4 * j], t[4 * j + 2]); // 4 rows of columns 0..3
+          u[4 * j + 1] = simde_mm_unpackhi_epi16(t[4 * j], t[4 * j + 2]); // columns 4..7
+          u[4 * j + 2] = simde_mm_unpacklo_epi16(t[4 * j + 1], t[4 * j + 3]); // columns 8..11
+          u[4 * j + 3] = simde_mm_unpackhi_epi16(t[4 * j + 1], t[4 * j + 3]); // columns 12..15
+        }
+#pragma GCC unroll 16
+        for (int k = 0; k < 4; k++) {
+          w[2 * k] = simde_mm_unpacklo_epi32(u[k], u[k + 4]); // rows 0..7 of columns 4k, 4k+1
+          w[2 * k + 1] = simde_mm_unpackhi_epi32(u[k], u[k + 4]); // columns 4k+2, 4k+3
+        }
+        const simde__m128i q[2] = {simde_mm_unpacklo_epi8(r[8], r[9]), simde_mm_unpackhi_epi8(r[8], r[9])}; // rows 8, 9
+        // each 16-byte output vector takes bytes of at most two column pairs w[] and one q[]
+        simde__m128i *f128 = (simde__m128i *)(f + 10 * i);
+#pragma GCC unroll 16
+        for (int h = 0; h < 2; h++) {
+          const simde__m128i *wh = w + 4 * h;
+#pragma GCC unroll 16
+          for (int k = 0; k < 5; k++) {
+            const simde__m128i *idx = (const simde__m128i *)interleave_qm10_idx[k];
+            const int a = (k == 0) ? 0 : k - 1;
+            simde__m128i o = simde_mm_or_si128(simde_mm_shuffle_epi8(wh[a], simde_mm_loadu_si128(idx)),
+                                               simde_mm_shuffle_epi8(q[h], simde_mm_loadu_si128(idx + 2)));
+            if (k > 0 && k < 4)
+              o = simde_mm_or_si128(o, simde_mm_shuffle_epi8(wh[a + 1], simde_mm_loadu_si128(idx + 1)));
+            simde_mm_storeu_si128(f128++, o);
+          }
+        }
+      }
+      for (f += 10 * i; i < EQm; i++)
+        for (int j = 0; j < 10; j++)
+          *f++ = e[j * EQm + i];
     } break;
     default:
       AssertFatal(false, "Should be here!\n");
@@ -1021,6 +1090,51 @@ void nr_deinterleaving_ldpc(uint32_t E, uint8_t Qm, int16_t *e, int16_t *f)
         *e6++ = *f++;
         *e7++ = *f++;
       }
+    } break;
+    case 10: {
+      // 1024QAM, TS 38.212 5.4.2.2: bit j of each 10-bit group goes to row j of the E/10 x 10 matrix
+      uint32_t i = 0;
+      // 8 columns at a time: rows 0..7 through a 8x8 transpose, rows 8 and 9 split from 32-bit pairs
+      for (; i + 8 <= EQm; i += 8) {
+        const int16_t *fc = f + 10 * i;
+        simde__m128i v[8], t[8], u[8];
+#pragma GCC unroll 16
+        for (int c = 0; c < 8; c++)
+          v[c] = simde_mm_loadu_si128((simde__m128i *)(fc + 10 * c));
+#pragma GCC unroll 16
+        for (int c = 0; c < 4; c++) {
+          t[2 * c] = simde_mm_unpacklo_epi16(v[2 * c], v[2 * c + 1]); // rows 0..3 of columns 2c, 2c+1
+          t[2 * c + 1] = simde_mm_unpackhi_epi16(v[2 * c], v[2 * c + 1]); // rows 4..7
+        }
+#pragma GCC unroll 16
+        for (int c = 0; c < 2; c++) {
+          u[4 * c] = simde_mm_unpacklo_epi32(t[4 * c], t[4 * c + 2]); // rows 0, 1 of 4 columns
+          u[4 * c + 1] = simde_mm_unpackhi_epi32(t[4 * c], t[4 * c + 2]); // rows 2, 3
+          u[4 * c + 2] = simde_mm_unpacklo_epi32(t[4 * c + 1], t[4 * c + 3]); // rows 4, 5
+          u[4 * c + 3] = simde_mm_unpackhi_epi32(t[4 * c + 1], t[4 * c + 3]); // rows 6, 7
+        }
+#pragma GCC unroll 16
+        for (int j = 0; j < 4; j++) {
+          simde_mm_storeu_si128((simde__m128i *)(e + 2 * j * EQm + i), simde_mm_unpacklo_epi64(u[j], u[j + 4]));
+          simde_mm_storeu_si128((simde__m128i *)(e + (2 * j + 1) * EQm + i), simde_mm_unpackhi_epi64(u[j], u[j + 4]));
+        }
+        // rows 8, 9 of column c are the last 32-bit lane of the 8 LLRs from row 2 on
+        simde__m128i s[4];
+#pragma GCC unroll 16
+        for (int c = 0; c < 4; c++)
+          s[c] = simde_mm_unpackhi_epi32(simde_mm_loadu_si128((simde__m128i *)(fc + 20 * c + 2)),
+                                         simde_mm_loadu_si128((simde__m128i *)(fc + 20 * c + 12))); // lane 2, 3: columns 2c, 2c+1
+        const simde__m128i q0 = simde_mm_unpackhi_epi64(s[0], s[1]); // rows 8, 9 of columns 0..3
+        const simde__m128i q1 = simde_mm_unpackhi_epi64(s[2], s[3]); // columns 4..7
+        simde_mm_storeu_si128((simde__m128i *)(e + 8 * EQm + i),
+                              simde_mm_packs_epi32(simde_mm_srai_epi32(simde_mm_slli_epi32(q0, 16), 16),
+                                                   simde_mm_srai_epi32(simde_mm_slli_epi32(q1, 16), 16)));
+        simde_mm_storeu_si128((simde__m128i *)(e + 9 * EQm + i),
+                              simde_mm_packs_epi32(simde_mm_srai_epi32(q0, 16), simde_mm_srai_epi32(q1, 16)));
+      }
+      for (f += 10 * i; i < EQm; i++)
+        for (int j = 0; j < 10; j++)
+          e[j * EQm + i] = *f++;
     } break;
     default:
       AssertFatal(1 == 0, "Should not get here : Qm %d\n", Qm);
