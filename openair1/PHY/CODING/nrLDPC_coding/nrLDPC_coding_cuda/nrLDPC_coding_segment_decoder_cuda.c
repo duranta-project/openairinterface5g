@@ -80,10 +80,8 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   // use seg0 as canonical
   const int C = segs->C;
   const int Z = segs->Z;
-  const int Kc = segs->BG == 2 ? 52 : 68;
   const int K = segs->K;
   const int Kprime = K - segs->F;
-  const int segLen = Kc * Z; // int16 length; after packing we store int8 [segLen]
   t_nrLDPC_time_stats procTime = {0};
   t_nrLDPC_time_stats *p_procTime = &procTime;
 
@@ -174,15 +172,17 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   for (int r = 0; r < C; ++r) {
     gpuMemsetAsync(p_llr_dev + (size_t)r * segStride, 0, sizeof(int8_t) * 2 * Z, decoderStreams[0]);
 #if 0
-     int8_t llr_local[segLen];
+     int8_t llr_local[segStride];
      if (r==1 && segs->rv_index==2) {
-       gpuMemcpyAsync_or_fail(llr_local,p_llr_dev+(size_t)r*segLen,sizeof(int8_t)*segLen,gpuMemcpyDeviceToHost,decoderStreams[0]);
-       for (int i=0;i<segLen;i++) printf("llr(%d,%d,%d/%d) %d\n",segs->rv_index,r,i,segLen,llr_local[i]);
+       gpuMemcpyAsync_or_fail(llr_local,p_llr_dev+(size_t)r*segStride,sizeof(int8_t)*segStride,gpuMemcpyDeviceToHost,decoderStreams[0]);
+       for (int i=0;i<segStride;i++) printf("llr(%d,%d,%d/%zu) %d\n",segs->rv_index,r,i,segStride,llr_local[i]);
      }
 #endif
   }
 
 #else // USE_GPU_FOR_RM_DEINTER
+  const int Kc = segs->BG == 2 ? 52 : 68;
+  const int segLen = Kc * Z; // int16 length; after packing we store int8 [segLen]
   int16_t *z_local = (int16_t *)alloca(sizeof(int16_t) * segLen); // segLen is safe small
   for (int r = 0; r < C; ++r) {
     // deinterleave
