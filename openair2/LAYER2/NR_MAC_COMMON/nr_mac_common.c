@@ -1964,6 +1964,12 @@ static const uint16_t Table_51313[32][2] = {{2, 300},  {2, 400},  {2, 500},  {2,
                                             {4, 3780}, {4, 4340}, {4, 4900}, {4, 5530}, {4, 6160}, {6, 4380}, {6, 4660}, {6, 5170},
                                             {6, 5670}, {6, 6160}, {6, 6660}, {6, 7190}, {6, 7720}, {2, 0}, {4, 0}, {6, 0}};
 
+// Table 5.1.3.1-4 of 38.214
+static const uint16_t Table_51314[32][2] = {
+    {2, 1200}, {2, 1930},  {2, 4490},  {4, 3780},  {4, 4900},  {4, 6160}, {6, 4660}, {6, 5170}, {6, 5670}, {6, 6160}, {6, 6660},
+    {6, 7190}, {6, 7720},  {6, 8220},  {6, 8730},  {8, 6825},  {8, 7110}, {8, 7540}, {8, 7970}, {8, 8410}, {8, 8850}, {8, 9165},
+    {8, 9480}, {10, 8055}, {10, 8530}, {10, 9005}, {10, 9480}, {2, 0},    {4, 0},    {6, 0},    {8, 0},    {10, 0}};
+
 static const uint16_t Table_61411[32][2] = {{2, 1200}, {2, 1570}, {2, 1930}, {2, 2510}, {2, 3080}, {2, 3790}, {2, 4490},
                                             {2, 5260}, {2, 6020}, {2, 6790}, {4, 3400}, {4, 3780}, {4, 4340}, {4, 4900},
                                             {4, 5530}, {4, 6160}, {4, 6580}, {6, 4660}, {6, 5170}, {6, 5670}, {6, 6160},
@@ -2002,8 +2008,16 @@ uint8_t nr_get_Qm_dl(uint8_t Imcs, uint8_t table_idx) {
       return (Table_51313[Imcs][0]);
     break;
 
+    case 3:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 3 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_51314[Imcs][0]);
+      break;
+
     default:
-      LOG_E(MAC, "Invalid MCS table index %d (expected in range [0,2])\n", table_idx);
+      LOG_E(MAC, "Invalid MCS table index %d (expected in range [0,3])\n", table_idx);
       return 0;
   }
 }
@@ -2034,8 +2048,16 @@ uint32_t nr_get_code_rate_dl(uint8_t Imcs, uint8_t table_idx) {
       return (Table_51313[Imcs][1]);
     break;
 
+    case 3:
+      if (Imcs > 31) {
+        LOG_E(MAC, "Invalid MCS index %d for MCS table 3 (expected range [0,31])\n", Imcs);
+        return 0;
+      }
+      return (Table_51314[Imcs][1]);
+      break;
+
     default:
-      LOG_E(MAC, "Invalid MCS table index %d (expected in range [0,2])\n", table_idx);
+      LOG_E(MAC, "Invalid MCS table index %d (expected in range [0,3])\n", table_idx);
       return 0;
   }
 }
@@ -2274,24 +2296,17 @@ int32_t get_l_prime(uint8_t duration_in_symbols,
 *
 * NAME :         get_L_ptrs
 *
-* PARAMETERS :   mcs(i)                 higher layer parameter in PTRS-UplinkConfig
-*                I_mcs                  MCS index used for PUSCH
-*                mcs_table              0 for table 5.1.3.1-1, 1 for table 5.1.3.1-1
+* PARAMETERS :   mcs(i)                 ptrs-MCS1..3 of PTRS-DownlinkConfig or PTRS-UplinkConfig
+*                mcs4                   ptrs-MCS4, not configured: depends on the MCS table
+*                I_mcs                  MCS index used for PDSCH or PUSCH
 *
 * RETURN :       the parameter L_ptrs
 *
-* DESCRIPTION :  3GPP TS 38.214 section 6.2.3.1
+* DESCRIPTION :  3GPP TS 38.214 sections 5.1.6.3 and 6.2.3.1
 *
 *********************************************************************/
 
-uint8_t get_L_ptrs(uint8_t mcs1, uint8_t mcs2, uint8_t mcs3, uint8_t I_mcs, uint8_t mcs_table) {
-
-  uint8_t mcs4;
-
-  if(mcs_table == 0)
-    mcs4 = 29;
-  else
-    mcs4 = 28;
+uint8_t get_L_ptrs(uint8_t mcs1, uint8_t mcs2, uint8_t mcs3, uint8_t mcs4, uint8_t I_mcs) {
 
   if (I_mcs < mcs1) {
     LOG_D(PHY, "PUSH PT-RS is not present.\n");
@@ -3485,12 +3500,16 @@ int16_t fill_dmrs_mask(const NR_PDSCH_Config_t *pdsch_Config,
   return l_prime;
 }
 
-uint8_t get_pdsch_mcs_table(long *mcs_Table, int dci_format, int rnti_type, int ss_type)
+uint8_t get_pdsch_mcs_table(long *mcs_Table, long *mcs_Table_r17, int dci_format, int rnti_type, int ss_type)
 {
 
   // Set downlink MCS table (Semi-persistent scheduling ignored for now)
   uint8_t mcsTableIdx = 0; // default value
-  if (mcs_Table && *mcs_Table == NR_PDSCH_Config__mcs_Table_qam256 && dci_format == NR_DL_DCI_FORMAT_1_1 && rnti_type == TYPE_C_RNTI_)
+  if (mcs_Table_r17 && *mcs_Table_r17 == NR_PDSCH_Config__ext3__mcs_Table_r17_qam1024 && dci_format == NR_DL_DCI_FORMAT_1_1
+      && rnti_type == TYPE_C_RNTI_)
+    mcsTableIdx = 3;
+  else if (mcs_Table && *mcs_Table == NR_PDSCH_Config__mcs_Table_qam256 && dci_format == NR_DL_DCI_FORMAT_1_1
+           && rnti_type == TYPE_C_RNTI_)
     mcsTableIdx = 1;
   else if (rnti_type != TYPE_MCS_C_RNTI_ && mcs_Table && *mcs_Table == NR_PDSCH_Config__mcs_Table_qam64LowSE
            && ss_type == NR_SearchSpace__searchSpaceType_PR_ue_Specific)
@@ -3564,11 +3583,13 @@ bool set_dl_ptrs_values(NR_PTRS_DownlinkConfig_t *ptrs_config,
        *L_ptrs = 1;
   }
   else {
+    // ptrs-MCS4 (TS 38.214 5.1.6.3): 29 for Tables 5.1.3.1-1 and 5.1.3.1-3, 28 for 5.1.3.1-2, 27 for 5.1.3.1-4
+    const uint8_t mcs4 = mcsTable == 1 ? 28 : mcsTable == 3 ? 27 : 29;
     *L_ptrs = get_L_ptrs(*ptrs_config->timeDensity->list.array[0],
                          *ptrs_config->timeDensity->list.array[1],
                          *ptrs_config->timeDensity->list.array[2],
-                         mcsIndex,
-                         mcsTable);
+                         mcs4,
+                         mcsIndex);
   }
   *nERatio = *ptrs_config->epre_Ratio;
   *reOffset = *ptrs_config->resourceElementOffset;
@@ -4429,11 +4450,12 @@ bool set_ul_ptrs_values(NR_PTRS_UplinkConfig_t *ul_ptrs_config,
     *L_ptrs = 0;
   }
   else {
+    const uint8_t mcs4 = mcsTable == 0 ? 29 : 28; // ptrs-MCS4 (TS 38.214 6.2.3.1)
     *L_ptrs = get_L_ptrs(*ul_ptrs_config->transformPrecoderDisabled->timeDensity->list.array[0],
                          *ul_ptrs_config->transformPrecoderDisabled->timeDensity->list.array[1],
                          *ul_ptrs_config->transformPrecoderDisabled->timeDensity->list.array[2],
-                         mcsIndex,
-                         mcsTable);
+                         mcs4,
+                         mcsIndex);
   }
   
   *reOffset  = *ul_ptrs_config->transformPrecoderDisabled->resourceElementOffset;

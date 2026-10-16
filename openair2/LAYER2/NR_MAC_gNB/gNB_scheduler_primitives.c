@@ -286,7 +286,7 @@ uint8_t get_mcs_from_cqi(int mcs_table, int cqi_table, int cqi_idx)
     default:
       AssertFatal(1==0,"Invalid cqi table index %d\n",cqi_table);
   }
-  const int max_mcs = mcs_table == 1 ? 27 : 28;
+  const int max_mcs = mcs_table == 1 ? 27 : mcs_table == 3 ? 26 : 28;
   for (int i = 0; i <= max_mcs; i++) {
     const int R = nr_get_code_rate_dl(i, mcs_table);
     const int Qm = nr_get_Qm_dl(i, mcs_table);
@@ -3133,7 +3133,8 @@ void configure_UE_BWP(nr_cell_sched_t *cell,
 
   // Set MCS tables
   long *dl_mcs_Table = DL_BWP->pdsch_Config ? DL_BWP->pdsch_Config->mcs_Table : NULL;
-  DL_BWP->mcsTableIdx = get_pdsch_mcs_table(dl_mcs_Table, DL_BWP->dci_format, TYPE_C_RNTI_, target_ss);
+  long *dl_mcs_Table_r17 = DL_BWP->pdsch_Config && DL_BWP->pdsch_Config->ext3 ? DL_BWP->pdsch_Config->ext3->mcs_Table_r17 : NULL;
+  DL_BWP->mcsTableIdx = get_pdsch_mcs_table(dl_mcs_Table, dl_mcs_Table_r17, DL_BWP->dci_format, TYPE_C_RNTI_, target_ss);
 
   // 0 precoding enabled 1 precoding disabled
   UL_BWP->transform_precoding = get_transformPrecoding(UL_BWP, UL_BWP->dci_format, 0);
