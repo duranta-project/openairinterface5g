@@ -466,7 +466,7 @@ static int collect_dl_candidates(nr_cell_sched_t *cell,
     int harq_pid = sched_ctrl->retrans_dl_harq.head;
     const NR_bler_options_t *bo = &cell->dl_bler;
     bwp_info_t bwp_info = get_pdsch_bwp_start_size(cell, UE);
-    const int max_mcs_table = current_BWP->mcsTableIdx == 1 ? 27 : 28;
+    const int max_mcs_table = current_BWP->mcsTableIdx == 1 ? 27 : current_BWP->mcsTableIdx == 3 ? 26 : 28;
     const int max_mcs = min(sched_ctrl->dl_max_mcs, min(max_mcs_table, bo->max_mcs));
 
     /* QoS / slice info — extract from first DRB for external policies */
@@ -984,7 +984,8 @@ nfapi_nr_dl_tti_pdsch_pdu_rel15_t *prepare_pdsch_pdu(nfapi_nr_dl_tti_request_pdu
       pdsch_pdu->pduBitmap |= 0x1; // Bit 0: pdschPtrs - Indicates PTRS included (FR2)
   }
   int dl_bw_tbslbrm = UE ? UE->sc_info.dl_bw_tbslbrm : sched_pdsch->bwp_info.bwpSize;
-  pdsch_pdu->maintenance_parms_v3.tbSizeLbrmBytes = nr_compute_tbslbrm(pdsch_pdu->mcsTable[0], dl_bw_tbslbrm, nl_tbslbrm);
+  pdsch_pdu->maintenance_parms_v3.tbSizeLbrmBytes =
+      nr_compute_tbslbrm(nr_get_max_Qm_dl(pdsch_pdu->mcsTable[0]), dl_bw_tbslbrm, nl_tbslbrm);
   pdsch_pdu->maintenance_parms_v3.ldpcBaseGraph = get_BG(sched_pdsch->tb_size << 3, sched_pdsch->R);
   // MU-MIMO port mapping info
   pdsch_pdu->param_v4.numberCodewords = pdsch_pdu->NrOfCodewords;
