@@ -951,6 +951,49 @@ static void nr_rx_ra_sdu_rx(const module_id_t mod_id,
   return;
 }
 
+/* How many slots past the scheduled PUSCH slot before we declare the
+ * feedback truly lost. Two frames at μ=1 is generous enough to cover
+ * normal K2 offsets and any reasonable out-of-order delivery delay. */
+#define NR_UL_HARQ_STALE_SLOTS 40
+
+static void nr_ul_harq_cleanup_stale(const gNB_MAC_INST *mac, NR_UE_info_t *UE,
+                                     frame_t frame, slot_t slot)
+{
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  const int slots_per_frame = mac->frame_structure.numb_slots_frame;
+  const int max_abs_slot = MAX_FRAME_NUMBER * slots_per_frame;
+  const int abs_slot = frame * slots_per_frame + slot;
+
+  int harq_pid = sched_ctrl->feedback_ul_harq.head;
+  while (harq_pid >= 0) {
+    NR_UE_ul_harq_t *harq = &sched_ctrl->ul_harq_processes[harq_pid];
+    int expected = harq->feedback_frame * slots_per_frame + harq->feedback_slot;
+    int delta = abs_slot - expected;
+    if (delta < 0)
+      delta += max_abs_slot;
+    if (delta < NR_UL_HARQ_STALE_SLOTS)
+      break; /* head is still fresh; list is FIFO so rest is too */
+    LOG_W(NR_MAC,
+          "%4d.%2d UE 0x%04x: HARQ PID %d feedback lost (grant %d.%d), freeing\n",
+          frame,
+          slot,
+          UE->rnti,
+          harq_pid,
+          harq->feedback_frame,
+          harq->feedback_slot);
+    remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
+    harq->is_waiting = false;
+    harq->feedback_slot = -1;
+    if (harq->round >= mac->ul_bler.harq_round_max - 1)
+      abort_nr_ul_harq(UE, harq_pid);
+    else {
+      harq->round++;
+      add_tail_nr_list(&sched_ctrl->retrans_ul_harq, harq_pid);
+    }
+    harq_pid = sched_ctrl->feedback_ul_harq.head;
+  }
+}
+
 static void _nr_rx_sdu_crc(const module_id_t gnb_mod_idP,
                            const int CC_idP,
                            const frame_t frameP,
@@ -1064,6 +1107,7 @@ static void _nr_rx_sdu_rx(const module_id_t gnb_mod_idP,
       T_BUFFER(rx->pdu, rx->pdu_length));
 
   UE->mac_stats.ul.total_bytes += rx->pdu_length;
+  nr_ul_harq_cleanup_stale(gNB_mac, UE, frameP, slotP);
   handle_nr_ul_harq(gNB_mac, UE, frameP, slotP, UE->rnti, rx->harq_id, !crc_ok);
 }
 
@@ -2487,7 +2531,8 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac, post_process_pusch_t *pusch, NR_UE
     finish_nr_ul_harq(sched_ctrl, harq_id);
   } else {
     add_tail_nr_list(&sched_ctrl->feedback_ul_harq, harq_id);
-    cur_harq->feedback_slot = sched_pusch->slot;
+    cur_harq->feedback_frame = pusch->frame;
+    cur_harq->feedback_slot = pusch->slot;
     cur_harq->is_waiting = true;
   }
 
