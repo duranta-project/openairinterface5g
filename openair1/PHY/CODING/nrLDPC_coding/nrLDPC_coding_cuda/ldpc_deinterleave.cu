@@ -105,7 +105,11 @@ __global__ void deinterleave_i16_8(int16_t* __restrict__ e,
 }
 
 // Qm = 10 (1024QAM, TS 38.212 5.4.2.2): bit j of each 10-bit group goes to row j of the E/10 x 10 matrix
-__global__ void deinterleave_i16_10(int16_t* e, const int16_t* f, const int E1, const int E2, const int r_firstE2)
+__global__ void deinterleave_i16_10(int16_t* __restrict__ e,
+                                    const int16_t* __restrict__ f,
+                                    const int E1,
+                                    const int E2,
+                                    const int r_firstE2)
 {
   int g = (int)(blockIdx.x * blockDim.x + threadIdx.x);
   int r = (int)blockIdx.y;
@@ -115,11 +119,15 @@ __global__ void deinterleave_i16_10(int16_t* e, const int16_t* f, const int E1, 
     return;
   int r_off = r < r_firstE2 ? r * E1 : (r_firstE2 * E1) + (r - r_firstE2) * E2;
 
-  const int16_t* in = (f + r_off + 10 * g);
+  // E is a multiple of 10, so the 10 LLRs of a group are 4-byte aligned: read them as 5 words
+  const uint32_t* __restrict__ in = (const uint32_t*)(f + r_off + 10 * g);
   int16_t* e0 = e + r_off;
 #pragma unroll
-  for (int j = 0; j < 10; j++)
-    e0[j * EQm + g] = in[j];
+  for (int j = 0; j < 5; j++) {
+    const uint32_t w = in[j];
+    e0[2 * j * EQm + g] = (int16_t)(w & 0xffff);
+    e0[(2 * j + 1) * EQm + g] = (int16_t)(w >> 16);
+  }
 }
 
 // Host launcher
