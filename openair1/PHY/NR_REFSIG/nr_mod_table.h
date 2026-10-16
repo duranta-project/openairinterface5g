@@ -16,4 +16,6 @@ extern int64_t nr_16qam_byte_mod_table[256];
 extern int64_t nr_64qam_mod_table[4096];
 
 extern int32_t nr_256qam_mod_table[256];
+
+extern int32_t nr_1024qam_mod_table[1024];
 #endif
