@@ -4,6 +4,7 @@
 
 #include <string.h>
 #include <math.h>
+#include <inttypes.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -49,6 +50,26 @@ nrUE_params_t *get_nrUE_params(void) {
   return &nrUE_params;
 }
 
+static const char *sync_failure_name(nr_sync_failure_t failure_reason)
+{
+  switch (failure_reason) {
+    case NR_SYNC_FAILURE_NONE:
+      return "none";
+    case NR_SYNC_FAILURE_PSS:
+      return "pss";
+    case NR_SYNC_FAILURE_SSB_BOUNDARY:
+      return "ssb_boundary";
+    case NR_SYNC_FAILURE_SSS:
+      return "sss";
+    case NR_SYNC_FAILURE_EXCLUDED_PCI:
+      return "excluded_pci";
+    case NR_SYNC_FAILURE_PBCH:
+      return "pbch";
+    default:
+      return "unknown";
+  }
+}
+
 void init_downlink_harq_status(NR_DL_UE_HARQ_t *dl_harq) {}
 NR_IF_Module_t *NR_IF_Module_init(int Mod_id)
 {
@@ -89,7 +110,7 @@ int main(int argc, char **argv)
   int ssb_subcarrier_offset = 0;
   int ssb_scan_threads = 0;
   channel_desc_t *gNB2UE;
-  FILE *input_fd=NULL,*pbch_file_fd=NULL;
+  FILE *input_fd=NULL,*pbch_file_fd=NULL,*trace_fd=NULL;
   SCM_t channel_model=AWGN;//Rayleigh1_anticorr;
   int N_RB_DL=273,mu=1;
   unsigned char pbch_phase = 0;
@@ -108,8 +129,9 @@ int main(int argc, char **argv)
     return -1;
   }
 
+  int enable_pss_cfo_search = 0;
   int c;
-  while ((c = getopt(argc, argv, "--:O:c:F:g:hIL:m:M:n:N:o:P:R:s:S:x:y:z:")) != -1) {
+  while ((c = getopt(argc, argv, "--:O:c:F:g:hIL:m:M:n:N:o:P:QR:s:S:T:x:y:z:")) != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
     if (c == 1 || c == '-' || c == 'O')
@@ -204,6 +226,10 @@ int main(int argc, char **argv)
         printf("Illegal PBCH phase (0-3) got %d\n",pbch_phase);
       break;
 
+    case 'Q':
+      enable_pss_cfo_search = 1;
+      break;
+
     case 'R':
       N_RB_DL = atoi(optarg);
       break;
@@ -223,6 +249,13 @@ int main(int argc, char **argv)
 #endif
       break;
 
+    case 'T':
+      trace_fd = fopen(optarg, "w");
+      if (trace_fd == NULL) {
+        printf("Problem opening trace file %s. Exiting.\n", optarg);
+        exit(-1);
+      }
+      break;
     case 'x':
       transmission_mode=atoi(optarg);
 
@@ -269,15 +302,33 @@ int main(int argc, char **argv)
       printf("-N Nid_cell\n");
       printf("-o Carrier frequency offset in Hz\n");
       printf("-P PBCH phase, allowed values 0-3\n");
+      printf("-Q Enable the experimental CFO-PSS Stage 1 detector\n");
       printf("-R N_RB_DL\n");
       printf("-s Starting SNR, runs from SNR0 to SNR0 + 10 dB if not -S given. If -n 1, then just SNR is simulated\n");
       printf("-S Ending SNR, runs from SNR0 to SNR1\n");
+      printf("-T Write structured initial-sync diagnostics to the specified CSV file\n");
       printf("-x Transmission mode (1,2,6 for the moment)\n");
       printf("-y Number of TX antennas used in eNB\n");
       printf("-z Number of RX antennas used in UE\n");
       exit (-1);
       break;
     }
+  }
+
+  if (trace_fd != NULL) {
+    if (!run_initial_sync) {
+      printf("The -T trace option requires -I initial sync mode. Exiting.\n");
+      exit(-1);
+    }
+    fprintf(trace_fd,
+            "trial,snr_db,cfo_injected_hz,cell_detected,failure_code,failure_stage,"
+            "pss_success,pss_nid2,pss_position,pss_peak_db,pss_avg_db,pss_peak_raw,pss_avg_raw,"
+            "pss_second_sequence_peak_raw,pss_cfo_search,pss_cfo_coarse_hz,pss_cfo_fine_hz,"
+            "pss_second_timing_peak_raw,pss_cfo_coarse_bins,pss_cfo_fine_bins,pss_cfo_diagnostic_passes,"
+            "pss_freq_offset_hz,sss_success,sss_nid_cell,sss_metric,"
+            "sss_second_metric,sss_phase,sss_freq_offset_hz,pbch_attempted,pbch_success,"
+            "pbch_dmrs_best_metric,pbch_dmrs_second_metric,pbch_decode_attempts,"
+            "initial_freq_offset_hz,total_freq_offset_hz,rng_seed,pci_tx\n");
   }
 
   randominit();
@@ -368,6 +419,8 @@ int main(int argc, char **argv)
   //configure UE
   PHY_VARS_NR_UE *UE = malloc16_clear(sizeof(*UE));
   memcpy(&UE->frame_parms,frame_parms,sizeof(UE->frame_parms));
+  // Initial acquisition is blind: search all three PSS sequences, as nr-uesoftmodem does.
+  UE->target_Nid_cell = -1;
   if (run_initial_sync==1)  UE->is_synchronized = 0;
   else                      UE->is_synchronized = 1;
                       
@@ -377,6 +430,16 @@ int main(int argc, char **argv)
   if (init_nr_ue_signal(UE, 1) != 0) {
     printf("Error at UE NR initialisation\n");
     exit(-1);
+  }
+  if (enable_pss_cfo_search) {
+    UE->UE_fo_compensation = 1;
+    UE->pss_cfo_search = (nr_pss_cfo_search_config_t){
+        .enabled = true,
+        .coarse_span_hz = NR_PSS_CFO_SEARCH_DEFAULT_COARSE_SPAN_HZ,
+        .coarse_step_hz = NR_PSS_CFO_SEARCH_DEFAULT_COARSE_STEP_HZ,
+        .fine_span_hz = NR_PSS_CFO_SEARCH_DEFAULT_FINE_SPAN_HZ,
+        .fine_step_hz = NR_PSS_CFO_SEARCH_DEFAULT_FINE_STEP_HZ,
+    };
   }
 
   // generate signal
@@ -525,6 +588,49 @@ int main(int argc, char **argv)
         gscnInfo[0].ssbFirstSC = frame_parms->ssb_start_subcarrier;
         nr_initial_sync_t ret = nr_initial_sync(&proc, UE, frame_length_complex_samples, rxdata, gscnInfo, numGscn);
         printf("nr_initial_sync1 returns %s\n", ret.cell_detected ? "cell detected" : "cell not detected");
+        if (trace_fd != NULL) {
+          fprintf(trace_fd,
+                  "%d,%.1f,%.0f,%d,%d,%s,%d,%d,%d,%d,%d,%" PRIu64 ",%" PRIu64 ",%" PRIu64
+                  ",%d,%d,%d,%" PRIu64 ",%d,%d,%d"
+                  ",%d,%d,%d,%d,%d,%d,%d,%d,%d,%" PRIu64 ",%" PRIu64 ",%d,%d,%d,%s,%u\n",
+                  trial,
+                  SNR,
+                  cfo,
+                  ret.cell_detected,
+                  ret.trace.failure_reason,
+                  sync_failure_name(ret.trace.failure_reason),
+                  ret.trace.pss_success,
+                  ret.trace.pss_nid2,
+                  ret.trace.pss_position,
+                  ret.trace.pss_peak_db,
+                  ret.trace.pss_avg_db,
+                  ret.trace.pss_peak_raw,
+                  ret.trace.pss_avg_raw,
+                  ret.trace.pss_second_sequence_peak_raw,
+                  ret.trace.pss_cfo_search_used,
+                  ret.trace.pss_cfo_coarse_hz,
+                  ret.trace.pss_cfo_fine_hz,
+                  ret.trace.pss_second_timing_peak_raw,
+                  ret.trace.pss_cfo_coarse_bins,
+                  ret.trace.pss_cfo_fine_bins,
+                  ret.trace.pss_cfo_diagnostic_passes,
+                  ret.trace.pss_freq_offset,
+                  ret.trace.sss_success,
+                  ret.trace.sss_nid_cell,
+                  ret.trace.sss_metric,
+                  ret.trace.sss_second_metric,
+                  ret.trace.sss_phase,
+                  ret.trace.sss_freq_offset,
+                  ret.trace.pbch_attempted,
+                  ret.trace.pbch_success,
+                  ret.trace.pbch_dmrs_best_metric,
+                  ret.trace.pbch_dmrs_second_metric,
+                  ret.trace.pbch_decode_attempts,
+                  ret.trace.initial_freq_offset,
+                  ret.trace.total_freq_offset,
+                  getenv("OAI_RNGSEED") != NULL ? getenv("OAI_RNGSEED") : "",
+                  Nid_cell);
+        }
         if (!ret.cell_detected)
           n_errors++;
       }
@@ -651,6 +757,9 @@ int main(int argc, char **argv)
 
   if (input_fd)
     fclose(input_fd);
+
+  if (trace_fd)
+    fclose(trace_fd);
 
   loader_reset();
   logTerm();
