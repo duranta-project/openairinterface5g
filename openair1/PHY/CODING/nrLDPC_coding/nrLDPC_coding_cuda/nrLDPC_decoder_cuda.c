@@ -665,7 +665,7 @@ _Static_assert(LDPC_CUDA_MAX_CTX <= 8, "a context uses one of the 8 decoderStrea
 // the CRC kernel's 8-byte loads of the posterior LLRs (code block r at r * NR_LDPC_MAX_NUM_LLR) must be aligned
 _Static_assert(NR_LDPC_MAX_NUM_LLR % 8 == 0, "unaligned code blocks in llrRes");
 // ldpc_cuda_et_state_t is shared with the .cu files, which use the fallback value of nrLDPC_CUDA_shared_param.h
-_Static_assert(MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER == 36, "nrLDPC_CUDA_shared_param.h fallback out of date");
+_Static_assert(MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER == 47, "nrLDPC_CUDA_shared_param.h fallback out of date");
 
 static ldpc_cuda_ctx_t ldpc_ctx[LDPC_CUDA_MAX_CTX];
 static int ldpc_n_ctx = 0;
@@ -678,7 +678,7 @@ static const uint32_t ldpc_et_crc_deg[3] = {24, 24, 16};
 static const uint32_t ldpc_et_crc_low[3] = {0x864cfb, 0x800063, 0x1021};
 // buckets of the number of code blocks a graph is recorded for: at most 1/3 padding above 4
 static const uint8_t ldpc_et_buckets[] =
-    {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4};
+    {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 168, MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4};
 
 static void ldpc_et_recorder_start(void);
 static void ldpc_et_recorder_stop(void);
