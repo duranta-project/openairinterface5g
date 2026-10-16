@@ -43,6 +43,9 @@ void nr_layer_demapping(uint8_t Nl, uint8_t mod_order, int nb_re, int16_t **llr_
     case 8:
       layer_demapping(Nl, nb_re, llr_layers, llr_out, 8);
       break;
+    case 10:
+      layer_demapping(Nl, nb_re, llr_layers, llr_out, 10);
+      break;
     default:
       AssertFatal(0, "Unknown mod_order %d\n", mod_order);
   }
