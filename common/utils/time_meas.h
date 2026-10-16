@@ -358,10 +358,4 @@ time_stats_t *register_meas(char *name);
 void send_meas(time_stats_t *ts, int msgid);
 void end_meas(void);
 
-#define timeIt(a)                                           \
-  {                                                         \
-    uint64_t deb = clock_gettime_oai();                             \
-    a;                                                      \
-    LOG_W(UTIL, #a ": %llu\n", (clock_gettime_oai() - deb) / 3000); \
-  }
 #endif
