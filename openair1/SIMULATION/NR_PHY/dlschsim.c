@@ -111,7 +111,6 @@ int main(int argc, char **argv)
   uint8_t mcs_table = 0;
   double DS_TDL = .03;
   char gNBthreads[128]="n";
-  int Tbslbrm = 950984;
 
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == 0) {
     exit_fun("[NR_DLSCHSIM] Error, configuration module init failed\n");
@@ -121,7 +120,7 @@ int main(int argc, char **argv)
   randominit();
 
   int c;
-  while ((c = getopt(argc, argv, "--:O:df:hpg:i:j:n:l:m:r:s:S:y:z:M:N:F:R:P:L:X:")) != -1) {
+  while ((c = getopt(argc, argv, "--:O:df:hpg:i:j:n:l:m:q:r:s:S:y:z:M:N:F:R:P:L:X:")) != -1) {
 
     /* ignore long options starting with '--' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
@@ -278,6 +277,10 @@ int main(int argc, char **argv)
 			nb_symb_sch = atoi(optarg);
 			break;
 
+    case 'q':
+      mcs_table = atoi(optarg);
+      break;
+
 		case 'r':
 			nb_rb = atoi(optarg);
 			break;
@@ -307,6 +310,7 @@ int main(int argc, char **argv)
                         printf("-M Multiple SSB positions in burst\n");
 			printf("-N Nid_cell\n");
 			printf("-R N_RB_DL\n");
+      printf("-q MCS Table index (0: 64QAM, 1: 256QAM, 2: 64QAM low SE, 3: 1024QAM)\n");
 			printf("-O oversampling factor (1,2,4,8,16)\n");
 			printf("-A Interpolation_filname Run with Abstraction to generate Scatter plot using interpolation polynomial in file\n");
 			//printf("-C Generate Calibration information for Abstraction (effective SNR adjustment to remove Pe bias w.r.t. AWGN)\n");
@@ -429,6 +433,8 @@ int main(int argc, char **argv)
 	TBS = nr_compute_tbs(mod_order,rate, nb_rb, nb_symb_sch, nb_re_dmrs*length_dmrs, 0, 0, Nl);
 	printf("available bits %u TBS %u mod_order %d\n", available_bits, TBS, mod_order);
 	//dlsch->harq_ids[subframe]= 0;
+  // largest limited buffer: 273 PRBs, 4 layers, highest modulation order of the MCS table
+  const uint32_t Tbslbrm = nr_compute_tbslbrm(nr_get_max_Qm_dl(mcs_table), 273, 4);
   nfapi_nr_dl_tti_pdsch_pdu pdsch_pdu = {
       .pdsch_pdu_rel15 = {
         .rbSize = nb_rb,
@@ -447,19 +453,21 @@ int main(int argc, char **argv)
       },
   };
   dlsch->pdsch_pdu = &pdsch_pdu;
-	double modulated_input[16 * 68 * 384]; // [hna] 16 segments, 68*Zc
-	short channel_output_fixed[16 * 68 * 384];
+  // sized for the scheduled TB: up to a 1024QAM TB over 273 PRBs, too large for the stack
+  double *modulated_input = calloc_or_fail(available_bits, sizeof(*modulated_input));
+  short *channel_output_fixed = calloc_or_fail(available_bits, sizeof(*channel_output_fixed));
 	//unsigned char *estimated_output;
 	unsigned int errors_bit = 0;
-	unsigned char test_input_bit[16 * 68 * 384];
-	//estimated_output = (unsigned char *) malloc16(sizeof(unsigned char) * 16 * 68 * 384);
-	unsigned char estimated_output_bit[16 * 68 * 384];
+  unsigned char *test_input_bit = calloc_or_fail(TBS, sizeof(*test_input_bit));
+  unsigned char *estimated_output_bit = calloc_or_fail(TBS, sizeof(*estimated_output_bit));
 	NR_UE_DLSCH_t *dlsch0_ue = &dlsch_ue[0];
   NR_DL_UE_HARQ_t *harq_process = &UE->dl_harq_processes[0][harq_pid];
   harq_process->first_rx = 1;
   harq_process->activated_frame = proc.frame_rx;
   harq_process->activated_slot = proc.nr_slot_rx;
-  fapi_nr_dl_config_dlsch_pdu_rel15_t dlsch_config;
+  fapi_nr_dl_config_dlsch_pdu_rel15_t dlsch_config = {0};
+  dlsch_config.harq_process_nbr = harq_pid;
+  dlsch_config.number_symbols = nb_symb_sch;
   dlsch_config.cw_info[0].mcs = Imcs;
   dlsch_config.mcs_table = mcs_table;
   dlsch_config.number_rbs = nb_rb;
@@ -500,6 +508,8 @@ int main(int argc, char **argv)
 	for (SNR = snr0; SNR < snr1 && !stop; SNR += snr_step) {
 		n_errors = 0;
 		n_false_positive = 0;
+    SNR_lin = pow(10, SNR / 10.0);
+    sigma = 1.0 / sqrt(2 * SNR_lin);
 
 		for (trial = 0; trial < n_trials && !stop; trial++) {
 			for (i = 0; i < available_bits; i++) {
@@ -518,8 +528,6 @@ int main(int argc, char **argv)
 
 				//if (i<16) printf("modulated_input[%d] = %f (%d)\n",i,modulated_input[i],output[i]);
 				//SNR =10;
-				SNR_lin = pow(10, SNR / 10.0);
-				sigma = 1.0 / sqrt(2 * SNR_lin);
 				channel_output_fixed[i] = (short) quantize(sigma / 4.0 / 4.0,
 						modulated_input[i] + sigma * gaussdouble(0.0, 1.0),
 						qbits);
@@ -616,6 +624,10 @@ int main(int argc, char **argv)
 		free(txdata[i]);
 	}
 
+  free(modulated_input);
+  free(channel_output_fixed);
+  free(test_input_bit);
+  free(estimated_output_bit);
 	free(s_re);
 	free(s_im);
 	free(r_re);
