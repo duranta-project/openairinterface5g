@@ -12,7 +12,7 @@
 #include "PHY/gpu_compat.h"
 
 #ifndef MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER
-#define MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER 36
+#define MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER 47
 #endif
 
 #ifdef __cplusplus
