@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
 pkg_check_modules(OpenSSL openssl REQUIRED)
 add_library(SECURITY
   secu_defs.c
