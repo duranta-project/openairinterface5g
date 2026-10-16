@@ -213,6 +213,7 @@ typedef struct nr_mac_config_s {
   int do_TCI;
   int max_num_rsrp;
   bool force_256qam_off;
+  bool enable_1024qam;
   bool force_UL256qam_off;
   bool use_deltaMCS;
   int maxMIMO_layers;
@@ -1234,7 +1235,7 @@ typedef struct {
 
 /* Dimensions of the per-cell MCS distribution histograms (3GPP TS 28.552 §5.1.1.12). */
 #define NR_KPM_MAX_LAYERS       8  /* RI: 1..8                  */
-#define NR_KPM_NB_MCS_TABLE_DL  3  /* PDSCH MCS tables: 1..3    */
+#define NR_KPM_NB_MCS_TABLE_DL  4  /* PDSCH MCS tables: 1..4    */
 #define NR_KPM_NB_MCS_TABLE_UL  4  /* PUSCH MCS tables: 0, 1, 3  */
 #define NR_KPM_NB_MCS           32 /* MCS index: 0..31          */
 
