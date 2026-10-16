@@ -103,6 +103,18 @@ const char nr_W_4l_4p[5][4][4] = {
     {{'1', '1', '1', '1'}, {'1', 'n', '1', 'n'}, {'j', 'j', 'o', 'o'}, {'j', 'o', 'o', 'j'}} // pmi 4
 };
 
+static inline uint64_t get_packed_bits(const uint8_t *in_bytes, uint32_t length, uint32_t bit_offset, uint8_t width)
+{
+  const uint32_t byte_offset = bit_offset >> 3;
+  const uint32_t bit_shift = bit_offset & 0x7;
+  const uint32_t num_bytes = (length + 7) >> 3;
+  const uint32_t bytes_needed = (bit_shift + width + 7) >> 3;
+  uint64_t packed = 0;
+  for (uint32_t i = 0; i < bytes_needed && byte_offset + i < num_bytes; i++)
+    packed |= (uint64_t)in_bytes[byte_offset + i] << (i << 3);
+  return (packed >> bit_shift) & ((UINT64_C(1) << width) - 1);
+}
+
 void nr_modulation(const uint32_t *in, uint32_t length, uint16_t mod_order, int16_t *out)
 {
   const uint16_t mask = ((1 << mod_order) - 1);
@@ -211,6 +223,21 @@ void nr_modulation(const uint32_t *in, uint32_t length, uint16_t mod_order, int1
     }
       return;
 
+    case 10: {
+      // 4 symbols per 5 bytes
+      for (; i + 40 <= length; i += 40) {
+        uint64_t x = 0;
+        memcpy(&x, in_bytes + i / 8, 5);
+        *out32++ = nr_1024qam_mod_table[x & 0x3ff];
+        *out32++ = nr_1024qam_mod_table[(x >> 10) & 0x3ff];
+        *out32++ = nr_1024qam_mod_table[(x >> 20) & 0x3ff];
+        *out32++ = nr_1024qam_mod_table[(x >> 30) & 0x3ff];
+      }
+      for (; i < length; i += 10)
+        *out32++ = nr_1024qam_mod_table[get_packed_bits(in_bytes, length, i, 10)];
+    }
+      return;
+
     default:
       break;
   }
@@ -227,18 +254,6 @@ static inline uint8_t get_packed_symbol(const uint8_t *in_bytes, uint32_t length
   if (bit_shift > 8 - mod_order && byte_offset + 1 < num_bytes)
     packed |= (uint16_t)in_bytes[byte_offset + 1] << 8;
   return (packed >> bit_shift) & ((1U << mod_order) - 1);
-}
-
-static inline uint64_t get_packed_bits(const uint8_t *in_bytes, uint32_t length, uint32_t bit_offset, uint8_t width)
-{
-  const uint32_t byte_offset = bit_offset >> 3;
-  const uint32_t bit_shift = bit_offset & 0x7;
-  const uint32_t num_bytes = (length + 7) >> 3;
-  const uint32_t bytes_needed = (bit_shift + width + 7) >> 3;
-  uint64_t packed = 0;
-  for (uint32_t i = 0; i < bytes_needed && byte_offset + i < num_bytes; i++)
-    packed |= (uint64_t)in_bytes[byte_offset + i] << (i << 3);
-  return (packed >> bit_shift) & ((UINT64_C(1) << width) - 1);
 }
 
 bool nr_modulation_layer_mapping(const uint32_t *in,
@@ -355,6 +370,16 @@ bool nr_modulation_layer_mapping(const uint32_t *in,
         for (uint8_t layer = 0; layer < n_layers; layer++) {
           const uint8_t idx = get_packed_symbol(in_bytes, length, mod_order, sym + layer);
           ((int32_t *)tx_layers[layer])[layer_sym] = nr_mod_table[idx];
+        }
+      }
+      return true;
+    }
+
+    case 10: {
+      for (uint32_t sym = 0, layer_sym = 0; sym < n_symbs; sym += n_layers, layer_sym++) {
+        for (uint8_t layer = 0; layer < n_layers; layer++) {
+          const uint16_t idx = get_packed_bits(in_bytes, length, (sym + layer) * mod_order, mod_order);
+          ((int32_t *)tx_layers[layer])[layer_sym] = nr_1024qam_mod_table[idx];
         }
       }
       return true;
