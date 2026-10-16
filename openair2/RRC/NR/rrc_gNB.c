@@ -2925,6 +2925,12 @@ void rrc_remove_ue(gNB_RRC_INST *rrc, rrc_gNB_ue_context_t *ue_context_p)
    * are in E1, we also need to free the UE in the CU-CP, so call it twice to
    * cover all cases */
   nr_pdcp_remove_UE(UE->rrc_ue_id);
+  /* Xn handover source: tell the target to release the UE prepared for this handover */
+  xn_ue_data_t xn_ue;
+  if (xn_get_source_ue(UE->rrc_ue_id, &xn_ue)) {
+    xnap_cause_t cause = {.type = XNAP_CAUSE_RADIO_NETWORK, .value = XNAP_CAUSE_RADIO_NETWORK_LAYER_UNSPECIFIED};
+    rrc_gNB_send_XNAP_HANDOVER_CANCEL(rrc, UE->rrc_ue_id, cause);
+  }
   /* the rrc_ue_id is reused: drop the Xn handover of this UE, if any */
   if (xn_remove_ue(UE->rrc_ue_id))
     LOG_W(NR_RRC, "UE %u: removed during an Xn handover\n", UE->rrc_ue_id);

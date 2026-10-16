@@ -260,6 +260,16 @@ int xn_remove_target_ues_by_assoc(sctp_assoc_t assoc_id, xn_ue_data_t *out, int 
   return n;
 }
 
+bool xn_remove_target_ue_by_source_id(sctp_assoc_t assoc_id, uint32_t s_xnap_id, xn_ue_data_t *out)
+{
+  pthread_mutex_lock(&target.mutex);
+  bool found = table_copy(target_get_by_source_id(assoc_id, s_xnap_id), out);
+  if (found)
+    table_remove(&target, out->t_ng_node_ue_xnap_id);
+  pthread_mutex_unlock(&target.mutex);
+  return found;
+}
+
 /* ------------------------------------------------------------------ */
 /* Both sides                                                         */
 /* ------------------------------------------------------------------ */

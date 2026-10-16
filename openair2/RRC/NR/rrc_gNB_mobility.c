@@ -731,6 +731,15 @@ static void nr_rrc_xn_ho_failure(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
   rrc_gNB_xn_ho_target_abort(rrc, UE, "handover preparation failed at target");
 }
 
+/** @brief This callback is used by the source gNB to inform the target gNB
+ *         about the cancellation of an ongoing Xn handover */
+static void nr_rrc_xn_ho_cancel(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
+{
+  xnap_cause_t cause = {.type = XNAP_CAUSE_RADIO_NETWORK,
+                        .value = XNAP_CAUSE_RADIO_NETWORK_LAYER_FAILURE_IN_THE_RADIO_INTERFACE_PROCEDURE};
+  rrc_gNB_send_XNAP_HANDOVER_CANCEL(rrc, UE->rrc_ue_id, cause);
+}
+
 /** @brief Callback invoked when F1 UE Context Setup is complete during Xn HO:
  *         encode the HandoverCommand and send Handover Request Acknowledge to source. */
 static void nr_rrc_xn_ho_acknowledge(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
@@ -825,6 +834,7 @@ void nr_rrc_trigger_xn_ho(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue, const nr_neighbou
   ue->ho_context->source->cell = source_cell;
   ue->ho_context->source->target_nci = neighbour_config->nrcell_id;
   ue->ho_context->source->ho_status_transfer = rrc_gNB_send_XNAP_SN_STATUS_TRANSFER;
+  ue->ho_context->source->ho_cancel = nr_rrc_xn_ho_cancel;
 
   if (!rrc_gNB_send_XNAP_HANDOVER_REQUEST(rrc, ue, neighbour_config, hoPrepInfo)) {
     LOG_E(NR_RRC, "UE %d: Xn HO failed — could not send HandoverRequest\n", ue->rrc_ue_id);

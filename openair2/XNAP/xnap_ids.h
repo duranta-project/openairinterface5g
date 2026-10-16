@@ -49,6 +49,9 @@ bool xn_get_target_ue(uint32_t rrc_ue_id, xn_ue_data_t *out);
 bool xn_get_target_ue_by_xnap_id(uint32_t t_xnap_id, xn_ue_data_t *out);
 bool xn_remove_target_ue(uint32_t t_xnap_id);
 int xn_remove_target_ues_by_assoc(sctp_assoc_t assoc_id, xn_ue_data_t *out, int max);
+/* Remove the target entry of the handover s_xnap_id from the peer assoc_id (e.g. Handover Cancel),
+ * copying it to out; returns false if there is none */
+bool xn_remove_target_ue_by_source_id(sctp_assoc_t assoc_id, uint32_t s_xnap_id, xn_ue_data_t *out);
 
 /* Remove the source and target entries of rrc_ue_id, e.g. the UE context is removed:
  * a late XnAP message must not reach a new UE reusing the rrc_ue_id.
