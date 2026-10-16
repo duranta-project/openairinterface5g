@@ -203,6 +203,7 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
   // now do the SSS detection based on the precomputed sequences
   int Nid1 = -1;
   int64_t max_metric = 0;
+  int64_t second_metric = 0;
   sss_detection_result_t res = {};
   int64_t base_power = 0;
   for (int i = 0; i < LENGTH_SSS_NR; i++) {
@@ -229,10 +230,12 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
       }
       // if the current metric is better than the last save it
       if (metric > max_metric) {
+        second_metric = max_metric;
         max_metric = metric;
         Nid1 = n1;
         res.phase = idx;
-      }
+      } else if (metric > second_metric)
+        second_metric = metric;
 #ifdef DEBUG_SSS_NR
       LOG_I(PHY,
             "(phase,Nid1) (%.02f,%d), metric  %ld/%ld = %ld, max %ld, phase_max %d \n",
@@ -251,6 +254,9 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
     if (max_metric / base_power >= SSS_METRIC_FLOOR_NR)
       break;
   }
+
+  res.metric = max_metric / base_power;
+  res.second_metric = second_metric / base_power;
 
   if (max_metric / base_power < SSS_METRIC_FLOOR_NR) {
     LOG_D(PHY,
