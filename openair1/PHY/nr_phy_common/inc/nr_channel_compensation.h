@@ -32,7 +32,7 @@
  * @param rho             Tx-correlation matrix [nb_layers][nb_layers][pdsch_buf_size_max], or NULL
  * @param cpe             Common Phase Error to be corrected.
  * @param rho             Tx-correlation matrix [nb_layers][nb_layers][buffer_length], or NULL
- * @param mod_order       Modulation order (2=QPSK, 4=16QAM, 6=64QAM, 8=256QAM)
+ * @param mod_order       Modulation order (2=QPSK, 4=16QAM, 6=64QAM, 8=256QAM, 10=1024QAM)
  * @param symbol          OFDM symbol index (used to compute offset into rxComp rows)
  * @param output_shift    Right-shift applied after each complex multiply
  */

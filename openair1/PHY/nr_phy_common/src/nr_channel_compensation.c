@@ -40,6 +40,10 @@ void nr_channel_compensation(uint32_t buffer_length,
     QAM_ampa_256 = simde_mm256_set1_epi16(QAM256_n1);
     QAM_ampb_256 = simde_mm256_set1_epi16(QAM256_n2);
     QAM_ampc_256 = simde_mm256_set1_epi16(QAM256_n3);
+  } else if (mod_order == 10) {
+    QAM_ampa_256 = simde_mm256_set1_epi16(QAM1024_n1);
+    QAM_ampb_256 = simde_mm256_set1_epi16(QAM1024_n2);
+    QAM_ampc_256 = simde_mm256_set1_epi16(QAM1024_n3);
   }
 
   const simde__m256i cpe256 = simde_mm256_set_epi16(cpe.i,
@@ -145,6 +149,10 @@ void nr_channel_compensation(uint32_t buffer_length,
     QAM_ampa_128 = simde_mm_set1_epi16(QAM256_n1);
     QAM_ampb_128 = simde_mm_set1_epi16(QAM256_n2);
     QAM_ampc_128 = simde_mm_set1_epi16(QAM256_n3);
+  } else if (mod_order == 10) {
+    QAM_ampa_128 = simde_mm_set1_epi16(QAM1024_n1);
+    QAM_ampb_128 = simde_mm_set1_epi16(QAM1024_n2);
+    QAM_ampc_128 = simde_mm_set1_epi16(QAM1024_n3);
   }
 
   for (int aatx = 0; aatx < nb_layers; aatx++) {
