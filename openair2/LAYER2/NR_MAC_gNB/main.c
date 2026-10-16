@@ -363,7 +363,7 @@ periodic_ue_sched_t create_period_structure(nr_cell_sched_t *cell, nr_periodic_c
   bool count_mixed = channel != SRS;
   int valid_slots_per_period = count_mixed ? get_ul_slots_per_period(fs) : get_full_ul_slots_per_period(fs);
   int nb_slots = (max_period / fs->numb_slots_period) * valid_slots_per_period;
-  periodic_ue_sched_t p = {.max_period = max_period, .max_ue_per_slot = 1};
+  periodic_ue_sched_t p = {.max_period = max_period, .max_ue_per_slot = nr_srs_ue_per_slot(&cell->radio_config)};
   p.list = calloc_or_fail(nb_slots * p.max_ue_per_slot, sizeof(NR_UE_info_t *));
   return p;
 }
