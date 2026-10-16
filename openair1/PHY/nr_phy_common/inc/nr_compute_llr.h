@@ -16,6 +16,13 @@ void nr_256qam_llr(const c16_t *rxdataF_comp,
                    const c16_t *ch_mag3,
                    int16_t *llr,
                    uint32_t nb_re);
+/// 1024QAM uses the three 256QAM style thresholds, the fourth one is derived as ch_mag3 / 2
+void nr_1024qam_llr(const c16_t *rxdataF_comp,
+                    const c16_t *ch_mag,
+                    const c16_t *ch_mag2,
+                    const c16_t *ch_mag3,
+                    int16_t *llr,
+                    uint32_t nb_re);
 
 void nr_compute_llr(c16_t *rxdataF_comp,
                     c16_t *ch_mag,

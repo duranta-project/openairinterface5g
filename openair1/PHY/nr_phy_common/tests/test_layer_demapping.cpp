@@ -68,7 +68,7 @@ TEST(nr_layer_demapping, single_layer_mod8)
 }
 
 /* ------------------------------------------------------------------ */
-/* Multi-layer interleaving: all four mod_order values, Nl 2–4        */
+/* Multi-layer interleaving: all mod_order values, Nl 2–4             */
 /* ------------------------------------------------------------------ */
 
 TEST(nr_layer_demapping, two_layers_mod2)
@@ -123,6 +123,22 @@ TEST(nr_layer_demapping, four_layers_mod8)
 {
   const uint8_t Nl = 4, mod_order = 8;
   const int nb_re = 2;
+  std::vector<std::vector<int16_t>> data(Nl, std::vector<int16_t>(nb_re * mod_order));
+  std::vector<int16_t *> p_layer(Nl);
+  for (uint8_t l = 0; l < Nl; ++l) {
+    fill_layer(data[l], nb_re, mod_order, l + 1);
+    p_layer[l] = data[l].data();
+  }
+  std::vector<int16_t> out(nb_re * mod_order * Nl);
+
+  nr_layer_demapping(Nl, mod_order, nb_re, p_layer.data(), out.data());
+  check_interleaved(data, out, nb_re, Nl, mod_order);
+}
+
+TEST(nr_layer_demapping, two_layers_mod10)
+{
+  const uint8_t Nl = 2, mod_order = 10;
+  const int nb_re = 3;
   std::vector<std::vector<int16_t>> data(Nl, std::vector<int16_t>(nb_re * mod_order));
   std::vector<int16_t *> p_layer(Nl);
   for (uint8_t l = 0; l < Nl; ++l) {
