@@ -681,23 +681,21 @@ static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rn
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   int8_t harq_pid = sched_ctrl->feedback_ul_harq.head;
   LOG_D(NR_MAC, "Comparing crc harq_id vs feedback harq_pid = %d %d\n", crc_harq_id, harq_pid);
-  while (crc_harq_id != harq_pid || harq_pid < 0) {
-    LOG_W(NR_MAC, "Unexpected ULSCH HARQ PID %d (have %d) for RNTI 0x%04x\n", crc_harq_id, harq_pid, rnti);
-    if (harq_pid < 0)
+  if (crc_harq_id != harq_pid) {
+    /* CRC arrived out of grant order (e.g. Aerial batch delivery). Check
+     * is_waiting to distinguish a legitimately pending out-of-order PID from
+     * a truly fake one; avoid incorrectly draining preceding entries. */
+    if (crc_harq_id < 0 || crc_harq_id >= NR_MAX_HARQ_PROCESSES
+        || !sched_ctrl->ul_harq_processes[crc_harq_id].is_waiting) {
+      LOG_W(NR_MAC, "Unexpected ULSCH HARQ PID %d (have %d) for RNTI 0x%04x\n", crc_harq_id, harq_pid, rnti);
       return;
-
-    remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
-    sched_ctrl->ul_harq_processes[harq_pid].is_waiting = false;
-
-    if(sched_ctrl->ul_harq_processes[harq_pid].round >= cell->ul_bler.harq_round_max - 1) {
-      abort_nr_ul_harq(UE, harq_pid);
-    } else {
-      sched_ctrl->ul_harq_processes[harq_pid].round++;
-      add_tail_nr_list(&sched_ctrl->retrans_ul_harq, harq_pid);
     }
-    harq_pid = sched_ctrl->feedback_ul_harq.head;
+    LOG_D(NR_MAC, "Out-of-order CRC for HARQ PID %d (head=%d) for RNTI 0x%04x\n", crc_harq_id, harq_pid, rnti);
+    remove_nr_list(&sched_ctrl->feedback_ul_harq, crc_harq_id);
+    harq_pid = crc_harq_id;
+  } else {
+    remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
   }
-  remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
   NR_UE_ul_harq_t *harq = &sched_ctrl->ul_harq_processes[harq_pid];
   DevAssert(harq->is_waiting);
   harq->feedback_slot = -1;
@@ -708,7 +706,7 @@ static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rn
           "Ulharq id %d crc passed for RNTI %04x\n",
           harq_pid,
           rnti);
-  } else if (harq->round >= cell->ul_bler.harq_round_max  - 1) {
+  } else if (harq->round >= cell->ul_bler.harq_round_max - 1) {
     abort_nr_ul_harq(UE, harq_pid);
     LOG_D(NR_MAC,
           "RNTI %04x: Ulharq id %d crc failed in all rounds\n",
@@ -2421,7 +2419,8 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
     finish_nr_ul_harq(sched_ctrl, harq_id);
   } else {
     add_tail_nr_list(&sched_ctrl->feedback_ul_harq, harq_id);
-    cur_harq->feedback_slot = sched_pusch->slot;
+    cur_harq->feedback_frame = pusch->frame;
+    cur_harq->feedback_slot = pusch->slot;
     cur_harq->is_waiting = true;
   }
 
@@ -2620,6 +2619,49 @@ static int nr_ue_max_ul_inactivity_slots(const frame_structure_t *fs, int ulsch_
   return ulsch_max_frame_inactivity > 0 ? ulsch_max_frame_inactivity * fs->numb_slots_frame : fs->numb_slots_period;
 }
 
+/* How many slots past the scheduled PUSCH slot before we declare the
+ * feedback truly lost. Two frames at μ=1 is generous enough to cover
+ * normal K2 offsets and any reasonable out-of-order delivery delay. */
+#define NR_UL_HARQ_STALE_SLOTS 40
+
+static void nr_ul_harq_cleanup_stale(const nr_cell_sched_t *cell, NR_UE_info_t *UE,
+                                     frame_t frame, slot_t slot)
+{
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  const int slots_per_frame = cell->frame_structure.numb_slots_frame;
+  const int max_abs_slot = MAX_FRAME_NUMBER * slots_per_frame;
+  const int abs_slot = frame * slots_per_frame + slot;
+
+  int harq_pid = sched_ctrl->feedback_ul_harq.head;
+  while (harq_pid >= 0) {
+    NR_UE_ul_harq_t *harq = &sched_ctrl->ul_harq_processes[harq_pid];
+    int expected = harq->feedback_frame * slots_per_frame + harq->feedback_slot;
+    int delta = abs_slot - expected;
+    if (delta < 0)
+      delta += max_abs_slot;
+    if (delta < NR_UL_HARQ_STALE_SLOTS)
+      break; /* head is still fresh; list is FIFO so rest is too */
+    LOG_W(NR_MAC,
+          "%4d.%2d UE 0x%04x: HARQ PID %d feedback lost (grant %d.%d), freeing\n",
+          frame,
+          slot,
+          UE->rnti,
+          harq_pid,
+          harq->feedback_frame,
+          harq->feedback_slot);
+    remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
+    harq->is_waiting = false;
+    harq->feedback_slot = -1;
+    if (harq->round >= cell->ul_bler.harq_round_max - 1)
+      abort_nr_ul_harq(UE, harq_pid);
+    else {
+      harq->round++;
+      add_tail_nr_list(&sched_ctrl->retrans_ul_harq, harq_pid);
+    }
+    harq_pid = sched_ctrl->feedback_ul_harq.head;
+  }
+}
+
 static int collect_ul_candidates(gNB_MAC_INST *mac,
                                  nr_cell_sched_t *cell,
                                  NR_UE_info_t *UE_list[],
@@ -2654,6 +2696,8 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     if (!nr_mac_ue_is_active(UE))
       continue;
+
+    nr_ul_harq_cleanup_stale(cell, UE, frame, slot);
 
     LOG_D(NR_MAC, "collect_ul_candidates: preparing UL scheduling for UE %04x\n", UE->rnti);
     NR_UE_UL_BWP_t *current_BWP = &UE->current_UL_BWP;
