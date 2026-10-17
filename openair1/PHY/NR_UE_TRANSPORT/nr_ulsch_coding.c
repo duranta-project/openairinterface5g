@@ -23,7 +23,7 @@ int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
 
   ///////////////////////// a---->| add CRC |---->b /////////////////////////
 
-  const int max_payload_bytes = MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER * nrOfLayers * 1056;
+  const int max_payload_bytes = MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * nrOfLayers * 1056;
   int B;
   if (A > NR_MAX_PDSCH_TBS) {
     // Add 24-bit crc (polynomial A) to payload
@@ -54,7 +54,7 @@ int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
                                      &harq_process->Z,
                                      &harq_process->F,
                                      harq_process->BG);
-  if (harq_process->C > MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * nrOfLayers) {
+  if (harq_process->C > MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * nrOfLayers) {
     LOG_E(PHY, "nr_segmentation.c: too many segments %d, B %d\n", harq_process->C, B);
     return (-1);
   }

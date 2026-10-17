@@ -121,7 +121,7 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
     harq_process->Z = TB_parameters.Z;
     harq_process->F = TB_parameters.F;
 
-    if (harq_process->C > MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * TB_parameters.nb_layers) {
+    if (harq_process->C > MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * TB_parameters.nb_layers) {
       LOG_E(PHY, "nr_segmentation.c: too many segments %d, A %d\n", harq_process->C, TB_parameters.A);
       return;
     }

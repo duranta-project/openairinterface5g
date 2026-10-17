@@ -26,8 +26,7 @@
 #define NR_NB_SC_PER_RB 12
 #define NR_MAX_NUM_LCID 32
 #define NR_MAX_NUM_QFI 64
-#define MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER 36
-#define MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER 34
+#define MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER 36
 #define NR_MAX_SLOTS_PER_FRAME 160
 #define RNTI_NAMES /* see 38.321  Table 7.1-2  RNTI usage */      \
   R(TYPE_C_RNTI_) /* Cell RNTI */                                  \
@@ -67,8 +66,8 @@ static inline const char *rnti_types(nr_rnti_type_t rr)
 #define NR_SYMBOLS_PER_SLOT 14
 #define NR_SYMBOLS_PER_SLOT_EXTENDED_CP 12
 #define NR_MAX_NB_LAYERS 4
-#define MAX_NUM_NR_DLSCH_SEGMENTS (MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * NR_MAX_NB_LAYERS)
-#define MAX_NUM_NR_ULSCH_SEGMENTS (MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER * NR_MAX_NB_LAYERS)
+#define MAX_NUM_NR_DLSCH_SEGMENTS (MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * NR_MAX_NB_LAYERS)
+#define MAX_NUM_NR_ULSCH_SEGMENTS (MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * NR_MAX_NB_LAYERS)
 #define NR_MAX_CSI_PORTS 12
 
 // Since the IQ samples are represented by SQ15 R+I (see https://en.wikipedia.org/wiki/Q_(number_format)) we need to compensate when
