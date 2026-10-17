@@ -417,6 +417,7 @@ check_install_oai_software() {
 	git \
 	libreadline-dev \
 	libconfig-dev \
+	libjansson-dev \
 	libsctp-dev  \
 	libssl-dev  \
 	libtool  \
@@ -444,6 +445,7 @@ check_install_oai_software() {
       git \
       pkgconfig \
       libconfig-devel \
+      jansson-devel \
       lksctp-tools \
       lksctp-tools-devel \
       libtool \

@@ -34,6 +34,7 @@ RUN apt-get update && \
         libboost-program-options1.74.0 \
         tzdata \
         libconfig9 \
+        libjansson4 \
         openssl \
         net-tools \
         iperf \

@@ -18,6 +18,7 @@
 #include "GNB_APP/gnb_config.h"
 #include "NR_MIB.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
+#include "NR_MAC_gNB/mac_config.h"
 #include "NR_BCCH-BCH-Message.h"
 #include "NR_ServingCellConfigCommon.h"
 #include "NR_MIB.h"
@@ -1100,24 +1101,26 @@ bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1a
   return true;
 }
 
-static void nr_update_sib19_cell(nr_cell_sched_t *cell, const gnb_sat_position_update_t *sat_position)
+static bool nr_update_ntn_config(NR_NTN_Config_r17_t *ntn, const gnb_sat_position_update_t *sat_position)
 {
-  NR_COMMON_channels_t *cc = &cell->common_channels;
-  NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
   const vector_t *pos = &sat_position->position;
   const vector_t *vel = &sat_position->velocity;
 
-  if (!scc->ext2->ntn_Config_r17->epochTime_r17)
-    scc->ext2->ntn_Config_r17->epochTime_r17 = calloc(1, sizeof(*scc->ext2->ntn_Config_r17->epochTime_r17));
+  if (!ntn->epochTime_r17)
+    ntn->epochTime_r17 = calloc(1, sizeof(*ntn->epochTime_r17));
+  if (!ntn->epochTime_r17)
+    return false;
 
-  NR_EpochTime_r17_t *epoch_time_r17 = scc->ext2->ntn_Config_r17->epochTime_r17;
+  NR_EpochTime_r17_t *epoch_time_r17 = ntn->epochTime_r17;
   epoch_time_r17->sfn_r17 = sat_position->sfn;
   epoch_time_r17->subFrameNR_r17 = sat_position->subframe;
 
-  if (!scc->ext2->ntn_Config_r17->ta_Info_r17)
-    scc->ext2->ntn_Config_r17->ta_Info_r17 = calloc(1, sizeof(*scc->ext2->ntn_Config_r17->ta_Info_r17));
+  if (!ntn->ta_Info_r17)
+    ntn->ta_Info_r17 = calloc(1, sizeof(*ntn->ta_Info_r17));
+  if (!ntn->ta_Info_r17)
+    return false;
 
-  NR_TA_Info_r17_t *sib19_ta_info = scc->ext2->ntn_Config_r17->ta_Info_r17;
+  NR_TA_Info_r17_t *sib19_ta_info = ntn->ta_Info_r17;
 
   // SIB19 provides Round trip delay on feeder link (between gNB and SAT).
   sib19_ta_info->ta_Common_r17 = sat_position->delay;
@@ -1125,6 +1128,8 @@ static void nr_update_sib19_cell(nr_cell_sched_t *cell, const gnb_sat_position_u
   if (sat_position->drift) {
     if (!sib19_ta_info->ta_CommonDrift_r17)
       sib19_ta_info->ta_CommonDrift_r17 = calloc(1, sizeof(*sib19_ta_info->ta_CommonDrift_r17));
+    if (!sib19_ta_info->ta_CommonDrift_r17)
+      return false;
     *sib19_ta_info->ta_CommonDrift_r17 = sat_position->drift;
   } else
     free_and_zero(sib19_ta_info->ta_CommonDrift_r17);
@@ -1132,26 +1137,31 @@ static void nr_update_sib19_cell(nr_cell_sched_t *cell, const gnb_sat_position_u
   if (sat_position->accel) {
     if (!sib19_ta_info->ta_CommonDriftVariant_r17)
       sib19_ta_info->ta_CommonDriftVariant_r17 = calloc(1, sizeof(*sib19_ta_info->ta_CommonDriftVariant_r17));
+    if (!sib19_ta_info->ta_CommonDriftVariant_r17)
+      return false;
     *sib19_ta_info->ta_CommonDriftVariant_r17 = sat_position->accel;
   } else
     free_and_zero(sib19_ta_info->ta_CommonDriftVariant_r17);
 
   // Currently PositionVelocity is supported and not yet the OrbitalParams
-  if (!scc->ext2->ntn_Config_r17->ephemerisInfo_r17) {
-    scc->ext2->ntn_Config_r17->ephemerisInfo_r17 = calloc(1, sizeof(*scc->ext2->ntn_Config_r17->ephemerisInfo_r17));
-    scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present = NR_EphemerisInfo_r17_PR_NOTHING;
+  if (!ntn->ephemerisInfo_r17) {
+    ntn->ephemerisInfo_r17 = calloc(1, sizeof(*ntn->ephemerisInfo_r17));
+    if (!ntn->ephemerisInfo_r17)
+      return false;
+    ntn->ephemerisInfo_r17->present = NR_EphemerisInfo_r17_PR_NOTHING;
   }
-  if (scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present == NR_EphemerisInfo_r17_PR_orbital_r17) {
-    ASN_STRUCT_FREE(asn_DEF_NR_Orbital_r17, scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17);
-    scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.orbital_r17 = NULL;
-    scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present = NR_EphemerisInfo_r17_PR_NOTHING;
+  if (ntn->ephemerisInfo_r17->present == NR_EphemerisInfo_r17_PR_orbital_r17) {
+    ASN_STRUCT_FREE(asn_DEF_NR_Orbital_r17, ntn->ephemerisInfo_r17->choice.orbital_r17);
+    ntn->ephemerisInfo_r17->choice.orbital_r17 = NULL;
+    ntn->ephemerisInfo_r17->present = NR_EphemerisInfo_r17_PR_NOTHING;
   }
-  if (!scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17)
-    scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17 =
-        calloc(1, sizeof(*scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17));
+  if (!ntn->ephemerisInfo_r17->choice.positionVelocity_r17)
+    ntn->ephemerisInfo_r17->choice.positionVelocity_r17 = calloc(1, sizeof(*ntn->ephemerisInfo_r17->choice.positionVelocity_r17));
+  if (!ntn->ephemerisInfo_r17->choice.positionVelocity_r17)
+    return false;
 
-  scc->ext2->ntn_Config_r17->ephemerisInfo_r17->present = NR_EphemerisInfo_r17_PR_positionVelocity_r17;
-  NR_PositionVelocity_r17_t *sib19_PosVel = scc->ext2->ntn_Config_r17->ephemerisInfo_r17->choice.positionVelocity_r17;
+  ntn->ephemerisInfo_r17->present = NR_EphemerisInfo_r17_PR_positionVelocity_r17;
+  NR_PositionVelocity_r17_t *sib19_PosVel = ntn->ephemerisInfo_r17->choice.positionVelocity_r17;
 
   sib19_PosVel->positionX_r17 = pos->X;
   sib19_PosVel->positionY_r17 = pos->Y;
@@ -1159,17 +1169,83 @@ static void nr_update_sib19_cell(nr_cell_sched_t *cell, const gnb_sat_position_u
   sib19_PosVel->velocityVX_r17 = vel->X;
   sib19_PosVel->velocityVY_r17 = vel->Y;
   sib19_PosVel->velocityVZ_r17 = vel->Z;
+  return true;
+}
 
-  NR_SystemInformation_IEs_t *sysInfov17 = calloc(1, sizeof(*sysInfov17)); // for othersibs
-  struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type_du = calloc(1, sizeof(*type_du));
-  type_du->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib19_v1700;
-  NR_SIB19_r17_t *sib19 = get_SIB19_NR(cc->ServingCellConfigCommon);
-  type_du->choice.sib19_v1700 = sib19;
-  add_sib_to_systeminformation(sysInfov17, type_du);
+static int nr_encode_sib19(NR_NTN_Config_r17_t *ntn, uint8_t *buffer, int capacity, bool checked)
+{
+  /* The wrapper only borrows NTN config for this synchronous encoding. */
+  NR_SIB19_r17_t sib19 = {.ntn_Config_r17 = ntn};
+  struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member type = {
+      .present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib19_v1700,
+      .choice.sib19_v1700 = &sib19};
+  struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *types[] = {&type};
+  NR_SystemInformation_IEs_t si = {0};
+  si.sib_TypeAndInfo.list.array = types;
+  si.sib_TypeAndInfo.list.count = 1;
+  si.sib_TypeAndInfo.list.size = 1;
+  if (checked)
+    return encode_sysinfo_ie_checked(&si, buffer, capacity);
+  return encode_sysinfo_ie(&si, buffer, capacity);
+}
 
-  cc->other_sib_bcch_length[1] = encode_sysinfo_ie(sysInfov17, cc->other_sib_bcch_pdu[1], sizeof(cc->other_sib_bcch_pdu[1]));
+const char *nr_prepare_sib19(const NR_NTN_Config_r17_t *ntn_template,
+                             const ntn_assistance_state_t *state,
+                             uint8_t *buffer,
+                             size_t capacity,
+                             NR_NTN_Config_r17_t **config,
+                             int *length)
+{
+  if (!ntn_template || !state || !buffer || !config || !length || capacity > NR_MAX_SIB_LENGTH / 8 || !capacity)
+    return "invalid_argument";
+  if (!state->epoch.generation || state->validity_index >= 16 || state->ta_common < 0 || state->ta_common > 66485757
+      || state->ta_drift < -257303 || state->ta_drift > 257303 || state->ta_drift_variant < 0 || state->ta_drift_variant > 28949)
+    return "assistance_range";
+  for (int i = 0; i < 3; i++)
+    if (state->position[i] < -33554432 || state->position[i] > 33554431 || state->velocity[i] < -131072
+        || state->velocity[i] > 131071)
+      return "assistance_range";
+
+  NR_NTN_Config_r17_t *ntn = NULL;
+  if (asn_copy(&asn_DEF_NR_NTN_Config_r17, (void **)&ntn, ntn_template) != 0 || !ntn) {
+    ASN_STRUCT_FREE(asn_DEF_NR_NTN_Config_r17, ntn);
+    return "allocation";
+  }
+  const gnb_sat_position_update_t update = {.sfn = (state->epoch.subframe / 10) % 1024,
+                                            .subframe = state->epoch.subframe % 10,
+                                            .delay = state->ta_common,
+                                            .drift = state->ta_drift,
+                                            .accel = state->ta_drift_variant,
+                                            .position = {state->position[0], state->position[1], state->position[2]},
+                                            .velocity = {state->velocity[0], state->velocity[1], state->velocity[2]}};
+  if (!nr_update_ntn_config(ntn, &update)) {
+    ASN_STRUCT_FREE(asn_DEF_NR_NTN_Config_r17, ntn);
+    return "allocation";
+  }
+  if (!ntn->ntn_UlSyncValidityDuration_r17)
+    ntn->ntn_UlSyncValidityDuration_r17 = calloc(1, sizeof(*ntn->ntn_UlSyncValidityDuration_r17));
+  if (!ntn->ntn_UlSyncValidityDuration_r17) {
+    ASN_STRUCT_FREE(asn_DEF_NR_NTN_Config_r17, ntn);
+    return "allocation";
+  }
+  *ntn->ntn_UlSyncValidityDuration_r17 = state->validity_index;
+  const int encoded = nr_encode_sib19(ntn, buffer, capacity, true);
+  if (encoded <= 0) {
+    ASN_STRUCT_FREE(asn_DEF_NR_NTN_Config_r17, ntn);
+    return "encoding";
+  }
+  *config = ntn;
+  *length = encoded;
+  return NULL;
+}
+
+static void nr_update_sib19_cell(nr_cell_sched_t *cell, const gnb_sat_position_update_t *sat_position)
+{
+  NR_COMMON_channels_t *cc = &cell->common_channels;
+  NR_NTN_Config_r17_t *ntn = cc->ServingCellConfigCommon->ext2->ntn_Config_r17;
+  AssertFatal(nr_update_ntn_config(ntn, sat_position), "could not allocate SIB19 update\n");
+  cc->other_sib_bcch_length[1] = nr_encode_sib19(ntn, cc->other_sib_bcch_pdu[1], sizeof(cc->other_sib_bcch_pdu[1]), false);
   AssertFatal(cc->other_sib_bcch_length[1] > 0, "could not encode SIB19\n");
-  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfov17);
 }
 
 bool nr_update_sib19(const gnb_sat_position_update_t *sat_position)
@@ -1193,6 +1269,8 @@ bool nr_update_sib19(const gnb_sat_position_update_t *sat_position)
     nr_cell_sched_t *cell = &nrmac->cells[i];
     NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
     if (!scc || !scc->ext2 || !scc->ext2->ntn_Config_r17)
+      continue;
+    if (cell->ntn_assistance_publisher)
       continue;
     nr_update_sib19_cell(cell, sat_position);
     updated = true;

@@ -18,6 +18,7 @@ ENV TZ=Europe/Paris
 RUN dnf update -y && \
     dnf install -y \
         procps-ng \
+        jansson \
         libatomic \
         libXpm \
         libX11 \

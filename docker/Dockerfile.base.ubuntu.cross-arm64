@@ -43,6 +43,7 @@ RUN apt-get update && \
       libreadline-dev:arm64 \
       libgnutls28-dev:arm64 \
       libconfig-dev:arm64 \
+      libjansson-dev:arm64 \
       libsctp-dev:arm64 \
       libssl-dev:arm64 \
       libtool:arm64 \

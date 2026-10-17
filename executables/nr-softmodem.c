@@ -12,6 +12,8 @@
 unsigned short config_frames[4] = {2,9,11,13};
 #endif
 #include "common/utils/time_manager/time_manager.h"
+#include "openair2/LAYER2/NR_MAC_gNB/ntn_assistance.h"
+#include "ntn_radio_time.h"
 #ifdef ENABLE_AERIAL
 #include "nfapi/oai_integration/aerial/fapi_nvIPC.h"
 #endif
@@ -115,6 +117,9 @@ void exit_function(const char *file, const char *function, const int line, const
 
   // Signal worker threads (ru_thread, L1) to stop before tearing down the radio
   oai_exit = 1;
+
+  nr_ntn_radio_time_disable();
+  nr_ntn_assistance_server_stop();
 
   for (ru_id=0; ru_id<RC.nb_RU; ru_id++) {
     if (RC.ru[ru_id] == NULL) {
@@ -353,6 +358,9 @@ int stop_L1(module_id_t gnb_id)
 
   LOG_I(GNB_APP, "stopping nr-softmodem\n");
   oai_exit = 1;
+
+  nr_ntn_radio_time_disable();
+  nr_ntn_assistance_server_stop();
 
   /* these tasks/layers need to pick up new configuration */
   if (RC.nb_nr_L1_inst > 0)
@@ -637,6 +645,9 @@ int main( int argc, char **argv ) {
   if (NFAPI_MODE != NFAPI_MODE_PNF && (NODE_IS_DU(node_type) || NODE_IS_MONOLITHIC(node_type)))
     wait_f1_setup_response();
 
+  const char *ntn_assistance_error = nr_ntn_assistance_server_start();
+  AssertFatal(!ntn_assistance_error, "%s\n", ntn_assistance_error);
+
   if (RC.nb_RU > 0)
     start_NR_RU();
 
@@ -694,6 +705,11 @@ int main( int argc, char **argv ) {
       init_eNB_afterRU();
     }
 
+    /* Device objects are loaded, but start_rf has not yet run. The adapter
+     * must wait for an actual complete RX frame before querying the clock. */
+    if (RC.nb_RU == 1 && nr_ntn_assistance_server_needs_radio_time() && nr_ntn_radio_time_init(RC.ru[0]))
+      nr_ntn_assistance_server_set_radio_query(nr_ntn_radio_time_query, NULL);
+
     // connect the TX/RX buffers
     pthread_mutex_lock(&sync_mutex);
     sync_var=0;
@@ -715,6 +731,8 @@ int main( int argc, char **argv ) {
 
   if (RC.nb_nr_L1_inst > 0 || RC.nb_RU > 0)
     stop_L1(0);
+
+  nr_ntn_assistance_server_stop();
 
   if (RC.nb_nr_macrlc_inst > 0) {
     DevAssert(RC.nb_nr_macrlc_inst == 1);

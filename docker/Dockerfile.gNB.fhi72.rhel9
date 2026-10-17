@@ -27,6 +27,7 @@ RUN rm -f /etc/rhsm-host && \
     cat /etc/os-release && \
     dnf install -y \
         procps-ng \
+        jansson \
         libXpm \
         libX11 \
         lksctp-tools \

@@ -1293,6 +1293,13 @@ set (MAC_NR_SRC
  )
 
 
+add_boolean_option(ENABLE_NTN_ASSISTANCE ON "Build the external NTN assistance UDP interface (requires Jansson)" OFF)
+if(ENABLE_NTN_ASSISTANCE)
+  find_path(NTN_JANSSON_INCLUDE_DIR jansson.h REQUIRED)
+  find_library(NTN_JANSSON_LIBRARY NAMES jansson REQUIRED)
+  list(APPEND MAC_NR_SRC ${NR_GNB_MAC_DIR}/ntn_assistance.c)
+endif()
+
 set (MAC_SRC_UE
   ${PHY_INTERFACE_DIR}/phy_stub_UE.c
   ${PHY_INTERFACE_DIR}/queue_t.c
@@ -1370,6 +1377,11 @@ add_library(L2_NR
   ${MAC_NR_SRC}
   ${GNB_APP_SRC}
   )
+if(ENABLE_NTN_ASSISTANCE)
+  target_compile_definitions(L2_NR PUBLIC ENABLE_NTN_ASSISTANCE)
+  target_include_directories(L2_NR PRIVATE ${NTN_JANSSON_INCLUDE_DIR})
+  target_link_libraries(L2_NR PRIVATE ${NTN_JANSSON_LIBRARY})
+endif()
 if(E3_AGENT)
   target_compile_definitions(L2_NR PRIVATE E3_AGENT)
 endif()
@@ -1880,6 +1892,10 @@ add_executable(nr-softmodem
   ${PHY_INTERFACE_DIR}/queue_t.c
   ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
   )
+
+if(ENABLE_NTN_ASSISTANCE)
+  target_sources(nr-softmodem PRIVATE ${OPENAIR_DIR}/executables/ntn_radio_time.c)
+endif()
 
 target_link_libraries(nr-softmodem PRIVATE
   -Wl,--start-group

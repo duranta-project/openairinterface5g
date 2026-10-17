@@ -56,6 +56,7 @@ RUN apt-get update && \
         libsctp1 \
         tzdata \
         libconfig9 \
+        libjansson4 \
         openssl \
         net-tools \
         iperf \

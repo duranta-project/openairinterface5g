@@ -27,6 +27,7 @@ ENV TZ=Europe/Paris
 RUN dnf update -y && \
     dnf install -y \
         procps-ng \
+        jansson \
         libXpm \
         libX11 \
         gdb \

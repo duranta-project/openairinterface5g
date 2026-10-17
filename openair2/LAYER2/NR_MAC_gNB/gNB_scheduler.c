@@ -5,6 +5,7 @@
 #include "assertions.h"
 
 #include "NR_MAC_gNB/mac_proto.h"
+#include "NR_MAC_gNB/ntn_assistance.h"
 #ifdef E3_AGENT
 #include "openair2/E3AP/ran_func_spectrum_extern.h"
 #endif /* E3_AGENT */
@@ -143,6 +144,7 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
 
   NR_SCHED_LOCK(&gNB->sched_lock);
+  nr_ntn_assistance_tick(cell->ntn_assistance_publisher, frame, slot);
   int slots_frame = cell->frame_structure.numb_slots_frame;
   clear_beam_information(&cell->beam_info, frame, slot, slots_frame);
 

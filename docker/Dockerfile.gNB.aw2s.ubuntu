@@ -33,6 +33,7 @@ RUN apt-get update && \
         tzdata \
         libc6 \
         libconfig9 \
+        libjansson4 \
         gdb \
         openssl \
         net-tools \
