@@ -13,6 +13,7 @@ static void fill_tx_data_request_PDU(nfapi_nr_pdu_t *pdu)
   // Max Length => 10 bytes PDU Header + 2 * (2 bytes tag, 4 bytes length, 38016*4 bytes value (on value.direct))
   // = 304150
   pdu->PDU_index = rand16();
+  pdu->cw_index = rand8_range(0, 1);
   pdu->num_TLV = rand8_range(1, NFAPI_NR_MAX_TX_REQUEST_TLV);
   pdu->PDU_length = rand32_range(20, 10 + pdu->num_TLV * (4 + (38016 * 4)));
   uint32_t remaining_size = pdu->PDU_length - 10 - (pdu->num_TLV * 4);
