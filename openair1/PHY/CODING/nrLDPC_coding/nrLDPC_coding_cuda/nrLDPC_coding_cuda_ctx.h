@@ -21,6 +21,8 @@
 #define LDPC_ET_CTX_GRAPHS 256 // early-termination graphs per context
 // et_host / et_dev: pass_it, then the output
 #define LDPC_ET_PASS_IT_BYTES (MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * sizeof(int32_t))
+// LLRs of a TB held by harq_e and harq_f: 4 layers, 14 symbols, 273 PRBs, 12 RE/PRB, 10 bits/RE (1024QAM)
+#define LDPC_CUDA_MAXE (4 * 14 * 273 * 12 * 10)
 
 // Where work is enqueued: a context's own stream, or the background recorder's for graph capture
 typedef struct {

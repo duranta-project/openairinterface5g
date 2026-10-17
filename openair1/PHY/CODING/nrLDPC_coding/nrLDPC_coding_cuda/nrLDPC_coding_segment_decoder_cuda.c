@@ -78,6 +78,8 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   int E1 = segs->E;
   int E2 = segs->E2;
   int r_firstE2 = segs->first_rE2;
+  const size_t G = (size_t)r_firstE2 * E1 + (size_t)(C - r_firstE2) * E2;
+  AssertFatal(G <= LDPC_CUDA_MAXE, "%zu LLRs, but the device buffers hold %d\n", G, LDPC_CUDA_MAXE);
 
   // one of several independent decoder contexts (buffers, stream, graphs): TBs of different slots decode concurrently
   const int ci = ldpc_cuda_ctx_acquire();
@@ -90,11 +92,7 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   // for PCIe GPU copy llrs to device memory
   if (!pageable && !integrated) {
     LOG_D(NR_PHY, "gpuMemcpyAsynch llr->f_dev\n");
-    gpuMemcpyAsync_or_fail(f_dev,
-                           segs->llr,
-                           ((r_firstE2 * E1) + (C - r_firstE2) * E2) * sizeof(int16_t),
-                           gpuMemcpyHostToDevice,
-                           decoderStreams[ci]);
+    gpuMemcpyAsync_or_fail(f_dev, segs->llr, G * sizeof(int16_t), gpuMemcpyHostToDevice, decoderStreams[ci]);
   }
 #if 0
   if (1/*segs->rv_index==2*/)
