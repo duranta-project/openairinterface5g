@@ -118,6 +118,8 @@ if(ENABLE_PHYSIM_TESTS)
   add_physim_test(nr_dlsim.ldpc_cuda.1t1r_mcs26_1024qam_bw "nr_dlsim: 1T1R/1 layer, MCS 26 1024QAM, 40 MHz 30 kHz SCS" nr_dlsim -n100 -R106 -b106 -P -e 26 -s37 -S38 -q 3 --loader.ldpc.shlibversion _cuda)
   add_physim_test(nr_dlsim.ldpc_cuda.1t1r_mcs26_1024qam "nr_dlsim: 1T1R/1 layer, MCS 26 1024QAM, 100 MHz 30 kHz SCS" nr_dlsim -n50 -R273 -b273 -P -e 26 -s40 -S41 -q 3 --loader.ldpc.shlibversion _cuda)
   add_physim_test(nr_dlsim.ldpc_cuda.4t4r_mcs26_1024qam "nr_dlsim: 4T4R/4 layers, MCS 26 1024QAM, 100 MHz 30 kHz SCS (160 code blocks)" nr_dlsim -n20 -R273 -b273 -P -e 26 -s48 -S49 -q 3 -x4 -y4 -z4 --loader.ldpc.shlibversion _cuda)
+  # 1 DMRS symbol, 144 RE/PRB: the most LLRs a TB has in the simulator
+  add_physim_test(nr_dlsim.ldpc_cuda.4t4r_mcs26_1024qam_1dmrs "nr_dlsim: 4T4R/4 layers, MCS 26 1024QAM, 100 MHz 30 kHz SCS, 1 DMRS symbol" nr_dlsim -n20 -R273 -b273 -P -e 26 -s48 -S49 -q 3 -x4 -y4 -z4 -U 3 0 0 1 --loader.ldpc.shlibversion _cuda)
 
   add_physim_test(nr_ulsim.ldpc_cuda.9seg_r13 "nr_ulsim: 9 segments, rate 1/3" nr_ulsim -n100 -s20 -m13 -R273 -r273 -W1 -y1 -z1 -P --loader.ldpc.shlibversion _cuda)
   add_physim_test(nr_ulsim.ldpc_cuda.18seg_r23 "nr_ulsim: 18 segments, rate 2/3" nr_ulsim -n100 -s20 -m22 -R273 -r273 -W1 -y1 -z1 -P --loader.ldpc.shlibversion _cuda)
