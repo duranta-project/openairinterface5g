@@ -17,6 +17,7 @@
 #include "openair1/PHY/CODING/nrLDPC_defs.h"
 #include "openair1/PHY/CODING/nrLDPC_extern.h"
 #include "ldpc_generate_coefficient.c"
+#include "ldpc_generate_factored.c"
 
 /* not used, only for compat with LDPC CUDA implementation */
 uint32_t **LDPCencoder32(uint8_t **input, encoder_implemparams_t *impp)
@@ -288,6 +289,14 @@ int LDPCencoder(unsigned char **inputArray, unsigned char *outputArray, encoder_
     fprintf(fd," return(0);\n");
     fprintf(fd,"}\n");
     fclose(fd);
+  }
+  else if (gen_code == 5) { // factored encoder, 128-bit alignr path
+    // Recovers the base-graph structure the expanded generator discards: the four
+    // core parity groups P0..P3 are emitted once and referenced by rotation
+    // instead of being pre-inverted into every row. BG1 2109 -> 319 terms,
+    // BG2 1473 -> 173 terms, for every supported Zc.
+    if (generate_factored_encoder(BG, Zc, no_shift_values, pointer_shift_values, Gen_shift_values) != 0)
+      printf("factored generator: falling back, BG %d Zc %d not emitted\n", BG, Zc);
   }
   else if(gen_code==0)
   {
