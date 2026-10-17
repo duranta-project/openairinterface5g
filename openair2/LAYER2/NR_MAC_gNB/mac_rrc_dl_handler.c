@@ -671,12 +671,19 @@ static NR_CellGroupConfig_t *get_cellgroup_config(NR_UE_info_t *UE)
   }
 }
 
+static bool is_srb1_bearer(const NR_RLC_BearerConfig_t *bearer)
+{
+  return bearer->servedRadioBearer->present == NR_RLC_BearerConfig__servedRadioBearer_PR_srb_Identity
+         && bearer->servedRadioBearer->choice.srb_Identity == 1;
+}
+
 /** @brief Update CellGroupConfig for RRC re-establishment procedure.
  * This function prepares a complete CellGroupConfig for gNB-DU Configuration Query response
  * during RRC re-establishment.
- * The function sets reestablishRLC flags for all RLC bearers except SRB1.
- * SRB1 is removed from the bearer list since it is already re-established during
- * RRCReestablishment and should not be included. */
+ * The function sets reestablishRLC flags for all RLC bearers except SRB1, which is already
+ * re-established during RRCReestablishment. SRB1 stays in the stored CellGroupConfig (the MAC
+ * expects it there) and is only left out of the encoded copy sent to the UE, see
+ * encode_cellgroup_for_reestablishment(). */
 static void update_cellgroup_for_reestablishment(NR_UE_info_t *UE, NR_CellGroupConfig_t *new_CellGroup)
 {
   DevAssert(new_CellGroup);
@@ -692,18 +699,34 @@ static void update_cellgroup_for_reestablishment(NR_UE_info_t *UE, NR_CellGroupC
     LOG_I(NR_MAC, "UE %04x: CellGroupConfig has %d bearers:\n", UE->rnti, addmod->list.count);
     for (int i = 0; i < addmod->list.count; ++i) {
       NR_RLC_BearerConfig_t *bearer = addmod->list.array[i];
-      int rb_type = bearer->servedRadioBearer->present;
-      int rb_id = (rb_type == NR_RLC_BearerConfig__servedRadioBearer_PR_srb_Identity)
-                      ? bearer->servedRadioBearer->choice.srb_Identity
-                      : bearer->servedRadioBearer->choice.drb_Identity;
-      if (rb_type == NR_RLC_BearerConfig__servedRadioBearer_PR_srb_Identity && rb_id == 1) {
-        asn_sequence_del(&addmod->list, i, 1);
-        --i;
+      if (is_srb1_bearer(bearer))
         continue;
-      }
-      asn1cCallocOne(addmod->list.array[i]->reestablishRLC, NR_RLC_BearerConfig__reestablishRLC_true);
+      asn1cCallocOne(bearer->reestablishRLC, NR_RLC_BearerConfig__reestablishRLC_true);
     }
   }
+}
+
+/** @brief Encode CellGroupConfig for the UE during RRC re-establishment.
+ * The SRB1 RLC bearer is not signalled again. rlc-BearerToAddModList is SIZE(1..maxLC-ID)
+ * (TS 38.331 §6.3.2, CellGroupConfig), so it is omitted if SRB1 was the only bearer.
+ * @param cellGroup CellGroupConfig as stored for the UE, including SRB1
+ * @return Encoded byte array */
+static byte_array_t encode_cellgroup_for_reestablishment(const NR_CellGroupConfig_t *cellGroup)
+{
+  NR_CellGroupConfig_t *cg = clone_CellGroupConfig(cellGroup);
+  struct NR_CellGroupConfig__rlc_BearerToAddModList *addmod = cg->rlc_BearerToAddModList;
+  for (int i = 0; addmod && i < addmod->list.count; ++i) {
+    if (is_srb1_bearer(addmod->list.array[i]))
+      asn_sequence_del(&addmod->list, i--, 1);
+  }
+  if (addmod && addmod->list.count == 0) {
+    asn_sequence_empty(&addmod->list);
+    free(addmod);
+    cg->rlc_BearerToAddModList = NULL;
+  }
+  byte_array_t cgc = encode_cellgroup_config(cg);
+  ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, cg);
+  return cgc;
 }
 
 void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
@@ -813,7 +836,8 @@ void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
     }
   }
 
-  resp.du_to_cu_rrc_info.cell_group_config = encode_cellgroup_config(new_CellGroup);
+  resp.du_to_cu_rrc_info.cell_group_config = UE->reestablish_rlc ? encode_cellgroup_for_reestablishment(new_CellGroup)
+                                                                 : encode_cellgroup_config(new_CellGroup);
 
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
   UE->reconfigCellGroup = new_CellGroup;
@@ -960,7 +984,8 @@ void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
     /* Encode CellGroupConfig for transparent forwarding in the DU to CU trasnfer IE
      * CU will forward these encoded bytes directly to UE without decode/re-encode cycles */
     resp.du_to_cu_rrc_info = calloc_or_fail(1, sizeof(du_to_cu_rrc_information_t));
-    resp.du_to_cu_rrc_info->cell_group_config = encode_cellgroup_config(new_CellGroup);
+    resp.du_to_cu_rrc_info->cell_group_config = UE->reestablish_rlc ? encode_cellgroup_for_reestablishment(new_CellGroup)
+                                                                    : encode_cellgroup_config(new_CellGroup);
 
     // Replace reconfigCellGroup with new_CellGroup (now contains complete config with spCellConfig restored)
     ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
