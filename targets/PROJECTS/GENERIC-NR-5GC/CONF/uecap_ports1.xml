@@ -172,51 +172,9 @@
                 <multipleTCI><supported/></multipleTCI>
                 <pusch-256QAM><supported/></pusch-256QAM>
                 <ue-PowerClass><pc2/></ue-PowerClass>
-                <channelBWs-DL>
-                    <fr1>
-                        <scs-15kHz>
-                            0000000000
-                        </scs-15kHz>
-                        <scs-30kHz>
-                            0001011111
-                        </scs-30kHz>
-                        <scs-60kHz>
-                            0000000000
-                        </scs-60kHz>
-                    </fr1>
-                </channelBWs-DL>
-                <channelBWs-UL>
-                    <fr1>
-                        <scs-15kHz>
-                            0000000000
-                        </scs-15kHz>
-                        <scs-30kHz>
-                            0001011111
-                        </scs-30kHz>
-                        <scs-60kHz>
-                            0000000000
-                        </scs-60kHz>
-                    </fr1>
-                </channelBWs-UL>
                 <ext1>
                     <maxUplinkDutyCycle-PC2-FR1><n100/></maxUplinkDutyCycle-PC2-FR1>
                 </ext1>
-                <ext4>
-                    <channelBWs-DL-v1590>
-                        <fr1>
-                            <scs-30kHz>
-                                1000000000000000
-                            </scs-30kHz>
-                        </fr1>
-                    </channelBWs-DL-v1590>
-                    <channelBWs-UL-v1590>
-                        <fr1>
-                            <scs-30kHz>
-                                1000000000000000
-                            </scs-30kHz>
-                        </fr1>
-                    </channelBWs-UL-v1590>
-                </ext4>
             </BandNR>
         </supportedBandListNR>
         <supportedBandCombinationList>

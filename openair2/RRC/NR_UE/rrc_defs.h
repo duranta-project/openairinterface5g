@@ -132,8 +132,6 @@ typedef struct UE_RRC_SI_INFO_NR_s {
   bool sib14_validity;
   NR_timer_t sib14_timer;
   NR_UE_RRC_SI_INFO_r17 SInfo_r17;
-  // Extracted from SIB1
-  int scs;
   int sib19_periodicity;
   int sib19_windowposition;
   int si_windowlength;
@@ -213,6 +211,8 @@ typedef struct NR_UE_RRC_INST_s {
   uint32_t phyCellID;
   long arfcn_ssb;
   uint64_t cell_identity;
+  int scs;
+  int nr_band;
 
   OAI_NR_UECapability_t UECap;
   NR_UE_Timers_Constants_t timers_and_constants;
