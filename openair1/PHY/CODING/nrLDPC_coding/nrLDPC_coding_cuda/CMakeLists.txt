@@ -60,7 +60,7 @@ else()
   SET(CUDA_VERBOSE_BUILD ON)
 
   # version using NVLink-C2C in Grace Hopper
-  set_target_properties(ldpc_cuda PROPERTIES CUDA_ARCHITECTURES "80;87;90")
+  set_target_properties(ldpc_cuda PROPERTIES CUDA_ARCHITECTURES "80;87;90;121")
   # we need to find the right include directory, but ti seems that
   # enable_language(CUDA) does not make this available(?), so also use the CUDA package
   find_package(CUDA REQUIRED)
@@ -112,6 +112,14 @@ if(ENABLE_PHYSIM_TESTS)
   add_physim_test(nr_dlsim.ldpc_cuda.2t2r_mcs25_64qam "nr_dlsim: 2T2R/2 layers, MCS 25, 64QAM, 100 MHz 30 kHz SCS)" nr_dlsim -n100 -R273 -b273 -P -e 25 -s30 -x2 -y2 -z2 --loader.ldpc.shlibversion _cuda)
   add_physim_test(nr_dlsim.ldpc_cuda.1t1r_mcs25_256qam "nr_dlsim: 1T1R/1 layer, MCS 25, 256QAM, 100 MHz 30 kHz SCS)" nr_dlsim -n100 -R273 -b273 -P -e 25 -s30 -q 1 --loader.ldpc.shlibversion _cuda)
   add_physim_test(nr_dlsim.ldpc_cuda.1t1r_mcs25_256qam_bw "nr_dlsim: 1T1R/1 layer, MCS 25 256QAM, 40 MHz 30 kHz SCS" nr_dlsim -n100 -R106 -b106 -P -e 25 -s30 -q 1 --loader.ldpc.shlibversion _cuda)
+  # code blocks with Z < 384 (Z = 352, 9 code blocks), whose punctured LLRs are cleared at the 68 * 384 stride
+  add_physim_test(nr_dlsim.ldpc_cuda.1t1r_mcs24_256qam_zc352 "nr_dlsim: 1T1R/1 layer, MCS 24 256QAM, 72 PRBs, Zc = 352" nr_dlsim -n100 -R106 -b72 -P -e 24 -s25 -S26 -q 1 --loader.ldpc.shlibversion _cuda)
+  add_physim_test(nr_dlsim.ldpc_cuda.1t1r_mcs26_1024qam_zc352 "nr_dlsim: 1T1R/1 layer, MCS 26 1024QAM, 51 PRBs, Zc = 352" nr_dlsim -n100 -R106 -b51 -P -e 26 -s36 -S37 -q 3 --loader.ldpc.shlibversion _cuda)
+  add_physim_test(nr_dlsim.ldpc_cuda.1t1r_mcs26_1024qam_bw "nr_dlsim: 1T1R/1 layer, MCS 26 1024QAM, 40 MHz 30 kHz SCS" nr_dlsim -n100 -R106 -b106 -P -e 26 -s37 -S38 -q 3 --loader.ldpc.shlibversion _cuda)
+  add_physim_test(nr_dlsim.ldpc_cuda.1t1r_mcs26_1024qam "nr_dlsim: 1T1R/1 layer, MCS 26 1024QAM, 100 MHz 30 kHz SCS" nr_dlsim -n50 -R273 -b273 -P -e 26 -s40 -S41 -q 3 --loader.ldpc.shlibversion _cuda)
+  add_physim_test(nr_dlsim.ldpc_cuda.4t4r_mcs26_1024qam "nr_dlsim: 4T4R/4 layers, MCS 26 1024QAM, 100 MHz 30 kHz SCS (160 code blocks)" nr_dlsim -n20 -R273 -b273 -P -e 26 -s48 -S49 -q 3 -x4 -y4 -z4 --loader.ldpc.shlibversion _cuda)
+  # 1 DMRS symbol, 144 RE/PRB: the most LLRs a TB has in the simulator
+  add_physim_test(nr_dlsim.ldpc_cuda.4t4r_mcs26_1024qam_1dmrs "nr_dlsim: 4T4R/4 layers, MCS 26 1024QAM, 100 MHz 30 kHz SCS, 1 DMRS symbol" nr_dlsim -n20 -R273 -b273 -P -e 26 -s48 -S49 -q 3 -x4 -y4 -z4 -U 3 0 0 1 --loader.ldpc.shlibversion _cuda)
 
   add_physim_test(nr_ulsim.ldpc_cuda.9seg_r13 "nr_ulsim: 9 segments, rate 1/3" nr_ulsim -n100 -s20 -m13 -R273 -r273 -W1 -y1 -z1 -P --loader.ldpc.shlibversion _cuda)
   add_physim_test(nr_ulsim.ldpc_cuda.18seg_r23 "nr_ulsim: 18 segments, rate 2/3" nr_ulsim -n100 -s20 -m22 -R273 -r273 -W1 -y1 -z1 -P --loader.ldpc.shlibversion _cuda)

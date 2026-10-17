@@ -62,6 +62,9 @@ extern int pageable, integrated;
 extern int8_t *p_llr_dev, *p_out_dev;
 int16_t **harq_d_array;
 int16_t *harq_d_array_dev;
+// LLRs of a TB: 4 layers, 14 symbols, 273 PRBs, 12 RE/PRB, 10 bits/RE (1024QAM)
+#define MAXE (4 * 14 * 273 * 12 * 10)
+
 int16_t *harq_e_dev;
 int16_t *harq_f_dev;
 pthread_mutex_t decoder_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -80,10 +83,8 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   // use seg0 as canonical
   const int C = segs->C;
   const int Z = segs->Z;
-  const int Kc = segs->BG == 2 ? 52 : 68;
   const int K = segs->K;
   const int Kprime = K - segs->F;
-  const int segLen = Kc * Z; // int16 length; after packing we store int8 [segLen]
   t_nrLDPC_time_stats procTime = {0};
   t_nrLDPC_time_stats *p_procTime = &procTime;
 
@@ -91,6 +92,8 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   int E1 = segs->E;
   int E2 = segs->E2;
   int r_firstE2 = segs->first_rE2;
+  const size_t G = (size_t)r_firstE2 * E1 + (size_t)(C - r_firstE2) * E2;
+  AssertFatal(G <= MAXE, "%zu LLRs, but the device buffers hold %d\n", G, MAXE);
 
   LOG_D(NR_PHY, "locking decoder (llr %p)\n", segs->llr);
   pthread_mutex_lock(&decoder_mutex);
@@ -100,11 +103,7 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   // for PCIe GPU copy llrs to device memory
   if (!pageable && !integrated) {
     LOG_I(NR_PHY, "gpuMemcpyAsynch llr->harq_f_dev\n");
-    gpuMemcpyAsync_or_fail(harq_f_dev,
-                           segs->llr,
-                           ((r_firstE2 * E1) + (C - r_firstE2) * E2) * sizeof(int16_t),
-                           gpuMemcpyHostToDevice,
-                           decoderStreams[0]);
+    gpuMemcpyAsync_or_fail(harq_f_dev, segs->llr, G * sizeof(int16_t), gpuMemcpyHostToDevice, decoderStreams[0]);
   }
 #if 0
   if (1/*segs->rv_index==2*/)
@@ -169,18 +168,22 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
                                 Kprime - 2 * Z,
                                 decoderStreams,
                                 0);
+  // The GPU rate recovery and the decoder place segment r at r * 68 * 384 (fixed maximum stride), not at r * Kc * Z
+  const size_t segStride = 68 * 384;
   for (int r = 0; r < C; ++r) {
-    gpuMemsetAsync(p_llr_dev + (size_t)r * segLen, 0, sizeof(int8_t) * 2 * Z, decoderStreams[0]);
+    gpuMemsetAsync(p_llr_dev + (size_t)r * segStride, 0, sizeof(int8_t) * 2 * Z, decoderStreams[0]);
 #if 0
-     int8_t llr_local[segLen];
+     int8_t llr_local[segStride];
      if (r==1 && segs->rv_index==2) {
-       gpuMemcpyAsync_or_fail(llr_local,p_llr_dev+(size_t)r*segLen,sizeof(int8_t)*segLen,gpuMemcpyDeviceToHost,decoderStreams[0]);
-       for (int i=0;i<segLen;i++) printf("llr(%d,%d,%d/%d) %d\n",segs->rv_index,r,i,segLen,llr_local[i]);
+       gpuMemcpyAsync_or_fail(llr_local,p_llr_dev+(size_t)r*segStride,sizeof(int8_t)*segStride,gpuMemcpyDeviceToHost,decoderStreams[0]);
+       for (int i=0;i<segStride;i++) printf("llr(%d,%d,%d/%zu) %d\n",segs->rv_index,r,i,segStride,llr_local[i]);
      }
 #endif
   }
 
 #else // USE_GPU_FOR_RM_DEINTER
+  const int Kc = segs->BG == 2 ? 52 : 68;
+  const int segLen = Kc * Z; // int16 length; after packing we store int8 [segLen]
   int16_t *z_local = (int16_t *)alloca(sizeof(int16_t) * segLen); // segLen is safe small
   for (int r = 0; r < C; ++r) {
     // deinterleave
@@ -254,8 +257,6 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   LOG_D(NR_PHY, "unlocking decoder (llr %p)\n", segs->llr);
   pthread_mutex_unlock(&decoder_mutex);
 }
-
-#define MAXE 4 * 14 * 273 * 12 * 8 // 4 antennas, 14 symbols, 273 PRBs, 12 RE/prb, 8 bits/RE
 
 void LDPCint_rm_init(int max_num_pxsch)
 {

@@ -719,7 +719,8 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
           maxMIMO_Layers = 1; // single antenna port
       }
       AssertFatal (maxMIMO_Layers > 0, "Invalid number of max MIMO layers for PUSCH\n");
-      pusch_config_pdu->tbslbrm = nr_compute_tbslbrm(pusch_config_pdu->mcs_table, sc_info->ul_bw_tbslbrm, maxMIMO_Layers);
+      pusch_config_pdu->tbslbrm =
+          nr_compute_tbslbrm(nr_get_max_Qm_ul(pusch_config_pdu->mcs_table), sc_info->ul_bw_tbslbrm, maxMIMO_Layers);
     } else
       pusch_config_pdu->tbslbrm = 0;
 

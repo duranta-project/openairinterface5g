@@ -1374,8 +1374,10 @@ static void setup_pdschconfig(NR_PDSCH_Config_t *source, NR_PDSCH_Config_t *targ
     if (!target->ext3)
       target->ext3 = calloc(1, sizeof(*target->ext3));
     UPDATE_IE(target->ext3->harq_ProcessNumberSizeDCI_1_1_r17, source->ext3->harq_ProcessNumberSizeDCI_1_1_r17, long);
+    UPDATE_IE(target->ext3->mcs_Table_r17, source->ext3->mcs_Table_r17, long);
   } else if (target->ext3) {
     free_and_zero(target->ext3->harq_ProcessNumberSizeDCI_1_1_r17);
+    free_and_zero(target->ext3->mcs_Table_r17);
   }
 }
 
