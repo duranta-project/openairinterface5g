@@ -5,6 +5,7 @@
 #include <vector>
 #include <map>
 #include <sys/eventfd.h>
+#include <sys/poll.h>
 #include <semaphore.h>
 
 
@@ -223,8 +224,8 @@ typedef struct timer_elm_s {
 
     AssertFatal (nb_events >=0,
                  "epoll_wait failed for task %s, nb fds %d, timeout %lu: %s!\n",
-                 itti_get_task_name(task_id), t->nb_fd_epoll, 
-                 t->next_timer != UINT64_MAX ? t->next_timer-current_time : -1, 
+                 itti_get_task_name(task_id), t->nb_fd_epoll,
+                 t->next_timer != UINT64_MAX ? t->next_timer-current_time : -1,
                  strerror(errno));
     LOG_D(ITTI,"receive on %d descriptors for %s\n", nb_events, itti_get_task_name(task_id));
 
@@ -281,6 +282,52 @@ typedef struct timer_elm_s {
     }
 
     pthread_mutex_unlock (&t->queue_cond_lock);
+  }
+
+  static uint64_t now_ms(void) {
+    struct timespec tp;
+    clock_gettime(CLOCK_MONOTONIC, &tp);
+    return (uint64_t)tp.tv_sec * 1000 + tp.tv_nsec / (1000 * 1000);
+  }
+
+  bool itti_send_and_receive_msg_to_task(task_id_t to_destination_task_id,
+                                               task_id_t to_origin_task_id,
+                                               MessageDef *to_destination_message,
+                                               MessageDef **to_origin_message,
+                                               int timeout_ms)
+  {
+    *to_origin_message = NULL;
+    itti_send_msg_to_task(to_destination_task_id, 0, to_destination_message);
+
+    task_list_t *t = tasks[to_origin_task_id];
+    uint64_t deadline = now_ms() + timeout_ms;
+
+    while (true) {
+      pthread_mutex_lock(&t->queue_cond_lock);
+      if (!t->message_queue.empty()) {
+        *to_origin_message = t->message_queue.back();
+        t->message_queue.pop_back();
+        pthread_mutex_unlock(&t->queue_cond_lock);
+        return true;
+      }
+      pthread_mutex_unlock(&t->queue_cond_lock);
+
+      int wait = -1;
+      if (timeout_ms >= 0) {
+        uint64_t now = now_ms();
+        if (now >= deadline)
+          return false;
+        wait = (int)(deadline - now);
+      }
+
+      struct pollfd pfd = {.fd = t->sem_fd, .events = POLLIN, .revents = 0};
+      int ret = poll(&pfd, 1, wait);
+      AssertFatal(ret >= 0 || errno == EINTR, "poll failed: %s", strerror(errno));
+      if (ret > 0) {
+        eventfd_t cnt;
+        eventfd_read(t->sem_fd, &cnt);
+      }
+    }
   }
 
   void itti_poll_msg(task_id_t task_id, MessageDef **received_msg) {
