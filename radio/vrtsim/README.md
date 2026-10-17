@@ -24,8 +24,8 @@ The `vrtsim` architecture follows a server-client model:
 
 # Limitations
 
- - Only 1gNB to 1nrUE: gNB as a server, UE as a client.
-
+ - 1gNB supports up to `MAX_MOBILES_PER_GNB` nrUE: gNB as a server, UE as a client.
+ - Real-time limitations might limit actual number of UEs that can be connected
 # Usage
 
 On the UE and gNB: use `device.name vrtsim` command line argument.
@@ -103,3 +103,66 @@ Example:
 ```
 
 Samples in bin 0 indicate realtime issues.
+
+
+# Multi-UE Demo
+ 
+Each UE can have different antenna configurations. Antenna offset multiplexing handles UL combining and DL distribution across UEs.
+
+For a demo on how to run multiple UEs with channel models see:
+https://gitlab.eurecom.fr/oai/raytracing-channel-emulator/-/blob/develop/server/external_taps/README.md?ref_type=heads 
+
+## Build VRTSIM
+```bash
+cd openairinterface5g/cmake_targets
+mkdir build; cd build;
+cmake ../.. -GNinja \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake --build . --target vrtsim rfsimulator nr-softmodem nr-uesoftmodem ldpc params_yaml params_libconfig -j"$(nproc)"
+```
+
+## Start 5G core network
+```bash
+cd oai-cn5g
+docker compose up -d
+```
+ 
+### Create network namespaces
+```bash
+sudo ip netns add ue0
+sudo ip netns add ue1
+```
+ 
+## Start gNB (e.g. 2x2 with multi-UE CIRDB)
+```bash
+sudo ./nr-softmodem \
+  -O ../../ci-scripts/conf_files/gnb.sa.band78.106prb.vrtsim.2x2.yaml \
+  --device.name vrtsim \
+  --vrtsim.role server \
+  --vrtsim.cirdb 0 --vrtsim.chanmod 0 \
+  --vrtsim.num_ues 2 \
+  --vrtsim.ue_config.[0].antennas "1x2" \
+  --vrtsim.ue_config.[1].antennas "2x2" \
+  --gNBs.[0].min_rxtxtime 8
+```
+ 
+## Start UE 0 (e.g. 1x2 antennas)
+```bash
+sudo ip netns exec ue0 ./nr-uesoftmodem \
+  -O ../../ci-scripts/conf_files/nrue.vrtsim.chanmod.yaml \
+  -C 3319680000 -r 106 --numerology 1 --ssb 516 --band 78 \
+  --device.name vrtsim --vrtsim.role client --vrtsim.ue_id 0 \
+  --ue-nb-ant-tx 1 --ue-nb-ant-rx 2 \
+  --uicc0.imsi 001010000000001
+```
+ 
+## Start UE 1 (e.g. 2x2 antennas)
+```bash
+sudo ip netns exec ue1 ./nr-uesoftmodem \
+  -O ../../ci-scripts/conf_files/nrue.vrtsim.chanmod.yaml \
+  -C 3319680000 -r 106 --numerology 1 --ssb 516 --band 78 \
+  --device.name vrtsim --vrtsim.role client --vrtsim.ue_id 1 \
+  --ue-nb-ant-tx 2 --ue-nb-ant-rx 2 \
+  --uicc0.imsi 001010000000002
+```
