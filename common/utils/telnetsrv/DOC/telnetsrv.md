@@ -6,3 +6,4 @@ The oai embedded telnet server is an optional monitoring and debugging tool. It 
 * [Adding commands to the oai telnet server](telnetaddcmd.md)
 * [telnet server architecture ](telnetarch.md)
 * [on the telnet O1 module](telneto1.md)
+* [on the telnet NTN module](telnetntn.md)
