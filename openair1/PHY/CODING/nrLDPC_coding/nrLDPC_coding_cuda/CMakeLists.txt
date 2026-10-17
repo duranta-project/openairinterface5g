@@ -15,6 +15,7 @@ add_library(ldpc_cuda MODULE
 
             nrLDPC_coding_segment_encoder_cuda.c
             nrLDPC_coding_segment_decoder_cuda.c
+            ldpc_unpack_output_cuda32.c
 )
 
 set(LDPC_GPU_KERNELS
