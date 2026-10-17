@@ -37,6 +37,9 @@
 #define NR_RRC_RECONFIGURATION_DELAY_MS 10
 #define NR_RRC_BWP_SWITCHING_DELAY_MS   6
 
+/* Arbitrary fallback timeout while waiting for the handover RRC container's RLC ACK. */
+#define NR_STOP_RRC_DELIVERY_TIMEOUT_MS 30000
+
 // #define DEBUG_DCI
 //  CQI TABLES (10 times the value in 214 to adequately compare with R)
 //  Table 1 (38.214 5.2.2.1-2)
@@ -3788,9 +3791,12 @@ static void nr_mac_ue_transmission_timeout(gNB_MAC_INST *mac, NR_UE_info_t *UE, 
   return;
 }
 
-int nr_transmission_action_indicator_stop(gNB_MAC_INST *mac, NR_UE_info_t *UE_info)
+int nr_transmission_action_indicator_stop(gNB_MAC_INST *mac, NR_UE_info_t *UE_info, bool await_rrc_delivery)
 {
   int delay = nr_mac_get_reconfig_delay_slots(UE_info->current_DL_BWP.scs);
+  if (await_rrc_delivery) {
+    delay = NR_STOP_RRC_DELIVERY_TIMEOUT_MS * UE_info->pcell->frame_structure.numb_slots_frame / 10;
+  }
   nr_mac_ue_transmission_timeout(mac, UE_info, delay);
   LOG_I(NR_MAC, "gNB-DU received the TransmissionActionIndicator with Stop value for UE %04x\n", UE_info->rnti);
   return 0;
@@ -3871,7 +3877,7 @@ void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
     }
     if (nr_timer_tick(&sched_ctrl->transm_timeout)) {
       nr_timer_stop(&sched_ctrl->transm_timeout);
-      LOG_W(NR_MAC, "UE %04x UL failure after transmission timeout\n", UE->rnti);
+      LOG_I(NR_MAC, "UE %04x: stopping transmission after timeout\n", UE->rnti);
       nr_mac_trigger_ul_failure(sched_ctrl, UE->current_DL_BWP.scs);
     }
     if (nr_timer_tick(&sched_ctrl->tci_beam_switch)) {
