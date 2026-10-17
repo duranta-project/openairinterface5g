@@ -30,7 +30,13 @@ int32_t signal_energy(int32_t *input,uint32_t length)
   recp1 = simde_mm_rcp_ps(simde_mm_cvtepi32_ps(simde_mm_set1_epi32(length)));
 
   //Acc
-  for (i = 0; i < (length >> 2); i++) {
+  int32_t tail[4] = {0};
+  for (i = 0; i < length; i += 4) {
+    if (length - i < 4) {
+      // zero-pad the last length % 4 samples: zeros add nothing to either sum
+      memcpy(tail, input, (length - i) * sizeof(*tail));
+      input = tail;
+    }
     in = simde_mm_loadu_si128((simde__m128i *)input);
     in_clp = simde_mm_subs_epi16(in, simde_mm_cmpeq_epi16(in, i16_min));//if in=SHRT_MIN in+1, else in
     num0 = simde_mm_add_ps(num0, simde_mm_cvtepi32_ps(simde_mm_madd_epi16(in_clp, in_clp)));
