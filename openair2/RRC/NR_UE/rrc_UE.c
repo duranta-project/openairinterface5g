@@ -815,9 +815,12 @@ static void nr_rrc_ue_process_RadioBearerConfig(NR_UE_RRC_INST_t *rrc, NR_RadioB
         rrc->keyToUse = *radioBearerConfig->securityConfig->keyToUse;
       }
       // When the field is not included, continue to use the currently configured security algorithm
-      if (radioBearerConfig->securityConfig->securityAlgorithmConfig) {
-        rrc->cipheringAlgorithm = radioBearerConfig->securityConfig->securityAlgorithmConfig->cipheringAlgorithm;
-        rrc->integrityProtAlgorithm = *radioBearerConfig->securityConfig->securityAlgorithmConfig->integrityProtAlgorithm;
+      const NR_SecurityAlgorithmConfig_t *algos = radioBearerConfig->securityConfig->securityAlgorithmConfig;
+      if (algos) {
+        rrc->cipheringAlgorithm = algos->cipheringAlgorithm;
+        // integrityProtAlgorithm is Need R (TS 38.331 §6.3.2 SecurityAlgorithmConfig): absence releases it
+        rrc->integrityProtAlgorithm =
+            algos->integrityProtAlgorithm ? *algos->integrityProtAlgorithm : NR_IntegrityProtAlgorithm_nia0;
       }
     }
     security_rrc_parameters = get_security_rrc_parameters(rrc, true);
