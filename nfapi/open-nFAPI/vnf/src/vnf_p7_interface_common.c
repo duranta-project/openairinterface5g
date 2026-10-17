@@ -76,6 +76,10 @@ int nfapi_vnf_p7_add_pnf(nfapi_vnf_p7_config_t *config, const char *pnf_p7_addr,
   node->slot = 0;
   node->min_sync_cycle_count = 8;
   node->mu = mu;
+  node->timing_window = 6500;
+  node->timing_info_period = 1;
+  pthread_mutex_init(&node->mutex, NULL);
+  pthread_cond_init(&node->initial_timinginfo_cond, NULL);
 #ifndef ENABLE_AERIAL
   // save the remote endpoint information
   node->remote_addr.sin_family = AF_INET;

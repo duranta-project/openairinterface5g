@@ -3700,7 +3700,7 @@ typedef struct
   nfapi_ipv6_address_t p7_pnf_address_ipv6;
   nfapi_uint16_tlv_t p7_pnf_port;
 
-  nfapi_uint8_tlv_t timing_window; //Value: 0 → 30,000 microseconds 
+  nfapi_uint16_tlv_t timing_window; //Value: 0 → 30,000 microseconds
   nfapi_uint8_tlv_t timing_info_mode;
   nfapi_uint8_tlv_t timing_info_period;
 
