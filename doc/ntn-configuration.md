@@ -47,12 +47,51 @@ channelmod = {
 ```
 This configuration is also provided in the file `targets/PROJECTS/GENERIC-NR-5GC/CONF/channelmod_rfsimu_LEO_satellite.conf`.
 
+### Trace-driven LEO satellite
+
+For a step-by-step guide, see [trace-based-ntn-tutorial.md](./trace-based-ntn-tutorial.md).
+
+Instead of the built-in circular orbit, both LEO channel models can follow a real satellite pass given as an orbital trace,
+e.g. generated from a TLE with the tools in [tools/ntn](../tools/ntn/README.md).
+The trace is a CSV file with the satellite ECEF position (`pos_x`, `pos_y`, `pos_z`, in m) and velocity
+(`vel_x`, `vel_y`, `vel_z`, in m/s) over time (`time_s` or `time_ms`).
+The trace mode is enabled per channel model with these parameters:
+
+| Parameter | Description | Default |
+| --- | --- | --- |
+| `sat_trace_file` | path to the orbital trace CSV | `""` (built-in orbit) |
+| `pos_ue_x`, `pos_ue_y`, `pos_ue_z` | UE ECEF position (m) | `0, 0, 6377900` |
+| `pos_gnb_x`, `pos_gnb_y`, `pos_gnb_z` | gNB ground station ECEF position (m), `SAT_LEO_TRANS` only | `0, 0, 6377900` |
+| `sat_interp_zoh` | `0`: linear interpolation between trace samples, `1`: zero-order hold | `0` |
+
+The satellite state at time `t` after the UE connected is interpolated from the trace (held at the last sample after the
+trace end). From it, the channel model computes
+
+- `SAT_LEO_TRANS`: delay of the service link (UE - satellite) plus the feeder link (satellite - gNB), and Doppler of the
+  service link only, the feeder link Doppler being compensated by the network as with the built-in orbit,
+- `SAT_LEO_REGEN`: delay and Doppler of the service link only, the gNB being on the satellite.
+
+As with the built-in orbit, the UL channel model (gNB side) updates SIB19 every frame:
+the ephemeris with the satellite position and velocity, and for `SAT_LEO_TRANS` `ta-Common`, `ta-CommonDrift` and `ta-CommonDriftVariant` from the feeder link.
+
+The initial SIB19 values in the gNB configuration, `cellSpecificKoffset_r17`, `rfsimulator.prop_delay` and the UE options `--initial-fo` and `--ntn-initial-time-drift` must match the trace start. `tools/ntn/calc_ntn_parameters.py` computes them:
+
+```
+python3 tools/ntn/calc_ntn_parameters.py tools/ntn/data/orbital_trace_s_300.csv \
+  --ue=-3310204.0,-5006785.1,2157610.7 --gnb=-3310204.0,-5006785.1,2157610.7 --fc 2488400000
+```
+An example using the sample trace is provided in `targets/PROJECTS/GENERIC-NR-5GC/CONF/channelmod_rfsimu_LEO_trace.conf`.
+
 Additionally, rfsimulator has to be configured to apply the channel model.
+
 This can be done by either providing this line in the conf file in section `rfsimulator`:
+
 ```
   options = ("chanmod");
 ```
+
 Or by providing this the the command line parameters:
+
 ```
 --rfsimulator.[0].options chanmod
 ```
