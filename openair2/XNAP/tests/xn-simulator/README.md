@@ -59,13 +59,13 @@ To run this test, you need to setup the 5G Core Network, build the tester and co
 Pull the required Docker images for the OAI 5G Core:
 
     docker pull oaisoftwarealliance/ims:latest
-    docker pull oaisoftwarealliance/oai-amf:v2.2.1
-    docker pull oaisoftwarealliance/oai-nrf:v2.2.1
-    docker pull oaisoftwarealliance/oai-smf:v2.2.1
-    docker pull oaisoftwarealliance/oai-udr:v2.2.1
-    docker pull oaisoftwarealliance/oai-upf:v2.2.1
-    docker pull oaisoftwarealliance/oai-udm:v2.2.1
-    docker pull oaisoftwarealliance/oai-ausf:v2.2.1
+    docker pull oaisoftwarealliance/oai-amf:develop
+    docker pull oaisoftwarealliance/oai-nrf:develop
+    docker pull oaisoftwarealliance/oai-smf:develop
+    docker pull oaisoftwarealliance/oai-udr:develop
+    docker pull oaisoftwarealliance/oai-upf:develop
+    docker pull oaisoftwarealliance/oai-udm:develop
+    docker pull oaisoftwarealliance/oai-ausf:develop
 
 Deploy the network using the docker compose file:
 
