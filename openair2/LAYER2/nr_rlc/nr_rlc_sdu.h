@@ -46,4 +46,15 @@ void nr_rlc_sdu_segment_list_append(nr_rlc_sdu_segment_t **list,
                                     nr_rlc_sdu_segment_t *sdu);
 void nr_rlc_free_sdu_segment_list(nr_rlc_sdu_segment_t *l);
 
+/* Between begin and end, nr_rlc_free_sdu_segment() on this thread still does the
+ * reference counting (so its return value is unchanged) but queues the free() calls,
+ * which end then makes.  For callers that free under the RLC manager lock: one RLC AM
+ * STATUS PDU can acknowledge thousands of SDUs, two free() each, and at ~700 Mbps DL that
+ * held the lock up to 2.4 ms while the MAC scheduler waited for it under sched_lock. */
+void nr_rlc_defer_free_begin(void);
+void nr_rlc_defer_free_end(void);
+/* start the rlc_free thread that end() then hands the frees to; call from a non-RT
+ * init path, the thread inherits the caller's affinity */
+void nr_rlc_free_thread_start(void);
+
 #endif /* _NR_RLC_SDU_H_ */
