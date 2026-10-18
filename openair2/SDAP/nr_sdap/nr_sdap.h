@@ -43,8 +43,8 @@ void sdap_data_ind(int drb_id, int is_gnb, int pdusession_id, ue_id_t ue_id, cha
 void start_sdap_tun_gnb_first_ue_default_pdu_session(ue_id_t ue_id, int pdu_session_id);
 void nr_sdap_generate_gnb_tun_ifname(char *ifname, ue_id_t ue_id);
 void nr_sdap_tun_bind(struct nr_sdap_entity_s *entity, int sock, int qfi);
-void nr_sdap_tun_stop_reader(pthread_t *thread);
+void nr_sdap_tun_stop_reader(struct nr_sdap_entity_s *entity, pthread_t *thread);
 void nr_sdap_tun_start_reader(struct nr_sdap_entity_s *entity, pthread_t *thread, char *name);
-void nr_sdap_tun_start_idle_listener(ue_id_t ue_id, int pdu_session_id, int sock, pthread_t *thread);
+void nr_sdap_tun_start_idle_listener(ue_id_t ue_id, int pdu_session_id, int sock, pthread_t *thread, _Atomic(bool) *run_flag);
 
 #endif

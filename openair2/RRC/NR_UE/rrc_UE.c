@@ -730,8 +730,13 @@ static void nr_rrc_ue_tun_stop_readers(ue_id_t ue_id)
   nr_ue_nas_t *nas = get_ue_nas_info(ue_id);
   for (int psi = 1; psi < MAX_NUM_PSI; psi++) {
     nas_ue_pdu_tun_t *t = &nas->pdu_tun[psi];
-    if (nas->psi_status[psi] != PDU_SESSION_INACTIVE && t->sock >= 0)
-      nr_sdap_tun_stop_reader(&t->reader_thread);
+    if (nas->psi_status[psi] != PDU_SESSION_INACTIVE && t->sock >= 0) {
+      if (t->reader_thread != 0) {
+        atomic_store(&t->idle_run_flag, false); // Signal idle listener if running
+        nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, psi);
+        nr_sdap_tun_stop_reader(entity, &t->reader_thread);
+      }
+    }
   }
 }
 
@@ -742,8 +747,10 @@ static void nr_rrc_ue_tun_start_idle_listeners(ue_id_t ue_id)
   nr_ue_nas_t *nas = get_ue_nas_info(ue_id);
   for (int psi = 1; psi < MAX_NUM_PSI; psi++) {
     nas_ue_pdu_tun_t *t = &nas->pdu_tun[psi];
-    if (nas->psi_status[psi] != PDU_SESSION_INACTIVE && t->sock >= 0)
-      nr_sdap_tun_start_idle_listener(ue_id, psi, t->sock, &t->reader_thread);
+    if (nas->psi_status[psi] != PDU_SESSION_INACTIVE && t->sock >= 0) {
+      atomic_store(&t->idle_run_flag, true); // Initialize the flag
+      nr_sdap_tun_start_idle_listener(ue_id, psi, t->sock, &t->reader_thread, &t->idle_run_flag);
+    }
   }
 }
 
@@ -757,7 +764,13 @@ static void nr_rrc_ue_tun_start_user_plane(ue_id_t ue_id, int pdusession_id, int
   DevAssert(reader_thread != NULL);
   nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pdusession_id);
   DevAssert(entity != NULL);
-  nr_sdap_tun_stop_reader(reader_thread);
+
+  // Signal the caller-owned flag in case the idle listener is the one currently running
+  nr_ue_nas_t *nas = get_ue_nas_info(ue_id);
+  atomic_store(&nas->pdu_tun[pdusession_id].idle_run_flag, false);
+
+  nr_sdap_tun_stop_reader(entity, reader_thread);
+
   nr_sdap_tun_bind(entity, sock, qfi);
   char name[64];
   snprintf(name, sizeof(name), "ue_tun_read_%ld_p%d", ue_id, pdusession_id);
@@ -1819,7 +1832,7 @@ void process_nsa_message(NR_UE_RRC_INST_t *rrc, nsa_message_t nsa_message_type, 
       ASN_STRUCT_FREE(asn_DEF_NR_RadioBearerConfig, RadioBearerConfig);
     }
     break;
-    
+
     default:
       AssertFatal(1==0,"Unknown message %d\n",nsa_message_type);
       break;
@@ -2063,7 +2076,7 @@ static void nr_rrc_ue_decode_NR_BCCH_BCH_Message(NR_UE_RRC_INST_t *rrc,
   }
   if (LOG_DEBUGFLAG(DEBUG_ASN1))
     xer_fprint(stdout, &asn_DEF_NR_BCCH_BCH_Message, (void *)bcch_message);
-    
+
   // Actions following cell selection while T311 is running
   NR_UE_Timers_Constants_t *timers = &rrc->timers_and_constants;
   if (nr_timer_is_active(&timers->T311)) {
