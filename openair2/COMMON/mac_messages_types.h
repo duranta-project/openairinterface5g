@@ -12,6 +12,7 @@
 #include <LTE_DRX-Config.h>
 #include "OCTET_STRING.h"
 #include "NR_MAC_gNB/mac_config.h"
+#include "RRC/NR_UE/nr_mac_rrc_types.h"
 
 //-------------------------------------------------------------------------------------------//
 // Defines to access message fields.
@@ -115,6 +116,7 @@ typedef struct NRRrcMacBcchDataInd_s {
   uint8_t   sdu[BCCH_SDU_SIZE];
   uint8_t   gnb_index;
   bool      is_bch;
+  nr_ue_mib_metadata_t mib_metadata;
   uint8_t   rsrq;
   uint8_t   rsrp;
   uint32_t  phycellid;
