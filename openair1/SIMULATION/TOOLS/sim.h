@@ -604,7 +604,6 @@ void do_DL_sig(sim_t *sim,
                uint8_t UE_id,
                int CC_id);
 
-void do_UL_sig(sim_t *sim, uint16_t subframe, uint8_t abstraction_flag, LTE_DL_FRAME_PARMS *frame_parms, uint32_t frame, int ru_id, uint8_t CC_id, int NB_UEs);
 int get_noise_power_dBFS(void);
 
 #endif
