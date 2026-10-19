@@ -45,6 +45,17 @@ static void configure_dlsch(NR_UE_DLSCH_t *dlsch,
     return;
   }
 
+  /* Retransmission of a TB this HARQ process already decoded (the gNB missed our ACK): its soft
+   * buffer is no longer valid for combining, so decoding again would fail and NACK it every round.
+   * TS 38.321 5.3.2.2: for a TB previously successfully decoded, generate an ACK. */
+  if (!dlsch->cw_info.new_data_indicator && dlsch->rnti_type == TYPE_C_RNTI_ && dlsch_harq->status == NR_SCH_IDLE
+      && dlsch_harq->decodeResult) {
+    dlsch->active = false;
+    LOG_D(PHY, "DLSCH harq pid %d: retransmission of an already decoded TB, ACK again\n", current_harq_pid);
+    update_harq_status(mac, current_harq_pid, cw_idx, 1);
+    return;
+  }
+
   /* Do not clear first_rx on a retransmission: decode never ran still needs to re-segment. */
   if (dlsch->cw_info.new_data_indicator) {
     dlsch_harq->first_rx = true;
