@@ -5,6 +5,8 @@
 #ifndef __LAYER2_NR_MAC_COMMON_H__
 #define __LAYER2_NR_MAC_COMMON_H__
 
+#include <stdint.h>
+#include <time.h>
 #include "NR_MIB.h"
 #include "NR_CellGroupConfig.h"
 #include "NR_UE-NR-Capability.h"
@@ -444,4 +446,15 @@ uint8_t getNRBG(uint16_t bwp_size, uint16_t bwp_start, long rbg_size_config);
  * @param epoch_sfn      [out] SFN of the epoch
  * @param epoch_subframe [out] subframe of the epoch */
 void nr_sib19_epoch_from_lead(int frame, int subframe, int lead_ms, int *epoch_sfn, int *epoch_subframe);
+
+/** @brief Lead of a SIB19 epoch given in UTC over the current time, in ms, rounded to the nearest ms.
+ *
+ * For SIB19 updates from a source that dates the satellite in UTC and whose clock agrees with the clock
+ * of the gNB host (the same host, or hosts synchronized by NTP or PTP): the lead then places the epoch
+ * with nr_sib19_epoch_from_lead(), and the time the update takes to reach the gNB does not move it.
+ *
+ * @param epoch_utc_ms UTC time of the epoch, in ms since 1970-01-01, >= 0
+ * @param now          current time of the gNB host, from clock_gettime(CLOCK_REALTIME)
+ * @return lead in ms, half a ms rounded up; negative if the epoch is past */
+int64_t nr_sib19_lead_from_utc(int64_t epoch_utc_ms, const struct timespec *now);
 #endif
