@@ -1482,6 +1482,16 @@ static E1AP_PDU_Session_Resource_To_Modify_Item_t e1_encode_pdu_session_to_mod_i
       asn1cSequenceAdd(flow_Mapping_Information->list, E1AP_QoS_Flow_QoS_Parameter_Item_t, ie1_2);
       *ie1_2 = e1_encode_qos_flow_to_setup(k);
     }
+    // PDCP COUNT Reset (O)
+    if (j->pdcp_count_reset) {
+      E1AP_ProtocolExtensionContainer_6857P49_t *ext = calloc_or_fail(1, sizeof(*ext));
+      drb2Mod->iE_Extensions = (struct E1AP_ProtocolExtensionContainer *)ext;
+      asn1cSequenceAdd(ext->list, E1AP_DRB_To_Modify_Item_NG_RAN_ExtIEs_t, pdcp_count_reset);
+      pdcp_count_reset->id = E1AP_ProtocolIE_ID_id_PDCP_COUNT_Reset;
+      pdcp_count_reset->criticality = E1AP_Criticality_reject;
+      pdcp_count_reset->extensionValue.present = E1AP_DRB_To_Modify_Item_NG_RAN_ExtIEs__extensionValue_PR_PDCP_COUNT_Reset;
+      pdcp_count_reset->extensionValue.choice.PDCP_COUNT_Reset = E1AP_PDCP_COUNT_Reset_true;
+    }
   }
   // DRB To Remove List (O)
   if (in->n_drb_to_remove > 0) {
@@ -1794,6 +1804,25 @@ static bool e1_decode_pdu_session_to_mod_item(pdu_session_to_mod_t *out, const E
       drb->numQosFlowsMod = qos2SetupList->list.count;
       for (int k = 0; k < qos2SetupList->list.count; k++) {
         CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(drb->qosFlows + k, qos2SetupList->list.array[k]));
+      }
+    }
+    if (drb2Mod->iE_Extensions) {
+      E1AP_ProtocolExtensionContainer_6857P49_t *ext = (E1AP_ProtocolExtensionContainer_6857P49_t *)drb2Mod->iE_Extensions;
+      for (int i = 0; i < ext->list.count; i++) {
+        E1AP_DRB_To_Modify_Item_NG_RAN_ExtIEs_t *elt = ext->list.array[i];
+        switch (elt->id) {
+          case E1AP_ProtocolIE_ID_id_PDCP_COUNT_Reset:
+            /* PDCP COUNT reset (O) */
+            /* sanity checks */
+            if (elt->extensionValue.present != E1AP_DRB_To_Modify_Item_NG_RAN_ExtIEs__extensionValue_PR_PDCP_COUNT_Reset
+                || elt->extensionValue.choice.PDCP_COUNT_Reset != E1AP_PDCP_COUNT_Reset_true)
+              break;
+            drb->pdcp_count_reset = true;
+            break;
+          default:
+            /* other unsupported extensions silently ignored */
+            break;
+        }
       }
     }
   }

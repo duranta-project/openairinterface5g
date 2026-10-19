@@ -396,6 +396,8 @@ typedef struct DRB_nGRAN_to_modify_s {
   // Flow Mapping Information (O) (clause 9.3.1.25, 9.3.1.26)
   int numQosFlowsMod;
   qos_flow_to_setup_t qosFlows[E1AP_MAX_NUM_QOS_FLOWS];
+  // PDCP COUNT Reset (O) (extension, from release 17)
+  bool pdcp_count_reset;
 } DRB_nGRAN_to_mod_t;
 
 /* DRB To Remove Item (NG-RAN) clause 9.3.1.11 */
