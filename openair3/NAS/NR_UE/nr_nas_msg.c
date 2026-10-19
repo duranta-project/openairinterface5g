@@ -2561,13 +2561,42 @@ static void handle_service_reject(nr_ue_nas_t *nas, const byte_array_t *buffer)
   /* If still 5GMM-IDLE (MO path stopped them for SR), restart idle TUN listeners */
   if (nas->fiveGMM_mode == FGS_IDLE)
     send_nas_tun_req_action(nas, NAS_TUN_START_IDLE_LISTENER);
+  // The buffer is the whole NAS PDU: skip the security protected header, if any, and the 5GMM header.
+  const uint8_t *pdu = buffer->buf;
+  const uint8_t *end = buffer->buf + buffer->len;
+  if (buffer->len > 1 && pdu[1] != PLAIN_5GS_MSG) {
+    fgs_nas_message_security_header_t sp_header = {0};
+    const int decoded = decode_5gs_security_protected_header(&sp_header, pdu, end - pdu);
+    if (decoded < 0) {
+      LOG_E(NAS, "Service Reject: failed to decode security protected header\n");
+      return;
+    }
+    pdu += decoded;
+  }
+  fgmm_msg_header_t mm_header = {0};
+  const int decoded = decode_5gmm_msg_header(&mm_header, pdu, end - pdu);
+  if (decoded < 0 || mm_header.message_type != FGS_SERVICE_REJECT) {
+    LOG_E(NAS, "Service Reject: failed to decode NAS message header\n");
+    return;
+  }
+  pdu += decoded;
+  const byte_array_t ba = {.buf = (uint8_t *)pdu, .len = end - pdu};
   fgs_service_reject_msg_t msg = {0};
-  decode_fgs_service_reject(&msg, buffer);
+  if (decode_fgs_service_reject(&msg, &ba) < 0) {
+    LOG_E(NAS, "Service Reject: failed to decode NAS message body\n");
+    return;
+  }
   // Extract timer t3448 in seconds (optional IE)
   nas->t3448 = process_gprs_timer(msg.t3448);
   // Extract timer t3446 in seconds (optional IE)
   nas->t3446 = process_gprs_timer(msg.t3446);
-  LOG_E(NAS, "Received NAS Service Reject message with cause %s\n", fgmm_cause_s[msg.cause].text);
+  LOG_E(NAS, "Received NAS Service Reject message with cause %s\n", print_info(msg.cause, fgmm_cause_s, sizeofArray(fgmm_cause_s)));
+  /* TS 24.501 §5.6.1.5: apart from congestion (retry after T3446), the network no longer accepts this
+   * UE's registration (e.g. #9 UE identity cannot be derived, #10 implicitly de-registered) and a
+   * new registration is needed. Retrying the Service Request would loop forever, and a NAS detach only
+   * parks the UE: exit, so the supervisor restarts it with an initial registration. */
+  if (msg.cause != Congestion)
+    exit_function(__FILE__, __func__, __LINE__, "Service Reject: the network needs a new registration", OAI_EXIT_NORMAL);
 }
 
 /** @brief Handle Registration Reject (8.2.7 / 5.5.1.2.5 of 3GPP TS 24.501)
