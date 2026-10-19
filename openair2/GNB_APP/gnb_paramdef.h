@@ -1042,6 +1042,20 @@ typedef enum {
 #define CONFIG_NR_PDCP_DISCARD_TIMER "discard_timer"
 
 /*----------------------------------------------------------------------*/
+/* nr pdcp global configuration                                         */
+/*----------------------------------------------------------------------*/
+
+#define CONFIG_STRING_NR_PDCP "pdcp"
+
+#define CONFIG_NR_PDCP_MAX_COUNT "max_count"
+
+#define NR_PDCP_GLOBALPARAMS_DESC { \
+    { CONFIG_NR_PDCP_MAX_COUNT, "max_count", 0, .uptr=NULL, \
+      .defuintval=(uint32_t)3 * (uint32_t)1024 * (uint32_t)1024 * (uint32_t)1024, \
+      TYPE_UINT32, 0 } \
+}
+
+/*----------------------------------------------------------------------*/
 /* nr pdcp drb configuration                                            */
 /*----------------------------------------------------------------------*/
 

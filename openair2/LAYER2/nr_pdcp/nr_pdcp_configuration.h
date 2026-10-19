@@ -43,6 +43,7 @@
 
 /* configuration of NR PDCP, coming from configuration file */
 typedef struct {
+  uint32_t max_count;       /* value after which PDCP signals RRC (or E1AP) about COUNT being close to exhaustion */
   struct {
     int sn_size;
     int t_reordering;
