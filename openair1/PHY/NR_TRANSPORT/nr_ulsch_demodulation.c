@@ -650,7 +650,8 @@ static void nr_pusch_symbol_processing(void *arg)
     for (int u = 0; u < rdata->group_size; u++) {
       // layer de-mapping
       const int ue_layers = rdata->rel15_ul_group[u]->nrOfLayers;
-      const int qam = rdata->rel15_ul_group[u]->qam_mod_order;
+      // same for all UEs of the group, see nr_rx_pusch_group_tp()
+      const int qam = rel15_ul->qam_mod_order;
       // layer demapping writes nb_re_pusch * ue_layers * qam LLRs
       int size = ue_layers * buffer_length * qam;
       int16_t *llr_ptr;
@@ -839,6 +840,14 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   int layer_offset[group_size];
   for (int u = 0; u < group_size; u++) {
     const nfapi_nr_pusch_pdu_t *p = rel15_ul_group[u];
+    // the joint receiver demodulates all layers with the allocation and modulation of the first UE
+    AssertFatal(p->qam_mod_order == rel15_ul_ref->qam_mod_order && p->rb_start == rel15_ul_ref->rb_start
+                    && p->rb_size == rel15_ul_ref->rb_size && p->start_symbol_index == rel15_ul_ref->start_symbol_index
+                    && p->nr_of_symbols == rel15_ul_ref->nr_of_symbols && p->ul_dmrs_symb_pos == rel15_ul_ref->ul_dmrs_symb_pos,
+                "MU-MIMO group UE %d (rnti %04x): qam, RBs, symbols and DMRS positions must match UE 0 (rnti %04x)\n",
+                u,
+                p->rnti,
+                rel15_ul_ref->rnti);
     combined_dmrs_ports |= p->dmrs_ports;
     layer_offset[u] = total_layers;
     total_layers += rel15_ul_group[u]->nrOfLayers;
