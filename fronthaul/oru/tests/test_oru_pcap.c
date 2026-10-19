@@ -92,6 +92,7 @@ static int ref_prach_section_id = -1;
 static struct {
   uint64_t pkts, cplane_dl, cplane_ul, cplane_prach, ext, uplane, iq_samples, errors;
   uint64_t dl_symbols_read, dl_symbols_silent, dl_iq_checked, dl_iq_errors, dl_iq_bad_symbols;
+  uint64_t bfw_dl_streams, bfw_ul_jobs; // DL streams and UL jobs whose extracted weights were checked
 } ref_cnt;
 
 #define REF_CHECK(cond, ...)               \
@@ -490,6 +491,77 @@ static void place_dl_streams(uint32_t **txdataF, const dl_iq_stream_t *streams, 
   }
 }
 
+// Weights the processor extracted for a section of PRB element k: get_bf_weights() on every bundle must give the beamId
+// and weights the generator put in that section's extension (ref_check_ext1() / ref_check_ext11())
+static void ref_check_bfw(void *ctx, const oru_bfw_set_t *set, int ant, int slot, int start_prb, bool dl)
+{
+  const ref_prb_elm_t *tbl = dl ? ref_dl_elm : ref_ul_elm;
+  int n_elm = dl ? REF_NUM_DL_ELM : REF_NUM_UL_ELM;
+  int k = -1;
+  for (int e = 0; e < n_elm; e++)
+    if (start_prb >= tbl[e].start_prb && start_prb < tbl[e].start_prb + tbl[e].num_prb)
+      k = e;
+  REF_CHECK(k >= 0, "%s weights: PRB %d not in the PRB element table", dl ? "DL" : "UL", start_prb);
+  int n_bundles = ref_ext_type == 1 ? 1 : (tbl[k].num_prb + REF_EXT11_BUND_PRB - 1) / REF_EXT11_BUND_PRB;
+  int bundle_prbs = ref_ext_type == 1 ? tbl[k].num_prb : REF_EXT11_BUND_PRB;
+  REF_CHECK(set->num_bundles == n_bundles && set->bundle_prbs == bundle_prbs && set->first_prb == tbl[k].start_prb,
+            "%s ant %d slot %d elm %d weights: %d bundles of %d PRBs from PRB %d, expected %d of %d from %d",
+            dl ? "DL" : "UL",
+            ant,
+            slot,
+            k,
+            set->num_bundles,
+            set->bundle_prbs,
+            set->first_prb,
+            n_bundles,
+            bundle_prbs,
+            tbl[k].start_prb);
+  for (int b = 0; b < n_bundles; b++) {
+    uint16_t beam_id;
+    c16_t w[REF_NUM_BF_ELM];
+    int n = get_bf_weights(ctx, set, b, &beam_id, w);
+    REF_CHECK(n == REF_NUM_BF_ELM, "%s ant %d slot %d elm %d bundle %d: get_bf_weights() %d", dl ? "DL" : "UL", ant, slot, k, b, n);
+    int exp_beam = ref_ext_type == 1 ? k + 1 : 0x7000 + b;
+    REF_CHECK(beam_id == exp_beam,
+              "%s ant %d slot %d elm %d bundle %d: beamId %d, expected %d",
+              dl ? "DL" : "UL",
+              ant,
+              slot,
+              k,
+              b,
+              beam_id,
+              exp_beam);
+    for (int j = 0; j < REF_NUM_BF_ELM; j++) {
+      // ext1 weight j is buffer element j of PRB block k; ext11 weight j of bundle b is buffer element 16 * b + j
+      int e = ref_ext_type == 1 ? j : REF_NUM_BF_ELM / 2 * b + j;
+      c16_t exp = {1024 * ant + e % REF_NUM_BF_ELM,
+                   300 * (slot % REF_NUM_SLOTS_FILE) + (ref_ext_type == 1 ? k : e / REF_NUM_BF_ELM)};
+      REF_CHECK(w[j].r == exp.r && w[j].i == exp.i,
+                "%s ant %d slot %d elm %d bundle %d extracted weight %d: (%d,%d), expected (%d,%d)",
+                dl ? "DL" : "UL",
+                ant,
+                slot,
+                k,
+                b,
+                j,
+                w[j].r,
+                w[j].i,
+                exp.r,
+                exp.i);
+    }
+  }
+  if (dl)
+    ref_cnt.bfw_dl_streams++;
+  else
+    ref_cnt.bfw_ul_jobs++;
+}
+
+static void ref_check_dl_bfw(void *ctx, const dl_iq_stream_t *streams, int num_streams, int slot)
+{
+  for (int i = 0; i < num_streams; i++)
+    ref_check_bfw(ctx, &streams[i].bfw, streams[i].ant_id, slot, streams[i].start_prb, true);
+}
+
 // Returns true if the reference capture passed: all packets as generated, all expected messages present,
 // and the processor's DL IQ equal to what was sent
 static bool ref_report(uint64_t exp_c, uint64_t exp_u, uint64_t exp_prach)
@@ -519,6 +591,12 @@ static bool ref_report(uint64_t exp_c, uint64_t exp_u, uint64_t exp_prach)
       ref_cnt.iq_samples,
       incomplete,
       ref_cnt.errors);
+  printf("xran ext%d reference: extracted weights checked for %lu DL streams (expected %lu), %lu UL jobs (expected %lu)\n",
+         ref_ext_type,
+         ref_cnt.bfw_dl_streams,
+         exp_u,
+         ref_cnt.bfw_ul_jobs,
+         ref_cnt.cplane_ul);
   printf(
       "xran ext%d reference: read_dl_iq %lu scheduled symbols (expected %lu) + %lu silent, %lu IQ samples checked, %lu wrong "
       "in %lu symbols\n",
@@ -531,7 +609,8 @@ static bool ref_report(uint64_t exp_c, uint64_t exp_u, uint64_t exp_prach)
       ref_cnt.dl_iq_bad_symbols);
   return ref_cnt.errors == 0 && incomplete == 0 && ref_cnt.cplane_dl + ref_cnt.cplane_ul == exp_c
          && ref_cnt.cplane_prach == exp_prach && ref_cnt.ext == exp_c + exp_prach && ref_cnt.uplane == exp_u
-         && ref_cnt.dl_symbols_read == exp_dl_symbols && ref_cnt.dl_iq_errors == 0;
+         && ref_cnt.dl_symbols_read == exp_dl_symbols && ref_cnt.dl_iq_errors == 0 && ref_cnt.bfw_dl_streams == exp_u
+         && ref_cnt.bfw_ul_jobs == ref_cnt.cplane_ul;
 }
 
 int main(int argc, char *argv[])
@@ -740,6 +819,8 @@ int main(int argc, char *argv[])
             ul_job_t job;
             int poll_ret = poll_ul_job(ctx, &job);
             if (poll_ret == 0) {
+              if (ref_ext_type)
+                ref_check_bfw(ctx, &job.bfw, job.antenna_id, job.slot_in_frame, job.start_prb, false);
               for (int i = 0; i < job.num_symbols; i++) {
                 write_ul_iq(ctx, txdataF[0], job.symbol + i, &job);
               }
@@ -757,6 +838,7 @@ int main(int argc, char *argv[])
               if (ref_ext_type) {
                 place_dl_streams(txdataF, dl_streams, n);
                 ref_check_dl_iq(txdataF, f, sl, sy);
+                ref_check_dl_bfw(ctx, dl_streams, n, sl);
               }
             }
           }
@@ -789,6 +871,7 @@ int main(int argc, char *argv[])
       if (ref_ext_type) {
         place_dl_streams(txdataF, dl_streams, n);
         ref_check_dl_iq(txdataF, f, sl, sy);
+        ref_check_dl_bfw(ctx, dl_streams, n, sl);
       }
     }
   }
@@ -824,6 +907,9 @@ int main(int argc, char *argv[])
   printf("  C-Plane Malformed Section Extension Chain Errors: %lu\n", stats.cplane_err_sect_ext_chain);
   printf("  C-Plane Malformed Section Extension Other Errors: %lu\n", stats.cplane_err_sect_ext_other);
   printf("  PRACH C-Plane Packets: %lu\n", stats.cplane_received_prach);
+  printf("  Beamforming Weight Updates: %lu\n", stats.bfw_updates);
+  printf("  Beamforming Weight Pool Exhausted Errors: %lu\n", stats.bfw_pool_exhausted);
+  printf("  Beamforming Weights Stale Errors: %lu\n", stats.bfw_stale);
 
   pcap_close(pcap);
   cleanup_packet_processor(ctx);
@@ -857,6 +943,10 @@ int main(int argc, char *argv[])
   }
   if (ref_prach && stats.cplane_received_prach != ref_exp_prach) {
     printf("FAIL: %lu PRACH C-plane received by the processor, expected %lu\n", stats.cplane_received_prach, ref_exp_prach);
+    return 1;
+  }
+  if (ref_ext_type && (stats.bfw_pool_exhausted != 0 || stats.bfw_stale != 0)) {
+    printf("FAIL: %lu weight vectors dropped (pool exhausted), %lu read stale\n", stats.bfw_pool_exhausted, stats.bfw_stale);
     return 1;
   }
   if (ref_ext_type && !ref_report(ref_exp_cplane, ref_exp_uplane, ref_exp_prach)) {
