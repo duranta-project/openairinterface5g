@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include "PHY/defs_nr_common.h"
+#include "common/utils/time_meas.h"
 
 #define DMRS_MOD_ORDER 2
 /*Precoding matices: W[pmi][antenna_port][layer]*/
@@ -58,6 +59,18 @@ void nr_layer_mapping(int nbCodes,
 */
 void nr_ue_layer_mapping(const c16_t *mod_symbs, const int n_layers, const int n_symbs, c16_t tx_layers[][n_symbs]);
 
+/// Demodulates one symbol on every RX antenna: DFT, FFT shift, phase compensation.
+/// @param rxdata per antenna, the first sample of the DFT window
+/// @param rxdataF per antenna, ofdm_symbol_size bins, FFT shifted
+/// @param dft_stats may be NULL
+void nr_symbol_fep(const NR_DL_FRAME_PARMS *frame_parms,
+                   const int slot,
+                   const unsigned char symbol,
+                   const int link_type,
+                   c16_t *rxdata[frame_parms->nb_antennas_rx],
+                   c16_t *rxdataF[frame_parms->nb_antennas_rx],
+                   time_stats_t *dft_stats);
+
 /*!
 \brief This function implements the OFDM front end processor on reception (FEP)
 \param frame_parms Pointer to frame parameters
@@ -91,6 +104,24 @@ void nr_beam_precoding(c16_t **txdataF,
                        int aa,
                        int nb_antenna_ports,
                        int offset);
+
+/// Modulates one symbol of a slot: phase pre-compensation (none if symbol_rotation is NULL),
+/// inverse FFT shift, IDFT and the symbol's CP.
+/// @param txdataF the symbol's ofdm_symbol_size bins, FFT shifted; overwritten
+/// @param txdata get_samples_symbol_duration(fp, slot, symbol, 1) samples
+void nr_ofdm_mod_symbol(const NR_DL_FRAME_PARMS *fp,
+                        const c16_t *symbol_rotation,
+                        int nb_rb,
+                        int slot,
+                        int symbol,
+                        c16_t *txdataF,
+                        c16_t *txdata);
+
+/// PRACH preamble in time: IDFT of dftlen bins (native layout), CP of the last ncp
+/// samples, then the IDFT output repeated.
+/// @param scratch dftlen samples, 32-byte aligned
+/// @param txdata ncp + repetitions * dftlen samples
+void nr_prach_ofdm_mod(const c16_t *prachF, int dftlen, int ncp, int repetitions, c16_t *scratch, c16_t *txdata);
 
 void apply_nr_rotation_TX(const NR_DL_FRAME_PARMS *fp,
                           c16_t *txdataF,
