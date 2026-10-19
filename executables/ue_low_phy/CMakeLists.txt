@@ -8,3 +8,6 @@ target_link_libraries(ue_low_phy PUBLIC radio_common)
 add_library(ue_low_phy_sync STATIC sync.c)
 target_link_libraries(ue_low_phy_sync PUBLIC ue_low_phy)
 
+if(ENABLE_TESTS)
+  add_subdirectory(tests)
+endif()
