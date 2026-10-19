@@ -1,0 +1,214 @@
+/* SPDX-License-Identifier: MIT */
+/*
+ * Duranta theme for the openairinterface5g documentation
+ *
+ * Applies Duranta branding to the Zensical theme (its classic variant, which
+ * keeps the look and structure of Material for MkDocs), including the purple
+ * header, navigation tabs, footer with the white logo, links, and navigation
+ * highlights. All other components keep the theme's default styling.
+ * Light color scheme only (configured in zensical.toml).
+ */
+
+/* The theme loads Inter 300/400/500/700 only: add the 600 weight used below. */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@600&display=fallback");
+
+/* Brand colors, from the Duranta logo (duranta-project/governance, logos/). */
+:root {
+  --duranta-bar: #3b2259; /* header, tabs, previous/next page bar */
+  --duranta-bar-dark: #2a0a3b; /* copyright footer */
+  --duranta-accent: #744093; /* highlights, label pills */
+  --duranta-link: #663399; /* links */
+  --duranta-on-bar: #ffffff; /* text on the bars */
+  --duranta-on-bar-muted: #e2d4f0; /* secondary text on the bars */
+  --duranta-on-bar-link: #cdb2e3; /* links on the bars */
+}
+
+/* Map the brand colors to the theme's color variables. */
+[data-md-color-scheme="default"] {
+  /* Header and tabs. */
+  --md-primary-fg-color: var(--duranta-bar);
+  --md-primary-fg-color--light: #531177;
+  --md-primary-fg-color--dark: var(--duranta-bar-dark);
+  --md-primary-bg-color: var(--duranta-on-bar);
+  --md-primary-bg-color--light: var(--duranta-on-bar-muted);
+  /* Hover and active states, current page in the sidebar. */
+  --md-accent-fg-color: var(--duranta-accent);
+  --md-accent-fg-color--transparent: rgba(116, 64, 147, 0.08);
+  --md-accent-bg-color: #ffffff;
+  --md-typeset-a-color: var(--duranta-link);
+  /* Search terms highlighted on the opened page: light purple, not yellow. */
+  --md-typeset-mark-color: rgba(116, 64, 147, 0.22);
+  /* Footer. */
+  --md-footer-bg-color: var(--duranta-bar);
+  --md-footer-bg-color--dark: var(--duranta-bar-dark);
+  --md-footer-fg-color: var(--duranta-on-bar);
+  --md-footer-fg-color--light: var(--duranta-on-bar-muted);
+  --md-footer-fg-color--lighter: var(--duranta-on-bar-link);
+}
+
+/* ---------------------------------------------------------------- */
+/* Header and tabs                                                   */
+/* ---------------------------------------------------------------- */
+
+/* The logo is a wide word mark: show it larger than the theme's icon size. */
+.md-header__button.md-logo img {
+  height: 1.6rem;
+}
+
+/* Tabs: muted labels, the current tab in white with a white underline;
+   keyboard focus looks like mouse hover. */
+.md-tabs {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+.md-tabs__link {
+  font-weight: 500;
+  opacity: 1;
+  color: var(--duranta-on-bar-muted);
+  margin-top: 0.55rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 3px solid transparent;
+}
+.md-tabs__link:hover,
+.md-tabs__link:focus-visible {
+  color: var(--duranta-on-bar);
+  border-bottom-color: rgba(255, 255, 255, 0.4);
+}
+.md-tabs__item--active .md-tabs__link {
+  color: var(--duranta-on-bar);
+  font-weight: 600;
+  border-bottom-color: var(--duranta-on-bar);
+}
+
+/* ---------------------------------------------------------------- */
+/* Sidebar (pages of the current tab) and table of contents          */
+/* ---------------------------------------------------------------- */
+
+.md-nav {
+  font-size: 0.72rem;
+}
+
+/* Sub-section titles (e.g. "Getting started with 5G"): small grey labels. */
+.md-nav--primary .md-nav__item--section > .md-nav__link,
+.md-nav--primary .md-nav__item--nested > .md-nav__link {
+  color: var(--md-default-fg-color--lighter);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 1em;
+}
+
+/* The title of the current tab sticks to the top of the sidebar: hide the
+   pages scrolling under it completely. */
+.md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link {
+  margin-top: 0;
+  padding: 0.4rem 0 0.5rem;
+  box-shadow: 0 0.3rem 0.4rem -0.1rem var(--md-default-bg-color);
+}
+
+/* Pages: grey, purple on hover, the current page bold on a light highlight. */
+.md-nav--primary .md-nav__link {
+  color: var(--md-default-fg-color--light);
+}
+.md-nav--primary .md-nav__link:hover,
+.md-nav--primary .md-nav__link--active {
+  color: var(--md-typeset-a-color);
+}
+.md-nav--primary .md-nav__link--active {
+  font-weight: 600;
+}
+/* Light highlight behind the current page, only in the desktop sidebar: the
+   mobile menu has full-width entries and the theme's own highlight. */
+@media screen and (min-width: 76.25em) {
+  .md-sidebar--primary .md-nav__link--active {
+    background-color: var(--md-accent-fg-color--transparent);
+    border-radius: 0.3rem;
+    margin-left: -0.5rem;
+    padding: 0.15rem 0.5rem;
+  }
+}
+
+/* Table of contents on the right: grey, the current section in purple. */
+.md-nav--secondary .md-nav__link {
+  color: var(--md-default-fg-color--light);
+}
+.md-nav--secondary .md-nav__link--active,
+.md-nav--secondary .md-nav__link:hover {
+  color: var(--md-typeset-a-color);
+}
+
+/* ---------------------------------------------------------------- */
+/* Page content                                                      */
+/* ---------------------------------------------------------------- */
+
+/* Page and section titles: dark and semi-bold so they stand out below the purple header. */
+.md-typeset h1,
+.md-typeset h2 {
+  color: var(--md-default-fg-color);
+  font-weight: 600;
+}
+
+/* Line under section titles, to separate the sections of long pages. */
+.md-typeset h2 {
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* ---------------------------------------------------------------- */
+/* Footer (partials/copyright.html)                                  */
+/* ---------------------------------------------------------------- */
+
+/* Footer spans the whole window (not the centered content column): previous
+   page and copyright on the far left, next page on the far right. */
+.md-footer .md-grid {
+  max-width: none;
+  padding: 0 0.8rem;
+}
+
+.md-footer__link:hover {
+  color: var(--duranta-on-bar-link);
+}
+.md-footer-meta {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* Logo and "raise an issue" text side by side, wrapping on small screens. */
+.duranta-footer {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+}
+.duranta-footer__logo img {
+  height: 1.6rem;
+}
+.duranta-footer a {
+  color: var(--duranta-on-bar-link);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+/* ---------------------------------------------------------------- */
+/* GitHub label pills                                                */
+/* ---------------------------------------------------------------- */
+
+/* hooks.py renders bare .../labels/NAME URLs (e.g. in TESTBenches.md) as
+   links with class gh-label, and sets the label's GitHub color inline. The
+   accent color is only a fallback when the colors could not be fetched. */
+.md-typeset a.gh-label {
+  display: inline-block;
+  padding: 0 0.6em;
+  margin: 0.1em 0.15em;
+  border-radius: 2em;
+  font-size: 0.75em;
+  font-weight: 600;
+  line-height: 1.8;
+  text-decoration: none;
+  background-color: var(--duranta-accent);
+  color: #ffffff;
+}
+.md-typeset a.gh-label:hover {
+  filter: brightness(0.92);
+  text-decoration: none;
+}

@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: MIT
+#
+# Configuration of the Duranta openairinterface5g documentation site, built
+# with Zensical.
+#
+# Documentation is distributed across the repository (doc/, radio/, common/,
+# etc.). Use doc/website/run.py to build or preview the site. It collects the
+# Markdown pages into build/docs-src/ and generates the navigation from
+# doc/README.md, so pages do not need to be listed here.
+#
+# Do not run zensical directly on this file: it has no docs_dir and no nav.
+# run.py adds both, and adapts the pages, in the generated build/zensical.yml.
+
+[project]
+site_name = "openairinterface5g"  # the header shows it next to the Duranta logo
+site_description = "Documentation of the Duranta openairinterface5g project"
+repo_url = "https://github.com/duranta-project/openairinterface5g"
+edit_uri = "edit/develop/"  # base of the "edit this page" and "view source" links
+extra_css = [
+  "assets/stylesheets/duranta-theme.css",  # Duranta colors and layout tweaks
+]
+
+[project.extra]
+generator = false
+
+[project.theme]
+name = "material"
+variant = "classic"  # look of Material for MkDocs, which duranta-theme.css is written for
+custom_dir = "doc/website/overrides"  # footer template and stylesheet
+# White Duranta logo (header and footer are purple), served from the governance repository.
+logo = "https://raw.githubusercontent.com/duranta-project/governance/main/logos/Duranta-Logo-White.png"
+favicon = "https://raw.githubusercontent.com/duranta-project/governance/main/logos/Duranta-Colour-500.png"
+features = [
+  "navigation.tabs",  # top-level sections of doc/README.md as tabs
+  "navigation.tabs.sticky",  # tabs stay visible when scrolling
+  "navigation.sections",  # sub-sections of a tab as groups in the sidebar
+  "navigation.expand",  # all pages of a tab visible, nothing to unfold
+  "navigation.instant",  # load pages without a full reload
+  "navigation.instant.progress",  # progress bar while a page loads
+  "navigation.tracking",  # URL follows the section being read
+  "navigation.top",  # "back to top" button
+  "navigation.footer",  # previous/next page links
+  "toc.follow",  # table of contents follows the section being read
+  "search.suggest",  # complete the search term while typing
+  "search.highlight",  # highlight the search term on the opened page
+  "content.code.copy",  # copy button on code blocks
+  "content.action.edit",  # "edit this page" button (GitHub editor)
+  "content.action.view",  # "view source of this page" button (raw markdown on GitHub)
+]
+
+[project.theme.font]
+text = "Inter"
+code = "JetBrains Mono"
+
+# Light scheme only; the colors are set in duranta-theme.css.
+[project.theme.palette]
+scheme = "default"
+primary = "custom"
+accent = "custom"
+
+[project.markdown_extensions]
+admonition = {}  # boxes for GitHub alerts
+attr_list = {}  # e.g. {width=1200} after an image (doc/E1AP/E1-design.md)
+tables = {}
+toc.permalink = true  # link anchor next to each heading
+toc.title = "Table of contents"  # title of the right-hand panel (Zensical's default is "On this page")
+mdx_truly_sane_lists = {}  # 2-space indented sub-lists, as on GitHub
+pymdownx.magiclink = {}  # bare URLs become links, as on GitHub
+# Emoji shortcodes such as :white_check_mark:, as on GitHub.
+pymdownx.emoji.emoji_index = "zensical.extensions.emoji.twemoji"
+pymdownx.emoji.emoji_generator = "zensical.extensions.emoji.to_svg"
+# Fenced code blocks, and mermaid diagrams.
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+
+# Broken links to pages or to sections ("page.md#section") are reported, and
+# fail "run.py build --strict".
+[project.validation]
+invalid_links = true
+invalid_link_anchors = true
