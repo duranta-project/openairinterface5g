@@ -43,16 +43,6 @@
 #define LDPC_HAVE_512
 #endif
 #endif
-#ifdef __AVX512F__
-#if defined(__AVX512VBMI__) && defined(USE_PERMUTEX)
-// For AVX512 machines, use an AVX512 version of the encoder for Zc=384 only for now. This is used almost exclusively for
-// high-throughput cases. The version with "permutex2var" instruction uses less memory (i.e. 1/64th of the memory to store the
-// input), but uses more reads instead of creating 64 shifts of the input with memcpy
-#include "ldpc384_simd512_permutex_byte.c"
-#else 
-#include "ldpc384_simd512_byte.c"
-#endif
-#endif
 #ifdef USE_FACTORED
 // 128-bit: available for every supported lifting size
 #include "ldpc176_factored_byte_128.c"
@@ -118,6 +108,16 @@
 #endif
 #else
 // NO_FACTORED fallback: the stock encoders, as before the factored path existed.
+#ifdef __AVX512F__
+#if defined(__AVX512VBMI__) && defined(USE_PERMUTEX)
+// For AVX512 machines, use an AVX512 version of the encoder for Zc=384 only for now. This is used almost exclusively for
+// high-throughput cases. The version with "permutex2var" instruction uses less memory (i.e. 1/64th of the memory to store the
+// input), but uses more reads instead of creating 64 shifts of the input with memcpy
+#include "ldpc384_simd512_permutex_byte.c"
+#else 
+#include "ldpc384_simd512_byte.c"
+#endif
+#endif
 #ifdef USE_ALIGNR
 #include "ldpc384_alignr_byte_128.c"
 #include "ldpc352_alignr_byte_128.c"
