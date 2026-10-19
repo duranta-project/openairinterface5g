@@ -8,9 +8,11 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "openair2/LAYER2/NR_MAC_gNB/mac_config.h"
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_mac_common.h"
+#include "executables/softmodem-common.h"
 
 #define TELNETSERVERCODE
 #include "telnetsrv.h"
@@ -32,9 +34,11 @@
  * sudo ./nr-softmodem -O <NTN gNB conf file> --telnetsrv --telnetsrv.shrmod ntn
  */
 
-#define UPDATE_SIB19_ARGS "<ta_common> <drift> <drift_variant> <x> <y> <z> <vx> <vy> <vz> <epoch_lead_ms>"
+#define SIB19_VALUES_ARGS "<ta_common> <drift> <drift_variant> <x> <y> <z> <vx> <vy> <vz>"
+#define UPDATE_SIB19_ARGS SIB19_VALUES_ARGS " <epoch_lead_ms>"
+#define UPDATE_SIB19_UTC_ARGS SIB19_VALUES_ARGS " <epoch_utc_ms>"
 
-/// the nine SIB19 values that the command starts with, and the ranges of their fields (TS 38.331)
+/// the nine SIB19 values that both commands start with, and the ranges of their fields (TS 38.331)
 static const struct {
   const char *name;
   int64_t min;
@@ -87,7 +91,7 @@ static bool parse_last_integer(const char *cursor, int64_t *value)
 }
 
 /**
- * @brief Parse the nine SIB19 values that the command starts with, and check the ranges of their fields
+ * @brief Parse the nine SIB19 values that both commands start with, and check the ranges of their fields
  * @param buf: the arguments of the command
  * @param update: [out] the SIB19 values
  * @param prnt: Print function, to name a value out of range
@@ -113,6 +117,21 @@ static const char *parse_sib19_values(const char *buf, gnb_sat_position_update_t
 }
 
 /**
+ * @brief Apply an update whose epoch lead is set, and report it
+ * @param update: the SIB19 values and the epoch lead
+ * @param prnt: Print function
+ * @return 0 on success, 1 on failure
+ */
+static int apply_sib19_update(gnb_sat_position_update_t *update, telnet_printfunc_t prnt)
+{
+  if (!nr_update_sib19(update))
+    ERROR_MSG_RET("no running cell with an NTN configuration\n");
+
+  prnt("SIB19 updated, epoch %d ms ahead\n", update->epoch_lead_ms);
+  return 0;
+}
+
+/**
  * @brief Update the SIB19 of every NTN cell
  * @param buf: the SIB19 values in the units of their fields (TS 38.331), and the lead in ms of the
  *             instant they describe over the current time of the gNB, which becomes epochTime-r17
@@ -131,15 +150,44 @@ static int ntn_update_sib19(char *buf, int debug, telnet_printfunc_t prnt)
   if (lead_ms < 1 || lead_ms > NR_SIB19_MAX_EPOCH_LEAD_MS)
     ERROR_MSG_RET("epoch_lead_ms must be 1 to %d\n", NR_SIB19_MAX_EPOCH_LEAD_MS);
   update.epoch_lead_ms = lead_ms;
-  if (!nr_update_sib19(&update))
-    ERROR_MSG_RET("no running cell with an NTN configuration\n");
+  return apply_sib19_update(&update, prnt);
+}
 
-  prnt("SIB19 updated, epoch %d ms ahead\n", update.epoch_lead_ms);
-  return 0;
+/**
+ * @brief Update the SIB19 of every NTN cell, with the epoch given in UTC
+ * @param buf: the SIB19 values in the units of their fields (TS 38.331), and the UTC time in ms since
+ *             1970-01-01 of the instant they describe, which becomes epochTime-r17. The clock of the
+ *             source has to agree with the clock of the gNB host.
+ * @param debug: Debug flag
+ * @param prnt: Print function
+ * @return 0 on success, 1 on failure
+ */
+static int ntn_update_sib19_utc(char *buf, int debug, telnet_printfunc_t prnt)
+{
+  UNUSED(debug);
+  gnb_sat_position_update_t update = {0};
+  int64_t epoch_utc_ms;
+  const char *epoch = parse_sib19_values(buf, &update, prnt);
+  if (!epoch || !parse_last_integer(epoch, &epoch_utc_ms) || epoch_utc_ms < 0)
+    ERROR_MSG_RET("usage: ntn update_sib19_utc " UPDATE_SIB19_UTC_ARGS "\n");
+  // the clock of the host places the epoch, and the frames of RFsimulator do not follow it
+  if (IS_SOFTMODEM_RFSIM)
+    ERROR_MSG_RET("update_sib19_utc needs a gNB that runs at wall-clock speed, which RFsimulator does not: use update_sib19\n");
+
+  struct timespec now;
+  clock_gettime(CLOCK_REALTIME, &now);
+  const int64_t lead_ms = nr_sib19_lead_from_utc(epoch_utc_ms, &now);
+  if (lead_ms < 1 || lead_ms > NR_SIB19_MAX_EPOCH_LEAD_MS)
+    ERROR_MSG_RET("epoch_utc_ms must be 1 to %d ms ahead of the gNB clock, and is %" PRId64 " ms\n",
+                  NR_SIB19_MAX_EPOCH_LEAD_MS,
+                  lead_ms);
+  update.epoch_lead_ms = lead_ms;
+  return apply_sib19_update(&update, prnt);
 }
 
 static telnetshell_cmddef_t ntn_cmds[] = {
     {"update_sib19", UPDATE_SIB19_ARGS, ntn_update_sib19},
+    {"update_sib19_utc", UPDATE_SIB19_UTC_ARGS, ntn_update_sib19_utc},
     {"", "", NULL},
 };
 
