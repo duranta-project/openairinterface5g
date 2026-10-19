@@ -9,3 +9,6 @@ target_link_libraries(split7 PUBLIC radio_common)
 add_library(split7_ue_sync STATIC split7_sync.c)
 target_link_libraries(split7_ue_sync PUBLIC split7)
 
+if(ENABLE_TESTS)
+  add_subdirectory(tests)
+endif()
