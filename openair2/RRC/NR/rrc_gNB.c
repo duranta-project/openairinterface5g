@@ -3683,6 +3683,11 @@ void rrc_gNB_process_e1_bearer_context_release_cplt(const e1ap_bearer_release_cp
   LOG_I(RRC, "UE %d: received bearer release complete\n", cplt->gNB_cu_cp_ue_id);
 }
 
+static void srb_max_count_reached(gNB_RRC_INST *rrc, const nr_rrc_pdcp_srb_max_count_reached_t *msg)
+{
+  /* todo */
+}
+
 static void print_meas_result_quantity(FILE *f, const NR_MeasQuantityResults_t *mqr)
 {
   fprintf(f, "      resultSSB:");
@@ -4095,6 +4100,10 @@ void *rrc_gnb_task(void *args_p)
 
       case XNAP_PEER_SHUTDOWN_IND:
         rrc_remove_xn_candidate(RC.nrrrc[instance], XNAP_PEER_SHUTDOWN_IND(msg_p).gnb_id);
+        break;
+
+      case NR_RRC_PDCP_SRB_MAX_COUNT_REACHED:
+        srb_max_count_reached(RC.nrrrc[instance], &NR_RRC_PDCP_SRB_MAX_COUNT_REACHED(msg_p));
         break;
 
       default:

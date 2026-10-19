@@ -85,6 +85,8 @@
 #define NRRRC_FRAME_PROCESS(mSGpTR)     (mSGpTR)->ittiMsg.nr_rrc_frame_process
 #define NR_RRC_NRDC_TIMEOUT(mSGpTR)     (mSGpTR)->ittiMsg.nr_rrc_nrdc_timeout
 
+#define NR_RRC_PDCP_SRB_MAX_COUNT_REACHED(mSGpTR) (mSGpTR)->ittiMsg.nr_rrc_pdcp_srb_max_count_reached
+
 #define RLC_SDU_INDICATION(mSGpTR)      (mSGpTR)->ittiMsg.rlc_sdu_indication
 #define NRDuDlReq(mSGpTR)      (mSGpTR)->ittiMsg.nr_du_dl_req
 
@@ -500,5 +502,10 @@ typedef struct {
   int xid;
   int state;
 } nr_rrc_nrdc_timeout_t;
+
+typedef struct {
+  ue_id_t ue_id;
+  int srb_id;
+} nr_rrc_pdcp_srb_max_count_reached_t;
 
 #endif /* RRC_MESSAGES_TYPES_H_ */
