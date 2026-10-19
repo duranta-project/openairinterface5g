@@ -1879,6 +1879,7 @@ add_executable(nr-uesoftmodem
   ${OPENAIR_DIR}/executables/position_interface.c
   ${OPENAIR_DIR}/executables/nr-ue.c
   ${OPENAIR_DIR}/executables/nr-ue-ru.c
+  ${OPENAIR_DIR}/executables/nr-fd-ue.c
   ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
   ${NFAPI_USER_DIR}/nfapi.c
   )
@@ -1887,7 +1888,7 @@ target_link_libraries(nr-uesoftmodem PRIVATE
   -Wl,--start-group
   nr_rrc SECURITY UTIL SCHED_NR_UE_LIB
   PHY_NR_COMMON PHY_NR_UE NR_L2_UE MAC_NR_COMMON nfapi_nr_lib
-  ITTI SIMU radio_common
+  ITTI SIMU radio_common split7 split7_ue_sync
   time_management softmodem_common
   -Wl,--end-group dl)
 

@@ -548,7 +548,7 @@ static int handle_sync_req_from_mac(PHY_VARS_NR_UE *UE, Actor_t *dl_actors, Acto
 }
 
 /** @brief Process what RRC thread sent to MAC */
-static void nr_ue_dequeue_rrc_to_mac_msgs(PHY_VARS_NR_UE *UE)
+void nr_ue_dequeue_rrc_to_mac_msgs(PHY_VARS_NR_UE *UE)
 {
   do {
     notifiedFIFO_elt_t *elt = pollNotifiedFIFO(&get_mac_inst(UE->Mod_id)->input_nf);
