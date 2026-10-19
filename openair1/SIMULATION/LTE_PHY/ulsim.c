@@ -776,16 +776,6 @@ int main(int argc, char **argv) {
   rate = (double)TBStable[get_I_TBS(mcs)][nb_rb - 1] / (coded_bits_per_codeword);
   printf("Rate = %f (mod %d), coded bits %u\n",rate,get_Qm_ul(mcs),coded_bits_per_codeword);
 
-  // initialize sorted lists for timers for which we want the distribution
-  init_sorted_list_meas(&UE->phy_proc_tx, n_frames * 4);
-  init_sorted_list_meas(&UE->ofdm_mod_stats, n_frames * 4);
-  init_sorted_list_meas(&UE->ulsch_modulation_stats, n_frames * 4);
-  init_sorted_list_meas(&UE->ulsch_encoding_stats, n_frames * 4);
-  init_sorted_list_meas(&eNB->phy_proc_rx, n_frames * 4);
-  init_sorted_list_meas(&ru->ofdm_demod_stats, n_frames * 4);
-  init_sorted_list_meas(&eNB->ulsch_demodulation_stats, n_frames * 4);
-  init_sorted_list_meas(&eNB->ulsch_decoding_stats, n_frames * 4);
-
   for (ch_realization=0; ch_realization<n_ch_rlz; ch_realization++) {
     /*
       if(abstx){
@@ -1424,15 +1414,6 @@ int main(int argc, char **argv) {
   pthread_cond_signal(&ru->proc.cond_fep[0]);
 
   // initialize sorted lists for timers for which we want the distribution
-  free_sorted_list_meas(&UE->phy_proc_tx);
-  free_sorted_list_meas(&UE->ofdm_mod_stats);
-  free_sorted_list_meas(&UE->ulsch_modulation_stats);
-  free_sorted_list_meas(&UE->ulsch_encoding_stats);
-  free_sorted_list_meas(&eNB->phy_proc_rx);
-  free_sorted_list_meas(&ru->ofdm_demod_stats);
-  free_sorted_list_meas(&eNB->ulsch_demodulation_stats);
-  free_sorted_list_meas(&eNB->ulsch_decoding_stats);
-
   if (abstx) { // ABSTRACTION
     fprintf(csv_fdUL,"];");
     fclose(csv_fdUL);

@@ -223,7 +223,7 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   }
 #endif
 
-  start_meas(&segs->ts_ldpc_decode);
+  start_single_meas(&segs->ts_ldpc_decode[0]);
 
   t_nrLDPC_dec_params decParams = {.check_crc = check_crc};
   decParams.Z = Z;
@@ -238,7 +238,7 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   LOG_D(NR_PHY, "decoder (llr %p): %d segments, Z %d, R %d \n", segs->llr, C, Z, segs->R);
 
   int decodeIterations = LDPCdecoder_cuda(&decParams, p_llr_dev, segs->c, p_procTime, segs->abort_decode);
-  stop_meas(&segs->ts_ldpc_decode);
+  stop_single_meas(&segs->ts_ldpc_decode[0]);
 
   if (decodeIterations <= segs->max_ldpc_iterations) {
     *segs->processedSegments = C;
