@@ -675,7 +675,7 @@ static void set_dl_maxmimolayers(NR_PDSCH_ServingCellConfig_t *pdsch_servingcell
 static struct NR_SRS_Resource__resourceType__periodic *configure_periodic_srs(const int uid, const nr_cell_sched_t *cell)
 {
   const frame_structure_t *fs = &cell->frame_structure;
-  int offset = get_ul_slot_offset(fs, uid, false); // only full UL slots for SRS
+  int offset = get_cell_ul_slot_offset(cell, uid, false); // only full UL slots for SRS
   // checked for validity in verify_radio_configuration
   AssertFatal(offset < 2560, "Cannot allocate SRS configuration for uid %d, not enough resources\n", uid);
   const int ideal_period = set_ideal_period(cell,false);
@@ -1118,7 +1118,11 @@ static int tda_cmp(const void *tda_a, const void *tda_b)
 /* \brief Set up a list of time domain allocations as suitable for the TDD
  * pattern. This will be used by get_num_ul_tda(), which requires a specific
  * ordering, hence we qsort() the list at the end according to tda_cmp(). */
-void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc, int min_fb_delay, nr_srs_type_t do_SRS)
+void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc,
+                          int min_fb_delay,
+                          nr_srs_type_t do_SRS,
+                          int num_extra,
+                          const nr_ul_tda_shape_t *extra)
 {
   NR_PUSCH_TimeDomainResourceAllocationList_t *tda_list =
       scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList;
@@ -1208,6 +1212,59 @@ void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc, int min_fb_delay, n
       /* reach next UL from mixed slot in previous period */
       tda = set_TimeDomainResourceAllocation(k2_msg3, get_SLIV(0, 13));
       asn1cSeqAdd(&tda_list->list, tda);
+    }
+  }
+
+  /* Append the extra UL TDAs. Each one is replicated for every distinct k2
+   * value already present in the list. */
+  if (num_extra > 0) {
+    long k2_values[16];
+    int n_k2 = 0;
+    for (int i = 0; i < tda_list->list.count; i++) {
+      long k2v = *tda_list->list.array[i]->k2;
+      bool found = false;
+      for (int j = 0; j < n_k2; j++)
+        if (k2_values[j] == k2v) {
+          found = true;
+          break;
+        }
+      if (!found)
+        k2_values[n_k2++] = k2v;
+    }
+    int needed = num_extra * n_k2;
+    AssertFatal(tda_list->list.count + needed <= 16,
+                "extra UL TDAs: %d shapes x %d k2 values = %d entries, "
+                "but only %d slots left (current %d, max 16)\n",
+                num_extra,
+                n_k2,
+                needed,
+                16 - tda_list->list.count,
+                tda_list->list.count);
+
+    for (int i = 0; i < num_extra; i++) {
+      int s = extra[i].start_symbol;
+      int l = extra[i].num_symbols;
+      const long sliv = get_SLIV(s, l);
+      for (int j = 0; j < n_k2; j++) {
+        /* Skip an extra TDA that duplicates one already in the list (same k2+SLIV):
+         * it would waste a slot, and a consumer that recognises the extras by
+         * their shape would then mistake the built-in copy for one. */
+        bool dup = false;
+        for (int e = 0; e < tda_list->list.count; e++) {
+          if (tda_list->list.array[e]->k2 != NULL && *tda_list->list.array[e]->k2 == k2_values[j]
+              && tda_list->list.array[e]->startSymbolAndLength == sliv) {
+            dup = true;
+            break;
+          }
+        }
+        if (dup) {
+          LOG_W(NR_RRC, "extra UL TDA k2=%ld start=%d length=%d duplicates an existing TDA; skipping\n", k2_values[j], s, l);
+          continue;
+        }
+        NR_PUSCH_TimeDomainResourceAllocation_t *extra = set_TimeDomainResourceAllocation(k2_values[j], sliv);
+        asn1cSeqAdd(&tda_list->list, extra);
+        LOG_I(NR_RRC, "extra UL TDA: k2 %ld start %d length %d\n", k2_values[j], s, l);
+      }
     }
   }
 
@@ -1367,7 +1424,7 @@ static void set_SR_periodandoffset(const nr_cell_sched_t *cell, NR_SchedulingReq
   const frame_structure_t *fs = &cell->frame_structure;
   int sr_slot = 1; // in FDD SR in slot 1
   if (fs->frame_type == TDD)
-    sr_slot = get_first_ul_slot(fs, true);
+    sr_slot = get_cell_ul_slot_offset(cell, 0, true); // first UL slot a UE may transmit in
 
   schedulingRequestResourceConfig->periodicityAndOffset = calloc(1,sizeof(*schedulingRequestResourceConfig->periodicityAndOffset));
 
@@ -1980,7 +2037,7 @@ static void set_csi_meas_periodicity(const nr_cell_sched_t *cell,
   const int num_pucch2 = get_nb_pucch2_per_slot(scc, curr_bwp, antennaports);
   const int idx = (uid * 2 / num_pucch2) + is_rsrp;
   const frame_structure_t *fs = &cell->frame_structure;
-  int offset = get_ul_slot_offset(fs, idx, true);
+  int offset = get_cell_ul_slot_offset(cell, idx, true);
   LOG_D(NR_MAC, "set_csi_meas_periodicity: uid = %d, offset = %d, ideal_period = %d", uid, offset, ideal_period);
   // checked for validity in verify_radio_configuration
   AssertFatal(offset < 320, "Not enough UL slots to accomodate all possible UEs. Need to rework the implementation\n");
@@ -3799,7 +3856,7 @@ static bool verify_radio_configuration(int uid,
 {
   const nr_mac_config_t *configuration = &cell->radio_config;
   const frame_structure_t *fs = &cell->frame_structure;
-  int srs_offset = get_ul_slot_offset(fs, uid, false);
+  int srs_offset = get_cell_ul_slot_offset(cell, uid, false);
   // see configure_periodic_srs
   if (srs_offset >= 2560) {
     LOG_E(NR_RRC, "UID %d, cannot allocate resources for SRS, rejecting UE\n", uid);
@@ -3830,7 +3887,7 @@ static bool verify_radio_configuration(int uid,
     return false; // cannot allocate resources for PUCCH2
   }
   const int idx = (uid * 2 / num_pucch2) + 1;
-  int offset = get_ul_slot_offset(fs, idx, true);
+  int offset = get_cell_ul_slot_offset(cell, idx, true);
   // see set_csi_meas_periodicity
   if (offset >= 320) {
     LOG_E(NR_RRC, "UID %d, cannot allocate resources for CSI reporting, rejecting UE\n", uid);

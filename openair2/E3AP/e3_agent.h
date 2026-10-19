@@ -44,9 +44,18 @@ int e3_get_encoding(void);
 int e3_init();
 int e3_destroy();
 
-/* Forward an xApp control to a dApp. sequence_id is the correlation id of the
- * xApp procedure the control belongs to; the dApp carries it back on the control
- * it re-issues. 0 when there is no procedure to correlate. */
+/**
+ * @brief Forward an xApp control to a dApp.
+ * @param dapp_id Target dApp.
+ * @param sequence_id Correlation id of the xApp procedure this control carries
+ *        out; the dApp echoes it on the control it re-issues, which is how the
+ *        RAN matches an applied control back to the procedure that asked for
+ *        it. Pass 0 when there is no procedure to report to.
+ * @param ran_function_id The service model the control is addressed to.
+ * @param data Control payload, opaque here.
+ * @param len Payload length.
+ * @return 0 on success, -1 otherwise.
+ */
 int e3_send_xapp_control(uint32_t dapp_id, uint32_t sequence_id, uint32_t ran_function_id, const uint8_t *data, size_t len);
 
 /**

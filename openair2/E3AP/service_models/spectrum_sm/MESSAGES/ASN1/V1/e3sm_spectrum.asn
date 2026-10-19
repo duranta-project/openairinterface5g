@@ -173,6 +173,50 @@ Spectrum-XAppControlData ::= SEQUENCE {
 
 
 -- ============================================================================
+-- APPLY OUTCOME STRUCTURES
+-- ============================================================================
+--
+-- What the RAN reports back about a control it applied. This is Service Model
+-- territory, not E3AP or E2SM-DAPP territory: "applied" means something
+-- different for every control this SM defines, and a PRB block is only "in
+-- effect" once the scheduler has actually put the mask on the air, which is a
+-- later instant than the handler returning. The E2SM-DAPP control outcome
+-- carries this as an opaque octet string, the same way it carries a control.
+--
+-- Both timestamps are CLOCK_REALTIME nanoseconds at the gNB, chosen so the xApp
+-- can difference them against Spectrum-DAppReportData.timestamp, which is on the
+-- same clock. They are payload fields, deliberately not latrec records: latrec
+-- is CLOCK_MONOTONIC and the two must never be differenced against each other.
+
+Spectrum-PRBBlockApplyOutcome ::= SEQUENCE {
+    -- Mask written into the MAC, i.e. the control handler's install returning.
+    installedTimestamp      INTEGER OPTIONAL,
+    -- First scheduler tick that put the mask on the air. Later than
+    -- installedTimestamp by up to one slot, and by a stochastic amount: the
+    -- install runs on the control thread, the tick on the MAC thread.
+    onAirTimestamp          INTEGER OPTIONAL,
+    -- The frame and slot of that tick, so a reader can place it in the radio
+    -- frame rather than only on the wall clock.
+    sfn                     INTEGER (0..1023) OPTIONAL,
+    slot                    INTEGER (0..maxSlotIndex) OPTIONAL,
+    ...
+}
+
+Spectrum-ApplyOutcomePayload ::= CHOICE {
+    prbBlockApplyOutcome    Spectrum-PRBBlockApplyOutcome,
+    ...
+}
+
+-- Top-level apply-outcome PDU, carried by the E2SM-DAPP control outcome.
+--
+-- timestamp is when the outcome itself was built, which is not when anything was
+-- applied; the applied instants are in the payload.
+Spectrum-ApplyOutcomeData ::= SEQUENCE {
+    timestamp               INTEGER OPTIONAL,
+    applyOutcomePayload     Spectrum-ApplyOutcomePayload
+}
+
+-- ============================================================================
 -- CONSTANTS AND CONSTRAINTS
 -- ============================================================================
 
@@ -180,6 +224,7 @@ Spectrum-XAppControlData ::= SEQUENCE {
 maxPRBs                     INTEGER ::= 273                                 -- Maximum PRBs in 5G NR
 maxPRBIndex                 INTEGER ::= 272                                 -- maxPRBs - 1
 maxSlotsFrame               INTEGER ::= 160                                 -- slots per frame at 3GPP numerology 4 (worst case); 20 at numerology 1 (30 kHz SCS)
+maxSlotIndex                INTEGER ::= 159                                 -- maxSlotsFrame - 1
 maxSymbolMask               INTEGER ::= 16383                               -- 14-bit symbol bitmap = (1 << 14) - 1
 
 END

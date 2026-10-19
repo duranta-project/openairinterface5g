@@ -7,6 +7,7 @@
 
 #include <libe3/c_api.h>
 
+#include "spectrum_dec.h"
 #include <stdbool.h>
 #include <pthread.h>
 #include <stdint.h>

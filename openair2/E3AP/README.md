@@ -25,14 +25,18 @@ For a complete description of the dApp architecture and the E3 interface, refer 
 
 ## Prerequisites — libe3
 
-The E3 Agent requires the external `libe3` library, discovered at build time via
-`pkg_check_modules(CLIBE3 REQUIRED libe3)`. It is not vendored in OAI.
+The E3 Agent requires the external `libe3` library (any 0.2.x release; this tree is tested with
+0.2.3), discovered at build time with `pkg-config`. It is not vendored in OAI. Install it once, with
+every wire encoding, so the gNB can serve whichever one its dApp uses:
 
 ```bash
-git clone https://github.com/wineslab/libe3 && cd libe3
-./build_libe3 -I       # install system prerequisites if not already present
-./build_libe3 --install
+git clone --branch 0.2.3 https://github.com/wineslab/libe3 && cd libe3
+./build_libe3 -I                          # system prerequisites, if not already present
+./build_libe3 --all-encodings --install   # into /usr/local; asks for sudo
 ```
+
+The build then finds it with no further setup. A libe3 installed elsewhere (`--prefix DIR`) needs
+`DIR/lib/pkgconfig` on `PKG_CONFIG_PATH` when building OAI.
 
 ## Build OAI with the E3 Agent
 
@@ -84,7 +88,8 @@ the wire by a RAN-function id and registered with the agent at startup.
 | 1 | Spectrum SM | uplink sensing ranges: the free time-frequency tiles of each UL slot | [`service_models/spectrum_sm`](service_models/spectrum_sm/README.md) |
 | 2 | L1-KPM SM | post-FFT IQ from the PHY | [`service_models/l1_kpm_sm`](service_models/l1_kpm_sm/README.md) |
 
-Both are telemetry-out only. Code is split by what it depends on:
+Both stream telemetry to the dApp; the Spectrum SM also accepts controls (a PRB block and a
+sensing policy, see its README). Code is split by what it depends on:
 
 - `service_models/<sm>/` holds the message definitions (ASN.1 and Protocol Buffers),
   the encoders and the SM callbacks. `service_models/e3_sm_worker.c` (the telemetry
@@ -104,7 +109,8 @@ is a complete example.
 
 ## dApp development
 
-dApps are written in Python using the `dapps` library:
+dApps are written in Python using the `dapps` library, in a virtual environment on the machine
+where libe3 is installed (its Python binding, `libe3py`, is built against it when pip installs it):
 
 ```bash
 pip install "dapps[all]"
