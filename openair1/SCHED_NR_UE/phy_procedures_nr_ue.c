@@ -52,6 +52,36 @@ static const unsigned int gain_table[31] = {100,  112,  126,  141,  158,  178,  
 
 static void nr_ue_prach_procedures(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, c16_t **txData);
 
+void nr_fill_dl_indication(nr_downlink_indication_t *dl_ind,
+                           fapi_nr_dci_indication_t *dci_ind,
+                           fapi_nr_rx_indication_t *rx_ind,
+                           const UE_nr_rxtx_proc_t *proc,
+                           PHY_VARS_NR_UE *ue,
+                           void *phy_data)
+{
+  memset((void*)dl_ind, 0, sizeof(nr_downlink_indication_t));
+
+  dl_ind->gNB_index = proc->gNB_id;
+  dl_ind->module_id = ue->Mod_id;
+  dl_ind->cc_id     = ue->CC_id;
+  dl_ind->hfn       = proc->hfn_rx;
+  dl_ind->frame     = proc->frame_rx;
+  dl_ind->slot      = proc->nr_slot_rx;
+  dl_ind->phy_data  = phy_data;
+
+  if (dci_ind) {
+
+    dl_ind->rx_ind = NULL; //no data, only dci for now
+    dl_ind->dci_ind = dci_ind;
+
+  } else if (rx_ind) {
+
+    dl_ind->rx_ind = rx_ind; //  hang on rx_ind instance
+    dl_ind->dci_ind = NULL;
+
+  }
+}
+
 static uint32_t get_ssb_arfcn(NR_DL_FRAME_PARMS *frame_parms)
 {
   uint32_t band_size_hz = frame_parms->N_RB_DL * 12 * frame_parms->subcarrier_spacing;
@@ -354,7 +384,16 @@ void phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
 
   // Don't do OFDM Mod if txdata contains prach
   const NR_UE_PRACH *prach_var = ue->prach_vars[proc->gNB_id];
-  if (!prach_var->active) {
+  if (ue->fd_ifdevice) {
+    const bool none[NR_SYMBOLS_PER_SLOT] = {0};
+    ue->fd_ifdevice->write_slot(ue->fd_ifdevice,
+                                proc->hfn_tx,
+                                frame_tx,
+                                slot_tx,
+                                ue->frame_parms.nb_antennas_tx,
+                                (c16_t **)txdataF,
+                                prach_var->active ? none : was_symbol_used);
+  } else if (!prach_var->active) {
     start_meas_nr_ue_phy(ue, OFDM_MOD_STATS);
     nr_tx_rotation_and_ofdm_mod(proc->nr_slot_tx,
                                 &ue->frame_parms,
@@ -867,7 +906,7 @@ void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
   __attribute__((aligned(32))) c16_t rxdataF[fp->nb_antennas_rx][rxdataF_sz];
 
   for (int symbol = start_symb_pdcch; symbol <= last_symb_pdcch; symbol++) {
-    nr_slot_fep(ue, fp, proc->nr_slot_rx, symbol, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
+    nr_slot_fep(ue, fp, proc->frame_rx, proc->nr_slot_rx, symbol, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
     __attribute__((aligned(32))) c16_t rxdataF_symb[fp->nb_antennas_rx][((fp->ofdm_symbol_size + 7) / 8) * 8];
 
     for (int ant = 0; ant < fp->nb_antennas_rx; ant++)
@@ -962,7 +1001,7 @@ int nr_process_pbch_symbol(PHY_VARS_NR_UE *ue,
   __attribute__((aligned(32))) c16_t rxdataF[fp->nb_antennas_rx][fp->ofdm_symbol_size];
   {
     __attribute__((aligned(32))) c16_t tmp[fp->nb_antennas_rx][fp->samples_per_slot_wCP];
-    nr_slot_fep(ue, fp, proc->nr_slot_rx, symbol, tmp, link_type_dl, 0, ue->common_vars.rxdata);
+    nr_slot_fep(ue, fp, proc->frame_rx, proc->nr_slot_rx, symbol, tmp, link_type_dl, 0, ue->common_vars.rxdata);
     for (int aarx = 0; aarx < fp->nb_antennas_rx; aarx++) {
       memcpy(rxdataF[aarx], tmp[aarx] + symbol * fp->ofdm_symbol_size, sizeof(c16_t) * fp->ofdm_symbol_size);
     }
@@ -1153,7 +1192,7 @@ int pbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_da
         {
           for(int j = prs_config->SymbolStart; j < (prs_config->SymbolStart+prs_config->NumPRSSymbols); j++)
           {
-            nr_slot_fep(ue, fp, proc->nr_slot_rx, (j % fp->symbols_per_slot), rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
+            nr_slot_fep(ue, fp, proc->frame_rx, proc->nr_slot_rx, (j % fp->symbols_per_slot), rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
           }
           nr_prs_channel_estimation(gNB_id, rsc_id, i, ue, proc, rxdataF);
         }
@@ -1207,7 +1246,7 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
     for(int symb_idx = 0; symb_idx < 4; symb_idx++) {
       int symb = phy_data->csiim_vars.csiim_config_pdu.l_csiim[symb_idx];
       if (!slot_fep_map[symb]) {
-        nr_slot_fep(ue, &ue->frame_parms, proc->nr_slot_rx, symb, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
+        nr_slot_fep(ue, &ue->frame_parms, proc->frame_rx, proc->nr_slot_rx, symb, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
         slot_fep_map[symb] = true;
       }
     }
@@ -1227,7 +1266,7 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
         for (int symb = 0; symb < ue->frame_parms.symbols_per_slot; symb++) {
           if (is_csi_rs_in_symbol(phy_data->csirs_vars[res].csirs_config_pdu, symb)) {
             if (!slot_fep_map[symb]) {
-              nr_slot_fep(ue, &ue->frame_parms, proc->nr_slot_rx, symb, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
+              nr_slot_fep(ue, &ue->frame_parms, proc->frame_rx, proc->nr_slot_rx, symb, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
               slot_fep_map[symb] = true;
             }
           }
@@ -1261,7 +1300,7 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
 
     for (int m = start_symb_sch; m < (nb_symb_sch + start_symb_sch) ; m++) {
       if (!slot_fep_map[m]) {
-        nr_slot_fep(ue, &ue->frame_parms, proc->nr_slot_rx, m, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
+        nr_slot_fep(ue, &ue->frame_parms, proc->frame_rx, proc->nr_slot_rx, m, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
         slot_fep_map[m] = true;
       }
     }
