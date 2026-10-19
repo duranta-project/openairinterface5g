@@ -482,7 +482,7 @@ static void sl_schedule_tx_actions(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_I
     tx_config.number_pdus = 1;
     tx_config.tx_config_list[0].pdu_type = tx_action;
     tx_config.tx_config_list[0].tx_psbch_config_pdu.tx_slss_id = sl_mac->tx_sl_bch.slss_id;
-    tx_config.tx_config_list[0].tx_psbch_config_pdu.psbch_tx_power = 0; // TBD...
+    tx_config.tx_config_list[0].tx_psbch_config_pdu.psbch_tx_power = 0;
     memcpy(tx_config.tx_config_list[0].tx_psbch_config_pdu.psbch_payload, sl_mac->tx_sl_bch.sl_mib, 4);
 
     LOG_D(NR_MAC, "[UE%d] %d:%d CMD to PHY: TX PSBCH \n", ue_id, sl_ind->frame_tx, sl_ind->slot_tx);
@@ -1453,10 +1453,6 @@ size_t dump_mac_stats_sl(NR_UE_MAC_INST_t *mac, char *output, size_t strlen, boo
   const char *end = output + strlen;
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
 
-  /* this function is called from gNB_dlsch_ulsch_scheduler(), so assumes the
-   * scheduler to be locked*/
-  // NR_UE_SL_SCHED_ENSURE_LOCKED(&mac->sl_sched_lock);
-
   NR_UE_SL_SCHED_LOCK(&mac->sl_info.mutex);
   SL_UE_iterator(mac->sl_info.list, UE) {
     NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
@@ -1574,27 +1570,6 @@ void remove_old_transmit_history(frameslot_t *frame_slot,
   }
 }
 
-  /*
-  // This function will be called only for SIDELINK CAPABLE SLOTS.
-  // UPLINK SLOT OR MIXED SLOT which is SIDELINK SLOT
-
-  //Determine if PSBCH SLOT and if PSBCH RX/TX should be done
-  // IF NOT PSBCH SLOT continue ahead
-
-  // IF RX RES POOL CONFIGURED
-  // Determine if SLOT is a RX RES POOL RESERVED
-  // OR RX RES POOL RESOURCE SLOT according to time resource bitmap
-  // IF resource slot PSCCH RX action should be done
-
-  // IF TX RES POOL CONFIGURED
-  // Determine if SLOT is a TX RES POOL RESERVED
-  // OR RX RES POOL RESOURCE SLOT according to time resource bitmap
-  // IF resource slot PSCCH TX action should be done in case TX is scheduled
-  // ELSE SENSING SHOULD BE DONE
-
-  // IF TX/RX ACTION SHOULD BE DONE in this slot
-  // SEND SIDELINK TX/RX CONFIG REQUEST TO PHY
-*/
 void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t *mac)
 {
   AssertFatal(sl_ind != NULL, "sl_indication cannot be NULL\n");
@@ -1639,16 +1614,6 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
       const uint8_t psbch_action =
           sl_psbch_scheduler(sl_mac, ue_id, frame, slot, mac->frame_structure.numb_slots_frame);
       is_psbch_slot = psbch_action == SL_NR_CONFIG_TYPE_TX_PSBCH;
-
-#if 0 // To be expanded later
-      // TBD .. Check for Actions coming out of TX resource pool
-      if (!tti_action && sl_mac->sl_TxPool[0])
-        tti_action = sl_tx_scheduler(ue_id, frame, slot, sl_mac, sl_mac->sl_TxPool[0]);
-
-      //TBD .. Check for Actions coming out of RX resource pool
-      if (!tti_action && sl_mac->sl_RxPool[0])
-        tti_action = sl_rx_scheduler(ue_id, frame, slot, sl_mac, sl_mac->sl_RxPool[0]);
-#endif
 
       LOG_D(NR_MAC, "[UE%d]SL-SCHED: TTI - %d:%d scheduled action:%d\n", ue_id, frame, slot, psbch_action);
 
@@ -1891,15 +1856,6 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
     LOG_D(NR_MAC, "Frame.Slot %d.%d\n%s\n", frame, slot, stats_output);
   }
 
-  #if 0
-  if (tti_action == SL_NR_CONFIG_TYPE_RX_PSBCH || tti_action == SL_NR_CONFIG_TYPE_RX_PSCCH || tti_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SCI ||
-      tti_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH) {
-    fill_scheduled_response(&scheduled_response, NULL, NULL, NULL,  &rx_config, NULL, mod_id, 0,frame, slot, sl_ind->phy_data);
-  }
-  if (tti_action == SL_NR_CONFIG_TYPE_TX_PSBCH || tti_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH || tti_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH || tti_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_CSI_RS) {
-    fill_scheduled_response(&scheduled_response, NULL, NULL, NULL, NULL, &tx_config, mod_id, 0,frame, slot, sl_ind->phy_data);
-  }
-  #else
   nr_scheduled_response_t scheduled_response = {.module_id = mac->ue_id,
                                                 .phy_data = sl_ind->phy_data,
                                                 .mac = mac};
@@ -1913,9 +1869,6 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
       || tti_action == SL_NR_CONFIG_TYPE_TX_PSFCH) {
     scheduled_response.sl_tx_config = &tx_config;
     }
-   #endif
-
-
   LOG_D(NR_MAC,"[UE%d]SL-SCHEDULER: TTI-RX-%d:%d, TX-%d:%d is_psbch_slot:%d TTIaction:%d\n",
                                                             mac->ue_id,sl_ind->frame_rx, sl_ind->slot_rx,
                                                             sl_ind->frame_tx, sl_ind->slot_tx,
@@ -1935,7 +1888,6 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
       mac->if_module->scheduled_response(&scheduled_response);
   }
   free(rx_config.sl_rx_config_list[0].rx_psfch_pdu_list);
-  //NR_UE_SL_SCHED_UNLOCK(&mac->sl_sched_lock);
 }
 
 List_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,

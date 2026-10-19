@@ -128,7 +128,6 @@ void set_scs_parameters(NR_DL_FRAME_PARMS *fp, int mu, int N_RB_DL, int ssb_case
   }
 
   fp->first_carrier_offset = fp->ofdm_symbol_size - (N_RB_DL * 12 / 2);
-  // TODO: Temporarily setting fp->first_carrier_offset = 0 for SL until MAC is developed
   if (get_softmodem_params()->sl_mode == 2)
     fp->first_carrier_offset = 0;
   fp->nb_prefix_samples    = fp->ofdm_symbol_size / 128 * 9;
@@ -430,13 +429,6 @@ int nr_init_frame_parms_ue(NR_DL_FRAME_PARMS *fp, fapi_nr_config_request_t* conf
                                                  config->ssb_table.ssb_subcarrier_offset,
                                                  fp->freq_range);
 
-/*
-  fp->ssb_start_subcarrier = (12 * config->ssb_table.ssb_offset_point_a + sco);
-  // TODO: Temporarily setting fp->ssb_start_subcarrier = 0 for SL until MAC is developed
-  if (get_softmodem_params()->sl_mode == 2) {
-      fp->ssb_start_subcarrier = 0;
-  }
-  */
   set_Lmax(fp);
 
   fp->L_ssb = (((uint64_t) config->ssb_table.ssb_mask_list[0].ssb_mask)<<32) | config->ssb_table.ssb_mask_list[1].ssb_mask;

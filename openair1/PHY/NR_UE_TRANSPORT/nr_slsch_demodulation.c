@@ -705,7 +705,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
 
       /*
        * PSSCH signal / noise power measurement, consumed by the DTX (energy)
-       * detection in phy_procedures_nrUE_SL. ue->sl_measurements is not
+       * detection in phy_procedures_nrUE_SL. Sidelink measurements are not
        * allocated for the SL UE, so instead of gNB_I0_measurements() we derive
        * the signal power from the channel estimates and the noise power from
        * the channel-estimation residual (nvar). Values are accumulated over the
@@ -864,7 +864,6 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
       for (int i = 0; i < nrOfLayers; i++)
         memset(&pusch_vars->rxdataF_comp[i * frame_parms->nb_antennas_rx][symbol * ext_buffer_length],
                0, sizeof(int32_t) * ext_buffer_length);
-      //LOG_I(PHY, "Doing channel compensations log2_maxh %d, avgs %d (%d,%d)\n" ,pusch_vars->log2_maxh, avgs,avg[0], avg[1]);
       nr_pssch_channel_compensation(ext_buffer_length,
 		      		    frame_parms->nb_antennas_rx,
 		                    rxFext,
@@ -913,7 +912,6 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
 	       pusch_vars->ul_valid_re_per_slot[symbol]=slsch_res_in_symbol;
 	       sci2_cnt_thissymb=sci2_left;
                sci2_left=0;
-	       //for (int i=0;i<sci2_re;i++) LOG_I(NR_PHY,"sci2_llrs [%d] %d,%d\n",i,sci2_llrs[i<<1],sci2_llrs[1+(i<<1)]);
 	       //unscramble the SCI2 payload
 	       // SCI-2 is a PSSCH channel: c_init = (Nid<<15)+1010 (TS 38.211 8.3.1.1),
 	       // matching the TX nr_sci_scrambling(sci2_flag=1). Use the PSSCH descrambler
@@ -923,9 +921,6 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
 	       // used the PDCCH init (1010<<16)+Nid and only sci2_re values -- both wrong.)
 	       memcpy(unscrambled_sci2_llrs, sci2_llrs, sizeof(int16_t) * sci2_re * 2);
 	       nr_codeword_unscrambling(unscrambled_sci2_llrs, sci2_re * 2, 0, 1010, pssch_pdu->Nid);
-      //     for (int i=0;i<sci2_re;i++) LOG_I(NR_PHY,"sci2_llrs [%d]
-      //     %d,%d\n",i,unscrambled_sci2_llrs[i<<1],unscrambled_sci2_llrs[1+(i<<1)]);
-
 	       uint64_t sci_estimation[2]={0};
 	       uint16_t dummy;
                uint16_t crc = polar_decoder_int16(unscrambled_sci2_llrs,

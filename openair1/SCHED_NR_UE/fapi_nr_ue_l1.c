@@ -438,8 +438,6 @@ void sl_handle_scheduled_response(nr_scheduled_response_t *scheduled_response)
   
   const char *sl_rx_action[] = {"NONE", "RX_PSBCH", "RX_PSCCH", "RX_SCI2_ON_PSSCH", "RX_SLSCH_ON_PSSCH", "RX_SLSCH_PSFCH", "RX_PSFCH", "RX_PSCCH_PSFCH"};
   const char *sl_tx_action[] = {"TX_PSBCH", "TX_PSCCH_PSSCH", "TX_PSCCH_PSSCH_PSFCH", "TX_PSFCH"};
-  //NR_UE_CSI_RS *csirs_vars = PHY_vars_UE_g[module_id][cc_id]->csirs_vars[0];
-
   if (scheduled_response->sl_rx_config != NULL) {
     sl_nr_rx_config_request_t *sl_rx_config = scheduled_response->sl_rx_config;
     nr_phy_data_t *phy_data = (nr_phy_data_t *)scheduled_response->phy_data;

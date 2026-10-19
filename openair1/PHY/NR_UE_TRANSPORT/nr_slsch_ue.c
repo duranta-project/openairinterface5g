@@ -54,7 +54,6 @@ void nr_pssch_codeword_scrambling_sci(uint32_t *in,
         out++;
     }
     *out ^= (((in[i])&1) ^ ((s>>b_idx)&1))<<b_idx;
-    //printf("i %d b_idx %d in %d s 0x%08x out 0x%08x\n", i, b_idx, in[i], s, *out);
   }
 }
 void nr_pssch_codeword_scrambling_sci_2layer(uint32_t *in,
@@ -80,7 +79,6 @@ void nr_pssch_codeword_scrambling_sci_2layer(uint32_t *in,
     *out ^= (((in[i+1])&1) ^ ((s>>(b_idx+1))&1))<<(b_idx+1);
     *out ^= (((in[i])&1) ^ ((s>>b_idx)&1))<<(b_idx+2);
     *out ^= (((in[i+1])&1) ^ ((s>>(b_idx+1))&1))<<(b_idx+3);
-    //printf("i %d b_idx %d in %d s 0x%08x out 0x%08x\n", i, b_idx, in[i], s, *out);
   }
 }
 
@@ -139,8 +137,6 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
 
   nb_dmrs_re_per_rb = ((dmrs_type == pusch_dmrs_type1) ? 6:4)*cdm_grps_no_data;
 
-  //LOG_I(NR_PHY,"%s TX %x : start_rb %d nb_rb %d mod_order %d Nl %d Tpmi %d bwp_start %d start_sc %d start_symbol %d num_symbols %d cdmgrpsnodata %d num_dmrs %d dmrs_re_per_rb %d\n",pscch_pssch_pdu==NULL?"PUSCH":"PSSCH",
-   //     rnti,start_rb,nb_rb,mod_order,Nl,Tpmi,pscch_pssch_pdu==NULL?pusch_pdu->bwp_start:0,start_sc,start_symbol,number_of_symbols,cdm_grps_no_data,number_dmrs_symbols,nb_dmrs_re_per_rb);
   // TbD num_of_mod_symbols is set but never used
   uint16_t num_CSI_REs = 0;
   N_RE_prime = NR_NB_SC_PER_RB * number_of_symbols - nb_dmrs_re_per_rb * number_dmrs_symbols - N_PRB_oh;
@@ -157,7 +153,6 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
                             pscch_pssch_pdu->l_subch,
                             pscch_pssch_pdu->subchannel_size,
 			    pscch_pssch_pdu->target_coderate);
-  //if (pscch_pssch_pdu) LOG_I(NR_PHY,"dmrs_symbol_position %x, pscch_numsym %d\n",pscch_pssch_pdu->dmrs_symbol_position,pscch_pssch_pdu->pscch_numsym);
   AssertFatal(pscch_pssch_pdu->pscch_numsym==2 || pscch_pssch_pdu->pscch_numsym==3,"illegal pscch_numsym %d\n",pscch_pssch_pdu->pscch_numsym);
   int sci1_dmrs_overlap = pscch_pssch_pdu->dmrs_symbol_position & dmrs_pscch_mask[pscch_pssch_pdu->pscch_numsym-2];
   uint16_t sci1_re = pscch_pssch_pdu->pscch_numsym * pscch_pssch_pdu->pscch_numrbs * NR_NB_SC_PER_RB;
@@ -218,9 +213,6 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
   memset(scrambled_output, 0, ((available_bits>>5)+1)*sizeof(uint32_t));
   memset(scrambled_output_sci, 0, ((Gsci2>>5)+1)*sizeof(uint32_t));
 
-//  for (int i=0;i<(Gsci2>>5)+1;i++) LOG_I(NR_PHY,"sci2_encoded[%d] %x\n",i,sci2_encoded_output[i]); 
-//  for (int g=0;g<G;g++) LOG_I(NR_PHY,"coded_output_f[%d] %d\n",g,harq_process_ul_ue->f[g]);
-//  LOG_I(NR_PHY,"Scrambling with Nid %x\n",phy_data->pscch_Nid);
   // 
   uint32_t n_RNTI = 1010;
   nr_codeword_scrambling(harq_process_ul_ue->f, G, 0, phy_data->pscch_Nid, n_RNTI, scrambled_output);
@@ -248,7 +240,6 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
                   Gsci2,
                   2,
                   (int16_t *)d_mod);
-    //for (int i=0;i<Gsci2;i+=2) LOG_I(NR_PHY,"SCI2 RE %d/%d: (%d,%d)\n",i/2,Gsci2/2,((int16_t*)d_mod)[i],((int16_t*)d_mod)[i+1]);
     int32_t d_mod2[max_num_re] __attribute__ ((aligned(16)));
     nr_modulation(scrambled_output, // assume one codeword for the moment
                   available_bits,
@@ -345,7 +336,6 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
            }
         }
 
-        //LOG_D(NR_PHY, "symbol %d re %d/%d k %d\n", l, i, nb_rb*NR_NB_SC_PER_RB, k);
         sample_offsetF = l*frame_parms->ofdm_symbol_size + k;
 
         if (is_dmrs_sym) {

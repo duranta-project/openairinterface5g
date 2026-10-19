@@ -1,11 +1,9 @@
 /*
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
 */
-//#include "PHY/defs.h"
 #include "PHY/impl_defs_nr.h"
 #include "PHY/defs_nr_common.h"
 #include "PHY/defs_nr_UE.h"
-//#include "PHY/extern.h"
 #include "PHY/NR_UE_TRANSPORT/pucch_nr.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"

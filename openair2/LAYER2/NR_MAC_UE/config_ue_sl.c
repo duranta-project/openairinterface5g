@@ -37,16 +37,6 @@
 {SL_CONFIG_STRING_SL_CSI_RS_SL_CSI_ACQUISITION,NULL,0,.u8ptr=&sl_csi_info->sl_csi_acquisition,.defuintval=1,TYPE_UINT8,0}, \
 {SL_CONFIG_STRING_SL_CSI_RS_SL_LATENCYBOUNDCSI_REPORT,NULL,0,.u8ptr=&sl_csi_info->sl_latencyboundcsi_report,.defuintval=8,TYPE_UINT8,0}}
 
-/*Sidelink HARQ configuration parameters */
-#define SL_CONFIG_STRING_SL_CONFIGUREDGRANT_LIST               "sl_ConfiguredGrantConfig"
-#define SL_CONFIG_STRING_SL_CONFIGUREDGRANT_NROFHARQ_PROCESSES "sl_NrOfHARQ_Processes"
-#define SL_CONFIG_STRING_SL_CONFIGUREDGRANT_HARQ_PROCID_OFFSET "sl_HARQ_ProcID_offset"
-#define SL_CONFIG_STRING_SL_CONFIGUREDGRANT_HARQ_PERIODIC_RRI "sl_periodic_rsc_rsr_interval"
-#define SL_CONFIGUREDGRANT_DESC(sl_harq_info) { \
-{SL_CONFIG_STRING_SL_CONFIGUREDGRANT_NROFHARQ_PROCESSES, NULL, 0, .u16ptr=&sl_harq_info->sl_Num_HARQ_Processes, .defuintval=0, TYPE_UINT16, 0}, \
-{SL_CONFIG_STRING_SL_CONFIGUREDGRANT_HARQ_PROCID_OFFSET, NULL, 0, .u16ptr=&sl_harq_info->sl_HARQ_ProcID_offset, .defuintval=0, TYPE_UINT16, 0}, \
-{SL_CONFIG_STRING_SL_CONFIGUREDGRANT_HARQ_PERIODIC_RRI, NULL, 0, .u16ptr=&sl_harq_info->sl_Periodic_RRI, .defuintval=0, TYPE_UINT16, 0}}
-
 #define SL_CONFIG_RESOURCE_SELECTION(resource_selection_cfg, pssch_num_subchannels) { \
 {SL_CONFIG_STRING_SL_ALLOWED_RESOURCE_SELECTION_CONFIG, NULL, 0, .u16ptr=resource_selection_cfg, .defuintval=3, TYPE_UINT16, 0}, \
 {SL_CONFIG_STRING_SL_PSSCH_NUM_SUBCHANNELS, NULL, 0, .u16ptr=pssch_num_subchannels, .defuintval=1, TYPE_UINT16, 0}}
@@ -61,12 +51,6 @@ typedef struct sl_csi_info {
   uint8_t sl_csi_acquisition;
   uint8_t sl_latencyboundcsi_report;
 } sl_csi_info_t;
-
-typedef struct sl_harq_info {
-  uint16_t sl_Num_HARQ_Processes;
-  uint16_t sl_HARQ_ProcID_offset;
-  uint16_t sl_Periodic_RRI;
-} sl_harq_info_t;
 
 void sl_ue_mac_free(NR_UE_MAC_INST_t *mac)
 {
@@ -305,8 +289,6 @@ static void  sl_prepare_phy_config(int module_id,
                                                         phycfg->sl_bwp_config.sl_ssb_offset_point_a,
                                                         phycfg->sl_bwp_config.sl_dc_location);
 
-//#endif
-
   return;
 }
 
@@ -372,12 +354,6 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
                                               : NULL;
 
   AssertFatal(freqcfg !=NULL,"SL fcfg Cannot be NULL");
-
-  //MAx num of consecutive HARQ DTX before triggering RLF.
-  const uint8_t MaxNumConsecutiveDTX[] = {1,2,3,4,6,8,16,32};
-  sl_mac->sl_MaxNumConsecutiveDTX = (sl_preconfig->sl_MaxNumConsecutiveDTX_r16)
-                                        ? MaxNumConsecutiveDTX[*sl_preconfig->sl_MaxNumConsecutiveDTX_r16]
-                                        : 0;
 
   //priority of SL-SSB tx and rx
   sl_mac->sl_SSB_PriorityNR = (sl_preconfig->sl_SSB_PriorityNR_r16)
@@ -781,15 +757,6 @@ void nr_sl_params_read_conf(module_id_t module_id) {
   config_getlist(config_get_if(), &SL_CRI_RS_List, NULL, 0, aprefix);
   sprintf(aprefix, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0, SL_CONFIG_STRING_SL_CSI_RS_LIST, 0);
   config_get(config_get_if(), SL_CRI_RS_INFO, sizeof(SL_CRI_RS_INFO)/sizeof(paramdef_t), aprefix);
-
-  char aprefix1[MAX_OPTNAME_SIZE*2 + 8];
-  sl_harq_info_t *sl_harq_info = (sl_harq_info_t*)malloc16_clear(sizeof(sl_harq_info_t));
-  paramdef_t SL_HARQ_INFO[] = SL_CONFIGUREDGRANT_DESC(sl_harq_info);
-  sprintf(aprefix1, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0, SL_CONFIG_STRING_SL_CONFIGUREDGRANT_LIST, 0);
-  config_get(config_get_if(), SL_HARQ_INFO, sizeof(SL_HARQ_INFO)/sizeof(paramdef_t), aprefix1);
-  sl_mac->sl_Num_HARQ_Processes = sl_harq_info->sl_Num_HARQ_Processes;
-  sl_mac->sl_HARQ_ProcID_offset = sl_harq_info->sl_HARQ_ProcID_offset;
-  sl_mac->sl_Periodic_RRI = sl_harq_info->sl_Periodic_RRI;
 
   sl_mac->csi_type = sl_csi_rs_info->csi_type;
   sl_mac->symb_l0 = sl_csi_rs_info->symb_l0;

@@ -185,18 +185,6 @@ static void sl_nr_extract_sss(PHY_VARS_NR_UE *ue,
     LOG_D(PHY, "SIDELINK SLSS SEARCH: Ch. estimation SSS done\n");
   }
 
-  /*
-
-  #ifdef SL_DEBUG
-
-    write_output("rxsig0.m","rxs0",&ue->common_vars.rxdata[0][0],ue->frame_parms.samples_per_subframe,1,1);
-    write_output("rxdataF0_pss.m","rxF0_pss",&ue->common_vars.rxdataF[0][0],frame_parms->ofdm_symbol_size,1,1);
-    write_output("rxdataF0_sss.m","rxF0_sss",&ue->common_vars.rxdataF[0][(SSS_SYMBOL_NB-PSS_SYMBOL_NB)*frame_parms->ofdm_symbol_size],frame_parms->ofdm_symbol_size,1,1);
-    write_output("pss_ext.m","pss_ext",pss_ext,LENGTH_PSS_NR,1,1);
-
-  #endif
-  */
-
   /* for phase evaluation, one uses an array of possible phase shifts */
   /* then a correlation is done between received signal with a shift pĥase and the reference signal */
   /* Computation of signal with shift phase is based on below formula */

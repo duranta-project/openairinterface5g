@@ -327,36 +327,6 @@ uint8_t sl_decode_sl_TDD_Config(NR_TDD_UL_DL_ConfigCommon_t *TDD_UL_DL_Config,
 }
 
 /*Function used to prepare Sidelink MIB*/
-uint32_t sl_prepare_MIB(NR_TDD_UL_DL_ConfigCommon_t *TDD_UL_DL_Config,
-                        uint8_t incoverage, uint8_t mu,
-                        uint8_t start_symbol, uint8_t L)
-{
-
-  uint8_t  sl_mib_payload[4] = {0,0,0,0};
-  //int mu = UE->sl_frame_params.numerology_index, start_symbol = UE->start_symbol;
-  uint8_t byte0, byte1;
-  //int L = (UE->sl_frame_params.Ncp == 0) ? 14 : 12;
-  uint32_t sl_mib=0;
-
-  sl_prepare_psbch_payload(TDD_UL_DL_Config, &byte0, &byte1, mu, L, start_symbol);
-  sl_mib_payload[0] = byte0;
-  sl_mib_payload[1] = byte1;
-
-  AssertFatal(incoverage <= 1, "Invalid value for incoverage paramter for SL-MIB. Accepted values 0 or 1\n");
-  sl_mib_payload[1] |= (incoverage << 3);
-
-  sl_mib =  sl_mib_payload[1]<<8  | sl_mib_payload[0];
-
-#ifdef SL_DEBUG
-  printf("SIDELINK PSBCH SIM: NUM SYMBOLS:%d, mu:%d, start_symbol:%d incoverage:%d \n",
-                                      L, mu, start_symbol, incoverage);
-  printf("SIDELINK PSBCH PAYLOAD: psbch_a:%x, sl_mib_payload:%x %x %x %x\n",
-                                sl_mib, sl_mib_payload[0],sl_mib_payload[1], sl_mib_payload[2], sl_mib_payload[3]);
-#endif
-
-  return sl_mib;
-}
-
 uint16_t sl_get_num_subch(NR_SL_ResourcePool_r16_t *rpool)
 {
 
@@ -1243,8 +1213,6 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
   LOG_D(NR_PHY, "%4d.%2d Rx V %d R %d SRC %d DST %d\n", frame, slot, sl_sch_subheader->V, sl_sch_subheader->R, sl_sch_subheader->SRC, sl_sch_subheader->DST);
   pduP += sizeof(*sl_sch_subheader);
   pdu_len -= sizeof(*sl_sch_subheader);
-  if (frame % 20 == 0)
-    LOG_D(NR_PHY, "%4d.%2d Rx V %d R %d SRC %d DST %d\n", frame, slot, sl_sch_subheader->V, sl_sch_subheader->R, sl_sch_subheader->SRC, sl_sch_subheader->DST);
   while (!done && pdu_len > 0) {
     uint16_t mac_len = 0x0000;
     uint16_t mac_subheader_len = 0x0001; //  default to fixed-length subheader = 1-oct
@@ -1256,20 +1224,6 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
         if (!get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len))
           return;
         LOG_D(NR_MAC, "%4d.%2d : SLSCH -> LCID %d %d bytes with subheader %d\n", frame, slot, rx_lcid, mac_len, mac_subheader_len);
-
-        #if 0
-        mac_rlc_data_ind(module_idP,
-                         mac->src_id,
-                         0,
-                         frame,
-                         ENB_FLAG_NO,
-                         MBMS_FLAG_NO,
-                         rx_lcid,
-                         (char *)(pduP + mac_subheader_len),
-                         mac_len,
-                         1,
-                         NULL);
-        #endif
 
         nr_rlc_data_ind_t data_ind = {.ch = rx_lcid, .buf = pduP + mac_subheader_len, .len = mac_len};
         nr_mac_rlc_data_ind(mac->ue_id, mac->ue_id, false, &data_ind, 1);

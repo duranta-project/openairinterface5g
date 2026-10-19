@@ -196,13 +196,6 @@ typedef struct sl_nr_ue_mac_params {
   uint8_t measurement_bitmap;
   uint8_t sl_LatencyBoundCSI_Report;
 
-  // configured grant harq parameters
-  uint8_t sl_Num_HARQ_Processes;
-  uint8_t sl_HARQ_ProcID_offset;
-  uint16_t sl_Periodic_RRI;
-
-  //Configured from RRC
-  uint32_t sl_MaxNumConsecutiveDTX;
   uint32_t sl_SSB_PriorityNR;
 
   //MAC prepares this and sends it to PHY

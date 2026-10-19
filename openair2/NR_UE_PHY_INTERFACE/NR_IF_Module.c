@@ -409,84 +409,6 @@ nr_ue_if_module_t *nr_ue_if_module_init(uint32_t module_id)
   return nr_ue_if_module_inst[module_id];
 }
 
-/*
-int nr_ue_scireq(nr_scireq_t *scireq) {
-
-  sl_nr_rx_config_request_t *sl_config = &scireq->sl_config_req;
-  NR_UE_MAC_INST_t *UE_mac = get_mac_inst(0);
-  sl_config->sfn = scireq->frame;
-  sl_config->slot = scireq->slot;
-
-  LOG_T(PHY, "Entering UE SCI configuration frame %d slot %d \n", scireq->frame, scireq->slot);
-//  ue_sci_configuration(UE_mac, sl_config, scireq->frame, scireq->slot);
-
-  return 0;
-}
-*/
-
-/*
-int nr_ue_sl_indication_rk(nr_sidelink_indication_t *sl_info)
-{
-  pthread_mutex_lock(&mac_IF_mutex);
-  uint32_t ret_mask = 0x0;
-  module_id_t module_id = sl_info->module_id;
-  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
-
-  if ((!sl_info->sci_ind && !sl_info->rx_ind)) {
-    // indication to schedule SCI reception
-    if (mac->phy_config_request_sent)
-      nr_ue_sl_scheduler(sl_info);
-  } else {
-    // SL indication after reception of SCI or SL PDU
-    if (sl_info && sl_info->sci_ind && sl_info->sci_ind->number_of_SCIs) {
-      LOG_T(MAC,"[L2][IF MODULE][SL INDICATION][SCI_IND]\n");
-      for (int i = 0; i < sl_info->sci_ind->number_of_SCIs; i++) {
-        LOG_T(MAC,">>>NR_IF_Module i=%d, sl_info->sci_ind->number_of_scis=%d\n",i,sl_info->sci_ind->number_of_SCIs);
-        nr_scheduled_response_t scheduled_response;
-        int8_t ret = handle_sci(sl_info->module_id,
-                                sl_info->frame_rx,
-                                sl_info->slot_rx,
-                                sl_info->sci_ind->sci_pdu+i);
-        if (ret < 0)
-          continue;
-        sl_nr_sci_indication_pdu_t *sci_index = sl_info->sci_ind->sci_pdu+i;
-
-        AssertFatal( nr_ue_if_module_inst[module_id] != NULL, "IF module is NULL!\n" );
-        AssertFatal( nr_ue_if_module_inst[module_id]->scheduled_response != NULL, "scheduled_response is NULL!\n" );
-        sl_nr_rx_config_request_t *sl_config = get_sl_config_request(mac, sl_info->slot_rx);
-        fill_sl_scheduled_response(&scheduled_response, sl_config, NULL, NULL, sl_info->module_id, sl_info->frame_rx, sl_info->slot_rx, sl_info->phy_data);
-        nr_ue_if_module_inst[module_id]->scheduled_response(&scheduled_response);
-      }
-      sl_info->sci_ind = NULL;
-    }
-
-    if (sl_info->rx_ind != NULL) {
-
-      for (int i = 0; i < sl_info->rx_ind->number_pdus; ++i) {
-
-        sl_nr_rx_indication_body_t rx_indication_body = sl_info->rx_ind->rx_indication_body[i];
-        LOG_D(NR_MAC, "Sending DL indication to MAC. 1 PDU type %d of %d total number of PDUs \n",
-              rx_indication_body.pdu_type,
-              sl_info->rx_ind->number_pdus);
-
-        switch(rx_indication_body.pdu_type){
-
-          case SL_NR_RX_PDU_TYPE_SSB:
-            break;
-          case SL_NR_RX_PDU_TYPE_SLSCH:
-            break;
-          default:
-	    AssertFatal(1==0,"Unknown RX indication type\n");
-	    break;
-        }
-      }
-      sl_info->rx_ind = NULL;
-    }
-  }
-  pthread_mutex_unlock(&mac_IF_mutex);
-  return ret_mask;
-}
-*/
 
 
 static void handle_sl_bch(int ue_id,
@@ -553,13 +475,6 @@ void handle_sl_sci2(module_id_t module_id, int cc_id, uint32_t frame, uint32_t s
   nr_ue_process_sci2_indication_pdu(mac, module_id, cc_id, frame, slot, sci, phy_data);
 }
 
-/*
-if PSBCH rx - handle_psbch()
-  - Extract FN, Slot
-  - Extract TDD configuration from the 12 bits
-  - SEND THE SL-MIB to RRC
-if PSSCH DATa rx - handle slsch()
-*/
 void sl_nr_process_rx_ind(int ue_id,
                           int hfn,
                           uint32_t frame,

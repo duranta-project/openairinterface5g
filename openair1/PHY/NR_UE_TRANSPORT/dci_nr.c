@@ -561,7 +561,6 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
 	  };
 	  memcpy(sci->sci_payloadBits,&dci_estimation,8);
           sci_ind->number_of_SCIs++;
-          //ue->SL_UE_PHY_PARAMS.pscch.rx_ok++; TODO
 	}	
         break;    // If DCI is found, no need to check for remaining DCI lengths
       } else {

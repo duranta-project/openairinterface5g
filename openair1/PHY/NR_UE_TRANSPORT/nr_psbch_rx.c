@@ -102,7 +102,6 @@ void nr_generate_psbch_llr(const NR_DL_FRAME_PARMS *frame_parms,
   const uint16_t nb_re = SL_NR_NUM_PSBCH_DATA_RE_IN_ONE_SYMBOL;
   __attribute__((aligned(32))) struct complex16 rxdataF_ext[frame_parms->nb_antennas_rx][nb_re + 1];
   __attribute__((aligned(32))) struct complex16 dl_ch_estimates_ext[frame_parms->nb_antennas_rx][nb_re + 1];
-  // memset(dl_ch_estimates_ext,0, sizeof  dl_ch_estimates_ext);
   nr_psbch_extract(frame_parms->ofdm_symbol_size, rxdataF, dl_ch_estimates, rxdataF_ext, dl_ch_estimates_ext, symbol, frame_parms);
 #ifdef DEBUG_PSBCH
   LOG_I(PHY, "PSBCH RX Symbol %d ofdm size %d\n", symbol, frame_parms->ofdm_symbol_size);
