@@ -516,8 +516,6 @@ void configure_psfch_params_rx(int module_idP, NR_UE_MAC_INST_t *mac, sl_nr_rx_c
 
 void reset_sched_psfch(NR_UE_MAC_INST_t *mac, int frameP,int slotP);
 
-size_t dump_mac_stats_sl(NR_UE_MAC_INST_t *mac, char *output, size_t strlen, bool reset_rsrp);
-
 void handle_nr_ue_sl_harq(module_id_t mod_id, frame_t frame, sub_frame_t slot, sl_nr_slsch_pdu_t *rx_slsch_pdu, uint16_t src_id);
 
 void handle_nr_ue_sl_psfch(module_id_t mod_id, frame_t frame, sub_frame_t slot, const sl_nr_psfch_pdu_t *rx_psfch_pdu);

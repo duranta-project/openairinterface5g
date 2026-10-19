@@ -12,30 +12,9 @@
 #include "NR_MAC_COMMON/nr_mac_common.h"
 #include "NR_MAC_UE/mac_proto.h"
 #include "NR_MAC_UE/nr_ue_sci.h"
-#include <executables/nr-uesoftmodem.h>
 #include "NR_MAC_UE/mac_defs_sl.h"
-#include "NR_MAC_gNB/nr_mac_gNB.h"
-
-#define LOWER_BLER 0.05
-#define UPPER_BLER 0.15
-#define MAX_MCS 28
 
 const uint8_t nr_rv_round_map[4] = {0, 2, 3, 1};
-
-static int get_sl_mcs_from_bler(const NR_bler_options_t *bler_options,
-                                const NR_mac_dir_stats_t *stats,
-                                NR_bler_stats_t *bler_stats,
-                                int max_mcs,
-                                frame_t frame)
-{
-  /* Link adaptation is implementation-specific, but it must not interpret a
-   * low packet arrival rate as a decoding failure. Accumulate enough actual
-   * transmissions for get_mcs_from_bler() to form a BLER sample. */
-  const uint64_t new_transmissions = stats->rounds[0] - bler_stats->rounds[0];
-  if (new_transmissions <= 3)
-    return min(bler_stats->mcs, max_mcs);
-  return get_mcs_from_bler(bler_options, stats, bler_stats, max_mcs, frame);
-}
 
 /* A HARQ TB counts against sched_sl_bytes from its initial transmission until
  * it is ACKed or discarded.  Keep the release operation in one place because
@@ -339,7 +318,6 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
                        sl_resource_info_t *resource) {
   uid_t dest_id = UE->uid;
   NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
-  const NR_mac_dir_stats_t *stats = &UE->mac_sl_stats.sl;
   NR_sched_pssch_t *sched_pssch = &sched_ctrl->sched_pssch;
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
   uint8_t mu = sl_mac->sl_phy_config.sl_config_req.sl_bwp_config.sl_scs;
@@ -360,12 +338,6 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   sched_pssch->mcs = sched_ctrl->sl_max_mcs;
   int mcs_tb_ind = 0;
 
-  /* Calculate coeff */
-  NR_bler_options_t *sl_bo = &sl_mac->sl_bler;
-  sl_bo->lower = LOWER_BLER;
-  sl_bo->upper = UPPER_BLER;
-  sl_bo->max_mcs = MAX_MCS;
-
   const int max_mcs_table = mcs_tb_ind == 1 ? 27 : 28;
   int max_mcs = min(sched_ctrl->sl_max_mcs, max_mcs_table);
   if (cur_harq->round > 0) {
@@ -373,10 +345,8 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
     // MCS is allowed, but the selected grant must derive the same TBS so that
     // the stored MAC PDU remains the transport block for this HARQ process.
     sched_pssch->mcs = cur_harq->sched_pssch.mcs;
-  } else if (sl_bo->harq_round_max == 1) {
-    sched_pssch->mcs = max_mcs;
   } else {
-    sched_pssch->mcs = get_sl_mcs_from_bler(sl_bo, stats, &sched_ctrl->sl_bler_stats, max_mcs, frameP);
+    sched_pssch->mcs = max_mcs;
   }
 
   uint16_t sl_max_num_reserve = *mac->sl_tx_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16;

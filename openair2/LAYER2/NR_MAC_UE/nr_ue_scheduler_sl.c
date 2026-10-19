@@ -1118,7 +1118,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
           sched_ctrl->sched_sl_bytes);
 
     /* Statistics */
-    AssertFatal(cur_harq->round < sl_mac_params->sl_bler.harq_round_max, "Indexing ulsch_rounds[%d] is out of bounds for max harq round %d\n", cur_harq->round, sl_mac_params->sl_bler.harq_round_max);
+    AssertFatal(cur_harq->round < 4, "Indexing ulsch_rounds[%d] is out of bounds for max harq round 4\n", cur_harq->round);
 
     sl_mac_stats->rounds[cur_harq->round]++;
     if (cur_harq->round != 0) { // retransmission
@@ -1445,79 +1445,6 @@ void nr_ue_sl_mac_free(NR_UE_MAC_INST_t *mac)
   replace_candidate_resources(mac, NULL);
   free_list_mem(&mac->sl_sensing_data);
   free_list_mem(&mac->sl_transmit_history);
-}
-
-size_t dump_mac_stats_sl(NR_UE_MAC_INST_t *mac, char *output, size_t strlen, bool reset_rsrp)
-{
-  const char *begin = output;
-  const char *end = output + strlen;
-  sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
-
-  NR_UE_SL_SCHED_LOCK(&mac->sl_info.mutex);
-  SL_UE_iterator(mac->sl_info.list, UE) {
-    NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
-    NR_UE_sl_mac_stats_t *stats = &UE->mac_sl_stats;
-
-    output += snprintf(output, end - output, "%"PRIu64, stats->sl.rounds[0]);
-    for (int i = 1; i < sl_mac->sl_bler.harq_round_max; i++)
-      output += snprintf(output, end - output, "/%"PRIu64, stats->sl.rounds[i]);
-
-    output += snprintf(output,
-                       end - output,
-                       ", slsch_errors %"PRIu64", BLER %.5f MCS %d\n",
-                       stats->sl.errors,
-                       sched_ctrl->sl_bler_stats.bler,
-                       sched_ctrl->sl_bler_stats.mcs);
-
-    output += snprintf(output,
-                       end - output,
-                       "UE %04x: slsch_total_bytes %"PRIu64"\n",
-                       UE->uid, stats->sl.total_bytes);
-    output += snprintf(output,
-                       end - output,
-                       "UE %04x: slsch_rounds ", UE->uid);
-    output += snprintf(output, end - output, "%"PRIu64, stats->sl.rounds[0]);
-    for (int i = 1; i < sl_mac->sl_bler.harq_round_max; i++)
-      output += snprintf(output, end - output, "/%"PRIu64, stats->sl.rounds[i]);
-
-    output += snprintf(output,
-                       end - output,
-                       ", slsch_DTX %d, slsch_errors %"PRIu64", BLER %.5f MCS %d\n",
-                       stats->slsch_DTX,
-                       stats->sl.errors,
-                       sched_ctrl->sl_bler_stats.bler,
-                       sched_ctrl->sl_bler_stats.mcs);
-    output += snprintf(output,
-                       end - output,
-                       "UE %04x: slsch_total_bytes_scheduled %"PRIu64", slsch_total_bytes_received %"PRIu64"\n",
-                       UE->uid,
-                       stats->slsch_total_bytes_scheduled, stats->sl.total_bytes);
-    output += snprintf(output,
-                       end - output,
-                       "UE %04x: RLC bytes pulled %"PRIu64", MAC SDUs %u\n",
-                       UE->uid,
-                       stats->sl.total_sdu_bytes,
-                       stats->sl.num_mac_sdu);
-
-    for (int lc_id = 0; lc_id < 63; lc_id++) {
-      if (stats->sl.lc_bytes[lc_id] > 0)
-        output += snprintf(output,
-                           end - output,
-                           "UE %04x: LCID %d: %"PRIu64" bytes TX\n",
-                           UE->uid,
-                           lc_id,
-                           stats->sl.lc_bytes[lc_id]);
-      if (stats->sl.lc_bytes[lc_id] > 0)
-        output += snprintf(output,
-                           end - output,
-                           "UE %04x: LCID %d: %"PRIu64" bytes RX\n",
-                           UE->uid,
-                           lc_id,
-                           stats->sl.lc_bytes[lc_id]);
-    }
-  }
-  NR_UE_SL_SCHED_UNLOCK(&mac->sl_info.mutex);
-  return output - begin;
 }
 
 void remove_old_transmit_history(frameslot_t *frame_slot,
@@ -1848,12 +1775,6 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
                              &tx_config,
                              &tti_action);
       reset_sched_psfch(mac, sl_ind->frame_tx, sl_ind->slot_tx);
-  }
-
-  if (((slot % 20) == 6) && ((frame % 100) == 0)) {
-    char stats_output[16000] = {0};
-    dump_mac_stats_sl(mac, stats_output, sizeof(stats_output), true);
-    LOG_D(NR_MAC, "Frame.Slot %d.%d\n%s\n", frame, slot, stats_output);
   }
 
   nr_scheduled_response_t scheduled_response = {.module_id = mac->ue_id,

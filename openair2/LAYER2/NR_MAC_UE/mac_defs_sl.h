@@ -221,7 +221,6 @@ typedef struct sl_nr_ue_mac_params {
 
   uint16_t decoded_DFN;
   uint16_t decoded_slot;
-  NR_bler_options_t sl_bler;
 
   uint32_t N_SL_SLOTS;
   uint16_t N_SSB_16frames;

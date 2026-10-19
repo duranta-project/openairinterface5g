@@ -549,8 +549,6 @@ typedef struct {
   uint16_t sl_pdus_total;
   /// per-LC status data
   mac_rlc_status_resp_t rlc_status[NR_MAX_NUM_LCID];
-  //
-  NR_bler_stats_t sl_bler_stats;
 
   /// information about every sidelink transmit HARQ process
   NR_UE_sl_harq_t sl_harq_processes[NR_MAX_HARQ_PROCESSES];
