@@ -3427,6 +3427,320 @@ void test_prach_section_extensions(void)
   printf("PRACH C-Plane section extensions 1 and 11 passed!\n");
 }
 
+// Sends a section-1 C-plane packet for target_sym (numerology 1) with the given raw extension bytes after the section
+static void send_section1(void *ctx,
+                          int dir,
+                          uint64_t target_sym,
+                          uint16_t section_id,
+                          uint16_t beam_id,
+                          int start_prb,
+                          int num_prbc,
+                          const uint8_t *ext,
+                          size_t ext_len)
+{
+  const int slots_per_subframe = 2;
+  const int num_symbols_per_frame = 10 * slots_per_subframe * 14;
+  int slot_in_frame = (target_sym % num_symbols_per_frame) / 14;
+  struct rte_mbuf *mbuf = rte_pktmbuf_alloc(mp);
+  assert(mbuf != NULL);
+  struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(mbuf, sizeof(struct xran_ecpri_hdr));
+  ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, 0);
+  struct xran_cp_radioapp_section1_header *apphdr =
+      (struct xran_cp_radioapp_section1_header *)rte_pktmbuf_append(mbuf, sizeof(struct xran_cp_radioapp_section1_header));
+  memset(apphdr, 0, sizeof(*apphdr));
+  apphdr->cmnhdr.field.dataDirection = dir;
+  apphdr->cmnhdr.field.payloadVer = XRAN_PAYLOAD_VER;
+  apphdr->cmnhdr.field.frameId = (target_sym / num_symbols_per_frame) % 256;
+  apphdr->cmnhdr.field.subframeId = slot_in_frame / slots_per_subframe;
+  apphdr->cmnhdr.field.slotId = slot_in_frame % slots_per_subframe;
+  apphdr->cmnhdr.field.startSymbolId = target_sym % 14;
+  apphdr->cmnhdr.numOfSections = 1;
+  apphdr->cmnhdr.sectionType = XRAN_CP_SECTIONTYPE_1;
+  apphdr->cmnhdr.field.all_bits = rte_cpu_to_be_32(apphdr->cmnhdr.field.all_bits);
+  struct xran_cp_radioapp_section1 *sec =
+      (struct xran_cp_radioapp_section1 *)rte_pktmbuf_append(mbuf, sizeof(struct xran_cp_radioapp_section1));
+  memset(sec, 0, sizeof(*sec));
+  sec->hdr.u1.common.sectionId = section_id;
+  sec->hdr.u1.common.startPrbc = start_prb;
+  sec->hdr.u1.common.numPrbc = num_prbc;
+  sec->hdr.u.s1.numSymbol = 1;
+  sec->hdr.u.s1.beamId = beam_id;
+  sec->hdr.u.s1.ef = ext_len > 0;
+  *((uint64_t *)sec) = rte_be_to_cpu_64(*((uint64_t *)sec));
+  if (ext_len > 0) {
+    uint8_t *dst = (uint8_t *)rte_pktmbuf_append(mbuf, ext_len);
+    assert(dst != NULL);
+    memcpy(dst, ext, ext_len);
+  }
+  handle_cplane_packet(ctx, mbuf);
+}
+
+// Sends a DL U-plane packet of zero IQ for target_sym (numerology 1)
+// Uncompressed 16-bit ext1 carrying the 2 weights w
+static size_t build_ext1_2w(uint8_t *buf, const c16_t w[2])
+{
+  memset(buf, 0, 12);
+  buf[0] = XRAN_CP_SECTIONEXTCMD_1;
+  buf[1] = 3; // 3 hdr + 8 IQ bytes, padded to 3 words
+  buf[2] = 0; // bfwIqWidth 16, bfwCompMeth NONE
+  const int16_t v[4] = {w[0].r, w[0].i, w[1].r, w[1].i};
+  for (int i = 0; i < 4; i++) {
+    buf[3 + 2 * i] = (uint16_t)v[i] >> 8;
+    buf[4 + 2 * i] = v[i] & 0xFF;
+  }
+  return 12;
+}
+
+// Weight w of bundle b as build_ext11() writes it
+static c16_t ext11_weight(int b, int w)
+{
+  return (c16_t){.r = (int16_t)b, .i = (int16_t)(0xFF00 | (uint8_t)-w)};
+}
+
+// Rewrites the beamIds of an ext11 from build_ext11() (weights present) to first_beam + b
+static void set_ext11_beams(uint8_t *buf, int n_bundles, int n_weights, int first_beam)
+{
+  for (int b = 0; b < n_bundles; b++) {
+    uint8_t *beam = buf + 6 + b * (2 + 4 * n_weights);
+    beam[0] = (first_beam + b) >> 8;
+    beam[1] = (first_beam + b) & 0xFF;
+  }
+}
+
+static bool weights_equal(const c16_t *a, const c16_t *b, int n)
+{
+  return memcmp(a, b, n * sizeof(*a)) == 0;
+}
+
+// Sends a UL section for a symbol 7 ahead of cur_sym (in the UL part of the test TDD pattern) and returns its job
+static ul_job_t send_ul_section(void *ctx, uint64_t cur_sym, uint16_t beam_id, int num_prbc, const uint8_t *ext, size_t ext_len)
+{
+  send_section1(ctx, XRAN_DIR_UL, cur_sym + 7, 0, beam_id, 0, num_prbc, ext, ext_len);
+  ul_job_t job;
+  assert(poll_ul_job(ctx, &job) == 0);
+  assert(job.beam_id == beam_id);
+  return job;
+}
+
+// DL: each section's weights reach the dl_iq_stream_t of its PRB runs, by section, also when two sections share a
+// (eaxc, beam) stream
+void test_dl_dynamic_bf_weights(void)
+{
+  printf("Testing DL dynamic beamforming weights...\n");
+  void *ctx = init_packet_processor(1,
+                                    273,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    0);
+  assert(ctx != NULL);
+  set_num_bf_weights(ctx, 2);
+  uint64_t cur_sym = 1000;
+  handle_absolute_symbol_tick(ctx, cur_sym);
+  uint64_t target_sym = cur_sym + 7;
+
+  // Section 1: beam 5 with ext1 weights, PRBs 0-1. Section 2: ext11, PRBs 10-12 in 2-PRB bundles (beams 100, 101).
+  // Section 3: beam 5 again without an extension, PRBs 20-21, sharing section 1's stream. Section 4: beam 6, never
+  // given weights.
+  const c16_t w1[2] = {{1000, -1000}, {-2000, 2000}};
+  uint8_t ext1[12];
+  size_t ext1_len = build_ext1_2w(ext1, w1);
+  static uint8_t ext11[EXT11_TEST_BUF_SIZE];
+  size_t ext11_len = build_ext11(ext11, false, false, 2, 2, 2);
+  send_section1(ctx, XRAN_DIR_DL, target_sym, 1, 5, 0, 2, ext1, ext1_len);
+  send_section1(ctx, XRAN_DIR_DL, target_sym, 2, 9, 10, 3, ext11, ext11_len);
+  send_section1(ctx, XRAN_DIR_DL, target_sym, 3, 5, 20, 2, NULL, 0);
+  send_section1(ctx, XRAN_DIR_DL, target_sym, 4, 6, 30, 1, NULL, 0);
+  oru_packet_processor_stats_t stats;
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_late == 0 && stats.cplane_err_early == 0 && stats.dl_tdd_mismatch == 0);
+  assert(stats.bfw_updates == 3);
+
+  cur_sym += 3;
+  handle_absolute_symbol_tick(ctx, cur_sym);
+  send_dl_uplane(ctx, 1, target_sym, 1, 0, 2, 0);
+  // Section 2 split into two U-plane fragments: both carry the section's bundles
+  send_dl_uplane(ctx, 1, target_sym, 2, 10, 1, 0);
+  send_dl_uplane(ctx, 1, target_sym, 2, 11, 2, 0);
+  send_dl_uplane(ctx, 1, target_sym, 3, 20, 2, 0);
+  send_dl_uplane(ctx, 1, target_sym, 4, 30, 1, 0);
+  cur_sym += 10;
+  handle_absolute_symbol_tick(ctx, cur_sym);
+
+  dl_iq_stream_t streams[MAX_DL_FRAGMENTS_PER_SYMBOL];
+  static uint32_t dl_iq_arena[DL_IQ_ARENA_PRBS(273) * 12];
+  int n;
+  uint64_t hyper_frame;
+  int frame, slot, symbol;
+  do {
+    n = read_dl_iq_streams(ctx, streams, dl_iq_arena, MAX_DL_FRAGMENTS_PER_SYMBOL, &hyper_frame, &frame, &slot, &symbol);
+  } while (
+      !(frame == (int)((target_sym / 280) % 1024) && slot == (int)((target_sym % 280) / 14) && symbol == (int)(target_sym % 14)));
+  assert(n == 5);
+
+  int checked = 0;
+  for (int i = 0; i < n; i++) {
+    const dl_iq_stream_t *st = &streams[i];
+    uint16_t beam_id;
+    c16_t w[2];
+    if (st->start_prb == 0 || st->start_prb == 20) {
+      // ext1, and the later section of the same beam reusing those weights
+      assert(st->beam_id == 5);
+      // Each section of the shared stream has its own set
+      assert(st->bfw.num_bundles == 1 && st->bfw.first_prb == st->start_prb && st->bfw.bundle_prbs == 2);
+      assert(oru_bfw_bundle(&st->bfw, st->start_prb + 1) == 0);
+      assert(get_bf_weights(ctx, &st->bfw, 0, &beam_id, w) == 2);
+      assert(beam_id == 5 && weights_equal(w, w1, 2));
+    } else if (st->start_prb == 10 || st->start_prb == 11) {
+      assert(st->bfw.num_bundles == 2 && st->bfw.bundle_prbs == 2 && st->bfw.first_prb == 10);
+      assert(oru_bfw_bundle(&st->bfw, 11) == 0 && oru_bfw_bundle(&st->bfw, 12) == 1);
+      for (int b = 0; b < 2; b++) {
+        assert(get_bf_weights(ctx, &st->bfw, b, &beam_id, w) == 2);
+        assert(beam_id == 100 + b);
+        assert(weights_equal(w, (c16_t[]){ext11_weight(b, 0), ext11_weight(b, 1)}, 2));
+      }
+    } else {
+      // No weights were ever set for beam 6: static codebook
+      assert(st->start_prb == 30 && st->beam_id == 6 && st->bfw.num_bundles == 0);
+    }
+    checked++;
+  }
+  assert(checked == 5);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.bfw_stale == 0);
+
+  cleanup_packet_processor(ctx);
+  printf("DL dynamic beamforming weights passed!\n");
+}
+
+// The beamId -> weights cache: hits, misses, snapshots that outlive an update, beamId 0, pool exhaustion, ring wrap
+// and a weight count change
+void test_bf_weight_cache(void)
+{
+  printf("Testing beamforming weight cache...\n");
+  void *ctx = init_packet_processor(1,
+                                    273,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    0);
+  assert(ctx != NULL);
+  // 1030 + 7 is in the UL slots of the 5-slot pattern
+  const uint64_t cur_sym = 1030;
+  handle_absolute_symbol_tick(ctx, cur_sym);
+  oru_packet_processor_stats_t stats;
+  uint16_t beam_id;
+  c16_t w[2];
+  const c16_t w1[2] = {{1, 2}, {3, 4}};
+  const c16_t w2[2] = {{5, 6}, {7, 8}};
+  uint8_t ext1[12];
+  size_t ext1_len = build_ext1_2w(ext1, w1);
+
+  // num_bf_weights 0: no dynamic weights at all, even with ext1
+  ul_job_t job = send_ul_section(ctx, cur_sym, 7, 4, ext1, ext1_len);
+  assert(job.bfw.num_bundles == 0);
+
+  set_num_bf_weights(ctx, 2);
+  // Never-set beamId: static codebook
+  job = send_ul_section(ctx, cur_sym, 7, 4, NULL, 0);
+  assert(job.bfw.num_bundles == 0);
+
+  // ext1 sets beam 7; a later section citing beam 7 without an extension gets the same weights
+  ul_job_t job_w1 = send_ul_section(ctx, cur_sym, 7, 4, ext1, ext1_len);
+  assert(job_w1.bfw.num_bundles == 1 && job_w1.bfw.bundle_prbs == 4 && job_w1.bfw.first_prb == 0);
+  assert(get_bf_weights(ctx, &job_w1.bfw, 0, &beam_id, w) == 2 && beam_id == 7 && weights_equal(w, w1, 2));
+  ul_job_t job_hit = send_ul_section(ctx, cur_sym, 7, 4, NULL, 0);
+  assert(get_bf_weights(ctx, &job_hit.bfw, 0, &beam_id, w) == 2 && weights_equal(w, w1, 2));
+  // The same weights again are not an update
+  send_ul_section(ctx, cur_sym, 7, 4, ext1, ext1_len);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.bfw_updates == 1);
+
+  // New weights for beam 7: new sections get them, the earlier section keeps the ones it was sent with
+  build_ext1_2w(ext1, w2);
+  ul_job_t job_w2 = send_ul_section(ctx, cur_sym, 7, 4, ext1, ext1_len);
+  assert(get_bf_weights(ctx, &job_w2.bfw, 0, &beam_id, w) == 2 && weights_equal(w, w2, 2));
+  assert(get_bf_weights(ctx, &job_hit.bfw, 0, &beam_id, w) == 2 && weights_equal(w, w1, 2));
+  job = send_ul_section(ctx, cur_sym, 7, 4, NULL, 0);
+  assert(get_bf_weights(ctx, &job.bfw, 0, &beam_id, w) == 2 && weights_equal(w, w2, 2));
+
+  // beamId 0 is no beamforming: its ext1 weights are not stored
+  job = send_ul_section(ctx, cur_sym, 0, 4, ext1, ext1_len);
+  assert(job.bfw.num_bundles == 0);
+
+  // ext11 without weights uses the stored weights of each bundle's beamId: beam 100 has none, beam 7 has w2
+  static uint8_t ext11[EXT11_TEST_BUF_SIZE];
+  size_t len = build_ext11(ext11, false, true, 2, 2, 0);
+  ext11[8] = 7; // second bundle's beamId (5-byte header, then 2 bytes per bundle)
+  job = send_ul_section(ctx, cur_sym, 3, 4, ext11, len);
+  assert(job.bfw.num_bundles == 2);
+  assert(get_bf_weights(ctx, &job.bfw, 0, &beam_id, w) == 0 && beam_id == 100);
+  assert(get_bf_weights(ctx, &job.bfw, 1, &beam_id, w) == 2 && beam_id == 7 && weights_equal(w, w2, 2));
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.bfw_updates == 2 && stats.bfw_stale == 0);
+
+  // Pool exhaustion: 4096 slots, beam 7 holds one. 16 ext11 x 273 bundles of new beams store 4095 more, then the
+  // other 273 * 16 - 4095 are dropped.
+  len = build_ext11(ext11, false, false, 1, 273, 2);
+  for (int p = 0; p < 16; p++) {
+    set_ext11_beams(ext11, 273, 2, 1000 + 273 * p);
+    send_ul_section(ctx, cur_sym, 3, 0, ext11, len);
+  }
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.bfw_updates == 2 + 4095 && stats.bfw_pool_exhausted == 273 * 16 - 4095);
+  // A full pool still takes new weights for a beamId that has some (its slot is rewritten)
+  build_ext1_2w(ext1, w1);
+  job = send_ul_section(ctx, cur_sym, 7, 4, ext1, ext1_len);
+  assert(get_bf_weights(ctx, &job.bfw, 0, &beam_id, w) == 2 && weights_equal(w, w1, 2));
+  // ...and the section that read the old weights of that slot now sees them as stale
+  assert(get_bf_weights(ctx, &job_w2.bfw, 0, &beam_id, w) == -1);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.bfw_stale == 1);
+
+  // Ring wrap: after 2^18 more bundle refs, an old section's refs are overwritten
+  ul_job_t job_old = send_ul_section(ctx, cur_sym, 7, 4, NULL, 0);
+  len = build_ext11(ext11, false, true, 1, 273, 0);
+  for (int p = 0; p < (1 << 18) / 273 + 1; p++)
+    send_ul_section(ctx, cur_sym, 3, 0, ext11, len);
+  assert(get_bf_weights(ctx, &job_old.bfw, 0, &beam_id, w) == -1);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.bfw_stale == 2);
+
+  // Changing the weight count drops all stored weights
+  job = send_ul_section(ctx, cur_sym, 7, 4, NULL, 0);
+  set_num_bf_weights(ctx, 4);
+  assert(get_bf_weights(ctx, &job.bfw, 0, &beam_id, w) == -1);
+  job = send_ul_section(ctx, cur_sym, 7, 4, NULL, 0);
+  assert(job.bfw.num_bundles == 0);
+
+  cleanup_packet_processor(ctx);
+  printf("Beamforming weight cache passed!\n");
+}
+
 int main(int argc, char **argv)
 {
   setup_dpdk(argc, argv);
@@ -3443,6 +3757,10 @@ int main(int argc, char **argv)
   test_cplane_section_extension_11_buffer_size();
   usleep(10000);
   test_cplane_section_extension_other();
+  usleep(10000);
+  test_dl_dynamic_bf_weights();
+  usleep(10000);
+  test_bf_weight_cache();
   usleep(10000);
   test_dl_multi_section_message();
   usleep(10000);
