@@ -38,4 +38,8 @@ struct nr_ue_fd_ifdevice_s {
   void *priv;
 };
 
+/// Runs every UE instance in its own thread, all clients of one UE Low-PHY device.
+void init_NR_UE_fd(PHY_VARS_NR_UE **UE_list, int num_ues);
+void term_NR_UE_fd(PHY_VARS_NR_UE **UE_list, int num_ues);
+
 #endif
