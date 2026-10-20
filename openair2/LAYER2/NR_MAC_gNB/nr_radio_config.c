@@ -1552,10 +1552,10 @@ static NR_PTRS_UplinkConfig_t *config_ulptrs(const nr_ptrs_config_t *ptrs)
   }
   AssertFatal(ptrs->ul_MaxPorts_0 == 0 || ptrs->ul_MaxPorts_0 == 1, "Invalid ul_MaxPorts_0 %d\n", ptrs->ul_MaxPorts_0);
   ptrs_config->maxNrofPorts = ptrs->ul_MaxPorts_0;
-  AssertFatal(ptrs->ul_Power_0 >= 0 || ptrs->ul_Power_0 < 4, "Invalid ul_Power_0 %d\n", ptrs->ul_Power_0);
+  AssertFatal(ptrs->ul_Power_0 >= 0 && ptrs->ul_Power_0 < 4, "Invalid ul_Power_0 %d\n", ptrs->ul_Power_0);
   ptrs_config->ptrs_Power = ptrs->ul_Power_0;
 
-  NR_PTRS_UplinkConfig_t *ulptrs = calloc_or_fail(1, sizeof(*ptrs_config));
+  NR_PTRS_UplinkConfig_t *ulptrs = calloc_or_fail(1, sizeof(*ulptrs));
   ulptrs->transformPrecoderDisabled = ptrs_config;
   return ulptrs;
 }
@@ -1621,7 +1621,6 @@ static NR_SetupRelease_PUSCH_Config_t *config_pusch(const nr_mac_config_t *confi
   }
   NR_DMRS_UplinkConfig->dmrs_Type = NULL;
   NR_DMRS_UplinkConfig->dmrs_AdditionalPosition = NULL;
-  NR_DMRS_UplinkConfig->phaseTrackingRS = NULL;
   NR_DMRS_UplinkConfig->maxLength = NULL;
   if (!NR_DMRS_UplinkConfig->transformPrecodingDisabled)
     NR_DMRS_UplinkConfig->transformPrecodingDisabled = calloc(1, sizeof(*NR_DMRS_UplinkConfig->transformPrecodingDisabled));
