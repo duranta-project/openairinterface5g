@@ -24,6 +24,11 @@
 #define SL_SYNC_SOURCE_SYNC_REF_UE 3 // another SYNC REF UE as sync source
 #define SL_SYNC_SOURCE_LOCAL_TIMING 4 //UE acts as sync source
 
+static void validate_sl_enum_index(const char *name, long index, long count)
+{
+  AssertFatal(index >= 0 && index < count, "Invalid %s ASN.1 index %ld (must be from 0 through %ld)\n", name, index, count - 1);
+}
+
 void free_sl_rrc(NR_UE_RRC_INST_t *rrc)
 {
 
@@ -226,6 +231,16 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
 
     config_get(config_get_if(), SL_POOLPARAMS, sizeofArray(SL_POOLPARAMS), aprefix);
 
+  NR_SL_PSCCH_Config_r16_t *pscch = sl_res_pool->sl_PSCCH_Config_r16->choice.setup;
+  NR_SL_PSFCH_Config_r16_t *psfch_config = sl_res_pool->sl_PSFCH_Config_r16->choice.setup;
+  validate_sl_enum_index(SL_CONFIG_STRING_RESPOOL_PSCCH_NUMSYM, *pscch->sl_TimeResourcePSCCH_r16, 2);
+  validate_sl_enum_index(SL_CONFIG_STRING_RESPOOL_PSCCH_NUMRBS, *pscch->sl_FreqResourcePSCCH_r16, 5);
+  validate_sl_enum_index(SL_CONFIG_STRING_RESPOOL_SUBCH_SIZE_IN_RBS, *sl_res_pool->sl_SubchannelSize_r16, 8);
+  validate_sl_enum_index(SL_CONFIG_STRING_RESPOOL_PSFCH_NUMMUXCS_PAIR, *psfch_config->sl_NumMuxCS_Pair_r16, 4);
+  validate_sl_enum_index(SL_CONFIG_STRING_RESPOOL_PSFCH_MINTIMEGAP, *psfch_config->sl_MinTimeGapPSFCH_r16, 2);
+  validate_sl_enum_index(SL_CONFIG_STRING_RESPOOL_PSFCH_CANDIDATERESOURCETYPE,
+                         *psfch_config->sl_PSFCH_CandidateResourceType_r16,
+                         2);
 
   sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SelectionWindowList_r16 = calloc(1, sizeof(*sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SelectionWindowList_r16));
   struct NR_SL_UE_SelectedConfigRP_r16 *nr_sl_ue_Selected_config = sl_res_pool->sl_UE_SelectedConfigRP_r16;
@@ -248,6 +263,18 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
   paramdef_t SL_RSCSELECTIONPARAMS[] = SL_RSRCSELPARAMS_DESC(sl_res_pool);
   sprintf(aprefix_rsc_sel, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0,SL_CONFIG_STRING_RSRC_SEL_PARAMS_LIST, 0);
   config_get(config_get_if(), SL_RSCSELECTIONPARAMS, sizeofArray(SL_RSCSELECTIONPARAMS), aprefix_rsc_sel);
+
+  struct NR_SL_UE_SelectedConfigRP_r16 *selected = sl_res_pool->sl_UE_SelectedConfigRP_r16;
+  NR_SL_SelectionWindowConfig_r16_t *selection_window = selected->sl_SelectionWindowList_r16->list.array[0];
+  AssertFatal(selection_window->sl_Priority_r16 >= 1 && selection_window->sl_Priority_r16 <= 8,
+              "Invalid sl_Priority %ld (must be from 1 through 8)\n",
+              selection_window->sl_Priority_r16);
+  validate_sl_enum_index(SL_CONFIG_STRING_RSRC_SEL_TRESHOLD_RSRP, *selected->sl_Thres_RSRP_List_r16->list.array[0], 67);
+  validate_sl_enum_index(SL_CONFIG_STRING_RSRC_SEL_MAXNUM_PER_RESERVE, *selected->sl_MaxNumPerReserve_r16, 2);
+  validate_sl_enum_index(SL_CONFIG_STRING_RSRC_SEL_RS_FOR_SENSING, selected->sl_RS_ForSensing_r16, 2);
+  validate_sl_enum_index(SL_CONFIG_STRING_RSRC_SEL_TX_PERCENTAGE,
+                         sl_res_pool->sl_TxPercentageList_r16->list.array[0]->sl_TxPercentage_r16,
+                         3);
 
   /* The config system writes physical values (ms, slots) into ASN.1 fields
    * that carry enum indices per TS 38.331.  Convert them now so every
@@ -370,6 +397,14 @@ static void prepare_NR_SL_BWPConfigCommon(NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
   LOG_I(RRC, "NUM SL-BWP elem in cfg file:%d\n", SL_BWPParamList.numelt);
   sprintf(aprefix, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0, SL_CONFIG_STRING_SL_BWP_LIST, 0);
   config_get(config_get_if(), SL_BWPPARAMS, sizeofArray(SL_BWPPARAMS), aprefix);
+
+  NR_SL_BWP_Generic_r16_t *generic_bwp = sl_bwp->sl_BWP_Generic_r16;
+  validate_sl_enum_index(SL_CONFIG_STRING_SL_BWP_NUM_SYMBOLS, *generic_bwp->sl_LengthSymbols_r16, 8);
+  AssertFatal(*generic_bwp->sl_StartSymbol_r16 >= 0 && *generic_bwp->sl_StartSymbol_r16 <= 7
+                  && *generic_bwp->sl_StartSymbol_r16 + *generic_bwp->sl_LengthSymbols_r16 + 7 <= 14,
+              "Invalid sidelink symbol allocation: start %ld, length index %ld\n",
+              *generic_bwp->sl_StartSymbol_r16,
+              *generic_bwp->sl_LengthSymbols_r16);
 
   sl_bwp->sl_BWP_PoolConfigCommon_r16 = calloc(1, sizeof(NR_SL_BWP_PoolConfigCommon_r16_t));
 
