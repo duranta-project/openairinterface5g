@@ -521,7 +521,7 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
 
       rnti_t n_rnti = rel15->rnti;
       if (crc == n_rnti) {
-        LOG_W(NR_PHY_DCI,
+        LOG_D(NR_PHY_DCI,
               "(%i.%i) Received %s indication (rnti %x,dci format %d,n_CCE %d,payloadSize %d,payload %llx)\n",
               proc->frame_rx,
               proc->nr_slot_rx,
@@ -628,7 +628,7 @@ void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
 
 
   for (int i = 0; i < (sci_indication? sci_ind.number_of_SCIs : dci_ind.number_of_dcis); i++) {
-    LOG_W(PHY,
+    LOG_D(PHY,
           "Frame.slot: %d.%d: DCI %i of %d total DCIs found --> %s %x : format %d\n",
           proc->frame_rx,
           proc->nr_slot_rx,

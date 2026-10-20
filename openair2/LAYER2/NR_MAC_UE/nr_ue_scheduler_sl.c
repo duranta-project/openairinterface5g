@@ -299,7 +299,6 @@ uint8_t sl_determine_if_SSB_slot(uint16_t frame, uint16_t slot, uint16_t slots_p
   uint16_t sl_TimeInterval = sl_bch->ssb_time_alloc.sl_TimeInterval;
   uint16_t num_ssb = sl_bch->num_ssb, ssb_slot = sl_bch->ssb_slot;
 
-#ifdef SL_DEBUG
   LOG_D(NR_MAC,
         "%d:%d. num_ssb:%d,ssb_slot:%d, %d-%d-%d, status:%d\n",
         frame,
@@ -310,8 +309,6 @@ uint8_t sl_determine_if_SSB_slot(uint16_t frame, uint16_t slot, uint16_t slots_p
         sl_TimeOffsetSSB,
         sl_TimeInterval,
         sl_bch->status);
-#endif
-
   if (sl_NumSSB_WithinPeriod && sl_bch->status) {
     if (slot_in_16frames == sl_TimeOffsetSSB) {
       num_ssb = 0;

@@ -75,7 +75,7 @@ int nr_pssch_channel_estimation(PHY_VARS_NR_UE *ue,
   const int k0 = bwp_start_subcarrier;
   const int nb_rb_pusch = pssch_pdu->subchannel_size*pssch_pdu->l_subch;
 
-  LOG_W(PHY, "In %s: ch_offset %d, soffset %d, symbol_offset %d, OFDM size %d, Ns = %d, k0 = %d, symbol %d\n",
+  LOG_D(PHY, "In %s: ch_offset %d, soffset %d, symbol_offset %d, OFDM size %d, Ns = %d, k0 = %d, symbol %d\n",
         __FUNCTION__,
         ch_offset, soffset,
         symbol_offset,
@@ -170,7 +170,7 @@ int nr_pssch_channel_estimation(PHY_VARS_NR_UE *ue,
       }
 
       double coh = (coh_e && coh_n) ? ((double)coh_r * coh_r + (double)coh_i * coh_i) / ((double)coh_n * coh_e) : 0.0;
-      LOG_I(NR_PHY,
+      LOG_D(NR_PHY,
             "PSSCH chest sym %d p %d aarx %d: Nid=%d max_ch=%d pilots=%d coherence=%.3f (|sum|^2=%.0f, N*sum|.|^2=%.0f)\n",
             symbol, p, aarx, pssch_pdu->Nid, *max_ch, coh_n, coh,
             (double)coh_r * coh_r + (double)coh_i * coh_i, (double)coh_n * coh_e);

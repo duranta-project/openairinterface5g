@@ -17,23 +17,12 @@
 #define SL_NR_FIRST_SSS_SYMBOL 3
 #define SL_NR_NUM_PSS_SSS_SYMBOLS 4
 
-// #define SL_DEBUG
-
 static int sl_nr_pss_correlation(PHY_VARS_NR_UE *UE, int length, c16_t **rxdata)
 {
   sl_nr_ue_phy_params_t *sl_ue = &UE->SL_UE_PHY_PARAMS;
   SL_NR_SYNC_PARAMS_t *sync_params = &sl_ue->sync_params;
   NR_DL_FRAME_PARMS *sl_fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
   c16_t **pss_for_correlation = (c16_t **)sl_ue->init_params.sl_pss_for_correlation;
-
-#ifdef SL_DEBUG
-  char fname[50], sname[25];
-  LOG_M(fname, sname, &rxdata[0][sl_fp->samples_per_frame], sl_fp->samples_per_frame, 1, 1);
-  LOG_M("pss_for_correlation0.m", "pss_id0", pss_for_correlation[0], 2048, 1, 1);
-  LOG_M("pss_for_correlation1.m", "pss_id1", pss_for_correlation[1], 2048, 1, 1);
-
-  int64_t *pss_corr_debug_values[SL_NR_NUM_IDs_IN_PSS];
-#endif
 
   int maxval = 0;
   for (int i = 0; i < sl_fp->ofdm_symbol_size; i++) {
@@ -45,22 +34,11 @@ static int sl_nr_pss_correlation(PHY_VARS_NR_UE *UE, int length, c16_t **rxdata)
 
   int shift = log2_approx(maxval); //*(sl_fp->ofdm_symbol_size + sl_fp->nb_prefix_samples)*2);
 
-#ifdef SL_DEBUG
-  LOG_I(PHY, "SIDELINK SLSS SEARCH: Function:%s\n", __func__);
-  LOG_I(PHY, "maxval:%d, shift:%d\n", maxval, shift);
-#endif
-
   int64_t avg[SL_NR_NUM_IDs_IN_PSS] = {0};
   int64_t peak_value = 0, psss_corr_value = 0;
   unsigned int peak_position = 0, pss_source = 0;
   for (int pss_index = 0; pss_index < SL_NR_NUM_IDs_IN_PSS; pss_index++)
     avg[pss_index] = 0;
-
-#ifdef SL_DEBUG
-  int64_t *pss_corr_debug_values[SL_NR_NUM_IDs_IN_PSS];
-  for (int pss_index = 0; pss_index < SL_NR_NUM_IDs_IN_PSS; pss_index++)
-    pss_corr_debug_values[pss_index] = malloc16_clear(length * sizeof(int64_t));
-#endif
 
   for (int n = 0; n < length - sl_fp->ofdm_symbol_size; n += 4) { //
 
@@ -86,15 +64,6 @@ static int sl_nr_pss_correlation(PHY_VARS_NR_UE *UE, int length, c16_t **rxdata)
     }
   }
 
-#ifdef SL_DEBUG
-  LOG_M("pss_corr_debug_values_0.m", "pss_corr0", &pss_corr_debug_values[0][0], length, 1, 6);
-  LOG_M("pss_corr_debug_values_1.m", "pss_corr1", &pss_corr_debug_values[1][0], length, 1, 6);
-
-  for (int pss_index = 0; pss_index < SL_NR_NUM_IDs_IN_PSS; pss_index++) {
-    free(pss_corr_debug_values[pss_index]);
-  }
-#endif
-
   double ffo_est = 0;
   if (UE->UE_fo_compensation) { // Not tested
 
@@ -117,9 +86,6 @@ static int sl_nr_pss_correlation(PHY_VARS_NR_UE *UE, int length, c16_t **rxdata)
     // estimation of fractional frequency offset: angle[(result1)'*(result2)]/pi
     ffo_est = atan2(r1d.r * r2d.i - r2d.r * r1d.i, r1d.r * r2d.r + r1d.i * r2d.i) / M_PI;
 
-#ifdef SL_DEBUG
-    printf("ffo %lf\n", ffo_est);
-#endif
   }
 
   // computing absolute value of frequency offset

@@ -10,8 +10,6 @@
 #include "executables/nr-uesoftmodem.h"
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 
-#define SL_DEBUG
-
 static const int sequence_cyclic_shift_harq_ack_or_ack_or_only_nack[2]
 /* Sequence cyclic shift */ = {  0, 6 };
 
@@ -58,19 +56,15 @@ uint8_t sl_process_TDD_UL_DL_config_patterns(NR_TDD_UL_DL_ConfigCommon_t *TDD_UL
   *w = 0;
   int pattern1_dlul_period = TDD_UL_DL_Config->pattern1.dl_UL_TransmissionPeriodicity;
 
-#ifdef SL_DEBUG
-
-  printf("INPUT VALUES: function: %s\n", __func__);
-  printf("pattern1 periodicity:%d\n", pattern1_dlul_period);
+  LOG_D(NR_MAC, "INPUT VALUES: function: %s\n", __func__);
+  LOG_D(NR_MAC, "pattern1 periodicity:%d\n", pattern1_dlul_period);
   if (TDD_UL_DL_Config->pattern1.ext1 != NULL && TDD_UL_DL_Config->pattern1.ext1->dl_UL_TransmissionPeriodicity_v1530 != NULL )
-    printf("pattern1 periodicity_v1530:%ld\n", *TDD_UL_DL_Config->pattern1.ext1->dl_UL_TransmissionPeriodicity_v1530);
+    LOG_D(NR_MAC, "pattern1 periodicity_v1530:%ld\n", *TDD_UL_DL_Config->pattern1.ext1->dl_UL_TransmissionPeriodicity_v1530);
   if (TDD_UL_DL_Config->pattern2 != NULL) {
-    printf("mu:%d, pattern2 periodicity:%d\n", mu, pattern1_dlul_period);
+    LOG_D(NR_MAC, "mu:%d, pattern2 periodicity:%d\n", mu, pattern1_dlul_period);
     if (TDD_UL_DL_Config->pattern2->ext1 != NULL && TDD_UL_DL_Config->pattern2->ext1->dl_UL_TransmissionPeriodicity_v1530 != NULL )
-      printf("pattern2 periodicity_v1530:%ld\n", *TDD_UL_DL_Config->pattern2->ext1->dl_UL_TransmissionPeriodicity_v1530);
+      LOG_D(NR_MAC, "pattern2 periodicity_v1530:%ld\n", *TDD_UL_DL_Config->pattern2->ext1->dl_UL_TransmissionPeriodicity_v1530);
   }
-
-#endif
 
   return_value = pattern1_dlul_period;
   switch (pattern1_dlul_period) {
@@ -200,10 +194,8 @@ uint8_t sl_process_TDD_UL_DL_config_patterns(NR_TDD_UL_DL_ConfigCommon_t *TDD_UL
     }
   }
 
-#ifdef SL_DEBUG
-  printf("OUTPUT VALUES: function %s\n",__func__);
-  printf("return_value:%d, *w:%d, slot_period_P:%f\n", return_value, *w, *slot_period_P);
-#endif
+  LOG_D(NR_MAC, "OUTPUT VALUES: function %s\n",__func__);
+  LOG_D(NR_MAC, "return_value:%d, *w:%d, slot_period_P:%f\n", return_value, *w, *slot_period_P);
 
   return return_value;
 }
@@ -234,22 +226,18 @@ void sl_prepare_psbch_payload(NR_TDD_UL_DL_ConfigCommon_t *TDD_UL_DL_Config,
     u_sym = TDD_UL_DL_Config->pattern1.nrofUplinkSymbols;
     I1 = ((u_sym * diff) % L >= (L-Y)) ? 1 : 0;
 
-#ifdef SL_DEBUG
-    printf("INPUT VALUES: function %s\n", __func__);
-    printf("numerology:%d, number of symbols:%d, sl-startSymbol:%d\n", mu, L, Y);
-    printf("mu_ref:%d, u_slots:%d, u_sym:%d\n", mu_ref, u_slots, u_sym);
+    LOG_D(NR_MAC, "INPUT VALUES: function %s\n", __func__);
+    LOG_D(NR_MAC, "numerology:%d, number of symbols:%d, sl-startSymbol:%d\n", mu, L, Y);
+    LOG_D(NR_MAC, "mu_ref:%d, u_slots:%d, u_sym:%d\n", mu_ref, u_slots, u_sym);
     if (TDD_UL_DL_Config->pattern2 != NULL)
-      printf("u_slots_2:%ld, u_sym_2:%ld\n", TDD_UL_DL_Config->pattern2->nrofUplinkSlots,
+      LOG_D(NR_MAC, "u_slots_2:%ld, u_sym_2:%ld\n", TDD_UL_DL_Config->pattern2->nrofUplinkSlots,
                                              TDD_UL_DL_Config->pattern2->nrofUplinkSymbols);
-#endif
 
     u_sl_slots = (u_slots * diff) + floor((u_sym*diff)/L) + I1;
     a1_to_a4 = sl_process_TDD_UL_DL_config_patterns(TDD_UL_DL_Config, mu, &slot_period_P, &w);
     AssertFatal(a1_to_a4 != 255,"Incorrect return value, wrong configuration.\n");
 
-#ifdef SL_DEBUG
-    printf("I1:%d, a1_to_a2:%d, u_sl_slots:%d\n", I1, a1_to_a4, u_sl_slots);
-#endif
+    LOG_D(NR_MAC, "I1:%d, a1_to_a2:%d, u_sl_slots:%d\n", I1, a1_to_a4, u_sl_slots);
 
     if (TDD_UL_DL_Config->pattern2 != NULL) {
 
@@ -263,9 +251,7 @@ void sl_prepare_psbch_payload(NR_TDD_UL_DL_ConfigCommon_t *TDD_UL_DL_Config,
       *bits_0_to_7 = 0x80 | (a1_to_a4 << 3) | ((u_sl_slots_2 & 0x70) >> 4);
       *bits_8_to_11 = (u_sl_slots_2 & 0x0F) << 4;
 
-#ifdef SL_DEBUG
-    printf("I2:%d, val:%d, u_sl_slots_2:%d\n", I2, val, u_sl_slots_2);
-#endif
+      LOG_D(NR_MAC, "I2:%d, val:%d, u_sl_slots_2:%d\n", I2, val, u_sl_slots_2);
 
     } else {
       *bits_0_to_7 = 0x00 | (a1_to_a4 << 3) | ((u_sl_slots & 0x70) >> 4);
@@ -273,10 +259,8 @@ void sl_prepare_psbch_payload(NR_TDD_UL_DL_ConfigCommon_t *TDD_UL_DL_Config,
     }
   }
 
-#ifdef SL_DEBUG
-    printf("OUTPUT VALUES: function %s\n", __func__);
-    printf("12 bits payload buf[0]:%x, buf[1]:%x\n", *bits_0_to_7, *bits_8_to_11);
-#endif
+  LOG_D(NR_MAC, "OUTPUT VALUES: function %s\n", __func__);
+  LOG_D(NR_MAC, "12 bits payload buf[0]:%x, buf[1]:%x\n", *bits_0_to_7, *bits_8_to_11);
 
 }
 

@@ -308,7 +308,7 @@ void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
              &nr_sl_pssch_pscch_pdu->l_subch,
              NULL,NULL);
   // Number of symbols used by PSSCH, excluding AGC, guard and any PSFCH overhead.
-  LOG_W(NR_MAC,"startrb %d, pscch_numsym %d, pscch_numrbs %d,pscch_dmrs_scrambling_id %d,num_subch%d,subchannel_size%d\n",
+  LOG_D(NR_MAC,"startrb %d, pscch_numsym %d, pscch_numrbs %d,pscch_dmrs_scrambling_id %d,num_subch%d,subchannel_size%d\n",
   nr_sl_pssch_pscch_pdu->startrb,
   nr_sl_pssch_pscch_pdu->pscch_numsym,
   nr_sl_pssch_pscch_pdu->pscch_numrbs,
@@ -709,7 +709,7 @@ int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,i
     mac->is_synced = true;
     LOG_D(NR_PHY, "Nearby UE is synced now!!!\n");
   }
-  LOG_I(NR_MAC,"SCI1A: frequency_resource %d, time_resource %d, dmrs_pattern %d, beta_offset_indicator %d, mcs %d, number_of_dmrs_port %d, 2nd stage SCI format %d\n",
+  LOG_D(NR_MAC,"SCI1A: frequency_resource %d, time_resource %d, dmrs_pattern %d, beta_offset_indicator %d, mcs %d, number_of_dmrs_port %d, 2nd stage SCI format %d\n",
         sci_pdu->frequency_resource_assignment.val,sci_pdu->time_resource_assignment.val,sci_pdu->dmrs_pattern.val,sci_pdu->beta_offset_indicator,sci_pdu->mcs,sci_pdu->number_of_dmrs_port,sci_pdu->second_stage_sci_format);
   // send schedule response
 
@@ -738,7 +738,7 @@ int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,i
                                                 .phy_data = phy_data,
                                                 .mac = mac};
 
-  LOG_A(NR_MAC, "[UE%d] TTI-%d:%d RX PSSCH_SCI REQ \n", mac->ue_id,frame, slot);
+  LOG_D(NR_MAC, "[UE%d] TTI-%d:%d RX PSSCH_SCI REQ \n", mac->ue_id,frame, slot);
   if ((mac->if_module != NULL) && (mac->if_module->scheduled_response != NULL))
       mac->if_module->scheduled_response(&scheduled_response);
   free(rx_config.sl_rx_config_list[0].rx_psfch_pdu_list);

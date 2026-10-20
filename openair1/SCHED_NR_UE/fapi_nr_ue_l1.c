@@ -473,13 +473,13 @@ void sl_handle_scheduled_response(nr_scheduled_response_t *scheduled_response)
       case SL_NR_CONFIG_TYPE_RX_PSSCH_SCI:
         phy_data->sl_rx_action = SL_NR_CONFIG_TYPE_RX_PSSCH_SCI;
         phy_data->nr_sl_pssch_sci_pdu = sl_rx_config->sl_rx_config_list[0].rx_sci2_config_pdu;
-        LOG_I(NR_PHY, "Recvd CONFIG_TYPE_RX_PSSCH_SCI\n");
+        LOG_D(NR_PHY, "Recvd CONFIG_TYPE_RX_PSSCH_SCI\n");
         break;
       case SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH:
       case SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH:
         phy_data->sl_rx_action = sl_rx_config->sl_rx_config_list[0].pdu_type;
         phy_data->nr_sl_pssch_pdu = sl_rx_config->sl_rx_config_list[0].rx_pssch_config_pdu;
-        LOG_A(NR_PHY, "%4d.%2d Recvd %s\n", sl_rx_config->sfn, sl_rx_config->slot, sl_rx_action[phy_data->sl_rx_action]);
+        LOG_D(NR_PHY, "%4d.%2d Recvd %s\n", sl_rx_config->sfn, sl_rx_config->slot, sl_rx_action[phy_data->sl_rx_action]);
         if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH) {
           DevAssert(sl_rx_config->sl_rx_config_list[0].rx_psfch_pdu_list != NULL);
           free(phy_data->psfch_pdu_list);
@@ -499,7 +499,7 @@ void sl_handle_scheduled_response(nr_scheduled_response_t *scheduled_response)
                sl_rx_config->sl_rx_config_list[0].rx_psfch_pdu_list,
                sl_rx_config->sl_rx_config_list[0].num_psfch_pdus * sizeof(sl_nr_tx_rx_config_psfch_pdu_t));
         phy_data->num_psfch_pdus = sl_rx_config->sl_rx_config_list[0].num_psfch_pdus;
-        LOG_A(NR_PHY,
+        LOG_D(NR_PHY,
               "%4d.%2d Recvd %s (%u HARQ feedback resource(s))\n",
               sl_rx_config->sfn,
               sl_rx_config->slot,
@@ -564,7 +564,7 @@ void sl_handle_scheduled_response(nr_scheduled_response_t *scheduled_response)
               && tx_config_pdu->slsch_payload_length > 0) {
             NR_UL_UE_HARQ_t *harq_process = &nrPHY_vars_UE_g[module_id][0]->sl_harq_processes[tx_config_pdu->harq_pid];
             memcpy(harq_process->payload_AB, tx_config_pdu->slsch_payload, tx_config_pdu->slsch_payload_length);
-            LOG_I(NR_PHY, "SLSCH TX: copied %d bytes of MAC PDU into harq %d payload_AB\n",
+            LOG_D(NR_PHY, "SLSCH TX: copied %d bytes of MAC PDU into harq %d payload_AB\n",
                   tx_config_pdu->slsch_payload_length, tx_config_pdu->harq_pid);
           }
         }

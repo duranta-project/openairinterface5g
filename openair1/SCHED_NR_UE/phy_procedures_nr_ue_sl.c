@@ -119,7 +119,7 @@ static sl_nr_psfch_pdu_t nr_decode_psfch(
   sl_nr_psfch_pdu_t rx_psfch = {.num_results = phy_data->num_psfch_pdus};
   rx_psfch.results = calloc(rx_psfch.num_results, sizeof(*rx_psfch.results));
 
-  LOG_A(NR_PHY,
+  LOG_D(NR_PHY,
         "%4d.%2d PSFCH RX: processing %u HARQ feedback resource(s)\n",
         proc->frame_rx,
         proc->nr_slot_rx,
@@ -138,7 +138,7 @@ static sl_nr_psfch_pdu_t nr_decode_psfch(
     result->peer_id = psfch_pdu->peer_id;
     result->harq_pid = psfch_pdu->harq_pid;
     result->ack_nack = nr_ue_decode_psfch0(ue, proc->frame_rx, proc->nr_slot_rx, rxdataF, psfch_pdu);
-    LOG_A(NR_PHY,
+    LOG_D(NR_PHY,
           "%4d.%2d PSFCH[%d]: peer=%u HARQ=%u decoded=%d (0=ACK, 1=NACK)\n",
           proc->frame_rx,
           proc->nr_slot_rx,
@@ -636,7 +636,7 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
               number_dmrs_symbols, // number of dmrs symbols irrespective of single or double symbol dmrs
               pssch_pdu->mod_order,
               pssch_pdu->num_layers);
-  LOG_I(NR_PHY,"slot %d rb_size %d, number_symbols %d, nb_re_dmrs %d, dmrs symbol positions %d, number_dmrs_symbols %d, qam_mod_order %d, nrOfLayer %d\n",
+  LOG_D(NR_PHY,"slot %d rb_size %d, number_symbols %d, nb_re_dmrs %d, dmrs symbol positions %d, number_dmrs_symbols %d, qam_mod_order %d, nrOfLayer %d\n",
         slot_rx,
         rb_size,
         number_symbols,
@@ -648,7 +648,7 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
   // Compare the RX PSSCH allocation with the TX side. rb_size uses num_subch (pool
   // total); the TX uses l_subch (SCI-signalled grant, l_subch*subchannel_size). They
   // must match -- if num_subch != l_subch the RX reads the wrong RBs.
-  LOG_I(NR_PHY,
+  LOG_D(NR_PHY,
         "PSSCH alloc RX: startrb=%d subchannel_size=%d num_subch=%d l_subch=%d => rb_size(num_subch*sc)=%d vs l_subch*sc=%d | tb_size=%d numsym=%d pscch_numsym=%d G=%u mcs=%d mcs_table=%d Qm=%d rv=%d ndi=%d harq_pid=%d\n",
         pssch_pdu->startrb, pssch_pdu->subchannel_size, pssch_pdu->num_subch, pssch_pdu->l_subch,
         pssch_pdu->num_subch * pssch_pdu->subchannel_size, pssch_pdu->l_subch * pssch_pdu->subchannel_size,
@@ -715,7 +715,7 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
   slsch_status.TBS = slsch_pdu->tb_size;
   slsch_status.harq_pid =  harq_pid;
   slsch_status.rxok = decode_ok;
-  LOG_I(NR_PHY,
+  LOG_D(NR_PHY,
         "%4d.%2d SLSCH %sreceived ok%s\n",
         proc->frame_rx,
         proc->nr_slot_rx,
@@ -1173,7 +1173,7 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
     // non-PSCCH REs, and SCI-2 starts at symbol 1, so symbols 1..pscch_numsym must be
     // demodulated too (previously started at 1+pscch_numsym, so the SCI-2 REs were
     // read back as zero and SCI-2 never decoded).
-    LOG_I(NR_PHY,"Starting slot FEP for SLSCH (symbol %d to %d) pscch_numsym %d pssch_numsym %d REs with SCI2 %d G %d\n",
+    LOG_D(NR_PHY,"Starting slot FEP for SLSCH (symbol %d to %d) pscch_numsym %d pssch_numsym %d REs with SCI2 %d G %d\n",
           1, pssch_pdu->pssch_numsym,
           pssch_pdu->pscch_numsym, pssch_pdu->pssch_numsym, sci2_re, G);
     for (int sym=1; sym<=pssch_pdu->pssch_numsym;sym++) {
@@ -1219,7 +1219,7 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
     }
     if (dB_fixed_x10(pssch_vars->ulsch_power_tot) < dB_fixed_x10(pssch_vars->ulsch_noise_power_tot) + ue->pssch_thres) {
 
-      LOG_W(NR_PHY,
+      LOG_D(NR_PHY,
             "PSSCH not detected in %d.%d (%d,%d,%d)\n",
             frame_rx,
             nr_slot_rx,
@@ -1260,7 +1260,7 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
                                           0,
                                           decoded_combined_psfch ? &decoded_psfch : NULL);
     psfch_bundled_with_slsch = decoded_combined_psfch;
-      LOG_A(NR_PHY,
+      LOG_D(NR_PHY,
             "Total %d decoded PSSCH detected in %d.%d (%d,%d,%d)\n",
             totalDecode,
             frame_rx,
@@ -1308,10 +1308,10 @@ void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc
   else if (phy_data->sl_tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH ||
            phy_data->sl_tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH) {
     phy_data->pscch_Nid = nr_generate_sci1(ue, txdataF[0], fp, AMP, slot_tx, &phy_data->nr_sl_pssch_pscch_pdu) &0xFFFF;
-      LOG_I(NR_PHY, "(%d.%d) Sending %s, pscch_NID %d\n", frame_tx, slot_tx, sl_tx_actions[phy_data->sl_tx_action - SL_NR_CONFIG_TYPE_TX_PSBCH], phy_data->pscch_Nid);
+      LOG_D(NR_PHY, "(%d.%d) Sending %s, pscch_NID %d\n", frame_tx, slot_tx, sl_tx_actions[phy_data->sl_tx_action - SL_NR_CONFIG_TYPE_TX_PSBCH], phy_data->pscch_Nid);
     {
       const sl_nr_tx_config_pscch_pssch_pdu_t *t = &phy_data->nr_sl_pssch_pscch_pdu;
-      LOG_I(NR_PHY,
+      LOG_D(NR_PHY,
             "PSSCH alloc TX: startrb=%d subchannel_size=%d num_subch=%d l_subch=%d => rb_size=%d | tb_size=%d pssch_numsym=%d startsym=%d dmrs_pos=%d mcs=%d mcs_table=%d Qm=%d rv=%d ndi=%d harq_pid=%d\n",
             t->startrb, t->subchannel_size, t->num_subch, t->l_subch, t->l_subch * t->subchannel_size,
             t->tb_size, t->pssch_numsym, t->pssch_startsym, t->dmrs_symbol_position, t->mcs,

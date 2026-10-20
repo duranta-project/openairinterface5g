@@ -99,7 +99,7 @@ uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
     uint16_t scrambling_RNTI = dci_pdu->ScramblingRNTI;
     uint64_t p;
     memcpy(&p, dci_pdu->Payload, sizeof(p));
-    LOG_I(NR_PHY, "SCI-1A payload %lx (%lx)\n", p, *(uint64_t*)dci_pdu->Payload);
+    LOG_D(NR_PHY, "SCI-1A payload %lx\n", p);
     polar_encoder_fast(&p, (void*)encoder_output, n_RNTI, 1,
                        NR_POLAR_SCI_MESSAGE_TYPE,
                        dci_pdu->PayloadSizeBits, dci_pdu->AggregationLevel);
@@ -229,7 +229,7 @@ uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
         crc = (crc24c(A, 24 + len) >> 8) & 0xffffff;
       }
       sci_Nid = crc & 0xFFFF;
-      LOG_I(NR_PHY, "TX SCI-1A CRC-derived Nid=%u (payload 0x%llx, len %d)\n",
+      LOG_D(NR_PHY, "TX SCI-1A CRC-derived Nid=%u (payload 0x%llx, len %d)\n",
             sci_Nid, (unsigned long long)Ar, len);
     }
   } // for (int d=0;d<pdcch_pdu_rel15->numDlDci;d++)

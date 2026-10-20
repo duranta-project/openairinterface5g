@@ -224,9 +224,7 @@ static void  sl_prepare_phy_config(int module_id,
   //the RE offset from pointA where SSB starts
   phycfg->sl_bwp_config.sl_ssb_offset_point_a = diff/scs_scaling;
 
-#ifdef SL_DEBUG
-  printf("diff:%u, scaling:%d, pointa:%u, ssb:%u\n", diff, scs_scaling, pointA_ARFCN, SSB_ARFCN);
-#endif
+  LOG_D(NR_MAC, "diff:%u, scaling:%d, pointa:%u, ssb:%u\n", diff, scs_scaling, pointA_ARFCN, SSB_ARFCN);
 
   phycfg->sl_bwp_config.sl_dc_location = (bwp_generic->sl_TxDirectCurrentLocation_r16) ?
                                             *bwp_generic->sl_TxDirectCurrentLocation_r16 : 0;
@@ -283,22 +281,21 @@ static void  sl_prepare_phy_config(int module_id,
     phycfg->config_mask = 0x9;//partial config is sent
   }
 
-//#ifdef SL_DEBUG
   char str[5][20] = {"NONE","GNBENB","GNSS","SYNC_REF_UE","LOCAL_TIMING"};
-  LOG_I(NR_MAC, "UE[%d] Function %s - Phy config preparation:\n",module_id, __FUNCTION__);
-  LOG_I(NR_MAC, "UE[%d] Sync source params: sync_source :%d-%s, gnss_dfn_offset:%d, rx_slss_id:%d\n",
+  LOG_D(NR_MAC, "UE[%d] Function %s - Phy config preparation:\n",module_id, __FUNCTION__);
+  LOG_D(NR_MAC, "UE[%d] Sync source params: sync_source :%d-%s, gnss_dfn_offset:%d, rx_slss_id:%d\n",
                                                         module_id,phycfg->sl_sync_source.sync_source,
                                                         str[phycfg->sl_sync_source.sync_source],
                                                         phycfg->sl_sync_source.gnss_dfn_offset,
                                                         phycfg->sl_sync_source.rx_slss_id);
-  LOG_I(NR_MAC, "UE[%d] Carrier CFG Params: freq:%ld, bw:%d, gridsize:%d, rxant:%d, txant:%d, valueN:%d\n",
+  LOG_D(NR_MAC, "UE[%d] Carrier CFG Params: freq:%ld, bw:%d, gridsize:%d, rxant:%d, txant:%d, valueN:%d\n",
                                                         module_id,phycfg->sl_carrier_config.sl_frequency,
                                                         phycfg->sl_carrier_config.sl_bandwidth,
                                                         phycfg->sl_carrier_config.sl_grid_size,
                                                         phycfg->sl_carrier_config.sl_num_rx_ant,
                                                         phycfg->sl_carrier_config.sl_num_tx_ant,
                                                         phycfg->sl_carrier_config.sl_value_N);
-  LOG_I(NR_MAC, "UE[%d] SL-BWP Params: start:%d, size:%d, scs:%d, Ncp:%d, startsym:%d, numsym:%d,ssb_offset:%d,dcloc:%d\n",
+  LOG_D(NR_MAC, "UE[%d] SL-BWP Params: start:%d, size:%d, scs:%d, Ncp:%d, startsym:%d, numsym:%d,ssb_offset:%d,dcloc:%d\n",
                                                         module_id,phycfg->sl_bwp_config.sl_bwp_start,
                                                         phycfg->sl_bwp_config.sl_bwp_size,
                                                         phycfg->sl_bwp_config.sl_scs,
