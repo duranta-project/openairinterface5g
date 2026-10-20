@@ -1297,8 +1297,6 @@ int main(int argc, char *argv[])
         }
         pusch_config_pdu->pusch_ptrs.ptrs_time_density = ptrs_time_density;
         pusch_config_pdu->pusch_ptrs.ptrs_freq_density = ptrs_freq_density;
-        pusch_config_pdu->pusch_ptrs.ptrs_ports_list =
-            (nfapi_nr_ue_ptrs_ports_t *)malloc_or_fail(2 * sizeof(nfapi_nr_ue_ptrs_ports_t));
         pusch_config_pdu->pusch_ptrs.ptrs_ports_list[0].ptrs_re_offset = 0;
         pusch_config_pdu->pusch_ptrs.num_ptrs_ports = 1;
         pusch_config_pdu->transform_precoding = transform_precoding;
