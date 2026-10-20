@@ -47,5 +47,14 @@ int main(void)
   assert(nr_sl_pool_slot_index(pool_bitmap, 20, 6) % 2 == 0);
   assert(nr_sl_pool_slot_index(pool_bitmap, 20, 7) % 2 == 1);
 
+  /* For a PSFCH occasion at pool-slot f, the associated PSSCH slots are
+   * f-period-gap+1 through f-gap. */
+  assert(nr_sl_psfch_row(0, 3, 2) == 0);
+  assert(nr_sl_psfch_row(1, 3, 2) == 1);
+  assert(nr_sl_psfch_row(0, 2, 2) == 1);
+  assert(nr_sl_psfch_row(1, 2, 2) == 0);
+  assert(nr_sl_psfch_row(0, 2, 0) == -1);
+  assert(nr_sl_psfch_row(-1, 2, 2) == -1);
+
   return 0;
 }

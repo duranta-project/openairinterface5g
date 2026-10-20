@@ -580,17 +580,15 @@ int64_t get_feedback_abs_slot(const BIT_STRING_t *phy_sl_bitmap, size_t phy_map_
 }
 
 /* Returns the ordinal position (0-based) of the PSSCH slot within the group of
- * psfch_period consecutive PSSCH slots that share one PSFCH occasion (TS 38.213 s16.3).
- * Counts the SL slots that precede abs_slot in the pool bitmap cycle; the result modulo
- * psfch_period gives the per-slot PRB row index.  Uses pool-cycle SL-slot ordinal, not
- * raw slot-in-frame, so it works for any SL bitmap layout. */
+ * psfch_period consecutive PSSCH slots associated with one PSFCH occasion.
+ * The group phase depends on sl-MinTimeGapPSFCH. */
 int sl_psfch_pssch_slot_index(const BIT_STRING_t *phy_sl_bitmap, size_t phy_map_sz,
-                              uint64_t abs_slot, uint8_t psfch_period)
+                              uint64_t abs_slot, uint8_t min_time_gap, uint8_t psfch_period)
 {
   if (psfch_period == 0 || phy_map_sz == 0)
-    return 0;
+    return -1;
   const int64_t k = sl_pool_slot_ordinal(phy_sl_bitmap, phy_map_sz, abs_slot);
-  return k >= 0 ? (int)(k % psfch_period) : 0;
+  return nr_sl_psfch_row(k, min_time_gap, psfch_period);
 }
 
 bool slot_has_psfch(NR_UE_MAC_INST_t *mac, BIT_STRING_t *phy_sl_bitmap, uint64_t abs_index_cur_slot, uint8_t psfch_period, size_t phy_sl_map_size, NR_TDD_UL_DL_ConfigCommon_t *conf) {
@@ -1095,6 +1093,9 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
     sched_pssch->pssch_start_subchannel = resource->sl_subchan_start;
     sched_pssch->pssch_num_subchannels = resource->sl_subchan_len;
     cur_harq->sched_pssch.source_id = sched_pssch->source_id;
+    cur_harq->sched_pssch.frame = sched_pssch->frame;
+    cur_harq->sched_pssch.slot = sched_pssch->slot;
+    cur_harq->sched_pssch.mu = sched_pssch->mu;
     cur_harq->sched_pssch.dest_id = sched_pssch->dest_id;
     cur_harq->sched_pssch.cast_type = sched_pssch->cast_type;
     cur_harq->sched_pssch.harq_feedback = sched_pssch->harq_feedback;
@@ -1681,6 +1682,8 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
       SL_ResourcePool_params_t *sl_rx_rsrc_pool = sl_mac->sl_RxPool[pool_id];
       size_t phy_map_sz = (sl_rx_rsrc_pool->phy_sl_bitmap.size << 3) - sl_rx_rsrc_pool->phy_sl_bitmap.bits_unused;
       rx_allowed = is_sl_slot(mac, &sl_rx_rsrc_pool->phy_sl_bitmap, phy_map_sz, rx_abs_slot);
+      rx_config.sfn = frame;
+      rx_config.slot = slot;
       long rx_psfch_period = 0;
       if (mac->sl_rx_res_pool->sl_PSFCH_Config_r16 && mac->sl_rx_res_pool->sl_PSFCH_Config_r16->choice.setup
           && mac->sl_rx_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16)
@@ -1698,6 +1701,7 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
             rx_slot_has_psfch,
             rx_psfch_period,
             psfch_period);
+      if (rx_allowed)
       nr_ue_sl_pscch_rx_scheduler(sl_ind,
                                   mac->sl_bwp,
                                   mac->sl_rx_res_pool,
@@ -1731,16 +1735,18 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
           int matched = find_current_slot_harqs(frame, slot, sched_ctrl, NULL);
           if (matched > 0) {
             LOG_D(NR_MAC,
-                  "%4d.%2d PSFCH RX: %d pending HARQ(s), retaining PSCCH monitoring and arming PSFCH decode\n",
+                  "%4d.%2d PSFCH RX: %d pending HARQ(s), monitor PSCCH %d\n",
                   frame,
                   slot,
-                  matched);
+                  matched,
+                  rx_allowed);
             configure_psfch_params_rx(mac->ue_id, mac, &rx_config);
             if (rx_config.sl_rx_config_list[0].num_psfch_pdus > 0) {
-              /* Keep PSCCH monitoring active.  If SCI is found, PHY advances
-               * through SCI-2/SLSCH and retains this PSFCH configuration. */
-              tti_action = SL_NR_CONFIG_TYPE_RX_PSCCH_PSFCH;
-              rx_config.sl_rx_config_list[0].pdu_type = SL_NR_CONFIG_TYPE_RX_PSCCH_PSFCH;
+              /* Retain PSCCH monitoring only in RX-pool slots.  A TX-pool
+               * PSFCH occasion can still require standalone feedback RX. */
+              tti_action = rx_allowed ? SL_NR_CONFIG_TYPE_RX_PSCCH_PSFCH : SL_NR_CONFIG_TYPE_RX_PSFCH;
+              rx_config.sl_rx_config_list[0].pdu_type = tti_action;
+              rx_config.number_pdus = 1;
             }
             break;
           }

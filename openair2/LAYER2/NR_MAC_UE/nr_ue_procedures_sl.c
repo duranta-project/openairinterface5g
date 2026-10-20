@@ -756,6 +756,17 @@ int nr_ue_sl_acknack_scheduling(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx
   uint8_t min_tg = local_psfch_cfg->sl_MinTimeGapPSFCH_r16
                        ? psfch_time_gaps[*local_psfch_cfg->sl_MinTimeGapPSFCH_r16] : 2;
   uint64_t tx_abs = (uint64_t)frame * nr_slots_frame + slot;
+  if (sl_psfch_pssch_slot_index(&sl_rx_rsrc_pool->phy_sl_bitmap,
+                                phy_map_sz,
+                                tx_abs,
+                                min_tg,
+                                (uint8_t)psfch_period) < 0) {
+    LOG_E(NR_MAC,
+          "PSSCH %4u.%2u is outside the local RX resource pool; not scheduling PSFCH\n",
+          frame,
+          slot);
+    return -1;
+  }
   int64_t fb_abs = get_feedback_abs_slot(&sl_rx_rsrc_pool->phy_sl_bitmap, phy_map_sz,
                                          tx_abs, min_tg, (uint8_t)psfch_period);
   if (fb_abs < 0) {
@@ -847,12 +858,13 @@ void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac,
     sched_psfch->bit_len_harq = 0;
   }
   const uint8_t values[] = {7, 8, 9, 10, 11, 12, 13, 14};
-  uint8_t sl_num_symbols = *sl_bwp->sl_LengthSymbols_r16 ? values[*sl_bwp->sl_LengthSymbols_r16] : 0;
+  const uint8_t sl_num_symbols = values[*sl_bwp->sl_LengthSymbols_r16];
   // start_symbol_index has been used as lprime check 38.213 16.3
   sched_psfch->start_symbol_index = *sl_bwp->sl_StartSymbol_r16 + sl_num_symbols - 2;
   LOG_D(NR_PHY, "sl_StartSymbol_r16 %ld, sl_num_symbols: %d, start sym index %d, mcs %d\n",
         *sl_bwp->sl_StartSymbol_r16, sl_num_symbols, sched_psfch->start_symbol_index, sched_psfch->mcs);
-  sched_psfch->hopping_id = *mac->sl_rx_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
+  NR_SL_PSFCH_Config_r16_t *cfg = mac->sl_rx_res_pool->sl_PSFCH_Config_r16->choice.setup;
+  sched_psfch->hopping_id = *cfg->sl_PSFCH_HopID_r16;
   /* PRB row index (TS 38.213 s16.3): PSSCH slot position in the group sharing this
    * PSFCH occasion.  Use the pool-cycle SL-slot ordinal mod psfch_period, not
    * slot-in-frame parity, which collapses non-consecutive SL slots onto one row. */
@@ -862,7 +874,12 @@ void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac,
     size_t rx_map_sz = (sl_rx_pool->phy_sl_bitmap.size << 3) - sl_rx_pool->phy_sl_bitmap.bits_unused;
     frameslot_t pssch_fs_tx = {rx_ind->sfn, rx_ind->slot};
     uint64_t pssch_abs_tx = normalize(&pssch_fs_tx, mu_tx);
-    int prb_row = sl_psfch_pssch_slot_index(&sl_rx_pool->phy_sl_bitmap, rx_map_sz, pssch_abs_tx, (uint8_t)psfch_period);
+    const uint8_t psfch_time_gaps[] = {2, 3};
+    const uint8_t min_time_gap = cfg->sl_MinTimeGapPSFCH_r16
+                                     ? psfch_time_gaps[*cfg->sl_MinTimeGapPSFCH_r16]
+                                     : 2;
+    int prb_row = sl_psfch_pssch_slot_index(
+        &sl_rx_pool->phy_sl_bitmap, rx_map_sz, pssch_abs_tx, min_time_gap, (uint8_t)psfch_period);
     const uint16_t rb_ordinal = psfch_params->prb_ordinal_base + prb_row * psfch_params->prbs_per_subchannel_slot;
     DevAssert(prb_row >= 0 && prb_row < psfch_params->num_psfch_slots);
     DevAssert(rb_ordinal < psfch_params->num_rbs);
@@ -1014,11 +1031,12 @@ void fill_psfch_params_rx(sl_nr_rx_config_request_t *rx_config, sl_nr_tx_rx_conf
   LOG_D(NR_MAC, "psfch_pdu->initial_cyclic_shift %i\n", psfch_pdu->initial_cyclic_shift);
   const uint8_t values[] = {7, 8, 9, 10, 11, 12, 13, 14};
   NR_SL_BWP_Generic_r16_t *sl_bwp = mac->sl_bwp->sl_BWP_Generic_r16;
-  uint8_t sl_num_symbols = *sl_bwp->sl_LengthSymbols_r16 ? values[*sl_bwp->sl_LengthSymbols_r16] : 0;
+  const uint8_t sl_num_symbols = values[*sl_bwp->sl_LengthSymbols_r16];
   // start_symbol_index has been used as lprime check 38.213 16.3
   psfch_pdu->start_symbol_index = *sl_bwp->sl_StartSymbol_r16 + sl_num_symbols - 2;
   LOG_D(NR_PHY, "Rx sl_StartSymbol_r16 %ld, sl_num_symbols: %d, start sym index %d, mcs %d\n", *sl_bwp->sl_StartSymbol_r16, sl_num_symbols, psfch_pdu->start_symbol_index, psfch_pdu->mcs);
-  psfch_pdu->hopping_id = *mac->sl_bwp->sl_BWP_PoolConfigCommon_r16->sl_TxPoolSelectedNormal_r16->list.array[0]->sl_ResourcePool_r16->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
+  NR_SL_PSFCH_Config_r16_t *cfg = mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup;
+  psfch_pdu->hopping_id = *cfg->sl_PSFCH_HopID_r16;
   /* PRB row index (TS 38.213 s16.3): PSSCH slot position in the group sharing this
    * PSFCH occasion.  Must match fill_psfch_params_tx on the peer UE.  Use the
    * pool-cycle SL-slot ordinal mod psfch_period via sl_psfch_pssch_slot_index,
@@ -1030,7 +1048,14 @@ void fill_psfch_params_rx(sl_nr_rx_config_request_t *rx_config, sl_nr_tx_rx_conf
     size_t tx_map_sz = (sl_tx_pool->phy_sl_bitmap.size << 3) - sl_tx_pool->phy_sl_bitmap.bits_unused;
     frameslot_t pssch_fs_rx = {cur_harq->sched_pssch.frame, cur_harq->sched_pssch.slot};
     uint64_t pssch_abs_rx = normalize(&pssch_fs_rx, mu_rx);
-    index = (uint8_t)sl_psfch_pssch_slot_index(&sl_tx_pool->phy_sl_bitmap, tx_map_sz, pssch_abs_rx, (uint8_t)psfch_period);
+    const uint8_t psfch_time_gaps[] = {2, 3};
+    const uint8_t min_time_gap = cfg->sl_MinTimeGapPSFCH_r16
+                                     ? psfch_time_gaps[*cfg->sl_MinTimeGapPSFCH_r16]
+                                     : 2;
+    int row = sl_psfch_pssch_slot_index(
+        &sl_tx_pool->phy_sl_bitmap, tx_map_sz, pssch_abs_rx, min_time_gap, (uint8_t)psfch_period);
+    DevAssert(row >= 0);
+    index = row;
   }
   const uint16_t rb_ordinal = psfch_params->prb_ordinal_base + index * psfch_params->prbs_per_subchannel_slot;
   DevAssert(index < psfch_params->num_psfch_slots);

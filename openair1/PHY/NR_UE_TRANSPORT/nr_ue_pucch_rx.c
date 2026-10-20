@@ -117,7 +117,7 @@ int8_t nr_ue_decode_psfch0(PHY_VARS_NR_UE *ue,
   pucch_pdu.initial_cyclic_shift = psfch_pdu->initial_cyclic_shift;
   pucch_pdu.bit_len_harq = psfch_pdu->bit_len_harq;
   pucch_pdu.sr_flag = 0;
-  pucch_pdu.subcarrier_spacing = 1;
+  pucch_pdu.subcarrier_spacing = ue->SL_UE_PHY_PARAMS.sl_frame_params.numerology_index;
   ack_nack_rcvd = nr_ue_decode_pucch0(ue,
                                       frame,
                                       slot,

@@ -103,4 +103,13 @@ static inline int32_t nr_sl_pool_slot_index(const uint8_t *bitmap, size_t bitmap
   return index;
 }
 
+/* TS 38.213 clause 16.3: position of a PSSCH pool slot among the slots
+ * associated with one PSFCH occasion. */
+static inline int nr_sl_psfch_row(int32_t pool_slot_index, uint8_t min_time_gap, uint8_t psfch_period)
+{
+  if (pool_slot_index < 0 || psfch_period == 0)
+    return -1;
+  return (pool_slot_index + min_time_gap - 1) % psfch_period;
+}
+
 #endif
