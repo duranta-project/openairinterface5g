@@ -472,6 +472,333 @@ TEST(oru_beamforming, prb_fft_runs_match_fftshift_layout)
   }
 }
 
+// Stand-in for get_bf_weights(): bundle b returns ret[b] with beam_id[b] and w[b]
+struct fake_bfw {
+  int ret[4];
+  uint16_t beam_id[4];
+  c16_t w[4][ORU_MAX_BF_WEIGHTS];
+  int calls;
+};
+
+static int fake_get_bf_weights(void *ctx, const oru_bfw_set_t *set, int bundle, uint16_t *beam_id, c16_t *weights)
+{
+  fake_bfw *f = (fake_bfw *)ctx;
+  f->calls++;
+  EXPECT_GE(bundle, 0);
+  EXPECT_LT(bundle, set->num_bundles);
+  if (f->ret[bundle] >= 0)
+    *beam_id = f->beam_id[bundle];
+  if (f->ret[bundle] > 0)
+    memcpy(weights, f->w[bundle], f->ret[bundle] * sizeof(c16_t));
+  return f->ret[bundle];
+}
+
+// Expected DL output of PRBs [prb, prb + n) of src on antenna txru for weight w
+static void expect_dl_run(const c16_t *ant, const c16_t *src, int prb, int n, c16_t w, c16_t rotation, int txru)
+{
+  c16_t w_rot = c16mulShiftSat(w, rotation, 15);
+  for (int re = prb * NR_NB_SC_PER_RB; re < (prb + n) * NR_NB_SC_PER_RB; re++) {
+    c16_t expected = c16mulShift(src[re - prb * NR_NB_SC_PER_RB], w_rot, 15);
+    ASSERT_EQ(ant[re].r, expected.r) << "txru " << txru << " re " << re;
+    ASSERT_EQ(ant[re].i, expected.i) << "txru " << txru << " re " << re;
+  }
+}
+
+// Weights from ext1 (one bundle covering the section) replace the codebook row of the section beamId
+TEST(oru_beamforming, dl_dynamic_weights_override_codebook)
+{
+  oru_codebook_t cb = {0};
+  cb.nb_fh_streams = 1;
+  cb.nb_beams = 4;
+  cb.w[3][0][0] = (c16_t){.r = 20000, .i = 5000};
+  cb.w[3][1][0] = (c16_t){.r = -8000, .i = 15000};
+  fake_bfw f = {.ret = {2}, .beam_id = {3}, .w = {{{.r = 1000, .i = -30000}, {.r = 25000, .i = 7000}}}};
+  const oru_bfw_source_t bfw = {.ctx = &f, .get = fake_get_bf_weights};
+  c16_t rotation = {.r = 23170, .i = -23170};
+
+  uint32_t iq_buf[N_SC];
+  fill_iq(iq_buf, N_SC, 200);
+  dl_iq_stream_t streams[1] = {{.ant_id = 0, .beam_id = 3, .start_prb = 0, .num_prb = N_RB, .iq = iq_buf}};
+  streams[0].bfw = (oru_bfw_set_t){.num_bundles = 1, .bundle_prbs = N_RB, .first_prb = 0};
+
+  uint32_t ant_buf[2][N_SC];
+  c16_t *txDataF[2] = {(c16_t *)ant_buf[0], (c16_t *)ant_buf[1]};
+  combine_dl_streams(txDataF, 2, N_SC, streams, 1, &cb, &bfw, rotation);
+  EXPECT_EQ(f.calls, 1);
+  for (int txru = 0; txru < 2; txru++)
+    expect_dl_run(txDataF[txru], (const c16_t *)iq_buf, 0, N_RB, f.w[0][txru], rotation, txru);
+}
+
+// Without dynamic weights the codebook result is the same as with no weight source, and get() isn't called
+TEST(oru_beamforming, dl_no_dynamic_weights_uses_codebook)
+{
+  oru_codebook_t cb = {0};
+  cb.nb_fh_streams = 1;
+  cb.nb_beams = 2;
+  cb.w[1][0][0] = (c16_t){.r = 20000, .i = 5000};
+  cb.w[1][1][0] = (c16_t){.r = -8000, .i = 15000};
+  fake_bfw f = {.ret = {2}, .beam_id = {1}, .w = {{{.r = 1000, .i = -30000}, {.r = 25000, .i = 7000}}}};
+  const oru_bfw_source_t bfw = {.ctx = &f, .get = fake_get_bf_weights};
+  c16_t rotation = {.r = 23170, .i = 23170};
+
+  uint32_t iq_buf[N_SC];
+  fill_iq(iq_buf, N_SC, -300);
+  dl_iq_stream_t streams[1] = {{.ant_id = 0, .beam_id = 1, .start_prb = 0, .num_prb = N_RB, .iq = iq_buf}};
+
+  uint32_t with_src[2][N_SC], without_src[2][N_SC];
+  c16_t *tx_with[2] = {(c16_t *)with_src[0], (c16_t *)with_src[1]};
+  c16_t *tx_without[2] = {(c16_t *)without_src[0], (c16_t *)without_src[1]};
+  combine_dl_streams(tx_with, 2, N_SC, streams, 1, &cb, &bfw, rotation);
+  combine_dl_streams(tx_without, 2, N_SC, streams, 1, &cb, NULL, rotation);
+  EXPECT_EQ(f.calls, 0);
+  EXPECT_EQ(memcmp(with_src, without_src, sizeof(with_src)), 0);
+  for (int txru = 0; txru < 2; txru++)
+    expect_dl_run(tx_with[txru], (const c16_t *)iq_buf, 0, N_RB, cb.w[1][txru][0], rotation, txru);
+}
+
+// ext11 bundles of 2 PRBs starting one PRB before the section (bundleOffset 1): bundle 0 has weights, bundle 1 only a
+// beamId (codebook row of that beam), bundle 2 was overwritten (no output). A fragment that starts inside a bundle reads
+// its IQ from the right offset.
+TEST(oru_beamforming, dl_dynamic_weights_per_bundle)
+{
+  enum { NRB = 4, NSC = NRB * NR_NB_SC_PER_RB };
+  oru_codebook_t cb = {0};
+  cb.nb_fh_streams = 1;
+  cb.nb_beams = 2;
+  cb.w[0][0][0] = (c16_t){.r = 32767, .i = 0};
+  cb.w[0][1][0] = (c16_t){.r = 0, .i = 32767};
+  cb.w[1][0][0] = (c16_t){.r = 20000, .i = 5000};
+  cb.w[1][1][0] = (c16_t){.r = -8000, .i = 15000};
+  fake_bfw f = {.ret = {2, 0, -1}, .beam_id = {9, 1, 0}, .w = {{{.r = 1000, .i = -30000}, {.r = 25000, .i = 7000}}}};
+  const oru_bfw_source_t bfw = {.ctx = &f, .get = fake_get_bf_weights};
+  const oru_bfw_set_t set = {.num_bundles = 3, .bundle_prbs = 2, .first_prb = -1};
+  c16_t rotation = {.r = 23170, .i = -23170};
+  const c16_t zero = {0};
+  const c16_t *expected_w[NRB][2] = {{&f.w[0][0], &f.w[0][1]},
+                                     {&cb.w[1][0][0], &cb.w[1][1][0]},
+                                     {&cb.w[1][0][0], &cb.w[1][1][0]},
+                                     {&zero, &zero}};
+
+  uint32_t iq_buf[NSC];
+  fill_iq(iq_buf, NSC, 150);
+  const struct {
+    int start, num;
+  } frags[] = {{0, NRB}, {2, 2}};
+  for (const auto &fr : frags) {
+    dl_iq_stream_t streams[1] = {{.ant_id = 0, .beam_id = 0, .start_prb = fr.start, .num_prb = fr.num, .iq = iq_buf}};
+    streams[0].bfw = set;
+    uint32_t ant_buf[2][NSC];
+    c16_t *txDataF[2] = {(c16_t *)ant_buf[0], (c16_t *)ant_buf[1]};
+    combine_dl_streams(txDataF, 2, NSC, streams, 1, &cb, &bfw, rotation);
+    for (int txru = 0; txru < 2; txru++) {
+      assert_zero(txDataF[txru], fr.start * NR_NB_SC_PER_RB);
+      for (int prb = fr.start; prb < fr.start + fr.num; prb++)
+        expect_dl_run(txDataF[txru],
+                      (const c16_t *)iq_buf + (prb - fr.start) * NR_NB_SC_PER_RB,
+                      prb,
+                      1,
+                      *expected_w[prb][txru],
+                      rotation,
+                      txru);
+    }
+  }
+}
+
+// UL bundles over a PRB range straddling DC: each run equals the codebook combine for that run's weights (dynamic weights
+// as a codebook beam), every other bin is untouched. PRBs before the first bundle use the section beamId, an overwritten
+// bundle is zero. More weights than RX antennas use the first nb_rx.
+TEST(oru_beamforming, ul_dynamic_weights_per_bundle)
+{
+  const int fft_size = 1024, n_rb = 51, nbins = n_rb * NR_NB_SC_PER_RB, start = 16, num = 16;
+  oru_codebook_t cb = {0};
+  cb.nb_fh_streams = 1;
+  cb.nb_beams = 2;
+  cb.w[0][0][0] = (c16_t){.r = 32767, .i = 0};
+  cb.w[0][1][0] = (c16_t){.r = 0, .i = 32767};
+  cb.w[1][0][0] = (c16_t){.r = 20000, .i = 5000};
+  cb.w[1][1][0] = (c16_t){.r = -8000, .i = 15000};
+  fake_bfw f = {.ret = {2, 0, 3, -1},
+                .beam_id = {5, 1, 6, 0},
+                .w = {{{.r = 1000, .i = -30000}, {.r = 25000, .i = 7000}},
+                      {},
+                      {{.r = -12000, .i = 4000}, {.r = 9000, .i = 21000}, {.r = 5, .i = 5}}}};
+  const oru_bfw_source_t bfw = {.ctx = &f, .get = fake_get_bf_weights};
+  // Bundles of 4 PRBs from PRB 18: [18, 22), [22, 26), [26, 30), [30, 34)
+  const oru_bfw_set_t set = {.num_bundles = 4, .bundle_prbs = 4, .first_prb = 18};
+
+  // Reference codebook: beams 0 and 1 as above, 2 and 3 the dynamic weights of bundles 0 and 2, 4 all zero
+  oru_codebook_t ref = cb;
+  ref.nb_beams = 5;
+  for (int a = 0; a < 2; a++) {
+    ref.w[2][a][0] = f.w[0][a];
+    ref.w[3][a][0] = f.w[2][a];
+  }
+  const struct {
+    int start, num, beam;
+  } runs[] = {{16, 2, 0}, {18, 4, 2}, {22, 4, 1}, {26, 4, 3}, {30, 2, 4}};
+
+  const c16_t sentinel = {.r = 1234, .i = -4321};
+  std::vector<c16_t> x0(fft_size), x1(fft_size), out(fft_size, sentinel), expected(fft_size, sentinel);
+  for (int k = 0; k < fft_size; k++) {
+    x0[k] = (c16_t){.r = (int16_t)(k * 7 % 3000), .i = (int16_t)(-k * 3 % 2000)};
+    x1[k] = (c16_t){.r = (int16_t)(-k * 5 % 2500), .i = (int16_t)(k * 11 % 1500)};
+  }
+  const c16_t *fft[2] = {x0.data(), x1.data()};
+  combine_ul_beam_prbs(fft, 2, fft_size, nbins, start, num, &cb, 0, 0, &bfw, &set, out.data());
+  EXPECT_EQ(f.calls, 4);
+  for (const auto &r : runs)
+    combine_ul_beam_prbs(fft, 2, fft_size, nbins, r.start, r.num, &ref, r.beam, 0, NULL, NULL, expected.data());
+  for (int k = 0; k < fft_size; k++) {
+    ASSERT_EQ(out[k].r, expected[k].r) << "bin " << k;
+    ASSERT_EQ(out[k].i, expected[k].i) << "bin " << k;
+  }
+}
+
+// A DU can send more weights than antennas (cuBB static ext11 sends 64). DL applies the first nb_tx and UL the first nb_rx.
+TEST(oru_beamforming, dynamic_weights_wider_than_antennas)
+{
+  enum { NB_TX = 4, NB_RX = 2 };
+  oru_codebook_t cb = {0};
+  cb.nb_fh_streams = 1;
+  cb.nb_beams = 1;
+  fake_bfw f = {.ret = {ORU_MAX_BF_WEIGHTS}, .beam_id = {1}};
+  for (int i = 0; i < ORU_MAX_BF_WEIGHTS; i++)
+    f.w[0][i] = (c16_t){.r = (int16_t)(1000 + 300 * i), .i = (int16_t)(-2000 + 450 * i)};
+  const oru_bfw_source_t bfw = {.ctx = &f, .get = fake_get_bf_weights};
+  const oru_bfw_set_t set = {.num_bundles = 1, .bundle_prbs = N_RB, .first_prb = 0};
+  c16_t rotation = {.r = 32767, .i = 0};
+
+  uint32_t iq_buf[N_SC];
+  fill_iq(iq_buf, N_SC, 100);
+  dl_iq_stream_t streams[1] = {{.ant_id = 0, .beam_id = 0, .start_prb = 0, .num_prb = N_RB, .iq = iq_buf}};
+  streams[0].bfw = set;
+  uint32_t ant_buf[NB_TX][N_SC];
+  c16_t *txDataF[NB_TX];
+  for (int txru = 0; txru < NB_TX; txru++)
+    txDataF[txru] = (c16_t *)ant_buf[txru];
+  combine_dl_streams(txDataF, NB_TX, N_SC, streams, 1, &cb, &bfw, rotation);
+  for (int txru = 0; txru < NB_TX; txru++)
+    expect_dl_run(txDataF[txru], (const c16_t *)iq_buf, 0, N_RB, f.w[0][txru], rotation, txru);
+
+  // UL: the same result as a codebook beam that holds the first NB_RX weights
+  const int fft_size = 1024, n_rb = 51, nbins = n_rb * NR_NB_SC_PER_RB;
+  const oru_bfw_set_t ul_set = {.num_bundles = 1, .bundle_prbs = n_rb, .first_prb = 0};
+  oru_codebook_t ref = cb;
+  for (int a = 0; a < NB_RX; a++)
+    ref.w[0][a][0] = f.w[0][a];
+  std::vector<c16_t> x0(fft_size), x1(fft_size), out(fft_size), expected(fft_size);
+  for (int k = 0; k < fft_size; k++) {
+    x0[k] = (c16_t){.r = (int16_t)(k * 7 % 3000), .i = (int16_t)(-k * 3 % 2000)};
+    x1[k] = (c16_t){.r = (int16_t)(-k * 5 % 2500), .i = (int16_t)(k * 11 % 1500)};
+  }
+  const c16_t *fft[NB_RX] = {x0.data(), x1.data()};
+  combine_ul_beam_prbs(fft, NB_RX, fft_size, nbins, 0, n_rb, &cb, 0, 0, &bfw, &ul_set, out.data());
+  combine_ul_beam_prbs(fft, NB_RX, fft_size, nbins, 0, n_rb, &ref, 0, 0, NULL, NULL, expected.data());
+  EXPECT_EQ(memcmp(out.data(), expected.data(), fft_size * sizeof(c16_t)), 0);
+}
+
+// Without dynamic weights the UL combine is the same as with no weight source
+TEST(oru_beamforming, ul_no_dynamic_weights_uses_codebook)
+{
+  const int fft_size = 1024, n_rb = 51, nbins = n_rb * NR_NB_SC_PER_RB;
+  oru_codebook_t cb = {0};
+  cb.nb_fh_streams = 1;
+  cb.nb_beams = 2;
+  cb.w[1][0][0] = (c16_t){.r = 20000, .i = 5000};
+  cb.w[1][1][0] = (c16_t){.r = -8000, .i = 15000};
+  fake_bfw f = {.ret = {2}};
+  const oru_bfw_source_t bfw = {.ctx = &f, .get = fake_get_bf_weights};
+  const oru_bfw_set_t set = {0};
+
+  std::vector<c16_t> x0(fft_size), x1(fft_size), with_src(fft_size), without_src(fft_size);
+  for (int k = 0; k < fft_size; k++) {
+    x0[k] = (c16_t){.r = (int16_t)(k * 7 % 3000), .i = (int16_t)(-k * 3 % 2000)};
+    x1[k] = (c16_t){.r = (int16_t)(-k * 5 % 2500), .i = (int16_t)(k * 11 % 1500)};
+  }
+  const c16_t *fft[2] = {x0.data(), x1.data()};
+  combine_ul_beam_prbs(fft, 2, fft_size, nbins, 10, 30, &cb, 1, 0, &bfw, &set, with_src.data());
+  combine_ul_beam_prbs(fft, 2, fft_size, nbins, 10, 30, &cb, 1, 0, NULL, NULL, without_src.data());
+  EXPECT_EQ(f.calls, 0);
+  EXPECT_EQ(memcmp(with_src.data(), without_src.data(), fft_size * sizeof(c16_t)), 0);
+}
+
+// PRACH: bin k is in PRB start_prb + (re_offset + k) / 12, so bundles split the sequence bins at PRB boundaries shifted by
+// re_offset. Each run equals the codebook combine of its bins for that run's weights; a bundle without dynamic weights
+// uses the codebook for its beamId, an overwritten bundle is zero, more weights than RX antennas use the first nb_rx, and
+// bins from nk up are untouched.
+TEST(oru_beamforming, prach_dynamic_weights_per_bundle)
+{
+  const int nk = 139, re_offset = 2, start_prb = 5, n_bins = 160;
+  oru_codebook_t cb = {0};
+  cb.nb_fh_streams = 1;
+  cb.nb_beams = 2;
+  cb.w[0][0][0] = (c16_t){.r = 32767, .i = 0};
+  cb.w[0][1][0] = (c16_t){.r = 0, .i = 32767};
+  cb.w[1][0][0] = (c16_t){.r = 20000, .i = 5000};
+  cb.w[1][1][0] = (c16_t){.r = -8000, .i = 15000};
+  fake_bfw f = {.ret = {2, 0, 3, -1},
+                .beam_id = {5, 1, 6, 0},
+                .w = {{{.r = 1000, .i = -30000}, {.r = 25000, .i = 7000}},
+                      {},
+                      {{.r = -12000, .i = 4000}, {.r = 9000, .i = 21000}, {.r = 5, .i = 5}}}};
+  const oru_bfw_source_t bfw = {.ctx = &f, .get = fake_get_bf_weights};
+  // Bundles of 4 PRBs from PRB 4 (bundleOffset 1): [4, 8), [8, 12), [12, 16), [16, 20). The sequence covers PRBs 5-16.
+  const oru_bfw_set_t set = {.num_bundles = 4, .bundle_prbs = 4, .first_prb = 4};
+
+  // Reference codebook: beams 0 and 1 as above, 2 and 3 the dynamic weights of bundles 0 and 2, 4 all zero
+  oru_codebook_t ref = cb;
+  ref.nb_beams = 5;
+  for (int a = 0; a < 2; a++) {
+    ref.w[2][a][0] = f.w[0][a];
+    ref.w[3][a][0] = f.w[2][a];
+  }
+  // Bins of PRBs 5-7, 8-11, 12-15 and 16: PRB p starts at bin (p - start_prb) * 12 - re_offset
+  const struct {
+    int k0, nk, beam;
+  } runs[] = {{0, 34, 2}, {34, 48, 1}, {82, 48, 3}, {130, 9, 4}};
+
+  const c16_t sentinel = {.r = 1234, .i = -4321};
+  std::vector<c16_t> x0(n_bins), x1(n_bins), out(n_bins, sentinel), expected(n_bins, sentinel);
+  for (int k = 0; k < n_bins; k++) {
+    x0[k] = (c16_t){.r = (int16_t)(k * 7 % 3000), .i = (int16_t)(-k * 3 % 2000)};
+    x1[k] = (c16_t){.r = (int16_t)(-k * 5 % 2500), .i = (int16_t)(k * 11 % 1500)};
+  }
+  const c16_t *fft[2] = {x0.data(), x1.data()};
+  combine_ul_prach_beam(fft, 2, nk, re_offset, start_prb, &cb, 0, 0, &bfw, &set, out.data());
+  EXPECT_EQ(f.calls, 4);
+  for (const auto &r : runs)
+    combine_ul_beam_fd(fft, 2, r.k0, r.nk, &ref, r.beam, 0, expected.data());
+  for (int k = 0; k < n_bins; k++) {
+    ASSERT_EQ(out[k].r, expected[k].r) << "bin " << k;
+    ASSERT_EQ(out[k].i, expected[k].i) << "bin " << k;
+  }
+}
+
+// Without dynamic weights the PRACH combine is combine_ul_beam_fd() with the section beamId over all nk bins
+TEST(oru_beamforming, prach_no_dynamic_weights_uses_codebook)
+{
+  const int nk = 139;
+  oru_codebook_t cb = {0};
+  cb.nb_fh_streams = 1;
+  cb.nb_beams = 2;
+  cb.w[1][0][0] = (c16_t){.r = 20000, .i = 5000};
+  cb.w[1][1][0] = (c16_t){.r = -8000, .i = 15000};
+  fake_bfw f = {.ret = {2}};
+  const oru_bfw_source_t bfw = {.ctx = &f, .get = fake_get_bf_weights};
+  const oru_bfw_set_t set = {0};
+
+  std::vector<c16_t> x0(nk), x1(nk), with_src(nk), expected(nk);
+  for (int k = 0; k < nk; k++) {
+    x0[k] = (c16_t){.r = (int16_t)(k * 7 % 3000), .i = (int16_t)(-k * 3 % 2000)};
+    x1[k] = (c16_t){.r = (int16_t)(-k * 5 % 2500), .i = (int16_t)(k * 11 % 1500)};
+  }
+  const c16_t *fft[2] = {x0.data(), x1.data()};
+  combine_ul_prach_beam(fft, 2, nk, 2, 7, &cb, 1, 0, &bfw, &set, with_src.data());
+  combine_ul_beam_fd(fft, 2, 0, nk, &cb, 1, 0, expected.data());
+  EXPECT_EQ(f.calls, 0);
+  EXPECT_EQ(memcmp(with_src.data(), expected.data(), nk * sizeof(c16_t)), 0);
+}
+
 int main(int argc, char **argv)
 {
   logInit();
