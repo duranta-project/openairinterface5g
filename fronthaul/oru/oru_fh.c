@@ -240,6 +240,7 @@ void *oru_fh_init(oru_fh_config_t *cfg)
                                                cfg->prach_eaxc_offset,
                                                cfg->comp_type,
                                                cfg->prach_kbar);
+  set_num_bf_weights(fh->packet_processor, cfg->num_bf_weights);
 
   return fh;
 }
@@ -311,11 +312,18 @@ void oru_fh_rx_send_prach(void *handle, uint32_t **prachF, int nb_rx, int frame,
   write_prach_iq(fh->packet_processor, prachF, nb_rx, frame, slot, symbol);
 }
 
-int oru_fh_get_prach_beam_id(void *handle, int slot, int stream, int symbol)
+int oru_fh_get_prach_bfw_set(void *handle, int slot, int stream, int symbol, oru_bfw_set_t *bfw, int *start_prb)
 {
   oru_fh_t *fh = (oru_fh_t *)handle;
   AssertFatal(fh, "Invalid handle\n");
-  return get_prach_beam_id(fh->packet_processor, slot, stream, symbol);
+  return get_prach_bfw_set(fh->packet_processor, slot, stream, symbol, bfw, start_prb);
+}
+
+int oru_fh_get_bf_weights(void *handle, const oru_bfw_set_t *set, int bundle, uint16_t *beam_id, c16_t *weights)
+{
+  oru_fh_t *fh = (oru_fh_t *)handle;
+  AssertFatal(fh, "Invalid handle\n");
+  return get_bf_weights(fh->packet_processor, set, bundle, beam_id, weights);
 }
 
 int oru_fh_poll_ul_job(void *handle, ul_job_t *job) {

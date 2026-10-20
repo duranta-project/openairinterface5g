@@ -102,6 +102,7 @@
 #define CONFIG_STRING_PRACH_KBAR "prach_kbar"
 #define CONFIG_STRING_COMP_TYPE         "comp_type"
 #define CONFIG_STRING_CLOCK_TIMEBASE    "clock_timebase"
+#define CONFIG_STRING_BFW_NUM_WEIGHTS "bfw_num_weights"
 
 #define HLP_DPDK_DEVICES "DPDK devices to use for the O-RU."
 #define HLP_RX_CORE "The CPU core to be used to deploy dpdk RX worker for O-RU."
@@ -117,6 +118,8 @@
 #define HLP_PRACH_EAXC_OFFSET "PRACH eAxC offset."
 #define HLP_PRACH_KBAR "PRACH kbar offset."
 #define HLP_COMP_TYPE         "DL U-plane compression method: none, bfp, blkscale, or ulaw."
+#define HLP_BFW_NUM_WEIGHTS \
+  "Weights in each ext1/ext11 vector from the DU (L_TRX); 0 = nb_tx. The O-RU applies the first nb_tx (DL) or nb_rx (UL)."
 #define HLP_CLOCK_TIMEBASE \
   "Timescale of CLOCK_REALTIME for FH GPS mapping: utc (default, GPS = unix - epoch + 18) or tai (GPS = unix - epoch - 19)."
 
@@ -148,7 +151,8 @@
   {CONFIG_STRING_PRACH_EAXC_OFFSET,          HLP_PRACH_EAXC_OFFSET, 0,                      .u8ptr=NULL,      .defuintval=0,                TYPE_UINT8,        0}, \
   {CONFIG_STRING_PRACH_KBAR,                 HLP_PRACH_KBAR,        0,                      .uptr=NULL,       .defuintval=4,                TYPE_UINT,         0}, \
   {CONFIG_STRING_COMP_TYPE,                  HLP_COMP_TYPE,         0,                      .strptr=NULL,     .defstrval="none",           TYPE_STRING,       0, COMP_TYPE_CHECK}, \
-  {CONFIG_STRING_CLOCK_TIMEBASE,             HLP_CLOCK_TIMEBASE,    0,                      .strptr=NULL,     .defstrval="utc",            TYPE_STRING,       0, CLOCK_TIMEBASE_CHECK}  \
+  {CONFIG_STRING_CLOCK_TIMEBASE,             HLP_CLOCK_TIMEBASE,    0,                      .strptr=NULL,     .defstrval="utc",            TYPE_STRING,       0, CLOCK_TIMEBASE_CHECK}, \
+  {CONFIG_STRING_BFW_NUM_WEIGHTS,            HLP_BFW_NUM_WEIGHTS,   0,                      .iptr=NULL,       .defintval=0,                 TYPE_INT,          0}  \
 }
 // clang-format on
 
@@ -525,6 +529,15 @@ int get_oru_options(ORU_t *oru)
   fh_cfg->numerology = oru->numerology;
   fh_cfg->prach_eaxc_offset = *gpd(fh_param, nump, CONFIG_STRING_PRACH_EAXC_OFFSET)->u8ptr;
   fh_cfg->prach_kbar = *gpd(fh_param, nump, CONFIG_STRING_PRACH_KBAR)->uptr;
+  // Codebook mode also applies ext1/ext11 weights from the DU. The DU can send more weights than TXRUs (cuBB static
+  // weights are always 64). The combine applies the first nb_tx (DL) or nb_rx (UL).
+  int bfw_num_weights = *gpd(fh_param, nump, CONFIG_STRING_BFW_NUM_WEIGHTS)->iptr;
+  AssertFatal(bfw_num_weights == 0 || bfw_num_weights >= oru->ru->nb_tx,
+              "%s %d must be 0 or at least nb_tx %d\n",
+              CONFIG_STRING_BFW_NUM_WEIGHTS,
+              bfw_num_weights,
+              oru->ru->nb_tx);
+  fh_cfg->num_bf_weights = oru->codebook.nb_fh_streams > 0 ? (bfw_num_weights > 0 ? bfw_num_weights : oru->ru->nb_tx) : 0;
 
   AssertFatal(gpd(fh_param, nump, CONFIG_STRING_T2A_UP)->numelt == 2, "Two parameters required for %s\n", CONFIG_STRING_T2A_UP);
   fh_cfg->T2a_up_min_uS = gpd(fh_param, nump, CONFIG_STRING_T2A_UP)->iptr[0];
@@ -719,7 +732,8 @@ static void assemble_dl_symbol(ORU_t *oru,
   const int n_sc = n_rb_dl * NR_NB_SC_PER_RB;
   c16_t rotation = *(fp->symbol_rotation[0] + (slot % fp->slots_per_subframe) * fp->symbols_per_slot + symbol);
 
-  combine_dl_streams(txDataF, ru->nb_tx, n_sc, streams, num_streams, &oru->codebook, NULL, rotation);
+  const oru_bfw_source_t bfw = {.ctx = oru->fronthaul, .get = oru_fh_get_bf_weights};
+  combine_dl_streams(txDataF, ru->nb_tx, n_sc, streams, num_streams, &oru->codebook, &bfw, rotation);
 }
 
 static pthread_mutex_t south_read_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -902,18 +916,33 @@ void receive_prach(ORU_t *oru, int frame, int slot, int symbol, int prach_symbol
   }
 
   // Codebook mode: PRACH goes out in beam space like PUSCH - one stream per fronthaul stream, each
-  // combined with the beam the DU declared for it in the section type 3 C-Plane.
+  // combined with the beam or the ext1/ext11 weights the DU declared for it in the section type 3 C-Plane.
   const int nb_streams = cb->nb_fh_streams;
   c16_t beamF[nb_streams][NR_PRACH_SEQ_LEN_L];
   c16_t *beamF_ptr[nb_streams];
+  const oru_bfw_source_t bfw = {.ctx = oru->fronthaul, .get = oru_fh_get_bf_weights};
+  // prach_kbar counts int16 values: the sequence starts at RE prach_kbar / 2 of the section (write_prach_iq())
+  const int re_offset = oru->fh_config.prach_kbar / 2;
   for (int s = 0; s < nb_streams; s++) {
     beamF_ptr[s] = beamF[s];
-    const int beam_id = oru_fh_get_prach_beam_id(oru->fronthaul, slot, s, symbol);
+    oru_bfw_set_t set;
+    int start_prb;
+    const int beam_id = oru_fh_get_prach_bfw_set(oru->fronthaul, slot, s, symbol, &set, &start_prb);
     if (beam_id < 0) {
       memset(beamF[s], 0, sizeof(beamF[s])); // no C-Plane for this stream: write_prach_iq() skips it
       continue;
     }
-    combine_ul_beam_fd((const c16_t *const *)rxdataF_ptr, ru->nb_rx, 0, NR_PRACH_SEQ_LEN_L, cb, beam_id, s, beamF[s]);
+    combine_ul_prach_beam((const c16_t *const *)rxdataF_ptr,
+                          ru->nb_rx,
+                          NR_PRACH_SEQ_LEN_L,
+                          re_offset,
+                          start_prb,
+                          cb,
+                          beam_id,
+                          s,
+                          &bfw,
+                          &set,
+                          beamF[s]);
   }
   oru_fh_rx_send_prach(oru->fronthaul, (uint32_t **)beamF_ptr, nb_streams, frame, slot, symbol);
 }
@@ -950,9 +979,10 @@ static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t 
   const c16_t *fft;
   c16_t combined[fp->ofdm_symbol_size] __attribute__((aligned(32)));
   if (beamforming) {
-    // UL Rx beamforming: combine the per-antenna FFTs via the codebook over this job's PRBs only
+    // UL Rx beamforming: combine the per-antenna FFTs via the codebook or the DU's weights over this job's PRBs only
     for (int r = 0; r < nruns; r++)
       memset(&combined[runs[r].bin], 0, runs[r].len * sizeof(c16_t));
+    const oru_bfw_source_t bfw = {.ctx = oru->fronthaul, .get = oru_fh_get_bf_weights};
     combine_ul_beam_prbs(ant_fft,
                          ru->nb_rx,
                          fp->ofdm_symbol_size,
@@ -962,8 +992,8 @@ static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t 
                          cb,
                          job->beam_id,
                          aarx,
-                         NULL,
-                         NULL,
+                         &bfw,
+                         &job->bfw,
                          combined);
     fft = combined;
   } else {

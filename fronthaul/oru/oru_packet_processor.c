@@ -1684,10 +1684,11 @@ static uint64_t prach_target_symbol(const oru_packet_processor_context_t *ctx, i
 int get_prach_beam_id(void *context, int slot_in_frame, int aarx, int symbol)
 {
   oru_bfw_set_t bfw;
-  return get_prach_bfw_set(context, slot_in_frame, aarx, symbol, &bfw);
+  int start_prb;
+  return get_prach_bfw_set(context, slot_in_frame, aarx, symbol, &bfw, &start_prb);
 }
 
-int get_prach_bfw_set(void *context, int slot_in_frame, int aarx, int symbol, oru_bfw_set_t *bfw)
+int get_prach_bfw_set(void *context, int slot_in_frame, int aarx, int symbol, oru_bfw_set_t *bfw, int *start_prb)
 {
   oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
   if (ctx == NULL || slot_in_frame < 0 || slot_in_frame >= MAX_SLOTS_PER_FRAME || aarx < 0 || aarx >= MAX_ANTENNAS)
@@ -1699,6 +1700,7 @@ int get_prach_bfw_set(void *context, int slot_in_frame, int aarx, int symbol, or
     bool match;
     uint16_t beam_id;
     oru_bfw_set_t set;
+    int prb;
     // Retry while the C-Plane thread rewrites the job
     do {
       seq = atomic_load_explicit(&job->seq, memory_order_acquire);
@@ -1706,10 +1708,12 @@ int get_prach_bfw_set(void *context, int slot_in_frame, int aarx, int symbol, or
               && target_absolute_symbol < job->start_absolute_symbol + job->num_symbols;
       beam_id = job->beam_id;
       set = job->bfw;
+      prb = job->start_prb;
       atomic_thread_fence(memory_order_acquire);
     } while ((seq & 1) || atomic_load_explicit(&job->seq, memory_order_relaxed) != seq);
     if (match) {
       *bfw = set;
+      *start_prb = prb;
       return beam_id;
     }
   }

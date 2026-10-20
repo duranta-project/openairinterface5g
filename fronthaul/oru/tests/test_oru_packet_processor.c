@@ -3757,6 +3757,7 @@ void test_prach_bf_weights(void)
   uint64_t target_sym = 1035;
   oru_packet_processor_stats_t stats;
   oru_bfw_set_t set;
+  int start_prb;
   uint16_t beam_id;
   c16_t w[2];
 
@@ -3766,12 +3767,12 @@ void test_prach_bf_weights(void)
   size_t ext1_len = build_ext1_2w(ext1, w1);
   const test_section3_t with_ext1 = {1, 5, ext1, ext1_len, false, 3};
   send_prach_cplane(ctx, target_sym, 1, &with_ext1, 1);
-  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, symbol, &set) == 5);
-  assert(set.num_bundles == 1 && set.bundle_prbs == 20 && set.first_prb == 3);
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, symbol, &set, &start_prb) == 5);
+  assert(start_prb == 3 && set.num_bundles == 1 && set.bundle_prbs == 20 && set.first_prb == 3);
   assert(get_bf_weights(ctx, &set, 0, &beam_id, w) == 2 && beam_id == 5 && weights_equal(w, w1, 2));
   // No C-Plane for this stream, or for a symbol before the section
-  assert(get_prach_bfw_set(ctx, slot_in_frame, 1, symbol, &set) == -1);
-  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, symbol - 1, &set) == -1);
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 1, symbol, &set, &start_prb) == -1);
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, symbol - 1, &set, &start_prb) == -1);
 
   // Two TDM occasions (symbols 5-8 and 9-12), without extensions: beam 5 gets the weights stored above, beam 9 has none
   // (static codebook)
@@ -3780,10 +3781,10 @@ void test_prach_bf_weights(void)
   handle_absolute_symbol_tick(ctx, target_sym - 5); // beam lookups resolve the symbol nearest to now
   send_prach_cplane(ctx, target_sym - symbol + 5, 1, &occasion_a, 1);
   send_prach_cplane(ctx, target_sym - symbol + 9, 1, &occasion_b, 1);
-  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, 5, &set) == 5);
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, 5, &set, &start_prb) == 5);
   assert(set.num_bundles == 1 && set.bundle_prbs == 20 && set.first_prb == 0);
   assert(get_bf_weights(ctx, &set, 0, &beam_id, w) == 2 && beam_id == 5 && weights_equal(w, w1, 2));
-  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, 9, &set) == 9);
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, 9, &set, &start_prb) == 9);
   assert(set.num_bundles == 0);
 
   // ext11 with weights: 10 bundles of 2 PRBs from PRB 4, beamIds 100 + b; the section beamId 6 is ignored
@@ -3792,7 +3793,7 @@ void test_prach_bf_weights(void)
   target_sym += num_symbols_per_frame;
   handle_absolute_symbol_tick(ctx, target_sym - 5); // beam lookups resolve the symbol nearest to now
   send_prach_cplane(ctx, target_sym, 1, &with_ext11, 1);
-  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, symbol, &set) == 6);
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, symbol, &set, &start_prb) == 6);
   assert(set.num_bundles == 10 && set.bundle_prbs == 2 && set.first_prb == 4);
   assert(oru_bfw_bundle(&set, 23) == 9);
   for (int b = 0; b < 10; b++) {
@@ -3808,8 +3809,8 @@ void test_prach_bf_weights(void)
   target_sym += num_symbols_per_frame;
   handle_absolute_symbol_tick(ctx, target_sym - 5); // beam lookups resolve the symbol nearest to now
   send_prach_cplane(ctx, target_sym, 1, &with_ext11, 1);
-  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, symbol, &set) == 6);
-  assert(set.num_bundles == 6 && set.bundle_prbs == 4 && set.first_prb == 3);
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, symbol, &set, &start_prb) == 6);
+  assert(start_prb == 4 && set.num_bundles == 6 && set.bundle_prbs == 4 && set.first_prb == 3);
   for (int b = 0; b < 5; b++) {
     assert(get_bf_weights(ctx, &set, b, &beam_id, w) == 2 && beam_id == 100 + b);
     assert(weights_equal(w, (c16_t[]){ext11_weight(b, 0), ext11_weight(b, 1)}, 2));
@@ -3823,7 +3824,7 @@ void test_prach_bf_weights(void)
   target_sym += num_symbols_per_frame;
   handle_absolute_symbol_tick(ctx, target_sym - 5); // beam lookups resolve the symbol nearest to now
   send_prach_cplane(ctx, target_sym, 1, &with_ext11, 1);
-  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, symbol, &set) == 5);
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, symbol, &set, &start_prb) == 5);
   assert(set.num_bundles == 1 && get_bf_weights(ctx, &set, 0, &beam_id, w) == 2 && weights_equal(w, w1, 2));
 
   get_packet_processor_stats(ctx, &stats);
