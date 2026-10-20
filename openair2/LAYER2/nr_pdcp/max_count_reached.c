@@ -5,6 +5,9 @@
 #include "max_count_reached.h"
 
 #include "nr_pdcp_entity.h"
+#include "cuup_cucp_if.h"
+#include "openair2/COMMON/e1ap_messages_types.h"
+#include "openair2/GNB_APP/gnb_paramdef.h"
 #include "intertask_interface.h"
 
 void nr_pdcp_max_count_reached_srb(nr_pdpc_max_count_reached_data_t max_count_reached_data)
@@ -18,5 +21,23 @@ void nr_pdcp_max_count_reached_srb(nr_pdpc_max_count_reached_data_t max_count_re
 
 void nr_pdcp_max_count_reached_drb(nr_pdpc_max_count_reached_data_t max_count_reached_data)
 {
-  /* todo */
+  e1ap_bearer_mod_required_t m = {
+    .gNB_cu_cp_ue_id = max_count_reached_data.ue_id,
+    .gNB_cu_up_ue_id = max_count_reached_data.ue_id,
+    .numPDUSessionsMod = 1,
+    .pduSessionMod = &(pdu_session_required_to_mod_t) {
+      .sessionId = max_count_reached_data.pdu_session_id,
+      .numDRB2Modify = 1,
+      .DRBnGRanModList = {
+        (DRB_nGRAN_required_to_mod_t) {
+          .id = max_count_reached_data.rb_id,
+          .cause = {
+            .type = E1AP_CAUSE_RADIO_NETWORK,
+            .value = E1AP_RADIO_CAUSE_PDCP_COUNT_WRAP_AROUND
+          }
+        }
+      }
+    },
+  };
+  get_e1_if()->bearer_mod_required(&m);
 }
