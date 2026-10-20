@@ -833,10 +833,25 @@ void *UE_thread(void *arg)
             delNotifiedFIFO_elt(elt);
             decoded_frame_rx = mac->mib_frame;
           }
-          LOG_A(PHY, "UE synchronized! decoded_frame_rx=%d skipped_frames=%d\n", decoded_frame_rx, skipped_frames);
+          int decoded_frame_offset = 0;
+          if (UE->sl_mode == SL_MODE2_SUPPORTED) {
+            const int samples_per_frame = UE->SL_UE_PHY_PARAMS.sl_frame_params.samples_per_frame;
+            const int ssb_offset = UE->SL_UE_PHY_PARAMS.sync_params.ssb_offset;
+            decoded_frame_offset = ssb_offset / samples_per_frame;
+            AssertFatal(decoded_frame_offset >= 0 && decoded_frame_offset < SL_NR_PSBCH_REPETITION_IN_FRAMES,
+                        "Invalid sidelink synchronization frame offset %d (SSB sample offset %d)\n",
+                        decoded_frame_offset,
+                        ssb_offset);
+          }
+          LOG_A(PHY,
+                "UE synchronized! decoded_frame_rx=%d skipped_frames=%d decoded_frame_offset=%d\n",
+                decoded_frame_rx,
+                skipped_frames,
+                decoded_frame_offset);
           // shift the frame index with all the frames we trashed meanwhile we perform the synch search
           syncData_t *syncMsg = (syncData_t *)NotifiedFifoData(res);
-          decoded_frame_rx = (decoded_frame_rx + skipped_frames) % MAX_FRAME_NUMBER;
+          decoded_frame_rx =
+              (decoded_frame_rx + skipped_frames - decoded_frame_offset + MAX_FRAME_NUMBER) % MAX_FRAME_NUMBER;
           intialSyncOffset = syncMsg->rx_offset;
         }
         delNotifiedFIFO_elt(res);
