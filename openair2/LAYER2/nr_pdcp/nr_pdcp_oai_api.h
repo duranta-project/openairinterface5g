@@ -114,4 +114,6 @@ void nr_pdcp_count_update(ue_id_t ue_id,
 
 void nr_pdcp_get_drb_count_values(ue_id_t ue_id, rb_id_t rb_id, nr_pdcp_count_t *ul_count, nr_pdcp_count_t *dl_count);
 
+void nr_pdcp_count_reset(ue_id_t ue_id, rb_id_t drb_id);
+
 #endif /* NR_PDCP_OAI_API_H */

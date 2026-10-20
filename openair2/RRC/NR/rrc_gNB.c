@@ -1204,6 +1204,14 @@ static void cuup_notify_reestablishment(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue_p)
   FOR_EACH_SEQ_ARR(drb_t *, drb, &ue_p->drbs) {
     bearer_context_pdcp_config_t pdcp = set_bearer_context_pdcp_config(drb->pdcp_config, um_on_default_drb, ue_p->redcap_cap);
     DRB_nGRAN_to_mod_t drb_e1 = get_e1_drb_mod_reestablishment(drb, &pdcp);
+    /* full config is used to reset PDCP COUNT, in which case we must
+     * set 'pdcp_count_reset' to true
+     * Note: in the future, if 'do_full_config' is to be used for another
+     * procedure, the logic here needs to be adapted.
+     */
+    if (ue_p->ho_context && ue_p->ho_context->do_full_config) {
+      drb_e1.pdcp_count_reset = true;
+    }
     if (!append_e1_drb_mod_req(&req, ue_p, drb->drb_id, &drb_e1)) {
       LOG_W(NR_RRC, "UE %d: Failed to append E1 DRB mod for reestablishment (DRB=%d)\n", ue_p->rrc_ue_id, drb->drb_id);
     }
@@ -3686,6 +3694,31 @@ static void trigger_intra_cell_handover_for_pdcp_count_wrap(gNB_RRC_INST *rrc, g
   nr_rrc_trigger_f1_ho_for_pdcp_count_wrap(rrc, ue);
 }
 
+/* Check if at least one of the PDU session has a DRB to modify
+ * for "PDCP COUNT wrap around" reason.
+ * If yes, trigger handover (N2 or intra-cell, depending on
+ * configuration file).
+ */
+static void rrc_gNB_check_pdcp_count_wrap_for_drb(gNB_RRC_INST *rrc,
+                                                  gNB_RRC_UE_t *UE,
+                                                  int num_pdu_sessions,
+                                                  pdu_session_required_to_mod_t *pdu_sessions)
+{
+  bool pdcp_count_wrap_wanted = false;
+  for (int i = 0; i < num_pdu_sessions; i++) {
+    pdu_session_required_to_mod_t *p = &pdu_sessions[i];
+    for (int j = 0; j < p->numDRB2Modify; j++) {
+      if (p->DRBnGRanModList[j].cause.type == E1AP_CAUSE_RADIO_NETWORK
+          && p->DRBnGRanModList[j].cause.value == E1AP_RADIO_CAUSE_PDCP_COUNT_WRAP_AROUND)
+        pdcp_count_wrap_wanted = true;
+    }
+  }
+  if (!pdcp_count_wrap_wanted)
+    return;
+
+  trigger_intra_cell_handover_for_pdcp_count_wrap(rrc, UE);
+}
+
 /** @brief E1AP Bearer Context Modification Required processing on CU-CP */
 static void rrc_gNB_process_e1_bearer_context_mod_required(sctp_assoc_t assoc_id, const e1ap_bearer_mod_required_t *req)
 {
@@ -3701,6 +3734,7 @@ static void rrc_gNB_process_e1_bearer_context_mod_required(sctp_assoc_t assoc_id
   } else {
     gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
     rrc_gNB_trigger_pdu_session_notify_on_release(rrc, UE, req->pduSessionRem, req->numPDUSessionsRem);
+    rrc_gNB_check_pdcp_count_wrap_for_drb(rrc, UE, req->numPDUSessionsMod, req->pduSessionMod);
   }
 
   e1ap_bearer_mod_confirm_t conf = {
