@@ -573,7 +573,8 @@ static void ref_check_prach_bfw(void *ctx, int slot)
 {
   for (int a = 0; a < REF_NUM_ANT; a++) {
     oru_bfw_set_t set;
-    if (get_prach_bfw_set(ctx, slot, a, 0, &set) < 0)
+    int start_prb;
+    if (get_prach_bfw_set(ctx, slot, a, 0, &set, &start_prb) < 0)
       continue;
     uint64_t errors = ref_cnt.errors;
     ref_check_bfw_set(ctx, &set, "PRACH", a, slot, 0, 0, REF_PRACH_NUM_PRB);
