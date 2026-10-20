@@ -1114,3 +1114,30 @@ void nr_pdcp_get_drb_count_values(ue_id_t ue_id, rb_id_t rb_id, nr_pdcp_count_t 
 
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }
+
+void nr_pdcp_count_reset(ue_id_t ue_id, rb_id_t rb_id)
+{
+  nr_pdcp_manager_lock(nr_pdcp_ue_manager);
+
+  nr_pdcp_ue_t *ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, ue_id);
+
+  nr_pdcp_entity_t *entity = nr_pdcp_get_rb(ue, rb_id, false);
+
+  if (!entity) {
+    LOG_E(PDCP, "No entity found (DRB %ld)\n", rb_id);
+    nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+    return;
+  }
+
+  /* clear state */
+  nr_pdcp_deliver_all_sdus(entity);
+  entity->tx_next = 0;
+  entity->rx_next = 0;
+  entity->rx_deliv = 0;
+  entity->rx_reord = 0;
+  entity->t_reordering_start = 0;
+  entity->entity_suspended = false;
+  entity->max_count_reached_signaled = false;
+
+  nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+}
