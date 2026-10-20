@@ -14,6 +14,7 @@
 #include <rte_ether.h>
 #include <rte_byteorder.h>
 #include "oru_packet_processor.h"
+#include "oru_beamforming.h"
 #include "xran_pkt_api.h"
 #include "xran_pkt_bfw.h"
 #include "log.h"
@@ -65,6 +66,8 @@ void test_send_mbuf(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_m
 #define REF_PRACH_SLOT 19
 #define REF_PRACH_NUM_PRB 12
 #define REF_PRACH_NUM_SYM 12
+#define REF_PRACH_SEQ_LEN 139 // L_RA of format B4
+#define REF_PRACH_RE_OFFSET 2 // k-bar of L_RA 139: the sequence starts at RE 2 of the section
 
 typedef struct {
   int start_prb;
@@ -93,6 +96,8 @@ static struct {
   uint64_t pkts, cplane_dl, cplane_ul, cplane_prach, ext, uplane, iq_samples, errors;
   uint64_t dl_symbols_read, dl_symbols_silent, dl_iq_checked, dl_iq_errors, dl_iq_bad_symbols;
   uint64_t bfw_dl_streams, bfw_ul_jobs, bfw_prach_jobs; // DL streams, UL and PRACH jobs whose extracted weights were checked
+  // DL symbols, UL and PRACH jobs combined with the extracted weights
+  uint64_t combine_dl_symbols, combine_ul_jobs, combine_prach_jobs;
 } ref_cnt;
 
 #define REF_CHECK(cond, ...)               \
@@ -491,6 +496,25 @@ static void place_dl_streams(uint32_t **txdataF, const dl_iq_stream_t *streams, 
   }
 }
 
+// PRB element of the DL or UL table that PRB prb is in, -1 if none
+static int ref_elm_of(bool dl, int prb)
+{
+  const ref_prb_elm_t *tbl = dl ? ref_dl_elm : ref_ul_elm;
+  int n_elm = dl ? REF_NUM_DL_ELM : REF_NUM_UL_ELM;
+  for (int e = 0; e < n_elm; e++)
+    if (prb >= tbl[e].start_prb && prb < tbl[e].start_prb + tbl[e].num_prb)
+      return e;
+  return -1;
+}
+
+// Weight j of bundle b of PRB element k the generator puts in the extension for antenna ant in slot
+static c16_t ref_bfw_weight(int ant, int slot, int k, int b, int j)
+{
+  // ext1 weight j is buffer element j of PRB block k; ext11 weight j of bundle b is buffer element 16 * b + j
+  int e = ref_ext_type == 1 ? j : REF_NUM_BF_ELM / 2 * b + j;
+  return (c16_t){1024 * ant + e % REF_NUM_BF_ELM, 300 * (slot % REF_NUM_SLOTS_FILE) + (ref_ext_type == 1 ? k : e / REF_NUM_BF_ELM)};
+}
+
 // Weights the processor extracted for a section of num_prb PRBs from first_prb carrying the extension of PRB element k
 // (label DL, UL or PRACH): get_bf_weights() on every bundle must give the beamId and weights the generator put in that
 // extension (ref_check_ext1() / ref_check_ext11())
@@ -527,10 +551,7 @@ ref_check_bfw_set(void *ctx, const oru_bfw_set_t *set, const char *label, int an
               beam_id,
               exp_beam);
     for (int j = 0; j < REF_NUM_BF_ELM; j++) {
-      // ext1 weight j is buffer element j of PRB block k; ext11 weight j of bundle b is buffer element 16 * b + j
-      int e = ref_ext_type == 1 ? j : REF_NUM_BF_ELM / 2 * b + j;
-      c16_t exp = {1024 * ant + e % REF_NUM_BF_ELM,
-                   300 * (slot % REF_NUM_SLOTS_FILE) + (ref_ext_type == 1 ? k : e / REF_NUM_BF_ELM)};
+      c16_t exp = ref_bfw_weight(ant, slot, k, b, j);
       REF_CHECK(w[j].r == exp.r && w[j].i == exp.i,
                 "%s ant %d slot %d elm %d bundle %d extracted weight %d: (%d,%d), expected (%d,%d)",
                 label,
@@ -551,11 +572,7 @@ ref_check_bfw_set(void *ctx, const oru_bfw_set_t *set, const char *label, int an
 static void ref_check_bfw(void *ctx, const oru_bfw_set_t *set, int ant, int slot, int start_prb, bool dl)
 {
   const ref_prb_elm_t *tbl = dl ? ref_dl_elm : ref_ul_elm;
-  int n_elm = dl ? REF_NUM_DL_ELM : REF_NUM_UL_ELM;
-  int k = -1;
-  for (int e = 0; e < n_elm; e++)
-    if (start_prb >= tbl[e].start_prb && start_prb < tbl[e].start_prb + tbl[e].num_prb)
-      k = e;
+  int k = ref_elm_of(dl, start_prb);
   REF_CHECK(k >= 0, "%s weights: PRB %d not in the PRB element table", dl ? "DL" : "UL", start_prb);
   uint64_t errors = ref_cnt.errors;
   ref_check_bfw_set(ctx, set, dl ? "DL" : "UL", ant, slot, k, tbl[k].start_prb, tbl[k].num_prb);
@@ -567,26 +584,248 @@ static void ref_check_bfw(void *ctx, const oru_bfw_set_t *set, int ant, int slot
     ref_cnt.bfw_ul_jobs++;
 }
 
-// Weights of the PRACH jobs of slot when the PRACH consumer reads them: each stream's section has the extension of UL PRB
-// element 0 (see ref_check_prach_cplane())
-static void ref_check_prach_bfw(void *ctx, int slot)
-{
-  for (int a = 0; a < REF_NUM_ANT; a++) {
-    oru_bfw_set_t set;
-    int start_prb;
-    if (get_prach_bfw_set(ctx, slot, a, 0, &set, &start_prb) < 0) // the reference PRACH starts at symbol 0
-      continue;
-    uint64_t errors = ref_cnt.errors;
-    ref_check_bfw_set(ctx, &set, "PRACH", a, slot, 0, 0, REF_PRACH_NUM_PRB);
-    if (ref_cnt.errors == errors)
-      ref_cnt.bfw_prach_jobs++;
-  }
-}
-
 static void ref_check_dl_bfw(void *ctx, const dl_iq_stream_t *streams, int num_streams, int slot)
 {
   for (int i = 0; i < num_streams; i++)
     ref_check_bfw(ctx, &streams[i].bfw, streams[i].ant_id, slot, streams[i].start_prb, true);
+}
+
+/*
+ * Combine checks: the DL/UL combine reading the processor's weights through get_bf_weights() must equal the
+ * codebook-only combine of the same PRBs split at the generator's bundles, with a codebook holding the generator's
+ * weights. Bundle b of PRB element k is codebook beam REF_CB_BEAM(k, b). The codebook has ORU_CODEBOOK_MAX_NB_TX
+ * antennas, so both combine the first ORU_CODEBOOK_MAX_NB_TX of the REF_NUM_BF_ELM weights.
+ */
+#define REF_CB_BEAM(k, b) ((k)*REF_MAX_EXT11_BUNDLES + (b))
+#define REF_UL_FFT_SIZE 4096
+
+// Bundle size of PRB element k
+static int ref_bundle_prbs(bool dl, int k)
+{
+  return ref_ext_type == 1 ? (dl ? ref_dl_elm : ref_ul_elm)[k].num_prb : REF_EXT11_BUND_PRB;
+}
+
+// Generator weights of every bundle of every PRB element in slot, as codebook beams
+static void ref_fill_codebook(oru_codebook_t *cb, bool dl, int slot)
+{
+  const ref_prb_elm_t *tbl = dl ? ref_dl_elm : ref_ul_elm;
+  int n_elm = dl ? REF_NUM_DL_ELM : REF_NUM_UL_ELM;
+  memset(cb, 0, sizeof(*cb));
+  cb->nb_fh_streams = REF_NUM_ANT;
+  cb->nb_beams = REF_CB_BEAM(n_elm, 0);
+  for (int k = 0; k < n_elm; k++)
+    for (int b = 0; b * ref_bundle_prbs(dl, k) < tbl[k].num_prb; b++)
+      for (int t = 0; t < ORU_CODEBOOK_MAX_NB_TX; t++)
+        for (int a = 0; a < REF_NUM_ANT; a++)
+          cb->w[REF_CB_BEAM(k, b)][t][a] = ref_bfw_weight(a, slot, k, b, t);
+}
+
+// Splits PRBs [prb, end) of element k at its next bundle boundary; returns the run end and sets *beam
+static int ref_bundle_run(bool dl, int k, int prb, int end, int *beam)
+{
+  const ref_prb_elm_t *tbl = dl ? ref_dl_elm : ref_ul_elm;
+  int bp = ref_bundle_prbs(dl, k);
+  int b = (prb - tbl[k].start_prb) / bp;
+  int run_end = tbl[k].start_prb + (b + 1) * bp;
+  *beam = REF_CB_BEAM(k, b);
+  return run_end < end ? run_end : end;
+}
+
+static void ref_check_dl_combine(void *ctx, const dl_iq_stream_t *streams, int num_streams, int slot)
+{
+  if (num_streams == 0)
+    return;
+  static oru_codebook_t ref_cb;
+  static dl_iq_stream_t split[MAX_DL_FRAGMENTS_PER_SYMBOL * REF_MAX_EXT11_BUNDLES];
+  static c16_t out[2][ORU_CODEBOOK_MAX_NB_TX][REF_NUM_PRB * 12];
+  ref_fill_codebook(&ref_cb, true, slot);
+  int n_split = 0;
+  for (int i = 0; i < num_streams; i++) {
+    const dl_iq_stream_t *st = &streams[i];
+    int k = ref_elm_of(true, st->start_prb);
+    REF_CHECK(k >= 0, "DL combine: PRB %d not in the PRB element table", st->start_prb);
+    if (k < 0)
+      return;
+    const int end = st->start_prb + st->num_prb;
+    for (int prb = st->start_prb; prb < end;) {
+      int beam;
+      int run_end = ref_bundle_run(true, k, prb, end, &beam);
+      split[n_split++] = (dl_iq_stream_t){.ant_id = st->ant_id,
+                                          .beam_id = beam,
+                                          .start_prb = prb,
+                                          .num_prb = run_end - prb,
+                                          .iq = st->iq + (prb - st->start_prb) * 12};
+      prb = run_end;
+    }
+  }
+  c16_t *tx[2][ORU_CODEBOOK_MAX_NB_TX];
+  for (int t = 0; t < ORU_CODEBOOK_MAX_NB_TX; t++) {
+    tx[0][t] = out[0][t];
+    tx[1][t] = out[1][t];
+  }
+  const oru_codebook_t cb = {.nb_fh_streams = REF_NUM_ANT, .nb_beams = 1}; // every bundle has dynamic weights
+  const oru_bfw_source_t src = {.ctx = ctx, .get = get_bf_weights};
+  const c16_t rotation = {.r = 23170, .i = -23170};
+  combine_dl_streams(tx[0], ORU_CODEBOOK_MAX_NB_TX, REF_NUM_PRB * 12, streams, num_streams, &cb, &src, rotation);
+  combine_dl_streams(tx[1], ORU_CODEBOOK_MAX_NB_TX, REF_NUM_PRB * 12, split, n_split, &ref_cb, NULL, rotation);
+  for (int t = 0; t < ORU_CODEBOOK_MAX_NB_TX; t++)
+    for (int re = 0; re < REF_NUM_PRB * 12; re++)
+      if (out[0][t][re].r != out[1][t][re].r || out[0][t][re].i != out[1][t][re].i) {
+        REF_CHECK(false,
+                  "DL combine slot %d antenna %d RE %d: (%d,%d), expected (%d,%d)",
+                  slot,
+                  t,
+                  re,
+                  out[0][t][re].r,
+                  out[0][t][re].i,
+                  out[1][t][re].r,
+                  out[1][t][re].i);
+        return;
+      }
+  ref_cnt.combine_dl_symbols++;
+}
+
+static void ref_check_ul_combine(void *ctx, const ul_job_t *job)
+{
+  static oru_codebook_t ref_cb;
+  static c16_t fft[ORU_CODEBOOK_MAX_NB_TX][REF_UL_FFT_SIZE];
+  static c16_t out[2][REF_UL_FFT_SIZE];
+  static bool fft_filled;
+  if (!fft_filled) { // synthetic antenna FFT output
+    for (int a = 0; a < ORU_CODEBOOK_MAX_NB_TX; a++)
+      for (int n = 0; n < REF_UL_FFT_SIZE; n++)
+        fft[a][n] = (c16_t){(int16_t)((n * 7 + a * 131) % 4001 - 2000), (int16_t)((n * 13 - a * 57) % 3001 - 1500)};
+    fft_filled = true;
+  }
+  const c16_t *fft_ptr[ORU_CODEBOOK_MAX_NB_TX];
+  for (int a = 0; a < ORU_CODEBOOK_MAX_NB_TX; a++)
+    fft_ptr[a] = fft[a];
+  int k = ref_elm_of(false, job->start_prb);
+  REF_CHECK(k >= 0, "UL combine: PRB %d not in the PRB element table", job->start_prb);
+  if (k < 0)
+    return;
+  ref_fill_codebook(&ref_cb, false, job->slot_in_frame);
+  for (int n = 0; n < REF_UL_FFT_SIZE; n++)
+    out[0][n] = out[1][n] = (c16_t){1234, -4321};
+  const int nbins = REF_NUM_PRB * 12;
+  const oru_codebook_t cb = {.nb_fh_streams = REF_NUM_ANT, .nb_beams = 1}; // every bundle has dynamic weights
+  const oru_bfw_source_t src = {.ctx = ctx, .get = get_bf_weights};
+  combine_ul_beam_prbs(fft_ptr,
+                       ORU_CODEBOOK_MAX_NB_TX,
+                       REF_UL_FFT_SIZE,
+                       nbins,
+                       job->start_prb,
+                       job->num_prb,
+                       &cb,
+                       job->beam_id,
+                       job->antenna_id,
+                       &src,
+                       &job->bfw,
+                       out[0]);
+  const int end = job->start_prb + job->num_prb;
+  for (int prb = job->start_prb; prb < end;) {
+    int beam;
+    int run_end = ref_bundle_run(false, k, prb, end, &beam);
+    combine_ul_beam_prbs(fft_ptr,
+                         ORU_CODEBOOK_MAX_NB_TX,
+                         REF_UL_FFT_SIZE,
+                         nbins,
+                         prb,
+                         run_end - prb,
+                         &ref_cb,
+                         beam,
+                         job->antenna_id,
+                         NULL,
+                         NULL,
+                         out[1]);
+    prb = run_end;
+  }
+  for (int n = 0; n < REF_UL_FFT_SIZE; n++)
+    if (out[0][n].r != out[1][n].r || out[0][n].i != out[1][n].i) {
+      REF_CHECK(false,
+                "UL combine ant %d slot %d PRB %d+%d bin %d: (%d,%d), expected (%d,%d)",
+                job->antenna_id,
+                job->slot_in_frame,
+                job->start_prb,
+                job->num_prb,
+                n,
+                out[0][n].r,
+                out[0][n].i,
+                out[1][n].r,
+                out[1][n].i);
+      return;
+    }
+  ref_cnt.combine_ul_jobs++;
+}
+
+// The PRACH combine with the processor's weights must equal the codebook-only combine of the sequence bins split at the
+// generator's bundles of UL PRB element 0: bin k is in PRB (REF_PRACH_RE_OFFSET + k) / 12 of the section
+static void ref_check_prach_combine(void *ctx, const oru_bfw_set_t *set, int start_prb, int beam_id, int ant, int slot)
+{
+  static oru_codebook_t ref_cb;
+  static c16_t bins[ORU_CODEBOOK_MAX_NB_TX][REF_PRACH_SEQ_LEN];
+  static c16_t out[2][REF_PRACH_SEQ_LEN];
+  const c16_t *bins_ptr[ORU_CODEBOOK_MAX_NB_TX];
+  for (int a = 0; a < ORU_CODEBOOK_MAX_NB_TX; a++) { // synthetic antenna PRACH bins
+    for (int k = 0; k < REF_PRACH_SEQ_LEN; k++)
+      bins[a][k] = (c16_t){(int16_t)((k * 11 + a * 97) % 4001 - 2000), (int16_t)((k * 5 - a * 31) % 3001 - 1500)};
+    bins_ptr[a] = bins[a];
+  }
+  ref_fill_codebook(&ref_cb, false, slot);
+  const oru_codebook_t cb = {.nb_fh_streams = REF_NUM_ANT, .nb_beams = 1}; // every bundle has dynamic weights
+  const oru_bfw_source_t src = {.ctx = ctx, .get = get_bf_weights};
+  combine_ul_prach_beam(bins_ptr,
+                        ORU_CODEBOOK_MAX_NB_TX,
+                        REF_PRACH_SEQ_LEN,
+                        REF_PRACH_RE_OFFSET,
+                        start_prb,
+                        &cb,
+                        beam_id,
+                        ant,
+                        &src,
+                        set,
+                        out[0]);
+  const int bundle_prbs = ref_bundle_prbs(false, 0);
+  for (int k0 = 0; k0 < REF_PRACH_SEQ_LEN;) {
+    const int b = (REF_PRACH_RE_OFFSET + k0) / 12 / bundle_prbs;
+    int k1 = (b + 1) * bundle_prbs * 12 - REF_PRACH_RE_OFFSET;
+    k1 = k1 < REF_PRACH_SEQ_LEN ? k1 : REF_PRACH_SEQ_LEN;
+    combine_ul_beam_fd(bins_ptr, ORU_CODEBOOK_MAX_NB_TX, k0, k1 - k0, &ref_cb, REF_CB_BEAM(0, b), ant, out[1]);
+    k0 = k1;
+  }
+  for (int k = 0; k < REF_PRACH_SEQ_LEN; k++)
+    if (out[0][k].r != out[1][k].r || out[0][k].i != out[1][k].i) {
+      REF_CHECK(false,
+                "PRACH combine ant %d slot %d bin %d: (%d,%d), expected (%d,%d)",
+                ant,
+                slot,
+                k,
+                out[0][k].r,
+                out[0][k].i,
+                out[1][k].r,
+                out[1][k].i);
+      return;
+    }
+  ref_cnt.combine_prach_jobs++;
+}
+
+// Weights of the PRACH jobs of slot when the PRACH consumer reads them, and the PRACH combine with them: each stream's
+// section has the extension of UL PRB element 0 (see ref_check_prach_cplane())
+static void ref_check_prach_jobs(void *ctx, int slot)
+{
+  for (int a = 0; a < REF_NUM_ANT; a++) {
+    oru_bfw_set_t set;
+    int start_prb;
+    const int beam_id = get_prach_bfw_set(ctx, slot, a, 0, &set, &start_prb); // the reference PRACH starts at symbol 0
+    if (beam_id < 0)
+      continue;
+    uint64_t errors = ref_cnt.errors;
+    ref_check_bfw_set(ctx, &set, "PRACH", a, slot, 0, 0, REF_PRACH_NUM_PRB);
+    if (ref_cnt.errors != errors)
+      continue;
+    ref_cnt.bfw_prach_jobs++;
+    ref_check_prach_combine(ctx, &set, start_prb, beam_id, a, slot);
+  }
 }
 
 // Returns true if the reference capture passed: all packets as generated, all expected messages present,
@@ -629,6 +868,16 @@ static bool ref_report(uint64_t exp_c, uint64_t exp_u, uint64_t exp_prach)
       ref_cnt.bfw_prach_jobs,
       exp_prach);
   printf(
+      "xran ext%d reference: combined with the extracted weights %lu DL symbols (expected %lu), %lu UL jobs (expected %lu), "
+      "%lu PRACH jobs (expected %lu)\n",
+      ref_ext_type,
+      ref_cnt.combine_dl_symbols,
+      exp_dl_symbols,
+      ref_cnt.combine_ul_jobs,
+      ref_cnt.cplane_ul,
+      ref_cnt.combine_prach_jobs,
+      exp_prach);
+  printf(
       "xran ext%d reference: read_dl_iq %lu scheduled symbols (expected %lu) + %lu silent, %lu IQ samples checked, %lu wrong "
       "in %lu symbols\n",
       ref_ext_type,
@@ -641,7 +890,9 @@ static bool ref_report(uint64_t exp_c, uint64_t exp_u, uint64_t exp_prach)
   return ref_cnt.errors == 0 && incomplete == 0 && ref_cnt.cplane_dl + ref_cnt.cplane_ul == exp_c
          && ref_cnt.cplane_prach == exp_prach && ref_cnt.ext == exp_c + exp_prach && ref_cnt.uplane == exp_u
          && ref_cnt.dl_symbols_read == exp_dl_symbols && ref_cnt.dl_iq_errors == 0 && ref_cnt.bfw_dl_streams == exp_u
-         && ref_cnt.bfw_ul_jobs == ref_cnt.cplane_ul && ref_cnt.bfw_prach_jobs == exp_prach;
+         && ref_cnt.bfw_ul_jobs == ref_cnt.cplane_ul && ref_cnt.bfw_prach_jobs == exp_prach
+         && ref_cnt.combine_dl_symbols == exp_dl_symbols && ref_cnt.combine_ul_jobs == ref_cnt.cplane_ul
+         && ref_cnt.combine_prach_jobs == exp_prach;
 }
 
 int main(int argc, char *argv[])
@@ -850,8 +1101,10 @@ int main(int argc, char *argv[])
             ul_job_t job;
             int poll_ret = poll_ul_job(ctx, &job);
             if (poll_ret == 0) {
-              if (ref_ext_type)
+              if (ref_ext_type) {
                 ref_check_bfw(ctx, &job.bfw, job.antenna_id, job.slot_in_frame, job.start_prb, false);
+                ref_check_ul_combine(ctx, &job);
+              }
               for (int i = 0; i < job.num_symbols; i++) {
                 write_ul_iq(ctx, txdataF[0], job.symbol + i, &job);
               }
@@ -860,7 +1113,7 @@ int main(int argc, char *argv[])
             int slot = (s / 14) % (10 * (1 << numerology));
             int sym = s % 14;
             if (ref_prach && slot == REF_PRACH_SLOT && sym == 0)
-              ref_check_prach_bfw(ctx, slot);
+              ref_check_prach_jobs(ctx, slot);
             write_prach_iq(ctx, txdataF, MAX_ANTENNAS, frame, slot, sym);
 
             // Drain ready jobs to prevent ring overflow
@@ -872,6 +1125,7 @@ int main(int argc, char *argv[])
                 place_dl_streams(txdataF, dl_streams, n);
                 ref_check_dl_iq(txdataF, f, sl, sy);
                 ref_check_dl_bfw(ctx, dl_streams, n, sl);
+                ref_check_dl_combine(ctx, dl_streams, n, sl);
               }
             }
           }
@@ -898,7 +1152,7 @@ int main(int argc, char *argv[])
     handle_absolute_symbol_tick(ctx, ++last_tick_sym);
     // The last frame's PRACH slot comes after its last packet
     if (ref_prach && (last_tick_sym / 14) % (10 * (1 << numerology)) == REF_PRACH_SLOT && last_tick_sym % 14 == 0)
-      ref_check_prach_bfw(ctx, REF_PRACH_SLOT);
+      ref_check_prach_jobs(ctx, REF_PRACH_SLOT);
     // Drain ready jobs to prevent ring overflow during flush
     int f, sl, sy;
     uint64_t hf;
@@ -908,6 +1162,7 @@ int main(int argc, char *argv[])
         place_dl_streams(txdataF, dl_streams, n);
         ref_check_dl_iq(txdataF, f, sl, sy);
         ref_check_dl_bfw(ctx, dl_streams, n, sl);
+        ref_check_dl_combine(ctx, dl_streams, n, sl);
       }
     }
   }
