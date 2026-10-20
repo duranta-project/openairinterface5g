@@ -40,65 +40,85 @@ static bool supported_bw_comparison(int bw_mhz, const NR_SupportedBandwidth_t *s
 // the UE supports the numerology. The bandwidth only ranks the ids: supportedBandwidth is a maximum,
 // and the spec does not tie the maximum of a CA entry to single-carrier operation. Among the ids
 // covering the cell bandwidth the one with most layers wins; if none covers it, the first
-// id matching the SCS is used.
-static int select_dl_percc_id(const NR_FeatureSets_t *fs, const NR_FeatureSetDownlink_t *fsd, int scs, int bw_mhz)
+// id matching the SCS is used. fsd == NULL means no band combination was reported: the per-CC
+// lists of every FeatureSetDownlink are candidates, and *set_id returns the set holding the chosen
+// id (or, if the UE reports no FeatureSetDownlink, every per-CC entry is a candidate and *set_id is 0).
+static int select_dl_percc_id(const NR_FeatureSets_t *fs, const NR_FeatureSetDownlink_t *fsd, int scs, int bw_mhz, int *set_id)
 {
-  int best = 0;
+  int best = 0, best_set = 0;
   bool best_fits_bw = false;
   long best_layers = -1;
   if (!fs->featureSetsDownlinkPerCC)
     return 0;
-  for (int k = 0; k < fsd->featureSetListPerDownlinkCC.list.count; k++) {
-    long id = *fsd->featureSetListPerDownlinkCC.list.array[k];
-    if (id < 1 || id > fs->featureSetsDownlinkPerCC->list.count)
-      continue;
-    const NR_FeatureSetDownlinkPerCC_t *cc = fs->featureSetsDownlinkPerCC->list.array[id - 1];
-    if (cc->supportedSubcarrierSpacingDL != scs)
-      continue;
-    bool fits_bw = supported_bw_comparison(bw_mhz, &cc->supportedBandwidthDL, cc->channelBW_90mhz);
-    long layers = cc->maxNumberMIMO_LayersPDSCH ? 2 << *cc->maxNumberMIMO_LayersPDSCH : 0;
-    if (best == 0 || (fits_bw && (!best_fits_bw || layers > best_layers))) {
-      best = id;
-      best_fits_bw = fits_bw;
-      best_layers = layers;
+  const struct NR_FeatureSets__featureSetsDownlink *sets = fsd ? NULL : fs->featureSetsDownlink;
+  int nsets = sets ? sets->list.count : 1;
+  for (int s = 0; s < nsets; s++) {
+    const NR_FeatureSetDownlink_t *set = sets ? sets->list.array[s] : fsd;
+    int count = set ? set->featureSetListPerDownlinkCC.list.count : fs->featureSetsDownlinkPerCC->list.count;
+    for (int k = 0; k < count; k++) {
+      long id = set ? *set->featureSetListPerDownlinkCC.list.array[k] : k + 1;
+      if (id < 1 || id > fs->featureSetsDownlinkPerCC->list.count)
+        continue;
+      const NR_FeatureSetDownlinkPerCC_t *cc = fs->featureSetsDownlinkPerCC->list.array[id - 1];
+      if (cc->supportedSubcarrierSpacingDL != scs)
+        continue;
+      bool fits_bw = supported_bw_comparison(bw_mhz, &cc->supportedBandwidthDL, cc->channelBW_90mhz);
+      long layers = cc->maxNumberMIMO_LayersPDSCH ? 2 << *cc->maxNumberMIMO_LayersPDSCH : 0;
+      if (best == 0 || (fits_bw && (!best_fits_bw || layers > best_layers))) {
+        best = id;
+        best_set = sets ? s + 1 : 0;
+        best_fits_bw = fits_bw;
+        best_layers = layers;
+      }
     }
   }
   if (best && !best_fits_bw)
     LOG_W(NR_MAC, "No FeatureSetDownlinkPerCC-Id covers %d MHz, using id %d\n", bw_mhz, best);
+  if (set_id)
+    *set_id = best_set;
   return best;
 }
 
-static int select_ul_percc_id(const NR_FeatureSets_t *fs, const NR_FeatureSetUplink_t *fsu, int scs, int bw_mhz)
+static int select_ul_percc_id(const NR_FeatureSets_t *fs, const NR_FeatureSetUplink_t *fsu, int scs, int bw_mhz, int *set_id)
 {
-  int best = 0;
+  int best = 0, best_set = 0;
   bool best_fits_bw = false;
   long best_layers = -1;
   if (!fs->featureSetsUplinkPerCC)
     return 0;
-  for (int k = 0; k < fsu->featureSetListPerUplinkCC.list.count; k++) {
-    long id = *fsu->featureSetListPerUplinkCC.list.array[k];
-    if (id < 1 || id > fs->featureSetsUplinkPerCC->list.count)
-      continue;
-    const NR_FeatureSetUplinkPerCC_t *cc = fs->featureSetsUplinkPerCC->list.array[id - 1];
-    if (cc->supportedSubcarrierSpacingUL != scs)
-      continue;
-    bool fits_bw = supported_bw_comparison(bw_mhz, &cc->supportedBandwidthUL, cc->channelBW_90mhz);
-    long layers = 0;
-    if (cc->mimo_CB_PUSCH && cc->mimo_CB_PUSCH->maxNumberMIMO_LayersCB_PUSCH)
-      layers = 1 << *cc->mimo_CB_PUSCH->maxNumberMIMO_LayersCB_PUSCH;
-    if (cc->maxNumberMIMO_LayersNonCB_PUSCH) {
-      long nocb = 1 << *cc->maxNumberMIMO_LayersNonCB_PUSCH;
-      if (nocb > layers)
-        layers = nocb;
-    }
-    if (best == 0 || (fits_bw && (!best_fits_bw || layers > best_layers))) {
-      best = id;
-      best_fits_bw = fits_bw;
-      best_layers = layers;
+  const struct NR_FeatureSets__featureSetsUplink *sets = fsu ? NULL : fs->featureSetsUplink;
+  int nsets = sets ? sets->list.count : 1;
+  for (int s = 0; s < nsets; s++) {
+    const NR_FeatureSetUplink_t *set = sets ? sets->list.array[s] : fsu;
+    int count = set ? set->featureSetListPerUplinkCC.list.count : fs->featureSetsUplinkPerCC->list.count;
+    for (int k = 0; k < count; k++) {
+      long id = set ? *set->featureSetListPerUplinkCC.list.array[k] : k + 1;
+      if (id < 1 || id > fs->featureSetsUplinkPerCC->list.count)
+        continue;
+      const NR_FeatureSetUplinkPerCC_t *cc = fs->featureSetsUplinkPerCC->list.array[id - 1];
+      if (cc->supportedSubcarrierSpacingUL != scs)
+        continue;
+      bool fits_bw = supported_bw_comparison(bw_mhz, &cc->supportedBandwidthUL, cc->channelBW_90mhz);
+      long layers = 0;
+      if (cc->mimo_CB_PUSCH && cc->mimo_CB_PUSCH->maxNumberMIMO_LayersCB_PUSCH)
+        layers = 1 << *cc->mimo_CB_PUSCH->maxNumberMIMO_LayersCB_PUSCH;
+      if (cc->maxNumberMIMO_LayersNonCB_PUSCH) {
+        long nocb = 1 << *cc->maxNumberMIMO_LayersNonCB_PUSCH;
+        if (nocb > layers)
+          layers = nocb;
+      }
+      if (best == 0 || (fits_bw && (!best_fits_bw || layers > best_layers))) {
+        best = id;
+        best_set = sets ? s + 1 : 0;
+        best_fits_bw = fits_bw;
+        best_layers = layers;
+      }
     }
   }
   if (best && !best_fits_bw)
     LOG_W(NR_MAC, "No FeatureSetUplinkPerCC-Id covers %d MHz, using id %d\n", bw_mhz, best);
+  if (set_id)
+    *set_id = best_set;
   return best;
 }
 
@@ -141,7 +161,7 @@ static bool get_ids_from_fs_combination(const NR_UE_NR_Capability_t *cap,
       return false;
     }
     const NR_FeatureSetDownlink_t *fsd = cap->featureSets->featureSetsDownlink->list.array[idx];
-    res.dl_feature_set_percc_id = select_dl_percc_id(cap->featureSets, fsd, scs, bw_mhz);
+    res.dl_feature_set_percc_id = select_dl_percc_id(cap->featureSets, fsd, scs, bw_mhz, NULL);
     if (res.dl_feature_set_percc_id == 0) {
       LOG_W(NR_MAC, "No FeatureSetDownlinkPerCC-Id fits DL SCS %d\n", scs);
       return false;
@@ -154,7 +174,7 @@ static bool get_ids_from_fs_combination(const NR_UE_NR_Capability_t *cap,
       return false;
     }
     const NR_FeatureSetUplink_t *fsu = cap->featureSets->featureSetsUplink->list.array[idx];
-    res.ul_feature_set_percc_id = select_ul_percc_id(cap->featureSets, fsu, scs, bw_mhz);
+    res.ul_feature_set_percc_id = select_ul_percc_id(cap->featureSets, fsu, scs, bw_mhz, NULL);
     if (res.ul_feature_set_percc_id == 0) {
       LOG_W(NR_MAC, "No FeatureSetUplinkPerCC-Id fits UL SCS %d\n", scs);
       return false;
@@ -180,6 +200,15 @@ NR_feature_set_ids_t feature_set_ids_handler(const NR_UE_NR_Capability_t *cap,
   return get_feature_set_ids(cap, nr_band, scs, bw_mhz, type);
 }
 
+static bool ue_supports_band(const NR_UE_NR_Capability_t *cap, int band)
+{
+  for (int i = 0; i < cap->rf_Parameters.supportedBandListNR.list.count; i++) {
+    if (cap->rf_Parameters.supportedBandListNR.list.array[i]->bandNR == band)
+      return true;
+  }
+  return false;
+}
+
 NR_feature_set_ids_t get_feature_set_ids(const NR_UE_NR_Capability_t *cap, int band, int scs, int bw_mhz, nr_rat_type_t type)
 {
   NR_feature_set_ids_t ids = {0};
@@ -188,8 +217,29 @@ NR_feature_set_ids_t get_feature_set_ids(const NR_UE_NR_Capability_t *cap, int b
     return ids;
   }
   NR_BandCombinationList_t *bcl = cap->rf_Parameters.supportedBandCombinationList;
-  if (!bcl || !cap->featureSetCombinations || !cap->featureSets)
+  if (!cap->featureSets) {
+    LOG_E(NR_MAC, "UE capability reported no feature sets, returning default values\n");
     return ids;
+  }
+  /* supportedBandCombinationList and featureSetCombinations are OPTIONAL (TS 38.331 §6.3.3,
+     RF-Parameters and UE-NR-Capability). Without them nothing links the serving band to a
+     FeatureSet, so:
+     - the band must still appear in supportedBandListNR, otherwise keep the defaults;
+     - every FeatureSetDownlink/Uplink is a candidate, and its per-CC ids are ranked as in the
+       combination path: matching SCS first, then covering the cell bandwidth, then most MIMO layers;
+     - if the UE reports no FeatureSetDownlink/Uplink list, every per-CC entry is a candidate.
+     This assumes the best per-CC entry for the SCS is valid in the serving band, which a UE
+     reporting no combination cannot contradict. */
+  if (!bcl || !cap->featureSetCombinations) {
+    if (!ue_supports_band(cap, band)) {
+      LOG_E(NR_MAC, "UE capability does not report support for band %d, returning default values\n", band);
+      return ids;
+    }
+    LOG_W(NR_MAC, "UE reported no band combinations, selecting per-CC feature sets from the full lists\n");
+    ids.dl_feature_set_percc_id = select_dl_percc_id(cap->featureSets, NULL, scs, bw_mhz, &ids.dlset_id);
+    ids.ul_feature_set_percc_id = select_ul_percc_id(cap->featureSets, NULL, scs, bw_mhz, &ids.ulset_id);
+    return ids;
+  }
 
   for (int i = 0; i < bcl->list.count; i++) {
     const NR_BandCombination_t *bc = bcl->list.array[i];
