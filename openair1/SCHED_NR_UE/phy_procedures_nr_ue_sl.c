@@ -362,7 +362,7 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
 
   nb_re_dmrs = 6;
 
-  uint32_t rb_size                   = pssch_pdu->num_subch*pssch_pdu->subchannel_size;
+  uint32_t rb_size                   = pssch_pdu->l_subch*pssch_pdu->subchannel_size;
   int sci1_dmrs_overlap = pssch_pdu->dmrs_symbol_position & dmrs_pscch_mask[pssch_pdu->pscch_numsym-2];
   int sci2_re = get_NREsci2(pssch_pdu->sci2_alpha_times_100,
                             pssch_pdu->sci2_len,
@@ -455,9 +455,7 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
                                  harq_pid,
                                  G,
                                  proc,
-                                 phy_data,
-                                 ack_nack_rcvd,
-                                 num_acks);
+                                 phy_data);
   }
 
   const bool decode_ok = harq_process->C > 0 && nbDecode == harq_process->C;
@@ -600,7 +598,7 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
 
   else if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSCCH
            || phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSCCH_PSFCH) {
-    fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15 = &phy_data->phy_pdcch_config.pdcch_config[0];
+    const sl_nr_rx_config_pscch_pdu_t *pscch_pdu = &phy_data->nr_sl_pscch_pdu;
     LOG_D(NR_PHY,"pscch_numsym = %d\n",phy_data->nr_sl_pscch_pdu.pscch_numsym);
     LOG_D(NR_PHY,"pscch_startrb = %d\n",phy_data->nr_sl_pscch_pdu.pscch_startrb);
     LOG_D(NR_PHY,"pscch_numrbs = %d\n",phy_data->nr_sl_pscch_pdu.pscch_numrbs);
@@ -612,31 +610,36 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
     LOG_D(NR_PHY,"pscch_pssch_numsym = %d\n",phy_data->nr_sl_pscch_pdu.pssch_numsym);
     LOG_D(NR_PHY,"sense_pscch = %d\n",phy_data->nr_sl_pscch_pdu.sense_pscch);
 
+    AssertFatal(pscch_pdu->num_subch <= FAPI_NR_MAX_SS,
+                "PSCCH pool has %u subchannels, maximum supported is %u\n",
+                pscch_pdu->num_subch,
+                FAPI_NR_MAX_SS);
+    for (int subch = 0; subch < pscch_pdu->num_subch; subch++) {
+      fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15 = &phy_data->phy_pdcch_config.pdcch_config[subch];
+      memset(rel15, 0, sizeof(*rel15));
+      const uint16_t candidate_start_rb = pscch_pdu->pscch_startrb + subch * pscch_pdu->subchannel_size;
+
     rel15->rnti = 0;
-    rel15->BWPSize = phy_data->nr_sl_pscch_pdu.num_subch * phy_data->nr_sl_pscch_pdu.subchannel_size;
-    rel15->BWPStart = phy_data->nr_sl_pscch_pdu.pscch_startrb;
+      rel15->BWPSize = pscch_pdu->num_subch * pscch_pdu->subchannel_size;
+      rel15->BWPStart = 0;
     rel15->SubcarrierSpacing = fp->subcarrier_spacing;
-    rel15->coreset.frequency_domain_resource[0] = phy_data->nr_sl_pscch_pdu.pscch_startrb;
-    rel15->coreset.frequency_domain_resource[1] = phy_data->nr_sl_pscch_pdu.pscch_numrbs;
+      rel15->coreset.frequency_domain_resource[0] = candidate_start_rb;
+      rel15->coreset.frequency_domain_resource[1] = pscch_pdu->pscch_numrbs;
     rel15->coreset.CoreSetType = NFAPI_NR_CSET_CONFIG_PDCCH_CONFIG;
     rel15->coreset.StartSymbolIndex = 1;
     rel15->coreset.RegBundleSize = 0;
-    rel15->coreset.duration = phy_data->nr_sl_pscch_pdu.pscch_numsym;
-    rel15->coreset.pdcch_dmrs_scrambling_id = phy_data->nr_sl_pscch_pdu.pscch_dmrs_scrambling_id;
+      rel15->coreset.duration = pscch_pdu->pscch_numsym;
+      rel15->coreset.pdcch_dmrs_scrambling_id = pscch_pdu->pscch_dmrs_scrambling_id;
     rel15->coreset.scrambling_rnti = 1010;
     rel15->coreset.tci_present_in_dci = 0;
-
-    rel15->number_of_candidates = phy_data->nr_sl_pscch_pdu.l_subch;
+      rel15->number_of_candidates = 1;
     rel15->num_dci_options = 1;
-    rel15->dci_length_options[0] = phy_data->nr_sl_pscch_pdu.sci_1a_length;
-    // L now provides the number of PRBs used by PSCCH instead of the number of CCEs
-    rel15->L[0] = phy_data->nr_sl_pscch_pdu.pscch_numrbs * phy_data->nr_sl_pscch_pdu.pscch_numsym;
-    // This provides the offset of the candidate of PSCCH in RBs instead of CCEs
+      rel15->dci_length_options[0] = pscch_pdu->sci_1a_length;
+      rel15->L[0] = pscch_pdu->pscch_numrbs * pscch_pdu->pscch_numsym;
     rel15->CCE[0] = 0;
-    // pdcch_processing() derives the monitored symbols from coreset.StartSymbolBitmap
-    // (MSB-first over the slot), not StartSymbolIndex; PSCCH is monitored from symbol 1
     rel15->coreset.StartSymbolBitmap = 1 << (fp->symbols_per_slot - 1 - 1);
-    phy_data->phy_pdcch_config.nb_search_space = 1;
+    }
+    phy_data->phy_pdcch_config.nb_search_space = pscch_pdu->num_subch;
     pdcch_processing(ue, proc, phy_data,1);
 
     LOG_D(NR_PHY,"returned from pscch processing\n");

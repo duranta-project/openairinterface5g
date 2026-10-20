@@ -68,13 +68,13 @@ uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
     LOG_D(NR_PHY, "pscch: rb_offset %d, nb_rb %d BWP Start %d\n",rb_offset,n_rb,pdcch_pdu_rel15->BWPStart);
     LOG_D(NR_PHY, "pscch: starting subcarrier %d on symbol %d (%d symbols)\n", cset_start_sc, cset_start_symb, cset_nsymb);
     // DMRS length is per OFDM symbol
-    uint32_t dmrs_length = (n_rb+pdcch_pdu_rel15->BWPStart)*6; //2(QPSK)*3(per RB)*6(REG per CCE)
+    // TS 38.211 8.4.1.3.2 maps each PSCCH allocation starting with r_l(0).
+    uint32_t dmrs_length = n_rb * 6; // 2 (QPSK) * 3 DM-RS RE per RB
     uint32_t encoded_length = dci_pdu->AggregationLevel*18; //2(QPSK)*9(per RB) for SCI
     if (dci_pdu->RNTI != 0xFFFF)
       LOG_D(PHY, "SCI : rb_offset %d, nb_rb %d, DMRS length per symbol %d\t SCI encoded length %d (precoder_granularity %d, reg_mapping %d), Scrambling_Id %d, ScramblingRNTI %x, PayloadSizeBits %d\n",
             rb_offset, n_rb,dmrs_length, encoded_length,pdcch_pdu_rel15->precoderGranularity,pdcch_pdu_rel15->CceRegMappingType,
             dci_pdu->ScramblingId,dci_pdu->ScramblingRNTI,dci_pdu->PayloadSizeBits);
-    dmrs_length += rb_offset*6; // To accommodate more DMRS symbols in case of rb offset
 
     /// DMRS QPSK modulation
     for (int symb=cset_start_symb; symb<cset_start_symb + pdcch_pdu_rel15->DurationSymbols; symb++) {
@@ -150,11 +150,8 @@ uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
           k -= frame_parms->ofdm_symbol_size;
 
         l = cset_start_symb + symbol_idx;
-        // dmrs index depends on reference point for k according to 38.211 7.4.1.3.2
-        if (pdcch_pdu_rel15->CoreSetType == NFAPI_NR_CSET_CONFIG_PDCCH_CONFIG)
+        // PSCCH DM-RS sequence indexing is local to the PSCCH allocation.
           dmrs_idx = reg_count * 3;
-        else
-          dmrs_idx = (pdcch_pdu_rel15->dci_pdu[d].CceIndex + rb_offset + reg_count) * 3;
 
         k_prime = 0;
 

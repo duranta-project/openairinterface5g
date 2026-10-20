@@ -68,9 +68,8 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
                         int SLSCH_id,
                         const UE_nr_rxtx_proc_t *proc,
                         nr_phy_data_t *phy_data,
-                        int8_t *ack_nack_rcvd,
-                        int num_acks,
-                        const sl_nr_psfch_pdu_t *rx_psfch);
+                        const sl_nr_psfch_pdu_t *rx_psfch,
+                        bool *psfch_indicated);
 
 //////////////////// link stubs (as in psbchsim.c) ////////////////////
 void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req) { abort(); }
@@ -112,6 +111,7 @@ static int      g_num_sci1 = 0;             // number of SCI-1A (PSCCH) captured
 static int      g_num_sci2 = 0;             // number of SCI-2 (PSSCH) captured
 static uint8_t  g_sci1_payload[8] = {0};    // last captured SCI-1A payload
 static uint16_t g_sci1_len = 0;
+static uint16_t g_sci1_subch_index = 0;
 static uint8_t  g_sci2_payload[8] = {0};    // last captured SCI-2 payload
 static uint16_t g_sci2_len = 0;
 static int      g_num_slsch_ind = 0;        // number of SLSCH rx indications
@@ -126,6 +126,7 @@ static void test_sl_indication(nr_sidelink_indication_t *ind)
       if (sci->sci_pdu[i].sci_format_type == SL_SCI_FORMAT_1A_ON_PSCCH) {
         g_num_sci1++;
         g_sci1_len = sci->sci_pdu[i].sci_payloadlen;
+        g_sci1_subch_index = sci->sci_pdu[i].subch_index;
         memcpy(g_sci1_payload, sci->sci_pdu[i].sci_payloadBits, 8);
       } else if (sci->sci_pdu[i].sci_format_type == SL_SCI_FORMAT_2_ON_PSSCH) {
         g_num_sci2++;
@@ -232,13 +233,14 @@ int main(int argc, char **argv)
   const uint16_t pscch_numsym        = 2;
   const uint16_t pscch_numrbs        = 12;
   const uint32_t pscch_dmrs_scr_id   = 100;   // == Nid used for PSSCH scrambling/DMRS
-  const uint16_t num_subch           = 1;
+  const uint16_t num_subch           = 2;
   const uint16_t subchannel_size     = 50;
   const uint16_t l_subch             = 1;
-  const uint16_t startrb             = 0;
+  const uint16_t start_subchannel    = 1;
+  const uint16_t startrb             = pscch_startrb + start_subchannel * subchannel_size;
   const uint8_t  pssch_numsym        = 12;
   const uint8_t  pssch_startsym      = 0;
-  const uint8_t  mcs                 = 9;
+  const uint8_t  mcs                 = 10;
   const uint8_t  mcs_table           = 0;
   const uint8_t  num_layers          = 1;
   const uint8_t  rv_index            = 0;
@@ -271,7 +273,7 @@ int main(int argc, char **argv)
 
   printf("[SCISIM] SL params: mu=%d N_RB=%d frame.slot=%d.%d\n", mu, N_RB, frame, slot);
   printf("[SCISIM] PSCCH: startrb=%u numsym=%u numrbs=%u Nid=%u sci1_len=%u bits\n",
-         pscch_startrb, pscch_numsym, pscch_numrbs, pscch_dmrs_scr_id, pscch_sci_len);
+         startrb, pscch_numsym, pscch_numrbs, pscch_dmrs_scr_id, pscch_sci_len);
   printf("[SCISIM] PSSCH: numsym=%u subch=%u/%u l_subch=%u mcs=%u Qm=%u R=%u dmrs_mask=0x%x(%d syms)\n",
          pssch_numsym, num_subch, subchannel_size, l_subch, mcs, mod_order, target_coderate,
          dmrs_symbol_position, number_dmrs_symbols);
@@ -433,7 +435,7 @@ int main(int argc, char **argv)
 
   nr_rx_pssch(UE_RX, &proc, &phy_data_rx, rxFSz, rxdataF, llrs, 0, frame, slot, harq_pid);
 
-  int nbDecode = nr_slsch_procedures(UE_RX, frame, slot, 0, &proc, &phy_data_rx, NULL, 0, NULL);
+  int nbDecode = nr_slsch_procedures(UE_RX, frame, slot, 0, &proc, &phy_data_rx, NULL, NULL);
 
   uint8_t *b_rx = UE_RX->slsch[0].harq_process->b;
   int tb_match = (memcmp(b_rx, tb_ref, tb_size) == 0);
@@ -485,12 +487,13 @@ int main(int argc, char **argv)
   rx_pscch->sci_1a_length          = pscch_sci_len;
   rx_pscch->sense_pscch            = 0;
 
-  fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15 = &phy_data_pscch.phy_pdcch_config.pdcch_config[0];
+  for (int subch = 0; subch < num_subch; subch++) {
+    fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15 = &phy_data_pscch.phy_pdcch_config.pdcch_config[subch];
   rel15->rnti             = 0;
   rel15->BWPSize          = num_subch * subchannel_size;
-  rel15->BWPStart         = pscch_startrb;
+    rel15->BWPStart = 0;
   rel15->SubcarrierSpacing = fp_sl->subcarrier_spacing;
-  rel15->coreset.frequency_domain_resource[0] = pscch_startrb;
+    rel15->coreset.frequency_domain_resource[0] = pscch_startrb + subch * subchannel_size;
   rel15->coreset.frequency_domain_resource[1] = pscch_numrbs;
   rel15->coreset.CoreSetType = NFAPI_NR_CSET_CONFIG_PDCCH_CONFIG;
   rel15->coreset.StartSymbolIndex = 1;
@@ -499,21 +502,21 @@ int main(int argc, char **argv)
   rel15->coreset.pdcch_dmrs_scrambling_id = pscch_dmrs_scr_id;
   rel15->coreset.scrambling_rnti = 1010;
   rel15->coreset.tci_present_in_dci = 0;
-  rel15->number_of_candidates = l_subch;
+    rel15->number_of_candidates = 1;
   rel15->num_dci_options = 1;
   rel15->dci_length_options[0] = pscch_sci_len;
   rel15->L[0] = pscch_numrbs * pscch_numsym;
   rel15->CCE[0] = 0;
-  // pdcch_processing() derives the monitored symbols from StartSymbolBitmap;
-  // PSCCH is monitored from symbol 1 (MSB-first over the slot).
   rel15->coreset.StartSymbolBitmap = 1 << (fp_sl->symbols_per_slot - 1 - 1);
-  phy_data_pscch.phy_pdcch_config.nb_search_space = 1;
+  }
+  phy_data_pscch.phy_pdcch_config.nb_search_space = num_subch;
 
   g_num_sci1 = 0;
   pdcch_processing(UE_RX, &proc, &phy_data_pscch, 1);
 
   int sci1_match = (g_num_sci1 > 0) &&
-                   (memcmp(g_sci1_payload, tx->pscch_sci_payload, (pscch_sci_len + 7) / 8) == 0);
+                   (memcmp(g_sci1_payload, tx->pscch_sci_payload, (pscch_sci_len + 7) / 8) == 0) &&
+                   (g_sci1_subch_index == start_subchannel);
   printf("[SCISIM] PSCCH: SCI-1A captured=%d", g_num_sci1);
   if (g_num_sci1 > 0)
     printf(", RX payload=0x%010llx (TX 0x%010llx), match=%d",

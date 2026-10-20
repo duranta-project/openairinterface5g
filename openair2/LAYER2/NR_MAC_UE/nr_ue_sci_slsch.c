@@ -683,13 +683,21 @@ int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,i
   extract_pscch_pdu((uint64_t *)sci->sci_payloadBits, sci->sci_payloadlen,sl_bwp, sl_res_pool, sci_pdu);
 
   uint16_t l_subch;
-  uint16_t start_subch;
   convNRFRIV(sci_pdu->frequency_resource_assignment.val,
 	          *sl_res_pool->sl_NumSubchannel_r16,
 	          *sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16,
 	          &l_subch,
-	          &start_subch,
+	          NULL,
 	          NULL);
+  if (sci->subch_index + l_subch > *sl_res_pool->sl_NumSubchannel_r16) {
+    LOG_W(NR_MAC,
+          "SCI-1A allocation exceeds RX pool: current start %u length %u pool %ld\n",
+          sci->subch_index,
+          l_subch,
+          *sl_res_pool->sl_NumSubchannel_r16);
+    return -1;
+  }
+  sci_pdu->pssch_start_subchannel = sci->subch_index;
   sensing_data_t sensing_data;
   sensing_data.frame_slot.frame = frame;
   sensing_data.frame_slot.slot = slot;
@@ -697,7 +705,7 @@ int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,i
   sensing_data.rsvp = sl_mac->mac_tx_params.rri;
   sensing_data.subch_startre_tx1 = 0;
   sensing_data.subch_startre_tx2 = 0;
-  sensing_data.subch_start = start_subch;
+  sensing_data.subch_start = sci_pdu->pssch_start_subchannel;
   sensing_data.subch_len = l_subch;
   push_back(&mac->sl_sensing_data, &sensing_data);
   if (mac->sl_sensing_data.size > 1)
@@ -770,14 +778,13 @@ void config_pssch_slsch_pdu_rx(sl_nr_rx_config_pssch_pdu_t *nr_sl_pssch_pdu,
 						nr_sl_pssch_pdu->num_layers);
   int pssch_numsym = get_num_pssch_symbols(sl_bwp, sl_res_pool, sci_pdu);
   uint16_t l_subch;
-  uint16_t start_subch;
   convNRFRIV(sci_pdu->frequency_resource_assignment.val,
 	     *sl_res_pool->sl_NumSubchannel_r16,
 	     *sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16,
 	     &l_subch,
-             &start_subch,
+             NULL,
              NULL);
-  nr_sl_pssch_pdu->pssch_start_subchannel = start_subch;
+  nr_sl_pssch_pdu->pssch_start_subchannel = sci_pdu->pssch_start_subchannel;
   nr_sl_pssch_pdu->pssch_num_subchannels = l_subch;
   int subchannel_size=subch_to_rb[*sl_res_pool->sl_SubchannelSize_r16];
   int nohPRB    = (sl_res_pool->sl_X_Overhead_r16) ? 3*(*sl_res_pool->sl_X_Overhead_r16) : 0;
@@ -841,17 +848,17 @@ int config_pssch_sci_pdu_rx(sl_nr_rx_config_pssch_sci_pdu_t *nr_sl_pssch_sci_pdu
   // to be used for PSSCH DMRS and PSSCH 38.211 Scrambling
   nr_sl_pssch_sci_pdu->Nid = pscch_Nid;
 
-  uint16_t start_subch;
   convNRFRIV(sci_pdu->frequency_resource_assignment.val,
              *sl_res_pool->sl_NumSubchannel_r16,
              *sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16,
              &nr_sl_pssch_sci_pdu->l_subch,
-             &start_subch,
+             NULL,
              NULL);
 
-  // SCI-1A identifies both the allocated width and its lowest subchannel.
+  // The current PSSCH starts in the subchannel where PSCCH was detected.
   nr_sl_pssch_sci_pdu->startrb = *sl_res_pool->sl_StartRB_Subchannel_r16
-                                 + start_subch * subch_to_rb[*sl_res_pool->sl_SubchannelSize_r16];
+                                 + sci_pdu->pssch_start_subchannel
+                                       * subch_to_rb[*sl_res_pool->sl_SubchannelSize_r16];
   // Number of symbols used for PSCCH
   nr_sl_pssch_sci_pdu->pscch_numsym = pscch_tda[*sl_res_pool->sl_PSCCH_Config_r16->choice.setup->sl_TimeResourcePSCCH_r16];
   // Number of  RBS used for PSCCH

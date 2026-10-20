@@ -39,6 +39,7 @@ typedef struct {
 	dci_field_t psfch_overhead; // depending on sl-PSFCH-Period
         dci_field_t reserved; // depending on N_reserved (sl-NumReservedBits) and sl-IndicationUE-B
         dci_field_t conflict_information_receiver; // depending on sl-IndicationUE-B
+        uint16_t pssch_start_subchannel;
 	// 2nd stage fields
 	uint8_t harq_pid; // 4 bits
 	uint8_t ndi; // 1 bit

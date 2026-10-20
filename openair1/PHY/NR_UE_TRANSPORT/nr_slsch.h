@@ -32,9 +32,7 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
                       uint8_t harq_pid,
                       uint32_t G,
                       const UE_nr_rxtx_proc_t *proc,
-                      nr_phy_data_t *phy_data,
-                      int8_t *ack_nack_rcvd,
-                      uint8_t num_acks);
+                      nr_phy_data_t *phy_data);
 
 /*! \brief Perform PUSCH unscrambling. TS 38.211 V15.4.0 subclause 6.3.1.1
   @param llr, Pointer to llr bits

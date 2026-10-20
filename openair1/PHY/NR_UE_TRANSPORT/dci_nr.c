@@ -219,8 +219,10 @@ static void nr_pdcch_extract_rbs_single(uint32_t rxdataF_sz,
      * whole carrier are contiguous, so the REs of a CORESET RB are found at RE_PER_RB * (c_rb + n_BWP_start).
      */
 
-    int start = rb_offset / 6;
-    int size = coreset_nbr_rb / 6;
+    /* DL CORESET allocation uses six-RB groups. The internal PSCCH
+     * descriptor uses an SL-grid-relative start RB and contiguous RB count. */
+    const int start = apply_coreset_bitmap ? rb_offset / 6 : rb_offset;
+    const int size = apply_coreset_bitmap ? coreset_nbr_rb / 6 : coreset_nbr_rb;
     for (int rb_group = start; rb_group < start + size; rb_group++) {
       /* A DL CORESET uses the 45-bit frequencyDomainResources bitmap from
        * TS 38.331.  PSCCH currently reaches this shared extractor through a
@@ -229,8 +231,9 @@ static void nr_pdcch_extract_rbs_single(uint32_t rxdataF_sz,
       if (apply_coreset_bitmap && (coreset_freq_dom[rb_group / 8] & (1 << (7 - (rb_group & 7)))) == 0) {
         continue;
       }
-      for (int rb = 0; rb < 6; rb++) {
-        int c_rb = rb_group * 6 + rb;
+      const int rbs_per_group = apply_coreset_bitmap ? 6 : 1;
+      for (int rb = 0; rb < rbs_per_group; rb++) {
+        int c_rb = rb_group * rbs_per_group + rb;
         const c16_t *rxF = rxFbase + RE_PER_RB * (c_rb + n_BWP_start);
 
         const int valid_re[RE_PER_RB_OUT_DMRS] = {0, 2, 3, 4, 6, 7, 8, 10, 11};
@@ -304,7 +307,9 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
   c16_t pilot[(n_rb + rb_offset + dmrs_ref) * 3] __attribute__((aligned(16)));
   // Note: pilot returned by the following function is already the complex conjugate of the transmitted DMRS
   const uint32_t *gold = nr_gold_pdcch(fp->N_RB_DL, fp->symbols_per_slot, scrambling_id, proc->nr_slot_rx, symbol);
-  nr_pdcch_dmrs_ref(gold, pilot, n_rb + rb_offset + dmrs_ref);
+  const int pilot_rb_offset = pscch_processing ? rb_offset + dmrs_ref : 0;
+  const int pilot_n_rb = pscch_processing ? n_rb : n_rb + rb_offset + dmrs_ref;
+  nr_pdcch_dmrs_ref(gold, pilot + pilot_rb_offset * 3, pilot_n_rb);
   nr_pdcch_channel_estimation(fp,
                               n_rb,
                               rb_offset,
@@ -468,7 +473,8 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
                                       fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15,
                                       fapi_nr_dci_indication_t *dci_ind,
 				      sl_nr_sci_indication_t *sci_ind,
-				      int16_t *rsrp_dBm)
+				      int16_t *rsrp_dBm,
+                                      uint16_t sl_subch_index)
 {
   int e_rx_cand_idx = 0;
   // if DCI for SIB we don't break after finding 1st DCI with that RNTI
@@ -554,7 +560,7 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
           sl_nr_sci_indication_pdu_t *sci = &sci_ind->sci_pdu[sci_ind->number_of_SCIs];
           *sci = (sl_nr_sci_indication_pdu_t){
           .sci_format_type = SL_SCI_FORMAT_1A_ON_PSCCH,
-          .subch_index = 0,
+          .subch_index = sl_subch_index,
           .pscch_rsrp = 0, //*rsrp_dBm,
           .sci_payloadlen =  dci_length,
           .Nid = Nid
@@ -621,7 +627,7 @@ void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
                                         llr_stride,
 					sci_indication);
 
-      nr_dci_decoding_procedure(proc, pdcch_e_rx, rel15, sci_indication ? (fapi_nr_dci_indication_t*)NULL : &dci_ind, sci_indication ? &sci_ind : (sl_nr_sci_indication_t*)NULL,NULL);
+      nr_dci_decoding_procedure(proc, pdcch_e_rx, rel15, sci_indication ? (fapi_nr_dci_indication_t*)NULL : &dci_ind, sci_indication ? &sci_ind : (sl_nr_sci_indication_t*)NULL,NULL, sci_indication ? ss_idx : 0);
     }
   }
 

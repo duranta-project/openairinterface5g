@@ -553,34 +553,6 @@ void nr_pssch_channel_compensation(uint32_t buffer_length,
 
 }
 
-void nr_slsch_compute_llr(c16_t *rxdataF_comp,
-                          c16_t *ul_ch_mag,
-                          c16_t *ul_ch_magb,
-                          c16_t *ul_ch_magc,
-                          int16_t *slsch_llr,
-                          uint32_t nb_re,
-                          uint8_t symbol,
-                          uint8_t mod_order)
-{
-  switch(mod_order) {
-    case 2:
-      nr_qpsk_llr(rxdataF_comp, slsch_llr, nb_re);
-      break;
-    case 4:
-      nr_16qam_llr(rxdataF_comp, ul_ch_mag, slsch_llr, nb_re);
-      break;
-    case 6:
-    nr_64qam_llr(rxdataF_comp, ul_ch_mag, ul_ch_magb, slsch_llr, nb_re);
-      break;
-    case 8:
-    nr_256qam_llr(rxdataF_comp, ul_ch_mag, ul_ch_magb, ul_ch_magc, slsch_llr, nb_re);
-      break;
-    default:
-      AssertFatal(false, "nr_slsch_compute_llr: invalid Qm value, symbol = %d, Qm = %d\n",symbol, mod_order);
-      break;
-  }
-}
-
 //==============================================================================================
 extern int dmrs_pscch_mask[2];
 /* Main Function */
@@ -635,7 +607,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
   for (int l = start_symbol; l < start_symbol + nr_of_symbols; l++)
     number_dmrs_symbols += ((pssch_pdu->dmrs_symbol_position)>>l)&0x01;
 
-  int nb_re_dmrs = 6;
+  const uint8_t nb_re_dmrs = get_num_dmrs_re_per_rb(pusch_dmrs_type1, 1);
 
   int sci1_dmrs_overlap = pssch_pdu->dmrs_symbol_position & dmrs_pscch_mask[pssch_pdu->pscch_numsym-2];
 
@@ -657,8 +629,6 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
                            pssch_pdu->num_layers);
 
   int avg[frame_parms->nb_antennas_rx*nrOfLayers];
-  int16_t *temp_llr = (int16_t *)__builtin_alloca_with_align((8 * ((3 * 8 * 6144) + 12)) * sizeof(int16_t),32);
-  c16_t *temp_symbol = (c16_t *)__builtin_alloca_with_align(rb_size * NR_NB_SC_PER_RB * sizeof(int32_t),32);
   NR_gNB_PUSCH *pusch_vars = &ue->pssch_vars[ulsch_id];
   int dmrs_symbol = INVALID_VALUE;
   int cl_done = 0;
@@ -755,17 +725,16 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
   // (symbol*(off+rb_size*12)) so channel compensation writes and the LLR
   // computation reads the same locations.
   int ext_buffer_length = off + rb_size * NR_NB_SC_PER_RB;
+  c16_t data_symbols[ext_buffer_length] __attribute__((aligned(32)));
+  c16_t data_maga[ext_buffer_length] __attribute__((aligned(32)));
+  c16_t data_magb[ext_buffer_length] __attribute__((aligned(32)));
+  c16_t data_magc[ext_buffer_length] __attribute__((aligned(32)));
   c16_t rxFext[frame_parms->nb_antennas_rx][ext_buffer_length] __attribute__((aligned(32)));
   c16_t chFext[nrOfLayers*frame_parms->nb_antennas_rx][ext_buffer_length] __attribute__((aligned(32)));
   c16_t rho[nrOfLayers][nrOfLayers][ext_buffer_length] __attribute__((aligned(32)));
   c16_t rxF_ch_maga  [nrOfLayers][ext_buffer_length] __attribute__((aligned(32)));
   c16_t rxF_ch_magb  [nrOfLayers][ext_buffer_length] __attribute__((aligned(32)));
   c16_t rxF_ch_magc  [nrOfLayers][ext_buffer_length] __attribute__((aligned(32)));
-
-  memset(rho, 0, sizeof(rho));
-  memset(rxF_ch_maga, 0, sizeof(rxF_ch_maga));
-  memset(rxF_ch_magb, 0, sizeof(rxF_ch_magb));
-  memset(rxF_ch_magc, 0, sizeof(rxF_ch_magc));
   memset(rxFext, 0, sizeof(rxFext));
   memset(chFext, 0, sizeof(chFext));
 
@@ -864,6 +833,10 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
       for (int i = 0; i < nrOfLayers; i++)
         memset(&pusch_vars->rxdataF_comp[i * frame_parms->nb_antennas_rx][symbol * ext_buffer_length],
                0, sizeof(int32_t) * ext_buffer_length);
+      memset(rho, 0, sizeof(rho));
+      memset(rxF_ch_maga, 0, sizeof(rxF_ch_maga));
+      memset(rxF_ch_magb, 0, sizeof(rxF_ch_magb));
+      memset(rxF_ch_magc, 0, sizeof(rxF_ch_magc));
       nr_pssch_channel_compensation(ext_buffer_length,
 		      		    frame_parms->nb_antennas_rx,
 		                    rxFext,
@@ -981,34 +954,27 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
       LOG_D(NR_PHY, "symbol %d: PSSCH REs %d (sci1 %d,sci2 %d)\n", symbol, pusch_vars->ul_valid_re_per_slot[symbol], sci1_offset, sci2_cnt_thissymb);
       for (aatx=0; aatx < nrOfLayers; aatx++) {
         if ((sci1_offset > 0 || sci2_cnt_thissymb > 0) && (qam_mod_order > 2)) {
-          memset(temp_symbol, 0, (sci1_offset + sci2_cnt_thissymb) * sizeof(c16_t));
-          memcpy(temp_symbol + sci1_offset + sci2_cnt_thissymb,
-                &pusch_vars->rxdataF_comp[aatx * frame_parms->nb_antennas_rx][symbol * (off + rb_size * NR_NB_SC_PER_RB) + sci1_offset+sci2_cnt_thissymb],
-                (rb_size * NR_NB_SC_PER_RB - (sci1_offset + sci2_cnt_thissymb)) * sizeof(c16_t));
-          nr_slsch_compute_llr(temp_symbol,
-                               rxF_ch_maga[aatx * frame_parms->nb_antennas_rx],
-                               rxF_ch_magb[aatx * frame_parms->nb_antennas_rx],
-                               rxF_ch_magc[aatx * frame_parms->nb_antennas_rx],
-                               temp_llr,
-                               rb_size * NR_NB_SC_PER_RB,
-                               symbol,
-                               qam_mod_order);
-          if (nrOfLayers != 1) {
-                  memcpy(&llrss[aatx][rxdataF_ext_offset * qam_mod_order],
-                         temp_llr + (sci1_offset + sci2_cnt_thissymb) * qam_mod_order,
-                         (rb_size * NR_NB_SC_PER_RB - (sci1_offset + sci2_cnt_thissymb)) * 2 * qam_mod_order);
-	  }
-	    
+          const int reserved_re = sci1_offset + sci2_cnt_thissymb;
+          const int data_re = pusch_vars->ul_valid_re_per_slot[symbol];
+          const int comp_index = aatx * frame_parms->nb_antennas_rx;
+          memcpy(data_symbols,
+                 &pusch_vars->rxdataF_comp[comp_index][symbol * ext_buffer_length + reserved_re],
+                 data_re * sizeof(*data_symbols));
+          memcpy(data_maga, &rxF_ch_maga[aatx][reserved_re], data_re * sizeof(*data_maga));
+          memcpy(data_magb, &rxF_ch_magb[aatx][reserved_re], data_re * sizeof(*data_magb));
+          memcpy(data_magc, &rxF_ch_magc[aatx][reserved_re], data_re * sizeof(*data_magc));
+          nr_compute_llr(data_symbols, data_maga, data_magb, data_magc, llrss[aatx], data_re, symbol, qam_mod_order);
         } else {
-              nr_slsch_compute_llr(&pusch_vars->rxdataF_comp[aatx * frame_parms->nb_antennas_rx][symbol * (off + rb_size * NR_NB_SC_PER_RB) + sci1_offset + sci2_cnt_thissymb],
-                                rxF_ch_maga[aatx * frame_parms->nb_antennas_rx],
-                                rxF_ch_magb[aatx * frame_parms->nb_antennas_rx],
-                                rxF_ch_magc[aatx * frame_parms->nb_antennas_rx],
-                                &llrss[aatx][0], // per-symbol scratch buffer, indexed from 0
+          const int comp_index = aatx * frame_parms->nb_antennas_rx;
+          nr_compute_llr(&pusch_vars->rxdataF_comp[comp_index][symbol * ext_buffer_length + sci1_offset + sci2_cnt_thissymb],
+                         rxF_ch_maga[aatx],
+                         rxF_ch_magb[aatx],
+                         rxF_ch_magc[aatx],
+                         llrss[aatx],
                                 pusch_vars->ul_valid_re_per_slot[symbol],
                                 symbol,
                                 qam_mod_order);
-	} // nrOfLayers !=1
+        }
       } // aatx
     /*
       if (nrOfLayers > 1) {

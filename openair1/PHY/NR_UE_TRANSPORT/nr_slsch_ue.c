@@ -135,7 +135,7 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
     }
   }
 
-  nb_dmrs_re_per_rb = ((dmrs_type == pusch_dmrs_type1) ? 6:4)*cdm_grps_no_data;
+  nb_dmrs_re_per_rb = get_num_dmrs_re_per_rb(dmrs_type, cdm_grps_no_data);
 
   // TbD num_of_mod_symbols is set but never used
   uint16_t num_CSI_REs = 0;
@@ -156,7 +156,7 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
   AssertFatal(pscch_pssch_pdu->pscch_numsym==2 || pscch_pssch_pdu->pscch_numsym==3,"illegal pscch_numsym %d\n",pscch_pssch_pdu->pscch_numsym);
   int sci1_dmrs_overlap = pscch_pssch_pdu->dmrs_symbol_position & dmrs_pscch_mask[pscch_pssch_pdu->pscch_numsym-2];
   uint16_t sci1_re = pscch_pssch_pdu->pscch_numsym * pscch_pssch_pdu->pscch_numrbs * NR_NB_SC_PER_RB;
-  unsigned int G = nr_get_G_SL(nb_rb, number_of_symbols, 6, number_dmrs_symbols, sci1_dmrs_overlap, sci1_re, pscch_pssch_pdu->pscch_numrbs, sci2_re, num_CSI_REs, mod_order, Nl);
+  unsigned int G = nr_get_G_SL(nb_rb, number_of_symbols, nb_dmrs_re_per_rb, number_dmrs_symbols, sci1_dmrs_overlap, sci1_re, pscch_pssch_pdu->pscch_numrbs, sci2_re, num_CSI_REs, mod_order, Nl);
 
   uint32_t Gsci2 = sci2_re*2*Nl;
   ws_trace_t tmp = {.nr = true,
@@ -327,7 +327,7 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
       for (i=0; i< nb_rb*NR_NB_SC_PER_RB; i++) {
         uint8_t is_dmrs = 0;
 
-        if (is_pscch_sym && i==(pscch_pssch_pdu->startrb)) {
+        if (is_pscch_sym && i==0) {
            i+=(pscch_pssch_pdu->pscch_numrbs*NR_NB_SC_PER_RB);
            k+=(pscch_pssch_pdu->pscch_numrbs*NR_NB_SC_PER_RB);
            if (is_dmrs_sym) { 
@@ -401,10 +401,10 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
       }
 
       for (int rb=0; rb<nb_rb; rb++) {
-        if (is_pscch_sym && rb==(pscch_pssch_pdu->startrb)) {
+        if (is_pscch_sym && rb==0) {
            k+=(pscch_pssch_pdu->pscch_numrbs*NR_NB_SC_PER_RB);
 	   if (k>=frame_parms->ofdm_symbol_size) k-=frame_parms->ofdm_symbol_size;
-	   rb=pscch_pssch_pdu->startrb+pscch_pssch_pdu->pscch_numrbs;
+	   rb=pscch_pssch_pdu->pscch_numrbs;
         }
         //get pmi info
         uint8_t pmi=Tpmi;

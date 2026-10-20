@@ -38,9 +38,7 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
                       uint8_t harq_pid,
                       uint32_t G,
                       const UE_nr_rxtx_proc_t *proc,
-                      nr_phy_data_t *phy_data,
-                      int8_t *ack_nack_rcvd,
-                      uint8_t num_acks)
+                      nr_phy_data_t *phy_data)
 {
   nrLDPC_TB_decoding_parameters_t TB = {0};
   nrLDPC_slot_decoding_parameters_t slot_parameters = {.frame = frame,
