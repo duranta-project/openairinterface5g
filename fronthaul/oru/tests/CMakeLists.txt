@@ -33,7 +33,7 @@ pkg_check_modules(PCAP REQUIRED libpcap)
 
 add_executable(test_oru_pcap test_oru_pcap.c)
 add_dependencies(tests test_oru_pcap)
-target_link_libraries(test_oru_pcap PRIVATE oru_packet_processor log_headers ${dpdk_LIBRARIES} ${PCAP_LIBRARIES} xran_pkt)
+target_link_libraries(test_oru_pcap PRIVATE oru_packet_processor oru_beamforming log_headers ${dpdk_LIBRARIES} ${PCAP_LIBRARIES} xran_pkt)
 target_include_directories(test_oru_pcap PRIVATE ${dpdk_INCLUDE_DIRS} ${PCAP_INCLUDE_DIRS})
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/run_oru_pcap_test.sh DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
