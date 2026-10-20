@@ -429,8 +429,7 @@ static uint8_t pickandreverse_bits(uint8_t *payload, uint16_t bitlen, uint8_t st
 }
 
 static void evaluate_sinr_report(NR_UE_info_t *UE,
-                                 NR_UE_sched_ctrl_t *sched_ctrl,
-                                 uint8_t csi_report_id,
+                                 nr_csi_report_t *csi_report,
                                  uint8_t *payload,
                                  int *cumul_bits,
                                  NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR reportQuantity_type_r16)
@@ -453,8 +452,7 @@ static void evaluate_sinr_report(NR_UE_info_t *UE,
     resources can be received simultaneously by the UE either with a single spatial domain receive filter, or with
     multiple simultaneous spatial domain receive filter
   */
-
-  nr_csi_report_t *csi_report = &UE->csi_report_template[csi_report_id];
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   RSRP_report_list_t *sinr_report;
   long **index_list;
   switch (reportQuantity_type_r16) {
@@ -515,8 +513,7 @@ static void evaluate_sinr_report(NR_UE_info_t *UE,
 }
 
 static void evaluate_rsrp_report(NR_UE_info_t *UE,
-                                 NR_UE_sched_ctrl_t *sched_ctrl,
-                                 uint8_t csi_report_id,
+                                 nr_csi_report_t *csi_report,
                                  frame_t frame,
                                  slot_t slot,
                                  uint8_t *payload,
@@ -540,7 +537,7 @@ static void evaluate_rsrp_report(NR_UE_info_t *UE,
     resources can be received simultaneously by the UE either with a single spatial domain receive filter, or with
     multiple simultaneous spatial domain receive filter
   */
-  nr_csi_report_t *csi_report = &UE->csi_report_template[csi_report_id];
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   RSRP_report_list_t *rsrp_report;
   long **index_list;
   switch (reportQuantity_type) {
@@ -759,14 +756,14 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
   int cumul_bits = 0;
   int r_index = 0;
   int new_bf_index = -1;
-  for (int csi_report_id = 0; csi_report_id < csi_MeasConfig->csi_ReportConfigToAddModList->list.count; csi_report_id++) {
-    nr_csi_report_t *csi_report = &UE->csi_report_template[csi_report_id];
+  for (int id = 0; id < csi_MeasConfig->csi_ReportConfigToAddModList->list.count; id++) {
+    nr_csi_report_t *csi_report = &UE->csi_report_template[id];
     csi_report->nb_of_csi_ssb_report = 0;
     uint8_t cri_bitlen = 0;
     uint8_t ri_bitlen = 0;
     uint8_t li_bitlen = 0;
     uint8_t pmi_bitlen = 0;
-    NR_CSI_ReportConfig_t *csirep = csi_MeasConfig->csi_ReportConfigToAddModList->list.array[csi_report_id];
+    NR_CSI_ReportConfig_t *csirep = csi_MeasConfig->csi_ReportConfigToAddModList->list.array[id];
     uint8_t cqi_table = (dl_bwp->dci_format == NR_DL_DCI_FORMAT_1_1 && csirep->cqi_Table) ? *csirep->cqi_Table : NR_CSI_ReportConfig__cqi_Table_table1;
     const NR_PUCCH_CSI_Resource_t *pucchcsires = csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list.array[0];
     if(pucchcsires->uplinkBandwidthPartId > 1) {
@@ -782,7 +779,7 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
       LOG_D(MAC, "SFN/SF:%d/%d reportQuantity type = %d, type_r16 = %d\n", frame, slot, reportQuantity_type, reportQuantity_type_r16);
       if (reportQuantity_type_r16 == NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_cri_SINR_r16
           || reportQuantity_type_r16 == NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_ssb_Index_SINR_r16) {
-        evaluate_sinr_report(UE, sched_ctrl, csi_report_id, payload, &cumul_bits, reportQuantity_type_r16);
+        evaluate_sinr_report(UE, &UE->csi_report_template[id], payload, &cumul_bits, reportQuantity_type_r16);
       } else {
         // phy-test has hardcoded allocation, so no use to handle CSI reports except RSRP
         if (get_softmodem_params()->phy_test
@@ -791,10 +788,10 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
           continue;
         switch (reportQuantity_type) {
           case NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP:
-            evaluate_rsrp_report(UE, sched_ctrl, csi_report_id, frame, slot, payload, &cumul_bits, reportQuantity_type);
+            evaluate_rsrp_report(UE, &UE->csi_report_template[id], frame, slot, payload, &cumul_bits, reportQuantity_type);
             break;
           case NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP:
-            evaluate_rsrp_report(UE, sched_ctrl, csi_report_id, frame, slot, payload, &cumul_bits, reportQuantity_type);
+            evaluate_rsrp_report(UE, &UE->csi_report_template[id], frame, slot, payload, &cumul_bits, reportQuantity_type);
             new_bf_index = beam_selection_procedures(cell, UE);
             break;
           case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_CQI:
@@ -823,7 +820,7 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
             cumul_bits += ri_bitlen;
             skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
             pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
-            sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = csi_report_id;
+            sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = id;
             cumul_bits += pmi_bitlen;
             evaluate_cqi_report(cell, payload, csi_report, cumul_bits, r_index, UE, cqi_table);
             break;
@@ -841,7 +838,7 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
             cumul_bits += li_bitlen;
             skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
             pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
-            sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = csi_report_id;
+            sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = id;
             cumul_bits += pmi_bitlen;
             evaluate_cqi_report(cell, payload, csi_report, cumul_bits, r_index, UE, cqi_table);
             break;
