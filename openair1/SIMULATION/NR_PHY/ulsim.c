@@ -826,7 +826,6 @@ int main(int argc, char *argv[])
 
   fapi_nr_ul_config_request_t ul_config = {0};
   nfapi_nr_ptrs_ports_t gnb_ptrs_ports[2] = {0};
-  nfapi_nr_ue_ptrs_ports_t ue_ptrs_ports[2] = {0};
 
   uint8_t ptrs_mcs1 = 2;
   uint8_t ptrs_mcs2 = 4;
@@ -1262,7 +1261,6 @@ int main(int argc, char *argv[])
         }
         pusch_config_pdu->pusch_ptrs.ptrs_time_density = ptrs_time_density;
         pusch_config_pdu->pusch_ptrs.ptrs_freq_density = ptrs_freq_density;
-        pusch_config_pdu->pusch_ptrs.ptrs_ports_list = ue_ptrs_ports;
         pusch_config_pdu->pusch_ptrs.ptrs_ports_list[0].ptrs_re_offset = 0;
         pusch_config_pdu->pusch_ptrs.num_ptrs_ports = 1;
         pusch_config_pdu->transform_precoding = transform_precoding;
