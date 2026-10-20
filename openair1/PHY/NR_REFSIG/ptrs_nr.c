@@ -196,6 +196,10 @@ static cd_t get_ptrs_phase_diff(const c16_t *rxF,
     k_re += k_ptrs * NR_NB_SC_PER_RB;
   }
 
+  // No correlation (e.g. nothing received on the PTRS REs): no phase information, assume zero phase error
+  if (phase_diff.r == 0 && phase_diff.i == 0)
+    return (cd_t){.r = 1.0};
+
   // normalized error estimation
   return cdNorm(phase_diff);
 }
