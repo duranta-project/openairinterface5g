@@ -1117,6 +1117,7 @@ set(NR_PDCP_SRC_GNB
   openair2/LAYER2/nr_pdcp/cuup_cucp_if.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_direct.c
   openair2/LAYER2/nr_pdcp/cuup_cucp_e1ap.c
+  openair2/LAYER2/nr_pdcp/max_count_reached.c
   )
 
 # UE build: PDCP only; CU-CP/CU-UP interface is gNB-only.
