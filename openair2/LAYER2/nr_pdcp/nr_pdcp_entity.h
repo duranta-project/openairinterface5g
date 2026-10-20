@@ -219,4 +219,6 @@ nr_pdcp_entity_t *new_nr_pdcp_entity(
 /* Get maximum PDCP PDU size */
 int nr_max_pdcp_pdu_size(sdu_size_t sdu_size);
 
+void nr_pdcp_deliver_all_sdus(nr_pdcp_entity_t *entity);
+
 #endif /* _NR_PDCP_ENTITY_H_ */
