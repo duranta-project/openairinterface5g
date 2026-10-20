@@ -464,7 +464,7 @@ static void nr_pdcp_entity_set_time(nr_pdcp_entity_t *entity, uint64_t now)
   check_t_reordering(entity);
 }
 
-static void deliver_all_sdus(nr_pdcp_entity_t *entity)
+void nr_pdcp_deliver_all_sdus(nr_pdcp_entity_t *entity)
 {
   // deliver the PDCP SDUs stored in the receiving PDCP entity to upper layers
   while (entity->rx_list != NULL) {
@@ -498,7 +498,7 @@ static void nr_pdcp_entity_suspend(nr_pdcp_entity_t *entity)
   /* Receiving PDCP entity */
   if (entity->t_reordering_start != 0) {
     entity->t_reordering_start = 0;
-    deliver_all_sdus(entity);
+    nr_pdcp_deliver_all_sdus(entity);
   }
   entity->rx_next = 0;
   entity->rx_deliv = 0;
@@ -553,7 +553,7 @@ static void nr_pdcp_entity_reestablish_drb_um(nr_pdcp_entity_t *entity,
   /* receiving entity procedures */
   /* deliver all SDUs if t_reordering is running */
   if (entity->t_reordering_start != 0)
-    deliver_all_sdus(entity);
+    nr_pdcp_deliver_all_sdus(entity);
   /* stop t_reordering */
   entity->t_reordering_start = 0;
   /* set rx_next and rx_deliv to the initial value */
@@ -594,7 +594,7 @@ static void nr_pdcp_entity_reestablish_srb(nr_pdcp_entity_t *entity,
 
 static void nr_pdcp_entity_release(nr_pdcp_entity_t *entity)
 {
-  deliver_all_sdus(entity);
+  nr_pdcp_deliver_all_sdus(entity);
 }
 
 static void nr_pdcp_entity_delete(nr_pdcp_entity_t *entity)
