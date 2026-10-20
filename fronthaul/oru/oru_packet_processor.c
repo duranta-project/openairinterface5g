@@ -170,6 +170,7 @@ typedef struct {
   size_t mtu;
   fh_comp_method_t dl_comp_method;
   int num_bf_weights;
+  bool bfw_decode_warned; // logged the first ext1/ext11 whose weights didn't decode
   // ext11 decode output, sized at init for ORU_MAX_BF_WEIGHTS
   int ext11_max_bundles;
   uint16_t *ext11_beam_ids;
@@ -268,6 +269,7 @@ void txrx_window_histogram_count(txrx_histogram_t *hist, int32_t diff)
 // Forgets the weights of every beamId. Once read, make them as stale
 static void reset_bf_weights(oru_packet_processor_context_t *ctx)
 {
+  ctx->bfw_decode_warned = false;
   for (int b = 0; b < ORU_BFW_NUM_BEAM_IDS; b++)
     ctx->bfw_beam_slot[b] = ORU_BFW_NO_SLOT;
   for (int i = 0; i < ORU_BFW_SLOTS; i++) {
@@ -1233,6 +1235,19 @@ static bool parse_section_ext11(oru_packet_processor_context_t *ctx,
   return true;
 }
 
+// Counts an ext1/ext11 whose weights don't decode and logs the first: a DU sending another weight count fails every one
+static void bfw_decode_failed(oru_packet_processor_context_t *ctx, uint8_t ext_type)
+{
+  count_section_ext_error(ctx, ext_type);
+  if (!ctx->bfw_decode_warned)
+    LOG_W(HW,
+          "ext%d weights don't decode for %d weights per vector (malformed, or the DU sends another count), using the "
+          "section beamId\n",
+          ext_type,
+          ctx->num_bf_weights);
+  ctx->bfw_decode_warned = true;
+}
+
 // Walks the extension chain in [ext, end) of a section of num_prb PRBs from start_prb, with the given beamId and ef,
 // counting malformed ext1, ext11 and other extensions, and a chain that ends before an extension its ef promised. Returns
 // the end of the chain, or NULL at the first error, since the rest of the chain can't be located. A decoded ext1 or ext11
@@ -1278,7 +1293,7 @@ static const uint8_t *parse_section_extensions(oru_packet_processor_context_t *c
         break;
     }
     if (!valid) {
-      count_section_ext_error(ctx, ext_type);
+      bfw_decode_failed(ctx, ext_type);
       ext = NULL;
       break;
     }
