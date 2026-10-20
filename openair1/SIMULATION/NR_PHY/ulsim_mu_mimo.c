@@ -233,7 +233,7 @@ int main(int argc, char *argv[])
 
   void *h_tx_sig_pinned = NULL;
 
-  while ((c = getopt(argc, argv, "--:O:a:b:c:d:ef:g:h:i:jk:l:m:n:o::p:q:r:s:t:u:v:w:y:z:A:C:F:G:H:I:M:N:PR:S:T:U:L:ZW:E:X:Y:"))
+  while ((c = getopt(argc, argv, "--:O:a:b:c:d:ef:g:h:i:jk:l:m:n:o::p:q:r:s:t:u:v:w:y:z:A:C:D:F:G:H:I:M:N:PR:S:T:U:L:ZW:E:X:Y:"))
          != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
@@ -366,6 +366,15 @@ int main(int argc, char *argv[])
         threadCnt = atoi(optarg);
         break;
 
+      case 'D': {
+        // 2-layer PUSCH detector: the receivers read OAI_LBEST on first use, so set it before any processing
+        const int detector = atoi(optarg);
+        AssertFatal(detector == 0 || detector == 1, "-D %d: 0 = default OAI receiver, 1 = L-best\n", detector);
+        setenv("OAI_LBEST", detector ? "1" : "0", 1);
+        printf("2-layer PUSCH detector: %s\n", detector ? "L-best" : "default OAI");
+        break;
+      }
+
       case 'u':
         mu = atoi(optarg);
         break;
@@ -496,6 +505,7 @@ int main(int argc, char *argv[])
         printf("-z Number of RX antennas used at gNB\n");
         printf("-A Number of antennas per thread for PUSCH channel estimation\n");
         printf("-C Specify the number of threads for the simulation\n");
+        printf("-D 2-layer PUSCH detector: 0 = default OAI receiver (default), 1 = L-best (sets OAI_LBEST)\n");
         printf("-H Slot number\n");
         printf("-I Maximum LDPC decoder iterations\n");
         printf("-L <log level, 0(errors), 1(warning), 2(info) 3(debug) 4 (trace)>\n");

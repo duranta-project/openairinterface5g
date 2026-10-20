@@ -1100,16 +1100,16 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       avgs = cmax(avgs, avg[nl][aarx]);
 
   if (total_layers == 2 && rel15_ul_ref->qam_mod_order > 6) {
-    // 256QAM 2-layer: the full-ML detector wants a cooler LLR scale (-2) than the
-    // linear MMSE receiver (-3); -3 saturates the ML metric and loses ~1 dB, while
-    // -2 recovers the full ML gain over MMSE (verified on TDL-A). Selected by OAI_LBEST.
+    // 256QAM 2-layer: the full-ML detector uses -2 (-3 saturates the ML metric and loses ~1 dB,
+    // verified on TDL-A). Selected by OAI_LBEST. The linear MMSE receiver uses -1: -3 saturates
+    // the fixed-point 2-layer MMSE and leaves a ~25% BLER floor with 2 co-scheduled UEs.
     static int ml256 = -1;
     if (ml256 < 0) { const char *e = getenv("OAI_LBEST"); ml256 = e ? atoi(e) : 0; }
     // ML (ml256): use the same mod-order correction + antenna term as the qam<=6 2-layer branch
     // below (nr_ml_llr_maxh_off(8) + log2_approx(num_sp_streams>>1)); at nb=4 that is -3+1 = -2,
-    // matching the prior fixed -2, but it now tracks the antenna count. MMSE (!ml256) keeps -3.
+    // matching the prior fixed -2, but it now tracks the antenna count.
     joint_pv->log2_maxh = (log2_approx(avgs) >> 1)
-        + (ml256 ? nr_ml_llr_maxh_off(rel15_ul_ref->qam_mod_order) + log2_approx(num_sp_streams >> 1) : -3);
+                          + (ml256 ? nr_ml_llr_maxh_off(rel15_ul_ref->qam_mod_order) + log2_approx(num_sp_streams >> 1) : -1);
   } else if (total_layers == 2)
     // 2-layer QPSK/16QAM/64QAM near-ML: mod-order-dependent LLR-hotness offset (a uniform -2 tuned
     // for 256QAM over-heats the lower orders and loses the ML gain). Same table as the UE.
