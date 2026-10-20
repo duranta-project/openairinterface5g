@@ -338,10 +338,11 @@ static byte_array_t rrc_gNB_generate_HandoverPreparationInformation(gNB_RRC_INST
   return hoPrepInfo;
 }
 
-void nr_rrc_trigger_f1_ho(gNB_RRC_INST *rrc,
-                          gNB_RRC_UE_t *ue,
-                          const nr_rrc_cell_container_t *source_cell,
-                          const nr_rrc_cell_container_t *target_cell)
+static void _nr_rrc_trigger_f1_ho(gNB_RRC_INST *rrc,
+                                  gNB_RRC_UE_t *ue,
+                                  const nr_rrc_cell_container_t *source_cell,
+                                  const nr_rrc_cell_container_t *target_cell,
+                                  bool full_config)
 {
   DevAssert(rrc != NULL);
   DevAssert(ue != NULL);
@@ -368,6 +369,7 @@ void nr_rrc_trigger_f1_ho(gNB_RRC_INST *rrc,
 
   ue->ho_context = alloc_ho_ctx(HO_CTX_BOTH);
   ue->ho_context->target->cell = target_cell;
+  ue->ho_context->do_full_config = full_config;
 
   // corresponds to a "handover request", 38.300 Sec 9.3.2.3
   // see also 38.413 Sec 9.3.1.29 for information on source-CU to target-CU
@@ -379,6 +381,26 @@ void nr_rrc_trigger_f1_ho(gNB_RRC_INST *rrc,
   ho_cancel_t cancel = nr_rrc_cancel_f1_ho;
   nr_initiate_handover(rrc, ue, source_cell, &hpi, ack, success, cancel, NULL);
   free_byte_array(hpi);
+}
+
+void nr_rrc_trigger_f1_ho(gNB_RRC_INST *rrc,
+                          gNB_RRC_UE_t *ue,
+                          const nr_rrc_cell_container_t *source_cell,
+                          const nr_rrc_cell_container_t *target_cell)
+{
+  _nr_rrc_trigger_f1_ho(rrc, ue, source_cell, target_cell, false /* no full config */);
+}
+
+void nr_rrc_trigger_f1_ho_for_pdcp_count_wrap(gNB_RRC_INST *rrc,
+                                              gNB_RRC_UE_t *ue)
+{
+  nr_rrc_cell_container_t *ue_cell = rrc_get_pcell_for_ue(rrc, ue);
+  if (ue_cell == NULL) {
+    LOG_E(NR_RRC, "cannot get source cell for UE %u\n", ue->rrc_ue_id);
+    return;
+  }
+
+  _nr_rrc_trigger_f1_ho(rrc, ue, ue_cell, ue_cell, true /* full config */);
 }
 
 void nr_rrc_finalize_ho(gNB_RRC_UE_t *ue)
