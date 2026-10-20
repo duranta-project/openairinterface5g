@@ -253,7 +253,25 @@ static void nr_rrc_f1_ho_acknowledge(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
    * used for the radio bearer changes, with some expections for SRB1 (i.e. when resuming
    * an RRC connection, or at the first reconfiguration after RRC connection reestablishment
    * in NR, do not re-establish PDCP */
-  nr_rrc_reconfig_param_t params = get_RRCReconfiguration_params(rrc, UE, (1 << SRB2), true);
+  uint8_t srb_map = 1 << SRB2;
+  /* in case of F1 HO for PDCP COUNT reset, we want to re-establish SRB1 as well
+   * Note: in the future, if 'do_full_config' is to be used for another
+   * procedure, the logic here needs to be adapted.
+   */
+  if (UE->ho_context->do_full_config)
+    srb_map |= 1 << SRB1;
+  nr_rrc_reconfig_param_t params = get_RRCReconfiguration_params(rrc, UE, srb_map, true);
+  params.fullConfig = UE->ho_context->do_full_config;
+  /* full config is used to reset PDCP COUNT, in which case we must derive
+   * a new K_gNB, let's inform the UE about this change, so it does it as
+   * well
+   * Note: in the future, if 'fullConfig' is to be used for another
+   * procedure, the logic here needs to be adapted.
+   */
+  if (params.fullConfig) {
+    params.masterKeyUpdate = true;
+    params.nextHopChainingCount = UE->nh_ncc;
+  }
   UE->xids[params.transaction_id] = RRC_DEDICATED_RECONF;
   byte_array_t buffer = rrc_gNB_encode_RRCReconfiguration(UE, params);
   free_RRCReconfiguration_params(params);
@@ -280,6 +298,23 @@ static void nr_rrc_f1_ho_acknowledge(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
     security_parameters.integrity_algorithm = UE->integrity_algorithm;
     security_parameters.ciphering_algorithm = UE->ciphering_algorithm;
     nr_pdcp_reestablishment(UE->rrc_ue_id, srb_id, true, &security_parameters);
+  }
+
+  /* in case of full config (for PDCP COUNT reset), we also re-establish SRB1
+   * Note: in the future, if 'fullConfig' is to be used for another
+   * procedure, the logic here needs to be adapted.
+   */
+  if (params.fullConfig) {
+    srb_id = 1;
+    if (UE->Srb[srb_id].Active) {
+      nr_pdcp_entity_security_keys_and_algos_t security_parameters;
+      /* Derive the keys from kgnb */
+      nr_derive_key(RRC_ENC_ALG, UE->ciphering_algorithm, UE->kgnb, security_parameters.ciphering_key);
+      nr_derive_key(RRC_INT_ALG, UE->integrity_algorithm, UE->kgnb, security_parameters.integrity_key);
+      security_parameters.integrity_algorithm = UE->integrity_algorithm;
+      security_parameters.ciphering_algorithm = UE->ciphering_algorithm;
+      nr_pdcp_reestablishment(UE->rrc_ue_id, srb_id, true, &security_parameters);
+    }
   }
 }
 

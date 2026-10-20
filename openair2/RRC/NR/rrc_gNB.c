@@ -2796,6 +2796,19 @@ static void rrc_CU_process_ue_context_setup_response(MessageDef *msg_p, instance
     return;
   }
 
+  /* full config is used to reset PDCP COUNT, in which case we must
+   * derive a new K_gNB from the current one
+   * Note: in the future, if 'do_full_config' is to be used for another
+   * procedure, the logic here needs to be adapted.
+   */
+  if (UE->ho_context && UE->ho_context->do_full_config) {
+    nr_rrc_cell_container_t *ue_cell = rrc_get_pcell_for_ue(rrc, UE);
+    AssertFatal(ue_cell != NULL, "cannot get source cell for UE %u\n", UE->rrc_ue_id);
+    uint32_t ssb_arfcn = get_ssb_arfcn(ue_cell);
+    const uint8_t *base_key = UE->kgnb;
+    nr_derive_key_ng_ran_star(ue_cell->info.pci, ssb_arfcn, base_key, UE->kgnb);
+  }
+
   if (resp->drbs_len > 0) {
     int num_drb = seq_arr_size(&UE->drbs);
     DevAssert(num_drb == 0 || num_drb == resp->drbs_len);
@@ -3668,6 +3681,11 @@ static void rrc_gNB_process_e1_bearer_context_modif_fail(const e1ap_bearer_conte
         fail->cause.value);
 }
 
+static void trigger_intra_cell_handover_for_pdcp_count_wrap(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue)
+{
+  nr_rrc_trigger_f1_ho_for_pdcp_count_wrap(rrc, ue);
+}
+
 /** @brief E1AP Bearer Context Modification Required processing on CU-CP */
 static void rrc_gNB_process_e1_bearer_context_mod_required(sctp_assoc_t assoc_id, const e1ap_bearer_mod_required_t *req)
 {
@@ -3706,7 +3724,14 @@ void rrc_gNB_process_e1_bearer_context_release_cplt(const e1ap_bearer_release_cp
 
 static void srb_max_count_reached(gNB_RRC_INST *rrc, const nr_rrc_pdcp_srb_max_count_reached_t *msg)
 {
-  /* todo */
+  rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(rrc, msg->ue_id);
+  if (ue_context_p == NULL) {
+    LOG_W(NR_RRC, "UE %ld not found for SRB PDCP max COUNT reached\n", msg->ue_id);
+    return;
+  }
+  gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
+
+  trigger_intra_cell_handover_for_pdcp_count_wrap(rrc, UE);
 }
 
 static void print_meas_result_quantity(FILE *f, const NR_MeasQuantityResults_t *mqr)
