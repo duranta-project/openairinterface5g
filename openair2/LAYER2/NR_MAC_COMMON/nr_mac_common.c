@@ -4435,9 +4435,12 @@ bool set_ul_ptrs_values(NR_PTRS_UplinkConfig_t *ul_ptrs_config,
                          mcsIndex,
                          mcsTable);
   }
-  
-  *reOffset  = *ul_ptrs_config->transformPrecoderDisabled->resourceElementOffset;
-  *maxNumPorts = ul_ptrs_config->transformPrecoderDisabled->maxNrofPorts;
+
+  // resourceElementOffset is optional, absent means offset00
+  const long *re_offset = ul_ptrs_config->transformPrecoderDisabled->resourceElementOffset;
+  *reOffset = re_offset ? *re_offset : 0;
+  // maxNrofPorts is an enumerated {n1, n2}, not a number of ports
+  *maxNumPorts = ul_ptrs_config->transformPrecoderDisabled->maxNrofPorts + 1;
   *ulPower = ul_ptrs_config->transformPrecoderDisabled->ptrs_Power;
   /* If either or both of the parameters PT-RS time density (LPT-RS) and PT-RS frequency density (KPT-RS), shown in Table
    * 6.2.3.1-1 and Table 6.2.3.1-2, indicates that 'PT-RS not present', the UE shall assume that PT-RS is not present
