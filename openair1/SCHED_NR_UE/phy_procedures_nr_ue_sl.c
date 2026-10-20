@@ -170,6 +170,7 @@ static void nr_psbch_symbol_process(PHY_VARS_NR_UE *ue,
                                     const UE_nr_rxtx_proc_t *proc,
                                     const int symbol,
                                     const c16_t rxdataF[][ue->frame_parms.ofdm_symbol_size],
+                                    uint8_t *log2_maxh,
                                     int *psbch_e_rx_offset,
                                     int16_t psbch_e_rx[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2],
                                     int16_t psbch_unClipped[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2],
@@ -208,7 +209,7 @@ static void nr_psbch_symbol_process(PHY_VARS_NR_UE *ue,
                 fp->ofdm_symbol_size,
                 0);
 
-  nr_generate_psbch_llr(fp, rxdataF, dl_ch_estimates, symbol, psbch_e_rx_offset, psbch_e_rx, psbch_unClipped);
+  nr_generate_psbch_llr(fp, rxdataF, dl_ch_estimates, symbol, log2_maxh, psbch_e_rx_offset, psbch_e_rx, psbch_unClipped);
 
   ue->adjust_rxgain = nr_sl_psbch_rsrp_measurements(ue, sl_phy_params, fp, symbol, rxdataF, false);
 }
@@ -225,7 +226,7 @@ static unsigned int get_psbch_symbol_bitmap(const int num_symbols)
 
 static bool is_psbch_symbol(const unsigned bitmap, const unsigned int symbol)
 {
-  return ((bitmap >> symbol) == 1);
+  return ((bitmap >> symbol) & 1U) != 0;
 }
 
 static int nr_psbch_process(PHY_VARS_NR_UE *ue,
@@ -233,6 +234,7 @@ static int nr_psbch_process(PHY_VARS_NR_UE *ue,
                             const UE_nr_rxtx_proc_t *proc,
                             const int symbol,
                             const c16_t rxdataF[][ue->frame_parms.ofdm_symbol_size],
+                            uint8_t *log2_maxh,
                             int *psbch_e_rx_offset,
                             int16_t psbch_e_rx[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2],
                             int16_t psbch_unClipped[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2],
@@ -249,7 +251,8 @@ static int nr_psbch_process(PHY_VARS_NR_UE *ue,
   const unsigned int last_symbol = numsymb - 1;
   int sampleShift = 0;
 
-  nr_psbch_symbol_process(ue, proc, symbol, rxdataF, psbch_e_rx_offset, psbch_e_rx, psbch_unClipped, dl_ch_estimates_time);
+  nr_psbch_symbol_process(
+      ue, proc, symbol, rxdataF, log2_maxh, psbch_e_rx_offset, psbch_e_rx, psbch_unClipped, dl_ch_estimates_time);
 
   if (symbol == last_symbol) {
     const int slss_id = sl_phy_params->sl_config.sl_sync_source.rx_slss_id;
@@ -549,17 +552,16 @@ int psbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_d
 
     int16_t psbch_e_rx[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2] = {0};
     int16_t psbch_unClippled[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2] = {0};
+  uint8_t log2_maxh = 0;
     int e_rx_offset = 0;
-    /* TODO: Remove loop over symbols in later commit. */
     for (int sym = 0; sym < NR_SYMBOLS_PER_SLOT; sym++) {
       nr_slot_fep(ue, fp, proc->nr_slot_rx, sym, rxdataF, link_type_sl, 0, ue->common_vars.rxdata);
       __attribute__((aligned(32))) c16_t rxdataF_symb[fp->nb_antennas_rx][fp->ofdm_symbol_size];
       for (int aarx = 0; aarx < fp->nb_antennas_rx; aarx++) {
-        /* TODO: Remove this buffer reshaping in later commit after rxdataF is in right format */
         memcpy(rxdataF_symb[aarx], &rxdataF[aarx][sym * fp->ofdm_symbol_size], sizeof(c16_t) * fp->ofdm_symbol_size);
       }
-      sampleShift =
-          nr_psbch_process(ue, phy_data, proc, sym, rxdataF_symb, &e_rx_offset, psbch_e_rx, psbch_unClippled, dl_ch_estimates_time);
+    sampleShift = nr_psbch_process(
+        ue, phy_data, proc, sym, rxdataF_symb, &log2_maxh, &e_rx_offset, psbch_e_rx, psbch_unClippled, dl_ch_estimates_time);
     }
 
   return sampleShift;

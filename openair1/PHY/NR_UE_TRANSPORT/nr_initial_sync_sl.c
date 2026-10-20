@@ -362,6 +362,7 @@ nr_initial_sync_t sl_nr_slss_search(PHY_VARS_NR_UE *UE, UE_nr_rxtx_proc_t *proc,
       /* In order to achieve correct processing for NR prefix samples is forced to 0 and then restored after function call */
       int16_t psbch_e_rx[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2] = {0};
       int16_t psbch_unClipped[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2] = {0};
+      uint8_t log2_maxh = 0;
       int psbch_e_rx_offset = 0;
 
       for (int symbol = 0; symbol < SL_NR_NUMSYM_SLSS_NORMAL_CP; symbol++) {
@@ -396,7 +397,8 @@ nr_initial_sync_t sl_nr_slss_search(PHY_VARS_NR_UE *UE, UE_nr_rxtx_proc_t *proc,
                                      true,
                                      rx_slss_id);
         }
-        nr_generate_psbch_llr(frame_parms, rxdataF_symb, dl_ch_estimates, symbol, &psbch_e_rx_offset, psbch_e_rx, psbch_unClipped);
+        nr_generate_psbch_llr(
+            frame_parms, rxdataF_symb, dl_ch_estimates, symbol, &log2_maxh, &psbch_e_rx_offset, psbch_e_rx, psbch_unClipped);
 
         UE->adjust_rxgain = nr_sl_psbch_rsrp_measurements(UE, sl_ue, frame_parms, symbol, rxdataF, false);
 

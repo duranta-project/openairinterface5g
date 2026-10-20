@@ -95,6 +95,7 @@ void nr_generate_psbch_llr(const NR_DL_FRAME_PARMS *frame_parms,
                            const c16_t rxdataF[][frame_parms->ofdm_symbol_size],
                            const c16_t dl_ch_estimates[][frame_parms->ofdm_symbol_size],
                            int symbol,
+                           uint8_t *log2_maxh,
                            int *psbch_e_rx_offset,
                            int16_t psbch_e_rx[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2],
                            int16_t psbch_unClipped[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2])
@@ -107,7 +108,6 @@ void nr_generate_psbch_llr(const NR_DL_FRAME_PARMS *frame_parms,
   LOG_I(PHY, "PSBCH RX Symbol %d ofdm size %d\n", symbol, frame_parms->ofdm_symbol_size);
 #endif
 
-  double log2_maxh = 0;
   int max_h = 0;
   if (symbol == 0) {
     int avg[frame_parms->nb_antennas_rx];
@@ -115,15 +115,15 @@ void nr_generate_psbch_llr(const NR_DL_FRAME_PARMS *frame_parms,
     max_h = avg[0];
     for (int i = 1; i < frame_parms->nb_antennas_rx; i++)
       max_h = cmax(avg[i], max_h);
-    log2_maxh = 5 + (log2_approx(max_h) / 2); // LLR32 crc error. LLR 16 CRC works
+    *log2_maxh = 5 + (log2_approx(max_h) / 2); // LLR32 crc error. LLR 16 CRC works
   }
 #ifdef DEBUG_PSBCH
-  LOG_I(PHY, "PSBCH RX log2_maxh = %f (%d)\n", log2_maxh, max_h);
+  LOG_I(PHY, "PSBCH RX log2_maxh = %u (%d)\n", *log2_maxh, max_h);
 #endif
 
   __attribute__((aligned(32))) struct complex16 rxdataF_comp[frame_parms->nb_antennas_rx][nb_re + 1];
   nr_pbch_channel_compensation(rxdataF_ext, dl_ch_estimates_ext, nb_re, rxdataF_comp, frame_parms,
-                               log2_maxh); // log2_maxh+I0_shift
+                               *log2_maxh); // log2_maxh+I0_shift
 
   nr_pbch_quantize(psbch_e_rx + *psbch_e_rx_offset, (short *)rxdataF_comp[0], SL_NR_NUM_PSBCH_DATA_BITS_IN_ONE_SYMBOL);
   memcpy(psbch_unClipped + *psbch_e_rx_offset, (short *)rxdataF_comp[0], SL_NR_NUM_PSBCH_DATA_BITS_IN_ONE_SYMBOL);

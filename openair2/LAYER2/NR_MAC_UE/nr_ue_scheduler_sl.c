@@ -2135,14 +2135,14 @@ bool overlapped_resource(uint8_t first_start,
 
 uint8_t get_lower_bound_resel_counter(uint16_t p_rsrv) {
     AssertFatal(p_rsrv < 100, "Resource reservation must be less than 100 ms");
-    uint8_t l_bound = (5 * ceil(100 / (max(20, p_rsrv))));
-    return l_bound;
+    const uint16_t divisor = max(20, p_rsrv);
+    return 5 * ((100 + divisor - 1) / divisor);
 }
 
 uint8_t get_upper_bound_resel_counter(uint16_t p_rsrv) {
     AssertFatal(p_rsrv < 100, "Resource reservation must be less than 100 ms");
-    uint8_t u_bound = (15 * ceil(100 / (max((20), p_rsrv))));
-    return u_bound;
+    const uint16_t divisor = max(20, p_rsrv);
+    return 15 * ((100 + divisor - 1) / divisor);
 }
 
 uint8_t get_random_reselection_counter(uint16_t rri) {
@@ -2183,7 +2183,7 @@ uint8_t get_random_reselection_counter(uint16_t rri) {
     }
 
     LOG_D(NR_MAC, "Range to choose random reselection counter. min: %d max: %d\n", min_res_cntr, max_res_cntr);
-    return min_res_cntr;
+    return min_res_cntr + lrand48() % (max_res_cntr - min_res_cntr + 1);
 }
 
 List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, List_t *sensing_data, List_t *transmit_history) {
@@ -2207,14 +2207,14 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
 
   // Check the validity of the resource selection window configuration (t1 and t2)
   // and the following parameters: numerology and reservation period.
-  uint16_t num_slots_mul_s_dur_ms = (t2 - t1 + 1) * (1 / pow(2, mu)); // number of slots multiplied by the slot duration in ms
+  const uint16_t selection_window_slots = t2 - t1 + 1;
 
   uint16_t rsvpMs = sl_tx_params->rri;
-  LOG_D(NR_MAC, "abs_slot_ind %ld, %4d.%2d rsvpMs %hu, num_slots_mul_s_dur %d, t2 %d, t1 %d, (t2 - t1 + 1) %d, tproc1 %d\n",
+  LOG_D(NR_MAC, "abs_slot_ind %ld, %4d.%2d rsvpMs %hu, selection_window_slots %u, t2 %d, t1 %d, tproc1 %d\n",
         abs_slot_ind, frame_slot->frame, frame_slot->slot,
-        rsvpMs, num_slots_mul_s_dur_ms, t2, t1, (t2 - t1 + 1),
+        rsvpMs, selection_window_slots, t2, t1,
         tproc1);
-  AssertFatal(rsvpMs != 0 && num_slots_mul_s_dur_ms <= rsvpMs, "An error may be generated due to the fact that the resource selection window" \
+  AssertFatal(rsvpMs != 0 && selection_window_slots <= time_to_slots(mu, rsvpMs), "An error may be generated due to the fact that the resource selection window" \
                     "size is higher than the resource reservation period value. Make sure that " \
                     "(T2-T1+1) x (1/(2^numerology)) < reservation period. Modify the values of T1, " \
                     "T2, numerology, and reservation period accordingly.");

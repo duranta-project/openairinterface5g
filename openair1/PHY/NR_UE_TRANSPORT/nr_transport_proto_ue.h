@@ -282,6 +282,7 @@ void nr_generate_psbch_llr(const NR_DL_FRAME_PARMS *frame_parms,
                            const c16_t rxdataF[][frame_parms->ofdm_symbol_size],
                            const c16_t dl_ch_estimates[][frame_parms->ofdm_symbol_size],
                            int symbol,
+                           uint8_t *log2_maxh,
                            int *psbch_e_rx_offset,
                            int16_t psbch_e_rx[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2],
                            int16_t psbch_unClipped[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2]);

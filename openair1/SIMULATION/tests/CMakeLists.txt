@@ -298,6 +298,12 @@ add_physim_test(physim.5g.nr_psbchsim.test1 "SLSS Search" nr_psbchsim -I)
 add_physim_test(physim.5g.nr_psbchsim.test2 "PSBCH TxRx" nr_psbchsim -n 30)
 
 ####################################################################################
+######                           nr_scisim unit test                         ######
+####################################################################################
+
+add_physim_test(physim.5g.nr_scisim.test1 "Sidelink PSCCH and PSSCH loopback" nr_scisim)
+
+####################################################################################
 ######                           nr_srssim unit test                          ######
 ####################################################################################
 

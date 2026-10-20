@@ -108,13 +108,19 @@ static uint8_t get_num_pssch_symbols(const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
  *               retransmission; unchanged (caller-init value) for n2.
  * All subchannel indices are 0-based within the resource pool.
  * startsc2 may be NULL when the second retransmission position is not needed. */
-static void convNRFRIV(int FRIV,
+static bool convNRFRIV(int FRIV,
                 int N_subch,
                 long sl_MaxNumPerReserve,
                 uint16_t *Lsc,
                 uint16_t *startsc,
                 uint16_t *startsc2) {
+  if (N_subch <= 0 || !Lsc || FRIV < 0)
+    return false;
+
   if (sl_MaxNumPerReserve == NR_SL_UE_SelectedConfigRP_r16__sl_MaxNumPerReserve_r16_n2) {
+    const int num_friv = N_subch * (N_subch + 1) / 2;
+    if (FRIV >= num_friv)
+      return false;
     *Lsc=1;
     int prevN=0;
     int N=N_subch;
@@ -124,10 +130,14 @@ static void convNRFRIV(int FRIV,
       N += (N_subch - *Lsc + 1);
     }
     if (startsc) *startsc = FRIV-prevN;
+    return true;
   } else if (sl_MaxNumPerReserve == NR_SL_UE_SelectedConfigRP_r16__sl_MaxNumPerReserve_r16_n3) {
+    const int num_friv = N_subch * (N_subch + 1) * (2 * N_subch + 1) / 6;
+    if (FRIV >= num_friv)
+      return false;
     *Lsc=1;
     int prevN=0;
-    int N=N_subch;
+    int N=N_subch*N_subch;
     while (FRIV >= N) {
       *Lsc = *Lsc + 1;
       prevN = N;
@@ -136,9 +146,9 @@ static void convNRFRIV(int FRIV,
     int tmp1 = FRIV - prevN; // This holds startsc1 + startsc2*(N_subch - *Lsc + 1)
     if (startsc2) *startsc2 = tmp1 / (N_subch - *Lsc + 1);
     if (startsc) *startsc = tmp1 % (N_subch - *Lsc + 1);
-  } else {
-    AssertFatal(1 == 0, "sl_MaxNumPerReserve is configured with incorrect value");
+    return true;
   }
+  return false;
 }
 
 uint32_t nr_sci_size(const NR_SL_ResourcePool_r16_t *sl_res_pool,
@@ -300,11 +310,13 @@ void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
   nr_sl_pssch_pscch_pdu->subchannel_size = selected_resource ? selected_resource->sl_subchan_size : subch_to_rb[*sl_res_pool->sl_SubchannelSize_r16];
   //_PSCCH PSSCH TX: Size of subchannels in a PSSCH resource (l_subch)
   AssertFatal(sci_pdu->time_resource_assignment.val == 0, "need to handle a non-zero time_resource_assignment (2 or 3 time hops, N=2,3)\n");
-  convNRFRIV(sci_pdu->frequency_resource_assignment.val,
+  AssertFatal(convNRFRIV(sci_pdu->frequency_resource_assignment.val,
              nr_sl_pssch_pscch_pdu->num_subch,
              *sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16,
              &nr_sl_pssch_pscch_pdu->l_subch,
-             NULL,NULL);
+                         NULL,
+                         NULL),
+              "Invalid locally generated SCI-1A frequency resource assignment\n");
   // Number of symbols used by PSSCH, excluding AGC, guard and any PSFCH overhead.
   LOG_D(NR_MAC,"startrb %d, pscch_numsym %d, pscch_numrbs %d,pscch_dmrs_scrambling_id %d,num_subch%d,subchannel_size%d\n",
   nr_sl_pssch_pscch_pdu->startrb,
@@ -583,13 +595,16 @@ void config_pscch_pdu_rx(sl_nr_rx_config_pscch_pdu_t *nr_sl_pscch_pdu,
 
 }
 
-void extract_pscch_pdu(uint64_t *sci1_payload, int len,
+static bool extract_pscch_pdu(uint64_t *sci1_payload, int len,
 	  	       const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
                        const NR_SL_ResourcePool_r16_t *sl_res_pool,
 		       nr_sci_pdu_t *sci_pdu) {
   int pos=0,fsize;
   int sci1_size = nr_sci_size(sl_res_pool,sci_pdu,NR_SL_SCI_FORMAT_1A);
-  AssertFatal(sci1_size == len,"sci1a size %d is not the same sci_indication %d\n",sci1_size,len);
+  if (sci1_size != len) {
+    LOG_W(NR_MAC, "Ignoring SCI-1A with payload length %d; configured size is %d\n", len, sci1_size);
+    return false;
+  }
 
     // priority 3 bits
   fsize=3;
@@ -667,6 +682,7 @@ void extract_pscch_pdu(uint64_t *sci1_payload, int len,
   pos+=fsize;
   sci_pdu->conflict_information_receiver.val = *sci1_payload>>(sci1_size-pos)&((1<<fsize)-1);
   LOG_D(NR_MAC,"conflict_information (%d, %d) in pos %d, pos=%d\n",sci_pdu->conflict_information_receiver.val,sci_pdu->conflict_information_receiver.nbits,pos-fsize,pos);
+  return true;
 }
 
 int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,int cc_id,frame_t frame, int slot, sl_nr_sci_indication_pdu_t *sci,void *phy_data) {
@@ -680,21 +696,36 @@ int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,i
   LOG_D(NR_MAC,"%4d.%2d Received sci indication (sci format %d, Nid %x, subChannelIndex %d, payloadSize %d,payload %llx) pscch_rsrp %d\n",
         frame, slot, sci->sci_format_type,sci->Nid,sci->subch_index,sci->sci_payloadlen,*(unsigned long long*)sci->sci_payloadBits, sci->pscch_rsrp);
   AssertFatal(sci->sci_format_type == SL_SCI_FORMAT_1A_ON_PSCCH, "need to have format 1A here only\n");
-  extract_pscch_pdu((uint64_t *)sci->sci_payloadBits, sci->sci_payloadlen,sl_bwp, sl_res_pool, sci_pdu);
+  if (!extract_pscch_pdu((uint64_t *)sci->sci_payloadBits, sci->sci_payloadlen, sl_bwp, sl_res_pool, sci_pdu))
+    return -1;
 
   uint16_t l_subch;
-  convNRFRIV(sci_pdu->frequency_resource_assignment.val,
+  if (!convNRFRIV(sci_pdu->frequency_resource_assignment.val,
 	          *sl_res_pool->sl_NumSubchannel_r16,
 	          *sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16,
 	          &l_subch,
 	          NULL,
-	          NULL);
-  if (sci->subch_index + l_subch > *sl_res_pool->sl_NumSubchannel_r16) {
+	                NULL)) {
+    LOG_W(NR_MAC, "Ignoring invalid SCI-1A frequency resource assignment %u\n",
+          sci_pdu->frequency_resource_assignment.val);
+    return -1;
+  }
+  const uint16_t num_subchannels = *sl_res_pool->sl_NumSubchannel_r16;
+  if (sci->subch_index >= num_subchannels || l_subch > num_subchannels - sci->subch_index) {
     LOG_W(NR_MAC,
-          "SCI-1A allocation exceeds RX pool: current start %u length %u pool %ld\n",
+          "Ignoring SCI-1A allocation outside RX pool: current start %u length %u pool %u\n",
           sci->subch_index,
           l_subch,
-          *sl_res_pool->sl_NumSubchannel_r16);
+          num_subchannels);
+    return -1;
+  }
+  const NR_SL_UE_SelectedConfigRP_r16_t *selected_config = sl_res_pool->sl_UE_SelectedConfigRP_r16;
+  const bool has_reservation_period = selected_config->sl_ResourceReservePeriodList_r16
+                                      && selected_config->sl_ResourceReservePeriodList_r16->list.count > 0;
+  if (sci_pdu->resource_reservation_period.nbits > 0
+      && (!has_reservation_period
+          || sci_pdu->resource_reservation_period.val >= selected_config->sl_ResourceReservePeriodList_r16->list.count)) {
+    LOG_W(NR_MAC, "Ignoring SCI-1A reservation-period index %u\n", sci_pdu->resource_reservation_period.val);
     return -1;
   }
   sci_pdu->pssch_start_subchannel = sci->subch_index;
@@ -702,7 +733,10 @@ int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,i
   sensing_data.frame_slot.frame = frame;
   sensing_data.frame_slot.slot = slot;
   sensing_data.sl_rsrp = sci->pscch_rsrp;
-  sensing_data.rsvp = sl_mac->mac_tx_params.rri;
+  sensing_data.rsvp = 0;
+  if (has_reservation_period)
+    sensing_data.rsvp = nr_sl_rrp_to_ms(
+        selected_config->sl_ResourceReservePeriodList_r16->list.array[sci_pdu->resource_reservation_period.val]);
   sensing_data.subch_startre_tx1 = 0;
   sensing_data.subch_startre_tx2 = 0;
   sensing_data.subch_start = sci_pdu->pssch_start_subchannel;
@@ -724,6 +758,12 @@ int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,i
   rx_config.sfn = frame;
   rx_config.slot = slot;
 
+  if (sci_pdu->second_stage_sci_format != 0) {
+    LOG_W(NR_MAC,
+          "SCI-1A indicates unsupported second-stage SCI format %u; only SCI-2A is implemented\n",
+          sci_pdu->second_stage_sci_format);
+    return -1;
+  }
   nr_sci_format_t sci2_format;
   if (!get_sci2_format_from_sci1a(sci_pdu->second_stage_sci_format, &sci2_format)) {
     LOG_W(NR_MAC, "SCI-1A indicates reserved second-stage SCI format %u\n", sci_pdu->second_stage_sci_format);
@@ -783,12 +823,12 @@ void config_pssch_slsch_pdu_rx(sl_nr_rx_config_pssch_pdu_t *nr_sl_pssch_pdu,
 						nr_sl_pssch_pdu->num_layers);
   int pssch_numsym = get_num_pssch_symbols(sl_bwp, sl_res_pool, sci_pdu);
   uint16_t l_subch;
-  convNRFRIV(sci_pdu->frequency_resource_assignment.val,
+  DevAssert(convNRFRIV(sci_pdu->frequency_resource_assignment.val,
 	     *sl_res_pool->sl_NumSubchannel_r16,
 	     *sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16,
 	     &l_subch,
              NULL,
-             NULL);
+                       NULL));
   nr_sl_pssch_pdu->pssch_start_subchannel = sci_pdu->pssch_start_subchannel;
   nr_sl_pssch_pdu->pssch_num_subchannels = l_subch;
   int subchannel_size=subch_to_rb[*sl_res_pool->sl_SubchannelSize_r16];
@@ -853,12 +893,13 @@ int config_pssch_sci_pdu_rx(sl_nr_rx_config_pssch_sci_pdu_t *nr_sl_pssch_sci_pdu
   // to be used for PSSCH DMRS and PSSCH 38.211 Scrambling
   nr_sl_pssch_sci_pdu->Nid = pscch_Nid;
 
-  convNRFRIV(sci_pdu->frequency_resource_assignment.val,
+  if (!convNRFRIV(sci_pdu->frequency_resource_assignment.val,
              *sl_res_pool->sl_NumSubchannel_r16,
              *sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16,
              &nr_sl_pssch_sci_pdu->l_subch,
              NULL,
-             NULL);
+                  NULL))
+    return -1;
 
   // The current PSSCH starts in the subchannel where PSCCH was detected.
   nr_sl_pssch_sci_pdu->startrb = *sl_res_pool->sl_StartRB_Subchannel_r16
