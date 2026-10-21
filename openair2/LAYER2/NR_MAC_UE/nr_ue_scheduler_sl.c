@@ -579,6 +579,37 @@ int64_t get_feedback_abs_slot(const BIT_STRING_t *phy_sl_bitmap, size_t phy_map_
   return -1;
 }
 
+/* Offset in slots from a PSSCH slot of the RX resource pool to the PSFCH
+ * occasion that carries its feedback (TS 38.213 16.3), or -1 when the pool
+ * configures no PSFCH or the slot is outside the pool.  This is the sidelink
+ * counterpart of the DLSCH k1 and is used both to configure PSFCH reception
+ * and to hold the TX actor of the feedback slot. */
+int32_t nr_sl_psfch_feedback_offset(const NR_UE_MAC_INST_t *mac, uint64_t pssch_abs_slot)
+{
+  const SL_ResourcePool_params_t *pool = mac->SL_MAC_PARAMS->sl_RxPool[0];
+  const NR_SL_ResourcePool_r16_t *res_pool = mac->sl_rx_res_pool;
+  if (!pool || !pool->phy_sl_bitmap.buf || !res_pool || !res_pool->sl_PSFCH_Config_r16
+      || res_pool->sl_PSFCH_Config_r16->present != NR_SetupRelease_SL_PSFCH_Config_r16_PR_setup)
+    return -1;
+
+  const NR_SL_PSFCH_Config_r16_t *psfch = res_pool->sl_PSFCH_Config_r16->choice.setup;
+  const uint8_t psfch_periods[] = {0, 1, 2, 4};
+  const uint8_t psfch_time_gaps[] = {2, 3};
+  const uint8_t period = psfch->sl_PSFCH_Period_r16 ? psfch_periods[*psfch->sl_PSFCH_Period_r16] : 0;
+  const uint8_t min_time_gap = psfch->sl_MinTimeGapPSFCH_r16 ? psfch_time_gaps[*psfch->sl_MinTimeGapPSFCH_r16] : 2;
+  if (period == 0)
+    return -1;
+
+  const size_t map_size = (pool->phy_sl_bitmap.size << 3) - pool->phy_sl_bitmap.bits_unused;
+  if (sl_psfch_pssch_slot_index(&pool->phy_sl_bitmap, map_size, pssch_abs_slot, min_time_gap, period) < 0)
+    return -1;
+  const int64_t feedback_abs_slot =
+      get_feedback_abs_slot(&pool->phy_sl_bitmap, map_size, pssch_abs_slot, min_time_gap, period);
+  if (feedback_abs_slot < 0)
+    return -1;
+  return (int32_t)(feedback_abs_slot - pssch_abs_slot);
+}
+
 /* Returns the ordinal position (0-based) of the PSSCH slot within the group of
  * psfch_period consecutive PSSCH slots associated with one PSFCH occasion.
  * The group phase depends on sl-MinTimeGapPSFCH. */
@@ -796,11 +827,6 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
     return is_resource_allocated;
   }
 
-  /* PSFCH indications run on the RX path and transition HARQ processes out of
-   * feedback_sl_harq under this lock.  Keep preprocessing, HARQ selection and
-   * grant construction in one transaction so RX cannot release a process
-   * between reading its state and removing it from a list. */
-  NR_UE_SL_SCHED_LOCK(&mac->sl_sched_lock);
   preprocess(mac,
              frame,
              slot,
@@ -1290,7 +1316,6 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
      * leaving only the last transport block available to PHY. */
     break;
   }
-  NR_UE_SL_SCHED_UNLOCK(&mac->sl_sched_lock);
   return is_resource_allocated;
 }
 
@@ -1585,14 +1610,6 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
                        || sched_ctrl->retrans_sl_harq.len > 0
                        || sched_ctrl->feedback_sl_harq.len > 0;
   }
-  /* Track whether the main block refreshes the window this slot.  The
-   * c1/c4/c5/c7 proactive-reselection block must not issue a second
-   * get_candidate_resources() call on the same slot: it would orphan the
-   * freshly-computed window and overwrite mac->sl_candidate_resources with an
-   * identical (but separate) allocation, causing a memory leak and making the
-   * resource pointer obtained below dangle relative to the pointer stored in
-   * mac->sl_candidate_resources. */
-  bool window_refreshed_this_slot = false;
   if (sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX && backlog_pending
       && (!mac->sl_candidate_resources
           || !has_current_or_future_candidate(mac->sl_candidate_resources, tx_frame_slot, mu))) {
@@ -1603,48 +1620,9 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
     List_t *new_resources =
         get_candidate_resources(&selection_frame_slot, mac, &mac->sl_sensing_data, &mac->sl_transmit_history);
     replace_candidate_resources(mac, new_resources);
-    window_refreshed_this_slot = true;
   }
 
-  nr_sl_transmission_params_t *sl_tx_params = &sl_mac->mac_tx_params;
-  uint16_t p_prime_rsvp_tx = time_to_slots(mu, sl_tx_params->resel_counter);
-  static int8_t is_rsrc_selected = false;
-
-  if (mac->rsc_selection_method == c1 ||
-      mac->rsc_selection_method == c4 ||
-      mac->rsc_selection_method == c5 ||
-      mac->rsc_selection_method == c7) {
-    LOG_D(NR_MAC, "%4d.%2d is_rsrc_selected %d, reselection_timer %d, p_prime_rsvp_tx %d, slot_type %d\n",
-          frame, slot, is_rsrc_selected, mac->reselection_timer, p_prime_rsvp_tx, sl_ind->slot_type);
-    if(is_rsrc_selected && (sl_ind->slot_type == 2) && (mac->reselection_timer < p_prime_rsvp_tx)) {
-      mac->reselection_timer++;
-    } else if (sl_ind->slot_type == 2) {
-      if (mac->reselection_timer < p_prime_rsvp_tx) {
-        if (!window_refreshed_this_slot) {
-          /* Proactive reselection: refresh the window to potentially find better
-           * resources.  Skip if the main block just computed a fresh window on
-           * this same slot -- reusing it avoids a redundant allocation and keeps
-           * mac->sl_candidate_resources consistent with the resource pointer
-           * resolved below. */
-          List_t *new_resources =
-              get_candidate_resources(&selection_frame_slot, mac, &mac->sl_sensing_data, &mac->sl_transmit_history);
-          if (new_resources) {
-            replace_candidate_resources(mac, new_resources);
-            LOG_D(NR_MAC, "%4d.%2d Returned resources %p\n", frame, slot, mac->sl_candidate_resources);
-            print_candidate_list(mac->sl_candidate_resources, __LINE__);
-          }
-        }
-        is_rsrc_selected = true;
-      } else {
-        mac->reselection_timer = 0;
-        is_rsrc_selected = false;
-      }
-    }
-  }
-
-  /* Resolve the current resource only after every possible window refresh.
-   * This keeps the pointer within the live list when proactive reselection
-   * replaces the previous allocation. */
+  /* Resolve the current resource after refreshing the candidate window. */
   sl_resource_info_t *resource = NULL;
   if (mac->sl_candidate_resources && mac->sl_candidate_resources->size > 0
       && sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX) {
@@ -1724,11 +1702,6 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
        * it must be called here, at the PSFCH occasion slot, not from the SCI-2
        * handler (which runs at PSSCH time and always finds 0 matching HARQs). */
       if (feedback_slot_has_psfch && psfch_period > 0) {
-        /* TX scheduling and decoded-PSFCH callbacks use sl_sched_lock too.
-         * Protect the feedback-list lookup and RX PDU snapshot as one
-         * transaction so the look-ahead TX worker cannot change the matched
-         * HARQ while its PSFCH receiver configuration is being constructed. */
-        NR_UE_SL_SCHED_LOCK(&mac->sl_sched_lock);
         NR_SL_UEs_t *UE_info = &mac->sl_info;
         SL_UE_iterator(UE_info->list, UE) {
           NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
@@ -1751,7 +1724,6 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
             break;
           }
         }
-        NR_UE_SL_SCHED_UNLOCK(&mac->sl_sched_lock);
       }
       mac->sl_prev_rx_frame = frame;
       mac->sl_prev_rx_slot = slot;

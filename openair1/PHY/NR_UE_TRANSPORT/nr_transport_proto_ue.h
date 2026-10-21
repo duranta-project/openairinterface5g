@@ -368,7 +368,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
                  int rxFSz,
                  c16_t rxdataF[][rxFSz],
 		 int16_t *llrs,
-                 uint8_t ulsch_id,
+                 uint8_t pssch_id,
                  uint32_t frame,
                  uint8_t slot,
                  unsigned char harq_pid);

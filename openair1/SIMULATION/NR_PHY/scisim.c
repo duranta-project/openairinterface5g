@@ -65,11 +65,10 @@
 int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
                         int frame_rx,
                         int slot_rx,
-                        int SLSCH_id,
                         const UE_nr_rxtx_proc_t *proc,
                         nr_phy_data_t *phy_data,
-                        const sl_nr_psfch_pdu_t *rx_psfch,
-                        bool *psfch_indicated);
+                        bool dtx,
+                        const sl_nr_psfch_pdu_t *rx_psfch);
 
 //////////////////// link stubs (as in psbchsim.c) ////////////////////
 void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req) { abort(); }
@@ -426,18 +425,16 @@ int main(int argc, char **argv)
   rx_slsch->rv_index       = rv_index;
   rx_slsch->ndi            = ndi;
 
-  // let the SLSCH RX know which SCI PDU describes this PSSCH (mirrors production)
-  UE_RX->slsch[0].harq_process->pssch_pdu = rx_sci;
-
   // nr_rx_pssch writes LLRs into the buffer passed as 'llrs';
-  // nr_slsch_procedures later decodes from ue->pssch_vars[0].llr, so use it here.
-  int16_t *llrs = UE_RX->pssch_vars[0].llr;
+  // nr_slsch_procedures later decodes from the same per-actor scratch.
+  const int pssch_id = slot % UE_RX->pssch_num_actors;
+  int16_t *llrs = UE_RX->pssch_vars[pssch_id].llr;
 
-  nr_rx_pssch(UE_RX, &proc, &phy_data_rx, rxFSz, rxdataF, llrs, 0, frame, slot, harq_pid);
+  nr_rx_pssch(UE_RX, &proc, &phy_data_rx, rxFSz, rxdataF, llrs, pssch_id, frame, slot, harq_pid);
 
-  int nbDecode = nr_slsch_procedures(UE_RX, frame, slot, 0, &proc, &phy_data_rx, NULL, NULL);
+  int nbDecode = nr_slsch_procedures(UE_RX, frame, slot, &proc, &phy_data_rx, false, NULL);
 
-  uint8_t *b_rx = UE_RX->slsch[0].harq_process->b;
+  uint8_t *b_rx = UE_RX->slsch[harq_pid].harq_process->b;
   int tb_match = (memcmp(b_rx, tb_ref, tb_size) == 0);
 
   // SCI-2 TX vs RX comparison (the SCI-2 indication is delivered regardless of CRC,

@@ -411,8 +411,6 @@ void processSlotTX(void *arg)
         UE->if_inst->sl_indication(&sl_indication);
         stop_meas(&UE->ue_ul_indication_stats);
       }
-      dynamic_barrier_join(rxtxD->next_barrier);
-
       if (phy_data.sl_tx_action)
         AssertFatal((phy_data.sl_tx_action >= SL_NR_CONFIG_TYPE_TX_PSBCH &&
                      phy_data.sl_tx_action < SL_NR_CONFIG_TYPE_TX_MAXIMUM), "Incorrect SL TX Action Scheduled\n");
@@ -450,6 +448,8 @@ void processSlotTX(void *arg)
   // calling phy_procedures_nrUE_SL_TX() above, whose OFDM modulator zeros this
   // slot's txData when no channel is scheduled.
   RU_write(rxtxD, sl_tx_action, txp);
+  if (UE->sl_mode == 2 && proc->tx_slot_type == NR_SIDELINK_SLOT)
+    dynamic_barrier_join(rxtxD->next_barrier);
   TracyCZoneEnd(ctx);
 }
 
@@ -530,7 +530,8 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
                                const UE_nr_rxtx_proc_t *proc,
                                int *tx_wait_for_dlsch,
                                nr_phy_data_t *phy_data,
-                               bool *stats_printed)
+                               bool *stats_printed,
+                               bool *sl_stats_printed)
 {
   TracyCZone(ctx, true);
   int sampleShift = INT_MAX;
@@ -593,6 +594,7 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
   if (UE->sl_mode == 2) {
     if (proc->rx_slot_type == NR_SIDELINK_SLOT) {
       phy_data->sl_rx_action = 0;
+      nr_sl_print_phy_stats(UE, proc->frame_rx, proc->nr_slot_rx, sl_stats_printed);
       if (UE->if_inst != NULL && UE->if_inst->sl_indication != NULL) {
         nr_sidelink_indication_t sl_indication;
         nr_fill_sl_indication(&sl_indication, NULL, NULL, proc, UE, phy_data);
@@ -605,7 +607,21 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
         AssertFatal((phy_data->sl_rx_action >= SL_NR_CONFIG_TYPE_RX_PSBCH &&
                      phy_data->sl_rx_action < SL_NR_CONFIG_TYPE_RX_MAXIMUM), "Incorrect SL RX Action Scheduled\n");
 
-        sampleShift = psbch_pscch_pssch_processing(UE, proc, phy_data);
+        start_meas(&UE->SL_UE_PHY_PARAMS.phy_proc_sl_rx);
+        sampleShift = psbch_processing(UE, proc, phy_data);
+        psfch_processing(UE, proc, phy_data);
+        pscch_processing(UE, proc, phy_data);
+
+        /* A decoded SCI-1A replaces the action with the PSSCH reception it
+         * grants, so the feedback timing is only known once PSCCH is done. */
+        if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SCI) {
+          // as for the DLSCH, indicate to the tx thread to wait for the decoding
+          // of this PSSCH before it answers with PSFCH
+          const int feedback_slot = nr_sl_psfch_feedback_abs_slot(phy_data, proc, fp->slots_per_frame);
+          if (feedback_slot >= 0)
+            tx_wait_for_dlsch[feedback_slot % fp->slots_per_frame]++;
+        }
+        stop_meas(&UE->SL_UE_PHY_PARAMS.phy_proc_sl_rx);
       }
     }
   } else
@@ -622,7 +638,9 @@ void UE_dl_processing(void *arg) {
   PHY_VARS_NR_UE    *UE   = rxtxD->UE;
   nr_phy_data_t *phy_data = &rxtxD->phy_data;
 
-  if (!UE->sl_mode)
+  if (UE->sl_mode == 2)
+    pssch_processing(UE, proc, phy_data);
+  else
     pdsch_processing(UE, proc, phy_data);
 
   TracyCZoneEnd(ctx);
@@ -800,6 +818,7 @@ void *UE_thread(void *arg)
   int intialSyncOffset = 0;
   openair0_timestamp_t sync_timestamp;
   bool stats_printed = false;
+  bool sl_stats_printed = false;
 
   if (get_softmodem_params()->sync_ref && UE->sl_mode == 2) {
     UE->is_synchronized = 1;
@@ -1100,7 +1119,7 @@ void *UE_thread(void *arg)
     notifiedFIFO_elt_t *newRx = newNotifiedFIFO_elt(sizeof(nr_rxtx_thread_data_t), curMsg.proc.nr_slot_tx, NULL, UE_dl_processing);
     nr_rxtx_thread_data_t *curMsgRx = (nr_rxtx_thread_data_t *)NotifiedFifoData(newRx);
     *curMsgRx = (nr_rxtx_thread_data_t){.proc = curMsg.proc, .UE = UE};
-    int ret = UE_dl_preprocessing(UE, &curMsgRx->proc, tx_wait_for_dlsch, &curMsgRx->phy_data, &stats_printed);
+    int ret = UE_dl_preprocessing(UE, &curMsgRx->proc, tx_wait_for_dlsch, &curMsgRx->phy_data, &stats_printed, &sl_stats_printed);
     if (ret != INT_MAX)
       shiftForNextFrame = ret;
     if (get_nrUE_params()->num_dl_actors > 0) {

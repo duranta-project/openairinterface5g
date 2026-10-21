@@ -472,6 +472,8 @@ typedef struct PHY_VARS_NR_UE_s {
   int max_nb_slsch;
   // we use the gNB ULSCH context for SLSCH reception
   struct NR_gNB_ULSCH_s *slsch;
+  /// PSSCH demodulation scratch, one per DL actor as for the PDSCH
+  int pssch_num_actors;
   struct NR_gNB_PUSCH_s *pssch_vars;
   int pscch_dmrs_gold_init;
   /// PDCCH DMRS for TX

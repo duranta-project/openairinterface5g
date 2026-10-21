@@ -581,7 +581,6 @@ typedef struct {
 
   NR_SL_UE_info_t *list[MAX_SL_UE_CONNECTIONS+1];
   uid_allocator_t ue_allocator;
-  pthread_mutex_t mutex;
 } NR_SL_UEs_t;
 
 typedef struct {
@@ -869,14 +868,14 @@ typedef struct NR_UE_MAC_INST_s {
     // SIDELINK Scheduling fields
   NR_SL_UEs_t sl_info;
 
-  //  current SCI pdu build from SCI1 and SCI2
+  // Received SCI PDU, built from SCI-1 on PSCCH and completed by SCI-2 on PSSCH.
   nr_sci_pdu_t sci_pdu_rx;
+
   nr_sci_pdu_t sci1_pdu;
   nr_sci_pdu_t sci2_pdu;
   uint8_t slsch_payload[16384];
   time_stats_t rlc_data_req;
   int src_id;
-  pthread_mutex_t sl_sched_lock;
   bool is_synced;
 
   allowed_rsc_selection_t rsc_selection_method; // Flag to enable NR Sidelink resource selection based on

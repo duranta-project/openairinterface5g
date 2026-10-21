@@ -746,33 +746,18 @@ int nr_ue_sl_acknack_scheduling(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx
                                 long psfch_period, uint16_t frame, uint16_t slot, const int nr_slots_frame) {
   // TODO: needs to be updated for multi-subchannels
   int psfch_frame, psfch_slot;
-  sl_nr_ue_mac_params_t *sl_mac =  mac->SL_MAC_PARAMS;
   /* Derive feedback slot by walking the physical SL bitmap -- independent of TDD layout */
-  uint8_t pool_id = 0;
-  SL_ResourcePool_params_t *sl_rx_rsrc_pool = sl_mac->sl_RxPool[pool_id];
-  size_t phy_map_sz = (sl_rx_rsrc_pool->phy_sl_bitmap.size << 3) - sl_rx_rsrc_pool->phy_sl_bitmap.bits_unused;
-  NR_SL_PSFCH_Config_r16_t *local_psfch_cfg = mac->sl_rx_res_pool->sl_PSFCH_Config_r16->choice.setup;
-  const uint8_t psfch_time_gaps[] = {2, 3};
-  uint8_t min_tg = local_psfch_cfg->sl_MinTimeGapPSFCH_r16
-                       ? psfch_time_gaps[*local_psfch_cfg->sl_MinTimeGapPSFCH_r16] : 2;
-  uint64_t tx_abs = (uint64_t)frame * nr_slots_frame + slot;
-  if (sl_psfch_pssch_slot_index(&sl_rx_rsrc_pool->phy_sl_bitmap,
-                                phy_map_sz,
-                                tx_abs,
-                                min_tg,
-                                (uint8_t)psfch_period) < 0) {
-    LOG_E(NR_MAC,
-          "PSSCH %4u.%2u is outside the local RX resource pool; not scheduling PSFCH\n",
+  const uint64_t tx_abs = (uint64_t)frame * nr_slots_frame + slot;
+  const int32_t fb_offset = nr_sl_psfch_feedback_offset(mac, tx_abs);
+  if (fb_offset < 0) {
+    LOG_W(NR_MAC,
+          "No PSFCH occasion for PSSCH %4u.%2u psfch_period %ld; not scheduling PSFCH\n",
           frame,
-          slot);
+          slot,
+          psfch_period);
     return -1;
   }
-  int64_t fb_abs = get_feedback_abs_slot(&sl_rx_rsrc_pool->phy_sl_bitmap, phy_map_sz,
-                                         tx_abs, min_tg, (uint8_t)psfch_period);
-  if (fb_abs < 0) {
-    LOG_W(NR_MAC, "No PSFCH slot found for tx %4d.%2d psfch_period %ld\n", frame, slot, psfch_period);
-    return -1;
-  }
+  const int64_t fb_abs = (int64_t)tx_abs + fb_offset;
   psfch_frame = (int)((fb_abs / nr_slots_frame) % 1024);
   psfch_slot = (int)(fb_abs % nr_slots_frame);
 

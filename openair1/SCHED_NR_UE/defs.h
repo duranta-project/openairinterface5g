@@ -132,7 +132,12 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
 
 void trs_freq_correction(PHY_VARS_NR_UE *ue, int cfo);
 
-int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
+void nr_sl_print_phy_stats(PHY_VARS_NR_UE *ue, int frame_rx, int nr_slot_rx, bool *stats_printed);
+int psbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
+void pscch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
+void psfch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
+void pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
+int nr_sl_psfch_feedback_abs_slot(const nr_phy_data_t *phy_data, const UE_nr_rxtx_proc_t *proc, int slots_per_frame);
 void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_tx_t *phy_data, c16_t **txp);
 /*! \brief This function prepares the sl indication to pass to the MAC
  */

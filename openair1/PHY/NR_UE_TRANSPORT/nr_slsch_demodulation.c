@@ -562,7 +562,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
                  int rxFSz,
                  c16_t rxdataF[][rxFSz],
 		 int16_t *llrs,
-                 uint8_t ulsch_id,
+                 uint8_t pssch_id,
                  uint32_t frame,
                  uint8_t slot,
                  unsigned char harq_pid)
@@ -573,8 +573,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
   int avgs = 0;
 
   NR_DL_FRAME_PARMS *frame_parms = &ue->SL_UE_PHY_PARAMS.sl_frame_params;
-  NR_gNB_ULSCH_t *ulsch = &ue->slsch[ulsch_id];
-  sl_nr_rx_config_pssch_sci_pdu_t *pssch_pdu = ulsch->harq_process->pssch_pdu;
+  sl_nr_rx_config_pssch_sci_pdu_t *pssch_pdu = &phy_data->nr_sl_pssch_sci_pdu;
   uint32_t nrOfLayers = pssch_pdu->num_layers;
   uint32_t rb_start = pssch_pdu->startrb;
   uint32_t bwp_start = 0;
@@ -629,7 +628,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
                            pssch_pdu->num_layers);
 
   int avg[frame_parms->nb_antennas_rx*nrOfLayers];
-  NR_gNB_PUSCH *pusch_vars = &ue->pssch_vars[ulsch_id];
+  NR_gNB_PUSCH *pusch_vars = &ue->pssch_vars[pssch_id];
   int dmrs_symbol = INVALID_VALUE;
   int cl_done = 0;
 
@@ -663,7 +662,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
                                     slot,
                                     dmrs_port,
                                     symbol,
-                                    ulsch_id,
+                                    pssch_id,
                                     bwp_start_subcarrier,
                                     pssch_pdu,
                                     &max_ch,

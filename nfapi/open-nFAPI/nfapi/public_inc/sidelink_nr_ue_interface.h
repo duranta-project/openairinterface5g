@@ -213,6 +213,11 @@ typedef struct sl_nr_rx_config_pssch_sci_pdu {
   // is triggred as part of TX pool sensing procedure.
   uint8_t sense_pssch;
 
+  // Offset in slots from this PSSCH slot to the PSFCH occasion that carries
+  // its feedback, or -1 when the pool configures no PSFCH. Plays the same role
+  // as k1_feedback does for the DLSCH.
+  int32_t psfch_feedback_slot_offset;
+
 } sl_nr_rx_config_pssch_sci_pdu_t;
 
 typedef struct sl_nr_rx_config_pssch_pdu {

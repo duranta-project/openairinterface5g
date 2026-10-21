@@ -113,6 +113,7 @@ static sl_nr_psfch_pdu_t nr_decode_psfch(
   NR_DL_FRAME_PARMS *fp = &ue->SL_UE_PHY_PARAMS.sl_frame_params;
   sl_nr_psfch_pdu_t rx_psfch = {.num_results = phy_data->num_psfch_pdus};
   rx_psfch.results = calloc(rx_psfch.num_results, sizeof(*rx_psfch.results));
+  bool symbol_demodulated[NR_SYMBOLS_PER_SLOT] = {false};
 
   LOG_D(NR_PHY,
         "%4d.%2d PSFCH RX: processing %u HARQ feedback resource(s)\n",
@@ -121,6 +122,7 @@ static sl_nr_psfch_pdu_t nr_decode_psfch(
         rx_psfch.num_results);
   for (int k = 0; k < rx_psfch.num_results; k++) {
     sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu = &phy_data->psfch_pdu_list[k];
+    if (!symbol_demodulated[psfch_pdu->start_symbol_index]) {
     nr_slot_fep(ue,
                 fp,
                 proc->nr_slot_rx,
@@ -129,6 +131,8 @@ static sl_nr_psfch_pdu_t nr_decode_psfch(
                 link_type_sl,
                 0,
                 ue->common_vars.rxdata);
+      symbol_demodulated[psfch_pdu->start_symbol_index] = true;
+    }
     sl_nr_psfch_result_t *result = &rx_psfch.results[k];
     result->peer_id = psfch_pdu->peer_id;
     result->harq_pid = psfch_pdu->harq_pid;
@@ -267,43 +271,18 @@ static int nr_psbch_process(PHY_VARS_NR_UE *ue,
 
 
 extern int dmrs_pscch_mask[2];
-static int find_slsch_rx_process(PHY_VARS_NR_UE *ue, const sl_nr_rx_config_pssch_pdu_t *slsch_pdu)
+
+/* TS 38.321 5.22.2.2.1 identifies a receiving sidelink process by the sidelink
+ * identification information and the sidelink process ID carried in SCI-2.  The
+ * process ID indexes the RX contexts directly, as harq_process_nbr does for the
+ * DL-SCH; a process ID reused by another sidelink identity starts a new TB. */
+static NR_UL_gNB_HARQ_t *nr_sl_rx_harq_process(PHY_VARS_NR_UE *ue, const sl_nr_rx_config_pssch_pdu_t *slsch_pdu)
 {
-  int free_id = -1;
-  int completed_id = -1;
-  for (int i = 0; i < ue->max_nb_slsch; i++) {
-    NR_UL_gNB_HARQ_t *harq = ue->slsch[i].harq_process;
-    if (!harq->sl_identity_valid) {
-      if (free_id < 0)
-        free_id = i;
-      continue;
-    }
-    if (harq->sl_source_id == slsch_pdu->source_id && harq->sl_dest_id == slsch_pdu->dest_id
-        && harq->sl_cast_type == slsch_pdu->cast_type && harq->sl_process_id == slsch_pdu->harq_pid)
-      return i;
+  NR_UL_gNB_HARQ_t *harq = ue->slsch[slsch_pdu->harq_pid].harq_process;
+  if (harq->sl_identity_valid && harq->sl_source_id == slsch_pdu->source_id && harq->sl_dest_id == slsch_pdu->dest_id
+      && harq->sl_cast_type == slsch_pdu->cast_type)
+    return harq;
 
-    // A successfully decoded entry no longer needs its LDPC combining state.
-    // Remember one as a fallback, but prefer a never-used entry and never
-    // replace an entry whose transport block is still awaiting successful decode.
-    if (harq->tb_decoded && completed_id < 0)
-      completed_id = i;
-  }
-
-  const int selected_id = free_id >= 0 ? free_id : completed_id;
-  if (selected_id < 0) {
-    LOG_W(NR_PHY,
-          "No reusable SLSCH RX process for SRC=%u DST=%u cast=%u PID=%u\n",
-          slsch_pdu->source_id,
-          slsch_pdu->dest_id,
-          slsch_pdu->cast_type,
-          slsch_pdu->harq_pid);
-    return -1;
-  }
-
-  if (free_id < 0)
-    LOG_D(NR_PHY, "Reusing completed SLSCH RX process %d for a new sidelink identity\n", selected_id);
-
-  NR_UL_gNB_HARQ_t *harq = ue->slsch[selected_id].harq_process;
   harq->sl_identity_valid = true;
   harq->sl_source_id = slsch_pdu->source_id;
   harq->sl_dest_id = slsch_pdu->dest_id;
@@ -312,38 +291,34 @@ static int find_slsch_rx_process(PHY_VARS_NR_UE *ue, const sl_nr_rx_config_pssch
   harq->last_ndi = 0xff;
   harq->tb_decoded = false;
   harq->harq_to_be_cleared = true;
-  return selected_id;
+  return harq;
 }
 
 int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
                         int frame_rx,
                         int slot_rx,
-                        int SLSCH_id,
                         const UE_nr_rxtx_proc_t *proc,
                         nr_phy_data_t *phy_data,
-                        int8_t *ack_nack_rcvd,
-                        int num_acks,
+                        bool dtx,
                         const sl_nr_psfch_pdu_t *rx_psfch) {
 
 
   sl_nr_ue_phy_params_t *sl_phy_params = &ue->SL_UE_PHY_PARAMS;
   NR_DL_FRAME_PARMS *fp = &sl_phy_params->sl_frame_params;
-  sl_nr_rx_config_pssch_pdu_t *slsch_pdu = &phy_data->nr_sl_pssch_pdu; //ue->slsch[SLSCH_id].harq_process->slsch_pdu;
-  sl_nr_rx_config_pssch_sci_pdu_t *pssch_pdu = &phy_data->nr_sl_pssch_sci_pdu; //ue->slsch[SLSCH_id].harq_process->pssch_pdu;
+  sl_nr_rx_config_pssch_pdu_t *slsch_pdu = &phy_data->nr_sl_pssch_pdu;
+    sl_nr_rx_config_pssch_sci_pdu_t *pssch_pdu = &phy_data->nr_sl_pssch_sci_pdu;
 
-  // TS 38.321 5.22.2.2.1 associates an RX sidelink process with the
-  // sidelink identification information and sidelink process ID in SCI.
-  // The caller-provided ID is only a hint from the SCI HARQ PID; select the
-  // actual local RX process using the complete association key.
-  SLSCH_id = find_slsch_rx_process(ue, slsch_pdu);
-  if (SLSCH_id < 0)
+  if (slsch_pdu->harq_pid >= ue->max_nb_slsch) {
+    LOG_W(NR_PHY, "Ignoring SLSCH with out-of-range sidelink process ID %u\n", slsch_pdu->harq_pid);
     return 0;
+  }
 
+  const int SLSCH_id = slsch_pdu->harq_pid;
   int harq_pid = slsch_pdu->harq_pid;
   uint16_t nb_re_dmrs;
   uint16_t start_symbol = 1;
   uint16_t number_symbols = pssch_pdu->pssch_numsym;
-  NR_UL_gNB_HARQ_t *harq_process = ue->slsch[SLSCH_id].harq_process;
+  NR_UL_gNB_HARQ_t *harq_process = nr_sl_rx_harq_process(ue, slsch_pdu);
   // TS 38.321 5.22.2.2.1: toggled NDI, or the first transmission for this
   // sidelink identification information and process ID, identifies a new TB.
   const bool new_tb = harq_process->last_ndi == 0xff || harq_process->last_ndi != slsch_pdu->ndi;
@@ -444,10 +419,10 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
   // produced a valid TB. MAC applies the TS 38.321 receiving-process rules to
   // NDI and suppresses duplicate delivery while still generating feedback.
   int nbDecode = harq_process->C;
-  if (!previously_decoded) {
+  if (!previously_decoded && !dtx) {
     nbDecode = nr_slsch_decoding(ue,
                                  SLSCH_id,
-                                 ue->pssch_vars[0].llr,
+                                 ue->pssch_vars[proc->nr_slot_rx % ue->pssch_num_actors].llr,
                                  fp,
                                  &pusch_pdu,
                                  frame_rx,
@@ -458,7 +433,7 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
                                  phy_data);
   }
 
-  const bool decode_ok = harq_process->C > 0 && nbDecode == harq_process->C;
+  const bool decode_ok = previously_decoded || (!dtx && harq_process->C > 0 && nbDecode == harq_process->C);
   if (decode_ok) {
     harq_process->round = 0;
     harq_process->tb_decoded = true;
@@ -480,11 +455,6 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
         previously_decoded ? " (previously decoded HARQ TB)" : "");
   sl_rx_indication.sfn = proc->frame_rx;
   sl_rx_indication.slot = proc->nr_slot_rx;
-  sl_rx_indication.rx_indication_body[0].rx_slsch_pdu.ack_nack_rcvd = (uint8_t*)calloc(num_acks, sizeof(uint8_t));
-  if (ack_nack_rcvd)
-    memcpy(sl_rx_indication.rx_indication_body[0].rx_slsch_pdu.ack_nack_rcvd, ack_nack_rcvd,
-         num_acks * sizeof(uint8_t));
-  sl_rx_indication.rx_indication_body[0].rx_slsch_pdu.num_acks_rcvd = num_acks;
   /* PSFCH has its own indication and must not be correlated through this
    * received SL-SCH PDU's source ID. */
   uint8_t pdu_type = SL_NR_RX_PDU_TYPE_SLSCH;
@@ -513,32 +483,20 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
   return nbDecode;
 }
 
-int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data)
+/* Periodic sidelink PHY counters.  Printed from the UE main thread, next to
+ * the normal UE MAC statistics, so the counters are read in one place. */
+void nr_sl_print_phy_stats(PHY_VARS_NR_UE *ue, int frame_rx, int nr_slot_rx, bool *stats_printed)
 {
-  int frame_rx = proc->frame_rx;
-  int nr_slot_rx = proc->nr_slot_rx;
   sl_nr_ue_phy_params_t *sl_phy_params = &ue->SL_UE_PHY_PARAMS;
-  NR_DL_FRAME_PARMS *fp = &sl_phy_params->sl_frame_params;
-  int8_t *ack_nack_rcvd = NULL;
 
-  int sampleShift = INT_MAX;
+  if ((frame_rx & 127) != 0) {
+    *stats_printed = false;
+    return;
+  }
+  if (*stats_printed)
+    return;
+  *stats_printed = true;
 
-  start_meas(&sl_phy_params->phy_proc_sl_rx);
-  
-  LOG_D(NR_PHY, " ****** Sidelink RX-Chain for Frame.Slot %d.%d ******  \n", frame_rx % 1024, nr_slot_rx);
-
-  const uint32_t rxdataF_sz = fp->samples_per_slot_wCP;
-  __attribute__((aligned(32))) c16_t rxdataF[fp->nb_antennas_rx][rxdataF_sz];
-  /* The slot normally enters as RX_PSSCH_SCI and is upgraded synchronously by
-   * the SCI-2 indication callback.  Latch PSFCH presence when it is actually
-   * decoded, not from the action present at function entry. */
-  bool decoded_combined_psfch = false;
-  bool psfch_bundled_with_slsch = false;
-  const bool monitor_pscch_and_psfch = phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSCCH_PSFCH;
-  sl_nr_psfch_pdu_t decoded_psfch = {0};
-
-  static bool show_once = true;
-  if ((frame_rx&127) == 0 && show_once) {
       LOG_I(NR_PHY,"============================================\n");
 
       LOG_A(NR_PHY,"[UE%d] %d:%d PSBCH Stats: TX %u, RX ok %u, RX not ok %u\n",
@@ -570,12 +528,21 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
                                                       sl_phy_params->psfch.num_psfch_tx
                                                       );
       LOG_I(NR_PHY,"============================================\n");
-      show_once = false;
-  } else if ((frame_rx & 127) != 0) {
-    show_once = true;
   }
     
-  if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSBCH) {
+/* Sidelink counterpart of pbch_processing(). */
+int psbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data)
+{
+  if (phy_data->sl_rx_action != SL_NR_CONFIG_TYPE_RX_PSBCH)
+    return INT_MAX;
+
+  int sampleShift = INT_MAX;
+  const int frame_rx = proc->frame_rx;
+  const int nr_slot_rx = proc->nr_slot_rx;
+  NR_DL_FRAME_PARMS *fp = &ue->SL_UE_PHY_PARAMS.sl_frame_params;
+  const uint32_t rxdataF_sz = fp->samples_per_slot_wCP;
+  __attribute__((aligned(32))) c16_t rxdataF[fp->nb_antennas_rx][rxdataF_sz];
+
     LOG_D(NR_PHY, " ----- PSBCH RX TTI: frame.slot %d.%d ------  \n", frame_rx % 1024, nr_slot_rx);
 
     __attribute__((aligned(32))) struct complex16 dl_ch_estimates_time[fp->nb_antennas_rx][fp->ofdm_symbol_size];
@@ -594,10 +561,20 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
       sampleShift =
           nr_psbch_process(ue, phy_data, proc, sym, rxdataF_symb, &e_rx_offset, psbch_e_rx, psbch_unClippled, dl_ch_estimates_time);
     }
+
+  return sampleShift;
   }
 
-  else if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSCCH
-           || phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSCCH_PSFCH) {
+/* Sidelink counterpart of pdcch_processing(): decodes SCI-1A, which the MAC
+ * callback answers with the PSSCH reception request for this slot. */
+void pscch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data)
+{
+  if (phy_data->sl_rx_action != SL_NR_CONFIG_TYPE_RX_PSCCH
+      && phy_data->sl_rx_action != SL_NR_CONFIG_TYPE_RX_PSCCH_PSFCH)
+    return;
+
+  NR_DL_FRAME_PARMS *fp = &ue->SL_UE_PHY_PARAMS.sl_frame_params;
+
     const sl_nr_rx_config_pscch_pdu_t *pscch_pdu = &phy_data->nr_sl_pscch_pdu;
     LOG_D(NR_PHY,"pscch_numsym = %d\n",phy_data->nr_sl_pscch_pdu.pscch_numsym);
     LOG_D(NR_PHY,"pscch_startrb = %d\n",phy_data->nr_sl_pscch_pdu.pscch_startrb);
@@ -643,29 +620,69 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
     pdcch_processing(ue, proc, phy_data,1);
 
     LOG_D(NR_PHY,"returned from pscch processing\n");
-  }
-  if (monitor_pscch_and_psfch && phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSCCH_PSFCH) {
-    /* No SCI was detected, but feedback reception is still required. */
-    decoded_psfch = nr_decode_psfch(ue, proc, phy_data, rxdataF);
-    free(phy_data->psfch_pdu_list);
-    phy_data->psfch_pdu_list = NULL;
-    phy_data->num_psfch_pdus = 0;
-    nr_indicate_psfch(ue, proc, phy_data, &decoded_psfch);
-    free(decoded_psfch.results);
-    decoded_psfch = (sl_nr_psfch_pdu_t){0};
-  }
-  if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSFCH) {
-    decoded_psfch = nr_decode_psfch(ue, proc, phy_data, rxdataF);
-    free(phy_data->psfch_pdu_list);
-    phy_data->psfch_pdu_list = NULL;
-    phy_data->num_psfch_pdus = 0;
-    nr_indicate_psfch(ue, proc, phy_data, &decoded_psfch);
-    free(decoded_psfch.results);
-    decoded_psfch = (sl_nr_psfch_pdu_t){0};
+
   }
 
-  if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SCI || phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH
-      || phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH) {
+/* HARQ feedback for PSSCH this UE transmitted.  A PSCCH occasion that also
+ * carries PSFCH keeps its action when no SCI was decoded; the PSFCH of a slot
+ * that also carries PSSCH is decoded together with it. */
+void psfch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data)
+{
+  if (phy_data->sl_rx_action != SL_NR_CONFIG_TYPE_RX_PSFCH
+      && phy_data->sl_rx_action != SL_NR_CONFIG_TYPE_RX_PSCCH_PSFCH)
+    return;
+  if (phy_data->psfch_pdu_list == NULL || phy_data->num_psfch_pdus == 0)
+    return;
+
+  NR_DL_FRAME_PARMS *fp = &ue->SL_UE_PHY_PARAMS.sl_frame_params;
+  const uint32_t rxdataF_sz = fp->samples_per_slot_wCP;
+  __attribute__((aligned(32))) c16_t rxdataF[fp->nb_antennas_rx][rxdataF_sz];
+
+  sl_nr_psfch_pdu_t decoded_psfch = nr_decode_psfch(ue, proc, phy_data, rxdataF);
+    free(phy_data->psfch_pdu_list);
+    phy_data->psfch_pdu_list = NULL;
+    phy_data->num_psfch_pdus = 0;
+    nr_indicate_psfch(ue, proc, phy_data, &decoded_psfch);
+    free(decoded_psfch.results);
+  }
+
+/* Absolute slot (slot + frame * slots_per_frame) of the PSFCH occasion that
+ * answers the PSSCH of this slot, or -1 when none has to be held for.  The TX
+ * actor can only be held while it is still pending, so an occasion closer than
+ * the RX-to-TX distance is answered without waiting for the decode, as the
+ * normal UE does for a DLSCH whose k1 is below that distance.  Both the hold
+ * taken in UE_dl_preprocessing() and the matching join must use this result. */
+int nr_sl_psfch_feedback_abs_slot(const nr_phy_data_t *phy_data, const UE_nr_rxtx_proc_t *proc, int slots_per_frame)
+{
+  const int32_t offset = phy_data->nr_sl_pssch_sci_pdu.psfch_feedback_slot_offset;
+  if (offset < NR_UE_CAPABILITY_SLOT_RX_TO_TX)
+    return -1;
+  return proc->nr_slot_rx + offset + proc->frame_rx * slots_per_frame;
+  }
+
+/* Sidelink counterpart of pdsch_processing(): runs on a DL actor, so every
+ * buffer it writes belongs either to this slot's phy_data or to the actor's
+ * own PSSCH scratch. */
+void pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data)
+{
+  if (phy_data->sl_rx_action != SL_NR_CONFIG_TYPE_RX_PSSCH_SCI
+      && phy_data->sl_rx_action != SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH
+      && phy_data->sl_rx_action != SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH)
+    return;
+
+  const int frame_rx = proc->frame_rx;
+  const int nr_slot_rx = proc->nr_slot_rx;
+  NR_DL_FRAME_PARMS *fp = &ue->SL_UE_PHY_PARAMS.sl_frame_params;
+  const int pssch_id = nr_slot_rx % ue->pssch_num_actors;
+  NR_gNB_PUSCH *pssch_vars = &ue->pssch_vars[pssch_id];
+  const uint32_t rxdataF_sz = fp->samples_per_slot_wCP;
+  __attribute__((aligned(32))) c16_t rxdataF[fp->nb_antennas_rx][rxdataF_sz];
+  /* Latch PSFCH presence when it is actually decoded, not from the action
+   * present at function entry: the SCI-2 indication callback replaces it. */
+  bool decoded_combined_psfch = false;
+  bool psfch_bundled_with_slsch = false;
+  sl_nr_psfch_pdu_t decoded_psfch = {0};
+
     LOG_D(NR_PHY,
           "%4d.%2d RX_PSSCH=1 RX_PSFCH=%d\n",
           frame_rx,
@@ -695,7 +712,6 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
     LOG_D(NR_PHY,"l_subch = %d\n",pssch_pdu->l_subch);
     LOG_D(NR_PHY,"pssch_numsym = %d\n",pssch_pdu->pssch_numsym);
     LOG_D(NR_PHY,"sense_pssch = %d\n",pssch_pdu->sense_pssch);
-    ue->slsch->harq_process->pssch_pdu = &phy_data->nr_sl_pssch_sci_pdu;
     int sci2_re = get_NREsci2(pssch_pdu->sci2_alpha_times_100,
                               pssch_pdu->sci2_len,
                               pssch_pdu->sci2_beta_offset,
@@ -738,22 +754,20 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
       nr_slot_fep(ue, fp, proc->nr_slot_rx, sym, rxdataF, link_type_sl, 0, ue->common_vars.rxdata);
     }
 
-    int16_t *llrs = ue->pssch_vars[0].llr;
     nr_rx_pssch(ue,
                 proc,
                 phy_data,
                 rxdataF_sz,
                 rxdataF,
-		llrs,
-                0,
+		pssch_vars->llr,
+                pssch_id,
                 frame_rx,
                 nr_slot_rx,
                 0);
     } // pssch_numsym > 0
     // Decode feedback independently from SLSCH and report its configured
     // peer/HARQ identity to MAC.
-    if ((phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH || monitor_pscch_and_psfch)
-        && phy_data->psfch_pdu_list != NULL && phy_data->num_psfch_pdus > 0) {
+    if (phy_data->psfch_pdu_list != NULL && phy_data->num_psfch_pdus > 0) {
       /* Decode now while the slot samples are available, but defer the MAC
        * callback until SLSCH processing has completed.  The callback runs the
        * scheduler on this same phy_data object and can replace sl_rx_action. */
@@ -766,7 +780,6 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
       LOG_D(NR_PHY, "%4d.%2d PSFCH: not present in this slot\n", frame_rx, nr_slot_rx);
     }
     if (pssch_pdu->pssch_numsym > 0) {
-    NR_gNB_PUSCH *pssch_vars = &ue->pssch_vars[0];
     pssch_vars->ulsch_power_tot = 0;
     pssch_vars->ulsch_noise_power_tot = 0;
     for (int aarx = 0; aarx < fp->nb_antennas_rx; aarx++) {
@@ -793,7 +806,6 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
       pssch_vars->DTX = 0;
     }
     } // pssch_numsym > 0 (power accumulation / SNR / DTX)
-  } // end PSSCH demodulation block
 
   // SLSCH decode: mirrors the gNB design where DLSCH decode is gated on
   // dlsch[0].active (set by the FAPI handler only when MAC issues a valid grant).
@@ -803,17 +815,14 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
   // successful SCI2 indication.  When SCI2 CRC fails the grant is never issued,
   // sl_rx_action stays RX_PSSCH_SCI, and nr_sl_pssch_pdu remains unpopulated
   // (tb_size=0, harq_pid=0) - so this block is correctly not entered.
-  if (!ue->pssch_vars[0].DTX
-      && (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH
-          || phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH)) {
+  if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH
+      || phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH) {
       int totalDecode = nr_slsch_procedures(ue,
                                             frame_rx,
                                             nr_slot_rx,
-                                            phy_data->nr_sl_pssch_pdu.harq_pid,
                                             proc,
                                             phy_data,
-                                            ack_nack_rcvd,
-                                          0,
+                                            pssch_vars->DTX,
                                           decoded_combined_psfch ? &decoded_psfch : NULL);
     psfch_bundled_with_slsch = decoded_combined_psfch;
       LOG_D(NR_PHY,
@@ -821,17 +830,22 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
             totalDecode,
             frame_rx,
             nr_slot_rx,
-          dB_fixed_x10(ue->pssch_vars[0].ulsch_power_tot),
-          dB_fixed_x10(ue->pssch_vars[0].ulsch_noise_power_tot),
+            dB_fixed_x10(pssch_vars->ulsch_power_tot),
+            dB_fixed_x10(pssch_vars->ulsch_noise_power_tot),
             ue->pssch_thres);
   }
+
   if (decoded_combined_psfch && !psfch_bundled_with_slsch) {
     nr_indicate_psfch(ue, proc, phy_data, &decoded_psfch);
   }
   free(decoded_psfch.results);
   UEscopeCopy(ue, commonRxdataF, rxdataF, sizeof(int32_t), fp->nb_antennas_rx, rxdataF_sz, 0);
 
-  return sampleShift;
+  /* DLSCH-style release of the TX actor that has to answer this PSSCH with
+   * PSFCH.  The matching hold is taken when the slot is preprocessed. */
+  const int feedback_slot_and_frame = nr_sl_psfch_feedback_abs_slot(phy_data, proc, fp->slots_per_frame);
+  if (feedback_slot_and_frame >= 0)
+    dynamic_barrier_join(&ue->process_slot_tx_barriers[feedback_slot_and_frame % NUM_PROCESS_SLOT_TX_BARRIERS]);
 }
 
 void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_tx_t *phy_data, c16_t **txp)

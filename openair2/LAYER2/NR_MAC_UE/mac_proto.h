@@ -612,6 +612,7 @@ bool sl_slot_carries_psfch(const BIT_STRING_t *phy_sl_bitmap, size_t phy_map_sz,
 int64_t get_feedback_abs_slot(const BIT_STRING_t *phy_sl_bitmap, size_t phy_map_sz, uint64_t tx_abs_slot, uint8_t min_time_gap, uint8_t psfch_period);
 int sl_psfch_pssch_slot_index(const BIT_STRING_t *phy_sl_bitmap, size_t phy_map_sz, uint64_t abs_slot,
                               uint8_t min_time_gap, uint8_t psfch_period);
+int32_t nr_sl_psfch_feedback_offset(const NR_UE_MAC_INST_t *mac, uint64_t pssch_abs_slot);
 
 void append_bit(uint8_t *buf, size_t bit_pos, int bit_value);
 

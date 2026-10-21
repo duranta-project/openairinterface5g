@@ -671,7 +671,7 @@ void extract_pscch_pdu(uint64_t *sci1_payload, int len,
 
 int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,int cc_id,frame_t frame, int slot, sl_nr_sci_indication_pdu_t *sci,void *phy_data) {
 
-  nr_sci_pdu_t *sci_pdu = &mac->sci_pdu_rx;  //&mac->def_sci_pdu[slot][sci->sci_format_type];
+  nr_sci_pdu_t *sci_pdu = &mac->sci_pdu_rx;
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
   memset(sci_pdu,0,sizeof(*sci_pdu));
   const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp = mac->sl_bwp;
@@ -736,6 +736,11 @@ int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,i
                           sl_bwp,
                           sl_res_pool);
   if (ret<0) return(ret);
+  /* Feedback timing for the PSSCH this SCI-1A announces, like the DLSCH k1:
+   * PHY uses it to hold the TX actor of the PSFCH occasion until the SL-SCH
+   * of this slot has been decoded. */
+  rx_config.sl_rx_config_list[0].rx_sci2_config_pdu.psfch_feedback_slot_offset =
+      nr_sl_psfch_feedback_offset(mac, (uint64_t)frame * mac->frame_structure.numb_slots_frame + slot);
   rx_config.sl_rx_config_list[0].pdu_type =  SL_NR_CONFIG_TYPE_RX_PSSCH_SCI;
 
   nr_scheduled_response_t scheduled_response = {.sl_rx_config = &rx_config,
@@ -909,7 +914,7 @@ int config_pssch_sci_pdu_rx(sl_nr_rx_config_pssch_sci_pdu_t *nr_sl_pssch_sci_pdu
 
 int nr_ue_process_sci2_indication_pdu(NR_UE_MAC_INST_t *mac, module_id_t mod_id, int cc_id, frame_t frame, int slot, sl_nr_sci_indication_pdu_t *sci, void *phy_data) {
 
-  nr_sci_pdu_t *sci_pdu = &mac->sci_pdu_rx;  //&mac->def_sci_pdu[slot][sci->sci_format_type];
+  nr_sci_pdu_t *sci_pdu = &mac->sci_pdu_rx;
   sl_nr_ue_mac_params_t *sl_mac_params = mac->SL_MAC_PARAMS;
   const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp = mac->sl_bwp;
   const NR_SL_ResourcePool_r16_t *sl_res_pool = mac->sl_rx_res_pool;
@@ -947,7 +952,7 @@ int nr_ue_process_sci2_indication_pdu(NR_UE_MAC_INST_t *mac, module_id_t mod_id,
                             sl_mac_params);
   rx_config.sl_rx_config_list[0].pdu_type =  SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH;
 
-  LOG_D(NR_MAC, "%4d.%2d psfch_overhead %d harq_feedback %d action %d\n", frame, slot, mac->sci_pdu_rx.psfch_overhead.val, sci_pdu->harq_feedback, SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH);
+  LOG_D(NR_MAC, "%4d.%2d psfch_overhead %d harq_feedback %d action %d\n", frame, slot, sci_pdu->psfch_overhead.val, sci_pdu->harq_feedback, SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH);
   /* SCI-1A's PSFCH-overhead indication reserves symbols for feedback to this
    * received PSSCH.  It does not configure reception of ACK/NACK for a PSSCH
    * transmitted by this UE.  That RX configuration is armed at slot start

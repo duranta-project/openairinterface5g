@@ -336,8 +336,10 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
                                                 module_id, sync_source);
 
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
-  AssertFatal(sl_preconfiguration !=NULL,"SL-Preconfig Cannot be NULL");
   AssertFatal(mac, "mac should have an instance");
+  int rc = pthread_mutex_lock(&mac->if_mutex);
+  AssertFatal(!rc, "mutex failed %d\n", rc);
+  AssertFatal(sl_preconfiguration !=NULL,"SL-Preconfig Cannot be NULL");
 
   if (!mac->SL_MAC_PARAMS)
     mac->SL_MAC_PARAMS = CALLOC(1, sizeof(sl_nr_ue_mac_params_t));
@@ -544,6 +546,8 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
   nr_sl_params_read_conf(module_id);
 
   sl_mac->mac_tx_params.packet_delay_budget_ms = 30;
+  rc = pthread_mutex_unlock(&mac->if_mutex);
+  AssertFatal(!rc, "mutex failed %d\n", rc);
   return 0;
 }
 
@@ -574,7 +578,10 @@ void nr_rrc_mac_transmit_slss_req(module_id_t module_id,
                                   NR_SL_SSB_TimeAllocation_r16_t *ssb_ta)
 {
 
-  sl_nr_ue_mac_params_t *sl_mac = get_mac_inst(module_id)->SL_MAC_PARAMS;
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  int rc = pthread_mutex_lock(&mac->if_mutex);
+  AssertFatal(!rc, "mutex failed %d\n", rc);
+  sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
   AssertFatal(sl_mac,"sidelink MAC cannot be NULL");
   AssertFatal(tx_slss_id < 672,"SLSS id cannot be >= 672. id:%d", tx_slss_id);
   AssertFatal(ssb_ta,"ssb_ta cannot be NULL");
@@ -590,7 +597,6 @@ void nr_rrc_mac_transmit_slss_req(module_id_t module_id,
 
   /* S-SSB slots are excluded before sl-TimeResource is applied (38.214
    * clause 8), so refresh both pool maps once S-SSB transmission is known. */
-  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
   if (sl_mac->sl_TDD_config && sl_mac->sl_TxPool[0] && sl_mac->sl_RxPool[0]) {
     sl_configure_physical_pool_bitmap(mac, sl_mac->sl_TxPool[0], mac->sl_tx_res_pool);
     sl_configure_physical_pool_bitmap(mac, sl_mac->sl_RxPool[0], mac->sl_rx_res_pool);
@@ -614,6 +620,8 @@ void nr_rrc_mac_transmit_slss_req(module_id_t module_id,
 
   LOG_I(NR_MAC, "[UE%d]SL RRC->MAC: TX SLSS REQ - TDD CONFIG STUFFED INSIDE - SL-MIB :%x\n",
                                                     module_id, *((uint32_t *)sl_mac->tx_sl_bch.sl_mib));
+  rc = pthread_mutex_unlock(&mac->if_mutex);
+  AssertFatal(!rc, "mutex failed %d\n", rc);
 }
 
 //This API is called by RRC after it determines that UE needs to keep
@@ -625,6 +633,8 @@ void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
 {
 
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  int rc = pthread_mutex_lock(&mac->if_mutex);
+  AssertFatal(!rc, "mutex failed %d\n", rc);
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
   AssertFatal(sl_mac,"Sidelink MAC instance cannot be NULL");
 
@@ -743,6 +753,8 @@ void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
     mac->if_module->sl_phy_config_request(&sl_mac->sl_phy_config);
   }
 
+  rc = pthread_mutex_unlock(&mac->if_mutex);
+  AssertFatal(!rc, "mutex failed %d\n", rc);
 }
 
 void nr_sl_params_read_conf(module_id_t module_id) {

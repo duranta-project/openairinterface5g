@@ -80,11 +80,9 @@ void handle_nr_ue_sl_harq(module_id_t mod_id,
                           uint16_t src_id)
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(mod_id);
-  NR_UE_SL_SCHED_LOCK(&mac->sl_sched_lock);
   NR_SL_UE_info_t *UE = find_UE(mac, src_id);
   if (UE == NULL) {
     LOG_W(NR_MAC, "Ignoring PSFCH feedback from unknown sidelink source ID %u\n", src_id);
-    NR_UE_SL_SCHED_UNLOCK(&mac->sl_sched_lock);
     return;
   }
   uint8_t num_ack_rcvd = rx_slsch_pdu->num_acks_rcvd;
@@ -167,7 +165,6 @@ void handle_nr_ue_sl_harq(module_id_t mod_id,
   }
   free(matched_harqs);
   matched_harqs = NULL;
-  NR_UE_SL_SCHED_UNLOCK(&mac->sl_sched_lock);
 }
 
 static bool nr_list_contains(const NR_list_t *list, int id)
@@ -185,7 +182,6 @@ void handle_nr_ue_sl_psfch(module_id_t mod_id,
                            const sl_nr_psfch_pdu_t *rx_psfch_pdu)
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(mod_id);
-  NR_UE_SL_SCHED_LOCK(&mac->sl_sched_lock);
 
   for (int i = 0; i < rx_psfch_pdu->num_results; i++) {
     const sl_nr_psfch_result_t *result = &rx_psfch_pdu->results[i];
@@ -267,7 +263,6 @@ void handle_nr_ue_sl_psfch(module_id_t mod_id,
     }
   }
 
-  NR_UE_SL_SCHED_UNLOCK(&mac->sl_sched_lock);
 }
 
 uint32_t compute_TRIV(uint8_t N, uint8_t t1, uint8_t t2) {

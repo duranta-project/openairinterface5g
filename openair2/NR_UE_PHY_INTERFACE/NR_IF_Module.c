@@ -586,6 +586,9 @@ void nr_ue_sl_indication(nr_sidelink_indication_t *sl_indication)
 
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
 
+  int ret = pthread_mutex_lock(&mac->if_mutex);
+  AssertFatal(!ret, "mutex failed %d\n", ret);
+
   if (sl_indication->rx_ind) {
     sl_nr_process_rx_ind(ue_id, hfn, frame, slot, sl_mac, sl_indication->rx_ind);
   } else if (sl_indication->sci_ind) {
@@ -594,4 +597,6 @@ void nr_ue_sl_indication(nr_sidelink_indication_t *sl_indication)
     nr_ue_sidelink_scheduler(sl_indication, mac);
   }
 
+  ret = pthread_mutex_unlock(&mac->if_mutex);
+  AssertFatal(!ret, "mutex failed %d\n", ret);
 }

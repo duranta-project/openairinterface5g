@@ -30,24 +30,6 @@
 
 #define sci_field_t dci_field_t
 
-#define NR_UE_SL_SCHED_LOCK(lock)                                        \
-  do {                                                             \
-    int rc = pthread_mutex_lock(lock);                             \
-    AssertFatal(rc == 0, "error while locking scheduler mutex\n"); \
-  } while (0)
-
-#define NR_UE_SL_SCHED_UNLOCK(lock)                                      \
-  do {                                                             \
-    int rc = pthread_mutex_unlock(lock);                           \
-    AssertFatal(rc == 0, "error while locking scheduler mutex\n"); \
-  } while (0)
-
-#define NR_UE_SL_SCHED_ENSURE_LOCKED(lock)\
-  do {\
-    int rc = pthread_mutex_trylock(lock); \
-    AssertFatal(rc == EBUSY, "this function should be called with the scheduler mutex locked\n");\
-  } while (0)
-
 typedef struct sidelink_sci_format_1a_fields {
 
   // Priority of this transmission
