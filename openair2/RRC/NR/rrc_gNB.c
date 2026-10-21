@@ -1684,14 +1684,8 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
       bool success = cu_update_f1_ue_data(UE->rrc_ue_id, &ue_data);
       DevAssert(success);
     } else {
-      /* Same DU but different physCellId - "too fast movement" scenario:
-       * UE was moving from previous cell so quickly that RRCReestablishment for previous cell was received in this cell */
-      LOG_I(NR_RRC,
-            "RRC Reestablishment Request from different physCellId (%ld) than current physCellId (%d), fallback to RRC setup\n",
-            physCellId,
-            current_cell->info.pci);
-      ngap_cause = NGAP_CAUSE_RADIO_NETWORK_RELEASE_DUE_TO_NGRAN_GENERATED_REASON;
-      goto fallback_rrc_setup;
+      /* Same DU but different cell scenario */
+      LOG_I(NR_RRC, "Reestablishment on physCellId %d, UE was on physCellId %ld (same DU)\n", current_cell->info.pci, physCellId);
     }
   }
 
@@ -1701,7 +1695,6 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
   UE->rnti = msg->crnti;
 
   /* Update PCell in serving_cells array */
-  // use current_cell (where the request arrived), not the previous cell
   DevAssert(current_cell->info.cell_id == msg->nr_cellid);
   added = rrc_update_ue_pcell(UE, current_cell);
   if (added == NULL) {
