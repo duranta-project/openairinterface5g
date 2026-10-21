@@ -11,7 +11,7 @@
 #define USE_128BIT
 #endif
 
-int nr_ml_llr_maxh_off(int mod_order)
+int nr_ml_llr_maxh_off(int mod_order, int lbest)
 {
   // OAI_ML_MAXH_OFF (if set) forces one value across all mod orders (hotness sweep); otherwise the
   // per-mod-order table below. Values are the empirical optima on TDL, 2-layer, z4, -gA (a uniform
@@ -28,7 +28,10 @@ int nr_ml_llr_maxh_off(int mod_order)
   switch (mod_order) {
     case 2:  return 0;  // QPSK
     case 4:  return 1;  // 16QAM
-    case 6:  return -2; // 64QAM: hot for int16 metric precision; nr_compute_ML_llr cools the output by 1 bit
+    // 64QAM: hot for int16 metric precision; nr_compute_ML_llr cools the output by 1 bit. L-best
+    // (graded fallback) wants one bit cooler than full ML: TDL-A, 200 trials, -3 matches ML at 4 RX
+    // (MCS 27) and is ~1 dB from ML at 2 RX (MCS 20), where -2 floors at BLER ~0.1; -4 is worse.
+    case 6:  return lbest ? -3 : -2;
     case 8:  return -3; // 256QAM (with the antenna-gain term => effective -2, the prior gNB value)
     default: return -2;
   }
@@ -2788,6 +2791,30 @@ static inline void nr_lbest_axis_bits(int level, int *b0, int *b1, int *b2)
   *b2 = (a == 1 || a == 7) ? 1 : 0;
 }
 
+// Graded per-axis PAM-8 LLR for the target layer (64QAM analogue of nr_lbest_pam16_axis_llr):
+// soft seed estimate e (level units), gain g = 0.5*Peff/42 where Peff = det/P1 = P0 - |rho|^2/P1 is
+// the post-ZF (Schur complement) energy of the target layer -- the reliability of the ZF seed. Using
+// the matched-filter P0 instead overstates it by P0*P1/det, which is large on ill-conditioned 2x2
+// channels (2 RX) and makes the fallback as overconfident as the hard value it replaces. llr[b] = g*[(l1*-e)^2 - (l0*-e)^2] with
+// lX* the level nearest e whose axis bit b is X. Replaces the hard +-LLR_SAT for bits a reduced
+// candidate set does not span (b0/b1 for a 3x3 window): the hard value is overconfident and,
+// with 2 RX antennas, the ~1% wrong-sign bits it produces break LDPC (OAI_LBEST_DBG fitScale 3-7).
+static inline void nr_lbest_pam8_axis_llr(float e, float g, float *llr)
+{
+  static const int levels[8] = {-7, -5, -3, -1, 1, 3, 5, 7};
+  float d0[3] = {1e30f, 1e30f, 1e30f}, d1[3] = {1e30f, 1e30f, 1e30f};
+  for (int k = 0; k < 8; k++) {
+    const float d = (levels[k] - e) * (levels[k] - e);
+    int bb[3];
+    nr_lbest_axis_bits(levels[k], &bb[0], &bb[1], &bb[2]);
+    for (int b = 0; b < 3; b++) {
+      if (bb[b] == 0) { if (d < d0[b]) d0[b] = d; }
+      else            { if (d < d1[b]) d1[b] = d; }
+    }
+  }
+  for (int b = 0; b < 3; b++) llr[b] = g * (d1[b] - d0[b]);
+}
+
 // One target layer of 2-layer 64QAM L-best LLR (scalar float reference).
 //   seed_lambda: 0.0f = ZF seed, = noise_var (float) = MMSE-regularised seed
 //   L:           candidate-set size (1..64); 64 == full search == max-log reference
@@ -2826,6 +2853,13 @@ static void nr_qam64_llr_2layer_lbest_layer(const c16_t *stream0_in,
     const float xh1i = ((P1 + l) * z1i - rz2i) * invdet;
     const float estI = xh1r * NR_LBEST_SQRT42; // soft I level estimate (~ +-1..7)
     const float estQ = xh1i * NR_LBEST_SQRT42;
+
+    // graded fallback LLRs for bits a reduced candidate set may not span (the coarse/MSB bits)
+    float axisI[3], axisQ[3];
+    const float Peff = (P1 + l) > 0.0f ? det / (P1 + l) : 0.0f; // post-ZF/MMSE energy (Schur complement)
+    const float glin = 0.5f * Peff / 42.0f * NR_LBEST_LLR_SCALE;
+    nr_lbest_pam8_axis_llr(estI, glin, axisI);
+    nr_lbest_pam8_axis_llr(estQ, glin, axisQ);
 
     // ---- 2. candidate set C1 = L nearest constellation points to x_hat1 ----
     // (reference: rank all 64 by Euclidean distance; production = per-axis slice)
@@ -2900,16 +2934,14 @@ static void nr_qam64_llr_2layer_lbest_layer(const c16_t *stream0_in,
       }
     }
 
-    // emit LLR = max_{bit=0} - max_{bit=1} (positive => bit 0). Empty subset =>
-    // saturate toward the bit value that IS present.
+    // emit LLR = max_{bit=0} - max_{bit=1} (positive => bit 0). Bit order {I0,Q0,I1,Q1,I2,Q2}:
+    // even p = I-axis, odd p = Q-axis, axis bit = p/2.
     for (int p = 0; p < 6; p++) {
       float llr;
-      if (max0[p] <= -1e29f)
-        llr = -NR_LBEST_LLR_SAT;      // no bit-0 candidate => strongly bit 1
-      else if (max1[p] <= -1e29f)
-        llr = NR_LBEST_LLR_SAT;       // no bit-1 candidate => strongly bit 0
+      if (max0[p] > -1e29f && max1[p] > -1e29f)
+        llr = (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE; // spanned: ML LLR
       else
-        llr = (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE;
+        llr = (p & 1) ? axisQ[p >> 1] : axisI[p >> 1];  // unspanned: graded linear (seed) LLR
       if (llr > 32767.0f) llr = 32767.0f;
       if (llr < -32768.0f) llr = -32768.0f;
       *stream0_out++ = (int16_t)llr;
@@ -2925,10 +2957,11 @@ static void nr_qam64_llr_2layer_lbest_layer(const c16_t *stream0_in,
 // OAI_LBEST_DBG / OAI_LBEST_DBG256 comparators (fitScale ~1.0, residFrac ~0,
 // low sign-disagreement). Port and optimize freely per arch — the DBG check is
 // the contract, so no arch kernel needs to mirror another's optimizations.
-// NB (256QAM): the graded-MSB fallback is part of this contract — an unspanned
-// bit uses the graded per-axis seed LLR (nr_lbest_pam16_axis_llr), NOT the hard
+// NB (64QAM and 256QAM): the graded-MSB fallback is part of this contract — an unspanned
+// bit uses the graded per-axis seed LLR (nr_lbest_pam{8,16}_axis_llr), NOT the hard
 // +-LLR_SAT. A port still on the old hard fallback shows fitScale ~9 / residFrac
-// ~0.5 and loses the 256QAM ML gain (distorted MSBs); re-diff against HEAD.
+// ~0.5 and loses the ML gain (distorted MSBs; at 64QAM with 2 RX it falls to MMSE level).
+// Re-diff against HEAD.
 // ============================================================================
 //
 // Drop-in float reference for nr_qam64_llr_2layer (target layer 0): reduced
@@ -2982,7 +3015,7 @@ static inline void nr_lbest_axis_bits256(int level, int *b0, int *b1, int *b2, i
 }
 
 // Graded per-axis PAM-16 LLR for the target layer, from the soft seed estimate e (level units)
-// and gain g = 0.5*P0/170. The target metric m(l) = -0.5*P0/170*(l-e)^2 + const is concave with
+// and gain g = 0.5*Peff/170, Peff = det/P1 the post-ZF energy (see nr_lbest_pam8_axis_llr). The target metric m(l) = -0.5*P0/170*(l-e)^2 + const is concave with
 // vertex ~= e, so max over a bit-subset is at the level nearest e with that bit. Fills llr[b] =
 // m(l0*)-m(l1*) = g*[(l1*-e)^2 - (l0*-e)^2] for axis bits b0..b3. This is the graded replacement
 // for the hard +-LLR_SAT fallback used when a reduced candidate set does not span a bit (the
@@ -3050,7 +3083,8 @@ void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
 
     // graded fallback LLRs for bits a reduced candidate set may not span (the coarse/MSB bits)
     float axisI[4], axisQ[4];
-    const float glin = 0.5f * P0 / 170.0f * NR_LBEST_LLR_SCALE;
+    const float Peff = (P1 + l) > 0.0f ? det / (P1 + l) : 0.0f; // post-ZF/MMSE energy (Schur complement)
+    const float glin = 0.5f * Peff / 170.0f * NR_LBEST_LLR_SCALE;
     nr_lbest_pam16_axis_llr(estI, glin, axisI);
     nr_lbest_pam16_axis_llr(estQ, glin, axisQ);
 
@@ -3473,7 +3507,6 @@ void nr_qam_llr_3layer_ml(c16_t *zt, c16_t *zn1, c16_t *zn2,
 // the emitted LLR back onto the float-ref / SIMD scale.
 #define NR_LBEST_Q_LLR_NUM            2533    // round(2^17 / (8*sqrt(42)))
 #define NR_LBEST_Q_LLR_SHIFT            17
-#define NR_LBEST_Q_LLR_SAT           8192
 
 // nearest 64QAM PAM-8 level magnitude for |a|, thresholds at 2/4/6 * step.
 static inline int nr_lbest_q_pam8_abs(int64_t a, int64_t step)
@@ -3522,6 +3555,11 @@ static void nr_qam64_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
       if (estI_q6 < -512) estI_q6 = -512; else if (estI_q6 > 512) estI_q6 = 512;
       if (estQ_q6 < -512) estQ_q6 = -512; else if (estQ_q6 > 512) estQ_q6 = 512;
     }
+    // graded fallback for unspanned bits, in output (float-ref) units: g = 0.5*Peff/42, Peff = det/Pp1
+    float axisI[3], axisQ[3];
+    const float g = Pp1 > 0 ? 0.5f * (float)det / (float)Pp1 / 42.0f : 0.0f;
+    nr_lbest_pam8_axis_llr(estI_q6 / 64.0f, g, axisI);
+    nr_lbest_pam8_axis_llr(estQ_q6 / 64.0f, g, axisQ);
 
     // ---- 2. candidate set C1 = L nearest constellation points to x_hat1 ------
     int candI[64], candQ[64];
@@ -3582,11 +3620,10 @@ static void nr_qam64_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
 
     for (int p = 0; p < 6; p++) {
       int32_t llr;
-      if (max0[p] == INT64_MIN)
-        llr = -NR_LBEST_Q_LLR_SAT;
-      else if (max1[p] == INT64_MIN)
-        llr = NR_LBEST_Q_LLR_SAT;
-      else
+      if (max0[p] == INT64_MIN || max1[p] == INT64_MIN) { // unspanned: graded seed LLR
+        const float g = (p & 1) ? axisQ[p >> 1] : axisI[p >> 1];
+        llr = (int32_t)(g + (g >= 0.0f ? 0.5f : -0.5f));
+      } else
         llr = (int32_t)(((max0[p] - max1[p]) * NR_LBEST_Q_LLR_NUM) >> NR_LBEST_Q_LLR_SHIFT);
       if (llr > 32767) llr = 32767;
       if (llr < -32768) llr = -32768;
@@ -3632,7 +3669,6 @@ void nr_qam64_llr_2layer_lbest_q15(c16_t *stream0_in,
 // integer metric is 16*sqrt(170) (~208.6x) larger than float; bring LLR back to float scale.
 #define NR_LBEST_Q_LLR256_NUM          628  // round(2^17 / (16*sqrt(170)))
 #define NR_LBEST_Q_LLR256_SHIFT         17
-#define NR_LBEST_Q_LLR256_SAT         8192
 
 // PAM-16 level magnitude for |a|, thresholds at {2,4,...,14}*step (== ||h1||^2).
 static inline int nr_lbest_q_pam16_abs(int64_t a, int64_t step)
@@ -3683,6 +3719,11 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
       if (estI_q6 < -1024) estI_q6 = -1024; else if (estI_q6 > 1024) estI_q6 = 1024;
       if (estQ_q6 < -1024) estQ_q6 = -1024; else if (estQ_q6 > 1024) estQ_q6 = 1024;
     }
+    // graded fallback for unspanned bits, in output (float-ref) units: g = 0.5*Peff/170, Peff = det/Pp1
+    float axisI[4], axisQ[4];
+    const float g = Pp1 > 0 ? 0.5f * (float)det / (float)Pp1 / 170.0f : 0.0f;
+    nr_lbest_pam16_axis_llr(estI_q6 / 64.0f, g, axisI);
+    nr_lbest_pam16_axis_llr(estQ_q6 / 64.0f, g, axisQ);
 
     // ---- 2. candidate set: L nearest of 256 points ----
     int     candI[256], candQ[256];
@@ -3745,14 +3786,13 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
       }
     }
 
-    // emit LLR = max_{bit=0} - max_{bit=1}; empty subset => saturate toward present bit
+    // emit LLR = max_{bit=0} - max_{bit=1}; empty subset => graded seed LLR
     for (int p = 0; p < 8; p++) {
       int32_t llr;
-      if (max0[p] == INT64_MIN)
-        llr = -NR_LBEST_Q_LLR256_SAT;
-      else if (max1[p] == INT64_MIN)
-        llr = NR_LBEST_Q_LLR256_SAT;
-      else
+      if (max0[p] == INT64_MIN || max1[p] == INT64_MIN) {
+        const float g = (p & 1) ? axisQ[p >> 1] : axisI[p >> 1];
+        llr = (int32_t)(g + (g >= 0.0f ? 0.5f : -0.5f));
+      } else
         llr = (int32_t)(((max0[p] - max1[p]) * NR_LBEST_Q_LLR256_NUM) >> NR_LBEST_Q_LLR256_SHIFT);
       if (llr > 32767)  llr =  32767;
       if (llr < -32768) llr = -32768;
@@ -3836,7 +3876,7 @@ void nr_qam256_llr_2layer_lbest_q15(c16_t *stream0_in,
 // z * sqrt(170) / 32, packed to int16 (lane l == RE l).
 
 // Graded per-axis PAM-16 LLR (SIMD float, 8 lanes/half): out[b] = g*(min dist^2 with bit b=1 -
-// with b=0), g = 0.5*P0/170, in the kernel's final LLR units. Closed form (no 16-level loop): the
+// with b=0), g = 0.5*Peff/170 (Peff = det/P1), in the kernel's final LLR units. Closed form (no 16-level loop): the
 // nearest PAM-16 level with a given bit value = clamp(round-to-odd(est), subrange), so each bit's
 // min-distance is a couple of clamps. Only b0/b1/b2 are computed — b3 (the finest bit) is ALWAYS
 // spanned by any 3x3/5x5/5-plus window (verified), so its fallback is never used; out[3]=0.
@@ -4026,7 +4066,7 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
           }
         }
       }
-      // 64QAM: the metric runs one bit hotter (nr_ml_llr_maxh_off(6) = -2) to keep int16 precision
+      // 64QAM: the metric runs one bit hotter (nr_ml_llr_maxh_off(6, .) = -2 / -3) to keep int16 precision
       // in the search (cooler input costs ~1 dB ML / ~2 dB L-best at MCS 27); cool the LLRs back by
       // one bit for the LDPC int8 input (the hot output clips and loses ~0.5 dB at low SNR, MCS 20).
       nr_llr_srai((int16_t *)llr_layers0, nb_re * 6, 1);
