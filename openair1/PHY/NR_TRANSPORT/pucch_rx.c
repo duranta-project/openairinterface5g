@@ -1223,20 +1223,24 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
 
     // Compute delay
     c16_t ch_ls[128] __attribute__((aligned(32))) = {0};
+    int64_t ls_l1 = 0;
     {
       c16_t rdmrs_gold[nb_re_dmrs] __attribute__((aligned(32)));
       for (int aa = 0; aa < Prx; aa++) {
         mult_complex_vectors(rdmrs_ext[aa], pil_dmrs, rdmrs_gold, nb_re_dmrs, 0);
         c16_t *ch_ls_ptr = ch_ls;
         c16_t *end = ch_ls_ptr + 128;
+        ls_l1 = 0; // each antenna overwrites ch_ls from the start
         for (int i = 0; i < nb_re_dmrs; i++)
-          for (int k = 0; k < 3 && ch_ls_ptr < end; k++)
+          for (int k = 0; k < 3 && ch_ls_ptr < end; k++) {
             *ch_ls_ptr++ = rdmrs_gold[i];
+            ls_l1 += abs(rdmrs_gold[i].r) + abs(rdmrs_gold[i].i);
+          }
       }
     }
     c16_t ch_temp[128] __attribute__((aligned(32)));
     delay_t delay = {0};
-    nr_est_delay(128, ch_ls, ch_temp, &delay);
+    nr_est_delay_l1(128, ch_ls, ls_l1, ch_temp, &delay);
 
     // Apply delay compensation on the input
     if (delay.est_delay != 0) {

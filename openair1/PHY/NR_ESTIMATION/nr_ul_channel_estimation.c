@@ -136,6 +136,7 @@ static void nr_pusch_antenna_processing(void *arg)
       int re_offset = k0;
       LOG_D(PHY, "PUSCH estimation DMRS type 1, Freq-domain interpolation");
       int pilot_cnt = 0;
+      int64_t ls_l1 = 0; // L1 sum for nr_est_delay_l1()
 #if T_TRACER
       int ch_est_cnt = 0; // To trace channel coefficients
 #endif
@@ -155,6 +156,7 @@ static void nr_pusch_antenna_processing(void *arg)
         for (int k = pilot_cnt << 1; k < (pilot_cnt << 1) + 4; k++) {
           ul_ls_est[k] = ch16;
         }
+        ls_l1 += 4 * (abs(ch16.r) + abs(ch16.i));
 //------------------Write channel parameters to Memory  for data recording ------------------//
 #if T_TRACER
         if (T_ACTIVE(T_GNB_PHY_UL_FD_CHAN_EST_DMRS_POS) && nl == 0) {
@@ -169,7 +171,7 @@ static void nr_pusch_antenna_processing(void *arg)
         pilot_cnt += 2;
       }
       c16_t ch_estimates_time[frame_parms->ofdm_symbol_size] __attribute__((aligned(32)));
-      nr_est_delay(frame_parms->ofdm_symbol_size, ul_ls_est, ch_estimates_time, delay);
+      nr_est_delay_l1(frame_parms->ofdm_symbol_size, ul_ls_est, ls_l1, ch_estimates_time, delay);
       if (rdata->scope && antenna == 0) {
         metadata mt = {.slot = -1, .frame = -1};
         scopeData_t *tmp = rdata->scope;
@@ -255,6 +257,7 @@ static void nr_pusch_antenna_processing(void *arg)
       LOG_D(PHY, "PUSCH estimation DMRS type 2, Freq-domain interpolation\n");
       c16_t *pil = pilot;
       c16_t *rx = &rxdataF[delta];
+      int64_t ls_l1 = 0; // L1 sum for nr_est_delay_l1()
       for (int n = 0; n < nb_rb_pusch * NR_NB_SC_PER_RB; n += 6) {
         c16_t ch0 = c16mulShift(*pil, rx[(k0 + n) % symbolSize], 15);
         pil++;
@@ -265,13 +268,16 @@ static void nr_pusch_antenna_processing(void *arg)
         multadd_real_four_symbols_vector_complex_scalar(filt8_rep4, ch, &ul_ls_est[n]);
         ul_ls_est[n + 4] = ch;
         ul_ls_est[n + 5] = ch;
+        for (int k = 0; k < 4; k++) // each RE is written once (n steps by 6)
+          ls_l1 += abs(ul_ls_est[n + k].r) + abs(ul_ls_est[n + k].i);
+        ls_l1 += 2 * (abs(ch.r) + abs(ch.i));
         noise_amp2 += c16amp2(c16sub(ch0, ch));
         nest_count += 1;
       }
 
       // Delay compensation
       c16_t ch_estimates_time[frame_parms->ofdm_symbol_size] __attribute__((aligned(32)));
-      nr_est_delay(frame_parms->ofdm_symbol_size, ul_ls_est, ch_estimates_time, delay);
+      nr_est_delay_l1(frame_parms->ofdm_symbol_size, ul_ls_est, ls_l1, ch_estimates_time, delay);
       if (rdata->scope && antenna == 0) {
         metadata mt = {.slot = -1, .frame = -1};
         scopeData_t *tmp = rdata->scope;
@@ -659,6 +665,7 @@ int nr_srs_ls_channel_estimation(int ant,
   }
 
   memset(srs_ls_estimated_channel, 0, ofdm_symbol_size * N_symb_SRS * sizeof(c16_t));
+  int64_t ls_l1 = 0; // L1 sum of symbol 0 for nr_est_delay_l1()
 
   for (int srs_symb = 0; srs_symb < N_symb_SRS; srs_symb++) {
     uint16_t srs_symbol_offset = srs_symb * ofdm_symbol_size;
@@ -693,6 +700,8 @@ int nr_srs_ls_channel_estimation(int ant,
 
       for (int ktc = 0; ktc < K_TC && srs_symbol_offset + subcarrier + ktc < ofdm_symbol_size * N_symb_SRS; ktc++) {
         srs_ls_estimated_channel[srs_symbol_offset + subcarrier + ktc] = ls_estimated;
+        if (srs_symb == 0 && subcarrier + ktc < ofdm_symbol_size) // the delay uses symbol 0
+          ls_l1 += abs(ls_estimated.r) + abs(ls_estimated.i);
       }
 
 #ifdef SRS_DEBUG
@@ -719,7 +728,7 @@ int nr_srs_ls_channel_estimation(int ant,
     // Delay estimation
     if (srs_symb == 0) {
       c16_t ch_estimates_time[ofdm_symbol_size] __attribute__((aligned(32)));
-      nr_est_delay(ofdm_symbol_size, srs_ls_estimated_channel, ch_estimates_time, delay);
+      nr_est_delay_l1(ofdm_symbol_size, srs_ls_estimated_channel, ls_l1, ch_estimates_time, delay);
     }
   } // for (int srs_symb = 0; srs_symb < N_symb_SRS; srs_symb++)
 
@@ -783,6 +792,7 @@ int nr_srs_channel_interpolation(int p_index,
                                  c16_t srs_estimated_channel_time[NR_SRS_IDFT_OVERSAMP_FACTOR * ofdm_symbol_size],
                                  c16_t srs_estimated_channel_time_shifted[NR_SRS_IDFT_OVERSAMP_FACTOR * ofdm_symbol_size],
                                  uint32_t *signal_power,
+                                 int *idft_shift,
                                  c16_t delay_table[2 * MAX_DELAY_COMP + 1][NR_MAX_OFDM_SYMBOL_SIZE])
 {
 #ifdef SRS_DEBUG
@@ -937,7 +947,11 @@ int nr_srs_channel_interpolation(int p_index,
   memcpy(&chF_interpol[0], &srs_estimated_channel_freq_avg[ofdm_symbol_size_half], ofdm_symbol_size_half * sizeof(c16_t));
   memcpy(&chF_interpol[start_offset], &srs_estimated_channel_freq_avg[0], ofdm_symbol_size_half * sizeof(c16_t));
 
-  // Convert to time domain oversampled
+  // Convert to time domain oversampled; the input is prescaled so that the IDFT cannot saturate
+  *idft_shift = nr_idft_prescale_shift(chF_interpol, ofdm_os_size);
+  if (*idft_shift)
+    for (int i = 0; i < ofdm_os_size; i++)
+      chF_interpol[i] = (c16_t){chF_interpol[i].r >> *idft_shift, chF_interpol[i].i >> *idft_shift};
   freq2time(ofdm_os_size, (int16_t *)chF_interpol, (int16_t *)srs_estimated_channel_time);
 
   // Do FFT shift
