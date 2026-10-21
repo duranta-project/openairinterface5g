@@ -455,7 +455,7 @@ int main(int argc, char **argv)
       init_nr_ue_vars(UE_CC, inst);
 
       if (UE_CC->sl_mode) {
-        AssertFatal(UE_CC->sl_mode == 2, "Only Sidelink mode 2 supported. Mode 1 not yet supported\n");
+        AssertFatal(UE_CC->sl_mode == SL_MODE2_SUPPORTED, "Only Sidelink mode 2 supported. Mode 1 not yet supported\n");
         DevAssert(mac->if_module != NULL && mac->if_module->sl_phy_config_request != NULL);
         // Patch antenna counts from CLI and push to PHY so sl_config is fully populated.
         nr_sl_phy_config_t *phycfg = &mac->SL_MAC_PARAMS->sl_phy_config;

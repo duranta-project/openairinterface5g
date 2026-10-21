@@ -802,7 +802,7 @@ void init_sidelink(NR_UE_RRC_INST_t *rrc)
 {
   int sync_ref = get_softmodem_params()->sync_ref;
 
-  if (get_softmodem_params()->sl_mode == 2) {
+  if (get_softmodem_params()->sl_mode == SL_MODE2_SUPPORTED) {
     //Preparation of the Sidelink PRE-Configuration message
     configure_NR_SL_Preconfig(rrc, sync_ref);
 

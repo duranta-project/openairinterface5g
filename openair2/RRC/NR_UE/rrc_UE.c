@@ -3818,7 +3818,7 @@ void start_sidelink(int instance)
   security_up_parameters.ciphering_algorithm = has_ciphering ? rrc->cipheringAlgorithm : 0;
   security_up_parameters.integrity_algorithm = has_integrity ? rrc->integrityProtAlgorithm : 0;
 
-  if (get_softmodem_params()->sl_mode == 2) {
+  if (get_softmodem_params()->sl_mode == SL_MODE2_SUPPORTED) {
 
     //Process the Sidelink Preconfiguration
     rrc_ue_process_sidelink_Preconfiguration(rrc, get_softmodem_params()->sync_ref, &security_up_parameters);
