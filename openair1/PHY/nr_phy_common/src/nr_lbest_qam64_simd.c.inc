@@ -34,12 +34,38 @@ static inline NRLB_VI NRLB_NAME(nrlbw_z42d32)(NRLB_VI z16)
 // FLOAT, which is robust to the wide per-RE dynamic range of real channels (TDL
 // deep fades) where any fixed int pre-shift either loses precision or underflows.
 // Also emits dirImask/dirQmask: int16 mask, all-ones where the seed lies on the
+// +2 side of the nearest level, and axisLLR[6] = graded per-axis PAM-8 LLRs (interleaved
+// {I0,Q0,I1,Q1,I2,Q2}, final LLR units) used for bits the reduced search cannot span.
+
+// Graded per-axis PAM-8 LLR (SIMD float): out[b] = g*(min dist^2 with bit b=1 - with b=0),
+// g = 0.5*Peff/42, Peff = det/P1 the post-ZF energy (float reference: nr_lbest_pam8_axis_llr). Closed form via clamps of the nearest
+// odd level. Only b0/b1 are computed: b2 is ALWAYS spanned by the 3x3 / plus windows (the centre
+// and its +-2 neighbours always contain both {3,5} and {1,7} magnitudes), so out[2] is never read.
+static inline void NRLB_NAME(nrlbw_axis_llr64)(NRLB_VF est, NRLB_VF g, NRLB_VF out[3])
+{
+  const NRLB_VF ONE = NRLB_MM(set1_ps)(1.0f), TWO = NRLB_MM(set1_ps)(2.0f), HALF = NRLB_MM(set1_ps)(0.5f);
+  const NRLB_VF a = NRLB_MM(andnot_ps)(NRLB_MM(set1_ps)(-0.0f), est);
+#define NR_RODD(x) NRLB_MM(add_ps)(NRLB_MM(mul_ps)(NRLB_ROUNDPS(NRLB_MM(mul_ps)(NRLB_MM(sub_ps)((x), ONE), HALF), SIMDE_MM_FROUND_TO_NEAREST_INT | SIMDE_MM_FROUND_NO_EXC), TWO), ONE)
+  const NRLB_VF o = NR_RODD(est), oa = NR_RODD(a);
+#define NR_CL(x, lo, hi) NRLB_MM(min_ps)(NRLB_MM(max_ps)((x), NRLB_MM(set1_ps)(lo)), NRLB_MM(set1_ps)(hi))
+#define NR_DSQ(lvl, ref) ({ const NRLB_VF _d = NRLB_MM(sub_ps)((lvl), (ref)); NRLB_MM(mul_ps)(_d, _d); })
+  // b0 (sign): pos levels [1,7] (bit 0) vs neg [-7,-1] (bit 1)
+  out[0] = NRLB_MM(mul_ps)(g, NRLB_MM(sub_ps)(NR_DSQ(NR_CL(o, -7.0f, -1.0f), est), NR_DSQ(NR_CL(o, 1.0f, 7.0f), est)));
+  // b1 (|L|>4): |L| in {1,3} (bit 0) vs {5,7} (bit 1); by symmetry work in a=|est|
+  out[1] = NRLB_MM(mul_ps)(g, NRLB_MM(sub_ps)(NR_DSQ(NR_CL(oa, 5.0f, 7.0f), a), NR_DSQ(NR_CL(oa, 1.0f, 3.0f), a)));
+  out[2] = NRLB_MM(setzero_ps)(); // b2 always spanned by the search window -> fallback never read
+#undef NR_RODD
+#undef NR_CL
+#undef NR_DSQ
+}
 
 static inline void NRLB_NAME(nrlbw_seed)(NRLB_VI z1r16, NRLB_VI z1i16, NRLB_VI z2r16, NRLB_VI z2i16,
                                         NRLB_VI rr16, NRLB_VI ri16, NRLB_VI cm0_16, NRLB_VI cm1_16,
                                         NRLB_VI *centerI, NRLB_VI *centerQ,
-                                        NRLB_VI *dirImask, NRLB_VI *dirQmask)
+                                        NRLB_VI *dirImask, NRLB_VI *dirQmask,
+                                        NRLB_VI axisLLR[6])
 {
+  NRLB_VF aL[2][6]; // [half][ {I0,Q0,I1,Q1,I2,Q2} ]
   const NRLB_VI SQRT42_OVER4 = NRLB_MM(set1_epi32)(NR_LBEST_Q_SQRT42_OVER4_Q14);
   const NRLB_VF SQRT42 = NRLB_MM(set1_ps)(6.48074069840786f);
   const NRLB_VF HALF = NRLB_MM(set1_ps)(0.5f), ONE = NRLB_MM(set1_ps)(1.0f), TWO = NRLB_MM(set1_ps)(2.0f);
@@ -59,6 +85,12 @@ static inline void NRLB_NAME(nrlbw_seed)(NRLB_VI z1r16, NRLB_VI z1i16, NRLB_VI z
     // soft level estimate est = x_hat1 * sqrt(42)  (~ +-1..7)
     const NRLB_VF estI = NRLB_MM(mul_ps)(NRLB_MM(div_ps)(numr, det), SQRT42);
     const NRLB_VF estQ = NRLB_MM(mul_ps)(NRLB_MM(div_ps)(numi, det), SQRT42);
+    // graded per-axis PAM-8 LLRs from the soft estimate (g = 0.5*Peff/42, Peff = det/Pp1)
+    const NRLB_VF glin = NRLB_MM(mul_ps)(NRLB_MM(set1_ps)(0.5f / 42.0f), NRLB_MM(div_ps)(det, NRLB_MM(max_ps)(Pp1, ONE)));
+    NRLB_VF aI3[3], aQ3[3];
+    NRLB_NAME(nrlbw_axis_llr64)(estI, glin, aI3);
+    NRLB_NAME(nrlbw_axis_llr64)(estQ, glin, aQ3);
+    for (int b = 0; b < 3; b++) { aL[h][2 * b] = aI3[b]; aL[h][2 * b + 1] = aQ3[b]; }
     // nearest odd level: o = 2*round((est-1)/2)+1, clamped to [-7,7]
     NRLB_VF oI = NRLB_MM(add_ps)(NRLB_MM(mul_ps)(NRLB_ROUNDPS(NRLB_MM(mul_ps)(NRLB_MM(sub_ps)(estI, ONE), HALF), SIMDE_MM_FROUND_TO_NEAREST_INT | SIMDE_MM_FROUND_NO_EXC), TWO), ONE);
     NRLB_VF oQ = NRLB_MM(add_ps)(NRLB_MM(mul_ps)(NRLB_ROUNDPS(NRLB_MM(mul_ps)(NRLB_MM(sub_ps)(estQ, ONE), HALF), SIMDE_MM_FROUND_TO_NEAREST_INT | SIMDE_MM_FROUND_NO_EXC), TWO), ONE);
@@ -73,6 +105,8 @@ static inline void NRLB_NAME(nrlbw_seed)(NRLB_VI z1r16, NRLB_VI z1i16, NRLB_VI z
   *centerQ = NRLB_NAME(nrlbw_pack32)(cQ[0], cQ[1]);
   *dirImask = NRLB_NAME(nrlbw_pack32)(dI[0], dI[1]);
   *dirQmask = NRLB_NAME(nrlbw_pack32)(dQ[0], dQ[1]);
+  for (int p = 0; p < 6; p++) // round to nearest int16, saturating pack (final LLR units)
+    axisLLR[p] = NRLB_NAME(nrlbw_pack32)(NRLB_MM(cvtps_epi32)(aL[0][p]), NRLB_MM(cvtps_epi32)(aL[1][p]));
 }
 
 // Per-candidate evaluation (slice + metric + max-log reduction), updating max0/max1.
@@ -144,8 +178,8 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
     NRLB_NAME(nrlbw_load)(&ch_mag[re], &cm0, &dummy);
     NRLB_NAME(nrlbw_load)(&ch_mag_i[re], &cm1, &dummy);
 
-    NRLB_VI centerI, centerQ, dirImask, dirQmask;
-    NRLB_NAME(nrlbw_seed)(z1r, z1i, z2r, z2i, rr, ri, cm0, cm1, &centerI, &centerQ, &dirImask, &dirQmask);
+    NRLB_VI centerI, centerQ, dirImask, dirQmask, axisLLR[6];
+    NRLB_NAME(nrlbw_seed)(z1r, z1i, z2r, z2i, rr, ri, cm0, cm1, &centerI, &centerQ, &dirImask, &dirQmask, axisLLR);
     (void)dirImask; (void)dirQmask;
 
     // per-RE precompute (int16): conditional-slice operands (/32 scale)
@@ -235,10 +269,10 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
       // metric is normal/8 scale -> LLR = diff*8 (== float-ref / SIMD scale); saturate via int32
       const NRLB_VI lo = NRLB_MM(slli_epi32)(NRLB_NAME(nrlbw_widen)(diff, 0), 3);
       const NRLB_VI hi = NRLB_MM(slli_epi32)(NRLB_NAME(nrlbw_widen)(diff, 1), 3);
-      NRLB_VI r = NRLB_NAME(nrlbw_pack32)(lo, hi);
-      r = NRLB_BLENDV(r, NRLB_MM(set1_epi16)(-NR_LBEST_Q_LLR_SAT), NRLB_CMPEQ16(max0[p], SENT));
-      r = NRLB_BLENDV(r, NRLB_MM(set1_epi16)(NR_LBEST_Q_LLR_SAT), NRLB_CMPEQ16(max1[p], SENT));
-      res[p] = r;
+      const NRLB_VI r = NRLB_NAME(nrlbw_pack32)(lo, hi);
+      // unspanned bit (one side has no candidate): graded per-axis seed LLR, not +-LLR_SAT
+      const NRLB_VI unspanned = NRLB_OR(NRLB_CMPEQ16(max0[p], SENT), NRLB_CMPEQ16(max1[p], SENT));
+      res[p] = NRLB_BLENDV(r, axisLLR[p], unspanned);
     }
     NRLB_NAME(nrlbw_store_llr)(stream0_out, re, res, 6);
   }
