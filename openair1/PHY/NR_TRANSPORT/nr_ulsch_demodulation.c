@@ -164,7 +164,8 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                      uint16_t ptrs_symb_pos,
                      c16_t cpe,
                      c16_t *rxFext_slot,
-                     c16_t *chFext_slot)
+                     c16_t *chFext_slot,
+                     uint8_t *mod_orders)
 {
   int nb_layer = rel15_ul->nrOfLayers;
   int nb_rx_ant = rel15_ul->param_v4.numSpatialStreamIndices;
@@ -231,7 +232,7 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                           pusch_vars->rxdataF_comp,
                           (nb_layer > 1) ? rho : NULL,
                           cpe,
-                          rel15_ul->qam_mod_order,
+                          mod_orders,
                           symbol,
                           output_shift);
 
@@ -247,7 +248,7 @@ static void inner_rx(PHY_VARS_gNB *gNB,
     nr_idft((int32_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length], pusch_vars->ul_valid_re_per_slot[symbol]);
   }
   if (nb_layer == 2) {
-    if (rel15_ul->qam_mod_order <= 6) {
+    if (mod_orders[0] == mod_orders[1] && mod_orders[0] <= 6) {
       nr_compute_ML_llr((c16_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
                         (c16_t *)&pusch_vars->rxdataF_comp[1][symbol * buffer_length],
                         rxF_ch_maga[0],
@@ -257,9 +258,8 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                         rho[0][1],
                         rho[1][0],
                         pusch_vars->ul_valid_re_per_slot[symbol],
-                        rel15_ul->qam_mod_order);
-    }
-    else {
+                        mod_orders[0]);
+    } else {
       nr_mmse_2layers(pusch_vars->rxdataF_comp,
                       buffer_length,
                       buffer_length,
@@ -270,23 +270,32 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                       rxF_ch_magc,
                       chFext,
                       rel15_ul->rb_size,
-                      rel15_ul->qam_mod_order,
+                      mod_orders,
                       pusch_vars->log2_maxh,
                       symbol,
                       pusch_vars->ul_valid_re_per_slot[symbol],
                       nvar);
+      for (int aatx = 0; aatx < nb_layer; aatx++)
+        nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
+                       rxF_ch_maga[aatx],
+                       rxF_ch_magb[aatx],
+                       rxF_ch_magc[aatx],
+                       llr[aatx],
+                       pusch_vars->ul_valid_re_per_slot[symbol],
+                       symbol,
+                       mod_orders[aatx]);
     }
-  }
-  if (nb_layer != 2 || rel15_ul->qam_mod_order > 6)
+  } else {
     for (int aatx = 0; aatx < nb_layer; aatx++)
-           nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
+      nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
                      rxF_ch_maga[aatx],
                      rxF_ch_magb[aatx],
                      rxF_ch_magc[aatx],
                      llr[aatx],
                      pusch_vars->ul_valid_re_per_slot[symbol],
                      symbol,
-                     rel15_ul->qam_mod_order);
+                     mod_orders[aatx]);
+  }
 }
 
 typedef struct {
@@ -524,7 +533,7 @@ static void symbol_unscrambling_demux(puschSymbolProc_t *rdata, int ue_idx, int 
   NR_gNB_PUSCH *joint_pusch_vars = rdata->pusch_vars;
   NR_gNB_PUSCH *ue_pusch_vars = rdata->pusch_vars_group[ue_idx];
   const rate_match_info_uci_t *uci_info = &ue_pusch_vars->uci_info;
-  int16_t *s_seq = rdata->scrambling_sequences[ue_idx] + (joint_pusch_vars->llr_offset[s] * rel15_ul->nrOfLayers);
+  int16_t *s_seq = rdata->scrambling_sequences[ue_idx] + (ue_pusch_vars->llr_offset[s] * rel15_ul->nrOfLayers);
   uint32_t bits_per_re = rel15_ul->nrOfLayers * rel15_ul->qam_mod_order;
   uint32_t a_idx = map_uci->ack_offset[s];
   uint32_t c1_idx = map_uci->csi1_offset[s];
@@ -624,8 +633,19 @@ static void nr_pusch_symbol_processing(void *arg)
     if (pusch_vars->ul_valid_re_per_slot[symbol] == 0)
       continue;
     int soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
-    int buffer_length = ceil_mod(pusch_vars->ul_valid_re_per_slot[symbol] * NR_NB_SC_PER_RB, 16);
-    int16_t llrs[rel15_ul->nrOfLayers][ceil_mod(buffer_length * rel15_ul->qam_mod_order, 64)] __attribute__((aligned(32)));
+    int buffer_length = ceil_mod(pusch_vars->ul_valid_re_per_slot[symbol], 16);
+
+    uint8_t mod_orders[NR_MAX_NB_LAYERS];
+    uint8_t max_qam_order = 0;
+    int l_idx = 0;
+    for (int u = 0; u < rdata->group_size; u++) {
+      for (int l = 0; l < rdata->rel15_ul_group[u]->nrOfLayers; l++) {
+        mod_orders[l_idx] = rdata->rel15_ul_group[u]->qam_mod_order;
+        max_qam_order = max(max_qam_order, mod_orders[l_idx]);
+        l_idx++;
+      }
+    }
+    int16_t llrs[rel15_ul->nrOfLayers][ceil_mod(buffer_length * max_qam_order, 64)] __attribute__((aligned(32)));
     int16_t *llrss[rel15_ul->nrOfLayers];
     for (int l = 0; l < rel15_ul->nrOfLayers; l++)
       llrss[l] = llrs[l];
@@ -644,21 +664,26 @@ static void nr_pusch_symbol_processing(void *arg)
              rdata->ptrs_symb_pos,
              rdata->ptrs_cpe[symbol],
              rdata->rxFext_slot_mem,
-             rdata->pusch_ch_est_dmrs_interpl_slot_mem);
+             rdata->pusch_ch_est_dmrs_interpl_slot_mem,
+             mod_orders);
 
     int nb_re_pusch = pusch_vars->ul_valid_re_per_slot[symbol];
     for (int u = 0; u < rdata->group_size; u++) {
       // layer de-mapping
       const int ue_layers = rdata->rel15_ul_group[u]->nrOfLayers;
-      int size = ue_layers * buffer_length;
+      const int qam = rdata->rel15_ul_group[u]->qam_mod_order;
+      const int size = ue_layers * buffer_length * qam;
       int16_t *llr_ptr;
       int16_t llr_buf[size];  // only needed for multi-layer
       const int layer_off = rdata->layer_offsets[u];
+
+      // demapping: bring elements into order such that unscrambling is a linear operation
+      // e.g., from "RE0-l0, RE1-l0, ..., REn-l0, RE0-l1, ..." to "RE0-l0, Re0-l1, RE1-l0, ..."
+      // Each REn-ln = q LLRs (q = QAM order {2,4,6,8}, one LLR/bit).
       if (ue_layers == 1) {
         llr_ptr = llrss[layer_off];  // zero-copy
       } else {
         llr_ptr = llr_buf;
-        const int qam = rdata->rel15_ul_group[u]->qam_mod_order;
         nr_layer_demapping(ue_layers, qam, nb_re_pusch, &llrss[layer_off], llr_ptr);
       }
       symbol_unscrambling_demux(rdata, u, symbol, size, llr_ptr);
@@ -852,15 +877,20 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   joint_pdu.dmrs_ports = combined_dmrs_ports;
 
   NR_gNB_PUSCH *joint_pv = pusch_vars_group[0];
+  uint8_t group_max_qam = 0;
+  for (int u = 0; u < group_size; u++)
+    if (rel15_ul_group[u]->qam_mod_order > group_max_qam)
+      group_max_qam = rel15_ul_group[u]->qam_mod_order;
+
   LOG_D(PHY,
-        "%4u.%u MU-MIMO joint RX: %d UEs, %d total layers, rb_start=%u rb_size=%u qam=%u\n",
+        "%4u.%u MU-MIMO joint RX: %d UEs, %d total layers, rb_start=%u rb_size=%u max qam=%u\n",
         frame,
         slot,
         group_size,
         total_layers,
         rel15_ul_ref->rb_start,
         rel15_ul_ref->rb_size,
-        rel15_ul_ref->qam_mod_order);
+        group_max_qam);
 
   //----------------------------------------------------------
   //------------------- Channel estimation -------------------
@@ -1015,7 +1045,8 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       max_G = G[u];
   }
 
-  const uint64_t num_scrambling_bytes = group_size * (max_G + 96) * sizeof(int16_t);
+  const int scr_row = ((max_G + 96 + 15) / 16) * 16;
+  const uint64_t num_scrambling_bytes = group_size * scr_row * sizeof(int16_t);
   AssertFatal(num_scrambling_bytes <= NR_MAX_PUSCH_SCRAMBLING_STACK_BYTES,
               "scrambling_sequences stack buffer %" PRIu64 " bytes exceeds %d MB limit : group_size %d, max_G %d\n",
               num_scrambling_bytes,
@@ -1023,7 +1054,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
               group_size,
               max_G);
 
-  int16_t scrambling_sequences[group_size][max_G + 96] __attribute__((aligned(32)));
+  int16_t scrambling_sequences[group_size][scr_row] __attribute__((aligned(32)));
   int16_t *scrambling_sequences_arr[group_size];
 
   for (int u = 0; u < group_size; u++) {
@@ -1092,7 +1123,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     for (int aarx = 0; aarx < num_sp_streams; aarx++)
       avgs = cmax(avgs, avg[nl][aarx]);
 
-  if (total_layers == 2 && rel15_ul_ref->qam_mod_order > 6)
+  if (total_layers == 2 && group_max_qam > 6)
     joint_pv->log2_maxh = (log2_approx(avgs) >> 1) - 3; // for MMSE
   else if (total_layers == 2)
     joint_pv->log2_maxh = (log2_approx(avgs) >> 1) - 2 + log2_approx(num_sp_streams >> 1);
@@ -1125,14 +1156,17 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     int res_per_task = 0;
     for (int s = 0; s < numSymbols && s + symbol < end_symbol; s++) {
       int curr_sym = symbol + s;
-      if (curr_sym == rel15_ul_ref->start_symbol_index) {
-        joint_pv->llr_offset[curr_sym] = 0;
-      } else {
-        int prev_sym = curr_sym - 1;
-        int prev_offset = joint_pv->llr_offset[prev_sym];
-        int prev_re = joint_pv->ul_valid_re_per_slot[prev_sym];
-        int mod_order = rel15_ul_ref->qam_mod_order;
-        joint_pv->llr_offset[curr_sym] = prev_offset + (prev_re * mod_order);
+      for (int u = 0; u < group_size; u++) {
+        NR_gNB_PUSCH *ue_pusch_vars = pusch_vars_group[u];
+        const nfapi_nr_pusch_pdu_t *ue_pdu = rel15_ul_group[u];
+        if (curr_sym == ue_pdu->start_symbol_index) {
+          ue_pusch_vars->llr_offset[curr_sym] = 0;
+        } else {
+          int prev_sym = curr_sym - 1;
+          int prev_offset = ue_pusch_vars->llr_offset[prev_sym];
+          int prev_re = joint_pv->ul_valid_re_per_slot[prev_sym];
+          ue_pusch_vars->llr_offset[curr_sym] = prev_offset + (prev_re * ue_pdu->qam_mod_order);
+        }
       }
       res_per_task += joint_pv->ul_valid_re_per_slot[curr_sym];
     }
@@ -1215,15 +1249,33 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
 #endif
 
   join_task_ans(&ans);
+  // Compute per UE channel level and group channel level
+  // This is used for computing ulsch power per UE in a group
+  uint64_t ue_ch_level[group_size][num_sp_streams];
+  uint64_t group_ch_level[num_sp_streams];
+  memset(group_ch_level, 0, sizeof(group_ch_level));
+  for (int u = 0; u < group_size; u++) {
+    for (int aarx = 0; aarx < num_sp_streams; aarx++) {
+      uint64_t ch_level = 0;
+      for (int nl = 0; nl < rel15_ul_group[u]->nrOfLayers; nl++)
+        ch_level += avg[layer_offset[u] + nl][aarx];
+      ue_ch_level[u][aarx] = ch_level;
+      group_ch_level[aarx] += ch_level;
+    }
+  }
+
   for (int u = 0; u < group_size; u++) {
     NR_gNB_PUSCH *pv = pusch_vars_group[u];
     // Copy unavailable resources per UE
     *ret_unav_res_group[u] = unav_res;
-    // Copy power measurements per UE
+    // joint_pv->ulsch_power[aarx] is the total received power of the group per antenna
+    // Split power measurements per UE
     pv->ulsch_power_tot = 0;
     pv->ulsch_noise_power_tot = 0;
     for (int aarx = 0; aarx < num_sp_streams; aarx++) {
-      pv->ulsch_power[aarx] = joint_pv->ulsch_power[aarx];
+      pv->ulsch_power[aarx] = group_ch_level[aarx] > 0
+                                  ? (uint32_t)((uint64_t)joint_pv->ulsch_power[aarx] * ue_ch_level[u][aarx] / group_ch_level[aarx])
+                                  : joint_pv->ulsch_power[aarx] / group_size;
       pv->ulsch_noise_power[aarx] = joint_pv->ulsch_noise_power[aarx];
       pv->ulsch_power_tot += pv->ulsch_power[aarx];
       pv->ulsch_noise_power_tot += pv->ulsch_noise_power[aarx];

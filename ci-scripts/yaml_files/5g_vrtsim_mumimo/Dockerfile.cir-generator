@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: MIT
+#
+# The published oaisoftwarealliance/cir-generator:v0.0.1 image predates the
+# raytracing-channel-emulator repo's multi-value --los-aoa-deg support (added
+# in "aoa-sweep-tdl-de"), which this MU-MIMO test needs to generate both UEs'
+# AoA-separated entries in one pass. Build the generator straight from the
+# repo instead, pinned to a known-good commit, with raytracing_mu_mimo.patch
+# applied on top -- that patch fixes a double Rician K-factor mix and a
+# per-antenna-pair (instead of per-link) shadowing draw that would otherwise
+# corrupt the LOS-steered entries this test relies on for UE-pair orthogonality.
+FROM ubuntu:24.04
+
+ENV GENERATOR_ARGS="--demo"
+ENV OUTPUT="--out /opt/output/cir_db"
+ENV DEBIAN_FRONTEND=noninteractive
+
+ARG RT_EMULATOR_REPO=https://gitlab.eurecom.fr/oai/raytracing-channel-emulator.git
+ARG RT_EMULATOR_COMMIT=c7288be
+
+RUN apt-get update && \
+    apt-get install -y \
+        git \
+        python3 \
+        python3-pip \
+        libnanomsg-dev \
+        flatbuffers-compiler && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir --break-system-packages \
+        PyYAML==6.0.1 \
+        nanomsg==1.0 \
+        numpy
+
+RUN git clone ${RT_EMULATOR_REPO} /tmp/rt-emulator && \
+    cd /tmp/rt-emulator && \
+    git checkout ${RT_EMULATOR_COMMIT}
+
+COPY raytracing_mu_mimo.patch /tmp/raytracing_mu_mimo.patch
+RUN cd /tmp/rt-emulator && patch -p1 < /tmp/raytracing_mu_mimo.patch && rm /tmp/raytracing_mu_mimo.patch
+
+RUN mkdir -p /opt/app && \
+    cp -r /tmp/rt-emulator/server/external_taps /opt/app/external_taps && \
+    cp -r /tmp/rt-emulator/server/api /opt/app/api && \
+    rm -rf /tmp/rt-emulator
+
+RUN cd /opt/app/api && flatc --python taps.fbs
+
+WORKDIR /opt/app
+CMD ["bash", "-c", "python3 external_taps/cir_generator.py $GENERATOR_ARGS $OUTPUT"]
