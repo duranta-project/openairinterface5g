@@ -1069,7 +1069,8 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                       rho_dl[1],
                       rho_dl[nl],
                       nb_re_pdsch,
-                      qamModOrder);
+                      qamModOrder,
+                      lbest_gate);
     stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
 
     int16_t *p_symllr[2] = {sym_llr[0], sym_llr[1]};
