@@ -83,7 +83,69 @@ Step of 1.3 m. Actual value = field value * 1.3.
 X, Y, Z coordinate of satellite velocity state vector in ECEF. Unit is meter/second.
 Step of 0.06 m/s. Actual value = field value * 0.06.
 
+### Dynami Keplerian orbital parameters (`orbital-r17`) for LEO satellite
+  
+As an alternative to the `positionVelocity-r17` state-vector representation  
+above, `EphemerisInfo-r17` also supports the `orbital-r17` CHOICE, which  
+describes the satellite orbit using classical Keplerian elements instead of  
+a Cartesian position/velocity pair (see 3GPP TS 38.331, `Orbital-r17`).  
+  
+`semiMajorAxis-r17`:  
+Semi-major axis of the orbit. Unit is meter. Offset 6500000 m, step 4.249e-3 m.  
+Actual value = 6500000 + field value * 4.249e-3.  
+  
+`eccentricity-r17`:  
+Orbit eccentricity (dimensionless). Step 1.431e-8.  
+Actual value = field value * 1.431e-8.  
+  
+`periapsis-r17`:  
+Argument of periapsis. Unit is radian. Step 2.341e-8 rad.  
+Actual value = field value * 2.341e-8.  
+  
+`longitude-r17`:  
+Longitude of ascending node (RAAN). Unit is radian. Step 2.341e-8 rad.  
+Actual value = field value * 2.341e-8.  
+  
+`inclination-r17`:  
+Orbit inclination. Unit is radian. Step 2.341e-8 rad. Signed field.  
+Actual value = field value * 2.341e-8.  
+  
+`meanAnomaly-r17`:  
+Mean anomaly at epoch. Unit is radian. Step 2.341e-8 rad. Unsigned field  
+(range 0..2*pi); negative angles must be wrapped into [0, 2*pi) before  
+conversion to the raw field value.  
+  
+These parameters are provided through the same `ephemerisInfo-r17` CHOICE  
+as `positionVelocity-r17`; only one of the two representations can be  
+active for a given cell at a time. Selection between the two is controlled  
+at runtime rather than statically in the `.conf` file: when the rfsimulator  
+channel model computes the satellite orbit itself (see the  
+`--channelmod.use_orbital` option below), it fills in `orbital-r17` instead  
+of `positionVelocity-r17`, and the gNB allocates/frees the corresponding  
+ASN.1 CHOICE member accordingly.  
+  
+To exercise this path with the RFsimulator LEO channel model, add the new  
+boolean option to the `channelmod` configuration on the gNB command line:
+--channelmod.use_orbital 1
+
+If the option is omitted, it defaults to `false`, and the existing  
+`positionVelocity-r17` behaviour is unchanged.  
+  
+Note: on the UE side, the timing-advance/Doppler computation currently  
+reduces any received ephemeris (whether `positionVelocity-r17` or  
+`orbital-r17`) to a constant-angular-velocity circular-orbit approximation.  
+This is exact for `eccentricity-r17 = 0`, but is only an approximation for  
+a genuinely elliptical orbit (`eccentricity-r17 > 0`) which is for future development. 
+
 These parameters can be provided to the gNB in the conf file in the section `servingCellConfigCommon`:
+
+Note:
+This new Keplerian orbit feature currently only supports dynamic calculation during channel model simulation.
+So .conf does not currently support adding Keplerian static parameters. The .conf can be left as-is.
+To instead report it using the `orbital-r17` (Keplerian elements) representation, pass:
+--channelmod.use_orbital 1 as part of the run gnb command.
+This Keplerian orbit feature is only currently available in LEO satellite with circular orbit scenario.
+
 ```
 ...
 # GEO satellite
