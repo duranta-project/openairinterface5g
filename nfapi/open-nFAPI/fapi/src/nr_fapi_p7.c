@@ -6,6 +6,7 @@
 #include "nr_fapi_p7_utils.h"
 #include "nr_nfapi_p7.h"
 #include "debug.h"
+#include "common/utils/utils.h"
 
 uint8_t fapi_nr_p7_message_body_pack(nfapi_nr_p7_message_header_t *header,
                                      uint8_t **ppWritePackedMsg,
@@ -1214,8 +1215,12 @@ static uint8_t unpack_ul_tti_request_pusch_pdu(nfapi_nr_pusch_pdu_t *pusch_pdu, 
           && pull16(ppReadPackedMsg, &pusch_pdu->pusch_data.num_cb, end))) {
       return 0;
     }
-    const uint8_t cb_len = (pusch_pdu->pusch_data.num_cb + 7) / 8;
-    if (!pullarray8(ppReadPackedMsg, pusch_pdu->pusch_data.cb_present_and_position, cb_len, cb_len, end)) {
+    const uint16_t cb_len = (pusch_pdu->pusch_data.num_cb + 7) / 8;
+    if (!pullarray8(ppReadPackedMsg,
+                    pusch_pdu->pusch_data.cb_present_and_position,
+                    sizeofArray(pusch_pdu->pusch_data.cb_present_and_position),
+                    cb_len,
+                    end)) {
       return 0;
     }
   }
@@ -1313,6 +1318,14 @@ static uint8_t unpack_ul_tti_request_srs_parameters_v4(nfapi_v4_srs_parameters_t
   if (!(pull16(ppReadPackedMsg, &srsParameters->srs_bandwidth_size, end))) {
     return 0;
   }
+  if (num_symbols > sizeofArray(srsParameters->symbol_list)) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR,
+                "%s: num_symbols %u exceeds max %zu\n",
+                __FUNCTION__,
+                (unsigned int)num_symbols,
+                sizeofArray(srsParameters->symbol_list));
+    return 0;
+  }
 
   for (int symbol_idx = 0; symbol_idx < num_symbols; ++symbol_idx) {
     nfapi_v4_srs_parameters_symbols_t *symbol = &srsParameters->symbol_list[symbol_idx];
@@ -1368,6 +1381,13 @@ static uint8_t unpack_ul_tti_request_srs_pdu(nfapi_nr_srs_pdu_t *srs_pdu, uint8_
         && pull8(ppReadPackedMsg, &srs_pdu->frequency_hopping, end)
         && pull8(ppReadPackedMsg, &srs_pdu->group_or_sequence_hopping, end) && pull8(ppReadPackedMsg, &srs_pdu->resource_type, end)
         && pull16(ppReadPackedMsg, &srs_pdu->t_srs, end) && pull16(ppReadPackedMsg, &srs_pdu->t_offset, end))) {
+    return 0;
+  }
+
+  /* TS 38.211 §6.4.1.4.1: num_symbols is 0 (1 symbol), 1 (2 symbols), or 2 (4 symbols).
+   * Values > 2 cause undefined bit shift (1 << num_symbols) and overflow symbol_list[4]. */
+  if (srs_pdu->num_symbols > 2) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: num_symbols %u exceeds max 2\n", __FUNCTION__, (unsigned int)srs_pdu->num_symbols);
     return 0;
   }
 
