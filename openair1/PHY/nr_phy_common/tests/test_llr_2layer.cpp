@@ -186,6 +186,32 @@ TEST(test_llr_2layer, width_equiv_256qam_other_patterns)
   for (int p : {0, 2, 3}) for (auto n : kMul32) width_equiv_256qam(n, p);
 }
 
+// RE counts that are NOT block multiples (>= 32 so every width stays on the SIMD path): the
+// last block is overlapped, so the widths must still be bit-identical. 1272/3276 = 106/273 PRB.
+const std::vector<uint32_t> kRagged = {33, 100, 1272, 3276};
+
+TEST(test_llr_2layer, width_equiv_ragged_lengths)
+{
+  for (auto n : kRagged) {
+    for (int p = 0; p <= 2; p++) width_equiv_64qam(n, p);
+    for (int p : {0, 1, 2, 3}) width_equiv_256qam(n, p);
+  }
+}
+
+// The overlapped last block must give exactly the LLRs of an aligned run over a longer buffer.
+TEST(test_llr_2layer, overlapped_tail_matches_aligned)
+{
+  const uint32_t n = 3276, na = 3280; // na: multiple of 16
+  auto in = gen_inputs(na, 0x7A11);
+  AlignedVector512<int16_t> a((size_t)na * 8 + 64, 0), b((size_t)na * 8 + 64, 0);
+  nr_qam64_llr_2layer_lbest_q15_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), a.data(), in.rho.data(), na, 0);
+  nr_qam64_llr_2layer_lbest_q15_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), b.data(), in.rho.data(), n, 0);
+  EXPECT_EQ(0, memcmp(a.data(), b.data(), (size_t)n * 6 * sizeof(int16_t))) << "64QAM overlapped tail";
+  nr_qam256_llr_2layer_lbest_q15_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), a.data(), in.rho.data(), na, 1);
+  nr_qam256_llr_2layer_lbest_q15_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), b.data(), in.rho.data(), n, 1);
+  EXPECT_EQ(0, memcmp(a.data(), b.data(), (size_t)n * 8 * sizeof(int16_t))) << "256QAM overlapped tail";
+}
+
 // ---- (B) fidelity vs the float reference model ----------------------------
 
 TEST(test_llr_2layer, fidelity_vs_float_64qam)
