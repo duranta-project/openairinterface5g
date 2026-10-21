@@ -40,6 +40,8 @@
 #define L1_NUM_ANTENNAS_PER_THREAD           "dmrs_num_antennas_per_thread"
 #define HLP_NUM_ARX "Number of antennas per thread for PUSCH channel estimation"
 #define L1_ANALOG_DAS                        "enable_das"
+#define L1_PUSCH_MIMO_RX                     "pusch_mimo_receiver"
+#define HLP_L1_PUSCH_MIMO_RX "2-layer PUSCH receiver: lbest (default, near-ML), mmse (cheapest, ~1 dB loss), ml (exact max-log ML, most expensive)"
 
 /*----------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*                                            L1 configuration parameters                                                                             */
@@ -68,6 +70,7 @@
   {L1_PHASE_COMP,                        HLP_L1_PHASE_COMP,PARAMFLAG_BOOL, .uptr=NULL,.defintval=1,               TYPE_UINT,     0},         \
   {L1_NUM_ANTENNAS_PER_THREAD,           HLP_NUM_ARX,0,         .uptr=NULL,           .defintval=1,               TYPE_UINT,     0},         \
   {L1_ANALOG_DAS,                        NULL,       0,         .uptr=NULL,           .defintval=0,               TYPE_UINT,     0},         \
+  {L1_PUSCH_MIMO_RX,                     HLP_L1_PUSCH_MIMO_RX,0,.strptr=NULL,         .defstrval="lbest",         TYPE_STRING,   0},         \
 }
 // clang-format on
 

@@ -246,8 +246,9 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                            rel15_ul->qam_mod_order);
     nr_idft((int32_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length], pusch_vars->ul_valid_re_per_slot[symbol]);
   }
+  /* PTRS processing and start_meas(ulsch_llr) now happen earlier, per upstream's ptrs refactor */
   if (nb_layer == 2) {
-    if (rel15_ul->qam_mod_order <= 6) {
+    if (gNB->pusch_mimo_rx != NR_PUSCH_RX_MMSE) {
       nr_compute_ML_llr((c16_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
                         (c16_t *)&pusch_vars->rxdataF_comp[1][symbol * buffer_length],
                         rxF_ch_maga[0],
@@ -257,27 +258,31 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                         rho[0][1],
                         rho[1][0],
                         pusch_vars->ul_valid_re_per_slot[symbol],
-                        rel15_ul->qam_mod_order);
+                        rel15_ul->qam_mod_order,
+                        gNB->pusch_mimo_rx == NR_PUSCH_RX_LBEST);
     }
     else {
-      nr_mmse_2layers(pusch_vars->rxdataF_comp,
-                      buffer_length,
-                      buffer_length,
-                      nb_rx_ant,
-                      nb_layer,
-                      rxF_ch_maga,
-                      rxF_ch_magb,
-                      rxF_ch_magc,
-                      chFext,
-                      rel15_ul->rb_size,
-                      rel15_ul->qam_mod_order,
-                      pusch_vars->log2_maxh,
-                      symbol,
-                      pusch_vars->ul_valid_re_per_slot[symbol],
-                      nvar);
+      // Fused Gram-fed 2-layer MMSE + scalar LLR (L=1). Replaces {nr_mmse_2layers + scalar loop}.
+      nr_compute_MMSE_llr(pusch_vars->rxdataF_comp,
+                          buffer_length,
+                          buffer_length,
+                          nb_rx_ant,
+                          nb_layer,
+                          rxF_ch_maga,
+                          rxF_ch_magb,
+                          rxF_ch_magc,
+                          chFext,
+                          rel15_ul->rb_size,
+                          rel15_ul->qam_mod_order,
+                          pusch_vars->log2_maxh,
+                          symbol,
+                          pusch_vars->ul_valid_re_per_slot[symbol],
+                          nvar,
+                          rho[0][0], rho[0][1], rho[1][0], rho[1][1],
+                          llr);
     }
   }
-  if (nb_layer != 2 || rel15_ul->qam_mod_order > 6)
+  if (nb_layer != 2) // 2-layer 256QAM MMSE is now handled inside nr_compute_MMSE_llr above
     for (int aatx = 0; aatx < nb_layer; aatx++)
            nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
                      rxF_ch_maga[aatx],
@@ -1092,10 +1097,15 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     for (int aarx = 0; aarx < num_sp_streams; aarx++)
       avgs = cmax(avgs, avg[nl][aarx]);
 
-  if (total_layers == 2 && rel15_ul_ref->qam_mod_order > 6)
-    joint_pv->log2_maxh = (log2_approx(avgs) >> 1) - 3; // for MMSE
+  if (total_layers == 2 && gNB->pusch_mimo_rx == NR_PUSCH_RX_MMSE)
+    joint_pv->log2_maxh =
+        (log2_approx(avgs) >> 1) + nr_mmse_llr_maxh_off(rel15_ul_ref->qam_mod_order) + log2_approx(num_sp_streams >> 1);
   else if (total_layers == 2)
-    joint_pv->log2_maxh = (log2_approx(avgs) >> 1) - 2 + log2_approx(num_sp_streams >> 1);
+    // 2-layer ML / L-best: mod-order-dependent LLR-hotness offset (a uniform -2 tuned for 256QAM
+    // over-heats the lower orders and loses the ML gain) plus the antenna-gain term. Same table as the UE.
+    joint_pv->log2_maxh =
+        (log2_approx(avgs) >> 1) + nr_ml_llr_maxh_off(rel15_ul_ref->qam_mod_order, gNB->pusch_mimo_rx == NR_PUSCH_RX_LBEST)
+        + log2_approx(num_sp_streams >> 1);
   else
     joint_pv->log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(num_sp_streams >> 1);
 

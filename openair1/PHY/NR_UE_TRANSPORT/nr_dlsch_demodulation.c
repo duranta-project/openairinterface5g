@@ -521,7 +521,8 @@ static void nr_dlsch_mmse(uint32_t pdsch_buf_size_max,
                           unsigned char mod_order,
                           int shift,
                           int length,
-                          uint32_t noise_var)
+                          uint32_t noise_var,
+                          c16_t rho[nl * nl][pdsch_buf_size_max])
 {
   uint32_t nb_rb_0 = (length + 11) / 12;
   c16_t determ_fin[12 * nb_rb_0] __attribute__((aligned(32)));
@@ -535,19 +536,32 @@ static void nr_dlsch_mmse(uint32_t pdsch_buf_size_max,
       for (int ctx = 0; ctx < nl; ctx++)
         conjH_H_elements[aarx][rtx][ctx] = conjH_H_elements_data[aarx][rtx][ctx];
 
-  //Compute H^*H matrix elements and sub elements:(1/2^log2_maxh)*conjH_H_elements
-  for (int rtx = 0; rtx < nl; rtx++) {//row
-    for (int ctx = 0; ctx < nl; ctx++) {//column
-      for (int aarx = 0; aarx < n_rx; aarx++)  {
-        c16_t *ch0r = dl_ch_estimates_ext[rtx * n_rx + aarx];
-        c16_t *ch0c = dl_ch_estimates_ext[ctx * n_rx + aarx];
-        mult_cpx_conj_vector(ch0r,
-                            ch0c,
-                            conjH_H_elements[aarx][ctx][rtx], // sic
-                            nb_rb_0 * NR_NB_SC_PER_RB,
-                            shift);
-        if (aarx != 0)
-          nr_a_sum_b(conjH_H_elements[0][ctx][rtx], conjH_H_elements[aarx][ctx][rtx], nb_rb_0);
+  // Compute H^*H matrix elements and sub elements:(1/2^log2_maxh)*conjH_H_elements
+  if (rho) {
+    // Gram-based: rho already holds Sum_rx conj(ch_i)*ch_j >> log2_maxh (the full nl x nl Gram,
+    // diagonal included), at the same scale conjH_H uses. The chFext-based build below re-derives
+    // exactly this. conjH_H[ctx][rtx] = conj(ch_rtx)*ch_ctx = rho[rtx][ctx] (flat: rho[rtx*nl+ctx]).
+    // (Conjugate/transpose direction validated against the chFext path in dlsim.)
+    for (int rtx = 0; rtx < nl; rtx++)
+      for (int ctx = 0; ctx < nl; ctx++)
+        memcpy(conjH_H_elements[0][ctx][rtx], rho[rtx * nl + ctx], length * sizeof(c16_t));
+  } else {
+    for (int rtx = 0; rtx < nl; rtx++) { // row
+      for (int ctx = 0; ctx < nl; ctx++) { // column
+        for (int aarx = 0; aarx < n_rx; aarx++) {
+          c16_t *ch0r = dl_ch_estimates_ext[rtx * n_rx + aarx];
+          c16_t *ch0c = dl_ch_estimates_ext[ctx * n_rx + aarx];
+          /* upstream replaced nr_conjch0_mult_ch1() here: it is now static in
+             nr_compute_llr.c, and mult_cpx_conj_vector() takes the length in
+             subcarriers rather than RBs */
+          mult_cpx_conj_vector(ch0r,
+                               ch0c,
+                               conjH_H_elements[aarx][ctx][rtx], // sic
+                               nb_rb_0 * NR_NB_SC_PER_RB,
+                               shift);
+          if (aarx != 0)
+            nr_a_sum_b(conjH_H_elements[0][ctx][rtx], conjH_H_elements[aarx][ctx][rtx], nb_rb_0);
+        }
       }
     }
   }
@@ -744,6 +758,16 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   // Controlled by ue->do_ml (set via -E flag in dlsim, or ue->do_ml in the UE struct).
   // When false (default), MMSE equalization is used for all configurations.
   bool do_ml = ue->do_ml;
+  // ANALYSIS gate (OAI_LBEST): route 2-layer 256QAM (Qm=8) to the float L-best ML kernel
+  // (nr_compute_ML_llr case 8) instead of the MMSE+single-layer fallback. Off by default.
+  static int lbest_gate = -1;
+  if (lbest_gate < 0) { const char *e = getenv("OAI_LBEST"); lbest_gate = e ? atoi(e) : 0; }
+  const bool ml256 = do_ml && lbest_gate;
+  // 3-layer detector selection mirrors the 2-layer path: MMSE is the default (fast linear,
+  // works for all modulations), and the hybrid ML detector (Schur-deflate one nuisance, keep
+  // the other discrete, 2-layer conditional-slice LLR) is opt-in via the do_ml/OAI_LBEST gate.
+  // The hybrid covers QPSK/16/64/256QAM. (4-layer: MMSE only for now; hybrid is a later effort.)
+  const bool ml3 = do_ml && lbest_gate && nl == 3;
 
   // Reinterpret flat dl_ch_estimates_ext as [nl][nbRx][rx_size_symbol]
   c16_t(*chFext)[nbRx][rx_size_symbol] = (void *)dl_ch_estimates_ext;
@@ -765,7 +789,12 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   uint8_t pilots = (dlsch_config->dlDmrsSymbPos >> symbol) & 1;
   uint8_t config_type = dlsch_config->dmrsConfigType;
 
-  const bool need_rho = do_ml ? (nl == 2 && dlsch_config->cw_info->qamModOrder <= 6) : false;
+  // rho = full nl x nl Gram (H^H H). Needed by the ML LLR kernels AND now by the Gram-based linear
+  // MMSE: nr_dlsch_mmse builds H^H H from rho instead of re-deriving it from the (per-symbol) channel
+  // estimates. Covers the linear-MMSE cases (nl>2 non-ml3; nl==2 non-ML) as well as the ML cases.
+  // Every multi-layer path (ML search, linear nl>2 / 2-layer MMSE, 2-layer 256QAM MMSE) now reads the
+  // Gram from rho, so retain it for all nl >= 2. Single-layer (nl==1, MRC) needs no rho.
+  const bool need_rho = (nl >= 2);
 
   int nb_rb_pdsch = freq_alloc->num_rbs;
   uint32_t csi_res_bitmap = build_csi_overlap_bitmap(dlsch_config, symbol);
@@ -886,10 +915,15 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     }
     // Output shift: half channel energy (log2|h|^2/2) + MRC antenna gain.
     // Single-layer adds +1 guard bit (raw peak); multi-layer uses median so no guard needed.
+    // ML branch offset is mod-order-dependent (nr_ml_llr_maxh_off) so the near-ML LLRs don't
+    // saturate at low mod orders; OAI_ML_MAXH_OFF overrides it for the hotness sweep.
     if (nl == 1)
       *log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(nbRx >> 1);
-    else
+    else if (!do_ml)
       *log2_maxh = (log2_approx(avgs) >> 1) + log2_approx(nbRx >> 1);
+    else
+      *log2_maxh = (log2_approx(avgs) >> 1) + nr_ml_llr_maxh_off(dlsch->cw_info.qamModOrder, lbest_gate)
+                   + log2_approx(nbRx >> 1);
     LOG_D(PHY, "[DLSCH] AbsSubframe %d.%d log2_maxh = %d (%d)\n", frame % 1024, nr_slot_rx, *log2_maxh, avgs);
 #if T_TRACER
     T(T_UE_PHY_PDSCH_ENERGY,
@@ -962,7 +996,10 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   // MRC is performed inline by nr_channel_compensation; apply MMSE for multi-layer
   start_meas_nr_ue_phy(ue, DLSCH_MRC_MMSE_STATS);
   const uint8_t qamModOrder = dlsch->cw_info.qamModOrder;
-  if ((nl > 2) || (nl == 2 && !do_ml)) {
+  // A/B validation toggle: OAI_MMSE_GRAM=0 forces the legacy chFext Gram build (default 1 = Gram).
+  static int mmse_gram = -1;
+  if (mmse_gram < 0) { const char *e = getenv("OAI_MMSE_GRAM"); mmse_gram = e ? atoi(e) : 1; }
+  if ((nl > 2 && !ml3) || (nl == 2 && !do_ml)) {
     nr_dlsch_mmse(pdsch_buf_size_max,
                   rx_size_symbol,
                   nbRx,
@@ -975,8 +1012,9 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                   qamModOrder,
                   *log2_maxh,
                   nb_re_pdsch,
-                  nvar);
-  } else if ((nl == 2) && (qamModOrder > 6) && do_ml) {
+                  nvar,
+                  (need_rho && mmse_gram) ? rho_dl : NULL); // Gram-based build; OAI_MMSE_GRAM=0 -> legacy chFext
+  } else if ((nl == 2) && (qamModOrder > 6) && do_ml && !ml256) {
     nr_mmse_2layers(p_rxComp,
                     rx_size_symbol,
                     pdsch_buf_size_max,
@@ -991,7 +1029,11 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                     *log2_maxh,
                     0,
                     nb_re_pdsch,
-                    nvar);
+                    nvar,
+                    (need_rho && mmse_gram) ? rho_dl[0] : NULL,
+                    (need_rho && mmse_gram) ? rho_dl[1] : NULL,
+                    (need_rho && mmse_gram) ? rho_dl[nl] : NULL,
+                    (need_rho && mmse_gram) ? rho_dl[nl + 1] : NULL); // Gram; OAI_MMSE_GRAM=0 -> chFext
   }
   stop_meas_nr_ue_phy(ue, DLSCH_MRC_MMSE_STATS);
 
@@ -1011,8 +1053,9 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   const int llr_per_symbol = nb_re_pdsch * qamModOrder;
 
   start_meas_nr_ue_phy(ue, DLSCH_LLR_LAYER_DEMAP_STATS);
-  if (nl == 2 && qamModOrder <= 6 && do_ml) {
-    // 2-layer QPSK/16QAM/64QAM: joint ML-LLR using inter-layer Tx correlation
+  if (nl == 2 && do_ml && (qamModOrder <= 6 || (qamModOrder == 8 && ml256))) {
+    // 2-layer QPSK/16QAM/64QAM (and 256QAM under the OAI_LBEST analysis gate):
+    // joint ML-LLR using inter-layer Tx correlation
     // rho_dl is laid out as [nl*nl][rx_size_symbol]:
     // index 1 = rho[0][1], index nl (=2) = rho[1][0]
     // padded to 16 REs: the SIMD ML LLR kernels write whole groups of REs
@@ -1027,7 +1070,8 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                       rho_dl[1],
                       rho_dl[nl],
                       nb_re_pdsch,
-                      qamModOrder);
+                      qamModOrder,
+                      lbest_gate);
     stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
 
     int16_t *p_symllr[2] = {sym_llr[0], sym_llr[1]};
@@ -1053,16 +1097,42 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     /* Multi-layer: LLR into per-layer temp buffers, then demapped into output. */
     __attribute__((aligned(32))) int16_t sym_llr[nl][llr_per_symbol];
     start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
-    nr_dlsch_llr(dlsch,
-                 nb_re_pdsch,
-                 pdsch_buf_size_max,
-                 dl_ch_mag[0],
-                 dl_ch_magb[0],
-                 dl_ch_magr[0],
-                 nbRx,
-                 rxdataF_comp,
-                 llr_per_symbol,
-                 sym_llr);
+    if (ml3) {
+      // 3-layer hybrid ML (gated, float reference). For each target layer t, project the
+      // most-orthogonal nuisance + Schur-deflate, then 2-layer conditional-slice on the kept
+      // pair. rho_dl is [nl*nl][rx]: rho[i][j] at index i*nl+j (= h_i^H h_j).
+      // OAI_LBEST3=2 -> exact full-ML reference instead of the hybrid; OAI_LBEST_L3 -> L.
+      static int mode3 = -1, L3 = 256;
+      if (mode3 < 0) {
+        const char *e = getenv("OAI_LBEST3"); mode3 = e ? atoi(e) : 1;
+        const char *el = getenv("OAI_LBEST_L3"); L3 = el ? atoi(el) : 256;
+      }
+      for (int t = 0; t < 3; t++) {
+        const int n1 = (t + 1) % 3, n2 = (t + 2) % 3;
+        c16_t *r_tn1 = rho_dl[t * nl + n1];
+        c16_t *r_tn2 = rho_dl[t * nl + n2];
+        c16_t *r_n1n2 = rho_dl[n1 * nl + n2];
+        if (mode3 == 2)
+          nr_qam_llr_3layer_ml(rxdataF_comp[t], rxdataF_comp[n1], rxdataF_comp[n2],
+                               dl_ch_mag[t], dl_ch_mag[n1], dl_ch_mag[n2],
+                               r_tn1, r_tn2, r_n1n2, sym_llr[t], nb_re_pdsch, qamModOrder);
+        else
+          nr_qam_llr_3layer_hybrid(rxdataF_comp[t], rxdataF_comp[n1], rxdataF_comp[n2],
+                                   dl_ch_mag[t], dl_ch_mag[n1], dl_ch_mag[n2],
+                                   r_tn1, r_tn2, r_n1n2, sym_llr[t], nb_re_pdsch, qamModOrder, L3, 0.0f);
+      }
+    } else {
+      nr_dlsch_llr(dlsch,
+                   nb_re_pdsch,
+                   pdsch_buf_size_max,
+                   dl_ch_mag[0],
+                   dl_ch_magb[0],
+                   dl_ch_magr[0],
+                   nbRx,
+                   rxdataF_comp,
+                   llr_per_symbol,
+                   sym_llr);
+    }
     stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
 
     int16_t *p_symllr[nl];

@@ -503,9 +503,9 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
   const size_t comp_elems = (size_t)max_layers * pdsch_buf_size_max;
   const size_t ch_est_elems = (size_t)fp->nb_antennas_rx * max_layers * pdsch_est_size;
 
-  /* rho_dl is only needed for 2-layer ML LLR computation; skip the
-   * allocation entirely when ML is disabled to reduce memory footprint. */
-  const size_t rho_elems = do_ml ? (size_t)max_layers * max_layers * pdsch_buf_size_max : 0;
+  /* rho_dl (the nl x nl Gram H^H H) feeds the ML LLR kernels and the Gram-based linear MMSE, so it
+   * is needed for any multi-layer reception; skip it only when a single layer is possible. */
+  const size_t rho_elems = max_layers > 1 ? (size_t)max_layers * max_layers * pdsch_buf_size_max : 0;
 
   for (int i = 0; i < num_actors; i++) {
     buffers[i].pdsch_buf_size_max           = pdsch_buf_size_max;
