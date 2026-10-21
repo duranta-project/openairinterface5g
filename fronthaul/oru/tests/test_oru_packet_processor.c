@@ -3010,6 +3010,86 @@ void test_multi_section_extensions_and_truncation(void)
   printf("Multi-section C-Plane extensions and truncation passed!\n");
 }
 
+// O-RAN CUS 7.5.3.1: a sectionId cited twice in one message (e.g. CSI-RS and PDSCH on complementary reMasks) is a
+// legal repeat, not a duplicate. The first citation is used, and UL gets one job per sectionId. sectionId 4095 means no
+// sectionId coupling, so its sections aren't repeats.
+void test_section_id_repeated(void)
+{
+  printf("Testing repeated sectionId within a C-Plane message...\n");
+  const int mu = 1;
+  void *ctx = init_packet_processor(mu,
+                                    273,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    0);
+  assert(ctx != NULL);
+  uint64_t current_sym = 1000;
+  handle_absolute_symbol_tick(ctx, current_sym);
+  const uint64_t target_sym = current_sym + 7;
+
+  // sectionId 0 on beam 10, cited again on beam 11 over the same PRBs
+  const test_section1_t dl[3] = {{0, 10, 0, 10}, {0, 11, 0, 10}, {1, 10, 10, 10}};
+  send_cplane_sections(ctx, XRAN_DIR_DL, mu, target_sym, 3, dl, 3);
+  oru_packet_processor_stats_t stats;
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_section_repeated == 1 && stats.cplane_err_dup == 0);
+
+  current_sym += 3;
+  handle_absolute_symbol_tick(ctx, current_sym);
+  send_dl_uplane(ctx, mu, target_sym, 0, 0, 10, 0x1111);
+  send_dl_uplane(ctx, mu, target_sym, 1, 10, 10, 0x2222);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.uplane_missing_cplane == 0 && stats.uplane_err_dup == 0);
+
+  current_sym += 10;
+  handle_absolute_symbol_tick(ctx, current_sym);
+  const int num_symbols_per_frame = 10 * (1 << mu) * 14;
+  dl_iq_stream_t dl_streams[MAX_DL_FRAGMENTS_PER_SYMBOL];
+  uint32_t dl_iq_arena[DL_IQ_ARENA_PRBS(273) * 12];
+  int frame, slot, symbol, n;
+  uint64_t hyper_frame;
+  do {
+    n = read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_FRAGMENTS_PER_SYMBOL, &hyper_frame, &frame, &slot, &symbol);
+  } while (!(frame == (int)(target_sym / num_symbols_per_frame) % 1024 && slot == (int)(target_sym % num_symbols_per_frame) / 14
+             && symbol == (int)(target_sym % 14)));
+  // Both sections come back under the first citation's beam
+  assert(n == 2);
+  for (int i = 0; i < n; i++)
+    assert(dl_streams[i].num_prb == 10 && dl_streams[i].beam_id == 10);
+  cleanup_packet_processor(ctx);
+
+  ctx = init_ul_test_ctx();
+  const test_section1_t ul[3] = {{5, 3, 0, 20}, {5, 4, 0, 20}, {6, 3, 20, 20}};
+  send_cplane_sections(ctx, XRAN_DIR_UL, 1, 52, 3, ul, 3);
+  ul_job_t job;
+  assert(poll_ul_job(ctx, &job) == 0 && job.response_payload.section_id == 5 && job.beam_id == 3);
+  assert(poll_ul_job(ctx, &job) == 0 && job.response_payload.section_id == 6);
+  assert(poll_ul_job(ctx, &job) != 0);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_section_repeated == 1);
+
+  const test_section1_t uncoupled[2] = {{4095, 3, 0, 20}, {4095, 4, 20, 20}};
+  send_cplane_sections(ctx, XRAN_DIR_UL, 1, 52, 2, uncoupled, 2);
+  assert(count_ul_jobs(ctx) == 2);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_section_repeated == 1);
+  cleanup_packet_processor(ctx);
+  printf("Repeated sectionId within a C-Plane message passed!\n");
+}
+
 int main(int argc, char **argv)
 {
   setup_dpdk(argc, argv);
@@ -3034,6 +3114,8 @@ int main(int argc, char **argv)
   test_multi_section_timing_counted_once();
   usleep(10000);
   test_multi_section_extensions_and_truncation();
+  usleep(10000);
+  test_section_id_repeated();
   usleep(10000);
   test_cplane_uplane_match();
 
