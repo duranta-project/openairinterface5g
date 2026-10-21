@@ -882,7 +882,8 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     // 2-layer ML / L-best: mod-order-dependent LLR-hotness offset (a uniform -2 tuned for 256QAM
     // over-heats the lower orders and loses the ML gain) plus the antenna-gain term. Same table as the UE.
     joint_pv->log2_maxh =
-        (log2_approx(avgs) >> 1) + nr_ml_llr_maxh_off(rel15_ul_ref->qam_mod_order) + log2_approx(num_sp_streams >> 1);
+        (log2_approx(avgs) >> 1) + nr_ml_llr_maxh_off(rel15_ul_ref->qam_mod_order, gNB->pusch_mimo_rx == NR_PUSCH_RX_LBEST)
+        + log2_approx(num_sp_streams >> 1);
   else
     joint_pv->log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(num_sp_streams >> 1);
 

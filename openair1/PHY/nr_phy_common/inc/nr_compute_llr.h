@@ -13,9 +13,10 @@
  * The joint near-ML metric needs a mod-order-dependent fixed-point scale: 256QAM at -2, and lower
  * orders progressively different, else the ML LLRs saturate and the ML gain over linear MMSE is
  * lost (a single 256QAM-tuned -2 makes QPSK/16QAM ML worse than MMSE). Verified on TDL, z4, -gA.
+ * lbest: the reduced-search L-best kernel is used (64QAM wants one bit cooler than full ML).
  * OAI_ML_MAXH_OFF forces a single value across all mod orders (hotness sweep / analysis).
  */
-int nr_ml_llr_maxh_off(int mod_order);
+int nr_ml_llr_maxh_off(int mod_order, int lbest);
 int nr_mmse_llr_maxh_off(int mod_order);
 
 void nr_compute_llr(c16_t *rxdataF_comp,
