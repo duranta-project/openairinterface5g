@@ -95,8 +95,8 @@ static inline void NRLB_NAME(nrlbw_seed256)(NRLB_VI z1r16, NRLB_VI z1i16,
     // soft level estimate ~ +-1..15
     const NRLB_VF estI = NRLB_MM(mul_ps)(NRLB_MM(div_ps)(numr, det), SQRT170);
     const NRLB_VF estQ = NRLB_MM(mul_ps)(NRLB_MM(div_ps)(numi, det), SQRT170);
-    // graded per-axis PAM-16 LLRs from the soft estimate (g = 0.5*P0/170, P0 = Pp0)
-    const NRLB_VF glin = NRLB_MM(mul_ps)(NRLB_MM(set1_ps)(0.5f / 170.0f), Pp0);
+    // graded per-axis PAM-16 LLRs from the soft estimate (g = 0.5*Peff/170, Peff = det/Pp1)
+    const NRLB_VF glin = NRLB_MM(mul_ps)(NRLB_MM(set1_ps)(0.5f / 170.0f), NRLB_MM(div_ps)(det, NRLB_MM(max_ps)(Pp1, ONE)));
     NRLB_VF aI4[4], aQ4[4];
     NRLB_NAME(nrlbw_axis_llr)(estI, glin, aI4);
     NRLB_NAME(nrlbw_axis_llr)(estQ, glin, aQ4);
