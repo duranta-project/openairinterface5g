@@ -311,11 +311,11 @@ void oru_fh_rx_send_prach(void *handle, uint32_t **prachF, int nb_rx, int frame,
   write_prach_iq(fh->packet_processor, prachF, nb_rx, frame, slot, symbol);
 }
 
-int oru_fh_get_prach_beam_id(void *handle, int slot, int stream)
+int oru_fh_get_prach_beam_id(void *handle, int slot, int stream, int symbol)
 {
   oru_fh_t *fh = (oru_fh_t *)handle;
   AssertFatal(fh, "Invalid handle\n");
-  return get_prach_beam_id(fh->packet_processor, slot, stream);
+  return get_prach_beam_id(fh->packet_processor, slot, stream, symbol);
 }
 
 int oru_fh_poll_ul_job(void *handle, ul_job_t *job) {
