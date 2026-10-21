@@ -459,6 +459,8 @@ These modes of operation are supported:
 * Random access procedure (needs improvement, there is still not a clear separation between MAC and PHY)
    - Mapping SSBs to multiple ROs
    - Scheduling of PRACH
+   - RSRP-threshold-based SSB selection
+   - RACH occasion masking (ra-ssb-OccasionMaskIndex, prach-MaskIndex, msgA-SSB-SharedRO-MaskIndex, ssb-SharedRO-MaskIndex)
   - 4-Step RA
       - Processing of RAR
       - Transmission and re-transmission of Msg3

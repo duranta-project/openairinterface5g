@@ -14,6 +14,7 @@
 #include "LAYER2/NR_MAC_UE/mac_proto.h"
 #include <executables/softmodem-common.h>
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
+#include "NR_RACH-ConfigCommon.h"
 
 int16_t get_prach_tx_power(NR_UE_MAC_INST_t *mac)
 {
@@ -22,6 +23,295 @@ int16_t get_prach_tx_power(NR_UE_MAC_INST_t *mac)
   int16_t ra_preamble_rx_power = (int16_t)(ra->prach_resources.ra_preamble_rx_target_power + pathloss);
   return min(ra->prach_resources.Pc_max, ra_preamble_rx_power);
 }
+
+// RSRP-Range IE -> dBm: actual = value - 156; value 127 means +infinity (38.331)  
+// If the threshold is absent, no filtering is applied (all SSBs eligible)  
+/*static*/ bool ssb_rsrp_above_threshold(NR_UE_MAC_INST_t *mac, int ssb, NR_RSRP_Range_t *thr_ie)  
+{  
+  if (thr_ie == NULL)  
+    return true;  
+  if (*thr_ie == 127)  
+    return false; // +infinity: no SSB can exceed it  
+  int rsrp = mac->ssb_measurements[ssb].ssb_rsrp_dBm;  
+  // unmeasured SSBs are reported as -200 by L1 and thus never pass a real threshold
+  return rsrp > (*thr_ie - 156);  
+}  
+  
+// Select an SSB from a CFRA resource list per 38.321 5.1.2a:  
+// pick with equal probability amongst the SSBs with SS-RSRP above the threshold;  
+// if none is above, select any SSB in the list.  
+// Returns the index into the resource list, or -1 if the list is empty.  
+/*static*/ int select_cfra_ssb_index(NR_UE_MAC_INST_t *mac,  
+                                 NR_CFRA_SSB_Resource_t **resources, int count,  
+                                 NR_RSRP_Range_t *thr_ie)  
+{
+  (void)resources;
+  if (count <= 0)  
+    return -1;  
+  
+  unsigned int seed = 0;
+  if (IS_SOFTMODEM_IQPLAYER || IS_SOFTMODEM_IQRECORDER)  
+    seed = 1;  
+  else  
+    seed = (unsigned int)(rdtsc_oai() & ~0);  
+  
+  int candidates[MAX_NB_SSB] = {0};
+  int nb = 0;  
+  char rsrp_str[256] = {0};  
+  int off = 0;
+  LOG_D(MAC, "Configured threshold SSB: %ld, MAC number of transmitted SSB: %d\n", 
+  	*thr_ie, mac->ssb_list.nb_tx_ssb);
+  for (int i = 0; i < count; i++) {
+    bool above = mac->ssb_list.nb_ssb_per_index[i] < mac->ssb_list.nb_tx_ssb  
+                 && ssb_rsrp_above_threshold(mac, i, thr_ie);  
+    off += snprintf(rsrp_str + off, sizeof(rsrp_str) - off, " ssb%d=%d%s",  
+                     i, mac->ssb_measurements[i].ssb_rsrp_dBm, above ? "*" : "");  
+    if (above)  
+      candidates[nb++] = i;  
+  }  
+  if (nb == 0)  
+    return rand_r(&seed) % count; // no SSB above threshold: select any
+  int selected = candidates[rand_r(&seed) % nb];
+  LOG_I(NR_MAC, "[UE %d] CFRA SSB selection: thr=%ld dBm cand=%d/%d selected=%d (mib_ssb=%d)%s\n",  
+        mac->ue_id, *thr_ie - 156, nb, mac->ssb_list.nb_tx_ssb, selected, mac->mib_ssb, rsrp_str); 
+  return selected;  
+}  
+  
+// Select a transmitted SSB for CBRA per 38.321 5.1.2a:  
+// pick with equal probability amongst transmitted SSBs with SS-RSRP above the  
+// threshold; if none, select any SSB (we keep mac->mib_ssb as the fallback).  
+/*static*/ int select_cbra_ssb(NR_UE_MAC_INST_t *mac, NR_RSRP_Range_t *thr_ie)  
+{
+  unsigned int seed = 0;
+  if (IS_SOFTMODEM_IQPLAYER || IS_SOFTMODEM_IQRECORDER)
+    seed = 1;
+  else
+    seed = (unsigned int)(rdtsc_oai() & ~0);
+
+  LOG_D(MAC, "Configured threshold SSB: %ld, MAC number of transmitted SSB: %d\n", 
+  	*thr_ie, mac->ssb_list.nb_tx_ssb);
+  // nb_ssb_per_index[i] gives the progressive (transmitted) index of SSB i;
+  // a transmitted SSB has a value < nb_tx_ssb
+  int candidates[MAX_NB_SSB] = {0};  
+  int nb = 0;  
+  char rsrp_str[256] = {0};  
+  int off = 0;  
+  for (int i = 0; i < mac->ssb_list.nb_tx_ssb; i++) {  
+    bool above = mac->ssb_list.nb_ssb_per_index[i] < mac->ssb_list.nb_tx_ssb  
+                 && ssb_rsrp_above_threshold(mac, i, thr_ie);  
+    off += snprintf(rsrp_str + off, sizeof(rsrp_str) - off, " ssb%d=%d%s",  
+                     i, mac->ssb_measurements[i].ssb_rsrp_dBm, above ? "*" : "");  
+    if (above)  
+      candidates[nb++] = i;  
+  }  
+  int selected = (nb == 0) ? mac->mib_ssb : candidates[rand_r(&seed) % nb];  
+  LOG_I(NR_MAC, "[UE %d] CBRA SSB selection: thr=%ld dBm cand=%d/%d selected=%d (mib_ssb=%d)%s\n",  
+        mac->ue_id, *thr_ie - 156, nb, mac->ssb_list.nb_tx_ssb, selected, mac->mib_ssb, rsrp_str);  
+  return selected; 
+
+}
+
+// Common loop: find first FeatureCombinationPreambles entry configuring a mask.  
+// list is an A_SEQUENCE_OF(NR_FeatureCombinationPreambles_r17) — pass array+count.  
+static int ro_mask_from_fcp_list(NR_FeatureCombinationPreambles_r17_t **array, int count)
+{
+  for (int i = 0; i < count; i++) {
+    NR_FeatureCombinationPreambles_r17_t *fp = array[i];
+    if (fp->ssb_SharedRO_MaskIndex_r17)
+      return *fp->ssb_SharedRO_MaskIndex_r17;
+  }
+  return -1;
+}
+
+// msgA-SSB-SharedRO-MaskIndex path: FeatureCombinationPreambles inside
+// RACH-ConfigCommonTwoStepRA.ext1
+static int ro_mask_from_twostep_ext1(struct NR_RACH_ConfigCommonTwoStepRA_r16__ext1 *ext1)
+{
+  if (!ext1 || !ext1->featureCombinationPreamblesList_r17)
+    return -1;
+  return ro_mask_from_fcp_list(ext1->featureCombinationPreamblesList_r17->list.array,
+                               ext1->featureCombinationPreamblesList_r17->list.count);
+}
+  
+// ssb-SharedRO-MaskIndex path: FeatureCombinationPreambles inside
+// RACH-ConfigCommon.ext2
+static int ro_mask_from_common_ext2(struct NR_RACH_ConfigCommon__ext2 *ext2)
+{
+  if (!ext2 || !ext2->featureCombinationPreamblesList_r17) {
+	return -1;
+  }
+  return ro_mask_from_fcp_list(ext2->featureCombinationPreamblesList_r17->list.array,
+                               ext2->featureCombinationPreamblesList_r17->list.count);
+}
+  
+/*static*/ int resolve_ro_mask(NR_UE_MAC_INST_t *mac)
+{
+  RA_config_t *ra = &mac->ra;
+
+  if (ra->ra_type == RA_2_STEP) {
+    NR_RACH_ConfigCommonTwoStepRA_r16_t *twostep =
+        &mac->current_UL_BWP->msgA_ConfigCommon_r16->rach_ConfigCommonTwoStepRA_r16;
+    int mask = ro_mask_from_twostep_ext1(twostep->ext1);
+    if (mask > 0)
+      return mask;
+  }
+
+  if (ra->ro_mask_index > 0)
+    return ra->ro_mask_index; // PDCCH order prach-MaskIndex or CFRA ra-ssb-OccasionMaskIndex
+
+  NR_RACH_ConfigCommon_t *cfg = mac->current_UL_BWP->rach_ConfigCommon;
+  if (cfg)
+    return ro_mask_from_common_ext2(cfg->ext2);
+
+  return -1;
+}
+
+/*static*/ void select_prach_occasion(RA_config_t *ra,
+                                      int nb_tx_ssb,
+                                      int n,
+                                      prach_occasion_info_t ra_occasions_period[],
+                                      int num_ra_occasions_period)
+{
+  (void)n;
+
+  AssertFatal(ra->ro_mask_index <= 10,
+              "PRACH Mask Index %d is Reserved (valid: 0..10 per TS 38.321 Table 7.3-1)\n",
+              ra->ro_mask_index);
+
+  // Total ROs in one full Association Period
+  int total_ros_in_assoc_period = num_ra_occasions_period * ra->association_periods;
+
+  LOG_I(NR_MAC,
+        "num_ra_occasions_period: %d, association_periods: %d, total_ros: %d\n",
+        num_ra_occasions_period,
+        ra->association_periods,
+        total_ros_in_assoc_period);
+
+  int ros_per_cycle = 0;
+  int ros_per_ssb_per_cycle = 0;
+
+  if (ra->ssb_ro_config.ssb_per_ro < 1.0f) {
+    // One SSB maps to multiple consecutive ROs per mapping cycle (e.g., 2, 4, 8, 16 ROs/SSB)
+    ros_per_ssb_per_cycle = (int)(1.0f / ra->ssb_ro_config.ssb_per_ro + 0.5f);
+    ros_per_cycle         = nb_tx_ssb * ros_per_ssb_per_cycle;
+
+    LOG_I(NR_MAC,
+          "nb_tx_ssb: %d, ssb_per_ro: %f, ros_per_cycle: %d, ros_per_ssb_per_cycle: %d\n",
+          nb_tx_ssb,
+          ra->ssb_ro_config.ssb_per_ro,
+          ros_per_cycle,
+          ros_per_ssb_per_cycle);
+  } else {
+    // Multiple SSBs share one RO (each SSB maps to 1 RO per mapping cycle)
+    int ssb_per_ro = (int)(ra->ssb_ro_config.ssb_per_ro + 0.5f);
+    if (ssb_per_ro > nb_tx_ssb) {
+      ssb_per_ro = nb_tx_ssb;
+    }
+    ros_per_ssb_per_cycle = 1;
+    ros_per_cycle         = (nb_tx_ssb + ssb_per_ro - 1) / ssb_per_ro;
+  }
+
+  AssertFatal(ros_per_cycle > 0, "ros_per_cycle must be > 0\n");
+  int num_cycles = total_ros_in_assoc_period / ros_per_cycle;
+  AssertFatal(num_cycles > 0,
+              "No complete mapping cycle found in association period (total_ros=%d, ros_per_cycle=%d)\n",
+              total_ros_in_assoc_period, ros_per_cycle);
+
+  // =========================================================================
+  // Step 1: Filter ROs per Mapping Cycle using PRACH Mask Index
+  //
+  // Per TS 38.213 §8.1:
+  // "The indexing of the PRACH occasion indicated by the mask index value
+  //  is reset per mapping cycle of consecutive PRACH occasions per SS/PBCH block index."
+  //
+  // Mask Table (TS 38.321 Table 7.3-1):
+  //  0       : All ROs
+  //  1 .. 8  : RO No. 1 to No. 8 (1-based index)
+  //  9       : Every even RO
+  //  10      : Every odd RO
+  // =========================================================================
+  int permitted_in_cycle[16] = {0}; // Max ros_per_ssb_per_cycle is 16 (for ssb_per_ro = 1/16)
+  int nb_permitted_in_cycle = 0;
+  int m = ra->ro_mask_index;
+
+  for (int k = 0; k < ros_per_ssb_per_cycle; k++) {
+    int k1 = k + 1; // 1-based local index per spec
+    bool ok = false;
+
+    if      (m <= 0)             ok = true;                // All
+    else if (m >= 1 && m <= 8)   ok = (k1 == m);           // Single RO No. m
+    else if (m == 9)             ok = ((k1 % 2) == 0);     // Every even RO
+    else if (m == 10)            ok = ((k1 % 2) == 1);     // Every odd RO
+
+    if (ok) {
+      permitted_in_cycle[nb_permitted_in_cycle++] = k;
+    }
+  }
+
+  AssertFatal(nb_permitted_in_cycle > 0,
+              "PRACH mask %d yields no valid ROs for SSB %d (ros_per_ssb_per_cycle=%d)\n",
+              ra->ro_mask_index, ra->ra_ssb, ros_per_ssb_per_cycle);
+
+  // =========================================================================	
+   // Step 2: Select RO within the first available mapping cycle  
+   //  
+   // Masked single-RO case (CFRA / PDCCH order), TS 38.213 §8.1:  
+   //	"The UE selects ... the PRACH occasion indicated by PRACH mask index  
+   //	 value for the indicated SS/PBCH block index in the first available  
+   //	 mapping cycle."  
+   //	=> permitted_in_cycle has exactly 1 element; the draw is degenerate.  
+   //  
+   // Unmasked / subset masks (CBRA), TS 38.321 §5.1.2a: random selection  
+   //	with equal probability among the permitted ROs of the selected SSB.  
+   // =========================================================================  
+   AssertFatal(nb_permitted_in_cycle > 0,  
+			   "RO mask %d leaves no valid PRACH occasion for SSB %d\n",  
+			   m, ra->ra_ssb);	
+
+   unsigned int seed = IS_SOFTMODEM_IQPLAYER || IS_SOFTMODEM_IQRECORDER
+                        ? 1 : (unsigned int)(rdtsc_oai() & ~0);  
+   int selected_cycle	 = 0; // first available mapping cycle	
+   int selected_local_ro = permitted_in_cycle[rand_r(&seed) % nb_permitted_in_cycle];
+
+  // =========================================================================
+  // Step 3: Map SSB-local cycle index -> Absolute Global RO Index
+  //
+  // In each mapping cycle:
+  // - For ssb_per_ro < 1: ROs are grouped consecutively per SSB.
+  // - For ssb_per_ro >= 1: SSBs are grouped into shared ROs.
+  // =========================================================================
+  int temp_idx = 0;
+  if (ra->ssb_ro_config.ssb_per_ro < 1.0f) {
+    temp_idx = (selected_cycle * ros_per_cycle)
+             + (ra->ra_ssb * ros_per_ssb_per_cycle)
+             + selected_local_ro;
+  } else {
+    int ssb_per_ro = (int)(ra->ssb_ro_config.ssb_per_ro + 0.5f);
+    temp_idx = (selected_cycle * ros_per_cycle)
+             + (ra->ra_ssb / ssb_per_ro);
+  }
+
+  AssertFatal(temp_idx < total_ros_in_assoc_period,
+              "Calculated RO index %d exceeds total ROs %d in association period\n",
+              temp_idx, total_ros_in_assoc_period);
+
+  int ro_index       = temp_idx % num_ra_occasions_period;
+  int ass_period_idx = temp_idx / num_ra_occasions_period;
+
+  ra->sched_ro_info  = ra_occasions_period[ro_index];
+  ra->sched_ro_info.association_period_idx = ass_period_idx;
+
+  LOG_I(NR_MAC,
+        "Selected RO mask: %d | SSB: %d -> temp_idx: %d (cycle: %d, local_ro: %d) | ro_index: %d, ass_period_idx: %d\n",
+        ra->ro_mask_index,
+        ra->ra_ssb,
+        temp_idx,
+        selected_cycle,
+        selected_local_ro,
+        ro_index,
+        ass_period_idx);
+}
+
 
 static void set_preambleTransMax(RA_config_t *ra, long preambleTransMax)
 {
@@ -208,148 +498,159 @@ static ssb_ro_preambles_t get_ssb_ro_preambles_2step(struct NR_RACH_ConfigCommon
   return ret;
 }
 
-static void config_preamble_index(NR_UE_MAC_INST_t *mac)
-{
-  RA_config_t *ra = &mac->ra;
-  // Random seed generation
-  unsigned int seed;
-  if (IS_SOFTMODEM_IQPLAYER || IS_SOFTMODEM_IQRECORDER) {
-    // Overwrite seed with non-random seed for IQ player/recorder
-    seed = 1;
-  } else {
-    // & to truncate the int64_t and keep only the LSB bits, up to sizeof(int)
-    seed = (unsigned int)(rdtsc_oai() & ~0);
-  }
-
-  NR_RACH_ConfigCommon_t *nr_rach_ConfigCommon = mac->current_UL_BWP->rach_ConfigCommon;
-  int nb_of_preambles = 64;
-  bool groupBconfigured = false;
-  int preamb_ga = 0;
-  if (ra->ra_type == RA_4_STEP) {
-    ra->ssb_ro_config = mac->ssb_ro_preambles;
-    if (nr_rach_ConfigCommon->totalNumberOfRA_Preambles)
-      nb_of_preambles = *nr_rach_ConfigCommon->totalNumberOfRA_Preambles;
-    // Amongst the contention-based Random Access Preambles associated with an SSB the first numberOfRA-PreamblesGroupA
-    // included in groupBconfigured Random Access Preambles belong to Random Access Preambles group A.
-    // The remaining Random Access Preambles associated with the SSB belong to Random Access Preambles group B (if configured)
-    select_preamble_group(mac);
-    if (nr_rach_ConfigCommon->groupBconfigured) {
-      groupBconfigured = true;
-      preamb_ga = nr_rach_ConfigCommon->groupBconfigured->numberOfRA_PreamblesGroupA;
-    }
-  } else {
-    NR_RACH_ConfigCommonTwoStepRA_r16_t *twostep = &mac->current_UL_BWP->msgA_ConfigCommon_r16->rach_ConfigCommonTwoStepRA_r16;
-    AssertFatal(twostep->groupB_ConfiguredTwoStepRA_r16 == NULL, "GroupB preambles not supported for 2-step RA\n");
-    ra->RA_GroupA = true;
-    // The field is mandatory present if the 2-step random access type occasions are shared with 4-step random access type,
-    // otherwise the field is not present
-    bool sharedROs = twostep->msgA_CB_PreamblesPerSSB_PerSharedRO_r16 != NULL;
-    AssertFatal(sharedROs == false, "Shared ROs between 2- and 4-step RA not supported\n");
-
-    // For Type-2 random access procedure with separate configuration of PRACH occasions with Type-1 random access procedure
-    // configuration by msgA-SSB-PerRACH-OccasionAndCB-PreamblesPerSSB when provided;
-    // otherwise, by ssb-perRACH-OccasionAndCB-PreamblesPerSSB
-    if (twostep->msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16)
-      ra->ssb_ro_config = get_ssb_ro_preambles_2step(twostep->msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16);
-    else
-      ra->ssb_ro_config = mac->ssb_ro_preambles;
-    if (twostep->msgA_TotalNumberOfRA_Preambles_r16)
-      nb_of_preambles = *twostep->msgA_TotalNumberOfRA_Preambles_r16;
-  }
-
-  int groupOffset = 0;
-  if (groupBconfigured) {
-    AssertFatal(preamb_ga < nb_of_preambles, "Nb of preambles for groupA not compatible with total number of preambles\n");
-    if (!ra->RA_GroupA) { // groupB
-      groupOffset = preamb_ga;
-      nb_of_preambles = nb_of_preambles - preamb_ga;
-    } else {
-      nb_of_preambles = preamb_ga;
-    }
-  }
-  int pream_per_ssb = min(ra->ssb_ro_config.preambles_per_ssb, nb_of_preambles);
-  int rand_preamb = rand_r(&seed) % pream_per_ssb;
-  if (ra->ssb_ro_config.ssb_per_ro < 1)
-    ra->ra_PreambleIndex = groupOffset + rand_preamb;
-  else {
-    int ssb_pr_idx = mac->ssb_list.nb_ssb_per_index[mac->mib_ssb] % (int)ra->ssb_ro_config.ssb_per_ro;
-    ra->ra_PreambleIndex = groupOffset + (ssb_pr_idx * ra->ssb_ro_config.preambles_per_ssb) + rand_preamb;
-  }
+static void config_preamble_index(NR_UE_MAC_INST_t *mac, int ssb)  
+{  
+  RA_config_t *ra = &mac->ra;  
+  // Random seed generation  
+  unsigned int seed;  
+  if (IS_SOFTMODEM_IQPLAYER || IS_SOFTMODEM_IQRECORDER) {  
+    // Overwrite seed with non-random seed for IQ player/recorder  
+    seed = 1;  
+  } else {  
+    // & to truncate the int64_t and keep only the LSB bits, up to sizeof(int)  
+    seed = (unsigned int)(rdtsc_oai() & ~0);  
+  }  
+  
+  NR_RACH_ConfigCommon_t *nr_rach_ConfigCommon = mac->current_UL_BWP->rach_ConfigCommon;  
+  int nb_of_preambles = 64;  
+  bool groupBconfigured = false;  
+  int preamb_ga = 0;  
+  if (ra->ra_type == RA_4_STEP) {  
+	LOG_I(NR_MAC, "Configure preamble index for RA 4-step\n");
+    ra->ssb_ro_config = mac->ssb_ro_preambles;  
+    if (nr_rach_ConfigCommon->totalNumberOfRA_Preambles)  
+      nb_of_preambles = *nr_rach_ConfigCommon->totalNumberOfRA_Preambles;  
+    // Amongst the contention-based Random Access Preambles associated with an SSB the first numberOfRA-PreamblesGroupA  
+    // included in groupBconfigured Random Access Preambles belong to Random Access Preambles group A.  
+    // The remaining Random Access Preambles associated with the SSB belong to Random Access Preambles group B (if configured)  
+    select_preamble_group(mac);  
+    if (nr_rach_ConfigCommon->groupBconfigured) {  
+      groupBconfigured = true;  
+      preamb_ga = nr_rach_ConfigCommon->groupBconfigured->numberOfRA_PreamblesGroupA;  
+    }  
+  } else {  
+    NR_RACH_ConfigCommonTwoStepRA_r16_t *twostep = &mac->current_UL_BWP->msgA_ConfigCommon_r16->rach_ConfigCommonTwoStepRA_r16;  
+    AssertFatal(twostep->groupB_ConfiguredTwoStepRA_r16 == NULL, "GroupB preambles not supported for 2-step RA\n");  
+    ra->RA_GroupA = true;  
+    // The field is mandatory present if the 2-step random access type occasions are shared with 4-step random access type,  
+    // otherwise the field is not present  
+    bool sharedROs = twostep->msgA_CB_PreamblesPerSSB_PerSharedRO_r16 != NULL;  
+    AssertFatal(sharedROs == false, "Shared ROs between 2- and 4-step RA not supported\n");  
+  
+    // For Type-2 random access procedure with separate configuration of PRACH occasions with Type-1 random access procedure  
+    // configuration by msgA-SSB-PerRACH-OccasionAndCB-PreamblesPerSSB when provided;  
+    // otherwise, by ssb-perRACH-OccasionAndCB-PreamblesPerSSB  
+    if (twostep->msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16)  
+      ra->ssb_ro_config = get_ssb_ro_preambles_2step(twostep->msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16);  
+    else  
+      ra->ssb_ro_config = mac->ssb_ro_preambles;  
+    if (twostep->msgA_TotalNumberOfRA_Preambles_r16)  
+      nb_of_preambles = *twostep->msgA_TotalNumberOfRA_Preambles_r16;  
+  }  
+  
+  int groupOffset = 0;  
+  if (groupBconfigured) {  
+    AssertFatal(preamb_ga < nb_of_preambles, "Nb of preambles for groupA not compatible with total number of preambles\n");  
+    if (!ra->RA_GroupA) { // groupB  
+      groupOffset = preamb_ga;  
+      nb_of_preambles = nb_of_preambles - preamb_ga;  
+    } else {  
+      nb_of_preambles = preamb_ga;  
+    }  
+  }  
+  int pream_per_ssb = min(ra->ssb_ro_config.preambles_per_ssb, nb_of_preambles);  
+  int rand_preamb = rand_r(&seed) % pream_per_ssb;  
+  if (ra->ssb_ro_config.ssb_per_ro < 1)  
+    ra->ra_PreambleIndex = groupOffset + rand_preamb;  
+  else {  
+    // use the SSB selected by RSRP-threshold filtering, not mib_ssb  
+    int ssb_pr_idx = mac->ssb_list.nb_ssb_per_index[ssb] % (int)ra->ssb_ro_config.ssb_per_ro;  
+    ra->ra_PreambleIndex = groupOffset + (ssb_pr_idx * ra->ssb_ro_config.preambles_per_ssb) + rand_preamb;  
+  }  
 }
 
-static void configure_ra_preamble(NR_UE_MAC_INST_t *mac)
-{
-  RA_config_t *ra = &mac->ra;
-  int ssb = -1; // init as not selected
-  ra->ro_mask_index = -1; // init as not selected
-  NR_RACH_ConfigDedicated_t *rach_ConfigDedicated = ra->rach_ConfigDedicated;
-  if (ra->ra_type == RA_4_STEP) {
-    // TODO if the Random Access procedure was initiated for SpCell beam failure recovery
-    // TODO if the Random Access procedure was initiated for SI request
 
-    if (ra->pdcch_order.active && ra->pdcch_order.preamble_index != 0xb000000) {
-      // set the PREAMBLE_INDEX to the signalled ra-PreambleIndex;
-      ra->ra_PreambleIndex = ra->pdcch_order.preamble_index;
-      // select the SSB signalled by PDCCH
-      ssb = ra->pdcch_order.ssb_index;
-      ra->ro_mask_index = ra->pdcch_order.prach_mask;
-    } else if (rach_ConfigDedicated && rach_ConfigDedicated->cfra) {
-      NR_CFRA_t *cfra = rach_ConfigDedicated->cfra;
-      AssertFatal(cfra->occasions == NULL, "Dedicated PRACH occasions for CFRA not supported\n");
-      AssertFatal(cfra->resources.present == NR_CFRA__resources_PR_ssb, "SSB-based CFRA supported only\n");
-      struct NR_CFRA__resources__ssb *ssb_list = cfra->resources.choice.ssb;
-      for (int i = 0; i < ssb_list->ssb_ResourceList.list.count; i++) {
-        NR_CFRA_SSB_Resource_t *res = ssb_list->ssb_ResourceList.list.array[i];
-        // TODO select an SSB with SS-RSRP above rsrp-ThresholdSSB amongst the associated SSBs
-        if (res->ssb == mac->mib_ssb) {
-          ssb = mac->mib_ssb;
-          // set the PREAMBLE_INDEX to a ra-PreambleIndex corresponding to the selected SSB
-          ra->ra_PreambleIndex = res->ra_PreambleIndex;
-          ra->ro_mask_index = ssb_list->ra_ssb_OccasionMaskIndex;
-          break;
-        }
-      }
-    } else { // for the contention-based Random Access preamble selection
-      // TODO if at least one of the SSBs with SS-RSRP above rsrp-ThresholdSSB is available
-      // else select any SSB
-      ssb = mac->mib_ssb;
-      config_preamble_index(mac);
-    }
-  } else { // 2-step RA
-    // if the contention-free 2-step RA type Resources associated with SSBs have been explicitly provided in rach-ConfigDedicated
-    // TODO and at least one SSB with SS-RSRP above msgA-RSRP-ThresholdSSB amongst the associated SSBs is available
+static void configure_ra_preamble(NR_UE_MAC_INST_t *mac)  
+{  
+  RA_config_t *ra = &mac->ra;  
+  int ssb = -1; // init as not selected  
+  ra->ro_mask_index = -1; // init as not selected  
+
+  NR_RACH_ConfigDedicated_t *rach_ConfigDedicated = ra->rach_ConfigDedicated;  
+  NR_RACH_ConfigCommon_t *rach_ConfigCommon = mac->current_UL_BWP->rach_ConfigCommon;  
+  if (ra->ra_type == RA_4_STEP) {  
+	LOG_I(NR_MAC, "Configure RA Preamble for RA 4-step\n");
+    // TODO if the Random Access procedure was initiated for SpCell beam failure recovery  
+    // TODO if the Random Access procedure was initiated for SI request  
+    NR_RSRP_Range_t *rsrp_thr = rach_ConfigCommon ? rach_ConfigCommon->rsrp_ThresholdSSB : NULL;  
+  
+    if (ra->pdcch_order.active && ra->pdcch_order.preamble_index != 0xb000000) {  
+      // set the PREAMBLE_INDEX to the signalled ra-PreambleIndex;  
+      ra->ra_PreambleIndex = ra->pdcch_order.preamble_index;  
+      // select the SSB signalled by PDCCH (unconditional, no RSRP check)  
+      ssb = ra->pdcch_order.ssb_index;  
+      ra->ro_mask_index = ra->pdcch_order.prach_mask;  
+    } else if (rach_ConfigDedicated && rach_ConfigDedicated->cfra) {  
+      LOG_I(NR_MAC, "Configure RACH configuration dedicated CFRA\n");
+      NR_CFRA_t *cfra = rach_ConfigDedicated->cfra;  
+      AssertFatal(cfra->occasions == NULL, "Dedicated PRACH occasions for CFRA not supported\n");  
+      AssertFatal(cfra->resources.present == NR_CFRA__resources_PR_ssb, "SSB-based CFRA supported only\n");  
+      struct NR_CFRA__resources__ssb *ssb_list = cfra->resources.choice.ssb;  
+      // select an SSB with SS-RSRP above rsrp-ThresholdSSB amongst the  
+      // associated SSBs; if none is available, select any associated SSB  
+	  int sel = select_cfra_ssb_index(mac,	
+									  (NR_CFRA_SSB_Resource_t **)ssb_list->ssb_ResourceList.list.array,  
+									  ssb_list->ssb_ResourceList.list.count,  
+									  rsrp_thr); 
+      AssertFatal(sel >= 0, "CFRA SSB resource list is empty\n");  
+      NR_CFRA_SSB_Resource_t *res = ssb_list->ssb_ResourceList.list.array[sel];  
+      ssb = res->ssb;  
+      // set the PREAMBLE_INDEX to a ra-PreambleIndex corresponding to the selected SSB  
+      ra->ra_PreambleIndex = res->ra_PreambleIndex;  
+      ra->ro_mask_index = ssb_list->ra_ssb_OccasionMaskIndex;  
+    } else { // for the contention-based Random Access preamble selection  
+      ssb = select_cbra_ssb(mac, rsrp_thr);  
+      config_preamble_index(mac, ssb); // NOTE: signature change, see below  
+    }  
+  } else { // 2-step RA  
+    LOG_I(NR_MAC, "Configure RA Preamble for RA 2-step\n");
+    NR_RACH_ConfigCommonTwoStepRA_r16_t *twostep = &mac->current_UL_BWP->msgA_ConfigCommon_r16->rach_ConfigCommonTwoStepRA_r16;  
+    // if msgA-RSRP-ThresholdSSB is not configured, fall back to rsrp-ThresholdSSB  
+    NR_RSRP_Range_t *rsrp_thr = twostep->msgA_RSRP_ThresholdSSB_r16 ? twostep->msgA_RSRP_ThresholdSSB_r16  
+                              : (rach_ConfigCommon ? rach_ConfigCommon->rsrp_ThresholdSSB : NULL);  
+  
+    // if the contention-free 2-step RA type Resources associated with SSBs have been explicitly provided in rach-ConfigDedicated  
+    // and at least one SSB with SS-RSRP above msgA-RSRP-ThresholdSSB amongst the associated SSBs is available  
     if (ra->cfra) {
-      AssertFatal(rach_ConfigDedicated->ext1 && rach_ConfigDedicated->ext1->cfra_TwoStep_r16,
-                  "Two-step CFRA should be configured here\n");
-      NR_CFRA_TwoStep_r16_t *cfra = rach_ConfigDedicated->ext1->cfra_TwoStep_r16;
-      AssertFatal(cfra->occasionsTwoStepRA_r16 == NULL, "Dedicated PRACH occasions for CFRA not supported\n");
-      for (int i = 0; i < cfra->resourcesTwoStep_r16.ssb_ResourceList.list.count; i++) {
-        NR_CFRA_SSB_Resource_t *res = cfra->resourcesTwoStep_r16.ssb_ResourceList.list.array[i];
-        if (res->ssb == mac->mib_ssb) {
-          ssb = mac->mib_ssb;
-          // set the PREAMBLE_INDEX to a ra-PreambleIndex corresponding to the selected SSB
-          ra->ra_PreambleIndex = res->ra_PreambleIndex;
-          ra->ro_mask_index = cfra->resourcesTwoStep_r16.ra_ssb_OccasionMaskIndex;
-          break;
-        }
-      }
-    } else { // for the contention-based Random Access Preamble selection
-      // TODO if at least one of the SSBs with SS-RSRP above msgA-RSRP-ThresholdSSB is available
-      // else select any SSB
-      ssb = mac->mib_ssb;
-      config_preamble_index(mac);
-    }
-  }
-  AssertFatal(ssb >= 0, "Something wrong! RA resource selection didn't set any SSB\n");
-  // setting the RA ssb value as the progressive number of SSB transmitted
-  // non-transmitted SSBs are not taken into account
-  int ssb_idx = mac->ssb_list.nb_ssb_per_index[ssb];
-  ra->new_ssb = ssb != ssb_idx ? true : false;
-  ra->ra_ssb = ssb_idx;
-
-  // TODO not sure how to handle the RO mask when it is limiting the RO occasions
-  AssertFatal(ra->ro_mask_index <= 0, "Handling of RACH occasion masking indication not implemented\n");
+      AssertFatal(rach_ConfigDedicated->ext1 && rach_ConfigDedicated->ext1->cfra_TwoStep_r16,  
+                  "Two-step CFRA should be configured here\n");  
+      NR_CFRA_TwoStep_r16_t *cfra = rach_ConfigDedicated->ext1->cfra_TwoStep_r16;  
+      AssertFatal(cfra->occasionsTwoStepRA_r16 == NULL, "Dedicated PRACH occasions for CFRA not supported\n");  
+	  int sel = select_cfra_ssb_index(mac,	
+									  (NR_CFRA_SSB_Resource_t **)cfra->resourcesTwoStep_r16.ssb_ResourceList.list.array,  
+									  cfra->resourcesTwoStep_r16.ssb_ResourceList.list.count,  
+									  rsrp_thr);
+      AssertFatal(sel >= 0, "2-step CFRA SSB resource list is empty\n");  
+      NR_CFRA_SSB_Resource_t *res = cfra->resourcesTwoStep_r16.ssb_ResourceList.list.array[sel];  
+      ssb = res->ssb;  
+      // set the PREAMBLE_INDEX to a ra-PreambleIndex corresponding to the selected SSB  
+      ra->ra_PreambleIndex = res->ra_PreambleIndex;  
+      ra->ro_mask_index = cfra->resourcesTwoStep_r16.ra_ssb_OccasionMaskIndex;  
+    } else { // for the contention-based Random Access Preamble selection  
+      ssb = select_cbra_ssb(mac, rsrp_thr);  
+      config_preamble_index(mac, ssb); // NOTE: signature change, see below  
+    }  
+  }  
+  AssertFatal(ssb >= 0, "Something wrong! RA resource selection didn't set any SSB\n");  
+  // setting the RA ssb value as the progressive number of SSB transmitted  
+  // non-transmitted SSBs are not taken into account  
+  int ssb_idx = mac->ssb_list.nb_ssb_per_index[ssb];  
+  ra->new_ssb = ssb != ssb_idx ? true : false;  
+  ra->ra_ssb = ssb_idx;  
+  LOG_D(NR_MAC,"Selected RA SSB %d\n",ra->ra_ssb);
+  // RO mask (if any) is applied in select_prach_occasion() via resolve_ro_mask()
 }
+
 
 static bool check_mixed_slot_prach(frame_structure_t *fs, int slot, int start_prach, int end_prach)
 {
@@ -364,41 +665,6 @@ static bool check_mixed_slot_prach(frame_structure_t *fs, int slot, int start_pr
       return false;
   }
   return true;
-}
-
-static void select_prach_occasion(RA_config_t *ra,
-                                  int nb_tx_ssb,
-                                  int n,
-                                  prach_occasion_info_t ra_occasions_period[n],
-                                  int num_ra_occasions_period)
-{
-  unsigned int seed;
-  if (IS_SOFTMODEM_IQPLAYER || IS_SOFTMODEM_IQRECORDER) {
-    // Overwrite seed with non-random seed for IQ player/recorder
-    seed = 1;
-  } else {
-    // & to truncate the int64_t and keep only the LSB bits, up to sizeof(int)
-    seed = (unsigned int)(rdtsc_oai() & ~0);
-  }
-
-  int num_ros_per_ssb = 0;
-  int idx_ssb = 0;
-  int temp_idx = 0;
-  if (ra->ssb_ro_config.ssb_per_ro < 1) {
-    num_ros_per_ssb = (int)(1 / ra->ssb_ro_config.ssb_per_ro);
-    idx_ssb = (rand_r(&seed) % num_ros_per_ssb);
-    temp_idx = ra->ra_ssb * num_ros_per_ssb + idx_ssb;
-  } else {
-    int ssb_per_ro = nb_tx_ssb < ra->ssb_ro_config.ssb_per_ro ? nb_tx_ssb : ra->ssb_ro_config.ssb_per_ro;
-    num_ros_per_ssb = ra->association_periods * ssb_per_ro * num_ra_occasions_period / nb_tx_ssb;
-    idx_ssb = (rand_r(&seed) % num_ros_per_ssb);
-    int eq_ssb = ra->ra_ssb + (idx_ssb * nb_tx_ssb);
-    temp_idx = eq_ssb / ra->ssb_ro_config.ssb_per_ro;
-  }
-  int ro_index = temp_idx % num_ra_occasions_period;
-  int ass_period_idx = temp_idx / num_ra_occasions_period;
-  ra->sched_ro_info = ra_occasions_period[ro_index];
-  ra->sched_ro_info.association_period_idx = ass_period_idx;
 }
 
 static void configure_prach_occasions(NR_UE_MAC_INST_t *mac, int scs)
@@ -483,15 +749,22 @@ static void configure_prach_occasions(NR_UE_MAC_INST_t *mac, int scs)
   }
   LOG_D(NR_MAC, "PRACH configuration period %d association period %d\n", config_period, ra->association_periods);
 
+  // resolve applicable RO mask: dedicated signalling (PDCCH order / CFRA  
+  // ra-ssb-OccasionMaskIndex) already set ro_mask_index; otherwise fall back to  
+  // msgA-SSB-SharedRO-MaskIndex / ssb-SharedRO-MaskIndex from common config  
+  ra->ro_mask_index = resolve_ro_mask(mac);	
+
   select_prach_occasion(ra, mac->ssb_list.nb_tx_ssb, max_num_occasions, ra_occasions_period, num_ra_occasions_period);
   const prach_occasion_info_t *pi = &ra->sched_ro_info;
   LOG_I(NR_MAC,
-        "[UE %d] selected PRACH occasion: start_symbol %d fdm %d slot %d format %d\n",
+        "[UE %d] Selected PRACH occasion: start_symbol %d fdm %d slot %d format %d RO mask index %d\n",
         mac->ue_id,
         pi->start_symbol,
         pi->fdm,
         pi->slot,
-        pi->format);
+        pi->format,
+        ra->ro_mask_index);
+
 }
 
 /* TS 38.321 subclause 7.3 - return DELTA_PREAMBLE values in dB */
