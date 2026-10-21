@@ -52,6 +52,27 @@ typedef struct sl_csi_info {
   uint8_t sl_latencyboundcsi_report;
 } sl_csi_info_t;
 
+void nr_ue_sl_free_resource_pools(NR_UE_MAC_INST_t *mac)
+{
+  sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
+  if (sl_mac) {
+    for (int i = 0; i < SL_NR_MAC_NUM_RX_RESOURCE_POOLS; i++) {
+      if (sl_mac->sl_RxPool[i]) {
+        free_and_zero(sl_mac->sl_RxPool[i]->phy_sl_bitmap.buf);
+        free_and_zero(sl_mac->sl_RxPool[i]);
+      }
+    }
+    for (int i = 0; i < SL_NR_MAC_NUM_TX_RESOURCE_POOLS; i++) {
+      if (sl_mac->sl_TxPool[i]) {
+        free_and_zero(sl_mac->sl_TxPool[i]->phy_sl_bitmap.buf);
+        free_and_zero(sl_mac->sl_TxPool[i]);
+      }
+    }
+  }
+  mac->sl_rx_res_pool = NULL;
+  mac->sl_tx_res_pool = NULL;
+}
+
 void sl_ue_mac_free(NR_UE_MAC_INST_t *mac)
 {
 
@@ -81,12 +102,7 @@ void sl_ue_mac_free(NR_UE_MAC_INST_t *mac)
     free_and_zero(sl_config->tdd_table.max_tdd_periodicity_list);
   }
 
-  for (int i=0;i<SL_NR_MAC_NUM_RX_RESOURCE_POOLS;i++) {
-    free_and_zero(mac->SL_MAC_PARAMS->sl_RxPool[i]);
-  }
-  for (int i=0;i<SL_NR_MAC_NUM_TX_RESOURCE_POOLS;i++) {
-    free_and_zero(mac->SL_MAC_PARAMS->sl_TxPool[i]);
-  }
+  nr_ue_sl_free_resource_pools(mac);
 
   free_and_zero(mac->SL_MAC_PARAMS);
 }

@@ -1470,6 +1470,7 @@ void nr_ue_sl_mac_free(NR_UE_MAC_INST_t *mac)
   replace_candidate_resources(mac, NULL);
   free_list_mem(&mac->sl_sensing_data);
   free_list_mem(&mac->sl_transmit_history);
+  nr_ue_sl_free_resource_pools(mac);
 }
 
 void remove_old_transmit_history(frameslot_t *frame_slot,
