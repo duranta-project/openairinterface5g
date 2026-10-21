@@ -140,9 +140,10 @@ int oru_fh_poll_ul_job(void *handle, ul_job_t *job);
  * @param handle Pointer to the fronthaul handle.
  * @param slot Slot in frame.
  * @param stream PRACH stream (eAxC minus the PRACH eAxC offset).
- * @return The beam id, or -1 when no PRACH C-Plane is active for that slot and stream.
+ * @param symbol Symbol in slot, as passed to oru_fh_rx_send_prach().
+ * @return The beam id, or -1 when no PRACH C-Plane section covers that slot, stream and symbol.
  */
-int oru_fh_get_prach_beam_id(void *handle, int slot, int stream);
+int oru_fh_get_prach_beam_id(void *handle, int slot, int stream, int symbol);
 
 /**
  * @brief Get the DL-direction symbol bitmask for the configured TDD pattern.

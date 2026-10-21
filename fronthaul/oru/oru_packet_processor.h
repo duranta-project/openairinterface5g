@@ -104,7 +104,9 @@ typedef struct {
   uint64_t prach_cplane_missing_stale;
   uint64_t prach_cplane_missing_early;
   uint64_t prach_out_of_mbufs;
-  uint64_t prach_jobs_pool_exhausted;
+  uint64_t prach_jobs_pool_exhausted; // PRACH start symbols for one slot and stream exceeded MAX_PRACH_JOBS
+  uint64_t prach_fdm_unsupported; // PRACH sections dropped as a second FDM occasion at the same start symbol
+  uint64_t prach_sections_unserved; // PRACH sections released without any U-Plane sent, e.g. TDM occasions nr-oru doesn't extract
   txrx_histogram_t dl_uplane_hist;
   txrx_histogram_t dl_cplane_hist;
   txrx_histogram_t ul_cplane_hist;
@@ -158,9 +160,9 @@ int read_dl_iq_streams(void *context,
                        int *frame,
                        int *slot,
                        int *symbol);
-// Beam the DU declared (C-Plane section type 3 beamId) for PRACH stream `aarx` in `slot_in_frame`,
-// or -1 when no PRACH C-Plane is active there. write_prach_iq() still does the full timing check.
-int get_prach_beam_id(void *context, int slot_in_frame, int aarx);
+// Beam the DU declared (C-Plane section type 3 beamId) for PRACH stream `aarx` at `symbol` of `slot_in_frame`, or -1
+// when no PRACH C-Plane section covers that symbol.
+int get_prach_beam_id(void *context, int slot_in_frame, int aarx, int symbol);
 int get_ready_job_count(void *context);
 int poll_ul_job(void *context, ul_job_t *job);
 void get_dl_symbol_bitmask(void *context, const uint8_t **bitmask, uint16_t *bit_length);
