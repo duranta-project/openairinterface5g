@@ -5,7 +5,6 @@
 #include "nr_phy_init.h"
 #include "common/utils/nr/nr_common.h"
 #include "common/utils/LOG/log.h"
-#include "executables/softmodem-common.h"
 #include "PHY/MODULATION/nr_modulation.h"
 #include "PHY/nr_phy_common/inc/nr_phy_common.h"
 
@@ -14,18 +13,6 @@ static const uint32_t nr_subcarrier_spacing[MAX_NUM_SUBCARRIER_SPACING] = {15e3,
 static const uint16_t nr_slots_per_subframe[MAX_NUM_SUBCARRIER_SPACING] = {1, 2, 4, 8, 16};
 
 void set_Lmax(NR_DL_FRAME_PARMS *fp) {
-  if (get_softmodem_params()->sl_mode == 2) {
-    int sl_NumSSB_WithinPeriod = 1; //TODO: Needs to be updated from RRC parameters
-    int sl_TimeOffsetSSB = 1; //TODO: Needs to be updated from RRC parameters
-    int sl_TimeInterval = 1; //TODO: Needs to be updated from RRC parameters
-    if ((sl_NumSSB_WithinPeriod == 4) && ((sl_TimeOffsetSSB % fp->slots_per_frame) + 3 * sl_TimeInterval < NR_NUMBER_OF_SUBFRAMES_PER_FRAME * 2))
-      fp->Lmax = 4;
-    else if ((sl_NumSSB_WithinPeriod == 2) && ((sl_TimeOffsetSSB % fp->slots_per_frame) + sl_TimeInterval < NR_NUMBER_OF_SUBFRAMES_PER_FRAME))
-      fp->Lmax = 2;
-    else
-      fp->Lmax = 1;
-    return;
-  }
   // definition of Lmax according to ts 38.213 section 4.1
   if (fp->dl_CarrierFreq < 6e9) {
     if(fp->frame_type && (fp->ssb_type==2))
@@ -128,8 +115,6 @@ void set_scs_parameters(NR_DL_FRAME_PARMS *fp, int mu, int N_RB_DL, int ssb_case
   }
 
   fp->first_carrier_offset = fp->ofdm_symbol_size - (N_RB_DL * 12 / 2);
-  if (get_softmodem_params()->sl_mode == 2)
-    fp->first_carrier_offset = 0;
   fp->nb_prefix_samples    = fp->ofdm_symbol_size / 128 * 9;
   fp->nb_prefix_samples0   = fp->ofdm_symbol_size / 128 * (9 + (1 << mu));
   LOG_I(PHY,
@@ -371,11 +356,6 @@ int nr_init_frame_parms_ue(NR_DL_FRAME_PARMS *fp, fapi_nr_config_request_t* conf
   LOG_D(PHY,"dl_bw_kHz %lu\n",dl_bw_khz);
   LOG_D(PHY,"dl_CarrierFreq %lu\n",fp->dl_CarrierFreq);
 
-  if (get_softmodem_params()->sl_mode == 2) {
-    uint64_t sl_bw_khz = (12 * config->carrier_config.sl_grid_size[config->ssb_config.scs_common]) * (15 << config->ssb_config.scs_common);
-    fp->sl_CarrierFreq = ((sl_bw_khz >> 1) + config->carrier_config.sl_frequency) * 1000;
-  }
-
   uint64_t ul_bw_khz = (12*config->carrier_config.ul_grid_size[config->ssb_config.scs_common])*(15<<config->ssb_config.scs_common);
   fp->ul_CarrierFreq = ((ul_bw_khz>>1) + config->carrier_config.uplink_frequency)*1000 ;
 
@@ -407,8 +387,7 @@ int nr_init_frame_parms_ue(NR_DL_FRAME_PARMS *fp, fapi_nr_config_request_t* conf
     AssertFatal(fp->numerology_index == NR_MU_2,"Invalid cyclic prefix %d for numerology index %d\n", Ncp, fp->numerology_index);
 
   fp->Ncp = Ncp;
-  int N_RB = (get_softmodem_params()->sl_mode == 2) ? fp->N_RB_SL : fp->N_RB_DL;
-  set_scs_parameters(fp, fp->numerology_index, N_RB, config->ssb_table.ssb_case);
+  set_scs_parameters(fp, fp->numerology_index, fp->N_RB_DL, config->ssb_table.ssb_case);
 
   fp->slots_per_frame = 10* fp->slots_per_subframe;
   fp->symbols_per_slot = ((Ncp == NR_NORMAL)? NR_SYMBOLS_PER_SLOT : NR_SYMBOLS_PER_SLOT_EXTENDED_CP);
@@ -458,7 +437,7 @@ void nr_init_frame_parms_ue_sa(NR_DL_FRAME_PARMS *frame_parms, const nrUE_cell_p
   frame_parms->numerology_index = mu;
   frame_parms->dl_CarrierFreq = downlink_frequency;
   frame_parms->ul_CarrierFreq = downlink_frequency + delta_duplex;
-  if (get_softmodem_params()->sl_mode == 0) {
+  if (frame_parms->dl_CarrierFreq != 0) {
     frame_parms->freq_range = get_freq_range_from_freq(frame_parms->dl_CarrierFreq);
   }
   frame_parms->N_RB_DL = N_RB_DL;

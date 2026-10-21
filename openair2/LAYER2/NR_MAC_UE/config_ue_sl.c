@@ -248,7 +248,7 @@ static void  sl_prepare_phy_config(int module_id,
                             &sl_TDD_config->pattern1);
     int period_idx = sl_TDD_config ? get_tdd_period_idx(sl_TDD_config) : 0;
     // TODO move to right place
-    NR_UE_MAC_INST_t *mac = get_mac_inst(0);
+    NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
     config_frame_structure(phycfg->sl_bwp_config.sl_scs,
                            sl_TDD_config,
                            period_idx,

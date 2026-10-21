@@ -600,7 +600,7 @@ List_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,
 
 bool is_sl_slot(NR_UE_MAC_INST_t *mac, BIT_STRING_t *phy_sl_bitmap, size_t phy_map_sz, uint64_t abs_slot);
 
-void validate_selected_sl_slot(bool tx, bool rx, NR_TDD_UL_DL_ConfigCommon_t *conf, frameslot_t frame_slot);
+void validate_selected_sl_slot(NR_UE_MAC_INST_t *mac, bool tx, bool rx, NR_TDD_UL_DL_ConfigCommon_t *conf, frameslot_t frame_slot);
 
 bool check_t1_within_tproc1(uint8_t mu, uint16_t t1_slots);
 

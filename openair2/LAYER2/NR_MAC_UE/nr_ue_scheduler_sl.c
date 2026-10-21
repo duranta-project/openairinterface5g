@@ -639,16 +639,15 @@ bool slot_has_psfch(NR_UE_MAC_INST_t *mac, BIT_STRING_t *phy_sl_bitmap, uint64_t
   return has_psfch;
 }
 
-void validate_selected_sl_slot(bool tx, bool rx, NR_TDD_UL_DL_ConfigCommon_t *conf, frameslot_t frame_slot)
+void validate_selected_sl_slot(NR_UE_MAC_INST_t *mac, bool tx, bool rx, NR_TDD_UL_DL_ConfigCommon_t *conf, frameslot_t frame_slot)
 {
   AssertFatal(tx != rx, "Validate exactly one sidelink direction\n");
   AssertFatal(conf != NULL, "Missing sidelink TDD configuration\n");
-  NR_UE_MAC_INST_t *mac = get_mac_inst(0);
   AssertFatal(mac != NULL && mac->SL_MAC_PARAMS != NULL, "Missing sidelink MAC instance\n");
   SL_ResourcePool_params_t *pool = tx ? mac->SL_MAC_PARAMS->sl_TxPool[0] : mac->SL_MAC_PARAMS->sl_RxPool[0];
   AssertFatal(pool != NULL && pool->phy_sl_bitmap.buf != NULL, "Missing physical sidelink pool bitmap\n");
   const size_t map_size = (pool->phy_sl_bitmap.size << 3) - pool->phy_sl_bitmap.bits_unused;
-  const uint64_t abs_slot = normalize(&frame_slot, get_softmodem_params()->numerology);
+  const uint64_t abs_slot = normalize(&frame_slot, mac->numerology);
   AssertFatal(is_sl_slot(mac, &pool->phy_sl_bitmap, map_size, abs_slot),
               "Selected slot %u.%u is not assigned to the configured sidelink resource pool\n",
               frame_slot.frame,
@@ -1866,7 +1865,7 @@ List_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,
                                .sl_has_psfch           = sl_has_psfch};
       de_normalize(slot_info.abs_slot_index, mu, &frame_slot);
       LOG_D(NR_MAC, "Pushing %4d.%2d\n", frame_slot.frame, frame_slot.slot);
-      validate_selected_sl_slot(true , false, mac->SL_MAC_PARAMS->sl_TDD_config, frame_slot);
+      validate_selected_sl_slot(mac, true , false, mac->SL_MAC_PARAMS->sl_TDD_config, frame_slot);
       push_back(&slot_info_list, &slot_info);
     }
     abs_pool_index = (abs_pool_index + 1) % phy_map_sz;

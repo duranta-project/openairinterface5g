@@ -444,7 +444,7 @@ static void handle_sl_bch(int ue_id,
         incov,
         frame,
         slot);
-  get_mac_inst(0)->is_synced = true;
+  get_mac_inst(ue_id)->is_synced = true;
 
   sl_mac->decoded_DFN = frame;
   sl_mac->decoded_slot = slot;

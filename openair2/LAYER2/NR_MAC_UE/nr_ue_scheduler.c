@@ -2729,7 +2729,7 @@ void nr_ue_get_sdu_mac_ce_pre(NR_UE_MAC_INST_t *mac,
     // A Regular or Periodic BSR can only be sent if TBS is sufficient
     // as transmitting only a BSR is not allowed if UE has data to transmit
     int size_for_long = num_lcg_id_with_data + sizeof(NR_BSR_LONG) + sizeof(NR_MAC_SUBHEADER_SHORT);
-    int size_for_short = (get_softmodem_params()->sl_mode ? sizeof(NR_SL_BSR_SHORT) : sizeof(NR_BSR_SHORT)) + sizeof(NR_MAC_SUBHEADER_FIXED);
+    int size_for_short = sizeof(NR_BSR_SHORT) + sizeof(NR_MAC_SUBHEADER_FIXED);
     if (num_lcg_id_with_data > 1 && buflen >= size_for_long)
       bsr_len = size_for_long;
     else if ((num_lcg_id_with_data > 0 && buflen >= size_for_short)

@@ -134,7 +134,7 @@ int8_t nr_ue_decode_pucch0(PHY_VARS_NR_UE *ue,
                           nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_pdu,
                           nfapi_nr_pucch_pdu_t *pucch_pdu)
 {
-  NR_DL_FRAME_PARMS *frame_parms = get_softmodem_params()->sl_mode ? &ue->SL_UE_PHY_PARAMS.sl_frame_params : &ue->frame_parms;
+  NR_DL_FRAME_PARMS *frame_parms = ue->sl_mode == SL_MODE2_SUPPORTED ? &ue->SL_UE_PHY_PARAMS.sl_frame_params : &ue->frame_parms;
 
   int soffset = 0;
   int nr_sequences;

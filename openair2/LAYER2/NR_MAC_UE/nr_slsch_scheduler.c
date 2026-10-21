@@ -384,7 +384,7 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
         frameslot_t frame_slot;
         frame_slot.frame = frameP;
         frame_slot.slot = slotP;
-        validate_selected_sl_slot(true, false, mac->SL_MAC_PARAMS->sl_TDD_config, frame_slot);
+        validate_selected_sl_slot(mac, true, false, mac->SL_MAC_PARAMS->sl_TDD_config, frame_slot);
         break;
     }
   }
