@@ -8,6 +8,7 @@ add_library(oai_usrpdevif MODULE usrp_lib.cpp usrp_converters.cpp)
 target_link_libraries(oai_usrpdevif PRIVATE ${UHD_LIBRARIES})
 target_include_directories(oai_usrpdevif PRIVATE ${UHD_INCLUDE_DIRS})
 target_link_libraries(oai_usrpdevif PRIVATE log_headers)
+target_link_libraries(oai_usrpdevif PRIVATE tmytek_spi_config)
 if (UHD_VERSION VERSION_EQUAL "4.11.0")
   # linking Boost::thread seems to be required for UHD v4.11.0.0
   find_package(Boost REQUIRED)

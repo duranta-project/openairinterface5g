@@ -370,7 +370,7 @@ static void ctrl_rf(RU_t *ru, int frame, int slot, uint64_t timestamp)
       continue;
     memcpy(last_beams, cur_beams, nb_tx * sizeof(uint16_t));
     event_ts = timestamp + ru->ts_offset + get_samples_symbol_duration(fp, slot, 0, j);
-    LOG_D(NR_PHY, "RU Control [%d.%d]: beam switch at symbol %d, ts %lu\n", frame, slot, j, event_ts);
+    LOG_D(NR_PHY, "RU Control [%d.%d]: beam switch at symbol %d, ts %lu beam_id %d\n", frame, slot, j, event_ts, last_beams[0]);
     ru->rfdevice.trx_set_beams(&ru->rfdevice, last_beams, nb_tx, event_ts);
   }
 }
@@ -1036,6 +1036,9 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg)
       } else if (strcmp(str, "interdigital") == 0) {
         ru->openair0_cfg.gpio_controller = RU_GPIO_CONTROL_INTERDIGITAL;
         LOG_I(PHY, "RU GPIO control set as 'interdigital'\n");
+      } else if (strcmp(str, "tmytek") == 0) {
+        ru->openair0_cfg.gpio_controller = RU_GPIO_CONTROL_TMYTEK;
+        LOG_I(PHY, "RU GPIO control set as 'tmytek'\n");
       } else {
         AssertFatal(false, "bad GPIO controller in configuration file: '%s'\n", str);
       }
