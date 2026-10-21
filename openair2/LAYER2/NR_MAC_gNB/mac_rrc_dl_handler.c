@@ -840,6 +840,13 @@ void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
   ASN_STRUCT_FREE(asn_DEF_NR_MeasurementTimingConfiguration, mtc);
 }
 
+static void stop_rrc_delivered(void *data)
+{
+  NR_timer_t *timer = data;
+  if (nr_timer_is_active(timer))
+    timer->target = timer->counter + 1;
+}
+
 void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
 {
   gNB_MAC_INST *mac = RC.nrmac[0];
@@ -895,7 +902,7 @@ void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
     handle_ue_context_drbs_release(UE, req->drbs_rel_len, req->drbs_rel, new_CellGroup);
   }
 
-  if (req->rrc_container != NULL) {
+  if (req->rrc_container != NULL && req->transm_action_ind == NULL) {
     handle_ue_context_rrc_container(req->rrc_container, req->gNB_DU_ue_id);
   }
 
@@ -995,7 +1002,12 @@ void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
 
   if (req->transm_action_ind != NULL) {
     AssertFatal(*req->transm_action_ind == TransmActionInd_STOP, "Transmission Action Indicator restart not handled yet\n");
-    nr_transmission_action_indicator_stop(mac, UE);
+    const byte_array_t *rrc = req->rrc_container;
+    nr_transmission_action_indicator_stop(mac, UE, rrc != NULL);
+    if (rrc)
+      nr_rlc_srb1_recv_sdu_with_delivery(UE->rnti, rrc->buf, rrc->len, stop_rrc_delivered, &UE->UE_sched_ctrl.transm_timeout);
+    else
+      nr_rlc_srb1_cancel_delivery(UE->rnti);
   }
   NR_SCHED_UNLOCK(&mac->sched_lock);
 
@@ -1089,6 +1101,9 @@ void ue_context_release_command(const f1ap_ue_context_rel_cmd_t *cmd)
   instance_t f1inst = get_f1_gtp_instance();
   if (f1inst >= 0)
     newGtpuDeleteAllTunnels(f1inst, cmd->gNB_DU_ue_id);
+
+  nr_rlc_srb1_cancel_delivery(UE->rnti);
+  nr_timer_stop(&UE->UE_sched_ctrl.transm_timeout);
 
   if (UE->UE_sched_ctrl.ul_failure || !cmd->rrc_container) {
     /* The UE is already not connected anymore or we have nothing to forward*/

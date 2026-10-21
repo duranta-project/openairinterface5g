@@ -26,6 +26,7 @@
 #include "openair2/F1AP/f1ap_ids.h"
 #include "openair3/ocp-gtpu/gtp_itf.h"
 #include <stdint.h>
+#include <limits.h>
 
 #include <executables/softmodem-common.h>
 
@@ -510,6 +511,11 @@ rb_found:
 static void successful_delivery(void *_ue, nr_rlc_entity_t *entity, int sdu_id)
 {
   nr_rlc_ue_t *ue = _ue;
+  if (entity == ue->srb[0] && entity->sdu_delivery.callback && sdu_id == entity->sdu_delivery.sdu_id) {
+    nr_rlc_sdu_delivery_t delivery = entity->sdu_delivery;
+    entity->sdu_delivery = (nr_rlc_sdu_delivery_t){0};
+    delivery.callback(delivery.data);
+  }
   int i;
   int is_srb;
   int rb_id;
@@ -1069,7 +1075,11 @@ bool nr_rlc_get_statistics(int ue_id, int srb_flag, int rb_id, nr_rlc_statistics
   return ret;
 }
 
-void nr_rlc_srb_recv_sdu(const int ue_id, const logical_chan_id_t channel_id, unsigned char *buf, int size)
+static void srb_recv_sdu(int ue_id,
+                         logical_chan_id_t channel_id,
+                         unsigned char *buf,
+                         int size,
+                         const nr_rlc_sdu_delivery_t *delivery)
 {
   T(T_ENB_RLC_DL, T_INT(0), T_INT(ue_id), T_INT(0), T_INT(size));
 
@@ -1085,8 +1095,39 @@ void nr_rlc_srb_recv_sdu(const int ue_id, const logical_chan_id_t channel_id, un
 
   AssertFatal(rb != NULL, "SDU sent to unknown RB UE-ID %d SRB %d\n", ue_id, channel_id);
 
+  int sdu_id = -1;
+  if (delivery) {
+    rb->sdu_delivery = (nr_rlc_sdu_delivery_t){0};
+    static int next_sdu_id;
+    /* Avoid reusing IDs of queued SDUs; on exhaustion, rely on the caller's timeout. */
+    if (delivery->callback && next_sdu_id < INT_MAX) {
+      sdu_id = ++next_sdu_id;
+      rb->sdu_delivery = *delivery;
+      rb->sdu_delivery.sdu_id = sdu_id;
+    }
+  }
   rb->set_time(rb, get_nr_rlc_current_time());
-  rb->recv_sdu(rb, (char *)buf, size, -1);
+  rb->recv_sdu(rb, (char *)buf, size, sdu_id);
 
+  nr_rlc_manager_unlock(nr_rlc_ue_manager);
+}
+
+void nr_rlc_srb_recv_sdu(const int ue_id, const logical_chan_id_t channel_id, unsigned char *buf, int size)
+{
+  srb_recv_sdu(ue_id, channel_id, buf, size, NULL);
+}
+
+void nr_rlc_srb1_recv_sdu_with_delivery(int ue_id, unsigned char *buf, int size, nr_rlc_sdu_delivery_cb_t callback, void *data)
+{
+  const nr_rlc_sdu_delivery_t delivery = {.callback = callback, .data = data};
+  srb_recv_sdu(ue_id, 1, buf, size, &delivery);
+}
+
+void nr_rlc_srb1_cancel_delivery(int ue_id)
+{
+  nr_rlc_manager_lock(nr_rlc_ue_manager);
+  nr_rlc_ue_t *ue = nr_rlc_manager_find_ue(nr_rlc_ue_manager, ue_id);
+  if (ue && ue->srb[0])
+    ue->srb[0]->sdu_delivery = (nr_rlc_sdu_delivery_t){0};
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }
