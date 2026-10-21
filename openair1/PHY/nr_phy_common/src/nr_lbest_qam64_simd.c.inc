@@ -127,8 +127,16 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
   const NRLB_VI V7 = NRLB_MM(set1_epi16)(7), Vm7 = NRLB_MM(set1_epi16)(-7);
   const NRLB_VI z = NRLB_SETZERO();
 
+  // When length is not a multiple of NRLB_N, the last SIMD block is shifted back to end exactly
+  // at length: REs are independent, so the overlap just rewrites identical LLRs. This replaces the
+  // scalar reference for the remainder (~1 us/RE, it dominated the 106/273-PRB cost), which now
+  // only runs when length < NRLB_N.
   uint32_t re = 0;
-  for (; re + NRLB_N <= length; re += NRLB_N) {
+  for (int last = length < NRLB_N; !last; re += NRLB_N) {
+    if (re + NRLB_N >= length) {
+      re = length - NRLB_N;
+      last = 1;
+    }
     NRLB_VI z1r, z1i, z2r, z2i, rr, ri, cm0, cm1, dummy;
     NRLB_NAME(nrlbw_load)(&stream0_in[re], &z1r, &z1i);
     NRLB_NAME(nrlbw_load)(&stream1_in[re], &z2r, &z2i);

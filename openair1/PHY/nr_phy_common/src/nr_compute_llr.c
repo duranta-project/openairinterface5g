@@ -28,10 +28,29 @@ int nr_ml_llr_maxh_off(int mod_order)
   switch (mod_order) {
     case 2:  return 0;  // QPSK
     case 4:  return 1;  // 16QAM
-    case 6:  return -1; // 64QAM
+    case 6:  return -2; // 64QAM: hot for int16 metric precision; nr_compute_ML_llr cools the output by 1 bit
     case 8:  return -3; // 256QAM (with the antenna-gain term => effective -2, the prior gNB value)
     default: return -2;
   }
+}
+
+// log2_maxh offset for the 2-layer linear MMSE receiver (nr_compute_MMSE_llr), before the
+// antenna-gain term log2(nb_rx/2) the caller adds (as for ML). TDL-A, 2 layers, 200 trials: -3+1
+// is best or tied for QPSK..256QAM at 4 RX, and -3 at 2 RX. The former fixed -3 at 4 RX (no antenna
+// term) left a BLER floor (~0.3 at 64QAM MCS 27 / 256QAM, 25-32 dB); one bit hotter fails outright.
+// OAI_MMSE_MAXH_OFF overrides it for retuning.
+int nr_mmse_llr_maxh_off(int mod_order)
+{
+  static int env_state = 0, env_val = 0; // 0=unread, 1=env set, 2=env unset
+  if (env_state == 0) {
+    const char *e = getenv("OAI_MMSE_MAXH_OFF");
+    if (e) { env_val = atoi(e); env_state = 1; }
+    else env_state = 2;
+  }
+  if (env_state == 1)
+    return env_val;
+  (void)mod_order; // one value fits all orders today; kept per-order like nr_ml_llr_maxh_off
+  return -3;
 }
 
 void nr_compute_llr(c16_t *rxdataF_comp,
@@ -2656,6 +2675,16 @@ void nr_qam256_llr_2layer(c16_t *stream0_in,
 }
 
 
+// Arithmetic right shift of n int16 LLRs in place (unaligned-safe, covers the remainder).
+static void nr_llr_srai(int16_t *llr, uint32_t n, int shift)
+{
+  uint32_t i = 0;
+  for (; i + 8 <= n; i += 8)
+    simde_mm_storeu_si128((simde__m128i *)&llr[i], simde_mm_srai_epi16(simde_mm_loadu_si128((simde__m128i *)&llr[i]), shift));
+  for (; i < n; i++)
+    llr[i] >>= shift;
+}
+
 static void nr_ml_llr_shift(int16_t *llr_layer0, int16_t *llr_layer1, uint32_t nb_re, int shift)
 {
   const uint32_t n = 2 * nb_re; // QPSK: 2 LLRs per RE
@@ -3927,7 +3956,8 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rho0,
                        c16_t *rho1,
                        uint32_t nb_re,
-                       uint8_t mod_order)
+                       uint8_t mod_order,
+                       int lbest)
 {
   switch (mod_order) {
     case 2:
@@ -3940,16 +3970,14 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       nr_qam16_llr_2layer(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re);
       break;
     case 6:
-      // 2-layer 64QAM. Default today = full ML search (nr_qam64_llr_2layer). The reduced-search
-      // L-best kernel (nr_qam64_llr_2layer_lbest_q15_simd16) tracks full-ML on 3GPP TDL with the
-      // hot ML LLR scaling and is faster (see nr_mimo_lbest_detector.md sec. 6a); it is opt-in via
-      // OAI_LBEST=1 for now, pending a proper RX-mode/config flag to make it the default.
+      // 2-layer 64QAM. lbest (gNB pusch_mimo_receiver = "lbest", the default) runs the reduced-search
+      // kernel (nr_qam64_llr_2layer_lbest_q15_simd16), which tracks full ML on 3GPP TDL at a fraction
+      // of the cost (see nr_mimo_lbest_detector.md sec. 6a); otherwise the full ML search
+      // (nr_qam64_llr_2layer).
       // OAI_LBEST_PAT picks the candidate set (0=3x3 [default], 1=6-cand seed-aware, 2=5-plus).
       {
-        static int lbest = -1, pat = 0;
-        if (lbest < 0) {
-          const char *e = getenv("OAI_LBEST");
-          lbest = e ? atoi(e) : 0;
+        static int pat = -1;
+        if (pat < 0) {
           const char *ep = getenv("OAI_LBEST_PAT");
           pat = ep ? atoi(ep) : 0;
         }
@@ -3998,6 +4026,11 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
           }
         }
       }
+      // 64QAM: the metric runs one bit hotter (nr_ml_llr_maxh_off(6) = -2) to keep int16 precision
+      // in the search (cooler input costs ~1 dB ML / ~2 dB L-best at MCS 27); cool the LLRs back by
+      // one bit for the LDPC int8 input (the hot output clips and loses ~0.5 dB at low SNR, MCS 20).
+      nr_llr_srai((int16_t *)llr_layers0, nb_re * 6, 1);
+      nr_llr_srai((int16_t *)llr_layers1, nb_re * 6, 1);
       break;
     case 8:
       // 2-layer 256QAM. Default = reduced-search L-best with the 3x3/9-candidate pattern, which
@@ -4005,11 +4038,12 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       // ~28x candidate reduction. OAI_LBEST_PAT256 overrides the candidate set:
       //   0 = 5x5/25, 1 = 3x3/9 [default], 2 = 5-plus/5 (degraded), 3 = full 16x16 ML.
       {
-        static int pat256 = -1;
-        if (pat256 < 0) {
+        static int pat256_env = -1;
+        if (pat256_env < 0) {
           const char *ep = getenv("OAI_LBEST_PAT256");
-          pat256 = ep ? atoi(ep) : 1; // 3x3/9-candidate L-best is the ML default
+          pat256_env = ep ? atoi(ep) : 1; // 3x3/9-candidate L-best is the default
         }
+        const int pat256 = lbest ? pat256_env : 3; // pattern 3 = full 16x16 grid = exact max-log ML
         nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, pat256);
         nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, pat256);
         // --- OAI_LBEST_DBG256: verify the ACTIVE 256QAM kernel (layer 0) vs the FLOAT full-ML
