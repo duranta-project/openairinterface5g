@@ -25,7 +25,7 @@
 #
 #---------------------------------------------------------------------
 
-FROM ran-base:latest AS ran-build
+FROM ran-base:robert AS ran-build
 ARG BUILD_OPTION
 
 ARG E2AP_VERSION=E2AP_V3
@@ -42,30 +42,4 @@ RUN \
    # Mount CPM package cache
    --mount=type=cache,target=/root/.cache/cpm/ \
     /bin/sh oaienv && \
-    cd cmake_targets && \
-    mkdir -p log && \
-    ./build_oai -c --ninja \
-      --eNB --gNB --RU --UE --nrUE \
-      --build-lib "telnetsrv enbscope uescope nrscope" \
-      -w USRP -t Ethernet \
-      --build-e2 --cmake-opt -DKPM_VERSION=$KPM_VERSION --cmake-opt -DE2AP_VERSION=$E2AP_VERSION \
-      --noavx512 \
-      --build-tool-opt -k10 \
-      --cmake-opt -DCMAKE_C_FLAGS="-Werror" --cmake-opt -DCMAKE_CXX_FLAGS="-Werror" $BUILD_OPTION && \
-    # Mainly to see if the sanitize option was perfectly executed
-    echo "---- ldd on executables ----" && \
-    ldd ran_build/build/*softmodem* ran_build/build/nr-cuup ran_build/build/oairu && \
-    echo "---- ldd on shared libraries ----" && \
-    ldd ran_build/build/*.so
-
-## Build FlexRIC for SM Models
-RUN \
-    # Mount CCache cache direrctory
-    --mount=type=cache,target=/root/.cache/ccache/ \
-    mkdir -p openair2/E2AP/flexric/build && \
-    cd openair2/E2AP/flexric/build && \
-    cmake -GNinja -DCMAKE_BUILD_TYPE=Release \
-          -DKPM_VERSION=$KPM_VERSION \
-          -DE2AP_VERSION=$E2AP_VERSION .. && \
-    ninja && \
-    ninja install
+    cmake -B build -GNinja -DOAI_ZMQ=OFF && taskset -c 2-15 ninja -C build -j6
