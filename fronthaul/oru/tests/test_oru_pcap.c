@@ -671,7 +671,7 @@ int main(int argc, char *argv[])
             int frame = (s / (140 * (1 << numerology))) % 1024;
             int slot = (s / 14) % (10 * (1 << numerology));
             int sym = s % 14;
-            write_prach_iq(ctx, txdataF, MAX_ANTENNAS, frame, slot, sym);
+            write_prach_iq(ctx, txdataF, MAX_ANTENNAS, frame, slot, sym, 0);
 
             // Drain ready jobs to prevent ring overflow
             int f, sl, sy;

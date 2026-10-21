@@ -304,18 +304,18 @@ int oru_fh_get_utc_anchor_point(void *handle, uint64_t *hyper_frame, uint32_t *f
   return 0;
 }
 
-void oru_fh_rx_send_prach(void *handle, uint32_t **prachF, int nb_rx, int frame, int slot, int symbol)
+void oru_fh_rx_send_prach(void *handle, uint32_t **prachF, int nb_rx, int frame, int slot, int symbol, int occasion)
 {
   oru_fh_t *fh = (oru_fh_t *)handle;
   AssertFatal(fh, "Invalid handle\n");
-  write_prach_iq(fh->packet_processor, prachF, nb_rx, frame, slot, symbol);
+  write_prach_iq(fh->packet_processor, prachF, nb_rx, frame, slot, symbol, occasion);
 }
 
-int oru_fh_get_prach_beam_id(void *handle, int slot, int stream)
+int oru_fh_get_prach_beam_id(void *handle, int slot, int stream, int occasion)
 {
   oru_fh_t *fh = (oru_fh_t *)handle;
   AssertFatal(fh, "Invalid handle\n");
-  return get_prach_beam_id(fh->packet_processor, slot, stream);
+  return get_prach_beam_id(fh->packet_processor, slot, stream, occasion);
 }
 
 int oru_fh_poll_ul_job(void *handle, ul_job_t *job) {

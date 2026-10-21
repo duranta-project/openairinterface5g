@@ -894,6 +894,8 @@ void receive_prach(ORU_t *oru, int frame, int slot, int symbol, int prach_symbol
 
   c16_t rxdataF[ru->nb_rx][NR_PRACH_SEQ_LEN_L];
   memset(rxdataF, 0, sizeof(rxdataF));
+  // One FDM occasion (num_prach_fd_occasions = 1): the first PRACH C-Plane section of each stream
+  const int fdm_occasion = 0;
 
   rx_nr_prach_ru_rep(&oru->prach_item,
                      ru->common.rxdata,
@@ -909,7 +911,7 @@ void receive_prach(ORU_t *oru, int frame, int slot, int symbol, int prach_symbol
   }
   const oru_codebook_t *cb = &oru->codebook;
   if (cb->nb_fh_streams <= 0) {
-    oru_fh_rx_send_prach(oru->fronthaul, (uint32_t **)rxdataF_ptr, ru->nb_rx, frame, slot, symbol);
+    oru_fh_rx_send_prach(oru->fronthaul, (uint32_t **)rxdataF_ptr, ru->nb_rx, frame, slot, symbol, fdm_occasion);
     return;
   }
 
@@ -920,14 +922,14 @@ void receive_prach(ORU_t *oru, int frame, int slot, int symbol, int prach_symbol
   c16_t *beamF_ptr[nb_streams];
   for (int s = 0; s < nb_streams; s++) {
     beamF_ptr[s] = beamF[s];
-    const int beam_id = oru_fh_get_prach_beam_id(oru->fronthaul, slot, s);
+    const int beam_id = oru_fh_get_prach_beam_id(oru->fronthaul, slot, s, fdm_occasion);
     if (beam_id < 0) {
       memset(beamF[s], 0, sizeof(beamF[s])); // no C-Plane for this stream: write_prach_iq() skips it
       continue;
     }
     combine_ul_beam_fd((const c16_t *const *)rxdataF_ptr, ru->nb_rx, 0, NR_PRACH_SEQ_LEN_L, cb, beam_id, s, beamF[s]);
   }
-  oru_fh_rx_send_prach(oru->fronthaul, (uint32_t **)beamF_ptr, nb_streams, frame, slot, symbol);
+  oru_fh_rx_send_prach(oru->fronthaul, (uint32_t **)beamF_ptr, nb_streams, frame, slot, symbol, fdm_occasion);
 }
 
 static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t *job, const c16_t *const *ant_fft)

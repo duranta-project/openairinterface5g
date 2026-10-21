@@ -44,6 +44,7 @@
 #define MAX_SECTIONS_PER_DL_STREAM 4 // C-Plane sections (e.g. split PRB ranges) that can share one (eaxc, beam) stream in a DL symbol
 #define MAX_MBUFS_PER_SYMBOL 64
 #define MAX_SLOTS_PER_FRAME 160
+#define MAX_PRACH_SECTIONS 4 // PRACH C-Plane sections (FDM occasions) per slot and PRACH stream
 #define XRAN_IQ_BITS_UNCOMPRESSED 16 /* xRAN table 7.7.1.1-1: udIqWidth=0 means 16-bit samples */
 #define NUM_SECTION_IDS 4096 // 12-bit sectionId
 #define SECTION_ID_UNCOUPLED 4095 // O-RAN CUS 7.5.3.1: sent when C-Plane and U-Plane aren't coupled via sectionId
@@ -92,6 +93,8 @@ typedef struct {
   uint16_t beam_id; // section type 3 beamId: the PRACH beam for this stream (UL Rx beamforming)
   fh_comp_method_t comp_method;
   uint8_t iq_width;
+  int occasion; // order among the sections starting at the same symbol
+  bool served; // write_prach_iq() sent U-Plane for it
 } prach_job_t;
 typedef struct {
   _Atomic(uint64_t) dl_tdd_mismatch;
@@ -114,7 +117,7 @@ typedef struct {
   dl_symbol_job_t dl_symbol_jobs[MAX_CONCURRENT_DL_JOBS];
   dl_symbol_job_t *dl_symbol_rx_window[NUM_CONCURRENT_DL_SYMBOL_WINDOWS];
   bool was_dl_symbol_completed[NUM_CONCURRENT_DL_SYMBOL_WINDOWS];
-  prach_job_t prach_jobs[MAX_SLOTS_PER_FRAME][MAX_ANTENNAS];
+  prach_job_t prach_jobs[MAX_SLOTS_PER_FRAME][MAX_ANTENNAS][MAX_PRACH_SECTIONS];
   uint64_t current_absolute_symbol;
   uint64_t window_tail_symbol;
   uint64_t cplane_closed_tail_symbol;
@@ -779,6 +782,72 @@ static void handle_ul_cplane_packet(oru_packet_processor_context_t *ctx,
   }
 }
 
+// Registers PRACH section section_id of stream aarx starting at start_symbol. Jobs of an earlier slot are released
+// first. Sections starting at the same symbol are FDM occasions, numbered in arrival order. Returns NULL for a
+// duplicate section or a full pool.
+static prach_job_t *add_prach_job(oru_packet_processor_context_t *ctx,
+                                  int slot_in_frame,
+                                  int aarx,
+                                  uint64_t start_symbol,
+                                  int section_id)
+{
+  prach_job_t *jobs = ctx->prach_jobs[slot_in_frame][aarx];
+  prach_job_t *free_job = NULL;
+  int occasion = 0;
+  for (int i = 0; i < MAX_PRACH_SECTIONS; i++) {
+    prach_job_t *job = &jobs[i];
+    if (job->active && job->start_absolute_symbol / NR_SYMBOLS_PER_SLOT != start_symbol / NR_SYMBOLS_PER_SLOT) {
+      if (!job->served)
+        ctx->stats.prach_sections_unserved++;
+      job->active = false;
+    }
+    if (!job->active) {
+      if (free_job == NULL)
+        free_job = job;
+      continue;
+    }
+    if (job->start_absolute_symbol != start_symbol)
+      continue;
+    if (job->section_id == section_id) {
+      ctx->stats.cplane_err_dup++;
+      ctx->stats.cplane_err_dup_prach++;
+      RATELIMIT(PRACH_ERR_LOG_RATELIMIT, {
+        LOG_W(HW,
+              "PRACH CP: Duplicate section %d for slot %d, aarx %d, start_symbol %lu\n",
+              section_id,
+              slot_in_frame,
+              aarx,
+              start_symbol);
+      });
+      return NULL;
+    }
+    occasion++;
+  }
+  if (free_job == NULL) {
+    ctx->stats.prach_jobs_pool_exhausted++;
+    return NULL;
+  }
+  free_job->occasion = occasion;
+  free_job->served = false;
+  return free_job;
+}
+
+// The active job of PRACH occasion `occasion` of stream aarx whose symbols contain symbol, or another active job of that
+// occasion when none does, or NULL.
+static prach_job_t *find_prach_job(oru_packet_processor_context_t *ctx, int slot_in_frame, int aarx, int occasion, uint64_t symbol)
+{
+  prach_job_t *found = NULL;
+  for (int i = 0; i < MAX_PRACH_SECTIONS; i++) {
+    prach_job_t *job = &ctx->prach_jobs[slot_in_frame][aarx][i];
+    if (!job->active || job->occasion != occasion)
+      continue;
+    if (symbol >= job->start_absolute_symbol && symbol < job->start_absolute_symbol + job->num_symbols)
+      return job;
+    found = job;
+  }
+  return found;
+}
+
 void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
                                 void *pkt,
                                 struct xran_cp_radioapp_section3_header *hdr,
@@ -832,15 +901,9 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
     return;
   }
 
-  prach_job_t *job = &ctx->prach_jobs[slot_in_frame][aarx];
-  if (job->active && job->start_absolute_symbol == target_absolute_symbol) {
-    ctx->stats.cplane_err_dup++;
-    ctx->stats.cplane_err_dup_prach++;
-    RATELIMIT(PRACH_ERR_LOG_RATELIMIT, {
-      LOG_W(HW, "PRACH CP: Duplicate packet for slot %d, aarx %d, start_symbol %lu\n", slot_in_frame, aarx, target_absolute_symbol);
-    });
+  prach_job_t *job = add_prach_job(ctx, slot_in_frame, aarx, target_absolute_symbol, section->hdr.u1.common.sectionId);
+  if (job == NULL)
     return;
-  }
   job->active = true;
   job->start_absolute_symbol = target_absolute_symbol;
   job->num_symbols = num_symbols;
@@ -853,9 +916,10 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
   job->iq_width = hdr->udComp.udIqWidth == 0 ? XRAN_IQ_BITS_UNCOMPRESSED : hdr->udComp.udIqWidth;
   RATELIMIT(PRACH_ERR_LOG_RATELIMIT, {
     LOG_A(HW,
-          "PRACH JOB added slot_in_frame %d, aarx %d target_absolute_symbol %lu\n",
+          "PRACH JOB added slot_in_frame %d, aarx %d, occasion %d, target_absolute_symbol %lu\n",
           slot_in_frame,
           aarx,
+          job->occasion,
           target_absolute_symbol);
   });
   oru_pcap_cplane_commit_prach(snap);
@@ -1160,6 +1224,8 @@ void print_packet_processor_stats(void *context)
     LOG_I(HW,
           "  PRACH Jobs Pool Exhausted Errors: %lu\n",
           ctx->stats.prach_jobs_pool_exhausted + ctx->thread_safe_stats.prach_jobs_pool_exhausted);
+  if (ctx->stats.prach_sections_unserved > 0)
+    LOG_I(HW, "  PRACH Sections Never Served: %lu\n", ctx->stats.prach_sections_unserved);
   if (ctx->stats.out_of_mbufs + ctx->thread_safe_stats.out_of_mbufs > 0)
     LOG_I(HW, "  Out Of Mbufs Errors: %lu\n", ctx->stats.out_of_mbufs + ctx->thread_safe_stats.out_of_mbufs);
   if (ctx->stats.application_too_slow > 0)
@@ -1272,13 +1338,17 @@ int read_dl_iq_streams(void *context,
   return out_count;
 }
 
-int get_prach_beam_id(void *context, int slot_in_frame, int aarx)
+int get_prach_beam_id(void *context, int slot_in_frame, int aarx, int occasion)
 {
   oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
   if (ctx == NULL || slot_in_frame < 0 || slot_in_frame >= MAX_SLOTS_PER_FRAME || aarx < 0 || aarx >= MAX_ANTENNAS)
     return -1;
-  const prach_job_t *job = &ctx->prach_jobs[slot_in_frame][aarx];
-  return job->active ? job->beam_id : -1;
+  for (int i = 0; i < MAX_PRACH_SECTIONS; i++) {
+    const prach_job_t *job = &ctx->prach_jobs[slot_in_frame][aarx][i];
+    if (job->active && job->occasion == occasion)
+      return job->beam_id;
+  }
+  return -1;
 }
 
 int get_ready_job_count(void *context)
@@ -1477,7 +1547,7 @@ void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *j
   }
 }
 
-void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int slot_in_frame, int symbol)
+void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int slot_in_frame, int symbol, int occasion)
 {
   oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
   if (ctx == NULL)
@@ -1502,11 +1572,11 @@ void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int
       RATELIMIT(PRACH_ERR_LOG_RATELIMIT, { LOG_W(HW, "PRACH UP: Invalid slot_in_frame %d\n", slot_in_frame); });
       continue;
     }
-    prach_job_t *job = &ctx->prach_jobs[slot_in_frame][aarx];
-    if (!job->active || target_absolute_symbol < job->start_absolute_symbol
+    prach_job_t *job = find_prach_job(ctx, slot_in_frame, aarx, occasion, target_absolute_symbol);
+    if (job == NULL || target_absolute_symbol < job->start_absolute_symbol
         || target_absolute_symbol >= job->start_absolute_symbol + job->num_symbols) {
       ctx->thread_safe_stats.prach_cplane_missing++;
-      if (!job->active) {
+      if (job == NULL) {
         ctx->thread_safe_stats.prach_cplane_missing_inactive++;
         RATELIMIT(PRACH_ERR_LOG_RATELIMIT,
                   { LOG_W(HW, "PRACH UP: Missing C-Plane - Inactive job for slot %d, aarx %d\n", slot_in_frame, aarx); });
@@ -1570,6 +1640,7 @@ void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int
     }
 
     mbufs[num_mbufs++] = pkt;
+    job->served = true;
 
     struct xran_ecpri_hdr *ecpri_header = (struct xran_ecpri_hdr *)buf;
     uint16_t ecpri_payload_size = (uint16_t)(header_length - 4 + data_len);

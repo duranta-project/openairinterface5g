@@ -121,8 +121,9 @@ int oru_fh_get_utc_anchor_point(void *handle, uint64_t *hyper_frame, uint32_t* f
  * @param frame Target frame number.
  * @param slot Target slot number.
  * @param symbol Target symbol number.
+ * @param occasion FDM PRACH occasion: the order of the C-Plane sections starting at that symbol.
  */
-void oru_fh_rx_send_prach(void *handle, uint32_t **prachF, int nb_rx, int frame, int slot, int symbol);
+void oru_fh_rx_send_prach(void *handle, uint32_t **prachF, int nb_rx, int frame, int slot, int symbol, int occasion);
 
 /**
  * @brief Poll for pending UL jobs
@@ -140,9 +141,10 @@ int oru_fh_poll_ul_job(void *handle, ul_job_t *job);
  * @param handle Pointer to the fronthaul handle.
  * @param slot Slot in frame.
  * @param stream PRACH stream (eAxC minus the PRACH eAxC offset).
- * @return The beam id, or -1 when no PRACH C-Plane is active for that slot and stream.
+ * @param occasion FDM PRACH occasion, as for oru_fh_rx_send_prach().
+ * @return The beam id, or -1 when no PRACH C-Plane is active for that slot, stream and occasion.
  */
-int oru_fh_get_prach_beam_id(void *handle, int slot, int stream);
+int oru_fh_get_prach_beam_id(void *handle, int slot, int stream, int occasion);
 
 /**
  * @brief Get the DL-direction symbol bitmask for the configured TDD pattern.

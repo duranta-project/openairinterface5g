@@ -104,7 +104,8 @@ typedef struct {
   uint64_t prach_cplane_missing_stale;
   uint64_t prach_cplane_missing_early;
   uint64_t prach_out_of_mbufs;
-  uint64_t prach_jobs_pool_exhausted;
+  uint64_t prach_jobs_pool_exhausted; // PRACH sections for one slot and stream exceeded MAX_PRACH_SECTIONS
+  uint64_t prach_sections_unserved; // PRACH sections released without any U-Plane sent, e.g. occasions nr-oru doesn't use
   txrx_histogram_t dl_uplane_hist;
   txrx_histogram_t dl_cplane_hist;
   txrx_histogram_t ul_cplane_hist;
@@ -139,7 +140,9 @@ void *init_packet_processor(int numerology,
                             fh_comp_method_t dl_comp_method,
                             int prach_kbar);
 void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *job);
-void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int slot_in_frame, int symbol);
+// Sends PRACH U-Plane for FDM occasion `occasion` (the order of the C-Plane sections starting at that symbol) from
+// txdataF[aarx], one buffer per PRACH stream.
+void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int slot_in_frame, int symbol, int occasion);
 void cleanup_packet_processor(void *context);
 void set_num_bf_weights(void *context, int num_bf_weights);
 void handle_absolute_symbol_tick(void *context, uint64_t absolute_symbol);
@@ -158,9 +161,9 @@ int read_dl_iq_streams(void *context,
                        int *frame,
                        int *slot,
                        int *symbol);
-// Beam the DU declared (C-Plane section type 3 beamId) for PRACH stream `aarx` in `slot_in_frame`,
-// or -1 when no PRACH C-Plane is active there. write_prach_iq() still does the full timing check.
-int get_prach_beam_id(void *context, int slot_in_frame, int aarx);
+// Beam the DU declared (C-Plane section type 3 beamId) for FDM occasion `occasion` of PRACH stream `aarx` in
+// `slot_in_frame`, or -1 when no PRACH C-Plane is active there. write_prach_iq() still does the full timing check.
+int get_prach_beam_id(void *context, int slot_in_frame, int aarx, int occasion);
 int get_ready_job_count(void *context);
 int poll_ul_job(void *context, ul_job_t *job);
 void get_dl_symbol_bitmask(void *context, const uint8_t **bitmask, uint16_t *bit_length);

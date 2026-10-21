@@ -1843,8 +1843,8 @@ void test_prach_generation(int prach_eaxc_offset, bool check_sequence)
   *((uint64_t *)sec) = rte_be_to_cpu_64(*((uint64_t *)sec));
 
   handle_cplane_packet(ctx, c_mbuf);
-  assert(get_prach_beam_id(ctx, slot_in_frame, 0) == 5); // section type 3 beamId carried to the job
-  assert(get_prach_beam_id(ctx, slot_in_frame, 1) == -1); // no C-Plane for this stream
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, 0) == 5); // section type 3 beamId carried to the job
+  assert(get_prach_beam_id(ctx, slot_in_frame, 1, 0) == -1); // no C-Plane for this stream
 
   // 2. Call write_prach_iq for each of the 4 symbols
   uint32_t *txdataF[1];
@@ -1856,14 +1856,14 @@ void test_prach_generation(int prach_eaxc_offset, bool check_sequence)
   txdataF[0] = iq_input;
 
   for (int i = 0; i < 4; i++) {
-    write_prach_iq(ctx, txdataF, 1, frameId, slot_in_frame, startSymbolId + i);
+    write_prach_iq(ctx, txdataF, 1, frameId, slot_in_frame, startSymbolId + i, 0);
   }
 
   // Expect 4 packets to be sent
   assert(g_packets_sent == 4);
 
   // Attempting to write a 5th symbol should not send a packet, as the job should be deactivated
-  write_prach_iq(ctx, txdataF, 1, frameId, slot_in_frame, startSymbolId + 4);
+  write_prach_iq(ctx, txdataF, 1, frameId, slot_in_frame, startSymbolId + 4, 0);
   assert(g_packets_sent == 4);
 
   if (check_sequence) {
@@ -1874,7 +1874,7 @@ void test_prach_generation(int prach_eaxc_offset, bool check_sequence)
         job.antenna_id = antenna;
         write_ul_iq(ctx, iq_input, startSymbolId, &job);
       }
-      write_prach_iq(ctx, txdataF, 1, frameId, slot_in_frame, startSymbolId);
+      write_prach_iq(ctx, txdataF, 1, frameId, slot_in_frame, startSymbolId, 0);
     }
     assert(g_packets_sent == 4 + 300 * 3);
   }
@@ -1908,7 +1908,7 @@ void test_prach_generation(int prach_eaxc_offset, bool check_sequence)
   handle_cplane_packet(ctx, short_mbuf);
   const int sent_before_short = g_packets_sent;
   unsigned available = rte_mempool_avail_count(mp);
-  write_prach_iq(ctx, txdataF, 1, frameId, slot_in_frame, startSymbolId - 1);
+  write_prach_iq(ctx, txdataF, 1, frameId, slot_in_frame, startSymbolId - 1, 0);
   assert(g_packets_sent == sent_before_short);
   assert(rte_mempool_avail_count(mp) == available);
 
@@ -3034,6 +3034,150 @@ void test_section_id_repeated(void)
   printf("Repeated sectionId within a C-Plane message passed!\n");
 }
 
+// One section of a Type 3 C-Plane message
+typedef struct {
+  uint16_t section_id;
+  uint16_t beam_id;
+} test_section3_t;
+
+// Sends one 4-symbol, 20-PRB PRACH (Type 3) C-Plane message for PRACH stream 0 at symbol sym carrying n sections, with
+// numOfSections set to num_sections.
+static void send_prach_cplane(void *ctx, uint64_t sym, int num_sections, const test_section3_t *sec, int n)
+{
+  const int slots_per_subframe = 2;
+  const int num_symbols_per_frame = 10 * slots_per_subframe * 14;
+  const int slot_in_frame = (sym % num_symbols_per_frame) / 14;
+  struct rte_mbuf *mbuf = rte_pktmbuf_alloc(mp);
+  assert(mbuf != NULL);
+  struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(mbuf, sizeof(struct xran_ecpri_hdr));
+  ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, 0);
+  struct xran_cp_radioapp_section3_header *apphdr =
+      (struct xran_cp_radioapp_section3_header *)rte_pktmbuf_append(mbuf, sizeof(struct xran_cp_radioapp_section3_header));
+  memset(apphdr, 0, sizeof(*apphdr));
+  apphdr->cmnhdr.field.dataDirection = XRAN_DIR_UL;
+  apphdr->cmnhdr.field.payloadVer = XRAN_PAYLOAD_VER;
+  apphdr->cmnhdr.field.frameId = (sym / num_symbols_per_frame) % 256;
+  apphdr->cmnhdr.field.subframeId = slot_in_frame / slots_per_subframe;
+  apphdr->cmnhdr.field.slotId = slot_in_frame % slots_per_subframe;
+  apphdr->cmnhdr.field.startSymbolId = sym % 14;
+  apphdr->cmnhdr.field.filterIndex = XRAN_FILTERINDEX_PRACH_012;
+  apphdr->cmnhdr.numOfSections = num_sections;
+  apphdr->cmnhdr.sectionType = XRAN_CP_SECTIONTYPE_3;
+  apphdr->cmnhdr.field.all_bits = rte_cpu_to_be_32(apphdr->cmnhdr.field.all_bits);
+  for (int i = 0; i < n; i++) {
+    struct xran_cp_radioapp_section3 *s =
+        (struct xran_cp_radioapp_section3 *)rte_pktmbuf_append(mbuf, sizeof(struct xran_cp_radioapp_section3));
+    assert(s != NULL);
+    memset(s, 0, sizeof(*s));
+    s->hdr.u.s3.numSymbol = 4;
+    s->hdr.u.s3.beamId = sec[i].beam_id;
+    s->hdr.u1.common.sectionId = sec[i].section_id;
+    s->hdr.u1.common.numPrbc = 20;
+    *((uint64_t *)s) = rte_be_to_cpu_64(*((uint64_t *)s));
+  }
+  handle_cplane_packet(ctx, mbuf);
+}
+
+static int g_prach_section_ids[16];
+
+// Records the sectionId of each PRACH U-Plane packet sent
+static void test_send_mbuf_prach_section_id(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+{
+  for (uint32_t i = 0; i < num_mbufs; i++) {
+    const struct xran_ecpri_hdr *ecpri = rte_pktmbuf_mtod(mbufs[i], const struct xran_ecpri_hdr *);
+    const struct radio_app_common_hdr *app = (const struct radio_app_common_hdr *)(ecpri + 1);
+    struct data_section_hdr sec = *(const struct data_section_hdr *)(app + 1);
+    sec.fields.all_bits = rte_be_to_cpu_32(sec.fields.all_bits);
+    assert(g_packets_sent < (int)(sizeof(g_prach_section_ids) / sizeof(g_prach_section_ids[0])));
+    g_prach_section_ids[g_packets_sent++] = sec.fields.sect_id;
+    rte_pktmbuf_free(mbufs[i]);
+  }
+}
+
+static void *init_prach_test_ctx(void)
+{
+  void *ctx = init_packet_processor(1,
+                                    100,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf_prach_section_id,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    TEST_PRACH_KBAR);
+  assert(ctx != NULL);
+  // Pattern: 5 slots, 2 DL, 2 UL. Symbols 0-27 DL, 42-69 UL.
+  handle_absolute_symbol_tick(ctx, 1030);
+  g_packets_sent = 0;
+  return ctx;
+}
+
+// PRACH sections of one stream starting at the same symbol are FDM occasions, numbered in arrival order and served
+// separately. Sections of an earlier frame that were never served are counted when the slot is reused.
+void test_prach_occasions(void)
+{
+  printf("Testing PRACH occasions...\n");
+  void *ctx = init_prach_test_ctx();
+  const uint64_t target_sym = 1035;
+  const int num_symbols_per_frame = 10 * 2 * 14;
+  const int frame = (target_sym / num_symbols_per_frame) % 256;
+  const int slot_in_frame = (target_sym % num_symbols_per_frame) / 14;
+  const int symbol = target_sym % 14;
+
+  const test_section3_t occasions[3] = {{1, 5}, {2, 6}, {3, 7}};
+  for (int i = 0; i < 3; i++)
+    send_prach_cplane(ctx, target_sym, 1, &occasions[i], 1);
+  for (int i = 0; i < 3; i++)
+    assert(get_prach_beam_id(ctx, slot_in_frame, 0, i) == occasions[i].beam_id);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, 3) == -1);
+  oru_packet_processor_stats_t stats;
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_dup_prach == 0);
+
+  // Same sectionId again: a duplicate
+  send_prach_cplane(ctx, target_sym, 1, &occasions[0], 1);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_dup_prach == 1);
+
+  uint32_t iq_input[100 * 12] = {0};
+  uint32_t *txdataF[1] = {iq_input};
+  for (int i = 0; i < 4; i++)
+    write_prach_iq(ctx, txdataF, 1, frame, slot_in_frame, symbol + i, 0);
+  write_prach_iq(ctx, txdataF, 1, frame, slot_in_frame, symbol, 1);
+  assert(g_packets_sent == 5);
+  for (int i = 0; i < 4; i++)
+    assert(g_prach_section_ids[i] == 1);
+  assert(g_prach_section_ids[4] == 2);
+
+  // A fourth occasion fills the pool, a fifth doesn't fit
+  const test_section3_t extra[2] = {{4, 8}, {5, 9}};
+  send_prach_cplane(ctx, target_sym, 1, &extra[0], 1);
+  send_prach_cplane(ctx, target_sym, 1, &extra[1], 1);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, 3) == 8);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.prach_jobs_pool_exhausted == 1);
+
+  // The same slot of the next frame releases the earlier jobs: sectionIds 3 and 4 were never served
+  const test_section3_t next = {9, 10};
+  send_prach_cplane(ctx, target_sym + num_symbols_per_frame, 1, &next, 1);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.prach_sections_unserved == 2);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, 0) == 10);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, 1) == -1);
+
+  cleanup_packet_processor(ctx);
+  printf("PRACH occasions passed!\n");
+}
+
 int main(int argc, char **argv)
 {
   setup_dpdk(argc, argv);
@@ -3089,6 +3233,8 @@ int main(int argc, char **argv)
     usleep(10000);
     test_prach_generation(offsets[i], true);
   }
+  usleep(10000);
+  test_prach_occasions();
   usleep(10000);
   test_hyper_frame_calculation();
   usleep(10000);
