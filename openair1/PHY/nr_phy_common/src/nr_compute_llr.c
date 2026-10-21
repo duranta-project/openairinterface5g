@@ -3869,7 +3869,7 @@ void nr_qam256_llr_2layer_lbest_q15(c16_t *stream0_in,
 //   - LLR stride 8 per RE instead of 6
 // ============================================================================
 #define NR_LBEST_Q_SQRT170_OVER8_Q14_SIMD  26705  // round(sqrt(170)/8 * 2^14)
-#define NR_LBEST_Q_PP1_OVER32_Q16_256       3338  // round(sqrt(170)/8/32 * 2^16)
+#define NR_LBEST_Q_PP1_OVER16_Q16_256       6676  // round(sqrt(170)/8/16 * 2^16)
 
 // int16 PAM-16 level (sign*mag, mag in {1,3,...,15}) sliced vs {2,4,6,8,10,12,14}*thunit.
 

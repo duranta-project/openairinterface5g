@@ -33,11 +33,12 @@ static inline NRLB_VI NRLB_NAME(nrlbw_level_pam)(NRLB_VI num, NRLB_VI thunit)
   return NRLB_BLENDV(mag, NRLB_MM(sub_epi16)(z, mag), neg);
 }
 
-static inline NRLB_VI NRLB_NAME(nrlbw_z170d32)(NRLB_VI z16)
+// z * sqrt(170) / 16 (conditional-slice operand; /16 rather than the 64QAM kernel's /32, see rr4)
+static inline NRLB_VI NRLB_NAME(nrlbw_z170d16)(NRLB_VI z16)
 {
   const NRLB_VI C = NRLB_MM(set1_epi32)(NR_LBEST_Q_SQRT170_Q12);
-  const NRLB_VI lo = NRLB_MM(srai_epi32)(NRLB_MM(mullo_epi32)(NRLB_NAME(nrlbw_widen)(z16, 0), C), 17);
-  const NRLB_VI hi = NRLB_MM(srai_epi32)(NRLB_MM(mullo_epi32)(NRLB_NAME(nrlbw_widen)(z16, 1), C), 17);
+  const NRLB_VI lo = NRLB_MM(srai_epi32)(NRLB_MM(mullo_epi32)(NRLB_NAME(nrlbw_widen)(z16, 0), C), 16);
+  const NRLB_VI hi = NRLB_MM(srai_epi32)(NRLB_MM(mullo_epi32)(NRLB_NAME(nrlbw_widen)(z16, 1), C), 16);
   return NRLB_NAME(nrlbw_pack32)(lo, hi);
 }
 
@@ -123,17 +124,17 @@ static inline void NRLB_NAME(nrlbw_seed256)(NRLB_VI z1r16, NRLB_VI z1i16,
   do { \
     const NRLB_VI A2I = NRLB_MM(subs_epi16)(z2r170, NRLB_MM(adds_epi16)((RRI_), (RIQ_))); \
     const NRLB_VI A2Q = NRLB_MM(subs_epi16)(z2i170, NRLB_MM(subs_epi16)((RRQ_), (RII_))); \
-    const NRLB_VI I2  = NRLB_NAME(nrlbw_level_pam)(A2I, Pp1_5_256); \
-    const NRLB_VI Q2  = NRLB_NAME(nrlbw_level_pam)(A2Q, Pp1_5_256); \
+    const NRLB_VI I2  = NRLB_NAME(nrlbw_level_pam)(A2I, Pp1_4_256); \
+    const NRLB_VI Q2  = NRLB_NAME(nrlbw_level_pam)(A2Q, Pp1_4_256); \
     const NRLB_VI corr0   = NRLB_MM(adds_epi16)((C0I_), (C0Q_)); \
     const NRLB_VI energy0 = NRLB_MM(adds_epi16)((EI_), (EQ_)); \
-    const NRLB_VI corr1   = NRLB_MM(adds_epi16)(NRLB_MM(mulhi_epi16)(z2r, NRLB_MM(mullo_epi16)(I2, C13_256)), \
-                                                        NRLB_MM(mulhi_epi16)(z2i, NRLB_MM(mullo_epi16)(Q2, C13_256))); \
-    const NRLB_VI energy1 = NRLB_MM(mulhi_epi16)(cm1, NRLB_MM(mullo_epi16)(NRLB_MM(adds_epi16)(NRLB_MM(mullo_epi16)(I2, I2), NRLB_MM(mullo_epi16)(Q2, Q2)), CE_256)); \
+    const NRLB_VI corr1   = NRLB_MM(adds_epi16)(NRLB_MM(mulhi_epi16)(z2rM, NRLB_MM(mullo_epi16)(I2, C13_256)), \
+                                                        NRLB_MM(mulhi_epi16)(z2iM, NRLB_MM(mullo_epi16)(Q2, C13_256))); \
+    const NRLB_VI energy1 = NRLB_MM(mulhi_epi16)(cm1M, NRLB_MM(mullo_epi16)(NRLB_MM(adds_epi16)(NRLB_MM(mullo_epi16)(I2, I2), NRLB_MM(mullo_epi16)(Q2, Q2)), CE_256)); \
     const NRLB_VI aa = NRLB_MM(adds_epi16)(NRLB_MM(mullo_epi16)((I1_), I2), NRLB_MM(mullo_epi16)((Q1_), Q2)); \
     const NRLB_VI bb = NRLB_MM(subs_epi16)(NRLB_MM(mullo_epi16)((Q1_), I2), NRLB_MM(mullo_epi16)((I1_), Q2)); \
-    const NRLB_VI cross = NRLB_MM(adds_epi16)(NRLB_MM(mulhi_epi16)(rr, NRLB_MM(mullo_epi16)(aa, CX_256)), \
-                                                      NRLB_MM(mulhi_epi16)(ri, NRLB_MM(mullo_epi16)(bb, CX_256))); \
+    const NRLB_VI cross = NRLB_MM(adds_epi16)(NRLB_MM(mulhi_epi16)(rrM, NRLB_MM(mullo_epi16)(aa, CX_256)), \
+                                                      NRLB_MM(mulhi_epi16)(riM, NRLB_MM(mullo_epi16)(bb, CX_256))); \
     (MET_) = NRLB_MM(max_epi16)(NRLB_MM(subs_epi16)(NRLB_MM(adds_epi16)(NRLB_MM(subs_epi16)(corr0, energy0), NRLB_MM(subs_epi16)(corr1, energy1)), cross), FLOORM); \
   } while (0)
 
@@ -162,11 +163,14 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
   const NRLB_VI V15 = NRLB_MM(set1_epi16)(15), Vm15 = NRLB_MM(set1_epi16)(-15);
   const NRLB_VI z   = NRLB_SETZERO();
 
-  // 256QAM metric Q-constants (metric scale = 1/8, matching 64QAM SIMD kernel):
-  //   C13_256 = round(2^13/sqrt(170))       => mulhi(z, I*C13) = z*I/(8*sqrt(170))
-  //   CE_256  = round(2^16/(8*8*2*sqrt(170)))  => energy = cm*|X|^2/(8*8*2*sqrt(170))
-  //   CX_256  = round(2^16/(8*170))         => cross term
-  const NRLB_VI C13_256 = NRLB_MM(set1_epi16)(628);
+  // 256QAM metric Q-constants. The metric runs at scale 1/4 of the float reference (twice the
+  // 64QAM kernel's 1/8): at 1/8 the per-term mulhi truncations (~1 unit = 8 LLR each) add up to an
+  // LLR error that floors 256QAM MCS27 BLER above MMSE at high SNR (float ML on the same inputs has
+  // no floor). Headroom: I*C13 <= 18855, |metric| <~ 20000 with cm, rho doubled below.
+  //   C13_256 = round(2^14/sqrt(170))          => mulhi(z, I*C13) = z*I/(4*sqrt(170))
+  //   CE_256  = round(2^16/(8*8*2*sqrt(170)))  => energy = (2cm)*|X|^2/(8*8*2*sqrt(170))
+  //   CX_256  = round(2^16/(8*170))            => cross = mulhi(2rho, .)
+  const NRLB_VI C13_256 = NRLB_MM(set1_epi16)(1257);
   const NRLB_VI CE_256  = NRLB_MM(set1_epi16)(39);
   const NRLB_VI CX_256  = NRLB_MM(set1_epi16)(48);
 
@@ -193,9 +197,23 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
     (void)dirImask; (void)dirQmask;
 
     // per-RE-vector precomputed quantities (int16 scale, /32 shift)
-    const NRLB_VI z2r170   = NRLB_NAME(nrlbw_z170d32)(z2r), z2i170 = NRLB_NAME(nrlbw_z170d32)(z2i);
-    const NRLB_VI rr5      = NRLB_MM(srai_epi16)(rr, 5), ri5 = NRLB_MM(srai_epi16)(ri, 5);
-    const NRLB_VI Pp1_5_256 = NRLB_MM(mulhi_epi16)(cm1, NRLB_MM(set1_epi16)(NR_LBEST_Q_PP1_OVER32_Q16_256));
+    // Conditional-slice operands at /16 with rounded rho (the 64QAM kernel uses /32, truncated):
+    // at /32, rho>>5 (~30-170) carries up to ~15 units of interference error against PAM-16
+    // decision spacings of ~100-350, mis-slicing the nuisance near boundaries (~1 dB at 256QAM).
+    const NRLB_VI z2r170   = NRLB_NAME(nrlbw_z170d16)(z2r), z2i170 = NRLB_NAME(nrlbw_z170d16)(z2i);
+    const NRLB_VI V8r      = NRLB_MM(set1_epi16)(8);
+    const NRLB_VI rr4      = NRLB_MM(srai_epi16)(NRLB_MM(adds_epi16)(rr, V8r), 4), ri4 = NRLB_MM(srai_epi16)(NRLB_MM(adds_epi16)(ri, V8r), 4);
+    const NRLB_VI Pp1_4_256 = NRLB_MM(mulhi_epi16)(cm1, NRLB_MM(set1_epi16)(NR_LBEST_Q_PP1_OVER16_Q16_256));
+    // Metric operands: cm and rho doubled (1/4 metric scale, see C13_256), and all of them
+    // pre-scaled by (exact constant / quantized constant), since the int16 constants are off by
+    // -0.03/+0.69/+0.39% (C13/CE/CX) -- up to ~7 metric units between inner and corner points.
+    // Once per vector, nothing per candidate: x' = x + mulhi(x, round(f*2^16)). The slicer operands
+    // (z2r170, rr4/ri4, Pp1_4_256) keep the original values.
+#define NR_FIX(x, f) NRLB_MM(adds_epi16)((x), NRLB_MM(mulhi_epi16)((x), NRLB_MM(set1_epi16)(f)))
+    const NRLB_VI z1rM = NR_FIX(z1r, -21), z1iM = NR_FIX(z1i, -21), z2rM = NR_FIX(z2r, -21), z2iM = NR_FIX(z2i, -21);
+    const NRLB_VI cm0M = NR_FIX(NRLB_MM(adds_epi16)(cm0, cm0), 451), cm1M = NR_FIX(NRLB_MM(adds_epi16)(cm1, cm1), 451);
+    const NRLB_VI rrM = NR_FIX(NRLB_MM(adds_epi16)(rr, rr), 257), riM = NR_FIX(NRLB_MM(adds_epi16)(ri, ri), 257);
+#undef NR_FIX
 
     NRLB_VI max0[8], max1[8];
     for (int p = 0; p < 8; p++) { max0[p] = SENT; max1[p] = SENT; }
@@ -237,12 +255,12 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
       bQv[k][2] = NRLB_CMPGT16(m2Q, V4);
       bQv[k][3] = NRLB_CMPGT16(m3Q, V2);
 
-      c0I[k] = NRLB_MM(mulhi_epi16)(z1r, NRLB_MM(mullo_epi16)(I1, C13_256));
-      c0Q[k] = NRLB_MM(mulhi_epi16)(z1i, NRLB_MM(mullo_epi16)(Q1, C13_256));
-      eI[k]  = NRLB_MM(mulhi_epi16)(cm0, NRLB_MM(mullo_epi16)(NRLB_MM(mullo_epi16)(I1, I1), CE_256));
-      eQ[k]  = NRLB_MM(mulhi_epi16)(cm0, NRLB_MM(mullo_epi16)(NRLB_MM(mullo_epi16)(Q1, Q1), CE_256));
-      rrI[k] = NRLB_MM(mullo_epi16)(rr5, I1); riI[k] = NRLB_MM(mullo_epi16)(ri5, I1);
-      rrQ[k] = NRLB_MM(mullo_epi16)(rr5, Q1); riQ[k] = NRLB_MM(mullo_epi16)(ri5, Q1);
+      c0I[k] = NRLB_MM(mulhi_epi16)(z1rM, NRLB_MM(mullo_epi16)(I1, C13_256));
+      c0Q[k] = NRLB_MM(mulhi_epi16)(z1iM, NRLB_MM(mullo_epi16)(Q1, C13_256));
+      eI[k]  = NRLB_MM(mulhi_epi16)(cm0M, NRLB_MM(mullo_epi16)(NRLB_MM(mullo_epi16)(I1, I1), CE_256));
+      eQ[k]  = NRLB_MM(mulhi_epi16)(cm0M, NRLB_MM(mullo_epi16)(NRLB_MM(mullo_epi16)(Q1, Q1), CE_256));
+      rrI[k] = NRLB_MM(mullo_epi16)(rr4, I1); riI[k] = NRLB_MM(mullo_epi16)(ri4, I1);
+      rrQ[k] = NRLB_MM(mullo_epi16)(rr4, Q1); riQ[k] = NRLB_MM(mullo_epi16)(ri4, Q1);
     }
 
     if (pattern == 0) { // 5x5: all 25 grid pairs
@@ -300,11 +318,11 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
         fbI[k][1] = NRLB_CMPGT16(aI,  V8);
         fbI[k][2] = NRLB_CMPGT16(m2I, V4);
         fbI[k][3] = NRLB_CMPGT16(m3I, V2);
-        fc0I[k] = NRLB_MM(mulhi_epi16)(z1r, NRLB_MM(mullo_epi16)(I1, C13_256));
-        fc0Q[k] = NRLB_MM(mulhi_epi16)(z1i, NRLB_MM(mullo_epi16)(I1, C13_256));
-        feI[k]  = NRLB_MM(mulhi_epi16)(cm0, NRLB_MM(mullo_epi16)(NRLB_MM(mullo_epi16)(I1, I1), CE_256));
-        frrI[k] = NRLB_MM(mullo_epi16)(rr5, I1);
-        friI[k] = NRLB_MM(mullo_epi16)(ri5, I1);
+        fc0I[k] = NRLB_MM(mulhi_epi16)(z1rM, NRLB_MM(mullo_epi16)(I1, C13_256));
+        fc0Q[k] = NRLB_MM(mulhi_epi16)(z1iM, NRLB_MM(mullo_epi16)(I1, C13_256));
+        feI[k]  = NRLB_MM(mulhi_epi16)(cm0M, NRLB_MM(mullo_epi16)(NRLB_MM(mullo_epi16)(I1, I1), CE_256));
+        frrI[k] = NRLB_MM(mullo_epi16)(rr4, I1);
+        friI[k] = NRLB_MM(mullo_epi16)(ri4, I1);
       }
       for (int iI = 0; iI < 16; iI++)
         for (int iQ = 0; iQ < 16; iQ++)
@@ -315,17 +333,16 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
                               frrI[iI], friI[iI], frrI[iQ], friI[iQ]);
     }
 
-    // TODO(int8-clip): these (correct, ML-faithful) 256QAM LLRs are hot for the 8-bit LDPC
-    // decoder input — OAI_LBEST_DBG256 measures ~35% of them |.|>=128 (clip int8), which can
-    // add a small high-SNR error floor. Second-order vs the graded-fallback fix above, and
-    // naive log2_maxh cooling made BLER worse (precision loss), so a proper LLR->int8 rescale
-    // (matched to the linear/MMSE path's scale) is needed, not just a shift. Not yet done.
+    // ~35-50% of these LLRs are |.|>=128 and clip at the int8 LDPC input; that is harmless: the
+    // float max-log ML on the same inputs, also clipped, has no BLER floor, and shifting the output
+    // down does not change BLER. The floor this kernel used to show was metric precision (fixed by
+    // the 1/4 scale, exact-ratio operands and the /16 slicer above).
     NRLB_VI res[8];
     for (int p = 0; p < 8; p++) {
       const NRLB_VI diff = NRLB_MM(subs_epi16)(max0[p], max1[p]);
-      // metric is at 1/8 scale -> LLR = diff*8; saturate via int32 widening
-      const NRLB_VI lo = NRLB_MM(slli_epi32)(NRLB_NAME(nrlbw_widen)(diff, 0), 3);
-      const NRLB_VI hi = NRLB_MM(slli_epi32)(NRLB_NAME(nrlbw_widen)(diff, 1), 3);
+      // metric is at 1/4 scale -> LLR = diff*4; saturate via int32 widening
+      const NRLB_VI lo = NRLB_MM(slli_epi32)(NRLB_NAME(nrlbw_widen)(diff, 0), 2);
+      const NRLB_VI hi = NRLB_MM(slli_epi32)(NRLB_NAME(nrlbw_widen)(diff, 1), 2);
       NRLB_VI r = NRLB_NAME(nrlbw_pack32)(lo, hi);
       // unspanned bit (one side has no candidate): use the graded per-axis seed LLR instead of
       // the hard +-LLR_SAT (which wrecks the coarse/MSB bits a local search cannot span).
