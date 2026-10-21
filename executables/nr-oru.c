@@ -920,7 +920,7 @@ void receive_prach(ORU_t *oru, int frame, int slot, int symbol, int prach_symbol
   c16_t *beamF_ptr[nb_streams];
   for (int s = 0; s < nb_streams; s++) {
     beamF_ptr[s] = beamF[s];
-    const int beam_id = oru_fh_get_prach_beam_id(oru->fronthaul, slot, s);
+    const int beam_id = oru_fh_get_prach_beam_id(oru->fronthaul, slot, s, symbol);
     if (beam_id < 0) {
       memset(beamF[s], 0, sizeof(beamF[s])); // no C-Plane for this stream: write_prach_iq() skips it
       continue;
