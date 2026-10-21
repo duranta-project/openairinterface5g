@@ -1104,6 +1104,39 @@ static void set_pucch_allocation(const NR_UE_UL_BWP_t *ul_bwp, const int r_pucch
   }
 }
 
+// The UE's resource set 1 resource (format 2): a dedicated PUCCH with more than 2 UCI bits uses it
+// instead of its format 0 one (38.213 9.2.3).
+static const NR_PUCCH_Resource_t *get_pucch_resset1_resource(const NR_PUCCH_Config_t *pucch_Config)
+{
+  if (!pucch_Config || !pucch_Config->resourceSetToAddModList || !pucch_Config->resourceToAddModList)
+    return NULL;
+  for (int i = 0; i < pucch_Config->resourceSetToAddModList->list.count; i++) {
+    const NR_PUCCH_ResourceSet_t *set = pucch_Config->resourceSetToAddModList->list.array[i];
+    if (set->pucch_ResourceSetId != 1 || set->resourceList.list.count == 0)
+      continue;
+    const NR_PUCCH_ResourceId_t id = *set->resourceList.list.array[0];
+    for (int j = 0; j < pucch_Config->resourceToAddModList->list.count; j++) {
+      const NR_PUCCH_Resource_t *res = pucch_Config->resourceToAddModList->list.array[j];
+      if (res->pucch_ResourceId == id && res->format.present == NR_PUCCH_Resource__format_PR_format2)
+        return res;
+    }
+  }
+  return NULL;
+}
+
+// Reserves the PRBs and symbols of a format 2 resource in vrb_map_UL, if they are all free.
+static bool reserve_pucch2_vrb(const NR_PUCCH_Resource_t *res, uint16_t *vrb_map_UL, const int bwp_start)
+{
+  const NR_PUCCH_format2_t *f2 = res->format.choice.format2;
+  const uint16_t mask = SL_to_bitmap(f2->startingSymbolIndex, f2->nrofSymbols);
+  for (int i = res->startingPRB; i < res->startingPRB + f2->nrofPRBs; i++)
+    if (vrb_map_UL[bwp_start + i] & mask)
+      return false;
+  for (int i = res->startingPRB; i < res->startingPRB + f2->nrofPRBs; i++)
+    vrb_map_UL[bwp_start + i] |= mask;
+  return true;
+}
+
 static bool test_pucch0_vrb_occupation(const NR_sched_pucch_t *pucch, uint16_t *vrb_map_UL, const int bwp_start)
 {
   // We assume initial cyclic shift is always 0 so different pucch resources can't overlap
@@ -1237,9 +1270,26 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
             frame_slot.s,
             curr_pucch->dai_c,
             curr_pucch->csi_bits);
-      // we can't schedule if short pucch is already full
-      if (curr_pucch->csi_bits == 0 && curr_pucch->dai_c == 2)
-        continue;
+      // A dedicated HARQ-ACK PUCCH (format 0) is full at 2 bits. Beyond that the UE sends it on its
+      // resource set 1 resource (format 2), so with one UL slot per TDD period every DL slot of the
+      // period can still be acknowledged: take it if the payload, with a possible SR bit, fits that
+      // resource's code rate. Going from 2 to 3 bits also reserves the format 2 PRBs of this UL slot,
+      // so a PUCCH with 3 or more HARQ-ACK bits and no CSI has them.
+      if (curr_pucch->csi_bits == 0 && curr_pucch->dai_c >= 2) {
+        if (curr_pucch->r_pucch >= 0)
+          continue;
+        if (!check_bits_vs_coderate_limit(pucch_Config, curr_pucch->dai_c + 2, curr_pucch->resource_indicator))
+          continue;
+        if (curr_pucch->dai_c == 2) {
+          const NR_PUCCH_Resource_t *res = get_pucch_resset1_resource(pucch_Config);
+          if (!res)
+            continue;
+          const int index = ul_buffer_index(frame_slot.f, frame_slot.s, n_slots_frame, cell->vrb_map_UL_size);
+          uint16_t *vrb_map_UL = &cell->common_channels.vrb_map_UL[curr_pucch->beam_idx][index * MAX_BWP_SIZE];
+          if (!reserve_pucch2_vrb(res, vrb_map_UL, bwp_start))
+            continue;
+        }
+      }
       // if there is CSI but simultaneous HARQ+CSI is disable we can't schedule
       if (curr_pucch->csi_bits > 0 && !curr_pucch->simultaneous_harqcsi)
         continue;
