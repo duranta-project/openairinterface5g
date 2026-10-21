@@ -316,6 +316,7 @@ int main(int argc, char *argv[])
   int params_from_file = 0;
   int threadCnt=0;
   int max_ldpc_iterations = 5;
+  int pusch_mimo_rx = NR_PUSCH_RX_LBEST;
   int num_antennas_per_thread = 1;
   uint32_t log_format = 0;
   int threequarter_fs = 0;
@@ -345,7 +346,7 @@ int main(int argc, char *argv[])
   void *d_channel_coeffs_gpu = NULL;
 #endif
 
-  while ((c = getopt(argc, argv, "--:O:a:b:c:d:ef:g:h:i:jk:l:m:n:o::p:q:r:s:t:u:v:w:y:z:A:C:F:G:H:I:M:N:PR:S:T:U:L:ZW:E:X:Y:"))
+  while ((c = getopt(argc, argv, "--:O:a:b:c:d:D:ef:g:h:i:jk:l:m:n:o::p:q:r:s:t:u:v:w:y:z:A:C:F:G:H:I:M:N:PR:S:T:U:L:ZW:E:X:Y:"))
          != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
@@ -629,6 +630,11 @@ int main(int argc, char *argv[])
       printf("NOTE: TRANSFORM PRECODING (SC-FDMA) is ENABLED in UPLINK (0 - ENABLE, 1 - DISABLE) : %d \n", transform_precoding);
       break;
 
+    case 'D':
+      pusch_mimo_rx = nr_pusch_mimo_rx_from_str(optarg);
+      AssertFatal(pusch_mimo_rx >= 0, "-D %s: must be lbest, mmse or ml\n", optarg);
+      break;
+
     case 'E':
       do_SRS = atoi(optarg);
       if (do_SRS == 0) {
@@ -677,6 +683,7 @@ int main(int argc, char *argv[])
       printf("-z Number of RX antennas used at gNB\n");
       printf("-A Number of antennas per thread for PUSCH channel estimation\n");
       printf("-C Specify the number of threads for the simulation\n");
+      printf("-D 2-layer PUSCH receiver: lbest (default), mmse, ml\n");
       printf("-E {SRS: [0] Disabled, [1] Enabled} e.g. -E 1\n");
       printf("-F Input filename (.txt format) for RX conformance testing\n");
       printf("-G Offset of samples to read from file (0 default)\n");
@@ -742,6 +749,7 @@ int main(int argc, char *argv[])
   UL_INFO.crc_ind.number_crcs = 0;
   gNB->max_ldpc_iterations = max_ldpc_iterations;
   gNB->pusch_thres = -20;
+  gNB->pusch_mimo_rx = pusch_mimo_rx;
   gNB->frame_parms.N_RB_DL = N_RB_DL;
   gNB->frame_parms.N_RB_UL = N_RB_UL;
   gNB->frame_parms.Ncp = extended_prefix_flag ? NR_EXTENDED : NR_NORMAL;

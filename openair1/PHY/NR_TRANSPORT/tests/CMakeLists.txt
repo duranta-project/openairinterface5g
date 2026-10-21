@@ -18,3 +18,6 @@ target_link_libraries(test_llr_2layer PRIVATE PHY_NR nr_phy_common GTest::gtest 
 add_dependencies(tests test_llr_2layer)
 add_test(NAME test_llr_2layer
   COMMAND ./test_llr_2layer)
+
+add_executable(bench_rx2l bench_rx2l.cpp)
+target_link_libraries(bench_rx2l PRIVATE PHY_NR nr_phy_common minimal_lib)

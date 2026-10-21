@@ -825,6 +825,11 @@ void RCconfig_NR_L1(void)
       gNB->phase_comp = *gpd(params, np, L1_PHASE_COMP)->uptr;
       gNB->dmrs_num_antennas_per_thread = *gpd(params, np, L1_NUM_ANTENNAS_PER_THREAD)->uptr;
       gNB->enable_analog_das = *gpd(params, np, L1_ANALOG_DAS)->uptr;
+      const char *mimo_rx = *gpd(params, np, L1_PUSCH_MIMO_RX)->strptr;
+      const int rx = nr_pusch_mimo_rx_from_str(mimo_rx);
+      AssertFatal(rx >= 0, "%s = \"%s\": must be lbest, mmse or ml\n", L1_PUSCH_MIMO_RX, mimo_rx);
+      gNB->pusch_mimo_rx = rx;
+      LOG_I(NR_PHY, "2-layer PUSCH receiver: %s\n", mimo_rx);
       // Midhaul configuration
       if (strcmp(*gpd(params, np, L1_TRANSPORT_N_PREFERENCE)->strptr, "local_mac") == 0) {
         // do nothing

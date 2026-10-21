@@ -1123,7 +1123,8 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                           rho_dl[llr_sym][1],
                           rho_dl[llr_sym][nl],
                           dl_valid_re[llr_sym],
-                          qamModOrder);
+                          qamModOrder,
+                          lbest_gate);
       } else if (ml3) {
         // 3-layer hybrid ML (gated, float reference). For each target layer t, project the
         // most-orthogonal nuisance + Schur-deflate, then 2-layer conditional-slice on the kept

@@ -16,6 +16,7 @@
  * OAI_ML_MAXH_OFF forces a single value across all mod orders (hotness sweep / analysis).
  */
 int nr_ml_llr_maxh_off(int mod_order);
+int nr_mmse_llr_maxh_off(int mod_order);
 
 void nr_compute_llr(c16_t *rxdataF_comp,
                     c16_t *ch_mag,
@@ -163,7 +164,8 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rho0,
                        c16_t *rho1,
                        uint32_t nb_re,
-                       uint8_t mod_order);
+                       uint8_t mod_order,
+                       int lbest);
 
 uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
                         uint32_t buffer_length,

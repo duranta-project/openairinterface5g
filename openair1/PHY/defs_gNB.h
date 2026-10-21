@@ -19,6 +19,25 @@
 #include "PHY/CODING/nrLDPC_decoder/nrLDPC_types.h"
 #include "nfapi_nr_interface_scf.h"
 #include "common/utils/threadPool/task_ans.h"
+
+/// 2-layer PUSCH detector. LBEST is 0 so an unconfigured gNB gets the default.
+typedef enum {
+  NR_PUSCH_RX_LBEST = 0, ///< reduced-search near-ML (QPSK/16QAM: exact ML, same kernel)
+  NR_PUSCH_RX_MMSE, ///< linear MMSE + scalar LLR: cheapest, ~1 dB behind L-best
+  NR_PUSCH_RX_ML, ///< exact max-log ML (64/256QAM full search): most expensive
+} nr_pusch_mimo_rx_t;
+
+/// Parses "lbest" | "mmse" | "ml"; returns -1 if unknown.
+static inline int nr_pusch_mimo_rx_from_str(const char *s)
+{
+  if (!strcmp(s, "lbest"))
+    return NR_PUSCH_RX_LBEST;
+  if (!strcmp(s, "mmse"))
+    return NR_PUSCH_RX_MMSE;
+  if (!strcmp(s, "ml"))
+    return NR_PUSCH_RX_ML;
+  return -1;
+}
 #include "openair1/PHY/defs_RU.h"
 #include "common/utils/ds/spsc_q.h"
 
@@ -410,6 +429,8 @@ typedef struct PHY_VARS_gNB_s {
 
   int pucch0_thres;
   int pusch_thres;
+  /// 2-layer PUSCH receiver (L1 "pusch_mimo_receiver", nr_ulsim -D)
+  nr_pusch_mimo_rx_t pusch_mimo_rx;
   int prach_thres;
   int srs_thres;
   uint64_t bad_pucch;
