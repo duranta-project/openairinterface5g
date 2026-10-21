@@ -305,12 +305,22 @@ typedef struct ngap_cause_s {
 typedef enum { FOREACH_CAUSE_RADIO_NETWORK(TO_ENUM) } ngap_cause_radio_network_t;
 
 /* Transport Cause (9.3.1.2 of 3GPP TS 38.413) */
-typedef enum {
-  NGAP_CAUSE_TRANSPORT_RESOURCE_UNAVAILABLE = 0,
-  NGAP_CAUSE_TRANSPORT_UNSPECIFIED = 1,
-} ngap_cause_transport_t;
+#define FOREACH_CAUSE_TRANSPORT(CAUSE_DEF)                \
+  CAUSE_DEF(NGAP_CAUSE_TRANSPORT_RESOURCE_UNAVAILABLE, 0) \
+  CAUSE_DEF(NGAP_CAUSE_TRANSPORT_UNSPECIFIED, 1)
 
-/** NGAP protocol cause values (9.3.1.2 of 3GPP TS 38.413) */
+typedef enum { FOREACH_CAUSE_TRANSPORT(TO_ENUM) } ngap_cause_transport_t;
+
+/* NAS Cause (9.3.1.2 of 3GPP TS 38.413) */
+#define FOREACH_CAUSE_NAS(CAUSE_DEF)                  \
+  CAUSE_DEF(NGAP_CAUSE_NAS_NORMAL_RELEASE, 0)         \
+  CAUSE_DEF(NGAP_CAUSE_NAS_AUTHENTICATION_FAILURE, 1) \
+  CAUSE_DEF(NGAP_CAUSE_NAS_DEREGISTER, 2)             \
+  CAUSE_DEF(NGAP_CAUSE_NAS_UNSPECIFIED, 3)
+
+typedef enum { FOREACH_CAUSE_NAS(TO_ENUM) } ngap_cause_nas_t;
+
+/* Protocol Cause (9.3.1.2 of 3GPP TS 38.413) */
 #define FOREACH_CAUSE_PROTOCOL(CAUSE_DEF)                                  \
   CAUSE_DEF(NGAP_CAUSE_PROTOCOL_TRANSFER_SYNTAX_ERROR, 0)                  \
   CAUSE_DEF(NGAP_CAUSE_PROTOCOL_ABSTRACT_SYNTAX_ERROR_REJECT, 1)           \
@@ -321,6 +331,17 @@ typedef enum {
   CAUSE_DEF(NGAP_CAUSE_PROTOCOL_UNSPECIFIED, 6)
 
 typedef enum { FOREACH_CAUSE_PROTOCOL(TO_ENUM) } ngap_cause_protocol_t;
+
+/* Misc Cause (9.3.1.2 of 3GPP TS 38.413) */
+#define FOREACH_CAUSE_MISC(CAUSE_DEF)                                      \
+  CAUSE_DEF(NGAP_CAUSE_MISC_CONTROL_PROCESSING_OVERLOAD, 0)                \
+  CAUSE_DEF(NGAP_CAUSE_MISC_NOT_ENOUGH_USER_PLANE_PROCESSING_RESOURCES, 1) \
+  CAUSE_DEF(NGAP_CAUSE_MISC_HARDWARE_FAILURE, 2)                           \
+  CAUSE_DEF(NGAP_CAUSE_MISC_OM_INTERVENTION, 3)                            \
+  CAUSE_DEF(NGAP_CAUSE_MISC_UNKNOWN_PLMN, 4)                               \
+  CAUSE_DEF(NGAP_CAUSE_MISC_UNSPECIFIED, 5)
+
+typedef enum { FOREACH_CAUSE_MISC(TO_ENUM) } ngap_cause_misc_t;
 
 typedef struct pdusession_failed_s {
   /* Unique pdusession_id for the UE. */

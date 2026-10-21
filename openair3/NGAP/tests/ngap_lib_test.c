@@ -12,6 +12,7 @@
 #include "common/utils/ds/byte_array.h" // create_byte_array
 #include "conversions.h" // TBCD_TO_MCC_MNC, OCTET_STRING_TO_INT*
 #include "ngap_common.h" // NGAP_ERROR, NGAP_DEBUG, ngap_messages_types.h
+#include "ngap_gNB_error_indication.h" // encode/decode/eq Error Indication
 #include "ngap_gNB_paging.h" // encode_ng_paging, decode_ng_paging, free_ng_paging
 #include "ngap_msg_includes.h" // NGAP_NGAP_PDU_t, NGAP_Paging_t, etc.
 #include "oai_asn1.h" // ASN_STRUCT_FREE, asn_DEF_NGAP_NGAP_PDU
@@ -102,6 +103,33 @@ static void test_ngap_paging_encode_decode(void)
   free_ng_paging(&orig);
 }
 
+/** @brief Test NGAP Error Indication encoding / APER roundtrip */
+static void test_ngap_error_indication_encode_decode(void)
+{
+  ngap_error_indication_t orig = {
+      .has_amf_ue_ngap_id = true,
+      .amf_ue_ngap_id = 0x123456789ULL,
+      .has_ran_ue_ngap_id = true,
+      .ran_ue_ngap_id = 0x42,
+      .has_cause = true,
+      .cause.type = NGAP_CAUSE_PROTOCOL,
+      .cause.value = NGAP_CAUSE_PROTOCOL_TRANSFER_SYNTAX_ERROR,
+  };
+
+  NGAP_NGAP_PDU_t *enc_pdu = encode_ng_error_indication(&orig);
+  AssertFatal(enc_pdu != NULL, "encode_ng_error_indication(): failed\n");
+
+  NGAP_NGAP_PDU_t *dec_pdu = ngap_encode_decode(enc_pdu);
+  ngap_msg_free(enc_pdu);
+
+  ngap_error_indication_t decoded = {0};
+  AssertFatal(decode_ng_error_indication(&decoded, dec_pdu), "decode_ng_error_indication(): failed\n");
+  ngap_msg_free(dec_pdu);
+
+  AssertFatal(eq_ng_error_indication(&orig, &decoded), "eq_ng_error_indication(): mismatch\n");
+  LOG_A(NGAP, "Error Indication encode/decode roundtrip OK\n");
+}
+
 // Stub for uniqCfg required by logging/config system
 configmodule_interface_t *uniqCfg = NULL;
 
@@ -112,6 +140,7 @@ int main(void)
   set_log(NGAP, OAILOG_INFO);
 
   test_ngap_paging_encode_decode();
-  LOG_A(NGAP, "All NGAP paging tests passed!\n");
+  test_ngap_error_indication_encode_decode();
+  LOG_A(NGAP, "All NGAP lib tests passed!\n");
   return 0;
 }

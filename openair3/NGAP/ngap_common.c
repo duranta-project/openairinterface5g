@@ -8,6 +8,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 #include <arpa/inet.h>
 #include "aper_encoder.h"
 #include "assertions.h"
@@ -103,6 +104,60 @@ ngap_cause_t decode_ngap_cause(const NGAP_Cause_t *in)
       break;
   }
   return out;
+}
+
+const char *ngap_cause_to_string(const ngap_cause_t *cause)
+{
+  DevAssert(cause);
+  const text_info_t *text_info = NULL;
+  size_t text_info_size = 0;
+
+  switch (cause->type) {
+    case NGAP_CAUSE_RADIO_NETWORK: {
+      static const text_info_t ngap_cause_radio_network_text_info[] = {FOREACH_CAUSE_RADIO_NETWORK(TO_TEXT)};
+      text_info = ngap_cause_radio_network_text_info;
+      text_info_size = sizeofArray(ngap_cause_radio_network_text_info);
+      break;
+    }
+
+    case NGAP_CAUSE_TRANSPORT: {
+      static const text_info_t ngap_cause_transport_text_info[] = {FOREACH_CAUSE_TRANSPORT(TO_TEXT)};
+      text_info = ngap_cause_transport_text_info;
+      text_info_size = sizeofArray(ngap_cause_transport_text_info);
+      break;
+    }
+
+    case NGAP_CAUSE_NAS: {
+      static const text_info_t ngap_cause_nas_text_info[] = {FOREACH_CAUSE_NAS(TO_TEXT)};
+      text_info = ngap_cause_nas_text_info;
+      text_info_size = sizeofArray(ngap_cause_nas_text_info);
+      break;
+    }
+
+    case NGAP_CAUSE_PROTOCOL: {
+      static const text_info_t ngap_cause_protocol_text_info[] = {FOREACH_CAUSE_PROTOCOL(TO_TEXT)};
+      text_info = ngap_cause_protocol_text_info;
+      text_info_size = sizeofArray(ngap_cause_protocol_text_info);
+      break;
+    }
+
+    case NGAP_CAUSE_MISC: {
+      static const text_info_t ngap_cause_misc_text_info[] = {FOREACH_CAUSE_MISC(TO_TEXT)};
+      text_info = ngap_cause_misc_text_info;
+      text_info_size = sizeofArray(ngap_cause_misc_text_info);
+      break;
+    }
+
+    case NGAP_CAUSE_NOTHING:
+    default:
+      return "UNKNOWN";
+  }
+
+  if (cause->value < text_info_size) {
+    return text_info[cause->value].text;
+  }
+
+  return "UNKNOWN";
 }
 
 nr_guami_t decode_ngap_guami(const NGAP_GUAMI_t *in)

@@ -1057,11 +1057,9 @@ INPUT                  = \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair3/NGAP/ngap_gNB_trace.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair3/NGAP/ngap_gNB_handlers.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair3/NGAP/ngap_gNB_context_management_procedures.c \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair3/NGAP/ngap_gNB_decoder.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair3/NGAP/ngap_gNB_itti_messaging.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair3/NGAP/ngap_gNB_itti_messaging.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair3/NGAP/ngap_gNB_nas_procedures.c \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair3/NGAP/ngap_gNB_decoder.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair3/NGAP/ngap_gNB_ue_context.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair3/NGAP/ngap_gNB_overload.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair3/NGAP/ngap_gNB_default_values.h \

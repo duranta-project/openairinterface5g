@@ -20,10 +20,12 @@
 #include "constr_TYPE.h"
 #include "conversions.h"
 #include "intertask_interface.h"
+#include "aper_decoder.h"
 #include "ngap_common.h"
-#include "ngap_gNB_decoder.h"
 #include "ngap_gNB_defs.h"
 #include "ngap_gNB_encoder.h"
+#include "ngap_gNB_error_indication.h"
+#include "ngap_gNB_itti_messaging.h"
 #include "ngap_gNB_nnsf.h"
 #include "ngap_gNB_management_procedures.h"
 #include "ngap_gNB_mobility_management.h"
@@ -358,380 +360,88 @@ static int ngap_gNB_handle_ng_setup_response(sctp_assoc_t assoc_id, uint32_t str
   return 0;
 }
 
-static int ngap_gNB_handle_error_indication(sctp_assoc_t assoc_id, uint32_t stream, NGAP_NGAP_PDU_t *pdu)
+/** @brief Encode and send Error Indication on the given SCTP association
+ * @return 0 on success, -1 on failure */
+int ngap_gNB_send_error_indication(sctp_assoc_t assoc_id, uint16_t stream, const ngap_error_indication_t *msg)
 {
-  NGAP_ErrorIndication_t    *container;
-  NGAP_ErrorIndicationIEs_t *ie;
-  ngap_gNB_amf_data_t        *amf_desc_p;
-  uint64_t                 amf_ue_ngap_id;
-    
-  DevAssert(pdu != NULL);
-  container = &pdu->choice.initiatingMessage->value.choice.ErrorIndication;
+  DevAssert(msg != NULL);
 
-  /* NG Setup Failure == Non UE-related procedure -> stream 0 */
-  if (stream != 0) {
-    NGAP_WARN("[SCTP %u] Received ng Error indication on stream != 0 (%u)\n",
-              assoc_id, stream);
-  }
-
-  if ((amf_desc_p = ngap_gNB_get_AMF(NULL, assoc_id, 0)) == NULL) {
-    NGAP_ERROR("[SCTP %u] Received ng Error indication for non existing "
-               "AMF context\n", assoc_id);
+  ngap_gNB_amf_data_t *amf = ngap_gNB_get_AMF(NULL, assoc_id, 0);
+  if (amf == NULL || amf->ngap_gNB_instance == NULL) {
+    NGAP_ERROR("[SCTP %u] Cannot send Error Indication: no AMF context\n", assoc_id);
     return -1;
   }
 
-  NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_ErrorIndicationIEs_t, ie, container,
-                             NGAP_ProtocolIE_ID_id_AMF_UE_NGAP_ID, false);
-
-  /* optional */
-  if (ie != NULL) {
-    asn_INTEGER2ulong(&(ie->value.choice.AMF_UE_NGAP_ID), &amf_ue_ngap_id);
-    NGAP_WARN("Received NG Error indication AMF UE NGAP ID 0x%lx\n", amf_ue_ngap_id);
+  NGAP_NGAP_PDU_t *pdu = encode_ng_error_indication(msg);
+  if (pdu == NULL) {
+    return -1;
   }
 
-  NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_ErrorIndicationIEs_t, ie, container,
-                             NGAP_ProtocolIE_ID_id_RAN_UE_NGAP_ID, false);
-
-  /* optional */
-  if (ie != NULL) {
-    NGAP_WARN("Received NG Error indication gNB UE NGAP ID 0x%lx\n", ie->value.choice.RAN_UE_NGAP_ID);
+  uint8_t *buffer = NULL;
+  uint32_t length = 0;
+  if (ngap_gNB_encode_pdu(pdu, &buffer, &length) < 0) {
+    NGAP_ERROR("[SCTP %u] Failed to encode Error Indication\n", assoc_id);
+    ASN_STRUCT_FREE(asn_DEF_NGAP_NGAP_PDU, pdu);
+    return -1;
   }
 
-  NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_ErrorIndicationIEs_t, ie, container,
-                             NGAP_ProtocolIE_ID_id_Cause, false);
-
-  /* optional */
-  if (ie) {
-    switch(ie->value.choice.Cause.present) {
-      case NGAP_Cause_PR_NOTHING:
-        NGAP_WARN("Received NG Error indication cause NOTHING\n");
-        break;
-
-      case NGAP_Cause_PR_radioNetwork:
-        switch (ie->value.choice.Cause.choice.radioNetwork) {
-          case NGAP_CauseRadioNetwork_unspecified:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_unspecified\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_txnrelocoverall_expiry:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_txnrelocoverall_expiry\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_successful_handover:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_successful_handover\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_release_due_to_ngran_generated_reason:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_release_due_to_ngran_generated_reason\n");
-            break;
-          
-          case NGAP_CauseRadioNetwork_release_due_to_5gc_generated_reason:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_release_due_to_5gc_generated_reason\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_handover_cancelled:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_handover_cancelled\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_partial_handover:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_partial_handover\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_ho_failure_in_target_5GC_ngran_node_or_target_system:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_ho_failure_in_target_5GC_ngran_node_or_target_system\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_ho_target_not_allowed:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_ho_target_not_allowed\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_tngrelocoverall_expiry:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_tngrelocoverall_expiry\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_tngrelocprep_expiry:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_tngrelocprep_expiry\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_cell_not_available:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_cell_not_available\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_unknown_targetID:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_unknown_targetID\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_no_radio_resources_available_in_target_cell:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_no_radio_resources_available_in_target_cell\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_unknown_local_UE_NGAP_ID:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_unknown_local_UE_NGAP_ID\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_inconsistent_remote_UE_NGAP_ID:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_inconsistent_remote_UE_NGAP_ID\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_handover_desirable_for_radio_reason:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_handover_desirable_for_radio_reason\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_time_critical_handover:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_time_critical_handover\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_resource_optimisation_handover:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_resource_optimisation_handover\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_reduce_load_in_serving_cell:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_reduce_load_in_serving_cell\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_user_inactivity:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_user_inactivity\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_radio_connection_with_ue_lost:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_radio_connection_with_ue_lost\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_radio_resources_not_available:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_radio_resources_not_available\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_invalid_qos_combination:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_invalid_qos_combination\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_failure_in_radio_interface_procedure:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_failure_in_radio_interface_procedure\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_interaction_with_other_procedure:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_interaction_with_other_procedure\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_unknown_PDU_session_ID:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_unknown_PDU_session_ID\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_unkown_qos_flow_ID:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_unkown_qos_flow_ID\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_multiple_PDU_session_ID_instances:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_multiple_PDU_session_ID_instances\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_multiple_qos_flow_ID_instances:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_multiple_qos_flow_ID_instances\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_encryption_and_or_integrity_protection_algorithms_not_supported:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_encryption_and_or_integrity_protection_algorithms_not_supported\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_ng_intra_system_handover_triggered:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_ng_intra_system_handover_triggered\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_ng_inter_system_handover_triggered:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_ng_inter_system_handover_triggered\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_xn_handover_triggered:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_xn_handover_triggered\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_not_supported_5QI_value:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_not_supported_5QI_value\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_ue_context_transfer:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_ue_context_transfer\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_ims_voice_eps_fallback_or_rat_fallback_triggered:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_ims_voice_eps_fallback_or_rat_fallback_triggered\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_up_integrity_protection_not_possible:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_up_integrity_protection_not_possible\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_up_confidentiality_protection_not_possible:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_up_confidentiality_protection_not_possible\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_slice_not_supported:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_slice_not_supported\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_ue_in_rrc_inactive_state_not_reachable:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_ue_in_rrc_inactive_state_not_reachable\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_redirection:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_redirection\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_resources_not_available_for_the_slice:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_resources_not_available_for_the_slice\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_ue_max_integrity_protected_data_rate_reason:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_ue_max_integrity_protected_data_rate_reason\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_release_due_to_cn_detected_mobility:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_release_due_to_cn_detected_mobility\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_n26_interface_not_available:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_n26_interface_not_available\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_release_due_to_pre_emption:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_release_due_to_pre_emption\n");
-            break;
-
-          case NGAP_CauseRadioNetwork_multiple_location_reporting_reference_ID_instances:
-            NGAP_WARN("Received NG Error indication NGAP_CauseRadioNetwork_multiple_location_reporting_reference_ID_instances\n");
-            break;
-
-          default:
-            NGAP_WARN("Received NG Error indication cause radio network case not handled\n");
-        }
-
-        break;
-
-      case NGAP_Cause_PR_transport:
-        switch (ie->value.choice.Cause.choice.transport) {
-          case NGAP_CauseTransport_transport_resource_unavailable:
-            NGAP_WARN("Received NG Error indication NGAP_CauseTransport_transport_resource_unavailable\n");
-            break;
-
-          case NGAP_CauseTransport_unspecified:
-            NGAP_WARN("Received NG Error indication NGAP_CauseTransport_unspecified\n");
-            break;
-
-          default:
-            NGAP_WARN("Received NG Error indication cause transport case not handled\n");
-        }
-
-        break;
-
-      case NGAP_Cause_PR_nas:
-        switch (ie->value.choice.Cause.choice.nas) {
-          case NGAP_CauseNas_normal_release:
-            NGAP_WARN("Received NG Error indication NGAP_CauseNas_normal_release\n");
-            break;
-
-          case NGAP_CauseNas_authentication_failure:
-            NGAP_WARN("Received NG Error indication NGAP_CauseNas_authentication_failure\n");
-            break;
-
-          case NGAP_CauseNas_deregister:
-            NGAP_WARN("Received NG Error indication NGAP_CauseNas_deregister\n");
-            break;
-
-          case NGAP_CauseNas_unspecified:
-            NGAP_WARN("Received NG Error indication NGAP_CauseNas_unspecified\n");
-            break;
-
-          default:
-            NGAP_WARN("Received NG Error indication cause nas case not handled\n");
-        }
-
-        break;
-
-      case NGAP_Cause_PR_protocol:
-        switch (ie->value.choice.Cause.choice.protocol) {
-          case NGAP_CauseProtocol_transfer_syntax_error:
-            NGAP_WARN("Received NG Error indication NGAP_CauseProtocol_transfer_syntax_error\n");
-            break;
-
-          case NGAP_CauseProtocol_abstract_syntax_error_reject:
-            NGAP_WARN("Received NG Error indication NGAP_CauseProtocol_abstract_syntax_error_reject\n");
-            break;
-
-          case NGAP_CauseProtocol_abstract_syntax_error_ignore_and_notify:
-            NGAP_WARN("Received NG Error indication NGAP_CauseProtocol_abstract_syntax_error_ignore_and_notify\n");
-            break;
-
-          case NGAP_CauseProtocol_message_not_compatible_with_receiver_state:
-            NGAP_WARN("Received NG Error indication NGAP_CauseProtocol_message_not_compatible_with_receiver_state\n");
-            break;
-
-          case NGAP_CauseProtocol_semantic_error:
-            NGAP_WARN("Received NG Error indication NGAP_CauseProtocol_semantic_error\n");
-            break;
-
-          case NGAP_CauseProtocol_abstract_syntax_error_falsely_constructed_message:
-            NGAP_WARN("Received NG Error indication NGAP_CauseProtocol_abstract_syntax_error_falsely_constructed_message\n");
-            break;
-
-          case NGAP_CauseProtocol_unspecified:
-            NGAP_WARN("Received NG Error indication NGAP_CauseProtocol_unspecified\n");
-            break;
-
-          default:
-            NGAP_WARN("Received NG Error indication cause protocol case not handled\n");
-        }
-
-        break;
-
-      case NGAP_Cause_PR_misc:
-        switch (ie->value.choice.Cause.choice.protocol) {
-          case NGAP_CauseMisc_control_processing_overload:
-            NGAP_WARN("Received NG Error indication NGAP_CauseMisc_control_processing_overload\n");
-            break;
-
-          case NGAP_CauseMisc_not_enough_user_plane_processing_resources:
-            NGAP_WARN("Received NG Error indication NGAP_CauseMisc_not_enough_user_plane_processing_resources\n");
-            break;
-
-          case NGAP_CauseMisc_hardware_failure:
-            NGAP_WARN("Received NG Error indication NGAP_CauseMisc_hardware_failure\n");
-            break;
-
-          case NGAP_CauseMisc_om_intervention:
-            NGAP_WARN("Received NG Error indication NGAP_CauseMisc_om_intervention\n");
-            break;
-
-          case NGAP_CauseMisc_unspecified:
-            NGAP_WARN("Received NG Error indication NGAP_CauseMisc_unspecified\n");
-            break;
-
-          case NGAP_CauseMisc_unknown_PLMN:
-            NGAP_WARN("Received NG Error indication NGAP_CauseMisc_unknown_PLMN\n");
-            break;
-
-          default:
-            NGAP_WARN("Received NG Error indication cause misc case not handled\n");
-        }
-
-        break;
-        
-      default:
-       NGAP_WARN("Received NG Error indication cause NGAP_Cause_PR_choice_Extensions\n");
-       break;
-      
+  ngap_gNB_itti_send_sctp_data_req(amf->ngap_gNB_instance->instance, assoc_id, buffer, length, stream);
+  ASN_STRUCT_FREE(asn_DEF_NGAP_NGAP_PDU, pdu);
+  return 0;
+}
+
+/** @brief Handler for NGAP Error Indication message, initiated by a node
+ *  to report detected errors in one incoming message, provided they cannot be reported by
+ *  an appropriate failure message. */
+static int ngap_gNB_handle_error_indication(sctp_assoc_t assoc_id, uint32_t stream, NGAP_NGAP_PDU_t *pdu)
+{
+  DevAssert(pdu != NULL);
+
+  ngap_gNB_amf_data_t *amf_desc_p = ngap_gNB_get_AMF(NULL, assoc_id, 0);
+  if (amf_desc_p == NULL) {
+    NGAP_ERROR("[SCTP %u] Received ng Error indication for non existing AMF context\n", assoc_id);
+    return -1;
+  }
+
+  ngap_error_indication_t msg = {0};
+  if (!decode_ng_error_indication(&msg, pdu)) {
+    NGAP_ERROR("[SCTP %u] Failed to decode NGAP Error Indication\n", assoc_id);
+    return -1;
+  }
+
+  /* Optional UE IDs: UE-associated signalling uses stream != 0 (TS 38.412) */
+  if (msg.has_ran_ue_ngap_id) {
+    if (stream == 0) {
+      NGAP_WARN("[SCTP %u] UE-associated Error Indication on stream 0\n", assoc_id);
     }
+    NGAP_DEBUG("[SCTP %u] Received NG Error indication RAN UE NGAP ID 0x%x\n", assoc_id, msg.ran_ue_ngap_id);
+    ngap_gNB_ue_context_t *ue_desc_p = ngap_get_ue_context(msg.ran_ue_ngap_id);
+    if (ue_desc_p == NULL) {
+      NGAP_WARN("[SCTP %u] Error indication: UE context not found for RAN UE NGAP ID 0x%x\n", assoc_id, msg.ran_ue_ngap_id);
+    } else if (ue_desc_p->rx_stream != 0 && stream != ue_desc_p->rx_stream) {
+      NGAP_WARN("[SCTP %u] Error Indication on stream %u, expecting %d\n", assoc_id, stream, ue_desc_p->rx_stream);
+    }
+    if (msg.has_amf_ue_ngap_id) {
+      NGAP_DEBUG("[SCTP %u] Received NG Error indication AMF UE NGAP ID 0x%lx\n", assoc_id, msg.amf_ue_ngap_id);
+      if (ue_desc_p && ue_desc_p->amf_ue_ngap_id != msg.amf_ue_ngap_id) {
+        NGAP_WARN("[SCTP %u] Error indication: UE context AMF UE NGAP ID mismatch (ctx: 0x%lx, msg: 0x%lx)\n",
+                  assoc_id,
+                  ue_desc_p->amf_ue_ngap_id,
+                  msg.amf_ue_ngap_id);
+      }
+    }
+  } else if (stream != 0) {
+    /* Non-UE-associated signalling: stream 0 (TS 38.412) */
+    NGAP_WARN("[SCTP %u] Non-UE-associated Error Indication on stream != 0 (%u)\n", assoc_id, stream);
   }
 
-
-  NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_ErrorIndicationIEs_t, ie, container,
-                             NGAP_ProtocolIE_ID_id_CriticalityDiagnostics, false);
-
-  if (ie) {
-    // TODO continue
+  if (msg.has_cause) {
+    NGAP_INFO("[SCTP %u] Received NG Error indication Cause: %s\n", assoc_id, ngap_cause_to_string(&msg.cause));
+  }
+  if (msg.has_criticality_diagnostics) {
+    NGAP_DEBUG("[SCTP %u] Received NG Error indication with Criticality Diagnostics\n", assoc_id);
   }
 
-
-  // TODO continue
   return 0;
 }
 
@@ -1230,6 +940,13 @@ static int ngap_gNB_handle_paging(sctp_assoc_t assoc_id, uint32_t stream, NGAP_N
    /* Decode NGAP Paging message */
    if (!decode_ng_paging(msg, pdu)) {
      NGAP_ERROR("[SCTP %u] Failed to decode NGAP Paging message\n", assoc_id);
+     /* Paging has no failure message, report via Error Indication (TS 38.413 8.7.5) */
+     ngap_error_indication_t ei = {
+         .has_cause = true,
+         .cause.type = NGAP_CAUSE_PROTOCOL,
+         .cause.value = NGAP_CAUSE_PROTOCOL_SEMANTIC_ERROR,
+     };
+     ngap_gNB_send_error_indication(assoc_id, 0, &ei);
      free_ng_paging(msg);
      itti_free(TASK_NGAP, message_p);
      return -1;
@@ -1662,6 +1379,75 @@ const ngap_message_decoded_callback ngap_messages_callback[][3] = {
 
 };
 
+/** @brief Return elementary-procedure criticality for a procedure code
+ * Maps ASN.1 CRITICALITY ignore procedures to NGAP_Criticality_ignore
+ * Maps all other procedure codes to NGAP_Criticality_reject
+ * @return criticality */
+static NGAP_Criticality_t ngap_procedure_criticality(long procedureCode)
+{
+  switch (procedureCode) {
+    case NGAP_ProcedureCode_id_AMFStatusIndication:
+    case NGAP_ProcedureCode_id_CellTrafficTrace:
+    case NGAP_ProcedureCode_id_DeactivateTrace:
+    case NGAP_ProcedureCode_id_DownlinkNASTransport:
+    case NGAP_ProcedureCode_id_DownlinkNonUEAssociatedNRPPaTransport:
+    case NGAP_ProcedureCode_id_DownlinkRANConfigurationTransfer:
+    case NGAP_ProcedureCode_id_DownlinkRANStatusTransfer:
+    case NGAP_ProcedureCode_id_DownlinkUEAssociatedNRPPaTransport:
+    case NGAP_ProcedureCode_id_ErrorIndication:
+    case NGAP_ProcedureCode_id_HandoverNotification:
+    case NGAP_ProcedureCode_id_InitialUEMessage:
+    case NGAP_ProcedureCode_id_LocationReportingControl:
+    case NGAP_ProcedureCode_id_LocationReportingFailureIndication:
+    case NGAP_ProcedureCode_id_LocationReport:
+    case NGAP_ProcedureCode_id_NASNonDeliveryIndication:
+    case NGAP_ProcedureCode_id_OverloadStart:
+    case NGAP_ProcedureCode_id_Paging:
+    case NGAP_ProcedureCode_id_PDUSessionResourceNotify:
+    case NGAP_ProcedureCode_id_PrivateMessage:
+    case NGAP_ProcedureCode_id_PWSFailureIndication:
+    case NGAP_ProcedureCode_id_PWSRestartIndication:
+    case NGAP_ProcedureCode_id_RRCInactiveTransitionReport:
+    case NGAP_ProcedureCode_id_TraceFailureIndication:
+    case NGAP_ProcedureCode_id_TraceStart:
+    case NGAP_ProcedureCode_id_UEContextReleaseRequest:
+    case NGAP_ProcedureCode_id_UERadioCapabilityInfoIndication:
+    case NGAP_ProcedureCode_id_UETNLABindingRelease:
+    case NGAP_ProcedureCode_id_UplinkNASTransport:
+    case NGAP_ProcedureCode_id_UplinkNonUEAssociatedNRPPaTransport:
+    case NGAP_ProcedureCode_id_UplinkRANConfigurationTransfer:
+    case NGAP_ProcedureCode_id_UplinkRANStatusTransfer:
+    case NGAP_ProcedureCode_id_UplinkUEAssociatedNRPPaTransport:
+    case NGAP_ProcedureCode_id_SecondaryRATDataUsageReport:
+      return NGAP_Criticality_ignore;
+    default:
+      return NGAP_Criticality_reject;
+  }
+}
+
+/** @brief APER-decode NGAP PDU */
+static int ngap_gNB_decode_pdu(NGAP_NGAP_PDU_t *pdu, const uint8_t *const buffer, const uint32_t length)
+{
+  DevAssert(pdu != NULL);
+  DevAssert(buffer != NULL);
+
+  asn_codec_ctx_t st = {.max_stack_size = 100 * 1000};
+  asn_dec_rval_t dec_ret = aper_decode(&st, &asn_DEF_NGAP_NGAP_PDU, (void **)&pdu, buffer, length, 0, 0);
+
+  if (dec_ret.code != RC_OK) {
+    NGAP_ERROR("Failed to decode pdu\n");
+    return -1;
+  }
+
+  if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
+    LOG_E(NGAP, "----------------- ASN1 DECODER PRINT START----------------- \n");
+    xer_fprint(stdout, &asn_DEF_NGAP_NGAP_PDU, pdu);
+    LOG_E(NGAP, "----------------- ASN1 DECODER PRINT END ----------------- \n");
+  }
+
+  return 0;
+}
+
 int ngap_gNB_handle_message(sctp_assoc_t assoc_id, int32_t stream, const uint8_t *const data, const uint32_t data_length)
 {
   NGAP_NGAP_PDU_t pdu;
@@ -1671,27 +1457,68 @@ int ngap_gNB_handle_message(sctp_assoc_t assoc_id, int32_t stream, const uint8_t
 
   if (ngap_gNB_decode_pdu(&pdu, data, data_length) < 0) {
     NGAP_ERROR("Failed to decode PDU\n");
-    return -1;
-  }
-
-  /* Checking procedure Code and direction of message */
-  if (pdu.choice.initiatingMessage->procedureCode >= (long)(sizeof(ngap_messages_callback) / (3 * sizeof(ngap_message_decoded_callback))) || (pdu.present > NGAP_NGAP_PDU_PR_unsuccessfulOutcome)) {
-    NGAP_ERROR("[SCTP %u] Either procedureCode %ld or direction %d exceed expected\n", assoc_id, pdu.choice.initiatingMessage->procedureCode, pdu.present);
+    /* TS 38.413 clause 10.2: EI for transfer syntax error */
+    ngap_error_indication_t ei = {
+        .has_cause = true,
+        .cause.type = NGAP_CAUSE_PROTOCOL,
+        .cause.value = NGAP_CAUSE_PROTOCOL_TRANSFER_SYNTAX_ERROR,
+    };
+    ngap_gNB_send_error_indication(assoc_id, 0, &ei);
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_NGAP_PDU, &pdu);
     return -1;
   }
 
-  /* No handler present.
-   * This can mean not implemented or no procedure for gNB (wrong direction).
-   */
-  if (ngap_messages_callback[pdu.choice.initiatingMessage->procedureCode][pdu.present - 1] == NULL) {
-    NGAP_ERROR("[SCTP %u] No handler for procedureCode %ld in %s\n", assoc_id, pdu.choice.initiatingMessage->procedureCode, ngap_direction2String(pdu.present - 1));
+  long procedureCode = -1;
+  switch (pdu.present) {
+    case NGAP_NGAP_PDU_PR_initiatingMessage:
+      procedureCode = pdu.choice.initiatingMessage->procedureCode;
+      break;
+    case NGAP_NGAP_PDU_PR_successfulOutcome:
+      procedureCode = pdu.choice.successfulOutcome->procedureCode;
+      break;
+    case NGAP_NGAP_PDU_PR_unsuccessfulOutcome:
+      procedureCode = pdu.choice.unsuccessfulOutcome->procedureCode;
+      break;
+    default:
+      break;
+  }
+
+  /* TS 38.413: Not comprehended Procedure Code (10.3.4.1), Type of Message (10.3.4.1A) */
+  if (pdu.present < NGAP_NGAP_PDU_PR_initiatingMessage || pdu.present > NGAP_NGAP_PDU_PR_unsuccessfulOutcome
+    || procedureCode >= (long)(sizeof(ngap_messages_callback) / (3 * sizeof(ngap_message_decoded_callback)))) {
+    NGAP_ERROR("[SCTP %u] Either procedureCode %ld or direction %d exceed expected\n", assoc_id, procedureCode, pdu.present);
+    ngap_error_indication_t ei = {
+        .has_cause = true,
+        .cause.type = NGAP_CAUSE_PROTOCOL,
+        .cause.value = NGAP_CAUSE_PROTOCOL_ABSTRACT_SYNTAX_ERROR_REJECT,
+    };
+    ngap_gNB_send_error_indication(assoc_id, 0, &ei);
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_NGAP_PDU, &pdu);
+    return -1;
+  }
+
+  /* No handler: treat as unsupported Elementary Procedure (10.3.2) and act on criticality (10.3.4.1) */
+  if (ngap_messages_callback[procedureCode][pdu.present - 1] == NULL) {
+    NGAP_ERROR("[SCTP %u] No handler for procedureCode %ld in %s\n",
+               assoc_id,
+               procedureCode,
+               ngap_direction2String(pdu.present - 1));
+    NGAP_Criticality_t c = ngap_procedure_criticality(procedureCode);
+    if (c != NGAP_Criticality_ignore) {
+      ngap_error_indication_t ei = {
+          .has_cause = true,
+          .cause.type = NGAP_CAUSE_PROTOCOL,
+          .cause.value = (c == NGAP_Criticality_notify) ? NGAP_CAUSE_PROTOCOL_ABSTRACT_SYNTAX_ERROR_IGNORE
+                                                        : NGAP_CAUSE_PROTOCOL_ABSTRACT_SYNTAX_ERROR_REJECT,
+      };
+      ngap_gNB_send_error_indication(assoc_id, 0, &ei);
+    }
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_NGAP_PDU, &pdu);
     return -1;
   }
 
   /* Calling the right handler */
-  ret = (*ngap_messages_callback[pdu.choice.initiatingMessage->procedureCode][pdu.present - 1])(assoc_id, stream, &pdu);
+  ret = (*ngap_messages_callback[procedureCode][pdu.present - 1])(assoc_id, stream, &pdu);
   ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_NGAP_PDU, &pdu);
   return ret;
 }

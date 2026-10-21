@@ -31,6 +31,7 @@ void bitstring_to_tnl(transport_layer_addr_t *out, const BIT_STRING_t in);
 void encode_ngap_cause(NGAP_Cause_t *out, const ngap_cause_t *in);
 nr_guami_t decode_ngap_guami(const NGAP_GUAMI_t *in);
 ngap_cause_t decode_ngap_cause(const NGAP_Cause_t *in);
+const char *ngap_cause_to_string(const ngap_cause_t *cause);
 ngap_ambr_t decode_ngap_UEAggregateMaximumBitRate(const NGAP_UEAggregateMaximumBitRate_t *in);
 nssai_t decode_ngap_nssai(const NGAP_S_NSSAI_t *in);
 ngap_security_capabilities_t decode_ngap_security_capabilities(const NGAP_UESecurityCapabilities_t *in);
