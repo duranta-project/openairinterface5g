@@ -1139,6 +1139,10 @@ static void process_reestablishment(gNB_MAC_INST *mac, uint32_t new_dl_rrc_id, u
   // assigning the old RNTI to the new UE so that mac_remove_nr_ue prints correct RNTI when removing
   UE->rnti = oldUE->rnti;
   oldUE->rnti = new_rnti;
+  // Msg4 is sent on the beam and cell of this RA; UE is freed below, so read them now
+  oldUE->UE_beam_index = UE->UE_beam_index;
+  nr_cell_sched_t *new_pcell = UE->pcell;
+  const bool cell_changed = new_pcell != oldUE->pcell;
   for (int i = 1; i < seq_arr_size(&oldUE->UE_sched_ctrl.lc_config); ++i) {
     const nr_lc_config_t *c = seq_arr_at(&oldUE->UE_sched_ctrl.lc_config, i);
     nr_lc_config_t new = *c;
@@ -1174,6 +1178,7 @@ static void process_reestablishment(gNB_MAC_INST *mac, uint32_t new_dl_rrc_id, u
     ASN_STRUCT_FREE(asn_DEF_NR_SpCellConfig, oldUE->CellGroup->spCellConfig);
     oldUE->CellGroup->spCellConfig = NULL;
     reset_sc_info(&oldUE->sc_info);
+    // still the old PCell: also releases its periodic SRS slot
     configure_UE_BWP(oldUE->pcell,
                      oldUE->pcell->common_channels.ServingCellConfigCommon,
                      oldUE,
@@ -1181,6 +1186,30 @@ static void process_reestablishment(gNB_MAC_INST *mac, uint32_t new_dl_rrc_id, u
                      NR_SearchSpace__searchSpaceType_PR_common,
                      -1,
                      -1);
+    if (cell_changed) {
+      LOG_I(NR_MAC, "UE %04x: re-establishment on a different cell of this DU, moving PCell\n", oldUE->rnti);
+      oldUE->pcell = new_pcell;
+      NR_ServingCellConfigCommon_t *scc = new_pcell->common_channels.ServingCellConfigCommon;
+      if (oldUE->capability)
+        oldUE->uecap_fs_ids = feature_set_ids_handler(oldUE->capability, scc->downlinkConfigCommon->frequencyInfoDL, NR_SA);
+      oldUE->local_bwp_id = oldUE->is_redcap ? 0 : new_pcell->radio_config.first_active_bwp;
+      // saved SpCellConfig and MAC config are for the old PCell: replace them with ones for the new PCell
+      NR_CellGroupConfig_t *cg = oldUE->reconfigCellGroup;
+      int ssb_index = get_ssbidx_from_beam(new_pcell, oldUE->UE_beam_index);
+      NR_CellGroupConfig_t *initial =
+          get_initial_cellGroupConfig(oldUE->uid, oldUE->is_redcap, scc, new_pcell, &mac->rlc_config, ssb_index);
+      DevAssert(initial != NULL);
+      ASN_STRUCT_FREE(asn_DEF_NR_SpCellConfig, cg->spCellConfig);
+      cg->spCellConfig = initial->spCellConfig;
+      initial->spCellConfig = NULL;
+      ASN_STRUCT_FREE(asn_DEF_NR_MAC_CellGroupConfig, cg->mac_CellGroupConfig);
+      cg->mac_CellGroupConfig = initial->mac_CellGroupConfig;
+      initial->mac_CellGroupConfig = NULL;
+      ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, initial);
+      if (oldUE->capability)
+        update_cellGroupConfig(cg, oldUE->uid, oldUE->capability, &oldUE->uecap_fs_ids, new_pcell, scc);
+      configure_UE_BWP(new_pcell, scc, oldUE, true, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
+    }
   } else {
     LOG_W(NR_MAC,
           "UE %04x: reestablishment while other reestablishment still pending keeping saved reconfigCellGroup with spCellConfig\n",
