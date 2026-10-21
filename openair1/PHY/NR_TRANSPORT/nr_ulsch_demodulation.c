@@ -359,7 +359,9 @@ static void inner_rx(PHY_VARS_gNB *gNB,
   static int gnb_lbest = -1;
   if (gnb_lbest < 0) { const char *e = getenv("OAI_LBEST"); gnb_lbest = e ? atoi(e) : 0; }
   if (nb_layer == 2) {
-    if (rel15_ul->qam_mod_order <= 6 || (rel15_ul->qam_mod_order == 8 && gnb_lbest)) {
+    static int ul_mmse = -1; // EXPERIMENT (not for commit): OAI_UL_MMSE=1 -> 2-layer MMSE for all mod orders
+    if (ul_mmse < 0) { const char *e = getenv("OAI_UL_MMSE"); ul_mmse = e ? atoi(e) : 0; }
+    if (!ul_mmse && (rel15_ul->qam_mod_order <= 6 || (rel15_ul->qam_mod_order == 8 && gnb_lbest))) {
       nr_compute_ML_llr((c16_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
                         (c16_t *)&pusch_vars->rxdataF_comp[1][symbol * buffer_length],
                         rxF_ch_maga[0],
@@ -888,6 +890,10 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     // matching the prior fixed -2, but it now tracks the antenna count. MMSE (!ml256) keeps -3.
     joint_pv->log2_maxh = (log2_approx(avgs) >> 1)
         + (ml256 ? nr_ml_llr_maxh_off(rel15_ul_ref->qam_mod_order) + log2_approx(num_sp_streams >> 1) : -3);
+  } else if (total_layers == 2 && getenv("OAI_UL_MMSE") && atoi(getenv("OAI_UL_MMSE"))) {
+    // EXPERIMENT (not for commit): MMSE scaling offset, default -3 as for 256QAM MMSE
+    const char *e = getenv("OAI_MMSE_MAXH_OFF");
+    joint_pv->log2_maxh = (log2_approx(avgs) >> 1) + (e ? atoi(e) : -3);
   } else if (total_layers == 2)
     // 2-layer QPSK/16QAM/64QAM near-ML: mod-order-dependent LLR-hotness offset (a uniform -2 tuned
     // for 256QAM over-heats the lower orders and loses the ML gain). Same table as the UE.

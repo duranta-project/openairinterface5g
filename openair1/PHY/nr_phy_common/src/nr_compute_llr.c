@@ -31,7 +31,7 @@ int nr_ml_llr_maxh_off(int mod_order)
   switch (mod_order) {
     case 2:  return 0;  // QPSK
     case 4:  return 1;  // 16QAM
-    case 6:  return -1; // 64QAM
+    case 6:  return -2; // 64QAM: hot for int16 metric precision; nr_compute_ML_llr cools the output by 1 bit
     case 8:  return -3; // 256QAM (with the antenna-gain term => effective -2, the prior gNB value)
     default: return -2;
   }
@@ -2659,6 +2659,16 @@ void nr_qam256_llr_2layer(c16_t *stream0_in,
 }
 
 
+// Arithmetic right shift of n int16 LLRs in place (unaligned-safe, covers the remainder).
+static void nr_llr_srai(int16_t *llr, uint32_t n, int shift)
+{
+  uint32_t i = 0;
+  for (; i + 8 <= n; i += 8)
+    simde_mm_storeu_si128((simde__m128i *)&llr[i], simde_mm_srai_epi16(simde_mm_loadu_si128((simde__m128i *)&llr[i]), shift));
+  for (; i < n; i++)
+    llr[i] >>= shift;
+}
+
 static void nr_ml_llr_shift(int16_t *llr_layer0, int16_t *llr_layer1, uint32_t nb_re, int shift)
 {
   simde__m128i *llr_layers0 = (simde__m128i *)llr_layer0;
@@ -4009,6 +4019,11 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
           }
         }
       }
+      // 64QAM: the metric runs one bit hotter (nr_ml_llr_maxh_off(6) = -2) to keep int16 precision
+      // in the search (cooler input costs ~1 dB ML / ~2 dB L-best at MCS 27); cool the LLRs back by
+      // one bit for the LDPC int8 input (the hot output clips and loses ~0.5 dB at low SNR, MCS 20).
+      nr_llr_srai((int16_t *)llr_layers0, nb_re * 6, 1);
+      nr_llr_srai((int16_t *)llr_layers1, nb_re * 6, 1);
       break;
     case 8:
       // 2-layer 256QAM. Default = reduced-search L-best with the 3x3/9-candidate pattern, which
