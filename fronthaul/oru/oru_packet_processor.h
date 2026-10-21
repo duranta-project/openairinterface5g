@@ -75,6 +75,7 @@ typedef struct {
   uint64_t cplane_err_dup_dl;
   uint64_t cplane_err_dup_ul;
   uint64_t cplane_err_dup_prach;
+  uint64_t cplane_section_repeated; // sectionId cited again within one message, ignored after its first citation
   uint64_t ul_cplane_err_invalid_num_symbols;
   uint64_t cplane_ext1_received;
   uint64_t cplane_ext11_received;

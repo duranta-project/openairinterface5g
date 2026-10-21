@@ -47,6 +47,7 @@
 #define MAX_SLOTS_PER_FRAME 160
 #define XRAN_IQ_BITS_UNCOMPRESSED 16 /* xRAN table 7.7.1.1-1: udIqWidth=0 means 16-bit samples */
 #define NUM_SECTION_IDS 4096 // 12-bit sectionId
+#define SECTION_ID_UNCOUPLED 4095 // O-RAN CUS 7.5.3.1: sent when C-Plane and U-Plane aren't coupled via sectionId
 
 // One (eaxc, beam_id) pair's bookkeeping for a DL symbol: completion tracking and declared
 // section_ids, no IQ. Payload fragments live in dl_symbol_job_t.fragments[] instead.
@@ -967,6 +968,9 @@ static void handle_section1_message(oru_packet_processor_context_t *ctx,
 
   // Section errors are counted once for the message too
   unsigned errors = 0;
+  // O-RAN CUS 7.5.3.1: a sectionId may be cited more than once in a message, with complementary reMasks and
+  // different beams. Per-RE beams aren't supported, so only the first citation is used.
+  uint8_t cited[NUM_SECTION_IDS / 8] = {0};
   // Each section is followed by its own extension chain, so the next section starts where that chain ends
   for (int i = 0; i < hdr->cmnhdr.numOfSections; i++) {
     if ((size_t)(end - sect) < sizeof(struct xran_cp_radioapp_section1)) {
@@ -978,10 +982,16 @@ static void handle_section1_message(oru_packet_processor_context_t *ctx,
     // Validates ext1/ext11 formatting; weights are extracted in a later stage
     int num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
     const uint8_t *next = parse_section_extensions(ctx, sect + sizeof(*section), end, section->hdr.u.s1.ef, num_prb);
-    if (is_dl)
-      errors |= handle_dl_cplane_section(ctx, section, ant_id, diff);
-    else
-      errors |= handle_ul_cplane_section(ctx, hdr, section, ant_id, target_absolute_symbol, snap);
+    const uint16_t section_id = section->hdr.u1.common.sectionId;
+    if (section_id != SECTION_ID_UNCOUPLED && test_bit(cited, section_id)) {
+      ctx->stats.cplane_section_repeated++;
+    } else {
+      set_bit(cited, section_id);
+      if (is_dl)
+        errors |= handle_dl_cplane_section(ctx, section, ant_id, diff);
+      else
+        errors |= handle_ul_cplane_section(ctx, hdr, section, ant_id, target_absolute_symbol, snap);
+    }
     // A malformed chain hides where the next section starts
     if (next == NULL)
       break;
@@ -1113,6 +1123,8 @@ void print_packet_processor_stats(void *context)
           ctx->stats.cplane_err_dup_dl,
           ctx->stats.cplane_err_dup_ul,
           ctx->stats.cplane_err_dup_prach);
+  if (ctx->stats.cplane_section_repeated > 0)
+    LOG_I(HW, "  C-Plane Repeated sectionIds (first citation used): %lu\n", ctx->stats.cplane_section_repeated);
   if (ctx->stats.uplane_err_early > 0)
     LOG_I(HW, "  U-Plane Timing Early Errors: %lu\n", ctx->stats.uplane_err_early);
   if (ctx->stats.uplane_err_late > 0)
