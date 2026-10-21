@@ -54,6 +54,13 @@
 #define PBCH_MAX_RE_PER_SYMBOL (20 * 12)
 
 #define NR_PUCCH_DMRS_RB 4
+#define MAX_PUCCH0_NID 8
+
+typedef struct {
+  int nb_id;
+  int Nid[MAX_PUCCH0_NID];
+  int lut[MAX_PUCCH0_NID][160][14];
+} NR_PUCCH0_LUT_t;
 
 typedef enum {
   NR_NORMAL = 0,

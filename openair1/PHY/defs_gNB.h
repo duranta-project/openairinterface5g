@@ -23,7 +23,6 @@
 #include "common/utils/ds/spsc_q.h"
 
 #define MAX_NUM_RU_PER_gNB 8
-#define MAX_PUCCH0_NID 8
 #define NR_SRS_IDFT_OVERSAMP_FACTOR 2
 #define NR_SRS_DETECTION_THRESHOLD 10
 
@@ -46,12 +45,6 @@ typedef struct {
   time_stats_t *rx_prach;
   c16_t (*prach_buf)[NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX][NR_PRACH_SEQ_LEN_L];
 } prach_item_t;
-
-typedef struct {
-  int nb_id;
-  int Nid[MAX_PUCCH0_NID];
-  int lut[MAX_PUCCH0_NID][160][14];
-} NR_gNB_PUCCH0_LUT_t;
 
 typedef struct {
   int dump_frame;
@@ -391,7 +384,7 @@ typedef struct PHY_VARS_gNB_s {
   bool phase_comp;
 
   // PUCCH0 Look-up table for cyclic-shifts
-  NR_gNB_PUCCH0_LUT_t pucch0_lut;
+  NR_PUCCH0_LUT_t pucch0_lut;
 
   /// PBCH interleaver
   uint8_t nr_pbch_interleaver[NR_POLAR_PBCH_PAYLOAD_BITS];

@@ -66,47 +66,25 @@ int nr_get_ssb_start_symbol(const NR_DL_FRAME_PARMS *fp, uint8_t i_ssb)
   return symbol;
 }
 
-void set_scs_parameters(NR_DL_FRAME_PARMS *fp, int mu, int N_RB_DL, int ssb_case)
+static void set_scs_parameters_common(NR_DL_FRAME_PARMS *fp, int mu, int N_RB, const char *rb_name)
 {
-  switch(mu) {
-    case NR_MU_0: //15kHz scs
-      fp->subcarrier_spacing = nr_subcarrier_spacing[NR_MU_0];
-      fp->slots_per_subframe = nr_slots_per_subframe[NR_MU_0];
-      break;
-    case NR_MU_1: //30kHz scs
-      fp->subcarrier_spacing = nr_subcarrier_spacing[NR_MU_1];
-      fp->slots_per_subframe = nr_slots_per_subframe[NR_MU_1];
-      break;
-    case NR_MU_2: //60kHz scs
-      fp->subcarrier_spacing = nr_subcarrier_spacing[NR_MU_2];
-      fp->slots_per_subframe = nr_slots_per_subframe[NR_MU_2];
-      break;
-    case NR_MU_3:
-      fp->subcarrier_spacing = nr_subcarrier_spacing[NR_MU_3];
-      fp->slots_per_subframe = nr_slots_per_subframe[NR_MU_3];
-      break;
-    case NR_MU_4:
-      fp->subcarrier_spacing = nr_subcarrier_spacing[NR_MU_4];
-      fp->slots_per_subframe = nr_slots_per_subframe[NR_MU_4];
-      break;
-    default:
-      AssertFatal(false, "Invalid numerology index %d", mu);
-  }
+  AssertFatal(mu >= NR_MU_0 && mu <= NR_MU_4, "Invalid numerology index %d", mu);
+  fp->subcarrier_spacing = nr_subcarrier_spacing[mu];
+  fp->slots_per_subframe = nr_slots_per_subframe[mu];
 
-  fp->ssb_type = ssb_case;
   // Start with FFT size 512
   fp->ofdm_symbol_size = 512;
 
   // Choose the right FFT size for the BW
-  while(fp->ofdm_symbol_size < N_RB_DL * NR_NB_SC_PER_RB)
+  while(fp->ofdm_symbol_size < N_RB * NR_NB_SC_PER_RB)
     fp->ofdm_symbol_size <<= 1;
 
   // Do 3/4 sampling
   if (fp->threequarter_fs) {
     const uint16_t threeq_fft_size = fp->ofdm_symbol_size * 3 / 4;
-    if (threeq_fft_size < (N_RB_DL * NR_NB_SC_PER_RB)) {
+    if (threeq_fft_size < (N_RB * NR_NB_SC_PER_RB)) {
       // 3/4 sampling FFT size not enough
-      warn_higher_threequarter_fs(N_RB_DL, fp->numerology_index);
+      warn_higher_threequarter_fs(N_RB, fp->numerology_index);
       // Choose 2 times 3/4 sampling
       fp->ofdm_symbol_size = threeq_fft_size << 1;
     } else {
@@ -114,44 +92,23 @@ void set_scs_parameters(NR_DL_FRAME_PARMS *fp, int mu, int N_RB_DL, int ssb_case
     }
   }
 
-  fp->first_carrier_offset = fp->ofdm_symbol_size - (N_RB_DL * 12 / 2);
+  fp->first_carrier_offset = fp->ofdm_symbol_size - (N_RB * 12 / 2);
   fp->nb_prefix_samples    = fp->ofdm_symbol_size / 128 * 9;
   fp->nb_prefix_samples0   = fp->ofdm_symbol_size / 128 * (9 + (1 << mu));
   LOG_I(PHY,
-        "Init: N_RB_DL %d, first_carrier_offset %d, nb_prefix_samples %d,nb_prefix_samples0 %d, ofdm_symbol_size %d\n",
-        N_RB_DL,
+        "Init: %s %d, first_carrier_offset %d, nb_prefix_samples %d,nb_prefix_samples0 %d, ofdm_symbol_size %d\n",
+        rb_name,
+        N_RB,
         fp->first_carrier_offset,
         fp->nb_prefix_samples,
         fp->nb_prefix_samples0,
         fp->ofdm_symbol_size);
 }
 
-void sl_set_scs_parameters(NR_DL_FRAME_PARMS *fp, int mu, int N_RB_SL)
+void set_scs_parameters(NR_DL_FRAME_PARMS *fp, int mu, int N_RB_DL, int ssb_case)
 {
-
-  AssertFatal(mu >= NR_MU_0 && mu <= NR_MU_4,"Invalid numerology index %d", mu);
-
-  fp->subcarrier_spacing = nr_subcarrier_spacing[mu];
-  fp->slots_per_subframe = nr_slots_per_subframe[mu];
-
-  if(fp->threequarter_fs)
-    fp->ofdm_symbol_size = 3 * 128;
-  else
-    fp->ofdm_symbol_size = 4 * 128;
-
-  while(fp->ofdm_symbol_size < N_RB_SL * 12)
-    fp->ofdm_symbol_size <<= 1;
-
-  fp->first_carrier_offset = fp->ofdm_symbol_size - (N_RB_SL * 12 / 2);
-  fp->nb_prefix_samples    = fp->ofdm_symbol_size / 128 * 9;
-  fp->nb_prefix_samples0   = fp->ofdm_symbol_size / 128 * (9 + (1 << mu));
-  LOG_I(PHY,
-        "Init: N_RB_SL %d, first_carrier_offset %d, nb_prefix_samples %d,nb_prefix_samples0 %d, ofdm_symbol_size %d\n",
-        N_RB_SL,
-        fp->first_carrier_offset,
-        fp->nb_prefix_samples,
-        fp->nb_prefix_samples0,
-        fp->ofdm_symbol_size);
+  fp->ssb_type = ssb_case;
+  set_scs_parameters_common(fp, mu, N_RB_DL, "N_RB_DL");
 }
 
 uint32_t get_samples_per_slot(int slot, const NR_DL_FRAME_PARMS *fp)
@@ -548,7 +505,7 @@ int nr_init_frame_parms_ue_sl(NR_DL_FRAME_PARMS *fp,
                 fp->Ncp,
                 fp->numerology_index);
 
-  sl_set_scs_parameters(fp, fp->numerology_index, fp->N_RB_SL);
+  set_scs_parameters_common(fp, fp->numerology_index, fp->N_RB_SL, "N_RB_SL");
 
   fp->slots_per_frame = 10 * fp->slots_per_subframe;
   fp->symbols_per_slot = ((fp->Ncp == NR_NORMAL) ? NR_SYMBOLS_PER_SLOT : NR_SYMBOLS_PER_SLOT_EXTENDED_CP);

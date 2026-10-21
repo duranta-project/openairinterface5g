@@ -15,6 +15,7 @@
 #include "executables/nr-uesoftmodem.h"
 #include "PHY/nr_phy_common/inc/nr_phy_common.h"
 #include "SCHED_NR_UE/defs.h"
+#include "PHY/nr_phy_common/inc/nr_channel_compensation.h"
 #include "PHY/nr_phy_common/inc/nr_compute_llr.h"
 #include "openair1/PHY/MODULATION/modulation_UE.h"
 #include "PHY/sse_intrin.h"
@@ -471,88 +472,6 @@ void nr_slsch_channel_level(int buffer_length,
   }
 }
 
-// Pre-processing for LLR computation
-//==============================================================================================
-//
-void nr_pssch_channel_compensation(uint32_t buffer_length,
-				   uint32_t nb_rx_ant,
-                                   c16_t rxFext[][buffer_length],
-                                   c16_t chFext[][buffer_length],
-                                   c16_t ch_maga[][buffer_length],
-                                   c16_t ch_magb[][buffer_length],
-                                   c16_t ch_magc[][buffer_length],
-                                   c16_t **rxComp,
-                                   uint32_t  nrOfLayers,
-                                   c16_t rho[][nrOfLayers][buffer_length],
-                                   uint32_t symbol,
-                                   uint32_t mod_order,
-                                   uint32_t output_shift) {
-
-  simde__m256i QAM_ampa_256 = simde_mm256_setzero_si256();
-  simde__m256i QAM_ampb_256 = simde_mm256_setzero_si256();
-  simde__m256i QAM_ampc_256 = simde_mm256_setzero_si256();
-
-  if (mod_order == 4) {
-    QAM_ampa_256 = simde_mm256_set1_epi16(QAM16_n1);
-    QAM_ampb_256 = simde_mm256_setzero_si256();
-    QAM_ampc_256 = simde_mm256_setzero_si256();
-  }
-  else if (mod_order == 6) {
-    QAM_ampa_256 = simde_mm256_set1_epi16(QAM64_n1);
-    QAM_ampb_256 = simde_mm256_set1_epi16(QAM64_n2);
-    QAM_ampc_256 = simde_mm256_setzero_si256();
-  }
-  else if (mod_order == 8) {
-    QAM_ampa_256 = simde_mm256_set1_epi16(QAM256_n1);
-    QAM_ampb_256 = simde_mm256_set1_epi16(QAM256_n2);
-    QAM_ampc_256 = simde_mm256_set1_epi16(QAM256_n3);
-  }
-
-  for (int aatx = 0; aatx < nrOfLayers; aatx++) {
-    simde__m256i *rxComp_256 = (simde__m256i *)&rxComp[aatx * nb_rx_ant][symbol * buffer_length];
-    simde__m256i *rxF_ch_maga_256 = (simde__m256i *)ch_maga[aatx];
-    simde__m256i *rxF_ch_magb_256 = (simde__m256i *)ch_magb[aatx];
-    simde__m256i *rxF_ch_magc_256 = (simde__m256i *)ch_magc[aatx];
-    for (int aarx = 0; aarx < nb_rx_ant; aarx++) {
-      simde__m256i *rxF_256 = (simde__m256i *)rxFext[aarx];
-      simde__m256i *chF_256 = (simde__m256i *)chFext[aatx*nb_rx_ant + aarx];
-
-      for (int i = 0; i < buffer_length >> 3; i++) 
-      {
-        // MRC        }
-        simde__m256i comp = oai_mm256_cpx_mult_conj(chF_256[i], rxF_256[i], output_shift);
-        rxComp_256[i] = simde_mm256_add_epi16(rxComp_256[i], comp); 
-
-        if (mod_order > 2) {
-          simde__m256i mag = oai_mm256_smadd(chF_256[i], chF_256[i], output_shift); // |h|^2
-          // pack and duplicate
-          mag = simde_mm256_packs_epi32(mag, mag);
-          mag = simde_mm256_unpacklo_epi16(mag, mag);
-
-          rxF_ch_maga_256[i] = simde_mm256_add_epi16(rxF_ch_maga_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampa_256));
-
-          if (mod_order > 4)
-            rxF_ch_magb_256[i] = simde_mm256_add_epi16(rxF_ch_magb_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampb_256));
-
-          if (mod_order > 6)
-            rxF_ch_magc_256[i] = simde_mm256_add_epi16(rxF_ch_magc_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampc_256));
-        }        
-      }
-      if (nrOfLayers > 1) {
-        for (int atx = 0; atx < nrOfLayers; atx++) {
-          simde__m256i *rho_256 = (simde__m256i *)rho[aatx][atx];
-          simde__m256i *chF_256 = (simde__m256i *)chFext[aatx*nb_rx_ant + aarx];
-          simde__m256i *chF2_256 = (simde__m256i *)chFext[atx*nb_rx_ant + aarx];
-          for (int i = 0; i < buffer_length >> 3; i++) {
-            rho_256[i] = simde_mm256_adds_epi16(rho_256[i], oai_mm256_cpx_mult_conj(chF_256[i], chF2_256[i], output_shift));
-          }
-        }
-      }
-    }
-  }
-
-}
-
 //==============================================================================================
 extern int dmrs_pscch_mask[2];
 /* Main Function */
@@ -822,32 +741,22 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
       //----------------------------------------------------------
       //--------------------- Channel Compensation ---------------
       //----------------------------------------------------------
-      // nr_pssch_channel_compensation() accumulates (rxComp += ...) into
-      // pusch_vars->rxdataF_comp to MRC across RX antennas, so this persistent
-      // buffer must be zeroed for this symbol first. Without it, the current slot's
-      // equalized REs pile onto a previous slot's leftover (same Nid/channel, other
-      // payload), which raises the magnitude and smears the constellation -> the
-      // PSSCH/SCI-2 fails to decode on some slots. Mirrors the UL path
-      // (nr_ulsch_demodulation.c, memset before nr_ulsch_channel_compensation()).
-      for (int i = 0; i < nrOfLayers; i++)
-        memset(&pusch_vars->rxdataF_comp[i * frame_parms->nb_antennas_rx][symbol * ext_buffer_length],
-               0, sizeof(int32_t) * ext_buffer_length);
       memset(rho, 0, sizeof(rho));
-      memset(rxF_ch_maga, 0, sizeof(rxF_ch_maga));
-      memset(rxF_ch_magb, 0, sizeof(rxF_ch_magb));
-      memset(rxF_ch_magc, 0, sizeof(rxF_ch_magc));
-      nr_pssch_channel_compensation(ext_buffer_length,
+      nr_channel_compensation(
+          ext_buffer_length,
+          ext_buffer_length,
 		      		    frame_parms->nb_antennas_rx,
+          nrOfLayers,
 		                    rxFext,
-                                    chFext,
+          (c16_t(*)[frame_parms->nb_antennas_rx][ext_buffer_length])chFext,
                                     rxF_ch_maga,
                                     rxF_ch_magb,
                                     rxF_ch_magc,
                                     pusch_vars->rxdataF_comp,
-                                    nrOfLayers,
-                                    rho,
-                                    symbol,
+          nrOfLayers > 1 ? rho : NULL,
+          (c16_t){.r = INT16_MAX},
                                     qam_mod_order,
+          symbol,
                                     pusch_vars->log2_maxh);
 
       /*---------------------------------------------------------------------------------------------------- */

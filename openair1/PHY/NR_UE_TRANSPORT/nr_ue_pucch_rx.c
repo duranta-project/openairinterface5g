@@ -69,34 +69,6 @@ static const int16_t idft12_im[12][12] = {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
                                           {0, -20066, -20066, 0, 20066, 20066, 0, -20066, -20066, 0, 20066, 20066},
                                           {0, -11585, -20066, -23170, -20066, -11585, 0, 11585, 20066, 23170, 20066, 11585}};
 
-static int get_pucch0_cs_lut_index(PHY_VARS_NR_UE *ue, nfapi_nr_pucch_pdu_t* pucch_pdu) {
-
-  int i = 0;
-
-#ifdef DEBUG_NR_PUCCH_RX
-  LOG_I(NR_PHY, "getting index for LUT with %d entries, Nid %d\n", ue->pucch0_lut.nb_id, pucch_pdu->hopping_id);
-#endif
-
-  for (i=0; i<ue->pucch0_lut.nb_id; i++) {
-    if (ue->pucch0_lut.Nid[i] == pucch_pdu->hopping_id) break;
-  }
-#ifdef DEBUG_NR_PUCCH_RX
-  LOG_I(NR_PHY, "found index %d\n", i);
-#endif
-  if (i < ue->pucch0_lut.nb_id) return(i);
-
-#ifdef DEBUG_NR_PUCCH_RX
-  LOG_I(NR_PHY, "Initializing PUCCH0 LUT index %i with Nid %d\n", i, pucch_pdu->hopping_id);
-#endif
-  // initialize
-  ue->pucch0_lut.Nid[ue->pucch0_lut.nb_id] = pucch_pdu->hopping_id;
-  for (int slot=0; slot<10<<pucch_pdu->subcarrier_spacing; slot++)
-    for (int symbol=0; symbol<14; symbol++)
-      ue->pucch0_lut.lut[ue->pucch0_lut.nb_id][slot][symbol] = (int)floor(nr_cyclic_shift_hopping(pucch_pdu->hopping_id, 0, 0, 0, symbol, slot) / 0.5235987756);
-  ue->pucch0_lut.nb_id++;
-  return(ue->pucch0_lut.nb_id-1);
-}
-
 int8_t nr_ue_decode_psfch0(PHY_VARS_NR_UE *ue,
                           int frame,
                           int slot,
@@ -166,7 +138,7 @@ int8_t nr_ue_decode_pucch0(PHY_VARS_NR_UE *ue,
         pucch_pdu->initial_cyclic_shift,
         pucch_pdu->subcarrier_spacing);
 
-  int cs_ind = get_pucch0_cs_lut_index(ue, pucch_pdu);
+  int cs_ind = nr_pucch0_lut_index(&ue->pucch0_lut, pucch_pdu->hopping_id, pucch_pdu->subcarrier_spacing);
   /*
    * Implement TS 38.211 Subclause 6.3.2.3.1 Sequence generation
    *
