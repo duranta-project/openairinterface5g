@@ -1107,7 +1107,7 @@ void reset_sched_psfch(NR_UE_MAC_INST_t *mac, int frameP,int slotP) {
   }
 }
 
-static bool sl_rx_harq_should_deliver(NR_SL_UE_info_t *UE,
+static bool sl_rx_harq_should_deliver(NR_UE_MAC_INST_t *mac,
                                       const sl_nr_slsch_pdu_t *rx_slsch,
                                       const NR_SLSCH_MAC_SUBHEADER_FIXED *sl_sch_subheader)
 {
@@ -1116,24 +1116,14 @@ static bool sl_rx_harq_should_deliver(NR_SL_UE_info_t *UE,
     return false;
   }
 
-  NR_UE_sl_rx_harq_t *harq = &UE->UE_sched_ctrl.sl_rx_harq_processes[rx_slsch->harq_pid];
-  /* SCI-2 and the SL-SCH fixed header carry complementary portions of each
-   * 24-bit Layer-2 identity. Keep both portions in the receiving-process key. */
-  const bool same_process = harq->valid && harq->sci_source_id == rx_slsch->source_id
-                            && harq->mac_source_id == sl_sch_subheader->SRC
-                            && harq->sci_dest_id == rx_slsch->dest_id
-                            && harq->mac_dest_id == sl_sch_subheader->DST;
-
-  /* TS 38.321 5.22.2.2.1: associate the receiving sidelink process with the
-   * source/destination Layer-2 identities and sidelink process ID. For that
-   * process, toggled NDI identifies a new transport block. */
-  if (!same_process || harq->ndi != rx_slsch->ndi) {
-    harq->valid = true;
-    harq->sci_source_id = rx_slsch->source_id;
+  /* TS 38.321 5.22.2.2.1: the new transport block was already identified from
+   * SCI-2 when the reception was configured. The SL-SCH header carries the
+   * remaining portions of the Layer-2 identities, so a change there is a
+   * different receiving process and therefore a new transport block. */
+  NR_UE_SL_RX_HARQ_INFO_t *harq = &mac->sl_rx_harq_info[rx_slsch->harq_pid];
+  if (harq->mac_source_id != sl_sch_subheader->SRC || harq->mac_dest_id != sl_sch_subheader->DST) {
     harq->mac_source_id = sl_sch_subheader->SRC;
-    harq->sci_dest_id = rx_slsch->dest_id;
     harq->mac_dest_id = sl_sch_subheader->DST;
-    harq->ndi = rx_slsch->ndi;
     harq->delivered = false;
   }
 
@@ -1214,7 +1204,7 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
     return;
   }
   NR_SLSCH_MAC_SUBHEADER_FIXED *sl_sch_subheader = (NR_SLSCH_MAC_SUBHEADER_FIXED *)pduP;
-  if (!sl_rx_harq_should_deliver(UE, rx_slsch_pdu, sl_sch_subheader)) {
+  if (!sl_rx_harq_should_deliver(mac, rx_slsch_pdu, sl_sch_subheader)) {
     LOG_D(NR_MAC, "%4d.%2d Suppressing duplicate SL-SCH delivery for HARQ PID %u\n", frame, slot, rx_slsch_pdu->harq_pid);
     return;
   }

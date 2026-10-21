@@ -36,7 +36,11 @@ void send_pcch_rrc(int ue_id, const uint8_t *sdu, sdu_size_t sdu_len, void *data
 void nr_ue_init_mac_sl(NR_UE_MAC_INST_t *mac)
 {
   int k = 0;
-  
+
+  // consider the next reception on each sidelink RX process as a new TB
+  for (int i = 0; i < NR_MAX_HARQ_PROCESSES; i++)
+    mac->sl_rx_harq_info[i].last_ndi = -1; // initialize to invalid value
+
   mac->SL_MAC_PARAMS = CALLOC(1, sizeof(sl_nr_ue_mac_params_t));
   init_list(&mac->sl_sensing_data, sizeof(sensing_data_t), 1);
   init_list(&mac->sl_transmit_history, sizeof(frameslot_t), 1);

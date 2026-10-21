@@ -57,7 +57,6 @@ void reset_sl_harq_list(NR_SL_UE_sched_ctrl_t *sched_ctrl) {
     sched_ctrl->sl_harq_processes[i].round = 0;
     sched_ctrl->sl_harq_processes[i].is_waiting = false;
   }
-  memset(sched_ctrl->sl_rx_harq_processes, 0, sizeof(sched_ctrl->sl_rx_harq_processes));
   /* All in-flight HARQs were discarded above; reset the byte accounting so it
    * does not accumulate across resets (e.g. sync loss -> re-init). */
   sched_ctrl->sched_sl_bytes = 0;

@@ -991,7 +991,28 @@ int nr_ue_process_sci2_indication_pdu(NR_UE_MAC_INST_t *mac, module_id_t mod_id,
                             sl_bwp,
                             sl_res_pool,
                             sl_mac_params);
-  rx_config.sl_rx_config_list[0].pdu_type =  SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH;
+  sl_nr_rx_config_pssch_pdu_t *pssch_pdu = &rx_config.sl_rx_config_list[0].rx_pssch_config_pdu;
+  if (pssch_pdu->harq_pid >= NR_MAX_HARQ_PROCESSES) {
+    LOG_W(NR_MAC, "Ignoring SCI-2 with invalid HARQ process ID %u\n", pssch_pdu->harq_pid);
+    return -1;
+  }
+  /* As for DL-SCH, MAC converts the received NDI into a new-data decision for PHY.
+   * TS 38.321 5.22.2.2.1 identifies a receiving sidelink process by the sidelink
+   * identification information and the sidelink process ID, so a process ID reused
+   * by another sidelink identity starts a new TB. */
+  NR_UE_SL_RX_HARQ_INFO_t *rx_harq = &mac->sl_rx_harq_info[pssch_pdu->harq_pid];
+  if (rx_harq->last_ndi != pssch_pdu->ndi || rx_harq->source_id != pssch_pdu->source_id
+      || rx_harq->dest_id != pssch_pdu->dest_id || rx_harq->cast_type != pssch_pdu->cast_type) {
+    // new data
+    pssch_pdu->new_data_indicator = true;
+    rx_harq->source_id = pssch_pdu->source_id;
+    rx_harq->dest_id = pssch_pdu->dest_id;
+    rx_harq->cast_type = pssch_pdu->cast_type;
+    rx_harq->last_ndi = pssch_pdu->ndi;
+    rx_harq->delivered = false;
+  } else
+    pssch_pdu->new_data_indicator = false;
+  rx_config.sl_rx_config_list[0].pdu_type = SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH;
 
   LOG_D(NR_MAC, "%4d.%2d psfch_overhead %d harq_feedback %d action %d\n", frame, slot, sci_pdu->psfch_overhead.val, sci_pdu->harq_feedback, SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH);
   /* SCI-1A's PSFCH-overhead indication reserves symbols for feedback to this

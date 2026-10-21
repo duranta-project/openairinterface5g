@@ -275,28 +275,6 @@ static int nr_psbch_process(PHY_VARS_NR_UE *ue,
 
 extern int dmrs_pscch_mask[2];
 
-/* TS 38.321 5.22.2.2.1 identifies a receiving sidelink process by the sidelink
- * identification information and the sidelink process ID carried in SCI-2.  The
- * process ID indexes the RX contexts directly, as harq_process_nbr does for the
- * DL-SCH; a process ID reused by another sidelink identity starts a new TB. */
-static NR_UL_gNB_HARQ_t *nr_sl_rx_harq_process(PHY_VARS_NR_UE *ue, const sl_nr_rx_config_pssch_pdu_t *slsch_pdu)
-{
-  NR_UL_gNB_HARQ_t *harq = ue->slsch[slsch_pdu->harq_pid].harq_process;
-  if (harq->sl_identity_valid && harq->sl_source_id == slsch_pdu->source_id && harq->sl_dest_id == slsch_pdu->dest_id
-      && harq->sl_cast_type == slsch_pdu->cast_type)
-    return harq;
-
-  harq->sl_identity_valid = true;
-  harq->sl_source_id = slsch_pdu->source_id;
-  harq->sl_dest_id = slsch_pdu->dest_id;
-  harq->sl_cast_type = slsch_pdu->cast_type;
-  harq->sl_process_id = slsch_pdu->harq_pid;
-  harq->last_ndi = 0xff;
-  harq->tb_decoded = false;
-  harq->harq_to_be_cleared = true;
-  return harq;
-}
-
 int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
                         int frame_rx,
                         int slot_rx,
@@ -321,19 +299,16 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
   uint16_t nb_re_dmrs;
   uint16_t start_symbol = 1;
   uint16_t number_symbols = pssch_pdu->pssch_numsym;
-  NR_UL_gNB_HARQ_t *harq_process = nr_sl_rx_harq_process(ue, slsch_pdu);
-  // TS 38.321 5.22.2.2.1: toggled NDI, or the first transmission for this
-  // sidelink identification information and process ID, identifies a new TB.
-  const bool new_tb = harq_process->last_ndi == 0xff || harq_process->last_ndi != slsch_pdu->ndi;
-  const bool previously_decoded = !new_tb && harq_process->tb_decoded;
-  harq_process->last_ndi = slsch_pdu->ndi;
-  if (new_tb) {
+  NR_UL_gNB_HARQ_t *harq_process = ue->slsch[SLSCH_id].harq_process;
+  if (slsch_pdu->new_data_indicator) {
     harq_process->harq_to_be_cleared = true;
+    harq_process->processedSegments = 0;
     harq_process->round = 0;
-    harq_process->tb_decoded = false;
-  } else if (!previously_decoded) {
-    harq_process->round++;
   }
+  const bool previously_decoded = !harq_process->harq_to_be_cleared && harq_process->C > 0
+                                  && harq_process->processedSegments == harq_process->C;
+  if (!slsch_pdu->new_data_indicator && !previously_decoded)
+    harq_process->round++;
   uint8_t number_dmrs_symbols = 0;
   for (int l = start_symbol; l < start_symbol + number_symbols; l++)
     number_dmrs_symbols += ((pssch_pdu->dmrs_symbol_position)>>l)&0x01;
@@ -437,10 +412,8 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
   }
 
   const bool decode_ok = previously_decoded || (!dtx && harq_process->C > 0 && nbDecode == harq_process->C);
-  if (decode_ok) {
+  if (decode_ok)
     harq_process->round = 0;
-    harq_process->tb_decoded = true;
-  }
 
   sl_nr_rx_indication_t sl_rx_indication = {0};
   nr_sidelink_indication_t sl_indication;       

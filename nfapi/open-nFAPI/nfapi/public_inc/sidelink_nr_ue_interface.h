@@ -233,6 +233,8 @@ typedef struct sl_nr_rx_config_pssch_pdu {
  //REdundancy version to be used for transmission
   uint8_t rv_index;
   uint8_t ndi;
+  // MAC decision after comparing SCI NDI with the previous reception.
+  bool new_data_indicator;
   // Sidelink identification information from the decoded second-stage SCI.
   uint8_t source_id;
   uint16_t dest_id;

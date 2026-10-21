@@ -408,6 +408,19 @@ typedef struct {
 } NR_UE_UL_HARQ_INFO_t;
 
 typedef struct {
+  uint8_t source_id;
+  uint16_t dest_id;
+  uint8_t cast_type;
+  int last_ndi;
+  /* SCI-2 and the SL-SCH fixed header carry complementary portions of each
+   * 24-bit Layer-2 identity. The header portions are only known once the TB is
+   * decoded, so they complete the receiving-process key at delivery time. */
+  uint16_t mac_source_id;
+  uint8_t mac_dest_id;
+  bool delivered;
+} NR_UE_SL_RX_HARQ_INFO_t;
+
+typedef struct {
   uint8_t freq_hopping;
   uint8_t mcs;
   uint8_t Msg3_t_alloc;
@@ -497,16 +510,6 @@ typedef struct {
   NR_sched_pssch_t sched_pssch;
 } NR_UE_sl_harq_t;
 
-typedef struct {
-  bool valid;
-  uint8_t sci_source_id;
-  uint16_t mac_source_id;
-  uint16_t sci_dest_id;
-  uint8_t mac_dest_id;
-  uint8_t ndi;
-  bool delivered;
-} NR_UE_sl_rx_harq_t;
-
 typedef struct SL_sched_feedback {
   int16_t feedback_slot;
   int16_t feedback_frame;
@@ -553,7 +556,6 @@ typedef struct {
   /// information about every sidelink transmit HARQ process
   NR_UE_sl_harq_t sl_harq_processes[NR_MAX_HARQ_PROCESSES];
   /// receiving sidelink HARQ state, indexed by the SCI sidelink process ID
-  NR_UE_sl_rx_harq_t sl_rx_harq_processes[NR_MAX_HARQ_PROCESSES];
   /// UL HARQ processes that are free
   NR_list_t available_sl_harq;
   /// UL HARQ processes that await feedback
@@ -856,6 +858,7 @@ typedef struct NR_UE_MAC_INST_s {
   // Defined for abstracted mode
   NR_UE_DL_HARQ_STATUS_t dl_harq_info[NR_MAX_HARQ_PROCESSES][2]; // one harq process for each codeword
   NR_UE_UL_HARQ_INFO_t ul_harq_info[NR_MAX_HARQ_PROCESSES];
+  NR_UE_SL_RX_HARQ_INFO_t sl_rx_harq_info[NR_MAX_HARQ_PROCESSES];
 
   NR_TAG_Id_t tag_Id;
   A_SEQUENCE_OF(NR_TAG_t) TAG_list;
