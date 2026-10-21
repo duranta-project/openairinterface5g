@@ -3026,7 +3026,7 @@ static inline void nr_lbest_axis_bits256(int level, int *b0, int *b1, int *b2, i
 }
 
 // Graded per-axis PAM-16 LLR for the target layer, from the soft seed estimate e (level units)
-// and gain g = 0.5*P0/170. The target metric m(l) = -0.5*P0/170*(l-e)^2 + const is concave with
+// and gain g = 0.5*Peff/170, Peff = det/P1 the post-ZF energy (see nr_lbest_pam8_axis_llr). The target metric m(l) = -0.5*P0/170*(l-e)^2 + const is concave with
 // vertex ~= e, so max over a bit-subset is at the level nearest e with that bit. Fills llr[b] =
 // m(l0*)-m(l1*) = g*[(l1*-e)^2 - (l0*-e)^2] for axis bits b0..b3. This is the graded replacement
 // for the hard +-LLR_SAT fallback used when a reduced candidate set does not span a bit (the
@@ -3094,7 +3094,8 @@ void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
 
     // graded fallback LLRs for bits a reduced candidate set may not span (the coarse/MSB bits)
     float axisI[4], axisQ[4];
-    const float glin = 0.5f * P0 / 170.0f * NR_LBEST_LLR_SCALE;
+    const float Peff = (P1 + l) > 0.0f ? det / (P1 + l) : 0.0f; // post-ZF/MMSE energy (Schur complement)
+    const float glin = 0.5f * Peff / 170.0f * NR_LBEST_LLR_SCALE;
     nr_lbest_pam16_axis_llr(estI, glin, axisI);
     nr_lbest_pam16_axis_llr(estQ, glin, axisQ);
 
@@ -3679,7 +3680,6 @@ void nr_qam64_llr_2layer_lbest_q15(c16_t *stream0_in,
 // integer metric is 16*sqrt(170) (~208.6x) larger than float; bring LLR back to float scale.
 #define NR_LBEST_Q_LLR256_NUM          628  // round(2^17 / (16*sqrt(170)))
 #define NR_LBEST_Q_LLR256_SHIFT         17
-#define NR_LBEST_Q_LLR256_SAT         8192
 
 // PAM-16 level magnitude for |a|, thresholds at {2,4,...,14}*step (== ||h1||^2).
 static inline int nr_lbest_q_pam16_abs(int64_t a, int64_t step)
@@ -3730,6 +3730,11 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
       if (estI_q6 < -1024) estI_q6 = -1024; else if (estI_q6 > 1024) estI_q6 = 1024;
       if (estQ_q6 < -1024) estQ_q6 = -1024; else if (estQ_q6 > 1024) estQ_q6 = 1024;
     }
+    // graded fallback for unspanned bits, in output (float-ref) units: g = 0.5*Peff/170, Peff = det/Pp1
+    float axisI[4], axisQ[4];
+    const float g = Pp1 > 0 ? 0.5f * (float)det / (float)Pp1 / 170.0f : 0.0f;
+    nr_lbest_pam16_axis_llr(estI_q6 / 64.0f, g, axisI);
+    nr_lbest_pam16_axis_llr(estQ_q6 / 64.0f, g, axisQ);
 
     // ---- 2. candidate set: L nearest of 256 points ----
     int     candI[256], candQ[256];
@@ -3792,14 +3797,13 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
       }
     }
 
-    // emit LLR = max_{bit=0} - max_{bit=1}; empty subset => saturate toward present bit
+    // emit LLR = max_{bit=0} - max_{bit=1}; empty subset => graded seed LLR
     for (int p = 0; p < 8; p++) {
       int32_t llr;
-      if (max0[p] == INT64_MIN)
-        llr = -NR_LBEST_Q_LLR256_SAT;
-      else if (max1[p] == INT64_MIN)
-        llr = NR_LBEST_Q_LLR256_SAT;
-      else
+      if (max0[p] == INT64_MIN || max1[p] == INT64_MIN) {
+        const float g = (p & 1) ? axisQ[p >> 1] : axisI[p >> 1];
+        llr = (int32_t)(g + (g >= 0.0f ? 0.5f : -0.5f));
+      } else
         llr = (int32_t)(((max0[p] - max1[p]) * NR_LBEST_Q_LLR256_NUM) >> NR_LBEST_Q_LLR256_SHIFT);
       if (llr > 32767)  llr =  32767;
       if (llr < -32768) llr = -32768;
@@ -3883,7 +3887,7 @@ void nr_qam256_llr_2layer_lbest_q15(c16_t *stream0_in,
 // z * sqrt(170) / 32, packed to int16 (lane l == RE l).
 
 // Graded per-axis PAM-16 LLR (SIMD float, 8 lanes/half): out[b] = g*(min dist^2 with bit b=1 -
-// with b=0), g = 0.5*P0/170, in the kernel's final LLR units. Closed form (no 16-level loop): the
+// with b=0), g = 0.5*Peff/170 (Peff = det/P1), in the kernel's final LLR units. Closed form (no 16-level loop): the
 // nearest PAM-16 level with a given bit value = clamp(round-to-odd(est), subrange), so each bit's
 // min-distance is a couple of clamps. Only b0/b1/b2 are computed — b3 (the finest bit) is ALWAYS
 // spanned by any 3x3/5x5/5-plus window (verified), so its fallback is never used; out[3]=0.
