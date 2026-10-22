@@ -760,11 +760,22 @@ void *ru_thread(void *param)
   return &ru_thread_status;
 }
 
+/* attach the RU to all gNBs in its list */
+static void attach_NR_RU(RU_t *ru)
+{
+  AssertFatal(ru->num_gNB > 0, "RU %d not attached to any gNB\n", ru->idx);
+  for (int i = 0; i < ru->num_gNB; i++) {
+    PHY_VARS_gNB *gNB = ru->gNB_list[i];
+    gNB->RU_list[gNB->num_RU++] = ru;
+  }
+}
+
 static void configure_NR_RU(RU_t *ru)
 {
   NR_DL_FRAME_PARMS  *fp = ru->nr_frame_parms;
   PHY_VARS_gNB *gNB = ru->gNB_list[0];
 
+  *fp = gNB->frame_parms; // carrier frequencies, threequarter_fs
   ru->config = gNB->gNB_config;
   nr_init_frame_parms(&ru->config, fp);
   nr_dump_frame_parms(fp);
@@ -909,42 +920,10 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
     ru->rf_config_file = rf_config_file;
     ru->idx            = ru_id;
     ru->ts_offset      = 0;
-    // use gNB_list[0] as a reference for RU frame parameters
-    // NOTE: multiple CC_id are not handled here yet!
-
-    if (ru->num_gNB > 0) {
-      LOG_D(PHY, "%s() RC.ru[%d].num_gNB:%d ru->gNB_list[0]:%p RC.gNB[0]:%p rf_config_file:%s\n", __FUNCTION__, ru_id, ru->num_gNB, ru->gNB_list[0], RC.gNB[0], ru->rf_config_file);
-
-      if (ru->gNB_list[0] == 0) {
-        LOG_E(PHY,"%s() DJP - ru->gNB_list ru->num_gNB are not initialized - so do it manually\n", __FUNCTION__);
-        ru->gNB_list[0] = RC.gNB[0];
-        ru->num_gNB=1;
-      }
-    }
-
-
-    PHY_VARS_gNB *gNB_RC = NULL;
-    PHY_VARS_gNB *gNB0 = NULL;
-    if (RC.nb_nr_L1_inst > 0) {
-      gNB_RC = RC.gNB[0];
-      gNB0 = ru->gNB_list[0];
-    }
     LOG_D(PHY, "RU FUnction:%d ru->if_south:%d\n", ru->function, ru->if_south);
 
-    if (gNB0) {
-      if (gNB_RC) {
-        LOG_D(PHY, "Copying frame parms from gNB in RC to gNB %d in ru %d and frame_parms in ru\n", gNB0->Mod_id, ru->idx);
-        *ru->nr_frame_parms = gNB_RC->frame_parms;
-        gNB0->frame_parms = gNB_RC->frame_parms;
-        // attach all RU to all gNBs in its list/
-        LOG_D(PHY,"ru->num_gNB:%d gNB0->num_RU:%d\n", ru->num_gNB, gNB0->num_RU);
-        for (int i = 0; i < ru->num_gNB; i++) {
-          gNB0 = ru->gNB_list[i];
-          gNB0->RU_list[gNB0->num_RU++] = ru;
-        }
-      }
-    }
-
+    // NOTE: multiple CC_id are not handled here yet!
+    attach_NR_RU(ru);
     set_function_spec_param(ru);
 
     configure_NR_RU(ru);
@@ -1006,8 +985,11 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg)
     else
       ru->num_gNB = 0;
 
-    for (int i = 0; i < ru->num_gNB; i++)
-      ru->gNB_list[i] = RC.gNB[param[RU_ENB_LIST_IDX].iptr[i]];
+    for (int i = 0; i < ru->num_gNB; i++) {
+      int gnb_idx = param[RU_ENB_LIST_IDX].iptr[i];
+      AssertFatal(gnb_idx >= 0 && gnb_idx < RC.nb_nr_L1_inst, "RU %d: invalid gNB instance %d\n", j, gnb_idx);
+      ru->gNB_list[i] = RC.gNB[gnb_idx];
+    }
 
     if (config_isparamset(param, RU_SDR_ADDRS)) {
       ru->openair0_cfg.sdr_addrs = strdup(*param[RU_SDR_ADDRS].strptr);
