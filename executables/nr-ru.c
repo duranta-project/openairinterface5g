@@ -627,7 +627,6 @@ void *ru_thread(void *param)
   RU_proc_t          *proc    = &ru->proc;
   NR_DL_FRAME_PARMS  *fp      = ru->nr_frame_parms;
   PHY_VARS_gNB *gNB = RC.gNB[0]; // this RU main loop handes only one RU
-  int                ret;
   int                slot     = fp->slots_per_frame-1;
   int                frame    = 1023;
   char               threadname[40];
@@ -641,10 +640,10 @@ void *ru_thread(void *param)
 
   LOG_I(PHY,"Starting RU %d (%s,%s) on cpu %d\n",ru->idx,NB_functions[ru->function],NB_timing[ru->if_timing],sched_getcpu());
 
-  // Start IF device if any
-  if (ru->nr_start_if) {
+  // split 7.2 transport has to be started from the pinned ru_thread()
+  if (ru->if_south == REMOTE_IF4p5) {
     LOG_I(PHY, "starting transport\n");
-    ret = openair0_transport_load(&ru->ifdevice, &ru->openair0_cfg);
+    int ret = openair0_transport_load(&ru->ifdevice, &ru->openair0_cfg);
     AssertFatal(ret == 0, "RU %u: openair0_transport_init() ret %d: cannot initialize transport protocol\n", ru->idx, ret);
 
     if (ru->ifdevice.get_internal_parameter) {
@@ -677,14 +676,10 @@ void *ru_thread(void *param)
     LOG_I(PHY, "Starting IF interface for RU %d, nb_rx %d\n", ru->idx, ru->nb_rx);
     AssertFatal(ru->nr_start_if(ru) == 0, "Could not start the IF device\n");
 
-  } else if (ru->if_south == LOCAL_RF) { // configure RF parameters only
-    ret = openair0_device_load(&ru->rfdevice,&ru->openair0_cfg);
-    AssertFatal(ret==0,"Cannot connect to local radio\n");
-  }
-
-  if (setup_RU_buffers(ru)!=0) {
-    LOG_E(PHY, "Exiting, cannot initialize RU Buffers\n");
-    exit(-1);
+    if (setup_RU_buffers(ru)!=0) {
+      LOG_E(PHY, "Exiting, cannot initialize RU Buffers\n");
+      exit(-1);
+    }
   }
 
   LOG_I(PHY, "Signaling main thread that RU %d is ready, sl_ahead %d\n",ru->idx,ru->sl_ahead);
@@ -693,26 +688,6 @@ void *ru_thread(void *param)
   pthread_cond_signal(&RC.ru_cond);
   pthread_mutex_unlock(&RC.ru_mutex);
   wait_sync("ru_thread");
-
-  // Start RF device if any
-  if (ru->start_rf) {
-    ret = ru->start_rf(ru);
-    AssertFatal(ret == 0, "RU %u: start_rf() ret %d: cannot start RF device\n", ru->idx, ret);
-    LOG_I(PHY, "RU %d rf device ready\n", ru->idx);
-  } else
-    LOG_I(PHY, "RU %d no rf device\n", ru->idx);
-
-  LOG_I(PHY, "RU %d RF started cpu_meas_enabled %d\n", ru->idx, cpu_meas_enabled);
-  // start trx write thread
-  if (usrp_tx_thread == 1) {
-    if (ru->start_write_thread) {
-      if (ru->start_write_thread(ru) != 0) {
-        LOG_E(HW, "Could not start tx write thread\n");
-      } else {
-        LOG_I(PHY, "tx write thread ready\n");
-      }
-    }
-  }
 
   // This is a forever while loop, it loops over subframes which are scheduled by incoming samples from HW devices
   struct timespec slot_start;
@@ -801,9 +776,53 @@ static void configure_NR_RU(RU_t *ru)
   fill_split7_2_config(&ru->openair0_cfg.split7, &ru->config, fp);
 }
 
+/* split 8 (LOCAL_RF/REMOTE_IF5): load and start the device, then spawn ru_thread() */
+static void start_split8(RU_t *ru)
+{
+  int ret;
+  if (ru->if_south == REMOTE_IF5) {
+    LOG_I(PHY, "starting transport\n");
+    ret = openair0_transport_load(&ru->ifdevice, &ru->openair0_cfg);
+    AssertFatal(ret == 0, "RU %u: openair0_transport_init() ret %d: cannot initialize transport protocol\n", ru->idx, ret);
+
+    LOG_I(PHY, "Starting IF interface for RU %d, nb_rx %d\n", ru->idx, ru->nb_rx);
+    AssertFatal(ru->nr_start_if(ru) == 0, "Could not start the IF device\n");
+
+  } else if (ru->if_south == LOCAL_RF) { // configure RF parameters only
+    ret = openair0_device_load(&ru->rfdevice,&ru->openair0_cfg);
+    AssertFatal(ret==0,"Cannot connect to local radio\n");
+
+    if (ru->start_rf(ru) != 0)
+      LOG_E(HW, "Could not start the RF device\n");
+    else
+      LOG_I(PHY, "RU %d rf device ready\n", ru->idx);
+
+    // start trx write thread
+    if (usrp_tx_thread == 1) {
+      if (ru->start_write_thread) {
+        if (ru->start_write_thread(ru) != 0) {
+          LOG_E(HW, "Could not start tx write thread\n");
+        } else {
+          LOG_I(PHY, "tx write thread ready\n");
+        }
+      }
+    }
+  }
+
+  if (setup_RU_buffers(ru)!=0) {
+    LOG_E(PHY, "Exiting, cannot initialize RU Buffers\n");
+    exit(-1);
+  }
+
+  threadCreate(&ru->proc.pthread_FH, ru_thread, ru, "ru_thread", ru->ru_thread_core, OAI_PRIORITY_RT_MAX);
+}
+
 static void start_NR_RU(RU_t *ru)
 {
-  threadCreate(&ru->proc.pthread_FH, ru_thread, ru, "ru_thread", ru->ru_thread_core, OAI_PRIORITY_RT_MAX);
+  if (ru->if_south == REMOTE_IF4p5) // transport is started in ru_thread()
+    threadCreate(&ru->proc.pthread_FH, ru_thread, ru, "ru_thread", ru->ru_thread_core, OAI_PRIORITY_RT_MAX);
+  else
+    start_split8(ru);
 }
 
 int start_streaming(RU_t *ru) {
