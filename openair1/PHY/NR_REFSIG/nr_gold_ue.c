@@ -7,26 +7,6 @@
 #include "openair1/PHY/LTE_TRANSPORT/transport_proto.h" 
 #include "common/utils/LOG/log.h"
 
-void nr_init_pscch_dmrs(NR_DL_FRAME_PARMS *fp, uint32_t ***nr_gold, uint16_t nid)
-{
-  unsigned int n = 0, x1 = 0, x2 = 0, x2tmp0 = 0;
-  uint8_t reset;
-  int pdcch_dmrs_init_length = (((fp->N_RB_UL << 1) * 3) >> 5) + 1;
-
-  for (int ns = 0; ns < fp->slots_per_frame; ns++) {
-    for (int l = 0; l < fp->symbols_per_slot; l++) {
-      reset = 1;
-      x2tmp0 = ((fp->symbols_per_slot * ns + l + 1) * ((nid << 1) + 1));
-      x2tmp0 <<= 17;
-      x2 = (x2tmp0 + (nid << 1)) % (1U << 31);  //cinit
-      for (n=0; n<pdcch_dmrs_init_length; n++) {
-        nr_gold[ns][l][n] = gold_generic(&x1, &x2, reset);
-        reset = 0;
-      }
-    }
-  }
-}
-
 void nr_init_pssch_dmrs_oneshot(NR_DL_FRAME_PARMS *fp,
                                 uint16_t N_id,
                                 uint32_t *pssch_dmrs,

@@ -463,8 +463,6 @@ typedef struct {
   fapi_nr_tdd_table_t tdd_table;
   //only 1 SL-BWP can be configured in REL16, REL17
   sl_nr_bwp_config_t sl_bwp_config;
-  // scrambling ID used for PSSCH SCI transmissions
-  uint32_t sl_DMRS_ScrambleId;
 } sl_nr_phy_config_request_t;
 
 #endif

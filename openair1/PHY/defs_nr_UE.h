@@ -467,11 +467,6 @@ typedef struct PHY_VARS_NR_UE_s {
   /// PSSCH demodulation scratch, one per DL actor as for the PDSCH
   int pssch_num_actors;
   struct NR_gNB_PUSCH_s *pssch_vars;
-  int pscch_dmrs_gold_init;
-  /// PDCCH DMRS for TX
-  uint32_t ***nr_gold_pscch_dmrs;
-  /// PSCCH DMRS for RX
-  uint32_t ***nr_gold_pscch;
   /// PSSCH signal detection threshold
   int pssch_thres;
   // PUCCH0 Look-up table for cyclic-shifts (used by PSFCH reception)

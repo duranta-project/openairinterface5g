@@ -60,15 +60,12 @@ uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
      * in time: by its first slot and its first symbol*/
     const nfapi_nr_dl_dci_pdu_t *dci_pdu = &pdcch_pdu_rel15->dci_pdu[d];
 
-    uint32_t **gold_pscch_dmrs = ue->nr_gold_pscch_dmrs[slot];
-
     cset_start_symb = pdcch_pdu_rel15->StartSymbolIndex;
     cset_nsymb = pdcch_pdu_rel15->DurationSymbols;
     dci_idx = 0;
     LOG_D(NR_PHY, "pscch: rb_offset %d, nb_rb %d BWP Start %d\n",rb_offset,n_rb,pdcch_pdu_rel15->BWPStart);
     LOG_D(NR_PHY, "pscch: starting subcarrier %d on symbol %d (%d symbols)\n", cset_start_sc, cset_start_symb, cset_nsymb);
     // DMRS length is per OFDM symbol
-    // TS 38.211 8.4.1.3.2 maps each PSCCH allocation starting with r_l(0).
     uint32_t dmrs_length = n_rb * 6; // 2 (QPSK) * 3 DM-RS RE per RB
     uint32_t encoded_length = dci_pdu->AggregationLevel*18; //2(QPSK)*9(per RB) for SCI
     if (dci_pdu->RNTI != 0xFFFF)
@@ -79,13 +76,15 @@ uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
     /// DMRS QPSK modulation
     for (int symb=cset_start_symb; symb<cset_start_symb + pdcch_pdu_rel15->DurationSymbols; symb++) {
 
-      nr_modulation(gold_pscch_dmrs[symb], dmrs_length, DMRS_MOD_ORDER, (int16_t*)mod_dmrs[symb]); //Qm = 2 as DMRS is QPSK modulated
+      const uint32_t *gold_pscch_dmrs =
+          nr_gold_pdcch(frame_parms->N_RB_UL, frame_parms->symbols_per_slot, dci_pdu->ScramblingId, slot, symb);
+      nr_modulation(gold_pscch_dmrs, dmrs_length, DMRS_MOD_ORDER, (int16_t*)mod_dmrs[symb]); //Qm = 2 as DMRS is QPSK modulated
 
 #ifdef DEBUG_PSCCH_DMRS
       if(dci_pdu->RNTI!=0xFFFF) {
         for (int i=0; i<dmrs_length>>1; i++)
           printf("symb %d i %d %p gold seq 0x%08x mod_dmrs %d %d\n", symb, i,
-                 &gold_pscch_dmrs[symb][i>>5],gold_pscch_dmrs[symb][i>>5], mod_dmrs[symb][i].r, mod_dmrs[symb][i].i);
+                 &gold_pscch_dmrs[i>>5],gold_pscch_dmrs[i>>5], mod_dmrs[symb][i].r, mod_dmrs[symb][i].i);
       }
 #endif
     }
