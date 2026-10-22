@@ -143,6 +143,18 @@ int openair0_transport_load(openair0_device_t *device, openair0_config_t *openai
   return rc;
 }
 
+void *load_transport_shlib(char *fname)
+{
+  char *devname = NULL;
+  paramdef_t device_params = {"name", CONFIG_HLP_DEVICE, 0, .strptr = &devname, .defstrval = OAI_TP_LIBNAME, TYPE_STRING, 0};
+  config_get(config_get_if(), &device_params, 1, DEVICE_SECTION);
+
+  loader_shlibfunc_t shlib_fdesc = {.fname = fname};
+  int ret = load_module_shlib(devname, &shlib_fdesc, 1, NULL);
+  AssertFatal(ret >= 0, "Library %s couldn't be loaded\n", devname);
+  return shlib_fdesc.fptr;
+}
+
 static void writerEnqueue(re_order_t *ctx, openair0_timestamp_t timestamp, void **txp, int nsamps, int nbAnt, int flags)
 {
   pthread_mutex_lock(&ctx->mutex_store);
