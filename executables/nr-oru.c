@@ -731,7 +731,7 @@ static void assemble_dl_symbol(ORU_t *oru,
   const int n_sc = n_rb_dl * NR_NB_SC_PER_RB;
   c16_t rotation = *(fp->symbol_rotation[0] + (slot % fp->slots_per_subframe) * fp->symbols_per_slot + symbol);
 
-  combine_dl_streams(txDataF, ru->nb_tx, n_sc, streams, num_streams, &oru->codebook, rotation);
+  combine_dl_streams(txDataF, ru->nb_tx, n_sc, streams, num_streams, &oru->codebook, NULL, rotation);
 }
 
 static pthread_mutex_t south_read_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -961,7 +961,17 @@ static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t 
     // UL Rx beamforming: combine the per-antenna FFTs via the codebook, only over the PRBs this job
     // sends (the rest of the window is zero and never leaves the O-RU).
     memset(rxdataF_fft, 0, sizeof(rxdataF_fft));
-    combine_ul_beam_prbs(ant_fft, ru->nb_rx, fp->ofdm_symbol_size, nbins, job->start_prb, job->num_prb, cb, job->beam_id, aarx,
+    combine_ul_beam_prbs(ant_fft,
+                         ru->nb_rx,
+                         fp->ofdm_symbol_size,
+                         nbins,
+                         job->start_prb,
+                         job->num_prb,
+                         cb,
+                         job->beam_id,
+                         aarx,
+                         NULL,
+                         NULL,
                          rxdataF_fft);
   } else {
     // No beamforming: perform FFT on the received antenna's time-domain signal
