@@ -59,7 +59,7 @@ support depends on the NIC.
 
 We tested the category A radio units listed below.
 
-|Vendor                 |Software Version        |
+|Vendor                 |Recommended SW version  |
 |-----------------------|------------------------|
 |VVDN LPRU              |03-v3.0.5               |
 |LiteON RU FR1          |02.00.10                |
@@ -614,7 +614,7 @@ For static compression, set `compression=static_compressed` on the RU and remove
 
 ###### Long PRACH (format 0)
 
-PRACH format 0 is verified with FW v2.0.5, using [`gnb.sa.band77.273prb.fhi72.2x2-benetel550-long-prach.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band77.273prb.fhi72.2x2-benetel550-long-prach.conf). On the RU side, modify the following parameters with respect to the configuration above:
+For testing with long PRACH (format 0) use [`gnb.sa.band77.273prb.fhi72.2x2-benetel550-long-prach.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band77.273prb.fhi72.2x2-benetel550-long-prach.conf). On the RU side, modify the following parameters with respect to the configuration above:
 ```bash
 mimo_mode=1_3
 prach_format=long
