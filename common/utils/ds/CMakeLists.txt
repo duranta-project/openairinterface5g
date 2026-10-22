@@ -10,6 +10,7 @@ add_library(ds OBJECT
             shared_pointer.c
             work_q.c
             queue_t.c
+            id_list.c
 )
 
 target_include_directories(ds PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
