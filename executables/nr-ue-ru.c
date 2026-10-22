@@ -485,29 +485,6 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
     *ptimestamp = tmp_timestamp - dev->firstTS;
   }
 
-  if (UE->Mod_id != 0)
-    return ret;
-#if 0
-  // UE 0 needs to read from all RUs that are not used by any other UE
-  void *tmp_buf[num_antennas];
-  uint32_t tmp_samples[nsamps];
-  for (int ant = 0; ant < num_antennas; ant++)
-    tmp_buf[ant] = tmp_samples;
-
-  for (int ru_id = 0; ru_id < nrue_rus.count; ru_id++) {
-    if (!nrue_rus.cfg[ru_id].cell[0].active) // skip RUs that have no cell definition
-      continue;
-    if (nrue_rus.cfg[ru_id].cell[0].used_by_ue >= 0) // skip cells that are already used by an UE
-      continue;
-    dev = &nrue_rus.openair0_dev[ru_id];
-    openair0_timestamp_t tmp_timestamp;
-    dev->trx_read_func(dev, &tmp_timestamp, tmp_buf, nsamps, num_antennas);
-    if (!dev->firstTS_initialized) {
-      dev->firstTS = tmp_timestamp;
-      dev->firstTS_initialized = true;
-    }
-  }
-#endif
   return ret;
 }
 
