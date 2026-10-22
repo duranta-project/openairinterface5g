@@ -444,8 +444,28 @@ void fill_rf_config(RU_t *ru, char *rf_config_file)
   }
 }
 
-void fill_split7_2_config(split7_config_t *split7, const nfapi_nr_config_request_scf_t *config, const NR_DL_FRAME_PARMS *fp)
+void fill_split7_2_config(const RU_t *ru, split7_config_t *split7)
 {
+  const nfapi_nr_config_request_scf_t *config = &ru->config;
+  const NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+
+  AssertFatal(ru->nb_tx > 0 && ru->nb_tx <= OPENAIR0_MAX_ANTENNAS, "split 7.2 does not support more than %d antennas\n", OPENAIR0_MAX_ANTENNAS);
+  AssertFatal(ru->nb_rx > 0 && ru->nb_rx <= OPENAIR0_MAX_ANTENNAS, "split 7.2 does not support more than %d antennas\n", OPENAIR0_MAX_ANTENNAS);
+
+  split7->duplex_mode = fp->frame_type == TDD ? duplex_mode_TDD : duplex_mode_FDD;
+  split7->num_rb_dl = fp->N_RB_DL;
+  split7->tx_num_channels = ru->nb_tx;
+  split7->rx_num_channels = ru->nb_rx;
+  split7->num_distributed_ru = 1;
+  double sample_rate;
+  get_samplerate_and_bw(fp->numerology_index, fp->N_RB_DL, fp->threequarter_fs, &sample_rate, &split7->tx_bw, &split7->rx_bw);
+  for (int i = 0; i < ru->nb_tx; i++) {
+    split7->tx_freq[i] = fp->dl_CarrierFreq;
+    split7->tx_gain[i] = ru->att_tx;
+  }
+  for (int i = 0; i < ru->nb_rx; i++)
+    split7->rx_freq[i] = fp->ul_CarrierFreq;
+
   const nfapi_nr_prach_config_t *prach_config = &config->prach_config;
   const nfapi_nr_tdd_table_t *tdd_table = &config->tdd_table;
   const nfapi_nr_cell_config_t *cell_config = &config->cell_config;
@@ -721,16 +741,14 @@ static void attach_NR_RU(RU_t *ru)
 
 static void configure_NR_RU(RU_t *ru)
 {
-  NR_DL_FRAME_PARMS  *fp = ru->nr_frame_parms;
   PHY_VARS_gNB *gNB = ru->gNB_list[0];
 
-  *fp = gNB->frame_parms; // carrier frequencies, threequarter_fs
+  *ru->nr_frame_parms = gNB->frame_parms; // carrier frequencies, threequarter_fs
   ru->config = gNB->gNB_config;
-  nr_init_frame_parms(&ru->config, fp);
-  nr_dump_frame_parms(fp);
+  nr_init_frame_parms(&ru->config, ru->nr_frame_parms);
+  nr_dump_frame_parms(ru->nr_frame_parms);
   nr_phy_init_RU(ru);
   fill_rf_config(ru, ru->rf_config_file);
-  fill_split7_2_config(&ru->openair0_cfg.split7, &ru->config, fp);
 }
 
 /* split 8 (LOCAL_RF/REMOTE_IF5): load and start the device, then spawn ru_thread() */
@@ -775,12 +793,12 @@ static void start_split8(RU_t *ru)
 }
 
 /* split 7.2 (REMOTE_IF4p5): load the fhi_72 library; oran_fhi72_init() spawns the FH thread */
-static void start_split72(RU_t *ru)
+static void start_split72(RU_t *ru, split7_config_t *s7cfg)
 {
   ru->gNB_list[0]->fhi72_transport = calloc(1, sizeof(*ru->gNB_list[0]->fhi72_transport));
   assert(ru->gNB_list[0]->fhi72_transport != NULL && "Memory exhausted");
   fhi72_init_t init = (fhi72_init_t)load_transport_shlib("oran_fhi72_init");
-  int ret = init(&ru->openair0_cfg, ru, ru->gNB_list[0]->fhi72_transport);
+  int ret = init(s7cfg, ru, ru->gNB_list[0]->fhi72_transport);
   AssertFatal(ret == 0, "RU %u: cannot initialize O-RAN 7.2 fronthaul\n", ru->idx);
 }
 
@@ -921,7 +939,9 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
     ru->proc = (RU_proc_t){.ru = ru, .first_rx = 1, .first_tx = 1};
 
     if (ru->if_south == REMOTE_IF4p5) {
-      start_split72(ru);
+      split7_config_t s7cfg = {0};
+      fill_split7_2_config(ru, &s7cfg);
+      start_split72(ru, &s7cfg);
     } else {
       int threadCnt = ru->num_tpcores;
       if (threadCnt < 2)

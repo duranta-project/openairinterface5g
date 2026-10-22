@@ -787,14 +787,12 @@ static bool set_fh_init(void *mplane_api, struct xran_fh_init *fh_init, enum xra
 int g_kbar;
 
 static bool set_fh_prach_config(void *mplane_api,
-                                const openair0_config_t *oai0,
+                                const split7_config_t *s7cfg,
                                 const uint32_t max_num_ant,
                                 const paramdef_t *prachp,
                                 int nprach,
                                 struct xran_prach_config *prach_config)
 {
-  const split7_config_t *s7cfg = &oai0->split7;
-
   prach_config->nPrachConfIdx = s7cfg->prach_index; // PRACH Configuration Index
   prach_config->nPrachSubcSpacing = s7cfg->mu; // 0 -> 15kHz, 1 -> 30kHz, 2 -> 60kHz, 3 -> 120kHz
   prach_config->nPrachZeroCorrConf = 0; // PRACH zeroCorrelationZoneConfig; should be saved from config file; not used in xran
@@ -802,7 +800,7 @@ static bool set_fh_prach_config(void *mplane_api,
                                           1 = restricted type A, 2=restricted type B; not used in xran */
   prach_config->nPrachRootSeqIdx = 0; // PRACH Root Sequence Index; should be saved from config file; 1 = 839, 2 = 139; not used in xran
   prach_config->nPrachFreqStart = s7cfg->prach_freq_start; // PRACH frequency start (MSG1)
-  prach_config->nPrachFreqOffset = (s7cfg->prach_freq_start * 12 - oai0->num_rb_dl * 6) * 2; // PRACH frequency offset
+  prach_config->nPrachFreqOffset = (s7cfg->prach_freq_start * 12 - s7cfg->num_rb_dl * 6) * 2; // PRACH frequency offset
   prach_config->nPrachFilterIdx = 0; /* PRACH filter index; not used in xran;
                                         in E release hardcoded to XRAN_FILTERINDEX_PRACH_ABC (preamble format A1~3, B1~4, C0, C2)
                                         in F release properly calculated */
@@ -834,10 +832,9 @@ static bool set_fh_prach_config(void *mplane_api,
   return true;
 }
 
-static bool set_fh_frame_config(const openair0_config_t *oai0, struct xran_frame_config *frame_config)
+static bool set_fh_frame_config(const split7_config_t *s7cfg, struct xran_frame_config *frame_config)
 {
-  const split7_config_t *s7cfg = &oai0->split7;
-  frame_config->nFrameDuplexType = oai0->duplex_mode == duplex_mode_TDD ? XRAN_TDD : XRAN_FDD; // Frame Duplex type:  0 -> FDD, 1 -> TDD
+  frame_config->nFrameDuplexType = s7cfg->duplex_mode == duplex_mode_TDD ? XRAN_TDD : XRAN_FDD; // Frame Duplex type:  0 -> FDD, 1 -> TDD
 
   if (frame_config->nFrameDuplexType == XRAN_FDD)
     return true;
@@ -899,7 +896,7 @@ static bool set_maxmin_pd(const paramdef_t *pd, int num, const char *name, uint1
   return true;
 }
 
-static bool set_fh_per_mu_cfg(void *mplane_api, int ru_idx, int num_rus, const openair0_config_t *oai0, struct xran_fh_per_mu_cfg *perMu)
+static bool set_fh_per_mu_cfg(void *mplane_api, int ru_idx, int num_rus, const split7_config_t *s7cfg, struct xran_fh_per_mu_cfg *perMu)
 {
   char aprefix[MAX_OPTNAME_SIZE] = {0};
 
@@ -925,17 +922,17 @@ static bool set_fh_per_mu_cfg(void *mplane_api, int ru_idx, int num_rus, const o
 
   perMu->nDLBandwidth = 0; // Carrier bandwidth for in MHz. Value: 5->400. Not used in K release
   perMu->nULBandwidth = 0; // Carrier bandwidth for in MHz. Value: 5->400. Not used in K release
-  if (!set_fh_prach_config(mplane_api, oai0, RTE_MAX(oai0->tx_num_channels / num_rus, oai0->rx_num_channels / num_rus), prachp, nprach, &perMu->prach_conf))
+  if (!set_fh_prach_config(mplane_api, s7cfg, RTE_MAX(s7cfg->tx_num_channels / num_rus, s7cfg->rx_num_channels / num_rus), prachp, nprach, &perMu->prach_conf))
     return false;
   perMu->freqOffset = 0;
 
-  perMu->nDLFftSize = oai0->split7.fftSize; // DL FFT size
-  perMu->nULFftSize = oai0->split7.fftSize; // UL FFT size
+  perMu->nDLFftSize = s7cfg->fftSize; // DL FFT size
+  perMu->nULFftSize = s7cfg->fftSize; // UL FFT size
 
   perMu->eaxcOffset = 0; // Starting value of Eaxc for PDSCH, PUSCH packets (Absolute value) of this numerology. Should be unique across all numerologies for the RU
 
-  perMu->nDLRBs = oai0->num_rb_dl; // DL PRB
-  perMu->nULRBs = oai0->num_rb_dl; // UL PRB
+  perMu->nDLRBs = s7cfg->num_rb_dl; // DL PRB
+  perMu->nULRBs = s7cfg->num_rb_dl; // UL PRB
 
   /* DU delay profile */
   if (!set_maxmin_pd(fhp, nfh, ORAN_FH_CONFIG_T1A_CP_DL, &perMu->T1a_min_cp_dl, &perMu->T1a_max_cp_dl)) // E - min not used in xran, max yes; F - both min and max are used in xran
@@ -948,7 +945,6 @@ static bool set_fh_per_mu_cfg(void *mplane_api, int ru_idx, int num_rus, const o
     return false;
 
   perMu->prachEnable = 1; // enable PRACH
-  const split7_config_t *s7cfg = &oai0->split7;
   perMu->prachConfigIndex = s7cfg->prach_index; // TS36.211 - Table 5.7.1-2 : PRACH Configuration Index
   perMu->prachConfigIndexLTE = 0; // PRACH Configuration Index for LTE in dss case
 
@@ -973,18 +969,18 @@ static bool set_activeMUs(xran_active_numerologies_per_tti *p_activeMUs, uint8_t
   return true;
 }
 
-static bool set_fh_config(void *mplane_api, int ru_idx, int num_rus, enum xran_category xran_cat, const openair0_config_t *oai0, struct xran_fh_config *fh_config)
+static bool set_fh_config(void *mplane_api, int ru_idx, int num_rus, enum xran_category xran_cat, const split7_config_t *s7cfg, struct xran_fh_config *fh_config)
 {
   AssertFatal(num_rus == 1 || num_rus == 2, "only support 1 or 2 RUs as of now\n");
   AssertFatal(ru_idx < num_rus, "illegal ru_idx %d: must be < %d\n", ru_idx, num_rus);
-  DevAssert(oai0->tx_num_channels > 0 && oai0->rx_num_channels > 0 && oai0->num_distributed_ru > 0);
-  DevAssert(oai0->tx_bw > 0 && oai0->rx_bw > 0);
-  DevAssert(oai0->tx_freq[0] > 0);
-  for (int i = 1; i < oai0->tx_num_channels; ++i)
-    DevAssert(oai0->tx_freq[0] == oai0->tx_freq[i]);
-  DevAssert(oai0->rx_freq[0] > 0);
-  for (int i = 1; i < oai0->rx_num_channels; ++i)
-    DevAssert(oai0->rx_freq[0] == oai0->rx_freq[i]);
+  DevAssert(s7cfg->tx_num_channels > 0 && s7cfg->rx_num_channels > 0 && s7cfg->num_distributed_ru > 0);
+  DevAssert(s7cfg->tx_bw > 0 && s7cfg->rx_bw > 0);
+  DevAssert(s7cfg->tx_freq[0] > 0);
+  for (int i = 1; i < s7cfg->tx_num_channels; ++i)
+    DevAssert(s7cfg->tx_freq[0] == s7cfg->tx_freq[i]);
+  DevAssert(s7cfg->rx_freq[0] > 0);
+  for (int i = 1; i < s7cfg->rx_num_channels; ++i)
+    DevAssert(s7cfg->rx_freq[0] == s7cfg->rx_freq[i]);
   paramdef_t FHconfigs[] = ORAN_FH_DESC;
   paramlist_def_t FH_ConfigList = {CONFIG_STRING_ORAN_FH};
   char aprefix[MAX_OPTNAME_SIZE] = {0};
@@ -1019,8 +1015,8 @@ static bool set_fh_config(void *mplane_api, int ru_idx, int num_rus, enum xran_c
   fh_config->dpdk_port = ru_idx; // DPDK port number used for FH
   fh_config->sector_id = 0; // Band sector ID for FH; not used in xran
   fh_config->nCC = 1; // number of Component carriers supported on FH; M-plane info
-  fh_config->neAxc = RTE_MAX(oai0->tx_num_channels / num_rus, oai0->rx_num_channels / num_rus); // number of eAxc supported on one CC = max(PDSCH, PUSCH)
-  fh_config->neAxcUl = oai0->rx_num_channels / num_rus; // number of eAxc supported on one CC for UL direction = PUSCH
+  fh_config->neAxc = RTE_MAX(s7cfg->tx_num_channels / num_rus, s7cfg->rx_num_channels / num_rus); // number of eAxc supported on one CC = max(PDSCH, PUSCH)
+  fh_config->neAxcUl = s7cfg->rx_num_channels / num_rus; // number of eAxc supported on one CC for UL direction = PUSCH
   fh_config->nAntElmTRx = 0; // number of antenna elements for TX and RX = SRS; used only if XRAN_CATEGORY_B
   fh_config->nDLAbsFrePointA = 0; // Abs Freq Point A of the Carrier Center Frequency for in KHz Value; not used in xran
   fh_config->nULAbsFrePointA = 0; // Abs Freq Point A of the Carrier Center Frequency for in KHz Value; not used in xran
@@ -1029,8 +1025,8 @@ static bool set_fh_config(void *mplane_api, int ru_idx, int num_rus, enum xran_c
   fh_config->ttiCb = NULL; // check tti_to_phy_cb(), tx_cp_dl_cb() and tx_cp_ul_cb => first_call
   fh_config->ttiCbParam = NULL; // check tti_to_phy_cb(), tx_cp_dl_cb() and tx_cp_ul_cb => first_call
 
-  uint8_t mu_number = oai0->split7.mu;
-  if(!set_fh_per_mu_cfg(mplane_api, ru_idx, num_rus, oai0, &fh_config->perMu[mu_number]))
+  uint8_t mu_number = s7cfg->mu;
+  if(!set_fh_per_mu_cfg(mplane_api, ru_idx, num_rus, s7cfg, &fh_config->perMu[mu_number]))
     return false;
 
   fh_config->enableCP = 1; // enable C-plane
@@ -1050,9 +1046,9 @@ static bool set_fh_config(void *mplane_api, int ru_idx, int num_rus, enum xran_c
   /* SRS only used if XRAN_CATEGORY_B
     Note: srs_config->eAxC_offset >= prach_config->eAxC_offset + PRACH */
   // fh_config->srs_conf = {0};
-  if (!set_fh_frame_config(oai0, &fh_config->frame_conf))
+  if (!set_fh_frame_config(s7cfg, &fh_config->frame_conf))
     return false;
-  if (!set_fh_ru_config(mplane_api, rup, oai0->split7.prach_fftSize, nru, xran_cat, mu_number, &fh_config->ru_conf))
+  if (!set_fh_ru_config(mplane_api, rup, s7cfg->prach_fftSize, nru, xran_cat, mu_number, &fh_config->ru_conf))
     return false;
 
   fh_config->bbdev_enc = NULL; // call back to poll BBDev encoder
@@ -1088,7 +1084,7 @@ static bool set_fh_config(void *mplane_api, int ru_idx, int num_rus, enum xran_c
   return true;
 }
 
-bool get_xran_config(void *mplane_api, const struct openair0_config *openair0_cfg, struct xran_fh_init *fh_init, struct xran_fh_config *fh_config)
+bool get_xran_config(void *mplane_api, const struct split7_config *s7cfg, struct xran_fh_init *fh_init, struct xran_fh_config *fh_config)
 {
   /* This xran integration release is only valid for O-RU CAT A.
     Therefore, each FH parameter is hardcoded to CAT A.
@@ -1104,14 +1100,14 @@ bool get_xran_config(void *mplane_api, const struct openair0_config *openair0_cf
   ru_session_list_t *ru_session_list = (ru_session_list_t *)mplane_api;
   for (int32_t o_xu_id = 0; o_xu_id < fh_init->xran_ports; o_xu_id++) {
     xran_mplane_t *xran_mplane = &ru_session_list->ru_session[o_xu_id].xran_mplane;
-    if (!set_fh_config(xran_mplane, o_xu_id, fh_init->xran_ports, xran_cat, openair0_cfg, &fh_config[o_xu_id])) {
+    if (!set_fh_config(xran_mplane, o_xu_id, fh_init->xran_ports, xran_cat, s7cfg, &fh_config[o_xu_id])) {
       MP_LOG_I("could not read FHI 7.2/RU-specific config\n");
       return false;
     }
   }
 #else
   for (int32_t o_xu_id = 0; o_xu_id < fh_init->xran_ports; o_xu_id++) {
-    if (!set_fh_config(NULL, o_xu_id, fh_init->xran_ports, xran_cat, openair0_cfg, &fh_config[o_xu_id])) {
+    if (!set_fh_config(NULL, o_xu_id, fh_init->xran_ports, xran_cat, s7cfg, &fh_config[o_xu_id])) {
       printf("could not read FHI 7.2/RU-specific config\n");
       return false;
     }

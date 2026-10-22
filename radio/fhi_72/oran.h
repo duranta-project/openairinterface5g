@@ -16,6 +16,6 @@ typedef struct fhi72_transport_s {
 
 /* oran_fhi72_init(): fhi_72 library entry point, loaded via load_transport_shlib(). Fills transport
  * and spawns the FH thread. */
-typedef int (*fhi72_init_t)(openair0_config_t *cfg, RU_t *ru, fhi72_transport_t *transport);
+typedef int (*fhi72_init_t)(split7_config_t *cfg, RU_t *ru, fhi72_transport_t *transport);
 
 #endif /* _ORAN_H_ */

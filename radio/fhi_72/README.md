@@ -17,8 +17,8 @@ The entry point for the driver library is `oran_fhi72_init()` in `oran_isolate.c
 This function fills the `fhi72_transport_t` callbacks, prepares xran
 configuration through `get_xran_config()` and spawns the FH thread
 `split7_thread()`. `get_xran_config()` reads 7.2 specific configuration and
-deduces some of the parameters (e.g., frequency) from OAI-provided radio
-configuration in `openair0_config_t`.
+deduces some of the parameters (e.g., frequency) from OAI-provided split 7.2
+configuration in `split7_config_t`.
 
 Actual xran initialization happens in `oai_oran_initialize()` in `oran-init.c`,
 called from `split7_thread()`.

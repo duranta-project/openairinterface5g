@@ -147,17 +147,33 @@ typedef enum {
 /*! \brief defines the direction of each symbol. Int values intentional and
  * analogous to FAPI/FHI 7.2 */
 typedef enum { SYMBOL_DIR_DL = 0, SYMBOL_DIR_UL = 1, SYMBOL_DIR_GU = 2 } symbol_direction_t;
-/*! \brief Contains information about PRACH and Frame structure, for
- * initialization of split 7 radios which reuses the interface of split 8.
- */
+/*! \brief Split 7.2 configuration */
 typedef struct split7_config {
+  /*! duplexing mode */
+  duplex_mode_t duplex_mode;
+  /*! number of downlink resource blocks */
+  int num_rb_dl;
+  /*! number of TX channels (=TX antennas) */
+  int tx_num_channels;
+  /*! number of RX channels (=RX antennas) */
+  int rx_num_channels;
+  /*! number of distributed radio-units */
+  int num_distributed_ru;
+  /*! TX/RX bandwidth in Hz */
+  double tx_bw;
+  double rx_bw;
+  /*! TX/RX center frequency in Hz, index: [0..tx/rx_num_channels[ */
+  double tx_freq[OPENAIR0_MAX_ANTENNAS];
+  double rx_freq[OPENAIR0_MAX_ANTENNAS];
+  /*! TX gain in dB, index: [0..tx_num_channels[ */
+  double tx_gain[OPENAIR0_MAX_ANTENNAS];
   /*! Common numerology */
   int mu;
   /*! PRACH index used for PRACH */
   int prach_index;
   /*! PRACH frequency start, from RRC's msg1-FrequencyStart */
   int prach_freq_start;
-  /*! the TDD period length, if TDD indicated in parent struct */
+  /*! the TDD period length, if TDD indicated */
   int n_tdd_period;
   /*! TDD frame structure, if TDD indicated */
   struct {
@@ -250,8 +266,6 @@ typedef struct openair0_config {
   int txfh_cores[OPENAIR0_MAX_ANTENNAS];
   //! select the GPIO control method
   gpio_control_t gpio_controller;
-  //! this interface is reused for split 7, so split 7 options provided below
-  split7_config_t split7;
 } openair0_config_t;
 extern openair0_config_t openair0_cfg_g[MAX_CARDS];
 

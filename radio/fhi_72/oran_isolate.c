@@ -168,7 +168,7 @@ static void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
     printf("ORAN: %d.%d ORAN_fh_if4p5_south_in ERROR in RX PRACH function \n", f_prach, sl_prach);
   }
 
-  int slots_per_frame = 10 << (ru->openair0_cfg.split7.mu);
+  int slots_per_frame = ru->nr_frame_parms->slots_per_frame;
   proc->tti_rx = sl;
   proc->frame_rx = f;
   proc->tti_tx = (sl + ru->sl_ahead) % slots_per_frame;
@@ -264,7 +264,7 @@ static void oran_fh_if4p5_south_out(int32_t **txdataF_BF, int frame, int slot)
 }
 
 /* Gather xran (and M-plane) configuration; xran is initialized later by trx_oran_start() */
-static oran_eth_state_t *oran_fhi72_configure(openair0_config_t *openair0_cfg)
+static oran_eth_state_t *oran_fhi72_configure(split7_config_t *s7cfg)
 {
   oran_eth_state_t *eth = calloc_or_fail(1, sizeof(*eth));
   struct xran_fh_init *fh_init = &eth->fh_init;
@@ -284,7 +284,7 @@ static oran_eth_state_t *oran_fhi72_configure(openair0_config_t *openair0_cfg)
     if (!ru_configured[i]) {
       continue;
     }
-    ru_configured[i] = manage_ru(ru_session, openair0_cfg, ru_session_list->num_rus);
+    ru_configured[i] = manage_ru(ru_session, s7cfg, ru_session_list->num_rus);
   }
 
   bool all_ok = true;
@@ -327,10 +327,10 @@ static oran_eth_state_t *oran_fhi72_configure(openair0_config_t *openair0_cfg)
 
   eth->mplane_priv = ru_session_list;
 
-  success = get_xran_config(ru_session_list, openair0_cfg, fh_init, fh_config);
+  success = get_xran_config(ru_session_list, s7cfg, fh_init, fh_config);
   AssertFatal(success, "[MPLANE] Cannot configure xran with M-plane info.\n");
 #else
-  success = get_xran_config(NULL, openair0_cfg, fh_init, fh_config);
+  success = get_xran_config(NULL, s7cfg, fh_init, fh_config);
   AssertFatal(success, "cannot get configuration for xran\n");
 #endif
 
@@ -404,9 +404,9 @@ static void *split7_thread(void *param)
 }
 
 /* Library entry point (see fhi72_init_t): configures xran, fills transport, spawns split7_thread() */
-__attribute__((__visibility__("default"))) int oran_fhi72_init(openair0_config_t *openair0_cfg, RU_t *ru, fhi72_transport_t *transport)
+__attribute__((__visibility__("default"))) int oran_fhi72_init(split7_config_t *s7cfg, RU_t *ru, fhi72_transport_t *transport)
 {
-  oran_eth_state_t *eth = oran_fhi72_configure(openair0_cfg);
+  oran_eth_state_t *eth = oran_fhi72_configure(s7cfg);
 
   transport->priv = eth;
   transport->fh_south_out = oran_fh_if4p5_south_out;
