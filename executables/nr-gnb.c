@@ -27,6 +27,7 @@
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "PHY/defs_RU.h"
 #include "PHY/defs_gNB.h"
+#include "executables/nr-softmodem.h"
 #include "PHY/defs_nr_common.h"
 #include "PHY/impl_defs_nr.h"
 #include "PHY/nr_phy_common/inc/nr_phy_meas.h"
@@ -101,27 +102,33 @@ static void tx_func(processingData_L1tx_t *info)
 
     START_MEAS_FULL_SLOT(&info->gNB->ru_tx_func_stats, tx_slot_type, NR_DOWNLINK_SLOT);
 
-    // split 7.2 precoding
-    if (ru->feptx_prec)
-      ru->feptx_prec(ru,frame_tx,slot_tx);
-
-    // split 8 precoding and IDFT
-    if (ru->feptx_ofdm)
+    // split 7.2: precoding only, other splits: precoding and IDFT
+    if (ru->if_south == REMOTE_IF4p5) {
+      nr_feptx_prec(ru,frame_tx,slot_tx);
+    } else {
       ru->feptx_ofdm(ru, frame_tx, slot_tx);
+    }
 
     STOP_MEAS_FULL_SLOT(&info->gNB->ru_tx_func_stats, tx_slot_type, NR_DOWNLINK_SLOT);
     STOP_MEAS_FULL_SLOT(&info->gNB->phy_proc_tx, tx_slot_type, NR_DOWNLINK_SLOT);
   }
 
   // beam API - fill TX and/or RX beam IDs
+  // split 7.2 goes through fhi72_transport, other splits through ru->fh_south_*
   if (gNB->common_vars.analog_bf) {
-    if (ru->fh_south_ctrl)
+    if (gNB->fhi72_transport) {
+      gNB->fhi72_transport->fh_south_ctrl(ru->gNB_list[0]->common_vars.beam_id, frame_tx, slot_tx);
+    } else {
       ru->fh_south_ctrl(ru, frame_tx, slot_tx, info->timestamp_tx);
+    }
   }
 
   if (tx_slot_type == NR_DOWNLINK_SLOT || tx_slot_type == NR_MIXED_SLOT || get_softmodem_params()->continuous_tx || IS_SOFTMODEM_RFSIM) {
-    if (ru->fh_south_out)
+    if (gNB->fhi72_transport) {
+      gNB->fhi72_transport->fh_south_out(ru->common.txdataF_BF, frame_tx, slot_tx);
+    } else {
       ru->fh_south_out(ru, frame_tx, slot_tx, info->timestamp_tx);
+    }
   }
 }
 

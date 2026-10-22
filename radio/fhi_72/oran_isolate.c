@@ -3,9 +3,7 @@
  */
 
 #include <stdio.h>
-#include <string.h>
 #include "common_lib.h"
-#include "radio/ETHERNET/ethernet_lib.h"
 #include "oran_isolate.h"
 #include "oran-init.h"
 #include "xran_fh_o_du.h"
@@ -15,6 +13,11 @@
 #include "openair1/PHY/defs_gNB.h"
 #include "oaioran.h"
 #include "oran-config.h"
+#include "oran.h"
+
+#include "common/ran_context.h"
+#include "common/utils/system.h"
+#include "executables/softmodem-common.h"
 
 // include the following file for VERSIONX, version of xran lib, to print it during
 // startup. Only relevant for printing, if it ever makes problem, remove this
@@ -26,21 +29,28 @@
 #include "mplane/connect-mplane.h"
 #endif
 
+/* fh_init/fh_config are kept until trx_oran_start() initializes xran from the FH thread */
 typedef struct {
   void *oran_priv;
   void *mplane_priv;
   uint32_t nCC;
   uint32_t num_ports;
+  int core; // xran io_cfg.system_core, used for split7_thread()
+  struct xran_fh_init fh_init;
+  struct xran_fh_config fh_config[XRAN_PORTS_NUM];
 } oran_eth_state_t;
 
 notifiedFIFO_t oran_sync_fifo;
 notifiedFIFO_t oran_sync_fifo_prach;
 
-int trx_oran_start(openair0_device_t *device)
+/* Must be called from the FH thread, pinned to its final core */
+static int trx_oran_start(oran_eth_state_t *s)
 {
-  printf("ORAN: %s\n", __FUNCTION__);
+  LOG_I(HW, "Initializing O-RAN 7.2 FH interface through xran library (compiled against headers of %s)\n", VERSIONX);
+  s->oran_priv = oai_oran_initialize(&s->fh_init, s->fh_config);
+  AssertFatal(s->oran_priv != NULL, "can not initialize fronthaul");
 
-  oran_eth_state_t *s = device->priv;
+  printf("ORAN: %s\n", __FUNCTION__);
 
   // Start ORAN
   if (xran_timingsource_start() != 0) {
@@ -82,10 +92,9 @@ int trx_oran_start(openair0_device_t *device)
   return 0;
 }
 
-void trx_oran_end(openair0_device_t *device)
+static void trx_oran_end(oran_eth_state_t *s)
 {
   printf("ORAN: %s\n", __FUNCTION__);
-  oran_eth_state_t *s = device->priv;
   xran_shutdown(s->oran_priv);
   for (int32_t port_id = 0; port_id < s->num_ports; port_id++) {
     xran_close(((void **)s->oran_priv)[port_id]);
@@ -94,10 +103,9 @@ void trx_oran_end(openair0_device_t *device)
   xran_mem_mgr_leak_detector_destroy();
 }
 
-int trx_oran_stop(openair0_device_t *device)
+static int trx_oran_stop(oran_eth_state_t *s)
 {
   printf("ORAN: %s\n", __FUNCTION__);
-  oran_eth_state_t *s = device->priv;
 
   for (int32_t cc_id = 0; cc_id < s->nCC; cc_id++) {
     for (int32_t port_id = 0; port_id < s->num_ports; port_id++) {
@@ -119,8 +127,9 @@ int trx_oran_stop(openair0_device_t *device)
   return (0);
 }
 
-int trx_oran_get_stats(openair0_device_t *device)
+static int trx_oran_get_stats(oran_eth_state_t *s)
 {
+  (void)s;
   uint64_t total_time, used_time;
   uint32_t num_core_used, core_used[64];
   uint32_t ret = xran_get_time_stats(&total_time, &used_time, &num_core_used, &core_used[0], 0);
@@ -130,7 +139,7 @@ int trx_oran_get_stats(openair0_device_t *device)
   return (0);
 }
 
-void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
+static void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
 {
   int ret = 0; // return code for PUSCH/PRACH processing
 
@@ -195,7 +204,7 @@ void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
   }
 }
 
-void oran_fh_if4p5_ctrl(RU_t *ru, int frame, int slot, uint64_t timestamp)
+static void oran_fh_if4p5_south_ctrl(uint16_t **beam_id, int frame, int slot)
 {
   int ret;
 
@@ -213,7 +222,7 @@ void oran_fh_if4p5_ctrl(RU_t *ru, int frame, int slot, uint64_t timestamp)
       // UL slot
       if (frame_conf->nFrameDuplexType == XRAN_FDD || is_tdd_ul_guard_slot(frame_conf, slot)) {
         // Send CP UL
-        ret = xran_send_cp_slot(tti, slot, xran_port, fh_cfg->neAxcUl, ru->gNB_list[0]->common_vars.beam_id, bufs->dstcp);
+        ret = xran_send_cp_slot(tti, slot, xran_port, fh_cfg->neAxcUl, beam_id, bufs->dstcp);
         if (ret != 0) {
           LOG_W(HW, "[%d.%d] xran_send_cp_slot UL error for xran_port %d\n", frame, slot, xran_port);
         }
@@ -222,7 +231,7 @@ void oran_fh_if4p5_ctrl(RU_t *ru, int frame, int slot, uint64_t timestamp)
       // DL slot
       if (frame_conf->nFrameDuplexType == XRAN_FDD || is_tdd_dl_guard_slot(frame_conf, slot)) {
         // Send CP DL
-        ret = xran_send_cp_slot(tti, slot, xran_port, fh_cfg->neAxc, ru->gNB_list[0]->common_vars.beam_id, bufs->srccp);
+        ret = xran_send_cp_slot(tti, slot, xran_port, fh_cfg->neAxc, beam_id, bufs->srccp);
         if (ret != 0) {
           LOG_W(HW, "[%d.%d] xran_send_cp_slot DL error for xran_port %d\n", frame, slot, xran_port);
         }
@@ -231,10 +240,9 @@ void oran_fh_if4p5_ctrl(RU_t *ru, int frame, int slot, uint64_t timestamp)
   }
 }
 
-void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
+static void oran_fh_if4p5_south_out(int32_t **txdataF_BF, int frame, int slot)
 {
   int ret;
-  start_meas(&ru->tx_fhaul);
 
   const struct xran_fh_init *fh_init = get_xran_fh_init();
 
@@ -247,37 +255,20 @@ void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
       const int tti = slots_per_frame * frame + slot;
 
       const int fft_size = 1 << fh_cfg->perMu[mu_number].nDLFftSize;
-      ret = xran_fh_tx_send_slot(tti, xran_port, fh_cfg->neAxc, fft_size, ru->common.txdataF_BF, bufs);
+      ret = xran_fh_tx_send_slot(tti, xran_port, fh_cfg->neAxc, fft_size, txdataF_BF, bufs);
       if (ret != 0) {
         LOG_W(HW, "[%d.%d] xran_fh_tx_send_slot error for xran_port %d\n", frame, slot, xran_port);
       }
     }
   }
-
-  stop_meas(&ru->tx_fhaul);
 }
 
-void *get_internal_parameter(char *name)
-{
-  printf("ORAN: %s\n", __FUNCTION__);
-
-  if (!strcmp(name, "fh_if4p5_south_in"))
-    return (void *)oran_fh_if4p5_south_in;
-  if (!strcmp(name, "fh_if4p5_south_out"))
-    return (void *)oran_fh_if4p5_south_out;
-  if (!strcmp(name, "fh_if4p5_ctrl"))
-    return (void *)oran_fh_if4p5_ctrl;
-
-  return NULL;
-}
-
-__attribute__((__visibility__("default"))) int transport_init(openair0_device_t *device,
-                                                              openair0_config_t *openair0_cfg)
+/* Gather xran (and M-plane) configuration; xran is initialized later by trx_oran_start() */
+static oran_eth_state_t *oran_fhi72_configure(openair0_config_t *openair0_cfg)
 {
   oran_eth_state_t *eth = calloc_or_fail(1, sizeof(*eth));
-
-  struct xran_fh_init fh_init = {0};
-  struct xran_fh_config fh_config[XRAN_PORTS_NUM] = {0};
+  struct xran_fh_init *fh_init = &eth->fh_init;
+  struct xran_fh_config *fh_config = eth->fh_config;
 
   bool success = false;
 #ifdef OAI_MPLANE
@@ -336,33 +327,95 @@ __attribute__((__visibility__("default"))) int transport_init(openair0_device_t 
 
   eth->mplane_priv = ru_session_list;
 
-  success = get_xran_config(ru_session_list, openair0_cfg, &fh_init, fh_config);
+  success = get_xran_config(ru_session_list, openair0_cfg, fh_init, fh_config);
   AssertFatal(success, "[MPLANE] Cannot configure xran with M-plane info.\n");
 #else
-  success = get_xran_config(NULL, openair0_cfg, &fh_init, fh_config);
+  success = get_xran_config(NULL, openair0_cfg, fh_init, fh_config);
   AssertFatal(success, "cannot get configuration for xran\n");
 #endif
 
-  LOG_I(HW, "Initializing O-RAN 7.2 FH interface through xran library (compiled against headers of %s)\n", VERSIONX);
-  eth->oran_priv = oai_oran_initialize(&fh_init, fh_config);
-  AssertFatal(eth->oran_priv != NULL, "can not initialize fronthaul");
-  // create message queues for ORAN sync
+  eth->nCC = fh_config->nCC;
+  eth->num_ports = fh_init->xran_ports;
+  eth->core = fh_init->io_cfg.system_core;
 
   initNotifiedFIFO(&oran_sync_fifo);
   initNotifiedFIFO(&oran_sync_fifo_prach);
 
-  eth->nCC = fh_config->nCC;
-  eth->num_ports = fh_init.xran_ports;
+  return eth;
+}
 
-  device->host_type = RAU_HOST;
-  device->transp_type = ETHERNET_TP;
-  device->trx_start_func = trx_oran_start;
-  device->trx_get_stats_func = trx_oran_get_stats;
-  device->trx_end_func = trx_oran_end;
-  device->trx_stop_func = trx_oran_stop;
-  device->get_internal_parameter = get_internal_parameter;
-  device->priv = eth;
-  device->openair0_cfg = &openair0_cfg[0];
+typedef struct {
+  RU_t *ru;
+  oran_eth_state_t *eth;
+} split7_thread_arg_t;
+
+/* @brief split 7.2 FH thread: starts xran, then per slot reads UL data and pushes the TX job.
+ * Stops xran on exit. */
+static void *split7_thread(void *param)
+{
+  split7_thread_arg_t *arg = param;
+  RU_t *ru = arg->ru;
+  oran_eth_state_t *eth = arg->eth;
+  free(arg);
+
+  RU_proc_t *proc = &ru->proc;
+  PHY_VARS_gNB *gNB = RC.gNB[0]; // this RU main loop handles only one RU
+  int frame = 1023;
+  int slot = ru->nr_frame_parms->slots_per_frame - 1;
+
+  if (trx_oran_start(eth) != 0)
+    LOG_E(HW, "Could not start the O-RAN 7.2 fronthaul\n");
+
+  LOG_I(PHY, "Signaling main thread that RU %d is ready, sl_ahead %d\n", ru->idx, ru->sl_ahead);
+  pthread_mutex_lock(&RC.ru_mutex);
+  RC.ru_mask &= ~(1 << ru->idx);
+  pthread_cond_signal(&RC.ru_cond);
+  pthread_mutex_unlock(&RC.ru_mutex);
+  wait_sync("split7_thread");
+
+  while (!oai_exit) {
+    if (slot==(ru->nr_frame_parms->slots_per_frame-1)) {
+      slot=0;
+      frame++;
+      frame&=1023;
+    } else {
+      slot++;
+    }
+
+    oran_fh_if4p5_south_in(ru, &frame, &slot); // sets proc->{frame,tti}_{rx,tx}
+
+    if (ru->rx_fhaul.trials > 1000) {
+      reset_meas(&ru->rx_fhaul);
+      reset_meas(&ru->tx_fhaul);
+    }
+
+    // no TX timestamp: xran schedules by frame/slot
+    ru_push_tx_job(gNB, proc->frame_tx, proc->tti_tx, proc->frame_rx, proc->tti_rx, 0);
+  }
+
+  trx_oran_get_stats(eth);
+  trx_oran_stop(eth);
+  trx_oran_end(eth);
+
+  free(gNB->fhi72_transport);
+  LOG_I(PHY, "RU %d O-RAN 7.2 fronthaul stopped\n", ru->idx);
+
+  return NULL;
+}
+
+/* Library entry point (see fhi72_init_t): configures xran, fills transport, spawns split7_thread() */
+__attribute__((__visibility__("default"))) int oran_fhi72_init(openair0_config_t *openair0_cfg, RU_t *ru, fhi72_transport_t *transport)
+{
+  oran_eth_state_t *eth = oran_fhi72_configure(openair0_cfg);
+
+  transport->priv = eth;
+  transport->fh_south_out = oran_fh_if4p5_south_out;
+  transport->fh_south_ctrl = oran_fh_if4p5_south_ctrl;
+
+  split7_thread_arg_t *arg = calloc_or_fail(1, sizeof(*arg));
+  arg->ru = ru;
+  arg->eth = eth;
+  threadCreate(&ru->proc.pthread_FH, split7_thread, arg, "split7_thread", eth->core, OAI_PRIORITY_RT_MAX);
 
   return 0;
 }

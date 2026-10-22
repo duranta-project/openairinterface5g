@@ -13,13 +13,15 @@ The main source files and their purpose are as follows:
 - `oran_isolate.c`: main entry point and definition of function pointers for OAI
   callbacks.
 
-The entry point for the driver library is `transport_init()` in `oran_isolate.c`.
-This function is concerned with setting necessary function pointers for OAI
-integration, and prepares xran configuration through `get_xran_config()`. This
-function reads 7.2 specific configuration and deduces some of the parameters
-(e.g., frequency) from OAI-provided radio configuration in `openair0_config_t`.
+The entry point for the driver library is `oran_fhi72_init()` in `oran_isolate.c`.
+This function fills the `fhi72_transport_t` callbacks, prepares xran
+configuration through `get_xran_config()` and spawns the FH thread
+`split7_thread()`. `get_xran_config()` reads 7.2 specific configuration and
+deduces some of the parameters (e.g., frequency) from OAI-provided radio
+configuration in `openair0_config_t`.
 
-Actual xran initialization happens in `oai_oran_initialize()` in `oran-init.c`.
+Actual xran initialization happens in `oai_oran_initialize()` in `oran-init.c`,
+called from `split7_thread()`.
 It calls various helper function in the same file to set up DPDK memory buffer
 (pools). Notably, these callbacks are installed:
 
@@ -34,9 +36,10 @@ It calls various helper function in the same file to set up DPDK memory buffer
 More detailed information about the xran callbacks can be taken from the xran
 documentation.
 
-During normal operation, OAI calls into the driver through functions
-`oran_fh_if4p5_south_in()` for PUSCH/PRACH, `oran_fh_if4p5_south_out()` for
-PDSCH, and `oran_fh_if4p5_ctrl()` for CP UL/DL.
+During normal operation, `split7_thread()` calls `oran_fh_if4p5_south_in()` for
+PUSCH/PRACH, and OAI calls into the driver through `fhi72_transport_t`:
+`oran_fh_if4p5_south_out()` for PDSCH and `oran_fh_if4p5_south_ctrl()` for CP
+UL/DL.
 
 For PDSCH, `oran_fh_if4p5_south_out()` calls `xran_fh_tx_send_slot()` that
 optionally compresses IQ data, then writes it into IQ buffers of xran.
