@@ -175,6 +175,12 @@ typedef struct nrLDPC_TB_encoding_parameters_s{
  * The thread pool can be used by the implementation
  * in order to launch jobs internally
  * DEQUEUING THE JOBS IS DONE WITHIN THE IMPLEMENTATION
+ * \var tinput pointer to the input timer struct
+ * \var tinput_memcpy pointer to the input memcpy timer struct
+ * \var tprep pointer to the preparation timer struct
+ * \var tparity pointer to the parity timer struct
+ * \var toutput pointer to the output timer struct
+ * \var tconcat pointer to the output concatenation timer struct
  * \var TBs array of TBs decoding parameters
  */
 typedef struct nrLDPC_slot_encoding_parameters_s{
@@ -182,6 +188,12 @@ typedef struct nrLDPC_slot_encoding_parameters_s{
   int slot;
   int nb_TBs;
   tpool_t *threadPool;
+  time_stats_t *tinput;
+  time_stats_t *tinput_memcpy;
+  time_stats_t *tprep;
+  time_stats_t *tparity;
+  time_stats_t *toutput;
+  time_stats_t *tconcat;
   nrLDPC_TB_encoding_parameters_t *TBs;
 } nrLDPC_slot_encoding_parameters_t;
 
