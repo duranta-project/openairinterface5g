@@ -936,6 +936,11 @@ void *UE_thread(void *arg)
           syncData_t *syncMsg = (syncData_t *)NotifiedFifoData(res);
           decoded_frame_rx = (decoded_frame_rx + skipped_frames) % MAX_FRAME_NUMBER;
           intialSyncOffset = syncMsg->rx_offset;
+          // the SSB frame started before the capture: we can only move forward, to the start of the next frame
+          if (intialSyncOffset < 0) {
+            intialSyncOffset += fp->samples_per_frame;
+            decoded_frame_rx = (decoded_frame_rx + 1) % MAX_FRAME_NUMBER;
+          }
         }
         delNotifiedFIFO_elt(res);
         stream_status = STREAM_STATUS_UNSYNC;
