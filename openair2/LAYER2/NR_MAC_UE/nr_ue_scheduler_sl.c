@@ -215,6 +215,7 @@ static void sl_determine_slot_bitmap(sl_nr_ue_mac_params_t *sl_mac, int ue_id)
     }
   }
 
+  free(sl_mac->future_ttis);
   sl_mac->future_ttis = calloc(num_slots_per_frame, sizeof(sl_stored_tti_req_t));
 
   LOG_I(NR_MAC,
@@ -1465,7 +1466,18 @@ void nr_ue_sl_mac_free(NR_UE_MAC_INST_t *mac)
     mac->sl_transmit_history.data = NULL;
     mac->sl_transmit_history.size = mac->sl_transmit_history.cap = 0;
   }
-  nr_ue_sl_free_resource_pools(mac);
+  for (int i = 0; i < MAX_SL_UE_CONNECTIONS; i++) {
+    NR_SL_UE_info_t *peer = mac->sl_info.list[i];
+    if (peer == NULL)
+      continue;
+    NR_SL_UE_sched_ctrl_t *sched_ctrl = &peer->UE_sched_ctrl;
+    free(sched_ctrl->sched_psfch);
+    destroy_nr_list(&sched_ctrl->available_sl_harq);
+    destroy_nr_list(&sched_ctrl->feedback_sl_harq);
+    destroy_nr_list(&sched_ctrl->retrans_sl_harq);
+    free_and_zero(mac->sl_info.list[i]);
+  }
+  sl_ue_mac_free(mac);
 }
 
 void remove_old_transmit_history(frameslot_t *frame_slot,

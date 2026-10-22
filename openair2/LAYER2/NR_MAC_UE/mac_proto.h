@@ -420,6 +420,7 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
 
 void nr_ue_sl_free_resource_pools(NR_UE_MAC_INST_t *mac);
 void nr_ue_sl_mac_free(NR_UE_MAC_INST_t *mac);
+void sl_ue_mac_free(NR_UE_MAC_INST_t *mac);
 
 bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
                               nr_sidelink_indication_t *sl_ind,

@@ -276,6 +276,30 @@ int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)
 
 static void sl_ue_free(PHY_VARS_NR_UE *UE)
 {
+  const NR_DL_FRAME_PARMS *sl_fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
+  if (UE->slsch) {
+    for (int i = 0; i < UE->max_nb_slsch; i++)
+      free_gNB_ulsch(&UE->slsch[i], sl_fp->N_RB_UL);
+    free_and_zero(UE->slsch);
+  }
+  UE->max_nb_slsch = 0;
+
+  if (UE->pssch_vars) {
+    for (int actor = 0; actor < UE->pssch_num_actors; actor++) {
+      NR_gNB_PUSCH *pssch = &UE->pssch_vars[actor];
+      for (int i = 0; i < 2 * sl_fp->nb_antennas_rx; i++) {
+        free_and_zero(pssch->ul_ch_estimates[i]);
+        free_and_zero(pssch->rxdataF_comp[i]);
+      }
+      free_and_zero(pssch->ul_ch_estimates);
+      free_and_zero(pssch->rxdataF_comp);
+      free_and_zero(pssch->llr);
+      free_and_zero(pssch->ul_valid_re_per_slot);
+    }
+    free_and_zero(UE->pssch_vars);
+  }
+  UE->pssch_num_actors = 0;
+
   if (UE->SL_UE_PHY_PARAMS.init_params.sl_pss_for_correlation) {
     free_and_zero(UE->SL_UE_PHY_PARAMS.init_params.sl_pss_for_correlation[0]);
     free_and_zero(UE->SL_UE_PHY_PARAMS.init_params.sl_pss_for_correlation[1]);

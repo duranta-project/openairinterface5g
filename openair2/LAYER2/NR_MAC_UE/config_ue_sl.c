@@ -74,35 +74,18 @@ void nr_ue_sl_free_resource_pools(NR_UE_MAC_INST_t *mac)
 
 void sl_ue_mac_free(NR_UE_MAC_INST_t *mac)
 {
+  sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
+  if (sl_mac == NULL)
+    return;
 
-  sl_nr_phy_config_request_t *sl_config =
-                    &mac->SL_MAC_PARAMS->sl_phy_config.sl_config_req;
-
-  uint8_t syncsource = sl_config->sl_sync_source.sync_source;
-
-  //Allocated by MAC only in case of SYNC_REF_UE
-  //else it is freed as part of RRC pre-config structure
-  if (syncsource == SL_SYNC_SOURCE_SYNC_REF_UE &&
-      mac->SL_MAC_PARAMS->sl_TDD_config) {
-    ASN_STRUCT_FREE (asn_DEF_NR_TDD_UL_DL_Pattern, mac->SL_MAC_PARAMS->sl_TDD_config);
-    mac->SL_MAC_PARAMS->sl_TDD_config = NULL;
+  fapi_nr_tdd_table_t *tdd_table = &sl_mac->sl_phy_config.sl_config_req.tdd_table;
+  if (tdd_table->max_tdd_periodicity_list) {
+    for (int i = 0; i < tdd_table->tdd_period_in_slots; i++)
+      free(tdd_table->max_tdd_periodicity_list[i].max_num_of_symbol_per_slot_list);
+    free(tdd_table->max_tdd_periodicity_list);
   }
-
-  fapi_nr_max_tdd_periodicity_t *tdd_list =
-                            sl_config->tdd_table.max_tdd_periodicity_list;
-
-  // @todo: maybe this should be done by phy
-  if (tdd_list) {
-    int mu = sl_config->sl_bwp_config.sl_scs;
-    int nb_slots_to_set = (1 << mu) * NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
-    for (int i=0; i<nb_slots_to_set; i++) {
-      free_and_zero(tdd_list[i].max_num_of_symbol_per_slot_list);
-    }
-    free_and_zero(sl_config->tdd_table.max_tdd_periodicity_list);
-  }
-
+  free(sl_mac->future_ttis);
   nr_ue_sl_free_resource_pools(mac);
-
   free_and_zero(mac->SL_MAC_PARAMS);
 }
 
@@ -114,6 +97,11 @@ void sl_set_tdd_config_nr_ue(fapi_nr_tdd_table_t *tdd_table,
   const int nrofUplinkSymbols = pattern->nrofUplinkSymbols;
   const int nb_periods_per_frame = get_nb_periods_per_frame(pattern->dl_UL_TransmissionPeriodicity);
   const int nb_slots_per_period = ((1 << mu) * NR_NUMBER_OF_SUBFRAMES_PER_FRAME) / nb_periods_per_frame;
+  if (tdd_table->max_tdd_periodicity_list) {
+    for (int i = 0; i < tdd_table->tdd_period_in_slots; i++)
+      free(tdd_table->max_tdd_periodicity_list[i].max_num_of_symbol_per_slot_list);
+    free(tdd_table->max_tdd_periodicity_list);
+  }
   tdd_table->tdd_period_in_slots = nb_slots_per_period;
 
   LOG_I(PHY,"UL slots:%d, symbols:%d, slots_per_period:%d\n",
@@ -506,8 +494,6 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
 
   //Do not copy TDD config yet as SYNC source is not yet found
   if (sync_source == SL_SYNC_SOURCE_NONE) {
-    if (sl_mac->sl_TDD_config)
-      ASN_STRUCT_FREE(asn_DEF_NR_TDD_UL_DL_ConfigCommon, sl_mac->sl_TDD_config);
     sl_mac->sl_TDD_config = NULL;
   }
 
@@ -529,6 +515,7 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
      * not the cellular UL-slot axis.  Keep enough entries for one complete
      * frame of received pool resources and initialize every entry as free. */
     sched_ctrl->sched_psfch_size = nr_slots_frame * num_subch;
+    free(sched_ctrl->sched_psfch);
     sched_ctrl->sched_psfch = calloc(sched_ctrl->sched_psfch_size, sizeof(*sched_ctrl->sched_psfch));
     for (int i = 0; i < sched_ctrl->sched_psfch_size; i++) {
       sched_ctrl->sched_psfch[i].feedback_frame = -1;
@@ -732,6 +719,7 @@ void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
     uint16_t num_subch = sl_get_num_subch(mac->sl_rx_res_pool);
     NR_SL_UE_sched_ctrl_t *sched_ctrl = &mac->sl_info.list[0]->UE_sched_ctrl;
     sched_ctrl->sched_psfch_size = nr_slots_frame * num_subch;
+    free(sched_ctrl->sched_psfch);
     sched_ctrl->sched_psfch = calloc(sched_ctrl->sched_psfch_size, sizeof(*sched_ctrl->sched_psfch));
     for (int i = 0; i < sched_ctrl->sched_psfch_size; i++) {
       sched_ctrl->sched_psfch[i].feedback_frame = -1;
@@ -847,4 +835,7 @@ void nr_sl_params_read_conf(module_id_t module_id) {
       LOG_D(NR_MAC, "Provided resource selection mechanism is not supported!!!\n");
       break;
   }
+  free(sl_csi_rs_info);
+  free(resource_selection_cfg);
+  free(pssch_num_subchannels);
 }
