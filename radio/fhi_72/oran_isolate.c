@@ -41,9 +41,6 @@ typedef struct {
   struct xran_fh_config fh_config[XRAN_PORTS_NUM];
 } oran_eth_state_t;
 
-notifiedFIFO_t oran_sync_fifo;
-notifiedFIFO_t oran_sync_fifo_prach;
-
 /* Must be called from the FH thread, pinned to its final core */
 static int trx_oran_start(oran_eth_state_t *s)
 {
@@ -221,6 +218,7 @@ static void oran_fh_if4p5_south_in(RU_t *ru, int frame, int slot)
     }
   } else {
     proc->first_rx = 0;
+
     LOG_I(HW, "before adjusting, OAI: frame=%d slot=%d, XRAN: frame=%d slot=%d\n", frame, slot, proc->frame_rx, proc->tti_rx);
     frame = proc->frame_rx;
     slot = proc->tti_rx;
@@ -362,9 +360,6 @@ static oran_eth_state_t *oran_fhi72_configure(split7_config_t *s7cfg)
   eth->num_ports = fh_init->xran_ports;
   eth->core = fh_init->io_cfg.system_core;
 
-  initNotifiedFIFO(&oran_sync_fifo);
-  initNotifiedFIFO(&oran_sync_fifo_prach);
-
   return eth;
 }
 
@@ -384,25 +379,14 @@ static void *split7_thread(void *param)
 
   RU_proc_t *proc = &ru->proc;
   PHY_VARS_gNB *gNB = RC.gNB[0]; // this RU main loop handles only one RU
-  //int frame = 1023;
-  //int slot = ru->nr_frame_parms->slots_per_frame - 1;
+  int frame = 1023;
+  int slot = ru->nr_frame_parms->slots_per_frame - 1;
 
   if (trx_oran_start(eth) != 0)
     LOG_E(HW, "Could not start the O-RAN 7.2 fronthaul\n");
 
   wait_sync("split7_thread");
 
-  uint32_t xran_frame; // [0-99]
-  uint32_t xran_subframe; // [0-10]
-  uint32_t xran_slot; // [0-7]
-  uint64_t xran_second; // current UTC second
-  // assuming all RUs have the same numerology
-  uint8_t mu = eth->fh_config[0].mu_number[0];
-  // current TTI number [0-7999]
-  int32_t tti = xran_timingsource_get_slotidx(&xran_frame, &xran_subframe, &xran_slot, &xran_second, mu);
-
-  int frame = (tti / ru->nr_frame_parms->slots_per_frame) & 1023;
-  int slot = tti % ru->nr_frame_parms->slots_per_frame;
   while (!oai_exit) {
     if (slot==(ru->nr_frame_parms->slots_per_frame-1)) {
       slot=0;

@@ -104,13 +104,14 @@ void oai_xran_fh_rx_callback(void *pCallbackTag, xran_status_t status, uint8_t m
 
   LOG_D(HW, "rx_callback at %4d.%3d (subframe %d), rx_sym %d ru_id %d\n", frame, slot, subframe, rx_sym, ru_id);
 
+  uint32_t prev_tti = tti + XRAN_N_FE_BUF_LEN - 1;
   if (rx_sym == 7) { // in F release this value is defined as XRAN_FULL_CB_SYM (full slot (offset + 7))
     oran_buf_list_t *bufs = get_xran_buffers(ru_id);
     struct xran_fh_config *fh_config = get_xran_fh_config(ru_id);
     for (uint16_t cc_id = 0; cc_id < 1 /* fh_config->nCC */; cc_id++) { // OAI does not support multiple CC yet.
       for(uint32_t ant_id = 0; ant_id < fh_config->neAxcUl; ant_id++) {
-        struct xran_prb_map *pRbMap = (struct xran_prb_map *)bufs->dstcp[ant_id][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
-        AssertFatal(pRbMap != NULL, "(%d:%d:%d)pRbMap == NULL. Aborting.\n", cc_id, tti % XRAN_N_FE_BUF_LEN, ant_id);
+        struct xran_prb_map *pRbMap = (struct xran_prb_map *)bufs->dstcp[ant_id][prev_tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
+        AssertFatal(pRbMap != NULL, "(%d:%d:%d)pRbMap == NULL. Aborting.\n", cc_id, prev_tti % XRAN_N_FE_BUF_LEN, ant_id);
         for (uint32_t sym_id = 0; sym_id < XRAN_NUM_OF_SYMBOL_PER_SLOT; sym_id++) {
           pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt = 0;
         }
@@ -136,13 +137,14 @@ void oai_xran_fh_rx_prach_callback(void *pCallbackTag, xran_status_t status, uin
 
   LOG_D(HW, "prach_rx_callback at %4d.%3d (subframe %d), rx_sym %d ru_id %d\n", frame, slot, subframe, rx_sym, ru_id);
 
+  uint32_t prev_tti = tti + XRAN_N_FE_BUF_LEN - 1;
   if (rx_sym == 7) { // in F release this value is defined as XRAN_FULL_CB_SYM (full slot (offset + 7))
     oran_buf_list_t *bufs = get_xran_buffers(ru_id);
     struct xran_fh_config *fh_config = get_xran_fh_config(ru_id);
     for (uint16_t cc_id = 0; cc_id < 1 /* fh_config->nCC */; cc_id++) { // OAI does not support multiple CC yet.
       for(uint32_t ant_id = 0; ant_id < fh_config->neAxcUl; ant_id++) {
-        struct xran_prb_map *pRbMap = (struct xran_prb_map *)bufs->prachdstdecomp[ant_id][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
-        AssertFatal(pRbMap != NULL, "(%d:%d:%d)pRbMapPrach == NULL. Aborting.\n", cc_id, tti % XRAN_N_FE_BUF_LEN, ant_id);
+        struct xran_prb_map *pRbMap = (struct xran_prb_map *)bufs->prachdstdecomp[ant_id][prev_tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
+        AssertFatal(pRbMap != NULL, "(%d:%d:%d)pRbMapPrach == NULL. Aborting.\n", cc_id, prev_tti % XRAN_N_FE_BUF_LEN, ant_id);
         for (uint32_t sym_id = 0; sym_id < XRAN_NUM_OF_SYMBOL_PER_SLOT; sym_id++) {
           pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt = 0;
         }
@@ -171,7 +173,7 @@ int xran_fh_rx_prach_read_slot(const int tti, const int xran_port, const uint8_t
       uint16_t N_ZC = (num_prbu <= 12) ? 139 : 839;
       int32_t nRxPkt = p_rx_packet_ctl->nRxPkt;
       if (nRxPkt == 0) {
-        LOG_E(HW, "tti %d xran_port %d ant_id %d sym_idx %d nRxPkt %d (expected 1 packet)\n", tti, xran_port, aa, sym_idx, nRxPkt);
+        //LOG_E(HW, "tti %d xran_port %d ant_id %d sym_idx %d nRxPkt %d (expected 1 packet)\n", tti, xran_port, aa, sym_idx, nRxPkt);
         memset(&dst[sym_idx], 0, N_ZC * 2 * sizeof(*dst));
         continue;
       } else {
