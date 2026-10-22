@@ -677,7 +677,7 @@ static int16_t xran_compress_iq_section(int32_t *pos_start, uint8_t *dst, int nu
  * - fragmented: nPrbElm is the number of frequency fragments; dst_cursor is carried across
  *   elements per symbol
  * - per-symbol (Liteon FR2, RunSlotPrbMapBySymbolEnable): nPrbElm == XRAN_NUM_OF_SYMBOL_PER_SLOT
- *   and each element maps to exactly one symbol; dst_cursor is a no-op for this case since 
+ *   and each element maps to exactly one symbol; dst_cursor is a no-op for this case since
  *   each symbol is only ever touched once
  * Both are handled by the same data-driven loop: correctness comes entirely from each
  * element's own nStartSymb/numSymb. */
