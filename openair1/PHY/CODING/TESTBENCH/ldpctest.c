@@ -374,8 +374,8 @@ one_measurement_t test_ldpc(short max_iterations,
     for (int j = 0; j < n_segments; j++) {
       start_meas(&ret.time_decoder);
       set_abort(&dec_abort, false);
-      int8_t *input = use32bit ? channel_output_fixed_dev : &channel_output_fixed[j];
-      uint8_t *output = use32bit ? estimated_output_dev : &estimated_output[j * Kprime];
+      int8_t *input = use32bit ? channel_output_fixed_dev : &channel_output_fixed[j * 68 * 384];
+      uint8_t *output = use32bit ? estimated_output_dev : &estimated_output[j * (Kprime >> 3)];
       // when using LDPC CUDA, the segment interface for decoding handles all
       // segments, unlike the optim/orig libraries (so the API is handled
       // differently). Account for this below by calling into it only on first
@@ -397,7 +397,7 @@ one_measurement_t test_ldpc(short max_iterations,
       }
 
       n_iter_mean += n_iter;
-      n_iter_std += pow(n_iter - 1, 2);
+      n_iter_std += pow(n_iter, 2);
 
       if (n_iter > n_iter_max)
         n_iter_max = n_iter;
@@ -415,10 +415,10 @@ one_measurement_t test_ldpc(short max_iterations,
     }
   }
 
-  ret.dec_iter.n_iter_mean = n_iter_mean / (double)ntrials / (double)n_segments - 1;
-  ret.dec_iter.n_iter_std =
-      sqrt(n_iter_std / (double)ntrials / (double)n_segments - pow(n_iter_mean / (double)ntrials / (double)n_segments - 1, 2));
-  ret.dec_iter.n_iter_max = n_iter_max - 1;
+  ret.dec_iter.n_iter_mean = n_iter_mean / (double)ntrials / (double)n_segments;
+  ret.dec_iter.n_iter_std = sqrt(
+      fmax(0.0, n_iter_std / (double)ntrials / (double)n_segments - pow(n_iter_mean / (double)ntrials / (double)n_segments, 2)));
+  ret.dec_iter.n_iter_max = n_iter_max;
 
   ret.errors_bit_uncoded = ret.errors_bit_uncoded / (double)((Kb + nrows - no_punctured_columns - 2) * Zc - removed_bit);
 
@@ -580,6 +580,9 @@ int main(int argc, char *argv[])
   printf("loading %s\n", ldpc_version);
   load_LDPClib(ldpc_version, &ldpc_toCompare);
   int use32bit = strcmp(ldpc_version, "_cuda") == 0;
+  if (!use32bit) {
+    AssertFatal(n_segments >= 1 && n_segments <= 8, "ldpctest CPU path supports 1 to 8 segments, got %d\n", n_segments);
+  }
   if (use32bit)
     printf("ldpc_cuda detected, will call LDPCencoder32() instead of LDPCencoder()\n");
   ldpc_toCompare.LDPCinit();
