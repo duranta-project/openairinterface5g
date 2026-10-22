@@ -8,6 +8,7 @@
 #include "log.h"
 
 static void csi_rs_resource_mapping(c16_t **dataF,
+                                    int first_symbol,
                                     int csi_rs_length,
                                     int16_t mod_csi[][csi_rs_length >> 1],
                                     int ofdm_symbol_size,
@@ -50,7 +51,7 @@ static void csi_rs_resource_mapping(c16_t **dataF,
                 else
                   wt = -1;
               }
-              int index = (l * ofdm_symbol_size + k);
+              int index = ((l - first_symbol) * ofdm_symbol_size + k);
               dataF[p][index].r = (beta * wt * wf * mod_csi[l][mprime << 1]) >> 15;
               dataF[p][index].i = (beta * wt * wf * mod_csi[l][(mprime << 1) + 1]) >> 15;
               LOG_D(PHY,
@@ -558,7 +559,8 @@ void nr_generate_csi_rs(const NR_DL_FRAME_PARMS *frame_parms,
                         const uint16_t scramb_id,
                         const uint8_t power_control_offset_ss,
                         const uint8_t cdm_type,
-                        c16_t **dataF)
+                        c16_t **dataF,
+                        int first_symbol)
 {
 #ifdef NR_CSIRS_DEBUG
   LOG_I(NR_PHY,
@@ -607,6 +609,7 @@ void nr_generate_csi_rs(const NR_DL_FRAME_PARMS *frame_parms,
   const int gs = get_cdm_group_size(cdm_type);
 
   csi_rs_resource_mapping(dataF,
+                          first_symbol,
                           frame_parms->N_RB_DL << 4,
                           mod_csi,
                           frame_parms->ofdm_symbol_size,
