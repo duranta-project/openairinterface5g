@@ -869,7 +869,9 @@ void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
   NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
   NR_DL_FRAME_PARMS *fep_fp = pscch_processing ? &ue->SL_UE_PHY_PARAMS.sl_frame_params : fp;
   const int num_monitoring_occ = get_max_pdcch_monOcc(phy_pdcch_config, fep_fp->symbols_per_slot);
-  AssertFatal(num_monitoring_occ > 0, "%s has no monitoring occasion in this slot\n", pscch_processing ? "PSCCH" : "PDCCH");
+  // Only the sidelink caller guarantees an occasion here; the DL path keeps
+  // tolerating a slot without one, as it did before PSCCH shared this code.
+  AssertFatal(!pscch_processing || num_monitoring_occ > 0, "PSCCH has no monitoring occasion in this slot\n");
   int max_nb_symb_pdcch = get_max_pdcch_symb(phy_pdcch_config);
   int llr_size_symbol = get_pdcch_max_rbs(phy_pdcch_config, pscch_processing) * 9;
   c16_t pdcch_llr[phy_pdcch_config->nb_search_space][num_monitoring_occ][max_nb_symb_pdcch * llr_size_symbol];
