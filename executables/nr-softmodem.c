@@ -406,7 +406,6 @@ int start_L1L2(module_id_t gnb_id, nr_cell_sched_t *cell)
 
   init_NR_RU(config_get_if(), NULL);
 
-  start_NR_RU();
   init_eNB_afterRU();
   LOG_I(GNB_APP, "Sending sync to all threads\n");
   pthread_mutex_lock(&sync_mutex);
@@ -619,9 +618,6 @@ int main( int argc, char **argv ) {
   // wait for F1 Setup Response before starting L1 for real
   if (NFAPI_MODE != NFAPI_MODE_PNF && (NODE_IS_DU(node_type) || NODE_IS_MONOLITHIC(node_type)))
     wait_f1_setup_response();
-
-  if (RC.nb_RU > 0)
-    start_NR_RU();
 
   if (NFAPI_MODE == NFAPI_MODE_PNF)
     config_sync_var = 0;
