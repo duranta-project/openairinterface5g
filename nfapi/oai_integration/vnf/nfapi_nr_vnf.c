@@ -23,7 +23,6 @@
 
 #include "openair1/PHY/defs_gNB.h"
 #include "common/ran_context.h"
-#include "gnb_ind_vars.h"
 #include "nr_fapi_p7_utils.h"
 #include "nr_fapi_p5_utils.h"
 #include "openair2/LAYER2/NR_MAC_gNB/mac_proto.h"
@@ -177,78 +176,29 @@ int pnf_nr_config_resp_cb(nfapi_nr_vnf_config_t *config, int p5_idx, nfapi_nr_pn
 
 int phy_nr_rach_indication(nfapi_nr_rach_indication_t *ind)
 {
-  if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL) {
-    nfapi_nr_rach_indication_t *rach_ind = CALLOC(1, sizeof(*rach_ind));
-    copy_rach_indication(ind, rach_ind);
-    if (!put_queue(&gnb_rach_ind_queue, rach_ind)) {
-      LOG_E(NR_MAC, "Put_queue failed for rach_ind\n");
-      free_rach_indication(rach_ind);
-      free(rach_ind);
-    }
-  } else {
-    LOG_E(NR_MAC, "NFAPI_MODE = %d not NFAPI_MODE_VNF(2)\n", nfapi_getmode());
-  }
+  UNUSED(ind);
+  AssertFatal(false, "not implemented\n");
   return 1;
 }
 
 int phy_nr_uci_indication(nfapi_nr_uci_indication_t *ind)
 {
-  LOG_D(NR_MAC, "In %s() NFAPI SFN/SF: %d/%d number_of_pdus :%u\n", __FUNCTION__, ind->sfn, ind->slot, ind->num_ucis);
-  if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL) {
-    nfapi_nr_uci_indication_t *uci_ind = CALLOC(1, sizeof(*uci_ind));
-    AssertFatal(uci_ind, "Memory not allocated for uci_ind in phy_nr_uci_indication.");
-    copy_uci_indication(ind, uci_ind);
-    if (!put_queue(&gnb_uci_ind_queue, uci_ind)) {
-      LOG_E(NR_MAC, "Put_queue failed for uci_ind\n");
-      free_uci_indication(uci_ind);
-      free(uci_ind);
-      uci_ind = NULL;
-    }
-  } else {
-    LOG_E(NR_MAC, "NFAPI_MODE = %d not NFAPI_MODE_VNF(2)\n", nfapi_getmode());
-  }
+  UNUSED(ind);
+  AssertFatal(false, "not implemented\n");
   return 1;
 }
 
 int phy_nr_crc_indication(nfapi_nr_crc_indication_t *ind)
 {
-  LOG_D(NR_MAC, "In %s() NFAPI SFN/SF: %d/%d number_of_pdus :%u\n", __FUNCTION__, ind->sfn, ind->slot, ind->number_crcs);
-
-  if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL) {
-    nfapi_nr_crc_indication_t *crc_ind = CALLOC(1, sizeof(*crc_ind));
-    copy_crc_indication(ind, crc_ind);
-    if (!put_queue(&gnb_crc_ind_queue, crc_ind)) {
-      LOG_E(NR_MAC, "Put_queue failed for crc_ind\n");
-      free_crc_indication(crc_ind);
-      free(crc_ind);
-    }
-  } else {
-    LOG_E(NR_MAC, "NFAPI_MODE = %d not NFAPI_MODE_VNF(2)\n", nfapi_getmode());
-  }
+  UNUSED(ind);
+  AssertFatal(false, "not implemented\n");
   return 1;
 }
 
 int phy_nr_rx_data_indication(nfapi_nr_rx_data_indication_t *ind)
 {
-  LOG_D(NR_MAC,
-        "In %s() NFAPI SFN/SF: %d/%d number_of_pdus :%u, and pdu %p\n",
-        __FUNCTION__,
-        ind->sfn,
-        ind->slot,
-        ind->number_of_pdus,
-        ind->pdu_list[0].pdu);
-
-  if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL) {
-    nfapi_nr_rx_data_indication_t *rx_ind = CALLOC(1, sizeof(*rx_ind));
-    copy_rx_data_indication(ind, rx_ind);
-    if (!put_queue(&gnb_rx_ind_queue, rx_ind)) {
-      LOG_E(NR_MAC, "Put_queue failed for rx_ind\n");
-      free_rx_data_indication(rx_ind);
-      free(rx_ind);
-    }
-  } else {
-    LOG_E(NR_MAC, "NFAPI_MODE = %d not NFAPI_MODE_VNF(2)\n", nfapi_getmode());
-  }
+  UNUSED(ind);
+  AssertFatal(false, "not implemented\n");
   return 1;
 }
 
@@ -479,11 +429,6 @@ int vnf_nr_pack_p4_p5_vendor_extension(void *header, uint8_t **ppWritePackedMsg,
 
 void *configure_nr_p7_vnf(void *ptr)
 {
-  init_queue(&gnb_rach_ind_queue);
-  init_queue(&gnb_rx_ind_queue);
-  init_queue(&gnb_crc_ind_queue);
-  init_queue(&gnb_uci_ind_queue);
-
   vnf_p7_info *p7_vnf = (vnf_p7_info *)ptr;
   p7_vnf->config->port = p7_vnf->local_port;
   p7_vnf->config->nr_crc_indication = &phy_nr_crc_indication;
