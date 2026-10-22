@@ -5,6 +5,7 @@
 #pragma once
 
 #include "fh_compression.h"
+#include "common/platform_types.h"
 #include <stdint.h>
 #include <stddef.h>
 
@@ -14,6 +15,7 @@ extern "C" {
 
 #define HIST_SIZE 64
 #define ORU_MAX_BF_WEIGHTS 64
+#define ORU_MAX_BFW_COUNTS 4 // weight counts per vector the O-RU accepts at once (cuBB: dynamic nGnbAnt, static 64)
 #define MAX_DL_STREAMS_PER_SYMBOL 16 // cap on distinct (eaxc, beam) pairs declared for one DL symbol
 // Cap on U-Plane PRB-run fragments stored for one DL symbol, across all (eaxc, beam) pairs. O-RAN CUS
 // 5.5 allows application fragmentation: a 273-PRB symbol needs ten uncompressed or six BFP9
@@ -22,6 +24,23 @@ extern "C" {
 // PRBs of IQ scratch read_dl_iq_streams() needs: one full band per (eaxc, beam) pair. Fragments are
 // packed back to back and admitted only while their PRB total fits, whatever the fragment count.
 #define DL_IQ_ARENA_PRBS(num_prb) (MAX_DL_STREAMS_PER_SYMBOL * (num_prb))
+
+// Dynamic beamforming weights of one section (CUS 12.4.3), read per PRB bundle with get_bf_weights().
+// The handle stays valid after the stream or job that carries it is released.
+// SE1, or a beamId with weights from an earlier section, is one bundle that covers the section.
+// SE11 gives each bundle its own beamId.
+typedef struct {
+  uint32_t first; // bundle ring position of bundle 0
+  uint16_t num_bundles; // 0: no dynamic weights, use the static codebook for the section beamId
+  uint16_t bundle_prbs;
+  int16_t first_prb; // first PRB of bundle 0 (startPrbc - bundleOffset)
+} oru_bfw_set_t;
+
+// Bundle of set that PRB prb belongs to (set->num_bundles > 0)
+static inline int oru_bfw_bundle(const oru_bfw_set_t *set, int prb)
+{
+  return (prb - set->first_prb) / set->bundle_prbs;
+}
 
 typedef struct {
   uint64_t hist[HIST_SIZE];
@@ -38,6 +57,7 @@ typedef struct {
   int start_prb;
   int num_prb;
   uint32_t *iq; // num_prb * NR_NB_SC_PER_RB samples (same packed format as txdataF elsewhere)
+  oru_bfw_set_t bfw; // dynamic weights of the section this run belongs to
 } dl_iq_stream_t;
 
 typedef struct {
@@ -57,6 +77,7 @@ typedef struct {
   uint16_t beam_id; // beam this section was declared under (UL Rx beamforming)
   int start_prb;
   int num_prb;
+  oru_bfw_set_t bfw; // dynamic weights of this section
 } ul_job_t;
 
 typedef struct {
@@ -83,6 +104,8 @@ typedef struct {
   uint64_t cplane_err_sect_ext11; // malformed ext11: bad extLen or doesn't decode
   uint64_t cplane_err_sect_ext_chain; // ef promises an extension but the packet ends
   uint64_t cplane_err_sect_ext_other; // malformed extension of another type: bad extLen
+  uint64_t bfw_updates; // weight vectors stored for a beamId (same weights again are not counted)
+  uint64_t bfw_stale; // get_bf_weights() found the weights overwritten before they were read
   uint64_t uplane_err_late;
   uint64_t uplane_err_early;
   uint64_t uplane_err_dup;
@@ -143,6 +166,11 @@ void *init_packet_processor(int numerology,
 void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *job);
 void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int slot_in_frame, int symbol);
 void cleanup_packet_processor(void *context);
+// Accepts ext1/ext11 weight vectors of each of the num_counts counts (M-plane array element counts). A vector is decoded
+// with the first count its extLen fits, so the counts must differ by 4 or more: 4 weights of 4 bits or more take a 4-byte
+// extLen word. No count ignores dynamic weights.
+void set_bf_weight_counts(void *context, const int *counts, int num_counts);
+// set_bf_weight_counts() with the one count num_bf_weights, or none for 0
 void set_num_bf_weights(void *context, int num_bf_weights);
 void handle_absolute_symbol_tick(void *context, uint64_t absolute_symbol);
 void handle_uplane_packet(void *context, void *pkt);
@@ -163,6 +191,10 @@ int read_dl_iq_streams(void *context,
 // Beam the DU declared (C-Plane section type 3 beamId) for PRACH stream `aarx` at `symbol` of `slot_in_frame`, or -1
 // when no PRACH C-Plane section covers that symbol.
 int get_prach_beam_id(void *context, int slot_in_frame, int aarx, int symbol);
+// Copies bundle `bundle` of `set`: its weights and its beamId. Returns the weight count of its vector.
+// Returns 0 if the beamId has no dynamic weights (static codebook).
+// Returns -1 if the weights were overwritten (bfw_stale; *beam_id unset).
+int get_bf_weights(void *context, const oru_bfw_set_t *set, int bundle, uint16_t *beam_id, c16_t *weights);
 int get_ready_job_count(void *context);
 int poll_ul_job(void *context, ul_job_t *job);
 void get_dl_symbol_bitmask(void *context, const uint8_t **bitmask, uint16_t *bit_length);
