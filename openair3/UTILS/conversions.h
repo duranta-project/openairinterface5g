@@ -250,11 +250,11 @@ do {                                    \
     BUFFER_TO_INT16((aSN)->buf, x);    \
 } while(0)
 
-#define OCTET_STRING_TO_INT24(aSN, x)   \
-do {                                    \
-    DevCheck((aSN)->size == 2 || (aSN)->size == 3, (aSN)->size, 0, 0);           \
-    BUFFER_TO_INT24((aSN)->buf, x);    \
-} while(0)
+#define OCTET_STRING_TO_INT24(aSN, x)              \
+  do {                                             \
+    DevCheck((aSN)->size == 3, (aSN)->size, 3, 0); \
+    BUFFER_TO_INT24((aSN)->buf, x);                \
+  } while (0)
 
 #define OCTET_STRING_TO_INT32(aSN, x)   \
 do {                                    \
@@ -436,20 +436,20 @@ do {                                                    \
 /* TS 38.473 v15.2.1 section 9.3.1.55:
  * MaskedIMEISV is BIT_STRING(64)
  */
-#define MaskedIMEISV_TO_BIT_STRING(mACRO, bITsTRING)    \
-do {                                                    \
-    (bITsTRING)->buf = calloc(8, sizeof(uint8_t));      \
-    (bITsTRING)->buf[0] = (mACRO) >> 56 & 0xFF;         \
-    (bITsTRING)->buf[1] = (mACRO) >> 48 & 0xFF;         \
-    (bITsTRING)->buf[2] = (mACRO) >> 40 & 0xFF;         \
-    (bITsTRING)->buf[3] = (mACRO) >> 32 & 0xFF;         \
-    (bITsTRING)->buf[4] = (mACRO) >> 24 & 0xFF;         \
-    (bITsTRING)->buf[5] = (mACRO) >> 16 & 0xFF;         \
-    (bITsTRING)->buf[6] = (mACRO) >> 8 & 0xFF;          \
-    (bITsTRING)->buf[7] = (mACRO) >> 4 & 0xFF;          \
-    (bITsTRING)->size = 8;                              \
-    (bITsTRING)->bits_unused = 0;                       \
-} while(0)
+#define MaskedIMEISV_TO_BIT_STRING(mACRO, bITsTRING) \
+  do {                                               \
+    (bITsTRING)->buf = calloc(8, sizeof(uint8_t));   \
+    (bITsTRING)->buf[0] = (mACRO) >> 56 & 0xFF;      \
+    (bITsTRING)->buf[1] = (mACRO) >> 48 & 0xFF;      \
+    (bITsTRING)->buf[2] = (mACRO) >> 40 & 0xFF;      \
+    (bITsTRING)->buf[3] = (mACRO) >> 32 & 0xFF;      \
+    (bITsTRING)->buf[4] = (mACRO) >> 24 & 0xFF;      \
+    (bITsTRING)->buf[5] = (mACRO) >> 16 & 0xFF;      \
+    (bITsTRING)->buf[6] = (mACRO) >> 8 & 0xFF;       \
+    (bITsTRING)->buf[7] = (mACRO) & 0xFF;            \
+    (bITsTRING)->size = 8;                           \
+    (bITsTRING)->bits_unused = 0;                    \
+  } while (0)
 
 /* TS 36.413 v10.9.0 section 9.2.1.37:
  * Macro eNB ID:
