@@ -46,8 +46,7 @@ static int DEFRUTPCORES[] = {-1,-1,-1,-1};
 #include "nfapi_interface.h"
 #include <nfapi/oai_integration/vendor_ext.h>
 #include "executables/nr-softmodem-common.h"
-
-static void NRRCconfig_RU(configmodule_interface_t *cfg);
+#include "executables/nr-softmodem.h"
 
 /*************************************************************/
 /* Southbound Fronthaul functions, RCC/RAU                   */
@@ -774,6 +773,11 @@ static void configure_NR_RU(RU_t *ru)
   fill_split7_2_config(&ru->openair0_cfg.split7, &ru->config, fp);
 }
 
+static void start_NR_RU(RU_t *ru)
+{
+  threadCreate(&ru->proc.pthread_FH, ru_thread, ru, "ru_thread", ru->ru_thread_core, OAI_PRIORITY_RT_MAX);
+}
+
 int start_streaming(RU_t *ru) {
   LOG_I(PHY,"Starting streaming on third-party RRU\n");
   return ru->ifdevice.thirdparty_startstreaming(&ru->ifdevice);
@@ -945,6 +949,7 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
 
     set_function_spec_param(ru);
 
+    configure_NR_RU(ru);
     // init RU_proc -> needed for timing alignment
     ru->proc = (RU_proc_t){.ru = ru, .first_rx = 1, .first_tx = 1};
 
@@ -967,16 +972,10 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
       ru->respfeptx = malloc(sizeof(notifiedFIFO_t));
       initNotifiedFIFO(ru->respfeptx);
     }
+    start_NR_RU(ru);
   } // for ru_id
 
   LOG_D(HW,"[nr-softmodem.c] RU threads created\n");
-}
-
-void start_NR_RU()
-{
-  RU_t *ru = RC.ru[0];
-  configure_NR_RU(ru);
-  threadCreate(&ru->proc.pthread_FH, ru_thread, ru, "ru_thread", ru->ru_thread_core, OAI_PRIORITY_RT_MAX);
 }
 
 void stop_RU(int nb_ru) {
@@ -988,7 +987,7 @@ void stop_RU(int nb_ru) {
 
 /* --------------------------------------------------------*/
 /* from here function to use configuration module          */
-static void NRRCconfig_RU(configmodule_interface_t *cfg)
+void NRRCconfig_RU(configmodule_interface_t *cfg)
 {
   paramdef_t RUParams[] = RUPARAMS_DESC;
   paramlist_def_t RUParamList = {CONFIG_STRING_RU_LIST, NULL, 0};
