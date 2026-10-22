@@ -126,7 +126,7 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
   nr_init_fde(); // Init array for frequency equalization of transform precoding of PUSCH
 
 
-  gNB->max_nb_pdsch = MAX_MOBILES_PER_GNB;
+  gNB->max_nb_pdsch = NR_MAX_SCHED_PER_SLOT;
   init_delay_table(fp->ofdm_symbol_size, MAX_DELAY_COMP, NR_MAX_OFDM_SYMBOL_SIZE, fp->delay_table);
   init_delay_table(128, MAX_DELAY_COMP, 128, fp->delay_table128);
 
@@ -444,7 +444,7 @@ void init_nr_transport(PHY_VARS_gNB *gNB)
   else
     buffer_ul_slots = (nb_ul_slots_period < slot_ahead) ? nb_ul_slots_period : slot_ahead;
 
-  gNB->max_nb_pusch = buffer_ul_slots ? MAX_MOBILES_PER_GNB * buffer_ul_slots : 1;
+  gNB->max_nb_pusch = buffer_ul_slots ? NR_MAX_SCHED_PER_SLOT * buffer_ul_slots : 1;
 
   int max_nb_pucch = buffer_ul_slots ? MAX_MOBILES_PER_GNB * buffer_ul_slots : 1;
   bool ret;
