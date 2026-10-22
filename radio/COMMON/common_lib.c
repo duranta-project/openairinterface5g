@@ -295,6 +295,21 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
   return nsamps;
 }
 
+// send everything stored before force_until, waiting for no writer: their samples are late
+void openair0_write_reorder_flush_common(nrue_ru_write_t nrue_ru_write,
+                                         PHY_VARS_NR_UE *UE,
+                                         openair0_device_t *device,
+                                         int nb_writers,
+                                         int nbAnt,
+                                         openair0_timestamp_t force_until)
+{
+  re_order_t *ctx = &device->reOrder;
+  pthread_mutex_lock(&ctx->mutex_store);
+  if (ctx->initDone && force_until > ctx->nextTS)
+    reorder_flush(nrue_ru_write, UE, device, nb_writers, nbAnt, force_until);
+  pthread_mutex_unlock(&ctx->mutex_store);
+}
+
 int openair0_write_reorder(openair0_device_t *device, openair0_timestamp_t timestamp, void **txp, int nsamps, int nbAnt, int flags)
 {
   return openair0_write_reorder_common(NULL, NULL, device, timestamp, txp, nsamps, 1, nbAnt, flags);
