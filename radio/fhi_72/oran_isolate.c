@@ -16,6 +16,7 @@
 #include "oran.h"
 
 #include "common/ran_context.h"
+#include "common/utils/fsn.h"
 #include "common/utils/system.h"
 #include "executables/softmodem-common.h"
 
@@ -139,68 +140,91 @@ static int trx_oran_get_stats(oran_eth_state_t *s)
   return (0);
 }
 
-static void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
+static void oran_fh_if4p5_south_in(RU_t *ru, int frame, int slot)
 {
   int ret = 0; // return code for PUSCH/PRACH processing
 
-  ru_info_t ru_info = {
-      .nb_rx = ru->nb_rx,
-      .rxdataF = ru->common.rxdataF,
-      .prach_buf = NULL,
-  };
+  const struct xran_fh_init *fh_init = get_xran_fh_init();
 
-  /* Firstly, process PUSCH packets */
-  RU_proc_t *proc = &ru->proc; // to check if (frame,slot) combination corresponds to the expected PUSCH one
-  int f, sl;
-  LOG_D(HW, "Read rxdataF %p,%p\n", ru_info.rxdataF[0], ru_info.rxdataF[1]);
-  start_meas(&ru->rx_fhaul);
-  ret = xran_fh_rx_read_slot(&ru_info, &f, &sl);
-  stop_meas(&ru->rx_fhaul);
-  LOG_D(HW, "Read %d.%d rxdataF %p,%p\n", f, sl, ru_info.rxdataF[0], ru_info.rxdataF[1]);
-  if (ret != 0) {
-    printf("ORAN: %d.%d ORAN_fh_if4p5_south_in ERROR in RX function \n", f, sl);
+  for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
+    for (int xran_port = 0; xran_port < fh_init->xran_ports; xran_port++) {
+      oran_buf_list_t *bufs = get_xran_buffers(xran_port);
+      const struct xran_fh_config *fh_cfg = get_xran_fh_config(xran_port);
+      const uint8_t mu_number = fh_cfg->mu_number[0];
+      const int slots_per_frame = 10 << mu_number;
+      const int tti = slots_per_frame * frame + slot;
+      const struct xran_frame_config *frame_conf = &fh_cfg->frame_conf;
+
+      if (frame_conf->nFrameDuplexType == XRAN_FDD || is_tdd_ul_guard_slot(frame_conf, slot)) {
+        const int fft_size = 1 << fh_cfg->perMu[mu_number].nULFftSize;
+        ret = xran_fh_rx_read_slot(tti, xran_port, fh_cfg->neAxcUl, fft_size, bufs, ru->common.rxdataF);
+        if (ret != 0) {
+          LOG_W(HW, "[%d.%d] xran_fh_rx_read_slot error for xran_port %d\n", frame, slot, xran_port);
+        }
+        // check if it's a PRACH slot
+        PHY_VARS_gNB *gNB = ru->gNB_list[0];
+        prach_item_t p;
+        fsn_t now = {.f = frame, .s = slot, .mu = gNB->frame_parms.numerology_index};
+        if (get_next_nr_prach(&gNB->prach_ru_queue, &now, &p)) {
+          int slots_per_subframe = 1 << mu_number;
+          uint32_t subframe = slot / slots_per_subframe; // `slot` = slot in which PRACH is received
+          // PRACH occasion in a frame if and only if SFN % x == y, TS 38.211 Table 6.3.3.2-2/3/4
+          nr_prach_info_t prach_info = get_prach_info(xran_port);
+          bool is_prach_frame = (frame % prach_info.x == prach_info.y);
+          bool is_prach_slot = is_prach_frame && xran_is_prach_slot(0, subframe, (p.slot % slots_per_subframe), mu_number); // `p.slot` = slot in which PRACH is scheduled
+          if (is_prach_slot) {
+            ret = xran_fh_rx_prach_read_slot(tti, xran_port, fh_cfg->neAxcUl, &fh_cfg->ru_conf, &fh_cfg->perMu[mu_number].prach_conf, bufs, p);
+            if (ret != 0) {
+              LOG_W(HW, "[%d.%d] xran_fh_rx_prach_read_slot error for xran_port %d\n", frame, slot, xran_port);
+            }
+            // after reading PRACH, write back to queue
+            bool success = spsc_q_put(&gNB->prach_l1rx_queue, &p, sizeof(p));
+            // assume prach_l1rx_queue never full: prach_ru_queue filled at
+            // constant pace, but prach_l1rx_queue emptied as fast as possible,
+            // see rx_func()
+            DevAssert(success);
+          } else {
+            LOG_W(HW, "[%d.%d] Expected PRACH reception of scheduled slot %d\n", frame, slot, p.slot);
+          }
+        }
+      }
+      print_fhi_counters(xran_port, fh_cfg->neAxcUl, frame, slot);
+    }
   }
 
-  /* Secondly, process PRACH packets */
-  int f_prach, sl_prach;
-  ret = xran_fh_rx_prach_read_slot(ru->gNB_list[0], &ru_info, &f_prach, &sl_prach);
-  if (ret != 0) {
-    printf("ORAN: %d.%d ORAN_fh_if4p5_south_in ERROR in RX PRACH function \n", f_prach, sl_prach);
-  }
-
+  RU_proc_t *proc = &ru->proc;
   int slots_per_frame = ru->nr_frame_parms->slots_per_frame;
-  proc->tti_rx = sl;
-  proc->frame_rx = f;
-  proc->tti_tx = (sl + ru->sl_ahead) % slots_per_frame;
-  proc->frame_tx = (sl > (slots_per_frame - 1 - ru->sl_ahead)) ? (f + 1) & 1023 : f;
+  proc->tti_rx = slot;
+  proc->frame_rx = frame;
+  proc->tti_tx = (slot + ru->sl_ahead) % slots_per_frame;
+  proc->frame_tx = (slot > (slots_per_frame - 1 - ru->sl_ahead)) ? (frame + 1) & 1023 : frame;
 
   if (proc->first_rx == 0) {
-    print_fhi_counters(&ru_info, proc->frame_rx, proc->tti_rx);
-    if (proc->tti_rx != *slot) {
+    if (proc->tti_rx != slot) {
       LOG_E(HW,
             "Received Time doesn't correspond to the time we think it is (slot mismatch, received %d.%d, expected %d.%d)\n",
             proc->frame_rx,
             proc->tti_rx,
-            *frame,
-            *slot);
-      *slot = proc->tti_rx;
+            frame,
+            slot);
+      slot = proc->tti_rx;
     }
 
-    if (proc->frame_rx != *frame) {
+    if (proc->frame_rx != frame) {
       LOG_E(HW,
             "Received Time doesn't correspond to the time we think it is (frame mismatch, %d.%d , expected %d.%d)\n",
             proc->frame_rx,
             proc->tti_rx,
-            *frame,
-            *slot);
-      *frame = proc->frame_rx;
+            frame,
+            slot);
+      frame = proc->frame_rx;
     }
   } else {
     proc->first_rx = 0;
-    LOG_I(HW, "before adjusting, OAI: frame=%d slot=%d, XRAN: frame=%d slot=%d\n", *frame, *slot, proc->frame_rx, proc->tti_rx);
-    *frame = proc->frame_rx;
-    *slot = proc->tti_rx;
-    LOG_I(HW, "After adjusting, OAI: frame=%d slot=%d, XRAN: frame=%d slot=%d\n", *frame, *slot, proc->frame_rx, proc->tti_rx);
+    LOG_I(HW, "before adjusting, OAI: frame=%d slot=%d, XRAN: frame=%d slot=%d\n", frame, slot, proc->frame_rx, proc->tti_rx);
+    frame = proc->frame_rx;
+    slot = proc->tti_rx;
+    LOG_I(HW, "After adjusting, OAI: frame=%d slot=%d, XRAN: frame=%d slot=%d\n", frame, slot, proc->frame_rx, proc->tti_rx);
   }
 }
 
@@ -360,14 +384,25 @@ static void *split7_thread(void *param)
 
   RU_proc_t *proc = &ru->proc;
   PHY_VARS_gNB *gNB = RC.gNB[0]; // this RU main loop handles only one RU
-  int frame = 1023;
-  int slot = ru->nr_frame_parms->slots_per_frame - 1;
+  //int frame = 1023;
+  //int slot = ru->nr_frame_parms->slots_per_frame - 1;
 
   if (trx_oran_start(eth) != 0)
     LOG_E(HW, "Could not start the O-RAN 7.2 fronthaul\n");
 
   wait_sync("split7_thread");
 
+  uint32_t xran_frame; // [0-99]
+  uint32_t xran_subframe; // [0-10]
+  uint32_t xran_slot; // [0-7]
+  uint64_t xran_second; // current UTC second
+  // assuming all RUs have the same numerology
+  uint8_t mu = eth->fh_config[0].mu_number[0];
+  // current TTI number [0-7999]
+  int32_t tti = xran_timingsource_get_slotidx(&xran_frame, &xran_subframe, &xran_slot, &xran_second, mu);
+
+  int frame = (tti / ru->nr_frame_parms->slots_per_frame) & 1023;
+  int slot = tti % ru->nr_frame_parms->slots_per_frame;
   while (!oai_exit) {
     if (slot==(ru->nr_frame_parms->slots_per_frame-1)) {
       slot=0;
@@ -377,7 +412,7 @@ static void *split7_thread(void *param)
       slot++;
     }
 
-    oran_fh_if4p5_south_in(ru, &frame, &slot); // sets proc->{frame,tti}_{rx,tx}
+    oran_fh_if4p5_south_in(ru, frame, slot); // sets proc->{frame,tti}_{rx,tx}
 
     if (ru->rx_fhaul.trials > 1000) {
       reset_meas(&ru->rx_fhaul);
