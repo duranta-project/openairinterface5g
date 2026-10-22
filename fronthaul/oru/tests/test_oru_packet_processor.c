@@ -3041,6 +3041,7 @@ typedef struct {
   const uint8_t *ext;
   size_t ext_len;
   bool all_prbs; // numPrbc 0 (all carrier PRBs) instead of 20
+  uint16_t start_prb;
 } test_section3_t;
 
 // Sends one 4-symbol PRACH (Type 3) C-Plane message for PRACH stream 0 at symbol sym carrying n sections, with
@@ -3077,6 +3078,7 @@ static void send_prach_cplane(void *ctx, uint64_t sym, int num_sections, const t
     s->hdr.u.s3.ef = sec[i].ext_len > 0;
     s->hdr.u1.common.sectionId = sec[i].section_id;
     s->hdr.u1.common.numPrbc = sec[i].all_prbs ? 0 : 20;
+    s->hdr.u1.common.startPrbc = sec[i].start_prb;
     *((uint64_t *)s) = rte_be_to_cpu_64(*((uint64_t *)s));
     if (sec[i].ext_len > 0) {
       uint8_t *dst = (uint8_t *)rte_pktmbuf_append(mbuf, sec[i].ext_len);
@@ -3652,6 +3654,89 @@ void test_bf_weight_cache(void)
   printf("Beamforming weight cache passed!\n");
 }
 
+// Section Type 3: ext1/ext11 weights are stored as for Type 1 and each PRACH occasion carries its own set, read with
+// get_prach_bfw_set() and get_bf_weights()
+void test_prach_bf_weights(void)
+{
+  printf("Testing PRACH dynamic beamforming weights...\n");
+  void *ctx = init_prach_test_ctx();
+  set_num_bf_weights(ctx, 2);
+  const int num_symbols_per_frame = 10 * 2 * 14;
+  const int slot_in_frame = (1035 % num_symbols_per_frame) / 14;
+  // Each case uses the same slot of a later frame, which releases the previous case's jobs
+  uint64_t target_sym = 1035;
+  oru_packet_processor_stats_t stats;
+  oru_bfw_set_t set;
+  uint16_t beam_id;
+  c16_t w[2];
+
+  // ext1: one bundle covering the section's 20 PRBs from PRB 3, with beam 5's new weights
+  const c16_t w1[2] = {{1000, -1000}, {-2000, 2000}};
+  uint8_t ext1[12];
+  size_t ext1_len = build_ext1_2w(ext1, w1);
+  const test_section3_t with_ext1 = {1, 5, ext1, ext1_len, false, 3};
+  send_prach_cplane(ctx, target_sym, 1, &with_ext1, 1);
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, 0, &set) == 5);
+  assert(set.num_bundles == 1 && set.bundle_prbs == 20 && set.first_prb == 3);
+  assert(get_bf_weights(ctx, &set, 0, &beam_id, w) == 2 && beam_id == 5 && weights_equal(w, w1, 2));
+  // No C-Plane for this stream or occasion
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 1, 0, &set) == -1);
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, 1, &set) == -1);
+
+  // Two occasions in one message, without extensions: beam 5 gets the weights stored above, beam 9 has none (static
+  // codebook)
+  const test_section3_t two[2] = {{2, 5}, {3, 9}};
+  target_sym += num_symbols_per_frame;
+  send_prach_cplane(ctx, target_sym, 2, two, 2);
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, 0, &set) == 5);
+  assert(set.num_bundles == 1 && set.bundle_prbs == 20 && set.first_prb == 0);
+  assert(get_bf_weights(ctx, &set, 0, &beam_id, w) == 2 && beam_id == 5 && weights_equal(w, w1, 2));
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, 1, &set) == 9);
+  assert(set.num_bundles == 0);
+
+  // ext11 with weights: 10 bundles of 2 PRBs from PRB 4, beamIds 100 + b; the section beamId 6 is ignored
+  uint8_t ext[EXT11_TEST_BUF_SIZE];
+  test_section3_t with_ext11 = {4, 6, ext, build_ext11(ext, false, false, 2, 10, 2), false, 4};
+  target_sym += num_symbols_per_frame;
+  send_prach_cplane(ctx, target_sym, 1, &with_ext11, 1);
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, 0, &set) == 6);
+  assert(set.num_bundles == 10 && set.bundle_prbs == 2 && set.first_prb == 4);
+  assert(oru_bfw_bundle(&set, 23) == 9);
+  for (int b = 0; b < 10; b++) {
+    assert(get_bf_weights(ctx, &set, b, &beam_id, w) == 2 && beam_id == 100 + b);
+    assert(weights_equal(w, (c16_t[]){ext11_weight(b, 0), ext11_weight(b, 1)}, 2));
+  }
+
+  // ext11 with disableBFWs and bundleOffset 1: 6 bundles of 4 PRBs from PRB 3, using the weights just stored for beamIds
+  // 100-104, and none for beamId 200 of the last bundle
+  with_ext11.ext_len = build_ext11(ext, false, true, 4, 6, 0);
+  ext[3] |= 1;
+  ext[16] = 200; // last bundle's beamId (5-byte header, then 2 bytes per bundle)
+  target_sym += num_symbols_per_frame;
+  send_prach_cplane(ctx, target_sym, 1, &with_ext11, 1);
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, 0, &set) == 6);
+  assert(set.num_bundles == 6 && set.bundle_prbs == 4 && set.first_prb == 3);
+  for (int b = 0; b < 5; b++) {
+    assert(get_bf_weights(ctx, &set, b, &beam_id, w) == 2 && beam_id == 100 + b);
+    assert(weights_equal(w, (c16_t[]){ext11_weight(b, 0), ext11_weight(b, 1)}, 2));
+  }
+  assert(get_bf_weights(ctx, &set, 5, &beam_id, w) == 0 && beam_id == 200);
+
+  // A malformed ext11 (extLen past the end of the packet) on beam 5: the section gets beam 5's stored weights
+  with_ext11.ext_len = build_ext11(ext, false, false, 2, 10, 2);
+  ext[1] = 1;
+  with_ext11.beam_id = 5;
+  target_sym += num_symbols_per_frame;
+  send_prach_cplane(ctx, target_sym, 1, &with_ext11, 1);
+  assert(get_prach_bfw_set(ctx, slot_in_frame, 0, 0, &set) == 5);
+  assert(set.num_bundles == 1 && get_bf_weights(ctx, &set, 0, &beam_id, w) == 2 && weights_equal(w, w1, 2));
+
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.bfw_updates == 11 && stats.cplane_err_sect_ext11 == 1 && stats.bfw_stale == 0);
+  cleanup_packet_processor(ctx);
+  printf("PRACH dynamic beamforming weights passed!\n");
+}
+
 int main(int argc, char **argv)
 {
   setup_dpdk(argc, argv);
@@ -3717,6 +3802,8 @@ int main(int argc, char **argv)
   test_prach_multi_section_message();
   usleep(10000);
   test_prach_section_extensions();
+  usleep(10000);
+  test_prach_bf_weights();
   usleep(10000);
   test_hyper_frame_calculation();
   usleep(10000);
