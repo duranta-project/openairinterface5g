@@ -582,6 +582,9 @@ int openair0_device_load(openair0_device_t *device, openair0_config_t *openair0_
 /*! \brief Initialize transport protocol . It returns 0 if OK */
 int openair0_transport_load(openair0_device_t *device, openair0_config_t *openair0_cfg);
 
+/*! \brief Load the configured device library and return the address of symbol fname */
+void *load_transport_shlib(char *fname);
+
 /*! \brief Set RX frequencies
  * \param device the hardware to use
  * \param openair0_cfg RF frontend parameters set by application
