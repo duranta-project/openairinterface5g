@@ -763,8 +763,21 @@ static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
           ue->phy_cpu_stats.cpu_time_stats[DLSCH_DECODING_STATS].p_time / (1000.0));
   }
 
+  /* The PID was re-armed while decoding: the soft buffer and segment parameters may belong to the newer grant,
+     so this result is not trusted. The newer grant decodes and reports the TB. */
+  const bool rearmed = dl_harq->activated_frame != frame_rx || dl_harq->activated_slot != nr_slot_rx;
+  if (rearmed)
+    LOG_W(NR_PHY,
+          "[UE %d] %d.%d DLSCH harq %d re-armed %d.%d during decode, result dropped\n",
+          ue->Mod_id,
+          frame_rx,
+          nr_slot_rx,
+          harq_pid,
+          dl_harq->activated_frame,
+          dl_harq->activated_slot);
+
   // send to mac
-  if (ue->if_inst && ue->if_inst->dl_indication) {
+  if (!rearmed && ue->if_inst && ue->if_inst->dl_indication) {
     fapi_nr_rx_indication_t rx_ind;
     rx_ind.number_pdus = 0;
     nr_fill_rx_indication(&rx_ind, ind_type, ue, cw_idx, harq_pid, dlsch, proc, output);
