@@ -653,7 +653,7 @@ static void finish_nr_ul_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid)
   harq->ndi ^= 1;
   harq->round = 0;
 
-  add_tail_nr_list(&sched_ctrl->available_ul_harq, harq_pid);
+  id_list_push_back(&sched_ctrl->available_ul_harq, harq_pid);
 }
 
 static void abort_nr_ul_harq(NR_UE_info_t *UE, int8_t harq_pid)
@@ -686,18 +686,18 @@ static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rn
     if (harq_pid < 0)
       return;
 
-    remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
+    id_list_pop_front(&sched_ctrl->feedback_ul_harq);
     sched_ctrl->ul_harq_processes[harq_pid].is_waiting = false;
 
     if(sched_ctrl->ul_harq_processes[harq_pid].round >= cell->ul_bler.harq_round_max - 1) {
       abort_nr_ul_harq(UE, harq_pid);
     } else {
       sched_ctrl->ul_harq_processes[harq_pid].round++;
-      add_tail_nr_list(&sched_ctrl->retrans_ul_harq, harq_pid);
+      id_list_push_back(&sched_ctrl->retrans_ul_harq, harq_pid);
     }
     harq_pid = sched_ctrl->feedback_ul_harq.head;
   }
-  remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
+  id_list_pop_front(&sched_ctrl->feedback_ul_harq);
   NR_UE_ul_harq_t *harq = &sched_ctrl->ul_harq_processes[harq_pid];
   DevAssert(harq->is_waiting);
   harq->feedback_slot = -1;
@@ -720,7 +720,7 @@ static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rn
           "Ulharq id %d crc failed for RNTI %04x\n",
           harq_pid,
           rnti);
-    add_tail_nr_list(&sched_ctrl->retrans_ul_harq, harq_pid);
+    id_list_push_back(&sched_ctrl->retrans_ul_harq, harq_pid);
   }
 }
 
@@ -2403,23 +2403,23 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
     /* PP has not selected a specific HARQ Process, get a new one */
     harq_id = sched_ctrl->available_ul_harq.head;
     AssertFatal(harq_id >= 0, "no free HARQ process available for UE %04x\n", UE->rnti);
-    remove_front_nr_list(&sched_ctrl->available_ul_harq);
+    id_list_pop_front(&sched_ctrl->available_ul_harq);
     sched_pusch->ul_harq_pid = harq_id;
   } else {
     /* PP selected a specific HARQ process. Check whether it will be a new
      * transmission or a retransmission, and remove from the corresponding
      * list */
     if (sched_ctrl->ul_harq_processes[harq_id].round == 0)
-      remove_nr_list(&sched_ctrl->available_ul_harq, harq_id);
+      id_list_remove(&sched_ctrl->available_ul_harq, harq_id);
     else
-      remove_nr_list(&sched_ctrl->retrans_ul_harq, harq_id);
+      id_list_remove(&sched_ctrl->retrans_ul_harq, harq_id);
   }
   NR_UE_ul_harq_t *cur_harq = &sched_ctrl->ul_harq_processes[harq_id];
   DevAssert(!cur_harq->is_waiting);
   if (cell->radio_config.disable_harq) {
     finish_nr_ul_harq(sched_ctrl, harq_id);
   } else {
-    add_tail_nr_list(&sched_ctrl->feedback_ul_harq, harq_id);
+    id_list_push_back(&sched_ctrl->feedback_ul_harq, harq_id);
     cur_harq->feedback_slot = sched_pusch->slot;
     cur_harq->is_waiting = true;
   }

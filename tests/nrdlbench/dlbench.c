@@ -502,19 +502,19 @@ int main(int argc, char **argv)
       NR_UE_sched_ctrl_t *sc = &UE->UE_sched_ctrl;
       while (sc->feedback_dl_harq.head >= 0) {
         int pid = sc->feedback_dl_harq.head;
-        remove_front_nr_list(&sc->feedback_dl_harq);
+        id_list_pop_front(&sc->feedback_dl_harq);
         bool nack = (target_bler > 0.0) && (uniformrandom() < target_bler);
         if (nack && sc->harq_processes[pid].round < cell->dl_bler.harq_round_max - 1) {
           /* NACK: bump round, send to retransmission */
           sc->harq_processes[pid].round++;
           sc->harq_processes[pid].is_waiting = false;
-          add_tail_nr_list(&sc->retrans_dl_harq, pid);
+          id_list_push_back(&sc->retrans_dl_harq, pid);
         } else {
           /* ACK (or max rounds reached): recycle */
           sc->harq_processes[pid].round = 0;
           sc->harq_processes[pid].ndi ^= 1;
           sc->harq_processes[pid].is_waiting = false;
-          add_tail_nr_list(&sc->available_dl_harq, pid);
+          id_list_push_back(&sc->available_dl_harq, pid);
         }
       }
     }

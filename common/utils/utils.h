@@ -106,6 +106,18 @@ static inline void *malloc_or_fail(size_t size)
   return ptr;
 }
 
+static inline void *realloc_or_fail(void *ptr, size_t size)
+{
+  void *new_ptr = realloc(ptr, size);
+
+  if (new_ptr == NULL) {
+    fprintf(stderr, "Failed to realloc() %zu bytes: out of memory", size);
+    exit(EXIT_FAILURE);
+  }
+
+  return new_ptr;
+}
+
 #if !defined (msg)
 # define msg(aRGS...) LOG_D(PHY, ##aRGS)
 #endif

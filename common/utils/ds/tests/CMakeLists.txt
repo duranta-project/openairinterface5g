@@ -16,3 +16,8 @@ add_dependencies(tests test_spsc_q)
 add_test(NAME test_spsc_q COMMAND test_spsc_q)
 add_executable(test_spsc_q_perf test_spsc_q_perf.cpp)
 target_link_libraries(test_spsc_q_perf PRIVATE ds benchmark::benchmark)
+
+add_executable(test_id_list test_id_list.cpp)
+target_link_libraries(test_id_list PRIVATE ds GTest::gtest)
+add_dependencies(tests test_id_list)
+add_test(NAME test_id_list COMMAND test_id_list)

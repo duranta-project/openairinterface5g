@@ -301,15 +301,6 @@ int NRRIV2BW(int locationAndBandwidth,int N_RB);
 
 int NRRIV2PRBOFFSET(int locationAndBandwidth,int N_RB);
 
-/* Functions to manage an NR_list_t */
-void create_nr_list(NR_list_t *listP, int len);
-void resize_nr_list(NR_list_t *list, int new_len);
-void destroy_nr_list(NR_list_t *list);
-void add_nr_list(NR_list_t *listP, int id);
-void remove_nr_list(NR_list_t *listP, int id);
-void add_tail_nr_list(NR_list_t *listP, int id);
-void add_front_nr_list(NR_list_t *listP, int id);
-void remove_front_nr_list(NR_list_t *listP);
 void nr_release_ra_UE(gNB_MAC_INST *mac, rnti_t rnti);
 NR_UE_info_t * find_nr_UE(NR_UEs_t* UEs, rnti_t rntiP);
 NR_UE_info_t *find_ra_UE(NR_UEs_t *UEs, rnti_t rntiP);

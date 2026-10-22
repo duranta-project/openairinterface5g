@@ -664,14 +664,5 @@ typedef struct NR_bler_stats {
   int last_num_sched; // scheduling count at last BLER update (for activity guard)
 } NR_bler_stats_t;
 
-/*! \brief NR_list_t is a "list" (of users, HARQ processes, slices, ...).
- *  * Especially useful in the scheduler and to keep "classes" of users. */
-typedef struct {
-  int head;
-  int *next;
-  int tail;
-  int len;
-} NR_list_t;
-
 #endif /*__LAYER2_MAC_H__ */
 
