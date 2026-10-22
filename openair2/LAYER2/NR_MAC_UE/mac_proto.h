@@ -457,7 +457,7 @@ int config_pssch_sci_pdu_rx(sl_nr_rx_config_pssch_sci_pdu_t *nr_sl_pssch_sci_pdu
                              const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
                              const NR_SL_ResourcePool_r16_t *sl_res_pool);
 
-sl_resource_info_t* get_resource_element(List_t* resource_list, frameslot_t sfn);
+sl_resource_info_t* get_resource_element(seq_arr_t* resource_list, frameslot_t sfn);
 
 int nr_ue_process_sci2_indication_pdu(NR_UE_MAC_INST_t *mac,
                                       module_id_t mod_id,
@@ -539,17 +539,9 @@ int get_pssch_to_harq_feedback(uint8_t *pssch_to_harq_feedback,
 
 int get_psfch_index(const frame_structure_t *fs, int frame, int slot, int n_slots_frame, const NR_TDD_UL_DL_Pattern_t *tdd, int sched_psfch_max_size);
 
-void init_list(List_t* list, size_t element_size, size_t initial_capacity);
+void update_sensing_data(seq_arr_t* sensing_data, frameslot_t *frame_slot, sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id);
 
-void push_back(List_t* list, void* element);
-
-void update_sensing_data(List_t* sensing_data, frameslot_t *frame_slot, sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id);
-
-void update_transmit_history(List_t* transmit_history, frameslot_t *frame_slot, sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id);
-
-void pop_back(List_t* sensing_data);
-
-void free_list_mem(List_t* list);
+void update_transmit_history(seq_arr_t* transmit_history, frameslot_t *frame_slot, sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id);
 
 int64_t normalize(frameslot_t *frame_slot, uint8_t mu);
 
@@ -577,20 +569,20 @@ uint8_t get_tproc0(sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id);
 
 void remove_old_sensing_data(frameslot_t *frame_slot,
                              uint16_t sensing_window,
-                             List_t* sensing_data,
+                             seq_arr_t* sensing_data,
                              sl_nr_ue_mac_params_t *sl_mac);
 
 void remove_old_transmit_history(frameslot_t *frame_slot,
                                  uint16_t sensing_window,
-                                 List_t* transmit_history,
+                                 seq_arr_t* transmit_history,
                                  sl_nr_ue_mac_params_t *sl_mac);
 
-List_t* get_candidate_resources(frameslot_t *frame_slot,
+seq_arr_t* get_candidate_resources(frameslot_t *frame_slot,
                                 NR_UE_MAC_INST_t *mac,
-                                List_t *sensing_data,
-                                List_t *transmission_history);
+                                seq_arr_t *sensing_data,
+                                seq_arr_t *transmission_history);
 
-List_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,
+seq_arr_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,
                                     uint64_t abs_idx_cur_slot,
                                     uint8_t bwp_id,
                                     uint16_t mu,
@@ -617,33 +609,17 @@ int32_t nr_sl_psfch_feedback_offset(const NR_UE_MAC_INST_t *mac, uint64_t pssch_
 
 
 
-void init_vector(vec_of_list_t* vec, size_t initial_capacity);
-
-void add_list(vec_of_list_t* vec, size_t element_size, size_t initial_list_capacity);
-
-List_t* get_list(vec_of_list_t *vec, size_t index);
-
-void* get_front(const List_t* list);
-
-void* get_back(const List_t* list);
-
-void delete_at(List_t* list, size_t index);
-
-void free_vector(vec_of_list_t* vec);
-
 int get_physical_sl_pool(NR_UE_MAC_INST_t *mac, BIT_STRING_t *sl_time_rsrc, BIT_STRING_t *phy_sl_bitmap);
 
-void push_back_list(vec_of_list_t* vec, List_t* new_list);
-
-List_t* get_candidate_resources_from_slots(frameslot_t *sfn,
+seq_arr_t* get_candidate_resources_from_slots(frameslot_t *sfn,
                                           uint8_t psfch_period,
                                           uint8_t min_time_gap_psfch,
                                           uint16_t l_subch,
                                           uint16_t total_subch,
-                                          List_t* slot_info,
+                                          seq_arr_t* slot_info,
                                           uint8_t mu);
 
-List_t exclude_reserved_resources(sensing_data_t *sensed_data,
+seq_arr_t exclude_reserved_resources(sensing_data_t *sensed_data,
                                   float slot_period_ms,
                                   uint16_t resv_period_slots,
                                   uint16_t t1,
@@ -651,9 +627,9 @@ List_t exclude_reserved_resources(sensing_data_t *sensed_data,
                                   uint8_t mu);
 
 void exclude_resources_based_on_history(frameslot_t frame_slot,
-                                        List_t* transmit_history,
-                                        List_t* candidate_resources,
-                                        List_t* sl_rsrc_rsrv_period_list,
+                                        seq_arr_t* transmit_history,
+                                        seq_arr_t* candidate_resources,
+                                        seq_arr_t* sl_rsrc_rsrv_period_list,
                                         uint8_t mu);
 
 bool overlapped_resource(uint8_t first_start,

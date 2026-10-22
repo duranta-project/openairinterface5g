@@ -42,8 +42,8 @@ void nr_ue_init_mac_sl(NR_UE_MAC_INST_t *mac)
     mac->sl_rx_harq_info[i].last_ndi = -1; // initialize to invalid value
 
   mac->SL_MAC_PARAMS = CALLOC(1, sizeof(sl_nr_ue_mac_params_t));
-  init_list(&mac->sl_sensing_data, sizeof(sensing_data_t), 1);
-  init_list(&mac->sl_transmit_history, sizeof(frameslot_t), 1);
+  seq_arr_init(&mac->sl_sensing_data, sizeof(sensing_data_t));
+  seq_arr_init(&mac->sl_transmit_history, sizeof(frameslot_t));
   mac->sl_candidate_resources = NULL;
   mac->sl_prev_rx_frame = -1;
   mac->sl_prev_rx_slot = -1;

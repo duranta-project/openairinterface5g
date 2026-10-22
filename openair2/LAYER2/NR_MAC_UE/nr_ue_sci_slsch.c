@@ -741,7 +741,7 @@ int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,i
   sensing_data.subch_startre_tx2 = 0;
   sensing_data.subch_start = sci_pdu->pssch_start_subchannel;
   sensing_data.subch_len = l_subch;
-  push_back(&mac->sl_sensing_data, &sensing_data);
+  seq_arr_push_back(&mac->sl_sensing_data, &sensing_data, sizeof(sensing_data));
   if (mac->sl_sensing_data.size > 1)
     remove_old_sensing_data(&sensing_data.frame_slot, sl_mac->sl_RxPool[0]->t0, &mac->sl_sensing_data, sl_mac);
 

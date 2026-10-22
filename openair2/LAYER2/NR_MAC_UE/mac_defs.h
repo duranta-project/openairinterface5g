@@ -15,6 +15,7 @@
 #include "common/platform_constants.h"
 #include "common/platform_types.h"
 #include "common/utils/threadPool/notified_fifo.h"
+#include "common/utils/ds/seq_arr.h"
 
 /* IF */
 #include "NR_IF_Module.h"
@@ -601,18 +602,6 @@ typedef struct {
                           // to second retransmission
 } sensing_data_t;
 
-typedef struct {
-  void* data;
-  size_t element_size;
-  size_t size;
-  size_t capacity;
-} List_t;
-
-typedef struct {
-  List_t* lists;
-  size_t size;
-  size_t capacity;
-} vec_of_list_t;
 
 typedef enum {
   c1, c2, c3, c4, c5, c6, c7
@@ -883,14 +872,14 @@ typedef struct NR_UE_MAC_INST_s {
                                                 // sensing; otherwise, use random selection
   double m_slProbResourceKeep; // Sidelink probability of keeping a resource after resource
                                    // re-selection counter reaches zero
-  List_t sl_sensing_data; // List to store sensing data
+  seq_arr_t sl_sensing_data; // List to store sensing data
   uint8_t sl_resel_counter;  // The resource selection counter
   uint16_t sl_c_resel;       // The C_resel counter
-  List_t sl_transmit_history; // History of slots used for transmission
+  seq_arr_t sl_transmit_history; // History of slots used for transmission
 
   /// bitmap of ULSCH slots, can hold up to 160 slots
   uint64_t ulsch_slot_bitmap[3];
-  List_t *sl_candidate_resources;
+  seq_arr_t *sl_candidate_resources;
   uint16_t reselection_timer;
   int sl_prev_rx_frame; ///< last RX frame scheduled (deduplication guard); initialized to -1
   int sl_prev_rx_slot;  ///< last RX slot scheduled (deduplication guard); initialized to -1

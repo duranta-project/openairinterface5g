@@ -1308,51 +1308,6 @@ int get_csi_reporting_frame_slot(NR_UE_MAC_INST_t *mac,
   return 0;
 }
 
-void init_list(List_t* list, size_t element_size, size_t initial_capacity) {
-  list->data = calloc(1, element_size * initial_capacity);
-  list->element_size = element_size;
-  list->size = 0;
-  list->capacity = initial_capacity;
-}
-
-void push_back(List_t* list, void *element) {
-  if (list->size == list->capacity) {
-    list->capacity *= 2;
-    list->data = realloc(list->data, list->element_size * list->capacity);
-  }
-  void *target = (char*)list->data + (list->size * list->element_size);
-  memcpy(target, element, list->element_size);
-  list->size++;
-}
-
-void* get_front(const List_t* list) {
-  if (list->size == 0) {
-    return NULL;
-  }
-  return list->data; // pointer to first element
-}
-
-void* get_back(const List_t* list) {
-  if (list->size == 0) {
-    return NULL;
-  }
-  return (char*)list->data + (list->size - 1) * list->element_size; // pointer to last element
-}
-
-void delete_at(List_t* list, size_t index) {
-
-  if (index >= list->size) {
-    LOG_E(NR_MAC, "Index of bound\n");
-    return;
-  }
-
-  char* element_ptr = (char*)list->data + index * list->element_size;
-
-  memmove(element_ptr, element_ptr + list->element_size, (list->size - index - 1) * list->element_size);
-
-  list->size--;
-}
-
 int64_t normalize(frameslot_t *frame_slot, uint8_t mu) {
   int64_t num_slots = 0;
   uint8_t slots_per_frame = nr_slots_per_frame[mu];
@@ -1375,46 +1330,33 @@ frameslot_t add_to_sfn(frameslot_t* sfn, uint16_t slot_n, uint8_t mu) {
 }
 
 
-void update_sensing_data(List_t* sensing_data, frameslot_t *frame_slot, sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id) {
+void update_sensing_data(seq_arr_t* sensing_data, frameslot_t *frame_slot, sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id) {
   uint8_t mu = sl_mac->sl_phy_config.sl_config_req.sl_bwp_config.sl_scs;
   int64_t num_max_slots = nr_slots_per_frame[mu] * 1024;
   while(sensing_data->size > 0) {
-    sensing_data_t* last_elem = (sensing_data_t*)((char*)sensing_data->data + (sensing_data->size - 1) * sensing_data->element_size);
+    sensing_data_t* last_elem = seq_arr_at(sensing_data, sensing_data->size - 1);
     int64_t diff = (normalize(frame_slot, mu) - normalize(&last_elem->frame_slot, mu) + num_max_slots) % num_max_slots;
     if (diff <= get_tproc0(sl_mac, pool_id)) {
-      pop_back(sensing_data);
+      sensing_data->size--;
     } else {
       break;
     }
   }
 }
 
-void update_transmit_history(List_t* transmit_history, frameslot_t *frame_slot, sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id) {
+void update_transmit_history(seq_arr_t* transmit_history, frameslot_t *frame_slot, sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id) {
   uint8_t mu = sl_mac->sl_phy_config.sl_config_req.sl_bwp_config.sl_scs;
   int64_t num_max_slots = nr_slots_per_frame[mu] * 1024;
   while(transmit_history->size > 0) {
-    frameslot_t* last_frame_slot = (frameslot_t*)((uint8_t*)transmit_history->data + (transmit_history->size - 1) * transmit_history->element_size);
+    frameslot_t* last_frame_slot = seq_arr_at(transmit_history, transmit_history->size - 1);
     int64_t diff = (normalize(frame_slot, mu) - normalize(last_frame_slot, mu) + num_max_slots) % num_max_slots;
 
     if (diff <= get_tproc0(sl_mac, pool_id)) {
-      pop_back(transmit_history);
+      transmit_history->size--;
     } else {
       break;
     }
   }
-}
-
-void pop_back(List_t* sensing_data) {
-  if(sensing_data->size > 0) {
-    sensing_data->size--;
-  }
-}
-
-void free_list_mem(List_t* list) {
-  free(list->data);
-  list->data = NULL;
-  list->size = 0;
-  list->capacity = 0;
 }
 
 uint16_t get_T2_min(uint16_t pool_id, sl_nr_ue_mac_params_t *sl_mac, uint8_t mu) {
@@ -1485,59 +1427,4 @@ uint16_t nr_sl_rrp_to_ms(const NR_SL_ResourceReservePeriod_r16_t *p)
 
 uint8_t get_tproc0(sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id) {
   return sl_mac->sl_TxPool[pool_id]->tproc0;
-}
-
-void init_vector(vec_of_list_t* vec, size_t initial_capacity) {
-  vec->size = 0;
-  vec->capacity = initial_capacity;
-  vec->lists = (List_t*)malloc16_clear(initial_capacity * sizeof(List_t));
-
-  if (!vec->lists) {
-    LOG_E(NR_MAC, "Memory allocation failed\n");
-    exit(EXIT_FAILURE);
-  }
-}
-
-void add_list(vec_of_list_t* vec, size_t element_size, size_t initial_list_capacity) {
-  if (vec->size == vec->capacity) {
-    vec->capacity *= 2;
-    vec->lists = realloc(vec->lists, vec->capacity * sizeof(List_t));
-    if (!vec->lists) {
-      LOG_E(NR_MAC, "Memory allocation failed\n");
-      exit(EXIT_FAILURE);
-    }
-  }
-  init_list(&vec->lists[vec->size], element_size, initial_list_capacity);
-  vec->size++;
-}
-
-void push_back_list(vec_of_list_t* vec, List_t* new_list) {
-  if (vec->size == vec->capacity) {
-    vec->capacity *= 2;
-    vec->lists = realloc(vec->lists, vec->capacity * sizeof(List_t));
-    if (!vec->lists) {
-      LOG_E(NR_MAC, "Memory allocation failed\n");
-      exit(EXIT_FAILURE);
-    }
-  }
-  vec->lists[vec->size] = *new_list;
-  vec->size++;
-}
-
-List_t* get_list(vec_of_list_t *vec, size_t index) {
-  if (index >= vec->size) {
-    LOG_E(NR_MAC, "Index out of bounds\n");
-    return NULL;
-  }
-  return &vec->lists[index];
-}
-
-void free_vector(vec_of_list_t* vec) {
-  for (size_t i = 0; i < vec->size; i++) {
-    free_list_mem(&vec->lists[i]);
-  }
-  free(vec->lists);
-  vec->lists = NULL;
-  vec->size = 0;
-  vec->capacity = 0;
 }

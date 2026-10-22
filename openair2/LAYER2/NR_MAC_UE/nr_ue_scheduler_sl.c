@@ -34,23 +34,23 @@ extern const int pscch_rb_table[5];
 #define SLOT_INFO_DEBUG
 #define BITMAP_DEBUG
 
-static void print_candidate_list(List_t *candidate_resources, int line) {
+static void print_candidate_list(seq_arr_t *candidate_resources, int line) {
   for (int i = 0; i < candidate_resources->size; i++) {
-    sl_resource_info_t *itr_rsrc = (sl_resource_info_t*)((char*)candidate_resources->data + i * candidate_resources->element_size);
+    sl_resource_info_t *itr_rsrc = seq_arr_at(candidate_resources, i);
     LOG_D(NR_MAC, "line %d, %4d.%2d, %ld, sl_subchan_len %d\n", line, itr_rsrc->sfn.frame, itr_rsrc->sfn.slot, normalize(&itr_rsrc->sfn, 1), itr_rsrc->sl_subchan_len);
   }
 }
 
-static void print_reserved_list(List_t *candidate_resources, int line) {
+static void print_reserved_list(seq_arr_t *candidate_resources, int line) {
   for (int i = 0; i < candidate_resources->size; i++) {
-    reserved_resource_t *itr_rsrc = (reserved_resource_t*)((char*)candidate_resources->data + i * candidate_resources->element_size);
+    reserved_resource_t *itr_rsrc = seq_arr_at(candidate_resources, i);
     LOG_D(NR_MAC, "line %d, %4d.%2d, %ld, sl_subchan_len %d\n", line, itr_rsrc->sfn.frame, itr_rsrc->sfn.slot, normalize(&itr_rsrc->sfn, 1), itr_rsrc->sb_ch_length);
   }
 }
 
-static void print_sensing_data_list(List_t *sensing_data, int line) {
+static void print_sensing_data_list(seq_arr_t *sensing_data, int line) {
   for (int i = 0; i < sensing_data->size; i++) {
-    sensing_data_t *itr_rsrc = (sensing_data_t*)((char*)sensing_data->data + i * sensing_data->element_size);
+    sensing_data_t *itr_rsrc = seq_arr_at(sensing_data, i);
     LOG_D(NR_MAC, "line %d, %4d.%2d, %ld, sl_subchan_len %d\n", line, itr_rsrc->frame_slot.frame, itr_rsrc->frame_slot.slot, normalize(&itr_rsrc->frame_slot, 1), itr_rsrc->subch_len);
   }
 }
@@ -128,13 +128,13 @@ bool check_t1_within_tproc1(uint8_t mu, uint16_t t1_slots) {
 
 void remove_old_sensing_data(frameslot_t *frame_slot,
                              uint16_t sensing_window,
-                             List_t* sensing_data,
+                             seq_arr_t* sensing_data,
                              sl_nr_ue_mac_params_t *sl_mac) {
 
   int new_size = 0;
   int mu = sl_mac->sl_phy_config.sl_config_req.sl_bwp_config.sl_scs;
   for (int i = 0; i < sensing_data->size; i++) {
-    sensing_data_t *data = (sensing_data_t*)((char*)sensing_data->data + i * sensing_data->element_size);
+    sensing_data_t *data = seq_arr_at(sensing_data, i);
     LOG_D(NR_MAC, " i %d, old (%4d.%2d) %ld >=  current (%4d.%2d) %ld staled data slots %ld\n",
           i,
           data->frame_slot.frame,
@@ -154,8 +154,8 @@ void remove_old_sensing_data(frameslot_t *frame_slot,
     }
   }
   if (new_size > 0) {
-    LOG_D(NR_MAC, "sensing data: size %ld, element_size %ld new_size %d\n", sensing_data->size, sensing_data->element_size, new_size);
-    memmove(sensing_data->data, (char*)sensing_data->data + new_size * sensing_data->element_size, (sensing_data->size - new_size) * sensing_data->element_size);
+    LOG_D(NR_MAC, "sensing data: size %ld, element_size %ld new_size %d\n", sensing_data->size, sensing_data->elt_size, new_size);
+    memmove(sensing_data->data, (char*)sensing_data->data + new_size * sensing_data->elt_size, (sensing_data->size - new_size) * sensing_data->elt_size);
     LOG_D(NR_MAC, "Subtracting %d from %ld\n", new_size, sensing_data->size);
     sensing_data->size -= new_size;
   }
@@ -1410,9 +1410,9 @@ void nr_ue_sl_pscch_rx_scheduler(nr_sidelink_indication_t *sl_ind,
 
 }
 
-sl_resource_info_t* get_resource_element(List_t* resource_list, frameslot_t sfn) {
+sl_resource_info_t* get_resource_element(seq_arr_t* resource_list, frameslot_t sfn) {
   for (int i = 0; i < resource_list->size; i++) {
-    sl_resource_info_t *itr_rsrc = (sl_resource_info_t*)((char*)resource_list->data + i * resource_list->element_size);
+    sl_resource_info_t *itr_rsrc = seq_arr_at(resource_list, i);
     LOG_D(NR_MAC, "%s %4d.%2d, %ld, sl_subchan_len %d, current sfn %4d.%2d\n",
           __FUNCTION__, itr_rsrc->sfn.frame, itr_rsrc->sfn.slot, normalize(&itr_rsrc->sfn, 1), itr_rsrc->sl_subchan_len, sfn.frame, sfn.slot);
     if (itr_rsrc->sfn.frame == sfn.frame && itr_rsrc->sfn.slot == sfn.slot) {
@@ -1422,13 +1422,13 @@ sl_resource_info_t* get_resource_element(List_t* resource_list, frameslot_t sfn)
   return NULL;
 }
 
-static bool has_current_or_future_candidate(const List_t *resource_list, frameslot_t now, uint8_t mu)
+static bool has_current_or_future_candidate(const seq_arr_t *resource_list, frameslot_t now, uint8_t mu)
 {
   const uint64_t now_abs = normalize(&now, mu);
   const uint64_t cycle_slots = (uint64_t)nr_slots_per_frame[mu] * 1024;
   for (int i = 0; i < resource_list->size; i++) {
     const sl_resource_info_t *resource =
-        (const sl_resource_info_t *)((const char *)resource_list->data + i * resource_list->element_size);
+        seq_arr_at(resource_list, i);
     frameslot_t resource_sfn = resource->sfn;
     const uint64_t resource_abs = normalize(&resource_sfn, mu);
     const uint64_t slots_ahead = (resource_abs + cycle_slots - now_abs) % cycle_slots;
@@ -1441,10 +1441,10 @@ static bool has_current_or_future_candidate(const List_t *resource_list, framesl
   return false;
 }
 
-static void replace_candidate_resources(NR_UE_MAC_INST_t *mac, List_t *new_resources)
+static void replace_candidate_resources(NR_UE_MAC_INST_t *mac, seq_arr_t *new_resources)
 {
   if (mac->sl_candidate_resources != NULL) {
-    free_list_mem(mac->sl_candidate_resources);
+    seq_arr_free(mac->sl_candidate_resources, NULL);
     free(mac->sl_candidate_resources);
   }
   mac->sl_candidate_resources = new_resources;
@@ -1455,20 +1455,28 @@ void nr_ue_sl_mac_free(NR_UE_MAC_INST_t *mac)
   /* Release all dynamically-allocated sidelink state so that the MAC instance
    * can be safely freed or re-initialised without leaking memory. */
   replace_candidate_resources(mac, NULL);
-  free_list_mem(&mac->sl_sensing_data);
-  free_list_mem(&mac->sl_transmit_history);
+  if (mac->sl_sensing_data.data != NULL) {
+    seq_arr_free(&mac->sl_sensing_data, NULL);
+    mac->sl_sensing_data.data = NULL;
+    mac->sl_sensing_data.size = mac->sl_sensing_data.cap = 0;
+  }
+  if (mac->sl_transmit_history.data != NULL) {
+    seq_arr_free(&mac->sl_transmit_history, NULL);
+    mac->sl_transmit_history.data = NULL;
+    mac->sl_transmit_history.size = mac->sl_transmit_history.cap = 0;
+  }
   nr_ue_sl_free_resource_pools(mac);
 }
 
 void remove_old_transmit_history(frameslot_t *frame_slot,
                                  uint16_t sensing_window,
-                                 List_t* transmit_history,
+                                 seq_arr_t* transmit_history,
                                  sl_nr_ue_mac_params_t *sl_mac) {
 
   int new_size = 0;
   int mu = sl_mac->sl_phy_config.sl_config_req.sl_bwp_config.sl_scs;
   for (int i = 0; i < transmit_history->size; i++) {
-    frameslot_t *tr_his_frame_slot = (frameslot_t*)((char*)transmit_history->data + i * transmit_history->element_size);
+    frameslot_t *tr_his_frame_slot = seq_arr_at(transmit_history, i);
     LOG_D(NR_MAC, " i %d, Transmit history data: (%4d.%2d) %ld >=  current (%4d.%2d) %ld\n",
            i,
            tr_his_frame_slot->frame,
@@ -1504,7 +1512,7 @@ void remove_old_transmit_history(frameslot_t *frame_slot,
     new_size ++;
   }
   if (new_size > 0) {
-    memmove(transmit_history->data, (char*)transmit_history->data + new_size * transmit_history->element_size, (transmit_history->size - new_size) * transmit_history->element_size);
+    memmove(transmit_history->data, (char*)transmit_history->data + new_size * transmit_history->elt_size, (transmit_history->size - new_size) * transmit_history->elt_size);
     LOG_D(NR_MAC, "Subtracting %d from %ld\n", new_size, transmit_history->size);
     transmit_history->size -= new_size;
   }
@@ -1604,7 +1612,7 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
           "%4d.%2d SL queue pending with no usable candidate; refreshing the selection window\n",
           frame,
           slot);
-    List_t *new_resources =
+    seq_arr_t *new_resources =
         get_candidate_resources(&selection_frame_slot, mac, &mac->sl_sensing_data, &mac->sl_transmit_history);
     replace_candidate_resources(mac, new_resources);
   }
@@ -1613,7 +1621,7 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
   sl_resource_info_t *resource = NULL;
   if (mac->sl_candidate_resources && mac->sl_candidate_resources->size > 0
       && sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX) {
-    LOG_D(NR_MAC, "%4d.%2d sl_candidate_resources %p size %ld, capacity %ld slot_type %d\n", frame, slot, mac->sl_candidate_resources, mac->sl_candidate_resources->size, mac->sl_candidate_resources->capacity, sl_ind->slot_type);
+    LOG_D(NR_MAC, "%4d.%2d sl_candidate_resources %p size %ld, capacity %ld slot_type %d\n", frame, slot, mac->sl_candidate_resources, mac->sl_candidate_resources->size, mac->sl_candidate_resources->cap, sl_ind->slot_type);
     resource = get_resource_element(mac->sl_candidate_resources, tx_frame_slot);
     if (resource) {
       LOG_D(NR_MAC, "SELECTED_RESOURCE %4d.%2d slot_type %d, num_sl_pscch_rbs %d, sl_max_num_per_reserve %d, sl_min_time_gap_psfch %d, sl_pscch_sym_start %d, \
@@ -1768,7 +1776,7 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
       remove_old_transmit_history(&frame_slot, sl_mac->sl_TxPool[0]->t0, &mac->sl_transmit_history, sl_mac);
     if (sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX) {
       LOG_D(NR_MAC, "Inserting transmit history data: %4d.%2d\n", frame_slot.frame, frame_slot.slot);
-      push_back(&mac->sl_transmit_history, &frame_slot);
+      seq_arr_push_back(&mac->sl_transmit_history, &frame_slot, sizeof(frame_slot));
     }
     if ((mac->if_module != NULL) && (mac->if_module->scheduled_response != NULL))
       mac->if_module->scheduled_response(&scheduled_response);
@@ -1776,7 +1784,7 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
   free(rx_config.sl_rx_config_list[0].rx_psfch_pdu_list);
 }
 
-List_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,
+seq_arr_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,
                                     uint64_t abs_idx_cur_slot,
                                     uint8_t bwp_id,
                                     uint16_t mu,
@@ -1785,8 +1793,8 @@ List_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,
                                     uint16_t t2,
                                     uint8_t psfch_period) {
   frameslot_t frame_slot;
-  List_t slot_info_list;
-  init_list(&slot_info_list, sizeof(slot_info_t), 1);
+  seq_arr_t slot_info_list;
+  seq_arr_init(&slot_info_list, sizeof(slot_info_t));
   SL_ResourcePool_params_t *sl_tx_rsrc_pool = mac->SL_MAC_PARAMS->sl_TxPool[pool_id];
   size_t phy_map_sz = (sl_tx_rsrc_pool->phy_sl_bitmap.size << 3) - sl_tx_rsrc_pool->phy_sl_bitmap.bits_unused;
   LOG_D(NR_MAC, "phy_map_sz %zu\n", phy_map_sz);
@@ -1854,7 +1862,7 @@ List_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,
       de_normalize(slot_info.abs_slot_index, mu, &frame_slot);
       LOG_D(NR_MAC, "Pushing %4d.%2d\n", frame_slot.frame, frame_slot.slot);
       validate_selected_sl_slot(mac, true , false, mac->SL_MAC_PARAMS->sl_TDD_config, frame_slot);
-      push_back(&slot_info_list, &slot_info);
+      seq_arr_push_back(&slot_info_list, &slot_info, sizeof(slot_info));
     }
     abs_pool_index = (abs_pool_index + 1) % phy_map_sz;
   }
@@ -1863,7 +1871,7 @@ List_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,
 
 #ifdef SLOT_INFO_DEBUG
   for (size_t i = 0; i < slot_info_list.size; i++) {
-    slot_info_t *slot_inf = (slot_info_t*)((char*)slot_info_list.data + i * slot_info_list.element_size);
+    slot_info_t *slot_inf = seq_arr_at(&slot_info_list, i);
     LOG_D(NR_MAC, "sidelink pscch (sym_start %d, sym_len %d, pscch_rbs %d), slot_offset %d, abs_slot_index %ld, max_num_per_reserve %d, sub_chan_size %d\n",
           slot_inf->sl_pscch_sym_start,
           slot_inf->sl_pscch_sym_len,
@@ -1952,21 +1960,21 @@ int get_physical_sl_pool(NR_UE_MAC_INST_t *mac, BIT_STRING_t *sl_time_rsrc, BIT_
   return phy_sl_bits;
 }
 
-List_t* get_candidate_resources_from_slots(frameslot_t *sfn,
+seq_arr_t* get_candidate_resources_from_slots(frameslot_t *sfn,
                                            uint8_t psfch_period,
                                            uint8_t min_time_gap_psfch,
                                            uint16_t l_subch,
                                            uint16_t total_subch,
-                                           List_t* slot_info,
+                                           seq_arr_t* slot_info,
                                            uint8_t mu) {
   LOG_D(NR_MAC, "%4d.%2d, psfch_period %d,  min_time_gap_psfch %d\n",
         sfn->frame, sfn->slot, psfch_period,  min_time_gap_psfch);
 
-  List_t *nr_resource_list = (List_t *)malloc16_clear(sizeof(*nr_resource_list));
-  init_list(nr_resource_list, sizeof(sl_resource_info_t), 1);
+  seq_arr_t *nr_resource_list = (seq_arr_t *)malloc16_clear(sizeof(*nr_resource_list));
+  seq_arr_init(nr_resource_list, sizeof(sl_resource_info_t));
   for (int s = 0; s < slot_info->size; s++) {
     for (uint16_t i = 0; i + l_subch <= total_subch; i++) {
-        slot_info_t *s_info = (slot_info_t*)((char*)slot_info->data + s * slot_info->element_size);
+        slot_info_t *s_info = seq_arr_at(slot_info, s);
         frameslot_t frame_slot;
         de_normalize(normalize(sfn, mu) + s_info->slot_offset, mu, &frame_slot);
         sl_resource_info_t rsrc_info = {.num_sl_pscch_rbs = s_info->num_sl_pscch_rbs,
@@ -1983,28 +1991,39 @@ List_t* get_candidate_resources_from_slots(frameslot_t *sfn,
                                         .sl_min_time_gap_psfch = min_time_gap_psfch};
         LOG_D(NR_MAC, "abs slot %ld, capacity %ld size %ld subchan: %d/%d slot %d/%ld frame_slot %4d.%2d\n",
               normalize(sfn, mu) + s_info->slot_offset,
-              nr_resource_list->capacity, nr_resource_list->size, i, total_subch, s, slot_info->size, rsrc_info.sfn.frame, rsrc_info.sfn.slot);
-        push_back(nr_resource_list, &rsrc_info);
+              nr_resource_list->cap, nr_resource_list->size, i, total_subch, s, slot_info->size, rsrc_info.sfn.frame, rsrc_info.sfn.slot);
+        seq_arr_push_back(nr_resource_list, &rsrc_info, sizeof(rsrc_info));
     }
   }
   return nr_resource_list;
 }
 
+/* Retain capacity: the shared erase path can underallocate when shrinking. */
+static void sl_erase_resource(seq_arr_t *resources, size_t index)
+{
+  uint8_t *element = seq_arr_at(resources, index);
+  memmove(element, element + resources->elt_size, (resources->size - index - 1) * resources->elt_size);
+  resources->size--;
+}
+
 void exclude_resources_based_on_history(frameslot_t frame_slot,
-                                        List_t* transmit_history,
-                                        List_t* candidate_resources,
-                                        List_t* sl_rsrc_rsrv_period_list,
+                                        seq_arr_t* transmit_history,
+                                        seq_arr_t* candidate_resources,
+                                        seq_arr_t* sl_rsrc_rsrv_period_list,
                                         uint8_t mu) {
 
   LOG_D(NR_MAC, "abs_slot %ld, size (transmit_history: %ld, candidate_resources: %ld, sl_rsrc_rsrv_period: %ld)\n",
         normalize(&frame_slot, 1), transmit_history->size, candidate_resources->size, sl_rsrc_rsrv_period_list->size);
 
-  List_t sfn_to_exclude; // SFN slot numbers (normalized) to exclude
-  init_list(&sfn_to_exclude, sizeof(uint64_t), 1);
-  sl_resource_info_t* sl_rsrc_info = (sl_resource_info_t*) get_front(candidate_resources);
+  if (candidate_resources->size == 0)
+    return;
+
+  seq_arr_t sfn_to_exclude; // SFN slot numbers (normalized) to exclude
+  seq_arr_init(&sfn_to_exclude, sizeof(uint64_t));
+  sl_resource_info_t* sl_rsrc_info = (sl_resource_info_t*) seq_arr_front(candidate_resources);
   uint64_t first_sfn_norm = normalize(&sl_rsrc_info->sfn, mu); // lowest candidate SFN slot number
 
-  sl_rsrc_info = (sl_resource_info_t*) get_back(candidate_resources);
+  sl_rsrc_info = (sl_resource_info_t*) seq_arr_at(candidate_resources, candidate_resources->size - 1);
   uint64_t last_sfn_norm = normalize(&sl_rsrc_info->sfn, mu); // highest candidate SFN slot number
   LOG_D(NR_MAC, "Excluding resources between SFNs (%lu, %lu)\n", first_sfn_norm, last_sfn_norm);
 
@@ -2013,18 +2032,18 @@ void exclude_resources_based_on_history(frameslot_t frame_slot,
   // added to the history's slot number, are within the candidate resource
   // slots lowest and highest numbers
   for (int k = 0; k < sl_rsrc_rsrv_period_list->size; k++) {
-    uint16_t *rsrv_period = (uint16_t*)((char*)sl_rsrc_rsrv_period_list->data + k * sl_rsrc_rsrv_period_list->element_size);
+    uint16_t *rsrv_period = seq_arr_at(sl_rsrc_rsrv_period_list, k);
     if (*rsrv_period == 0) {
         continue; // 0ms value is ignored
     }
     *rsrv_period = *rsrv_period * (1 << mu); // Convert from ms to slots
     for (int j = 0; j < transmit_history->size; j++) {
       uint16_t i = 1;
-      frameslot_t *sfn = (frameslot_t*)((char*)transmit_history->data + j * transmit_history->element_size);
+      frameslot_t *sfn = seq_arr_at(transmit_history, j);
       uint64_t sfn_to_check = normalize(sfn, mu) + (*rsrv_period);
       while (sfn_to_check <= last_sfn_norm) {
         if (sfn_to_check >= first_sfn_norm) {
-          push_back(&sfn_to_exclude, &sfn_to_check);
+          seq_arr_push_back(&sfn_to_exclude, &sfn_to_check, sizeof(sfn_to_check));
         }
         i++;
         sfn_to_check = normalize(sfn, mu) + (i) * (*rsrv_period);
@@ -2035,20 +2054,22 @@ void exclude_resources_based_on_history(frameslot_t frame_slot,
   // sfn_to_exclude is a set of SFN normalized slot numbers for which we need
   // to exclude (erase) any candidate resources that match
   for (int k = 0; k < sfn_to_exclude.size; k++) {
-    uint64_t *norm_sfn = (uint64_t*)((char*)sfn_to_exclude.data + k * sfn_to_exclude.element_size);
+    uint64_t *norm_sfn = seq_arr_at(&sfn_to_exclude, k);
     for (int j = 0; j < candidate_resources->size; j++) {
-      sl_resource_info_t *rsrc_info = (sl_resource_info_t*)((char*)candidate_resources->data + j * candidate_resources->element_size);
+      sl_resource_info_t *rsrc_info = seq_arr_at(candidate_resources, j);
       uint64_t norm_rsrc_info_sfn = normalize(&rsrc_info->sfn, mu);
       if (norm_rsrc_info_sfn == *norm_sfn)
       {
         LOG_D(NR_MAC, "Erasing candidate resource at %lu\n", *norm_sfn);
-        delete_at(candidate_resources, j);
+        sl_erase_resource(candidate_resources, j);
+        j--;
       }
     }
   }
+  seq_arr_free(&sfn_to_exclude, NULL);
 }
 
-List_t exclude_reserved_resources(sensing_data_t *sensed_data,
+seq_arr_t exclude_reserved_resources(sensing_data_t *sensed_data,
                                   float slot_period_ms,
                                   uint16_t resv_period_slots,
                                   uint16_t t1,
@@ -2064,8 +2085,8 @@ List_t exclude_reserved_resources(sensing_data_t *sensed_data,
         sensed_data->gap_re_tx1,
         sensed_data->gap_re_tx2);
 
-  List_t resource_list;
-  init_list(&resource_list, sizeof(reserved_resource_t), 1);
+  seq_arr_t resource_list;
+  seq_arr_init(&resource_list, sizeof(reserved_resource_t));
   AssertFatal(slot_period_ms <= 1, "Slot length can not exceed 1 ms\n");
   // slot range is [n + T1, n + T2] (both endpoints included)
   uint16_t window_slots = (t2 - t1) + 1; // selection window length in physical slots
@@ -2092,20 +2113,20 @@ List_t exclude_reserved_resources(sensing_data_t *sensed_data,
                                     .sl_rsrp = sensed_data->sl_rsrp
                                     };
     resource.sfn = add_to_sfn(&resource.sfn, p_prime_rsvp_rx, mu);
-    push_back(&resource_list, &resource);
+    seq_arr_push_back(&resource_list, &resource, sizeof(resource));
     if (sensed_data->gap_re_tx1 != 0 && sensed_data->gap_re_tx1 != 0xFF) {
       reserved_resource_t re_tx1_slot = resource;
       re_tx1_slot.sfn = add_to_sfn(&re_tx1_slot.sfn, sensed_data->gap_re_tx1, mu);
       re_tx1_slot.sb_ch_length = sensed_data->subch_len;
       re_tx1_slot.sb_ch_start = sensed_data->subch_startre_tx1;
-      push_back(&resource_list, &re_tx1_slot);
+      seq_arr_push_back(&resource_list, &re_tx1_slot, sizeof(re_tx1_slot));
     }
     if (sensed_data->gap_re_tx1 != 0 && sensed_data->gap_re_tx2 != 0xFF) {
       reserved_resource_t re_tx2_slot = resource;
       re_tx2_slot.sfn = add_to_sfn(&re_tx2_slot.sfn, sensed_data->gap_re_tx2, mu);
       re_tx2_slot.sb_ch_length = sensed_data->subch_len;
       re_tx2_slot.sb_ch_start = sensed_data->subch_startre_tx2;
-      push_back(&resource_list, &re_tx2_slot);
+      seq_arr_push_back(&resource_list, &re_tx2_slot, sizeof(re_tx2_slot));
     }
   }
   LOG_D(NR_MAC, "q: %d,  Size of resource_list: %ld\n", q, resource_list.size);
@@ -2173,7 +2194,12 @@ uint8_t get_random_reselection_counter(uint16_t rri) {
     return min_res_cntr + lrand48() % (max_res_cntr - min_res_cntr + 1);
 }
 
-List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, List_t *sensing_data, List_t *transmit_history) {
+static void free_sl_projection(void *projection)
+{
+  seq_arr_free(projection, NULL);
+}
+
+seq_arr_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, seq_arr_t *sensing_data, seq_arr_t *transmit_history) {
 
   uint16_t pool_id = 0;
   uint8_t bwp_id = 0;
@@ -2188,8 +2214,7 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
 
   LOG_D(NR_MAC, "Transmit  size: %ld; sensing data size: %ld\n", transmit_history->size, sensing_data->size);
 
-  List_t candidate_slots;
-  List_t *candidate_resources;
+  seq_arr_t *candidate_resources;
   uint64_t abs_slot_ind = normalize(frame_slot, mu);
 
   // Check the validity of the resource selection window configuration (t1 and t2)
@@ -2223,7 +2248,7 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
 
   // step 4 as per TS 38.214 sec 8.1.4
   // Find sidelink slots from tx_phy_sl_bitmap
-  candidate_slots = get_nr_sl_comm_opportunities(mac,
+  seq_arr_t candidate_slots = get_nr_sl_comm_opportunities(mac,
                                                  abs_slot_ind,
                                                  bwp_id,
                                                  mu,
@@ -2244,7 +2269,7 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
           t1,
           t2,
           sl_tx_params->packet_delay_budget_ms);
-      free_list_mem(&candidate_slots);
+      seq_arr_free(&candidate_slots, NULL);
     return NULL;
   }
 
@@ -2256,7 +2281,7 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
                                                            total_subch,
                                                            &candidate_slots,
                                                            mu);
-  free_list_mem(&candidate_slots);
+  seq_arr_free(&candidate_slots, NULL);
   print_candidate_list(candidate_resources, __LINE__);
 
   uint64_t m_total = candidate_resources->size; // total number of candidate single-slot resources
@@ -2273,7 +2298,7 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
   // from the original buffer because it will be deleted
   // by RemoveOldSensingData method once it is outdated.
 
-  List_t *updated_sensing_data = sensing_data;
+  seq_arr_t *updated_sensing_data = sensing_data;
 
   // latest sensing data is at the end of the list
   // now remove the sensing data as per the value of Tproc0. This would
@@ -2284,21 +2309,24 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
   // Perform a similar operation on the transmit history.
   // latest is at the end of the list
   // keep the size of the buffer equal to [n – T0 , n – Tproc0)
-  List_t *updated_history = transmit_history;
+  seq_arr_t *updated_history = transmit_history;
 
   update_transmit_history(updated_history, frame_slot, sl_mac, pool_id);
 
   // step 5: filter candidateResources based on transmit history, if threshold
   // defined in step 5a) is met
-  List_t *remaining_candidates = candidate_resources;
+  seq_arr_t *remaining_candidates = candidate_resources;
   LOG_D(NR_MAC, "size: (candidate_resources %ld, remaining_candidates %ld, updated_history %ld)\n",
         candidate_resources->size, remaining_candidates->size, updated_history->size);
 
   // Exclude resources function may not be effective if updated history is empty
-  List_t *rsrc_rsrvation_period_list = malloc16_clear(sizeof(*rsrc_rsrvation_period_list));
-  init_list(rsrc_rsrvation_period_list, sizeof(long), 1);
-  push_back(rsrc_rsrvation_period_list, &sl_tx_params->rri);
+  seq_arr_t *rsrc_rsrvation_period_list = malloc16_clear(sizeof(*rsrc_rsrvation_period_list));
+  seq_arr_init(rsrc_rsrvation_period_list, sizeof(sl_tx_params->rri));
+  seq_arr_push_back(rsrc_rsrvation_period_list, &sl_tx_params->rri, sizeof(sl_tx_params->rri));
   exclude_resources_based_on_history(*frame_slot, updated_history, remaining_candidates, rsrc_rsrvation_period_list, mu);
+
+  seq_arr_free(rsrc_rsrvation_period_list, NULL);
+  free(rsrc_rsrvation_period_list);
 
   LOG_D(NR_MAC, "sl_res_ratio %f, %lf\n",
         sl_tx_params->sl_res_ratio, (sl_tx_params->sl_res_ratio * m_total));
@@ -2320,14 +2348,13 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
   // list that holds the info of each received SCI and its possible
   // future transmissions.
 
-  vec_of_list_t sensing_data_projections;
-  init_vector(&sensing_data_projections, 1);
-  add_list(&sensing_data_projections, sizeof(reserved_resource_t), 1);
+  seq_arr_t sensing_data_projections;
+  seq_arr_init(&sensing_data_projections, sizeof(seq_arr_t));
   uint8_t nr_slots_per_subframe = pow(2, mu);
   float slot_duraton_ms = (1.0 / nr_slots_per_subframe);
   print_sensing_data_list(updated_sensing_data, __LINE__);
   for (int k = 0; k < updated_sensing_data->size; k++) {
-    sensing_data_t *itr_sdata = (sensing_data_t*)((char*)updated_sensing_data->data + k * updated_sensing_data->element_size);
+    sensing_data_t *itr_sdata = seq_arr_at(updated_sensing_data, k);
     uint16_t resv_period_slots = time_to_slots(mu, itr_sdata->rsvp);
     LOG_D(NR_MAC, "sfn %ld, %4d.%2d slot_period %f, resv_period_slots %d, gap_re_tx1 %d, gap_re_tx2 %d\n",
           normalize(&itr_sdata->frame_slot, mu),
@@ -2339,18 +2366,19 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
           itr_sdata->gap_re_tx2);
     itr_sdata->gap_re_tx1 = 0;
     itr_sdata->gap_re_tx2 = 0;
-    List_t temp_rsrc_list = exclude_reserved_resources(itr_sdata,
+    seq_arr_t temp_rsrc_list = exclude_reserved_resources(itr_sdata,
                                                        slot_duraton_ms,
                                                        resv_period_slots,
                                                        t1,
                                                        t2,
                                                        mu);
     LOG_D(NR_MAC, "k %d, Inserting list of size %ld\n", k, temp_rsrc_list.size);
-    push_back_list(&sensing_data_projections, &temp_rsrc_list);
+    /* The outer array owns the returned projection buffer. */
+    seq_arr_push_back(&sensing_data_projections, &temp_rsrc_list, sizeof(temp_rsrc_list));
   }
 
   int rsrp_threshold = sl_tx_params->sl_thresh_rsrp;
-  List_t* candidate_resources_after_step5 = remaining_candidates;
+  seq_arr_t* candidate_resources_after_step5 = remaining_candidates;
   int counter_c = 0;
   do
   {
@@ -2364,13 +2392,13 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
     // k increment is conditional based on delete action
     int k = 0;
     while ( k < remaining_candidates->size) {
-      sl_resource_info_t *itr_rsrc = (sl_resource_info_t*)((char*)remaining_candidates->data + k * remaining_candidates->element_size);
+      sl_resource_info_t *itr_rsrc = seq_arr_at(remaining_candidates, k);
       bool erased = false;
       itr_rsrc->slot_busy = false;
       // calculate all proposed transmissions of current candidate resource within selection
       // window
-      List_t *resource_info_list = calloc(1, sizeof(*resource_info_list));
-      init_list(resource_info_list, sizeof(sl_resource_info_t), 1);
+      seq_arr_t *resource_info_list = calloc(1, sizeof(*resource_info_list));
+      seq_arr_init(resource_info_list, sizeof(sl_resource_info_t));
       uint16_t p_prime_rsvp_tx = time_to_slots(mu, sl_tx_params->rri);
       for (uint16_t i = 0; i < sl_tx_params->resel_counter; i++) {
         sl_resource_info_t sl_resource_info;
@@ -2378,20 +2406,20 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
         frameslot_t fs = sl_resource_info.sfn;
         sl_resource_info.sfn = add_to_sfn(&fs, p_prime_rsvp_tx, mu);
         LOG_D(NR_MAC, "sfn %4d.%2d, %4d.%2d i * p_prime_rsvp_tx %d\n", itr_rsrc->sfn.frame, itr_rsrc->sfn.slot, fs.frame, fs.slot, i * p_prime_rsvp_tx);
-        push_back(resource_info_list, &sl_resource_info);
+        seq_arr_push_back(resource_info_list, &sl_resource_info, sizeof(sl_resource_info));
       }
 
       // Traverse over all the possible transmissions derived from each sensed SCI
       for (int i = 0; i < sensing_data_projections.size; i++) {
-        List_t proj_reserved_rsc_list = sensing_data_projections.lists[i];
+        seq_arr_t proj_reserved_rsc_list = *(seq_arr_t *)seq_arr_at(&sensing_data_projections, i);
         print_reserved_list(&proj_reserved_rsc_list, __LINE__);
         // for all proposed transmissions of current candidate resource
         for (int j = 0; j < resource_info_list->size; j++) {
-          sl_resource_info_t *future_cand_info = (sl_resource_info_t*)((char*)resource_info_list->data + j * resource_info_list->element_size);
+          sl_resource_info_t *future_cand_info = seq_arr_at(resource_info_list, j);
 
           // Traverse the list of future projected transmissions for the given sensed SCI
           for (int l = 0; l < proj_reserved_rsc_list.size; l++) {
-            reserved_resource_t *rsrvd_rsc = (reserved_resource_t*)((char*)proj_reserved_rsc_list.data + l * proj_reserved_rsc_list.element_size);
+            reserved_resource_t *rsrvd_rsc = seq_arr_at(&proj_reserved_rsc_list, l);
             LOG_D(NR_MAC, "future candidate %ld rsrvd_rsc candidate %ld\n", normalize(&future_cand_info->sfn, mu), normalize(&rsrvd_rsc->sfn, mu));
             // If overlapped in time ...
             if (normalize(&future_cand_info->sfn, mu) == normalize(&rsrvd_rsc->sfn, mu)) {
@@ -2406,7 +2434,6 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
                   LOG_D(NR_MAC, "%4d.%2d Overlapped resource %ld occupied %d subchannels index %d\n",
                         rsrvd_rsc->sfn.frame, rsrvd_rsc->sfn.slot,
                         normalize(&itr_rsrc->sfn, mu), rsrvd_rsc->sb_ch_length, rsrvd_rsc->sb_ch_start);
-                  delete_at(remaining_candidates, k);
                   LOG_D(NR_MAC, "Resource %ld %4d.%2d : [%d,%d] erased. Its rsrp : %lf  Threshold : %d\n",
                         normalize(&itr_rsrc->sfn, mu),
                         itr_rsrc->sfn.frame,
@@ -2415,6 +2442,7 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
                         (itr_rsrc->sl_subchan_start + itr_rsrc->sl_subchan_len - 1),
                         rsrvd_rsc->sl_rsrp,
                         rsrp_threshold);
+                  sl_erase_resource(remaining_candidates, k);
                   erased = true; // Used to break out of outer for loop of sensed
                                  // data projections
                   break; // Stop further evaluation because candidate is erased
@@ -2435,6 +2463,8 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
           break; // break for proj_reserved_rsc_list
         }
       }
+      seq_arr_free(resource_info_list, NULL);
+      free(resource_info_list);
       if (!erased) {
         // Only need to increment if not erased above; if erased, the erase()
         // action will point itCandidate to the next item
@@ -2451,13 +2481,13 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
       // in time and frequency with the sensed slots, and the
       // RSRP of the sensed slots is very high.
       LOG_D(NR_MAC, "Reached maximum RSRP threshold, unable to select resources\n");
-      for (int z = 0; z < remaining_candidates->size; z++) {
-        delete_at(remaining_candidates, z);
-      }
+      remaining_candidates->size = 0;
       break; // break do while
     }
     counter_c++;
   } while (remaining_candidates->size < (sl_tx_params->sl_res_ratio * m_total));
+
+  seq_arr_free(&sensing_data_projections, free_sl_projection);
 
   LOG_D(NR_MAC, "%ld resources selected after sensing resource selection from %ld slots\n", remaining_candidates->size, m_total);
   return remaining_candidates;
