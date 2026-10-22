@@ -444,6 +444,16 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
         AssertFatal(nsamps < rd->sz, "too large write for the ring buffer %d %d\n", nsamps, rd->sz);
         // acquire enough blocks to be above the need end
         while (rd->last_ts < rd->last_timestamp[this_ue] + nsamps) {
+          /* rfsim: the gNB sends the samples we wait for only after receiving our TX up to about the same time.
+             The UEs write TX at least rx_to_tx slots after the RX they read, so a sample range one UE did not
+             write (TA change, resync, ...) would wait forever for its writer: send all TX before this read. */
+          if (IS_SOFTMODEM_RFSIM && rd->last_ts)
+            openair0_write_reorder_flush_common(nrue_ru_write,
+                                                UE,
+                                                dev,
+                                                ru->nb_clients,
+                                                UE->frame_parms.nb_antennas_tx,
+                                                rd->last_ts + rd->grain - dev->firstTS);
           openair0_timestamp_t tmp_timestamp;
           void *tmp[ru->nb_rx];
           for (int i = 0; i < ru->nb_rx; i++)
