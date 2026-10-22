@@ -381,7 +381,7 @@ static void handle_dl_harq(nr_cell_sched_t *cell, NR_UE_info_t * UE, int8_t harq
     LOG_D(NR_MAC, "retransmission error for UE %04x (total %"PRIu64")\n", UE->rnti, UE->mac_stats.dl.errors);
   } else {
     LOG_D(PHY,"NACK for: pid %d, ue %04x\n",harq_pid, UE->rnti);
-    add_tail_nr_list(&sched_ctrl->retrans_dl_harq, harq_pid);
+    id_list_push_back(&sched_ctrl->retrans_dl_harq, harq_pid);
     harq->round++;
   }
 }
@@ -880,7 +880,7 @@ static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t * UE, in
           harq->feedback_slot,
           frame,
           slot);
-    remove_front_nr_list(&sched_ctrl->feedback_dl_harq);
+    id_list_pop_front(&sched_ctrl->feedback_dl_harq);
     handle_dl_harq(NULL, UE, pid, false, harq_round_max);
     pid = sched_ctrl->feedback_dl_harq.head;
     if (pid < 0)
@@ -947,7 +947,7 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, int cell_id, frame_t frame, slo
       }
       DevAssert(harq->is_waiting);
       const int8_t pid = sched_ctrl->feedback_dl_harq.head;
-      remove_front_nr_list(&sched_ctrl->feedback_dl_harq);
+      id_list_pop_front(&sched_ctrl->feedback_dl_harq);
       LOG_D(NR_MAC,"%4d.%2d bit %d pid %d ack/nack %d\n",frame, slot, harq_bit,pid,harq_value);
       nr_mac_update_pdcch_closed_loop_adjust(sched_ctrl, harq_confidence != 0);
       bool success = harq_value == 0 && harq_confidence == 0;
@@ -1051,7 +1051,7 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, int cell_id, frame_t frame, s
       }
       DevAssert(harq->is_waiting);
       const int8_t pid = sched_ctrl->feedback_dl_harq.head;
-      remove_front_nr_list(&sched_ctrl->feedback_dl_harq);
+      id_list_pop_front(&sched_ctrl->feedback_dl_harq);
       LOG_D(NR_MAC,"%4d.%2d bit %d pid %d ack/nack %d\n",frame, slot, harq_bit, pid, acknack);
       // TCI state switch occurs at the first slot that is after slot n_+ T_HARQ + 3N_sf_slot (8.10.3 of 38.133)
       bool success = uci_234->harq.harq_crc != 1 && acknack;
