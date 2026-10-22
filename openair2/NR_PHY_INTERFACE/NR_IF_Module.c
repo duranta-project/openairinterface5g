@@ -91,8 +91,15 @@ static void handle_nr_uci(NR_UL_IND_t *UL_info)
       }
 
         case NFAPI_NR_UCI_FORMAT_2_3_4_PDU_TYPE: {
-          const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_pdu = &uci_list[i].pucch_pdu_format_2_3_4;
+          nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_pdu = &uci_list[i].pucch_pdu_format_2_3_4;
           handle_nr_uci_pucch_2_3_4(mod_id, cell_id, frame, slot, uci_pdu);
+          // payloads allocated by L1 (pucch_rx.c); the VNF frees them via free_uci_indication()
+          if (uci_pdu->pduBitmap & 0x01)
+            free(uci_pdu->sr.sr_payload);
+          if ((uci_pdu->pduBitmap >> 1) & 0x01)
+            free(uci_pdu->harq.harq_payload);
+          if ((uci_pdu->pduBitmap >> 2) & 0x01)
+            free(uci_pdu->csi_part1.csi_part1_payload);
           break;
         }
       LOG_D(MAC, "UCI handled \n");
