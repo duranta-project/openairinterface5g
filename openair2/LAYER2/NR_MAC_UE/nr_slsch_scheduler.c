@@ -37,19 +37,19 @@ static void release_nr_ue_sl_harq(NR_SL_UE_sched_ctrl_t *sched_ctrl, int8_t harq
           harq_pid);
     sched_ctrl->sched_sl_bytes = 0;
   }
-  add_tail_nr_list(&sched_ctrl->available_sl_harq, harq_pid);
+  id_list_push_back(&sched_ctrl->available_sl_harq, harq_pid);
 }
 
 void reset_sl_harq_list(NR_SL_UE_sched_ctrl_t *sched_ctrl) {
   int harq;
   while ((harq = sched_ctrl->feedback_sl_harq.head) >= 0) {
-    remove_front_nr_list(&sched_ctrl->feedback_sl_harq);
-    add_tail_nr_list(&sched_ctrl->available_sl_harq, harq);
+    id_list_pop_front(&sched_ctrl->feedback_sl_harq);
+    id_list_push_back(&sched_ctrl->available_sl_harq, harq);
   }
 
   while ((harq = sched_ctrl->retrans_sl_harq.head) >= 0) {
-    remove_front_nr_list(&sched_ctrl->retrans_sl_harq);
-    add_tail_nr_list(&sched_ctrl->available_sl_harq, harq);
+    id_list_pop_front(&sched_ctrl->retrans_sl_harq);
+    id_list_push_back(&sched_ctrl->available_sl_harq, harq);
   }
 
   for (int i = 0; i < NR_MAX_HARQ_PROCESSES; i++) {
@@ -109,7 +109,7 @@ void handle_nr_ue_sl_harq(module_id_t mod_id,
   for (int i = 0; i < num_matched_acks; i++) {
     uint8_t ack_nack = rx_slsch_pdu->ack_nack_rcvd[i];
     int8_t harq_pid = matched_harqs[i]->sl_harq_pid;
-    remove_nr_list(&sched_ctrl->feedback_sl_harq, harq_pid);
+    id_list_remove(&sched_ctrl->feedback_sl_harq, harq_pid);
     NR_UE_sl_harq_t *harq = &sched_ctrl->sl_harq_processes[harq_pid];
     DevAssert(harq->is_waiting);
     harq->feedback_slot = -1;
@@ -138,7 +138,7 @@ void handle_nr_ue_sl_harq(module_id_t mod_id,
             slot,
             harq_pid,
             src_id);
-      add_tail_nr_list(&sched_ctrl->retrans_sl_harq, harq_pid);
+      id_list_push_back(&sched_ctrl->retrans_sl_harq, harq_pid);
     }
   }
   // TS 38.321 Section 5.22.1.2.1 / TS 38.213 Section 16.3: when sl-PSFCH-Period > 1,
@@ -151,7 +151,7 @@ void handle_nr_ue_sl_harq(module_id_t mod_id,
     NR_UE_sl_harq_t *harq = &sched_ctrl->sl_harq_processes[harq_pid];
     UE->mac_sl_stats.slsch_DTX++;
     LOG_D(NR_MAC, "%4u.%2u DTX: no PSFCH received for HARQ PID %d, treating as NACK\n", frame, slot, harq_pid);
-    remove_nr_list(&sched_ctrl->feedback_sl_harq, harq_pid);
+    id_list_remove(&sched_ctrl->feedback_sl_harq, harq_pid);
     harq->is_waiting = false;
     harq->feedback_slot = -1;
     if (harq->round >= (HARQ_ROUND_MAX - 1)) {
@@ -159,14 +159,14 @@ void handle_nr_ue_sl_harq(module_id_t mod_id,
       abort_nr_ue_sl_harq(mac, harq_pid, UE);
     } else {
       harq->round++;
-      add_tail_nr_list(&sched_ctrl->retrans_sl_harq, harq_pid);
+      id_list_push_back(&sched_ctrl->retrans_sl_harq, harq_pid);
     }
   }
   free(matched_harqs);
   matched_harqs = NULL;
 }
 
-static bool nr_list_contains(const NR_list_t *list, int id)
+static bool id_list_contains(const id_list_t *list, int id)
 {
   for (int cur = list->head; cur >= 0; cur = list->next[cur]) {
     if (cur == id)
@@ -201,7 +201,7 @@ void handle_nr_ue_sl_psfch(module_id_t mod_id,
 
     NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_UE_sl_harq_t *harq = &sched_ctrl->sl_harq_processes[result->harq_pid];
-    const bool in_feedback_list = nr_list_contains(&sched_ctrl->feedback_sl_harq, result->harq_pid);
+    const bool in_feedback_list = id_list_contains(&sched_ctrl->feedback_sl_harq, result->harq_pid);
     if (!harq->is_waiting || harq->feedback_frame != frame || harq->feedback_slot != slot || !in_feedback_list) {
       LOG_W(NR_MAC,
             "%4u.%2u ignoring stale/unexpected PSFCH for peer %u HARQ %u "
@@ -217,7 +217,7 @@ void handle_nr_ue_sl_psfch(module_id_t mod_id,
       continue;
     }
 
-    remove_nr_list(&sched_ctrl->feedback_sl_harq, result->harq_pid);
+    id_list_remove(&sched_ctrl->feedback_sl_harq, result->harq_pid);
     harq->feedback_frame = -1;
     harq->feedback_slot = -1;
     harq->is_waiting = false;
@@ -258,7 +258,7 @@ void handle_nr_ue_sl_psfch(module_id_t mod_id,
             result->harq_pid,
             harq->round,
             nr_rv_round_map[harq->round]);
-      add_tail_nr_list(&sched_ctrl->retrans_sl_harq, result->harq_pid);
+      id_list_push_back(&sched_ctrl->retrans_sl_harq, result->harq_pid);
     }
   }
 

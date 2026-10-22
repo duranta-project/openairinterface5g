@@ -456,14 +456,4 @@ uint16_t nr_pdcch_monitoring_symbols_mask(const BIT_STRING_t *symbols_in_slot, u
 
 uint8_t getNRBG(uint16_t bwp_size, uint16_t bwp_start, long rbg_size_config);
 
-/* Functions to manage an NR_list_t */
-void create_nr_list(NR_list_t *listP, int len);
-void resize_nr_list(NR_list_t *list, int new_len);
-void destroy_nr_list(NR_list_t *list);
-void add_nr_list(NR_list_t *listP, int id);
-void remove_nr_list(NR_list_t *listP, int id);
-void add_tail_nr_list(NR_list_t *listP, int id);
-void add_front_nr_list(NR_list_t *listP, int id);
-void remove_front_nr_list(NR_list_t *listP);
-
 #endif

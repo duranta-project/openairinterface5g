@@ -925,7 +925,7 @@ void update_harq_lists(NR_UE_MAC_INST_t *mac, frame_t frame, sub_frame_t slot, N
   const int now = frame * slots_per_frame + slot;
   int cur = sched_ctrl->feedback_sl_harq.head;
   while (cur != -1) {
-    // remove_nr_list() resets next[cur] to -1, so preserve the traversal link
+    // id_list_remove() resets next[cur] to -1, so preserve the traversal link
     // before removing an expired HARQ process.
     int next = sched_ctrl->feedback_sl_harq.next[cur];
     NR_UE_sl_harq_t *harq = &sched_ctrl->sl_harq_processes[cur];
@@ -933,13 +933,13 @@ void update_harq_lists(NR_UE_MAC_INST_t *mac, frame_t frame, sub_frame_t slot, N
     const int forward_distance = (feedback - now + sfn_cycle_slots) % sfn_cycle_slots;
     const bool feedback_is_past = harq->feedback_slot >= 0 && forward_distance > sfn_cycle_slots / 2;
     if (feedback_is_past) {
-      remove_nr_list(&sched_ctrl->feedback_sl_harq, cur);
+      id_list_remove(&sched_ctrl->feedback_sl_harq, cur);
       harq->feedback_slot = -1;
       harq->is_waiting = false;
       if (harq->round >= HARQ_ROUND_MAX - 1) {
         abort_nr_ue_sl_harq(mac, cur, UE);
       } else {
-        add_tail_nr_list(&sched_ctrl->retrans_sl_harq, cur);
+        id_list_push_back(&sched_ctrl->retrans_sl_harq, cur);
         harq->round++;
       }
     }

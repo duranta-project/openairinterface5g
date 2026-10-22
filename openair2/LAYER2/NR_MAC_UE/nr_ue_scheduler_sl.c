@@ -847,16 +847,16 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
       harq_id = sched_ctrl->available_sl_harq.head;
       AssertFatal(harq_id >= 0,
                   "no free HARQ process available\n");
-      remove_front_nr_list(&sched_ctrl->available_sl_harq);
+      id_list_pop_front(&sched_ctrl->available_sl_harq);
       sched_pssch->sl_harq_pid = harq_id;
     } else {
       /* PP selected a specific HARQ process. Check whether it will be a new
       * transmission or a retransmission, and remove from the corresponding
       * list */
       if (sched_ctrl->sl_harq_processes[harq_id].round == 0)
-        remove_nr_list(&sched_ctrl->available_sl_harq, harq_id);
+        id_list_remove(&sched_ctrl->available_sl_harq, harq_id);
       else
-        remove_nr_list(&sched_ctrl->retrans_sl_harq, harq_id);
+        id_list_remove(&sched_ctrl->retrans_sl_harq, harq_id);
     }
     cur_harq = &sched_ctrl->sl_harq_processes[harq_id];
     DevAssert(!cur_harq->is_waiting);
@@ -869,18 +869,18 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
               frame,
               slot,
               harq_id);
-        add_tail_nr_list(cur_harq->round ? &sched_ctrl->retrans_sl_harq : &sched_ctrl->available_sl_harq, harq_id);
+        id_list_push_back(cur_harq->round ? &sched_ctrl->retrans_sl_harq : &sched_ctrl->available_sl_harq, harq_id);
         sched_pssch->rbSize = 0;
         continue;
       }
       cur_harq->feedback_slot = feedback_slot;
       cur_harq->feedback_frame = feedback_frame;
-      add_tail_nr_list(&sched_ctrl->feedback_sl_harq, harq_id);
+      id_list_push_back(&sched_ctrl->feedback_sl_harq, harq_id);
       cur_harq->is_waiting = true;
       LOG_D(NR_MAC, "%4d.%2d Sending Data; Expecting feedback at %4d.%2d\n", frame, slot, feedback_frame, feedback_slot);
     }
     else
-      add_tail_nr_list(&sched_ctrl->available_sl_harq, harq_id);
+      id_list_push_back(&sched_ctrl->available_sl_harq, harq_id);
     cur_harq->sl_harq_pid = harq_id;
     // TS 38.321 5.22.1.3.1: toggle NDI when a new MAC PDU is obtained.
     // Keep NDI unchanged when the stored MAC PDU is retransmitted.
@@ -1073,11 +1073,11 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
               cur_harq->round,
               required_tbs);
           DevAssert(cur_harq->is_waiting);
-          remove_nr_list(&sched_ctrl->feedback_sl_harq, harq_id);
+          id_list_remove(&sched_ctrl->feedback_sl_harq, harq_id);
           cur_harq->is_waiting = false;
         cur_harq->feedback_frame = -1;
         cur_harq->feedback_slot = -1;
-        add_tail_nr_list(&sched_ctrl->retrans_sl_harq, harq_id);
+        id_list_push_back(&sched_ctrl->retrans_sl_harq, harq_id);
         sched_pssch->rbSize = 0;
         continue;
       }
@@ -1472,9 +1472,9 @@ void nr_ue_sl_mac_free(NR_UE_MAC_INST_t *mac)
       continue;
     NR_SL_UE_sched_ctrl_t *sched_ctrl = &peer->UE_sched_ctrl;
     free(sched_ctrl->sched_psfch);
-    destroy_nr_list(&sched_ctrl->available_sl_harq);
-    destroy_nr_list(&sched_ctrl->feedback_sl_harq);
-    destroy_nr_list(&sched_ctrl->retrans_sl_harq);
+    id_list_free(&sched_ctrl->available_sl_harq);
+    id_list_free(&sched_ctrl->feedback_sl_harq);
+    id_list_free(&sched_ctrl->retrans_sl_harq);
     free_and_zero(mac->sl_info.list[i]);
   }
   sl_ue_mac_free(mac);

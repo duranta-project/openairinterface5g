@@ -63,11 +63,11 @@ void nr_ue_init_mac_sl(NR_UE_MAC_INST_t *mac)
     mac->sl_info.list[k]->uid = i;
     NR_SL_UE_sched_ctrl_t *UE_sched_ctrl = &mac->sl_info.list[k]->UE_sched_ctrl;
     UE_sched_ctrl->sl_max_mcs = get_nrUE_params()->mcs;
-    create_nr_list(&UE_sched_ctrl->available_sl_harq, 16);
+    id_list_init(&UE_sched_ctrl->available_sl_harq, 16);
     for (int harq = 0; harq < 16; harq++)
-      add_tail_nr_list(&UE_sched_ctrl->available_sl_harq, harq);
-    create_nr_list(&UE_sched_ctrl->feedback_sl_harq, 16);
-    create_nr_list(&UE_sched_ctrl->retrans_sl_harq, 16);
+      id_list_push_back(&UE_sched_ctrl->available_sl_harq, harq);
+    id_list_init(&UE_sched_ctrl->feedback_sl_harq, 16);
+    id_list_init(&UE_sched_ctrl->retrans_sl_harq, 16);
     k++;
   }
 }

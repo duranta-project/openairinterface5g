@@ -16,6 +16,7 @@
 #include "common/platform_types.h"
 #include "common/utils/threadPool/notified_fifo.h"
 #include "common/utils/ds/seq_arr.h"
+#include "common/utils/ds/id_list.h"
 
 /* IF */
 #include "NR_IF_Module.h"
@@ -554,11 +555,11 @@ typedef struct {
   NR_UE_sl_harq_t sl_harq_processes[NR_MAX_HARQ_PROCESSES];
   /// receiving sidelink HARQ state, indexed by the SCI sidelink process ID
   /// UL HARQ processes that are free
-  NR_list_t available_sl_harq;
+  id_list_t available_sl_harq;
   /// UL HARQ processes that await feedback
-  NR_list_t feedback_sl_harq;
+  id_list_t feedback_sl_harq;
   /// UL HARQ processes that await retransmission
-  NR_list_t retrans_sl_harq;
+  id_list_t retrans_sl_harq;
   /// UE-selected maximum MCS
   uint8_t sl_max_mcs;
 
