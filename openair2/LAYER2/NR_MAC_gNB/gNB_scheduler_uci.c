@@ -513,6 +513,38 @@ static NR_PUCCH_Resource_t *get_pucch_resource(const NR_PUCCH_Config_t *pucch_Co
   return NULL;
 }
 
+// release the PRBs reserved by a PUCCH resource of this UE (they were tested free before being reserved)
+static void clear_pucch_vrb_occupation(const NR_PUCCH_Resource_t *res, uint16_t *vrb_map_UL, int bwp_start)
+{
+  int len = 1;
+  uint16_t mask = 0;
+  switch (res->format.present) {
+    case NR_PUCCH_Resource__format_PR_format0: {
+      const NR_PUCCH_format0_t *f0 = res->format.choice.format0;
+      for (int l = 0; l < f0->nrofSymbols; l++) {
+        const int prb = (l == 1 && res->secondHopPRB) ? *res->secondHopPRB : res->startingPRB;
+        vrb_map_UL[bwp_start + prb] &= ~SL_to_bitmap(f0->startingSymbolIndex + l, 1);
+      }
+      return;
+    }
+    case NR_PUCCH_Resource__format_PR_format2:
+      len = res->format.choice.format2->nrofPRBs;
+      mask = SL_to_bitmap(res->format.choice.format2->startingSymbolIndex, res->format.choice.format2->nrofSymbols);
+      break;
+    case NR_PUCCH_Resource__format_PR_format3:
+      len = res->format.choice.format3->nrofPRBs;
+      mask = SL_to_bitmap(res->format.choice.format3->startingSymbolIndex, res->format.choice.format3->nrofSymbols);
+      break;
+    case NR_PUCCH_Resource__format_PR_format4:
+      mask = SL_to_bitmap(res->format.choice.format4->startingSymbolIndex, res->format.choice.format4->nrofSymbols);
+      break;
+    default:
+      AssertFatal(false, "Invalid PUCCH format type\n");
+  }
+  for (int i = res->startingPRB; i < res->startingPRB + len; i++)
+    vrb_map_UL[bwp_start + i] &= ~mask;
+}
+
 static bool set_simultaneous_harqcsi(const NR_PUCCH_Config_t *pucch_Config, const NR_PUCCH_Resource_t *pucchres)
 {
   if (!pucch_Config || !pucchres)
@@ -1567,8 +1599,29 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
           && !check_bits_vs_coderate_limit(pucch_Config, tot_bits + 1, new_pucch.resource_id))
         continue;
 
-      // if we switched to a new PUCCH resource, we copy to current PUCCH and reserve it
+      // beyond 2 HARQ bits PUCCH F0 can't be used: move to the F2 resource with the same PRI in resource set 1
+      // (TS 38.213 §9.2.1), whose PRBs beyond the F0 one may be in use by someone else
+      const bool to_f2 = curr_pucch->dai_c == 2 && curr_pucch->csi_bits == 0;
+      NR_PUCCH_Resource_t *f2_res = NULL;
+      if (to_f2) {
+        const NR_PUCCH_ResourceSet_t *pucchresset = pucch_Config->resourceSetToAddModList->list.array[1];
+        f2_res = get_pucch_resource(pucch_Config, pucchresset->resourceList.list.array[curr_pucch->resource_indicator]);
+        const NR_PUCCH_ResourceId_t f0_id = curr_pucch->resource_id;
+        const NR_PUCCH_Resource_t *f0_res = get_pucch_resource(pucch_Config, &f0_id);
+        DevAssert(f2_res && f0_res);
+        clear_pucch_vrb_occupation(f0_res, vrb_map_UL, bwp_start);
+        if (!test_pucch23_vrb_occupation(f2_res, vrb_map_UL, bwp_start)) {
+          set_pucch0_vrb_occupation(curr_pucch, vrb_map_UL, bwp_start);
+          continue;
+        }
+      }
+
+      // if we switched to a new PUCCH resource, we release the SR/CSI one, copy to current PUCCH and reserve it
       if (switch_resource) {
+        const NR_PUCCH_ResourceId_t old_id = curr_pucch->resource_id;
+        const NR_PUCCH_Resource_t *old_res = get_pucch_resource(pucch_Config, &old_id);
+        if (old_res)
+          clear_pucch_vrb_occupation(old_res, vrb_map_UL, bwp_start);
         *curr_pucch = new_pucch;
         if (is_short_pucch) {
           set_pucch0_vrb_occupation(curr_pucch, vrb_map_UL, bwp_start);
@@ -1581,15 +1634,9 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
       }
 
       curr_pucch->timing_indicator = f;
-      // if we already reached the limit for PUCCH F0 or 1, we need to switch to another format
-      if (curr_pucch->dai_c == 2 && curr_pucch->csi_bits == 0) {
-        const NR_PUCCH_ResourceSet_t *pucchresset = pucch_Config->resourceSetToAddModList->list.array[1];
-        curr_pucch->resource_id = *pucchresset->resourceList.list.array[curr_pucch->resource_indicator];
-        NR_PUCCH_Resource_t *resource = get_pucch_resource(pucch_Config,
-                                                           pucchresset->resourceList.list.array[curr_pucch->resource_indicator]);
-        // no need to check the other PRBs: symbol 13 is used only by PUCCH, and any other HARQ F2
-        // resource overlapping this one would have required the PRB already reserved by PUCCH 0
-        set_pucch23_vrb_occupation(resource, vrb_map_UL, bwp_start);
+      if (to_f2) {
+        curr_pucch->resource_id = f2_res->pucch_ResourceId;
+        set_pucch23_vrb_occupation(f2_res, vrb_map_UL, bwp_start);
       }
       curr_pucch->dai_c++;
       LOG_D(NR_MAC,
