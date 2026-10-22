@@ -256,7 +256,8 @@ void *init_packet_processor(int numerology,
               prach_kbar);
   ctx->prach_kbar = prach_kbar;
   ctx->dl_comp_method = dl_comp_method;
-  // A section has at most num_prb PRBs, and bundleOffset (6 bits) adds at most 63 bundles
+  // A section has at most num_prb PRBs (Type 3 PRBs are at the carrier SCS), and bundleOffset (6 bits) adds at most 63
+  // bundles
   ctx->ext11_max_bundles = num_prb + 63;
   ctx->ext11_beam_ids = malloc(ctx->ext11_max_bundles * sizeof(*ctx->ext11_beam_ids));
   ctx->ext11_weights = malloc((size_t)ctx->ext11_max_bundles * ORU_MAX_BF_WEIGHTS * sizeof(*ctx->ext11_weights));
@@ -855,6 +856,7 @@ static void add_prach_section(oru_packet_processor_context_t *ctx,
                               int slot_in_frame,
                               int aarx,
                               uint64_t start_symbol,
+                              int num_prb,
                               oru_pcap_cplane_snap_t *snap)
 {
   prach_job_t *job = add_prach_job(ctx, slot_in_frame, aarx, start_symbol, section->hdr.u1.common.sectionId);
@@ -864,7 +866,7 @@ static void add_prach_section(oru_packet_processor_context_t *ctx,
   job->start_absolute_symbol = start_symbol;
   job->num_symbols = section->hdr.u.s3.numSymbol;
   job->section_id = section->hdr.u1.common.sectionId;
-  job->num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
+  job->num_prb = num_prb;
   job->start_prb = section->hdr.u1.common.startPrbc;
   job->filter_id = hdr->cmnhdr.field.filterIndex;
   job->beam_id = section->hdr.u.s3.beamId;
@@ -881,7 +883,11 @@ static void add_prach_section(oru_packet_processor_context_t *ctx,
   oru_pcap_cplane_commit_prach(snap);
 }
 
-static const uint8_t *skip_section_extensions(oru_packet_processor_context_t *ctx, const uint8_t *ext, const uint8_t *end, bool ef);
+static const uint8_t *parse_section_extensions(oru_packet_processor_context_t *ctx,
+                                               const uint8_t *ext,
+                                               const uint8_t *end,
+                                               bool ef,
+                                               int num_prb);
 
 void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
                                 void *pkt,
@@ -940,13 +946,17 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
     }
     struct xran_cp_radioapp_section3 *section = (struct xran_cp_radioapp_section3 *)sect;
     *((uint64_t *)section) = rte_be_to_cpu_64(*((uint64_t *)section));
-    const uint8_t *next = skip_section_extensions(ctx, sect + sizeof(*section), end, section->hdr.u.s3.ef);
+    // Type 3 PRBs are in the SCS of frameStructure (O-RAN CUS 7.5.2.13), taken to be the carrier's: PRACH formats with
+    // another SCS aren't supported. numPrbc 0 is then all carrier PRBs (7.5.3.6).
+    const int num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
+    // Validates ext1/ext11 formatting as for Type 1; weights are extracted in a later stage
+    const uint8_t *next = parse_section_extensions(ctx, sect + sizeof(*section), end, section->hdr.u.s3.ef, num_prb);
     const uint16_t section_id = section->hdr.u1.common.sectionId;
     if (section_id != SECTION_ID_UNCOUPLED && test_bit(cited, section_id)) {
       ctx->stats.cplane_section_repeated++;
     } else {
       set_bit(cited, section_id);
-      add_prach_section(ctx, hdr, section, slot_in_frame, aarx, target_absolute_symbol, snap);
+      add_prach_section(ctx, hdr, section, slot_in_frame, aarx, target_absolute_symbol, num_prb, snap);
     }
     // A malformed chain hides where the next section starts
     if (next == NULL)
@@ -1038,27 +1048,6 @@ static const uint8_t *parse_section_extensions(oru_packet_processor_context_t *c
         break;
     }
     if (!valid) {
-      count_section_ext_error(ctx, ext_type);
-      return NULL;
-    }
-    ext += ext_len;
-  }
-  return ext;
-}
-
-// Walks the extension chain in [ext, end) of a section whose header has the given ef without decoding it, counting
-// malformed extensions as parse_section_extensions() does. Returns the end of the chain, or NULL at the first error.
-static const uint8_t *skip_section_extensions(oru_packet_processor_context_t *ctx, const uint8_t *ext, const uint8_t *end, bool ef)
-{
-  while (ef) {
-    if (ext >= end) {
-      ctx->stats.cplane_err_sect_ext_chain++;
-      return NULL;
-    }
-    uint8_t ext_type = ext[0] & 0x7F;
-    ef = ext[0] & 0x80;
-    size_t ext_len;
-    if (xran_section_ext_len(ext_type, ext, end - ext, &ext_len) != XRAN_BFW_OK) {
       count_section_ext_error(ctx, ext_type);
       return NULL;
     }
