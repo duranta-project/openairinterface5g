@@ -610,12 +610,22 @@ static void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t
   }
 }
 
+static void free_coreset(NR_ControlResourceSet_t *coreset)
+{
+  ASN_STRUCT_FREE(asn_DEF_NR_ControlResourceSet, coreset);
+}
+
+static void free_search_space(NR_SearchSpace_t *search_space)
+{
+  ASN_STRUCT_FREE(asn_DEF_NR_SearchSpace, search_space);
+}
+
 static void release_common_ss_cset(NR_BWP_PDCCH_t *pdcch)
 {
   pdcch->otherSI_SS_id = -1;
   pdcch->ra_SS_id = -1;
   pdcch->paging_SS_id = -1;
-  asn1cFreeSeq(asn_DEF_NR_SearchSpace, pdcch->list_common_SS);
+  asn_sequence_empty(&pdcch->list_common_SS);
   asn1cFreeStruc(asn_DEF_NR_ControlResourceSet, pdcch->commonControlResourceSet);
 }
 
@@ -685,6 +695,7 @@ static void configure_common_ss_coreset(NR_BWP_PDCCH_t *pdcch, NR_PDCCH_ConfigCo
   if (!pdcch_ConfigCommon)
     return;
 
+  pdcch->list_common_SS.free = free_search_space;
   if (pdcch_ConfigCommon->commonSearchSpaceList)
     update_ss((void *)&pdcch->list_common_SS, (void *)&pdcch_ConfigCommon->commonSearchSpaceList->list);
 
@@ -765,6 +776,8 @@ static void configure_ss_coreset(NR_BWP_PDCCH_t *pdcch, NR_PDCCH_Config_t *pdcch
 {
   if (!pdcch_Config)
     return;
+  pdcch->list_Coreset.free = free_coreset;
+  pdcch->list_SS.free = free_search_space;
   if (pdcch_Config->controlResourceSetToAddModList) {
     for (int i = 0; i < pdcch_Config->controlResourceSetToAddModList->list.count; i++) {
       NR_ControlResourceSet_t *source_coreset = pdcch_Config->controlResourceSetToAddModList->list.array[i];
@@ -1666,10 +1679,8 @@ static void configure_dedicated_BWP_dl(NR_UE_MAC_INST_t *mac, int bwp_id, NR_BWP
     }
     if (dl_dedicated->pdcch_Config) {
       if (dl_dedicated->pdcch_Config->present == NR_SetupRelease_PDCCH_Config_PR_release) {
-        for (int i = pdcch->list_Coreset.count; i > 0 ; i--)
-          asn_sequence_del(&pdcch->list_Coreset, i - 1, 1);
-        for (int i = pdcch->list_SS.count; i > 0 ; i--)
-          asn_sequence_del(&pdcch->list_SS, i - 1, 1);
+        asn_sequence_empty(&pdcch->list_Coreset);
+        asn_sequence_empty(&pdcch->list_SS);
       }
       if (dl_dedicated->pdcch_Config->present == NR_SetupRelease_PDCCH_Config_PR_setup)
         configure_ss_coreset(pdcch, dl_dedicated->pdcch_Config->choice.setup);
@@ -2850,10 +2861,8 @@ void release_dl_BWP(NR_UE_MAC_INST_t *mac, int index)
 
   NR_BWP_PDCCH_t *pdcch = &mac->config_BWP_PDCCH[bwp_id];
   release_common_ss_cset(pdcch);
-  for (int i = pdcch->list_Coreset.count; i > 0 ; i--)
-    asn_sequence_del(&pdcch->list_Coreset, i - 1, 1);
-  for (int i = pdcch->list_SS.count; i > 0 ; i--)
-    asn_sequence_del(&pdcch->list_SS, i - 1, 1);
+  asn_sequence_empty(&pdcch->list_Coreset);
+  asn_sequence_empty(&pdcch->list_SS);
 }
 
 void release_ul_BWP(NR_UE_MAC_INST_t *mac, int index)
