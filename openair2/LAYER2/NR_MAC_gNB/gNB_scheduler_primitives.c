@@ -2526,132 +2526,6 @@ void dump_nr_list(NR_UE_info_t **list)
   }
 }
 
-/*
- * Create a new NR_list
- */
-void create_nr_list(NR_list_t *list, int len)
-{
-  list->head = -1;
-  list->next = malloc(len * sizeof(*list->next));
-  AssertFatal(list->next, "cannot malloc() memory for NR_list_t->next\n");
-  for (int i = 0; i < len; ++i)
-    list->next[i] = -1;
-  list->tail = -1;
-  list->len = len;
-}
-
-/*
- * Resize an NR_list
- */
-void resize_nr_list(NR_list_t *list, int new_len)
-{
-  if (new_len == list->len)
-    return;
-  if (new_len > list->len) {
-    /* list->head remains */
-    const int old_len = list->len;
-    int* n = realloc(list->next, new_len * sizeof(*list->next));
-    AssertFatal(n, "cannot realloc() memory for NR_list_t->next\n");
-    list->next = n;
-    for (int i = old_len; i < new_len; ++i)
-      list->next[i] = -1;
-    /* list->tail remains */
-    list->len = new_len;
-  } else { /* new_len < len */
-    AssertFatal(list->head < new_len, "shortened list head out of index %d (new len %d)\n", list->head, new_len);
-    AssertFatal(list->tail < new_len, "shortened list tail out of index %d (new len %d)\n", list->head, new_len);
-    for (int i = 0; i < list->len; ++i)
-      AssertFatal(list->next[i] < new_len, "shortened list entry out of index %d (new len %d)\n", list->next[i], new_len);
-    /* list->head remains */
-    int *n = realloc(list->next, new_len * sizeof(*list->next));
-    AssertFatal(n, "cannot realloc() memory for NR_list_t->next\n");
-    list->next = n;
-    /* list->tail remains */
-    list->len = new_len;
-  }
-}
-
-/*
- * Destroy an NR_list
- */
-void destroy_nr_list(NR_list_t *list)
-{
-  free(list->next);
-}
-
-/*
- * Add an ID to an NR_list at the end, traversing the whole list. Note:
- * add_tail_nr_list() is a faster alternative, but this implementation ensures
- * we do not add an existing ID.
- */
-void add_nr_list(NR_list_t *listP, int id)
-{
-  int *cur = &listP->head;
-  while (*cur >= 0) {
-    AssertFatal(*cur != id, "id %d already in NR_UE_list!\n", id);
-    cur = &listP->next[*cur];
-  }
-  *cur = id;
-  if (listP->next[id] < 0)
-    listP->tail = id;
-}
-
-/*
- * Remove an ID from an NR_list
- */
-void remove_nr_list(NR_list_t *listP, int id)
-{
-  int *cur = &listP->head;
-  int *prev = &listP->head;
-  while (*cur != -1 && *cur != id) {
-    prev = cur;
-    cur = &listP->next[*cur];
-  }
-  AssertFatal(*cur != -1, "ID %d not found in UE_list\n", id);
-  int *next = &listP->next[*cur];
-  *cur = listP->next[*cur];
-  *next = -1;
-  listP->tail = *prev >= 0 && listP->next[*prev] >= 0 ? listP->tail : *prev;
-}
-
-/*
- * Add an ID to the tail of the NR_list in O(1). Note that there is
- * corresponding remove_tail_nr_list(), as we cannot set the tail backwards and
- * therefore need to go through the whole list (use remove_nr_list())
- */
-void add_tail_nr_list(NR_list_t *listP, int id)
-{
-  int *last = listP->tail < 0 ? &listP->head : &listP->next[listP->tail];
-  *last = id;
-  listP->next[id] = -1;
-  listP->tail = id;
-}
-
-/*
- * Add an ID to the front of the NR_list in O(1)
- */
-void add_front_nr_list(NR_list_t *listP, int id)
-{
-  const int ohead = listP->head;
-  listP->head = id;
-  listP->next[id] = ohead;
-  if (listP->tail < 0)
-    listP->tail = id;
-}
-
-/*
- * Remove an ID from the front of the NR_list in O(1)
- */
-void remove_front_nr_list(NR_list_t *listP)
-{
-  AssertFatal(listP->head >= 0, "Nothing to remove\n");
-  const int ohead = listP->head;
-  listP->head = listP->next[ohead];
-  listP->next[ohead] = -1;
-  if (listP->head < 0)
-    listP->tail = -1;
-}
-
 NR_UE_info_t *find_nr_UE(NR_UEs_t *UEs, rnti_t rntiP)
 {
   UE_iterator(UEs->connected_ue_list, UE) {
@@ -2726,12 +2600,12 @@ void delete_nr_ue_data(gNB_MAC_INST *mac, NR_UE_info_t *UE)
   reset_periodic_info(UE, &UE->pcell->periodic_srs_config, UE->sched_srs.periodic_sched.periodic_offset);
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   seq_arr_free(&sched_ctrl->lc_config, NULL);
-  destroy_nr_list(&sched_ctrl->available_dl_harq);
-  destroy_nr_list(&sched_ctrl->feedback_dl_harq);
-  destroy_nr_list(&sched_ctrl->retrans_dl_harq);
-  destroy_nr_list(&sched_ctrl->available_ul_harq);
-  destroy_nr_list(&sched_ctrl->feedback_ul_harq);
-  destroy_nr_list(&sched_ctrl->retrans_ul_harq);
+  id_list_free(&sched_ctrl->available_dl_harq);
+  id_list_free(&sched_ctrl->feedback_dl_harq);
+  id_list_free(&sched_ctrl->retrans_dl_harq);
+  id_list_free(&sched_ctrl->available_ul_harq);
+  id_list_free(&sched_ctrl->feedback_ul_harq);
+  id_list_free(&sched_ctrl->retrans_ul_harq);
   for (int i = 0; i < NR_MAX_HARQ_PROCESSES; ++i)
     free_transportBlock_buffer(&sched_ctrl->harq_processes[i].transportBlock);
   free_sched_pucch_list(sched_ctrl);
@@ -2857,11 +2731,11 @@ static void create_dl_harq_list(NR_UE_sched_ctrl_t *sched_ctrl, const NR_UE_Serv
               sched_ctrl->feedback_dl_harq.len,
               sched_ctrl->retrans_dl_harq.len);
   if (sched_ctrl->available_dl_harq.len == 0) {
-    create_nr_list(&sched_ctrl->available_dl_harq, nrofHARQ);
+    id_list_init(&sched_ctrl->available_dl_harq, nrofHARQ);
     for (int harq = 0; harq < nrofHARQ; harq++)
-      add_tail_nr_list(&sched_ctrl->available_dl_harq, harq);
-    create_nr_list(&sched_ctrl->feedback_dl_harq, nrofHARQ);
-    create_nr_list(&sched_ctrl->retrans_dl_harq, nrofHARQ);
+      id_list_push_back(&sched_ctrl->available_dl_harq, harq);
+    id_list_init(&sched_ctrl->feedback_dl_harq, nrofHARQ);
+    id_list_init(&sched_ctrl->retrans_dl_harq, nrofHARQ);
   } else if (sched_ctrl->available_dl_harq.len == nrofHARQ) {
     LOG_D(NR_MAC, "nrofHARQ %d already configured\n", nrofHARQ);
   } else {
@@ -2869,11 +2743,11 @@ static void create_dl_harq_list(NR_UE_sched_ctrl_t *sched_ctrl, const NR_UE_Serv
     AssertFatal(nrofHARQ > old_nrofHARQ,
                 "cannot resize HARQ list to be smaller (nrofHARQ %d, old_nrofHARQ %d)\n",
                 nrofHARQ, old_nrofHARQ);
-    resize_nr_list(&sched_ctrl->available_dl_harq, nrofHARQ);
+    id_list_resize(&sched_ctrl->available_dl_harq, nrofHARQ);
     for (int harq = old_nrofHARQ; harq < nrofHARQ; harq++)
-      add_tail_nr_list(&sched_ctrl->available_dl_harq, harq);
-    resize_nr_list(&sched_ctrl->feedback_dl_harq, nrofHARQ);
-    resize_nr_list(&sched_ctrl->retrans_dl_harq, nrofHARQ);
+      id_list_push_back(&sched_ctrl->available_dl_harq, harq);
+    id_list_resize(&sched_ctrl->feedback_dl_harq, nrofHARQ);
+    id_list_resize(&sched_ctrl->retrans_dl_harq, nrofHARQ);
   }
 }
 
@@ -2884,11 +2758,11 @@ static void create_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl, const NR_UE_Serv
   if (dci_00_10 && nrofHARQ > 16)
     nrofHARQ = 16;
   if (sched_ctrl->available_ul_harq.len == 0) {
-    create_nr_list(&sched_ctrl->available_ul_harq, nrofHARQ);
+    id_list_init(&sched_ctrl->available_ul_harq, nrofHARQ);
     for (int harq = 0; harq < nrofHARQ; harq++)
-      add_tail_nr_list(&sched_ctrl->available_ul_harq, harq);
-    create_nr_list(&sched_ctrl->feedback_ul_harq, nrofHARQ);
-    create_nr_list(&sched_ctrl->retrans_ul_harq, nrofHARQ);
+      id_list_push_back(&sched_ctrl->available_ul_harq, harq);
+    id_list_init(&sched_ctrl->feedback_ul_harq, nrofHARQ);
+    id_list_init(&sched_ctrl->retrans_ul_harq, nrofHARQ);
   } else if (sched_ctrl->available_ul_harq.len == nrofHARQ) {
     LOG_D(NR_MAC, "nrofHARQ %d already configured\n", nrofHARQ);
   } else {
@@ -2896,11 +2770,11 @@ static void create_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl, const NR_UE_Serv
     AssertFatal(nrofHARQ > old_nrofHARQ,
                 "cannot resize HARQ list to be smaller (nrofHARQ %d, old_nrofHARQ %d)\n",
                 nrofHARQ, old_nrofHARQ);
-    resize_nr_list(&sched_ctrl->available_ul_harq, nrofHARQ);
+    id_list_resize(&sched_ctrl->available_ul_harq, nrofHARQ);
     for (int harq = old_nrofHARQ; harq < nrofHARQ; harq++)
-      add_tail_nr_list(&sched_ctrl->available_ul_harq, harq);
-    resize_nr_list(&sched_ctrl->feedback_ul_harq, nrofHARQ);
-    resize_nr_list(&sched_ctrl->retrans_ul_harq, nrofHARQ);
+      id_list_push_back(&sched_ctrl->available_ul_harq, harq);
+    id_list_resize(&sched_ctrl->feedback_ul_harq, nrofHARQ);
+    id_list_resize(&sched_ctrl->retrans_ul_harq, nrofHARQ);
   }
 }
 
@@ -3390,13 +3264,13 @@ void free_sched_pucch_list(NR_UE_sched_ctrl_t *sched_ctrl)
 void reset_dl_harq_list(NR_UE_sched_ctrl_t *sched_ctrl) {
   int harq;
   while ((harq = sched_ctrl->feedback_dl_harq.head) >= 0) {
-    remove_front_nr_list(&sched_ctrl->feedback_dl_harq);
-    add_tail_nr_list(&sched_ctrl->available_dl_harq, harq);
+    id_list_pop_front(&sched_ctrl->feedback_dl_harq);
+    id_list_push_back(&sched_ctrl->available_dl_harq, harq);
   }
 
   while ((harq = sched_ctrl->retrans_dl_harq.head) >= 0) {
-    remove_front_nr_list(&sched_ctrl->retrans_dl_harq);
-    add_tail_nr_list(&sched_ctrl->available_dl_harq, harq);
+    id_list_pop_front(&sched_ctrl->retrans_dl_harq);
+    id_list_push_back(&sched_ctrl->available_dl_harq, harq);
   }
 
   for (int i = 0; i < NR_MAX_HARQ_PROCESSES; i++) {
@@ -3409,13 +3283,13 @@ void reset_dl_harq_list(NR_UE_sched_ctrl_t *sched_ctrl) {
 void reset_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl) {
   int harq;
   while ((harq = sched_ctrl->feedback_ul_harq.head) >= 0) {
-    remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
-    add_tail_nr_list(&sched_ctrl->available_ul_harq, harq);
+    id_list_pop_front(&sched_ctrl->feedback_ul_harq);
+    id_list_push_back(&sched_ctrl->available_ul_harq, harq);
   }
 
   while ((harq = sched_ctrl->retrans_ul_harq.head) >= 0) {
-    remove_front_nr_list(&sched_ctrl->retrans_ul_harq);
-    add_tail_nr_list(&sched_ctrl->available_ul_harq, harq);
+    id_list_pop_front(&sched_ctrl->retrans_ul_harq);
+    id_list_push_back(&sched_ctrl->available_ul_harq, harq);
   }
 
   for (int i = 0; i < NR_MAX_HARQ_PROCESSES; i++) {
