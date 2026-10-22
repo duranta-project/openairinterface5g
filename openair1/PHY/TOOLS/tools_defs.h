@@ -269,8 +269,11 @@ extern "C" {
       simde_mm256_storeu_si256((simde__m256i *)(out + i),
                                simde_mm256_adds_epi16(simde_mm256_loadu_si256((simde__m256i *)(in1 + i)),
                                                       simde_mm256_loadu_si256((simde__m256i *)(in2 + i))));
-    for (; i < sz; i++)
-      out[i] = (c16_t){(int16_t)(in1[i].r + in2[i].r), (int16_t)(in1[i].i + in2[i].i)};
+    for (; i < sz; i++) { // saturate like the SIMD loops
+      const int r = in1[i].r + in2[i].r, im = in1[i].i + in2[i].i;
+      out[i].r = r > INT16_MAX ? INT16_MAX : r < INT16_MIN ? INT16_MIN : r;
+      out[i].i = im > INT16_MAX ? INT16_MAX : im < INT16_MIN ? INT16_MIN : im;
+    }
   }
 
   /**
