@@ -366,11 +366,6 @@ static void *split7_thread(void *param)
   if (trx_oran_start(eth) != 0)
     LOG_E(HW, "Could not start the O-RAN 7.2 fronthaul\n");
 
-  LOG_I(PHY, "Signaling main thread that RU %d is ready, sl_ahead %d\n", ru->idx, ru->sl_ahead);
-  pthread_mutex_lock(&RC.ru_mutex);
-  RC.ru_mask &= ~(1 << ru->idx);
-  pthread_cond_signal(&RC.ru_cond);
-  pthread_mutex_unlock(&RC.ru_mutex);
   wait_sync("split7_thread");
 
   while (!oai_exit) {

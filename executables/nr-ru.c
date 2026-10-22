@@ -660,11 +660,6 @@ void *ru_thread(void *param)
 
   LOG_I(PHY,"Starting RU %d (%s,%s) on cpu %d\n",ru->idx,NB_functions[ru->function],NB_timing[ru->if_timing],sched_getcpu());
 
-  LOG_I(PHY, "Signaling main thread that RU %d is ready, sl_ahead %d\n",ru->idx,ru->sl_ahead);
-  pthread_mutex_lock(&RC.ru_mutex);
-  RC.ru_mask &= ~(1<<ru->idx);
-  pthread_cond_signal(&RC.ru_cond);
-  pthread_mutex_unlock(&RC.ru_mutex);
   wait_sync("ru_thread");
 
   // This is a forever while loop, it loops over subframes which are scheduled by incoming samples from HW devices
@@ -928,10 +923,6 @@ static void init_split8(RU_t *ru)
 
 void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
 {
-  // create status mask
-  RC.ru_mask = 0;
-  pthread_mutex_init(&RC.ru_mutex,NULL);
-  pthread_cond_init(&RC.ru_cond,NULL);
   // read in configuration file)
   NRRCconfig_RU(cfg);
   LOG_I(PHY,"number of L1 instances %d, number of RU %d, number of CPU cores %d\n",RC.nb_nr_L1_inst,RC.nb_RU,get_nprocs());
@@ -982,7 +973,6 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg)
     return;
 
   RC.ru = (RU_t **)malloc(RC.nb_RU * sizeof(RU_t *));
-  RC.ru_mask = (1 << RC.nb_RU) - 1;
 
   for (int j = 0; j < RC.nb_RU; j++) {
     RU_t *ru = RC.ru[j] = calloc(1, sizeof(*RC.ru[j]));
