@@ -311,6 +311,20 @@ void nrue_init_openair0(void)
     cfg->clock_source = ru->clock_source;
     cfg->time_source = ru->time_source;
     cfg->tune_offset = ru->tune_offset;
+
+    if (ru->nb_clients > 1) {
+      // RX samples shared by the UEs of this RU: one frame ring, read from the device in grains
+      read_data_t *rd = &ru->rd;
+      int ret = pthread_mutex_init(&rd->mread, NULL);
+      AssertFatal(!ret, "errno: %s\n", strerror(ret));
+      rd->sz = ceil_mod(frame_parms->samples_per_frame, PAGE_SIZE / sizeof(c16_t));
+      rd->grain = 2048; // arbitrary read size, chosen to fit in a ethernet jumbo frame
+      rd->last_ts = 0;
+      rd->last_timestamp = calloc_or_fail(ru->nb_clients, sizeof(*rd->last_timestamp));
+      rd->rxbuf = calloc_or_fail(ru->nb_rx, sizeof(*rd->rxbuf));
+      for (int i = 0; i < ru->nb_rx; i++)
+        rd->rxbuf[i] = create_ring(rd->sz * sizeof(c16_t));
+    }
   }
 }
 
@@ -415,27 +429,10 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
   nrUE_RU_params_t *ru = nrue_rus.cfg + UE->rf_map.card;
   read_data_t *rd = &ru->rd;
 
-  if (ru->nb_clients > 1 && !rd->last_timestamp) {
-    int ret = pthread_mutex_init(&rd->mread, NULL);
-    AssertFatal(!ret, "errno: %s\n", strerror(ret));
-    ret = pthread_mutex_lock(&rd->mread);
-    AssertFatal(!ret, "errno: %s\n", strerror(ret));
-    rd->sz = ceil_mod(UE->frame_parms.samples_per_frame, PAGE_SIZE / sizeof(c16_t));
-    rd->grain = 2048; // arbitrary read size, cosen to fit in a ethernet jumbo frame
-    rd->last_timestamp = calloc(ru->nb_clients, sizeof(*rd->last_timestamp));
-    rd->rxbuf = calloc(ru->nb_rx, sizeof(*rd->rxbuf));
-    for (int i = 0; i < ru->nb_rx; i++) {
-      rd->rxbuf[i] = create_ring(rd->sz * sizeof(c16_t));
-    }
-    ret = pthread_mutex_unlock(&rd->mread);
-    AssertFatal(!ret, "errno: %s\n", strerror(ret));
-    LOG_I(PHY, "multi read init done\n");
-  }
-
   int ret;
   if (ru->nb_clients > 1) {
     // if this client timestamp is above all other clients, let's wait another client make a read
-    int this_ue = UE->Mod_id; // suppose Mod_id is 0..ru->nb_clients, so there is only one multi_client RU ...
+    const int this_ue = UE->ru_client;
     LOG_D(PHY, "read for ue %d of %d samples we wait this ue is the first\n", this_ue, nsamps);
     do {
       pthread_mutex_lock(&rd->mread);
@@ -451,8 +448,12 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
           void *tmp[ru->nb_rx];
           for (int i = 0; i < ru->nb_rx; i++)
             tmp[i] = rd->rxbuf[i] + (rd->last_ts % rd->sz);
+          const bool first = !rd->last_ts;
           ret = dev->trx_read_func(dev, &tmp_timestamp, tmp, rd->grain, num_antennas);
-          AssertFatal(ret == rd->grain, "wrote to rf board failed %d", ret);
+          AssertFatal(ret == rd->grain, "read from rf board failed %d", ret);
+          if (first) // the first grain was read at index 0: move it where its timestamp belongs
+            for (int i = 0; i < ru->nb_rx; i++)
+              memmove(rd->rxbuf[i] + (tmp_timestamp % rd->sz), rd->rxbuf[i], ret * sizeof(c16_t));
           rd->last_ts = tmp_timestamp + ret;
           if (!dev->firstTS_initialized) {
             dev->firstTS = tmp_timestamp;

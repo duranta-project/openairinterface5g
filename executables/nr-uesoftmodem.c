@@ -140,7 +140,7 @@ static void get_options(configmodule_interface_t *cfg)
 static void set_UE_options(int CC_id, PHY_VARS_NR_UE *UE, int ru_id)
 {
   nrUE_RU_params_t *RU = nrue_get_ru(ru_id);
-  RU->nb_clients++;
+  UE->ru_client = RU->nb_clients++;
   // Set UE variables
   UE->rx_total_gain_dB = RU->max_rxgain - RU->att_rx;
   UE->tx_total_gain_dB = RU->att_tx;
