@@ -184,7 +184,6 @@ int nr_psbch_decode(PHY_VARS_NR_UE *ue,
 
   LOG_D(PHY, "PSBCH RX SL-MIB:%x, decoded DFN:slot %d:%d, %x\n", psbch_payload, DFN, slot_offset, *(uint32_t *)decoded_pdu);
 
-  nr_sidelink_indication_t sl_indication;
   sl_nr_rx_indication_t rx_ind = {0};
   uint16_t number_pdus = 1;
 
@@ -201,7 +200,16 @@ int nr_psbch_decode(PHY_VARS_NR_UE *ue,
         proc->nr_slot_rx,
         sl_phy_params->psbch.rsrp_dB_per_RE);
 
-  nr_fill_sl_indication(&sl_indication, &rx_ind, NULL, proc, ue, phy_data);
+  nr_sidelink_indication_t sl_indication = {.module_id = ue->Mod_id,
+                                            .hfn_rx = proc->hfn_rx,
+                                            .frame_rx = proc->frame_rx,
+                                            .slot_rx = proc->nr_slot_rx,
+                                            .hfn_tx = proc->hfn_tx,
+                                            .frame_tx = proc->frame_tx,
+                                            .slot_tx = proc->nr_slot_tx,
+                                            .slot_type = SIDELINK_SLOT_TYPE_RX,
+                                            .rx_ind = &rx_ind,
+                                            .phy_data = phy_data};
   nr_fill_sl_rx_indication(&rx_ind, SL_NR_RX_PDU_TYPE_SSB, ue, number_pdus, (void *)result, rx_slss_id);
 
   if (ue->if_inst && ue->if_inst->sl_indication)

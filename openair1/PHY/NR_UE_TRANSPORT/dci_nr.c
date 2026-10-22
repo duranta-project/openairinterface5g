@@ -646,8 +646,16 @@ void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
 
   /* Send to MAC */
   if (sci_indication) {
-    nr_sidelink_indication_t sl_indication; // TODO fill directly
-    nr_fill_sl_indication(&sl_indication, NULL, &sci_ind, proc, ue, phy_data);
+    nr_sidelink_indication_t sl_indication = {.module_id = ue->Mod_id,
+                                              .hfn_rx = proc->hfn_rx,
+                                              .frame_rx = proc->frame_rx,
+                                              .slot_rx = proc->nr_slot_rx,
+                                              .hfn_tx = proc->hfn_tx,
+                                              .frame_tx = proc->frame_tx,
+                                              .slot_tx = proc->nr_slot_tx,
+                                              .slot_type = SIDELINK_SLOT_TYPE_RX,
+                                              .sci_ind = &sci_ind,
+                                              .phy_data = phy_data};
     ue->if_inst->sl_indication(&sl_indication);
   }
   else {

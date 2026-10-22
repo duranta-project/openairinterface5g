@@ -438,10 +438,18 @@ nr_initial_sync_t sl_nr_slss_search(PHY_VARS_NR_UE *UE, UE_nr_rxtx_proc_t *proc,
 
         result.rx_offset = sync_params->rx_offset;
 
-        nr_sidelink_indication_t sl_indication;
         sl_nr_rx_indication_t rx_ind = {0};
         uint16_t number_pdus = 1;
-        nr_fill_sl_indication(&sl_indication, &rx_ind, NULL, proc, UE, NULL);
+        nr_sidelink_indication_t sl_indication = {.module_id = UE->Mod_id,
+                                                  .hfn_rx = proc->hfn_rx,
+                                                  .frame_rx = proc->frame_rx,
+                                                  .slot_rx = proc->nr_slot_rx,
+                                                  .hfn_tx = proc->hfn_tx,
+                                                  .frame_tx = proc->frame_tx,
+                                                  .slot_tx = proc->nr_slot_tx,
+                                                  .slot_type = SIDELINK_SLOT_TYPE_RX,
+                                                  .rx_ind = &rx_ind,
+                                                  .phy_data = NULL};
         nr_fill_sl_rx_indication(&rx_ind, SL_NR_RX_PDU_TYPE_SSB, UE, number_pdus, (void *)decoded_output, rx_slss_id);
 
         LOG_D(PHY, "Sidelink SLSS SEARCH PSBCH RX OK. Send SL-SSB TO MAC\n");

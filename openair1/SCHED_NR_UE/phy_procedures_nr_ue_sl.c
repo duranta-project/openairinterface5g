@@ -21,35 +21,6 @@
 #include "PHY/NR_UE_TRANSPORT/nr_slsch.h"
 #include "executables/nr-uesoftmodem.h"
 
-void nr_fill_sl_indication(nr_sidelink_indication_t *sl_ind,
-                           sl_nr_rx_indication_t *rx_ind,
-                           sl_nr_sci_indication_t *sci_ind,
-                           const UE_nr_rxtx_proc_t *proc,
-                           PHY_VARS_NR_UE *ue,
-                           void *phy_data)
-{
-  memset((void *)sl_ind, 0, sizeof(nr_sidelink_indication_t));
-
-  sl_ind->module_id = ue->Mod_id;
-  sl_ind->hfn_rx = proc->hfn_rx;
-  sl_ind->frame_rx = proc->frame_rx;
-  sl_ind->slot_rx = proc->nr_slot_rx;
-  sl_ind->hfn_tx = proc->hfn_tx;
-  sl_ind->frame_tx = proc->frame_tx;
-  sl_ind->slot_tx = proc->nr_slot_tx;
-  sl_ind->phy_data = phy_data;
-  sl_ind->slot_type = SIDELINK_SLOT_TYPE_RX;
-
-  if (rx_ind) {
-    sl_ind->rx_ind = rx_ind; //  hang on rx_ind instance
-    sl_ind->sci_ind = NULL;
-  }
-  if (sci_ind) {
-    sl_ind->rx_ind = NULL;
-    sl_ind->sci_ind = sci_ind;
-  }
-}
-
 void nr_fill_sl_rx_indication(sl_nr_rx_indication_t *rx_ind,
                               uint8_t pdu_type,
                               PHY_VARS_NR_UE *ue,
@@ -156,10 +127,18 @@ static void nr_indicate_psfch(PHY_VARS_NR_UE *ue,
                               const sl_nr_psfch_pdu_t *rx_psfch)
 {
   sl_nr_rx_indication_t rx_indication = {.sfn = proc->frame_rx, .slot = proc->nr_slot_rx, .number_pdus = 1};
-  nr_sidelink_indication_t sl_indication;
   rx_indication.rx_indication_body[0].pdu_type = SL_NR_RX_PDU_TYPE_PSFCH;
   rx_indication.rx_indication_body[0].rx_psfch_pdu = *rx_psfch;
-  nr_fill_sl_indication(&sl_indication, &rx_indication, NULL, proc, ue, phy_data);
+  nr_sidelink_indication_t sl_indication = {.module_id = ue->Mod_id,
+                                            .hfn_rx = proc->hfn_rx,
+                                            .frame_rx = proc->frame_rx,
+                                            .slot_rx = proc->nr_slot_rx,
+                                            .hfn_tx = proc->hfn_tx,
+                                            .frame_tx = proc->frame_tx,
+                                            .slot_tx = proc->nr_slot_tx,
+                                            .slot_type = SIDELINK_SLOT_TYPE_RX,
+                                            .rx_ind = &rx_indication,
+                                            .phy_data = phy_data};
   if (ue->if_inst && ue->if_inst->sl_indication)
     ue->if_inst->sl_indication(&sl_indication);
 }
@@ -416,7 +395,6 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
     harq_process->round = 0;
 
   sl_nr_rx_indication_t sl_rx_indication = {0};
-  nr_sidelink_indication_t sl_indication;       
   slsch_status_t slsch_status;
   ue->slsch[SLSCH_id].active = false;
   slsch_status.b = harq_process->b;
@@ -452,7 +430,16 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
     sl_rx_indication.rx_indication_body[1].rx_psfch_pdu = *rx_psfch;
     sl_rx_indication.number_pdus = 2;
   }
-  nr_fill_sl_indication(&sl_indication,&sl_rx_indication,NULL,proc,ue,phy_data);
+  nr_sidelink_indication_t sl_indication = {.module_id = ue->Mod_id,
+                                            .hfn_rx = proc->hfn_rx,
+                                            .frame_rx = proc->frame_rx,
+                                            .slot_rx = proc->nr_slot_rx,
+                                            .hfn_tx = proc->hfn_tx,
+                                            .frame_tx = proc->frame_tx,
+                                            .slot_tx = proc->nr_slot_tx,
+                                            .slot_type = SIDELINK_SLOT_TYPE_RX,
+                                            .rx_ind = &sl_rx_indication,
+                                            .phy_data = phy_data};
   if (ue->if_inst && ue->if_inst->sl_indication)
     ue->if_inst->sl_indication(&sl_indication);
 

@@ -596,8 +596,15 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
       phy_data->sl_rx_action = 0;
       nr_sl_print_phy_stats(UE, proc->frame_rx, proc->nr_slot_rx, sl_stats_printed);
       if (UE->if_inst != NULL && UE->if_inst->sl_indication != NULL) {
-        nr_sidelink_indication_t sl_indication;
-        nr_fill_sl_indication(&sl_indication, NULL, NULL, proc, UE, phy_data);
+        nr_sidelink_indication_t sl_indication = {.module_id = UE->Mod_id,
+                                                  .hfn_rx = proc->hfn_rx,
+                                                  .frame_rx = proc->frame_rx,
+                                                  .slot_rx = proc->nr_slot_rx,
+                                                  .hfn_tx = proc->hfn_tx,
+                                                  .frame_tx = proc->frame_tx,
+                                                  .slot_tx = proc->nr_slot_tx,
+                                                  .slot_type = SIDELINK_SLOT_TYPE_RX,
+                                                  .phy_data = phy_data};
         UE->if_inst->sl_indication(&sl_indication);
       }
 
