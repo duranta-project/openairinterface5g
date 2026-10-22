@@ -768,6 +768,16 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
     return;
   }
 
+  if (crc->ul_cqi != 0xff) {
+    // Msg3: reset average with first measurement. If this fails (e.g., ul_cqi == 0xff)
+    // everything starts from predetermined value
+    nr_mac_pc_reset_snr(&UE->UE_sched_ctrl.pusch_pc, crc->ul_cqi * 5 - 640, crc->rssi);
+    ra->msg3_TPC = nr_mac_get_tpc(&UE->UE_sched_ctrl.pusch_pc);
+  }
+  DevAssert(crc->harq_id >= 0 && crc->harq_id < 8);
+  if (crc->timing_advance != 0xffff)
+    UE->UE_sched_ctrl.ta_update = crc->timing_advance;
+
   // CFRA: we scheduled Msg3 (which does not exist in CFRA, see also
   // nr_generate_Msg2()). We did not mark RA as complete right away, as the
   // DLSCH scheduler might schedule in the same slot as Msg2 if RLC has data
@@ -793,13 +803,7 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
     }
   }
 
-  if (crc->ul_cqi != 0xff) {
-    // Msg3: reset average with first measurement. If this fails (e.g., ul_cqi == 0xff)
-    // everything starts from predetermined value
-    nr_mac_pc_reset_snr(&UE->UE_sched_ctrl.pusch_pc, crc->ul_cqi * 5 - 640, crc->rssi);
-  }
-
-  if (crc->tb_crc_status == 1) { // NACK
+  if (rx->pdu == NULL || rx->pdu_length == 0) { // NACK
     if (cfra)  // no Msg3 on CFRA, no problem
       return;
 
@@ -811,9 +815,6 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
 
     if (ra_type == RA_4_STEP && ((frame != ra->Msg3_frame) || (slot != ra->Msg3_slot)))
       return;
-
-    if (crc->ul_cqi != 0xff)
-      ra->msg3_TPC = nr_mac_get_tpc(&UE->UE_sched_ctrl.pusch_pc);
 
     handle_msg3_failed_rx(mac, ra, UE->rnti, cell->ul_bler.harq_round_max);
     return;
