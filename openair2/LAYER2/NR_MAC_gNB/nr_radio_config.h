@@ -77,7 +77,12 @@ void free_SIB1_NR(NR_BCCH_DL_SCH_Message_t *sib1);
 int encode_SIB_NR(NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size);
 void add_sib_to_systeminformation(NR_SystemInformation_IEs_t *si, struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type);
 NR_SIB19_r17_t *get_SIB19_NR(const NR_ServingCellConfigCommon_t *scc);
-nr_pucch_radio_res_t configure_pucch_radio_resources(const frame_structure_t *fs, int bwp_size, int scs, int max_bits);
+nr_pucch_radio_res_t configure_pucch_radio_resources(const frame_structure_t *fs,
+                                                     int bwp_start,
+                                                     int bwp_size,
+                                                     int scs,
+                                                     int max_bits,
+                                                     const uint16_t *ulprbbl);
 NR_CellGroupConfig_t *get_initial_cellGroupConfig(int uid,
                                                   bool redcap,
                                                   const NR_ServingCellConfigCommon_t *scc,
