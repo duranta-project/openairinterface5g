@@ -93,7 +93,7 @@ $ ./ldpctest -v _orig
 ```
 
 ### LDPC libraries
-The prototypes for the functions of the interface are defined in [nrLDPC_defs.h](file://nrLDPC_defs.h) as typedefs.
+The prototypes for the functions of the interface are defined in [nrLDPC_defs.h](file://../nrLDPC_defs.h) as typedefs.
 Libraries implementing the LDPC algorithms must be named `libldpc<_version>.so`, they must implement four functions with the names and types:
 * `LDPCinit` implementing type `LDPC_initfunc_t *`
 * `LDPCshutdown` implementing type `LDPC_shutdownfunc_t *`
