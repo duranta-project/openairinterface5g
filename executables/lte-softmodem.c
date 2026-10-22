@@ -189,6 +189,34 @@ void handle_nr_srs_measurements(const module_id_t module_id,
 {
   return;
 }
+void nr_initiate_ra_proc(module_id_t module_idP,
+                         int CC_id,
+                         frame_t frameP,
+                         int slotP,
+                         uint16_t preamble_index,
+                         uint8_t freq_index,
+                         uint8_t symbol,
+                         int16_t timing_offset,
+                         uint32_t preamble_power)
+{
+  abort();
+}
+void handle_nr_uci_pucch_0_1(module_id_t mod_id, frame_t frame, slot_t slot, const nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_01)
+{
+  abort();
+}
+void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, frame_t frame, slot_t slot, const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_234)
+{
+  abort();
+}
+void nr_rx_sdu_crc(const module_id_t gnb_mod_idP, const int CC_idP, const frame_t frameP, const slot_t slotP, const nfapi_nr_crc_t *crc)
+{
+  abort();
+}
+void nr_rx_sdu_rx(const module_id_t gnb_mod_idP, const int CC_idP, const frame_t frameP, const slot_t slotP, const nfapi_nr_rx_data_pdu_t *rx)
+{
+  abort();
+}
 
 /* forward declarations */
 void set_default_frame_parms(LTE_DL_FRAME_PARMS *frame_parms[MAX_NUM_CCs]);

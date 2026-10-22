@@ -749,7 +749,6 @@ set(NFAPI_USER_SRC
   ${NFAPI_USER_DIR}/nfapi.c
   ${NFAPI_USER_DIR}/nfapi_pnf.c
   ${NFAPI_USER_DIR}/nfapi_vnf.c
-  ${NFAPI_USER_DIR}/gnb_ind_vars.c
 )
 add_library(NFAPI_USER_LIB ${NFAPI_USER_SRC})
 if(OAI_WLS)
@@ -1977,7 +1976,6 @@ add_executable(nr_psbchsim
   ${OPENAIR1_DIR}/SIMULATION/NR_PHY/psbchsim.c
   ${OPENAIR_DIR}/executables/softmodem-common.c
   ${NFAPI_USER_DIR}/nfapi.c
-  ${NFAPI_USER_DIR}/gnb_ind_vars.c
   ${PHY_INTERFACE_DIR}/queue_t.c
   )
 target_link_libraries(nr_psbchsim PRIVATE
@@ -1997,7 +1995,6 @@ add_executable(nr_dlsim
   ${OPENAIR1_DIR}/SIMULATION/NR_PHY/dlsim.c
   ${OPENAIR_DIR}/executables/softmodem-common.c
   ${NFAPI_USER_DIR}/nfapi.c
-  ${NFAPI_USER_DIR}/gnb_ind_vars.c
   ${PHY_INTERFACE_DIR}/queue_t.c
   )
 target_link_libraries(nr_dlsim PRIVATE
@@ -2026,7 +2023,6 @@ add_executable(nr_ulsim
   ${OPENAIR1_DIR}/SIMULATION/NR_PHY/ulsim.c
   ${OPENAIR_DIR}/executables/softmodem-common.c
   ${NFAPI_USER_DIR}/nfapi.c
-  ${NFAPI_USER_DIR}/gnb_ind_vars.c
   ${PHY_INTERFACE_DIR}/queue_t.c
   )
 
