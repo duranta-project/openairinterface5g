@@ -307,6 +307,8 @@ typedef struct {
   nr_ra_type_t ra_type;
   /// CFRA flag
   bool cfra;
+  /// Msg4 carries RRCSetup (SRB0)
+  bool msg4_rrcsetup;
 } NR_RA_t;
 
 /*! \brief gNB common channels */
@@ -752,6 +754,10 @@ typedef struct {
   /// Timer for timeout before UE is set to UL failure (e.g.,
   /// "TransmissionActionIndicator" handling
   NR_timer_t transm_timeout;
+
+  /// RRCSetup procedure delay (TS 38.331 Table 12.1-1): when it expires, the UE has applied the
+  /// masterCellGroup of RRCSetup and monitors its UE specific search space
+  NR_timer_t rrcsetup_applied;
 
   /// sri, ul_ri and tpmi based on SRS
   nr_srs_feedback_t srs_feedback;

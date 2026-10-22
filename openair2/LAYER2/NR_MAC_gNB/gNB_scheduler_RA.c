@@ -1886,10 +1886,12 @@ static void nr_generate_Msg4_MsgB(gNB_MAC_INST *nr_mac,
         // some data in SRB0 (likely RRCSetup)
         mac_sdu_length = stat[0].bytes_in_buffer;
         lcid = lcid_l[0];
+        ra->msg4_rrcsetup = true;
       } else if (stat[1].bytes_in_buffer > 0) {
         // some data in SRB1 (likely RRCReestablishmnt/RRCReconfiguration)
         mac_sdu_length = stat[1].bytes_in_buffer;
         lcid = lcid_l[1];
+        ra->msg4_rrcsetup = false;
       } else {
         return; // no data to forward
       }
@@ -2159,6 +2161,14 @@ bool nr_check_Msg4_MsgB_Ack(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, frame_t
       if (UE->CellGroup) {
         // we configure the UE using common search space with DCIX0 while waiting for a reconfiguration
         configure_UE_BWP(cell, scc, UE, false, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
+        /* After RRCSetup there is no previous configuration the UE could still use: once the RRCSetup
+           procedure delay has passed, use its UE specific search space instead of the common one,
+           which offers very few CCE candidates shared with RA and SIB. */
+        if (ra->msg4_rrcsetup) {
+          // 10 ms, one frame
+          nr_timer_setup(&sched_ctrl->rrcsetup_applied, cell->frame_structure.numb_slots_frame, 1);
+          nr_timer_start(&sched_ctrl->rrcsetup_applied);
+        }
         transition_ra_connected_nr_ue(nr_mac, UE);
       } else {  // in case of  UE reject
         nr_release_ra_UE(nr_mac, UE->rnti);
