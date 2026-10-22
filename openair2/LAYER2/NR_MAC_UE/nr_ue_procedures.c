@@ -1190,10 +1190,16 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   if (rnti_type != TYPE_RA_RNTI_ && rnti_type != TYPE_SI_RNTI_) {
     if (!get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dci->harq_pid.val)) {
       feedback_ti = 1 + dci->pdsch_to_harq_feedback_timing_indicator.val + ntn_ue_koffset;
-      AssertFatal(feedback_ti >= GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
-                  "PDSCH to HARQ feedback time (%d) needs to be higher than DURATION_RX_TO_TX (%ld).\n",
-                  feedback_ti,
-                  GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing));
+      if (feedback_ti < GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing)) {
+        LOG_W(MAC,
+              "[%d.%d] PDSCH to HARQ feedback time (%d) lower than DURATION_RX_TO_TX (%ld). Possibly due to false DCI. Ignoring "
+              "DCI!\n",
+              frame,
+              slot,
+              feedback_ti,
+              GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing));
+        return -1;
+      }
       // set the harq status at MAC for feedback
       const int tpc[] = {-1, 0, 1, 3};
       set_harq_status(mac,
@@ -1465,6 +1471,16 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
 
   dlsch_pdu->n_front_load_symb = 1; // default value
   set_antenna_port_parameters(dlsch_pdu, cw0 + cw1, max_length, dmrs_type, dci->antenna_ports.val);
+  // reserved antenna_ports values give no DMRS CDM group: possibly a false DCI
+  if (dlsch_pdu->n_dmrs_cdm_groups < 1 || dlsch_pdu->n_dmrs_cdm_groups > 3) {
+    LOG_W(MAC,
+          "[%d.%d] antenna_ports value %d (%d codewords) is reserved. Possibly due to false DCI. Ignoring DCI!\n",
+          frame,
+          slot,
+          dci->antenna_ports.val,
+          cw0 + cw1);
+    return -1;
+  }
   int nb_re_dmrs = ((dmrs_type == NULL) ? 6 : 4) * dlsch_pdu->n_dmrs_cdm_groups;
 
   /* dmrs symbol positions*/
@@ -1490,12 +1506,26 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
   uint16_t feedback_ti = 0;
   const int tpc[] = {-1, 0, 1, 3};
   if (!get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dci->harq_pid.val)) {
-    feedback_ti = pucch_Config->dl_DataToUL_ACK->list.array[dci->pdsch_to_harq_feedback_timing_indicator.val][0] + ntn_ue_koffset;
-    AssertFatal(feedback_ti >= GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
-                "PDSCH to HARQ feedback time (%d) needs to be higher than DURATION_RX_TO_TX (%ld). Min feedback time set in config "
-                "file (min_rxtxtime).\n",
-                feedback_ti,
-                GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing));
+    const int k1_idx = dci->pdsch_to_harq_feedback_timing_indicator.val;
+    if (k1_idx >= pucch_Config->dl_DataToUL_ACK->list.count) {
+      LOG_W(MAC,
+            "[%d.%d] PDSCH to HARQ feedback timing indicator %d out of bounds. Possibly due to false DCI. Ignoring DCI!\n",
+            frame,
+            slot,
+            k1_idx);
+      return -1;
+    }
+    feedback_ti = pucch_Config->dl_DataToUL_ACK->list.array[k1_idx][0] + ntn_ue_koffset;
+    if (feedback_ti < GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing)) {
+      LOG_W(MAC,
+            "[%d.%d] PDSCH to HARQ feedback time (%d) lower than DURATION_RX_TO_TX (%ld) (min_rxtxtime in the gNB config?). "
+            "Possibly due to false DCI. Ignoring DCI!\n",
+            frame,
+            slot,
+            feedback_ti,
+            GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing));
+      return -1;
+    }
   }
 
 
