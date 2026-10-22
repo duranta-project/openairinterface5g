@@ -5,7 +5,8 @@
 #ifndef OPENAIRINTERFACE5G_LIMITS_H_
 #define OPENAIRINTERFACE5G_LIMITS_H_
 
-#        define MAX_MOBILES_PER_GNB 16
+/* tests with 4 processes of 64 UEs: the DU UE ids are also taken by UEs in RA, keep headroom over 256 */
+#        define MAX_MOBILES_PER_GNB 320
 #        define NUMBER_OF_eNB_MAX 1
 #ifndef NUMBER_OF_gNB_MAX
 #        define NUMBER_OF_gNB_MAX 1
