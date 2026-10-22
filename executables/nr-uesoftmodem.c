@@ -370,7 +370,10 @@ int main(int argc, char **argv)
 
   nrue_init_openair0();
 
-  lock_memory_to_ram();
+  /* mlockall() makes every page resident, including the whole 8 MB stack of each thread: with tens of
+     UEs in one process (simulation), that is gigabytes for no real-time gain */
+  if (NB_UE_INST == 1)
+    lock_memory_to_ram();
 
   if (IS_SOFTMODEM_DOSCOPE) {
     load_softscope("nr", nrPHY_vars_UE_g[0][0]);
