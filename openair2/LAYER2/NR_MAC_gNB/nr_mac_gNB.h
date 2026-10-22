@@ -1256,6 +1256,9 @@ typedef struct nr_pucch_radio_res_s {
   int nb_prb_periodic_res;
   int periodicity;
   int max_served_ues;
+  /// first PRB (in the BWP) of each HARQ and periodic resource, placed around the UL PRB blacklist
+  int harq_start_prb[8]; // MAX_NUM_PUCCH_RES_PER_SET
+  int periodic_start_prb[MAX_BWP_SIZE / 4];
 } nr_pucch_radio_res_t;
 
 typedef struct {
