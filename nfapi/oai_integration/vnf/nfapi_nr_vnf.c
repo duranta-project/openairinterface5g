@@ -176,29 +176,71 @@ int pnf_nr_config_resp_cb(nfapi_nr_vnf_config_t *config, int p5_idx, nfapi_nr_pn
 
 int phy_nr_rach_indication(nfapi_nr_rach_indication_t *ind)
 {
-  UNUSED(ind);
-  AssertFatal(false, "not implemented\n");
+  for (int i = 0; i < ind->number_of_pdus; i++) {
+    nfapi_nr_prach_indication_pdu_t *rach = ind->pdu_list + i;
+    if (rach->num_preamble > 1) {
+      LOG_E(MAC, "Not more than 1 preamble per RACH PDU supported, ignoring the rest\n");
+    }
+    nr_initiate_ra_proc(0,
+                        0,
+                        ind->sfn,
+                        ind->slot,
+                        rach->preamble_list[0].preamble_index,
+                        rach->freq_index,
+                        rach->symbol_index,
+                        rach->preamble_list[0].timing_advance,
+                        rach->preamble_list[0].preamble_pwr);
+  }
+  ind->number_of_pdus = 0;
   return 1;
 }
 
 int phy_nr_uci_indication(nfapi_nr_uci_indication_t *ind)
 {
-  UNUSED(ind);
-  AssertFatal(false, "not implemented\n");
+  nfapi_nr_uci_t *uci_list = ind->uci_list;
+  for (int i = 0; i < ind->num_ucis; i++) {
+    switch (uci_list[i].pdu_type) {
+      case NFAPI_NR_UCI_PUSCH_PDU_TYPE:
+        LOG_E(MAC, "%s(): unhandled NFAPI_NR_UCI_PUSCH_PDU_TYPE\n", __func__);
+        break;
+
+      case NFAPI_NR_UCI_FORMAT_0_1_PDU_TYPE: {
+        const nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_pdu = &uci_list[i].pucch_pdu_format_0_1;
+        LOG_D(NR_MAC, "The received uci has sfn slot %d %d, num_ucis %d and pdu_size %d\n",
+                ind->sfn, ind->slot, ind->num_ucis, uci_list[i].pdu_size);
+        handle_nr_uci_pucch_0_1(0, 0, ind->sfn, ind->slot, uci_pdu);
+        break;
+      }
+
+      case NFAPI_NR_UCI_FORMAT_2_3_4_PDU_TYPE: {
+        const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_pdu = &uci_list[i].pucch_pdu_format_2_3_4;
+        handle_nr_uci_pucch_2_3_4(0, 0, ind->sfn, ind->slot, uci_pdu);
+        break;
+      }
+    }
+  }
+  ind->num_ucis = 0;
   return 1;
 }
 
 int phy_nr_crc_indication(nfapi_nr_crc_indication_t *ind)
 {
-  UNUSED(ind);
-  AssertFatal(false, "not implemented\n");
+  for (int i = 0; i < ind->number_crcs; i++) {
+    const nfapi_nr_crc_t *crc = &ind->crc_list[i];
+    nr_rx_sdu_crc(0, 0, ind->sfn, ind->slot, crc);
+  }
+  ind->number_crcs = 0;
   return 1;
 }
 
 int phy_nr_rx_data_indication(nfapi_nr_rx_data_indication_t *ind)
 {
-  UNUSED(ind);
-  AssertFatal(false, "not implemented\n");
+
+  for (int i = 0; i < ind->number_of_pdus; i++) {
+    const nfapi_nr_rx_data_pdu_t *rx = &ind->pdu_list[i];
+    nr_rx_sdu_rx(0, 0, ind->sfn, ind->slot, rx);
+  }
+  ind->number_of_pdus = 0;
   return 1;
 }
 
