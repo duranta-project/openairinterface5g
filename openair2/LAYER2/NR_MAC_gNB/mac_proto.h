@@ -358,7 +358,10 @@ int nr_write_ce_dlsch_pdu(gNB_MAC_INST *gNB,
    Must precede nr_rx_sdu_rx() of the same PUSCH: the RX part advances RA state
    (Msg3 done/retx, CFRA completion), after which RA UE measurements (TA, SNR,
    Msg3 TPC) would be dropped, and frees the UL HARQ process whose sched_pusch
-   is read here. */
+   is read here. In monolithic mode, NR_UL_indication() guarantees the order;
+   with (n)FAPI the indications are handled in order of arrival, which FAPI does
+   not guarantee, so an L1 sending RX_Data.indication first degrades RA and
+   PUSCH power control. */
 void nr_rx_sdu_crc(const module_id_t gnb_mod_idP,
                    const int CC_idP,
                    const frame_t frameP,
