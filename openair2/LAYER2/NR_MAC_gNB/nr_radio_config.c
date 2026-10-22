@@ -1861,8 +1861,8 @@ static int get_required_prbs(nr_pucch_radio_res_t *res)
   return res->nb_harq_res * res->nb_prb_harq_res + res->nb_prb_periodic_res * res->nb_periodic_res;
 }
 
-// compute PUCCH resources for each BWP
-nr_pucch_radio_res_t configure_pucch_radio_resources(const frame_structure_t *fs, int bwp_size, int scs, int max_bits)
+// size the PUCCH resources for bwp_size PRBs
+static nr_pucch_radio_res_t size_pucch_radio_resources(const frame_structure_t *fs, int bwp_size, int scs, int max_bits)
 {
   // set min period at slots per frame and max at 320
   int min_period = fs->numb_slots_frame;
@@ -1942,6 +1942,64 @@ nr_pucch_radio_res_t configure_pucch_radio_resources(const frame_structure_t *fs
     return res;
 }
 
+/* Place nb blocks of sz contiguous PRBs from *next on, skipping blacklisted PRBs. Blocks start on a multiple
+   of 4 PRBs, as required by the L1 PUCCH format 2 receiver. */
+static bool place_pucch_blocks(const uint16_t *ulprbbl, int bwp_start, int bwp_size, int *next, int nb, int sz, int *start_prb)
+{
+  for (int b = 0; b < nb; b++) {
+    int p = *next;
+    while (true) {
+      if (p + sz > bwp_size)
+        return false;
+      int k = 0;
+      while (k < sz && !(ulprbbl && ulprbbl[bwp_start + p + k]))
+        k++;
+      if (k == sz)
+        break;
+      p = (p + k + 1 + 3) & ~3; // restart after the blacklisted PRB
+    }
+    start_prb[b] = p;
+    *next = p + sz;
+  }
+  return true;
+}
+
+static bool place_pucch_radio_resources(nr_pucch_radio_res_t *res, int bwp_start, int bwp_size, const uint16_t *ulprbbl)
+{
+  if (res->nb_harq_res > (int)sizeofArray(res->harq_start_prb) || res->nb_periodic_res > (int)sizeofArray(res->periodic_start_prb))
+    return false;
+  int next = 0;
+  return place_pucch_blocks(ulprbbl, bwp_start, bwp_size, &next, res->nb_harq_res, res->nb_prb_harq_res, res->harq_start_prb)
+         && place_pucch_blocks(ulprbbl,
+                               bwp_start,
+                               bwp_size,
+                               &next,
+                               res->nb_periodic_res,
+                               res->nb_prb_periodic_res,
+                               res->periodic_start_prb);
+}
+
+// compute PUCCH resources for each BWP, out of the blacklisted UL PRBs
+nr_pucch_radio_res_t configure_pucch_radio_resources(const frame_structure_t *fs,
+                                                     int bwp_start,
+                                                     int bwp_size,
+                                                     int scs,
+                                                     int max_bits,
+                                                     const uint16_t *ulprbbl)
+{
+  int usable = 0;
+  for (int p = 0; p < bwp_size; p++)
+    usable += !(ulprbbl && ulprbbl[bwp_start + p]);
+  // blocks cannot straddle a blacklisted range: shrink the plan until it can be placed
+  for (int size = usable; size > 0; size--) {
+    nr_pucch_radio_res_t res = size_pucch_radio_resources(fs, size, scs, max_bits);
+    if (place_pucch_radio_resources(&res, bwp_start, bwp_size, ulprbbl))
+      return res;
+  }
+  AssertFatal(false, "Couldn't place PUCCH radio resources in BWP of %d PRBs (%d not blacklisted)\n", bwp_size, usable);
+  return (nr_pucch_radio_res_t){0};
+}
+
 static NR_PUCCH_Resource_t *config_pucch_resource(int format, int id, int startPrb, int nbPrb)
 {
   NR_PUCCH_Resource_t *pucch = calloc(1, sizeof(*pucch));
@@ -1981,7 +2039,7 @@ static void config_pucch_resset(NR_PUCCH_Config_t *pucch_Config,
     NR_PUCCH_ResourceId_t *pucchid = calloc(1, sizeof(*pucchid));
     *pucchid = id_start + i;
     asn1cSeqAdd(&pucchresset->resourceList.list,pucchid);
-    int start_prb = i * pucch_res_config->nb_prb_harq_res;
+    int start_prb = pucch_res_config->harq_start_prb[i];
     int prb_size = format == 0 ? 1 : pucch_res_config->nb_prb_harq_res;
     NR_PUCCH_Resource_t *pucchres = config_pucch_resource(format, *pucchid, start_prb, prb_size);
     asn1cSeqAdd(&pucch_Config->resourceToAddModList->list, pucchres);
@@ -2036,8 +2094,7 @@ static NR_PUCCH_Config_t *config_pucch(const nr_mac_config_t *configuration,
   config_pucch_resset(pucch_Config, 0, 0, 0, pucch_res_config);
   config_pucch_resset(pucch_Config, pucch_res_config->nb_harq_res, 1, 2, pucch_res_config);
   // we give ID nb_harq_res * 2 to resource for SR and nb_harq_res * 2 + 1 to the one for CSI meas
-  int multi_periodic_offset = (uid % pucch_res_config->nb_periodic_res) * pucch_res_config->nb_prb_periodic_res;
-  int start_prb = pucch_res_config->nb_harq_res * pucch_res_config->nb_prb_harq_res + multi_periodic_offset;
+  int start_prb = pucch_res_config->periodic_start_prb[uid % pucch_res_config->nb_periodic_res];
   NR_PUCCH_Resource_t *pucchres_sr = config_pucch_resource(0, pucch_res_config->nb_harq_res * 2, start_prb, 1);
   asn1cSeqAdd(&pucch_Config->resourceToAddModList->list, pucchres_sr);
   NR_PUCCH_Resource_t *pucchres_csi = config_pucch_resource(2,
