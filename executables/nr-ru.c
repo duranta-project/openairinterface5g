@@ -588,18 +588,13 @@ void *ru_thread(void *param)
   char               threadname[40];
 
   bool rx_tti_busy[RU_RX_SLOT_DEPTH] = {false};
+
   // set default return value
   ru_thread_status = 0;
   // set default return value
   sprintf(threadname,"ru_thread %u",ru->idx);
-  LOG_I(PHY,"Starting RU %d (%s,%s) on cpu %d\n",ru->idx,NB_functions[ru->function],NB_timing[ru->if_timing],sched_getcpu());
-  ru->config = gNB->gNB_config;
 
-  nr_init_frame_parms(&ru->config, fp);
-  nr_dump_frame_parms(fp);
-  nr_phy_init_RU(ru);
-  fill_rf_config(ru, ru->rf_config_file);
-  fill_split7_2_config(&ru->openair0_cfg.split7, &ru->config, fp);
+  LOG_I(PHY,"Starting RU %d (%s,%s) on cpu %d\n",ru->idx,NB_functions[ru->function],NB_timing[ru->if_timing],sched_getcpu());
 
   // Start IF device if any
   if (ru->nr_start_if) {
@@ -763,6 +758,19 @@ void *ru_thread(void *param)
 
   ru_thread_status = 0;
   return &ru_thread_status;
+}
+
+static void configure_NR_RU(RU_t *ru)
+{
+  NR_DL_FRAME_PARMS  *fp = ru->nr_frame_parms;
+  PHY_VARS_gNB *gNB = ru->gNB_list[0];
+
+  ru->config = gNB->gNB_config;
+  nr_init_frame_parms(&ru->config, fp);
+  nr_dump_frame_parms(fp);
+  nr_phy_init_RU(ru);
+  fill_rf_config(ru, ru->rf_config_file);
+  fill_split7_2_config(&ru->openair0_cfg.split7, &ru->config, fp);
 }
 
 int start_streaming(RU_t *ru) {
@@ -966,6 +974,7 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
 void start_NR_RU()
 {
   RU_t *ru = RC.ru[0];
+  configure_NR_RU(ru);
   threadCreate(&ru->proc.pthread_FH, ru_thread, ru, "ru_thread", ru->ru_thread_core, OAI_PRIORITY_RT_MAX);
 }
 
