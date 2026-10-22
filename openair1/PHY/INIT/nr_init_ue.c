@@ -409,15 +409,21 @@ void term_nr_ue_transport(PHY_VARS_NR_UE *ue)
   free_and_zero(ue->pdsch_scratch);
 }
 
-void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb)
+void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES],
+                               int number_of_processes,
+                               int num_rb,
+                               int max_layers)
 {
-  int a_segments = MAX_NUM_NR_DLSCH_SEGMENTS; // number of segments to be allocated
+  // segments of the largest TB the UE can receive: per layer, scaled to the bandwidth
+  int a_segments = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * max_layers;
   if (num_rb != 273) {
     a_segments = a_segments*num_rb;
     a_segments = (a_segments/273)+1;
   }
+  // the second codeword only exists above 4 layers (TS 38.211 Table 7.3.1.3-1)
+  const int num_cw = NR_MAX_NB_LAYERS > 4 ? 2 : 1;
 
-  for (int j=0; j<2; j++) {
+  for (int j = 0; j < num_cw; j++) {
     for (int i=0; i<number_of_processes; i++) {
       memset(harq_list[j] + i, 0, sizeof(NR_DL_UE_HARQ_t));
       init_downlink_harq_status(harq_list[j] + i);
@@ -533,7 +539,10 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
 
 void init_nr_ue_transport(PHY_VARS_NR_UE *ue)
 {
-  nr_init_dl_harq_processes(ue->dl_harq_processes, NR_MAX_HARQ_PROCESSES, ue->frame_parms.N_RB_DL);
+  nr_init_dl_harq_processes(ue->dl_harq_processes,
+                            NR_MAX_HARQ_PROCESSES,
+                            ue->frame_parms.N_RB_DL,
+                            min(ue->frame_parms.nb_antennas_rx, NR_MAX_NB_LAYERS));
   nr_init_ul_harq_processes(ue->ul_harq_processes, NR_MAX_HARQ_PROCESSES, ue->frame_parms.N_RB_UL, ue->frame_parms.nb_antennas_tx);
   const int num_actors = get_nrUE_params()->num_dl_actors > 0 ? get_nrUE_params()->num_dl_actors : 1;
   ue->pdsch_num_actors = num_actors;
