@@ -615,9 +615,7 @@ int sl_psfch_pssch_slot_index(const BIT_STRING_t *phy_sl_bitmap, size_t phy_map_
                               uint8_t min_time_gap, uint8_t psfch_period);
 int32_t nr_sl_psfch_feedback_offset(const NR_UE_MAC_INST_t *mac, uint64_t pssch_abs_slot);
 
-void append_bit(uint8_t *buf, size_t bit_pos, int bit_value);
 
-int get_bit_from_map(const uint8_t *buf, size_t bit_pos);
 
 void init_vector(vec_of_list_t* vec, size_t initial_capacity);
 

@@ -117,25 +117,6 @@ static uint8_t sl_determine_if_sidelink_slot(uint8_t sl_startsym, uint8_t sl_len
   }
 }
 
-int get_bit_from_map(const uint8_t *buf, size_t bit_pos) {
-  size_t byte_index = bit_pos / 8;
-  uint8_t bit_index = bit_pos % 8;
-  LOG_D(NR_MAC, "buf[%ld] = %d, ((7 - %d)) & 1), (buf[byte_index] >> %d) = %d  %d\n",
-        byte_index, buf[byte_index], bit_index, (7 - bit_index), buf[byte_index] >> (7 - bit_index), (buf[byte_index] >> (7 - bit_index)) & 1);
-  return (buf[byte_index] >> (7 - bit_index)) & 1;
-}
-
-void append_bit(uint8_t *buf, size_t bit_pos, int bit_value) {
-  size_t byte_index = bit_pos / 8;
-  uint8_t bit_index = bit_pos % 8;
-  LOG_D(NR_MAC, "Appending bit_value %d at byte_index %ld bit index %d\n", bit_value, byte_index, bit_index);
-  if (bit_value) {
-    buf[byte_index] |= (1 << (7 - bit_index));
-  } else {
-    buf[byte_index] &= ~(1 << (7 - bit_index));
-  }
-}
-
 bool check_t1_within_tproc1(uint8_t mu, uint16_t t1_slots) {
     if ((mu == 0 && t1_slots <= 3) || (mu == 1 && t1_slots <= 5) ||
         (mu == 2 && t1_slots <= 9) || (mu == 3 && t1_slots <= 17))
@@ -1939,7 +1920,7 @@ int get_physical_sl_pool(NR_UE_MAC_INST_t *mac, BIT_STRING_t *sl_time_rsrc, BIT_
     const bool is_ssb = sl_bch_has_ssb_in_slot(&sl_mac->rx_sl_bch, abs_slot, n_slots_frame)
                         || sl_bch_has_ssb_in_slot(&sl_mac->tx_sl_bch, abs_slot, n_slots_frame);
     if (symbols_are_ul && !is_ssb) {
-      nr_sl_bitmap_set(eligible_bitmap, abs_slot);
+      append_bit(eligible_bitmap, abs_slot, 1);
       eligible_slots++;
     }
   }

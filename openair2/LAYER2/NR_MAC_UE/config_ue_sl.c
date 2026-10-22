@@ -3,7 +3,6 @@
  */
 
 #include "openair2/LAYER2/NR_MAC_UE/mac_defs.h"
-#include "openair2/LAYER2/NR_MAC_UE/nr_sl_slot_bitmap.h"
 #include "openair2/LAYER2/NR_MAC_UE/nr_ue_sci.h"
 #include "NR_SidelinkPreconfigNR-r16.h"
 #include "mac_proto.h"
