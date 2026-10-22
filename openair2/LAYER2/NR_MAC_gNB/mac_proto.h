@@ -33,7 +33,6 @@ int get_ul_period_idx_from_abs_slot(const frame_structure_t *fs, int slot, bool 
 void delete_nr_ue_data(gNB_MAC_INST *mac, NR_UE_info_t *UE);
 NR_UE_info_t **get_periodic_ue(periodic_ue_sched_t *p, int ul_idx, int index);
 void mac_top_init_gNB(ngran_node_t node_type, const nr_rlc_configuration_t *default_rlc_config);
-void mac_init_cell(NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config, nr_cell_sched_t *cell);
 void mac_top_destroy_gNB(gNB_MAC_INST *mac);
 void nr_mac_send_f1_setup_req(void);
 int get_ssbidx_from_beam(const nr_cell_sched_t *cell, int beam_idx);
