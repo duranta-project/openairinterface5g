@@ -105,6 +105,7 @@ void nrue_set_cell_params(configmodule_interface_t *cfg)
     nrue_rus.cfg[0].cell = malloc(sizeof(nrUE_cell_params_t));
     AssertFatal(nrue_rus.cfg[0].cell, "no memory");
     nrue_rus.cfg[0].cell[0] = (nrUE_cell_params_t){.active = true,
+                                                   .used_by_ue = -1,
                                                    .band = get_softmodem_params()->band,
                                                    .rf_frequency = downlink_frequency[0][0],
                                                    .rf_freq_offset = uplink_frequency_offset[0][0],
@@ -121,6 +122,11 @@ void nrue_set_cell_params(configmodule_interface_t *cfg)
     paramdef_t *param = cellParamList.paramarray[cell_id];
     const int sz = sizeofArray(cellParams);
     int ru_id = *gpd(param, sz, NRUE_CELL_RU_ID)->iptr;
+    AssertFatal(ru_id >= 0 && ru_id < nrue_rus.count,
+                "cell %d: ru_id %d out of range, %d RU(s) defined\n",
+                cell_id,
+                ru_id,
+                nrue_rus.count);
     nrue_rus.cfg[ru_id].nb_cells++;
     nrUE_cell_params_t *cell_base = nrue_rus.cfg[ru_id].cell;
     nrUE_cell_params_t *new = reallocarray(cell_base, nrue_rus.cfg[ru_id].nb_cells, sizeof(nrUE_cell_params_t));
@@ -128,6 +134,7 @@ void nrue_set_cell_params(configmodule_interface_t *cfg)
     nrue_rus.cfg[ru_id].cell = new;
     nrUE_cell_params_t *cell = nrue_rus.cfg[ru_id].cell + nrue_rus.cfg[ru_id].nb_cells - 1;
     *cell = (nrUE_cell_params_t){.active = true,
+                                 .used_by_ue = -1,
                                  .band = *gpd(param, sz, NRUE_CELL_BAND)->iptr,
                                  .rf_frequency = *gpd(param, sz, NRUE_CELL_RF_FREQUENCY)->u64ptr,
                                  .rf_freq_offset = *gpd(param, sz, NRUE_CELL_RF_FREQ_OFFSET)->i64ptr,
@@ -250,7 +257,11 @@ void nrue_init_openair0(void)
     // incoherent datamodel, we use the first cell
     NR_DL_FRAME_PARMS *frame_parms = ru->cell[0].fp;
     if (is_sidelink) {
-      int UE_id = ru->cell[0].used_by_ue;
+      // sidelink frame parameters are per UE: take the ones of the first UE attached to this RU
+      int UE_id = -1;
+      for (int inst = 0; inst < NB_UE_INST && UE_id < 0; inst++)
+        if (nrPHY_vars_UE_g[inst][0]->rf_map.card == ru_id)
+          UE_id = inst;
       if (UE_id < 0) {
         LOG_W(PHY, "Skipping initialization of RU %d because it is not used by any UE!\n", ru_id);
         continue;
@@ -351,7 +362,7 @@ void nrue_ru_set_freq(PHY_VARS_NR_UE *UE, uint64_t ul_carrier, uint64_t dl_carri
 
   for (int ru_id = 0; carrier_distance != 0 && ru_id < nrue_rus.count; ru_id++) {
     nrUE_RU_params_t *ru_loop = nrue_rus.cfg + ru_id;
-    if (!ru_loop->cell[0].active) // skip RUs that have no cell definition
+    if (!ru_loop->nb_cells || !ru_loop->cell[0].active) // skip RUs that have no cell definition
       continue;
     if (ru_loop->cell[0].used_by_ue >= 0) // skip cells that are already used by an UE
       continue;
@@ -368,7 +379,7 @@ void nrue_ru_set_freq(PHY_VARS_NR_UE *UE, uint64_t ul_carrier, uint64_t dl_carri
     }
   }
 
-  ru->cell[0].used_by_ue = UE->Mod_id;
+  nrue_rus.cfg[UE->rf_map.card].cell[0].used_by_ue = UE->Mod_id;
   openair0_config_t *cfg = &openair0_cfg_g[UE->rf_map.card];
   openair0_device_t *dev = &nrue_rus.openair0_dev[UE->rf_map.card];
   nr_rf_card_config_freq(cfg, ul_carrier, dl_carrier, freq_offset);
@@ -516,7 +527,9 @@ int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buf
     tmp_buf[ant] = tmp_samples;
 
   for (int ru_id = 0; ru_id < nrue_rus.count; ru_id++) {
-    if (!nrue_rus.cfg[ru_id].cell[0].active) // skip RUs that have no cell definition
+    if (ru_id == UE->rf_map.card) // already written above
+      continue;
+    if (!nrue_rus.cfg[ru_id].nb_cells || !nrue_rus.cfg[ru_id].cell[0].active) // skip RUs that have no cell definition
       continue;
     if (nrue_rus.cfg[ru_id].cell[0].used_by_ue >= 0) // skip cells that are already used by an UE
       continue;
