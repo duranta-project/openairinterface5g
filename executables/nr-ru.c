@@ -837,16 +837,14 @@ void kill_NR_RU_proc(int inst) {
   }
 
   // everything should be stopped now, we can safely stop the RF device
-  if (ru->stop_rf == NULL) {
-    LOG_W(PHY, "No stop_rf() for RU %d defined, cannot stop RF!\n", ru->idx);
-    return;
+  if (ru->stop_rf) {
+    int rc = ru->stop_rf(ru);
+    if (rc != 0) {
+      LOG_W(PHY, "stop_rf() returned %d, RU %d RF device did not stop properly!\n", rc, ru->idx);
+      return;
+    }
+    LOG_I(PHY, "RU %d RF device stopped\n",ru->idx);
   }
-  int rc = ru->stop_rf(ru);
-  if (rc != 0) {
-    LOG_W(PHY, "stop_rf() returned %d, RU %d RF device did not stop properly!\n", rc, ru->idx);
-    return;
-  }
-  LOG_I(PHY, "RU %d RF device stopped\n",ru->idx);
 }
 
 void set_function_spec_param(RU_t *ru)
