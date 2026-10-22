@@ -879,7 +879,8 @@ void kill_NR_RU_proc(int inst) {
   }
 }
 
-void set_function_spec_param(RU_t *ru)
+/* split 8 (LOCAL_RF/REMOTE_IF5): RU callbacks and front-end thread pool */
+static void init_split8(RU_t *ru)
 {
   switch (ru->if_south) {
     case LOCAL_RF:   // this is an RU with integrated RF (RRU, gNB)
@@ -909,14 +910,28 @@ void set_function_spec_param(RU_t *ru)
       ru->nr_start_if = nr_start_if; // need to start if interface for IF5
       break;
 
-    case REMOTE_IF4p5:
-      // split 7.2 callbacks are provided by fhi72_transport_t, see start_split72()
-      break;
-
     default:
       LOG_E(PHY, "RU with invalid or unknown southbound interface type %d\n", ru->if_south);
       break;
   } // switch on interface type
+
+  int threadCnt = ru->num_tpcores;
+  if (threadCnt < 2)
+    LOG_E(PHY, "Number of threads for gNB should be more than 1. Allocated only %d\n", threadCnt);
+  char pool[80];
+  int s_offset = sprintf(pool,"%d",ru->tpcores[0]);
+  for (int icpu = 1; icpu < threadCnt; icpu++) {
+    s_offset += sprintf(pool + s_offset, ",%d", ru->tpcores[icpu]);
+  }
+  LOG_I(PHY, "RU thread-pool core string %s (size %d)\n", pool, threadCnt);
+  ru->threadPool = malloc(sizeof(tpool_t));
+  initTpool(pool, ru->threadPool, cpumeas(CPUMEAS_GETSTATE));
+  // FEP RX result FIFO
+  ru->respfeprx = malloc(sizeof(notifiedFIFO_t));
+  initNotifiedFIFO(ru->respfeprx);
+  // FEP TX result FIFO
+  ru->respfeptx = malloc(sizeof(notifiedFIFO_t));
+  initNotifiedFIFO(ru->respfeptx);
 }
 
 void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
@@ -936,8 +951,6 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
 
     // NOTE: multiple CC_id are not handled here yet!
     attach_NR_RU(ru);
-    set_function_spec_param(ru);
-
     configure_NR_RU(ru);
     // init RU_proc -> needed for timing alignment
     ru->proc = (RU_proc_t){.ru = ru, .first_rx = 1, .first_tx = 1};
@@ -945,30 +958,11 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
     if (ru->if_south == REMOTE_IF4p5) {
       start_split72(ru);
     } else {
-      int threadCnt = ru->num_tpcores;
-      if (threadCnt < 2)
-        LOG_E(PHY, "Number of threads for gNB should be more than 1. Allocated only %d\n", threadCnt);
-      char pool[80];
-      int s_offset = sprintf(pool,"%d",ru->tpcores[0]);
-      for (int icpu = 1; icpu < threadCnt; icpu++) {
-        s_offset += sprintf(pool + s_offset, ",%d", ru->tpcores[icpu]);
-      }
-      LOG_I(PHY, "RU thread-pool core string %s (size %d)\n", pool, threadCnt);
-      ru->threadPool = malloc(sizeof(tpool_t));
-      initTpool(pool, ru->threadPool, cpumeas(CPUMEAS_GETSTATE));
-      // FEP RX result FIFO
-      ru->respfeprx = malloc(sizeof(notifiedFIFO_t));
-      initNotifiedFIFO(ru->respfeprx);
-      // FEP TX result FIFO
-      ru->respfeptx = malloc(sizeof(notifiedFIFO_t));
-      initNotifiedFIFO(ru->respfeptx);
-
+      init_split8(ru);
       fill_rf_config(ru, ru->rf_config_file);
       start_split8(ru);
     }
   } // for ru_id
-
-  LOG_D(HW,"[nr-softmodem.c] RU threads created\n");
 }
 
 void stop_RU(int nb_ru) {
