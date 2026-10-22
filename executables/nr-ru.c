@@ -739,6 +739,7 @@ static void attach_NR_RU(RU_t *ru)
   }
 }
 
+/* common RU setup: config, frame parameters and buffers */
 static void configure_NR_RU(RU_t *ru)
 {
   PHY_VARS_gNB *gNB = ru->gNB_list[0];
@@ -748,7 +749,6 @@ static void configure_NR_RU(RU_t *ru)
   nr_init_frame_parms(&ru->config, ru->nr_frame_parms);
   nr_dump_frame_parms(ru->nr_frame_parms);
   nr_phy_init_RU(ru);
-  fill_rf_config(ru, ru->rf_config_file);
 }
 
 /* split 8 (LOCAL_RF/REMOTE_IF5): load and start the device, then spawn ru_thread() */
@@ -961,6 +961,7 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
       ru->respfeptx = malloc(sizeof(notifiedFIFO_t));
       initNotifiedFIFO(ru->respfeptx);
 
+      fill_rf_config(ru, ru->rf_config_file);
       start_split8(ru);
     }
   } // for ru_id
