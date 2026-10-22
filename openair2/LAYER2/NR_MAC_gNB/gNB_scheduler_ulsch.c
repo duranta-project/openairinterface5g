@@ -1020,7 +1020,9 @@ static void _nr_rx_sdu_rx(gNB_MAC_INST *gNB_mac,
     LOG_E(NR_MAC, "UE %04x received ULSCH when feedback UL HARQ %d (unexpected ULSCH transmission)\n", UE->rnti, rx->harq_id);
     return;
   }
-  if (rx->pdu && rx->pdu_length > 0) { // ack
+  // nFAPI unpacking yields a non-NULL pdu with zero length on CRC failure
+  const bool crc_ok = rx->pdu && rx->pdu_length > 0;
+  if (crc_ok) {
     LOG_D(NR_MAC, "Received PDU at MAC gNB \n");
     UE->UE_sched_ctrl.pusch_consecutive_dtx_cnt = 0;
     UE->UE_sched_ctrl.sched_ul_bytes -= rx->pdu_length;
@@ -1031,13 +1033,13 @@ static void _nr_rx_sdu_rx(gNB_MAC_INST *gNB_mac,
     nr_process_mac_pdu(gNB_mac, cell, UE, frameP, slotP, rx->pdu, rx->pdu_length, rx->harq_id, data_ind, num_data_ind);
   }
 
-  if (rx->pdu)
+  if (crc_ok)
     T(T_GNB_MAC_UL_PDU_WITH_DATA, T_INT(gNB_mac->Mod_id), T_INT( 0/*CC_idP*/),
       T_INT(UE->rnti), T_INT(frameP), T_INT(slotP), T_INT(rx->harq_id),
       T_BUFFER(rx->pdu, rx->pdu_length));
 
   UE->mac_stats.ul.total_bytes += rx->pdu_length;
-  handle_nr_ul_harq(cell, UE, UE->rnti, rx->harq_id, rx->pdu == NULL);
+  handle_nr_ul_harq(cell, UE, UE->rnti, rx->harq_id, !crc_ok);
 }
 
 void nr_rx_sdu_crc(const module_id_t gnb_mod_idP,
