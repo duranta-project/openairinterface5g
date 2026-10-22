@@ -346,7 +346,7 @@ void finish_nr_dl_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid)
   harq->ndi ^= 1;
   harq->round = 0;
 
-  add_tail_nr_list(&sched_ctrl->available_dl_harq, harq_pid);
+  id_list_push_back(&sched_ctrl->available_dl_harq, harq_pid);
 }
 
 void abort_nr_dl_harq(NR_UE_info_t* UE, int8_t harq_pid)
@@ -1009,16 +1009,16 @@ static NR_UE_harq_t *setup_dl_harq_process(NR_UE_sched_ctrl_t *sched_ctrl, NR_sc
     /* PP has not selected a specific HARQ Process, get a new one */
     current_harq_pid = sched_ctrl->available_dl_harq.head;
     AssertFatal(current_harq_pid >= 0, "no free HARQ process available for UE %04x\n", rnti);
-    remove_front_nr_list(&sched_ctrl->available_dl_harq);
+    id_list_pop_front(&sched_ctrl->available_dl_harq);
     sched_pdsch->dl_harq_pid = current_harq_pid;
   } else {
     /* PP selected a specific HARQ process. Check whether it will be a new
      * transmission or a retransmission, and remove from the corresponding
      * list */
     if (sched_ctrl->harq_processes[current_harq_pid].round == 0)
-      remove_nr_list(&sched_ctrl->available_dl_harq, current_harq_pid);
+      id_list_remove(&sched_ctrl->available_dl_harq, current_harq_pid);
     else
-      remove_nr_list(&sched_ctrl->retrans_dl_harq, current_harq_pid);
+      id_list_remove(&sched_ctrl->retrans_dl_harq, current_harq_pid);
   }
 
   NR_UE_harq_t *harq = &sched_ctrl->harq_processes[current_harq_pid];
@@ -1027,7 +1027,7 @@ static NR_UE_harq_t *setup_dl_harq_process(NR_UE_sched_ctrl_t *sched_ctrl, NR_sc
     finish_nr_dl_harq(sched_ctrl, current_harq_pid);
   } else {
     NR_sched_pucch_t *pucch = &sched_ctrl->sched_pucch[sched_pdsch->pucch_allocation];
-    add_tail_nr_list(&sched_ctrl->feedback_dl_harq, current_harq_pid);
+    id_list_push_back(&sched_ctrl->feedback_dl_harq, current_harq_pid);
     harq->feedback_frame = pucch->frame;
     harq->feedback_slot = pucch->ul_slot;
     harq->is_waiting = true;

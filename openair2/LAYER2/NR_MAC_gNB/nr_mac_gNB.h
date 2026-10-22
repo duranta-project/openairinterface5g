@@ -21,6 +21,7 @@
 #include "common/utils/nr/nr_common.h"
 #include "common/utils/ds/byte_array.h"
 #include "common/utils/ds/spsc_q.h"
+#include "common/utils/ds/id_list.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_configuration.h"
 #include "openair2/LAYER2/NR_MAC_gNB/nr_pos_ue_context.h"
 
@@ -739,19 +740,19 @@ typedef struct {
   /// information about every HARQ process
   NR_UE_harq_t harq_processes[NR_MAX_HARQ_PROCESSES];
   /// HARQ processes that are free
-  NR_list_t available_dl_harq;
+  id_list_t available_dl_harq;
   /// HARQ processes that await feedback
-  NR_list_t feedback_dl_harq;
+  id_list_t feedback_dl_harq;
   /// HARQ processes that await retransmission
-  NR_list_t retrans_dl_harq;
+  id_list_t retrans_dl_harq;
   /// information about every UL HARQ process
   NR_UE_ul_harq_t ul_harq_processes[NR_MAX_HARQ_PROCESSES];
   /// UL HARQ processes that are free
-  NR_list_t available_ul_harq;
+  id_list_t available_ul_harq;
   /// UL HARQ processes that await feedback
-  NR_list_t feedback_ul_harq;
+  id_list_t feedback_ul_harq;
   /// UL HARQ processes that await retransmission
-  NR_list_t retrans_ul_harq;
+  id_list_t retrans_ul_harq;
   NR_UE_mac_ce_ctrl_t UE_mac_ce_ctrl; // MAC CE related information
 
   /// Timer for RRC processing procedures and transmission activity

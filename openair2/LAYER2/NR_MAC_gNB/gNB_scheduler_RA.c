@@ -2039,13 +2039,13 @@ static void nr_generate_Msg4_MsgB(gNB_MAC_INST *nr_mac,
       AssertFatal(sched_ctrl->available_dl_harq.head >= 0,
                   "UE context not initialized: no HARQ processes found\n");
       current_harq_pid = sched_ctrl->available_dl_harq.head;
-      remove_front_nr_list(&sched_ctrl->available_dl_harq);
+      id_list_pop_front(&sched_ctrl->available_dl_harq);
     }
 
     NR_UE_harq_t *harq = &sched_ctrl->harq_processes[current_harq_pid];
     NR_sched_pucch_t *pucch = &sched_ctrl->sched_pucch[alloc];
     DevAssert(!harq->is_waiting);
-    add_tail_nr_list(&sched_ctrl->feedback_dl_harq, current_harq_pid);
+    id_list_push_back(&sched_ctrl->feedback_dl_harq, current_harq_pid);
     harq->feedback_slot = pucch->ul_slot;
     harq->feedback_frame = pucch->frame;
     harq->is_waiting = true;
@@ -2209,7 +2209,7 @@ bool nr_check_Msg4_MsgB_Ack(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, frame_t
     }
 
     if (sched_ctrl->retrans_dl_harq.head >= 0) {
-      remove_nr_list(&sched_ctrl->retrans_dl_harq, current_harq_pid);
+      id_list_remove(&sched_ctrl->retrans_dl_harq, current_harq_pid);
     }
   } else {
     LOG_I(NR_MAC, "(UE %04x) Received Nack in %s, preparing retransmission!\n", UE->rnti, ra_type_str);
