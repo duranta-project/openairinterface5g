@@ -48,6 +48,23 @@
 #define XRAN_IQ_BITS_UNCOMPRESSED 16 /* xRAN table 7.7.1.1-1: udIqWidth=0 means 16-bit samples */
 #define NUM_SECTION_IDS 4096 // 12-bit sectionId
 #define SECTION_ID_UNCOUPLED 4095 // O-RAN CUS 7.5.3.1: sent when C-Plane and U-Plane aren't coupled via sectionId
+#define ORU_BFW_SLOTS 4096 // weight vectors held at once: the current ones of every beamId, plus superseded ones in flight
+#define ORU_BFW_NUM_BEAM_IDS (1 << 15)
+#define ORU_BFW_NO_SLOT 0xFFFF
+#define ORU_BFW_RING_SIZE (1 << 18) // bundle refs: a few slots of SE11 with one-PRB bundles on 4 eAxCs
+
+// One weight vector. gen changes on every rewrite and is 0 while one is in progress.
+typedef struct {
+  _Atomic(uint32_t) gen;
+  c16_t w[ORU_MAX_BF_WEIGHTS];
+} oru_bfw_slot_t;
+
+// One PRB bundle's beam: its beamId and the weights it had when the section arrived. gen 0: no dynamic weights.
+typedef struct {
+  uint16_t beam_id;
+  uint16_t slot;
+  uint32_t gen;
+} oru_bfw_ref_t;
 
 // One (eaxc, beam_id) pair's bookkeeping for a DL symbol: completion tracking and declared
 // section_ids, no IQ. Payload fragments live in dl_symbol_job_t.fragments[] instead.
@@ -55,6 +72,7 @@ typedef struct {
   uint8_t eaxc_id;
   uint16_t beam_id;
   uint16_t section_ids[MAX_SECTIONS_PER_DL_STREAM]; // every C-Plane section_id declared into this stream
+  oru_bfw_set_t section_bfw[MAX_SECTIONS_PER_DL_STREAM]; // dynamic weights of each of those sections
   int num_section_ids;
   int expected_iq; // PRBs declared via C-Plane for this stream, summed across its section_ids
   int received_iq; // PRBs actually received via U-Plane for this stream
@@ -69,6 +87,7 @@ typedef struct {
   int num_prbc;
   fh_comp_method_t comp_method;
   uint8_t iq_width;
+  oru_bfw_set_t bfw;
   void *iq_data; // points into mbuf; valid until this fragment is unpacked and mbuf is freed
   void *mbuf;
 } dl_fragment_t;
@@ -111,6 +130,7 @@ typedef struct {
   _Atomic(uint64_t) total_uplane_sent;
   _Atomic(int64_t) ul_uplane_ota_delay_sum;
   _Atomic(uint64_t) ul_uplane_ota_delay_count;
+  _Atomic(uint64_t) bfw_stale;
 } thread_safe_stats_t;
 
 typedef struct {
@@ -152,6 +172,18 @@ typedef struct {
   int ext11_max_bundles;
   uint16_t *ext11_beam_ids;
   c16_t *ext11_weights;
+  // Dynamic beamforming weights (CUS 12.4.3), written only by handle_cplane_packet().
+  // A beamId keeps its weights until new ones arrive for it. Superseded slots are
+  // queued FIFO for reuse, so a section that cited them can still read them
+  // get_bf_weights() detects the reuse through the slot gen.
+  oru_bfw_slot_t *bfw_slots;
+  uint16_t *bfw_beam_slot;
+  uint16_t *bfw_free; // FIFO of ORU_BFW_SLOTS
+  uint32_t bfw_free_head;
+  uint32_t bfw_free_count;
+  uint32_t bfw_gen;
+  oru_bfw_ref_t *bfw_ring;
+  _Atomic(uint32_t) bfw_ring_reserve;
 } oru_packet_processor_context_t;
 
 static inline void set_bit(uint8_t *bits, uint64_t bit)
@@ -165,7 +197,7 @@ static inline int test_bit(uint8_t *bits, uint64_t bit)
 }
 
 // U-Plane packets carry (eaxc, section_id) - find which beam-stream declared that section_id.
-static dl_stream_slot_t *find_dl_stream_by_section(dl_symbol_job_t *job, uint8_t eaxc_id, uint16_t section_id)
+static dl_stream_slot_t *find_dl_stream_by_section(dl_symbol_job_t *job, uint8_t eaxc_id, uint16_t section_id, oru_bfw_set_t *bfw)
 {
   for (int s = 0; s < job->num_streams; s++) {
     dl_stream_slot_t *stream = &job->streams[s];
@@ -174,6 +206,8 @@ static dl_stream_slot_t *find_dl_stream_by_section(dl_symbol_job_t *job, uint8_t
     }
     for (int i = 0; i < stream->num_section_ids; i++) {
       if (stream->section_ids[i] == section_id) {
+        if (bfw)
+          *bfw = stream->section_bfw[i];
         return stream;
       }
     }
@@ -202,7 +236,12 @@ static dl_stream_slot_t *find_or_add_dl_stream(dl_symbol_job_t *job, uint8_t eax
 
 // Appends one joined PRB run; mbuf ownership passes to the job, freed later by read_dl_iq_streams().
 // Refuses it when the symbol's fragments would no longer fit read_dl_iq_streams()'s packed arena.
-static dl_fragment_t *add_dl_fragment(dl_symbol_job_t *job, uint8_t eaxc_id, uint16_t beam_id, int num_prb, int max_prbs)
+static dl_fragment_t *add_dl_fragment(dl_symbol_job_t *job,
+                                      uint8_t eaxc_id,
+                                      uint16_t beam_id,
+                                      const oru_bfw_set_t *bfw,
+                                      int num_prb,
+                                      int max_prbs)
 {
   if (job->num_fragments >= MAX_DL_FRAGMENTS_PER_SYMBOL || job->num_fragment_prbs + num_prb > max_prbs) {
     return NULL;
@@ -211,6 +250,7 @@ static dl_fragment_t *add_dl_fragment(dl_symbol_job_t *job, uint8_t eaxc_id, uin
   job->num_fragment_prbs += num_prb;
   frag->eaxc_id = eaxc_id;
   frag->beam_id = beam_id;
+  frag->bfw = *bfw;
   return frag;
 }
 
@@ -221,6 +261,19 @@ void txrx_window_histogram_count(txrx_histogram_t *hist, int32_t diff)
   hist->sum += diff;
   hist->count++;
   hist->hist[bin]++;
+}
+
+// Forgets the weights of every beamId. Once read, make them as stale
+static void reset_bf_weights(oru_packet_processor_context_t *ctx)
+{
+  for (int b = 0; b < ORU_BFW_NUM_BEAM_IDS; b++)
+    ctx->bfw_beam_slot[b] = ORU_BFW_NO_SLOT;
+  for (int i = 0; i < ORU_BFW_SLOTS; i++) {
+    atomic_store_explicit(&ctx->bfw_slots[i].gen, 0, memory_order_relaxed);
+    ctx->bfw_free[i] = i;
+  }
+  ctx->bfw_free_head = 0;
+  ctx->bfw_free_count = ORU_BFW_SLOTS;
 }
 
 void *init_packet_processor(int numerology,
@@ -262,6 +315,13 @@ void *init_packet_processor(int numerology,
   ctx->ext11_beam_ids = malloc(ctx->ext11_max_bundles * sizeof(*ctx->ext11_beam_ids));
   ctx->ext11_weights = malloc((size_t)ctx->ext11_max_bundles * ORU_MAX_BF_WEIGHTS * sizeof(*ctx->ext11_weights));
   AssertFatal(ctx->ext11_beam_ids != NULL && ctx->ext11_weights != NULL, "ext11 buffer allocation failed\n");
+  ctx->bfw_slots = calloc(ORU_BFW_SLOTS, sizeof(*ctx->bfw_slots));
+  ctx->bfw_beam_slot = malloc(ORU_BFW_NUM_BEAM_IDS * sizeof(*ctx->bfw_beam_slot));
+  ctx->bfw_free = malloc(ORU_BFW_SLOTS * sizeof(*ctx->bfw_free));
+  ctx->bfw_ring = malloc(ORU_BFW_RING_SIZE * sizeof(*ctx->bfw_ring));
+  AssertFatal(ctx->bfw_slots != NULL && ctx->bfw_beam_slot != NULL && ctx->bfw_free != NULL && ctx->bfw_ring != NULL,
+              "beamforming weight buffer allocation failed\n");
+  reset_bf_weights(ctx);
   uint32_t slots_per_subframe = 1 << numerology;
   uint32_t symbol_duration_uS = 1000 / slots_per_subframe / NR_SYMBOLS_PER_SLOT;
   ctx->T2a_min_cp_sym_diff = T2a_cp_min_uS / symbol_duration_uS;
@@ -312,6 +372,8 @@ void set_num_bf_weights(void *context, int num_bf_weights)
               "num_bf_weights %d out of range [0..%d]\n",
               num_bf_weights,
               ORU_MAX_BF_WEIGHTS);
+  if (num_bf_weights != ctx->num_bf_weights)
+    reset_bf_weights(ctx);
   ctx->num_bf_weights = num_bf_weights;
 }
 
@@ -334,6 +396,10 @@ void cleanup_packet_processor(void *context)
     }
     free(ctx->ext11_beam_ids);
     free(ctx->ext11_weights);
+    free(ctx->bfw_slots);
+    free(ctx->bfw_beam_slot);
+    free(ctx->bfw_free);
+    free(ctx->bfw_ring);
     free(ctx);
   }
 }
@@ -592,7 +658,8 @@ void handle_uplane_packet(void *context, void *pkt)
     return;
   }
 
-  dl_stream_slot_t *stream = find_dl_stream_by_section(job, Ant_ID, sect_id);
+  oru_bfw_set_t bfw;
+  dl_stream_slot_t *stream = find_dl_stream_by_section(job, Ant_ID, sect_id, &bfw);
   if (!stream) {
     // C-Plane never declared this (eaxc, section) - drop rather than guess.
     ctx->stats.uplane_missing_cplane++;
@@ -600,7 +667,7 @@ void handle_uplane_packet(void *context, void *pkt)
     return;
   }
 
-  dl_fragment_t *frag = add_dl_fragment(job, Ant_ID, stream->beam_id, effective_num_prbu, DL_IQ_ARENA_PRBS(ctx->num_prb));
+  dl_fragment_t *frag = add_dl_fragment(job, Ant_ID, stream->beam_id, &bfw, effective_num_prbu, DL_IQ_ARENA_PRBS(ctx->num_prb));
   if (!frag) {
     ctx->stats.dl_fragments_pool_exhausted++;
     LOG_W(HW, "ORU: Dropping extra segment for Ant %d, sym %lu\n", Ant_ID, target_absolute_symbol);
@@ -621,10 +688,10 @@ void handle_uplane_packet(void *context, void *pkt)
 }
 
 static void handle_dl_cplane_packet(oru_packet_processor_context_t *ctx,
-                                    void *pkt,
                                     struct xran_cp_radioapp_section1_header *hdr,
                                     struct xran_cp_radioapp_section1 *section,
-                                    int ant_id)
+                                    int ant_id,
+                                    const oru_bfw_set_t *bfw)
 {
   if (ant_id < 0 || ant_id >= MAX_ANTENNAS) {
     // Wire-controlled field - drop rather than let a malformed/out-of-range packet crash the process.
@@ -696,7 +763,7 @@ static void handle_dl_cplane_packet(oru_packet_processor_context_t *ctx,
       }
     }
     uint16_t section_id = section->hdr.u1.common.sectionId;
-    if (find_dl_stream_by_section(job, (uint8_t)ant_id, section_id)) {
+    if (find_dl_stream_by_section(job, (uint8_t)ant_id, section_id, NULL)) {
       // Duplicate C-Plane packet for this section_id.
       ctx->stats.cplane_err_dup++;
       ctx->stats.cplane_err_dup_dl++;
@@ -711,6 +778,7 @@ static void handle_dl_cplane_packet(oru_packet_processor_context_t *ctx,
       ctx->stats.dl_stream_sections_exhausted++;
       return;
     }
+    stream->section_bfw[stream->num_section_ids] = *bfw;
     stream->section_ids[stream->num_section_ids++] = section_id;
     stream->expected_iq += section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
     // comp_method/iq_width come from each U-Plane packet's own header, not the C-Plane
@@ -719,10 +787,10 @@ static void handle_dl_cplane_packet(oru_packet_processor_context_t *ctx,
 }
 
 static void handle_ul_cplane_packet(oru_packet_processor_context_t *ctx,
-                                    void *pkt,
                                     struct xran_cp_radioapp_section1_header *hdr,
                                     struct xran_cp_radioapp_section1 *section,
                                     int ant_id,
+                                    const oru_bfw_set_t *bfw,
                                     oru_pcap_cplane_snap_t *snap)
 {
   int numerology = ctx->numerology;
@@ -775,6 +843,7 @@ static void handle_ul_cplane_packet(oru_packet_processor_context_t *ctx,
     ul_job->beam_id = section->hdr.u.s1.beamId;
     ul_job->num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
     ul_job->start_prb = section->hdr.u1.common.startPrbc;
+    ul_job->bfw = *bfw;
     int ret = rte_ring_enqueue(ctx->ul_ready_jobs, (void *)ul_job);
     AssertFatal(ret == 0, "Failed to enqueue ul_job to ul_ready_jobs ring\n");
     oru_pcap_cplane_commit_pusch(snap);
@@ -887,7 +956,10 @@ static const uint8_t *parse_section_extensions(oru_packet_processor_context_t *c
                                                const uint8_t *ext,
                                                const uint8_t *end,
                                                bool ef,
-                                               int num_prb);
+                                               uint16_t beam_id,
+                                               int start_prb,
+                                               int num_prb,
+                                               oru_bfw_set_t *bfw);
 
 void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
                                 void *pkt,
@@ -950,7 +1022,14 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
     // another SCS aren't supported. numPrbc 0 is then all carrier PRBs (7.5.3.6).
     const int num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
     // Validates ext1/ext11 formatting as for Type 1; weights are extracted in a later stage
-    const uint8_t *next = parse_section_extensions(ctx, sect + sizeof(*section), end, section->hdr.u.s3.ef, num_prb);
+    const uint8_t *next = parse_section_extensions(ctx,
+                                                   sect + sizeof(*section),
+                                                   end,
+                                                   section->hdr.u.s3.ef,
+                                                   section->hdr.u.s3.beamId,
+                                                   section->hdr.u1.common.startPrbc,
+                                                   num_prb,
+                                                   NULL);
     const uint16_t section_id = section->hdr.u1.common.sectionId;
     if (section_id != SECTION_ID_UNCOUPLED && test_bit(cited, section_id)) {
       ctx->stats.cplane_section_repeated++;
@@ -981,52 +1060,186 @@ static void count_section_ext_error(oru_packet_processor_context_t *ctx, uint8_t
   }
 }
 
-// Decodes the weights of an ext1 of ext_len bytes. They are only validated: applying them is a later stage.
-// Returns false if they don't decode.
-static bool parse_section_ext1(oru_packet_processor_context_t *ctx, const uint8_t *ext, size_t ext_len)
+// Current weights of beam_id
+static oru_bfw_ref_t bfw_lookup(const oru_packet_processor_context_t *ctx, uint16_t beam_id)
+{
+  oru_bfw_ref_t ref = {.beam_id = beam_id};
+  uint16_t slot = ctx->bfw_beam_slot[beam_id];
+  if (slot != ORU_BFW_NO_SLOT) {
+    ref.slot = slot;
+    ref.gen = atomic_load_explicit(&ctx->bfw_slots[slot].gen, memory_order_relaxed);
+  }
+  return ref;
+}
+
+// Create weights of beam_id for num_bf_weights. beamId 0 is no beamforming (CUS 7.5.3.9).
+static oru_bfw_ref_t bfw_store(oru_packet_processor_context_t *ctx, uint16_t beam_id, const c16_t *w)
+{
+  oru_bfw_ref_t ref = {.beam_id = beam_id};
+  if (beam_id == 0)
+    return ref;
+  size_t size = ctx->num_bf_weights * sizeof(*w);
+  uint16_t cur = ctx->bfw_beam_slot[beam_id];
+  // Resending the same weights is not an update (CUS 12.4.3.1)
+  if (cur != ORU_BFW_NO_SLOT && memcmp(ctx->bfw_slots[cur].w, w, size) == 0)
+    return bfw_lookup(ctx, beam_id);
+  if (ctx->bfw_free_count == 0) {
+    if (cur == ORU_BFW_NO_SLOT) {
+      ctx->stats.bfw_pool_exhausted++;
+      return ref;
+    }
+    // Every slot is some beamId's current weights: rewrite this beamId's own
+    ctx->bfw_free[ctx->bfw_free_head] = cur;
+    ctx->bfw_free_count = 1;
+    cur = ORU_BFW_NO_SLOT;
+  }
+  uint16_t slot = ctx->bfw_free[ctx->bfw_free_head];
+  ctx->bfw_free_head = (ctx->bfw_free_head + 1) % ORU_BFW_SLOTS;
+  ctx->bfw_free_count--;
+  if (cur != ORU_BFW_NO_SLOT) {
+    ctx->bfw_free[(ctx->bfw_free_head + ctx->bfw_free_count) % ORU_BFW_SLOTS] = cur;
+    ctx->bfw_free_count++;
+  }
+  if (++ctx->bfw_gen == 0)
+    ctx->bfw_gen = 1;
+  oru_bfw_slot_t *s = &ctx->bfw_slots[slot];
+  atomic_store_explicit(&s->gen, 0, memory_order_relaxed);
+  atomic_thread_fence(memory_order_release);
+  memcpy(s->w, w, size);
+  atomic_store_explicit(&s->gen, ctx->bfw_gen, memory_order_release);
+  ctx->bfw_beam_slot[beam_id] = slot;
+  ctx->stats.bfw_updates++;
+  ref.slot = slot;
+  ref.gen = ctx->bfw_gen;
+  return ref;
+}
+
+// Reserves n bundle ring entries and returns the position of the first
+static uint32_t bfw_ring_reserve(oru_packet_processor_context_t *ctx, int n)
+{
+  uint32_t first = atomic_load_explicit(&ctx->bfw_ring_reserve, memory_order_relaxed);
+  atomic_store_explicit(&ctx->bfw_ring_reserve, first + n, memory_order_relaxed);
+  atomic_thread_fence(memory_order_release);
+  return first;
+}
+
+static inline oru_bfw_ref_t *bfw_ring_entry(oru_packet_processor_context_t *ctx, uint32_t pos)
+{
+  return &ctx->bfw_ring[pos % ORU_BFW_RING_SIZE];
+}
+
+// One bundle covering the section, for the weights ref
+static oru_bfw_set_t bfw_section_set(oru_packet_processor_context_t *ctx, int start_prb, int num_prb, oru_bfw_ref_t ref)
+{
+  oru_bfw_set_t set = {0};
+  if (ref.gen == 0)
+    return set;
+  set.first = bfw_ring_reserve(ctx, 1);
+  *bfw_ring_entry(ctx, set.first) = ref;
+  set.num_bundles = 1;
+  set.bundle_prbs = num_prb;
+  set.first_prb = start_prb;
+  return set;
+}
+
+// SE11 bundles: their weights are stored for their beamIds (CUS 7.9.4.1)
+static oru_bfw_set_t bfw_ext11_set(oru_packet_processor_context_t *ctx,
+                                   int start_prb,
+                                   const xran_bfw_ext11_hdr_t *hdr,
+                                   int num_bundles)
+{
+  oru_bfw_set_t set = {.num_bundles = num_bundles, .bundle_prbs = hdr->numBundPrb, .first_prb = start_prb - hdr->bundleOffset};
+  set.first = bfw_ring_reserve(ctx, num_bundles);
+  for (int b = 0; b < num_bundles; b++) {
+    uint16_t beam_id = ctx->ext11_beam_ids[b];
+    *bfw_ring_entry(ctx, set.first + b) =
+        hdr->disableBFWs ? bfw_lookup(ctx, beam_id) : bfw_store(ctx, beam_id, &ctx->ext11_weights[b * ctx->num_bf_weights]);
+  }
+  return set;
+}
+
+// Decodes the weights of an ext1 of ext_len bytes and stores them for beam_id; *bfw, if not NULL, gets them and *have_bfw
+// is set. Without configured weights it only counts the ext1. Returns false if the weights don't decode.
+static bool parse_section_ext1(oru_packet_processor_context_t *ctx,
+                               uint16_t beam_id,
+                               int start_prb,
+                               const uint8_t *ext,
+                               size_t ext_len,
+                               int num_prb,
+                               oru_bfw_set_t *bfw,
+                               bool *have_bfw)
 {
   ctx->stats.cplane_ext1_received++;
   if (ctx->num_bf_weights == 0)
     return true;
   c16_t weights[ORU_MAX_BF_WEIGHTS];
-  return xran_decode_bfw_ext1(ext, ext_len, ctx->num_bf_weights, weights) == XRAN_BFW_OK;
+  if (xran_decode_bfw_ext1(ext, ext_len, ctx->num_bf_weights, weights) != XRAN_BFW_OK)
+    return false;
+  if (bfw) {
+    *bfw = bfw_section_set(ctx, start_prb, num_prb, bfw_store(ctx, beam_id, weights));
+    *have_bfw = true;
+  }
+  return true;
 }
 
-// Decodes the beamIds and weights of an ext11 of ext_len bytes for a section of num_prb PRBs, the same way as ext1.
-// Returns false if they don't decode.
-static bool parse_section_ext11(oru_packet_processor_context_t *ctx, const uint8_t *ext, size_t ext_len, int num_prb)
+// Decodes the beamIds and weights of an ext11 of ext_len bytes for a section of num_prb PRBs from start_prb and stores each
+// bundle's weights for its beamId; *bfw, if not NULL, gets the bundles and *have_bfw is set. Without configured weights it
+// only counts the ext11. Returns false if the extension doesn't decode.
+static bool parse_section_ext11(oru_packet_processor_context_t *ctx,
+                                int start_prb,
+                                const uint8_t *ext,
+                                size_t ext_len,
+                                int num_prb,
+                                oru_bfw_set_t *bfw,
+                                bool *have_bfw)
 {
   ctx->stats.cplane_ext11_received++;
   if (ctx->num_bf_weights == 0)
     return true;
   xran_bfw_ext11_hdr_t hdr;
-  int n_bundles;
-  return xran_decode_bfw_ext11(ext,
-                               ext_len,
-                               num_prb,
-                               ctx->num_bf_weights,
-                               ctx->ext11_max_bundles,
-                               &hdr,
-                               &n_bundles,
-                               ctx->ext11_beam_ids,
-                               ctx->ext11_weights)
-         == XRAN_BFW_OK;
+  int num_bundles;
+  if (xran_decode_bfw_ext11(ext,
+                            ext_len,
+                            num_prb,
+                            ctx->num_bf_weights,
+                            ctx->ext11_max_bundles,
+                            &hdr,
+                            &num_bundles,
+                            ctx->ext11_beam_ids,
+                            ctx->ext11_weights)
+      != XRAN_BFW_OK)
+    return false;
+  if (bfw) {
+    *bfw = bfw_ext11_set(ctx, start_prb, &hdr, num_bundles);
+    *have_bfw = true;
+  }
+  return true;
 }
 
-// Walks the extension chain in [ext, end) of a section of num_prb PRBs whose header has the given ef, counting malformed
-// ext1, ext11 and other extensions, and a chain that ends before an extension its ef promised. Returns the end of the
-// chain, or NULL at the first error, since the rest of the chain can't be located.
+// Walks the extension chain in [ext, end) of a section of num_prb PRBs from start_prb, with the given beamId and ef,
+// counting malformed ext1, ext11 and other extensions, and a chain that ends before an extension its ef promised. Returns
+// the end of the chain, or NULL at the first error, since the rest of the chain can't be located. A decoded ext1 or ext11
+// sets *bfw (the last one wins; CUS doesn't allow both in one section). Without one, *bfw gets the weights an earlier
+// extension set for beam_id, if any. With bfw NULL, the weights are only decoded.
 static const uint8_t *parse_section_extensions(oru_packet_processor_context_t *ctx,
                                                const uint8_t *ext,
                                                const uint8_t *end,
                                                bool ef,
-                                               int num_prb)
+                                               uint16_t beam_id,
+                                               int start_prb,
+                                               int num_prb,
+                                               oru_bfw_set_t *bfw)
 {
+  if (bfw)
+    *bfw = (oru_bfw_set_t){0};
+  bool have_bfw = false;
+
   // Walk the extension chain until ef is 0
   while (ef) {
     if (ext >= end) {
       ctx->stats.cplane_err_sect_ext_chain++;
-      return NULL;
+      ext = NULL;
+      break;
     }
     // extType/ef are in the first byte, followed by an 8- or 16-bit extLen (4-byte words)
     uint8_t ext_type = ext[0] & 0x7F;
@@ -1034,25 +1247,29 @@ static const uint8_t *parse_section_extensions(oru_packet_processor_context_t *c
     size_t ext_len;
     if (xran_section_ext_len(ext_type, ext, end - ext, &ext_len) != XRAN_BFW_OK) {
       count_section_ext_error(ctx, ext_type);
-      return NULL;
+      ext = NULL;
+      break;
     }
     bool valid = true;
     switch (ext_type) {
       case XRAN_CP_SECTIONEXTCMD_1:
-        valid = parse_section_ext1(ctx, ext, ext_len);
+        valid = parse_section_ext1(ctx, beam_id, start_prb, ext, ext_len, num_prb, bfw, &have_bfw);
         break;
       case XRAN_CP_SECTIONEXTCMD_11:
-        valid = parse_section_ext11(ctx, ext, ext_len, num_prb);
+        valid = parse_section_ext11(ctx, start_prb, ext, ext_len, num_prb, bfw, &have_bfw);
         break;
       default: // skipped
         break;
     }
     if (!valid) {
       count_section_ext_error(ctx, ext_type);
-      return NULL;
+      ext = NULL;
+      break;
     }
     ext += ext_len;
   }
+  if (bfw && !have_bfw && ctx->num_bf_weights > 0)
+    *bfw = bfw_section_set(ctx, start_prb, num_prb, bfw_lookup(ctx, beam_id));
   return ext;
 }
 
@@ -1110,18 +1327,25 @@ void handle_cplane_packet(void *context, void *pkt)
         }
         struct xran_cp_radioapp_section1 *section = (struct xran_cp_radioapp_section1 *)sect;
         *((uint64_t *)section) = rte_be_to_cpu_64(*((uint64_t *)section));
-        // Validates ext1/ext11 formatting; weights are extracted in a later stage
         int num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
-        const uint8_t *next = parse_section_extensions(ctx, sect + sizeof(*section), end, section->hdr.u.s1.ef, num_prb);
+        oru_bfw_set_t bfw;
+        const uint8_t *next = parse_section_extensions(ctx,
+                                                       sect + sizeof(*section),
+                                                       end,
+                                                       section->hdr.u.s1.ef,
+                                                       section->hdr.u.s1.beamId,
+                                                       section->hdr.u1.common.startPrbc,
+                                                       num_prb,
+                                                       &bfw);
         const uint16_t section_id = section->hdr.u1.common.sectionId;
         if (section_id != SECTION_ID_UNCOUPLED && test_bit(cited, section_id)) {
           ctx->stats.cplane_section_repeated++;
         } else {
           set_bit(cited, section_id);
           if (is_dl)
-            handle_dl_cplane_packet(ctx, pkt, hdr, section, ant_id);
+            handle_dl_cplane_packet(ctx, hdr, section, ant_id, &bfw);
           else
-            handle_ul_cplane_packet(ctx, pkt, hdr, section, ant_id, &snap);
+            handle_ul_cplane_packet(ctx, hdr, section, ant_id, &bfw, &snap);
         }
         // A malformed chain hides where the next section starts
         if (next == NULL)
@@ -1270,6 +1494,12 @@ void print_packet_processor_stats(void *context)
     LOG_I(HW, "  Out Of Mbufs Errors: %lu\n", ctx->stats.out_of_mbufs + ctx->thread_safe_stats.out_of_mbufs);
   if (ctx->stats.application_too_slow > 0)
     LOG_I(HW, "  Application Too Slow Errors: %lu\n", ctx->stats.application_too_slow);
+  if (ctx->stats.bfw_updates > 0)
+    LOG_I(HW, "  Beamforming Weight Updates: %lu\n", ctx->stats.bfw_updates);
+  if (ctx->stats.bfw_pool_exhausted > 0)
+    LOG_I(HW, "  Beamforming Weight Pool Exhausted Errors: %lu\n", ctx->stats.bfw_pool_exhausted);
+  if (ctx->thread_safe_stats.bfw_stale > 0)
+    LOG_I(HW, "  Beamforming Weights Stale Errors: %lu\n", (uint64_t)ctx->thread_safe_stats.bfw_stale);
 
   print_histogram("DL C-Plane", &ctx->stats.dl_cplane_hist, ctx->T2a_max_cp_sym_diff, ctx->T2a_min_cp_sym_diff);
   print_histogram("DL U-Plane", &ctx->stats.dl_uplane_hist, ctx->T2a_max_up_dl_sym_diff, ctx->T2a_min_up_dl_sym_diff);
@@ -1296,6 +1526,7 @@ void get_packet_processor_stats(void *context, oru_packet_processor_stats_t *out
     out_stats->total_uplane_sent = ctx->thread_safe_stats.total_uplane_sent;
     out_stats->ul_uplane_ota_delay_sum += ctx->thread_safe_stats.ul_uplane_ota_delay_sum;
     out_stats->ul_uplane_ota_delay_count += ctx->thread_safe_stats.ul_uplane_ota_delay_count;
+    out_stats->bfw_stale = ctx->thread_safe_stats.bfw_stale;
   }
 }
 
@@ -1362,6 +1593,7 @@ int read_dl_iq_streams(void *context,
     out->beam_id = frag->beam_id;
     out->start_prb = frag->start_prbc;
     out->num_prb = frag->num_prbc;
+    out->bfw = frag->bfw;
     out->iq = iq_arena + arena_off;
     arena_off += (size_t)frag->num_prbc * NR_NB_SC_PER_RB;
     unpack_iq((c16_t *)out->iq, frag->iq_data, 0, frag->num_prbc, frag->comp_method, frag->iq_width);
@@ -1388,6 +1620,35 @@ int get_prach_beam_id(void *context, int slot_in_frame, int aarx, int occasion)
     if (job->active && job->occasion == occasion)
       return job->beam_id;
   }
+  return -1;
+}
+
+int get_bf_weights(void *context, const oru_bfw_set_t *set, int bundle, uint16_t *beam_id, c16_t *weights)
+{
+  oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
+  DevAssert(bundle >= 0 && bundle < set->num_bundles);
+  uint32_t pos = set->first + bundle;
+  oru_bfw_ref_t ref = *bfw_ring_entry(ctx, pos);
+  atomic_thread_fence(memory_order_acquire);
+  // The entry was overwritten once the ring moved a full turn past it
+  if (atomic_load_explicit(&ctx->bfw_ring_reserve, memory_order_relaxed) - pos > ORU_BFW_RING_SIZE)
+    goto stale;
+  if (ref.gen == 0) {
+    *beam_id = ref.beam_id;
+    return 0;
+  }
+  oru_bfw_slot_t *s = &ctx->bfw_slots[ref.slot];
+  if (atomic_load_explicit(&s->gen, memory_order_acquire) != ref.gen)
+    goto stale;
+  int n = ctx->num_bf_weights;
+  memcpy(weights, s->w, n * sizeof(*weights));
+  atomic_thread_fence(memory_order_acquire);
+  if (atomic_load_explicit(&s->gen, memory_order_relaxed) != ref.gen)
+    goto stale;
+  *beam_id = ref.beam_id;
+  return n;
+stale:
+  atomic_fetch_add_explicit(&ctx->thread_safe_stats.bfw_stale, 1, memory_order_relaxed);
   return -1;
 }
 
