@@ -502,10 +502,6 @@ typedef struct {
   uint16_t feedback_frame;
   int8_t sl_harq_pid;
 
-  // Transport block to be sent using this HARQ process, its size is in sched_pssch
-  uint32_t transportBlock[38016]; // valid up to 4 layers
-  uint32_t tb_size;
-
   /// sched_pusch keeps information on MCS etc used for the initial transmission
   NR_sched_pssch_t sched_pssch;
 } NR_UE_sl_harq_t;
@@ -876,7 +872,9 @@ typedef struct NR_UE_MAC_INST_s {
 
   nr_sci_pdu_t sci1_pdu;
   nr_sci_pdu_t sci2_pdu;
-  uint8_t slsch_payload[16384];
+  /* Sized like the UL-SCH scheduler's own PDU buffer, so any transport block
+   * the LDPC segmentation can carry fits whatever the pool configures. */
+  uint8_t slsch_payload[MAX_NUM_NR_ULSCH_SEGMENTS * 1056];
   time_stats_t rlc_data_req;
   int src_id;
   bool is_synced;

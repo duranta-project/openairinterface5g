@@ -1155,10 +1155,10 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
 
       LOG_D(NR_MAC, "[UE%d] Initial TTI-%d:%d TX PSCCH_PSSCH REQ  TBS %u\n", sl_ind->module_id, frame, slot, buflen);
 
-      uint8_t *const pdu_start = (uint8_t *)cur_harq->transportBlock;
-      uint8_t *pdu = pdu_start;
       DevAssert(buflen >= sizeof(NR_SLSCH_MAC_SUBHEADER_FIXED));
-      DevAssert(buflen <= sizeof(cur_harq->transportBlock));
+      DevAssert(buflen <= sizeof(mac->slsch_payload));
+      uint8_t *const pdu_start = pscch_pssch_pdu->slsch_payload;
+      uint8_t *pdu = pdu_start;
       uint8_t *const pdu_end = pdu_start + buflen;
 
       NR_SLSCH_MAC_SUBHEADER_FIXED *sl_sch_subheader = (NR_SLSCH_MAC_SUBHEADER_FIXED *) pdu;
@@ -1286,8 +1286,14 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
 
     const uint32_t TBS = pscch_pssch_pdu->tb_size;
     DevAssert(cur_harq->round == 0 || TBS == cur_harq->sched_pssch.tb_size);
-    memcpy(pscch_pssch_pdu->slsch_payload, cur_harq->transportBlock, TBS);
-    pscch_pssch_pdu->slsch_payload_length = TBS;
+    /* As for UL-SCH, the payload is passed down only for a new transport
+     * block. PHY keeps it in the HARQ process for the retransmissions. */
+    if (cur_harq->round != 0) {
+      pscch_pssch_pdu->slsch_payload = NULL;
+      pscch_pssch_pdu->slsch_payload_length = 0;
+    } else {
+      pscch_pssch_pdu->slsch_payload_length = TBS;
+    }
     // mark UE as scheduled
     sched_pssch->rbSize = 0;
     is_resource_allocated = true;

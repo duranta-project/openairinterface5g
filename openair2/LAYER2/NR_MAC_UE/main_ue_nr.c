@@ -94,7 +94,8 @@ void nr_ue_init_mac(NR_UE_MAC_INST_t *mac)
   mac->phy_config.config_req.ntn_config.params_changed = false;
   initNotifiedFIFO(&mac->input_nf);
   reset_mac_inst(mac);
-  nr_ue_init_mac_sl(mac);
+  if (get_softmodem_params()->sl_mode != SL_NOT_SUPPORTED)
+    nr_ue_init_mac_sl(mac);
 
   // need to inizialize because might not been setup (optional timer)
   nr_timer_stop(&mac->scheduling_info.sr_DelayTimer);
