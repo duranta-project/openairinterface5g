@@ -3702,6 +3702,21 @@ void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
       beam_switching_procedure(mac, cell, UE, sched_ctrl->UE_mac_ce_ctrl.tci_state_ind.tciStateId);
     }
     nr_timer_tick(&UE->sched_srs.aperiodic_sched.aperiodic_srs_timer);
+    if (nr_timer_tick(&sched_ctrl->rrcsetup_applied)) {
+      nr_timer_stop(&sched_ctrl->rrcsetup_applied);
+      const NR_SearchSpace_t *ss = sched_ctrl->search_space;
+      if (!UE->reconfigCellGroup && ss && ss->searchSpaceType
+          && ss->searchSpaceType->present == NR_SearchSpace__searchSpaceType_PR_common) {
+        LOG_I(NR_MAC, "UE %04x: RRCSetup applied, using the UE specific search space\n", UE->rnti);
+        configure_UE_BWP(cell,
+                         cell->common_channels.ServingCellConfigCommon,
+                         UE,
+                         false,
+                         NR_SearchSpace__searchSpaceType_PR_ue_Specific,
+                         -1,
+                         -1);
+      }
+    }
   }
 
   for (int i = 0; i < num_release; i++) {
