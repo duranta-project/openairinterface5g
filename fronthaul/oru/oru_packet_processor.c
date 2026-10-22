@@ -907,29 +907,28 @@ static bool parse_section_ext11(oru_packet_processor_context_t *ctx, const uint8
          == XRAN_BFW_OK;
 }
 
-// Walks the section extensions following a section-1 header, counting malformed ext1, ext11 and other extensions, and
-// a chain that ends before an extension its ef promised. Stops at the first error, since the rest of the chain can't be
-// located.
-static void parse_section1_extensions(oru_packet_processor_context_t *ctx, void *pkt, struct xran_cp_radioapp_section1 *section)
+// Walks the extension chain in [ext, end) of a section of num_prb PRBs whose header has the given ef, counting malformed
+// ext1, ext11 and other extensions, and a chain that ends before an extension its ef promised. Returns the end of the
+// chain, or NULL at the first error, since the rest of the chain can't be located.
+static const uint8_t *parse_section_extensions(oru_packet_processor_context_t *ctx,
+                                               const uint8_t *ext,
+                                               const uint8_t *end,
+                                               bool ef,
+                                               int num_prb)
 {
-  const uint8_t *ext = (const uint8_t *)section + sizeof(*section);
-  const uint8_t *end = (const uint8_t *)section + rte_pktmbuf_data_len((struct rte_mbuf *)pkt);
-  bool ext_flag = section->hdr.u.s1.ef;
-  int num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
-
   // Walk the extension chain until ef is 0
-  while (ext_flag) {
+  while (ef) {
     if (ext >= end) {
       ctx->stats.cplane_err_sect_ext_chain++;
-      return;
+      return NULL;
     }
     // extType/ef are in the first byte, followed by an 8- or 16-bit extLen (4-byte words)
     uint8_t ext_type = ext[0] & 0x7F;
-    ext_flag = ext[0] & 0x80;
+    ef = ext[0] & 0x80;
     size_t ext_len;
     if (xran_section_ext_len(ext_type, ext, end - ext, &ext_len) != XRAN_BFW_OK) {
       count_section_ext_error(ctx, ext_type);
-      return;
+      return NULL;
     }
     bool valid = true;
     switch (ext_type) {
@@ -944,10 +943,11 @@ static void parse_section1_extensions(oru_packet_processor_context_t *ctx, void 
     }
     if (!valid) {
       count_section_ext_error(ctx, ext_type);
-      return;
+      return NULL;
     }
     ext += ext_len;
   }
+  return ext;
 }
 
 void handle_cplane_packet(void *context, void *pkt)
@@ -981,21 +981,37 @@ void handle_cplane_packet(void *context, void *pkt)
   switch (apphdr->sectionType) {
     case XRAN_CP_SECTIONTYPE_1: {
       struct xran_cp_radioapp_section1_header *hdr = (struct xran_cp_radioapp_section1_header *)apphdr;
-      struct xran_cp_radioapp_section1 *section = (void *)rte_pktmbuf_adj(pkt, sizeof(struct xran_cp_radioapp_section1_header));
-      if (section == NULL) {
+      uint8_t *sect = (void *)rte_pktmbuf_adj(pkt, sizeof(struct xran_cp_radioapp_section1_header));
+      if (sect == NULL) {
         ctx->stats.cplane_err_hdr++;
         rte_pktmbuf_free(pkt);
         return;
       }
-      *((uint64_t *)section) = rte_be_to_cpu_64(*((uint64_t *)section));
-      // Validates ext1/ext11 formatting; weights are extracted in a later stage
-      parse_section1_extensions(ctx, pkt, section);
-      if (hdr->cmnhdr.field.dataDirection == XRAN_DIR_DL) {
+      const uint8_t *end = sect + rte_pktmbuf_data_len((struct rte_mbuf *)pkt);
+      const bool is_dl = hdr->cmnhdr.field.dataDirection == XRAN_DIR_DL;
+      if (is_dl)
         ctx->stats.cplane_received_dl++;
-        handle_dl_cplane_packet(ctx, pkt, hdr, section, ant_id);
-      } else {
+      else
         ctx->stats.cplane_received_ul++;
-        handle_ul_cplane_packet(ctx, pkt, hdr, section, ant_id, &snap);
+      // Each section is followed by its own extension chain, so the next section starts where that chain ends
+      for (int i = 0; i < hdr->cmnhdr.numOfSections; i++) {
+        if ((size_t)(end - sect) < sizeof(struct xran_cp_radioapp_section1)) {
+          ctx->stats.cplane_err_hdr++;
+          break;
+        }
+        struct xran_cp_radioapp_section1 *section = (struct xran_cp_radioapp_section1 *)sect;
+        *((uint64_t *)section) = rte_be_to_cpu_64(*((uint64_t *)section));
+        // Validates ext1/ext11 formatting; weights are extracted in a later stage
+        int num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
+        const uint8_t *next = parse_section_extensions(ctx, sect + sizeof(*section), end, section->hdr.u.s1.ef, num_prb);
+        if (is_dl)
+          handle_dl_cplane_packet(ctx, pkt, hdr, section, ant_id);
+        else
+          handle_ul_cplane_packet(ctx, pkt, hdr, section, ant_id, &snap);
+        // A malformed chain hides where the next section starts
+        if (next == NULL)
+          break;
+        sect = (uint8_t *)next;
       }
       rte_pktmbuf_free(pkt);
       return;
