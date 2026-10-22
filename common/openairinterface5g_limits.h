@@ -5,7 +5,8 @@
 #ifndef OPENAIRINTERFACE5G_LIMITS_H_
 #define OPENAIRINTERFACE5G_LIMITS_H_
 
-#        define MAX_MOBILES_PER_GNB 16
+/* tests with 512 UEs: the DU UE ids are also taken by UEs in RA, keep headroom over 512 */
+#        define MAX_MOBILES_PER_GNB 520
 /* PDSCH/PUSCH scheduled in one slot: the MAC schedules at most MAX_DCI_CORESET UEs per slot, plus RA and
    broadcast messages. L1 preallocates its PDSCH/PUSCH structures from this, not from MAX_MOBILES_PER_GNB. */
 #define NR_MAX_SCHED_PER_SLOT 32
