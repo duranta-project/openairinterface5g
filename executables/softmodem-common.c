@@ -12,6 +12,7 @@
 #include "common/config/config_userapi.h"
 #include "common/utils/load_module_shlib.h"
 #include "common/utils/telnetsrv/telnetsrv.h"
+#include "common/utils/tuntap_if.h"
 #include "executables/thread-common.h"
 #include "common/utils/LOG/log.h"
 #include "softmodem-common.h"
@@ -54,6 +55,7 @@ void get_common_options(configmodule_interface_t *cfg)
   uint32_t rfsim = 0, do_forms = 0;
   uint32_t enable_imscope = 0;
   uint32_t enable_imscope_record = 0;
+  uint32_t tun_backpressure = 0;
   int nfapi_index = 0;
   char *logmem_filename = NULL;
 
@@ -121,6 +123,8 @@ void get_common_options(configmodule_interface_t *cfg)
   if (enable_imscope_record) {
     IS_SOFTMODEM_IMSCOPE_RECORD_ENABLED = true;
   }
+
+  tuntap_set_backpressure(tun_backpressure);
 
   if (start_websrv) {
     load_module_shlib("websrv", NULL, 0, NULL);

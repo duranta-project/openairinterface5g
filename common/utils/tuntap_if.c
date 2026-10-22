@@ -21,6 +21,13 @@
 int nas_sock_fd[MAX_MOBILES_PER_ENB * 2]; // Allocated for both LTE UE and NR UE.
 int nas_sock_mbms_fd;
 
+static bool tuntap_backpressure;
+
+void tuntap_set_backpressure(bool enable)
+{
+  tuntap_backpressure = enable;
+}
+
 int tuntap_alloc(int flag, const char *dev)
 {
   struct ifreq ifr;
@@ -39,6 +46,13 @@ int tuntap_alloc(int flag, const char *dev)
    */
   DevAssert(flag == IFF_TUN || flag == IFF_TAP);
   ifr.ifr_flags = flag | IFF_NO_PI;
+  if (tuntap_backpressure) {
+#ifdef IFF_BACKPRESSURE
+    ifr.ifr_flags |= IFF_BACKPRESSURE;
+#else
+    LOG_W(UTIL, "--tun-backpressure ignored: IFF_BACKPRESSURE missing from kernel headers at build time\n");
+#endif
+  }
   strncpy(ifr.ifr_name, dev, sizeof(ifr.ifr_name) - 1);
   if ((err = ioctl(fd, TUNSETIFF, (void *)&ifr)) < 0) {
     close(fd);

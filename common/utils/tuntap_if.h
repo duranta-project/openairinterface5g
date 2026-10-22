@@ -86,6 +86,12 @@ void setup_ue_ipv4_route(const char* ifname, int instance_id, int pdu_session_id
 int tuntap_alloc(int flag, const char *dev);
 
 /*!
+ * \brief Set IFF_BACKPRESSURE on TUN/TAP interfaces allocated afterwards
+ * \param[in] enable true to set the flag
+ */
+void tuntap_set_backpressure(bool enable);
+
+/*!
  * \brief Clear O_NONBLOCK on a TUN/TAP fd (for blocking read threads)
  * \param[in] fd TUN/TAP file descriptor
  */
