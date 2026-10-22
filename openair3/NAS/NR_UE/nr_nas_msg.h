@@ -66,6 +66,8 @@ typedef struct {
   stream_security_container_t *security_container;
   Guti5GSMobileIdentity_t *guti;
   bool termination_procedure;
+  /// the termination procedure of this UE completed (counted once in the process)
+  bool terminated;
   instance_t UE_id;
   /* RRC Inactive Indication */
   bool is_rrc_inactive;
