@@ -366,7 +366,7 @@ int stop_L1(module_id_t gnb_id)
   }
 
   if (ru->ifdevice.trx_get_stats_func) {
-    ru->ifdevice.trx_get_stats_func(&ru->rfdevice);
+    ru->ifdevice.trx_get_stats_func(&ru->ifdevice);
   }
   if (ru->ifdevice.trx_stop_func) {
     ru->ifdevice.trx_stop_func(&ru->ifdevice);

@@ -22,6 +22,11 @@ if(OAI_FHI72)
   add_subdirectory(fhi_72)
 endif()
 
+add_boolean_option(OAI_FHI72_NATIVE OFF "Activate OAI's native (non-vendor) FHI 7.2 driver" OFF)
+if(OAI_FHI72_NATIVE)
+  add_subdirectory(fhi_72_native)
+endif()
+
 add_boolean_option(OAI_IRIS OFF "Activate OAI's IRIS/SoapySDR driver" OFF)
 if(OAI_IRIS)
   add_subdirectory(IRIS)

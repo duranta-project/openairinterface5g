@@ -2448,6 +2448,91 @@ void test_cplane_section_extension_1(void)
   printf("C-Plane section extension parsing passed!\n");
 }
 
+void test_cplane_builders()
+{
+  printf("Testing C-Plane builders round-trip...\n");
+  int mu = 1;
+  void *ctx = init_packet_processor(mu, 273, 200, 400, 100, 300, 5, 5, 0, 0, 5,
+                                    test_alloc_mbuf, test_send_mbuf, NULL, 1500, 0, FH_COMP_NONE, 0);
+  assert(ctx != NULL);
+
+  uint64_t current_sym = 1000;
+  handle_absolute_symbol_tick(ctx, current_sym);
+  uint64_t target_sym = current_sym + 7;
+  
+  int num_symbols_per_frame = 10 * 2 * 14;
+  uint8_t frame = (target_sym / num_symbols_per_frame) % 256;
+  int slot_in_frame = (target_sym % num_symbols_per_frame) / 14;
+  uint8_t subframe = slot_in_frame / 2;
+  uint8_t slot = slot_in_frame % 2;
+  uint8_t start_symbol = target_sym % 14;
+
+  struct xran_radioapp_udComp_header udComp = {0};
+
+  // DL Section 1
+  struct rte_mbuf *mbuf_dl = rte_pktmbuf_alloc(mp);
+  fill_cplane_section1(mbuf_dl, &g_eaxcid_config, XRAN_DIR_DL,
+                       frame, subframe, slot, start_symbol,
+                       0, udComp, 0, 1, 10,
+                       123, 45, 1,
+                       10, 20, 0xFFF, 0, 0);
+  
+  handle_cplane_packet(ctx, mbuf_dl);
+
+  bool dl_cplane_received = false;
+  int dl_section_id = 0;
+  int dl_expected_iq = 0;
+  test_get_dl_cplane_info(ctx, target_sym, 1, &dl_cplane_received, &dl_section_id, &dl_expected_iq);
+  assert(dl_section_id == 123);
+  assert(dl_expected_iq == 20);
+
+  // UL Section 1
+  struct rte_mbuf *mbuf_ul = rte_pktmbuf_alloc(mp);
+  fill_cplane_section1(mbuf_ul, &g_eaxcid_config, XRAN_DIR_UL,
+                       frame, subframe, slot, start_symbol,
+                       0, udComp, 0, 2, 11,
+                       321, 54, 1,
+                       30, 40, 0xFFF, 0, 0);
+  
+  handle_cplane_packet(ctx, mbuf_ul);
+
+  ul_job_t ul_job = {0};
+  int ret = poll_ul_job(ctx, &ul_job);
+  assert(ret == 0);
+  assert(ul_job.response_payload.section_id == 321);
+  assert(ul_job.num_prb == 40);
+  assert(ul_job.start_prb == 30);
+  assert(ul_job.antenna_id == 2);
+
+  // PRACH Section 3
+  struct rte_mbuf *mbuf_prach = rte_pktmbuf_alloc(mp);
+  uint16_t time_offset = 15;
+  uint8_t uscs = 1;
+  uint8_t fftsize = 8;
+  uint16_t cp_length = 100;
+  uint32_t freq_offset = 999;
+  
+  fill_cplane_section3(mbuf_prach, &g_eaxcid_config,
+                       frame, subframe, slot, start_symbol,
+                       1, time_offset, uscs, fftsize,
+                       cp_length, udComp, 0, 3, 12,
+                       777, 88, 1,
+                       50, 60, freq_offset);
+  
+  handle_cplane_packet(ctx, mbuf_prach);
+
+  bool prach_active = false;
+  int prach_section_id = 0;
+  int prach_num_prb = 0;
+  test_get_prach_cplane_info(ctx, slot_in_frame, 3, &prach_active, &prach_section_id, &prach_num_prb);
+  assert(prach_active == true);
+  assert(prach_section_id == 777);
+  assert(prach_num_prb == 60);
+
+  cleanup_packet_processor(ctx);
+  printf("C-Plane builders round-trip passed!\n");
+}
+
 int main(int argc, char **argv)
 {
   setup_dpdk(argc, argv);
@@ -2497,6 +2582,8 @@ int main(int argc, char **argv)
   test_ul_bfp_compression();
   usleep(10000);
   test_large_delay_profile();
+  usleep(10000);
+  test_cplane_builders();
   usleep(10000);
 
   printf("All tests passed!\n");

@@ -17,9 +17,9 @@ target_include_directories(xran_pcap_dump PRIVATE ../ ${PCAP_INCLUDE_DIRS})
 add_dependencies(tests xran_pcap_dump)
 
 # Force xran_pcap_dump to use real captured fronthaul trace 
-# Similar approach to test_oru_pcap_1/frag in ../../oru/tests, and
+# Similar approach to test_oru_pcap_1/frag in ../../../oru/tests, and
 add_test(NAME test_xran_pcap_dump_real_capture
-         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../../oru/tests/run_oru_pcap_test.sh
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../../../oru/tests/run_oru_pcap_test.sh
                  https://github.com/bpodrygajlo/openairinterface5g/releases/download/fhi72-pcaps/capture-oai-odu-4x4-273prb-truncated.pcap.xz
                  $<TARGET_FILE:xran_pcap_dump>)
 set_property(TEST test_xran_pcap_dump_real_capture PROPERTY LABELS fronthaul)

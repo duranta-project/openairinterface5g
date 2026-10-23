@@ -21,8 +21,6 @@ typedef struct {
 
 /**
  * @brief Initialize fh_send library.
- * Creates one rte_ring per symbol in a 10ms frame.
- * Registers a callback with the provided fh_timer.
  *
  * @param send Pointer to fh_send handle
  * @param timer Pointer to initialized fh_timer handle

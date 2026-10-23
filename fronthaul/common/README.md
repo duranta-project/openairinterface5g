@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
-# Fronthaul core libraries
+# Fronthaul common libraries
 
-This directory contains the core logic shared across the fronthaul stack components.
+This directory contains the logic shared across the fronthaul stack components.
 
 ## Components
 

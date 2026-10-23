@@ -5,6 +5,7 @@
 #pragma once
 
 #include "fh_compression.h"
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -159,6 +160,9 @@ int get_prach_beam_id(void *context, int slot_in_frame, int aarx);
 int get_ready_job_count(void *context);
 int poll_ul_job(void *context, ul_job_t *job);
 void get_dl_symbol_bitmask(void *context, const uint8_t **bitmask, uint16_t *bit_length);
+
+void test_get_dl_cplane_info(void *context, uint64_t target_absolute_symbol, int ant_id, bool *cplane_received, int *section_id, int *expected_iq);
+void test_get_prach_cplane_info(void *context, int slot, int ant_id, bool *active, int *section_id, int *num_prb);
 
 #ifdef __cplusplus
 }

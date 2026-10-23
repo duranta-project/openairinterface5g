@@ -1191,52 +1191,7 @@ int get_ready_job_count(void *context)
   return rte_ring_count(ctx->dl_ready_jobs);
 }
 
-void fill_ecpri_header(struct xran_ecpri_hdr *ecpri_header,
-                       struct xran_eaxcid_config *eaxcid_config,
-                       uint8_t ecpri_mesg_type,
-                       size_t ecpri_payload_size,
-                       uint8_t CC_ID,
-                       uint8_t Ant_ID,
-                       uint8_t seq_id,
-                       uint8_t oxu_port_id)
-{
-  ecpri_header->cmnhdr.data.data_num_1 = 0x0;
-  ecpri_header->cmnhdr.bits.ecpri_ver = XRAN_ECPRI_VER;
-  ecpri_header->cmnhdr.bits.ecpri_mesg_type = ecpri_mesg_type;
-  ecpri_header->cmnhdr.bits.ecpri_payl_size = rte_cpu_to_be_16(ecpri_payload_size);
-  ecpri_header->ecpri_xtc_id = xran_compose_cid(eaxcid_config, 0, 0, CC_ID, Ant_ID);
-  ecpri_header->ecpri_seq_id.bits.seq_id = seq_id;
-  ecpri_header->ecpri_seq_id.bits.e_bit = 1;
-  ecpri_header->ecpri_seq_id.bits.sub_seq_id = 0;
-  /// No byteswap for ecpri_seq_id. Possibly because of inverse definition in xran
-}
 
-void fill_radio_app_header(struct radio_app_common_hdr *radio_app_header,
-                           int filter_id,
-                           int direction,
-                           int frame,
-                           int slot,
-                           int symbol,
-                           int mu)
-{
-  radio_app_header->frame_id = frame & 0xff;
-  radio_app_header->sf_slot_sym.slot_id = slot % (1 << mu);
-  radio_app_header->sf_slot_sym.subframe_id = slot / (1 << mu);
-  radio_app_header->sf_slot_sym.symb_id = symbol;
-  radio_app_header->sf_slot_sym.value = rte_cpu_to_be_16(radio_app_header->sf_slot_sym.value);
-  radio_app_header->data_feature.data_direction = direction;
-  radio_app_header->data_feature.payl_ver = 1;
-  radio_app_header->data_feature.filter_id = filter_id;
-}
-
-void fill_data_section_header(struct data_section_hdr *data_section_hdr, int num_prb, int start_prb, int section_id)
-{
-  data_section_hdr->fields.all_bits = 0;
-  data_section_hdr->fields.num_prbu = (uint8_t)XRAN_CONVERT_NUMPRBC(num_prb);
-  data_section_hdr->fields.start_prbu = (start_prb & 0x03ff);
-  data_section_hdr->fields.sect_id = section_id;
-  data_section_hdr->fields.all_bits = rte_cpu_to_be_32(data_section_hdr->fields.all_bits);
-}
 
 int poll_ul_job(void *context, ul_job_t *job)
 {
@@ -1520,4 +1475,36 @@ void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int
     ctx->send_func(ctx->io_controller, mbufs, num_mbufs);
     ctx->thread_safe_stats.total_uplane_sent += num_mbufs;
   }
+}
+
+void test_get_dl_cplane_info(void *context, uint64_t target_absolute_symbol, int ant_id, bool *cplane_received, int *section_id, int *expected_iq)
+{
+  oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
+  if (!ctx) return;
+  uint32_t job_index = target_absolute_symbol % NUM_CONCURRENT_DL_SYMBOL_WINDOWS;
+  dl_symbol_job_t *job = ctx->dl_symbol_rx_window[job_index];
+  dl_stream_slot_t *stream = NULL;
+  if (job && job->absolute_symbol == target_absolute_symbol) {
+    for (int s = 0; s < job->num_streams && !stream; s++)
+      if (job->streams[s].eaxc_id == ant_id && job->streams[s].num_section_ids > 0)
+        stream = &job->streams[s];
+  }
+  if (cplane_received) *cplane_received = stream != NULL;
+  if (stream) {
+    if (section_id) *section_id = stream->section_ids[0];
+    if (expected_iq) *expected_iq = stream->expected_iq;
+  }
+}
+
+void test_get_prach_cplane_info(void *context, int slot, int ant_id, bool *active, int *section_id, int *num_prb)
+{
+  oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
+  if (!ctx) return;
+  if (slot < 0 || slot >= MAX_SLOTS_PER_FRAME) return;
+  int aarx = ant_id - ctx->prach_eaxc_offset;
+  if (aarx < 0 || aarx >= MAX_ANTENNAS) return;
+  prach_job_t *job = &ctx->prach_jobs[slot][aarx];
+  if (active) *active = job->active;
+  if (section_id) *section_id = job->section_id;
+  if (num_prb) *num_prb = job->num_prb;
 }
