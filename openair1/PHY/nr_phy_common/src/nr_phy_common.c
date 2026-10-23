@@ -41,6 +41,43 @@ void init_delay_table(uint16_t ofdm_symbol_size,
   }
 }
 
+static int64_t l1_norm_c16(const c16_t *x, int n)
+{
+  simde__m256i acc = simde_mm256_setzero_si256();
+  int i = 0;
+  for (; i + 8 <= n; i += 8) {
+    const simde__m256i v = simde_mm256_loadu_si256((const simde__m256i *)(x + i));
+    acc = simde_mm256_add_epi32(acc, simde_mm256_abs_epi32(simde_mm256_cvtepi16_epi32(simde_mm256_castsi256_si128(v))));
+    acc = simde_mm256_add_epi32(acc, simde_mm256_abs_epi32(simde_mm256_cvtepi16_epi32(simde_mm256_extracti128_si256(v, 1))));
+  }
+  int32_t lane[8];
+  simde_mm256_storeu_si256((simde__m256i *)lane, acc);
+  int64_t l1 = 0;
+  for (int k = 0; k < 8; k++)
+    l1 += lane[k];
+  for (; i < n; i++)
+    l1 += abs(x[i].r) + abs(x[i].i);
+  return l1;
+}
+
+/* smallest right shift of the input for which the n-point IDFT output fits int16 with one bit of margin */
+static int prescale_shift_from_l1(int64_t l1, int n)
+{
+  int shift = 0;
+  while (shift < 16) {
+    const int64_t bound = (l1 >> shift) + 2 * (int64_t)n;
+    if (bound * bound <= 16384LL * 16384 * n)
+      break;
+    shift++;
+  }
+  return shift;
+}
+
+int nr_idft_prescale_shift(const c16_t *x, int n)
+{
+  return prescale_shift_from_l1(l1_norm_c16(x, n), n);
+}
+
 void freq2time(uint16_t ofdm_symbol_size, int16_t *freq_signal, int16_t *time_signal)
 {
   const idft_size_idx_t idft_size = get_idft(ofdm_symbol_size);
@@ -49,10 +86,28 @@ void freq2time(uint16_t ofdm_symbol_size, int16_t *freq_signal, int16_t *time_si
 
 void nr_est_delay(int ofdm_symbol_size, const c16_t *ls_est, c16_t *ch_estimates_time, delay_t *delay)
 {
-  idft(get_idft(ofdm_symbol_size), (int16_t *)ls_est, (int16_t *)ch_estimates_time, 1);
+  nr_est_delay_l1(ofdm_symbol_size, ls_est, l1_norm_c16(ls_est, ofdm_symbol_size), ch_estimates_time, delay);
+}
+
+void nr_est_delay_l1(int ofdm_symbol_size, const c16_t *ls_est, int64_t l1, c16_t *ch_estimates_time, delay_t *delay)
+{
+  // prescale the input so that the IDFT cannot saturate; delay_max_val is returned unscaled
+  const int shift = prescale_shift_from_l1(l1, ofdm_symbol_size);
+  const c16_t *in = ls_est;
+  c16_t scaled[shift ? ofdm_symbol_size : 1] __attribute__((aligned(32)));
+  if (shift) {
+    int i = 0;
+    for (; i + 8 <= ofdm_symbol_size; i += 8)
+      simde_mm256_storeu_si256((simde__m256i *)(scaled + i),
+                               simde_mm256_srai_epi16(simde_mm256_loadu_si256((const simde__m256i *)(ls_est + i)), shift));
+    for (; i < ofdm_symbol_size; i++)
+      scaled[i] = (c16_t){ls_est[i].r >> shift, ls_est[i].i >> shift};
+    in = scaled;
+  }
+  idft(get_idft(ofdm_symbol_size), (int16_t *)in, (int16_t *)ch_estimates_time, 1);
 
   int max_pos = delay->delay_max_pos;
-  int max_val = delay->delay_max_val;
+  int64_t max_val = delay->delay_max_val >> (2 * shift);
   const int sync_pos = 0;
 
   uint64_t mean_val = 0;
@@ -70,7 +125,7 @@ void nr_est_delay(int ofdm_symbol_size, const c16_t *ls_est, c16_t *ch_estimates
     max_pos = max_pos - ofdm_symbol_size;
 
   delay->delay_max_pos = max_pos;
-  delay->delay_max_val = max_val;
+  delay->delay_max_val = max_val << (2 * shift);
 
   // The peak in general is quite clear. It only gives a small peak when the noise is high, generally obtaining an incorrect
   // estimated delay, and causing the delay compensation to worsen the result instead of improving it. After analyzing several
