@@ -1,6 +1,7 @@
 # Fronthaul Library
 
-Fronthaul stack for 7.2x split using DPDK. Currently supports O-RU only; O-DU support is not implemented.
+Fronthaul stack for 7.2x split using DPDK. It has an O-RU library (`oru/`) and an O-DU library (`du/`, see
+[du/README.md](du/README.md)). This file describes the O-RU library and the common parts.
 
 The shared receive, send and timer components are described in the
 [fronthaul core documentation](./common/README.md).
