@@ -771,7 +771,7 @@ int main(int argc, char **argv)
     snr1 = snr0+10;
 
   RC.gNB = (PHY_VARS_gNB**) malloc(sizeof(PHY_VARS_gNB *));
-  RC.gNB[0] = (PHY_VARS_gNB*) malloc(sizeof(PHY_VARS_gNB ));
+  RC.gNB[0] = calloc_or_fail(1, sizeof(PHY_VARS_gNB));
   memset(RC.gNB[0],0,sizeof(PHY_VARS_gNB));
 
   gNB = RC.gNB[0];
