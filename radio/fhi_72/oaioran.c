@@ -27,6 +27,16 @@
 
 #define N_SC_PER_PRB 12
 
+volatile bool first_call_set = false;
+
+int oai_physide_dl_tti_call_back(void *param, uint8_t mu)
+{
+  if (!first_call_set)
+    LOG_I(HW, "first_call set from phy cb\n");
+  first_call_set = true;
+  return 0;
+}
+
 int xran_is_prach_slot(uint8_t PortId, uint32_t subframe_id, uint32_t slot_id, uint8_t mu);
 #include "common/utils/LOG/log.h"
 
@@ -172,7 +182,8 @@ void oai_xran_fh_rx_callback(void *pCallbackTag, xran_status_t status, uint8_t m
       }
     }
     // UL deadline of this slot passed: its PUSCH and PRACH data are complete
-    slot_ready(tti, port_id);
+    if (first_call_set)
+      slot_ready(tti, port_id);
   }
 }
 

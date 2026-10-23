@@ -21,5 +21,7 @@ void oai_xran_wait_slot(oai_xran_slot_t *s);
 void oai_xran_fh_rx_callback(void *pCallbackTag, xran_status_t status, uint8_t mu);
 /** @brief xran callback for fronthaul PRACH RX, see xran_5g_prach_req(). */
 void oai_xran_fh_rx_prach_callback(void *pCallbackTag, xran_status_t status, uint8_t mu);
+/** @brief xran callback for time alignment, see xran_reg_physide_cb(). */
+int oai_physide_dl_tti_call_back(void *param, uint8_t mu);
 
 #endif /* OAIORAN_H */
