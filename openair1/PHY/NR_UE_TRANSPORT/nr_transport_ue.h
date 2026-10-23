@@ -57,9 +57,9 @@ typedef struct {
   uint8_t first_rx;
   /// DLSCH status flag indicating
   NR_SCH_status_t status;
-  /// Pointer to transport block segments
-  uint8_t *c;
 #ifdef LDPC_CUDA
+  /// Decoded transport block segments, in GPU mapped memory (otherwise on the stack of nr_dlsch_decoding())
+  uint8_t *c;
   /// Pointer to transport block segments (GPU pointer for c when using shared memory, should be the same on Jetson
   uint8_t *cdev;
 #endif
