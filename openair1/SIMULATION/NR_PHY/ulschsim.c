@@ -500,12 +500,15 @@ int main(int argc, char **argv)
   /////////////////////////ULSCH coding/////////////////////////
   ///////////
   unsigned int G = available_bits;
+  uint8_t ulsch_f[nr_ulsch_f_size(G)] __attribute__((aligned(64)));
+  memset(ulsch_f, 0, sizeof(ulsch_f));
 
   if (input_fd == NULL) {
     uint8_t ULSCH_ids[] = {0};
+    uint8_t *f_tb[] = {ulsch_f};
     const nfapi_nr_ue_pusch_pdu_t *p = &ulsch_ue->pusch_pdu;
     nr_ulsch_pre_encoding(harq_process_ul_ue, p->pusch_data.tb_size, p->nrOfLayers, p->ldpcBaseGraph);
-    nr_ulsch_encoding(UE, ulsch_ue, 0, 0, &G, 1, ULSCH_ids);
+    nr_ulsch_encoding(UE, ulsch_ue, 0, 0, &G, 1, ULSCH_ids, f_tb);
   }
   
   printf("\n");
@@ -534,7 +537,7 @@ int main(int argc, char **argv)
             }
         */
 
-        if ((harq_process_ul_ue->f[i >> 3] & (1 << (i & 7))) == 0)
+        if ((ulsch_f[i >> 3] & (1 << (i & 7))) == 0)
           modulated_input[i] = 1.0;        ///sqrt(2);  //QPSK
         else
           modulated_input[i] = -1.0;        ///sqrt(2);
@@ -558,7 +561,7 @@ int main(int argc, char **argv)
         else
           channel_output_uncoded[i] = 0;
 
-        if (channel_output_uncoded[i] != harq_process_ul_ue->f[i])
+        if (channel_output_uncoded[i] != ((ulsch_f[i >> 3] >> (i & 7)) & 1))
           errors_bit_uncoded = errors_bit_uncoded + 1;
       }
 /*
