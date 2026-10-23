@@ -2032,7 +2032,10 @@ static uint8_t unpack_ul_meas_common(uint8_t *ul_cqi,
  * 1 = failure, 2 = not checked) with a DetectionStatus (1 = CRC pass, 2 = CRC
  * failure, 3 = DTX, 4 = no DTX, 5 = DTX not checked; SCF222.10.04 Tables 3-125..3-127).
  * The MAC consumes the crc values (the harq_crc != 1 / csi_part1_crc != 1 gates
- * in gNB_scheduler_uci.c), so translate at the wire boundary. */
+ * in gNB_scheduler_uci.c), so translate at the wire boundary. An explicit DTX
+ * means the payload bits are decoder noise: report it as failure so the MAC
+ * NACKs the HARQ process and discards the CSI, as PUCCH F0/1 does via
+ * harq_confidence_level. 4/5 carry no CRC verdict and map to "not checked". */
 static uint8_t crc_from_detection_status(uint8_t detection_status)
 {
   switch (detection_status) {
@@ -2040,8 +2043,10 @@ static uint8_t crc_from_detection_status(uint8_t detection_status)
       return 0; // CRC pass
     case 2:
       return 1; // CRC failure
+    case 3:
+      return 1; // DTX: payload is noise, treat as failure
     default:
-      return 2; // DTX / not checked
+      return 2; // no DTX / DTX not checked: no CRC verdict, consume payload
   }
 }
 
@@ -2053,7 +2058,7 @@ static uint8_t detection_status_from_crc(uint8_t crc)
     case 1:
       return 2; // CRC failure
     default:
-      return 3; // DTX
+      return 4; // not checked: UCI present, no CRC performed
   }
 }
 
