@@ -11,7 +11,8 @@ endif()
 # Shared: nFAPI mode management + PNF (Temporary until PNF separation)
 add_library(nfapi_user_lib
         nfapi.c
-        nfapi_pnf.c)
+        nfapi_pnf.c
+        nfapi_pnf_pacing.c)
 if(OAI_WLS)
     target_compile_definitions(nfapi_user_lib PRIVATE ENABLE_WLS)
 elseif(OAI_AERIAL)
