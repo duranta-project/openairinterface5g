@@ -449,6 +449,7 @@ int main(int argc, char **argv)
   // one, each is decoded again alone (one per decoder call): the outcome (CRC passed or not) and the payload of the
   // transport blocks that passed must be the same. The code blocks of a failed transport block are not compared: a decoder
   // may stop decoding them once one has failed, depending on the thread timing.
+  const size_t llr_size = (8 * ((3 * 8 * 6144) + 12)) * sizeof(int16_t);
   AssertFatal(nb_tb >= 1 && nb_tb <= gNB->max_nb_pusch, "-T %d: 1 to %d transport blocks\n", nb_tb, gNB->max_nb_pusch);
   int ulsch_ids[nb_tb];
   for (int k = 0; k < nb_tb; k++) {
@@ -456,6 +457,14 @@ int main(int argc, char **argv)
     gNB->ulsch[k].harq_pid = 0;
     gNB->ulsch[k].harq_process->ulsch_pdu = *rel15_ul;
     gNB->pusch_vars[k].uci_info.G_ulsch = available_bits;
+    // the LLRs are written here, not by the PUSCH demodulation that takes them from the gNB slot pool
+    NR_gNB_PUSCH *pusch_vars = &gNB->pusch_vars[k];
+#ifdef LDPC_CUDA
+    pusch_vars->ulsch_llrs = gpuHostAlloc_or_fail(llr_size, gpuHostAllocMapped);
+    pusch_vars->llr_dev = gpuHostGetDevicePointer_or_fail(pusch_vars->ulsch_llrs);
+#else
+    pusch_vars->ulsch_llrs = malloc16(llr_size);
+#endif
   }
   const int tb_bytes = TBS >> 3;
   uint8_t *b_together = calloc_or_fail(nb_tb, tb_bytes);
@@ -558,6 +567,13 @@ int main(int argc, char **argv)
   free(UE);
 
   abortTpool(&gNB->threadPool);
+  for (int k = 0; k < nb_tb; k++) {
+#ifdef LDPC_CUDA
+    gpuFreeHost(gNB->pusch_vars[k].ulsch_llrs);
+#else
+    free(gNB->pusch_vars[k].ulsch_llrs);
+#endif
+  }
   phy_free_nr_gNB(gNB);
   free(RC.gNB[0]);
   free(RC.gNB);
