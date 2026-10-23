@@ -586,7 +586,9 @@ typedef struct nr_rxtx_thread_data_s {
   int writeBlockSize;
   nr_phy_data_t phy_data;
   dynamic_barrier_t* next_barrier;
-  uint64_t absolute_deadline_us;
+  uint64_t tx_deadline_monotonic_ns;
+  int tx_deadline_error_code;
+  bool tx_deadline_valid;
   Actor_t *ul_actors;
 } nr_rxtx_thread_data_t;
 
