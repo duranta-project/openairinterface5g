@@ -324,15 +324,12 @@ static void *split7_thread(void *param)
 
   wait_sync("split7_thread");
 
-  // xran accepts U-plane and sends C-plane only from the first SFN wrap on (tti_to_phy_cb()): drop slots before it
+  // xran accepts U-plane and sends C-plane only from an SFN wrap on (tti_to_phy_cb()): drop slots until frame 0, slot 0
   oai_xran_slot_t w;
-  oai_xran_wait_slot(&w);
-  uint32_t prev_tti;
   do {
-    prev_tti = w.tti;
     oai_xran_wait_slot(&w);
-  } while (!oai_exit && w.tti > prev_tti);
-  LOG_I(HW, "SFN wrap at tti %u: starting UL/TX processing\n", w.tti);
+  } while (!oai_exit && w.tti != 0);
+  LOG_I(HW, "SFN wrap: starting UL/TX processing\n");
 
   while (!oai_exit) {
     oai_xran_slot_t s;
