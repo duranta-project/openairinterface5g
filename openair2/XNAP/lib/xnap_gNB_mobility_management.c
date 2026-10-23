@@ -101,7 +101,7 @@ static bool decode_xnap_ue_history_information(const XNAP_UEHistoryInformation_t
     XNAP_LastVisitedNGRANCellInformation_t *nr = &lv->choice.nG_RAN_Cell;
     ue_history_info_t *cell = &out->ue_history_info[i];
 
-    cell->xnap_cell_type = XNAP_LastVisitedCell_Item_PR_nG_RAN_Cell;
+    cell->xnap_cell_type = XNAP_LAST_VISITED_CELL_NR;
     cell->last_visited_cell_info = create_byte_array(nr->size, nr->buf);
   }
 
@@ -360,7 +360,7 @@ XNAP_XnAP_PDU_t *encode_xnap_handover_request(const xnap_handover_req_t *req)
 
   for (int i = 0; i < req->num_last_visited_cells; i++) {
     asn1cSequenceAdd(ie6->value.choice.UEHistoryInformation.list, XNAP_LastVisitedCell_Item_t, lastVisitedCellItem);
-    if (req->ue_history_info[i].xnap_cell_type == XNAP_LastVisitedCell_Item_PR_nG_RAN_Cell) {
+    if (req->ue_history_info[i].xnap_cell_type == XNAP_LAST_VISITED_CELL_NR) {
       lastVisitedCellItem->present = XNAP_LastVisitedCell_Item_PR_nG_RAN_Cell;
       XNAP_LastVisitedNGRANCellInformation_t *nrInfo = &lastVisitedCellItem->choice.nG_RAN_Cell;
       OCTET_STRING_fromBuf(nrInfo,
@@ -608,8 +608,6 @@ static void free_xnap_qos_flow_param(xnap_qos_flow_param_t *p)
  */
 static void free_xnap_qos_tobe_setup_list(xnap_qos_flow_tobe_setup_item_t *qos_list, uint8_t num_qos)
 {
-  DevAssert(qos_list && num_qos > 0);
-
   for (int i = 0; i < num_qos; i++) {
     free_xnap_qos_flow_param(&qos_list[i].qos_params);
   }
@@ -621,8 +619,6 @@ static void free_xnap_qos_tobe_setup_list(xnap_qos_flow_tobe_setup_item_t *qos_l
  */
 static void free_xnap_pdusession_resources_tobe_setup_list(xnap_pdusession_resources_tobe_setup_item_t *pdu_list, uint16_t num_pdu)
 {
-  DevAssert(pdu_list && num_pdu > 0);
-
   for (int i = 0; i < num_pdu; i++) {
     free(pdu_list[i].nssai);
     free_xnap_qos_tobe_setup_list(pdu_list[i].qos_list, pdu_list[i].num_qos);
@@ -649,8 +645,6 @@ static void free_xnap_ue_context_info(const xnap_ue_context_info_t *ue_context)
  */
 static void free_xnap_ue_history_info_list(ue_history_info_t *history_list, uint8_t num_cells)
 {
-  DevAssert(history_list && num_cells > 0);
-
   for (int i = 0; i < num_cells; i++) {
     free_byte_array(history_list[i].last_visited_cell_info);
   }
@@ -883,8 +877,6 @@ bool eq_xnap_handover_request_acknowledge(const xnap_handover_req_ack_t *a, cons
  */
 static void free_xnap_qos_admitted_list(xnap_qos_admitted_item_t *qos_list)
 {
-  DevAssert(qos_list);
-
   /* QoS admitted items have no dynamically allocated members */
   free(qos_list);
 }
@@ -892,10 +884,8 @@ static void free_xnap_qos_admitted_list(xnap_qos_admitted_item_t *qos_list)
 /**
  * @brief Free PDU Session Resources Admitted list
  */
-static void free_xnap_pdusession_admitted_list(xnap_pdusession_admitted_item_t *pdu_list, uint8_t num_pdu)
+static void free_xnap_pdusession_admitted_list(xnap_pdusession_admitted_item_t *pdu_list, uint16_t num_pdu)
 {
-  DevAssert(pdu_list && num_pdu > 0);
-
   for (int i = 0; i < num_pdu; i++) {
     free_xnap_qos_admitted_list(pdu_list[i].qos_list);
   }

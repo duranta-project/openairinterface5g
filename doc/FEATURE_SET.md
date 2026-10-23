@@ -217,11 +217,13 @@ These modes of operation are supported:
   - Interface with NGAP for the interactions with the AMF
   - Interface with F1AP for CU/DU split deployment option
   - Interface with E1AP for CU-CP/CU-CP split deployment option
+  - Interface with XnAP for the interactions with other gNBs
   - Periodic RRC measurements of serving/neighbour cells and A2/A3 event
     handling
 - RRC Mobility Management Procedures:
   - Inter-DU Handover (F1-based handover within same CU)
   - Inter-gNB Handover (N2-based handover between different gNBs)
+  - Inter-gNB Handover (Xn-based handover between different gNBs)
   - Handover Preparation Information generation and processing
   - Handover Command generation and processing
   - PDCP Status transfer procedures
@@ -233,6 +235,22 @@ These modes of operation are supported:
 - Integration of X2AP messages and procedures for the exchanges with the eNB over X2 interface supporting the NSA setup according to 36.423 Rel. 15
   - X2 setup with eNB
   - Handling of SgNB Addition Request/Addition Request Acknowledge/Reconfiguration Complete
+
+### gNB XnAP
+
+- Integration of XnAP messages and procedures for the exchanges between gNBs over the Xn-C interface according to 38.423 Rel. 16
+  - Xn Interface Management:
+    * Xn Setup request/response/failure
+  - Xn Mobility Management Procedures:
+    * XnAP Handover Request
+    * XnAP Handover Request Acknowledge
+    * XnAP Handover Preparation Failure
+    * XnAP SN Status Transfer
+    * XnAP UE Context Release
+    * XnAP Handover Cancel
+- Interface with RRC
+- Multiple Xn peers per gNB
+- No Xn-U (no data forwarding during handover)
 
 ### gNB NGAP
 
@@ -258,6 +276,7 @@ These modes of operation are supported:
     * NGAP Handover Cancel Acknowledge
     * NGAP Uplink RAN Status Transfer
     * NGAP Downlink RAN Status Transfer
+    * NGAP Path Switch Request/Acknowledge
   - NGAP NRPPa Transport Procedures:
     * Downlink UE Associated NRPPa Transport
     * Uplink UE Associated NRPPa Transport

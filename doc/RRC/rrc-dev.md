@@ -20,6 +20,7 @@ function, one can see three main groups of messages in a big switch statement:
 - NGAP (messages starting with `NGAP_`)
 - F1AP (messages starting with `F1AP_`)
 - E1AP (messages starting with `E1AP_`)
+- XnAP (messages starting with `XNAP_`)
 
 For each message, a corresponding handler is called. The messages are roughly
 named according to the 3GPP specification messages, so it should already be
@@ -626,6 +627,158 @@ sequenceDiagram
   Note over ue,tdu: UE active on target DU
 ```
 
+### Inter-gNB Handover (Xn)
+
+This is an inter-NG-RAN procedure where the handover is prepared directly
+between the source and target gNBs over Xn, without the AMF. The AMF is only
+informed at the end through the NGAP Path Switch Request. The specifications
+are:
+
+* 3GPP TS 23.502, 4.9.1.2 Xn based inter NG-RAN handover
+* 3GPP TS 38.300, 9.2.3.2 Handover (intra-NR, Xn based)
+* 3GPP TS 38.423 (XnAP), 8.2 Basic Mobility Procedures
+* 3GPP TS 38.413 (NGAP), 8.4.4 Path Switch Request
+
+The XnAP task and the XnAP procedures are described in the
+[Xn design](../XnAP/Xn-design.md) and [Xn procedures](../XnAP/xnap_procedures.md)
+documents. RRC builds and processes the XnAP messages in `rrc_gNB_XNAP.c`, and
+exchanges them with `TASK_XNAP` as ITTI messages.
+
+RRC keeps the list of gNBs with which Xn Setup completed (`rrc->xn_candidates`,
+updated on `XNAP_SETUP_IND` / `XNAP_PEER_SHUTDOWN_IND`). On an A3 event
+towards a cell not served by this CU, if the `gNB_ID` of the neighbour is an
+Xn candidate, `nr_rrc_trigger_xn_ho()` is
+called; otherwise `nr_rrc_trigger_n2_ho()`. The telnet command
+`ci trigger_xn_ho` calls `nr_HO_Xn_trigger_telnet()`.
+
+#### End-to-end flow
+
+```mermaid
+sequenceDiagram
+  participant ue as UE
+  participant sdu as source DU
+  participant scucp as source CU-CP
+  participant scuup as source CU-UP
+  participant tdu as target DU
+  participant tcucp as target CU-CP
+  participant tcuup as target CU-UP
+  participant amf as AMF
+
+  Note over ue,sdu: UE active on source DU
+  alt HO triggered through A3 event
+    ue->>sdu: RRC Measurement Report
+    sdu->>scucp: F1AP UL RRC Msg Transfer (RRC Measurement Report)
+    Note over scucp: Handover decision (A3 event, target is Xn candidate)
+  else Manual Trigger
+    Note over scucp: Handover decision (telnet trigger_xn_ho)
+  end
+  Note over scucp: nr_rrc_trigger_xn_ho() ("on source CU")
+  Note over scucp: rrc_gNB_send_XNAP_HANDOVER_REQUEST()
+  scucp->>tcucp: XnAP HANDOVER REQUEST
+  Note over tcucp: rrc_gNB_process_XNAP_HANDOVER_REQUEST()
+  Note over tcucp: create UE, KgNB* from source, trigger_bearer_setup()
+  tcucp->>tcuup: Bearer Context Setup Request
+  tcuup->>tcucp: Bearer Context Setup Response
+  Note over tcucp: rrc_gNB_process_e1_bearer_context_setup_resp
+  Note over tcucp: nr_rrc_trigger_xn_ho_target() ("on target CU")
+  Note over tcucp: nr_initiate_handover()
+  tcucp->>tdu: F1AP UE Context Setup Req
+  Note over tdu: Create UE context
+  tdu->>tcucp: F1AP UE Context Setup Resp (incl. CellGroupConfig)
+  Note over tcucp: rrc_CU_process_ue_context_setup_response() ("on target CU")
+  tcucp-->>tcucp: callback: ho_req_ack()
+  Note over tcucp: nr_rrc_xn_ho_acknowledge() ("on target CU")
+  tcucp->>scucp: XnAP HANDOVER REQUEST ACKNOWLEDGE (HandoverCommand)
+  Note over scucp: rrc_gNB_process_XNAP_HANDOVER_REQ_ACK()
+  scucp->>sdu: F1AP UE Context Modification Req (RRC Reconfiguration)
+  sdu->>ue: RRC Reconfiguration
+  sdu->>scucp: F1AP UE Context Modification Resp
+  Note over sdu: Stop scheduling UE
+  Note over scucp: rrc_CU_process_ue_context_modification_response()
+  scucp->>scuup: E1 Bearer Context Modification Req (PDCP Status Request)
+  scuup->>scucp: E1 Bearer Context Modification Resp (PDCP Status Info)
+  Note over scucp: ho_status_transfer(): rrc_gNB_send_XNAP_SN_STATUS_TRANSFER()
+  scucp->>tcucp: XnAP SN STATUS TRANSFER
+  Note over tcucp: rrc_gNB_process_XNAP_SN_STATUS_TRANSFER()
+  tcucp->>tcuup: E1 Bearer Context Modification Req (PDCP Status Info)
+  tcuup->>tcucp: E1 Bearer Context Modification Resp
+  Note over ue: UE attachment to target DU
+  Note over ue,tdu: RA (Msg1 + Msg2)
+  ue->>tdu: RRC Reconfiguration Complete
+  tdu->>tcucp: F1AP UL RRC Msg Transfer (RRC Reconfiguration Complete)
+  tcucp-->>tcucp: callback: ho_success()
+  Note over tcucp: nr_rrc_xn_ho_path_switch() ("on target CU")
+  tcucp->>amf: PATH SWITCH REQUEST
+  amf->>tcucp: PATH SWITCH REQUEST ACKNOWLEDGE
+  Note over tcucp: store NH/NCC and N3 UL tunnel (RRC only, no E1 update)
+  Note over tcucp: rrc_gNB_send_XNAP_UE_CONTEXT_RELEASE()
+  tcucp->>scucp: XnAP UE CONTEXT RELEASE
+  Note over scucp: rrc_gNB_process_XNAP_UE_CONTEXT_RELEASE()
+  par
+    scucp->>scuup: E1 Bearer Context Release Command
+  and
+    scucp->>sdu: F1 UE Context Release Command (no RRCRelease)
+  end
+  sdu->>scucp: F1 UE Context Release Complete
+  Note over scucp: rrc_CU_process_ue_context_release_complete
+  Note over scucp: NGAP UE context local release (no AMF signalling)
+  Note over scucp: rrc_remove_ue (if sdu is still the UE's DU)
+  Note over ue,tdu: UE active on target DU
+```
+
+The XnAP messages go through `TASK_XNAP` on each side, which is omitted above.
+
+Differences to N2 handover:
+
+* Security: the source derives KgNB* from the NH received in the last Path
+  Switch Request Acknowledge, or from its KgNB if it has none, and sends KgNB*
+  and the NCC (`nh_ncc`) in the Handover Request. The target uses KgNB*
+  directly as KgNB, while in N2 it derives KgNB from the NH given by the AMF,
+  and selects the AS algorithms from the received UE security capabilities
+  (`rrc_gNB_security.c`). The target receives a fresh NH/NCC from the AMF in
+  the Path Switch Request Acknowledge.
+* UE capabilities: the target extracts them from the HandoverPreparationInformation
+  (`extract_ue_cap_from_HandoverPreparationInformation()`), as Xn does not
+  carry them in a separate IE.
+* The source releases the UE locally on XnAP UE Context Release, while in N2
+  the AMF sends an NGAP UE Context Release Command.
+* No data forwarding (Xn-U) is set up.
+
+#### Failure cases
+
+* The target cannot admit the UE (no cell, DU or CU-UP; or, once the UE is
+  created, an ongoing RRC transaction, no admitted PDU session or a
+  HandoverCommand encoding failure): it sends XnAP Handover Preparation
+  Failure. If a UE was created,
+  `rrc_gNB_xn_ho_target_abort()` releases its bearers, its target DU context and
+  the UE. The source calls `nr_rrc_finalize_ho()` and the UE stays on the
+  source cell.
+* XNAP cannot send the Handover Request (encoding failure, peer not
+  connected): it sends `XNAP_HANDOVER_PREP_FAILURE` to the source RRC, which
+  ends the handover. XNAP cannot send the Handover Request Acknowledge: it
+  sends a Handover Preparation Failure to the source if the peer is connected,
+  and `XNAP_HANDOVER_CANCEL` to the target RRC, which aborts the handover.
+* The Xn association is lost: XNAP sends `XNAP_HANDOVER_PREP_FAILURE` to the
+  source RRC for each handover towards that peer without UE Context Release
+  yet (also after the HO command was sent), and `XNAP_HANDOVER_CANCEL` to the
+  target RRC, which aborts the handovers where the UE did not arrive yet.
+* The UE re-establishes in the source cell during the handover, or the
+  HandoverCommand of the Handover Request Acknowledge cannot be decoded: the
+  source calls `ho_cancel()`, which sends XnAP Handover Cancel
+  (`rrc_gNB_send_XNAP_HANDOVER_CANCEL()`), and ends the handover. The target
+  aborts the handover with `rrc_gNB_xn_ho_target_abort()` if the UE did not
+  arrive yet.
+* The source removes the UE during the handover (e.g. AMF UE Context
+  Release): `rrc_remove_ue()` sends XnAP Handover Cancel, so the target
+  releases the UE prepared for it.
+
+Not handled yet: E1 Bearer Context Setup Failure and F1 UE Context Setup
+Failure at the target (no Handover Preparation Failure is sent), NGAP Path
+Switch Request Failure, and the XnAP timers TXnRELOCprep / TXnRELOCoverall.
+
+The failure causes are listed in the
+[Xn procedures](../XnAP/xnap_procedures.md#handover-preparation-failure).
+
 ### Paging and Network Triggered Service Request (CM-IDLE to CM-CONNECTED)
 
 The following flow documents the current OAI stack path for paging-triggered
@@ -979,6 +1132,15 @@ sequenceDiagram
   Note over TargetCU: Then: encode Handover Command, send NGAP HANDOVER REQUEST ACKNOWLEDGE
 ```
 
+###### Xn handover (inter-gNB: source CU vs target CU)
+
+Same as N2 handover on the target CU-CP: the cell association is updated in
+the handover request acknowledge callback `nr_rrc_xn_ho_acknowledge()`, by
+`nr_rrc_apply_target_context()` and `nr_rrc_update_cell_assoc_after_ho()`,
+before the Handover Command is encoded and the XnAP HANDOVER REQUEST
+ACKNOWLEDGE is sent. On the source CU-CP, the cell association is not updated:
+the UE is removed after the XnAP UE CONTEXT RELEASE.
+
 ### Neighbour cells
 
 #### SIB3/SIB4 and measurement-gap implementation
@@ -1112,11 +1274,17 @@ both are present. In N2 and Xn, only one pointer is supposed to be set at the
 corresponding CU.
 
 - `nr_ho_source_cu_t` contains notably a function pointer `ho_cancel` for
-handover cancel.  
+handover cancel (N2 and Xn).
 - `nr_ho_target_cu_t` contains function pointers `ho_req_ack`
 for handover request acknowledge, `ho_success` for handover success,
-`ho_failure` for handover failure (N2 only).
-be seen in the sequence diagram above, either the "target CU" or "source CU"
+`ho_failure` for handover failure (N2 and Xn), and `ho_trigger` (N2 and
+Xn), called on the E1 Bearer Context Setup Response to set up the UE on the
+target DU.
+- `nr_ho_source_cu_t` also contains `ho_status_transfer`, called when the
+source CU-UP returns the PDCP status: NGAP Uplink RAN Status Transfer for N2,
+XnAP SN Status Transfer for Xn.
+
+As can be seen in the sequence diagrams above, either the "target CU" or "source CU"
 needs to do an operation, and a "switch" from target to source CU is done using
 these function pointers. 
 - For instance, in F1, the handover request acknowledge
@@ -1124,4 +1292,9 @@ function pointers merely calls another (RRC) function which triggers a
 reconfiguration. 
 - In the case of N2, the handover request acknowledge function
 pointer should trigger the NGAP Handover Request Acknowledge, and the handover
-success function pointer should trigger the NGAP Handover Success message.
+success function pointer should trigger the NGAP Handover Notify message.
+- In the case of Xn, the handover request acknowledge function pointer
+(`nr_rrc_xn_ho_acknowledge()`) sends the XnAP Handover Request Acknowledge,
+the handover success function pointer (`nr_rrc_xn_ho_path_switch()`) sends
+the NGAP Path Switch Request, and the handover failure function pointer
+(`nr_rrc_xn_ho_failure()`) sends the XnAP Handover Preparation Failure.

@@ -16,6 +16,12 @@
 #define XNAP_REGISTER_GNB_REQ(mSGpTR)     (mSGpTR)->ittiMsg.xnap_register_gnb_req
 #define XNAP_SETUP_IND(mSGpTR)            (mSGpTR)->ittiMsg.xnap_setup_ind
 #define XNAP_PEER_SHUTDOWN_IND(mSGpTR)    (mSGpTR)->ittiMsg.xnap_peer_shutdown_ind
+#define XNAP_HANDOVER_REQ(mSGpTR)         (mSGpTR)->ittiMsg.xnap_handover_req
+#define XNAP_HANDOVER_REQ_ACK(mSGpTR)     (mSGpTR)->ittiMsg.xnap_handover_req_ack
+#define XNAP_HANDOVER_PREP_FAILURE(mSGpTR) (mSGpTR)->ittiMsg.xnap_handover_prep_failure
+#define XNAP_SN_STATUS_TRANSFER(mSGpTR)   (mSGpTR)->ittiMsg.xnap_sn_status_transfer
+#define XNAP_UE_CONTEXT_RELEASE(mSGpTR)   (mSGpTR)->ittiMsg.xnap_ue_context_release
+#define XNAP_HANDOVER_CANCEL(mSGpTR)      (mSGpTR)->ittiMsg.xnap_handover_cancel
 
 typedef struct {
   // PLMN Identity (M)
@@ -91,6 +97,8 @@ typedef struct xnap_setup_ind_s {
 
 typedef struct xnap_peer_shutdown_ind_s {
   uint32_t gnb_id;
+  // SCTP association to the lost peer
+  sctp_assoc_t assoc_id;
 } xnap_peer_shutdown_ind_t;
 
 typedef enum xnap_cause_radio_network_e {
@@ -301,10 +309,18 @@ typedef struct {
   xnap_pdusession_resources_tobe_setup_item_t *pdusession_resources_tobe_setup_list;
 } xnap_ue_context_info_t;
 
+/* Mirrors XNAP_LastVisitedCell_Item_PR — kept in COMMON so RRC can set the type
+ * without depending on ASN.1 generated headers. */
+typedef enum {
+  XNAP_LAST_VISITED_CELL_NOTHING = 0,
+  XNAP_LAST_VISITED_CELL_NR = 1,
+  XNAP_LAST_VISITED_CELL_EUTRAN = 2,
+} xnap_last_visited_cell_type_t;
+
 /* Last Visited Cell Information */
 typedef struct {
   // Last Visited Cell Type
-  uint8_t xnap_cell_type;
+  xnap_last_visited_cell_type_t xnap_cell_type;
   // 3GPP TS 38.413 9.3.1.97 Last Visited NG-RAN Cell Information
   byte_array_t last_visited_cell_info;
 } ue_history_info_t;
@@ -324,6 +340,13 @@ typedef struct {
   // UE History Information (M)
   uint8_t num_last_visited_cells;
   ue_history_info_t *ue_history_info;
+  /* Routing fields — not part of the XnAP PDU */
+  // source RRC->XNAP: RRC UE identity at source
+  uint32_t rrc_ue_id;
+  // source RRC->XNAP: SCTP association to the target gNB
+  sctp_assoc_t target_assoc_id;
+  // target XNAP->RRC: XnAP UE ID allocated by XNAP, bound by RRC to the new UE
+  uint32_t t_ng_node_ue_xnap_id;
 } xnap_handover_req_t;
 
 /* QoS Flows Admitted Item */
@@ -348,11 +371,14 @@ typedef struct {
   // Target NG-RAN node UE XnAP ID (M)
   uint32_t t_ng_node_ue_xnap_id;
   // PDU Session Resources Admitted List (M)
-  uint8_t num_pdu_admitted;
+  uint16_t num_pdu_admitted;
   xnap_pdusession_admitted_item_t *pdusession_admitted_list;
   // Target NG-RAN node To Source NG-RAN node Transparent Container (M)
   // (3GPP TS 38.331 11.2.2 HandoverCommand message )
   byte_array_t target2source;
+  /* Routing fields — not part of the XnAP PDU */
+  // RRC UE identity (target: target UE ID; source: looked up from s_xn_ue_id)
+  uint32_t rrc_ue_id;
 } xnap_handover_req_ack_t;
 
 /* 3GPP TS 38.423 9.1.1.3 – Handover Preparation Failure */
@@ -361,6 +387,13 @@ typedef struct {
   uint32_t s_ng_node_ue_xnap_id;
   // Cause (M)
   xnap_cause_t cause;
+  /* Routing fields — not part of the XnAP PDU */
+  // RRC UE identity (target: 0 if no UE was created; source: looked up from s_xn_ue_id)
+  uint32_t rrc_ue_id;
+  // target: XnAP UE ID of the handover
+  uint32_t t_ng_node_ue_xnap_id;
+  // target: SCTP association to the source gNB
+  sctp_assoc_t assoc_id;
 } xnap_handover_preparation_failure_t;
 
 /** 3GPP TS 38.423 – 9.1.1.4 SN Status Transfer 
@@ -405,6 +438,9 @@ typedef struct {
   uint32_t t_ng_node_ue_xnap_id;
   // DRBs Subject To Status Transfer List (M)
   xnap_ran_status_container_t ran_status;
+  /* Routing fields — not part of the XnAP PDU */
+  // RRC UE identity (source: UE to send for; target: looked up from t_xn_ue_id)
+  uint32_t rrc_ue_id;
 } xnap_sn_status_transfer_t;
 
 /* 3GPP TS 38.423 9.1.1.5 – UE CONTEXT RELEASE */
@@ -413,6 +449,9 @@ typedef struct {
   uint32_t s_ng_node_ue_xnap_id;
   /* Target NG-RAN node UE XnAP ID (M) */
   uint32_t t_ng_node_ue_xnap_id;
+  /* Routing fields — not part of the XnAP PDU */
+  // RRC UE identity (target: UE to release for; source: looked up from s_xn_ue_id)
+  uint32_t rrc_ue_id;
 } xnap_ue_context_release_t;
 
 /* 3GPP TS 38.423 9.1.1.6 – Handover Cancel */
@@ -421,6 +460,11 @@ typedef struct {
   uint32_t s_ng_node_ue_xnap_id;
   /* Cause (M) */
   xnap_cause_t cause;
+  /* Routing fields — not part of the XnAP PDU */
+  // target XNAP->RRC: RRC UE identity, looked up from s_xn_ue_id
+  uint32_t rrc_ue_id;
+  // source RRC->XNAP: SCTP association to the target gNB
+  sctp_assoc_t assoc_id;
 } xnap_handover_cancel_t;
 
 /* 3GPP TS 38.423 9.1.1.12 – Handover Success */
