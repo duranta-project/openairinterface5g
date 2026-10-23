@@ -976,8 +976,14 @@ void prepare_sim_uecap(NR_UE_NR_Capability_t *cap,
     bandNRinfo->pusch_256QAM = calloc(1,sizeof(*bandNRinfo->pusch_256QAM));
     *bandNRinfo->pusch_256QAM = NR_BandNR__pusch_256QAM_supported;
   }
-  if (mcs_table_dl == 1) {
+  if (mcs_table_dl == 1 || mcs_table_dl == 3) {
     const frequency_range_t freq_range = get_freq_range_from_band(band);
+    if (mcs_table_dl == 3) {
+      AssertFatal(freq_range == FR1, "1024QAM (MCS table 3) is only defined for FR1\n");
+      bandNRinfo->ext12 = calloc_or_fail(1, sizeof(*bandNRinfo->ext12));
+      bandNRinfo->ext12->pdsch_1024QAM_FR1_r17 = calloc_or_fail(1, sizeof(*bandNRinfo->ext12->pdsch_1024QAM_FR1_r17));
+      *bandNRinfo->ext12->pdsch_1024QAM_FR1_r17 = NR_BandNR__ext12__pdsch_1024QAM_FR1_r17_supported;
+    }
     if (freq_range == FR2) {
       bandNRinfo->pdsch_256QAM_FR2 = calloc(1, sizeof(*bandNRinfo->pdsch_256QAM_FR2));
       *bandNRinfo->pdsch_256QAM_FR2 = NR_BandNR__pdsch_256QAM_FR2_supported;
@@ -1473,9 +1479,13 @@ static void set_ul_mcs_table(const NR_UE_NR_Capability_t *cap,
 
 static void set_dl_mcs_table(int scs,
                              const NR_UE_NR_Capability_t *cap,
+                             bool enable_1024qam,
                              NR_BWP_DownlinkDedicated_t *bwp_Dedicated,
                              const NR_ServingCellConfigCommon_t *scc)
 {
+  NR_PDSCH_Config_t *pdsch_Config = bwp_Dedicated->pdsch_Config->choice.setup;
+  if (pdsch_Config->ext3)
+    free_and_zero(pdsch_Config->ext3->mcs_Table_r17);
 
   if (cap == NULL){
     bwp_Dedicated->pdsch_Config->choice.setup->mcs_Table = NULL;
@@ -1494,6 +1504,7 @@ static void set_dl_mcs_table(int scs,
   AssertFatal(bw_rb > 0,"Could not find scs-SpecificCarrierList element for scs %d", scs);
 
   bool supported = false;
+  bool supported_1024qam = false;
   const frequency_range_t freq_range = get_freq_range_from_band(band);
   if (freq_range == FR2) {
     for (int i = 0; i < cap->rf_Parameters.supportedBandListNR.list.count; i++) {
@@ -1503,9 +1514,17 @@ static void set_dl_mcs_table(int scs,
         break;
       }
     }
-  }
-  else if (cap->phy_Parameters.phy_ParametersFR1 && cap->phy_Parameters.phy_ParametersFR1->pdsch_256QAM_FR1)
+  } else if (cap->phy_Parameters.phy_ParametersFR1 && cap->phy_Parameters.phy_ParametersFR1->pdsch_256QAM_FR1) {
     supported = true;
+    // 1024QAM is an FR1 only, per band capability
+    for (int i = 0; enable_1024qam && i < cap->rf_Parameters.supportedBandListNR.list.count; i++) {
+      const NR_BandNR_t *bandNRinfo = cap->rf_Parameters.supportedBandListNR.list.array[i];
+      if (bandNRinfo->bandNR == band && bandNRinfo->ext12 && bandNRinfo->ext12->pdsch_1024QAM_FR1_r17) {
+        supported_1024qam = true;
+        break;
+      }
+    }
+  }
 
   if (supported) {
     if(bwp_Dedicated->pdsch_Config->choice.setup->mcs_Table == NULL)
@@ -1514,6 +1533,13 @@ static void set_dl_mcs_table(int scs,
   }
   else
     bwp_Dedicated->pdsch_Config->choice.setup->mcs_Table = NULL;
+
+  if (supported_1024qam) {
+    if (!pdsch_Config->ext3)
+      pdsch_Config->ext3 = calloc_or_fail(1, sizeof(*pdsch_Config->ext3));
+    pdsch_Config->ext3->mcs_Table_r17 = calloc_or_fail(1, sizeof(*pdsch_Config->ext3->mcs_Table_r17));
+    *pdsch_Config->ext3->mcs_Table_r17 = NR_PDSCH_Config__ext3__mcs_Table_r17_qam1024;
+  }
 }
 
 static NR_PTRS_UplinkConfig_t *config_ulptrs(const nr_ptrs_config_t *ptrs)
@@ -1885,6 +1911,7 @@ static NR_BWP_Downlink_t *config_downlinkBWP(const NR_ServingCellConfigCommon_t 
 
   set_dl_mcs_table(bwp->bwp_Common->genericParameters.subcarrierSpacing,
                    force_256qam_off ? NULL : uecap,
+                   configuration->enable_1024qam,
                    bwp->bwp_Dedicated,
                    scc);
   return bwp;
@@ -3466,6 +3493,7 @@ static NR_BWP_DownlinkDedicated_t *configure_initial_dl_bwp(const NR_ServingCell
   // we might call configuration of initial BWP for BWP switch when we already have UE capabilities
   set_dl_mcs_table(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.subcarrierSpacing,
                    configuration->force_256qam_off ? NULL : uecap,
+                   configuration->enable_1024qam,
                    bwp_Dedicated,
                    scc);
   return bwp_Dedicated;
@@ -4097,7 +4125,7 @@ void update_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
     scs = scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.subcarrierSpacing;
   }
   if (bwp_Dedicated) {
-    set_dl_mcs_table(scs, configuration->force_256qam_off ? NULL : uecap, bwp_Dedicated, scc);
+    set_dl_mcs_table(scs, configuration->force_256qam_off ? NULL : uecap, configuration->enable_1024qam, bwp_Dedicated, scc);
     update_cqitables(bwp_Dedicated->pdsch_Config, csi_MeasConfig);
   }
 }

@@ -31,6 +31,9 @@ void nr_compute_llr(c16_t *rxdataF_comp,
     case 8:
       nr_256qam_llr(rxdataF_comp, ch_mag, ch_magb, ch_magc, llr, nb_re);
       break;
+    case 10:
+      nr_1024qam_llr(rxdataF_comp, ch_mag, ch_magb, ch_magc, llr, nb_re);
+      break;
     default:
       AssertFatal(false, "nr_compute_llr: invalid mod_order, symbol=%d, Qm=%d\n", symbol, mod_order);
       break;
@@ -2973,6 +2976,10 @@ uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
       QAM_amp128 = simde_mm_set1_epi16(QAM256_n1);
       QAM_amp128b = simde_mm_set1_epi16(QAM256_n2);
       QAM_amp128c = simde_mm_set1_epi16(QAM256_n3);
+    } else if (mod_order == 10) {
+      QAM_amp128 = simde_mm_set1_epi16(QAM1024_n1);
+      QAM_amp128b = simde_mm_set1_epi16(QAM1024_n2);
+      QAM_amp128c = simde_mm_set1_epi16(QAM1024_n3);
     }
     ch_mag128_0 = (simde__m128i *)ch_mag[0];
     ch_mag128b_0 = (simde__m128i *)ch_magb[0];
@@ -3346,5 +3353,57 @@ void nr_256qam_llr(const c16_t *rxdataF_comp,
     c16_t tmp2 = saturating_sub(*ch_magb_tail++, tmp1);
     *llr_tail++ = tmp2;
     *llr_tail++ = saturating_sub(*ch_magc_tail++, tmp2);
+  }
+}
+
+void nr_1024qam_llr(const c16_t *rxdataF_comp,
+                    const c16_t *ch_mag,
+                    const c16_t *ch_mag2,
+                    const c16_t *ch_mag3,
+                    int16_t *llr,
+                    uint32_t nb_re)
+{
+  c16_t *llr_c16 = (c16_t *)llr;
+  uint32_t i = 0;
+  // 4 REs at a time, like the 128-bit 256QAM path, plus a fifth level per RE
+  for (; i + 4 <= nb_re; i += 4) {
+    const simde__m128i a = simde_mm_loadu_si128((simde__m128i *)(rxdataF_comp + i));
+    const simde__m128i maga = simde_mm_loadu_si128((simde__m128i *)(ch_mag + i));
+    const simde__m128i magb = simde_mm_loadu_si128((simde__m128i *)(ch_mag2 + i));
+    const simde__m128i magc = simde_mm_loadu_si128((simde__m128i *)(ch_mag3 + i));
+    const simde__m128i b = simde_mm_subs_epi16(maga, protected_abs128(a));
+    const simde__m128i c = simde_mm_subs_epi16(magb, protected_abs128(b));
+    const simde__m128i d = simde_mm_subs_epi16(magc, protected_abs128(c));
+    // the innermost threshold is half of ch_mag3, like each threshold is half of the previous one
+    const simde__m128i ed = simde_mm_subs_epi16(simde_mm_srai_epi16(magc, 1), protected_abs128(d));
+    // a b c d of each RE in one vector: 4x4 transpose of the 32-bit (I, Q) pairs
+    const simde__m128i ab_lo = simde_mm_unpacklo_epi32(a, b); // a0 b0 a1 b1
+    const simde__m128i ab_hi = simde_mm_unpackhi_epi32(a, b); // a2 b2 a3 b3
+    const simde__m128i cd_lo = simde_mm_unpacklo_epi32(c, d); // c0 d0 c1 d1
+    const simde__m128i cd_hi = simde_mm_unpackhi_epi32(c, d); // c2 d2 c3 d3
+    int32_t e32[4];
+    simde_mm_storeu_si128((simde__m128i *)e32, ed);
+    simde_mm_storeu_si128((simde__m128i *)llr_c16, simde_mm_unpacklo_epi64(ab_lo, cd_lo));
+    memcpy(llr_c16 + 4, e32, sizeof(*e32));
+    simde_mm_storeu_si128((simde__m128i *)(llr_c16 + 5), simde_mm_unpackhi_epi64(ab_lo, cd_lo));
+    memcpy(llr_c16 + 9, e32 + 1, sizeof(*e32));
+    simde_mm_storeu_si128((simde__m128i *)(llr_c16 + 10), simde_mm_unpacklo_epi64(ab_hi, cd_hi));
+    memcpy(llr_c16 + 14, e32 + 2, sizeof(*e32));
+    simde_mm_storeu_si128((simde__m128i *)(llr_c16 + 15), simde_mm_unpackhi_epi64(ab_hi, cd_hi));
+    memcpy(llr_c16 + 19, e32 + 3, sizeof(*e32));
+    llr_c16 += 20;
+  }
+  for (; i < nb_re; i++) {
+    const c16_t a = rxdataF_comp[i];
+    const c16_t b = saturating_sub(ch_mag[i], a);
+    const c16_t c = saturating_sub(ch_mag2[i], b);
+    const c16_t d = saturating_sub(ch_mag3[i], c);
+    // the innermost threshold is half of ch_mag3, like each threshold is half of the previous one
+    const c16_t ch_magd = {ch_mag3[i].r >> 1, ch_mag3[i].i >> 1};
+    *llr_c16++ = a;
+    *llr_c16++ = b;
+    *llr_c16++ = c;
+    *llr_c16++ = d;
+    *llr_c16++ = saturating_sub(ch_magd, d);
   }
 }

@@ -28,15 +28,20 @@
 // #define DEBUG_DLSCH_CODING
 // #define DEBUG_DLSCH_FREE 1
 
+/* Number of code blocks the DLSCH buffers hold for a grid of N_RB PRBs: MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER is reached
+ * over 273 PRBs, smaller grids are scaled down */
+static uint16_t gNB_dlsch_max_segments(const NR_DL_FRAME_PARMS *frame_parms, uint16_t N_RB)
+{
+  const int max_layers = min(frame_parms->nb_antennas_tx, NR_MAX_NB_LAYERS);
+  const int max_segments = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * max_layers;
+  if (N_RB == 273)
+    return max_segments;
+  return max_segments * N_RB / 273 + 1;
+}
+
 void free_gNB_dlsch(NR_gNB_DLSCH_t *dlsch, uint16_t N_RB, const NR_DL_FRAME_PARMS *frame_parms)
 {
-  int max_layers = min(frame_parms->nb_antennas_tx, NR_MAX_NB_LAYERS);
-  uint16_t a_segments = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * max_layers;
-
-  if (N_RB != 273) {
-    a_segments = a_segments * N_RB;
-    a_segments = a_segments / 273 + 1;
-  }
+  const uint16_t a_segments = gNB_dlsch_max_segments(frame_parms, N_RB);
 
   if (dlsch->b) {
 #ifdef LDPC_CUDA
@@ -47,7 +52,7 @@ void free_gNB_dlsch(NR_gNB_DLSCH_t *dlsch, uint16_t N_RB, const NR_DL_FRAME_PARM
     dlsch->b = NULL;
   }
   if (dlsch->f) {
-    free16(dlsch->f, N_RB * frame_parms->symbols_per_slot * NR_NB_SC_PER_RB * 8 * NR_MAX_NB_LAYERS);
+    free16(dlsch->f, N_RB * frame_parms->symbols_per_slot * NR_NB_SC_PER_RB * 10 * NR_MAX_NB_LAYERS);
     dlsch->f = NULL;
   }
   for (int r = 0; r < a_segments; r++) {
@@ -63,13 +68,7 @@ void free_gNB_dlsch(NR_gNB_DLSCH_t *dlsch, uint16_t N_RB, const NR_DL_FRAME_PARM
 
 NR_gNB_DLSCH_t new_gNB_dlsch(NR_DL_FRAME_PARMS *frame_parms, uint16_t N_RB)
 {
-  int max_layers = min(frame_parms->nb_antennas_tx, NR_MAX_NB_LAYERS);
-  uint16_t a_segments = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * max_layers; // number of segments to be allocated
-
-  if (N_RB != 273) {
-    a_segments = a_segments * N_RB;
-    a_segments = a_segments / 273 + 1;
-  }
+  const uint16_t a_segments = gNB_dlsch_max_segments(frame_parms, N_RB); // number of segments to be allocated
 
   LOG_D(PHY, "Allocating %d segments (MAX %d, N_PRB %d)\n", a_segments, MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER, N_RB);
   uint32_t dlsch_bytes = a_segments * 1056; // allocated bytes per segment
@@ -99,9 +98,9 @@ NR_gNB_DLSCH_t new_gNB_dlsch(NR_DL_FRAME_PARMS *frame_parms, uint16_t N_RB)
     bzero(dlsch.c[r], 8448 / 8);
   }
 
-  dlsch.f = malloc16(N_RB * frame_parms->symbols_per_slot * NR_NB_SC_PER_RB * 8 * NR_MAX_NB_LAYERS);
+  dlsch.f = malloc16(N_RB * frame_parms->symbols_per_slot * NR_NB_SC_PER_RB * 10 * NR_MAX_NB_LAYERS);
   AssertFatal(dlsch.f, "cannot allocate dlsch->f\n");
-  bzero(dlsch.f, N_RB * frame_parms->symbols_per_slot * NR_NB_SC_PER_RB * 8 * NR_MAX_NB_LAYERS);
+  bzero(dlsch.f, N_RB * frame_parms->symbols_per_slot * NR_NB_SC_PER_RB * 10 * NR_MAX_NB_LAYERS);
 
   return (dlsch);
 }
@@ -155,7 +154,10 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
     }
 
     start_meas(dlsch_crc_stats);
-    int max_bytes = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers * 1056;
+    const uint16_t grid_size = gNB->gNB_config.carrier_config.dl_grid_size[gNB->frame_parms.numerology_index].value;
+    const int max_segments =
+        min(gNB_dlsch_max_segments(&gNB->frame_parms, grid_size), MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers);
+    int max_bytes = max_segments * 1056; // as allocated in new_gNB_dlsch()
     int B;
     if (A > NR_MAX_PDSCH_TBS) {
       // Add 24-bit crc (polynomial A) to payload
@@ -187,6 +189,12 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
     TB_parameters->harq_unique_pid = i;
     TB_parameters->BG = rel15->maintenance_parms_v3.ldpcBaseGraph;
     TB_parameters->A = A;
+    // count the code blocks before writing them to dlsch->c
+    nr_segmentation(NULL, NULL, B, &TB_parameters->C, &TB_parameters->K, &TB_parameters->Z, &TB_parameters->F, TB_parameters->BG);
+    if (TB_parameters->C > max_segments) {
+      LOG_E(PHY, "too many code blocks %d, B %d (at most %d)\n", TB_parameters->C, B, max_segments);
+      return (-1);
+    }
     TB_parameters->Kb = nr_segmentation(dlsch->b,
                                         dlsch->c,
                                         B,
@@ -195,11 +203,6 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
                                         &TB_parameters->Z,
                                         &TB_parameters->F,
                                         TB_parameters->BG);
-
-    if (TB_parameters->C > MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers) {
-      LOG_E(PHY, "nr_segmentation.c: too many segments %d, B %d\n", TB_parameters->C, B);
-      return (-1);
-    }
     num_segments += TB_parameters->C;
   }
 
