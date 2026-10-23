@@ -1123,8 +1123,13 @@ static nr_meas_task_args_t *create_meas_task_args(const UE_nr_rxtx_proc_t *proc,
   args->rxdata_size = rxdata_size;
   args->nb_ant = fp->nb_antennas_rx;
   uint32_t slot_offset = get_samples_slot_timestamp(fp, proc->nr_slot_rx);
-  for (int i = 0; i < fp->nb_antennas_rx; i++)
-    memcpy(args->rxdata_ant + i * rxdata_size, &ue->common_vars.rxdata[i][slot_offset], rxdata_size * sizeof(c16_t));
+  // rxdata holds one frame: the samples after the end of the frame are at its beginning
+  const uint32_t before_end = min(rxdata_size, fp->samples_per_frame - slot_offset);
+  for (int i = 0; i < fp->nb_antennas_rx; i++) {
+    c16_t *dst = args->rxdata_ant + i * rxdata_size;
+    memcpy(dst, &ue->common_vars.rxdata[i][slot_offset], before_end * sizeof(c16_t));
+    memcpy(dst + before_end, ue->common_vars.rxdata[i], (rxdata_size - before_end) * sizeof(c16_t));
+  }
   return args;
 }
 
