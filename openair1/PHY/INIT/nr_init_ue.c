@@ -13,6 +13,7 @@
 #include "PHY/NR_REFSIG/ul_ref_seq_nr.h"
 #include "PHY/NR_REFSIG/sl_refsig_defs.h"
 #include "PHY/NR_REFSIG/nr_refsig.h"
+#include "PHY/NR_REFSIG/dmrs_nr.h"
 #include "PHY/NR_REFSIG/nr_mod_table.h"
 #include "openair2/COMMON/prs_nr_paramdef.h"
 #include "SCHED_NR_UE/harq_nr.h"
@@ -437,7 +438,8 @@ void nr_init_ul_harq_processes(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES],
 void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL_FRAME_PARMS *fp, bool do_ml)
 {
   const uint32_t pdsch_buf_size_max = (fp->N_RB_DL * NR_NB_SC_PER_RB + 15) & ~15;
-  const uint32_t pdsch_est_size = fp->symbols_per_slot * fp->ofdm_symbol_size;
+  // channel estimates of the DMRS symbols only, one row of ofdm_symbol_size per DMRS symbol (get_dmrs_row())
+  const uint32_t pdsch_est_size = NR_MAX_DMRS_SYMBOLS * fp->ofdm_symbol_size;
 
   /* Cap layer dimension at nb_antennas_rx instead of NR_MAX_NB_LAYERS to
    * right-size all per-actor scratch buffers, reducing the PDSCH working
