@@ -460,12 +460,16 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
     // Loop over possible DCI lengths
     
     for (int k = 0; k < rel15->num_dci_options; k++) {
-      // skip this candidate if we've already found one with the
-      // same rnti and size at a different aggregation level
+      // skip this candidate if it overlaps the CCEs of a DCI with the same rnti and size already found in this
+      // CORESET (same PDCCH at a different aggregation level). Non-overlapping candidates are distinct PDCCHs
+      // (TS 38.211 7.3.2.2), e.g. DCI 0_1 and 1_1 of equal size in the same slot.
       int dci_length = rel15->dci_length_options[k];
       int ind;
       for (ind = 0; ind < dci_ind->number_of_dcis; ind++) {
-        if (!is_SI && rel15->rnti == dci_ind->dci_list[ind].rnti && dci_length == dci_ind->dci_list[ind].payloadSize) {
+        const fapi_nr_dci_indication_pdu_t *found = dci_ind->dci_list + ind;
+        if (!is_SI && rel15->rnti == found->rnti && dci_length == found->payloadSize
+            && rel15->coreset.CoreSetType == found->coreset_type && CCEind < found->n_CCE + found->N_CCE
+            && found->n_CCE < CCEind + L) {
           break;
         }
       }

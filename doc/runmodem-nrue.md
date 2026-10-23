@@ -134,7 +134,7 @@ Here are some useful command line options for the NR UE:
 | `--usrp-args`            | Equivalent to the `sdr_addrs` field in the gNB config file. Used to identify the USRP and set some basic parameters (like the clock source).  |
 | `--clock-source`         | Sets the clock source (internal or external).                                                                 |
 | `--time-source`          | Sets the time source (internal or external).                                                                  |
-| `--ue-capability-rx2tx`  | Sets the minimum number of slots for the UE between RX command and TX of corresponding channel.               |
+| `--ue-capability-rx2tx`  | Sets the minimum number of slots for the UE between RX command and TX of corresponding channel. If the gNB schedules a HARQ-ACK (K1), PUSCH (K2), Msg3 or aperiodic SRS earlier, the UE skips that transmission and logs a warning. |
 
 You can view all available options by typing:
 
@@ -165,6 +165,9 @@ e.g.
 ```shell
 sudo ./nr-uesoftmodem -r 106 --numerology 1 --band 78 -C 3319680000 --ue-nb-ant-tx 2 --ue-nb-ant-rx 2 --uecap_file /opt/oai-nr-ue/etc/uecap.xml
 ```
+
+With a USRP, frequency and gain changes (e.g. the frequency-offset correction after initial sync) are applied to every
+channel, which matters on devices with one LO per channel (e.g. X410).
 
 ## NR UE: Configure multiple RF-frontends (RUs) and UEs in one process
 
