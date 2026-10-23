@@ -31,6 +31,14 @@ volatile bool first_call_set = false;
 
 int oai_physide_dl_tti_call_back(void *param, uint8_t mu)
 {
+  uint32_t xran_frame; // [0-99]
+  uint32_t xran_subframe; // [0-10]
+  uint32_t xran_slot; // [0-7]
+  uint64_t xran_second; // current UTC second
+  // current TTI number [0-7999]
+  int32_t tti = xran_timingsource_get_slotidx(&xran_frame, &xran_subframe, &xran_slot, &xran_second, mu);
+
+  //LOG_I(HW, "xran_frame %d, xran_subframe %d, xran_slot %d = tti %d\n", xran_frame, xran_subframe, xran_slot, tti);
   if (!first_call_set)
     LOG_I(HW, "first_call set from phy cb\n");
   first_call_set = true;
@@ -193,8 +201,8 @@ void oai_xran_fh_rx_callback(void *pCallbackTag, xran_status_t status, uint8_t m
       }
     }
     // UL deadline of this slot passed: its PUSCH and PRACH data are complete
-    if (first_call_set)
-      slot_ready(tti, port_id);
+    //if (first_call_set)
+    slot_ready(tti, port_id);
   }
 }
 

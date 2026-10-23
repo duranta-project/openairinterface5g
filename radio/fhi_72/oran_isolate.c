@@ -273,31 +273,35 @@ typedef struct {
 
 static void process_ul_data(int tti, int frame, int slot, PHY_VARS_gNB *gNB, struct xran_fh_init fh_init, struct xran_fh_config *fh_cfg, split7_config_t *s7cfg)
 {
-  prach_item_t p;
-  fsn_t now = {.f = frame, .s = slot, .mu = s7cfg->mu}; // assuming all RUs have the same numerology
-  const bool prach = get_next_nr_prach(&gNB->prach_ru_queue, &now, &p);
+  int ret;
 
+  // PUxCH/SRS
   for (int xran_port = 0; xran_port < fh_init.xran_ports; xran_port++) {
     oran_buf_list_t *bufs = get_xran_buffers(xran_port);
-    const uint8_t mu = fh_cfg[xran_port].mu_number[0];
-    const int fft_size = 1 << fh_cfg[xran_port].perMu[mu].nULFftSize;
-    if (xran_fh_rx_read_slot(tti, xran_port, fh_cfg[xran_port].neAxcUl, fft_size, bufs, s7cfg->rxdataF) != 0)
+    const int fft_size = 1 << fh_cfg[xran_port].perMu[s7cfg->mu].nULFftSize;
+    ret = xran_fh_rx_read_slot(tti, xran_port, fh_cfg[xran_port].neAxcUl, fft_size, bufs, s7cfg->rxdataF);
+    if (ret != 0)
       LOG_W(HW, "[%d.%d] xran_fh_rx_read_slot error for xran_port %d\n", frame, slot, xran_port);
-    if (prach) {
-      // PRACH occasion in a frame if and only if SFN % x == y, TS 38.211 Table 6.3.3.2-2/3/4
-      const nr_prach_info_t info = get_prach_info(xran_port);
-      const int slots_per_sf = 1 << mu;
-      const bool is_prach_slot = frame % info.x == info.y && xran_is_prach_slot(xran_port, slot / slots_per_sf, p.slot % slots_per_sf, mu);
-      if (!is_prach_slot) {
-        LOG_W(HW, "[%d.%d] xran_port %d Expected PRACH reception of scheduled slot %d\n", xran_port, frame, slot, p.slot);
-        continue;;
-      }
-      if (xran_fh_rx_prach_read_slot(tti, xran_port, fh_cfg[xran_port].neAxcUl, &fh_cfg[xran_port].ru_conf, &fh_cfg[xran_port].perMu[mu].prach_conf, bufs, p) != 0)
-        LOG_W(HW, "[%d.%d] xran_fh_rx_prach_read_slot error for xran_port %d\n", frame, slot, xran_port);
-    }
   }
 
-  if (prach) {
+  // PRACH
+  prach_item_t p;
+  fsn_t now = {.f = frame, .s = slot, .mu = s7cfg->mu}; // assuming all RUs have the same numerology
+  while (get_next_nr_prach(&gNB->prach_ru_queue, &now, &p)) {
+    for (int xran_port = 0; xran_port < fh_init.xran_ports; xran_port++) {
+      oran_buf_list_t *bufs = get_xran_buffers(xran_port);
+      // PRACH occasion in a frame if and only if SFN % x == y, TS 38.211 Table 6.3.3.2-2/3/4
+      const nr_prach_info_t info = get_prach_info(xran_port);
+      const int slots_per_sf = 1 << s7cfg->mu;
+      const bool is_prach_slot = frame % info.x == info.y && xran_is_prach_slot(xran_port, slot / slots_per_sf, p.slot % slots_per_sf, s7cfg->mu);
+      if (is_prach_slot) {
+        ret = xran_fh_rx_prach_read_slot(tti, xran_port, fh_cfg[xran_port].neAxcUl, &fh_cfg[xran_port].ru_conf, &fh_cfg[xran_port].perMu[s7cfg->mu].prach_conf, bufs, p);
+        if (ret != 0)
+          LOG_W(HW, "[%d.%d] xran_fh_rx_prach_read_slot error for xran_port %d\n", frame, slot, xran_port);
+      } else {
+        LOG_W(HW, "[%d.%d] xran_port %d Expected PRACH reception of scheduled slot %d\n", xran_port, frame, slot, p.slot);
+      }
+    }
     // prach_l1rx_queue never full: emptied by rx_func() every slot
     bool success = spsc_q_put(&gNB->prach_l1rx_queue, &p, sizeof(p));
     DevAssert(success);
