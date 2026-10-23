@@ -909,7 +909,10 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
     rm_info = calc_rate_match_info_uci(pusch_pdu, &ptrs_info, harq_process_ul_ue, &G[pusch_id]);
   }
 
-  if (nr_ulsch_encoding(UE, ulsch_ue, frame, slot, G, 1, ULSCH_ids) == -1) {
+  // encoder output, packed bits
+  uint8_t f[nr_ulsch_f_size(G_initial_total_pusch_bits)] __attribute__((aligned(64)));
+  uint8_t *f_tb[1] = {f};
+  if (nr_ulsch_encoding(UE, ulsch_ue, frame, slot, G, 1, ULSCH_ids, f_tb) == -1) {
     stop_meas_nr_ue_phy(UE, PUSCH_PROC_STATS);
     return;
   }
@@ -976,14 +979,16 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
                             &rm_info,
                             pusch_codeword,
                             G_initial_total_pusch_bits,
-                            harq_process_ul_ue->f,
+                            f,
                             b_ack,
                             b_csi1,
                             b_csi2);
     stop_meas_nr_ue_phy(UE, UCI_ON_PUSCH_MAPPING);
     uci_mapping_template = template_buffer;
   } else
-    memcpy(pusch_codeword, harq_process_ul_ue->f, (G_initial_total_pusch_bits + 7) / 8);
+    memcpy(pusch_codeword, f, (G_initial_total_pusch_bits + 7) / 8);
+  if (UE->phy_sim_ulsch_f)
+    memcpy(UE->phy_sim_ulsch_f, f, (G_initial_total_pusch_bits + 7) / 8);
 
   uint16_t start_rb = pusch_pdu->rb_start;
   const int start_sc = (start_rb + pusch_pdu->bwp_start) * NR_NB_SC_PER_RB;

@@ -29,6 +29,7 @@
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
 #include "PHY/NR_TRANSPORT/nr_ulsch.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_ue.h"
+#include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 #include "PHY/TOOLS/tools_defs.h"
 #include "PHY/defs_RU.h"
 #include "PHY/defs_gNB.h"
@@ -729,6 +730,9 @@ int main(int argc, char *argv[])
     }
 
     init_nr_ue_transport(UE[u]);
+    UE[u]->phy_sim_ulsch_f =
+        calloc_or_fail(1,
+                       nr_ulsch_f_size(UE[u]->frame_parms.N_RB_UL * NR_SYMBOLS_PER_SLOT * NR_NB_SC_PER_RB * 8 * NR_MAX_NB_LAYERS));
     int capability_rx2tx = 3;
     UE_mac[u] = nr_l2_init_ue(u, mu, capability_rx2tx);
     ue_init_config_request(UE_mac[u], get_slots_per_frame_from_scs(mu));
@@ -1210,7 +1214,7 @@ int main(int argc, char *argv[])
             }
 
             for (i = 0; i < available_bits; i++) {
-              const uint8_t current_bit = (UE[u]->ul_harq_processes[harq_pid].f[i / 8] >> (i & 7)) & 1;
+              const uint8_t current_bit = (UE[u]->phy_sim_ulsch_f[i / 8] >> (i & 7)) & 1;
               if (((current_bit == 0) && (pusch_vars->ulsch_llrs[i] <= 0)) || ((current_bit == 1) && (pusch_vars->ulsch_llrs[i] >= 0))) {
                 errors_scrambling[u][round]++;
               }
@@ -1413,6 +1417,7 @@ int main(int argc, char *argv[])
 
   for (int u = 0; u < NUM_UE; u++) {
     free_and_zero(UE[u]->phy_sim_test_buf);
+    free_and_zero(UE[u]->phy_sim_ulsch_f);
     for (int aatx = 0; aatx < n_tx; aatx++) {
       free_and_zero(s_interleaved[u][aatx]);
     }
