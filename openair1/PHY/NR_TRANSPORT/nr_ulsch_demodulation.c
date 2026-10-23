@@ -1105,7 +1105,8 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     dmrs_symbol = get_valid_dmrs_idx_for_channel_est(rel15_ul_ref->ul_dmrs_symb_pos, meas_symbol);
   else // average of channel estimates stored in first symbol
     dmrs_symbol = get_next_dmrs_symbol_in_slot(rel15_ul_ref->ul_dmrs_symb_pos, rel15_ul_ref->start_symbol_index, end_symbol);
-  int size_est = ceil_mod(nb_re_pusch * frame_parms->symbols_per_slot, 16);
+  // extracted channel estimates of meas_symbol only (at most all the REs of the allocation)
+  int size_est = ceil_mod(rel15_ul_ref->rb_size * NR_NB_SC_PER_RB, 16);
   __attribute__((aligned(64))) c16_t ul_ch_estimates_ext[total_layers][num_sp_streams][size_est];
   memset(ul_ch_estimates_ext, 0, sizeof(ul_ch_estimates_ext));
   int buffer_length = rel15_ul_ref->rb_size * NR_NB_SC_PER_RB;
@@ -1116,7 +1117,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       nr_ulsch_extract_rbs(gNB->common_vars.rxdataF[ant_port_start + aarx] + soffset + meas_symbol * frame_parms->ofdm_symbol_size,
                            ul_ch_estimates[nl * num_sp_streams + aarx],
                            temp_rxFext[aarx],
-                           &ul_ch_estimates_ext[nl][aarx][meas_symbol * nb_re_pusch],
+                           ul_ch_estimates_ext[nl][aarx],
                            get_dmrs_row(rel15_ul_ref->ul_dmrs_symb_pos, dmrs_symbol) * frame_parms->ofdm_symbol_size,
                            (rel15_ul_ref->ul_dmrs_symb_pos >> meas_symbol) & 0x01,
                            &joint_pdu,
@@ -1132,7 +1133,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
 
   int avg[total_layers][num_sp_streams];
   for (int i = 0; i < total_layers; i++)
-    nr_channel_level(meas_symbol, size_est, ul_ch_estimates_ext[i], num_sp_streams, avg[i], nb_re_pusch);
+    nr_channel_level(0, size_est, ul_ch_estimates_ext[i], num_sp_streams, avg[i], nb_re_pusch);
 
   int avgs = 0;
   for (int nl = 0; nl < total_layers; nl++)
