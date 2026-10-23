@@ -230,6 +230,7 @@ typedef struct {
   uint16_t **beam_id;
   int num_beams_period;
   bool analog_bf;
+  /// PUSCH RX samples dump, DEBUG_RXDATA in phy_procedures_nr_gNB.c only: allocated by its first use
   int32_t *debugBuff;
   int32_t debugBuff_sample_offset;
 } NR_gNB_COMMON;

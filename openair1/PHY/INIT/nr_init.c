@@ -185,8 +185,6 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
   common_vars->txdataF = (c16_t **)malloc16_clear(Ptx * sizeof(*common_vars->txdataF));
   for (int j = 0; j < Ptx; j++)
     common_vars->txdataF[j] = (c16_t *)malloc16_clear(fp->samples_per_slot_wCP * sizeof(**common_vars->txdataF));
-  common_vars->debugBuff = (int32_t*)malloc16_clear(fp->samples_per_frame*sizeof(int32_t)*100);	
-  common_vars->debugBuff_sample_offset = 0; 
 
   // PRACH
   init_nr_prach(gNB);
