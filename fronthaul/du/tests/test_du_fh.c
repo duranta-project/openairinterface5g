@@ -11,6 +11,7 @@
 #include "common/config/config_userapi.h"
 #include <rte_eal.h>
 #include <assert.h>
+#include <pthread.h>
 
 // OAI Linkage Satisfiers
 void exit_function(const char *file, const char *function, const int line, const char *s, const int assertflag)
@@ -36,6 +37,16 @@ static int get_available_core(void)
     }
   }
   return -1;
+}
+
+// Like the RU thread: waits for slot events until the fronthaul is stopped
+static void *slot_waiter(void *handle)
+{
+  static int num_slots;
+  uint64_t abs_slot;
+  while (du_fh_wait_slot(handle, &abs_slot) >= 0)
+    num_slots++;
+  return &num_slots;
 }
 
 int main(int argc, char **argv)
@@ -108,6 +119,9 @@ int main(int argc, char **argv)
   assert(f < 1024);
   assert(s < (10 << cfg.numerology));
 
+  pthread_t waiter;
+  assert(pthread_create(&waiter, NULL, slot_waiter, handle) == 0);
+
   printf("Running live loop for 2 seconds...\n");
   uint32_t *rxdataF[1] = {malloc(cfg.num_prbs * 12 * sizeof(uint32_t))};
   for (int i = 0; i < 2000; i++) {
@@ -125,6 +139,11 @@ int main(int argc, char **argv)
 
   printf("Stopping DU_FH...\n");
   du_fh_stop(handle);
+  // Stopping wakes the waiter, which must not stay blocked
+  int *num_slots;
+  assert(pthread_join(waiter, (void **)&num_slots) == 0);
+  printf("Slot events: %d\n", *num_slots);
+  assert(*num_slots > 0);
 
   printf("Cleaning up handle...\n");
   du_fh_cleanup(handle);

@@ -22,3 +22,5 @@ target_include_directories(test_du_fh PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../
 add_dependencies(tests test_du_fh)
 add_test(NAME test_du_fh COMMAND test_du_fh ${DPDK_TEST_ARGS} "--file-prefix=test_du_fh" "--vdev=net_null4" "--vdev=net_null5")
 set_property(TEST test_du_fh PROPERTY LABELS fronthaul)
+# a regression in the stop path shows up as a hang
+set_property(TEST test_du_fh PROPERTY TIMEOUT 60)

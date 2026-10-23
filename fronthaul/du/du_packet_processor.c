@@ -72,10 +72,12 @@ typedef struct {
   
   struct rte_ring *ul_free_jobs;
   struct rte_ring *ul_ready_jobs;
+  ul_symbol_job_t *ul_held_job; // dequeued by du_packet_processor_read_ul_iq_upto() but past its bound
   
   prach_job_t prach_jobs[MAX_SLOTS_PER_FRAME][MAX_ANTENNAS];
   uint64_t prach_window_tail_symbol;
   struct rte_ring *prach_ready_jobs;
+  prach_job_t *prach_held_job; // dequeued by du_packet_processor_read_prach_iq_upto() but past its bound
   
   uint32_t Ta3_min_sym_diff;
   uint32_t Ta3_max_sym_diff;
@@ -472,7 +474,7 @@ int du_packet_processor_get_ready_ul_job_count(void *context)
   du_packet_processor_context_t *ctx = (du_packet_processor_context_t *)context;
   if (ctx == NULL)
     return 0;
-  return rte_ring_count(ctx->ul_ready_jobs);
+  return rte_ring_count(ctx->ul_ready_jobs) + (ctx->ul_held_job != NULL);
 }
 
 static void unpack_iq(uint32_t *rxdataF, const uint8_t *iqdata, int start_prb, int num_prb,
@@ -490,26 +492,8 @@ static void unpack_iq(uint32_t *rxdataF, const uint8_t *iqdata, int start_prb, i
   }
 }
 
-void du_packet_processor_read_ul_iq(void *context, uint32_t **rxdataF, int nb_rx, uint64_t *hyper_frame, int *frame, int *slot, int *symbol)
+static void unpack_ul_job(du_packet_processor_context_t *ctx, ul_symbol_job_t *job, uint32_t **rxdataF, int nb_rx)
 {
-  du_packet_processor_context_t *ctx = (du_packet_processor_context_t *)context;
-  if (ctx == NULL)
-    return;
-  ul_symbol_job_t *job;
-  int ret = -1;
-  while (ret != 0) {
-    ret = rte_ring_dequeue(ctx->ul_ready_jobs, (void **)&job);
-    rte_pause();
-  }
-
-  uint64_t absolute_gps_symbol = job->absolute_symbol;
-  int numerology = ctx->numerology;
-  int num_symbols_per_frame = NR_NUMBER_OF_SUBFRAMES_PER_FRAME * (1 << numerology) * NR_SYMBOLS_PER_SLOT;
-  *hyper_frame = (absolute_gps_symbol / num_symbols_per_frame) / 1024;
-  *frame = (absolute_gps_symbol / num_symbols_per_frame) % 1024;
-  *slot = (absolute_gps_symbol % num_symbols_per_frame) / NR_SYMBOLS_PER_SLOT;
-  *symbol = absolute_gps_symbol % NR_SYMBOLS_PER_SLOT;
-
   for (int aatx = 0; aatx < nb_rx; aatx++) {
     memset(rxdataF[aatx], 0, ctx->num_prb * NR_NB_SC_PER_RB * sizeof(uint32_t));
     if (job->per_antenna[aatx].num_rx_fragments == 0) {
@@ -527,10 +511,55 @@ void du_packet_processor_read_ul_iq(void *context, uint32_t **rxdataF, int nb_rx
       }
     }
   }
-  ret = rte_ring_enqueue(ctx->ul_free_jobs, (void *)job);
+  int ret = rte_ring_enqueue(ctx->ul_free_jobs, (void *)job);
   AssertFatal(ret == 0,
               "Failed to enqueue to ring du_ul_free_jobs. du_ul_free_jobs num_elements %d\n",
               rte_ring_count(ctx->ul_free_jobs));
+}
+
+void du_packet_processor_read_ul_iq(void *context, uint32_t **rxdataF, int nb_rx, uint64_t *hyper_frame, int *frame, int *slot, int *symbol)
+{
+  du_packet_processor_context_t *ctx = (du_packet_processor_context_t *)context;
+  if (ctx == NULL)
+    return;
+  ul_symbol_job_t *job = ctx->ul_held_job;
+  ctx->ul_held_job = NULL;
+  while (job == NULL) {
+    if (rte_ring_dequeue(ctx->ul_ready_jobs, (void **)&job) != 0)
+      job = NULL;
+    rte_pause();
+  }
+
+  uint64_t absolute_gps_symbol = job->absolute_symbol;
+  int numerology = ctx->numerology;
+  int num_symbols_per_frame = NR_NUMBER_OF_SUBFRAMES_PER_FRAME * (1 << numerology) * NR_SYMBOLS_PER_SLOT;
+  *hyper_frame = (absolute_gps_symbol / num_symbols_per_frame) / 1024;
+  *frame = (absolute_gps_symbol / num_symbols_per_frame) % 1024;
+  *slot = (absolute_gps_symbol % num_symbols_per_frame) / NR_SYMBOLS_PER_SLOT;
+  *symbol = absolute_gps_symbol % NR_SYMBOLS_PER_SLOT;
+  unpack_ul_job(ctx, job, rxdataF, nb_rx);
+}
+
+bool du_packet_processor_read_ul_iq_upto(void *context, uint32_t **rxdataF, int nb_rx, uint64_t last_absolute_symbol, uint64_t *absolute_symbol)
+{
+  du_packet_processor_context_t *ctx = (du_packet_processor_context_t *)context;
+  ul_symbol_job_t *job = ctx->ul_held_job;
+  ctx->ul_held_job = NULL;
+  if (job == NULL && rte_ring_dequeue(ctx->ul_ready_jobs, (void **)&job) != 0)
+    return false;
+  if (job->absolute_symbol > last_absolute_symbol) {
+    ctx->ul_held_job = job;
+    return false;
+  }
+  *absolute_symbol = job->absolute_symbol;
+  unpack_ul_job(ctx, job, rxdataF, nb_rx);
+  return true;
+}
+
+uint32_t du_packet_processor_get_ul_window_symbols(void *context)
+{
+  du_packet_processor_context_t *ctx = (du_packet_processor_context_t *)context;
+  return ctx->Ta3_max_sym_diff;
 }
 
 void du_packet_processor_expect_prach_occasion(void *context, uint64_t start_absolute_symbol, int num_symbols, int slot_in_frame, int ant_id, int section_id, int start_prb, int num_prb, fh_comp_method_t comp_method, uint8_t iq_width, int kbar)
@@ -674,17 +703,27 @@ int du_packet_processor_get_ready_prach_job_count(void *context)
 {
   du_packet_processor_context_t *ctx = (du_packet_processor_context_t *)context;
   if (ctx == NULL) return 0;
-  return rte_ring_count(ctx->prach_ready_jobs);
+  return rte_ring_count(ctx->prach_ready_jobs) + (ctx->prach_held_job != NULL);
+}
+
+static void read_prach_job(du_packet_processor_context_t *ctx, prach_job_t *job, int16_t *rxdata, int *antenna, int *section_id)
+{
+  if (antenna) *antenna = job->antenna_id;
+  if (section_id) *section_id = job->section_id;
+  for (int i = 0; i < 139 * 2; i++) {
+    rxdata[i] = job->accumulated_iq[job->kbar + i];
+  }
 }
 
 void du_packet_processor_read_prach_iq(void *context, int16_t *rxdata, uint64_t *hyper_frame, int *frame, int *slot, int *antenna, int *section_id)
 {
   du_packet_processor_context_t *ctx = (du_packet_processor_context_t *)context;
   if (ctx == NULL) return;
-  prach_job_t *job;
-  int ret = -1;
-  while (ret != 0) {
-    ret = rte_ring_dequeue(ctx->prach_ready_jobs, (void **)&job);
+  prach_job_t *job = ctx->prach_held_job;
+  ctx->prach_held_job = NULL;
+  while (job == NULL) {
+    if (rte_ring_dequeue(ctx->prach_ready_jobs, (void **)&job) != 0)
+      job = NULL;
     rte_pause();
   }
 
@@ -694,12 +733,28 @@ void du_packet_processor_read_prach_iq(void *context, int16_t *rxdata, uint64_t 
   if (hyper_frame) *hyper_frame = (absolute_gps_symbol / num_symbols_per_frame) / 1024;
   if (frame) *frame = (absolute_gps_symbol / num_symbols_per_frame) % 1024;
   if (slot) *slot = (absolute_gps_symbol % num_symbols_per_frame) / NR_SYMBOLS_PER_SLOT;
-  if (antenna) *antenna = job->antenna_id;
-  if (section_id) *section_id = job->section_id;
+  read_prach_job(ctx, job, rxdata, antenna, section_id);
+}
 
-  for (int i = 0; i < 139 * 2; i++) {
-    rxdata[i] = job->accumulated_iq[job->kbar + i];
+bool du_packet_processor_read_prach_iq_upto(void *context,
+                                            int16_t *rxdata,
+                                            uint64_t last_absolute_symbol,
+                                            uint64_t *start_absolute_symbol,
+                                            int *antenna,
+                                            int *section_id)
+{
+  du_packet_processor_context_t *ctx = (du_packet_processor_context_t *)context;
+  prach_job_t *job = ctx->prach_held_job;
+  ctx->prach_held_job = NULL;
+  if (job == NULL && rte_ring_dequeue(ctx->prach_ready_jobs, (void **)&job) != 0)
+    return false;
+  if (job->start_absolute_symbol > last_absolute_symbol) {
+    ctx->prach_held_job = job;
+    return false;
   }
+  *start_absolute_symbol = job->start_absolute_symbol;
+  read_prach_job(ctx, job, rxdata, antenna, section_id);
+  return true;
 }
 
 void du_packet_processor_get_stats(void *context, du_packet_processor_stats_t *out)

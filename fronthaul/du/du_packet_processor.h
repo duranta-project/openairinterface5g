@@ -79,6 +79,14 @@ int du_packet_processor_get_ready_ul_job_count(void *context);
 // nothing arrived) and returns its time. Blocks until a job is ready.
 void du_packet_processor_read_ul_iq(void *context, uint32_t **rxdataF, int nb_rx, uint64_t *hyper_frame, int *frame, int *slot, int *symbol);
 
+// Like du_packet_processor_read_ul_iq(), but never blocks and only reads a job at or before
+// last_absolute_symbol. Returns false if no job is ready or the next one is later; that job is
+// kept for the next call.
+bool du_packet_processor_read_ul_iq_upto(void *context, uint32_t **rxdataF, int nb_rx, uint64_t last_absolute_symbol, uint64_t *absolute_symbol);
+
+// Symbols after OTA at which a UL symbol's receive window closes and its job becomes ready (Ta3 max).
+uint32_t du_packet_processor_get_ul_window_symbols(void *context);
+
 // Announces a PRACH occasion of num_symbols symbols from start_absolute_symbol in slot_in_frame,
 // for PRACH antenna ant_id (counted from 0, not the eAxC port), compressed with comp_method and
 // iq_width. The sequence starts kbar values into the received PRBs. There is one occasion per
@@ -97,6 +105,16 @@ int du_packet_processor_get_ready_prach_job_count(void *context);
 // Reads the next ready PRACH job: the 139 accumulated subcarriers starting at kbar, as I/Q
 // pairs, and its occasion's time, antenna and section. Blocks until a job is ready.
 void du_packet_processor_read_prach_iq(void *context, int16_t *rxdata, uint64_t *hyper_frame, int *frame, int *slot, int *antenna, int *section_id);
+
+// Like du_packet_processor_read_prach_iq(), but never blocks and only reads a job whose occasion
+// starts at or before last_absolute_symbol. Returns false if no job is ready or the next one is
+// later; that job is kept for the next call.
+bool du_packet_processor_read_prach_iq_upto(void *context,
+                                            int16_t *rxdata,
+                                            uint64_t last_absolute_symbol,
+                                            uint64_t *start_absolute_symbol,
+                                            int *antenna,
+                                            int *section_id);
 
 // Copies the stats.
 void du_packet_processor_get_stats(void *context, du_packet_processor_stats_t *out);

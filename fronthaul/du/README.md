@@ -55,6 +55,12 @@ closes the UL receive windows that have expired and transmits the TX packets que
 symbol. The application threads that queue TX work build those packets themselves, so the worker
 only sends them. Application threads also read completed UL jobs through the API.
 
+The timer also produces one event per OTA slot, DL or UL, once that slot's UL receive window has
+closed. `du_fh_wait_slot()` blocks on it, which gives the application a slot clock that matches
+the vendor library's per-slot callback. When more than `DU_FH_MAX_SLOT_BACKLOG` events are
+pending, it skips to the newest one. After `du_fh_stop()` it returns -1, so a thread blocked in it
+can finish.
+
 ## Timing
 
 Times are configured in microseconds and converted to whole symbols. The TX clock starts in
@@ -64,7 +70,7 @@ Times are configured in microseconds and converted to whole symbols. The TX cloc
 |---|---|---|
 | DL C-Plane | sent `T1a_cp_dl_max - 1` symbols before OTA | `T1a_cp_dl` |
 | DL U-Plane | sent `T1a_up_max - 1` symbols before OTA | `T1a_up` |
-| UL C-Plane | sent `T1a_cp_ul_max - 1` symbols before OTA | `T1a_cp_ul` |
+| UL C-Plane, PRACH C-Plane | sent `T1a_cp_ul_max - 1` symbols before OTA | `T1a_cp_ul` |
 | UL U-Plane, PRACH | accepted `Ta3_min` to `Ta3_max` symbols after OTA | `Ta3` |
 
 Work queued after its send time is dropped and counted (`app_too_late_tx`,
@@ -89,11 +95,16 @@ counts a symbol already released, too far ahead, or not UL. UL jobs become ready
 symbol order: a job once all its expected PRBs have arrived, any job once its `Ta3` window
 closes, and an empty job for a symbol nothing was expected for once its OTA has passed.
 Anything still missing is zero.
-`du_fh_read_ul_iq()` returns ready jobs in symbol order.
+`du_fh_read_ul_iq()` returns ready jobs in symbol order, and blocks until one is ready.
+`du_fh_read_ul_iq_upto()` returns one only if it is at or before a given symbol, and never
+blocks.
 
-`du_fh_expect_prach_occasion()` registers a PRACH occasion. The packet processor adds up the
-repetitions over the occasion's symbols, and the job is ready when the window of its last
-symbol closes. `du_fh_read_prach_iq()` returns the 139 PRACH subcarriers starting at `kbar`.
+`du_fh_schedule_prach()` sends the PRACH C-Plane (section type 3) for an occasion, and
+`du_fh_expect_prach_occasion()` registers it with the packet processor. The packet processor
+adds up the repetitions over the occasion's symbols, and the job is ready when the window of its
+last symbol closes. `du_fh_read_prach_iq()` returns the 139 PRACH subcarriers starting at `kbar`,
+and blocks until a job is ready. `du_fh_read_prach_iq_upto()` returns one only if its occasion
+starts at or before a given symbol, and never blocks.
 
 ## Tests
 
