@@ -355,9 +355,9 @@ static void *split7_thread(void *param)
     ru_push_tx_job(gNB, frame_tx, slot_tx, frame, slot, 0);
   }
 
-  trx_oran_get_stats(eth); // maybe move get stats below end()
   trx_oran_stop(eth);
   trx_oran_end(eth);
+  trx_oran_get_stats(eth);
 
   LOG_I(HW, "O-RAN 7.2 fronthaul stopped\n");
 

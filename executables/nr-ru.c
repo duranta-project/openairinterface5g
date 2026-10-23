@@ -856,7 +856,10 @@ void kill_NR_RU_proc(int inst) {
    * that point races a destroyed mutex (EINVAL) and asserts. oai_exit is
    * already set at this point and the RF reads are non-blocking, so the join
    * returns promptly. */
-  pthread_join(proc->pthread_FH, NULL);
+  if (proc->pthread_FH) {
+    LOG_I(PHY, "Stopping RU %d processing thread\n", inst);
+    pthread_join(proc->pthread_FH, NULL);
+  }
 
   if (ru->if_south != REMOTE_IF4p5) {
     abortTpool(ru->threadPool);
@@ -963,7 +966,6 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
 
 void stop_RU(int nb_ru) {
   for (int inst = 0; inst < nb_ru; inst++) {
-    LOG_I(PHY, "Stopping RU %d processing threads\n", inst);
     kill_NR_RU_proc(inst);
   }
 }
