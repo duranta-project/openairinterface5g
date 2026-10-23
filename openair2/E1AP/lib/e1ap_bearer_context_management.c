@@ -1453,6 +1453,11 @@ static E1AP_PDU_Session_Resource_To_Modify_Item_t e1_encode_pdu_session_to_mod_i
 {
   E1AP_PDU_Session_Resource_To_Modify_Item_t out = {0};
   out.pDU_Session_ID = in->sessionId;
+  // DRB To Setup List (O)
+  if (in->numDRB2Setup > 0) {
+    asn1cCalloc(out.dRB_To_Setup_List_NG_RAN, drb2Setup_List);
+    e1_encode_drb_to_setup_list(drb2Setup_List, in->numDRB2Setup, in->DRBnGRanList);
+  }
   if (in->numDRB2Modify > 0) {
     out.dRB_To_Modify_List_NG_RAN = calloc_or_fail(1, sizeof(*out.dRB_To_Modify_List_NG_RAN));
   }
@@ -1739,10 +1744,13 @@ static bool e1_decode_pdu_session_to_mod_item(pdu_session_to_mod_t *out, const E
 {
   // PDU Session ID
   out->sessionId = in->pDU_Session_ID;
-  // DRB to modify list
+  // DRB To Setup List (O)
+  if (in->dRB_To_Setup_List_NG_RAN)
+    CHECK_E1AP_DEC(e1_decode_drb_to_setup_list(&out->numDRB2Setup, out->DRBnGRanList, in->dRB_To_Setup_List_NG_RAN));
+  // DRB to modify list (O)
   E1AP_DRB_To_Modify_List_NG_RAN_t *drb2ModList = in->dRB_To_Modify_List_NG_RAN;
-  out->numDRB2Modify = drb2ModList->list.count;
-  for (int j = 0; j < drb2ModList->list.count; j++) {
+  out->numDRB2Modify = drb2ModList ? drb2ModList->list.count : 0;
+  for (int j = 0; j < out->numDRB2Modify; j++) {
     DRB_nGRAN_to_mod_t *drb = out->DRBnGRanModList + j;
     // DRB to modify item
     E1AP_DRB_To_Modify_Item_NG_RAN_t *drb2Mod = drb2ModList->list.array[j];
