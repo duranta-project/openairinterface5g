@@ -4010,6 +4010,11 @@ void UL_tti_req_ahead_initialization(nr_cell_sched_t *cell, int n, frame_t frame
   if(cell->UL_tti_req_ahead[1].Slot == 1)
     return;
 
+  // The first scheduler call need not be at frame zero.
+  const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
+  const fsn_t current = {frameP, slotP, *scc->ssbSubcarrierSpacing};
+  cell->ul_next = fsn_add_delta(current, cell->radio_config.minRXTXTIME + get_NTN_Koffset(scc));
+
   /* fill in slot/frame numbers: slot is fixed, frame will be updated by scheduler
    * consider that scheduler runs sl_ahead: the first sl_ahead slots are
    * already "in the past" and thus we put frame 1 instead of 0! */
