@@ -299,18 +299,14 @@ int xran_fh_rx_prach_read_slot(const int tti, const int xran_port, const uint8_t
  * If I/Q compression (bitwidth < 16 bits) is configured, decompresses the data
  * before writing.
  * Called by split7_thread() once oai_xran_fh_rx_callback() signalled the slot. */
-int xran_fh_rx_read_slot(const int tti, const int xran_port, const uint8_t nb_ant, const int fft_size, oran_buf_list_t *bufs, int32_t **rxdataF)
+int xran_fh_rx_read_slot(const int tti, const int slot_offset, const int xran_port, const uint8_t nb_ant, const int fft_size, oran_buf_list_t *bufs, int32_t **rxdataF)
 {
   void *ptr = NULL;
   int32_t *pos = NULL;
   int idx = 0;
 
-  int slot_offset_rxdata = 3 & (tti % 20); // to finalize
-  uint32_t slot_size = 4 * 14 * fft_size;
-  uint8_t *start_ptr = NULL;
   for (uint8_t ant_id = 0; ant_id < nb_ant; ant_id++) {
-    uint8_t *rx_data = (uint8_t *)rxdataF[ant_id + (xran_port * nb_ant)];
-    start_ptr = rx_data + (slot_size * slot_offset_rxdata);
+    int32_t *start = rxdataF[ant_id + (xran_port * nb_ant)] + slot_offset;
 
     struct xran_prb_map *pPrbMap = (struct xran_prb_map *)bufs->dstcp[ant_id][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
     struct xran_prb_elm *pRbElm = &pPrbMap->prbMap[0];
@@ -339,7 +335,7 @@ int xran_fh_rx_read_slot(const int tti, const int xran_port, const uint8_t nb_an
         LOG_D(HW, "p_rx_packet_ctl[%d] startRB[%d]:numRB[%d]\n", pkt_idx, startRB, numRB);
 
         ptr = pData;
-        pos = (int32_t *)(start_ptr + (4 * sym_idx * fft_size));
+        pos = start + sym_idx * fft_size;
         if (ptr == NULL || pos == NULL)
           continue;
         src = pData;

@@ -279,7 +279,9 @@ static void process_ul_data(int tti, int frame, int slot, PHY_VARS_gNB *gNB, str
   for (int xran_port = 0; xran_port < fh_init.xran_ports; xran_port++) {
     oran_buf_list_t *bufs = get_xran_buffers(xran_port);
     const int fft_size = 1 << fh_cfg[xran_port].perMu[s7cfg->mu].nULFftSize;
-    ret = xran_fh_rx_read_slot(tti, xran_port, fh_cfg[xran_port].neAxcUl, fft_size, bufs, s7cfg->rxdataF);
+    // same slot position in the RU_RX_SLOT_DEPTH ring as the L1 readers (e.g. nr_ulsch_demodulation.c)
+    const int slot_offset = (slot % RU_RX_SLOT_DEPTH) * XRAN_NUM_OF_SYMBOL_PER_SLOT * fft_size;
+    ret = xran_fh_rx_read_slot(tti, slot_offset, xran_port, fh_cfg[xran_port].neAxcUl, fft_size, bufs, s7cfg->rxdataF);
     if (ret != 0)
       LOG_W(HW, "[%d.%d] xran_fh_rx_read_slot error for xran_port %d\n", frame, slot, xran_port);
   }
