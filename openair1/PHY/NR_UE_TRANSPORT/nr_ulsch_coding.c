@@ -42,12 +42,13 @@ int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
     AssertFatal((A / 8) + 3 <= max_payload_bytes, "A %d is too big (A/8+3 = %d > %d)\n", A, (A / 8) + 3, max_payload_bytes);
   }
 
-  ///////////////////////// b---->| block segmentation |---->c /////////////////////////
+  ///////////////////////// segmentation parameters, the segments are built by nr_ulsch_encoding() /////////////////////////
 
   harq_process->BG = ldpcBaseGraph;
+  harq_process->B = B;
 
-  harq_process->Kb = nr_segmentation(harq_process->payload_AB,
-                                     harq_process->c,
+  harq_process->Kb = nr_segmentation(NULL,
+                                     NULL,
                                      B,
                                      &harq_process->C,
                                      &harq_process->K,
@@ -67,7 +68,8 @@ int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
                       const uint8_t slot,
                       unsigned int *G,
                       int nb_ulsch,
-                      uint8_t *ULSCH_ids)
+                      uint8_t *ULSCH_ids,
+                      uint8_t **f)
 {
   start_meas_nr_ue_phy(ue, ULSCH_ENCODING_STATS);
 
@@ -89,6 +91,8 @@ int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
 
   nrLDPC_segment_encoding_parameters_t segments[nb_ulsch][max_num_segments];
   memset(segments, 0, sizeof(segments));
+  // code blocks of the TBs (K bits at most 8448), only used by the encoder below
+  uint8_t c[nb_ulsch][max_num_segments][8448 / 8] __attribute__((aligned(32)));
 
   for (uint8_t pusch_id = 0; pusch_id < nb_ulsch; pusch_id++) {
     uint8_t ULSCH_id = ULSCH_ids[pusch_id];
@@ -115,15 +119,28 @@ int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
     TB_parameters->A = pusch_pdu->pusch_data.tb_size / 8;
     TB_parameters->segments = segments[pusch_id];
 
-    memset(harq_process->f, 0, 14 * nb_rb * 12 * 16);
-    TB_parameters->output = harq_process->f;
+    memset(f[pusch_id], 0, nr_ulsch_f_size(G[pusch_id]));
+    TB_parameters->output = f[pusch_id];
+
+    ///////////////////////// b---->| block segmentation |---->c /////////////////////////
+    uint8_t *c_tb[max_num_segments];
+    for (int r = 0; r < TB_parameters->C; r++)
+      c_tb[r] = c[pusch_id][r];
+    nr_segmentation(harq_process->payload_AB,
+                    c_tb,
+                    harq_process->B,
+                    &harq_process->C,
+                    &harq_process->K,
+                    &harq_process->Z,
+                    &harq_process->F,
+                    harq_process->BG);
 
     for (int r = 0; r < TB_parameters->C; r++) {
       nrLDPC_segment_encoding_parameters_t *segment_parameters = &TB_parameters->segments[r];
       int E = nr_get_E(TB_parameters->G, TB_parameters->C, TB_parameters->Qm, TB_parameters->nb_layers, r);
       if (E < 0)
          return -1;
-      segment_parameters->c = harq_process->c[r];
+      segment_parameters->c = c_tb[r];
       segment_parameters->E = E;
       reset_meas(&segment_parameters->ts_ldpc_encode);
 
