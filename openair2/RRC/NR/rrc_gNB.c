@@ -537,14 +537,6 @@ NR_DRB_ToAddModList_t *createDRBlist(gNB_RRC_UE_t *ue, bool reestablish, bool do
       continue;
     }
     pdusession_t *session = &pduSession->param;
-    NR_DRB_ToAddMod_t *drb_ToAddMod = calloc_or_fail(1, sizeof(*drb_ToAddMod));
-    drb_ToAddMod->drb_Identity = drb->drb_id;
-    // PDCP config
-    drb_ToAddMod->pdcp_Config = nr_rrc_build_pdcp_config_ie(do_integrity, do_ciphering, &drb->pdcp_config);
-    if (reestablish) {
-      asn1cCallocOne(drb_ToAddMod->reestablishPDCP, NR_DRB_ToAddMod__reestablishPDCP_true);
-    }
-    // cn-association: SDAP config
     // Get all QoS flows mapped to this DRB
     pdusession_level_qos_parameter_t flows_to_add[MAX_QOS_FLOWS] = {0};
     uint8_t n_flows = 0;
@@ -555,6 +547,21 @@ NR_DRB_ToAddModList_t *createDRBlist(gNB_RRC_UE_t *ue, bool reestablish, bool do
         flows_to_add[n_flows++] = q->qos;
       }
     }
+    /* mappedQoS-FlowsToAdd expects at least 1 item:
+        do not add bearers with no QoS flows mapped to it
+        (e.g. ongoing PDU session modification) */
+    if (n_flows == 0) {
+      LOG_D(NR_RRC, "DRB %d has no QoS flow mapped to it, skip\n", drb->drb_id);
+      continue;
+    }
+    NR_DRB_ToAddMod_t *drb_ToAddMod = calloc_or_fail(1, sizeof(*drb_ToAddMod));
+    drb_ToAddMod->drb_Identity = drb->drb_id;
+    // PDCP config
+    drb_ToAddMod->pdcp_Config = nr_rrc_build_pdcp_config_ie(do_integrity, do_ciphering, &drb->pdcp_config);
+    if (reestablish) {
+      asn1cCallocOne(drb_ToAddMod->reestablishPDCP, NR_DRB_ToAddMod__reestablishPDCP_true);
+    }
+    // cn-association: SDAP config
     asn1cCalloc(drb_ToAddMod->cnAssociation, cn_association);
     cn_association->present = NR_DRB_ToAddMod__cnAssociation_PR_sdap_Config;
     nr_sdap_configuration_t *sdap = &session->sdap_config;
@@ -953,12 +960,15 @@ nr_rrc_reconfig_param_t get_RRCReconfiguration_params(gNB_RRC_INST *rrc, gNB_RRC
       session->nas_pdu.len = 0;
       LOG_D(NR_RRC, "Transfer NAS info with size %ld to RRCReconfiguration params\n", session->nas_pdu.len);
     }
-    // Collect DRBs to release for PDU sessions marked for release
-    if (item->status == PDU_SESSION_STATUS_TORELEASE || item->status == PDU_SESSION_STATUS_NOTIFYONRELEASE) {
+    // Collect DRBs to release: all DRBs of a session to release, DRBs left with no QoS flow of a session to modify
+    if (item->status == PDU_SESSION_STATUS_TORELEASE || item->status == PDU_SESSION_STATUS_NOTIFYONRELEASE
+        || item->status == PDU_SESSION_STATUS_TOMODIFY) {
       if (!params.drb_rel)
         params.drb_rel = calloc_or_fail(MAX_DRBS_PER_UE, sizeof(int));
       FOR_EACH_SEQ_ARR (drb_t *, drb, &UE->drbs) {
         if (drb->pdusession_id == session->pdusession_id) {
+          if (item->status == PDU_SESSION_STATUS_TOMODIFY && nr_rrc_drb_has_qos_flow(item, drb->drb_id))
+            continue;
           if (params.n_drb_rel >= MAX_DRBS_PER_UE) {
             LOG_E(NR_RRC, "UE %d: Too many DRBs to release (max %d)\n", UE->rrc_ue_id, MAX_DRBS_PER_UE);
             break;
@@ -3587,6 +3597,14 @@ void rrc_gNB_process_e1_bearer_context_modif_resp(const e1ap_bearer_modif_resp_t
         /* Only mark for RRC reconfiguration if there is a QoS or UL UP change */
         if (drb_mod->numQosFlowSetup > 0 || drb_mod->numUpParam > 0)
           do_reconfig = true;
+      }
+
+      // DRBs left with no QoS flow: release them towards the DU
+      int released[MAX_DRBS_PER_UE];
+      int n_released = nr_rrc_collect_released_drbs(&ue->drbs, pdu_session, released);
+      for (int j = 0; j < n_released; j++) {
+        DevAssert(n_f1_drbs_rel < MAX_DRBS_PER_UE);
+        f1_drbs_rel[n_f1_drbs_rel++].id = released[j];
       }
       // Collect DRBs to release for PDU sessions marked for release
     } else if (pdu_session->status == PDU_SESSION_STATUS_TORELEASE) {
