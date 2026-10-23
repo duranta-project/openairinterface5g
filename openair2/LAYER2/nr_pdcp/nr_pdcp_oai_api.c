@@ -45,6 +45,8 @@
 #include "pdcp_messages_types.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "utils.h"
+#include "openair2/GNB_APP/gnb_paramdef.h"
+#include "max_count_reached.h"
 
 #define TODO do { \
     printf("%s:%d:%s: todo\n", __FILE__, __LINE__, __FUNCTION__); \
@@ -522,6 +524,14 @@ void deliver_pdu_srb_rlc(void *deliver_pdu_data, ue_id_t ue_id, int srb_id,
   enqueue_rlc_data_req(&ctxt, 1, srb_id, sdu_id, 0, size, memblock);
 }
 
+/* truly defined for gNB in max_count_reached.c, but needed here to compile nr-uesoftmodem */
+#ifndef PDCP_CUCP_CUUP
+void nr_pdcp_max_count_reached_srb(max_count_reached_data_t max_count_reached_data)
+{
+  abort();
+}
+#endif
+
 void add_srb(int is_gnb,
              ue_id_t UEid,
              struct NR_SRB_ToAddMod *s,
@@ -540,6 +550,16 @@ void add_srb(int is_gnb,
   if (nr_pdcp_get_rb(ue, srb_id, true) != NULL) {
     LOG_E(PDCP, "warning SRB %d already exist for UE ID %ld, do nothing\n", srb_id, UEid);
   } else {
+    max_count_reached_data_t max_count_reached_data = {
+      .ue_id = UEid,
+      .pdu_session_id = -1,   /* there is no PDU session for SRB */
+      .rb_id = srb_id
+    };
+
+    /* retrieve max_count from configuration */
+    GET_PARAMS(pdcp_global_params, NR_PDCP_GLOBALPARAMS_DESC, CONFIG_STRING_NR_PDCP);
+    uint32_t max_count = *gpd(pdcp_global_params, sizeofArray(pdcp_global_params), CONFIG_NR_PDCP_MAX_COUNT)->uptr;
+
     pdcp_srb = new_nr_pdcp_entity(NR_PDCP_SRB,
                                   is_gnb,
                                   srb_id,
@@ -550,6 +570,9 @@ void add_srb(int is_gnb,
                                   ue,
                                   NULL,
                                   ue,
+                                  is_gnb ? nr_pdcp_max_count_reached_srb : NULL,
+                                  max_count_reached_data,
+                                  max_count,
                                   SHORT_SN_SIZE,
                                   t_Reordering,
                                   -1,
@@ -560,6 +583,14 @@ void add_srb(int is_gnb,
   }
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }
+
+/* truly defined for gNB in max_count_reached.c, but needed here to compile nr-uesoftmodem */
+#ifndef PDCP_CUCP_CUUP
+void nr_pdcp_max_count_reached_drb(max_count_reached_data_t max_count_reached_data)
+{
+  abort();
+}
+#endif
 
 void nr_pdcp_add_drb(int is_gnb,
                      const ue_id_t UEid,
@@ -604,6 +635,16 @@ void nr_pdcp_add_drb(int is_gnb,
       exit(1);
     }
 
+    max_count_reached_data_t max_count_reached_data = {
+      .ue_id = UEid,
+      .pdu_session_id = sdap->pdusession_id,
+      .rb_id = sdap->drb_id
+    };
+
+    /* retrieve max_count from configuration */
+    GET_PARAMS(pdcp_global_params, NR_PDCP_GLOBALPARAMS_DESC, CONFIG_STRING_NR_PDCP);
+    uint32_t max_count = *gpd(pdcp_global_params, sizeofArray(pdcp_global_params), CONFIG_NR_PDCP_MAX_COUNT)->uptr;
+
     // add PDCP entity
     nr_pdcp_entity_t *pdcp_drb = new_nr_pdcp_entity(NR_PDCP_DRB_AM,
                                                     is_gnb,
@@ -615,6 +656,9 @@ void nr_pdcp_add_drb(int is_gnb,
                                                     ue,
                                                     is_gnb ? deliver_pdu_drb_gnb : deliver_pdu_drb_ue,
                                                     ue,
+                                                    is_gnb ? nr_pdcp_max_count_reached_drb : NULL,
+                                                    max_count_reached_data,
+                                                    max_count,
                                                     sn_size_dl,
                                                     t_reordering,
                                                     discard_timer,
@@ -1067,6 +1111,33 @@ void nr_pdcp_get_drb_count_values(ue_id_t ue_id, rb_id_t rb_id, nr_pdcp_count_t 
 
   *dl_count = entity->get_pdcp_count_dl(entity);
   *ul_count = entity->get_pdcp_count_ul(entity);
+
+  nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+}
+
+void nr_pdcp_count_reset(ue_id_t ue_id, rb_id_t rb_id)
+{
+  nr_pdcp_manager_lock(nr_pdcp_ue_manager);
+
+  nr_pdcp_ue_t *ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, ue_id);
+
+  nr_pdcp_entity_t *entity = nr_pdcp_get_rb(ue, rb_id, false);
+
+  if (!entity) {
+    LOG_E(PDCP, "No entity found (DRB %ld)\n", rb_id);
+    nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+    return;
+  }
+
+  /* clear state */
+  nr_pdcp_deliver_all_sdus(entity);
+  entity->tx_next = 0;
+  entity->rx_next = 0;
+  entity->rx_deliv = 0;
+  entity->rx_reord = 0;
+  entity->t_reordering_start = 0;
+  entity->entity_suspended = false;
+  entity->max_count_reached_signaled = false;
 
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }

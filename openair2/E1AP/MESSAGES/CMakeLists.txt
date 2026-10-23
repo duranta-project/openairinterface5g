@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: LicenseRef-CSSL-1.0
 
-set(E1AP_VERSION 16 78 0)
+set(E1AP_VERSION 17 11 0)
 make_version(E1AP_cc ${E1AP_VERSION})
 #add_definitions(-DE1AP_VERSION=${E1AP_cc})
 string(REPLACE ";" "." E1AP_RELEASE "${E1AP_VERSION}")
 
 if(E1AP_RELEASE VERSION_EQUAL "16.78.0")
   include(ASN.1/38463-g80.R16.78.0.cmake)
+elseif(E1AP_RELEASE VERSION_EQUAL "17.11.0")
+  include(ASN.1/37483-hb0.R17.11.0.cmake)
 else()
   message(FATAL_ERROR "unknown E1AP_RELEASE ${E1AP_RELEASE}")
 endif()

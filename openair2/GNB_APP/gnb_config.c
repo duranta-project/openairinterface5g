@@ -1300,9 +1300,15 @@ void config_rlc(configmodule_interface_t *cfg, nr_rlc_configuration_t *rlc_confi
 
 static void config_pdcp(configmodule_interface_t *cfg, nr_pdcp_configuration_t *pdcp_config)
 {
+  /* global configuration */
+  paramdef_t pdcp_global_params[] = NR_PDCP_GLOBALPARAMS_DESC;
+  int ret = config_get(cfg, pdcp_global_params, sizeofArray(pdcp_global_params), CONFIG_STRING_NR_PDCP);
+  AssertFatal(ret >= 0, "problem reading NR PDCP configuration from configuration file\n");
+  pdcp_config->max_count = *gpd(pdcp_global_params, sizeofArray(pdcp_global_params), CONFIG_NR_PDCP_MAX_COUNT)->uptr;
+
   /* DRB configuration */
   paramdef_t pdcp_params[] = NR_PDCP_DRB_GLOBALPARAMS_DESC;
-  int ret = config_get(cfg, pdcp_params, sizeofArray(pdcp_params), CONFIG_STRING_NR_PDCP_DRB);
+  ret = config_get(cfg, pdcp_params, sizeofArray(pdcp_params), CONFIG_STRING_NR_PDCP_DRB);
   AssertFatal(ret >= 0, "problem reading NR PDCP configuration from configuration file\n");
 
   pdcp_config->drb.sn_size = config_get_processedint(cfg, &pdcp_params[CONFIG_NR_PDCP_DRB_SN_SIZE_IDX]);

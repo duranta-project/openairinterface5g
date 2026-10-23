@@ -201,6 +201,14 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
     entity->rx_reord = entity->rx_next;
     entity->t_reordering_start = entity->t_current;
   }
+
+  /* signal max COUNT reached if needed */
+  if (rcvd_count >= entity->max_count
+      && !entity->max_count_reached_signaled) {
+    if (entity->max_count_reached != NULL)
+      entity->max_count_reached(entity->max_count_reached_data);
+    entity->max_count_reached_signaled = true;
+  }
 }
 
 static int nr_pdcp_entity_process_sdu(nr_pdcp_entity_t *entity,
@@ -288,6 +296,14 @@ static int nr_pdcp_entity_process_sdu(nr_pdcp_entity_t *entity,
   entity->stats.txpdu_pkts++;
   entity->stats.txpdu_bytes += header_size + size + integrity_size;
   entity->stats.txpdu_sn = sn;
+
+  /* signal max COUNT reached if needed */
+  if (count >= entity->max_count
+      && !entity->max_count_reached_signaled) {
+    if (entity->max_count_reached)
+      entity->max_count_reached(entity->max_count_reached_data);
+    entity->max_count_reached_signaled = true;
+  }
 
   return header_size + size + integrity_size;
 }
@@ -448,7 +464,7 @@ static void nr_pdcp_entity_set_time(nr_pdcp_entity_t *entity, uint64_t now)
   check_t_reordering(entity);
 }
 
-static void deliver_all_sdus(nr_pdcp_entity_t *entity)
+void nr_pdcp_deliver_all_sdus(nr_pdcp_entity_t *entity)
 {
   // deliver the PDCP SDUs stored in the receiving PDCP entity to upper layers
   while (entity->rx_list != NULL) {
@@ -482,12 +498,14 @@ static void nr_pdcp_entity_suspend(nr_pdcp_entity_t *entity)
   /* Receiving PDCP entity */
   if (entity->t_reordering_start != 0) {
     entity->t_reordering_start = 0;
-    deliver_all_sdus(entity);
+    nr_pdcp_deliver_all_sdus(entity);
   }
   entity->rx_next = 0;
   entity->rx_deliv = 0;
   /* Flag to keep track of PDCP entity status */
   entity->entity_suspended = true;
+
+  entity->max_count_reached_signaled = false;
 }
 
 static void free_rx_list(nr_pdcp_entity_t *entity)
@@ -522,6 +540,8 @@ static void nr_pdcp_entity_reestablish_drb_am(nr_pdcp_entity_t *entity,
 
   /* Flag PDCP entity as re-established */
   entity->entity_suspended = false;
+
+  entity->max_count_reached_signaled = false;
 }
 
 static void nr_pdcp_entity_reestablish_drb_um(nr_pdcp_entity_t *entity,
@@ -533,7 +553,7 @@ static void nr_pdcp_entity_reestablish_drb_um(nr_pdcp_entity_t *entity,
   /* receiving entity procedures */
   /* deliver all SDUs if t_reordering is running */
   if (entity->t_reordering_start != 0)
-    deliver_all_sdus(entity);
+    nr_pdcp_deliver_all_sdus(entity);
   /* stop t_reordering */
   entity->t_reordering_start = 0;
   /* set rx_next and rx_deliv to the initial value */
@@ -545,6 +565,8 @@ static void nr_pdcp_entity_reestablish_drb_um(nr_pdcp_entity_t *entity,
 
   /* Flag PDCP entity as re-established */
   entity->entity_suspended = false;
+
+  entity->max_count_reached_signaled = false;
 }
 
 static void nr_pdcp_entity_reestablish_srb(nr_pdcp_entity_t *entity,
@@ -566,11 +588,13 @@ static void nr_pdcp_entity_reestablish_srb(nr_pdcp_entity_t *entity,
 
   /* Flag PDCP entity as re-established */
   entity->entity_suspended = false;
+
+  entity->max_count_reached_signaled = false;
 }
 
 static void nr_pdcp_entity_release(nr_pdcp_entity_t *entity)
 {
-  deliver_all_sdus(entity);
+  nr_pdcp_deliver_all_sdus(entity);
 }
 
 static void nr_pdcp_entity_delete(nr_pdcp_entity_t *entity)
@@ -624,6 +648,8 @@ static void nr_pdcp_entity_set_count_dl(nr_pdcp_entity_t *entity, nr_pdcp_count_
   entity->rx_next = count + 1;
   entity->rx_deliv = count;
 
+  entity->max_count_reached_signaled = false;
+
   LOG_I(PDCP,
         "DRB %d: Applied PDCP Count\n"
         "  DL COUNT - SN: %d HFN: %d (COUNT=%u)\n"
@@ -657,6 +683,8 @@ static void nr_pdcp_entity_set_count_ul(nr_pdcp_entity_t *entity, nr_pdcp_count_
 
   // Apply the COUNT values
   entity->tx_next = count;
+
+  entity->max_count_reached_signaled = false;
 
   LOG_I(PDCP,
         "DRB %d: Applied PDCP Count\n"
@@ -693,6 +721,9 @@ nr_pdcp_entity_t *new_nr_pdcp_entity(
     void *deliver_sdu_data,
     void (*deliver_pdu)(void *deliver_pdu_data, ue_id_t ue_id, int rb_id, char *buf, int size, int sdu_id),
     void *deliver_pdu_data,
+    void (*max_count_reached)(max_count_reached_data_t max_count_reached_data),
+    max_count_reached_data_t max_count_reached_data,
+    uint32_t max_count,
     int sn_size,
     int t_reordering,
     int discard_timer,
@@ -736,6 +767,10 @@ nr_pdcp_entity_t *new_nr_pdcp_entity(
 
   ret->deliver_pdu = deliver_pdu;
   ret->deliver_pdu_data = deliver_pdu_data;
+
+  ret->max_count_reached = max_count_reached;
+  ret->max_count_reached_data = max_count_reached_data;
+  ret->max_count = max_count;
 
   ret->rb_id         = rb_id;
   ret->pdusession_id = pdusession_id;

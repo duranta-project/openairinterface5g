@@ -44,6 +44,12 @@ typedef struct {
 } nr_pdcp_count_t;
 
 typedef struct {
+  uint32_t ue_id;
+  int pdu_session_id;
+  int rb_id;
+} max_count_reached_data_t;
+
+typedef struct {
   //nr_pdcp_entity_type_t mode;
   /* PDU stats */
   /* TX */
@@ -110,6 +116,8 @@ typedef struct nr_pdcp_entity_s {
   void (*deliver_pdu)(void *deliver_pdu_data, ue_id_t ue_id, int rb_id,
                       char *buf, int size, int sdu_id);
   void *deliver_pdu_data;
+  void (*max_count_reached)(max_count_reached_data_t max_count_reached_data);
+  max_count_reached_data_t max_count_reached_data;
 
   /* configuration variables */
   int rb_id;
@@ -122,12 +130,18 @@ typedef struct nr_pdcp_entity_s {
 
   int sn_max;                   /* (2^SN_size) - 1 */
   int window_size;              /* 2^(SN_size - 1) */
+  uint32_t max_count;
 
   /* state variables */
   uint32_t tx_next;
   uint32_t rx_next;
   uint32_t rx_deliv;
   uint32_t rx_reord;
+
+  /* set to true when 'max_count' value has been reached and
+   * max_count_reached() has been called
+   */
+  bool max_count_reached_signaled;
 
   /* set to the latest know time by the user of the module. Unit: ms */
   uint64_t t_current;
@@ -194,6 +208,9 @@ nr_pdcp_entity_t *new_nr_pdcp_entity(
     void *deliver_sdu_data,
     void (*deliver_pdu)(void *deliver_pdu_data, ue_id_t ue_id, int rb_id, char *buf, int size, int sdu_id),
     void *deliver_pdu_data,
+    void (*max_count_reached)(max_count_reached_data_t max_count_reached_data),
+    max_count_reached_data_t max_count_reached_data,
+    uint32_t max_count,
     int sn_size,
     int t_reordering,
     int discard_timer,
@@ -201,5 +218,7 @@ nr_pdcp_entity_t *new_nr_pdcp_entity(
 
 /* Get maximum PDCP PDU size */
 int nr_max_pdcp_pdu_size(sdu_size_t sdu_size);
+
+void nr_pdcp_deliver_all_sdus(nr_pdcp_entity_t *entity);
 
 #endif /* _NR_PDCP_ENTITY_H_ */

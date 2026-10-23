@@ -1204,6 +1204,14 @@ static void cuup_notify_reestablishment(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue_p)
   FOR_EACH_SEQ_ARR(drb_t *, drb, &ue_p->drbs) {
     bearer_context_pdcp_config_t pdcp = set_bearer_context_pdcp_config(drb->pdcp_config, um_on_default_drb, ue_p->redcap_cap);
     DRB_nGRAN_to_mod_t drb_e1 = get_e1_drb_mod_reestablishment(drb, &pdcp);
+    /* full config is used to reset PDCP COUNT, in which case we must
+     * set 'pdcp_count_reset' to true
+     * Note: in the future, if 'do_full_config' is to be used for another
+     * procedure, the logic here needs to be adapted.
+     */
+    if (ue_p->ho_context && ue_p->ho_context->do_full_config) {
+      drb_e1.pdcp_count_reset = true;
+    }
     if (!append_e1_drb_mod_req(&req, ue_p, drb->drb_id, &drb_e1)) {
       LOG_W(NR_RRC, "UE %d: Failed to append E1 DRB mod for reestablishment (DRB=%d)\n", ue_p->rrc_ue_id, drb->drb_id);
     }
@@ -2775,6 +2783,19 @@ static void rrc_CU_process_ue_context_setup_response(MessageDef *msg_p, instance
     return;
   }
 
+  /* full config is used to reset PDCP COUNT, in which case we must
+   * derive a new K_gNB from the current one
+   * Note: in the future, if 'do_full_config' is to be used for another
+   * procedure, the logic here needs to be adapted.
+   */
+  if (UE->ho_context && UE->ho_context->do_full_config) {
+    nr_rrc_cell_container_t *ue_cell = rrc_get_pcell_for_ue(rrc, UE);
+    AssertFatal(ue_cell != NULL, "cannot get source cell for UE %u\n", UE->rrc_ue_id);
+    uint32_t ssb_arfcn = get_ssb_arfcn(ue_cell);
+    const uint8_t *base_key = UE->kgnb;
+    nr_derive_key_ng_ran_star(ue_cell->info.pci, ssb_arfcn, base_key, UE->kgnb);
+  }
+
   if (resp->drbs_len > 0) {
     int num_drb = seq_arr_size(&UE->drbs);
     DevAssert(num_drb == 0 || num_drb == resp->drbs_len);
@@ -3647,6 +3668,36 @@ static void rrc_gNB_process_e1_bearer_context_modif_fail(const e1ap_bearer_conte
         fail->cause.value);
 }
 
+static void trigger_intra_cell_handover_for_pdcp_count_wrap(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue)
+{
+  nr_rrc_trigger_f1_ho_for_pdcp_count_wrap(rrc, ue);
+}
+
+/* Check if at least one of the PDU session has a DRB to modify
+ * for "PDCP COUNT wrap around" reason.
+ * If yes, trigger handover (N2 or intra-cell, depending on
+ * configuration file).
+ */
+static void rrc_gNB_check_pdcp_count_wrap_for_drb(gNB_RRC_INST *rrc,
+                                                  gNB_RRC_UE_t *UE,
+                                                  int num_pdu_sessions,
+                                                  pdu_session_required_to_mod_t *pdu_sessions)
+{
+  bool pdcp_count_wrap_wanted = false;
+  for (int i = 0; i < num_pdu_sessions; i++) {
+    pdu_session_required_to_mod_t *p = &pdu_sessions[i];
+    for (int j = 0; j < p->numDRB2Modify; j++) {
+      if (p->DRBnGRanModList[i].cause.type == E1AP_CAUSE_RADIO_NETWORK
+          && p->DRBnGRanModList[i].cause.value == E1AP_RADIO_CAUSE_PDCP_COUNT_WRAP_AROUND)
+        pdcp_count_wrap_wanted = true;
+    }
+  }
+  if (!pdcp_count_wrap_wanted)
+    return;
+
+  trigger_intra_cell_handover_for_pdcp_count_wrap(rrc, UE);
+}
+
 /** @brief E1AP Bearer Context Modification Required processing on CU-CP */
 static void rrc_gNB_process_e1_bearer_context_mod_required(sctp_assoc_t assoc_id, const e1ap_bearer_mod_required_t *req)
 {
@@ -3662,6 +3713,7 @@ static void rrc_gNB_process_e1_bearer_context_mod_required(sctp_assoc_t assoc_id
   } else {
     gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
     rrc_gNB_trigger_pdu_session_notify_on_release(rrc, UE, req->pduSessionRem, req->numPDUSessionsRem);
+    rrc_gNB_check_pdcp_count_wrap_for_drb(rrc, UE, req->numPDUSessionsMod, req->pduSessionMod);
   }
 
   e1ap_bearer_mod_confirm_t conf = {
@@ -3681,6 +3733,18 @@ void rrc_gNB_process_e1_bearer_context_release_cplt(const e1ap_bearer_release_cp
   // UE context release complete arrived from the DU first, after which we free
   // the UE context
   LOG_I(RRC, "UE %d: received bearer release complete\n", cplt->gNB_cu_cp_ue_id);
+}
+
+static void srb_max_count_reached(gNB_RRC_INST *rrc, nr_rrc_pdcp_srb_max_count_reached_t *msg)
+{
+  rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(rrc, msg->ue_id);
+  if (ue_context_p == NULL) {
+    LOG_W(NR_RRC, "UE %ld not found for SRB PDCP max COUNT reached\n", msg->ue_id);
+    return;
+  }
+  gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
+
+  trigger_intra_cell_handover_for_pdcp_count_wrap(rrc, UE);
 }
 
 static void print_meas_result_quantity(FILE *f, const NR_MeasQuantityResults_t *mqr)
@@ -4095,6 +4159,10 @@ void *rrc_gnb_task(void *args_p)
 
       case XNAP_PEER_SHUTDOWN_IND:
         rrc_remove_xn_candidate(RC.nrrrc[instance], XNAP_PEER_SHUTDOWN_IND(msg_p).gnb_id);
+        break;
+
+      case NR_RRC_PDCP_SRB_MAX_COUNT_REACHED:
+        srb_max_count_reached(RC.nrrrc[instance], &NR_RRC_PDCP_SRB_MAX_COUNT_REACHED(msg_p));
         break;
 
       default:

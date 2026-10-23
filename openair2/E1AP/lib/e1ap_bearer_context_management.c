@@ -611,7 +611,7 @@ E1AP_E1AP_PDU_t *encode_E1_bearer_context_setup_request(const e1ap_bearer_setup_
   ieC6->value.present = E1AP_BearerContextSetupRequestIEs__value_PR_System_BearerContextSetupRequest;
   ieC6->value.choice.System_BearerContextSetupRequest.present =
       E1AP_System_BearerContextSetupRequest_PR_nG_RAN_BearerContextSetupRequest;
-  E1AP_ProtocolIE_Container_4932P19_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
+  E1AP_ProtocolIE_Container_6828P19_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
   ieC6->value.choice.System_BearerContextSetupRequest.choice.nG_RAN_BearerContextSetupRequest =
       (struct E1AP_ProtocolIE_Container *)msgNGRAN_list;
   asn1cSequenceAdd(msgNGRAN_list->list, E1AP_NG_RAN_BearerContextSetupRequest_t, msgNGRAN);
@@ -718,8 +718,8 @@ bool decode_E1_bearer_context_setup_request(const E1AP_E1AP_PDU_t *pdu, e1ap_bea
             break;
         }
 
-        E1AP_ProtocolIE_Container_4932P19_t *msgNGRAN_list =
-            (E1AP_ProtocolIE_Container_4932P19_t *)System_BearerContextSetupRequest->choice.nG_RAN_BearerContextSetupRequest;
+        E1AP_ProtocolIE_Container_6828P19_t *msgNGRAN_list =
+            (E1AP_ProtocolIE_Container_6828P19_t *)System_BearerContextSetupRequest->choice.nG_RAN_BearerContextSetupRequest;
         E1AP_NG_RAN_BearerContextSetupRequest_t *msgNGRAN = msgNGRAN_list->list.array[0];
         // NG-RAN
         _EQ_CHECK_INT(msgNGRAN_list->list.count, 1); // only one RAN is expected
@@ -969,7 +969,7 @@ E1AP_E1AP_PDU_t *encode_E1_bearer_context_setup_response(const e1ap_bearer_setup
   // CHOICE System: default NG-RAN (M)
   ieC3->value.choice.System_BearerContextSetupResponse.present =
       E1AP_System_BearerContextSetupResponse_PR_nG_RAN_BearerContextSetupResponse;
-  E1AP_ProtocolIE_Container_4932P22_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
+  E1AP_ProtocolIE_Container_6828P22_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
   ieC3->value.choice.System_BearerContextSetupResponse.choice.nG_RAN_BearerContextSetupResponse =
       (struct E1AP_ProtocolIE_Container *)msgNGRAN_list;
   asn1cSequenceAdd(msgNGRAN_list->list, E1AP_NG_RAN_BearerContextSetupResponse_t, msgNGRAN);
@@ -1019,8 +1019,8 @@ bool decode_E1_bearer_context_setup_response(const E1AP_E1AP_PDU_t *pdu, e1ap_be
         _EQ_CHECK_INT(ie->value.present, E1AP_BearerContextSetupResponseIEs__value_PR_System_BearerContextSetupResponse);
         switch (ie->value.choice.System_BearerContextSetupResponse.present) {
           case E1AP_System_BearerContextSetupResponse_PR_nG_RAN_BearerContextSetupResponse: {
-            E1AP_ProtocolIE_Container_4932P22_t *msgNGRAN_list =
-                (E1AP_ProtocolIE_Container_4932P22_t *)
+            E1AP_ProtocolIE_Container_6828P22_t *msgNGRAN_list =
+                (E1AP_ProtocolIE_Container_6828P22_t *)
                     ie->value.choice.System_BearerContextSetupResponse.choice.nG_RAN_BearerContextSetupResponse;
             _EQ_CHECK_INT(msgNGRAN_list->list.count, 1);
             E1AP_NG_RAN_BearerContextSetupResponse_t *msgNGRAN = msgNGRAN_list->list.array[0];
@@ -1482,6 +1482,16 @@ static E1AP_PDU_Session_Resource_To_Modify_Item_t e1_encode_pdu_session_to_mod_i
       asn1cSequenceAdd(flow_Mapping_Information->list, E1AP_QoS_Flow_QoS_Parameter_Item_t, ie1_2);
       *ie1_2 = e1_encode_qos_flow_to_setup(k);
     }
+    // PDCP COUNT Reset (O)
+    if (j->pdcp_count_reset) {
+      E1AP_ProtocolExtensionContainer_6857P49_t *ext = calloc_or_fail(1, sizeof(*ext));
+      drb2Mod->iE_Extensions = (struct E1AP_ProtocolExtensionContainer *)ext;
+      asn1cSequenceAdd(ext->list, E1AP_DRB_To_Modify_Item_NG_RAN_ExtIEs_t, pdcp_count_reset);
+      pdcp_count_reset->id = E1AP_ProtocolIE_ID_id_PDCP_COUNT_Reset;
+      pdcp_count_reset->criticality = E1AP_Criticality_reject;
+      pdcp_count_reset->extensionValue.present = E1AP_DRB_To_Modify_Item_NG_RAN_ExtIEs__extensionValue_PR_PDCP_COUNT_Reset;
+      pdcp_count_reset->extensionValue.choice.PDCP_COUNT_Reset = E1AP_PDCP_COUNT_Reset_true;
+    }
   }
   // DRB To Remove List (O)
   if (in->n_drb_to_remove > 0) {
@@ -1502,7 +1512,7 @@ static E1AP_NG_RAN_BearerContextModificationRequest_t *encode_ng_ran_to_mod(E1AP
   ie->value.present = E1AP_BearerContextModificationRequestIEs__value_PR_System_BearerContextModificationRequest;
   E1AP_System_BearerContextModificationRequest_t *reqIE = &ie->value.choice.System_BearerContextModificationRequest;
   reqIE->present = E1AP_System_BearerContextModificationRequest_PR_nG_RAN_BearerContextModificationRequest;
-  E1AP_ProtocolIE_Container_4932P26_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
+  E1AP_ProtocolIE_Container_6828P26_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
   reqIE->choice.nG_RAN_BearerContextModificationRequest = (struct E1AP_ProtocolIE_Container *)msgNGRAN_list;
   asn1cSequenceAdd(msgNGRAN_list->list, E1AP_NG_RAN_BearerContextModificationRequest_t, msgNGRAN);
   return msgNGRAN;
@@ -1770,6 +1780,25 @@ static bool e1_decode_pdu_session_to_mod_item(pdu_session_to_mod_t *out, const E
         CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(drb->qosFlows + k, qos2SetupList->list.array[k]));
       }
     }
+    if (drb2Mod->iE_Extensions) {
+      E1AP_ProtocolExtensionContainer_6857P49_t *ext = (E1AP_ProtocolExtensionContainer_6857P49_t *)drb2Mod->iE_Extensions;
+      for (int i = 0; i < ext->list.count; i++) {
+        E1AP_DRB_To_Modify_Item_NG_RAN_ExtIEs_t *elt = ext->list.array[i];
+        switch (elt->id) {
+          case E1AP_ProtocolIE_ID_id_PDCP_COUNT_Reset:
+            /* PDCP COUNT reset (O) */
+            /* sanity checks */
+            if (elt->extensionValue.present != E1AP_DRB_To_Modify_Item_NG_RAN_ExtIEs__extensionValue_PR_PDCP_COUNT_Reset
+                || elt->extensionValue.choice.PDCP_COUNT_Reset != E1AP_PDCP_COUNT_Reset_true)
+              break;
+            drb->pdcp_count_reset = true;
+            break;
+          default:
+            /* other unsupported extensions silently ignored */
+            break;
+        }
+      }
+    }
   }
   // DRB To Remove List (O)
   if (in->dRB_To_Remove_List_NG_RAN) {
@@ -1870,8 +1899,8 @@ bool decode_E1_bearer_context_mod_request(const E1AP_E1AP_PDU_t *pdu, e1ap_beare
             // NG-RAN
             AssertFatal(modReq->choice.nG_RAN_BearerContextModificationRequest != NULL,
                         "System_BearerContextSetupRequest->choice.nG_RAN_BearerContextSetupRequest shall not be null");
-            E1AP_ProtocolIE_Container_4932P26_t *msgNGRAN_list =
-                (E1AP_ProtocolIE_Container_4932P26_t *)modReq->choice.nG_RAN_BearerContextModificationRequest;
+            E1AP_ProtocolIE_Container_6828P26_t *msgNGRAN_list =
+                (E1AP_ProtocolIE_Container_6828P26_t *)modReq->choice.nG_RAN_BearerContextModificationRequest;
             // loop through all items in the NG-RAN list (to setup, to modify, etc)
             for (int i = 0; i < msgNGRAN_list->list.count; i++) {
               E1AP_NG_RAN_BearerContextModificationRequest_t *msgNGRAN = msgNGRAN_list->list.array[i];
@@ -2242,7 +2271,7 @@ struct E1AP_E1AP_PDU *encode_E1_bearer_context_mod_response(const e1ap_bearer_mo
     ie3->value.present = E1AP_BearerContextModificationResponseIEs__value_PR_System_BearerContextModificationResponse;
     E1AP_System_BearerContextModificationResponse_t *sys = &ie3->value.choice.System_BearerContextModificationResponse;
     // NG-RAN
-    E1AP_ProtocolIE_Container_4932P29_t *ngran = calloc_or_fail(1, sizeof(*ngran));
+    E1AP_ProtocolIE_Container_6828P29_t *ngran = calloc_or_fail(1, sizeof(*ngran));
     sys->present = E1AP_System_BearerContextModificationResponse_PR_nG_RAN_BearerContextModificationResponse;
     sys->choice.nG_RAN_BearerContextModificationResponse = (struct E1AP_ProtocolIE_Container *)ngran;
     asn1cSequenceAdd(ngran->list, E1AP_NG_RAN_BearerContextModificationResponse_t, list);
@@ -2413,7 +2442,7 @@ bool decode_E1_bearer_context_mod_response(e1ap_bearer_modif_resp_t *out, const 
         E1AP_System_BearerContextModificationResponse_t *sys = &ie->value.choice.System_BearerContextModificationResponse;
         _EQ_CHECK_INT(sys->present, E1AP_System_BearerContextModificationResponse_PR_nG_RAN_BearerContextModificationResponse);
         // NG-RAN List
-        E1AP_ProtocolIE_Container_4932P29_t *msgNGRAN_list = (E1AP_ProtocolIE_Container_4932P29_t *)sys->choice.nG_RAN_BearerContextModificationResponse;
+        E1AP_ProtocolIE_Container_6828P29_t *msgNGRAN_list = (E1AP_ProtocolIE_Container_6828P29_t *)sys->choice.nG_RAN_BearerContextModificationResponse;
         _EQ_CHECK_INT(msgNGRAN_list->list.count, 1);
         E1AP_NG_RAN_BearerContextModificationResponse_t *msgNGRAN = msgNGRAN_list->list.array[0];
         _EQ_CHECK_LONG(msgNGRAN->id, E1AP_ProtocolIE_ID_id_PDU_Session_Resource_Modified_List);
@@ -2761,7 +2790,7 @@ static void e1_encode_pdu_session_to_remove_item(E1AP_PDU_Session_Resource_To_Re
   out->pDU_Session_ID = in->sessionId;
   // Cause (O) - PDU-Session-Resource-To-Remove-Item-ExtIEs id-Cause
   if (in->cause.type != E1AP_CAUSE_NOTHING) {
-    E1AP_ProtocolExtensionContainer_4961P104_t *ext = calloc_or_fail(1, sizeof(*ext));
+    E1AP_ProtocolExtensionContainer_6857P166_t *ext = calloc_or_fail(1, sizeof(*ext));
     out->iE_Extensions = (struct E1AP_ProtocolExtensionContainer *)ext;
     asn1cSequenceAdd(ext->list, E1AP_PDU_Session_Resource_To_Remove_Item_ExtIEs_t, ie);
     ie->id = E1AP_ProtocolIE_ID_id_Cause;
@@ -2779,7 +2808,7 @@ static bool e1_decode_pdu_session_to_remove_item(pdu_session_to_remove_t *out, c
   out->sessionId = in->pDU_Session_ID;
   // Cause (O)
   if (in->iE_Extensions != NULL) {
-    const E1AP_ProtocolExtensionContainer_4961P104_t *ext = (const E1AP_ProtocolExtensionContainer_4961P104_t *)in->iE_Extensions;
+    const E1AP_ProtocolExtensionContainer_6857P166_t *ext = (const E1AP_ProtocolExtensionContainer_6857P166_t *)in->iE_Extensions;
     for (int i = 0; i < ext->list.count; i++) {
       const E1AP_PDU_Session_Resource_To_Remove_Item_ExtIEs_t *ie = ext->list.array[i];
       AssertFatal(ie != NULL, "ext->list.array[i] shall not be null");
@@ -2887,7 +2916,7 @@ E1AP_E1AP_PDU_t *encode_E1_bearer_context_mod_required(const e1ap_bearer_mod_req
   ie3->value.present = E1AP_BearerContextModificationRequiredIEs__value_PR_System_BearerContextModificationRequired;
   E1AP_System_BearerContextModificationRequired_t *sys = &ie3->value.choice.System_BearerContextModificationRequired;
   sys->present = E1AP_System_BearerContextModificationRequired_PR_nG_RAN_BearerContextModificationRequired;
-  E1AP_ProtocolIE_Container_4932P33_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
+  E1AP_ProtocolIE_Container_6828P33_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
   sys->choice.nG_RAN_BearerContextModificationRequired = (struct E1AP_ProtocolIE_Container *)msgNGRAN_list;
 
   // NG-RAN PDU Session Resource Required To Modify List (O)
@@ -2962,8 +2991,8 @@ bool decode_E1_bearer_context_mod_required(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
           case E1AP_System_BearerContextModificationRequired_PR_nG_RAN_BearerContextModificationRequired: {
             AssertFatal(modReq->choice.nG_RAN_BearerContextModificationRequired != NULL,
                         "nG_RAN_BearerContextModificationRequired shall not be null");
-            const E1AP_ProtocolIE_Container_4932P33_t *msgNGRAN_list =
-                (const E1AP_ProtocolIE_Container_4932P33_t *)modReq->choice.nG_RAN_BearerContextModificationRequired;
+            const E1AP_ProtocolIE_Container_6828P33_t *msgNGRAN_list =
+                (const E1AP_ProtocolIE_Container_6828P33_t *)modReq->choice.nG_RAN_BearerContextModificationRequired;
             for (int j = 0; j < msgNGRAN_list->list.count; j++) {
               const E1AP_NG_RAN_BearerContextModificationRequired_t *msgNGRAN = msgNGRAN_list->list.array[j];
               switch (msgNGRAN->id) {

@@ -77,6 +77,7 @@ typedef struct nr_ho_target_cu {
 typedef struct nr_handover_context_s {
   nr_ho_source_cu_t *source;
   nr_ho_target_cu_t *target;
+  bool do_full_config;
 } nr_handover_context_t;
 
 typedef enum { HO_CTX_BOTH, HO_CTX_SOURCE, HO_CTX_TARGET } ho_ctx_type_t;
@@ -86,6 +87,7 @@ void nr_rrc_trigger_f1_ho(gNB_RRC_INST *rrc,
                           gNB_RRC_UE_t *ue,
                           const nr_rrc_cell_container_t *source_cell,
                           const nr_rrc_cell_container_t *target_cell);
+void nr_rrc_trigger_f1_ho_for_pdcp_count_wrap(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue);
 void nr_rrc_finalize_ho(gNB_RRC_UE_t *ue);
 void nr_rrc_n2_ho_failure(gNB_RRC_INST *rrc, uint32_t gnb_ue_id, ngap_handover_failure_t *msg);
 

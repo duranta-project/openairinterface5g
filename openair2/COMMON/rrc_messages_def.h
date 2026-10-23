@@ -73,3 +73,6 @@ MESSAGE_DEF(NAS_PDU_SESSION_REQ, MESSAGE_PRIORITY_MED, nas_pdu_session_req_t, na
 
 // UE: RLC -> RRC messages
 MESSAGE_DEF(NR_RRC_RLC_MAXRTX,          MESSAGE_PRIORITY_MED,       RlcMaxRtxIndication,        nr_rlc_maxrtx_indication)
+
+// PDCP -> RRC messages
+MESSAGE_DEF(NR_RRC_PDCP_SRB_MAX_COUNT_REACHED, MESSAGE_PRIORITY_MED, nr_rrc_pdcp_srb_max_count_reached_t, nr_rrc_pdcp_srb_max_count_reached)
