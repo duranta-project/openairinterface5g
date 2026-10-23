@@ -301,10 +301,6 @@ int xran_fh_rx_prach_read_slot(const int tti, const int xran_port, const uint8_t
  * Called by split7_thread() once oai_xran_fh_rx_callback() signalled the slot. */
 int xran_fh_rx_read_slot(const int tti, const int slot_offset, const int xran_port, const uint8_t nb_ant, const int fft_size, oran_buf_list_t *bufs, int32_t **rxdataF)
 {
-  void *ptr = NULL;
-  int32_t *pos = NULL;
-  int idx = 0;
-
   for (uint8_t ant_id = 0; ant_id < nb_ant; ant_id++) {
     int32_t *start = rxdataF[ant_id + (xran_port * nb_ant)] + slot_offset;
 
@@ -312,36 +308,20 @@ int xran_fh_rx_read_slot(const int tti, const int slot_offset, const int xran_po
     struct xran_prb_elm *pRbElm = &pPrbMap->prbMap[0];
 
     for (int32_t sym_idx = pRbElm->nStartSymb; sym_idx < pRbElm->nStartSymb + pRbElm->numSymb; sym_idx++) {
-
-      uint8_t *src = (uint8_t *)ptr;
-
+      int32_t *pos = start + sym_idx * fft_size;
       struct xran_rx_packet_ctl *p_rx_packet_ctl = &pPrbMap->sFrontHaulRxPacketCtrl[sym_idx];
-      uint32_t one_rb_size =
-          (((pRbElm->iqWidth == 0) || (pRbElm->iqWidth == 16)) ? (N_SC_PER_PRB * 2 * 2) : (3 * pRbElm->iqWidth + 1));
       int32_t nRxPkt = p_rx_packet_ctl->nRxPkt;
       LOG_D(HW, "nRxPkt %d\n", nRxPkt);
       for (int pkt_idx = 0; pkt_idx < nRxPkt; pkt_idx++) {
-        uint8_t *pData;
-        // to finalize - maybe no need for this if condition
-        if (9600 < p_rx_packet_ctl->nRBSize[pkt_idx] * one_rb_size)
-          pData = bufs->dst[ant_id][tti % XRAN_N_FE_BUF_LEN]
-                      .pBuffers[sym_idx % XRAN_NUM_OF_SYMBOL_PER_SLOT]
-                      .pData;
-        else
-          pData = p_rx_packet_ctl->pData[pkt_idx];
+        uint8_t *src = p_rx_packet_ctl->pData[pkt_idx];
         int numRB = p_rx_packet_ctl->nRBSize[pkt_idx];
         int startRB = p_rx_packet_ctl->nRBStart[pkt_idx];
         // num_prbu & start_prbu are for UL U-plane only
         LOG_D(HW, "p_rx_packet_ctl[%d] startRB[%d]:numRB[%d]\n", pkt_idx, startRB, numRB);
 
-        ptr = pData;
-        pos = start + sym_idx * fft_size;
-        if (ptr == NULL || pos == NULL)
-          continue;
-        src = pData;
         if (pRbElm->compMethod == XRAN_COMPMETHOD_NONE) {
           // NOTE: gcc 11 knows how to generate AVX2 for this!
-          for (idx = 0; idx < (numRB * N_SC_PER_PRB) * 2; idx++)
+          for (int idx = 0; idx < (numRB * N_SC_PER_PRB) * 2; idx++)
             ((int16_t *)pos)[idx + startRB * N_SC_PER_PRB * 2] = ((int16_t)ntohs(((uint16_t *)src)[idx])) >> 2;
         } else if (pRbElm->compMethod == XRAN_COMPMETHOD_BLKFLOAT) {
 #if defined(__i386__) || defined(__x86_64__)
@@ -504,9 +484,6 @@ int xran_fh_tx_send_slot(const int tti, const int xran_port, const uint8_t nb_an
     struct xran_prb_map *pPrbMap = (struct xran_prb_map *)bufs->srccp[ant_id][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
 
     xran_fh_tx_send_slot_ant(pPrbMap, txdataF_BF[ant_id + (xran_port * nb_ant)], fft_size, &bufs->src[ant_id][tti % XRAN_N_FE_BUF_LEN]);
-
-    // The tti should be updated as it increased.
-    pPrbMap->tti_id = tti;
   } // ant_id
   return (0);
 }
