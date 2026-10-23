@@ -15,6 +15,7 @@
 #include "common/platform_constants.h"
 #include "common/utils/ds/seq_arr.h"
 #include "nr_sdap_qos_rule.h"
+#include <stdatomic.h>
 
 #define SDAP_BITMASK_DC             (0x80)
 #define SDAP_BITMASK_R              (0x40)
@@ -90,6 +91,7 @@ typedef struct sdap_tun_endpoint_s {
 typedef struct nr_sdap_entity_s {
   sdap_tun_endpoint_t tun;
   pthread_t pdusession_thread;
+  _Atomic(bool) tun_reader_run; // Flag to safely stop the TUN reader thread
   int qfi;
 
   qfi2drb_t default_drb;

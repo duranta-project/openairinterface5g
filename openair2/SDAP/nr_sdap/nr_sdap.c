@@ -18,6 +18,7 @@
 #include "openair2/LAYER2/RLC/rlc.h"
 #include "tuntap_if.h"
 #include "system.h"
+#include <stdatomic.h>
 
 /** @brief Idle TUN UL (no SDAP entity): tell RRC (RRC stops listeners and forwards to NAS for MO SR) */
 static void nr_sdap_notify_mo_ul_data(ue_id_t ue_id, int pdusession_id)
@@ -88,6 +89,7 @@ typedef struct sdap_tun_idle_listener_arg_s {
   int sock;
   ue_id_t ue_id;
   int pdu_session_id;
+  _Atomic(bool) *run_flag; // Pointer to the caller-owned flag
 } sdap_tun_idle_listener_arg_t;
 
 static void *sdap_tun_read_thread(void *arg)
@@ -99,20 +101,39 @@ static void *sdap_tun_read_thread(void *arg)
   char rx_buf[NL_MAX_PAYLOAD];
   tuntap_reblock(entity->tun.sock);
 
-  while (1) {
+  while (atomic_load(&entity->tun_reader_run)) {
+    struct pollfd pfd = {.fd = entity->tun.sock, .events = POLLIN};
+    int ret = poll(&pfd, 1, 50); // 50ms timeout to periodically check the flag
+
+    if (ret == -1) {
+      if (errno == EINTR)
+        continue;
+      if (errno == EBADF || errno == EINVAL) {
+        LOG_I(SDAP, "Socket closed, exiting TUN read thread for UE %ld, PDU session %d\n",
+              entity->tun.ue_id, entity->tun.pdusession_id);
+        break;
+      }
+      LOG_E(SDAP, "poll() failed: errno %d (%s)\n", errno, strerror(errno));
+      break;
+    }
+
+    if (ret == 0) {
+      continue; // Timeout occurred, loop back to check tun_reader_run flag
+    }
+
+    if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+      LOG_I(SDAP, "TUN socket closed or invalid - exiting thread\n");
+      break;
+    }
+
+    if (!(pfd.revents & POLLIN)) {
+      continue;
+    }
+
     int len = read(entity->tun.sock, rx_buf, NL_MAX_PAYLOAD);
     if (len == -1) {
       if (errno == EINTR)
         continue; // interrupted system call
-
-      if (errno == EBADF || errno == EINVAL) {
-        LOG_I(SDAP,
-              "Socket closed, exiting TUN read thread for UE %ld, PDU session %d\n",
-              entity->tun.ue_id,
-              entity->tun.pdusession_id);
-        break;
-      }
-
       LOG_E(SDAP, "read() failed: errno %d (%s)\n", errno, strerror(errno));
       break;
     }
@@ -125,30 +146,18 @@ static void *sdap_tun_read_thread(void *arg)
     LOG_D(SDAP, "read data of size %d\n", len);
 
     protocol_ctxt_t ctxt = {.enb_flag = entity->tun.is_gnb, .rntiMaybeUEid = entity->tun.ue_id};
-
     bool dc = entity->tun.is_gnb ? false : SDAP_HDR_UL_DATA_PDU;
-
     uint8_t qfi;
+
     if (!entity->tun.is_gnb && entity->use_packet_filters) {
-      // UE uplink packet matching based on packet filters
       qfi = nr_sdap_match_ul_packet(entity, (uint8_t *)rx_buf, len);
     } else {
-      // gNB or packet filters disabled: use fixed QFI
       qfi = entity->qfi;
     }
 
-    entity->tx_entity(entity,
-                      &ctxt,
-                      SRB_FLAG_NO,
-                      RLC_MUI_UNDEFINED,
-                      RLC_SDU_CONFIRM_NO,
-                      len,
-                      (unsigned char *)rx_buf,
-                      PDCP_TRANSMISSION_MODE_DATA,
-                      NULL,
-                      NULL,
-                      qfi,
-                      dc);
+    entity->tx_entity(entity, &ctxt, SRB_FLAG_NO, RLC_MUI_UNDEFINED, RLC_SDU_CONFIRM_NO,
+                      len, (unsigned char *)rx_buf, PDCP_TRANSMISSION_MODE_DATA,
+                      NULL, NULL, qfi, dc);
   }
 
   return NULL;
@@ -181,23 +190,24 @@ void nr_sdap_tun_start_reader(nr_sdap_entity_t *entity, pthread_t *thread, char 
   DevAssert(*thread == 0);
   DevAssert(name);
 
+  atomic_store(&entity->tun_reader_run, true); // Initialize the run flag
   threadCreate(thread, sdap_tun_read_thread, entity, name, -1, OAI_PRIORITY_RT_LOW);
   LOG_I(SDAP, "UE %ld PDU session %d: started TUN reader '%s'\n", entity->tun.ue_id, entity->tun.pdusession_id, name);
 }
 
 /** @brief Stop a TUN reader thread and clear the handle
  * @note Does not close the TUN socket */
-void nr_sdap_tun_stop_reader(pthread_t *thread)
+void nr_sdap_tun_stop_reader(nr_sdap_entity_t *entity, pthread_t *thread)
 {
   if (thread == NULL || *thread == 0)
-    return; // nothing to do
-  /* ESRCH: thread already exited (e.g. read returned after close on some OS) */
-  int cancel_ret = pthread_cancel(*thread);
-  AssertFatal(cancel_ret == 0 || cancel_ret == ESRCH, "pthread_cancel() failed: %d (%s)\n", cancel_ret, strerror(cancel_ret));
+    return;
+  if (entity != NULL)
+    atomic_store(&entity->tun_reader_run, false);
+
   int ret = pthread_join(*thread, NULL);
   AssertFatal(ret == 0, "pthread_join() failed: %d (%s)\n", ret, strerror(ret));
   *thread = 0;
-  LOG_I(SDAP, "TUN reader stopped\n");
+  LOG_I(SDAP, "TUN thread stopped\n");
 }
 
 /** @brief Fill ifname[IFNAMSIZ] for the gNB default PDU-session TUN */
@@ -231,9 +241,10 @@ static void *sdap_tun_idle_listener(void *arg)
 
   pthread_cleanup_push(sdap_tun_idle_listener_arg_free, a);
 
-  while (1) {
+  while (atomic_load(a->run_flag)) {
     struct pollfd pfd = {.fd = a->sock, .events = POLLIN};
-    int ret = poll(&pfd, 1, -1);
+    int ret = poll(&pfd, 1, 50); // 50ms timeout
+
     if (ret == -1) {
       if (errno == EINTR)
         continue; // Retry: poll() was interrupted by a signal
@@ -244,10 +255,16 @@ static void *sdap_tun_idle_listener(void *arg)
       LOG_E(SDAP, "idle listener poll() failed: errno %d (%s)\n", errno, strerror(errno));
       break;
     }
-    if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) { // TUN fd gone or invalid: stop listening
+
+    if (ret == 0) {
+      continue; // Timeout, loop back and check run_flag
+    }
+
+    if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
       LOG_I(SDAP, "Socket closed, exiting idle listener for UE %ld, PDU session %d\n", a->ue_id, a->pdu_session_id);
       break;
     }
+
     if (!(pfd.revents & POLLIN))
       continue; // No readable UL yet: keep waiting
 
@@ -255,15 +272,17 @@ static void *sdap_tun_idle_listener(void *arg)
     LOG_D(SDAP, "UE %ld PDU session %d: idle UL pending -> NAS_MO_UL_DATA_IND, exit listener\n", a->ue_id, a->pdu_session_id);
     break;
   }
+
   pthread_cleanup_pop(1);
   return NULL;
 }
 
 /** @brief Start idle TUN listener for one PSI */
-void nr_sdap_tun_start_idle_listener(ue_id_t ue_id, int pdu_session_id, int sock, pthread_t *thread)
+void nr_sdap_tun_start_idle_listener(ue_id_t ue_id, int pdu_session_id, int sock, pthread_t *thread, _Atomic(bool) *run_flag)
 {
   DevAssert(sock >= 0);
   DevAssert(thread != NULL);
+  DevAssert(run_flag != NULL);
 
   if (*thread != 0)
     return;
@@ -275,6 +294,8 @@ void nr_sdap_tun_start_idle_listener(ue_id_t ue_id, int pdu_session_id, int sock
   a->sock = sock;
   a->ue_id = ue_id;
   a->pdu_session_id = pdu_session_id;
+  a->run_flag = run_flag; // Assign caller-owned flag
+
   threadCreate(thread, sdap_tun_idle_listener, a, name, -1, OAI_PRIORITY_RT_LOW);
   LOG_I(SDAP, "UE %ld PDU session %d: TUN idle listener started\n", ue_id, pdu_session_id);
 }

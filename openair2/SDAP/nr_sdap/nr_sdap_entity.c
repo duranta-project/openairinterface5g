@@ -45,7 +45,7 @@ static void remove_ip_if(nr_sdap_entity_t *entity)
     return;
 
   /* Stop/join the reader before close: on Linux, close() may not wake a blocked read() */
-  nr_sdap_tun_stop_reader(&entity->pdusession_thread);
+  nr_sdap_tun_stop_reader(entity, &entity->pdusession_thread);
   close(tun->sock);
   tun->sock = -1;
 
