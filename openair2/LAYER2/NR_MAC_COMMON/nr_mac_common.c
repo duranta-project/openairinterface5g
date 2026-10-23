@@ -5482,3 +5482,22 @@ uint16_t nr_pdcch_monitoring_symbols_mask(const BIT_STRING_t *symbols_in_slot, u
               NR_SYMBOLS_PER_SLOT);
   return (symbols_in_slot->buf[0] << (sps - 8)) | (symbols_in_slot->buf[1] >> (16 - sps));
 }
+
+void nr_sib19_epoch_from_lead(int frame, int subframe, int lead_ms, int *epoch_sfn, int *epoch_subframe)
+{
+  const int now = frame * NR_NUMBER_OF_SUBFRAMES_PER_FRAME + subframe;
+  const int epoch = now + lead_ms;
+
+  *epoch_subframe = epoch % NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
+  *epoch_sfn = (epoch / NR_NUMBER_OF_SUBFRAMES_PER_FRAME) % MAX_FRAME_NUMBER;
+}
+
+int64_t nr_sib19_lead_from_utc(int64_t epoch_utc_ms, const struct timespec *now)
+{
+  const int64_t ns_per_ms = 1000000;
+  const int64_t now_ms = (int64_t)now->tv_sec * 1000 + now->tv_nsec / ns_per_ms;
+  // the clock is past now_ms by this part of a ms, which shortens the lead
+  const int64_t past_ms_ns = now->tv_nsec % ns_per_ms;
+
+  return epoch_utc_ms - now_ms - (past_ms_ns > ns_per_ms / 2 ? 1 : 0);
+}

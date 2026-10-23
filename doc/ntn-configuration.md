@@ -163,6 +163,9 @@ cd cmake_targets
 sudo ./ran_build/build/nr-softmodem -O ../ci-scripts/conf_files/gnb.sa.band254.u0.25prb.rfsim.ntn-leo.conf --rfsim
 ```
 
+With SDR boards and an external NTN channel emulator, the SIB19 parameters in the conf file only describe the satellite at start-up.
+To follow the satellite while the gNB runs, load the telnet `ntn` module and push the parameters with `ntn update_sib19`, see the [telnet NTN module](../common/utils/telnetsrv/DOC/telnetntn.md).
+
 ## NR UE
 
 At UE side, only few parameters have to be provided, as the UE receives most relevant parameters via SIB19 from the gNB.
