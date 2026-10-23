@@ -73,6 +73,7 @@ target_link_libraries(ldpc_cuda PRIVATE log_headers)
 set_target_properties(ldpc_cuda PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 add_dependencies(ldpctest ldpc_cuda)
+add_dependencies(ldpc_tb_test ldpc_cuda)
 add_dependencies(nr-softmodem ldpc_cuda)
 add_dependencies(nr-uesoftmodem ldpc_cuda)
 add_dependencies(nr_ulsim ldpc_cuda)
@@ -87,6 +88,9 @@ if(ENABLE_PHYSIM_TESTS)
   # openair1/SIMULATION/tests/CMakeLists.txt to run them with ldpc_cuda
 
   add_physim_test(ldpctest.ldpc_cuda.simple "ldpctest: simple CUDA load check" ldpctest -v _cuda -l8448 -s10 -n300)
+  # TBs with 25 and 36 code blocks alternating: with limited buffer rate matching the 36-block TB has a
+  # shorter circular buffer (Ncb < N), so it must not see decoder input left by the 25-block one
+  add_physim_test(ldpc_tb_test.ldpc_cuda.alternating_c "ldpc_tb_test: C = 25 and 36 alternating, LBRM" ldpc_tb_test -v _cuda)
   add_physim_test(ldpctest.ldpc_cuda.r13 "ldpctest: base graph 1, rate 1/3" ldpctest -v _cuda -r1 -n300 -S64 -s4 -i4)
   add_physim_test(ldpctest.ldpc_cuda.r23 "ldpctest: base graph 1, rate 2/3" ldpctest -v _cuda -r2 -n300 -S64 -s5 -i4)
   add_physim_test(ldpctest.ldpc_cuda.r89 "ldpctest: base graph 1, rate 8/9" ldpctest -v _cuda -r22 -d25 -n300 -S64 -s6 -i4)
