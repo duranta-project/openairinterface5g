@@ -50,6 +50,7 @@ void nr_symbol_fep(const NR_DL_FRAME_PARMS *frame_parms,
 
 int nr_slot_fep(PHY_VARS_NR_UE *ue,
                 const NR_DL_FRAME_PARMS *frame_parms,
+                unsigned int frame,
                 unsigned int slot,
                 unsigned int symbol,
                 c16_t rxdataF[][frame_parms->samples_per_slot_wCP],
@@ -61,6 +62,19 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
               "slot_fep: symbol must be between 0 and %d\n",
               frame_parms->symbols_per_slot - 1);
   AssertFatal(slot < frame_parms->slots_per_frame, "slot_fep: Ns must be between 0 and %d\n", frame_parms->slots_per_frame - 1);
+
+  // Split7: the Low-PHY demodulated the symbol already.
+  if (ue && ue->fd_rx_symbol_cb) {
+    c16_t *dst[frame_parms->nb_antennas_rx];
+    for (int aa = 0; aa < frame_parms->nb_antennas_rx; aa++)
+      dst[aa] = &rxdataF[aa][frame_parms->ofdm_symbol_size * symbol];
+    if (!ue->fd_rx_symbol_cb(ue, frame, slot, symbol, dst, ue->fd_tx_cb_data)) {
+      for (int aa = 0; aa < frame_parms->nb_antennas_rx; aa++)
+        memset(dst[aa], 0, frame_parms->ofdm_symbol_size * sizeof(c16_t));
+      return -1;
+    }
+    return 0;
+  }
 
   bool is_sl = (linktype == link_type_sl);
   bool is_synchronized = (ue) ? ue->is_synchronized : false;

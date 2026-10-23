@@ -332,7 +332,7 @@ int main(int argc, char **argv)
                   nrue_get_cell_count());
       nrUE_cell_params_t cell = *nrue_get_cell(cell_id);
 
-      AssertFatal(cell.used_by_ue == -1,
+      AssertFatal(cell.used_by_ue == -1 || get_nrUE_params()->use_split7,
                   "Cell %d is already used by UE %d and cannot also be used by UE %d as cells map 1:1 to RUs and RU sharing is not implemented\n",
                   cell_id,
                   cell.used_by_ue,
@@ -387,7 +387,10 @@ int main(int argc, char **argv)
         sl_ue_phy_init(UE_CC);
       }
 
-      cell_id++; // initially connect each UE and carrier to its own cell
+      // Split7 instances share one physical device/cell by design (see nr-fd-ue.c);
+      // every other mode connects each UE/carrier to its own cell.
+      if (!get_nrUE_params()->use_split7)
+        cell_id++;
     }
   }
 
@@ -407,15 +410,27 @@ int main(int argc, char **argv)
     load_module_shlib("imscope_record", NULL, 0, nrPHY_vars_UE_g[0][0]);
   }
 
-  // Launch a temporary high-priority thread to start the UE RU, ensuring radio library threads inherit this priority
-  pthread_t ru_start_thread;
-  threadCreate(&ru_start_thread, nrue_ru_start_thread, NULL, "ru_start_thread", -1, OAI_PRIORITY_RT_MAX);
-  int ret = pthread_join(ru_start_thread, NULL);
-  AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
+  // Split7 manages its own RF device; skip the regular RU start.
+  if (!get_nrUE_params()->use_split7) {
+    // Launch a temporary high-priority thread to start the UE RU, ensuring radio library threads inherit this priority
+    pthread_t ru_start_thread;
+    threadCreate(&ru_start_thread, nrue_ru_start_thread, NULL, "ru_start_thread", -1, OAI_PRIORITY_RT_MAX);
+    int ret = pthread_join(ru_start_thread, NULL);
+    AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
+  }
 
-  for (int inst = 0; inst < NB_UE_INST; inst++) {
-    LOG_I(PHY,"Intializing UE Threads for instance %d ...\n", inst);
-    init_NR_UE_threads(nrPHY_vars_UE_g[inst][0]);
+  if (get_nrUE_params()->use_split7) {
+    // Every instance is a client of one split7 Low-PHY (one radio, one cell).
+    PHY_VARS_NR_UE *UE_list[MAX_NUM_NR_UE_INST];
+    for (int inst = 0; inst < NB_UE_INST; inst++)
+      UE_list[inst] = nrPHY_vars_UE_g[inst][0];
+    LOG_I(PHY, "Initializing split7 UE threads for %d instance(s) ...\n", NB_UE_INST);
+    init_NR_UE_fd(UE_list, NB_UE_INST);
+  } else {
+    for (int inst = 0; inst < NB_UE_INST; inst++) {
+      LOG_I(PHY, "Initializing UE Threads for instance %d ...\n", inst);
+      init_NR_UE_threads(nrPHY_vars_UE_g[inst][0]);
+    }
   }
 
   // wait for end of program
@@ -435,7 +450,12 @@ int main(int argc, char **argv)
 
   nrue_ru_stop();
 
-  if (nrPHY_vars_UE_g && nrPHY_vars_UE_g[0]) {
+  if (get_nrUE_params()->use_split7) {
+    PHY_VARS_NR_UE *UE_list[MAX_NUM_NR_UE_INST];
+    for (int inst = 0; inst < NB_UE_INST; inst++)
+      UE_list[inst] = nrPHY_vars_UE_g[inst][0];
+    term_NR_UE_fd(UE_list, NB_UE_INST);
+  } else if (nrPHY_vars_UE_g && nrPHY_vars_UE_g[0]) {
     for (int CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
       PHY_VARS_NR_UE *phy_vars = nrPHY_vars_UE_g[0][CC_id];
       if (phy_vars) {

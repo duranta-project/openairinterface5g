@@ -267,6 +267,8 @@ typedef struct {
   int used_by_ue;
 } nrUE_cell_params_t;
 
+typedef struct UE_nr_rxtx_proc_s UE_nr_rxtx_proc_t;
+
 /// Top-level PHY Data Structure for UE
 typedef struct PHY_VARS_NR_UE_s {
   /// \brief Module ID indicator for this instance
@@ -433,6 +435,30 @@ typedef struct PHY_VARS_NR_UE_s {
   // Gain change required for automation RX gain change
   int adjust_rxgain;
 
+  // Split7: when set, nr_slot_fep() gets the demodulated symbol (one pointer per RX antenna) from
+  // here instead of computing the FFT. False when the symbol is no longer available.
+  bool (*fd_rx_symbol_cb)(struct PHY_VARS_NR_UE_s *ue, int frame, int slot, int symbol, c16_t *const *dst, void *userdata);
+
+  // Split7: when set, phy_procedures_nrUE_TX calls this instead of OFDM modulation.
+  void (*fd_tx_cb)(struct PHY_VARS_NR_UE_s *ue,
+                   const UE_nr_rxtx_proc_t *proc,
+                   int nb_ant_tx,
+                   c16_t **txdataF,
+                   const bool *was_symbol_used,
+                   void *userdata);
+  void *fd_tx_cb_data;
+
+  // Split7: when set, generate_nr_prach forwards the FD preamble here instead of running IDFT/CP.
+  void (*fd_prach_tx_cb)(struct PHY_VARS_NR_UE_s *ue,
+                         int frame,
+                         int slot,
+                         const c16_t *prachF,
+                         int dftlen,
+                         int Ncp,
+                         int prach_start,
+                         int copies,
+                         void *userdata);
+
   // Sidelink parameters
   sl_nr_sidelink_mode_t sl_mode;
   sl_nr_ue_phy_params_t SL_UE_PHY_PARAMS;
@@ -461,7 +487,7 @@ typedef struct PHY_VARS_NR_UE_s {
 } PHY_VARS_NR_UE;
 typedef struct pdsch_scratch_s pdsch_scratch_t;
 
-typedef struct {
+typedef struct UE_nr_rxtx_proc_s {
   openair0_timestamp_t timestamp_tx;
   int gNB_id;
   /// NR slot index within frame_tx [0 .. slots_per_frame - 1] to act upon for transmission

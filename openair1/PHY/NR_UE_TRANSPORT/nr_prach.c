@@ -319,6 +319,13 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
         k = 0;
     }
 
+    if (ue->fd_prach_tx_cb) {
+      const int copies[11] = {1, 2, 4, 4, 2, 4, 6, 2, 12, 1, 4};
+      DevAssert(prach_fmt_id < sizeofArray(copies));
+      ue->fd_prach_tx_cb(ue, frame, slot, prachF, dftlen, Ncp, prach_start, copies[prach_fmt_id], ue->fd_tx_cb_data);
+      return 0;
+    }
+
 #if defined(PRACH_WRITE_OUTPUT_DEBUG)
     LOG_M("prachF.m", "prachF", &prachF[1804], 1024, 1, 1);
     LOG_M("Xu.m", "Xu", Xu, N_ZC, 1, 1);
