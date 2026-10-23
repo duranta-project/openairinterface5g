@@ -63,6 +63,8 @@ typedef struct {
   uint16_t rnti;
   uint16_t ptrs_symb_pos;
   uint16_t dmrs_symb_pos;
+  /// chest holds one symbol per DMRS symbol (see get_dmrs_row()) instead of one per symbol of the slot
+  bool chest_per_dmrs;
 } ptrs_proc_t;
 
 uint nr_ptrs_process_slot(const c16_t *rxdataF, const c16_t *chest, c16_t cpe[NR_SYMBOLS_PER_SLOT], ptrs_proc_t *p);
