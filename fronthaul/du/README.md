@@ -108,4 +108,7 @@ starts at or before a given symbol, and never blocks.
 
 ## Tests
 
-`ctest -L fronthaul` runs the unit tests in `tests/`.
+`ctest -L fronthaul` runs the unit tests in `tests/`, and the O-DU to O-RU loopback tests in
+`fronthaul/tests/`. Those wire this library's TX scheduler and packet processor to the O-RU
+packet processor in one process, and check DL, UL and PRACH IQ with and without BFP
+compression (`ctest -L du_oru`).
