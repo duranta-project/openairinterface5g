@@ -15,6 +15,7 @@ void term_nr_ue_signal(PHY_VARS_NR_UE *ue);
 void init_nr_ue_transport(PHY_VARS_NR_UE *ue);
 void init_phy_nr_measurements(PHY_VARS_NR_UE *ue);
 void phy_init_nr_gNB(PHY_VARS_gNB *gNB);
+void init_nr_gNB_pusch_llr_pool(PHY_VARS_gNB *gNB);
 int init_codebook_gNB(PHY_VARS_gNB *gNB);
 void nr_phy_config_request(NR_PHY_Config_t *gNB);
 void nr_phy_config_request_sim(PHY_VARS_gNB *gNB,int N_RB_DL,int N_RB_UL,int mu,int Nid_cell,uint64_t position_in_burst);
