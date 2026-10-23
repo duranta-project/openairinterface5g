@@ -295,33 +295,6 @@ int xran_fh_rx_prach_read_slot(const int tti, const int xran_port, const uint8_t
   return (0);
 }
 
-/** @brief Check if symbol in slot is UL.
- *
- * @param frame_conf xran frame configuration
- * @param slot the current (absolute) slot (number)
- * @param sym_idx the current symbol index */
-static bool is_tdd_ul_symbol(const struct xran_frame_config *frame_conf, int slot, int sym_idx)
-{
-  int tdd_period = frame_conf->nTddPeriod;
-  int slot_in_period = slot % tdd_period;
-  /* check if symbol is UL */
-  return frame_conf->sSlotConfig[slot_in_period].nSymbolType[sym_idx] == 1 /* UL */;
-}
-
-/** @brief Check if current slot is DL or guard/mixed without UL (i.e., current
- * slot is not UL). */
-bool is_tdd_dl_guard_slot(const struct xran_frame_config *frame_conf, int slot)
-{
-  return !is_tdd_ul_symbol(frame_conf, slot, 0);
-}
-
-/** @brief Check if current slot is UL or guard/mixed without DL (i.e., current
- * slot is not UL). */
-bool is_tdd_ul_guard_slot(const struct xran_frame_config *frame_conf, int slot)
-{
-  return is_tdd_ul_symbol(frame_conf, slot, XRAN_NUM_OF_SYMBOL_PER_SLOT - 1);
-}
-
 /** @details Read PUSCH data from xran buffers.
  * If I/Q compression (bitwidth < 16 bits) is configured, decompresses the data
  * before writing.
@@ -331,8 +304,6 @@ int xran_fh_rx_read_slot(const int tti, const int xran_port, const uint8_t nb_an
   void *ptr = NULL;
   int32_t *pos = NULL;
   int idx = 0;
-
-  static int outcnt = 0;
 
   int slot_offset_rxdata = 3 & (tti % 20); // to finalize
   uint32_t slot_size = 4 * 14 * fft_size;
@@ -398,7 +369,6 @@ int xran_fh_rx_read_slot(const int tti, const int xran_port, const uint8_t nb_an
 #else
           AssertFatal(1 == 0, "BFP compression not supported on this architecture");
 #endif
-              outcnt++;
         } else {
           printf("pRbElm->compMethod == %d is not supported\n", pRbElm->compMethod);
           exit(-1);

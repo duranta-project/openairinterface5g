@@ -438,7 +438,8 @@ typedef struct timer_elm_s {
 
   static void catch_signal(int sig) {
     static const char prefix[] = "\n** Caught ";
-    write(STDERR_FILENO, prefix, sizeof(prefix) - 1);
+    __attribute__((unused))
+    ssize_t unused = write(STDERR_FILENO, prefix, sizeof(prefix) - 1);
 
     const char *name;
     switch (sig) {
@@ -449,10 +450,10 @@ typedef struct timer_elm_s {
     size_t len = 0;
     while (name[len] != '\0')
       ++len;
-    write(STDERR_FILENO, name, len);
+    unused = write(STDERR_FILENO, name, len);
 
     static const char suffix[] = ", shutting down\n";
-    write(STDERR_FILENO, suffix, sizeof(suffix) - 1);
+    unused = write(STDERR_FILENO, suffix, sizeof(suffix) - 1);
 
     itti_wait_tasks_unblock();
   }

@@ -19,9 +19,6 @@
 
 void print_fhi_counters(struct xran_fh_init fh_init, struct xran_fh_config *fh_config);
 
-bool is_tdd_dl_guard_slot(const struct xran_frame_config *frame_conf, int slot);
-bool is_tdd_ul_guard_slot(const struct xran_frame_config *frame_conf, int slot);
-
 /** @brief Reads PUSCH data of slot tti from one xran port into rxdataF. */
 int xran_fh_rx_read_slot(const int tti, const int xran_port, const uint8_t nb_ant, const int fft_size, oran_buf_list_t *bufs, int32_t **rxdataF);
 /** @brief Reads PRACH data of slot tti from one xran port into p.prach_buf. */
