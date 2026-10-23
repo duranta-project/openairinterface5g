@@ -39,12 +39,6 @@
 #define MAX_NUM_NEIGH_CELLs 6 /* maximum neighbouring cells number */
 
 #define MAX_NUM_GNB_CELLs 1   /* maximum gNB cells number */
-#define IPV4_ADDR    "%u.%u.%u.%u"
-#define IPV4_ADDR_FORMAT(aDDRESS)                 \
-  (uint8_t)((aDDRESS)  & 0x000000ff),         \
-  (uint8_t)(((aDDRESS) & 0x0000ff00) >> 8 ),  \
-  (uint8_t)(((aDDRESS) & 0x00ff0000) >> 16),  \
-  (uint8_t)(((aDDRESS) & 0xff000000) >> 24)
 
 
 //-----------------------------------------------------
