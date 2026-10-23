@@ -17,10 +17,8 @@ typedef struct {
   uint8_t round;
   /// pointer to pdu from MAC interface (TS 36.212 V15.4.0, Sec 5.1 p. 8)
   unsigned char *payload_AB;
-  /// Pointers to transport block segments
-  uint8_t **c;
-  /// Rate matching (Interleaving) outputs (TS 36.212 V15.4.0, Sec 5.4.2.2 p. 30)
-  uint8_t *f;
+  /// Number of bits of payload_AB with the CRC (B in TS 38.212 5.2.2)
+  uint32_t B;
   /// Number of code segments
   uint32_t C;
   /// Number of bits in code segments

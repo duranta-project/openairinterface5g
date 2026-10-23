@@ -155,7 +155,9 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
   if (nr_ulsch_pre_encoding(harq_process_ul_ue, pscch_pssch_pdu->tb_size, pscch_pssch_pdu->num_layers, BG) == -1)
     return;
 
-  if (nr_slsch_encoding(UE, pscch_pssch_pdu, harq_pid, frame, slot, G) == -1)
+  // encoder output, packed bits
+  uint8_t f[nr_ulsch_f_size(G)] __attribute__((aligned(64)));
+  if (nr_slsch_encoding(UE, pscch_pssch_pdu, harq_pid, frame, slot, G, f) == -1)
     return;
 
   
@@ -187,7 +189,7 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
 
   // TS 38.211 8.3.1.1: c_init = n_ID * 2^15 + 1010, i.e. (n_RNTI << 15) + Nid
   // with n_RNTI = n_ID and Nid = 1010, matching the SCI-2 scrambling below.
-  nr_codeword_scrambling(harq_process_ul_ue->f, G, 0, 1010, phy_data->pscch_Nid, scrambled_output);
+  nr_codeword_scrambling(f, G, 0, 1010, phy_data->pscch_Nid, scrambled_output);
   nr_pssch_sci2_scrambling(sci2_encoded_output, Gsci2, phy_data->pscch_Nid, Nl, scrambled_output_sci);
   /////////////
   //////////////////////////////////////////////////////////////////////////
