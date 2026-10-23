@@ -1386,6 +1386,24 @@ static int Gtpv1uHandleSupportedExt()
   return rc;
 }
 
+/** @brief Rate-limit down-layer refuse logs */
+static void gtp_log_down_layer_refused(void)
+{
+  static unsigned int refused_count = 0;
+  static uint64_t t_log_refused_ms = 0;
+  struct timespec ts;
+  uint64_t now_ms;
+
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  now_ms = ts.tv_sec * 1000ULL + ts.tv_nsec / 1000000ULL;
+  if (refused_count != 0 && now_ms > t_log_refused_ms + 1280) { /* 1280 ms */
+    LOG_W(GTPU, "down layer refused incoming packet (%u times)\n", refused_count);
+    refused_count = 0;
+    t_log_refused_ms = now_ms;
+  }
+  refused_count++;
+}
+
 // When end marker arrives, we notify the client with buffer size = 0
 // The client will likely call "delete tunnel"
 // nevertheless we don't take the initiative
@@ -1432,7 +1450,7 @@ static int Gtpv1uHandleEndMarker(int h, uint8_t *msgBuf)
   pthread_mutex_unlock(&globGtp.gtp_lock);
 
   if (!tunnel->second.callBack(&ctxt, srb_flag, rb_id, mui, confirm, 0, NULL, mode, &sourceL2Id, &destinationL2Id))
-    LOG_E(GTPU, "[%d] down layer refused incoming packet\n", h);
+    gtp_log_down_layer_refused();
 
   LOG_D(GTPU, "[%d] Received END marker packet for: TEID:0x%x\n", h, ntohl(msgHdr->teid));
   return !GTPNOK;
@@ -1599,7 +1617,7 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
                                        qfi,
                                        rqi,
                                        uedata.pdusession_id))
-        LOG_E(GTPU, "[%d] down layer refused incoming SDAP packet\n", h);
+        gtp_log_down_layer_refused();
     } else {
       /* Non-SDAP callback path: direct TEID-to-incoming_rb_id delivery via callBack.
        * QFI must be absent on this path */
@@ -1610,7 +1628,7 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
                   uedata.ue_id,
                   ntohl(msgHdr->teid));
       if (!uedata.callBack(&ctxt, srb_flag, rb_id, mui, confirm, sdu_buffer_size, sdu_buffer, mode, &sourceL2Id, &destinationL2Id))
-        LOG_E(GTPU, "[%d] down layer refused incoming packet\n", h);
+        gtp_log_down_layer_refused();
     }
   }
 
