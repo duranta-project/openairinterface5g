@@ -9,6 +9,7 @@
 #define RRC_UE
 #define RRC_UE_C
 
+#include "NR_UE-CapabilityRequestFilterNR.h"
 #include "LTE_MeasObjectToAddMod.h"
 #include "NR_DL-DCCH-Message.h"        //asn_DEF_NR_DL_DCCH_Message
 #include "NR_DL-CCCH-Message.h"        //asn_DEF_NR_DL_CCCH_Message
@@ -174,7 +175,7 @@ static int get_ulsyncvalidityduration_timer_value(NR_NTN_Config_r17_t *ntncfg)
   return retval;
 }
 
-static void get_epochtime_from_sib19scheduling(NR_UE_RRC_SI_INFO *SI_info, int *frame, int *subframe)
+static void get_epochtime_from_sib19scheduling(NR_UE_RRC_SI_INFO *SI_info, int *frame, int *subframe, int scs)
 {
   // TS 38.331 section 5.2.2.3.2
   // SI-window starts at the slot #a, where a = x mod N
@@ -182,7 +183,7 @@ static void get_epochtime_from_sib19scheduling(NR_UE_RRC_SI_INFO *SI_info, int *
   // N is the number of slots in a radio frame
   int wl_slots = 5 << SI_info->si_windowlength;
   int x = (SI_info->sib19_windowposition - 1) * wl_slots;
-  int slots_per_subframe = 1 << SI_info->scs;
+  int slots_per_subframe = 1 << scs;
   int N = slots_per_subframe * 10;
   int slot_end_sib19_window = (x % N) + wl_slots;
 
@@ -200,7 +201,11 @@ static void get_epochtime_from_sib19scheduling(NR_UE_RRC_SI_INFO *SI_info, int *
         slot);
 }
 
-static int eval_epoch_time(NR_UE_RRC_SI_INFO *SI_info, NR_NTN_Config_r17_t *ntncfg, int frame, bool is_targetcell)
+static int eval_epoch_time(NR_UE_RRC_INST_t *rrc,
+                           NR_UE_RRC_SI_INFO *SI_info,
+                           NR_NTN_Config_r17_t *ntncfg,
+                           int frame,
+                           bool is_targetcell)
 {
   int epoch_frame = 0, epoch_subframe = 0;
   int diff_frames = 0;
@@ -213,7 +218,7 @@ static int eval_epoch_time(NR_UE_RRC_SI_INFO *SI_info, NR_NTN_Config_r17_t *ntnc
     // If no EPOCH time is sent, epochtime points to SIB19 window end slot in the current scheduling window
     epoch_frame = frame;
     epoch_subframe = 0;
-    get_epochtime_from_sib19scheduling(SI_info, &epoch_frame, &epoch_subframe);
+    get_epochtime_from_sib19scheduling(SI_info, &epoch_frame, &epoch_subframe, rrc->scs);
     // Adding epochTime IE in SIB19, later MAC will use it.
     ntncfg->epochTime_r17 = CALLOC(1, sizeof(NR_EpochTime_r17_t));
     ntncfg->epochTime_r17->sfn_r17 = epoch_frame;
@@ -259,7 +264,7 @@ static void nr_rrc_process_ntnconfig(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *S
 {
   SI_info->SInfo_r17.sib19_validity = true;
   // Check if Epochtime is sent or not
-  int diff_frames = eval_epoch_time(SI_info, ntncfg, frame, is_targetcell);
+  int diff_frames = eval_epoch_time(rrc, SI_info, ntncfg, frame, is_targetcell);
 
   if (ntncfg->ntn_UlSyncValidityDuration_r17) { // ulsyncvalidity duration configured
     int val430_ms = 0, sib19_timer_ms = 0;
@@ -515,7 +520,7 @@ static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_inf
   }
 
   AssertFatal(sib1->servingCellConfigCommon, "configuration issue in SIB1\n");
-  SI_info->scs = sib1->servingCellConfigCommon->downlinkConfigCommon.initialDownlinkBWP.genericParameters.subcarrierSpacing;
+  rrc->scs = sib1->servingCellConfigCommon->downlinkConfigCommon.initialDownlinkBWP.genericParameters.subcarrierSpacing;
   SI_info->si_windowlength = (sib1->si_SchedulingInfo) ? sib1->si_SchedulingInfo->si_WindowLength : 0;
   // configure default SI
   nr_rrc_configure_default_SI(SI_info, sib1->si_SchedulingInfo, si_SchedInfo_v1700);
@@ -1871,6 +1876,7 @@ NR_UE_RRC_INST_t* nr_rrc_init_ue(char* uecap_file, int instance_id, int num_ant_
   /* 5G-S-TMSI starts unset (sentinel UINT64_MAX). NAS_5GMM_IND populates it on registration */
   rrc->fiveG_S_TMSI = UINT64_MAX;
   rrc->access_barred = false;
+  rrc->nr_band = get_softmodem_params()->band;
 
   FILE *f = NULL;
   if (uecap_file) {
@@ -2806,11 +2812,43 @@ static void nr_rrc_ue_process_ueCapabilityEnquiry(NR_UE_RRC_INST_t *rrc, NR_UECa
   c1->present = NR_UL_DCCH_MessageType__c1_PR_ueCapabilityInformation;
   asn1cCalloc(c1->choice.ueCapabilityInformation, info);
   info->rrc_TransactionIdentifier = UECapabilityEnquiry->rrc_TransactionIdentifier;
-  if (!rrc->UECap.UE_NR_Capability) {
-    rrc->UECap.UE_NR_Capability = CALLOC(1, sizeof(NR_UE_NR_Capability_t));
-    asn1cSequenceAdd(rrc->UECap.UE_NR_Capability->rf_Parameters.supportedBandListNR.list, NR_BandNR_t, nr_bandnr);
-    nr_bandnr->bandNR = 1;
+
+  AssertFatal(UECapabilityEnquiry->criticalExtensions.present == NR_UECapabilityEnquiry__criticalExtensions_PR_ueCapabilityEnquiry,
+              "UECapabilityEnquiry->criticalExtensions.present (%d) != UECapabilityEnquiry__criticalExtensions_PR_c1 (%d)\n",
+              UECapabilityEnquiry->criticalExtensions.present,
+              NR_UECapabilityEnquiry__criticalExtensions_PR_ueCapabilityEnquiry);
+  NR_UECapabilityEnquiry_IEs_t *ueCapabilityEnquiry_ie = UECapabilityEnquiry->criticalExtensions.choice.ueCapabilityEnquiry;
+  /* frequencyBandListFilter of the (only supported) rat-Type nr request: UE-CapabilityRequestFilterNR, UPER in an OCTET STRING */
+  NR_UE_CapabilityRequestFilterNR_t *nr_filter = NULL;
+  for (int i = 0; i < ueCapabilityEnquiry_ie->ue_CapabilityRAT_RequestList.list.count; i++) {
+    NR_UE_CapabilityRAT_Request_t *req = ueCapabilityEnquiry_ie->ue_CapabilityRAT_RequestList.list.array[i];
+    if (req->rat_Type != NR_RAT_Type_nr)
+      continue;
+    if (req->capabilityRequestFilter) {
+      asn_dec_rval_t r = uper_decode(NULL,
+                                     &asn_DEF_NR_UE_CapabilityRequestFilterNR,
+                                     (void **)&nr_filter,
+                                     req->capabilityRequestFilter->buf,
+                                     req->capabilityRequestFilter->size,
+                                     0,
+                                     0);
+      if (r.code != RC_OK) {
+        LOG_E(NR_RRC, "could not decode UE-CapabilityRequestFilterNR\n");
+        ASN_STRUCT_FREE(asn_DEF_NR_UE_CapabilityRequestFilterNR, nr_filter);
+        nr_filter = NULL;
+      }
+    }
+    break;
   }
+
+  const NR_FreqBandList_t *band_filter = nr_filter ? nr_filter->frequencyBandListFilter : NULL;
+  if (!band_filter)
+    LOG_W(NR_RRC, "UECapabilityEnquiry without frequencyBandListFilter\n");
+  const OCTET_STRING_t *enq_ext = ueCapabilityEnquiry_ie->ue_CapabilityEnquiryExt;
+
+  nr_rrc_ue_update_capability(rrc, band_filter, enq_ext);
+  ASN_STRUCT_FREE(asn_DEF_NR_UE_CapabilityRequestFilterNR, nr_filter); // update() copied what it needs
+
   xer_fprint(stdout, &asn_DEF_NR_UE_NR_Capability, (void *)rrc->UECap.UE_NR_Capability);
 
   asn_enc_rval_t enc_rval = uper_encode_to_buffer(&asn_DEF_NR_UE_NR_Capability,
@@ -2821,10 +2859,6 @@ static void nr_rrc_ue_process_ueCapabilityEnquiry(NR_UE_RRC_INST_t *rrc, NR_UECa
   AssertFatal (enc_rval.encoded > 0, "ASN1 message encoding failed (%s, %lu)!\n", enc_rval.failed_type->name, enc_rval.encoded);
   rrc->UECap.sdu_size = (enc_rval.encoded + 7) / 8;
   RRCLOG_I("NR Capability encoded, %d bytes (%zd bits)\n", rrc->UECap.sdu_size, enc_rval.encoded + 7);
-  NR_UECapabilityEnquiry_IEs_t *ueCapabilityEnquiry_ie = UECapabilityEnquiry->criticalExtensions.choice.ueCapabilityEnquiry;
-  AssertFatal(UECapabilityEnquiry->criticalExtensions.present == NR_UECapabilityEnquiry__criticalExtensions_PR_ueCapabilityEnquiry,
-              "UECapabilityEnquiry->criticalExtensions.present (%d) != UECapabilityEnquiry__criticalExtensions_PR_c1 (%d)\n",
-              UECapabilityEnquiry->criticalExtensions.present,NR_UECapabilityEnquiry__criticalExtensions_PR_ueCapabilityEnquiry);
 
   NR_UECapabilityInformation_t *ueCapabilityInformation = ul_dcch_msg.message.choice.c1->choice.ueCapabilityInformation;
   ueCapabilityInformation->criticalExtensions.present = NR_UECapabilityInformation__criticalExtensions_PR_ueCapabilityInformation;
