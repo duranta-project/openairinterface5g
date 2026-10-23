@@ -406,22 +406,11 @@ static void free_drb_to_setup_item(const DRB_nGRAN_to_setup_t *msg)
   free(msg->drb_inactivity_timer);
 }
 
-/** @brief Encode PDU Session Resource To Setup List Item (3GPP TS 38.463 9.3.3.2) */
-static bool e1_encode_pdu_session_to_setup_item(E1AP_PDU_Session_Resource_To_Setup_Item_t *item, const pdu_session_to_setup_t *in)
+/** @brief Encode DRB To Setup List (3GPP TS 38.463 9.3.3.2, 9.3.3.11) */
+static void e1_encode_drb_to_setup_list(E1AP_DRB_To_Setup_List_NG_RAN_t *out, int n, const DRB_nGRAN_to_setup_t *in)
 {
-  // PDU Session ID (M)
-  item->pDU_Session_ID = in->sessionId;
-  // PDU Session Type (M)
-  item->pDU_Session_Type = in->sessionType;
-  // S-NSSAI (M)
-  item->sNSSAI = e1_encode_snssai(&in->nssai);
-  // Security Indication (M)
-  item->securityIndication = e1_encode_security_indication(&in->securityIndication);
-  // NG UL UP Transport Layer Information (M)
-  item->nG_UL_UP_TNL_Information = e1_encode_up_tnl_info(&in->UP_TL_information);
-  // DRB To Setup List (M)
-  for (const DRB_nGRAN_to_setup_t *j = in->DRBnGRanList; j < in->DRBnGRanList + in->numDRB2Setup; j++) {
-    asn1cSequenceAdd(item->dRB_To_Setup_List_NG_RAN.list, E1AP_DRB_To_Setup_Item_NG_RAN_t, ieC6_1_1);
+  for (const DRB_nGRAN_to_setup_t *j = in; j < in + n; j++) {
+    asn1cSequenceAdd(out->list, E1AP_DRB_To_Setup_Item_NG_RAN_t, ieC6_1_1);
     // DRB ID (M)
     ieC6_1_1->dRB_ID = j->id;
     // SDAP Configuration (M)
@@ -439,6 +428,56 @@ static bool e1_encode_pdu_session_to_setup_item(E1AP_PDU_Session_Resource_To_Set
       *ieC6_1_1_2 = e1_encode_qos_flow_to_setup(k);
     }
   }
+}
+
+/** @brief Decode DRB To Setup List (3GPP TS 38.463 9.3.3.2, 9.3.3.11) */
+static bool e1_decode_drb_to_setup_list(int *n, DRB_nGRAN_to_setup_t *out, const E1AP_DRB_To_Setup_List_NG_RAN_t *in)
+{
+  EQ_CHECK_GENERIC(in->list.count > 0, "%d", in->list.count, 0);
+  *n = in->list.count;
+  for (int j = 0; j < in->list.count; j++) {
+    DRB_nGRAN_to_setup_t *drb = out + j;
+    E1AP_DRB_To_Setup_Item_NG_RAN_t *drb2Setup = in->list.array[j];
+    // DRB ID (M)
+    drb->id = drb2Setup->dRB_ID;
+    // SDAP Configuration (M)
+    CHECK_E1AP_DEC(e1_decode_sdap_config(&drb->sdap_config, &drb2Setup->sDAP_Configuration));
+    // PDCP Configuration (M)
+    CHECK_E1AP_DEC(e1_decode_pdcp_config(&drb->pdcp_config, &drb2Setup->pDCP_Configuration));
+    // Cell Group Information (M)
+    E1AP_Cell_Group_Information_t *cellGroupList = &drb2Setup->cell_Group_Information;
+    EQ_CHECK_GENERIC(cellGroupList->list.count > 0, "%d", cellGroupList->list.count, 0);
+    drb->numCellGroups = cellGroupList->list.count;
+    for (int k = 0; k < cellGroupList->list.count; k++) {
+      E1AP_Cell_Group_Information_Item_t *cg2Setup = cellGroupList->list.array[k];
+      // Cell Group ID
+      drb->cellGroupList[k] = cg2Setup->cell_Group_ID;
+    }
+    // QoS Flows Information To Be Setup (M)
+    E1AP_QoS_Flow_QoS_Parameter_List_t *qos2SetupList = &drb2Setup->qos_flow_Information_To_Be_Setup;
+    drb->numQosFlow2Setup = qos2SetupList->list.count;
+    for (int k = 0; k < qos2SetupList->list.count; k++) {
+      CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(drb->qosFlows + k, qos2SetupList->list.array[k]));
+    }
+  }
+  return true;
+}
+
+/** @brief Encode PDU Session Resource To Setup List Item (3GPP TS 38.463 9.3.3.2) */
+static bool e1_encode_pdu_session_to_setup_item(E1AP_PDU_Session_Resource_To_Setup_Item_t *item, const pdu_session_to_setup_t *in)
+{
+  // PDU Session ID (M)
+  item->pDU_Session_ID = in->sessionId;
+  // PDU Session Type (M)
+  item->pDU_Session_Type = in->sessionType;
+  // S-NSSAI (M)
+  item->sNSSAI = e1_encode_snssai(&in->nssai);
+  // Security Indication (M)
+  item->securityIndication = e1_encode_security_indication(&in->securityIndication);
+  // NG UL UP Transport Layer Information (M)
+  item->nG_UL_UP_TNL_Information = e1_encode_up_tnl_info(&in->UP_TL_information);
+  // DRB To Setup List (M)
+  e1_encode_drb_to_setup_list(&item->dRB_To_Setup_List_NG_RAN, in->numDRB2Setup, in->DRBnGRanList);
   return true;
 }
 
@@ -463,34 +502,7 @@ static bool e1_decode_pdu_session_to_setup_item(pdu_session_to_setup_t *out, E1A
   _EQ_CHECK_INT(item->nG_UL_UP_TNL_Information.present, E1AP_UP_TNL_Information_PR_gTPTunnel);
   CHECK_E1AP_DEC(e1_decode_up_tnl_info(&out->UP_TL_information, &item->nG_UL_UP_TNL_Information));
   /* DRB To Setup List ( > 1 item ) */
-  E1AP_DRB_To_Setup_List_NG_RAN_t *drb2SetupList = &item->dRB_To_Setup_List_NG_RAN;
-  EQ_CHECK_GENERIC(drb2SetupList->list.count > 0, "%d", drb2SetupList->list.count, 0);
-  out->numDRB2Setup = drb2SetupList->list.count;
-  for (int j = 0; j < drb2SetupList->list.count; j++) {
-    DRB_nGRAN_to_setup_t *drb = out->DRBnGRanList + j;
-    E1AP_DRB_To_Setup_Item_NG_RAN_t *drb2Setup = drb2SetupList->list.array[j];
-    // DRB ID (M)
-    drb->id = drb2Setup->dRB_ID;
-    // SDAP Configuration (M)
-    CHECK_E1AP_DEC(e1_decode_sdap_config(&drb->sdap_config, &drb2Setup->sDAP_Configuration));
-    // PDCP Configuration (M)
-    CHECK_E1AP_DEC(e1_decode_pdcp_config(&drb->pdcp_config, &drb2Setup->pDCP_Configuration));
-    // Cell Group Information (M)
-    E1AP_Cell_Group_Information_t *cellGroupList = &drb2Setup->cell_Group_Information;
-    EQ_CHECK_GENERIC(cellGroupList->list.count > 0, "%d", cellGroupList->list.count, 0);
-    drb->numCellGroups = cellGroupList->list.count;
-    for (int k = 0; k < cellGroupList->list.count; k++) {
-      E1AP_Cell_Group_Information_Item_t *cg2Setup = cellGroupList->list.array[k];
-      // Cell Group ID
-      drb->cellGroupList[k] = cg2Setup->cell_Group_ID;
-    }
-    // QoS Flows Information To Be Setup (M)
-    E1AP_QoS_Flow_QoS_Parameter_List_t *qos2SetupList = &drb2Setup->qos_flow_Information_To_Be_Setup;
-    drb->numQosFlow2Setup = qos2SetupList->list.count;
-    for (int k = 0; k < qos2SetupList->list.count; k++) {
-      CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(drb->qosFlows + k, qos2SetupList->list.array[k]));
-    }
-  }
+  CHECK_E1AP_DEC(e1_decode_drb_to_setup_list(&out->numDRB2Setup, out->DRBnGRanList, &item->dRB_To_Setup_List_NG_RAN));
   return true;
 }
 
@@ -1441,6 +1453,11 @@ static E1AP_PDU_Session_Resource_To_Modify_Item_t e1_encode_pdu_session_to_mod_i
 {
   E1AP_PDU_Session_Resource_To_Modify_Item_t out = {0};
   out.pDU_Session_ID = in->sessionId;
+  // DRB To Setup List (O)
+  if (in->numDRB2Setup > 0) {
+    asn1cCalloc(out.dRB_To_Setup_List_NG_RAN, drb2Setup_List);
+    e1_encode_drb_to_setup_list(drb2Setup_List, in->numDRB2Setup, in->DRBnGRanList);
+  }
   if (in->numDRB2Modify > 0) {
     out.dRB_To_Modify_List_NG_RAN = calloc_or_fail(1, sizeof(*out.dRB_To_Modify_List_NG_RAN));
   }
@@ -1727,10 +1744,13 @@ static bool e1_decode_pdu_session_to_mod_item(pdu_session_to_mod_t *out, const E
 {
   // PDU Session ID
   out->sessionId = in->pDU_Session_ID;
-  // DRB to modify list
+  // DRB To Setup List (O)
+  if (in->dRB_To_Setup_List_NG_RAN)
+    CHECK_E1AP_DEC(e1_decode_drb_to_setup_list(&out->numDRB2Setup, out->DRBnGRanList, in->dRB_To_Setup_List_NG_RAN));
+  // DRB to modify list (O)
   E1AP_DRB_To_Modify_List_NG_RAN_t *drb2ModList = in->dRB_To_Modify_List_NG_RAN;
-  out->numDRB2Modify = drb2ModList->list.count;
-  for (int j = 0; j < drb2ModList->list.count; j++) {
+  out->numDRB2Modify = drb2ModList ? drb2ModList->list.count : 0;
+  for (int j = 0; j < out->numDRB2Modify; j++) {
     DRB_nGRAN_to_mod_t *drb = out->DRBnGRanModList + j;
     // DRB to modify item
     E1AP_DRB_To_Modify_Item_NG_RAN_t *drb2Mod = drb2ModList->list.array[j];

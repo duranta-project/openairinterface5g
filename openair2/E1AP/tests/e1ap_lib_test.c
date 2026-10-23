@@ -676,6 +676,71 @@ static void test_bearer_context_modification_request(void)
   free_e1ap_context_mod_request(&orig);
 }
 
+/**
+ * @brief Test a DRB to setup in a PDU Session Resource To Modify Item (e.g. a new
+ *        QoS flow mapped to a new DRB), with and without a DRB to modify alongside
+ */
+static void test_bearer_context_modification_request_drb_setup(void)
+{
+  const bearer_context_pdcp_config_t dummy_pdcp_config = {
+      .discardTimer = E1AP_DiscardTimer_infinity,
+      .pDCP_SN_Size_DL = E1AP_PDCP_SN_Size_s_18,
+      .pDCP_SN_Size_UL = E1AP_PDCP_SN_Size_s_18,
+      .reorderingTimer = 5,
+      .rLC_Mode = E1AP_RLC_Mode_rlc_am,
+  };
+
+  const qos_flow_to_setup_t dummy_qos_flows = {
+      .qfi = 2,
+      .qos_params.alloc_reten_priority.preemption_capability = E1AP_Pre_emptionCapability_shall_not_trigger_pre_emption,
+      .qos_params.alloc_reten_priority.preemption_vulnerability = E1AP_Pre_emptionVulnerability_not_pre_emptable,
+      .qos_params.alloc_reten_priority.priority_level = 1,
+      .qos_params.qos_characteristics.non_dynamic.fiveqi = 1,
+  };
+
+  for (int with_drb_to_mod = 0; with_drb_to_mod <= 1; with_drb_to_mod++) {
+    DRB_nGRAN_to_setup_t drb_to_setup = drb_to_setup_template(2);
+    drb_to_setup.pdcp_config = dummy_pdcp_config;
+    drb_to_setup.qosFlows[0] = dummy_qos_flows;
+    *drb_to_setup.drb_inactivity_timer = 500;
+
+    pdu_session_to_mod_t pdusession_mod_item = {
+        .sessionId = 1,
+        .numDRB2Setup = 1,
+        .DRBnGRanList[0] = drb_to_setup,
+    };
+    if (with_drb_to_mod) {
+      DRB_nGRAN_to_mod_t drb_to_mod = drb_to_mod_template(1);
+      *drb_to_mod.pdcp_config = dummy_pdcp_config;
+      *drb_to_mod.pdcp_status = (e1_pdcp_status_info_t){0};
+      drb_to_mod.qosFlows[0] = dummy_qos_flows;
+      drb_to_mod.qosFlows[0].qfi = 1;
+      drb_to_mod.qosFlows[0].qos_params.qos_characteristics.non_dynamic.fiveqi = 9;
+      pdusession_mod_item.numDRB2Modify = 1;
+      pdusession_mod_item.DRBnGRanModList[0] = drb_to_mod;
+    }
+
+    e1ap_bearer_mod_req_t orig = {
+        .gNB_cu_cp_ue_id = 0x1234,
+        .gNB_cu_up_ue_id = 0x5678,
+        .numPDUSessionsMod = 1,
+    };
+    orig.pduSessionMod = calloc_or_fail(1, sizeof(*orig.pduSessionMod));
+    orig.pduSessionMod[0] = pdusession_mod_item;
+
+    E1AP_E1AP_PDU_t *enc = encode_E1_bearer_context_mod_request(&orig);
+    E1AP_E1AP_PDU_t *dec = e1ap_encode_decode(enc);
+    e1ap_msg_free(enc);
+    e1ap_bearer_mod_req_t decoded = {0};
+    AssertFatal(decode_E1_bearer_context_mod_request(dec, &decoded),
+                "decode_E1_bearer_context_mod_request(): could not decode message\n");
+    e1ap_msg_free(dec);
+    AssertFatal(eq_bearer_context_mod_request(&orig, &decoded), "eq_bearer_context_mod_request(): decoded message doesn't match\n");
+    free_e1ap_context_mod_request(&decoded);
+    free_e1ap_context_mod_request(&orig);
+  }
+}
+
 const e1ap_cause_t dummy_cause = {
   .value = E1AP_RADIO_CAUSE_UNSPECIFIED,
   .type = E1AP_CAUSE_RADIO_NETWORK,
@@ -1008,6 +1073,7 @@ int main()
   test_e1_cuup_setup_failure();
   // E1 Bearer Context Modification
   test_bearer_context_modification_request();
+  test_bearer_context_modification_request_drb_setup();
   test_bearer_context_modification_response();
   test_bearer_context_modification_response_fail();
   test_bearer_context_modification_failure();
