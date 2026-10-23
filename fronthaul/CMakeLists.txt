@@ -6,3 +6,7 @@ pkg_check_modules(dpdk REQUIRED IMPORTED_TARGET libdpdk>=22.11)
 add_subdirectory(common)
 add_subdirectory(oru)
 add_subdirectory(du)
+
+if (ENABLE_TESTS)
+    add_subdirectory(tests)
+endif()
