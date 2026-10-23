@@ -2651,7 +2651,7 @@ static int nr_ue_max_ul_inactivity_slots(const frame_structure_t *fs, int ulsch_
 
 static int collect_ul_candidates(gNB_MAC_INST *mac,
                                  nr_cell_sched_t *cell,
-                                 NR_UE_info_t *UE_list[],
+                                 hash_table_t *UE_list,
                                  nr_ul_candidate_t *candidates,
                                  int max_candidates,
                                  frame_t frame,
@@ -2863,7 +2863,7 @@ void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_pro
     nr_ul_candidate_t candidates[MAX_MOBILES_PER_GNB] = {0};
     int n_cand = collect_ul_candidates(nr_mac,
                                        cell,
-                                       nr_mac->UE_info.connected_ue_list,
+                                       &nr_mac->UE_info.connected_ue_list,
                                        candidates,
                                        MAX_MOBILES_PER_GNB,
                                        frame,

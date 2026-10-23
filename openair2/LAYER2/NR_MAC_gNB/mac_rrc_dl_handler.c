@@ -96,19 +96,11 @@ void du_clear_all_ue_states()
   gNB_MAC_INST *mac = RC.nrmac[0];
   NR_SCHED_LOCK(&mac->sched_lock);
 
-  NR_UE_info_t *UE = *mac->UE_info.connected_ue_list;
-
   instance_t f1inst = get_f1_gtp_instance();
+  UNUSED(f1inst); // Klappe! Ich arbeite hier
 
-  while (UE != NULL) {
-    int rnti = UE->rnti;
-    nr_mac_release_ue(mac, rnti);
-    // free all F1 contexts
-    if (du_exists_f1_ue_data(rnti))
-      du_remove_f1_ue_data(rnti);
-    newGtpuDeleteAllTunnels(f1inst, rnti);
-    UE = *mac->UE_info.connected_ue_list;
-  }
+  // TODO release all UEs
+
   NR_SCHED_UNLOCK(&mac->sched_lock);
 }
 
@@ -561,7 +553,7 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac,
   const bool is_SA = IS_SA_MODE(get_softmodem_params());
   rnti_t rnti;
   if (get_softmodem_params()->phy_test) {
-    AssertFatal(mac->UE_info.connected_ue_list[0] == NULL, "phytest: UE already present\n");
+    AssertFatal(get_num_nr_UE(&mac->UE_info) == 0, "phytest: UE already present\n");
     rnti = 0x1234;
   } else {
     bool found = nr_mac_get_new_rnti(&mac->UE_info, &rnti);
@@ -609,7 +601,7 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac,
     bool res = add_connected_nr_ue(mac, UE);
     DevAssert(res);
   } else {
-    if (!add_new_UE_RA(mac, UE)) {
+    if (!add_new_UE_RA(&mac->UE_info, UE)) {
       delete_nr_ue_data(mac, UE);
       LOG_E(NR_MAC, "UE list full while creating new UE\n");
       return NULL;
@@ -1154,9 +1146,10 @@ static void process_reestablishment(gNB_MAC_INST *mac, uint32_t new_dl_rrc_id, u
   memcpy(&UE->UE_sched_ctrl, &oldUE->UE_sched_ctrl, sizeof(NR_UE_sched_ctrl_t));
   memcpy(&oldUE->UE_sched_ctrl, &temp_sc, sizeof(NR_UE_sched_ctrl_t));
   mac_remove_nr_ue(mac, UE->rnti);
-  NR_UE_info_t *r = remove_UE_from_list(MAX_MOBILES_PER_GNB + 1, mac->UE_info.connected_ue_list, oldUE->rnti);
+  NR_UE_info_t *r = remove_UE_from_list(&mac->UE_info.connected_ue_list, oldUE->rnti);
   DevAssert(r == oldUE);
-  add_UE_to_list(NR_NB_RA_PROC_MAX, mac->UE_info.access_ue_list, oldUE);
+  bool success = add_new_UE_RA(&mac->UE_info, UE);
+  AssertFatal(success, "can not add UE: F1 UE ctxt fail to be sent\n");
   nr_rlc_remove_ue(new_dl_rrc_id);
   nr_rlc_update_id(old_dl_rrc_id, new_dl_rrc_id);
   instance_t f1inst = get_f1_gtp_instance();

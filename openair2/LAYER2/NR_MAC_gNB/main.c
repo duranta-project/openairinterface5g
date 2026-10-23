@@ -109,7 +109,7 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
   const char *begin = output;
   const char *end = output + strlen;
 
-  UE_iterator(gNB->UE_info.connected_ue_list, UE) {
+  UE_iterator(&gNB->UE_info.connected_ue_list, UE) {
     if (UE->pcell != cell)
       continue;
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
@@ -303,8 +303,6 @@ void mac_top_init_gNB(ngran_node_t node_type,
 
       pthread_mutex_init(&RC.nrmac[i]->sched_lock, NULL);
 
-      uid_linear_allocator_init(&RC.nrmac[i]->UE_info.uid_allocator);
-
       RC.nrmac[i]->ul_ri_tpmi_select = nr_ul_ri_tpmi_select_default;
       RC.nrmac[i]->ul_tda_select = nr_ul_tda_select_default;
       RC.nrmac[i]->ul_beam_select = nr_ul_beam_select_default;
@@ -345,6 +343,11 @@ void mac_top_init_gNB(ngran_node_t node_type,
   for (module_id_t i = 0; i < RC.nb_nr_macrlc_inst; i++) {
     gNB_MAC_INST *nrmac = RC.nrmac[i];
     nrmac->if_inst = NR_IF_Module_init(i);
+    uid_linear_allocator_init(&RC.nrmac[i]->UE_info.uid_allocator);
+    int num_ues = MAX_MOBILES_PER_GNB * 2 + 1;  // slightly larger to avoid too many collisions
+    // no hash func as RNTI is key (is random)
+    RC.nrmac[i]->UE_info.connected_ue_list = hashtable_create(num_ues, NULL, /* TODO: delete_nr_ue_data */ NULL);
+    seq_arr_init(&RC.nrmac[i]->UE_info.access_ue_list, sizeof(NR_UE_info_t *));
   }
 
   du_init_f1_ue_data();
@@ -388,12 +391,12 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
 #endif /* E3_AGENT */
   }
   NR_UEs_t *UE_info = &mac->UE_info;
-  for (int i = 0; i < sizeofArray(UE_info->connected_ue_list); ++i)
-    if (UE_info->connected_ue_list[i])
-      delete_nr_ue_data(mac, UE_info->connected_ue_list[i]);
-  for (int i = 0; i < sizeofArray(UE_info->access_ue_list); ++i)
-    if (UE_info->access_ue_list[i])
-      delete_nr_ue_data(mac, UE_info->access_ue_list[i]);
+  hashtable_destroy(&UE_info->connected_ue_list);
+  FOR_EACH_RA_UE(&UE_info->access_ue_list, raUE) {
+    delete_nr_ue_data(mac, raUE);
+  }
+  // free_func=NULL because UE data has been removed two lines above!
+  seq_arr_free(&UE_info->access_ue_list, NULL);
   if (mac->f1_config.setup_resp)
     free_f1ap_setup_response(mac->f1_config.setup_resp);
   free(mac->f1_config.setup_resp);

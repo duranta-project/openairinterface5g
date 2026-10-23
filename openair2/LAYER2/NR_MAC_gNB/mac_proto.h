@@ -46,7 +46,8 @@ bool nr_mac_add_test_ue(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, uint32_t rnt
 void nr_mac_prepare_ra_ue(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_UE_info_t *UE);
 nr_cell_sched_t *nr_mac_get_cell_by_phy_id(gNB_MAC_INST *mac, uint16_t phy_id);
 nr_cell_sched_t *nr_mac_get_cell_by_cgi(gNB_MAC_INST *mac, plmn_id_t plmn, uint64_t nr_cellid);
-bool add_new_UE_RA(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
+bool add_new_UE_RA(NR_UEs_t *UEs, NR_UE_info_t *UE);
+NR_UE_info_t *remove_UE_RA(NR_UEs_t *UEs, rnti_t rnti);
 int nr_mac_get_reconfig_delay_slots(NR_SubcarrierSpacing_t scs);
 
 int nr_transmission_action_indicator_stop(gNB_MAC_INST *mac, NR_UE_info_t *UE_info);
@@ -312,6 +313,8 @@ void add_tail_nr_list(NR_list_t *listP, int id);
 void add_front_nr_list(NR_list_t *listP, int id);
 void remove_front_nr_list(NR_list_t *listP);
 void nr_release_ra_UE(gNB_MAC_INST *mac, rnti_t rnti);
+size_t get_num_nr_UE(NR_UEs_t *UEs);
+NR_UE_info_t *get_first_nr_UE(NR_UEs_t *UEs);
 NR_UE_info_t * find_nr_UE(NR_UEs_t* UEs, rnti_t rntiP);
 NR_UE_info_t *find_ra_UE(NR_UEs_t *UEs, rnti_t rntiP);
 void configure_UE_BWP(nr_cell_sched_t *cell,
@@ -414,8 +417,8 @@ uint8_t get_mcs_from_cqi(int mcs_table, int cqi_table, int cqi_idx);
 uint8_t get_dl_nrOfLayers(const NR_UE_sched_ctrl_t *sched_ctrl, const nr_dci_format_t dci_format);
 
 void free_sched_pucch_list(NR_UE_sched_ctrl_t *sched_ctrl);
-bool add_UE_to_list(int list_size, NR_UE_info_t *list[list_size], NR_UE_info_t *UE);
-NR_UE_info_t *remove_UE_from_list(int list_size, NR_UE_info_t *list[list_size], rnti_t rnti);
+bool add_UE_to_list(hash_table_t *list, NR_UE_info_t *UE);
+NR_UE_info_t *remove_UE_from_list(hash_table_t *list, rnti_t rnti);
 int get_dl_tda(const gNB_MAC_INST *nrmac, const nr_cell_sched_t *cell, int slot);
 int get_num_ul_tda(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, int slot, int k2, const NR_tda_info_t **first_idx);
 const NR_tda_info_t *get_best_ul_tda(const nr_cell_sched_t *cell,
