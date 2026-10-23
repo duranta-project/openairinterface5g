@@ -16,6 +16,7 @@
 #include "ds/hashtable.h"
 #include "oai_asn1.h"
 #include "rrc_defs.h"
+#include "conversions.h"
 #include "rrc_extern.h"
 #include "RRC/L2_INTERFACE/openair_rrc_L2_interface.h"
 #include "openair1/PHY/LTE_ESTIMATION/lte_estimation.h"

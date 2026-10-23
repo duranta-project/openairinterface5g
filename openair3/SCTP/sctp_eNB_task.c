@@ -32,15 +32,6 @@
 #include "sctp_common.h"
 #include "sctp_eNB_itti_messaging.h"
 
-/* Used to format an uint32_t containing an ipv4 address */
-#define IPV4_ADDR    "%u.%u.%u.%u"
-#define IPV4_ADDR_FORMAT(aDDRESS)               \
-    (uint8_t)((aDDRESS)  & 0x000000ff),         \
-    (uint8_t)(((aDDRESS) & 0x0000ff00) >> 8 ),  \
-    (uint8_t)(((aDDRESS) & 0x00ff0000) >> 16),  \
-    (uint8_t)(((aDDRESS) & 0xff000000) >> 24)
-
-
 enum sctp_connection_type_e {
     SCTP_TYPE_CLIENT,
     SCTP_TYPE_SERVER,
