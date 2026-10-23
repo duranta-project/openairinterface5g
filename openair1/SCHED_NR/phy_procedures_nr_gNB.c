@@ -1096,6 +1096,9 @@ static void dump_pusch_rx_data(PHY_VARS_gNB *gNB, const nfapi_nr_pusch_pdu_t *pd
   RU_t *ru = gNB->RU_list[0];
   int slot_offset = get_samples_slot_timestamp(frame_parms, slot);
   slot_offset -= ru->N_TA_offset;
+  // up to 21 slots: written below until more than 20 are stored, then saved
+  if (!gNB->common_vars.debugBuff)
+    gNB->common_vars.debugBuff = calloc_or_fail(21 * (get_samples_per_slot(0, frame_parms) + 1000 + 4), sizeof(int32_t));
   int32_t sample_offset = gNB->common_vars.debugBuff_sample_offset;
   int16_t *buf = (int16_t *)&gNB->common_vars.debugBuff[sample_offset];
   buf[0] = (int16_t)pdu->rnti;
