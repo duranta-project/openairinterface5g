@@ -1022,7 +1022,7 @@ static rrc_action_t rrc_gNB_action_from_pdusession_status(gNB_RRC_UE_t *ue_p,
                                                           const nr_rrc_reconfig_param_t *params,
                                                           bool is_reestablishment)
 {
-  rrc_action_t action = is_reestablishment ? RRC_REESTABLISH_COMPLETE : RRC_ACTION_NONE;
+  rrc_action_t action = RRC_ACTION_NONE;
   FOR_EACH_SEQ_ARR (rrc_pdu_session_param_t *, item, &ue_p->pduSessions) {
     /* Only sessions that participate in this transaction get the current xid. */
     if (item->status != PDU_SESSION_STATUS_FAILED && item->status != PDU_SESSION_STATUS_ESTABLISHED) {
@@ -1052,7 +1052,7 @@ static rrc_action_t rrc_gNB_action_from_pdusession_status(gNB_RRC_UE_t *ue_p,
     }
     /* ESTABLISHED and FAILED do not drive transaction action */
   }
-  return action;
+  return action == RRC_ACTION_NONE && is_reestablishment ? RRC_REESTABLISH_COMPLETE : action;
 }
 
 /** @brief Generate and send RRC Reconfiguration message.
@@ -1713,6 +1713,12 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
   bool success = cu_update_f1_ue_data(UE->rrc_ue_id, &ue_data);
   DevAssert(success);
 
+  for (int xid = 0; xid < NR_RRC_TRANSACTION_IDENTIFIER_NUMBER; ++xid) {
+    if (UE->xids[xid] == RRC_PDUSESSION_ESTABLISH || UE->xids[xid] == RRC_PDUSESSION_MODIFY
+        || UE->xids[xid] == RRC_PDUSESSION_RELEASE || UE->xids[xid] == RRC_PDUSESSION_RESOURCE_NOTIFY) {
+      UE->xids[xid] = RRC_ACTION_NONE;
+    }
+  }
   rrc_gNB_generate_RRCReestablishment(ue_context_p, old_rnti, current_cell);
   return;
 
