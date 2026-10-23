@@ -770,9 +770,8 @@ int main(int argc, char **argv)
   if (snr1set==0)
     snr1 = snr0+10;
 
-  RC.gNB = (PHY_VARS_gNB**) malloc(sizeof(PHY_VARS_gNB *));
-  RC.gNB[0] = (PHY_VARS_gNB*) malloc(sizeof(PHY_VARS_gNB ));
-  memset(RC.gNB[0],0,sizeof(PHY_VARS_gNB));
+  RC.gNB = malloc(sizeof(PHY_VARS_gNB *));
+  RC.gNB[0] = calloc_or_fail(1, sizeof(PHY_VARS_gNB));
 
   gNB = RC.gNB[0];
   gNB->ofdm_offset_divisor = UINT_MAX;
