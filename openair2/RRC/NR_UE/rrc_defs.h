@@ -240,7 +240,7 @@ typedef struct NR_UE_RRC_INST_s {
   bool as_security_activated;
   /// Next Hop Chaining Count
   uint8_t nh[32];
-  uint64_t nhcc;
+  uint8_t nhcc;
 
   bool detach_after_release;
   NR_timer_t release_timer;
