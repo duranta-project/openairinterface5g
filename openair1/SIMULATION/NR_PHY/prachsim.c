@@ -380,7 +380,7 @@ int main(int argc, char **argv){
 
   // Configure gNB and RU
   RC.gNB = (PHY_VARS_gNB**) malloc(2*sizeof(PHY_VARS_gNB *));
-  RC.gNB[0] = malloc(sizeof(PHY_VARS_gNB));
+  RC.gNB[0] = calloc_or_fail(1, sizeof(PHY_VARS_gNB));
   memset(RC.gNB[0],0,sizeof(PHY_VARS_gNB));
 
   RC.ru = (RU_t**) malloc(2*sizeof(RU_t *));
