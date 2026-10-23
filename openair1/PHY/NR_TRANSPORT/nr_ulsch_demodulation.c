@@ -25,7 +25,6 @@
 #include <sys/time.h>
 #include "openair1/SCHED_NR/sched_nr.h"
 
-#define NR_MAX_PUSCH_SCRAMBLING_STACK_BYTES (2 * 1024 * 1024) // 2MB
 #define NR_MAX_PUSCH_CTX_STACK_BYTES (4 * 1024 * 1024) // channel estimates and compensated symbols of a group
 
 #if T_TRACER
@@ -513,7 +512,8 @@ typedef struct puschSymbolProc_s {
   uint8_t group_size;
   const nfapi_nr_pusch_pdu_t **rel15_ul_group;
   NR_gNB_PUSCH **pusch_vars_group;
-  int16_t **scrambling_sequences;
+  // scrambling sequence of each UE, bits in 32-bit words, in the gold_cache() of the thread running nr_rx_pusch_group_tp()
+  const uint32_t **scrambling_gold;
   int *layer_offsets;
   int layers_attenuation;
 } puschSymbolProc_t;
@@ -552,8 +552,14 @@ static void symbol_unscrambling_demux(puschSymbolProc_t *rdata, int ue_idx, int 
   const int16_t *ul_valid_re_per_slot = rdata->ul_valid_re_per_slot;
   NR_gNB_PUSCH *ue_pusch_vars = rdata->pusch_vars_group[ue_idx];
   const rate_match_info_uci_t *uci_info = &ue_pusch_vars->uci_info;
-  int16_t *s_seq = rdata->scrambling_sequences[ue_idx] + (rdata->llr_offset[s] * rel15_ul->nrOfLayers);
   uint32_t bits_per_re = rel15_ul->nrOfLayers * rel15_ul->qam_mod_order;
+  // scrambling sequence of this symbol, +1 or -1 per LLR
+  const int first_bit = rdata->llr_offset[s] * rel15_ul->nrOfLayers;
+  const int first_word = first_bit / 32;
+  const int nb_words = (first_bit + ul_valid_re_per_slot[s] * bits_per_re + 31) / 32 - first_word;
+  int16_t s_seq_words[nb_words * 32] __attribute__((aligned(32)));
+  nr_codeword_unscrambling_expand(rdata->scrambling_gold[ue_idx] + first_word, nb_words, s_seq_words);
+  int16_t *s_seq = s_seq_words + first_bit % 32;
   uint32_t a_idx = map_uci->ack_offset[s];
   uint32_t c1_idx = map_uci->csi1_offset[s];
   uint32_t c2_idx = map_uci->csi2_offset[s];
@@ -1055,30 +1061,18 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   int factor = rel15_ul_ref->dmrs_config_type == pusch_dmrs_type1 ? 6 : 4;
   int nb_re_dmrs = factor * rel15_ul_ref->num_dmrs_cdm_grps_no_data;
 
-  int max_G = 0;
   int G[group_size];
   for (int u = 0; u < group_size; u++) {
     const nfapi_nr_pusch_pdu_t *p = rel15_ul_group[u];
     G[u] = nr_get_G(p->rb_size, p->nr_of_symbols, nb_re_dmrs, number_dmrs_symbols, unav_res, p->qam_mod_order, p->nrOfLayers);
-    if (G[u] > max_G)
-      max_G = G[u];
   }
 
-  const uint64_t num_scrambling_bytes = group_size * (max_G + 96) * sizeof(int16_t);
-  AssertFatal(num_scrambling_bytes <= NR_MAX_PUSCH_SCRAMBLING_STACK_BYTES,
-              "scrambling_sequences stack buffer %" PRIu64 " bytes exceeds %d MB limit : group_size %d, max_G %d\n",
-              num_scrambling_bytes,
-              NR_MAX_PUSCH_SCRAMBLING_STACK_BYTES >> 20,
-              group_size,
-              max_G);
-
-  int16_t scrambling_sequences[group_size][max_G + 96] __attribute__((aligned(32)));
-  int16_t *scrambling_sequences_arr[group_size];
-
+  // scrambling sequences: the symbol tasks expand the part of their symbols. No gold_cache() call in this thread before
+  // join_task_ans() below, so these entries stay valid while the tasks run
+  const uint32_t *scrambling_gold[group_size];
   for (int u = 0; u < group_size; u++) {
-    scrambling_sequences_arr[u] = scrambling_sequences[u];
     const nfapi_nr_pusch_pdu_t *p = rel15_ul_group[u];
-    nr_codeword_unscrambling_init(scrambling_sequences_arr[u], G[u], 0, p->data_scrambling_id, p->rnti);
+    scrambling_gold[u] = nr_codeword_scrambling_gold(G[u], 0, p->data_scrambling_id, p->rnti);
   }
 
   int meas_symbol = -1;
@@ -1226,7 +1220,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       rdata->group_size = group_size;
       rdata->rel15_ul_group = rel15_ul_group;
       rdata->pusch_vars_group = pusch_vars_group;
-      rdata->scrambling_sequences = scrambling_sequences_arr;
+      rdata->scrambling_gold = scrambling_gold;
       rdata->layer_offsets = layer_offset;
       rdata->layers_attenuation = total_layers ? log2_approx(max_ch >> 11) : 0;
       rdata->map_uci = map_uci;
