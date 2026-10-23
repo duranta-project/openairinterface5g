@@ -95,10 +95,15 @@ int decode_fgs_service_accept(fgs_service_accept_msg_t *msg, const byte_array_t 
         int start = decoded;
         // Decode the length of the IE
         uint16_t tmp;
+        if (buffer->len - decoded < sizeof(tmp)) {
+          PRINT_ERROR("IEI_PDU_SESSION_REACT_RESULT_ERROR_CAUSE: missing length\n");
+          return -1;
+        }
         memcpy(&tmp, &buffer->buf[decoded], sizeof(tmp));
         uint16_t error_len = ntohs(tmp);
         decoded += sizeof(error_len);
-        if (error_len > MAX_NUM_PDU_ERRORS * sizeof(msg->cause[0])) {
+        // pairs of PDU session ID and cause, which must fit in the message and in msg->cause
+        if (error_len % 2 != 0 || error_len > buffer->len - decoded || msg->num_errors + error_len / 2 > MAX_NUM_PDU_ERRORS) {
           PRINT_ERROR("IEI_PDU_SESSION_REACT_RESULT_ERROR_CAUSE: decoded length is out of bound\n");
           return -1;
         }
@@ -117,6 +122,9 @@ int decode_fgs_service_accept(fgs_service_accept_msg_t *msg, const byte_array_t 
         break;
 
       case IEI_EAPMSG:
+        // decode_eap_msg_ie() copies the contents into eap_msg.buf
+        if (!msg->eap_msg.buf)
+          msg->eap_msg.buf = malloc_or_fail(MAX_EAP_CONTENTS_LEN);
         DECODE_NAS_IE(ba, decode_eap_msg_ie(&msg->eap_msg, &ba), decoded);
         break;
 
@@ -165,4 +173,5 @@ bool eq_service_accept(const fgs_service_accept_msg_t *a, const fgs_service_acce
 void free_fgs_service_accept(fgs_service_accept_msg_t *msg)
 {
   free(msg->t3448);
+  free(msg->eap_msg.buf);
 }
