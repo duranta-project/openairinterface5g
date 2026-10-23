@@ -268,7 +268,7 @@ static void fill_ul_tti_request_srs_parameters(nfapi_v4_srs_parameters_t *params
 #ifdef ENABLE_AERIAL
   // For Aerial, we always process the 4 reported symbols, not only the ones indicated by num_symbols
   for (int symbol_idx = num_symbols; symbol_idx < 4; ++symbol_idx) {
-    nfapi_v4_srs_parameters_symbols_t *symbol = &params->symbol_list[idx];
+    nfapi_v4_srs_parameters_symbols_t *symbol = &params->symbol_list[symbol_idx];
     symbol->srs_bandwidth_start = rand16_range(0,268);
     symbol->sequence_group = rand8_range(0,29);
     symbol->sequence_number = rand8_range(0,1);
