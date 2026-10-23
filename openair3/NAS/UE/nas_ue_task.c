@@ -16,6 +16,7 @@
 #include "common/oai_version.h"
 
 #include "nas_user.h"
+#include "ESM/esm_ebr_context.h"
 #include "common/ran_context.h"
 
 // FIXME review these externs
@@ -69,6 +70,7 @@ void *nas_ue_task(void *args_p)
 {
   int                   nb_events;
   MessageDef           *msg_p;
+  bool terminate = false;
   instance_t            instance;
   unsigned int          Mod_id;
   int                   result;
@@ -193,7 +195,7 @@ void *nas_ue_task(void *args_p)
         break;
 
       case TERMINATE_MESSAGE:
-        itti_exit_task ();
+        terminate = true;
         break;
 
       case MESSAGE_TEST:
@@ -279,6 +281,13 @@ void *nas_ue_task(void *args_p)
       AssertFatal (result == EXIT_SUCCESS, "Failed to free memory (%d)!\n", result);
       msg_p = NULL;
     }
+    if (terminate) {
+      for (size_t i = 0; i < users->count; ++i)
+        if (users->item[i].esm_data != NULL)
+          esm_ebr_context_cleanup_ipv4_routes(users->item[i].esm_data);
+      break;
+    }
+
     struct epoll_event events[20];
     nb_events = itti_get_events(TASK_NAS_UE, events, 20);
 
