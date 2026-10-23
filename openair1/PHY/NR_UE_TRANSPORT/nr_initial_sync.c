@@ -19,6 +19,7 @@
 #include "PHY/NR_REFSIG/nr_refsig.h"
 #include "PHY/MODULATION/nr_modulation.h"
 #include "PHY/TOOLS/tools_defs.h"
+#include "nr_pss_cfo_search.h"
 #include "nr-uesoftmodem.h"
 #include "nfapi/open-nFAPI/nfapi/public_inc/fapi_nr_ue_interface.h"
 
@@ -46,6 +47,7 @@ static bool nr_pbch_detection(const UE_nr_rxtx_proc_t *proc,
                               int *ssb_index,
                               int *symbol_offset,
                               fapiPbch_t *result,
+                              nr_initial_sync_t *sync_res,
                               const c16_t rxdataF[NR_N_SYMBOLS_SSB][frame_parms->nb_antennas_rx][frame_parms->ofdm_symbol_size])
 {
   const int N_L = (frame_parms->Lmax == 4) ? 4 : 8;
@@ -72,10 +74,17 @@ static bool nr_pbch_detection(const UE_nr_rxtx_proc_t *proc,
     }
   }
   qsort(best_ssb, N_L * N_hf, sizeof(NR_UE_SSB), ssb_sort);
+  sync_res->trace.pbch_attempted = true;
+  sync_res->trace.pbch_success = false;
+  sync_res->trace.pbch_dmrs_best_metric = best_ssb[0].metric;
+  sync_res->trace.pbch_dmrs_second_metric = N_L * N_hf > 1 ? best_ssb[1].metric : 0;
+  sync_res->trace.pbch_decode_attempts = 0;
+  sync_res->trace.failure_reason = NR_SYNC_FAILURE_PBCH;
 
   const int nb_ant = frame_parms->nb_antennas_rx;
   const int estimateSz = frame_parms->ofdm_symbol_size;
   for (NR_UE_SSB *ssb = best_ssb; ssb < best_ssb + N_L * N_hf; ssb++) {
+    sync_res->trace.pbch_decode_attempts++;
     // computing channel estimation for selected best ssb
     int16_t pbch_e_rx[NR_POLAR_PBCH_E];
 
@@ -125,6 +134,8 @@ static bool nr_pbch_detection(const UE_nr_rxtx_proc_t *proc,
                           symbol_offset,
                           result)) {
       LOG_A(PHY, "Initial sync: pbch decoded sucessfully, ssb index %d\n", *ssb_index);
+      sync_res->trace.pbch_success = true;
+      sync_res->trace.failure_reason = NR_SYNC_FAILURE_NONE;
       return true;
     }
   }
@@ -204,6 +215,7 @@ static void do_time_to_freq(nr_ssb_search_params_t *params, uint32_t sample_offs
  */
 bool nr_search_ssb_common(nr_ssb_search_params_t *params)
 {
+  params->failure_reason = NR_SYNC_FAILURE_PSS;
   const uint32_t pssTime_sz = params->ofdm_symbol_size;
   c16_t(*pssTime)[pssTime_sz] = (c16_t(*)[pssTime_sz])params->pssTime;
 
@@ -217,7 +229,56 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
                                       .fo_flag = params->fo_flag,
                                       .target_Nid_cell = params->target_nid_cell,
                                       .pssTime = (c16_t *)pssTime};
-  nr_pss_info_t pss_info = pss_search_time_nr(&p_pss);
+  nr_pss_info_t pss_info = {0};
+  if (params->pss_cfo_search.enabled && params->target_nid_cell == -1) {
+    if (!params->apply_freq_offset) {
+      LOG_E(PHY, "CFO-PSS search requires frequency-offset compensation\n");
+      params->pss_res = (pss_detection_result_t){.success = false, .pos = -1};
+      return false;
+    }
+
+    const c16_t *rxdata[params->nb_antennas_rx];
+    const c16_t *pss_references[NUMBER_PSS_SEQUENCE];
+    for (int antenna = 0; antenna < params->nb_antennas_rx; ++antenna)
+      rxdata[antenna] = params->rxdata[antenna];
+    for (int nid2 = 0; nid2 < NUMBER_PSS_SEQUENCE; ++nid2)
+      pss_references[nid2] = pssTime[nid2];
+
+    const int num_timing_candidates = params->rxdata_size - params->ofdm_symbol_size + 1;
+    const nr_pss_cfo_coarse_search_t stage1_search = {
+        .rxdata = rxdata,
+        .nb_antennas_rx = params->nb_antennas_rx,
+        .rxdata_length = num_timing_candidates,
+        .ofdm_symbol_size = params->ofdm_symbol_size,
+        .pss_time = {pss_references[0], pss_references[1], pss_references[2]},
+        .sampling_rate_hz = params->sampling_rate,
+    };
+    const nr_pss_cfo_search_result_t stage1 = nr_pss_cfo_search_stage1(&stage1_search, &params->pss_cfo_search);
+    params->pss_cfo_search_used = true;
+    params->pss_cfo_coarse_hz = stage1.coarse_cfo_hz;
+    params->pss_cfo_fine_hz = stage1.fine_cfo_hz;
+    params->pss_second_timing_peak_raw = stage1.second_timing_peak_raw;
+    params->pss_cfo_coarse_bins = stage1.coarse_bins_evaluated;
+    params->pss_cfo_fine_bins = stage1.fine_bins_evaluated;
+    params->pss_cfo_diagnostic_passes = stage1.diagnostic_passes_evaluated;
+    params->pss_res = stage1.pss;
+    if (stage1.status != NR_PSS_CFO_SEARCH_OK) {
+      LOG_D(PHY, "CFO-PSS Stage 1 finished with status %s\n", nr_pss_cfo_search_status_name(stage1.status));
+      return false;
+    }
+    pss_info.pss_elem_info[0] = stage1.pss;
+    LOG_D(PHY,
+          "CFO-PSS Stage 1 selected coarse %d Hz, fine %d Hz, total %d Hz, NID2 %d, position %d\n",
+          stage1.coarse_cfo_hz,
+          stage1.fine_cfo_hz,
+          stage1.pss.freq_offset,
+          stage1.pss.nid2,
+          stage1.pss.pos);
+  } else {
+    if (params->pss_cfo_search.enabled)
+      LOG_D(PHY, "Using original PSS detector for targeted cell search\n");
+    pss_info = pss_search_time_nr(&p_pss);
+  }
 
   // This is the frequency offset that will be applied in the compensation,
   // and it takes into account the values already applied previously during the loop.
@@ -230,6 +291,7 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
 
     int freq_offset_pss = pss_res->freq_offset;
     int sync_pos = pss_res->pos;
+    params->pss_res = *pss_res;
 
     const int ssb_time_offset = sync_pos - params->nb_prefix_samples;
 
@@ -238,7 +300,10 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
 #endif
 
     // Check that SSB fits within buffer
-    if (ssb_time_offset + NR_N_SYMBOLS_SSB * (params->ofdm_symbol_size + params->nb_prefix_samples) >= params->rxdata_size) {
+    if (ssb_time_offset < 0
+        || ssb_time_offset + NR_N_SYMBOLS_SSB * (params->ofdm_symbol_size + params->nb_prefix_samples)
+               >= params->rxdata_size) {
+      params->failure_reason = NR_SYNC_FAILURE_SSB_BOUNDARY;
       LOG_D(PHY,
             "SSB extends beyond buffer boundary (sync_pos %d, ssb_time_offset %d, buffer_size %d)\n",
             sync_pos,
@@ -272,14 +337,64 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
     params->sss_res = rx_sss_nr(&p_sss, pss_res, -1, rxdataF);
 
     if (!params->sss_res.success || params->sss_res.nid_cell < 0) {
+      params->failure_reason = NR_SYNC_FAILURE_SSS;
       continue;
     }
 
     params->pss_res = *pss_res;
+    params->failure_reason = NR_SYNC_FAILURE_NONE;
     return true;
   }
 
   return false;
+}
+
+static void copy_search_trace(nr_initial_sync_t *sync_res, const nr_ssb_search_params_t *search_params, int initial_freq_offset)
+{
+  sync_res->trace.failure_reason = search_params->failure_reason;
+  sync_res->trace.pss_success = search_params->pss_res.success;
+  sync_res->trace.pss_nid2 = search_params->pss_res.nid2;
+  sync_res->trace.pss_position = search_params->pss_res.pos;
+  sync_res->trace.pss_peak_db = search_params->pss_res.peak;
+  sync_res->trace.pss_avg_db = search_params->pss_res.avg;
+  sync_res->trace.pss_peak_raw = search_params->pss_res.peak_raw;
+  sync_res->trace.pss_avg_raw = search_params->pss_res.avg_raw;
+  sync_res->trace.pss_second_sequence_peak_raw = search_params->pss_res.second_sequence_peak_raw;
+  sync_res->trace.pss_cfo_search_used = search_params->pss_cfo_search_used;
+  sync_res->trace.pss_cfo_coarse_hz = search_params->pss_cfo_coarse_hz;
+  sync_res->trace.pss_cfo_fine_hz = search_params->pss_cfo_fine_hz;
+  sync_res->trace.pss_second_timing_peak_raw = search_params->pss_second_timing_peak_raw;
+  sync_res->trace.pss_cfo_coarse_bins = search_params->pss_cfo_coarse_bins;
+  sync_res->trace.pss_cfo_fine_bins = search_params->pss_cfo_fine_bins;
+  sync_res->trace.pss_cfo_diagnostic_passes = search_params->pss_cfo_diagnostic_passes;
+  sync_res->trace.pss_freq_offset = search_params->pss_res.freq_offset;
+  sync_res->trace.sss_success = search_params->sss_res.success;
+  sync_res->trace.sss_nid_cell = search_params->sss_res.nid_cell;
+  sync_res->trace.sss_metric = search_params->sss_res.metric;
+  sync_res->trace.sss_second_metric = search_params->sss_res.second_metric;
+  sync_res->trace.sss_phase = search_params->sss_res.phase;
+  sync_res->trace.sss_freq_offset = search_params->sss_res.freq_offset;
+  sync_res->trace.initial_freq_offset = initial_freq_offset;
+  sync_res->trace.total_freq_offset = initial_freq_offset + search_params->pss_res.freq_offset + search_params->sss_res.freq_offset;
+}
+
+static int sync_trace_rank(const nr_initial_sync_t *sync_res)
+{
+  if (sync_res->trace.pbch_attempted)
+    return 3;
+  if (sync_res->trace.sss_success)
+    return 2;
+  if (sync_res->trace.pss_success)
+    return 1;
+  return 0;
+}
+
+static bool sync_trace_is_better(const nr_initial_sync_t *candidate, const nr_initial_sync_t *current)
+{
+  const int candidate_rank = sync_trace_rank(candidate);
+  const int current_rank = sync_trace_rank(current);
+  return candidate_rank > current_rank
+         || (candidate_rank == current_rank && candidate->trace.pss_peak_raw > current->trace.pss_peak_raw);
 }
 
 static void nr_scan_ssb(void *arg)
@@ -337,11 +452,16 @@ static void nr_scan_ssb(void *arg)
       .num_exclude_nid_cells = 0,
       .apply_freq_offset = ssbInfo->foFlag,
       .fo_flag = ssbInfo->foFlag,
+      .pss_cfo_search = ssbInfo->pssCfoSearch,
       .rxdataF = rxdataF,
       .pssTime = pssTime,
   };
 
+  ssbInfo->syncRes = (nr_initial_sync_t){.frame_id = -1, .trace.failure_reason = NR_SYNC_FAILURE_PSS};
   ssbInfo->syncRes.cell_detected = nr_search_ssb_common(&search_params);
+  if (search_params.pss_res.success)
+    ssbInfo->syncRes.frame_id = search_params.pss_res.pos / fp->samples_per_frame;
+  copy_search_trace(&ssbInfo->syncRes, &search_params, ssbInfo->freqOffset);
 
   ssbInfo->pssCorrAvgPower = search_params.pss_res.avg;
   ssbInfo->pssCorrPeakPower = search_params.pss_res.peak;
@@ -358,6 +478,7 @@ static void nr_scan_ssb(void *arg)
         ssbInfo->syncRes.rx_offset);
 #endif
   ssbInfo->freqOffset += search_params.pss_res.freq_offset + search_params.sss_res.freq_offset;
+  ssbInfo->syncRes.trace.total_freq_offset = ssbInfo->freqOffset;
 
   if (ssbInfo->syncRes.cell_detected) { // we got sss channel
     ssbInfo->syncRes.cell_detected = nr_pbch_detection(ssbInfo->proc,
@@ -369,6 +490,7 @@ static void nr_scan_ssb(void *arg)
                                                        &ssbInfo->ssbIndex,
                                                        &ssbInfo->symbolOffset,
                                                        &ssbInfo->pbchResult,
+                                                       &ssbInfo->syncRes,
                                                        rxdataF); // start pbch detection at first symbol after pss
     if (ssbInfo->syncRes.cell_detected) {
       uint32_t rsrp_avg = nr_ue_calculate_ssb_rsrp(ssbInfo->fp, rxdataF[2], ssbInfo->gscnInfo.ssbFirstSC);
@@ -384,7 +506,7 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
                                   PHY_VARS_NR_UE *ue,
                                   int input_sz,
                                   c16_t **input,
-                                  nr_gscn_info_t gscnInfo[MAX_GSCN_BAND],
+                                  const nr_gscn_info_t *gscnInfo,
                                   int numGscn)
 {
   NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
@@ -405,7 +527,9 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
                                   .fp = &ue->frame_parms,
                                   .proc = proc,
                                   .syncRes.cell_detected = false,
+                                  .syncRes.trace.failure_reason = NR_SYNC_FAILURE_PSS,
                                   .foFlag = ue->UE_fo_compensation,
+                                  .pssCfoSearch = ue->pss_cfo_search,
                                   .freqOffset = ue->initial_fo,
                                   .targetNidCell = ue->target_Nid_cell};
     ssbInfo->rxdata = malloc16_clear(fp->nb_antennas_rx * sizeof(c16_t *));
@@ -426,6 +550,7 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
 
   // Collect the scan results
   nr_ue_ssb_scan_t *res = NULL;
+  nr_initial_sync_t best_failure = {.cell_detected = false, .trace.failure_reason = NR_SYNC_FAILURE_PSS};
   join_task_ans(&ans);
   for (int i = 0; i < numGscn; i++) {
     nr_ue_ssb_scan_t *ssbInfo = &ssb_info[i];
@@ -440,6 +565,9 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
       // take the first cell detected
       if (!res)
         res = ssbInfo;
+    } else {
+      if (sync_trace_is_better(&ssbInfo->syncRes, &best_failure))
+        best_failure = ssbInfo->syncRes;
     }
     for (int ant = 0; ant < fp->nb_antennas_rx; ant++) {
       free(ssbInfo->rxdata[ant]);
@@ -521,6 +649,6 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
     // we might add a low-pass filter here later
     ue->measurements.rx_power_avg[0] = rx_power / fp->nb_antennas_rx;
     ue->measurements.rx_power_avg_dB[0] = dB_fixed(ue->measurements.rx_power_avg[0]);
-    return (nr_initial_sync_t){.cell_detected = false};
+    return best_failure;
   }
 }

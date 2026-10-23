@@ -170,7 +170,7 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
                                   PHY_VARS_NR_UE *phy_vars_ue,
                                   int input_sz,
                                   c16_t **input,
-                                  nr_gscn_info_t gscnInfo[MAX_GSCN_BAND],
+                                  const nr_gscn_info_t *gscnInfo,
                                   int numGscn);
 
 /*!
