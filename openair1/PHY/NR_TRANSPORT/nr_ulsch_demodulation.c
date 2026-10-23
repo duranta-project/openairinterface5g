@@ -300,6 +300,8 @@ typedef struct {
   int csi1_offset[NR_SYMBOLS_PER_SLOT];
   int csi2_offset[NR_SYMBOLS_PER_SLOT];
   int ulsch_offset[NR_SYMBOLS_PER_SLOT];
+  // Total UL-SCH data LLRs
+  int ulsch_total;
   // Number of resources per symbol
   uint32_t q_ack[NR_SYMBOLS_PER_SLOT];
   uint32_t q_ack_rvd[NR_SYMBOLS_PER_SLOT];
@@ -348,6 +350,7 @@ nr_uci_mapping_t init_nr_uci_pusch_demux(const nfapi_nr_pusch_pdu_t *pusch_pdu,
     for (int s = 0; s < frame_parms->symbols_per_slot; s++) {
       if (s < frame_parms->symbols_per_slot - 1)
         map.ulsch_offset[s + 1] = map.ulsch_offset[s] + (pusch_vars->ul_valid_re_per_slot[s] * bits_per_re);
+      map.ulsch_total += pusch_vars->ul_valid_re_per_slot[s] * bits_per_re;
     }
     return map;
   }
@@ -419,6 +422,7 @@ nr_uci_mapping_t init_nr_uci_pusch_demux(const nfapi_nr_pusch_pdu_t *pusch_pdu,
     for (int s = 0; s < frame_parms->symbols_per_slot; s++) {
       if (s < frame_parms->symbols_per_slot - 1)
         map.ulsch_offset[s + 1] = map.ulsch_offset[s] + (M_ul[s] * bits_per_re);
+      map.ulsch_total += M_ul[s] * bits_per_re;
     }
     return map;
   }
@@ -474,6 +478,7 @@ nr_uci_mapping_t init_nr_uci_pusch_demux(const nfapi_nr_pusch_pdu_t *pusch_pdu,
     // UL-SCH gets the REs left in M_ul[s]; accumulate the offset for the next symbol
     if (s < frame_parms->symbols_per_slot - 1)
       map.ulsch_offset[s + 1] = map.ulsch_offset[s] + (M_ul[s] * bits_per_re);
+    map.ulsch_total += M_ul[s] * bits_per_re;
   }
   return map;
 }
@@ -503,6 +508,20 @@ typedef struct puschSymbolProc_s {
   int *layer_offsets;
   int layers_attenuation;
 } puschSymbolProc_t;
+
+/* n LLRs from the slot LLR buffer (a stack array of phy_procedures_gNB_uespec_RX()), 64 bytes aligned */
+static int16_t *pusch_llr_slice(PHY_VARS_gNB *gNB, int n)
+{
+  n = ceil_mod(n, 32);
+  AssertFatal(gNB->pusch_llr_pool_used + n <= gNB->pusch_llr_pool_size,
+              "PUSCH LLR pool too small: %d used, %d more, size %d\n",
+              gNB->pusch_llr_pool_used,
+              n,
+              gNB->pusch_llr_pool_size);
+  int16_t *p = gNB->pusch_llr_pool + gNB->pusch_llr_pool_used;
+  gNB->pusch_llr_pool_used += n;
+  return p;
+}
 
 static inline void unscramble_helper(const int16_t *llr_in, const int16_t *seq, int16_t *llr_out, int num_llr)
 {
@@ -1108,6 +1127,19 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   for (int u = 0; u < group_size; u++) {
     pusch_vars_group[u]->uci_info = get_uci_on_pusch_info(rel15_ul_group[u], &ptrs_info, G[u]);
     map_uci[u] = init_nr_uci_pusch_demux(rel15_ul_group[u], &pusch_vars_group[u]->uci_info, frame_parms, joint_pv);
+  }
+
+  // LLR buffers of this slot, as written by symbol_unscrambling_demux()
+  for (int u = 0; u < group_size; u++) {
+    NR_gNB_PUSCH *pv = pusch_vars_group[u];
+    const rate_match_info_uci_t *ui = &pv->uci_info;
+    pv->ulsch_llrs = pusch_llr_slice(gNB, map_uci[u].ulsch_total);
+#ifdef LDPC_CUDA
+    pv->llr_dev = gNB->pusch_llr_pool_dev + (pv->ulsch_llrs - gNB->pusch_llr_pool);
+#endif
+    pv->ack_llrs = pusch_llr_slice(gNB, ui->E_uci_ACK_actual);
+    pv->csi1_llrs = pusch_llr_slice(gNB, ui->E_uci_CSI1);
+    pv->csi2_llrs = pusch_llr_slice(gNB, ui->E_uci_CSI2);
   }
   stop_meas(&gNB->rx_pusch_init_stats);
 

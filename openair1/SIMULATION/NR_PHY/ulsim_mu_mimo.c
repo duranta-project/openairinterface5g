@@ -663,6 +663,8 @@ int main(int argc, char *argv[])
   }
 
   phy_init_nr_gNB(gNB);
+  // the BER check reads the PUSCH LLRs after phy_procedures_gNB_uespec_RX(): keep them out of its stack
+  init_nr_gNB_pusch_llr_pool(gNB);
   /* RU handles rxdataF, and gNB just has a pointer. Here, we don't have an RU,
    * so we need to allocate that memory as well. */
   for (i = 0; i < n_rx; i++)
