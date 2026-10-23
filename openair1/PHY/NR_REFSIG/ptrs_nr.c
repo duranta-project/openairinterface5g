@@ -212,7 +212,7 @@ static cd_t estimate_ptrs_symbol_phase(const c16_t *rxdataF,
 {
   const uint32_t *gold_seq = nr_gold_pdsch(p->N_RB, p->symbols_per_slot, p->nid, p->nscid, p->slot, symbol);
   return get_ptrs_phase_diff(rxdataF + symbol * p->ofdm_symbol_size,
-                             chest + dmrs_idx * p->ofdm_symbol_size,
+                             chest + (p->chest_per_dmrs ? get_dmrs_row(p->dmrs_symb_pos, dmrs_idx) : dmrs_idx) * p->ofdm_symbol_size,
                              gold_seq,
                              p->k_ptrs,
                              k_rb_ref,
