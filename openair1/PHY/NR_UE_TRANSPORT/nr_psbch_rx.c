@@ -111,7 +111,7 @@ void nr_generate_psbch_llr(const NR_DL_FRAME_PARMS *frame_parms,
   int max_h = 0;
   if (symbol == 0) {
     int avg[frame_parms->nb_antennas_rx];
-    nr_channel_level(0, PBCH_MAX_RE_PER_SYMBOL, dl_ch_estimates_ext, frame_parms->nb_antennas_rx, avg, nb_re);
+    nr_channel_level(PBCH_MAX_RE_PER_SYMBOL, dl_ch_estimates_ext, frame_parms->nb_antennas_rx, avg, nb_re);
     max_h = avg[0];
     for (int i = 1; i < frame_parms->nb_antennas_rx; i++)
       max_h = cmax(avg[i], max_h);

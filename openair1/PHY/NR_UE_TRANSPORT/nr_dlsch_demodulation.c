@@ -865,7 +865,7 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   if (first_symbol_flag) {
     int32_t avg[nl][nbRx];
     for (int i = 0; i < nl; i++)
-      nr_channel_level(0, rx_size_symbol, chFext[i], nbRx, avg[i], nb_re_pdsch);
+      nr_channel_level(rx_size_symbol, chFext[i], nbRx, avg[i], nb_re_pdsch);
     int avgs = 0;
     int32_t median[MAX_ANT][MAX_ANT];
     for (int l = 0; l < nl; l++)

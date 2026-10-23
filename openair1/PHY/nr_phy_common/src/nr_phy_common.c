@@ -149,8 +149,7 @@ unsigned int nr_get_tx_amp(int power_dBm, int power_max_dBm, int total_nb_rb, in
 }
 
 // compute average channel_level on each antenna
-void nr_channel_level(const int symbol,
-                      const int size_est,
+void nr_channel_level(const int size_est,
                       const c16_t ch_estimates_ext[][size_est],
                       const int nb_rx,
                       int32_t avg[nb_rx],
@@ -158,7 +157,7 @@ void nr_channel_level(const int symbol,
 {
   for (int aarx = 0; aarx < nb_rx; aarx++) {
     // compute average squared module
-    avg[aarx] = signal_energy_nodc(ch_estimates_ext[aarx] + symbol * len, len);
+    avg[aarx] = signal_energy_nodc(ch_estimates_ext[aarx], len);
     LOG_D(PHY, "Channel level: %d\n", avg[aarx]);
   }
 }
