@@ -998,7 +998,6 @@ static int read_du_cell_info(bool separate_du,
                              f1ap_served_cell_info_t *info,
                              int max_cell_info)
 {
-  AssertFatal(max_cell_info == 1, "only one cell supported\n");
   memset(info, 0, max_cell_info * sizeof(*info));
 
   GET_PARAMS(GNBSParams, GNBSPARAMS_DESC, NULL);
@@ -1969,7 +1968,14 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
               "MACRLCs sections (%d) != nb_nr_macrlc_inst (%d)\n",
               num_cells,
               RC.nb_nr_macrlc_inst);
-  AssertFatal(num_cells == 1, "only one cell supported\n");
+
+  // gNB-wide parameters (AMF, SCTP) must only appear in the first gNBs[] entry
+  for (int j = 1; j < num_cells; j++) {
+    char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
+    snprintf(aprefix, sizeof(aprefix), "%s.[%d]", GNB_CONFIG_STRING_GNB_LIST, j);
+    verify_section_notset(cfg, aprefix, GNB_CONFIG_STRING_AMF_IP_ADDRESS);
+    verify_section_notset(cfg, aprefix, GNB_CONFIG_STRING_SCTP_CONFIG);
+  }
 
   nr_rlc_configuration_t default_rlc_config;
   config_rlc(cfg, &default_rlc_config);
@@ -2058,8 +2064,8 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   uint64_t gnb_du_id = 0;
   uint32_t gnb_id = 0;
   char *name = NULL;
-  f1ap_served_cell_info_t cell_info[1];
-  int n_cells = read_du_cell_info(NODE_IS_DU(node_type), &gnb_id, &gnb_du_id, &name, cell_info, 1);
+  f1ap_served_cell_info_t cell_info[NR_MAX_CELLS];
+  int n_cells = read_du_cell_info(NODE_IS_DU(node_type), &gnb_id, &gnb_du_id, &name, cell_info, NR_MAX_CELLS);
   AssertFatal(n_cells == num_cells, "read_du_cell_info returned %d cells but expected %d\n", n_cells, num_cells);
 
   for (int j = 0; j < num_cells; j++) {
@@ -2078,10 +2084,10 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   // All cells are included: nr_mac_config_scc runs for every cell,
   // so SIB1 is configured for all of them regardless of mode.
   {
-    const NR_ServingCellConfigCommon_t *scc_arr[1] = {NULL};
-    NR_BCCH_BCH_Message_t *mib_arr[1] = {NULL};
-    const NR_BCCH_DL_SCH_Message_t *sib1_arr[1] = {NULL};
-    seq_arr_t *du_SIBs_arr[1] = {NULL};
+    const NR_ServingCellConfigCommon_t *scc_arr[NR_MAX_CELLS] = {NULL};
+    NR_BCCH_BCH_Message_t *mib_arr[NR_MAX_CELLS] = {NULL};
+    const NR_BCCH_DL_SCH_Message_t *sib1_arr[NR_MAX_CELLS] = {NULL};
+    seq_arr_t *du_SIBs_arr[NR_MAX_CELLS] = {NULL};
     for (int j = 0; j < num_cells; j++) {
       // Direct seq_arr access by sequential index is unavoidable when building the F1 setup arrays.
       NR_COMMON_channels_t *cc = &((nr_cell_sched_t *)seq_arr_at(&nrmac->cells, j))->common_channels;
@@ -2981,34 +2987,40 @@ static bool check_plmn_identity(const plmn_id_t *check_plmn, const plmn_id_t *pl
 }
 
 int gNB_app_handle_f1ap_gnb_cu_configuration_update(f1ap_gnb_cu_configuration_update_t *gnb_cu_cfg_update) {
-  int i, j, ret=0;
+  int ret = 0;
   LOG_I(GNB_APP, "cells_to_activate %d, RRC instances %d\n",
         gnb_cu_cfg_update->num_cells_to_activate, RC.nb_nr_inst);
 
-  AssertFatal(gnb_cu_cfg_update->num_cells_to_activate == 1, "only one cell supported at the moment\n");
+  f1ap_setup_resp_t *resp = calloc(1, sizeof(*resp));
+  AssertFatal(resp != NULL, "out of memory\n");
+  resp->num_cells_to_activate = gnb_cu_cfg_update->num_cells_to_activate;
+  resp->cells_to_activate = calloc(gnb_cu_cfg_update->num_cells_to_activate, sizeof(*resp->cells_to_activate));
+  AssertFatal(resp->cells_to_activate != NULL, "out of memory\n");
+
   gNB_MAC_INST *mac = RC.nrmac[0];
   NR_SCHED_LOCK(&mac->sched_lock);
-  for (j = 0; j < gnb_cu_cfg_update->num_cells_to_activate; j++) {
-    for (i = 0; i < RC.nb_nr_inst; i++) {
+  for (int j = 0; j < gnb_cu_cfg_update->num_cells_to_activate; j++) {
+    bool found = false;
+    for (int i = 0; i < RC.nb_nr_inst && !found; i++) {
       f1ap_setup_req_t *setup_req = RC.nrmac[i]->f1_config.setup_req;
-      // identify local index of cell j by nr_cellid, plmn identity and physical cell ID
-
-      if (setup_req->cell[0].info.nr_cellid == gnb_cu_cfg_update->cells_to_activate[j].nr_cellid
-          && check_plmn_identity(&setup_req->cell[0].info.plmn, &gnb_cu_cfg_update->cells_to_activate[j].plmn) > 0
-          && setup_req->cell[0].info.nr_pci == gnb_cu_cfg_update->cells_to_activate[j].nrpci) {
-        // copy system information and decode it
-        AssertFatal(gnb_cu_cfg_update->cells_to_activate[j].num_SI == 0,
-                    "gNB-CU Configuration Update: handling of additional SIs not implemend\n");
-        ret++;
-        mac->f1_config.setup_resp = malloc(sizeof(*mac->f1_config.setup_resp));
-        AssertFatal(mac->f1_config.setup_resp != NULL, "out of memory\n");
-        mac->f1_config.setup_resp->num_cells_to_activate = gnb_cu_cfg_update->num_cells_to_activate;
-        mac->f1_config.setup_resp->cells_to_activate[0] = gnb_cu_cfg_update->cells_to_activate[0];
-      } else {
-        LOG_E(GNB_APP, "GNB_CU_CONFIGURATION_UPDATE not matching\n");
+      for (int k = 0; k < setup_req->num_cells_available && !found; k++) {
+        f1ap_served_cell_info_t *cell_info = &setup_req->cell[k].info;
+        served_cells_to_activate_t *to_activate = &gnb_cu_cfg_update->cells_to_activate[j];
+        if (cell_info->nr_cellid == to_activate->nr_cellid && check_plmn_identity(&cell_info->plmn, &to_activate->plmn)
+            && cell_info->nr_pci == to_activate->nrpci) {
+          AssertFatal(to_activate->num_SI == 0, "gNB-CU Configuration Update: handling of additional SIs not implemented\n");
+          resp->cells_to_activate[j] = *to_activate;
+          ret++;
+          found = true;
+        }
       }
     }
+    if (!found)
+      LOG_E(GNB_APP,
+            "GNB_CU_CONFIGURATION_UPDATE: no local cell matching nr_cellid %lu\n",
+            gnb_cu_cfg_update->cells_to_activate[j].nr_cellid);
   }
+  mac->f1_config.setup_resp = resp;
   NR_SCHED_UNLOCK(&mac->sched_lock);
   /* Free F1AP struct after use */
   free_f1ap_cu_configuration_update(gnb_cu_cfg_update);
