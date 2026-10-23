@@ -17,7 +17,8 @@ int nr_slsch_encoding(PHY_VARS_NR_UE *ue,
                       uint8_t harq_pid,
                       const uint32_t frame,
                       const uint8_t slot,
-                      unsigned int G)
+                      unsigned int G,
+                      uint8_t *f)
 {
   start_meas_nr_ue_phy(ue, ULSCH_ENCODING_STATS);
 
@@ -44,14 +45,28 @@ int nr_slsch_encoding(PHY_VARS_NR_UE *ue,
                                         .Kb = harq_process->Kb,
                                         .segments = segments};
 
-  memset(harq_process->f, 0, 14 * TB.nb_rb * 12 * 16);
-  TB.output = harq_process->f;
+  memset(f, 0, nr_ulsch_f_size(G));
+  TB.output = f;
+
+  // code blocks of the TB (K bits at most 8448), only used by the encoder below
+  uint8_t c[TB.C][8448 / 8] __attribute__((aligned(32)));
+  uint8_t *c_tb[TB.C];
+  for (int r = 0; r < TB.C; r++)
+    c_tb[r] = c[r];
+  nr_segmentation(harq_process->payload_AB,
+                  c_tb,
+                  harq_process->B,
+                  &harq_process->C,
+                  &harq_process->K,
+                  &harq_process->Z,
+                  &harq_process->F,
+                  harq_process->BG);
 
   for (int r = 0; r < TB.C; r++) {
     int E = nr_get_E(TB.G, TB.C, TB.Qm, TB.nb_layers, r);
     if (E < 0)
       return -1;
-    segments[r].c = harq_process->c[r];
+    segments[r].c = c_tb[r];
     segments[r].E = E;
     reset_single_meas(&segments[r].ts_ldpc_encode);
   }
