@@ -3589,6 +3589,16 @@ void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t f
           if (!is_periodic_occasion(frame, slot, n_slots_frame, period, offset))
             continue;
 
+          const int dl_grid_size = cell->config.carrier_config.dl_grid_size[dl_bwp->scs].value;
+          if (dl_bwp->BWPStart >= dl_grid_size || dl_bwp->BWPSize > dl_grid_size - dl_bwp->BWPStart) {
+            LOG_E(NR_MAC,
+                  "CSI-RS BWP outside the configured PRB grid: start %d, size %d, grid size %d\n",
+                  dl_bwp->BWPStart,
+                  dl_bwp->BWPSize,
+                  dl_grid_size);
+            continue;
+          }
+
           LOG_D(NR_MAC,"Scheduling CSI-RS in frame %d slot %d Resource ID %ld\n", frame, slot, nzpcsi->nzp_CSI_RS_ResourceId);
           NR_beam_alloc_t beam_csi = beam_allocation_procedure(&cell->beam_info, frame, slot, UE->UE_beam_index, n_slots_frame);
           AssertFatal(beam_csi.idx >= 0, "Cannot allocate CSI-RS in any available beam\n");

@@ -258,6 +258,15 @@ static void nr_generate_csi_rs_gNB(PHY_VARS_gNB *gNB, int slot, const nfapi_nr_d
   const nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csi_params = &csi_rs_pdu->csi_rs_pdu_rel15;
   if (csi_params->csi_type == 2) // ZP-CSI
     return;
+  if (csi_params->start_rb >= gNB->frame_parms.N_RB_DL
+      || csi_params->nr_of_rbs > gNB->frame_parms.N_RB_DL - csi_params->start_rb) {
+    LOG_E(NR_PHY,
+          "CSI-RS resource outside the configured PRB grid: start_rb %u, nr_of_rbs %u, N_RB_DL %d\n",
+          csi_params->start_rb,
+          csi_params->nr_of_rbs,
+          gNB->frame_parms.N_RB_DL);
+    return;
+  }
 
   csi_mapping_parms_t mapping_parms =
       get_csi_mapping_parms(csi_params->row, csi_params->freq_domain, csi_params->symb_l0, csi_params->symb_l1);
