@@ -66,48 +66,9 @@ struct plmn_identity_s {
   STAILQ_ENTRY(plmn_identity_s) next;
 };
 
-/* Served amf region id for a particular AMF */
-struct served_region_id_s {
-  uint8_t amf_region_id;
-  STAILQ_ENTRY(served_region_id_s) next;
-};
-
-/* Served amf set id for a particular AMF */
-struct amf_set_id_s {
-  uint16_t amf_set_id;
-  STAILQ_ENTRY(amf_set_id_s) next;
-};
-
-/* Served amf pointer for a particular AMF */
-struct amf_pointer_s {
-  uint8_t amf_pointer;
-  STAILQ_ENTRY(amf_pointer_s) next;
-};
-
-
-/* Served guami element */
+/* ServedGUAMIItem: GUAMI per TS 38.413 §9.3.3.3 */
 struct served_guami_s {
-  /* Number of AMF served PLMNs */
-  uint8_t nb_served_plmns;
-  /* List of served PLMNs by AMF */
-  STAILQ_HEAD(served_plmns_s, plmn_identity_s) served_plmns;
-
-  /* Number of region id in list */
-  uint8_t nb_region_id;
-  /* Served group id list */
-  STAILQ_HEAD(served_region_ids_s, served_region_id_s) served_region_ids;
-
-  /* Number of AMF set id */
-  uint8_t nb_amf_set_id;
-  /* AMF Set id to uniquely identify an AMF within an AMF pool area */
-  STAILQ_HEAD(amf_set_ids_s, amf_set_id_s) amf_set_ids;
-
-  /* Number of AMF pointer */
-  uint8_t nb_amf_pointer;
-  /* AMF pointer to uniquely identify an AMF within an AMF pool area */
-  STAILQ_HEAD(amf_pointers_s, amf_pointer_s) amf_pointers;
-    
-  /* Next GUAMI element */
+  nr_guami_t guami;
   STAILQ_ENTRY(served_guami_s) next;
 };
 
@@ -151,10 +112,7 @@ typedef struct ngap_gNB_amf_data_s {
   /* AMF NGAP IP address */
   net_ip_address_t amf_s1_ip;
 
-  /* List of served GUAMI per AMF. There is one GUAMI per RAT with a max
-   * number of 8 RATs but in our case only one is used. The LTE related pool
-   * configuration is included on the first place in the list.
-   */
+  /* Served GUAMIs from NG Setup Response (items carry GUAMI §9.3.3.3) */
   STAILQ_HEAD(served_guamis_s, served_guami_s) served_guami;
 
   /* Relative processing capacity of an AMF with respect to the other AMFs
