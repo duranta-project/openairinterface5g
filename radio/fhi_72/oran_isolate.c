@@ -267,7 +267,7 @@ static oran_eth_state_t *oran_fhi72_configure(split7_config_t *s7cfg)
 
 typedef struct {
   fhi72_transport_t *transport;
-  PHY_VARS_gNB *gNB; // only for prach_ru_queue/prach_l1rx_queue
+  PHY_VARS_gNB *gNB; // for prach_ru_queue/prach_l1rx_queue/ru_push_tx_job
   oran_eth_state_t *eth;
 } split7_thread_arg_t;
 

@@ -104,28 +104,39 @@ static atomic_int slot_fifo_len;
 /* Ports may have different UL deadlines (per-RU Ta4_max): signal a slot once all ports completed it.
  * Not atomic: xran runs all ports' deadline callbacks on one lcore (worker_core[0], or the timing
  * core without workers). */
-static uint32_t ports_done;
-static uint32_t ports_tti;
+static bool port_done[XRAN_PORTS_NUM];
+static int num_ports_done;
+static uint32_t ports_tti; // slot that port_done/num_ports_done refer to
+
+static void reset_ports_done(void)
+{
+  memset(port_done, 0, sizeof(port_done));
+  num_ports_done = 0;
+}
 
 void oai_xran_slot_sync_init(void)
 {
   initNotifiedFIFO(&slot_fifo);
   atomic_store(&slot_fifo_len, 0);
-  ports_done = 0;
+  reset_ports_done();
 }
 
 static void slot_ready(uint32_t tti, uint32_t ru_id)
 {
+  DevAssert(ru_id < XRAN_PORTS_NUM);
+  const int num_ports = get_xran_fh_init()->xran_ports;
   if (tti != ports_tti) {
-    if (ports_done != 0)
-      LOG_W(HW, "slot tti %u incomplete on xran ports (mask 0x%x), dropped\n", ports_tti, ports_done);
+    if (num_ports_done > 0)
+      LOG_W(HW, "slot tti %u completed on %d of %d xran ports, dropped\n", ports_tti, num_ports_done, num_ports);
     ports_tti = tti;
-    ports_done = 0;
+    reset_ports_done();
   }
-  ports_done |= 1U << ru_id;
-  if (__builtin_popcount(ports_done) < get_xran_fh_init()->xran_ports)
+  if (port_done[ru_id])
     return;
-  ports_done = 0;
+  port_done[ru_id] = true;
+  if (++num_ports_done < num_ports)
+    return;
+  reset_ports_done();
 
   notifiedFIFO_elt_t *e = newNotifiedFIFO_elt(sizeof(oai_xran_slot_t), 0, NULL, NULL);
   *(oai_xran_slot_t *)NotifiedFifoData(e) = (oai_xran_slot_t){.tti = tti};
@@ -147,7 +158,7 @@ void oai_xran_wait_slot(oai_xran_slot_t *s)
       e = f;
     }
     const oai_xran_slot_t *cur = NotifiedFifoData(e);
-    LOG_W(HW, "split 7.2 RX processing late, skipping %d => %d\n", old.tti, cur->tti);
+    LOG_W(HW, "split 7.2 UL processing late, skipping %d => %d\n", old.tti, cur->tti);
   }
 
   *s = *(oai_xran_slot_t *)NotifiedFifoData(e);
