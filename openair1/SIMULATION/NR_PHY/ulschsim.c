@@ -424,6 +424,14 @@ int main(int argc, char **argv)
   ulsch_gNB->harq_pid = 0;
   nfapi_nr_pusch_pdu_t *rel15_ul = &harq_process_gNB->ulsch_pdu;
   NR_gNB_PUSCH *pusch_vars = &gNB->pusch_vars[UE_id];
+  // the LLRs are written here, not by the PUSCH demodulation that takes them from the gNB slot pool
+  const size_t llr_size = (8 * ((3 * 8 * 6144) + 12)) * sizeof(int16_t);
+#ifdef LDPC_CUDA
+  pusch_vars->ulsch_llrs = gpuHostAlloc_or_fail(llr_size, gpuHostAllocMapped);
+  pusch_vars->llr_dev = gpuHostGetDevicePointer_or_fail(pusch_vars->ulsch_llrs);
+#else
+  pusch_vars->ulsch_llrs = malloc16(llr_size);
+#endif
 
   nr_phy_data_tx_t phy_data = {0};
   NR_UE_ULSCH_t *ulsch_ue = &phy_data.ulsch;
@@ -599,6 +607,11 @@ int main(int argc, char **argv)
   free(UE);
 
   abortTpool(&gNB->threadPool);
+#ifdef LDPC_CUDA
+  gpuFreeHost(pusch_vars->ulsch_llrs);
+#else
+  free(pusch_vars->ulsch_llrs);
+#endif
   phy_free_nr_gNB(gNB);
   free(RC.gNB[0]);
   free(RC.gNB);

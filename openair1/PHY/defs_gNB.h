@@ -253,8 +253,8 @@ typedef struct {
   uint32_t ulsch_noise_power[8];
   /// total noise over antennas
   uint32_t ulsch_noise_power_tot;
-  /// \brief llr values.
-  /// - first index: ? [0..1179743] (hard coded)
+  /// LLRs of the slot being processed: data, ACK, CSI part 1 and 2, slices of gNB->pusch_llr_pool set by
+  /// nr_rx_pusch_group_tp(), valid during phy_procedures_gNB_uespec_RX()
   int16_t *ulsch_llrs;
 #ifdef LDPC_CUDA
   /// \brief llr values link to device memory
@@ -389,6 +389,16 @@ typedef struct PHY_VARS_gNB_s {
   NR_gNB_DLSCH_t *dlsch;
   NR_gNB_PRS prs_vars;
   NR_gNB_PUSCH *pusch_vars;
+  /// LLRs of all the PUSCH of the slot being processed, sliced per PUSCH: a stack array of
+  /// phy_procedures_gNB_uespec_RX(), sized by the PUSCH of the slot, NULL out of it; or, if
+  /// pusch_llr_pool_persistent, a buffer kept after the call (GPU mapped memory, simulators reading the LLRs)
+  int16_t *pusch_llr_pool;
+#ifdef LDPC_CUDA
+  int16_t *pusch_llr_pool_dev;
+#endif
+  int pusch_llr_pool_size;
+  int pusch_llr_pool_used;
+  bool pusch_llr_pool_persistent;
   spsc_q_t pucch_queue;
   spsc_q_t pusch_queue;
   spsc_q_t srs_queue;
