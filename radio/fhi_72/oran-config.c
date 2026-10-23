@@ -1022,8 +1022,8 @@ static bool set_fh_config(void *mplane_api, int ru_idx, int num_rus, enum xran_c
   fh_config->nULAbsFrePointA = 0; // Abs Freq Point A of the Carrier Center Frequency for in KHz Value; not used in xran
   fh_config->nDLCenterFreqARFCN = 0; // center frequency for DL in NR-ARFCN; not used in xran
   fh_config->nULCenterFreqARFCN = 0; // center frequency for UL in NR-ARFCN; not used in xran
-  fh_config->ttiCb = NULL; // check tti_to_phy_cb(), tx_cp_dl_cb() and tx_cp_ul_cb => first_call
-  fh_config->ttiCbParam = NULL; // check tti_to_phy_cb(), tx_cp_dl_cb() and tx_cp_ul_cb => first_call
+  fh_config->ttiCb = NULL; // timing thread callback
+  fh_config->ttiCbParam = NULL; // timing thread parameters
 
   uint8_t mu_number = s7cfg->mu;
   if(!set_fh_per_mu_cfg(mplane_api, ru_idx, num_rus, s7cfg, &fh_config->perMu[mu_number]))

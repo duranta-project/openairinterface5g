@@ -444,8 +444,9 @@ void fill_rf_config(RU_t *ru, char *rf_config_file)
   }
 }
 
-void fill_split7_2_config(const RU_t *ru, split7_config_t *split7)
+void fill_split7_2_config(const RU_t *ru)
 {
+  split7_config_t *split7 = &ru->gNB_list[0]->fhi72_transport->s7cfg;
   const nfapi_nr_config_request_scf_t *config = &ru->config;
   const NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
 
@@ -465,6 +466,8 @@ void fill_split7_2_config(const RU_t *ru, split7_config_t *split7)
   }
   for (int i = 0; i < ru->nb_rx; i++)
     split7->rx_freq[i] = fp->ul_CarrierFreq;
+  split7->rxdataF = ru->common.rxdataF;
+  split7->txdataF_BF = ru->common.txdataF_BF;
 
   const nfapi_nr_prach_config_t *prach_config = &config->prach_config;
   const nfapi_nr_tdd_table_t *tdd_table = &config->tdd_table;
@@ -472,6 +475,13 @@ void fill_split7_2_config(const RU_t *ru, split7_config_t *split7)
   const nfapi_nr_carrier_config_t *carrier_config = &config->carrier_config;
 
   split7->mu = config->ssb_config.scs_common.value;
+  split7->slots_per_frame = fp->slots_per_frame;
+  split7->sl_ahead = ru->sl_ahead;
+  AssertFatal(fp->slots_per_frame <= sizeofArray(split7->slot_dir), "%d slots per frame not supported\n", fp->slots_per_frame);
+  for (int slot = 0; slot < fp->slots_per_frame; slot++) {
+    const int type = nr_slot_select(config, 0, slot);
+    split7->slot_dir[slot] = ((type & NR_DOWNLINK_SLOT) ? SLOT_DIR_DL : 0) | ((type & NR_UPLINK_SLOT) ? SLOT_DIR_UL : 0);
+  }
   DevAssert(prach_config->prach_ConfigurationIndex.tl.tag == NFAPI_NR_CONFIG_PRACH_CONFIG_INDEX_TAG);
   split7->prach_index = prach_config->prach_ConfigurationIndex.value;
   AssertFatal(prach_config->num_prach_fd_occasions.value >= 1, "must have at least one PRACH occasion\n");
@@ -787,14 +797,13 @@ static void start_split8(RU_t *ru)
   threadCreate(&ru->proc.pthread_FH, ru_thread, ru, "ru_thread", ru->ru_thread_core, OAI_PRIORITY_RT_MAX);
 }
 
-/* split 7.2 (REMOTE_IF4p5): load the fhi_72 library; oran_fhi72_init() spawns the FH thread */
-static void start_split72(RU_t *ru, split7_config_t *s7cfg)
+static void start_split72(RU_t *ru)
 {
-  ru->gNB_list[0]->fhi72_transport = calloc(1, sizeof(*ru->gNB_list[0]->fhi72_transport));
-  assert(ru->gNB_list[0]->fhi72_transport != NULL && "Memory exhausted");
+  ru->gNB_list[0]->fhi72_transport = calloc_or_fail(1, sizeof(*ru->gNB_list[0]->fhi72_transport));
+  fill_split7_2_config(ru);
   fhi72_init_t init = (fhi72_init_t)load_transport_shlib("oran_fhi72_init");
-  int ret = init(s7cfg, ru, ru->gNB_list[0]->fhi72_transport);
-  AssertFatal(ret == 0, "RU %u: cannot initialize O-RAN 7.2 fronthaul\n", ru->idx);
+  int ret = init(ru->gNB_list[0]);
+  AssertFatal(ret == 0, "Cannot start split7_thread %u\n", ru->idx);
 }
 
 int start_streaming(RU_t *ru) {
@@ -943,9 +952,7 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
     ru->proc = (RU_proc_t){.ru = ru, .first_rx = 1, .first_tx = 1};
 
     if (ru->if_south == REMOTE_IF4p5) {
-      split7_config_t s7cfg = {0};
-      fill_split7_2_config(ru, &s7cfg);
-      start_split72(ru, &s7cfg);
+      start_split72(ru);
     } else {
       init_split8(ru);
       fill_rf_config(ru, ru->rf_config_file);

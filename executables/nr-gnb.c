@@ -117,7 +117,7 @@ static void tx_func(processingData_L1tx_t *info)
   // split 7.2 goes through fhi72_transport, other splits through ru->fh_south_*
   if (gNB->common_vars.analog_bf) {
     if (gNB->fhi72_transport) {
-      gNB->fhi72_transport->fh_south_ctrl(ru->gNB_list[0]->common_vars.beam_id, frame_tx, slot_tx);
+      gNB->fhi72_transport->fh_south_ctrl(&gNB->fhi72_transport->s7cfg, ru->gNB_list[0]->common_vars.beam_id, frame_tx, slot_tx);
     } else {
       ru->fh_south_ctrl(ru, frame_tx, slot_tx, info->timestamp_tx);
     }
@@ -125,7 +125,7 @@ static void tx_func(processingData_L1tx_t *info)
 
   if (tx_slot_type == NR_DOWNLINK_SLOT || tx_slot_type == NR_MIXED_SLOT || get_softmodem_params()->continuous_tx || IS_SOFTMODEM_RFSIM) {
     if (gNB->fhi72_transport) {
-      gNB->fhi72_transport->fh_south_out(ru->common.txdataF_BF, frame_tx, slot_tx);
+      gNB->fhi72_transport->fh_south_out(&gNB->fhi72_transport->s7cfg, frame_tx, slot_tx);
     } else {
       ru->fh_south_out(ru, frame_tx, slot_tx, info->timestamp_tx);
     }
@@ -489,6 +489,11 @@ void term_gNB_Tpool(int inst) {
   pthread_join(gNB->L1_rx_thread, NULL);
   abortNotifiedFIFO(&gNB->L1_tx_out);
   pthread_join(gNB->L1_tx_thread, NULL);
+
+  if (gNB->fhi72_transport) {
+    pthread_join(gNB->fhi72_transport->pthread, NULL);
+    free(gNB->fhi72_transport);
+  }
 
   abortTpool(&gNB->threadPool);
   abortNotifiedFIFO(&gNB->L1_rx_out);

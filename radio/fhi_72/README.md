@@ -26,28 +26,25 @@ It calls various helper function in the same file to set up DPDK memory buffer
 (pools). Notably, these callbacks are installed:
 
 - `oai_xran_fh_rx_callback()` through `xran_5g_fronthault_config()`: callback
-  for PUSCH data; used to provide timing data.
+  for PUSCH data; at the full-slot UL deadline, clears the packet counters of
+  the previous slot and signals `split7_thread()` once all xran ports
+  completed the slot (PUSCH and PRACH data of that slot are then complete).
 - `oai_xran_fh_rx_prach_callback()` through `xran_5g_prach_req()`: callback for
-  PRACH data; not currently used and implemented in PUSCH data callback. 
-- `oai_physide_dl_tti_call_back()` through `xran_reg_physide_cb()`: only used
-  to unblock timing in `oai_xran_fh_rx_callback()` and `oai_xran_fh_rx_prach_callback()`
-  upon first xran call.
+  PRACH data; clears the PRACH packet counters of the previous slot.
 
 More detailed information about the xran callbacks can be taken from the xran
 documentation.
 
-During normal operation, `split7_thread()` calls `oran_fh_if4p5_south_in()` for
-PUSCH/PRACH, and OAI calls into the driver through `fhi72_transport_t`:
-`oran_fh_if4p5_south_out()` for PDSCH and `oran_fh_if4p5_south_ctrl()` for CP
-UL/DL.
+During normal operation, `split7_thread()` calls `oran_fh_if4p5_south_in_rx()`
+for PUSCH and `oran_fh_if4p5_south_in_prach()` for PRACH, and OAI calls into
+the driver through `fhi72_transport_t`: `oran_fh_if4p5_south_out()` for PDSCH
+and `oran_fh_if4p5_south_ctrl()` for CP UL/DL.
 
 For PDSCH, `oran_fh_if4p5_south_out()` calls `xran_fh_tx_send_slot()` that
 optionally compresses IQ data, then writes it into IQ buffers of xran.
 
-For PUSCH/PRACH, `oran_fh_if4p5_south_in()` calls `xran_fh_rx_read_slot()`/
-`xran_fh_rx_prach_read_slot()` that blocks and waits for the next slot.
-This is done through a message queue which depends on xran calling the callbacks
-`oai_xran_fh_rx_callback()`/`oai_xran_fh_rx_prach_callback()` as installed during
-xran initialization.
-Once unblocked, it reads first PUSCH data, then PRACH data, before returning to
-OAI.
+For PUSCH/PRACH, `split7_thread()` waits in `oai_xran_wait_slot()` until
+`oai_xran_fh_rx_callback()` signals a complete slot, then
+`oran_fh_if4p5_south_in_rx()`/`oran_fh_if4p5_south_in_prach()` call
+`xran_fh_rx_read_slot()`/`xran_fh_rx_prach_read_slot()` for that slot. If
+processing falls more than a few slots behind, it skips to the newest slot.

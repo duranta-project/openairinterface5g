@@ -34,9 +34,6 @@
 typedef struct {
   void *oran_priv;
   void *mplane_priv;
-  uint32_t nCC;
-  uint32_t num_ports;
-  int core; // xran io_cfg.system_core, used for split7_thread()
   struct xran_fh_init fh_init;
   struct xran_fh_config fh_config[XRAN_PORTS_NUM];
 } oran_eth_state_t;
@@ -67,7 +64,7 @@ static int trx_oran_start(oran_eth_state_t *s)
 
   xran_mem_mgr_leak_detector_display(0);
 
-  for (int32_t port_id = 0; port_id < s->num_ports; port_id++) {
+  for (int32_t port_id = 0; port_id < s->fh_init.xran_ports; port_id++) {
     if (xran_start(((void **)s->oran_priv)[port_id]) != 0) {
       printf("%s:%d:%s: Start ORAN port ID %d failed ... Exit\n", __FILE__, __LINE__, __FUNCTION__, port_id);
       exit(1);
@@ -76,8 +73,8 @@ static int trx_oran_start(oran_eth_state_t *s)
 
   printf("Start ORAN. Done\n");
 
-  for (int32_t cc_id = 0; cc_id < s->nCC; cc_id++) {
-    for (int32_t port_id = 0; port_id < s->num_ports; port_id++) {
+  for (int32_t port_id = 0; port_id < s->fh_init.xran_ports; port_id++) {
+    for (int32_t cc_id = 0; cc_id < s->fh_config[port_id].nCC; cc_id++) {
       if (xran_activate_cc(port_id, cc_id) != 0) {
         printf("%s:%d:%s: Activate CC failed ... Exit\n", __FILE__, __LINE__, __FUNCTION__);
         exit(1);
@@ -94,7 +91,7 @@ static void trx_oran_end(oran_eth_state_t *s)
 {
   printf("ORAN: %s\n", __FUNCTION__);
   xran_shutdown(s->oran_priv);
-  for (int32_t port_id = 0; port_id < s->num_ports; port_id++) {
+  for (int32_t port_id = 0; port_id < s->fh_init.xran_ports; port_id++) {
     xran_close(((void **)s->oran_priv)[port_id]);
   }
   xran_cleanup();
@@ -105,15 +102,15 @@ static int trx_oran_stop(oran_eth_state_t *s)
 {
   printf("ORAN: %s\n", __FUNCTION__);
 
-  for (int32_t cc_id = 0; cc_id < s->nCC; cc_id++) {
-    for (int32_t port_id = 0; port_id < s->num_ports; port_id++) {
+  for (int32_t port_id = 0; port_id < s->fh_init.xran_ports; port_id++) {
+    for (int32_t cc_id = 0; cc_id < s->fh_config[port_id].nCC; cc_id++) {
       xran_deactivate_cc(port_id, cc_id);
     }
   }
 
   xran_timingsource_stop();
 
-  for (int32_t port_id = 0; port_id < s->num_ports; port_id++) {
+  for (int32_t port_id = 0; port_id < s->fh_init.xran_ports; port_id++) {
     xran_stop(((void **)s->oran_priv)[port_id]);
   }
 
@@ -137,96 +134,7 @@ static int trx_oran_get_stats(oran_eth_state_t *s)
   return (0);
 }
 
-static void oran_fh_if4p5_south_in(RU_t *ru, int frame, int slot)
-{
-  int ret = 0; // return code for PUSCH/PRACH processing
-
-  const struct xran_fh_init *fh_init = get_xran_fh_init();
-
-  for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
-    for (int xran_port = 0; xran_port < fh_init->xran_ports; xran_port++) {
-      oran_buf_list_t *bufs = get_xran_buffers(xran_port);
-      const struct xran_fh_config *fh_cfg = get_xran_fh_config(xran_port);
-      const uint8_t mu_number = fh_cfg->mu_number[0];
-      const int slots_per_frame = 10 << mu_number;
-      const int tti = slots_per_frame * frame + slot;
-      const struct xran_frame_config *frame_conf = &fh_cfg->frame_conf;
-
-      if (frame_conf->nFrameDuplexType == XRAN_FDD || is_tdd_ul_guard_slot(frame_conf, slot)) {
-        const int fft_size = 1 << fh_cfg->perMu[mu_number].nULFftSize;
-        ret = xran_fh_rx_read_slot(tti, xran_port, fh_cfg->neAxcUl, fft_size, bufs, ru->common.rxdataF);
-        if (ret != 0) {
-          LOG_W(HW, "[%d.%d] xran_fh_rx_read_slot error for xran_port %d\n", frame, slot, xran_port);
-        }
-        // check if it's a PRACH slot
-        PHY_VARS_gNB *gNB = ru->gNB_list[0];
-        prach_item_t p;
-        fsn_t now = {.f = frame, .s = slot, .mu = gNB->frame_parms.numerology_index};
-        if (get_next_nr_prach(&gNB->prach_ru_queue, &now, &p)) {
-          int slots_per_subframe = 1 << mu_number;
-          uint32_t subframe = slot / slots_per_subframe; // `slot` = slot in which PRACH is received
-          // PRACH occasion in a frame if and only if SFN % x == y, TS 38.211 Table 6.3.3.2-2/3/4
-          nr_prach_info_t prach_info = get_prach_info(xran_port);
-          bool is_prach_frame = (frame % prach_info.x == prach_info.y);
-          bool is_prach_slot = is_prach_frame && xran_is_prach_slot(0, subframe, (p.slot % slots_per_subframe), mu_number); // `p.slot` = slot in which PRACH is scheduled
-          if (is_prach_slot) {
-            ret = xran_fh_rx_prach_read_slot(tti, xran_port, fh_cfg->neAxcUl, &fh_cfg->ru_conf, &fh_cfg->perMu[mu_number].prach_conf, bufs, p);
-            if (ret != 0) {
-              LOG_W(HW, "[%d.%d] xran_fh_rx_prach_read_slot error for xran_port %d\n", frame, slot, xran_port);
-            }
-            // after reading PRACH, write back to queue
-            bool success = spsc_q_put(&gNB->prach_l1rx_queue, &p, sizeof(p));
-            // assume prach_l1rx_queue never full: prach_ru_queue filled at
-            // constant pace, but prach_l1rx_queue emptied as fast as possible,
-            // see rx_func()
-            DevAssert(success);
-          } else {
-            LOG_W(HW, "[%d.%d] Expected PRACH reception of scheduled slot %d\n", frame, slot, p.slot);
-          }
-        }
-      }
-      print_fhi_counters(xran_port, fh_cfg->neAxcUl, frame, slot);
-    }
-  }
-
-  RU_proc_t *proc = &ru->proc;
-  int slots_per_frame = ru->nr_frame_parms->slots_per_frame;
-  proc->tti_rx = slot;
-  proc->frame_rx = frame;
-  proc->tti_tx = (slot + ru->sl_ahead) % slots_per_frame;
-  proc->frame_tx = (slot > (slots_per_frame - 1 - ru->sl_ahead)) ? (frame + 1) & 1023 : frame;
-
-  if (proc->first_rx == 0) {
-    if (proc->tti_rx != slot) {
-      LOG_E(HW,
-            "Received Time doesn't correspond to the time we think it is (slot mismatch, received %d.%d, expected %d.%d)\n",
-            proc->frame_rx,
-            proc->tti_rx,
-            frame,
-            slot);
-      slot = proc->tti_rx;
-    }
-
-    if (proc->frame_rx != frame) {
-      LOG_E(HW,
-            "Received Time doesn't correspond to the time we think it is (frame mismatch, %d.%d , expected %d.%d)\n",
-            proc->frame_rx,
-            proc->tti_rx,
-            frame,
-            slot);
-      frame = proc->frame_rx;
-    }
-  } else {
-    proc->first_rx = 0;
-
-    LOG_I(HW, "before adjusting, OAI: frame=%d slot=%d, XRAN: frame=%d slot=%d\n", frame, slot, proc->frame_rx, proc->tti_rx);
-    frame = proc->frame_rx;
-    slot = proc->tti_rx;
-    LOG_I(HW, "After adjusting, OAI: frame=%d slot=%d, XRAN: frame=%d slot=%d\n", frame, slot, proc->frame_rx, proc->tti_rx);
-  }
-}
-
-static void oran_fh_if4p5_south_ctrl(uint16_t **beam_id, int frame, int slot)
+static void oran_fh_if4p5_south_ctrl(split7_config_t *s7cfg, uint16_t **beam_id, int frame, int slot)
 {
   int ret;
 
@@ -236,13 +144,10 @@ static void oran_fh_if4p5_south_ctrl(uint16_t **beam_id, int frame, int slot)
     for (int xran_port = 0; xran_port < fh_init->xran_ports; xran_port++) {
       oran_buf_list_t *bufs = get_xran_buffers(xran_port);
       const struct xran_fh_config *fh_cfg = get_xran_fh_config(xran_port);
-      const uint8_t mu_number = fh_cfg->mu_number[0];
-      const int slots_per_frame = 10 << mu_number;
-      const int tti = slots_per_frame * frame + slot;
-      const struct xran_frame_config *frame_conf = &fh_cfg->frame_conf;
+      const int tti = s7cfg->slots_per_frame * frame + slot;
 
       // UL slot
-      if (frame_conf->nFrameDuplexType == XRAN_FDD || is_tdd_ul_guard_slot(frame_conf, slot)) {
+      if (s7cfg->slot_dir[slot] == NR_UPLINK_SLOT || s7cfg->slot_dir[slot] == NR_MIXED_SLOT) { // FDD falls under NR_MIXED_SLOT
         // Send CP UL
         ret = xran_send_cp_slot(tti, slot, xran_port, fh_cfg->neAxcUl, beam_id, bufs->dstcp);
         if (ret != 0) {
@@ -251,7 +156,7 @@ static void oran_fh_if4p5_south_ctrl(uint16_t **beam_id, int frame, int slot)
       }
 
       // DL slot
-      if (frame_conf->nFrameDuplexType == XRAN_FDD || is_tdd_dl_guard_slot(frame_conf, slot)) {
+      if (s7cfg->slot_dir[slot] == NR_DOWNLINK_SLOT || s7cfg->slot_dir[slot] == NR_MIXED_SLOT) { // FDD falls under NR_MIXED_SLOT
         // Send CP DL
         ret = xran_send_cp_slot(tti, slot, xran_port, fh_cfg->neAxc, beam_id, bufs->srccp);
         if (ret != 0) {
@@ -262,7 +167,7 @@ static void oran_fh_if4p5_south_ctrl(uint16_t **beam_id, int frame, int slot)
   }
 }
 
-static void oran_fh_if4p5_south_out(int32_t **txdataF_BF, int frame, int slot)
+static void oran_fh_if4p5_south_out(split7_config_t *s7cfg, int frame, int slot)
 {
   int ret;
 
@@ -273,11 +178,10 @@ static void oran_fh_if4p5_south_out(int32_t **txdataF_BF, int frame, int slot)
       oran_buf_list_t *bufs = get_xran_buffers(xran_port);
       const struct xran_fh_config *fh_cfg = get_xran_fh_config(xran_port);
       const uint8_t mu_number = fh_cfg->mu_number[0];
-      const int slots_per_frame = 10 << mu_number;
-      const int tti = slots_per_frame * frame + slot;
+      const int tti = s7cfg->slots_per_frame * frame + slot;
 
       const int fft_size = 1 << fh_cfg->perMu[mu_number].nDLFftSize;
-      ret = xran_fh_tx_send_slot(tti, xran_port, fh_cfg->neAxc, fft_size, txdataF_BF, bufs);
+      ret = xran_fh_tx_send_slot(tti, xran_port, fh_cfg->neAxc, fft_size, s7cfg->txdataF_BF, bufs);
       if (ret != 0) {
         LOG_W(HW, "[%d.%d] xran_fh_tx_send_slot error for xran_port %d\n", frame, slot, xran_port);
       }
@@ -356,80 +260,111 @@ static oran_eth_state_t *oran_fhi72_configure(split7_config_t *s7cfg)
   AssertFatal(success, "cannot get configuration for xran\n");
 #endif
 
-  eth->nCC = fh_config->nCC;
-  eth->num_ports = fh_init->xran_ports;
-  eth->core = fh_init->io_cfg.system_core;
+  oai_xran_slot_sync_init();
 
   return eth;
 }
 
 typedef struct {
-  RU_t *ru;
+  fhi72_transport_t *transport;
+  PHY_VARS_gNB *gNB; // only for prach_ru_queue/prach_l1rx_queue
   oran_eth_state_t *eth;
 } split7_thread_arg_t;
+
+static void process_ul_data(int tti, int frame, int slot, PHY_VARS_gNB *gNB, struct xran_fh_init fh_init, struct xran_fh_config *fh_cfg, split7_config_t *s7cfg)
+{
+  prach_item_t p;
+  fsn_t now = {.f = frame, .s = slot, .mu = s7cfg->mu}; // assuming all RUs have the same numerology
+  const bool prach = get_next_nr_prach(&gNB->prach_ru_queue, &now, &p);
+
+  for (int xran_port = 0; xran_port < fh_init.xran_ports; xran_port++) {
+    oran_buf_list_t *bufs = get_xran_buffers(xran_port);
+    const uint8_t mu = fh_cfg[xran_port].mu_number[0];
+    const int fft_size = 1 << fh_cfg[xran_port].perMu[mu].nULFftSize;
+    if (xran_fh_rx_read_slot(tti, xran_port, fh_cfg[xran_port].neAxcUl, fft_size, bufs, s7cfg->rxdataF) != 0)
+      LOG_W(HW, "[%d.%d] xran_fh_rx_read_slot error for xran_port %d\n", frame, slot, xran_port);
+    if (prach) {
+      // PRACH occasion in a frame if and only if SFN % x == y, TS 38.211 Table 6.3.3.2-2/3/4
+      const nr_prach_info_t info = get_prach_info(xran_port);
+      const int slots_per_sf = 1 << mu;
+      const bool is_prach_slot = frame % info.x == info.y && xran_is_prach_slot(xran_port, slot / slots_per_sf, p.slot % slots_per_sf, mu);
+      if (!is_prach_slot) {
+        LOG_W(HW, "[%d.%d] xran_port %d Expected PRACH reception of scheduled slot %d\n", xran_port, frame, slot, p.slot);
+        continue;;
+      }
+      if (xran_fh_rx_prach_read_slot(tti, xran_port, fh_cfg[xran_port].neAxcUl, &fh_cfg[xran_port].ru_conf, &fh_cfg[xran_port].perMu[mu].prach_conf, bufs, p) != 0)
+        LOG_W(HW, "[%d.%d] xran_fh_rx_prach_read_slot error for xran_port %d\n", frame, slot, xran_port);
+    }
+  }
+
+  if (prach) {
+    // prach_l1rx_queue never full: emptied by rx_func() every slot
+    bool success = spsc_q_put(&gNB->prach_l1rx_queue, &p, sizeof(p));
+    DevAssert(success);
+  }
+}
 
 /* @brief split 7.2 FH thread: starts xran, then per slot reads UL data and pushes the TX job.
  * Stops xran on exit. */
 static void *split7_thread(void *param)
 {
   split7_thread_arg_t *arg = param;
-  RU_t *ru = arg->ru;
+  fhi72_transport_t *transport = arg->transport;
+  split7_config_t *s7cfg = &transport->s7cfg;
+  PHY_VARS_gNB *gNB = arg->gNB;
   oran_eth_state_t *eth = arg->eth;
   free(arg);
 
-  RU_proc_t *proc = &ru->proc;
-  PHY_VARS_gNB *gNB = RC.gNB[0]; // this RU main loop handles only one RU
-  int frame = 1023;
-  int slot = ru->nr_frame_parms->slots_per_frame - 1;
-
-  if (trx_oran_start(eth) != 0)
-    LOG_E(HW, "Could not start the O-RAN 7.2 fronthaul\n");
+  // fatal: the loop below blocks on slots signalled by xran
+  AssertFatal(trx_oran_start(eth) == 0, "Could not start the O-RAN 7.2 fronthaul\n");
 
   wait_sync("split7_thread");
 
   while (!oai_exit) {
-    if (slot==(ru->nr_frame_parms->slots_per_frame-1)) {
-      slot=0;
-      frame++;
-      frame&=1023;
-    } else {
-      slot++;
+    oai_xran_slot_t s;
+    oai_xran_wait_slot(&s);
+
+    // convert received TTI [0-7999] to OAI (frame,slot) pair
+    int frame = (s.tti / s7cfg->slots_per_frame) & 1023;
+    int slot = s.tti % s7cfg->slots_per_frame;
+    LOG_D(HW, "Processing tti[%d] = frame[%d].slot[%d]\n", s.tti, frame, slot);
+
+    if (s7cfg->slot_dir[slot] == NR_UPLINK_SLOT || s7cfg->slot_dir[slot] == NR_MIXED_SLOT) { // FDD falls under NR_MIXED_SLOT
+      process_ul_data(s.tti, frame, slot, gNB, eth->fh_init, eth->fh_config, s7cfg);
     }
 
-    oran_fh_if4p5_south_in(ru, frame, slot); // sets proc->{frame,tti}_{rx,tx}
-
-    if (ru->rx_fhaul.trials > 1000) {
-      reset_meas(&ru->rx_fhaul);
-      reset_meas(&ru->tx_fhaul);
+    if ((frame & 0x7f) == 0 && slot == 0) {
+      print_fhi_counters(eth->fh_init, eth->fh_config);
     }
 
-    // no TX timestamp: xran schedules by frame/slot
-    ru_push_tx_job(gNB, proc->frame_tx, proc->tti_tx, proc->frame_rx, proc->tti_rx, 0);
+    int frame_tx = (slot > s7cfg->slots_per_frame - 1 - s7cfg->sl_ahead) ? (frame + 1) & 1023 : frame;
+    int slot_tx = (slot + s7cfg->sl_ahead) % s7cfg->slots_per_frame;
+
+    // no timestamp as 7.2 is a frequency domain interface
+    ru_push_tx_job(gNB, frame_tx, slot_tx, frame, slot, 0);
   }
 
-  trx_oran_get_stats(eth);
+  trx_oran_get_stats(eth); // maybe move get stats below end()
   trx_oran_stop(eth);
   trx_oran_end(eth);
 
-  free(gNB->fhi72_transport);
-  LOG_I(PHY, "RU %d O-RAN 7.2 fronthaul stopped\n", ru->idx);
+  LOG_I(HW, "O-RAN 7.2 fronthaul stopped\n");
 
   return NULL;
 }
 
-/* Library entry point (see fhi72_init_t): configures xran, fills transport, spawns split7_thread() */
-__attribute__((__visibility__("default"))) int oran_fhi72_init(split7_config_t *s7cfg, RU_t *ru, fhi72_transport_t *transport)
+__attribute__((__visibility__("default"))) int oran_fhi72_init(struct PHY_VARS_gNB_s *gNB)
 {
-  oran_eth_state_t *eth = oran_fhi72_configure(s7cfg);
+  oran_eth_state_t *eth = oran_fhi72_configure(&gNB->fhi72_transport->s7cfg);
 
-  transport->priv = eth;
-  transport->fh_south_out = oran_fh_if4p5_south_out;
-  transport->fh_south_ctrl = oran_fh_if4p5_south_ctrl;
+  gNB->fhi72_transport->fh_south_out = oran_fh_if4p5_south_out;
+  gNB->fhi72_transport->fh_south_ctrl = oran_fh_if4p5_south_ctrl;
 
   split7_thread_arg_t *arg = calloc_or_fail(1, sizeof(*arg));
-  arg->ru = ru;
+  arg->transport = gNB->fhi72_transport;
+  arg->gNB = gNB;
   arg->eth = eth;
-  threadCreate(&ru->proc.pthread_FH, split7_thread, arg, "split7_thread", eth->core, OAI_PRIORITY_RT_MAX);
+  threadCreate(&gNB->fhi72_transport->pthread, split7_thread, arg, "split7_thread", eth->fh_init.io_cfg.system_core, OAI_PRIORITY_RT_MAX);
 
   return 0;
 }

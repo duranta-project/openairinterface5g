@@ -17,22 +17,14 @@
 #include "openair1/PHY/defs_nr_common.h"
 #include "openair1/PHY/NR_TRANSPORT/nr_transport_proto.h"
 
-void print_fhi_counters(const int xran_port, const uint8_t nb_ant, const int frame, const int slot);
+void print_fhi_counters(struct xran_fh_init fh_init, struct xran_fh_config *fh_config);
 
 bool is_tdd_dl_guard_slot(const struct xran_frame_config *frame_conf, int slot);
 bool is_tdd_ul_guard_slot(const struct xran_frame_config *frame_conf, int slot);
 
-/** @brief Reads RX data PUSCH of next slot.
- *
- * @param ru pointer to structure keeping pointers to OAI data.
- * @param frame output of the frame which has been read.
- * @param slot output of the slot which has been read. */
+/** @brief Reads PUSCH data of slot tti from one xran port into rxdataF. */
 int xran_fh_rx_read_slot(const int tti, const int xran_port, const uint8_t nb_ant, const int fft_size, oran_buf_list_t *bufs, int32_t **rxdataF);
-/** @brief Reads RX data PRACH of next slot.
- *
- * @param ru pointer to structure keeping pointers to OAI data.
- * @param frame output of the frame which has been read.
- * @param slot output of the slot which has been read. */
+/** @brief Reads PRACH data of slot tti from one xran port into p.prach_buf. */
 int xran_fh_rx_prach_read_slot(const int tti, const int xran_port, const uint8_t nb_ant, const struct xran_ru_config *ru_conf, const struct xran_prach_config *prach_conf, oran_buf_list_t *bufs, prach_item_t p);
 /** @brief Writes CP DL/UL data for given slot. */
 int xran_send_cp_slot(const int tti, const int slot, const int xran_port, const uint8_t nb_ant, uint16_t **beams, struct xran_buffer_list buf[XRAN_MAX_ANTENNA_NR][XRAN_N_FE_BUF_LEN]);
