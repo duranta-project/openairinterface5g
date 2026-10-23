@@ -87,10 +87,10 @@ NR_gNB_ULSCH_t new_gNB_ulsch(uint8_t max_ldpc_iterations, uint16_t N_RB_UL)
   harq->b = malloc16_clear(ulsch_bytes * sizeof(*harq->b));
   // Allocate one contiguous buffer fr all c/d arrays to simplify addressing for GPU LDPC offload
 #ifdef LDPC_CUDA
-  harq->c = gpuHostAlloc_or_fail(a_segments * 8448 * sizeof(*harq->c), gpuHostAllocMapped);
+  harq->c = gpuHostAlloc_or_fail(a_segments * NR_MAX_BLOCK_LENGTH * sizeof(*harq->c), gpuHostAllocMapped);
   harq->d = gpuHostAlloc_or_fail(a_segments * 64 * 384 * sizeof(*harq->d), gpuHostAllocMapped);
 #else
-  harq->c = malloc16_clear(a_segments * 8448 * sizeof(*harq->c));
+  harq->c = malloc16_clear(a_segments * NR_MAX_BLOCK_LENGTH * sizeof(*harq->c));
   harq->d = malloc16_clear(a_segments * 68 * 384 * sizeof(*harq->d));
 #endif
   return (ulsch);
@@ -199,7 +199,7 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
     harq_process->Z = TB_parameters->Z;
     harq_process->F = TB_parameters->F;
 
-    uint16_t a_segments = MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER * TB_parameters->nb_layers; // number of segments to be allocated
+    uint16_t a_segments = MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * TB_parameters->nb_layers; // number of segments to be allocated
     if (TB_parameters->C > a_segments) {
       LOG_E(PHY, "nr_segmentation.c: too many segments %d, A %d\n", harq_process->C, TB_parameters->A);
       return (-1);

@@ -17,7 +17,7 @@
 
 #define MAX_NUM_SUBCARRIER_SPACING 5
 #define NR_MAX_OFDM_SYMBOL_SIZE 8192
-
+#define NR_MAX_BLOCK_LENGTH 8448 // TS 38.212 §5.2.2: the maximum code block size is K_cb = 8448
 #define ONE_OVER_SQRT2_Q15 23170
 
 #define NR_MOD_TABLE_SIZE_SHORT 686

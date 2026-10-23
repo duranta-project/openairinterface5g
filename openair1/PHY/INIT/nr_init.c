@@ -171,7 +171,7 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
   init_nr_prach(gNB);
 
   int N_RB_UL = cfg->carrier_config.ul_grid_size[cfg->ssb_config.scs_common.value].value;
-  int n_buf = Prx*max_ul_mimo_layers;
+  int n_buf = Prx * max_ul_mimo_layers;
 
   int nb_re_pusch = N_RB_UL * NR_NB_SC_PER_RB;
   int nb_re_pusch2 = ceil_mod(nb_re_pusch, 16);
@@ -188,17 +188,19 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
     for (int i = 0; i < max_ul_mimo_layers; i++) {
       pusch->rxdataF_comp[i] = (c16_t *)malloc16_clear(sizeof(**pusch->rxdataF_comp) * nb_re_pusch2 * fp->symbols_per_slot);
     }
+    int max_segments = MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * N_RB_UL / (273 + 1);
+    int max_size = max_segments * max_ul_mimo_layers * 3 * NR_MAX_BLOCK_LENGTH;
 #ifdef LDPC_CUDA
-    // 144 segments 8448*3 coded bits per segment
-    pusch->ulsch_llrs = gpuHostAlloc_or_fail((144 * 3 * 8448) * sizeof(int16_t), gpuHostAllocMapped);
+    pusch->ulsch_llrs = gpuHostAlloc_or_fail(max_size * sizeof(int16_t), gpuHostAllocMapped);
     pusch->llr_dev = gpuHostGetDevicePointer_or_fail(pusch->ulsch_llrs);
 #else
-    pusch->ulsch_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t)); // 144 segments 3*8448 coded bits per segment
+    pusch->ulsch_llrs = (int16_t *)malloc16_clear(max_size * sizeof(int16_t));
 #endif
-    // TODO refine the size
-    pusch->ack_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t));
-    pusch->csi1_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t));
-    pusch->csi2_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t));
+    // max coded UCI bits on PUSCH: N_L * Q_m * (symbols * N_RB_UL * NR_NB_SC_PER_RB)
+    int max_uci_size = max_ul_mimo_layers * 8 * fp->symbols_per_slot * nb_re_pusch;
+    pusch->ack_llrs = (int16_t *)malloc16_clear(max_uci_size * sizeof(int16_t));
+    pusch->csi1_llrs = (int16_t *)malloc16_clear(max_uci_size * sizeof(int16_t));
+    pusch->csi2_llrs = (int16_t *)malloc16_clear(max_uci_size * sizeof(int16_t));
     pusch->ul_valid_re_per_slot = (int16_t *)malloc16_clear(sizeof(int16_t) * fp->symbols_per_slot);
   } // ulsch_id
 }
