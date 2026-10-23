@@ -597,9 +597,9 @@ int eNB_send_M2_SETUP_REQUEST(m2ap_eNB_instance_t *instance_p, m2ap_eNB_data_t* 
 		for(j=0;j<instance_p->mbms_configuration_data_list[i].num_mbms_service_area_list;j++){
 			M2AP_MBMS_Service_Area_t * mbms_service_area = (M2AP_MBMS_Service_Area_t*)calloc(1,sizeof(M2AP_MBMS_Service_Area_t));
 			
-			char buf[2];
-			INT16_TO_BUFFER(instance_p->mbms_configuration_data_list[i].mbms_service_area_list[j],buf);
-			OCTET_STRING_fromBuf(mbms_service_area,buf,2);
+			uint8_t buf[2];
+			INT16_TO_BUFFER(instance_p->mbms_configuration_data_list[i].mbms_service_area_list[j], buf);
+			OCTET_STRING_fromBuf(mbms_service_area, (const char *)buf, 2);
 			//LOG_D(M2AP,"%s\n",instance_p->mbms_configuration_data_list[i].mbms_service_area_list[j]);
 			//OCTET_STRING_fromBuf(mbms_service_area,"03",2);
                 	asn1cSeqAdd(&mbms_configuration_data_item->mbmsServiceAreaList.list,mbms_service_area);

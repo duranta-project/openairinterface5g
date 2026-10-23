@@ -17,7 +17,6 @@ extern "C" {
 
 #include "common/platform_types.h"
 #include "common/utils/system.h"
-#include <openair3/UTILS/conversions.h>
 #include "common/utils/LOG/log.h"
 #include <common/utils/ocp_itti/intertask_interface.h>
 #include "sim.h"
@@ -30,6 +29,14 @@ extern "C" {
 #include "gtpu_extensions.h"
 #include "nrup_common.h"
 #include "nrup_dl_data_delivery_status.h"
+
+/* Used to format an uint32_t containing an ipv4 address */
+#define IPV4_ADDR "%u.%u.%u.%u"
+#define IPV4_ADDR_FORMAT(aDDRESS)              \
+  (uint8_t)((aDDRESS)&0x000000ff),             \
+  (uint8_t)(((aDDRESS)&0x0000ff00) >> 8),      \
+  (uint8_t)(((aDDRESS)&0x00ff0000) >> 16),     \
+  (uint8_t)(((aDDRESS)&0xff000000) >> 24)
 
 /* TS 29.281 clause 5.1 Figure 5.1-1 */
 #define GTPU_HEADER_MANDATORY_OCTETS (8) /* PN, S, E, spare, PT, version, msgType, teid */

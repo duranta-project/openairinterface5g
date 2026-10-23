@@ -29,7 +29,6 @@ extern "C" {
 #include "asn_application.h"
 #include "NR_PCCH-Message.h"
 #include "NR_PagingRecord.h"
-#include "openair3/UTILS/conversions.h"
 RAN_CONTEXT_t RC;
 #ifdef __cplusplus
 }

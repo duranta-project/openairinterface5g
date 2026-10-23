@@ -114,7 +114,9 @@ typedef struct m2ap_setup_req_s {
   long mbsfn_synchronization_area[M2AP_MAX_NB_CELLS];
 
   /* eCGI->eCGI.pLMN_Identity */
-  uint16_t plmn_identity[M2AP_MAX_NB_CELLS];
+  uint16_t mcc[M2AP_MAX_NB_CELLS];
+  uint16_t mnc[M2AP_MAX_NB_CELLS];
+  uint8_t mnc_digit_length[M2AP_MAX_NB_CELLS];
   /* eCGI->eCGI.eUTRANcellIdentifier */
   uint16_t eutran_cell_identifier[M2AP_MAX_NB_CELLS];
 

@@ -147,7 +147,7 @@ int decode_packet_filter_contents(uint8_t *buf, uint8_t length, packet_filter_de
           LOG_E(NAS, "Packet filter: SPI component truncated\n");
           return -1;
         }
-        BUFFER_TO_UINT32(buf, comp->value.spi);
+        BUFFER_TO_INT32(buf, comp->value.spi);
         buf += 4;
         LOG_D(NAS, "Packet Filter %d direction %s component: SPI 0x%08x\n", pf->pf_id, dir_str, comp->value.spi);
         break;
@@ -167,7 +167,7 @@ int decode_packet_filter_contents(uint8_t *buf, uint8_t length, packet_filter_de
           LOG_E(NAS, "Packet filter: Flow label component truncated\n");
           return -1;
         }
-        BUFFER_TO_UINT32(buf, comp->value.flow_label);
+        BUFFER_TO_INT32(buf, comp->value.flow_label);
         comp->value.flow_label &= 0x000FFFFF; // 20 bits
         buf += 4;
         LOG_D(NAS, "Packet Filter %d direction %s component: Flow label 0x%05x\n", pf->pf_id, dir_str, comp->value.flow_label);

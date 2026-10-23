@@ -644,8 +644,8 @@ int x2ap_eNB_generate_x2_handover_request (x2ap_eNB_instance_t *instance_p, x2ap
               &ie->value.choice.UE_ContextInformation.uESecurityCapabilities.integrityProtectionAlgorithms);
 
   //@TODO: update with proper UEAMPR
-  UEAGMAXBITRTD_TO_ASN_PRIMITIVES(3L,&ie->value.choice.UE_ContextInformation.uEaggregateMaximumBitRate.uEaggregateMaximumBitRateDownlink);
-  UEAGMAXBITRTU_TO_ASN_PRIMITIVES(6L,&ie->value.choice.UE_ContextInformation.uEaggregateMaximumBitRate.uEaggregateMaximumBitRateUplink);
+  UEAMBR_TO_OCTET_STRING(3L, &ie->value.choice.UE_ContextInformation.uEaggregateMaximumBitRate.uEaggregateMaximumBitRateDownlink);
+  UEAMBR_TO_OCTET_STRING(6L, &ie->value.choice.UE_ContextInformation.uEaggregateMaximumBitRate.uEaggregateMaximumBitRateUplink);
   {
     for (int i=0;i<x2ap_handover_req->nb_e_rabs_tobesetup;i++) {
       e_RABS_ToBeSetup_ItemIEs = (X2AP_E_RABs_ToBeSetup_ItemIEs_t *)calloc(1,sizeof(X2AP_E_RABs_ToBeSetup_ItemIEs_t));
@@ -1255,7 +1255,7 @@ MCC_MNC_TO_PLMNID(instance_p->mcc, instance_p->mnc, instance_p->mnc_digit_length
           servedCellMember->servedNRCellInfo.fiveGS_TAC = calloc(1, sizeof(X2AP_FiveGS_TAC_t));
           if (servedCellMember->servedNRCellInfo.fiveGS_TAC == NULL)
             exit(1);
-          NR_FIVEGS_TAC_ID_TO_BIT_STRING(instance_p->tac, servedCellMember->servedNRCellInfo.fiveGS_TAC);
+          NR_FIVEGS_TAC_TO_OCTET_STRING(instance_p->tac, servedCellMember->servedNRCellInfo.fiveGS_TAC);
 
           X2AP_INFO("TAC: %d -> %02x%02x%02x\n", instance_p->tac,
               servedCellMember->servedNRCellInfo.fiveGS_TAC->buf[0],

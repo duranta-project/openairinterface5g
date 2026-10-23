@@ -3,210 +3,114 @@
  */
 
 #include "assertions.h"
+#include "utils.h"
 
 #ifndef CONVERSIONS_H_
 #define CONVERSIONS_H_
 
-/* Endianness conversions for 16 and 32 bits integers from host to network order */
-#if (BYTE_ORDER == LITTLE_ENDIAN)
-# define hton_int32(x)   \
-    (((x & 0x000000FF) << 24) | ((x & 0x0000FF00) << 8) |  \
-    ((x & 0x00FF0000) >> 8) | ((x & 0xFF000000) >> 24))
+/* Pack uint64_t big-endian into buf[0..n), with n in [1..8] */
+static inline void uint_to_be(uint64_t x, uint8_t *buf, size_t n)
+{
+  DevAssert(n >= 1 && n <= 8);
+  for (size_t i = 0; i < n; i++)
+    buf[i] = (uint8_t)((x >> (8 * (n - 1 - i))) & 0xff);
+}
 
-# define hton_int16(x)   \
-    ((((x) & 0x00FF) << 8) | (((x) & 0xFF00) >> 8))
+/* Decode n big-endian octets from buf[0..n) into a uint64_t (n in [1..8]) */
+static inline uint64_t uint_from_be(const uint8_t *buf, size_t n)
+{
+  DevAssert(n >= 1 && n <= 8);
+  uint64_t x = 0;
+  for (size_t i = 0; i < n; i++)
+    x = (x << 8) | buf[i];
+  return x;
+}
 
-# define ntoh_int32_buf(bUF)        \
-    ((uint32_t)(*((uint8_t*)bUF)) << 24) | ((*((uint8_t*)bUF + 1)) << 16) | ((*((uint8_t*)bUF + 2)) << 8)   \
-  | (*((uint8_t*)bUF + 3))
-#else
-# define hton_int32(x) (x)
-# define hton_int16(x) (x)
-#endif
+#define ntoh_int32_buf(bUF) uint_from_be((const uint8_t *)(bUF), 4)
+#define ntoh_int24_buf(bUF) uint_from_be((const uint8_t *)(bUF), 3)
 
-#define ntoh_int24_buf(bUF) \
-  ((*(uint8_t*)bUF << 16) | ((*((uint8_t*)bUF + 1)) << 8) | (*((uint8_t*)bUF + 2)))
-
-#define ntoh_int16_buf(bUF) \
-  ((*((uint8_t*)bUF) << 8) | (*((uint8_t*)bUF + 1)))
-
-#define IN_ADDR_TO_BUFFER(X,bUFF) INT32_TO_BUFFER((X).s_addr,(char*)bUFF)
-
-#define IN6_ADDR_TO_BUFFER(X,bUFF)                     \
-    do {                                               \
-        ((uint8_t*)(bUFF))[0]  = (X).s6_addr[0];  \
-        ((uint8_t*)(bUFF))[1]  = (X).s6_addr[1];  \
-        ((uint8_t*)(bUFF))[2]  = (X).s6_addr[2];  \
-        ((uint8_t*)(bUFF))[3]  = (X).s6_addr[3];  \
-        ((uint8_t*)(bUFF))[4]  = (X).s6_addr[4];  \
-        ((uint8_t*)(bUFF))[5]  = (X).s6_addr[5];  \
-        ((uint8_t*)(bUFF))[6]  = (X).s6_addr[6];  \
-        ((uint8_t*)(bUFF))[7]  = (X).s6_addr[7];  \
-        ((uint8_t*)(bUFF))[8]  = (X).s6_addr[8];  \
-        ((uint8_t*)(bUFF))[9]  = (X).s6_addr[9];  \
-        ((uint8_t*)(bUFF))[10] = (X).s6_addr[10]; \
-        ((uint8_t*)(bUFF))[11] = (X).s6_addr[11]; \
-        ((uint8_t*)(bUFF))[12] = (X).s6_addr[12]; \
-        ((uint8_t*)(bUFF))[13] = (X).s6_addr[13]; \
-        ((uint8_t*)(bUFF))[14] = (X).s6_addr[14]; \
-        ((uint8_t*)(bUFF))[15] = (X).s6_addr[15]; \
-    } while(0)
-
-#define BUFFER_TO_INT8(buf, x) (x = ((buf)[0]))
-
-#define INT8_TO_BUFFER(x, buf) ((buf)[0] = (x))
-
-/* Convert an integer on 16 bits to the given bUFFER */
-#define INT16_TO_BUFFER(x, buf) \
-do {                            \
-    (buf)[0] = ((x) >> 8) & 0xff; \
-    (buf)[1] = (x)      & 0xff; \
-} while(0)
-
-/* Convert an array of char containing vALUE to x */
-#define BUFFER_TO_INT16(buf, x) \
-do {                            \
-    x = ((buf)[0] << 8)  |      \
-        ((buf)[1]);             \
-} while(0)
-
-/* Convert an integer on 24 bits to the given bUFFER */
-#define INT24_TO_BUFFER(x, buf) \
-do {                            \
-    (buf)[0] = ((x) >> 16) & 0xff;\
-    (buf)[1] = ((x) >> 8) & 0xff; \
-    (buf)[2] = (x)      & 0xff; \
-} while(0)
-
-/* Convert an array of char containing vALUE to x */
-#define BUFFER_TO_INT24(buf, x) \
-do {                            \
-    x = ((buf)[0] << 16)  |     \
-        ((buf)[1] << 8  )   |   \
-        ((buf)[2]);             \
-} while(0)
-
-
-/* Convert an integer on 32 bits to the given bUFFER */
-#define INT32_TO_BUFFER(x, buf) \
-do {                            \
-    (buf)[0] = ((x) >> 24) & 0xff;\
-    (buf)[1] = ((x) >> 16) & 0xff;\
-    (buf)[2] = ((x) >> 8) & 0xff; \
-    (buf)[3] = (x)      & 0xff; \
-} while(0)
-
-/* Convert an array of char containing vALUE to x */
-#define BUFFER_TO_INT32(buf, x) \
-do {                            \
-    x = (((uint32_t)(buf)[0]) << 24) |      \
-        (((uint32_t)(buf)[1]) << 16) |      \
-        (((uint32_t)(buf)[2]) << 8)  |      \
-        (((uint32_t)(buf)[3]));             \
-} while(0)
-
-/* Convert an array of char containing vALUE to x */
-#define BUFFER_TO_UINT32(buf, x)    \
-  do {                              \
- x =   (((uint32_t)((buf)[0])) << 24) |              \
-       (((uint32_t)((buf)[1])) << 16) |      \
-       (((uint32_t)((buf)[2])) << 8)  |      \
-       (((uint32_t)((buf)[3])));        \
+/* Pack an integer into an asn1c OCTET STRING as n big-endian octets (n in [1..8]) */
+#define UINT_TO_OCTET_STRING(x, aSN, n)                \
+  do {                                                 \
+    (aSN)->buf = calloc_or_fail((n), sizeof(uint8_t)); \
+    uint_to_be((x), (aSN)->buf, (n));                  \
+    (aSN)->size = (n);                                 \
   } while (0)
 
-/* Convert an integer on 32 bits to an octet string from aSN1c tool */
-#define INT32_TO_OCTET_STRING(x, aSN)           \
-do {                                            \
-    (aSN)->buf = calloc(4, sizeof(uint8_t));    \
-    INT32_TO_BUFFER(x, ((aSN)->buf));           \
-    (aSN)->size = 4;                            \
-} while(0)
+/* Pack an integer into an asn1c BIT STRING as n big-endian octets (bits_unused = 0) */
+#define UINT_TO_BIT_STRING(x, aSN, n)      \
+  do {                                     \
+    UINT_TO_OCTET_STRING((x), (aSN), (n)); \
+    (aSN)->bits_unused = 0;                \
+  } while (0)
 
-#define INT32_TO_BIT_STRING(x, aSN) \
-do {                                \
-    INT32_TO_OCTET_STRING(x, aSN);  \
-    (aSN)->bits_unused = 0;         \
-} while(0)
+/* aliases: INT16/INT32/... mean bit/octet width, not signedness. */
+#define INT8_TO_OCTET_STRING(x, aSN)  UINT_TO_OCTET_STRING((x), (aSN), 1)
+#define INT16_TO_OCTET_STRING(x, aSN) UINT_TO_OCTET_STRING((x), (aSN), 2)
+#define INT24_TO_OCTET_STRING(x, aSN) UINT_TO_OCTET_STRING((x), (aSN), 3)
+#define INT32_TO_OCTET_STRING(x, aSN) UINT_TO_OCTET_STRING((x), (aSN), 4)
+#define INT40_TO_OCTET_STRING(x, aSN) UINT_TO_OCTET_STRING((x), (aSN), 5)
+#define INT48_TO_OCTET_STRING(x, aSN) UINT_TO_OCTET_STRING((x), (aSN), 6)
 
-#define INT16_TO_OCTET_STRING(x, aSN)           \
-do {                                            \
-    (aSN)->buf = calloc(2, sizeof(uint8_t));    \
-    INT16_TO_BUFFER(x, ((aSN)->buf));           \
-    (aSN)->size = 2;                            \
-} while(0)
+#define INT8_TO_BIT_STRING(x, aSN)  UINT_TO_BIT_STRING((x), (aSN), 1)
+#define INT16_TO_BIT_STRING(x, aSN) UINT_TO_BIT_STRING((x), (aSN), 2)
+#define INT24_TO_BIT_STRING(x, aSN) UINT_TO_BIT_STRING((x), (aSN), 3)
+#define INT32_TO_BIT_STRING(x, aSN) UINT_TO_BIT_STRING((x), (aSN), 4)
+#define INT40_TO_BIT_STRING(x, aSN) UINT_TO_BIT_STRING((x), (aSN), 5)
+#define INT48_TO_BIT_STRING(x, aSN) UINT_TO_BIT_STRING((x), (aSN), 6)
 
-#define INT16_TO_BIT_STRING(x, aSN) \
-do {                                \
-    INT16_TO_OCTET_STRING(x, aSN);  \
-    (aSN)->bits_unused = 0;         \
-} while(0)
+#define INT8_TO_BUFFER(x, buf)  uint_to_be((x), (buf), 1)
+#define INT16_TO_BUFFER(x, buf) uint_to_be((x), (buf), 2)
+#define INT24_TO_BUFFER(x, buf) uint_to_be((x), (buf), 3)
+#define INT32_TO_BUFFER(x, buf) uint_to_be((x), (buf), 4)
+#define INT40_TO_BUFFER(x, buf) uint_to_be((x), (buf), 5)
+#define INT48_TO_BUFFER(x, buf) uint_to_be((x), (buf), 6)
 
+/** Pack an integer into left-aligned asn1c BIT STRING fields (buf/size/bits_unused).
+ * Allocates ceil(bits / 8) octets: low `bits` of x are shifted to the MSB side.
+ * bits_unused is set to the number of bits unused in the last octet, matching asn1c
+ * BIT STRING layout (BIT_STRING.c), bits in [1..63]. */
+static inline void uint_to_left_aligned_bit_string(uint64_t x, uint8_t **buf, size_t *size, int *bits_unused, unsigned bits)
+{
+  DevAssert(buf != NULL && size != NULL && bits_unused != NULL);
+  DevAssert(bits >= 1 && bits <= 63);
+  const unsigned n = (bits + 7) / 8;
+  const unsigned u = (8 - (bits & 7)) & 7;
+  *buf = calloc_or_fail(n, sizeof(uint8_t));
+  uint_to_be((x & ((UINT64_C(1) << bits) - 1)) << u, *buf, n);
+  *size = n;
+  *bits_unused = u;
+}
 
-#define INT24_TO_OCTET_STRING(x, aSN)           \
-do {                                            \
-    (aSN)->buf = calloc(3, sizeof(uint8_t));    \
-    INT24_TO_BUFFER(x, ((aSN)->buf));           \
-    (aSN)->size = 3;                            \
-} while(0)
+/* Inverse of uint_to_left_aligned_bit_string: BE octets, drop trailing unused bits */
+#define UINT_FROM_LEFT_ALIGNED_BIT_STRING(aSN, x, bits)                                    \
+  do {                                                                                     \
+    DevCheck((aSN)->size == (((bits) + 7) / 8), (aSN)->size, (bits), 0);                   \
+    DevCheck((aSN)->bits_unused == ((8 - ((bits)&7)) & 7), (aSN)->bits_unused, (bits), 0); \
+    (x) = uint_from_be((aSN)->buf, (aSN)->size) >> (aSN)->bits_unused;                     \
+  } while (0)
 
-#define INT24_TO_BIT_STRING(x, aSN) \
-do {                                \
-    INT24_TO_OCTET_STRING(x, aSN);  \
-    (aSN)->bits_unused = 0;         \
-} while(0)
+#define UINT10_TO_BIT_STRING(x, aSN) uint_to_left_aligned_bit_string((x), &(aSN)->buf, &(aSN)->size, &(aSN)->bits_unused, 10)
+#define UINT6_TO_BIT_STRING(x, aSN) uint_to_left_aligned_bit_string((x), &(aSN)->buf, &(aSN)->size, &(aSN)->bits_unused, 6)
 
-
-#define INT8_TO_OCTET_STRING(x, aSN)            \
-do {                                            \
-    (aSN)->buf = calloc(1, sizeof(uint8_t));    \
-    (aSN)->size = 1;                            \
-    INT8_TO_BUFFER(x, (aSN)->buf);              \
-} while(0)
+#define BUFFER_TO_INT8(buf, x) ((x) = uint_from_be((buf), 1))
+#define BUFFER_TO_INT16(buf, x) ((x) = uint_from_be((buf), 2))
+#define BUFFER_TO_INT24(buf, x) ((x) = uint_from_be((buf), 3))
+#define BUFFER_TO_INT32(buf, x) ((x) = uint_from_be((buf), 4))
 
 #define MME_CODE_TO_OCTET_STRING INT8_TO_OCTET_STRING
-#define M_TMSI_TO_OCTET_STRING   INT32_TO_OCTET_STRING
-#define MME_GID_TO_OCTET_STRING  INT16_TO_OCTET_STRING
+#define M_TMSI_TO_OCTET_STRING INT32_TO_OCTET_STRING
+#define MME_GID_TO_OCTET_STRING INT16_TO_OCTET_STRING
+#define AMF_REGION_TO_BIT_STRING INT8_TO_BIT_STRING
 
-#define AMF_REGION_TO_BIT_STRING(x, aSN)      \
-  do {                                        \
-    INT8_TO_OCTET_STRING(x, aSN);             \
-    (aSN)->bits_unused = 0;                   \
-} while(0)
+#define AMF_SETID_TO_BIT_STRING UINT10_TO_BIT_STRING
+#define UEIDENTITYINDEX_TO_BIT_STRING UINT10_TO_BIT_STRING
+#define AMF_POINTER_TO_BIT_STRING UINT6_TO_BIT_STRING
 
-#define AMF_SETID_TO_BIT_STRING(x, aSN)      \
-  do {                                       \
-    (aSN)->buf = calloc(2, sizeof(uint8_t)); \
-    (aSN)->buf[0] = ((x) >> 2) & 0xff;       \
-    (aSN)->buf[1] = ((x) & 0x03) << 6;       \
-    (aSN)->size = 2;                         \
-    (aSN)->bits_unused = 6;                  \
-  } while (0)
+#define ENCRALG_TO_BIT_STRING INT16_TO_BIT_STRING
+#define INTPROTALG_TO_BIT_STRING INT16_TO_BIT_STRING
 
-#define AMF_POINTER_TO_BIT_STRING(x, aSN)    \
-  do {                                       \
-    (aSN)->buf = calloc(1, sizeof(uint8_t)); \
-    (aSN)->buf[0] = ((x) & 0x3f) << 2;       \
-    (aSN)->size = 1;                         \
-    (aSN)->bits_unused = 2;                  \
-  } while (0)
-
-#define ENCRALG_TO_BIT_STRING(encralg, bitstring)    \
-    do {                        \
-    (bitstring)->size=2;                \
-    (bitstring)->bits_unused=0;            \
-    (bitstring)->buf=calloc (2, sizeof (uint8_t));    \
-    (bitstring)->buf[0] = (encralg) >> 8;         \
-    (bitstring)->buf[1] = (encralg);        \
-    }while(0)
-
-#define INTPROTALG_TO_BIT_STRING(intprotalg, bitstring)    \
-do {                                \
-    (bitstring)->size=2;                    \
-    (bitstring)->bits_unused=0;                \
-    (bitstring)->buf=calloc (2, sizeof (uint8_t));        \
-    (bitstring)->buf[0] = (intprotalg) >> 8;         \
-    (bitstring)->buf[1] = (intprotalg);            \
-}while(0)
+#define UEAMBR_TO_OCTET_STRING INT40_TO_OCTET_STRING
 
 #define AS_KEY_STAR_TO_BIT_STRING(askeystar, bitstring)        \
   do {                                                         \
@@ -216,64 +120,19 @@ do {                                \
     memcpy((bitstring)->buf, askeystar, 32 * sizeof(uint8_t)); \
   } while (0)
 
-#define UEAGMAXBITRTD_TO_ASN_PRIMITIVES(uegmaxbitrtd, asnprimitives)        \
-do {                                         \
-    (asnprimitives)->size=5;                        \
-    (asnprimitives)->buf=calloc (5, sizeof (uint8_t));            \
-    (asnprimitives)->buf[0] = (uegmaxbitrtd) >> 32;                \
-    (asnprimitives)->buf[1] = (uegmaxbitrtd) >> 24;                \
-    (asnprimitives)->buf[2] = (uegmaxbitrtd) >> 16;                \
-    (asnprimitives)->buf[3] = (uegmaxbitrtd) >> 8;                \
-    (asnprimitives)->buf[4] = (uegmaxbitrtd);                \
- }while(0)
-
-#define UEAGMAXBITRTU_TO_ASN_PRIMITIVES(uegmaxbitrtu, asnprimitives)        \
-do {                                         \
-    (asnprimitives)->size=5;                        \
-    (asnprimitives)->buf=calloc (5, sizeof (uint8_t));            \
-    (asnprimitives)->buf[0] = (uegmaxbitrtu) >> 32;                \
-    (asnprimitives)->buf[1] = (uegmaxbitrtu) >> 24;                \
-    (asnprimitives)->buf[2] = (uegmaxbitrtu) >> 16;                \
-    (asnprimitives)->buf[3] = (uegmaxbitrtu) >> 8;                \
-    (asnprimitives)->buf[4] = (uegmaxbitrtu);                \
- }while(0)
-
-#define OCTET_STRING_TO_INT8(aSN, x)    \
-do {                                    \
-    DevCheck((aSN)->size == 1, (aSN)->size, 0, 0);           \
-    BUFFER_TO_INT8((aSN)->buf, x);    \
-} while(0)
-
-#define OCTET_STRING_TO_INT16(aSN, x)   \
-do {                                    \
-    DevCheck((aSN)->size == 2 || (aSN)->size == 3, (aSN)->size, 0, 0);           \
-    BUFFER_TO_INT16((aSN)->buf, x);    \
-} while(0)
-
-#define OCTET_STRING_TO_INT24(aSN, x)   \
-do {                                    \
-    DevCheck((aSN)->size == 2 || (aSN)->size == 3, (aSN)->size, 0, 0);           \
-    BUFFER_TO_INT24((aSN)->buf, x);    \
-} while(0)
-
-#define OCTET_STRING_TO_INT32(aSN, x)   \
-do {                                    \
-    DevCheck((aSN)->size == 4, (aSN)->size, 0, 0);           \
-    BUFFER_TO_INT32((aSN)->buf, x);    \
-} while(0)
-
-#define OCTET_STRING_TO_UINT32(aSN, x)             \
-  do {                                             \
-    DevCheck((aSN)->size == 4, (aSN)->size, 0, 0); \
-    BUFFER_TO_UINT32((aSN)->buf, x);               \
+/* Decode an asn1c OCTET STRING of exactly n big-endian octets into x */
+#define OCTET_STRING_TO_UINT(aSN, x, n)                \
+  do {                                                 \
+    DevCheck((aSN)->size == (n), (aSN)->size, (n), 0); \
+    (x) = uint_from_be((aSN)->buf, (n));               \
   } while (0)
 
-#define BIT_STRING_TO_NR_CELL_IDENTITY(aSN, vALUE)                                                                \
-  do {                                                                                                            \
-    DevCheck((aSN)->bits_unused == 4, (aSN)->bits_unused, 4, 0);                                                  \
-    (vALUE) = ((uint64_t)(aSN)->buf[0] << 28) | ((uint64_t)(aSN)->buf[1] << 20) | ((uint64_t)(aSN)->buf[2] << 12) \
-              | ((uint64_t)(aSN)->buf[3] << 4) | ((uint64_t)(aSN)->buf[4] >> 4);                                  \
-  } while (0)
+#define OCTET_STRING_TO_INT8(aSN, x) OCTET_STRING_TO_UINT((aSN), (x), 1)
+#define OCTET_STRING_TO_INT16(aSN, x) OCTET_STRING_TO_UINT((aSN), (x), 2)
+#define OCTET_STRING_TO_INT24(aSN, x) OCTET_STRING_TO_UINT((aSN), (x), 3)
+#define OCTET_STRING_TO_INT32(aSN, x) OCTET_STRING_TO_UINT((aSN), (x), 4)
+
+#define BIT_STRING_TO_NR_CELL_IDENTITY(aSN, vALUE) UINT_FROM_LEFT_ALIGNED_BIT_STRING((aSN), (vALUE), 36)
 
 #define MCC_HUNDREDS(vALUE) \
     ((vALUE) / 100)
@@ -285,14 +144,14 @@ do {                                    \
 #define MCC_MNC_DIGIT(vALUE) \
     ((vALUE) % 10)
 
-#define MCC_MNC_TO_PLMNID(mCC, mNC, mNCdIGITlENGTH, oCTETsTRING)               \
-do {                                                                           \
-    (oCTETsTRING)->buf = calloc(3, sizeof(uint8_t));                           \
-    (oCTETsTRING)->buf[0] = (MCC_MNC_DECIMAL(mCC) << 4) | MCC_HUNDREDS(mCC);   \
-    (oCTETsTRING)->buf[1] = (MNC_HUNDREDS(mNC,mNCdIGITlENGTH) << 4) | MCC_MNC_DIGIT(mCC);     \
-    (oCTETsTRING)->buf[2] = (MCC_MNC_DIGIT(mNC) << 4) | MCC_MNC_DECIMAL(mNC);  \
-    (oCTETsTRING)->size = 3;                                                   \
-} while(0)
+#define MCC_MNC_TO_PLMNID(mCC, mNC, mNCdIGITlENGTH, oCTETsTRING)                           \
+  do {                                                                                     \
+    (oCTETsTRING)->buf = calloc_or_fail(3, sizeof(uint8_t));                               \
+    (oCTETsTRING)->buf[0] = (MCC_MNC_DECIMAL(mCC) << 4) | MCC_HUNDREDS(mCC);               \
+    (oCTETsTRING)->buf[1] = (MNC_HUNDREDS(mNC, mNCdIGITlENGTH) << 4) | MCC_MNC_DIGIT(mCC); \
+    (oCTETsTRING)->buf[2] = (MCC_MNC_DIGIT(mNC) << 4) | MCC_MNC_DECIMAL(mNC);              \
+    (oCTETsTRING)->size = 3;                                                               \
+  } while (0)
 
 #define PLMNID_TO_MCC_MNC(oCTETsTRING, mCC, mNC, mNCdIGITlENGTH)                  \
 do {                                                                              \
@@ -334,66 +193,19 @@ do {                                                             \
         ((((tBCDsTRING)->buf[2]) & 0x0f) * 10);                  \
 } while(0)
 
-#define TBCD_TO_PLMN_T(tBCDsTRING, pLMN)                            \
-do {                                                                \
-    DevAssert((tBCDsTRING)->size == 3);                             \
-    (pLMN)->MCCdigit2 = (((tBCDsTRING)->buf[0] & 0xf0) >> 4);       \
-    (pLMN)->MCCdigit3 = ((tBCDsTRING)->buf[0] & 0x0f);              \
-    (pLMN)->MCCdigit1 = (tBCDsTRING)->buf[1] & 0x0f;                \
-    (pLMN)->MNCdigit3 = (((tBCDsTRING)->buf[1] & 0xf0) >> 4) == 0xF \
-    ? 0 : (((tBCDsTRING)->buf[1] & 0xf0) >> 4);       \
-    (pLMN)->MNCdigit2 = (((tBCDsTRING)->buf[2] & 0xf0) >> 4);       \
-    (pLMN)->MNCdigit1 = ((tBCDsTRING)->buf[2] & 0x0f);              \
-} while(0)
-
-#define PLMN_T_TO_TBCD(pLMN, tBCDsTRING, mNClENGTH)                 \
-do {                                                                \
-    tBCDsTRING[0] = (pLMN.MCCdigit2 << 4) | pLMN.MCCdigit1;         \
-    /* ambiguous (think about len 2) */                             \
-    if (mNClENGTH == 2) {                                      \
-        tBCDsTRING[1] = (0x0F << 4) | pLMN.MCCdigit3;               \
-        tBCDsTRING[2] = (pLMN.MNCdigit2 << 4) | pLMN.MNCdigit1;     \
-    } else {                                                        \
-        tBCDsTRING[1] = (pLMN.MNCdigit3 << 4) | pLMN.MCCdigit3;     \
-        tBCDsTRING[2] = (pLMN.MNCdigit2 << 4) | pLMN.MNCdigit1;     \
-    }                                                               \
-} while(0)
-
-#define PLMN_T_TO_MCC_MNC(pLMN, mCC, mNC, mNCdIGITlENGTH)               \
-do {                                                                    \
-    mCC = pLMN.MCCdigit3 * 100 + pLMN.MCCdigit2 * 10 + pLMN.MCCdigit1;  \
-    mNCdIGITlENGTH = (pLMN.MNCdigit3 == 0xF ? 2 : 3);                   \
-    mNC = (mNCdIGITlENGTH == 2 ? 0 : pLMN.MNCdigit3 * 100)              \
-          + pLMN.MNCdigit2 * 10 + pLMN.MNCdigit1;                       \
-} while(0)
-
-
-/* TS 38.473 v15.2.1 section 9.3.1.32:
- * C RNTI is BIT_STRING(16)
- */
-#define C_RNTI_TO_BIT_STRING(mACRO, bITsTRING)          \
-do {                                                    \
-    (bITsTRING)->buf = calloc(2, sizeof(uint8_t));      \
-    (bITsTRING)->buf[0] = (mACRO) >> 8;                 \
-    (bITsTRING)->buf[1] = ((mACRO) & 0x0ff);            \
-    (bITsTRING)->size = 2;                              \
-    (bITsTRING)->bits_unused = 0;                       \
-} while(0)
-
-
 /* TS 38.473 v15.2.1 section 9.3.2.3:
  * TRANSPORT LAYER ADDRESS for IPv4 is 32bit (TS 38.414)
  */
-#define TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(mACRO, bITsTRING)    \
-do {                                                    \
-    (bITsTRING)->buf = calloc(4, sizeof(uint8_t));      \
-    (bITsTRING)->buf[3] = (mACRO) >> 24 & 0xFF;         \
-    (bITsTRING)->buf[2] = (mACRO) >> 16 & 0xFF;         \
-    (bITsTRING)->buf[1] = (mACRO) >> 8 & 0xFF;          \
-    (bITsTRING)->buf[0] = (mACRO) &  0xFF;              \
-    (bITsTRING)->size = 4;                              \
-    (bITsTRING)->bits_unused = 0;                       \
-} while(0)
+#define TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(mACRO, bITsTRING) \
+  do {                                                               \
+    (bITsTRING)->buf = calloc_or_fail(4, sizeof(uint8_t));           \
+    (bITsTRING)->buf[3] = (mACRO) >> 24 & 0xFF;                      \
+    (bITsTRING)->buf[2] = (mACRO) >> 16 & 0xFF;                      \
+    (bITsTRING)->buf[1] = (mACRO) >> 8 & 0xFF;                       \
+    (bITsTRING)->buf[0] = (mACRO)&0xFF;                              \
+    (bITsTRING)->size = 4;                                           \
+    (bITsTRING)->bits_unused = 0;                                    \
+  } while (0)
 
 #define BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(bITsTRING, mACRO)    \
 do {                                                                    \
@@ -409,47 +221,10 @@ do {                                                                    \
 /* TS 38.473 v15.1.1 section 9.3.1.12:
  * NR CELL ID
  */
-#define NR_CELL_ID_TO_BIT_STRING(mACRO, bITsTRING)      \
-do {                                                    \
-    (bITsTRING)->buf = calloc(5, sizeof(uint8_t));      \
-    (bITsTRING)->buf[0] = ((mACRO) >> 28) & 0xff;       \
-    (bITsTRING)->buf[1] = ((mACRO) >> 20) & 0xff;       \
-    (bITsTRING)->buf[2] = ((mACRO) >> 12) & 0xff;       \
-    (bITsTRING)->buf[3] = ((mACRO) >> 4)  & 0xff;       \
-    (bITsTRING)->buf[4] = ((mACRO) & 0x0f) << 4;        \
-    (bITsTRING)->size = 5;                              \
-    (bITsTRING)->bits_unused = 4;                       \
-} while(0)
+#define NR_CELL_ID_TO_BIT_STRING(mACRO, bITsTRING) \
+  uint_to_left_aligned_bit_string((mACRO), &(bITsTRING)->buf, &(bITsTRING)->size, &(bITsTRING)->bits_unused, 36)
 
-
-#define NR_FIVEGS_TAC_ID_TO_BIT_STRING(x, aSN)      \
-do {                                                    \
-    (aSN)->buf = calloc(3, sizeof(uint8_t));    \
-    (aSN)->size = 3;              \
-    (aSN)->buf[0] = 0x00;		  \
-    (aSN)->buf[1] = (x) >> 8;        \
-    (aSN)->buf[2] = (x);             \
-} while(0)
-
-
-
-/* TS 38.473 v15.2.1 section 9.3.1.55:
- * MaskedIMEISV is BIT_STRING(64)
- */
-#define MaskedIMEISV_TO_BIT_STRING(mACRO, bITsTRING)    \
-do {                                                    \
-    (bITsTRING)->buf = calloc(8, sizeof(uint8_t));      \
-    (bITsTRING)->buf[0] = (mACRO) >> 56 & 0xFF;         \
-    (bITsTRING)->buf[1] = (mACRO) >> 48 & 0xFF;         \
-    (bITsTRING)->buf[2] = (mACRO) >> 40 & 0xFF;         \
-    (bITsTRING)->buf[3] = (mACRO) >> 32 & 0xFF;         \
-    (bITsTRING)->buf[4] = (mACRO) >> 24 & 0xFF;         \
-    (bITsTRING)->buf[5] = (mACRO) >> 16 & 0xFF;         \
-    (bITsTRING)->buf[6] = (mACRO) >> 8 & 0xFF;          \
-    (bITsTRING)->buf[7] = (mACRO) >> 4 & 0xFF;          \
-    (bITsTRING)->size = 8;                              \
-    (bITsTRING)->bits_unused = 0;                       \
-} while(0)
+#define NR_FIVEGS_TAC_TO_OCTET_STRING INT24_TO_OCTET_STRING
 
 /* TS 36.413 v10.9.0 section 9.2.1.37:
  * Macro eNB ID:
@@ -458,37 +233,12 @@ do {                                                    \
  * IE (see subclause 9.2.1.38) of each cell
  * served by the eNB.
  */
-#define MACRO_ENB_ID_TO_BIT_STRING(mACRO, bITsTRING)    \
-do {                                                    \
-    (bITsTRING)->buf = calloc(3, sizeof(uint8_t));      \
-    (bITsTRING)->buf[0] = ((mACRO) >> 12);              \
-    (bITsTRING)->buf[1] = (mACRO) >> 4;                 \
-    (bITsTRING)->buf[2] = ((mACRO) & 0x0f) << 4;        \
-    (bITsTRING)->size = 3;                              \
-    (bITsTRING)->bits_unused = 4;                       \
-} while(0)
+#define MACRO_ENB_ID_TO_BIT_STRING(mACRO, bITsTRING) \
+  uint_to_left_aligned_bit_string((mACRO), &(bITsTRING)->buf, &(bITsTRING)->size, &(bITsTRING)->bits_unused, 20)
+#define MACRO_GNB_ID_TO_BIT_STRING(mACRO, bITsTRING) \
+  uint_to_left_aligned_bit_string((mACRO), &(bITsTRING)->buf, &(bITsTRING)->size, &(bITsTRING)->bits_unused, 28)
 
-
-#define MACRO_GNB_ID_TO_BIT_STRING(mACRO, bITsTRING)    \
-do {                                                    \
-    (bITsTRING)->buf = calloc(4, sizeof(uint8_t));      \
-    (bITsTRING)->buf[0] = ((mACRO) >> 20);              \
-    (bITsTRING)->buf[1] = (mACRO) >> 12;                \
-    (bITsTRING)->buf[2] = (mACRO) >> 4;                 \
-    (bITsTRING)->buf[3] = ((mACRO) & 0x0f) << 4;        \
-    (bITsTRING)->size = 4;                              \
-    (bITsTRING)->bits_unused = 4;                       \
-} while(0)
-
-#define MACRO_BIT_STRING_TO_GNB_ID(bITsTRING, oUT)          \
-do {                                                        \
-    uint8_t *_buf = (bITsTRING)->buf;                       \
-    (oUT) =                                                 \
-        ((uint32_t)_buf[0] << 20) |                         \
-        ((uint32_t)_buf[1] << 12) |                         \
-        ((uint32_t)_buf[2] << 4)  |                         \
-        (((uint32_t)_buf[3] & 0xF0) >> 4);                  \
-} while (0)
+#define MACRO_BIT_STRING_TO_GNB_ID(bITsTRING, oUT) UINT_FROM_LEFT_ALIGNED_BIT_STRING((bITsTRING), (oUT), 28)
 
 /* TS 36.413 v10.9.0 section 9.2.1.38:
  * E-UTRAN CGI/Cell Identity
@@ -496,73 +246,32 @@ do {                                                        \
  * Identity correspond to the eNB
  * ID (defined in subclause 9.2.1.37).
  */
-#define MACRO_ENB_ID_TO_CELL_IDENTITY(mACRO, cELL_iD, bITsTRING) \
-do {                                                    \
-    (bITsTRING)->buf = calloc(4, sizeof(uint8_t));      \
-    (bITsTRING)->buf[0] = ((mACRO) >> 12);              \
-    (bITsTRING)->buf[1] = (mACRO) >> 4;                 \
-    (bITsTRING)->buf[2] = (((mACRO) & 0x0f) << 4) | ((cELL_iD) >> 4);        \
-    (bITsTRING)->buf[3] = ((cELL_iD) & 0x0f) << 4;        \
-    (bITsTRING)->size = 4;                              \
-    (bITsTRING)->bits_unused = 4;                       \
-} while(0)
+#define MACRO_ENB_ID_TO_CELL_IDENTITY(mACRO, cELL_iD, bITsTRING)    \
+  do {                                                              \
+    (bITsTRING)->buf = calloc_or_fail(4, sizeof(uint8_t));          \
+    (bITsTRING)->buf[0] = ((mACRO) >> 12);                          \
+    (bITsTRING)->buf[1] = (mACRO) >> 4;                             \
+    (bITsTRING)->buf[2] = (((mACRO)&0x0f) << 4) | ((cELL_iD) >> 4); \
+    (bITsTRING)->buf[3] = ((cELL_iD)&0x0f) << 4;                    \
+    (bITsTRING)->size = 4;                                          \
+    (bITsTRING)->bits_unused = 4;                                   \
+  } while (0)
 
-#define MACRO_GNB_ID_TO_CELL_IDENTITY(mACRO, cELL_iD, bITsTRING) \
-do {                                                    \
-    (bITsTRING)->buf = calloc(5, sizeof(uint8_t));      \
-    (bITsTRING)->buf[0] = ((mACRO) >> 20);              \
-    (bITsTRING)->buf[1] = (mACRO) >> 12;                 \
-    (bITsTRING)->buf[2] = (mACRO) >> 4;        \
-    (bITsTRING)->buf[3] = (((mACRO) & 0x0f) << 4) | ((cELL_iD) >> 4);        \
-    (bITsTRING)->buf[4] = ((cELL_iD) & 0x0f) << 4;        \
-    (bITsTRING)->size = 5;                              \
-    (bITsTRING)->bits_unused = 4;                       \
-} while(0)
+#define MACRO_GNB_ID_TO_CELL_IDENTITY(mACRO, cELL_iD, bITsTRING)    \
+  do {                                                              \
+    (bITsTRING)->buf = calloc_or_fail(5, sizeof(uint8_t));          \
+    (bITsTRING)->buf[0] = ((mACRO) >> 20);                          \
+    (bITsTRING)->buf[1] = (mACRO) >> 12;                            \
+    (bITsTRING)->buf[2] = (mACRO) >> 4;                             \
+    (bITsTRING)->buf[3] = (((mACRO)&0x0f) << 4) | ((cELL_iD) >> 4); \
+    (bITsTRING)->buf[4] = ((cELL_iD)&0x0f) << 4;                    \
+    (bITsTRING)->size = 5;                                          \
+    (bITsTRING)->bits_unused = 4;                                   \
+  } while (0)
 
-#define UEIDENTITYINDEX_TO_BIT_STRING(mACRO, bITsTRING)          \
-do {                                                    \
-    (bITsTRING)->buf = calloc(2, sizeof(uint8_t));      \
-    (bITsTRING)->buf[0] = (mACRO) >> 2;                 \
-    (bITsTRING)->buf[1] = ((mACRO) & 0x03)<<6;            \
-    (bITsTRING)->size = 2;                              \
-    (bITsTRING)->bits_unused = 6;                       \
-} while(0)
+#define FIVEG_S_TMSI_TO_BIT_STRING INT48_TO_BIT_STRING
 
-#define FIVEG_S_TMSI_TO_BIT_STRING(mACRO, bITsTRING)      \
-do {                                                    \
-    (bITsTRING)->buf = calloc(6, sizeof(uint8_t));      \
-    (bITsTRING)->buf[0] = ((mACRO) >> 40) & 0xff;       \
-    (bITsTRING)->buf[1] = ((mACRO) >> 32) & 0xff;       \
-    (bITsTRING)->buf[2] = ((mACRO) >> 24) & 0xff;       \
-    (bITsTRING)->buf[3] = ((mACRO) >> 16) & 0xff;       \
-    (bITsTRING)->buf[4] = ((mACRO) >> 8 ) & 0xff;       \
-    (bITsTRING)->buf[5] = ((mACRO) & 0xff);             \
-    (bITsTRING)->size = 6;                              \
-    (bITsTRING)->bits_unused = 0;                       \
-} while(0)
-
-#define IRNTI_TO_BIT_STRING(mACRO, bITsTRING)            \
-do {                                                     \
-    (bITsTRING)->buf = calloc(5, sizeof(uint8_t));       \
-    (bITsTRING)->buf[0] = ((mACRO) >> 32) & 0xff;        \
-    (bITsTRING)->buf[1] = ((mACRO) >> 24) & 0xff;        \
-    (bITsTRING)->buf[2] = ((mACRO) >> 16) & 0xff;        \
-    (bITsTRING)->buf[3] = ((mACRO) >> 8) & 0xff;         \
-    (bITsTRING)->buf[4] = ((mACRO) & 0xff);              \
-    (bITsTRING)->size = 5;                               \
-    (bITsTRING)->bits_unused = 0;                        \
-} while (0)
-
-/* Used to format an uint32_t containing an ipv4 address */
-#define IPV4_ADDR    "%u.%u.%u.%u"
-#define IPV4_ADDR_FORMAT(aDDRESS)               \
-    (uint8_t)((aDDRESS)  & 0x000000ff),         \
-    (uint8_t)(((aDDRESS) & 0x0000ff00) >> 8 ),  \
-    (uint8_t)(((aDDRESS) & 0x00ff0000) >> 16),  \
-    (uint8_t)(((aDDRESS) & 0xff000000) >> 24)
-
-#define IPV4_ADDR_DISPLAY_8(aDDRESS)            \
-    (aDDRESS)[0], (aDDRESS)[1], (aDDRESS)[2], (aDDRESS)[3]
+#define IRNTI_TO_BIT_STRING INT40_TO_BIT_STRING
 
 #define TAC_TO_ASN1 INT16_TO_OCTET_STRING
 #define GTP_TEID_TO_ASN1 INT32_TO_OCTET_STRING

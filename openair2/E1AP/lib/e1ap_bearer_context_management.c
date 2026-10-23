@@ -1827,12 +1827,12 @@ bool decode_E1_bearer_context_mod_request(const E1AP_E1AP_PDU_t *pdu, e1ap_beare
 
       case E1AP_ProtocolIE_ID_id_UEDLAggregateMaximumBitRate:
         out->ueDlAggMaxBitRate = malloc_or_fail(sizeof(*out->ueDlAggMaxBitRate));
-        OCTET_STRING_TO_UINT32(&ie->value.choice.BitRate, *out->ueDlAggMaxBitRate);
+        OCTET_STRING_TO_INT32(&ie->value.choice.BitRate, *out->ueDlAggMaxBitRate);
         break;
 
       case E1AP_ProtocolIE_ID_id_UEDLMaximumIntegrityProtectedDataRate:
         out->ueDlMaxIPBitRate = malloc_or_fail(sizeof(*out->ueDlMaxIPBitRate));
-        OCTET_STRING_TO_UINT32(&ie->value.choice.BitRate, *out->ueDlMaxIPBitRate);
+        OCTET_STRING_TO_INT32(&ie->value.choice.BitRate, *out->ueDlMaxIPBitRate);
         break;
 
       case E1AP_ProtocolIE_ID_id_BearerContextStatusChange:

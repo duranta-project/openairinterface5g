@@ -344,8 +344,8 @@ XNAP_XnAP_PDU_t *encode_xnap_handover_request(const xnap_handover_req_t *req)
   OCTET_STRING_fromBuf(&ctx->rrc_Context, (const char *)req->ue_context.rrc_context.buf, req->ue_context.rrc_context.len);
 
   /* UE Aggregate Maximum Bit Rate */
-  UEAGMAXBITRTD_TO_ASN_PRIMITIVES(req->ue_context.ue_ambr.br_dl, &ctx->ue_AMBR.dl_UE_AMBR);
-  UEAGMAXBITRTU_TO_ASN_PRIMITIVES(req->ue_context.ue_ambr.br_ul, &ctx->ue_AMBR.ul_UE_AMBR);
+  UEAMBR_TO_OCTET_STRING(req->ue_context.ue_ambr.br_dl, &ctx->ue_AMBR.dl_UE_AMBR);
+  UEAMBR_TO_OCTET_STRING(req->ue_context.ue_ambr.br_ul, &ctx->ue_AMBR.ul_UE_AMBR);
 
   /* PDU Session Resources To Be Setup List */
   xnap_encode_pdusession_resources_to_be_setup_list(req->ue_context.pdusession_resources_tobe_setup_list,
@@ -2006,8 +2006,8 @@ static void xnap_encode_ue_ctx_info_retr(const xnap_ue_context_info_t *in, XNAP_
   out->securityInformation.ncc = in->as_security_ncc;
 
   /* UE Aggregate Maximum Bit Rate (M) 9.2.3.17 */
-  UEAGMAXBITRTD_TO_ASN_PRIMITIVES(in->ue_ambr.br_dl, &out->ue_AMBR.dl_UE_AMBR);
-  UEAGMAXBITRTU_TO_ASN_PRIMITIVES(in->ue_ambr.br_ul, &out->ue_AMBR.ul_UE_AMBR);
+  UEAMBR_TO_OCTET_STRING(in->ue_ambr.br_dl, &out->ue_AMBR.dl_UE_AMBR);
+  UEAMBR_TO_OCTET_STRING(in->ue_ambr.br_ul, &out->ue_AMBR.ul_UE_AMBR);
 
   /* PDU Session Resources To Be Setup List (M) 9.2.1.1 */
   xnap_encode_pdusession_resources_to_be_setup_list(in->pdusession_resources_tobe_setup_list,
