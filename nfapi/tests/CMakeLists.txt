@@ -15,7 +15,7 @@ if (ENABLE_TESTS)
                 ${NFAPI_DIR}/fapi/src/nr_fapi_p7_utils.c)
         target_include_directories(nr_fapi_aerial PUBLIC ${NFAPI_DIR}/common/public_inc ${NFAPI_DIR}/fapi/inc)
         target_compile_definitions(nr_fapi_aerial PUBLIC ENABLE_AERIAL)
-        target_compile_definitions(nr_fapi_aerial PRIVATE FAPI_BYTE_ORDERING_BIG_ENDIAN ENABLE_10_04)
+        target_compile_definitions(nr_fapi_aerial PRIVATE FAPI_BYTE_ORDERING_BIG_ENDIAN)
     endif ()
 
     # add_nr_fapi_test(<name> <codec> <labels> [NO_AERIAL]): <name>_test against
