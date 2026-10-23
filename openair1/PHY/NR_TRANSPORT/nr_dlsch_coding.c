@@ -30,6 +30,8 @@
 
 void free_gNB_dlsch(NR_gNB_DLSCH_t *dlsch, uint16_t N_RB, const NR_DL_FRAME_PARMS *frame_parms)
 {
+  free_and_zero(dlsch->f);
+#ifdef LDPC_CUDA
   int max_layers = min(frame_parms->nb_antennas_tx, NR_MAX_NB_LAYERS);
   uint16_t a_segments = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * max_layers;
 
@@ -38,31 +40,20 @@ void free_gNB_dlsch(NR_gNB_DLSCH_t *dlsch, uint16_t N_RB, const NR_DL_FRAME_PARM
     a_segments = a_segments / 273 + 1;
   }
 
-  if (dlsch->b) {
-#ifdef LDPC_CUDA
-    gpuFreeHost(dlsch->b);
-#else
-    free16(dlsch->b, a_segments * 1056);
-#endif
-    dlsch->b = NULL;
-  }
-  if (dlsch->f) {
-    free16(dlsch->f, N_RB * frame_parms->symbols_per_slot * NR_NB_SC_PER_RB * 8 * NR_MAX_NB_LAYERS);
-    dlsch->f = NULL;
-  }
   for (int r = 0; r < a_segments; r++) {
-#ifdef LDPC_CUDA
     gpuFreeHost(dlsch->c[r]);
-#else
-    free(dlsch->c[r]);
-#endif
     dlsch->c[r] = NULL;
   }
   free(dlsch->c);
+  gpuFreeHost(dlsch->c_devh);
+#endif
 }
 
 NR_gNB_DLSCH_t new_gNB_dlsch(NR_DL_FRAME_PARMS *frame_parms, uint16_t N_RB)
 {
+  NR_gNB_DLSCH_t dlsch = {0};
+#ifdef LDPC_CUDA
+  // the GPU encoder reads the segments from mapped memory
   int max_layers = min(frame_parms->nb_antennas_tx, NR_MAX_NB_LAYERS);
   uint16_t a_segments = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * max_layers; // number of segments to be allocated
 
@@ -72,37 +63,20 @@ NR_gNB_DLSCH_t new_gNB_dlsch(NR_DL_FRAME_PARMS *frame_parms, uint16_t N_RB)
   }
 
   LOG_D(PHY, "Allocating %d segments (MAX %d, N_PRB %d)\n", a_segments, MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER, N_RB);
-  uint32_t dlsch_bytes = a_segments * 1056; // allocated bytes per segment
-  NR_gNB_DLSCH_t dlsch = {0};
-
-  dlsch.b = malloc16(dlsch_bytes);
-  AssertFatal(dlsch.b, "cannot allocate memory for dlsch.b\n");
-  bzero(dlsch.b, dlsch_bytes);
 
   dlsch.c = (uint8_t **)malloc16(a_segments * sizeof(uint8_t *));
-#ifdef LDPC_CUDA
   dlsch.c_devh = gpuHostAlloc_or_fail(a_segments * sizeof(uint8_t *), gpuHostAllocMapped);
   dlsch.c_dev = gpuHostGetDevicePointer_or_fail(dlsch.c_devh);
-#endif
   for (int r = 0; r < a_segments; r++) {
     // account for filler in first segment and CRCs for multiple segment case
     // [hna] 8448 is the maximum CB size in NR
     //       68*348 = 68*(maximum size of Zc)
     //       In section 5.3.2 in 38.212, the for loop is up to N + 2*Zc (maximum size of N is 66*Zc, therefore 68*Zc)
-#ifdef LDPC_CUDA
     dlsch.c[r] = gpuHostAlloc_or_fail((8448 / 8) * sizeof(uint8_t), gpuHostAllocMapped);
     ((uint8_t **)dlsch.c_devh)[r] = gpuHostGetDevicePointer_or_fail(dlsch.c[r]);
-#else
-    dlsch.c[r] = malloc16(8448 / 8);
-#endif
-    AssertFatal(dlsch.c[r], "cannot allocate dlsch->c[%d]\n", r);
     bzero(dlsch.c[r], 8448 / 8);
   }
-
-  dlsch.f = malloc16(N_RB * frame_parms->symbols_per_slot * NR_NB_SC_PER_RB * 8 * NR_MAX_NB_LAYERS);
-  AssertFatal(dlsch.f, "cannot allocate dlsch->f\n");
-  bzero(dlsch.f, N_RB * frame_parms->symbols_per_slot * NR_NB_SC_PER_RB * 8 * NR_MAX_NB_LAYERS);
-
+#endif
   return (dlsch);
 }
 
@@ -118,6 +92,7 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
   memset(TBs, 0, sizeof(TBs));
 
   int num_segments = 0;
+  int B_tb[n_dlsch];
 
   for (int i = 0; i < n_dlsch; i++) {
     NR_gNB_DLSCH_t *dlsch = &dlsch_array[i];
@@ -167,7 +142,6 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
       // printf("a0 %d a1 %d a2 %d\n", a[A>>3], a[1+(A>>3)], a[2+(A>>3)]);
       B = A + 24;
       AssertFatal((A / 8) + 4 <= max_bytes, "A %d is too big (A/8+4 = %d > %d)\n", A, (A / 8) + 4, max_bytes);
-      memcpy(dlsch->b, a, (A / 8) + 4); // why is this +4 if the CRC is only 3 bytes?
     } else {
       // Add 16-bit crc (polynomial A) to payload
       crc = crc16(a, A) >> 16;
@@ -177,7 +151,6 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
       // printf("a0 %d a1 %d \n", a[A>>3], a[1+(A>>3)]);
       B = A + 16;
       AssertFatal((A / 8) + 3 <= max_bytes, "A %d is too big (A/8+3 = %d > %d)\n", A, (A / 8) + 3, max_bytes);
-      memcpy(dlsch->b, a, (A / 8) + 3); // using 3 bytes to mimic the case of 24 bit crc
     }
 
     stop_meas(dlsch_crc_stats);
@@ -187,8 +160,10 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
     TB_parameters->harq_unique_pid = i;
     TB_parameters->BG = rel15->maintenance_parms_v3.ldpcBaseGraph;
     TB_parameters->A = A;
-    TB_parameters->Kb = nr_segmentation(dlsch->b,
-                                        dlsch->c,
+    B_tb[i] = B;
+    // segmentation parameters only, the segments are built below once their number is known
+    TB_parameters->Kb = nr_segmentation(NULL,
+                                        NULL,
                                         B,
                                         &TB_parameters->C,
                                         &TB_parameters->K,
@@ -205,6 +180,10 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
 
   nrLDPC_segment_encoding_parameters_t segments[num_segments];
   memset(segments, 0, sizeof(segments));
+#ifndef LDPC_CUDA
+  // code blocks of all the TBs of the slot (K bits at most 8448), only used by the encoder below
+  uint8_t c_slot[num_segments][8448 / 8] __attribute__((aligned(32)));
+#endif
   size_t segments_offset = 0;
   size_t dlsch_offset = 0;
 
@@ -214,13 +193,29 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
 
     nrLDPC_TB_encoding_parameters_t *TB_parameters = &TBs[i];
 
+#ifdef LDPC_CUDA
+    uint8_t **c = dlsch->c;
+#else
+    uint8_t *c[TB_parameters->C];
+    for (int r = 0; r < TB_parameters->C; r++)
+      c[r] = c_slot[segments_offset + r];
+#endif
+    nr_segmentation(dlsch->pdu,
+                    c,
+                    B_tb[i],
+                    &TB_parameters->C,
+                    &TB_parameters->K,
+                    &TB_parameters->Z,
+                    &TB_parameters->F,
+                    TB_parameters->BG);
+
 #ifdef DEBUG_DLSCH_CODING
     for (int r = 0; r < TB_parameters->C; r++) {
       LOG_D(PHY, "Encoder: B %d F %d \n", dlsch->B, TB_parameters->F);
       LOG_D(PHY, "start ldpc encoder segment %d/%d\n", r, TB_parameters->C);
-      LOG_D(PHY, "input %d %d %d %d %d \n", dlsch->c[r][0], dlsch->c[r][1], dlsch->c[r][2], dlsch->c[r][3], dlsch->c[r][4]);
+      LOG_D(PHY, "input %d %d %d %d %d \n", c[r][0], c[r][1], c[r][2], c[r][3], c[r][4]);
       for (int cnt = 0; cnt < 22 * (TB_parameters->Z) / 8; cnt++) {
-        LOG_D(PHY, "%d ", dlsch->c[r][cnt]);
+        LOG_D(PHY, "%d ", c[r][cnt]);
       }
       LOG_D(PHY, "\n");
     }
@@ -255,7 +250,7 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
       int E = nr_get_E(TB_parameters->G, TB_parameters->C, TB_parameters->Qm, rel15->nrOfLayers, r);
       if (E < 0)
         return -1;
-      segment_parameters->c = dlsch->c[r];
+      segment_parameters->c = c[r];
       segment_parameters->E = E;
 
       reset_meas(&segment_parameters->ts_ldpc_encode);

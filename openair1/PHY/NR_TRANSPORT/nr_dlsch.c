@@ -1104,7 +1104,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   printf("\n");
 #endif
 
-  if (IS_SOFTMODEM_DLSIM)
+  if (dlsch->f)
     memcpy(dlsch->f, input_ptr, (encoded_length + 7) >> 3);
 
   int slot_type = nr_slot_select(&gNB->gNB_config, frame, slot);
