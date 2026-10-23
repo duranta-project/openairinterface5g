@@ -1251,6 +1251,6 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     gNBunlockScopeData(gNB, gNBPuschRxIq)
   }
   uint32_t total_llrs = total_res * rel15_ul_ref->qam_mod_order * rel15_ul_ref->nrOfLayers;
-  gNBscopeCopyWithMetadata(gNB, gNBPuschLlr, pusch_vars_group[0]->ulsch_llrs, sizeof(c16_t), 1, total_llrs, 0, &mt);
+  gNBscopeCopyWithMetadata(gNB, gNBPuschLlr, pusch_vars_group[0]->ulsch_llrs, sizeof(int16_t), 1, total_llrs, 0, &mt);
   return 0;
 }
