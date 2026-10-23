@@ -139,8 +139,10 @@ typedef struct {
   bool harq_to_be_cleared;
   /// Pointer to the payload (38.212 V15.4.0 section 5.1)
   uint8_t *b;
-  /// Pointer to aggregated code blocks after code block segmentation and CRC attachment (38.212 V15.4.0 section 5.2.2)
+#ifdef LDPC_CUDA
+  /// Decoded code blocks, in GPU mapped memory (otherwise on the stack of nr_ulsch_decoding())
   uint8_t *c;
+#endif
   /// Number of bits in each code block (38.212 V15.4.0 section 5.2.2)
   uint32_t K;
   /// Number of "Filler" bits added in the code block segmentation (38.212 V15.4.0 section 5.2.2)
