@@ -14,6 +14,12 @@
 #include <rte_ethdev.h>
 #include "log.h"
 #include <sched.h>
+#include <semaphore.h>
+#include <errno.h>
+#include <string.h>
+#include <rte_ring.h>
+
+#define SLOT_EVENT_RING_SIZE 64
 
 typedef struct {
   du_io_t io;
@@ -21,7 +27,31 @@ typedef struct {
   du_fh_config_t cfg;
   void *packet_processor;
   void *tx_scheduler;
+  // One event per OTA slot, DL or UL, produced from the fh_timer tick once the slot's UL receive
+  // window has closed (so every UL symbol job of the slot is already ready). This is what paces
+  // the L1 RX loop, like xran's per-slot rx callback does for the vendor path.
+  struct rte_ring *slot_events;
+  sem_t slot_sem;
+  bool stopped; // set by du_fh_stop(); du_fh_wait_slot() then returns -1
+  uint32_t ul_window_symbols;
+  uint64_t next_slot_event; // absolute slot of the next event; 0 until the first tick
 } du_fh_t;
+
+static void slot_sem_post(sem_t *sem)
+{
+  int ret = sem_post(sem);
+  AssertFatal(ret == 0, "sem_post(): ret=%d, errno=%d (%s)\n", ret, errno, strerror(errno));
+}
+
+/* POSIX sem_wait(), ERRORS: retry EINTR */
+static void slot_sem_wait(sem_t *sem)
+{
+  int ret;
+  do {
+    ret = sem_wait(sem);
+  } while (ret == -1 && errno == EINTR);
+  AssertFatal(ret == 0, "sem_wait(): ret=%d, errno=%d (%s)\n", ret, errno, strerror(errno));
+}
 
 static void rx_cb(struct rte_mbuf **pkts, uint16_t n, void *user_data)
 {
@@ -66,6 +96,17 @@ static void timer_cb(uint64_t s_abs, void *user_data)
   du_fh_t *fh = (du_fh_t *)user_data;
   du_packet_processor_handle_absolute_symbol_tick(fh->packet_processor, s_abs);
   du_tx_handle_absolute_symbol_tick(fh->tx_scheduler, s_abs);
+
+  if (s_abs < fh->ul_window_symbols)
+    return;
+  uint64_t closed_symbol = s_abs - fh->ul_window_symbols; // last symbol whose UL window has closed
+  if (fh->next_slot_event == 0)
+    fh->next_slot_event = closed_symbol / NR_SYMBOLS_PER_SLOT + 1;
+  while ((fh->next_slot_event + 1) * NR_SYMBOLS_PER_SLOT - 1 <= closed_symbol) {
+    if (rte_ring_enqueue(fh->slot_events, (void *)(uintptr_t)fh->next_slot_event) == 0)
+      slot_sem_post(&fh->slot_sem);
+    fh->next_slot_event++;
+  }
 }
 
 void *du_fh_init(du_fh_config_t *cfg)
@@ -227,6 +268,12 @@ void *du_fh_init(du_fh_config_t *cfg)
   // be queued before the worker's first tick. The worker is not running yet.
   du_tx_handle_absolute_symbol_tick(fh->tx_scheduler, fh_timer_get_current_symbol(&fh->io.timer));
 
+  fh->ul_window_symbols = du_packet_processor_get_ul_window_symbols(fh->packet_processor);
+  fh->slot_events = rte_ring_create("du_slot_events", SLOT_EVENT_RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+  AssertFatal(fh->slot_events != NULL, "could not create du_slot_events ring\n");
+  ret = sem_init(&fh->slot_sem, 0, 0);
+  AssertFatal(ret == 0, "sem_init(): ret=%d, errno=%d (%s)\n", ret, errno, strerror(errno));
+
   return fh;
 }
 
@@ -236,6 +283,11 @@ void du_fh_cleanup(void *handle)
   du_fh_t *fh = (du_fh_t *)handle;
   if (fh->packet_processor) cleanup_du_packet_processor(fh->packet_processor);
   if (fh->tx_scheduler) cleanup_du_tx_scheduler(fh->tx_scheduler);
+  if (fh->slot_events) {
+    rte_ring_free(fh->slot_events);
+    int ret = sem_destroy(&fh->slot_sem);
+    AssertFatal(ret == 0, "sem_destroy(): ret=%d, errno=%d (%s)\n", ret, errno, strerror(errno));
+  }
   du_io_cleanup(&fh->io);
   free(fh);
 }
@@ -256,6 +308,10 @@ void du_fh_stop(void *handle)
 
   if (fh->cfg.worker_core != -1 && fh->cfg.worker_core != RTE_MAX_LCORE)
     rte_eal_wait_lcore(fh->cfg.worker_core);
+
+  // No more slot events will come; wake a thread blocked in du_fh_wait_slot()
+  __atomic_store_n(&fh->stopped, true, __ATOMIC_RELEASE);
+  slot_sem_post(&fh->slot_sem);
 }
 
 void du_fh_tx_send_dl_iq(void *handle, uint32_t **txdataF, int nb_tx, uint64_t hyper_frame, int frame, int slot, int symbol, const du_tx_dl_section_t *sections, int num_sections)
@@ -268,6 +324,12 @@ void du_fh_schedule_ul_grant(void *handle, uint64_t hyper_frame, int frame, int 
 {
   du_fh_t *fh = (du_fh_t *)handle;
   du_tx_schedule_ul_grant(fh->tx_scheduler, hyper_frame, frame, slot, start_symbol, ant_id, sections, num_sections);
+}
+
+void du_fh_schedule_prach(void *handle, uint64_t hyper_frame, int frame, int slot, int start_symbol, int ant_id, const du_tx_prach_section_t *prach)
+{
+  du_fh_t *fh = (du_fh_t *)handle;
+  du_tx_schedule_prach(fh->tx_scheduler, hyper_frame, frame, slot, start_symbol, ant_id, prach);
 }
 
 void du_fh_expect_ul_symbol(void *handle, uint64_t absolute_symbol, int ant_id, int section_id, int start_prb, int num_prb, fh_comp_method_t comp_method, uint8_t iq_width)
@@ -292,6 +354,42 @@ void du_fh_read_ul_iq(void *handle, uint32_t **rxdataF, int nb_rx, uint64_t *hyp
 {
   du_fh_t *fh = (du_fh_t *)handle;
   du_packet_processor_read_ul_iq(fh->packet_processor, rxdataF, nb_rx, hyper_frame, frame, slot, symbol);
+}
+
+int du_fh_wait_slot(void *handle, uint64_t *absolute_slot)
+{
+  du_fh_t *fh = (du_fh_t *)handle;
+  void *ev;
+  int skipped = -1;
+  // Behind by more than a slot or two: jump to the newest slot, as the vendor path does.
+  do {
+    slot_sem_wait(&fh->slot_sem);
+    if (__atomic_load_n(&fh->stopped, __ATOMIC_ACQUIRE)) {
+      slot_sem_post(&fh->slot_sem); // so that later calls return too
+      return -1;
+    }
+    AssertFatal(rte_ring_dequeue(fh->slot_events, &ev) == 0, "slot event semaphore/ring mismatch\n");
+    skipped++;
+  } while (rte_ring_count(fh->slot_events) >= DU_FH_MAX_SLOT_BACKLOG);
+  *absolute_slot = (uint64_t)(uintptr_t)ev;
+  return skipped;
+}
+
+bool du_fh_read_ul_iq_upto(void *handle, uint32_t **rxdataF, int nb_rx, uint64_t last_absolute_symbol, uint64_t *absolute_symbol)
+{
+  du_fh_t *fh = (du_fh_t *)handle;
+  return du_packet_processor_read_ul_iq_upto(fh->packet_processor, rxdataF, nb_rx, last_absolute_symbol, absolute_symbol);
+}
+
+bool du_fh_read_prach_iq_upto(void *handle,
+                              int16_t *rxdata,
+                              uint64_t last_absolute_symbol,
+                              uint64_t *start_absolute_symbol,
+                              int *antenna,
+                              int *section_id)
+{
+  du_fh_t *fh = (du_fh_t *)handle;
+  return du_packet_processor_read_prach_iq_upto(fh->packet_processor, rxdata, last_absolute_symbol, start_absolute_symbol, antenna, section_id);
 }
 
 int du_fh_get_ready_prach_job_count(void *handle)

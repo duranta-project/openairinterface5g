@@ -18,7 +18,7 @@
 #define SEND_QUEUE_SIZE 64
 #define MAX_SECTIONS_PER_CALL 64
 #define MAX_TX_BURST 64
-#define NUM_RU_PORT_IDS 16 // eAxC ruPortId values
+#define NUM_RU_PORT_IDS 16 // eAxC ruPortId values; PRACH ports sit above the PUSCH ones
 #define NR_NUMBER_OF_SUBFRAMES_PER_FRAME 10
 
 typedef struct {
@@ -316,6 +316,41 @@ void du_tx_schedule_ul_grant(void *context,
   struct rte_mbuf *mbufs[MAX_SECTIONS_PER_CALL];
   uint32_t n = build_cplane_section1(ctx, mbufs, XRAN_DIR_UL, frame, slot, start_symbol, ant_id, sections, num_sections);
   queue_packets(ctx, cp_send_at, mbufs, n);
+}
+
+void du_tx_schedule_prach(void *context,
+                          uint64_t hyper_frame,
+                          int frame,
+                          int slot,
+                          int start_symbol,
+                          int ant_id,
+                          const du_tx_prach_section_t *prach)
+{
+  du_tx_scheduler_context_t *ctx = (du_tx_scheduler_context_t *)context;
+  if (!ctx)
+    return;
+  uint64_t cp_send_at = ota_absolute_symbol(ctx, hyper_frame, frame, slot, start_symbol) - (ctx->T1a_cp_ul_max_sym_diff - 1);
+  bool late;
+  if (!can_queue(ctx, cp_send_at, &late)) {
+    if (late)
+      ctx->stats.ul_grant_too_late++;
+    return;
+  }
+  struct rte_mbuf *pkt = ctx->alloc_func(ctx->io_controller);
+  if (pkt == NULL) {
+    ctx->stats.out_of_mbufs++;
+    return;
+  }
+  struct xran_radioapp_udComp_header udComp = {.udCompMeth = ctx->comp_method, .udIqWidth = XRAN_CONVERT_IQWIDTH(ctx->iq_width)};
+  int slots_per_subframe = 1 << ctx->numerology;
+  fill_cplane_section3(pkt, &ctx->eaxcid_config,
+                       frame, slot / slots_per_subframe, slot % slots_per_subframe, start_symbol,
+                       prach->filter_index, prach->time_offset, prach->scs, prach->fft_size,
+                       0, udComp,
+                       0, ant_id, 0,
+                       prach->section_id, prach->beam_id, prach->num_symbol,
+                       prach->start_prb, prach->num_prb, (uint32_t)prach->freq_offset);
+  queue_packets(ctx, cp_send_at, &pkt, 1);
 }
 
 // Sets the eCPRI sequence number of a packet about to be sent and counts it

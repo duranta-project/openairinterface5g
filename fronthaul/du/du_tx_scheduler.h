@@ -19,6 +19,20 @@ typedef struct {
   uint16_t section_id;
 } du_tx_dl_section_t;
 
+// Section type 3 (PRACH) C-Plane fields, O-RAN CUS 7.5.2
+typedef struct {
+  uint8_t filter_index;
+  uint16_t time_offset;
+  uint8_t fft_size; // exponent of 2
+  uint8_t scs;
+  uint16_t section_id;
+  uint16_t beam_id;
+  uint8_t num_symbol;
+  uint16_t start_prb;
+  uint8_t num_prb;
+  int32_t freq_offset; // in half PRACH subcarriers relative to the channel center
+} du_tx_prach_section_t;
+
 typedef void *(*du_tx_alloc_func_t)(void *io_controller);
 typedef void (*du_tx_send_func_t)(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs);
 
@@ -66,6 +80,15 @@ void du_tx_schedule_ul_grant(void *context,
                              int ant_id,
                              const du_tx_dl_section_t *sections,
                              int num_sections);
+
+// Schedule a PRACH (section type 3) C-Plane message T1a_cp_ul ahead of the occasion.
+void du_tx_schedule_prach(void *context,
+                          uint64_t hyper_frame,
+                          int frame,
+                          int slot,
+                          int start_symbol,
+                          int ant_id,
+                          const du_tx_prach_section_t *prach);
 
 // Stats, mirroring the shape of du_packet_processor_stats_t.
 typedef struct {

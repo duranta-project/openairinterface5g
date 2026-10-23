@@ -120,6 +120,13 @@ void du_fh_tx_send_dl_iq(void *handle, uint32_t **txdataF, int nb_tx, uint64_t h
 void du_fh_schedule_ul_grant(void *handle, uint64_t hyper_frame, int frame, int slot, int start_symbol, int ant_id, const du_tx_dl_section_t *sections, int num_sections);
 
 /**
+ * @brief Schedule a PRACH (section type 3) C-Plane message for an occasion.
+ *
+ * @param ant_id eAxC RU port, i.e. prach_eaxc_offset + antenna.
+ */
+void du_fh_schedule_prach(void *handle, uint64_t hyper_frame, int frame, int slot, int start_symbol, int ant_id, const du_tx_prach_section_t *prach);
+
+/**
  * @brief Inform the packet processor to expect UL symbol data. This is a companion
  *        call to du_fh_schedule_ul_grant; both are made by the MAC scheduler together.
  *
@@ -172,6 +179,24 @@ int du_fh_get_ready_ul_job_count(void *handle);
  */
 void du_fh_read_ul_iq(void *handle, uint32_t **rxdataF, int nb_rx, uint64_t *hyper_frame, int *frame, int *slot, int *symbol);
 
+#define DU_FH_MAX_SLOT_BACKLOG 2
+
+/**
+ * @brief Block until the next OTA slot's UL receive window has closed.
+ *
+ * One event is produced per slot (DL or UL) from the fronthaul timer, so this is the L1 RX loop's
+ * real-time clock. If more than DU_FH_MAX_SLOT_BACKLOG events are pending, older ones are skipped.
+ *
+ * @param absolute_slot Set to the slot number counted from the GPS epoch.
+ * @return Number of skipped slots, or -1 once du_fh_stop() has been called.
+ */
+int du_fh_wait_slot(void *handle, uint64_t *absolute_slot);
+
+/**
+ * @brief Non-blocking read of the next ready UL symbol, only if it is at or before last_absolute_symbol.
+ */
+bool du_fh_read_ul_iq_upto(void *handle, uint32_t **rxdataF, int nb_rx, uint64_t last_absolute_symbol, uint64_t *absolute_symbol);
+
 /**
  * @brief Get the number of ready PRACH jobs.
  *
@@ -192,6 +217,19 @@ int du_fh_get_ready_prach_job_count(void *handle);
  * @param section_id Pointer to store section ID.
  */
 void du_fh_read_prach_iq(void *handle, int16_t *rxdata, uint64_t *hyper_frame, int *frame, int *slot, int *antenna, int *section_id);
+
+/**
+ * @brief Non-blocking read of the next ready PRACH job, only if its occasion starts at or before
+ *        last_absolute_symbol. A later job is kept for the next call.
+ *
+ * @return true if a job was read.
+ */
+bool du_fh_read_prach_iq_upto(void *handle,
+                              int16_t *rxdata,
+                              uint64_t last_absolute_symbol,
+                              uint64_t *start_absolute_symbol,
+                              int *antenna,
+                              int *section_id);
 
 /**
  * @brief Get the UTC anchor point mapping between 5G time and system time.

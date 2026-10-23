@@ -585,6 +585,42 @@ void test_prach_compressed()
   printf("PRACH compressed passed!\n");
 }
 
+// A PRACH job of a later slot is kept by the bounded read, not dropped
+void test_prach_read_upto()
+{
+  printf("Testing PRACH bounded read...\n");
+  int mu = 1;
+  void *ctx = init_du_packet_processor(mu, 273, 100, 300, 2, 0, 5, false, 1500, 0);
+  assert(ctx != NULL);
+
+  // Two one-symbol occasions in consecutive UL slots 3 and 4
+  uint64_t slot3 = 1000 * 5 + 3;
+  uint64_t first = slot3 * 14;
+  uint64_t second = (slot3 + 1) * 14;
+  du_packet_processor_handle_absolute_symbol_tick(ctx, first - 1);
+  du_packet_processor_expect_prach_occasion(ctx, first, 1, slot3 % 20, 0, 1, 0, 12, FH_COMP_NONE, 16, 0);
+  du_packet_processor_expect_prach_occasion(ctx, second, 1, (slot3 + 1) % 20, 0, 2, 0, 12, FH_COMP_NONE, 16, 0);
+  // Both windows close
+  du_packet_processor_handle_absolute_symbol_tick(ctx, second + 20);
+  assert(du_packet_processor_get_ready_prach_job_count(ctx) == 2);
+
+  int16_t out_iq[139 * 2];
+  uint64_t start;
+  int ant, section;
+  // Up to the end of slot 3: the first occasion only
+  assert(du_packet_processor_read_prach_iq_upto(ctx, out_iq, first + 13, &start, &ant, &section));
+  assert(start == first && section == 1);
+  assert(!du_packet_processor_read_prach_iq_upto(ctx, out_iq, first + 13, &start, &ant, &section));
+  assert(du_packet_processor_get_ready_prach_job_count(ctx) == 1);
+  // The second one is still there for slot 4
+  assert(du_packet_processor_read_prach_iq_upto(ctx, out_iq, second + 13, &start, &ant, &section));
+  assert(start == second && section == 2);
+  assert(du_packet_processor_get_ready_prach_job_count(ctx) == 0);
+
+  cleanup_du_packet_processor(ctx);
+  printf("PRACH bounded read passed!\n");
+}
+
 // One uncompressed PRB of UL U-Plane for absolute_symbol on antenna 0, first I value set to value
 static void send_ul_prb(void *ctx, uint64_t absolute_symbol, uint16_t value)
 {
@@ -704,6 +740,7 @@ int main(int argc, char **argv)
   test_prach_multi_symbol();
   test_prach_missing_symbol();
   test_prach_compressed();
+  test_prach_read_upto();
   
   printf("All DU Packet Processor tests passed!\n");
   return 0;
