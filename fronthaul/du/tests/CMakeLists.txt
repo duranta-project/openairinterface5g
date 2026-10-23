@@ -15,3 +15,10 @@ target_include_directories(test_du_tx_scheduler PRIVATE ${CMAKE_CURRENT_SOURCE_D
 add_dependencies(tests test_du_tx_scheduler)
 add_test(NAME test_du_tx_scheduler COMMAND test_du_tx_scheduler ${DPDK_TEST_ARGS} "--file-prefix=test_du_tx_scheduler" "--vdev=net_null2" "--vdev=net_null3")
 set_property(TEST test_du_tx_scheduler PROPERTY LABELS fronthaul)
+
+add_executable(test_du_fh test_du_fh.c)
+target_link_libraries(test_du_fh PRIVATE du_fh log_headers UTIL xran_pkt fh_compression PkgConfig::dpdk)
+target_include_directories(test_du_fh PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../common/xran_pkt)
+add_dependencies(tests test_du_fh)
+add_test(NAME test_du_fh COMMAND test_du_fh ${DPDK_TEST_ARGS} "--file-prefix=test_du_fh" "--vdev=net_null4" "--vdev=net_null5")
+set_property(TEST test_du_fh PROPERTY LABELS fronthaul)
