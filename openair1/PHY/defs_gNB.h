@@ -104,19 +104,17 @@ typedef struct {
   const nfapi_nr_dl_tti_pdsch_pdu *pdsch_pdu;
   /// freq allocation information
   freq_alloc_bitmap_t freq_alloc;
-  /// pointer to pdu from MAC interface (this is "a" in 36.212)
+  /// pointer to pdu from MAC interface (this is "a" in 36.212), the CRC is added in place
   uint8_t *pdu;
-  /// Pointer to the payload
-  uint8_t *b;
-  /// Pointers to transport block segments
-  uint8_t **c;
 #ifdef LDPC_CUDA
+  /// Pointers to transport block segments, GPU mapped memory (stack arrays of nr_dlsch_encoding() otherwise)
+  uint8_t **c;
   /// Pointers to transport block segments (contains pointers in c above)
   uint8_t *c_devh;
   /// Pointers to transport block segments (GPU mapping)
   uint8_t *c_dev;
 #endif
-  /// Interleaver outputs
+  /// encoder output (packed bits) copy for nr_dlsim, NULL otherwise
   uint8_t *f;
   /// REs unavailable for DLSCH (overlapping with PTRS, CSIRS etc.)
   uint32_t unav_res;
