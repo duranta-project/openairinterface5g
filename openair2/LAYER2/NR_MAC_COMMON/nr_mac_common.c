@@ -4933,9 +4933,14 @@ void compute_csi_bitlen(const NR_CSI_MeasConfig_t *csi_MeasConfig, nr_csi_report
     LOG_E(NR_MAC, "csi_ReportConfigToAddModList is NULL, not expected\n");
     return;
   }
+  if (!csi_MeasConfig->csi_ResourceConfigToAddModList) {
+    LOG_E(NR_MAC, "csi_ResourceConfigToAddModList is NULL, not expected\n");
+    return;
+  }
   // for each CSI measurement report configuration (list of CSI-ReportConfig)
   LOG_D(NR_MAC,"Searching %d csi_reports\n",csi_MeasConfig->csi_ReportConfigToAddModList->list.count);
   for (csi_report_id = 0; csi_report_id < csi_MeasConfig->csi_ReportConfigToAddModList->list.count; csi_report_id++) {
+    nb_resources = 0;
     NR_CSI_ReportConfig_t *csi_reportconfig = csi_MeasConfig->csi_ReportConfigToAddModList->list.array[csi_report_id];
     // MAC structure for CSI measurement reports (per UE and per report)
     nr_csi_report_t *csi_report = &csi_report_template[csi_report_id];
@@ -4951,8 +4956,10 @@ void compute_csi_bitlen(const NR_CSI_MeasConfig_t *csi_MeasConfig, nr_csi_report
         found_resource = 1;
       csi_resourceidx++;
     }
-    AssertFatal(found_resource==1,"Not able to found any CSI-ResourceConfig with csi-ResourceConfigId %ld\n",
-                csi_ResourceConfigId);
+    if (found_resource == 0) {
+      LOG_E(NR_MAC, "Not able to find any CSI-ResourceConfig with csi-ResourceConfigId %ld\n", csi_ResourceConfigId);
+      continue;
+    }
 
     long resourceType = csi_resourceconfig->resourceType;
 
@@ -4963,13 +4970,26 @@ void compute_csi_bitlen(const NR_CSI_MeasConfig_t *csi_MeasConfig, nr_csi_report
     if (csi_reportconfig->ext2 != NULL && csi_reportconfig->ext2->reportQuantity_r16)
       csi_report->reportQuantity_type_r16 = csi_reportconfig->ext2->reportQuantity_r16->present;
 
+    if (csi_resourceconfig->csi_RS_ResourceSetList.present != NR_CSI_ResourceConfig__csi_RS_ResourceSetList_PR_nzp_CSI_RS_SSB
+        || csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB == NULL) {
+      LOG_E(NR_MAC, "CSI-ResourceConfigId %ld: csi_RS_ResourceSetList is not nzp_CSI_RS_SSB or is NULL\n", csi_ResourceConfigId);
+      continue;
+    }
+    const struct NR_CSI_ResourceConfig__csi_RS_ResourceSetList__nzp_CSI_RS_SSB *sets =
+        csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB;
+
     // setting the CSI or SSB index list
     if (NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP == csi_report->reportQuantity_type
         || NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_ssb_Index_SINR_r16 == csi_report->reportQuantity_type_r16) {
+      if (sets->csi_SSB_ResourceSetList == NULL || sets->csi_SSB_ResourceSetList->list.count == 0
+          || csi_MeasConfig->csi_SSB_ResourceSetToAddModList == NULL) {
+        LOG_E(NR_MAC, "Missing csi_SSB_ResourceSetList for CSI report %d\n", csi_report_id);
+        continue;
+      }
+      NR_CSI_SSB_ResourceSetId_t ssb_res_set_id = *sets->csi_SSB_ResourceSetList->list.array[0];
       for (int csi_idx = 0; csi_idx < csi_MeasConfig->csi_SSB_ResourceSetToAddModList->list.count; csi_idx++) {
-        if (csi_MeasConfig->csi_SSB_ResourceSetToAddModList->list.array[csi_idx]->csi_SSB_ResourceSetId ==
-            *(csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->csi_SSB_ResourceSetList->list.array[0])){
-          //We can configure only one SSB resource set from spec 38.331 IE CSI-ResourceConfig
+        if (csi_MeasConfig->csi_SSB_ResourceSetToAddModList->list.array[csi_idx]->csi_SSB_ResourceSetId == ssb_res_set_id) {
+          // We can configure only one SSB resource set from spec 38.331 IE CSI-ResourceConfig
           nb_resources = csi_MeasConfig->csi_SSB_ResourceSetToAddModList->list.array[csi_idx]->csi_SSB_ResourceList.list.count;
           csi_report->SSB_Index_list = csi_MeasConfig->csi_SSB_ResourceSetToAddModList->list.array[csi_idx]->csi_SSB_ResourceList.list.array;
           csi_report->CSI_Index_list = NULL;
@@ -4978,12 +4998,15 @@ void compute_csi_bitlen(const NR_CSI_MeasConfig_t *csi_MeasConfig, nr_csi_report
       }
     } else {
       if (resourceType == NR_CSI_ResourceConfig__resourceType_periodic) {
-        AssertFatal(csi_MeasConfig->nzp_CSI_RS_ResourceSetToAddModList != NULL,
-                    "Wrong settings! Report quantity requires CSI-RS but csi_MeasConfig->nzp_CSI_RS_ResourceSetToAddModList is NULL\n");
+        if (sets->nzp_CSI_RS_ResourceSetList == NULL || sets->nzp_CSI_RS_ResourceSetList->list.count == 0
+            || csi_MeasConfig->nzp_CSI_RS_ResourceSetToAddModList == NULL) {
+          LOG_E(NR_MAC, "Missing nzp_CSI_RS_ResourceSetList for CSI report %d\n", csi_report_id);
+          continue;
+        }
+        NR_NZP_CSI_RS_ResourceSetId_t nzp_res_set_id = *sets->nzp_CSI_RS_ResourceSetList->list.array[0];
         for (int csi_idx = 0; csi_idx < csi_MeasConfig->nzp_CSI_RS_ResourceSetToAddModList->list.count; csi_idx++) {
-          if (csi_MeasConfig->nzp_CSI_RS_ResourceSetToAddModList->list.array[csi_idx]->nzp_CSI_ResourceSetId ==
-              *(csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->nzp_CSI_RS_ResourceSetList->list.array[0])) {
-            //For periodic and semi-persistent CSI Resource Settings, the number of CSI-RS Resource Sets configured is limited to S=1 for spec 38.212
+          if (csi_MeasConfig->nzp_CSI_RS_ResourceSetToAddModList->list.array[csi_idx]->nzp_CSI_ResourceSetId == nzp_res_set_id) {
+            // For periodic and semi-persistent CSI Resource Settings, the number of CSI-RS Resource Sets configured is limited to S=1 for spec 38.212
             nb_resources = csi_MeasConfig->nzp_CSI_RS_ResourceSetToAddModList->list.array[csi_idx]->nzp_CSI_RS_Resources.list.count;
             csi_report->CSI_Index_list = csi_MeasConfig->nzp_CSI_RS_ResourceSetToAddModList->list.array[csi_idx]->nzp_CSI_RS_Resources.list.array;
             csi_report->SSB_Index_list = NULL;
@@ -4992,6 +5015,10 @@ void compute_csi_bitlen(const NR_CSI_MeasConfig_t *csi_MeasConfig, nr_csi_report
         }
       }
       else AssertFatal(1==0,"Only periodic resource configuration currently supported\n");
+    }
+    if (nb_resources == 0) {
+      LOG_E(NR_MAC, "No resources found for CSI report %d (reportConfigId %ld)\n", csi_report_id, csi_reportconfig->reportConfigId);
+      continue;
     }
     LOG_D(NR_MAC,"nb_resources %d\n",nb_resources);
     // computation of bit length depending on the report type
