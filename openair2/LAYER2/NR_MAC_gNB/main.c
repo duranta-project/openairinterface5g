@@ -41,7 +41,8 @@
 #include "openair2/E3AP/ran_func_spectrum_extern.h"
 #endif /* E3_AGENT */
 
-#define MACSTATSSTRLEN 36256
+// room for the statistics of all the UEs (about 420 bytes each)
+#define MACSTATSSTRLEN ((MAX_MOBILES_PER_GNB + 1) * 512)
 
 void *nrmac_stats_thread(void *arg) {
 
