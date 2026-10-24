@@ -38,6 +38,8 @@ The following table lists NAS messages with dedicated `encode_*` / `decode_*` co
 | 5GMM  | Registration Accept                       | yes      | yes      | yes        |
 | 5GMM  | Registration Complete                     | yes      | yes      | no         |
 | 5GMM  | Deregistration Request (UE originating)   | yes      | no       | no         |
+| 5GMM  | Configuration Update Command              | yes      | yes      | yes        |
+| 5GMM  | Configuration Update Complete             | yes      | yes      | no         |
 | 5GSM  | PDU Session Establishment Request         | yes      | no       | no         |
 | 5GSM  | PDU Session Establishment Accept          | no       | yes      | no         |
 | 5GSM  | PDU Session Modification Command          | no       | yes      | no         |
@@ -56,6 +58,7 @@ These network-originated messages are handled in [`nr_nas_msg.c`](../openair3/NA
 * Service Accept
 * Service Reject
 * PDU Session Modification Command
+* Configuration Update Command (new 5G-GUTI; Configuration Update Complete if acknowledgement requested)
 
 ## Integration testing
 

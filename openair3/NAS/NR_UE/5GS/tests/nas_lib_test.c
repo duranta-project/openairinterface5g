@@ -16,6 +16,7 @@
 #include "fgmm_authentication_failure.h"
 #include "FGSNASSecurityModeReject.h"
 #include "fgmm_authentication_reject.h"
+#include "fgmm_configuration_update_command.h"
 #include "nr_nas_msg.h"
 
 configmodule_interface_t *uniqCfg = NULL;
@@ -486,6 +487,54 @@ static void test_msg_headers(void)
   AssertFatal(decode_5gsm_msg_header(&sm_header, sm, sizeof(sm) - 1) < 0, "decode_5gsm_msg_header() accepted a truncated header\n");
 }
 
+/**
+ * @brief Test NAS Configuration Update Command enc/dec, with IEs the UE skips
+ */
+static void test_configuration_update_command(void)
+{
+  fgmm_configuration_update_command_t orig = {
+      .ack_requested = true,
+      .guti = calloc_or_fail(1, sizeof(*orig.guti)),
+  };
+  orig.guti->guti.typeofidentity = FGS_MOBILE_IDENTITY_5G_GUTI;
+  orig.guti->guti.mccdigit1 = 2;
+  orig.guti->guti.mccdigit2 = 0;
+  orig.guti->guti.mccdigit3 = 8;
+  orig.guti->guti.mncdigit1 = 9;
+  orig.guti->guti.mncdigit2 = 9;
+  orig.guti->guti.mncdigit3 = 0xf;
+  orig.guti->guti.amfregionid = 0x01;
+  orig.guti->guti.amfsetid = 0x01;
+  orig.guti->guti.amfpointer = 0x01;
+  orig.guti->guti.tmsi = 0x12345678;
+
+  uint8_t buf[64] = {0};
+  byte_array_t buffer = {.buf = buf, .len = sizeof(buf)};
+  int encoded_length = encode_fgmm_configuration_update_command(&buffer, &orig);
+  AssertFatal(encoded_length == 1 + 14, "encode_fgmm_configuration_update_command() failed (%d)\n", encoded_length);
+  AssertFatal(buf[0] == 0xd1, "Configuration update indication mismatch: 0x%02x\n", buf[0]);
+
+  // IEs not used by the UE: Local time zone (TV), Full name for network (TLV), LADN information (TLV-E)
+  const uint8_t skipped[] = {0x46, 0x40, 0x43, 0x02, 0xaa, 0xbb, 0x79, 0x00, 0x01, 0xcc};
+  memcpy(buf + encoded_length, skipped, sizeof(skipped));
+  buffer.len = encoded_length + sizeof(skipped);
+
+  fgmm_configuration_update_command_t dec = {0};
+  int decoded_length = decode_fgmm_configuration_update_command(&dec, &buffer);
+  AssertFatal(decoded_length == buffer.len, "decode_fgmm_configuration_update_command() failed (%d)\n", decoded_length);
+  AssertFatal(eq_fgmm_configuration_update_command(&orig, &dec),
+              "test_configuration_update_command() failed: original and decoded messages do not match\n");
+
+  // truncated IE
+  buffer.len -= 1;
+  fgmm_configuration_update_command_t trunc = {0};
+  AssertFatal(decode_fgmm_configuration_update_command(&trunc, &buffer) < 0, "truncated message not rejected\n");
+
+  free_fgmm_configuration_update_command(&trunc);
+  free_fgmm_configuration_update_command(&dec);
+  free_fgmm_configuration_update_command(&orig);
+}
+
 int main()
 {
   // Initialize logging system
@@ -502,5 +551,6 @@ int main()
   test_auth_reject();
   test_security_mode_reject();
   test_msg_headers();
+  test_configuration_update_command();
   return 0;
 }

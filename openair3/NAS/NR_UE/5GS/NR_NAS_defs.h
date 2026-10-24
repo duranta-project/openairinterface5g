@@ -20,6 +20,7 @@
 #include "RegistrationRequest.h"
 #include "fgs_service_request.h"
 #include "fgmm_authentication_failure.h"
+#include "fgmm_configuration_update_complete.h"
 
 /* Message types defintions for:
    (a) 5GS Mobility Management (5GMM) (IDs 0x41 - 0x68)
