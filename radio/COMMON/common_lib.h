@@ -330,6 +330,7 @@ typedef struct {
 typedef struct {
   bool initDone;
   pthread_mutex_t mutex_store;
+  pthread_cond_t written; // signaled after each write
   openair0_timestamp_t nextTS; // first sample not sent yet
   openair0_timestamp_t maxTS; // end of the most recent write
   int sz;
@@ -607,7 +608,8 @@ void openair0_write_reorder_flush_common(nrue_ru_write_t nrue_ru_write,
                                          openair0_device_t *device,
                                          int nb_writers,
                                          int nbAnt,
-                                         openair0_timestamp_t force_until);
+                                         openair0_timestamp_t force_until,
+                                         int wait_ms);
 
 void *create_ring(int sz_bytes);
 /**@}*/

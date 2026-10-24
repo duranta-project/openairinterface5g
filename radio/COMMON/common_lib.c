@@ -134,6 +134,7 @@ void *create_ring(int sz_bytes)
 void openair0_write_reorder_init(re_order_t *r, const openair0_config_t *openair0_cfg)
 {
   pthread_mutex_init(&r->mutex_store, NULL);
+  pthread_cond_init(&r->written, NULL);
 
   r->sz = ceil_mod(openair0_cfg->sample_rate / 100, PAGE_SIZE / sizeof(int)); // 10 ms storage
   r->grain = 2048; // arbitrary write size, chosen to fit in a ethernet jumbo frame
@@ -291,20 +292,52 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
   }
   // don't wait more than half the ring for a writer that did not write
   reorder_flush(nrue_ru_write, UE, device, nb_writers, nbAnt, ctx->maxTS - ctx->sz / 2);
+  pthread_cond_broadcast(&ctx->written);
   pthread_mutex_unlock(&ctx->mutex_store);
   return nsamps;
 }
 
-// send everything stored before force_until, waiting for no writer: their samples are late
+/* true when all the writers wrote the samples before until, *checked: first sample not checked yet
+   (counts only grow until the samples are sent) */
+static bool reorder_all_written(const re_order_t *ctx, int nb_writers, openair0_timestamp_t until, openair0_timestamp_t *checked)
+{
+  openair0_timestamp_t ts = max(*checked, ctx->nextTS);
+  const openair0_timestamp_t end = min(until, ctx->nextTS + ctx->sz);
+  for (; ts < end; ts++)
+    if ((ctx->nb_writers[ts % ctx->sz] & RO_COUNT) < nb_writers)
+      break;
+  *checked = ts;
+  return ts >= end;
+}
+
+/* send everything stored before force_until. Wait up to wait_ms for the writers that did not write these
+   samples yet, then send them anyway: the samples of these writers are late */
 void openair0_write_reorder_flush_common(nrue_ru_write_t nrue_ru_write,
                                          PHY_VARS_NR_UE *UE,
                                          openair0_device_t *device,
                                          int nb_writers,
                                          int nbAnt,
-                                         openair0_timestamp_t force_until)
+                                         openair0_timestamp_t force_until,
+                                         int wait_ms)
 {
   re_order_t *ctx = &device->reOrder;
   pthread_mutex_lock(&ctx->mutex_store);
+  if (wait_ms > 0 && ctx->initDone && force_until > ctx->nextTS) {
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += wait_ms / 1000;
+    deadline.tv_nsec += (wait_ms % 1000) * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L) {
+      deadline.tv_sec++;
+      deadline.tv_nsec -= 1000000000L;
+    }
+    openair0_timestamp_t checked = ctx->nextTS;
+    while (!reorder_all_written(ctx, nb_writers, force_until, &checked))
+      if (pthread_cond_timedwait(&ctx->written, &ctx->mutex_store, &deadline) == ETIMEDOUT) {
+        LOG_D(HW, "TX not written by all the writers at %lu after %d ms, sending it\n", checked, wait_ms);
+        break;
+      }
+  }
   if (ctx->initDone && force_until > ctx->nextTS)
     reorder_flush(nrue_ru_write, UE, device, nb_writers, nbAnt, force_until);
   pthread_mutex_unlock(&ctx->mutex_store);
