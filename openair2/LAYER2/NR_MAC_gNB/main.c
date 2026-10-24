@@ -40,7 +40,8 @@
 #include "time_meas.h"
 #include "utils.h"
 
-#define MACSTATSSTRLEN 36256
+// room for the statistics of all the UEs (about 420 bytes each)
+#define MACSTATSSTRLEN ((MAX_MOBILES_PER_GNB + 1) * 512)
 
 void *nrmac_stats_thread(void *arg) {
 
