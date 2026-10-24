@@ -146,6 +146,64 @@ cd openairinterface5g/cmake_targets/
 
 Note the section on installing UHD further down for more information.
 
+### Building with Docker and a bind-mounted source tree
+
+On Ubuntu hosts, `./build_oai -I` installs packages and tools such as `asn1c`
+under system paths and requires root. If you cannot use `sudo` on the host, you
+can build inside a container and keep the generated binaries on the host by
+bind-mounting the repository.
+
+Use a path inside the container that is **not** the same absolute path as on the
+host (for example mount the tree at `/oai-ran`). If you configure CMake on the
+host first, `cmake_targets/ran_build/build/CMakeCache.txt` records host paths;
+a later configure inside the container then fails with errors about mismatched
+source or build directories. Remove the build directory before configuring in
+the container:
+
+```bash
+rm -rf cmake_targets/ran_build/build
+mkdir -p cmake_targets/ran_build/build
+```
+
+When combining `./build_oai -I` with a full softmodem build, pass `--ninja` on
+the **same** invocation (or on every `build_oai` call that runs CMake). Running
+`-I` without `--ninja` and a later build with `--ninja` leaves a CMake cache
+for Unix Makefiles and the next configure fails with a generator mismatch.
+
+Example for NR gNB and UE with the RF simulator device (Ubuntu 22.04 container,
+repository mounted at `/oai-ran`):
+
+```bash
+docker run --rm -it \
+  -v "$PWD:/oai-ran" -w /oai-ran \
+  ubuntu:22.04 bash
+```
+
+Inside the container:
+
+```bash
+export DEBIAN_FRONTEND=noninteractive
+apt-get update && apt-get install -y git ca-certificates
+. ./oaienv
+cd cmake_targets
+rm -rf ran_build/build && mkdir -p ran_build/build
+./build_oai -I -w SIMU --gNB --nrUE --ninja
+```
+
+Binaries are written to `cmake_targets/ran_build/build/` on the host. Files
+created as root in the container may be root-owned on the mount; fix ownership
+before editing the tree on the host (`chown` to your user).
+
+To run `nr-softmodem` on the host after a container build, install runtime
+packages on the host (SCTP is required for the gNB), for example on Ubuntu:
+
+```bash
+sudo apt-get install -y libsctp1 libconfig9
+```
+
+For image-based builds that compile inside Dockerfiles (without bind-mounting
+your working tree), see [docker/README.md](../docker/README.md).
+
 ### Installing (new) asn1c from source
 
 With tag 2023.w22, we switch from our [own
