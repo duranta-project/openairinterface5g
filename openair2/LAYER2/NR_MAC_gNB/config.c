@@ -29,6 +29,7 @@
 #include "common/utils/T/T.h"
 #include "common/utils/nr/nr_common.h"
 #include "executables/softmodem-common.h"
+#include "f1ap_interface_management.h"
 #include "f1ap_messages_types.h"
 #include "nfapi/oai_integration/vendor_ext.h"
 #include "nfapi_interface.h"
@@ -1313,6 +1314,7 @@ void prepare_du_configuration_update(gNB_MAC_INST *mac,
     update.cell_to_modify[0].sys_info = get_sys_info(mib, sib1, NULL);
   }
   mac->mac_rrc.gnb_du_configuration_update(&update);
+  free_f1ap_du_configuration_update(&update);
 }
 
 void nr_mac_configure_sib1(nr_cell_sched_t *cell, const plmn_id_t *plmn, uint64_t cellID, int tac)
