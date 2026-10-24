@@ -697,7 +697,7 @@ static bool find_rnti(const void *search, const void *current)
 
 /** @brief add UE to list of UEs doing RA.
  *
- * Remove with nr_release_ra_UE(). */
+ * Remove with remove_ra_ue(). */
 bool add_new_ra_ue(NR_UEs_t *UEs, NR_UE_info_t *UE)
 {
   DevAssert(UE->ra); // a UE in the acess_ue_list needs to have an RA process
@@ -2234,9 +2234,12 @@ bool nr_check_Msg4_MsgB_Ack(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, frame_t
       if (UE->CellGroup) {
         // we configure the UE using common search space with DCIX0 while waiting for a reconfiguration
         configure_UE_BWP(cell, scc, UE, false, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
-        transition_ra_connected_nr_ue(nr_mac, UE);
+        if (!transition_ra_connected_nr_ue(nr_mac, UE))
+          release_nr_ue_inst(&nr_mac->UE_info.uid_allocator, UE);
       } else {  // in case of  UE reject
-        nr_release_ra_UE(nr_mac, UE->rnti);
+        NR_UE_info_t *ue = remove_ra_ue(&nr_mac->UE_info, UE->rnti);
+        if (ue)
+          release_nr_ue_inst(&nr_mac->UE_info.uid_allocator, ue);
         return true;
       }
     } else {
@@ -2252,18 +2255,6 @@ bool nr_check_Msg4_MsgB_Ack(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, frame_t
     ra->ra_state = ra->ra_type == RA_4_STEP ? nrRA_Msg4 : nrRA_MsgB;
   }
   return false;
-}
-
-/** @brief remove the UE with RNTI rnti from list of UEs doing RA. */
-void nr_release_ra_UE(gNB_MAC_INST *mac, rnti_t rnti)
-{
-  NR_UEs_t *UE_info = &mac->UE_info;
-  NR_UE_info_t *UE = remove_ra_ue(UE_info, rnti);
-  if (UE) {
-    release_nr_ue_inst(&mac->UE_info.uid_allocator, UE);
-  } else {
-    LOG_W(NR_MAC,"Call to release RA UE with rnti %04x, but not existing\n", rnti);
-  }
 }
 
 void nr_schedule_RA(gNB_MAC_INST *mac,
@@ -2315,7 +2306,10 @@ void nr_schedule_RA(gNB_MAC_INST *mac,
         break;
     }
   }
-  for (int i = 0; i < num_release; i++)
-    nr_release_ra_UE(mac, to_release[i]);
+  for (int i = 0; i < num_release; i++) {
+    NR_UE_info_t *UE = remove_ra_ue(&mac->UE_info, to_release[i]);
+    DevAssert(UE); // must exist, otherwise would not be handled here
+    release_nr_ue_inst(&mac->UE_info.uid_allocator, UE);
+  }
   stop_meas(&cell->schedule_ra);
 }

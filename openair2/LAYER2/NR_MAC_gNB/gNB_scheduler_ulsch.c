@@ -729,13 +729,17 @@ static void handle_msg3_failed_rx(gNB_MAC_INST *mac, NR_RA_t *ra, rnti_t rnti, i
   // For RA 2-Step consider RA failed if MsgA-PUSCH not detected
   if (ra->ra_type == RA_2_STEP) {
     LOG_W(NR_MAC, "UE %04x RA failed at state %s (MsgA-PUSCH reception failed)\n", rnti, nrra_text[ra->ra_state]);
-    nr_release_ra_UE(mac, rnti);
+    NR_UE_info_t *UE = remove_ra_ue(&mac->UE_info, rnti);
+    DevAssert(UE); // must exist, otherwise would not be here.
+    release_nr_ue_inst(&mac->UE_info.uid_allocator, UE);
     return;
   }
 
   if (ra->msg3_round >= harq_round_max - 1) {
     LOG_W(NR_MAC, "UE %04x RA failed at state %s (Reached msg3 max harq rounds)\n", rnti, nrra_text[ra->ra_state]);
-    nr_release_ra_UE(mac, rnti);
+    NR_UE_info_t *UE = remove_ra_ue(&mac->UE_info, rnti);
+    DevAssert(UE); // must exist, otherwise would not be here.
+    release_nr_ue_inst(&mac->UE_info.uid_allocator, UE);
     return;
   }
 
@@ -886,7 +890,9 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
       // Let's abort the current RA, so the UE will trigger a new RA later but using RRCSetupRequest instead. A better
       // solution may be implemented
       LOG_W(NR_MAC, "No UE found with C-RNTI %04x, ignoring Msg3 to have UE come back with new RA attempt\n", UE->rnti);
-      nr_release_ra_UE(mac, rnti);
+      NR_UE_info_t *UE = remove_ra_ue(&mac->UE_info, rnti);
+      if (UE)
+        release_nr_ue_inst(&mac->UE_info.uid_allocator, UE);
       return;
     }
     // in case UE beam has changed
@@ -907,7 +913,9 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
       // we configure the UE using common search space with DCIX0 while waiting for a reconfiguration
       configure_UE_BWP(cell, scc, old_UE, false, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
     }
-    nr_release_ra_UE(mac, rnti);
+    NR_UE_info_t *UE = remove_ra_ue(&mac->UE_info, rnti);
+    DevAssert(UE); // must exist, otherwise would not be here.
+    release_nr_ue_inst(&mac->UE_info.uid_allocator, UE);
     LOG_A(NR_MAC, "%4d.%2d RA with C-RNTI %04x complete\n", frame, slot, crnti);
 
     // Decode the entire MAC PDU

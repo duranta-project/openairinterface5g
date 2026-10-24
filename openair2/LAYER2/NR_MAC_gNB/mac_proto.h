@@ -309,7 +309,6 @@ void remove_nr_list(NR_list_t *listP, int id);
 void add_tail_nr_list(NR_list_t *listP, int id);
 void add_front_nr_list(NR_list_t *listP, int id);
 void remove_front_nr_list(NR_list_t *listP);
-void nr_release_ra_UE(gNB_MAC_INST *mac, rnti_t rnti);
 NR_UE_info_t * find_nr_UE(NR_UEs_t* UEs, rnti_t rntiP);
 void configure_UE_BWP(nr_cell_sched_t *cell,
                       NR_ServingCellConfigCommon_t *scc,
@@ -324,6 +323,9 @@ NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroup
 void release_nr_ue_inst(uid_allocator_t *uia, NR_UE_info_t *UE);
 void delete_nr_ue_data(void *UE); /* void * so can pass into collections */
 
+/* remove a UE, whether in "access mode" or "connected mode" */
+void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti);
+
 /* functions for UEs in "access mode" */
 NR_UE_info_t *find_ra_ue(NR_UEs_t *UEs, rnti_t rntiP);
 bool add_new_ra_ue(NR_UEs_t *UEs, NR_UE_info_t *UE);
@@ -332,7 +334,6 @@ NR_UE_info_t *remove_ra_ue(NR_UEs_t *UEs, rnti_t rnti);
 bool transition_ra_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
 bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
 bool nr_check_Msg4_MsgB_Ack(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, NR_UE_info_t *UE, bool success);
-void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti);
 nfapi_nr_pusch_pdu_t *prepare_pusch_pdu(nfapi_nr_ul_tti_request_t *future_ul_tti_req,
                                         const NR_UE_info_t *UE,
                                         const NR_ServingCellConfigCommon_t *scc,
