@@ -390,10 +390,10 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
   NR_UEs_t *UE_info = &mac->UE_info;
   for (int i = 0; i < sizeofArray(UE_info->connected_ue_list); ++i)
     if (UE_info->connected_ue_list[i])
-      delete_nr_ue_data(mac, UE_info->connected_ue_list[i]);
+      release_nr_ue_inst(&mac->UE_info.uid_allocator, UE_info->connected_ue_list[i]);
   for (int i = 0; i < sizeofArray(UE_info->access_ue_list); ++i)
     if (UE_info->access_ue_list[i])
-      delete_nr_ue_data(mac, UE_info->access_ue_list[i]);
+      release_nr_ue_inst(&mac->UE_info.uid_allocator, UE_info->access_ue_list[i]);
   if (mac->f1_config.setup_resp)
     free_f1ap_setup_response(mac->f1_config.setup_resp);
   free(mac->f1_config.setup_resp);

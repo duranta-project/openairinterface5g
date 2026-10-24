@@ -2708,8 +2708,9 @@ static int set_periodic_info(NR_UE_info_t *UE, int ue_offset, periodic_ue_sched_
   return -1;
 }
 
-void delete_nr_ue_data(gNB_MAC_INST *mac, NR_UE_info_t *UE)
+void delete_nr_ue_data(void *p)
 {
+  NR_UE_info_t *UE = p;
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
   ASN_STRUCT_FREE(asn_DEF_NR_UE_NR_Capability, UE->capability);
@@ -2725,9 +2726,6 @@ void delete_nr_ue_data(gNB_MAC_INST *mac, NR_UE_info_t *UE)
   for (int i = 0; i < NR_MAX_HARQ_PROCESSES; ++i)
     free_transportBlock_buffer(&sched_ctrl->harq_processes[i].transportBlock);
   free_sched_pucch_list(sched_ctrl);
-  uid_allocator_t *uia = &mac->UE_info.uid_allocator;
-  uid_linear_allocator_free(uia, UE->uid);
-  LOG_I(NR_MAC, "Remove NR rnti 0x%04x\n", UE->rnti);
   free_and_zero(UE->ra);
   free(UE);
 }
@@ -3260,7 +3258,7 @@ static void init_bler_stats(const NR_bler_options_t *bler_options, NR_bler_stats
  *
  * It will be typically added to the access_ue_list, but not always (e.g.,
  * phytest mode), so this is not done in this function (and also, to allow
- * error handling). Remove with delete_nr_ue_data().  */
+ * error handling). Remove with release_nr_ue_inst().  */
 NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroupConfig_t *CellGroup, nr_cell_sched_t *cell)
 {
   NR_UE_info_t *UE = calloc_or_fail(1, sizeof(NR_UE_info_t));
@@ -3289,6 +3287,13 @@ NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroup
   // initialize LCID structure
   seq_arr_init(&sched_ctrl->lc_config, sizeof(nr_lc_config_t));
   return UE;
+}
+
+void release_nr_ue_inst(uid_allocator_t *uia, NR_UE_info_t *UE)
+{
+  LOG_I(NR_MAC, "Remove NR rnti 0x%04x\n", UE->rnti);
+  uid_linear_allocator_free(uia, UE->uid);
+  delete_nr_ue_data(UE);
 }
 
 bool add_UE_to_list(int list_size, NR_UE_info_t *list[list_size], NR_UE_info_t *UE)
@@ -3349,7 +3354,6 @@ bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   bool success = add_UE_to_list(MAX_MOBILES_PER_GNB, UE_info->connected_ue_list, UE);
   if (!success) {
     LOG_E(NR_MAC,"Try to add UE %04x but the list is full\n", UE->rnti);
-    delete_nr_ue_data(nr_mac, UE);
     return false;
   }
 
@@ -3418,7 +3422,7 @@ void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti)
   NR_UEs_t *UE_info = &nr_mac->UE_info;
   NR_UE_info_t *UE = remove_UE_from_list(MAX_MOBILES_PER_GNB + 1, UE_info->connected_ue_list, rnti);
   if (UE)
-    delete_nr_ue_data(nr_mac, UE);
+    release_nr_ue_inst(&nr_mac->UE_info.uid_allocator, UE);
   else
     nr_release_ra_UE(nr_mac, rnti);
 }

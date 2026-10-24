@@ -791,7 +791,7 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
     UE->UE_sched_ctrl.ta_frame = (frame + 100) % MAX_FRAME_NUMBER;
     if (!transition_ra_connected_nr_ue(mac, UE)) {
       LOG_E(NR_MAC, "cannot add UE %04x: list is full\n", UE->rnti);
-      delete_nr_ue_data(mac, UE);
+      release_nr_ue_inst(&mac->UE_info.uid_allocator, UE);
     } else {
       LOG_A(NR_MAC, "(rnti 0x%04x) CFRA procedure succeeded!\n", UE->rnti);
     }

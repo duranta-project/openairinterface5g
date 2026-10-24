@@ -29,7 +29,6 @@ int get_full_ul_slots_per_period(const frame_structure_t *fs);
 int get_full_dl_slots_per_period(const frame_structure_t *fs);
 int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed);
 int get_ul_period_idx_from_abs_slot(const frame_structure_t *fs, int slot, bool count_mixed, int max_period);
-void delete_nr_ue_data(gNB_MAC_INST *mac, NR_UE_info_t *UE);
 NR_UE_info_t **get_periodic_ue(periodic_ue_sched_t *p, int ul_idx, int index);
 void mac_top_init_gNB(ngran_node_t node_type,
                       NR_ServingCellConfigCommon_t *scc,
@@ -322,11 +321,15 @@ void configure_UE_BWP(nr_cell_sched_t *cell,
                       int dl_bwp_switch,
                       int ul_bwp_switch);
 
+/* functions for creating/deleting UE data */
+NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroupConfig_t *CellGroup, nr_cell_sched_t *cell);
+void release_nr_ue_inst(uid_allocator_t *uia, NR_UE_info_t *UE);
+void delete_nr_ue_data(void *UE); /* void * so can pass into collections */
+
 bool transition_ra_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
 bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
 bool nr_check_Msg4_MsgB_Ack(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, NR_UE_info_t *UE, bool success);
 void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti);
-NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroupConfig_t *CellGroup, nr_cell_sched_t *cell);
 nfapi_nr_pusch_pdu_t *prepare_pusch_pdu(nfapi_nr_ul_tti_request_t *future_ul_tti_req,
                                         const NR_UE_info_t *UE,
                                         const NR_ServingCellConfigCommon_t *scc,
