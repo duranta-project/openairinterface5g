@@ -369,6 +369,7 @@ static security_state_t nas_security_rx_process(nr_ue_nas_t *nas, byte_array_t b
 
   /* synchronize NAS SQN, based on 24.501 4.4.3.1 */
   // Sequence number
+  const uint32_t nas_count_dl_prev = nas->security.nas_count_dl;
   int nas_sqn = buffer.buf[6];
   int target_sqn = nas->security.nas_count_dl & 0xff;
   if (nas_sqn != target_sqn) {
@@ -394,8 +395,12 @@ static security_state_t nas_security_rx_process(nr_ue_nas_t *nas, byte_array_t b
                            true,
                            computed_mac);
 
-  if (memcmp(received_mac, computed_mac, NAS_INTEGRITY_SIZE) != 0)
+  if (memcmp(received_mac, computed_mac, NAS_INTEGRITY_SIZE) != 0) {
+    /* the estimated NAS COUNT is only valid for a message that passes the integrity check (24.501 4.4.3.1): a
+     * retransmitted (replayed) or corrupted message must not move it, otherwise all following messages fail */
+    nas->security.nas_count_dl = nas_count_dl_prev;
     return NAS_SECURITY_INTEGRITY_FAILED;
+  }
 
   /* decipher */
   nas_security_decrypt_payload(nas, buffer, true);
