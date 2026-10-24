@@ -45,7 +45,6 @@ bool nr_mac_add_test_ue(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, uint32_t rnt
 void nr_mac_prepare_ra_ue(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_UE_info_t *UE);
 nr_cell_sched_t *nr_mac_get_cell_by_phy_id(gNB_MAC_INST *mac, uint16_t phy_id);
 nr_cell_sched_t *nr_mac_get_cell_by_cgi(gNB_MAC_INST *mac, plmn_id_t plmn, uint64_t nr_cellid);
-bool add_new_UE_RA(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
 int nr_mac_get_reconfig_delay_slots(NR_SubcarrierSpacing_t scs);
 
 int nr_transmission_action_indicator_stop(gNB_MAC_INST *mac, NR_UE_info_t *UE_info);
@@ -312,7 +311,6 @@ void add_front_nr_list(NR_list_t *listP, int id);
 void remove_front_nr_list(NR_list_t *listP);
 void nr_release_ra_UE(gNB_MAC_INST *mac, rnti_t rnti);
 NR_UE_info_t * find_nr_UE(NR_UEs_t* UEs, rnti_t rntiP);
-NR_UE_info_t *find_ra_UE(NR_UEs_t *UEs, rnti_t rntiP);
 void configure_UE_BWP(nr_cell_sched_t *cell,
                       NR_ServingCellConfigCommon_t *scc,
                       NR_UE_info_t *UE,
@@ -325,6 +323,11 @@ void configure_UE_BWP(nr_cell_sched_t *cell,
 NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroupConfig_t *CellGroup, nr_cell_sched_t *cell);
 void release_nr_ue_inst(uid_allocator_t *uia, NR_UE_info_t *UE);
 void delete_nr_ue_data(void *UE); /* void * so can pass into collections */
+
+/* functions for UEs in "access mode" */
+NR_UE_info_t *find_ra_ue(NR_UEs_t *UEs, rnti_t rntiP);
+bool add_new_ra_ue(NR_UEs_t *UEs, NR_UE_info_t *UE);
+NR_UE_info_t *remove_ra_ue(NR_UEs_t *UEs, rnti_t rnti);
 
 bool transition_ra_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
 bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);

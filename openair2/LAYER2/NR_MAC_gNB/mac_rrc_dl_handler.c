@@ -100,6 +100,8 @@ void du_clear_all_ue_states()
 
   instance_t f1inst = get_f1_gtp_instance();
 
+  rnti_t to_release[NR_NB_RA_PROC_MAX + MAX_MOBILES_PER_GNB];
+  int num_release = 0;
   while (UE != NULL) {
     int rnti = UE->rnti;
     nr_mac_release_ue(mac, rnti);
@@ -109,6 +111,18 @@ void du_clear_all_ue_states()
     newGtpuDeleteAllTunnels(f1inst, rnti);
     UE = *mac->UE_info.connected_ue_list;
   }
+
+  FOR_EACH_RA_UE(&mac->UE_info, UE) {
+    rnti_t rnti = UE->rnti;
+    // free all F1 contexts
+    if (du_exists_f1_ue_data(UE->rnti))
+      du_remove_f1_ue_data(UE->rnti);
+    newGtpuDeleteAllTunnels(f1inst, UE->rnti);
+    to_release[num_release++] = rnti;
+  }
+  for (int i = 0; i < num_release; ++i)
+    nr_mac_release_ue(mac, to_release[i]);
+
   NR_SCHED_UNLOCK(&mac->sched_lock);
 }
 
@@ -609,7 +623,7 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac,
     bool res = add_connected_nr_ue(mac, UE);
     DevAssert(res);
   } else {
-    if (!add_new_UE_RA(mac, UE)) {
+    if (!add_new_ra_ue(&mac->UE_info, UE)) {
       release_nr_ue_inst(&mac->UE_info.uid_allocator, UE);
       LOG_E(NR_MAC, "UE list full while creating new UE\n");
       return NULL;
@@ -1080,7 +1094,7 @@ void ue_context_release_command(const f1ap_ue_context_rel_cmd_t *cmd)
   gNB_MAC_INST *mac = RC.nrmac[0];
   NR_SCHED_LOCK(&mac->sched_lock);
   NR_UE_info_t *UE = find_nr_UE(&mac->UE_info, cmd->gNB_DU_ue_id);
-  UE = UE ? UE : find_ra_UE(&mac->UE_info, cmd->gNB_DU_ue_id);
+  UE = UE ? UE : find_ra_ue(&mac->UE_info, cmd->gNB_DU_ue_id);
   if (UE == NULL) {
     NR_SCHED_UNLOCK(&mac->sched_lock);
     LOG_W(NR_MAC, "UE Context Release Command for unknown RNTI %04x/CU UE ID %d\n", cmd->gNB_DU_ue_id, cmd->gNB_CU_ue_id);
@@ -1113,7 +1127,7 @@ void ue_context_release_command(const f1ap_ue_context_rel_cmd_t *cmd)
 static void process_reestablishment(gNB_MAC_INST *mac, uint32_t new_dl_rrc_id, uint32_t old_dl_rrc_id)
 {
   /* check first that the scheduler knows such UE */
-  NR_UE_info_t *UE = find_ra_UE(&mac->UE_info, new_dl_rrc_id);
+  NR_UE_info_t *UE = find_ra_ue(&mac->UE_info, new_dl_rrc_id);
   if (!UE) {
     LOG_E(MAC, "ERROR: couldn't find UE with RNTI %04x, ignoring DL RRC Message Transfer\n", new_dl_rrc_id);
     return;
@@ -1158,7 +1172,8 @@ static void process_reestablishment(gNB_MAC_INST *mac, uint32_t new_dl_rrc_id, u
   memcpy(&UE->UE_sched_ctrl, &oldUE->UE_sched_ctrl, sizeof(NR_UE_sched_ctrl_t));
   memcpy(&oldUE->UE_sched_ctrl, &temp_sc, sizeof(NR_UE_sched_ctrl_t));
   mac_remove_nr_ue(mac, UE->rnti);
-  add_UE_to_list(NR_NB_RA_PROC_MAX, mac->UE_info.access_ue_list, oldUE);
+  bool success = add_new_ra_ue(&mac->UE_info, oldUE);
+  AssertFatal(success, "can not add UE: F1 UE ctxt fail to be sent\n");
   nr_rlc_remove_ue(new_dl_rrc_id);
   nr_rlc_update_id(old_dl_rrc_id, new_dl_rrc_id);
   instance_t f1inst = get_f1_gtp_instance();

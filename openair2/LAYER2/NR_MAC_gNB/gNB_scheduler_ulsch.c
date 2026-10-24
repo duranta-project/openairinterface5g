@@ -760,7 +760,7 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
                          rnti_t *rlc_rnti)
 {
   NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
-  NR_UE_info_t *UE = find_ra_UE(&mac->UE_info, rnti);
+  NR_UE_info_t *UE = find_ra_ue(&mac->UE_info, rnti);
   if (!UE) {
     LOG_D(NR_MAC, "UL SDU discarded. Couldn't find UE with RNTI %04x \n", rnti);
     return;

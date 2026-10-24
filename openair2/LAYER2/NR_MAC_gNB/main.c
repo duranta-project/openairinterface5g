@@ -304,6 +304,7 @@ void mac_top_init_gNB(ngran_node_t node_type,
       pthread_mutex_init(&RC.nrmac[i]->sched_lock, NULL);
 
       uid_linear_allocator_init(&RC.nrmac[i]->UE_info.uid_allocator);
+      seq_arr_init(&RC.nrmac[i]->UE_info.access_ue_list, sizeof(NR_UE_info_t *));
 
       RC.nrmac[i]->ul_ri_tpmi_select = nr_ul_ri_tpmi_select_default;
       RC.nrmac[i]->ul_tda_select = nr_ul_tda_select_default;
@@ -371,6 +372,14 @@ static void destroy_periodic_sched(periodic_ue_sched_t p)
   free(p.list);
 }
 
+void ind_delete_nr_ue_data(void *p)
+{
+  // access_ue_list has pointers to NR_UE_info_t, and this functions gets a
+  // pointer to the pointer
+  NR_UE_info_t **UE = p;
+  delete_nr_ue_data(*UE);
+}
+
 void mac_top_destroy_gNB(gNB_MAC_INST *mac)
 {
   for (size_t i = 0; i < sizeofArray(mac->cells); i++) {
@@ -391,9 +400,8 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
   for (int i = 0; i < sizeofArray(UE_info->connected_ue_list); ++i)
     if (UE_info->connected_ue_list[i])
       release_nr_ue_inst(&mac->UE_info.uid_allocator, UE_info->connected_ue_list[i]);
-  for (int i = 0; i < sizeofArray(UE_info->access_ue_list); ++i)
-    if (UE_info->access_ue_list[i])
-      release_nr_ue_inst(&mac->UE_info.uid_allocator, UE_info->access_ue_list[i]);
+  seq_arr_free(&UE_info->access_ue_list, ind_delete_nr_ue_data);
+  uid_linear_allocator_init(&UE_info->uid_allocator); // no UE present
   if (mac->f1_config.setup_resp)
     free_f1ap_setup_response(mac->f1_config.setup_resp);
   free(mac->f1_config.setup_resp);
