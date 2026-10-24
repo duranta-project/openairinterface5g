@@ -9,6 +9,7 @@
 #include "assertions.h"
 #include "nr_mac_gNB.h"
 #include "mac_proto.h"
+#include "ntn_assistance.h"
 #include "common/utils/LOG/log.h"
 #include "UTIL/OPT/opt.h"
 #include "common/utils/nr/nr_common.h"
@@ -751,7 +752,11 @@ void schedule_nr_other_sib(nr_cell_sched_t *cell,
                                         rel_slot[ssb]))
         continue;
 
+      const unsigned int last_delta = (rel_frame[num_ssb - 1] - rel_frame[0]) * n_slots_frame + rel_slot[num_ssb - 1] - rel_slot[0];
+      if (!nr_ntn_assistance_si_occasion(cell->ntn_assistance_publisher, cell, ssb == 0, last_delta))
+        continue;
       other_sib_sched_control(cell, frame, slot, cc->ssb_index[ssb], ss, DL_req, TX_req, 1);
+      nr_ntn_assistance_mark_scheduled(cell->ntn_assistance_publisher);
     }
   }
 }
