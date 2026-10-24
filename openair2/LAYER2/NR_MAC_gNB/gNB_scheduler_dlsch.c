@@ -409,6 +409,7 @@ static void ack_reconfig(nr_cell_sched_t *cell, NR_UE_info_t *UE)
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
   UE->CellGroup = UE->reconfigCellGroup;
   UE->reconfigCellGroup = NULL;
+  UE->reconfig_partly_sent = false;
   NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   /* clean BWP structures */
   clean_bwp_structures(UE->CellGroup->spCellConfig);
@@ -850,8 +851,6 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
 
       sched_pdsch.action = NULL;
       int srb1 = 1;
-      if (UE->reconfigCellGroup && sched_ctrl->rlc_status[srb1].bytes_in_buffer > 10)
-        sched_pdsch.action = ack_reconfig;
 
       /* Compute actual TBS (policy allocated max rbSize, nr_find_nb_rb gives actual) */
       const int oh = 3 * 4 + (sched_ctrl->ta_apply ? 2 : 0);
@@ -878,6 +877,16 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
         sched_pdsch.mcs++;
         sched_pdsch.R = nr_get_code_rate_dl(sched_pdsch.mcs, dl_bwp->mcsTableIdx);
         sched_pdsch.Qm = nr_get_Qm_dl(sched_pdsch.mcs, dl_bwp->mcsTableIdx);
+      }
+      /* The UE applies the new CellGroup when it has received the whole RRCReconfiguration, and acknowledges the
+         PDSCH carrying its end with the current one: switch on the ACK of the PDSCH carrying the last SRB1 bytes,
+         not of a first RLC segment (the gNB and the UE would use different PUCCH resources until the end arrives) */
+      const int srb1_bytes = sched_ctrl->rlc_status[srb1].bytes_in_buffer;
+      if (UE->reconfigCellGroup && srb1_bytes > 0 && (srb1_bytes > 10 || UE->reconfig_partly_sent)) {
+        if (sched_pdsch.tb_size >= srb1_bytes + oh)
+          sched_pdsch.action = ack_reconfig;
+        else
+          UE->reconfig_partly_sent = true;
       }
       // Map antenna ports for this UE
       const nr_pdsch_AntennaPorts_t *p = &cell->radio_config.pdsch_AntennaPorts;

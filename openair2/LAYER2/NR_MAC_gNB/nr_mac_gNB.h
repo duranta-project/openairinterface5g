@@ -871,6 +871,8 @@ typedef struct NR_UE_info {
   NR_CellGroupConfig_t *CellGroup;
   /// in case of reconfiguration, new CellConfig to apply
   NR_CellGroupConfig_t *reconfigCellGroup;
+  /// a first part of the SRB1 data carrying the RRCReconfiguration of reconfigCellGroup was sent
+  bool reconfig_partly_sent;
   NR_UE_NR_Capability_t *capability;
   NR_feature_set_ids_t uecap_fs_ids;
   measgap_config_t measgap_config;
