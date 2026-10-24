@@ -309,7 +309,6 @@ void remove_nr_list(NR_list_t *listP, int id);
 void add_tail_nr_list(NR_list_t *listP, int id);
 void add_front_nr_list(NR_list_t *listP, int id);
 void remove_front_nr_list(NR_list_t *listP);
-NR_UE_info_t * find_nr_UE(NR_UEs_t* UEs, rnti_t rntiP);
 void configure_UE_BWP(nr_cell_sched_t *cell,
                       NR_ServingCellConfigCommon_t *scc,
                       NR_UE_info_t *UE,
@@ -331,8 +330,13 @@ NR_UE_info_t *find_ra_ue(NR_UEs_t *UEs, rnti_t rntiP);
 bool add_new_ra_ue(NR_UEs_t *UEs, NR_UE_info_t *UE);
 NR_UE_info_t *remove_ra_ue(NR_UEs_t *UEs, rnti_t rnti);
 
+/* functions for UEs in "connected mode" */
+size_t get_num_connected_ue(NR_UEs_t *UEs);
+NR_UE_info_t *find_connected_nr_ue(NR_UEs_t* UEs, rnti_t rntiP);
 bool transition_ra_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
 bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
+NR_UE_info_t *remove_connected_nr_ue(NR_UEs_t *UEs, rnti_t rnti);
+
 bool nr_check_Msg4_MsgB_Ack(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, NR_UE_info_t *UE, bool success);
 nfapi_nr_pusch_pdu_t *prepare_pusch_pdu(nfapi_nr_ul_tti_request_t *future_ul_tti_req,
                                         const NR_UE_info_t *UE,
@@ -421,8 +425,6 @@ uint8_t get_mcs_from_cqi(int mcs_table, int cqi_table, int cqi_idx);
 uint8_t get_dl_nrOfLayers(const NR_UE_sched_ctrl_t *sched_ctrl, const nr_dci_format_t dci_format);
 
 void free_sched_pucch_list(NR_UE_sched_ctrl_t *sched_ctrl);
-bool add_UE_to_list(int list_size, NR_UE_info_t *list[list_size], NR_UE_info_t *UE);
-NR_UE_info_t *remove_UE_from_list(int list_size, NR_UE_info_t *list[list_size], rnti_t rnti);
 int get_dl_tda(const gNB_MAC_INST *nrmac, const nr_cell_sched_t *cell, int slot);
 int get_num_ul_tda(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, int slot, int k2, const NR_tda_info_t **first_idx);
 const NR_tda_info_t *get_best_ul_tda(const nr_cell_sched_t *cell,

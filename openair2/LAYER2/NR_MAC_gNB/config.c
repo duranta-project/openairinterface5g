@@ -1277,7 +1277,7 @@ bool nr_trigger_bwp_switch(uint16_t rnti, int bwp_id)
 {
   gNB_MAC_INST *nrmac = RC.nrmac[0];
   NR_SCHED_LOCK(&nrmac->sched_lock);
-  NR_UE_info_t *UE = find_nr_UE(&nrmac->UE_info, rnti);
+  NR_UE_info_t *UE = find_connected_nr_ue(&nrmac->UE_info, rnti);
   bool success = false;
   if (!UE) {
     LOG_W(NR_MAC, "could not find UE for RNTI %04x\n", rnti);

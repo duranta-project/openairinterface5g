@@ -884,7 +884,7 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
   rnti_t crnti = lcid_crnti_lookahead(sdu, sdu_len);
   if (crnti != 0) { // 3GPP TS 38.321 Table 7.1-1: RNTI values, RNTI 0x0000: N/A
     // Replace the current UE by the UE identified by C-RNTI
-    NR_UE_info_t *old_UE = find_nr_UE(&mac->UE_info, crnti);
+    NR_UE_info_t *old_UE = find_connected_nr_ue(&mac->UE_info, crnti);
     if (!old_UE) {
       // The UE identified by C-RNTI no longer exists at the gNB
       // Let's abort the current RA, so the UE will trigger a new RA later but using RRCSetupRequest instead. A better
@@ -966,7 +966,7 @@ static void _nr_rx_sdu(gNB_MAC_INST *gNB_mac,
   const int current_rnti = rntiP;
   LOG_D(NR_MAC, "rx_sdu for rnti %04x\n", current_rnti);
   const int pusch_failure_thres = cell->radio_config.pusch.failure_thres;
-  NR_UE_info_t *UE = find_nr_UE(&gNB_mac->UE_info, current_rnti);
+  NR_UE_info_t *UE = find_connected_nr_ue(&gNB_mac->UE_info, current_rnti);
   if (UE) {
     NR_UE_sched_ctrl_t *UE_scheduling_control = &UE->UE_sched_ctrl;
     if (sduP)
@@ -1551,7 +1551,7 @@ void handle_nr_srs_measurements(const module_id_t module_id,
   LOG_I(NR_MAC, "srs_ind->report_type = %i\n", srs_ind->report_type);
 #endif
 
-  NR_UE_info_t *UE = find_nr_UE(&nrmac->UE_info, srs_ind->rnti);
+  NR_UE_info_t *UE = find_connected_nr_ue(&nrmac->UE_info, srs_ind->rnti);
   if (!UE) {
     LOG_W(NR_MAC, "Could not find UE for RNTI %04x\n", srs_ind->rnti);
     NR_SCHED_UNLOCK(&nrmac->sched_lock);
@@ -2659,7 +2659,7 @@ static int nr_ue_max_ul_inactivity_slots(const frame_structure_t *fs, int ulsch_
 
 static int collect_ul_candidates(gNB_MAC_INST *mac,
                                  nr_cell_sched_t *cell,
-                                 NR_UE_info_t *UE_list[],
+                                 NR_UEs_t *UEs,
                                  nr_ul_candidate_t *candidates,
                                  int max_candidates,
                                  frame_t frame,
@@ -2674,7 +2674,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
   const float ul_slots_per_s = (float)get_ul_slots_per_period(fs) / fs->numb_slots_period * fs->numb_slots_frame * 100;
   const int max_inactivity = nr_ue_max_ul_inactivity_slots(fs, cell->ulsch_max_frame_inactivity);
 
-  UE_iterator (UE_list, UE) {
+  FOR_EACH_CONNECTED_UE(UEs, UE) {
     if (UE->pcell != cell)
       continue;
     if (numUE >= max_candidates)
@@ -2871,7 +2871,7 @@ void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_pro
     nr_ul_candidate_t candidates[MAX_MOBILES_PER_GNB] = {0};
     int n_cand = collect_ul_candidates(nr_mac,
                                        cell,
-                                       nr_mac->UE_info.connected_ue_list,
+                                       &nr_mac->UE_info,
                                        candidates,
                                        MAX_MOBILES_PER_GNB,
                                        frame,

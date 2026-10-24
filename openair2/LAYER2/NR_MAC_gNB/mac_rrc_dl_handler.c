@@ -96,20 +96,17 @@ void du_clear_all_ue_states()
   gNB_MAC_INST *mac = RC.nrmac[0];
   NR_SCHED_LOCK(&mac->sched_lock);
 
-  NR_UE_info_t *UE = *mac->UE_info.connected_ue_list;
-
   instance_t f1inst = get_f1_gtp_instance();
 
   rnti_t to_release[NR_NB_RA_PROC_MAX + MAX_MOBILES_PER_GNB];
   int num_release = 0;
-  while (UE != NULL) {
-    int rnti = UE->rnti;
-    nr_mac_release_ue(mac, rnti);
+  FOR_EACH_CONNECTED_UE(&mac->UE_info, UE) {
+    rnti_t rnti = UE->rnti;
     // free all F1 contexts
     if (du_exists_f1_ue_data(rnti))
       du_remove_f1_ue_data(rnti);
     newGtpuDeleteAllTunnels(f1inst, rnti);
-    UE = *mac->UE_info.connected_ue_list;
+    to_release[num_release++] = rnti;
   }
 
   FOR_EACH_RA_UE(&mac->UE_info, UE) {
@@ -575,7 +572,7 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac,
   const bool is_SA = IS_SA_MODE(get_softmodem_params());
   rnti_t rnti;
   if (get_softmodem_params()->phy_test) {
-    AssertFatal(mac->UE_info.connected_ue_list[0] == NULL, "phytest: UE already present\n");
+    AssertFatal(get_num_connected_ue(&mac->UE_info) == 0, "phytest: UE already present\n");
     rnti = 0x1234;
   } else {
     bool found = nr_mac_get_new_rnti(&mac->UE_info, &rnti);
@@ -768,10 +765,10 @@ void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
     UE = create_new_UE(mac, cell, req->gNB_CU_ue_id, cg_configinfo, source_dedicated);
   } else {
     DevAssert(is_SA);
-    UE = find_nr_UE(&mac->UE_info, *req->gNB_DU_ue_id);
+    UE = find_connected_nr_ue(&mac->UE_info, *req->gNB_DU_ue_id);
   }
   /* create_new_UE() returns NULL if no RNTI is available or the RA list is full
-   * (e.g. many simultaneous handovers into this cell), find_nr_UE() if the CU
+   * (e.g. many simultaneous handovers into this cell), find_connected_nr_ue() if the CU
    * sent an unknown gNB_DU_ue_id: check here, before any dereference below */
   AssertFatal(UE, "no UE found or could not be created, but UE Context Setup Failed not implemented\n");
   resp.gNB_DU_ue_id = UE->rnti;
@@ -864,7 +861,7 @@ void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
 
   /* special handling for NR-DC UEs */
   NR_SCHED_LOCK(&mac->sched_lock);
-  NR_UE_info_t *UE = find_nr_UE(&RC.nrmac[0]->UE_info, req->gNB_DU_ue_id);
+  NR_UE_info_t *UE = find_connected_nr_ue(&RC.nrmac[0]->UE_info, req->gNB_DU_ue_id);
   if (UE && UE->nrdc_mode) {
     NR_SCHED_UNLOCK(&mac->sched_lock);
     return nrdc_ue_context_modification_request(req);
@@ -881,7 +878,7 @@ void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
   }
 
   NR_SCHED_LOCK(&mac->sched_lock);
-  UE = find_nr_UE(&RC.nrmac[0]->UE_info, req->gNB_DU_ue_id);
+  UE = find_connected_nr_ue(&RC.nrmac[0]->UE_info, req->gNB_DU_ue_id);
   if (!UE) {
     LOG_E(NR_MAC, "could not find UE with RNTI %04x\n", req->gNB_DU_ue_id);
     NR_SCHED_UNLOCK(&mac->sched_lock);
@@ -1032,7 +1029,7 @@ void ue_context_modification_confirm(const f1ap_ue_context_modif_confirm_t *conf
   gNB_MAC_INST *mac = RC.nrmac[0];
   NR_SCHED_LOCK(&mac->sched_lock);
   /* check first that the scheduler knows such UE */
-  NR_UE_info_t *UE = find_nr_UE(&mac->UE_info, confirm->gNB_DU_ue_id);
+  NR_UE_info_t *UE = find_connected_nr_ue(&mac->UE_info, confirm->gNB_DU_ue_id);
   if (UE == NULL) {
     LOG_E(NR_MAC, "ERROR: unknown UE with RNTI %04x, ignoring UE Context Modification Confirm\n", confirm->gNB_DU_ue_id);
     NR_SCHED_UNLOCK(&mac->sched_lock);
@@ -1058,7 +1055,7 @@ void ue_context_modification_refuse(const f1ap_ue_context_modif_refuse_t *refuse
 
   gNB_MAC_INST *mac = RC.nrmac[0];
   NR_SCHED_LOCK(&mac->sched_lock);
-  NR_UE_info_t *UE = find_nr_UE(&RC.nrmac[0]->UE_info, refuse->gNB_DU_ue_id);
+  NR_UE_info_t *UE = find_connected_nr_ue(&RC.nrmac[0]->UE_info, refuse->gNB_DU_ue_id);
   if (UE == NULL) {
     LOG_E(NR_MAC, "ERROR: unknown UE with RNTI %04x, ignoring UE Context Modification Refuse\n", refuse->gNB_DU_ue_id);
     NR_SCHED_UNLOCK(&mac->sched_lock);
@@ -1093,7 +1090,7 @@ void ue_context_release_command(const f1ap_ue_context_rel_cmd_t *cmd)
   /* mark UE as to be deleted after PUSCH failure */
   gNB_MAC_INST *mac = RC.nrmac[0];
   NR_SCHED_LOCK(&mac->sched_lock);
-  NR_UE_info_t *UE = find_nr_UE(&mac->UE_info, cmd->gNB_DU_ue_id);
+  NR_UE_info_t *UE = find_connected_nr_ue(&mac->UE_info, cmd->gNB_DU_ue_id);
   UE = UE ? UE : find_ra_ue(&mac->UE_info, cmd->gNB_DU_ue_id);
   if (UE == NULL) {
     NR_SCHED_UNLOCK(&mac->sched_lock);
@@ -1133,7 +1130,7 @@ static void process_reestablishment(gNB_MAC_INST *mac, uint32_t new_dl_rrc_id, u
     return;
   }
 
-  NR_UE_info_t *oldUE = find_nr_UE(&mac->UE_info, old_dl_rrc_id);
+  NR_UE_info_t *oldUE = find_connected_nr_ue(&mac->UE_info, old_dl_rrc_id);
   if (!oldUE) {
     /* No matching UE-associated logical F1-connection for the old gNB-DU UE F1AP ID.
      * Per TS 38.473, if there's no matching connection, there's nothing to release. */
@@ -1151,7 +1148,7 @@ static void process_reestablishment(gNB_MAC_INST *mac, uint32_t new_dl_rrc_id, u
   // Per TS 38.401: "Find UE context based on old gNB-DU UE F1AP ID, replace old C-RNTI/PCI with new C-RNTI/PCI"
   // to do that, we have to remove the old UE from connected list first, as the
   // data structure in the connected list uses the RNTI for lookup
-  oldUE = remove_UE_from_list(MAX_MOBILES_PER_GNB + 1, mac->UE_info.connected_ue_list, oldUE->rnti);
+  oldUE = remove_connected_nr_ue(&mac->UE_info, oldUE->rnti);
 
   rnti_t new_rnti = UE->rnti;
   // assigning the old RNTI to the new UE so that mac_remove_nr_ue prints correct RNTI when removing
@@ -1336,7 +1333,7 @@ void positioning_information_request(const f1ap_positioning_information_req_t *r
 {
   f1ap_positioning_information_resp_t resp = {.gNB_CU_ue_id = req->gNB_CU_ue_id, .gNB_DU_ue_id = req->gNB_DU_ue_id};
   gNB_MAC_INST *mac = RC.nrmac[0];
-  NR_UE_info_t *UE = find_nr_UE(&mac->UE_info, req->gNB_DU_ue_id);
+  NR_UE_info_t *UE = find_connected_nr_ue(&mac->UE_info, req->gNB_DU_ue_id);
   NR_UE_UL_BWP_t *current_UL_BWP = &UE->current_UL_BWP;
   NR_ServingCellConfigCommon_t *scc = UE->pcell->common_channels.ServingCellConfigCommon;
   if (current_UL_BWP->srs_Config) {
@@ -1354,7 +1351,7 @@ void positioning_activation_request(const f1ap_positioning_activation_req_t *req
   // Currently in OAI-LMF its hardcoded to aperiodic SRS
   // Ignoring the SRS type and considering periodic SRS
   NR_SCHED_LOCK(&mac->sched_lock);
-  NR_UE_info_t *UE = find_nr_UE(&mac->UE_info, req->gNB_DU_ue_id);
+  NR_UE_info_t *UE = find_connected_nr_ue(&mac->UE_info, req->gNB_DU_ue_id);
   add_pos_act_ue_context(mac, UE->rnti);
   NR_SCHED_UNLOCK(&mac->sched_lock);
   mac->mac_rrc.positioning_activation_response(&resp);
