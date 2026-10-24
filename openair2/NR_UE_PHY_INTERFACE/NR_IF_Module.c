@@ -234,8 +234,10 @@ void update_harq_status(NR_UE_MAC_INST_t *mac, uint8_t harq_pid, int cw_idx, uin
 
   if (current_harq->active) {
     LOG_D(PHY,"Updating harq_status for harq_id %d, ack/nak %d\n", harq_pid, current_harq->ack);
-    // we can prepare feedback for MSG4 in advance
-    if (mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION || mac->ra.ra_state == nrRA_WAIT_MSGB)
+    // we can prepare feedback for MSG4 in advance. Only on pucch-ResourceCommon: with a dedicated PUCCH-ResourceSet (RA in
+    // RRC_CONNECTED), the HARQ-ACK goes through the regular PUCCH scheduling
+    if ((mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION || mac->ra.ra_state == nrRA_WAIT_MSGB)
+        && current_harq->pucch_ResourceCommon >= 0)
       prepare_msg4_msgb_feedback(mac, harq_pid, ack_nack);
     else {
       current_harq->ack = ack_nack;
