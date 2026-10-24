@@ -817,6 +817,7 @@ void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
 
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
   UE->reconfigCellGroup = new_CellGroup;
+  UE->reconfig_partly_sent = false;
   int ss_type = cg_configinfo ? NR_SearchSpace__searchSpaceType_PR_ue_Specific: NR_SearchSpace__searchSpaceType_PR_common;
   configure_UE_BWP(cell, scc, UE, false, ss_type, -1, -1);
 
@@ -914,6 +915,7 @@ void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
       ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
       UE->CellGroup = UE->reconfigCellGroup;
       UE->reconfigCellGroup = NULL;
+      UE->reconfig_partly_sent = false;
     }
     if (UE->reestablish_rlc) {
       for (int i = 1; i < seq_arr_size(&UE->UE_sched_ctrl.lc_config); ++i) {
@@ -972,6 +974,7 @@ void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
     // Replace reconfigCellGroup with new_CellGroup (now contains complete config with spCellConfig restored)
     ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
     UE->reconfigCellGroup = new_CellGroup;
+    UE->reconfig_partly_sent = false;
     configure_UE_BWP(cell, scc, UE, false, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
   } else {
     /* hack: for NR-DC, remove the RLC bearer from the MCG group config
@@ -1059,6 +1062,7 @@ void ue_context_modification_refuse(const f1ap_ue_context_modif_refuse_t *refuse
   bool release = UE->cm_info.trigger_info == MSG3_CRNTI;
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
   UE->reconfigCellGroup = NULL;
+  UE->reconfig_partly_sent = false;
   UE->cm_info.trigger_info = NO_TRIGGER;
   NR_SCHED_UNLOCK(&mac->sched_lock);
 
