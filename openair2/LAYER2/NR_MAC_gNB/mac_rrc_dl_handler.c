@@ -1135,6 +1135,10 @@ static void process_reestablishment(gNB_MAC_INST *mac, uint32_t new_dl_rrc_id, u
   }
 
   // Per TS 38.401: "Find UE context based on old gNB-DU UE F1AP ID, replace old C-RNTI/PCI with new C-RNTI/PCI"
+  // to do that, we have to remove the old UE from connected list first, as the
+  // data structure in the connected list uses the RNTI for lookup
+  oldUE = remove_UE_from_list(MAX_MOBILES_PER_GNB + 1, mac->UE_info.connected_ue_list, oldUE->rnti);
+
   rnti_t new_rnti = UE->rnti;
   // assigning the old RNTI to the new UE so that mac_remove_nr_ue prints correct RNTI when removing
   UE->rnti = oldUE->rnti;
@@ -1154,8 +1158,6 @@ static void process_reestablishment(gNB_MAC_INST *mac, uint32_t new_dl_rrc_id, u
   memcpy(&UE->UE_sched_ctrl, &oldUE->UE_sched_ctrl, sizeof(NR_UE_sched_ctrl_t));
   memcpy(&oldUE->UE_sched_ctrl, &temp_sc, sizeof(NR_UE_sched_ctrl_t));
   mac_remove_nr_ue(mac, UE->rnti);
-  NR_UE_info_t *r = remove_UE_from_list(MAX_MOBILES_PER_GNB + 1, mac->UE_info.connected_ue_list, oldUE->rnti);
-  DevAssert(r == oldUE);
   add_UE_to_list(NR_NB_RA_PROC_MAX, mac->UE_info.access_ue_list, oldUE);
   nr_rlc_remove_ue(new_dl_rrc_id);
   nr_rlc_update_id(old_dl_rrc_id, new_dl_rrc_id);
