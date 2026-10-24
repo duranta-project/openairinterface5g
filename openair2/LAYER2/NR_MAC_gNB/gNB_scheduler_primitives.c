@@ -3662,6 +3662,47 @@ void beam_switching_procedure(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_UE_in
   }
 }
 
+#define UL_FAILURE_REQ_GRACE 10000
+#define UL_FAILURE_TIMEOUT 30000
+
+/* UEs whose RLC reached the maximum number of retransmissions: radio link failure (TS 38.322 5.3.2).
+   The RLC signals it from its own context (UL STATUS reception or t-PollRetransmit), the scheduler
+   handles it in nr_mac_update_timers() */
+static struct {
+  pthread_mutex_t mutex;
+  int n;
+  rnti_t rnti[MAX_MOBILES_PER_GNB];
+} rlc_rlf = {.mutex = PTHREAD_MUTEX_INITIALIZER};
+
+static void nr_mac_rlc_rlf_ind(int rnti)
+{
+  pthread_mutex_lock(&rlc_rlf.mutex);
+  int i = 0;
+  while (i < rlc_rlf.n && rlc_rlf.rnti[i] != rnti)
+    i++;
+  if (i == rlc_rlf.n && rlc_rlf.n < MAX_MOBILES_PER_GNB)
+    rlc_rlf.rnti[rlc_rlf.n++] = rnti;
+  pthread_mutex_unlock(&rlc_rlf.mutex);
+}
+
+/* true if the RLC of UE rnti reported a radio link failure, which is consumed */
+static bool nr_mac_take_rlc_rlf(rnti_t rnti)
+{
+  if (__atomic_load_n(&rlc_rlf.n, __ATOMIC_RELAXED) == 0)
+    return false;
+  bool found = false;
+  pthread_mutex_lock(&rlc_rlf.mutex);
+  for (int i = 0; i < rlc_rlf.n; i++) {
+    if (rlc_rlf.rnti[i] == rnti) {
+      rlc_rlf.rnti[i] = rlc_rlf.rnti[--rlc_rlf.n];
+      found = true;
+      break;
+    }
+  }
+  pthread_mutex_unlock(&rlc_rlf.mutex);
+  return found;
+}
+
 void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
 {
   // releasing a UE modifies connected_ue_list, and nr_mac_trigger_release_complete() drops sched_lock:
@@ -3680,6 +3721,13 @@ void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
     if (nr_mac_check_release(sched_ctrl)) {
       to_release[num_release++] = (ue_release_t){.rnti = UE->rnti, .send_complete = true};
       continue;
+    }
+
+    /* radio link failure detected by the RLC: request the release now, the UE does not acknowledge our data */
+    if (nr_mac_take_rlc_rlf(UE->rnti)) {
+      LOG_W(NR_MAC, "UE %04x: RLC reached the max retransmissions, radio link failure\n", UE->rnti);
+      nr_mac_trigger_ul_failure(sched_ctrl, UE->current_DL_BWP.scs);
+      sched_ctrl->ul_failure_timer = min(sched_ctrl->ul_failure_timer, UL_FAILURE_REQ_GRACE + 1); // see nr_mac_check_ul_failure()
     }
 
     /* check if UL failure and trigger release request if necessary */
@@ -4001,6 +4049,7 @@ bool prepare_initial_ul_rrc_message(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR
   const NR_RLC_BearerConfig_t *bearer = cellGroupConfig->rlc_BearerToAddModList->list.array[0];
   DevAssert(bearer->servedRadioBearer->choice.srb_Identity == srb_id);
   nr_rlc_add_srb(UE->rnti, bearer->servedRadioBearer->choice.srb_Identity, bearer);
+  nr_rlc_set_rlf_handler(UE->rnti, nr_mac_rlc_rlf_ind);
   int priority = bearer->mac_LogicalChannelConfig->ul_SpecificParameters->priority;
   nr_lc_config_t c = {.lcid = bearer->logicalChannelIdentity, .priority = priority};
   nr_mac_add_lcid(&UE->UE_sched_ctrl, &c);
@@ -4032,8 +4081,6 @@ bool nr_mac_ue_is_active(const NR_UE_info_t *ue)
   return true;
 }
 
-#define UL_FAILURE_REQ_GRACE 10000
-#define UL_FAILURE_TIMEOUT 30000
 void nr_mac_trigger_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl, NR_SubcarrierSpacing_t subcarrier_spacing)
 {
   if (sched_ctrl->ul_failure) {
