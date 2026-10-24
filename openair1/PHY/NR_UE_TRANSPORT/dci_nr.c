@@ -283,6 +283,11 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
   int dmrs_ref = 0;
   if (coreset->CoreSetType == NFAPI_NR_CSET_CONFIG_PDCCH_CONFIG)
     dmrs_ref = phy_pdcch_config->pdcch_config[ss_idx].BWPStart;
+  if (n_rb + rb_offset + dmrs_ref > fp->N_RB_DL) {
+    LOG_E(NR_PHY, "CORESET frequency domain resources exceed N_RB_DL: n_rb %d, rb_offset %d, dmrs_ref %d, N_RB_DL %d\n",
+          n_rb, rb_offset, dmrs_ref, fp->N_RB_DL);
+    return;
+  }
   // generate pilot
   c16_t pilot[(n_rb + rb_offset + dmrs_ref) * 3] __attribute__((aligned(16)));
   // Note: pilot returned by the following function is already the complex conjugate of the transmitted DMRS
