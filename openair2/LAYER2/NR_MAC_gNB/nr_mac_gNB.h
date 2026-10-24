@@ -1294,6 +1294,9 @@ typedef struct nr_cell_sched_s {
   /// Physical cell description: ServingCellConfigCommon, VRB maps, MIB/SIB1, PRACH
   NR_COMMON_channels_t common_channels;
 
+  /// Optional external SIB19 owner, installed at startup before slot scheduling.
+  struct nr_ntn_assistance_publisher *ntn_assistance_publisher;
+
   /// Running PDU index for BCH/DLSCH building within one slot
   uint16_t pdu_index;
   /// UL PRB blacklist (SNR-based)

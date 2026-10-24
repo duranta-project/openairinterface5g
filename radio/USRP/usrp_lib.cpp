@@ -25,6 +25,7 @@
 #include <complex>
 #include <fstream>
 #include <cmath>
+#include <limits>
 #include <time.h>
 #include "common/utils/LOG/log.h"
 #include "common_lib.h"
@@ -412,6 +413,32 @@ static int trx_set_beam(openair0_device_t *device, uint16_t *beams, int num_beam
 
 static void trx_usrp_write_reset(openair0_thread_t *wt);
 
+/* Read the existing motherboard's clock without changing stream/settings.
+ * Callers serialize against settings changes and teardown. */
+static int trx_usrp_get_time(openair0_device_t *device, openair0_time_t *observation)
+{
+  if (device == NULL || observation == NULL || device->priv == NULL || device->openair0_cfg == NULL)
+    return -1;
+  usrp_state_t *s = (usrp_state_t *)device->priv;
+  if (!s->usrp || !std::isfinite(s->sample_rate) || s->sample_rate <= 0)
+    return -1;
+  try {
+    const uhd::time_spec_t now = s->usrp->get_time_now(0);
+    const long double ticks = ((long double)now.get_full_secs() + now.get_frac_secs()) * s->sample_rate;
+    if (!std::isfinite(ticks) || ticks <= (long double)std::numeric_limits<int64_t>::min() + 1
+        || ticks >= (long double)std::numeric_limits<int64_t>::max() - 1)
+      return -1;
+    const openair0_time_t result = {
+        now.to_ticks(s->sample_rate),
+        s->sample_rate,
+        (int64_t)device->openair0_cfg->command_line_sample_advance + (int64_t)device->openair0_cfg->tx_sample_advance};
+    *observation = result;
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
 /*! \brief Terminate operation of the USRP transceiver -- free all associated resources
  * \param device the hardware to use
  */
@@ -420,6 +447,7 @@ static void trx_usrp_end(openair0_device_t *device)
   if (device == NULL)
     return;
 
+  device->trx_get_time_func = NULL;
   usrp_state_t *s = (usrp_state_t *)device->priv;
 
   AssertFatal(s != NULL, "%s() called on uninitialized USRP\n", __func__);
@@ -1029,6 +1057,7 @@ extern "C" {
     device->trx_set_freq_func = trx_usrp_set_freq;
     device->trx_set_gains_func   = trx_usrp_set_gains;
     device->trx_write_init = trx_usrp_write_init;
+    device->trx_get_time_func = NULL;
 
 
     // hotfix! to be checked later
@@ -1531,6 +1560,7 @@ extern "C" {
       exit(-1);
     }
   }
+  device->trx_get_time_func = trx_usrp_get_time;
   return 0;
 }
 /*@}*/

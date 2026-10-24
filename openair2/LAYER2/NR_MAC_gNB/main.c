@@ -17,6 +17,7 @@
 #include "mac_proto.h"
 #include "mac_rrc_ul.h"
 #include "nr_mac_gNB.h"
+#include "ntn_assistance.h"
 #include "NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "NR_RLC-BearerConfig.h"
 #include "NR_RadioBearerConfig.h"
@@ -375,6 +376,7 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
 {
   for (size_t i = 0; i < sizeofArray(mac->cells); i++) {
     nr_cell_sched_t *cell = &mac->cells[i];
+    nr_ntn_assistance_publisher_destroy(cell);
     free(cell->radio_config.ssb_beams);
     if (cell->common_channels.ServingCellConfigCommon == NULL)
       continue;

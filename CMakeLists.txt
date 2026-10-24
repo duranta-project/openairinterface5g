@@ -1243,6 +1243,8 @@ set (MAC_NR_SRC
  )
 
 
+list(APPEND MAC_NR_SRC ${NR_GNB_MAC_DIR}/ntn_assistance.c)
+
 set (MAC_SRC_UE
   ${PHY_INTERFACE_DIR}/phy_stub_UE.c
   ${MAC_DIR}/main_ue.c
@@ -1809,6 +1811,8 @@ add_executable(nr-softmodem
   ${OPENAIR_DIR}/common/utils/lte/prach_utils.c
   ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
   )
+
+target_sources(nr-softmodem PRIVATE ${OPENAIR_DIR}/executables/ntn_radio_time.c)
 
 target_link_libraries(nr-softmodem PRIVATE
   -Wl,--start-group

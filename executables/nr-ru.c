@@ -3,6 +3,7 @@
  */
 
 #define _GNU_SOURCE
+#include "ntn_radio_time.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -156,6 +157,7 @@ static void rx_rf(RU_t *ru, int *frame, int *slot)
   openair0_timestamp_t ts;
   unsigned int rxs;
   rxs = ru->rfdevice.trx_read_func(&ru->rfdevice, &ts, rxp, samples_per_slot, nb);
+  bool ntn_complete_read = rxs == samples_per_slot;
   proc->timestamp_rx = ts-ru->ts_offset;
 
   if (rxs != samples_per_slot)
@@ -231,6 +233,7 @@ static void rx_rf(RU_t *ru, int *frame, int *slot)
 
       // Read and discard the samples in the first_rx to align to the slot boundary
       rxs = ru->rfdevice.trx_read_func(&ru->rfdevice, &ts, rxp, samples_to_slot_boundary, nb);
+      ntn_complete_read = ntn_complete_read && rxs == samples_to_slot_boundary;
       if (rxs != samples_to_slot_boundary)
         LOG_E(PHY, "rx_rf: Asked for %ld samples, got %d from USRP\n", samples_to_slot_boundary, rxs);
 
@@ -241,6 +244,7 @@ static void rx_rf(RU_t *ru, int *frame, int *slot)
     }
   }
 
+  nr_ntn_radio_time_rx(ru, *frame & 1023, *slot, ntn_complete_read);
   metadata mt = {.slot = *slot, .frame = *frame};
   gNBscopeCopyWithMetadata(ru, gNbTimeDomainSamples, rxp[0], sizeof(c16_t), 1, samples_per_slot, 0, &mt);
 
@@ -1152,4 +1156,3 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg)
   } // j=0..num_rus
   return;
 }
-
