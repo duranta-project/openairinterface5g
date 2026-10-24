@@ -41,7 +41,7 @@ static pthread_once_t gold_key_once = PTHREAD_ONCE_INIT;
 static void delete_table(void *ptr)
 {
   hash_table_t *ht = (hash_table_t *)ptr;
-  hashtable_destroy(ht);
+  hashtable_destroy(ht, gold_entry_free);
   free(ptr);
 }
 
@@ -56,7 +56,7 @@ uint32_t *gold_cache(uint32_t key, int length)
   hash_table_t *ht;
   if ((ht = pthread_getspecific(gold_table_key)) == NULL) {
     ht = malloc_or_fail(sizeof(*ht));
-    *ht = hashtable_create(GOLD_HT_SIZE, NULL, gold_entry_free);
+    *ht = hashtable_create(GOLD_HT_SIZE, NULL);
     (void)pthread_setspecific(gold_table_key, ht);
   }
 
@@ -67,14 +67,14 @@ uint32_t *gold_cache(uint32_t key, int length)
     if (entry->length >= length)
       return entry->seq;
     // same key but need longer sequence: replace
-    hashtable_remove(ht, key);
+    hashtable_remove(ht, key, gold_entry_free);
   }
 
   entry = malloc(sizeof(*entry));
   AssertFatal(entry, "gold_cache: out of memory\n");
   entry->length = length;
   entry->seq = gold_generate(key, length);
-  hashtable_insert(ht, key, entry);
+  hashtable_insert(ht, key, entry, gold_entry_free);
   LOG_D(PHY, "gold_cache: new entry key=%u len=%d\n", key, length);
   return entry->seq;
 }

@@ -25,7 +25,7 @@ static bool add_hashtable_data(hash_table_t *ht, uint64_t ue_id, const f1_ue_dat
   f1_ue_data_t *idata = malloc(sizeof(*idata));
   AssertFatal(idata, "cannot allocate memory\n");
   *idata = *data;
-  hashtable_rc_t ret = hashtable_insert(ht, ue_id, idata);
+  hashtable_rc_t ret = hashtable_insert(ht, ue_id, idata, free);
   return ret == HASH_TABLE_OK;
 }
 
@@ -38,7 +38,7 @@ void cu_init_f1_ue_data(void)
 {
   pthread_mutex_lock(&cu2du_mutex);
   DevAssert(cu2du_ue_mapping.nodes == NULL);
-  cu2du_ue_mapping = hashtable_create(1319, NULL, free); // 1319 is prime, default hash func (unit), free()
+  cu2du_ue_mapping = hashtable_create(1319, NULL); // 1319 is prime, default hash func (unit)
   pthread_mutex_unlock(&cu2du_mutex);
 }
 
@@ -71,7 +71,7 @@ bool cu_update_f1_ue_data(uint32_t ue_id, const f1_ue_data_t *data)
   pthread_mutex_lock(&cu2du_mutex);
   DevAssert(cu2du_ue_mapping.nodes != NULL);
   uint64_t key = ue_id;
-  hashtable_rc_t retrm = hashtable_remove(&cu2du_ue_mapping, key);
+  hashtable_rc_t retrm = hashtable_remove(&cu2du_ue_mapping, key, free);
   AssertFatal(retrm == HASH_TABLE_OK, "could not remove UE %d, ret %d\n", ue_id, retrm);
   bool ret = add_hashtable_data(&cu2du_ue_mapping, key, data);
   pthread_mutex_unlock(&cu2du_mutex);
@@ -92,7 +92,7 @@ bool cu_remove_f1_ue_data(uint32_t ue_id)
   pthread_mutex_lock(&cu2du_mutex);
   DevAssert(cu2du_ue_mapping.nodes != NULL);
   uint64_t key = ue_id;
-  hashtable_rc_t ret = hashtable_remove(&cu2du_ue_mapping, key);
+  hashtable_rc_t ret = hashtable_remove(&cu2du_ue_mapping, key, free);
   pthread_mutex_unlock(&cu2du_mutex);
   return ret == HASH_TABLE_OK;
 }
@@ -105,7 +105,7 @@ void du_init_f1_ue_data(void)
 {
   pthread_mutex_lock(&du2cu_mutex);
   DevAssert(du2cu_ue_mapping.nodes == NULL);
-  du2cu_ue_mapping = hashtable_create(1319, NULL, free); // 1319 is prime, default hash func (unit), free()
+  du2cu_ue_mapping = hashtable_create(1319, NULL); // 1319 is prime, default hash func (unit)
   pthread_mutex_unlock(&du2cu_mutex);
 }
 
@@ -147,7 +147,7 @@ bool du_remove_f1_ue_data(uint32_t ue_id)
   pthread_mutex_lock(&du2cu_mutex);
   DevAssert(du2cu_ue_mapping.nodes != NULL);
   uint64_t key = ue_id;
-  hashtable_rc_t ret = hashtable_remove(&du2cu_ue_mapping, key);
+  hashtable_rc_t ret = hashtable_remove(&du2cu_ue_mapping, key, free);
   pthread_mutex_unlock(&du2cu_mutex);
   return ret == HASH_TABLE_OK;
 }

@@ -29,12 +29,11 @@ static hash_size_t def_hashfunc(const uint64_t keyP)
  * NULL. The user can also specify a hash function. If the hashfunc argument is NULL, a default hash function is used. If an error
  * occurred, NULL is returned. All other values in the returned hash_table_t pointer should be released with hashtable_destroy().
  */
-hash_table_t hashtable_create(const hash_size_t sizeP, hash_size_t (*hashfuncP)(const hash_key_t), void (*freefuncP)(void *))
+hash_table_t hashtable_create(const hash_size_t sizeP, hash_size_t (*hashfuncP)(const hash_key_t))
 {
   hash_table_t hashtbl = {
     .nodes = calloc_or_fail(sizeP, sizeof(*hashtbl.nodes)),
     .hashfunc = hashfuncP ? hashfuncP : def_hashfunc,
-    .freefunc = freefuncP,
     .size = sizeP,
   };
   return hashtbl;
@@ -45,7 +44,7 @@ hash_table_t hashtable_create(const hash_size_t sizeP, hash_size_t (*hashfuncP)(
  * The hashtable_destroy() walks through the linked lists for each possible hash value, and releases the elements. It also releases
  * the nodes array and the hash_table_t.
  */
-hashtable_rc_t hashtable_destroy(hash_table_t *hashtblP)
+hashtable_rc_t hashtable_destroy(hash_table_t *hashtblP, void (*freefunc)(void *))
 {
   hash_size_t n;
   hash_node_t *node, *oldnode;
@@ -61,8 +60,8 @@ hashtable_rc_t hashtable_destroy(hash_table_t *hashtblP)
       oldnode = node;
       node = node->next;
 
-      if (hashtblP->freefunc && oldnode->data) {
-        hashtblP->freefunc(oldnode->data);
+      if (freefunc && oldnode->data) {
+        freefunc(oldnode->data);
       }
 
       free(oldnode);
@@ -102,7 +101,7 @@ hashtable_rc_t hashtable_is_key_exists(const hash_table_t *const hashtblP, const
  * Adding a new element
  * To make sure the hash value is not bigger than size, the result of the user provided hash function is used modulo size.
  */
-hashtable_rc_t hashtable_insert(hash_table_t *const hashtblP, const hash_key_t keyP, void *dataP)
+hashtable_rc_t hashtable_insert(hash_table_t *const hashtblP, const hash_key_t keyP, void *dataP, void (*freefunc)(void *))
 {
   hash_node_t *node = NULL;
   hash_size_t hash = 0;
@@ -116,8 +115,8 @@ hashtable_rc_t hashtable_insert(hash_table_t *const hashtblP, const hash_key_t k
 
   while (node) {
     if (node->key == keyP) {
-      if (hashtblP->freefunc && node->data) {
-        hashtblP->freefunc(node->data);
+      if (freefunc && node->data) {
+        freefunc(node->data);
       }
 
       node->data = dataP;
@@ -147,7 +146,7 @@ hashtable_rc_t hashtable_insert(hash_table_t *const hashtblP, const hash_key_t k
  * To remove an element from the hash table, we just search for it in the linked list for that hash value,
  * and remove it if it is found. If it was not found, it is an error and -1 is returned.
  */
-hashtable_rc_t hashtable_remove(hash_table_t *const hashtblP, const hash_key_t keyP)
+hashtable_rc_t hashtable_remove(hash_table_t *const hashtblP, const hash_key_t keyP, void (*freefunc)(void *))
 {
   hash_node_t *node, *prevnode = NULL;
   hash_size_t hash = 0;
@@ -166,8 +165,8 @@ hashtable_rc_t hashtable_remove(hash_table_t *const hashtblP, const hash_key_t k
       else
         hashtblP->nodes[hash] = node->next;
 
-      if (hashtblP->freefunc && node->data) {
-        hashtblP->freefunc(node->data);
+      if (freefunc && node->data) {
+        freefunc(node->data);
       }
 
       hashtblP->entries--;
