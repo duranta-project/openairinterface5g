@@ -756,7 +756,15 @@ static void nr_rrc_ue_tun_start_user_plane(ue_id_t ue_id, int pdusession_id, int
   DevAssert(sock >= 0);
   DevAssert(reader_thread != NULL);
   nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pdusession_id);
-  DevAssert(entity != NULL);
+  if (!entity) {
+    // NAS queued the request before the RRC connection was released, which removed the bearers: the next service
+    // accept starts the user plane again
+    LOG_W(NR_RRC,
+          "[UE %ld] PDU session %d has no SDAP entity (RRC connection released?), not starting its user plane\n",
+          ue_id,
+          pdusession_id);
+    return;
+  }
   nr_sdap_tun_stop_reader(reader_thread);
   nr_sdap_tun_bind(entity, sock, qfi);
   char name[64];
