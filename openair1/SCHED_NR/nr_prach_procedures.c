@@ -40,11 +40,14 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_
     const bool prach_noise_ready = gNB->prach_energy_counter == NUM_PRACH_RX_FOR_NOISE_ESTIMATE;
     const bool prach_above_threshold = res.max_preamble_energy > gNB->measurements.prach_I0 + gNB->prach_thres;
     const bool prach_ind_has_space = rach_ind->number_of_pdus < MAX_NUM_NR_RX_RACH_PDUS;
-    const bool prach_accepted = prach_noise_ready && prach_above_threshold && prach_ind_has_space;
+    // with many preambles in the occasion, the sum of their cross-correlations can exceed a preamble peak: the max is
+    // then a wrong preamble or a wrong delay, and the UE that sent this preamble would apply a wrong timing advance
+    const bool prach_peak_distinct = res.peak_to_floor >= NR_PRACH_MIN_PEAK_TO_FLOOR;
+    const bool prach_accepted = prach_noise_ready && prach_above_threshold && prach_peak_distinct && prach_ind_has_space;
     LOG_D(NR_PHY,
           "[RAPROC] %d.%d occasion %d symbol %u format %u sequence-length %d N_ZC %d PRACH-SCS %d UL-mu %d NCS %u "
           "RAPID %u energy %.1f dB I0 %.1f dB threshold %.1f dB raw-delay %u TA %u "
-          "noise %d/%d noise-ready %d threshold-pass %d indication-space %d accepted %d\n",
+          "noise %d/%d noise-ready %d threshold-pass %d peak-to-floor %.1f dB indication-space %d accepted %d\n",
           frame,
           slot,
           prach_oc,
@@ -65,19 +68,21 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_
           NUM_PRACH_RX_FOR_NOISE_ESTIMATE,
           prach_noise_ready,
           prach_above_threshold,
+          res.peak_to_floor / 10.0,
           prach_ind_has_space,
           prach_accepted);
 
     if (prach_accepted) {
       LOG_A(NR_PHY,
-            "[RAPROC] %d.%d Initiating RA procedure with preamble %d, energy %.1f dB (I0 %.1f dB, thres %.1f dB), delay %d "
-            "start symbol %u freq index %u\n",
+            "[RAPROC] %d.%d Initiating RA procedure with preamble %d, energy %.1f dB (I0 %.1f dB, thres %.1f dB, peak/floor %.1f "
+            "dB), delay %d start symbol %u freq index %u\n",
             frame,
             slot,
             res.max_preamble,
             res.max_preamble_energy / 10.0,
             gNB->measurements.prach_I0 / 10.0,
             gNB->prach_thres / 10.0,
+            res.peak_to_floor / 10.0,
             res.max_preamble_delay,
             prachStartSymbol,
             prach_pdu->num_ra);
