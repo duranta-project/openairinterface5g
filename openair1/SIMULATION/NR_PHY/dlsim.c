@@ -396,6 +396,8 @@ int main(int argc, char **argv)
   //uint8_t frame_mod4,num_pdcch_symbols = 0;
 
   SCM_t channel_model = AWGN; // AWGN Rayleigh1 Rayleigh1_anticorr;
+  bool echo_channel = false;
+  double echo_delay_ns = 100, echo_level_dB = -3;
   double DS_TDL = .03;
   int delay = 0;
 
@@ -491,6 +493,13 @@ int main(int argc, char **argv)
           channel_model = TDL_C;
           DS_TDL = 0.300; // 300 ns
           printf("Channel model: TDLC300\n");
+          break;
+        case 'E':
+          // fixed frequency-selective channel: E[,<echo delay ns>,<echo level dB>]
+          echo_channel = true;
+          if (optarg[1] == ',')
+            AssertFatal(sscanf(optarg + 2, "%lf,%lf", &echo_delay_ns, &echo_level_dB) == 2, "-g E,<delay ns>,<level dB>\n");
+          printf("Channel model: echo %.0f ns %.1f dB\n", echo_delay_ns, echo_level_dB);
           break;
         default:
           printf("Unsupported channel model!\n");
@@ -704,7 +713,7 @@ int main(int argc, char **argv)
 #else
       printf("          (none)  No optional features were compiled into this executable\n");
 #endif
-      printf("-g Channel model: [A] TDLA30, [B] TDLB100, [C] TDLC300, e.g. -g A\n");
+      printf("-g Channel model: [A] TDLA30, [B] TDLB100, [C] TDLC300, [E] fixed echo E[,<delay ns>,<level dB>] (default 100 ns, -3 dB), e.g. -g A\n");
       printf("-H Slot number\n");
       printf("-m Numerology\n");
       printf("-n Number of frames to simulate\n");
@@ -936,7 +945,29 @@ int main(int argc, char **argv)
                                 0,
                                 0);
 
+  if (echo_channel) {
+    // Each TX antenna t reaches RX antenna r if r % n_tx == t (the identity for as many TX as RX antennas),
+    // through a direct path and an echo: the same frequency-selective scalar on every link, with notches
+    // every 1 / delay, and layers that stay orthogonal. Fixed: built once, kept by multipath_channel_float.
+    const int d = (int)lround(echo_delay_ns * 1e-9 * fs);
+    const double a = pow(10, echo_level_dB / 20), norm = 1 / sqrt(1 + a * a);
+    for (int i = 0; i < n_tx * n_rx; i++)
+      free(gNB2UE->ch[i]);
+    gNB2UE->channel_length = d + 1;
+    for (int t = 0; t < n_tx; t++)
+      for (int r = 0; r < n_rx; r++) {
+        struct complexd *ch = calloc(d + 1, sizeof(*ch));
+        if (r % n_tx == t) {
+          ch[0].r += norm;
+          ch[d].r += a * norm;
+        }
+        gNB2UE->ch[r + t * n_rx] = ch;
+      }
+    printf("Echo channel: delay %d samples (%.1f ns), level %.1f dB\n", d, d / fs * 1e9, echo_level_dB);
+  }
+
 #ifdef CHANNEL_SIM_CUDA
+  AssertFatal(!(echo_channel && use_cuda), "the echo channel (-g E) needs the CPU channel model\n");
   float *h_channel_coeffs = NULL;
   if (use_cuda) {
     int num_links = n_tx * n_rx;
@@ -1327,7 +1358,7 @@ int main(int argc, char **argv)
             bzero(r_im[aa], slot_length * sizeof(float));
           }
           start_meas(&channel_stats);
-          multipath_channel_float(gNB2UE, tx_sig_for_cpu, r_re, r_im, slot_length, 0, (n_trials == 1) ? 1 : 0);
+          multipath_channel_float(gNB2UE, tx_sig_for_cpu, r_re, r_im, slot_length, 0, (n_trials == 1 || echo_channel) ? 1 : 0);
           stop_meas(&channel_stats);
 
           free(tx_sig_for_cpu);
