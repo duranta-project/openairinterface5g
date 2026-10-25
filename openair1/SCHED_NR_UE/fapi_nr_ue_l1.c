@@ -411,7 +411,7 @@ void nr_ue_phy_config_request(nr_phy_config_t *phy_config)
     phy->received_config_request = true;
     memcpy(nrUE_config, &phy_config->config_req, sizeof(fapi_nr_config_request_t));
     phy->prach_preparation = phy_config->prach_preparation;
-    if (phy->prach_lut_initialized) {
+    if (phy->prach_lut_initialized && !phy->prach_lut_stopped) {
       const nr_prach_lut_config_t config = nr_ue_prach_lut_config(phy);
       if (!nr_prach_lut_config_equal(&config, &phy->prach_lut_config)) {
         phy->prach_lut_config = config;
@@ -430,9 +430,14 @@ void nr_ue_build_prach_lut(module_id_t module_id, uint8_t cc_id, const nr_prach_
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
   PHY_VARS_NR_UE *phy = nrPHY_vars_UE_g[module_id][cc_id];
+  mutexlock(mac->if_mutex);
+  const bool stopped = phy->prach_lut_stopped;
+  mutexunlock(mac->if_mutex);
+  if (stopped)
+    return;
   nr_prach_lut_t *lut = config->num_keys ? nr_prach_lut_build(config) : NULL;
   mutexlock(mac->if_mutex);
-  if (nr_prach_lut_config_equal(config, &phy->prach_lut_config)) {
+  if (!phy->prach_lut_stopped && nr_prach_lut_config_equal(config, &phy->prach_lut_config)) {
     AssertFatal(lut || !config->num_keys, "Could not prepare PRACH lookup tables\n");
     nr_prach_lut_t *old = phy->prach_lut;
     phy->prach_lut = lut;
@@ -441,6 +446,20 @@ void nr_ue_build_prach_lut(module_id_t module_id, uint8_t cc_id, const nr_prach_
   }
   mutexunlock(mac->if_mutex);
   /* The selected row was copied while holding if_mutex; TX does not retain this table. */
+  nr_prach_lut_destroy(lut);
+}
+
+void nr_ue_stop_prach_lut(module_id_t module_id, uint8_t cc_id)
+{
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  PHY_VARS_NR_UE *phy = nrPHY_vars_UE_g[module_id][cc_id];
+  mutexlock(mac->if_mutex);
+  phy->prach_lut_stopped = true;
+  nr_prach_lut_t *lut = phy->prach_lut;
+  phy->prach_lut = NULL;
+  mac->prach_lut_pending = true;
+  mutexunlock(mac->if_mutex);
+  /* An in-flight RRC build owns its private result and cannot publish after stop. */
   nr_prach_lut_destroy(lut);
 }
 

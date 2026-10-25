@@ -452,8 +452,7 @@ int main(int argc, char **argv)
           ret = pthread_join(phy_vars->stat_thread, NULL);
           AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
         }
-        nr_prach_lut_destroy(phy_vars->prach_lut);
-        phy_vars->prach_lut = NULL;
+        nr_ue_stop_prach_lut(inst, CC_id);
       }
     }
   }

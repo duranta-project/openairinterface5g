@@ -347,6 +347,8 @@ typedef struct PHY_VARS_NR_UE_s {
   nr_prach_lut_t *prach_lut;
   nr_prach_lut_config_t prach_lut_config;
   bool prach_lut_initialized;
+  /* Final shutdown only; protected by the MAC if_mutex. */
+  bool prach_lut_stopped;
   nr_prach_preparation_t prach_preparation;
   NR_UE_PRS *prs_vars[NR_MAX_PRS_COMB_SIZE];
   uint8_t prs_active_gNBs;
