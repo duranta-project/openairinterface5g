@@ -1544,7 +1544,7 @@ sudo /usr/local/bin/dpdk-devbind.py --bind $DRIVER $C_PLANE_PCI_BUS_ADD
 
 ### Configure OAI gNB
 
-**Beware in the following section to let in the range of isolated cores the parameters that should be (i.e. `L1s.L1_rx_thread_core`, `L1s.L1_tx_thread_core`, `RUs.ru_thread_core`, `fhi_72.io_core` and `fhi_72.worker_cores`)**
+**Beware in the following section to let in the range of isolated cores the parameters that should be (i.e. `L1s.L1_rx_thread_core`, `L1s.L1_tx_thread_core`, `fhi_72.system_core`, `fhi_72.io_core` and `fhi_72.worker_cores`)**
 
 Sample configuration files for OAI gNB, specific to the manufacturer of the radio unit, are available at:
 1. LITEON RU:
@@ -1590,16 +1590,12 @@ Edit the sample OAI gNB configuration file and check following parameters:
   * `phase_compensation` should be set to 0 to disable when it is performed in the RU and set to 1 when it should be performed on the DU side
   * `tx_amp_backoff_dB` controls the output level of OAI with respect to a full-scale output. The exact value for `tx_amp_backoff_dB` should be obtained from the O-RU documentation. This documentation typically includes detailed sections on Downlink (DL) signal scaling and gain setup. **Warning:** Exceeding the recommended power limits may permanently damage the RU.
 
-* `RUs` section
-  * Set an isolated core for RU thread `ru_thread_core`, in our environment we are using CPU 6
-
 * `fhi_72` (FrontHaul Interface) section: this config follows the structure
   that is employed by the xRAN library (`xran_fh_init` and `xran_fh_config`
   structs in the code):
   * `dpdk_devices`: PCI addresses of NIC VFs binded to the DPDK (not the physical NIC but the VFs, use `lspci | grep Virtual`) in the format `{VF-U-plane, VF-C-plane}`;
     if one VF used per RU, U and C planes will share the same VF => depends on the RU capabilities
-  * `system_core`: absolute CPU core ID for DPDK control threads, it should be an isolated core, in our environment we are using CPU 0
-    (`rte_mp_handle`, `eal-intr-thread`, `iavf-event-thread`)
+  * `system_core`: absolute CPU core ID for DPDK control threads (`eal-intr-thread`, `rte_mp_handle`, `iavf-event-thre`) and `split7_thread()` used for collecting UL U-plane packets, and optionally compressing the data; it should be an isolated core, in our environment we are using CPU 0
   * `io_core`: absolute CPU core ID for XRAN library, it should be an isolated core, in our environment we are using CPU 4
   * `worker_cores`: array of absolute CPU core IDs for XRAN library, they should be isolated cores, in our environment we are using CPU 2
   * `ru_addr`: RU U- and C-plane MAC-addresses (format `UU:VV:WW:XX:YY:ZZ`, hexadecimal numbers)
