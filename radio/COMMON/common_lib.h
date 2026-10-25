@@ -183,7 +183,8 @@ typedef struct openair0_config {
   //! duplexing mode
   duplex_mode_t duplex_mode;
   //! number of downlink resource blocks
-  int num_rb_dl;  double sample_rate;
+  int num_rb_dl;
+  double sample_rate;
   //! flag to indicate that the device is doing mmapped DMA transfers
   int mmapped_dma;
   //! offset in samples between TX and RX paths
@@ -319,20 +320,25 @@ typedef struct {
   bool write_thread_exit;
 } openair0_thread_t;
 
-#define WRITE_QUEUE_SZ 20
+/* TX samples of the writers (TX threads, UEs sharing one RU) summed in a ring and sent in timestamp order.
+   Each nb_writers entry holds the number of writers that wrote the sample (RO_COUNT bits) and the burst
+   state requested by their flags (RO_ACTIVE/RO_START/RO_END). */
+#define RO_COUNT 0xffff
+#define RO_ACTIVE (1 << 16)
+#define RO_START (1 << 17)
+#define RO_END (1 << 18)
 typedef struct {
   bool initDone;
-  pthread_mutex_t mutex_write;
   pthread_mutex_t mutex_store;
-  openair0_timestamp_t nextTS;
-  struct {
-    bool active;
-    openair0_timestamp_t timestamp;
-    void **txp;
-    int nsamps;
-    int nbAnt;
-    int flags;
-  } queue[WRITE_QUEUE_SZ];
+  pthread_cond_t written; // signaled after each write
+  bool writer_missing; // the last flush waited in vain for a writer: do not wait again until all the writers caught up
+  openair0_timestamp_t nextTS; // first sample not sent yet
+  openair0_timestamp_t maxTS; // end of the most recent write
+  int sz;
+  int grain;
+  int nb_ant;
+  int *nb_writers;
+  void **ring;
 } re_order_t;
 
 /*!\brief structure holds the parameters to configure RF devices */
@@ -572,6 +578,7 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
                                   openair0_timestamp_t timestamp,
                                   void **txp,
                                   int nsamps,
+                                  int nb_writers,
                                   int nbAnt,
                                   int flags);
 
@@ -594,8 +601,18 @@ extern int read_recplayconfig(recplay_conf_t **recplay_conf, recplay_state_t **r
 /*! \brief store recorded iqs from memory to file. */
 extern void iqrecorder_end(openair0_device_t *device);
 
+void openair0_write_reorder_init(re_order_t *r, const openair0_config_t *openair0_cfg);
 int openair0_write_reorder(openair0_device_t *device, openair0_timestamp_t timestamp, void **txp, int nsamps, int nbAnt, int flags);
 void openair0_write_reorder_clear_context(openair0_device_t *device);
+void openair0_write_reorder_flush_common(nrue_ru_write_t nrue_ru_write,
+                                         PHY_VARS_NR_UE *UE,
+                                         openair0_device_t *device,
+                                         int nb_writers,
+                                         int nbAnt,
+                                         openair0_timestamp_t force_until,
+                                         int wait_ms);
+
+void *create_ring(int sz_bytes);
 /**@}*/
 
 #ifdef __cplusplus
