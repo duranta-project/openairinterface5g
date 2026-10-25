@@ -5,6 +5,7 @@
 #ifndef GNB_FHI72_IF_H
 #define GNB_FHI72_IF_H
 
+#include "common/utils/time_meas.h" // time_stats_t
 #include "radio/COMMON/common_lib.h" // duplex_mode_t
 #include "openair1/PHY/impl_defs_nr.h" // NR_DOWNLINK_SLOT, NR_UPLINK_SLOT, NR_MIXED_SLOT
 
@@ -62,6 +63,12 @@ typedef struct split7_config {
   uint16_t ul_k0[5];
   uint16_t cp_prefix0;
   uint16_t cp_prefix_other;
+
+  time_stats_t prec_bf;
+  time_stats_t dl_cp;
+  time_stats_t dl_up;
+  time_stats_t ul_cp;
+  time_stats_t ul_up;
 
 } split7_config_t;
 
