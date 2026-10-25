@@ -2035,7 +2035,14 @@ static void nr_mac_start_ra(NR_UE_MAC_INST_t *mac, module_id_t module_id, nr_mac
 {
   switch (cause) {
     case NR_MAC_RA_START_SETUP:
+      // During acquisition, RRC retains the setup trigger and SIB configuration starts RA when ready.
+      // An ongoing setup must not be restarted by another initial NAS request.
+      if (mac->state != UE_IDLE)
+        break;
+      // fall through
     case NR_MAC_RA_START_T300:
+      if (mac->state != UE_IDLE && mac->state != UE_PERFORMING_RA)
+        break;
       reset_ra(mac, false);
       reset_mac_inst(mac);
       mac->msg3_C_RNTI = false;

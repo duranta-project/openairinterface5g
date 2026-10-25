@@ -3505,7 +3505,7 @@ void *rrc_nrue(void *notUsed)
       if (rrc->nrRrcState == RRC_STATE_IDLE_NR) {
         RA_trigger_t prev_trigger = rrc->ra_trigger;
         rrc->ra_trigger = RRC_CONNECTION_SETUP;
-        nr_rrc_ue_prepare_RRCSetupRequest(rrc);
+        // MAC admits setup when ready and requests the Msg3 payload once per admitted attempt.
         nr_rrc_trigger_mac_ra(rrc, NR_MAC_RA_START_SETUP);
         RRCLOG_I("Triggering MAC RA for RRCSetupComplete pending NAS (prev_trigger=%d)\n", prev_trigger);
       }
