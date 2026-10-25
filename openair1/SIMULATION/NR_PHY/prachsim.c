@@ -770,7 +770,8 @@ int main(int argc, char **argv){
         //        printf(" preamble_energy %d preamble_rx %d preamble_tx %d \n", out.max_preamble_energy, out.max_preamble,
         //        preamble_tx);
 
-        if (out.max_preamble != preamble_tx)
+        // same acceptance as the gNB (L1_nr_prach_procedures())
+        if (out.max_preamble != preamble_tx || out.peak_to_floor < NR_PRACH_MIN_PEAK_TO_FLOOR)
           prach_errors++;
         else
           delay_avg += (double)out.max_preamble_delay;
@@ -778,10 +779,11 @@ int main(int argc, char **argv){
         N_ZC = (prach_sequence_length) ? 139 : 839;
 
         if (n_frames == 1) {
-          printf("preamble %d (tx %d) : energy %d, delay %d\n",
+          printf("preamble %d (tx %d) : energy %d, peak to floor %d, delay %d\n",
                  out.max_preamble,
                  preamble_tx,
                  out.max_preamble_energy,
+                 out.peak_to_floor,
                  out.max_preamble_delay);
 #ifdef NR_PRACH_DEBUG
           LOG_M("prach0.m","prach0", &txdata[0][prach_start], frame_parms->samples_per_subframe, 1, 1);
