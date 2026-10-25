@@ -27,6 +27,8 @@
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "PHY/defs_RU.h"
 #include "PHY/defs_gNB.h"
+#include "executables/nr-softmodem.h"
+#include "radio/COMMON/gnb_fhi72_if.h"
 #include "PHY/defs_nr_common.h"
 #include "PHY/impl_defs_nr.h"
 #include "PHY/nr_phy_common/inc/nr_phy_meas.h"
@@ -46,6 +48,39 @@
 #define TICK_TO_US(ts) (ts.trials==0?0:ts.diff/ts.trials)
 #define L1STATSSTRLEN 16384
 static void rx_func(processingData_L1_t *param);
+
+/* split 7.2: precoding and BF, C-plane and DL U-plane through the fhi_72 library */
+static void tx_split72(PHY_VARS_gNB *gNB, int slot_type, int frame_tx, int slot_tx)
+{
+  const bool dl_slot = slot_type & NR_DOWNLINK_SLOT;
+  fhi72_transport_t *t = gNB->fhi72_transport;
+  if (dl_slot) {
+    t->prec_bf(gNB, frame_tx, slot_tx);
+    STOP_MEAS_FULL_SLOT(&gNB->phy_proc_tx, slot_type, NR_DOWNLINK_SLOT);
+  }
+  // beam API - fill TX and/or RX beam IDs
+  if (gNB->common_vars.analog_bf)
+    t->cp(&t->s7cfg, gNB->common_vars.beam_id, frame_tx, slot_tx);
+  if (dl_slot) // xran sends DL U-plane only in DL/mixed slots
+    t->dl_up(&t->s7cfg, frame_tx, slot_tx);
+}
+
+/* other splits: precoding, BF and IDFT, control and TX through the RU */
+static void tx_split8(PHY_VARS_gNB *gNB, int slot_type, int frame_tx, int slot_tx, uint64_t timestamp_tx)
+{
+  const bool dl_slot = slot_type & NR_DOWNLINK_SLOT;
+  RU_t *ru = gNB->RU_list[0];
+  if (dl_slot) {
+    ru->feptx_ofdm(ru, frame_tx, slot_tx);
+    STOP_MEAS_FULL_SLOT(&gNB->phy_proc_tx, slot_type, NR_DOWNLINK_SLOT);
+  }
+  // beam API - fill TX and/or RX beam IDs
+  if (gNB->common_vars.analog_bf)
+    ru->fh_south_ctrl(ru, frame_tx, slot_tx, timestamp_tx);
+  // DL is also sent in UL slots with continuous TX and rfsim
+  if (dl_slot || get_softmodem_params()->continuous_tx || IS_SOFTMODEM_RFSIM)
+    ru->fh_south_out(ru, frame_tx, slot_tx, timestamp_tx);
+}
 
 static void tx_func(processingData_L1tx_t *info)
 {
@@ -91,35 +126,18 @@ static void tx_func(processingData_L1tx_t *info)
   res->key = slot_rx;
   pushNotifiedFIFO(&gNB->resp_L1, res);
 
-  RU_t *ru = gNB->RU_list[0];
   int tx_slot_type = nr_slot_select(cfg, frame_tx, slot_tx);
-  if (tx_slot_type == NR_DOWNLINK_SLOT || tx_slot_type == NR_MIXED_SLOT) {
-    START_MEAS_FULL_SLOT(&info->gNB->phy_proc_tx, tx_slot_type, NR_DOWNLINK_SLOT);
-    START_MEAS_FULL_SLOT(&info->gNB->gnb_tx_procedures_stats, tx_slot_type, NR_DOWNLINK_SLOT);
-    phy_procedures_gNB_TX(info->gNB, &sched_response.DL_req, &sched_response.TX_req, &sched_response.UL_dci_req, frame_tx,slot_tx);
-    STOP_MEAS_FULL_SLOT(&info->gNB->gnb_tx_procedures_stats, tx_slot_type, NR_DOWNLINK_SLOT);
-
-    // split 7.2 precoding
-    if (ru->feptx_prec)
-      ru->feptx_prec(ru,frame_tx,slot_tx);
-
-    // split 8 precoding and IDFT
-    if (ru->feptx_ofdm)
-      ru->feptx_ofdm(ru, frame_tx, slot_tx);
-
-    STOP_MEAS_FULL_SLOT(&info->gNB->phy_proc_tx, tx_slot_type, NR_DOWNLINK_SLOT);
+  if (tx_slot_type & NR_DOWNLINK_SLOT) { // also covers NR_MIXED_SLOT
+    START_MEAS_FULL_SLOT(&gNB->phy_proc_tx, tx_slot_type, NR_DOWNLINK_SLOT);
+    START_MEAS_FULL_SLOT(&gNB->gnb_tx_procedures_stats, tx_slot_type, NR_DOWNLINK_SLOT);
+    phy_procedures_gNB_TX(gNB, &sched_response.DL_req, &sched_response.TX_req, &sched_response.UL_dci_req, frame_tx, slot_tx);
+    STOP_MEAS_FULL_SLOT(&gNB->gnb_tx_procedures_stats, tx_slot_type, NR_DOWNLINK_SLOT);
   }
 
-  // beam API - fill TX and/or RX beam IDs
-  if (gNB->common_vars.analog_bf) {
-    if (ru->fh_south_ctrl)
-      ru->fh_south_ctrl(ru, frame_tx, slot_tx, info->timestamp_tx);
-  }
-
-  if (tx_slot_type == NR_DOWNLINK_SLOT || tx_slot_type == NR_MIXED_SLOT || get_softmodem_params()->continuous_tx || IS_SOFTMODEM_RFSIM) {
-    if (ru->fh_south_out)
-      ru->fh_south_out(ru, frame_tx, slot_tx, info->timestamp_tx);
-  }
+  if (gNB->fhi72_transport)
+    tx_split72(gNB, tx_slot_type, frame_tx, slot_tx);
+  else
+    tx_split8(gNB, tx_slot_type, frame_tx, slot_tx, info->timestamp_tx);
 }
 
 void *L1_rx_thread(void *arg) 
@@ -469,9 +487,16 @@ void term_gNB_Tpool(int inst) {
   pthread_join(gNB->L1_rx_thread, NULL);
   abortNotifiedFIFO(&gNB->L1_tx_out);
   pthread_join(gNB->L1_tx_thread, NULL);
+  // after the L1 RX thread (its producer), before split7_thread, which may block in wait_free_rx_tti()
+  abortNotifiedFIFO(&gNB->L1_rx_out);
+
+  if (gNB->fhi72_transport) {
+    pthread_join(gNB->fhi72_transport->pthread, NULL);
+    free(gNB->fhi72_transport);
+    LOG_I(NR_PHY, "O-RAN 7.2 fronthaul thread removed\n");
+  }
 
   abortTpool(&gNB->threadPool);
-  abortNotifiedFIFO(&gNB->L1_rx_out);
 
   gNB_L1_proc_t *proc = &gNB->proc;
   pthread_join(proc->L1_stats_thread, NULL);

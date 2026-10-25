@@ -63,6 +63,8 @@ extern void init_NR_RU(configmodule_interface_t *cfg, char *);
 void NRRCconfig_RU(configmodule_interface_t *cfg);
 extern void stop_RU(int nb_ru);
 extern void kill_NR_RU_proc(int inst);
+void ru_push_tx_job(PHY_VARS_gNB *gNB, int frame_tx, int slot_tx, int frame_rx, int slot_rx, uint64_t timestamp_tx);
+bool wait_free_rx_tti(notifiedFIFO_t *L1_rx_out, bool rx_tti_busy[RU_RX_SLOT_DEPTH], int frame_rx, int slot_rx);
 extern void set_function_spec_param(RU_t *ru);
 
 void init_eNB_afterRU(void);

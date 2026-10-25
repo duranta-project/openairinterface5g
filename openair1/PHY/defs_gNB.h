@@ -366,6 +366,9 @@ typedef struct PHY_VARS_gNB_s {
   PHY_MEASUREMENTS_gNB measurements;
   NR_IF_Module_t *if_inst;
 
+  // split 7.2 fronthaul, non-NULL only if ru->if_south == REMOTE_IF4p5
+  struct fhi72_transport_s *fhi72_transport;
+
   nfapi_nr_ul_tti_request_t UL_tti_req;
 
   int max_nb_pdsch;
