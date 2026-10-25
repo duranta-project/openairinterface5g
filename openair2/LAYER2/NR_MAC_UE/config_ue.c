@@ -2205,7 +2205,9 @@ static void handle_reconfiguration_with_sync(NR_UE_MAC_INST_t *mac,
   // PHY CONFIG request should be sent, ahead of SYNC request
   // As SYNC request processes the new config
   mac->if_module->phy_config_request(&mac->phy_config);
-  mac->phy_config.config_req.ntn_config.params_changed = false;
+  // Do not clear ntn_config.params_changed here: for handover with sync (target cell),
+  // ownership of clearing params_changed belongs to PHY (apply_ntn_config) once the
+  // update is consumed following PBCH resynchronization.
   mac->synch_request.Mod_id = mac->ue_id;
   mac->synch_request.CC_id = cc_idP;
   mac->synch_request.synch_req.target_Nid_cell = mac->physCellId;
