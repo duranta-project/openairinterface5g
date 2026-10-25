@@ -195,7 +195,7 @@ void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
   }
 }
 
-void oran_fh_if4p5_ctrl(RU_t *ru, int frame, int slot, uint64_t timestamp)
+void oran_cp(RU_t *ru, int frame, int slot, uint64_t timestamp)
 {
   int ret;
 
@@ -231,7 +231,7 @@ void oran_fh_if4p5_ctrl(RU_t *ru, int frame, int slot, uint64_t timestamp)
   }
 }
 
-void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
+void oran_dl_up(RU_t *ru, int frame, int slot, uint64_t timestamp)
 {
   int ret;
   start_meas(&ru->tx_fhaul);
@@ -264,9 +264,9 @@ void *get_internal_parameter(char *name)
   if (!strcmp(name, "fh_if4p5_south_in"))
     return (void *)oran_fh_if4p5_south_in;
   if (!strcmp(name, "fh_if4p5_south_out"))
-    return (void *)oran_fh_if4p5_south_out;
+    return (void *)oran_dl_up;
   if (!strcmp(name, "fh_if4p5_ctrl"))
-    return (void *)oran_fh_if4p5_ctrl;
+    return (void *)oran_cp;
 
   return NULL;
 }
