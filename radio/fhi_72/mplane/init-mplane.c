@@ -164,7 +164,7 @@ static void init_ru_notif(ru_session_t *ru_session, const char* buffer)
   free(ptp_state);
 }
 
-bool manage_ru(ru_session_t *ru_session, const openair0_config_t *oai, const size_t num_rus)
+bool manage_ru(ru_session_t *ru_session, const split7_config_t *s7cfg, const size_t num_rus)
 {
   bool success = false;
 
@@ -192,7 +192,7 @@ bool manage_ru(ru_session_t *ru_session, const openair0_config_t *oai, const siz
   MP_LOG_I("Watchdog timer answer: \n\t%s\n", watchdog_answer);
 
   // save RU info for xran
-  const int max_num_ant = max(oai->tx_num_channels/num_rus, oai->rx_num_channels/num_rus);
+  const int max_num_ant = max(s7cfg->tx_num_channels/num_rus, s7cfg->rx_num_channels/num_rus);
   success = get_config_for_xran(operational_ds, max_num_ant, &ru_session->xran_mplane);
   AssertError(success, return false, "[MPLANE] Unable to retrieve required info for xran from RU \"%s\".\n", ru_session->ru_ip_add);
 
@@ -214,7 +214,7 @@ bool manage_ru(ru_session_t *ru_session, const openair0_config_t *oai, const siz
       AssertError(success, return false, "[MPLANE] Unable to get running U-plane configuration.\n");
 
       char *content = NULL;
-      success = configure_ru_from_yang(ru_session, oai, num_rus, &content);
+      success = configure_ru_from_yang(ru_session, s7cfg, num_rus, &content);
       AssertError(success, return false, "[MPLANE] Unable to create content for <edit-config> RPC for start-up procedure.\n");
 
       success = edit_val_commmit_rpc(ru_session, content, NC_RPC_EDIT_DFLTOP_MERGE);

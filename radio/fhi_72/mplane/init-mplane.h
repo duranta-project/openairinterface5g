@@ -10,7 +10,7 @@
 
 bool init_mplane(ru_session_list_t *ru_session_list);
 
-bool manage_ru(ru_session_t *ru_session, const openair0_config_t *oai, const size_t num_rus);
+bool manage_ru(ru_session_t *ru_session, const split7_config_t *s7cfg, const size_t num_rus);
 
 bool pm_conf(ru_session_t *ru_session, const char *active);
 

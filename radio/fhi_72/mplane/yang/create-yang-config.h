@@ -10,7 +10,7 @@
 
 #include <libyang/libyang.h>
 
-bool configure_ru_from_yang(const ru_session_t *ru_session, const openair0_config_t *oai, const size_t num_rus, char **result);
+bool configure_ru_from_yang(const ru_session_t *ru_session, const split7_config_t *s7cfg, const size_t num_rus, char **result);
 
 char *get_pm_content(const ru_session_t *ru_session, const char *active);
 
