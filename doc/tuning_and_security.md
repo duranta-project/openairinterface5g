@@ -164,13 +164,10 @@ with the following core assignment:
 
 - `L1s.[0].L1_tx_thread_core = 0`
 - `L1s.[0].L1_rx_thread_core = 1`
-- `RUs.[0].ru_thread_core = 2`
 - `fhi_72.system_core = 3`
 - `fhi_72.io_core = 4`
 - `fhi_72.worker_cores.[0] = 5` (minimum 1 core)
 - `thread-pool: 2,3,6,7`
-  (thread pool can overlap with `RUs.[0].ru_thread_core` and `fhi_72.system_core`)
-
 
 ## Capabilities
 
