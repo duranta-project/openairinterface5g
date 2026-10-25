@@ -413,7 +413,6 @@ void *nrL1_stats_thread(void *param) {
   RU_t *ru = RC.ru[0];
   char output[L1STATSSTRLEN];
   memset(output,0,L1STATSSTRLEN);
-  wait_sync("L1_stats_thread");
   FILE *fd=fopen("nrL1_stats.log","w");
   if (!fd) {
     LOG_W(NR_PHY, "Cannot open nrL1_stats.log: %d, %s\n", errno, strerror(errno));
