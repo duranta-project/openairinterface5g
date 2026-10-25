@@ -5,6 +5,7 @@
 #ifndef _ORAN_H_
 #define _ORAN_H_
 
+#include "common/utils/time_meas.h" // time_stats_t
 #include "radio/COMMON/common_lib.h" // duplex_mode_t
 
 struct PHY_VARS_gNB_s;
@@ -64,6 +65,12 @@ typedef struct split7_config {
   uint16_t ul_k0[5];
   uint16_t cp_prefix0;
   uint16_t cp_prefix_other;
+
+  time_stats_t prec_bf;
+  time_stats_t dl_cp;
+  time_stats_t dl_up;
+  time_stats_t ul_cp;
+  time_stats_t ul_up;
 
 } split7_config_t;
 

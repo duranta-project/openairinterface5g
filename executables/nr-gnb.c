@@ -258,18 +258,21 @@ static void nrL1_stats_init_sorted_list(PHY_VARS_gNB *gNB, RU_t *ru, unsigned in
   init_sorted_list_meas(&gNB->slot_indication_stats, size);
   init_sorted_list_meas(&gNB->rx_pusch_stats, size);
   init_sorted_list_meas(&gNB->rx_prach, size);
-  if (ru->feprx) {
+  if (gNB->fhi72_transport) {
+    init_sorted_list_meas(&gNB->fhi72_transport->s7cfg.prec_bf, size);
+    init_sorted_list_meas(&gNB->fhi72_transport->s7cfg.dl_cp, size);
+    init_sorted_list_meas(&gNB->fhi72_transport->s7cfg.dl_up, size);
+    init_sorted_list_meas(&gNB->fhi72_transport->s7cfg.ul_cp, size);
+    init_sorted_list_meas(&gNB->fhi72_transport->s7cfg.ul_up, size);
+  } else {
     init_sorted_list_meas(&ru->ofdm_demod_stats, size);
-  }
-  if (ru->feptx_prec) {
     init_sorted_list_meas(&ru->precoding_stats, size);
-  }
-  if (ru->feptx_ofdm) {
     init_sorted_list_meas(&ru->txdataF_copy_stats, size);
     init_sorted_list_meas(&ru->ofdm_mod_stats, size);
     init_sorted_list_meas(&ru->ofdm_total_stats, size);
+    init_sorted_list_meas(&ru->tx_fhaul, size);
+    init_sorted_list_meas(&ru->rx_fhaul, size);
   }
-  init_sorted_list_meas(&ru->tx_fhaul, size);
 }
 
 static void nrL1_stats_free_sorted_list(PHY_VARS_gNB *gNB, RU_t *ru)
@@ -293,19 +296,22 @@ static void nrL1_stats_free_sorted_list(PHY_VARS_gNB *gNB, RU_t *ru)
   free_sorted_list_meas(&gNB->slot_indication_stats);
   free_sorted_list_meas(&gNB->rx_pusch_stats);
   free_sorted_list_meas(&gNB->rx_prach);
-  if (ru->feprx) {
+  if (gNB->fhi72_transport) {
+    free_sorted_list_meas(&gNB->fhi72_transport->s7cfg.prec_bf);
+    free_sorted_list_meas(&gNB->fhi72_transport->s7cfg.dl_cp);
+    free_sorted_list_meas(&gNB->fhi72_transport->s7cfg.dl_up);
+    free_sorted_list_meas(&gNB->fhi72_transport->s7cfg.ul_cp);
+    free_sorted_list_meas(&gNB->fhi72_transport->s7cfg.ul_up);
+  } else {
     free_sorted_list_meas(&ru->ofdm_demod_stats);
-  }
-  if (ru->feptx_prec) {
     free_sorted_list_meas(&ru->precoding_stats);
-  }
-  if (ru->feptx_ofdm) {
     free_sorted_list_meas(&ru->txdataF_copy_stats);
     free_sorted_list_meas(&ru->ofdm_mod_stats);
     free_sorted_list_meas(&ru->ofdm_total_stats);
     free_sorted_list_meas(&ru->txdataF_copy_stats);
+    free_sorted_list_meas(&ru->tx_fhaul);
+    free_sorted_list_meas(&ru->rx_fhaul);
   }
-  free_sorted_list_meas(&ru->tx_fhaul);
 }
 
 static void nrL1_stats_reset(PHY_VARS_gNB *gNB, RU_t *ru)
@@ -330,19 +336,22 @@ static void nrL1_stats_reset(PHY_VARS_gNB *gNB, RU_t *ru)
   reset_meas(&gNB->slot_indication_stats);
   reset_meas(&gNB->rx_pusch_stats);
   reset_meas(&gNB->rx_prach);
-  if (ru->feprx) {
-    reset_meas(&ru->ofdm_demod_stats);
-  }
-  if (ru->feptx_prec) {
+  if (gNB->fhi72_transport) {
+    reset_meas(&gNB->fhi72_transport->s7cfg.prec_bf);
+    reset_meas(&gNB->fhi72_transport->s7cfg.dl_cp);
+    reset_meas(&gNB->fhi72_transport->s7cfg.dl_up);
+    reset_meas(&gNB->fhi72_transport->s7cfg.ul_cp);
+    reset_meas(&gNB->fhi72_transport->s7cfg.ul_up);
+  } else {
     reset_meas(&ru->precoding_stats);
-  }
-  if (ru->feptx_ofdm) {
+    reset_meas(&ru->ofdm_demod_stats);
     reset_meas(&ru->txdataF_copy_stats);
     reset_meas(&ru->ofdm_mod_stats);
     reset_meas(&ru->ofdm_total_stats);
     reset_meas(&ru->txdataF_copy_stats);
+    reset_meas(&ru->tx_fhaul);
+    reset_meas(&ru->rx_fhaul);
   }
-  reset_meas(&ru->tx_fhaul);
 }
 
 static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size_t outputlen) {
@@ -379,21 +388,22 @@ static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size
   output += print_meas_log(&gNB->slot_indication_stats, "Slot Indication", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->rx_pusch_stats, "PUSCH inner-receiver", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->rx_prach, "PRACH RX", NULL, NULL, output, end - output);
-  if (ru->feprx) {
-    output += print_meas_log(&ru->ofdm_demod_stats, "feprx", NULL, NULL, output, end - output);
-  }
 
-  bool full_slot = ru->half_slot_parallelization == 0;
-  if (ru->feptx_prec) {
+  if (gNB->fhi72_transport) {
+    output += print_meas_log(&gNB->fhi72_transport->s7cfg.prec_bf,"prec_bf",NULL,NULL, output, end - output);
+    output += print_meas_log(&gNB->fhi72_transport->s7cfg.dl_cp,"dl_cp",NULL,NULL, output, end - output);
+    output += print_meas_log(&gNB->fhi72_transport->s7cfg.dl_up,"dl_up",NULL,NULL, output, end - output);
+    output += print_meas_log(&gNB->fhi72_transport->s7cfg.ul_cp,"ul_cp",NULL,NULL, output, end - output);
+    output += print_meas_log(&gNB->fhi72_transport->s7cfg.ul_up,"ul_up",NULL,NULL, output, end - output);
+  } else {
+    bool full_slot = ru->half_slot_parallelization == 0;
+    output += print_meas_log(&ru->ofdm_demod_stats, "feprx", NULL, NULL, output, end - output);
     output += print_meas_log(&ru->precoding_stats,
                              full_slot ? "feptx_prec (per port)" : "feptx_prec (per port, half_slot)",
                              NULL,
                              NULL,
                              output,
                              end - output);
-  }
-
-  if (ru->feptx_ofdm) {
     output += print_meas_log(&ru->txdataF_copy_stats,"txdataF_copy",NULL,NULL, output, end - output);
     output += print_meas_log(&ru->ofdm_mod_stats,
                              full_slot ? "feptx_ofdm (per port)" : "feptx_ofdm (per port, half_slot)",
@@ -403,9 +413,10 @@ static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size
                              end - output);
     output += print_meas_log(&ru->ofdm_total_stats,"feptx_total",NULL,NULL, output, end - output);
     output += print_meas_log(&ru->txdataF_copy_stats, "txdataF_copy", NULL, NULL, output, end - output);
-  }
 
-  output += print_meas_log(&ru->tx_fhaul,"tx_fhaul",NULL,NULL, output, end - output);
+    output += print_meas_log(&ru->tx_fhaul,"tx_fhaul",NULL,NULL, output, end - output);
+    output += print_meas_log(&ru->rx_fhaul,"rx_fhaul",NULL,NULL, output, end - output);
+  }
 
   if (cpu_meas_enabled == TIME_STATS_ADVANCED_MODE) {
     nrL1_stats_reset(gNB, ru);
