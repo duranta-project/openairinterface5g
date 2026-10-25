@@ -26,6 +26,7 @@
 #include <fstream>
 #include <cmath>
 #include <time.h>
+#include <errno.h>
 #include "common/utils/LOG/log.h"
 #include "common_lib.h"
 #include "assertions.h"
@@ -64,8 +65,16 @@ typedef struct {
   //! USRP RX Metadata
   uhd::rx_metadata_t rx_md;
 
-  //! Sampling rate
+  //! Actual common RX/TX sample rate for elapsed device timestamp conversions
   double sample_rate;
+  //! Configured sample rate keeps the initial epoch aligned with nominal frame/slot arithmetic
+  double nominal_sample_rate;
+
+  // One shared RX/TX origin preserves fractional phase and avoids rounding each block independently.
+  int64_t rx_time_origin_secs;
+  double rx_time_origin_frac;
+  int64_t rx_time_origin_ticks;
+  bool rx_time_origin_valid;
 
   //! TX forward samples. We use usrp_time_offset to get this value
   int tx_forward_nsamps; //166 for 20Mhz
@@ -318,6 +327,8 @@ static int trx_usrp_start(openair0_device_t *device)
   //s->first_tx = 1;
   //s->first_rx = 1;
   s->rx_timestamp = 0;
+  // The start lifecycle requires quiescent RX/TX before resetting the shared origin.
+  __atomic_store_n(&s->rx_time_origin_valid, false, __ATOMIC_RELEASE);
 
     //wait for next pps
   uhd::time_spec_t last_pps = s->usrp->get_time_last_pps();
@@ -364,6 +375,13 @@ static void trx_usrp_finish_rx(usrp_state_t *s)
   } while (samples > 0);
 }
 
+static int usrp_tx_timestamp_offset(const usrp_state_t *state, int64_t timestamp, int64_t *offset)
+{
+  if (!__atomic_load_n(&state->rx_time_origin_valid, __ATOMIC_ACQUIRE))
+    return -EAGAIN;
+  return __builtin_sub_overflow(timestamp, state->rx_time_origin_ticks, offset) ? -EOVERFLOW : 0;
+}
+
 // Does the same as removed get_gpio_flags(), except it only handles 1 beam
 static int trx_set_beam(openair0_device_t *device, uint16_t *beams, int num_beams, openair0_timestamp_t timestamp)
 {
@@ -378,7 +396,6 @@ static int trx_set_beam(openair0_device_t *device, uint16_t *beams, int num_beam
   usrp_state_t *s = (usrp_state_t *)device->priv;
   if (beam_id == s->last_beam_id)
     return 0;
-  s->last_beam_id = beam_id;
 
   uint32_t gpio = 0;
   switch (device->openair0_cfg->gpio_controller) {
@@ -398,10 +415,19 @@ static int trx_set_beam(openair0_device_t *device, uint16_t *beams, int num_beam
       AssertFatal(false, "illegal GPIO controller for beam handling %d\n", device->openair0_cfg->gpio_controller);
   }
   // bit 13 enables gpio
-  timestamp -= device->openair0_cfg->command_line_sample_advance + device->openair0_cfg->tx_sample_advance;
+  const int64_t advance =
+      (int64_t)device->openair0_cfg->command_line_sample_advance + (int64_t)device->openair0_cfg->tx_sample_advance;
+  if (__builtin_sub_overflow(timestamp, advance, &timestamp))
+    return -EOVERFLOW;
+  int64_t offset;
+  const int timestamp_error = usrp_tx_timestamp_offset(s, timestamp, &offset);
+  if (timestamp_error)
+    return timestamp_error;
+  s->last_beam_id = beam_id;
   // trx_set_beam() can run concurrently with trx_usrp_write_thread() (--usrp-tx-thread-config 1),
   // which writes s->tx_md that cannot be reused here. Instead, create a new time variable
-  const uhd::time_spec_t beam_time_spec = uhd::time_spec_t::from_ticks(timestamp, s->sample_rate);
+  const uhd::time_spec_t beam_time_spec =
+      uhd::time_spec_t(s->rx_time_origin_secs, s->rx_time_origin_frac) + uhd::time_spec_t::from_ticks(offset, s->sample_rate);
 
   // push GPIO bits
   s->usrp->set_command_time(beam_time_spec);
@@ -465,7 +491,14 @@ static int trx_usrp_write(openair0_device_t *device,
 {
   int ret=0;
   usrp_state_t *s = (usrp_state_t *)device->priv;
-  timestamp -= device->openair0_cfg->command_line_sample_advance + device->openair0_cfg->tx_sample_advance;
+  const int64_t advance =
+      (int64_t)device->openair0_cfg->command_line_sample_advance + (int64_t)device->openair0_cfg->tx_sample_advance;
+  if (__builtin_sub_overflow(timestamp, advance, &timestamp))
+    return -EOVERFLOW;
+  int64_t offset;
+  const int timestamp_error = usrp_tx_timestamp_offset(s, timestamp, &offset);
+  if (timestamp_error)
+    return timestamp_error;
 
   radio_tx_burst_flag_t flags_burst = (radio_tx_burst_flag_t) (flags & 0xf);
 
@@ -510,7 +543,8 @@ static int trx_usrp_write(openair0_device_t *device,
       s->tx_md.has_time_spec = true;
       s->tx_md.start_of_burst = (s->tx_count == 0) ? true : first_packet_state;
       s->tx_md.end_of_burst = last_packet_state;
-      s->tx_md.time_spec = uhd::time_spec_t::from_ticks(timestamp, s->sample_rate);
+      s->tx_md.time_spec =
+          uhd::time_spec_t(s->rx_time_origin_secs, s->rx_time_origin_frac) + uhd::time_spec_t::from_ticks(offset, s->sample_rate);
       s->tx_count++;
 
       if (cc > 1) {
@@ -607,10 +641,14 @@ void *trx_usrp_write_thread(void * arg)
       LOG_W(HW,"count write = %d, start = %d, end = %d\n", write_thread->count_write, write_thread->start, write_thread->end);
     }*/
 
+    // The producer validated this timestamp against an origin fixed for the active stream.
+    int64_t offset;
+    AssertFatal(usrp_tx_timestamp_offset(s, timestamp, &offset) == 0, "Queued USRP timestamp mapping changed while active\n");
     s->tx_md.has_time_spec  = true;
     s->tx_md.start_of_burst = (s->tx_count==0) ? true : first_packet;
     s->tx_md.end_of_burst   = last_packet;
-    s->tx_md.time_spec      = uhd::time_spec_t::from_ticks(timestamp, s->sample_rate);
+    s->tx_md.time_spec =
+        uhd::time_spec_t(s->rx_time_origin_secs, s->rx_time_origin_frac) + uhd::time_spec_t::from_ticks(offset, s->sample_rate);
     LOG_D(PHY,"usrp_tx_write: tx_count %llu SoB %d, EoB %d, TS %llu\n",(unsigned long long)s->tx_count,s->tx_md.start_of_burst,s->tx_md.end_of_burst,(unsigned long long)timestamp); 
     s->tx_count++;
 
@@ -672,46 +710,124 @@ static void trx_usrp_write_reset(openair0_thread_t *wt) {
 
 //---------------------end-------------------------
 
+static bool usrp_rx_time_representable(int64_t seconds, double fraction, double rate)
+{
+  /* UHD converts whole seconds to double for the fractional-rate correction. */
+  if (seconds <= -INT64_C(9007199254740992) || seconds >= INT64_C(9007199254740992))
+    return false;
+  if (!std::isfinite(rate) || rate <= 0.0 || rate >= 0x1p63 || !std::isfinite(fraction) || fraction < 0.0 || fraction >= 1.0)
+    return false;
+  /* Bound UHD's whole-second multiplication and fractional rounding before
+   * to_ticks() performs signed integer arithmetic. */
+  const long double bound = (std::fabs((long double)seconds) + 1.0L) * (long double)rate + 1.0L;
+  return bound < (long double)INT64_MAX;
+}
+
+static bool usrp_rx_timestamp_offset(int64_t origin, int64_t elapsed, bool backwards, int64_t *ticks)
+{
+  if (elapsed < 0)
+    return false;
+  return backwards ? !__builtin_sub_overflow(origin, elapsed, ticks) : !__builtin_add_overflow(origin, elapsed, ticks);
+}
+
+static bool usrp_rx_timestamp(usrp_state_t *state, const uhd::rx_metadata_t &metadata, size_t received, openair0_timestamp_t *ticks)
+{
+  const uhd::time_spec_t &time = metadata.time_spec;
+  if (!std::isfinite(time.get_frac_secs()) || time.get_frac_secs() < 0.0 || time.get_frac_secs() >= 1.0)
+    return false;
+  if (!metadata.has_time_spec || received == 0 || !__atomic_load_n(&state->rx_time_origin_valid, __ATOMIC_ACQUIRE)) {
+    if (!usrp_rx_time_representable(time.get_full_secs(), time.get_frac_secs(), state->nominal_sample_rate))
+      return false;
+    *ticks = time.to_ticks(state->nominal_sample_rate);
+    if (received > 0 && *ticks == INT64_MIN)
+      return false;
+    if (metadata.has_time_spec && received > 0 && time.get_full_secs() >= 0 && *ticks >= 0) {
+      state->rx_time_origin_secs = time.get_full_secs();
+      state->rx_time_origin_frac = time.get_frac_secs();
+      state->rx_time_origin_ticks = *ticks;
+      // Publish the complete shared origin before a TX/GPIO producer can use it.
+      __atomic_store_n(&state->rx_time_origin_valid, true, __ATOMIC_RELEASE);
+    }
+    return true;
+  }
+
+  /* Anchor the initial epoch at the nominal rate, then count actual samples from
+   * that shared RX/TX origin without rounding each absolute half-sample time. */
+  const uhd::time_spec_t origin(state->rx_time_origin_secs, state->rx_time_origin_frac);
+  const bool backwards = time < origin;
+  const uhd::time_spec_t &later = backwards ? origin : time;
+  const uhd::time_spec_t &earlier = backwards ? time : origin;
+  int64_t seconds;
+  if (__builtin_sub_overflow(later.get_full_secs(), earlier.get_full_secs(), &seconds))
+    return false;
+  const uhd::time_spec_t elapsed(seconds, later.get_frac_secs() - earlier.get_frac_secs());
+  if (!usrp_rx_time_representable(elapsed.get_full_secs(), elapsed.get_frac_secs(), state->sample_rate))
+    return false;
+  /* UHD's fractional rounding assumes nonnegative input, so convert the positive
+   * magnitude even when metadata precedes the origin, then subtract its ticks. */
+  if (!usrp_rx_timestamp_offset(state->rx_time_origin_ticks, elapsed.to_ticks(state->sample_rate), backwards, ticks))
+    return false;
+  return *ticks != INT64_MIN;
+}
+
 /*! \brief Receive samples from hardware.
  * Read \ref nsamps samples from each channel to buffers. buff[0] is the array for
  * the first channel. *ptimestamp is the time at which the first sample
  * was received.
  * \param device the hardware to use
  * \param[out] ptimestamp the time at which the first sample was received.
- * \param[out] buff An array of pointers to buffers for received samples. The buffers must be large enough to hold the number of samples \ref nsamps.
- * \param nsamps Number of samples. One sample is 2 byte I + 2 byte Q => 4 byte.
- * \param antenna_id Index of antenna for which to receive samples
- * \returns the number of sample read
-*/
+ * \param[out] buff An array of pointers to buffers for received samples. The buffers must be large enough to hold the number of
+ * samples \ref nsamps. \param nsamps Number of samples. One sample is 2 byte I + 2 byte Q => 4 byte. \param antenna_id Index of
+ * antenna for which to receive samples \returns the number of sample read
+ */
 static int trx_usrp_read(openair0_device_t *device, openair0_timestamp_t *ptimestamp, void **buff, int nsamps, int cc)
 {
   usrp_state_t *s = (usrp_state_t *)device->priv;
   int samples_received=0;
+  openair0_timestamp_t first_received_timestamp = 0;
   static int read_count = 0;
 
   samples_received=0;
   while (samples_received != nsamps) {
-
+    const bool waiting_for_first_pps = s->wait_for_first_pps == 1;
+    int samples_received_this_call;
     if (cc>1) {
       // receive multiple channels (e.g. RF A and RF B)
       std::vector<void *> buff_ptrs;
 
-      for (int i=0; i<cc; i++) buff_ptrs.push_back((void*)((int32_t*)buff[i]+samples_received));
-      samples_received += s->rx_stream->recv(buff_ptrs, nsamps-samples_received, s->rx_md);
+      for (int i = 0; i < cc; i++)
+        buff_ptrs.push_back((int32_t *)buff[i] + samples_received);
+      samples_received_this_call = s->rx_stream->recv(buff_ptrs, nsamps - samples_received, s->rx_md);
     } else {
       // receive a single channel (e.g. from connector RF A)
 
-      samples_received += s->rx_stream->recv((void*)((int32_t*)buff[0]+samples_received),
-                                             nsamps-samples_received, s->rx_md);
+      samples_received_this_call =
+          s->rx_stream->recv((void *)((int32_t *)buff[0] + samples_received), nsamps - samples_received, s->rx_md);
     }
-    if  ((s->wait_for_first_pps == 0) && (s->rx_md.error_code!=uhd::rx_metadata_t::ERROR_CODE_NONE))
-      break;
 
-    if ((s->wait_for_first_pps == 1) && (samples_received != nsamps)) {
-      printf("sleep...\n"); //usleep(100);
+    // Return the timestamp of the first sample, even when UHD splits a read across calls.
+    if (samples_received == 0 && samples_received_this_call > 0) {
+      if (!usrp_rx_timestamp(s, s->rx_md, samples_received_this_call, &first_received_timestamp)) {
+        s->rx_timestamp = 0;
+        *ptimestamp = 0;
+        return -EOVERFLOW;
+      }
     }
+    if (samples_received_this_call > 0)
+      s->wait_for_first_pps = 0;
+    samples_received += samples_received_this_call;
+
+    // Only an empty timeout is expected before the scheduled start. Do not hide a stream error by appending later samples.
+    const bool retry_startup_timeout = waiting_for_first_pps && samples_received == 0 && samples_received_this_call == 0
+                                       && s->rx_md.error_code == uhd::rx_metadata_t::ERROR_CODE_TIMEOUT;
+    if (retry_startup_timeout) {
+      printf("sleep...\n"); //usleep(100);
+      continue;
+    }
+
+    if (s->rx_md.error_code != uhd::rx_metadata_t::ERROR_CODE_NONE)
+      break;
   }
-  if (samples_received == nsamps) s->wait_for_first_pps=0;
 
   if (samples_received < nsamps) {
     LOG_E(HW,"[recv] received %d samples out of %d\n",samples_received,nsamps);
@@ -720,8 +836,14 @@ static int trx_usrp_read(openair0_device_t *device, openair0_timestamp_t *ptimes
   if ( s->rx_md.error_code != uhd::rx_metadata_t::ERROR_CODE_NONE)
     LOG_E(HW, "%s\n", s->rx_md.to_pp_string(true).c_str());
 
-  s->rx_count += nsamps;
-  s->rx_timestamp = s->rx_md.time_spec.to_ticks(s->sample_rate);
+  s->rx_count += samples_received;
+  if (samples_received > 0)
+    s->rx_timestamp = first_received_timestamp;
+  else if (!usrp_rx_timestamp(s, s->rx_md, 0, &s->rx_timestamp)) {
+    s->rx_timestamp = 0;
+    *ptimestamp = 0;
+    return -EOVERFLOW;
+  }
   *ptimestamp = s->rx_timestamp;
 
   T(T_USRP_RX_ANT0, T_INT(s->rx_timestamp), T_BUFFER(buff[0], samples_received*4));
@@ -740,13 +862,19 @@ static int trx_usrp_read(openair0_device_t *device, openair0_timestamp_t *ptimes
       (void) clock_gettime(CLOCK_REALTIME, &trec);
       hdr->header = BELL_LABS_IQ_HEADER;
       hdr->ts = *ptimestamp;
-      hdr->nbBytes=nsamps*4;            // real number of samples bytes
+      hdr->nbBytes = samples_received * 4; // real number of samples bytes
       hdr->tv_sec = trec.tv_sec;        // record secs
       hdr->tv_usec = trec.tv_nsec/1000; // record µsecs
-      memcpy(hdr+1, buff[0], nsamps*4);
+      memcpy(hdr + 1, buff[0], samples_received * 4);
       recPlay->currentPtr+=sizeof(iqrec_t)+BELL_LABS_IQ_BYTES_PER_SF; // record size is constant (BELL_LABS_IQ_BYTES_PER_SF)
       recPlay->nbSamplesBlocks++;
-      LOG_D(HW,"recorded %d samples, for TS %lu, shift in buffer %ld nbBytes %d nbSamplesBlocks %d\n", nsamps, hdr->ts, recPlay->currentPtr-(uint8_t *)recPlay->ms_sample, (int)hdr->nbBytes, (int)recPlay->nbSamplesBlocks);
+      LOG_D(HW,
+            "recorded %d samples, for TS %lu, shift in buffer %ld nbBytes %d nbSamplesBlocks %d\n",
+            samples_received,
+            hdr->ts,
+            recPlay->currentPtr - (uint8_t *)recPlay->ms_sample,
+            (int)hdr->nbBytes,
+            (int)recPlay->nbSamplesBlocks);
     } else
       exit_function(__FILE__, __FUNCTION__, __LINE__, "Recording reaches max iq limit\n", OAI_EXIT_NORMAL);
   }
@@ -1481,9 +1609,23 @@ extern "C" {
       s->usrp->set_rx_bandwidth(openair0_cfg[0].rx_bw,i+choffset);
   }
 
-  for (int i=0; i<openair0_cfg[0].rx_num_channels; i++) {
-    LOG_I(HW,"RX Channel %d\n",i);
-    LOG_I(HW,"  Actual RX sample rate: %fMSps...\n",s->usrp->get_rx_rate(i+choffset)/1e6);
+  /* UHD can coerce the requested rate. Using the nominal rate for actual sample
+   * timestamps can introduce periodic one-sample jumps. */
+  double common_sample_rate = 0.0;
+  for (int i = 0; i < openair0_cfg[0].rx_num_channels; i++) {
+    LOG_I(HW, "RX Channel %d\n", i);
+    const double actual_rx_rate = s->usrp->get_rx_rate(i + choffset);
+    if (!std::isfinite(actual_rx_rate) || actual_rx_rate <= 0.0
+        || (common_sample_rate > 0.0 && actual_rx_rate != common_sample_rate)) {
+      LOG_E(HW,
+            "USRP RX channel %d: invalid or inconsistent sample rate, common %.17g Hz, actual %.17g Hz\n",
+            i + choffset,
+            common_sample_rate,
+            actual_rx_rate);
+      return -1;
+    }
+    common_sample_rate = actual_rx_rate;
+    LOG_I(HW, "  Actual RX sample rate: %fMSps...\n", actual_rx_rate / 1e6);
     LOG_I(HW,"  Actual RX frequency: %fGHz...\n", s->usrp->get_rx_freq(i+choffset)/1e9);
     LOG_I(HW,"  Actual RX gain: %f...\n", s->usrp->get_rx_gain(i+choffset));
     LOG_I(HW,"  Actual RX bandwidth: %fM...\n", s->usrp->get_rx_bandwidth(i+choffset)/1e6);
@@ -1492,7 +1634,18 @@ extern "C" {
 
   for (int i=0; i<openair0_cfg[0].tx_num_channels; i++) {
     LOG_I(HW,"TX Channel %d\n",i);
-    LOG_I(HW,"  Actual TX sample rate: %fMSps...\n", s->usrp->get_tx_rate(i+choffset)/1e6);
+    const double actual_tx_rate = s->usrp->get_tx_rate(i + choffset);
+    if (!std::isfinite(actual_tx_rate) || actual_tx_rate <= 0.0
+        || (common_sample_rate > 0.0 && actual_tx_rate != common_sample_rate)) {
+      LOG_E(HW,
+            "USRP TX channel %d: invalid or inconsistent sample rate, common %.17g Hz, actual %.17g Hz\n",
+            i + choffset,
+            common_sample_rate,
+            actual_tx_rate);
+      return -1;
+    }
+    common_sample_rate = actual_tx_rate;
+    LOG_I(HW, "  Actual TX sample rate: %fMSps...\n", actual_tx_rate / 1e6);
     LOG_I(HW,"  Actual TX frequency: %fGHz...\n", s->usrp->get_tx_freq(i+choffset)/1e9);
     LOG_I(HW,"  Actual TX gain: %f...\n", s->usrp->get_tx_gain(i+choffset));
     LOG_I(HW,"  Actual TX bandwidth: %fM...\n", s->usrp->get_tx_bandwidth(i+choffset)/1e6);
@@ -1500,22 +1653,28 @@ extern "C" {
     LOG_I(HW,"  Actual TX packet size: %lu\n",s->tx_stream->get_max_num_samps());
   }
 
+  if (common_sample_rate == 0.0) {
+    LOG_E(HW, "USRP has no active RX/TX sample rate for timestamp conversion\n");
+    return -1;
+  }
+
   std::cout << boost::format("Using Device: %s") % s->usrp->get_pp_string() << std::endl;
   LOG_I(HW,"Device timestamp: %f...\n", s->usrp->get_time_now().get_real_secs());
   device->trx_write_func = trx_usrp_write;
   device->trx_read_func  = trx_usrp_read;
   device->trx_set_beams = (device->openair0_cfg->gpio_controller != RU_GPIO_CONTROL_NONE) ? trx_set_beam : NULL;
-  s->sample_rate = openair0_cfg[0].sample_rate;
+  s->sample_rate = common_sample_rate;
+  s->nominal_sample_rate = openair0_cfg[0].sample_rate;
 
   // TODO:
   // init tx_forward_nsamps based usrp_time_offset ex
-  if(is_equal(s->sample_rate, (double)30.72e6))
+  if (is_equal(openair0_cfg[0].sample_rate, (double)30.72e6))
     s->tx_forward_nsamps  = 176;
 
-  if(is_equal(s->sample_rate, (double)15.36e6))
+  if (is_equal(openair0_cfg[0].sample_rate, (double)15.36e6))
     s->tx_forward_nsamps = 90;
 
-  if(is_equal(s->sample_rate, (double)7.68e6))
+  if (is_equal(openair0_cfg[0].sample_rate, (double)7.68e6))
     s->tx_forward_nsamps = 50;
 
   recplay_state_t *recPlay=device->recplay_state;
@@ -1523,7 +1682,7 @@ extern "C" {
   if (recPlay != NULL) { // record mode
     recPlay->maxSizeBytes=openair0_cfg[0].recplay_conf->u_sf_max *
                             (sizeof(iqrec_t)+BELL_LABS_IQ_BYTES_PER_SF);
-    recPlay->ms_sample = (iqrec_t *) malloc(recPlay->maxSizeBytes);
+    recPlay->ms_sample = (iqrec_t *)calloc(1, recPlay->maxSizeBytes);
     recPlay->currentPtr= (uint8_t *)recPlay->ms_sample;
 
     if (recPlay->ms_sample == NULL) {
