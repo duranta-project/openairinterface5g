@@ -155,13 +155,14 @@ static void set_UE_options(int CC_id, PHY_VARS_NR_UE *UE, int ru_id)
   UE->UE_fo_compensation   = nrUE_params.UE_fo_compensation;
   UE->chest_freq           = nrUE_params.chest_freq;
   UE->chest_time           = nrUE_params.chest_time;
+  UE->chest_prg            = nrUE_params.chest_prg;
   UE->no_timing_correction = nrUE_params.no_timing_correction;
   UE->initial_fo           = nrUE_params.initial_fo;
   UE->cont_fo_comp         = nrUE_params.cont_fo_comp;
   UE->disable_blind_search = nrUE_params.disable_blind_search;
 
-  LOG_I(PHY,"Set UE_fo_compensation %d, UE_scan_carrier %d, UE_no_timing_correction %d \n, chest-freq %d, chest-time %d\n",
-        UE->UE_fo_compensation, UE->UE_scan_carrier, UE->no_timing_correction, UE->chest_freq, UE->chest_time);
+  LOG_I(PHY,"Set UE_fo_compensation %d, UE_scan_carrier %d, UE_no_timing_correction %d \n, chest-freq %d, chest-time %d, chest-prg %d\n",
+        UE->UE_fo_compensation, UE->UE_scan_carrier, UE->no_timing_correction, UE->chest_freq, UE->chest_time, UE->chest_prg);
 }
 
 static void set_fp_options(int cell_id, int ru_id)

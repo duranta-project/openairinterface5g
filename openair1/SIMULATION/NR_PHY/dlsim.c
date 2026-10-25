@@ -432,7 +432,7 @@ int main(int argc, char **argv)
   uint16_t ptrsSymbPerSlot = 0;
   uint8_t  mcsIndex = 9;
   uint8_t  dlsch_threads = 0;
-  int chest_type[2] = {0};
+  int chest_type[3] = {0};
   uint8_t  max_ldpc_iterations = 5;
   // number of PDSCH symbols per thread = 0 means do not use thread pool
   int num_pdsch_symbols_per_thread = 0;
@@ -509,7 +509,7 @@ int main(int argc, char **argv)
       break;
 
     case 'i':
-      for(i=0; i < atoi(optarg); i++){
+      for (i = 0; i < atoi(optarg) && i < 3; i++) {
         chest_type[i] = atoi(argv[optind++]);
       }
       break;
@@ -697,7 +697,7 @@ int main(int argc, char **argv)
              argv[0]);
       printf("-h This message\n");
       printf("-L <log level, 0(errors), 1(warning), 2(analysis), 3(info), 4(debug), 5(trace)>\n");
-      printf("-i Change channel estimation technique. Arguments list: Frequency domain {0:Linear interpolation, 1:PRB based averaging}, Time domain {0:Estimates of last DMRS symbol, 1:Average of DMRS symbols}\n");
+      printf("-i Change channel estimation technique. Arguments list: Frequency domain {0:Linear interpolation, 1:PRB based averaging, 2:Delay-compensated linear interpolation (type 1)}, Time domain {0:Estimates of last DMRS symbol, 1:Average of DMRS symbols}, PRG size in RBs for 2 (0: none), e.g. -i 3 2 0 2\n");
       printf("-O oversampling factor (1,2,4,8,16)\n");
       printf("-A Interpolation_filname Run with Abstraction to generate Scatter plot using interpolation polynomial in file\n");
       printf("-F Input filename (.txt format) for RX conformance testing\n");
@@ -1037,6 +1037,7 @@ int main(int argc, char **argv)
   UE->if_inst->ul_indication = dummy_nr_ue_ul_indication;
   UE->chest_freq = chest_type[0];
   UE->chest_time = chest_type[1];
+  UE->chest_prg = chest_type[2];
 
   UE_mac->if_module = nr_ue_if_module_init(0);
 

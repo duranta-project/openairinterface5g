@@ -346,6 +346,8 @@ typedef struct PHY_VARS_NR_UE_s {
   // when off, defaults to frequency domain interpolation
   int chest_freq;
   int chest_time;
+  // chest_freq 2: PRB bundling size in RBs (0: none), the PDSCH channel estimate stays within a PRG
+  int chest_prg;
 
   UE_NR_SCAN_INFO_t scan_info[NB_BANDS_MAX];
 

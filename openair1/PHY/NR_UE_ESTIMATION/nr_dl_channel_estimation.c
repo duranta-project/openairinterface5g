@@ -7,6 +7,7 @@
 #include "platform_types.h"
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
 #include "nr_estimation.h"
 #include "PHY/NR_REFSIG/nr_refsig.h"
 #include "PHY/NR_REFSIG/nr_mod_table.h"
@@ -865,6 +866,174 @@ static void NFAPI_NR_DMRS_TYPE1_linear_interp(const NR_DL_FRAME_PARMS *frame_par
     *nvar += estimate_noise_var(dl_ls_est, dl_ch0, idx);
 }
 
+// Type 1 DMRS, chest_freq 2: delay-compensated linear interpolation, for channels whose phase turns across
+// the allocation (delay spread, distributed TRPs). The linear interpolation above despreads each CDM pilot
+// pair before compensating the delay, holds the pair mean over 4 subcarriers and filters that, and takes the
+// delay from the strongest tap, which jumps between comparable paths and is compensated up to
+// MAX_DELAY_COMP only. Here:
+// - the mean delay is the phase slope of the lag-1 correlation of the pair sums and differences, i.e. of
+//   both ports of the CDM group (power weighted, no limit but +-1 / (8 SCS)), and is removed from every
+//   pilot's LS estimate before its pair is despread;
+// - the other port of the CDM group, which leaks in through its slope across the pair, is cancelled to first
+//   order with that slope from the pair differences of the neighbouring pairs;
+// - the pair means, at their own subcarrier 4n + 1 + delta, get a [1 2 1] / 4 smoothing and a linear
+//   interpolation to every subcarrier, then the delay is restored.
+// Nothing crosses a gap in the allocation or, with prg > 0 (PRB bundling, in common RBs), a PRG boundary,
+// where the precoding may change; a group's edges are extrapolated from inside it.
+static void NFAPI_NR_DMRS_TYPE1_delay_comp_interp(const NR_DL_FRAME_PARMS *frame_parms,
+                                                  c16_t *rxF,
+                                                  int delta,
+                                                  c16_t *pil,
+                                                  c16_t *dl_ch0,
+                                                  unsigned short bwp_start_subcarrier,
+                                                  const freq_alloc_bitmap_t *freq_alloc,
+                                                  int bwpsize,
+                                                  int prg,
+                                                  uint32_t *nvar)
+{
+  const int symb_sz = frame_parms->ofdm_symbol_size;
+  int re_offset = delta + bwp_start_subcarrier;
+  const int max_pair = symb_sz / 4;
+  float lr[2 * max_pair], li[2 * max_pair]; // LS estimates, pilots 4n + delta and 4n + 2 + delta
+  uint8_t cut[max_pair + 1]; // cut[n]: pair n starts a group
+  const int crb0 = bwp_start_subcarrier / NR_NB_SC_PER_RB - freq_alloc->first_rb; // common RB of BWP RB 0
+  int np = 0, prev_rb = -2;
+  int pos = freq_alloc->first_rb;
+  int last_processed_rb = freq_alloc->first_rb;
+  int block_start, block_end;
+  while (find_next_rb_block(freq_alloc->bitmap, bwpsize, &pos, &block_start, &block_end)) {
+    int skipped_rbs = block_start - last_processed_rb;
+    pil += skipped_rbs * 6;
+    re_offset += skipped_rbs * NR_NB_SC_PER_RB;
+    for (int rb = block_start; rb <= block_end; rb++) {
+      const bool new_group = rb != prev_rb + 1 || (prg > 0 && (crb0 + rb) % prg == 0);
+      prev_rb = rb;
+      for (int pilot_cnt = 0; pilot_cnt < 6; pilot_cnt++) {
+        const c16_t ls = c16mulShift(*pil++, rxF[re_offset], 15);
+        re_offset += 2;
+        if (!(pilot_cnt & 1))
+          cut[np / 2] = new_group && pilot_cnt == 0;
+        lr[np] = ls.r;
+        li[np] = ls.i;
+        np++;
+      }
+    }
+    last_processed_rb = block_end + 1;
+  }
+  if (np == 0)
+    return;
+  const int npair = np / 2;
+  cut[npair] = 1;
+
+  // mean delay: phase slope of the lag-1 correlation within the groups of the pair sums (this port) and of
+  // the pair differences (the other port of the CDM group): both ports share the channel's delay, and on a
+  // link where this port is weak the sums alone are noise, while the differences carry the other port
+  double Rr = 0, Ri = 0;
+  for (int n = 1; n < npair; n++)
+    if (!cut[n]) {
+      const float m0r = lr[2 * n - 2] + lr[2 * n - 1], m0i = li[2 * n - 2] + li[2 * n - 1];
+      const float m1r = lr[2 * n] + lr[2 * n + 1], m1i = li[2 * n] + li[2 * n + 1];
+      const float d0r = lr[2 * n - 2] - lr[2 * n - 1], d0i = li[2 * n - 2] - li[2 * n - 1];
+      const float d1r = lr[2 * n] - lr[2 * n + 1], d1i = li[2 * n] - li[2 * n + 1];
+      Rr += m1r * m0r + m1i * m0i + d1r * d0r + d1i * d0i;
+      Ri += m1i * m0r - m1r * m0i + d1i * d0r - d1r * d0i;
+    }
+  const float phi = (Rr == 0 && Ri == 0) ? 0 : atan2f(Ri, Rr) / 4; // channel phase change per subcarrier
+  const float cr = cosf(phi), ci = -sinf(phi); // e^{-j phi}
+  const float c2r = cr * cr - ci * ci, c2i = 2 * cr * ci; // e^{-j 2 phi}
+  const float c4r = c2r * c2r - c2i * c2i, c4i = 2 * c2r * c2i; // e^{-j 4 phi}
+
+  // compensated pilots a (4n + delta) and b (+ 2): S = a + b = 2 h_p - (other port's slope), D = a - b
+  float Sr[npair], Si[npair], Dr[npair], Di[npair];
+  float rr = cosf(phi * delta), ri = -sinf(phi * delta);
+  for (int n = 0; n < npair; n++) {
+    const float ar = lr[2 * n] * rr - li[2 * n] * ri, ai = lr[2 * n] * ri + li[2 * n] * rr;
+    const float b0r = rr * c2r - ri * c2i, b0i = rr * c2i + ri * c2r;
+    const float br = lr[2 * n + 1] * b0r - li[2 * n + 1] * b0i, bi = lr[2 * n + 1] * b0i + li[2 * n + 1] * b0r;
+    Sr[n] = ar + br;
+    Si[n] = ai + bi;
+    Dr[n] = ar - br;
+    Di[n] = ai - bi;
+    const float t = rr * c4r - ri * c4i;
+    ri = rr * c4i + ri * c4r;
+    rr = t;
+  }
+
+  float mr[npair], mi[npair], sr[npair], si[npair]; // m, s: 2 h_p at 4n + 1 + delta
+  float ob[8 * npair + 8]; // the estimate (4 subcarriers per pair, re/im interleaved) before the int16 conversion
+  double res = 0;
+  // inverse ramp e^{+j phi k}: B_n = e^{+j phi 4n} carried along the pairs, E_j = e^{+j phi j}
+  float Bnr = 1, Bni = 0;
+  const float Er[4] = {1, cr, c2r, c2r * cr - c2i * ci}, Ei[4] = {0, -ci, -c2i, -(c2r * ci + c2i * cr)};
+  for (int g0 = 0, g1; g0 < npair; g0 = g1) {
+    for (g1 = g0 + 1; !cut[g1]; g1++)
+      ;
+    const int ng = g1 - g0;
+    // + the other port's slope over the pair, from D at the neighbours (4 subcarriers away)
+    for (int n = g0; n < g1; n++) {
+      mr[n] = Sr[n];
+      mi[n] = Si[n];
+      if (ng > 1) {
+        const int lo = n > g0 ? n - 1 : n, hi = n < g1 - 1 ? n + 1 : n;
+        const float f = 1.0f / (4 * (hi - lo));
+        mr[n] += (Dr[hi] - Dr[lo]) * f;
+        mi[n] += (Di[hi] - Di[lo]) * f;
+      }
+    }
+    // [1 2 1] / 4, with the pair beyond each edge of the group extrapolated linearly
+    for (int n = g0; n < g1; n++) {
+      float pr, pi, qr, qi; // pairs n - 1 and n + 1
+      if (ng == 1) {
+        pr = qr = mr[n];
+        pi = qi = mi[n];
+      } else {
+        pr = n > g0 ? mr[n - 1] : 2 * mr[n] - mr[n + 1];
+        pi = n > g0 ? mi[n - 1] : 2 * mi[n] - mi[n + 1];
+        qr = n < g1 - 1 ? mr[n + 1] : 2 * mr[n] - mr[n - 1];
+        qi = n < g1 - 1 ? mi[n + 1] : 2 * mi[n] - mi[n - 1];
+      }
+      sr[n] = (pr + 2 * mr[n] + qr) * 0.25f;
+      si[n] = (pi + 2 * mi[n] + qi) * 0.25f;
+      const float er = mr[n] - sr[n], ei = mi[n] - si[n];
+      res += er * er + ei * ei;
+    }
+    // linear interpolation between the pair centres c = 4n + 1 + delta, h = s / 2, extrapolated at the
+    // group's edges: subcarriers before c use the segment from pair n - 1, the others the one to n + 1
+    for (int n = g0; n < g1; n++) {
+      const float h0r = sr[n] * 0.5f, h0i = si[n] * 0.5f;
+      float dRr = 0, dRi = 0, dLr = 0, dLi = 0; // slopes per subcarrier right and left of c
+      if (ng > 1) {
+        const int r = n < g1 - 1 ? n : n - 1, l = n > g0 ? n - 1 : n;
+        dRr = (sr[r + 1] - sr[r]) * 0.125f;
+        dRi = (si[r + 1] - si[r]) * 0.125f;
+        dLr = (sr[l + 1] - sr[l]) * 0.125f;
+        dLi = (si[l + 1] - si[l]) * 0.125f;
+      }
+      for (int j = 0; j < 4; j++) {
+        const int t = j - 1 - delta; // k - c
+        const float hr = h0r + t * (t < 0 ? dLr : dRr), hi = h0i + t * (t < 0 ? dLi : dRi);
+        const float pr = Bnr * Er[j] - Bni * Ei[j], pi = Bnr * Ei[j] + Bni * Er[j];
+        ob[8 * n + 2 * j] = hr * pr - hi * pi;
+        ob[8 * n + 2 * j + 1] = hr * pi + hi * pr;
+      }
+      const float t = Bnr * c4r + Bni * c4i; // times e^{+j 4 phi}
+      Bni = Bni * c4r - Bnr * c4i;
+      Bnr = t;
+    }
+  }
+  // to int16, 8 values at a time: cvtps rounds to nearest, packs saturates
+  for (int i = 0; i < 4 * npair * 2; i += 8) {
+    const simde__m128i lo = simde_mm_cvtps_epi32(simde_mm_loadu_ps(&ob[i]));
+    const simde__m128i hi = simde_mm_cvtps_epi32(simde_mm_loadu_ps(&ob[i + 4]));
+    simde_mm_storeu_si128((simde__m128i *)&dl_ch0[i / 2], simde_mm_packs_epi32(lo, hi));
+  }
+
+  // noise variance of a pair mean (as for the linear interpolation), from the smoothing residual: for white
+  // noise E|x - [1 2 1] x / 4|^2 = 3 / 8 var(x); m is 2 h
+  if (nvar)
+    *nvar += (uint32_t)(res / npair / 0.375 / 4);
+}
+
 static void NFAPI_NR_DMRS_TYPE1_average_prb(const int symb_sz,
                                             c16_t *rxF,
                                             int delta,
@@ -1164,7 +1333,18 @@ void nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
     c16_t *dl_ch = (c16_t *)&dl_ch_estimates[nl * frame_parms->nb_antennas_rx + aarx][ch_offset];
     memset(dl_ch, 0, sizeof(*dl_ch) * symb_sz);
 
-    if (config_type == NFAPI_NR_DMRS_TYPE1 && ue->chest_freq == 0) {
+    if (config_type == NFAPI_NR_DMRS_TYPE1 && ue->chest_freq == 2) {
+      NFAPI_NR_DMRS_TYPE1_delay_comp_interp(frame_parms,
+                                            rxF,
+                                            delta,
+                                            &pilot[6 * rb_offset],
+                                            dl_ch,
+                                            bwp_start_subcarrier,
+                                            freq_alloc,
+                                            dlsch->BWPSize,
+                                            ue->chest_prg,
+                                            nvar);
+    } else if (config_type == NFAPI_NR_DMRS_TYPE1 && ue->chest_freq == 0) {
       NFAPI_NR_DMRS_TYPE1_linear_interp(frame_parms,
                                         rxF,
                                         delta,
