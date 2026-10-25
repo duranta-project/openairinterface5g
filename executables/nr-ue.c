@@ -887,6 +887,8 @@ void *UE_thread(void *arg)
   // out-of-sync RRC timer tick frame/hfn (see out_of_sync_rrc_timer_tick())
   int out_of_sync_rrc_tick_frame = 0, out_of_sync_rrc_tick_hfn = 0;
   bool out_of_sync_rrc_tick_seeded = false;
+  // --ue-start-spacing: UE instance i starts its first cell search after i times this duration, in received samples
+  int start_frames_left = UE->Mod_id * get_nrUE_params()->ue_start_spacing_ms / 10;
 
   for(int i = 0; i < NUM_PROCESS_SLOT_TX_BARRIERS; i++) {
     dynamic_barrier_init(&UE->process_slot_tx_barriers[i]);
@@ -960,6 +962,12 @@ void *UE_thread(void *arg)
     }
 
     AssertFatal(!syncRunning, "At this point synchronization can't be running\n");
+
+    if (!UE->is_synchronized && start_frames_left > 0) {
+      readFrame(UE, &sync_timestamp, duration_rx_to_tx, compute_sync_size(UE), NULL);
+      start_frames_left -= 2;
+      continue;
+    }
 
     if (!UE->is_synchronized) {
       // seed the out-of-sync tick once from the last known synchronized frame/hfn:
