@@ -876,9 +876,13 @@ NR_pusch_dmrs_t get_ul_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
 int nr_adapt_mcs_from_bler(int current_mcs, int min_mcs, int max_mcs, float bler, float bler_lower, float bler_upper, int num_sched)
 {
   int mcs = current_mcs;
-  if (bler < bler_lower && mcs < max_mcs && num_sched > 3)
+  /* no transmission in the window: keep the MCS. With many UEs, each one is scheduled in a few slots of the
+     window only: the BLER is filtered over the windows, adapt on it whatever the number of transmissions */
+  if (num_sched == 0)
+    return max(min_mcs, min(mcs, max_mcs));
+  if (bler < bler_lower && mcs < max_mcs)
     mcs++;
-  else if (bler > bler_upper || num_sched <= 3) // above threshold or no activity
+  else if (bler > bler_upper)
     mcs--;
   return max(min_mcs, min(mcs, max_mcs));
 }
