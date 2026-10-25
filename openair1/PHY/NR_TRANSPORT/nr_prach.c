@@ -484,6 +484,11 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
   // An unrestricted NCS=0 preamble uses its own root and the full correlation window.
   if (NCS2 == 0)
     NCS2 = NCS == 0 && in->restricted_set == 0 ? dft_sz : N_ZC;
+  // the correlation peak of the next cyclic shift starts NCS2 bins after the window start and spreads over about
+  // dft_sz / N_ZC bins on each side: don't search these last bins, a preamble there would be reported with the maximum delay
+  const int guard = (dft_sz + N_ZC - 1) / N_ZC;
+  if (NCS != 0 && NCS2 > 2 * guard)
+    NCS2 -= guard;
 
   int old_offset = INT_MIN;
   int preamble_offset = 0, preamble_offset_old = 99, preamble_shift = 0, preamble_index0 = 0, numshift = 0,
@@ -496,6 +501,9 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
     uint distance;
     uint preamble;
   } max = {0, UINT_MAX, 0};
+  // average correlation energy over all the bins of all the roots: the floor the peak must stand out of
+  uint64_t floor_energy = 0;
+  int floor_bins = 0;
 
   for (int preamble_index = 0; preamble_index < 64; preamble_index++) {
     if (LOG_DEBUGFLAG(DEBUG_PRACH)) {
@@ -592,6 +600,9 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
           prach_ifft[i] += squaredMod(tmp);
         }
       }
+      for (int i = 0; i < dft_sz; i++)
+        floor_energy += prach_ifft[i];
+      floor_bins += dft_sz;
     }
 
     // Search window of this preamble: its cyclic shift converted to IFFT bins
@@ -629,6 +640,8 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
 
   // Energy normalized over the IFFT size and the receive antennas (-900, i.e. 0 in dB x10, for an empty occasion)
   rx_prach_out_t out = {.max_preamble_energy = dB_fixed_times10(max.energy / (dft_sz * nb_rx))};
+  if (max.energy > 0 && floor_bins > 0)
+    out.peak_to_floor = dB_fixed_times10(max.energy) - dB_fixed_times10(max(floor_energy / floor_bins, 1));
   if (max.energy > 0) {
     out.max_preamble = max.preamble;
     out.max_preamble_delay_raw = max.distance;
