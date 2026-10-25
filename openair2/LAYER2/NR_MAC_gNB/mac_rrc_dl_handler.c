@@ -9,6 +9,7 @@
 #include "openair2/F1AP/f1ap_ids.h"
 #include "openair2/F1AP/f1ap_common.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
+#include "openair2/LAYER2/nr_up/nr_up_du.h"
 #include "F1AP_CauseRadioNetwork.h"
 #include "NR_HandoverPreparationInformation.h"
 #include "NR_CG-ConfigInfo.h"
@@ -41,6 +42,29 @@ static instance_t get_f1_gtp_instance(void)
   return inst->gtpInst;
 }
 
+/** @brief NR-UP TX callback: send DDDS on the DU F1-U GTP instance */
+static int nr_mac_du_send_ddds(ue_id_t ue_id, rb_id_t rb_id, uint32_t desired_buffer_size)
+{
+  instance_t f1inst = get_f1_gtp_instance();
+  if (f1inst < 0)
+    return -1;
+  return gtpv1uSendDlDataDeliveryStatus(f1inst, ue_id, rb_id, desired_buffer_size);
+}
+
+/** @brief Delete one F1-U tunnel and drop matching DDDS entry */
+static void nr_mac_du_delete_f1u_tunnel(instance_t f1inst, ue_id_t ue_id, rb_id_t rb_id)
+{
+  newGtpuDeleteOneTunnel(f1inst, ue_id, rb_id);
+  nr_up_du_release_drb(ue_id, rb_id);
+}
+
+/** @brief Delete all F1-U tunnels for a UE and drop DDDS entries */
+static void nr_mac_du_delete_all_f1u_tunnels(instance_t f1inst, ue_id_t ue_id)
+{
+  newGtpuDeleteAllTunnels(f1inst, ue_id);
+  nr_up_du_release_ue(ue_id);
+}
+
 bool DURecvCb(protocol_ctxt_t *ctxt_pP,
               const srb_flag_t srb_flagP,
               const rb_id_t rb_idP,
@@ -59,7 +83,9 @@ bool DURecvCb(protocol_ctxt_t *ctxt_pP,
   // The buffer comes from the stack in gtp-u thread, we have a make a separate buffer to enqueue in a inter-thread message queue
   uint8_t *sdu = malloc16(sdu_buffer_sizeP);
   memcpy(sdu, sdu_buffer_pP, sdu_buffer_sizeP);
-  nr_rlc_data_req(ctxt_pP, srb_flagP, rb_idP, muiP, sdu_buffer_sizeP, sdu);
+  const int tx_space = nr_rlc_data_req(ctxt_pP, srb_flagP, rb_idP, muiP, sdu_buffer_sizeP, sdu);
+  if (tx_space >= 0)
+    nr_up_du_tx_space_sync(ctxt_pP->rntiMaybeUEid, rb_idP, tx_space);
   return true;
 }
 
@@ -68,12 +94,15 @@ static f1ap_up_tnl_t f1_drb_gtpu_create(const gtpv1u_gnb_create_tunnel_req_t *re
 {
   f1ap_up_tnl_t out = {0};
 
+  nr_up_init_du(nr_mac_du_send_ddds);
+  nr_up_du_add_drb(req->ue_id, req->incoming_rb_id);
+
   LOG_I(GTPU, "Incoming DRB %d / PDU Session %d - UL TEID %d\n", req->incoming_rb_id, req->pdusession_id, req->outgoing_teid);
 
   instance_t f1inst = get_f1_gtp_instance();
   DevAssert(f1inst >= 0);
   gtpv1u_gnb_create_tunnel_resp_t resp = {0};
-  int ret = gtpv1u_create_ngu_tunnel(f1inst, req, &resp, DURecvCb, NULL, NULL);
+  int ret = gtpv1u_create_ngu_tunnel(f1inst, req, &resp, DURecvCb, NULL, NULL, NULL, nr_up_du_poll_ddds);
   AssertFatal(ret >= 0, "Unable to create GTP Tunnel for F1-U\n");
   AssertFatal(resp.gnb_addr.length == sizeof(in_addr_t),
               "GTP tunnel response address length %d does not match IPv4 size %zu\n",
@@ -106,7 +135,7 @@ void du_clear_all_ue_states()
     // free all F1 contexts
     if (du_exists_f1_ue_data(rnti))
       du_remove_f1_ue_data(rnti);
-    newGtpuDeleteAllTunnels(f1inst, rnti);
+    nr_mac_du_delete_all_f1u_tunnels(f1inst, rnti);
     UE = *mac->UE_info.connected_ue_list;
   }
   NR_SCHED_UNLOCK(&mac->sched_lock);
@@ -383,7 +412,7 @@ static int handle_ue_context_drbs_release(NR_UE_info_t *UE,
       nr_mac_remove_lcid(&UE->UE_sched_ctrl, lcid);
       nr_rlc_release_entity(UE->rnti, lcid);
       if (f1inst >= 0) /* Delete F1 tunnel */
-        newGtpuDeleteOneTunnel(f1inst, UE->rnti, drb->id);
+        nr_mac_du_delete_f1u_tunnel(f1inst, UE->rnti, drb->id);
       asn_sequence_del(&cellGroupConfig->rlc_BearerToAddModList->list, idx, 1);
       long *plcid = malloc(sizeof(*plcid));
       AssertFatal(plcid, "out of memory\n");
@@ -1092,7 +1121,7 @@ void ue_context_release_command(const f1ap_ue_context_rel_cmd_t *cmd)
 
   instance_t f1inst = get_f1_gtp_instance();
   if (f1inst >= 0)
-    newGtpuDeleteAllTunnels(f1inst, cmd->gNB_DU_ue_id);
+    nr_mac_du_delete_all_f1u_tunnels(f1inst, cmd->gNB_DU_ue_id);
 
   if (UE->UE_sched_ctrl.ul_failure || !cmd->rrc_container) {
     /* The UE is already not connected anymore or we have nothing to forward*/
@@ -1158,8 +1187,10 @@ static void process_reestablishment(gNB_MAC_INST *mac, uint32_t new_dl_rrc_id, u
   nr_rlc_remove_ue(new_dl_rrc_id);
   nr_rlc_update_id(old_dl_rrc_id, new_dl_rrc_id);
   instance_t f1inst = get_f1_gtp_instance();
-  if (f1inst >= 0) // we actually use F1-U
+  if (f1inst >= 0) { // we actually use F1-U
     gtpv1u_update_ue_id(f1inst, old_dl_rrc_id, new_dl_rrc_id);
+    nr_up_du_update_ue_id(old_dl_rrc_id, new_dl_rrc_id);
+  }
 
   /* Per TS 38.331 5.3.7.2: the UE releases the spCellConfig, so we drop it
    * from the current configuration. It will be reapplied when the
