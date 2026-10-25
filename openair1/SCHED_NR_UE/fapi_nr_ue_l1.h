@@ -25,6 +25,8 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
 void nr_ue_phy_config_request(nr_phy_config_t *phy_config);
 /* Existing RRC task: build outside the MAC mutex, install matching tables under it. */
 void nr_ue_build_prach_lut(module_id_t module_id, uint8_t cc_id, const nr_prach_lut_config_t *config);
+/* Final shutdown after sample actors drain; detach under the publication mutex. */
+void nr_ue_stop_prach_lut(module_id_t module_id, uint8_t cc_id);
 void nr_ue_sl_phy_config_request(nr_sl_phy_config_t *phy_config);
 
 /**\brief NR UE FAPI message to schedule a synchronization with target gNB

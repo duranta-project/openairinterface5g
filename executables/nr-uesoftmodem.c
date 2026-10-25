@@ -439,27 +439,27 @@ int main(int argc, char **argv)
 
   nrue_ru_stop();
 
+  /* TX owns its selected row. Stop publishing tables before the radio threads shut down. */
+  for (int inst = 0; inst < NB_UE_INST; inst++)
+    for (int cc = 0; cc < MAX_NUM_CCs; cc++)
+      if (nrPHY_vars_UE_g[inst][cc])
+        nr_ue_stop_prach_lut(inst, cc);
+
   if (get_nrUE_params()->use_ue_fd) {
     PHY_VARS_NR_UE *UE_list[MAX_NUM_NR_UE_INST];
     for (int inst = 0; inst < NB_UE_INST; inst++)
       UE_list[inst] = nrPHY_vars_UE_g[inst][0];
     term_NR_UE_fd(UE_list, NB_UE_INST);
-  }
-  for (int inst = 0; inst < NB_UE_INST; inst++) {
-    PHY_VARS_NR_UE *phy_vars = nrPHY_vars_UE_g[inst][0];
-    if (!get_nrUE_params()->use_ue_fd) {
-      int ret = pthread_join(phy_vars->main_thread, NULL);
-      AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
-      if (!IS_SOFTMODEM_NOSTATS) {
-        ret = pthread_join(phy_vars->stat_thread, NULL);
-        AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
-      }
-    }
+  } else if (nrPHY_vars_UE_g && nrPHY_vars_UE_g[0]) {
     for (int CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
-      phy_vars = nrPHY_vars_UE_g[inst][CC_id];
+      PHY_VARS_NR_UE *phy_vars = nrPHY_vars_UE_g[0][CC_id];
       if (phy_vars) {
-        nr_prach_lut_destroy(phy_vars->prach_lut);
-        phy_vars->prach_lut = NULL;
+        int ret = pthread_join(phy_vars->main_thread, NULL);
+        AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
+        if (!IS_SOFTMODEM_NOSTATS) {
+          ret = pthread_join(phy_vars->stat_thread, NULL);
+          AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
+        }
       }
     }
   }
