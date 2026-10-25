@@ -708,10 +708,6 @@ void *ru_thread(void *param)
     AssertFatal(ru->fh_south_in, "No fronthaul interface at south port");
     ru->fh_south_in(ru, &frame, &slot);
 
-    if (ru->rx_fhaul.trials > 1000) {
-        reset_meas(&ru->rx_fhaul);
-        reset_meas(&ru->tx_fhaul);
-    }
     proc->timestamp_tx = proc->timestamp_rx;
     for (int i = proc->tti_rx; i < proc->tti_rx + ru->sl_ahead; i++)
       proc->timestamp_tx += get_samples_per_slot(i % fp->slots_per_frame, fp);
@@ -882,7 +878,6 @@ static void init_split8(RU_t *ru)
 {
   switch (ru->if_south) {
     case LOCAL_RF:   // this is an RU with integrated RF (RRU, gNB)
-      reset_meas(&ru->rx_fhaul);
       AssertFatal(ru->function == gNodeB_3GPP, "ru->function %d not supported for LOCAL_RF\n", ru->function);
       ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
       ru->feptx_ofdm = nr_feptx_tp; // this is fep with idft and precoding

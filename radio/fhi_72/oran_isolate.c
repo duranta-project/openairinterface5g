@@ -137,6 +137,7 @@ static void oran_prec_bf(struct PHY_VARS_gNB_s *gNB, int frame, int slot)
   split7_config_t *s7cfg = &gNB->fhi72_transport->s7cfg;
   const uint8_t nb_tx = gNB->frame_parms.nb_antennas_tx;
   const uint32_t samples_per_slot_wCP = gNB->frame_parms.samples_per_slot_wCP;
+  start_meas(&gNB->fhi72_transport->s7cfg.prec_bf);
   // If there is no digital beamforming we just need to copy the data to RU
   if (gNB->gNB_config.dbt_config.num_dig_beams == 0 || gNB->common_vars.analog_bf) {
     for (int i = 0; i < nb_tx; ++i) {
@@ -145,6 +146,7 @@ static void oran_prec_bf(struct PHY_VARS_gNB_s *gNB, int frame, int slot)
   }  else {
     AssertFatal(false, "This needs to be fixed by using appropriate beams from config\n");
   }
+  stop_meas(&gNB->fhi72_transport->s7cfg.prec_bf);
 }
 
 static void oran_cp(split7_config_t *s7cfg, uint16_t **beam_id, int frame, int slot)
@@ -155,6 +157,7 @@ static void oran_cp(split7_config_t *s7cfg, uint16_t **beam_id, int frame, int s
 
   // UL slot
   if (s7cfg->slot_dir[slot] == NR_UPLINK_SLOT || s7cfg->slot_dir[slot] == NR_MIXED_SLOT) { // FDD falls under NR_MIXED_SLOT
+    start_meas(&s7cfg->ul_cp);
     for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
       for (int xran_port = 0; xran_port < fh_init->xran_ports; xran_port++) {
         oran_buf_list_t *bufs = get_xran_buffers(xran_port);
@@ -168,10 +171,12 @@ static void oran_cp(split7_config_t *s7cfg, uint16_t **beam_id, int frame, int s
         }
       }
     }
+    stop_meas(&s7cfg->ul_cp);
   }
 
   // DL slot
   if (s7cfg->slot_dir[slot] == NR_DOWNLINK_SLOT || s7cfg->slot_dir[slot] == NR_MIXED_SLOT) { // FDD falls under NR_MIXED_SLOT
+    start_meas(&s7cfg->dl_cp);
     for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
       for (int xran_port = 0; xran_port < fh_init->xran_ports; xran_port++) {
         oran_buf_list_t *bufs = get_xran_buffers(xran_port);
@@ -185,6 +190,7 @@ static void oran_cp(split7_config_t *s7cfg, uint16_t **beam_id, int frame, int s
         }
       }
     }
+    stop_meas(&s7cfg->dl_cp);
   }
 }
 
@@ -194,6 +200,7 @@ static void oran_dl_up(split7_config_t *s7cfg, int frame, int slot)
 
   const struct xran_fh_init *fh_init = get_xran_fh_init();
 
+  start_meas(&s7cfg->dl_up);
   for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
     for (int xran_port = 0; xran_port < fh_init->xran_ports; xran_port++) {
       oran_buf_list_t *bufs = get_xran_buffers(xran_port);
@@ -208,6 +215,7 @@ static void oran_dl_up(split7_config_t *s7cfg, int frame, int slot)
       }
     }
   }
+  stop_meas(&s7cfg->dl_up);
 }
 
 /* Gather xran (and M-plane) configuration; xran is initialized later by trx_oran_start() */
@@ -366,7 +374,9 @@ static void *split7_thread(void *param)
     LOG_D(HW, "Processing tti[%d] = frame[%d].slot[%d]\n", s.tti, frame, slot);
 
     if (s7cfg->slot_dir[slot] == NR_UPLINK_SLOT || s7cfg->slot_dir[slot] == NR_MIXED_SLOT) { // FDD falls under NR_MIXED_SLOT
+      start_meas(&s7cfg->ul_up);
       process_ul_data(s.tti, frame, slot, gNB, eth->fh_init, eth->fh_config, s7cfg);
+      stop_meas(&s7cfg->ul_up);
     }
 
     if ((frame & 0x7f) == 0 && slot == 0) {

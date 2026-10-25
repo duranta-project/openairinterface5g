@@ -532,7 +532,7 @@ typedef struct RU_t_s {
   time_stats_t ofdm_mod_wait_stats;
   /// Timing wakeup statistics (TX)
   time_stats_t ofdm_mod_wakeup_stats;
-  /// Timing statistics (RX Fronthaul + Compression)
+  /// Timing statistics (RX Fronthaul + Decompression)
   time_stats_t rx_fhaul;
   /// Timing statistics (TX Fronthaul + Compression)
   time_stats_t tx_fhaul;
