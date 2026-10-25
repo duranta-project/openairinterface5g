@@ -665,6 +665,7 @@ bool nr_dl_validate_cce_pucch(const nr_dl_sched_params_t *params, nr_dl_candidat
     int r_pucch = nr_get_pucch_resource(sched_ctrl->coreset, ul_bwp->pucch_Config, CCEIndex);
     pucch_alloc = nr_acknack_scheduling(params->cell, UE, params->frame, params->slot, UE->UE_beam_index, r_pucch, 0);
     if (pucch_alloc < 0) {
+      sched_ctrl->dl_pucch_fail++;
       LOG_D(NR_MAC, "[UE %04x][%4d.%2d] could not find PUCCH for DL DCI\n", UE->rnti, params->frame, params->slot);
       return false;
     }

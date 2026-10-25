@@ -693,6 +693,7 @@ typedef struct {
   int cce_index;
   int aggregation_level;
   uint32_t dl_cce_fail, ul_cce_fail;
+  uint32_t dl_pucch_fail; // DL allocations without PUCCH resource for the HARQ feedback
 
   /// Array of PUCCH scheduling information
   /// Its size depends on TDD configuration and max feedback time
