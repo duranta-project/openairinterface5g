@@ -143,29 +143,6 @@ void nr_feptx_ofdm(RU_t *ru,int frame_tx,int tti_tx)
         dB_fixed(signal_energy_nodc((c16_t *)ru->common.txdataF_BF[aa], 2 * slot_sizeF)));
 }
 
-void nr_feptx_prec(RU_t *ru, int frame_tx, int slot_tx)
-{
-  PHY_VARS_gNB **gNB_list = ru->gNB_list;
-  AssertFatal(ru->num_gNB == 1, "Cannot handle more than 1 gNB\n");
-  PHY_VARS_gNB *gNB = gNB_list[0];
-  nfapi_nr_config_request_scf_t *cfg = &ru->gNB_list[0]->gNB_config;
-  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
-  start_meas(&ru->precoding_stats);
-
-  if (nr_slot_select(cfg,frame_tx,slot_tx) == NR_UPLINK_SLOT)
-    return;
-
-  // If there is no digital beamforming we just need to copy the data to RU
-  if (ru->config.dbt_config.num_dig_beams == 0 || ru->gNB_list[0]->common_vars.analog_bf) {
-    for (int i = 0; i < fp->nb_antennas_tx; ++i) {
-      memcpy(ru->common.txdataF_BF[i], gNB->common_vars.txdataF[i], fp->samples_per_slot_wCP * sizeof(int32_t));
-    }
-  }  else {
-    AssertFatal(false, "This needs to be fixed by using appropriate beams from config\n");
-  }
-  stop_meas(&ru->precoding_stats);
-}
-
 // core routine for FEP TX, called from threads in RU TX thread-pool 
 void nr_feptx(void *arg)
 {

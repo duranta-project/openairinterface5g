@@ -16,10 +16,10 @@
 #include "common/utils/assertions.h"
 #include "common/utils/system.h"
 #include "common/utils/fsn.h"
+#include "common/utils/load_module_shlib.h"
 #include "common/ran_context.h"
 
 #include "radio/ETHERNET/ethernet_lib.h"
-
 #include "PHY/defs_nr_common.h"
 #include "PHY/phy_extern.h"
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
@@ -443,14 +443,44 @@ void fill_rf_config(RU_t *ru, char *rf_config_file)
   }
 }
 
-void fill_split7_2_config(split7_config_t *split7, const nfapi_nr_config_request_scf_t *config, const NR_DL_FRAME_PARMS *fp)
+void fill_split7_2_config(const RU_t *ru)
 {
+  split7_config_t *split7 = &ru->gNB_list[0]->fhi72_transport->s7cfg;
+  const nfapi_nr_config_request_scf_t *config = &ru->config;
+  const NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+
+  AssertFatal(ru->nb_tx > 0 && ru->nb_tx <= OPENAIR0_MAX_ANTENNAS, "split 7.2 does not support more than %d antennas\n", OPENAIR0_MAX_ANTENNAS);
+  AssertFatal(ru->nb_rx > 0 && ru->nb_rx <= OPENAIR0_MAX_ANTENNAS, "split 7.2 does not support more than %d antennas\n", OPENAIR0_MAX_ANTENNAS);
+
+  split7->duplex_mode = fp->frame_type == TDD ? duplex_mode_TDD : duplex_mode_FDD;
+  split7->num_rb_dl = fp->N_RB_DL;
+  split7->tx_num_channels = ru->nb_tx;
+  split7->rx_num_channels = ru->nb_rx;
+  split7->num_distributed_ru = 1;
+  double sample_rate;
+  get_samplerate_and_bw(fp->numerology_index, fp->N_RB_DL, fp->threequarter_fs, &sample_rate, &split7->tx_bw, &split7->rx_bw);
+  for (int i = 0; i < ru->nb_tx; i++) {
+    split7->tx_freq[i] = fp->dl_CarrierFreq;
+    split7->tx_gain[i] = ru->att_tx;
+  }
+  for (int i = 0; i < ru->nb_rx; i++)
+    split7->rx_freq[i] = fp->ul_CarrierFreq;
+  split7->rxdataF = ru->common.rxdataF;
+  split7->txdataF_BF = ru->common.txdataF_BF;
+
   const nfapi_nr_prach_config_t *prach_config = &config->prach_config;
   const nfapi_nr_tdd_table_t *tdd_table = &config->tdd_table;
   const nfapi_nr_cell_config_t *cell_config = &config->cell_config;
   const nfapi_nr_carrier_config_t *carrier_config = &config->carrier_config;
 
   split7->mu = config->ssb_config.scs_common.value;
+  split7->slots_per_frame = fp->slots_per_frame;
+  split7->sl_ahead = ru->sl_ahead;
+  AssertFatal(fp->slots_per_frame <= sizeofArray(split7->slot_dir), "%d slots per frame not supported\n", fp->slots_per_frame);
+  for (int slot = 0; slot < fp->slots_per_frame; slot++) {
+    const int type = nr_slot_select(config, 0, slot);
+    split7->slot_dir[slot] = ((type & NR_DOWNLINK_SLOT) ? SLOT_DIR_DL : 0) | ((type & NR_UPLINK_SLOT) ? SLOT_DIR_UL : 0);
+  }
   DevAssert(prach_config->prach_ConfigurationIndex.tl.tag == NFAPI_NR_CONFIG_PRACH_CONFIG_INDEX_TAG);
   split7->prach_index = prach_config->prach_ConfigurationIndex.value;
   AssertFatal(prach_config->num_prach_fd_occasions.value >= 1, "must have at least one PRACH occasion\n");
@@ -639,48 +669,6 @@ void *ru_thread(void *param)
 
   LOG_I(PHY,"Starting RU %d (%s,%s) on cpu %d\n",ru->idx,NB_functions[ru->function],NB_timing[ru->if_timing],sched_getcpu());
 
-  // split 7.2 transport has to be started from the pinned ru_thread()
-  if (ru->if_south == REMOTE_IF4p5) {
-    LOG_I(PHY, "starting transport\n");
-    int ret = openair0_transport_load(&ru->ifdevice, &ru->openair0_cfg);
-    AssertFatal(ret == 0, "RU %u: openair0_transport_init() ret %d: cannot initialize transport protocol\n", ru->idx, ret);
-
-    if (ru->ifdevice.get_internal_parameter) {
-      /* it seems the device can "overwrite" (request?) to set the callbacks
-       * for fh_south_in()/fh_south_out() differently */
-      void *t = ru->ifdevice.get_internal_parameter("fh_if4p5_south_in");
-      if (t != NULL)
-        ru->fh_south_in = t;
-      t = ru->ifdevice.get_internal_parameter("fh_if4p5_south_out");
-      if (t != NULL)
-        ru->fh_south_out = t;
-      // this is temporarily until the new split 7.2 API
-      t = ru->ifdevice.get_internal_parameter("fh_if4p5_ctrl");
-      if (t != NULL)
-        ru->fh_south_ctrl = t;
-    }
-
-    int cpu = sched_getcpu();
-    if (ru->ru_thread_core > -1 && cpu != ru->ru_thread_core) {
-      /* we start the ru_thread using threadCreate(), which already sets CPU
-       * affinity; let's force it here again as per feature request #732 */
-      cpu_set_t cpuset;
-      CPU_ZERO(&cpuset);
-      CPU_SET(ru->ru_thread_core, &cpuset);
-      int ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-      AssertFatal(ret == 0, "Error in pthread_getaffinity_np(): ret: %d, errno: %d", ret, errno);
-      LOG_I(PHY, "RU %d: manually set CPU affinity to CPU %d\n", ru->idx, ru->ru_thread_core);
-    }
-
-    LOG_I(PHY, "Starting IF interface for RU %d, nb_rx %d\n", ru->idx, ru->nb_rx);
-    AssertFatal(ru->nr_start_if(ru) == 0, "Could not start the IF device\n");
-
-    if (setup_RU_buffers(ru)!=0) {
-      LOG_E(PHY, "Exiting, cannot initialize RU Buffers\n");
-      exit(-1);
-    }
-  }
-
   wait_sync("ru_thread");
 
   // start streaming only after sync, when ru_thread() is about to read
@@ -749,8 +737,7 @@ void *ru_thread(void *param)
     if (slot_type == NR_UPLINK_SLOT || slot_type == NR_MIXED_SLOT) {
       if (!wait_free_rx_tti(&gNB->L1_rx_out, rx_tti_busy, proc->frame_rx, proc->tti_rx))
         break; // nothing to wait for: we have to stop
-      if (ru->feprx)
-        ru_rx_slot(ru, gNB, proc->frame_rx, proc->tti_rx);
+      ru_rx_slot(ru, gNB, proc->frame_rx, proc->tti_rx);
     }
 
     ru_push_tx_job(gNB, proc->frame_tx, proc->tti_tx, proc->frame_rx, proc->tti_rx, proc->timestamp_tx);
@@ -772,16 +759,14 @@ static void attach_NR_RU(RU_t *ru)
 
 static void configure_NR_RU(RU_t *ru)
 {
-  NR_DL_FRAME_PARMS  *fp = ru->nr_frame_parms;
   PHY_VARS_gNB *gNB = ru->gNB_list[0];
 
-  *fp = gNB->frame_parms; // carrier frequencies, threequarter_fs
+  *ru->nr_frame_parms = gNB->frame_parms; // carrier frequencies, threequarter_fs
   ru->config = gNB->gNB_config;
-  nr_init_frame_parms(&ru->config, fp);
-  nr_dump_frame_parms(fp);
+  nr_init_frame_parms(&ru->config, ru->nr_frame_parms);
+  nr_dump_frame_parms(ru->nr_frame_parms);
   nr_phy_init_RU(ru);
   fill_rf_config(ru, ru->rf_config_file);
-  fill_split7_2_config(&ru->openair0_cfg.split7, &ru->config, fp);
 }
 
 /* split 8 (LOCAL_RF/REMOTE_IF5): load the device, start the IF interface and spawn ru_thread(),
@@ -810,12 +795,14 @@ static void start_split8(RU_t *ru)
   threadCreate(&ru->proc.pthread_FH, ru_thread, ru, "ru_thread", ru->ru_thread_core, OAI_PRIORITY_RT_MAX);
 }
 
-static void start_NR_RU(RU_t *ru)
+/* split 7.2 (REMOTE_IF4p5): load the fhi_72 library; oran_fhi72_init() spawns split7_thread() */
+static void start_split72(RU_t *ru)
 {
-  if (ru->if_south == REMOTE_IF4p5) // transport is started in ru_thread()
-    threadCreate(&ru->proc.pthread_FH, ru_thread, ru, "ru_thread", ru->ru_thread_core, OAI_PRIORITY_RT_MAX);
-  else
-    start_split8(ru);
+  ru->gNB_list[0]->fhi72_transport = calloc_or_fail(1, sizeof(*ru->gNB_list[0]->fhi72_transport));
+  fill_split7_2_config(ru);
+  fhi72_init_t init = (fhi72_init_t)load_transport_shlib("oran_fhi72_init");
+  int ret = init(ru->gNB_list[0]);
+  AssertFatal(ret == 0, "Cannot start split7_thread %u\n", ru->idx);
 }
 
 int start_streaming(RU_t *ru) {
@@ -825,9 +812,8 @@ int start_streaming(RU_t *ru) {
 
 int nr_start_if(struct RU_t_s *ru)
 {
-  if (ru->if_south <= REMOTE_IF5)
-    for (int i = 0; i < ru->nb_rx; i++)
-      ru->openair0_cfg.rxbase[i] = ru->common.rxdata[i];
+  for (int i = 0; i < ru->nb_rx; i++)
+    ru->openair0_cfg.rxbase[i] = ru->common.rxdata[i];
   ru->openair0_cfg.rxsize = ru->nr_frame_parms->samples_per_subframe*10;
   return ru->ifdevice.trx_start_func(&ru->ifdevice);
 }
@@ -869,7 +855,10 @@ void kill_NR_RU_proc(int inst) {
    * that point races a destroyed mutex (EINVAL) and asserts. oai_exit is
    * already set at this point and the RF reads are non-blocking, so the join
    * returns promptly. */
-  pthread_join(proc->pthread_FH, NULL);
+  if (proc->pthread_FH) {
+    LOG_I(PHY, "Stopping RU %d processing thread\n", inst);
+    pthread_join(proc->pthread_FH, NULL);
+  }
 
   if (ru->if_south != REMOTE_IF4p5) {
     abortTpool(ru->threadPool);
@@ -919,15 +908,7 @@ void set_function_spec_param(RU_t *ru)
       break;
 
     case REMOTE_IF4p5:
-      ru->feprx = NULL; // DFTs
-      ru->feptx_prec = nr_feptx_prec; // Precoding operation
-      ru->feptx_ofdm = NULL; // no OFDM mod
-      ru->fh_south_in = NULL;
-      ru->fh_south_out = NULL;
-      ru->start_rf = NULL; // no local RF
-      ru->stop_rf = NULL;
-      ru->start_write_thread = NULL;
-      ru->nr_start_if = nr_start_if; // need to start if interface for IF4p5
+      // split 7.2 callbacks are provided by fhi72_transport_t, see start_split72()
       break;
 
     default:
@@ -959,7 +940,9 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
     // init RU_proc -> needed for timing alignment
     ru->proc = (RU_proc_t){.ru = ru, .first_rx = 1, .first_tx = 1};
 
-    if (ru->if_south != REMOTE_IF4p5) {
+    if (ru->if_south == REMOTE_IF4p5) {
+      start_split72(ru);
+    } else {
       int threadCnt = ru->num_tpcores;
       if (threadCnt < 2)
         LOG_E(PHY, "Number of threads for gNB should be more than 1. Allocated only %d\n", threadCnt);
@@ -977,8 +960,9 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
       // FEP TX result FIFO
       ru->respfeptx = malloc(sizeof(notifiedFIFO_t));
       initNotifiedFIFO(ru->respfeptx);
+
+      start_split8(ru);
     }
-    start_NR_RU(ru);
   } // for ru_id
 
   LOG_D(HW,"[nr-softmodem.c] RU threads created\n");
@@ -986,7 +970,6 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
 
 void stop_RU(int nb_ru) {
   for (int inst = 0; inst < nb_ru; inst++) {
-    LOG_I(PHY, "Stopping RU %d processing threads\n", inst);
     kill_NR_RU_proc(inst);
   }
 }

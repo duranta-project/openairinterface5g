@@ -26,7 +26,6 @@ void nr_common_signal_procedures(PHY_VARS_gNB *gNB,
                                  int prb_mask_words);
 void nr_feptx_ofdm(RU_t *ru,int frame_tx,int tti_tx);
 void nr_feptx0(RU_t *ru,int tti_tx,int first_symbol, int num_symbols, int aa);
-void nr_feptx_prec(RU_t *ru,int frame_tx,int tti_tx);
 void nr_feptx_prec_control(RU_t *ru,int frame,int tti_tx);
 void nr_fep_tp(RU_t *ru, int slot);
 void nr_feptx_tp(RU_t *ru, int frame_tx, int slot);

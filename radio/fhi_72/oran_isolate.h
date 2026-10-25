@@ -17,37 +17,12 @@
 #include "openair1/PHY/defs_nr_common.h"
 #include "openair1/PHY/NR_TRANSPORT/nr_transport_proto.h"
 
-/*
- * Structure added to bear the information needed from OAI RU
- */
-typedef struct ru_info_s {
-  // Needed for UL
-  int nb_rx;
-  int32_t **rxdataF;
+void print_fhi_counters(struct xran_fh_init fh_init, struct xran_fh_config *fh_config);
 
-  // Needed for Prach
-  c16_t (*prach_buf)[NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX][NR_PRACH_SEQ_LEN_L];
-  int nb_prach_rx;
-  int start_prach_rx;
-} ru_info_t;
-
-void print_fhi_counters(ru_info_t *ru, const int frame, const int slot);
-
-bool is_tdd_dl_guard_slot(const struct xran_frame_config *frame_conf, int slot);
-bool is_tdd_ul_guard_slot(const struct xran_frame_config *frame_conf, int slot);
-
-/** @brief Reads RX data PUSCH of next slot.
- *
- * @param ru pointer to structure keeping pointers to OAI data.
- * @param frame output of the frame which has been read.
- * @param slot output of the slot which has been read. */
-int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot);
-/** @brief Reads RX data PRACH of next slot.
- *
- * @param ru pointer to structure keeping pointers to OAI data.
- * @param frame output of the frame which has been read.
- * @param slot output of the slot which has been read. */
-int xran_fh_rx_prach_read_slot(PHY_VARS_gNB *gNB, ru_info_t *ru, int *frame, int *slot);
+/** @brief Reads PUSCH data of xran slot tti from one xran port into rxdataF, starting at slot_offset samples. */
+int xran_fh_rx_read_slot(const int tti, const int slot_offset, const int xran_port, const uint8_t nb_ant, const int fft_size, oran_buf_list_t *bufs, int32_t **rxdataF);
+/** @brief Reads PRACH data of slot tti from one xran port into p.prach_buf. */
+int xran_fh_rx_prach_read_slot(const int tti, const int xran_port, const uint8_t nb_ant, const struct xran_ru_config *ru_conf, const struct xran_prach_config *prach_conf, oran_buf_list_t *bufs, prach_item_t p);
 /** @brief Writes CP DL/UL data for given slot. */
 int xran_send_cp_slot(const int tti, const int slot, const int xran_port, const uint8_t nb_ant, uint16_t **beams, struct xran_buffer_list buf[XRAN_MAX_ANTENNA_NR][XRAN_N_FE_BUF_LEN]);
 /** @brief Writes TX data (PDSCH) of given slot. */
