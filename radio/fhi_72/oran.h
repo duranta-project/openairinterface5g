@@ -7,7 +7,7 @@
 
 #include "shared_buffers.h"
 #include "common_lib.h"
-void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp);
+void oran_dl_up(RU_t *ru, int frame, int slot, uint64_t timestamp);
 
 void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot);
 
