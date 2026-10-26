@@ -178,7 +178,7 @@ static void cp_pdusession_transfer_to_pdusession(pdusession_t *dst, const pduses
   dst->n3_incoming = src->n3_incoming;
   /* QoS handling */
   DevAssert(!dst->qos.data);
-  DevAssert(src->nb_qos < MAX_QOS_FLOWS);
+  DevAssert(src->nb_qos <= MAX_QOS_FLOWS);
   // Initialise mapped QoS list per PDU Session
   seq_arr_init(&dst->qos, sizeof(nr_rrc_qos_t));
   // Add QoS flow to list
@@ -1060,7 +1060,7 @@ static void nr_rrc_apply_qos_add_modify(gNB_RRC_INST *rrc,
                                         e1ap_bearer_mod_req_t *e1_req,
                                         bool drb_needs_e1_refresh[MAX_DRBS_PER_UE + 1])
 {
-  DevAssert(transfer->nb_qos_to_add_modify < MAX_QOS_FLOWS);
+  DevAssert(transfer->nb_qos_to_add_modify <= MAX_QOS_FLOWS);
   DevAssert(e1_req->numPDUSessionsMod < NR_MAX_NB_PDU_SESSIONS);
   pdu_session_to_mod_t *pdu_mod = &e1_req->pduSessionMod[e1_req->numPDUSessionsMod++];
   pdu_mod->sessionId = dst->pdusession_id;
@@ -1188,7 +1188,7 @@ static void nr_rrc_update_pdusession(gNB_RRC_INST *rrc,
   DevAssert(UE);
   DevAssert(e1_req);
   const pdusession_mod_req_transfer_t *transfer = &sessMod->pdusessionTransfer;
-  DevAssert(transfer->nb_qos_to_add_modify < MAX_QOS_FLOWS);
+  DevAssert(transfer->nb_qos_to_add_modify <= MAX_QOS_FLOWS);
   bool drb_needs_e1_refresh[MAX_DRBS_PER_UE + 1] = {false};
   pdusession_t *dst = &session->param;
   dst->pdusession_id = sessMod->pdusession_id;
