@@ -15,7 +15,7 @@
 
 #ifndef __LAYER2_NR_UE_SCI_H__
 #define __LAYER2_NR_UE_SCI_H__
-#include "NR_MAC_COMMON/nr_mac.h"
+#include "LAYER2/NR_MAC_COMMON/nr_mac.h"
 
 typedef enum {
   NR_SL_SCI_FORMAT_1A = 0,

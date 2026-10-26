@@ -26,7 +26,7 @@
 #include "LAYER2/NR_MAC_COMMON/nr_mac.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "LAYER2/NR_MAC_COMMON/ue_capability_handler.h"
-#include "NR_MAC_COMMON/nr_mac_extern.h"
+#include "LAYER2/NR_MAC_COMMON/nr_mac_extern.h"
 #include "mac_defs_sl.h"
 
 /* RRC */
