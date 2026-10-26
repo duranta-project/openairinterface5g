@@ -453,6 +453,11 @@ typedef struct ssb_list_info {
   int nb_ssb_per_index[MAX_NB_SSB];
 } ssb_list_info_t;
 
+typedef struct {
+  int16_t frame;
+  int16_t slot;
+} frameslot_t;
+
 typedef struct nr_lcordered_info_s {
   // logical channels ids ordered as per priority
   NR_LogicalChannelIdentity_t lcid;
