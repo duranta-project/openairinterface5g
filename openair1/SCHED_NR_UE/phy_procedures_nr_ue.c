@@ -543,20 +543,17 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
 
   if (ue->chest_time == 1) { // averaging time domain channel estimates
     AssertFatal(!is_ptrs, "Time domain averaging of DMRS estimates not allowed with PTRS\n");
-    int32_t *ch_est_p[dlsch->cw_info.Nl * frame_parms->nb_antennas_rx];
-    for (int nl = 0; nl < dlsch->cw_info.Nl; nl++)
-      for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++)
-        ch_est_p[nl * frame_parms->nb_antennas_rx + aarx] = pdsch_dl_ch_estimates[nl * frame_parms->nb_antennas_rx + aarx];
     // one row per DMRS symbol
     const int nb_dmrs_symb = count_bits(&dmrs_symb_bitmap, 1);
     nr_chest_time_domain_avg(frame_parms,
-                             ch_est_p,
                              nb_dmrs_symb,
                              0,
                              (1 << nb_dmrs_symb) - 1,
                              freq_alloc->num_rbs,
                              dlsch->cw_info.Nl,
-                             frame_parms->nb_antennas_rx);
+                             frame_parms->nb_antennas_rx,
+                             pdsch_est_size,
+                             (c16_t(*)[pdsch_est_size])pdsch_dl_ch_estimates);
   }
 
   uint16_t first_symbol_with_data = dlschCfg->start_symbol;

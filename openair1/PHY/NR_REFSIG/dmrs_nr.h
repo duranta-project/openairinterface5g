@@ -40,13 +40,14 @@ static inline int get_dmrs_row(uint16_t dmrs_symb_pos, int symbol)
   return __builtin_popcount(dmrs_symb_pos & ((1U << symbol) - 1));
 }
 void nr_chest_time_domain_avg(NR_DL_FRAME_PARMS *frame_parms,
-                              int32_t **ch_estimates,
                               uint8_t num_symbols,
                               uint8_t start_symbol,
                               uint16_t dmrs_bitmap,
                               uint16_t num_rbs,
                               uint8_t nb_layers,
-                              uint8_t num_streams);
+                              uint8_t num_streams,
+                              int est_size,
+                              c16_t ch_estimates[nb_layers * num_streams][est_size]);
 
 int8_t get_num_dmrs_re_per_rb(const uint8_t dmrs_type, const uint8_t num_cdm_grp_no_data);
 void get_dmrs_uci_symbol_info(const uint8_t start_symbol,

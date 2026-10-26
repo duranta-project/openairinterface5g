@@ -153,8 +153,12 @@ static int get_nb_re_pusch(NR_DL_FRAME_PARMS *frame_parms,
 static void inner_rx(PHY_VARS_gNB *gNB,
                      int slot,
                      NR_DL_FRAME_PARMS *frame_parms,
-                     c16_t **ul_ch_estimates,
-                     c16_t **rxdataF_comp,
+                     int nb_ch,
+                     int ch_est_size,
+                     c16_t ul_ch_estimates[nb_ch][ch_est_size],
+                     int nb_comp,
+                     int comp_size,
+                     c16_t rxdataF_comp[nb_comp][comp_size],
                      int nb_re_pusch,
                      int16_t log2_maxh,
                      const nfapi_nr_pusch_pdu_t *rel15_ul,
@@ -226,6 +230,7 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                           buffer_length,
                           nb_rx_ant,
                           nb_layer,
+                          comp_size,
                           rxFext,
                           chFext,
                           rxF_ch_maga,
@@ -263,11 +268,12 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                         rel15_ul->qam_mod_order);
     }
     else {
-      nr_mmse_2layers(rxdataF_comp,
-                      buffer_length,
+      nr_mmse_2layers(buffer_length,
                       buffer_length,
                       nb_rx_ant,
                       nb_layer,
+                      comp_size,
+                      rxdataF_comp,
                       rxF_ch_maga,
                       rxF_ch_magb,
                       rxF_ch_magc,
@@ -491,8 +497,12 @@ typedef struct puschSymbolProc_s {
   NR_DL_FRAME_PARMS *frame_parms;
   const nfapi_nr_pusch_pdu_t *rel15_ul;
   // processing context of the group, local to nr_rx_pusch_group_tp()
-  c16_t **ul_ch_estimates;
-  c16_t **rxdataF_comp;
+  void *ul_ch_estimates; // c16_t [nb_ch][ch_est_size]
+  int nb_ch;
+  int ch_est_size;
+  void *rxdataF_comp; // c16_t [nb_comp][comp_size]
+  int nb_comp;
+  int comp_size;
   const int16_t *ul_valid_re_per_slot;
   const int *llr_offset;
   int16_t log2_maxh;
@@ -667,7 +677,11 @@ static void nr_pusch_symbol_processing(void *arg)
     inner_rx(gNB,
              slot,
              frame_parms,
+             rdata->nb_ch,
+             rdata->ch_est_size,
              rdata->ul_ch_estimates,
+             rdata->nb_comp,
+             rdata->comp_size,
              rdata->rxdataF_comp,
              nb_re_pusch,
              rdata->log2_maxh,
@@ -889,14 +903,9 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
               NR_MAX_PUSCH_CTX_STACK_BYTES >> 20,
               total_layers,
               num_sp_streams);
-  c16_t ch_est_mem[total_layers * num_sp_streams][ch_est_size] __attribute__((aligned(64)));
-  c16_t *ul_ch_estimates[total_layers * num_sp_streams];
-  for (int i = 0; i < total_layers * num_sp_streams; i++)
-    ul_ch_estimates[i] = ch_est_mem[i];
-  c16_t comp_mem[total_layers][comp_size] __attribute__((aligned(64)));
-  c16_t *rxdataF_comp[total_layers];
-  for (int i = 0; i < total_layers; i++)
-    rxdataF_comp[i] = comp_mem[i];
+  const int nb_ch = total_layers * num_sp_streams;
+  c16_t ul_ch_estimates[nb_ch][ch_est_size] __attribute__((aligned(64)));
+  c16_t rxdataF_comp[total_layers][comp_size] __attribute__((aligned(64)));
   // REs left per symbol after DMRS/PTRS extraction
   int16_t ul_valid_re_per_slot[NR_SYMBOLS_PER_SLOT] = {0};
   // offset of the LLRs of each symbol
@@ -925,9 +934,6 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     LOG_D(PHY, "symbol %d, dmrs_symbol_flag :%d\n", symbol, dmrs_symbol_flag);
     if (dmrs_symbol_flag == 1) {
       const int row = get_dmrs_row(rel15_ul_ref->ul_dmrs_symb_pos, symbol) * frame_parms->ofdm_symbol_size;
-      c16_t *ch_row[total_layers * num_sp_streams];
-      for (int i = 0; i < total_layers * num_sp_streams; i++)
-        ch_row[i] = ul_ch_estimates[i] + row;
       for (int u = 0; u < group_size; u++) {
         const nfapi_nr_pusch_pdu_t *p = rel15_ul_group[u];
         for (int nl = 0; nl < p->nrOfLayers; nl++) {
@@ -940,7 +946,10 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
                                       dmrs_symb_idx,
                                       symbol,
                                       joint_pv,
-                                      ch_row,
+                                      nb_ch,
+                                      ch_est_size,
+                                      ul_ch_estimates,
+                                      row,
                                       ant_port_start,
                                       bwp_start_subcarrier,
                                       &joint_pdu,
@@ -996,13 +1005,14 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   if (gNB->chest_time == 1) {
     AssertFatal(!is_ptrs, "Time domain averaging of DMRS estimates not allowed with PTRS\n");
     nr_chest_time_domain_avg(frame_parms,
-                             (int32_t **)ul_ch_estimates,
                              nb_dmrs_symb,
                              0,
                              (1 << nb_dmrs_symb) - 1, // one row per DMRS symbol
                              rel15_ul_ref->rb_size,
                              total_layers,
-                             num_sp_streams);
+                             num_sp_streams,
+                             ch_est_size,
+                             ul_ch_estimates);
   }
 
   // ULSCH signal and noise power measurements
@@ -1206,7 +1216,11 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       // Last task processes remainder symbols
       rdata->numSymbols = task_index == loop_iter - 1 ? rel15_ul_ref->nr_of_symbols - (loop_iter - 1) * numSymbols : numSymbols;
       rdata->ul_ch_estimates = ul_ch_estimates;
+      rdata->nb_ch = nb_ch;
+      rdata->ch_est_size = ch_est_size;
       rdata->rxdataF_comp = rxdataF_comp;
+      rdata->nb_comp = total_layers;
+      rdata->comp_size = comp_size;
       rdata->ul_valid_re_per_slot = ul_valid_re_per_slot;
       rdata->llr_offset = llr_offset;
       rdata->log2_maxh = log2_maxh;

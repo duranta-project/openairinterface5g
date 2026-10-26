@@ -18,7 +18,8 @@
 \param p
 \param symbol symbol within slot
 \param pusch_vars lower-phy PUSCH info
-\param ul_ch_estimates where to write the channel estimates of this symbol, [layer * nb_rx + rx][re], ofdm_symbol_size REs
+\param ul_ch_estimates channel estimates, [layer * nb_rx + rx][ch_est_size], one row of ofdm_symbol_size REs per DMRS symbol
+\param ch_row_offset where the row of this DMRS symbol starts in each estimate
 \param bwp_start_subcarrier first allocated subcarrier
 \param pusch_pdu
 \param max_ch maximum value of estimated channel
@@ -32,7 +33,10 @@ int nr_pusch_channel_estimation(PHY_VARS_gNB *gNB,
                                 uint8_t lp,
                                 unsigned char symbol,
                                 NR_gNB_PUSCH *pusch_vars,
-                                c16_t **ul_ch_estimates,
+                                int nb_ch,
+                                int ch_est_size,
+                                c16_t ul_ch_estimates[nb_ch][ch_est_size],
+                                int ch_row_offset,
                                 uint16_t ant_port_start,
                                 unsigned short bwp_start_subcarrier,
                                 const nfapi_nr_pusch_pdu_t *pusch_pdu,
