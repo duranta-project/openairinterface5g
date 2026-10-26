@@ -4,7 +4,6 @@
 
 #include "nr_up_f1u.h"
 
-#include <time.h>
 
 #include <openair3/ocp-gtpu/gtp_itf.h>
 
@@ -20,10 +19,9 @@
 static bool nr_up_f1u_try_report_polling(ue_id_t ue_id, rb_id_t drb_id)
 {
   nr_up_drb_budget_t *drb_budget;
-  struct timespec now;
 
-  clock_gettime(CLOCK_MONOTONIC, &now);
   nr_up_manager_lock();
+  const uint64_t now = nr_up_current_time_ms();
   drb_budget = nr_up_manager_lookup_drb(ue_id, drb_id);
   if (drb_budget == NULL) { // first time we see this DRB
     drb_budget = nr_up_manager_insert_drb(ue_id, drb_id);
@@ -34,8 +32,8 @@ static bool nr_up_f1u_try_report_polling(ue_id_t ue_id, rb_id_t drb_id)
   }
 
   /* try polling if budget is stale and poll interval elapsed */
-  if (nr_up_timespec_diff_ms(&now, &drb_budget->last_budget_sync) >= NR_UP_BUDGET_POLL_MS
-      && nr_up_timespec_diff_ms(&now, &drb_budget->last_status_poll) >= NR_UP_BUDGET_POLL_MS) {
+  if ((now - drb_budget->last_budget_sync) >= NR_UP_BUDGET_POLL_MS
+      && (now - drb_budget->last_status_poll) >= NR_UP_BUDGET_POLL_MS) {
     drb_budget->last_status_poll = now;
     nr_up_manager_unlock();
     return true;
