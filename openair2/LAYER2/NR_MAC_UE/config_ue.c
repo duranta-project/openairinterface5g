@@ -68,7 +68,8 @@ static int get_ta_offset(long *n_TimingAdvanceOffset)
 static void set_tdd_config_nr_ue(fapi_nr_tdd_table_t *tdd_table, const frame_structure_t *fs)
 {
   tdd_table->tdd_period_in_slots = fs->numb_slots_period;
-  tdd_table->max_tdd_periodicity_list = malloc(fs->numb_slots_period * sizeof(*tdd_table->max_tdd_periodicity_list));
+  // calloc: a slot only sets the fields of its own type (num_dl of an UL slot must read 0).
+  tdd_table->max_tdd_periodicity_list = calloc_or_fail(fs->numb_slots_period, sizeof(*tdd_table->max_tdd_periodicity_list));
 
   const tdd_period_config_t *pc = &fs->period_cfg;
   for (int i = 0; i < fs->numb_slots_period; i++) {
