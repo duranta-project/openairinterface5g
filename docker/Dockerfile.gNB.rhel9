@@ -77,9 +77,21 @@ COPY --from=gnb-base \
     /lib64/libicuuc.so.67 \
     /lib64/
 
+# grpc/protobuf runtime of libuhd >= 4.11
+COPY --from=gnb-base \
+    /lib64/libproto*.so.* \
+    /lib64/libgrpc*.so.* \
+    /lib64/libgpr.so.* \
+    /lib64/libupb.so.* \
+    /lib64/libaddress_sorting.so.* \
+    /lib64/libabsl_*.so.* \
+    /lib64/libre2.so.* \
+    /lib64/libcares.so.* \
+    /lib64/
+
 # Now we are copying from builder-image the UHD files.
 COPY --from=gnb-base /usr/local/bin/uhd_find_devices /usr/local/bin
-COPY --from=gnb-base /usr/local/lib64/libuhd.so.4.8.0 /usr/local/lib64
+COPY --from=gnb-base /usr/local/lib64/libuhd.so.4.11.0 /usr/local/lib64
 COPY --from=gnb-base /usr/local/lib64/uhd/utils/uhd_images_downloader.py /opt/oai-gnb/bin
 
 ## Copy E2 SM models
@@ -102,7 +114,7 @@ RUN /bin/bash -c "ln -s /usr/local/lib/liboai_usrpdevif.so /usr/local/lib/liboai
         /usr/local/lib/libldpc*.so \
         /usr/local/lib/libtelnetsrv.so \
         /usr/local/lib/libtelnetsrv_ci.so \
-        /usr/local/lib64/libuhd.so.4.8.0
+        /usr/local/lib64/libuhd.so.4.11.0
 
 WORKDIR /opt/oai-gnb
 #EXPOSE 2152/udp  # S1U, GTP/UDP

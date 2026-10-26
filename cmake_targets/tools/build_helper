@@ -145,7 +145,7 @@ install_usrp_uhd_driver_from_source(){
             # - 3.15.0.0
             git apply $OPENAIR_DIR/cmake_targets/tools/uhd-3.15-tdd-patch.diff
             ret=$?;[[ $ret -ne 0 ]] && echo_fatal "Could not apply the TDD patch"
-        elif [[ "$UHD_VERSION" == "4.10.0.0" || "$UHD_VERSION" == "4.9.0.0" || "$UHD_VERSION" == "4.8.0.0" || "$UHD_VERSION" == "4.7.0.0" || "$UHD_VERSION" == "4.6.0.0" || "$UHD_VERSION" == "4.5.0.0" ]]; then
+        elif [[ "$UHD_VERSION" == "4.11.0.0" || "$UHD_VERSION" == "4.10.0.0" || "$UHD_VERSION" == "4.9.0.0" || "$UHD_VERSION" == "4.8.0.0" || "$UHD_VERSION" == "4.7.0.0" || "$UHD_VERSION" == "4.6.0.0" || "$UHD_VERSION" == "4.5.0.0" ]]; then
             # Tested patch for versions listed in elif clause
             git apply $OPENAIR_DIR/cmake_targets/tools/uhd-4.5plus-tdd-patch.diff
             ret=$?;[[ $ret -ne 0 ]] && echo_fatal "Could not apply the TDD patch"
@@ -162,7 +162,7 @@ install_usrp_uhd_driver_from_source(){
             ret=$?;[[ $ret -ne 0 ]] && echo_fatal "Could not apply the TDD patch"
         fi
     else
-        git checkout tags/v4.8.0.0
+        git checkout tags/v4.11.0.0
         git apply $OPENAIR_DIR/cmake_targets/tools/uhd-4.5plus-tdd-patch.diff
         ret=$?;[[ $ret -ne 0 ]] && echo_fatal "Could not apply the TDD patch"
     fi
@@ -196,6 +196,10 @@ check_install_usrp_uhd_driver(){
         $SUDO apt-add-repository --remove "deb http://files.ettus.com/binaries/uhd/repo/uhd/ubuntu/$v $v main"
         if [[ -v BUILD_UHD_FROM_SOURCE ]] || [[ "$OS_DISTRO" == "debian" ]]; then
             $SUDO apt-get install -y $boost_libs_ubuntu libusb-1.0-0-dev doxygen python3-docutils python3-mako python3-numpy python3-requests python3-setuptools ninja-build
+            # UHD 4.11 (also the default when UHD_VERSION is unset) needs gRPC/protobuf for MPM (ENABLE_MPMD)
+            if [[ ! -v UHD_VERSION || "$UHD_VERSION" == "4.11.0.0" ]]; then
+              $SUDO apt-get install -y libgrpc++-dev libprotobuf-dev protobuf-compiler protobuf-compiler-grpc
+            fi
             install_usrp_uhd_driver_from_source
             return
         fi
@@ -223,6 +227,10 @@ check_install_usrp_uhd_driver(){
             then
                 # until EPEL repo hasn't bumped UHD driver to >=3.10 in EPEL, build driver from source
                 $SUDO $INSTALLER -y remove uhd uhd-devel uhd-firmware
+            fi
+            # UHD 4.11 (also the default when UHD_VERSION is unset) needs gRPC/protobuf for MPM (ENABLE_MPMD)
+            if [[ ! -v UHD_VERSION || "$UHD_VERSION" == "4.11.0.0" ]]; then
+              $SUDO $INSTALLER -y install grpc-devel grpc-plugins protobuf-devel protobuf-compiler
             fi
             install_usrp_uhd_driver_from_source
         else

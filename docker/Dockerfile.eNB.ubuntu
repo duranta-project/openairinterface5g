@@ -46,7 +46,9 @@ RUN apt-get update && \
         python3 \
         python3-six \
         python3-requests \
-        libusb-1.0-0 && \
+        libusb-1.0-0 \
+        libgrpc++1.51t64 \
+        libprotobuf32t64 && \
 # Installing older version of iperf2 for feMBMS test
     wget --quiet http://fr.archive.ubuntu.com/ubuntu/pool/universe/i/iperf/iperf_2.0.13+dfsg1-1build1_amd64.deb && \
     dpkg -i iperf_2.0.13+dfsg1-1build1_amd64.deb && \
@@ -80,7 +82,7 @@ COPY --from=enb-build \
 
 # Now we are copying from builder-image the UHD files.
 COPY --from=enb-base /usr/local/bin/uhd_find_devices /usr/local/bin
-COPY --from=enb-base /usr/local/lib/libuhd.so.4.8.0 /usr/local/lib
+COPY --from=enb-base /usr/local/lib/libuhd.so.4.11.0 /usr/local/lib
 COPY --from=enb-base /usr/local/lib/uhd/utils/uhd_images_downloader.py /opt/oai-enb/bin
 
 RUN /bin/bash -c "ln -s /usr/local/lib/liboai_usrpdevif.so /usr/local/lib/liboai_device.so" && \
@@ -97,7 +99,7 @@ RUN /bin/bash -c "ln -s /usr/local/lib/liboai_usrpdevif.so /usr/local/lib/liboai
         /usr/local/lib/liboai_iqplayer.so \
         /usr/local/lib/libtelnetsrv.so \
         /usr/local/lib/libtelnetsrv_enb.so \
-        /usr/local/lib/libuhd.so.4.8.0
+        /usr/local/lib/libuhd.so.4.11.0
 
 WORKDIR /opt/oai-enb
 
