@@ -2744,11 +2744,12 @@ static void nr_construct_HhH_elements(c16_t *conjch00_ch00,
 }
 
 // MMSE Rx function: nr_mmse_2layers()
-uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
-                        uint32_t buffer_length,
+uint8_t nr_mmse_2layers(uint32_t buffer_length,
                         uint32_t pdsch_buf_size_max,
                         int nb_rx_ant,
                         int nb_layers,
+                        uint32_t comp_size,
+                        c16_t rxdataF_comp[nb_layers][comp_size],
                         c16_t ch_mag[nb_layers][pdsch_buf_size_max],
                         c16_t ch_magb[nb_layers][pdsch_buf_size_max],
                         c16_t ch_magc[nb_layers][pdsch_buf_size_max],
