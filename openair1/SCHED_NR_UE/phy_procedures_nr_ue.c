@@ -501,7 +501,13 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   stop_meas_nr_ue_phy(ue, DLSCH_CHANNEL_ESTIMATION_STATS);
   nvar /= (count_bits(&dmrs_symb_bitmap, 1) * dlsch->cw_info.Nl * frame_parms->nb_antennas_rx);
   int first_dmrs_symbol = get_first_bit_index_mask(&dmrs_symb_bitmap, 1, 0, NR_SYMBOLS_PER_SLOT);
-  nr_ue_measurement_procedures(first_dmrs_symbol, ue, proc, freq_alloc->num_rbs, pdsch_est_size, pdsch_dl_ch_estimates);
+  // estimates of the first DMRS symbol
+  nr_ue_measurement_procedures(get_dmrs_row(dmrs_symb_bitmap, first_dmrs_symbol),
+                               ue,
+                               proc,
+                               freq_alloc->num_rbs,
+                               pdsch_est_size,
+                               pdsch_dl_ch_estimates);
 
   // PTRS processing.
   const bool is_ptrs = dlschCfg->pduBitmap & 1;
@@ -528,7 +534,8 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                        .nscid = dlschCfg->nscid,
                        .ofdm_symbol_size = fp->ofdm_symbol_size,
                        .slot = proc->nr_slot_rx,
-                       .rnti = dlsch->rnti};
+                       .rnti = dlsch->rnti,
+                       .chest_per_dmrs = true};
       ptrs_re_symbol = nr_ptrs_run(&p, dlschCfg->PTRSTimeDensity, rxdataF[0], (const c16_t *)pdsch_dl_ch_estimates[0], cpe);
       ptrs_symb_pos = p.ptrs_symb_pos;
     }
@@ -540,11 +547,13 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
     for (int nl = 0; nl < dlsch->cw_info.Nl; nl++)
       for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++)
         ch_est_p[nl * frame_parms->nb_antennas_rx + aarx] = pdsch_dl_ch_estimates[nl * frame_parms->nb_antennas_rx + aarx];
+    // one row per DMRS symbol
+    const int nb_dmrs_symb = count_bits(&dmrs_symb_bitmap, 1);
     nr_chest_time_domain_avg(frame_parms,
                              ch_est_p,
-                             dlschCfg->number_symbols,
-                             dlschCfg->start_symbol,
-                             dmrs_symb_bitmap,
+                             nb_dmrs_symb,
+                             0,
+                             (1 << nb_dmrs_symb) - 1,
                              freq_alloc->num_rbs,
                              dlsch->cw_info.Nl,
                              frame_parms->nb_antennas_rx);

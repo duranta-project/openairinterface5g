@@ -9,6 +9,7 @@
 #include <string.h>
 #include "nr_estimation.h"
 #include "PHY/NR_REFSIG/nr_refsig.h"
+#include "PHY/NR_REFSIG/dmrs_nr.h"
 #include "PHY/NR_REFSIG/nr_mod_table.h"
 #include "PHY/NR_TRANSPORT/nr_sch_dmrs.h"
 #include "nr_phy_common.h"
@@ -1123,7 +1124,9 @@ void nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
   const int symb_sz = ue->frame_parms.ofdm_symbol_size;
   const int slot = proc->nr_slot_rx;
   const NR_DL_FRAME_PARMS *frame_parms = &ue->frame_parms;
-  const int ch_offset = symb_sz * symbol;
+  // the estimates are stored per DMRS symbol
+  const int ch_offset = symb_sz * get_dmrs_row(dlsch->dlDmrsSymbPos, symbol);
+  AssertFatal(ch_offset + symb_sz <= pdsch_est_size, "DMRS symbol %d: more than %d DMRS symbols\n", symbol, NR_MAX_DMRS_SYMBOLS);
   const int symbol_offset = symb_sz * symbol;
   const int bwp_start_subcarrier = (dlsch->BWPStart + freq_alloc->first_rb) * NR_NB_SC_PER_RB;
 
