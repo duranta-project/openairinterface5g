@@ -204,8 +204,11 @@ typedef struct {
 
 #define NR_PSBCH_DMRS_LENGTH 297 // in mod symbols
 #define NR_PSBCH_DMRS_LENGTH_DWORD 20 // ceil(2(QPSK)*NR_PBCH_DMRS_LENGTH/32)
+
 #define PBCH_A 24
-#define NR_SLSCH_RX_MAX 2
+#define NR_SLSCH_RX_MAX 32 // max sl-NrOfHARQ-Processes-r16 per TS 38.321 S5.22.1.4
+                           // TODO: for multi-peer reception this pool must be sized
+                           // as num_peers * NR_MAX_SLSCH_HARQ_PROCESSES
 
 typedef struct {
   bool active;
@@ -377,6 +380,7 @@ typedef struct PHY_VARS_NR_UE_s {
   /// temporary offset during cell search prior to MIB decoding
   int ssb_offset;
   uint16_t symbol_offset; /// offset in terms of symbols for detected ssb in sync
+  int rx_offset;      /// Timing offset
   int64_t max_pos_iir; /// Timing offset IIR filter
   int max_pos_acc; /// Timing offset accumuluated error for PI filter
 
