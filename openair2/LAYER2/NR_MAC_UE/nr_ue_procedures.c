@@ -1449,7 +1449,14 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
     cw1 = false;
 
   dlsch_pdu->n_front_load_symb = 1; // default value
-  set_antenna_port_parameters(dlsch_pdu, cw0 + cw1, max_length, dmrs_type, dci->antenna_ports.val);
+  if (!set_antenna_port_parameters(dlsch_pdu, cw0 + cw1, max_length, dmrs_type, dci->antenna_ports.val)) {
+    LOG_W(NR_MAC,
+          "[%d.%d] reserved antenna_ports value %d. Possibly due to false DCI. Ignoring DCI!\n",
+          frame,
+          slot,
+          dci->antenna_ports.val);
+    return -1;
+  }
   int nb_re_dmrs = ((dmrs_type == NULL) ? 6 : 4) * dlsch_pdu->n_dmrs_cdm_groups;
 
   /* dmrs symbol positions*/
