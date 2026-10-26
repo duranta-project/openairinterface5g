@@ -810,6 +810,14 @@ static void accumulate_dl_stats(NR_UE_MAC_INST_t *mac,
   mac->stats.dl.nr_of_symbols += dlsch_pdu->number_symbols;
 }
 
+static void commit_dl_harq_history(NR_UE_DL_HARQ_STATUS_t *current_harq, const NR_UE_DL_HARQ_STATUS_t *history)
+{
+  current_harq->R = history->R;
+  current_harq->TBS = history->TBS;
+  current_harq->last_ndi = history->last_ndi;
+  current_harq->round = history->round;
+}
+
 static int nr_ue_process_dci_dl_10_p_rnti(NR_UE_MAC_INST_t *mac,
                                           frame_t frame,
                                           int slot,
@@ -1111,12 +1119,12 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   int nb_re_dmrs = ((dlsch_pdu->dmrsConfigType == NFAPI_NR_DMRS_TYPE1) ? 6 : 4) * dlsch_pdu->n_dmrs_cdm_groups;
   int nb_rb_oh = mac->sc_info.xOverhead_PDSCH ? nb_rb_oh = 6 * (1 + *mac->sc_info.xOverhead_PDSCH) : 0;
   NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[dci->harq_pid.val][0];
+  NR_UE_DL_HARQ_STATUS_t harq_history = *current_harq;
   // TS 38.321 5.3.1: the NDI of the first downlink assignment for this Temporary C-RNTI is considered toggled
-  if (rnti_type == TYPE_TC_RNTI_ && !mac->msg3_C_RNTI && !mac->ra.t_crnti_dl_assigned) {
-    current_harq->last_ndi = -1;
-    mac->ra.t_crnti_dl_assigned = true;
-  }
-  if (!get_cw_info(current_harq,
+  const bool first_tc_rnti_assignment = rnti_type == TYPE_TC_RNTI_ && !mac->msg3_C_RNTI && !mac->ra.t_crnti_dl_assigned;
+  if (first_tc_rnti_assignment)
+    harq_history.last_ndi = -1;
+  if (!get_cw_info(&harq_history,
                    dlsch_pdu,
                    dl_conf_req->pdu_type,
                    &dlsch_pdu->cw_info[0],
@@ -1173,6 +1181,10 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
           dci->pucch_resource_indicator);
     return -1;
   }
+
+  commit_dl_harq_history(current_harq, &harq_history);
+  if (first_tc_rnti_assignment)
+    mac->ra.t_crnti_dl_assigned = true;
 
   /* PDSCH_TO_HARQ_FEEDBACK_TIME_IND */
   // according to TS 38.213 9.2.3
@@ -1541,72 +1553,86 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
 
   int cw_idx = 0;
   NR_UE_DL_HARQ_STATUS_t *current_harq = NULL;
+  NR_UE_DL_HARQ_STATUS_t harq_history[NR_DL_MAX_NB_CW];
+  if (cw0) {
+    harq_history[cw_idx] = mac->dl_harq_info[dci->harq_pid.val][0];
+    if (!get_cw_info(&harq_history[cw_idx],
+                     dlsch_pdu,
+                     dl_conf_req->pdu_type,
+                     &dlsch_pdu->cw_info[0],
+                     number_rbs,
+                     nb_re_dmrs,
+                     nb_rb_oh,
+                     dci->rv,
+                     dci->mcs,
+                     dci->ndi,
+                     cw_idx))
+      return -1;
+    cw_idx++;
+  }
+
+  if (cw1) {
+    harq_history[cw_idx] = mac->dl_harq_info[dci->harq_pid.val][cw_idx];
+    if (!get_cw_info(&harq_history[cw_idx],
+                     dlsch_pdu,
+                     dl_conf_req->pdu_type,
+                     &dlsch_pdu->cw_info[1],
+                     number_rbs,
+                     nb_re_dmrs,
+                     nb_rb_oh,
+                     dci->rv2.val,
+                     dci->mcs2.val,
+                     dci->ndi2.val,
+                     cw_idx))
+      return -1;
+    cw_idx++;
+  }
+
+  // Rejecting either codeword must leave the accepted HARQ history and feedback unchanged.
+  for (int cw = 0; cw < cw_idx; cw++)
+    commit_dl_harq_history(&mac->dl_harq_info[dci->harq_pid.val][cw], &harq_history[cw]);
+
+  cw_idx = 0;
   if (cw0) {
     current_harq = &mac->dl_harq_info[dci->harq_pid.val][0];
-    if (get_cw_info(current_harq,
-                    dlsch_pdu,
-                    dl_conf_req->pdu_type,
-                    &dlsch_pdu->cw_info[0],
-                    number_rbs,
-                    nb_re_dmrs,
-                    nb_rb_oh,
-                    dci->rv,
-                    dci->mcs,
-                    dci->ndi,
-                    cw_idx)) {
-      if (current_harq->round < sizeofArray(mac->stats.dl.rounds))
-        mac->stats.dl.rounds[current_harq->round]++;
-      accumulate_dl_stats(mac, dlsch_pdu, &dlsch_pdu->cw_info[0], number_rbs);
-      // set the harq status at MAC for feedback
-      set_harq_status(mac,
-                      dci->pucch_resource_indicator,
-                      dci->harq_pid.val,
-                      0,
-                      tpc[dci->tpc],
-                      feedback_ti,
-                      dci->dai[0].val,
-                      dci_ind->n_CCE,
-                      dci_ind->N_CCE,
-                      dlsch_pdu->cw_info[0].new_data_indicator,
-                      frame,
-                      slot);
-      cw_idx++;
-    } else
-      return -1;
+    if (current_harq->round < sizeofArray(mac->stats.dl.rounds))
+      mac->stats.dl.rounds[current_harq->round]++;
+    accumulate_dl_stats(mac, dlsch_pdu, &dlsch_pdu->cw_info[0], number_rbs);
+    // set the harq status at MAC for feedback
+    set_harq_status(mac,
+                    dci->pucch_resource_indicator,
+                    dci->harq_pid.val,
+                    0,
+                    tpc[dci->tpc],
+                    feedback_ti,
+                    dci->dai[0].val,
+                    dci_ind->n_CCE,
+                    dci_ind->N_CCE,
+                    dlsch_pdu->cw_info[0].new_data_indicator,
+                    frame,
+                    slot);
+    cw_idx++;
   }
 
   if (cw1) {
     current_harq = &mac->dl_harq_info[dci->harq_pid.val][cw_idx];
-    if (get_cw_info(current_harq,
-                    dlsch_pdu,
-                    dl_conf_req->pdu_type,
-                    &dlsch_pdu->cw_info[1],
-                    number_rbs,
-                    nb_re_dmrs,
-                    nb_rb_oh,
-                    dci->rv2.val,
-                    dci->mcs2.val,
-                    dci->ndi2.val,
-                    cw_idx)) {
-      if (current_harq->round < sizeofArray(mac->stats.dl.rounds))
-        mac->stats.dl.rounds[current_harq->round]++;
-      accumulate_dl_stats(mac, dlsch_pdu, &dlsch_pdu->cw_info[1], number_rbs);
-      // set the harq status at MAC for feedback
-      set_harq_status(mac,
-                      dci->pucch_resource_indicator,
-                      dci->harq_pid.val,
-                      1,
-                      tpc[dci->tpc],
-                      feedback_ti,
-                      dci->dai[0].val,
-                      dci_ind->n_CCE,
-                      dci_ind->N_CCE,
-                      dlsch_pdu->cw_info[1].new_data_indicator,
-                      frame,
-                      slot);
-      cw_idx++;
-    } else
-      return -1;
+    if (current_harq->round < sizeofArray(mac->stats.dl.rounds))
+      mac->stats.dl.rounds[current_harq->round]++;
+    accumulate_dl_stats(mac, dlsch_pdu, &dlsch_pdu->cw_info[1], number_rbs);
+    // set the harq status at MAC for feedback
+    set_harq_status(mac,
+                    dci->pucch_resource_indicator,
+                    dci->harq_pid.val,
+                    1,
+                    tpc[dci->tpc],
+                    feedback_ti,
+                    dci->dai[0].val,
+                    dci_ind->n_CCE,
+                    dci_ind->N_CCE,
+                    dlsch_pdu->cw_info[1].new_data_indicator,
+                    frame,
+                    slot);
+    cw_idx++;
   }
 
   dlsch_pdu->n_codewords = cw_idx;
