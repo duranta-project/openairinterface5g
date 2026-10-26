@@ -5,7 +5,6 @@
 #include "nr_up_ue.h"
 
 #include <string.h>
-#include <time.h>
 
 #include "assertions.h"
 #include "common/utils/LOG/log.h"
@@ -59,14 +58,12 @@ static nr_up_dl_transfer_response_t nr_up_ue_deliver_srb(const nr_up_dl_transfer
 static nr_up_congestion_action_t nr_up_ue_ul_congestion_precheck(ue_id_t ue_id, rb_id_t drb_id, size_t pdu_len)
 {
   nr_up_drb_budget_t *drb_budget;
-  struct timespec now;
-  size_t ms_since_sync;
+  uint64_t ms_since_sync;
 
   nr_up_manager_lock();
   drb_budget = nr_up_manager_lookup_drb(ue_id, drb_id);
   if (drb_budget != NULL) {
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    ms_since_sync = nr_up_timespec_diff_ms(&now, &drb_budget->last_budget_sync);
+    ms_since_sync = nr_up_current_time_ms() - drb_budget->last_budget_sync;
     /* RLC has not refreshed this budget for too long: allow the packet.
      * The old occupancy value may be wrong, and keeping DROP would stop all UL. */
     if (ms_since_sync > NR_UP_UE_BUDGET_STALE_MS) {

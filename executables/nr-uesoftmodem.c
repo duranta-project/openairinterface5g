@@ -36,6 +36,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #endif
 #include "common/utils/LOG/log.h"
 #include "common/utils/time_manager/time_manager.h"
+#include "openair2/LAYER2/nr_up/nr_up.h"
 
 #include "UTIL/OPT/opt.h"
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
@@ -288,10 +289,11 @@ int main(int argc, char **argv)
   void nr_pdcp_ms_tick(void);
   void nr_rlc_ms_tick(void);
   time_manager_tick_function_t tick_functions[] = {
+    nr_up_ms_tick,
     nr_pdcp_ms_tick,
     nr_rlc_ms_tick
   };
-  int tick_functions_count = 2;
+  int tick_functions_count = sizeofArray(tick_functions);
   time_manager_start(tick_functions, tick_functions_count,
                      // iq_samples time source for rfsim,
                      // realtime time source if not
