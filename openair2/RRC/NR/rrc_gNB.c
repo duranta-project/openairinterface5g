@@ -971,6 +971,14 @@ nr_rrc_reconfig_param_t get_RRCReconfiguration_params(gNB_RRC_INST *rrc, gNB_RRC
                 session->pdusession_id);
         }
       }
+    } else if (item->status == PDU_SESSION_STATUS_TOMODIFY && item->n_drbs_to_release > 0) {
+      // DRBs released by the modification
+      if (!params.drb_rel)
+        params.drb_rel = calloc_or_fail(MAX_DRBS_PER_UE, sizeof(int));
+      for (int i = 0; i < item->n_drbs_to_release; i++) {
+        DevAssert(params.n_drb_rel < MAX_DRBS_PER_UE);
+        params.drb_rel[params.n_drb_rel++] = item->drbs_to_release[i];
+      }
     }
   }
 
