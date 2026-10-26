@@ -432,7 +432,8 @@ void free_config_request(nfapi_nr_config_request_scf_t *msg)
   }
   const uint8_t slotsperframe[5] = {10, 20, 40, 80, 160};
   if (msg->tdd_table.max_tdd_periodicity_list) {
-    for (int i = 0; i < slotsperframe[msg->ssb_config.scs_common.value]; i++) {
+    const int num_slots = msg->ssb_config.scs_common.value < 5 ? slotsperframe[msg->ssb_config.scs_common.value] : 0;
+    for (int i = 0; i < num_slots; i++) {
       free(msg->tdd_table.max_tdd_periodicity_list[i].max_num_of_symbol_per_slot_list);
     }
     free(msg->tdd_table.max_tdd_periodicity_list);
