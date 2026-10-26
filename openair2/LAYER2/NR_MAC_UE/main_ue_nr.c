@@ -54,7 +54,7 @@ void nr_ue_init_mac_sl(NR_UE_MAC_INST_t *mac)
   // drops every received SLSCH PDU. Give the SyncRef UE src_id 0 and the Nearby
   // UE src_id 1, so each appears as the single peer (uid) in the other's peer
   // list built below.
-  mac->src_id = 0; // TODO fix this
+  mac->src_id = get_nrUE_params()->sync_ref ? 0 : 1;
 
   for (int i = 0; i < CUR_SL_UE_CONNECTIONS + 1; i++) {
     if (mac->src_id == i)
@@ -62,7 +62,7 @@ void nr_ue_init_mac_sl(NR_UE_MAC_INST_t *mac)
     mac->sl_info.list[k] = calloc(1, sizeof(NR_SL_UE_info_t));
     mac->sl_info.list[k]->uid = i;
     NR_SL_UE_sched_ctrl_t *UE_sched_ctrl = &mac->sl_info.list[k]->UE_sched_ctrl;
-    UE_sched_ctrl->sl_max_mcs = 0; // TODO fix this
+    UE_sched_ctrl->sl_max_mcs = get_nrUE_params()->mcs;
     id_list_init(&UE_sched_ctrl->available_sl_harq, 16);
     for (int harq = 0; harq < 16; harq++)
       id_list_push_back(&UE_sched_ctrl->available_sl_harq, harq);
