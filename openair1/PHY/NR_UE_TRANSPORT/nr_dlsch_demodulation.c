@@ -749,10 +749,6 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   // Reinterpret flat dl_ch_estimates_ext as [nl][nbRx][rx_size_symbol]
   c16_t(*chFext)[nbRx][rx_size_symbol] = (void *)dl_ch_estimates_ext;
 
-  c16_t *p_rxComp[nl];
-  for (int l = 0; l < nl; l++)
-    p_rxComp[l] = rxdataF_comp[l];
-
   const int frame = proc->frame_rx;
   const int nr_slot_rx = proc->nr_slot_rx;
   uint8_t slot = 0;
@@ -923,16 +919,17 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                           pdsch_buf_size_max,
                           nbRx,
                           nl,
+                          pdsch_buf_size_max,
                           rxdataF_ext,
                           chFext,
                           dl_ch_mag,
                           dl_ch_magb,
                           dl_ch_magr,
-                          p_rxComp,
+                          rxdataF_comp,
                           need_rho ? (c16_t(*)[nl][pdsch_buf_size_max])rho_dl : NULL,
                           ptrs_phase,
                           dlsch->cw_info.qamModOrder,
-                          0, // symbol already baked into p_rxComp
+                          0, // rxdataF_comp holds this symbol only
                           *log2_maxh);
   stop_meas_nr_ue_phy(ue, DLSCH_CHANNEL_COMPENSATION_STATS);
   if (meas_enabled) {
@@ -979,11 +976,12 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                   nb_re_pdsch,
                   nvar);
   } else if ((nl == 2) && (qamModOrder > 6) && do_ml) {
-    nr_mmse_2layers(p_rxComp,
-                    rx_size_symbol,
+    nr_mmse_2layers(rx_size_symbol,
                     pdsch_buf_size_max,
                     nbRx,
                     nl,
+                    pdsch_buf_size_max,
+                    rxdataF_comp,
                     dl_ch_mag,
                     dl_ch_magb,
                     dl_ch_magr,
