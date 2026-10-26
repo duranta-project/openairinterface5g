@@ -396,6 +396,8 @@ int main(int argc, char **argv)
   //uint8_t frame_mod4,num_pdcch_symbols = 0;
 
   SCM_t channel_model = AWGN; // AWGN Rayleigh1 Rayleigh1_anticorr;
+  bool echo_channel = false;
+  double echo_delay_ns = 100, echo_level_dB = -3;
   double DS_TDL = .03;
   int delay = 0;
 
@@ -430,7 +432,7 @@ int main(int argc, char **argv)
   uint16_t ptrsSymbPerSlot = 0;
   uint8_t  mcsIndex = 9;
   uint8_t  dlsch_threads = 0;
-  int chest_type[2] = {0};
+  int chest_type[3] = {0};
   uint8_t  max_ldpc_iterations = 5;
   // number of PDSCH symbols per thread = 0 means do not use thread pool
   int num_pdsch_symbols_per_thread = 0;
@@ -492,6 +494,13 @@ int main(int argc, char **argv)
           DS_TDL = 0.300; // 300 ns
           printf("Channel model: TDLC300\n");
           break;
+        case 'E':
+          // fixed frequency-selective channel: E[,<echo delay ns>,<echo level dB>]
+          echo_channel = true;
+          if (optarg[1] == ',')
+            AssertFatal(sscanf(optarg + 2, "%lf,%lf", &echo_delay_ns, &echo_level_dB) == 2, "-g E,<delay ns>,<level dB>\n");
+          printf("Channel model: echo %.0f ns %.1f dB\n", echo_delay_ns, echo_level_dB);
+          break;
         default:
           printf("Unsupported channel model!\n");
           exit(-1);
@@ -500,7 +509,7 @@ int main(int argc, char **argv)
       break;
 
     case 'i':
-      for(i=0; i < atoi(optarg); i++){
+      for (i = 0; i < atoi(optarg) && i < 3; i++) {
         chest_type[i] = atoi(argv[optind++]);
       }
       break;
@@ -688,7 +697,7 @@ int main(int argc, char **argv)
              argv[0]);
       printf("-h This message\n");
       printf("-L <log level, 0(errors), 1(warning), 2(analysis), 3(info), 4(debug), 5(trace)>\n");
-      printf("-i Change channel estimation technique. Arguments list: Frequency domain {0:Linear interpolation, 1:PRB based averaging}, Time domain {0:Estimates of last DMRS symbol, 1:Average of DMRS symbols}\n");
+      printf("-i Change channel estimation technique. Arguments list: Frequency domain {0:Linear interpolation, 1:PRB based averaging, 2:Delay-compensated linear interpolation (type 1)}, Time domain {0:Estimates of last DMRS symbol, 1:Average of DMRS symbols}, PRG size in RBs for 2 (0: none), e.g. -i 3 2 0 2\n");
       printf("-O oversampling factor (1,2,4,8,16)\n");
       printf("-A Interpolation_filname Run with Abstraction to generate Scatter plot using interpolation polynomial in file\n");
       printf("-F Input filename (.txt format) for RX conformance testing\n");
@@ -704,7 +713,7 @@ int main(int argc, char **argv)
 #else
       printf("          (none)  No optional features were compiled into this executable\n");
 #endif
-      printf("-g Channel model: [A] TDLA30, [B] TDLB100, [C] TDLC300, e.g. -g A\n");
+      printf("-g Channel model: [A] TDLA30, [B] TDLB100, [C] TDLC300, [E] fixed echo E[,<delay ns>,<level dB>] (default 100 ns, -3 dB), e.g. -g A\n");
       printf("-H Slot number\n");
       printf("-m Numerology\n");
       printf("-n Number of frames to simulate\n");
@@ -936,7 +945,29 @@ int main(int argc, char **argv)
                                 0,
                                 0);
 
+  if (echo_channel) {
+    // Each TX antenna t reaches RX antenna r if r % n_tx == t (the identity for as many TX as RX antennas),
+    // through a direct path and an echo: the same frequency-selective scalar on every link, with notches
+    // every 1 / delay, and layers that stay orthogonal. Fixed: built once, kept by multipath_channel_float.
+    const int d = (int)lround(echo_delay_ns * 1e-9 * fs);
+    const double a = pow(10, echo_level_dB / 20), norm = 1 / sqrt(1 + a * a);
+    for (int i = 0; i < n_tx * n_rx; i++)
+      free(gNB2UE->ch[i]);
+    gNB2UE->channel_length = d + 1;
+    for (int t = 0; t < n_tx; t++)
+      for (int r = 0; r < n_rx; r++) {
+        struct complexd *ch = calloc(d + 1, sizeof(*ch));
+        if (r % n_tx == t) {
+          ch[0].r += norm;
+          ch[d].r += a * norm;
+        }
+        gNB2UE->ch[r + t * n_rx] = ch;
+      }
+    printf("Echo channel: delay %d samples (%.1f ns), level %.1f dB\n", d, d / fs * 1e9, echo_level_dB);
+  }
+
 #ifdef CHANNEL_SIM_CUDA
+  AssertFatal(!(echo_channel && use_cuda), "the echo channel (-g E) needs the CPU channel model\n");
   float *h_channel_coeffs = NULL;
   if (use_cuda) {
     int num_links = n_tx * n_rx;
@@ -1006,6 +1037,7 @@ int main(int argc, char **argv)
   UE->if_inst->ul_indication = dummy_nr_ue_ul_indication;
   UE->chest_freq = chest_type[0];
   UE->chest_time = chest_type[1];
+  UE->chest_prg = chest_type[2];
 
   UE_mac->if_module = nr_ue_if_module_init(0);
 
@@ -1327,7 +1359,7 @@ int main(int argc, char **argv)
             bzero(r_im[aa], slot_length * sizeof(float));
           }
           start_meas(&channel_stats);
-          multipath_channel_float(gNB2UE, tx_sig_for_cpu, r_re, r_im, slot_length, 0, (n_trials == 1) ? 1 : 0);
+          multipath_channel_float(gNB2UE, tx_sig_for_cpu, r_re, r_im, slot_length, 0, (n_trials == 1 || echo_channel) ? 1 : 0);
           stop_meas(&channel_stats);
 
           free(tx_sig_for_cpu);
