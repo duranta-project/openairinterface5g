@@ -254,6 +254,7 @@ static int freq_domain_loopback(PHY_VARS_NR_UE *UE_tx, PHY_VARS_NR_UE *UE_rx, in
   uint8_t decoded_output[4] = {0};
 
   int psbch_e_rx_offset = 0;
+  uint8_t log2_maxh = 0;
   int16_t psbch_e_rx[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2];
   int16_t psbch_unClipped[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2];
   LOG_I(PHY, "DEBUG: HIJACKING DL CHANNEL ESTIMATES.\n");
@@ -269,7 +270,7 @@ static int freq_domain_loopback(PHY_VARS_NR_UE *UE_tx, PHY_VARS_NR_UE *UE_rx, in
       dlch[j].i = 0;
     }
     /* Extract and produce LLRs */
-    nr_generate_psbch_llr(fp, rxdataF, dl_ch_estimates, s, &psbch_e_rx_offset, psbch_e_rx, psbch_unClipped);
+    nr_generate_psbch_llr(fp, rxdataF, dl_ch_estimates, s, &log2_maxh, &psbch_e_rx_offset, psbch_e_rx, psbch_unClipped);
     s = (s == 0) ? 5 : s + 1;
   }
 
@@ -633,7 +634,7 @@ int main(int argc, char **argv)
           sl_uerx->psbch.rx_ok = 1;
         }
       } else
-        psbch_pscch_processing(UE_RX, &proc, &phy_data_rx);
+        psbch_processing(UE_RX, &proc, &phy_data_rx);
 
     } // noise trials
 
