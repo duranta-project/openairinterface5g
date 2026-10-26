@@ -1219,8 +1219,6 @@ static void nr_rrc_update_pdusession(gNB_RRC_INST *rrc,
   for (int i = 0; i < session->n_drbs_to_release; i++)
     drb_needs_e1_refresh[session->drbs_to_release[i]] = false;
   nr_rrc_send_e1_after_qos_update(UE, session, e1_req, session->n_drbs_to_release, session->drbs_to_release, drb_needs_e1_refresh);
-  for (int i = 0; i < session->n_drbs_to_release; i++)
-    nr_rrc_remove_drb_by_id(&UE->drbs, session->drbs_to_release[i]);
 }
 
 //------------------------------------------------------------------------------
@@ -1382,6 +1380,11 @@ int rrc_gNB_send_NGAP_PDUSESSION_MODIFY_RESP(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE
               UE->rrc_ue_id,
               session->param.pdusession_id);
       }
+
+      // Erase the DRBs released by this modification
+      for (int i = 0; i < session->n_drbs_to_release; i++)
+        nr_rrc_remove_drb_by_id(&UE->drbs, session->drbs_to_release[i]);
+      session->n_drbs_to_release = 0;
     } else if (session->status == PDU_SESSION_STATUS_FAILED) {
       DevAssert(resp->nb_of_pdusessions_failed <= NR_MAX_NB_PDU_SESSIONS);
       pdusession_failed_t *failed = &resp->pdusessions_failed[resp->nb_of_pdusessions_failed++];
