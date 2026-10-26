@@ -388,7 +388,7 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
   int16_t scramblingSequence[G + 96] __attribute__((aligned(32)));
 
   // TS 38.211 8.3.1.1: c_init = n_ID * 2^15 + 1010, mirroring the PSSCH TX
-  nr_codeword_unscrambling_init(scramblingSequence, G, 0, 1010, pssch_pdu->Nid);
+  nr_codeword_unscrambling_expand(nr_codeword_scrambling_gold(G, 0, 1010, pssch_pdu->Nid), (G + 31) / 32, scramblingSequence);
 
   for (uint8_t symbol = start_symbol_index; symbol < (start_symbol_index + nr_of_symbols); symbol++) {
 
