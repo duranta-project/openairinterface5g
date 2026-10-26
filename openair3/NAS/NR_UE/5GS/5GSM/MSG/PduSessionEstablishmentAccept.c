@@ -88,7 +88,7 @@ int decode_pdu_session_establishment_accept_msg(pdu_session_establishment_accept
                 addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7]);
         } else {
           LOG_E(NAS, "unknown/unhandled PDU session establishment accept PDU type %d\n", psea_msg->pdu_addr_ie.pdu_type);
-          curPtr += psea_msg->pdu_addr_ie.pdu_length;
+          return -1;
         }
         break;
 

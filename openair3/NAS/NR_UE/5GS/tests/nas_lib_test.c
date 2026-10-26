@@ -16,6 +16,7 @@
 #include "fgmm_authentication_failure.h"
 #include "FGSNASSecurityModeReject.h"
 #include "fgmm_authentication_reject.h"
+#include "PduSessionEstablishmentAccept.h"
 #include "nr_nas_msg.h"
 
 configmodule_interface_t *uniqCfg = NULL;
@@ -396,6 +397,61 @@ static void test_auth_reject(void)
   AssertFatal(eq_auth_reject(&orig, &dec), "test_auth_reject() failed: original and decoded messages do not match\n");
 }
 
+/** @brief Test PDU Address type decoding in PDU Session Establishment Accept (TS 24.501 §9.11.4.10)
+ * Types 1 (IPv4), 2 (IPv6), and 3 (IPv4v6) are valid; reserved types 0 and 4-7 must be rejected */
+static void test_pdu_session_establishment_accept(void)
+{
+  for (uint8_t type = 0; type <= 7; ++type) {
+    uint8_t addr_len;
+    switch (type) {
+      case PDU_SESSION_TYPE_IPV4:
+        addr_len = IPv4_ADDRESS_LENGTH;
+        break;
+      case PDU_SESSION_TYPE_IPV6:
+        addr_len = IPv6_INTERFACE_ID_LENGTH;
+        break;
+      case PDU_SESSION_TYPE_IPV4V6:
+        addr_len = IPv4_ADDRESS_LENGTH + IPv6_INTERFACE_ID_LENGTH;
+        break;
+      default:
+        // Reserved types: TS 24.501 §9.11.4.10 specifies values 0 and 4-7 as reserved
+        addr_len = 4;
+        break;
+    }
+
+    uint8_t buf[32] = {
+        0x11, // PDU session type (1), SSC mode (1)
+        0x00,
+        0x00, // QoS rules length = 0
+        0x00, // Session-AMBR length = 0
+        IEI_PDU_ADDRESS,
+        (uint8_t)(1 + addr_len), // Length of PDU address contents (type octet + address bytes)
+        type, // PDU Address type (bits 1-3)
+    };
+
+    const int header_len = 7;
+    for (int i = 0; i < addr_len; ++i) {
+      buf[header_len + i] = rand() & 0xFF;
+    }
+    const uint32_t msg_length = header_len + addr_len;
+
+    pdu_session_establishment_accept_msg_t dec = {0};
+    int res = decode_pdu_session_establishment_accept_msg(&dec, buf, msg_length);
+
+    if (type == PDU_SESSION_TYPE_IPV4 || type == PDU_SESSION_TYPE_IPV6 || type == PDU_SESSION_TYPE_IPV4V6) {
+      AssertFatal(res > 0, "test_pdu_session_establishment_accept() failed: decoding failed for valid type %d\n", type);
+      AssertFatal(dec.pdu_addr_ie.pdu_type == type,
+                  "test_pdu_session_establishment_accept() failed: type mismatch: expected %d, got %d\n",
+                  type,
+                  dec.pdu_addr_ie.pdu_type);
+    } else {
+      AssertFatal(res < 0,
+                  "test_pdu_session_establishment_accept() failed: decoding unexpectedly succeeded for reserved type %d\n",
+                  type);
+    }
+  }
+}
+
 int main()
 {
   // Initialize logging system
@@ -411,5 +467,6 @@ int main()
   test_auth_failure();
   test_auth_reject();
   test_security_mode_reject();
+  test_pdu_session_establishment_accept();
   return 0;
 }
