@@ -63,7 +63,6 @@
 #include "NR_TAG.h"
 
 /* Defs */
-#define MAX_NUM_BWP 5
 #define MAX_NUM_CORESET 12
 /*!\brief Maximum number of random access process */
 #define NR_NB_RA_PROC_MAX 16 // set to 16 for multiple CFRA at the same time
@@ -228,7 +227,7 @@ typedef struct nr_mac_config_s {
   // BWP information
   int num_additional_bwps;
   int first_active_bwp;
-  nr_bwp_config_t bwp_config[4];
+  nr_bwp_config_t bwp_config[NR_MAX_NUM_BWP];
   /// beam IDs statically allocated to SSB/PRACH, one per transmitted SSB
   int num_ssb_beams;
   int32_t *ssb_beams;
@@ -441,6 +440,7 @@ typedef struct NR_sched_pucch {
   uint8_t dai_c;
   uint8_t timing_indicator;
   uint8_t resource_indicator;
+  int resource_id;
   int r_pucch;
   int prb_start;
   int second_hop_prb;
@@ -1260,6 +1260,15 @@ typedef struct NR_du_stats {
   uint32_t ss_rsrp_ssb_dist[NR_KPM_NB_SSB][NR_KPM_SS_RSRP_NB_LEVELS];
 } NR_du_stats_t;
 
+typedef struct nr_pucch_radio_res_s {
+  int nb_harq_res;
+  int nb_prb_harq_res;
+  int nb_periodic_res;
+  int nb_prb_periodic_res;
+  int periodicity;
+  int max_served_ues;
+} nr_pucch_radio_res_t;
+
 typedef struct {
   NR_UE_info_t **list;
   int max_period; // common multiple of periodicities sharing the table
@@ -1354,6 +1363,7 @@ typedef struct nr_cell_sched_s {
   /// Per-cell KPI statistics
   NR_du_stats_t du_stats;
   uint64_t num_scheduled_prach_rx;
+  nr_pucch_radio_res_t pucch_res_bwp[NR_MAX_NUM_BWP + 1]; // including initial BWP
 
   // Per-cell MAC function execution performance profiler
   /// processing time of gNB scheduler
