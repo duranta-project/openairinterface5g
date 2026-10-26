@@ -3588,6 +3588,12 @@ void rrc_gNB_process_e1_bearer_context_modif_resp(const e1ap_bearer_modif_resp_t
         if (drb_mod->numQosFlowSetup > 0 || drb_mod->numUpParam > 0)
           do_reconfig = true;
       }
+
+      // DRBs released by the modification: release them towards the DU
+      for (int j = 0; j < pdu_session->n_drbs_to_release; j++) {
+        DevAssert(n_f1_drbs_rel < MAX_DRBS_PER_UE);
+        f1_drbs_rel[n_f1_drbs_rel++].id = pdu_session->drbs_to_release[j];
+      }
       // Collect DRBs to release for PDU sessions marked for release
     } else if (pdu_session->status == PDU_SESSION_STATUS_TORELEASE) {
       FOR_EACH_SEQ_ARR(drb_t *, drb, &ue->drbs) {
