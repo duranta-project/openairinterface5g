@@ -2561,13 +2561,42 @@ static void handle_service_reject(nr_ue_nas_t *nas, const byte_array_t *buffer)
   /* If still 5GMM-IDLE (MO path stopped them for SR), restart idle TUN listeners */
   if (nas->fiveGMM_mode == FGS_IDLE)
     send_nas_tun_req_action(nas, NAS_TUN_START_IDLE_LISTENER);
+  // The buffer is the whole NAS PDU: skip the security protected header, if any, and the 5GMM header.
+  uint8_t *pdu = buffer->buf;
+  const uint8_t *end = buffer->buf + buffer->len;
+  if (buffer->len > 1 && pdu[1] != PLAIN_5GS_MSG) {
+    fgs_nas_message_security_header_t sp_header = {0};
+    const int decoded = decode_5gs_security_protected_header(&sp_header, pdu, end - pdu);
+    if (decoded < 0) {
+      LOG_E(NAS, "Service Reject: failed to decode security protected header\n");
+      return;
+    }
+    pdu += decoded;
+  }
+  fgmm_msg_header_t mm_header = {0};
+  const int decoded = decode_5gmm_msg_header(&mm_header, pdu, end - pdu);
+  if (decoded < 0) {
+    LOG_E(NAS, "Service Reject: failed to decode NAS message header\n");
+    return;
+  }
+  pdu += decoded;
+  const byte_array_t ba = {.buf = pdu, .len = end - pdu};
   fgs_service_reject_msg_t msg = {0};
-  decode_fgs_service_reject(&msg, buffer);
+  if (decode_fgs_service_reject(&msg, &ba) < 0) {
+    LOG_E(NAS, "Service Reject: failed to decode NAS message body\n");
+    return;
+  }
   // Extract timer t3448 in seconds (optional IE)
   nas->t3448 = process_gprs_timer(msg.t3448);
   // Extract timer t3446 in seconds (optional IE)
   nas->t3446 = process_gprs_timer(msg.t3446);
-  LOG_E(NAS, "Received NAS Service Reject message with cause %s\n", fgmm_cause_s[msg.cause].text);
+  LOG_E(NAS, "Received NAS Service Reject message with cause %s\n", print_info(msg.cause, fgmm_cause_s, sizeofArray(fgmm_cause_s)));
+  /* Retrying the Service Request would loop forever, and re-registering is not supported:
+   * terminate as after a Registration Reject. */
+  LOG_E(NAS, "Service Reject: cannot connect, exiting\n");
+  nas->fiveGMM_state = FGS_DEREGISTERED;
+  nas->termination_procedure = true;
+  send_nas_detach_req(nas, false);
 }
 
 /** @brief Handle Registration Reject (8.2.7 / 5.5.1.2.5 of 3GPP TS 24.501)
