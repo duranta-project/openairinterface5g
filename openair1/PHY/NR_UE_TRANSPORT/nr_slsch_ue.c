@@ -123,13 +123,11 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
   if (start_sc >= frame_parms->ofdm_symbol_size)
     start_sc -= frame_parms->ofdm_symbol_size;
   ulsch_ue->Nid_cell = frame_parms->Nid_cell;
-  uint8_t first_dmrs_symbol = 0;
   bool is_first_dmrs_symbol = true;
   for (int i = start_symbol; i < start_symbol + number_of_symbols; i++) {
     if((ul_dmrs_symb_pos >> i) & 0x01) {
       number_dmrs_symbols += 1;
       if (is_first_dmrs_symbol) {
-        first_dmrs_symbol = i;
         is_first_dmrs_symbol = false;
       }
     }

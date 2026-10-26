@@ -427,7 +427,7 @@ int main(int argc, char **argv)
   // nr_rx_pssch writes LLRs into the buffer passed as 'llrs';
   // nr_slsch_procedures later decodes from the same per-actor scratch.
   const int pssch_id = slot % UE_RX->pssch_num_actors;
-  int16_t *llrs = UE_RX->pssch_vars[pssch_id].llr;
+  int16_t *llrs = UE_RX->pssch_vars[pssch_id].ulsch_llrs;
 
   nr_rx_pssch(UE_RX, &proc, &phy_data_rx, rxFSz, rxdataF, llrs, pssch_id, frame, slot, harq_pid);
 

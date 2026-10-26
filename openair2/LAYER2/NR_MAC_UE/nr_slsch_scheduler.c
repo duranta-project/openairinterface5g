@@ -8,11 +8,11 @@
 
 #include <common/utils/nr/nr_common.h>
 
-#include "NR_MAC_COMMON/nr_mac.h"
-#include "NR_MAC_COMMON/nr_mac_common.h"
-#include "NR_MAC_UE/mac_proto.h"
-#include "NR_MAC_UE/nr_ue_sci.h"
-#include "NR_MAC_UE/mac_defs_sl.h"
+#include "LAYER2/NR_MAC_COMMON/nr_mac.h"
+#include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
+#include "LAYER2/NR_MAC_UE/mac_proto.h"
+#include "LAYER2/NR_MAC_UE/nr_ue_sci.h"
+#include "LAYER2/NR_MAC_UE/mac_defs_sl.h"
 
 const uint8_t nr_rv_round_map[4] = {0, 2, 3, 1};
 

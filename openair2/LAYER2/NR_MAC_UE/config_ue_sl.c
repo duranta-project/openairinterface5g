@@ -80,11 +80,10 @@ void sl_ue_mac_free(NR_UE_MAC_INST_t *mac)
 
   fapi_nr_tdd_table_t *tdd_table = &sl_mac->sl_phy_config.sl_config_req.tdd_table;
   if (tdd_table->max_tdd_periodicity_list) {
-    for (int i = 0; i < tdd_table->tdd_period_in_slots; i++)
-      free(tdd_table->max_tdd_periodicity_list[i].max_num_of_symbol_per_slot_list);
     free(tdd_table->max_tdd_periodicity_list);
   }
 
+  /*
   fapi_nr_max_tdd_periodicity_t *tdd_list =
                             sl_config->tdd_table.max_tdd_periodicity_list;
 
@@ -92,6 +91,7 @@ void sl_ue_mac_free(NR_UE_MAC_INST_t *mac)
   if (tdd_list) {
     free_and_zero(sl_config->tdd_table.max_tdd_periodicity_list);
   }
+  */
 
   free(sl_mac->future_ttis);
   nr_ue_sl_free_resource_pools(mac);
@@ -107,8 +107,6 @@ void sl_set_tdd_config_nr_ue(fapi_nr_tdd_table_t *tdd_table,
   const int nb_periods_per_frame = get_nb_periods_per_frame(pattern->dl_UL_TransmissionPeriodicity);
   const int nb_slots_per_period = ((1 << mu) * NR_NUMBER_OF_SUBFRAMES_PER_FRAME) / nb_periods_per_frame;
   if (tdd_table->max_tdd_periodicity_list) {
-    for (int i = 0; i < tdd_table->tdd_period_in_slots; i++)
-      free(tdd_table->max_tdd_periodicity_list[i].max_num_of_symbol_per_slot_list);
     free(tdd_table->max_tdd_periodicity_list);
   }
   tdd_table->tdd_period_in_slots = nb_slots_per_period;

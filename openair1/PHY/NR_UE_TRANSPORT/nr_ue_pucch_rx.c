@@ -296,12 +296,6 @@ int8_t nr_ue_decode_pucch0(PHY_VARS_NR_UE *ue,
       xrtmag = temp;
       LOG_D(PHY,"Sequence %d xrtmag %ld xrtmag_next %ld, slot %d\n", i, xrtmag, xrtmag_next, slot);
       maxpos = i;
-      int64_t temp2 = 0,temp3 = 0;;
-      for (int aa=0; aa<frame_parms->nb_antennas_rx; aa++) {
-        temp2 += squaredMod(corr[aa][0]);
-        if (pucch_pdu->nr_of_symbols == 2)
-         temp3 += squaredMod(corr[aa][1]);
-      }
     }
     else if (temp > xrtmag_next)
       xrtmag_next = temp;

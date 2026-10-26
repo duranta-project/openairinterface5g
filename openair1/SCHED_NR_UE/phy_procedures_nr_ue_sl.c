@@ -379,7 +379,7 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
   if (!previously_decoded && !dtx) {
     nbDecode = nr_slsch_decoding(ue,
                                  SLSCH_id,
-                                 ue->pssch_vars[proc->nr_slot_rx % ue->pssch_num_actors].llr,
+                                 ue->pssch_vars[proc->nr_slot_rx % ue->pssch_num_actors].ulsch_llrs,
                                  fp,
                                  &pusch_pdu,
                                  frame_rx,
@@ -617,8 +617,7 @@ void psfch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
 int nr_sl_psfch_feedback_abs_slot(const nr_phy_data_t *phy_data, const UE_nr_rxtx_proc_t *proc, int slots_per_frame)
 {
   const int32_t offset = phy_data->nr_sl_pssch_sci_pdu.psfch_feedback_slot_offset;
-  if (offset < NR_UE_CAPABILITY_SLOT_RX_TO_TX)
-    return -1;
+  AssertFatal(offset >= 3 /* mac->rx2tx_capability */, "need offset (%d) > mac->rx2tx_capability\n", offset);
   return proc->nr_slot_rx + offset + proc->frame_rx * slots_per_frame;
   }
 
@@ -721,7 +720,7 @@ void pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
                 phy_data,
                 rxdataF_sz,
                 rxdataF,
-		pssch_vars->llr,
+		pssch_vars->ulsch_llrs,
                 pssch_id,
                 frame_rx,
                 nr_slot_rx,

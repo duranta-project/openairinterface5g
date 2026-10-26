@@ -294,7 +294,7 @@ static void sl_ue_free(PHY_VARS_NR_UE *UE)
       }
       free_and_zero(pssch->ul_ch_estimates);
       free_and_zero(pssch->rxdataF_comp);
-      free_and_zero(pssch->llr);
+      free_and_zero(pssch->ulsch_llrs);
       free_and_zero(pssch->ul_valid_re_per_slot);
     }
     free_and_zero(UE->pssch_vars);
@@ -696,7 +696,7 @@ void sl_ue_phy_init(PHY_VARS_NR_UE *UE)
       pssch->ul_ch_estimates[i] = malloc16_clear(sizeof(int32_t) * sl_fp->ofdm_symbol_size * sl_fp->symbols_per_slot);
       pssch->rxdataF_comp[i] = malloc16_clear(sizeof(int32_t) * nb_re_pusch2 * sl_fp->symbols_per_slot);
     }
-    pssch->llr = malloc16_clear((8 * ((3 * 8 * 6144) + 12)) * sizeof(int16_t));
+    pssch->ulsch_llrs = malloc16_clear((8 * ((3 * 8 * 6144) + 12)) * sizeof(int16_t));
     pssch->ul_valid_re_per_slot = malloc16_clear(sizeof(int16_t) * sl_fp->symbols_per_slot);
   }
 

@@ -46,7 +46,7 @@ static nr_uci_decoder_result_t uci_on_pusch_decoded_helper(const int16_t *llrs, 
   if (n_bits > 11) {
     // Polar decoding
     AssertFatal(n_bits <= 64, "Polar decoded seems to be capped to 64 bits\n");
-    int decoderState = polar_decoder_int16(llrs, &res.payload, 0, NR_POLAR_UCI_PUSCH_MESSAGE_TYPE, n_bits, E);
+    int decoderState = polar_decoder_int16(llrs, &res.payload, NULL, 0, NR_POLAR_UCI_PUSCH_MESSAGE_TYPE, n_bits, E);
     res.payload = reverse_bits(res.payload, n_bits);
     res.crc_result = decoderState > 0;
   } else {

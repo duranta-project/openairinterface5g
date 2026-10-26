@@ -409,7 +409,6 @@ void nr_slsch_scale_channel(int buffer_length,
   LOG_D(PHY, "Scaling PUSCH Chest in OFDM symbol %d by %d, pilots %d nb_rb %d NCP %d symbol %d\n", symbol, ch_amp, is_dmrs_symbol, nb_rb, frame_parms->Ncp, symbol);
 
   uint32_t nb_rb_0 = len / 12 + ((len % 12) ? 1 : 0);
-  int off = ((nb_rb & 1) == 1) ? 4 : 0;
   for (int aatx = 0; aatx < nrOfLayers; aatx++) {
     for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
       simde__m128i *sl_ch128 = (simde__m128i *)&sl_ch_estimates_ext[aatx * frame_parms->nb_antennas_rx + aarx][0]; // per-symbol scratch
@@ -447,8 +446,6 @@ void nr_slsch_channel_level(int buffer_length,
   int16_t y = (len)>>x;
 
   uint32_t nb_rb_0 = len/12 + ((len%12)?1:0);
-
-  int off = ((nb_rb&1) == 1)? 4:0;
 
   for (aatx = 0; aatx < nrOfLayers; aatx++) {
     for (aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
