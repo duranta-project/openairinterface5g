@@ -517,6 +517,18 @@ static void set_harq_status(NR_UE_MAC_INST_t *mac,
         current_harq->dai_cumul);
 }
 
+static void check_crnti_contention_resolution(NR_UE_MAC_INST_t *mac,
+                                              frame_t frame,
+                                              int slot,
+                                              uint16_t rnti,
+                                              bool new_ul_transmission)
+{
+  // MAC/RRC-initiated RA requires a new UL-SCH grant (TS 38.321 clause 5.1.5).
+  if (new_ul_transmission && mac->msg3_C_RNTI && mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION && !mac->ra.pdcch_order.active
+      && rnti == mac->crnti)
+    nr_ra_succeeded(mac, frame, slot);
+}
+
 static int nr_ue_process_dci_ul_00(NR_UE_MAC_INST_t *mac,
                                    frame_t frame,
                                    int slot,
@@ -576,9 +588,11 @@ static int nr_ue_process_dci_ul_00(NR_UE_MAC_INST_t *mac,
                                 dci_ind->rnti,
                                 dci_ind->ss_type,
                                 NR_UL_DCI_FORMAT_0_0);
+  const bool new_ul_transmission = ret == 0 && pdu->pusch_config_pdu.pusch_data.new_data_indicator;
   if (ret != 0)
     remove_ul_config_last_item(pdu);
   release_ul_config(pdu, false);
+  check_crnti_contention_resolution(mac, frame, slot, dci_ind->rnti, new_ul_transmission);
   return ret;
 }
 
@@ -673,6 +687,7 @@ static int nr_ue_process_dci_ul_01(NR_UE_MAC_INST_t *mac,
                                 dci_ind->rnti,
                                 dci_ind->ss_type,
                                 NR_UL_DCI_FORMAT_0_1);
+  const bool new_ul_transmission = ret == 0 && dci->ulsch_indicator && pdu->pusch_config_pdu.pusch_data.new_data_indicator;
   LOG_D(NR_MAC_DCI,
       "add ul dci harq %d for %d.%d %d.%d round %d\n",
         pdu->pusch_config_pdu.pusch_data.harq_process_id,
@@ -684,6 +699,7 @@ static int nr_ue_process_dci_ul_01(NR_UE_MAC_INST_t *mac,
   if (ret != 0)
     remove_ul_config_last_item(pdu);
   release_ul_config(pdu, false);
+  check_crnti_contention_resolution(mac, frame, slot, dci_ind->rnti, new_ul_transmission);
   return ret;
 }
 

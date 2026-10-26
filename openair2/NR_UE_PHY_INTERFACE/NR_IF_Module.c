@@ -148,18 +148,17 @@ static int handle_bcch_dlsch(NR_UE_MAC_INST_t *mac,
 //  L2 Abstraction Layer
 static nr_dci_format_t handle_dci(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, fapi_nr_dci_indication_pdu_t *dci)
 {
-  // if notification of a reception of a PDCCH transmission of the SpCell is received from lower layers
-  // if the C-RNTI MAC CE was included in Msg3
-  // consider this Contention Resolution successful
-  if (mac->msg3_C_RNTI && mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION && dci->rnti == mac->crnti)
-    nr_ra_succeeded(mac, frame, slot);
-
   // suspend RAR response window timer
   // (in RFsim running multiple slot in parallel it might expire while decoding MSG2)
   if (mac->ra.ra_state == nrRA_WAIT_RAR)
     nr_timer_suspension(&mac->ra.response_window_timer);
 
-  return nr_ue_process_dci_indication_pdu(mac, frame, slot, dci);
+  nr_dci_format_t format = nr_ue_process_dci_indication_pdu(mac, frame, slot, dci);
+  // PDCCH-order RA has a distinct C-RNTI criterion (TS 38.321 clause 5.1.5).
+  if (format != NR_DCI_NONE && mac->msg3_C_RNTI && mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION && mac->ra.pdcch_order.active
+      && dci->rnti == mac->crnti)
+    nr_ra_succeeded(mac, frame, slot);
+  return format;
 }
 
 /** @brief Handle PCCH reception on P-RNTI. */
@@ -225,7 +224,7 @@ void update_harq_status(NR_UE_MAC_INST_t *mac, uint8_t harq_pid, int cw_idx, uin
   if (current_harq->active) {
     LOG_D(PHY,"Updating harq_status for harq_id %d, ack/nak %d\n", harq_pid, current_harq->ack);
     // we can prepare feedback for MSG4 in advance
-    if (mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION || mac->ra.ra_state == nrRA_WAIT_MSGB)
+    if ((mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION && !mac->msg3_C_RNTI) || mac->ra.ra_state == nrRA_WAIT_MSGB)
       prepare_msg4_msgb_feedback(mac, harq_pid, ack_nack);
     else {
       current_harq->ack = ack_nack;
