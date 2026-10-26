@@ -75,8 +75,6 @@ typedef struct SL_NR_SYNC_PARAMS {
   // Freq Offset calculated
   int32_t freq_offset;
 
-  uint32_t remaining_frames;
-  uint32_t rx_offset;
   uint32_t slot_offset;
   uint16_t N_sl_id2; // id2 determined from PSS during sync ref UE selection
   uint16_t N_sl_id1; // id2 determined from SSS during sync ref UE selection

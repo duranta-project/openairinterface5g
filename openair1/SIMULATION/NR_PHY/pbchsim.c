@@ -87,7 +87,7 @@ int main(int argc, char **argv)
   __attribute__((unused)) struct sigaction oldaction;
   sigaction(SIGINT, &sigint_action, &oldaction);
 
-  int i,aa,start_symbol;
+  int i, aa;
   double sigma2, sigma2_dB=10,SNR,snr0=-2.0,snr1=2.0;
   double cfo=0;
   uint8_t snr1set=0;
@@ -458,6 +458,8 @@ int main(int argc, char **argv)
 
   UE = malloc16_clear(sizeof(*UE));
   memcpy(&UE->frame_parms,frame_parms,sizeof(UE->frame_parms));
+  // blind search, as init_nr_ue_vars() does in the real UE
+  UE->target_Nid_cell = -1;
   //phy_init_nr_top(UE); //called from init_nr_ue_signal
   if (run_initial_sync==1)  UE->is_synchronized = 0;
   else                      UE->is_synchronized = 1;
@@ -477,8 +479,21 @@ int main(int argc, char **argv)
   if (input_fd==NULL) {
     const int prb_mask_words = (frame_parms->N_RB_DL + 63) / 64;
 
-    for (i=0; i<frame_parms->Lmax; i++) {
-      if((SSB_positions >> i) & 0x01) {
+    /* One slot at a time: the whole slot is modulated in one go, so every block it carries
+       has to be in txdataF by then, or the blocks would overwrite each other. */
+    for (int slot = 0; slot < frame_parms->slots_per_frame; slot++) {
+      bool slot_carries_ssb = false;
+      for (i = 0; i < frame_parms->Lmax; i++) {
+        if (!((SSB_positions >> i) & 0x01))
+          continue;
+        if (nr_get_ssb_start_symbol(frame_parms, i) / frame_parms->symbols_per_slot != slot)
+          continue;
+
+        if (!slot_carries_ssb) {
+          for (aa = 0; aa < gNB->frame_parms.nb_antennas_tx; aa++)
+            memset(gNB->common_vars.txdataF[aa], 0, frame_parms->samples_per_slot_wCP * sizeof(int32_t));
+          slot_carries_ssb = true;
+        }
 
         const int sc_offset = frame_parms->freq_range == FR1 ? ssb_subcarrier_offset<<mu : ssb_subcarrier_offset;
         const int prb_offset = frame_parms->freq_range == FR1 ? gNB->gNB_config.ssb_table.ssb_offset_point_a.value<<mu : gNB->gNB_config.ssb_table.ssb_offset_point_a.value << (mu - 2);
@@ -487,14 +502,10 @@ int main(int argc, char **argv)
         ssb_pdu[i].ssb_pdu_rel15.SsbSubcarrierOffset = sc_offset;
         ssb_pdu[i].ssb_pdu_rel15.ssbOffsetPointA = prb_offset;
 
-        start_symbol = nr_get_ssb_start_symbol(frame_parms,i);
-        int slot = start_symbol/14;
-
-        for (aa=0; aa<gNB->frame_parms.nb_antennas_tx; aa++)
-          memset(gNB->common_vars.txdataF[aa], 0, frame_parms->samples_per_slot_wCP * sizeof(int32_t));
-
         nr_common_signal_procedures(gNB, frame, slot, &ssb_pdu[i], prb_mask_words);
+      }
 
+      if (slot_carries_ssb) {
         int samp = get_samples_slot_timestamp(frame_parms, slot);
         for (aa = 0; aa < gNB->frame_parms.nb_antennas_tx; aa++) {
           if (cyclic_prefix_type == 1) {
@@ -510,24 +521,20 @@ int main(int argc, char **argv)
                          frame_parms->nb_prefix_samples,
                          CYCLIC_PREFIX);
           } else {
-            for (int i = 0; i < 14; i++)
+            for (int i = 0; i < NR_SYMBOLS_PER_SLOT; i++)
               fftshift_inverse_inplace(gNB->common_vars.txdataF[aa] + i * frame_parms->ofdm_symbol_size,
                                        frame_parms->N_RB_DL * NR_NB_SC_PER_RB,
                                        frame_parms->ofdm_symbol_size);
 
-            PHY_ofdm_mod((int *)gNB->common_vars.txdataF[aa],
-                         (int *)&txdata[aa][samp],
-                         frame_parms->ofdm_symbol_size,
-                         1,
-                         frame_parms->nb_prefix_samples0,
-                         CYCLIC_PREFIX);
-
-            PHY_ofdm_mod((int *)gNB->common_vars.txdataF[aa] + frame_parms->ofdm_symbol_size,
-                         (int *)&txdata[aa][samp + frame_parms->nb_prefix_samples0 + frame_parms->ofdm_symbol_size],
-                         frame_parms->ofdm_symbol_size,
-                         13,
-                         frame_parms->nb_prefix_samples,
-                         CYCLIC_PREFIX);
+            bool was_symbol_used[NR_SYMBOLS_PER_SLOT];
+            for (int i = 0; i < NR_SYMBOLS_PER_SLOT; i++)
+              was_symbol_used[i] = true;
+            nr_normal_prefix_mod(gNB->common_vars.txdataF[aa],
+                                 &txdata[aa][samp],
+                                 frame_parms->symbols_per_slot,
+                                 frame_parms,
+                                 slot,
+                                 was_symbol_used);
           }
         }
       }
