@@ -2480,6 +2480,8 @@ static void nr_rrc_process_rrcreject(NR_UE_RRC_INST_t *rrc, const NR_RRCReject_t
     nr_timer_setup(&timers->T302, *waitTime * 1000, 10);
     nr_timer_start(&timers->T302);
     rrc->access_barred = true;
+    // the connection establishment failed: retry it when the barring is alleviated
+    rrc->setup_rejected = rrc->nrRrcState == RRC_STATE_IDLE_NR;
   } else {
     RRCLOG_W("Error: waitTime should be always included in RRCReject message\n");
   }
@@ -3867,6 +3869,20 @@ void handle_302_expired_stopped(NR_UE_RRC_INST_t *rrc)
   // for each Access Category for which T390 (TODO not implemented) is not running
   // consider the barring for this Access Category to be alleviated
   rrc->access_barred = false;
+  /* TS 38.331 5.3.3.7: upon RRCReject to an RRCSetupRequest, the upper layers are informed of the failure to setup
+     the RRC connection and retry later (TS 24.501 5.5.1.2.7, T3511). There is no such retry in the NAS: retry the
+     RRC connection establishment here, else the UE stays idle forever */
+  if (rrc->setup_rejected && rrc->nrRrcState == RRC_STATE_IDLE_NR && IS_SA_MODE(get_softmodem_params())) {
+    rrc->setup_rejected = false;
+    RRCLOG_I("Retrying the RRC connection establishment rejected before\n");
+    /* as for the initial access: acquire SIB1 again at the next MIB, the MAC starts the random access once SIB1
+       is applied (the MAC resynchronizes after the barring, it cannot start the random access right away) */
+    rrc->ra_trigger = RRC_CONNECTION_SETUP;
+    for (int i = 0; i < NB_CNX_UE; i++) {
+      rrc->perNB[i].SInfo.sib1_validity = false;
+      rrc->perNB[i].SInfo.sib_pending = false;
+    }
+  }
 }
 
 void handle_t300_expiry(NR_UE_RRC_INST_t *rrc)
