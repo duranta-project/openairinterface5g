@@ -8,7 +8,6 @@ This document outlines how to use the OAI CI framework and gives a quickstart.
 
 - [Configuration-file naming conventions](./conf_files/README.md)
 - [CI framework unit tests](./tests/README.md)
-- [Colosseum automated testing](./colosseum_scripts/README.md)
 
 # Quickstart
 
