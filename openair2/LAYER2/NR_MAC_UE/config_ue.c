@@ -2031,6 +2031,12 @@ static void nr_mac_start_ra(NR_UE_MAC_INST_t *mac, module_id_t module_id, nr_mac
   switch (cause) {
     case NR_MAC_RA_START_SETUP:
     case NR_MAC_RA_START_T300:
+      if (!mac->current_UL_BWP) {
+        /* the cell configuration was released (going to idle after a radio link failure): the random access
+           starts once SIB1 is acquired and applied again */
+        LOG_I(NR_MAC, "[UE %d] no UL BWP yet: random access after SIB1\n", mac->ue_id);
+        break;
+      }
       reset_ra(mac, false);
       reset_mac_inst(mac);
       mac->msg3_C_RNTI = false;
