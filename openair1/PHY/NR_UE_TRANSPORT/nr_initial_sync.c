@@ -169,6 +169,16 @@ static int ssb_symbol_offset(const nr_ssb_search_params_t *params, int symb)
   return offset;
 }
 
+int nr_ssb_block_size(const NR_DL_FRAME_PARMS *fp, bool sidelink)
+{
+  const nr_ssb_search_params_t params = {.ofdm_symbol_size = fp->ofdm_symbol_size,
+                                         .nb_prefix_samples = fp->nb_prefix_samples,
+                                         .nb_prefix_samples0 = fp->nb_prefix_samples0,
+                                         .numerology_index = fp->numerology_index,
+                                         .sidelink = sidelink};
+  return ssb_symbol_offset(&params, sidelink ? SL_N_SYMBOLS_SSB : NR_N_SYMBOLS_SSB);
+}
+
 /* rxdataF should be 16 bytes aligned */
 static void generate_table(nr_ssb_search_params_t *params,
                            c16_t timeshift_symbol_rotation[params->ofdm_symbol_size],
@@ -226,10 +236,35 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
   const uint32_t pssTime_sz = params->ofdm_symbol_size;
   c16_t(*pssTime)[pssTime_sz] = (c16_t(*)[pssTime_sz])params->pssTime;
 
+  /* Symbols of the block the correlation can have peaked on. The downlink block carries a
+     single PSS on its first symbol. The sidelink block carries the same PSS on its symbols 1
+     and 2, so the correlation peaks on both of them and the block may start one symbol
+     earlier than the peak alone suggests: both hypotheses have to be tried. */
+  const int pss_symbol[] = {params->sidelink ? PSS0_SL_SYMBOL_NB : 0, PSS1_SL_SYMBOL_NB};
+  const int num_pss_symbols = params->sidelink ? 2 : 1;
+  const int ssb_size = ssb_symbol_offset(params, params->ssb_num_symbols);
+  // Offset of the PSS symbol body, i.e. after its cyclic prefix, from the start of the block
+  int pss_body_offset[num_pss_symbols];
+  for (int h = 0; h < num_pss_symbols; h++)
+    pss_body_offset[h] = ssb_symbol_offset(params, pss_symbol[h]) + ssb_symbol_prefix_samples(params, pss_symbol[h]);
+
+  /* Only look for the PSS where every hypothesis puts the whole block inside the buffer. A
+     block cut by an edge of the buffer cannot be decoded, and its correlation peak, possibly
+     the highest, would hide a complete block elsewhere in the buffer. A caller covering its
+     sample stream with successive buffers overlaps them by one block, so that a block cut by
+     the end of a buffer is complete at the start of the next one. */
+  const int search_start = pss_body_offset[num_pss_symbols - 1];
+  const int search_end = params->rxdata_size - ssb_size + pss_body_offset[0];
+  if (search_end < search_start) {
+    LOG_E(PHY, "SSB search buffer of %d samples is too small, need %d\n", params->rxdata_size, ssb_size);
+    return false;
+  }
+
   // Perform PSS search
   pss_search_t p_pss = (pss_search_t){.rxdata = params->rxdata,
                                       .nb_antennas_rx = params->nb_antennas_rx,
-                                      .rxdata_length = params->rxdata_size,
+                                      .search_start = search_start,
+                                      .rxdata_length = search_end + params->ofdm_symbol_size,
                                       .ofdm_symbol_size = params->ofdm_symbol_size,
                                       .nb_prefix_samples = params->nb_prefix_samples,
                                       .subcarrier_spacing = params->subcarrier_spacing,
@@ -238,14 +273,6 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
                                       .target_Nid_cell = params->target_nid_cell,
                                       .pssTime = (c16_t *)pssTime};
   nr_pss_info_t pss_info = pss_search_time_nr(&p_pss);
-
-  /* Symbols of the block the correlation can have peaked on. The downlink block carries a
-     single PSS on its first symbol. The sidelink block carries the same PSS on its symbols 1
-     and 2, so the correlation peaks on both of them and the block may start one symbol
-     earlier than the peak alone suggests: both hypotheses have to be tried. */
-  const int pss_symbol[] = {params->sidelink ? PSS0_SL_SYMBOL_NB : 0, PSS1_SL_SYMBOL_NB};
-  const int num_pss_symbols = params->sidelink ? 2 : 1;
-  const int ssb_size = ssb_symbol_offset(params, params->ssb_num_symbols);
 
   // This is the frequency offset that will be applied in the compensation,
   // and it takes into account the values already applied previously during the loop.
@@ -265,8 +292,7 @@ bool nr_search_ssb_common(nr_ssb_search_params_t *params)
 
     for (int h = 0; h < num_pss_symbols; h++) {
       // The correlation peaks on the body of the PSS symbol, i.e. after its cyclic prefix.
-      const int ssb_time_offset =
-          pss_res->pos - ssb_symbol_offset(params, pss_symbol[h]) - ssb_symbol_prefix_samples(params, pss_symbol[h]);
+      const int ssb_time_offset = pss_res->pos - pss_body_offset[h];
 
 #ifdef DEBUG_INITIAL_SYNCH
       LOG_I(PHY,

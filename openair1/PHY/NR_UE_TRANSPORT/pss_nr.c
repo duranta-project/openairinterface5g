@@ -173,8 +173,10 @@ static int cmp_pss_peak(const void *a, const void *b)
 
 nr_pss_info_t pss_search_time_nr(const pss_search_t *p)
 {
-  if (p->rxdata_length <= p->ofdm_symbol_size) {
-    LOG_E(PHY, "inconsistent call to pss_search_time_nr %d\n", p->rxdata_length);
+  // Stay on a multiple of PSS_STEP, see below.
+  const int search_start = (p->search_start + PSS_STEP - 1) / PSS_STEP * PSS_STEP;
+  if (p->rxdata_length - p->ofdm_symbol_size < search_start) {
+    LOG_E(PHY, "inconsistent call to pss_search_time_nr %d, search start %d\n", p->rxdata_length, p->search_start);
     return (nr_pss_info_t){0};
   }
 
@@ -196,9 +198,9 @@ nr_pss_info_t pss_search_time_nr(const pss_search_t *p)
     int64_t peak_value = 0;
     int peak_position = 0;
     int64_t sum = 0;
-    const int trials = (p->rxdata_length - p->ofdm_symbol_size) / PSS_STEP + 1;
+    const int trials = (p->rxdata_length - p->ofdm_symbol_size - search_start) / PSS_STEP + 1;
     for (int n = 0; n < trials; n++) {
-      const int start = n * PSS_STEP;
+      const int start = search_start + n * PSS_STEP;
       int64_t pss_corr_ue = 0;
       for (int ar = 0; ar < p->nb_antennas_rx; ar++) {
         /* perform correlation of rx data and pss sequence ie it is a dot product */
