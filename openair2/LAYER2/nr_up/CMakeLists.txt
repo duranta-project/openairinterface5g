@@ -18,4 +18,4 @@ add_library(nr_up_f1ap STATIC nr_up_f1u.c)
 target_link_libraries(nr_up_f1ap PUBLIC nr_up_pdcp_if PRIVATE f1ap asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
 
 add_library(nr_up_du STATIC nr_up_du.c)
-target_link_libraries(nr_up_du PRIVATE nr_rlc asn1_nr_rrc_hdrs ds log_headers)
+target_link_libraries(nr_up_du PRIVATE nr_up nr_rlc asn1_nr_rrc_hdrs ds log_headers)

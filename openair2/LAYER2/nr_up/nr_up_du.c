@@ -3,10 +3,10 @@
  */
 
 #include "nr_up_du.h"
+#include "nr_up.h"
 
 #include <pthread.h>
 #include <stdlib.h>
-#include <time.h>
 
 #include "assertions.h"
 #include "common/openairinterface5g_limits.h"
@@ -24,7 +24,7 @@
 typedef struct {
   bool has_last_report;
   uint32_t last_desired_buffer_size;
-  struct timespec last_report_time;
+  uint64_t last_report_time;
 } nr_up_du_ddds_state_t;
 
 typedef struct {
@@ -42,11 +42,6 @@ static uint32_t nr_up_du_rlc_tx_space(ue_id_t ue_id, rb_id_t drb_id)
   if (tx_space <= 0)
     return 0;
   return tx_space;
-}
-
-static size_t nr_up_du_timespec_diff_ms(const struct timespec *later, const struct timespec *earlier)
-{
-  return (later->tv_sec - earlier->tv_sec) * 1000 + (later->tv_nsec - earlier->tv_nsec) / 1000000;
 }
 
 static nr_up_du_ddds_state_t *nr_up_du_lookup(ue_id_t ue_id, rb_id_t drb_id)
@@ -67,11 +62,11 @@ static nr_up_du_ddds_state_t *nr_up_du_insert(ue_id_t ue_id, rb_id_t drb_id)
   return st;
 }
 
-static void nr_up_du_update_last_report(nr_up_du_ddds_state_t *st, uint32_t space, const struct timespec *now)
+static void nr_up_du_update_last_report(nr_up_du_ddds_state_t *st, uint32_t space, uint64_t now)
 {
   st->has_last_report = true;
   st->last_desired_buffer_size = space;
-  st->last_report_time = *now;
+  st->last_report_time = now;
 }
 
 /** @brief Whether to send DDDS because RLC TX space hit or left zero.
@@ -86,11 +81,11 @@ static bool nr_up_du_zero_dbs_trigger(const nr_up_du_ddds_state_t *st, uint32_t 
 }
 
 /** @brief DU timer while DL is still arriving: refresh if DBS changed (skip unchanged) */
-static bool nr_up_du_timer_trigger(const nr_up_du_ddds_state_t *st, uint32_t space, const struct timespec *now)
+static bool nr_up_du_timer_trigger(const nr_up_du_ddds_state_t *st, uint32_t space, uint64_t now)
 {
   if (!st->has_last_report || space == st->last_desired_buffer_size)
     return false;
-  return nr_up_du_timespec_diff_ms(now, &st->last_report_time) >= NR_UP_DU_DDDS_TIMER_MS;
+  return (now - st->last_report_time) >= NR_UP_DU_DDDS_TIMER_MS;
 }
 
 void nr_up_init_du(nr_up_du_ddds_tx_fn_t send_ddds)
@@ -144,15 +139,14 @@ void nr_up_du_update_ue_id(ue_id_t old_ue_id, ue_id_t new_ue_id)
 /** @brief Answer F1-U Report Polling: return Desired Buffer Size for a mandatory DDDS */
 uint32_t nr_up_du_poll_ddds(ue_id_t ue_id, rb_id_t drb_id)
 {
-  struct timespec now;
-  clock_gettime(CLOCK_MONOTONIC, &now);
   const uint32_t space = nr_up_du_rlc_tx_space(ue_id, drb_id);
 
   if (pthread_mutex_lock(&g_nr_up_du.lock) != 0)
     abort();
   nr_up_du_ddds_state_t *st = nr_up_du_lookup(ue_id, drb_id);
   DevAssert(st != NULL);
-  nr_up_du_update_last_report(st, space, &now);
+  const uint64_t now = nr_up_current_time_ms();
+  nr_up_du_update_last_report(st, space, now);
   if (pthread_mutex_unlock(&g_nr_up_du.lock) != 0)
     abort();
 
@@ -167,16 +161,15 @@ uint32_t nr_up_du_poll_ddds(ue_id_t ue_id, rb_id_t drb_id)
  * - DBS changed and NR_UP_DU_DDDS_TIMER_MS elapsed (§5.4.2.1 "decides to trigger"). */
 void nr_up_du_tx_space_sync(ue_id_t ue_id, rb_id_t drb_id, uint32_t space)
 {
-  struct timespec now;
-  clock_gettime(CLOCK_MONOTONIC, &now);
 
   if (pthread_mutex_lock(&g_nr_up_du.lock) != 0)
     abort();
   nr_up_du_ddds_state_t *st = nr_up_du_lookup(ue_id, drb_id);
   DevAssert(st != NULL);
-  const bool send = nr_up_du_zero_dbs_trigger(st, space) || nr_up_du_timer_trigger(st, space, &now);
+  const uint64_t now = nr_up_current_time_ms();
+  const bool send = nr_up_du_zero_dbs_trigger(st, space) || nr_up_du_timer_trigger(st, space, now);
   if (send)
-    nr_up_du_update_last_report(st, space, &now);
+    nr_up_du_update_last_report(st, space, now);
   if (pthread_mutex_unlock(&g_nr_up_du.lock) != 0)
     abort();
 
