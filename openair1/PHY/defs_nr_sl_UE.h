@@ -94,22 +94,22 @@ typedef struct SL_NR_UE_PSSCH {
   int16_t rsrp_dBm_per_RE;
 
   // STATS - CRC Errors observed during PSSCH reception (per HARQ round)
-  uint32_t rx_errors[8];
+  _Atomic(uint32_t) rx_errors[8];
 
   // STATS - CRC Errors observed during PSSCH SCI2 reception
-  uint32_t rx_sci2_errors;
+  _Atomic(uint32_t) rx_sci2_errors;
 
   // STATS - Receptions with CRC OK
-  uint32_t rx_ok;
+  _Atomic(uint32_t) rx_ok;
 
   // STATS - Receptions with CRC OK
-  uint32_t rx_sci2_ok;
+  _Atomic(uint32_t) rx_sci2_ok;
 
   // STATS - transmissions of PSSCH by the UE
-  uint32_t num_pssch_tx;
+  _Atomic(uint32_t) num_pssch_tx;
 
   // STATS - transmissions of PSSCH by the UE
-  uint32_t num_pssch_sci2_tx;
+  _Atomic(uint32_t) num_pssch_sci2_tx;
 } SL_NR_UE_PSSCH_t;
 
 typedef struct SL_NR_UE_PSCCH {
@@ -120,13 +120,12 @@ typedef struct SL_NR_UE_PSCCH {
   int16_t rsrp_dBm_per_RE;
 
   // STATS - Receptions with CRC OK
-  uint32_t rx_ok;
+  _Atomic(uint32_t) rx_ok;
 
   // STATS - transmissions of PSBCH by the UE
-  uint32_t num_pscch_tx;
+  _Atomic(uint32_t) num_pscch_tx;
 
 } SL_NR_UE_PSCCH_t;
-
 
 typedef struct SL_NR_UE_PSBCH {
   // SUM POWER OF PSBCH DMRS
@@ -139,20 +138,20 @@ typedef struct SL_NR_UE_PSBCH {
   int16_t rsrp_dBm_per_RE;
 
   // STATS - CRC Errors observed during PSBCH reception
-  uint16_t rx_errors;
+  _Atomic(uint16_t) rx_errors;
 
   // STATS - Receptions with CRC OK
-  uint16_t rx_ok;
+  _Atomic(uint16_t) rx_ok;
 
   // STATS - transmissions of PSBCH by the UE
-  uint16_t num_psbch_tx;
+  _Atomic(uint16_t) num_psbch_tx;
 
 } SL_NR_UE_PSBCH_t;
 
 typedef struct SL_NR_UE_PSFCH {
   // STATS - transmissions of PSFCH by the UE
-  uint32_t num_psfch_tx;
-  uint32_t num_psfch_rx;
+  _Atomic(uint32_t) num_psfch_tx;
+  _Atomic(uint32_t) num_psfch_rx;
 } SL_NR_UE_PSFCH_t;
 
 typedef struct sl_nr_ue_phy_params {
