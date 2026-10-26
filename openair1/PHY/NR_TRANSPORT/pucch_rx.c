@@ -114,6 +114,47 @@ static const int16_t idft12_im[12][12] = {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
                                           {0, -20066, -20066, 0, 20066, 20066, 0, -20066, -20066, 0, 20066, 20066},
                                           {0, -11585, -20066, -23170, -20066, -11585, 0, 11585, 20066, 23170, 20066, 11585}};
 //************************************************************************//
+static bool pucch0_power_confidence(const PHY_VARS_gNB *gNB, const nfapi_nr_pucch_pdu_t *pdu, uint64_t signal_sum, double *snrx10)
+{
+  *snrx10 = -INFINITY;
+  const NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
+  const fourDimArray_t *raw = gNB->measurements.n0_subband_power;
+  const unsigned ports = pdu->param_v4.numSpatialStreamIndices;
+  if (!signal_sum || !raw || !ports || pdu->nr_of_symbols < 1 || pdu->nr_of_symbols > 2 || fp->N_RB_UL < 1
+      || fp->N_RB_UL > MAX_BWP_SIZE || raw->dim1 != fp->nb_antennas_rx || raw->dim2 != fp->N_RB_UL || raw->dim3 || raw->dim4
+      || gNB->common_vars.num_beams_period < 1)
+    return false;
+  // Match the caller's selected rxdataF view; noise remains indexed by physical port.
+  const unsigned first = get_first_ant_idx(gNB->enable_analog_das,
+                                           fp->nb_antennas_tx / gNB->common_vars.num_beams_period,
+                                           pdu->beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx,
+                                           pdu->param_v4.spatialStreamIndices[0]);
+  if (raw->dim1 < 1 || first + ports > (unsigned)raw->dim1)
+    return false;
+  const int rb[2] = {pdu->bwp_start + pdu->prb_start, pdu->bwp_start + pdu->second_hop_prb};
+  const int hops = pdu->freq_hop_flag && pdu->nr_of_symbols == 2 ? 2 : 1;
+  cast2Darray(noise, const unsigned int, raw);
+  uint64_t max_noise = 0;
+  for (int hop = 0; hop < hops; ++hop) {
+    if (rb[hop] < 0 || rb[hop] >= raw->dim2)
+      return false;
+    uint64_t hop_noise = 0;
+    for (unsigned aa = 0; aa < ports; ++aa) {
+      const uint32_t power = noise[first + aa][rb[hop]];
+      if (!power)
+        return false;
+      hop_noise += power;
+    }
+    if (hop_noise > max_noise)
+      max_noise = hop_noise;
+  }
+  const uint64_t denominator = pdu->nr_of_symbols * max_noise;
+  *snrx10 = 100.0 * log10((double)signal_sum / denominator);
+  // 10 dB is exactly a power ratio of ten: keep its inclusive boundary exact.
+  // At most 255 ports, 2 symbols and uint32 powers keep this product within uint64.
+  return gNB->pucch0_thres == 100 ? signal_sum >= 10ULL * denominator : *snrx10 >= gNB->pucch0_thres;
+}
+
 void nr_decode_pucch0(PHY_VARS_gNB *gNB,
                       c16_t **rxdataF,
                       int frame,
@@ -215,7 +256,7 @@ void nr_decode_pucch0(PHY_VARS_gNB *gNB,
   uint8_t index = 0;
 
   const int nb_re_pucch = NR_NB_SC_PER_RB * pucch_pdu->prb_size; // prb size is 1
-  int64_t signal_energy = 0, signal_energy_ant0 = 0;
+  uint64_t signal_energy = 0, signal_energy_ant0 = 0;
 
   c64_t xr[num_sp_streams][nb_symbols][nb_re_pucch] __attribute__((aligned(32)));
   for (int l = 0; l < nb_symbols; l++) {
@@ -234,12 +275,13 @@ void nr_decode_pucch0(PHY_VARS_gNB *gNB,
         printf("x (%d,%d), xr (%ld,%ld)\n", x_re[l][n], x_im[l][n], xr[aa][l][n].r, xr[aa][l][n].i);
 #endif
       }
-      int energ = signal_energy_nodc(rp, nb_re_pucch);
+      const uint32_t energ = signal_energy_nodc(rp, nb_re_pucch);
       signal_energy += energ;
       if (aa == 0)
         signal_energy_ant0 += energ;
     }
   }
+  const uint64_t signal_sum = signal_energy;
   signal_energy /= nb_symbols * num_sp_streams;
   signal_energy_ant0 /= nb_symbols;
   int pucch_power_dBtimes10 = 10 * dB_fixed(signal_energy);
@@ -334,12 +376,23 @@ void nr_decode_pucch0(PHY_VARS_gNB *gNB,
   uci_stats->pucch0_n01 = pucch0_n01;
   uci_stats->pucch0_thres = gNB->pucch0_thres;
 
-  // estimate CQI for MAC (from antenna port 0 only)
+  // Estimate CQI for MAC; keep the SR-only estimate unchanged.
   int max_n0 =
       max(gNB->measurements.n0_subband_power_tot_dB[prb_offset[0]], gNB->measurements.n0_subband_power_tot_dB[prb_offset[1]]);
-  const int SNRtimes10 = pucch_power_dBtimes10 - (10 * max_n0);
+  int SNRtimes10 = pucch_power_dBtimes10 - (10 * max_n0);
+  bool power_confidence = true;
+  bool noise_available = true;
+  // SR-only decoding keeps its existing power, presence and CQI criteria.
+  if (pucch_pdu->bit_len_harq > 0) {
+    double snrx10;
+    power_confidence = pucch0_power_confidence(gNB, pucch_pdu, signal_sum, &snrx10);
+    noise_available = isfinite(snrx10);
+    SNRtimes10 = noise_available ? lround(snrx10) : -640;
+  }
   int cqi;
-  if (SNRtimes10 < -640)
+  if (!noise_available)
+    cqi = 0xff;
+  else if (SNRtimes10 < -640)
     cqi = 0;
   else if (SNRtimes10 > 635)
     cqi = 255;
@@ -348,7 +401,7 @@ void nr_decode_pucch0(PHY_VARS_gNB *gNB,
 
   bool no_conf = false;
   if (nr_sequences > 1) {
-    if (/*xrtmag_dBtimes10 < (30+xrtmag_next_dBtimes10) ||*/ SNRtimes10 < gNB->pucch0_thres) {
+    if (!power_confidence) {
       no_conf = true;
       LOG_D(PHY,
             "%d.%d PUCCH bad confidence: %d threshold, %d, %d, %d\n",
