@@ -96,6 +96,9 @@ typedef struct pdu_session_param_s {
   pdu_session_status_t status;
   uint8_t xid; // transaction_id
   ngap_cause_t cause;
+  // DRBs an ongoing modification releases, erased from UE->drbs when it completes
+  int drbs_to_release[MAX_DRBS_PER_UE];
+  int n_drbs_to_release;
 } rrc_pdu_session_param_t;
 
 typedef struct drb_s {

@@ -366,6 +366,34 @@ static void test_rrc_qos(void)
   LOG_A(NR_RRC, "QoS test completed successfully\n");
 }
 
+static void test_rrc_collect_released_drbs(void)
+{
+  seq_arr_t pduSessions, drbs;
+  seq_arr_init(&pduSessions, sizeof(rrc_pdu_session_param_t));
+  seq_arr_init(&drbs, sizeof(drb_t));
+  for (int id = 1; id <= 2; id++) {
+    pdusession_t in = {.pdusession_id = id};
+    seq_arr_init(&in.qos, sizeof(nr_rrc_qos_t));
+    AssertFatal(add_pduSession(&pduSessions, &in), "add_pduSession failed\n");
+  }
+  nr_pdcp_configuration_t pdcp = {.drb.discard_timer = 100, .drb.sn_size = 18, .drb.t_reordering = 50};
+  const int drb_used = nr_rrc_add_drb(&drbs, 1, &pdcp)->drb_id;
+  const int drb_released = nr_rrc_add_drb(&drbs, 1, &pdcp)->drb_id;
+  nr_rrc_add_drb(&drbs, 2, &pdcp); // no QoS flow either, but another PDU session
+
+  rrc_pdu_session_param_t *s1 = find_pduSession(&pduSessions, 1);
+  const pdusession_level_qos_parameter_t q = {.qfi = 1, .fiveQI_type = NON_DYNAMIC, .qos_characteristics.non_dynamic.fiveQI = 9};
+  add_qos(&s1->param.qos, &q)->drb_id = drb_used;
+
+  int out[MAX_DRBS_PER_UE];
+  const int n = nr_rrc_collect_released_drbs(&drbs, s1, out);
+  AssertFatal(n == 1 && out[0] == drb_released, "expected only DRB %d, got %d DRB(s)\n", drb_released, n);
+
+  seq_arr_free(&pduSessions, free_pdusession);
+  seq_arr_free(&drbs, free_drb);
+  LOG_A(NR_RRC, "Released DRB collection test passed\n");
+}
+
 int main()
 {
   // Initialize logging system
@@ -378,6 +406,7 @@ int main()
   test_rrc_drb();
   // QoS (including multi-QoS)
   test_rrc_qos();
+  test_rrc_collect_released_drbs();
   LOG_A(NR_RRC, "All RRC Bearers tests passed successfully!\n");
   return 0;
 }

@@ -995,46 +995,39 @@ static void nr_rrc_override_flow_mapping_info(DRB_nGRAN_to_mod_t *mod, long drb_
 }
 
 /** @brief Finalize E1 DRB actions after QoS update/release processing:
- *         - remove DRBs no longer referenced by any QoS flow
+ *         - request release of the DRBs in @param drbs_rel
  *         - refresh DRB-To-Modify QoS list for changed DRBs that are still used
  * @param UE UE context
  * @param pduSession PDU session to check
  * @param e1_req E1AP bearer modification request
- * @param drb_needs_e1_refresh true for DRBs touched by QoS add/modify/release in current request */
+ * @param n_drbs_rel number of DRBs to release
+ * @param drbs_rel IDs of the DRBs to release
+ * @param drb_needs_e1_refresh true for DRBs still used and touched by QoS add/modify/release in current request */
 static void nr_rrc_send_e1_after_qos_update(gNB_RRC_UE_t *UE,
                                             rrc_pdu_session_param_t *pduSession,
                                             e1ap_bearer_mod_req_t *e1_req,
+                                            int n_drbs_rel,
+                                            const int drbs_rel[n_drbs_rel],
                                             const bool drb_needs_e1_refresh[MAX_DRBS_PER_UE + 1])
 {
   pdusession_t *dst = &pduSession->param;
   // Find or create PDU session entry in e1_req
   pdu_session_to_mod_t *pdu_mod = find_or_add_pdu_session_mod(e1_req, dst->pdusession_id);
 
-  // Check if any remaining QoS for this PDU session still references the same DRB
+  for (int i = 0; i < n_drbs_rel; i++) {
+    DevAssert(pdu_mod->n_drb_to_remove < E1AP_MAX_NUM_DRBS);
+    drb_to_remove_t *rem = &pdu_mod->drbs_to_remove[pdu_mod->n_drb_to_remove++];
+    rem->id = drbs_rel[i];
+    LOG_I(NR_RRC,
+          "UE %d: releasing DRB ID %d of PDU session %d (no remaining QoS flows mapped)\n",
+          UE->rrc_ue_id,
+          drbs_rel[i],
+          dst->pdusession_id);
+  }
+
   FOR_EACH_SEQ_ARR (drb_t *, drb, &UE->drbs) {
     if (drb->pdusession_id != dst->pdusession_id)
       continue;
-    bool drb_still_used = false;
-    FOR_EACH_SEQ_ARR (nr_rrc_qos_t *, qos, &dst->qos) {
-      if (qos->drb_id == drb->drb_id) {
-        drb_still_used = true;
-        break;
-      }
-    }
-    if (!drb_still_used) {
-      if (nr_rrc_remove_drb_by_id(&UE->drbs, drb->drb_id)) {
-        LOG_I(NR_RRC,
-              "UE %d: removed DRB ID %d for PDU session %d (no remaining QoS flows mapped)\n",
-              UE->rrc_ue_id,
-              drb->drb_id,
-              dst->pdusession_id);
-      }
-      // Add DRB to remove directly to e1_req
-      DevAssert(pdu_mod->n_drb_to_remove < E1AP_MAX_NUM_DRBS);
-      drb_to_remove_t *rem = &pdu_mod->drbs_to_remove[pdu_mod->n_drb_to_remove++];
-      rem->id = drb->drb_id;
-      continue;
-    }
 
     /** For changed DRBs that are still used, refresh Flow Mapping Information in DRB-To-Modify
      * 3GPP TS 38.463 9.3.3.11: overrides previous mapping information. */
@@ -1221,7 +1214,13 @@ static void nr_rrc_update_pdusession(gNB_RRC_INST *rrc,
     }
   }
 
-  nr_rrc_send_e1_after_qos_update(UE, session, e1_req, drb_needs_e1_refresh);
+  // DRBs left with no QoS flow are released
+  session->n_drbs_to_release = nr_rrc_collect_released_drbs(&UE->drbs, session, session->drbs_to_release);
+  for (int i = 0; i < session->n_drbs_to_release; i++)
+    drb_needs_e1_refresh[session->drbs_to_release[i]] = false;
+  nr_rrc_send_e1_after_qos_update(UE, session, e1_req, session->n_drbs_to_release, session->drbs_to_release, drb_needs_e1_refresh);
+  for (int i = 0; i < session->n_drbs_to_release; i++)
+    nr_rrc_remove_drb_by_id(&UE->drbs, session->drbs_to_release[i]);
 }
 
 //------------------------------------------------------------------------------
