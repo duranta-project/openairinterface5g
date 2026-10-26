@@ -24,22 +24,17 @@ typedef enum hashtable_return_code_e {
   HASH_TABLE_CODE_MAX
 } hashtable_rc_t;
 
-typedef struct hash_node_s {
-  hash_key_t key;
-  void *data;
-  struct hash_node_s *next;
-} hash_node_t;
-
+struct hash_node_list_s;
 typedef struct hash_table_s {
   hash_size_t size;
   size_t entries;
-  struct hash_node_s **nodes;
+  struct hash_node_list_s *nodes; // pointer to array
   hash_size_t (*hashfunc)(const hash_key_t);
 } hash_table_t;
 
 typedef struct hash_table_iterator_s {
-  int index;
-  hash_node_t *node;
+  struct hash_node_list_s *list;
+  size_t idx_in_list;
   const hash_table_t *const hashtbl;
 } hash_table_iterator_s;
 
@@ -50,6 +45,9 @@ hashtable_rc_t hashtable_insert(hash_table_t *const hashtbl, const hash_key_t ke
 hashtable_rc_t hashtable_remove(hash_table_t *const hashtbl, const hash_key_t key, void (*freefunc)(void *));
 hashtable_rc_t hashtable_get(const hash_table_t *const hashtbl, const hash_key_t key, void **dataP);
 size_t hashtable_num_entries(const hash_table_t *const hashtbl);
+
+/* iterate through the hashtable. assumes the hashtable is stable (no
+ * addition/removal during iteration). */
 hash_table_iterator_s hashtable_get_iterator(const hash_table_t *const hashtbl);
 bool hashtable_iterator_getnext(hash_table_iterator_s *iterator, void **dataP);
 

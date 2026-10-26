@@ -9,6 +9,36 @@
 #include "hashtable.h"
 #include "common/utils/utils.h"
 
+typedef struct hash_node_s {
+  hash_key_t key;
+  void *data;
+} hash_node_t;
+
+typedef struct hash_node_list_s {
+  hash_node_t *arr;
+  size_t cap;
+  size_t num;
+} hash_node_list_t;
+
+static void free_hash_node_list(hash_node_list_t *l)
+{
+  free(l->arr);
+}
+
+#define NODE_CAP_INIT 4
+static hash_node_t *get_next_node(hash_node_list_t *l)
+{
+  if (l->num >= l->cap) {
+    l->cap = l->cap == 0 ? NODE_CAP_INIT : l->cap * 2;
+    l->arr = realloc(l->arr, sizeof(*l->arr) * l->cap);
+    if (!l->arr)
+      abort();
+  }
+  l->num++;
+  return &l->arr[l->num - 1];
+}
+
+
 //-------------------------------------------------------------------------------------------------------------------------------
 /*
  * Default hash function
@@ -26,8 +56,8 @@ static hash_size_t def_hashfunc(const uint64_t keyP)
 /*
  * Initialisation
  * hashtable_create() sets up the initial structure of the hash table. The user specified size will be allocated and initialized to
- * NULL. The user can also specify a hash function. If the hashfunc argument is NULL, a default hash function is used. If an error
- * occurred, NULL is returned. All other values in the returned hash_table_t pointer should be released with hashtable_destroy().
+ * NULL. The user can also specify a hash function. If the hashfunc argument is NULL, a default hash function is used. All other
+ * values in the returned hash_table_t pointer should be released with hashtable_destroy().
  */
 hash_table_t hashtable_create(const hash_size_t sizeP, hash_size_t (*hashfuncP)(const hash_key_t))
 {
@@ -41,31 +71,22 @@ hash_table_t hashtable_create(const hash_size_t sizeP, hash_size_t (*hashfuncP)(
 //-------------------------------------------------------------------------------------------------------------------------------
 /*
  * Cleanup
- * The hashtable_destroy() walks through the linked lists for each possible hash value, and releases the elements. It also releases
+ * The hashtable_destroy() releases all elements. It also releases
  * the nodes array and the hash_table_t.
  */
 hashtable_rc_t hashtable_destroy(hash_table_t *hashtblP, void (*freefunc)(void *))
 {
-  hash_size_t n;
-  hash_node_t *node, *oldnode;
-
   if (hashtblP == NULL) {
     return HASH_TABLE_BAD_PARAMETER_HASHTABLE;
   }
 
-  for (n = 0; n < hashtblP->size; ++n) {
-    node = hashtblP->nodes[n];
-
-    while (node) {
-      oldnode = node;
-      node = node->next;
-
-      if (freefunc && oldnode->data) {
-        freefunc(oldnode->data);
-      }
-
-      free(oldnode);
+  hash_node_list_t *start = &hashtblP->nodes[0];
+  for (hash_node_list_t *l = start; l < start + hashtblP->size; ++l) {
+    for (hash_node_t *x = l->arr; x < l->arr + l->num; ++x) {
+      if (freefunc && x->data)
+        freefunc(x->data);
     }
+    free_hash_node_list(l);
   }
 
   free(hashtblP->nodes);
@@ -75,22 +96,17 @@ hashtable_rc_t hashtable_destroy(hash_table_t *hashtblP, void (*freefunc)(void *
 hashtable_rc_t hashtable_is_key_exists(const hash_table_t *const hashtblP, const hash_key_t keyP)
 //-------------------------------------------------------------------------------------------------------------------------------
 {
-  hash_node_t *node = NULL;
-  hash_size_t hash = 0;
-
   if (hashtblP == NULL) {
     return HASH_TABLE_BAD_PARAMETER_HASHTABLE;
   }
 
-  hash = hashtblP->hashfunc(keyP) % hashtblP->size;
-  node = hashtblP->nodes[hash];
+  hash_size_t hash = hashtblP->hashfunc(keyP) % hashtblP->size;
+  hash_node_list_t *l = &hashtblP->nodes[hash];
 
-  while (node) {
-    if (node->key == keyP) {
+  for (hash_node_t *x = l->arr; x < l->arr + l->num; ++x) {
+    if (x->key == keyP) {
       return HASH_TABLE_OK;
     }
-
-    node = node->next;
   }
 
   return HASH_TABLE_KEY_NOT_EXISTS;
@@ -103,109 +119,82 @@ hashtable_rc_t hashtable_is_key_exists(const hash_table_t *const hashtblP, const
  */
 hashtable_rc_t hashtable_insert(hash_table_t *const hashtblP, const hash_key_t keyP, void *dataP, void (*freefunc)(void *))
 {
-  hash_node_t *node = NULL;
-  hash_size_t hash = 0;
 
   if (hashtblP == NULL) {
     return HASH_TABLE_BAD_PARAMETER_HASHTABLE;
   }
 
-  hash = hashtblP->hashfunc(keyP) % hashtblP->size;
-  node = hashtblP->nodes[hash];
-
-  while (node) {
-    if (node->key == keyP) {
-      if (freefunc && node->data) {
-        freefunc(node->data);
+  hash_size_t hash = hashtblP->hashfunc(keyP) % hashtblP->size;
+  hash_node_list_t *l = &hashtblP->nodes[hash];
+  for (hash_node_t *x = l->arr; x < l->arr + l->num; ++x) {
+    if (x->key == keyP) {
+      if (freefunc && x->data) {
+        freefunc(x->data);
       }
 
-      node->data = dataP;
+      x->data = dataP;
       return HASH_TABLE_INSERT_OVERWRITTEN_DATA;
     }
-
-    node = node->next;
   }
 
-  node = malloc_or_fail(sizeof(hash_node_t));
-
-  node->key = keyP;
-  node->data = dataP;
-
-  if (hashtblP->nodes[hash]) {
-    node->next = hashtblP->nodes[hash];
-  } else {
-    node->next = NULL;
-  }
+  hash_node_t *new = get_next_node(l);
+  new->key = keyP;
+  new->data = dataP;
 
   hashtblP->entries++;
-  hashtblP->nodes[hash] = node;
   return HASH_TABLE_OK;
 }
 //-------------------------------------------------------------------------------------------------------------------------------
 /*
- * To remove an element from the hash table, we just search for it in the linked list for that hash value,
+ * To remove an element from the hash table, we just search for it using hash value,
  * and remove it if it is found. If it was not found, it is an error and -1 is returned.
  */
 hashtable_rc_t hashtable_remove(hash_table_t *const hashtblP, const hash_key_t keyP, void (*freefunc)(void *))
 {
-  hash_node_t *node, *prevnode = NULL;
-  hash_size_t hash = 0;
 
   if (hashtblP == NULL) {
     return HASH_TABLE_BAD_PARAMETER_HASHTABLE;
   }
 
-  hash = hashtblP->hashfunc(keyP) % hashtblP->size;
-  node = hashtblP->nodes[hash];
+  hash_size_t hash = hashtblP->hashfunc(keyP) % hashtblP->size;
+  hash_node_list_t *l = &hashtblP->nodes[hash];
 
-  while (node) {
-    if (node->key == keyP) {
-      if (prevnode)
-        prevnode->next = node->next;
-      else
-        hashtblP->nodes[hash] = node->next;
-
-      if (freefunc && node->data) {
-        freefunc(node->data);
+  for (hash_node_t *x = l->arr; x < l->arr + l->num; ++x) {
+    if (x->key == keyP) {
+      if (freefunc && x->data) {
+        freefunc(x->data);
       }
 
+      for (hash_node_t *y = x + 1; y < l->arr + l->num; ++y)
+        *x++ = *y;
+      l->num--;
       hashtblP->entries--;
-      free(node);
       return HASH_TABLE_OK;
     }
-
-    prevnode = node;
-    node = node->next;
   }
 
   return HASH_TABLE_KEY_NOT_EXISTS;
 }
 //-------------------------------------------------------------------------------------------------------------------------------
 /*
- * Searching for an element is easy. We just search through the linked list for the corresponding hash value.
+ * Searching for an element is easy. We search for the corresponding hash value.
  * NULL is returned if we didn't find it.
  */
 hashtable_rc_t hashtable_get(const hash_table_t *const hashtblP, const hash_key_t keyP, void **dataP)
 {
-  hash_node_t *node = NULL;
-  hash_size_t hash = 0;
-
   if (hashtblP == NULL) {
     *dataP = NULL;
     return HASH_TABLE_BAD_PARAMETER_HASHTABLE;
   }
 
-  hash = hashtblP->hashfunc(keyP) % hashtblP->size;
-  /*  fprintf(stderr, "hashtable_get() key=%s, hash=%d\n", key, hash);*/
-  node = hashtblP->nodes[hash];
+  hash_size_t hash = hashtblP->hashfunc(keyP) % hashtblP->size;
+  hash_node_list_t *l = &hashtblP->nodes[hash];
 
-  while (node) {
-    if (node->key == keyP) {
-      *dataP = node->data;
+  for (hash_node_t *x = l->arr; x < l->arr + l->num; ++x) {
+    if (x->key == keyP) {
+      *dataP = x->data;
       return HASH_TABLE_OK;
     }
-
-    node = node->next;
   }
 
   *dataP = NULL;
@@ -219,21 +208,23 @@ size_t hashtable_num_entries(const hash_table_t *const hashtbl)
 
 hash_table_iterator_s hashtable_get_iterator(const hash_table_t *const hashtbl)
 {
-  return (hash_table_iterator_s){.index = 0, .node = hashtbl->nodes[0], .hashtbl = hashtbl};
+  hash_node_list_t *l = &hashtbl->nodes[0];
+  return (hash_table_iterator_s){.list = l, .idx_in_list = 0, .hashtbl = hashtbl};
 }
 
-bool hashtable_iterator_getnext(hash_table_iterator_s *iterator, void **dataP)
+bool hashtable_iterator_getnext(hash_table_iterator_s *it, void **dataP)
 {
+  *dataP = NULL;
   // Iterate over table indexes
-  while (iterator->node == NULL) {
-    iterator->index++;
-    if (iterator->index >= iterator->hashtbl->size) {
-      *dataP = NULL;
-      return false;
-    }
-    iterator->node = iterator->hashtbl->nodes[iterator->index];
+  const hash_node_list_t *end = it->hashtbl->nodes + it->hashtbl->size;
+  while (it->list < end) {
+    if (it->idx_in_list < it->list->num) {
+      *dataP = it->list->arr[it->idx_in_list].data;
+      it->idx_in_list++;
+      return true;
+    } // else: try in next list
+    it->list++; // advance to next list
+    it->idx_in_list = 0;
   }
-  *dataP = iterator->node->data;
-  iterator->node = iterator->node->next;
-  return true;
+  return false;
 }
