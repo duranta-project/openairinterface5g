@@ -26,6 +26,9 @@
 typedef struct {
   c16_t **rxdata;
   int nb_antennas_rx;
+  /* The PSS symbol body is searched at the positions from search_start to rxdata_length -
+     ofdm_symbol_size, both included. */
+  int search_start;
   int rxdata_length;
   int ofdm_symbol_size;
   int nb_prefix_samples;
