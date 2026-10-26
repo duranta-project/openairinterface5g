@@ -49,7 +49,10 @@ void nr_codeword_scrambling(uint8_t *in,
                             uint32_t* out);
 
 void nr_codeword_unscrambling(int16_t* llr, uint32_t size, uint8_t q, uint32_t Nid, uint32_t n_RNTI);
-void nr_codeword_unscrambling_init(int16_t *s, uint32_t size, uint8_t q, uint32_t Nid, uint32_t n_RNTI);
+/// scrambling sequence of a codeword of size bits, as bits in 32-bit words (a gold_cache() entry of the calling thread)
+const uint32_t *nr_codeword_scrambling_gold(uint32_t size, uint8_t q, uint32_t Nid, uint32_t n_RNTI);
+/// expands nwords words of a scrambling sequence into s, +1 or -1 per bit (32 * nwords values, s 16 bytes aligned)
+void nr_codeword_unscrambling_expand(const uint32_t *seq, int nwords, int16_t *s);
 
 /**@}*/
 
