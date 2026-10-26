@@ -31,6 +31,7 @@
 #include "PHY/INIT/nr_phy_init.h"
 #include "PHY/MODULATION/nr_modulation.h"
 #include "PHY/NR_REFSIG/ptrs_nr.h"
+#include "PHY/NR_REFSIG/dmrs_nr.h"
 #include "PHY/NR_TRANSPORT/nr_dlsch.h"
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_ue.h"
@@ -1550,12 +1551,24 @@ int main(int argc, char **argv)
               buff_offset = (i * n_rx * numReSym) + (r * numReSym);
               LOG_M(fName, "rxFext", ((c16_t *)UE->phy_sim_pdsch_rxdataF_ext) + buff_offset, numValidReSym, dec, op_format);
             }
-            snprintf(fName, sizeof(fName), "chestF0_s%d.m", i);
-            LOG_M(fName, "chF0", ((c16_t *)UE->phy_sim_pdsch_dl_ch_estimates) + i * frame_parms->ofdm_symbol_size, nrb*12, dec, op_format);
+            if ((dmrsBitMap >> i) & 1) { // estimates stored per DMRS symbol
+              snprintf(fName, sizeof(fName), "chestF0_s%d.m", i);
+              LOG_M(fName,
+                    "chF0",
+                    ((c16_t *)UE->phy_sim_pdsch_dl_ch_estimates) + get_dmrs_row(dmrsBitMap, i) * frame_parms->ofdm_symbol_size,
+                    nrb * 12,
+                    dec,
+                    op_format);
+            }
           }
         }
       }
-      LOG_M("chestF0.m", "chF0", UE->phy_sim_pdsch_dl_ch_estimates, frame_parms->ofdm_symbol_size * 14, dec, op_format);
+      LOG_M("chestF0.m",
+            "chF0",
+            UE->phy_sim_pdsch_dl_ch_estimates,
+            frame_parms->ofdm_symbol_size * NR_MAX_DMRS_SYMBOLS,
+            dec,
+            op_format);
       op_format = (op_format & (~1));
       LOG_M("rxF_llr.m", "rxFllr", UE->phy_sim_pdsch_llr, available_bits, dec, op_format);
       break;

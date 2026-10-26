@@ -30,6 +30,9 @@ uint8_t allowed_xlsch_re_in_dmrs_symbol(uint16_t k,
 void nr_gen_ref_conj_symbols(const uint32_t *in, uint32_t ref_symbols, c16_t *output);
 int8_t get_next_dmrs_symbol_in_slot(uint16_t  ul_dmrs_symb_pos, uint8_t counter, uint8_t end_symbol);
 int8_t get_valid_dmrs_idx_for_channel_est(uint16_t  dmrs_symb_pos, uint8_t counter);
+
+/// maximum number of DMRS symbols of a PDSCH or PUSCH (TS 38.211 Tables 7.4.1.1.2-3 and 6.4.1.1.3-3)
+#define NR_MAX_DMRS_SYMBOLS 4
 /// rank of DMRS symbol \p symbol among the DMRS symbols of \p dmrs_symb_pos, i.e. its row in channel estimates stored per DMRS
 /// symbol
 static inline int get_dmrs_row(uint16_t dmrs_symb_pos, int symbol)
