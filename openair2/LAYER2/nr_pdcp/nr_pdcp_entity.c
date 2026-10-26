@@ -4,6 +4,7 @@
 
 #include "nr_pdcp_entity.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +25,32 @@
 int nr_max_pdcp_pdu_size(sdu_size_t sdu_size)
 {
   return (sdu_size + LONG_PDCP_HEADER_SIZE + PDCP_INTEGRITY_SIZE);
+}
+
+/* rx_list is sorted by count and SDUs are removed from its head only. Most SDUs
+ * arrive in order, so check the tail first: walking the whole list for every
+ * SDU costs O(list length), and the list holds every SDU received while a gap
+ * waits for retransmission or t-Reordering. */
+static bool rx_list_has(const nr_pdcp_entity_t *entity, uint32_t count)
+{
+  if (entity->rx_list == NULL || count > entity->rx_list_tail->count)
+    return false;
+  return nr_pdcp_sdu_in_list(entity->rx_list, count);
+}
+
+static void rx_list_add(nr_pdcp_entity_t *entity, nr_pdcp_sdu_t *sdu)
+{
+  if (entity->rx_list == NULL) {
+    sdu->next = NULL;
+    entity->rx_list = sdu;
+    entity->rx_list_tail = sdu;
+  } else if (sdu->count > entity->rx_list_tail->count) {
+    sdu->next = NULL;
+    entity->rx_list_tail->next = sdu;
+    entity->rx_list_tail = sdu;
+  } else {
+    entity->rx_list = nr_pdcp_sdu_list_add(entity->rx_list, sdu);
+  }
 }
 
 static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
@@ -138,8 +165,7 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
     }
   }
 
-  if (rcvd_count < entity->rx_deliv
-      || nr_pdcp_sdu_in_list(entity->rx_list, rcvd_count)) {
+  if (rcvd_count < entity->rx_deliv || rx_list_has(entity, rcvd_count)) {
     /* 1280 ms = 128 frames @ 10 ms, to match MAC cadence */
     if (entity->pdu_discarded != 0 && entity->t_current > entity->t_log_pdu_discard + 1280) {
       LOG_W(PDCP, "%d NR PDU discarded (rcvd_count < rx_deliv or duplicate)\n", entity->pdu_discarded);
@@ -157,7 +183,7 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
                         (char *)buffer + header_size,
                         size - header_size - integrity_size,
                         &msg_integrity);
-  entity->rx_list = nr_pdcp_sdu_list_add(entity->rx_list, sdu);
+  rx_list_add(entity, sdu);
   entity->rx_size += size-header_size;
 
   if (rcvd_count >= entity->rx_next) {
