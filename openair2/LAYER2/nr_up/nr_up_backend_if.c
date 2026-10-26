@@ -25,11 +25,6 @@ typedef struct {
 
 static nr_up_drb_budget_manager_t g_nr_up_manager;
 
-size_t nr_up_timespec_diff_ms(const struct timespec *later, const struct timespec *earlier)
-{
-  return (later->tv_sec - earlier->tv_sec) * 1000 + (later->tv_nsec - earlier->tv_nsec) / 1000000;
-}
-
 /** @brief Create the per-DRB budget hashtable */
 void nr_up_manager_init(void)
 {

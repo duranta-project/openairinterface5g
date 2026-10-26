@@ -3,7 +3,6 @@
  */
 
 #include <string.h>
-#include <time.h>
 #include "nr_up_direct.h"
 #include "nr_up_backend_if.h"
 #include "nr_up_rlc_queue.h"
@@ -41,14 +40,12 @@ static nr_up_dl_transfer_response_t nr_up_mono_deliver_drb(const nr_up_dl_transf
 static nr_up_congestion_action_t nr_up_mono_dl_congestion_precheck(ue_id_t ue_id, rb_id_t drb_id, size_t pdu_len)
 {
   nr_up_drb_budget_t *drb_budget;
-  struct timespec now;
-  size_t ms_since_sync;
+  uint64_t ms_since_sync;
 
   nr_up_manager_lock();
   drb_budget = nr_up_manager_lookup_drb(ue_id, drb_id);
   if (drb_budget != NULL) {
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    ms_since_sync = nr_up_timespec_diff_ms(&now, &drb_budget->last_budget_sync);
+    ms_since_sync = nr_up_current_time_ms() - drb_budget->last_budget_sync;
     /* RLC has not refreshed this budget for too long: allow the packet.
      * The old occupancy value may be wrong, and keeping DROP would stop all DL. */
     if (ms_since_sync > NR_UP_MONO_BUDGET_STALE_MS) {

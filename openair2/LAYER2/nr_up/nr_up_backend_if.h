@@ -17,15 +17,13 @@ typedef struct nr_up_drb_dl_drop_log_s {
 typedef struct nr_up_drb_budget_s {
   // Per-DRB remaining TX headroom
   uint32_t available_tx_bytes;
-  // When the budget was last synced
-  struct timespec last_budget_sync;
+  // Managed milliseconds when the budget was last synced
+  uint64_t last_budget_sync;
   // When Report Polling was last taken (zero = never)
   struct timespec last_status_poll;
   // Rate-limits congestion DROP warnings
   nr_up_drb_dl_drop_log_t dl_drop_log;
 } nr_up_drb_budget_t;
-
-size_t nr_up_timespec_diff_ms(const struct timespec *later, const struct timespec *earlier);
 
 void nr_up_manager_init(void);
 void nr_up_manager_lock(void);

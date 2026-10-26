@@ -43,4 +43,7 @@ typedef struct nr_up_if_s {
 
 struct nr_up_if_s *get_nr_up_if(void);
 
+void nr_up_ms_tick(void);
+uint64_t nr_up_current_time_ms(void);
+
 #endif /* NR_UP_H */
