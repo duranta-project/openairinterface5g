@@ -1047,9 +1047,11 @@ void nr_ue_aperiodic_srs_scheduling(NR_UE_MAC_INST_t *mac, long resource_trigger
 
   int scs = mac->current_UL_BWP->scs;
   AssertFatal(slot_offset > GET_DURATION_RX_TO_TX(mac, scs),
-              "Slot offset between DCI and aperiodic SRS (%d) needs to be higher than DURATION_RX_TO_TX (%ld)\n",
+              "gNB triggered aperiodic SRS %d slots after the DCI, not later than the UE RX-to-TX time (%ld slots). " RX_TO_TX_HINT,
               slot_offset,
-              GET_DURATION_RX_TO_TX(mac, scs));
+              GET_DURATION_RX_TO_TX(mac, scs),
+              GET_DURATION_RX_TO_TX(mac, scs),
+              mac->rx2tx_capability);
   int n_slots_frame = mac->frame_structure.numb_slots_frame;
   int sched_slot = (slot + slot_offset) % n_slots_frame;
   if (!is_ul_slot(sched_slot, &mac->frame_structure)) {
@@ -2822,24 +2824,24 @@ int nr_ue_pusch_scheduler(const NR_UE_MAC_INST_t *mac,
     delta = get_delta_for_k2(mu);
 
     AssertFatal((k2 + delta) > GET_DURATION_RX_TO_TX(mac, mu),
-                "Slot offset (%ld) for Msg3 needs to be higher than DURATION_RX_TO_TX (%ld). Please set min_rxtxtime at least to "
-                "%ld in gNB config file or gNBs.[0].min_rxtxtime=%ld via command line.\n",
+                "gNB scheduled Msg3 %ld slots after the RAR (K2 %ld + delta %d), not later than the UE RX-to-TX time (%ld "
+                "slots). " RX_TO_TX_HINT,
+                k2 + delta,
                 k2,
+                delta,
                 GET_DURATION_RX_TO_TX(mac, mu),
                 GET_DURATION_RX_TO_TX(mac, mu),
-                GET_DURATION_RX_TO_TX(mac, mu));
-
+                mac->rx2tx_capability);
 
     get_pusch_frame_slot(current_frame, current_slot, k2, delta, slots_per_frame, frame_tx, slot_tx);
   } else {
-    AssertFatal(k2 >= GET_DURATION_RX_TO_TX(mac, mu),
-                "Slot offset K2 (%ld) needs to be higher than DURATION_RX_TO_TX (%ld). Please set min_rxtxtime at least to %ld in "
-                "gNB config file or gNBs.[0].min_rxtxtime=%ld via command line.\n",
-                k2,
-                GET_DURATION_RX_TO_TX(mac, mu),
-                GET_DURATION_RX_TO_TX(mac, mu),
-                GET_DURATION_RX_TO_TX(mac, mu));
-
+    AssertFatal(
+        k2 >= GET_DURATION_RX_TO_TX(mac, mu),
+        "gNB scheduled the PUSCH K2 = %ld slots after the DCI, earlier than the UE RX-to-TX time (%ld slots). " RX_TO_TX_HINT,
+        k2,
+        GET_DURATION_RX_TO_TX(mac, mu),
+        GET_DURATION_RX_TO_TX(mac, mu),
+        mac->rx2tx_capability);
 
     if (k2 < 0) { // This can happen when a false DCI is received
       LOG_W(PHY, "%d.%d. Received k2 %ld\n", current_frame, current_slot, k2);

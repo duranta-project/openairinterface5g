@@ -428,6 +428,17 @@ int nrue_ru_adjust_rx_gain(PHY_VARS_NR_UE *UE, int gain_change)
   return gain_change;
 }
 
+// true if UE 0 must also serve RUs that have a cell but no UE (multi-RU setups); single-RU setups skip the extra I/O
+static bool nrue_ru_has_unused(void)
+{
+  for (int ru_id = 0; ru_id < nrue_ru_count; ru_id++) {
+    int cell_id = nrue_rus[ru_id].used_by_cell;
+    if (cell_id >= 0 && nrue_cells[cell_id].used_by_ue < 0)
+      return true;
+  }
+  return false;
+}
+
 int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **buff, int nsamps, int num_antennas)
 {
   openair0_device_t *dev = &openair0_dev[UE->rf_map.card];
@@ -443,9 +454,11 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
     return ret;
 
   // UE 0 needs to read from all RUs that are not used by any other UE
+  if (!nrue_ru_has_unused())
+    return ret;
 
   void *tmp_buf[num_antennas];
-  uint32_t tmp_samples[nsamps];
+  uint32_t *tmp_samples = malloc_or_fail(nsamps * sizeof(*tmp_samples)); // can be a whole frame or more: not on the stack
   for (int ant = 0; ant < num_antennas; ant++)
     tmp_buf[ant] = tmp_samples;
 
@@ -464,7 +477,7 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
       dev->firstTS_initialized = true;
     }
   }
-
+  free(tmp_samples);
   return ret;
 }
 
@@ -477,10 +490,11 @@ int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buf
     return ret;
 
   // UE 0 needs to write to all RUs that are not used by any other UE
+  if (!nrue_ru_has_unused())
+    return ret;
 
   void *tmp_buf[num_antennas];
-  uint32_t tmp_samples[nsamps];
-  memset(tmp_samples, 0, sizeof(tmp_samples));
+  uint32_t *tmp_samples = calloc_or_fail(nsamps, sizeof(*tmp_samples));
   for (int ant = 0; ant < num_antennas; ant++)
     tmp_buf[ant] = tmp_samples;
 
@@ -495,6 +509,7 @@ int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buf
     dev = &openair0_dev[ru_id];
     dev->trx_write_func(dev, timestamp + dev->firstTS, tmp_buf, nsamps, num_antennas, flags);
   }
+  free(tmp_samples);
   return ret;
 }
 

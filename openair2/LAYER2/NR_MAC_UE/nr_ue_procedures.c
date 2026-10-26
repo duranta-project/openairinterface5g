@@ -1176,10 +1176,13 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   if (rnti_type != TYPE_RA_RNTI_ && rnti_type != TYPE_SI_RNTI_) {
     if (!get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dci->harq_pid.val)) {
       feedback_ti = 1 + dci->pdsch_to_harq_feedback_timing_indicator.val + ntn_ue_koffset;
-      AssertFatal(feedback_ti >= GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
-                  "PDSCH to HARQ feedback time (%d) needs to be higher than DURATION_RX_TO_TX (%ld).\n",
-                  feedback_ti,
-                  GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing));
+      AssertFatal(
+          feedback_ti >= GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
+          "gNB scheduled the HARQ-ACK %d slots after the PDSCH, earlier than the UE RX-to-TX time (%ld slots). " RX_TO_TX_HINT,
+          feedback_ti,
+          GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
+          GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
+          mac->rx2tx_capability);
       // set the harq status at MAC for feedback
       const int tpc[] = {-1, 0, 1, 3};
       set_harq_status(mac,
@@ -1476,11 +1479,13 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
   const int tpc[] = {-1, 0, 1, 3};
   if (!get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dci->harq_pid.val)) {
     feedback_ti = pucch_Config->dl_DataToUL_ACK->list.array[dci->pdsch_to_harq_feedback_timing_indicator.val][0] + ntn_ue_koffset;
-    AssertFatal(feedback_ti >= GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
-                "PDSCH to HARQ feedback time (%d) needs to be higher than DURATION_RX_TO_TX (%ld). Min feedback time set in config "
-                "file (min_rxtxtime).\n",
-                feedback_ti,
-                GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing));
+    AssertFatal(
+        feedback_ti >= GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
+        "gNB scheduled the HARQ-ACK %d slots after the PDSCH, earlier than the UE RX-to-TX time (%ld slots). " RX_TO_TX_HINT,
+        feedback_ti,
+        GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
+        GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
+        mac->rx2tx_capability);
   }
 
 
@@ -2449,12 +2454,14 @@ bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sche
               dl_harq_pid, current_harq->ul_frame, current_harq->ul_slot);
         /* check if current tx slot should transmit downlink acknowlegment */
         if (current_harq->ul_frame == frame && current_harq->ul_slot == slot) {
+          // TS 38.213 9.2.3: all HARQ-ACK bits of the slot go into the codebook; the PUCCH resource follows the PRI of
+          // the last DCI (highest counter DAI), earlier DCIs may carry a different PRI
           if (res_ind != -1 && res_ind != current_harq->pucch_resource_indicator)
-            LOG_E(NR_MAC,
-                  "Value of pucch_resource_indicator %d not matching with what set before %d (Possibly due to a false DCI) \n",
+            LOG_D(NR_MAC,
+                  "pucch_resource_indicator %d differs from an earlier DCI (%d) for the same slot, using the last DCI's\n",
                   current_harq->pucch_resource_indicator,
                   res_ind);
-          else {
+          {
             if (!current_harq->ack_received)
               LOG_E(NR_MAC, "DLSCH ACK/NACK reporting initiated for harq pid %d before DLSCH decoding completed\n", dl_harq_pid);
 
@@ -2482,15 +2489,12 @@ bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sche
               ack_data[code_word][dai_index] = 0;
             }
             dai[code_word][dai_index] = (dai_index % 4) + 1; // value between 1 and 4
-            int temp_ind = current_harq->pucch_resource_indicator;
-            AssertFatal(res_ind == -1 || res_ind == temp_ind,
-                        "Current resource index %d does not match with previous resource index %d\n",
-                        temp_ind,
-                        res_ind);
-            res_ind = temp_ind;
-            pucch->harq_ack_pucch_res_ind = temp_ind;
-            pucch->n_CCE = current_harq->n_CCE;
-            pucch->N_CCE = current_harq->N_CCE;
+            if (current_harq->dai_cumul >= dai_max) { // last DCI so far (counter DAI order) defines the PUCCH resource
+              res_ind = current_harq->pucch_resource_indicator;
+              pucch->harq_ack_pucch_res_ind = res_ind;
+              pucch->n_CCE = current_harq->n_CCE;
+              pucch->N_CCE = current_harq->N_CCE;
+            }
             // Collect 9.2.1 set index for this occasion, all common HARQs must agree
             if (current_harq->pucch_ResourceCommon >= 0) {
               AssertFatal(occasion_pucch_ResourceCommon < 0 || occasion_pucch_ResourceCommon == current_harq->pucch_ResourceCommon,
@@ -3769,13 +3773,12 @@ static void extract_01_c_rnti(dci_pdu_rel15_t *dci_pdu_rel15, const uint8_t *dci
   EXTRACT_DCI_ITEM(dci_pdu_rel15->ul_sul_indicator.val, dci_pdu_rel15->ul_sul_indicator.nbits);
   // BWP Indicator
   EXTRACT_DCI_ITEM(dci_pdu_rel15->bwp_indicator.val, dci_pdu_rel15->bwp_indicator.nbits);
-  // Freq domain assignment  max 16 bit
-  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, ceil_log2_u32((N_RB * (N_RB + 1)) >> 1));
+  // Freq domain assignment, width from nr_dci_size() (RA type 0, 1 or dynamicSwitch)
+  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_domain_assignment.val, dci_pdu_rel15->frequency_domain_assignment.nbits);
   // Time domain assignment
   EXTRACT_DCI_ITEM(dci_pdu_rel15->time_domain_assignment.val, dci_pdu_rel15->time_domain_assignment.nbits);
-  // Not supported yet - skip for now
-  // Frequency hopping flag – 1 bit
-  // EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_hopping_flag.val, 1);
+  // Frequency hopping flag – 0 or 1 bit (present if frequencyHopping is configured and RA type is not 0)
+  EXTRACT_DCI_ITEM(dci_pdu_rel15->frequency_hopping_flag.val, dci_pdu_rel15->frequency_hopping_flag.nbits);
   // MCS  5 bit
   EXTRACT_DCI_ITEM(dci_pdu_rel15->mcs, 5);
   // New data indicator 1bit

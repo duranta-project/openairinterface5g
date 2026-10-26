@@ -668,5 +668,10 @@ static inline long GET_DURATION_RX_TO_TX(const NR_UE_MAC_INST_t *mac, int scs)
   return mac->rx2tx_capability + (mac->phy_config.config_req.ntn_config.cell_specific_k_offset << scs);
 }
 
+// Remedy appended to the RX-to-TX assertions; arguments: UE RX-to-TX time (slots), configured --ue-capability-rx2tx
+#define RX_TO_TX_HINT                                                                                                  \
+  "With an OAI gNB set min_rxtxtime to at least %ld; with another gNB lower --ue-capability-rx2tx (now %d) if the UE " \
+  "processing keeps up with the shorter time.\n"
+
 /*@}*/
 #endif /*__LAYER2_MAC_DEFS_H__ */
