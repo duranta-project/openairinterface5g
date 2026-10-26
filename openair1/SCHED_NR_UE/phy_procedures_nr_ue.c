@@ -819,13 +819,16 @@ static bool is_ssb_index_transmitted(const PHY_VARS_NR_UE *ue, const int index)
     return ue->frame_parms.ssb_index == index;
 }
 
-static int get_pdcch_max_rbs(NR_UE_PDCCH_CONFIG *phy_pdcch_config)
+static int get_pdcch_max_rbs(NR_UE_PDCCH_CONFIG *phy_pdcch_config, bool pscch_processing)
 {
   int nb_rb = 0;
   int rb_offset = 0;
   for (int i = 0; i < phy_pdcch_config->nb_search_space; i++) {
     int tmp = 0;
-    get_coreset_rballoc(phy_pdcch_config->pdcch_config[i].coreset.frequency_domain_resource, &tmp, &rb_offset);
+    if (pscch_processing)
+      tmp = phy_pdcch_config->pdcch_config[i].coreset.frequency_domain_resource[1];
+    else
+      get_coreset_rballoc(phy_pdcch_config->pdcch_config[i].coreset.frequency_domain_resource, &tmp, &rb_offset);
     if (tmp > nb_rb)
       nb_rb = tmp;
   }
@@ -853,9 +856,13 @@ void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
   LOG_D(PHY, " ------ --> %s ChannelComp/LLR Frame.slot %d.%d ------  \n", pscch_processing ? "PSCCH" : "PDCCH", proc->frame_rx % 1024, proc->nr_slot_rx);
   start_meas_nr_ue_phy(ue, DLSCH_RX_PDCCH_STATS);
   NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
-  int num_monitoring_occ = get_max_pdcch_monOcc(phy_pdcch_config, fp->symbols_per_slot);
+  NR_DL_FRAME_PARMS *fep_fp = pscch_processing ? &ue->SL_UE_PHY_PARAMS.sl_frame_params : fp;
+  const int num_monitoring_occ = get_max_pdcch_monOcc(phy_pdcch_config, fep_fp->symbols_per_slot);
+  // Only the sidelink caller guarantees an occasion here; the DL path keeps
+  // tolerating a slot without one, as it did before PSCCH shared this code.
+  AssertFatal(!pscch_processing || num_monitoring_occ > 0, "PSCCH has no monitoring occasion in this slot\n");
   int max_nb_symb_pdcch = get_max_pdcch_symb(phy_pdcch_config);
-  int llr_size_symbol = get_pdcch_max_rbs(phy_pdcch_config) * 9;
+  int llr_size_symbol = get_pdcch_max_rbs(phy_pdcch_config, pscch_processing) * 9;
   c16_t pdcch_llr[phy_pdcch_config->nb_search_space][num_monitoring_occ][max_nb_symb_pdcch * llr_size_symbol];
   int start_symb_pdcch, last_symb_pdcch;
   set_first_last_pdcch_symb(phy_pdcch_config, fp->symbols_per_slot, &start_symb_pdcch, &last_symb_pdcch);
