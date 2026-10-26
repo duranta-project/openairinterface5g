@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <time.h>
 
 #include "common/utils/utils.h"
 #include "e1ap_bearer_context_management.h"
@@ -621,6 +622,34 @@ static void test_bearer_context_modification_request(void)
   pdu_session_to_remove_t pdu_session_to_remove = pdu_session_rem_template(5);
   pdu_session_to_remove_t pdu_session_to_remove_2 = pdu_session_rem_template(6);
 
+  // DRBs to setup in a PDU Session Resource To Modify Item (TS 38.463 §9.3.3.11), next to a DRB to
+  // modify and on their own. The random IDs and QFIs stay clear of the fixed ones above.
+  const long new_drb_id = 5 + rand() % (E1AP_MAX_NUM_DRBS - 5);
+  DRB_nGRAN_to_setup_t drb_to_setup_in_mod = drb_to_setup_template(new_drb_id);
+  drb_to_setup_in_mod.pdcp_config = dummy_pdcp_config;
+  drb_to_setup_in_mod.sdap_config = dummy_sdap_config;
+  drb_to_setup_in_mod.qosFlows[0] = dummy_qos_flows;
+  drb_to_setup_in_mod.qosFlows[0].qfi = 10 + rand() % 54;
+  drb_to_setup_in_mod.qosFlows[0].qos_params.qos_characteristics.non_dynamic.fiveqi = rand() % 256;
+  drb_to_setup_in_mod.qosFlows[0].qos_params.alloc_reten_priority.priority_level = rand() % 16;
+  *drb_to_setup_in_mod.drb_inactivity_timer = 1 + rand() % 7200;
+  pdusession_mod_item.numDRB2Setup = 1;
+  pdusession_mod_item.DRBnGRanList[0] = drb_to_setup_in_mod;
+
+  DRB_nGRAN_to_setup_t drb_to_setup_in_mod_2 = drb_to_setup_template(new_drb_id + 1);
+  drb_to_setup_in_mod_2.pdcp_config = dummy_pdcp_config;
+  drb_to_setup_in_mod_2.sdap_config = dummy_sdap_config;
+  drb_to_setup_in_mod_2.qosFlows[0] = dummy_qos_flows;
+  drb_to_setup_in_mod_2.qosFlows[0].qfi = 10 + rand() % 54;
+  drb_to_setup_in_mod_2.qosFlows[0].qos_params.qos_characteristics.non_dynamic.fiveqi = rand() % 256;
+  drb_to_setup_in_mod_2.qosFlows[0].qos_params.alloc_reten_priority.priority_level = rand() % 16;
+  *drb_to_setup_in_mod_2.drb_inactivity_timer = 1 + rand() % 7200;
+  pdu_session_to_mod_t pdusession_mod_item_3 = {
+      .sessionId = 7 + rand() % 249,
+      .numDRB2Setup = 1,
+      .DRBnGRanList[0] = drb_to_setup_in_mod_2,
+  };
+
   // Initialize the Bearer Context Modification Request
   e1ap_bearer_mod_req_t orig = {
       .gNB_cu_cp_ue_id = 0x1234,
@@ -628,15 +657,16 @@ static void test_bearer_context_modification_request(void)
       .bearerContextStatus = malloc_or_fail(sizeof(*orig.bearerContextStatus)),
       .inactivityTimer = malloc_or_fail(sizeof(*orig.inactivityTimer)),
       .numPDUSessions = 2,
-      .numPDUSessionsMod = 2,
+      .numPDUSessionsMod = 3,
       .numPDUSessionsRem = 2,
   };
   orig.pduSession = calloc_or_fail(2, sizeof(*orig.pduSession));
   orig.pduSession[0] = pdusession_setup_item;
   orig.pduSession[1] = pdusession_setup_item_2;
-  orig.pduSessionMod = calloc_or_fail(2, sizeof(*orig.pduSessionMod));
+  orig.pduSessionMod = calloc_or_fail(3, sizeof(*orig.pduSessionMod));
   orig.pduSessionMod[0] = pdusession_mod_item;
   orig.pduSessionMod[1] = pdusession_mod_item_2;
+  orig.pduSessionMod[2] = pdusession_mod_item_3;
   orig.pduSessionRem = calloc_or_fail(2, sizeof(*orig.pduSessionRem));
   orig.pduSessionRem[0] = pdu_session_to_remove;
   orig.pduSessionRem[1] = pdu_session_to_remove_2;
@@ -998,6 +1028,7 @@ static void test_bearer_context_modification_confirm(void)
 
 int main()
 {
+  srand((unsigned)time(NULL));
   // E1 Bearer Context Setup
   test_bearer_context_setup_request();
   test_bearer_context_setup_response();
