@@ -331,6 +331,7 @@ typedef struct {
   bool initDone;
   pthread_mutex_t mutex_store;
   pthread_cond_t written; // signaled after each write
+  bool writer_missing; // the last flush waited in vain for a writer: do not wait again until all the writers caught up
   openair0_timestamp_t nextTS; // first sample not sent yet
   openair0_timestamp_t maxTS; // end of the most recent write
   int sz;

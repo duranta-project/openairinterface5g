@@ -323,7 +323,13 @@ void openair0_write_reorder_flush_common(nrue_ru_write_t nrue_ru_write,
 {
   re_order_t *ctx = &device->reOrder;
   pthread_mutex_lock(&ctx->mutex_store);
-  if (wait_ms > 0 && ctx->initDone && force_until > ctx->nextTS) {
+  /* a writer that does not write a sample range at all (a UE resynchronizing after a radio link failure) would
+     make every flush of the range wait wait_ms: once a wait failed, flush without waiting until a flush finds
+     all the samples written */
+  if (wait_ms > 0 && ctx->initDone && force_until > ctx->nextTS && ctx->writer_missing) {
+    openair0_timestamp_t checked = ctx->nextTS;
+    ctx->writer_missing = !reorder_all_written(ctx, nb_writers, force_until, &checked);
+  } else if (wait_ms > 0 && ctx->initDone && force_until > ctx->nextTS) {
     struct timespec deadline;
     clock_gettime(CLOCK_REALTIME, &deadline);
     deadline.tv_sec += wait_ms / 1000;
@@ -336,6 +342,7 @@ void openair0_write_reorder_flush_common(nrue_ru_write_t nrue_ru_write,
     while (!reorder_all_written(ctx, nb_writers, force_until, &checked))
       if (pthread_cond_timedwait(&ctx->written, &ctx->mutex_store, &deadline) == ETIMEDOUT) {
         LOG_D(HW, "TX not written by all the writers at %lu after %d ms, sending it\n", checked, wait_ms);
+        ctx->writer_missing = true;
         break;
       }
   }
