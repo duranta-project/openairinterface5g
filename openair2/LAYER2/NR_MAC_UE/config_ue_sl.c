@@ -3,21 +3,86 @@
  */
 
 #include "openair2/LAYER2/NR_MAC_UE/mac_defs.h"
+#include "openair2/LAYER2/NR_MAC_UE/nr_ue_sci.h"
 #include "NR_SidelinkPreconfigNR-r16.h"
 #include "mac_proto.h"
+#include "common/config/config_paramdesc.h"
+#include "common/config/config_userapi.h"
+#include <executables/nr-uesoftmodem.h>
+
+#define SL_CONFIG_STRING_SL_PRECONFIGURATION                        "SIDELINK_PRECONFIGURATION"
+
+/* Sidelink CSI-RS configuration parameters for MAC*/
+#define SL_CONFIG_STRING_SL_CSI_RS_LIST                             "sl_csi_rs"
+#define SL_CONFIG_STRING_SL_CSI_RS_SYMB_L0                          "symb_l0"
+#define SL_CONFIG_STRING_SL_CSI_RS_CSI_TYPE                         "csi_Type"
+#define SL_CONFIG_STRING_SL_CSI_RS_SLOT_OFFSET                      "slot_Offset"
+#define SL_CONFIG_STRING_SL_CSI_RS_SLOT_PERIODICITY                 "slot_Periodicity"
+#define SL_CONFIG_STRING_SL_CSI_RS_POWER_CONTROL_OFFSET             "sl_powerControlOffset"
+#define SL_CONFIG_STRING_SL_CSI_RS_POWER_CONTROL_OFFSET_SS          "sl_powerControlOffsetSS"
+#define SL_CONFIG_STRING_SL_CSI_RS_SL_CSI_ACQUISITION               "sl_CSI_Acquisition"
+#define SL_CONFIG_STRING_SL_CSI_RS_SL_LATENCYBOUNDCSI_REPORT        "sl_LatencyBoundCSI_Report"
+
+#define SL_CONFIG_STRING_SL_ALLOWED_RESOURCE_SELECTION_CONFIG       "sl_AllowedResourceSelectionConfig"
+#define SL_CONFIG_STRING_SL_PSSCH_NUM_SUBCHANNELS                   "sl_PSSCH_NumSubchannels"
+
+#define SL_CSI_RS_DESC(sl_csi_info) { \
+{SL_CONFIG_STRING_SL_CSI_RS_SYMB_L0,NULL,0,.u8ptr=&sl_csi_info->symb_l0,.defuintval=1,TYPE_UINT8,0}, \
+{SL_CONFIG_STRING_SL_CSI_RS_CSI_TYPE,NULL,0,.u8ptr=&sl_csi_info->csi_type,.defuintval=1,TYPE_UINT8,0}, \
+{SL_CONFIG_STRING_SL_CSI_RS_POWER_CONTROL_OFFSET,NULL,0,.u8ptr=&sl_csi_info->power_control_offset,.defuintval=1,TYPE_UINT8,0}, \
+{SL_CONFIG_STRING_SL_CSI_RS_POWER_CONTROL_OFFSET_SS,NULL,0,.u8ptr=&sl_csi_info->power_control_offset_ss,.defuintval=1,TYPE_UINT8,0}, \
+{SL_CONFIG_STRING_SL_CSI_RS_SLOT_OFFSET,NULL,0,.u8ptr=&sl_csi_info->slot_offset,.defuintval=1,TYPE_UINT8,0}, \
+{SL_CONFIG_STRING_SL_CSI_RS_SLOT_PERIODICITY,NULL,0,.u8ptr=&sl_csi_info->slot_periodicity,.defuintval=1,TYPE_UINT8,0}, \
+{SL_CONFIG_STRING_SL_CSI_RS_SL_CSI_ACQUISITION,NULL,0,.u8ptr=&sl_csi_info->sl_csi_acquisition,.defuintval=1,TYPE_UINT8,0}, \
+{SL_CONFIG_STRING_SL_CSI_RS_SL_LATENCYBOUNDCSI_REPORT,NULL,0,.u8ptr=&sl_csi_info->sl_latencyboundcsi_report,.defuintval=8,TYPE_UINT8,0}}
+
+#define SL_CONFIG_RESOURCE_SELECTION(resource_selection_cfg, pssch_num_subchannels) { \
+{SL_CONFIG_STRING_SL_ALLOWED_RESOURCE_SELECTION_CONFIG, NULL, 0, .u16ptr=resource_selection_cfg, .defuintval=3, TYPE_UINT16, 0}, \
+{SL_CONFIG_STRING_SL_PSSCH_NUM_SUBCHANNELS, NULL, 0, .u16ptr=pssch_num_subchannels, .defuintval=1, TYPE_UINT16, 0}}
+
+typedef struct sl_csi_info {
+  uint8_t symb_l0;
+  uint8_t csi_type;
+  uint8_t slot_offset;
+  uint8_t slot_periodicity;
+  uint8_t power_control_offset;
+  uint8_t power_control_offset_ss;
+  uint8_t sl_csi_acquisition;
+  uint8_t sl_latencyboundcsi_report;
+} sl_csi_info_t;
+
+void nr_ue_sl_free_resource_pools(NR_UE_MAC_INST_t *mac)
+{
+  sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
+  if (sl_mac) {
+    for (int i = 0; i < SL_NR_MAC_NUM_RX_RESOURCE_POOLS; i++) {
+      if (sl_mac->sl_RxPool[i]) {
+        free_and_zero(sl_mac->sl_RxPool[i]->phy_sl_bitmap.buf);
+        free_and_zero(sl_mac->sl_RxPool[i]);
+      }
+    }
+    for (int i = 0; i < SL_NR_MAC_NUM_TX_RESOURCE_POOLS; i++) {
+      if (sl_mac->sl_TxPool[i]) {
+        free_and_zero(sl_mac->sl_TxPool[i]->phy_sl_bitmap.buf);
+        free_and_zero(sl_mac->sl_TxPool[i]);
+      }
+    }
+  }
+  mac->sl_rx_res_pool = NULL;
+  mac->sl_tx_res_pool = NULL;
+}
 
 void sl_ue_mac_free(NR_UE_MAC_INST_t *mac)
 {
+  sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
+  if (sl_mac == NULL)
+    return;
 
-  sl_nr_phy_config_request_t *sl_config =
-                    &mac->SL_MAC_PARAMS->sl_phy_config.sl_config_req;
-
-  uint8_t syncsource = sl_config->sl_sync_source.sync_source;
-
-  //Allocated by MAC only in case of SYNC_REF_UE
-  //else it is freed as part of RRC pre-config structure
-  if (syncsource == SL_SYNC_SOURCE_SYNC_REF_UE) {
-    ASN_STRUCT_FREE (asn_DEF_NR_TDD_UL_DL_Pattern, mac->SL_MAC_PARAMS->sl_TDD_config);
+  fapi_nr_tdd_table_t *tdd_table = &sl_mac->sl_phy_config.sl_config_req.tdd_table;
+  if (tdd_table->max_tdd_periodicity_list) {
+    for (int i = 0; i < tdd_table->tdd_period_in_slots; i++)
+      free(tdd_table->max_tdd_periodicity_list[i].max_num_of_symbol_per_slot_list);
+    free(tdd_table->max_tdd_periodicity_list);
   }
 
   fapi_nr_max_tdd_periodicity_t *tdd_list =
@@ -28,13 +93,8 @@ void sl_ue_mac_free(NR_UE_MAC_INST_t *mac)
     free_and_zero(sl_config->tdd_table.max_tdd_periodicity_list);
   }
 
-  for (int i=0;i<SL_NR_MAC_NUM_RX_RESOURCE_POOLS;i++) {
-    free_and_zero(mac->SL_MAC_PARAMS->sl_RxPool[i]);
-  }
-  for (int i=0;i<SL_NR_MAC_NUM_TX_RESOURCE_POOLS;i++) {
-    free_and_zero(mac->SL_MAC_PARAMS->sl_TxPool[i]);
-  }
-
+  free(sl_mac->future_ttis);
+  nr_ue_sl_free_resource_pools(mac);
   free_and_zero(mac->SL_MAC_PARAMS);
 }
 
@@ -46,6 +106,11 @@ void sl_set_tdd_config_nr_ue(fapi_nr_tdd_table_t *tdd_table,
   const int nrofUplinkSymbols = pattern->nrofUplinkSymbols;
   const int nb_periods_per_frame = get_nb_periods_per_frame(pattern->dl_UL_TransmissionPeriodicity);
   const int nb_slots_per_period = ((1 << mu) * NR_NUMBER_OF_SUBFRAMES_PER_FRAME) / nb_periods_per_frame;
+  if (tdd_table->max_tdd_periodicity_list) {
+    for (int i = 0; i < tdd_table->tdd_period_in_slots; i++)
+      free(tdd_table->max_tdd_periodicity_list[i].max_num_of_symbol_per_slot_list);
+    free(tdd_table->max_tdd_periodicity_list);
+  }
   tdd_table->tdd_period_in_slots = nb_slots_per_period;
 
   LOG_I(PHY,"UL slots:%d, symbols:%d, slots_per_period:%d\n",
@@ -103,6 +168,8 @@ static void  sl_prepare_phy_config(int module_id,
   //FREQSHIFT_7P5KHZ is DISABLED
   phycfg->sl_carrier_config.sl_frequency_shift_7p5khz = 0;
   phycfg->sl_carrier_config.sl_value_N = freqcfg->valueN_r16;
+  phycfg->sl_carrier_config.sl_num_tx_ant = 1;
+  phycfg->sl_carrier_config.sl_num_rx_ant = 1;
 
   NR_SCS_SpecificCarrier_t *carriercfg =
             freqcfg->sl_SCS_SpecificCarrierList_r16.list.array[0];
@@ -146,9 +213,7 @@ static void  sl_prepare_phy_config(int module_id,
   //the RE offset from pointA where SSB starts
   phycfg->sl_bwp_config.sl_ssb_offset_point_a = diff/scs_scaling;
 
-#ifdef SL_DEBUG
-  printf("diff:%u, scaling:%d, pointa:%u, ssb:%u\n", diff, scs_scaling, pointA_ARFCN, SSB_ARFCN);
-#endif
+  LOG_D(NR_MAC, "diff:%u, scaling:%d, pointa:%u, ssb:%u\n", diff, scs_scaling, pointA_ARFCN, SSB_ARFCN);
 
   phycfg->sl_bwp_config.sl_dc_location = (bwp_generic->sl_TxDirectCurrentLocation_r16) ?
                                             *bwp_generic->sl_TxDirectCurrentLocation_r16 : 0;
@@ -186,6 +251,14 @@ static void  sl_prepare_phy_config(int module_id,
     sl_set_tdd_config_nr_ue(&phycfg->tdd_table,
                             phycfg->sl_bwp_config.sl_scs,
                             &sl_TDD_config->pattern1);
+    int period_idx = sl_TDD_config ? get_tdd_period_idx(sl_TDD_config) : 0;
+    // TODO move to right place
+    NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+    config_frame_structure(phycfg->sl_bwp_config.sl_scs,
+                           sl_TDD_config,
+                           period_idx,
+                           TDD, // TODO make configurable
+                           &mac->frame_structure);
 
     LOG_I(NR_MAC, "SIDELINK CONFIGs: tdd config period:%ld, mu:%ld, DLslots:%ld,ULslots:%ld Mixedslotsym DL:UL %ld:%ld\n",
                           sl_TDD_config->pattern1.dl_UL_TransmissionPeriodicity, sl_TDD_config->referenceSubcarrierSpacing,
@@ -197,20 +270,21 @@ static void  sl_prepare_phy_config(int module_id,
     phycfg->config_mask = 0x9;//partial config is sent
   }
 
-//#ifdef SL_DEBUG
   char str[5][20] = {"NONE","GNBENB","GNSS","SYNC_REF_UE","LOCAL_TIMING"};
-  LOG_I(NR_MAC, "UE[%d] Function %s - Phy config preparation:\n",module_id, __FUNCTION__);
-  LOG_I(NR_MAC, "UE[%d] Sync source params: sync_source :%d-%s, gnss_dfn_offset:%d, rx_slss_id:%d\n",
+  LOG_D(NR_MAC, "UE[%d] Function %s - Phy config preparation:\n",module_id, __FUNCTION__);
+  LOG_D(NR_MAC, "UE[%d] Sync source params: sync_source :%d-%s, gnss_dfn_offset:%d, rx_slss_id:%d\n",
                                                         module_id,phycfg->sl_sync_source.sync_source,
                                                         str[phycfg->sl_sync_source.sync_source],
                                                         phycfg->sl_sync_source.gnss_dfn_offset,
                                                         phycfg->sl_sync_source.rx_slss_id);
-  LOG_I(NR_MAC, "UE[%d] Carrier CFG Params: freq:%ld, bw:%d, gridsize:%d, valueN:%d\n",
+  LOG_D(NR_MAC, "UE[%d] Carrier CFG Params: freq:%ld, bw:%d, gridsize:%d, rxant:%d, txant:%d, valueN:%d\n",
                                                         module_id,phycfg->sl_carrier_config.sl_frequency,
                                                         phycfg->sl_carrier_config.sl_bandwidth,
                                                         phycfg->sl_carrier_config.sl_grid_size,
+                                                        phycfg->sl_carrier_config.sl_num_rx_ant,
+                                                        phycfg->sl_carrier_config.sl_num_tx_ant,
                                                         phycfg->sl_carrier_config.sl_value_N);
-  LOG_I(NR_MAC, "UE[%d] SL-BWP Params: start:%d, size:%d, scs:%d, Ncp:%d, startsym:%d, numsym:%d,ssb_offset:%d,dcloc:%d\n",
+  LOG_D(NR_MAC, "UE[%d] SL-BWP Params: start:%d, size:%d, scs:%d, Ncp:%d, startsym:%d, numsym:%d,ssb_offset:%d,dcloc:%d\n",
                                                         module_id,phycfg->sl_bwp_config.sl_bwp_start,
                                                         phycfg->sl_bwp_config.sl_bwp_size,
                                                         phycfg->sl_bwp_config.sl_scs,
@@ -220,9 +294,41 @@ static void  sl_prepare_phy_config(int module_id,
                                                         phycfg->sl_bwp_config.sl_ssb_offset_point_a,
                                                         phycfg->sl_bwp_config.sl_dc_location);
 
-//#endif
-
   return;
+}
+
+static int sl_configure_physical_pool_bitmap(NR_UE_MAC_INST_t *mac,
+                                             SL_ResourcePool_params_t *pool,
+                                             NR_SL_ResourcePool_r16_t *rrc_pool)
+{
+  AssertFatal(pool != NULL && rrc_pool != NULL && rrc_pool->ext1 != NULL
+                  && rrc_pool->ext1->sl_TimeResource_r16 != NULL,
+              "Incomplete sidelink resource-pool configuration\n");
+
+  const int mu = get_softmodem_params()->numerology;
+  const int physical_slots = SL_FRAME_NUMBER_CYCLE * nr_slots_per_frame[mu];
+  BIT_STRING_t *physical_bitmap = &pool->phy_sl_bitmap;
+  BIT_STRING_t new_bitmap = {0};
+  new_bitmap.size = (physical_slots + 7) / 8;
+  new_bitmap.bits_unused = (new_bitmap.size << 3) - physical_slots;
+  new_bitmap.buf = malloc16_clear(new_bitmap.size);
+
+  const int map_size = get_physical_sl_pool(mac, rrc_pool->ext1->sl_TimeResource_r16, &new_bitmap);
+  if (physical_bitmap->buf != NULL && physical_bitmap->size == new_bitmap.size
+      && physical_bitmap->bits_unused == new_bitmap.bits_unused) {
+    /* S-SSB configuration can arrive while the slot worker is reading the
+     * pool map. Keep the published allocation stable during a refresh instead
+     * of exposing a free/reallocate use-after-free window. */
+    memcpy(physical_bitmap->buf, new_bitmap.buf, new_bitmap.size);
+    free(new_bitmap.buf);
+  } else {
+    /* The first publication happens before sidelink scheduling starts. A size
+     * change is likewise only expected during reconfiguration while stopped. */
+    free_and_zero(physical_bitmap->buf);
+    *physical_bitmap = new_bitmap;
+  }
+
+  return map_size;
 }
 
 // RRC calls this API when RRC is configured with Sidelink PRE-configuration I.E
@@ -235,8 +341,10 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
                                                 module_id, sync_source);
 
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
-  AssertFatal(sl_preconfiguration !=NULL,"SL-Preconfig Cannot be NULL");
   AssertFatal(mac, "mac should have an instance");
+  int rc = pthread_mutex_lock(&mac->if_mutex);
+  AssertFatal(!rc, "mutex failed %d\n", rc);
+  AssertFatal(sl_preconfiguration !=NULL,"SL-Preconfig Cannot be NULL");
 
   if (!mac->SL_MAC_PARAMS)
     mac->SL_MAC_PARAMS = CALLOC(1, sizeof(sl_nr_ue_mac_params_t));
@@ -254,18 +362,9 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
 
   AssertFatal(freqcfg !=NULL,"SL fcfg Cannot be NULL");
 
-  //MAx num of consecutive HARQ DTX before triggering RLF.
-  const uint8_t MaxNumConsecutiveDTX[] = {1,2,3,4,6,8,16,32};
-  sl_mac->sl_MaxNumConsecutiveDTX = (sl_preconfig->sl_MaxNumConsecutiveDTX_r16)
-                                        ? MaxNumConsecutiveDTX[*sl_preconfig->sl_MaxNumConsecutiveDTX_r16]
-                                        : 0;
-
   //priority of SL-SSB tx and rx
   sl_mac->sl_SSB_PriorityNR = (sl_preconfig->sl_SSB_PriorityNR_r16)
                                       ? *sl_preconfig->sl_SSB_PriorityNR_r16 : 0;
-
-  //Indicates if CSI Reporting is enabled in UNICAST. is 0-ENABLED, 1-DISABLED
-  sl_mac->sl_CSI_Acquisition = (sl_preconfig->sl_CSI_Acquisition_r16) ? 0 : 1;
 
   //Used for DFN calculation in case Sync source = GNSS.
   uint32_t sl_OffsetDFN = (sl_preconfig->sl_OffsetDFN_r16)
@@ -275,6 +374,7 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
   if (freqcfg->sl_BWP_List_r16 &&
       freqcfg->sl_BWP_List_r16->list.array[0])
     bwp = freqcfg->sl_BWP_List_r16->list.array[0];
+  mac->sl_bwp = bwp;
 
   AssertFatal(bwp!=NULL, "BWP config common cannot be NULL\n");
   if (bwp->sl_BWP_PoolConfigCommon_r16) {
@@ -285,6 +385,7 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
         if (rxpool) {
           if (sl_mac->sl_RxPool[i] == NULL)
             sl_mac->sl_RxPool[i] = malloc16_clear(sizeof(SL_ResourcePool_params_t));
+          mac->sl_rx_res_pool = rxpool;
           sl_mac->sl_RxPool[i]->respool = rxpool;
           uint16_t sci_1a_len = 0, num_subch = 0;
           sci_1a_len = sl_determine_sci_1a_len(&num_subch,
@@ -309,10 +410,57 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
                 bwp->sl_BWP_PoolConfigCommon_r16->sl_TxPoolSelectedNormal_r16->list.array[0]->sl_ResourcePool_r16;
 
         if (txpool) {
+          mac->sl_tx_res_pool = txpool;
           if (sl_mac->sl_TxPool[i] == NULL)
             sl_mac->sl_TxPool[i] = malloc16_clear(sizeof(SL_ResourcePool_params_t));
           sl_mac->sl_TxPool[i]->respool = txpool;
-
+          uint8_t tproc1_valaues[] = {3, 5, 9, 17};
+          uint8_t mu = get_softmodem_params()->numerology;
+          struct NR_SL_UE_SelectedConfigRP_r16 *sl_ue_selected_config = sl_mac->sl_TxPool[i]->respool->sl_UE_SelectedConfigRP_r16;
+          /* ASN.1 enum indices -- normalised in rrc_sl_preconfig.c.
+           * Convert to physical units (ms/slots) at this MAC boundary. */
+          uint16_t sensing_window_ms =
+              nr_sl_sensing_window_to_ms(*sl_ue_selected_config->sl_SensingWindow_r16);
+          uint16_t t2min_ms =
+              nr_sl_sw_to_ms(sl_ue_selected_config->sl_SelectionWindowList_r16->list.array[0]->sl_SelectionWindow_r16);
+          sl_mac->sl_TxPool[i]->t2min = t2min_ms;
+          sl_mac->mac_tx_params.rri =
+              nr_sl_rrp_to_ms(sl_ue_selected_config->sl_ResourceReservePeriodList_r16->list.array[0]);
+          sl_mac->sl_TxPool[i]->t0 = time_to_slots(mu, sensing_window_ms);
+          /* TS 38.214 Table 8.1.4-1: T_proc0 per mu = {1,1,2,4} slots */
+          static const uint8_t tproc0_values[] = {1, 1, 2, 4};
+          sl_mac->sl_TxPool[i]->tproc0 = tproc0_values[mu];
+          sl_mac->sl_TxPool[i]->tproc1 = tproc1_valaues[mu];
+          /* TS 38.214 s8.1.4: T1 >= T_proc0; use T_proc0 as the minimum */
+          sl_mac->sl_TxPool[i]->t1 = tproc0_values[mu];
+          /* TS 38.214 8.1.4: T2min <= T2 <= PDB.  Without a per-packet PDB,
+           * maximise the selection window up to one reservation period minus one
+           * slot, so the scheduler sees the most candidates without violating
+           * the (T2-T1+1)*slot_dur <= RRI assertion in get_candidate_resources(). */
+          uint16_t rri_slots = time_to_slots(mu, sl_mac->mac_tx_params.rri);
+          uint16_t t2min_slots = t2min_ms << mu;
+          sl_mac->sl_TxPool[i]->t2 = (rri_slots > 1) ? rri_slots - 1 : t2min_slots;
+          sl_mac->mac_tx_params.resel_counter = get_random_reselection_counter(sl_mac->mac_tx_params.rri);
+          sl_mac->mac_tx_params.sl_thresh_rsrp = (-128 + (*sl_ue_selected_config->sl_Thres_RSRP_List_r16->list.array[0] - 1) * 2);
+          long sl_TxPercentage = txpool->sl_TxPercentageList_r16->list.array[0]->sl_TxPercentage_r16;
+          switch (sl_TxPercentage)
+          {
+            case NR_SL_TxPercentageConfig_r16__sl_TxPercentage_r16_p20:
+              sl_mac->mac_tx_params.sl_res_ratio = 20.0 / 100;
+              break;
+            case NR_SL_TxPercentageConfig_r16__sl_TxPercentage_r16_p35:
+              sl_mac->mac_tx_params.sl_res_ratio = 35.0 / 100;
+              break;
+            case NR_SL_TxPercentageConfig_r16__sl_TxPercentage_r16_p50:
+              sl_mac->mac_tx_params.sl_res_ratio = 50.0 / 100;
+              break;
+            default:
+              LOG_E(NR_MAC, "Incorrect sl_TxPercentage provided, !!!");
+              break;
+          }
+          LOG_D(NR_MAC, "sl_thresh_rsrp %d rri %u ms, i %d, sensing_window_ms %d, t2min %u ms, t2 %u slots\n",
+                sl_mac->mac_tx_params.sl_thresh_rsrp, sl_mac->mac_tx_params.rri,
+                i, sensing_window_ms, sl_mac->sl_TxPool[i]->t2min, sl_mac->sl_TxPool[i]->t2);
           uint16_t sci_1a_len = 0, num_subch = 0;
           sci_1a_len = sl_determine_sci_1a_len(&num_subch,
                                                sl_mac->sl_TxPool[i]->respool,
@@ -348,18 +496,62 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
 
   //Do not copy TDD config yet as SYNC source is not yet found
   if (sync_source == SL_SYNC_SOURCE_NONE) {
-    if (sl_mac->sl_TDD_config)
-      ASN_STRUCT_FREE(asn_DEF_NR_TDD_UL_DL_ConfigCommon, sl_mac->sl_TDD_config);
     sl_mac->sl_TDD_config = NULL;
   }
 
   nr_sl_phy_config_t *sl_phy_cfg = &sl_mac->sl_phy_config;
   sl_phy_cfg->Mod_id = module_id;
   sl_phy_cfg->CC_id = 0;
-
   sl_prepare_phy_config(module_id, &sl_phy_cfg->sl_config_req,
                         freqcfg, sync_source, sl_OffsetDFN, sl_mac->sl_TDD_config);
 
+  if (get_nrUE_params()->sync_ref) {
+    int scs = get_softmodem_params()->numerology;
+    const int nr_slots_frame = nr_slots_per_frame[scs];
+    NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
+    /* sched_psfch stores feedback that this UE transmits for PSSCH received
+     * from the RX pool. */
+    uint16_t num_subch = sl_get_num_subch(mac->sl_rx_res_pool);
+    NR_SL_UE_sched_ctrl_t *sched_ctrl = &mac->sl_info.list[0]->UE_sched_ctrl;
+    /* Outgoing PSFCH is scheduled on the sidelink resource-pool time axis,
+     * not the cellular UL-slot axis.  Keep enough entries for one complete
+     * frame of received pool resources and initialize every entry as free. */
+    sched_ctrl->sched_psfch_size = nr_slots_frame * num_subch;
+    free(sched_ctrl->sched_psfch);
+    sched_ctrl->sched_psfch = calloc(sched_ctrl->sched_psfch_size, sizeof(*sched_ctrl->sched_psfch));
+    for (int i = 0; i < sched_ctrl->sched_psfch_size; i++) {
+      sched_ctrl->sched_psfch[i].feedback_frame = -1;
+      sched_ctrl->sched_psfch[i].feedback_slot = -1;
+    }
+
+    int nr_slots_period = nr_slots_frame;
+    int nr_ulstart_slot = 0;
+    if (tdd) {
+      // can't use get_first_ul_slot() here because frame_structure not set up
+      // yet
+      nr_ulstart_slot = tdd->nrofDownlinkSlots + (tdd->nrofDownlinkSymbols != 0 && tdd->nrofUplinkSymbols == 0);
+      nr_slots_period /= get_nb_periods_per_frame(tdd->dl_UL_TransmissionPeriodicity);
+    }
+
+    for (int slot = 0; slot < nr_slots_frame; ++slot) {
+      mac->ulsch_slot_bitmap[slot / 64] |= (uint64_t)((slot % nr_slots_period) >= nr_ulstart_slot) << (slot % 64);
+      LOG_D(NR_MAC,
+            "slot %d UL %d\n",
+            slot,
+            (mac->ulsch_slot_bitmap[slot / 64] & ((uint64_t)1 << (slot % 64))) != 0);
+    }
+
+    int tx_phy_map_sz = sl_configure_physical_pool_bitmap(mac, sl_mac->sl_TxPool[0], mac->sl_tx_res_pool);
+    int rx_phy_map_sz = sl_configure_physical_pool_bitmap(mac, sl_mac->sl_RxPool[0], mac->sl_rx_res_pool);
+    AssertFatal(tx_phy_map_sz == rx_phy_map_sz, "Transmit %d and receive %d phy_map_sz is different.\n",
+                tx_phy_map_sz, rx_phy_map_sz);
+  }
+  // Configuring CSI-RS parameters locally at MAC.
+  nr_sl_params_read_conf(module_id);
+
+  sl_mac->mac_tx_params.packet_delay_budget_ms = 30;
+  rc = pthread_mutex_unlock(&mac->if_mutex);
+  AssertFatal(!rc, "mutex failed %d\n", rc);
   return 0;
 }
 
@@ -390,7 +582,10 @@ void nr_rrc_mac_transmit_slss_req(module_id_t module_id,
                                   NR_SL_SSB_TimeAllocation_r16_t *ssb_ta)
 {
 
-  sl_nr_ue_mac_params_t *sl_mac = get_mac_inst(module_id)->SL_MAC_PARAMS;
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  int rc = pthread_mutex_lock(&mac->if_mutex);
+  AssertFatal(!rc, "mutex failed %d\n", rc);
+  sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
   AssertFatal(sl_mac,"sidelink MAC cannot be NULL");
   AssertFatal(tx_slss_id < 672,"SLSS id cannot be >= 672. id:%d", tx_slss_id);
   AssertFatal(ssb_ta,"ssb_ta cannot be NULL");
@@ -403,6 +598,13 @@ void nr_rrc_mac_transmit_slss_req(module_id_t module_id,
   sl_mac->tx_sl_bch.ssb_slot = 0;
 
   sl_mac_config_ssb_time_alloc(ssb_ta, &sl_mac->tx_sl_bch.ssb_time_alloc);
+
+  /* S-SSB slots are excluded before sl-TimeResource is applied (38.214
+   * clause 8), so refresh both pool maps once S-SSB transmission is known. */
+  if (sl_mac->sl_TDD_config && sl_mac->sl_TxPool[0] && sl_mac->sl_RxPool[0]) {
+    sl_configure_physical_pool_bitmap(mac, sl_mac->sl_TxPool[0], mac->sl_tx_res_pool);
+    sl_configure_physical_pool_bitmap(mac, sl_mac->sl_RxPool[0], mac->sl_rx_res_pool);
+  }
 
   LOG_I(NR_MAC,"[UE%d]SL RRC->MAC: TX SLSS REQ SLSS-id:%d, SL-MIB:%x, numssb:%d, offset:%d, interval:%d\n",
                                                   module_id, sl_mac->tx_sl_bch.slss_id,
@@ -422,6 +624,8 @@ void nr_rrc_mac_transmit_slss_req(module_id_t module_id,
 
   LOG_I(NR_MAC, "[UE%d]SL RRC->MAC: TX SLSS REQ - TDD CONFIG STUFFED INSIDE - SL-MIB :%x\n",
                                                     module_id, *((uint32_t *)sl_mac->tx_sl_bch.sl_mib));
+  rc = pthread_mutex_unlock(&mac->if_mutex);
+  AssertFatal(!rc, "mutex failed %d\n", rc);
 }
 
 //This API is called by RRC after it determines that UE needs to keep
@@ -433,6 +637,8 @@ void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
 {
 
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  int rc = pthread_mutex_lock(&mac->if_mutex);
+  AssertFatal(!rc, "mutex failed %d\n", rc);
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
   AssertFatal(sl_mac,"Sidelink MAC instance cannot be NULL");
 
@@ -482,18 +688,156 @@ void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
       //Spec not clear -- TBD...
       sl_mac->sl_TDD_config->pattern1.nrofUplinkSlots =
                         NR_NUMBER_OF_SUBFRAMES_PER_FRAME*(1<<cfg->sl_bwp_config.sl_scs);
+      // nrofDownlinkSlots = 0 (all slots are SL, already set by decoder)
+    } else {
+      // Derive nrofDownlinkSlots from total slots per period minus SL (UL) slots.
+      // sl_decode_sl_TDD_Config does not set nrofDownlinkSlots.
+      const int mu = cfg->sl_bwp_config.sl_scs;
+      const int slots_per_period =
+          nr_slots_per_frame[mu] / get_nb_periods_per_frame(sl_mac->sl_TDD_config->pattern1.dl_UL_TransmissionPeriodicity);
+      sl_mac->sl_TDD_config->pattern1.nrofDownlinkSlots = slots_per_period - sl_mac->sl_TDD_config->pattern1.nrofUplinkSlots;
     }
 
+    // TODO Necessary?
     sl_set_tdd_config_nr_ue(&cfg->tdd_table,
                             cfg->sl_bwp_config.sl_scs,
                             &sl_mac->sl_TDD_config->pattern1);
+
+    // TODO move to right place
+    int period_idx = sl_mac->sl_TDD_config ? get_tdd_period_idx(sl_mac->sl_TDD_config) : 0;
+    config_frame_structure(cfg->sl_bwp_config.sl_scs,
+                           sl_mac->sl_TDD_config,
+                           period_idx,
+                           TDD, // TODO make configurable
+                           &mac->frame_structure);
+
+    AssertFatal(get_nrUE_params()->sync_ref == 0, "Expecting Nearby UE\n");
+    int scs = get_softmodem_params()->numerology;
+    const int nr_slots_frame = nr_slots_per_frame[scs];
+    NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
+
+    /* sched_psfch stores feedback that this UE transmits for PSSCH received
+     * from the RX pool. */
+    uint16_t num_subch = sl_get_num_subch(mac->sl_rx_res_pool);
+    NR_SL_UE_sched_ctrl_t *sched_ctrl = &mac->sl_info.list[0]->UE_sched_ctrl;
+    sched_ctrl->sched_psfch_size = nr_slots_frame * num_subch;
+    free(sched_ctrl->sched_psfch);
+    sched_ctrl->sched_psfch = calloc(sched_ctrl->sched_psfch_size, sizeof(*sched_ctrl->sched_psfch));
+    for (int i = 0; i < sched_ctrl->sched_psfch_size; i++) {
+      sched_ctrl->sched_psfch[i].feedback_frame = -1;
+      sched_ctrl->sched_psfch[i].feedback_slot = -1;
+    }
+
     LOG_I(MAC, "SIDELINK CONFIGs: tdd config period:%ld, mu:%ld, DLslots:%ld,ULslots:%ld Mixedslotsym DL:UL %ld:%ld\n",
                             sl_mac->sl_TDD_config->pattern1.dl_UL_TransmissionPeriodicity,sl_mac->sl_TDD_config->referenceSubcarrierSpacing,
                             sl_mac->sl_TDD_config->pattern1.nrofDownlinkSlots, sl_mac->sl_TDD_config->pattern1.nrofUplinkSlots,
                             sl_mac->sl_TDD_config->pattern1.nrofDownlinkSymbols,sl_mac->sl_TDD_config->pattern1.nrofUplinkSymbols);
 
+    int nr_slots_period = nr_slots_frame;
+    int nr_ulstart_slot = 0;
+    if (tdd) {
+      // can't use get_first_ul_slot() here because frame_structure not set up
+      // yet
+      nr_ulstart_slot = tdd->nrofDownlinkSlots + (tdd->nrofDownlinkSymbols != 0 && tdd->nrofUplinkSymbols == 0);
+      nr_slots_period /= get_nb_periods_per_frame(tdd->dl_UL_TransmissionPeriodicity);
+    }
+
+    for (int slot = 0; slot < nr_slots_frame; ++slot) {
+      mac->ulsch_slot_bitmap[slot / 64] |= (uint64_t)((slot % nr_slots_period) >= nr_ulstart_slot) << (slot % 64);
+      LOG_D(NR_MAC,
+            "slot %d UL %d\n",
+            slot,
+            (mac->ulsch_slot_bitmap[slot / 64] & ((uint64_t)1 << (slot % 64))) != 0);
+    }
+
+    int tx_phy_map_sz = sl_configure_physical_pool_bitmap(mac, sl_mac->sl_TxPool[0], mac->sl_tx_res_pool);
+    int rx_phy_map_sz = sl_configure_physical_pool_bitmap(mac, sl_mac->sl_RxPool[0], mac->sl_rx_res_pool);
+    AssertFatal(tx_phy_map_sz == rx_phy_map_sz, "Transmit and Receive physical sidelink bitmap does not have same length!!!");
+
     DevAssert(mac->if_module != NULL && mac->if_module->sl_phy_config_request != NULL);
     mac->if_module->sl_phy_config_request(&sl_mac->sl_phy_config);
   }
+
+  rc = pthread_mutex_unlock(&mac->if_mutex);
+  AssertFatal(!rc, "mutex failed %d\n", rc);
 }
 
+void nr_sl_params_read_conf(module_id_t module_id) {
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
+
+  char aprefix[MAX_OPTNAME_SIZE*2 + 8];
+  sl_csi_info_t *sl_csi_rs_info = (sl_csi_info_t *)malloc16_clear(sizeof(sl_csi_info_t));
+  paramdef_t SL_CRI_RS_INFO[] = SL_CSI_RS_DESC(sl_csi_rs_info);
+  paramlist_def_t SL_CRI_RS_List = {SL_CONFIG_STRING_SL_CSI_RS_LIST, NULL, 0};
+  sprintf(aprefix, "%s.[%d]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0);
+  config_getlist(config_get_if(), &SL_CRI_RS_List, NULL, 0, aprefix);
+  sprintf(aprefix, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0, SL_CONFIG_STRING_SL_CSI_RS_LIST, 0);
+  config_get(config_get_if(), SL_CRI_RS_INFO, sizeof(SL_CRI_RS_INFO)/sizeof(paramdef_t), aprefix);
+
+  sl_mac->csi_type = sl_csi_rs_info->csi_type;
+  sl_mac->symb_l0 = sl_csi_rs_info->symb_l0;
+  sl_mac->power_control_offset = sl_csi_rs_info->power_control_offset;
+  sl_mac->power_control_offset_ss = sl_csi_rs_info->power_control_offset_ss;
+  sl_mac->measurement_bitmap = 0b00011011;
+  sl_mac->sl_LatencyBoundCSI_Report = sl_csi_rs_info->sl_latencyboundcsi_report;
+  // Based on 38211 Table 7.4.1.5.3-1, for density of 1 and ports 1 & 2 ENUMERATED {noCDM, fd-CDM2}
+  sl_mac->cdm_type = get_nrUE_params()->nb_antennas_tx == 1 ? 0 : 1;
+  sl_mac->row = get_nrUE_params()->nb_antennas_tx == 1 ? 2 : 3;
+  // Only 1 is supported (38211, 8.4.1.5.3) - means CSI-RS transmission in every resource block
+  sl_mac->freq_density = 1;
+  sl_mac->freq_domain = 0b000000000001; //bitmap size is dependent upon row size; for row 2 length is 12 bits else 6 bits;
+  int loc_bw = mac->sl_bwp->sl_BWP_Generic_r16->sl_BWP_r16->locationAndBandwidth;
+  uint16_t bwp_start = NRRIV2PRBOFFSET(loc_bw, MAX_BWP_SIZE);
+  // PRB where this CSI resource starts in relation to common resource block #0 (CRB#0) on the common resource block grid.
+  // Only multiples of 4 are allowed (0, 4, ...)
+  // INTEGER (0..maxNrofPhysicalResourceBlocks-1)
+  sl_mac->start_rb = (bwp_start % 4 == 0) ? bwp_start : ((bwp_start >> 2) << 2) + 4;
+  // Number of PRBs across which this CSI resource spans. The smallest configurable number is the minimum of 24 and the width of the associated BWP
+  // Only multiples of 4 are allowed.
+  // INTEGER (24..maxNrofPhysicalResourceBlocksPlus1)
+  uint16_t max_allowable_num_rbs = (NRRIV2BW(loc_bw, MAX_BWP_SIZE) >> 2) << 2;
+  sl_mac->nr_of_rbs = min(24, max_allowable_num_rbs);
+
+  LOG_D(NR_MAC, "loc_bw %i, start_rb %i, nr_of_rbs %i, max_allowable_num_rbs %i\n", loc_bw, sl_mac->start_rb, sl_mac->nr_of_rbs, max_allowable_num_rbs);
+
+  char aprefix_rsc[MAX_OPTNAME_SIZE*2 + 8];
+  sprintf(aprefix_rsc, "%s.[%d]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0);
+
+  uint16_t* resource_selection_cfg = (uint16_t *)malloc16_clear(sizeof(*resource_selection_cfg));
+  uint16_t *pssch_num_subchannels = (uint16_t *)malloc16_clear(sizeof(*pssch_num_subchannels));
+  paramdef_t SL_CONFIG_RSR_INFO[] = SL_CONFIG_RESOURCE_SELECTION(resource_selection_cfg, pssch_num_subchannels);
+  config_get(config_get_if(), SL_CONFIG_RSR_INFO, sizeof(SL_CONFIG_RSR_INFO) / sizeof(paramdef_t), aprefix_rsc);
+
+  const uint16_t pool_num_subchannels = sl_get_num_subch(mac->sl_tx_res_pool);
+  AssertFatal(*pssch_num_subchannels > 0 && *pssch_num_subchannels <= pool_num_subchannels,
+              "sl_PSSCH_NumSubchannels must be in [1, %u], configured %u\n",
+              pool_num_subchannels,
+              *pssch_num_subchannels);
+  sl_mac->mac_tx_params.l_subch = *pssch_num_subchannels;
+  LOG_I(NR_MAC,
+        "PSSCH allocation uses %u of %u configured subchannels\n",
+        sl_mac->mac_tx_params.l_subch,
+        pool_num_subchannels);
+
+  switch(*resource_selection_cfg) {
+    case 0:
+      mac->rsc_selection_method = c1;
+      break;
+    case 3:
+      mac->rsc_selection_method = c4;
+      break;
+    case 4:
+      mac->rsc_selection_method = c5;
+      break;
+    case 6:
+      mac->rsc_selection_method = c7;
+      break;
+    default:
+      LOG_D(NR_MAC, "Provided resource selection mechanism is not supported!!!\n");
+      break;
+  }
+  free(sl_csi_rs_info);
+  free(resource_selection_cfg);
+  free(pssch_num_subchannels);
+}
