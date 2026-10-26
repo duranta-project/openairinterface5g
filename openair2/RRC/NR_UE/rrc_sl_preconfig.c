@@ -14,7 +14,7 @@
 #include "tuntap_if.h"
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
-#include "SDAP/nr_sdap/nr_sdap.h"
+#include "nr_ue_tun.h"
 
 #define GNSS_SUPPORT 0
 
@@ -759,9 +759,9 @@ void rrc_ue_process_sidelink_Preconfiguration(NR_UE_RRC_INST_t *rrc_inst,
     nr_rlc_add_drb_sl(rrc_inst->ue_id, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
   }
 
-  int pdu_id = 1;
-  const bool is_default = true;
-  create_ue_ip_if(ip, NULL, rrc_inst->ue_id, pdu_id, is_default);
+  nas_ue_pdu_tun_t t = {.sock = -1, .qfi = -1};
+  snprintf(t.ifname, sizeof(t.ifname), "oaitun_ue1");
+  nr_ue_tun_create_ip_if(&t, ip, NULL, rrc_inst->ue_id, -1);
 
   //TBD.. These should be chosen by RRC according to 3GPP 38.331 RRC specification.
   //Currently hardcoding the values to these
