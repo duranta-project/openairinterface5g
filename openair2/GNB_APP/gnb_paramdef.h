@@ -101,6 +101,8 @@ typedef enum {
 #define GNB_CONFIG_STRING_CONFIG_REP                    "CSI_report_type"
 #define GNB_CONFIG_STRING_1ST_ACTIVE_BWP                "first_active_bwp"
 #define GNB_CONFIG_STRING_LIMIT_RSRP_REPORT             "max_num_RSRP_reported"
+#define GNB_CONFIG_STRING_APERIODIC_CSI                 "aperiodic_CSI"
+#define GNB_CONFIG_HLP_APERIODIC_CSI                    "CSI reports requested by DCI and sent on PUSCH instead of periodic reports on PUCCH"
 
 #define GNB_CONFIG_HLP_STRING_ENABLE_SDAP               "set sdap-HeaderUL/DL present in RRC SDAP-Config (false = both absent)\n"
 #define GNB_CONFIG_HLP_FORCE256QAMOFF                   "suppress activation of 256 QAM despite UE support"
@@ -163,6 +165,7 @@ typedef enum {
 {GNB_CONFIG_STRING_CONFIG_REP, GNB_CONFIG_HLP_CONFIG_REP, 0,          .strptr=NULL, .defstrval="ssb_rsrp",        TYPE_STRING,    0},  \
 {GNB_CONFIG_STRING_1ST_ACTIVE_BWP,               NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
 {GNB_CONFIG_STRING_LIMIT_RSRP_REPORT,            NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
+{GNB_CONFIG_STRING_APERIODIC_CSI, GNB_CONFIG_HLP_APERIODIC_CSI, 0,   .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
 }
 // clang-format on
 
@@ -207,6 +210,7 @@ typedef enum {
 #define GNB_CONFIG_REP_IDX              37
 #define GNB_1ST_ACTIVE_BWP_IDX          38
 #define GNB_LIMIT_RSRP_REPORT_IDX       39
+#define GNB_APERIODIC_CSI_IDX           40
 
 #define TRACKING_AREA_CODE_OKRANGE {0x0001,0xFFFD}
 #define NUM_DL_HARQ_OKVALUES {2,4,6,8,10,12,16,32}
@@ -257,6 +261,7 @@ typedef enum {
              {"ssb_rsrp", "ssb_sinr", "cri_rsrp"}, \
              {SSB_RSRP, SSB_SINR, CRI_RSRP}, \
              3 } }, \
+  { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
 }

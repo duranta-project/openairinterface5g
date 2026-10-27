@@ -1607,6 +1607,7 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
   LOG_I(GNB_APP, "minTXRXTIME %d\n", config.minRXTXTIME);
   config.do_TCI = *gnb_p[GNB_DO_TCI_IDX].iptr;
   config.do_CSIRS = *gnb_p[GNB_DO_CSIRS_IDX].iptr;
+  config.aperiodic_csi = *gnb_p[GNB_APERIODIC_CSI_IDX].iptr != 0;
   const char *srs_type_s = *gnb_p[GNB_DO_SRS_IDX].strptr;
   config.do_SRS = config_get_processedint(cfg, &gnb_p[GNB_DO_SRS_IDX]);
   config.max_num_rsrp = *gnb_p[GNB_LIMIT_RSRP_REPORT_IDX].iptr;
