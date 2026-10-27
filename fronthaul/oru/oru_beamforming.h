@@ -55,6 +55,20 @@ void combine_ul_beam_fd(const c16_t *const rxdataF[],
                         int stream_id,
                         c16_t *out);
 
+// One contiguous piece of a PRB range in the unshifted FFT window: len REs starting at contiguous RE
+// re of the band sit at bins [bin, bin + len).
+typedef struct {
+  int bin;
+  int re;
+  int len;
+} oru_fft_run_t;
+
+// Splits the PRBs [start_prb, start_prb + num_prb) of an nbins-wide band into the unshifted FFT
+// window runs that hold them, in RE order: contiguous RE c sits at bin
+// c < nbins / 2 ? fft_size - nbins / 2 + c : c - nbins / 2 (the inverse of fftshift()). The range is
+// clamped to the band. Returns the number of runs (0 to 2).
+int oru_prb_fft_runs(int fft_size, int nbins, int start_prb, int num_prb, oru_fft_run_t runs[2]);
+
 // combine_ul_beam_fd() over just the PRBs [start_prb, start_prb + num_prb) of an nbins-wide band,
 // with out and fft_data in unshifted FFT layout (fft_size bins). Contiguous RE c sits at bin
 // c < nbins / 2 ? fft_size - nbins / 2 + c : c - nbins / 2 (the inverse of fftshift()), so the range
