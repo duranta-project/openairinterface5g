@@ -719,7 +719,7 @@ static void assemble_dl_symbol(ORU_t *oru,
   const int n_sc = n_rb_dl * NR_NB_SC_PER_RB;
   c16_t rotation = *(fp->symbol_rotation[0] + (slot % fp->slots_per_subframe) * fp->symbols_per_slot + symbol);
 
-  combine_dl_streams(txDataF, ru->nb_tx, n_sc, streams, num_streams, &oru->codebook, rotation);
+  combine_dl_streams(txDataF, ru->nb_tx, n_sc, streams, num_streams, &oru->codebook, NULL, rotation);
 }
 
 static pthread_mutex_t south_read_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -962,6 +962,8 @@ static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t 
                          cb,
                          job->beam_id,
                          aarx,
+                         NULL,
+                         NULL,
                          combined);
     fft = combined;
   } else {
