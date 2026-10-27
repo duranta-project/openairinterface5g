@@ -30,6 +30,7 @@ static char *module_id_str[] = MODULEID_STR_INIT;
 static int channelmod_show_cmd(char *buff, int debug, telnet_printfunc_t prnt);
 static int channelmod_modify_cmd(char *buff, int debug, telnet_printfunc_t prnt);
 static int channelmod_print_help(char *buff, int debug, telnet_printfunc_t prnt);
+static int channelmod_noise_dBFS_cmd(char *buff, int debug, telnet_printfunc_t prnt);
 int get_modchannel_index(char *buf, int debug, void *vdata, telnet_printfunc_t prnt);
 int get_channel_params(const char *buf, int debug, void *tdata, telnet_printfunc_t prnt);
 int get_currentchannels_type(const char *buf, int debug, void *vdata, telnet_printfunc_t prnt);
@@ -41,13 +42,19 @@ static telnetshell_cmddef_t channelmod_cmdarray[] = {
     {"show predef", "", channelmod_show_cmd, {NULL}, TELNETSRV_CMDFLAG_WEBSRVONLY, NULL},
     {"show current", "", channelmod_show_cmd, {NULL}, TELNETSRV_CMDFLAG_WEBSRVONLY, NULL},
     {"modify", "<channelid> <param> <value>", channelmod_modify_cmd, {NULL}, TELNETSRV_CMDFLAG_TELNETONLY, NULL},
-    {"show params", "<channelid> <param> <value>", channelmod_modify_cmd, {.webfunc_getdata = get_currentchannels_type}, TELNETSRV_CMDFLAG_GETWEBTBLDATA | TELNETSRV_CMDFLAG_WEBSRV_SETRETURNTBL, NULL},
+    {"show params",
+     "<channelid> <param> <value>",
+     channelmod_modify_cmd,
+     {.webfunc_getdata = get_currentchannels_type},
+     TELNETSRV_CMDFLAG_GETWEBTBLDATA | TELNETSRV_CMDFLAG_WEBSRV_SETRETURNTBL,
+     NULL},
     {"show channelid",
      HELP_WEBIF_MODIFCHAN_STRING,
      channelmod_modify_cmd,
      {.webfunc_getdata = get_channel_params},
      TELNETSRV_CMDFLAG_NEEDPARAM | TELNETSRV_CMDFLAG_WEBSRVONLY | TELNETSRV_CMDFLAG_GETWEBTBLDATA,
      NULL},
+    {"noise_dBFS", "[<noise power dBFS>|off]", channelmod_noise_dBFS_cmd, {NULL}, TELNETSRV_CMDFLAG_TELNETONLY, NULL},
     {"", "", NULL, {NULL}, 0, NULL},
 };
 
@@ -1985,6 +1992,32 @@ static int channelmod_print_help(char *buff, int debug, telnet_printfunc_t prnt 
   prnt("channelmod modify <model index> <param name> <param value>: set the specified parameters in a current model to the given value\n");
   prnt("                  <model index> specifies the model, the show current model command can be used to list the current models indexes\n");
   prnt("                  <param name> can be one of \"riceanf\", \"aoa\", \"randaoa\", \"ploss\", \"noise_power_dB\", \"offset\", \"forgetf\"\n");
+  prnt("channelmod noise_dBFS [<value>|off]: display, set or disable the noise power in dBFS added to every received\n");
+  prnt("                  sample (noise_power_dBFS), with or without channel models\n");
+  return CMDSTATUS_FOUND;
+}
+
+/* noise_power_dBFS: global noise added by the RF simulator to the received samples, independent of the channel models */
+static int channelmod_noise_dBFS_cmd(char *buff, int debug, telnet_printfunc_t prnt)
+{
+  char *value = NULL;
+  if (buff != NULL && sscanf(buff, "%ms", &value) == 1) {
+    int dBFS;
+    if (strcmp(value, "off") == 0) {
+      noise_power_dBFS = INVALID_DBFS_VALUE;
+    } else if (sscanf(value, "%i", &dBFS) == 1 && dBFS < INVALID_DBFS_VALUE) {
+      noise_power_dBFS = dBFS;
+    } else {
+      prnt("channelmod noise_dBFS: invalid value %s\n", value);
+      free(value);
+      return CMDSTATUS_VARNOTFOUND;
+    }
+    free(value);
+  }
+  if (noise_power_dBFS == INVALID_DBFS_VALUE)
+    prnt("noise_power_dBFS: off\n");
+  else
+    prnt("noise_power_dBFS: %d\n", noise_power_dBFS);
   return CMDSTATUS_FOUND;
 }
 
@@ -2261,6 +2294,11 @@ int modelid_fromstrtype(char *modeltype) {
 }
 
 void init_channelmod(void) {
+  /* called by each RF simulator device: several in a process with several RUs */
+  static bool done = false;
+  if (done)
+    return;
+  done = true;
   paramdef_t channelmod_params[] = CHANNELMOD_PARAMS_DESC;
   int numparams = sizeofArray(channelmod_params);
   int ret = config_get(config_get_if(), channelmod_params, numparams, CHANNELMOD_SECTION);

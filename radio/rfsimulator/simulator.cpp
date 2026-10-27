@@ -529,6 +529,9 @@ static void rfsimulator_readconfig(rfsimulator_state_t *rfsimulator)
 
   rfsimulator->saveIQfile = -1;
 
+  /* channelmod parameters and telnet commands, also for the global noise (noise_power_dBFS) without channel models */
+  init_channelmod();
+
   int p = config_paramidx_fromname(rfsimuParams, sizeofArray(rfsimuParams), RFSIMU_OPTIONS_PARAMNAME);
   for (int i = 0; i < rfsimuParam[p].numelt; i++) {
     if (strcmp(rfsimuParam[p].strlistptr[i], "saviq") == 0) {
@@ -543,7 +546,6 @@ static void rfsimulator_readconfig(rfsimulator_state_t *rfsimulator)
 
       break;
     } else if (strcmp(rfsimuParam[p].strlistptr[i], "chanmod") == 0) {
-      init_channelmod();
       load_channellist(rfsimulator->tx_num_channels,
                        rfsimulator->rx_num_channels,
                        rfsimulator->sample_rate,
