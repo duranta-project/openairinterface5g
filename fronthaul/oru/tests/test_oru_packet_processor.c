@@ -3090,10 +3090,12 @@ void test_section_id_repeated(void)
   printf("Repeated sectionId within a C-Plane message passed!\n");
 }
 
-// One section of a Type 3 C-Plane message
+// One section of a Type 3 C-Plane message. A non-empty ext sets ef and is appended after the section.
 typedef struct {
   uint16_t section_id;
   uint16_t beam_id;
+  const uint8_t *ext;
+  size_t ext_len;
 } test_section3_t;
 
 // Sends one 4-symbol, 20-PRB PRACH (Type 3) C-Plane message for PRACH stream 0 at symbol sym carrying n sections, with
@@ -3127,9 +3129,15 @@ static void send_prach_cplane(void *ctx, uint64_t sym, int num_sections, const t
     memset(s, 0, sizeof(*s));
     s->hdr.u.s3.numSymbol = 4;
     s->hdr.u.s3.beamId = sec[i].beam_id;
+    s->hdr.u.s3.ef = sec[i].ext_len > 0;
     s->hdr.u1.common.sectionId = sec[i].section_id;
     s->hdr.u1.common.numPrbc = 20;
     *((uint64_t *)s) = rte_be_to_cpu_64(*((uint64_t *)s));
+    if (sec[i].ext_len > 0) {
+      uint8_t *dst = (uint8_t *)rte_pktmbuf_append(mbuf, sec[i].ext_len);
+      assert(dst != NULL);
+      memcpy(dst, sec[i].ext, sec[i].ext_len);
+    }
   }
   handle_cplane_packet(ctx, mbuf);
 }
@@ -3240,6 +3248,90 @@ void test_prach_occasions(void)
   printf("PRACH occasions passed!\n");
 }
 
+// The sections of a multi-section PRACH message are found past each section's extension chain. They all start at the
+// message's startSymbolId, so only the first is kept and the rest count as unsupported FDM occasions. Repeats,
+// truncated messages and malformed chains are handled as for Type 1.
+void test_prach_multi_section_message(void)
+{
+  printf("Testing PRACH multi-section C-Plane message...\n");
+  void *ctx = init_prach_test_ctx();
+  const int num_symbols_per_frame = 10 * 2 * 14;
+  const int slot_in_frame = (1035 % num_symbols_per_frame) / 14;
+  const int symbol = 1035 % 14;
+  // Each case uses the same slot of a later frame, which releases the previous case's jobs
+  uint64_t target_sym = 1035;
+  oru_packet_processor_stats_t stats;
+
+  // Two sections, the first with an ext1 and an unsupported extension chained after it
+  const uint8_t ext[] =
+      {0x80 | XRAN_CP_SECTIONEXTCMD_1, 2, 0x81, 0x00, 4, (uint8_t)-4, 100, (uint8_t)-100, XRAN_CP_SECTIONEXTCMD_6, 1, 0, 0};
+  const test_section3_t two[2] = {{1, 5, ext, sizeof(ext)}, {2, 6}};
+  send_prach_cplane(ctx, target_sym, 2, two, 2);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, symbol) == 5);
+  uint32_t iq_input[100 * 12] = {0};
+  uint32_t *txdataF[1] = {iq_input};
+  const int frame = (target_sym / num_symbols_per_frame) % 256;
+  write_prach_iq(ctx, txdataF, 1, frame, slot_in_frame, symbol);
+  assert(g_packets_sent == 1 && g_prach_section_ids[0] == 1);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.prach_fdm_unsupported == 1);
+  assert(stats.cplane_err_hdr == 0 && stats.cplane_err_sect_ext1 == 0 && stats.cplane_err_sect_ext_other == 0);
+
+  // A sectionId cited twice: a repeat, not an FDM occasion or a duplicate
+  target_sym += num_symbols_per_frame;
+  handle_absolute_symbol_tick(ctx, target_sym - 5); // beam lookups resolve the symbol nearest to now
+  const test_section3_t repeated[2] = {{3, 7}, {3, 8}};
+  send_prach_cplane(ctx, target_sym, 2, repeated, 2);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, symbol) == 7);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_section_repeated == 1 && stats.cplane_err_dup_prach == 0 && stats.prach_fdm_unsupported == 1);
+  assert(stats.prach_sections_unserved == 0);
+
+  // numOfSections promises 3 sections, the message holds 2
+  target_sym += num_symbols_per_frame;
+  handle_absolute_symbol_tick(ctx, target_sym - 5); // beam lookups resolve the symbol nearest to now
+  send_prach_cplane(ctx, target_sym, 3, two, 2);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, symbol) == 5);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_hdr == 1 && stats.prach_fdm_unsupported == 2);
+
+  // extLen = 0 on section 0: section 0 is kept, section 1 can't be located
+  target_sym += num_symbols_per_frame;
+  handle_absolute_symbol_tick(ctx, target_sym - 5); // beam lookups resolve the symbol nearest to now
+  const uint8_t zero_len[] = {XRAN_CP_SECTIONEXTCMD_1, 0, 0x81, 0x00};
+  const test_section3_t malformed[2] = {{4, 9, zero_len, sizeof(zero_len)}, {5, 10}};
+  send_prach_cplane(ctx, target_sym, 2, malformed, 2);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, symbol) == 9);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_sect_ext1 == 1 && stats.prach_fdm_unsupported == 2);
+
+  // numOfSections = 0: nothing is registered, counted as a header error
+  target_sym += num_symbols_per_frame;
+  handle_absolute_symbol_tick(ctx, target_sym - 5); // beam lookups resolve the symbol nearest to now
+  send_prach_cplane(ctx, target_sym, 0, two, 2);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_hdr == 2 && stats.cplane_received_prach == 5);
+
+  // Section errors count once per message: two extra FDM sections count one FDM drop, and the same message resent
+  // counts one duplicate
+  target_sym += num_symbols_per_frame;
+  handle_absolute_symbol_tick(ctx, target_sym - 5); // beam lookups resolve the symbol nearest to now
+  const test_section3_t three[3] = {{10, 1}, {11, 2}, {12, 3}};
+  oru_packet_processor_stats_t before;
+  get_packet_processor_stats(ctx, &before);
+  send_prach_cplane(ctx, target_sym, 3, three, 3);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.prach_fdm_unsupported == before.prach_fdm_unsupported + 1);
+  send_prach_cplane(ctx, target_sym, 3, three, 3);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_dup_prach == before.cplane_err_dup_prach + 1 && stats.cplane_err_dup == before.cplane_err_dup + 1);
+  assert(stats.prach_fdm_unsupported == before.prach_fdm_unsupported + 2);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, symbol) == 1);
+
+  cleanup_packet_processor(ctx);
+  printf("PRACH multi-section C-Plane message passed!\n");
+}
+
 int main(int argc, char **argv)
 {
   setup_dpdk(argc, argv);
@@ -3299,6 +3391,8 @@ int main(int argc, char **argv)
   }
   usleep(10000);
   test_prach_occasions();
+  usleep(10000);
+  test_prach_multi_section_message();
   usleep(10000);
   test_hyper_frame_calculation();
   usleep(10000);
