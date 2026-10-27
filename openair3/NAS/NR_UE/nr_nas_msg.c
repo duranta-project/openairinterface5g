@@ -369,6 +369,7 @@ static security_state_t nas_security_rx_process(nr_ue_nas_t *nas, byte_array_t b
 
   /* synchronize NAS SQN, based on 24.501 4.4.3.1 */
   // Sequence number
+  const uint32_t nas_count_dl_prev = nas->security.nas_count_dl;
   int nas_sqn = buffer.buf[6];
   int target_sqn = nas->security.nas_count_dl & 0xff;
   if (nas_sqn != target_sqn) {
@@ -394,8 +395,12 @@ static security_state_t nas_security_rx_process(nr_ue_nas_t *nas, byte_array_t b
                            true,
                            computed_mac);
 
-  if (memcmp(received_mac, computed_mac, NAS_INTEGRITY_SIZE) != 0)
+  if (memcmp(received_mac, computed_mac, NAS_INTEGRITY_SIZE) != 0) {
+    /* the estimated NAS COUNT is only valid for a message that passes the integrity check (24.501 4.4.3.1): a
+     * retransmitted (replayed) or corrupted message must not move it, otherwise all following messages fail */
+    nas->security.nas_count_dl = nas_count_dl_prev;
     return NAS_SECURITY_INTEGRITY_FAILED;
+  }
 
   /* decipher */
   nas_security_decrypt_payload(nas, buffer, true);
@@ -1651,6 +1656,49 @@ static void generateRegistrationComplete(nr_ue_nas_t *nas,
   nas->fiveGMM_state = FGS_REGISTERED;
 }
 
+/** @brief Configuration Update Complete (24.501 8.2.20): plain 5GMM header only, integrity protected and ciphered */
+static void generateConfigurationUpdateComplete(nr_ue_nas_t *nas, as_nas_info_t *initialNasMsg)
+{
+  fgmm_nas_msg_security_protected_t sp = {0};
+  sp.header.protocol_discriminator = FGS_MOBILITY_MANAGEMENT_MESSAGE;
+  sp.header.security_header_type = INTEGRITY_PROTECTED_AND_CIPHERED;
+  sp.header.sequence_number = nas->security.nas_count_ul & 0xff;
+  sp.plain.header = set_mm_header(FGS_CONFIGURATION_UPDATE_COMPLETE, PLAIN_5GS_MSG);
+  const int length = 7 + sizeof(sp.plain.header);
+
+  initialNasMsg->nas_data = malloc_or_fail(length * sizeof(*initialNasMsg->nas_data));
+  initialNasMsg->length = length;
+  int encoded = nas_protected_security_header_encode(initialNasMsg->nas_data, &sp.header, length);
+  if (encoded < 0 || _nas_mm_msg_encode_header(&sp.plain.header, initialNasMsg->nas_data + encoded, length - encoded) < 0) {
+    LOG_E(NAS, "generateConfigurationUpdateComplete: failed to encode the message\n");
+    free(initialNasMsg->nas_data);
+    *initialNasMsg = (as_nas_info_t){0};
+    return;
+  }
+
+  /* ciphering */
+  nas_stream_cipher_t stream_cipher;
+  uint8_t buf[length - 7];
+  stream_cipher.context = nas->security_container->ciphering_context;
+  AssertFatal(nas->security.nas_count_ul <= 0xffffff, "fatal: NAS COUNT UL too big (todo: fix that)\n");
+  stream_cipher.count = nas->security.nas_count_ul;
+  stream_cipher.bearer = 1;
+  stream_cipher.direction = 0;
+  stream_cipher.message = (unsigned char *)(initialNasMsg->nas_data + 7);
+  stream_cipher.blength = (length - 7) << 3;
+  stream_compute_encrypt(nas->security_container->ciphering_algorithm, &stream_cipher, buf);
+  memcpy(stream_cipher.message, buf, length - 7);
+
+  /* integrity protection */
+  uint8_t mac[NAS_INTEGRITY_SIZE];
+  stream_cipher.context = nas->security_container->integrity_context;
+  stream_cipher.count = nas->security.nas_count_ul++;
+  stream_cipher.message = (unsigned char *)(initialNasMsg->nas_data + 6);
+  stream_cipher.blength = (length - 6) << 3;
+  stream_compute_integrity(nas->security_container->integrity_algorithm, &stream_cipher, mac);
+  memcpy(initialNasMsg->nas_data + 2, mac, NAS_INTEGRITY_SIZE);
+}
+
 /**
  * @brief Capture IPv4 PDU Session Address
  */
@@ -2519,6 +2567,65 @@ static void handle_registration_accept(nr_ue_nas_t *nas, const uint8_t *pdu_buff
   free_fgmm_registration_accept(&msg);
 }
 
+/** @brief Configuration Update Command (24.501 5.4.4): take over a new 5G-GUTI and send Configuration Update Complete
+ *  if the network requests an acknowledgement. Without the Complete, the AMF retransmits the command on T3555 expiry
+ *  and finally aborts the procedure. Other IEs are not used by the UE and are skipped. */
+static void handle_configuration_update_command(nr_ue_nas_t *nas,
+                                                as_nas_info_t *initialNasMsg,
+                                                const uint8_t *pdu_buffer,
+                                                uint32_t msg_length)
+{
+  /* security protected header (7 bytes) if present, then the plain 5GMM header (3 bytes) */
+  const int hdr = (pdu_buffer[1] != PLAIN_5GS_MSG ? 7 : 0) + 3;
+  if (msg_length < hdr) {
+    LOG_E(NAS, "Configuration Update Command too short (%u bytes)\n", msg_length);
+    return;
+  }
+  const uint8_t *ie = pdu_buffer + hdr;
+  const uint8_t *end = pdu_buffer + msg_length;
+  bool ack = false, red = false;
+  while (ie < end) {
+    const uint8_t iei = *ie;
+    int ie_len;
+    if (iei & 0x80) { // type 1 IE: 4-bit IEI and 4-bit value
+      if ((iei >> 4) == 0xD) { // Configuration update indication (9.11.3.18)
+        ack = iei & 0x01;
+        red = iei & 0x02;
+      }
+      ie_len = 1;
+    } else if (iei == 0x46) { // Local time zone (TV, 2 bytes)
+      ie_len = 2;
+    } else if (iei == 0x47) { // Universal time and local time zone (TV, 8 bytes)
+      ie_len = 8;
+    } else if ((iei & 0xf0) == 0x70) { // TLV-E
+      if (end - ie < 3)
+        break;
+      ie_len = 3 + ((ie[1] << 8) | ie[2]);
+      if (iei == 0x77 && ie_len <= end - ie) { // 5G-GUTI
+        FGSMobileIdentity mi = {0};
+        if (decode_5gs_mobile_identity(&mi, 0x77, ie, ie_len) > 0 && mi.guti.typeofidentity == FGS_MOBILE_IDENTITY_5G_GUTI) {
+          free(nas->guti);
+          process_guti(&mi.guti, nas);
+          send_nas_5gmm_ind(nas->UE_id, nas->guti);
+        }
+      }
+    } else { // TLV
+      if (end - ie < 2)
+        break;
+      ie_len = 2 + ie[1];
+    }
+    ie += ie_len;
+  }
+  LOG_I(NAS,
+        "Configuration Update Command: acknowledgement %srequested%s\n",
+        ack ? "" : "not ",
+        red ? ", registration requested" : "");
+  if (red)
+    LOG_W(NAS, "registration requested by the network in Configuration Update Command: not supported\n");
+  if (ack)
+    generateConfigurationUpdateComplete(nas, initialNasMsg);
+}
+
 /* 3GPP TS 24.008 10.5.7.3 GPRS Timer */
 static int process_gprs_timer(gprs_timer_t *timer)
 {
@@ -2888,6 +2995,10 @@ void *nas_nrue(void *args_p)
             handle_service_accept(nas, &buffer);
             break;
           }
+
+          case FGS_CONFIGURATION_UPDATE_COMMAND:
+            handle_configuration_update_command(nas, &initialNasMsg, pdu_buffer, pdu_length);
+            break;
 
           case FGS_SERVICE_REJECT: {
             byte_array_t buffer = {.buf = pdu_buffer, .len = pdu_length};
