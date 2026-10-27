@@ -772,6 +772,10 @@ int rrc_gNB_process_NGAP_DOWNLINK_NAS(MessageDef *msg_p, instance_t instance)
 
   gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
   UE->amf_ue_ngap_id = req->amf_ue_ngap_id;
+  if (req->has_ue_ambr) {
+    UE->ambr.dl_br = req->ue_ambr.br_dl;
+    UE->ambr.ul_br = req->ue_ambr.br_ul;
+  }
   UE->nas_pdu = req->nas_pdu;
   rrc_forward_ue_nas_message(rrc, UE);
   return 0;
