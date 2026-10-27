@@ -55,7 +55,7 @@ extern int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
                                nr_phy_data_t *phy_data,
                                bool *stats_printed);
 extern void *nrL1_UE_stats_thread(void *param);
-extern int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot);
+extern nr_slot_type_t nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot);
 extern int determine_N_TA_offset(PHY_VARS_NR_UE *ue);
 extern void processSlotTX(void *arg);
 extern void start_process_slot_tx(void *arg);
@@ -450,7 +450,7 @@ static void *UE_fd_thread(void *arg)
     // A slot processSlotTX() will not transmit in is complete already: tell the
     // Low-PHY now, so a burst before it ends without waiting for this slot's TX job.
     f->declared[abs_slot_tx % FD_SLOT_WINDOW] = 0;
-    const bool may_send = curMsg.proc.tx_slot_type == NR_UPLINK_SLOT || curMsg.proc.tx_slot_type == NR_MIXED_SLOT;
+    const bool may_send = SLOT_HAS_UL(curMsg.proc.tx_slot_type);
     if (!may_send && ue_low_phy_client_try_slot_done(c, abs_slot_tx, 0, -1, new_ta))
       f->declared[abs_slot_tx % FD_SLOT_WINDOW] = abs_slot_tx + 1;
 

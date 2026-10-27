@@ -277,7 +277,7 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
                                                        .TBs = TBs};
   gNB->nrLDPC_coding_interface.nrLDPC_coding_encoder(&slot_parameters);
 
-  int slot_type = nr_slot_select(&gNB->gNB_config, frame, slot);
+  nr_slot_type_t slot_type = nr_slot_select(&gNB->gNB_config, frame, slot);
   for (int i = 0; i < n_dlsch; i++) {
     nrLDPC_TB_encoding_parameters_t *TB_parameters = &TBs[i];
     for (int r = 0; r < TB_parameters->C; r++) {
