@@ -367,7 +367,9 @@ static security_state_t nas_security_rx_process(nr_ue_nas_t *nas, byte_array_t b
     return NAS_SECURITY_BAD_INPUT;
   }
 
-  /* synchronize NAS SQN, based on 24.501 4.4.3.1 */
+  /* synchronize NAS SQN, based on 24.501 4.4.3.1: the estimated NAS COUNT is kept only
+   * if the integrity check passes, a replayed or corrupted message must not desynchronize it */
+  const uint32_t nas_count_dl_before = nas->security.nas_count_dl;
   // Sequence number
   int nas_sqn = buffer.buf[6];
   int target_sqn = nas->security.nas_count_dl & 0xff;
@@ -394,8 +396,16 @@ static security_state_t nas_security_rx_process(nr_ue_nas_t *nas, byte_array_t b
                            true,
                            computed_mac);
 
-  if (memcmp(received_mac, computed_mac, NAS_INTEGRITY_SIZE) != 0)
+  if (memcmp(received_mac, computed_mac, NAS_INTEGRITY_SIZE) != 0) {
+    LOG_W(NAS,
+          "[UE %ld] DL NAS integrity check failed: SQN %d, expected NAS COUNT %u, estimated %u\n",
+          nas->UE_id,
+          nas_sqn,
+          nas_count_dl_before,
+          nas->security.nas_count_dl);
+    nas->security.nas_count_dl = nas_count_dl_before;
     return NAS_SECURITY_INTEGRITY_FAILED;
+  }
 
   /* decipher */
   nas_security_decrypt_payload(nas, buffer, true);
