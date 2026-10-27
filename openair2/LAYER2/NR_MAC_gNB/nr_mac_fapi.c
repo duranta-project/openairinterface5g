@@ -29,19 +29,22 @@ int nr_mac_handle_rach_indication(const nfapi_nr_rach_indication_t *rach_ind)
   gNB_MAC_INST *nrmac = RC.nrmac[0];
   NR_SCHED_LOCK(&nrmac->sched_lock);
   nr_cell_sched_t* cell = nr_mac_get_cell_by_phy_id(nrmac, rach_ind->header.phy_id);
+  const NR_BWP_UplinkCommon_t *ul_bwp = cell->common_channels.ServingCellConfigCommon->uplinkConfigCommon->initialUplinkBWP;
+  const bool two_step = ul_bwp && ul_bwp->ext1 && ul_bwp->ext1->msgA_ConfigCommon_r16 && ul_bwp->ext1->msgA_ConfigCommon_r16->choice.setup;
   for (const nfapi_nr_prach_indication_pdu_t *rach = rach_ind->pdu_list; rach < rach_ind->pdu_list + rach_ind->number_of_pdus; ++rach) {
-    if (rach->num_preamble > 1) {
-      LOG_E(MAC, "Not more than 1 preamble per RACH PDU supported, ignoring the rest\n");
-    }
-    nr_initiate_ra_proc(nrmac,
-                        cell,
-                        rach_ind->sfn,
-                        rach_ind->slot,
-                        rach->preamble_list[0].preamble_index,
-                        rach->freq_index,
-                        rach->symbol_index,
-                        rach->preamble_list[0].timing_advance,
-                        rach->preamble_list[0].preamble_pwr);
+    // several UEs can send a preamble in the same occasion. In 2-step RA only one is kept: one MsgA PUSCH is scheduled
+    // per occasion and its reception finds one RA process by RA-RNTI, the others would stay in the RA list
+    const int num_preamble = two_step ? min(rach->num_preamble, 1) : rach->num_preamble;
+    for (int p = 0; p < num_preamble; p++)
+      nr_initiate_ra_proc(nrmac,
+                          cell,
+                          rach_ind->sfn,
+                          rach_ind->slot,
+                          rach->preamble_list[p].preamble_index,
+                          rach->freq_index,
+                          rach->symbol_index,
+                          rach->preamble_list[p].timing_advance,
+                          rach->preamble_list[p].preamble_pwr);
   }
   NR_SCHED_UNLOCK(&nrmac->sched_lock);
   return 0;
