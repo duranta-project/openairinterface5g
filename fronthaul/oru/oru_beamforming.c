@@ -116,6 +116,25 @@ void combine_ul_beam_fd(const c16_t *const fft_data[],
   }
 }
 
+int oru_prb_fft_runs(int fft_size, int nbins, int start_prb, int num_prb, oru_fft_run_t runs[2])
+{
+  const int half = nbins / 2;
+  int c0 = start_prb * NR_NB_SC_PER_RB;
+  int c1 = c0 + num_prb * NR_NB_SC_PER_RB;
+  c0 = c0 < nbins ? c0 : nbins;
+  c1 = c1 < nbins ? c1 : nbins;
+  int n = 0;
+  if (c0 < half && c0 < c1) { // negative-frequency half: the tail of the FFT window
+    const int end = c1 < half ? c1 : half;
+    runs[n++] = (oru_fft_run_t){.bin = fft_size - half + c0, .re = c0, .len = end - c0};
+  }
+  if (c1 > half && c0 < c1) { // DC and positive-frequency half: the head of the FFT window
+    const int lo = c0 > half ? c0 : half;
+    runs[n++] = (oru_fft_run_t){.bin = lo - half, .re = lo, .len = c1 - lo};
+  }
+  return n;
+}
+
 void combine_ul_beam_prbs(const c16_t *const fft_data[],
                           int nb_rx,
                           int fft_size,
@@ -127,17 +146,8 @@ void combine_ul_beam_prbs(const c16_t *const fft_data[],
                           int stream_id,
                           c16_t *out)
 {
-  const int half = nbins / 2;
-  int c0 = start_prb * NR_NB_SC_PER_RB;
-  int c1 = c0 + num_prb * NR_NB_SC_PER_RB;
-  c0 = c0 < nbins ? c0 : nbins;
-  c1 = c1 < nbins ? c1 : nbins;
-  if (c0 < half) { // negative-frequency half: the tail of the FFT window
-    const int end = c1 < half ? c1 : half;
-    combine_ul_beam_fd(fft_data, nb_rx, fft_size - half + c0, end - c0, cb, beam_id, stream_id, out);
-  }
-  if (c1 > half) { // DC and positive-frequency half: the head of the FFT window
-    const int lo = c0 > half ? c0 : half;
-    combine_ul_beam_fd(fft_data, nb_rx, lo - half, c1 - lo, cb, beam_id, stream_id, out);
-  }
+  oru_fft_run_t runs[2];
+  const int n = oru_prb_fft_runs(fft_size, nbins, start_prb, num_prb, runs);
+  for (int r = 0; r < n; r++)
+    combine_ul_beam_fd(fft_data, nb_rx, runs[r].bin, runs[r].len, cb, beam_id, stream_id, out);
 }

@@ -433,6 +433,45 @@ TEST(oru_beamforming, ul_combine_prbs_matches_full_window)
   }
 }
 
+// Copying the runs of a PRB range out of an FFT window gives the fftshift() layout of that range:
+// RE c comes from bin c < nbins / 2 ? fft_size - nbins / 2 + c : c - nbins / 2. The runs are in RE
+// order and contiguous. Empty, clamped and DC-straddling ranges included.
+TEST(oru_beamforming, prb_fft_runs_match_fftshift_layout)
+{
+  const struct {
+    int fft_size, n_rb, start, num;
+  } cases[] = {{1024, 51, 0, 51},
+               {1024, 51, 3, 10},
+               {1024, 51, 30, 12},
+               {1024, 51, 20, 15},
+               {1024, 51, 25, 1},
+               {2048, 106, 0, 106},
+               {2048, 106, 50, 6},
+               {2048, 106, 100, 20},
+               {4096, 273, 131, 17},
+               {4096, 273, 273, 4},
+               {4096, 273, 10, 0}};
+  for (const auto &c : cases) {
+    const int nbins = c.n_rb * NR_NB_SC_PER_RB, half = nbins / 2;
+    std::vector<c16_t> window(c.fft_size);
+    for (int k = 0; k < c.fft_size; k++)
+      window[k] = (c16_t){.r = (int16_t)k, .i = (int16_t)-k};
+    oru_fft_run_t runs[2];
+    const int n = oru_prb_fft_runs(c.fft_size, nbins, c.start, c.num, runs);
+    const int c0 = std::min(c.start * NR_NB_SC_PER_RB, nbins);
+    const int c1 = std::min((c.start + c.num) * NR_NB_SC_PER_RB, nbins);
+    int re = c0;
+    for (int r = 0; r < n; r++) {
+      ASSERT_EQ(runs[r].re, re) << "fft " << c.fft_size << " start " << c.start << " run " << r;
+      for (int i = 0; i < runs[r].len; i++, re++) {
+        const int bin = re < half ? c.fft_size - half + re : re - half;
+        ASSERT_EQ(window[runs[r].bin + i].r, bin) << "fft " << c.fft_size << " start " << c.start << " re " << re;
+      }
+    }
+    ASSERT_EQ(re, c1) << "fft " << c.fft_size << " start " << c.start;
+  }
+}
+
 int main(int argc, char **argv)
 {
   logInit();
