@@ -638,7 +638,8 @@ static int32_t cplane_symbol_diff(const oru_packet_processor_context_t *ctx, con
   return frame_diff * num_symbols_per_frame + (int32_t)symbol_in_frame - (int32_t)current_symbol_in_frame;
 }
 
-// Errors of one Section Type 1 section. The message handler counts each one once per message, like the message checks.
+// Errors of one Section Type 1 or Type 3 section. The message handler counts each one once per message, like the
+// message checks.
 enum {
   SECTION_ERR_EARLY = 1 << 0,
   SECTION_ERR_LATE = 1 << 1,
@@ -647,6 +648,8 @@ enum {
   SECTION_ERR_STREAM_POOL = 1 << 4,
   SECTION_ERR_STREAM_SECTIONS = 1 << 5,
   SECTION_ERR_NUM_SYMBOLS = 1 << 6,
+  SECTION_ERR_PRACH_FDM = 1 << 7,
+  SECTION_ERR_PRACH_POOL = 1 << 8,
 };
 
 // Registers one DL section of eAxC ant_id whose message starts diff symbols from now; the message's first symbol has
@@ -738,13 +741,14 @@ static unsigned handle_ul_cplane_section(oru_packet_processor_context_t *ctx,
 
 // Registers PRACH section section_id of stream aarx starting at start_symbol. Jobs of an earlier slot are released
 // first. Sections starting at different symbols are TDM occasions, one job each. nr-oru extracts a single FDM occasion,
-// so a second section starting at the same symbol is counted as unsupported. Returns NULL for such a section, a
-// duplicate or a full pool.
+// so a second section starting at the same symbol is unsupported. Returns NULL for such a section, a duplicate or a
+// full pool, with its SECTION_ERR_* flag added to errors.
 static prach_job_t *add_prach_job(oru_packet_processor_context_t *ctx,
                                   int slot_in_frame,
                                   int aarx,
                                   uint64_t start_symbol,
-                                  int section_id)
+                                  int section_id,
+                                  unsigned *errors)
 {
   prach_job_t *jobs = ctx->prach_jobs[slot_in_frame][aarx];
   prach_job_t *free_job = NULL;
@@ -763,8 +767,7 @@ static prach_job_t *add_prach_job(oru_packet_processor_context_t *ctx,
     if (job->start_absolute_symbol != start_symbol)
       continue;
     if (job->section_id == section_id) {
-      ctx->stats.cplane_err_dup++;
-      ctx->stats.cplane_err_dup_prach++;
+      *errors |= SECTION_ERR_DUP;
       RATELIMIT(PRACH_ERR_LOG_RATELIMIT, {
         LOG_W(HW,
               "PRACH CP: Duplicate section %d for slot %d, aarx %d, start_symbol %lu\n",
@@ -774,7 +777,7 @@ static prach_job_t *add_prach_job(oru_packet_processor_context_t *ctx,
               start_symbol);
       });
     } else {
-      ctx->stats.prach_fdm_unsupported++;
+      *errors |= SECTION_ERR_PRACH_FDM;
       RATELIMIT(PRACH_ERR_LOG_RATELIMIT, {
         LOG_W(HW,
               "PRACH CP: Section %d is a second FDM occasion (section %d) for slot %d, aarx %d, start_symbol %lu: only one "
@@ -789,7 +792,7 @@ static prach_job_t *add_prach_job(oru_packet_processor_context_t *ctx,
     return NULL;
   }
   if (free_job == NULL) {
-    ctx->stats.prach_jobs_pool_exhausted++;
+    *errors |= SECTION_ERR_PRACH_POOL;
     return NULL;
   }
   free_job->served = false;
@@ -812,29 +815,73 @@ static prach_job_t *find_prach_job(oru_packet_processor_context_t *ctx, int slot
   return found;
 }
 
+// Registers one Type 3 section of a PRACH C-Plane message for stream aarx, starting at start_symbol. Returns the
+// SECTION_ERR_* flags of the section.
+static unsigned add_prach_section(oru_packet_processor_context_t *ctx,
+                                  const struct xran_cp_radioapp_section3_header *hdr,
+                                  const struct xran_cp_radioapp_section3 *section,
+                                  int slot_in_frame,
+                                  int aarx,
+                                  uint64_t start_symbol,
+                                  oru_pcap_cplane_snap_t *snap)
+{
+  unsigned errors = 0;
+  prach_job_t *job = add_prach_job(ctx, slot_in_frame, aarx, start_symbol, section->hdr.u1.common.sectionId, &errors);
+  if (job == NULL)
+    return errors;
+  job->active = true;
+  job->start_absolute_symbol = start_symbol;
+  job->num_symbols = section->hdr.u.s3.numSymbol;
+  job->section_id = section->hdr.u1.common.sectionId;
+  job->num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
+  job->start_prb = section->hdr.u1.common.startPrbc;
+  job->filter_id = hdr->cmnhdr.field.filterIndex;
+  job->beam_id = section->hdr.u.s3.beamId;
+  job->comp_method = (fh_comp_method_t)hdr->udComp.udCompMeth;
+  job->iq_width = hdr->udComp.udIqWidth == 0 ? XRAN_IQ_BITS_UNCOMPRESSED : hdr->udComp.udIqWidth;
+  RATELIMIT(PRACH_ERR_LOG_RATELIMIT, {
+    LOG_A(HW, "PRACH JOB added slot_in_frame %d, aarx %d, target_absolute_symbol %lu\n", slot_in_frame, aarx, start_symbol);
+  });
+  oru_pcap_cplane_commit_prach(snap);
+  return 0;
+}
+
+// Counts the SECTION_ERR_* flags of a Type 3 message's sections, once each
+static void count_prach_errors(oru_packet_processor_context_t *ctx, unsigned errors)
+{
+  if (errors & SECTION_ERR_DUP) {
+    ctx->stats.cplane_err_dup++;
+    ctx->stats.cplane_err_dup_prach++;
+  }
+  if (errors & SECTION_ERR_PRACH_FDM)
+    ctx->stats.prach_fdm_unsupported++;
+  if (errors & SECTION_ERR_PRACH_POOL)
+    ctx->stats.prach_jobs_pool_exhausted++;
+}
+
+static const uint8_t *skip_section_extensions(oru_packet_processor_context_t *ctx, const uint8_t *ext, const uint8_t *end, bool ef);
+
 void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
                                 void *pkt,
                                 struct xran_cp_radioapp_section3_header *hdr,
                                 uint8_t ant_id,
                                 oru_pcap_cplane_snap_t *snap)
 {
-  if (hdr->cmnhdr.numOfSections != 1) {
+  if (hdr->cmnhdr.numOfSections == 0) {
     ctx->stats.cplane_err_hdr++;
-    RATELIMIT(PRACH_ERR_LOG_RATELIMIT,
-              { LOG_W(HW, "PRACH CP: Invalid numOfSections %d (expected 1)\n", hdr->cmnhdr.numOfSections); });
+    RATELIMIT(PRACH_ERR_LOG_RATELIMIT, { LOG_W(HW, "PRACH CP: numOfSections is 0\n"); });
     return;
   }
-
   hdr->timeOffset = rte_be_to_cpu_16(hdr->timeOffset);
   hdr->cpLength = rte_be_to_cpu_16(hdr->cpLength);
 
-  struct xran_cp_radioapp_section3 *section = (void *)rte_pktmbuf_adj(pkt, sizeof(struct xran_cp_radioapp_section3_header));
-  if (section == NULL) {
+  uint8_t *sect = (void *)rte_pktmbuf_adj(pkt, sizeof(struct xran_cp_radioapp_section3_header));
+  if (sect == NULL) {
     ctx->stats.cplane_err_hdr++;
     RATELIMIT(PRACH_ERR_LOG_RATELIMIT, { LOG_W(HW, "PRACH CP: Failed to adjust mbuf for section3 header\n"); });
     return;
   }
-  *((uint64_t *)section) = rte_be_to_cpu_64(*((uint64_t *)section));
+  const uint8_t *end = sect + rte_pktmbuf_data_len((struct rte_mbuf *)pkt);
   int aarx = ant_id - ctx->prach_eaxc_offset;
   if (aarx < 0 || aarx >= MAX_ANTENNAS) {
     RATELIMIT(PRACH_ERR_LOG_RATELIMIT,
@@ -843,7 +890,6 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
   }
 
   int slot_in_frame = hdr->cmnhdr.field.slotId + hdr->cmnhdr.field.subframeId * (1 << ctx->numerology);
-  int num_symbols = section->hdr.u.s3.numSymbol;
   int32_t diff = cplane_symbol_diff(ctx, &hdr->cmnhdr);
   txrx_window_histogram_count(&ctx->stats.prach_cplane_hist, diff);
   uint64_t target_absolute_symbol = ctx->current_absolute_symbol + diff;
@@ -853,27 +899,33 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
     return;
   }
 
-  prach_job_t *job = add_prach_job(ctx, slot_in_frame, aarx, target_absolute_symbol, section->hdr.u1.common.sectionId);
-  if (job == NULL)
-    return;
-  job->active = true;
-  job->start_absolute_symbol = target_absolute_symbol;
-  job->num_symbols = num_symbols;
-  job->section_id = section->hdr.u1.common.sectionId;
-  job->num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
-  job->start_prb = section->hdr.u1.common.startPrbc;
-  job->filter_id = hdr->cmnhdr.field.filterIndex;
-  job->beam_id = section->hdr.u.s3.beamId;
-  job->comp_method = (fh_comp_method_t)hdr->udComp.udCompMeth;
-  job->iq_width = hdr->udComp.udIqWidth == 0 ? XRAN_IQ_BITS_UNCOMPRESSED : hdr->udComp.udIqWidth;
-  RATELIMIT(PRACH_ERR_LOG_RATELIMIT, {
-    LOG_A(HW,
-          "PRACH JOB added slot_in_frame %d, aarx %d, target_absolute_symbol %lu\n",
-          slot_in_frame,
-          aarx,
-          target_absolute_symbol);
-  });
-  oru_pcap_cplane_commit_prach(snap);
+  // As for Type 1: the next section starts where the previous one's extension chain ends, only the first citation of a
+  // sectionId is used, and section errors are counted once for the message
+  unsigned errors = 0;
+  uint8_t cited[NUM_SECTION_IDS / 8] = {0};
+  for (int i = 0; i < hdr->cmnhdr.numOfSections; i++) {
+    if ((size_t)(end - sect) < sizeof(struct xran_cp_radioapp_section3)) {
+      ctx->stats.cplane_err_hdr++;
+      RATELIMIT(PRACH_ERR_LOG_RATELIMIT,
+                { LOG_W(HW, "PRACH CP: Section %d of %d past the end of the message\n", i, hdr->cmnhdr.numOfSections); });
+      break;
+    }
+    struct xran_cp_radioapp_section3 *section = (struct xran_cp_radioapp_section3 *)sect;
+    *((uint64_t *)section) = rte_be_to_cpu_64(*((uint64_t *)section));
+    const uint8_t *next = skip_section_extensions(ctx, sect + sizeof(*section), end, section->hdr.u.s3.ef);
+    const uint16_t section_id = section->hdr.u1.common.sectionId;
+    if (section_id != SECTION_ID_UNCOUPLED && test_bit(cited, section_id)) {
+      ctx->stats.cplane_section_repeated++;
+    } else {
+      set_bit(cited, section_id);
+      errors |= add_prach_section(ctx, hdr, section, slot_in_frame, aarx, target_absolute_symbol, snap);
+    }
+    // A malformed chain hides where the next section starts
+    if (next == NULL)
+      break;
+    sect = (uint8_t *)next;
+  }
+  count_prach_errors(ctx, errors);
 }
 
 // Counts a malformed section extension against its type
@@ -959,6 +1011,27 @@ static const uint8_t *parse_section_extensions(oru_packet_processor_context_t *c
         break;
     }
     if (!valid) {
+      count_section_ext_error(ctx, ext_type);
+      return NULL;
+    }
+    ext += ext_len;
+  }
+  return ext;
+}
+
+// Walks the extension chain in [ext, end) of a section whose header has the given ef without decoding it, counting
+// malformed extensions as parse_section_extensions() does. Returns the end of the chain, or NULL at the first error.
+static const uint8_t *skip_section_extensions(oru_packet_processor_context_t *ctx, const uint8_t *ext, const uint8_t *end, bool ef)
+{
+  while (ef) {
+    if (ext >= end) {
+      ctx->stats.cplane_err_sect_ext_chain++;
+      return NULL;
+    }
+    uint8_t ext_type = ext[0] & 0x7F;
+    ef = ext[0] & 0x80;
+    size_t ext_len;
+    if (xran_section_ext_len(ext_type, ext, end - ext, &ext_len) != XRAN_BFW_OK) {
       count_section_ext_error(ctx, ext_type);
       return NULL;
     }
