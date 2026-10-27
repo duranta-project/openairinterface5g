@@ -50,6 +50,7 @@
 #include "linear_alloc.h"
 #include "ngap_messages_types.h"
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
+#include "LAYER2/nr_pdcp/nr_pdcp_timer_thread.h"
 #include "nr_rrc_defs.h"
 #include "oai_asn1.h"
 #include "openair2/F1AP/f1ap_common.h"
@@ -679,6 +680,8 @@ static void rrc_gNB_generate_RRCSetup(instance_t instance,
     .srb_id = srbid
   };
   rrc->mac_rrc.dl_rrc_message_transfer(ue_data.du_assoc_id, &dl_rrc);
+  ue_p->setup_complete_pending = true;
+  ue_p->setup_sent_ms = nr_pdcp_current_time();
 }
 
 static void rrc_gNB_generate_RRCReject(gNB_RRC_INST *rrc, rrc_gNB_ue_context_t *const ue_context_pP)
@@ -2148,6 +2151,7 @@ static void handle_rrcSetupComplete(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const N
 {
   uint8_t xid = setup_complete->rrc_TransactionIdentifier;
   UE->xids[xid] = RRC_ACTION_NONE;
+  UE->setup_complete_pending = false;
 
   if (setup_complete->criticalExtensions.present != NR_RRCSetupComplete__criticalExtensions_PR_rrcSetupComplete) {
     LOG_E(NR_RRC, "malformed RRCSetupComplete received from UE %d\n", UE->rrc_ue_id);
@@ -2942,6 +2946,43 @@ static void rrc_CU_process_ue_context_release_complete(MessageDef *msg_p)
      * operation (i.e, handover) */
     rrc_gNB_send_NGAP_UE_CONTEXT_RELEASE_COMPLETE(0, UE->rrc_ue_id, &UE->pduSessions);
     rrc_remove_ue(RC.nrrrc[0], ue_context_p);
+  } else if (UE->setup_timeout_release) {
+    /* no NG context yet: local release only */
+    rrc_remove_ue(RC.nrrrc[0], ue_context_p);
+  }
+}
+
+/* RRCSetupComplete supervision: no network timer is specified, the UE sends the RRCSetupComplete as soon as it
+ * applied the RRCSetup (TS 38.331 5.3.3.4). Without it, the UE context only exists in the gNB (no NG context yet):
+ * for example after a false Msg4 HARQ ACK from a duplicated PRACH detection, or when the UE left. Release it in the
+ * DU (F1AP UE Context Release, TS 38.473 8.3.3) and in the CU. The guard runs on the PDCP time, the simulated time in
+ * rfsim, and covers the SRB1 RLC retransmissions and the scheduling delays with many UEs. */
+#define NR_RRC_SETUP_COMPLETE_GUARD_MS 5000
+
+static void rrc_gNB_check_setup_complete(gNB_RRC_INST *rrc)
+{
+  const uint64_t now = nr_pdcp_current_time();
+  rrc_gNB_ue_context_t *ue_context_p;
+  RB_FOREACH (ue_context_p, rrc_nr_ue_tree_s, &rrc->rrc_ue_head) {
+    gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
+    if (!UE->setup_complete_pending || UE->setup_timeout_release || now < UE->setup_sent_ms + NR_RRC_SETUP_COMPLETE_GUARD_MS)
+      continue;
+    f1_ue_data_t ue_data = cu_get_f1_ue_data(UE->rrc_ue_id);
+    if (ue_data.du_assoc_id == 0)
+      continue;
+    LOG_W(NR_RRC,
+          "UE %d RNTI %04x: no RRCSetupComplete %d ms after the RRCSetup, release the UE context\n",
+          UE->rrc_ue_id,
+          UE->rnti,
+          NR_RRC_SETUP_COMPLETE_GUARD_MS);
+    UE->setup_timeout_release = true;
+    f1ap_ue_context_rel_cmd_t cmd = {
+        .gNB_CU_ue_id = UE->rrc_ue_id,
+        .gNB_DU_ue_id = ue_data.secondary_ue,
+        .cause = F1AP_CAUSE_RADIO_NETWORK,
+        .cause_value = 0, // F1AP_CauseRadioNetwork_unspecified
+    };
+    rrc->mac_rrc.ue_context_release_command(ue_data.du_assoc_id, &cmd);
   }
 }
 
@@ -3839,6 +3880,9 @@ void *rrc_gnb_task(void *args_p)
     /* timer to write stats to file */
     timer_setup(1, 0, TASK_RRC_GNB, 0, TIMER_PERIODIC, NULL, &stats_timer_id);
   }
+  /* periodic check of the procedure guards running on the PDCP time */
+  long guard_timer_id = -1;
+  timer_setup(0, 100000, TASK_RRC_GNB, 0, TIMER_PERIODIC, NULL, &guard_timer_id);
 
   itti_mark_task_ready(TASK_RRC_GNB);
   LOG_I(NR_RRC,"Entering main loop of NR_RRC message task\n");
@@ -3857,6 +3901,7 @@ void *rrc_gnb_task(void *args_p)
       case TERMINATE_MESSAGE:
         LOG_W(NR_RRC, " *** Exiting NR_RRC thread\n");
         timer_remove(stats_timer_id);
+        timer_remove(guard_timer_id);
         itti_exit_task();
         break;
 
@@ -3865,7 +3910,10 @@ void *rrc_gnb_task(void *args_p)
         break;
 
       case TIMER_HAS_EXPIRED:
-        if (TIMER_HAS_EXPIRED(msg_p).timer_id == stats_timer_id) {
+        if (TIMER_HAS_EXPIRED(msg_p).timer_id == guard_timer_id) {
+          if (RC.nrrrc[0] && (NODE_IS_CU(RC.nrrrc[0]->node_type) || NODE_IS_MONOLITHIC(RC.nrrrc[0]->node_type)))
+            rrc_gNB_check_setup_complete(RC.nrrrc[0]);
+        } else if (!IS_SOFTMODEM_NOSTATS && TIMER_HAS_EXPIRED(msg_p).timer_id == stats_timer_id) {
           nr_rrc_sample_conn_count(RC.nrrrc[0]);
           if (!write_rrc_stats(RC.nrrrc[0]))
             timer_remove(stats_timer_id);

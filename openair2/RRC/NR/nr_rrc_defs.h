@@ -249,6 +249,11 @@ typedef struct gNB_RRC_UE_s {
   uint32_t                           ue_reconfiguration_counter;
   bool ongoing_reconfiguration;
   bool an_release; // flag if core requested UE release
+  /* RRCSetup sent, RRCSetupComplete not received yet: time of the RRCSetup (PDCP time, ms), see
+   * rrc_gNB_check_setup_complete() */
+  bool setup_complete_pending;
+  uint64_t setup_sent_ms;
+  bool setup_timeout_release; // released by the CU because the RRCSetupComplete did not come
 
   /* NGUEContextSetup might come with PDU sessions, but setup needs to be
    * delayed after security (and capability); PDU sessions are stored here */
