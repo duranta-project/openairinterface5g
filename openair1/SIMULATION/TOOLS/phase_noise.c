@@ -43,29 +43,3 @@ void add_noise(c16_t **rxdata,
     }
   }
 }
-
-void add_noise_float(c16_t **rxdata,
-                     const float **r_re,
-                     const float **r_im,
-                     const float sigma,
-                     const int length,
-                     const int slot_offset,
-                     const double ts,
-                     const int delay,
-                     bool apply_phase_noise,
-                     const uint8_t nb_antennas_rx)
-{
-  float sqrt_sigma_div2 = sqrtf(sigma / 2.0f);
-
-  for (int i = 0; i < length; i++) {
-    for (int ap = 0; ap < nb_antennas_rx; ap++) {
-      c16_t *rxd = &rxdata[ap][slot_offset + i + delay];
-      rxd->r = (int16_t)(r_re[ap][i] + (gaussZiggurat(0.0, 1.0) * sqrt_sigma_div2));
-      rxd->i = (int16_t)(r_im[ap][i] + (gaussZiggurat(0.0, 1.0) * sqrt_sigma_div2));
-
-      if (apply_phase_noise) {
-        phase_noise(ts, &rxd->r, &rxd->i);
-      }
-    }
-  }
-}

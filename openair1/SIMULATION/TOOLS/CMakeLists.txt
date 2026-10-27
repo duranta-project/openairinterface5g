@@ -1,5 +1,9 @@
 # SPDX-License-Identifier: LicenseRef-CSSL-1.0
 
+if(ENABLE_TESTS)
+  add_subdirectory(tests)
+endif()
+
 add_library(noise_device noise_device.c)
 target_link_libraries(noise_device PRIVATE log_headers SIMU)
 target_include_directories(noise_device PUBLIC ./)

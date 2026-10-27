@@ -698,11 +698,9 @@ int main(int argc, char **argv)
       printf("-e MSC index\n");
       printf("-E Enable ML-based LLR for 2-layer MIMO (QPSK/16QAM/64QAM). Default: MMSE equalization\n");
       printf("-K Number of PRBs for retransmissions, keeping the initial TBS (reserved MCS index). Default: same as initial\n");
-      printf("-f <flag> Enable optional feature flag. Available flags:\n");
 #ifdef CHANNEL_SIM_CUDA
+      printf("-f <flag> Enable optional feature flag. Available flags:\n");
       printf("          cuda    Enable CUDA channel simulation\n");
-#else
-      printf("          (none)  No optional features were compiled into this executable\n");
 #endif
       printf("-g Channel model: [A] TDLA30, [B] TDLB100, [C] TDLC300, e.g. -g A\n");
       printf("-H Slot number\n");

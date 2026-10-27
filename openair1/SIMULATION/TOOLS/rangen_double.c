@@ -7,10 +7,11 @@
 #include <math.h>
 
 #include  "sim.h"
+#include "gaussian_rng.h"
 
-static inline void tableNor(unsigned long seed);
 static unsigned int urseed, iy, ir[98]; /// uniformrandom
-static bool tableNordDone = false; /// gaussZiggurat
+static bool gaussian_initialized = false; /// gaussZiggurat
+static gaussian_rng_t default_gaussian;
 
 /*!\brief Generate a random number form `/dev/urandom`. */
 void fill_random(void *buf, size_t sz)
@@ -63,7 +64,8 @@ void randominit()
   iy = 1;
 
   // initialize gaussZiggurat RNG
-  tableNor(seed);
+  gaussian_rng_init(seed, &default_gaussian);
+  gaussian_initialized = true;
 }
 
 /*
@@ -113,91 +115,57 @@ double __attribute__ ((no_sanitize_address)) gaussdouble(double mean, double var
   }
 }
 
-
-/*
-@defgroup _gaussZiggurat
-@ingroup numerical ziggurat random number generator for exponentially distributed numbers
-*/
-// Ziggurat
-static double wn[128], fn[128];
-static uint32_t iz, jz, jsr = 123456789, kn[128];
-static int32_t hz;
-#define SHR3 (jz = jsr, jsr ^= (jsr << 13), jsr ^= (jsr >> 17), jsr ^= (jsr << 5), jz + jsr)
-#define UNI (0.5 + (signed)SHR3 * 0.2328306e-9)
-
-double nfix(void)
+static inline gaussian_rng_t *default_rng(void)
 {
-  const double r = 3.442620;
-  static double x, y;
-
-  for (;;) {
-    x = hz * wn[iz];
-
-    if (iz == 0) {
-      do {
-        x = -0.2904764 * log(UNI);
-        y = -log(UNI);
-      } while (y + y < x * x);
-
-      return (hz > 0) ? r + x : -r - x;
-    }
-
-    if (fn[iz] + UNI * (fn[iz - 1] - fn[iz]) < exp(-0.5 * x * x)) {
-      return x;
-    }
-
-    hz = SHR3;
-    iz = hz & 127;
-
-    if (abs(hz) < kn[iz]) {
-      return ((hz)*wn[iz]);
-    }
-  }
-}
-
-/*!Procedure to create tables for normal distribution kn,wn and fn. */
-static inline void tableNor(unsigned long seed)
-{
-  jsr = seed;
-  double dn = 3.442619855899;
-  int i;
-  const double m1 = 2147483648.0;
-  double q;
-  double tn = 3.442619855899;
-  const double vn = 9.91256303526217E-03;
-  q = vn / exp(-0.5 * dn * dn);
-  kn[0] = ((dn / q) * m1);
-  kn[1] = 0;
-  wn[0] = (q / m1);
-  wn[127] = (dn / m1);
-  fn[0] = 1.0;
-  fn[127] = (exp(-0.5 * dn * dn));
-
-  for (i = 126; 1 <= i; i--) {
-    dn = sqrt(-2.0 * log(vn / dn + exp(-0.5 * dn * dn)));
-    kn[i + 1] = ((dn / tn) * m1);
-    tn = dn;
-    fn[i] = (exp(-0.5 * dn * dn));
-    wn[i] = (dn / m1);
-  }
-  tableNordDone=true;
-  return;
-}
-
-double __attribute__ ((no_sanitize("address", "undefined"))) gaussZiggurat(double mean, double variance)
-{
-  if (!__builtin_expect(tableNordDone, 1)) {
+  if (!__builtin_expect(gaussian_initialized, 1)) {
     fprintf(stderr, "%s(): RNG not initialized, run randominit() first\n", __func__);
     abort();
   }
+  return &default_gaussian;
+}
 
-  hz = SHR3;
-  iz = hz & 127;
-  return hz != INT32_MIN && abs(hz) < kn[iz] ? hz * wn[iz] : nfix();
+gaussian_rng_t *gaussian_rng_default(void)
+{
+  return default_rng();
+}
+
+double gaussZiggurat(double mean, double variance)
+{
+  /* The legacy signature's parameters have always been ignored. */
+  (void)mean;
+  (void)variance;
+  return gaussian_rng_sample(default_rng());
+}
+
+/* Keep compatibility wrappers beside their shared state to avoid a lookup call. */
+void add_noise_float(c16_t **rxdata,
+                     const float **r_re,
+                     const float **r_im,
+                     const float sigma,
+                     const int length,
+                     const int slot_offset,
+                     const double ts,
+                     const int delay,
+                     bool apply_phase_noise,
+                     const uint8_t nb_antennas_rx)
+{
+  if (length <= 0 || nb_antennas_rx == 0)
+    return;
+  add_noise_float_batch(rxdata,
+                        r_re,
+                        r_im,
+                        sigma,
+                        length,
+                        slot_offset,
+                        ts,
+                        delay,
+                        apply_phase_noise,
+                        nb_antennas_rx,
+                        default_rng());
 }
 
 #ifdef MAIN
-main(int argc,char **argv)
+main(int argc, char **argv)
 {
 
   int i;
