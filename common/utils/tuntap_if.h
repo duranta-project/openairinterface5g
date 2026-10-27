@@ -74,8 +74,9 @@ bool tap_config(const char* ifname);
  * \param[in] instance_id unique instance number, used to create the table
  * \param[in] pdu_session_id PDU session ID, used to create the table
  * \param[in] ipv4 IPv4 address of the UE
+ * \return true on success, otherwise false
  */
-void setup_ue_ipv4_route(const char* ifname, int instance_id, int pdu_session_id, const char *ipv4);
+bool setup_ue_ipv4_route(const char *ifname, int instance_id, int pdu_session_id, const char *ipv4);
 
 /*!
  * \brief This function allocates a TUN or TAP interface
