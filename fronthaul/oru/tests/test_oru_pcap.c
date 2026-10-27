@@ -92,7 +92,7 @@ static int ref_prach_section_id = -1;
 static struct {
   uint64_t pkts, cplane_dl, cplane_ul, cplane_prach, ext, uplane, iq_samples, errors;
   uint64_t dl_symbols_read, dl_symbols_silent, dl_iq_checked, dl_iq_errors, dl_iq_bad_symbols;
-  uint64_t bfw_dl_streams, bfw_ul_jobs; // DL streams and UL jobs whose extracted weights were checked
+  uint64_t bfw_dl_streams, bfw_ul_jobs, bfw_prach_jobs; // DL streams, UL and PRACH jobs whose extracted weights were checked
 } ref_cnt;
 
 #define REF_CHECK(cond, ...)               \
@@ -491,22 +491,17 @@ static void place_dl_streams(uint32_t **txdataF, const dl_iq_stream_t *streams, 
   }
 }
 
-// Weights the processor extracted for a section of PRB element k: get_bf_weights() on every bundle must give the beamId
-// and weights the generator put in that section's extension (ref_check_ext1() / ref_check_ext11())
-static void ref_check_bfw(void *ctx, const oru_bfw_set_t *set, int ant, int slot, int start_prb, bool dl)
+// Weights the processor extracted for a section of num_prb PRBs from first_prb carrying the extension of PRB element k
+// (label DL, UL or PRACH): get_bf_weights() on every bundle must give the beamId and weights the generator put in that
+// extension (ref_check_ext1() / ref_check_ext11())
+static void
+ref_check_bfw_set(void *ctx, const oru_bfw_set_t *set, const char *label, int ant, int slot, int k, int first_prb, int num_prb)
 {
-  const ref_prb_elm_t *tbl = dl ? ref_dl_elm : ref_ul_elm;
-  int n_elm = dl ? REF_NUM_DL_ELM : REF_NUM_UL_ELM;
-  int k = -1;
-  for (int e = 0; e < n_elm; e++)
-    if (start_prb >= tbl[e].start_prb && start_prb < tbl[e].start_prb + tbl[e].num_prb)
-      k = e;
-  REF_CHECK(k >= 0, "%s weights: PRB %d not in the PRB element table", dl ? "DL" : "UL", start_prb);
-  int n_bundles = ref_ext_type == 1 ? 1 : (tbl[k].num_prb + REF_EXT11_BUND_PRB - 1) / REF_EXT11_BUND_PRB;
-  int bundle_prbs = ref_ext_type == 1 ? tbl[k].num_prb : REF_EXT11_BUND_PRB;
-  REF_CHECK(set->num_bundles == n_bundles && set->bundle_prbs == bundle_prbs && set->first_prb == tbl[k].start_prb,
+  int n_bundles = ref_ext_type == 1 ? 1 : (num_prb + REF_EXT11_BUND_PRB - 1) / REF_EXT11_BUND_PRB;
+  int bundle_prbs = ref_ext_type == 1 ? num_prb : REF_EXT11_BUND_PRB;
+  REF_CHECK(set->num_bundles == n_bundles && set->bundle_prbs == bundle_prbs && set->first_prb == first_prb,
             "%s ant %d slot %d elm %d weights: %d bundles of %d PRBs from PRB %d, expected %d of %d from %d",
-            dl ? "DL" : "UL",
+            label,
             ant,
             slot,
             k,
@@ -515,16 +510,16 @@ static void ref_check_bfw(void *ctx, const oru_bfw_set_t *set, int ant, int slot
             set->first_prb,
             n_bundles,
             bundle_prbs,
-            tbl[k].start_prb);
+            first_prb);
   for (int b = 0; b < n_bundles; b++) {
     uint16_t beam_id;
     c16_t w[REF_NUM_BF_ELM];
     int n = get_bf_weights(ctx, set, b, &beam_id, w);
-    REF_CHECK(n == REF_NUM_BF_ELM, "%s ant %d slot %d elm %d bundle %d: get_bf_weights() %d", dl ? "DL" : "UL", ant, slot, k, b, n);
+    REF_CHECK(n == REF_NUM_BF_ELM, "%s ant %d slot %d elm %d bundle %d: get_bf_weights() %d", label, ant, slot, k, b, n);
     int exp_beam = ref_ext_type == 1 ? k + 1 : 0x7000 + b;
     REF_CHECK(beam_id == exp_beam,
               "%s ant %d slot %d elm %d bundle %d: beamId %d, expected %d",
-              dl ? "DL" : "UL",
+              label,
               ant,
               slot,
               k,
@@ -538,7 +533,7 @@ static void ref_check_bfw(void *ctx, const oru_bfw_set_t *set, int ant, int slot
                    300 * (slot % REF_NUM_SLOTS_FILE) + (ref_ext_type == 1 ? k : e / REF_NUM_BF_ELM)};
       REF_CHECK(w[j].r == exp.r && w[j].i == exp.i,
                 "%s ant %d slot %d elm %d bundle %d extracted weight %d: (%d,%d), expected (%d,%d)",
-                dl ? "DL" : "UL",
+                label,
                 ant,
                 slot,
                 k,
@@ -550,10 +545,41 @@ static void ref_check_bfw(void *ctx, const oru_bfw_set_t *set, int ant, int slot
                 exp.i);
     }
   }
+}
+
+// Weights the processor extracted for a section of PRB element k, see ref_check_bfw_set()
+static void ref_check_bfw(void *ctx, const oru_bfw_set_t *set, int ant, int slot, int start_prb, bool dl)
+{
+  const ref_prb_elm_t *tbl = dl ? ref_dl_elm : ref_ul_elm;
+  int n_elm = dl ? REF_NUM_DL_ELM : REF_NUM_UL_ELM;
+  int k = -1;
+  for (int e = 0; e < n_elm; e++)
+    if (start_prb >= tbl[e].start_prb && start_prb < tbl[e].start_prb + tbl[e].num_prb)
+      k = e;
+  REF_CHECK(k >= 0, "%s weights: PRB %d not in the PRB element table", dl ? "DL" : "UL", start_prb);
+  uint64_t errors = ref_cnt.errors;
+  ref_check_bfw_set(ctx, set, dl ? "DL" : "UL", ant, slot, k, tbl[k].start_prb, tbl[k].num_prb);
+  if (ref_cnt.errors != errors)
+    return;
   if (dl)
     ref_cnt.bfw_dl_streams++;
   else
     ref_cnt.bfw_ul_jobs++;
+}
+
+// Weights of the PRACH jobs of slot when the PRACH consumer reads them: each stream's section has the extension of UL PRB
+// element 0 (see ref_check_prach_cplane())
+static void ref_check_prach_bfw(void *ctx, int slot)
+{
+  for (int a = 0; a < REF_NUM_ANT; a++) {
+    oru_bfw_set_t set;
+    if (get_prach_bfw_set(ctx, slot, a, 0, &set) < 0) // the reference PRACH starts at symbol 0
+      continue;
+    uint64_t errors = ref_cnt.errors;
+    ref_check_bfw_set(ctx, &set, "PRACH", a, slot, 0, 0, REF_PRACH_NUM_PRB);
+    if (ref_cnt.errors == errors)
+      ref_cnt.bfw_prach_jobs++;
+  }
 }
 
 static void ref_check_dl_bfw(void *ctx, const dl_iq_stream_t *streams, int num_streams, int slot)
@@ -591,12 +617,16 @@ static bool ref_report(uint64_t exp_c, uint64_t exp_u, uint64_t exp_prach)
       ref_cnt.iq_samples,
       incomplete,
       ref_cnt.errors);
-  printf("xran ext%d reference: extracted weights checked for %lu DL streams (expected %lu), %lu UL jobs (expected %lu)\n",
-         ref_ext_type,
-         ref_cnt.bfw_dl_streams,
-         exp_u,
-         ref_cnt.bfw_ul_jobs,
-         ref_cnt.cplane_ul);
+  printf(
+      "xran ext%d reference: extracted weights checked for %lu DL streams (expected %lu), %lu UL jobs (expected %lu), %lu "
+      "PRACH jobs (expected %lu)\n",
+      ref_ext_type,
+      ref_cnt.bfw_dl_streams,
+      exp_u,
+      ref_cnt.bfw_ul_jobs,
+      ref_cnt.cplane_ul,
+      ref_cnt.bfw_prach_jobs,
+      exp_prach);
   printf(
       "xran ext%d reference: read_dl_iq %lu scheduled symbols (expected %lu) + %lu silent, %lu IQ samples checked, %lu wrong "
       "in %lu symbols\n",
@@ -610,7 +640,7 @@ static bool ref_report(uint64_t exp_c, uint64_t exp_u, uint64_t exp_prach)
   return ref_cnt.errors == 0 && incomplete == 0 && ref_cnt.cplane_dl + ref_cnt.cplane_ul == exp_c
          && ref_cnt.cplane_prach == exp_prach && ref_cnt.ext == exp_c + exp_prach && ref_cnt.uplane == exp_u
          && ref_cnt.dl_symbols_read == exp_dl_symbols && ref_cnt.dl_iq_errors == 0 && ref_cnt.bfw_dl_streams == exp_u
-         && ref_cnt.bfw_ul_jobs == ref_cnt.cplane_ul;
+         && ref_cnt.bfw_ul_jobs == ref_cnt.cplane_ul && ref_cnt.bfw_prach_jobs == exp_prach;
 }
 
 int main(int argc, char *argv[])
@@ -828,6 +858,8 @@ int main(int argc, char *argv[])
             int frame = (s / (140 * (1 << numerology))) % 1024;
             int slot = (s / 14) % (10 * (1 << numerology));
             int sym = s % 14;
+            if (ref_prach && slot == REF_PRACH_SLOT && sym == 0)
+              ref_check_prach_bfw(ctx, slot);
             write_prach_iq(ctx, txdataF, MAX_ANTENNAS, frame, slot, sym);
 
             // Drain ready jobs to prevent ring overflow
@@ -863,6 +895,9 @@ int main(int argc, char *argv[])
   // Flush remaining symbols
   for (int i = 0; i < 100; i++) {
     handle_absolute_symbol_tick(ctx, ++last_tick_sym);
+    // The last frame's PRACH slot comes after its last packet
+    if (ref_prach && (last_tick_sym / 14) % (10 * (1 << numerology)) == REF_PRACH_SLOT && last_tick_sym % 14 == 0)
+      ref_check_prach_bfw(ctx, REF_PRACH_SLOT);
     // Drain ready jobs to prevent ring overflow during flush
     int f, sl, sy;
     uint64_t hf;

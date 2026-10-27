@@ -188,6 +188,9 @@ int read_dl_iq_streams(void *context,
 // Beam the DU declared (C-Plane section type 3 beamId) for PRACH stream `aarx` at `symbol` of `slot_in_frame`, or -1
 // when no PRACH C-Plane section covers that symbol.
 int get_prach_beam_id(void *context, int slot_in_frame, int aarx, int symbol);
+// As get_prach_beam_id(), and *bfw gets that section's dynamic weights, read per bundle with get_bf_weights(). With SE11
+// the bundles have their own beamIds and the returned section beamId is ignored (CUS 7.9.4.1).
+int get_prach_bfw_set(void *context, int slot_in_frame, int aarx, int symbol, oru_bfw_set_t *bfw);
 // Copies bundle `bundle` of `set`: num_bf_weights weights and its beamId.
 // Returns 0 if the beamId has no dynamic weights (static codebook)
 // Returns -1 if weights were overwritten (bfw_stale; *beam_id unset).
