@@ -1072,11 +1072,18 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
     cell->periodic_srs_config = create_period_structure(cell, SRS);
   fill_beam_index_list(scc, config, cell);
   int max_csi_bits = estimate_max_num_csi_bits(scc, config);
+  // periodic reports per UE: the SSB (or CSI-RS) RSRP report, and the CQI/RI/PMI report with CSI-RS only
+  const int reports_per_ue = config->do_CSIRS ? 2 : 1;
   int scs = *scc->ssbSubcarrierSpacing;
   int bwp_size = NRRIV2BW(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
   int bwp_start = NRRIV2PRBOFFSET(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
-  cell->pucch_res_bwp[0] =
-      configure_pucch_radio_resources(&cell->frame_structure, bwp_start, bwp_size, scs, max_csi_bits, cell->ulprbbl);
+  cell->pucch_res_bwp[0] = configure_pucch_radio_resources(&cell->frame_structure,
+                                                           bwp_start,
+                                                           bwp_size,
+                                                           scs,
+                                                           max_csi_bits,
+                                                           reports_per_ue,
+                                                           cell->ulprbbl);
   LOG_I(NR_MAC,
         "BWP 0 PUCCH resource configuration: HARQ res %d HARQ res PRBs %d Periodic res %d Perioidc res PRBs %d periodicity %d\n",
         cell->pucch_res_bwp[0].nb_harq_res,
@@ -1094,8 +1101,13 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
     bwp_size = NRRIV2BW(config->bwp_config[i].location_and_bw, MAX_BWP_SIZE);
     bwp_start = NRRIV2PRBOFFSET(config->bwp_config[i].location_and_bw, MAX_BWP_SIZE);
     int j = config->bwp_config[i].id;
-    cell->pucch_res_bwp[j] =
-        configure_pucch_radio_resources(&cell->frame_structure, bwp_start, bwp_size, scs, max_csi_bits, cell->ulprbbl);
+    cell->pucch_res_bwp[j] = configure_pucch_radio_resources(&cell->frame_structure,
+                                                             bwp_start,
+                                                             bwp_size,
+                                                             scs,
+                                                             max_csi_bits,
+                                                             reports_per_ue,
+                                                             cell->ulprbbl);
     LOG_I(NR_MAC,
           "BWP %d PUCCH resource configuration: HARQ res %d HARQ res PRBs %d Periodic res %d Perioidc res PRBs %d periodicity %d\n",
           j,
@@ -1108,7 +1120,8 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
 
   if (!IS_SA_MODE(get_softmodem_params())) {
     bwp_size = scc->uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
-    cell->pucch_res_bwp[1] = configure_pucch_radio_resources(&cell->frame_structure, 0, bwp_size, scs, max_csi_bits, cell->ulprbbl);
+    cell->pucch_res_bwp[1] =
+        configure_pucch_radio_resources(&cell->frame_structure, 0, bwp_size, scs, max_csi_bits, reports_per_ue, cell->ulprbbl);
   }
 
   if (NFAPI_MODE == NFAPI_MONOLITHIC) {
