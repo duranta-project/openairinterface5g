@@ -35,6 +35,10 @@ static void handle_nr_rach(NR_UL_IND_t *UL_info)
     return;
   }
   if (UL_info->rach_ind.number_of_pdus) {
+    const nr_cell_sched_t *cell = nr_mac_get_cell_by_phy_id(RC.nrmac[UL_info->module_id], UL_info->phy_id);
+    const NR_BWP_UplinkCommon_t *ul_bwp =
+        cell ? cell->common_channels.ServingCellConfigCommon->uplinkConfigCommon->initialUplinkBWP : NULL;
+    const bool two_step = ul_bwp && ul_bwp->ext1 && ul_bwp->ext1->msgA_ConfigCommon_r16 && ul_bwp->ext1->msgA_ConfigCommon_r16->choice.setup;
     LOG_D(MAC,
           "UL_info[Frame %d, Slot %d] Calling initiate_ra_proc RACH:SFN/SLOT:%d/%d\n",
           UL_info->frame,
@@ -43,18 +47,19 @@ static void handle_nr_rach(NR_UL_IND_t *UL_info)
           UL_info->rach_ind.slot);
     for (int i = 0; i < UL_info->rach_ind.number_of_pdus; i++) {
       nfapi_nr_prach_indication_pdu_t *rach = UL_info->rach_ind.pdu_list + i;
-      if (rach->num_preamble > 1) {
-        LOG_E(MAC, "Not more than 1 preamble per RACH PDU supported, ignoring the rest\n");
-      }
-      nr_initiate_ra_proc(UL_info->module_id,
-                          UL_info->phy_id,
-                          UL_info->rach_ind.sfn,
-                          UL_info->rach_ind.slot,
-                          rach->preamble_list[0].preamble_index,
-                          rach->freq_index,
-                          rach->symbol_index,
-                          rach->preamble_list[0].timing_advance,
-                          rach->preamble_list[0].preamble_pwr);
+      // several UEs can send a preamble in the same occasion. In 2-step RA only one is kept: one MsgA PUSCH is scheduled
+      // per occasion and its reception finds one RA process by RA-RNTI, the others would stay in the RA list
+      const int num_preamble = two_step ? min(rach->num_preamble, 1) : rach->num_preamble;
+      for (int p = 0; p < num_preamble; p++)
+        nr_initiate_ra_proc(UL_info->module_id,
+                            UL_info->phy_id,
+                            UL_info->rach_ind.sfn,
+                            UL_info->rach_ind.slot,
+                            rach->preamble_list[p].preamble_index,
+                            rach->freq_index,
+                            rach->symbol_index,
+                            rach->preamble_list[p].timing_advance,
+                            rach->preamble_list[p].preamble_pwr);
     }
   }
 }
