@@ -91,6 +91,9 @@ typedef struct nr_rlc_entity_s {
   void (*set_time)(struct nr_rlc_entity_s *entity, uint64_t now);
 
   void (*discard_sdu)(struct nr_rlc_entity_s *entity, int sdu_id);
+  /* discard the SDUs given before sdu_id included, if no part of them was transmitted yet;
+   * the sdu_ids must increase (modulo 2^32) with the order of the SDUs */
+  void (*discard_sdus_up_to)(struct nr_rlc_entity_s *entity, int sdu_id);
 
   void (*reestablishment)(struct nr_rlc_entity_s *entity);
 

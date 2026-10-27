@@ -348,6 +348,30 @@ int nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
   return tx_space;
 }
 
+/* discard the SDUs up to sdu_id included that were not transmitted yet, even partly (TS 38.322 5.4), indicated by PDCP */
+int nr_rlc_discard_sdus_up_to(const protocol_ctxt_t *const ctxt_pP, const srb_flag_t srb_flagP, const rb_id_t rb_idP, int sdu_id)
+{
+  int ue_id = ctxt_pP->rntiMaybeUEid;
+  int tx_space = -1;
+
+  nr_rlc_manager_lock(nr_rlc_ue_manager);
+  nr_rlc_ue_t *ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, ue_id);
+  nr_rlc_entity_t *rb = NULL;
+  if (srb_flagP) {
+    if (rb_idP >= 1 && rb_idP <= 2)
+      rb = ue->srb[rb_idP - 1];
+  } else {
+    if (rb_idP >= 1 && rb_idP <= MAX_DRBS_PER_UE)
+      rb = ue->drb[rb_idP - 1];
+  }
+  if (rb != NULL) {
+    rb->discard_sdus_up_to(rb, sdu_id);
+    tx_space = rb->available_tx_space(rb);
+  }
+  nr_rlc_manager_unlock(nr_rlc_ue_manager);
+  return tx_space;
+}
+
 int nr_rlc_get_available_tx_space(const int ue_id, const logical_chan_id_t channel_idP)
 {
   int ret;

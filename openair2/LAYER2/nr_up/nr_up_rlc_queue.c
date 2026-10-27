@@ -33,7 +33,7 @@ typedef struct {
   rb_id_t rb_idP;
   int sdu_id;
   sdu_size_t sdu_sizeP;
-  uint8_t *sdu_pP;
+  uint8_t *sdu_pP; // NULL: discard the SDUs up to sdu_id (PDCP discardTimer)
   ue_id_t pdcp_ue_id;
 } nr_up_rlc_data_req_queue_item;
 
@@ -70,7 +70,11 @@ static void *nr_up_rlc_data_req_thread(void *_)
     }
 
     nr_up_rlc_data_req_queue_item *item = &g_nr_up_rlc_queue.q[i];
-    int tx_space = nr_rlc_data_req(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id, item->sdu_sizeP, item->sdu_pP);
+    int tx_space;
+    if (item->sdu_pP != NULL)
+      tx_space = nr_rlc_data_req(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id, item->sdu_sizeP, item->sdu_pP);
+    else
+      tx_space = nr_rlc_discard_sdus_up_to(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id);
 
     if (!item->srb_flagP && tx_space >= 0) {
       nr_up_dl_budget_sync(item->pdcp_ue_id, item->rb_idP, tx_space);
@@ -146,4 +150,9 @@ void nr_up_enqueue_rlc_data_req(const protocol_ctxt_t *ctxt_pP,
   if (pthread_mutex_unlock(&g_nr_up_rlc_queue.m) != 0) {
     abort();
   }
+}
+
+void nr_up_enqueue_rlc_discard(const protocol_ctxt_t *ctxt_pP, rb_id_t rb_idP, int sdu_id, ue_id_t pdcp_ue_id)
+{
+  nr_up_enqueue_rlc_data_req(ctxt_pP, SRB_FLAG_NO, rb_idP, sdu_id, 0, NULL, pdcp_ue_id);
 }
