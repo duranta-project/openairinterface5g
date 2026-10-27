@@ -203,11 +203,19 @@ typedef enum nr_srs_type_e {
 /// Independent of MAX_NUM_SPATIAL_STREAMS (the NFAPI per-PDU wire limit).
 #define NR_MAC_MAX_RU_ANTENNA_PORTS 64
 
+/// UCI on PUSCH beta offset indexes (TS 38.213 tables 9.3-1 and 9.3-2): HARQ-ACK 9 (beta 8.0), CSI 13 (beta 6.25)
+#define NR_BETA_OFFSET_ACK_INDEX 9
+#define NR_BETA_OFFSET_CSI_INDEX 13
+/// minimum time between two aperiodic CSI requests to a UE
+#define NR_APERIODIC_CSI_PERIOD_MS 40
+
 typedef struct nr_mac_config_s {
   nr_pdsch_AntennaPorts_t pdsch_AntennaPorts;
   int pusch_AntennaPorts;
   int minRXTXTIME;
   int do_CSIRS;
+  /// CSI reports requested by DCI 0_1 and sent on PUSCH, instead of periodic reports on PUCCH
+  bool aperiodic_csi;
   nr_srs_type_t do_SRS;
   int do_TCI;
   int max_num_rsrp;
@@ -782,6 +790,17 @@ typedef struct {
 
   nr_power_control_t pusch_pc;
   nr_power_control_t pucch_pc;
+
+  /// aperiodic CSI: report requested in the DCI 0_1 of the PUSCH of frame.slot, and slot (frame * slots + slot) of the
+  /// last request
+  struct {
+    bool pending;
+    frame_t frame;
+    slot_t slot;
+    int report_id;
+    int last_request;
+    int next_state;
+  } aperiodic_csi;
 } NR_UE_sched_ctrl_t;
 
 typedef struct NR_mac_dir_stats {

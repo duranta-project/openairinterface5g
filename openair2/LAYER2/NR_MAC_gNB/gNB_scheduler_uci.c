@@ -586,8 +586,9 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
     for (int csi_report_id = 0; csi_report_id < csi_measconfig->csi_ReportConfigToAddModList->list.count; csi_report_id++) {
       NR_CSI_ReportConfig_t *csirep = csi_measconfig->csi_ReportConfigToAddModList->list.array[csi_report_id];
 
-      AssertFatal(csirep->reportConfigType.choice.periodic,
-                  "Only periodic CSI reporting is implemented currently\n");
+      // the aperiodic reports are requested by DCI 0_1 and sent on PUSCH
+      if (csirep->reportConfigType.present != NR_CSI_ReportConfig__reportConfigType_PR_periodic)
+        continue;
 
       const NR_PUCCH_CSI_Resource_t *pucchcsires = csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list.array[0];
       if(pucchcsires->uplinkBandwidthPartId > 1) {
@@ -1012,17 +1013,19 @@ static void skip_zero_padding(int *cumul_bits, nr_csi_report_t *csi_report, uint
   *cumul_bits+=(max_bitlen-reported_bitlen);
 }
 
-static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
-                                     const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_pdu,
-                                     frame_t frame,
-                                     slot_t slot,
-                                     NR_UE_info_t *UE,
-                                     gNB_MAC_INST *nrmac,
-                                     nr_cell_sched_t *cell)
+/* CSI part 1 report: on PUCCH (only_report_id < 0), the periodic reports of this occasion; on PUSCH, the aperiodic
+ * report only_report_id */
+static void extract_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
+                               uint8_t *payload,
+                               uint16_t bitlen,
+                               int only_report_id,
+                               frame_t frame,
+                               slot_t slot,
+                               NR_UE_info_t *UE,
+                               gNB_MAC_INST *nrmac,
+                               nr_cell_sched_t *cell)
 {
   /** From Table 6.3.1.1.2-3: RI, LI, CQI, and CRI of codebookType=typeI-SinglePanel */
-  uint8_t *payload = uci_pdu->csi_part1.csi_part1_payload;
-  uint16_t bitlen = uci_pdu->csi_part1.csi_part1_bit_len;
   NR_CSI_ReportConfig__reportQuantity_PR reportQuantity_type = NR_CSI_ReportConfig__reportQuantity_PR_NOTHING;
   NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR reportQuantity_type_r16 =
       NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_NOTHING;
@@ -1041,15 +1044,23 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
     uint8_t pmi_bitlen = 0;
     NR_CSI_ReportConfig_t *csirep = csi_MeasConfig->csi_ReportConfigToAddModList->list.array[csi_report_id];
     uint8_t cqi_table = (dl_bwp->dci_format == NR_DL_DCI_FORMAT_1_1 && csirep->cqi_Table) ? *csirep->cqi_Table : NR_CSI_ReportConfig__cqi_Table_table1;
-    const NR_PUCCH_CSI_Resource_t *pucchcsires = csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list.array[0];
-    if(pucchcsires->uplinkBandwidthPartId > 1) {
-      LOG_E(NR_MAC, "Invalid PUCCH BWP ID %ld, we only configure BWP up to 1\n", pucchcsires->uplinkBandwidthPartId);
-      continue;
+    bool selected;
+    if (only_report_id >= 0) {
+      selected = csi_report_id == only_report_id;
+    } else {
+      if (csirep->reportConfigType.present != NR_CSI_ReportConfig__reportConfigType_PR_periodic)
+        continue;
+      const NR_PUCCH_CSI_Resource_t *pucchcsires = csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list.array[0];
+      if (pucchcsires->uplinkBandwidthPartId > 1) {
+        LOG_E(NR_MAC, "Invalid PUCCH BWP ID %ld, we only configure BWP up to 1\n", pucchcsires->uplinkBandwidthPartId);
+        continue;
+      }
+      int period, offset;
+      csi_period_offset(csirep, NULL, &period, &offset);
+      // verify if report with current id has been scheduled for this frame and slot
+      selected = is_periodic_occasion(frame, slot, n_slots_frame, period, offset);
     }
-    int period, offset;
-    csi_period_offset(csirep, NULL, &period, &offset);
-    // verify if report with current id has been scheduled for this frame and slot
-    if (is_periodic_occasion(frame, slot, n_slots_frame, period, offset)) {
+    if (selected) {
       reportQuantity_type = csi_report->reportQuantity_type;
       reportQuantity_type_r16 = csi_report->reportQuantity_type_r16;
       LOG_D(MAC, "SFN/SF:%d/%d reportQuantity type = %d, type_r16 = %d\n", frame, slot, reportQuantity_type, reportQuantity_type_r16);
@@ -1276,6 +1287,39 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, int cell_id, frame_t frame, slo
   NR_SCHED_UNLOCK(&nrmac->sched_lock);
 }
 
+/* UCI on PUSCH: the aperiodic CSI report requested in the DCI 0_1 of this PUSCH */
+void handle_nr_uci_pusch(module_id_t mod_id, int cell_id, frame_t frame, slot_t slot, const nfapi_nr_uci_pusch_pdu_t *uci_pusch)
+{
+  gNB_MAC_INST *nrmac = RC.nrmac[mod_id];
+  NR_SCHED_LOCK(&nrmac->sched_lock);
+  nr_cell_sched_t *cell = nr_mac_get_cell_by_phy_id(nrmac, cell_id);
+  NR_UE_info_t *UE = find_nr_UE(&nrmac->UE_info, uci_pusch->rnti);
+  if (UE && (uci_pusch->pduBitmap & 4)) {
+    NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+    NR_CSI_MeasConfig_t *csi_MeasConfig = UE->sc_info.csi_MeasConfig;
+    if (sched_ctrl->aperiodic_csi.pending && sched_ctrl->aperiodic_csi.frame == frame && sched_ctrl->aperiodic_csi.slot == slot) {
+      sched_ctrl->aperiodic_csi.pending = false;
+      if (uci_pusch->csi_part1.csi_part1_crc != 1 && csi_MeasConfig)
+        extract_csi_report(csi_MeasConfig,
+                           uci_pusch->csi_part1.csi_part1_payload,
+                           uci_pusch->csi_part1.csi_part1_bit_len,
+                           sched_ctrl->aperiodic_csi.report_id,
+                           frame,
+                           slot,
+                           UE,
+                           nrmac,
+                           cell);
+    }
+  }
+  if (uci_pusch->pduBitmap & 2)
+    free(uci_pusch->harq.harq_payload);
+  if (uci_pusch->pduBitmap & 4)
+    free(uci_pusch->csi_part1.csi_part1_payload);
+  if (uci_pusch->pduBitmap & 8)
+    free(uci_pusch->csi_part2.csi_part2_payload);
+  NR_SCHED_UNLOCK(&nrmac->sched_lock);
+}
+
 void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, int cell_id, frame_t frame, slot_t slot, const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_234)
 {
   gNB_MAC_INST *nrmac = RC.nrmac[mod_id];
@@ -1344,7 +1388,15 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, int cell_id, frame_t frame, s
       NR_CSI_MeasConfig_t *csi_MeasConfig = UE->sc_info.csi_MeasConfig;
       if (csi_MeasConfig != NULL) {
         // API to parse the csi report and store it into sched_ctrl
-        extract_pucch_csi_report(csi_MeasConfig, uci_234, frame, slot, UE, nrmac, cell);
+        extract_csi_report(csi_MeasConfig,
+                           uci_234->csi_part1.csi_part1_payload,
+                           uci_234->csi_part1.csi_part1_bit_len,
+                           -1,
+                           frame,
+                           slot,
+                           UE,
+                           nrmac,
+                           cell);
       }
     }
     free(uci_234->csi_part1.csi_part1_payload);

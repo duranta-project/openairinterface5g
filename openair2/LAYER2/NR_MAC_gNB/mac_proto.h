@@ -153,6 +153,7 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id,
                                frame_t frame,
                                slot_t slot,
                                const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_234);
+void handle_nr_uci_pusch(module_id_t mod_id, int cell_id, frame_t frame, slot_t slot, const nfapi_nr_uci_pusch_pdu_t *uci_pusch);
 
 void config_uldci(const NR_UE_ServingCell_Info_t *sc_info,
                   const nfapi_nr_pusch_pdu_t *pusch_pdu,

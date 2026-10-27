@@ -2426,6 +2426,67 @@ nfapi_nr_pusch_pdu_t *prepare_pusch_pdu(nfapi_nr_ul_tti_request_t *future_ul_tti
   return pusch_pdu;
 }
 
+/* aperiodic CSI: request a report in this PUSCH (CSI request of the DCI 0_1, CSI part 1 multiplexed on the PUSCH, TS
+ * 38.212 6.3.2.4) at most every NR_APERIODIC_CSI_PERIOD_MS, the trigger states in turn */
+static void request_aperiodic_csi(const nr_cell_sched_t *cell,
+                                  NR_UE_info_t *UE,
+                                  frame_t frame,
+                                  slot_t slot,
+                                  const NR_sched_pusch_t *sched_pusch,
+                                  nfapi_nr_pusch_pdu_t *pusch_pdu,
+                                  dci_pdu_rel15_t *uldci)
+{
+  const NR_CSI_MeasConfig_t *meas = UE->sc_info.csi_MeasConfig;
+  if (!cell->radio_config.aperiodic_csi || !meas || !meas->aperiodicTriggerStateList || !meas->reportTriggerSize
+      || meas->aperiodicTriggerStateList->present != NR_SetupRelease_CSI_AperiodicTriggerStateList_PR_setup)
+    return;
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  const int n_slots = cell->frame_structure.numb_slots_frame;
+  const int cycle = 1024 * n_slots;
+  const int now = frame * n_slots + slot;
+  if (sched_ctrl->aperiodic_csi.pending) {
+    // the report of a PUSCH that was not received (DTX): forget it after one frame
+    const int pusch_slot = sched_ctrl->aperiodic_csi.frame * n_slots + sched_ctrl->aperiodic_csi.slot;
+    if ((now - pusch_slot + cycle) % cycle < n_slots)
+      return;
+    sched_ctrl->aperiodic_csi.pending = false;
+  }
+  const int period = NR_APERIODIC_CSI_PERIOD_MS * (n_slots / 10);
+  if ((now - sched_ctrl->aperiodic_csi.last_request + cycle) % cycle < period)
+    return;
+  const NR_CSI_AperiodicTriggerStateList_t *states = meas->aperiodicTriggerStateList->choice.setup;
+  const int n_states = states->list.count;
+  if (n_states == 0)
+    return;
+  const int state = sched_ctrl->aperiodic_csi.next_state % n_states;
+  const long report_config_id = states->list.array[state]->associatedReportConfigInfoList.list.array[0]->reportConfigId;
+  int report_id = -1;
+  for (int r = 0; r < meas->csi_ReportConfigToAddModList->list.count; r++)
+    if (meas->csi_ReportConfigToAddModList->list.array[r]->reportConfigId == report_config_id)
+      report_id = r;
+  if (report_id < 0)
+    return;
+  const int bits = nr_get_csi_bitlen(&UE->csi_report_template[report_id]);
+  if (bits == 0)
+    return;
+  pusch_pdu->pdu_bit_map |= PUSCH_PDU_BITMAP_PUSCH_UCI;
+  pusch_pdu->pusch_uci.harq_ack_bit_length = 0;
+  pusch_pdu->pusch_uci.csi_part1_bit_length = bits;
+  pusch_pdu->pusch_uci.csi_part2_bit_length = 0;
+  pusch_pdu->pusch_uci.alpha_scaling = NR_UCI_OnPUSCH__scaling_f1;
+  pusch_pdu->pusch_uci.beta_offset_harq_ack = NR_BETA_OFFSET_ACK_INDEX;
+  pusch_pdu->pusch_uci.beta_offset_csi1 = NR_BETA_OFFSET_CSI_INDEX;
+  pusch_pdu->pusch_uci.beta_offset_csi2 = NR_BETA_OFFSET_CSI_INDEX;
+  // codepoint n triggers the state n - 1
+  uldci->csi_request.val = state + 1;
+  sched_ctrl->aperiodic_csi.pending = true;
+  sched_ctrl->aperiodic_csi.frame = sched_pusch->frame;
+  sched_ctrl->aperiodic_csi.slot = sched_pusch->slot;
+  sched_ctrl->aperiodic_csi.report_id = report_id;
+  sched_ctrl->aperiodic_csi.last_request = now;
+  sched_ctrl->aperiodic_csi.next_state = state + 1;
+}
+
 void post_process_ulsch(gNB_MAC_INST *nr_mac,
                         nr_cell_sched_t *cell,
                         post_process_pusch_t *pusch,
@@ -2623,6 +2684,8 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
                cur_harq->ndi,
                current_BWP,
                ss->searchSpaceType->present);
+  if (current_BWP->dci_format == NR_UL_DCI_FORMAT_0_1 && cur_harq->round == 0)
+    request_aperiodic_csi(cell, UE, frame, slot, sched_pusch, pusch_pdu, &uldci_payload);
 
   cur_harq->sched_pusch.tpc_pusch = tpc;
 
