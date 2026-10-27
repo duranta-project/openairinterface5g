@@ -4389,7 +4389,8 @@ void nr_mac_trigger_reconfiguration(const gNB_MAC_INST *nrmac, nr_cell_sched_t *
 {
   DevAssert(UE->CellGroup != NULL);
   NR_CellGroupConfig_t *cellGroup_for_UE = NULL;
-  int ssb_index = get_ssbidx_from_beam(cell, UE->UE_beam_index);
+  // on a beam switch, build the CSI config for the target beam: UE_beam_index only changes on confirm
+  int ssb_index = get_ssbidx_from_beam(cell, new_beam >= 0 ? new_beam : UE->UE_beam_index);
   if (new_beam >= 0) {
     UE->cm_info.trigger_info = BEAM_SWITCH;
     UE->cm_info.new_state = new_beam;
