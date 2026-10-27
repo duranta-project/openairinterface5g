@@ -4,12 +4,6 @@
 
 /* Spectrum SM (RAN Function ID = 1): control in + sensing-range telemetry out.
  *
- * Controls served:
- *   - control_id=1: PRB block — set_prb_block_mask() into the per-cell
- *                   block state (ran_func_spectrum_prb_block.c).
- *   - control_id=2: sensing-policy mask for the masked UL TDA selector
- *                   (set_sensing_policy in ran_func_spectrum.c).
- *
  * Telemetry emitted (TIDs 1-5): shm-reference indications into the
  * /e3_l2_sensing ring, which is written on EVERY MAC sensing publish while the
  * subscription periodicity throttles only the indications. The worker thread,
@@ -356,19 +350,11 @@ static void spectrum_sm_stop(void *sm_context)
   /* Join the telemetry worker and tear down the shm ring. */
   e3_sm_worker_stop(&g_spectrum_telemetry);
 
-  /* Defensive cleanup: if the dApp installed a sensing policy and then
-   * disconnected without a deactivate control, sp->active would stay true and
-   * the UL TDA selector would keep preferring the short additional TDA forever.
-   * Clearing here is a no-op when no policy was installed (set_sensing_policy
-   * with NULL/0 is idempotent). */
+  /* A stopped session must not keep actuating: clear the policy and the block (both idempotent). */
   struct gNB_MAC_INST_s *mac = NULL;
   struct nr_cell_sched_s *cell = NULL;
   if (e3_spectrum_default_cell(&mac, &cell)) {
     (void)set_sensing_policy(cell, NULL, 0);
-    /* Same rationale for the prb-block mask: a held block would keep PRBs marked
-     * occupied indefinitely after the dApp disconnects. Clear both UL and DL
-     * (spectrum_process_prb_block installs in both); each clear is idempotent if
-     * nothing was installed. */
     (void)set_prb_block_mask(mac, cell, PRB_BLOCK_DIR_UL, NULL, 0);
     (void)set_prb_block_mask(mac, cell, PRB_BLOCK_DIR_DL, NULL, 0);
     SPEC_LOG_I("SM stop: cleared sensing policy + UL+DL prb-block defensively\n");
@@ -419,9 +405,7 @@ static void spectrum_sm_destroy(void *sm_context)
   memset(ctx, 0, sizeof(*ctx));
 }
 
-/* Format a PRB index list into `buf` (size `sz`) for the operator log, e.g.
- * "0,3,4,105". On overflow the partial list is closed with a ",..." marker
- * rather than truncated mid-number, so the log stays readable. */
+/* On overflow the list ends in ",..." rather than a cut number. */
 static void format_prb_list(char *buf, size_t sz, const uint16_t *prbs, size_t n)
 {
   buf[0] = '\0';
@@ -441,13 +425,6 @@ static void format_prb_list(char *buf, size_t sz, const uint16_t *prbs, size_t n
   }
 }
 
-/* Handle a PRB-block update. Decodes the payload and drives the per-MAC
- * prb_block_state_t via set_prb_block_mask(), which OR's a per-PRB symbol bitmap
- * into both vrb_map (DL) and vrb_map_UL at slot start, so every downstream
- * scheduling step treats blocked PRBs as occupied in both directions. The same
- * dApp list drives UL and DL (air interference is bidirectional; the wire format
- * carries no direction field). A non-empty install REPLACES the persistent set;
- * an empty list clears it. The dApp sends the full current list on every change. */
 static e3_error_t spectrum_process_prb_block(e3_service_model_handle_t *sm_handle,
                                              uint32_t request_message_id,
                                              const uint8_t *data,
@@ -474,8 +451,6 @@ static e3_error_t spectrum_process_prb_block(e3_service_model_handle_t *sm_handl
     n_prbs = MAX_BWP_SIZE;
   }
 
-  /* Build the per-PRB symbol-bitmap mask: 0x3FFF (all 14 symbols occupied) for
-   * each PRB the dApp asked us to block, 0 elsewhere. */
   uint16_t prb_block_mask[MAX_BWP_SIZE] = {0};
   for (size_t j = 0; j < n_prbs; ++j) {
     uint16_t prb = control_payload->blacklisted_prbs[j];
@@ -487,13 +462,11 @@ static e3_error_t spectrum_process_prb_block(e3_service_model_handle_t *sm_handl
   char prb_list_str[2048];
   format_prb_list(prb_list_str, sizeof(prb_list_str), control_payload->blacklisted_prbs, n_prbs);
 
-  /* Name the procedure the UL install carries out, so the scheduler tick that
-   * puts the mask on the air can report back to the xApp that asked for it. */
+  /* Lets the scheduler tick that puts the mask on air report back to the requesting xApp. */
   prb_block_set_pending_procedure(sequence_id);
 
-  /* Install in both directions. set_prb_block_mask takes prb_block->lock per
-   * call; a scheduler tick landing between the two acquires may see UL-new /
-   * DL-old for one tick — harmless, the next tick re-OR's both fresh masks. */
+  /* One list drives UL and DL (the wire has no direction field). The lock is taken per call, so
+   * a tick between the two may see UL-new/DL-old; the next tick applies both. */
   bool ok_ul, ok_dl;
   if (n_prbs == 0) {
     ok_ul = set_prb_block_mask(mac, cell, PRB_BLOCK_DIR_UL, NULL, 0);
@@ -511,10 +484,6 @@ static e3_error_t spectrum_process_prb_block(e3_service_model_handle_t *sm_handl
   return ok ? E3_SUCCESS : E3_SM_ERROR_INVALID_PARAM;
 }
 
-/* Handle a sensing-policy update. Decodes the payload and forwards into the
- * MAC's set_sensing_policy(); when deactivate=true the policy is cleared
- * regardless of mask. Replies with a positive ACK on success and a negative
- * ACK (with a LOG_W naming the cause) on every failure path. */
 static e3_error_t spectrum_process_sensing_policy(e3_service_model_handle_t *sm_handle,
                                                   uint32_t request_message_id,
                                                   const uint8_t *data,
@@ -534,10 +503,7 @@ static e3_error_t spectrum_process_sensing_policy(e3_service_model_handle_t *sm_
     return E3_SM_ERROR_INVALID_PARAM;
   }
 
-  /* set_sensing_policy validates n_slots internally against the MAC's
-   * numb_slots_frame (returning false on mismatch with its own LOG_W), so we
-   * don't pre-check here — pre-checking would pull the heavy MAC header surface
-   * into this TU. A NACK on ok=false covers the mismatch identically. */
+  /* set_sensing_policy() checks n_slots against the MAC and returns false on mismatch. */
   bool ok;
   if (policy->deactivate) {
     ok = set_sensing_policy(cell, NULL, 0);
@@ -576,8 +542,7 @@ static e3_error_t spectrum_sm_process_control(e3_service_model_handle_t *sm_hand
   const bool sm_running = is_running_locked(ctx);
   pthread_mutex_unlock(&ctx->lock);
 
-  /* Reject controls arriving after spectrum_sm_stop (dApp disconnect race):
-   * re-installing a policy here would persist after stop already cleared it. */
+  /* A control racing spectrum_sm_stop() must not reinstall what stop cleared. */
   if (!sm_running) {
     e3_service_model_emit_message_ack(sm_handle, request_message_id, SPECTRUM_SM_ACK_NEGATIVE);
     return E3_SM_ERROR_INVALID_PARAM;
@@ -592,8 +557,7 @@ static e3_error_t spectrum_sm_process_control(e3_service_model_handle_t *sm_hand
     case SPECTRUM_SM_CONTROL_ID_PRB_BLOCK:
       return spectrum_process_prb_block(sm_handle, request_message_id, data, data_len, sequence_id);
     case SPECTRUM_SM_CONTROL_ID_SENSING_POLICY:
-      /* The sensing policy has no apply-outcome to report, so it does not open
-       * a procedure and the id is unused on this path. */
+      /* No apply-outcome for the sensing policy, so sequence_id is unused. */
       return spectrum_process_sensing_policy(sm_handle, request_message_id, data, data_len);
     default:
       SPEC_LOG_E("unknown control_id %u\n", control_id);

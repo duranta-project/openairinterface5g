@@ -2,18 +2,6 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
-/*!
- * \brief PRB blocking for dApp control plane.
- *
- * Maintains DL/UL per-PRB symbol-bitmap masks populated by the control
- * plane (e.g. set_prb_block_mask()) and OR's them into the current-slot
- * VRB maps at the start of each slot, before any scheduling step runs.
- *
- * The per-PRB symbol-bitmap representation matches the vrb_map / vrb_map_UL
- * encoding, so every consumer of those maps naturally treats blocked PRBs
- * as occupied with no special-casing.
- */
-
 #include "ran_func_spectrum_prb_block.h"
 #include "ran_func_spectrum_collision.h"
 #include "ran_func_spectrum_registry.h"
@@ -21,9 +9,7 @@
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "common/utils/nr/nr_common.h"
 
-/* The block state of each cell, owned by this module: nothing is kept in the
- * MAC's cell structure. A cell without an entry has no state, and every accessor
- * below treats that as "nothing blocked". */
+/* Per-cell state; a cell without an entry counts as "nothing blocked". */
 static struct {
   const nr_cell_sched_t *cell;
   prb_block_state_t *state;
@@ -37,9 +23,6 @@ static prb_block_state_t *block_state(const nr_cell_sched_t *cell)
   return NULL;
 }
 
-/* Allocate this cell's PRB-block state, inactive until set_prb_block_mask().
- * calloc zeros the masks; retire_at starts at INT64_MAX ("none pending") so the
- * first apply_prb_block_masks() does not retire bits that were never released. */
 void prb_block_attach(const nr_cell_sched_t *cell)
 {
   if (block_state(cell) != NULL)
@@ -57,7 +40,6 @@ void prb_block_attach(const nr_cell_sched_t *cell)
   g_block[free_idx].state = pb;
 }
 
-/* Release the state allocated by prb_block_attach(). Idempotent. */
 void prb_block_detach(const nr_cell_sched_t *cell)
 {
   for (int i = 0; i < NR_MAX_CELLS; i++) {
@@ -70,15 +52,7 @@ void prb_block_detach(const nr_cell_sched_t *cell)
   }
 }
 
-/* Replace the DL or UL block mask (NULL/len==0 clears) under st->lock. Installs
- * the requested bits verbatim, folds released bits into prev_mask + arms the
- * retire timer, and for UL requests a one-shot full-ring stamp. After a UL
- * install, Event A scans the periodic-allocation registry for PUCCH/SRS the new
- * block now lands on (collision_handler). */
-/* Set by prb_block_set_pending_procedure() and consumed by the next install on
- * the same thread. Thread-local because the control handler and the scheduler
- * tick are different threads, and only the handler knows which xApp procedure
- * it is carrying out. */
+/* Set by the control handler thread and consumed by the next install on that thread. */
 static _Thread_local uint32_t g_pending_procedure;
 
 void prb_block_set_pending_procedure(uint32_t sequence_id)
@@ -86,7 +60,7 @@ void prb_block_set_pending_procedure(uint32_t sequence_id)
   g_pending_procedure = sequence_id;
 }
 
-/* Weak defaults: a gNB built without the E3 agent has nobody to report to. */
+/* Weak no-op defaults for a gNB built without the E3 agent. */
 __attribute__((weak)) void prb_block_on_air_hook(uint32_t sequence_id, uint16_t sfn, uint16_t slot)
 {
   (void)sequence_id;
@@ -128,56 +102,34 @@ bool set_prb_block_mask(gNB_MAC_INST *mac, nr_cell_sched_t *cell, prb_block_dir_
   }
 
   pthread_mutex_lock(&st->lock);
-  /* Install/replace/clear in one loop (clear = want==0 everywhere). Per rb: fold
-   * bits dropped vs the old mask into prev_mask and clear prev bits the new mask
-   * re-blocks (`prev &= ~new`), so prev_mask stays a pure "released-not-yet-current"
-   * tracker (see prb_block_state docs) — else a shrink-then-re-expand would leave
-   * blocked PRBs looking free. */
+  /* prev must drop bits the new mask re-blocks, else shrink-then-expand leaves blocked PRBs looking free */
   for (int rb = 0; rb < MAX_BWP_SIZE; rb++) {
     uint16_t want = (mask != NULL && rb < len) ? mask[rb] : 0;
     prev[rb] = (prev[rb] | target[rb]) & ~want;
     target[rb] = want;
   }
   *active = (mask != NULL && len > 0);
-  /* Arm the retire timer: prev_mask is zeroed once the ring has fully reseeded
-   * (see prb_block_state docs). */
+  /* prev_mask is zeroed once the UL ring has fully reseeded */
   *retire_at = st->apply_counter + cell->vrb_map_UL_size;
-  /* Request a one-shot full-ring UL stamp on the next tick (closes the expand
-   * race; no-op for DL, which has no ring). */
+  /* One-shot full-ring UL stamp on the next tick, closes the expand race (DL has no ring) */
   uint32_t superseded_procedure = 0;
   if (dir == PRB_BLOCK_DIR_UL) {
     st->needs_ul_full_stamp = true;
-    /* Take the LAST procedure id. Masks replace rather than accumulate, so of
-     * several installs landing between two ticks it is the last one's mask that
-     * reaches the vrb maps -- and an acknowledgment has to name the control
-     * whose mask was actually applied. The one it displaces is reported below. */
+    /* Masks replace, so of several installs between two ticks the last one's id is acknowledged */
     if (st->pending_sequence_id != g_pending_procedure)
       superseded_procedure = st->pending_sequence_id;
     st->pending_sequence_id = g_pending_procedure;
   }
-  /* Consumed either way: a procedure names one install, and leaving it set
-   * would misattribute the next block the dApp decides on its own. */
+  /* Consumed either way, or the next dApp-decided block would be misattributed */
   g_pending_procedure = 0;
   pthread_mutex_unlock(&st->lock);
 
-  /* Outside the lock, and only for a procedure that was actually displaced.
-   * Zero means nothing was waiting -- the slot held an install the dApp decided
-   * on its own -- and an id equal to the incoming one is the same procedure
-   * installing again, which must not be answered twice. */
+  /* Outside the lock; the same id re-installing is not a supersede */
   if (superseded_procedure != 0)
     prb_block_superseded_hook(superseded_procedure);
 
-  /* Event A: a (new) block is now live — scan the periodic-allocation registry
-   * and report which configured PUCCH/SRS (UL) or NZP-CSI-RS (DL) it lands on,
-   * so they can be relocated via an RRC reconfiguration (handled in the
-   * collision handler, not the per-slot scheduler — these resources are
-   * RRC-fixed). An install in either direction re-checks against the current
-   * effective DL and UL masks; the effective masks fold in recently-released
-   * bits too. The registry has no internal locking (its contract is "callers
-   * hold sched_lock"), and this path runs on the SM control thread while the
-   * MAC thread rebuilds entries on UE attach/reconfig/detach — so take
-   * sched_lock around the scan, after st->lock is released (the scheduler
-   * takes sched_lock before st->lock, never the reverse). */
+  /* Runs on the SM control thread, so the registry scan needs sched_lock. Take it
+   * after releasing st->lock: the scheduler takes sched_lock first. */
   uint16_t effective_dl[MAX_BWP_SIZE];
   uint16_t effective_ul[MAX_BWP_SIZE];
   const bool have_dl = get_effective_prb_block_mask_dl(cell, effective_dl);
@@ -188,8 +140,7 @@ bool set_prb_block_mask(gNB_MAC_INST *mac, nr_cell_sched_t *cell, prb_block_dir_
     NR_SCHED_UNLOCK(&mac->sched_lock);
   }
 
-  /* LOG_D: the dApp can fire one per detection callback (every few UL slots),
-   * which would flood the log at default verbosity. */
+  /* LOG_D: can fire every few UL slots */
   LOG_D(NR_MAC,
         "PRB block mask updated: dir=%s active=%d len=%d\n",
         dir == PRB_BLOCK_DIR_DL ? "DL" : "UL",
@@ -198,9 +149,7 @@ bool set_prb_block_mask(gNB_MAC_INST *mac, nr_cell_sched_t *cell, prb_block_dir_
   return true;
 }
 
-/* Copy the effective UL mask (mask_ul | prev_mask_ul) into out under st->lock;
- * returns true iff any bit is set. Not gated on active_ul, so recently-released
- * bits stay sensing-eligible across the retire window. */
+/* Not gated on active_ul: recently-released bits stay set across the retire window. */
 bool get_effective_prb_block_mask_ul(const nr_cell_sched_t *cell, uint16_t out[MAX_BWP_SIZE])
 {
   if (!cell || !block_state(cell) || !out)
@@ -217,9 +166,6 @@ bool get_effective_prb_block_mask_ul(const nr_cell_sched_t *cell, uint16_t out[M
   return any;
 }
 
-/* Copy the effective DL mask (mask_dl | prev_mask_dl) into out under st->lock;
- * returns true iff any bit is set. DL counterpart of the UL getter, used to
- * check NZP-CSI-RS collisions against a DL block. */
 bool get_effective_prb_block_mask_dl(const nr_cell_sched_t *cell, uint16_t out[MAX_BWP_SIZE])
 {
   if (!cell || !block_state(cell) || !out)
@@ -236,9 +182,6 @@ bool get_effective_prb_block_mask_dl(const nr_cell_sched_t *cell, uint16_t out[M
   return any;
 }
 
-/* OR the active UL block mask into one vrb_map_UL row (MAX_BWP_SIZE entries) under
- * the lock; no-op when no UL block is active. Re-applies the block after a
- * sensing-reserved row was reset to ulprbbl. */
 void prb_block_reapply_ul_row(const nr_cell_sched_t *cell, uint16_t *row)
 {
   if (!cell || !block_state(cell) || !row)
@@ -251,20 +194,15 @@ void prb_block_reapply_ul_row(const nr_cell_sched_t *cell, uint16_t *row)
   pthread_mutex_unlock(&st->lock);
 }
 
-/* True iff every bit of a UL vrb_map collision (alloc) is attributable to the
- * dApp block, i.e. set in mask_ul[rb] | prev_mask_ul[rb] (read under st->lock).
- * Cold path; returns false on the alloc==0 contract violation. */
 bool vrb_map_UL_conflict_is_dapp_block_only(const nr_cell_sched_t *cell, int rb, uint16_t alloc)
 {
   if (!cell || !block_state(cell) || rb < 0 || rb >= MAX_BWP_SIZE)
     return false;
-  /* Caller should have filtered alloc==0; return false defensively (sends it
-   * down its AssertFatal path). */
+  /* alloc == 0 is a caller bug: return false so it reaches its AssertFatal */
   if (alloc == 0)
     return false;
 
-  /* Cold path (conflict branch only). Union mask_ul | prev_mask_ul under the lock
-   * so stale ring bits are attributed too (see prb_block_state docs). */
+  /* prev_mask included so stale ring bits are attributed too */
   prb_block_state_t *st = block_state(cell);
   bool result;
   pthread_mutex_lock(&st->lock);
@@ -274,13 +212,8 @@ bool vrb_map_UL_conflict_is_dapp_block_only(const nr_cell_sched_t *cell, int rb,
   return result;
 }
 
-/* Reserve `mask` over [rb_start, rb_start+nb_rb) of vrb_map_UL for a cell UL
- * channel (PRACH/Msg3 reception), handling dApp-block collisions uniformly: a
- * free RB is OR'd; an RB occupied only by the dApp's UL block is left as-is
- * (apply_prb_block_masks already stamped it) and counted for one rate-limited
- * summary; any other occupancy asserts unless the slot is sensing-reserved.
- * Folds the graceful-skip loop shared by fill_vrb / nr_add_msg3 so those
- * scheduler sites stay one call. */
+/* Reserve a cell UL channel (PRACH/Msg3). RBs held only by the dApp block are skipped
+ * with a rate-limited log; other occupancy asserts unless the slot is sensing-reserved. */
 void prb_block_reserve_ul_channel(const nr_cell_sched_t *cell,
                                   uint16_t *vrb_map_UL,
                                   int rb_start,
@@ -306,8 +239,6 @@ void prb_block_reserve_ul_channel(const nr_cell_sched_t *cell,
       ++collision_count;
       continue;
     }
-    /* Not free and not a dApp block: only a sensing-reserved slot may
-     * legitimately show these RBs occupied. */
     AssertFatal(nr_mac_ul_slot_is_sensing_reserved(cell, slot),
                 "%s: RB %d not free (occupied 0x%x mask 0x%x) at %d.%d\n",
                 channel_label,
@@ -320,9 +251,6 @@ void prb_block_reserve_ul_channel(const nr_cell_sched_t *cell,
   log_prb_block_collision_summary(channel_label, collision_first, collision_last, collision_count, mask, frame, slot, rnti);
 }
 
-/* Emit one rate-limited LOG_W summarizing dApp-block collisions at a call site
- * (first/last/count). No-op when count==0; a thread-local, pointer-keyed
- * per-site table prints the first 5 then every 1000th. */
 void log_prb_block_collision_summary(const char *site,
                                      int first_rb,
                                      int last_rb,
@@ -334,15 +262,12 @@ void log_prb_block_collision_summary(const char *site,
 {
   if (count == 0)
     return;
-  /* Per-site rate-limit (first 5, then every 1000th): a per-site table, not one
-   * shared counter, so interleaved PRACH/SRS/Msg3 don't reset each other. Sites
-   * are string literals, so pointer-equality identifies them. */
+  /* First 5, then every 1000th, per site; sites are string literals so pointer equality identifies them */
   enum { N_SITE_SLOTS = 8 };
   static _Thread_local struct {
     const char *site;
     uint64_t count;
   } site_counters[N_SITE_SLOTS] = {{0}};
-  /* Find this site's slot (or allocate a fresh one if first sighting). */
   int slot_i = -1;
   int free_i = -1;
   for (int i = 0; i < N_SITE_SLOTS; i++) {
@@ -363,8 +288,7 @@ void log_prb_block_collision_summary(const char *site,
   const uint64_t same_site_count = ++site_counters[slot_i].count;
   if (same_site_count > 5 && (same_site_count % 1000) != 0)
     return;
-  /* first/last bound the colliding range; collisions may be sparse within it
-   * (count <= last-first+1). UE clause appended only when rnti != 0. */
+  /* first/last bound the range; collisions may be sparse within it */
   char ue[32] = "";
   if (rnti != 0)
     snprintf(ue, sizeof(ue), " -- UE %04x may fail", rnti);
@@ -382,10 +306,8 @@ void log_prb_block_collision_summary(const char *site,
         (unsigned long long)same_site_count);
 }
 
-/* Collapse the set of PRBs with any blocked symbol in m[] into a compact
- * range string ("0-15,62,80-105") in buf, appending "..." if it overflows.
- * Returns the total blocked-PRB count (accurate even if the string was
- * truncated). */
+/* Formats blocked PRBs as "0-15,62,80-105", with "..." on overflow; the returned
+ * count stays exact. */
 static int prb_block_format_ranges(const uint16_t *m, char *buf, size_t buflen)
 {
   int count = 0;
@@ -422,9 +344,7 @@ static int prb_block_format_ranges(const uint16_t *m, char *buf, size_t buflen)
   return count;
 }
 
-/* Periodically log the active blocked-PRB set (UL + DL) for monitoring: once per
- * 128 frames at slot 0 (~1.28 s at mu=1), alongside the MAC stats. No-op when
- * nothing is blocked; the cadence gate is lock-free, the lock taken only to dump. */
+/* Once per 128 frames (1.28 s), alongside the MAC stats. */
 static void prb_block_log_active(const nr_cell_sched_t *cell, frame_t frame, slot_t slot)
 {
   if (slot != 0 || (frame & 127) != 0)
@@ -441,27 +361,21 @@ static void prb_block_log_active(const nr_cell_sched_t *cell, frame_t frame, slo
   LOG_I(NR_MAC, "[PRB-BLOCK] active blocked PRBs: UL(%d)=[%s] DL(%d)=[%s]\n", ul_n, ul_buf, dl_n, dl_buf);
 }
 
-/* Per-slot hook: under st->lock, advance apply_counter (retiring prev_mask once
- * its ring-cycle window elapses) and OR mask_dl/mask_ul into the current-/
- * prev-slot vrb_map slices so the scheduler sees blocked PRBs as occupied; a
- * pending one-shot stamp writes mask_ul into all UL ring slices. Locks
- * unconditionally (counter must tick) but skips the OR when nothing is active. */
+/* Per-slot hook, before any allocator runs. */
 void apply_prb_block_masks(nr_cell_sched_t *cell, frame_t frame, slot_t slot)
 {
   prb_block_state_t *st = block_state(cell);
   if (st == NULL)
     return;
 
-  prb_block_log_active(cell, frame, slot); /* rate-limited monitor dump */
+  prb_block_log_active(cell, frame, slot);
 
   const int slots_per_frame = cell->frame_structure.numb_slots_frame;
   int num_beams = (cell->beam_info.config.bf_method != BF_METHOD_STRAIGHT_WIRE) ? cell->beam_info.config.beams_per_period : 1;
 
-  /* Lock unconditionally: apply_counter must tick even when idle, to retire
-   * prev_mask after one ring cycle. One uncontended acquire/tick (~50 ns). */
+  /* Locked even when idle: apply_counter must tick to retire prev_mask */
   pthread_mutex_lock(&st->lock);
 
-  /* Retire released bits whose ring slices have all been reseeded. */
   st->apply_counter++;
   if (st->apply_counter >= st->ul_retire_at) {
     memset(st->prev_mask_ul, 0, MAX_BWP_SIZE * sizeof(uint16_t));
@@ -472,17 +386,12 @@ void apply_prb_block_masks(nr_cell_sched_t *cell, frame_t frame, slot_t slot)
     st->dl_retire_at = INT64_MAX;
   }
 
-  /* Detect-only: always stamp the active mask (the SCHED_UL/DL exempt gate is
-   * in the deferred policy subsystem). */
   const bool dl_on = st->active_dl;
   const bool ul_on = st->active_ul;
-  /* Snapshot+clear the one-shot full-ring UL stamp flag; honored even on a clear
-   * (harmless no-op then) so the flag is always consumed. */
+  /* Consumed even on a clear (harmless no-op then) */
   const bool do_ul_full_stamp = st->needs_ul_full_stamp;
   st->needs_ul_full_stamp = false;
   const uint32_t stamp_sequence_id = st->pending_sequence_id;
-  /* Cleared with the rest of the window's state: this procedure is reported
-   * below and must not be named again by a later tick. */
   st->pending_sequence_id = 0;
 
   if (!dl_on && !ul_on && !do_ul_full_stamp) {
@@ -493,7 +402,7 @@ void apply_prb_block_masks(nr_cell_sched_t *cell, frame_t frame, slot_t slot)
   {
     NR_COMMON_channels_t *cc = &cell->common_channels;
 
-    /* DL: current slot's vrb_map. Same slice cleared in gNB_dlsch_ulsch_scheduler. */
+    /* DL: current slot's vrb_map */
     if (dl_on) {
       for (int b = 0; b < num_beams; b++) {
         uint16_t *vrb = cc->vrb_map[b];
@@ -502,9 +411,7 @@ void apply_prb_block_masks(nr_cell_sched_t *cell, frame_t frame, slot_t slot)
       }
     }
 
-    /* UL: prev_slot's vrb_map slice (matches the seed location in
-     * gNB_dlsch_ulsch_scheduler). On a one-shot full-ring stamp, write mask_ul
-     * into EVERY slice instead, closing the expand race for lookahead slots. */
+    /* UL: prev_slot's slice, where gNB_dlsch_ulsch_scheduler seeds; a full stamp covers every slice */
     if (ul_on) {
       const int size = cell->vrb_map_UL_size;
       const int prev_slot = frame * slots_per_frame + slot + size - 1;
@@ -526,20 +433,12 @@ void apply_prb_block_masks(nr_cell_sched_t *cell, frame_t frame, slot_t slot)
   }
   pthread_mutex_unlock(&st->lock);
 
-  /* The mask is now in the vrb maps. Report the instant to whoever is waiting
-   * on the procedure that installed it. Weak hook: a build without the E3 agent
-   * links a no-op. Runs on the scheduler thread inside the slot deadline, so an
-   * implementation must not block. */
+  /* Runs on the scheduler thread within the slot deadline: the hook must not block */
   if (do_ul_full_stamp && stamp_sequence_id != 0)
     prb_block_on_air_hook(stamp_sequence_id, (uint16_t)frame, (uint16_t)slot);
 }
 
-/* A UE's dedicated configuration was (re)applied. Idempotent, so this covers
- * attach, reconfiguration and BWP switch: refresh the record of where the UE's
- * periodic UE-specific allocations (PUCCH/SRS/CSI-RS) live, then -- if the block
- * currently in force lands on any of them -- report them so they can be relocated
- * by an RRC reconfiguration. UL signals are checked against the UL block and DL
- * (CSI-RS) against the DL block; nothing is checked when no block is active. */
+/* Covers attach, reconfiguration and BWP switch. */
 void e3_spectrum_on_ue_configured(const nr_cell_sched_t *cell, NR_UE_info_t *UE)
 {
   periodic_alloc_refresh_ue(UE);
@@ -551,7 +450,6 @@ void e3_spectrum_on_ue_configured(const nr_cell_sched_t *cell, NR_UE_info_t *UE)
     blocked_prbs_check_on_ue_config(UE->uid, have_dl ? effective_dl : NULL, have_ul ? effective_ul : NULL);
 }
 
-/* The UE is being deleted: drop its periodic allocations from the record. */
 void e3_spectrum_on_ue_deleted(const NR_UE_info_t *UE)
 {
   periodic_alloc_unregister_ue(UE->uid);

@@ -14,19 +14,14 @@
 
 #include "openair2/E3AP/ran_func_spectrum_extern.h"
 
-/* dApp PRB-blocking state. mask_dl/ul are per-PRB 14-bit symbol bitmaps (vrb_map
- * encoding) OR'd into the VRB maps at slot start, so every allocator sees blocked
- * PRBs as occupied. prev_mask_* hold just-released bits that may still linger in
- * not-yet-reseeded vrb_map ring slices; helpers read mask_*|prev_mask_* until the
- * retire tick clears them. All fields under lock. */
+/* mask_* are per-PRB symbol bitmaps (vrb_map encoding). prev_mask_* hold released
+ * bits that may still sit in unreseeded vrb_map ring slices; all fields under lock. */
 typedef struct prb_block_state_s {
   pthread_mutex_t lock;
   bool active_dl;
   bool active_ul;
   bool needs_ul_full_stamp; /* one-shot: next apply stamps mask_ul into every ring slice */
-  /* The xApp procedure whose control this install carries out, or 0 when the
-   * block was the dApp's own decision. Reported once the mask is on the air,
-   * so the RAN can tell that xApp when its decision took effect. */
+  /* xApp procedure this install carries out (0 = dApp's own decision); reported once on the air */
   uint32_t pending_sequence_id;
   uint16_t mask_dl[MAX_BWP_SIZE]; /* per-PRB symbol bitmap (absolute PRB index) */
   uint16_t mask_ul[MAX_BWP_SIZE];
@@ -37,26 +32,21 @@ typedef struct prb_block_state_s {
   int64_t ul_retire_at;
 } prb_block_state_t;
 
-/* Allocate / release a cell's block state. Called from e3_spectrum_mac_attach_cell()
- * and e3_spectrum_mac_detach_cell(); the state is owned here, not by the MAC. */
 void prb_block_attach(const nr_cell_sched_t *cell);
 void prb_block_detach(const nr_cell_sched_t *cell);
 
-/* Copy the effective UL mask (mask_ul | prev_mask_ul) into out; true iff any bit set. */
+/* Copy mask | prev_mask into out; true iff any bit is set. */
 bool get_effective_prb_block_mask_ul(const nr_cell_sched_t *cell, uint16_t out[MAX_BWP_SIZE]);
 
-/* Copy the effective DL mask (mask_dl | prev_mask_dl) into out; true iff any bit set. */
 bool get_effective_prb_block_mask_dl(const nr_cell_sched_t *cell, uint16_t out[MAX_BWP_SIZE]);
 
-/* OR the active UL block into one vrb_map_UL row (no-op if no UL block). Re-applies
- * the block after a sensing-reserved row was reset to ulprbbl. */
+/* Re-applies the UL block to a row reset to ulprbbl on a sensing-reserved slot. */
 void prb_block_reapply_ul_row(const nr_cell_sched_t *cell, uint16_t *row);
 
-/* True iff conflict bits `alloc` are entirely the dApp UL block, so the caller can
- * skip the OR instead of asserting. Caller pre-filters alloc == 0. */
+/* True iff the conflict bits are entirely the dApp UL block (caller filters alloc == 0). */
 bool vrb_map_UL_conflict_is_dapp_block_only(const nr_cell_sched_t *cell, int rb, uint16_t alloc);
 
-/* One rate-limited LOG_W summarizing a channel's per-RB collisions. No-op if count 0. */
+/* Rate-limited per call site; no-op if count is 0. */
 void log_prb_block_collision_summary(const char *site,
                                      int first_rb,
                                      int last_rb,
