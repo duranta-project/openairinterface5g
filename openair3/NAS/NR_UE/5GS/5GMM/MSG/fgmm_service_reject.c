@@ -66,6 +66,8 @@ int decode_fgs_service_reject(fgs_service_reject_msg_t *msg, const byte_array_t 
   msg->cause = buffer->buf[decoded++];
   UPDATE_BYTE_ARRAY(ba, 1);
 
+  msg->has_psi_status = false;
+
   // Decode Optional IEs
   while (decoded < buffer->len) {
     uint8_t iei = buffer->buf[decoded++];
@@ -73,8 +75,7 @@ int decode_fgs_service_reject(fgs_service_reject_msg_t *msg, const byte_array_t 
 
     switch (iei) {
       case IEI_PDU_SESSION_STATUS:
-        msg->has_psi_status = true;
-        DECODE_NAS_IE(ba, decode_pdu_session_ie(msg->psi_status, &ba), decoded);
+        DECODE_NAS_IE(ba, decode_pdu_session_ie(msg->psi_status, &ba, &msg->has_psi_status), decoded);
         break;
 
       case IEI_T3448_VALUE:

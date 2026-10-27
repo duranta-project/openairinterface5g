@@ -150,7 +150,7 @@ typedef struct {
 } gprs_timer_t;
 
 int encode_pdu_session_ie(byte_array_t *buffer, nas_service_IEI_t iei, const uint8_t *psi);
-int decode_pdu_session_ie(uint8_t *psi, const byte_array_t *buffer);
+int decode_pdu_session_ie(uint8_t *psi, const byte_array_t *buffer, bool *present);
 int encode_gprs_timer_ie(byte_array_t *buffer, nas_service_IEI_t iei, const gprs_timer_t *timer);
 int decode_gprs_timer_ie(gprs_timer_t *timer, const byte_array_t *buffer);
 bool eq_gprs_timer(const gprs_timer_t *a, const gprs_timer_t *b);
