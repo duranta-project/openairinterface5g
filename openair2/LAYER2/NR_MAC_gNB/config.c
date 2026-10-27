@@ -470,8 +470,8 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
         AssertFatal(re >= -1.0f && re <= 1.0f, "DBT real weight out of range [-1,1]: %f\n", re);
         AssertFatal(im >= -1.0f && im <= 1.0f, "DBT imag weight out of range [-1,1]: %f\n", im);
         c16_t q15 = convert_precoder_weight(config->bt.beam_weights[b][w]);
-        beam->txru_list[w].dig_beam_weight_Re = (uint16_t)q15.r;
-        beam->txru_list[w].dig_beam_weight_Im = (uint16_t)q15.i;
+        beam->txru_list[w].dig_beam_weight_Re = q15.r;
+        beam->txru_list[w].dig_beam_weight_Im = q15.i;
       }
     }
 
@@ -783,7 +783,7 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
    * antenna ports. The TXRU counts come from the Aerial config section; when
    * not set (0) fall back to the previous behavior. */
   const nr_aerial_config_t *aerial_cfg = &config->aerial;
-  if (cell->beam_info.bf_method == BF_METHOD_PREDEFINED && !cell->beam_info.beam_id_to_ru) {
+  if (NFAPI_MODE == NFAPI_MODE_AERIAL && cell->beam_info.bf_method == BF_METHOD_PREDEFINED && !cell->beam_info.beam_id_to_ru) {
     // if we are doing BF in Aerial we need these Custom TLV. The weights are applied
     // per TXRU, so the count has to be configured rather than guessed
     AssertFatal(aerial_cfg->num_tx_ant > 0 && aerial_cfg->num_rx_ant > 0,
@@ -841,7 +841,8 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
     cfg->analog_beamforming_ve.num_beams_period_vendor_ext.value = cell->beam_info.beams_per_period;
     cfg->num_tlv++;
     cfg->analog_beamforming_ve.analog_bf_vendor_ext.tl.tag = NFAPI_NR_FAPI_ANALOG_BF_VENDOR_EXTENSION_TAG;
-    cfg->analog_beamforming_ve.analog_bf_vendor_ext.value = 1;  // analog BF enabled
+    // beam IDs for the radio or fronthaul; with a digital beam table L1 applies the weights itself
+    cfg->analog_beamforming_ve.analog_bf_vendor_ext.value = cell->beam_info.beam_id_to_ru;
     cfg->num_tlv++;
   } else {
     cfg->analog_beamforming_ve.analog_bf_vendor_ext.value = 0;  // analog BF disabled

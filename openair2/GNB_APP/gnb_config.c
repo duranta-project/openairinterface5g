@@ -263,7 +263,8 @@ void fill_scc_sim(NR_ServingCellConfigCommon_t *scc, uint64_t *ssb_bitmap, int N
       tdd_UL_DL_Config->pattern1.dl_UL_TransmissionPeriodicity = NR_TDD_UL_DL_Pattern__dl_UL_TransmissionPeriodicity_ms10;
       break;
     case 1 :
-      *frequencyInfoDL->absoluteFrequencySSB = 641032;
+      // SSB on RBs 33..52; carriers narrower than that get it on RBs 2..21
+      *frequencyInfoDL->absoluteFrequencySSB = N_RB_DL < 53 ? 640288 : 641032;
       *frequencyInfoDL->frequencyBandList.list.array[0] = 78;
       frequencyInfoDL->absoluteFrequencyPointA = 640000;
       tdd_UL_DL_Config->pattern1.dl_UL_TransmissionPeriodicity = NR_TDD_UL_DL_Pattern__dl_UL_TransmissionPeriodicity_ms5;
@@ -1537,9 +1538,18 @@ static double complex **read_dbt_from_config(const char *prefix,
 }
 
 /* a beam ID names at most one digital beam table entry, otherwise the entry a given
- * ssb_beams value resolves to would depend on the row order */
-static void check_dbt_beam_ids_unique(const nr_beam_table_t *bt)
+ * ssb_beams value resolves to would depend on the row order; L1 looks the IDs up in a
+ * table of NR_MAX_DBT_BEAM_IDX entries */
+static void check_dbt_beam_ids(const nr_beam_table_t *bt)
 {
+  for (int b = 0; b < bt->num_beams; b++) {
+    const int id = bt->beam_ids ? bt->beam_ids[b] : b;
+    AssertFatal(id < NR_MAX_DBT_BEAM_IDX,
+                "digital beam table row %d has beam ID %d, the maximum supported is %d\n",
+                b,
+                id,
+                NR_MAX_DBT_BEAM_IDX - 1);
+  }
   if (!bt->beam_ids) // no explicit IDs: the row number is the ID, unique by construction
     return;
   for (int a = 0; a < bt->num_beams; a++)
@@ -1892,7 +1902,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
       }
       const bool have_dbt = config.bt.num_beams > 0;
       if (have_dbt)
-        check_dbt_beam_ids_unique(&config.bt);
+        check_dbt_beam_ids(&config.bt);
 
       // config_get_processedint() takes only paramdef_t *, so cast const away
       paramdef_t *p_bf = (paramdef_t *)gpd(params, np, MACRLC_BF_METHOD);
@@ -1934,11 +1944,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
         default:
           AssertFatal(false, "unhandled " MACRLC_BF_METHOD " %d\n", beam_info->bf_method);
       }
-      /* Only Aerial applies a digital beam table. The table does reach a native L1, over
-       * P5 or directly, but nr_feptx_prec() copies the samples through instead of
-       * precoding them, so the weights would silently have no effect. */
-      AssertFatal(!have_dbt || NFAPI_MODE == NFAPI_MODE_AERIAL,
-                  "a digital beam table is only supported with Aerial, the native L1 does not apply the weights\n");
       /* An nFAPI PNF has no MACRLCs section, so RCconfig_NR_L1() cannot derive DAS there
        * and the split L1 would silently run without it. Beam IDs meant for the RU or the
        * fronthaul do travel in every FAPI PDU, so predefined without a table is fine. */

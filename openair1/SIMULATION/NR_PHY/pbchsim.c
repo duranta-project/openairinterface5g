@@ -486,6 +486,8 @@ int main(int argc, char **argv)
         ssb_pdu[i].ssb_pdu_rel15.SsbBlockIndex = i;
         ssb_pdu[i].ssb_pdu_rel15.SsbSubcarrierOffset = sc_offset;
         ssb_pdu[i].ssb_pdu_rel15.ssbOffsetPointA = prb_offset;
+        ssb_pdu[i].ssb_pdu_rel15.precoding_and_beamforming.num_prgs = 1;
+        ssb_pdu[i].ssb_pdu_rel15.precoding_and_beamforming.prg_size = 20; // SSB is always 20 RBs
 
         start_symbol = nr_get_ssb_start_symbol(frame_parms,i);
         int slot = start_symbol/14;
