@@ -7,6 +7,7 @@
  */
 
 #include <stdint.h>
+#include "common/utils/utils.h"
 #include "LAYER2/NR_MAC_UE/mac_proto.h"
 
 // table_7_3_1_1_2_2_3_4_5 contains values for number of layers and precoding information for tables 7.3.1.1.2-2/3/4/5 from TS 38.212 subclause 7.3.1.1.2
@@ -247,21 +248,27 @@ static inline uint16_t packBits(const uint8_t *toPack, const int nb)
   return res;
 }
 
-void set_antenna_port_parameters(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_pdu, int n_cw, long *max_length, long *dmrs, int ant)
+bool set_antenna_port_parameters(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_pdu, int n_cw, long *max_length, long *dmrs, int ant)
 {
   if (dmrs == NULL) {
     if (max_length == NULL) {
       // Table 7.3.1.2.2-1: Antenna port(s) (1000 + DMRS port), dmrs-Type=1, maxLength=1
+      if (ant >= sizeofArray(table_7_3_2_3_3_1))
+        return false;
       dlsch_pdu->n_dmrs_cdm_groups = table_7_3_2_3_3_1[ant][0];
       dlsch_pdu->dmrs_ports = packBits(&table_7_3_2_3_3_1[ant][1], 4);
     } else {
       // Table 7.3.1.2.2-2: Antenna port(s) (1000 + DMRS port), dmrs-Type=1, maxLength=2
       if (n_cw == 1) {
+        if (ant >= sizeofArray(table_7_3_2_3_3_2_oneCodeword))
+          return false;
         dlsch_pdu->n_dmrs_cdm_groups = table_7_3_2_3_3_2_oneCodeword[ant][0];
         dlsch_pdu->dmrs_ports = packBits(&table_7_3_2_3_3_2_oneCodeword[ant][1], 8);
         dlsch_pdu->n_front_load_symb = table_7_3_2_3_3_2_oneCodeword[ant][9];
       }
       if (n_cw == 2) {
+        if (ant >= sizeofArray(table_7_3_2_3_3_2_twoCodeword))
+          return false;
         dlsch_pdu->n_dmrs_cdm_groups = table_7_3_2_3_3_2_twoCodeword[ant][0];
         dlsch_pdu->dmrs_ports = packBits(&table_7_3_2_3_3_2_twoCodeword[ant][1], 8);
         dlsch_pdu->n_front_load_symb = table_7_3_2_3_3_2_twoCodeword[ant][9];
@@ -271,27 +278,36 @@ void set_antenna_port_parameters(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_pdu,
     if (max_length == NULL) {
       // Table 7.3.1.2.2-3: Antenna port(s) (1000 + DMRS port), dmrs-Type=2, maxLength=1
       if (n_cw == 1) {
+        if (ant >= sizeofArray(table_7_3_2_3_3_3_oneCodeword))
+          return false;
         dlsch_pdu->n_dmrs_cdm_groups = table_7_3_2_3_3_3_oneCodeword[ant][0];
         dlsch_pdu->dmrs_ports = packBits(&table_7_3_2_3_3_3_oneCodeword[ant][1], 6);
       }
       if (n_cw == 2) {
+        if (ant >= sizeofArray(table_7_3_2_3_3_3_twoCodeword))
+          return false;
         dlsch_pdu->n_dmrs_cdm_groups = table_7_3_2_3_3_3_twoCodeword[ant][0];
         dlsch_pdu->dmrs_ports = packBits(&table_7_3_2_3_3_3_twoCodeword[ant][1], 6);
       }
     } else {
       // Table 7.3.1.2.2-4: Antenna port(s) (1000 + DMRS port), dmrs-Type=2, maxLength=2
       if (n_cw == 1) {
+        if (ant >= sizeofArray(table_7_3_2_3_3_4_oneCodeword))
+          return false;
         dlsch_pdu->n_dmrs_cdm_groups = table_7_3_2_3_3_4_oneCodeword[ant][0];
         dlsch_pdu->dmrs_ports = packBits(&table_7_3_2_3_3_4_oneCodeword[ant][1], 12);
         dlsch_pdu->n_front_load_symb = table_7_3_2_3_3_4_oneCodeword[ant][13];
       }
       if (n_cw == 2) {
+        if (ant >= sizeofArray(table_7_3_2_3_3_4_twoCodeword))
+          return false;
         dlsch_pdu->n_dmrs_cdm_groups = table_7_3_2_3_3_4_twoCodeword[ant][0];
         dlsch_pdu->dmrs_ports = packBits(&table_7_3_2_3_3_4_twoCodeword[ant][1], 12);
         dlsch_pdu->n_front_load_symb = table_7_3_2_3_3_4_twoCodeword[ant][13];
       }
     }
   }
+  return true;
 }
 
 void ul_ports_config(NR_UE_MAC_INST_t *mac,
