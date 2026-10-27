@@ -425,7 +425,11 @@ int get_ideal_period(const nr_cell_sched_t *cell, nr_periodic_channel_t channel_
   switch (channel_type) {
     case SRS: {
       int srs_periodicities[17] = {1, 2, 4, 5, 8, 10, 16, 20, 32, 40, 64, 80, 160, 320, 640, 1280, 2560};
-      int srs_ideal_period = nb_slots_per_period * MAX_MOBILES_PER_GNB;
+      // one UE per full UL slot (see configure_periodic_srs())
+      const int n_full_ul_slots = get_full_ul_slots_per_period(fs);
+      if (n_full_ul_slots == 0)
+        return 0;
+      int srs_ideal_period = (MAX_MOBILES_PER_GNB + n_full_ul_slots - 1) / n_full_ul_slots * nb_slots_per_period;
       for (int i = 0; i < 17; i++) {
         if (check_periodicity(srs_periodicities[i], srs_ideal_period, fs))
           return srs_periodicities[i];
