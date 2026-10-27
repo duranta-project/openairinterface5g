@@ -1072,8 +1072,9 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
     cell->periodic_srs_config = create_period_structure(cell, SRS);
   fill_beam_index_list(scc, config, cell);
   int max_csi_bits = estimate_max_num_csi_bits(scc, config);
-  // periodic reports per UE: the SSB (or CSI-RS) RSRP report, and the CQI/RI/PMI report with CSI-RS only
-  const int reports_per_ue = config->do_CSIRS ? 2 : 1;
+  // periodic PUCCH occasions per UE: the SSB (or CSI-RS) RSRP report with the SR, and the CQI/RI/PMI report with
+  // periodic CSI-RS reports only; the aperiodic reports go on PUSCH, leaving the SR only
+  const int reports_per_ue = config->do_CSIRS && !config->aperiodic_csi ? 2 : 1;
   int scs = *scc->ssbSubcarrierSpacing;
   int bwp_size = NRRIV2BW(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
   int bwp_start = NRRIV2PRBOFFSET(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
