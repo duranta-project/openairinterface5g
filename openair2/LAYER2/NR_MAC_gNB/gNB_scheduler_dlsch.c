@@ -527,8 +527,11 @@ static int collect_dl_candidates(nr_cell_sched_t *cell,
       };
     } else {
       /* new transmission candidate */
-      if (sched_ctrl->available_dl_harq.head < 0)
+      if (sched_ctrl->available_dl_harq.head < 0) {
+        if (sched_ctrl->num_total_bytes > 0) // data waiting (as of the last buffer update) but no HARQ process free
+          sched_ctrl->dl_harq_fail++;
         continue;
+      }
 
       update_dlsch_buffer(frame, slot, UE);
 
