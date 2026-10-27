@@ -15,6 +15,7 @@
 #include "nr_pdcp_sdu.h"
 
 #include "LOG/log.h"
+#include "common/utils/utils.h"
 
 /**
  * @brief returns the maximum PDCP PDU size
@@ -203,6 +204,47 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
   }
 }
 
+/* remember the SDU of COUNT count, given to the lower layers now, for its discardTimer */
+static void discard_list_add(nr_pdcp_entity_t *entity, uint32_t count)
+{
+  if (entity->discard_list_length == entity->discard_list_size) {
+    /* full: double the ring, the entries in order from index 0 */
+    int new_size = entity->discard_list_size ? entity->discard_list_size * 2 : 64;
+    struct nr_pdcp_discard_entry_s *l = malloc_or_fail(new_size * sizeof(*l));
+    for (int i = 0; i < entity->discard_list_length; i++)
+      l[i] = entity->discard_list[(entity->discard_list_start + i) % entity->discard_list_size];
+    free(entity->discard_list);
+    entity->discard_list = l;
+    entity->discard_list_size = new_size;
+    entity->discard_list_start = 0;
+  }
+  int i = (entity->discard_list_start + entity->discard_list_length) % entity->discard_list_size;
+  entity->discard_list[i] = (struct nr_pdcp_discard_entry_s){.count = count, .time = entity->t_current};
+  entity->discard_list_length++;
+}
+
+/* TS 38.323 5.2.1 and 5.3: when the discardTimer of an SDU expires, discard it.
+ * The PDU was given to the lower layers when the SDU was received (there is no
+ * PDCP buffering): indicate the discard to them, they discard it if no part of
+ * it was transmitted yet (TS 38.322 5.4). The SDUs expire in COUNT order: one
+ * indication covers all the SDUs that expired since the previous call */
+static void check_discard_timer(nr_pdcp_entity_t *entity)
+{
+  bool expired = false;
+  uint32_t last_count = 0;
+  while (entity->discard_list_length > 0) {
+    struct nr_pdcp_discard_entry_s *e = &entity->discard_list[entity->discard_list_start];
+    if (entity->t_current < e->time + entity->discard_timer)
+      break;
+    expired = true;
+    last_count = e->count;
+    entity->discard_list_start = (entity->discard_list_start + 1) % entity->discard_list_size;
+    entity->discard_list_length--;
+  }
+  if (expired)
+    entity->discard_pdu(entity->deliver_sdu_data, entity->rb_id, (int)last_count);
+}
+
 static int nr_pdcp_entity_process_sdu(nr_pdcp_entity_t *entity,
                                       char *buffer,
                                       int size,
@@ -282,6 +324,10 @@ static int nr_pdcp_entity_process_sdu(nr_pdcp_entity_t *entity,
                    size + integrity_size - sdap_header_size,
                    entity->rb_id, count, entity->is_gnb ? 1 : 0);
   }
+
+  /* the caller gives the PDU to the lower layers with sdu_id = COUNT */
+  if (entity->discard_timer != -1 && entity->discard_pdu != NULL)
+    discard_list_add(entity, count);
 
   entity->tx_next++;
 
@@ -446,6 +492,8 @@ static void nr_pdcp_entity_set_time(nr_pdcp_entity_t *entity, uint64_t now)
   entity->t_current = now;
 
   check_t_reordering(entity);
+  if (entity->discard_timer != -1 && entity->discard_pdu != NULL)
+    check_discard_timer(entity);
 }
 
 static void deliver_all_sdus(nr_pdcp_entity_t *entity)
@@ -479,6 +527,7 @@ static void nr_pdcp_entity_suspend(nr_pdcp_entity_t *entity)
 {
   /* Transmitting PDCP entity */
   entity->tx_next = 0;
+  entity->discard_list_length = 0; // the PDUs were discarded with the lower layers
   /* Receiving PDCP entity */
   if (entity->t_reordering_start != 0) {
     entity->t_reordering_start = 0;
@@ -512,7 +561,8 @@ static void nr_pdcp_entity_reestablish_drb_am(nr_pdcp_entity_t *entity,
                                               const nr_pdcp_entity_security_keys_and_algos_t *security_parameters)
 {
   /* transmitting entity procedures */
-  /* do nothing */
+  /* the lower layers are re-established: their PDUs are gone */
+  entity->discard_list_length = 0;
 
   /* receiving entity procedures */
   /* do nothing */
@@ -529,6 +579,7 @@ static void nr_pdcp_entity_reestablish_drb_um(nr_pdcp_entity_t *entity,
 {
   /* transmitting entity procedures */
   entity->tx_next = 0;
+  entity->discard_list_length = 0; // COUNTs restart, the lower layers are re-established
 
   /* receiving entity procedures */
   /* deliver all SDUs if t_reordering is running */
@@ -576,6 +627,7 @@ static void nr_pdcp_entity_release(nr_pdcp_entity_t *entity)
 static void nr_pdcp_entity_delete(nr_pdcp_entity_t *entity)
 {
   free_rx_list(entity);
+  free(entity->discard_list);
   if (entity->free_security != NULL)
     entity->free_security(entity->security_context);
   if (entity->free_integrity != NULL)

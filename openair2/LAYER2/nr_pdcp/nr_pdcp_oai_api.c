@@ -345,6 +345,13 @@ static void deliver_pdu_drb(void *data, ue_id_t ue_id, int rb_id, char *buf, int
   LOG_W(PDCP, "%s(): (drb %d) nr-up DL transfer failed (%d)\n", __func__, rb_id, rc);
 }
 
+/** @brief PDCP discardTimer: asks nr-up to discard the DRB PDUs up to sdu_id in the lower layers */
+static void discard_pdu_drb(void *deliver_sdu_data, int rb_id, int sdu_id)
+{
+  const nr_pdcp_ue_t *ue = deliver_sdu_data;
+  nr_up_drb_discard(ue->ue_id, rb_id, sdu_id);
+}
+
 static void deliver_sdu_srb(void *_ue, nr_pdcp_entity_t *entity,
                             char *buf, int size,
                             const nr_pdcp_integrity_data_t *msg_integrity)
@@ -510,6 +517,9 @@ void nr_pdcp_add_drb(int is_gnb,
                                                     t_reordering,
                                                     discard_timer,
                                                     &actual_security_parameters);
+    /* the gNB-CU cannot discard the PDUs it sent to the DU (no NR-U discard indication) */
+    if (!is_gnb || !NODE_IS_CU(node_type))
+      pdcp_drb->discard_pdu = discard_pdu_drb;
     nr_pdcp_ue_add_drb_pdcp_entity(ue, sdap->drb_id, pdcp_drb);
 
     LOG_I(PDCP, "Added DRB %d to UE ID %ld\n", sdap->drb_id, UEid);
@@ -845,7 +855,10 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
   }
 
   char pdu_buf[max_size];
-  int pdu_size = rb->process_sdu(rb, (char *)sdu_buffer, sdu_buffer_size, muiP, pdu_buf, max_size);
+  /* the PDU is identified towards RLC by its COUNT, used by the discardTimer
+   * (nobody uses the mui of a DRB SDU) */
+  const int sdu_id = rb->tx_next;
+  int pdu_size = rb->process_sdu(rb, (char *)sdu_buffer, sdu_buffer_size, sdu_id, pdu_buf, max_size);
   if (pdu_size == -1) {
     nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
     return 0;
@@ -854,7 +867,7 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
   const uint32_t pdcp_sn = rb->stats.txpdu_sn;
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 
-  deliver_pdu_drb(NULL, ue_id, rb_id, pdu_buf, pdu_size, muiP, pdcp_sn);
+  deliver_pdu_drb(NULL, ue_id, rb_id, pdu_buf, pdu_size, sdu_id, pdcp_sn);
   return 1;
 }
 

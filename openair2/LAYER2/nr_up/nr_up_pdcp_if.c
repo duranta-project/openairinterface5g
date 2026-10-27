@@ -42,3 +42,12 @@ void nr_up_dl_budget_sync(ue_id_t ue_id, rb_id_t drb_id, uint32_t tx_space)
   DevAssert(iface->budget_sync);
   iface->budget_sync(ue_id, drb_id, tx_space);
 }
+
+/** @brief Discard the DRB PDUs up to sdu_id through the active nr-up backend, if it supports it */
+void nr_up_drb_discard(ue_id_t ue_id, rb_id_t drb_id, int sdu_id)
+{
+  nr_up_if_t *iface = get_nr_up_if();
+  DevAssert(iface);
+  if (iface->discard_drb)
+    iface->discard_drb(ue_id, drb_id, sdu_id);
+}

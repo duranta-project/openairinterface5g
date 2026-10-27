@@ -171,6 +171,12 @@ void nr_rlc_entity_tm_discard_sdu(nr_rlc_entity_t *_entity, int sdu_id)
   UNUSED(sdu_id);
 }
 
+void nr_rlc_entity_tm_discard_sdus_up_to(nr_rlc_entity_t *_entity, int sdu_id)
+{
+  UNUSED(_entity);
+  UNUSED(sdu_id);
+}
+
 static void clear_entity(nr_rlc_entity_tm_t *entity)
 {
   entity->t_current = 0;
