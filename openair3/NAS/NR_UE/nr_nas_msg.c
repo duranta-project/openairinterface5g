@@ -1321,7 +1321,12 @@ static void handle_authentication_reject(nr_ue_nas_t *nas, uint8_t *pdu, int pdu
   uint8_t eap_msg[MAX_EAP_CONTENTS_LEN] = {0};
   fgmm_auth_reject_msg_t msg = {.eap_msg.buf = eap_msg};
 
-  byte_array_t ba = {.buf = pdu + 3 /* skip header */, .len = pdu_length};
+  if (!pdu || pdu_length < sizeof(fgmm_msg_header_t)) {
+    LOG_E(NAS, "Authentication Reject header is missing or too short\n");
+    return;
+  }
+
+  byte_array_t ba = {.buf = pdu + sizeof(fgmm_msg_header_t), .len = pdu_length - sizeof(fgmm_msg_header_t)};
   if (decode_fgmm_auth_reject(&msg, &ba) < 0) {
     LOG_E(NAS, "Could not decode Authentication Reject\n");
     return;
