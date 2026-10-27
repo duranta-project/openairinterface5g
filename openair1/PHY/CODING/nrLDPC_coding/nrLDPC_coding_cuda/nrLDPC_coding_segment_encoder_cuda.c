@@ -862,7 +862,11 @@ static void ldpcnblocks(nrLDPC_TB_encoding_parameters_t *nrLDPC_TB_encoding_para
     for (int i=E2-16;i<E2;i++) printf("intl (f offset %d): %x %x\n",(n_seg2-1)*E2,e2[((n_seg2-1)*E2)+i],f2[((n_seg2-1)*E2)+i]);
     */
 
+  if (impp.tconcat)
+    start_meas(impp.tconcat);
   unpack_output(f, E, f2, E2, r_shift, r_shift2, nrLDPC_TB_encoding_parameters->C, output);
+  if (impp.tconcat)
+    stop_meas(impp.tconcat);
 }
 
 int nrLDPC_coding_encoder32(nrLDPC_slot_encoding_parameters_t *nrLDPC_slot_encoding_parameters,
@@ -870,6 +874,12 @@ int nrLDPC_coding_encoder32(nrLDPC_slot_encoding_parameters_t *nrLDPC_slot_encod
 {
   encoder_implemparams_t common_segment_params = {
       .n_segments = nrLDPC_TB_encoding_parameters->C,
+      .tinput = nrLDPC_slot_encoding_parameters->tinput,
+      .tinput_memcpy = nrLDPC_slot_encoding_parameters->tinput_memcpy,
+      .tprep = nrLDPC_slot_encoding_parameters->tprep,
+      .tparity = nrLDPC_slot_encoding_parameters->tparity,
+      .toutput = nrLDPC_slot_encoding_parameters->toutput,
+      .tconcat = nrLDPC_slot_encoding_parameters->tconcat,
       .Kb = nrLDPC_TB_encoding_parameters->Kb,
       .Zc = nrLDPC_TB_encoding_parameters->Z,
       .BG = nrLDPC_TB_encoding_parameters->BG,

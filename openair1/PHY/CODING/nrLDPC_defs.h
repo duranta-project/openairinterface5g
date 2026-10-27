@@ -39,9 +39,11 @@ typedef struct {
   unsigned int first_seg; // optim8segmulti
   unsigned char gen_code; // orig
   time_stats_t *tinput;
+  time_stats_t *tinput_memcpy;
   time_stats_t *tprep;
   time_stats_t *tparity;
   time_stats_t *toutput;
+  time_stats_t *tconcat;
   /// Size in bits of the code segments
   uint32_t K;
   /// Number of lifting sizes to fit the payload
