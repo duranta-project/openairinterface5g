@@ -59,7 +59,7 @@ TEST(oru_beamforming, passthrough_single_stream)
   uint32_t ant0_buf[N_SC], ant1_buf[N_SC];
   c16_t *txDataF[2] = {(c16_t *)ant0_buf, (c16_t *)ant1_buf};
 
-  combine_dl_streams(txDataF, 2, N_SC, streams, 1, &cb, rotation);
+  combine_dl_streams(txDataF, 2, N_SC, streams, 1, &cb, NULL, rotation);
 
   c16_t *ant0 = (c16_t *)ant0_buf;
   const c16_t *src = (const c16_t *)iq_buf;
@@ -90,7 +90,7 @@ TEST(oru_beamforming, passthrough_multi_stream_placement)
   uint32_t ant0_buf[N_SC];
   c16_t *txDataF[1] = {(c16_t *)ant0_buf};
 
-  combine_dl_streams(txDataF, 1, N_SC, streams, 2, &cb, rotation);
+  combine_dl_streams(txDataF, 1, N_SC, streams, 2, &cb, NULL, rotation);
 
   c16_t *ant0 = (c16_t *)ant0_buf;
   for (int i = 0; i < NR_NB_SC_PER_RB; i++) {
@@ -121,7 +121,7 @@ TEST(oru_beamforming, codebook_single_stream_two_antennas)
   uint32_t ant0_buf[N_SC], ant1_buf[N_SC];
   c16_t *txDataF[2] = {(c16_t *)ant0_buf, (c16_t *)ant1_buf};
 
-  combine_dl_streams(txDataF, 2, N_SC, streams, 1, &cb, rotation);
+  combine_dl_streams(txDataF, 2, N_SC, streams, 1, &cb, NULL, rotation);
 
   const c16_t *src = (const c16_t *)iq_buf;
   c16_t *ant0 = (c16_t *)ant0_buf;
@@ -161,7 +161,7 @@ TEST(oru_beamforming, codebook_sub_band_beam_switch)
 
   uint32_t ant0_buf[N_SC];
   c16_t *txDataF[1] = {(c16_t *)ant0_buf};
-  combine_dl_streams(txDataF, 1, N_SC, streams, 2, &cb, rotation);
+  combine_dl_streams(txDataF, 1, N_SC, streams, 2, &cb, NULL, rotation);
 
   c16_t *ant0 = (c16_t *)ant0_buf;
   c16_t w0_rot = c16mulShift(cb.w[0][0][0], rotation, 15);
@@ -201,7 +201,7 @@ TEST(oru_beamforming, codebook_stream_accumulation)
 
   uint32_t ant0_buf[N_SC];
   c16_t *txDataF[1] = {(c16_t *)ant0_buf};
-  combine_dl_streams(txDataF, 1, N_SC, streams, 2, &cb, rotation);
+  combine_dl_streams(txDataF, 1, N_SC, streams, 2, &cb, NULL, rotation);
 
   c16_t *ant0 = (c16_t *)ant0_buf;
   c16_t wa_rot = c16mulShift(cb.w[0][0][0], rotation, 15);
@@ -235,7 +235,7 @@ TEST(oru_beamforming, codebook_out_of_range_fallbacks)
 
   uint32_t ant0_buf[N_SC];
   c16_t *txDataF[1] = {(c16_t *)ant0_buf};
-  combine_dl_streams(txDataF, 1, N_SC, streams, 2, &cb, rotation);
+  combine_dl_streams(txDataF, 1, N_SC, streams, 2, &cb, NULL, rotation);
 
   c16_t *ant0 = (c16_t *)ant0_buf;
   c16_t w_rot = c16mulShift(cb.w[0][0][0], rotation, 15);
@@ -418,7 +418,7 @@ TEST(oru_beamforming, ul_combine_prbs_matches_full_window)
     const c16_t *fft[2] = {x0.data(), x1.data()};
     combine_ul_beam_fd(fft, 2, 0, c.fft_size, &cb, 0, 0, full.data());
     const int nbins = c.n_rb * NR_NB_SC_PER_RB, half = nbins / 2;
-    combine_ul_beam_prbs(fft, 2, c.fft_size, nbins, c.start, c.num, &cb, 0, 0, out.data());
+    combine_ul_beam_prbs(fft, 2, c.fft_size, nbins, c.start, c.num, &cb, 0, 0, NULL, NULL, out.data());
 
     std::vector<bool> in_range(c.fft_size, false);
     const int end = std::min(c.start + c.num, c.n_rb) * NR_NB_SC_PER_RB;
