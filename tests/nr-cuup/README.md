@@ -9,17 +9,40 @@ stream data via GTP in uplink and downlink directions.
 
 From a schematic point of view, the tester/CU-UP interaction looks like this:
 
-```
-        +-------+
-+------>| CU-UP |<------+
-|       +-------+       |
-|          |            |
-| F1-U     | E1         | NG-U
-| (data)   | (control)  | (data)
-|          |            |
-|       +-------+       |
-+------>|tester |<------+
-        +-------+
+```mermaid
+sequenceDiagram
+  box tester (one process)
+    participant UPF as tester / UPF
+    participant CP as tester / CU-CP
+    participant DU as tester / DU
+  end
+  participant CUUP as nr-cuup
+
+  Note over CP,CUUP: Setup (E1)
+  CUUP->>CP: E1 Setup Request
+  CP->>CUUP: E1 Setup Response
+
+  UPF->>UPF: newGtpuCreateTunnel (recv_ng)
+  CP->>CUUP: Bearer Context Setup Request
+  CUUP->>CP: Bearer Context Setup Response
+
+  DU->>DU: newGtpuCreateTunnel (recv_f1, fake_du_poll_ddds)
+  CP->>CUUP: Bearer Context Modification Request
+  CUUP->>CP: Bearer Context Modification Response
+
+  Note over UPF,CUUP: Downlink
+  UPF->>CUUP: NG-U G-PDU
+  CUUP->>DU: F1-U G-PDU (+ Report Polling)
+  DU->>DU: fake_du_poll_ddds
+  DU->>CUUP: F1-U DDDS (Desired Buffer Size)
+
+  Note over DU,CUUP: Uplink
+  DU->>CUUP: F1-U G-PDU
+  CUUP->>UPF: NG-U G-PDU
+
+  Note over CP,CUUP: Teardown
+  CP->>CUUP: Bearer Context Release Command
+  CUUP->>CP: Bearer Context Release Complete
 ```
 
 The tester is for performance testing of a CU-UP, and behaves like an
