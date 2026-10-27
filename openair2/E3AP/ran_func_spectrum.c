@@ -158,15 +158,12 @@ typedef struct {
 
 static e3_spectrum_cell_t *g_cells[NR_MAX_CELLS];
 
-/* Sensing policy state (dApp control): for each slot of the frame, a 14-bit
- * bitmap of the symbols the dApp wants kept free for sensing. Read by the TDA
- * selector, written by set_sensing_policy(); it lives in the cell's
- * sched_stateful_data slot. */
+/* Per-slot bitmap of the symbols a dApp wants kept free; read by the TDA selector under lock. */
 typedef struct {
   pthread_mutex_t lock;
   bool active; /* false = no mask, behave like the default selector */
-  uint16_t mask[MAX_NUM_SLOTS_ALLOWED]; /* per-slot symbol bitmap */
-  int n_slots; /* slots-per-frame the mask was set for */
+  uint16_t mask[MAX_NUM_SLOTS_ALLOWED];
+  int n_slots;
 } sensing_policy_state_t;
 
 static void sensing_policy_init(nr_cell_sched_t *cell);
@@ -187,7 +184,6 @@ static e3_spectrum_cell_t *find_cell(const nr_cell_sched_t *cell)
   return NULL;
 }
 
-/* The configuration, read once from E3Configuration. */
 static const e3_spectrum_cfg_t *e3_spectrum_cfg(void)
 {
   static e3_spectrum_cfg_t cfg;
@@ -206,12 +202,7 @@ int e3_spectrum_extra_ul_tdas(const nr_ul_tda_shape_t **out)
   return cfg->num_extra_tdas;
 }
 
-/* get_num_ul_tda() takes the first same-k2 TDA that fits a slot and then asserts
- * that every later one fits too -- i.e. within a same-k2 run, "fits" must be
- * monotone once it turns true. The built-in TDAs satisfy that incidentally;
- * operator-supplied extra TDAs need not. Check it against this cell's actual TDD
- * pattern, so a bad combination fails at configuration time with an actionable
- * message instead of asserting mid-scheduling. */
+/* get_num_ul_tda() asserts that the TDAs of a same-k2 run that fit a slot are contiguous at its end; fail at startup instead. */
 static void check_ul_tda_ordering(const nr_cell_sched_t *cell)
 {
   const frame_structure_t *fs = &cell->frame_structure;
@@ -224,7 +215,7 @@ static void check_ul_tda_ordering(const nr_cell_sched_t *cell)
     bool seen_fit = false;
     const NR_tda_info_t *first_fit = NULL;
     FOR_EACH_SEQ_ARR (NR_tda_info_t *, tda, &cell->ul_tda) {
-      if (tda->k2 != run_k2) { /* a new same-k2 run starts here */
+      if (tda->k2 != run_k2) {
         run_k2 = tda->k2;
         seen_fit = false;
         first_fit = NULL;
@@ -249,9 +240,6 @@ static void check_ul_tda_ordering(const nr_cell_sched_t *cell)
   }
 }
 
-/* Msg3 has to land, k2 + delta slots after a Msg2 in a DL slot, in a UL slot that is not reserved for
- * sensing; with no such pair no UE can ever attach. Refuse that configuration at startup instead of
- * letting random access time out. */
 static void check_msg3_reachable(const nr_cell_sched_t *cell, const e3_spectrum_cell_t *rec)
 {
   const frame_structure_t *fs = &cell->frame_structure;
@@ -282,9 +270,6 @@ static void check_msg3_reachable(const nr_cell_sched_t *cell, const e3_spectrum_
               delta);
 }
 
-/* Mark which entries of the cell's UL TDA list are the operator's extra shapes,
- * so the selector can prefer them once a sensing policy is active. The list is
- * the shared one -- it carries no such flag -- so the table lives here. */
 static void mark_extra_tdas(e3_spectrum_cell_t *rec, const e3_spectrum_cfg_t *cfg)
 {
   int idx = 0;
@@ -297,9 +282,7 @@ static void mark_extra_tdas(e3_spectrum_cell_t *rec, const e3_spectrum_cfg_t *cf
   }
 }
 
-/* The cell the service models act on. Multi-cell dApp addressing is not
- * specified yet, so the SM targets the first attached cell, matching the
- * beam-0 assumption in the sensing publish path. */
+/* Multi-cell dApp addressing is not specified: the service models act on the first attached cell. */
 static gNB_MAC_INST *g_default_mac;
 static nr_cell_sched_t *g_default_cell;
 
@@ -358,9 +341,7 @@ void e3_spectrum_mac_attach_cell(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
   }
   g_cells[free_idx] = rec;
 
-  /* The sensing-aware selector: it behaves like the default one until a dApp
-   * installs a policy. The policy state it reads is the cell's stateful-policy
-   * slot, which the MAC keeps for exactly this. */
+  /* Behaves like the default selector until a dApp installs a policy. */
   sensing_policy_init(cell);
   mac->ul_tda_select = nr_ul_tda_select_sensing;
   LOG_I(NR_MAC,
@@ -439,8 +420,7 @@ void nr_mac_sensing_restore_ul_slot(nr_cell_sched_t *cell, frame_t frame, slot_t
   const int num_beams = nr_mac_active_beams(cell);
   for (int b = 0; b < num_beams; b++) {
     uint16_t *row = &cell->common_channels.vrb_map_UL[b][buf_idx * MAX_BWP_SIZE];
-    /* Reset to the static block list, then re-apply the live dApp UL block so
-     * reserved-slot sensing keeps the block intent. */
+    /* Reset to the static block list so the reserved slot is clean for sensing. */
     memcpy(row, &cell->ulprbbl, sizeof(uint16_t) * MAX_BWP_SIZE);
     prb_block_reapply_ul_row(cell, row);
   }
@@ -574,11 +554,7 @@ void nr_mac_signal_sensing_shutdown(void)
 {
   pub_channel_signal_shutdown(&g_sensing_chan);
 }
-/* Enumerate the full run of TDAs with this k2 in cell->ul_tda (the list is
- * ordered by k2, so the run is contiguous). Unlike get_num_ul_tda() this does
- * not pre-filter on the slot mask: the caller checks each TDA itself, which
- * removes the "fitting TDAs form a suffix" precondition that additional
- * TDAs would otherwise violate. Returns the run length, 0 if none. */
+/* Count the TDAs with this k2 (the list is k2-ordered) without get_num_ul_tda()'s slot-mask pre-filter. */
 static int nr_sensing_tdas_for_k2(const nr_cell_sched_t *cell, int k2, const NR_tda_info_t **first)
 {
   *first = NULL;
@@ -588,7 +564,7 @@ static int nr_sensing_tdas_for_k2(const nr_cell_sched_t *cell, int k2, const NR_
     if (tda->k2 < k2)
       continue;
     if (tda->k2 > k2)
-      break; /* ordered by k2: no more can match */
+      break;
     if (*first == NULL)
       *first = tda;
     n++;
@@ -596,10 +572,7 @@ static int nr_sensing_tdas_for_k2(const nr_cell_sched_t *cell, int k2, const NR_
   return n;
 }
 
-/* The SRS-companion of `best`: same k2, same start symbol, one symbol shorter,
- * so the UE's aperiodic SRS gets the last symbol to itself. NULL if the list has
- * no such entry. Searched rather than assumed adjacent, because additional TDAs
- * are appended to the list. */
+/* The SRS companion of best: same k2 and start, one symbol shorter. Not necessarily adjacent once extra TDAs are appended. */
 static const NR_tda_info_t *nr_sensing_find_srs_tda(const NR_tda_info_t *tda_list, int n_tda, const NR_tda_info_t *best)
 {
   for (int i = 0; i < n_tda; i++) {
@@ -610,14 +583,8 @@ static const NR_tda_info_t *nr_sensing_find_srs_tda(const NR_tda_info_t *tda_lis
   return NULL;
 }
 
-/* Pick the TDA best matching the sensing mask for this candidate, by
- * lexicographic score (higher wins, packed into one uint64_t):
- *   tier 0 (bit 33)      : one of the operator's extra TDAs, only when policy_active
- *   tier 1 (bit 32)      : zero-overlap with mask
- *   tier 2 (bits 24..27) : fewer overlap symbols (popcount 0..14)
- *   tier 3 (bits  0..23) : nrOfSymbols x free-RB count
- * Tier 0 is gated on policy_active so the extra TDAs bias selection only
- * once a dApp installs a policy. Returns NULL if no TDA has free RBs. */
+/* Score, higher wins: bit 33 extra TDA (only if policy_active), bit 32 no overlap with mask,
+ * bits 24..27 fewer overlapping symbols, bits 0..23 nrOfSymbols x free RBs. NULL if no TDA has free RBs. */
 static const NR_tda_info_t *pick_masked_best(const nr_cell_sched_t *cell,
                                              nr_ul_candidate_t *cand,
                                              const NR_tda_info_t *tda_list,
@@ -629,9 +596,6 @@ static const NR_tda_info_t *pick_masked_best(const nr_cell_sched_t *cell,
 {
   const int index = ul_buffer_index(frame, slot, cell->frame_structure.numb_slots_frame, cell->vrb_map_UL_size);
   uint16_t *vrb_map_UL = &cell->common_channels.vrb_map_UL[cand->alloc_beam_idx][index * MAX_BWP_SIZE];
-  /* Every candidate is checked against the slot mask here, so the list need not
-   * be pre-filtered and the TDAs that fit need not form a suffix -- which is why
-   * appending additional_ul_tdas does not require reordering the shared list. */
   const uint16_t ul_bitmap = get_ul_bitmap(&cell->frame_structure, slot);
   const e3_spectrum_cell_t *rec = find_cell(cell);
 
@@ -641,7 +605,7 @@ static const NR_tda_info_t *pick_masked_best(const nr_cell_sched_t *cell,
     int start = 0, len = cand->bwp_size;
     uint16_t tda_bits = SL_to_bitmap(tda_list[i].startSymbolIndex, tda_list[i].nrOfSymbols);
     if ((tda_bits & ul_bitmap) != tda_bits)
-      continue; /* does not fit this slot's UL symbols */
+      continue;
     get_max_rb_range(vrb_map_UL, cell->ulprbbl, tda_bits, &start, &len);
     if (len == 0)
       continue;
@@ -661,8 +625,6 @@ static const NR_tda_info_t *pick_masked_best(const nr_cell_sched_t *cell,
   return best;
 }
 
-/* Stamp the picked TDA onto a candidate (index, tda_info, symbol bitmap) and
- * return its index. Shared by the new-tx and retx-refit paths; best != NULL. */
 static int nr_sensing_commit_tda(nr_cell_sched_t *cell, nr_ul_candidate_t *cand, const NR_tda_info_t *best)
 {
   int tda = seq_arr_dist(&cell->ul_tda, seq_arr_front(&cell->ul_tda), best);
@@ -673,10 +635,7 @@ static int nr_sensing_commit_tda(nr_cell_sched_t *cell, nr_ul_candidate_t *cand,
   return tda;
 }
 
-/* For a retx, reuse the TDA from the original transmission if it is still valid
- * for this slot (true), else false so the caller refits. Checks the exact index,
- * since the same k2 needn't have valid symbols in a mixed slot. Mirrors the inline
- * reuse in nr_ul_tda_select_default (kept separate to leave OAI's selector intact). */
+/* A retx keeps its original TDA if its symbols still fit this slot, else false and the caller refits. */
 static bool nr_ul_retx_reuse_orig_tda(const nr_cell_sched_t *cell,
                                       nr_ul_candidate_t *cand,
                                       const NR_tda_info_t *tda_list,
@@ -688,8 +647,6 @@ static bool nr_ul_retx_reuse_orig_tda(const nr_cell_sched_t *cell,
   ptrdiff_t offset = orig - tda_list;
   if (offset < 0 || offset >= n_tda)
     return false;
-  /* Being in the same-k2 run is not enough: this list is not pre-filtered on the
-   * slot mask, so check the symbols fit before reusing. */
   const uint16_t orig_bits = SL_to_bitmap(orig->startSymbolIndex, orig->nrOfSymbols);
   const uint16_t ul_bitmap = get_ul_bitmap(&cell->frame_structure, slot);
   if ((orig_bits & ul_bitmap) != orig_bits)
@@ -701,9 +658,7 @@ static bool nr_ul_retx_reuse_orig_tda(const nr_cell_sched_t *cell,
   return true;
 }
 
-/* Sensing-aware UL TDA selector: pick the best TDA against the per-slot sensing
- * mask (inactive policy => mask 0 => behaves like the default biggest-TDA pick).
- * Retx reuses the original TDA when still valid, else refits via the masked pick. */
+/* Sensing-aware UL TDA selector; with no policy active (mask 0) it picks like the default one. */
 static int nr_ul_tda_select_sensing(gNB_MAC_INST *mac,
                                     nr_cell_sched_t *cell,
                                     nr_ul_candidate_t *cands,
@@ -713,10 +668,6 @@ static int nr_ul_tda_select_sensing(gNB_MAC_INST *mac,
                                     int k2)
 {
   (void)mac;
-  /* Enumerate the whole same-k2 run rather than get_num_ul_tda()'s pre-filtered
-   * window: pick_masked_best() does its own per-TDA fit check, so the shared
-   * helper's "fitting TDAs form a suffix" precondition -- which appending
-   * additional_ul_tdas would break -- does not have to hold here. */
   const NR_tda_info_t *tda_list = NULL;
   int n_tda = nr_sensing_tdas_for_k2(cell, k2, &tda_list);
   if (n_tda == 0)
@@ -724,8 +675,7 @@ static int nr_ul_tda_select_sensing(gNB_MAC_INST *mac,
 
   NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
 
-  /* Snapshot the mask + active flag once under the lock, then read them
-   * lock-free per candidate. */
+  /* Snapshot under the lock, read lock-free per candidate. */
   uint16_t mask = 0;
   bool policy_active = false;
   sensing_policy_state_t *sp = cell->sched_stateful_data;
@@ -745,13 +695,11 @@ static int nr_ul_tda_select_sensing(gNB_MAC_INST *mac,
     if (cand->skipped)
       continue;
 
-    /* Retransmissions: preserve original TDA when valid; otherwise refit. */
     if (cand->is_retx) {
       if (nr_ul_retx_reuse_orig_tda(cell, cand, tda_list, n_tda, sched_slot)) {
         n_valid++;
         continue;
       }
-      /* Original TDA not valid -- pick mask-aware best with TBS refit */
       const NR_tda_info_t *best = pick_masked_best(cell, cand, tda_list, n_tda, sched_frame, sched_slot, mask, policy_active);
       if (!best) {
         cand->skipped = true;
@@ -769,17 +717,12 @@ static int nr_ul_tda_select_sensing(gNB_MAC_INST *mac,
       continue;
     }
 
-    /* New transmission: pick mask-aware best TDA */
     const NR_tda_info_t *best = pick_masked_best(cell, cand, tda_list, n_tda, sched_frame, sched_slot, mask, policy_active);
     if (!best) {
       cand->skipped = true;
       continue;
     }
-    /* Aperiodic SRS shares the slot: the UE transmits SRS on the last symbol, so
-     * the PUSCH must give it up. Look for the same-k2, same-start, one-symbol-
-     * shorter TDA rather than assuming it is the next list entry -- appending
-     * additional_ul_tdas breaks that adjacency. If there is none, drop the SRS
-     * trigger, as the default selector does. */
+    /* Aperiodic SRS takes the last symbol: use the one-symbol-shorter TDA, or drop the SRS trigger if there is none. */
     if (cand->sched_srs > 0) {
       const NR_tda_info_t *srs_best = nr_sensing_find_srs_tda(tda_list, n_tda, best);
       if (srs_best)
@@ -793,18 +736,7 @@ static int nr_ul_tda_select_sensing(gNB_MAC_INST *mac,
   return n_valid;
 }
 
-/* ======================================================================
- * Sensing policy control (dApp interface)
- * ====================================================================== */
-
-/* dApp entry point: install (or clear) the per-slot sensing mask under sp->lock.
- * mask==NULL / n_slots==0 deactivates; otherwise n_slots MUST equal the cell's
- * slots-per-frame (TDD mismatch is rejected). Sets sp->active, which gates the
- * mask-aware UL TDA selector. */
-/* The cell the E3 service models act on. Multi-cell dApp addressing is not
- * specified yet, so the SMs target cell 0 -- matching the beam-0 assumption in
- * the sensing publish path. NULL before MAC init. Exists so the service models
- * can reach a cell without pulling in the MAC header surface. */
+/* Cell 0, NULL before MAC init. */
 nr_cell_sched_t *nr_mac_e3_default_cell(void)
 {
   if (!RC.nrmac || !RC.nrmac[0])
@@ -812,9 +744,6 @@ nr_cell_sched_t *nr_mac_e3_default_cell(void)
   return &RC.nrmac[0]->cells[0];
 }
 
-/* Allocate the sensing-policy state behind cell->sched_stateful_data. Starts
- * inactive: the selector then behaves like the default one until a dApp calls
- * set_sensing_policy(). */
 static void sensing_policy_init(nr_cell_sched_t *cell)
 {
   sensing_policy_state_t *sp = calloc(1, sizeof(*sp));
@@ -823,7 +752,6 @@ static void sensing_policy_init(nr_cell_sched_t *cell)
   cell->sched_stateful_data = sp;
 }
 
-/* Release the state allocated by sensing_policy_init(). Idempotent. */
 static void sensing_policy_free(nr_cell_sched_t *cell)
 {
   if (cell->sched_stateful_data == NULL)
@@ -834,6 +762,7 @@ static void sensing_policy_free(nr_cell_sched_t *cell)
   cell->sched_stateful_data = NULL;
 }
 
+/* mask NULL or n_slots 0 clears the policy; otherwise n_slots must equal the cell's slots per frame. */
 bool set_sensing_policy(nr_cell_sched_t *cell, const uint16_t *mask, int n_slots)
 {
   sensing_policy_state_t *sp = cell->sched_stateful_data;
@@ -842,7 +771,6 @@ bool set_sensing_policy(nr_cell_sched_t *cell, const uint16_t *mask, int n_slots
     return false;
   }
 
-  /* Reject TDD mismatch: caller must use the gNB's actual slots-per-frame. */
   if (n_slots != 0 && n_slots != cell->frame_structure.numb_slots_frame) {
     LOG_W(NR_MAC,
           "set_sensing_policy: mask n_slots=%d does not match frame slots=%d -- ignoring\n",
@@ -864,7 +792,7 @@ bool set_sensing_policy(nr_cell_sched_t *cell, const uint16_t *mask, int n_slots
   }
   pthread_mutex_unlock(&sp->lock);
 
-  /* Log from locals, not sp->* (which are only safe to read under the lock). */
+  /* Log from locals: sp->* is only safe to read under the lock. */
   LOG_I(NR_MAC, "Sensing policy updated: active=%d n_slots=%d\n", active, active ? n_slots : 0);
   return true;
 }
@@ -1174,12 +1102,7 @@ static int nr_scan_sensing_tiles(gNB_MAC_INST *mac,
   /* beam 0 for now */
   uint16_t *vrb_map_UL = &cell->common_channels.vrb_map_UL[0][buf_idx * MAX_BWP_SIZE];
 
-  /* Subtract the dApp UL block (effective) from the occupancy so blocked PRBs
-   * read as FREE here and still surface as tiles: the dApp blocked them for
-   * interference but still watches them via the sensing telemetry. The bits stay
-   * set in vrb_map_UL (schedulers keep refusing them); only this scan subtracts
-   * them. The LIVE snapshot is read; a mid-interim shrink self-corrects on the
-   * next reseed. */
+  /* Blocked PRBs read as free so they still surface as tiles; the bits stay in vrb_map_UL. Reads the live snapshot. */
   uint16_t prb_block_eff[MAX_BWP_SIZE];
   const bool have_block = get_effective_prb_block_mask_ul(cell, prb_block_eff);
 

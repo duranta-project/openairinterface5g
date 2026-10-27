@@ -55,10 +55,7 @@ __attribute__((weak)) void nr_mac_signal_sensing_shutdown(void)
 {
 }
 
-/* Strong defs in ran_func_spectrum.c and ran_func_spectrum_prb_block.c. No MAC
- * in the MAC-less sims, so these are no-ops and the SM's control dispatchers
- * NACK back to the dApp. Both take their signature from
- * ran_func_spectrum_types.h, so a mismatch with the strong defs fails to compile. */
+/* Strong defs in ran_func_spectrum.c and ran_func_spectrum_prb_block.c. Without a MAC the SM's control handlers NACK. */
 __attribute__((weak)) bool e3_spectrum_default_cell(struct gNB_MAC_INST_s **mac, struct nr_cell_sched_s **cell)
 {
   (void)mac;
@@ -88,8 +85,6 @@ __attribute__((weak)) bool set_prb_block_mask(struct gNB_MAC_INST_s *mac,
   return false;
 }
 
-/* Weak stub for prb_block_set_pending_procedure, same reasoning as
- * set_prb_block_mask above: without a MAC there is no install to name. */
 __attribute__((weak)) void prb_block_set_pending_procedure(uint32_t sequence_id)
 {
   (void)sequence_id;

@@ -366,10 +366,7 @@ static void schedule_nr_MsgA_pusch(NR_UplinkConfigCommon_t *uplinkConfigCommon,
         pusch_pdu->param_v4.numSpatialStreamIndices);
 
 #ifdef E3_AGENT
-  /* Mark the MsgA-PUSCH region in vrb_map_UL so the sensing scanner doesn't see
-   * those PRBs as free and emit a range over the UE's MsgA-PUSCH energy. Only
-   * applies to 2-step RA (msgA_ConfigCommon_r16). rb_start is BWP-relative, so
-   * add bwp_start to get the absolute carrier PRB fill_vrb expects. */
+  /* rb_start is BWP-relative, fill_vrb takes the absolute carrier PRB. */
   fill_vrb(msgA_pusch_frame,
            msgA_pusch_slot,
            pusch_pdu->rb_size,
@@ -1193,7 +1190,6 @@ static bool get_feasible_msg3_tda(const nr_cell_sched_t *cell,
     if (fs->frame_type == TDD && !is_ul_slot(temp.s, fs))
       continue;
 #ifdef E3_AGENT
-    /* reserved for spectrum sensing: the scheduler will not let Msg3 in */
     if (nr_mac_ul_slot_is_sensing_reserved(cell, temp.s))
       continue;
 #endif /* E3_AGENT */
@@ -1382,10 +1378,7 @@ static bool nr_get_Msg3alloc(nr_cell_sched_t *cell, int current_slot, frame_t cu
       bwpStart = act_bwp_start;
   }
 
-  /* search msg3_nb_rb free RBs. Detect-only baseline: Msg3 honours the stamped
-   * block (searches vrb_map_UL directly), so a wide block simply starves Msg3
-   * and RA fails ("No space"). The Msg3-inside-the-block exemption (scrubbed-copy
-   * search) is deferred. */
+  /* search msg3_nb_rb free RBs. Msg3 honours the dApp block, so a wide block starves it and RA fails ("No space"). */
   int rbSize = 0;
   int rbStart = 0;
   if (!get_rb_alloc(msg3_nb_rb, msg3_nb_rb, bwpStart, bwpSize, vrb_map_UL, msg3_mask, &rbStart, &rbSize)) {
@@ -1426,8 +1419,6 @@ nr_add_msg3(nr_cell_sched_t *cell, frame_t frameP, slot_t slotP, NR_UE_info_t *U
   int buffer_index = ul_buffer_index(ra->Msg3_frame, ra->Msg3_slot, slots_frame, cell->vrb_map_UL_size);
   uint16_t *vrb_map_UL = &cc->vrb_map_UL[ra->Msg3_beam.idx][buffer_index * MAX_BWP_SIZE];
 #ifdef E3_AGENT
-  /* Reserve the Msg3 RBs, skipping dApp-block collisions gracefully (PHY then
-   * fails Msg3 decode on the interfered RBs and the UE retries the RA). */
   prb_block_reserve_ul_channel(cell,
                                vrb_map_UL,
                                ra->msg3_first_rb + ra->msg3_bwp_start,
