@@ -22,3 +22,12 @@ void nr_up_user_data(const nr_up_user_data_req_t *req)
   if (local.pdu.buf != NULL && local.pdu.len > 0)
     nr_up_consume_dbs(local.ue_id, local.drb_id, local.pdu.len);
 }
+
+/** @brief Discard the DRB PDUs up to sdu_id through the active nr-up backend, if it supports it */
+void nr_up_drb_discard(ue_id_t ue_id, rb_id_t drb_id, int sdu_id)
+{
+  nr_up_if_t *iface = get_nr_up_if();
+  DevAssert(iface);
+  if (iface->discard_drb)
+    iface->discard_drb(ue_id, drb_id, sdu_id);
+}

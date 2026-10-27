@@ -102,6 +102,7 @@ nr_rlc_entity_t *new_nr_rlc_entity_am(int rx_maxsize,
   ret->common.recv_sdu           = nr_rlc_entity_am_recv_sdu;
   ret->common.set_time           = nr_rlc_entity_am_set_time;
   ret->common.discard_sdu        = nr_rlc_entity_am_discard_sdu;
+  ret->common.discard_sdus_up_to = nr_rlc_entity_am_discard_sdus_up_to;
   ret->common.reestablishment    = nr_rlc_entity_am_reestablishment;
   ret->common.delete_entity      = nr_rlc_entity_am_delete;
   ret->common.available_tx_space = nr_rlc_entity_am_available_tx_space;
@@ -162,6 +163,7 @@ nr_rlc_entity_t *new_nr_rlc_entity_um(int rx_maxsize,
   ret->common.recv_sdu           = nr_rlc_entity_um_recv_sdu;
   ret->common.set_time           = nr_rlc_entity_um_set_time;
   ret->common.discard_sdu        = nr_rlc_entity_um_discard_sdu;
+  ret->common.discard_sdus_up_to = nr_rlc_entity_um_discard_sdus_up_to;
   ret->common.reestablishment    = nr_rlc_entity_um_reestablishment;
   ret->common.delete_entity      = nr_rlc_entity_um_delete;
   ret->common.available_tx_space = nr_rlc_entity_um_available_tx_space;
@@ -201,6 +203,7 @@ nr_rlc_entity_t *new_nr_rlc_entity_tm(int tx_maxsize,
   ret->common.recv_sdu           = nr_rlc_entity_tm_recv_sdu;
   ret->common.set_time           = nr_rlc_entity_tm_set_time;
   ret->common.discard_sdu        = nr_rlc_entity_tm_discard_sdu;
+  ret->common.discard_sdus_up_to = nr_rlc_entity_tm_discard_sdus_up_to;
   ret->common.reestablishment    = nr_rlc_entity_tm_reestablishment;
   ret->common.delete_entity      = nr_rlc_entity_tm_delete;
   ret->common.available_tx_space = nr_rlc_entity_tm_available_tx_space;

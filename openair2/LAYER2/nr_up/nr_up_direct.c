@@ -83,6 +83,18 @@ void nr_up_direct_ul_user_data(protocol_ctxt_t *ctxt, ue_id_t rlc_ue_id, rb_id_t
   }
 }
 
+/** @brief Mono gNB or UE: queues the discard of the DRB PDUs up to sdu_id to the local RLC */
+static void nr_up_direct_discard_drb(ue_id_t ue_id, rb_id_t drb_id, int sdu_id)
+{
+#ifdef PDCP_CUCP_CUUP
+  f1_ue_data_t ue_data = cu_get_f1_ue_data(ue_id);
+  protocol_ctxt_t ctxt = {.enb_flag = 1, .rntiMaybeUEid = ue_data.secondary_ue};
+#else
+  protocol_ctxt_t ctxt = {.enb_flag = 0, .rntiMaybeUEid = ue_id};
+#endif
+  nr_rlc_enqueue_discard(&ctxt, drb_id, sdu_id, ue_id);
+}
+
 /** @brief Starts the RLC enqueue worker and binds the local nr-up backend on iface */
 void nr_up_init_direct(nr_up_if_t *iface)
 {
@@ -91,4 +103,5 @@ void nr_up_init_direct(nr_up_if_t *iface)
   iface->up_user_data = nr_up_direct_dl_user_data;
   iface->up_send_ddds = nr_up_direct_ddds;
   iface->ul_user_data = nr_up_direct_ul_user_data;
+  iface->discard_drb = nr_up_direct_discard_drb;
 }

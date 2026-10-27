@@ -36,6 +36,7 @@ typedef struct {
   uint8_t *sdu_pP;
   ue_id_t pdcp_ue_id;
   bool report_polling;
+  bool discard; // PDCP discardTimer: discard the SDUs up to sdu_id
 } nr_rlc_data_req_queue_item;
 
 #define NR_RLC_DATA_REQ_QUEUE_SIZE 10000
@@ -71,8 +72,13 @@ static void *nr_rlc_data_req_queue_thread(void *_)
     }
 
     nr_rlc_data_req_queue_item *item = &g_nr_rlc_data_req_queue.q[i];
-    /* PDU present: push. NULL PDU: DBS refresh only. */
-    int desired_buffer_size = nr_rlc_data_req(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id, item->sdu_sizeP, item->sdu_pP);
+    /* discard: drop the SDUs up to sdu_id. PDU present: push. NULL PDU: DBS refresh only. */
+    int desired_buffer_size;
+    if (item->discard)
+      desired_buffer_size = nr_rlc_discard_sdus_up_to(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id);
+    else
+      desired_buffer_size =
+          nr_rlc_data_req(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id, item->sdu_sizeP, item->sdu_pP);
     LOG_D(RLC,
           "UE %ld %s %ld: desired_buffer_size=%d\n",
           item->ctxt_pP.rntiMaybeUEid,
@@ -113,14 +119,15 @@ void nr_rlc_data_req_queue_init(void)
   }
 }
 
-void nr_rlc_enqueue_data_req(const protocol_ctxt_t *ctxt_pP,
-                             srb_flag_t srb_flagP,
-                             rb_id_t rb_idP,
-                             int sdu_id,
-                             sdu_size_t sdu_sizeP,
-                             uint8_t *sdu_pP,
-                             ue_id_t pdcp_ue_id,
-                             bool report_polling)
+static void nr_rlc_enqueue(const protocol_ctxt_t *ctxt_pP,
+                           srb_flag_t srb_flagP,
+                           rb_id_t rb_idP,
+                           int sdu_id,
+                           sdu_size_t sdu_sizeP,
+                           uint8_t *sdu_pP,
+                           ue_id_t pdcp_ue_id,
+                           bool report_polling,
+                           bool discard)
 {
   int i;
   int logged = 0;
@@ -149,6 +156,7 @@ void nr_rlc_enqueue_data_req(const protocol_ctxt_t *ctxt_pP,
   g_nr_rlc_data_req_queue.q[i].sdu_pP = sdu_pP;
   g_nr_rlc_data_req_queue.q[i].pdcp_ue_id = pdcp_ue_id;
   g_nr_rlc_data_req_queue.q[i].report_polling = report_polling;
+  g_nr_rlc_data_req_queue.q[i].discard = discard;
 
   if (pthread_cond_signal(&g_nr_rlc_data_req_queue.c) != 0) {
     abort();
@@ -156,4 +164,22 @@ void nr_rlc_enqueue_data_req(const protocol_ctxt_t *ctxt_pP,
   if (pthread_mutex_unlock(&g_nr_rlc_data_req_queue.m) != 0) {
     abort();
   }
+}
+
+void nr_rlc_enqueue_data_req(const protocol_ctxt_t *ctxt_pP,
+                             srb_flag_t srb_flagP,
+                             rb_id_t rb_idP,
+                             int sdu_id,
+                             sdu_size_t sdu_sizeP,
+                             uint8_t *sdu_pP,
+                             ue_id_t pdcp_ue_id,
+                             bool report_polling)
+{
+  nr_rlc_enqueue(ctxt_pP, srb_flagP, rb_idP, sdu_id, sdu_sizeP, sdu_pP, pdcp_ue_id, report_polling, false);
+}
+
+/* the discard frees RLC TX space: report it like a poll */
+void nr_rlc_enqueue_discard(const protocol_ctxt_t *ctxt_pP, rb_id_t rb_idP, int sdu_id, ue_id_t pdcp_ue_id)
+{
+  nr_rlc_enqueue(ctxt_pP, SRB_FLAG_NO, rb_idP, sdu_id, 0, NULL, pdcp_ue_id, true, true);
 }

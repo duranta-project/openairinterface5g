@@ -27,6 +27,8 @@ typedef enum nr_up_flow_control_action_e {
   NR_UP_FLOW_DROP,
 } nr_up_flow_control_action_t;
 
+typedef void (*nr_up_drb_discard_fn_t)(ue_id_t ue_id, rb_id_t drb_id, int sdu_id);
+
 /** Request to send DDDS */
 typedef struct nr_up_ddds_req_s {
   ue_id_t ue_id;
@@ -47,6 +49,8 @@ typedef struct nr_up_if_s {
   nr_up_send_ddds_fn_t up_send_ddds;
   /** RLC UL DRB delivery (backend set at init) */
   nr_up_ul_user_data_fn_t ul_user_data;
+  /// PDCP discardTimer: discard the DRB PDUs up to sdu_id not transmitted yet; NULL: not supported (F1/CU)
+  nr_up_drb_discard_fn_t discard_drb;
 } nr_up_if_t;
 
 /** Last DDDS reported toward the peer (mono sync or F1 DU TX). */
