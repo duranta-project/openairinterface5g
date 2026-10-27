@@ -16,6 +16,7 @@
 #include "common/utils/assertions.h"
 #include "common/utils/system.h"
 #include "common/utils/fsn.h"
+#include "common/utils/rt_probe.h"
 #include "common/ran_context.h"
 
 #include "radio/ETHERNET/ethernet_lib.h"
