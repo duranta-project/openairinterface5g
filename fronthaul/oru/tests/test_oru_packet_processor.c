@@ -795,6 +795,40 @@ void test_frame_wrap_around()
   printf("Frame wrap around passed!\n");
 }
 
+// Sends a DL C-Plane message for eAxC 0 with one section of sectionId 0 and num_symbols symbols, starting at target_sym
+// (numerology 1)
+static void send_dl_cplane_multi_symbol(void *ctx, uint64_t target_sym, int num_symbols)
+{
+  const int num_symbols_per_frame = 10 * 2 * 14;
+  struct rte_mbuf *c_mbuf = rte_pktmbuf_alloc(mp);
+  struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_ecpri_hdr));
+  ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, 0); // Ant 0
+
+  struct xran_cp_radioapp_section1_header *apphdr =
+      (struct xran_cp_radioapp_section1_header *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_cp_radioapp_section1_header));
+  memset(apphdr, 0, sizeof(*apphdr));
+  apphdr->cmnhdr.field.dataDirection = XRAN_DIR_DL;
+  apphdr->cmnhdr.field.payloadVer = XRAN_PAYLOAD_VER;
+
+  apphdr->cmnhdr.field.frameId = (target_sym / num_symbols_per_frame) % 256;
+  int slot_in_frame = (target_sym % num_symbols_per_frame) / 14;
+  apphdr->cmnhdr.field.subframeId = slot_in_frame / 2;
+  apphdr->cmnhdr.field.slotId = slot_in_frame % 2;
+  apphdr->cmnhdr.field.startSymbolId = target_sym % 14;
+  apphdr->cmnhdr.numOfSections = 1;
+  apphdr->cmnhdr.sectionType = XRAN_CP_SECTIONTYPE_1;
+  apphdr->cmnhdr.field.all_bits = rte_cpu_to_be_32(apphdr->cmnhdr.field.all_bits);
+
+  struct xran_cp_radioapp_section1 *sec =
+      (struct xran_cp_radioapp_section1 *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_cp_radioapp_section1));
+  memset(sec, 0, sizeof(*sec));
+  sec->hdr.u.s1.numSymbol = num_symbols;
+  sec->hdr.u1.common.numPrbc = 1;
+  *((uint64_t *)sec) = rte_be_to_cpu_64(*((uint64_t *)sec));
+
+  handle_cplane_packet(ctx, c_mbuf);
+}
+
 void test_cplane_14_symbols()
 {
   printf("Testing 1 C-plane message for 14 symbols...\n");
@@ -829,46 +863,27 @@ void test_cplane_14_symbols()
   // diff=10 the first symbol (i=0) is at 10 (>=5) and the last (i=13) is at 23 (<=25) - both stay
   // comfortably inside the window.
   uint64_t target_sym = current_sym + 10;
+  const int num_symbols_per_frame = 10 * 2 * 14;
 
-  // 1. C-plane packet with numSymbol = 14
-  struct rte_mbuf *c_mbuf = rte_pktmbuf_alloc(mp);
-  struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_ecpri_hdr));
-  ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, 0); // Ant 0
-
-  struct xran_cp_radioapp_section1_header *apphdr =
-      (struct xran_cp_radioapp_section1_header *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_cp_radioapp_section1_header));
-  memset(apphdr, 0, sizeof(*apphdr));
-  apphdr->cmnhdr.field.dataDirection = XRAN_DIR_DL;
-  apphdr->cmnhdr.field.payloadVer = XRAN_PAYLOAD_VER;
-
-  int num_symbols_per_frame = 10 * 2 * 14;
-  apphdr->cmnhdr.field.frameId = (target_sym / num_symbols_per_frame) % 256;
-  int slot_in_frame = (target_sym % num_symbols_per_frame) / 14;
-  apphdr->cmnhdr.field.subframeId = slot_in_frame / 2;
-  apphdr->cmnhdr.field.slotId = slot_in_frame % 2;
-  apphdr->cmnhdr.field.startSymbolId = target_sym % 14;
-  apphdr->cmnhdr.numOfSections = 1;
-  apphdr->cmnhdr.sectionType = XRAN_CP_SECTIONTYPE_1;
-  apphdr->cmnhdr.field.all_bits = rte_cpu_to_be_32(apphdr->cmnhdr.field.all_bits);
-
-  struct xran_cp_radioapp_section1 *sec =
-      (struct xran_cp_radioapp_section1 *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_cp_radioapp_section1));
-  memset(sec, 0, sizeof(*sec));
-  sec->hdr.u.s1.numSymbol = 14;
-  sec->hdr.u1.common.numPrbc = 1;
-  *((uint64_t *)sec) = rte_be_to_cpu_64(*((uint64_t *)sec));
-
-  handle_cplane_packet(ctx, c_mbuf);
-
+  // 1. A section whose last symbol (diff 20 + 13 = 33) is past T2a_max_cp_sym_diff is early: none of its symbols
+  // is registered, so the next section with the same sectionId and overlapping symbols isn't a duplicate
+  send_dl_cplane_multi_symbol(ctx, current_sym + 20, 14);
   oru_packet_processor_stats_t stats;
   get_packet_processor_stats(ctx, &stats);
-  assert(stats.cplane_err_early == 0);
+  assert(stats.cplane_err_early == 1);
+
+  // 2. C-plane packet with numSymbol = 14
+  send_dl_cplane_multi_symbol(ctx, target_sym, 14);
+
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_early == 1);
   assert(stats.cplane_err_late == 0);
-  assert(stats.total_cplane == 1);
+  assert(stats.cplane_err_dup_dl == 0);
+  assert(stats.total_cplane == 2);
   assert(stats.dl_tdd_mismatch == 0);
   assert(stats.ul_tdd_mismatch == 0);
 
-  // 2. Advance time so we can send U-plane for ALL 14 symbols. target_sym - current_sym must land
+  // 3. Advance time so we can send U-plane for ALL 14 symbols. target_sym - current_sym must land
   // within U-Plane's own [T2a_min_up_dl_sym_diff, T2a_max_up_dl_sym_diff] = [2, 8] window and stay
   // there as both advance together below.
   current_sym += 6;
@@ -913,7 +928,7 @@ void test_cplane_14_symbols()
   assert(stats.dl_tdd_mismatch == 0);
   assert(stats.ul_tdd_mismatch == 0);
 
-  // 3. Advance to trigger window expiry and job completion
+  // 4. Advance to trigger window expiry and job completion
   current_sym += 15;
   handle_absolute_symbol_tick(ctx, current_sym);
 
@@ -1843,8 +1858,8 @@ void test_prach_generation(int prach_eaxc_offset, bool check_sequence)
   *((uint64_t *)sec) = rte_be_to_cpu_64(*((uint64_t *)sec));
 
   handle_cplane_packet(ctx, c_mbuf);
-  assert(get_prach_beam_id(ctx, slot_in_frame, 0) == 5); // section type 3 beamId carried to the job
-  assert(get_prach_beam_id(ctx, slot_in_frame, 1) == -1); // no C-Plane for this stream
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, startSymbolId) == 5); // section type 3 beamId carried to the job
+  assert(get_prach_beam_id(ctx, slot_in_frame, 1, startSymbolId) == -1); // no C-Plane for this stream
 
   // 2. Call write_prach_iq for each of the 4 symbols
   uint32_t *txdataF[1];
@@ -2347,9 +2362,14 @@ void test_large_delay_profile()
   printf("Large delay profile test passed!\n");
 }
 
-// Sends a DL section-1 C-plane packet with the given raw extension bytes appended after the section.
-static void send_cplane_with_ext1(void *ctx, const uint8_t *ext, size_t ext_len)
+// Sends a DL section-1 C-plane packet for num_prbc PRBs (0 = all) with the given raw extension bytes appended
+// after the section. It targets DL symbol 1006, inside the C-Plane window of the extension tests (numerology 1, now is
+// symbol 1000, T2a 200-400 us = 5-11 symbols): an out-of-window message is dropped before its extensions are parsed.
+static void send_cplane_with_ext(void *ctx, int num_prbc, const uint8_t *ext, size_t ext_len)
 {
+  const uint64_t sym = 1006;
+  const int num_symbols_per_frame = 10 * 2 * 14;
+  const int slot_in_frame = (sym % num_symbols_per_frame) / 14;
   struct rte_mbuf *mbuf = rte_pktmbuf_alloc(mp);
   assert(mbuf != NULL);
   struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(mbuf, sizeof(struct xran_ecpri_hdr));
@@ -2360,6 +2380,11 @@ static void send_cplane_with_ext1(void *ctx, const uint8_t *ext, size_t ext_len)
   memset(apphdr, 0, sizeof(*apphdr));
   apphdr->cmnhdr.field.dataDirection = XRAN_DIR_DL;
   apphdr->cmnhdr.field.payloadVer = XRAN_PAYLOAD_VER;
+  apphdr->cmnhdr.field.frameId = (sym / num_symbols_per_frame) % 256;
+  apphdr->cmnhdr.field.subframeId = slot_in_frame / 2;
+  apphdr->cmnhdr.field.slotId = slot_in_frame % 2;
+  apphdr->cmnhdr.field.startSymbolId = sym % 14;
+  apphdr->cmnhdr.numOfSections = 1;
   apphdr->cmnhdr.sectionType = XRAN_CP_SECTIONTYPE_1;
   apphdr->cmnhdr.field.all_bits = rte_cpu_to_be_32(apphdr->cmnhdr.field.all_bits);
   struct xran_cp_radioapp_section1 *sec =
@@ -2367,6 +2392,7 @@ static void send_cplane_with_ext1(void *ctx, const uint8_t *ext, size_t ext_len)
   memset(sec, 0, sizeof(*sec));
   sec->hdr.u.s1.numSymbol = 1;
   sec->hdr.u.s1.ef = 1;
+  sec->hdr.u1.common.numPrbc = num_prbc;
   *((uint64_t *)sec) = rte_be_to_cpu_64(*((uint64_t *)sec));
   if (ext_len > 0) {
     uint8_t *dst = (uint8_t *)rte_pktmbuf_append(mbuf, ext_len);
@@ -2399,53 +2425,911 @@ void test_cplane_section_extension_1(void)
                                     0);
   assert(ctx != NULL);
   handle_absolute_symbol_tick(ctx, 1000);
-  set_num_bf_weights_ext1(ctx, 2);
+  set_num_bf_weights(ctx, 2);
 
   // ext1, BFP 8-bit, exponent 0, 2 weights: 3 hdr + 1 param + 4 IQ bytes = 2 words, no padding
   const uint8_t ext1[] = {XRAN_CP_SECTIONEXTCMD_1, 2, 0x81, 0x00, 4, (uint8_t)-4, 100, (uint8_t)-100};
   oru_packet_processor_stats_t stats;
 
-  send_cplane_with_ext1(ctx, ext1, sizeof(ext1));
+  send_cplane_with_ext(ctx, 0, ext1, sizeof(ext1));
   get_packet_processor_stats(ctx, &stats);
-  assert(stats.cplane_ext1_received == 1 && stats.cplane_err_sect_ext == 0);
+  assert(stats.cplane_ext1_received == 1 && stats.cplane_err_sect_ext1 == 0);
 
   // Unsupported extension (ef=1, 1 word) chained in front of ext1: skipped, ext1 still parsed
   uint8_t chained[4 + sizeof(ext1)] = {0x80 | XRAN_CP_SECTIONEXTCMD_6, 1, 0, 0};
   memcpy(chained + 4, ext1, sizeof(ext1));
-  send_cplane_with_ext1(ctx, chained, sizeof(chained));
+  send_cplane_with_ext(ctx, 0, chained, sizeof(chained));
   get_packet_processor_stats(ctx, &stats);
-  assert(stats.cplane_ext1_received == 2 && stats.cplane_err_sect_ext == 0);
+  assert(stats.cplane_ext1_received == 2 && stats.cplane_err_sect_ext1 == 0);
 
   // ext1 carrying fewer weights than configured
-  set_num_bf_weights_ext1(ctx, 4);
-  send_cplane_with_ext1(ctx, ext1, sizeof(ext1));
+  set_num_bf_weights(ctx, 4);
+  send_cplane_with_ext(ctx, 0, ext1, sizeof(ext1));
   get_packet_processor_stats(ctx, &stats);
-  assert(stats.cplane_ext1_received == 3 && stats.cplane_err_sect_ext == 1);
+  assert(stats.cplane_ext1_received == 3 && stats.cplane_err_sect_ext1 == 1);
 
   // num_bf_weights = 0: ext1 counted but not decoded
-  set_num_bf_weights_ext1(ctx, 0);
-  send_cplane_with_ext1(ctx, ext1, sizeof(ext1));
+  set_num_bf_weights(ctx, 0);
+  send_cplane_with_ext(ctx, 0, ext1, sizeof(ext1));
   get_packet_processor_stats(ctx, &stats);
-  assert(stats.cplane_ext1_received == 4 && stats.cplane_err_sect_ext == 1);
+  assert(stats.cplane_ext1_received == 4 && stats.cplane_err_sect_ext1 == 1);
 
-  // extLen = 0
+  // extLen = 0 and extLen past the end of the packet: counted as ext1 errors
   const uint8_t zero_len[] = {XRAN_CP_SECTIONEXTCMD_1, 0, 0x81, 0x00};
-  send_cplane_with_ext1(ctx, zero_len, sizeof(zero_len));
+  send_cplane_with_ext(ctx, 0, zero_len, sizeof(zero_len));
   // extLen past the end of the packet
   const uint8_t overrun[] = {XRAN_CP_SECTIONEXTCMD_1, 3, 0x81, 0x00, 4, (uint8_t)-4, 100, (uint8_t)-100};
-  send_cplane_with_ext1(ctx, overrun, sizeof(overrun));
-  // ef set on the section but no extension present
-  send_cplane_with_ext1(ctx, NULL, 0);
+  send_cplane_with_ext(ctx, 0, overrun, sizeof(overrun));
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_sect_ext1 == 3);
+  // Chain errors, not ext1 errors: ef set on the section but no extension present, and the last extension claiming
+  // another one follows
+  assert(stats.cplane_err_sect_ext_chain == 0);
+  send_cplane_with_ext(ctx, 0, NULL, 0);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_sect_ext_chain == 1 && stats.cplane_err_sect_ext1 == 3);
   // Last extension claims another one follows
   uint8_t dangling[sizeof(ext1)];
   memcpy(dangling, ext1, sizeof(ext1));
   dangling[0] |= 0x80;
-  send_cplane_with_ext1(ctx, dangling, sizeof(dangling));
+  send_cplane_with_ext(ctx, 0, dangling, sizeof(dangling));
   get_packet_processor_stats(ctx, &stats);
-  assert(stats.cplane_err_sect_ext == 5);
+  assert(stats.cplane_ext1_received == 5 && stats.cplane_err_sect_ext1 == 3 && stats.cplane_err_sect_ext11 == 0);
+  assert(stats.cplane_err_sect_ext_chain == 2);
 
   cleanup_packet_processor(ctx);
   printf("C-Plane section extension parsing passed!\n");
+}
+
+// No extension sent through the test mempool (10000-byte data room) can be larger
+#define EXT11_TEST_BUF_SIZE 10000
+
+// Builds an uncompressed 16-bit ext11 (or beamIds only if disable_bfws) for n_bundles bundles of n_weights weights,
+// beamId 100 + b and weights (b, -w) into a buffer of EXT11_TEST_BUF_SIZE bytes. Returns the padded length.
+static size_t build_ext11(uint8_t *buf, bool ef, bool disable_bfws, int num_bund_prb, int n_bundles, int n_weights)
+{
+  size_t len = 5;
+  assert(6 + (size_t)n_bundles * (2 + 4 * (disable_bfws ? 0 : n_weights)) + 3 <= EXT11_TEST_BUF_SIZE);
+  memset(buf, 0, EXT11_TEST_BUF_SIZE);
+  buf[0] = (ef ? 0x80 : 0) | XRAN_CP_SECTIONEXTCMD_11;
+  buf[3] = (disable_bfws ? 0x80 : 0) | 0x40; // RAD = 1
+  buf[4] = num_bund_prb;
+  if (!disable_bfws)
+    buf[len++] = 0; // bfwIqWidth 16, bfwCompMeth NONE
+  for (int b = 0; b < n_bundles; b++) {
+    buf[len++] = 0;
+    buf[len++] = 100 + b;
+    for (int w = 0; w < n_weights && !disable_bfws; w++) {
+      buf[len++] = 0;
+      buf[len++] = b;
+      buf[len++] = 0xFF;
+      buf[len++] = (uint8_t)-w;
+    }
+  }
+  len = (len + 3) & ~(size_t)3;
+  buf[1] = (len / 4) >> 8;
+  buf[2] = (len / 4) & 0xFF;
+  return len;
+}
+
+void test_cplane_section_extension_11(void)
+{
+  printf("Testing C-Plane section extension 11 parsing...\n");
+  void *ctx = init_packet_processor(1,
+                                    273,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    0);
+  assert(ctx != NULL);
+  handle_absolute_symbol_tick(ctx, 1000);
+  set_num_bf_weights(ctx, 2);
+  oru_packet_processor_stats_t stats;
+  uint8_t ext[EXT11_TEST_BUF_SIZE];
+
+  // 3 PRBs, 2 per bundle: 2 bundles (the second one an orphan)
+  size_t len = build_ext11(ext, false, false, 2, 2, 2);
+  send_cplane_with_ext(ctx, 3, ext, len);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext11_received == 1 && stats.cplane_err_sect_ext11 == 0);
+
+  // numPrbc 0 is all 273 PRBs: 2 bundles of up to 255 PRBs, beamIds only
+  len = build_ext11(ext, false, true, 255, 2, 0);
+  send_cplane_with_ext(ctx, 0, ext, len);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext11_received == 2 && stats.cplane_err_sect_ext11 == 0);
+
+  // extLen above 255 words (110 bundles: 1106 bytes, 277 words) followed by an ext1: the walk must use the
+  // 16-bit extLen to find the ext1
+  len = build_ext11(ext, true, false, 1, 110, 2);
+  assert(ext[1] == 1);
+  const uint8_t ext1[] = {XRAN_CP_SECTIONEXTCMD_1, 2, 0x81, 0x00, 4, (uint8_t)-4, 100, (uint8_t)-100};
+  memcpy(ext + len, ext1, sizeof(ext1));
+  send_cplane_with_ext(ctx, 110, ext, len + sizeof(ext1));
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext11_received == 3 && stats.cplane_ext1_received == 1);
+  assert(stats.cplane_err_sect_ext11 == 0 && stats.cplane_err_sect_ext1 == 0);
+
+  // Bundles for 3 PRBs but the section has 5 (3 bundles expected)
+  len = build_ext11(ext, false, false, 2, 2, 2);
+  send_cplane_with_ext(ctx, 5, ext, len);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext11_received == 4 && stats.cplane_err_sect_ext11 == 1);
+
+  // Fewer weights per bundle than configured
+  set_num_bf_weights(ctx, 4);
+  send_cplane_with_ext(ctx, 3, ext, len);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext11_received == 5 && stats.cplane_err_sect_ext11 == 2);
+
+  // num_bf_weights = 0: ext11 counted but not decoded
+  set_num_bf_weights(ctx, 0);
+  send_cplane_with_ext(ctx, 5, ext, len);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext11_received == 6 && stats.cplane_err_sect_ext11 == 2);
+
+  // 16-bit extLen past the end of the packet: an ext11 error, not counted as received
+  ext[1] = 1;
+  send_cplane_with_ext(ctx, 3, ext, len);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext11_received == 6 && stats.cplane_err_sect_ext11 == 3 && stats.cplane_err_sect_ext1 == 0);
+  assert(stats.cplane_err_sect_ext_chain == 0);
+
+  cleanup_packet_processor(ctx);
+  printf("C-Plane section extension 11 parsing passed!\n");
+}
+
+void test_cplane_section_extension_11_buffer_size(void)
+{
+  printf("Testing C-Plane section extension 11 buffers are sized from the carrier...\n");
+  // 24-PRB carrier: at most 24 + 63 (bundleOffset) bundles
+  void *ctx = init_packet_processor(1,
+                                    24,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    0);
+  assert(ctx != NULL);
+  handle_absolute_symbol_tick(ctx, 1000);
+  set_num_bf_weights(ctx, 2);
+  oru_packet_processor_stats_t stats;
+  uint8_t ext[EXT11_TEST_BUF_SIZE];
+
+  // numPrbc 0 (all 24 PRBs), bundleOffset 63, 1 PRB per bundle: 87 bundles, the maximum
+  size_t len = build_ext11(ext, false, true, 1, 87, 0);
+  ext[3] |= 63;
+  send_cplane_with_ext(ctx, 0, ext, len);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext11_received == 1 && stats.cplane_err_sect_ext11 == 0);
+
+  // A section of 25 PRBs on this carrier would need 88 bundles: rejected, not written past the buffers
+  len = build_ext11(ext, false, true, 1, 88, 0);
+  ext[3] |= 63;
+  send_cplane_with_ext(ctx, 25, ext, len);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext11_received == 2 && stats.cplane_err_sect_ext11 == 1);
+
+  // Changing the weight count keeps decoding (2 weights -> 4 weights, 12 bundles)
+  set_num_bf_weights(ctx, 4);
+  len = build_ext11(ext, false, false, 2, 12, 4);
+  send_cplane_with_ext(ctx, 0, ext, len);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext11_received == 3 && stats.cplane_err_sect_ext11 == 1);
+
+  // The largest ext11 of ORU_MAX_BF_WEIGHTS weights that fits a 9600-byte MTU: 37 bundles (6 + 37 * 258 bytes, plus
+  // 24 bytes of eCPRI, application and section headers = 9576), here all 24 PRBs with bundleOffset 13
+  set_num_bf_weights(ctx, ORU_MAX_BF_WEIGHTS);
+  len = build_ext11(ext, false, false, 1, 37, ORU_MAX_BF_WEIGHTS);
+  assert(sizeof(struct xran_ecpri_hdr) + sizeof(struct xran_cp_radioapp_section1_header) + sizeof(struct xran_cp_radioapp_section1)
+             + len
+         <= 9600);
+  ext[3] |= 13;
+  send_cplane_with_ext(ctx, 0, ext, len);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext11_received == 4 && stats.cplane_err_sect_ext11 == 1);
+
+  cleanup_packet_processor(ctx);
+  printf("C-Plane section extension 11 buffer sizing passed!\n");
+}
+
+void test_cplane_section_extension_other(void)
+{
+  printf("Testing C-Plane malformed section extensions of other types...\n");
+  void *ctx = init_packet_processor(1,
+                                    273,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    0);
+  assert(ctx != NULL);
+  handle_absolute_symbol_tick(ctx, 1000);
+  set_num_bf_weights(ctx, 2);
+  oru_packet_processor_stats_t stats;
+
+  // ext6 with extLen 0
+  const uint8_t zero_len[] = {XRAN_CP_SECTIONEXTCMD_6, 0, 0, 0};
+  send_cplane_with_ext(ctx, 0, zero_len, sizeof(zero_len));
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_sect_ext_other == 1);
+  assert(stats.cplane_err_sect_ext1 == 0 && stats.cplane_err_sect_ext11 == 0 && stats.cplane_err_sect_ext_chain == 0);
+
+  // ext6 whose 8-bit extLen runs past the packet
+  const uint8_t overrun[] = {XRAN_CP_SECTIONEXTCMD_6, 2, 0, 0};
+  send_cplane_with_ext(ctx, 0, overrun, sizeof(overrun));
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_sect_ext_other == 2);
+
+  // ext19 (16-bit extLen, no constant defined) whose extLen runs past the packet
+  const uint8_t overrun19[] = {19, 0, 2, 0};
+  send_cplane_with_ext(ctx, 0, overrun19, sizeof(overrun19));
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_sect_ext_other == 3);
+
+  // Malformed ext6 chained before a valid ext1: the walk stops, ext1 not reached
+  const uint8_t ext1[] = {XRAN_CP_SECTIONEXTCMD_1, 2, 0x81, 0x00, 4, (uint8_t)-4, 100, (uint8_t)-100};
+  uint8_t chained[4 + sizeof(ext1)] = {0x80 | XRAN_CP_SECTIONEXTCMD_6, 0, 0, 0};
+  memcpy(chained + 4, ext1, sizeof(ext1));
+  send_cplane_with_ext(ctx, 0, chained, sizeof(chained));
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_sect_ext_other == 4 && stats.cplane_ext1_received == 0);
+  assert(stats.cplane_err_sect_ext1 == 0 && stats.cplane_err_sect_ext11 == 0 && stats.cplane_err_sect_ext_chain == 0);
+
+  cleanup_packet_processor(ctx);
+  printf("C-Plane malformed section extensions of other types passed!\n");
+}
+
+// One section of a multi-section Type 1 C-Plane message. A non-empty ext sets ef and is appended after the section.
+typedef struct {
+  uint16_t section_id;
+  uint16_t beam_id;
+  int start_prbc;
+  int num_prbc;
+  const uint8_t *ext;
+  size_t ext_len;
+} test_section1_t;
+
+// Sends one Type 1 C-Plane message for eAxC 0 at symbol sym (numerology mu) carrying n sections, with numOfSections set
+// to num_sections, which may differ from n to build a truncated message.
+static void send_cplane_sections(void *ctx, int dir, int mu, uint64_t sym, int num_sections, const test_section1_t *sec, int n)
+{
+  const int slots_per_subframe = 1 << mu;
+  const int num_symbols_per_frame = 10 * slots_per_subframe * 14;
+  const int slot_in_frame = (sym % num_symbols_per_frame) / 14;
+  struct rte_mbuf *mbuf = rte_pktmbuf_alloc(mp);
+  assert(mbuf != NULL);
+  struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(mbuf, sizeof(struct xran_ecpri_hdr));
+  ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, 0);
+  struct xran_cp_radioapp_section1_header *apphdr =
+      (struct xran_cp_radioapp_section1_header *)rte_pktmbuf_append(mbuf, sizeof(struct xran_cp_radioapp_section1_header));
+  memset(apphdr, 0, sizeof(*apphdr));
+  apphdr->cmnhdr.field.dataDirection = dir;
+  apphdr->cmnhdr.field.payloadVer = XRAN_PAYLOAD_VER;
+  apphdr->cmnhdr.field.frameId = (sym / num_symbols_per_frame) % 256;
+  apphdr->cmnhdr.field.subframeId = slot_in_frame / slots_per_subframe;
+  apphdr->cmnhdr.field.slotId = slot_in_frame % slots_per_subframe;
+  apphdr->cmnhdr.field.startSymbolId = sym % 14;
+  apphdr->cmnhdr.numOfSections = num_sections;
+  apphdr->cmnhdr.sectionType = XRAN_CP_SECTIONTYPE_1;
+  apphdr->cmnhdr.field.all_bits = rte_cpu_to_be_32(apphdr->cmnhdr.field.all_bits);
+  for (int i = 0; i < n; i++) {
+    struct xran_cp_radioapp_section1 *s =
+        (struct xran_cp_radioapp_section1 *)rte_pktmbuf_append(mbuf, sizeof(struct xran_cp_radioapp_section1));
+    assert(s != NULL);
+    memset(s, 0, sizeof(*s));
+    s->hdr.u.s1.numSymbol = 1;
+    s->hdr.u.s1.beamId = sec[i].beam_id;
+    s->hdr.u.s1.ef = sec[i].ext_len > 0;
+    s->hdr.u1.common.sectionId = sec[i].section_id;
+    s->hdr.u1.common.startPrbc = sec[i].start_prbc;
+    s->hdr.u1.common.numPrbc = sec[i].num_prbc;
+    *((uint64_t *)s) = rte_be_to_cpu_64(*((uint64_t *)s));
+    if (sec[i].ext_len > 0) {
+      uint8_t *dst = (uint8_t *)rte_pktmbuf_append(mbuf, sec[i].ext_len);
+      assert(dst != NULL);
+      memcpy(dst, sec[i].ext, sec[i].ext_len);
+    }
+  }
+  handle_cplane_packet(ctx, mbuf);
+}
+
+// Sends an uncompressed DL U-Plane packet for eAxC 0 at target_sym, filled with pattern.
+static void send_dl_uplane(void *ctx, int mu, uint64_t target_sym, int section_id, int start_prbu, int num_prbu, uint16_t pattern)
+{
+  const int slots_per_subframe = 1 << mu;
+  const int num_symbols_per_frame = 10 * slots_per_subframe * 14;
+  const int slot_in_frame = (target_sym % num_symbols_per_frame) / 14;
+  struct rte_mbuf *mbuf = rte_pktmbuf_alloc(mp);
+  assert(mbuf != NULL);
+  struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(mbuf, sizeof(struct xran_ecpri_hdr));
+  ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, 0);
+  struct radio_app_common_hdr *app = (struct radio_app_common_hdr *)rte_pktmbuf_append(mbuf, sizeof(struct radio_app_common_hdr));
+  app->frame_id = (target_sym / num_symbols_per_frame) % 256;
+  app->sf_slot_sym.subframe_id = slot_in_frame / slots_per_subframe;
+  app->sf_slot_sym.slot_id = slot_in_frame % slots_per_subframe;
+  app->sf_slot_sym.symb_id = target_sym % 14;
+  app->sf_slot_sym.value = rte_cpu_to_be_16(app->sf_slot_sym.value);
+  struct data_section_hdr *data = (struct data_section_hdr *)rte_pktmbuf_append(mbuf, sizeof(struct data_section_hdr));
+  data->fields.num_prbu = num_prbu;
+  data->fields.start_prbu = start_prbu;
+  data->fields.sect_id = section_id;
+  data->fields.all_bits = rte_cpu_to_be_32(data->fields.all_bits);
+  uint16_t *iq = (uint16_t *)rte_pktmbuf_append(mbuf, num_prbu * 12 * 4);
+  assert(iq != NULL);
+  for (int j = 0; j < num_prbu * 12 * 2; j++)
+    iq[j] = rte_cpu_to_be_16(pattern);
+  handle_uplane_packet(ctx, mbuf);
+}
+
+// Issue 759: every section of a multi-section DL message is registered, so U-Plane for each sectionId is accepted
+void test_dl_multi_section_message(void)
+{
+  printf("Testing DL multi-section C-Plane message...\n");
+  const int mu = 1;
+  void *ctx = init_packet_processor(mu,
+                                    273,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    0);
+  assert(ctx != NULL);
+  uint64_t current_sym = 1000;
+  handle_absolute_symbol_tick(ctx, current_sym);
+  const uint64_t target_sym = current_sym + 7;
+
+  // Two sections on beam 10 and one on beam 11, as a DU packing several channels into one message
+  const test_section1_t sections[3] = {{0, 10, 0, 10}, {1, 10, 10, 10}, {2, 11, 20, 10}};
+  send_cplane_sections(ctx, XRAN_DIR_DL, mu, target_sym, 3, sections, 3);
+  oru_packet_processor_stats_t stats;
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.total_cplane == 1 && stats.cplane_received_dl == 1);
+  assert(stats.cplane_err_hdr == 0 && stats.cplane_err_dup == 0);
+
+  // The same message again: its sections are duplicates, counted once for the message
+  send_cplane_sections(ctx, XRAN_DIR_DL, mu, target_sym, 3, sections, 3);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.total_cplane == 2 && stats.cplane_err_dup == 1 && stats.cplane_err_dup_dl == 1);
+
+  current_sym += 3;
+  handle_absolute_symbol_tick(ctx, current_sym);
+  const uint16_t patterns[3] = {0x1111, 0x2222, 0x3333};
+  for (int i = 0; i < 3; i++)
+    send_dl_uplane(ctx, mu, target_sym, sections[i].section_id, sections[i].start_prbc, sections[i].num_prbc, patterns[i]);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.uplane_missing_cplane == 0);
+
+  current_sym += 10;
+  handle_absolute_symbol_tick(ctx, current_sym);
+  const int num_symbols_per_frame = 10 * (1 << mu) * 14;
+  uint32_t output_iq[273 * 12] = {0};
+  uint32_t *txdataF[1] = {output_iq};
+  dl_iq_stream_t dl_streams[MAX_DL_FRAGMENTS_PER_SYMBOL];
+  uint32_t dl_iq_arena[DL_IQ_ARENA_PRBS(273) * 12];
+  int frame, slot, symbol, n;
+  uint64_t hyper_frame;
+  do {
+    n = read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_FRAGMENTS_PER_SYMBOL, &hyper_frame, &frame, &slot, &symbol);
+    test_assemble_streams(txdataF, 1, 273, dl_streams, n, NULL);
+  } while (!(frame == (int)(target_sym / num_symbols_per_frame) % 1024 && slot == (int)(target_sym % num_symbols_per_frame) / 14
+             && symbol == (int)(target_sym % 14)));
+
+  // Each PRB run comes back under the beam its section declared
+  assert(n == 3);
+  for (int i = 0; i < n; i++) {
+    const int k = dl_streams[i].start_prb / 10;
+    assert(dl_streams[i].num_prb == 10 && dl_streams[i].beam_id == sections[k].beam_id);
+  }
+  const uint16_t *out_iq = (const uint16_t *)output_iq;
+  for (int re = 0; re < 30 * 12 * 2; re++)
+    assert(out_iq[re] == patterns[re / (10 * 12 * 2)]);
+
+  cleanup_packet_processor(ctx);
+  printf("DL multi-section C-Plane message passed!\n");
+}
+
+static void *init_ul_test_ctx(void)
+{
+  void *ctx = init_packet_processor(1,
+                                    100,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf_no_frag,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    0);
+  assert(ctx != NULL);
+  // Pattern: 5 slots, 2 DL, 2 UL. Symbols 0-27 DL, 42-69 UL.
+  handle_absolute_symbol_tick(ctx, 47);
+  return ctx;
+}
+
+// Every section of a multi-section UL message gets its own job
+void test_ul_multi_section_message(void)
+{
+  printf("Testing UL multi-section C-Plane message...\n");
+  void *ctx = init_ul_test_ctx();
+  const test_section1_t sections[2] = {{5, 3, 0, 20}, {6, 4, 20, 30}};
+  send_cplane_sections(ctx, XRAN_DIR_UL, 1, 52, 2, sections, 2);
+
+  for (int i = 0; i < 2; i++) {
+    ul_job_t job;
+    assert(poll_ul_job(ctx, &job) == 0);
+    assert(job.response_payload.section_id == sections[i].section_id);
+    assert(job.beam_id == sections[i].beam_id);
+    assert(job.start_prb == sections[i].start_prbc && job.num_prb == sections[i].num_prbc);
+  }
+  ul_job_t job;
+  assert(poll_ul_job(ctx, &job) != 0);
+  oru_packet_processor_stats_t stats;
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_received_ul == 1 && stats.cplane_err_hdr == 0);
+
+  cleanup_packet_processor(ctx);
+  printf("UL multi-section C-Plane message passed!\n");
+}
+
+static int count_ul_jobs(void *ctx)
+{
+  int n = 0;
+  ul_job_t job;
+  while (poll_ul_job(ctx, &job) == 0)
+    n++;
+  return n;
+}
+
+// Timing is a message field: a late or early multi-section message counts once, like a single-section one, and
+// registers none of its sections
+void test_multi_section_timing_counted_once(void)
+{
+  printf("Testing multi-section C-Plane timing counters...\n");
+  void *ctx = init_ul_test_ctx();
+  const test_section1_t sections[3] = {{0, 1, 0, 4}, {1, 2, 4, 4}, {2, 3, 8, 4}};
+  oru_packet_processor_stats_t stats;
+
+  // Now is symbol 47; the C-Plane window is 2 to 11 symbols ahead
+  send_cplane_sections(ctx, XRAN_DIR_UL, 1, 48, 3, sections, 3);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_late == 1 && stats.cplane_err_early == 0);
+  send_cplane_sections(ctx, XRAN_DIR_UL, 1, 60, 3, sections, 3);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_late == 1 && stats.cplane_err_early == 1);
+  assert(count_ul_jobs(ctx) == 0);
+
+  // In the window: every section is registered and nothing is counted
+  send_cplane_sections(ctx, XRAN_DIR_UL, 1, 52, 3, sections, 3);
+  assert(count_ul_jobs(ctx) == 3);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_late == 1 && stats.cplane_err_early == 1 && stats.ul_tdd_mismatch == 0);
+
+  cleanup_packet_processor(ctx);
+  printf("Multi-section C-Plane timing counters passed!\n");
+}
+
+// Sections after one carrying extensions are found past its chain. A message shorter than numOfSections, or a section
+// with a malformed chain, keeps the sections before the error and drops the rest.
+void test_multi_section_extensions_and_truncation(void)
+{
+  printf("Testing multi-section C-Plane extensions and truncation...\n");
+  void *ctx = init_ul_test_ctx();
+  set_num_bf_weights(ctx, 2);
+  oru_packet_processor_stats_t stats;
+
+  // ext1, BFP 8-bit, exponent 0, 2 weights: 2 words
+  const uint8_t ext1[] = {XRAN_CP_SECTIONEXTCMD_1, 2, 0x81, 0x00, 4, (uint8_t)-4, 100, (uint8_t)-100};
+  // ext11 for a 4-PRB section, 2 bundles of 2 PRBs
+  uint8_t ext11[EXT11_TEST_BUF_SIZE];
+  const size_t ext11_len = build_ext11(ext11, false, false, 2, 2, 2);
+  const test_section1_t with_ext[3] = {{0, 1, 0, 4, ext1, sizeof(ext1)}, {1, 2, 4, 4, ext11, ext11_len}, {2, 3, 8, 4}};
+  send_cplane_sections(ctx, XRAN_DIR_UL, 1, 52, 3, with_ext, 3);
+  assert(count_ul_jobs(ctx) == 3);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_ext1_received == 1 && stats.cplane_ext11_received == 1);
+  assert(stats.cplane_err_sect_ext1 == 0 && stats.cplane_err_sect_ext11 == 0 && stats.cplane_err_hdr == 0);
+
+  // numOfSections promises 3 sections, the message holds 2
+  const test_section1_t plain[2] = {{0, 1, 0, 4}, {1, 2, 4, 4}};
+  send_cplane_sections(ctx, XRAN_DIR_UL, 1, 52, 3, plain, 2);
+  assert(count_ul_jobs(ctx) == 2);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_hdr == 1);
+
+  // extLen = 0 on section 0: section 0 is kept, section 1 can't be located
+  const uint8_t zero_len[] = {XRAN_CP_SECTIONEXTCMD_1, 0, 0x81, 0x00};
+  const test_section1_t malformed[2] = {{0, 1, 0, 4, zero_len, sizeof(zero_len)}, {1, 2, 4, 4}};
+  send_cplane_sections(ctx, XRAN_DIR_UL, 1, 52, 2, malformed, 2);
+  ul_job_t job;
+  assert(poll_ul_job(ctx, &job) == 0 && job.response_payload.section_id == 0);
+  assert(poll_ul_job(ctx, &job) != 0);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_sect_ext1 == 1 && stats.cplane_err_hdr == 1);
+
+  // numOfSections = 0: nothing is registered, counted as a header error
+  send_cplane_sections(ctx, XRAN_DIR_UL, 1, 52, 0, plain, 2);
+  assert(count_ul_jobs(ctx) == 0);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_hdr == 2 && stats.total_cplane == 4);
+
+  cleanup_packet_processor(ctx);
+  printf("Multi-section C-Plane extensions and truncation passed!\n");
+}
+
+// O-RAN CUS 7.5.3.1: a sectionId cited twice in one message (e.g. CSI-RS and PDSCH on complementary reMasks) is a
+// legal repeat, not a duplicate. The first citation is used, and UL gets one job per sectionId. sectionId 4095 means no
+// sectionId coupling, so its sections aren't repeats.
+void test_section_id_repeated(void)
+{
+  printf("Testing repeated sectionId within a C-Plane message...\n");
+  const int mu = 1;
+  void *ctx = init_packet_processor(mu,
+                                    273,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    0);
+  assert(ctx != NULL);
+  uint64_t current_sym = 1000;
+  handle_absolute_symbol_tick(ctx, current_sym);
+  const uint64_t target_sym = current_sym + 7;
+
+  // sectionId 0 on beam 10, cited again on beam 11 over the same PRBs
+  const test_section1_t dl[3] = {{0, 10, 0, 10}, {0, 11, 0, 10}, {1, 10, 10, 10}};
+  send_cplane_sections(ctx, XRAN_DIR_DL, mu, target_sym, 3, dl, 3);
+  oru_packet_processor_stats_t stats;
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_section_repeated == 1 && stats.cplane_err_dup == 0);
+
+  current_sym += 3;
+  handle_absolute_symbol_tick(ctx, current_sym);
+  send_dl_uplane(ctx, mu, target_sym, 0, 0, 10, 0x1111);
+  send_dl_uplane(ctx, mu, target_sym, 1, 10, 10, 0x2222);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.uplane_missing_cplane == 0 && stats.uplane_err_dup == 0);
+
+  current_sym += 10;
+  handle_absolute_symbol_tick(ctx, current_sym);
+  const int num_symbols_per_frame = 10 * (1 << mu) * 14;
+  dl_iq_stream_t dl_streams[MAX_DL_FRAGMENTS_PER_SYMBOL];
+  uint32_t dl_iq_arena[DL_IQ_ARENA_PRBS(273) * 12];
+  int frame, slot, symbol, n;
+  uint64_t hyper_frame;
+  do {
+    n = read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_FRAGMENTS_PER_SYMBOL, &hyper_frame, &frame, &slot, &symbol);
+  } while (!(frame == (int)(target_sym / num_symbols_per_frame) % 1024 && slot == (int)(target_sym % num_symbols_per_frame) / 14
+             && symbol == (int)(target_sym % 14)));
+  // Both sections come back under the first citation's beam
+  assert(n == 2);
+  for (int i = 0; i < n; i++)
+    assert(dl_streams[i].num_prb == 10 && dl_streams[i].beam_id == 10);
+  cleanup_packet_processor(ctx);
+
+  ctx = init_ul_test_ctx();
+  const test_section1_t ul[3] = {{5, 3, 0, 20}, {5, 4, 0, 20}, {6, 3, 20, 20}};
+  send_cplane_sections(ctx, XRAN_DIR_UL, 1, 52, 3, ul, 3);
+  ul_job_t job;
+  assert(poll_ul_job(ctx, &job) == 0 && job.response_payload.section_id == 5 && job.beam_id == 3);
+  assert(poll_ul_job(ctx, &job) == 0 && job.response_payload.section_id == 6);
+  assert(poll_ul_job(ctx, &job) != 0);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_section_repeated == 1);
+
+  const test_section1_t uncoupled[2] = {{4095, 3, 0, 20}, {4095, 4, 20, 20}};
+  send_cplane_sections(ctx, XRAN_DIR_UL, 1, 52, 2, uncoupled, 2);
+  assert(count_ul_jobs(ctx) == 2);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_section_repeated == 1);
+  cleanup_packet_processor(ctx);
+  printf("Repeated sectionId within a C-Plane message passed!\n");
+}
+
+// One section of a Type 3 C-Plane message. A non-empty ext sets ef and is appended after the section.
+typedef struct {
+  uint16_t section_id;
+  uint16_t beam_id;
+  const uint8_t *ext;
+  size_t ext_len;
+} test_section3_t;
+
+// Sends one 4-symbol, 20-PRB PRACH (Type 3) C-Plane message for PRACH stream 0 at symbol sym carrying n sections, with
+// numOfSections set to num_sections.
+static void send_prach_cplane(void *ctx, uint64_t sym, int num_sections, const test_section3_t *sec, int n)
+{
+  const int slots_per_subframe = 2;
+  const int num_symbols_per_frame = 10 * slots_per_subframe * 14;
+  const int slot_in_frame = (sym % num_symbols_per_frame) / 14;
+  struct rte_mbuf *mbuf = rte_pktmbuf_alloc(mp);
+  assert(mbuf != NULL);
+  struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(mbuf, sizeof(struct xran_ecpri_hdr));
+  ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, 0);
+  struct xran_cp_radioapp_section3_header *apphdr =
+      (struct xran_cp_radioapp_section3_header *)rte_pktmbuf_append(mbuf, sizeof(struct xran_cp_radioapp_section3_header));
+  memset(apphdr, 0, sizeof(*apphdr));
+  apphdr->cmnhdr.field.dataDirection = XRAN_DIR_UL;
+  apphdr->cmnhdr.field.payloadVer = XRAN_PAYLOAD_VER;
+  apphdr->cmnhdr.field.frameId = (sym / num_symbols_per_frame) % 256;
+  apphdr->cmnhdr.field.subframeId = slot_in_frame / slots_per_subframe;
+  apphdr->cmnhdr.field.slotId = slot_in_frame % slots_per_subframe;
+  apphdr->cmnhdr.field.startSymbolId = sym % 14;
+  apphdr->cmnhdr.field.filterIndex = XRAN_FILTERINDEX_PRACH_012;
+  apphdr->cmnhdr.numOfSections = num_sections;
+  apphdr->cmnhdr.sectionType = XRAN_CP_SECTIONTYPE_3;
+  apphdr->cmnhdr.field.all_bits = rte_cpu_to_be_32(apphdr->cmnhdr.field.all_bits);
+  for (int i = 0; i < n; i++) {
+    struct xran_cp_radioapp_section3 *s =
+        (struct xran_cp_radioapp_section3 *)rte_pktmbuf_append(mbuf, sizeof(struct xran_cp_radioapp_section3));
+    assert(s != NULL);
+    memset(s, 0, sizeof(*s));
+    s->hdr.u.s3.numSymbol = 4;
+    s->hdr.u.s3.beamId = sec[i].beam_id;
+    s->hdr.u.s3.ef = sec[i].ext_len > 0;
+    s->hdr.u1.common.sectionId = sec[i].section_id;
+    s->hdr.u1.common.numPrbc = 20;
+    *((uint64_t *)s) = rte_be_to_cpu_64(*((uint64_t *)s));
+    if (sec[i].ext_len > 0) {
+      uint8_t *dst = (uint8_t *)rte_pktmbuf_append(mbuf, sec[i].ext_len);
+      assert(dst != NULL);
+      memcpy(dst, sec[i].ext, sec[i].ext_len);
+    }
+  }
+  handle_cplane_packet(ctx, mbuf);
+}
+
+static int g_prach_section_ids[16];
+
+// Records the sectionId of each PRACH U-Plane packet sent
+static void test_send_mbuf_prach_section_id(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+{
+  for (uint32_t i = 0; i < num_mbufs; i++) {
+    const struct xran_ecpri_hdr *ecpri = rte_pktmbuf_mtod(mbufs[i], const struct xran_ecpri_hdr *);
+    const struct radio_app_common_hdr *app = (const struct radio_app_common_hdr *)(ecpri + 1);
+    struct data_section_hdr sec = *(const struct data_section_hdr *)(app + 1);
+    sec.fields.all_bits = rte_be_to_cpu_32(sec.fields.all_bits);
+    assert(g_packets_sent < (int)(sizeof(g_prach_section_ids) / sizeof(g_prach_section_ids[0])));
+    g_prach_section_ids[g_packets_sent++] = sec.fields.sect_id;
+    rte_pktmbuf_free(mbufs[i]);
+  }
+}
+
+static void *init_prach_test_ctx(void)
+{
+  void *ctx = init_packet_processor(1,
+                                    100,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf_prach_section_id,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    TEST_PRACH_KBAR);
+  assert(ctx != NULL);
+  // Pattern: 5 slots, 2 DL, 2 UL. Symbols 0-27 DL, 42-69 UL.
+  handle_absolute_symbol_tick(ctx, 1030);
+  g_packets_sent = 0;
+  return ctx;
+}
+
+// PRACH sections of one stream starting at different symbols of a slot are TDM occasions, each served at its own
+// symbols under its own beam. nr-oru extracts one FDM occasion, so a second section at the same start symbol is dropped
+// and counted. Sections of an earlier frame that were never served are counted when the slot is reused.
+void test_prach_occasions(void)
+{
+  printf("Testing PRACH occasions...\n");
+  void *ctx = init_prach_test_ctx();
+  const uint64_t slot_sym = 1036; // symbol 0 of a slot
+  const int num_symbols_per_frame = 10 * 2 * 14;
+  const int frame = (slot_sym / num_symbols_per_frame) % 256;
+  const int slot_in_frame = (slot_sym % num_symbols_per_frame) / 14;
+  oru_packet_processor_stats_t stats;
+
+  // Three 4-symbol TDM occasions: symbols 0-3, 4-7 and 8-11
+  const test_section3_t occasions[3] = {{1, 5}, {2, 6}, {3, 7}};
+  for (int i = 0; i < 3; i++)
+    send_prach_cplane(ctx, slot_sym + 4 * i, 1, &occasions[i], 1);
+  for (int s = 0; s < 12; s++)
+    assert(get_prach_beam_id(ctx, slot_in_frame, 0, s) == occasions[s / 4].beam_id);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, 12) == -1);
+
+  // A second section at symbol 0 is a second FDM occasion: dropped, the first one is kept
+  const test_section3_t fdm = {4, 8};
+  send_prach_cplane(ctx, slot_sym, 1, &fdm, 1);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, 0) == 5);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.prach_fdm_unsupported == 1 && stats.cplane_err_dup_prach == 0);
+
+  // Same sectionId again: a duplicate
+  send_prach_cplane(ctx, slot_sym, 1, &occasions[0], 1);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_dup_prach == 1 && stats.prach_fdm_unsupported == 1);
+
+  // Each symbol is served from the occasion covering it
+  uint32_t iq_input[100 * 12] = {0};
+  uint32_t *txdataF[1] = {iq_input};
+  for (int s = 0; s < 8; s++)
+    write_prach_iq(ctx, txdataF, 1, frame, slot_in_frame, s);
+  assert(g_packets_sent == 8);
+  for (int i = 0; i < 8; i++)
+    assert(g_prach_section_ids[i] == occasions[i / 4].section_id);
+
+  // A fourth start symbol fills the pool, a fifth doesn't fit
+  const test_section3_t extra[2] = {{5, 9}, {6, 10}};
+  send_prach_cplane(ctx, slot_sym + 12, 1, &extra[0], 1);
+  send_prach_cplane(ctx, slot_sym + 13, 1, &extra[1], 1);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, 12) == 9);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.prach_jobs_pool_exhausted == 1);
+
+  // The same slot of the next frame releases the earlier jobs: sectionIds 3 and 5 were never served
+  const test_section3_t next = {9, 11};
+  handle_absolute_symbol_tick(ctx, slot_sym + num_symbols_per_frame - 6); // beam lookups resolve the symbol nearest to now
+  send_prach_cplane(ctx, slot_sym + num_symbols_per_frame, 1, &next, 1);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.prach_sections_unserved == 2);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, 0) == 11);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, 4) == -1);
+
+  cleanup_packet_processor(ctx);
+  printf("PRACH occasions passed!\n");
+}
+
+// The sections of a multi-section PRACH message are found past each section's extension chain. They all start at the
+// message's startSymbolId, so only the first is kept and the rest count as unsupported FDM occasions. Repeats,
+// truncated messages and malformed chains are handled as for Type 1.
+void test_prach_multi_section_message(void)
+{
+  printf("Testing PRACH multi-section C-Plane message...\n");
+  void *ctx = init_prach_test_ctx();
+  const int num_symbols_per_frame = 10 * 2 * 14;
+  const int slot_in_frame = (1035 % num_symbols_per_frame) / 14;
+  const int symbol = 1035 % 14;
+  // Each case uses the same slot of a later frame, which releases the previous case's jobs
+  uint64_t target_sym = 1035;
+  oru_packet_processor_stats_t stats;
+
+  // Two sections, the first with an ext1 and an unsupported extension chained after it
+  const uint8_t ext[] =
+      {0x80 | XRAN_CP_SECTIONEXTCMD_1, 2, 0x81, 0x00, 4, (uint8_t)-4, 100, (uint8_t)-100, XRAN_CP_SECTIONEXTCMD_6, 1, 0, 0};
+  const test_section3_t two[2] = {{1, 5, ext, sizeof(ext)}, {2, 6}};
+  send_prach_cplane(ctx, target_sym, 2, two, 2);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, symbol) == 5);
+  uint32_t iq_input[100 * 12] = {0};
+  uint32_t *txdataF[1] = {iq_input};
+  const int frame = (target_sym / num_symbols_per_frame) % 256;
+  write_prach_iq(ctx, txdataF, 1, frame, slot_in_frame, symbol);
+  assert(g_packets_sent == 1 && g_prach_section_ids[0] == 1);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.prach_fdm_unsupported == 1);
+  assert(stats.cplane_err_hdr == 0 && stats.cplane_err_sect_ext1 == 0 && stats.cplane_err_sect_ext_other == 0);
+
+  // A sectionId cited twice: a repeat, not an FDM occasion or a duplicate
+  target_sym += num_symbols_per_frame;
+  handle_absolute_symbol_tick(ctx, target_sym - 5); // beam lookups resolve the symbol nearest to now
+  const test_section3_t repeated[2] = {{3, 7}, {3, 8}};
+  send_prach_cplane(ctx, target_sym, 2, repeated, 2);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, symbol) == 7);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_section_repeated == 1 && stats.cplane_err_dup_prach == 0 && stats.prach_fdm_unsupported == 1);
+  assert(stats.prach_sections_unserved == 0);
+
+  // numOfSections promises 3 sections, the message holds 2
+  target_sym += num_symbols_per_frame;
+  handle_absolute_symbol_tick(ctx, target_sym - 5); // beam lookups resolve the symbol nearest to now
+  send_prach_cplane(ctx, target_sym, 3, two, 2);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, symbol) == 5);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_hdr == 1 && stats.prach_fdm_unsupported == 2);
+
+  // extLen = 0 on section 0: section 0 is kept, section 1 can't be located
+  target_sym += num_symbols_per_frame;
+  handle_absolute_symbol_tick(ctx, target_sym - 5); // beam lookups resolve the symbol nearest to now
+  const uint8_t zero_len[] = {XRAN_CP_SECTIONEXTCMD_1, 0, 0x81, 0x00};
+  const test_section3_t malformed[2] = {{4, 9, zero_len, sizeof(zero_len)}, {5, 10}};
+  send_prach_cplane(ctx, target_sym, 2, malformed, 2);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, symbol) == 9);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_sect_ext1 == 1 && stats.prach_fdm_unsupported == 2);
+
+  // numOfSections = 0: nothing is registered, counted as a header error
+  target_sym += num_symbols_per_frame;
+  handle_absolute_symbol_tick(ctx, target_sym - 5); // beam lookups resolve the symbol nearest to now
+  send_prach_cplane(ctx, target_sym, 0, two, 2);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_hdr == 2 && stats.cplane_received_prach == 5);
+
+  // Section errors count once per message: two extra FDM sections count one FDM drop, and the same message resent
+  // counts one duplicate
+  target_sym += num_symbols_per_frame;
+  handle_absolute_symbol_tick(ctx, target_sym - 5); // beam lookups resolve the symbol nearest to now
+  const test_section3_t three[3] = {{10, 1}, {11, 2}, {12, 3}};
+  oru_packet_processor_stats_t before;
+  get_packet_processor_stats(ctx, &before);
+  send_prach_cplane(ctx, target_sym, 3, three, 3);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.prach_fdm_unsupported == before.prach_fdm_unsupported + 1);
+  send_prach_cplane(ctx, target_sym, 3, three, 3);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_dup_prach == before.cplane_err_dup_prach + 1 && stats.cplane_err_dup == before.cplane_err_dup + 1);
+  assert(stats.prach_fdm_unsupported == before.prach_fdm_unsupported + 2);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, symbol) == 1);
+
+  cleanup_packet_processor(ctx);
+  printf("PRACH multi-section C-Plane message passed!\n");
 }
 
 int main(int argc, char **argv)
@@ -2458,6 +3342,22 @@ int main(int argc, char **argv)
   test_cplane_timing_errors();
   usleep(10000);
   test_cplane_section_extension_1();
+  usleep(10000);
+  test_cplane_section_extension_11();
+  usleep(10000);
+  test_cplane_section_extension_11_buffer_size();
+  usleep(10000);
+  test_cplane_section_extension_other();
+  usleep(10000);
+  test_dl_multi_section_message();
+  usleep(10000);
+  test_ul_multi_section_message();
+  usleep(10000);
+  test_multi_section_timing_counted_once();
+  usleep(10000);
+  test_multi_section_extensions_and_truncation();
+  usleep(10000);
+  test_section_id_repeated();
   usleep(10000);
   test_cplane_uplane_match();
 
@@ -2489,6 +3389,10 @@ int main(int argc, char **argv)
     usleep(10000);
     test_prach_generation(offsets[i], true);
   }
+  usleep(10000);
+  test_prach_occasions();
+  usleep(10000);
+  test_prach_multi_section_message();
   usleep(10000);
   test_hyper_frame_calculation();
   usleep(10000);
