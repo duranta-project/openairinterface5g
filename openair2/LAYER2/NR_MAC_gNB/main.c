@@ -173,7 +173,8 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
     output = st_append(output,
                        end,
                        ", dlsch_errors %" PRIu64
-                       ", pucch0_DTX %d (SNR %.1f%+.1f) RSSI %.1f, BLER %.5f MCS (%d) %d (Qm %d) CCE fail %d PUCCH fail %d\n",
+                       ", pucch0_DTX %d (SNR %.1f%+.1f) RSSI %.1f, BLER %.5f MCS (%d) %d (Qm %d) CCE fail %d PUCCH fail %d"
+                       " HARQ fail %d\n",
                        stats->dl.errors,
                        stats->pucch0_DTX,
                        pucch_snr,
@@ -184,7 +185,8 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
                        sched_ctrl->dl_bler_stats.mcs,
                        nr_get_Qm_dl(sched_ctrl->dl_bler_stats.mcs, UE->current_DL_BWP.mcsTableIdx),
                        sched_ctrl->dl_cce_fail,
-                       sched_ctrl->dl_pucch_fail);
+                       sched_ctrl->dl_pucch_fail,
+                       sched_ctrl->dl_harq_fail);
     if (reset_rsrp) {
       stats->num_rsrp_meas = 0;
       stats->cumul_rsrp = 0;
