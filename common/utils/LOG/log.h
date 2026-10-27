@@ -253,7 +253,6 @@ void set_glog(int level);
 
 mapping * log_level_names_ptr(void);
 mapping * log_option_names_ptr(void);
-mapping * log_maskmap_ptr(void);
 void set_glog_onlinelog(int enable);
 void set_glog_filelog(int enable);
 void set_component_filelog(int comp);
