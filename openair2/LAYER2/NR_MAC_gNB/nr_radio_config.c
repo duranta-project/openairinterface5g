@@ -36,7 +36,6 @@
 #define DEFAULT_MGTA NR_GapConfig__mgta_ms0dot5
 #define DEFAULT_MGL NR_GapConfig__mgl_ms6
 
-#define MAX_NUM_REPORTS_UE 2 // max 2 reports per UE TODO check if we can dynamically evaluate this based on do_CSI
 #define MAX_NUM_PUCCH_RES_PER_SET 8 // PUCCH resource indicator field in DCI format 1_0/1_1 is fixed at 3 bits
 
 const uint8_t slotsperframe[5] = {10, 20, 40, 80, 160};
@@ -242,11 +241,15 @@ static void get_valid_periodicities(int scs, const int **table, int *nb_entries)
   }
 }
 
-static nr_pucch_radio_res_t get_nb_periodic_pucch_per_slot(const frame_structure_t *fs, int min_period, int max_period, int scs)
+static nr_pucch_radio_res_t get_nb_periodic_pucch_per_slot(const frame_structure_t *fs,
+                                                           int min_period,
+                                                           int max_period,
+                                                           int scs,
+                                                           int reports_per_ue)
 {
   AssertFatal(min_period <= max_period, "min_periodicity %d must be <= max_periodicity %d", min_period, max_period);
   int ul_slots_period = get_ul_slots_per_period(fs);
-  int max_csi_reports = MAX_MOBILES_PER_GNB * MAX_NUM_REPORTS_UE;
+  int max_csi_reports = MAX_MOBILES_PER_GNB * reports_per_ue;
 
   // find the minimum valid periodicity that is a multiple of numb_slots_period
   // and offers enough UL occasions to serve all reports with a single PUCCH resource
@@ -1862,12 +1865,16 @@ static int get_required_prbs(nr_pucch_radio_res_t *res)
 }
 
 // size the PUCCH resources for bwp_size PRBs
-static nr_pucch_radio_res_t size_pucch_radio_resources(const frame_structure_t *fs, int bwp_size, int scs, int max_bits)
+static nr_pucch_radio_res_t size_pucch_radio_resources(const frame_structure_t *fs,
+                                                       int bwp_size,
+                                                       int scs,
+                                                       int max_bits,
+                                                       int reports_per_ue)
 {
   // set min period at slots per frame and max at 320
   int min_period = fs->numb_slots_frame;
   int max_period = 320;
-  nr_pucch_radio_res_t res = get_nb_periodic_pucch_per_slot(fs, min_period, max_period, scs);
+  nr_pucch_radio_res_t res = get_nb_periodic_pucch_per_slot(fs, min_period, max_period, scs, reports_per_ue);
   res.nb_prb_periodic_res = get_nb_pucch2_prb(max_bits);
   // by default 8 HARQ resources
   res.nb_harq_res = MAX_NUM_PUCCH_RES_PER_SET; // TODO compute automatically depending TDD and how many UE we can serve per period
@@ -1905,7 +1912,7 @@ static nr_pucch_radio_res_t size_pucch_radio_resources(const frame_structure_t *
       diff_prb = bwp_size - required_prbs;
       int nb_cycles = res.periodicity / fs->numb_slots_period;
       int available_report_occasions = nb_cycles * get_ul_slots_per_period(fs);
-      res.max_served_ues = (res.nb_periodic_res * available_report_occasions) / MAX_NUM_REPORTS_UE;
+      res.max_served_ues = (res.nb_periodic_res * available_report_occasions) / reports_per_ue;
       if (diff_prb >= 0)
         return res;
     }
@@ -1916,7 +1923,7 @@ static nr_pucch_radio_res_t size_pucch_radio_resources(const frame_structure_t *
     nr_pucch_radio_res_t new_res = res;
     int new_max_period = res.periodicity / 2;
     while (diff_prb >= new_res.nb_prb_periodic_res && new_max_period >= min_period) {
-      new_res = get_nb_periodic_pucch_per_slot(fs, min_period, new_max_period, scs);
+      new_res = get_nb_periodic_pucch_per_slot(fs, min_period, new_max_period, scs, reports_per_ue);
       // cap the number of periodic resources to the same as HARQ MAX_NUM_PUCCH_RES_PER_SET
       if (new_res.nb_periodic_res > MAX_NUM_PUCCH_RES_PER_SET)
         break;
@@ -1985,6 +1992,7 @@ nr_pucch_radio_res_t configure_pucch_radio_resources(const frame_structure_t *fs
                                                      int bwp_size,
                                                      int scs,
                                                      int max_bits,
+                                                     int reports_per_ue,
                                                      const uint16_t *ulprbbl)
 {
   int usable = 0;
@@ -1992,7 +2000,7 @@ nr_pucch_radio_res_t configure_pucch_radio_resources(const frame_structure_t *fs
     usable += !(ulprbbl && ulprbbl[bwp_start + p]);
   // blocks cannot straddle a blacklisted range: shrink the plan until it can be placed
   for (int size = usable; size > 0; size--) {
-    nr_pucch_radio_res_t res = size_pucch_radio_resources(fs, size, scs, max_bits);
+    nr_pucch_radio_res_t res = size_pucch_radio_resources(fs, size, scs, max_bits, reports_per_ue);
     if (place_pucch_radio_resources(&res, bwp_start, bwp_size, ulprbbl))
       return res;
   }
