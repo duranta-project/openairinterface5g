@@ -55,6 +55,7 @@ nr_rlc_entity_buffer_status_t nr_rlc_entity_um_buffer_status(nr_rlc_entity_t *en
 int nr_rlc_entity_um_generate_pdu(nr_rlc_entity_t *entity, char *buffer, int size);
 void nr_rlc_entity_um_set_time(nr_rlc_entity_t *entity, uint64_t now);
 void nr_rlc_entity_um_discard_sdu(nr_rlc_entity_t *_entity, int sdu_id);
+void nr_rlc_entity_um_discard_sdus_up_to(nr_rlc_entity_t *_entity, int sdu_id);
 void nr_rlc_entity_um_reestablishment(nr_rlc_entity_t *_entity);
 void nr_rlc_entity_um_delete(nr_rlc_entity_t *entity);
 int nr_rlc_entity_um_available_tx_space(nr_rlc_entity_t *entity);

@@ -75,6 +75,13 @@ static nr_up_congestion_action_t nr_up_ue_ul_congestion_precheck(ue_id_t ue_id, 
   return nr_up_drb_budget_precheck(ue_id, drb_id, pdu_len);
 }
 
+/** @brief UE: queues the discard of the DRB PDUs up to sdu_id to the local RLC */
+static void nr_up_ue_discard_drb(ue_id_t ue_id, rb_id_t drb_id, int sdu_id)
+{
+  protocol_ctxt_t ctxt = {.enb_flag = 0, .rntiMaybeUEid = ue_id};
+  nr_up_enqueue_rlc_discard(&ctxt, drb_id, sdu_id, ue_id);
+}
+
 /** @brief Starts the RLC enqueue worker and binds the UE nr-up backend on iface */
 void nr_up_init_ue(nr_up_if_t *iface)
 {
@@ -85,4 +92,5 @@ void nr_up_init_ue(nr_up_if_t *iface)
   iface->deliver_srb = nr_up_ue_deliver_srb;
   iface->dl_congestion_precheck = nr_up_ue_ul_congestion_precheck;
   iface->budget_sync = nr_up_drb_budget_sync;
+  iface->discard_drb = nr_up_ue_discard_drb;
 }

@@ -17,4 +17,7 @@ void nr_up_enqueue_rlc_data_req(const protocol_ctxt_t *ctxt_pP,
                                 uint8_t *sdu_pP,
                                 ue_id_t pdcp_ue_id);
 
+/* PDCP discardTimer: discard the SDUs up to sdu_id, after the data requests already queued */
+void nr_up_enqueue_rlc_discard(const protocol_ctxt_t *ctxt_pP, rb_id_t rb_idP, int sdu_id, ue_id_t pdcp_ue_id);
+
 #endif /* NR_UP_RLC_QUEUE_H */
