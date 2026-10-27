@@ -339,6 +339,9 @@ static void fill_pusch_uci_struct(const NR_PUSCH_Config_t *pusch_Config,
               "Only semistatic beta offset is supported\n");
   NR_BetaOffsets_t *beta_offsets = onPusch->betaOffsets->choice.semiStatic;
 
+  // no HARQ-ACK on this PUSCH, but the REs for up to 2 HARQ-ACK bits are reserved with betaOffsetACK-Index1 (TS 38.212
+  // 6.2.7, TS 38.213 9.3)
+  pusch_config_pdu->pusch_uci.beta_offset_harq_ack = *beta_offsets->betaOffsetACK_Index1;
   pusch_config_pdu->pusch_uci.beta_offset_csi1 = pusch_config_pdu->pusch_uci.csi_payload.p1_bits < 12
                                                      ? *beta_offsets->betaOffsetCSI_Part1_Index1
                                                      : *beta_offsets->betaOffsetCSI_Part1_Index2;
