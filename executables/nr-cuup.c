@@ -31,11 +31,13 @@ static void initialize_agent(ngran_node_t node_type, e2_agent_args_t oai_args)
   AssertFatal(oai_args.sm_dir != NULL , "Please, specify the directory where the SMs are located in the config file, i.e., add in config file the next line: e2_agent = {near_ric_ip_addr = \"127.0.0.1\"; sm_dir = \"/usr/local/lib/flexric/\");} ");
   AssertFatal(oai_args.ip != NULL , "Please, specify the IP address of the nearRT-RIC in the config file, i.e., e2_agent = {near_ric_ip_addr = \"127.0.0.1\"; sm_dir = \"/usr/local/lib/flexric/\"");
 
-  printf("After RCconfig_NR_E2agent %s %s \n",oai_args.sm_dir, oai_args.ip  );
+  printf("After RCconfig_NR_E2agent %s %s %u \n", oai_args.sm_dir, oai_args.ip, oai_args.port);
 
   fr_args_t args = {0};
   memcpy(args.ip, oai_args.ip, FR_IP_ADDRESS_LEN);
   memcpy(args.libs_dir, oai_args.sm_dir, FR_CONF_FILE_LEN);
+  // 0 leaves FlexRIC on its own default, i.e. E2AP_DEFAULT_PORT
+  args.e2ap_port = oai_args.port;
 
   sleep(1);
 

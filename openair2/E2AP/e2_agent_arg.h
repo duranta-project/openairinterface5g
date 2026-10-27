@@ -13,6 +13,7 @@
 typedef struct{
   const char *ip;
   const char *sm_dir;
+  uint16_t port;
   const bool enabled;
 } e2_agent_args_t;
 
