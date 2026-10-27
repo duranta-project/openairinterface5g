@@ -82,6 +82,7 @@ nr_pucch_radio_res_t configure_pucch_radio_resources(const frame_structure_t *fs
                                                      int bwp_size,
                                                      int scs,
                                                      int max_bits,
+                                                     int reports_per_ue,
                                                      const uint16_t *ulprbbl);
 NR_CellGroupConfig_t *get_initial_cellGroupConfig(int uid,
                                                   bool redcap,
