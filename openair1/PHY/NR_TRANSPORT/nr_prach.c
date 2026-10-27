@@ -314,7 +314,8 @@ void nr_schedule_rx_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_p
   const int nb_prb = (L_RA * df_ra + 12 * df_pusch - 1) / (12 * df_pusch);
   uint16_t symb_mask = (1 << NR_SYMBOLS_PER_SLOT) - 1; // long formats span whole slots
   if (fmt >= 4) {
-    int end = prach_pdu->prach_start_symbol + n_symb * prach_pdu->num_prach_ocas * (num_beams > 0 ? num_beams : 1);
+    // the preambles are only in the num_prach_ocas time occasions, whatever the number of beams
+    int end = prach_pdu->prach_start_symbol + n_symb * prach_pdu->num_prach_ocas;
     if (end > NR_SYMBOLS_PER_SLOT)
       end = NR_SYMBOLS_PER_SLOT;
     symb_mask = SL_to_bitmap(prach_pdu->prach_start_symbol, end - prach_pdu->prach_start_symbol);
