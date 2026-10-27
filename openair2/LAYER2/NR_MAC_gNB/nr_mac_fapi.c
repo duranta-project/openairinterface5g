@@ -61,7 +61,7 @@ int nr_mac_handle_uci_indication(const nfapi_nr_uci_indication_t *uci_ind)
   for (const nfapi_nr_uci_t *uci = uci_ind->uci_list; uci < uci_ind->uci_list + uci_ind->num_ucis; ++uci) {
     switch (uci->pdu_type) {
       case NFAPI_NR_UCI_PUSCH_PDU_TYPE:
-        LOG_E(MAC, "%s(): unhandled NFAPI_NR_UCI_PUSCH_PDU_TYPE\n", __func__);
+        handle_nr_uci_pusch(nrmac, cell, uci_ind->sfn, uci_ind->slot, &uci->pusch_pdu);
         break;
 
       case NFAPI_NR_UCI_FORMAT_0_1_PDU_TYPE: {

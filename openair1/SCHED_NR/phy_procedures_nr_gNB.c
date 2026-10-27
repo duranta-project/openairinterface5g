@@ -1436,9 +1436,6 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB,
     c16_t **rxdataF = gNB->common_vars.rxdataF + ant_port;
     handle_pucch(gNB, rxdataF, &pucch[i], &uci_ind->uci_list[i]);
   }
-  if (gNB->if_inst && uci_ind->num_ucis > 0)
-    gNB->if_inst->nr_uci_indication(uci_ind);
-
   srs_ind->header.transmit_timestamp = 0;
   srs_ind->sfn = frame_rx;
   srs_ind->slot = slot_rx;
@@ -1548,6 +1545,9 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB,
     STOP_MEAS_FULL_SLOT(&gNB->ulsch_decoding_stats, slot_type, NR_UPLINK_SLOT);
   }
 
+  // after nr_uci_decoding(): the UCIs received on PUCCH and on PUSCH go in one indication
+  if (gNB->if_inst && uci_ind->num_ucis > 0)
+    gNB->if_inst->nr_uci_indication(uci_ind);
   if (gNB->if_inst && crc_ind->number_crcs > 0)
     gNB->if_inst->nr_crc_indication(crc_ind);
   if (gNB->if_inst && rx_ind->number_of_pdus > 0)
