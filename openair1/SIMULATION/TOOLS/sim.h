@@ -7,6 +7,7 @@
 #include "PHY/defs_common.h"
 #include "common_lib.h"
 #include <pthread.h>
+#include "gaussian_rng.h"
 /** @defgroup _numerical_ Useful Numerical Functions
  *@{
 The present clause specifies several numerical functions for testing of digital communication systems.
@@ -539,6 +540,7 @@ void fill_random(void *buf, size_t sz);
 double gaussdouble(double,double);
 void randominit(); // fix seed number by env variable OAI_RNGSEED
 double uniformrandom(void);
+/* Legacy shared-state API: not thread-safe. Use gaussian_rng_t for independent generators. */
 double gaussZiggurat(double mean, double variance);
 int freq_channel(channel_desc_t *desc,uint16_t nb_rb, int16_t n_samples,int scs);
 int init_freq_channel(channel_desc_t *desc,uint16_t nb_rb,int16_t n_samples,int scs);
