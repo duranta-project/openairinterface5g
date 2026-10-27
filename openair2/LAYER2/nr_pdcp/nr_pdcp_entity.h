@@ -107,6 +107,10 @@ typedef struct nr_pdcp_entity_s {
                       int size,
                       const nr_pdcp_integrity_data_t *msg_integrity);
   void *deliver_sdu_data;
+  /* discardTimer (TS 38.323 5.2.1): ask the lower layers to discard the PDUs
+   * given to them up to sdu_id, if not transmitted yet (TS 38.322 5.4).
+   * Called with deliver_sdu_data. NULL when the lower layers cannot discard (gNB-CU) */
+  void (*discard_pdu)(void *deliver_sdu_data, int rb_id, int sdu_id);
 
   /* configuration variables */
   int rb_id;
@@ -131,6 +135,16 @@ typedef struct nr_pdcp_entity_s {
 
   uint64_t t_log_pdu_discard;
   int pdu_discarded;
+
+  /* discardTimer: COUNT and submission time (ms) of the SDUs given to the
+   * lower layers, oldest first, in a ring of discard_list_size entries */
+  struct nr_pdcp_discard_entry_s {
+    uint32_t count;
+    uint64_t time;
+  } *discard_list;
+  int discard_list_size;
+  int discard_list_start;
+  int discard_list_length;
 
   /* timers (stores the ms of activation, 0 means not active) */
   uint64_t t_reordering_start;

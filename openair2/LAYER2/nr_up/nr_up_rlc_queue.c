@@ -9,6 +9,7 @@
 #include "nr_up_rlc_queue.h"
 #include "nr_up_pdcp_if.h"
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include "assertions.h"
 #include "common/utils/LOG/log.h"
@@ -33,8 +34,9 @@ typedef struct {
   rb_id_t rb_idP;
   int sdu_id;
   sdu_size_t sdu_sizeP;
-  uint8_t *sdu_pP;
+  uint8_t *sdu_pP; // NULL: status request (TX space only), or discard if discard is set
   ue_id_t pdcp_ue_id;
+  bool discard; // PDCP discardTimer: discard the SDUs up to sdu_id
 } nr_up_rlc_data_req_queue_item;
 
 #define NR_UP_RLC_DATA_REQ_QUEUE_SIZE 10000
@@ -71,7 +73,9 @@ static void *nr_up_rlc_data_req_thread(void *_)
 
     nr_up_rlc_data_req_queue_item *item = &g_nr_up_rlc_queue.q[i];
     int tx_space;
-    if (item->sdu_pP == NULL) {
+    if (item->discard) {
+      tx_space = nr_rlc_discard_sdus_up_to(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id);
+    } else if (item->sdu_pP == NULL) {
       /* status request: read TX space only */
       const int rnti = item->ctxt_pP.rntiMaybeUEid;
       tx_space = nr_rlc_get_available_tx_space(rnti, nr_rlc_get_lcid_from_rb(rnti, false, item->rb_idP));
@@ -112,13 +116,14 @@ void nr_up_rlc_queue_init(void)
   }
 }
 
-void nr_up_enqueue_rlc_data_req(const protocol_ctxt_t *ctxt_pP,
-                                srb_flag_t srb_flagP,
-                                rb_id_t rb_idP,
-                                int sdu_id,
-                                sdu_size_t sdu_sizeP,
-                                uint8_t *sdu_pP,
-                                ue_id_t pdcp_ue_id)
+static void nr_up_enqueue_rlc(const protocol_ctxt_t *ctxt_pP,
+                              srb_flag_t srb_flagP,
+                              rb_id_t rb_idP,
+                              int sdu_id,
+                              sdu_size_t sdu_sizeP,
+                              uint8_t *sdu_pP,
+                              ue_id_t pdcp_ue_id,
+                              bool discard)
 {
   int i;
   int logged = 0;
@@ -146,6 +151,7 @@ void nr_up_enqueue_rlc_data_req(const protocol_ctxt_t *ctxt_pP,
   g_nr_up_rlc_queue.q[i].sdu_sizeP = sdu_sizeP;
   g_nr_up_rlc_queue.q[i].sdu_pP = sdu_pP;
   g_nr_up_rlc_queue.q[i].pdcp_ue_id = pdcp_ue_id;
+  g_nr_up_rlc_queue.q[i].discard = discard;
 
   if (pthread_cond_signal(&g_nr_up_rlc_queue.c) != 0) {
     abort();
@@ -153,4 +159,20 @@ void nr_up_enqueue_rlc_data_req(const protocol_ctxt_t *ctxt_pP,
   if (pthread_mutex_unlock(&g_nr_up_rlc_queue.m) != 0) {
     abort();
   }
+}
+
+void nr_up_enqueue_rlc_data_req(const protocol_ctxt_t *ctxt_pP,
+                                srb_flag_t srb_flagP,
+                                rb_id_t rb_idP,
+                                int sdu_id,
+                                sdu_size_t sdu_sizeP,
+                                uint8_t *sdu_pP,
+                                ue_id_t pdcp_ue_id)
+{
+  nr_up_enqueue_rlc(ctxt_pP, srb_flagP, rb_idP, sdu_id, sdu_sizeP, sdu_pP, pdcp_ue_id, false);
+}
+
+void nr_up_enqueue_rlc_discard(const protocol_ctxt_t *ctxt_pP, rb_id_t rb_idP, int sdu_id, ue_id_t pdcp_ue_id)
+{
+  nr_up_enqueue_rlc(ctxt_pP, SRB_FLAG_NO, rb_idP, sdu_id, 0, NULL, pdcp_ue_id, true);
 }
