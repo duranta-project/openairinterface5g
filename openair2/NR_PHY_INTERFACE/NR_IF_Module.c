@@ -79,7 +79,7 @@ static void handle_nr_uci(NR_UL_IND_t *UL_info)
   for (int i = 0; i < num_ucis; i++) {
     switch (uci_list[i].pdu_type) {
       case NFAPI_NR_UCI_PUSCH_PDU_TYPE:
-        LOG_E(MAC, "%s(): unhandled NFAPI_NR_UCI_PUSCH_PDU_TYPE\n", __func__);
+        handle_nr_uci_pusch(mod_id, cell_id, frame, slot, &uci_list[i].pusch_pdu);
         break;
 
       case NFAPI_NR_UCI_FORMAT_0_1_PDU_TYPE: {
