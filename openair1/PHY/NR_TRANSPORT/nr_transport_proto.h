@@ -123,12 +123,22 @@ void nr_schedule_rx_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_p
 // about 30 dB out, the cross-correlations of tens of simultaneous preambles bring wrong peaks within about 10 dB
 #define NR_PRACH_MIN_PEAK_TO_FLOOR 120
 
+#define NR_PRACH_MAX_DETECTED 64
 typedef struct rx_prach_out {
   uint16_t max_preamble;
   int max_preamble_energy; // dB x10, -900 when energy is 0: must stay signed
   uint16_t max_preamble_delay;
   uint16_t max_preamble_delay_raw; // raw PRACH correlation-bin delay before TA normalization
   int peak_to_floor; // dB x10, max correlation energy above the average over all the correlation bins
+  /* the preambles whose correlation peak stands NR_PRACH_MIN_PEAK_TO_FLOOR out of the floor computed without the
+   * peaks of these preambles, strongest first: several UEs can send a preamble in the same occasion */
+  int num_detected;
+  struct {
+    uint16_t preamble;
+    int energy; // dB x10, same normalization as max_preamble_energy
+    uint16_t delay; // TA
+    int peak_to_floor; // dB x10
+  } detected[NR_PRACH_MAX_DETECTED];
 } rx_prach_out_t;
 rx_prach_out_t rx_nr_prach(const prach_item_t *, int occasion);
 

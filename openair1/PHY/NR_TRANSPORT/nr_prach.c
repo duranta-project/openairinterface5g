@@ -438,6 +438,24 @@ void rx_nr_prach_ru_rep(prach_item_t *p,
   rx_nr_prach_ru_internal_rep(p, 0, rxdata, fp, N_TA_offset, rep, &params, rxsigF);
 }
 
+/* PRACH correlation delay (IFFT bins) to TA, see the comment in rx_nr_prach() */
+static uint16_t prach_raw_delay_to_ta(const prach_item_t *in, uint32_t raw_delay)
+{
+  const int prach_fmt = in->pdu.prach_format;
+  const int mu = in->numerology_index;
+  if (in->prach_sequence_length == 0) {
+    const uint32_t mu_scale = 1U << mu;
+
+    if (prach_fmt == 0 || prach_fmt == 1 || prach_fmt == 2)
+      return (raw_delay * 3U * mu_scale + 1U) / 2U;
+    else if (prach_fmt == 3)
+      return (raw_delay * 3U * mu_scale + 4U) / 8U;
+  } else {
+    return (raw_delay + 1U) / 2U;
+  }
+  return 0;
+}
+
 rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
 {
   const int nb_rx = in->nb_rx;
@@ -490,6 +508,14 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
   // average correlation energy over all the bins of all the roots: the floor the peak must stand out of
   uint64_t floor_energy = 0;
   int floor_bins = 0;
+  // peak of each preamble in its search window, and the energy of the bins of this peak (the peak spreads over about
+  // dft_sz / N_ZC bins on each side), to compute the floor without the detected preambles
+  struct pre_peak {
+    uint64_t energy;
+    uint64_t region_energy;
+    uint distance;
+    int region_bins;
+  } peak[64] = {0};
 
   for (int preamble_index = 0; preamble_index < 64; preamble_index++) {
     if (LOG_DEBUGFLAG(DEBUG_PRACH)) {
@@ -594,6 +620,20 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
     // Search window of this preamble: its cyclic shift converted to IFFT bins
     uint64_t *search = prach_ifft + (preamble_shift * dft_sz) / N_ZC;
 
+    struct pre_peak *pk = &peak[preamble_index];
+    for (int i = 0; i < NCS2; i++) {
+      if (search[i] > pk->energy) {
+        pk->energy = search[i];
+        pk->distance = i;
+      }
+    }
+    if (pk->energy > 0) {
+      for (int i = max((int)pk->distance - guard, 0); i <= min((int)pk->distance + guard, NCS2 - 1); i++) {
+        pk->region_energy += search[i];
+        pk->region_bins++;
+      }
+    }
+
     for (int i = 0; i < NCS2; i++) {
       if (search[i] > max.energy || (search[i] == max.energy && max.distance > i)) {
         max.energy = search[i];
@@ -631,17 +671,47 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
   if (max.energy > 0) {
     out.max_preamble = max.preamble;
     out.max_preamble_delay_raw = max.distance;
-    const uint32_t raw_delay = out.max_preamble_delay_raw;
-    const int mu = in->numerology_index;
-    if (in->prach_sequence_length == 0) {
-      const uint32_t mu_scale = 1U << mu;
+    out.max_preamble_delay = prach_raw_delay_to_ta(in, max.distance);
+  }
 
-      if (prach_fmt == 0 || prach_fmt == 1 || prach_fmt == 2)
-        out.max_preamble_delay = (raw_delay * 3U * mu_scale + 1U) / 2U;
-      else if (prach_fmt == 3)
-        out.max_preamble_delay = (raw_delay * 3U * mu_scale + 4U) / 8U;
-    } else {
-      out.max_preamble_delay = (raw_delay + 1U) / 2U;
+  /* several preambles: the floor is the average of the bins out of the peaks that stand NR_PRACH_MIN_PEAK_TO_FLOOR above
+   * it. A few iterations: the first floor includes the energy of all the peaks. Peaks of the preambles of the same root
+   * do not leak on each other (cyclic shifts of one Zadoff-Chu sequence), the preambles of other roots raise the floor
+   * by about 1/N_ZC each */
+  bool cand[64] = {0};
+  for (int it = 0; it < 3 && floor_bins > 0; it++) {
+    uint64_t fe = floor_energy;
+    int fb = floor_bins;
+    for (int p = 0; p < 64; p++) {
+      if (cand[p]) {
+        fe -= min(peak[p].region_energy, fe);
+        fb -= peak[p].region_bins;
+      }
+    }
+    const int floor_db = dB_fixed_times10(max(fb > 0 ? fe / fb : 1, 1));
+    bool changed = false;
+    for (int p = 0; p < 64; p++) {
+      const bool c = peak[p].energy > 0 && dB_fixed_times10(peak[p].energy) - floor_db >= NR_PRACH_MIN_PEAK_TO_FLOOR;
+      changed |= c != cand[p];
+      cand[p] = c;
+    }
+    if (!changed || it == 2) {
+      for (int p = 0; p < 64; p++) {
+        if (!cand[p])
+          continue;
+        int k = out.num_detected++;
+        const int en = dB_fixed_times10(peak[p].energy / (dft_sz * nb_rx));
+        // strongest first
+        while (k > 0 && out.detected[k - 1].energy < en) {
+          out.detected[k] = out.detected[k - 1];
+          k--;
+        }
+        out.detected[k].preamble = p;
+        out.detected[k].energy = en;
+        out.detected[k].delay = prach_raw_delay_to_ta(in, peak[p].distance);
+        out.detected[k].peak_to_floor = dB_fixed_times10(peak[p].energy) - floor_db;
+      }
+      break;
     }
   }
   stop_meas(in->rx_prach);

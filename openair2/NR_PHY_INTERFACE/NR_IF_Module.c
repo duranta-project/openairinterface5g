@@ -43,18 +43,17 @@ static void handle_nr_rach(NR_UL_IND_t *UL_info)
           UL_info->rach_ind.slot);
     for (int i = 0; i < UL_info->rach_ind.number_of_pdus; i++) {
       nfapi_nr_prach_indication_pdu_t *rach = UL_info->rach_ind.pdu_list + i;
-      if (rach->num_preamble > 1) {
-        LOG_E(MAC, "Not more than 1 preamble per RACH PDU supported, ignoring the rest\n");
-      }
-      nr_initiate_ra_proc(UL_info->module_id,
-                          UL_info->phy_id,
-                          UL_info->rach_ind.sfn,
-                          UL_info->rach_ind.slot,
-                          rach->preamble_list[0].preamble_index,
-                          rach->freq_index,
-                          rach->symbol_index,
-                          rach->preamble_list[0].timing_advance,
-                          rach->preamble_list[0].preamble_pwr);
+      // several UEs can send a preamble in the same occasion
+      for (int p = 0; p < rach->num_preamble; p++)
+        nr_initiate_ra_proc(UL_info->module_id,
+                            UL_info->phy_id,
+                            UL_info->rach_ind.sfn,
+                            UL_info->rach_ind.slot,
+                            rach->preamble_list[p].preamble_index,
+                            rach->freq_index,
+                            rach->symbol_index,
+                            rach->preamble_list[p].timing_advance,
+                            rach->preamble_list[p].preamble_pwr);
     }
   }
 }

@@ -2254,6 +2254,8 @@ void nr_schedule_RA(gNB_MAC_INST *mac,
   // releasing a UE modifies access_ue_list: collect them and release after the loop
   rnti_t to_release[NR_NB_RA_PROC_MAX];
   int num_release = 0;
+  uint16_t msg2_rnti[NR_NB_RA_PROC_MAX]; // RA-RNTIs that got a Msg2 in this slot
+  int num_msg2_rnti = 0;
   UE_iterator(mac->UE_info.access_ue_list, UE) {
     if (UE->pcell != cell)
       continue;
@@ -2276,10 +2278,20 @@ void nr_schedule_RA(gNB_MAC_INST *mac,
     }
 
     switch (ra->ra_state) {
-      case nrRA_Msg2:
+      case nrRA_Msg2: {
+        /* one Msg2 per RA-RNTI per slot: it has the RAR of one preamble, the UEs of the other preambles of the same
+         * occasion keep monitoring the RA-RNTI during their RAR window (TS 38.321 5.1.4) and get theirs later */
+        bool rnti_sent = false;
+        for (int r = 0; r < num_msg2_rnti; r++)
+          rnti_sent |= msg2_rnti[r] == ra->RA_rnti;
+        if (rnti_sent)
+          break;
         if (nr_generate_Msg2(mac, cell, frameP, slotP, UE, DL_req, TX_req))
           to_release[num_release++] = UE->rnti;
+        else if (ra->ra_state != nrRA_Msg2)
+          msg2_rnti[num_msg2_rnti++] = ra->RA_rnti;
         break;
+      }
       case nrRA_Msg3_retransmission:
         nr_generate_Msg3_retransmission(cell, frameP, slotP, UE, ul_dci_req);
         break;
