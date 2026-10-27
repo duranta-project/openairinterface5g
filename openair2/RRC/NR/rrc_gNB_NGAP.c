@@ -507,6 +507,13 @@ int rrc_gNB_process_NGAP_INITIAL_CONTEXT_SETUP_REQ(MessageDef *msg_p, instance_t
   // this is malloced pointers, we pass it for later free()
   UE->nas_pdu = req->nas_pdu;
 
+  /* TS 38.413 8.3.1.2: store the UE Aggregate Maximum Bit Rate when received, even without PDU session to set up:
+   * the AMF does not repeat it in a later PDU Session Resource Setup Request */
+  if (req->has_ue_ambr) {
+    UE->ambr.dl_br = req->ue_ambr.br_dl;
+    UE->ambr.ul_br = req->ue_ambr.br_ul;
+  }
+
   if (req->nb_of_pdusessions > 0) {
     AssertFatal(req->has_ue_ambr, "UE aggregate maximum bitrate is required when there are PDU sessions to setup");
 
@@ -536,10 +543,6 @@ int rrc_gNB_process_NGAP_INITIAL_CONTEXT_SETUP_REQ(MessageDef *msg_p, instance_t
       UE->initial_pdus = calloc_or_fail(ps_count, sizeof(*UE->initial_pdus));
       memcpy(UE->initial_pdus, psessions, ps_count * sizeof(*UE->initial_pdus));
       UE->n_initial_pdu = ps_count;
-
-      /* If we have at least one session to set up, store AMBR */
-      UE->ambr.dl_br = req->ue_ambr.br_dl;
-      UE->ambr.ul_br = req->ue_ambr.br_ul;
     }
   }
 
