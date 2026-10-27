@@ -1107,7 +1107,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   if (IS_SOFTMODEM_DLSIM)
     memcpy(dlsch->f, input_ptr, (encoded_length + 7) >> 3);
 
-  int slot_type = nr_slot_select(&gNB->gNB_config, frame, slot);
+  nr_slot_type_t slot_type = nr_slot_select(&gNB->gNB_config, frame, slot);
   START_MEAS_FULL_SLOT(&gNB->dlsch_pdsch_generation_stats, slot_type, NR_DOWNLINK_SLOT);
 
   int layerSz2 = (layerSz + 63) & ~63;
@@ -1285,7 +1285,7 @@ void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_arr
   unsigned char output[size_output >> 3] __attribute__((aligned(64)));
   bzero(output, sizeof(output));
 
-  int slot_type = nr_slot_select(&gNB->gNB_config, frame, slot);
+  nr_slot_type_t slot_type = nr_slot_select(&gNB->gNB_config, frame, slot);
   START_MEAS_FULL_SLOT(dlsch_encoding_stats, slot_type, NR_DOWNLINK_SLOT);
   if (nr_dlsch_encoding(gNB,
                         n_dlsch,

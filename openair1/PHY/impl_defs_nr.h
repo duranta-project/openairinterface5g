@@ -37,10 +37,17 @@
 *
 ************************************************************************/
 
-#define NR_DOWNLINK_SLOT                   (0x01)
-#define NR_UPLINK_SLOT                     (0x02)
-#define NR_MIXED_SLOT                      (0x03)
-#define NR_SIDELINK_SLOT NR_UPLINK_SLOT
+// DL/UL bits denote full slots; mixed TDD slots use a separate bit.
+typedef enum {
+  NR_DOWNLINK_SLOT = 0x01,
+  NR_UPLINK_SLOT = 0x02,
+  NR_BOTH_SLOT = 0x03, // NR_DOWNLINK_SLOT | NR_UPLINK_SLOT
+  NR_MIXED_SLOT = 0x04,
+  NR_SIDELINK_SLOT = NR_UPLINK_SLOT,
+} nr_slot_type_t;
+
+#define SLOT_HAS_DL(slot) ((slot) & (NR_DOWNLINK_SLOT | NR_MIXED_SLOT))
+#define SLOT_HAS_UL(slot) ((slot) & (NR_UPLINK_SLOT | NR_MIXED_SLOT))
 
 enum nr_Link {
   link_type_dl,
