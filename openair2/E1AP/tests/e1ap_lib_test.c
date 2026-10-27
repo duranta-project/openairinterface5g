@@ -15,6 +15,7 @@
 #include "e1ap_interface_management.h"
 #include "e1ap_lib_includes.h"
 #include "common/utils/assertions.h"
+#include "openair1/SIMULATION/TOOLS/sim.h"
 
 void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
 {
@@ -192,7 +193,7 @@ static void test_bearer_context_setup_request(void)
   orig.pduSession[0].nssai.sd = 0x01;
   orig.pduSession[0].nssai.sst = 0x01;
   orig.pduSession[0].securityIndication = security;
-  orig.pduSession[0].UP_TL_information = create_up_tl_info(0x2345);
+  orig.pduSession[0].UP_TL_information = create_up_tl_info(uniformrandom() * (UINT32_MAX + 1.0));
   orig.pduSession[0].DRBnGRanList[0].id = 1;
   orig.pduSession[0].DRBnGRanList[0].sdap_config = sdap;
   orig.pduSession[0].DRBnGRanList[0].pdcp_config = pdcp;
@@ -202,7 +203,7 @@ static void test_bearer_context_setup_request(void)
   orig.pduSession[1].nssai.sd = 0x02;
   orig.pduSession[1].nssai.sst = 0x02;
   orig.pduSession[1].securityIndication = security;
-  orig.pduSession[1].UP_TL_information = create_up_tl_info(0x4321);
+  orig.pduSession[1].UP_TL_information = create_up_tl_info(uniformrandom() * (UINT32_MAX + 1.0));
   orig.pduSession[1].DRBnGRanList[0].id = 2;
   orig.pduSession[1].DRBnGRanList[0].sdap_config = sdap;
   orig.pduSession[1].DRBnGRanList[0].pdcp_config = pdcp;
@@ -998,6 +999,7 @@ static void test_bearer_context_modification_confirm(void)
 
 int main()
 {
+  randominit();
   // E1 Bearer Context Setup
   test_bearer_context_setup_request();
   test_bearer_context_setup_response();
