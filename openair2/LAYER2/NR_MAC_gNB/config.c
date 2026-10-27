@@ -379,7 +379,9 @@ int get_ul_slots_per_frame(const frame_structure_t *fs)
  * @param count_mixed indicates whether counting mixed slot with UL symbols (e.g. for SRS) or only full UL slots
  * @return slot index offset
  */
-int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed)
+/* UL slots of the period, in order: full UL slots, plus mixed slots with UL symbols if count_mixed.
+ * With a cell, the slots it reserves for spectrum sensing are left out: no UE transmits there. */
+static int ul_slot_offset(const frame_structure_t *fs, const nr_cell_sched_t *cell, int idx, bool count_mixed)
 {
   DevAssert(fs);
 
@@ -395,15 +397,30 @@ int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed)
   count also mixed slots with UL symbols if flag count_mixed is present */
   for (int i = 0; i < fs->numb_slots_period; i++) {
     if ((count_mixed && is_ul_slot(i, fs)) || fs->period_cfg.tdd_slot_bitmap[i].slot_type == TDD_NR_UPLINK_SLOT) {
+#ifdef E3_AGENT
+      if (cell && nr_mac_ul_slot_is_sensing_reserved(cell, i))
+        continue;
+#endif /* E3_AGENT */
       ul_slot_idxs[ul_slot_count++] = i;
     }
   }
+  AssertFatal(ul_slot_count > 0, "no UL slot left in the TDD period for periodic UCI/SRS\n");
 
   // Compute slot index offset
   int period_idx = idx / ul_slot_count; // wrap up the count of complete TDD periods spanned by the index
   int ul_slot_idx_in_period = idx % ul_slot_count; // wrap up the UL slot index within the current TDD period
 
   return ul_slot_idxs[ul_slot_idx_in_period] + period_idx * fs->numb_slots_period;
+}
+
+int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed)
+{
+  return ul_slot_offset(fs, NULL, idx, count_mixed);
+}
+
+int get_cell_ul_slot_offset(const nr_cell_sched_t *cell, int idx, bool count_mixed)
+{
+  return ul_slot_offset(&cell->frame_structure, cell, idx, count_mixed);
 }
 
 /**
@@ -1058,14 +1075,22 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
                        scc->tdd_UL_DL_ConfigurationCommon,
                        csi_symbols_in_slot(scc),
                        num_symb_cset);
-  nr_rrc_config_ul_tda(scc, rc->minRXTXTIME, rc->do_SRS);
+#ifdef E3_AGENT
+  /* Extra UL TDAs the Spectrum RAN function wants in the list; none unless configured. */
+  const nr_ul_tda_shape_t *extra_tdas = NULL;
+  const int num_extra_tdas = e3_spectrum_extra_ul_tdas(&extra_tdas);
+#else
+  const nr_ul_tda_shape_t *extra_tdas = NULL;
+  const int num_extra_tdas = 0;
+#endif /* E3_AGENT */
+  nr_rrc_config_ul_tda(scc, rc->minRXTXTIME, rc->do_SRS, num_extra_tdas, extra_tdas);
   seq_arr_init(&cell->ul_tda, sizeof(NR_tda_info_t));
   init_ul_tda_info(scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList, &cell->ul_tda);
 
 #ifdef E3_AGENT
   /* The cell's frame structure is known now: let the Spectrum RAN function bind
    * to it. It owns its configuration (E3Configuration) and state. */
-  e3_spectrum_mac_attach_cell(cell);
+  e3_spectrum_mac_attach_cell(nrmac, cell);
 #endif /* E3_AGENT */
   seq_arr_init(&nrmac->pos_act_ue_arr, sizeof(positioning_activation_info_t));
 }

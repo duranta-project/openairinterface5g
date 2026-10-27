@@ -49,4 +49,16 @@ int spectrum_encode_indication(const nr_mac_sensing_publish_meta_t *meta,
  */
 int spectrum_encode_ran_function_data(uint8_t **encoded_data, size_t *encoded_size);
 
+/* Instants are CLOCK_REALTIME ns, the clock of the dApp report timestamp; 0 = did not happen (encoded absent). */
+typedef struct {
+  int64_t built_ts_ns; /* when this outcome was assembled */
+  int64_t installed_ts_ns; /* mask written into the MAC */
+  int64_t on_air_ts_ns; /* first scheduler tick that put it on air */
+  uint16_t sfn;
+  uint16_t slot;
+} spectrum_apply_outcome_t;
+
+/** @brief Encode a PRB-block apply outcome; the caller frees *encoded_data. */
+int spectrum_encode_apply_outcome(const spectrum_apply_outcome_t *outcome, uint8_t **encoded_data, size_t *encoded_size);
+
 #endif // SPECTRUM_ENC_H

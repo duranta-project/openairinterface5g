@@ -28,6 +28,8 @@ int get_dl_slots_per_period(const frame_structure_t *fs);
 int get_full_ul_slots_per_period(const frame_structure_t *fs);
 int get_full_dl_slots_per_period(const frame_structure_t *fs);
 int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed);
+/* get_ul_slot_offset() for a cell's periodic UCI and SRS: skips the UL slots it reserves for sensing */
+int get_cell_ul_slot_offset(const nr_cell_sched_t *cell, int idx, bool count_mixed);
 int get_ul_period_idx_from_abs_slot(const frame_structure_t *fs, int slot, bool count_mixed, int max_period);
 void delete_nr_ue_data(gNB_MAC_INST *mac, NR_UE_info_t *UE);
 NR_UE_info_t **get_periodic_ue(periodic_ue_sched_t *p, int ul_idx, int index);
@@ -521,6 +523,10 @@ int get_beam_from_ssbidx(nr_cell_sched_t *cell, int ssb_idx);
 int16_t get_allocated_beam(const NR_beam_info_t *beam_info, int frame, int slot, int slots_per_frame, int beam_number_in_period);
 uint16_t convert_to_fapi_beam(const uint16_t beam_idx, const NR_beam_info_t *beam_info);
 NR_beam_alloc_t beam_allocation_procedure(NR_beam_info_t *beam_info, int frame, int slot, int16_t beam_index, int slots_per_frame);
+/* Largest free RB run under a symbol mask; used by the UL allocators and the
+ * sensing TDA selector. */
+void get_max_rb_range(const uint16_t *vrb_map_ul, const uint16_t *ulprbbl, uint16_t mask, int *rb_start, int *rb_len);
+
 void reset_beam_status(NR_beam_info_t *beam_info, int frame, int slot, int16_t beam_index, int slots_per_frame, bool new_beam);
 int beam_selection_procedures(nr_cell_sched_t *cell, NR_UE_info_t *UE);
 void beam_switching_procedure(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_UE_info_t *UE, int new_beam_index);

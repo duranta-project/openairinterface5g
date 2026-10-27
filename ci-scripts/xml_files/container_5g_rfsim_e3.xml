@@ -1,0 +1,141 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+
+<testCaseList>
+  <htmlTabName>E3 agent in RF simulation</htmlTabName>
+
+  <testCase>
+    <class>Pull_Local_Registry</class>
+    <desc>Pull Images from Local Registry</desc>
+    <node>localhost</node>
+    <images>oai-gnb-e3</images>
+  </testCase>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace</desc>
+    <node>localhost</node>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Clean-Up any residual E3 shared memory</desc>
+    <node>localhost</node>
+    <command>rm -f /dev/shm/e3_ran_buffers /dev/shm/e3_l2_sensing</command>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy the core-less RFsim gNB, asn1 encoding</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_e3</yaml_path>
+    <services>oai-gnb-asn1</services>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Script</class>
+    <desc>Run the spectrum dApp against the gNB, asn1 encoding</desc>
+    <node>localhost</node>
+    <script>scripts/run-e3-dapp.sh</script>
+    <options>asn1 rfsim5g-oai-gnb-e3-asn1</options>
+    <timeout>300</timeout>
+  </testCase>
+
+  <testCase>
+    <class>Stop_Object</class>
+    <desc>Stop the gNB, asn1 encoding</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_e3</yaml_path>
+    <services>oai-gnb-asn1</services>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>No E3 shared memory left behind, asn1 encoding</desc>
+    <node>localhost</node>
+    <command>test ! -e /dev/shm/e3_ran_buffers &amp;&amp; test ! -e /dev/shm/e3_l2_sensing</command>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy the core-less RFsim gNB, json encoding</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_e3</yaml_path>
+    <services>oai-gnb-json</services>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Script</class>
+    <desc>Run the spectrum dApp against the gNB, json encoding</desc>
+    <node>localhost</node>
+    <script>scripts/run-e3-dapp.sh</script>
+    <options>json rfsim5g-oai-gnb-e3-json</options>
+    <timeout>300</timeout>
+  </testCase>
+
+  <testCase>
+    <class>Stop_Object</class>
+    <desc>Stop the gNB, json encoding</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_e3</yaml_path>
+    <services>oai-gnb-json</services>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>No E3 shared memory left behind, json encoding</desc>
+    <node>localhost</node>
+    <command>test ! -e /dev/shm/e3_ran_buffers &amp;&amp; test ! -e /dev/shm/e3_l2_sensing</command>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy the core-less RFsim gNB, protobuf encoding</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_e3</yaml_path>
+    <services>oai-gnb-protobuf</services>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Script</class>
+    <desc>Run the spectrum dApp against the gNB, protobuf encoding</desc>
+    <node>localhost</node>
+    <script>scripts/run-e3-dapp.sh</script>
+    <options>protobuf rfsim5g-oai-gnb-e3-protobuf</options>
+    <timeout>300</timeout>
+  </testCase>
+
+  <testCase>
+    <class>Stop_Object</class>
+    <desc>Stop the gNB, protobuf encoding</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_e3</yaml_path>
+    <services>oai-gnb-protobuf</services>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>No E3 shared memory left behind, protobuf encoding</desc>
+    <node>localhost</node>
+    <command>test ! -e /dev/shm/e3_ran_buffers &amp;&amp; test ! -e /dev/shm/e3_l2_sensing</command>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <always_exec>true</always_exec>
+    <desc>Undeploy the E3 test deployment</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_e3</yaml_path>
+    <analysis>
+      <services>oai-gnb-asn1=EndsWithBye oai-gnb-json=EndsWithBye oai-gnb-protobuf=EndsWithBye</services>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Clean_Test_Server_Images</class>
+    <always_exec>true</always_exec>
+    <desc>Clean Test Images on Test Server</desc>
+    <node>localhost</node>
+    <images>oai-gnb-e3</images>
+  </testCase>
+
+</testCaseList>

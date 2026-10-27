@@ -11,19 +11,44 @@
 #define RAN_FUNC_SPECTRUM_EXTERN_H
 
 #include "LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
+#include "LAYER2/NR_MAC_gNB/nr_radio_config.h"
 #include "openair2/E3AP/ran_func_spectrum_types.h"
 
-/* Bind sensing to a cell once its frame structure is known (end of
- * nr_mac_config_scc()). Reads the sensing keys of the E3Configuration section
- * and enables sensing for the cell iff the operator reserved slots. A no-op
- * when nothing is configured. */
-void e3_spectrum_mac_attach_cell(nr_cell_sched_t *cell);
+/* additional_ul_tdas, called while the cell's UL TDA list is built. *out stays valid for the life of the process. */
+int e3_spectrum_extra_ul_tdas(const nr_ul_tda_shape_t **out);
+
+/* End of nr_mac_config_scc(). No-op unless slots are reserved or extra TDAs configured. */
+void e3_spectrum_mac_attach_cell(gNB_MAC_INST *mac, nr_cell_sched_t *cell);
 
 /* Release what e3_spectrum_mac_attach_cell() allocated. Idempotent. */
 void e3_spectrum_mac_detach_cell(nr_cell_sched_t *cell);
 
 /* Is this (absolute) slot hard-reserved for sensing for this cell? */
 bool nr_mac_ul_slot_is_sensing_reserved(const nr_cell_sched_t *cell, int slot);
+
+/* True for the first five calls and then every 1000th. */
+static inline bool prb_block_ratelimit(uint64_t *counter)
+{
+  const uint64_t count = ++(*counter);
+  return count <= 5 || (count % 1000) == 0;
+}
+
+/* Once per slot, after the maps are seeded and before any scheduling step reads them. */
+void apply_prb_block_masks(nr_cell_sched_t *cell, frame_t frame, slot_t slot);
+
+/* Skips (logged once) a collision with the dApp block; asserts only on a genuine conflict. */
+void prb_block_reserve_ul_channel(const nr_cell_sched_t *cell,
+                                  uint16_t *vrb_map_UL,
+                                  int rb_start,
+                                  int nb_rb,
+                                  uint16_t mask,
+                                  frame_t frame,
+                                  slot_t slot,
+                                  rnti_t rnti,
+                                  const char *channel_label);
+
+void e3_spectrum_on_ue_configured(const nr_cell_sched_t *cell, NR_UE_info_t *UE);
+void e3_spectrum_on_ue_deleted(const NR_UE_info_t *UE);
 
 /* Per-slot hooks, called from gNB_dlsch_ulsch_scheduler(). reserve/restore
  * bracket the UE allocators (block the slot, then free it for the scan);
