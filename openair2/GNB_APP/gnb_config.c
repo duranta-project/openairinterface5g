@@ -439,11 +439,46 @@ static int get_ulsyncvalidityduration_enum_value(int val)
   return retval;
 }
 
+static void determine_initial_BWP(NR_ServingCellConfigCommon_t *scc)
+{
+  long scs = *scc->ssbSubcarrierSpacing;
+  NR_FrequencyInfoDL_t *frequencyInfoDL = scc->downlinkConfigCommon->frequencyInfoDL;
+  frequency_range_t frequency_range = get_freq_range_from_band(*frequencyInfoDL->frequencyBandList.list.array[0]);
+  int off_pA = get_ssb_offset_to_pointA(*frequencyInfoDL->absoluteFrequencySSB,
+                                        frequencyInfoDL->absoluteFrequencyPointA,
+                                        scs,
+                                        frequency_range);
+  int ssb_prb_offset_pointA = frequency_range == FR1 ? off_pA >> scs : off_pA >> (scs - 2);
+  int start_rb, nb_rb;
+  if (IS_SA_MODE(get_softmodem_params())) {
+    NR_PDCCH_ConfigCommon_t *pdcch_configcommon = scc->downlinkConfigCommon->initialDownlinkBWP->pdcch_ConfigCommon->choice.setup;
+    NR_ControlResourceSetZero_t *csetZero = pdcch_configcommon->controlResourceSetZero;
+    AssertFatal(csetZero, "Coreset0 index not available\n");
+    int ssb_offset =  get_ssb_subcarrier_offset(*frequencyInfoDL->absoluteFrequencySSB,
+                                                frequencyInfoDL->absoluteFrequencyPointA,
+                                                *scc->ssbSubcarrierSpacing);
+    int nr_band = *scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList.list.array[0];
+    NR_Type0_PDCCH_CSS_config_t type0_PDCCH_CSS_config = {0};
+    // TODO assuming SSB and PDCCH SCS are the same
+    get_info_from_cset_tables(&type0_PDCCH_CSS_config, scs, scs, ssb_offset, *csetZero, nr_band);
+    start_rb = ssb_prb_offset_pointA - type0_PDCCH_CSS_config.rb_offset;
+    nb_rb = type0_PDCCH_CSS_config.num_rbs;
+  } else {
+    // for NSA we make the arbitrary choice to have an initial BWP of 24 PRBs
+    // it is more than the 20 PRBs of SSB and equal to the smaller BW normally used in NR
+    nb_rb = 24;
+    start_rb = ssb_prb_offset_pointA < 4 ? 0 : ssb_prb_offset_pointA - 4;
+  }
+  int riv = PRBalloc_to_locationandbandwidth(nb_rb, start_rb);
+  LOG_I(GNB_APP, "Initial BWP RIV %d nb PRBs %d start PRB %d\n", riv, nb_rb, start_rb);
+  scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth = riv;
+  scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth = riv;
+}
+
 void fix_scc(NR_ServingCellConfigCommon_t *scc, uint64_t ssbmap)
 {
   scc->ssb_PositionsInBurst->present = get_ssb_len(scc);
   uint8_t curr_bit;
-
   // changing endianicity of ssbmap and filling the ssb_PositionsInBurst buffers
   if(scc->ssb_PositionsInBurst->present == NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_shortBitmap) {
     scc->ssb_PositionsInBurst->choice.shortBitmap.size = 1;
@@ -547,6 +582,8 @@ void fix_scc(NR_ServingCellConfigCommon_t *scc, uint64_t ssbmap)
   // check pucch_ResourceConfig
   AssertFatal(*scc->uplinkConfigCommon->initialUplinkBWP->pucch_ConfigCommon->choice.setup->pucch_ResourceCommon < 2,
 	      "pucch_ResourceConfig should be 0 or 1 for now\n");
+
+  determine_initial_BWP(scc);
 
   if (*scc->ext2->ntn_Config_r17->ntn_UlSyncValidityDuration_r17 == 0) {
     free(scc->ext2->ntn_Config_r17->ntn_UlSyncValidityDuration_r17);
@@ -1348,12 +1385,15 @@ static void get_bwp_config(nr_mac_config_t *configuration, const NR_ServingCellC
   snprintf(path, sizeof(path), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
   GET_PARAMS_LIST(BWPParamList, BWPParams, GNBBWPPARAMS_DESC, GNB_CONFIG_STRING_BWP_LIST, path, BWPPARAMS_CHECK);
   configuration->num_additional_bwps = BWPParamList.numelt;
-  AssertFatal(configuration->num_additional_bwps >= 0 && configuration->num_additional_bwps <= 4,
-              "Invalid number of additional BWPs %d\n",
-              configuration->num_additional_bwps);
   int bw = scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
+  bool bwp_id_1 = false; // if there is no BWP1 configured, we assign that to the full BWP
+  bool first_active_configured = false;
   for (int i = 0; i < configuration->num_additional_bwps; i++) {
-    configuration->bwp_config[i].id = i + 1;
+    configuration->bwp_config[i].id = *BWPParamList.paramarray[i][GNB_BWP_ID_IDX].iptr;
+    if (configuration->bwp_config[i].id == 1)
+      bwp_id_1 = true;
+    if (configuration->bwp_config[i].id == configuration->first_active_bwp)
+      first_active_configured = true;
     int bwp_start = *BWPParamList.paramarray[i][GNB_BWP_START_IDX].iptr;
     AssertFatal(bwp_start >= 0 && bwp_start < bw, "Invalid BWP start value %d\n", bwp_start);
     int bwp_size = *BWPParamList.paramarray[i][GNB_BWP_SIZE_IDX].iptr;
@@ -1368,6 +1408,14 @@ static void get_bwp_config(nr_mac_config_t *configuration, const NR_ServingCellC
           configuration->bwp_config[i].location_and_bw,
           configuration->bwp_config[i].scs);
   }
+  int max_configurable_bwps = 3 + bwp_id_1;  // 4 BWPs, BWP1 is the default full if not differently configured
+  AssertFatal(configuration->num_additional_bwps >= 0 && configuration->num_additional_bwps <= max_configurable_bwps,
+              "Invalid number of additional BWPs %d\n",
+              configuration->num_additional_bwps);
+  // if 1st active is BWP1 and that is not explicitly configured, it will be configured by default
+  if (!bwp_id_1 && configuration->first_active_bwp == 1)
+    first_active_configured = true;
+  AssertFatal(first_active_configured, "1st active BWP does not belog to the configured BWPs\n");
 }
 
 /* sscanf() returns the number of assignments, not whether trailing literals matched, so
@@ -1736,10 +1784,8 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
 
   NR_ServingCellConfigCommon_t *scc = get_scc_config(config.minRXTXTIME, config.do_SRS);
   // BWP
-  get_bwp_config(&config, scc);
-  AssertFatal(config.num_additional_bwps <= 4, "Impossible to configure more than 4 additional BWPs\n");
   config.first_active_bwp = *GNBParamList.paramarray[0][GNB_1ST_ACTIVE_BWP_IDX].iptr;
-  AssertFatal(config.first_active_bwp <= config.num_additional_bwps, "1st active BWP does not belog to the configured BWPs\n");
+  get_bwp_config(&config, scc);
 
   if (MacRLC_ParamList.numelt > 0) {
     AssertFatal(MacRLC_ParamList.numelt == 1, "only one MACRLCs section supported!\n");

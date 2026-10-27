@@ -435,8 +435,9 @@ int PRBalloc_to_locationandbandwidth0(int NPRB, int RBstart, int BWPsize)
     return (BWPsize * (BWPsize + 1 - NPRB) + (BWPsize - 1 - RBstart));
 }
 
-int PRBalloc_to_locationandbandwidth(int NPRB,int RBstart) {
-  return(PRBalloc_to_locationandbandwidth0(NPRB,RBstart,275));
+int PRBalloc_to_locationandbandwidth(int NPRB, int RBstart)
+{
+  return (PRBalloc_to_locationandbandwidth0(NPRB, RBstart, 275));
 }
 
 int cce_to_reg_interleaving(const int R, int k, int n_shift, const int C, int L, const int N_regs) {

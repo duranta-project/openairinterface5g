@@ -1786,18 +1786,24 @@ static NR_SetupRelease_PDSCH_Config_t *config_pdsch(uint64_t ssb_bitmap, int bwp
 static NR_BWP_Downlink_t *config_downlinkBWP(const NR_ServingCellConfigCommon_t *scc,
                                              const NR_UE_NR_Capability_t *uecap,
                                              bool force_256qam_off,
+                                             int first_bwp,
                                              bool is_SA,
                                              const nr_mac_config_t *configuration)
 {
   NR_BWP_Downlink_t *bwp = calloc_or_fail(1, sizeof(*bwp));
   bwp->bwp_Id = 1;
   bwp->bwp_Common = calloc(1,sizeof(*bwp->bwp_Common));
-  if(configuration->num_additional_bwps > 0 && configuration->first_active_bwp > 0) {
-    const nr_bwp_config_t *bwp_config = &configuration->bwp_config[configuration->first_active_bwp - 1];
-    bwp->bwp_Common->genericParameters.locationAndBandwidth = bwp_config->location_and_bw;
-    bwp->bwp_Common->genericParameters.subcarrierSpacing = bwp_config->scs;
-    bwp->bwp_Common->genericParameters.cyclicPrefix = NULL;
-  } else {
+  bool found = false;
+  for (int i = 0; i < configuration->num_additional_bwps; i++) {
+    if (configuration->bwp_config[i].id == first_bwp) {
+      bwp->bwp_Common->genericParameters.locationAndBandwidth = configuration->bwp_config[i].location_and_bw;
+      bwp->bwp_Common->genericParameters.subcarrierSpacing = configuration->bwp_config[i].scs;
+      bwp->bwp_Common->genericParameters.cyclicPrefix = NULL;
+      found = true;
+    }
+  }
+  if (!found) {
+    // default full BWP
     bwp->bwp_Common->genericParameters.locationAndBandwidth = PRBalloc_to_locationandbandwidth(scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth,0);
     bwp->bwp_Common->genericParameters.subcarrierSpacing = scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.subcarrierSpacing;
     bwp->bwp_Common->genericParameters.cyclicPrefix = scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.cyclicPrefix;
@@ -1890,7 +1896,8 @@ static NR_BWP_Downlink_t *config_downlinkBWP(const NR_ServingCellConfigCommon_t 
   return bwp;
 }
 
-static NR_BWP_Uplink_t *config_uplinkBWP(bool is_SA,
+static NR_BWP_Uplink_t *config_uplinkBWP(long first_bwp,
+                                         bool is_SA,
                                          int uid,
                                          int maxMIMO_Layers,
                                          const nr_mac_config_t *configuration,
@@ -1902,12 +1909,17 @@ static NR_BWP_Uplink_t *config_uplinkBWP(bool is_SA,
   NR_BWP_Uplink_t *ubwp = calloc_or_fail(1, sizeof(*ubwp));
   ubwp->bwp_Id = 1;
   ubwp->bwp_Common = calloc(1, sizeof(*ubwp->bwp_Common));
-  if(configuration->num_additional_bwps > 0 && configuration->first_active_bwp > 0) {
-    int bwp_idx = configuration->first_active_bwp - 1;
-    ubwp->bwp_Common->genericParameters.locationAndBandwidth = configuration->bwp_config[bwp_idx].location_and_bw;
-    ubwp->bwp_Common->genericParameters.subcarrierSpacing = configuration->bwp_config[bwp_idx].scs;
-    ubwp->bwp_Common->genericParameters.cyclicPrefix = NULL;
-  } else {
+  bool found = false;
+  for (int i = 0; i < configuration->num_additional_bwps; i++) {
+    if (configuration->bwp_config[i].id == first_bwp) {
+      ubwp->bwp_Common->genericParameters.locationAndBandwidth = configuration->bwp_config[i].location_and_bw;
+      ubwp->bwp_Common->genericParameters.subcarrierSpacing = configuration->bwp_config[i].scs;
+      ubwp->bwp_Common->genericParameters.cyclicPrefix = NULL;
+      found = true;
+    }
+  }
+  if (!found) {
+    // default full BWP
     ubwp->bwp_Common->genericParameters.locationAndBandwidth = PRBalloc_to_locationandbandwidth(scc->uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth,0);
     ubwp->bwp_Common->genericParameters.subcarrierSpacing = scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.subcarrierSpacing;
     ubwp->bwp_Common->genericParameters.cyclicPrefix = scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.cyclicPrefix;
@@ -3634,24 +3646,19 @@ static NR_SpCellConfig_t *get_initial_SpCellConfig(int uid,
   set_dl_maxmimolayers(pdsch_servingcellconfig, scc, NULL, 0, configuration->maxMIMO_layers);
 
   uint64_t bitmap = get_ssb_bitmap(scc);
-  int first_active_bwp = 0;
-  if (!redcap && configuration->num_additional_bwps > 0)
-    first_active_bwp = configuration->first_active_bwp > 0 ? 1 : 0;
-
+  int first_active_bwp = redcap ? 0 : configuration->first_active_bwp;
   asn1cCallocOne(configDedicated->firstActiveDownlinkBWP_Id, first_active_bwp);
   asn1cCallocOne(uplinkConfig->firstActiveUplinkBWP_Id, first_active_bwp);
+  // BWP0 (the initial BWP) also gets a real dedicated PDCCH config (ue-Specific search
+  // space, via configure_initial_dl/ul_bwp above) even though it isn't the first active BWP.
   uplinkConfig->initialUplinkBWP = configure_initial_ul_bwp(scc, configuration, cell, maxMIMO_Layers, NULL, NULL, uid);
   configDedicated->initialDownlinkBWP = configure_initial_dl_bwp(scc, bitmap, NULL, configuration);
-  if (first_active_bwp != 0) {
-    // BWP0 (the initial BWP) also gets a real dedicated PDCCH config (ue-Specific search
-    // space, via configure_initial_dl/ul_bwp above) even though it isn't the first active BWP.
-    configDedicated->downlinkBWP_ToAddModList = calloc(1, sizeof(*configDedicated->downlinkBWP_ToAddModList));
-    NR_BWP_Downlink_t *bwp = config_downlinkBWP(scc, NULL, false, true, configuration);
-    asn1cSeqAdd(&configDedicated->downlinkBWP_ToAddModList->list, bwp);
-    uplinkConfig->uplinkBWP_ToAddModList = calloc(1, sizeof(*uplinkConfig->uplinkBWP_ToAddModList));
-    NR_BWP_Uplink_t *ubwp = config_uplinkBWP(true, uid, maxMIMO_Layers, configuration, cell, scc, NULL, NULL);
-    asn1cSeqAdd(&uplinkConfig->uplinkBWP_ToAddModList->list, ubwp);
-  }
+  configDedicated->downlinkBWP_ToAddModList = calloc(1, sizeof(*configDedicated->downlinkBWP_ToAddModList));
+  NR_BWP_Downlink_t *bwp = config_downlinkBWP(scc, NULL, false, first_active_bwp, true, configuration);
+  asn1cSeqAdd(&configDedicated->downlinkBWP_ToAddModList->list, bwp);
+  uplinkConfig->uplinkBWP_ToAddModList = calloc(1, sizeof(*uplinkConfig->uplinkBWP_ToAddModList));
+  NR_BWP_Uplink_t *ubwp = config_uplinkBWP(first_active_bwp, true, uid, maxMIMO_Layers, configuration, cell, scc, NULL, NULL);
+  asn1cSeqAdd(&uplinkConfig->uplinkBWP_ToAddModList->list, ubwp);
 
   configDedicated->csi_MeasConfig = calloc(1, sizeof(*configDedicated->csi_MeasConfig));
   configDedicated->csi_MeasConfig->present = NR_SetupRelease_CSI_MeasConfig_PR_setup;
@@ -3913,11 +3920,11 @@ NR_CellGroupConfig_t *update_cellGroupConfig_for_reconfig(NR_CellGroupConfig_t *
     } else {
       if (!configDedicated->downlinkBWP_ToAddModList)
         configDedicated->downlinkBWP_ToAddModList = calloc_or_fail(1, sizeof(*configDedicated->downlinkBWP_ToAddModList));
-      NR_BWP_Downlink_t *dl_bwp = config_downlinkBWP(scc, uecap, local_config.force_256qam_off, true, &local_config);
+      NR_BWP_Downlink_t *dl_bwp = config_downlinkBWP(scc, uecap, local_config.force_256qam_off, new_bwp, true, &local_config);
       asn1cSeqAdd(&configDedicated->downlinkBWP_ToAddModList->list, dl_bwp);
       if (!uplinkConfig->uplinkBWP_ToAddModList)
         uplinkConfig->uplinkBWP_ToAddModList = calloc_or_fail(1, sizeof(*uplinkConfig->uplinkBWP_ToAddModList));
-      NR_BWP_Uplink_t *ul_bwp = config_uplinkBWP(true, uid, ul_maxMIMO_Layers, &local_config, cell, scc, uecap, fs_ids);
+      NR_BWP_Uplink_t *ul_bwp = config_uplinkBWP(new_bwp, true, uid, ul_maxMIMO_Layers, &local_config, cell, scc, uecap, fs_ids);
       asn1cSeqAdd(&uplinkConfig->uplinkBWP_ToAddModList->list, ul_bwp);
     }
   }
@@ -4046,22 +4053,13 @@ void update_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
   asn1cCallocOne(uplinkConfig->pusch_ServingCellConfig->choice.setup->ext1->maxMIMO_Layers, maxMIMO_Layers);
 
   // Update UL BWP
-  NR_BWP_UplinkDedicated_t *ul_bwp_Dedicated = NULL;
-  int curr_bwp = 0;
-  int bwp_id = 0;
-  if (uplinkConfig && uplinkConfig->firstActiveUplinkBWP_Id && *uplinkConfig->firstActiveUplinkBWP_Id > 0
-      && uplinkConfig->uplinkBWP_ToAddModList) {
+  if (uplinkConfig && uplinkConfig->uplinkBWP_ToAddModList) {
     struct NR_UplinkConfig__uplinkBWP_ToAddModList *UL_BWP_list = uplinkConfig->uplinkBWP_ToAddModList;
     AssertFatal(UL_BWP_list->list.count == 1, "We should only have 1 BWP configured at a given time\n");
     NR_BWP_Uplink_t *ul_bwp = UL_BWP_list->list.array[0];
-    curr_bwp = NRRIV2BW(ul_bwp->bwp_Common->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
-    ul_bwp_Dedicated = ul_bwp->bwp_Dedicated;
-    bwp_id = ul_bwp->bwp_Id;
-  } else if (uplinkConfig && uplinkConfig->initialUplinkBWP) {
-    ul_bwp_Dedicated = uplinkConfig->initialUplinkBWP;
-    curr_bwp = NRRIV2BW(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
-  }
-  if (ul_bwp_Dedicated) {
+    int curr_bwp = NRRIV2BW(ul_bwp->bwp_Common->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
+    NR_BWP_UplinkDedicated_t *ul_bwp_Dedicated = ul_bwp->bwp_Dedicated;
+    int bwp_id = ul_bwp->bwp_Id;
     NR_PUSCH_Config_t *pusch_Config = ul_bwp_Dedicated->pusch_Config->choice.setup;
     if (!pusch_Config->maxRank)
       pusch_Config->maxRank = calloc(1, sizeof(*pusch_Config->maxRank));
@@ -4082,21 +4080,12 @@ void update_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
     set_ul_mcs_table(configuration->force_UL256qam_off ? NULL : uecap, scc, pusch_Config);
   }
 
-  // Update DL BWP
-  NR_BWP_DownlinkDedicated_t *bwp_Dedicated = NULL;
-  int scs = -1;
-  if (spCellConfigDedicated->firstActiveDownlinkBWP_Id && *spCellConfigDedicated->firstActiveDownlinkBWP_Id > 0
-      && spCellConfigDedicated->downlinkBWP_ToAddModList) {
+  if (spCellConfigDedicated->downlinkBWP_ToAddModList) {
     struct NR_ServingCellConfig__downlinkBWP_ToAddModList *DL_BWP_list = spCellConfigDedicated->downlinkBWP_ToAddModList;
     AssertFatal(DL_BWP_list->list.count == 1, "We should only have 1 BWP configured at a given time\n");
     NR_BWP_Downlink_t *bwp = DL_BWP_list->list.array[0];
-    bwp_Dedicated = bwp->bwp_Dedicated;
-    scs = bwp->bwp_Common->genericParameters.subcarrierSpacing;
-  } else if (spCellConfigDedicated->initialDownlinkBWP) {
-    bwp_Dedicated = spCellConfigDedicated->initialDownlinkBWP;
-    scs = scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.subcarrierSpacing;
-  }
-  if (bwp_Dedicated) {
+    NR_BWP_DownlinkDedicated_t *bwp_Dedicated = bwp->bwp_Dedicated;
+    int scs = bwp->bwp_Common->genericParameters.subcarrierSpacing;
     set_dl_mcs_table(scs, configuration->force_256qam_off ? NULL : uecap, bwp_Dedicated, scc);
     update_cqitables(bwp_Dedicated->pdsch_Config, csi_MeasConfig);
   }
@@ -4212,6 +4201,7 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
   NR_BWP_Downlink_t *bwp = config_downlinkBWP(servingcellconfigcommon,
                                               uecap,
                                               configuration->force_256qam_off,
+                                              firstActiveDownlinkBWP_Id,
                                               false,
                                               configuration);
   asn1cSeqAdd(&configDedicated->downlinkBWP_ToAddModList->list, bwp);
@@ -4223,7 +4213,15 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
   // Uplink BWPs
   int firstActiveUplinkBWP_Id = 1;
   ulConfig->uplinkBWP_ToAddModList = calloc(1, sizeof(*ulConfig->uplinkBWP_ToAddModList));
-  NR_BWP_Uplink_t *ubwp = config_uplinkBWP(false, uid, maxMIMO_Layers, configuration, cell, servingcellconfigcommon, uecap, fs_ids);
+  NR_BWP_Uplink_t *ubwp = config_uplinkBWP(firstActiveUplinkBWP_Id,
+                                           false,
+                                           uid,
+                                           maxMIMO_Layers,
+                                           configuration,
+                                           cell,
+                                           servingcellconfigcommon,
+                                           uecap,
+                                           fs_ids);
   asn1cSeqAdd(&ulConfig->uplinkBWP_ToAddModList->list, ubwp);
   ulConfig->firstActiveUplinkBWP_Id = calloc(1, sizeof(*ulConfig->firstActiveUplinkBWP_Id));
   *ulConfig->firstActiveUplinkBWP_Id = firstActiveUplinkBWP_Id;
