@@ -41,6 +41,7 @@
  * \var F filler bits size
  * \var C number of segments 
  * \var segments array of segments parameters
+ * \var ts_ldpc_decode decoding times
  */
 typedef struct nrLDPC_TB_decoding_parameters_s{
 
@@ -75,7 +76,7 @@ typedef struct nrLDPC_TB_decoding_parameters_s{
   int16_t *d;
   bool d_to_be_cleared;
   bool decodeSuccess[NR_LDPC_MAX_NUM_CB];
-  time_stats_t ts_ldpc_decode;
+  time_single_t ts_ldpc_decode[NR_LDPC_MAX_NUM_CB];
 } nrLDPC_TB_decoding_parameters_t;
 
 /**
@@ -106,12 +107,12 @@ typedef struct nrLDPC_slot_decoding_parameters_s{
  * \var E input llr segment size
  * \var c Pointers to code blocks before LDPC encoding (38.212 V15.4.0 section 5.2.2)
  * IT MUST BE FILLED BY THE IMPLEMENTATION
- * \var ts_ldpc_encode encoding time stats
+ * \var ts_ldpc_encode encoding time
  */
 typedef struct nrLDPC_segment_encoding_parameters_s{
   int E;
   uint8_t *c;
-  time_stats_t ts_ldpc_encode;
+  time_single_t ts_ldpc_encode;
 } nrLDPC_segment_encoding_parameters_t;
 
 /**

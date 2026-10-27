@@ -514,8 +514,6 @@ int main(int argc, char *argv[])
   // Compute transmitter energy level
   double txlev_sum = compute_tx_energy_level(txdata, n_tx, symbol_offset, symbol_length, n_trials);
 
-  init_sorted_list_meas(&gNB->rx_srs_stats, n_trials);
-
   for (SNR = snr0; SNR <= snr1 && !stop; SNR += snr_step) {
     reset_meas(&gNB->rx_srs_stats);
     reset_meas(&gNB->generate_srs_stats);
@@ -642,7 +640,6 @@ int main(int argc, char *argv[])
 
   // free memory
 
-  free_sorted_list_meas(&gNB->rx_srs_stats);
   for (i = 0; i < n_tx; i++) {
     free(s_re[i]);
     free(s_im[i]);
