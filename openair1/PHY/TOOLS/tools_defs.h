@@ -239,10 +239,8 @@ extern "C" {
   }
 
   __attribute__((always_inline)) inline c64_t c64x16maddConjShift(const c16_t a, const c16_t b, const c64_t c, const int Shift) {
-    return (c64_t) {
-      .r = (((int64_t)a.r * b.r + (int64_t)a.i * b.i) >> Shift) + c.r,
-      .i = (((int64_t)a.r * b.i - (int64_t)a.i * b.r) >> Shift) + c.i
-    };
+    return (c64_t){.r = (((int64_t)(a.r * b.r) + a.i * b.i) >> Shift) + c.r,
+                   .i = ((int64_t)(a.r * b.i - a.i * b.r) >> Shift) + c.i};
   }
 
   __attribute__((always_inline)) inline c16_t c16x32div(const c32_t a, const int div) {
