@@ -2040,6 +2040,36 @@ void nr_rlc_entity_am_discard_sdu(nr_rlc_entity_t *_entity, int sdu_id)
   nr_rlc_free_sdu_segment(cur);
 }
 
+void nr_rlc_entity_am_discard_sdus_up_to(nr_rlc_entity_t *_entity, int sdu_id)
+{
+  /* implements 38.322 5.4 for all the SDUs up to sdu_id: the SDUs are in
+   * tx_list in the order they were given, only the first one may be partly
+   * transmitted (a segment that is not first or not last): keep it */
+  nr_rlc_entity_am_t *entity = (nr_rlc_entity_am_t *)_entity;
+  nr_rlc_sdu_segment_t head = {.next = entity->tx_list};
+  nr_rlc_sdu_segment_t *prev = &head;
+  nr_rlc_sdu_segment_t *cur = entity->tx_list;
+
+  while (cur != NULL) {
+    if (!cur->is_first || !cur->is_last) {
+      prev = cur;
+      cur = cur->next;
+      continue;
+    }
+    if ((int32_t)((uint32_t)cur->sdu->upper_layer_id - (uint32_t)sdu_id) > 0)
+      break;
+    nr_rlc_sdu_segment_t *next = cur->next;
+    prev->next = next;
+    if (entity->tx_end == cur)
+      entity->tx_end = prev != &head ? prev : NULL;
+    entity->common.bstatus.tx_size -= compute_pdu_header_size(entity, cur) + cur->size;
+    entity->tx_size -= cur->sdu->size;
+    nr_rlc_free_sdu_segment(cur);
+    cur = next;
+  }
+  entity->tx_list = head.next;
+}
+
 static void clear_entity(nr_rlc_entity_am_t *entity)
 {
   entity->rx_next                = 0;
