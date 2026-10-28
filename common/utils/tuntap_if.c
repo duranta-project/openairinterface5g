@@ -282,19 +282,28 @@ void setup_ue_ipv4_route(const char* ifname, int instance_id, int pdu_session_id
   // UE0, PDU1 = 10001, UE1, PDU1 = 10101, UE15, PDU15 = 11515 ...
   int table_id = 10000 + instance_id * 100 + pdu_session_id;
 
-  char command_line[500];
-  int res = sprintf(command_line,
-                    "ip rule add from %s/32 table %d && "
-                    "ip rule add to %s/32 table %d && "
-                    "ip route add default dev %s table %d",
-                    ipv4,
-                    table_id,
-                    ipv4,
-                    table_id,
-                    ifname,
-                    table_id);
+  /* the rules of a previous UE with this address or this table (a process killed, a new PDU session) are removed
+     first: they are never deleted otherwise, and every packet of the host walks the rule list */
+  char command_line[1000];
+  int res = snprintf(command_line,
+                     sizeof(command_line),
+                     "while ip rule del from %s/32 2>/dev/null; do :; done; "
+                     "while ip rule del to %s/32 2>/dev/null; do :; done; "
+                     "while ip rule del table %d 2>/dev/null; do :; done; "
+                     "ip rule add from %s/32 table %d && "
+                     "ip rule add to %s/32 table %d && "
+                     "ip route replace default dev %s table %d",
+                     ipv4,
+                     ipv4,
+                     table_id,
+                     ipv4,
+                     table_id,
+                     ipv4,
+                     table_id,
+                     ifname,
+                     table_id);
 
-  if (res < 0) {
+  if (res < 0 || res >= sizeof(command_line)) {
     LOG_E(UTIL, "Could not create ip rule/route commands string\n");
     return;
   }
