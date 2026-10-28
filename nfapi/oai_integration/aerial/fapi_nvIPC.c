@@ -416,6 +416,15 @@ int nvIPC_Init(nvipc_params_t nvipc_params_s)
     return -1;
   }
   LOG_I(NFAPI_VNF, "%s: create IPC interface successful\n", __func__);
+  // Attaching copies cuBB's nv_ipc_config_t, including its nvIPC version, out of shared memory.
+  // cuBB 26.2 ships nvIPC 26.1.0 and widens the DL/UL_TTI headers that OAI packs; 25.3 and 26.1
+  // ship 25.3.0 and keep the old ones.
+  const int32_t nvipc_version = nv_ipc_config.debug_configs.nvipc_version;
+  AssertFatal(nvipc_version >= 2610,
+              "cuBB nvIPC version %d.%d.%d: OAI needs cuBB 26.2 or later built with SCF_FAPI_10_04\n",
+              nvipc_version / 100,
+              nvipc_version / 10 % 10,
+              nvipc_version % 10);
   aerial_params = nvipc_params_s;
   sleep(1);
   create_recv_thread(nvipc_params_s.nvipc_poll_core);

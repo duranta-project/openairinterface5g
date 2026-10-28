@@ -1194,9 +1194,23 @@ typedef struct {
 
 #define NFAPI_NR_MAX_DL_TTI_PDUS 32 
 
+#ifdef ENABLE_AERIAL
+/* cuBB 26.2 SCF_FAPI_10_04 nPDUsOfEachType sizes. SCF222.10.04 also sends nDlTypes (always 5)
+ * and nUlTypes (always 6) ahead of the array; cuBB omits them, so the header is not fully 10.04. */
+#define NFAPI_NR_DL_TTI_NPDUS_TYPES 5
+#define NFAPI_NR_UL_TTI_NPDUS_TYPES 6
+#endif
+
 typedef struct {
+#ifdef ENABLE_AERIAL
+  /// Number of PDUs that are included in this message. All PDUs in the message are numbered in order. Value 0 -> 65535
+  uint16_t nPDUs;
+  /// PDCCH, PDSCH, CSI-RS, SSB PDUs and DCIs across all PDCCH PDUs; pack derives it from dl_tti_pdu_list
+  uint16_t nPDUsOfEachType[NFAPI_NR_DL_TTI_NPDUS_TYPES];
+#else
   /// Number of PDUs that are included in this message. All PDUs in the message are numbered in order. Value 0 -> 255
   uint8_t nPDUs;
+#endif
   /// Number of UEs in the Group included in this message. Value 0 -> 255
   uint8_t nGroup;
   /// List containing PDUs
@@ -1598,7 +1612,13 @@ typedef struct {
   nfapi_nr_p7_message_header_t header;
   uint16_t SFN; //0->1023   
   uint16_t Slot;//0->319
+#ifdef ENABLE_AERIAL
+  uint16_t n_pdus;//Number of PDUs that are included in this message. All PDUs in the message are numbered in order. Value 0 -> 65535
+  /// PRACH, PUSCH, PUCCH F0/1, PUCCH F2/3/4, SRS, MsgA-PUSCH PDUs; pack derives it from pdus_list
+  uint16_t n_pdus_of_each_type[NFAPI_NR_UL_TTI_NPDUS_TYPES];
+#else
   uint8_t n_pdus;//Number of PDUs that are included in this message. All PDUs in the message are numbered in order. Value 0 -> 255
+#endif
   uint8_t  rach_present;//Indicates if a RACH PDU will be included in this message. 0: no RACH in this slot 1: RACH in this slot
   uint8_t  n_ulsch;//Number of ULSCH PDUs that are included in this message.
   uint8_t  n_ulcch;//Number of ULCCH PDUs

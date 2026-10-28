@@ -156,6 +156,10 @@ bool eq_dl_tti_request(const nfapi_nr_dl_tti_request_t *a, const nfapi_nr_dl_tti
   EQ(a->SFN, b->SFN);
   EQ(a->Slot, b->Slot);
   EQ(a->dl_tti_request_body.nPDUs, b->dl_tti_request_body.nPDUs);
+#ifdef ENABLE_AERIAL
+  for (int t = 0; t < NFAPI_NR_DL_TTI_NPDUS_TYPES; t++)
+    EQ(a->dl_tti_request_body.nPDUsOfEachType[t], b->dl_tti_request_body.nPDUsOfEachType[t]);
+#endif
   EQ(a->dl_tti_request_body.nGroup, b->dl_tti_request_body.nGroup);
 
   for (int PDU = 0; PDU < a->dl_tti_request_body.nPDUs; ++PDU) {
@@ -440,6 +444,10 @@ bool eq_ul_tti_request(const nfapi_nr_ul_tti_request_t *a, const nfapi_nr_ul_tti
   EQ(a->SFN, b->SFN);
   EQ(a->Slot, b->Slot);
   EQ(a->n_pdus, b->n_pdus);
+#ifdef ENABLE_AERIAL
+  for (int t = 0; t < NFAPI_NR_UL_TTI_NPDUS_TYPES; t++)
+    EQ(a->n_pdus_of_each_type[t], b->n_pdus_of_each_type[t]);
+#endif
   EQ(a->rach_present, b->rach_present);
   EQ(a->n_ulsch, b->n_ulsch);
   EQ(a->n_ulcch, b->n_ulcch);
@@ -1143,6 +1151,11 @@ void copy_dl_tti_request(const nfapi_nr_dl_tti_request_t *src, nfapi_nr_dl_tti_r
   dst->SFN = src->SFN;
   dst->Slot = src->Slot;
   dst->dl_tti_request_body.nPDUs = src->dl_tti_request_body.nPDUs;
+#ifdef ENABLE_AERIAL
+  memcpy(dst->dl_tti_request_body.nPDUsOfEachType,
+         src->dl_tti_request_body.nPDUsOfEachType,
+         sizeof(src->dl_tti_request_body.nPDUsOfEachType));
+#endif
   dst->dl_tti_request_body.nGroup = src->dl_tti_request_body.nGroup;
   for (int pdu = 0; pdu < dst->dl_tti_request_body.nPDUs; ++pdu) {
     copy_dl_tti_request_pdu(&src->dl_tti_request_body.dl_tti_pdu_list[pdu], &dst->dl_tti_request_body.dl_tti_pdu_list[pdu]);
@@ -1281,6 +1294,9 @@ void copy_ul_tti_request(const nfapi_nr_ul_tti_request_t *src, nfapi_nr_ul_tti_r
   dst->SFN = src->SFN;
   dst->Slot = src->Slot;
   dst->n_pdus = src->n_pdus;
+#ifdef ENABLE_AERIAL
+  memcpy(dst->n_pdus_of_each_type, src->n_pdus_of_each_type, sizeof(src->n_pdus_of_each_type));
+#endif
   dst->rach_present = src->rach_present;
   dst->n_ulsch = src->n_ulsch;
   dst->n_ulcch = src->n_ulcch;

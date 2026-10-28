@@ -18,12 +18,23 @@ if (ENABLE_TESTS)
         target_compile_definitions(nr_fapi_aerial PRIVATE FAPI_BYTE_ORDERING_BIG_ENDIAN)
     endif ()
 
-    # add_nr_fapi_test(<name> <codec> <labels> [NO_AERIAL]): <name>_test against
-    # <codec>, plus <name>_aerial_test against nr_fapi_aerial when it exists.
+    # add_nr_fapi_test(<name> <codec> <labels> [NO_AERIAL|AERIAL_ONLY]): <name>_test
+    # against <codec>, plus <name>_aerial_test against nr_fapi_aerial when it exists.
     # NO_AERIAL marks messages that don't round-trip under ENABLE_AERIAL: OAI only
     # packs them for cuBB and leaves out what cuBB doesn't take, or (SRS.indication)
-    # cuBB sends a different body than OAI's PNF.
+    # cuBB sends a different body than OAI's PNF. AERIAL_ONLY tests need ENABLE_AERIAL.
     function(add_nr_fapi_test name codec labels)
+        if ("AERIAL_ONLY" IN_LIST ARGN AND NOT OAI_AERIAL)
+            if (TARGET nr_fapi_aerial)
+                add_executable(${name}_aerial_test ${name}_test.c)
+                target_link_libraries(${name}_aerial_test PUBLIC nr_fapi_aerial)
+                target_link_libraries(${name}_aerial_test PRIVATE pthread UTIL ${T_LIB} minimal_lib)
+                add_dependencies(tests ${name}_aerial_test)
+                add_test(${name}_aerial_test ${name}_aerial_test)
+                set_tests_properties(${name}_aerial_test PROPERTIES LABELS "${labels};aerial")
+            endif ()
+            return()
+        endif ()
         add_executable(${name}_test ${name}_test.c)
         target_link_libraries(${name}_test PUBLIC ${codec})
         target_link_libraries(${name}_test PRIVATE pthread UTIL ${T_LIB} minimal_lib)

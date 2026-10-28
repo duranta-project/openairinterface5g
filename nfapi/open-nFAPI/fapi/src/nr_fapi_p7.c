@@ -527,12 +527,108 @@ static uint8_t pack_dl_tti_request_body_value(void *tlv, uint8_t **ppWritePacked
   return push16(value->PDUSize, &pPackedLengthField, end);
 }
 
+#ifdef ENABLE_AERIAL
+/* cuBB 26.2 (nvIPC 26.1.0) built with SCF_FAPI_10_04 widens the DL_TTI and UL_TTI
+ * headers to a uint16 nPDUs followed by nPDUsOfEachType[] (SCF222.10.04 Tables 3-64
+ * and 3-88, without nDlTypes/nUlTypes and with a uint8 nGroup); the counts must
+ * match the PDUs, so pack derives them from the PDU list and records them in the
+ * request. Earlier cuBB keeps the SCF222.10.02 header and is refused at nvIPC
+ * attach (nvIPC_Init). */
+static uint8_t pack_dl_tti_npdus_of_each_type(nfapi_nr_dl_tti_request_body_t *body, uint8_t **ppWritePackedMsg, uint8_t *end)
+{
+  uint16_t *n = body->nPDUsOfEachType;
+  memset(n, 0, sizeof(body->nPDUsOfEachType));
+  for (int i = 0; i < body->nPDUs; i++) {
+    const nfapi_nr_dl_tti_request_pdu_t *pdu = &body->dl_tti_pdu_list[i];
+    if (pdu->PDUType <= NFAPI_NR_DL_TTI_SSB_PDU_TYPE)
+      n[pdu->PDUType]++;
+    if (pdu->PDUType == NFAPI_NR_DL_TTI_PDCCH_PDU_TYPE)
+      n[4] += pdu->pdcch_pdu.pdcch_pdu_rel15.numDlDci;
+  }
+  return pusharray16(n, NFAPI_NR_DL_TTI_NPDUS_TYPES, NFAPI_NR_DL_TTI_NPDUS_TYPES, ppWritePackedMsg, end) != 0;
+}
+
+static uint8_t pack_ul_tti_npdus_of_each_type(nfapi_nr_ul_tti_request_t *req, uint8_t **ppWritePackedMsg, uint8_t *end)
+{
+  uint16_t *n = req->n_pdus_of_each_type;
+  memset(n, 0, sizeof(req->n_pdus_of_each_type));
+  for (int i = 0; i < req->n_pdus; i++) {
+    const nfapi_nr_ul_tti_request_number_of_pdus_t *pdu = &req->pdus_list[i];
+    switch (pdu->pdu_type) {
+      case NFAPI_NR_UL_CONFIG_PRACH_PDU_TYPE:
+        n[0]++;
+        break;
+      case NFAPI_NR_UL_CONFIG_PUSCH_PDU_TYPE:
+        n[1]++;
+        break;
+      case NFAPI_NR_UL_CONFIG_PUCCH_PDU_TYPE:
+        n[pdu->pucch_pdu.format_type <= 1 ? 2 : 3]++;
+        break;
+      case NFAPI_NR_UL_CONFIG_SRS_PDU_TYPE:
+        n[4]++;
+        break;
+      default:
+        break;
+    }
+  }
+  return pusharray16(n, NFAPI_NR_UL_TTI_NPDUS_TYPES, NFAPI_NR_UL_TTI_NPDUS_TYPES, ppWritePackedMsg, end) != 0;
+}
+#endif
+
+// DL_TTI.request nPDUs, followed by nPDUsOfEachType for cuBB
+static uint8_t pack_dl_tti_num_pdus(nfapi_nr_dl_tti_request_body_t *body, uint8_t **ppWritePackedMsg, uint8_t *end)
+{
+#ifdef ENABLE_AERIAL
+  return push16(body->nPDUs, ppWritePackedMsg, end) && pack_dl_tti_npdus_of_each_type(body, ppWritePackedMsg, end);
+#else
+  return push8(body->nPDUs, ppWritePackedMsg, end);
+#endif
+}
+
+static uint8_t unpack_dl_tti_num_pdus(uint8_t **ppReadPackedMsg, uint8_t *end, nfapi_nr_dl_tti_request_body_t *body)
+{
+#ifdef ENABLE_AERIAL
+  return pull16(ppReadPackedMsg, &body->nPDUs, end)
+         && pullarray16(ppReadPackedMsg, body->nPDUsOfEachType, NFAPI_NR_DL_TTI_NPDUS_TYPES, NFAPI_NR_DL_TTI_NPDUS_TYPES, end);
+#else
+  return pull8(ppReadPackedMsg, &body->nPDUs, end);
+#endif
+}
+
+// UL_TTI.request nPDUs, RachPresent, nULSCH, nULCCH; for cuBB nPDUs and nPDUsOfEachType
+static uint8_t pack_ul_tti_num_pdus(nfapi_nr_ul_tti_request_t *req, uint8_t **ppWritePackedMsg, uint8_t *end)
+{
+#ifdef ENABLE_AERIAL
+  return push16(req->n_pdus, ppWritePackedMsg, end) && pack_ul_tti_npdus_of_each_type(req, ppWritePackedMsg, end);
+#else
+  return push8(req->n_pdus, ppWritePackedMsg, end) && push8(req->rach_present, ppWritePackedMsg, end)
+         && push8(req->n_ulsch, ppWritePackedMsg, end) && push8(req->n_ulcch, ppWritePackedMsg, end);
+#endif
+}
+
+static uint8_t unpack_ul_tti_num_pdus(uint8_t **ppReadPackedMsg, uint8_t *end, nfapi_nr_ul_tti_request_t *req)
+{
+#ifdef ENABLE_AERIAL
+  uint16_t *n = req->n_pdus_of_each_type;
+  if (!(pull16(ppReadPackedMsg, &req->n_pdus, end)
+        && pullarray16(ppReadPackedMsg, n, NFAPI_NR_UL_TTI_NPDUS_TYPES, NFAPI_NR_UL_TTI_NPDUS_TYPES, end)))
+    return 0;
+  req->rach_present = n[0] > 0;
+  req->n_ulsch = n[1];
+  req->n_ulcch = n[2] + n[3];
+  return 1;
+#else
+  return pull8(ppReadPackedMsg, &req->n_pdus, end) && pull8(ppReadPackedMsg, &req->rach_present, end)
+         && pull8(ppReadPackedMsg, &req->n_ulsch, end) && pull8(ppReadPackedMsg, &req->n_ulcch, end);
+#endif
+}
+
 uint8_t pack_dl_tti_request(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end)
 {
   nfapi_nr_dl_tti_request_t *pNfapiMsg = (nfapi_nr_dl_tti_request_t *)msg;
 
   if (!(push16(pNfapiMsg->SFN, ppWritePackedMsg, end) && push16(pNfapiMsg->Slot, ppWritePackedMsg, end)
-        && push8(pNfapiMsg->dl_tti_request_body.nPDUs, ppWritePackedMsg, end)
+        && pack_dl_tti_num_pdus(&pNfapiMsg->dl_tti_request_body, ppWritePackedMsg, end)
         && push8(pNfapiMsg->dl_tti_request_body.nGroup, ppWritePackedMsg, end))) {
     return 0;
   }
@@ -824,7 +920,7 @@ uint8_t unpack_dl_tti_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg
   nfapi_nr_dl_tti_request_t *pNfapiMsg = (nfapi_nr_dl_tti_request_t *)msg;
   pNfapiMsg->vendor_extension = NULL;
   if (!(pull16(ppReadPackedMsg, &pNfapiMsg->SFN, end) && pull16(ppReadPackedMsg, &pNfapiMsg->Slot, end)
-        && pull8(ppReadPackedMsg, &pNfapiMsg->dl_tti_request_body.nPDUs, end)
+        && unpack_dl_tti_num_pdus(ppReadPackedMsg, end, &pNfapiMsg->dl_tti_request_body)
         && pull8(ppReadPackedMsg, &pNfapiMsg->dl_tti_request_body.nGroup, end))) {
     return 0;
   }
@@ -1193,13 +1289,7 @@ uint8_t pack_ul_tti_request(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end)
     return 0;
   if (!push16(pNfapiMsg->Slot, ppWritePackedMsg, end))
     return 0;
-  if (!push8(pNfapiMsg->n_pdus, ppWritePackedMsg, end))
-    return 0;
-  if (!push8(pNfapiMsg->rach_present, ppWritePackedMsg, end))
-    return 0;
-  if (!push8(pNfapiMsg->n_ulsch, ppWritePackedMsg, end))
-    return 0;
-  if (!push8(pNfapiMsg->n_ulcch, ppWritePackedMsg, end))
+  if (!pack_ul_tti_num_pdus(pNfapiMsg, ppWritePackedMsg, end))
     return 0;
   if (!push8(pNfapiMsg->n_group, ppWritePackedMsg, end))
     return 0;
@@ -1523,15 +1613,9 @@ uint8_t unpack_ul_tti_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg
     return 0;
   if (!pull16(ppReadPackedMsg, &pNfapiMsg->Slot, end))
     return 0;
-  if (!pull8(ppReadPackedMsg, &pNfapiMsg->n_pdus, end))
+  if (!unpack_ul_tti_num_pdus(ppReadPackedMsg, end, pNfapiMsg))
     return 0;
   NR_FAPI_CHECK_COUNT(pNfapiMsg->n_pdus, pNfapiMsg->pdus_list);
-  if (!pull8(ppReadPackedMsg, &pNfapiMsg->rach_present, end))
-    return 0;
-  if (!pull8(ppReadPackedMsg, &pNfapiMsg->n_ulsch, end))
-    return 0;
-  if (!pull8(ppReadPackedMsg, &pNfapiMsg->n_ulcch, end))
-    return 0;
   if (!pull8(ppReadPackedMsg, &pNfapiMsg->n_group, end))
     return 0;
   NR_FAPI_CHECK_COUNT(pNfapiMsg->n_group, pNfapiMsg->groups_list);
