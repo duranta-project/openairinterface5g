@@ -163,8 +163,6 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
   common_vars->txdataF = (c16_t **)malloc16_clear(Ptx * sizeof(*common_vars->txdataF));
   for (int j = 0; j < Ptx; j++)
     common_vars->txdataF[j] = (c16_t *)malloc16_clear(fp->samples_per_slot_wCP * sizeof(**common_vars->txdataF));
-  common_vars->debugBuff = (int32_t*)malloc16_clear(fp->samples_per_frame*sizeof(int32_t)*100);	
-  common_vars->debugBuff_sample_offset = 0; 
 
   // PRACH
   init_nr_prach(gNB);
@@ -235,8 +233,6 @@ void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
   /* Do NOT free per-antenna txdataF/rxdataF: the gNB gets a pointer to the
    * RU's txdataF/rxdataF, and the RU will free that */
   free_and_zero(common_vars->rxdataF);
-
-  free_and_zero(common_vars->debugBuff);
 
   for (int ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
     NR_gNB_PUSCH *pusch_vars = &gNB->pusch_vars[ULSCH_id];
