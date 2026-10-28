@@ -599,15 +599,12 @@ int main( int argc, char **argv ) {
   // start the main threads
 
   wait_gNBs();
-  int sl_ahead = NFAPI_MODE == NFAPI_MODE_AERIAL ? 0 : 6;
   if (RC.nb_RU >0) {
     init_NR_RU(uniqCfg, get_softmodem_params()->rf_config_file);
 
     for (ru_id=0; ru_id<RC.nb_RU; ru_id++) {
       RC.ru[ru_id]->rf_map.card=0;
       RC.ru[ru_id]->rf_map.chain = CC_id;
-      if (ru_id==0) sl_ahead = RC.ru[ru_id]->sl_ahead;	
-      else AssertFatal(RC.ru[ru_id]->sl_ahead != RC.ru[0]->sl_ahead,"RU %d has different sl_ahead %d than RU 0 %d\n",ru_id,RC.ru[ru_id]->sl_ahead,RC.ru[0]->sl_ahead);
     }
     
   }
@@ -646,9 +643,6 @@ int main( int argc, char **argv ) {
   gNB_MAC_INST *nrmac = RC.nrmac[0];
   nvIPC_Init(nrmac->nvipc_params_s);
 #endif
-
-  for (int idx = 0; idx < RC.nb_nr_L1_inst; idx++)
-    RC.gNB[idx]->if_inst->sl_ahead = sl_ahead;
 
   if (NFAPI_MODE==NFAPI_MODE_PNF) {
     wait_nfapi_init();
