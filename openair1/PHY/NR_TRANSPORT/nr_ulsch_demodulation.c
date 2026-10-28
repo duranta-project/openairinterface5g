@@ -153,7 +153,10 @@ static int get_nb_re_pusch(NR_DL_FRAME_PARMS *frame_parms,
 static void inner_rx(PHY_VARS_gNB *gNB,
                      int slot,
                      NR_DL_FRAME_PARMS *frame_parms,
-                     NR_gNB_PUSCH *pusch_vars,
+                     c16_t **ul_ch_estimates,
+                     c16_t **rxdataF_comp,
+                     int nb_re_pusch,
+                     int16_t log2_maxh,
                      const nfapi_nr_pusch_pdu_t *rel15_ul,
                      c16_t **rxF,
                      int16_t **llr,
@@ -186,7 +189,7 @@ static void inner_rx(PHY_VARS_gNB *gNB,
   for (int aarx = 0; aarx < nb_rx_ant; aarx++) {
     for (int aatx = 0; aatx < nb_layer; aatx++) {
       nr_ulsch_extract_rbs(rxF[aarx] + soffset + symbol * frame_parms->ofdm_symbol_size,
-                           (c16_t *)pusch_vars->ul_ch_estimates[aatx * nb_rx_ant + aarx],
+                           ul_ch_estimates[aatx * nb_rx_ant + aarx],
                            rxFext[aarx],
                            chFext[aatx][aarx],
                            dmrs_symbol * frame_parms->ofdm_symbol_size,
@@ -217,7 +220,7 @@ static void inner_rx(PHY_VARS_gNB *gNB,
 
   memset(rho, 0, sizeof(rho));
   for (int i = 0; i < nb_layer; i++)
-    memset(&pusch_vars->rxdataF_comp[i][symbol * buffer_length], 0, sizeof(int32_t) * buffer_length);
+    memset(&rxdataF_comp[i][symbol * buffer_length], 0, sizeof(int32_t) * buffer_length);
 
   nr_channel_compensation(buffer_length,
                           buffer_length,
@@ -228,7 +231,7 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                           rxF_ch_maga,
                           rxF_ch_magb,
                           rxF_ch_magc,
-                          pusch_vars->rxdataF_comp,
+                          rxdataF_comp,
                           (nb_layer > 1) ? rho : NULL,
                           cpe,
                           rel15_ul->qam_mod_order,
@@ -238,29 +241,29 @@ static void inner_rx(PHY_VARS_gNB *gNB,
   if (nb_layer == 1 && rel15_ul->transform_precoding == transformPrecoder_enabled && rel15_ul->qam_mod_order <= 6) {
     if (rel15_ul->qam_mod_order > 2)
       nr_freq_equalization(frame_parms,
-                           &pusch_vars->rxdataF_comp[0][symbol * buffer_length],
+                           &rxdataF_comp[0][symbol * buffer_length],
                            rxF_ch_maga[0],
                            rxF_ch_magb[0],
                            symbol,
-                           pusch_vars->ul_valid_re_per_slot[symbol],
+                           nb_re_pusch,
                            rel15_ul->qam_mod_order);
-    nr_idft((int32_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length], pusch_vars->ul_valid_re_per_slot[symbol]);
+    nr_idft((int32_t *)&rxdataF_comp[0][symbol * buffer_length], nb_re_pusch);
   }
   if (nb_layer == 2) {
     if (rel15_ul->qam_mod_order <= 6) {
-      nr_compute_ML_llr((c16_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
-                        (c16_t *)&pusch_vars->rxdataF_comp[1][symbol * buffer_length],
+      nr_compute_ML_llr(&rxdataF_comp[0][symbol * buffer_length],
+                        &rxdataF_comp[1][symbol * buffer_length],
                         rxF_ch_maga[0],
                         rxF_ch_maga[1],
                         llr[0],
                         llr[1],
                         rho[0][1],
                         rho[1][0],
-                        pusch_vars->ul_valid_re_per_slot[symbol],
+                        nb_re_pusch,
                         rel15_ul->qam_mod_order);
     }
     else {
-      nr_mmse_2layers(pusch_vars->rxdataF_comp,
+      nr_mmse_2layers(rxdataF_comp,
                       buffer_length,
                       buffer_length,
                       nb_rx_ant,
@@ -271,20 +274,20 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                       chFext,
                       rel15_ul->rb_size,
                       rel15_ul->qam_mod_order,
-                      pusch_vars->log2_maxh,
+                      log2_maxh,
                       symbol,
-                      pusch_vars->ul_valid_re_per_slot[symbol],
+                      nb_re_pusch,
                       nvar);
     }
   }
   if (nb_layer != 2 || rel15_ul->qam_mod_order > 6)
     for (int aatx = 0; aatx < nb_layer; aatx++)
-           nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
+      nr_compute_llr(&rxdataF_comp[aatx][symbol * buffer_length],
                      rxF_ch_maga[aatx],
                      rxF_ch_magb[aatx],
                      rxF_ch_magc[aatx],
                      llr[aatx],
-                     pusch_vars->ul_valid_re_per_slot[symbol],
+                     nb_re_pusch,
                      symbol,
                      rel15_ul->qam_mod_order);
 }
@@ -323,10 +326,10 @@ typedef struct {
  *    are spread with spacing d = floor(available / remaining); otherwise all available REs
  *    are used (d = 1).
  */
-nr_uci_mapping_t init_nr_uci_pusch_demux(const nfapi_nr_pusch_pdu_t *pusch_pdu,
-                                         rate_match_info_uci_t *uci_info,
-                                         NR_DL_FRAME_PARMS *frame_parms,
-                                         NR_gNB_PUSCH *pusch_vars)
+static nr_uci_mapping_t init_nr_uci_pusch_demux(const nfapi_nr_pusch_pdu_t *pusch_pdu,
+                                                rate_match_info_uci_t *uci_info,
+                                                NR_DL_FRAME_PARMS *frame_parms,
+                                                const int16_t *ul_valid_re_per_slot)
 {
   nr_uci_mapping_t map = {0};
   int first_non_dmrs_sym = 0;
@@ -349,8 +352,8 @@ nr_uci_mapping_t init_nr_uci_pusch_demux(const nfapi_nr_pusch_pdu_t *pusch_pdu,
   if (!(pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_UCI)) {
     for (int s = 0; s < frame_parms->symbols_per_slot; s++) {
       if (s < frame_parms->symbols_per_slot - 1)
-        map.ulsch_offset[s + 1] = map.ulsch_offset[s] + (pusch_vars->ul_valid_re_per_slot[s] * bits_per_re);
-      map.ulsch_total += pusch_vars->ul_valid_re_per_slot[s] * bits_per_re;
+        map.ulsch_offset[s + 1] = map.ulsch_offset[s] + (ul_valid_re_per_slot[s] * bits_per_re);
+      map.ulsch_total += ul_valid_re_per_slot[s] * bits_per_re;
     }
     return map;
   }
@@ -358,7 +361,7 @@ nr_uci_mapping_t init_nr_uci_pusch_demux(const nfapi_nr_pusch_pdu_t *pusch_pdu,
   int Q_ack = uci_info->E_uci_ACK / bits_per_re; // includes reserved resources if O_ack <= 2
   for (int s = 0; s < frame_parms->symbols_per_slot; s++) {
     // resources available for transmission of data in PUSCH symbol
-    M_ul[s] = pusch_vars->ul_valid_re_per_slot[s];
+    M_ul[s] = ul_valid_re_per_slot[s];
     map.d_ack[s] = 0;
     map.d_ack_rvd[s] = 0;
     map.ack_offset[s] = curr_ack_offset;
@@ -369,7 +372,7 @@ nr_uci_mapping_t init_nr_uci_pusch_demux(const nfapi_nr_pusch_pdu_t *pusch_pdu,
       uint32_t re_remaining = Q_ack - re_assigned_ack; // includes reserved resources if O_ack <= 2
       uint32_t re_remaining_actual = uci_info->Q_dash_ACK - re_actual_ack;
       // if the remaining ACK resources to be placed are less than the ones available in the symbol
-      if (re_remaining < pusch_vars->ul_valid_re_per_slot[s]) {
+      if (re_remaining < ul_valid_re_per_slot[s]) {
         if (uci_info->O_ack <= 2)
           map.q_ack_rvd[s] += re_remaining;
         // For O_ack <= 2 the actual ACK REs are a subset of the reserved ones: if fewer actual REs than
@@ -398,7 +401,7 @@ nr_uci_mapping_t init_nr_uci_pusch_demux(const nfapi_nr_pusch_pdu_t *pusch_pdu,
         if (uci_info->O_ack > 2)
           M_ul[s] = 0;
         else
-          map.q_ack_rvd[s] += pusch_vars->ul_valid_re_per_slot[s];
+          map.q_ack_rvd[s] += ul_valid_re_per_slot[s];
         uint32_t d_scaling = 1;
         if (uci_info->O_ack <= 2 && re_remaining_actual < map.q_ack_rvd[s])
           d_scaling = re_remaining_actual ? map.q_ack_rvd[s] / re_remaining_actual : 0;
@@ -407,10 +410,10 @@ nr_uci_mapping_t init_nr_uci_pusch_demux(const nfapi_nr_pusch_pdu_t *pusch_pdu,
         map.d_ack[s] = d_scaling;
         if (uci_info->O_ack <= 2)
           map.d_ack_rvd[s] = 1;
-        uint32_t n_actual = (uci_info->O_ack <= 2) ? re_remaining_actual : pusch_vars->ul_valid_re_per_slot[s];
+        uint32_t n_actual = (uci_info->O_ack <= 2) ? re_remaining_actual : ul_valid_re_per_slot[s];
         map.q_ack[s] = n_actual;
         curr_ack_offset += bits_per_re * n_actual;
-        re_assigned_ack += pusch_vars->ul_valid_re_per_slot[s];
+        re_assigned_ack += ul_valid_re_per_slot[s];
         re_actual_ack += n_actual;
       }
     } else
@@ -487,7 +490,12 @@ typedef struct puschSymbolProc_s {
   PHY_VARS_gNB *gNB;
   NR_DL_FRAME_PARMS *frame_parms;
   const nfapi_nr_pusch_pdu_t *rel15_ul;
-  NR_gNB_PUSCH *pusch_vars;
+  // processing context of the group, set by nr_rx_pusch_group_tp()
+  c16_t **ul_ch_estimates;
+  c16_t **rxdataF_comp;
+  const int16_t *ul_valid_re_per_slot;
+  const int *llr_offset;
+  int16_t log2_maxh;
   nr_uci_mapping_t *map_uci;
   int slot;
   int startSymbol;
@@ -540,10 +548,10 @@ static void symbol_unscrambling_demux(puschSymbolProc_t *rdata, int ue_idx, int 
 {
   const nfapi_nr_pusch_pdu_t *rel15_ul = rdata->rel15_ul_group[ue_idx];
   const nr_uci_mapping_t *map_uci = &rdata->map_uci[ue_idx];
-  NR_gNB_PUSCH *joint_pusch_vars = rdata->pusch_vars;
+  const int16_t *ul_valid_re_per_slot = rdata->ul_valid_re_per_slot;
   NR_gNB_PUSCH *ue_pusch_vars = rdata->pusch_vars_group[ue_idx];
   const rate_match_info_uci_t *uci_info = &ue_pusch_vars->uci_info;
-  int16_t *s_seq = rdata->scrambling_sequences[ue_idx] + (joint_pusch_vars->llr_offset[s] * rel15_ul->nrOfLayers);
+  int16_t *s_seq = rdata->scrambling_sequences[ue_idx] + (rdata->llr_offset[s] * rel15_ul->nrOfLayers);
   uint32_t bits_per_re = rel15_ul->nrOfLayers * rel15_ul->qam_mod_order;
   uint32_t a_idx = map_uci->ack_offset[s];
   uint32_t c1_idx = map_uci->csi1_offset[s];
@@ -553,7 +561,7 @@ static void symbol_unscrambling_demux(puschSymbolProc_t *rdata, int ue_idx, int 
   // Fast path: uncrambling only no UCI multiplexed on this symbol
   bool no_uci = (map_uci->d_ack[s] == 0 && map_uci->d_csi1[s] == 0 && map_uci->d_csi2[s] == 0);
   if (no_uci) {
-    const int end = joint_pusch_vars->ul_valid_re_per_slot[s] * bits_per_re;
+    const int end = ul_valid_re_per_slot[s] * bits_per_re;
     int16_t *llr = &ue_pusch_vars->ulsch_llrs[u_idx];
     unscramble_helper(llr_in, s_seq, llr, end);
     return;
@@ -568,7 +576,7 @@ static void symbol_unscrambling_demux(puschSymbolProc_t *rdata, int ue_idx, int 
   int num_ack = 0;
   int num_csi = 0;
   // unscrambling and UCI demultiplexing
-  for (int re = 0; re < joint_pusch_vars->ul_valid_re_per_slot[s]; re++) {
+  for (int re = 0; re < ul_valid_re_per_slot[s]; re++) {
     bool is_ack = rem_ack > 0 && map_uci->d_ack[s] > 0 && (re % map_uci->d_ack[s] == 0);
     bool is_cnt_ack = uci_info->O_ack <= 2
                       && rem_rvd > 0
@@ -638,12 +646,12 @@ static void nr_pusch_symbol_processing(void *arg)
   NR_DL_FRAME_PARMS *frame_parms = rdata->frame_parms;
   const nfapi_nr_pusch_pdu_t *rel15_ul = rdata->rel15_ul;
   int slot = rdata->slot;
-  NR_gNB_PUSCH *pusch_vars = rdata->pusch_vars;
   for (int symbol = rdata->startSymbol; symbol < rdata->startSymbol + rdata->numSymbols; symbol++) {
-    if (pusch_vars->ul_valid_re_per_slot[symbol] == 0)
+    const int nb_re_pusch = rdata->ul_valid_re_per_slot[symbol];
+    if (nb_re_pusch == 0)
       continue;
     int soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
-    int buffer_length = ceil_mod(pusch_vars->ul_valid_re_per_slot[symbol] * NR_NB_SC_PER_RB, 16);
+    int buffer_length = ceil_mod(nb_re_pusch * NR_NB_SC_PER_RB, 16);
     int16_t llrs[rel15_ul->nrOfLayers][ceil_mod(buffer_length * rel15_ul->qam_mod_order, 64)] __attribute__((aligned(32)));
     int16_t *llrss[rel15_ul->nrOfLayers];
     for (int l = 0; l < rel15_ul->nrOfLayers; l++)
@@ -652,20 +660,22 @@ static void nr_pusch_symbol_processing(void *arg)
     inner_rx(gNB,
              slot,
              frame_parms,
-             pusch_vars,
+             rdata->ul_ch_estimates,
+             rdata->rxdataF_comp,
+             nb_re_pusch,
+             rdata->log2_maxh,
              rel15_ul,
              gNB->common_vars.rxdataF + rdata->ant_port_start,
              llrss,
              soffset,
              symbol,
-             pusch_vars->log2_maxh + rdata->layers_attenuation,
+             rdata->log2_maxh + rdata->layers_attenuation,
              rdata->nvar,
              rdata->ptrs_symb_pos,
              rdata->ptrs_cpe[symbol],
              rdata->rxFext_slot_mem,
              rdata->pusch_ch_est_dmrs_interpl_slot_mem);
 
-    int nb_re_pusch = pusch_vars->ul_valid_re_per_slot[symbol];
     for (int u = 0; u < rdata->group_size; u++) {
       // layer de-mapping
       const int ue_layers = rdata->rel15_ul_group[u]->nrOfLayers;
@@ -871,6 +881,14 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   joint_pdu.dmrs_ports = combined_dmrs_ports;
 
   NR_gNB_PUSCH *joint_pv = pusch_vars_group[0];
+  const uint8_t num_sp_streams = rel15_ul_ref->param_v4.numSpatialStreamIndices;
+
+  // processing context of the group, passed to the channel estimation and the symbol tasks
+  c16_t **ul_ch_estimates = (c16_t **)joint_pv->ul_ch_estimates;
+  c16_t **rxdataF_comp = joint_pv->rxdataF_comp;
+  int16_t *ul_valid_re_per_slot = joint_pv->ul_valid_re_per_slot;
+  int *llr_offset = joint_pv->llr_offset;
+
   LOG_D(PHY,
         "%4u.%u MU-MIMO joint RX: %d UEs, %d total layers, rb_start=%u rb_size=%u qam=%u\n",
         frame,
@@ -946,8 +964,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
                        .rnti = rel15_ul_ref->rnti};
       const int slot_offset = (p.slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * p.ofdm_symbol_size;
       c16_t *rxdataF = (c16_t *)&gNB->common_vars.rxdataF[ant_port_start][slot_offset];
-      ptrs_info.n_ptrs =
-          nr_ptrs_run(&p, rel15_ul_ref->pusch_ptrs.ptrs_time_density, rxdataF, (const c16_t *)joint_pv->ul_ch_estimates[0], cpe);
+      ptrs_info.n_ptrs = nr_ptrs_run(&p, rel15_ul_ref->pusch_ptrs.ptrs_time_density, rxdataF, ul_ch_estimates[0], cpe);
       ptrs_info.ptrs_symbols = p.ptrs_symb_pos;
     }
   }
@@ -957,11 +974,10 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
 
   // averaging time domain channel estimates
   // Change to joint processing
-  const uint8_t num_sp_streams = rel15_ul_ref->param_v4.numSpatialStreamIndices;
   if (gNB->chest_time == 1) {
     AssertFatal(!is_ptrs, "Time domain averaging of DMRS estimates not allowed with PTRS\n");
     nr_chest_time_domain_avg(frame_parms,
-                             joint_pv->ul_ch_estimates,
+                             (int32_t **)ul_ch_estimates,
                              rel15_ul_ref->nr_of_symbols,
                              rel15_ul_ref->start_symbol_index,
                              rel15_ul_ref->ul_dmrs_symb_pos, // change needed ?
@@ -1054,14 +1070,14 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   int meas_symbol = -1;
   for (int sym = 0; sym < frame_parms->symbols_per_slot; sym++) {
     if (sym >= rel15_ul_ref->start_symbol_index && sym < rel15_ul_ref->start_symbol_index + rel15_ul_ref->nr_of_symbols) {
-      joint_pv->ul_valid_re_per_slot[sym] = get_nb_re_pusch(frame_parms, &joint_pdu, sym, &ptrs_info);
-      if (meas_symbol == -1 && joint_pv->ul_valid_re_per_slot[sym] != 0)
+      ul_valid_re_per_slot[sym] = get_nb_re_pusch(frame_parms, &joint_pdu, sym, &ptrs_info);
+      if (meas_symbol == -1 && ul_valid_re_per_slot[sym] != 0)
         meas_symbol = sym;
     } else
-      joint_pv->ul_valid_re_per_slot[sym] = 0;
+      ul_valid_re_per_slot[sym] = 0;
   }
 
-  int nb_re_pusch = joint_pv->ul_valid_re_per_slot[meas_symbol];
+  int nb_re_pusch = meas_symbol >= 0 ? ul_valid_re_per_slot[meas_symbol] : 0;
   AssertFatal(nb_re_pusch > 0 && meas_symbol >= 0,
               "nb_re_pusch %d cannot be 0 or meas_symbol %d cannot be negative here\n",
               nb_re_pusch,
@@ -1086,7 +1102,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     for (int nl = 0; nl < total_layers; nl++) {
       start_meas(&gNB->pusch_extraction_stats);
       nr_ulsch_extract_rbs(gNB->common_vars.rxdataF[ant_port_start + aarx] + soffset + meas_symbol * frame_parms->ofdm_symbol_size,
-                           (c16_t *)joint_pv->ul_ch_estimates[nl * num_sp_streams + aarx],
+                           ul_ch_estimates[nl * num_sp_streams + aarx],
                            temp_rxFext[aarx],
                            &ul_ch_estimates_ext[nl][aarx][meas_symbol * nb_re_pusch],
                            dmrs_symbol * frame_parms->ofdm_symbol_size,
@@ -1111,22 +1127,23 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     for (int aarx = 0; aarx < num_sp_streams; aarx++)
       avgs = cmax(avgs, avg[nl][aarx]);
 
+  int16_t log2_maxh;
   if (total_layers == 2 && rel15_ul_ref->qam_mod_order > 6)
-    joint_pv->log2_maxh = (log2_approx(avgs) >> 1) - 3; // for MMSE
+    log2_maxh = (log2_approx(avgs) >> 1) - 3; // for MMSE
   else if (total_layers == 2)
-    joint_pv->log2_maxh = (log2_approx(avgs) >> 1) - 2 + log2_approx(num_sp_streams >> 1);
+    log2_maxh = (log2_approx(avgs) >> 1) - 2 + log2_approx(num_sp_streams >> 1);
   else
-    joint_pv->log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(num_sp_streams >> 1);
+    log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(num_sp_streams >> 1);
 
-  if (joint_pv->log2_maxh < 1)
-    joint_pv->log2_maxh = 1;
-  else if (joint_pv->log2_maxh > 14)
-    joint_pv->log2_maxh = 14;
+  if (log2_maxh < 1)
+    log2_maxh = 1;
+  else if (log2_maxh > 14)
+    log2_maxh = 14;
 
   nr_uci_mapping_t map_uci[group_size];
   for (int u = 0; u < group_size; u++) {
     pusch_vars_group[u]->uci_info = get_uci_on_pusch_info(rel15_ul_group[u], &ptrs_info, G[u]);
-    map_uci[u] = init_nr_uci_pusch_demux(rel15_ul_group[u], &pusch_vars_group[u]->uci_info, frame_parms, joint_pv);
+    map_uci[u] = init_nr_uci_pusch_demux(rel15_ul_group[u], &pusch_vars_group[u]->uci_info, frame_parms, ul_valid_re_per_slot);
   }
 
   // LLR buffers of this slot, as written by symbol_unscrambling_demux()
@@ -1158,15 +1175,15 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     for (int s = 0; s < numSymbols && s + symbol < end_symbol; s++) {
       int curr_sym = symbol + s;
       if (curr_sym == rel15_ul_ref->start_symbol_index) {
-        joint_pv->llr_offset[curr_sym] = 0;
+        llr_offset[curr_sym] = 0;
       } else {
         int prev_sym = curr_sym - 1;
-        int prev_offset = joint_pv->llr_offset[prev_sym];
-        int prev_re = joint_pv->ul_valid_re_per_slot[prev_sym];
+        int prev_offset = llr_offset[prev_sym];
+        int prev_re = ul_valid_re_per_slot[prev_sym];
         int mod_order = rel15_ul_ref->qam_mod_order;
-        joint_pv->llr_offset[curr_sym] = prev_offset + (prev_re * mod_order);
+        llr_offset[curr_sym] = prev_offset + (prev_re * mod_order);
       }
-      res_per_task += joint_pv->ul_valid_re_per_slot[curr_sym];
+      res_per_task += ul_valid_re_per_slot[curr_sym];
     }
     total_res += res_per_task;
     if (res_per_task > 0) {
@@ -1181,7 +1198,11 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       rdata->startSymbol = symbol;
       // Last task processes remainder symbols
       rdata->numSymbols = task_index == loop_iter - 1 ? rel15_ul_ref->nr_of_symbols - (loop_iter - 1) * numSymbols : numSymbols;
-      rdata->pusch_vars = joint_pv;
+      rdata->ul_ch_estimates = ul_ch_estimates;
+      rdata->rxdataF_comp = rxdataF_comp;
+      rdata->ul_valid_re_per_slot = ul_valid_re_per_slot;
+      rdata->llr_offset = llr_offset;
+      rdata->log2_maxh = log2_maxh;
       rdata->ptrs_symb_pos = ptrs_info.ptrs_symbols;
       rdata->ptrs_cpe = cpe;
       rdata->nvar = nvar;
@@ -1274,11 +1295,11 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
          symbol++) {
       gNBscopeCopyUnsafe(gNB,
                          gNBPuschRxIq,
-                         &pusch_vars_group[0]->rxdataF_comp[0][symbol * buffer_length],
-                         sizeof(c16_t) * pusch_vars_group[0]->ul_valid_re_per_slot[symbol],
+                         &rxdataF_comp[0][symbol * buffer_length],
+                         sizeof(c16_t) * ul_valid_re_per_slot[symbol],
                          offset,
                          symbol - rel15_ul_ref->start_symbol_index);
-      offset += sizeof(c16_t) * pusch_vars_group[0]->ul_valid_re_per_slot[symbol];
+      offset += sizeof(c16_t) * ul_valid_re_per_slot[symbol];
     }
     gNBunlockScopeData(gNB, gNBPuschRxIq)
   }
