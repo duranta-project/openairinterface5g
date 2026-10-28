@@ -1561,6 +1561,37 @@ static int get_pdsch_to_harq_feedback(NR_PUCCH_Config_t *pucch_Config, nr_dci_fo
 
 // this function returns an index to NR_sched_pucch structure
 // if the function returns -1 it was not possible to schedule acknack
+/* With UCI on PUSCH configured (aperiodic CSI), a UE multiplexes the HARQ-ACK and the CSI of a PUCCH overlapping a
+   PUSCH into this PUSCH (TS 38.213 9.2.5), which is not supported: no PUSCH and no HARQ-ACK are scheduled where they
+   would overlap, i.e. in the same slot */
+static bool uci_on_pusch_configured(const NR_UE_info_t *UE)
+{
+  const NR_PUSCH_Config_t *pusch_Config = UE->current_UL_BWP.pusch_Config;
+  return pusch_Config && pusch_Config->uci_OnPUSCH;
+}
+
+bool nr_mac_pucch_uci_in_slot(const nr_cell_sched_t *cell, const NR_UE_info_t *UE, frame_t frame, slot_t slot)
+{
+  if (!uci_on_pusch_configured(UE))
+    return false;
+  const NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  const int pucch_index = get_pucch_index(frame, slot, &cell->frame_structure, sched_ctrl->sched_pucch_size);
+  const NR_sched_pucch_t *pucch = &sched_ctrl->sched_pucch[pucch_index];
+  return pucch->active && pucch->frame == frame && pucch->ul_slot == slot && (pucch->dai_c > 0 || pucch->csi_bits > 0);
+}
+
+static bool pusch_in_slot(const NR_UE_info_t *UE, frame_t frame, slot_t slot)
+{
+  if (!uci_on_pusch_configured(UE))
+    return false;
+  for (int pid = 0; pid < NR_MAX_HARQ_PROCESSES; pid++) {
+    const NR_UE_ul_harq_t *harq = &UE->UE_sched_ctrl.ul_harq_processes[pid];
+    if (harq->is_waiting && harq->sched_pusch.frame == frame && harq->sched_pusch.slot == slot)
+      return true;
+  }
+  return false;
+}
+
 int nr_acknack_scheduling(nr_cell_sched_t *cell,
                           NR_UE_info_t *UE,
                           frame_t frame,
@@ -1601,6 +1632,8 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
       if (r_pucch >= 0 && is_mixed_slot(mod_slot, fs) && pc->tdd_slot_bitmap[mod_slot].num_ul_symbols < 2)
         continue;
     }
+    if (pusch_in_slot(UE, frame_slot.f, frame_slot.s))
+      continue;
     // we store PUCCH resources according to slot, TDD configuration and size of the vector containing PUCCH structures
     const int pucch_index = get_pucch_index(frame_slot.f, frame_slot.s, &cell->frame_structure, sched_ctrl->sched_pucch_size);
     NR_sched_pucch_t *curr_pucch = &sched_ctrl->sched_pucch[pucch_index];
