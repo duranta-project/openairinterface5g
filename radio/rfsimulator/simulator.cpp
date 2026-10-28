@@ -72,6 +72,7 @@ typedef enum { SIMU_ROLE_SERVER = 1, SIMU_ROLE_CLIENT } simuRole;
 #define RFSIMU_OFFSET "offset"
 #define RFSIMU_PROP_DELAY "prop_delay"
 #define RFSIMU_WAIT_TIMEOUT "wait_timeout"
+#define RFSIMU_TIMESCALE "timescale"
 #define RFSIMU_ENABLE_BEAMS "enable_beams"
 #define RFSIMU_BEAM_GAINS "beam_gains"
 
@@ -98,6 +99,7 @@ typedef enum { SIMU_ROLE_SERVER = 1, SIMU_ROLE_CLIENT } simuRole;
   UINT64PARAM(RFSIMU_OFFSET,            "<channel offset in samps>\n",              simOpt, NULL,                             0L),                    \
   DOUBLEPARAM(RFSIMU_PROP_DELAY,        "<propagation delay in ms>\n",              simOpt, NULL,                             0.0),                   \
   INTPARAM(RFSIMU_WAIT_TIMEOUT,         "<wait timeout if no UE connected>\n",      simOpt, NULL,                             1),                     \
+  DOUBLEPARAM(RFSIMU_TIMESCALE,         "<simulated time / wall clock time at most, 0: as fast as possible>\n", simOpt, NULL,  0.0),                   \
   BOOLPARAM(RFSIMU_ENABLE_BEAMS,        "<enable simplified beam simulation>\n",    simBool,NULL,                             0),                     \
   STRINGPARAM(RFSIMU_BEAM_GAINS,        "<per-beam gain in dB, one value per gNB beam id>\n", simOpt, NULL,                   NULL),                  \
 };
@@ -205,6 +207,11 @@ typedef struct {
   int wait_timeout;
   double prop_delay_ms;
   rfsim_beam_ctrl_t *beam_ctrl;
+  /// simulated time runs at most timescale times the wall clock (0: as fast as possible), from rt_start/rt_start_ts
+  double timescale;
+  struct timespec rt_start;
+  openair0_timestamp_t rt_start_ts;
+  bool rt_started;
 } rfsimulator_state_t;
 
 /**
@@ -517,6 +524,7 @@ static void rfsimulator_readconfig(rfsimulator_state_t *rfsimulator)
   rfsimulator->chan_offset = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_OFFSET)->u64ptr);
   rfsimulator->prop_delay_ms = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_PROP_DELAY)->dblptr);
   rfsimulator->wait_timeout = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_WAIT_TIMEOUT)->iptr);
+  rfsimulator->timescale = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_TIMESCALE)->dblptr);
 
   rfsim_beam_ctrl_t *beam_ctrl = rfsimulator->beam_ctrl;
   beam_ctrl->enable_beams = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_ENABLE_BEAMS)->iptr);
@@ -1318,9 +1326,32 @@ static void rfsimulator_read_internal(rfsimulator_state_t *t,
   }
 }
 
+/* with a timescale, do not deliver samples before their time on the wall clock: the traffic sources (iperf,
+   ...) see the simulated rate, else the simulation runs as fast as the CPU allows. Behind, no wait: the simulation
+   only runs slower than requested */
+static void rfsimulator_pace(rfsimulator_state_t *t, openair0_timestamp_t end_ts)
+{
+  if (t->timescale <= 0)
+    return;
+  if (!t->rt_started) {
+    clock_gettime(CLOCK_MONOTONIC, &t->rt_start);
+    t->rt_start_ts = end_ts;
+    t->rt_started = true;
+    return;
+  }
+  const double s = (double)(end_ts - t->rt_start_ts) / (t->sample_rate * t->timescale);
+  struct timespec target = t->rt_start;
+  const int64_t ns = target.tv_nsec + (int64_t)(s * 1e9);
+  target.tv_sec += ns / 1000000000;
+  target.tv_nsec = ns % 1000000000;
+  while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &target, NULL) == EINTR)
+    ;
+}
+
 static int rfsimulator_read(openair0_device_t *device, openair0_timestamp_t *ptimestamp, void **samplesVoid, int nsamps, int nbAnt)
 {
   rfsimulator_state_t *t = static_cast<rfsimulator_state_t *>(device->priv);
+  rfsimulator_pace(t, t->nextRxTstamp + nsamps);
   LOG_D(HW,
         "Enter rfsimulator_read, expect %d samples, will release at TS: %ld, nbAnt %d\n",
         nsamps,
