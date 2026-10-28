@@ -63,7 +63,7 @@ void *nrmac_stats_thread(void *arg) {
       nr_cell_sched_t *cell = &gNB->cells[i];
       if (!cell->common_channels.ServingCellConfigCommon)
         continue;
-      p += snprintf(p, end - p, "=== Cell %d ===\n", i);
+      p += snprintf(p, end - p, "=== Cell %d === frame %d\n", i, gNB->frame);
       p += dump_mac_stats(gNB, cell, p, end - p, false);
       p += snprintf(p, end - p, "\n");
       p += print_meas_log(&cell->gNB_scheduler, "gNB_scheduler", NULL, NULL, p, end - p);
@@ -229,7 +229,15 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
     }
     float dl_thr = UE->dl_thr_ue_display / 1e6;
     float ul_thr = UE->ul_thr_ue_display / 1e6;
-    output = st_append(output, end, " goodput DL %7.2f UL %7.2f Mbps\n",  dl_thr, ul_thr);
+    output = st_append(output, end, " goodput DL %7.2f UL %7.2f Mbps", dl_thr, ul_thr);
+    // cumulative, for exact throughputs between two dumps (see the frame of the dump)
+    output = st_append(output,
+                       end,
+                       " bytes DL %" PRIu64 " (SDU %" PRIu64 ") UL %" PRIu64 " (SDU %" PRIu64 ")\n",
+                       stats->dl.total_bytes,
+                       stats->dl.total_sdu_bytes,
+                       stats->ul.total_bytes,
+                       stats->ul.total_sdu_bytes);
   }
   DevAssert(output <= end);
   return output - begin;
