@@ -2441,6 +2441,10 @@ static void request_aperiodic_csi(const nr_cell_sched_t *cell,
       || meas->aperiodicTriggerStateList->present != NR_SetupRelease_CSI_AperiodicTriggerStateList_PR_setup)
     return;
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  /* the UE applies a reconfiguration some time after its HARQ ACK (ack_reconfig()), possibly with other trigger
+     states: no request until then */
+  if (UE->reconfigCellGroup || nr_timer_is_active(&sched_ctrl->transm_interrupt))
+    return;
   const int n_slots = cell->frame_structure.numb_slots_frame;
   const int cycle = 1024 * n_slots;
   const int now = frame * n_slots + slot;

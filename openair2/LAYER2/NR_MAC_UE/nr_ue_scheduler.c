@@ -904,7 +904,11 @@ nfapi_nr_ue_csi_payload_t nr_ue_aperiodic_csi_reporting(NR_UE_MAC_INST_t *mac, d
   if (csi_request.val == 0)
     return csi;
   const int state = csi_request.val - 1;
-  AssertFatal(state < n_states, "CSI request codepoint %d but %d trigger states\n", csi_request.val, n_states);
+  if (state >= n_states) {
+    // e.g. a request sent for a new configuration not applied yet
+    LOG_E(NR_MAC, "CSI request codepoint %d but %d trigger states, no CSI report\n", csi_request.val, n_states);
+    return csi;
+  }
   NR_CSI_AperiodicTriggerState_t *trigger_state = aperiodicTriggerStateList->list.array[state];
   AssertFatal(trigger_state->associatedReportConfigInfoList.list.count == 1,
               "Cannot handle more than 1 report configuration per state\n");
