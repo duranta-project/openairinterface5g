@@ -38,10 +38,8 @@ target_link_libraries(e3ap PUBLIC ${CLIBE3_LIBRARIES} ${SERVICE_MODELS_LIBRARY})
 # others are in service_models/spectrum_sm/ran_func_spectrum_stub.c.
 add_library(e3_ran_func_du OBJECT ran_func_spectrum.c)
 if(OAI_AERIAL)
-  # The capture PUSCH exists only for the Aerial L1. L2_NR carries the same
-  # definition for its own sources, but it is not inherited by this target.
+  # The capture PUSCH exists only for the Aerial L1.
   target_sources(e3_ran_func_du PRIVATE ran_func_spectrum_aerial.c)
-  target_compile_definitions(e3_ran_func_du PRIVATE ENABLE_AERIAL)
 endif()
 # nr_mac_gNB.h includes the generated NR RRC ASN.1 headers; log_headers orders the
 # object after the generated T_IDs.h that the LOG macros include.

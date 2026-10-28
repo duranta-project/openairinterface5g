@@ -301,6 +301,21 @@ static uint8_t pack_dl_tti_csi_rs_pdu_rel15_value(void *tlv, uint8_t **ppWritePa
   return 1;
 }
 
+#ifdef ENABLE_AERIAL
+/* cuBB SCF_FAPI_10_04 reads the DCI powerControlOffsetSS byte as the int8
+ * powerControlOffsetSSProfileNR in dB (-8..8); the MAC fills the SCF222.10.02
+ * enum {0: -3 dB, 1: 0 dB, 2: 3 dB, 3: 6 dB}. */
+static int8_t dci_power_offset_ss_to_db(uint8_t power_offset_ss)
+{
+  return power_offset_ss <= 3 ? 3 * power_offset_ss - 3 : 0;
+}
+
+static uint8_t dci_power_offset_ss_from_db(int8_t db)
+{
+  return db <= -3 ? 0 : (db >= 6 ? 3 : (db + 3) / 3);
+}
+#endif
+
 static uint8_t pack_dl_tti_pdcch_pdu_rel15_value(void *tlv, uint8_t **ppWritePackedMsg, uint8_t *end)
 {
   nfapi_nr_dl_tti_pdcch_pdu_rel15_t *value = (nfapi_nr_dl_tti_pdcch_pdu_rel15_t *)tlv;
@@ -328,10 +343,17 @@ static uint8_t pack_dl_tti_pdcch_pdu_rel15_value(void *tlv, uint8_t **ppWritePac
       return 0;
     }
     // TX Power info
+#ifdef ENABLE_AERIAL
     if (!(push8(value->dci_pdu[i].beta_PDCCH_1_0, ppWritePackedMsg, end)
-          && push8(value->dci_pdu[i].powerControlOffsetSS, ppWritePackedMsg, end) &&
-          // DCI Payload fields
-          push16(value->dci_pdu[i].PayloadSizeBits, ppWritePackedMsg, end) &&
+          && pushs8(dci_power_offset_ss_to_db(value->dci_pdu[i].powerControlOffsetSS), ppWritePackedMsg, end)))
+      return 0;
+#else
+    if (!(push8(value->dci_pdu[i].beta_PDCCH_1_0, ppWritePackedMsg, end)
+          && push8(value->dci_pdu[i].powerControlOffsetSS, ppWritePackedMsg, end)))
+      return 0;
+#endif
+    // DCI Payload fields
+    if (!(push16(value->dci_pdu[i].PayloadSizeBits, ppWritePackedMsg, end) &&
           // Pack DCI Payload
           pack_dci_payload(value->dci_pdu[i].Payload, value->dci_pdu[i].PayloadSizeBits, ppWritePackedMsg, end))) {
       return 0;
@@ -504,12 +526,112 @@ static uint8_t pack_dl_tti_request_body_value(void *tlv, uint8_t **ppWritePacked
   return push16(value->PDUSize, &pPackedLengthField, end);
 }
 
+#ifdef ENABLE_AERIAL
+/* cuBB 26.2 (nvIPC 26.1.0) built with SCF_FAPI_10_04 widens the DL_TTI and UL_TTI
+ * headers to a uint16 nPDUs followed by nPDUsOfEachType[] (SCF222.10.04 Tables 3-64
+ * and 3-88, without nDlTypes/nUlTypes and with a uint8 nGroup); the counts must
+ * match the PDUs. Earlier cuBB keeps the SCF222.10.02 header and is refused at
+ * nvIPC attach (nvIPC_Init). */
+enum { DL_TTI_NPDUS_TYPES = 5, UL_TTI_NPDUS_TYPES = 6 };
+
+static uint8_t pack_dl_tti_npdus_of_each_type(const nfapi_nr_dl_tti_request_body_t *body, uint8_t **ppWritePackedMsg, uint8_t *end)
+{
+  // [0] PDCCH, [1] PDSCH, [2] CSI-RS, [3] SSB, [4] DCIs across all PDCCH PDUs
+  uint16_t n[DL_TTI_NPDUS_TYPES] = {0};
+  for (int i = 0; i < body->nPDUs; i++) {
+    const nfapi_nr_dl_tti_request_pdu_t *pdu = &body->dl_tti_pdu_list[i];
+    if (pdu->PDUType <= NFAPI_NR_DL_TTI_SSB_PDU_TYPE)
+      n[pdu->PDUType]++;
+    if (pdu->PDUType == NFAPI_NR_DL_TTI_PDCCH_PDU_TYPE)
+      n[4] += pdu->pdcch_pdu.pdcch_pdu_rel15.numDlDci;
+  }
+  return pusharray16(n, DL_TTI_NPDUS_TYPES, DL_TTI_NPDUS_TYPES, ppWritePackedMsg, end) != 0;
+}
+
+static uint8_t pack_ul_tti_npdus_of_each_type(const nfapi_nr_ul_tti_request_t *req, uint8_t **ppWritePackedMsg, uint8_t *end)
+{
+  // [0] PRACH, [1] PUSCH, [2] PUCCH F0/1, [3] PUCCH F2/3/4, [4] SRS, [5] MsgA-PUSCH
+  uint16_t n[UL_TTI_NPDUS_TYPES] = {0};
+  for (int i = 0; i < req->n_pdus; i++) {
+    const nfapi_nr_ul_tti_request_number_of_pdus_t *pdu = &req->pdus_list[i];
+    switch (pdu->pdu_type) {
+      case NFAPI_NR_UL_CONFIG_PRACH_PDU_TYPE:
+        n[0]++;
+        break;
+      case NFAPI_NR_UL_CONFIG_PUSCH_PDU_TYPE:
+        n[1]++;
+        break;
+      case NFAPI_NR_UL_CONFIG_PUCCH_PDU_TYPE:
+        n[pdu->pucch_pdu.format_type <= 1 ? 2 : 3]++;
+        break;
+      case NFAPI_NR_UL_CONFIG_SRS_PDU_TYPE:
+        n[4]++;
+        break;
+      default:
+        break;
+    }
+  }
+  return pusharray16(n, UL_TTI_NPDUS_TYPES, UL_TTI_NPDUS_TYPES, ppWritePackedMsg, end) != 0;
+}
+#endif
+
+// DL_TTI.request nPDUs, followed by nPDUsOfEachType for cuBB
+static uint8_t pack_dl_tti_num_pdus(const nfapi_nr_dl_tti_request_body_t *body, uint8_t **ppWritePackedMsg, uint8_t *end)
+{
+#ifdef ENABLE_AERIAL
+  return push16(body->nPDUs, ppWritePackedMsg, end) && pack_dl_tti_npdus_of_each_type(body, ppWritePackedMsg, end);
+#else
+  return push8(body->nPDUs, ppWritePackedMsg, end);
+#endif
+}
+
+static uint8_t unpack_dl_tti_num_pdus(uint8_t **ppReadPackedMsg, uint8_t *end, nfapi_nr_dl_tti_request_body_t *body)
+{
+#ifdef ENABLE_AERIAL
+  uint16_t n_pdus, n[DL_TTI_NPDUS_TYPES];
+  if (!(pull16(ppReadPackedMsg, &n_pdus, end) && pullarray16(ppReadPackedMsg, n, DL_TTI_NPDUS_TYPES, DL_TTI_NPDUS_TYPES, end)))
+    return 0;
+  body->nPDUs = n_pdus;
+  return 1;
+#else
+  return pull8(ppReadPackedMsg, &body->nPDUs, end);
+#endif
+}
+
+// UL_TTI.request nPDUs, RachPresent, nULSCH, nULCCH; for cuBB nPDUs and nPDUsOfEachType
+static uint8_t pack_ul_tti_num_pdus(const nfapi_nr_ul_tti_request_t *req, uint8_t **ppWritePackedMsg, uint8_t *end)
+{
+#ifdef ENABLE_AERIAL
+  return push16(req->n_pdus, ppWritePackedMsg, end) && pack_ul_tti_npdus_of_each_type(req, ppWritePackedMsg, end);
+#else
+  return push8(req->n_pdus, ppWritePackedMsg, end) && push8(req->rach_present, ppWritePackedMsg, end)
+         && push8(req->n_ulsch, ppWritePackedMsg, end) && push8(req->n_ulcch, ppWritePackedMsg, end);
+#endif
+}
+
+static uint8_t unpack_ul_tti_num_pdus(uint8_t **ppReadPackedMsg, uint8_t *end, nfapi_nr_ul_tti_request_t *req)
+{
+#ifdef ENABLE_AERIAL
+  uint16_t n_pdus, n[UL_TTI_NPDUS_TYPES];
+  if (!(pull16(ppReadPackedMsg, &n_pdus, end) && pullarray16(ppReadPackedMsg, n, UL_TTI_NPDUS_TYPES, UL_TTI_NPDUS_TYPES, end)))
+    return 0;
+  req->n_pdus = n_pdus;
+  req->rach_present = n[0] > 0;
+  req->n_ulsch = n[1];
+  req->n_ulcch = n[2] + n[3];
+  return 1;
+#else
+  return pull8(ppReadPackedMsg, &req->n_pdus, end) && pull8(ppReadPackedMsg, &req->rach_present, end)
+         && pull8(ppReadPackedMsg, &req->n_ulsch, end) && pull8(ppReadPackedMsg, &req->n_ulcch, end);
+#endif
+}
+
 uint8_t pack_dl_tti_request(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end)
 {
   nfapi_nr_dl_tti_request_t *pNfapiMsg = (nfapi_nr_dl_tti_request_t *)msg;
 
   if (!(push16(pNfapiMsg->SFN, ppWritePackedMsg, end) && push16(pNfapiMsg->Slot, ppWritePackedMsg, end)
-        && push8(pNfapiMsg->dl_tti_request_body.nPDUs, ppWritePackedMsg, end)
+        && pack_dl_tti_num_pdus(&pNfapiMsg->dl_tti_request_body, ppWritePackedMsg, end)
         && push8(pNfapiMsg->dl_tti_request_body.nGroup, ppWritePackedMsg, end))) {
     return 0;
   }
@@ -581,9 +703,17 @@ static uint8_t unpack_dl_tti_pdcch_pdu_rel15_value(void *tlv, uint8_t **ppReadPa
       return 0;
     }
 
+#ifdef ENABLE_AERIAL
+    int8_t power_offset_ss_db;
+    if (!(pull8(ppReadPackedMsg, &value->dci_pdu[i].beta_PDCCH_1_0, end) && pulls8(ppReadPackedMsg, &power_offset_ss_db, end)))
+      return 0;
+    value->dci_pdu[i].powerControlOffsetSS = dci_power_offset_ss_from_db(power_offset_ss_db);
+#else
     if (!(pull8(ppReadPackedMsg, &value->dci_pdu[i].beta_PDCCH_1_0, end)
-          && pull8(ppReadPackedMsg, &value->dci_pdu[i].powerControlOffsetSS, end)
-          && pull16(ppReadPackedMsg, &value->dci_pdu[i].PayloadSizeBits, end)
+          && pull8(ppReadPackedMsg, &value->dci_pdu[i].powerControlOffsetSS, end)))
+      return 0;
+#endif
+    if (!(pull16(ppReadPackedMsg, &value->dci_pdu[i].PayloadSizeBits, end)
           && unpack_dci_payload(value->dci_pdu[i].Payload, value->dci_pdu[i].PayloadSizeBits, ppReadPackedMsg, end))) {
       return 0;
     }
@@ -793,7 +923,7 @@ uint8_t unpack_dl_tti_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg
   nfapi_nr_dl_tti_request_t *pNfapiMsg = (nfapi_nr_dl_tti_request_t *)msg;
   pNfapiMsg->vendor_extension = NULL;
   if (!(pull16(ppReadPackedMsg, &pNfapiMsg->SFN, end) && pull16(ppReadPackedMsg, &pNfapiMsg->Slot, end)
-        && pull8(ppReadPackedMsg, &pNfapiMsg->dl_tti_request_body.nPDUs, end)
+        && unpack_dl_tti_num_pdus(ppReadPackedMsg, end, &pNfapiMsg->dl_tti_request_body)
         && pull8(ppReadPackedMsg, &pNfapiMsg->dl_tti_request_body.nGroup, end))) {
     return 0;
   }
@@ -905,9 +1035,19 @@ static uint8_t pack_ul_tti_request_pusch_pdu(nfapi_nr_pusch_pdu_t *pusch_pdu, ui
   // Check if PUSCH_PDU_BITMAP_PUSCH_UCI bit is set
   if (pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_UCI) {
     if (!(push16(pusch_pdu->pusch_uci.harq_ack_bit_length, ppWritePackedMsg, end)
-          && push16(pusch_pdu->pusch_uci.csi_part1_bit_length, ppWritePackedMsg, end)
-          && push16(pusch_pdu->pusch_uci.csi_part2_bit_length, ppWritePackedMsg, end)
-          && push8(pusch_pdu->pusch_uci.alpha_scaling, ppWritePackedMsg, end)
+          && push16(pusch_pdu->pusch_uci.csi_part1_bit_length, ppWritePackedMsg, end)))
+      return 0;
+#ifdef ENABLE_AERIAL
+    // cuBB SCF_FAPI_10_04 takes flag_csi_part2 (SCF222.10.04 Table 3-97) instead of the bit length.
+    // 0xFFFF would make it read the Part 1 to Part 2 mapping (Table 3-95) after the maintenance block
+    // and needs CONFIG UCI_CONFIG maps, neither of which OAI sends: signal no CSI Part 2.
+    if (!push16(0, ppWritePackedMsg, end))
+      return 0;
+#else
+    if (!push16(pusch_pdu->pusch_uci.csi_part2_bit_length, ppWritePackedMsg, end))
+      return 0;
+#endif
+    if (!(push8(pusch_pdu->pusch_uci.alpha_scaling, ppWritePackedMsg, end)
           && push8(pusch_pdu->pusch_uci.beta_offset_harq_ack, ppWritePackedMsg, end)
           && push8(pusch_pdu->pusch_uci.beta_offset_csi1, ppWritePackedMsg, end)
           && push8(pusch_pdu->pusch_uci.beta_offset_csi2, ppWritePackedMsg, end))) {
@@ -949,7 +1089,15 @@ static uint8_t pack_ul_tti_request_pusch_pdu(nfapi_nr_pusch_pdu_t *pusch_pdu, ui
   if (!(pack_nr_rx_beamforming_pdu(&pusch_pdu->beamforming, ppWritePackedMsg, end))) {
     return 0;
   }
-#ifndef ENABLE_AERIAL
+#ifdef ENABLE_AERIAL
+  // cuBB SCF_FAPI_10_04 always reads the PUSCH maintenance block (SCF222.10.04 Table 3-94)
+  const nfapi_v3_pusch_maintenance_parameters_t *m = &pusch_pdu->maintenance_parms_v3;
+  if (!(push8(m->puschTransType, ppWritePackedMsg, end) && push16(m->deltaBwp0StartFromActiveBwp, ppWritePackedMsg, end)
+        && push16(m->initialUlBwpSize, ppWritePackedMsg, end) && push8(m->groupOrSequenceHopping, ppWritePackedMsg, end)
+        && push16(m->puschSecondHopPRB, ppWritePackedMsg, end) && push8(m->ldpcBaseGraph, ppWritePackedMsg, end)
+        && push32(m->tbSizeLbrmBytes, ppWritePackedMsg, end)))
+    return 0;
+#else
   if (!(push8(pusch_pdu->maintenance_parms_v3.ldpcBaseGraph, ppWritePackedMsg, end)
         && push32(pusch_pdu->maintenance_parms_v3.tbSizeLbrmBytes, ppWritePackedMsg, end)
         && pack_spatial_stream_indices(&pusch_pdu->param_v4, ppWritePackedMsg, end)))
@@ -1144,13 +1292,7 @@ uint8_t pack_ul_tti_request(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end)
     return 0;
   if (!push16(pNfapiMsg->Slot, ppWritePackedMsg, end))
     return 0;
-  if (!push8(pNfapiMsg->n_pdus, ppWritePackedMsg, end))
-    return 0;
-  if (!push8(pNfapiMsg->rach_present, ppWritePackedMsg, end))
-    return 0;
-  if (!push8(pNfapiMsg->n_ulsch, ppWritePackedMsg, end))
-    return 0;
-  if (!push8(pNfapiMsg->n_ulcch, ppWritePackedMsg, end))
+  if (!pack_ul_tti_num_pdus(pNfapiMsg, ppWritePackedMsg, end))
     return 0;
   if (!push8(pNfapiMsg->n_group, ppWritePackedMsg, end))
     return 0;
@@ -1289,7 +1431,14 @@ static uint8_t unpack_ul_tti_request_pusch_pdu(nfapi_nr_pusch_pdu_t *pusch_pdu, 
   if (!(unpack_nr_rx_beamforming_pdu(&pusch_pdu->beamforming, ppReadPackedMsg, end))) {
     return 0;
   }
-#ifndef ENABLE_AERIAL
+#ifdef ENABLE_AERIAL
+  nfapi_v3_pusch_maintenance_parameters_t *m = &pusch_pdu->maintenance_parms_v3;
+  if (!(pull8(ppReadPackedMsg, &m->puschTransType, end) && pull16(ppReadPackedMsg, &m->deltaBwp0StartFromActiveBwp, end)
+        && pull16(ppReadPackedMsg, &m->initialUlBwpSize, end) && pull8(ppReadPackedMsg, &m->groupOrSequenceHopping, end)
+        && pull16(ppReadPackedMsg, &m->puschSecondHopPRB, end) && pull8(ppReadPackedMsg, &m->ldpcBaseGraph, end)
+        && pull32(ppReadPackedMsg, &m->tbSizeLbrmBytes, end)))
+    return 0;
+#else
   if (!(pull8(ppReadPackedMsg, &pusch_pdu->maintenance_parms_v3.ldpcBaseGraph, end)
         && pull32(ppReadPackedMsg, &pusch_pdu->maintenance_parms_v3.tbSizeLbrmBytes, end)
         && unpack_spatial_stream_indices(&pusch_pdu->param_v4, ppReadPackedMsg, end)))
@@ -1467,15 +1616,9 @@ uint8_t unpack_ul_tti_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg
     return 0;
   if (!pull16(ppReadPackedMsg, &pNfapiMsg->Slot, end))
     return 0;
-  if (!pull8(ppReadPackedMsg, &pNfapiMsg->n_pdus, end))
+  if (!unpack_ul_tti_num_pdus(ppReadPackedMsg, end, pNfapiMsg))
     return 0;
   NR_FAPI_CHECK_COUNT(pNfapiMsg->n_pdus, pNfapiMsg->pdus_list);
-  if (!pull8(ppReadPackedMsg, &pNfapiMsg->rach_present, end))
-    return 0;
-  if (!pull8(ppReadPackedMsg, &pNfapiMsg->n_ulsch, end))
-    return 0;
-  if (!pull8(ppReadPackedMsg, &pNfapiMsg->n_ulcch, end))
-    return 0;
   if (!pull8(ppReadPackedMsg, &pNfapiMsg->n_group, end))
     return 0;
   NR_FAPI_CHECK_COUNT(pNfapiMsg->n_group, pNfapiMsg->groups_list);
@@ -1559,9 +1702,16 @@ static uint8_t pack_ul_dci_pdu_list_value(void *tlv, uint8_t **ppWritePackedMsg,
         }
       }
     }
-    if (!(push8(dci_pdu->beta_PDCCH_1_0, ppWritePackedMsg, end) && push8(dci_pdu->powerControlOffsetSS, ppWritePackedMsg, end) &&
-          // DCI Payload fields
-          push16(dci_pdu->PayloadSizeBits, ppWritePackedMsg, end) &&
+#ifdef ENABLE_AERIAL
+    if (!(push8(dci_pdu->beta_PDCCH_1_0, ppWritePackedMsg, end)
+          && pushs8(dci_power_offset_ss_to_db(dci_pdu->powerControlOffsetSS), ppWritePackedMsg, end)))
+      return 0;
+#else
+    if (!(push8(dci_pdu->beta_PDCCH_1_0, ppWritePackedMsg, end) && push8(dci_pdu->powerControlOffsetSS, ppWritePackedMsg, end)))
+      return 0;
+#endif
+    // DCI Payload fields
+    if (!(push16(dci_pdu->PayloadSizeBits, ppWritePackedMsg, end) &&
           // Pack DCI Payload
           pack_dci_payload(dci_pdu->Payload, dci_pdu->PayloadSizeBits, ppWritePackedMsg, end))) {
       return 0;
@@ -1640,8 +1790,16 @@ static uint8_t unpack_ul_dci_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t *
         }
       }
     }
-    if (!(pull8(ppReadPackedMsg, &dci_pdu->beta_PDCCH_1_0, end) && pull8(ppReadPackedMsg, &dci_pdu->powerControlOffsetSS, end)
-          && pull16(ppReadPackedMsg, &dci_pdu->PayloadSizeBits, end)
+#ifdef ENABLE_AERIAL
+    int8_t power_offset_ss_db;
+    if (!(pull8(ppReadPackedMsg, &dci_pdu->beta_PDCCH_1_0, end) && pulls8(ppReadPackedMsg, &power_offset_ss_db, end)))
+      return 0;
+    dci_pdu->powerControlOffsetSS = dci_power_offset_ss_from_db(power_offset_ss_db);
+#else
+    if (!(pull8(ppReadPackedMsg, &dci_pdu->beta_PDCCH_1_0, end) && pull8(ppReadPackedMsg, &dci_pdu->powerControlOffsetSS, end)))
+      return 0;
+#endif
+    if (!(pull16(ppReadPackedMsg, &dci_pdu->PayloadSizeBits, end)
           && unpack_dci_payload(dci_pdu->Payload, dci_pdu->PayloadSizeBits, ppReadPackedMsg, end))) {
       return 0;
     }
@@ -1669,22 +1827,22 @@ uint8_t unpack_ul_dci_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg
 static uint8_t pack_tx_data_pdu_list_value(void *tlv, uint8_t **ppWritePackedMsg, uint8_t *end, uint32_t *payload_offset)
 {
   nfapi_nr_pdu_t *value = (nfapi_nr_pdu_t *)tlv;
-  if (!(push32(value->PDU_length, ppWritePackedMsg, end) && push16(value->PDU_index, ppWritePackedMsg, end)
-        && push32(value->num_TLV, ppWritePackedMsg, end)))
+  if (!(push32(value->PDU_length, ppWritePackedMsg, end) && push16(value->PDU_index, ppWritePackedMsg, end)))
+    return 0;
+#ifdef ENABLE_AERIAL
+  // cuBB SCF_FAPI_10_04 (scf_fapi_tx_data_pdu_info_t): cw_index between pdu_index and num_tlv
+  if (!push8(value->cw_index, ppWritePackedMsg, end))
+    return 0;
+#endif
+  if (!push32(value->num_TLV, ppWritePackedMsg, end))
     return 0;
 
   for (int i = 0; i < value->num_TLV; ++i) {
     uint16_t tag = value->TLVs[i].tag == 2 ? 2 : 0;
     // preserve tag == 2 for nvidia, for direct/ptr, convert to pointer
-    if (!push16(tag, ppWritePackedMsg, end))
+    // uint16 tag + uint32 length (SCF222.10.04 Table 3-114), for both OAI PNF/VNF and cuBB
+    if (!(push16(tag, ppWritePackedMsg, end) && push32(value->TLVs[i].length, ppWritePackedMsg, end)))
       return 0;
-#ifdef ENABLE_AERIAL
-    if (!push16(value->TLVs[i].length, ppWritePackedMsg, end))
-      return 0;
-#else
-    if (!push32(value->TLVs[i].length, ppWritePackedMsg, end))
-      return 0;
-#endif
     const uint32_t byte_len = (value->TLVs[i].length + 3) / 4;
     switch (value->TLVs[i].tag) {
       case 0: {
@@ -1749,8 +1907,13 @@ static uint8_t unpack_tx_data_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t 
 {
   nfapi_nr_pdu_t *pNfapiMsg = (nfapi_nr_pdu_t *)msg;
 
-  if (!(pull32(ppReadPackedMsg, &pNfapiMsg->PDU_length, end) && pull16(ppReadPackedMsg, &pNfapiMsg->PDU_index, end)
-        && pull32(ppReadPackedMsg, &pNfapiMsg->num_TLV, end)))
+  if (!(pull32(ppReadPackedMsg, &pNfapiMsg->PDU_length, end) && pull16(ppReadPackedMsg, &pNfapiMsg->PDU_index, end)))
+    return 0;
+#ifdef ENABLE_AERIAL
+  if (!pull8(ppReadPackedMsg, &pNfapiMsg->cw_index, end))
+    return 0;
+#endif
+  if (!pull32(ppReadPackedMsg, &pNfapiMsg->num_TLV, end))
     return 0;
   NR_FAPI_CHECK_COUNT(pNfapiMsg->num_TLV, pNfapiMsg->TLVs);
 
@@ -1806,11 +1969,20 @@ uint8_t unpack_tx_data_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *ms
 
 static uint8_t pack_nr_rx_data_indication_body(const nfapi_nr_rx_data_pdu_t *value, uint8_t **ppWritePackedMsg, uint8_t *end)
 {
+#ifdef ENABLE_AERIAL
+  // cuBB SCF_FAPI_10_04 (scf_fapi_rx_data_pdu_t): rapid before harq_id, pdu_tag in place of the
+  // ul_cqi/timing_advance/rssi tail, which moved to CRC.indication
+  if (!(push32(value->handle, ppWritePackedMsg, end) && push16(value->rnti, ppWritePackedMsg, end)
+        && push8(value->rapid, ppWritePackedMsg, end) && push8(value->harq_id, ppWritePackedMsg, end)
+        && push32(value->pdu_length, ppWritePackedMsg, end) && push8(value->pdu_tag, ppWritePackedMsg, end)))
+    return 0;
+#else
   if (!(push32(value->handle, ppWritePackedMsg, end) && push16(value->rnti, ppWritePackedMsg, end)
         && push8(value->harq_id, ppWritePackedMsg, end) && push32(value->pdu_length, ppWritePackedMsg, end)
         && push8(value->ul_cqi, ppWritePackedMsg, end) && push16(value->timing_advance, ppWritePackedMsg, end)
         && push16(value->rssi, ppWritePackedMsg, end)))
     return 0;
+#endif
 
   if (pusharray8(value->pdu, value->pdu_length, value->pdu_length, ppWritePackedMsg, end) == 0)
     return 0;
@@ -1822,8 +1994,13 @@ uint8_t pack_nr_rx_data_indication(void *msg, uint8_t **ppWritePackedMsg, uint8_
 {
   nfapi_nr_rx_data_indication_t *pNfapiMsg = (nfapi_nr_rx_data_indication_t *)msg;
 
-  if (!(push16(pNfapiMsg->sfn, ppWritePackedMsg, end) && push16(pNfapiMsg->slot, ppWritePackedMsg, end)
-        && push16(pNfapiMsg->number_of_pdus, ppWritePackedMsg, end)))
+  if (!(push16(pNfapiMsg->sfn, ppWritePackedMsg, end) && push16(pNfapiMsg->slot, ppWritePackedMsg, end)))
+    return 0;
+#ifdef ENABLE_AERIAL
+  if (!push16(pNfapiMsg->control_length, ppWritePackedMsg, end))
+    return 0;
+#endif
+  if (!push16(pNfapiMsg->number_of_pdus, ppWritePackedMsg, end))
     return 0;
 
   for (int i = 0; i < pNfapiMsg->number_of_pdus; i++) {
@@ -1836,11 +2013,21 @@ uint8_t pack_nr_rx_data_indication(void *msg, uint8_t **ppWritePackedMsg, uint8_
 
 static uint8_t unpack_nr_rx_data_indication_body(nfapi_nr_rx_data_pdu_t *value, uint8_t **ppReadPackedMsg, uint8_t *end)
 {
+#ifdef ENABLE_AERIAL
+  if (!(pull32(ppReadPackedMsg, &value->handle, end) && pull16(ppReadPackedMsg, &value->rnti, end)
+        && pull8(ppReadPackedMsg, &value->rapid, end) && pull8(ppReadPackedMsg, &value->harq_id, end)
+        && pull32(ppReadPackedMsg, &value->pdu_length, end) && pull8(ppReadPackedMsg, &value->pdu_tag, end)))
+    return 0;
+  value->ul_cqi = 0;
+  value->timing_advance = 0;
+  value->rssi = 0;
+#else
   if (!(pull32(ppReadPackedMsg, &value->handle, end) && pull16(ppReadPackedMsg, &value->rnti, end)
         && pull8(ppReadPackedMsg, &value->harq_id, end) && pull32(ppReadPackedMsg, &value->pdu_length, end)
         && pull8(ppReadPackedMsg, &value->ul_cqi, end) && pull16(ppReadPackedMsg, &value->timing_advance, end)
         && pull16(ppReadPackedMsg, &value->rssi, end)))
     return 0;
+#endif
 
   const uint32_t length = value->pdu_length;
   value->pdu = calloc(length, sizeof(*value->pdu));
@@ -1855,8 +2042,13 @@ uint8_t unpack_nr_rx_data_indication(uint8_t **ppReadPackedMsg, uint8_t *end, vo
 {
   nfapi_nr_rx_data_indication_t *pNfapiMsg = (nfapi_nr_rx_data_indication_t *)msg;
 
-  if (!(pull16(ppReadPackedMsg, &pNfapiMsg->sfn, end) && pull16(ppReadPackedMsg, &pNfapiMsg->slot, end)
-        && pull16(ppReadPackedMsg, &pNfapiMsg->number_of_pdus, end)))
+  if (!(pull16(ppReadPackedMsg, &pNfapiMsg->sfn, end) && pull16(ppReadPackedMsg, &pNfapiMsg->slot, end)))
+    return 0;
+#ifdef ENABLE_AERIAL
+  if (!pull16(ppReadPackedMsg, &pNfapiMsg->control_length, end))
+    return 0;
+#endif
+  if (!pull16(ppReadPackedMsg, &pNfapiMsg->number_of_pdus, end))
     return 0;
 
   if (pNfapiMsg->number_of_pdus > 0) {
@@ -1871,10 +2063,112 @@ uint8_t unpack_nr_rx_data_indication(uint8_t **ppReadPackedMsg, uint8_t *end, vo
   return 1;
 }
 
+#ifdef ENABLE_AERIAL
+/* cuBB SCF_FAPI_10_04 replaces the UL_CQI byte (SNR dB = value/2 - 64, 0xFF =
+ * invalid) with an int16 ul_sinr_metric (SNR dB = value/500, 0xFFFF = invalid)
+ * in its scf_fapi_ul_meas_common_t (SCF222.10.04 Table 3-117). The MAC consumes
+ * the UL_CQI encoding (the "ul_cqi * 5 - 640" snrx10 conversions feeding
+ * PUSCH/PUCCH power control and the SR gate ul_cqi >= 148), so translate at
+ * the wire boundary in both directions. */
+static uint8_t ul_cqi_from_sinr_metric(int16_t ul_sinr_metric)
+{
+  if (ul_sinr_metric == (int16_t)0xFFFF)
+    return 0xFF;
+  const int ul_cqi = ul_sinr_metric / 250 + 128;
+  return ul_cqi < 0 ? 0 : (ul_cqi > 254 ? 254 : ul_cqi);
+}
+
+static int16_t sinr_metric_from_ul_cqi(uint8_t ul_cqi)
+{
+  if (ul_cqi == 0xFF)
+    return (int16_t)0xFFFF;
+  return (int16_t)(((int)ul_cqi - 128) * 250);
+}
+
+// cuBB scf_fapi_ul_meas_common_t, in place of {ul_cqi, timing_advance, rssi}
+static uint8_t pack_ul_meas_common(uint8_t ul_cqi,
+                                   uint16_t timing_advance,
+                                   int16_t timing_advance_ns,
+                                   uint16_t rssi,
+                                   uint16_t rsrp,
+                                   uint8_t **ppWritePackedMsg,
+                                   uint8_t *end)
+{
+  return pushs16(sinr_metric_from_ul_cqi(ul_cqi), ppWritePackedMsg, end) && push16(timing_advance, ppWritePackedMsg, end)
+         && pushs16(timing_advance_ns, ppWritePackedMsg, end) && push16(rssi, ppWritePackedMsg, end)
+         && push16(rsrp, ppWritePackedMsg, end);
+}
+
+static uint8_t unpack_ul_meas_common(uint8_t *ul_cqi,
+                                     uint16_t *timing_advance,
+                                     int16_t *timing_advance_ns,
+                                     uint16_t *rssi,
+                                     uint16_t *rsrp,
+                                     uint8_t **ppReadPackedMsg,
+                                     uint8_t *end)
+{
+  int16_t ul_sinr_metric;
+  if (!(pulls16(ppReadPackedMsg, &ul_sinr_metric, end) && pull16(ppReadPackedMsg, timing_advance, end)
+        && pulls16(ppReadPackedMsg, timing_advance_ns, end) && pull16(ppReadPackedMsg, rssi, end)
+        && pull16(ppReadPackedMsg, rsrp, end)))
+    return 0;
+  *ul_cqi = ul_cqi_from_sinr_metric(ul_sinr_metric);
+  return 1;
+}
+
+/* cuBB SCF_FAPI_10_04 replaces the HarqCrc / CsiPartXCrc byte (0 = pass,
+ * 1 = failure, 2 = not checked) with a DetectionStatus (1 = CRC pass, 2 = CRC
+ * failure, 3 = DTX, 4 = no DTX, 5 = DTX not checked; SCF222.10.04 Tables 3-125..3-127).
+ * The MAC consumes the crc values (the harq_crc != 1 / csi_part1_crc != 1 gates
+ * in gNB_scheduler_uci.c), so translate at the wire boundary. An explicit DTX
+ * means the payload bits are decoder noise: report it as failure so the MAC
+ * NACKs the HARQ process and discards the CSI, as PUCCH F0/1 does via
+ * harq_confidence_level. 4/5 carry no CRC verdict and map to "not checked". */
+static uint8_t crc_from_detection_status(uint8_t detection_status)
+{
+  switch (detection_status) {
+    case 1:
+      return 0; // CRC pass
+    case 2:
+      return 1; // CRC failure
+    case 3:
+      return 1; // DTX: payload is noise, treat as failure
+    default:
+      return 2; // no DTX / DTX not checked: no CRC verdict, consume payload
+  }
+}
+
+static uint8_t detection_status_from_crc(uint8_t crc)
+{
+  switch (crc) {
+    case 0:
+      return 1; // CRC pass
+    case 1:
+      return 2; // CRC failure
+    default:
+      return 4; // not checked: UCI present, no CRC performed
+  }
+}
+
+/* PUCCH F0/1 HarqValue: cuBB SCF_FAPI_10_04 sends cuPHY's ACK=1/NACK=0 (as in
+ * SCF222.10.04 Table 3-123), older cuBB flipped it to ACK=0, which is what the
+ * MAC expects. DTX (2) is unchanged. */
+static uint8_t flip_harq_value(uint8_t harq_value)
+{
+  return harq_value <= 1 ? 1 - harq_value : harq_value;
+}
+#endif
+
 static uint8_t pack_nr_crc_indication_body(const nfapi_nr_crc_t *value, uint8_t **ppWritePackedMsg, uint8_t *end)
 {
-  if (!(push32(value->handle, ppWritePackedMsg, end) && push16(value->rnti, ppWritePackedMsg, end)
-        && push8(value->harq_id, ppWritePackedMsg, end) && push8(value->tb_crc_status, ppWritePackedMsg, end)
+  if (!(push32(value->handle, ppWritePackedMsg, end) && push16(value->rnti, ppWritePackedMsg, end)))
+    return 0;
+#ifdef ENABLE_AERIAL
+  // cuBB SCF_FAPI_10_04: rapid before harq_id
+  if (!push8(value->rapid, ppWritePackedMsg, end))
+    return 0;
+#endif
+  if (!(push8(value->harq_id, ppWritePackedMsg, end) && push8(value->tb_crc_status, ppWritePackedMsg, end)
         && push16(value->num_cb, ppWritePackedMsg, end))) {
     return 0;
   }
@@ -1885,10 +2179,22 @@ static uint8_t pack_nr_crc_indication_body(const nfapi_nr_crc_t *value, uint8_t 
       return 0;
     }
   }
+#ifdef ENABLE_AERIAL
+  if (!pack_ul_meas_common(value->ul_cqi,
+                           value->timing_advance,
+                           value->timing_advance_ns,
+                           value->rssi,
+                           value->rsrp,
+                           ppWritePackedMsg,
+                           end)) {
+    return 0;
+  }
+#else
   if (!(push8(value->ul_cqi, ppWritePackedMsg, end) && push16(value->timing_advance, ppWritePackedMsg, end)
         && push16(value->rssi, ppWritePackedMsg, end))) {
     return 0;
   }
+#endif
   return 1;
 }
 
@@ -1910,8 +2216,13 @@ uint8_t pack_nr_crc_indication(void *msg, uint8_t **ppWritePackedMsg, uint8_t *e
 
 uint8_t unpack_nr_crc_indication_body(nfapi_nr_crc_t *value, uint8_t **ppReadPackedMsg, uint8_t *end)
 {
-  if (!(pull32(ppReadPackedMsg, &value->handle, end) && pull16(ppReadPackedMsg, &value->rnti, end)
-        && pull8(ppReadPackedMsg, &value->harq_id, end) && pull8(ppReadPackedMsg, &value->tb_crc_status, end)
+  if (!(pull32(ppReadPackedMsg, &value->handle, end) && pull16(ppReadPackedMsg, &value->rnti, end)))
+    return 0;
+#ifdef ENABLE_AERIAL
+  if (!pull8(ppReadPackedMsg, &value->rapid, end))
+    return 0;
+#endif
+  if (!(pull8(ppReadPackedMsg, &value->harq_id, end) && pull8(ppReadPackedMsg, &value->tb_crc_status, end)
         && pull16(ppReadPackedMsg, &value->num_cb, end))) {
     return 0;
   }
@@ -1922,10 +2233,22 @@ uint8_t unpack_nr_crc_indication_body(nfapi_nr_crc_t *value, uint8_t **ppReadPac
       return 0;
     }
   }
+#ifdef ENABLE_AERIAL
+  if (!unpack_ul_meas_common(&value->ul_cqi,
+                             &value->timing_advance,
+                             &value->timing_advance_ns,
+                             &value->rssi,
+                             &value->rsrp,
+                             ppReadPackedMsg,
+                             end)) {
+    return 0;
+  }
+#else
   if (!(pull8(ppReadPackedMsg, &value->ul_cqi, end) && pull16(ppReadPackedMsg, &value->timing_advance, end)
         && pull16(ppReadPackedMsg, &value->rssi, end))) {
     return 0;
   }
+#endif
 
   return 1;
 }
@@ -1960,17 +2283,33 @@ static uint8_t pack_nr_uci_pusch(void *tlv, uint8_t **ppWritePackedMsg, uint8_t 
     return 0;
   if (!push16(value->rnti, ppWritePackedMsg, end))
     return 0;
+#ifdef ENABLE_AERIAL
+  if (!pack_ul_meas_common(value->ul_cqi,
+                           value->timing_advance,
+                           value->timing_advance_ns,
+                           value->rssi,
+                           value->rsrp,
+                           ppWritePackedMsg,
+                           end))
+    return 0;
+#else
   if (!push8(value->ul_cqi, ppWritePackedMsg, end))
     return 0;
   if (!push16(value->timing_advance, ppWritePackedMsg, end))
     return 0;
   if (!push16(value->rssi, ppWritePackedMsg, end))
     return 0;
+#endif
 
   // Bit 0 not used in PUSCH PDU
   if ((value->pduBitmap >> 1) & 0x01) { // HARQ
+#ifdef ENABLE_AERIAL
+    if (!push8(detection_status_from_crc(value->harq.harq_crc), ppWritePackedMsg, end))
+      return 0;
+#else
     if (!push8(value->harq.harq_crc, ppWritePackedMsg, end))
       return 0;
+#endif
     if (!push16(value->harq.harq_bit_len, ppWritePackedMsg, end))
       return 0;
     const uint16_t harq_len = nr_bits_to_bytes(value->harq.harq_bit_len);
@@ -1979,8 +2318,13 @@ static uint8_t pack_nr_uci_pusch(void *tlv, uint8_t **ppWritePackedMsg, uint8_t 
   }
 
   if ((value->pduBitmap >> 2) & 0x01) { // CSI-1
+#ifdef ENABLE_AERIAL
+    if (!push8(detection_status_from_crc(value->csi_part1.csi_part1_crc), ppWritePackedMsg, end))
+      return 0;
+#else
     if (!push8(value->csi_part1.csi_part1_crc, ppWritePackedMsg, end))
       return 0;
+#endif
     if (!push16(value->csi_part1.csi_part1_bit_len, ppWritePackedMsg, end))
       return 0;
     const uint16_t csi_len = nr_bits_to_bytes(value->csi_part1.csi_part1_bit_len);
@@ -1989,8 +2333,13 @@ static uint8_t pack_nr_uci_pusch(void *tlv, uint8_t **ppWritePackedMsg, uint8_t 
   }
 
   if ((value->pduBitmap >> 3) & 0x01) { // CSI-2
+#ifdef ENABLE_AERIAL
+    if (!push8(detection_status_from_crc(value->csi_part2.csi_part2_crc), ppWritePackedMsg, end))
+      return 0;
+#else
     if (!push8(value->csi_part2.csi_part2_crc, ppWritePackedMsg, end))
       return 0;
+#endif
     if (!push16(value->csi_part2.csi_part2_bit_len, ppWritePackedMsg, end))
       return 0;
     const uint16_t csi_len = nr_bits_to_bytes(value->csi_part2.csi_part2_bit_len);
@@ -2013,12 +2362,23 @@ static uint8_t pack_nr_uci_pucch_0_1(void *tlv, uint8_t **ppWritePackedMsg, uint
     return 0;
   if (!push8(value->pucch_format, ppWritePackedMsg, end))
     return 0;
+#ifdef ENABLE_AERIAL
+  if (!pack_ul_meas_common(value->ul_cqi,
+                           value->timing_advance,
+                           value->timing_advance_ns,
+                           value->rssi,
+                           value->rsrp,
+                           ppWritePackedMsg,
+                           end))
+    return 0;
+#else
   if (!push8(value->ul_cqi, ppWritePackedMsg, end))
     return 0;
   if (!push16(value->timing_advance, ppWritePackedMsg, end))
     return 0;
   if (!push16(value->rssi, ppWritePackedMsg, end))
     return 0;
+#endif
   if (value->pduBitmap & 0x01) { // SR
     if (!push8(value->sr.sr_indication, ppWritePackedMsg, end))
       return 0;
@@ -2032,8 +2392,13 @@ static uint8_t pack_nr_uci_pucch_0_1(void *tlv, uint8_t **ppWritePackedMsg, uint
     if (!push8(value->harq.harq_confidence_level, ppWritePackedMsg, end))
       return 0;
     for (int i = 0; i < value->harq.num_harq; i++) {
+#ifdef ENABLE_AERIAL
+      if (!push8(flip_harq_value(value->harq.harq_list[i].harq_value), ppWritePackedMsg, end))
+        return 0;
+#else
       if (!push8(value->harq.harq_list[i].harq_value, ppWritePackedMsg, end))
         return 0;
+#endif
     }
   }
 
@@ -2052,12 +2417,23 @@ static uint8_t pack_nr_uci_pucch_2_3_4(void *tlv, uint8_t **ppWritePackedMsg, ui
     return 0;
   if (!push8(value->pucch_format, ppWritePackedMsg, end))
     return 0;
+#ifdef ENABLE_AERIAL
+  if (!pack_ul_meas_common(value->ul_cqi,
+                           value->timing_advance,
+                           value->timing_advance_ns,
+                           value->rssi,
+                           value->rsrp,
+                           ppWritePackedMsg,
+                           end))
+    return 0;
+#else
   if (!push8(value->ul_cqi, ppWritePackedMsg, end))
     return 0;
   if (!push16(value->timing_advance, ppWritePackedMsg, end))
     return 0;
   if (!push16(value->rssi, ppWritePackedMsg, end))
     return 0;
+#endif
 
   if (value->pduBitmap & 0x01) { // SR
     if (!push16(value->sr.sr_bit_len, ppWritePackedMsg, end))
@@ -2068,8 +2444,13 @@ static uint8_t pack_nr_uci_pucch_2_3_4(void *tlv, uint8_t **ppWritePackedMsg, ui
   }
 
   if ((value->pduBitmap >> 1) & 0x01) { // HARQ
+#ifdef ENABLE_AERIAL
+    if (!push8(detection_status_from_crc(value->harq.harq_crc), ppWritePackedMsg, end))
+      return 0;
+#else
     if (!push8(value->harq.harq_crc, ppWritePackedMsg, end))
       return 0;
+#endif
     if (!push16(value->harq.harq_bit_len, ppWritePackedMsg, end))
       return 0;
     const uint16_t harq_len = nr_bits_to_bytes(value->harq.harq_bit_len);
@@ -2078,8 +2459,13 @@ static uint8_t pack_nr_uci_pucch_2_3_4(void *tlv, uint8_t **ppWritePackedMsg, ui
   }
 
   if ((value->pduBitmap >> 2) & 0x01) { // CSI-1
+#ifdef ENABLE_AERIAL
+    if (!push8(detection_status_from_crc(value->csi_part1.csi_part1_crc), ppWritePackedMsg, end))
+      return 0;
+#else
     if (!push8(value->csi_part1.csi_part1_crc, ppWritePackedMsg, end))
       return 0;
+#endif
     if (!push16(value->csi_part1.csi_part1_bit_len, ppWritePackedMsg, end))
       return 0;
     const uint16_t csi_len = nr_bits_to_bytes(value->csi_part1.csi_part1_bit_len);
@@ -2088,8 +2474,13 @@ static uint8_t pack_nr_uci_pucch_2_3_4(void *tlv, uint8_t **ppWritePackedMsg, ui
   }
 
   if ((value->pduBitmap >> 3) & 0x01) { // CSI-2
+#ifdef ENABLE_AERIAL
+    if (!push8(detection_status_from_crc(value->csi_part2.csi_part2_crc), ppWritePackedMsg, end))
+      return 0;
+#else
     if (!push8(value->csi_part2.csi_part2_crc, ppWritePackedMsg, end))
       return 0;
+#endif
     if (!push16(value->csi_part2.csi_part2_bit_len, ppWritePackedMsg, end))
       return 0;
     const uint16_t csi_len = nr_bits_to_bytes(value->csi_part2.csi_part2_bit_len);
@@ -2160,17 +2551,31 @@ static uint8_t unpack_nr_uci_pusch(nfapi_nr_uci_pusch_pdu_t *value, uint8_t **pp
     return 0;
   if (!pull16(ppReadPackedMsg, &value->rnti, end))
     return 0;
+#ifdef ENABLE_AERIAL
+  if (!unpack_ul_meas_common(&value->ul_cqi,
+                             &value->timing_advance,
+                             &value->timing_advance_ns,
+                             &value->rssi,
+                             &value->rsrp,
+                             ppReadPackedMsg,
+                             end))
+    return 0;
+#else
   if (!pull8(ppReadPackedMsg, &value->ul_cqi, end))
     return 0;
   if (!pull16(ppReadPackedMsg, &value->timing_advance, end))
     return 0;
   if (!pull16(ppReadPackedMsg, &value->rssi, end))
     return 0;
+#endif
 
   // Bit 0 not used in PUSCH PDU
   if ((value->pduBitmap >> 1) & 0x01) { // HARQ
     if (!pull8(ppReadPackedMsg, &value->harq.harq_crc, end))
       return 0;
+#ifdef ENABLE_AERIAL
+    value->harq.harq_crc = crc_from_detection_status(value->harq.harq_crc);
+#endif
     if (!pull16(ppReadPackedMsg, &value->harq.harq_bit_len, end))
       return 0;
     const uint16_t harq_len = nr_bits_to_bytes(value->harq.harq_bit_len);
@@ -2188,6 +2593,9 @@ static uint8_t unpack_nr_uci_pusch(nfapi_nr_uci_pusch_pdu_t *value, uint8_t **pp
   if ((value->pduBitmap >> 2) & 0x01) { // CSI-1
     if (!pull8(ppReadPackedMsg, &value->csi_part1.csi_part1_crc, end))
       return 0;
+#ifdef ENABLE_AERIAL
+    value->csi_part1.csi_part1_crc = crc_from_detection_status(value->csi_part1.csi_part1_crc);
+#endif
     if (!pull16(ppReadPackedMsg, &value->csi_part1.csi_part1_bit_len, end))
       return 0;
     const uint16_t csi_len = nr_bits_to_bytes(value->csi_part1.csi_part1_bit_len);
@@ -2205,6 +2613,9 @@ static uint8_t unpack_nr_uci_pusch(nfapi_nr_uci_pusch_pdu_t *value, uint8_t **pp
   if ((value->pduBitmap >> 3) & 0x01) { // CSI-2
     if (!pull8(ppReadPackedMsg, &value->csi_part2.csi_part2_crc, end))
       return 0;
+#ifdef ENABLE_AERIAL
+    value->csi_part2.csi_part2_crc = crc_from_detection_status(value->csi_part2.csi_part2_crc);
+#endif
     if (!pull16(ppReadPackedMsg, &value->csi_part2.csi_part2_bit_len, end))
       return 0;
     const uint16_t csi_len = nr_bits_to_bytes(value->csi_part2.csi_part2_bit_len);
@@ -2225,10 +2636,22 @@ static uint8_t unpack_nr_uci_pusch(nfapi_nr_uci_pusch_pdu_t *value, uint8_t **pp
 static uint8_t unpack_nr_uci_pucch_0_1(nfapi_nr_uci_pucch_pdu_format_0_1_t *value, uint8_t **ppReadPackedMsg, uint8_t *end)
 {
   if (!(pull8(ppReadPackedMsg, &value->pduBitmap, end) && pull32(ppReadPackedMsg, &value->handle, end)
-        && pull16(ppReadPackedMsg, &value->rnti, end) && pull8(ppReadPackedMsg, &value->pucch_format, end)
-        && pull8(ppReadPackedMsg, &value->ul_cqi, end) && pull16(ppReadPackedMsg, &value->timing_advance, end)
+        && pull16(ppReadPackedMsg, &value->rnti, end) && pull8(ppReadPackedMsg, &value->pucch_format, end)))
+    return 0;
+#ifdef ENABLE_AERIAL
+  if (!unpack_ul_meas_common(&value->ul_cqi,
+                             &value->timing_advance,
+                             &value->timing_advance_ns,
+                             &value->rssi,
+                             &value->rsrp,
+                             ppReadPackedMsg,
+                             end))
+    return 0;
+#else
+  if (!(pull8(ppReadPackedMsg, &value->ul_cqi, end) && pull16(ppReadPackedMsg, &value->timing_advance, end)
         && pull16(ppReadPackedMsg, &value->rssi, end)))
     return 0;
+#endif
 
   if (value->pduBitmap & 0x01) { // SR
     if (!(pull8(ppReadPackedMsg, &value->sr.sr_indication, end) && pull8(ppReadPackedMsg, &value->sr.sr_confidence_level, end)))
@@ -2244,6 +2667,9 @@ static uint8_t unpack_nr_uci_pucch_0_1(nfapi_nr_uci_pucch_pdu_format_0_1_t *valu
         if (!pull8(ppReadPackedMsg, &value->harq.harq_list[i].harq_value, end)) {
           return 0;
         }
+#ifdef ENABLE_AERIAL
+        value->harq.harq_list[i].harq_value = flip_harq_value(value->harq.harq_list[i].harq_value);
+#endif
       }
     }
   }
@@ -2261,12 +2687,23 @@ static uint8_t unpack_nr_uci_pucch_2_3_4(nfapi_nr_uci_pucch_pdu_format_2_3_4_t *
     return 0;
   if (!pull8(ppReadPackedMsg, &value->pucch_format, end))
     return 0;
+#ifdef ENABLE_AERIAL
+  if (!unpack_ul_meas_common(&value->ul_cqi,
+                             &value->timing_advance,
+                             &value->timing_advance_ns,
+                             &value->rssi,
+                             &value->rsrp,
+                             ppReadPackedMsg,
+                             end))
+    return 0;
+#else
   if (!pull8(ppReadPackedMsg, &value->ul_cqi, end))
     return 0;
   if (!pull16(ppReadPackedMsg, &value->timing_advance, end))
     return 0;
   if (!pull16(ppReadPackedMsg, &value->rssi, end))
     return 0;
+#endif
 
   if (value->pduBitmap & 0x01) { // SR
     if (!pull16(ppReadPackedMsg, &value->sr.sr_bit_len, end))
@@ -2286,6 +2723,9 @@ static uint8_t unpack_nr_uci_pucch_2_3_4(nfapi_nr_uci_pucch_pdu_format_2_3_4_t *
   if ((value->pduBitmap >> 1) & 0x01) { // HARQ
     if (!pull8(ppReadPackedMsg, &value->harq.harq_crc, end))
       return 0;
+#ifdef ENABLE_AERIAL
+    value->harq.harq_crc = crc_from_detection_status(value->harq.harq_crc);
+#endif
     if (!pull16(ppReadPackedMsg, &value->harq.harq_bit_len, end))
       return 0;
     const uint16_t harq_len = nr_bits_to_bytes(value->harq.harq_bit_len);
@@ -2303,6 +2743,9 @@ static uint8_t unpack_nr_uci_pucch_2_3_4(nfapi_nr_uci_pucch_pdu_format_2_3_4_t *
   if ((value->pduBitmap >> 2) & 0x01) { // CSI-1
     if (!pull8(ppReadPackedMsg, &value->csi_part1.csi_part1_crc, end))
       return 0;
+#ifdef ENABLE_AERIAL
+    value->csi_part1.csi_part1_crc = crc_from_detection_status(value->csi_part1.csi_part1_crc);
+#endif
     if (!pull16(ppReadPackedMsg, &value->csi_part1.csi_part1_bit_len, end))
       return 0;
     const uint16_t csi_len = nr_bits_to_bytes(value->csi_part1.csi_part1_bit_len);
@@ -2320,6 +2763,9 @@ static uint8_t unpack_nr_uci_pucch_2_3_4(nfapi_nr_uci_pucch_pdu_format_2_3_4_t *
   if ((value->pduBitmap >> 3) & 0x01) { // CSI-2
     if (!pull8(ppReadPackedMsg, &value->csi_part2.csi_part2_crc, end))
       return 0;
+#ifdef ENABLE_AERIAL
+    value->csi_part2.csi_part2_crc = crc_from_detection_status(value->csi_part2.csi_part2_crc);
+#endif
     if (!pull16(ppReadPackedMsg, &value->csi_part2.csi_part2_bit_len, end))
       return 0;
     const uint16_t csi_len = nr_bits_to_bytes(value->csi_part2.csi_part2_bit_len);

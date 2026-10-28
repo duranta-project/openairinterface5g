@@ -745,10 +745,13 @@ typedef enum {
   X(SCF_ERROR_CODE_MSG_CAPACITY_EXCEEDED, 0x45)          \
   X(SCF_ERROR_CODE_RHOCP_PTP_EVENTS_ERROR, 0x46)         \
   X(SCF_ERROR_CODE_RHOCP_PTP_EVENTS_SYNCED, 0x47)        \
+  X(SCF_ERROR_CODE_SRS_WITHOUT_PUSCH_UNSUPPORTED, 0x48)  \
   X(SCF_FAPI_SSB_PBCH_L1_LIMIT_EXCEEDED, 0x81)           \
   X(SCF_FAPI_PDCCH_L1_LIMIT_EXCEEDED, 0x82)              \
   X(SCF_FAPI_PDSCH_L1_LIMIT_EXCEEDED, 0x84)              \
   X(SCF_FAPI_CSIRS_L1_LIMIT_EXCEEDED, 0x88)              \
+  X(SCF_ERROR_CODE_FH_PORT_DOWN, 0x99)                   \
+  X(SCF_ERROR_CODE_FH_PORT_UP, 0x9A)                     \
   X(SCF_FAPI_PUSCH_L1_LIMIT_EXCEEDED, 0xC1)              \
   X(SCF_FAPI_PUCCH_L1_LIMIT_EXCEEDED, 0xC2)              \
   X(SCF_FAPI_SRS_L1_LIMIT_EXCEEDED, 0xC4)                \
@@ -1391,6 +1394,14 @@ typedef struct
 typedef struct {
   uint8_t ldpcBaseGraph;
   uint32_t tbSizeLbrmBytes;
+#ifdef ENABLE_AERIAL
+  // rest of the SCF222.10.04 Table 3-94 block, which cuBB SCF_FAPI_10_04 always reads
+  uint8_t puschTransType;
+  uint16_t deltaBwp0StartFromActiveBwp;
+  uint16_t initialUlBwpSize;
+  uint8_t groupOrSequenceHopping;
+  uint16_t puschSecondHopPRB;
+#endif
 }nfapi_v3_pusch_maintenance_parameters_t;
 
 typedef struct
@@ -1438,7 +1449,7 @@ typedef struct
   nfapi_nr_dfts_ofdm_t dfts_ofdm;
   //beamforming
   nfapi_nr_ul_beamforming_t beamforming;
-  nfapi_v3_pdsch_maintenance_parameters_t maintenance_parms_v3;
+  nfapi_v3_pusch_maintenance_parameters_t maintenance_parms_v3;
   // Spatial stream indexing for MU-MIMO
   nfapi_nr_spatial_stream_index_t param_v4;
 } nfapi_nr_pusch_pdu_t;
@@ -1666,6 +1677,9 @@ typedef struct
 {
   uint32_t PDU_length;
   uint16_t PDU_index;
+#ifdef ENABLE_AERIAL
+  uint8_t cw_index; // cuBB SCF_FAPI_10_04: codeword this PDU belongs to (OAI: single DL codeword)
+#endif
   uint32_t num_TLV;
   nfapi_nr_tx_data_request_tlv_t TLVs[NFAPI_NR_MAX_TX_REQUEST_TLV];
 
@@ -1697,8 +1711,14 @@ typedef struct
 {
   uint32_t handle;
   uint16_t rnti;
+#ifdef ENABLE_AERIAL
+  uint8_t  rapid;// cuBB SCF_FAPI_10_04: RAP ID the UE used; 0xff if not applicable (not consumed by OAI yet)
+#endif
   uint8_t  harq_id;
   uint32_t pdu_length;// For Aerial, RX_DATA.indication PDULength is changed to 32 bit field
+#ifdef ENABLE_AERIAL
+  uint8_t  pdu_tag;// cuBB SCF_FAPI_10_04: where the PDU data is located (not consumed by OAI yet)
+#endif
   uint8_t  ul_cqi;
   uint16_t timing_advance;//Timing advance 𝑇𝐴 measured for the UE [TS 38.213, Section 4.2] NTA_new = NTA_old + (TA − 31) ⋅ 16 ⋅ 64⁄2μ Value: 0 → 63 0xffff should be set if this field is invalid
   uint16_t rssi;
@@ -1712,6 +1732,9 @@ typedef struct
   nfapi_nr_p7_message_header_t header;
   uint16_t sfn;
   uint16_t slot;
+#ifdef ENABLE_AERIAL
+  uint16_t control_length;// cuBB SCF_FAPI_10_04: length of control data; 0 when PDU data is inline (not consumed by OAI yet)
+#endif
   uint16_t number_of_pdus;
   nfapi_nr_rx_data_pdu_t *pdu_list;
 
@@ -1732,6 +1755,12 @@ typedef struct
   uint8_t  ul_cqi;
   uint16_t timing_advance;
   uint16_t rssi;
+#ifdef ENABLE_AERIAL
+  // cuBB SCF_FAPI_10_04 (SCF222.10.04 Table 3-117), not consumed by OAI yet
+  uint8_t  rapid; // RAP ID the UE used, 0xff if not applicable
+  int16_t  timing_advance_ns; // TA in ns, -16800..16800
+  uint16_t rsrp; // 0..1280 in 0.1 dB steps, 0xffff if invalid
+#endif
 
 } nfapi_nr_crc_t;
 
@@ -1814,6 +1843,10 @@ typedef struct
   uint8_t  ul_cqi;
   uint16_t timing_advance;
   uint16_t rssi;
+#ifdef ENABLE_AERIAL
+  int16_t  timing_advance_ns; // cuBB SCF_FAPI_10_04 (SCF222.10.04 Table 3-119), not consumed by OAI yet
+  uint16_t rsrp; // cuBB SCF_FAPI_10_04, not consumed by OAI yet
+#endif
   nfapi_nr_harq_pdu_2_3_4_t harq;//table 3-70
   nfapi_nr_csi_part1_pdu_t csi_part1;//71
   nfapi_nr_csi_part2_pdu_t csi_part2;//72
@@ -1830,6 +1863,10 @@ typedef struct
   uint8_t  ul_cqi;
   uint16_t timing_advance;
   uint16_t rssi;
+#ifdef ENABLE_AERIAL
+  int16_t  timing_advance_ns; // cuBB SCF_FAPI_10_04 (SCF222.10.04 Table 3-120), not consumed by OAI yet
+  uint16_t rsrp; // cuBB SCF_FAPI_10_04, not consumed by OAI yet
+#endif
   nfapi_nr_sr_pdu_0_1_t  sr;//67
   nfapi_nr_harq_pdu_0_1_t harq;//68
   
@@ -1846,6 +1883,10 @@ typedef struct
   uint8_t  ul_cqi;
   uint16_t timing_advance;
   uint16_t rssi;
+#ifdef ENABLE_AERIAL
+  int16_t  timing_advance_ns; // cuBB SCF_FAPI_10_04 (SCF222.10.04 Table 3-121), not consumed by OAI yet
+  uint16_t rsrp; // cuBB SCF_FAPI_10_04, not consumed by OAI yet
+#endif
   nfapi_nr_sr_pdu_2_3_4_t sr;//69
   nfapi_nr_harq_pdu_2_3_4_t harq;//70
   nfapi_nr_csi_part1_pdu_t csi_part1;//71

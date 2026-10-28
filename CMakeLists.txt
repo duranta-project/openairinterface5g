@@ -1340,9 +1340,6 @@ target_link_libraries(e1_if PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs asn1_f1ap
 
 target_link_libraries(L2_NR PRIVATE f1ap x2ap s1ap ngap nr_rrc e1ap nr_rlc nr_common xnap)
 target_compile_definitions(L2_NR PRIVATE PDCP_CUCP_CUUP)
-if(OAI_AERIAL)
-    target_compile_definitions(L2_NR PRIVATE ENABLE_AERIAL)
-endif()
 
 add_library(L2_LTE_NR
   # temporary solution until 4G/5G code completely untangled (as evidenced by deletion of the following file)
@@ -1825,10 +1822,14 @@ target_link_libraries(nr-softmodem PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
 target_link_libraries(nr-softmodem PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
 add_boolean_option(OAI_WLS OFF "Activate OAI's WLS driver" OFF)
 add_boolean_option(OAI_AERIAL OFF "Activate OAI's AERIAL driver" OFF)
+if (OAI_AERIAL)
+  # nfapi_nr_interface_scf.h has ENABLE_AERIAL-dependent struct layouts: every
+  # target in the binary must see the same definition.
+  add_compile_definitions(ENABLE_AERIAL)
+endif()
 if (OAI_WLS)
     target_link_libraries(nr-softmodem PUBLIC wls_integration_lib)
 elseif (OAI_AERIAL)
-    target_compile_definitions(nr-softmodem PUBLIC ENABLE_AERIAL)
     target_link_libraries(nr-softmodem PUBLIC aerial_lib)
 else()
     target_link_libraries(nr-softmodem PUBLIC nfapi_socket_lib)

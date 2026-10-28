@@ -20,13 +20,6 @@ add_library(nr_fapi_p7
 target_include_directories(nr_fapi_p7 PUBLIC inc)
 target_link_libraries(nr_fapi_p7 PUBLIC nr_fapi_common)
 
-if (OAI_AERIAL)
-    target_compile_definitions(nr_fapi_p5 PRIVATE ENABLE_AERIAL ENABLE_10_04)
-    target_compile_definitions(nr_fapi_p7 PRIVATE ENABLE_AERIAL)
-else()
-    target_compile_definitions(nr_fapi_p5 PRIVATE ENABLE_10_02)
-endif ()
-
 if(OAI_WLS)
     target_compile_definitions(nr_fapi_common PRIVATE ENABLE_WLS)
 else()

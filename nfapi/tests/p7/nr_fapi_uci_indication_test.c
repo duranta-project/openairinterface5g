@@ -67,6 +67,10 @@ static void fill_uci_indication_PUSCH(nfapi_nr_uci_pusch_pdu_t *pdu)
   pdu->ul_cqi = rand8();
   pdu->timing_advance = rand16_range(0, 63);
   pdu->rssi = rand16_range(0, 1280);
+#ifdef ENABLE_AERIAL
+  pdu->timing_advance_ns = rand16_range(0, 33600) - 16800;
+  pdu->rsrp = rand16_range(0, 1280);
+#endif
 
   // Bit 0 not used in PUSCH PDU
   // HARQ
@@ -92,6 +96,10 @@ static void fill_uci_indication_PUCCH_0_1(nfapi_nr_uci_pucch_pdu_format_0_1_t *p
   pdu->ul_cqi = rand8();
   pdu->timing_advance = rand16_range(0, 63);
   pdu->rssi = rand16_range(0, 1280);
+#ifdef ENABLE_AERIAL
+  pdu->timing_advance_ns = rand16_range(0, 33600) - 16800;
+  pdu->rsrp = rand16_range(0, 1280);
+#endif
 
   // SR
   if (pdu->pduBitmap & 0x01) {
@@ -112,6 +120,10 @@ static void fill_uci_indication_PUCCH_2_3_4(nfapi_nr_uci_pucch_pdu_format_2_3_4_
   pdu->ul_cqi = rand8();
   pdu->timing_advance = rand16_range(0, 63);
   pdu->rssi = rand16_range(0, 1280);
+#ifdef ENABLE_AERIAL
+  pdu->timing_advance_ns = rand16_range(0, 33600) - 16800;
+  pdu->rsrp = rand16_range(0, 1280);
+#endif
   // SR
   if (pdu->pduBitmap & 0x01) {
     fill_uci_indication_sr_pdu_2_3_4(&pdu->sr);

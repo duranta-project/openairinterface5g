@@ -311,6 +311,13 @@ static bool eq_ul_tti_request_pusch_pdu(const nfapi_nr_pusch_pdu_t *a, const nfa
   EQ(eq_ul_tti_beamforming(&a->beamforming, &b->beamforming), true);
   EQ(a->maintenance_parms_v3.ldpcBaseGraph, b->maintenance_parms_v3.ldpcBaseGraph);
   EQ(a->maintenance_parms_v3.tbSizeLbrmBytes, b->maintenance_parms_v3.tbSizeLbrmBytes);
+#ifdef ENABLE_AERIAL
+  EQ(a->maintenance_parms_v3.puschTransType, b->maintenance_parms_v3.puschTransType);
+  EQ(a->maintenance_parms_v3.deltaBwp0StartFromActiveBwp, b->maintenance_parms_v3.deltaBwp0StartFromActiveBwp);
+  EQ(a->maintenance_parms_v3.initialUlBwpSize, b->maintenance_parms_v3.initialUlBwpSize);
+  EQ(a->maintenance_parms_v3.groupOrSequenceHopping, b->maintenance_parms_v3.groupOrSequenceHopping);
+  EQ(a->maintenance_parms_v3.puschSecondHopPRB, b->maintenance_parms_v3.puschSecondHopPRB);
+#endif
   return true;
 }
 
@@ -509,6 +516,9 @@ bool eq_tx_data_request_PDU(const nfapi_nr_pdu_t *a, const nfapi_nr_pdu_t *b)
 {
   EQ(a->PDU_length, b->PDU_length);
   EQ(a->PDU_index, b->PDU_index);
+#ifdef ENABLE_AERIAL
+  EQ(a->cw_index, b->cw_index);
+#endif
   EQ(a->num_TLV, b->num_TLV);
   for (int tlv_idx = 0; tlv_idx < a->num_TLV; ++tlv_idx) {
     const nfapi_nr_tx_data_request_tlv_t *a_tlv = &a->TLVs[tlv_idx];
@@ -543,8 +553,14 @@ bool eq_rx_data_indication_PDU(const nfapi_nr_rx_data_pdu_t *a, const nfapi_nr_r
 {
   EQ(a->handle, b->handle);
   EQ(a->rnti, b->rnti);
+#ifdef ENABLE_AERIAL
+  EQ(a->rapid, b->rapid);
+#endif
   EQ(a->harq_id, b->harq_id);
   EQ(a->pdu_length, b->pdu_length);
+#ifdef ENABLE_AERIAL
+  EQ(a->pdu_tag, b->pdu_tag);
+#endif
   EQ(a->ul_cqi, b->ul_cqi);
   EQ(a->timing_advance, b->timing_advance);
   EQ(a->rssi, b->rssi);
@@ -560,6 +576,9 @@ bool eq_rx_data_indication(const nfapi_nr_rx_data_indication_t *a, const nfapi_n
   EQ(a->header.message_length, b->header.message_length);
   EQ(a->sfn, b->sfn);
   EQ(a->slot, b->slot);
+#ifdef ENABLE_AERIAL
+  EQ(a->control_length, b->control_length);
+#endif
   EQ(a->number_of_pdus, b->number_of_pdus);
   for (int pdu_idx = 0; pdu_idx < a->number_of_pdus; ++pdu_idx) {
     EQ(eq_rx_data_indication_PDU(&a->pdu_list[pdu_idx], &b->pdu_list[pdu_idx]), true);
@@ -582,6 +601,11 @@ bool eq_crc_indication_CRC(const nfapi_nr_crc_t *a, const nfapi_nr_crc_t *b)
   EQ(a->ul_cqi, b->ul_cqi);
   EQ(a->timing_advance, b->timing_advance);
   EQ(a->rssi, b->rssi);
+#ifdef ENABLE_AERIAL
+  EQ(a->rapid, b->rapid);
+  EQ(a->timing_advance_ns, b->timing_advance_ns);
+  EQ(a->rsrp, b->rsrp);
+#endif
   return true;
 }
 
@@ -662,6 +686,10 @@ bool eq_uci_indication_PUSCH(const nfapi_nr_uci_pusch_pdu_t *a, const nfapi_nr_u
   EQ(a->ul_cqi, b->ul_cqi);
   EQ(a->timing_advance, b->timing_advance);
   EQ(a->rssi, b->rssi);
+#ifdef ENABLE_AERIAL
+  EQ(a->timing_advance_ns, b->timing_advance_ns);
+  EQ(a->rsrp, b->rsrp);
+#endif
 
   // Bit 0 not used in PUSCH PDU
   // HARQ
@@ -688,6 +716,10 @@ bool eq_uci_indication_PUCCH_0_1(const nfapi_nr_uci_pucch_pdu_format_0_1_t *a, c
   EQ(a->ul_cqi, b->ul_cqi);
   EQ(a->timing_advance, b->timing_advance);
   EQ(a->rssi, b->rssi);
+#ifdef ENABLE_AERIAL
+  EQ(a->timing_advance_ns, b->timing_advance_ns);
+  EQ(a->rsrp, b->rsrp);
+#endif
 
   // SR
   if (a->pduBitmap & 0x01) {
@@ -709,6 +741,10 @@ bool eq_uci_indication_PUCCH_2_3_4(const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *
   EQ(a->ul_cqi, b->ul_cqi);
   EQ(a->timing_advance, b->timing_advance);
   EQ(a->rssi, b->rssi);
+#ifdef ENABLE_AERIAL
+  EQ(a->timing_advance_ns, b->timing_advance_ns);
+  EQ(a->rsrp, b->rsrp);
+#endif
   // SR
   if (a->pduBitmap & 0x01) {
     EQ(eq_uci_indication_sr_pdu_2_3_4(&a->sr, &b->sr), true);
@@ -1178,8 +1214,7 @@ static void copy_ul_tti_request_pusch_pdu(const nfapi_nr_pusch_pdu_t *src, nfapi
     *dst_dfts_ofdm = *src_dfts_ofdm;
   }
   copy_ul_tti_beamforming(&src->beamforming, &dst->beamforming);
-  dst->maintenance_parms_v3.ldpcBaseGraph = src->maintenance_parms_v3.ldpcBaseGraph;
-  dst->maintenance_parms_v3.tbSizeLbrmBytes = src->maintenance_parms_v3.tbSizeLbrmBytes;
+  dst->maintenance_parms_v3 = src->maintenance_parms_v3;
   const nfapi_nr_spatial_stream_index_t *s = &src->param_v4;
   nfapi_nr_spatial_stream_index_t *d = &dst->param_v4;
   COPY_STRUCT_ARRAY(d, s, spatialStreamIndices, numSpatialStreamIndices);
@@ -1319,6 +1354,9 @@ void copy_tx_data_request_PDU(const nfapi_nr_pdu_t *src, nfapi_nr_pdu_t *dst)
 {
   dst->PDU_length = src->PDU_length;
   dst->PDU_index = src->PDU_index;
+#ifdef ENABLE_AERIAL
+  dst->cw_index = src->cw_index;
+#endif
   dst->num_TLV = src->num_TLV;
   for (int tlv_idx = 0; tlv_idx < src->num_TLV; ++tlv_idx) {
     const nfapi_nr_tx_data_request_tlv_t *src_tlv = &src->TLVs[tlv_idx];
@@ -1367,6 +1405,9 @@ size_t get_tx_data_request_size(const nfapi_nr_tx_data_request_t *msg)
     const nfapi_nr_pdu_t *pdu = &msg->pdu_list[pdu_idx];
     total_size += sizeof(pdu->PDU_length);
     total_size += sizeof(pdu->PDU_index);
+#ifdef ENABLE_AERIAL
+    total_size += sizeof(pdu->cw_index);
+#endif
     total_size += sizeof(pdu->num_TLV);
     for (int tlv_idx = 0; tlv_idx < pdu->num_TLV; ++tlv_idx) {
       const nfapi_nr_tx_data_request_tlv_t *tlv = &pdu->TLVs[tlv_idx];
@@ -1386,8 +1427,14 @@ void copy_rx_data_indication_PDU(const nfapi_nr_rx_data_pdu_t *src, nfapi_nr_rx_
 {
   dst->handle = src->handle;
   dst->rnti = src->rnti;
+#ifdef ENABLE_AERIAL
+  dst->rapid = src->rapid;
+#endif
   dst->harq_id = src->harq_id;
   dst->pdu_length = src->pdu_length;
+#ifdef ENABLE_AERIAL
+  dst->pdu_tag = src->pdu_tag;
+#endif
   dst->ul_cqi = src->ul_cqi;
   dst->timing_advance = src->timing_advance;
   dst->rssi = src->rssi;
@@ -1402,6 +1449,9 @@ void copy_rx_data_indication(const nfapi_nr_rx_data_indication_t *src, nfapi_nr_
 
   dst->sfn = src->sfn;
   dst->slot = src->slot;
+#ifdef ENABLE_AERIAL
+  dst->control_length = src->control_length;
+#endif
   dst->number_of_pdus = src->number_of_pdus;
   dst->pdu_list = calloc(dst->number_of_pdus, sizeof(*dst->pdu_list));
   for (int pdu_idx = 0; pdu_idx < src->number_of_pdus; ++pdu_idx) {
@@ -1415,13 +1465,22 @@ size_t get_rx_data_indication_size(const nfapi_nr_rx_data_indication_t *msg)
   size_t total_size = sizeof(msg->header);
   total_size += sizeof(msg->sfn);
   total_size += sizeof(msg->slot);
+#ifdef ENABLE_AERIAL
+  total_size += sizeof(msg->control_length);
+#endif
   total_size += sizeof(msg->number_of_pdus);
   for (int pdu_idx = 0; pdu_idx < msg->number_of_pdus; ++pdu_idx) {
     const nfapi_nr_rx_data_pdu_t *pdu = &msg->pdu_list[pdu_idx];
     total_size += sizeof(pdu->handle);
     total_size += sizeof(pdu->rnti);
+#ifdef ENABLE_AERIAL
+    total_size += sizeof(pdu->rapid);
+#endif
     total_size += sizeof(pdu->harq_id);
     total_size += sizeof(pdu->pdu_length);
+#ifdef ENABLE_AERIAL
+    total_size += sizeof(pdu->pdu_tag);
+#endif
     total_size += sizeof(pdu->ul_cqi);
     total_size += sizeof(pdu->timing_advance);
     total_size += sizeof(pdu->rssi);
@@ -1447,6 +1506,11 @@ void copy_crc_indication_CRC(const nfapi_nr_crc_t *src, nfapi_nr_crc_t *dst)
   dst->ul_cqi = src->ul_cqi;
   dst->timing_advance = src->timing_advance;
   dst->rssi = src->rssi;
+#ifdef ENABLE_AERIAL
+  dst->rapid = src->rapid;
+  dst->timing_advance_ns = src->timing_advance_ns;
+  dst->rsrp = src->rsrp;
+#endif
 }
 
 void copy_crc_indication(const nfapi_nr_crc_indication_t *src, nfapi_nr_crc_indication_t *dst)
@@ -1480,9 +1544,18 @@ size_t get_crc_indication_size(const nfapi_nr_crc_indication_t *msg)
     if (crc->num_cb > 0) {
       total_size += crc->num_cb / 8 + 1;
     }
+#ifdef ENABLE_AERIAL
+    total_size += sizeof(crc->rapid);
+    total_size += sizeof(int16_t); // ul_sinr_metric
+    total_size += sizeof(crc->timing_advance);
+    total_size += sizeof(crc->timing_advance_ns);
+    total_size += sizeof(crc->rssi);
+    total_size += sizeof(crc->rsrp);
+#else
     total_size += sizeof(crc->ul_cqi);
     total_size += sizeof(crc->timing_advance);
     total_size += sizeof(crc->rssi);
+#endif
   }
   return total_size;
 }
@@ -1553,6 +1626,10 @@ void copy_uci_indication_PUSCH(const nfapi_nr_uci_pusch_pdu_t *src, nfapi_nr_uci
   dst->ul_cqi = src->ul_cqi;
   dst->timing_advance = src->timing_advance;
   dst->rssi = src->rssi;
+#ifdef ENABLE_AERIAL
+  dst->timing_advance_ns = src->timing_advance_ns;
+  dst->rsrp = src->rsrp;
+#endif
 
   // Bit 0 not used in PUSCH PDU
   // HARQ
@@ -1578,6 +1655,10 @@ void copy_uci_indication_PUCCH_0_1(const nfapi_nr_uci_pucch_pdu_format_0_1_t *sr
   dst->ul_cqi = src->ul_cqi;
   dst->timing_advance = src->timing_advance;
   dst->rssi = src->rssi;
+#ifdef ENABLE_AERIAL
+  dst->timing_advance_ns = src->timing_advance_ns;
+  dst->rsrp = src->rsrp;
+#endif
 
   // SR
   if (dst->pduBitmap & 0x01) {
@@ -1598,6 +1679,10 @@ void copy_uci_indication_PUCCH_2_3_4(const nfapi_nr_uci_pucch_pdu_format_2_3_4_t
   dst->ul_cqi = src->ul_cqi;
   dst->timing_advance = src->timing_advance;
   dst->rssi = src->rssi;
+#ifdef ENABLE_AERIAL
+  dst->timing_advance_ns = src->timing_advance_ns;
+  dst->rsrp = src->rsrp;
+#endif
   // SR
   if (dst->pduBitmap & 0x01) {
     copy_uci_indication_sr_pdu_2_3_4(&src->sr, &dst->sr);
@@ -2463,6 +2548,9 @@ void dump_tx_data_request(const nfapi_nr_tx_data_request_t *msg)
     const nfapi_nr_pdu_t *pdu = &msg->pdu_list[i];
     INDENTED_PRINTF("PDU Length = 0x%02x\n", pdu->PDU_length);
     INDENTED_PRINTF("PDU Index = 0x%02x\n", pdu->PDU_index);
+#ifdef ENABLE_AERIAL
+    INDENTED_PRINTF("CW Index = 0x%02x\n", pdu->cw_index);
+#endif
     INDENTED_PRINTF("numTLV = 0x%02x\n", pdu->num_TLV);
     for (int tlv_idx = 0; tlv_idx < pdu->num_TLV; tlv_idx++) {
       const nfapi_nr_tx_data_request_tlv_t *tlv = &pdu->TLVs[tlv_idx];
@@ -2479,6 +2567,9 @@ void dump_rx_data_indication(const nfapi_nr_rx_data_indication_t *msg)
   depth++;
   INDENTED_PRINTF("SFN = %d\n", msg->sfn);
   INDENTED_PRINTF("Slot = %d\n", msg->slot);
+#ifdef ENABLE_AERIAL
+  INDENTED_PRINTF("Control Length = %d\n", msg->control_length);
+#endif
   INDENTED_PRINTF("Number of PDUs = %d\n", msg->number_of_pdus);
   for (int pdu_idx = 0; pdu_idx < msg->number_of_pdus; pdu_idx++) {
     depth++;
@@ -2486,8 +2577,14 @@ void dump_rx_data_indication(const nfapi_nr_rx_data_indication_t *msg)
     const nfapi_nr_rx_data_pdu_t *pdu = &msg->pdu_list[pdu_idx];
     INDENTED_PRINTF("Handle = 0x%02x\n", pdu->handle);
     INDENTED_PRINTF("RNTI = 0x%02x\n", pdu->rnti);
+#ifdef ENABLE_AERIAL
+    INDENTED_PRINTF("RAPID = 0x%02x\n", pdu->rapid);
+#endif
     INDENTED_PRINTF("HarqID = 0x%02x\n", pdu->harq_id);
     INDENTED_PRINTF("PDU Length = 0x%02x\n", pdu->pdu_length);
+#ifdef ENABLE_AERIAL
+    INDENTED_PRINTF("PDU Tag = 0x%02x\n", pdu->pdu_tag);
+#endif
     INDENTED_PRINTF("UL_CQI = 0x%02x\n", pdu->ul_cqi);
     INDENTED_PRINTF("Timing advance = 0x%02x\n", pdu->timing_advance);
     INDENTED_PRINTF("RSSI = 0x%02x\n", pdu->rssi);
@@ -2526,6 +2623,11 @@ void dump_crc_indication(const nfapi_nr_crc_indication_t *msg)
     INDENTED_PRINTF("UL_CQI = 0x%02x\n", crc->ul_cqi);
     INDENTED_PRINTF("Timing advance = 0x%02x\n", crc->timing_advance);
     INDENTED_PRINTF("RSSI = 0x%02x\n", crc->rssi);
+#ifdef ENABLE_AERIAL
+    INDENTED_PRINTF("RAPID = 0x%02x\n", crc->rapid);
+    INDENTED_PRINTF("Timing advance ns = %d\n", crc->timing_advance_ns);
+    INDENTED_PRINTF("RSRP = 0x%02x\n", crc->rsrp);
+#endif
     depth--;
   }
 }
@@ -2571,6 +2673,10 @@ static void dump_uci_PUSCH_PDU(const nfapi_nr_uci_pusch_pdu_t *pdu, int depth)
   INDENTED_PRINTF("UL_CQI = 0x%02x\n", pdu->ul_cqi);
   INDENTED_PRINTF("Timing Advance = 0x%02x\n", pdu->timing_advance);
   INDENTED_PRINTF("RSSI = 0x%02x\n", pdu->rssi);
+#ifdef ENABLE_AERIAL
+  INDENTED_PRINTF("Timing advance ns = %d\n", pdu->timing_advance_ns);
+  INDENTED_PRINTF("RSRP = 0x%02x\n", pdu->rsrp);
+#endif
   // HARQ payload, CSI Part 1 and 2 are conditionally allocated
   if ((pdu->pduBitmap >> 1) & 0x01) {
     INDENTED_PRINTF("HARQ Information\n");
@@ -2611,6 +2717,10 @@ static void dump_uci_PUCCH_0_1(const nfapi_nr_uci_pucch_pdu_format_0_1_t *pdu, i
   INDENTED_PRINTF("UL_CQI = 0x%02x\n", pdu->ul_cqi);
   INDENTED_PRINTF("Timing Advance = 0x%02x\n", pdu->timing_advance);
   INDENTED_PRINTF("RSSI = 0x%02x\n", pdu->rssi);
+#ifdef ENABLE_AERIAL
+  INDENTED_PRINTF("Timing advance ns = %d\n", pdu->timing_advance_ns);
+  INDENTED_PRINTF("RSRP = 0x%02x\n", pdu->rsrp);
+#endif
   if ((pdu->pduBitmap) & 0x01) {
     INDENTED_PRINTF("SR Information\n");
     dump_sr_0_1(&pdu->sr, depth + 1);
@@ -2640,6 +2750,10 @@ static void dump_uci_PUCCH_2_3_4(const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *pd
   INDENTED_PRINTF("UL_CQI = 0x%02x\n", pdu->ul_cqi);
   INDENTED_PRINTF("Timing Advance = 0x%02x\n", pdu->timing_advance);
   INDENTED_PRINTF("RSSI = 0x%02x\n", pdu->rssi);
+#ifdef ENABLE_AERIAL
+  INDENTED_PRINTF("Timing advance ns = %d\n", pdu->timing_advance_ns);
+  INDENTED_PRINTF("RSRP = 0x%02x\n", pdu->rsrp);
+#endif
   // SR
   if (pdu->pduBitmap & 0x01) {
     dump_sr_2_3_4(&pdu->sr, depth + 1);
