@@ -15,6 +15,7 @@
 #include "e1ap_interface_management.h"
 #include "e1ap_lib_includes.h"
 #include "common/utils/assertions.h"
+#include "openair1/SIMULATION/TOOLS/sim.h"
 
 void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
 {
@@ -625,6 +626,8 @@ static void test_bearer_context_modification_request(void)
   e1ap_bearer_mod_req_t orig = {
       .gNB_cu_cp_ue_id = 0x1234,
       .gNB_cu_up_ue_id = 0x5678,
+      .ueDlAggMaxBitRate = malloc_or_fail(sizeof(*orig.ueDlAggMaxBitRate)),
+      .ueDlMaxIPBitRate = malloc_or_fail(sizeof(*orig.ueDlMaxIPBitRate)),
       .bearerContextStatus = malloc_or_fail(sizeof(*orig.bearerContextStatus)),
       .inactivityTimer = malloc_or_fail(sizeof(*orig.inactivityTimer)),
       .numPDUSessions = 2,
@@ -642,6 +645,9 @@ static void test_bearer_context_modification_request(void)
   orig.pduSessionRem[1] = pdu_session_to_remove_2;
   *orig.bearerContextStatus = BEARER_SUSPEND;
   *orig.inactivityTimer = 1000;
+
+  *orig.ueDlAggMaxBitRate = uniformrandom() * (NR_MAX_BIT_RATE + 1);
+  *orig.ueDlMaxIPBitRate = uniformrandom() * (NR_MAX_BIT_RATE + 1);
 
   // Encode the original message
   E1AP_E1AP_PDU_t *enc = encode_E1_bearer_context_mod_request(&orig);
@@ -998,6 +1004,7 @@ static void test_bearer_context_modification_confirm(void)
 
 int main()
 {
+  randominit();
   // E1 Bearer Context Setup
   test_bearer_context_setup_request();
   test_bearer_context_setup_response();
