@@ -80,6 +80,11 @@ ShmTDIQChannel *shm_td_iq_channel_create(const char *name, int num_tx_ant, int n
 
   ret = pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED);
   AssertFatal(ret == 0, "pthread_mutexattr_setpshared() failed: errno %d, %s\n", errno, strerror(errno));
+  /* nr-ue locks this mutex from its vrtsim read. A non-robust mutex stays locked if that
+   * process dies in the critical section, and the O-RU timing thread then never publishes
+   * another sample, so the south reader sends no further UL U-plane. */
+  ret = pthread_mutexattr_setrobust(&mutex_attr, PTHREAD_MUTEX_ROBUST);
+  AssertFatal(ret == 0, "pthread_mutexattr_setrobust() failed: errno %d, %s\n", errno, strerror(errno));
 
   ret = pthread_condattr_setpshared(&cond_attr, PTHREAD_PROCESS_SHARED);
   AssertFatal(ret == 0, "pthread_condattr_setpshared() failed: errno %d, %s\n", errno, strerror(errno));
@@ -160,6 +165,25 @@ ShmTDIQChannel *shm_td_iq_channel_connect(const char *name, int timeout_in_secon
   return channel;
 }
 
+/* EOWNERDEAD means the peer exited while holding the clock mutex. Mark it consistent and
+ * return success: the caller still holds the lock, and dropping it would leave the next
+ * locker with ENOTRECOVERABLE. */
+static int shm_mutex_status(int ret, pthread_mutex_t *mutex)
+{
+  if (ret != EOWNERDEAD)
+    return ret;
+  int consistent = pthread_mutex_consistent(mutex);
+  AssertFatal(consistent == 0, "pthread_mutex_consistent() failed: %d %s\n", consistent, strerror(consistent));
+  fprintf(stderr, "shm_td_iq_channel: recovered clock mutex after peer exit\n");
+  return 0;
+}
+
+static void shm_mutex_lock(pthread_mutex_t *mutex)
+{
+  int ret = shm_mutex_status(pthread_mutex_lock(mutex), mutex);
+  AssertFatal(ret == 0, "pthread_mutex_lock() failed: %d %s\n", ret, strerror(ret));
+}
+
 IQChannelErrorType shm_td_iq_channel_tx(ShmTDIQChannel *channel,
                                         uint64_t timestamp,
                                         uint64_t num_samples,
@@ -230,7 +254,7 @@ IQChannelErrorType shm_td_iq_channel_rx(ShmTDIQChannel *channel,
 void shm_td_iq_channel_produce_samples(ShmTDIQChannel *channel, size_t num_samples)
 {
   ShmTDIQChannelData *data = channel->data;
-  mutexlock(data->mutex);
+  shm_mutex_lock(&data->mutex);
   data->timestamp += num_samples;
   condbroadcast(data->cond);
   mutexunlock(data->mutex);
@@ -244,9 +268,10 @@ int shm_td_iq_channel_wait(ShmTDIQChannel *channel, uint64_t timestamp, uint64_t
     return 0;
   }
   if (timeout_uS == 0) {
-    mutexlock(data->mutex);
+    shm_mutex_lock(&data->mutex);
     while (current_timestamp < timestamp && !channel->abort) {
-      condwait(data->cond, data->mutex);
+      int ret = shm_mutex_status(pthread_cond_wait(&data->cond, &data->mutex), &data->mutex);
+      AssertFatal(ret == 0, "pthread_cond_wait() failed: %d %s\n", ret, strerror(ret));
       current_timestamp = data->timestamp;
     }
     mutexunlock(data->mutex);
@@ -260,20 +285,20 @@ int shm_td_iq_channel_wait(ShmTDIQChannel *channel, uint64_t timestamp, uint64_t
     ts.tv_sec += timeout_uS / 1000000; // Convert microseconds to seconds
     ts.tv_nsec += (timeout_uS % 1000000) * 1000; // Convert remaining microseconds to nanoseconds
 
-    mutexlock(data->mutex);
+    shm_mutex_lock(&data->mutex);
     while (current_timestamp < timestamp && !channel->abort) {
-      int ret = pthread_cond_timedwait(&data->cond, &data->mutex, &ts);
+      int ret = shm_mutex_status(pthread_cond_timedwait(&data->cond, &data->mutex, &ts), &data->mutex);
       if (ret == ETIMEDOUT) {
         fprintf(stderr, "Error: Timed out waiting for samples.\n");
         mutexunlock(data->mutex);
         return 1;
-      } else if (ret != 0) {
+      }
+      if (ret != 0) {
         fprintf(stderr, "Error: pthread_cond_timedwait failed: %s\n", strerror(ret));
         mutexunlock(data->mutex);
         return 1;
-      } else {
-        current_timestamp = data->timestamp;
       }
+      current_timestamp = data->timestamp;
     }
     mutexunlock(data->mutex);
   }
@@ -289,7 +314,7 @@ uint64_t shm_td_iq_channel_get_current_sample(const ShmTDIQChannel *channel)
 void shm_td_iq_channel_abort(ShmTDIQChannel *channel)
 {
   ShmTDIQChannelData *data = channel->data;
-  mutexlock(data->mutex);
+  shm_mutex_lock(&data->mutex);
   channel->abort = true;
   condbroadcast(data->cond);
   mutexunlock(data->mutex);
