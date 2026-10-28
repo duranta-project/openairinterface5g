@@ -1235,6 +1235,8 @@ static void rfsimulator_read_internal(rfsimulator_state_t *t,
         }
 
         for (int aarx = 0; aarx < nbAnt; aarx++) {
+          for (auto &b : ant_buffers)
+            std::fill(b.begin(), b.end(), c16_t{0, 0});
           combine_received_beams(t,
                                  ptr->received_packets,
                                  timestamp - channel_offset - (channel_length - 1),
