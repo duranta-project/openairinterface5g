@@ -773,8 +773,6 @@ e1ap_bearer_setup_req_t cp_bearer_context_setup_request(const e1ap_bearer_setup_
   cp.anl = msg->anl;
   cp.bearerContextStatus = msg->bearerContextStatus;
   cp.numPDUSessions = msg->numPDUSessions;
-  strncpy(cp.secInfo.encryptionKey, msg->secInfo.encryptionKey, sizeof(cp.secInfo.encryptionKey));
-  strncpy(cp.secInfo.integrityProtectionKey, msg->secInfo.integrityProtectionKey, sizeof(cp.secInfo.integrityProtectionKey));
   // Allocate and copy PDU Sessions array
   if (msg->numPDUSessions > 0 && msg->pduSession != NULL) {
     cp.pduSession = calloc_or_fail(msg->numPDUSessions, sizeof(*cp.pduSession));
@@ -803,9 +801,11 @@ bool eq_bearer_context_setup_request(const e1ap_bearer_setup_req_t *a, const e1a
   _EQ_CHECK_INT(a->servingPLMNid.mcc, b->servingPLMNid.mcc);
   _EQ_CHECK_INT(a->servingPLMNid.mnc, b->servingPLMNid.mnc);
   _EQ_CHECK_INT(a->servingPLMNid.mnc_digit_length, b->servingPLMNid.mnc_digit_length);
-  // Security Keys
-  _EQ_CHECK_STR(a->secInfo.encryptionKey, b->secInfo.encryptionKey);
-  _EQ_CHECK_STR(a->secInfo.integrityProtectionKey, b->secInfo.integrityProtectionKey);
+  // Security Keys (binary, not NUL-terminated)
+  if (memcmp(a->secInfo.encryptionKey, b->secInfo.encryptionKey, E1AP_SECURITY_KEY_SIZE) != 0)
+    return false;
+  if (memcmp(a->secInfo.integrityProtectionKey, b->secInfo.integrityProtectionKey, E1AP_SECURITY_KEY_SIZE) != 0)
+    return false;
   // PDU Sessions
   _EQ_CHECK_INT(a->numPDUSessions, b->numPDUSessions);
   _EQ_CHECK_OPTIONAL_PTR(a, b, pduSession);
@@ -2135,8 +2135,10 @@ bool eq_bearer_context_mod_request(const e1ap_bearer_mod_req_t *a, const e1ap_be
   if (a->secInfo && b->secInfo) {
     _EQ_CHECK_LONG(a->secInfo->cipheringAlgorithm, b->secInfo->cipheringAlgorithm);
     _EQ_CHECK_LONG(a->secInfo->integrityProtectionAlgorithm, b->secInfo->integrityProtectionAlgorithm);
-    _EQ_CHECK_STR(a->secInfo->encryptionKey, b->secInfo->encryptionKey);
-    _EQ_CHECK_STR(a->secInfo->integrityProtectionKey, b->secInfo->integrityProtectionKey);
+    if (memcmp(a->secInfo->encryptionKey, b->secInfo->encryptionKey, E1AP_SECURITY_KEY_SIZE) != 0)
+      return false;
+    if (memcmp(a->secInfo->integrityProtectionKey, b->secInfo->integrityProtectionKey, E1AP_SECURITY_KEY_SIZE) != 0)
+      return false;
   }
   // Bit Rates (O)
   _EQ_CHECK_OPTIONAL_IE(a, b, ueDlAggMaxBitRate, _EQ_CHECK_UINT64);

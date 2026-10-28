@@ -210,6 +210,9 @@ static void test_bearer_context_setup_request(void)
   orig.pduSession[1].DRBnGRanList[0].qosFlows[0] = qos2;
   memset(orig.secInfo.encryptionKey, 0xAB, sizeof(orig.secInfo.encryptionKey));
   memset(orig.secInfo.integrityProtectionKey, 0xCD, sizeof(orig.secInfo.integrityProtectionKey));
+  // keys are binary: a 0x00 byte must survive the copy and be compared
+  orig.secInfo.encryptionKey[3] = 0x00;
+  orig.secInfo.integrityProtectionKey[7] = 0x00;
   // E1AP encode the original message
   E1AP_E1AP_PDU_t *enc = encode_E1_bearer_context_setup_request(&orig);
   // E1AP decode the encoded message
