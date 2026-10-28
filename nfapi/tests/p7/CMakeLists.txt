@@ -10,6 +10,7 @@ foreach (fapi_p7_message IN LISTS _fapi_p7_no_aerial_messages)
     add_nr_fapi_test(nr_fapi_${fapi_p7_message} nr_fapi_p7 "${Test_Labels}" NO_AERIAL)
 endforeach ()
 add_nr_fapi_test(nr_fapi_p7_phy_id nr_fapi_p7 "${Test_Labels}")
+add_nr_fapi_test(nr_fapi_aerial_tti_header nr_fapi_p7 "${Test_Labels}" AERIAL_ONLY)
 
 add_executable(nr_fapi_p7_bounds_test nr_fapi_p7_bounds_test.c)
 target_link_libraries(nr_fapi_p7_bounds_test PUBLIC nr_fapi_p7)

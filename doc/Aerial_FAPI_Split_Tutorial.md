@@ -22,6 +22,9 @@ The hardware on which we have tried this tutorial:
 - Starting from tag
   [2025.w13](https://github.com/duranta-project/openairinterface5g/releases/tag/2025.w13)
   of OAI, we are only testing with the Grace Hopper server.
+- OAI needs cuBB (Aerial SDK) **26-2 or later, built with FAPI 10.04**
+  (`SCF_FAPI_10_04`), see [Prepare the L1](#prepare-the-l1). The gNB stops at
+  start-up when it attaches to an older cuBB (nvIPC version below 26.1.0).
 
 PTP enabled switches and grandmaster clock we have tested with:
 
@@ -166,16 +169,18 @@ WantedBy=multi-user.target
 
 - Follow these
   [instructions](https://github.com/NVIDIA/aerial-cuda-accelerated-ran) to
-  clone the `aerial-cuda-accelerated-ran` repository, pull cuBB image.
--  The CMake flags we use to build the SDK are:
-  - `-DSCF_FAPI_10_04_SRS=ON` this flag must be used as of OAI tag `2025.w36`
-    and this is due to the usage of the FAPI 10.04 version of the SRS PDU, and
-    RX_Beamforming PDU.
-  - `-DENABLE_CONFORMANCE_TM_PDSCH_PDCCH=OFF` this option should only be
-    enabled when doing conformance testing with testmac.
+  clone the `aerial-cuda-accelerated-ran` repository (release 26-2 or later)
+  and pull the cuBB image.
+- Build the SDK with the `10_04` preset. It sets `-DSCF_FAPI_10_04=ON`, which
+  also enables the FAPI 10.04 SRS PDU and SRS.indication. OAI speaks cuBB's
+  FAPI 10.04 dialect only: a cuBB built with `--preset 10_02` or
+  `--preset 10_02_SRS_10_04` uses a different message layout and does not
+  work with OAI.
+- Keep `-DENABLE_CONFORMANCE_TM_PDSCH_PDCCH=OFF` (the default of this preset);
+  it should only be enabled when doing conformance testing with testmac.
 
 ```bash
-./testBenches/phase4_test_scripts/build_aerial_sdk.sh --preset 10_02 -- -DSCF_FAPI_10_04_SRS=ON -DENABLE_CONFORMANCE_TM_PDSCH_PDCCH=OFF
+./testBenches/phase4_test_scripts/build_aerial_sdk.sh --preset 10_04 -- -DENABLE_CONFORMANCE_TM_PDSCH_PDCCH=OFF
 ```
 
 ## Build OAI gNB
@@ -194,6 +199,11 @@ nvIPC, and is developed by NVIDIA. In order to achieve this communication, we
 need to obtain the nvIPC source files from the L1 container (cuBB) and place it
 in the gNB project directory `~/openairinterface5g`. This allows us to build
 and install this library when building the L2 docker image.
+
+The nvIPC sources must come from the same cuBB release you run: nvIPC refuses
+to connect when the gNB's library version differs from cuBB's (`NVIPC lib
+version doesn't match`). Re-pack and rebuild the gNB image whenever you change
+the cuBB release.
 
 ```bash
 # Start interactive development container
