@@ -200,6 +200,7 @@ void nr_csi_meas_reporting(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t fra
 
 void nr_measgap_scheduling(gNB_MAC_INST *nr_mac, const nr_cell_sched_t *cell, frame_t frame, sub_frame_t slot);
 
+bool nr_mac_pucch_uci_in_slot(const nr_cell_sched_t *cell, const NR_UE_info_t *UE, frame_t frame, slot_t slot);
 int nr_acknack_scheduling(nr_cell_sched_t *cell,
                           NR_UE_info_t *UE,
                           frame_t frameP,

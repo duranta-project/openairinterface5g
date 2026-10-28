@@ -2761,6 +2761,9 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     if (!nr_mac_ue_is_active(UE))
       continue;
+    // its HARQ-ACK or CSI would go on the PUSCH (see nr_mac_pucch_uci_in_slot())
+    if (nr_mac_pucch_uci_in_slot(cell, UE, sched_frame, sched_slot))
+      continue;
 
     LOG_D(NR_MAC, "collect_ul_candidates: preparing UL scheduling for UE %04x\n", UE->rnti);
     NR_UE_UL_BWP_t *current_BWP = &UE->current_UL_BWP;
