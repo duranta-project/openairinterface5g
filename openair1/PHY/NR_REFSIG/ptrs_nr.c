@@ -211,14 +211,15 @@ static cd_t estimate_ptrs_symbol_phase(const c16_t *rxdataF,
                                        const ptrs_proc_t *p)
 {
   const uint32_t *gold_seq = nr_gold_pdsch(p->N_RB, p->symbols_per_slot, p->nid, p->nscid, p->slot, symbol);
-  return get_ptrs_phase_diff(rxdataF + symbol * p->ofdm_symbol_size,
-                             chest + dmrs_idx * p->ofdm_symbol_size,
-                             gold_seq,
-                             p->k_ptrs,
-                             k_rb_ref,
-                             p->k_re_ref,
-                             p->start_rb,
-                             p->num_rb);
+  return get_ptrs_phase_diff(
+      rxdataF + symbol * p->ofdm_symbol_size,
+      chest + (p->chest_per_dmrs ? get_dmrs_row(p->dmrs_symb_pos, dmrs_idx) : dmrs_idx) * p->ofdm_symbol_size,
+      gold_seq,
+      p->k_ptrs,
+      k_rb_ref,
+      p->k_re_ref,
+      p->start_rb,
+      p->num_rb);
 }
 
 static double get_interpolate_step_phase(cd_t start_vector, cd_t end_vector, uint dist)
