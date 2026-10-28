@@ -407,7 +407,8 @@ void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSE
       harq_list[j][i].c = gpuHostAlloc_or_fail(a_segments * sizeof(uint8_t *) * 1056, gpuHostAllocMapped);
       harq_list[j][i].cdev = gpuHostGetDevicePointer_or_fail(harq_list[j][i].c);
 #endif
-      harq_list[j][i].d = malloc16(a_segments * sizeof(*harq_list[j][i].d) * 3 * 8448);
+      // segment r of d starts at r * Kc * Z (nrLDPC_coding_segment_decoder.c): Kc * Z is at most 68 * 384 (BG1)
+      harq_list[j][i].d = malloc16(a_segments * sizeof(*harq_list[j][i].d) * 68 * 384);
       init_abort(&harq_list[j][i].abort_decode);
       harq_list[j][i].status  = 0;
       harq_list[j][i].DLround = 0;
