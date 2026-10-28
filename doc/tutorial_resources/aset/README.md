@@ -40,6 +40,7 @@ baseline **SCF 222.10.02**:
 - Compose makes `gnb-aerial` join the `nv-cubb` IPC namespace with
   `ipc: container:nv-cubb`. Aerial loads
   `conf/l2_adapter_config_P5G_GH.yaml`, whose `msg_type` is `scf_5g_fapi`.
+  The DGX Spark overlay loads `conf/l2_adapter_config_P5G_DGX.yaml` instead.
 
 See [`../../Aerial_FAPI_Split_Tutorial.md`](../../Aerial_FAPI_Split_Tutorial.md)
 and [`../../nfapi.md`](../../nfapi.md) for the FAPI message flow and OAI split
@@ -54,6 +55,7 @@ details.
 | `docker-compose.yml` | OAI RAN stack: O-RU + gNB + UE + remote CIR taps (+ build stages) |
 | `docker-compose.aerial.yml` | Aerial cuPHY L1 overlay (`include:` base) |
 | `docker-compose.dgx-spark.yml` | Spark CPU/config overlay for the OAI RAN stack |
+| `docker-compose.aerial.dgx-spark.yml` | Spark CPU/config overlay for Aerial cuPHY |
 | `conf/` | gNB / O-RU / UE / Aerial L1 configs. gNB cell block is shared in `gnb.sa.band78.gh200.common.conf`; L1 wrappers `@include` it. Compose binds the wrapper to `/opt/oai-gnb/etc/gnb.conf` and the common file beside it (stock entrypoint path). |
 | `taps/static/` | Static taps image (`publish_taps.py --source static`) |
 | `taps/common/` | Shared `publish_taps.py`, FlatBuffers schema, `set-gain` |
@@ -174,7 +176,8 @@ interfaces:
 Use one function of the selected port for all fronthaul VFs. The default is
 `aerial00`; `aerial02` is the same port and must be left unused. Because port 1
 occupies function `.1`, the five VFs are `0000:01:00.2`–`.3` for the OAI DU, `.4`–`.5` for the O-RU, and `.6` for Aerial.
-The Spark overlay keeps CPU IDs in `0-19`.
+The Spark overlays also keep CPU IDs in `0-19` and build Aerial for GB10
+`sm_121`.
 
 ```bash
 pushd doc/tutorial_resources/aset
@@ -182,6 +185,9 @@ sudo ./setup_ru_ifs-dgx-spark.sh
 
 # OAI built-in L1
 docker compose -f docker-compose.dgx-spark.yml up --build
+
+# NVIDIA Aerial cuPHY L1
+docker compose -f docker-compose.aerial.dgx-spark.yml up --build
 popd
 ```
 
