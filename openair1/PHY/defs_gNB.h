@@ -225,6 +225,8 @@ typedef struct {
 } NR_gNB_COMMON;
 
 typedef struct NR_gNB_PUSCH_s {
+  /// The channel estimates, the compensated signal, log2_maxh and ul_valid_re_per_slot are only used by the sidelink receiver
+  /// of the UE, where the PSSCH reuses this structure: the gNB keeps them local to nr_rx_pusch_group_tp() and never allocates them
   /// \brief Hold the channel estimates in frequency domain based on DRS.
   /// - first index: rx antenna id [0..nb_antennas_rx[
   /// - second index: ? [0..12*N_RB_UL*frame_parms->symbols_per_tti[
@@ -235,6 +237,9 @@ typedef struct NR_gNB_PUSCH_s {
   c16_t **rxdataF_comp;
   /// \f$\log_2(\max|H_i|^2)\f$
   int16_t log2_maxh;
+  /// \brief Total RE count after DMRS/PTRS RE's are extracted from respective symbol.
+  /// - first index: ? [0...14] smybol per slot
+  int16_t *ul_valid_re_per_slot;
   /// measured RX power based on DRS
   uint32_t ulsch_power[8];
   /// total signal over antennas
@@ -253,11 +258,6 @@ typedef struct NR_gNB_PUSCH_s {
   int16_t *ack_llrs;
   int16_t *csi1_llrs;
   int16_t *csi2_llrs;
-  /// \brief Total RE count after DMRS/PTRS RE's are extracted from respective symbol.
-  /// - first index: ? [0...14] smybol per slot
-  int16_t *ul_valid_re_per_slot;
-  /// \brief offset for llr corresponding to each symbol
-  int llr_offset[14];
   /// flag to indicate DTX on reception
   int DTX;
   /// delay estimation
