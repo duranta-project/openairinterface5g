@@ -66,14 +66,15 @@ int decode_pdu_session_ie(uint8_t *psi, const byte_array_t *buffer)
   int decoded = 0;
   uint8_t *buf = buffer->buf;
 
-  if (buffer->len < MIN_PDU_SESSION_CONTENTS_LEN + 2) {
+  if (buffer->len < MIN_PDU_SESSION_CONTENTS_LEN + 1) {
     PRINT_ERROR("%s failed: buffer length is too small", __func__);
     return -1;
   }
 
   // start decoding from length IE (IEI is decoded in the caller)
   uint8_t pdu_session_status_len = buf[decoded++];
-  if (pdu_session_status_len > MAX_PDU_SESSION_CONTENTS_LEN) {
+  if (pdu_session_status_len < MIN_PDU_SESSION_CONTENTS_LEN || pdu_session_status_len > MAX_PDU_SESSION_CONTENTS_LEN
+      || pdu_session_status_len > buffer->len - 1) {
     PRINT_ERROR("decoded length is out of bound for PDU Session Status/Reactivation result\n");
     return -1;
   }
@@ -93,7 +94,8 @@ int decode_pdu_session_ie(uint8_t *psi, const byte_array_t *buffer)
   }
   decoded++;
 
-  return decoded;
+  // Consume the declared contents, including any spare extension octets.
+  return 1 + pdu_session_status_len;
 }
 
 /* Encode GPRS Timer IE (3GPP TS 24.008 10.5.7.3) */
