@@ -377,9 +377,11 @@ void nr_ue_slot_indication(uint8_t mod_id, bool is_tx)
   NR_UE_MAC_INST_t *mac = get_mac_inst(mod_id);
   int ret = pthread_mutex_lock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
-  if (is_tx)
+  if (is_tx) {
     update_mac_ul_timers(mac);
-  else
+    if (!get_softmodem_params()->sl_mode)
+      nr_ue_forward_ta_command(mac);
+  } else
     update_mac_dl_timers(mac);
   ret = pthread_mutex_unlock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);

@@ -100,6 +100,7 @@ void release_mac_configuration(NR_UE_MAC_INST_t *mac,
    \param ul_info     UL indication*/
 void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info);
 void nr_ue_dl_scheduler(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info);
+void nr_ue_forward_ta_command(NR_UE_MAC_INST_t *mac);
 
 nfapi_nr_ue_csi_payload_t nr_ue_aperiodic_csi_reporting(NR_UE_MAC_INST_t *mac, dci_field_t csi_request, int tda, long *K2);
 

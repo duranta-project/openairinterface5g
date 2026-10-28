@@ -367,6 +367,8 @@ typedef struct {
 
   /// Random-access Contention Resolution Timer
   NR_timer_t contention_resolution_timer;
+  /// This contention-based attempt started timeAlignmentTimer when accepting its RAR.
+  bool time_alignment_timer_started;
   /// Transmitted UE Contention Resolution Identifier
   uint8_t cont_res_id[6];
 

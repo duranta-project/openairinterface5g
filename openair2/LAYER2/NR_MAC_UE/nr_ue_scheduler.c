@@ -130,6 +130,7 @@ static void flush_harq_buffers(NR_UE_MAC_INST_t *mac)
 
 void handle_time_alignment_timer_expired(NR_UE_MAC_INST_t *mac)
 {
+  mac->ra.time_alignment_timer_started = false;
   // flush all HARQ buffers for all Serving Cells
   flush_harq_buffers(mac);
   // release PUCCH for all Serving Cells;
@@ -1139,6 +1140,26 @@ static void schedule_ta_command(fapi_nr_dl_config_request_t *dl_config, NR_UE_MA
   ul_time_alignment->ta_apply = no_ta;
 }
 
+void nr_ue_forward_ta_command(NR_UE_MAC_INST_t *mac)
+{
+  if (mac->ul_time_alignment.ta_apply != rar_ta || mac->state == UE_NOT_SYNC || mac->state == UE_NOT_SYNC_RECONF
+      || mac->state == UE_DETACHING)
+    return;
+
+  if (!mac->if_module || !mac->if_module->scheduled_response) {
+    LOG_E(NR_MAC, "Internal error, no scheduled_response function\n");
+    return;
+  }
+
+  fapi_nr_dl_config_request_t dl_config;
+  dl_config.sfn = mac->ul_time_alignment.frame;
+  dl_config.slot = mac->ul_time_alignment.slot;
+  dl_config.number_pdus = 0;
+  schedule_ta_command(&dl_config, mac);
+  nr_scheduled_response_t scheduled_response = {.dl_config = &dl_config, .module_id = mac->ue_id, .mac = mac};
+  mac->if_module->scheduled_response(&scheduled_response);
+}
+
 static NR_CSI_ResourceConfigId_t find_CSI_resourceconfig(NR_CSI_MeasConfig_t *csi_measconfig,
                                                          NR_BWP_Id_t dl_bwp_id,
                                                          NR_NZP_CSI_RS_ResourceId_t csi_id,
@@ -1353,7 +1374,7 @@ void nr_ue_dl_scheduler(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info
 
   ue_dci_configuration(mac, dl_config, rx_frame, rx_slot);
 
-  if (mac->ul_time_alignment.ta_apply != no_ta)
+  if (mac->ul_time_alignment.ta_apply == adjustment_ta)
     schedule_ta_command(dl_config, mac);
 
   nr_scheduled_response_t scheduled_response = {.dl_config = dl_config,

@@ -229,9 +229,10 @@ int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)
 
   // init TX buffers
   common_vars->txData = malloc16(fp->nb_antennas_tx * sizeof(c16_t *));
+  const size_t tx_buffer_samples = (size_t)fp->samples_per_frame * (ue->sl_mode == 2 ? 1 : NR_UE_TX_SLOT_BUFFER_FACTOR);
 
   for (int i = 0; i < fp->nb_antennas_tx; i++) {
-    common_vars->txData[i] = malloc16_clear((fp->samples_per_frame) * sizeof(c16_t));
+    common_vars->txData[i] = malloc16_clear(tx_buffer_samples * sizeof(c16_t));
   }
 
   // init RX buffers

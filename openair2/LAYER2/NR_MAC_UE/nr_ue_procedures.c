@@ -1165,12 +1165,10 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   uint16_t feedback_ti = 0;
 
   if (rnti_type == TYPE_RA_RNTI_) {
-    // RA-RNTI indicates RAR. Ensure we can decode RAR before the earliest UL scheduler call
-    // that can process the MSG3. Also assume that RAR is sent in the same slot as DCI (k0 == 0)
-    // This is not perfect as the MSG3 might end up being scheduled later, so we could be
-    // halting the UL scheduler for a longer time than necessary.
-    feedback_ti = max(1 + GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
-                      get_delta_for_k2(mac->current_UL_BWP->scs) + get_j_for_k2(mac->current_UL_BWP->scs));
+    // This synthetic dependency has no HARQ feedback. Decode RAR before the first TX prefix
+    // prepared from this RX slot, so even the earliest accepted Msg3 has its preceding
+    // sample boundary adjusted. As before, RAR is assumed to use k0 == 0.
+    feedback_ti = GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing);
   }
 
   if (rnti_type != TYPE_RA_RNTI_ && rnti_type != TYPE_SI_RNTI_) {
@@ -3241,7 +3239,9 @@ static void set_time_alignment(NR_UE_MAC_INST_t *mac, int ta, ta_type_t type, in
   NR_UL_TIME_ALIGNMENT_t *ul_time_alignment = &mac->ul_time_alignment;
   ul_time_alignment->ta_command = ta;
   ul_time_alignment->ta_apply = type;
-  const int ntn_ue_koffset = GET_NTN_UE_K_OFFSET(&mac->phy_config.config_req.ntn_config, mac->current_UL_BWP->scs);
+  // RAR already supplies the scheduled Msg3 slot, including the NTN K-offset.
+  const int ntn_ue_koffset =
+      type == rar_ta ? 0 : GET_NTN_UE_K_OFFSET(&mac->phy_config.config_req.ntn_config, mac->current_UL_BWP->scs);
   const int n_slots_frame = mac->frame_structure.numb_slots_frame;
   ul_time_alignment->frame = (frame + (slot + ntn_ue_koffset) / n_slots_frame) % MAX_FRAME_NUMBER;
   ul_time_alignment->slot = (slot + ntn_ue_koffset) % n_slots_frame;
@@ -3296,8 +3296,11 @@ static void handle_rar_reception(NR_UE_MAC_INST_t *mac, NR_MAC_RAR *rar, frame_t
   const int ta = rar->TA2 + (rar->TA1 << 5);
   const bool ta_timer_active = nr_timer_is_active(&mac->time_alignment_timer);
   // if the timeAlignmentTimer associated with this TAG is not running
-  if (!ta_timer_active)
+  if (!ta_timer_active) {
     set_time_alignment(mac, ta, rar_ta, frame_tx, slot_tx);
+    if (!ra->cfra)
+      ra->time_alignment_timer_started = true;
+  }
   // else ignore the received Timing Advance Command
   LOG_D(NR_MAC,
         "[UE %d] RAR %d.%d RAPID %u absolute TA %d Msg3 %d.%d k2 %ld NTN K-offset %d "
