@@ -237,28 +237,22 @@ static void NR_UL_indication(NR_UL_IND_t *UL_info)
   handle_nr_srs_toa_vendor_ext(UL_info);
 }
 
-NR_IF_Module_t *NR_IF_Module_init(int Mod_id) {
+NR_IF_Module_t *NR_IF_Module_init(int Mod_id)
+{
   AssertFatal(Mod_id<MAX_MODULES,"Asking for Module %d > %d\n",Mod_id,MAX_IF_MODULES);
   LOG_D(PHY, "Installing callbacks for IF_Module - UL_indication\n");
 
-  if (nr_if_inst[Mod_id]==NULL) {
-    nr_if_inst[Mod_id] = (NR_IF_Module_t*)malloc(sizeof(NR_IF_Module_t));
-    memset((void*)nr_if_inst[Mod_id],0,sizeof(NR_IF_Module_t));
+  if (nr_if_inst[Mod_id]==NULL)
+    nr_if_inst[Mod_id] = calloc_or_fail(1, sizeof(*nr_if_inst[Mod_id]));
 
-    LOG_D(MAC, "Allocating shared L1/L2 interface structure for instance %d @ %p\n", Mod_id, nr_if_inst[Mod_id]);
-
-    nr_if_inst[Mod_id]->CC_mask=0;
-    nr_if_inst[Mod_id]->NR_UL_indication = NR_UL_indication;
-    if (NFAPI_MODE == NFAPI_MONOLITHIC) {
-      nr_if_inst[Mod_id]->NR_slot_indication = run_scheduler_monolithic;
-    } else if (NFAPI_MODE == NFAPI_MODE_PNF) {
-      nr_if_inst[Mod_id]->NR_slot_indication = pnf_send_slot_ind;
-    } else { // NFAPI_MODE_VNF
-      DevAssert(NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL);
-      nr_if_inst[Mod_id]->NR_slot_indication = run_scheduler_monolithic;
-    }
-    AssertFatal(pthread_mutex_init(&nr_if_inst[Mod_id]->if_mutex,NULL)==0,
-                "allocation of nr_if_inst[%d]->if_mutex fails\n",Mod_id);
+  nr_if_inst[Mod_id]->NR_UL_indication = NR_UL_indication;
+  if (NFAPI_MODE == NFAPI_MONOLITHIC) {
+    nr_if_inst[Mod_id]->NR_slot_indication = run_scheduler_monolithic;
+  } else if (NFAPI_MODE == NFAPI_MODE_PNF) {
+    nr_if_inst[Mod_id]->NR_slot_indication = pnf_send_slot_ind;
+  } else { // NFAPI_MODE_VNF
+    DevAssert(NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL);
+    nr_if_inst[Mod_id]->NR_slot_indication = run_scheduler_monolithic;
   }
 
   return nr_if_inst[Mod_id];
