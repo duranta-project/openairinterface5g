@@ -3950,13 +3950,13 @@ void beam_switching_procedure(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_UE_in
 
 void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
 {
-  // releasing a UE modifies connected_ue_list, and nr_mac_trigger_release_complete() drops sched_lock:
-  // collect the UEs to release and release them by RNTI after the loop
+  // Releasing a UE compacts either UE list, and nr_mac_trigger_release_complete() drops sched_lock:
+  // collect the UEs to release and release them by RNTI after both loops
   typedef struct {
     rnti_t rnti;
     bool send_complete;
   } ue_release_t;
-  ue_release_t to_release[MAX_MOBILES_PER_GNB];
+  ue_release_t to_release[MAX_MOBILES_PER_GNB + NR_NB_RA_PROC_MAX];
   int num_release = 0;
   UE_iterator (mac->UE_info.connected_ue_list, UE) {
     if (UE->pcell != cell)
@@ -3988,6 +3988,18 @@ void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
       beam_switching_procedure(mac, cell, UE, sched_ctrl->UE_mac_ce_ctrl.tci_state_ind.tciStateId);
     }
     nr_timer_tick(&UE->sched_srs.aperiodic_sched.aperiodic_srs_timer);
+  }
+
+  // Pending access contexts can also receive a release command or exhaust Msg4 retries.
+  UE_iterator (mac->UE_info.access_ue_list, UE) {
+    if (UE->pcell != cell)
+      continue;
+    NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+    if (nr_mac_check_release(sched_ctrl)) {
+      to_release[num_release++] = (ue_release_t){.rnti = UE->rnti, .send_complete = true};
+    } else if (nr_mac_check_ul_failure(mac, UE->rnti, sched_ctrl)) {
+      to_release[num_release++] = (ue_release_t){.rnti = UE->rnti, .send_complete = false};
+    }
   }
 
   for (int i = 0; i < num_release; i++) {
