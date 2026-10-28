@@ -476,12 +476,16 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
   }
 }
 
-static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, int *ulsch_to_decode, int nb_pusch, NR_UL_IND_t *UL_INFO)
+static int nr_ulsch_procedures(PHY_VARS_gNB *gNB,
+                               int frame_rx,
+                               int slot_rx,
+                               int *ulsch_to_decode,
+                               int nb_pusch,
+                               nfapi_nr_rx_data_indication_t *rx_ind,
+                               nfapi_nr_crc_indication_t *crc_ind)
 {
   DevAssert(nb_pusch > 0);
   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
-
-  nr_uci_decoding(gNB, UL_INFO, nb_pusch, ulsch_to_decode, frame_rx, slot_rx);
 
   //----------------------------------------------------------
   //--------------------- ULSCH decoding ---------------------
@@ -528,8 +532,8 @@ static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, int
     }
 #endif
 
-    nfapi_nr_crc_t *crc = &UL_INFO->crc_ind.crc_list[UL_INFO->crc_ind.number_crcs++];
-    nfapi_nr_rx_data_pdu_t *pdu = &UL_INFO->rx_ind.pdu_list[UL_INFO->rx_ind.number_of_pdus++];
+    nfapi_nr_crc_t *crc = &crc_ind->crc_list[crc_ind->number_crcs++];
+    nfapi_nr_rx_data_pdu_t *pdu = &rx_ind->pdu_list[rx_ind->number_of_pdus++];
     if (crc_valid && !check_abort(&ulsch_harq->abort_decode) && !pusch->DTX) {
       LOG_D(NR_PHY,
             "[gNB %d] ULSCH %d: Setting ACK for SFN/SF %d.%d (rnti %x, pid %d, ndi %d, status %d, round %d, TBS %d, Max interation "
@@ -1466,7 +1470,8 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
 
   if (num_pusch > 0) {
     START_MEAS_FULL_SLOT(&gNB->ulsch_decoding_stats, slot_type, NR_UPLINK_SLOT);
-    int ret_nr_ulsch_procedures = nr_ulsch_procedures(gNB, frame_rx, slot_rx, ulsch_idx_to_decode, num_pusch, UL_INFO);
+    nr_uci_decoding(gNB, &UL_INFO->uci_ind, num_pusch, ulsch_idx_to_decode, frame_rx, slot_rx);
+    int ret_nr_ulsch_procedures = nr_ulsch_procedures(gNB, frame_rx, slot_rx, ulsch_idx_to_decode, num_pusch, &UL_INFO->rx_ind, &UL_INFO->crc_ind);
     if (ret_nr_ulsch_procedures != 0)
       LOG_E(NR_PHY, "Error in nr_ulsch_procedures, returned %d\n", ret_nr_ulsch_procedures);
     STOP_MEAS_FULL_SLOT(&gNB->ulsch_decoding_stats, slot_type, NR_UPLINK_SLOT);
