@@ -5,6 +5,7 @@
 #ifndef __LAYER2_NR_MAC_COMMON_H__
 #define __LAYER2_NR_MAC_COMMON_H__
 
+#include "nr_compute_tbs.h"
 #include "NR_MIB.h"
 #include "NR_CellGroupConfig.h"
 #include "NR_UE-NR-Capability.h"
@@ -283,15 +284,6 @@ int32_t get_l_prime(uint8_t duration_in_symbols, uint8_t mapping_type, pusch_dmr
 uint8_t get_L_ptrs(uint8_t mcs1, uint8_t mcs2, uint8_t mcs3, uint8_t I_mcs, uint8_t mcs_table);
 uint8_t get_K_ptrs(uint32_t nrb0, uint32_t nrb1, uint32_t N_RB);
 
-uint32_t nr_compute_tbs(uint16_t Qm,
-                        uint16_t R,
-			uint16_t nb_rb,
-			uint16_t nb_symb_sch,
-			uint16_t nb_dmrs_prb,
-                        uint16_t nb_rb_oh,
-                        uint8_t tb_scaling,
-			uint8_t Nl);
-
 /** \brief Computes Q based on I_MCS PDSCH and table_idx for downlink. Implements MCS Tables from 38.214. */
 uint8_t nr_get_Qm_dl(uint8_t Imcs, uint8_t table_idx);
 uint32_t nr_get_code_rate_dl(uint8_t Imcs, uint8_t table_idx);
@@ -304,10 +296,6 @@ int srs_codebook_nb_res(NR_SRS_Config_t *srs_config);
 int srs_non_codebook_nb_res(NR_SRS_Config_t *srs_config);
 int get_nr_srs_offset(NR_SRS_PeriodicityAndOffset_t periodicityAndOffset);
 void get_monitoring_period_offset(const NR_SearchSpace_t *ss, int *period, int *offset);
-
-uint32_t nr_compute_tbslbrm(uint16_t table,
-			    uint16_t nb_rb,
-		            uint8_t Nl);
 
 void get_type0_PDCCH_CSS_config_parameters(NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_CSS_config,
                                            frame_t frameP,
