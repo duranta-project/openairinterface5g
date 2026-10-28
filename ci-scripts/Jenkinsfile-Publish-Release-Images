@@ -1,0 +1,69 @@
+#!/bin/groovy
+/*
+ * SPDX-License-Identifier: LicenseRef-CSSL-1.0
+ */
+
+def nodeExecutor = params.nodeExecutor
+pipeline {
+    agent {
+        label nodeExecutor
+    }
+
+    options {
+        ansiColor('xterm')
+    }
+
+    stages {
+        stage('Publish Release Docker Images') {
+            steps {
+                script {
+                    // Get pipeline parameters
+                    def project = params.project
+                    def releaseTag = params.releaseTag
+                    def dockerHub = params.dockerHub
+                    def dockerRegistry = params.dockerRegistry
+                    def lockResource = params.lockResource
+
+                    lock(resource: lockResource) {
+                        // Resolve the release tag to the full commit SHA
+                        def repo = project.replace('https://github.com/', '').replace('.git', '')
+                        def sha = sh(script: "curl -fsSL 'https://api.github.com/repos/${repo}/commits/${releaseTag}' | jq -er '.sha'", returnStdout: true).trim()
+
+                        echo "Commit SHA: ${sha}"
+                        echo "Image tag: develop-${sha}"
+                        echo "Release tag: ${releaseTag}"
+
+                        // Images to publish
+                        def images = ['oai-enb', 'oai-gnb', 'oai-lte-ue', 'oai-nr-ue', 'oai-nr-cuup', 'oai-gnb-fhi72']
+                        def multiArchImages = ['oai-gnb', 'oai-nr-ue', 'oai-nr-cuup']
+
+                        // Authenticate with both registries
+                        withCredentials([
+                            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.DH_CREDENTIALS}", usernameVariable: 'DH_Username', passwordVariable: 'DH_Password'],
+                            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.REGISTRY_CREDENTIALS}", usernameVariable: 'REGISTRY_Username', passwordVariable: 'REGISTRY_Password']
+                        ]) {
+                            sh 'echo "$DH_Password" | docker login -u "$DH_Username" --password-stdin'
+                            sh 'echo "$REGISTRY_Password" | docker login "$dockerRegistry" -u "$REGISTRY_Username" --password-stdin'
+
+                            // Publish images with the release-derived tag
+                            images.each { img ->
+                                if (multiArchImages.contains(img)) {
+                                    sh "docker buildx imagetools create --tag '${dockerHub}/${img}:${releaseTag}' '${dockerRegistry}/${img}:armv8_develop-${sha}' '${dockerRegistry}/${img}:develop-${sha}'"
+                                } else {
+                                    sh "docker buildx imagetools create --tag '${dockerHub}/${img}:${releaseTag}' '${dockerRegistry}/${img}:develop-${sha}'"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Log out from both registries
+            sh 'docker logout "$DOCKER_REGISTRY" || true; docker logout || true'
+        }
+    }
+}
