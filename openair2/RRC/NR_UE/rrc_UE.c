@@ -1272,6 +1272,28 @@ static void handle_meas_reporting_remove(rrcPerNB_t *rrc, int id, NR_UE_Timers_C
   memset(params, 0, sizeof(*params));
 }
 
+static void nr_rrc_release_meas_config(NR_UE_RRC_INST_t *rrc)
+{
+  for (int n = 0; n < NB_CNX_UE; n++) {
+    rrcPerNB_t *nb = &rrc->perNB[n];
+    for (int id = 0; id < NR_MAX_MEAS_ID; id++) {
+      handle_meas_reporting_remove(nb, id, &rrc->timers_and_constants);
+      asn1cFreeStruc(asn_DEF_NR_MeasIdToAddMod, nb->MeasId[id]);
+    }
+    for (int id = 0; id < NR_MAX_MEAS_OBJ; id++)
+      asn1cFreeStruc(asn_DEF_NR_MeasObjectToAddMod, nb->MeasObj[id]);
+    for (int id = 0; id < NR_MAX_MEAS_CONFIG; id++)
+      asn1cFreeStruc(asn_DEF_NR_ReportConfigToAddMod, nb->ReportConfig[id]);
+    for (int id = 0; id < MAX_QUANTITY_CONFIG; id++)
+      asn1cFreeStruc(asn_DEF_NR_QuantityConfigNR, nb->QuantityConfig[id]);
+    asn1cFreeStruc(asn_DEF_NR_MeasGapConfig, nb->measGapConfig);
+    nb->s_measure = 0;
+    nb->l3_measurements = (l3_measurements_t){0};
+    nb->l3_measurements.ssb_filter_coeff_rsrp = 1.0f;
+    nb->l3_measurements.csi_RS_filter_coeff_rsrp = 1.0f;
+  }
+}
+
 static void handle_measobj_remove(rrcPerNB_t *rrc, struct NR_MeasObjectToRemoveList *remove_list, NR_UE_Timers_Constants_t *timers)
 {
   // section 5.5.2.4 in 38.331
@@ -1322,7 +1344,7 @@ static void update_nr_measobj(NR_MeasObjectNR_t *source, NR_MeasObjectNR_t *targ
   UPDATE_IE(target->nrofSS_BlocksToAverage, source->nrofSS_BlocksToAverage, long);
   UPDATE_IE(target->nrofCSI_RS_ResourcesToAverage, source->nrofCSI_RS_ResourcesToAverage, long);
   target->quantityConfigIndex = source->quantityConfigIndex;
-  target->offsetMO = source->offsetMO;
+  UPDATE_NP_IE(target->offsetMO, source->offsetMO, NR_Q_OffsetRangeList_t);
   if (source->cellsToRemoveList) {
     RELEASE_IE_FROMLIST(source->cellsToRemoveList, target->cellsToAddModList, physCellId);
   }
@@ -1420,10 +1442,10 @@ static void handle_quantityconfig(rrcPerNB_t *rrc, NR_QuantityConfig_t *quantity
       NR_QuantityConfigNR_t *quantityNR = quantityConfig->quantityConfigNR_List->list.array[i];
       if (!rrc->QuantityConfig[i])
         rrc->QuantityConfig[i] = calloc(1, sizeof(*rrc->QuantityConfig[i]));
-      rrc->QuantityConfig[i]->quantityConfigCell = quantityNR->quantityConfigCell;
+      UPDATE_NP_IE(rrc->QuantityConfig[i]->quantityConfigCell, quantityNR->quantityConfigCell, NR_QuantityConfigRS_t);
       // TODO: It remains to compute ssb_filter_coeff_rsrp and csi_RS_filter_coeff_rsrp for multiple quantityConfig
       // TS 38.331 - 5.5.3.2 Layer 3 filtering
-      NR_QuantityConfigRS_t *qcc = &quantityNR->quantityConfigCell;
+      NR_QuantityConfigRS_t *qcc = &rrc->QuantityConfig[i]->quantityConfigCell;
       l3_measurements_t *l3_measurements = &rrc->l3_measurements;
       if (qcc->ssb_FilterConfig.filterCoefficientRSRP)
         l3_measurements->ssb_filter_coeff_rsrp = 1. / pow(2, (*qcc->ssb_FilterConfig.filterCoefficientRSRP) / 4);
@@ -2356,6 +2378,9 @@ static void nr_rrc_rrcsetup_fallback(NR_UE_RRC_INST_t *rrc)
 {
   RRCLOG_W("Received RRCSetup in response to %s request\n",
            rrc->ra_trigger == RRC_CONNECTION_REESTABLISHMENT ? "RRCReestablishment" : "RRCResume");
+
+  // TS 38.331 clause 5.3.3.4: discard old dedicated measurements before setting up the new SRB1.
+  nr_rrc_release_meas_config(rrc);
 
   // discard any stored UE Inactive AS context and suspendConfig
   // TODO
