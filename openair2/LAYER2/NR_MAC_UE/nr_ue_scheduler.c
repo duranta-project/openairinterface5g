@@ -1240,7 +1240,9 @@ static void nr_schedule_csirs_reception(NR_UE_MAC_INST_t *mac, int frame, int sl
 
   for (int id = 0; id < csi_measconfig->nzp_CSI_RS_ResourceToAddModList->list.count; id++) {
     NR_NZP_CSI_RS_Resource_t *nzpcsi = csi_measconfig->nzp_CSI_RS_ResourceToAddModList->list.array[id];
-    int period, offset;
+    if (!nzpcsi || !nzpcsi->periodicityAndOffset)
+      continue;
+    int period = 0, offset = 0;
     csi_period_offset(NULL, nzpcsi->periodicityAndOffset, &period, &offset);
     if (!is_periodic_occasion(frame, slot, mac->frame_structure.numb_slots_frame, period, offset))
       continue;
@@ -1249,6 +1251,10 @@ static void nr_schedule_csirs_reception(NR_UE_MAC_INST_t *mac, int frame, int sl
     // do not schedule reseption of this CSI-RS if not associated with current BWP
     if(csi_res_id < 0)
       continue;
+    if (dl_config->number_pdus >= FAPI_NR_DL_CONFIG_LIST_NUM) {
+      LOG_E(NR_MAC, "dl_config_list full, dropping CSI-RS\n");
+      break;
+    }
     LOG_D(MAC,"Scheduling reception of CSI-RS in frame %d slot %d\n", frame, slot);
     fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu = &dl_config->dl_config_list[dl_config->number_pdus].csirs_config_pdu.csirs_config_rel15;
     csirs_config_pdu->measurement_bitmap = set_csirs_measurement_bitmap(csi_measconfig, csi_res_id);
@@ -1298,18 +1304,39 @@ static void nr_schedule_csi_for_im(NR_UE_MAC_INST_t *mac, int frame, int slot)
 
   for (int id = 0; id < csi_measconfig->csi_IM_ResourceToAddModList->list.count; id++){
     imcsi = csi_measconfig->csi_IM_ResourceToAddModList->list.array[id];
-    csi_period_offset(NULL,imcsi->periodicityAndOffset,&period,&offset);
+    if (!imcsi || !imcsi->periodicityAndOffset)
+      continue;
+    int period = 0, offset = 0;
+    csi_period_offset(NULL, imcsi->periodicityAndOffset, &period, &offset);
     if (!is_periodic_occasion(frame, slot, mac->frame_structure.numb_slots_frame, period, offset))
       continue;
+    if (dl_config->number_pdus >= FAPI_NR_DL_CONFIG_LIST_NUM) {
+      LOG_E(NR_MAC, "dl_config_list full, dropping CSI-IM\n");
+      break;
+    }
     fapi_nr_dl_config_csiim_pdu_rel15_t *csiim_config_pdu = &dl_config->dl_config_list[dl_config->number_pdus].csiim_config_pdu.csiim_config_rel15;
     csiim_config_pdu->bwp_size = bwp_size;
     csiim_config_pdu->bwp_start = bwp_start;
     csiim_config_pdu->subcarrier_spacing = mu;
-    csiim_config_pdu->start_rb = imcsi->freqBand->startingRB;
-    csiim_config_pdu->nr_of_rbs = imcsi->freqBand->nrofRBs;
+    /* TS 38.331 §6.3.2: When freqBand is absent, CSI-IM frequency band is DL BWP */
+    if (imcsi->freqBand) {
+      csiim_config_pdu->start_rb = imcsi->freqBand->startingRB;
+      csiim_config_pdu->nr_of_rbs = imcsi->freqBand->nrofRBs;
+    } else {
+      csiim_config_pdu->start_rb = 0;
+      csiim_config_pdu->nr_of_rbs = bwp_size;
+    }
+    if (!imcsi->csi_IM_ResourceElementPattern) {
+      LOG_E(NR_MAC, "CSI-IM resource pattern is NULL\n");
+      continue;
+    }
     // As specified in 5.2.2.4 of 38.214
     switch (imcsi->csi_IM_ResourceElementPattern->present) {
       case NR_CSI_IM_Resource__csi_IM_ResourceElementPattern_PR_pattern0:
+        if (!imcsi->csi_IM_ResourceElementPattern->choice.pattern0) {
+          LOG_E(NR_MAC, "CSI-IM pattern0 choice is NULL\n");
+          continue;
+        }
         for (int i = 0; i < 4; i++) {
           csiim_config_pdu->k_csiim[i] =
               (imcsi->csi_IM_ResourceElementPattern->choice.pattern0->subcarrierLocation_p0 << 1) + (i >> 1);
@@ -1317,13 +1344,18 @@ static void nr_schedule_csi_for_im(NR_UE_MAC_INST_t *mac, int frame, int slot)
         }
         break;
       case NR_CSI_IM_Resource__csi_IM_ResourceElementPattern_PR_pattern1:
+        if (!imcsi->csi_IM_ResourceElementPattern->choice.pattern1) {
+          LOG_E(NR_MAC, "CSI-IM pattern1 choice is NULL\n");
+          continue;
+        }
         for (int i = 0; i < 4; i++) {
           csiim_config_pdu->k_csiim[i] = (imcsi->csi_IM_ResourceElementPattern->choice.pattern1->subcarrierLocation_p1 << 2) + i;
           csiim_config_pdu->l_csiim[i] = imcsi->csi_IM_ResourceElementPattern->choice.pattern1->symbolLocation_p1;
         }
         break;
       default:
-        AssertFatal(1 == 0, "Invalid CSI-IM pattern\n");
+        LOG_E(NR_MAC, "Invalid CSI-IM pattern %d\n", imcsi->csi_IM_ResourceElementPattern->present);
+        continue;
     }
     dl_config->dl_config_list[dl_config->number_pdus].pdu_type = FAPI_NR_DL_CONFIG_TYPE_CSI_IM;
     dl_config->number_pdus += 1;

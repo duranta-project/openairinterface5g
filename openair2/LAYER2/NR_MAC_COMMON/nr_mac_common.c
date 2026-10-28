@@ -3634,7 +3634,11 @@ void csi_period_offset(const NR_CSI_ReportConfig_t *csirep,
                        int *period,
                        int *offset)
 {
-  if(periodicityAndOffset != NULL) {
+  AssertFatal(period != NULL && offset != NULL, "period or offset is NULL");
+  *period = 0;
+  *offset = 0;
+
+  if (periodicityAndOffset != NULL) {
 
     NR_CSI_ResourcePeriodicityAndOffset_PR p_and_o = periodicityAndOffset->present;
 
@@ -3697,7 +3701,11 @@ void csi_period_offset(const NR_CSI_ReportConfig_t *csirep,
 
   }
 
-  if(csirep != NULL) {
+  if (csirep != NULL) {
+    if (csirep->reportConfigType.present != NR_CSI_ReportConfig__reportConfigType_PR_periodic ||
+        csirep->reportConfigType.choice.periodic == NULL) {
+      return;
+    }
 
     NR_CSI_ReportPeriodicityAndOffset_PR p_and_o = csirep->reportConfigType.choice.periodic->reportSlotConfig.present;
 
@@ -3750,6 +3758,8 @@ void csi_period_offset(const NR_CSI_ReportConfig_t *csirep,
 
 bool is_periodic_occasion(int frame, int slot, int slots_per_frame, int period, int offset)
 {
+  if (period <= 0)
+    return false;
   // (slots_per_frame * frame + slot - offset) mod period == 0
   // Signed arithmetic on purpose: with unsigned frame_t, a negative left operand right after SFN wrap-around
   // would wrap to 2^32 - d and could give a spurious occasion
