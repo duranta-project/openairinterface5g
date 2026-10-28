@@ -135,6 +135,7 @@ Here are some useful command line options for the NR UE:
 | `--clock-source`         | Sets the clock source (internal or external).                                                                 |
 | `--time-source`          | Sets the time source (internal or external).                                                                  |
 | `--ue-capability-rx2tx`  | Sets the minimum number of slots for the UE between RX command and TX of corresponding channel.               |
+| `--tun-backpressure`     | Sets `IFF_BACKPRESSURE` on the TUN/TAP interfaces (Linux 7.3 and later), so the kernel holds packets in the qdisc instead of dropping them when the UE falls behind reading. Can reduce throughput with many parallel senders. |
 
 You can view all available options by typing:
 
