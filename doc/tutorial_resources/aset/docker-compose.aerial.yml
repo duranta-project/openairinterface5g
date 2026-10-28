@@ -115,7 +115,7 @@ services:
     volumes:
       # Aerial cuBB binds the trunk VF4 (0000:01:00.7), so the O-RU's du_addr is the Aerial DU MAC -
       # different from the built-in-L1 OAI DU config (VF0/VF1 MAC) mounted by docker-compose.yml.
-      - ./conf/ru.band77.gh200.aerial.conf:/opt/nr-oru/etc/nr-oru.conf:ro
+      - ./conf/ru.band78.gh200.aerial.conf:/opt/nr-oru/etc/nr-oru.conf:ro
     environment:
       # In-process UL FH pcap (async ring -> writer thread; safe on FH path).
       ORU_UL_PCAP_PATH: /tmp/oru_ul.pcap
@@ -169,7 +169,7 @@ services:
     shm_size: 4096m
     volumes:
       # Inherit common.conf mount from base; swap the entry wrapper for the Aerial VNF.
-      - ./conf/gnb.sa.band77.gh200.aerial.conf:/opt/oai-gnb/etc/gnb.conf:ro
+      - ./conf/gnb.sa.band78.gh200.aerial.conf:/opt/oai-gnb/etc/gnb.conf:ro
 
   nr-ue:
     build:
@@ -188,7 +188,7 @@ services:
     environment:
       DISPLAY: ${DISPLAY:-""}
       USE_ADDITIONAL_OPTIONS: >-
-        -r 106 --numerology 1 --band 77 -C 4049760000 --ssb 516
+        -r 106 --numerology 1 --band 78 -C 3619200000 --ssb 516
         --device.name vrtsim
         --vrtsim.connection_descriptor /run/vrtsim/vrtsim_connection
         --ue-nb-ant-tx 2 --ue-nb-ant-rx 2

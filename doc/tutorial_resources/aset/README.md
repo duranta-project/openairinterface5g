@@ -52,7 +52,7 @@ details.
 | `setup_ru_ifs-gh200.sh` | 5 SR-IOV VFs on `aerial00` (OAI DU + O-RU + Aerial DU) |
 | `docker-compose.yml` | OAI RAN stack: O-RU + gNB + UE + remote CIR taps (+ build stages) |
 | `docker-compose.aerial.yml` | Aerial cuPHY L1 overlay (`include:` base) |
-| `conf/` | gNB / O-RU / UE / Aerial L1 configs. gNB cell block is shared in `gnb.sa.band77.gh200.common.conf`; L1 wrappers `@include` it. Compose binds the wrapper to `/opt/oai-gnb/etc/gnb.conf` and the common file beside it (stock entrypoint path). |
+| `conf/` | gNB / O-RU / UE / Aerial L1 configs. gNB cell block is shared in `gnb.sa.band78.gh200.common.conf`; L1 wrappers `@include` it. Compose binds the wrapper to `/opt/oai-gnb/etc/gnb.conf` and the common file beside it (stock entrypoint path). |
 | `taps/static/` | Static taps image (`publish_taps.py --source static`) |
 | `taps/common/` | Shared `publish_taps.py`, FlatBuffers schema, `set-gain` |
 | [`../oai-cn5g/`](../oai-cn5g/) | 5GC (AMF at `192.168.70.132`) |

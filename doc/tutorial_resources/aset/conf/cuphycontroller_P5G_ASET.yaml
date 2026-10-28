@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# ASET / GH200 single-cell profile: 1 x O-RU, band 77, 106 PRB (40 MHz, SCS 30 kHz).
+# ASET / GH200 single-cell profile: 1 x O-RU, band 78, 106 PRB (40 MHz, SCS 30 kHz).
 # Fronthaul target is the vrtsim O-RU (nr-oru) reachable via the same-PF eSwitch.
 # cuBB binds a dedicated DPDK VF (0000:01:00.7, "Aerial DU VF4" in setup_ru_ifs-gh200.sh) and
 # software-tags every C-/U-plane frame with VLAN 3 (tci built in aerial-fh-driver/lib/flow.cpp),
@@ -194,7 +194,7 @@ cuphydriver_config:
       cell_id: 1
       ru_type: 1
       # Aerial DU VF4 MAC (AERIAL_DU_MAC in setup_ru_ifs-gh200.sh). Must match du_addr in
-      # conf/ru.band77.gh200.aerial.conf. VF4 is a trunk (no VST), so cuBB's own tag is the only one.
+      # conf/ru.band78.gh200.aerial.conf. VF4 is a trunk (no VST), so cuBB's own tag is the only one.
       src_mac_addr: 02:00:00:00:00:1a
       dst_mac_addr: 02:00:00:00:00:7b # aset vrtsim O-RU (RU_MAC in setup_ru_ifs-gh200.sh)
       nic: '0000:01:00.7'
@@ -220,7 +220,7 @@ cuphydriver_config:
       eAxC_id_srs: [5, 6]
       eAxC_id_prach: [2, 3]
       # O-RU (nr-oru) only supports uncompressed 16-bit IQ (XRAN_COMPMETHOD_NONE, iq_width 16
-      # in ru.band77.gh200.conf). BFP (comp_meth 1) would trip the O-RU's "Compression not
+      # in ru.band78.gh200.conf). BFP (comp_meth 1) would trip the O-RU's "Compression not
       # supported" assert on the U-plane path, so keep both directions uncompressed.
       dl_iq_data_fmt: {comp_meth: 0, bit_width: 16}
       ul_iq_data_fmt: {comp_meth: 0, bit_width: 16}
@@ -237,7 +237,7 @@ cuphydriver_config:
       T1a_max_cp_dl_ns: 464000
       T1a_min_cp_dl_ns: 7600
       # DL U-plane must arrive within the O-RU's T2a_up window (350-1200 us in
-      # ru.band77.gh200.conf). At mu=1 a symbol is ~35.7 us, so T2a_min_up=350 us is ~9.8
+      # ru.band78.gh200.conf). At mu=1 a symbol is ~35.7 us, so T2a_min_up=350 us is ~9.8
       # symbols of required lead time. The stock 339000 (~9.5 symbols) lands just short of
       # that edge, so the O-RU classifies most DL U-plane as "Packets late" and drops it
       # (incl. SSB -> UE never syncs). Raise to 450000 to match the OAI DU's T1a_up=(300,450).

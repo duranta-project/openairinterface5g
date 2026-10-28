@@ -88,7 +88,7 @@ services:
         --vrtsim.taps-socket ipc:///tmp/vrtsim_taps_server.ipc
         --log_config.global_log_options level,nocolor,utc_time
     volumes:
-      - ./conf/ru.band77.gh200.conf:/opt/nr-oru/etc/nr-oru.conf:ro
+      - ./conf/ru.band78.gh200.conf:/opt/nr-oru/etc/nr-oru.conf:ro
       - /dev/hugepages:/dev/hugepages
       - /sys/bus/pci/devices:/sys/bus/pci/devices:ro
       - vrtsim-run:/run/vrtsim
@@ -127,8 +127,8 @@ services:
     volumes:
       # Stock entrypoint uses /opt/oai-gnb/etc/gnb.conf; mount the L1 wrapper there and
       # the shared @include sibling beside it (libconfig include dir = dirname of -O file).
-      - ./conf/gnb.sa.band77.gh200.conf:/opt/oai-gnb/etc/gnb.conf:ro
-      - ./conf/gnb.sa.band77.gh200.common.conf:/opt/oai-gnb/etc/gnb.sa.band77.gh200.common.conf:ro
+      - ./conf/gnb.sa.band78.gh200.conf:/opt/oai-gnb/etc/gnb.conf:ro
+      - ./conf/gnb.sa.band78.gh200.common.conf:/opt/oai-gnb/etc/gnb.sa.band78.gh200.common.conf:ro
       - /dev/hugepages:/dev/hugepages
       - /sys/bus/pci/devices:/sys/bus/pci/devices:ro
       - /tmp/.X11-unix:/tmp/.X11-unix
@@ -164,7 +164,7 @@ services:
     environment:
       DISPLAY: ${DISPLAY}
       USE_ADDITIONAL_OPTIONS: >-
-        -r 106 --numerology 1 --band 77 -C 4049760000 --ssb 516
+        -r 106 --numerology 1 --band 78 -C 3619200000 --ssb 516
         --device.name vrtsim
         --vrtsim.connection_descriptor /run/vrtsim/vrtsim_connection
         --ue-nb-ant-tx 2 --ue-nb-ant-rx 2
