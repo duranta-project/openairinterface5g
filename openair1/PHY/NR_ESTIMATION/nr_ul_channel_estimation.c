@@ -793,6 +793,7 @@ static double srs_noise_quantile_scale(uint32_t cnt, int num_ls, double z)
   return wh * wh * wh * (1.0 + 5.0 / (num_ls * sqrt((double)cnt)));
 }
 
+int tmp_algo_noise_dB_x10;
 // Fills the per PRG SNR and returns the wideband SNR
 uint32_t nr_srs_snr_per_prg(const nfapi_nr_srs_pdu_t *srs_pdu,
                             uint32_t signal_power_avg,
@@ -829,6 +830,7 @@ uint32_t nr_srs_snr_per_prg(const nfapi_nr_srs_pdu_t *srs_pdu,
       noise = slope;
   }
   const int noise_dB_x10 = dB_fixed_x10(max((uint32_t)noise, 1u));
+  tmp_algo_noise_dB_x10 = noise_dB_x10;
 
   // The despreading only lifts the signal by fd_cdm where the channel is flat across the
   // K_TC*fd_cdm subcarriers it sums. Taking that on faith costs 10*log10(fd_cdm) over a channel

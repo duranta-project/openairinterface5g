@@ -868,6 +868,19 @@ nr_srs_info_t nr_srs_rx_procedures(PHY_VARS_gNB *gNB,
     *snr = nr_srs_snr_per_prg(srs_pdu, (uint32_t)min(signal_power_avg, (uint64_t)UINT32_MAX), &noise_acc, pow_per_prg, snr_per_prg);
 
     LOG_D(NR_PHY, "SRS-WIDEBAND-SNR: rnti %04x, snr %d dB\n", srs_pdu->rnti, *snr);
+    {
+      extern int tmp_algo_noise_dB_x10;
+      const int tmp_i0_dB = gNB->measurements.n0_subband_power_avg_dB - dB_fixed(nb_antennas_rx);
+      LOG_I(NR_PHY,
+            "NOISE rnti %04x: I0 %d dB, algo %d.%d dB, signal %d dB, SNR(I0) %d dB, SNR(algo) %d dB\n",
+            srs_pdu->rnti,
+            tmp_i0_dB,
+            tmp_algo_noise_dB_x10 / 10,
+            abs(tmp_algo_noise_dB_x10 % 10),
+            dB_fixed(signal_power_avg),
+            dB_fixed(signal_power_avg) - tmp_i0_dB,
+            *snr);
+    }
 
     stop_meas(&gNB->srs_channel_estimation_stats);
 
