@@ -33,9 +33,27 @@
   </testCase>
 
   <testCase>
+    <class>Custom_Command</class>
+    <desc>Wait for sync</desc>
+    <node>localhost</node>
+    <command><![CDATA[for t in {1..30}; do sleep 1; docker logs rfsim5g-oai-nr-ue2 | grep "PSBCH RX:OK" && exit 0; done; exit 1]]></command>
+  </testCase>
+
+  <testCase>
     <class>IdleSleep</class>
     <desc>Sleep</desc>
-    <idle_sleep_time_in_sec>20</idle_sleep_time_in_sec>
+    <idle_sleep_time_in_sec>2</idle_sleep_time_in_sec>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping sync-ref from syncing NR-UE</desc>
+    <id>rfsim5g_ue2</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_ue</svr_id>
+    <svr_node>localhost</svr_node>
+    <ping_args>-c 20 -i0.5</ping_args>
+    <ping_packetloss_threshold>80</ping_packetloss_threshold>
   </testCase>
 
   <testCase>
