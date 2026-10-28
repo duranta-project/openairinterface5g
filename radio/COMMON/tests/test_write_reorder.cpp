@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
+#include <chrono>
 #include <gtest/gtest.h>
 #include <vector>
 extern "C" {
@@ -43,11 +44,18 @@ class WriteReorder : public ::testing::Test {
     openair0_write_reorder_init(&dev.reOrder, &cfg);
     dev.trx_write_func = capture;
   }
-  int write(openair0_timestamp_t ts, int n, int flags, int16_t v = 1, int nb_writers = 1)
+  int write(openair0_timestamp_t ts, int n, int flags, int16_t v = 1, int nb_writers = 1, int writer = 0)
   {
     std::vector<c16_t> buf(n, c16_t{v, v});
     void *p[1] = {buf.data()};
-    return openair0_write_reorder_common(NULL, NULL, &dev, ts, p, n, nb_writers, 1, flags);
+    return openair0_write_reorder_common(NULL, NULL, &dev, ts, p, n, writer, nb_writers, 1, flags);
+  }
+  // flush up to until, waiting up to wait_ms for the writers, returns the time waited in ms
+  double flush(int nb_writers, openair0_timestamp_t until, int wait_ms)
+  {
+    auto start = std::chrono::steady_clock::now();
+    openair0_write_reorder_flush_common(NULL, NULL, &dev, nb_writers, 1, until, wait_ms);
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
   }
   int sent(int64_t from, int64_t to) // number of written samples in [from, to)
   {
@@ -101,9 +109,9 @@ TEST_F(WriteReorder, fdd_in_order)
 // two writers: a sample is sent once both wrote it, as the saturated sum
 TEST_F(WriteReorder, two_writers_sum)
 {
-  write(0, 4096, TX_BURST_MIDDLE, 30000, 2);
+  write(0, 4096, TX_BURST_MIDDLE, 30000, 2, 0);
   EXPECT_TRUE(writes.empty());
-  write(0, 4096, TX_BURST_MIDDLE, 30000, 2);
+  write(0, 4096, TX_BURST_MIDDLE, 30000, 2, 1);
   ASSERT_EQ(sent(0, 4096), 4096);
   EXPECT_EQ(writes[0].s[0].r, INT16_MAX);
 }
@@ -129,6 +137,42 @@ TEST_F(WriteReorder, missing_writer)
   for (int ts = 0; ts < sz; ts += 2048)
     write(ts, 2048, TX_BURST_MIDDLE, 1, 2);
   EXPECT_GE(sent(0, sz), sz / 2 - 2048);
+}
+
+// a flush that waited in vain marks absent only the writer that did not write: it is not waited for until it
+// writes again, then it is waited for again
+TEST_F(WriteReorder, absent_writer)
+{
+  write(0, 4096, TX_BURST_MIDDLE, 1, 2, 0);
+  EXPECT_GE(flush(2, 4096, 20), 15);
+  EXPECT_EQ(sent(0, 4096), 4096);
+  EXPECT_EQ(dev.reOrder.nb_absent, 1);
+  EXPECT_TRUE(dev.reOrder.writer_absent[1]);
+  // writer 1 absent: the samples of writer 0 alone are complete
+  write(4096, 2048, TX_BURST_MIDDLE, 1, 2, 0);
+  EXPECT_LT(flush(2, 6144, 1000), 500);
+  EXPECT_EQ(sent(4096, 6144), 2048);
+  // writer 1 writes again: it is waited for again
+  write(6144, 2048, TX_BURST_MIDDLE, 1, 2, 1);
+  EXPECT_EQ(dev.reOrder.nb_absent, 0);
+  write(6144, 2048, TX_BURST_MIDDLE, 1, 2, 0);
+  write(8192, 2048, TX_BURST_MIDDLE, 1, 2, 0);
+  EXPECT_GE(flush(2, 10240, 20), 15);
+  EXPECT_EQ(sent(6144, 8192), 2048);
+  EXPECT_EQ(dev.reOrder.nb_absent, 1);
+  EXPECT_TRUE(dev.reOrder.writer_absent[1]);
+}
+
+// a few samples a writer left unwritten (timing advance change) are not waited for once all the writers passed them
+TEST_F(WriteReorder, writer_gap)
+{
+  const int sz = dev.reOrder.sz;
+  write(0, sz / 2, TX_BURST_MIDDLE, 1, 2, 0);
+  write(0, 1000, TX_BURST_MIDDLE, 1, 2, 1);
+  write(1010, sz / 2 - 1010, TX_BURST_MIDDLE, 1, 2, 1);
+  EXPECT_LT(flush(2, 2048, 1000), 500);
+  EXPECT_EQ(sent(0, 2048), 2048);
+  EXPECT_EQ(dev.reOrder.nb_absent, 0);
 }
 
 // a write older than what was already sent is dropped, the rest of it is kept

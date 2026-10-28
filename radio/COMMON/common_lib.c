@@ -325,7 +325,7 @@ static bool reorder_all_written(const re_order_t *ctx, int nb_writers, openair0_
 {
   /* a writer may leave a few samples unwritten (timing advance change): a sample that all the present writers
      passed by a quarter of the ring will not be written any more */
-  openair0_timestamp_t passed = UINT64_MAX;
+  openair0_timestamp_t passed = INT64_MAX;
   for (int w = 0; w < ctx->max_writers; w++)
     if (!ctx->writer_absent[w])
       passed = min(passed, ctx->writer_end[w]);
