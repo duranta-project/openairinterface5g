@@ -26,6 +26,7 @@
 #include "openair1/SCHED_NR/sched_nr.h"
 
 #define NR_MAX_PUSCH_SCRAMBLING_STACK_BYTES (2 * 1024 * 1024) // 2MB
+#define NR_MAX_PUSCH_CTX_STACK_BYTES (4 * 1024 * 1024) // channel estimates and compensated symbols of a group
 
 #if T_TRACER
 static void copy_c16_data_to_slot_memory(c16_t *src, c16_t *dst_slot, int nb_re_pusch, int symbol)
@@ -192,7 +193,7 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                            ul_ch_estimates[aatx * nb_rx_ant + aarx],
                            rxFext[aarx],
                            chFext[aatx][aarx],
-                           dmrs_symbol * frame_parms->ofdm_symbol_size,
+                           get_dmrs_row(rel15_ul->ul_dmrs_symb_pos, dmrs_symbol) * frame_parms->ofdm_symbol_size,
                            dmrs_symbol_flag,
                            rel15_ul,
                            frame_parms,
@@ -490,7 +491,7 @@ typedef struct puschSymbolProc_s {
   PHY_VARS_gNB *gNB;
   NR_DL_FRAME_PARMS *frame_parms;
   const nfapi_nr_pusch_pdu_t *rel15_ul;
-  // processing context of the group, set by nr_rx_pusch_group_tp()
+  // processing context of the group, local to nr_rx_pusch_group_tp()
   c16_t **ul_ch_estimates;
   c16_t **rxdataF_comp;
   const int16_t *ul_valid_re_per_slot;
@@ -814,20 +815,6 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
         rel15_ul_ref->rb_start);
   LOG_D(PHY, "pusch %d.%d : ul_dmrs_symb_pos %x\n", frame, slot, rel15_ul_ref->ul_dmrs_symb_pos);
 
-  // Softscope dumps the whole slot grid; clear unused symbols so they do not keep
-  // stale constellation points. scopeData is set only when nrscope is loaded (--doscope).
-  if (gNB->scopeData) {
-    const int rxdataF_comp_symbol_size = ceil_mod(frame_parms->N_RB_UL * NR_NB_SC_PER_RB, 16);
-    const int rxdataF_comp_slot_size = rxdataF_comp_symbol_size * frame_parms->symbols_per_slot;
-    for (int ue = 0; ue < group_size; ue++) {
-      NR_gNB_PUSCH *pusch_vars = pusch_vars_group[ue];
-      const int n_buf = rel15_ul_group[ue]->nrOfLayers;
-      for (int i = 0; i < n_buf; i++)
-        memset(pusch_vars->rxdataF_comp[i], 0, sizeof(*pusch_vars->rxdataF_comp[i]) * rxdataF_comp_slot_size);
-      memset(pusch_vars->ul_valid_re_per_slot, 0, sizeof(*pusch_vars->ul_valid_re_per_slot) * frame_parms->symbols_per_slot);
-    }
-  }
-
   // Memories to store data for data recording
   int buffer_length_slot = rel15_ul_ref->rb_size * NR_NB_SC_PER_RB * NR_SYMBOLS_PER_SLOT;
   // data recording application supports only a single layer.
@@ -883,11 +870,32 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   NR_gNB_PUSCH *joint_pv = pusch_vars_group[0];
   const uint8_t num_sp_streams = rel15_ul_ref->param_v4.numSpatialStreamIndices;
 
-  // processing context of the group, passed to the channel estimation and the symbol tasks
-  c16_t **ul_ch_estimates = (c16_t **)joint_pv->ul_ch_estimates;
-  c16_t **rxdataF_comp = joint_pv->rxdataF_comp;
-  int16_t *ul_valid_re_per_slot = joint_pv->ul_valid_re_per_slot;
-  int *llr_offset = joint_pv->llr_offset;
+  // Processing context of the group, used only during this call
+  // channel estimates per layer and RX stream, one row of ofdm_symbol_size per DMRS symbol (get_dmrs_row())
+  const uint32_t dmrs_symb_pos = rel15_ul_ref->ul_dmrs_symb_pos;
+  const int nb_dmrs_symb = max(count_bits(&dmrs_symb_pos, 1), 1);
+  const int ch_est_size = frame_parms->ofdm_symbol_size * nb_dmrs_symb;
+  // compensated symbols per layer
+  const int comp_size = ceil_mod(rel15_ul_ref->rb_size * NR_NB_SC_PER_RB, 16) * frame_parms->symbols_per_slot;
+  const uint64_t ctx_bytes = sizeof(c16_t) * ((uint64_t)total_layers * num_sp_streams * ch_est_size + total_layers * comp_size);
+  AssertFatal(ctx_bytes <= NR_MAX_PUSCH_CTX_STACK_BYTES,
+              "PUSCH processing context %" PRIu64 " bytes exceeds %d MB: %d layers, %d RX streams\n",
+              ctx_bytes,
+              NR_MAX_PUSCH_CTX_STACK_BYTES >> 20,
+              total_layers,
+              num_sp_streams);
+  c16_t ch_est_mem[total_layers * num_sp_streams][ch_est_size] __attribute__((aligned(64)));
+  c16_t *ul_ch_estimates[total_layers * num_sp_streams];
+  for (int i = 0; i < total_layers * num_sp_streams; i++)
+    ul_ch_estimates[i] = ch_est_mem[i];
+  c16_t comp_mem[total_layers][comp_size] __attribute__((aligned(64)));
+  c16_t *rxdataF_comp[total_layers];
+  for (int i = 0; i < total_layers; i++)
+    rxdataF_comp[i] = comp_mem[i];
+  // REs left per symbol after DMRS/PTRS extraction
+  int16_t ul_valid_re_per_slot[NR_SYMBOLS_PER_SLOT] = {0};
+  // offset of the LLRs of each symbol
+  int llr_offset[NR_SYMBOLS_PER_SLOT] = {0};
 
   LOG_D(PHY,
         "%4u.%u MU-MIMO joint RX: %d UEs, %d total layers, rb_start=%u rb_size=%u qam=%u\n",
@@ -911,6 +919,10 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     uint8_t dmrs_symbol_flag = (rel15_ul_ref->ul_dmrs_symb_pos >> symbol) & 0x01;
     LOG_D(PHY, "symbol %d, dmrs_symbol_flag :%d\n", symbol, dmrs_symbol_flag);
     if (dmrs_symbol_flag == 1) {
+      const int row = get_dmrs_row(rel15_ul_ref->ul_dmrs_symb_pos, symbol) * frame_parms->ofdm_symbol_size;
+      c16_t *ch_row[total_layers * num_sp_streams];
+      for (int i = 0; i < total_layers * num_sp_streams; i++)
+        ch_row[i] = ul_ch_estimates[i] + row;
       for (int u = 0; u < group_size; u++) {
         const nfapi_nr_pusch_pdu_t *p = rel15_ul_group[u];
         for (int nl = 0; nl < p->nrOfLayers; nl++) {
@@ -923,6 +935,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
                                       dmrs_symb_idx,
                                       symbol,
                                       joint_pv,
+                                      ch_row,
                                       ant_port_start,
                                       bwp_start_subcarrier,
                                       &joint_pdu,
@@ -961,7 +974,8 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
                        .nscid = rel15_ul_ref->scid,
                        .ofdm_symbol_size = fp->ofdm_symbol_size,
                        .slot = slot,
-                       .rnti = rel15_ul_ref->rnti};
+                       .rnti = rel15_ul_ref->rnti,
+                       .chest_per_dmrs = true};
       const int slot_offset = (p.slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * p.ofdm_symbol_size;
       c16_t *rxdataF = (c16_t *)&gNB->common_vars.rxdataF[ant_port_start][slot_offset];
       ptrs_info.n_ptrs = nr_ptrs_run(&p, rel15_ul_ref->pusch_ptrs.ptrs_time_density, rxdataF, ul_ch_estimates[0], cpe);
@@ -978,9 +992,9 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     AssertFatal(!is_ptrs, "Time domain averaging of DMRS estimates not allowed with PTRS\n");
     nr_chest_time_domain_avg(frame_parms,
                              (int32_t **)ul_ch_estimates,
-                             rel15_ul_ref->nr_of_symbols,
-                             rel15_ul_ref->start_symbol_index,
-                             rel15_ul_ref->ul_dmrs_symb_pos, // change needed ?
+                             nb_dmrs_symb,
+                             0,
+                             (1 << nb_dmrs_symb) - 1, // one row per DMRS symbol
                              rel15_ul_ref->rb_size,
                              total_layers,
                              num_sp_streams);
@@ -1073,8 +1087,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       ul_valid_re_per_slot[sym] = get_nb_re_pusch(frame_parms, &joint_pdu, sym, &ptrs_info);
       if (meas_symbol == -1 && ul_valid_re_per_slot[sym] != 0)
         meas_symbol = sym;
-    } else
-      ul_valid_re_per_slot[sym] = 0;
+    }
   }
 
   int nb_re_pusch = meas_symbol >= 0 ? ul_valid_re_per_slot[meas_symbol] : 0;
@@ -1105,7 +1118,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
                            ul_ch_estimates[nl * num_sp_streams + aarx],
                            temp_rxFext[aarx],
                            &ul_ch_estimates_ext[nl][aarx][meas_symbol * nb_re_pusch],
-                           dmrs_symbol * frame_parms->ofdm_symbol_size,
+                           get_dmrs_row(rel15_ul_ref->ul_dmrs_symb_pos, dmrs_symbol) * frame_parms->ofdm_symbol_size,
                            (rel15_ul_ref->ul_dmrs_symb_pos >> meas_symbol) & 0x01,
                            &joint_pdu,
                            frame_parms,
