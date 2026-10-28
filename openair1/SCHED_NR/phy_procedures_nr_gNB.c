@@ -1075,33 +1075,36 @@ static void handle_pucch(PHY_VARS_gNB *gNB, c16_t **rxdataF, const NR_gNB_PUCCH_
 }
 
 #ifdef DEBUG_RXDATA
+/* writes the RX samples of the slot of the first 20 PUSCH, then exits. Per PUSCH, as int32 words: rnti, rb_size,
+   rb_start, nr_of_symbols, start_symbol_index, mcs_index, rv_index, harq_process_id as 8 int16, the samples of the
+   slot, 1000 zeros */
 static void dump_pusch_rx_data(PHY_VARS_gNB *gNB, const nfapi_nr_pusch_pdu_t *pdu, uint8_t slot, int ue_idx)
 {
+  static FILE *f = NULL;
+  static int nb_dumped = 0;
   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
   RU_t *ru = gNB->RU_list[0];
   int slot_offset = get_samples_slot_timestamp(frame_parms, slot);
   slot_offset -= ru->N_TA_offset;
-  int32_t sample_offset = gNB->common_vars.debugBuff_sample_offset;
-  int16_t *buf = (int16_t *)&gNB->common_vars.debugBuff[sample_offset];
-  buf[0] = (int16_t)pdu->rnti;
-  buf[1] = (int16_t)pdu->rb_size;
-  buf[2] = (int16_t)pdu->rb_start;
-  buf[3] = (int16_t)pdu->nr_of_symbols;
-  buf[4] = (int16_t)pdu->start_symbol_index;
-  buf[5] = (int16_t)pdu->mcs_index;
-  buf[6] = (int16_t)pdu->pusch_data.rv_index;
-  buf[7] = (int16_t)pdu->pusch_data.harq_process_id;
-  memcpy(&gNB->common_vars.debugBuff[gNB->common_vars.debugBuff_sample_offset + 4],
-         &ru->common.rxdata[0][slot_offset],
-         get_samples_per_slot(slot, frame_parms) * sizeof(int32_t));
-  gNB->common_vars.debugBuff_sample_offset += (get_samples_per_slot(slot, frame_parms) + 1000 + 4);
-  if (gNB->common_vars.debugBuff_sample_offset > ((get_samples_per_slot(slot, frame_parms) + 1000 + 2) * 20)) {
+  if (!f) {
     char fname[64];
     snprintf(fname, sizeof(fname), "rxdata_buff_ue%d.raw", ue_idx);
-    FILE *f = fopen(fname, "w");
-    if (f == NULL)
-      exit(1);
-    fwrite((int16_t *)gNB->common_vars.debugBuff, 2, (get_samples_per_slot(slot, frame_parms) + 1000 + 4) * 20 * 2, f);
+    f = fopen(fname, "w");
+    AssertFatal(f, "cannot open %s\n", fname);
+  }
+  const int16_t header[8] = {pdu->rnti,
+                             pdu->rb_size,
+                             pdu->rb_start,
+                             pdu->nr_of_symbols,
+                             pdu->start_symbol_index,
+                             pdu->mcs_index,
+                             pdu->pusch_data.rv_index,
+                             pdu->pusch_data.harq_process_id};
+  static const int32_t zeros[1000] = {0};
+  fwrite(header, sizeof(header), 1, f);
+  fwrite(&ru->common.rxdata[0][slot_offset], sizeof(int32_t), get_samples_per_slot(slot, frame_parms), f);
+  fwrite(zeros, sizeof(zeros), 1, f);
+  if (++nb_dumped == 20) {
     fclose(f);
     exit(-1);
   }
@@ -1351,6 +1354,32 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
   int ulsch_idx_to_decode[MAX_UL_PDUS_PER_SLOT];
   int num_pusch = 0;
 
+  /* LLRs of the PUSCH of this slot, from the demodulation to the decoding, sliced per PUSCH by
+     nr_rx_pusch_group_tp(). The data and UCI LLRs of a PUSCH are at most one per bit of its REs; one more
+     symbol for the reserved HARQ-ACK REs (counted in data and ACK) and the alignment of the 4 slices. */
+  int llr_need = 0;
+  for (int i = 0; i < n_pusch_jobs; i++) {
+    const nfapi_nr_pusch_pdu_t *p = &pusch[i].pusch_pdu;
+    llr_need += p->rb_size * NR_NB_SC_PER_RB * (p->nr_of_symbols + 1) * p->qam_mod_order * p->nrOfLayers + 4 * 32;
+  }
+  // the PUSCH of a slot share the grid: check it before the stack array (no stack clash protection in the build)
+  const int llr_grid = frame_parms->N_RB_UL * NR_NB_SC_PER_RB * (frame_parms->symbols_per_slot + 1) * 8 * NR_MAX_NB_LAYERS
+                       + 4 * 32 * MAX_UL_PDUS_PER_SLOT;
+  AssertFatal(llr_need <= llr_grid,
+              "PUSCH of slot %d.%d need %d LLRs, more than the grid (%d)\n",
+              frame_rx,
+              slot_rx,
+              llr_need,
+              llr_grid);
+  // out of this call, the pool is not NULL only if persistent (init_nr_gNB_pusch_llr_pool())
+  const bool persistent_pool = gNB->pusch_llr_pool != NULL;
+  int16_t llr_stack[persistent_pool ? 1 : max(llr_need, 1)] __attribute__((aligned(64)));
+  if (!persistent_pool) {
+    gNB->pusch_llr_pool = llr_stack;
+    gNB->pusch_llr_pool_size = llr_need;
+  }
+  gNB->pusch_llr_pool_used = 0;
+
   // Group the jobs using group index
   NR_MU_MIMO_job_groups_t pusch_groups = group_pusch_jobs(gNB, pusch, n_pusch_jobs);
 
@@ -1435,6 +1464,10 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
   }
 #endif // E3_AGENT
 
+  if (!persistent_pool) {
+    gNB->pusch_llr_pool = NULL; // stack array of this call
+    gNB->pusch_llr_pool_size = 0;
+  }
   return pusch_DTX;
 }
 

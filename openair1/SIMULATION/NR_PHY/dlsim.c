@@ -770,9 +770,8 @@ int main(int argc, char **argv)
   if (snr1set==0)
     snr1 = snr0+10;
 
-  RC.gNB = (PHY_VARS_gNB**) malloc(sizeof(PHY_VARS_gNB *));
-  RC.gNB[0] = (PHY_VARS_gNB*) malloc(sizeof(PHY_VARS_gNB ));
-  memset(RC.gNB[0],0,sizeof(PHY_VARS_gNB));
+  RC.gNB = malloc(sizeof(PHY_VARS_gNB *));
+  RC.gNB[0] = calloc_or_fail(1, sizeof(PHY_VARS_gNB));
 
   gNB = RC.gNB[0];
   gNB->ofdm_offset_divisor = UINT_MAX;
@@ -1116,6 +1115,9 @@ int main(int argc, char **argv)
     if (n_trials== 1) num_rounds = 1;
 
     NR_gNB_DLSCH_t *gNB_dlsch = &gNB->dlsch[0];
+    // encoder output copy, freed by free_gNB_dlsch()
+    if (!gNB_dlsch->f)
+      gNB_dlsch->f = calloc_or_fail(1, N_RB_DL * NR_SYMBOLS_PER_SLOT * NR_NB_SC_PER_RB * NR_MAX_NB_LAYERS);
     memset(Sched_INFO, 0, sizeof(*Sched_INFO));
     nfapi_nr_dl_tti_request_body_t *dl_req = &Sched_INFO->DL_req.dl_tti_request_body;
     // scheduler will place PDSCH second (after PDCCH), verification below
@@ -1409,7 +1411,7 @@ int main(int argc, char **argv)
       for (i = 0; i < TBS; i++) {
 
 	estimated_output_bit[i] = (UE->phy_sim_dlsch_b[i/8] & (1 << (i & 7))) >> (i & 7);
-	test_input_bit[i]       = (gNB_dlsch->b[i / 8] & (1 << (i & 7))) >> (i & 7); // Further correct for multiple segments
+	test_input_bit[i]       = (gNB_dlsch->pdu[i / 8] & (1 << (i & 7))) >> (i & 7); // Further correct for multiple segments
 	
 	if (estimated_output_bit[i] != test_input_bit[i]) {
 	  if(errors_bit == 0)

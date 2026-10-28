@@ -104,19 +104,17 @@ typedef struct {
   const nfapi_nr_dl_tti_pdsch_pdu *pdsch_pdu;
   /// freq allocation information
   freq_alloc_bitmap_t freq_alloc;
-  /// pointer to pdu from MAC interface (this is "a" in 36.212)
+  /// pointer to pdu from MAC interface (this is "a" in 36.212), the CRC is added in place
   uint8_t *pdu;
-  /// Pointer to the payload
-  uint8_t *b;
-  /// Pointers to transport block segments
-  uint8_t **c;
 #ifdef LDPC_CUDA
+  /// Pointers to transport block segments, GPU mapped memory (stack arrays of nr_dlsch_encoding() otherwise)
+  uint8_t **c;
   /// Pointers to transport block segments (contains pointers in c above)
   uint8_t *c_devh;
   /// Pointers to transport block segments (GPU mapping)
   uint8_t *c_dev;
 #endif
-  /// Interleaver outputs
+  /// encoder output (packed bits) copy for nr_dlsim, NULL otherwise
   uint8_t *f;
   /// REs unavailable for DLSCH (overlapping with PTRS, CSIRS etc.)
   uint32_t unav_res;
@@ -139,8 +137,10 @@ typedef struct {
   bool harq_to_be_cleared;
   /// Pointer to the payload (38.212 V15.4.0 section 5.1)
   uint8_t *b;
-  /// Pointer to aggregated code blocks after code block segmentation and CRC attachment (38.212 V15.4.0 section 5.2.2)
+#ifdef LDPC_CUDA
+  /// Decoded code blocks, in GPU mapped memory (otherwise on the stack of nr_ulsch_decoding())
   uint8_t *c;
+#endif
   /// Number of bits in each code block (38.212 V15.4.0 section 5.2.2)
   uint32_t K;
   /// Number of "Filler" bits added in the code block segmentation (38.212 V15.4.0 section 5.2.2)
@@ -228,21 +228,9 @@ typedef struct {
   uint16_t **beam_id;
   int num_beams_period;
   bool analog_bf;
-  int32_t *debugBuff;
-  int32_t debugBuff_sample_offset;
 } NR_gNB_COMMON;
 
 typedef struct {
-  /// \brief Hold the channel estimates in frequency domain based on DRS.
-  /// - first index: rx antenna id [0..nb_antennas_rx[
-  /// - second index: ? [0..12*N_RB_UL*frame_parms->symbols_per_tti[
-  int32_t **ul_ch_estimates;
-  /// \brief Holds the compensated signal.
-  /// - first index: rx antenna id [0..nb_antennas_rx[
-  /// - second index: ? [0..12*N_RB_UL*frame_parms->symbols_per_tti[
-  c16_t **rxdataF_comp;
-  /// \f$\log_2(\max|H_i|^2)\f$
-  int16_t log2_maxh;
   /// measured RX power based on DRS
   uint32_t ulsch_power[8];
   /// total signal over antennas
@@ -251,8 +239,8 @@ typedef struct {
   uint32_t ulsch_noise_power[8];
   /// total noise over antennas
   uint32_t ulsch_noise_power_tot;
-  /// \brief llr values.
-  /// - first index: ? [0..1179743] (hard coded)
+  /// LLRs of the slot being processed: data, ACK, CSI part 1 and 2, slices of gNB->pusch_llr_pool set by
+  /// nr_rx_pusch_group_tp(), valid during phy_procedures_gNB_uespec_RX()
   int16_t *ulsch_llrs;
 #ifdef LDPC_CUDA
   /// \brief llr values link to device memory
@@ -261,11 +249,6 @@ typedef struct {
   int16_t *ack_llrs;
   int16_t *csi1_llrs;
   int16_t *csi2_llrs;
-  /// \brief Total RE count after DMRS/PTRS RE's are extracted from respective symbol.
-  /// - first index: ? [0...14] smybol per slot
-  int16_t *ul_valid_re_per_slot;
-  /// \brief offset for llr corresponding to each symbol
-  int llr_offset[14];
   /// flag to indicate DTX on reception
   int DTX;
   /// delay estimation
@@ -370,6 +353,16 @@ typedef struct PHY_VARS_gNB_s {
   NR_gNB_DLSCH_t *dlsch;
   NR_gNB_PRS prs_vars;
   NR_gNB_PUSCH *pusch_vars;
+  /// LLRs of all the PUSCH of the slot being processed, sliced per PUSCH: a stack array of
+  /// phy_procedures_gNB_uespec_RX(), sized by the PUSCH of the slot, NULL out of it; or a buffer allocated by
+  /// init_nr_gNB_pusch_llr_pool(), kept after the call (GPU mapped memory, simulators reading the LLRs): not NULL
+  /// out of the call
+  int16_t *pusch_llr_pool;
+#ifdef LDPC_CUDA
+  int16_t *pusch_llr_pool_dev;
+#endif
+  int pusch_llr_pool_size;
+  int pusch_llr_pool_used;
   spsc_q_t pucch_queue;
   spsc_q_t pusch_queue;
   spsc_q_t srs_queue;
