@@ -27,7 +27,6 @@
 #include "position_interface.h"
 #include "nr_phy_common.h"
 #include "PHY/MODULATION/nr_modulation.h"
-#include "common/utils/time_manager/time_manager.h"
 #include "log.h"
 
 /*
@@ -288,6 +287,7 @@ static int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
   return NR_MIXED_SLOT;
 }
 
+/* txp NULL: nothing is transmitted in the slot, the reorder ring counts the write without adding samples */
 static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **txp)
 {
   int writeBlockSize = rxtxD->writeBlockSize;
@@ -373,12 +373,12 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
 
     writeTimestamp += num_zero_samples;
     writeBlockSize -= num_zero_samples;
-    for (int ant = 0; ant < fp->nb_antennas_tx; ant++)
+    for (int ant = 0; txp && ant < fp->nb_antennas_tx; ant++)
       txp[ant] += num_zero_samples;
   }
 
   // pre-compensate UL frequency offset
-  if (flags != TX_BURST_INVALID && get_nrUE_params()->cont_fo_comp) {
+  if (txp && flags != TX_BURST_INVALID && get_nrUE_params()->cont_fo_comp) {
     double ul_freq_offset = -UE->freq_offset * ((double)fp->ul_CarrierFreq / (double)fp->dl_CarrierFreq);
     if (get_nrUE_params()->cont_fo_comp == 2) // different from LO frequency error compensation, Doppler UL pre-compensation has to be negative
       ul_freq_offset = -ul_freq_offset;
@@ -405,6 +405,7 @@ void processSlotTX(void *arg)
   PHY_VARS_NR_UE *UE = rxtxD->UE;
   nr_phy_data_tx_t phy_data = {0};
   bool sl_tx_action = false;
+  bool transmit = true; // false: no signal in this slot
 
   if (UE->if_inst)
     UE->if_inst->slot_indication(UE->Mod_id, true);
@@ -462,12 +463,13 @@ void processSlotTX(void *arg)
       }
       dynamic_barrier_join(rxtxD->next_barrier);
 
-      phy_procedures_nrUE_TX(UE, proc, &phy_data, txp);
+      transmit = phy_procedures_nrUE_TX(UE, proc, &phy_data, txp);
     }
   } else {
     dynamic_barrier_join(rxtxD->next_barrier);
+    transmit = UE->sl_mode == 2; // DL slot
   }
-  RU_write(rxtxD, sl_tx_action, txp);
+  RU_write(rxtxD, sl_tx_action, transmit ? txp : NULL);
   TracyCZoneEnd(ctx);
 }
 
@@ -654,13 +656,8 @@ void dummyWrite(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, int writeBlo
   if (UE->sl_mode == 2)
     fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
 
-  c16_t *dummy_tx[fp->nb_antennas_tx];
-  c16_t dummy_tx_data[writeBlockSize];
-  memset(dummy_tx_data, 0, sizeof(dummy_tx_data));
-  for (int i = 0; i < fp->nb_antennas_tx; i++)
-    dummy_tx[i] = dummy_tx_data;
-
-  int tmp = nrue_ru_write(UE, timestamp, (void **)dummy_tx, writeBlockSize, fp->nb_antennas_tx, 4);
+  // no samples: silence
+  int tmp = nrue_ru_write_reorder(UE, timestamp, NULL, writeBlockSize, fp->nb_antennas_tx, 4);
   AssertFatal(writeBlockSize == tmp, "write to reorder function failed %d", tmp);
 }
 
@@ -890,6 +887,8 @@ void *UE_thread(void *arg)
   // out-of-sync RRC timer tick frame/hfn (see out_of_sync_rrc_timer_tick())
   int out_of_sync_rrc_tick_frame = 0, out_of_sync_rrc_tick_hfn = 0;
   bool out_of_sync_rrc_tick_seeded = false;
+  // --ue-start-spacing: UE instance i starts its first cell search after i times this duration, in received samples
+  int start_frames_left = UE->Mod_id * get_nrUE_params()->ue_start_spacing_ms / 10;
 
   for(int i = 0; i < NUM_PROCESS_SLOT_TX_BARRIERS; i++) {
     dynamic_barrier_init(&UE->process_slot_tx_barriers[i]);
@@ -963,6 +962,12 @@ void *UE_thread(void *arg)
     }
 
     AssertFatal(!syncRunning, "At this point synchronization can't be running\n");
+
+    if (!UE->is_synchronized && start_frames_left > 0) {
+      readFrame(UE, &sync_timestamp, duration_rx_to_tx, compute_sync_size(UE), NULL);
+      start_frames_left -= 2;
+      continue;
+    }
 
     if (!UE->is_synchronized) {
       // seed the out-of-sync tick once from the last known synchronized frame/hfn:
@@ -1058,10 +1063,6 @@ void *UE_thread(void *arg)
     // start of normal case, the UE is in sync
     absolute_slot++;
     TracyCFrameMark;
-
-    // pretend we have 1 iq sample per slot
-    // and so nb_slot_frame * 100 iq samples per second (1 frame being 10ms)
-    time_manager_iq_samples(1, nb_slot_frame * 100);
 
     int slot_nr = absolute_slot % nb_slot_frame;
     nr_rxtx_thread_data_t curMsg = {0};
