@@ -133,7 +133,8 @@ int main(int argc, char **argv)
   //unsigned char frame_type = 0;
   unsigned char pbch_phase = 0;
 
-  int frame=0;
+  // The MIB payload below carries SFN MSBs 25; also exercise nonzero SFN LSBs.
+  int frame = 405;
   int frame_length_complex_samples;
   __attribute__((unused))
   int frame_length_complex_samples_no_prefix;
@@ -626,6 +627,8 @@ int main(int argc, char **argv)
         printf("nr_initial_sync1 returns %s\n", ret.cell_detected ? "cell detected" : "cell not detected");
         if (!ret.cell_detected)
           n_errors++;
+        else if (input_fd == NULL && proc.frame_rx != frame)
+          n_errors_payload++;
       }
       else {
         UE_nr_rxtx_proc_t proc={0};

@@ -920,21 +920,14 @@ void *UE_thread(void *arg)
         for (int i = 0; i < fp->nb_antennas_rx; i++)
           free(sync_buf[i]);
         if (UE->is_synchronized) {
-          UE->synch_request.received_synch_request = 0;
-          out_of_sync_rrc_tick_seeded = false;
+          syncData_t *syncMsg = (syncData_t *)NotifiedFifoData(res);
           if (UE->sl_mode == SL_MODE2_SUPPORTED)
             decoded_frame_rx = UE->SL_UE_PHY_PARAMS.sync_params.DFN;
-          else {
-            // We must wait the RRC layer decoded the MIB and sent us the frame number
-            notifiedFIFO_elt_t *elt = pullNotifiedFIFO(&mac->input_nf);
-            AssertFatal(elt != NULL, "fifo error while waiting for MIB");
-            process_msg_rcc_to_mac(NotifiedFifoData(elt), UE->Mod_id);
-            delNotifiedFIFO_elt(elt);
-            decoded_frame_rx = mac->mib_frame;
-          }
+          else
+            decoded_frame_rx = syncMsg->proc.frame_rx;
+          out_of_sync_rrc_tick_seeded = false;
           LOG_A(PHY, "UE synchronized! decoded_frame_rx=%d skipped_frames=%d\n", decoded_frame_rx, skipped_frames);
           // shift the frame index with all the frames we trashed meanwhile we perform the synch search
-          syncData_t *syncMsg = (syncData_t *)NotifiedFifoData(res);
           decoded_frame_rx = (decoded_frame_rx + skipped_frames) % MAX_FRAME_NUMBER;
           intialSyncOffset = syncMsg->rx_offset;
         }
@@ -965,6 +958,10 @@ void *UE_thread(void *arg)
     AssertFatal(!syncRunning, "At this point synchronization can't be running\n");
 
     if (!UE->is_synchronized) {
+      handle_sync_req_from_mac(UE, dl_actors, ul_actors);
+      // The previous sync job has finished; the sync-request handler drains DL/UL actors.
+      if (UE->sl_mode != SL_MODE2_SUPPORTED)
+        nr_ue_start_mib_acquisition(mac);
       // seed the out-of-sync tick once from the last known synchronized frame/hfn:
       // absolute_slot doesn't advance while out of sync, so failed sync attempts must not re-seed
       if (!out_of_sync_rrc_tick_seeded) {

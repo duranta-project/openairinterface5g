@@ -11,6 +11,7 @@
 #include "PHY/NR_UE_ESTIMATION/nr_estimation.h"
 #include "SCHED_NR_UE/defs.h"
 #include "common/utils/nr/nr_common.h"
+#include "bits.h"
 
 #include <math.h>
 
@@ -450,6 +451,9 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
 
   // Set globals based on detected cell
   if (res) {
+    // TS 38.331 6.2.2 MIB and TS 38.212 7.1.1: all ten SFN bits from the selected PBCH.
+    proc->frame_rx = ((res->pbchResult.decoded_output[0] >> 1) & 0x3f) << 4
+                    | reverse_bits(res->pbchResult.xtra_byte & 0xf, 4);
     fp->Nid_cell = res->nidCell;
     fp->ssb_start_subcarrier = res->gscnInfo.ssbFirstSC;
     fp->half_frame_bit = res->halfFrameBit;
