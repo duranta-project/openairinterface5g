@@ -516,6 +516,10 @@ static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_inf
 
   AssertFatal(sib1->servingCellConfigCommon, "configuration issue in SIB1\n");
   SI_info->scs = sib1->servingCellConfigCommon->downlinkConfigCommon.initialDownlinkBWP.genericParameters.subcarrierSpacing;
+  const NR_MultiFrequencyBandListNR_SIB_t *bands =
+      &sib1->servingCellConfigCommon->downlinkConfigCommon.frequencyInfoDL.frequencyBandList;
+  SI_info->band =
+      bands->list.count > 0 && bands->list.array[0]->freqBandIndicatorNR ? *bands->list.array[0]->freqBandIndicatorNR : 0;
   SI_info->si_windowlength = (sib1->si_SchedulingInfo) ? sib1->si_SchedulingInfo->si_WindowLength : 0;
   // configure default SI
   nr_rrc_configure_default_SI(SI_info, sib1->si_SchedulingInfo, si_SchedInfo_v1700);
@@ -2806,7 +2810,9 @@ static void nr_rrc_ue_process_rrcReestablishment(NR_UE_RRC_INST_t *rrc,
   nr_rrc_ue_generate_rrcReestablishmentComplete(rrc, rrcReestablishment);
 }
 
-static void nr_rrc_ue_process_ueCapabilityEnquiry(NR_UE_RRC_INST_t *rrc, NR_UECapabilityEnquiry_t *UECapabilityEnquiry)
+static void nr_rrc_ue_process_ueCapabilityEnquiry(NR_UE_RRC_INST_t *rrc,
+                                                  int gNB_index,
+                                                  NR_UECapabilityEnquiry_t *UECapabilityEnquiry)
 {
   NR_UL_DCCH_Message_t ul_dcch_msg = {0};
   RRCLOG_I("Receiving from SRB1 (DL-DCCH), Processing UECapabilityEnquiry\n");
@@ -2817,9 +2823,16 @@ static void nr_rrc_ue_process_ueCapabilityEnquiry(NR_UE_RRC_INST_t *rrc, NR_UECa
   asn1cCalloc(c1->choice.ueCapabilityInformation, info);
   info->rrc_TransactionIdentifier = UECapabilityEnquiry->rrc_TransactionIdentifier;
   if (!rrc->UECap.UE_NR_Capability) {
-    rrc->UECap.UE_NR_Capability = CALLOC(1, sizeof(NR_UE_NR_Capability_t));
-    asn1cSequenceAdd(rrc->UECap.UE_NR_Capability->rf_Parameters.supportedBandListNR.list, NR_BandNR_t, nr_bandnr);
-    nr_bandnr->bandNR = 1;
+    /* without capability file: the band of the cell, 256QAM in DL and UL (MCS table 1, TS 38.214 5.1.3.1 and
+       6.1.4.1) */
+    NR_UE_NR_Capability_t *cap = CALLOC(1, sizeof(*cap));
+    rrc->UECap.UE_NR_Capability = cap;
+    const int band = rrc->perNB[gNB_index].SInfo.band;
+    asn1cSequenceAdd(cap->rf_Parameters.supportedBandListNR.list, NR_BandNR_t, nr_bandnr);
+    nr_bandnr->bandNR = band > 0 ? band : 1;
+    asn1cCallocOne(nr_bandnr->pusch_256QAM, NR_BandNR__pusch_256QAM_supported);
+    asn1cCalloc(cap->phy_Parameters.phy_ParametersFR1, phy_fr1);
+    asn1cCallocOne(phy_fr1->pdsch_256QAM_FR1, NR_Phy_ParametersFR1__pdsch_256QAM_FR1_supported);
   }
   xer_fprint(stdout, &asn_DEF_NR_UE_NR_Capability, (void *)rrc->UECap.UE_NR_Capability);
 
@@ -2941,7 +2954,7 @@ static int nr_rrc_ue_decode_dcch(NR_UE_RRC_INST_t *rrc,
 
         case NR_DL_DCCH_MessageType__c1_PR_ueCapabilityEnquiry:
           RRCLOG_I("Received Capability Enquiry (gNB %d)\n", gNB_indexP);
-          nr_rrc_ue_process_ueCapabilityEnquiry(rrc, c1->choice.ueCapabilityEnquiry);
+          nr_rrc_ue_process_ueCapabilityEnquiry(rrc, gNB_indexP, c1->choice.ueCapabilityEnquiry);
           break;
 
         case NR_DL_DCCH_MessageType__c1_PR_rrcReestablishment:

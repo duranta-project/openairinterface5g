@@ -134,6 +134,7 @@ typedef struct UE_RRC_SI_INFO_NR_s {
   NR_UE_RRC_SI_INFO_r17 SInfo_r17;
   // Extracted from SIB1
   int scs;
+  int band; // first band of frequencyInfoDL, 0 if not provided
   int sib19_periodicity;
   int sib19_windowposition;
   int si_windowlength;
