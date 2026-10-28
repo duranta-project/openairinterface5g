@@ -40,6 +40,7 @@ int nr_rlc_manager_get_gnb_flag(nr_rlc_ue_manager_t *m);
 void nr_rlc_manager_lock(nr_rlc_ue_manager_t *m);
 void nr_rlc_manager_unlock(nr_rlc_ue_manager_t *m);
 
+nr_rlc_ue_t *nr_rlc_manager_find_ue(nr_rlc_ue_manager_t *m, int ue_id);
 nr_rlc_ue_t *nr_rlc_manager_get_ue(nr_rlc_ue_manager_t *m, int ue_id);
 void nr_rlc_manager_remove_ue(nr_rlc_ue_manager_t *m, int ue_id);
 
