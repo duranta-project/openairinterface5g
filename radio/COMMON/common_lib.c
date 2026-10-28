@@ -242,6 +242,18 @@ static void reorder_flush(nrue_ru_write_t nrue_ru_write,
     ctx->nextTS = force_until;
 }
 
+/* first allocation of the writer states, for a fixed number of writers */
+static void reorder_init_writers(re_order_t *ctx, int nb_writers)
+{
+  if (ctx->max_writers) {
+    AssertFatal(nb_writers == ctx->max_writers, "number of writers changed from %d to %d\n", ctx->max_writers, nb_writers);
+    return;
+  }
+  ctx->max_writers = nb_writers;
+  ctx->writer_end = calloc_or_fail(nb_writers, sizeof(*ctx->writer_end));
+  ctx->writer_absent = calloc_or_fail(nb_writers, sizeof(*ctx->writer_absent));
+}
+
 // several writers (TX threads, UEs sharing one RU) may write out of order and concurrently
 int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
                                   PHY_VARS_NR_UE *UE,
@@ -249,6 +261,7 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
                                   openair0_timestamp_t timestamp,
                                   void **txp,
                                   int nsamps,
+                                  int writer,
                                   int nb_writers,
                                   int nbAnt,
                                   int flags)
@@ -259,12 +272,20 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
   AssertFatal(nbAnt > 0 && nbAnt <= ctx->nb_ant, "invalid number of tx antennas %d (max %d)\n", nbAnt, ctx->nb_ant);
   AssertFatal(nsamps <= ctx->sz, "write of %d samples larger than the reorder ring (%d)\n", nsamps, ctx->sz);
 
+  AssertFatal(writer >= 0 && writer < nb_writers, "invalid writer %d of %d\n", writer, nb_writers);
   pthread_mutex_lock(&ctx->mutex_store);
+  reorder_init_writers(ctx, nb_writers);
   if (!ctx->initDone) {
     ctx->nextTS = timestamp;
     ctx->maxTS = timestamp;
     ctx->initDone = true;
   }
+  ctx->writer_end[writer] = max(ctx->writer_end[writer], timestamp + nsamps);
+  if (ctx->writer_absent[writer]) {
+    ctx->writer_absent[writer] = false;
+    ctx->nb_absent--;
+  }
+  nb_writers -= ctx->nb_absent;
   int skip = 0;
   if (timestamp < ctx->nextTS) {
     skip = min(ctx->nextTS - timestamp, nsamps);
@@ -302,10 +323,17 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
    (counts only grow until the samples are sent) */
 static bool reorder_all_written(const re_order_t *ctx, int nb_writers, openair0_timestamp_t until, openair0_timestamp_t *checked)
 {
+  /* a writer may leave a few samples unwritten (timing advance change): a sample that all the present writers
+     passed by a quarter of the ring will not be written any more */
+  openair0_timestamp_t passed = UINT64_MAX;
+  for (int w = 0; w < ctx->max_writers; w++)
+    if (!ctx->writer_absent[w])
+      passed = min(passed, ctx->writer_end[w]);
+  passed = passed > ctx->sz / 4 ? passed - ctx->sz / 4 : 0;
   openair0_timestamp_t ts = max(*checked, ctx->nextTS);
   const openair0_timestamp_t end = min(until, ctx->nextTS + ctx->sz);
   for (; ts < end; ts++)
-    if ((ctx->nb_writers[ts % ctx->sz] & RO_COUNT) < nb_writers)
+    if ((ctx->nb_writers[ts % ctx->sz] & RO_COUNT) < nb_writers && ts >= passed)
       break;
   *checked = ts;
   return ts >= end;
@@ -323,13 +351,7 @@ void openair0_write_reorder_flush_common(nrue_ru_write_t nrue_ru_write,
 {
   re_order_t *ctx = &device->reOrder;
   pthread_mutex_lock(&ctx->mutex_store);
-  /* a writer that does not write a sample range at all (a UE resynchronizing after a radio link failure) would
-     make every flush of the range wait wait_ms: once a wait failed, flush without waiting until a flush finds
-     all the samples written */
-  if (wait_ms > 0 && ctx->initDone && force_until > ctx->nextTS && ctx->writer_missing) {
-    openair0_timestamp_t checked = ctx->nextTS;
-    ctx->writer_missing = !reorder_all_written(ctx, nb_writers, force_until, &checked);
-  } else if (wait_ms > 0 && ctx->initDone && force_until > ctx->nextTS) {
+  if (wait_ms > 0 && ctx->initDone && force_until > ctx->nextTS) {
     struct timespec deadline;
     clock_gettime(CLOCK_REALTIME, &deadline);
     deadline.tv_sec += wait_ms / 1000;
@@ -339,21 +361,29 @@ void openair0_write_reorder_flush_common(nrue_ru_write_t nrue_ru_write,
       deadline.tv_nsec -= 1000000000L;
     }
     openair0_timestamp_t checked = ctx->nextTS;
-    while (!reorder_all_written(ctx, nb_writers, force_until, &checked))
+    while (!reorder_all_written(ctx, nb_writers - ctx->nb_absent, force_until, &checked))
       if (pthread_cond_timedwait(&ctx->written, &ctx->mutex_store, &deadline) == ETIMEDOUT) {
-        LOG_D(HW, "TX not written by all the writers at %lu after %d ms, sending it\n", checked, wait_ms);
-        ctx->writer_missing = true;
+        /* a writer that does not write a sample range at all (a UE resynchronizing after a radio link failure)
+           would make every flush wait wait_ms: the writers that did not reach the missing sample are absent, not
+           waited for, until they write again. The others are still waited for: the simulated time does not run
+           ahead of their TX */
+        for (int w = 0; w < ctx->max_writers; w++)
+          if (!ctx->writer_absent[w] && ctx->writer_end[w] <= checked) {
+            ctx->writer_absent[w] = true;
+            ctx->nb_absent++;
+            LOG_D(HW, "TX writer %d not written at %lu after %d ms, absent until it writes\n", w, checked, wait_ms);
+          }
         break;
       }
   }
   if (ctx->initDone && force_until > ctx->nextTS)
-    reorder_flush(nrue_ru_write, UE, device, nb_writers, nbAnt, force_until);
+    reorder_flush(nrue_ru_write, UE, device, nb_writers - ctx->nb_absent, nbAnt, force_until);
   pthread_mutex_unlock(&ctx->mutex_store);
 }
 
 int openair0_write_reorder(openair0_device_t *device, openair0_timestamp_t timestamp, void **txp, int nsamps, int nbAnt, int flags)
 {
-  return openair0_write_reorder_common(NULL, NULL, device, timestamp, txp, nsamps, 1, nbAnt, flags);
+  return openair0_write_reorder_common(NULL, NULL, device, timestamp, txp, nsamps, 0, 1, nbAnt, flags);
 }
 
 void openair0_write_reorder_clear_context(openair0_device_t *device)
@@ -365,6 +395,11 @@ void openair0_write_reorder_clear_context(openair0_device_t *device)
     for (int a = 0; a < ctx->nb_ant; a++)
       memset(ctx->ring[a], 0, ctx->sz * sizeof(c16_t));
     memset(ctx->nb_writers, 0, ctx->sz * sizeof(*ctx->nb_writers));
+    for (int w = 0; w < ctx->max_writers; w++) {
+      ctx->writer_end[w] = 0;
+      ctx->writer_absent[w] = false;
+    }
+    ctx->nb_absent = 0;
     ctx->initDone = false;
   }
   pthread_mutex_unlock(&ctx->mutex_store);

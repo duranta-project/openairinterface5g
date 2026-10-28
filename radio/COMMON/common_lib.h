@@ -331,7 +331,12 @@ typedef struct {
   bool initDone;
   pthread_mutex_t mutex_store;
   pthread_cond_t written; // signaled after each write
-  bool writer_missing; // the last flush waited in vain for a writer: do not wait again until all the writers caught up
+  /* writers (one per UE sharing the RU): end of their last write, and absent when a flush waited in vain for them,
+     until they write again (a UE resynchronizing after a radio link failure does not write) */
+  int max_writers;
+  openair0_timestamp_t *writer_end;
+  bool *writer_absent;
+  int nb_absent;
   openair0_timestamp_t nextTS; // first sample not sent yet
   openair0_timestamp_t maxTS; // end of the most recent write
   int sz;
@@ -573,12 +578,14 @@ typedef struct PHY_VARS_NR_UE_s PHY_VARS_NR_UE;
 typedef int (*nrue_ru_write_t)(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **txp, int nsamps, int nbAnt, int flags);
 
 /// txp NULL writes silence: the write is counted, no sample is added
+/// writer: index of the writer, in [0, nb_writers)
 int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
                                   PHY_VARS_NR_UE *UE,
                                   openair0_device_t *device,
                                   openair0_timestamp_t timestamp,
                                   void **txp,
                                   int nsamps,
+                                  int writer,
                                   int nb_writers,
                                   int nbAnt,
                                   int flags);
