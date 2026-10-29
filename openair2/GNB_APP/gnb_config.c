@@ -1599,6 +1599,17 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   // MAC / RLC
   GET_PARAMS_LIST(MacRLC_ParamList, MacRLC_Params, MACRLCPARAMS_DESC, MACRLC_LIST, NULL, MACRLCPARAMS_CHECK);
 
+  // RU
+  GET_PARAMS_LIST(RUParamList, RUParams, RUPARAMS_DESC, CONFIG_STRING_RU_LIST, NULL);
+  // TODO -1 means "don't know": temporary solution for 3rd party RU or nFAPI,
+  // in which case we don't have RU section present in the config file
+  int num_tx = -1;
+  if (RUParamList.numelt > 0) {
+    num_tx = 0;
+    for (int i = 0; i < RUParamList.numelt; i++)
+      num_tx += *(RUParamList.paramarray[i][RU_NB_TX_IDX].uptr);
+  }
+
   AssertFatal(MacRLC_ParamList.numelt == 1, "only one MACRLCs section supported!\n");
   AssertFatal(MacRLC_ParamList.numelt == RC.nb_nr_macrlc_inst, "only one MACRLCs section supported!\n");
 
@@ -1634,17 +1645,9 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
     LOG_I(GNB_APP, "Aerial TXRUs: num_tx_ant %d num_rx_ant %d\n", config.aerial.num_tx_ant, config.aerial.num_rx_ant);
 #endif
 
-  // RU
-  GET_PARAMS_LIST(RUParamList, RUParams, RUPARAMS_DESC, CONFIG_STRING_RU_LIST, NULL);
-  int num_tx = 0;
-  int beams_per_period;
-  if (MacRLC_ParamList.numelt > 0)
-    beams_per_period = *gpd(MacRLC_ParamList.paramarray[0], sizeofArray(MacRLC_Params), MACRLC_BEAMS_PERIOD)->u8ptr;
-  else
-    beams_per_period = 1;
+  int beams_per_period = 1; // TODO verification after beams_per_period/pdsch
+                            // have been read
   if (RUParamList.numelt > 0) {
-    for (int i = 0; i < RUParamList.numelt; i++)
-      num_tx += *(RUParamList.paramarray[i][RU_NB_TX_IDX].uptr);
     AssertFatal(num_tx >= p->XP * p->N1 * p->N2 * beams_per_period,
                 "Number of logical antenna ports (set in config file with pdsch_AntennaPorts and beams_per_period) cannot be "
                 "larger than physical "
@@ -1653,7 +1656,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
                 "Number of antenna ports set in config file exceeds the supported value of %d\n",
                 NR_MAX_CSI_PORTS);
   } else {
-    // TODO temporary solution for 3rd party RU or nFAPI, in which case we don't have RU section present in the config file
     num_tx = p->XP * p->N1 * p->N2 * beams_per_period;
     LOG_E(GNB_APP, "RU information not present in config file. Assuming physical antenna ports equal to logical antenna ports %d\n", num_tx);
   }
@@ -1873,7 +1875,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   paramdef_t *p_bf = (paramdef_t *)gpd(params, np, MACRLC_BF_METHOD);
   NR_beam_info_t *beam_info = &cell->beam_info;
   beam_info->bf_method = config_get_processedint(cfg, p_bf);
-  beam_info->beams_per_period = beams_per_period;
+  beam_info->beams_per_period = *gpd(MacRLC_ParamList.paramarray[0], sizeofArray(MacRLC_Params), MACRLC_BEAMS_PERIOD)->u8ptr;
   beam_info->beam_duration = *gpd(params, np, MACRLC_BEAM_DURATION)->u8ptr;
   // TODO config_isparamset doesn't seem to work for array types, checking numelt instead
   int num_ssb_beams = gpd(params, np, MACRLC_SSB_BEAMS_LIST)->numelt;
