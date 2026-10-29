@@ -241,6 +241,72 @@ static void reset_neighboring_cell_info(fapi_nr_neighboring_cell_t *neighbor_cel
     neighbor_cell->Nid_cell = -1;
 }
 
+#define PSS_SEARCH_HALF_WINDOW 64
+
+static inline void update_pss_search_window(neighboring_cell_info_t *cell_info,
+                                            int pss_abs_pos,
+                                            int samples_per_slot,
+                                            int ofdm_symbol_size)
+{
+  int pss_start = (pss_abs_pos > PSS_SEARCH_HALF_WINDOW) ? (pss_abs_pos - PSS_SEARCH_HALF_WINDOW) : 0;
+  int pss_end =
+      (pss_abs_pos + PSS_SEARCH_HALF_WINDOW < samples_per_slot) ? (pss_abs_pos + PSS_SEARCH_HALF_WINDOW) : samples_per_slot;
+  cell_info->pss_search_start = pss_start;
+  cell_info->pss_search_length = (pss_end - pss_start) + ofdm_symbol_size;
+}
+
+static double nr_compute_normalized_dmrs(const NR_DL_FRAME_PARMS *frame_parms,
+                                         int nid_cell,
+                                         int ssb_start_subcarrier,
+                                         const uint32_t *gold,
+                                         c16_t rxdataF[][frame_parms->nb_antennas_rx][frame_parms->ofdm_symbol_size])
+{
+  const int k = nid_cell % 4;
+  double total_corr_energy = 0;
+  double total_norm_energy = 0;
+  c16_t pilot[200] __attribute__((aligned(16)));
+
+  for (int s = 0; s < 3; s++) {
+    int symb = s + 1; // PBCH is at symbols 1, 2, 3 of SSB
+    nr_pbch_dmrs_rx(s, gold, pilot, false);
+
+    // Symbol 0: 60 pilots -> 5 blocks of 12
+    // Symbol 1: 24 pilots -> 2 blocks of 12 (12 left of SSS, 12 right of SSS)
+    // Symbol 2: 60 pilots -> 5 blocks of 12
+    int num_blocks = (s == 1) ? 2 : 5;
+
+    for (int b = 0; b < num_blocks; b++) {
+      int p_start = b * 12;
+      for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
+        cd_t corr = {0};
+        double p_energy = 0;
+        double rx_energy = 0;
+        for (int p = 0; p < 12; p++) {
+          int pil_idx = p_start + p;
+          int re_offset;
+          if (s == 1 && b == 1) {
+            // Second block of symbol 1 (symbol 2 in SSB) is on right side of SSS, shifted by 144 REs
+            re_offset = ssb_start_subcarrier + k + 144 + 4 * pil_idx;
+          } else {
+            re_offset = ssb_start_subcarrier + k + 4 * pil_idx;
+          }
+          c16_t pil = pilot[pil_idx];
+          c16_t rx = rxdataF[symb][aarx][re_offset];
+          // pil is already complex conjugate of transmitted DMRS
+          corr.r += (double)pil.r * rx.r - (double)pil.i * rx.i;
+          corr.i += (double)pil.r * rx.i + (double)pil.i * rx.r;
+          p_energy += (double)pil.r * pil.r + (double)pil.i * pil.i;
+          rx_energy += (double)rx.r * rx.r + (double)rx.i * rx.i;
+        }
+        total_corr_energy += corr.r * corr.r + corr.i * corr.i;
+        total_norm_energy += p_energy * rx_energy;
+      }
+    }
+  }
+
+  return (total_norm_energy > 0) ? (total_corr_energy / total_norm_energy) : 0.0;
+}
+
 static bool search_neighboring_cell(UE_nr_rxtx_proc_t *proc,
                                     NR_DL_FRAME_PARMS *frame_parms,
                                     fapi_nr_neighboring_cell_t *nr_neighboring_cell,
@@ -285,18 +351,20 @@ static bool search_neighboring_cell(UE_nr_rxtx_proc_t *proc,
     const int N_L = (frame_parms->Lmax == 4) ? 4 : 8;
     const int N_hf = (frame_parms->Lmax == 4) ? 2 : 1;
     double metric = 0;
+    double max_norm_dmrs = 0;
     // loops over possible pbch dmrs cases to retrieve best estimated i_ssb (and n_hf for Lmax=4) for multiple ssb detection
     for (int hf = 0; hf < N_hf; hf++) {
       for (int l = 0; l < N_L; l++) {
         // computing correlation between received DMRS symbols and transmitted sequence for current i_ssb and n_hf
         cd_t cumul = {0};
+        const uint32_t *gold = nr_gold_pbch(frame_parms->Lmax, search_params.sss_res.nid_cell, hf, l);
         for (int i = pbch_initial_symbol; i < pbch_initial_symbol + 3; i++) {
           c32_t meas = nr_pbch_dmrs_correlation(frame_parms,
                                                 i,
                                                 i - pbch_initial_symbol,
                                                 search_params.sss_res.nid_cell,
                                                 search_params.ssb_start_subcarrier,
-                                                nr_gold_pbch(frame_parms->Lmax, search_params.sss_res.nid_cell, hf, l),
+                                                gold,
                                                 rxdataF[i]);
           csum(cumul, cumul, meas);
         }
@@ -304,9 +372,17 @@ static bool search_neighboring_cell(UE_nr_rxtx_proc_t *proc,
         if (metric < tmp) {
           metric = tmp;
         }
+        double norm_dmrs = nr_compute_normalized_dmrs(frame_parms,
+                                                      search_params.sss_res.nid_cell,
+                                                      search_params.ssb_start_subcarrier,
+                                                      gold,
+                                                      rxdataF);
+        if (max_norm_dmrs < norm_dmrs) {
+          max_norm_dmrs = norm_dmrs;
+        }
       }
     }
-    cell_detected = metric > NR_PBCH_DMRS_METRIC_FLOOR ? true : false;
+    cell_detected = (metric > NR_PBCH_DMRS_METRIC_FLOOR) && (max_norm_dmrs > 0.25);
   }
 
   if (cell_detected) {
@@ -320,8 +396,10 @@ static bool search_neighboring_cell(UE_nr_rxtx_proc_t *proc,
           search_params.pss_res.avg);
 
     // Update search window
-    neighboring_cell_info->pss_search_start = search_params.pss_res.pos - 16;
-    neighboring_cell_info->pss_search_length = 32 + frame_parms->ofdm_symbol_size;
+    update_pss_search_window(neighboring_cell_info,
+                             search_params.pss_res.pos,
+                             frame_parms->samples_per_slot_wCP,
+                             frame_parms->ofdm_symbol_size);
     neighboring_cell_info->ssb_slot = proc->nr_slot_rx;
   }
 
@@ -410,8 +488,8 @@ static bool validate_known_pci(NR_DL_FRAME_PARMS *frame_parms,
   nr_neighboring_cell->is_candidate = false;
   neighboring_cell_info->consec_fail = 0;
   neighboring_cell_info->valid_meas = true;
-  neighboring_cell_info->pss_search_start += pss_res.pos - 16;
-  neighboring_cell_info->pss_search_length = 32 + frame_parms->ofdm_symbol_size;
+  int pss_abs_pos = neighboring_cell_info->pss_search_start + pss_res.pos;
+  update_pss_search_window(neighboring_cell_info, pss_abs_pos, frame_parms->samples_per_slot_wCP, frame_parms->ofdm_symbol_size);
   neighboring_cell_info->ssb_slot = slot;
 
   return true;
