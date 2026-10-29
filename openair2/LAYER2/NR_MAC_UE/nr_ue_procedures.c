@@ -447,6 +447,7 @@ static void set_harq_status(NR_UE_MAC_INST_t *mac,
                             uint8_t dai,
                             int n_CCE,
                             int N_CCE,
+                            bool new_data,
                             frame_t frame,
                             int slot)
 {
@@ -458,7 +459,12 @@ static void set_harq_status(NR_UE_MAC_INST_t *mac,
   current_harq->pucch_resource_indicator = pucch_id;
   // TS 38.213: PRI applies to the resource set at DCI detection
   // No dedicated PUCCH-ResourceSet yet: freeze pucch-ResourceCommon (9.2.1), else -1 (9.2.3)
-  if (!nr_ue_has_dedicated_pucch_resource_set(pucch_Config)) {
+  // A retransmission keeps the set of its TB initial transmission: once Msg4 is decoded, RRCSetup
+  // applies the dedicated PUCCH-Config, but the gNB has not received the Msg4 HARQ-ACK and
+  // retransmits it expecting the HARQ-ACK on pucch-ResourceCommon
+  if (!new_data && current_harq->pucch_ResourceCommon >= 0) {
+    // keep the frozen pucch-ResourceCommon
+  } else if (!nr_ue_has_dedicated_pucch_resource_set(pucch_Config)) {
     AssertFatal(pucch_ConfigCommon && pucch_ConfigCommon->pucch_ResourceCommon,
                 "pucch_ResourceCommon required for Table 9.2.1-1 HARQ-ACK\n");
     current_harq->pucch_ResourceCommon = *pucch_ConfigCommon->pucch_ResourceCommon;
@@ -734,9 +740,10 @@ static bool get_cw_info(NR_UE_DL_HARQ_STATUS_t *current_harq,
   if (pdu_type != FAPI_NR_DL_CONFIG_TYPE_SI_DLSCH && pdu_type != FAPI_NR_DL_CONFIG_TYPE_RA_DLSCH
       && pdu_type != FAPI_NR_DL_CONFIG_TYPE_P_DLSCH) {
     current_harq->last_ndi = ndi;
-    if (cw_info->new_data_indicator)
+    if (cw_info->new_data_indicator) {
       current_harq->round = 0;
-    else
+      current_harq->tb_delivered = false;
+    } else
       current_harq->round++;
   }
   cw_info->qamModOrder = nr_get_Qm_dl(cw_info->mcs, dlsch_pdu->mcs_table);
@@ -1101,6 +1108,11 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   int nb_re_dmrs = ((dlsch_pdu->dmrsConfigType == NFAPI_NR_DMRS_TYPE1) ? 6 : 4) * dlsch_pdu->n_dmrs_cdm_groups;
   int nb_rb_oh = mac->sc_info.xOverhead_PDSCH ? nb_rb_oh = 6 * (1 + *mac->sc_info.xOverhead_PDSCH) : 0;
   NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[dci->harq_pid.val][0];
+  // TS 38.321 5.3.1: the NDI of the first downlink assignment for this Temporary C-RNTI is considered toggled
+  if (rnti_type == TYPE_TC_RNTI_ && !mac->msg3_C_RNTI && !mac->ra.t_crnti_dl_assigned) {
+    current_harq->last_ndi = -1;
+    mac->ra.t_crnti_dl_assigned = true;
+  }
   if (!get_cw_info(current_harq,
                    dlsch_pdu,
                    dl_conf_req->pdu_type,
@@ -1191,6 +1203,7 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
                       dci->dai[0].val,
                       dci_ind->n_CCE,
                       dci_ind->N_CCE,
+                      dlsch_pdu->cw_info[0].new_data_indicator,
                       frame,
                       slot);
     }
@@ -1521,6 +1534,7 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
                       dci->dai[0].val,
                       dci_ind->n_CCE,
                       dci_ind->N_CCE,
+                      dlsch_pdu->cw_info[0].new_data_indicator,
                       frame,
                       slot);
       cw_idx++;
@@ -1554,6 +1568,7 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
                       dci->dai[0].val,
                       dci_ind->n_CCE,
                       dci_ind->N_CCE,
+                      dlsch_pdu->cw_info[1].new_data_indicator,
                       frame,
                       slot);
       cw_idx++;
@@ -3284,7 +3299,7 @@ static void handle_rar_reception(NR_UE_MAC_INST_t *mac, NR_MAC_RAR *rar, frame_t
   if (!tda_info.valid_tda || tda_info.nrOfSymbols == 0) {
     LOG_E(MAC, "Cannot schedule Msg3. Something wrong in TDA information\n");
     // resume RAR response window timer if MSG2 decoding failed
-    nr_timer_suspension(&mac->ra.response_window_timer);
+    nr_timer_suspension(&mac->ra.response_window_timer, false);
     return;
   }
   frame_t frame_tx = 0;
@@ -3352,6 +3367,7 @@ static void handle_rar_reception(NR_UE_MAC_INST_t *mac, NR_MAC_RAR *rar, frame_t
     // if the RA preamble is selected among the contention-based RA Preambles
     if (!ra->cfra) {
       ra->t_crnti = rar->TCRNTI_2 + (rar->TCRNTI_1 << 8);
+      ra->t_crnti_dl_assigned = false;
       rnti = ra->t_crnti;
       if (!mac->msg3_C_RNTI)
         nr_mac_rrc_msg3_ind(mac->ue_id, rnti, false);
@@ -3471,7 +3487,7 @@ static void nr_ue_process_rar(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *d
             rarh->RAPID,
             preamble_index);
       // resume RAR response window timer if MSG2 decoding failed
-      nr_timer_suspension(&mac->ra.response_window_timer);
+      nr_timer_suspension(&mac->ra.response_window_timer, false);
       break;
     } else {
       rarh += sizeof(NR_MAC_RAR) + 1;

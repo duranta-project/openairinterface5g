@@ -71,7 +71,7 @@ static const char hex[] = "0123456789abcdef";
 
 static nr_ue_nas_t nr_ue_nas[MAX_NUM_NR_UE_INST] = {0};
 
-nr_ue_nas_t *get_nr_ue_nas_info(uint8_t ue_inst)
+nr_ue_nas_t *get_nr_ue_nas_info(int ue_inst)
 {
   AssertFatal(ue_inst >= 0 && ue_inst < MAX_NUM_NR_UE_INST, "Invalid UE instance\n");
   return &nr_ue_nas[ue_inst];
@@ -2791,13 +2791,21 @@ void *nas_nrue(void *args_p)
         abort_service_request(nas);
         nas->fiveGMM_mode = FGS_IDLE;
         // TODO handle connection release
-        if (nas->termination_procedure) {
-          /* the following is not clean, but probably necessary: we need to give
-           * time to RLC to Ack the SRB1 PDU which contained the RRC release
-           * message. Hence, we just below wait some time, before finally
-           * unblocking the nr-uesoftmodem, which will terminate the process. */
-          usleep(100000);
-          itti_wait_tasks_unblock(); /* will unblock ITTI to stop nr-uesoftmodem */
+        if (nas->termination_procedure && !nas->terminated) {
+          nas->terminated = true;
+          /* several UEs can run in one process: stop it only when all of them terminated,
+             one UE rejected by the network must not stop the others */
+          static int nb_terminated = 0;
+          if (__atomic_add_fetch(&nb_terminated, 1, __ATOMIC_SEQ_CST) == NB_UE_INST) {
+            /* the following is not clean, but probably necessary: we need to give
+             * time to RLC to Ack the SRB1 PDU which contained the RRC release
+             * message. Hence, we just below wait some time, before finally
+             * unblocking the nr-uesoftmodem, which will terminate the process. */
+            usleep(100000);
+            itti_wait_tasks_unblock(); /* will unblock ITTI to stop nr-uesoftmodem */
+          } else {
+            LOG_W(NAS, "[UE %ld] terminated, %d/%d UEs of the process terminated\n", nas->UE_id, nb_terminated, NB_UE_INST);
+          }
         }
         break;
       }

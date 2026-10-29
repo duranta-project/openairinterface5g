@@ -13,10 +13,9 @@
 #include "SCHED_NR_UE/fapi_nr_ue_l1.h"
 #include "bits.h"
 #include "openair2/RRC/NR_UE/L2_interface_ue.h"
+#include "executables/nr-uesoftmodem.h"
 
-#define MAX_IF_MODULES 100
-
-static nr_ue_if_module_t *nr_ue_if_module_inst[MAX_IF_MODULES];
+static nr_ue_if_module_t *nr_ue_if_module_inst[MAX_NUM_NR_UE_INST];
 
 void print_ue_mac_stats(const module_id_t mod, const int frame_rx, const int slot_rx)
 {
@@ -156,8 +155,8 @@ static nr_dci_format_t handle_dci(NR_UE_MAC_INST_t *mac, frame_t frame, int slot
 
   // suspend RAR response window timer
   // (in RFsim running multiple slot in parallel it might expire while decoding MSG2)
-  if (mac->ra.ra_state == nrRA_WAIT_RAR)
-    nr_timer_suspension(&mac->ra.response_window_timer);
+  if (mac->ra.ra_state == nrRA_WAIT_RAR && dci->rnti == mac->ra.ra_rnti)
+    nr_timer_suspension(&mac->ra.response_window_timer, true);
 
   return nr_ue_process_dci_indication_pdu(mac, frame, slot, dci);
 }
@@ -192,13 +191,24 @@ static int8_t handle_pcch(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_in
 // Note: sdu should always be processed because data and timing advance updates are transmitted by the UE
 static int8_t handle_dlsch(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info, int pdu_id)
 {
+  fapi_nr_rx_indication_body_t *rx = &dl_info->rx_ind->rx_indication_body[pdu_id];
   if (mac->ra.ra_state != nrRA_WAIT_RAR) // no HARQ for MSG2
-    update_harq_status(mac,
-                       dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.harq_pid,
-                       dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.cw_idx,
-                       dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.ack_nack);
-  if(dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.ack_nack)
-    nr_ue_send_sdu(mac, dl_info, pdu_id);
+    update_harq_status(mac, rx->pdsch_pdu.harq_pid, rx->pdsch_pdu.cw_idx, rx->pdsch_pdu.ack_nack);
+  if (!rx->pdsch_pdu.ack_nack)
+    return 0;
+  // TS 38.321 5.3.2.2: a retransmission of a TB already successfully decoded is acknowledged
+  // but not delivered again (e.g. Msg4 retransmitted because the gNB missed its HARQ-ACK)
+  // During contention resolution always deliver: the NDI of the first TC-RNTI assignment is toggled
+  if (rx->pdu_type == FAPI_NR_RX_PDU_TYPE_DLSCH) {
+    NR_UE_DL_HARQ_STATUS_t *harq = &mac->dl_harq_info[rx->pdsch_pdu.harq_pid][rx->pdsch_pdu.cw_idx];
+    bool contention_resolution = mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION || mac->ra.ra_state == nrRA_WAIT_MSGB;
+    if (harq->round > 0 && harq->tb_delivered && !contention_resolution) {
+      LOG_D(NR_MAC, "HARQ pid %d: retransmission of an already delivered TB, not delivered again\n", rx->pdsch_pdu.harq_pid);
+      return 0;
+    }
+    harq->tb_delivered = true;
+  }
+  nr_ue_send_sdu(mac, dl_info, pdu_id);
 
   return 0;
 }
@@ -334,7 +344,7 @@ static uint32_t nr_ue_dl_processing(NR_UE_MAC_INST_t *mac, nr_downlink_indicatio
           if (!dl_info->rx_ind->rx_indication_body[i].pdsch_pdu.ack_nack) {
             LOG_W(PHY, "Received a RAR-Msg2 but LDPC decode failed\n");
             // resume RAR response window timer if MSG2 decoding failed
-            nr_timer_suspension(&mac->ra.response_window_timer);
+            nr_timer_suspension(&mac->ra.response_window_timer, false);
           } else {
             LOG_I(PHY, "[UE %d] RAR-Msg2 decoded\n", mac->ue_id);
           }
@@ -387,6 +397,7 @@ void nr_ue_slot_indication(uint8_t mod_id, bool is_tx)
 
 nr_ue_if_module_t *nr_ue_if_module_init(uint32_t module_id)
 {
+  AssertFatal(module_id < MAX_NUM_NR_UE_INST, "UE %u: at most %d UEs per process\n", module_id, MAX_NUM_NR_UE_INST);
   if (nr_ue_if_module_inst[module_id] == NULL) {
     nr_ue_if_module_inst[module_id] = (nr_ue_if_module_t *)malloc(sizeof(nr_ue_if_module_t));
     memset((void*)nr_ue_if_module_inst[module_id],0,sizeof(nr_ue_if_module_t));

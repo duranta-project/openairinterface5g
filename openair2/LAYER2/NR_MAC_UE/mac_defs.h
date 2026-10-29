@@ -334,6 +334,8 @@ typedef struct {
   uint16_t MsgB_rnti;
   /// Temporary CRNTI
   uint16_t t_crnti;
+  /// a downlink assignment was received for this Temporary C-RNTI (TS 38.321 5.3.1)
+  bool t_crnti_dl_assigned;
   /// Random-access procedure flag
   bool RA_active;
   /// Random-access preamble index
@@ -401,6 +403,8 @@ typedef struct {
   uint32_t TBS;
   int last_ndi;
   int round;
+  /// TB of this HARQ process already delivered to upper layers (TS 38.321 5.3.2.2)
+  bool tb_delivered;
 } NR_UE_DL_HARQ_STATUS_t;
 
 typedef struct {

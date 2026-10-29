@@ -164,7 +164,14 @@ void handle_ulsync_loss(NR_UE_MAC_INST_t *mac)
 
 void update_mac_dl_timers(NR_UE_MAC_INST_t *mac)
 {
-  bool ra_window_expired = nr_timer_tick(&mac->ra.response_window_timer);
+  NR_timer_t *rw = &mac->ra.response_window_timer;
+  /* Suspended on the RA-RNTI DCI until its PDSCH is processed; resume if that PDSCH never reaches MAC
+     (dropped by a late decode), else RA would wait forever. */
+  if (rw->active && rw->suspended && rw->counter >= rw->target + mac->frame_structure.numb_slots_frame) {
+    LOG_W(NR_MAC, "[UE %d] RAR PDSCH not received, resuming the RA response window\n", mac->ue_id);
+    nr_timer_suspension(rw, false);
+  }
+  bool ra_window_expired = nr_timer_tick(rw);
   if (ra_window_expired) // consider the Random Access Response reception not successful
     nr_rar_not_successful(mac);
   bool alignment_timer_expired = nr_timer_tick(&mac->time_alignment_timer);

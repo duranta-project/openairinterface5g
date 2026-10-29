@@ -255,6 +255,7 @@ int main(int argc, char **argv)
   char *pckg = strdup(OAI_PACKAGE_VERSION);
   LOG_I(HW, "Version: %s\n", pckg);
 
+  AssertFatal(NB_UE_INST <= MAX_NUM_NR_UE_INST, "%d UEs requested, at most %d per process\n", NB_UE_INST, MAX_NUM_NR_UE_INST);
   nrPHY_vars_UE_g = calloc_or_fail(NB_UE_INST, sizeof(*nrPHY_vars_UE_g));
   for (int inst = 0; inst < NB_UE_INST; inst++) {
     nrPHY_vars_UE_g[inst] = calloc_or_fail(MAX_NUM_CCs, sizeof(*nrPHY_vars_UE_g[inst]));
@@ -393,7 +394,10 @@ int main(int argc, char **argv)
 
   nrue_init_openair0();
 
-  lock_memory_to_ram();
+  /* mlockall() makes every page resident, including the whole 8 MB stack of each thread: with tens of
+     UEs in one process (simulation), that is gigabytes for no real-time gain */
+  if (NB_UE_INST == 1)
+    lock_memory_to_ram();
 
   if (IS_SOFTMODEM_DOSCOPE) {
     load_softscope("nr", nrPHY_vars_UE_g[0][0]);

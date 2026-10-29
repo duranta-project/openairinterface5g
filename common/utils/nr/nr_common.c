@@ -1242,9 +1242,9 @@ void nr_timer_stop(NR_timer_t *timer)
   timer->counter = 0;
 }
 
-void nr_timer_suspension(NR_timer_t *timer)
+void nr_timer_suspension(NR_timer_t *timer, bool suspended)
 {
-  timer->suspended = !timer->suspended;
+  timer->suspended = suspended;
 }
 
 bool nr_timer_is_active(const NR_timer_t *timer)
