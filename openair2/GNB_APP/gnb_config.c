@@ -1577,7 +1577,13 @@ static void config_spatial_stream_index(const paramdef_t *param, const size_t np
   }
 }
 
-static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg, int *num_tx, int idx, paramdef_t *gnb_p, paramdef_t *timer_p)
+static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
+                                      int *num_tx,
+                                      int idx,
+                                      paramdef_t *gnb_p,
+                                      paramdef_t *timer_p,
+                                      const paramdef_t *macrlc_p,
+                                      int macrlc_np)
 {
   nr_mac_config_t config = {0};
   config.pdsch_AntennaPorts.N1 = *gnb_p[GNB_PDSCH_ANTENNAPORTS_N1_IDX].iptr;
@@ -1673,6 +1679,22 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg, int *num_tx
         config.timer_config.n311,
         config.timer_config.t319);
 
+  config.pusch.target_snrx10 = *gpd(macrlc_p, macrlc_np, MACRLC_PUSCHTARGETSNRX10)->iptr;
+  config.pusch.rssi_threshold = *gpd(macrlc_p, macrlc_np, MACRLC_PUSCH_RSSI_THRESHOLD)->iptr;
+  config.pucch.rssi_threshold = *gpd(macrlc_p, macrlc_np, MACRLC_PUCCH_RSSI_THRESHOLD)->iptr;
+  config.pucch.target_snrx10 = *gpd(macrlc_p, macrlc_np, MACRLC_PUCCHTARGETSNRX10)->iptr;
+  config.ul_prbblack_SNR_threshold = *gpd(macrlc_p, macrlc_np, MACRLC_UL_PRBBLACK_SNR_THRESHOLD)->iptr;
+  config.pucch.failure_thres = *gpd(macrlc_p, macrlc_np, MACRLC_PUCCHFAILURETHRES)->iptr;
+  config.pusch.failure_thres = *gpd(macrlc_p, macrlc_np, MACRLC_PUSCHFAILURETHRES)->iptr;
+  LOG_I(NR_MAC,
+        "PUSCH Target %d RSSI thresh %d Failure %d, PUCCH Target %d RSSI thresh %d Failure %d\n",
+        config.pusch.target_snrx10,
+        config.pusch.rssi_threshold,
+        config.pusch.failure_thres,
+        config.pucch.target_snrx10,
+        config.pucch.rssi_threshold,
+        config.pucch.failure_thres);
+
   int beams_per_period = 1; // TODO verification after beams_per_period/pdsch
                             // have been read
   const nr_pdsch_AntennaPorts_t *p = &config.pdsch_AntennaPorts;
@@ -1730,7 +1752,9 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   snprintf(aprefix, sizeof(aprefix), "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, idx, GNB_CONFIG_STRING_TIMERS_CONFIG);
   GET_PARAMS(Timers_Params, GNB_TIMERS_PARAMS_DESC, aprefix);
 
-  nr_mac_config_t config = get_mac_config(cfg, &num_tx, idx, GNBParamList.paramarray[idx], Timers_Params);
+  const paramdef_t *macrlc_p = MacRLC_ParamList.paramarray[idx];
+  const int macrlc_np = sizeofArray(MacRLC_Params);
+  nr_mac_config_t config = get_mac_config(cfg, &num_tx, idx, GNBParamList.paramarray[idx], Timers_Params, macrlc_p, macrlc_np);
 
 #ifdef ENABLE_AERIAL
   // Aerial: TXRU counts advertised to the L1 in CONFIG.request, decoupled
@@ -1754,39 +1778,19 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   config.first_active_bwp = *GNBParamList.paramarray[0][GNB_1ST_ACTIVE_BWP_IDX].iptr;
   AssertFatal(config.first_active_bwp <= config.num_additional_bwps, "1st active BWP does not belog to the configured BWPs\n");
 
-
-  const paramdef_t *params = MacRLC_ParamList.paramarray[0];
-  const int np = sizeofArray(MacRLC_Params);
-  config.pusch.target_snrx10 = *gpd(params, np, MACRLC_PUSCHTARGETSNRX10)->iptr;
-  config.pusch.rssi_threshold = *gpd(params, np, MACRLC_PUSCH_RSSI_THRESHOLD)->iptr;
-  config.pucch.rssi_threshold = *gpd(params, np, MACRLC_PUCCH_RSSI_THRESHOLD)->iptr;
-  config.pucch.target_snrx10 = *gpd(params, np, MACRLC_PUCCHTARGETSNRX10)->iptr;
-  config.ul_prbblack_SNR_threshold = *gpd(params, np, MACRLC_UL_PRBBLACK_SNR_THRESHOLD)->iptr;
-  config.pucch.failure_thres = *gpd(params, np, MACRLC_PUCCHFAILURETHRES)->iptr;
-  config.pusch.failure_thres = *gpd(params, np, MACRLC_PUSCHFAILURETHRES)->iptr;
-
-  LOG_I(NR_MAC,
-        "PUSCH Target %d RSSI thresh %d Failure %d, PUCCH Target %d RSSI thresh %d Failure %d\n",
-        config.pusch.target_snrx10,
-        config.pusch.rssi_threshold,
-        config.pusch.failure_thres,
-        config.pucch.target_snrx10,
-        config.pucch.rssi_threshold,
-        config.pucch.failure_thres);
-
-  if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "local_RRC") == 0) {
+  if (strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "local_RRC") == 0) {
     // check number of instances is same as RRC/PDCP
 
-  } else if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "f1") == 0
-             || strcmp(*gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "cudu") == 0) {
-    char **f1caddr = gpd(params, np, MACRLC_LOCAL_N_ADDRESS)->strptr;
-    char **f1uaddr = gpd(params, np, MACRLC_LOCAL_N_ADDRESS_F1U)->strptr;
+  } else if (strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "f1") == 0
+             || strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "cudu") == 0) {
+    char **f1caddr = gpd(macrlc_p, macrlc_np, MACRLC_LOCAL_N_ADDRESS)->strptr;
+    char **f1uaddr = gpd(macrlc_p, macrlc_np, MACRLC_LOCAL_N_ADDRESS_F1U)->strptr;
     f1ap_net_config_t nc = {
-      .CU_f1_ip_address = strdup(*gpd(params, np, MACRLC_REMOTE_N_ADDRESS)->strptr),
+      .CU_f1_ip_address = strdup(*gpd(macrlc_p, macrlc_np, MACRLC_REMOTE_N_ADDRESS)->strptr),
       .DU_f1c_ip_address = strdup(*f1caddr),
       .DU_f1u_ip_address = f1uaddr != NULL ? strdup(*f1uaddr) : strdup(*f1caddr),
-      .DUport = *gpd(params, np, MACRLC_LOCAL_N_PORTD)->iptr,
-      .CUport = *gpd(params, np, MACRLC_REMOTE_N_PORTD)->iptr,
+      .DUport = *gpd(macrlc_p, macrlc_np, MACRLC_LOCAL_N_PORTD)->iptr,
+      .CUport = *gpd(macrlc_p, macrlc_np, MACRLC_REMOTE_N_PORTD)->iptr,
     };
     nrmac->net_config = nc;
     LOG_I(F1AP,
@@ -1797,31 +1801,31 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
           nc.DUport,
           nc.CUport);
   } else { // other midhaul
-    AssertFatal(1 == 0, "MACRLC %d: %s unknown northbound midhaul\n", 0, *gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr);
+    AssertFatal(1 == 0, "MACRLC %d: %s unknown northbound midhaul\n", 0, *gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr);
   }
 
-  cell->ulsch_max_frame_inactivity = *gpd(params, np, MACRLC_ULSCH_MAX_FRAME_INACTIVITY)->uptr;
-  nrmac->stats_max_ue = *gpd(params, np, MACRLC_STATS_MAX_UE)->iptr;
+  cell->ulsch_max_frame_inactivity = *gpd(macrlc_p, macrlc_np, MACRLC_ULSCH_MAX_FRAME_INACTIVITY)->uptr;
+  nrmac->stats_max_ue = *gpd(macrlc_p, macrlc_np, MACRLC_STATS_MAX_UE)->iptr;
   nrmac->print_ue_stats = nrmac->stats_max_ue > 0;
   NR_bler_options_t *dl_bler_options = &cell->dl_bler;
-  dl_bler_options->upper = *gpd(params, np, MACRLC_DL_BLER_TARGET_UPPER)->dblptr;
-  dl_bler_options->lower = *gpd(params, np, MACRLC_DL_BLER_TARGET_LOWER)->dblptr;
-  dl_bler_options->min_mcs = *gpd(params, np, MACRLC_DL_MIN_MCS)->u8ptr;
-  dl_bler_options->max_mcs = *gpd(params, np, MACRLC_DL_MAX_MCS)->u8ptr;
+  dl_bler_options->upper = *gpd(macrlc_p, macrlc_np, MACRLC_DL_BLER_TARGET_UPPER)->dblptr;
+  dl_bler_options->lower = *gpd(macrlc_p, macrlc_np, MACRLC_DL_BLER_TARGET_LOWER)->dblptr;
+  dl_bler_options->min_mcs = *gpd(macrlc_p, macrlc_np, MACRLC_DL_MIN_MCS)->u8ptr;
+  dl_bler_options->max_mcs = *gpd(macrlc_p, macrlc_np, MACRLC_DL_MAX_MCS)->u8ptr;
   if (config.disable_harq)
     dl_bler_options->harq_round_max = 1;
   else
-    dl_bler_options->harq_round_max = *gpd(params, np, MACRLC_DL_HARQ_ROUND_MAX)->u8ptr;
+    dl_bler_options->harq_round_max = *gpd(macrlc_p, macrlc_np, MACRLC_DL_HARQ_ROUND_MAX)->u8ptr;
   NR_bler_options_t *ul_bler_options = &cell->ul_bler;
-  ul_bler_options->upper = *gpd(params, np, MACRLC_UL_BLER_TARGET_UPPER)->dblptr;
-  ul_bler_options->lower = *gpd(params, np, MACRLC_UL_BLER_TARGET_LOWER)->dblptr;
-  ul_bler_options->min_mcs = *gpd(params, np, MACRLC_UL_MIN_MCS)->u8ptr;
-  ul_bler_options->max_mcs = *gpd(params, np, MACRLC_UL_MAX_MCS)->u8ptr;
+  ul_bler_options->upper = *gpd(macrlc_p, macrlc_np, MACRLC_UL_BLER_TARGET_UPPER)->dblptr;
+  ul_bler_options->lower = *gpd(macrlc_p, macrlc_np, MACRLC_UL_BLER_TARGET_LOWER)->dblptr;
+  ul_bler_options->min_mcs = *gpd(macrlc_p, macrlc_np, MACRLC_UL_MIN_MCS)->u8ptr;
+  ul_bler_options->max_mcs = *gpd(macrlc_p, macrlc_np, MACRLC_UL_MAX_MCS)->u8ptr;
   if (config.disable_harq)
     ul_bler_options->harq_round_max = 1;
   else
-    ul_bler_options->harq_round_max = *gpd(params, np, MACRLC_UL_HARQ_ROUND_MAX)->u8ptr;
-  cell->min_grant_prb = *gpd(params, np, MACRLC_MIN_GRANT_PRB)->u16ptr;
+    ul_bler_options->harq_round_max = *gpd(macrlc_p, macrlc_np, MACRLC_UL_HARQ_ROUND_MAX)->u8ptr;
+  cell->min_grant_prb = *gpd(macrlc_p, macrlc_np, MACRLC_MIN_GRANT_PRB)->u16ptr;
   long sc_fdma = NR_PUSCH_Config__transformPrecoder_enabled;
   NR_BWP_UplinkCommon_t *bwp = scc->uplinkConfigCommon->initialUplinkBWP;
   if (bwp->rach_ConfigCommon->choice.setup->msg3_transformPrecoder != NULL)
@@ -1837,7 +1841,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
           new_min);
    cell->min_grant_prb = new_min;
   }
-  cell->identity_pm = *gpd(params, np, MACRLC_IDENTITY_PM)->u8ptr;
+  cell->identity_pm = *gpd(macrlc_p, macrlc_np, MACRLC_IDENTITY_PM)->u8ptr;
   // PRB Blacklist
   uint16_t prbbl[MAX_BWP_SIZE] = {0};
   int num_ulprbbl = get_prb_blacklist(prbbl);
@@ -1845,11 +1849,11 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
     LOG_I(NR_PHY, "Copying %d blacklisted PRB to L1 context\n", num_ulprbbl);
     memcpy(cell->ulprbbl, prbbl, MAX_BWP_SIZE * sizeof(prbbl[0]));
   }
-  char **removed_ab = gpd(params, np, MACRLC_ANALOG_BEAMFORMING_REMOVED)->strptr;
+  char **removed_ab = gpd(macrlc_p, macrlc_np, MACRLC_ANALOG_BEAMFORMING_REMOVED)->strptr;
   AssertFatal(removed_ab == NULL || *removed_ab == NULL,
               MACRLC_ANALOG_BEAMFORMING_REMOVED " removed, use " MACRLC_BF_METHOD
               " = \"straight-wire\"|\"das\"|\"predefined\"|\"dynamic\" instead\n");
-  AssertFatal(gpd(params, np, MACRLC_BEAM_WEIGHTS_LIST_REMOVED)->numelt == 0,
+  AssertFatal(gpd(macrlc_p, macrlc_np, MACRLC_BEAM_WEIGHTS_LIST_REMOVED)->numelt == 0,
               MACRLC_BEAM_WEIGHTS_LIST_REMOVED " removed, use " MACRLC_SSB_BEAMS_LIST
               " instead (one beam index per transmitted SSB)\n");
 
@@ -1858,7 +1862,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   config.bt.num_weights_per_beam = 0;
   config.bt.beam_ids = NULL;
   config.bt.beam_weights = NULL;
-  char **fptr = gpd(params, np, MACRLC_DBT_FILE)->strptr;
+  char **fptr = gpd(macrlc_p, macrlc_np, MACRLC_DBT_FILE)->strptr;
   if (fptr && *fptr && **fptr != '\0') {
     LOG_I(GNB_APP, "loading DBT table from file %s\n", *fptr);
     config.bt.beam_weights =
@@ -1874,13 +1878,13 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
     check_dbt_beam_ids_unique(&config.bt);
 
   // config_get_processedint() takes only paramdef_t *, so cast const away
-  paramdef_t *p_bf = (paramdef_t *)gpd(params, np, MACRLC_BF_METHOD);
+  paramdef_t *p_bf = (paramdef_t *)gpd(macrlc_p, macrlc_np, MACRLC_BF_METHOD);
   NR_beam_info_t *beam_info = &cell->beam_info;
   beam_info->bf_method = config_get_processedint(cfg, p_bf);
   beam_info->beams_per_period = *gpd(MacRLC_ParamList.paramarray[0], sizeofArray(MacRLC_Params), MACRLC_BEAMS_PERIOD)->u8ptr;
-  beam_info->beam_duration = *gpd(params, np, MACRLC_BEAM_DURATION)->u8ptr;
+  beam_info->beam_duration = *gpd(macrlc_p, macrlc_np, MACRLC_BEAM_DURATION)->u8ptr;
   // TODO config_isparamset doesn't seem to work for array types, checking numelt instead
-  int num_ssb_beams = gpd(params, np, MACRLC_SSB_BEAMS_LIST)->numelt;
+  int num_ssb_beams = gpd(macrlc_p, macrlc_np, MACRLC_SSB_BEAMS_LIST)->numelt;
   switch (beam_info->bf_method) {
     case BF_METHOD_STRAIGHT_WIRE:
       AssertFatal(num_ssb_beams == 0,
@@ -1899,7 +1903,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
       AssertFatal(num_ssb_beams > 0, "predefined beamforming needs " MACRLC_SSB_BEAMS_LIST "\n");
       config.ssb_beams = calloc_or_fail(num_ssb_beams, sizeof(*config.ssb_beams));
       for (int b = 0; b < num_ssb_beams; b++)
-        config.ssb_beams[b] = gpd(params, np, MACRLC_SSB_BEAMS_LIST)->iptr[b];
+        config.ssb_beams[b] = gpd(macrlc_p, macrlc_np, MACRLC_SSB_BEAMS_LIST)->iptr[b];
       if (have_dbt)
         check_ssb_beams_in_dbt(config.ssb_beams, num_ssb_beams, &config.bt);
       else
@@ -1924,6 +1928,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   AssertFatal(beam_info->bf_method != BF_METHOD_DAS || NFAPI_MODE != NFAPI_MODE_VNF,
               MACRLC_BF_METHOD " \"das\" is not supported with a split L1: the PNF has no " MACRLC_LIST
               " section to read it from\n");
+
 #ifdef ENABLE_AERIAL
   /* Aerial applies the beam weights, and the SRS-based precoder, per TXRU and
    * cannot derive that count from the logical antenna ports. */
@@ -1932,7 +1937,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
     AssertFatal(config.aerial.num_tx_ant > 0 && config.aerial.num_rx_ant > 0,
                 MACRLC_BF_METHOD " \"%s\" needs the TXRU counts, set " CONFIG_STRING_AERIAL
                 "." AERIAL_NUM_TX_ANT " and " CONFIG_STRING_AERIAL "." AERIAL_NUM_RX_ANT "\n",
-                *gpd(params, np, MACRLC_BF_METHOD)->strptr);
+                *gpd(macrlc_p, macrlc_np, MACRLC_BF_METHOD)->strptr);
 #endif
   /* The weights are applied per TXRU: a native L1 takes that count from the RU
    * section, Aerial from num_tx_ant, which is required just above. */
@@ -1975,31 +1980,31 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   }
   LOG_I(GNB_APP,
         "Beamforming method %s: %d beams per period, beam duration %d slot(s), %d static beam(s), %d digital beam(s)\n",
-        *gpd(params, np, MACRLC_BF_METHOD)->strptr,
+        *gpd(macrlc_p, macrlc_np, MACRLC_BF_METHOD)->strptr,
         beam_info->beams_per_period,
         beam_info->beam_duration,
         config.num_ssb_beams,
         config.bt.num_beams);
 
   // Read spatial stream indices
-  config_spatial_stream_index(params, np, &cell->radio_config, num_tx);
+  config_spatial_stream_index(macrlc_p, macrlc_np, &cell->radio_config, num_tx);
 
   nr_mac_cell_config_scc(cell, scc, &config);
   nrmac->positioning_config = RCconfig_nr_positioning();
 
-  if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "local_L1") == 0) {
+  if (strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "local_L1") == 0) {
     // triggers also PHY initialization in case we have L1 via FAPI
     nr_mac_send_config_req(nrmac, &cell->config);
-  } else if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "nfapi") == 0) {
-    const char *vnf_addr = *gpd(params, np, MACRLC_LOCAL_S_ADDRESS)->strptr;
-    uint16_t p5_port = *gpd(params, np, MACRLC_LOCAL_S_PORTC)->iptr;
-    uint16_t p7_port = *gpd(params, np, MACRLC_LOCAL_S_PORTD)->iptr;
+  } else if (strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "nfapi") == 0) {
+    const char *vnf_addr = *gpd(macrlc_p, macrlc_np, MACRLC_LOCAL_S_ADDRESS)->strptr;
+    uint16_t p5_port = *gpd(macrlc_p, macrlc_np, MACRLC_LOCAL_S_PORTC)->iptr;
+    uint16_t p7_port = *gpd(macrlc_p, macrlc_np, MACRLC_LOCAL_S_PORTD)->iptr;
     configure_nr_nfapi_vnf(vnf_addr, p5_port, p7_port);
-  } else if(strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "aerial") == 0){
+  } else if(strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "aerial") == 0){
 #ifdef ENABLE_AERIAL
     nvipc_params_t nvipc_p = {
-      .nvipc_shm_prefix = strdup(*gpd(params, np, MACRLC_TRANSPORT_S_SHM_PREFIX)->strptr),
-      .nvipc_poll_core = *gpd(params, np, MACRLC_TRANSPORT_S_POLL_CORE)->i8ptr,
+      .nvipc_shm_prefix = strdup(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_S_SHM_PREFIX)->strptr),
+      .nvipc_poll_core = *gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_S_POLL_CORE)->i8ptr,
       .num_phys = 1,
     };
     nrmac->nvipc_params_s = nvipc_p;
@@ -2009,7 +2014,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
 
 #endif
   } else { // other midhaul
-    AssertFatal(1 == 0, "MACRLC %d: %s unknown southbound midhaul\n", 0, *gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr);
+    AssertFatal(1 == 0, "MACRLC %d: %s unknown southbound midhaul\n", 0, *gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr);
   }
 
   uint64_t gnb_du_id = 0;
