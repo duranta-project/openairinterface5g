@@ -792,13 +792,6 @@ static nr_bf_method_e get_bf_method(int idx)
   return config_get_processedint(config_get_if(), p);
 }
 
-static void set_antenna_ports(paramlist_def_t *p, int *N1, int *N2, int *XP)
-{
-  *N1 = *p->paramarray[0][GNB_PDSCH_ANTENNAPORTS_N1_IDX].iptr;
-  *N2 = *p->paramarray[0][GNB_PDSCH_ANTENNAPORTS_N2_IDX].iptr;
-  *XP = *p->paramarray[0][GNB_PDSCH_ANTENNAPORTS_XP_IDX].iptr;
-}
-
 void RCconfig_NR_L1(void)
 {
   LOG_I(NR_PHY, "Initializing NR L1: RC.nb_nr_L1_inst = %d\n", RC.nb_nr_L1_inst);
@@ -1584,6 +1577,72 @@ static void config_spatial_stream_index(const paramdef_t *param, const size_t np
   }
 }
 
+static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg, int *num_tx, paramdef_t *gnb_p)
+{
+  nr_mac_config_t config = {0};
+  config.pdsch_AntennaPorts.N1 = *gnb_p[GNB_PDSCH_ANTENNAPORTS_N1_IDX].iptr;
+  config.pdsch_AntennaPorts.N2 = *gnb_p[GNB_PDSCH_ANTENNAPORTS_N2_IDX].iptr;
+  config.pdsch_AntennaPorts.XP = *gnb_p[GNB_PDSCH_ANTENNAPORTS_XP_IDX].iptr;
+  config.pusch_AntennaPorts = *gnb_p[GNB_PUSCH_ANTENNAPORTS_IDX].iptr;
+  LOG_I(GNB_APP,
+        "pdsch_AntennaPorts N1 %d N2 %d XP %d pusch_AntennaPorts %d\n",
+        config.pdsch_AntennaPorts.N1,
+        config.pdsch_AntennaPorts.N2,
+        config.pdsch_AntennaPorts.XP,
+        config.pusch_AntennaPorts);
+
+  config.minRXTXTIME = *gnb_p[GNB_MINRXTXTIME_IDX].iptr;
+  LOG_I(GNB_APP, "minTXRXTIME %d\n", config.minRXTXTIME);
+  config.do_TCI = *gnb_p[GNB_DO_TCI_IDX].iptr;
+  config.do_CSIRS = *gnb_p[GNB_DO_CSIRS_IDX].iptr;
+  const char *srs_type_s = *gnb_p[GNB_DO_SRS_IDX].strptr;
+  config.do_SRS = config_get_processedint(cfg, &gnb_p[GNB_DO_SRS_IDX]);
+  config.max_num_rsrp = *gnb_p[GNB_LIMIT_RSRP_REPORT_IDX].iptr;
+  const char *report_type_s = *gnb_p[GNB_CONFIG_REP_IDX].strptr;
+  config.report_type = config_get_processedint(cfg, &gnb_p[GNB_CONFIG_REP_IDX]);
+  config.force_256qam_off = *gnb_p[GNB_FORCE256QAMOFF_IDX].iptr;
+  config.force_UL256qam_off = *gnb_p[GNB_FORCEUL256QAMOFF_IDX].iptr;
+  config.use_deltaMCS = *gnb_p[GNB_USE_DELTA_MCS_IDX].iptr != 0;
+  config.maxMIMO_layers = *gnb_p[GNB_MAXMIMOLAYERS_IDX].iptr;
+  config.disable_harq = *gnb_p[GNB_DISABLE_HARQ_IDX].iptr;
+  config.num_dlharq = *gnb_p[GNB_NUM_DL_HARQ_IDX].iptr;
+  config.num_ulharq =  *gnb_p[GNB_NUM_UL_HARQ_IDX].iptr;
+  if (config.disable_harq)
+    LOG_W(GNB_APP, "\"disable_harq\" is a REL17 feature and is incompatible with REL15 and REL16 UEs!\n");
+  LOG_I(GNB_APP,
+        "CSI-RS %d, SRS %s, report type %d (%s), 256 QAM %s, delta_MCS %s, maxMIMO_Layers %d, HARQ feedback %s, num DLHARQ:%d, num ULHARQ:%d\n",
+        config.do_CSIRS,
+        srs_type_s,
+        config.report_type,
+        report_type_s,
+        config.force_256qam_off ? "force off" : "may be on",
+        config.use_deltaMCS ? "on" : "off",
+        config.maxMIMO_layers,
+        config.disable_harq ? "disabled" : "enabled",
+        config.num_dlharq,
+        config.num_ulharq);
+  int tot_ant = config.pdsch_AntennaPorts.N1 * config.pdsch_AntennaPorts.N2 * config.pdsch_AntennaPorts.XP;
+  AssertFatal(config.maxMIMO_layers != 0 && config.maxMIMO_layers <= tot_ant, "Invalid maxMIMO_layers %d\n", config.maxMIMO_layers);
+
+  int beams_per_period = 1; // TODO verification after beams_per_period/pdsch
+                            // have been read
+  const nr_pdsch_AntennaPorts_t *p = &config.pdsch_AntennaPorts;
+  if (*num_tx > 0) {
+    AssertFatal(*num_tx >= p->XP * p->N1 * p->N2 * beams_per_period,
+                "Number of logical antenna ports (set in config file with pdsch_AntennaPorts and beams_per_period) cannot be "
+                "larger than physical "
+                "antennas (nb_tx)\n");
+    AssertFatal(p->XP * p->N1 * p->N2 <= NR_MAX_CSI_PORTS,
+                "Number of antenna ports set in config file exceeds the supported value of %d\n",
+                NR_MAX_CSI_PORTS);
+  } else {
+    *num_tx = p->XP * p->N1 * p->N2 * beams_per_period;
+    LOG_E(GNB_APP, "RU information not present in config file. Assuming physical antenna ports equal to logical antenna ports %d\n", *num_tx);
+  }
+
+  return config;
+}
+
 void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
 {
   nr_cell_sched_t *cell = NULL;
@@ -1610,25 +1669,16 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
       num_tx += *(RUParamList.paramarray[i][RU_NB_TX_IDX].uptr);
   }
 
-  AssertFatal(MacRLC_ParamList.numelt == 1, "only one MACRLCs section supported!\n");
-  AssertFatal(MacRLC_ParamList.numelt == RC.nb_nr_macrlc_inst, "only one MACRLCs section supported!\n");
-
   nr_rlc_configuration_t default_rlc_config;
   config_rlc(cfg, &default_rlc_config);
 
   ngran_node_t node_type = get_node_type();
   gNB_MAC_INST *nrmac = mac_top_init_gNB(node_type, &default_rlc_config, &cell);
 
-  nr_mac_config_t config = {0};
-  nr_pdsch_AntennaPorts_t *p = &config.pdsch_AntennaPorts;
-  set_antenna_ports(&GNBParamList, &p->N1, &p->N2, &p->XP);
-  config.pusch_AntennaPorts = *GNBParamList.paramarray[0][GNB_PUSCH_ANTENNAPORTS_IDX].iptr;
-  LOG_I(GNB_APP,
-        "pdsch_AntennaPorts N1 %d N2 %d XP %d pusch_AntennaPorts %d\n",
-        config.pdsch_AntennaPorts.N1,
-        config.pdsch_AntennaPorts.N2,
-        config.pdsch_AntennaPorts.XP,
-        config.pusch_AntennaPorts);
+  int idx = 0;
+  AssertFatal(MacRLC_ParamList.numelt == 1, "only one MACRLCs section supported!\n");
+
+  nr_mac_config_t config = get_mac_config(cfg, &num_tx, GNBParamList.paramarray[idx]);
 
 #ifdef ENABLE_AERIAL
   // Aerial: TXRU counts advertised to the L1 in CONFIG.request, decoupled
@@ -1644,53 +1694,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   if (config.aerial.num_tx_ant > 0 || config.aerial.num_rx_ant > 0)
     LOG_I(GNB_APP, "Aerial TXRUs: num_tx_ant %d num_rx_ant %d\n", config.aerial.num_tx_ant, config.aerial.num_rx_ant);
 #endif
-
-  int beams_per_period = 1; // TODO verification after beams_per_period/pdsch
-                            // have been read
-  if (RUParamList.numelt > 0) {
-    AssertFatal(num_tx >= p->XP * p->N1 * p->N2 * beams_per_period,
-                "Number of logical antenna ports (set in config file with pdsch_AntennaPorts and beams_per_period) cannot be "
-                "larger than physical "
-                "antennas (nb_tx)\n");
-    AssertFatal(p->XP * p->N1 * p->N2 <= NR_MAX_CSI_PORTS,
-                "Number of antenna ports set in config file exceeds the supported value of %d\n",
-                NR_MAX_CSI_PORTS);
-  } else {
-    num_tx = p->XP * p->N1 * p->N2 * beams_per_period;
-    LOG_E(GNB_APP, "RU information not present in config file. Assuming physical antenna ports equal to logical antenna ports %d\n", num_tx);
-  }
-  config.minRXTXTIME = *GNBParamList.paramarray[0][GNB_MINRXTXTIME_IDX].iptr;
-  LOG_I(GNB_APP, "minTXRXTIME %d\n", config.minRXTXTIME);
-  config.do_TCI = *GNBParamList.paramarray[0][GNB_DO_TCI_IDX].iptr;
-  config.do_CSIRS = *GNBParamList.paramarray[0][GNB_DO_CSIRS_IDX].iptr;
-  const char *srs_type_s = *GNBParamList.paramarray[0][GNB_DO_SRS_IDX].strptr;
-  config.do_SRS = config_get_processedint(cfg, &GNBParamList.paramarray[0][GNB_DO_SRS_IDX]);
-  config.max_num_rsrp = *GNBParamList.paramarray[0][GNB_LIMIT_RSRP_REPORT_IDX].iptr;
-  const char *report_type_s = *GNBParamList.paramarray[0][GNB_CONFIG_REP_IDX].strptr;
-  config.report_type = config_get_processedint(cfg, &GNBParamList.paramarray[0][GNB_CONFIG_REP_IDX]);
-  config.force_256qam_off = *GNBParamList.paramarray[0][GNB_FORCE256QAMOFF_IDX].iptr;
-  config.force_UL256qam_off = *GNBParamList.paramarray[0][GNB_FORCEUL256QAMOFF_IDX].iptr;
-  config.use_deltaMCS = *GNBParamList.paramarray[0][GNB_USE_DELTA_MCS_IDX].iptr != 0;
-  config.maxMIMO_layers = *GNBParamList.paramarray[0][GNB_MAXMIMOLAYERS_IDX].iptr;
-  config.disable_harq = *GNBParamList.paramarray[0][GNB_DISABLE_HARQ_IDX].iptr;
-  config.num_dlharq = *GNBParamList.paramarray[0][GNB_NUM_DL_HARQ_IDX].iptr;
-  config.num_ulharq =  *GNBParamList.paramarray[0][GNB_NUM_UL_HARQ_IDX].iptr;
-  if (config.disable_harq)
-    LOG_W(GNB_APP, "\"disable_harq\" is a REL17 feature and is incompatible with REL15 and REL16 UEs!\n");
-  LOG_I(GNB_APP,
-        "CSI-RS %d, SRS %s, report type %d (%s), 256 QAM %s, delta_MCS %s, maxMIMO_Layers %d, HARQ feedback %s, num DLHARQ:%d, num ULHARQ:%d\n",
-        config.do_CSIRS,
-        srs_type_s,
-        config.report_type,
-        report_type_s,
-        config.force_256qam_off ? "force off" : "may be on",
-        config.use_deltaMCS ? "on" : "off",
-        config.maxMIMO_layers,
-        config.disable_harq ? "disabled" : "enabled",
-        config.num_dlharq,
-        config.num_ulharq);
-  int tot_ant = config.pdsch_AntennaPorts.N1 * config.pdsch_AntennaPorts.N2 * config.pdsch_AntennaPorts.XP;
-  AssertFatal(config.maxMIMO_layers != 0 && config.maxMIMO_layers <= tot_ant, "Invalid maxMIMO_layers %d\n", config.maxMIMO_layers);
 
   config.redcap = get_redcap_config(0);
   config.ptrs = get_ptrs_config();
@@ -1966,6 +1969,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
                 csi_ports);
   }
   config.num_ssb_beams = num_ssb_beams;
+  int beams_per_period = 1; // TODO fix in follow-up commit
   if (beam_info->bf_method != BF_METHOD_STRAIGHT_WIRE) {
     beam_info->beam_allocation = malloc16(beams_per_period * sizeof(beam_info->beam_allocation));
     beam_info->beam_allocation_size = -1; // to be initialized once we have information on frame configuration
