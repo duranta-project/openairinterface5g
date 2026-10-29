@@ -4,6 +4,11 @@
 
 #include <stdlib.h>
 #include <arpa/inet.h>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <tuple>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -319,6 +324,151 @@ TEST(gtp, basic_conn)
   int num_send = 12;
   run_basic_test(ue_id, pdu_id, noqfi, num_send, &recv_count, recv_basic_conn, NULL);
 }
+
+enum class GtpuPacketError { none, empty, truncated_header, length_too_small, length_too_large };
+
+class GtpReceiveBatchTest : public testing::TestWithParam<std::tuple<GtpuPacketError, int>> {
+ protected:
+  static constexpr ue_id_t ue_id = 42;
+  static constexpr int bearer_id = 1;
+  static constexpr int batch_size = 8;
+  static constexpr uint8_t last_packet = batch_size + 1;
+  static GtpReceiveBatchTest *active_test;
+  instance_t instance = -1;
+  int sender = -1;
+  teid_t teid = 0;
+  test_sockaddr_t destination = {};
+  std::mutex mutex;
+  std::condition_variable changed;
+  bool receiver_blocked = false;
+  bool release_receiver = false;
+  std::vector<uint8_t> received;
+
+  static bool receive(protocol_ctxt_t *ctxt,
+                      const srb_flag_t,
+                      const rb_id_t rb_id,
+                      const mui_t,
+                      const confirm_t,
+                      const sdu_size_t size,
+                      unsigned char *const buf,
+                      const pdcp_transmission_mode_t,
+                      const uint32_t *,
+                      const uint32_t *)
+  {
+    EXPECT_EQ(ctxt->rntiMaybeUEid, ue_id);
+    EXPECT_EQ(rb_id, bearer_id);
+    EXPECT_EQ(size, 1);
+    if (size != 1)
+      return false;
+
+    auto &test = *active_test;
+    std::unique_lock<std::mutex> lock(test.mutex);
+    if (buf[0] == 0) {
+      test.receiver_blocked = true;
+      test.changed.notify_one();
+      test.changed.wait(lock, [&test] { return test.release_receiver; });
+    } else {
+      test.received.push_back(buf[0]);
+      test.changed.notify_one();
+    }
+    return true;
+  }
+
+  void SetUp() override
+  {
+    active_test = this;
+    instance = init_gtp("127.0.0.1", 0);
+    ASSERT_GE(instance, 0);
+    socklen_t addr_len = sizeof(destination.sin);
+    ASSERT_EQ(getsockname(instance, &destination.sa, &addr_len), 0);
+    sender = socket(AF_INET, SOCK_DGRAM, 0);
+    ASSERT_GE(sender, 0);
+    transport_layer_addr_t remote_addr = get_tl_addr(AF_INET, "127.0.0.1");
+    teid = newGtpuCreateTunnel(instance, ue_id, bearer_id, bearer_id, 1, remote_addr, receive, NULL, NULL);
+    ASSERT_NE(teid, 0U);
+  }
+
+  void TearDown() override
+  {
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      release_receiver = true;
+    }
+    changed.notify_one();
+    if (instance >= 0) {
+      if (teid != 0) {
+        EXPECT_EQ(newGtpuDeleteAllTunnels(instance, ue_id), 0);
+      }
+      EXPECT_EQ(gtpv1Term(instance), 0);
+    }
+    if (sender >= 0)
+      close(sender);
+    active_test = nullptr;
+  }
+
+  void send_packet(uint8_t payload, GtpuPacketError error = GtpuPacketError::none)
+  {
+    // TS 29.281 clause 5.1: mandatory G-PDU header followed by one payload octet.
+    uint8_t packet[] = {0x30, 255, 0, 1, uint8_t(teid >> 24), uint8_t(teid >> 16), uint8_t(teid >> 8), uint8_t(teid), payload};
+    size_t len = sizeof(packet);
+    switch (error) {
+      case GtpuPacketError::none:
+        break;
+      case GtpuPacketError::empty:
+        len = 0;
+        break;
+      case GtpuPacketError::truncated_header:
+        len = 7;
+        break;
+      case GtpuPacketError::length_too_small:
+        packet[3] = 0;
+        break;
+      case GtpuPacketError::length_too_large:
+        packet[3] = 2;
+        break;
+    }
+    ASSERT_EQ(sendto(sender, packet, len, 0, &destination.sa, sizeof(destination.sin)), ssize_t(len));
+  }
+};
+
+GtpReceiveBatchTest *GtpReceiveBatchTest::active_test = nullptr;
+
+TEST_P(GtpReceiveBatchTest, preserves_valid_datagrams)
+{
+  const auto [malformed, bad_index] = GetParam();
+  send_packet(0);
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    ASSERT_TRUE(changed.wait_for(lock, std::chrono::seconds(5), [this] { return receiver_blocked; }));
+  }
+
+  // Hold the receiver in its callback until an entire recvmmsg batch is queued.
+  std::vector<uint8_t> expected;
+  for (int i = 0; i < batch_size; ++i) {
+    send_packet(i + 1, i == bad_index ? malformed : GtpuPacketError::none);
+    if (i != bad_index)
+      expected.push_back(i + 1);
+  }
+  // This packet belongs to the next batch and proves the receiver made progress.
+  send_packet(last_packet);
+  expected.push_back(last_packet);
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    release_receiver = true;
+    changed.notify_one();
+    ASSERT_TRUE(
+        changed.wait_for(lock, std::chrono::seconds(5), [this] { return !received.empty() && received.back() == last_packet; }));
+    EXPECT_EQ(received, expected);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(MalformedDatagrams,
+                         GtpReceiveBatchTest,
+                         testing::Combine(testing::Values(GtpuPacketError::empty,
+                                                          GtpuPacketError::truncated_header,
+                                                          GtpuPacketError::length_too_small,
+                                                          GtpuPacketError::length_too_large),
+                                          testing::Values(0, 3, 7)));
 
 static int build_gtpu_nrup(uint8_t *out, int out_len, uint32_t teid, gtpu_extension_header_t *ext)
 {
