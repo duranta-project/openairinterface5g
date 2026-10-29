@@ -22,6 +22,8 @@ extern "C" {
 // PRBs of IQ scratch read_dl_iq_streams() needs: one full band per (eaxc, beam) pair. Fragments are
 // packed back to back and admitted only while their PRB total fits, whatever the fragment count.
 #define DL_IQ_ARENA_PRBS(num_prb) (MAX_DL_STREAMS_PER_SYMBOL * (num_prb))
+#define NUM_RU_PORT_IDS 16 // The eAxC layout allocates four bits to the RU port.
+#define MAX_ANTENNAS NUM_RU_PORT_IDS // eAxCs (RU ports) per direction: 16 DL layers for cuBB mMIMO
 
 typedef struct {
   uint64_t hist[HIST_SIZE];

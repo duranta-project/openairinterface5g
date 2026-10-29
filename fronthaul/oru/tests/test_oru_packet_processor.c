@@ -952,9 +952,10 @@ void test_cplane_14_symbols()
   printf("1 C-plane message for 14 symbols passed!\n");
 }
 
-void test_other_bw_4ant_prb_offset()
+void test_other_bw_16ant_prb_offset()
 {
-  printf("Testing other bandwidth, 4 antennas, and PRB offset...\n");
+  printf("Testing other bandwidth, %d antennas, and PRB offset...\n", MAX_ANTENNAS);
+  const int nb_ant = MAX_ANTENNAS; // every RU port: 16 DL layers on eAxCs 0..15, as cuBB mMIMO sends them
   int mu = 1; // 30kHz
   int num_prb = 106; // Different bandwidth
   void *ctx = init_packet_processor(mu,
@@ -989,9 +990,8 @@ void test_other_bw_4ant_prb_offset()
   int slotId = slot_in_frame % 2;
   int startSymbolId = target_sym % 14;
 
-  // Send 1 C-plane packet for ALL 4 antennas using eAxC ID
-  // Actually, O-RAN allows 1 C-plane packet per antenna, let's just send 4 C-plane packets.
-  for (int ant = 0; ant < 4; ant++) {
+  // One C-Plane packet per antenna (eAxC)
+  for (int ant = 0; ant < nb_ant; ant++) {
     struct rte_mbuf *c_mbuf = rte_pktmbuf_alloc(mp);
     struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_ecpri_hdr));
     ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, ant);
@@ -1022,8 +1022,8 @@ void test_other_bw_4ant_prb_offset()
   current_sym += 3;
   handle_absolute_symbol_tick(ctx, current_sym);
 
-  // Send U-plane packets for all 4 antennas
-  for (int ant = 0; ant < 4; ant++) {
+  // Send U-plane packets for all antennas
+  for (int ant = 0; ant < nb_ant; ant++) {
     struct rte_mbuf *u_mbuf = rte_pktmbuf_alloc(mp);
     struct xran_ecpri_hdr *u_ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(u_mbuf, sizeof(struct xran_ecpri_hdr));
     u_ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, ant);
@@ -1054,15 +1054,10 @@ void test_other_bw_4ant_prb_offset()
   current_sym += 10;
   handle_absolute_symbol_tick(ctx, current_sym);
 
-  uint32_t *txdataF[4] = {0};
-  uint32_t out_iq0[106 * 12] = {0};
-  uint32_t out_iq1[106 * 12] = {0};
-  uint32_t out_iq2[106 * 12] = {0};
-  uint32_t out_iq3[106 * 12] = {0};
-  txdataF[0] = out_iq0;
-  txdataF[1] = out_iq1;
-  txdataF[2] = out_iq2;
-  txdataF[3] = out_iq3;
+  uint32_t iq_buf[MAX_ANTENNAS][106 * 12] = {0};
+  uint32_t *txdataF[MAX_ANTENNAS];
+  for (int ant = 0; ant < nb_ant; ant++)
+    txdataF[ant] = iq_buf[ant];
 
   int frame, slot, symbol;
   uint64_t hyper_frame;
@@ -1070,11 +1065,11 @@ void test_other_bw_4ant_prb_offset()
   uint32_t dl_iq_arena[DL_IQ_ARENA_PRBS(106) * 12];
   do {
     int n = read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_FRAGMENTS_PER_SYMBOL, &hyper_frame, &frame, &slot, &symbol);
-    test_assemble_streams(txdataF, 4, 106, dl_streams, n, NULL);
+    test_assemble_streams(txdataF, nb_ant, 106, dl_streams, n, NULL);
   } while (!(frame == frameId && symbol == startSymbolId));
 
   // Verify memory contents for each antenna
-  for (int ant = 0; ant < 4; ant++) {
+  for (int ant = 0; ant < nb_ant; ant++) {
     uint16_t *out_iq = (uint16_t *)txdataF[ant];
     for (int prb = 0; prb < num_prb; prb++) {
       for (int sc = 0; sc < 12; sc++) {
@@ -1095,9 +1090,10 @@ void test_other_bw_4ant_prb_offset()
   get_packet_processor_stats(ctx, &stats);
   assert(stats.dl_tdd_mismatch == 0);
   assert(stats.ul_tdd_mismatch == 0);
+  assert(stats.invalid_eaxc_id == 0);
 
   cleanup_packet_processor(ctx);
-  printf("Other bandwidth, 4 antennas, and PRB offset passed!\n");
+  printf("Other bandwidth, %d antennas, and PRB offset passed!\n", MAX_ANTENNAS);
 }
 
 // A 273-PRB symbol on 4 antennas, each antenna's IQ split into 10 uncompressed U-Plane fragments
@@ -3366,7 +3362,7 @@ int main(int argc, char **argv)
   usleep(10000);
   test_cplane_14_symbols();
   usleep(10000);
-  test_other_bw_4ant_prb_offset();
+  test_other_bw_16ant_prb_offset();
   usleep(10000);
   test_dl_wideband_fragments_4ant();
   usleep(10000);
