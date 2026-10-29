@@ -160,7 +160,13 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
   int E = nr_get_E(TB_parameters.G, TB_parameters.C, TB_parameters.Qm, TB_parameters.nb_layers, 0);
   if (E < 0)
     return;
-  TB_parameters.c = harq_process->c;
+#ifdef LDPC_CUDA
+  uint8_t *c = harq_process->c; // written by the GPU: mapped memory
+#else
+  // decoded segments, segment r at r * K / 8: only used during this call
+  uint8_t c[TB_parameters.C * (TB_parameters.K >> 3)] __attribute__((aligned(32)));
+#endif
+  TB_parameters.c = c;
   TB_parameters.d = harq_process->d;
   TB_parameters.E = E;
   TB_parameters.E2 = TB_parameters.E;
@@ -215,7 +221,7 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
 
   if (crcok) {
     uint8_t *output = b;
-    const uint8_t *in = harq_process->c;
+    const uint8_t *in = c;
     const int sz = (harq_process->K - harq_process->F) / 8 - (harq_process->C > 1 ? 3 : 0);
     for (int r = 0; r < TB_parameters.C; r++) {
       memcpy(output, in, sz);
