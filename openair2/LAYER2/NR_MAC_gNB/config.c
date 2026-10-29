@@ -739,7 +739,7 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
   // logical antenna ports
   nr_pdsch_AntennaPorts_t pdsch_AntennaPorts = config->pdsch_AntennaPorts;
   int num_pdsch_antenna_ports = pdsch_AntennaPorts.N1 * pdsch_AntennaPorts.N2 * pdsch_AntennaPorts.XP;
-  cfg->carrier_config.num_tx_ant.value = num_pdsch_antenna_ports * cell->beam_info.beams_per_period;
+  cfg->carrier_config.num_tx_ant.value = num_pdsch_antenna_ports * config->beam_config.beams_per_period;
   AssertFatal(num_pdsch_antenna_ports > 0 && num_pdsch_antenna_ports < 33, "pdsch_AntennaPorts in 1...32\n");
   cfg->carrier_config.num_tx_ant.tl.tag = NFAPI_NR_CONFIG_NUM_TX_ANT_TAG;
 
@@ -762,7 +762,7 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
   }
 
   int pusch_AntennaPorts = config->pusch_AntennaPorts;
-  cfg->carrier_config.num_rx_ant.value = pusch_AntennaPorts * cell->beam_info.beams_per_period;
+  cfg->carrier_config.num_rx_ant.value = pusch_AntennaPorts * config->beam_config.beams_per_period;
   AssertFatal(pusch_AntennaPorts > 0 && pusch_AntennaPorts < 13, "pusch_AntennaPorts in 1...12\n");
   cfg->carrier_config.num_rx_ant.tl.tag = NFAPI_NR_CONFIG_NUM_RX_ANT_TAG;
   LOG_I(NR_MAC,
@@ -783,7 +783,7 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
    * antenna ports. The TXRU counts come from the Aerial config section; when
    * not set (0) fall back to the previous behavior. */
   const nr_aerial_config_t *aerial_cfg = &config->aerial;
-  if (cell->beam_info.bf_method == BF_METHOD_PREDEFINED && !cell->beam_info.beam_id_to_ru) {
+  if (config->beam_config.bf_method == BF_METHOD_PREDEFINED && !config->beam_config.beam_id_to_ru) {
     // if we are doing BF in Aerial we need these Custom TLV. The weights are applied
     // per TXRU, so the count has to be configured rather than guessed
     AssertFatal(aerial_cfg->num_tx_ant > 0 && aerial_cfg->num_rx_ant > 0,
@@ -793,9 +793,9 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
     /* with mMIMO enabled the L1 dimensions PUSCH processing from the vendor
      * port TLVs (numRxAnt only sizes SRS); without them it falls back to a
      * compile-time constant, so always send the logical port counts */
-    cfg->carrier_config.num_rx_port.value = pusch_AntennaPorts * cell->beam_info.beams_per_period;
+    cfg->carrier_config.num_rx_port.value = pusch_AntennaPorts * config->beam_config.beams_per_period;
     cfg->carrier_config.num_rx_port.tl.tag = NFAPI_NR_CONFIG_NUM_RX_PORT_TAG;
-    cfg->carrier_config.num_tx_port.value = num_pdsch_antenna_ports * cell->beam_info.beams_per_period;
+    cfg->carrier_config.num_tx_port.value = num_pdsch_antenna_ports * config->beam_config.beams_per_period;
     cfg->carrier_config.num_tx_port.tl.tag = NFAPI_NR_CONFIG_NUM_TX_PORT_TAG;
   } else {
     if (aerial_cfg->num_rx_ant > 0)
@@ -835,10 +835,10 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
   // precoding matrix configuration (to be improved)
   cfg->pmi_list = init_DL_MIMO_codebook(cell, pdsch_AntennaPorts);
 
-  if (cell->beam_info.bf_method != BF_METHOD_STRAIGHT_WIRE) {
+  if (config->beam_config.bf_method != BF_METHOD_STRAIGHT_WIRE) {
     LOG_I(NR_MAC, "Configuring beam-index based beamforming in config_request message\n");
     cfg->analog_beamforming_ve.num_beams_period_vendor_ext.tl.tag = NFAPI_NR_FAPI_NUM_BEAMS_PERIOD_VENDOR_EXTENSION_TAG;
-    cfg->analog_beamforming_ve.num_beams_period_vendor_ext.value = cell->beam_info.beams_per_period;
+    cfg->analog_beamforming_ve.num_beams_period_vendor_ext.value = config->beam_config.beams_per_period;
     cfg->num_tlv++;
     cfg->analog_beamforming_ve.analog_bf_vendor_ext.tl.tag = NFAPI_NR_FAPI_ANALOG_BF_VENDOR_EXTENSION_TAG;
     cfg->analog_beamforming_ve.analog_bf_vendor_ext.value = 1;  // analog BF enabled
@@ -885,23 +885,26 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
   }
 }
 
-static void initialize_beam_information(NR_beam_info_t *beam_info, int mu, int slots_per_frame)
+static NR_beam_info_t initialize_beam_information(const NR_beam_config_t *beam_config, int mu, int slots_per_frame)
 {
-  if (beam_info->bf_method == BF_METHOD_STRAIGHT_WIRE)
-    return;
+  NR_beam_info_t beam_info = {.config = *beam_config};
+  if (beam_config->bf_method == BF_METHOD_STRAIGHT_WIRE)
+    return beam_info;
 
   int size = mu == 0 ? slots_per_frame << 1 : slots_per_frame;
   // slots in beam duration gives the number of consecutive slots tied the the same beam
-  AssertFatal(size % beam_info->beam_duration == 0,
+  AssertFatal(size % beam_config->beam_duration == 0,
               "Beam duration %d should be divider of number of slots per frame %d\n",
-              beam_info->beam_duration,
+              beam_config->beam_duration,
               slots_per_frame);
-  beam_info->beam_allocation_size = size / beam_info->beam_duration;
-  for (int i = 0; i < beam_info->beams_per_period; i++) {
-    beam_info->beam_allocation[i] = malloc16(beam_info->beam_allocation_size * sizeof(*beam_info->beam_allocation));
-    for (int j = 0; j < beam_info->beam_allocation_size; j++)
-      beam_info->beam_allocation[i][j] = -1;
+  beam_info.beam_allocation_size = size / beam_config->beam_duration;
+  beam_info.beam_allocation = malloc16(beam_config->beams_per_period * sizeof(beam_info.beam_allocation));
+  for (int i = 0; i < beam_config->beams_per_period; i++) {
+    beam_info.beam_allocation[i] = malloc16(beam_info.beam_allocation_size * sizeof(*beam_info.beam_allocation));
+    for (int j = 0; j < beam_info.beam_allocation_size; j++)
+      beam_info.beam_allocation[i][j] = -1;
   }
+  return beam_info;
 }
 
 static int config_sched_ctrlSIB1(nr_cell_sched_t *cell)
@@ -1021,9 +1024,10 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
 
   cell->vrb_map_UL_size = size;
 
+  cell->beam_info = initialize_beam_information(&config->beam_config, *scc->ssbSubcarrierSpacing, n);
   int num_beams = 1;
-  if(cell->beam_info.bf_method != BF_METHOD_STRAIGHT_WIRE)
-    num_beams = cell->beam_info.beams_per_period;
+  if (cell->beam_info.config.bf_method != BF_METHOD_STRAIGHT_WIRE)
+    num_beams = cell->beam_info.config.beams_per_period;
   for (int i = 0; i < num_beams; i++) {
     cell->common_channels.vrb_map_UL[i] = calloc(size * MAX_BWP_SIZE, sizeof(uint16_t));
     AssertFatal(cell->common_channels.vrb_map_UL[i],
@@ -1033,8 +1037,6 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
   cell->UL_tti_req_ahead_size = size;
   cell->UL_tti_req_ahead = calloc(size, sizeof(nfapi_nr_ul_tti_request_t));
   AssertFatal(cell->UL_tti_req_ahead, "could not allocate memory for cell->UL_tti_req_ahead\n");
-
-  initialize_beam_information(&cell->beam_info, *scc->ssbSubcarrierSpacing, n);
 
   LOG_D(NR_MAC, "Configuring common parameters from NR ServingCellConfig\n");
 

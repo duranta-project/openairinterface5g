@@ -1879,13 +1879,12 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
 
   // config_get_processedint() takes only paramdef_t *, so cast const away
   paramdef_t *p_bf = (paramdef_t *)gpd(macrlc_p, macrlc_np, MACRLC_BF_METHOD);
-  NR_beam_info_t *beam_info = &cell->beam_info;
-  beam_info->bf_method = config_get_processedint(cfg, p_bf);
-  beam_info->beams_per_period = *gpd(MacRLC_ParamList.paramarray[0], sizeofArray(MacRLC_Params), MACRLC_BEAMS_PERIOD)->u8ptr;
-  beam_info->beam_duration = *gpd(macrlc_p, macrlc_np, MACRLC_BEAM_DURATION)->u8ptr;
+  config.beam_config.bf_method = config_get_processedint(cfg, p_bf);
+  config.beam_config.beams_per_period = *gpd(MacRLC_ParamList.paramarray[0], sizeofArray(MacRLC_Params), MACRLC_BEAMS_PERIOD)->u8ptr;
+  config.beam_config.beam_duration = *gpd(macrlc_p, macrlc_np, MACRLC_BEAM_DURATION)->u8ptr;
   // TODO config_isparamset doesn't seem to work for array types, checking numelt instead
   int num_ssb_beams = gpd(macrlc_p, macrlc_np, MACRLC_SSB_BEAMS_LIST)->numelt;
-  switch (beam_info->bf_method) {
+  switch (config.beam_config.bf_method) {
     case BF_METHOD_STRAIGHT_WIRE:
       AssertFatal(num_ssb_beams == 0,
                   MACRLC_SSB_BEAMS_LIST " is only meaningful if " MACRLC_BF_METHOD " is not \"straight-wire\"\n");
@@ -1896,7 +1895,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
       AssertFatal(num_ssb_beams == 0, "no need to set " MACRLC_SSB_BEAMS_LIST " in case of DAS\n");
       AssertFatal(!have_dbt, "no need to configure a digital beam table in case of DAS\n");
       // the beam index is the logical antenna port index, nothing to configure
-      beam_info->beam_id_to_ru = true;
+      config.beam_config.beam_id_to_ru = true;
       break;
     case BF_METHOD_PREDEFINED:
       // always explicit: a digital beam table usually holds many more beams than SSBs
@@ -1907,7 +1906,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
       if (have_dbt)
         check_ssb_beams_in_dbt(config.ssb_beams, num_ssb_beams, &config.bt);
       else
-        beam_info->beam_id_to_ru = true;
+        config.beam_config.beam_id_to_ru = true;
       break;
     case BF_METHOD_DYNAMIC:
       /* TODO static beams for control, SRS-based precoding for DLSCH/ULSCH; also has
@@ -1915,7 +1914,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
       AssertFatal(false, MACRLC_BF_METHOD " \"dynamic\" is not implemented yet\n");
       break;
     default:
-      AssertFatal(false, "unhandled " MACRLC_BF_METHOD " %d\n", beam_info->bf_method);
+      AssertFatal(false, "unhandled " MACRLC_BF_METHOD " %d\n", config.beam_config.bf_method);
   }
   /* Only Aerial applies a digital beam table. The table does reach a native L1, over
    * P5 or directly, but nr_feptx_prec() copies the samples through instead of
@@ -1925,7 +1924,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   /* An nFAPI PNF has no MACRLCs section, so RCconfig_NR_L1() cannot derive DAS there
    * and the split L1 would silently run without it. Beam IDs meant for the RU or the
    * fronthaul do travel in every FAPI PDU, so predefined without a table is fine. */
-  AssertFatal(beam_info->bf_method != BF_METHOD_DAS || NFAPI_MODE != NFAPI_MODE_VNF,
+  AssertFatal(config.beam_config.bf_method != BF_METHOD_DAS || NFAPI_MODE != NFAPI_MODE_VNF,
               MACRLC_BF_METHOD " \"das\" is not supported with a split L1: the PNF has no " MACRLC_LIST
               " section to read it from\n");
 
@@ -1933,7 +1932,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   /* Aerial applies the beam weights, and the SRS-based precoder, per TXRU and
    * cannot derive that count from the logical antenna ports. */
   if (NFAPI_MODE == NFAPI_MODE_AERIAL
-      && (beam_info->bf_method == BF_METHOD_PREDEFINED || beam_info->bf_method == BF_METHOD_DYNAMIC))
+      && (config.beam_config.bf_method == BF_METHOD_PREDEFINED || config.beam_config.bf_method == BF_METHOD_DYNAMIC))
     AssertFatal(config.aerial.num_tx_ant > 0 && config.aerial.num_rx_ant > 0,
                 MACRLC_BF_METHOD " \"%s\" needs the TXRU counts, set " CONFIG_STRING_AERIAL
                 "." AERIAL_NUM_TX_ANT " and " CONFIG_STRING_AERIAL "." AERIAL_NUM_RX_ANT "\n",
@@ -1973,18 +1972,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
                 csi_ports);
   }
   config.num_ssb_beams = num_ssb_beams;
-  int beams_per_period = 1; // TODO fix in follow-up commit
-  if (beam_info->bf_method != BF_METHOD_STRAIGHT_WIRE) {
-    beam_info->beam_allocation = malloc16(beams_per_period * sizeof(beam_info->beam_allocation));
-    beam_info->beam_allocation_size = -1; // to be initialized once we have information on frame configuration
-  }
-  LOG_I(GNB_APP,
-        "Beamforming method %s: %d beams per period, beam duration %d slot(s), %d static beam(s), %d digital beam(s)\n",
-        *gpd(macrlc_p, macrlc_np, MACRLC_BF_METHOD)->strptr,
-        beam_info->beams_per_period,
-        beam_info->beam_duration,
-        config.num_ssb_beams,
-        config.bt.num_beams);
 
   // Read spatial stream indices
   config_spatial_stream_index(macrlc_p, macrlc_np, &cell->radio_config, num_tx);

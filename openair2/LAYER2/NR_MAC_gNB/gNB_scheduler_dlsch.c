@@ -901,7 +901,7 @@ void nr_dlsch_preprocessor(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post_proces
 
   NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   int bw = scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
-  int num_beams = cell->beam_info.beam_allocation ? cell->beam_info.beams_per_period : 1;
+  int num_beams = cell->beam_info.beam_allocation ? cell->beam_info.config.beams_per_period : 1;
   int n_rb_sched[num_beams];
   for (int i = 0; i < num_beams; i++)
     n_rb_sched[i] = bw;

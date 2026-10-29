@@ -62,6 +62,7 @@ int test_other_sib_ssb_index(uint64_t ssb_bitmap)
       .maxMIMO_layers = 1,
       .timer_config = {.sr_TransMax = 64, .t300 = 400, .t301 = 400, .t310 = 2000, .n310 = 10, .t311 = 3000, .n311 = 1, .t319 = 400},
       .num_agg_level_candidates = {0, 4, 4, 2, 0},
+      .beam_config.beams_per_period = 1
   };
   const nr_rlc_configuration_t rlc_config = {0};
   RC.nb_nr_macrlc_inst = 1;
@@ -69,7 +70,6 @@ int test_other_sib_ssb_index(uint64_t ssb_bitmap)
 
   // config MAC
   mac_top_init_gNB(ngran_gNB, &rlc_config, &cell);
-  cell->beam_info = (NR_beam_info_t){.bf_method = BF_METHOD_STRAIGHT_WIRE, .beams_per_period = 1};
   nr_mac_cell_config_scc(cell, scc, &conf);
 
   const plmn_id_t plmn = {.mcc = 1, .mnc = 1, .mnc_digit_length = 2};
