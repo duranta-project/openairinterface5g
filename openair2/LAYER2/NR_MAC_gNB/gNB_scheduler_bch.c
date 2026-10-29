@@ -80,7 +80,7 @@ static void fill_ssb_vrb_map(NR_COMMON_channels_t *cc,
   uint16_t *vrb_map = cc[CC_id].vrb_map[beam];
   const int extra_prb = ssb_subcarrier_offset > 0;
   for (int rb = 0; rb < 20 + extra_prb; rb++)
-    vrb_map[rbStart + rb] = SL_to_bitmap(symStart % NR_SYMBOLS_PER_SLOT, 4);
+    vrb_map[rbStart + rb] |= SL_to_bitmap(symStart % NR_SYMBOLS_PER_SLOT, 4);
 }
 
 static int encode_mib(NR_BCCH_BCH_Message_t *mib, frame_t frame, uint8_t *buffer, int buf_size)
