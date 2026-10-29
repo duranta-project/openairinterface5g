@@ -6,6 +6,7 @@
  * \brief Top-level routines for demodulating the PDSCH physical channel from 38-211, V15.2 2018-06
  */
 
+#include "openair1/PHY/nr_phy_common/inc/nr_rx_norm.h"
 #include "PHY/NR_REFSIG/ptrs_nr.h"
 #include "common/platform_constants.h"
 #include "nr_phy_common.h"
@@ -887,6 +888,14 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
       *log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(nbRx >> 1);
     else
       *log2_maxh = (log2_approx(avgs) >> 1) + log2_approx(nbRx >> 1);
+    // Amplitude-invariant shift (normalise by |h|^2 instead of |h|), equal to the legacy shift at the simulators'
+    // nominal level log2(avg) = 17 (1 and 2 layers). The 2-layer MMSE receiver overflowed ~25 dB above that level,
+    // the 1-layer LLRs saturated the int8 decoder input from ~5-10 dB.
+    if (nr_rx_norm_enabled(NR_RX_NORM_PDSCH)) {
+      const int l2 = log2_approx(avgs);
+      *log2_maxh = (nl == 1 ? l2 - 8 : l2 - 9) + log2_approx(nbRx >> 1);
+      *log2_maxh = *log2_maxh < 0 ? 0 : *log2_maxh > 24 ? 24 : *log2_maxh;
+    }
     LOG_D(PHY, "[DLSCH] AbsSubframe %d.%d log2_maxh = %d (%d)\n", frame % 1024, nr_slot_rx, *log2_maxh, avgs);
 #if T_TRACER
     T(T_UE_PHY_PDSCH_ENERGY,

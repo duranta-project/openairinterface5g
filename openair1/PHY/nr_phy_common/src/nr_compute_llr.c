@@ -3,6 +3,7 @@
  */
 
 #include "nr_compute_llr.h"
+#include "nr_rx_norm.h"
 #include "PHY/impl_defs_top.h"
 #include "PHY/TOOLS/tools_defs.h"
 #ifdef __aarch64__
@@ -3078,6 +3079,14 @@ void nr_qpsk_llr(const c16_t *rxdataF_comp, int16_t *llr, uint32_t nb_re)
 {
   const c16_t *rxF = rxdataF_comp;
   c16_t *llr32 = (c16_t *)llr;
+  if (nr_rx_norm_enabled(NR_RX_NORM_QPSK)) {
+    // rounding shift: the truncating ">> 4" maps [0,16) to 0 but [-16,0) to -1 (bias towards negative LLRs)
+    for (int i = 0; i < nb_re; i++) {
+      llr32[i].r = (rxF[i].r + 8) >> 4;
+      llr32[i].i = (rxF[i].i + 8) >> 4;
+    }
+    return;
+  }
   for (int i = 0; i < nb_re; i++) {
     llr32[i].r = rxF[i].r >> 4;
     llr32[i].i = rxF[i].i >> 4;

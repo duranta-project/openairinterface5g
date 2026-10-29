@@ -14,6 +14,7 @@
 #include "PHY/nr_phy_common/inc/nr_phy_common.h"
 #include "nr_channel_compensation.h"
 #include "nr_compute_llr.h"
+#include "nr_rx_norm.h"
 #include "nr_layer_demapping.h"
 #include "common/utils/nr/nr_common.h"
 #include "platform_types.h"
@@ -1172,6 +1173,22 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     log2_maxh = 1;
   else if (log2_maxh > 14)
     log2_maxh = 14;
+  // Amplitude-invariant shift: normalise y.h* by |h|^2 (log2(avg |h|^2)) instead of |h| (log2/2), so the compensated
+  // symbols and the LLRs no longer grow with the received level (they overflowed the int8 decoder input from ~10 dB,
+  // the 2-layer ML metrics from ~10 dB above the simulators' nominal level, and shrank to a few LSB 10-20 dB below).
+  // The constants give the legacy shift at the simulators' nominal level (log2(avg) = 17 for 1 layer, 18 for 2 layers),
+  // so the LLR scale everywhere is the one the LDPC pre-scale / AGC defaults were tuned for at that level.
+  const int rx_norm = nr_rx_norm_enabled(NR_RX_NORM_PUSCH);
+  if (rx_norm) {
+    const int l2 = log2_approx(avgs);
+    if (total_layers == 2 && rel15_ul_ref->qam_mod_order > 6)
+      log2_maxh = l2 - 12; // MMSE
+    else if (total_layers == 2)
+      log2_maxh = l2 - 11 + log2_approx(num_sp_streams >> 1); // ML
+    else
+      log2_maxh = l2 - 8 + log2_approx(num_sp_streams >> 1);
+    log2_maxh = log2_maxh < 0 ? 0 : log2_maxh > 24 ? 24 : log2_maxh;
+  }
 
   nr_uci_mapping_t map_uci[group_size];
   for (int u = 0; u < group_size; u++) {
@@ -1251,7 +1268,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       rdata->pusch_vars_group = pusch_vars_group;
       rdata->scrambling_gold = scrambling_gold;
       rdata->layer_offsets = layer_offset;
-      rdata->layers_attenuation = total_layers ? log2_approx(max_ch >> 11) : 0;
+      rdata->layers_attenuation = total_layers && !rx_norm ? log2_approx(max_ch >> 11) : 0;
       rdata->map_uci = map_uci;
 
       task_t t = {.func = &nr_pusch_symbol_processing, .args = rdata};
