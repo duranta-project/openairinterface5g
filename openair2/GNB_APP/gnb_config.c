@@ -1607,7 +1607,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   config_rlc(cfg, &default_rlc_config);
 
   ngran_node_t node_type = get_node_type();
-  mac_top_init_gNB(node_type, &default_rlc_config, &cell);
+  gNB_MAC_INST *nrmac = mac_top_init_gNB(node_type, &default_rlc_config, &cell);
 
   nr_mac_config_t config = {0};
   nr_pdsch_AntennaPorts_t *p = &config.pdsch_AntennaPorts;
@@ -1773,7 +1773,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
           config.pucch.failure_thres);
 
     for (j = 0; j < RC.nb_nr_macrlc_inst; j++) {
-      gNB_MAC_INST *nrmac = RC.nrmac[j];
       params = MacRLC_ParamList.paramarray[j]; // RC.nb_nr_macrlc_inst == 1 as per assert, but keep consistent
       if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "local_RRC") == 0) {
         // check number of instances is same as RRC/PDCP

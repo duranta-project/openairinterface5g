@@ -411,7 +411,6 @@ int main(int argc, char **argv)
   NR_DL_FRAME_PARMS *frame_parms;
   UE_nr_rxtx_proc_t UE_proc;
   NR_Sched_Rsp_t *Sched_INFO;
-  gNB_MAC_INST *gNB_mac;
   NR_UE_MAC_INST_t *UE_mac;
   int cyclic_prefix_type = NFAPI_CP_NORMAL;
   int loglvl=OAILOG_WARNING;
@@ -855,8 +854,7 @@ int main(int argc, char **argv)
 
   RC.nb_nr_macrlc_inst = 1;
   nr_cell_sched_t *cell;
-  mac_top_init_gNB(ngran_gNB, &rlc_config, &cell);
-  gNB_mac = RC.nrmac[0];
+  gNB_MAC_INST *gNB_mac = mac_top_init_gNB(ngran_gNB, &rlc_config, &cell);
   cell->beam_info = (NR_beam_info_t){.beams_per_period = 1};
   nr_mac_cell_config_scc(cell, scc, &conf);
   nr_mac_send_config_req(gNB_mac, &cell->config);

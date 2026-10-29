@@ -375,8 +375,7 @@ int main(int argc, char **argv)
 
   RC.nb_nr_macrlc_inst = 1;
   nr_cell_sched_t *cell;
-  mac_top_init_gNB(ngran_gNB, &rlc_config, &cell);
-  gNB_MAC_INST *gNB_mac = RC.nrmac[0];
+  gNB_MAC_INST *gNB_mac = mac_top_init_gNB(ngran_gNB, &rlc_config, &cell);
   cell->beam_info = (NR_beam_info_t){.beams_per_period = 1};
   nr_mac_cell_config_scc(cell, scc, &conf);
   nr_mac_send_config_req(gNB_mac, &cell->config);
