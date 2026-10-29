@@ -202,7 +202,8 @@ static void trigger_stop(int sig)
 }
 static void trigger_deregistration(int sig)
 {
-  if (!stop_immediately && IS_SA_MODE(get_softmodem_params())) {
+  // Sidelink has no NAS registration; detaching would release MAC state still used by the PHY workers.
+  if (!stop_immediately && IS_SA_MODE(get_softmodem_params()) && !get_softmodem_params()->sl_mode) {
     for (int ue_inst = 0; ue_inst < NB_UE_INST; ue_inst++) {
       MessageDef *msg = itti_alloc_new_message(TASK_NAS_NRUE, ue_inst, NAS_DEREGISTRATION_REQ);
       NAS_DEREGISTRATION_REQ(msg).cause = AS_DETACH;
