@@ -1229,6 +1229,10 @@ void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc, int min_fb_delay, n
       /* reach next UL from mixed slot in previous period */
       tda = set_TimeDomainResourceAllocation(k2_msg3, get_SLIV(0, 13));
       asn1cSeqAdd(&tda_list->list, tda);
+      if (do_SRS != NO_SRS) {
+        tda = set_TimeDomainResourceAllocation(k2_msg3, get_SLIV(0, pusch_symbols));
+        asn1cSeqAdd(&tda_list->list, tda);
+      }
     }
   }
 
