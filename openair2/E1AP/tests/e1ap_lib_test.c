@@ -502,6 +502,8 @@ static void test_e1_cuup_setup_failure(void)
                             .cause.type = E1AP_CAUSE_RADIO_NETWORK,
                             .cause.value = E1AP_RADIO_CAUSE_NORMAL_RELEASE,
                             .crit_diag = malloc_or_fail(sizeof(criticality_diagnostics_t))};
+  orig.time_to_wait = malloc_or_fail(sizeof(*orig.time_to_wait));
+  *orig.time_to_wait = E1AP_TimeToWait_v10s;
   orig.crit_diag->procedure_code = malloc_or_fail(sizeof(*orig.crit_diag->procedure_code));
   *orig.crit_diag->procedure_code = 99;
   orig.crit_diag->triggering_msg = malloc_or_fail(sizeof(*orig.crit_diag->triggering_msg));
