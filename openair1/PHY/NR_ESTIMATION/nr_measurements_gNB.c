@@ -185,6 +185,17 @@ void gNB_I0_measurements(PHY_VARS_gNB *gNB, int slot, int first_symb, int num_sy
       nb_rb++;
     }
   }
+  if (I0_SKIP_DC && frame_parms->N_RB_UL > 2) {
+    /* the middle PRB is never measured: give it the noise of its neighbours, else its 0 lowers the noise of the
+     * PUSCH covering it (higher SNR, missed DTX) */
+    const int dc = frame_parms->N_RB_UL >> 1;
+    int32_t n0_dc_perPRB = 0;
+    for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
+      n0_subband_power[aarx][dc] = (n0_subband_power[aarx][dc - 1] + n0_subband_power[aarx][dc + 1]) / 2;
+      n0_dc_perPRB += n0_subband_power[aarx][dc];
+    }
+    measurements->n0_subband_power_tot_dB[dc] = dB_fixed(n0_dc_perPRB / frame_parms->nb_antennas_rx);
+  }
   if (nb_rb>0) {
     int64_t n0_subband_tot = 0;
     for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
