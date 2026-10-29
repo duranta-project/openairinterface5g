@@ -243,7 +243,7 @@ static NR_sched_pdsch_t allocate_sib1(nr_cell_sched_t *cell,
     // Mark the corresponding RBs as used
     fill_pdcch_vrb_map(cell, pdcch, cce_index, aggregation_level, beam);
     for (int rb = 0; rb < pdsch.rbSize; rb++)
-      vrb_map[rb + type0_PDCCH_CSS_config->cset_start_rb] |= SL_to_bitmap(tda_info->startSymbolIndex, tda_info->nrOfSymbols);
+      vrb_map[pdsch.bwp_info.bwpStart + pdsch.rbStart + rb] |= SL_to_bitmap(tda_info->startSymbolIndex, tda_info->nrOfSymbols);
   } else {
     pdsch.tb_size = 0; // to signal we couldn't allocate TBS
     pdsch.time_domain_allocation = -1;
@@ -601,7 +601,8 @@ static void other_sib_sched_control(nr_cell_sched_t *cell,
   AssertFatal(success, "Couldn't allocate TBS for other SIB\n");
 
   for (int rb = 0; rb < sched_pdsch_otherSI.rbSize; rb++) {
-    vrb_map[rb + type0_PDCCH_CSS_config->cset_start_rb] |= SL_to_bitmap(tda_info.startSymbolIndex, tda_info.nrOfSymbols);
+    vrb_map[sched_pdsch_otherSI.bwp_info.bwpStart + sched_pdsch_otherSI.rbStart + rb] |=
+        SL_to_bitmap(tda_info.startSymbolIndex, tda_info.nrOfSymbols);
   }
 
   int pdu_index = cell->pdu_index++;
