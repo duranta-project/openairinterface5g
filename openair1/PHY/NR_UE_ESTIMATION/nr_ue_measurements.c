@@ -80,16 +80,11 @@ void nr_ue_measurements(PHY_VARS_NR_UE *ue,
     for (gNB_id = 0; gNB_id < ue->n_connected_gNB; gNB_id++)
       ue->measurements.rx_power_avg[gNB_id] = (int)((K1 * ue->measurements.rx_power_avg[gNB_id] + K2 * ue->measurements.rx_power_tot[gNB_id]) >> 10);
 
-    ue->measurements.n0_power_avg = (int)((K1 * ue->measurements.n0_power_avg + K2 * ue->measurements.n0_power_tot) >> 10);
-
-    LOG_D(PHY, "Noise Power Computation: K1 %lld K2 %lld n0 avg %u n0 tot %u\n", K1, K2, ue->measurements.n0_power_avg, ue->measurements.n0_power_tot);
-
   } else {
 
     for (gNB_id = 0; gNB_id < ue->n_connected_gNB; gNB_id++)
       ue->measurements.rx_power_avg[gNB_id] = ue->measurements.rx_power_tot[gNB_id];
 
-    ue->measurements.n0_power_avg = ue->measurements.n0_power_tot;
     ue->init_averaging = 0;
 
   }
@@ -636,6 +631,13 @@ void nr_ue_rrc_measurements(PHY_VARS_NR_UE *ue,
   }
 
   ue->measurements.n0_power_tot_dB = dB_fixed(ue->measurements.n0_power_tot);
+  // average the noise here, at each SSB where it is measured: averaged on PDSCH receptions only, it stayed stale for
+  // the SSB SINR of a UE without DL data
+  if (ue->measurements.n0_power_avg == 0)
+    ue->measurements.n0_power_avg = ue->measurements.n0_power_tot;
+  else
+    ue->measurements.n0_power_avg = (int)((K1 * ue->measurements.n0_power_avg + K2 * ue->measurements.n0_power_tot) >> 10);
+  ue->measurements.n0_power_avg_dB = dB_fixed(ue->measurements.n0_power_avg);
 
   #ifdef DEBUG_MEAS_RRC
   const int psd_awgn = -174;
