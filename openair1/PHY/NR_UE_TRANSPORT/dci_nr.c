@@ -7,6 +7,7 @@
  * compliance V8.6 2009-03.
  */
 
+#include "openair1/PHY/nr_phy_common/inc/nr_rx_norm.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -321,7 +322,14 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
   int avgs = avg[0];
   for (int i = 1; i < fp->nb_antennas_rx; i++)
       avgs = cmax(avgs, avg[i]);
-  const int log2_maxh = (log2_approx(avgs) / 2) + 5; //+frame_parms->nb_antennas_rx;
+  int log2_maxh = (log2_approx(avgs) / 2) + 5; //+frame_parms->nb_antennas_rx;
+  // Amplitude-invariant PDCCH LLR scale before the [-32,31] clip: y.h* / |h|^2 instead of / |h|. Equal to the legacy
+  // shift at log2(avg) = 18 (cell-edge SNR at the simulators' nominal level). The legacy scale put the DCI LLRs at the
+  // clip (hard decisions) 10 dB above that level and below 1 LSB 20 dB under it.
+  if (nr_rx_norm_enabled(NR_RX_NORM_PDCCH)) {
+    log2_maxh = log2_approx(avgs) - 4;
+    log2_maxh = log2_maxh < 0 ? 0 : log2_maxh > 24 ? 24 : log2_maxh;
+  }
   int rx_comp_sz = ceil_mod(llr_size_symbol, 4);
   __attribute__((aligned(32))) c16_t rxdataF_comp[fp->nb_antennas_rx][rx_comp_sz];
   memset(rxdataF_comp, 0, sizeof(rxdataF_comp));

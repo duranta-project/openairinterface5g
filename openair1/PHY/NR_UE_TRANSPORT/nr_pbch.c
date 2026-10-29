@@ -5,6 +5,7 @@
 /*!
  * \brief Top-level routines for generating and decoding  the PBCH/BCH physical/transport channel V8.6 2009-03
  */
+#include "openair1/PHY/nr_phy_common/inc/nr_rx_norm.h"
 #include "PHY/defs_nr_UE.h"
 #include "PHY/CODING/coding_extern.h"
 #include "PHY/sse_intrin.h"
@@ -305,6 +306,13 @@ void nr_generate_pbch_llr(const PHY_VARS_NR_UE *ue,
     for (int i = 1; i < frame_parms->nb_antennas_rx; i++)
       max_h = cmax(avg[i], max_h);
     *log2_maxh = 3 + (log2_approx(max_h) / 2);
+    // Amplitude-invariant PBCH LLR scale before the +-32 clip (see dci_nr.c), equal to the legacy shift at
+    // log2(max_h) = 18. The offset 6 gives the lowest BLER of 4..8 at the nominal level (nr_pbchsim, 1000 trials:
+    // 12.9 % at -10.8 dB SNR, legacy 14.3 %; 60.1 % at -12 dB, legacy 65.5 %).
+    if (nr_rx_norm_enabled(NR_RX_NORM_PBCH)) {
+      *log2_maxh = log2_approx(max_h) - 6;
+      *log2_maxh = *log2_maxh < 0 ? 0 : *log2_maxh > 24 ? 24 : *log2_maxh;
+    }
 
 #ifdef DEBUG_PBCH
     LOG_I(PHY, "[PHY] PBCH log2_maxh = %f (%d)\n", log2_maxh, max_h);

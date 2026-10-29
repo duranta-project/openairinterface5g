@@ -3,7 +3,10 @@
  */
 
 #include "nr_phy_common.h"
+#include "nr_rx_norm.h"
 #include <complex.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "common/utils/bits.h"
 #include "PHY/impl_defs_top.h"
 #include "common/utils/LOG/log.h"
@@ -312,4 +315,21 @@ double get_beta_offset_csi(const uint8_t beta_offset_idx)
   }
 
   return beta_offset_values[beta_offset_idx];
+}
+
+int nr_rx_norm_enabled(nr_rx_norm_t f)
+{
+  static const char *names[NR_RX_NORM_COUNT] = {"PUSCH", "PDSCH", "PDCCH", "PBCH", "QPSK", "DELAY", "PUCCH2", "UCI"};
+  static int state[NR_RX_NORM_COUNT]; // 0 = not read yet, 1 = on, 2 = legacy (benign race: same value written)
+  if ((unsigned)f >= NR_RX_NORM_COUNT)
+    return 0;
+  if (state[f] == 0) {
+    const char *all = getenv("OAI_RX_LEGACY_SCALING");
+    char name[64];
+    snprintf(name, sizeof(name), "OAI_RX_LEGACY_%s", names[f]);
+    const char *one = getenv(name);
+    const int legacy = (all && atoi(all)) || (one && atoi(one));
+    state[f] = legacy ? 2 : 1;
+  }
+  return state[f] == 1;
 }
