@@ -31,6 +31,7 @@ typedef struct hash_node_s {
   struct hash_node_s *next;
 } hash_node_t;
 
+/* not thread-safe: the caller protects the table if it is shared between threads */
 typedef struct hash_table_s {
   hash_size_t         size;
   struct hash_node_s **nodes;
@@ -39,7 +40,7 @@ typedef struct hash_table_s {
 } hash_table_t;
 
 typedef struct hash_table_iterator_s {
-  int index;
+  hash_size_t index;
   hash_node_t* node;
   const hash_table_t* const hashtbl;
 } hash_table_iterator_s;

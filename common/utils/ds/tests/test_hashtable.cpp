@@ -104,6 +104,26 @@ TEST(hashtable, test_default_hash_spreads_structured_keys)
   EXPECT_EQ(hashtable_destroy(&table), HASH_TABLE_OK);
 }
 
+TEST(hashtable, test_create_zero_size)
+{
+  EXPECT_EQ(hashtable_create(0, NULL, NULL), nullptr);
+}
+
+/* inserting the data already stored for a key must not free it */
+TEST(hashtable, test_insert_same_data)
+{
+  hash_table_t* table = hashtable_create(250, NULL, NULL);
+  int* a = (int*)calloc(1, sizeof(*a));
+  *a = 42;
+  EXPECT_EQ(hashtable_insert(table, 1, a), HASH_TABLE_OK);
+  EXPECT_EQ(hashtable_insert(table, 1, a), HASH_TABLE_INSERT_OVERWRITTEN_DATA);
+  void* ptr = NULL;
+  EXPECT_EQ(hashtable_get(table, 1, &ptr), HASH_TABLE_OK);
+  EXPECT_EQ(ptr, a);
+  EXPECT_EQ(*(int*)ptr, 42);
+  EXPECT_EQ(hashtable_destroy(&table), HASH_TABLE_OK);
+}
+
 int main(int argc, char** argv)
 {
   testing::InitGoogleTest(&argc, argv);
