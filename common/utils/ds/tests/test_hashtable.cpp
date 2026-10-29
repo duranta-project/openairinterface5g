@@ -117,6 +117,26 @@ TEST(hashtable, test_overfill) {
   EXPECT_EQ(hashtable_destroy(&table, free), HASH_TABLE_OK);
 }
 
+/* keys with constant low bits (like the c_init of the DMRS gold sequences, see refsig.c) must spread over a
+ * power of two table with the default hash function */
+TEST(hashtable, test_default_hash_spreads_structured_keys)
+{
+  const hash_size_t size = 1024;
+  hash_table_t table = hashtable_create(size, NULL);
+  const int num_keys = 20 * 14;
+  for (int k = 0; k < num_keys; k++) {
+    const hash_key_t key = ((((hash_key_t)k + 1) * 3) << 17) | 2;
+    EXPECT_EQ(hashtable_insert(&table, key, (void*)1, NULL), HASH_TABLE_OK);
+  }
+  int longest = 0;
+  for (hash_size_t n = 0; n < size; n++) {
+    int len = table.nodes[n].num;
+    longest = std::max(longest, len);
+  }
+  EXPECT_LE(longest, 8);
+  EXPECT_EQ(hashtable_destroy(&table, NULL), HASH_TABLE_OK);
+}
+
 int main(int argc, char** argv)
 {
   testing::InitGoogleTest(&argc, argv);

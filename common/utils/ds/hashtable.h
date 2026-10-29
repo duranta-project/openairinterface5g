@@ -24,7 +24,13 @@ typedef enum hashtable_return_code_e {
   HASH_TABLE_CODE_MAX
 } hashtable_rc_t;
 
-struct hash_node_list_s;
+struct hash_node_s;
+typedef struct hash_node_list_s {
+  struct hash_node_s *arr;
+  size_t cap;
+  size_t num;
+} hash_node_list_t;
+
 typedef struct hash_table_s {
   hash_size_t size;
   size_t entries;
