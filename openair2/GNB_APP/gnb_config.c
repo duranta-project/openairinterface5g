@@ -1599,6 +1599,16 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
 
   // MAC / RLC
   GET_PARAMS_LIST(MacRLC_ParamList, MacRLC_Params, MACRLCPARAMS_DESC, MACRLC_LIST, NULL, MACRLCPARAMS_CHECK);
+
+  AssertFatal(MacRLC_ParamList.numelt == 1, "only one MACRLCs section supported!\n");
+  AssertFatal(MacRLC_ParamList.numelt == RC.nb_nr_macrlc_inst, "only one MACRLCs section supported!\n");
+
+  nr_rlc_configuration_t default_rlc_config;
+  config_rlc(cfg, &default_rlc_config);
+
+  ngran_node_t node_type = get_node_type();
+  mac_top_init_gNB(node_type, &default_rlc_config, &cell);
+
   nr_mac_config_t config = {0};
   nr_pdsch_AntennaPorts_t *p = &config.pdsch_AntennaPorts;
   set_antenna_ports(&GNBParamList, &p->N1, &p->N2, &p->XP);
@@ -1742,11 +1752,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   AssertFatal(config.first_active_bwp <= config.num_additional_bwps, "1st active BWP does not belog to the configured BWPs\n");
 
   if (MacRLC_ParamList.numelt > 0) {
-    AssertFatal(MacRLC_ParamList.numelt == 1, "only one MACRLCs section supported!\n");
-    AssertFatal(MacRLC_ParamList.numelt == RC.nb_nr_macrlc_inst, "only one MACRLCs section supported!\n");
-    /* NR RLC config is needed by mac_top_init_gNB() */
-    nr_rlc_configuration_t default_rlc_config;
-    config_rlc(cfg, &default_rlc_config);
 
     const paramdef_t *params = MacRLC_ParamList.paramarray[0];
     const int np = sizeofArray(MacRLC_Params);
@@ -1766,9 +1771,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
           config.pucch.target_snrx10,
           config.pucch.rssi_threshold,
           config.pucch.failure_thres);
-
-    ngran_node_t node_type = get_node_type();
-    mac_top_init_gNB(node_type, &default_rlc_config, &cell);
 
     for (j = 0; j < RC.nb_nr_macrlc_inst; j++) {
       gNB_MAC_INST *nrmac = RC.nrmac[j];
