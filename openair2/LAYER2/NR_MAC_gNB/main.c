@@ -33,6 +33,7 @@
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "openair2/F1AP/f1ap_ids.h"
 #include "openair2/F1AP/lib/f1ap_interface_management.h"
+#include "nfapi/oai_integration/vendor_ext.h"
 #include "seq_arr.h"
 #include "system.h"
 #include "time_meas.h"
@@ -296,6 +297,7 @@ void mac_top_init_gNB(ngran_node_t node_type, const nr_rlc_configuration_t *defa
       pthread_mutex_init(&RC.nrmac[i]->sched_lock, NULL);
 
       uid_linear_allocator_init(&RC.nrmac[i]->UE_info.uid_allocator);
+      seq_arr_init(&RC.nrmac[i]->pos_act_ue_arr, sizeof(positioning_activation_info_t));
 
       RC.nrmac[i]->ul_ri_tpmi_select = nr_ul_ri_tpmi_select_default;
       RC.nrmac[i]->ul_tda_select = nr_ul_tda_select_default;
@@ -402,4 +404,14 @@ void nr_mac_send_f1_setup_req(void)
   gNB_MAC_INST *mac = RC.nrmac[0];
   DevAssert(mac);
   mac->mac_rrc.f1_setup_request(mac->f1_config.setup_req);
+}
+
+void nr_mac_send_config_req(gNB_MAC_INST *nrmac, nfapi_nr_config_request_scf_t *cfg)
+{
+  if (NFAPI_MODE == NFAPI_MONOLITHIC) {
+    // nothing to be sent in the other cases
+    NR_PHY_Config_t phycfg = {.phy_id = 0, .cfg = cfg};
+    DevAssert(nrmac->if_inst->NR_PHY_config_req);
+    nrmac->if_inst->NR_PHY_config_req(&phycfg);
+  }
 }

@@ -989,9 +989,8 @@ static void init_ul_tda_info(const NR_PUSCH_TimeDomainResourceAllocationList_t *
   }
 }
 
-void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config)
+void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config)
 {
-  DevAssert(nrmac != NULL);
   DevAssert(scc != NULL);
   DevAssert(config != NULL);
 
@@ -1044,13 +1043,6 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
     cell->periodic_srs_config = create_period_structure(cell, SRS);
   fill_beam_index_list(scc, config, cell);
 
-  if (NFAPI_MODE == NFAPI_MONOLITHIC) {
-    // nothing to be sent in the other cases
-    NR_PHY_Config_t phycfg = {.phy_id = 0, .cfg = &cell->config};
-    DevAssert(nrmac->if_inst->NR_PHY_config_req);
-    nrmac->if_inst->NR_PHY_config_req(&phycfg);
-  }
-
   find_SSB_and_RO_available(cell);
 
   int num_symb_cset = 1;
@@ -1073,7 +1065,6 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
    * to it. It owns its configuration (E3Configuration) and state. */
   e3_spectrum_mac_attach_cell(cell);
 #endif /* E3_AGENT */
-  seq_arr_init(&nrmac->pos_act_ue_arr, sizeof(positioning_activation_info_t));
 }
 
 bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1ap_sib_msg_t cu_sib[num_cu_sib])

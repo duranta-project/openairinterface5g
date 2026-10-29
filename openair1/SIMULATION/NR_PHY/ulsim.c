@@ -705,7 +705,8 @@ int main(int argc, char *argv[])
   mac_top_init_gNB(ngran_gNB, &rlc_config, &cell);
   gNB_MAC_INST *nrmac = RC.nrmac[0];
   cell->beam_info = (NR_beam_info_t){.beams_per_period = 1};
-  nr_mac_config_scc(nrmac, cell, scc, &conf);
+  nr_mac_cell_config_scc(cell, scc, &conf);
+  nr_mac_send_config_req(nrmac, &cell->config);
 
   NR_UE_NR_Capability_t* UE_Capability_nr = CALLOC(1,sizeof(NR_UE_NR_Capability_t));
   prepare_sim_uecap(UE_Capability_nr, scc, mu, N_RB_UL, 0, mcs_table);

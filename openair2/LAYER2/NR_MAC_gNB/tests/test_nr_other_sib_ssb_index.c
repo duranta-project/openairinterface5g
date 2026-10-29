@@ -19,11 +19,6 @@
 #include "NR_SIB2.h"
 #include "openair1/SIMULATION/NR_PHY/nr_unitary_defs.h"
 
-static void phy_config_req_stub(NR_PHY_Config_t *cfg)
-{
-  (void)cfg;
-}
-
 // common search spaces as configured by the gNB (gnb_config.c), other SI in search space 3
 static void add_common_search_spaces(NR_ServingCellConfigCommon_t *scc)
 {
@@ -74,9 +69,8 @@ int test_other_sib_ssb_index(uint64_t ssb_bitmap)
 
   // config MAC
   mac_top_init_gNB(ngran_gNB, &rlc_config, &cell);
-  RC.nrmac[0]->if_inst->NR_PHY_config_req = phy_config_req_stub;
   cell->beam_info = (NR_beam_info_t){.bf_method = BF_METHOD_STRAIGHT_WIRE, .beams_per_period = 1};
-  nr_mac_config_scc(RC.nrmac[0], cell, scc, &conf);
+  nr_mac_cell_config_scc(cell, scc, &conf);
 
   const plmn_id_t plmn = {.mcc = 1, .mnc = 1, .mnc_digit_length = 2};
 

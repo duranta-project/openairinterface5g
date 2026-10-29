@@ -2004,9 +2004,10 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
       // Read spatial stream indices
       config_spatial_stream_index(params, np, &cell->radio_config, num_tx);
 
-      // triggers also PHY initialization in case we have L1 via FAPI
-      nr_mac_config_scc(nrmac, cell, scc, &config);
+      nr_mac_cell_config_scc(cell, scc, &config);
       RC.nrmac[j]->positioning_config = RCconfig_nr_positioning();
+
+      nr_mac_send_config_req(nrmac, &cell->config);
     } //  for (j=0;j<RC.nb_nr_macrlc_inst;j++)
 
     uint64_t gnb_du_id = 0;

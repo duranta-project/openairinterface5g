@@ -858,7 +858,8 @@ int main(int argc, char **argv)
   mac_top_init_gNB(ngran_gNB, &rlc_config, &cell);
   gNB_mac = RC.nrmac[0];
   cell->beam_info = (NR_beam_info_t){.beams_per_period = 1};
-  nr_mac_config_scc(gNB_mac, cell, scc, &conf);
+  nr_mac_cell_config_scc(cell, scc, &conf);
+  nr_mac_send_config_req(gNB_mac, &cell->config);
 
   cell->dl_bler.harq_round_max = num_rounds;
 
@@ -901,7 +902,7 @@ int main(int argc, char **argv)
   // UE dedicated configuration
   nr_mac_add_test_ue(gNB_mac, cell, rnti, scg);
   // reset preprocessor to the one of DLSIM after it has been set during
-  // nr_mac_config_scc()
+  // mac_top_init_gNB()
   gNB_mac->pre_processor_dl = nr_dlsim_preprocessor;
   phy_init_nr_gNB(gNB);
   gNB->num_pdsch_symbols_per_thread = num_pdsch_symbols_per_thread;
