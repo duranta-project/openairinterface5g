@@ -24,11 +24,18 @@ void hash_free_int_func(void *memoryP)
 /*
  * Default hash function
  * def_hashfunc() is the default used by hashtable_create() when the user didn't specify one.
- * This is a simple/naive hash function which adds the key's ASCII char values. It will probably generate lots of collisions on large hash tables.
+ * The bucket is hash % size, so the hash must depend on all the key bits: OAI keys are often structured
+ * (e.g. c_init = A << 17 + 2 * N_ID + n_SCID), and with an identity hash and a power of two size, all the
+ * keys of a cell land in the same few buckets. Use the splitmix64 finalizer to mix the 64 key bits.
  */
 
-static hash_size_t def_hashfunc(const uint64_t keyP) {
-  return (hash_size_t)keyP;
+static hash_size_t def_hashfunc(const uint64_t keyP)
+{
+  uint64_t x = keyP;
+  x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+  x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+  x ^= x >> 31;
+  return (hash_size_t)x;
 }
 
 //-------------------------------------------------------------------------------------------------------------------------------
