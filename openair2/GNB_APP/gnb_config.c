@@ -1028,7 +1028,7 @@ static int read_du_cell_info(bool separate_du,
   *info->tac = *GNBParamList.paramarray[0][GNB_TRACKING_AREA_CODE_IDX].uptr;
 
   // PLMN
-  plmn_id_t p[PLMN_LIST_MAX_SIZE] = {0};
+  plmn_id_t p[NR_MAX_NB_PLMNS] = {0};
   set_plmn_config(p, 0);
   info->plmn = p[0];
   info->nr_cellid = (uint64_t) * (GNBParamList.paramarray[0][GNB_NRCELLID_IDX].u64ptr);
@@ -2779,7 +2779,7 @@ int RCconfig_NR_X2(MessageDef *msg_p, uint32_t i) {
             X2AP_REGISTER_ENB_REQ (msg_p).tac              = *GNBParamList.paramarray[k][GNB_TRACKING_AREA_CODE_IDX].uptr;
 
             // PLMN
-            plmn_id_t p[PLMN_LIST_MAX_SIZE];
+            plmn_id_t p[NR_MAX_NB_PLMNS];
             uint8_t num_plmn = set_plmn_config(p, k);
             if (num_plmn > 1)
               LOG_W(X2AP, "X2AP currently handles only one PLMN, ignoring the others!\n");
