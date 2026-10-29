@@ -2517,16 +2517,6 @@ int extract_length(int startSymbolAndLength) {
 }
 
 /*
- * Dump the UL or DL UE_info into LOG_T(MAC)
- */
-void dump_nr_list(NR_UE_info_t **list)
-{
-  UE_iterator(list, UE) {
-    LOG_T(NR_MAC, "NR list UEs rntis %04x\n", (*list)->rnti);
-  }
-}
-
-/*
  * Create a new NR_list
  */
 void create_nr_list(NR_list_t *list, int len)
@@ -2652,30 +2642,20 @@ void remove_front_nr_list(NR_list_t *listP)
     listP->tail = -1;
 }
 
-NR_UE_info_t *find_nr_UE(NR_UEs_t *UEs, rnti_t rntiP)
+NR_UE_info_t *find_connected_nr_ue(NR_UEs_t *UEs, rnti_t rntiP)
 {
-  UE_iterator(UEs->connected_ue_list, UE) {
-    if (UE->rnti == rntiP) {
-      LOG_D(NR_MAC,"Search and found rnti: %04x\n", rntiP);
-      return UE;
-    }
-  }
-  return NULL;
+  void *data;
+  hashtable_rc_t rc = hashtable_get(&UEs->connected_ues, rntiP, &data);
+  if (rc != HASH_TABLE_OK)
+    return NULL;
+  return data;
 }
 
-NR_UE_info_t *find_ra_UE(NR_UEs_t *UEs, rnti_t rntiP)
+size_t get_num_connected_ue(NR_UEs_t *UEs)
 {
-  UE_iterator (UEs->access_ue_list, UE) {
-    if (UE->ra->ra_type == RA_2_STEP && UE->ra->RA_rnti == rntiP) {
-      LOG_D(NR_MAC, "Search and found RA 2-Step RA_rnti: %04x\n", rntiP);
-      return UE;
-    }
-    if (UE->rnti == rntiP) {
-      LOG_D(NR_MAC, "Search and found rnti: %04x\n", rntiP);
-      return UE;
-    }
-  }
-  return NULL;
+  int num = hashtable_num_entries(&UEs->connected_ues);
+  DevAssert(num == seq_arr_size(&UEs->connected_ues_list));
+  return num;
 }
 
 NR_UE_info_t **get_periodic_ue(periodic_ue_sched_t *p, int ul_idx, int index)
@@ -2718,8 +2698,9 @@ static int set_periodic_info(NR_UE_info_t *UE, int ue_offset, periodic_ue_sched_
   return -1;
 }
 
-void delete_nr_ue_data(gNB_MAC_INST *mac, NR_UE_info_t *UE)
+void delete_nr_ue_data(void *p)
 {
+  NR_UE_info_t *UE = p;
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
   ASN_STRUCT_FREE(asn_DEF_NR_UE_NR_Capability, UE->capability);
@@ -2735,9 +2716,6 @@ void delete_nr_ue_data(gNB_MAC_INST *mac, NR_UE_info_t *UE)
   for (int i = 0; i < NR_MAX_HARQ_PROCESSES; ++i)
     free_transportBlock_buffer(&sched_ctrl->harq_processes[i].transportBlock);
   free_sched_pucch_list(sched_ctrl);
-  uid_allocator_t *uia = &mac->UE_info.uid_allocator;
-  uid_linear_allocator_free(uia, UE->uid);
-  LOG_I(NR_MAC, "Remove NR rnti 0x%04x\n", UE->rnti);
   free_and_zero(UE->ra);
   free(UE);
 }
@@ -3270,7 +3248,7 @@ static void init_bler_stats(const NR_bler_options_t *bler_options, NR_bler_stats
  *
  * It will be typically added to the access_ue_list, but not always (e.g.,
  * phytest mode), so this is not done in this function (and also, to allow
- * error handling). Remove with delete_nr_ue_data().  */
+ * error handling). Remove with release_nr_ue_inst().  */
 NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroupConfig_t *CellGroup, nr_cell_sched_t *cell)
 {
   NR_UE_info_t *UE = calloc_or_fail(1, sizeof(NR_UE_info_t));
@@ -3301,32 +3279,33 @@ NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroup
   return UE;
 }
 
-bool add_UE_to_list(int list_size, NR_UE_info_t *list[list_size], NR_UE_info_t *UE)
+void release_nr_ue_inst(uid_allocator_t *uia, NR_UE_info_t *UE)
 {
-  for (int i = 0; i < list_size; i++) {
-    if (!list[i]) {
-      list[i] = UE;
-      return true;
-    }
-  }
-  return false;
+  LOG_I(NR_MAC, "Remove NR rnti 0x%04x\n", UE->rnti);
+  uid_linear_allocator_free(uia, UE->uid);
+  delete_nr_ue_data(UE);
 }
 
-NR_UE_info_t *remove_UE_from_list(int list_size, NR_UE_info_t *list[list_size], rnti_t rnti)
+static bool find_rnti(const void *search, const void *current)
 {
-  for (int i = 0; i < list_size; i++) {
-    NR_UE_info_t *curr_UE = list[i];
-    if (!curr_UE)
-      break; /* reached the end of the list */
-    if (curr_UE->rnti != rnti)
-      continue;
+  rnti_t s = *(const rnti_t *) search;
+  const NR_UE_info_t *c = *(const NR_UE_info_t **) current;
+  return s == c->rnti;
+}
 
-    /* remove this UE from the list, return the pointer */
-    memmove(&list[i], &list[i+1], sizeof(list[0]) * (list_size - i - 1));
-    list[list_size - 1] = NULL;
-    return curr_UE;
-  }
-  return NULL;
+NR_UE_info_t *remove_connected_nr_ue(NR_UEs_t *UEs, rnti_t rnti)
+{
+  void *data;
+  hashtable_rc_t get = hashtable_get(&UEs->connected_ues, rnti, &data);
+  if (get != HASH_TABLE_OK)
+    return NULL;
+  hashtable_rc_t rc = hashtable_remove(&UEs->connected_ues, rnti, NULL); // caller has to free
+  elm_arr_t el = find_if(&UEs->connected_ues_list, &rnti, find_rnti);
+  DevAssert(el.found); // if in hashtable, must be here
+  seq_arr_erase(&UEs->connected_ues_list, el.it);
+  DevAssert(rc == HASH_TABLE_OK);
+  DevAssert(data != NULL);
+  return data;
 }
 
 /** @brief Transitions a UE from access list to connected list (i.e., the RA
@@ -3336,7 +3315,7 @@ bool transition_ra_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   NR_UEs_t *UE_info = &nr_mac->UE_info;
 
   // remove UE from initial access list (moved to connected mode)
-  NR_UE_info_t *r = remove_UE_from_list(NR_NB_RA_PROC_MAX, UE_info->access_ue_list, UE->rnti);
+  NR_UE_info_t *r = remove_ra_ue(UE_info, UE->rnti);
   DevAssert(r == UE); /* sanity check: we should have removed the current UE ptr from list */
 
   // The RA completed, so the UE's UL works. Clear any UL-failure state
@@ -3354,15 +3333,17 @@ bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
 {
   LOG_I(NR_MAC, "Adding new UE context with RNTI 0x%04x\n", UE->rnti);
   NR_UEs_t *UE_info = &nr_mac->UE_info;
-  dump_nr_list(UE_info->connected_ue_list);
   AssertFatal(!UE->ra, "UE in connected cannot have RA process\n");
 
-  bool success = add_UE_to_list(MAX_MOBILES_PER_GNB, UE_info->connected_ue_list, UE);
-  if (!success) {
-    LOG_E(NR_MAC,"Try to add UE %04x but the list is full\n", UE->rnti);
-    delete_nr_ue_data(nr_mac, UE);
+  bool exists = hashtable_is_key_exists(&UE_info->connected_ues, UE->rnti) != HASH_TABLE_KEY_NOT_EXISTS;
+  int num_ues = get_num_connected_ue(UE_info);
+  if (exists || num_ues >= MAX_MOBILES_PER_GNB) {
+    LOG_E(NR_MAC, "Try to add UE %04x but UE existing or the list is full\n", UE->rnti);
     return false;
   }
+  bool success = hashtable_insert(&UE_info->connected_ues, UE->rnti, UE, NULL) == HASH_TABLE_OK;
+  DevAssert(success); // logic bug: must be free after hashtable_is_key_exists() succeeded
+  seq_arr_push_back(&UE_info->connected_ues_list, &UE, sizeof(UE));
 
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   sched_ctrl->dl_max_mcs = 28; /* do not limit MCS for individual UEs */
@@ -3378,7 +3359,6 @@ bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   init_bler_stats(&UE->pcell->dl_bler, &sched_ctrl->dl_bler_stats, nr_mac->frame);
   init_bler_stats(&UE->pcell->ul_bler, &sched_ctrl->ul_bler_stats, nr_mac->frame);
 
-  dump_nr_list(UE_info->connected_ue_list);
   return true;
 }
 
@@ -3428,11 +3408,11 @@ void reset_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl) {
 void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti)
 {
   NR_UEs_t *UE_info = &nr_mac->UE_info;
-  NR_UE_info_t *UE = remove_UE_from_list(MAX_MOBILES_PER_GNB + 1, UE_info->connected_ue_list, rnti);
+  NR_UE_info_t *UE = remove_connected_nr_ue(UE_info, rnti);
+  if (!UE)
+    UE = remove_ra_ue(UE_info, rnti);
   if (UE)
-    delete_nr_ue_data(nr_mac, UE);
-  else
-    nr_release_ra_UE(nr_mac, rnti);
+    release_nr_ue_inst(&nr_mac->UE_info.uid_allocator, UE);
 }
 
 /**
@@ -3512,7 +3492,7 @@ void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t f
 
   UE_info->sched_csirs = 0;
 
-  UE_iterator(UE_info->connected_ue_list, UE) {
+  FOR_EACH_CONNECTED_UE(UE_info, UE) {
     if (UE->pcell != cell)
       continue;
     NR_UE_DL_BWP_t *dl_bwp = &UE->current_DL_BWP;
@@ -3804,7 +3784,7 @@ static void nr_mac_interrupt_ue_transmission(gNB_MAC_INST *mac, NR_UE_info_t *UE
 void nr_measgap_scheduling(gNB_MAC_INST *nr_mac, const nr_cell_sched_t *cell, frame_t frame, sub_frame_t slot)
 {
   NR_UEs_t *UE_info = &nr_mac->UE_info;
-  UE_iterator(UE_info->connected_ue_list, UE) {
+  FOR_EACH_CONNECTED_UE(UE_info, UE) {
     if (UE->pcell != cell)
       continue;
     measgap_config_t *mgc = &UE->measgap_config;
@@ -3950,7 +3930,7 @@ void beam_switching_procedure(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_UE_in
 
 void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
 {
-  // releasing a UE modifies connected_ue_list, and nr_mac_trigger_release_complete() drops sched_lock:
+  // releasing a UE modifies connected_ues, and nr_mac_trigger_release_complete() drops sched_lock:
   // collect the UEs to release and release them by RNTI after the loop
   typedef struct {
     rnti_t rnti;
@@ -3958,7 +3938,7 @@ void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
   } ue_release_t;
   ue_release_t to_release[MAX_MOBILES_PER_GNB];
   int num_release = 0;
-  UE_iterator (mac->UE_info.connected_ue_list, UE) {
+  FOR_EACH_CONNECTED_UE(&mac->UE_info, UE) {
     if (UE->pcell != cell)
       continue;
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
@@ -4522,8 +4502,8 @@ bool nr_mac_get_new_rnti(NR_UEs_t *UEs, rnti_t *rnti)
   bool exist_connected_ue, exist_in_pending_ra_ue;
   do {
     *rnti = (taus() % 0xffef) + 1;
-    exist_connected_ue = find_nr_UE(UEs, *rnti) != NULL;
-    exist_in_pending_ra_ue = find_ra_UE(UEs, *rnti) != NULL;
+    exist_connected_ue = find_connected_nr_ue(UEs, *rnti) != NULL;
+    exist_in_pending_ra_ue = find_ra_ue(UEs, *rnti) != NULL;
     loop++;
   } while (loop < 100 && (exist_connected_ue || exist_in_pending_ra_ue));
   return loop < 100; // nothing found: loop count 100

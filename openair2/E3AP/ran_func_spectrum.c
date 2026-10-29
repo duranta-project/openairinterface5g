@@ -545,7 +545,7 @@ static int nr_sensing_add_ul_ctrl_occupancy(gNB_MAC_INST *mac,
    * transmits its configured SR/CSI/SRS per RRC (e.g. SR to recover from a UL
    * failure), so an is_active gate would leak those PRBs into the free-tile
    * telemetry. Telemetry-only, so no scheduling impact. */
-  UE_iterator (mac->UE_info.connected_ue_list, UE) {
+  FOR_EACH_CONNECTED_UE(&mac->UE_info, UE) {
     const NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
     const int bwp_start = ul_bwp->BWPStart;
     const int bwp_size = ul_bwp->BWPSize;

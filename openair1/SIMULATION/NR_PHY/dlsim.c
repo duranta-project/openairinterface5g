@@ -169,6 +169,7 @@ void update_dmrs_config(NR_BWP_Downlink_t *bwp, int8_t *dmrs_arg);
 
 /* specific dlsim DL preprocessor: uses rbStart/rbSize/mcs/nrOfLayers from command line of dlsim */
 int g_mcsIndex = 9, g_mcsTableIdx = 0, g_rbStart = 0, g_rbSize = 0, g_nrOfLayers = 1, g_pmi = 0, g_nb_rb_ranges = 0, N_RB_DL = 106;
+int g_rnti = 0x1234;
 /* PRBs used by retransmissions (0: same as initial), keeping the initial TBS through a reserved MCS index */
 int g_retx_rbSize = 0;
 nr_pdsch_allocation_type_t alloc_type = PDSCH_TYPE1;
@@ -181,8 +182,10 @@ rb_range_t g_rb_ranges[MAX_RB_RANGES];
 
 void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_process_pdsch_t *pp_pdsch)
 {
-  NR_UE_info_t *UE_info = nr_mac->UE_info.connected_ue_list[0];
-  AssertFatal(nr_mac->UE_info.connected_ue_list[1] == NULL, "Only single UE allowed in dlsim\n");
+  DevAssert(get_num_connected_ue(&nr_mac->UE_info) == 1);
+  NR_UE_info_t *UE_info = find_connected_nr_ue(&nr_mac->UE_info, g_rnti);
+  DevAssert(UE_info && UE_info->rnti == g_rnti);
+
   NR_UE_sched_ctrl_t *sched_ctrl = &UE_info->UE_sched_ctrl;
   NR_UE_DL_BWP_t *current_BWP = &UE_info->current_DL_BWP;
   NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
@@ -866,13 +869,12 @@ int main(int argc, char **argv)
 
   NR_UE_NR_Capability_t *UE_Capability_nr = CALLOC(1,sizeof(NR_UE_NR_Capability_t));
   prepare_sim_uecap(UE_Capability_nr, scc, mu, N_RB_DL, g_mcsTableIdx, 0);
-  rnti_t rnti = 0x1234;
   int uid = 0;
   int ssb_index = 0;
   const NR_feature_set_ids_t uecap_fs_ids = {.dl_feature_set_percc_id = 1,
                                              .ul_feature_set_percc_id = 1};
   NR_CellGroupConfig_t *scg = get_default_secondaryCellGroup(scc, UE_Capability_nr, &uecap_fs_ids, 0, 1, &conf, cell, uid, ssb_index);
-  scg->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(rnti, uid, scc, frame);
+  scg->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(g_rnti, uid, scc, frame);
   NR_BWP_Downlink_t *bwp = scg->spCellConfig->spCellConfigDedicated->downlinkBWP_ToAddModList->list.array[0];
 
   if (alloc_type == PDSCH_TYPE0) {
@@ -899,14 +901,15 @@ int main(int argc, char **argv)
   }
 
   // UE dedicated configuration
-  nr_mac_add_test_ue(gNB_mac, cell, rnti, scg);
+  nr_mac_add_test_ue(gNB_mac, cell, g_rnti, scg);
   // reset preprocessor to the one of DLSIM after it has been set during
   // nr_mac_config_scc()
   gNB_mac->pre_processor_dl = nr_dlsim_preprocessor;
   phy_init_nr_gNB(gNB);
   gNB->num_pdsch_symbols_per_thread = num_pdsch_symbols_per_thread;
   N_RB_DL = gNB->frame_parms.N_RB_DL;
-  NR_UE_info_t *UE_info = gNB_mac->UE_info.connected_ue_list[0];
+  NR_UE_info_t *UE_info = find_connected_nr_ue(&gNB_mac->UE_info, g_rnti);
+  DevAssert(UE_info && UE_info->rnti == g_rnti);
 
   configure_UE_BWP(cell, scc, UE_info, false, NR_SearchSpace__searchSpaceType_PR_ue_Specific, -1, -1);
 
