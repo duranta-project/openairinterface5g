@@ -280,6 +280,59 @@ TEST(oru_beamforming, ul_combine_two_antennas)
   }
 }
 
+// mMIMO limits: the last fronthaul stream on every TXRU, in DL and UL. Only that stream has weights.
+TEST(oru_beamforming, codebook_max_antennas_and_streams)
+{
+  const int nb_ant = ORU_CODEBOOK_MAX_NB_TX;
+  const int stream = ORU_CODEBOOK_MAX_STREAMS - 1;
+  static oru_codebook_t cb;
+  memset(&cb, 0, sizeof(cb));
+  cb.nb_fh_streams = ORU_CODEBOOK_MAX_STREAMS;
+  cb.nb_beams = 1;
+  for (int a = 0; a < nb_ant; a++)
+    cb.w[0][a][stream] = (c16_t){.r = (int16_t)(1000 + 100 * a), .i = (int16_t)(-50 * a)};
+
+  // DL: stream onto every TXRU with its weight
+  uint32_t iq_buf[NR_NB_SC_PER_RB];
+  fill_iq(iq_buf, NR_NB_SC_PER_RB, 200);
+  dl_iq_stream_t streams[1] = {{.ant_id = (uint8_t)stream, .beam_id = 0, .start_prb = 0, .num_prb = 1, .iq = iq_buf}};
+  static uint32_t ant_buf[ORU_CODEBOOK_MAX_NB_TX][N_SC];
+  c16_t *txDataF[ORU_CODEBOOK_MAX_NB_TX];
+  for (int a = 0; a < nb_ant; a++)
+    txDataF[a] = (c16_t *)ant_buf[a];
+  const c16_t rotation = {.r = 32767, .i = 0};
+  combine_dl_streams(txDataF, nb_ant, N_SC, streams, 1, &cb, rotation);
+  for (int a = 0; a < nb_ant; a++) {
+    const c16_t w_rot = c16mulShift(cb.w[0][a][stream], rotation, 15);
+    for (int i = 0; i < NR_NB_SC_PER_RB; i++) {
+      const c16_t exp = c16mulShift(((c16_t *)iq_buf)[i], w_rot, 15);
+      EXPECT_EQ(txDataF[a][i].r, exp.r) << "antenna " << a;
+      EXPECT_EQ(txDataF[a][i].i, exp.i) << "antenna " << a;
+    }
+    assert_zero(txDataF[a] + NR_NB_SC_PER_RB, NR_NB_SC_PER_RB);
+  }
+
+  // UL: every antenna combined into the stream with the conjugate weight
+  static uint32_t fft_buf[ORU_CODEBOOK_MAX_NB_TX][N_SC];
+  const c16_t *fft[ORU_CODEBOOK_MAX_NB_TX];
+  for (int a = 0; a < nb_ant; a++) {
+    fill_iq(fft_buf[a], N_SC, (int16_t)(a + 1));
+    fft[a] = (c16_t *)fft_buf[a];
+  }
+  c16_t out[N_SC];
+  combine_ul_beam_fd(fft, nb_ant, 0, N_SC, &cb, 0, stream, out);
+  for (int i = 0; i < N_SC; i++) {
+    int r = 0, im = 0;
+    for (int a = 0; a < nb_ant; a++) {
+      const c16_t term = c16mulShift(fft[a][i], conj16(cb.w[0][a][stream]), 15);
+      r += term.r;
+      im += term.i;
+    }
+    EXPECT_EQ(out[i].r, r);
+    EXPECT_EQ(out[i].i, im);
+  }
+}
+
 // Two beams from the same antennas: each gets its own weight vector, so the outputs differ
 // even though the FFT input is identical (sub-band beam switching in UL is the same machinery
 // at the job level - one beam per C-plane section).
