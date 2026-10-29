@@ -671,7 +671,7 @@ static void abort_nr_ul_harq(NR_UE_info_t *UE, int8_t harq_pid)
     sched_ctrl->sched_ul_bytes = 0;
 }
 
-static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rnti, int crc_harq_id, bool crc_status)
+static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rnti, int crc_harq_id, bool crc_status, slot_t slot)
 {
   if (cell->radio_config.disable_harq) {
     LOG_D(NR_MAC, "skipping UL feedback handling as HARQ is disabled\n");
@@ -679,12 +679,22 @@ static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rn
   }
 
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  const NR_UE_ul_harq_t *h = &sched_ctrl->ul_harq_processes[crc_harq_id];
+  if (!h->is_waiting || h->feedback_slot != slot) {
+    LOG_W(NR_MAC, "RNTI %04x: stale UL CRC for HARQ PID %d (slot %d), ignoring\n", rnti, crc_harq_id, slot);
+    return;
+  }
+
   int8_t harq_pid = sched_ctrl->feedback_ul_harq.head;
   LOG_D(NR_MAC, "Comparing crc harq_id vs feedback harq_pid = %d %d\n", crc_harq_id, harq_pid);
-  while (crc_harq_id != harq_pid || harq_pid < 0) {
+
+  if (harq_pid < 0) {
+    LOG_W(NR_MAC, "Received UL HARQ feedback with PID %d but feedback list is empty for RNTI 0x%04x\n", crc_harq_id, rnti);
+    return;
+  }
+
+  while (crc_harq_id != harq_pid) {
     LOG_W(NR_MAC, "Unexpected ULSCH HARQ PID %d (have %d) for RNTI 0x%04x\n", crc_harq_id, harq_pid, rnti);
-    if (harq_pid < 0)
-      return;
 
     remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
     sched_ctrl->ul_harq_processes[harq_pid].is_waiting = false;
@@ -696,6 +706,11 @@ static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rn
       add_tail_nr_list(&sched_ctrl->retrans_ul_harq, harq_pid);
     }
     harq_pid = sched_ctrl->feedback_ul_harq.head;
+
+    if (harq_pid < 0) {
+      LOG_W(NR_MAC, "No matching HARQ PID %d in feedback list for RNTI 0x%04x\n", crc_harq_id, rnti);
+      return;
+    }
   }
   remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
   NR_UE_ul_harq_t *harq = &sched_ctrl->ul_harq_processes[harq_pid];
@@ -1046,7 +1061,7 @@ static void _nr_rx_sdu(gNB_MAC_INST *gNB_mac,
         nr_mac_trigger_ul_failure(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
       }
     }
-    handle_nr_ul_harq(cell, UE, current_rnti, harq_pid, sduP == NULL);
+    handle_nr_ul_harq(cell, UE, current_rnti, harq_pid, sduP == NULL, slotP);
   } else {
     nr_rx_ra_sdu(gNB_mac, cell, frameP, slotP, current_rnti, sduP, sdu_lenP, harq_pid, timing_advance, ul_cqi, rssi, data_ind, num_data_ind, rlc_rnti);
   }
