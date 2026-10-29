@@ -619,7 +619,7 @@ void nr_schedule_periodic_srs(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_
       continue;
     if (!UE->sched_srs.srs_resource) // SRS resource not configured
       continue;
-    // PRACH and Msg3 can take the SRS symbols, nr_fill_nfapi_srs() reports it
+    // PRACH can take the SRS symbols, nr_fill_nfapi_srs() reports it
     if (!nr_fill_nfapi_srs(nrmac, cell, UE, sched_frame, sched_slot, &UE->sched_srs, srs_symbols))
       continue;
     LOG_D(NR_MAC," %d.%d Scheduling SRS reception for %d.%d\n", frame, slot, sched_frame, sched_slot);
