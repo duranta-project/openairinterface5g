@@ -999,6 +999,12 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
               "SSB Bitmap type %d is not valid\n",
               scc->ssb_PositionsInBurst->present);
 
+  cell->common_channels.ServingCellConfigCommon = scc;
+  cell->radio_config = *config;
+  cell->common_channels.mib = get_new_MIB_NR(scc);
+  cell->first_MIB = true;
+  cell->ul_next = (fsn_t) {.mu = *scc->ssbSubcarrierSpacing};
+
   const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
   const int n = get_slots_per_frame_from_scs(*scc->ssbSubcarrierSpacing);
   int size = n << ceil_log2_u32((NTN_gNB_Koffset + 13) / n + 1); // 13 is upper limit for max_fb_time

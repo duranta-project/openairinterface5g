@@ -1768,7 +1768,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
           config.pucch.failure_thres);
 
     ngran_node_t node_type = get_node_type();
-    mac_top_init_gNB(node_type, scc, &config, &default_rlc_config, &cell);
+    mac_top_init_gNB(node_type, &default_rlc_config, &cell);
 
     for (j = 0; j < RC.nb_nr_macrlc_inst; j++) {
       gNB_MAC_INST *nrmac = RC.nrmac[j];
@@ -1844,7 +1844,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
         ul_bler_options->harq_round_max = *gpd(params, np, MACRLC_UL_HARQ_ROUND_MAX)->u8ptr;
       cell->min_grant_prb = *gpd(params, np, MACRLC_MIN_GRANT_PRB)->u16ptr;
       long sc_fdma = NR_PUSCH_Config__transformPrecoder_enabled;
-      NR_BWP_UplinkCommon_t *bwp = cell->common_channels.ServingCellConfigCommon->uplinkConfigCommon->initialUplinkBWP;
+      NR_BWP_UplinkCommon_t *bwp = scc->uplinkConfigCommon->initialUplinkBWP;
       if (bwp->rach_ConfigCommon->choice.setup->msg3_transformPrecoder != NULL)
         sc_fdma = *bwp->rach_ConfigCommon->choice.setup->msg3_transformPrecoder;
       int new_min = check_sc_fdma_rbsize(sc_fdma, cell->min_grant_prb);

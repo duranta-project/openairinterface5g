@@ -249,11 +249,7 @@ static void mac_rrc_init(gNB_MAC_INST *mac, ngran_node_t node_type)
   }
 }
 
-void mac_top_init_gNB(ngran_node_t node_type,
-                      NR_ServingCellConfigCommon_t *scc,
-                      const nr_mac_config_t *config,
-                      const nr_rlc_configuration_t *default_rlc_config,
-                      nr_cell_sched_t **cell_ptr)
+void mac_top_init_gNB(ngran_node_t node_type, const nr_rlc_configuration_t *default_rlc_config, nr_cell_sched_t **cell_ptr)
 {
   AssertFatal(RC.nb_nr_macrlc_inst == 1, "what is the point of calling %s() if you don't need exactly one MAC?\n", __func__);
 
@@ -287,18 +283,14 @@ void mac_top_init_gNB(ngran_node_t node_type,
       memset((void*)RC.nrmac[i]->tag,0,sizeof(NR_TAG_t));
       for(int n = 0; n < MAX_NUM_OF_SSB; n++)
         cell->sib1_pdsch[n].time_domain_allocation = -1;
-      cell->common_channels.ServingCellConfigCommon = scc;
-      cell->radio_config = *config;
+
       RC.nrmac[i]->rlc_config = *default_rlc_config;
 
-      cell->first_MIB = true;
       cell->num_scheduled_prach_rx = 0;
-      cell->common_channels.mib = get_new_MIB_NR(scc);
 
       cell->cset0_bwp_start = 0;
       cell->cset0_bwp_size = 0;
 
-      cell->ul_next = (fsn_t) {.mu = *scc->ssbSubcarrierSpacing};
       RC.nrmac[i]->print_ue_stats = true;
 
       pthread_mutex_init(&RC.nrmac[i]->sched_lock, NULL);
