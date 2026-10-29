@@ -2268,8 +2268,8 @@ void nr_schedule_RA(gNB_MAC_INST *mac,
     if (ra->ra_state != nrRA_gNB_IDLE)
       LOG_D(NR_MAC, "UE %04x frame.slot %d.%d RA state: %d\n", UE->rnti, frameP, slotP, ra->ra_state);
 
-    // Check RA Contention Resolution timer (TODO check this procedure)
-    if (ra->ra_type == RA_4_STEP && ra->ra_state > nrRA_WAIT_Msg3) {
+    // Check RA Contention Resolution timer
+    if (ra->ra_type == RA_4_STEP && ra->ra_state >= nrRA_WAIT_Msg3) {
       ra->contention_resolution_timer--;
       if (ra->contention_resolution_timer == 0) {
         LOG_W(NR_MAC, "(%d.%d) RA Contention Resolution timer expired for UE 0x%04x, RA procedure failed...\n", frameP, slotP, UE->rnti);
