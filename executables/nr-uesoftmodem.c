@@ -104,14 +104,13 @@ void exit_function(const char *file, const char *function, const int line, const
 {
   LOG_W(UTIL, "called by: %s:%d %s() Exiting OAI softmodem: %s\n", file, line, function, s ? s : "no msg");
 
-  oai_exit = 1;
-
-  nrue_ru_stop();
-  nrue_ru_end();
-
   if (assert) {
     abort();
   } else {
+    oai_exit = 1;
+    nrue_ru_stop();
+    nrue_ru_end();
+
     sleep(1); // allow lte-softmodem threads to exit first
     exit(EXIT_SUCCESS);
   }
