@@ -1796,6 +1796,9 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
     LOG_E(GNB_APP, "RU information not present in config file. Assuming physical antenna ports equal to logical antenna ports %d\n", *num_tx);
   }
 
+  // Read spatial stream indices
+  config_spatial_stream_index(macrlc_p, macrlc_np, &config, *num_tx);
+
   return config;
 }
 
@@ -1979,9 +1982,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
                 ap->XP,
                 csi_ports);
   }
-
-  // Read spatial stream indices
-  config_spatial_stream_index(macrlc_p, macrlc_np, &cell->radio_config, num_tx);
 
   nr_mac_cell_config_scc(cell, scc, &config);
   nrmac->positioning_config = RCconfig_nr_positioning();
