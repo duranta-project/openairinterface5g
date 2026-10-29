@@ -1586,7 +1586,6 @@ static void config_spatial_stream_index(const paramdef_t *param, const size_t np
 
 void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
 {
-  int j = 0;
   nr_cell_sched_t *cell = NULL;
 
   GET_PARAMS(GNBSParams, GNBSPARAMS_DESC, NULL);
@@ -1751,296 +1750,288 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   config.first_active_bwp = *GNBParamList.paramarray[0][GNB_1ST_ACTIVE_BWP_IDX].iptr;
   AssertFatal(config.first_active_bwp <= config.num_additional_bwps, "1st active BWP does not belog to the configured BWPs\n");
 
-  if (MacRLC_ParamList.numelt > 0) {
 
-    const paramdef_t *params = MacRLC_ParamList.paramarray[0];
-    const int np = sizeofArray(MacRLC_Params);
-    config.pusch.target_snrx10 = *gpd(params, np, MACRLC_PUSCHTARGETSNRX10)->iptr;
-    config.pusch.rssi_threshold = *gpd(params, np, MACRLC_PUSCH_RSSI_THRESHOLD)->iptr;
-    config.pucch.rssi_threshold = *gpd(params, np, MACRLC_PUCCH_RSSI_THRESHOLD)->iptr;
-    config.pucch.target_snrx10 = *gpd(params, np, MACRLC_PUCCHTARGETSNRX10)->iptr;
-    config.ul_prbblack_SNR_threshold = *gpd(params, np, MACRLC_UL_PRBBLACK_SNR_THRESHOLD)->iptr;
-    config.pucch.failure_thres = *gpd(params, np, MACRLC_PUCCHFAILURETHRES)->iptr;
-    config.pusch.failure_thres = *gpd(params, np, MACRLC_PUSCHFAILURETHRES)->iptr;
+  const paramdef_t *params = MacRLC_ParamList.paramarray[0];
+  const int np = sizeofArray(MacRLC_Params);
+  config.pusch.target_snrx10 = *gpd(params, np, MACRLC_PUSCHTARGETSNRX10)->iptr;
+  config.pusch.rssi_threshold = *gpd(params, np, MACRLC_PUSCH_RSSI_THRESHOLD)->iptr;
+  config.pucch.rssi_threshold = *gpd(params, np, MACRLC_PUCCH_RSSI_THRESHOLD)->iptr;
+  config.pucch.target_snrx10 = *gpd(params, np, MACRLC_PUCCHTARGETSNRX10)->iptr;
+  config.ul_prbblack_SNR_threshold = *gpd(params, np, MACRLC_UL_PRBBLACK_SNR_THRESHOLD)->iptr;
+  config.pucch.failure_thres = *gpd(params, np, MACRLC_PUCCHFAILURETHRES)->iptr;
+  config.pusch.failure_thres = *gpd(params, np, MACRLC_PUSCHFAILURETHRES)->iptr;
 
-    LOG_I(NR_MAC,
-          "PUSCH Target %d RSSI thresh %d Failure %d, PUCCH Target %d RSSI thresh %d Failure %d\n",
-          config.pusch.target_snrx10,
-          config.pusch.rssi_threshold,
-          config.pusch.failure_thres,
-          config.pucch.target_snrx10,
-          config.pucch.rssi_threshold,
-          config.pucch.failure_thres);
+  LOG_I(NR_MAC,
+        "PUSCH Target %d RSSI thresh %d Failure %d, PUCCH Target %d RSSI thresh %d Failure %d\n",
+        config.pusch.target_snrx10,
+        config.pusch.rssi_threshold,
+        config.pusch.failure_thres,
+        config.pucch.target_snrx10,
+        config.pucch.rssi_threshold,
+        config.pucch.failure_thres);
 
-    for (j = 0; j < RC.nb_nr_macrlc_inst; j++) {
-      params = MacRLC_ParamList.paramarray[j]; // RC.nb_nr_macrlc_inst == 1 as per assert, but keep consistent
-      if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "local_RRC") == 0) {
-        // check number of instances is same as RRC/PDCP
+  if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "local_RRC") == 0) {
+    // check number of instances is same as RRC/PDCP
 
-      } else if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "f1") == 0
-                 || strcmp(*gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "cudu") == 0) {
-        char **f1caddr = gpd(params, np, MACRLC_LOCAL_N_ADDRESS)->strptr;
-        char **f1uaddr = gpd(params, np, MACRLC_LOCAL_N_ADDRESS_F1U)->strptr;
-        f1ap_net_config_t nc = {
-          .CU_f1_ip_address = strdup(*gpd(params, np, MACRLC_REMOTE_N_ADDRESS)->strptr),
-          .DU_f1c_ip_address = strdup(*f1caddr),
-          .DU_f1u_ip_address = f1uaddr != NULL ? strdup(*f1uaddr) : strdup(*f1caddr),
-          .DUport = *gpd(params, np, MACRLC_LOCAL_N_PORTD)->iptr,
-          .CUport = *gpd(params, np, MACRLC_REMOTE_N_PORTD)->iptr,
-        };
-        nrmac->net_config = nc;
-        LOG_I(F1AP,
-              "F1-C DU IPaddr %s, connect to F1-C CU %s, binding GTP to %s ports local %d remote %d\n",
-              nc.DU_f1c_ip_address,
-              nc.CU_f1_ip_address,
-              nc.DU_f1u_ip_address,
-              nc.DUport,
-              nc.CUport);
-      } else { // other midhaul
-        AssertFatal(1 == 0, "MACRLC %d: %s unknown northbound midhaul\n", j, *gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr);
-      }
-
-      if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "local_L1") == 0) {
-      } else if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "nfapi") == 0) {
-        const char *vnf_addr = *gpd(params, np, MACRLC_LOCAL_S_ADDRESS)->strptr;
-        uint16_t p5_port = *gpd(params, np, MACRLC_LOCAL_S_PORTC)->iptr;
-        uint16_t p7_port = *gpd(params, np, MACRLC_LOCAL_S_PORTD)->iptr;
-        configure_nr_nfapi_vnf(vnf_addr, p5_port, p7_port);
-      } else if(strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "aerial") == 0){
-#ifdef ENABLE_AERIAL
-        nvipc_params_t nvipc_p = {
-          .nvipc_shm_prefix = strdup(*gpd(params, np, MACRLC_TRANSPORT_S_SHM_PREFIX)->strptr),
-          .nvipc_poll_core = *gpd(params, np, MACRLC_TRANSPORT_S_POLL_CORE)->i8ptr,
-          .num_phys = 1,
-        };
-        nrmac->nvipc_params_s = nvipc_p;
-        LOG_I(GNB_APP, "Configuring VNF for Aerial connection with prefix %s\n", nvipc_p.nvipc_shm_prefix);
-        // parameters are for socket-based communication, irrelevant for Aerial
-        configure_nr_nfapi_vnf(NULL, 0xffff, 0xffff);
-
-#endif
-      } else { // other midhaul
-        AssertFatal(1 == 0, "MACRLC %d: %s unknown southbound midhaul\n", j, *gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr);
-      }
-      cell->ulsch_max_frame_inactivity = *gpd(params, np, MACRLC_ULSCH_MAX_FRAME_INACTIVITY)->uptr;
-      nrmac->stats_max_ue = *gpd(params, np, MACRLC_STATS_MAX_UE)->iptr;
-      nrmac->print_ue_stats = nrmac->stats_max_ue > 0;
-      NR_bler_options_t *dl_bler_options = &cell->dl_bler;
-      dl_bler_options->upper = *gpd(params, np, MACRLC_DL_BLER_TARGET_UPPER)->dblptr;
-      dl_bler_options->lower = *gpd(params, np, MACRLC_DL_BLER_TARGET_LOWER)->dblptr;
-      dl_bler_options->min_mcs = *gpd(params, np, MACRLC_DL_MIN_MCS)->u8ptr;
-      dl_bler_options->max_mcs = *gpd(params, np, MACRLC_DL_MAX_MCS)->u8ptr;
-      if (config.disable_harq)
-        dl_bler_options->harq_round_max = 1;
-      else
-        dl_bler_options->harq_round_max = *gpd(params, np, MACRLC_DL_HARQ_ROUND_MAX)->u8ptr;
-      NR_bler_options_t *ul_bler_options = &cell->ul_bler;
-      ul_bler_options->upper = *gpd(params, np, MACRLC_UL_BLER_TARGET_UPPER)->dblptr;
-      ul_bler_options->lower = *gpd(params, np, MACRLC_UL_BLER_TARGET_LOWER)->dblptr;
-      ul_bler_options->min_mcs = *gpd(params, np, MACRLC_UL_MIN_MCS)->u8ptr;
-      ul_bler_options->max_mcs = *gpd(params, np, MACRLC_UL_MAX_MCS)->u8ptr;
-      if (config.disable_harq)
-        ul_bler_options->harq_round_max = 1;
-      else
-        ul_bler_options->harq_round_max = *gpd(params, np, MACRLC_UL_HARQ_ROUND_MAX)->u8ptr;
-      cell->min_grant_prb = *gpd(params, np, MACRLC_MIN_GRANT_PRB)->u16ptr;
-      long sc_fdma = NR_PUSCH_Config__transformPrecoder_enabled;
-      NR_BWP_UplinkCommon_t *bwp = scc->uplinkConfigCommon->initialUplinkBWP;
-      if (bwp->rach_ConfigCommon->choice.setup->msg3_transformPrecoder != NULL)
-        sc_fdma = *bwp->rach_ConfigCommon->choice.setup->msg3_transformPrecoder;
-      int new_min = check_sc_fdma_rbsize(sc_fdma, cell->min_grant_prb);
-      // NR_PUSCH_Config__transformPrecoder_enabled	= 0 |	NR_PUSCH_Config__transformPrecoder_disabled	= 1, so !uses_sc_fdma should
-      // be used
-      if (sc_fdma == NR_PUSCH_Config__transformPrecoder_enabled && cell->min_grant_prb != new_min) {
-        LOG_W(NR_MAC,
-              "min_rb value is set as %d. In SC-FDMA, it should be under format 2^x*3^y*5^z and has been automatically decreased "
-              "to %d.\n",
-              cell->min_grant_prb,
-              new_min);
-       cell->min_grant_prb = new_min;
-      }
-      cell->identity_pm = *gpd(params, np, MACRLC_IDENTITY_PM)->u8ptr;
-      // PRB Blacklist
-      uint16_t prbbl[MAX_BWP_SIZE] = {0};
-      int num_ulprbbl = get_prb_blacklist(prbbl);
-      if (num_ulprbbl != -1) {
-        LOG_I(NR_PHY, "Copying %d blacklisted PRB to L1 context\n", num_ulprbbl);
-        memcpy(cell->ulprbbl, prbbl, MAX_BWP_SIZE * sizeof(prbbl[0]));
-      }
-      char **removed_ab = gpd(params, np, MACRLC_ANALOG_BEAMFORMING_REMOVED)->strptr;
-      AssertFatal(removed_ab == NULL || *removed_ab == NULL,
-                  MACRLC_ANALOG_BEAMFORMING_REMOVED " removed, use " MACRLC_BF_METHOD
-                  " = \"straight-wire\"|\"das\"|\"predefined\"|\"dynamic\" instead\n");
-      AssertFatal(gpd(params, np, MACRLC_BEAM_WEIGHTS_LIST_REMOVED)->numelt == 0,
-                  MACRLC_BEAM_WEIGHTS_LIST_REMOVED " removed, use " MACRLC_SSB_BEAMS_LIST
-                  " instead (one beam index per transmitted SSB)\n");
-
-      // read before resolving bf_method: the table decides how L1 treats the beam IDs
-      config.bt.num_beams = 0;
-      config.bt.num_weights_per_beam = 0;
-      config.bt.beam_ids = NULL;
-      config.bt.beam_weights = NULL;
-      char **fptr = gpd(params, np, MACRLC_DBT_FILE)->strptr;
-      if (fptr && *fptr && **fptr != '\0') {
-        LOG_I(GNB_APP, "loading DBT table from file %s\n", *fptr);
-        config.bt.beam_weights =
-            read_dbt_from_csv(*fptr, &config.bt.num_beams, &config.bt.num_weights_per_beam, &config.bt.beam_ids);
-      } else {
-        char prefix[MAX_OPTNAME_SIZE * 2 + 8];
-        snprintf(prefix, sizeof(prefix), MACRLC_LIST ".[%d]", j);
-        config.bt.beam_weights =
-            read_dbt_from_config(prefix, &config.bt.num_beams, &config.bt.num_weights_per_beam, &config.bt.beam_ids);
-      }
-      const bool have_dbt = config.bt.num_beams > 0;
-      if (have_dbt)
-        check_dbt_beam_ids_unique(&config.bt);
-
-      // config_get_processedint() takes only paramdef_t *, so cast const away
-      paramdef_t *p_bf = (paramdef_t *)gpd(params, np, MACRLC_BF_METHOD);
-      NR_beam_info_t *beam_info = &cell->beam_info;
-      beam_info->bf_method = config_get_processedint(cfg, p_bf);
-      beam_info->beams_per_period = beams_per_period;
-      beam_info->beam_duration = *gpd(params, np, MACRLC_BEAM_DURATION)->u8ptr;
-      // TODO config_isparamset doesn't seem to work for array types, checking numelt instead
-      int num_ssb_beams = gpd(params, np, MACRLC_SSB_BEAMS_LIST)->numelt;
-      switch (beam_info->bf_method) {
-        case BF_METHOD_STRAIGHT_WIRE:
-          AssertFatal(num_ssb_beams == 0,
-                      MACRLC_SSB_BEAMS_LIST " is only meaningful if " MACRLC_BF_METHOD " is not \"straight-wire\"\n");
-          AssertFatal(!have_dbt,
-                      "a digital beam table is only meaningful if " MACRLC_BF_METHOD " is not \"straight-wire\"\n");
-          break;
-        case BF_METHOD_DAS:
-          AssertFatal(num_ssb_beams == 0, "no need to set " MACRLC_SSB_BEAMS_LIST " in case of DAS\n");
-          AssertFatal(!have_dbt, "no need to configure a digital beam table in case of DAS\n");
-          // the beam index is the logical antenna port index, nothing to configure
-          beam_info->beam_id_to_ru = true;
-          break;
-        case BF_METHOD_PREDEFINED:
-          // always explicit: a digital beam table usually holds many more beams than SSBs
-          AssertFatal(num_ssb_beams > 0, "predefined beamforming needs " MACRLC_SSB_BEAMS_LIST "\n");
-          config.ssb_beams = calloc_or_fail(num_ssb_beams, sizeof(*config.ssb_beams));
-          for (int b = 0; b < num_ssb_beams; b++)
-            config.ssb_beams[b] = gpd(params, np, MACRLC_SSB_BEAMS_LIST)->iptr[b];
-          if (have_dbt)
-            check_ssb_beams_in_dbt(config.ssb_beams, num_ssb_beams, &config.bt);
-          else
-            beam_info->beam_id_to_ru = true;
-          break;
-        case BF_METHOD_DYNAMIC:
-          /* TODO static beams for control, SRS-based precoding for DLSCH/ULSCH; also has
-           * to disable CSI ports and DL precoding and take the DL layers from the SRS rank */
-          AssertFatal(false, MACRLC_BF_METHOD " \"dynamic\" is not implemented yet\n");
-          break;
-        default:
-          AssertFatal(false, "unhandled " MACRLC_BF_METHOD " %d\n", beam_info->bf_method);
-      }
-      /* Only Aerial applies a digital beam table. The table does reach a native L1, over
-       * P5 or directly, but nr_feptx_prec() copies the samples through instead of
-       * precoding them, so the weights would silently have no effect. */
-      AssertFatal(!have_dbt || NFAPI_MODE == NFAPI_MODE_AERIAL,
-                  "a digital beam table is only supported with Aerial, the native L1 does not apply the weights\n");
-      /* An nFAPI PNF has no MACRLCs section, so RCconfig_NR_L1() cannot derive DAS there
-       * and the split L1 would silently run without it. Beam IDs meant for the RU or the
-       * fronthaul do travel in every FAPI PDU, so predefined without a table is fine. */
-      AssertFatal(beam_info->bf_method != BF_METHOD_DAS || NFAPI_MODE != NFAPI_MODE_VNF,
-                  MACRLC_BF_METHOD " \"das\" is not supported with a split L1: the PNF has no " MACRLC_LIST
-                  " section to read it from\n");
-#ifdef ENABLE_AERIAL
-      /* Aerial applies the beam weights, and the SRS-based precoder, per TXRU and
-       * cannot derive that count from the logical antenna ports. */
-      if (NFAPI_MODE == NFAPI_MODE_AERIAL
-          && (beam_info->bf_method == BF_METHOD_PREDEFINED || beam_info->bf_method == BF_METHOD_DYNAMIC))
-        AssertFatal(config.aerial.num_tx_ant > 0 && config.aerial.num_rx_ant > 0,
-                    MACRLC_BF_METHOD " \"%s\" needs the TXRU counts, set " CONFIG_STRING_AERIAL
-                    "." AERIAL_NUM_TX_ANT " and " CONFIG_STRING_AERIAL "." AERIAL_NUM_RX_ANT "\n",
-                    *gpd(params, np, MACRLC_BF_METHOD)->strptr);
-#endif
-      /* The weights are applied per TXRU: a native L1 takes that count from the RU
-       * section, Aerial from num_tx_ant, which is required just above. */
-      if (have_dbt) {
-        if (RUParamList.numelt > 0) {
-          AssertFatal(config.bt.num_weights_per_beam == num_tx,
-                      "digital beam table has %d weight(s) per beam but %d TXRU(s) are configured "
-                      "(sum of nb_tx over the " CONFIG_STRING_RU_LIST " section)\n",
-                      config.bt.num_weights_per_beam,
-                      num_tx);
-        }
-#ifdef ENABLE_AERIAL
-        else {
-          AssertFatal(config.bt.num_weights_per_beam == config.aerial.num_tx_ant,
-                      "digital beam table has %d weight(s) per beam but " CONFIG_STRING_AERIAL "." AERIAL_NUM_TX_ANT
-                      " is %d\n",
-                      config.bt.num_weights_per_beam,
-                      config.aerial.num_tx_ant);
-        }
-#endif
-        /* The scheduler repeats the same beam ID on every beamforming port of a PDU
-         * (the dig_bf_interface_list loops), so with more than one CSI port a single
-         * beam's weights would be applied to all of them instead of one vector per
-         * port. */
-        const nr_pdsch_AntennaPorts_t *ap = &config.pdsch_AntennaPorts;
-        const int csi_ports = ap->N1 * ap->N2 * ap->XP;
-        AssertFatal(csi_ports == 1,
-                    "a digital beam table is only supported with one CSI port, but pdsch_AntennaPorts N1 %d N2 %d XP %d give "
-                    "%d: the same beam ID is signalled for every FAPI beamforming port\n",
-                    ap->N1,
-                    ap->N2,
-                    ap->XP,
-                    csi_ports);
-      }
-      config.num_ssb_beams = num_ssb_beams;
-      if (beam_info->bf_method != BF_METHOD_STRAIGHT_WIRE) {
-        beam_info->beam_allocation = malloc16(beams_per_period * sizeof(beam_info->beam_allocation));
-        beam_info->beam_allocation_size = -1; // to be initialized once we have information on frame configuration
-      }
-      LOG_I(GNB_APP,
-            "Beamforming method %s: %d beams per period, beam duration %d slot(s), %d static beam(s), %d digital beam(s)\n",
-            *gpd(params, np, MACRLC_BF_METHOD)->strptr,
-            beam_info->beams_per_period,
-            beam_info->beam_duration,
-            config.num_ssb_beams,
-            config.bt.num_beams);
-
-      // Read spatial stream indices
-      config_spatial_stream_index(params, np, &cell->radio_config, num_tx);
-
-      nr_mac_cell_config_scc(cell, scc, &config);
-      RC.nrmac[j]->positioning_config = RCconfig_nr_positioning();
-
-      nr_mac_send_config_req(nrmac, &cell->config);
-    } //  for (j=0;j<RC.nb_nr_macrlc_inst;j++)
-
-    uint64_t gnb_du_id = 0;
-    uint32_t gnb_id = 0;
-    char *name = NULL;
-    f1ap_served_cell_info_t info;
-    read_du_cell_info(NODE_IS_DU(node_type), &gnb_id, &gnb_du_id, &name, &info, 1);
-    cell->nr_cellid = info.nr_cellid;
-    cell->plmn = info.plmn;
-    gNB_MAC_INST *nrmac = RC.nrmac[0];
-    NR_COMMON_channels_t *cc = &cell->common_channels;
-    cc->du_SIBs = fill_du_sibs(GNBParamList.paramarray[0]);
-
-    if (IS_SA_MODE(get_softmodem_params()))
-      nr_mac_configure_sib1(cell, &info.plmn, info.nr_cellid, *info.tac);
-
-    // read F1 Setup information from config and generated MIB/SIB1
-    // and store it at MAC for sending later
-    NR_BCCH_BCH_Message_t *mib = cc->mib;
-    const NR_BCCH_DL_SCH_Message_t *sib1 = cc->sib1;
-    seq_arr_t *du_SIBs = cc->du_SIBs;
-    f1ap_setup_req_t *req = RC_read_F1Setup(gnb_du_id, name, &info, scc, mib, sib1, du_SIBs);
-    AssertFatal(req != NULL, "could not read F1 Setup information\n");
-    LOG_I(GNB_APP, "Configured DU: cell ID %ld, PCI %d\n", req->cell[0].info.nr_cellid, req->cell[0].info.nr_pci);
-    nrmac->f1_config.setup_req = req;
-    nrmac->f1_config.gnb_id = gnb_id;
-
-    free(name); /* read_du_cell_info() allocated memory */
-  } else { // MacRLC_ParamList.numelt > 0
-    LOG_E(PHY, "No %s configuration found\n", MACRLC_LIST);
-    // AssertFatal (0,"No " MACRLC_LIST " configuration found");
+  } else if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "f1") == 0
+             || strcmp(*gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "cudu") == 0) {
+    char **f1caddr = gpd(params, np, MACRLC_LOCAL_N_ADDRESS)->strptr;
+    char **f1uaddr = gpd(params, np, MACRLC_LOCAL_N_ADDRESS_F1U)->strptr;
+    f1ap_net_config_t nc = {
+      .CU_f1_ip_address = strdup(*gpd(params, np, MACRLC_REMOTE_N_ADDRESS)->strptr),
+      .DU_f1c_ip_address = strdup(*f1caddr),
+      .DU_f1u_ip_address = f1uaddr != NULL ? strdup(*f1uaddr) : strdup(*f1caddr),
+      .DUport = *gpd(params, np, MACRLC_LOCAL_N_PORTD)->iptr,
+      .CUport = *gpd(params, np, MACRLC_REMOTE_N_PORTD)->iptr,
+    };
+    nrmac->net_config = nc;
+    LOG_I(F1AP,
+          "F1-C DU IPaddr %s, connect to F1-C CU %s, binding GTP to %s ports local %d remote %d\n",
+          nc.DU_f1c_ip_address,
+          nc.CU_f1_ip_address,
+          nc.DU_f1u_ip_address,
+          nc.DUport,
+          nc.CUport);
+  } else { // other midhaul
+    AssertFatal(1 == 0, "MACRLC %d: %s unknown northbound midhaul\n", 0, *gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr);
   }
+
+  if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "local_L1") == 0) {
+  } else if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "nfapi") == 0) {
+    const char *vnf_addr = *gpd(params, np, MACRLC_LOCAL_S_ADDRESS)->strptr;
+    uint16_t p5_port = *gpd(params, np, MACRLC_LOCAL_S_PORTC)->iptr;
+    uint16_t p7_port = *gpd(params, np, MACRLC_LOCAL_S_PORTD)->iptr;
+    configure_nr_nfapi_vnf(vnf_addr, p5_port, p7_port);
+  } else if(strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "aerial") == 0){
+#ifdef ENABLE_AERIAL
+    nvipc_params_t nvipc_p = {
+      .nvipc_shm_prefix = strdup(*gpd(params, np, MACRLC_TRANSPORT_S_SHM_PREFIX)->strptr),
+      .nvipc_poll_core = *gpd(params, np, MACRLC_TRANSPORT_S_POLL_CORE)->i8ptr,
+      .num_phys = 1,
+    };
+    nrmac->nvipc_params_s = nvipc_p;
+    LOG_I(GNB_APP, "Configuring VNF for Aerial connection with prefix %s\n", nvipc_p.nvipc_shm_prefix);
+    // parameters are for socket-based communication, irrelevant for Aerial
+    configure_nr_nfapi_vnf(NULL, 0xffff, 0xffff);
+
+#endif
+  } else { // other midhaul
+    AssertFatal(1 == 0, "MACRLC %d: %s unknown southbound midhaul\n", 0, *gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr);
+  }
+  cell->ulsch_max_frame_inactivity = *gpd(params, np, MACRLC_ULSCH_MAX_FRAME_INACTIVITY)->uptr;
+  nrmac->stats_max_ue = *gpd(params, np, MACRLC_STATS_MAX_UE)->iptr;
+  nrmac->print_ue_stats = nrmac->stats_max_ue > 0;
+  NR_bler_options_t *dl_bler_options = &cell->dl_bler;
+  dl_bler_options->upper = *gpd(params, np, MACRLC_DL_BLER_TARGET_UPPER)->dblptr;
+  dl_bler_options->lower = *gpd(params, np, MACRLC_DL_BLER_TARGET_LOWER)->dblptr;
+  dl_bler_options->min_mcs = *gpd(params, np, MACRLC_DL_MIN_MCS)->u8ptr;
+  dl_bler_options->max_mcs = *gpd(params, np, MACRLC_DL_MAX_MCS)->u8ptr;
+  if (config.disable_harq)
+    dl_bler_options->harq_round_max = 1;
+  else
+    dl_bler_options->harq_round_max = *gpd(params, np, MACRLC_DL_HARQ_ROUND_MAX)->u8ptr;
+  NR_bler_options_t *ul_bler_options = &cell->ul_bler;
+  ul_bler_options->upper = *gpd(params, np, MACRLC_UL_BLER_TARGET_UPPER)->dblptr;
+  ul_bler_options->lower = *gpd(params, np, MACRLC_UL_BLER_TARGET_LOWER)->dblptr;
+  ul_bler_options->min_mcs = *gpd(params, np, MACRLC_UL_MIN_MCS)->u8ptr;
+  ul_bler_options->max_mcs = *gpd(params, np, MACRLC_UL_MAX_MCS)->u8ptr;
+  if (config.disable_harq)
+    ul_bler_options->harq_round_max = 1;
+  else
+    ul_bler_options->harq_round_max = *gpd(params, np, MACRLC_UL_HARQ_ROUND_MAX)->u8ptr;
+  cell->min_grant_prb = *gpd(params, np, MACRLC_MIN_GRANT_PRB)->u16ptr;
+  long sc_fdma = NR_PUSCH_Config__transformPrecoder_enabled;
+  NR_BWP_UplinkCommon_t *bwp = scc->uplinkConfigCommon->initialUplinkBWP;
+  if (bwp->rach_ConfigCommon->choice.setup->msg3_transformPrecoder != NULL)
+    sc_fdma = *bwp->rach_ConfigCommon->choice.setup->msg3_transformPrecoder;
+  int new_min = check_sc_fdma_rbsize(sc_fdma, cell->min_grant_prb);
+  // NR_PUSCH_Config__transformPrecoder_enabled	= 0 |	NR_PUSCH_Config__transformPrecoder_disabled	= 1, so !uses_sc_fdma should
+  // be used
+  if (sc_fdma == NR_PUSCH_Config__transformPrecoder_enabled && cell->min_grant_prb != new_min) {
+    LOG_W(NR_MAC,
+          "min_rb value is set as %d. In SC-FDMA, it should be under format 2^x*3^y*5^z and has been automatically decreased "
+          "to %d.\n",
+          cell->min_grant_prb,
+          new_min);
+   cell->min_grant_prb = new_min;
+  }
+  cell->identity_pm = *gpd(params, np, MACRLC_IDENTITY_PM)->u8ptr;
+  // PRB Blacklist
+  uint16_t prbbl[MAX_BWP_SIZE] = {0};
+  int num_ulprbbl = get_prb_blacklist(prbbl);
+  if (num_ulprbbl != -1) {
+    LOG_I(NR_PHY, "Copying %d blacklisted PRB to L1 context\n", num_ulprbbl);
+    memcpy(cell->ulprbbl, prbbl, MAX_BWP_SIZE * sizeof(prbbl[0]));
+  }
+  char **removed_ab = gpd(params, np, MACRLC_ANALOG_BEAMFORMING_REMOVED)->strptr;
+  AssertFatal(removed_ab == NULL || *removed_ab == NULL,
+              MACRLC_ANALOG_BEAMFORMING_REMOVED " removed, use " MACRLC_BF_METHOD
+              " = \"straight-wire\"|\"das\"|\"predefined\"|\"dynamic\" instead\n");
+  AssertFatal(gpd(params, np, MACRLC_BEAM_WEIGHTS_LIST_REMOVED)->numelt == 0,
+              MACRLC_BEAM_WEIGHTS_LIST_REMOVED " removed, use " MACRLC_SSB_BEAMS_LIST
+              " instead (one beam index per transmitted SSB)\n");
+
+  // read before resolving bf_method: the table decides how L1 treats the beam IDs
+  config.bt.num_beams = 0;
+  config.bt.num_weights_per_beam = 0;
+  config.bt.beam_ids = NULL;
+  config.bt.beam_weights = NULL;
+  char **fptr = gpd(params, np, MACRLC_DBT_FILE)->strptr;
+  if (fptr && *fptr && **fptr != '\0') {
+    LOG_I(GNB_APP, "loading DBT table from file %s\n", *fptr);
+    config.bt.beam_weights =
+        read_dbt_from_csv(*fptr, &config.bt.num_beams, &config.bt.num_weights_per_beam, &config.bt.beam_ids);
+  } else {
+    char prefix[MAX_OPTNAME_SIZE * 2 + 8];
+    snprintf(prefix, sizeof(prefix), MACRLC_LIST ".[%d]", 0);
+    config.bt.beam_weights =
+        read_dbt_from_config(prefix, &config.bt.num_beams, &config.bt.num_weights_per_beam, &config.bt.beam_ids);
+  }
+  const bool have_dbt = config.bt.num_beams > 0;
+  if (have_dbt)
+    check_dbt_beam_ids_unique(&config.bt);
+
+  // config_get_processedint() takes only paramdef_t *, so cast const away
+  paramdef_t *p_bf = (paramdef_t *)gpd(params, np, MACRLC_BF_METHOD);
+  NR_beam_info_t *beam_info = &cell->beam_info;
+  beam_info->bf_method = config_get_processedint(cfg, p_bf);
+  beam_info->beams_per_period = beams_per_period;
+  beam_info->beam_duration = *gpd(params, np, MACRLC_BEAM_DURATION)->u8ptr;
+  // TODO config_isparamset doesn't seem to work for array types, checking numelt instead
+  int num_ssb_beams = gpd(params, np, MACRLC_SSB_BEAMS_LIST)->numelt;
+  switch (beam_info->bf_method) {
+    case BF_METHOD_STRAIGHT_WIRE:
+      AssertFatal(num_ssb_beams == 0,
+                  MACRLC_SSB_BEAMS_LIST " is only meaningful if " MACRLC_BF_METHOD " is not \"straight-wire\"\n");
+      AssertFatal(!have_dbt,
+                  "a digital beam table is only meaningful if " MACRLC_BF_METHOD " is not \"straight-wire\"\n");
+      break;
+    case BF_METHOD_DAS:
+      AssertFatal(num_ssb_beams == 0, "no need to set " MACRLC_SSB_BEAMS_LIST " in case of DAS\n");
+      AssertFatal(!have_dbt, "no need to configure a digital beam table in case of DAS\n");
+      // the beam index is the logical antenna port index, nothing to configure
+      beam_info->beam_id_to_ru = true;
+      break;
+    case BF_METHOD_PREDEFINED:
+      // always explicit: a digital beam table usually holds many more beams than SSBs
+      AssertFatal(num_ssb_beams > 0, "predefined beamforming needs " MACRLC_SSB_BEAMS_LIST "\n");
+      config.ssb_beams = calloc_or_fail(num_ssb_beams, sizeof(*config.ssb_beams));
+      for (int b = 0; b < num_ssb_beams; b++)
+        config.ssb_beams[b] = gpd(params, np, MACRLC_SSB_BEAMS_LIST)->iptr[b];
+      if (have_dbt)
+        check_ssb_beams_in_dbt(config.ssb_beams, num_ssb_beams, &config.bt);
+      else
+        beam_info->beam_id_to_ru = true;
+      break;
+    case BF_METHOD_DYNAMIC:
+      /* TODO static beams for control, SRS-based precoding for DLSCH/ULSCH; also has
+       * to disable CSI ports and DL precoding and take the DL layers from the SRS rank */
+      AssertFatal(false, MACRLC_BF_METHOD " \"dynamic\" is not implemented yet\n");
+      break;
+    default:
+      AssertFatal(false, "unhandled " MACRLC_BF_METHOD " %d\n", beam_info->bf_method);
+  }
+  /* Only Aerial applies a digital beam table. The table does reach a native L1, over
+   * P5 or directly, but nr_feptx_prec() copies the samples through instead of
+   * precoding them, so the weights would silently have no effect. */
+  AssertFatal(!have_dbt || NFAPI_MODE == NFAPI_MODE_AERIAL,
+              "a digital beam table is only supported with Aerial, the native L1 does not apply the weights\n");
+  /* An nFAPI PNF has no MACRLCs section, so RCconfig_NR_L1() cannot derive DAS there
+   * and the split L1 would silently run without it. Beam IDs meant for the RU or the
+   * fronthaul do travel in every FAPI PDU, so predefined without a table is fine. */
+  AssertFatal(beam_info->bf_method != BF_METHOD_DAS || NFAPI_MODE != NFAPI_MODE_VNF,
+              MACRLC_BF_METHOD " \"das\" is not supported with a split L1: the PNF has no " MACRLC_LIST
+              " section to read it from\n");
+#ifdef ENABLE_AERIAL
+  /* Aerial applies the beam weights, and the SRS-based precoder, per TXRU and
+   * cannot derive that count from the logical antenna ports. */
+  if (NFAPI_MODE == NFAPI_MODE_AERIAL
+      && (beam_info->bf_method == BF_METHOD_PREDEFINED || beam_info->bf_method == BF_METHOD_DYNAMIC))
+    AssertFatal(config.aerial.num_tx_ant > 0 && config.aerial.num_rx_ant > 0,
+                MACRLC_BF_METHOD " \"%s\" needs the TXRU counts, set " CONFIG_STRING_AERIAL
+                "." AERIAL_NUM_TX_ANT " and " CONFIG_STRING_AERIAL "." AERIAL_NUM_RX_ANT "\n",
+                *gpd(params, np, MACRLC_BF_METHOD)->strptr);
+#endif
+  /* The weights are applied per TXRU: a native L1 takes that count from the RU
+   * section, Aerial from num_tx_ant, which is required just above. */
+  if (have_dbt) {
+    if (RUParamList.numelt > 0) {
+      AssertFatal(config.bt.num_weights_per_beam == num_tx,
+                  "digital beam table has %d weight(s) per beam but %d TXRU(s) are configured "
+                  "(sum of nb_tx over the " CONFIG_STRING_RU_LIST " section)\n",
+                  config.bt.num_weights_per_beam,
+                  num_tx);
+    }
+#ifdef ENABLE_AERIAL
+    else {
+      AssertFatal(config.bt.num_weights_per_beam == config.aerial.num_tx_ant,
+                  "digital beam table has %d weight(s) per beam but " CONFIG_STRING_AERIAL "." AERIAL_NUM_TX_ANT
+                  " is %d\n",
+                  config.bt.num_weights_per_beam,
+                  config.aerial.num_tx_ant);
+    }
+#endif
+    /* The scheduler repeats the same beam ID on every beamforming port of a PDU
+     * (the dig_bf_interface_list loops), so with more than one CSI port a single
+     * beam's weights would be applied to all of them instead of one vector per
+     * port. */
+    const nr_pdsch_AntennaPorts_t *ap = &config.pdsch_AntennaPorts;
+    const int csi_ports = ap->N1 * ap->N2 * ap->XP;
+    AssertFatal(csi_ports == 1,
+                "a digital beam table is only supported with one CSI port, but pdsch_AntennaPorts N1 %d N2 %d XP %d give "
+                "%d: the same beam ID is signalled for every FAPI beamforming port\n",
+                ap->N1,
+                ap->N2,
+                ap->XP,
+                csi_ports);
+  }
+  config.num_ssb_beams = num_ssb_beams;
+  if (beam_info->bf_method != BF_METHOD_STRAIGHT_WIRE) {
+    beam_info->beam_allocation = malloc16(beams_per_period * sizeof(beam_info->beam_allocation));
+    beam_info->beam_allocation_size = -1; // to be initialized once we have information on frame configuration
+  }
+  LOG_I(GNB_APP,
+        "Beamforming method %s: %d beams per period, beam duration %d slot(s), %d static beam(s), %d digital beam(s)\n",
+        *gpd(params, np, MACRLC_BF_METHOD)->strptr,
+        beam_info->beams_per_period,
+        beam_info->beam_duration,
+        config.num_ssb_beams,
+        config.bt.num_beams);
+
+  // Read spatial stream indices
+  config_spatial_stream_index(params, np, &cell->radio_config, num_tx);
+
+  nr_mac_cell_config_scc(cell, scc, &config);
+  nrmac->positioning_config = RCconfig_nr_positioning();
+
+  // triggers also PHY initialization in case we have L1 via FAPI
+  nr_mac_send_config_req(nrmac, &cell->config);
+
+  uint64_t gnb_du_id = 0;
+  uint32_t gnb_id = 0;
+  char *name = NULL;
+  f1ap_served_cell_info_t info;
+  read_du_cell_info(NODE_IS_DU(node_type), &gnb_id, &gnb_du_id, &name, &info, 1);
+  cell->nr_cellid = info.nr_cellid;
+  cell->plmn = info.plmn;
+  NR_COMMON_channels_t *cc = &cell->common_channels;
+  cc->du_SIBs = fill_du_sibs(GNBParamList.paramarray[0]);
+
+  if (IS_SA_MODE(get_softmodem_params()))
+    nr_mac_configure_sib1(cell, &info.plmn, info.nr_cellid, *info.tac);
+
+  // read F1 Setup information from config and generated MIB/SIB1
+  // and store it at MAC for sending later
+  NR_BCCH_BCH_Message_t *mib = cc->mib;
+  const NR_BCCH_DL_SCH_Message_t *sib1 = cc->sib1;
+  seq_arr_t *du_SIBs = cc->du_SIBs;
+  f1ap_setup_req_t *req = RC_read_F1Setup(gnb_du_id, name, &info, scc, mib, sib1, du_SIBs);
+  AssertFatal(req != NULL, "could not read F1 Setup information\n");
+  LOG_I(GNB_APP, "Configured DU: cell ID %ld, PCI %d\n", req->cell[0].info.nr_cellid, req->cell[0].info.nr_pci);
+  nrmac->f1_config.setup_req = req;
+  nrmac->f1_config.gnb_id = gnb_id;
+
+  free(name); /* read_du_cell_info() allocated memory */
 }
 
 void config_security(gNB_RRC_INST *rrc)
