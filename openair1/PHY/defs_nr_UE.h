@@ -466,10 +466,10 @@ typedef struct {
   int gNB_id;
   /// NR slot index within frame_tx [0 .. slots_per_frame - 1] to act upon for transmission
   int nr_slot_tx;
-  int rx_slot_type;
+  nr_slot_type_t rx_slot_type;
   /// NR slot index within frame_rx [0 .. slots_per_frame - 1] to act upon for transmission
   int nr_slot_rx;
-  int tx_slot_type;
+  nr_slot_type_t tx_slot_type;
   /// frame to act upon for transmission
   int frame_tx;
   /// frame to act upon for reception

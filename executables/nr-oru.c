@@ -1336,7 +1336,7 @@ void *oru_south_read_thread(void *arg)
   ul_calendar_t ul_cal = {0};
 
   while (!oai_exit) {
-    int rx_slot_type = nr_slot_select(&ru->config, frame, slot);
+    nr_slot_type_t rx_slot_type = nr_slot_select(&ru->config, frame, slot);
     for (int symbol = 0; symbol < 14; symbol++) {
       int samples_to_read = get_samples_symbol_duration(fp, slot, symbol, 1);
       size_t offset = get_samples_slot_timestamp(fp, slot) + get_samples_symbol_timestamp(fp, slot, symbol);
@@ -1364,7 +1364,7 @@ void *oru_south_read_thread(void *arg)
         ul_calendar_add(&ul_cal, &beam_queue, &fft_queue, oru, reader_abs, &new_job);
       }
 
-      if (rx_slot_type == NR_UPLINK_SLOT || rx_slot_type == NR_MIXED_SLOT) {
+      if (rx_slot_type & (NR_UPLINK_SLOT | NR_MIXED_SLOT)) {
         // Dispatch the jobs parked on this symbol's calendar entry
         ul_calendar_tick(&ul_cal, &beam_queue, &fft_queue, oru, reader_abs);
       }

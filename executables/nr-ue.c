@@ -266,10 +266,10 @@ static uint num_dl_symbols_slot(const fapi_nr_config_request_t *cfg, int nr_slot
   return current_slot->num_dl_ul_symbols_list.num_dl;
 }
 
-static int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
+static nr_slot_type_t nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
 {
   if (cfg->cell_config.frame_duplex_type == FDD)
-    return NR_UPLINK_SLOT | NR_DOWNLINK_SLOT;
+    return NR_BOTH_SLOT;
 
   const fapi_nr_tdd_table_t *tdd_table = &cfg->tdd_table;
   int rel_slot = nr_slot % tdd_table->tdd_period_in_slots;
@@ -306,7 +306,7 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
 
   radio_tx_burst_flag_t flags = TX_BURST_INVALID;
 
-  const int curr_slot_type = nr_ue_slot_select(cfg, slot);
+  const nr_slot_type_t curr_slot_type = nr_ue_slot_select(cfg, slot);
   if (UE->received_config_request) {
     if (fp->frame_type == FDD || get_softmodem_params()->continuous_tx) {
       flags = TX_BURST_MIDDLE;
@@ -318,8 +318,8 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
     } else {
       int slots_frame = fp->slots_per_frame;
       if (curr_slot_type != NR_DOWNLINK_SLOT) {
-        int next_slot = nr_ue_slot_select(cfg, (slot + 1) % slots_frame);
-        int prev_slot = nr_ue_slot_select(cfg, (slot + slots_frame - 1) % slots_frame);
+        nr_slot_type_t next_slot = nr_ue_slot_select(cfg, (slot + 1) % slots_frame);
+        nr_slot_type_t prev_slot = nr_ue_slot_select(cfg, (slot + slots_frame - 1) % slots_frame);
         if (prev_slot == NR_DOWNLINK_SLOT)
           flags = TX_BURST_START;
         else if (next_slot == NR_DOWNLINK_SLOT)
@@ -417,7 +417,7 @@ void processSlotTX(void *arg)
     txp[i] = UE->common_vars.txData[i] + get_samples_slot_timestamp(fp, proc->nr_slot_tx);
   }
 
-  if (proc->tx_slot_type == NR_UPLINK_SLOT || proc->tx_slot_type == NR_MIXED_SLOT) {
+  if (proc->tx_slot_type & (NR_UPLINK_SLOT | NR_MIXED_SLOT)) {
     if (UE->sl_mode == 2 && proc->tx_slot_type == NR_SIDELINK_SLOT) {
       // trigger L2 to run ue_sidelink_scheduler thru IF module
       if (UE->if_inst != NULL && UE->if_inst->sl_indication != NULL) {
@@ -573,7 +573,7 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
     UE->if_inst->slot_indication(UE->Mod_id, false);
 
   bool dl_slot = false;
-  if (proc->rx_slot_type == NR_DOWNLINK_SLOT || proc->rx_slot_type == NR_MIXED_SLOT) {
+  if (proc->rx_slot_type & (NR_DOWNLINK_SLOT | NR_MIXED_SLOT)) {
     dl_slot = true;
     if(UE->if_inst != NULL && UE->if_inst->dl_indication != NULL) {
       nr_downlink_indication_t dl_indication = (nr_downlink_indication_t){

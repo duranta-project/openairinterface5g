@@ -30,13 +30,13 @@
  */
 void set_tdd_config_nr(nfapi_nr_config_request_scf_t *cfg, frame_structure_t *fs);
 
-/** \brief This function checks nr slot direction : downlink or uplink
- *  @param frame_parms NR DL Frame parameters
+/** \brief This function checks NR slot direction: downlink, uplink, mixed or both
+ *  @param cfg NR cell configuration
  *  @param nr_frame : frame number
  *  @param nr_slot  : slot number
-    @returns int : downlink, uplink or mixed slot type*/
+    @returns slot type, with both full-slot directions for FDD*/
 
-int nr_slot_select(const nfapi_nr_config_request_scf_t *cfg, int nr_frame, int nr_slot);
+nr_slot_type_t nr_slot_select(const nfapi_nr_config_request_scf_t *cfg, int nr_frame, int nr_slot);
 
 void do_tdd_config_sim(PHY_VARS_gNB *gNB, int mu);
 

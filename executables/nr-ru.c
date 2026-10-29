@@ -265,7 +265,7 @@ int tx_rf_symbols(RU_t *ru, int frame, int slot, uint64_t timestamp, int start_s
   int transmitted_symbols = num_symbols;
 
   if (cfg->cell_config.frame_duplex_type.value == TDD && !get_softmodem_params()->continuous_tx && !IS_SOFTMODEM_RFSIM) {
-    int slot_type = nr_slot_select(cfg,frame,slot%fp->slots_per_frame);
+    nr_slot_type_t slot_type = nr_slot_select(cfg, frame, slot % fp->slots_per_frame);
     if(slot_type == NR_MIXED_SLOT) {
       int txsymb = 0;
 
@@ -293,8 +293,8 @@ int tx_rf_symbols(RU_t *ru, int frame, int slot, uint64_t timestamp, int start_s
 
       siglen = get_samples_symbol_duration(fp, slot, start_symbol, num_symbols_this_transmission);
     } else if (slot_type == NR_DOWNLINK_SLOT) {
-      int prevslot_type = nr_slot_select(cfg,frame,(slot+(fp->slots_per_frame-1))%fp->slots_per_frame);
-      int nextslot_type = nr_slot_select(cfg,frame,(slot+1)%fp->slots_per_frame);
+      nr_slot_type_t prevslot_type = nr_slot_select(cfg, frame, (slot + (fp->slots_per_frame - 1)) % fp->slots_per_frame);
+      nr_slot_type_t nextslot_type = nr_slot_select(cfg, frame, (slot + 1) % fp->slots_per_frame);
       if (prevslot_type == NR_UPLINK_SLOT) {
         flags_burst = TX_BURST_START;
         sf_extension = ru->sf_extension;
@@ -734,8 +734,8 @@ void *ru_thread(void *param)
       proc->frame_tx = (proc->frame_tx + proc->frame_offset) & 1023;
 
     // do RX front-end processing (frequency-shift, dft) if needed
-    int slot_type = nr_slot_select(&ru->config, proc->frame_rx, proc->tti_rx);
-    if (slot_type == NR_UPLINK_SLOT || slot_type == NR_MIXED_SLOT) {
+    nr_slot_type_t slot_type = nr_slot_select(&ru->config, proc->frame_rx, proc->tti_rx);
+    if (slot_type & (NR_UPLINK_SLOT | NR_MIXED_SLOT)) {
       if (!wait_free_rx_tti(&gNB->L1_rx_out, rx_tti_busy, proc->frame_rx, proc->tti_rx))
         break; // nothing to wait for: we have to stop
       if (ru->feprx) {
@@ -764,7 +764,7 @@ void *ru_thread(void *param)
           DevAssert(success);
         } // end if (prach_id >= 0)
       } // end if (ru->feprx)
-    } // end if (slot_type == NR_UPLINK_SLOT || slot_type == NR_MIXED_SLOT) {
+    } // end if (slot_type & (NR_UPLINK_SLOT | NR_MIXED_SLOT)) {
 
     notifiedFIFO_elt_t *resTx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0, &gNB->L1_tx_out, NULL);
     resTx->key = proc->tti_tx;

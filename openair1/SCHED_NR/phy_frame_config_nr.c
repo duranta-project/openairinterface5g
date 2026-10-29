@@ -134,15 +134,15 @@ void set_tdd_config_nr(nfapi_nr_config_request_scf_t *cfg, frame_structure_t *fs
   }
 }
 
-int nr_slot_select(const nfapi_nr_config_request_scf_t *cfg, int nr_frame, int nr_slot)
+nr_slot_type_t nr_slot_select(const nfapi_nr_config_request_scf_t *cfg, int nr_frame, int nr_slot)
 {
   (void) nr_frame;
 
-  /* for FFD all slot can be considered as an uplink */
+  /* FDD slots support both full-slot directions. */
   int check_slot = 0;
 
   if (cfg->cell_config.frame_duplex_type.value == FDD) {
-    return (NR_UPLINK_SLOT | NR_DOWNLINK_SLOT);
+    return NR_BOTH_SLOT;
   }
 
   for (int symbol_count = 0; symbol_count < NR_SYMBOLS_PER_SLOT; symbol_count++) {
