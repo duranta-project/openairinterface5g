@@ -1695,9 +1695,94 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
         config.pucch.rssi_threshold,
         config.pucch.failure_thres);
 
-  int beams_per_period = 1; // TODO verification after beams_per_period/pdsch
-                            // have been read
+  // read before resolving bf_method: the table decides how L1 treats the beam IDs
+  config.bt.num_beams = 0;
+  config.bt.num_weights_per_beam = 0;
+  config.bt.beam_ids = NULL;
+  config.bt.beam_weights = NULL;
+  char **fptr = gpd(macrlc_p, macrlc_np, MACRLC_DBT_FILE)->strptr;
+  if (fptr && *fptr && **fptr != '\0') {
+    LOG_I(GNB_APP, "loading DBT table from file %s\n", *fptr);
+    config.bt.beam_weights =
+        read_dbt_from_csv(*fptr, &config.bt.num_beams, &config.bt.num_weights_per_beam, &config.bt.beam_ids);
+  } else {
+    char prefix[MAX_OPTNAME_SIZE * 2 + 8];
+    snprintf(prefix, sizeof(prefix), MACRLC_LIST ".[%d]", idx);
+    config.bt.beam_weights =
+        read_dbt_from_config(prefix, &config.bt.num_beams, &config.bt.num_weights_per_beam, &config.bt.beam_ids);
+  }
+  const bool have_dbt = config.bt.num_beams > 0;
+  if (have_dbt)
+    check_dbt_beam_ids_unique(&config.bt);
+
+  // config_get_processedint() takes only paramdef_t *, so cast const away
+  paramdef_t *p_bf = (paramdef_t *)gpd(macrlc_p, macrlc_np, MACRLC_BF_METHOD);
+  config.beam_config.bf_method = config_get_processedint(cfg, p_bf);
+  config.beam_config.beams_per_period = *gpd(macrlc_p, macrlc_np, MACRLC_BEAMS_PERIOD)->u8ptr;
+  config.beam_config.beam_duration = *gpd(macrlc_p, macrlc_np, MACRLC_BEAM_DURATION)->u8ptr;
+  // TODO config_isparamset doesn't seem to work for array types, checking numelt instead
+  int num_ssb_beams = gpd(macrlc_p, macrlc_np, MACRLC_SSB_BEAMS_LIST)->numelt;
+  switch (config.beam_config.bf_method) {
+    case BF_METHOD_STRAIGHT_WIRE:
+      AssertFatal(num_ssb_beams == 0,
+                  MACRLC_SSB_BEAMS_LIST " is only meaningful if " MACRLC_BF_METHOD " is not \"straight-wire\"\n");
+      AssertFatal(!have_dbt,
+                  "a digital beam table is only meaningful if " MACRLC_BF_METHOD " is not \"straight-wire\"\n");
+      break;
+    case BF_METHOD_DAS:
+      AssertFatal(num_ssb_beams == 0, "no need to set " MACRLC_SSB_BEAMS_LIST " in case of DAS\n");
+      AssertFatal(!have_dbt, "no need to configure a digital beam table in case of DAS\n");
+      // the beam index is the logical antenna port index, nothing to configure
+      config.beam_config.beam_id_to_ru = true;
+      break;
+    case BF_METHOD_PREDEFINED:
+      // always explicit: a digital beam table usually holds many more beams than SSBs
+      AssertFatal(num_ssb_beams > 0, "predefined beamforming needs " MACRLC_SSB_BEAMS_LIST "\n");
+      config.ssb_beams = calloc_or_fail(num_ssb_beams, sizeof(*config.ssb_beams));
+      for (int b = 0; b < num_ssb_beams; b++)
+        config.ssb_beams[b] = gpd(macrlc_p, macrlc_np, MACRLC_SSB_BEAMS_LIST)->iptr[b];
+      if (have_dbt)
+        check_ssb_beams_in_dbt(config.ssb_beams, num_ssb_beams, &config.bt);
+      else
+        config.beam_config.beam_id_to_ru = true;
+      break;
+    case BF_METHOD_DYNAMIC:
+      /* TODO static beams for control, SRS-based precoding for DLSCH/ULSCH; also has
+       * to disable CSI ports and DL precoding and take the DL layers from the SRS rank */
+      AssertFatal(false, MACRLC_BF_METHOD " \"dynamic\" is not implemented yet\n");
+      break;
+    default:
+      AssertFatal(false, "unhandled " MACRLC_BF_METHOD " %d\n", config.beam_config.bf_method);
+  }
+  /* Only Aerial applies a digital beam table. The table does reach a native L1, over
+   * P5 or directly, but nr_feptx_prec() copies the samples through instead of
+   * precoding them, so the weights would silently have no effect. */
+  AssertFatal(!have_dbt || NFAPI_MODE == NFAPI_MODE_AERIAL,
+              "a digital beam table is only supported with Aerial, the native L1 does not apply the weights\n");
+  /* An nFAPI PNF has no MACRLCs section, so RCconfig_NR_L1() cannot derive DAS there
+   * and the split L1 would silently run without it. Beam IDs meant for the RU or the
+   * fronthaul do travel in every FAPI PDU, so predefined without a table is fine. */
+  AssertFatal(config.beam_config.bf_method != BF_METHOD_DAS || NFAPI_MODE != NFAPI_MODE_VNF,
+              MACRLC_BF_METHOD " \"das\" is not supported with a split L1: the PNF has no " MACRLC_LIST
+              " section to read it from\n");
+  config.num_ssb_beams = num_ssb_beams;
+  LOG_I(GNB_APP,
+        "Beamforming method %s: %d beams per period, beam duration %d slot(s), %d static beam(s), %d digital beam(s)\n",
+        *gpd(macrlc_p, macrlc_np, MACRLC_BF_METHOD)->strptr,
+        config.beam_config.beams_per_period,
+        config.beam_config.beam_duration,
+        config.num_ssb_beams,
+        config.bt.num_beams);
+  char **removed_ab = gpd(macrlc_p, macrlc_np, MACRLC_ANALOG_BEAMFORMING_REMOVED)->strptr;
+  AssertFatal(removed_ab == NULL || *removed_ab == NULL,
+              MACRLC_ANALOG_BEAMFORMING_REMOVED " removed, use " MACRLC_BF_METHOD
+              " = \"straight-wire\"|\"das\"|\"predefined\"|\"dynamic\" instead\n");
+  AssertFatal(gpd(macrlc_p, macrlc_np, MACRLC_BEAM_WEIGHTS_LIST_REMOVED)->numelt == 0,
+              MACRLC_BEAM_WEIGHTS_LIST_REMOVED " removed, use " MACRLC_SSB_BEAMS_LIST
+              " instead (one beam index per transmitted SSB)\n");
+
   const nr_pdsch_AntennaPorts_t *p = &config.pdsch_AntennaPorts;
+  int beams_per_period = config.beam_config.beams_per_period;
   if (*num_tx > 0) {
     AssertFatal(*num_tx >= p->XP * p->N1 * p->N2 * beams_per_period,
                 "Number of logical antenna ports (set in config file with pdsch_AntennaPorts and beams_per_period) cannot be "
@@ -1849,84 +1934,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
     LOG_I(NR_PHY, "Copying %d blacklisted PRB to L1 context\n", num_ulprbbl);
     memcpy(cell->ulprbbl, prbbl, MAX_BWP_SIZE * sizeof(prbbl[0]));
   }
-  char **removed_ab = gpd(macrlc_p, macrlc_np, MACRLC_ANALOG_BEAMFORMING_REMOVED)->strptr;
-  AssertFatal(removed_ab == NULL || *removed_ab == NULL,
-              MACRLC_ANALOG_BEAMFORMING_REMOVED " removed, use " MACRLC_BF_METHOD
-              " = \"straight-wire\"|\"das\"|\"predefined\"|\"dynamic\" instead\n");
-  AssertFatal(gpd(macrlc_p, macrlc_np, MACRLC_BEAM_WEIGHTS_LIST_REMOVED)->numelt == 0,
-              MACRLC_BEAM_WEIGHTS_LIST_REMOVED " removed, use " MACRLC_SSB_BEAMS_LIST
-              " instead (one beam index per transmitted SSB)\n");
-
-  // read before resolving bf_method: the table decides how L1 treats the beam IDs
-  config.bt.num_beams = 0;
-  config.bt.num_weights_per_beam = 0;
-  config.bt.beam_ids = NULL;
-  config.bt.beam_weights = NULL;
-  char **fptr = gpd(macrlc_p, macrlc_np, MACRLC_DBT_FILE)->strptr;
-  if (fptr && *fptr && **fptr != '\0') {
-    LOG_I(GNB_APP, "loading DBT table from file %s\n", *fptr);
-    config.bt.beam_weights =
-        read_dbt_from_csv(*fptr, &config.bt.num_beams, &config.bt.num_weights_per_beam, &config.bt.beam_ids);
-  } else {
-    char prefix[MAX_OPTNAME_SIZE * 2 + 8];
-    snprintf(prefix, sizeof(prefix), MACRLC_LIST ".[%d]", 0);
-    config.bt.beam_weights =
-        read_dbt_from_config(prefix, &config.bt.num_beams, &config.bt.num_weights_per_beam, &config.bt.beam_ids);
-  }
-  const bool have_dbt = config.bt.num_beams > 0;
-  if (have_dbt)
-    check_dbt_beam_ids_unique(&config.bt);
-
-  // config_get_processedint() takes only paramdef_t *, so cast const away
-  paramdef_t *p_bf = (paramdef_t *)gpd(macrlc_p, macrlc_np, MACRLC_BF_METHOD);
-  config.beam_config.bf_method = config_get_processedint(cfg, p_bf);
-  config.beam_config.beams_per_period = *gpd(MacRLC_ParamList.paramarray[0], sizeofArray(MacRLC_Params), MACRLC_BEAMS_PERIOD)->u8ptr;
-  config.beam_config.beam_duration = *gpd(macrlc_p, macrlc_np, MACRLC_BEAM_DURATION)->u8ptr;
-  // TODO config_isparamset doesn't seem to work for array types, checking numelt instead
-  int num_ssb_beams = gpd(macrlc_p, macrlc_np, MACRLC_SSB_BEAMS_LIST)->numelt;
-  switch (config.beam_config.bf_method) {
-    case BF_METHOD_STRAIGHT_WIRE:
-      AssertFatal(num_ssb_beams == 0,
-                  MACRLC_SSB_BEAMS_LIST " is only meaningful if " MACRLC_BF_METHOD " is not \"straight-wire\"\n");
-      AssertFatal(!have_dbt,
-                  "a digital beam table is only meaningful if " MACRLC_BF_METHOD " is not \"straight-wire\"\n");
-      break;
-    case BF_METHOD_DAS:
-      AssertFatal(num_ssb_beams == 0, "no need to set " MACRLC_SSB_BEAMS_LIST " in case of DAS\n");
-      AssertFatal(!have_dbt, "no need to configure a digital beam table in case of DAS\n");
-      // the beam index is the logical antenna port index, nothing to configure
-      config.beam_config.beam_id_to_ru = true;
-      break;
-    case BF_METHOD_PREDEFINED:
-      // always explicit: a digital beam table usually holds many more beams than SSBs
-      AssertFatal(num_ssb_beams > 0, "predefined beamforming needs " MACRLC_SSB_BEAMS_LIST "\n");
-      config.ssb_beams = calloc_or_fail(num_ssb_beams, sizeof(*config.ssb_beams));
-      for (int b = 0; b < num_ssb_beams; b++)
-        config.ssb_beams[b] = gpd(macrlc_p, macrlc_np, MACRLC_SSB_BEAMS_LIST)->iptr[b];
-      if (have_dbt)
-        check_ssb_beams_in_dbt(config.ssb_beams, num_ssb_beams, &config.bt);
-      else
-        config.beam_config.beam_id_to_ru = true;
-      break;
-    case BF_METHOD_DYNAMIC:
-      /* TODO static beams for control, SRS-based precoding for DLSCH/ULSCH; also has
-       * to disable CSI ports and DL precoding and take the DL layers from the SRS rank */
-      AssertFatal(false, MACRLC_BF_METHOD " \"dynamic\" is not implemented yet\n");
-      break;
-    default:
-      AssertFatal(false, "unhandled " MACRLC_BF_METHOD " %d\n", config.beam_config.bf_method);
-  }
-  /* Only Aerial applies a digital beam table. The table does reach a native L1, over
-   * P5 or directly, but nr_feptx_prec() copies the samples through instead of
-   * precoding them, so the weights would silently have no effect. */
-  AssertFatal(!have_dbt || NFAPI_MODE == NFAPI_MODE_AERIAL,
-              "a digital beam table is only supported with Aerial, the native L1 does not apply the weights\n");
-  /* An nFAPI PNF has no MACRLCs section, so RCconfig_NR_L1() cannot derive DAS there
-   * and the split L1 would silently run without it. Beam IDs meant for the RU or the
-   * fronthaul do travel in every FAPI PDU, so predefined without a table is fine. */
-  AssertFatal(config.beam_config.bf_method != BF_METHOD_DAS || NFAPI_MODE != NFAPI_MODE_VNF,
-              MACRLC_BF_METHOD " \"das\" is not supported with a split L1: the PNF has no " MACRLC_LIST
-              " section to read it from\n");
 
 #ifdef ENABLE_AERIAL
   /* Aerial applies the beam weights, and the SRS-based precoder, per TXRU and
@@ -1940,6 +1947,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
 #endif
   /* The weights are applied per TXRU: a native L1 takes that count from the RU
    * section, Aerial from num_tx_ant, which is required just above. */
+  const bool have_dbt = config.bt.num_beams > 0;
   if (have_dbt) {
     if (RUParamList.numelt > 0) {
       AssertFatal(config.bt.num_weights_per_beam == num_tx,
@@ -1971,7 +1979,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
                 ap->XP,
                 csi_ports);
   }
-  config.num_ssb_beams = num_ssb_beams;
 
   // Read spatial stream indices
   config_spatial_stream_index(macrlc_p, macrlc_np, &cell->radio_config, num_tx);
