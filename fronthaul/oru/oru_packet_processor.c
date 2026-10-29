@@ -94,6 +94,7 @@ typedef struct {
   uint16_t beam_id; // section type 3 beamId: the PRACH beam for this stream (UL Rx beamforming)
   fh_comp_method_t comp_method;
   uint8_t iq_width;
+  uint16_t eaxc; // eAxC ID of the corresponding C-Plane message (ecpriRtcid)
   bool served; // write_prach_iq() sent U-Plane for it
 } prach_job_t;
 typedef struct {
@@ -708,6 +709,7 @@ static unsigned handle_dl_cplane_section(oru_packet_processor_context_t *ctx,
 static unsigned handle_ul_cplane_section(oru_packet_processor_context_t *ctx,
                                          const struct xran_cp_radioapp_section1_header *hdr,
                                          struct xran_cp_radioapp_section1 *section,
+                                         uint16_t eaxc,
                                          int ant_id,
                                          uint64_t target_absolute_symbol,
                                          oru_pcap_cplane_snap_t *snap)
@@ -728,6 +730,7 @@ static unsigned handle_ul_cplane_section(oru_packet_processor_context_t *ctx,
     ul_job->symbol = absolute_gps_symbol % 14;
     ul_job->num_symbols = num_symbols;
     ul_job->antenna_id = ant_id;
+    ul_job->eaxc = eaxc;
     ul_job->beam_id = section->hdr.u.s1.beamId;
     ul_job->num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
     ul_job->start_prb = section->hdr.u1.common.startPrbc;
@@ -820,6 +823,7 @@ static prach_job_t *find_prach_job(oru_packet_processor_context_t *ctx, int slot
 static unsigned add_prach_section(oru_packet_processor_context_t *ctx,
                                   const struct xran_cp_radioapp_section3_header *hdr,
                                   const struct xran_cp_radioapp_section3 *section,
+                                  uint16_t eaxc,
                                   int slot_in_frame,
                                   int aarx,
                                   uint64_t start_symbol,
@@ -840,6 +844,7 @@ static unsigned add_prach_section(oru_packet_processor_context_t *ctx,
   job->beam_id = section->hdr.u.s3.beamId;
   job->comp_method = (fh_comp_method_t)hdr->udComp.udCompMeth;
   job->iq_width = hdr->udComp.udIqWidth == 0 ? XRAN_IQ_BITS_UNCOMPRESSED : hdr->udComp.udIqWidth;
+  job->eaxc = eaxc;
   RATELIMIT(PRACH_ERR_LOG_RATELIMIT, {
     LOG_A(HW, "PRACH JOB added slot_in_frame %d, aarx %d, target_absolute_symbol %lu\n", slot_in_frame, aarx, start_symbol);
   });
@@ -869,6 +874,7 @@ static const uint8_t *parse_section_extensions(oru_packet_processor_context_t *c
 void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
                                 void *pkt,
                                 struct xran_cp_radioapp_section3_header *hdr,
+                                uint16_t eaxc,
                                 uint8_t ant_id,
                                 oru_pcap_cplane_snap_t *snap)
 {
@@ -927,7 +933,7 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
       ctx->stats.cplane_section_repeated++;
     } else {
       set_bit(cited, section_id);
-      errors |= add_prach_section(ctx, hdr, section, slot_in_frame, aarx, target_absolute_symbol, num_prb, snap);
+      errors |= add_prach_section(ctx, hdr, section, eaxc, slot_in_frame, aarx, target_absolute_symbol, num_prb, snap);
     }
     // A malformed chain hides where the next section starts
     if (next == NULL)
@@ -1055,6 +1061,7 @@ static void count_section1_errors(oru_packet_processor_context_t *ctx, unsigned 
 static void handle_section1_message(oru_packet_processor_context_t *ctx,
                                     void *pkt,
                                     struct xran_cp_radioapp_section1_header *hdr,
+                                    uint16_t eaxc,
                                     uint8_t ant_id,
                                     oru_pcap_cplane_snap_t *snap)
 {
@@ -1123,7 +1130,7 @@ static void handle_section1_message(oru_packet_processor_context_t *ctx,
       if (is_dl)
         errors |= handle_dl_cplane_section(ctx, section, ant_id, diff);
       else
-        errors |= handle_ul_cplane_section(ctx, hdr, section, ant_id, target_absolute_symbol, snap);
+        errors |= handle_ul_cplane_section(ctx, hdr, section, eaxc, ant_id, target_absolute_symbol, snap);
     }
     // A malformed chain hides where the next section starts
     if (next == NULL)
@@ -1145,8 +1152,9 @@ void handle_cplane_packet(void *context, void *pkt)
     rte_pktmbuf_free(pkt);
     return;
   }
-  uint8_t cu_port_id, band_sector_id, cc_id, ant_id;
-  xran_decompose_cid(ecpri_hdr->ecpri_xtc_id, &ctx->eaxcid_config, &cu_port_id, &band_sector_id, &cc_id, &ant_id);
+  const uint16_t eaxc = rte_be_to_cpu_16(ecpri_hdr->ecpri_xtc_id);
+  uint8_t ant_id;
+  xran_decompose_cid(ecpri_hdr->ecpri_xtc_id, &ctx->eaxcid_config, NULL, NULL, NULL, &ant_id);
   ctx->stats.total_cplane++;
   struct xran_cp_radioapp_common_header *apphdr = (void *)rte_pktmbuf_adj(pkt, sizeof(struct xran_ecpri_hdr));
   if (apphdr == NULL) {
@@ -1163,13 +1171,13 @@ void handle_cplane_packet(void *context, void *pkt)
 
   switch (apphdr->sectionType) {
     case XRAN_CP_SECTIONTYPE_1:
-      handle_section1_message(ctx, pkt, (struct xran_cp_radioapp_section1_header *)apphdr, ant_id, &snap);
+      handle_section1_message(ctx, pkt, (struct xran_cp_radioapp_section1_header *)apphdr, eaxc, ant_id, &snap);
       rte_pktmbuf_free(pkt);
       return;
     case XRAN_CP_SECTIONTYPE_3: {
       ctx->stats.cplane_received_prach++;
       struct xran_cp_radioapp_section3_header *hdr = (struct xran_cp_radioapp_section3_header *)apphdr;
-      handle_prach_cplane_packet(ctx, pkt, hdr, ant_id, &snap);
+      handle_prach_cplane_packet(ctx, pkt, hdr, eaxc, ant_id, &snap);
       rte_pktmbuf_free(pkt);
       return;
     }
@@ -1451,20 +1459,18 @@ int get_ready_job_count(void *context)
   return rte_ring_count(ctx->dl_ready_jobs);
 }
 
+// eaxc is the ecpriRtcid of the corresponding C-Plane message: the O-RU attaches the DU_Port_ID set by the O-DU (CUS 5.1.3.2.7)
 void fill_ecpri_header(struct xran_ecpri_hdr *ecpri_header,
-                       struct xran_eaxcid_config *eaxcid_config,
                        uint8_t ecpri_mesg_type,
                        size_t ecpri_payload_size,
-                       uint8_t CC_ID,
-                       uint8_t Ant_ID,
-                       uint8_t seq_id,
-                       uint8_t oxu_port_id)
+                       uint16_t eaxc,
+                       uint8_t seq_id)
 {
   ecpri_header->cmnhdr.data.data_num_1 = 0x0;
   ecpri_header->cmnhdr.bits.ecpri_ver = XRAN_ECPRI_VER;
   ecpri_header->cmnhdr.bits.ecpri_mesg_type = ecpri_mesg_type;
   ecpri_header->cmnhdr.bits.ecpri_payl_size = rte_cpu_to_be_16(ecpri_payload_size);
-  ecpri_header->ecpri_xtc_id = xran_compose_cid(eaxcid_config, 0, 0, CC_ID, Ant_ID);
+  ecpri_header->ecpri_xtc_id = rte_cpu_to_be_16(eaxc);
   ecpri_header->ecpri_seq_id.bits.seq_id = seq_id;
   ecpri_header->ecpri_seq_id.bits.e_bit = 1;
   ecpri_header->ecpri_seq_id.bits.sub_seq_id = 0;
@@ -1598,7 +1604,7 @@ void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *j
 
     struct xran_ecpri_hdr *ecpri_header = (struct xran_ecpri_hdr *)buf;
     uint16_t ecpri_payload_size = (uint16_t)(header_length - 4 + data_len);
-    fill_ecpri_header(ecpri_header, &ctx->eaxcid_config, ECPRI_IQ_DATA, ecpri_payload_size, 0, aarx, ctx->ul_seq_id[aarx]++, 0);
+    fill_ecpri_header(ecpri_header, ECPRI_IQ_DATA, ecpri_payload_size, job->eaxc, ctx->ul_seq_id[aarx]++);
 
     struct radio_app_common_hdr *radio_app_header = (struct radio_app_common_hdr *)(ecpri_header + 1);
     fill_radio_app_header(radio_app_header, 0, XRAN_DIR_UL, frame, slot_in_frame, symbol, mu);
@@ -1728,13 +1734,10 @@ void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int
     uint16_t ecpri_payload_size = (uint16_t)(header_length - 4 + data_len);
 
     fill_ecpri_header(ecpri_header,
-                      &ctx->eaxcid_config,
                       ECPRI_IQ_DATA,
                       ecpri_payload_size,
-                      0,
-                      aarx + ctx->prach_eaxc_offset,
-                      ctx->ul_seq_id[(aarx + ctx->prach_eaxc_offset) & (NUM_RU_PORT_IDS - 1)]++,
-                      0);
+                      job->eaxc,
+                      ctx->ul_seq_id[(aarx + ctx->prach_eaxc_offset) & (NUM_RU_PORT_IDS - 1)]++);
 
     struct radio_app_common_hdr *radio_app_header = (struct radio_app_common_hdr *)(ecpri_header + 1);
     fill_radio_app_header(radio_app_header, filter_id, XRAN_DIR_UL, frame & 0xff, slot_in_frame, symbol, ctx->numerology);
