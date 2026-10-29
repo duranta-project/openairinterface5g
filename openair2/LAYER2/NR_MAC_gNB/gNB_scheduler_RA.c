@@ -2241,6 +2241,9 @@ void nr_schedule_RA(gNB_MAC_INST *mac,
                     nfapi_nr_tx_data_request_t *TX_req)
 {
   start_meas(&cell->schedule_ra);
+  const int mu = cell->ssb_SubcarrierOffset;
+  fsn_t now = {.f = frameP, .s = slotP, .mu = mu};
+
   // releasing a UE modifies access_ue_list: collect them and release after the loop
   rnti_t to_release[NR_NB_RA_PROC_MAX];
   int num_release = 0;
@@ -2251,8 +2254,8 @@ void nr_schedule_RA(gNB_MAC_INST *mac,
     if (ra->ra_state != nrRA_gNB_IDLE)
       LOG_D(NR_MAC, "UE %04x frame.slot %d.%d RA state: %d\n", UE->rnti, frameP, slotP, ra->ra_state);
 
-    // Check RA Contention Resolution timer (TODO check this procedure)
-    if (ra->ra_type == RA_4_STEP && ra->ra_state > nrRA_WAIT_Msg3) {
+    // Check RA Contention Resolution timer
+    if (ra->ra_type == RA_4_STEP && ra->ra_state > nrRA_gNB_IDLE) {
       ra->contention_resolution_timer--;
       if (ra->contention_resolution_timer == 0) {
         LOG_W(NR_MAC, "(%d.%d) RA Contention Resolution timer expired for UE 0x%04x, RA procedure failed...\n", frameP, slotP, UE->rnti);
@@ -2263,6 +2266,14 @@ void nr_schedule_RA(gNB_MAC_INST *mac,
           to_release[num_release++] = UE->rnti;
         continue;
       }
+    }
+
+    fsn_t tra = {.f = ra->preamble_frame, .s = ra->preamble_slot, .mu = now.mu};
+    /* if nothing happened after 100ms, drop the context (exclude pre-set CFRA modes) */
+    if (ra->ra_state != nrRA_gNB_IDLE && fsn_get_diff(now, tra) >= 10 * cell->frame_structure.numb_slots_frame) {
+      LOG_W(NR_MAC, "%4d.%2d removing stale RA context 0x%04x RA-RNTI 0x%04x (preamble at %4d.%2d)\n", now.f, now.s, UE->rnti, ra->RA_rnti, tra.f, tra.s);
+      to_release[num_release++] = UE->rnti;
+      continue;
     }
 
     switch (ra->ra_state) {
