@@ -187,6 +187,7 @@ These modes of operation are supported:
 - Send/Receive operations according to 38.323 Rel.16
   - Integrity protection and ciphering procedures
   - Sequence number management, SDU dicard and in-order delivery
+  - DL SDUs are dropped before they get a sequence number when the RLC buffer is full (PDCP and RLC in the same process)
   - Radio bearer establishment/handling and association with PDCP entities
   - Interfaces with RRC, RLC
   - Interfaces with gtp-u (data Tx/Rx over N3 and F1-U interfaces)

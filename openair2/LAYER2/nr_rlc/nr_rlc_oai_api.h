@@ -77,6 +77,14 @@ void nr_rlc_reconfigure_entity(int ue_id, int lc_id, NR_RLC_Config_t *rlc_Config
 
 int nr_rlc_get_available_tx_space(const int ue_id, const logical_chan_id_t channel_idP);
 
+/**
+ * @brief Free space in the TX buffer of a DRB's RLC entity, the one nr_rlc_data_req() uses for that DRB
+ * @param ue_id RLC UE ID
+ * @param drb_id DRB ID, 1 to MAX_DRBS_PER_UE
+ * @return free space in bytes, or -1 if the UE has no such DRB
+ */
+int nr_rlc_get_drb_available_tx_space(int ue_id, int drb_id);
+
 int nr_rlc_tx_list_occupancy(int ue_id, logical_chan_id_t lcid);
 
 void nr_rlc_activate_avg_time_to_tx(const int ue_id, const logical_chan_id_t channel_id, const bool is_on);

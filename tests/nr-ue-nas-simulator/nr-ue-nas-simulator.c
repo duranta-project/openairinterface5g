@@ -95,6 +95,12 @@ int nr_rlc_get_available_tx_space(const rnti_t rntiP, const logical_chan_id_t ch
   return 0;
 }
 
+int nr_rlc_get_drb_available_tx_space(int ue_id, int drb_id)
+{
+  abort();
+  return 0;
+}
+
 configmodule_interface_t *uniqCfg = NULL;
 
 static int identity_guti = 0;

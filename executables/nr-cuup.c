@@ -102,6 +102,12 @@ int nr_rlc_get_available_tx_space(const rnti_t rntiP, const logical_chan_id_t ch
   return 0;
 }
 
+int nr_rlc_get_drb_available_tx_space(int ue_id, int drb_id)
+{
+  abort();
+  return 0;
+}
+
 f1ap_cudu_inst_t *getCxt(instance_t instanceP)
 {
   // the E1 module uses F1's getCxt() to decide whether there is F1-U and if

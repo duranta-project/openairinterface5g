@@ -24,6 +24,11 @@ configmodule_interface_t *uniqCfg;
 #define UL 1
 
 int nr_rlc_get_available_tx_space(const rnti_t rntiP, const logical_chan_id_t channel_idP) { abort(); return 0; } /* in GTP */
+int nr_rlc_get_drb_available_tx_space(int ue_id, int drb_id)
+{
+  abort();
+  return 0;
+} /* in PDCP */
 softmodem_params_t *get_softmodem_params(void) { static softmodem_params_t p = {0}; return &p; }; /* in ITTI */
 void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req) { abort(); } /* CU-UP */
 void e1_bearer_context_modif(const e1ap_bearer_mod_req_t *req) { abort(); } /* CU-UP */

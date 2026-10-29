@@ -359,6 +359,19 @@ int nr_rlc_get_available_tx_space(const int ue_id, const logical_chan_id_t chann
   return ret;
 }
 
+int nr_rlc_get_drb_available_tx_space(int ue_id, int drb_id)
+{
+  int ret = -1;
+
+  nr_rlc_manager_lock(nr_rlc_ue_manager);
+  nr_rlc_ue_t *ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, ue_id);
+  if (drb_id >= 1 && drb_id <= MAX_DRBS_PER_UE && ue->drb[drb_id - 1] != NULL)
+    ret = ue->drb[drb_id - 1]->available_tx_space(ue->drb[drb_id - 1]);
+  nr_rlc_manager_unlock(nr_rlc_ue_manager);
+
+  return ret;
+}
+
 int nr_rlc_tx_list_occupancy(int ue_id, logical_chan_id_t lcid)
 {
   int ret;

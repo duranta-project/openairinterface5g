@@ -46,6 +46,9 @@
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "utils.h"
 
+/* log SDUs rejected at most once per 1280 ms, as RLC does */
+#define NR_PDCP_SDU_REJECT_LOG_PERIOD_MS 1280
+
 #define TODO do { \
     printf("%s:%d:%s: todo\n", __FILE__, __LINE__, __FUNCTION__); \
     exit(1); \
@@ -114,11 +117,48 @@ typedef struct {
   rlc_data_req_queue_item q[RLC_DATA_REQ_QUEUE_SIZE];
   volatile int start;
   volatile int length;
+  /* bytes of DRB SDUs in the queue, per UE and DRB (key: rlc_queue_drb_key()),
+   * not yet in the RLC buffer */
+  hash_table_t *drb_bytes;
   pthread_mutex_t m;
   pthread_cond_t c;
 } rlc_data_req_queue;
 
 static rlc_data_req_queue q;
+
+static hash_key_t rlc_queue_drb_key(ue_id_t ue_id, rb_id_t rb_id)
+{
+  return ((hash_key_t)ue_id << 8) | (hash_key_t)rb_id;
+}
+
+/* call with q.m held */
+static void rlc_queue_drb_bytes_add(ue_id_t ue_id, rb_id_t rb_id, int size)
+{
+  const hash_key_t key = rlc_queue_drb_key(ue_id, rb_id);
+  int *bytes = NULL;
+  if (hashtable_get(q.drb_bytes, key, (void **)&bytes) != HASH_TABLE_OK) {
+    bytes = calloc_or_fail(1, sizeof(*bytes));
+    hashtable_insert(q.drb_bytes, key, bytes);
+  }
+  *bytes += size;
+  DevAssert(*bytes >= 0);
+  if (*bytes == 0)
+    hashtable_remove(q.drb_bytes, key);
+}
+
+/* bytes of SDUs of this DRB in the queue */
+static int rlc_queue_drb_bytes(ue_id_t ue_id, rb_id_t rb_id)
+{
+  int *bytes = NULL;
+  int ret = 0;
+  if (pthread_mutex_lock(&q.m) != 0)
+    abort();
+  if (hashtable_get(q.drb_bytes, rlc_queue_drb_key(ue_id, rb_id), (void **)&bytes) == HASH_TABLE_OK)
+    ret = *bytes;
+  if (pthread_mutex_unlock(&q.m) != 0)
+    abort();
+  return ret;
+}
 
 static void *rlc_data_req_thread(void *_)
 {
@@ -141,6 +181,8 @@ static void *rlc_data_req_thread(void *_)
 
     if (pthread_mutex_lock(&q.m) != 0) abort();
 
+    if (!q.q[i].srb_flagP)
+      rlc_queue_drb_bytes_add(q.q[i].ctxt_pP.rntiMaybeUEid, q.q[i].rb_idP, -q.q[i].sdu_sizeP);
     q.length--;
     q.start = (q.start + 1) % RLC_DATA_REQ_QUEUE_SIZE;
 
@@ -155,6 +197,7 @@ static void init_nr_rlc_data_req_queue(void)
 
   pthread_mutex_init(&q.m, NULL);
   pthread_cond_init(&q.c, NULL);
+  q.drb_bytes = hashtable_create(1319, NULL, free); // 1319 is prime, default hash func (unit), free()
 
   if (pthread_create(&t, NULL, rlc_data_req_thread, NULL) != 0) {
     LOG_E(PDCP, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
@@ -192,6 +235,8 @@ static void enqueue_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
   q.q[i].confirmP   = confirmP;
   q.q[i].sdu_sizeP  = sdu_sizeP;
   q.q[i].sdu_pP     = sdu_pP;
+  if (!srb_flagP)
+    rlc_queue_drb_bytes_add(ctxt_pP->rntiMaybeUEid, rb_idP, sdu_sizeP);
 
   if (pthread_cond_signal(&q.c) != 0) abort();
   if (pthread_mutex_unlock(&q.m) != 0) abort();
@@ -932,6 +977,25 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
     exit(1);
   }
 
+  /* If RLC runs in this process, get the free space of its entity now, less what
+   * is already queued for it: RLC drops an SDU it has no room for, but that SDU
+   * already has a PDCP SN, and the receiver then waits t-reordering for the
+   * missing SN before it delivers the next SDUs. Ask before taking the PDCP lock,
+   * as RLC calls PDCP with its own lock held. Read the queue first: an SDU that
+   * moves from the queue to RLC in between is then counted twice, not missed. */
+  bool rlc_known = false;
+  int rlc_space = 0;
+  if (RC.nrrrc != NULL && !NODE_IS_CU(node_type) && cu_exists_f1_ue_data(ue_id)) {
+    const ue_id_t rlc_ue_id = cu_get_f1_ue_data(ue_id).secondary_ue;
+    const int queued = rlc_queue_drb_bytes(rlc_ue_id, rb_id);
+    const int rlc_free = nr_rlc_get_drb_available_tx_space(rlc_ue_id, rb_id);
+    if (rlc_free >= 0) {
+      rlc_known = true;
+      /* negative when the queue holds more than RLC has room for */
+      rlc_space = rlc_free - queued;
+    }
+  }
+
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
 
   ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, ue_id);
@@ -944,6 +1008,19 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
   }
 
   int max_size = nr_max_pdcp_pdu_size(sdu_buffer_size);
+
+  /* no room in RLC: drop the SDU here, before it gets a SN, so that no SN is
+   * missing at the receiver. The caller sees success, as for an RLC drop. */
+  if (rlc_known && rlc_space < max_size) {
+    if (rb->sdu_rejected != 0 && rb->t_current > rb->t_log_sdu_rejected + NR_PDCP_SDU_REJECT_LOG_PERIOD_MS) {
+      LOG_W(PDCP, "[UE %lx] DRB %ld: %d DL SDUs rejected at PDCP, RLC buffer full\n", ue_id, rb_id, rb->sdu_rejected);
+      rb->sdu_rejected = 0;
+      rb->t_log_sdu_rejected = rb->t_current;
+    }
+    rb->sdu_rejected++;
+    nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+    return 1;
+  }
   char pdu_buf[max_size];
   int pdu_size = rb->process_sdu(rb, (char *)sdu_buffer, sdu_buffer_size, muiP, pdu_buf, max_size);
   if (pdu_size == -1) {

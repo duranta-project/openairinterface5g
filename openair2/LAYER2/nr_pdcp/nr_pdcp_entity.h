@@ -135,6 +135,10 @@ typedef struct nr_pdcp_entity_s {
   uint64_t t_log_pdu_discard;
   int pdu_discarded;
 
+  /* DL SDUs dropped before getting a SN because RLC had no room (gNB) */
+  uint64_t t_log_sdu_rejected;
+  int sdu_rejected;
+
   /* timers (stores the ms of activation, 0 means not active) */
   uint64_t t_reordering_start;
 
