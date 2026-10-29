@@ -204,6 +204,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
     Ncp = ncp[prach_fmt_id - 4] >> mu;
     dftlen = 2048 >> mu;
   }
+  const int repetitions = prach_repetitions[prach_fmt_id];
 
   // actually what we should be checking here is how often the current prach crosses a 0.5ms boundary. I am not quite sure for
   // which paramter set this would be the case, so I will ignore it for now and just check if the prach starts on a 0.5ms boundary
@@ -319,6 +320,11 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
         k = 0;
     }
 
+    if (ue->fd_ifdevice) {
+      ue->fd_ifdevice->write_prach(ue->fd_ifdevice, frame, slot, prachF, dftlen, Ncp, prach_start, repetitions);
+      return 0;
+    }
+
 #if defined(PRACH_WRITE_OUTPUT_DEBUG)
     LOG_M("prachF.m", "prachF", &prachF[1804], 1024, 1, 1);
     LOG_M("Xu.m", "Xu", Xu, N_ZC, 1, 1);
@@ -332,9 +338,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   c16_t *out = txData[0] + prach_start;
   memcpy(out, prach + dftlen - Ncp, Ncp * sizeof(*prach));
   out += Ncp;
-  const int copies[11] = {1, 2, 4, 4, 2, 4, 6, 2, 12, 1, 4};
-  DevAssert(prach_fmt_id < sizeofArray(copies));
-  for (int i = 0; i < copies[prach_fmt_id]; i++) {
+  for (int i = 0; i < repetitions; i++) {
     memcpy(out, prach, dftlen * sizeof(*prach));
     out += dftlen;
   }

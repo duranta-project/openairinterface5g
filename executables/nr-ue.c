@@ -87,7 +87,7 @@
  *
  */
 
-static void start_process_slot_tx(void* arg) {
+void start_process_slot_tx(void* arg) {
   notifiedFIFO_elt_t *newTx = arg;
   nr_rxtx_thread_data_t *curMsgTx = NotifiedFifoData(newTx);
   int num_ul_actors = get_nrUE_params()->num_ul_actors;
@@ -113,7 +113,7 @@ static size_t dump_L1_UE_meas_stats(PHY_VARS_NR_UE *ue, char *output, size_t max
   return output - begin;
 }
 
-static void *nrL1_UE_stats_thread(void *param)
+void *nrL1_UE_stats_thread(void *param)
 {
   PHY_VARS_NR_UE *ue = (PHY_VARS_NR_UE *) param;
   const int max_len = 16384;
@@ -137,7 +137,7 @@ static void *nrL1_UE_stats_thread(void *param)
   return NULL;
 }
 
-static int determine_N_TA_offset(PHY_VARS_NR_UE *ue) {
+int determine_N_TA_offset(PHY_VARS_NR_UE *ue) {
   if (ue->sl_mode == 2)
     return 0;
   else {
@@ -266,7 +266,7 @@ static uint num_dl_symbols_slot(const fapi_nr_config_request_t *cfg, int nr_slot
   return current_slot->num_dl_ul_symbols_list.num_dl;
 }
 
-static int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
+int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
 {
   if (cfg->cell_config.frame_duplex_type == FDD)
     return NR_UPLINK_SLOT | NR_DOWNLINK_SLOT;
@@ -547,11 +547,11 @@ static int handle_sync_req_from_mac(PHY_VARS_NR_UE *UE, Actor_t *dl_actors, Acto
   return 1;
 }
 
-static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
-                               const UE_nr_rxtx_proc_t *proc,
-                               int *tx_wait_for_dlsch,
-                               nr_phy_data_t *phy_data,
-                               bool *stats_printed)
+int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
+                        const UE_nr_rxtx_proc_t *proc,
+                        int *tx_wait_for_dlsch,
+                        nr_phy_data_t *phy_data,
+                        bool *stats_printed)
 {
   TracyCZone(ctx, true);
   int sampleShift = INT_MAX;
@@ -772,6 +772,12 @@ static inline int get_readBlockSize(uint16_t slot, const NR_DL_FRAME_PARMS *fp)
 
 void trs_freq_correction(PHY_VARS_NR_UE *ue, int cfo)
 {
+  // Split7: the Low-PHY owns the radio (shared by every instance); no retuning.
+  if (ue->fd_ifdevice) {
+    if (abs(cfo) > TRS_CFO_THRESH)
+      LOG_W(PHY, "CFO estimated (%d) from TRS exceeded threshold (%d), not corrected in split7 mode\n", cfo, TRS_CFO_THRESH);
+    return;
+  }
   if (abs(cfo) > TRS_CFO_THRESH) {
     LOG_A(PHY, "CFO estimated (%d) from TRS exceeded threshold (%d). Adjusting radio CF\n", cfo, TRS_CFO_THRESH);
     ue->freq_offset += cfo;
@@ -801,9 +807,9 @@ static int parse_actor_affinity(const char *params, int *cores, int max_cores)
 }
 
 /* Assign one core from the shared pool to each DL actor, then each UL actor.
- * If a spare remains, pin SYNC too. Leave everyone at -1 when actor-affinity is unset.
- * The actors are UE_thread-owned stack arrays: they live exactly as long as the thread. */
-static void init_ue_actors(Actor_t *sync_actor, Actor_t *dl_actors, Actor_t *ul_actors)
+ * If a spare remains, pin SYNC too (sync_actor may be NULL: none). Leave everyone at
+ * -1 when actor-affinity is unset. The actors live as long as the thread owning them. */
+void init_ue_actors(Actor_t *sync_actor, Actor_t *dl_actors, Actor_t *ul_actors)
 {
   const nrUE_params_t *p = get_nrUE_params();
   const int need = p->num_dl_actors + p->num_ul_actors;
@@ -818,7 +824,8 @@ static void init_ue_actors(Actor_t *sync_actor, Actor_t *dl_actors, Actor_t *ul_
 
   int idx = 0;
   const int sync_core = (have > need) ? cores[need] : -1;
-  init_actor(sync_actor, "SYNC_", sync_core);
+  if (sync_actor)
+    init_actor(sync_actor, "SYNC_", sync_core);
 
   for (int i = 0; i < p->num_dl_actors; i++) {
     const int core = (have > 0) ? cores[idx++] : -1;

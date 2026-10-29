@@ -267,6 +267,32 @@ typedef struct {
   int used_by_ue;
 } nrUE_cell_params_t;
 
+typedef struct UE_nr_rxtx_proc_s UE_nr_rxtx_proc_t;
+
+/// Split 7.1 interface device: exchanges frequency-domain symbols in place of FFT/IFFT on the radio's samples.
+typedef struct nr_ue_fd_ifdevice_s {
+  /// Copies a demodulated DL symbol, one pointer per RX antenna. False when it is no longer available.
+  bool (*read_symbol)(struct nr_ue_fd_ifdevice_s *dev, int frame, int slot, int symbol, c16_t *const *dst);
+  /// Takes a TX slot's frequency-domain symbols in place of OFDM modulation.
+  void (*write_slot)(struct nr_ue_fd_ifdevice_s *dev,
+                     int hfn,
+                     int frame,
+                     int slot,
+                     int nb_ant_tx,
+                     c16_t **txdataF,
+                     const bool *was_symbol_used);
+  /// Takes a frequency-domain PRACH preamble in place of IDFT and CP insertion.
+  void (*write_prach)(struct nr_ue_fd_ifdevice_s *dev,
+                      int frame,
+                      int slot,
+                      const c16_t *prachF,
+                      int dftlen,
+                      int Ncp,
+                      int prach_start,
+                      int repetitions);
+  void *priv;
+} nr_ue_fd_ifdevice_t;
+
 /// Top-level PHY Data Structure for UE
 typedef struct PHY_VARS_NR_UE_s {
   /// \brief Module ID indicator for this instance
@@ -433,6 +459,9 @@ typedef struct PHY_VARS_NR_UE_s {
   // Gain change required for automation RX gain change
   int adjust_rxgain;
 
+  /// Split 7.1 interface device; NULL: FFT/IFFT on the radio's samples
+  nr_ue_fd_ifdevice_t *fd_ifdevice;
+
   // Sidelink parameters
   sl_nr_sidelink_mode_t sl_mode;
   sl_nr_ue_phy_params_t SL_UE_PHY_PARAMS;
@@ -461,7 +490,7 @@ typedef struct PHY_VARS_NR_UE_s {
 } PHY_VARS_NR_UE;
 typedef struct pdsch_scratch_s pdsch_scratch_t;
 
-typedef struct {
+typedef struct UE_nr_rxtx_proc_s {
   openair0_timestamp_t timestamp_tx;
   int gNB_id;
   /// NR slot index within frame_tx [0 .. slots_per_frame - 1] to act upon for transmission
