@@ -56,6 +56,7 @@ typedef struct {
   int symbol;
   int num_symbols;
   int antenna_id; // eaxc: physical RX antenna (passthrough) or beam output stream (codebook)
+  uint16_t eaxc; // eAxC ID of the corresponding C-Plane message (ecpriRtcid)
   uint16_t beam_id; // beam this section was declared under (UL Rx beamforming)
   int start_prb;
   int num_prb;
