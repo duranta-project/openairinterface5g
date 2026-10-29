@@ -1577,7 +1577,7 @@ static void config_spatial_stream_index(const paramdef_t *param, const size_t np
   }
 }
 
-static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg, int *num_tx, int idx, paramdef_t *gnb_p)
+static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg, int *num_tx, int idx, paramdef_t *gnb_p, paramdef_t *timer_p)
 {
   nr_mac_config_t config = {0};
   config.pdsch_AntennaPorts.N1 = *gnb_p[GNB_PDSCH_ANTENNAPORTS_N1_IDX].iptr;
@@ -1626,6 +1626,30 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg, int *num_tx
 
   config.redcap = get_redcap_config(idx);
   config.ptrs = get_ptrs_config(idx);
+
+  config.timer_config.sr_ProhibitTimer = *timer_p[GNB_TIMERS_SR_PROHIBIT_TIMER_IDX].iptr;
+  config.timer_config.sr_TransMax = *timer_p[GNB_TIMERS_SR_TRANS_MAX_IDX].iptr;
+  config.timer_config.sr_ProhibitTimer_v1700 = *timer_p[GNB_TIMERS_SR_PROHIBIT_TIMER_V1700_IDX].iptr;
+  config.timer_config.t300 = *timer_p[GNB_TIMERS_T300_IDX].iptr;
+  config.timer_config.t301 = *timer_p[GNB_TIMERS_T301_IDX].iptr;
+  config.timer_config.t310 = *timer_p[GNB_TIMERS_T310_IDX].iptr;
+  config.timer_config.n310 = *timer_p[GNB_TIMERS_N310_IDX].iptr;
+  config.timer_config.t311 = *timer_p[GNB_TIMERS_T311_IDX].iptr;
+  config.timer_config.n311 = *timer_p[GNB_TIMERS_N311_IDX].iptr;
+  config.timer_config.t319 = *timer_p[GNB_TIMERS_T319_IDX].iptr;
+  LOG_I(GNB_APP,
+        "sr_ProhibitTimer %d, sr_TransMax %d, sr_ProhibitTimer_v1700 %d, "
+        "t300 %d, t301 %d, t310 %d, n310 %d, t311 %d, n311 %d, t319 %d\n",
+        config.timer_config.sr_ProhibitTimer,
+        config.timer_config.sr_TransMax,
+        config.timer_config.sr_ProhibitTimer_v1700,
+        config.timer_config.t300,
+        config.timer_config.t301,
+        config.timer_config.t310,
+        config.timer_config.n310,
+        config.timer_config.t311,
+        config.timer_config.n311,
+        config.timer_config.t319);
 
   int beams_per_period = 1; // TODO verification after beams_per_period/pdsch
                             // have been read
@@ -1680,8 +1704,11 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
 
   int idx = 0;
   AssertFatal(MacRLC_ParamList.numelt == 1, "only one MACRLCs section supported!\n");
+  char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
+  snprintf(aprefix, sizeof(aprefix), "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, idx, GNB_CONFIG_STRING_TIMERS_CONFIG);
+  GET_PARAMS(Timers_Params, GNB_TIMERS_PARAMS_DESC, aprefix);
 
-  nr_mac_config_t config = get_mac_config(cfg, &num_tx, idx, GNBParamList.paramarray[idx]);
+  nr_mac_config_t config = get_mac_config(cfg, &num_tx, idx, GNBParamList.paramarray[idx], Timers_Params);
 
 #ifdef ENABLE_AERIAL
   // Aerial: TXRU counts advertised to the L1 in CONFIG.request, decoupled
@@ -1697,34 +1724,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   if (config.aerial.num_tx_ant > 0 || config.aerial.num_rx_ant > 0)
     LOG_I(GNB_APP, "Aerial TXRUs: num_tx_ant %d num_rx_ant %d\n", config.aerial.num_tx_ant, config.aerial.num_rx_ant);
 #endif
-
-  char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
-  snprintf(aprefix, sizeof(aprefix), "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, 0, GNB_CONFIG_STRING_TIMERS_CONFIG);
-  GET_PARAMS(Timers_Params, GNB_TIMERS_PARAMS_DESC, aprefix);
-
-  config.timer_config.sr_ProhibitTimer = *Timers_Params[GNB_TIMERS_SR_PROHIBIT_TIMER_IDX].iptr;
-  config.timer_config.sr_TransMax = *Timers_Params[GNB_TIMERS_SR_TRANS_MAX_IDX].iptr;
-  config.timer_config.sr_ProhibitTimer_v1700 = *Timers_Params[GNB_TIMERS_SR_PROHIBIT_TIMER_V1700_IDX].iptr;
-  config.timer_config.t300 = *Timers_Params[GNB_TIMERS_T300_IDX].iptr;
-  config.timer_config.t301 = *Timers_Params[GNB_TIMERS_T301_IDX].iptr;
-  config.timer_config.t310 = *Timers_Params[GNB_TIMERS_T310_IDX].iptr;
-  config.timer_config.n310 = *Timers_Params[GNB_TIMERS_N310_IDX].iptr;
-  config.timer_config.t311 = *Timers_Params[GNB_TIMERS_T311_IDX].iptr;
-  config.timer_config.n311 = *Timers_Params[GNB_TIMERS_N311_IDX].iptr;
-  config.timer_config.t319 = *Timers_Params[GNB_TIMERS_T319_IDX].iptr;
-  LOG_I(GNB_APP,
-        "sr_ProhibitTimer %d, sr_TransMax %d, sr_ProhibitTimer_v1700 %d, "
-        "t300 %d, t301 %d, t310 %d, n310 %d, t311 %d, n311 %d, t319 %d\n",
-        config.timer_config.sr_ProhibitTimer,
-        config.timer_config.sr_TransMax,
-        config.timer_config.sr_ProhibitTimer_v1700,
-        config.timer_config.t300,
-        config.timer_config.t301,
-        config.timer_config.t310,
-        config.timer_config.n310,
-        config.timer_config.t311,
-        config.timer_config.n311,
-        config.timer_config.t319);
 
   // Construct default aggragation level list or read from config
   int uess_num_agg_level_candidates[NUM_PDCCH_AGG_LEVELS];
