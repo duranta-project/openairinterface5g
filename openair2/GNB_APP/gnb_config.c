@@ -1584,7 +1584,7 @@ static void config_spatial_stream_index(const paramdef_t *param, const size_t np
   }
 }
 
-void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cell)
+void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
 {
   int j = 0;
   nr_cell_sched_t *cell = NULL;
@@ -2035,8 +2035,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
     nrmac->f1_config.gnb_id = gnb_id;
 
     free(name); /* read_du_cell_info() allocated memory */
-
-    *out_cell = cell;
   } else { // MacRLC_ParamList.numelt > 0
     LOG_E(PHY, "No %s configuration found\n", MACRLC_LIST);
     // AssertFatal (0,"No " MACRLC_LIST " configuration found");
