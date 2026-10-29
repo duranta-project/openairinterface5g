@@ -1067,8 +1067,9 @@ int nr_process_pbch_symbol(PHY_VARS_NR_UE *ue,
                        log2_maxh);
   // Do measurements on middle symbol of PBCH block
   if (relPbchSymb == 1) {
-    nr_ue_ssb_rsrp_measurements(ue, ssbIndex, proc, rxdataF);
+    // the noise first: the SSB SINR uses it
     nr_ue_rrc_measurements(ue, proc, rxdataF);
+    nr_ue_ssb_rsrp_measurements(ue, ssbIndex, proc, rxdataF);
     // resetting ssb index for PBCH detection if there is a stronger SSB index
     if (ue->measurements.ssb_rsrp_dBm[ssbIndex] > ue->measurements.ssb_rsrp_dBm[fp->ssb_index]) {
       fp->ssb_index = ssbIndex;

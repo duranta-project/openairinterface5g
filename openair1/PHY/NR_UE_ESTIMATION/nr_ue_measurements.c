@@ -23,6 +23,9 @@
 
 #define K1 ((long long int) 512)
 #define K2 ((long long int) (1024-K1))
+// the noise is measured on 16 REs per antenna at each SSB and changes slowly: longer average than for the signal
+#define K1_N0 ((long long int)768)
+#define K2_N0 ((long long int)(1024 - K1_N0))
 
 //#define DEBUG_MEAS_RRC
 //#define DEBUG_MEAS_UE
@@ -80,16 +83,11 @@ void nr_ue_measurements(PHY_VARS_NR_UE *ue,
     for (gNB_id = 0; gNB_id < ue->n_connected_gNB; gNB_id++)
       ue->measurements.rx_power_avg[gNB_id] = (int)((K1 * ue->measurements.rx_power_avg[gNB_id] + K2 * ue->measurements.rx_power_tot[gNB_id]) >> 10);
 
-    ue->measurements.n0_power_avg = (int)((K1 * ue->measurements.n0_power_avg + K2 * ue->measurements.n0_power_tot) >> 10);
-
-    LOG_D(PHY, "Noise Power Computation: K1 %lld K2 %lld n0 avg %u n0 tot %u\n", K1, K2, ue->measurements.n0_power_avg, ue->measurements.n0_power_tot);
-
   } else {
 
     for (gNB_id = 0; gNB_id < ue->n_connected_gNB; gNB_id++)
       ue->measurements.rx_power_avg[gNB_id] = ue->measurements.rx_power_tot[gNB_id];
 
-    ue->measurements.n0_power_avg = ue->measurements.n0_power_tot;
     ue->init_averaging = 0;
 
   }
@@ -97,7 +95,6 @@ void nr_ue_measurements(PHY_VARS_NR_UE *ue,
   for (gNB_id = 0; gNB_id < ue->n_connected_gNB; gNB_id++) {
 
     ue->measurements.rx_power_avg_dB[gNB_id] = dB_fixed( ue->measurements.rx_power_avg[gNB_id]);
-    ue->measurements.n0_power_avg_dB = dB_fixed(ue->measurements.n0_power_avg);
     ue->measurements.wideband_cqi_tot[gNB_id] = ue->measurements.rx_power_tot_dB[gNB_id] - ue->measurements.n0_power_tot_dB;
     ue->measurements.wideband_cqi_avg[gNB_id] = ue->measurements.rx_power_avg_dB[gNB_id] - ue->measurements.n0_power_avg_dB;
     ue->measurements.rx_rssi_dBm[gNB_id] =
@@ -636,6 +633,13 @@ void nr_ue_rrc_measurements(PHY_VARS_NR_UE *ue,
   }
 
   ue->measurements.n0_power_tot_dB = dB_fixed(ue->measurements.n0_power_tot);
+  // average the noise here, at each SSB where it is measured: averaged on PDSCH receptions only, it stayed stale for
+  // the SSB SINR of a UE without DL data
+  if (ue->measurements.n0_power_avg == 0)
+    ue->measurements.n0_power_avg = ue->measurements.n0_power_tot;
+  else
+    ue->measurements.n0_power_avg = (int)((K1_N0 * ue->measurements.n0_power_avg + K2_N0 * ue->measurements.n0_power_tot + 512) >> 10);
+  ue->measurements.n0_power_avg_dB = dB_fixed(ue->measurements.n0_power_avg);
 
   #ifdef DEBUG_MEAS_RRC
   const int psd_awgn = -174;
