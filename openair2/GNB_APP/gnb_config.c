@@ -1796,28 +1796,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
     AssertFatal(1 == 0, "MACRLC %d: %s unknown northbound midhaul\n", 0, *gpd(params, np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr);
   }
 
-  if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "local_L1") == 0) {
-  } else if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "nfapi") == 0) {
-    const char *vnf_addr = *gpd(params, np, MACRLC_LOCAL_S_ADDRESS)->strptr;
-    uint16_t p5_port = *gpd(params, np, MACRLC_LOCAL_S_PORTC)->iptr;
-    uint16_t p7_port = *gpd(params, np, MACRLC_LOCAL_S_PORTD)->iptr;
-    configure_nr_nfapi_vnf(vnf_addr, p5_port, p7_port);
-  } else if(strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "aerial") == 0){
-#ifdef ENABLE_AERIAL
-    nvipc_params_t nvipc_p = {
-      .nvipc_shm_prefix = strdup(*gpd(params, np, MACRLC_TRANSPORT_S_SHM_PREFIX)->strptr),
-      .nvipc_poll_core = *gpd(params, np, MACRLC_TRANSPORT_S_POLL_CORE)->i8ptr,
-      .num_phys = 1,
-    };
-    nrmac->nvipc_params_s = nvipc_p;
-    LOG_I(GNB_APP, "Configuring VNF for Aerial connection with prefix %s\n", nvipc_p.nvipc_shm_prefix);
-    // parameters are for socket-based communication, irrelevant for Aerial
-    configure_nr_nfapi_vnf(NULL, 0xffff, 0xffff);
-
-#endif
-  } else { // other midhaul
-    AssertFatal(1 == 0, "MACRLC %d: %s unknown southbound midhaul\n", 0, *gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr);
-  }
   cell->ulsch_max_frame_inactivity = *gpd(params, np, MACRLC_ULSCH_MAX_FRAME_INACTIVITY)->uptr;
   nrmac->stats_max_ue = *gpd(params, np, MACRLC_STATS_MAX_UE)->iptr;
   nrmac->print_ue_stats = nrmac->stats_max_ue > 0;
@@ -2004,8 +1982,30 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   nr_mac_cell_config_scc(cell, scc, &config);
   nrmac->positioning_config = RCconfig_nr_positioning();
 
-  // triggers also PHY initialization in case we have L1 via FAPI
-  nr_mac_send_config_req(nrmac, &cell->config);
+  if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "local_L1") == 0) {
+    // triggers also PHY initialization in case we have L1 via FAPI
+    nr_mac_send_config_req(nrmac, &cell->config);
+  } else if (strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "nfapi") == 0) {
+    const char *vnf_addr = *gpd(params, np, MACRLC_LOCAL_S_ADDRESS)->strptr;
+    uint16_t p5_port = *gpd(params, np, MACRLC_LOCAL_S_PORTC)->iptr;
+    uint16_t p7_port = *gpd(params, np, MACRLC_LOCAL_S_PORTD)->iptr;
+    configure_nr_nfapi_vnf(vnf_addr, p5_port, p7_port);
+  } else if(strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "aerial") == 0){
+#ifdef ENABLE_AERIAL
+    nvipc_params_t nvipc_p = {
+      .nvipc_shm_prefix = strdup(*gpd(params, np, MACRLC_TRANSPORT_S_SHM_PREFIX)->strptr),
+      .nvipc_poll_core = *gpd(params, np, MACRLC_TRANSPORT_S_POLL_CORE)->i8ptr,
+      .num_phys = 1,
+    };
+    nrmac->nvipc_params_s = nvipc_p;
+    LOG_I(GNB_APP, "Configuring VNF for Aerial connection with prefix %s\n", nvipc_p.nvipc_shm_prefix);
+    // parameters are for socket-based communication, irrelevant for Aerial
+    configure_nr_nfapi_vnf(NULL, 0xffff, 0xffff);
+
+#endif
+  } else { // other midhaul
+    AssertFatal(1 == 0, "MACRLC %d: %s unknown southbound midhaul\n", 0, *gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr);
+  }
 
   uint64_t gnb_du_id = 0;
   uint32_t gnb_id = 0;
