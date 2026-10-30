@@ -322,44 +322,83 @@ typedef struct {
   oran_eth_state_t *eth;
 } split7_thread_arg_t;
 
+typedef struct {
+  task_ans_t *ans;
+  struct xran_buffer_list *dstcp, *prachdstdecomp; // of this antenna and slot
+  int fft_size, ant_idx; // ant_idx: antenna index over all xran ports
+  int32_t *rxdataF_ant; // slot position of this antenna in rxdataF
+  const struct xran_ru_config *ru_conf;
+  const struct xran_prach_config *prach_conf;
+  int kbar; // see split7_config_t prach_kbar
+  int num_prach;
+  const prach_item_t **prach; // PRACH items of this slot expected on this xran port
+} ul_up_job_t;
+
+static void ul_up_task(void *arg)
+{
+  ul_up_job_t *j = arg;
+  xran_fh_rx_read_slot_ant(j->fft_size, j->dstcp, j->rxdataF_ant);
+  // hardcoded to use only the first PRACH occasion
+  for (int i = 0; i < j->num_prach; i++)
+    xran_fh_rx_prach_read_slot_ant(j->ru_conf, j->prach_conf, j->kbar, j->prachdstdecomp, j->prach[i]->prach_buf[j->ant_idx][0]);
+  completed_task_ans(j->ans);
+}
+
+/* Reads PUSCH and PRACH with one task per (xran port, antenna) on the RU thread pool, the last one
+ * on this thread, then hands PRACH to L1. Only this thread consumes prach_ru_queue and produces
+ * prach_l1rx_queue. */
 static void process_ul_data(int tti, int frame, int slot, PHY_VARS_gNB *gNB, struct xran_fh_init fh_init, struct xran_fh_config *fh_cfg, split7_config_t *s7cfg)
 {
-  // PUxCH
-  for (int xran_port = 0; xran_port < fh_init.xran_ports; xran_port++) {
-    oran_buf_list_t *bufs = get_xran_buffers(xran_port);
-    const int fft_size = 1 << fh_cfg[xran_port].perMu[s7cfg->mu].nULFftSize;
-    // same slot position in the RU_RX_SLOT_DEPTH ring as the L1 readers (e.g. nr_ulsch_demodulation.c)
-    const int slot_offset = (slot % RU_RX_SLOT_DEPTH) * XRAN_NUM_OF_SYMBOL_PER_SLOT * fft_size;
-    for (int ant_id = 0; ant_id < fh_cfg[xran_port].neAxcUl; ant_id++)
-      xran_fh_rx_read_slot_ant(fft_size,
-                               &bufs->dstcp[ant_id][tti % XRAN_N_FE_BUF_LEN],
-                               s7cfg->rxdataF[ant_id + xran_port * fh_cfg[xran_port].neAxcUl] + slot_offset);
-  }
-
-  // PRACH
-  prach_item_t p;
+  prach_item_t prach[NUMBER_OF_NR_PRACH_MAX];
+  int num_prach = 0;
   fsn_t now = {.f = frame, .s = slot, .mu = s7cfg->mu}; // assuming all RUs have the same numerology
-  while (get_next_nr_prach(&gNB->prach_ru_queue, &now, &p)) {
-    for (int xran_port = 0; xran_port < fh_init.xran_ports; xran_port++) {
-      oran_buf_list_t *bufs = get_xran_buffers(xran_port);
+  while (num_prach < NUMBER_OF_NR_PRACH_MAX && get_next_nr_prach(&gNB->prach_ru_queue, &now, &prach[num_prach]))
+    num_prach++;
+
+  const int buf_id = tti % XRAN_N_FE_BUF_LEN;
+  const prach_item_t *port_prach[XRAN_PORTS_NUM][NUMBER_OF_NR_PRACH_MAX];
+  ul_up_job_t jobs[XRAN_PORTS_NUM * XRAN_MAX_ANTENNA_NR];
+  int num_jobs = 0;
+  for (int xran_port = 0; xran_port < fh_init.xran_ports; xran_port++) {
+    int num_port_prach = 0;
+    for (int i = 0; i < num_prach; i++) {
       // PRACH occasion in a frame if and only if SFN % x == y, TS 38.211 Table 6.3.3.2-2/3/4
       const nr_prach_info_t info = get_prach_info(xran_port);
       const int slots_per_sf = 1 << s7cfg->mu;
-      const bool is_prach_slot = frame % info.x == info.y && xran_is_prach_slot(xran_port, slot / slots_per_sf, p.slot % slots_per_sf, s7cfg->mu);
-      if (is_prach_slot) {
-        // hardcoded to use only the first PRACH occasion
-        for (int ant_id = 0; ant_id < fh_cfg[xran_port].neAxcUl; ant_id++)
-          xran_fh_rx_prach_read_slot_ant(&fh_cfg[xran_port].ru_conf,
-                                         &fh_cfg[xran_port].perMu[s7cfg->mu].prach_conf,
-                                         s7cfg->prach_kbar,
-                                         &bufs->prachdstdecomp[ant_id][tti % XRAN_N_FE_BUF_LEN],
-                                         p.prach_buf[ant_id + xran_port * fh_cfg[xran_port].neAxcUl][0]);
-      } else {
-        LOG_W(HW, "[%d.%d] xran_port %d Expected PRACH reception of scheduled slot %d\n", xran_port, frame, slot, p.slot);
-      }
+      if (frame % info.x == info.y && xran_is_prach_slot(xran_port, slot / slots_per_sf, prach[i].slot % slots_per_sf, s7cfg->mu))
+        port_prach[xran_port][num_port_prach++] = &prach[i];
+      else
+        LOG_W(HW, "[%d.%d] xran_port %d Expected PRACH reception of scheduled slot %d\n", frame, slot, xran_port, prach[i].slot);
     }
+    oran_buf_list_t *bufs = get_xran_buffers(xran_port);
+    const int nb_ant = fh_cfg[xran_port].neAxcUl;
+    const int fft_size = 1 << fh_cfg[xran_port].perMu[s7cfg->mu].nULFftSize;
+    // same slot position in the RU_RX_SLOT_DEPTH ring as the L1 readers (e.g. nr_ulsch_demodulation.c)
+    const int slot_offset = (slot % RU_RX_SLOT_DEPTH) * XRAN_NUM_OF_SYMBOL_PER_SLOT * fft_size;
+    for (int ant_id = 0; ant_id < nb_ant; ant_id++)
+      jobs[num_jobs++] = (ul_up_job_t){.dstcp = &bufs->dstcp[ant_id][buf_id],
+                                       .prachdstdecomp = &bufs->prachdstdecomp[ant_id][buf_id],
+                                       .fft_size = fft_size,
+                                       .ant_idx = ant_id + xran_port * nb_ant,
+                                       .rxdataF_ant = s7cfg->rxdataF[ant_id + xran_port * nb_ant] + slot_offset,
+                                       .ru_conf = &fh_cfg[xran_port].ru_conf,
+                                       .prach_conf = &fh_cfg[xran_port].perMu[s7cfg->mu].prach_conf,
+                                       .kbar = s7cfg->prach_kbar,
+                                       .num_prach = num_port_prach,
+                                       .prach = port_prach[xran_port]};
+  }
+
+  task_ans_t ans;
+  init_task_ans(&ans, num_jobs);
+  for (int i = 0; i < num_jobs; i++) {
+    jobs[i].ans = &ans;
+    pushTpool_batch(s7cfg->tpool, (task_t){.func = ul_up_task, .args = &jobs[i]}, i == num_jobs - 1);
+  }
+  join_task_ans(&ans);
+
+  for (int i = 0; i < num_prach; i++) {
     // prach_l1rx_queue never full: emptied by rx_func() every slot
-    bool success = spsc_q_put(&gNB->prach_l1rx_queue, &p, sizeof(p));
+    bool success = spsc_q_put(&gNB->prach_l1rx_queue, &prach[i], sizeof(prach[i]));
     DevAssert(success);
   }
 }
