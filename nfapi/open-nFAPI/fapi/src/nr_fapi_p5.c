@@ -4,6 +4,7 @@
 #include "nr_fapi.h"
 #include "nr_fapi_p5.h"
 #include "debug.h"
+#include "common/utils/utils.h"
 
 uint8_t fapi_nr_p5_message_body_pack(nfapi_nr_p4_p5_message_header_t *header,
                                      uint8_t **ppWritePackedMsg,
@@ -1257,19 +1258,35 @@ uint8_t pack_nr_config_request(void *msg, uint8_t **ppWritePackedMsg, uint8_t *e
 static uint8_t unpack_dbt_table_tlv_value(void *tlv, uint8_t **ppReadPackedMsg, uint8_t *end)
 {
   nfapi_nr_dbt_pdu_t *dbt_config = (nfapi_nr_dbt_pdu_t *)tlv;
-  if (!(pull16(ppReadPackedMsg, &dbt_config->num_dig_beams, end) && pull16(ppReadPackedMsg, &dbt_config->num_txrus, end))) {
+  if (dbt_config->dig_beam_list) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "CONFIG.request: duplicate beamforming table TLV\n");
     return 0;
   }
-  if (dbt_config->num_dig_beams > 0) {
-    dbt_config->dig_beam_list = calloc(dbt_config->num_dig_beams, sizeof(*dbt_config->dig_beam_list));
+  uint16_t num_dig_beams, num_txrus;
+  if (!(pull16(ppReadPackedMsg, &num_dig_beams, end) && pull16(ppReadPackedMsg, &num_txrus, end))) {
+    return 0;
   }
+  // each beam carries a 2-byte index and num_txrus 4-byte weights: don't allocate more than the message can fill
+  const size_t needed = (size_t)num_dig_beams * (2 + 4 * (size_t)num_txrus);
+  if (needed > (size_t)(end - *ppReadPackedMsg)) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR,
+                "CONFIG.request: beamforming table %d beams x %d TXRUs exceeds the message\n",
+                num_dig_beams,
+                num_txrus);
+    return 0;
+  }
+  if (num_dig_beams > 0) {
+    dbt_config->dig_beam_list = calloc_or_fail(num_dig_beams, sizeof(*dbt_config->dig_beam_list));
+  }
+  dbt_config->num_dig_beams = num_dig_beams;
+  dbt_config->num_txrus = num_txrus;
   for (int i = 0; i < dbt_config->num_dig_beams; i++) {
     nfapi_nr_dig_beam_t *dig_beam = &dbt_config->dig_beam_list[i];
     if (!(pull16(ppReadPackedMsg, &dig_beam->beam_idx, end))) {
       return 0;
     }
     if (dbt_config->num_txrus > 0) {
-      dig_beam->txru_list = calloc(dbt_config->num_txrus, sizeof(*dig_beam->txru_list));
+      dig_beam->txru_list = calloc_or_fail(dbt_config->num_txrus, sizeof(*dig_beam->txru_list));
     }
     for (int k = 0; k < dbt_config->num_txrus; k++) {
       nfapi_nr_txru_t *tx_ru = &dig_beam->txru_list[k];
@@ -1284,19 +1301,38 @@ static uint8_t unpack_dbt_table_tlv_value(void *tlv, uint8_t **ppReadPackedMsg, 
 static uint8_t unpack_pm_table_tlv_value(void *tlv, uint8_t **ppReadPackedMsg, uint8_t *end)
 {
   nfapi_nr_pm_list_t *pm_list = (nfapi_nr_pm_list_t *)tlv;
-  if (!(pull16(ppReadPackedMsg, &pm_list->num_pm_idx, end))) {
+  if (pm_list->pmi_pdu) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "CONFIG.request: duplicate precoding table TLV\n");
     return 0;
   }
-  if (pm_list->num_pm_idx > 0) {
-    pm_list->pmi_pdu = calloc(pm_list->num_pm_idx, sizeof(*pm_list->pmi_pdu));
+  uint16_t num_pm_idx;
+  if (!(pull16(ppReadPackedMsg, &num_pm_idx, end))) {
+    return 0;
   }
+  // each entry has at least pm_idx, numLayers and num_ant_ports (6 bytes)
+  if ((size_t)num_pm_idx * 6 > (size_t)(end - *ppReadPackedMsg)) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "CONFIG.request: precoding table with %d entries exceeds the message\n", num_pm_idx);
+    return 0;
+  }
+  if (num_pm_idx > 0) {
+    pm_list->pmi_pdu = calloc_or_fail(num_pm_idx, sizeof(*pm_list->pmi_pdu));
+  }
+  pm_list->num_pm_idx = num_pm_idx;
   for (int i = 0; i < pm_list->num_pm_idx; i++) {
     nfapi_nr_pm_pdu_t *pm_pdu = &pm_list->pmi_pdu[i];
     if (!(pull16(ppReadPackedMsg, &pm_pdu->pm_idx, end) && pull16(ppReadPackedMsg, &pm_pdu->numLayers, end)
           && pull16(ppReadPackedMsg, &pm_pdu->num_ant_ports, end))) {
       return 0;
     }
-    AssertFatal(pm_pdu->numLayers <= 4 && pm_pdu->num_ant_ports <= 4, "Precoding matrix size limited to 4X4 for the time being\n");
+    // the PHY handles at most 4x4 precoding matrices for the time being
+    if (pm_pdu->numLayers > 4 || pm_pdu->num_ant_ports > 4) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR,
+                  "CONFIG.request: precoding matrix %d is %dx%d, at most 4x4 is supported\n",
+                  pm_pdu->pm_idx,
+                  pm_pdu->numLayers,
+                  pm_pdu->num_ant_ports);
+      return 0;
+    }
     for (int k = 0; k < pm_pdu->numLayers; k++) {
       for (int j = 0; j < pm_pdu->num_ant_ports; j++) {
         nfapi_nr_pm_weights_t *pm_weight = &pm_pdu->weights[k][j];
@@ -1339,6 +1375,21 @@ static uint8_t unpack_nr_tdd_table_10_04(void *tlv, uint8_t **ppReadPackedMsg, u
   return 1;
 }
 #endif
+/* Per-FD-occasion PRACH TLVs come in order after NUM_PRACH_FD_OCCASIONS. Return the occasion
+ * the next one belongs to, or NULL if NUM_PRACH_FD_OCCASIONS was not received or the peer
+ * sent more occasions than it announced. */
+static nfapi_nr_num_prach_fd_occasions_t *get_prach_fd_occasion(nfapi_nr_prach_config_t *prach_config, int idx)
+{
+  if (!prach_config->num_prach_fd_occasions_list || idx >= prach_config->num_prach_fd_occasions.value) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR,
+                "CONFIG.request: PRACH FD occasion %d beyond num_prach_fd_occasions %d\n",
+                idx,
+                prach_config->num_prach_fd_occasions.value);
+    return NULL;
+  }
+  return &prach_config->num_prach_fd_occasions_list[idx];
+}
+
 uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg, nfapi_p4_p5_codec_config_t *config)
 {
   // Helper vars for indexed TLVs
@@ -1346,9 +1397,13 @@ uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *
   int unused_root_seq_idx = 0;
   int ssb_mask_idx = 0;
   int config_beam_idx = 0;
+  // Assuming always CP_Normal, because Cyclic prefix is not included in CONFIG.request 10.02, but is present in 10.04
+  // 3GPP 38.211 Table 4.3.2.1 & Table 4.3.2.2
+  const uint8_t number_of_symbols_per_slot = 14;
 #ifdef ENABLE_10_02
   int tdd_periodicity_idx = 0;
   int symbol_per_slot_idx = 0;
+  int tdd_num_slots = 0;
 #endif
   nfapi_nr_config_request_scf_t *pNfapiMsg = (nfapi_nr_config_request_scf_t *)msg;
   // unpack TLVs
@@ -1479,31 +1534,47 @@ uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *
             break;
 #endif
           case NFAPI_NR_CONFIG_NUM_PRACH_FD_OCCASIONS_TAG:
+            if (pNfapiMsg->prach_config.num_prach_fd_occasions_list) {
+              NFAPI_TRACE(NFAPI_TRACE_ERROR, "CONFIG.request: duplicate NUM_PRACH_FD_OCCASIONS TLV\n");
+              return 0;
+            }
             pNfapiMsg->prach_config.num_prach_fd_occasions.tl.tag = generic_tl.tag;
             pNfapiMsg->prach_config.num_prach_fd_occasions.tl.length = generic_tl.length;
             result = (*unpack_fns[idx].unpack_func)(&pNfapiMsg->prach_config.num_prach_fd_occasions, ppReadPackedMsg, end);
-            pNfapiMsg->prach_config.num_prach_fd_occasions_list = calloc(pNfapiMsg->prach_config.num_prach_fd_occasions.value, sizeof(nfapi_nr_num_prach_fd_occasions_t));
+            if (result && pNfapiMsg->prach_config.num_prach_fd_occasions.value > 0) {
+              pNfapiMsg->prach_config.num_prach_fd_occasions_list =
+                  calloc_or_fail(pNfapiMsg->prach_config.num_prach_fd_occasions.value, sizeof(nfapi_nr_num_prach_fd_occasions_t));
+            }
             prach_root_seq_idx = 0;
             break;
           case NFAPI_NR_CONFIG_SCS_COMMON_TAG:
+            // the TDD table below is sized from the SCS (and freed by it): reject a second SCS_COMMON
+            if (pNfapiMsg->tdd_table.max_tdd_periodicity_list) {
+              NFAPI_TRACE(NFAPI_TRACE_ERROR, "CONFIG.request: duplicate SCS_COMMON TLV\n");
+              return 0;
+            }
             pNfapiMsg->ssb_config.scs_common.tl.tag = generic_tl.tag;
             pNfapiMsg->ssb_config.scs_common.tl.length = generic_tl.length;
             result = (*unpack_fns[idx].unpack_func)(&pNfapiMsg->ssb_config.scs_common, ppReadPackedMsg, end);
-
-            // Assuming always CP_Normal, because Cyclic prefix is not included in CONFIG.request 10.02, but is present in 10.04
-            uint8_t cyclicprefix = 1;
-            // 3GPP 38.211 Table 4.3.2.1 & Table 4.3.2.2
-            uint8_t number_of_symbols_per_slot = cyclicprefix ? 14 : 12;
+            if (pNfapiMsg->ssb_config.scs_common.value > 4) {
+              NFAPI_TRACE(NFAPI_TRACE_ERROR,
+                          "CONFIG.request: invalid subcarrier spacing %d\n",
+                          pNfapiMsg->ssb_config.scs_common.value);
+              return 0;
+            }
 
             if (pNfapiMsg->cell_config.frame_duplex_type.value == 1 /* TDD */) {
               const uint8_t slotsperframe[5] = {10, 20, 40, 80, 160};
               int n = slotsperframe[pNfapiMsg->ssb_config.scs_common.value];
-              pNfapiMsg->tdd_table.max_tdd_periodicity_list = calloc(n, sizeof(nfapi_nr_max_tdd_periodicity_t));
+              pNfapiMsg->tdd_table.max_tdd_periodicity_list = calloc_or_fail(n, sizeof(nfapi_nr_max_tdd_periodicity_t));
 
               for (int i = 0; i < n; i++) {
                 pNfapiMsg->tdd_table.max_tdd_periodicity_list[i].max_num_of_symbol_per_slot_list =
-                    calloc(number_of_symbols_per_slot, sizeof(nfapi_nr_max_num_of_symbol_per_slot_t));
+                    calloc_or_fail(number_of_symbols_per_slot, sizeof(nfapi_nr_max_num_of_symbol_per_slot_t));
               }
+#ifdef ENABLE_10_02
+              tdd_num_slots = n;
+#endif
 #ifdef ENABLE_10_04
               tdd_table_tlv.slots_per_frame = slotsperframe[pNfapiMsg->ssb_config.scs_common.value];
               tdd_table_tlv.symbols_per_slot = number_of_symbols_per_slot;
@@ -1511,85 +1582,91 @@ uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *
 #endif
             }
             break;
-          case NFAPI_NR_CONFIG_PRACH_ROOT_SEQUENCE_INDEX_TAG:
-            unpack_fns[idx].tlv =
-                &(pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].prach_root_sequence_index);
-            pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].prach_root_sequence_index.tl.tag =
-                generic_tl.tag;
-            pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].prach_root_sequence_index.tl.length =
-                generic_tl.length;
-            result = (*unpack_fns[idx].unpack_func)(
-                &pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].prach_root_sequence_index,
-                ppReadPackedMsg,
-                end);
-            break;
-          case NFAPI_NR_CONFIG_K1_TAG:
-            unpack_fns[idx].tlv = &(pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].k1);
-            pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].k1.tl.tag = generic_tl.tag;
-            pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].k1.tl.length = generic_tl.length;
-            result = (*unpack_fns[idx].unpack_func)(&pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].k1,
-                                                    ppReadPackedMsg,
-                                                    end);
-            break;
-          case NFAPI_NR_CONFIG_PRACH_ZERO_CORR_CONF_TAG:
-            unpack_fns[idx].tlv = &(pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].prach_zero_corr_conf);
-            pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].prach_zero_corr_conf.tl.tag = generic_tl.tag;
-            pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].prach_zero_corr_conf.tl.length =
-                generic_tl.length;
-            result = (*unpack_fns[idx].unpack_func)(
-                &pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].prach_zero_corr_conf,
-                ppReadPackedMsg,
-                end);
-            break;
-          case NFAPI_NR_CONFIG_NUM_ROOT_SEQUENCES_TAG:
-            unpack_fns[idx].tlv = &(pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].num_root_sequences);
-            pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].num_root_sequences.tl.tag = generic_tl.tag;
-            pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].num_root_sequences.tl.length =
-                generic_tl.length;
-            result = (*unpack_fns[idx].unpack_func)(
-                &pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].num_root_sequences,
-                ppReadPackedMsg,
-                end);
-            break;
-          case NFAPI_NR_CONFIG_NUM_UNUSED_ROOT_SEQUENCES_TAG:
-            unpack_fns[idx].tlv =
-                &(pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].num_unused_root_sequences);
-            pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].num_unused_root_sequences.tl.tag =
-                generic_tl.tag;
-            pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].num_unused_root_sequences.tl.length =
-                generic_tl.length;
-            result = (*unpack_fns[idx].unpack_func)(
-                &pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].num_unused_root_sequences,
-                ppReadPackedMsg,
-                end);
-            pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].unused_root_sequences_list =
-                (nfapi_uint8_tlv_t *)malloc(
-                    pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].num_unused_root_sequences.value
-                    * sizeof(nfapi_uint8_tlv_t));
+          case NFAPI_NR_CONFIG_PRACH_ROOT_SEQUENCE_INDEX_TAG: {
+            nfapi_nr_num_prach_fd_occasions_t *occ = get_prach_fd_occasion(&pNfapiMsg->prach_config, prach_root_seq_idx);
+            if (!occ)
+              return 0;
+            unpack_fns[idx].tlv = &occ->prach_root_sequence_index;
+            occ->prach_root_sequence_index.tl.tag = generic_tl.tag;
+            occ->prach_root_sequence_index.tl.length = generic_tl.length;
+            result = (*unpack_fns[idx].unpack_func)(&occ->prach_root_sequence_index, ppReadPackedMsg, end);
+          } break;
+          case NFAPI_NR_CONFIG_K1_TAG: {
+            nfapi_nr_num_prach_fd_occasions_t *occ = get_prach_fd_occasion(&pNfapiMsg->prach_config, prach_root_seq_idx);
+            if (!occ)
+              return 0;
+            unpack_fns[idx].tlv = &occ->k1;
+            occ->k1.tl.tag = generic_tl.tag;
+            occ->k1.tl.length = generic_tl.length;
+            result = (*unpack_fns[idx].unpack_func)(&occ->k1, ppReadPackedMsg, end);
+          } break;
+          case NFAPI_NR_CONFIG_PRACH_ZERO_CORR_CONF_TAG: {
+            nfapi_nr_num_prach_fd_occasions_t *occ = get_prach_fd_occasion(&pNfapiMsg->prach_config, prach_root_seq_idx);
+            if (!occ)
+              return 0;
+            unpack_fns[idx].tlv = &occ->prach_zero_corr_conf;
+            occ->prach_zero_corr_conf.tl.tag = generic_tl.tag;
+            occ->prach_zero_corr_conf.tl.length = generic_tl.length;
+            result = (*unpack_fns[idx].unpack_func)(&occ->prach_zero_corr_conf, ppReadPackedMsg, end);
+          } break;
+          case NFAPI_NR_CONFIG_NUM_ROOT_SEQUENCES_TAG: {
+            nfapi_nr_num_prach_fd_occasions_t *occ = get_prach_fd_occasion(&pNfapiMsg->prach_config, prach_root_seq_idx);
+            if (!occ)
+              return 0;
+            unpack_fns[idx].tlv = &occ->num_root_sequences;
+            occ->num_root_sequences.tl.tag = generic_tl.tag;
+            occ->num_root_sequences.tl.length = generic_tl.length;
+            result = (*unpack_fns[idx].unpack_func)(&occ->num_root_sequences, ppReadPackedMsg, end);
+          } break;
+          case NFAPI_NR_CONFIG_NUM_UNUSED_ROOT_SEQUENCES_TAG: {
+            nfapi_nr_num_prach_fd_occasions_t *occ = get_prach_fd_occasion(&pNfapiMsg->prach_config, prach_root_seq_idx);
+            if (!occ)
+              return 0;
+            if (occ->unused_root_sequences_list) {
+              NFAPI_TRACE(NFAPI_TRACE_ERROR, "CONFIG.request: duplicate NUM_UNUSED_ROOT_SEQUENCES TLV\n");
+              return 0;
+            }
+            unpack_fns[idx].tlv = &occ->num_unused_root_sequences;
+            occ->num_unused_root_sequences.tl.tag = generic_tl.tag;
+            occ->num_unused_root_sequences.tl.length = generic_tl.length;
+            result = (*unpack_fns[idx].unpack_func)(&occ->num_unused_root_sequences, ppReadPackedMsg, end);
             unused_root_seq_idx = 0;
-            break;
-          case NFAPI_NR_CONFIG_UNUSED_ROOT_SEQUENCES_TAG:
-            unpack_fns[idx].tlv = &(pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx]
-                                        .unused_root_sequences_list[unused_root_seq_idx]);
-            pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx]
-                .unused_root_sequences_list[unused_root_seq_idx]
-                .tl.tag = generic_tl.tag;
-            pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx]
-                .unused_root_sequences_list[unused_root_seq_idx]
-                .tl.length = generic_tl.length;
-            result = (*unpack_fns[idx].unpack_func)(&pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx]
-                                                         .unused_root_sequences_list[unused_root_seq_idx],
-                                                    ppReadPackedMsg,
-                                                    end);
+            if (result && occ->num_unused_root_sequences.value > 0) {
+              occ->unused_root_sequences_list =
+                  calloc_or_fail(occ->num_unused_root_sequences.value, sizeof(*occ->unused_root_sequences_list));
+            } else {
+              // no unused root sequences follow: this was the last TLV of the occasion
+              prach_root_seq_idx++;
+            }
+          } break;
+          case NFAPI_NR_CONFIG_UNUSED_ROOT_SEQUENCES_TAG: {
+            nfapi_nr_num_prach_fd_occasions_t *occ = get_prach_fd_occasion(&pNfapiMsg->prach_config, prach_root_seq_idx);
+            if (!occ)
+              return 0;
+            if (!occ->unused_root_sequences_list || unused_root_seq_idx >= occ->num_unused_root_sequences.value) {
+              NFAPI_TRACE(NFAPI_TRACE_ERROR,
+                          "CONFIG.request: unused root sequence %d beyond num_unused_root_sequences %d\n",
+                          unused_root_seq_idx,
+                          occ->num_unused_root_sequences.value);
+              return 0;
+            }
+            nfapi_uint8_tlv_t *unused = &occ->unused_root_sequences_list[unused_root_seq_idx];
+            unpack_fns[idx].tlv = unused;
+            unused->tl.tag = generic_tl.tag;
+            unused->tl.length = generic_tl.length;
+            result = (*unpack_fns[idx].unpack_func)(unused, ppReadPackedMsg, end);
             unused_root_seq_idx++;
             // last tlv of the list
-            if (unused_root_seq_idx
-                >= pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].num_unused_root_sequences.value) {
+            if (unused_root_seq_idx >= occ->num_unused_root_sequences.value) {
               prach_root_seq_idx++;
               unused_root_seq_idx = 0;
             }
-            break;
+          } break;
           case NFAPI_NR_CONFIG_SSB_MASK_TAG:
+            if (ssb_mask_idx >= (int)sizeofArray(pNfapiMsg->ssb_table.ssb_mask_list)) {
+              NFAPI_TRACE(NFAPI_TRACE_ERROR, "CONFIG.request: too many SSB_MASK TLVs\n");
+              return 0;
+            }
             pNfapiMsg->ssb_table.ssb_mask_list[ssb_mask_idx].ssb_mask.tl.tag = generic_tl.tag;
             pNfapiMsg->ssb_table.ssb_mask_list[ssb_mask_idx].ssb_mask.tl.length = generic_tl.length;
             result = unpack_uint32_tlv_value(&pNfapiMsg->ssb_table.ssb_mask_list[ssb_mask_idx].ssb_mask, ppReadPackedMsg, end);
@@ -1620,6 +1697,10 @@ uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *
             }
             break;
           case NFAPI_NR_CONFIG_BEAM_ID_TAG:
+            if (config_beam_idx >= (int)sizeofArray(pNfapiMsg->ssb_table.ssb_beam_id_list)) {
+              NFAPI_TRACE(NFAPI_TRACE_ERROR, "CONFIG.request: too many BEAM_ID TLVs\n");
+              return 0;
+            }
             pNfapiMsg->ssb_table.ssb_beam_id_list[config_beam_idx].beam_id.tl.tag = generic_tl.tag;
             pNfapiMsg->ssb_table.ssb_beam_id_list[config_beam_idx].beam_id.tl.length = generic_tl.length;
             result = (*unpack_fns[idx].unpack_func)(&pNfapiMsg->ssb_table.ssb_beam_id_list[config_beam_idx].beam_id,
@@ -1629,6 +1710,13 @@ uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *
             break;
 #ifdef ENABLE_10_02
           case NFAPI_NR_CONFIG_SLOT_CONFIG_TAG:
+            if (!pNfapiMsg->tdd_table.max_tdd_periodicity_list || tdd_periodicity_idx >= tdd_num_slots) {
+              NFAPI_TRACE(NFAPI_TRACE_ERROR,
+                          "CONFIG.request: SLOT_CONFIG for slot %d beyond %d TDD slots\n",
+                          tdd_periodicity_idx,
+                          tdd_num_slots);
+              return 0;
+            }
             unpack_fns[idx].tlv = &(pNfapiMsg->tdd_table.max_tdd_periodicity_list[tdd_periodicity_idx]
                                         .max_num_of_symbol_per_slot_list[symbol_per_slot_idx]
                                         .slot_config);
