@@ -883,7 +883,7 @@ bool is_pattern2_config(paramdef_t *param)
   return true;
 }
 
-static NR_ServingCellConfigCommon_t *get_scc_config(int minRXTXTIME, int do_SRS)
+static NR_ServingCellConfigCommon_t *get_scc_config(int idx)
 {
   NR_ServingCellConfigCommon_t *scc = calloc_or_fail(1, sizeof(*scc));
   uint64_t ssb_bitmap=0xff;
@@ -891,12 +891,12 @@ static NR_ServingCellConfigCommon_t *get_scc_config(int minRXTXTIME, int do_SRS)
   prepare_msgA_scc(scc);
 
   char aprefix[MAX_OPTNAME_SIZE*2 + 8];
-  snprintf(aprefix, sizeof(aprefix), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
+  snprintf(aprefix, sizeof(aprefix), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, idx);
   GET_PARAMS_LIST(SCCsParamList, SCCsParams, SCCPARAMS_DESC(scc), GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON, aprefix);
   GET_PARAMS_LIST(MsgASCCsParamList, MsgASCCsParams, MSGASCCPARAMS_DESC(scc), GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON, aprefix);
 
   if (SCCsParamList.numelt > 0 || MsgASCCsParamList.numelt > 0) {
-    snprintf(aprefix, sizeof(aprefix), "%s.[%i].%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0, GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON, 0);
+    snprintf(aprefix, sizeof(aprefix), "%s.[%i].%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, idx, GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON, 0);
     GET_PARAMS(SCCsParams, SCCPARAMS_DESC(scc), aprefix);
     GET_PARAMS(MsgASCCsParams, MSGASCCPARAMS_DESC(scc), aprefix);
     // NR_TDD-UL-DL-ConfigCommon pattern2 (optional IE)
@@ -908,7 +908,7 @@ static NR_ServingCellConfigCommon_t *get_scc_config(int minRXTXTIME, int do_SRS)
              sizeof(aprefix),
              "%s.[%i].%s.[%i].%s",
              GNB_CONFIG_STRING_GNB_LIST,
-             0,
+             idx,
              GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON,
              0,
              SCC_PATTERN2_STRING_CONFIG);
@@ -1335,7 +1335,7 @@ void nfapi_stop_l1()
   }
 }
 
-static void get_bwp_config(nr_mac_config_t *configuration, const NR_ServingCellConfigCommon_t *scc)
+static void get_bwp_config(nr_mac_config_t *configuration, const int bw)
 {
   char path[MAX_OPTNAME_SIZE * 2 + 8];
   snprintf(path, sizeof(path), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
@@ -1344,7 +1344,6 @@ static void get_bwp_config(nr_mac_config_t *configuration, const NR_ServingCellC
   AssertFatal(configuration->num_additional_bwps >= 0 && configuration->num_additional_bwps <= 4,
               "Invalid number of additional BWPs %d\n",
               configuration->num_additional_bwps);
-  int bw = scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
   for (int i = 0; i < configuration->num_additional_bwps; i++) {
     configuration->bwp_config[i].id = i + 1;
     int bwp_start = *BWPParamList.paramarray[i][GNB_BWP_START_IDX].iptr;
@@ -1870,9 +1869,10 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   const int macrlc_np = sizeofArray(MacRLC_Params);
   nr_mac_config_t config = get_mac_config(cfg, &num_tx, idx, GNBParamList.paramarray[idx], Timers_Params, macrlc_p, macrlc_np);
 
-  NR_ServingCellConfigCommon_t *scc = get_scc_config(config.minRXTXTIME, config.do_SRS);
   // BWP
-  get_bwp_config(&config, scc);
+  NR_ServingCellConfigCommon_t *scc = get_scc_config(idx);
+  const int bw = scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
+  get_bwp_config(&config, bw);
   AssertFatal(config.num_additional_bwps <= 4, "Impossible to configure more than 4 additional BWPs\n");
   config.first_active_bwp = *GNBParamList.paramarray[0][GNB_1ST_ACTIVE_BWP_IDX].iptr;
   AssertFatal(config.first_active_bwp <= config.num_additional_bwps, "1st active BWP does not belog to the configured BWPs\n");
