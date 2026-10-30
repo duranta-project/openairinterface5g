@@ -138,7 +138,7 @@ static void *nrL1_UE_stats_thread(void *param)
 }
 
 static int determine_N_TA_offset(PHY_VARS_NR_UE *ue) {
-  if (ue->sl_mode == 2)
+  if (ue->sl_mode == SL_MODE2_SUPPORTED)
     return 0;
   else {
     int N_TA_offset = ue->nrUE_config.cell_config.N_TA_offset;
@@ -208,7 +208,7 @@ static void UE_synch(void *arg) {
   uint64_t dl_carrier, ul_carrier;
   const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
   nr_initial_sync_t ret = {0};
-  if (UE->sl_mode == 2) {
+  if (UE->sl_mode == SL_MODE2_SUPPORTED) {
     fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
     dl_carrier = fp->sl_CarrierFreq;
     ul_carrier = fp->sl_CarrierFreq;
@@ -299,7 +299,7 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
   const UE_nr_rxtx_proc_t *proc = &rxtxD->proc;
 
   const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
-  if (UE->sl_mode == 2)
+  if (UE->sl_mode == SL_MODE2_SUPPORTED)
     fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
 
   int slot = proc->nr_slot_tx;
@@ -312,7 +312,7 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
       flags = TX_BURST_MIDDLE;
     // In case of Sidelink, USRP write needed only in case transmission
     // needs to be done in this slot and not based on tdd ULDL configuration.
-    } else if (UE->sl_mode == 2) {
+    } else if (UE->sl_mode == SL_MODE2_SUPPORTED) {
       if (sl_tx_action)
         flags = TX_BURST_START_AND_END;
     } else {
@@ -418,7 +418,7 @@ void processSlotTX(void *arg)
   }
 
   if (proc->tx_slot_type == NR_UPLINK_SLOT || proc->tx_slot_type == NR_MIXED_SLOT) {
-    if (UE->sl_mode == 2 && proc->tx_slot_type == NR_SIDELINK_SLOT) {
+    if (UE->sl_mode == SL_MODE2_SUPPORTED && proc->tx_slot_type == NR_SIDELINK_SLOT) {
       // trigger L2 to run ue_sidelink_scheduler thru IF module
       if (UE->if_inst != NULL && UE->if_inst->sl_indication != NULL) {
         start_meas(&UE->ue_ul_indication_stats);
@@ -556,7 +556,7 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
   TracyCZone(ctx, true);
   int sampleShift = INT_MAX;
   const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
-  if (UE->sl_mode == 2)
+  if (UE->sl_mode == SL_MODE2_SUPPORTED)
     fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
 
   // process what RRC thread sent to MAC
@@ -611,7 +611,7 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
     }
   }
 
-  if (UE->sl_mode == 2) {
+  if (UE->sl_mode == SL_MODE2_SUPPORTED) {
     if (proc->rx_slot_type == NR_SIDELINK_SLOT) {
       phy_data->sl_rx_action = 0;
       if (UE->if_inst != NULL && UE->if_inst->sl_indication != NULL) {
@@ -642,7 +642,7 @@ void UE_dl_processing(void *arg) {
   PHY_VARS_NR_UE    *UE   = rxtxD->UE;
   nr_phy_data_t *phy_data = &rxtxD->phy_data;
 
-  if (!UE->sl_mode)
+  if (UE->sl_mode == SL_MODE2_SUPPORTED)
     pdsch_processing(UE, proc, phy_data);
 
   TracyCZoneEnd(ctx);
@@ -651,7 +651,7 @@ void UE_dl_processing(void *arg) {
 void dummyWrite(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, int writeBlockSize)
 {
   const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
-  if (UE->sl_mode == 2)
+  if (UE->sl_mode == SL_MODE2_SUPPORTED)
     fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
 
   c16_t *dummy_tx[fp->nb_antennas_tx];
@@ -671,7 +671,7 @@ static int compute_sync_size(PHY_VARS_NR_UE *UE)
   // two frames for initial sync
   int num_frames = 2;
   // In Sidelink worst case SL-SSB can be sent once in 16 frames
-  if (UE->sl_mode == 2) {
+  if (UE->sl_mode == SL_MODE2_SUPPORTED) {
     fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
     num_frames = SL_NR_PSBCH_REPETITION_IN_FRAMES;
   }
@@ -724,7 +724,7 @@ static void readFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int d
 static void syncInFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int duration_rx_to_tx, openair0_timestamp_t rx_offset)
 {
   const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
-  if (UE->sl_mode == 2)
+  if (UE->sl_mode == SL_MODE2_SUPPORTED)
     fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
 
   LOG_I(PHY, "Resynchronizing RX by %ld samples\n", rx_offset);
@@ -847,7 +847,7 @@ void *UE_thread(void *arg)
   enum stream_status_e stream_status = STREAM_STATUS_UNSYNC;
   fapi_nr_config_request_t *cfg = &UE->nrUE_config;
   sl_nr_phy_config_request_t *sl_cfg = NULL;
-  if (UE->sl_mode == 2) {
+  if (UE->sl_mode == SL_MODE2_SUPPORTED) {
     fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
     sl_cfg = &UE->SL_UE_PHY_PARAMS.sl_config;
   }
@@ -899,7 +899,7 @@ void *UE_thread(void *arg)
   openair0_timestamp_t sync_timestamp;
   bool stats_printed = false;
 
-  if (get_softmodem_params()->sync_ref && UE->sl_mode == 2) {
+  if (get_softmodem_params()->sync_ref && UE->sl_mode == SL_MODE2_SUPPORTED) {
     UE->is_synchronized = 1;
   } else {
     //warm up the RF board
@@ -954,7 +954,7 @@ void *UE_thread(void *arg)
           }
         } else {
           readFrame(UE, &sync_timestamp, duration_rx_to_tx, compute_sync_size(UE), NULL);
-          const int num_frames_read = (UE->sl_mode == 2) ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2;
+          const int num_frames_read = (UE->sl_mode == SL_MODE2_SUPPORTED) ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2;
           skipped_frames += num_frames_read;
           out_of_sync_rrc_timer_tick(UE, num_frames_read, &out_of_sync_rrc_tick_frame, &out_of_sync_rrc_tick_hfn);
         }
@@ -992,7 +992,7 @@ void *UE_thread(void *arg)
       syncMsg->UE = UE;
       memset(&syncMsg->proc, 0, sizeof(syncMsg->proc));
       pushNotifiedFIFO(&sync_actor.fifo, Msg);
-      skipped_frames = UE->sl_mode == 2 ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2; // the capture for decoding
+      skipped_frames = UE->sl_mode == SL_MODE2_SUPPORTED ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2; // the capture for decoding
       out_of_sync_rrc_timer_tick(UE, skipped_frames, &out_of_sync_rrc_tick_frame, &out_of_sync_rrc_tick_hfn);
       syncRunning = true;
       continue;
@@ -1021,7 +1021,7 @@ void *UE_thread(void *arg)
         decoded_hfn_rx++;
       // we do ++ first in the regular processing, so it will be begin of frame;
       absolute_slot = (decoded_hfn_rx * MAX_FRAME_NUMBER + decoded_frame_rx) * nb_slot_frame - 1;
-      if (UE->sl_mode == 2) {
+      if (UE->sl_mode == SL_MODE2_SUPPORTED) {
         // Set to the slot where the SL-SSB was decoded
         absolute_slot += UE->SL_UE_PHY_PARAMS.sync_params.slot_offset;
       }
@@ -1074,7 +1074,7 @@ void *UE_thread(void *arg)
     curMsg.proc.hfn_rx      = (absolute_slot / nb_slot_frame) / MAX_FRAME_NUMBER;
     curMsg.proc.hfn_tx      = ((absolute_slot + duration_rx_to_tx) / nb_slot_frame) / MAX_FRAME_NUMBER;
     if (UE->received_config_request) {
-      if (UE->sl_mode) {
+      if (UE->sl_mode == SL_MODE2_SUPPORTED) {
         curMsg.proc.rx_slot_type = sl_nr_ue_slot_select(sl_cfg, curMsg.proc.nr_slot_rx, TDD);
         curMsg.proc.tx_slot_type = sl_nr_ue_slot_select(sl_cfg, curMsg.proc.nr_slot_tx, TDD);
       } else {

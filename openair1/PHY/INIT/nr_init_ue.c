@@ -238,7 +238,7 @@ int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)
   common_vars->rxdata = malloc16(fp->nb_antennas_rx * sizeof(c16_t *));
 
   int num_samples = 2 * fp->samples_per_frame + fp->ofdm_symbol_size;
-  if (ue->sl_mode == 2)
+  if (ue->sl_mode == SL_MODE2_SUPPORTED)
     num_samples = (SL_NR_PSBCH_REPETITION_IN_FRAMES * fp->samples_per_frame) + fp->ofdm_symbol_size;
 
   for (int i = 0; i < fp->nb_antennas_rx; i++) {
