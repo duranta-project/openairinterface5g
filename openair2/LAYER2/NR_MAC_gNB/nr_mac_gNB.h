@@ -200,6 +200,26 @@ typedef enum nr_srs_type_e {
   APERIODIC_SRS,
 } nr_srs_type_t;
 
+typedef enum {
+  /// no beamforming, each logical antenna port maps straight onto a physical one
+  BF_METHOD_STRAIGHT_WIRE = 0,
+  /// each beam is one or more logical antenna ports
+  /// OAI-specific, to be removed once the digital beam table is fully supported
+  BF_METHOD_DAS,
+  /// L2 signals beam IDs to L1, resolved through the digital beam table if there is one
+  BF_METHOD_PREDEFINED,
+  /// SRS-based precoding, not implemented yet
+  BF_METHOD_DYNAMIC,
+} nr_bf_method_e;
+
+typedef struct {
+  int beam_duration; // in slots
+  int beams_per_period;
+  nr_bf_method_e bf_method;
+  /// beam IDs are consumed by the RU or the fronthaul rather than resolved by L1
+  bool beam_id_to_ru;
+} NR_beam_config_t;
+
 /// Max number of physical RU antenna ports the gNB can be configured with.
 /// Independent of MAX_NUM_SPATIAL_STREAMS (the NFAPI per-PDU wire limit).
 #define NR_MAC_MAX_RU_ANTENNA_PORTS 64
@@ -236,6 +256,7 @@ typedef struct nr_mac_config_s {
   nr_redcap_config_t *redcap;
   nr_ptrs_config_t *ptrs;
   nr_config_report_type_t report_type;
+  NR_beam_config_t beam_config;
   nr_beam_table_t bt;
   /// Spatial stream indexing for mapping onto RU ports. Needed for MU-MIMO.
   /// Sized to the max number of physical RU antenna ports, NOT to be confused
@@ -915,27 +936,12 @@ typedef struct {
   uid_allocator_t uid_allocator;
 } NR_UEs_t;
 
-typedef enum {
-  /// no beamforming, each logical antenna port maps straight onto a physical one
-  BF_METHOD_STRAIGHT_WIRE = 0,
-  /// each beam is one or more logical antenna ports
-  /// OAI-specific, to be removed once the digital beam table is fully supported
-  BF_METHOD_DAS,
-  /// L2 signals beam IDs to L1, resolved through the digital beam table if there is one
-  BF_METHOD_PREDEFINED,
-  /// SRS-based precoding, not implemented yet
-  BF_METHOD_DYNAMIC,
-} nr_bf_method_e;
-
 typedef struct {
   /// list of allocated beams per period
   int16_t **beam_allocation;
-  int beam_duration; // in slots
-  int beams_per_period;
   int beam_allocation_size;
-  nr_bf_method_e bf_method;
-  /// beam IDs are consumed by the RU or the fronthaul rather than resolved by L1
-  bool beam_id_to_ru;
+
+  NR_beam_config_t config;
 } NR_beam_info_t;
 
 #define UE_iterator(BaSe, VaR) for (NR_UE_info_t **VaR##pptr = BaSe, *VaR = *VaR##pptr; VaR; VaR = *(++VaR##pptr))
