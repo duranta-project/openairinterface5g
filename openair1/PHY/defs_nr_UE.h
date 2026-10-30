@@ -56,6 +56,8 @@
 #define TRS_CFO_THRESH 500
 
 #include "impl_defs_nr.h"
+// This is for ULSCH RX structures used for Sidelink
+#include "defs_gNB.h"
 #include "time_meas.h"
 #include "PHY/CODING/coding_defs.h"
 #include "PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface.h"
@@ -202,7 +204,11 @@ typedef struct {
 
 #define NR_PSBCH_DMRS_LENGTH 297 // in mod symbols
 #define NR_PSBCH_DMRS_LENGTH_DWORD 20 // ceil(2(QPSK)*NR_PBCH_DMRS_LENGTH/32)
+
 #define PBCH_A 24
+#define NR_SLSCH_RX_MAX 32 // max sl-NrOfHARQ-Processes-r16 per TS 38.321 S5.22.1.4
+                           // TODO: for multi-peer reception this pool must be sized
+                           // as num_peers * NR_MAX_SLSCH_HARQ_PROCESSES
 
 typedef struct {
   bool active;
@@ -266,6 +272,10 @@ typedef struct {
   int ssb_start;
   int used_by_ue;
 } nrUE_cell_params_t;
+
+// forward declarations for PSSCH reusing PUSCH
+struct NR_gNB_ULSCH_s;
+struct NR_gNB_PUSCH_s;
 
 /// Top-level PHY Data Structure for UE
 typedef struct PHY_VARS_NR_UE_s {
@@ -338,6 +348,7 @@ typedef struct PHY_VARS_NR_UE_s {
   uint8_t prs_active_gNBs;
   NR_DL_UE_HARQ_t dl_harq_processes[2][NR_MAX_HARQ_PROCESSES];
   NR_UL_UE_HARQ_t ul_harq_processes[NR_MAX_HARQ_PROCESSES];
+  NR_UL_UE_HARQ_t sl_harq_processes[NR_MAX_HARQ_PROCESSES];
 
   // Scrambling IDs used in PUSCH DMRS
   c16_t X_u[64][839];
@@ -369,6 +380,7 @@ typedef struct PHY_VARS_NR_UE_s {
   /// temporary offset during cell search prior to MIB decoding
   int ssb_offset;
   uint16_t symbol_offset; /// offset in terms of symbols for detected ssb in sync
+  int rx_offset;      /// Timing offset
   int64_t max_pos_iir; /// Timing offset IIR filter
   int max_pos_acc; /// Timing offset accumuluated error for PI filter
 
@@ -436,6 +448,16 @@ typedef struct PHY_VARS_NR_UE_s {
   // Sidelink parameters
   sl_nr_sidelink_mode_t sl_mode;
   sl_nr_ue_phy_params_t SL_UE_PHY_PARAMS;
+  int max_nb_slsch;
+  // we use the gNB ULSCH context for SLSCH reception
+  struct NR_gNB_ULSCH_s *slsch;
+  /// PSSCH demodulation scratch, one per DL actor as for the PDSCH
+  int pssch_num_actors;
+  struct NR_gNB_PUSCH_s *pssch_vars;
+  /// PSSCH signal detection threshold
+  int pssch_thres;
+  // PUCCH0 Look-up table for cyclic-shifts (used by PSFCH reception)
+  NR_PUCCH0_LUT_t pucch0_lut;
   pthread_t main_thread;
   pthread_t stat_thread;
   // Per-DL-actor pre-allocated PDSCH scratch buffers (one set per actor to avoid races)
@@ -562,6 +584,8 @@ typedef struct nr_phy_data_tx_s {
   // Sidelink Rx action decided by MAC
   sl_nr_tx_config_type_enum_t sl_tx_action;
   sl_nr_tx_config_psbch_pdu_t psbch_vars;
+  sl_nr_tx_config_pscch_pssch_pdu_t nr_sl_pssch_pscch_pdu;
+  uint32_t pscch_Nid;
 } nr_phy_data_tx_t;
 
 typedef struct nr_phy_data_s {
@@ -571,6 +595,12 @@ typedef struct nr_phy_data_s {
   int n_dlsch_codewords;
   // Sidelink Rx action decided by MAC
   sl_nr_rx_config_type_enum_t sl_rx_action;
+  sl_nr_rx_config_pscch_pdu_t nr_sl_pscch_pdu;
+  sl_nr_rx_config_pssch_sci_pdu_t nr_sl_pssch_sci_pdu;
+  sl_nr_rx_config_pssch_pdu_t nr_sl_pssch_pdu;
+  sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu_list;
+  uint8_t num_psfch_pdus;
+
   int num_csirs;
   NR_UE_CSI_RS csirs_vars[MAX_CSI_RES_SLOT];
   NR_UE_CSI_IM csiim_vars;

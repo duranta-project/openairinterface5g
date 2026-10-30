@@ -17,9 +17,29 @@
 #define NR_DL_MAX_DAI                            (4)                      /* TS 38.213 table 9.1.3-1 Value of counter DAI for DCI format 1_0 and 1_1 */
 #define NR_DL_MAX_NB_CW                          (2)                      /* number of downlink code word */
 
+// 38.213 Table 16.3-1 set of cyclic shift pairs
+static const int16_t table_16_3_1[4][6] = {
+                                          {0},
+                                          {0, 3},
+                                          {0, 2, 4},
+                                          {0, 1, 2, 3, 4, 5}
+                                       };
+
+typedef struct psfch_params {
+  uint16_t m0;
+  uint16_t prb_ordinal_base;
+  uint16_t selected_subchannel;
+  uint16_t num_rbs;
+  uint16_t num_psfch_slots;
+  uint16_t prbs_per_subchannel_slot;
+  uint16_t *rb_set;
+} psfch_params_t;
+
 /**\brief initialize the field in nr_mac instance
    \param mac      MAC pointer */
 void nr_ue_init_mac(NR_UE_MAC_INST_t *mac);
+
+void nr_ue_init_mac_sl(NR_UE_MAC_INST_t *mac);
 
 NR_UE_DL_BWP_t *get_dl_bwp_structure(NR_UE_MAC_INST_t *mac, int bwp_id, bool setup);
 NR_UE_UL_BWP_t *get_ul_bwp_structure(NR_UE_MAC_INST_t *mac, int bwp_id, bool setup);
@@ -143,6 +163,21 @@ typedef struct {
 } type_bsr_t;
 
 int nr_write_ce_ulsch_pdu(uint8_t *mac_ce, NR_SINGLE_ENTRY_PHR_MAC_CE *power_headroom, const type_bsr_t *bsr, uint8_t *mac_ce_end);
+
+typedef struct {
+  uint8_t phr_len;
+  uint sdu_length_total;
+  NR_SINGLE_ENTRY_PHR_MAC_CE phr;
+  type_bsr_t bsr;
+  uint8_t *pdu_end;
+  uint8_t *end_for_tailer;
+  uint8_t *cur_ptr;
+  uint num_sdus;
+  // int highest_priority = 16;
+  //  variable used to store the lcid data status during lcp
+  bool lcids_data_status[NR_MAX_NUM_LCID];
+  uint32_t lcp_allocation_counter;
+} NR_UE_MAC_CE_INFO;
 
 void ue_dci_configuration(NR_UE_MAC_INST_t *mac, fapi_nr_dl_config_request_t *dl_config, const frame_t frame, const int slot);
 void set_precoding_information_parameters(nfapi_nr_ue_pusch_pdu_t *pusch_config_pdu,
@@ -316,6 +351,8 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
                                        NR_SL_PreconfigurationNR_r16_t *sl_preconfiguration,
                                        uint8_t sync_source);
 
+uint16_t count_on_bits(const uint8_t *buf, size_t size);
+
 void nr_rrc_mac_transmit_slss_req(module_id_t module_id,
                                   uint8_t *sl_mib_payload,
                                   uint16_t tx_slss_id,
@@ -324,6 +361,8 @@ void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
                                   NR_SL_SSB_TimeAllocation_r16_t *ssb_ta,
                                   uint16_t rx_slss_id,
                                   uint8_t *sl_mib);
+
+void nr_sl_params_read_conf(module_id_t module_id);
 
 void sl_prepare_psbch_payload(NR_TDD_UL_DL_ConfigCommon_t *TDD_UL_DL_Config,
                               uint8_t *bits_0_to_7, uint8_t *bits_8_to_11,
@@ -344,8 +383,263 @@ uint8_t sl_determine_sci_1a_len(uint16_t *num_subchannels,
     @returns int : 0 or Sidelink slot type */
 int sl_nr_ue_slot_select(const sl_nr_phy_config_request_t *cfg, int nr_slot, uint8_t frame_duplex_type);
 
+void nr_ue_process_mac_sl_pdu(int module_idP,
+                              sl_nr_rx_indication_t *rx_ind,
+                              int pdu_id);
+
+NR_SL_UE_info_t* find_UE(NR_UE_MAC_INST_t *mac,
+                         uint16_t ue_id);
+
+
+uint16_t sl_get_subchannel_size(NR_SL_ResourcePool_r16_t *rpool);
+
+int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,int cc_id,frame_t frame, int slot, sl_nr_sci_indication_pdu_t *sci,void *phy_data);
+
 void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t *mac);
 
 NR_SearchSpace_t *get_common_search_space(const NR_UE_MAC_INST_t *mac, const NR_SearchSpaceId_t ss_id);
 void update_pdcch_config(NR_UE_MAC_INST_t *mac);
+
+void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_t *sci_pdu,
+                       nr_sci_pdu_t *sci2_pdu,
+                       nr_sci_format_t format2,
+                       NR_SL_UE_info_t *UE,
+                       uint16_t *slsch_pdu_length,
+                       NR_UE_sl_harq_t *cur_harq,
+                       mac_rlc_status_resp_t *rlc_status,
+                       sl_resource_info_t *resource);
+
+void nr_ue_sl_free_resource_pools(NR_UE_MAC_INST_t *mac);
+void nr_ue_sl_mac_free(NR_UE_MAC_INST_t *mac);
+void sl_ue_mac_free(NR_UE_MAC_INST_t *mac);
+
+bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
+                              nr_sidelink_indication_t *sl_ind,
+                              const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                              const NR_SL_ResourcePool_r16_t *sl_res_pool,
+                              sl_nr_tx_config_request_t *tx_config,
+                              sl_resource_info_t *resource,
+                              uint8_t *config_type);
+
+void nr_ue_sl_pscch_rx_scheduler(nr_sidelink_indication_t *sl_ind,
+                                 const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                                 const NR_SL_ResourcePool_r16_t *sl_res_pool,
+                                 sl_nr_rx_config_request_t *rx_config,
+                                 uint8_t *config_type,
+                                 bool sl_has_psfch);
+
+void nr_ue_sl_psfch_scheduler(NR_UE_MAC_INST_t *mac,
+                              frame_t frame,
+                              uint16_t slot,
+                              long psfch_period,
+                              nr_sidelink_indication_t *sl_ind,
+                              const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                              sl_nr_tx_config_request_t *tx_config,
+                              uint8_t *config_type);
+
+void config_pscch_pdu_rx(sl_nr_rx_config_pscch_pdu_t *nr_sl_pscch_pdu,
+                         const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                         const NR_SL_ResourcePool_r16_t *sl_res_pool,
+                         bool sl_has_psfch);
+
+int config_pssch_sci_pdu_rx(sl_nr_rx_config_pssch_sci_pdu_t *nr_sl_pssch_sci_pdu,
+                             nr_sci_format_t sci2_format,
+                             nr_sci_pdu_t *sci_pdu,
+                             uint32_t pscch_Nid,
+                             const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                             const NR_SL_ResourcePool_r16_t *sl_res_pool);
+
+sl_resource_info_t* get_resource_element(seq_arr_t* resource_list, frameslot_t sfn);
+
+int nr_ue_process_sci2_indication_pdu(NR_UE_MAC_INST_t *mac,
+                                      module_id_t mod_id,
+                                      int cc_id,
+                                      frame_t frame,
+                                      int slot,
+                                      sl_nr_sci_indication_pdu_t *sci,
+                                      void *phy_data);
+
+void extract_pssch_sci_pdu(uint64_t *sci2_payload,
+                           int len,
+                           const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                           const NR_SL_ResourcePool_r16_t *sl_res_pool,
+                           nr_sci_pdu_t *sci_pdu,
+                           nr_sci_format_t sci2_format);
+
+void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
+                          sl_nr_tx_config_pscch_pssch_pdu_t *nr_sl_pssch_pscch_pdu,
+                          const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                          const NR_SL_ResourcePool_r16_t *sl_res_pool,
+                          nr_sci_pdu_t *sci_pdu,
+                          nr_sci_pdu_t *sci2_pdu,
+                          uint16_t slsch_pdu_length,
+                          const nr_sci_format_t format1,
+                          const nr_sci_format_t format2,
+                          uint16_t slot,
+                          sl_resource_info_t *selected_resource);
+
+void fill_psfch_pdu(SL_sched_feedback_t *mac_psfch_pdu,
+                    sl_nr_tx_rx_config_psfch_pdu_t *tx_psfch_pdu,
+                    int num_psfch_symbols);
+
+void update_harq_lists(NR_UE_MAC_INST_t *mac, frame_t frame, sub_frame_t slot, NR_SL_UE_info_t* UE);
+
+int find_current_slot_harqs(frame_t frame, sub_frame_t slot, NR_SL_UE_sched_ctrl_t * sched_ctrl, NR_UE_sl_harq_t **matched_harqs);
+
+int sl_num_slsch_feedbacks(NR_UE_MAC_INST_t *mac);
+
+bool is_feedback_scheduled(NR_UE_MAC_INST_t *mac, int frameP,int slotP);
+
+uint16_t sl_get_num_subch(NR_SL_ResourcePool_r16_t *rpool);
+
+void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac,
+                          sl_nr_rx_indication_t *rx_ind,
+                          int pdu_id,
+                          long psfch_period,
+                          uint16_t sched_frame,
+                          uint16_t sched_slot,
+                          uint8_t ack_nack,
+                          psfch_params_t *psfch_params,
+                          const int nr_slots_frame,
+                          int psfch_index);
+
+void fill_psfch_params_rx(sl_nr_rx_config_request_t *rx_config, sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu, psfch_params_t *psfch_params, NR_UE_sl_harq_t *cur_harq, NR_UE_MAC_INST_t *mac, long psfch_period, const uint16_t slot, uint16_t peer_id);
+
+void configure_psfch_params_rx(int module_idP, NR_UE_MAC_INST_t *mac, sl_nr_rx_config_request_t *rx_config);
+
+void reset_sched_psfch(NR_UE_MAC_INST_t *mac, int frameP,int slotP);
+
+void handle_nr_ue_sl_harq(module_id_t mod_id, frame_t frame, sub_frame_t slot, sl_nr_slsch_pdu_t *rx_slsch_pdu, uint16_t src_id);
+
+void handle_nr_ue_sl_psfch(module_id_t mod_id, frame_t frame, sub_frame_t slot, const sl_nr_psfch_pdu_t *rx_psfch_pdu);
+
+void abort_nr_ue_sl_harq(NR_UE_MAC_INST_t *mac, int8_t harq_pid, NR_SL_UE_info_t *UE_info);
+
+int nr_ue_sl_acknack_scheduling(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx_ind,
+                                long psfch_period, uint16_t frame, uint16_t slot, const int nr_slots_frame);
+
+
+
+
+
+void update_sensing_data(seq_arr_t* sensing_data, frameslot_t *frame_slot, sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id);
+
+void update_transmit_history(seq_arr_t* transmit_history, frameslot_t *frame_slot, sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id);
+
+int64_t normalize(frameslot_t *frame_slot, uint8_t mu);
+
+void de_normalize(int64_t abs_slot_idx, uint8_t mu, frameslot_t *frame_slot);
+
+frameslot_t add_to_sfn(frameslot_t* sfn, uint16_t slot_n, uint8_t mu);
+
+uint16_t get_T2_min(uint16_t pool_id, sl_nr_ue_mac_params_t *sl_mac, uint8_t mu);
+
+uint16_t get_t2(uint16_t pool_id,
+                uint8_t mu,
+                nr_sl_transmission_params_t* sl_tx_params,
+                sl_nr_ue_mac_params_t *sl_mac);
+
+uint16_t time_to_slots(uint8_t mu, uint16_t time);
+
+/* TS 38.331 ASN.1 enum -> physical-unit conversions.
+ * These are the canonical functions for reading sidelink config fields;
+ * use them at every MAC/RRC boundary so the rest of the stack sees ms. */
+uint16_t nr_sl_sensing_window_to_ms(long idx);  /* {ms100=0, ms1100=1} */
+uint16_t nr_sl_sw_to_ms(long idx);              /* {n1=0, n5=1, n10=2, n20=3} */
+uint16_t nr_sl_rrp_to_ms(const NR_SL_ResourceReservePeriod_r16_t *p);
+
+uint8_t get_tproc0(sl_nr_ue_mac_params_t *sl_mac, uint16_t pool_id);
+
+void remove_old_sensing_data(frameslot_t *frame_slot,
+                             uint16_t sensing_window,
+                             seq_arr_t* sensing_data,
+                             sl_nr_ue_mac_params_t *sl_mac);
+
+void remove_old_transmit_history(frameslot_t *frame_slot,
+                                 uint16_t sensing_window,
+                                 seq_arr_t* transmit_history,
+                                 sl_nr_ue_mac_params_t *sl_mac);
+
+seq_arr_t* get_candidate_resources(frameslot_t *frame_slot,
+                                NR_UE_MAC_INST_t *mac,
+                                seq_arr_t *sensing_data,
+                                seq_arr_t *transmission_history);
+
+seq_arr_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,
+                                    uint64_t abs_idx_cur_slot,
+                                    uint8_t bwp_id,
+                                    uint16_t mu,
+                                    uint16_t pool_id,
+                                    uint8_t t1,
+                                    uint16_t t2,
+                                    uint8_t psfch_period);
+
+bool is_sl_slot(NR_UE_MAC_INST_t *mac, BIT_STRING_t *phy_sl_bitmap, size_t phy_map_sz, uint64_t abs_slot);
+
+void validate_selected_sl_slot(NR_UE_MAC_INST_t *mac, bool tx, bool rx, NR_TDD_UL_DL_ConfigCommon_t *conf, frameslot_t frame_slot);
+
+bool check_t1_within_tproc1(uint8_t mu, uint16_t t1_slots);
+
+NR_SL_ResourcePool_r16_t* get_resource_pool(NR_UE_MAC_INST_t *mac, uint16_t pool_id);
+
+bool slot_has_psfch(NR_UE_MAC_INST_t *mac, BIT_STRING_t *phy_sl_bitmap, uint64_t abs_index_cur_slot, uint8_t psfch_period, size_t phy_sl_map_size, NR_TDD_UL_DL_ConfigCommon_t *conf);
+size_t sl_abs_slot_to_bit_pos(uint64_t abs_slot, size_t phy_map_sz);
+bool sl_slot_carries_psfch(const BIT_STRING_t *phy_sl_bitmap, size_t phy_map_sz, uint64_t abs_slot, uint8_t psfch_period);
+int64_t get_feedback_abs_slot(const BIT_STRING_t *phy_sl_bitmap, size_t phy_map_sz, uint64_t tx_abs_slot, uint8_t min_time_gap, uint8_t psfch_period);
+int sl_psfch_pssch_slot_index(const BIT_STRING_t *phy_sl_bitmap, size_t phy_map_sz, uint64_t abs_slot,
+                              uint8_t min_time_gap, uint8_t psfch_period);
+int32_t nr_sl_psfch_feedback_offset(const NR_UE_MAC_INST_t *mac, uint64_t pssch_abs_slot);
+
+
+
+int get_physical_sl_pool(NR_UE_MAC_INST_t *mac, BIT_STRING_t *sl_time_rsrc, BIT_STRING_t *phy_sl_bitmap);
+
+seq_arr_t* get_candidate_resources_from_slots(frameslot_t *sfn,
+                                          uint8_t psfch_period,
+                                          uint8_t min_time_gap_psfch,
+                                          uint16_t l_subch,
+                                          uint16_t total_subch,
+                                          seq_arr_t* slot_info,
+                                          uint8_t mu);
+
+seq_arr_t exclude_reserved_resources(sensing_data_t *sensed_data,
+                                  float slot_period_ms,
+                                  uint16_t resv_period_slots,
+                                  uint16_t t1,
+                                  uint16_t t2,
+                                  uint8_t mu);
+
+void exclude_resources_based_on_history(frameslot_t frame_slot,
+                                        seq_arr_t* transmit_history,
+                                        seq_arr_t* candidate_resources,
+                                        seq_arr_t* sl_rsrc_rsrv_period_list,
+                                        uint8_t mu);
+
+bool overlapped_resource(uint8_t first_start,
+                         uint8_t first_length,
+                         uint8_t second_start,
+                         uint8_t second_length);
+
+uint8_t get_random_reselection_counter(uint16_t rri);
+
+uint32_t compute_TRIV(uint8_t N, uint8_t t1, uint8_t t2);
+uint32_t compute_FRIV(uint8_t sl_max_num_per_reserve,
+                      uint8_t L_sub_chan,
+                      uint8_t n_start_subch1,
+                      uint8_t n_start_subch2,
+                      uint8_t N_sl_subch);
+
+void nr_update_bsr(NR_UE_MAC_INST_t *mac, uint32_t *LCG_bytes);
+
+void nr_ue_get_sdu_mac_ce_pre(NR_UE_MAC_INST_t *mac,
+                                     frame_t frame,
+                                     slot_t slot,
+                                     uint8_t *ulsch_buffer,
+                                     uint32_t buflen,
+                                     uint32_t *LCG_bytes,
+                                     NR_UE_MAC_CE_INFO *mac_ce_p,
+                                     int tx_power,
+                                     int P_CMAX);
+
 #endif
+/** @}*/

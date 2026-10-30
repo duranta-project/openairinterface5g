@@ -15,6 +15,8 @@
 #include "common/platform_constants.h"
 #include "common/platform_types.h"
 #include "common/utils/threadPool/notified_fifo.h"
+#include "common/utils/ds/seq_arr.h"
+#include "common/utils/ds/id_list.h"
 
 /* IF */
 #include "NR_UE_PHY_INTERFACE/NR_IF_Module.h"
@@ -40,6 +42,7 @@
 #include "NR_ServingCellConfig.h"
 #include "NR_MeasConfig.h"
 #include "NR_ServingCellConfigCommonSIB.h"
+#include "NR_SL-BWP-ConfigCommon-r16.h"
 
 /* position_t */
 #include "executables/position_interface.h"
@@ -411,6 +414,19 @@ typedef struct {
 } NR_UE_UL_HARQ_INFO_t;
 
 typedef struct {
+  uint8_t source_id;
+  uint16_t dest_id;
+  uint8_t cast_type;
+  int last_ndi;
+  /* SCI-2 and the SL-SCH fixed header carry complementary portions of each
+   * 24-bit Layer-2 identity. The header portions are only known once the TB is
+   * decoded, so they complete the receiving-process key at delivery time. */
+  uint16_t mac_source_id;
+  uint8_t mac_dest_id;
+  bool delivered;
+} NR_UE_SL_RX_HARQ_INFO_t;
+
+typedef struct {
   uint8_t freq_hopping;
   uint8_t mcs;
   uint8_t Msg3_t_alloc;
@@ -452,6 +468,209 @@ typedef struct ssb_list_info {
   int nb_tx_ssb;
   int nb_ssb_per_index[MAX_NB_SSB];
 } ssb_list_info_t;
+
+typedef struct NR_sched_pssch {
+  int frame;
+  int slot;
+  int mu;
+
+  /// RB allocation within active uBWP
+  uint16_t rbSize;
+  uint16_t rbStart;
+
+  /// MCS
+  uint8_t mcs;
+
+  /// TBS-related info
+  uint16_t R;
+  uint8_t Qm;
+  uint32_t tb_size;
+
+  /// UL HARQ PID to use for this UE, or -1 for "any new"
+  int8_t sl_harq_pid;
+  uint16_t source_id;
+  uint16_t dest_id;
+  uint8_t cast_type;
+  bool harq_feedback;
+  uint8_t second_stage_sci_format;
+  uint16_t pssch_start_subchannel;
+  uint16_t pssch_num_subchannels;
+  uint8_t nrOfLayers;
+  //NR_pusch_dmrs_t dmrs_info;
+} NR_sched_pssch_t;
+
+typedef struct {
+  bool is_waiting;
+  bool is_active;
+  uint8_t ndi;
+  uint8_t round;
+  uint16_t feedback_slot;
+  uint16_t feedback_frame;
+  int8_t sl_harq_pid;
+
+  /// sched_pusch keeps information on MCS etc used for the initial transmission
+  NR_sched_pssch_t sched_pssch;
+} NR_UE_sl_harq_t;
+
+typedef struct SL_sched_feedback {
+  int16_t feedback_slot;
+  int16_t feedback_frame;
+  int16_t harq_feedback;
+  uint8_t dai_c;
+  bool    active;
+  uint8_t freq_hop_flag;
+  uint8_t group_hop_flag;
+  uint8_t sequence_hop_flag;
+  uint16_t second_hop_prb;
+  uint8_t nr_of_symbols;
+  uint8_t start_symbol_index;
+  uint8_t hopping_id;
+  uint16_t prb;
+  uint16_t sl_bwp_start;
+  uint16_t initial_cyclic_shift;
+  uint8_t mcs;
+  uint8_t bit_len_harq;
+  uint16_t source_id;
+  uint16_t dest_id;
+  uint8_t cast_type;
+  uint8_t second_stage_sci_format;
+  uint16_t pssch_start_subchannel;
+  uint16_t pssch_num_subchannels;
+} SL_sched_feedback_t;
+
+typedef struct {
+
+  // sidelink bytes that are currently scheduled
+  int sched_sl_bytes;
+  /// Sched PSSCH: scheduling decisions, copied into HARQ and cleared every TTI
+  NR_sched_pssch_t sched_pssch;
+
+  // Used on PSFCH transmitter
+  SL_sched_feedback_t *sched_psfch;
+  int sched_psfch_size;
+
+  /// total amount of data awaiting for this UE
+  uint32_t num_total_bytes;
+  uint16_t sl_pdus_total;
+  /// per-LC status data
+  mac_rlc_status_resp_t rlc_status[NR_MAX_NUM_LCID];
+
+  /// information about every sidelink transmit HARQ process
+  NR_UE_sl_harq_t sl_harq_processes[NR_MAX_HARQ_PROCESSES];
+  /// receiving sidelink HARQ state, indexed by the SCI sidelink process ID
+  /// UL HARQ processes that are free
+  id_list_t available_sl_harq;
+  /// UL HARQ processes that await feedback
+  id_list_t feedback_sl_harq;
+  /// UL HARQ processes that await retransmission
+  id_list_t retrans_sl_harq;
+  /// UE-selected maximum MCS
+  uint8_t sl_max_mcs;
+
+} NR_SL_UE_sched_ctrl_t;
+
+#define MAX_SL_UE_CONNECTIONS 8
+#define CUR_SL_UE_CONNECTIONS 1
+
+typedef struct NR_UE_sl_mac_stats {
+  NR_mac_dir_stats_t sl;
+  uint32_t slsch_DTX;
+  uint64_t slsch_total_bytes_scheduled;
+  int cumul_rsrp;
+  uint8_t num_rsrp_meas;
+  uint32_t cumul_round[5];
+} NR_UE_sl_mac_stats_t;
+
+typedef struct {
+  uid_t uid; // unique ID of this UE
+  /// scheduling control info
+  NR_SL_UE_sched_ctrl_t UE_sched_ctrl;
+  NR_UE_sl_mac_stats_t mac_sl_stats;
+} NR_SL_UE_info_t;
+
+#define SL_UE_iterator(BaSe, VaR) NR_SL_UE_info_t ** VaR##pptr=BaSe, *VaR; while ((VaR=*(VaR##pptr++)))
+
+typedef struct {
+
+  NR_SL_UE_info_t *list[MAX_SL_UE_CONNECTIONS+1];
+  uid_allocator_t ue_allocator;
+} NR_SL_UEs_t;
+
+typedef struct {
+  int16_t frame;
+  int16_t slot;
+} frameslot_t;
+
+typedef struct {
+  frameslot_t frame_slot;
+  uint16_t rsvp; // The resource reservation period in ms
+  uint8_t subch_len; // The total number of the sub-channel allocated
+  uint8_t subch_start; // The index of the starting sub-channel allocated
+  uint8_t prio; // The priority
+  int16_t sl_rsrp; // The measured RSRP value over the used resource blocks
+  uint8_t gap_re_tx1; // Gap for a first retransmission in absolute slots
+  uint8_t subch_startre_tx1; // The index of the starting sub-channel allocated
+                          // to first retransmission
+  uint8_t gap_re_tx2; // Gap for a second retransmission in absolute slots
+  uint8_t subch_startre_tx2; // The index of the starting sub-channel allocated
+                          // to second retransmission
+} sensing_data_t;
+
+
+typedef enum {
+  c1, c2, c3, c4, c5, c6, c7
+} allowed_rsc_selection_t;
+
+typedef struct {
+  uint16_t num_sl_pscch_rbs;
+  uint16_t sl_pscch_sym_start;
+  uint16_t sl_pscch_sym_len;
+  uint16_t sl_pssch_sym_start;
+  uint16_t sl_pssch_sym_len;
+  uint16_t sl_subchan_size;
+  uint16_t sl_max_num_per_reserve;
+  uint8_t sl_psfch_period;
+  uint8_t sl_min_time_gap_psfch;
+  uint8_t sl_min_time_gap_processing;
+  frameslot_t sfn;
+  uint8_t sl_subchan_start;
+  uint8_t sl_subchan_len;
+  bool slot_busy;
+} sl_resource_info_t;
+
+/**
+ * \brief Structure to denote a future resource reserved by another UE
+ *
+ * This data structure represents resources excluded by step 6c) of the
+ * TS 38.214 Sec. 8.1.4 sensing algorithm.
+ */
+typedef struct {
+  frameslot_t sfn; // The SfnSf
+  uint16_t rsvp; // The resource reservation period in ms
+  uint8_t sb_ch_length; // The total number of the sub-channel allocated
+  uint8_t sb_ch_start; // The index of the starting sub-channel allocated
+  uint8_t prio; // The priority
+  double sl_rsrp; // The measured RSRP value over the used resource blocks
+} reserved_resource_t;
+
+typedef struct {
+  // PSCCH
+  uint16_t num_sl_pscch_rbs; // Indicates the number of PRBs for PSCCH in a resource pool where it is not
+                             // greater than the number PRBs of the subchannel.
+  uint16_t sl_pscch_sym_start; // Indicates the starting symbol used for sidelink PSCCH in a slot
+  uint16_t sl_pscch_sym_len; // Indicates the total number of symbols available for sidelink PSCCH
+  // PSSCH
+  uint16_t sl_pssch_sym_start; // Indicates the starting symbol used for sidelink PSSCH in a slot
+  uint16_t sl_pssch_sym_len; // Indicates the total number of symbols available for sidelink PSSCH
+  bool sl_has_psfch; // Indicates whether PSFCH is present in the slot
+                     // subchannel size in RBs
+  uint16_t sl_sub_chan_size; // Indicates the subchannel size in number of RBs
+  uint16_t sl_max_num_per_reserve; // The maximum number of reserved PSCCH/PSSCH resources
+                                   // that can be indicated by an SCI.
+  uint64_t abs_slot_index; // Indicates the the absolute slot index
+  uint32_t slot_offset; // Indicates the positive offset between two slots
+} slot_info_t;
+
 
 typedef struct nr_lcordered_info_s {
   // logical channels ids ordered as per priority
@@ -584,6 +803,12 @@ typedef struct NR_UE_MAC_INST_s {
   NR_TDD_UL_DL_ConfigCommon_t *tdd_UL_DL_ConfigurationCommon;
   frame_structure_t frame_structure;
 
+// sidelink
+  NR_SL_BWP_ConfigCommon_r16_t *sl_bwp;
+  int max_fb_time;
+  NR_SL_ResourcePool_r16_t *sl_rx_res_pool;
+  NR_SL_ResourcePool_r16_t *sl_tx_res_pool;
+
   /* Random Access */
   /// CRNTI
   uint16_t crnti;
@@ -634,6 +859,7 @@ typedef struct NR_UE_MAC_INST_s {
   // Defined for abstracted mode
   NR_UE_DL_HARQ_STATUS_t dl_harq_info[NR_MAX_HARQ_PROCESSES][2]; // one harq process for each codeword
   NR_UE_UL_HARQ_INFO_t ul_harq_info[NR_MAX_HARQ_PROCESSES];
+  NR_UE_SL_RX_HARQ_INFO_t sl_rx_harq_info[NR_MAX_HARQ_PROCESSES];
 
   NR_TAG_Id_t tag_Id;
   A_SEQUENCE_OF(NR_TAG_t) TAG_list;
@@ -642,6 +868,38 @@ typedef struct NR_UE_MAC_INST_s {
 
   //SIDELINK MAC PARAMETERS
   sl_nr_ue_mac_params_t *SL_MAC_PARAMS;
+
+    // SIDELINK Scheduling fields
+  NR_SL_UEs_t sl_info;
+
+  // Received SCI PDU, built from SCI-1 on PSCCH and completed by SCI-2 on PSSCH.
+  nr_sci_pdu_t sci_pdu_rx;
+
+  nr_sci_pdu_t sci1_pdu;
+  nr_sci_pdu_t sci2_pdu;
+  /* Sized like the UL-SCH scheduler's own PDU buffer, so any transport block
+   * the LDPC segmentation can carry fits whatever the pool configures. */
+  uint8_t slsch_payload[MAX_NUM_NR_ULSCH_SEGMENTS * 1056];
+  time_stats_t rlc_data_req;
+  int src_id;
+  bool is_synced;
+
+  allowed_rsc_selection_t rsc_selection_method; // Flag to enable NR Sidelink resource selection based on
+                                                // sensing; otherwise, use random selection
+  double m_slProbResourceKeep; // Sidelink probability of keeping a resource after resource
+                                   // re-selection counter reaches zero
+  seq_arr_t sl_sensing_data; // List to store sensing data
+  uint8_t sl_resel_counter;  // The resource selection counter
+  uint16_t sl_c_resel;       // The C_resel counter
+  seq_arr_t sl_transmit_history; // History of slots used for transmission
+
+  /// bitmap of ULSCH slots, can hold up to 160 slots
+  uint64_t ulsch_slot_bitmap[3];
+  seq_arr_t *sl_candidate_resources;
+  uint16_t reselection_timer;
+  int sl_prev_rx_frame; ///< last RX frame scheduled (deduplication guard); initialized to -1
+  int sl_prev_rx_slot;  ///< last RX slot scheduled (deduplication guard); initialized to -1
+
   // PUCCH closed loop power control state
   int G_b_f_c;
   bool pucch_power_control_initialized;

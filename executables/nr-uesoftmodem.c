@@ -77,6 +77,21 @@ uint64_t        sidelink_frequency[MAX_NUM_CCs][4];
 
 // UE and OAI config variables
 
+// TODO sidelink: avoid linker errors for including gNB
+NR_IF_Module_t *NR_IF_Module_init(int Mod_id) { abort(); return NULL; }
+int get_nr_prach_duration(uint8_t prach_format) { abort(); return 0; }
+int beam_index_allocation(bool das,
+                          int fapi_beam_index,
+                          NR_gNB_COMMON *common_vars,
+                          int slot,
+                          int symbols_per_slot,
+                          int bitmap_symbols)
+{
+  abort(); return 0;
+}
+int nr_slot_select() { abort(); }
+int get_first_ant_idx() { abort(); }
+
 int create_tasks_nrue(uint32_t ue_nb) {
   LOG_D(NR_RRC, "%s(ue_nb:%d)\n", __FUNCTION__, ue_nb);
   itti_wait_ready(1);
@@ -187,7 +202,8 @@ static void trigger_stop(int sig)
 }
 static void trigger_deregistration(int sig)
 {
-  if (!stop_immediately && IS_SA_MODE(get_softmodem_params())) {
+  // Sidelink has no NAS registration; detaching would release MAC state still used by the PHY workers.
+  if (!stop_immediately && IS_SA_MODE(get_softmodem_params()) && !get_softmodem_params()->sl_mode) {
     for (int ue_inst = 0; ue_inst < NB_UE_INST; ue_inst++) {
       MessageDef *msg = itti_alloc_new_message(TASK_NAS_NRUE, ue_inst, NAS_DEREGISTRATION_REQ);
       NAS_DEREGISTRATION_REQ(msg).cause = AS_DETACH;
@@ -373,17 +389,23 @@ int main(int argc, char **argv)
       init_nr_ue_vars(UE_CC, inst);
 
       if (UE_CC->sl_mode) {
-        AssertFatal(UE_CC->sl_mode == 2, "Only Sidelink mode 2 supported. Mode 1 not yet supported\n");
+        AssertFatal(UE_CC->sl_mode == SL_MODE2_SUPPORTED, "Only Sidelink mode 2 supported. Mode 1 not yet supported\n");
         DevAssert(mac->if_module != NULL && mac->if_module->sl_phy_config_request != NULL);
+        // Patch antenna counts from CLI and push to PHY so sl_config is fully populated.
         nr_sl_phy_config_t *phycfg = &mac->SL_MAC_PARAMS->sl_phy_config;
         phycfg->sl_config_req.sl_carrier_config.sl_num_rx_ant = get_nrUE_params()->nb_antennas_rx;
         phycfg->sl_config_req.sl_carrier_config.sl_num_tx_ant = get_nrUE_params()->nb_antennas_tx;
         mac->if_module->sl_phy_config_request(phycfg);
+        // Derive sl_frame_params (N_RB_SL, ofdm_symbol_size, nb_antennas_tx ...) from sl_config
+        // before HARQ buffer allocation and PHY signal init.
         sl_nr_ue_phy_params_t *sl_phy = &UE_CC->SL_UE_PHY_PARAMS;
         nr_init_frame_parms_ue_sl(&sl_phy->sl_frame_params,
                                   &sl_phy->sl_config,
                                   get_softmodem_params()->threequarter_fs,
                                   get_nrUE_params()->ofdm_offset_divisor);
+        // Allocate SL HARQ buffers now that N_RB_SL and nb_antennas_tx are known.
+        init_nr_ue_sl_transport(UE_CC);
+
         sl_ue_phy_init(UE_CC);
       }
 

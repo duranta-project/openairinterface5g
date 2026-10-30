@@ -31,3 +31,8 @@ add_executable(test_queue_t test_queue_t.c)
 target_link_libraries(test_queue_t PRIVATE ds pthread)
 add_dependencies(tests test_queue_t)
 add_test(NAME test_queue_t COMMAND test_queue_t)
+
+add_executable(test_id_list test_id_list.cpp)
+target_link_libraries(test_id_list PRIVATE ds GTest::gtest)
+add_dependencies(tests test_id_list)
+add_test(NAME test_id_list COMMAND test_id_list)

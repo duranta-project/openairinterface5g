@@ -89,7 +89,7 @@ void generate_pss_nr_time(int ofdm_symbol_size,
                           int ssbFirstSCS,
                           c16_t pssTime[ofdm_symbol_size])
 {
-  unsigned int subcarrier_start = get_softmodem_params()->sl_mode == 0 ? PSS_SSS_SUB_CARRIER_START : PSS_SSS_SUB_CARRIER_START_SL;
+  unsigned int subcarrier_start = PSS_SSS_SUB_CARRIER_START;
   c16_t synchroF_tmp[ofdm_symbol_size] __attribute__((aligned(32)));
   memset(synchroF_tmp, 0, sizeof(synchroF_tmp));
   unsigned int k = CIRCULAR_INC(first_carrier_offset, ssbFirstSCS + subcarrier_start, ofdm_symbol_size);
@@ -176,13 +176,11 @@ nr_pss_info_t pss_search_time_nr(const pss_search_t *p)
   }
 
   c16_t(*pssTime)[p->ofdm_symbol_size] = (c16_t(*)[p->ofdm_symbol_size])p->pssTime;
-  const int max_nid2 = get_softmodem_params()->sl_mode == 0 ? NUMBER_PSS_SEQUENCE : NUMBER_PSS_SEQUENCE_SL;
-
   /* Search pss in the received buffer each 4 samples which ensures a memory alignment on 128 bits (32 bits x 4 ) */
   /* This is required by SIMD (single instruction Multiple Data) Extensions of Intel processors. */
   /* Correlation computation is based on a dot product which is realized thank to SIMS extensions */
   int pss_start = 0;
-  int pss_end = max_nid2;
+  int pss_end = NUMBER_PSS_SEQUENCE;
   if (p->target_Nid_cell != -1) {
     pss_start = p->target_Nid_cell % NUMBER_PSS_SEQUENCE;
     pss_end = pss_start + 1;

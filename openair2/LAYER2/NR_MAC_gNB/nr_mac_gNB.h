@@ -21,6 +21,7 @@
 #include "common/utils/nr/nr_common.h"
 #include "common/utils/ds/byte_array.h"
 #include "common/utils/ds/spsc_q.h"
+#include "common/utils/ds/id_list.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_configuration.h"
 #include "openair2/LAYER2/NR_MAC_gNB/nr_pos_ue_context.h"
 
@@ -72,15 +73,6 @@
 #define NR_MAX_SIB_LENGTH 2976 // 3GPP TS 38.331 section 5.2.1
 
 uint8_t nr_get_rv(int rel_round);
-
-/*! \brief NR_list_t is a "list" (of users, HARQ processes, slices, ...).
- * Especially useful in the scheduler and to keep "classes" of users. */
-typedef struct {
-  int head;
-  int *next;
-  int tail;
-  int len;
-} NR_list_t;
 
 typedef enum {
   nrRA_gNB_IDLE,
@@ -739,19 +731,19 @@ typedef struct {
   /// information about every HARQ process
   NR_UE_harq_t harq_processes[NR_MAX_HARQ_PROCESSES];
   /// HARQ processes that are free
-  NR_list_t available_dl_harq;
+  id_list_t available_dl_harq;
   /// HARQ processes that await feedback
-  NR_list_t feedback_dl_harq;
+  id_list_t feedback_dl_harq;
   /// HARQ processes that await retransmission
-  NR_list_t retrans_dl_harq;
+  id_list_t retrans_dl_harq;
   /// information about every UL HARQ process
   NR_UE_ul_harq_t ul_harq_processes[NR_MAX_HARQ_PROCESSES];
   /// UL HARQ processes that are free
-  NR_list_t available_ul_harq;
+  id_list_t available_ul_harq;
   /// UL HARQ processes that await feedback
-  NR_list_t feedback_ul_harq;
+  id_list_t feedback_ul_harq;
   /// UL HARQ processes that await retransmission
-  NR_list_t retrans_ul_harq;
+  id_list_t retrans_ul_harq;
   NR_UE_mac_ce_ctrl_t UE_mac_ce_ctrl; // MAC CE related information
 
   /// Timer for RRC processing procedures and transmission activity
@@ -775,21 +767,6 @@ typedef struct {
   nr_power_control_t pusch_pc;
   nr_power_control_t pucch_pc;
 } NR_UE_sched_ctrl_t;
-
-typedef struct NR_mac_dir_stats {
-  uint64_t lc_bytes[64];
-  uint64_t rounds[8];
-  uint64_t errors;
-  uint64_t total_bytes;
-  uint32_t current_bytes;
-  uint64_t total_sdu_bytes;
-  uint32_t total_rbs;
-  uint32_t total_rbs_retx;
-  uint32_t num_mac_sdu;
-  uint32_t current_rbs;
-  uint64_t prev_sdu_bytes;
-  frame_t last_goodput_frame;
-} NR_mac_dir_stats_t;
 
 typedef struct NR_mac_stats {
   NR_mac_dir_stats_t dl;

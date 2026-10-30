@@ -23,7 +23,6 @@
 #include "common/utils/ds/spsc_q.h"
 
 #define MAX_NUM_RU_PER_gNB 8
-#define MAX_PUCCH0_NID 8
 #define NR_SRS_IDFT_OVERSAMP_FACTOR 2
 #define NR_SRS_DETECTION_THRESHOLD 10
 
@@ -46,12 +45,6 @@ typedef struct {
   time_stats_t *rx_prach;
   c16_t (*prach_buf)[NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX][NR_PRACH_SEQ_LEN_L];
 } prach_item_t;
-
-typedef struct {
-  int nb_id;
-  int Nid[MAX_PUCCH0_NID];
-  int lut[MAX_PUCCH0_NID][160][14];
-} NR_gNB_PUCCH0_LUT_t;
 
 typedef struct {
   int dump_frame;
@@ -129,10 +122,9 @@ typedef struct {
 
 typedef struct {
   /// Nfapi ULSCH PDU
-  nfapi_nr_pusch_pdu_t ulsch_pdu; // !!
+  nfapi_nr_pusch_pdu_t ulsch_pdu;
   /// Index of current HARQ round for this DLSCH
   uint8_t round;
-  bool new_rx;
   /////////////////////// ulsch decoding ///////////////////////
   /// flag used to clear d properly
   /// set to true in nr_fill_ulsch() when new_data_indicator is received
@@ -162,7 +154,7 @@ typedef struct {
   //////////////////////////////////////////////////////////////
 } NR_UL_gNB_HARQ_t;
 
-typedef struct {
+typedef struct NR_gNB_ULSCH_s {
   uint32_t frame;
   uint32_t slot;
   uint32_t unav_res;
@@ -232,7 +224,7 @@ typedef struct {
   int32_t debugBuff_sample_offset;
 } NR_gNB_COMMON;
 
-typedef struct {
+typedef struct NR_gNB_PUSCH_s {
   /// \brief Hold the channel estimates in frequency domain based on DRS.
   /// - first index: rx antenna id [0..nb_antennas_rx[
   /// - second index: ? [0..12*N_RB_UL*frame_parms->symbols_per_tti[
@@ -319,7 +311,7 @@ typedef struct gNB_L1_proc_t_s {
   gNB_L1_rxtx_proc_t L1_proc_tx;
 } gNB_L1_proc_t;
 
-typedef struct {
+typedef struct PHY_MEASUREMENTS_gNB_s {
   // common measurements
   //! estimated noise power (linear)
   unsigned int   n0_power[MAX_NUM_RU_PER_gNB];
@@ -384,7 +376,7 @@ typedef struct PHY_VARS_gNB_s {
   bool phase_comp;
 
   // PUCCH0 Look-up table for cyclic-shifts
-  NR_gNB_PUCCH0_LUT_t pucch0_lut;
+  NR_PUCCH0_LUT_t pucch0_lut;
 
   /// PBCH interleaver
   uint8_t nr_pbch_interleaver[NR_POLAR_PBCH_PAYLOAD_BITS];

@@ -368,6 +368,17 @@ uint64_t nr_build_full_5g_s_tmsi(const uint64_t part1, const uint16_t part2);
 /** @brief Deconstruct full 5G-S-TMSI into its components */
 void nr_deconstruct_5g_s_tmsi(const uint64_t fiveg_s_tmsi, uint16_t *amf_set_id, uint8_t *amf_pointer, uint32_t *m_tmsi);
 
+/** @brief Helper for SL SCI2 in UE */
+int get_NREsci2(const int sci2_alpha,
+                const int sci2_payload_len,
+                const int sci2_beta_offset,
+                const int pssch_numsym,
+                const int pscch_numsym,
+                const int pscch_numrbs,
+                const int l_subch,
+                const int subchannel_size,
+                const int target_coderate);
+
 #define CEILIDIV(a,b) ((a+b-1)/b)
 #define ROUNDIDIV(a,b) (((a<<1)+b)/(b<<1))
 #define BOUNDED_EVAL(a, b, c) (min(c, max(a, b)))

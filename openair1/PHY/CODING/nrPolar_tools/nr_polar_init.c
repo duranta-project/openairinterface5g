@@ -96,7 +96,10 @@ t_nrPolar_params *nr_polar_params(int8_t messageType, uint16_t messageLength, in
     // printf("Initializing polar parameters for PBCH (K %d, E
     // %d)\n",newPolarInitNode->payloadBits,newPolarInitNode->encoderLength);
 
-  } else if (messageType == NR_POLAR_DCI_MESSAGE_TYPE) {
+  } else if (messageType == NR_POLAR_DCI_MESSAGE_TYPE || messageType == NR_POLAR_SCI_MESSAGE_TYPE
+             || messageType == NR_POLAR_SCI2_MESSAGE_TYPE) {
+    // SCI formats 1-A and 2-x share the DCI polar parameters (TS 38.212 Sec. 8.3.3, 8.4.4),
+    // only the rate matching output length E differs.
     newPolarInitNode->n_max = NR_POLAR_DCI_N_MAX;
     newPolarInitNode->i_il = NR_POLAR_DCI_I_IL;
     newPolarInitNode->i_seg = NR_POLAR_DCI_I_SEG;
@@ -105,7 +108,14 @@ t_nrPolar_params *nr_polar_params(int8_t messageType, uint16_t messageLength, in
     newPolarInitNode->i_bil = NR_POLAR_DCI_I_BIL;
     newPolarInitNode->crcParityBits = NR_POLAR_DCI_CRC_PARITY_BITS;
     newPolarInitNode->payloadBits = messageLength;
-    newPolarInitNode->encoderLength = aggregation_level * 108;
+    if (messageType == NR_POLAR_SCI_MESSAGE_TYPE)
+      // aggregation_level holds the PSCCH size in PRBs: 9 payload REs per PRB, QPSK
+      newPolarInitNode->encoderLength = aggregation_level * 18;
+    else if (messageType == NR_POLAR_SCI2_MESSAGE_TYPE)
+      // aggregation_level holds the number of SCI-2 REs on PSSCH, QPSK
+      newPolarInitNode->encoderLength = aggregation_level * 2;
+    else
+      newPolarInitNode->encoderLength = aggregation_level * 108;
     newPolarInitNode->crcCorrectionBits = NR_POLAR_DCI_CRC_ERROR_CORRECTION_BITS;
     newPolarInitNode->crc_generator_matrix =
         crc24c_generator_matrix(newPolarInitNode->payloadBits + newPolarInitNode->crcParityBits); // G_P

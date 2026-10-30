@@ -1518,7 +1518,7 @@ which case the BSR is referred below to as 'Regular BSR';
 
 */
 
-static void nr_update_bsr(NR_UE_MAC_INST_t *mac, uint32_t *LCG_bytes)
+void nr_update_bsr(NR_UE_MAC_INST_t *mac, uint32_t *LCG_bytes)
 {
   bool bsr_regular_triggered = mac->scheduling_info.BSR_reporting_active & NR_BSR_TRIGGER_REGULAR;
   for (int i = 0; i < mac->lc_ordered_list.count; i++) {
@@ -1995,21 +1995,6 @@ static void nr_ue_fill_phr(NR_UE_MAC_INST_t *mac,
   phr_info->phr_reporting = 0;
 }
 
-typedef struct {
-  uint8_t phr_len;
-  uint sdu_length_total;
-  NR_SINGLE_ENTRY_PHR_MAC_CE phr;
-  type_bsr_t bsr;
-  uint8_t *pdu_end;
-  uint8_t *end_for_tailer;
-  uint8_t *cur_ptr;
-  uint num_sdus;
-  // int highest_priority = 16;
-  //  variable used to store the lcid data status during lcp
-  bool lcids_data_status[NR_MAX_NUM_LCID];
-  uint32_t lcp_allocation_counter;
-} NR_UE_MAC_CE_INFO;
-
 static uint8_t nr_locate_BsrIndexByBufferSize(int size, int value)
 {
   if (value == 0) {
@@ -2048,7 +2033,7 @@ static uint8_t nr_locate_BsrIndexByBufferSize(int size, int value)
   }
 }
 
-static void nr_ue_get_sdu_mac_ce_pre(NR_UE_MAC_INST_t *mac,
+void nr_ue_get_sdu_mac_ce_pre(NR_UE_MAC_INST_t *mac,
                                      frame_t frame,
                                      slot_t slot,
                                      uint8_t *ulsch_buffer,

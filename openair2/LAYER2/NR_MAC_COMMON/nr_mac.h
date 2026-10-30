@@ -12,6 +12,8 @@
 #include <arpa/inet.h> // ntohs()
 #include "common/utils/nr/nr_common.h"
 #include "common/utils/LOG/log.h"
+#include "common/utils/collection/linear_alloc.h"
+
 #include "NR_CellGroupConfig.h"
 
 #define MAX_FRAME_NUMBER 0x400

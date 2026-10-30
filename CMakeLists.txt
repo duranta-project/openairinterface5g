@@ -966,14 +966,21 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_pbch.c
   ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_psbch_rx.c
   ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_psbch_tx.c
+  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_pscch_tx.c
+  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_psfch_tx.c
+  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_ue_pucch_rx.c
   ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_dlsch_demodulation.c
   ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_ulsch_coding.c
   ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_dlsch_decoding.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_prach_common.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_sch_dmrs.c
-  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/
+  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_slsch_coding.c
+  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_slsch_decoding.c
+  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_slsch_demodulation.c
+  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_slsch_ue.c
   ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_prach.c
   ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/dci_nr.c
+  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_sci.c
   ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/pucch_nr.c
   ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/csi_rx.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_uci_tools_common.c
@@ -985,6 +992,7 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/NR_REFSIG/nr_gold_ue.c
   ${OPENAIR1_DIR}/PHY/NR_REFSIG/nr_gen_mod_table.c
   ${OPENAIR1_DIR}/PHY/NR_UE_ESTIMATION/nr_dl_channel_estimation.c
+  ${OPENAIR1_DIR}/PHY/NR_UE_ESTIMATION/nr_sl_channel_estimation.c
   ${OPENAIR1_DIR}/PHY/NR_UE_ESTIMATION/nr_adjust_synch_ue.c
   ${OPENAIR1_DIR}/PHY/NR_UE_ESTIMATION/nr_ue_measurements.c
   ${OPENAIR1_DIR}/PHY/NR_UE_ESTIMATION/nr_adjust_gain.c
@@ -1265,6 +1273,8 @@ set (MAC_NR_SRC_UE
   ${NR_UE_MAC_DIR}/nr_ue_scheduler.c
   ${NR_UE_MAC_DIR}/nr_ue_scheduler_sl.c
   ${NR_UE_MAC_DIR}/nr_ue_dci_configuration.c
+  ${NR_UE_MAC_DIR}/nr_ue_sci_slsch.c
+  ${NR_UE_MAC_DIR}/nr_slsch_scheduler.c 
 )
 
 set (ENB_APP_SRC
@@ -1309,7 +1319,7 @@ if(E2_AGENT)
 endif()
 
 add_library(MAC_UE_NR ${MAC_NR_SRC_UE})
-target_link_libraries(MAC_UE_NR PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs PUBLIC nr_ue_power_procedures nr_ue_ra_procedures)
+target_link_libraries(MAC_UE_NR PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs PUBLIC nr_ue_power_procedures nr_ue_ra_procedures nr_sl_slot_bitmap ds)
 
 add_library(L2_LTE ${L2_LTE_SRC})
 target_link_libraries(L2_LTE PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
@@ -1364,7 +1374,7 @@ target_link_libraries(L2_UE PRIVATE asn1_lte_rrc_hdrs)
 
 add_library( NR_L2_UE ${NR_L2_SRC_UE} ${MAC_NR_SRC_UE} )
 target_link_libraries(NR_L2_UE PRIVATE nr_rlc ds alg)
-target_link_libraries(NR_L2_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs nr_common nr_ue_power_procedures nr_ue_ra_procedures)
+target_link_libraries(NR_L2_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs nr_common nr_ue_power_procedures nr_ue_ra_procedures nr_sl_slot_bitmap ds)
 target_link_libraries(NR_L2_UE PRIVATE nr_nas)
 
 # L3 Libs
@@ -1891,6 +1901,8 @@ target_link_libraries(nr-uesoftmodem PRIVATE
   time_management softmodem_common
   -Wl,--end-group dl)
 
+# TODO for sidelink
+target_link_libraries(nr-uesoftmodem PRIVATE PHY_NR)
 target_link_libraries(nr-uesoftmodem PRIVATE pthread m CONFIG_LIB rt nr_ue_phy_meas)
 target_link_libraries(nr-uesoftmodem PRIVATE ${T_LIB})
 target_link_libraries(nr-uesoftmodem PRIVATE nr_nas lib_uicc usim_lib SECURITY)

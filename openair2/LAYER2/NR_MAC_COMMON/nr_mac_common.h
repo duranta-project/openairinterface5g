@@ -158,6 +158,21 @@ typedef enum {
   pusch_len2 = 2
 } pusch_maxLength_t;
 
+typedef struct NR_mac_dir_stats {
+  uint64_t lc_bytes[64];
+  uint64_t rounds[8];
+  uint64_t errors;
+  uint64_t total_bytes;
+  uint32_t current_bytes;
+  uint64_t total_sdu_bytes;
+  uint32_t total_rbs;
+  uint32_t total_rbs_retx;
+  uint32_t num_mac_sdu;
+  uint32_t current_rbs;
+  uint64_t prev_sdu_bytes;
+  frame_t last_goodput_frame;
+} NR_mac_dir_stats_t;
+
 typedef struct {
   uint16_t bwpStart;
   uint16_t bwpSize;
@@ -299,6 +314,12 @@ uint32_t nr_get_code_rate_dl(uint8_t Imcs, uint8_t table_idx);
 /** \brief Computes Q based on I_MCS PDSCH and table_idx for uplink. Implements MCS Tables from 38.214. */
 uint8_t nr_get_Qm_ul(uint8_t Imcs, uint8_t table_idx);
 uint32_t nr_get_code_rate_ul(uint8_t Imcs, uint8_t table_idx);
+
+uint32_t nr_compute_tbs_sl(uint16_t Qm,
+                           uint16_t R,
+                           uint16_t nb_re,
+                           uint8_t Nl);
+
 int srs_binomial_sum(int count, int Lmax);
 int srs_codebook_nb_res(NR_SRS_Config_t *srs_config);
 int srs_non_codebook_nb_res(NR_SRS_Config_t *srs_config);

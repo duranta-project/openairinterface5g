@@ -297,9 +297,9 @@ void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_pro
    * won't remark that there is no HARQ feedback */
   sched_ctrl->feedback_dl_harq.head = -1; // always overwrite feedback HARQ process
   if (sched_ctrl->harq_processes[pp_pdsch->slot].round == 0) // depending on round set in simulation ...
-    add_front_nr_list(&sched_ctrl->available_dl_harq, pp_pdsch->slot); // ... make PID available
+    id_list_push_front(&sched_ctrl->available_dl_harq, pp_pdsch->slot); // ... make PID available
   else
-    add_front_nr_list(&sched_ctrl->retrans_dl_harq, pp_pdsch->slot);   // ... make PID retransmission
+    id_list_push_front(&sched_ctrl->retrans_dl_harq, pp_pdsch->slot);   // ... make PID retransmission
   sched_ctrl->harq_processes[pp_pdsch->slot].is_waiting = false;
   AssertFatal(sched_pdsch.rbStart >= 0, "invalid rbStart %d\n", sched_pdsch.rbStart);
   AssertFatal(sched_pdsch.rbSize > 0, "invalid rbSize %d\n", sched_pdsch.rbSize);
@@ -1353,7 +1353,7 @@ int main(int argc, char **argv)
         nr_ue_scheduled_response(&scheduled_response);
 
         pbch_processing(UE, &UE_proc, &phy_data);
-        pdcch_processing(UE, &UE_proc, &phy_data);
+        pdcch_processing(UE, &UE_proc, &phy_data, 0);
         NR_DL_UE_HARQ_t *decode_harq = &UE->dl_harq_processes[0][phy_data.dlsch_config.harq_process_nbr];
         decode_harq->activated_frame = UE_proc.frame_rx;
         decode_harq->activated_slot = UE_proc.nr_slot_rx;
