@@ -222,8 +222,8 @@ void oai_xran_fh_rx_prach_callback(void *pCallbackTag, xran_status_t status, uin
 /** @details Read PRACH data from xran buffers.
  * If I/Q compression (bitwidth < 16 bits) is configured, decompresses the data
  * before writing.
- * Called by split7_thread() per xran port and antenna, once
- * oai_xran_fh_rx_callback() signalled the slot. */
+ * Called per xran port and antenna, from the RU thread pool or split7_thread(),
+ * once oai_xran_fh_rx_callback() signalled the slot. */
 void xran_fh_rx_prach_read_slot_ant(const struct xran_ru_config *ru_conf, const struct xran_prach_config *prach_conf, const int kbar, struct xran_buffer_list *prachdstdecomp, c16_t *prach_dst)
 {
   struct xran_prb_map *pPrbMap = (struct xran_prb_map *)prachdstdecomp->pBuffers->pData;
@@ -292,8 +292,8 @@ void xran_fh_rx_prach_read_slot_ant(const struct xran_ru_config *ru_conf, const 
 /** @details Read PUSCH data from xran buffers.
  * If I/Q compression (bitwidth < 16 bits) is configured, decompresses the data
  * before writing.
- * Called by split7_thread() per xran port and antenna, once
- * oai_xran_fh_rx_callback() signalled the slot. */
+ * Called per xran port and antenna, from the RU thread pool or split7_thread(),
+ * once oai_xran_fh_rx_callback() signalled the slot. */
 void xran_fh_rx_read_slot_ant(const int fft_size, struct xran_buffer_list *dstcp, int32_t *rxdataF_ant)
 {
   struct xran_prb_map *pPrbMap = (struct xran_prb_map *)dstcp->pBuffers->pData;
