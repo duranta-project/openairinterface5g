@@ -1840,6 +1840,61 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
   return config;
 }
 
+/*
+ * \brief update some parameters in cell directly. All these parameters most
+ * likely should be moved into nr_mac_config_t and be read in get_mac_config().
+ */
+static void config_nr_mac_update_cell(nr_cell_sched_t *cell,
+                                      const nr_mac_config_t *config,
+                                      const NR_BWP_UplinkCommon_t *bwp,
+                                      int idx,
+                                      const paramdef_t *macrlc_p,
+                                      int macrlc_np)
+{
+  cell->ulsch_max_frame_inactivity = *gpd(macrlc_p, macrlc_np, MACRLC_ULSCH_MAX_FRAME_INACTIVITY)->uptr;
+  NR_bler_options_t *dl_bler_options = &cell->dl_bler;
+  dl_bler_options->upper = *gpd(macrlc_p, macrlc_np, MACRLC_DL_BLER_TARGET_UPPER)->dblptr;
+  dl_bler_options->lower = *gpd(macrlc_p, macrlc_np, MACRLC_DL_BLER_TARGET_LOWER)->dblptr;
+  dl_bler_options->min_mcs = *gpd(macrlc_p, macrlc_np, MACRLC_DL_MIN_MCS)->u8ptr;
+  dl_bler_options->max_mcs = *gpd(macrlc_p, macrlc_np, MACRLC_DL_MAX_MCS)->u8ptr;
+  if (config->disable_harq)
+    dl_bler_options->harq_round_max = 1;
+  else
+    dl_bler_options->harq_round_max = *gpd(macrlc_p, macrlc_np, MACRLC_DL_HARQ_ROUND_MAX)->u8ptr;
+  NR_bler_options_t *ul_bler_options = &cell->ul_bler;
+  ul_bler_options->upper = *gpd(macrlc_p, macrlc_np, MACRLC_UL_BLER_TARGET_UPPER)->dblptr;
+  ul_bler_options->lower = *gpd(macrlc_p, macrlc_np, MACRLC_UL_BLER_TARGET_LOWER)->dblptr;
+  ul_bler_options->min_mcs = *gpd(macrlc_p, macrlc_np, MACRLC_UL_MIN_MCS)->u8ptr;
+  ul_bler_options->max_mcs = *gpd(macrlc_p, macrlc_np, MACRLC_UL_MAX_MCS)->u8ptr;
+  if (config->disable_harq)
+    ul_bler_options->harq_round_max = 1;
+  else
+    ul_bler_options->harq_round_max = *gpd(macrlc_p, macrlc_np, MACRLC_UL_HARQ_ROUND_MAX)->u8ptr;
+  cell->min_grant_prb = *gpd(macrlc_p, macrlc_np, MACRLC_MIN_GRANT_PRB)->u16ptr;
+  long sc_fdma = NR_PUSCH_Config__transformPrecoder_enabled;
+  if (bwp->rach_ConfigCommon->choice.setup->msg3_transformPrecoder != NULL)
+    sc_fdma = *bwp->rach_ConfigCommon->choice.setup->msg3_transformPrecoder;
+  int new_min = check_sc_fdma_rbsize(sc_fdma, cell->min_grant_prb);
+  // NR_PUSCH_Config__transformPrecoder_enabled	= 0 |	NR_PUSCH_Config__transformPrecoder_disabled	= 1, so !uses_sc_fdma should
+  // be used
+  if (sc_fdma == NR_PUSCH_Config__transformPrecoder_enabled && cell->min_grant_prb != new_min) {
+    LOG_W(NR_MAC,
+          "min_rb value is set as %d. In SC-FDMA, it should be under format 2^x*3^y*5^z and has been automatically decreased "
+          "to %d.\n",
+          cell->min_grant_prb,
+          new_min);
+   cell->min_grant_prb = new_min;
+  }
+  cell->identity_pm = *gpd(macrlc_p, macrlc_np, MACRLC_IDENTITY_PM)->u8ptr;
+  // PRB Blacklist
+  uint16_t prbbl[MAX_BWP_SIZE] = {0};
+  int num_ulprbbl = get_prb_blacklist(idx, prbbl);
+  if (num_ulprbbl != -1) {
+    LOG_I(NR_PHY, "Copying %d blacklisted PRB to L1 context\n", num_ulprbbl);
+    memcpy(cell->ulprbbl, prbbl, MAX_BWP_SIZE * sizeof(prbbl[0]));
+  }
+}
+
 void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
 {
   nr_cell_sched_t *cell = NULL;
@@ -1884,51 +1939,9 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   const int macrlc_np = sizeofArray(MacRLC_Params);
   nr_mac_config_t config = get_mac_config(cfg, &num_tx, idx, GNBParamList.paramarray[idx], Timers_Params, macrlc_p, macrlc_np, bw);
 
-  cell->ulsch_max_frame_inactivity = *gpd(macrlc_p, macrlc_np, MACRLC_ULSCH_MAX_FRAME_INACTIVITY)->uptr;
   nrmac->stats_max_ue = *gpd(macrlc_p, macrlc_np, MACRLC_STATS_MAX_UE)->iptr;
   nrmac->print_ue_stats = nrmac->stats_max_ue > 0;
-  NR_bler_options_t *dl_bler_options = &cell->dl_bler;
-  dl_bler_options->upper = *gpd(macrlc_p, macrlc_np, MACRLC_DL_BLER_TARGET_UPPER)->dblptr;
-  dl_bler_options->lower = *gpd(macrlc_p, macrlc_np, MACRLC_DL_BLER_TARGET_LOWER)->dblptr;
-  dl_bler_options->min_mcs = *gpd(macrlc_p, macrlc_np, MACRLC_DL_MIN_MCS)->u8ptr;
-  dl_bler_options->max_mcs = *gpd(macrlc_p, macrlc_np, MACRLC_DL_MAX_MCS)->u8ptr;
-  if (config.disable_harq)
-    dl_bler_options->harq_round_max = 1;
-  else
-    dl_bler_options->harq_round_max = *gpd(macrlc_p, macrlc_np, MACRLC_DL_HARQ_ROUND_MAX)->u8ptr;
-  NR_bler_options_t *ul_bler_options = &cell->ul_bler;
-  ul_bler_options->upper = *gpd(macrlc_p, macrlc_np, MACRLC_UL_BLER_TARGET_UPPER)->dblptr;
-  ul_bler_options->lower = *gpd(macrlc_p, macrlc_np, MACRLC_UL_BLER_TARGET_LOWER)->dblptr;
-  ul_bler_options->min_mcs = *gpd(macrlc_p, macrlc_np, MACRLC_UL_MIN_MCS)->u8ptr;
-  ul_bler_options->max_mcs = *gpd(macrlc_p, macrlc_np, MACRLC_UL_MAX_MCS)->u8ptr;
-  if (config.disable_harq)
-    ul_bler_options->harq_round_max = 1;
-  else
-    ul_bler_options->harq_round_max = *gpd(macrlc_p, macrlc_np, MACRLC_UL_HARQ_ROUND_MAX)->u8ptr;
-  cell->min_grant_prb = *gpd(macrlc_p, macrlc_np, MACRLC_MIN_GRANT_PRB)->u16ptr;
-  long sc_fdma = NR_PUSCH_Config__transformPrecoder_enabled;
-  NR_BWP_UplinkCommon_t *bwp = scc->uplinkConfigCommon->initialUplinkBWP;
-  if (bwp->rach_ConfigCommon->choice.setup->msg3_transformPrecoder != NULL)
-    sc_fdma = *bwp->rach_ConfigCommon->choice.setup->msg3_transformPrecoder;
-  int new_min = check_sc_fdma_rbsize(sc_fdma, cell->min_grant_prb);
-  // NR_PUSCH_Config__transformPrecoder_enabled	= 0 |	NR_PUSCH_Config__transformPrecoder_disabled	= 1, so !uses_sc_fdma should
-  // be used
-  if (sc_fdma == NR_PUSCH_Config__transformPrecoder_enabled && cell->min_grant_prb != new_min) {
-    LOG_W(NR_MAC,
-          "min_rb value is set as %d. In SC-FDMA, it should be under format 2^x*3^y*5^z and has been automatically decreased "
-          "to %d.\n",
-          cell->min_grant_prb,
-          new_min);
-   cell->min_grant_prb = new_min;
-  }
-  cell->identity_pm = *gpd(macrlc_p, macrlc_np, MACRLC_IDENTITY_PM)->u8ptr;
-  // PRB Blacklist
-  uint16_t prbbl[MAX_BWP_SIZE] = {0};
-  int num_ulprbbl = get_prb_blacklist(idx, prbbl);
-  if (num_ulprbbl != -1) {
-    LOG_I(NR_PHY, "Copying %d blacklisted PRB to L1 context\n", num_ulprbbl);
-    memcpy(cell->ulprbbl, prbbl, MAX_BWP_SIZE * sizeof(prbbl[0]));
-  }
+  config_nr_mac_update_cell(cell, &config, scc->uplinkConfigCommon->initialUplinkBWP, idx, macrlc_p, macrlc_np);
 
   /* The weights are applied per TXRU: a native L1 takes that count from the RU
    * section, Aerial from num_tx_ant, which is required just above. */
