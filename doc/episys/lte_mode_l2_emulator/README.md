@@ -21,6 +21,11 @@ image below).
 
 ![Downlink Channel Modeling](../Channel_Abstraction_UE_Handling_LTE.PNG)
 
+The proxy sits between the eNB (nFAPI VNF) and the UE(s) (LTE PNF stub) and relays P5/P7
+nFAPI messages over the loopback interface:
+
+![Proxy interface diagram](../Proxy_Interface_Diagram.PNG)
+
 The updates to the OAI code base removed some latent bugs, added multi-UE scalability,
 and were tested with a standard bypass proxy between the UE(s) and eNB. The bypass proxy is
 publicly available on [GitHub](https://github.com/EpiSci/oai-lte-multi-ue-proxy). With this package,
