@@ -3881,6 +3881,114 @@ NR_CellGroupConfig_t *get_initial_cellGroupConfig(int uid,
   return cellGroupConfig;
 }
 
+/* Max CSI resource/set ids collected per list when diffing old vs new CSI-MeasConfig on a beam
+   switch. Well above the handful of per-beam CSI-RS/CSI-IM resources any realistic config uses. */
+#define NR_CSI_MAX_COLLECTED_IDS 32
+
+/* Collect the ids present in one CSI AddModList into out[] (up to cap), returning the count. One
+   typed collector per list because each list holds a different element type with its own id field
+   (nzp resource/set, csi-IM resource/set). */
+static int collect_ids_nzp_res(struct NR_CSI_MeasConfig__nzp_CSI_RS_ResourceToAddModList *l, long *out, int cap)
+{
+  int n = 0;
+  if (l)
+    for (int i = 0; i < l->list.count && n < cap; i++)
+      out[n++] = l->list.array[i]->nzp_CSI_RS_ResourceId;
+  return n;
+}
+static int collect_ids_nzp_set(struct NR_CSI_MeasConfig__nzp_CSI_RS_ResourceSetToAddModList *l, long *out, int cap)
+{
+  int n = 0;
+  if (l)
+    for (int i = 0; i < l->list.count && n < cap; i++)
+      out[n++] = l->list.array[i]->nzp_CSI_ResourceSetId;
+  return n;
+}
+static int collect_ids_im_res(struct NR_CSI_MeasConfig__csi_IM_ResourceToAddModList *l, long *out, int cap)
+{
+  int n = 0;
+  if (l)
+    for (int i = 0; i < l->list.count && n < cap; i++)
+      out[n++] = l->list.array[i]->csi_IM_ResourceId;
+  return n;
+}
+static int collect_ids_im_set(struct NR_CSI_MeasConfig__csi_IM_ResourceSetToAddModList *l, long *out, int cap)
+{
+  int n = 0;
+  if (l)
+    for (int i = 0; i < l->list.count && n < cap; i++)
+      out[n++] = l->list.array[i]->csi_IM_ResourceSetId;
+  return n;
+}
+static bool id_in(const long *ids, int n, long v)
+{
+  for (int i = 0; i < n; i++)
+    if (ids[i] == v)
+      return true;
+  return false;
+}
+
+/* Emit a TS 38.331-compliant delta: for each resource id that existed in the OLD (last-sent)
+   CSI-MeasConfig but is NOT re-added by the NEW one, add it to the corresponding ToReleaseList so
+   the UE (which keeps unmentioned resources per delta semantics) drops the stale beam's resources
+   instead of accumulating them. Without this the UE's DL PDU list grows one CSI-RS/CSI-IM per beam
+   switch and eventually overflows, since get_csiMeasConfig() keys nzp/IM resource+set ids by
+   ssb_index and only ever emits ToAddModList entries. */
+static void emit_csi_release_for_removed(NR_CSI_MeasConfig_t *newc,
+                                         const long *old_nzp_res,
+                                         int n_old_nzp_res,
+                                         const long *old_nzp_set,
+                                         int n_old_nzp_set,
+                                         const long *old_im_res,
+                                         int n_old_im_res,
+                                         const long *old_im_set,
+                                         int n_old_im_set)
+{
+  long new_nzp_res[NR_CSI_MAX_COLLECTED_IDS], new_nzp_set[NR_CSI_MAX_COLLECTED_IDS];
+  long new_im_res[NR_CSI_MAX_COLLECTED_IDS], new_im_set[NR_CSI_MAX_COLLECTED_IDS];
+  int nn_nzp_res = collect_ids_nzp_res(newc->nzp_CSI_RS_ResourceToAddModList, new_nzp_res, NR_CSI_MAX_COLLECTED_IDS);
+  int nn_nzp_set = collect_ids_nzp_set(newc->nzp_CSI_RS_ResourceSetToAddModList, new_nzp_set, NR_CSI_MAX_COLLECTED_IDS);
+  int nn_im_res = collect_ids_im_res(newc->csi_IM_ResourceToAddModList, new_im_res, NR_CSI_MAX_COLLECTED_IDS);
+  int nn_im_set = collect_ids_im_set(newc->csi_IM_ResourceSetToAddModList, new_im_set, NR_CSI_MAX_COLLECTED_IDS);
+
+  for (int i = 0; i < n_old_nzp_res; i++) {
+    if (!id_in(new_nzp_res, nn_nzp_res, old_nzp_res[i])) {
+      if (!newc->nzp_CSI_RS_ResourceToReleaseList)
+        newc->nzp_CSI_RS_ResourceToReleaseList = calloc(1, sizeof(*newc->nzp_CSI_RS_ResourceToReleaseList));
+      NR_NZP_CSI_RS_ResourceId_t *id = calloc(1, sizeof(*id));
+      *id = old_nzp_res[i];
+      asn1cSeqAdd(&newc->nzp_CSI_RS_ResourceToReleaseList->list, id);
+    }
+  }
+  for (int i = 0; i < n_old_nzp_set; i++) {
+    if (!id_in(new_nzp_set, nn_nzp_set, old_nzp_set[i])) {
+      if (!newc->nzp_CSI_RS_ResourceSetToReleaseList)
+        newc->nzp_CSI_RS_ResourceSetToReleaseList = calloc(1, sizeof(*newc->nzp_CSI_RS_ResourceSetToReleaseList));
+      NR_NZP_CSI_RS_ResourceSetId_t *id = calloc(1, sizeof(*id));
+      *id = old_nzp_set[i];
+      asn1cSeqAdd(&newc->nzp_CSI_RS_ResourceSetToReleaseList->list, id);
+    }
+  }
+  for (int i = 0; i < n_old_im_res; i++) {
+    if (!id_in(new_im_res, nn_im_res, old_im_res[i])) {
+      if (!newc->csi_IM_ResourceToReleaseList)
+        newc->csi_IM_ResourceToReleaseList = calloc(1, sizeof(*newc->csi_IM_ResourceToReleaseList));
+      NR_CSI_IM_ResourceId_t *id = calloc(1, sizeof(*id));
+      *id = old_im_res[i];
+      asn1cSeqAdd(&newc->csi_IM_ResourceToReleaseList->list, id);
+    }
+  }
+  for (int i = 0; i < n_old_im_set; i++) {
+    if (!id_in(new_im_set, nn_im_set, old_im_set[i])) {
+      if (!newc->csi_IM_ResourceSetToReleaseList)
+        newc->csi_IM_ResourceSetToReleaseList = calloc(1, sizeof(*newc->csi_IM_ResourceSetToReleaseList));
+      NR_CSI_IM_ResourceSetId_t *id = calloc(1, sizeof(*id));
+      *id = old_im_set[i];
+      asn1cSeqAdd(&newc->csi_IM_ResourceSetToReleaseList->list, id);
+    }
+  }
+}
+
 NR_CellGroupConfig_t *update_cellGroupConfig_for_reconfig(NR_CellGroupConfig_t *cellGroupConfig,
                                                           const nr_cell_sched_t *cell,
                                                           const NR_UE_NR_Capability_t *uecap,
@@ -3927,6 +4035,23 @@ NR_CellGroupConfig_t *update_cellGroupConfig_for_reconfig(NR_CellGroupConfig_t *
   const int copy_result = asn_copy(&asn_DEF_NR_CellGroupConfig, (void **)&clone_cg, cellGroupConfig);
   AssertFatal(copy_result == 0, "unable to copy NR_CellGroupConfig for cloning\n");
   NR_ServingCellConfig_t *clone_configDedicated = clone_cg->spCellConfig->spCellConfigDedicated;
+
+  // Capture the OLD (last-sent) CSI resource ids before freeing, so we can build a compliant delta:
+  // release the ids the new config no longer contains. get_csiMeasConfig() rebuilds a COMPLETE
+  // config keyed by ssb_index (i.e. per-beam ids), so on a beam switch the old beam's nzp/IM
+  // resource+set ids differ from the new one and must be explicitly released, or the UE
+  // accumulates one CSI-RS/CSI-IM set per beam switch (delta semantics keep anything unmentioned).
+  long old_nzp_res[NR_CSI_MAX_COLLECTED_IDS], old_nzp_set[NR_CSI_MAX_COLLECTED_IDS];
+  long old_im_res[NR_CSI_MAX_COLLECTED_IDS], old_im_set[NR_CSI_MAX_COLLECTED_IDS];
+  NR_CSI_MeasConfig_t *oldc = clone_configDedicated->csi_MeasConfig->choice.setup;
+  int n_old_nzp_res =
+      collect_ids_nzp_res(oldc ? oldc->nzp_CSI_RS_ResourceToAddModList : NULL, old_nzp_res, NR_CSI_MAX_COLLECTED_IDS);
+  int n_old_nzp_set =
+      collect_ids_nzp_set(oldc ? oldc->nzp_CSI_RS_ResourceSetToAddModList : NULL, old_nzp_set, NR_CSI_MAX_COLLECTED_IDS);
+  int n_old_im_res = collect_ids_im_res(oldc ? oldc->csi_IM_ResourceToAddModList : NULL, old_im_res, NR_CSI_MAX_COLLECTED_IDS);
+  int n_old_im_set = collect_ids_im_set(oldc ? oldc->csi_IM_ResourceSetToAddModList : NULL, old_im_set, NR_CSI_MAX_COLLECTED_IDS);
+  ASN_STRUCT_FREE(asn_DEF_NR_CSI_MeasConfig, oldc);
+
   clone_configDedicated->csi_MeasConfig->choice.setup  = get_csiMeasConfig(configDedicated,
                                                                            uecap,
                                                                            scc,
@@ -3936,6 +4061,15 @@ NR_CellGroupConfig_t *update_cellGroupConfig_for_reconfig(NR_CellGroupConfig_t *
                                                                            *uplinkConfig->firstActiveUplinkBWP_Id,
                                                                            bitmap,
                                                                            ssb_index);
+  emit_csi_release_for_removed(clone_configDedicated->csi_MeasConfig->choice.setup,
+                               old_nzp_res,
+                               n_old_nzp_res,
+                               old_nzp_set,
+                               n_old_nzp_set,
+                               old_im_res,
+                               n_old_im_res,
+                               old_im_set,
+                               n_old_im_set);
 
   if (new_bwp >= 0)
     clean_bwp_structures(clone_cg->spCellConfig);
