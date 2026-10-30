@@ -15,6 +15,7 @@
 
 #include "common/ran_context.h"
 #include "common/utils/fsn.h"
+#include "common/utils/threadPool/task_ans.h"
 #include "common/utils/system.h"
 #include "executables/softmodem-common.h"
 
@@ -194,26 +195,48 @@ static void oran_cp(split7_config_t *s7cfg, uint16_t **beam_id, int frame, int s
   }
 }
 
+typedef struct {
+  task_ans_t *ans;
+  int fft_size;
+  int32_t *txdataF_ant;
+  struct xran_buffer_list *srccp, *src; // of this antenna and slot
+} dl_up_job_t;
+
+static void dl_up_task(void *arg)
+{
+  dl_up_job_t *j = arg;
+  xran_fh_tx_send_slot_ant(j->fft_size, j->txdataF_ant, j->srccp, j->src);
+  completed_task_ans(j->ans);
+}
+
+/* one task per (xran port, antenna) on the RU thread pool, the last one on this thread */
 static void oran_dl_up(split7_config_t *s7cfg, int frame, int slot)
 {
   const struct xran_fh_init *fh_init = get_xran_fh_init();
+  const int buf_id = (s7cfg->slots_per_frame * frame + slot) % XRAN_N_FE_BUF_LEN;
 
   start_meas(&s7cfg->dl_up);
-  for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
-    for (int xran_port = 0; xran_port < fh_init->xran_ports; xran_port++) {
-      oran_buf_list_t *bufs = get_xran_buffers(xran_port);
-      const struct xran_fh_config *fh_cfg = get_xran_fh_config(xran_port);
-      const uint8_t mu_number = fh_cfg->mu_number[0];
-      const int tti = s7cfg->slots_per_frame * frame + slot;
-
-      const int fft_size = 1 << fh_cfg->perMu[mu_number].nDLFftSize;
-      for (int ant_id = 0; ant_id < fh_cfg->neAxc; ant_id++)
-        xran_fh_tx_send_slot_ant(fft_size,
-                                 s7cfg->txdataF_BF[ant_id + xran_port * fh_cfg->neAxc],
-                                 &bufs->srccp[ant_id][tti % XRAN_N_FE_BUF_LEN],
-                                 &bufs->src[ant_id][tti % XRAN_N_FE_BUF_LEN]);
-    }
+  // OAI does not support multiple CC yet
+  dl_up_job_t jobs[XRAN_PORTS_NUM * XRAN_MAX_ANTENNA_NR];
+  int num_jobs = 0;
+  for (int xran_port = 0; xran_port < fh_init->xran_ports; xran_port++) {
+    const struct xran_fh_config *fh_cfg = get_xran_fh_config(xran_port);
+    oran_buf_list_t *bufs = get_xran_buffers(xran_port);
+    const int fft_size = 1 << fh_cfg->perMu[fh_cfg->mu_number[0]].nDLFftSize;
+    for (int ant_id = 0; ant_id < fh_cfg->neAxc; ant_id++)
+      jobs[num_jobs++] = (dl_up_job_t){.srccp = &bufs->srccp[ant_id][buf_id],
+                                       .src = &bufs->src[ant_id][buf_id],
+                                       .txdataF_ant = s7cfg->txdataF_BF[ant_id + xran_port * fh_cfg->neAxc],
+                                       .fft_size = fft_size};
   }
+
+  task_ans_t ans;
+  init_task_ans(&ans, num_jobs);
+  for (int i = 0; i < num_jobs; i++) {
+    jobs[i].ans = &ans;
+    pushTpool_batch(s7cfg->tpool, (task_t){.func = dl_up_task, .args = &jobs[i]}, i == num_jobs - 1);
+  }
+  join_task_ans(&ans);
   stop_meas(&s7cfg->dl_up);
 }
 
