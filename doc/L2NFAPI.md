@@ -24,6 +24,8 @@ Currently the Continuous Integration process is validating this simulator the fo
 
 Normally it should be fine to run both executables on the same host using the `loopback` interface to communicate. **But we are not guaranting it**
 
+![L2-sim-single-server-deployment](./images/L2-sim-single-server-deployment.png)
+
 1. [With S1 -- eNB and UE on 2 hosts](L2NFAPI_S1.md)
 2. [No S1 -- eNB and UE on 2 hosts](L2NFAPI_NOS1.md)
 
