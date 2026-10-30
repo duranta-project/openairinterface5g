@@ -8,6 +8,7 @@
 
 
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
+#include "LAYER2/NR_MAC_gNB/nr_srs_aoa.h"
 #include "executables/softmodem-common.h"
 #include "common/utils/nr/nr_common.h"
 #include "utils.h"
@@ -15,6 +16,7 @@
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "openair3/NRPPA/nrppa_gNB_config.h"
 #include "openair2/F1AP/lib/f1ap_positioning.h"
+#include <math.h>
 
 static const uint16_t NR_TRANSFORM_PRECODE_RB_LUT[274] = {
     0,   1,   2,   3,   4,   5,   6,   6,   8,   9,   10,  10,  12,  12,  12,  15,  16,  16,  18,  18,  20,  20,  20,  20,  24,
@@ -1652,6 +1654,34 @@ void handle_nr_srs_measurements(const module_id_t module_id,
       stop_meas(&cell->nr_srs_tpmi_computation_timer);
 
       sprintf(stats->srs_stats, "UL-RI %d, TPMI %d", sched_ctrl->srs_feedback.ul_ri + 1, sched_ctrl->srs_feedback.tpmi);
+
+      // AoA feedback loop:
+      // 1. ESTIMATE the azimuth AoA from the per-antenna SRS channel (phase slope over the gNB
+      //    antenna dimension). Needs a UL aperture (num_gnb_antenna_elements >= 2).
+      sched_ctrl->srs_feedback.aoa_deg = nr_srs_estimate_aoa(&nr_srs_channel_iq_matrix);
+      const double aoa = sched_ctrl->srs_feedback.aoa_deg;
+      if (!isnan(aoa)) {
+        // LOG_D: fires on every SRS report (~every few ms), so keep it debug-only to avoid log spam.
+        LOG_D(NR_MAC,
+              "[UE %04x] SRS-AoA: Ng=%d -> AoA=%.1f deg | current beam=%d\n",
+              srs_ind->rnti,
+              nr_srs_channel_iq_matrix.num_gnb_antenna_elements,
+              aoa,
+              UE->UE_beam_index);
+        // 2. SELECT + 3. APPLY (standards-correct beam management): map the AoA to the SSB beam whose
+        //    sector contains it, and drive UE_beam_index via beam_switching_procedure so SSB + PDSCH +
+        //    PDCCH + CSI-RS all ride the SAME AoA-selected beam (no QCL-Type-D hole). This is the
+        //    connected-mode refinement AFTER initial RSRP-based acquisition; the RSRP selector
+        //    (beam_selection_procedures) still handles acquisition, AoA refines once SRS is available.
+        //    Only switch on a fully-configured UE (has a CellGroup): a beam switch triggers an F1
+        //    Context Modification, which the CU refuses (and would otherwise churn) if the initial UE
+        //    Context Setup is still pending. Requires aoa_nb_beams > 0 (feature enabled) AND >1 SSB.
+        if (cell->radio_config.aoa_nb_beams > 0 && UE->CellGroup != NULL && !cell->radio_config.do_TCI) {
+          int sel = aoa_selection_procedures(cell, UE, aoa);
+          if (sel != -1)
+            beam_switching_procedure(nrmac, cell, UE, sel);
+        }
+      }
 
       break;
     }

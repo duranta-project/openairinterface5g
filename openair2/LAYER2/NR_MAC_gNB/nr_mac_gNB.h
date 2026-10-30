@@ -241,6 +241,18 @@ typedef struct nr_mac_config_s {
   /// Sized to the max number of physical RU antenna ports, NOT to be confused
   /// with MAX_NUM_SPATIAL_STREAMS, which bounds the per-PDU NFAPI wire field.
   uint16_t spatial_stream_index[NR_MAC_MAX_RU_ANTENNA_PORTS];
+  /// Number of O-RU codebook beams for AoA-driven beam selection (0 = disabled).
+  /// Must match the O-RU codebook_nb_beams; the DU tiles [-90,90] into this many sectors
+  /// UNLESS aoa_beam_angles below is set, in which case nearest-angle selection is used instead.
+  int aoa_nb_beams;
+  /// Optional per-codebook-beam pointing angle in degrees (index == codebook beam index, same
+  /// indexing as MACRLCs.ssb_beams), e.g. [0, 15, -15] for a boresight + two off-axis beams.
+  /// When its length equals aoa_nb_beams, aoa_selection_procedures() picks the nearest configured
+  /// angle instead of assuming beams are evenly spread across [-90,90] -- needed for narrowly/
+  /// non-uniformly spaced real codebook layouts (uniform tiling would blur e.g. 0/+15/-15 into a
+  /// single 60-degree sector). NULL/mismatched length falls back to uniform tiling.
+  int *aoa_beam_angles;
+  int num_aoa_beam_angles;
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {
@@ -877,7 +889,7 @@ typedef struct NR_UE_info {
   NR_UE_NR_Capability_t *capability;
   NR_feature_set_ids_t uecap_fs_ids;
   measgap_config_t measgap_config;
-  // UE selected beam index
+  // UE selected beam index (SSB / RRC beam association; drives ssb_index[] reconfiguration)
   uint16_t UE_beam_index;
   /// Per-SSB L1-RSRP table, indexed by SSB index (resource_id from CSI report).
   /// INT16_MIN means no measurement received yet for that beam.

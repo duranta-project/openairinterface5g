@@ -509,6 +509,9 @@ typedef struct nr_srs_feedback {
   uint8_t sri;
   uint8_t ul_ri;
   uint8_t tpmi;
+  /* Azimuth angle-of-arrival (deg, [-90,90]) estimated from the SRS per-antenna channel by
+   * nr_srs_estimate_aoa(). NaN when no valid estimate (single gNB antenna, or SRS not codebook). */
+  double aoa_deg;
 } nr_srs_feedback_t;
 
 typedef struct NR_UE_DL_BWP {

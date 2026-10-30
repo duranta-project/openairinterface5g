@@ -851,7 +851,12 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
       }
     }
   }
-  if (new_bf_index != -1)
+  // Subordinate RSRP-based beam selection to SRS-AoA: when the AoA loop is enabled (aoa_nb_beams > 0)
+  // it is the connected-mode beam authority (drives UE_beam_index from the UL SRS angle). RSRP then
+  // only performs INITIAL acquisition; once AoA is active we let it own UE_beam_index to avoid two
+  // selectors fighting over the same beam (which would cause flapping). If AoA is disabled, RSRP
+  // keeps full control (unchanged behavior).
+  if (new_bf_index != -1 && cell->radio_config.aoa_nb_beams == 0)
     // Trigger RRCReconfiguration. Need to be out of the for loop as it may modify csi_MeasConfig
     beam_switching_procedure(nrmac, cell, UE, new_bf_index);
 }
