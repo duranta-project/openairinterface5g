@@ -49,5 +49,6 @@ buffers of xran.
 
 For PUSCH/PRACH, `split7_thread()` waits in `oai_xran_wait_slot()` until
 `oai_xran_fh_rx_callback()` signals a complete slot, then `process_ul_data()`
-calls `xran_fh_rx_read_slot()`/`xran_fh_rx_prach_read_slot()` for that slot. If
+calls `xran_fh_rx_read_slot_ant()`/`xran_fh_rx_prach_read_slot_ant()` for each
+xran port and antenna of that slot. If
 processing falls more than a few slots behind, it skips to the newest slot.
