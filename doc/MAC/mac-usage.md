@@ -325,6 +325,11 @@ configuration](../RRC/rrc-usage.md) as well for SIB configuration.
   64QAM) in DL
 * `force_UL256qam_off` (default 0=false): flag whether to disable 256QAM (limit to
   64QAM) in DL
+* `enable_1024qam` (default 0=false): flag whether to enable 1024QAM in DL (PDSCH
+  MCS table 4, TS 38.214 Table 5.1.3.1-4) for UEs that report
+  `pdsch-1024QAM-FR1-r17` for the serving band, on top of 256QAM. **this is a
+  Rel-17 feature, FR1 only, and the L1 has to support it: the OAI L1 does,
+  including the CUDA LDPC coding library**
 * `disable_harq` (default 0=false): flag whether to disable HARQ completely
   (useful for NTN operation, see <../RUNMODEM.md>). **this is a Rel-17 feature
   and you need to have a capable UE for this**

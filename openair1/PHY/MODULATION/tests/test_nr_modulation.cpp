@@ -18,6 +18,7 @@ extern "C" {
 
 #include "openair1/PHY/TOOLS/tools_defs.h" // c16_t
 #include "nfapi/open-nFAPI/nfapi/public_inc/fapi_nr_ue_interface.h" // fapi_nr_dl_config_dci_dl_pdu_rel15_t
+#include "common/utils/LOG/log.h"
 
 //#include "openair1/PHY/MODULATION/nr_modulation.h" // nr_layer_precoder_simd_[cm, simd]
 
@@ -75,6 +76,17 @@ void nr_layer_precoder_Nx4_simd(int n_layers,
                                 int re_cnt,
                                 c16_t *dataF_out_lo,
                                 c16_t *dataF_out_hi);
+
+// nr_modulation.h and nr_refsig.h declare functions with VLA parameters, which C++ does not support
+void nr_generate_modulation_table(void);
+void nr_modulation(const uint32_t *in, uint32_t length, uint16_t mod_order, int16_t *out);
+// Forward declare the function but hide the Variable-Length Array (VLA) feature from C not available in C++
+bool nr_modulation_layer_mapping(const uint32_t *in,
+                                 uint32_t length,
+                                 uint16_t mod_order,
+                                 uint8_t n_layers,
+                                 int layerSz,
+                                 c16_t (*tx_layers)[/*layerSz*/]); // c16_t tx_layers[][layerSz]
 
 #ifdef __cplusplus
 }
@@ -413,11 +425,65 @@ TEST(NrLayerPrecoderTest, Compare_Xpol_4port_SIMD)
     }
 }
 
+// 1024QAM (TS 38.211 5.1.7): bits b(10i)..b(10i+9) of the LSB first bit stream make symbol i, even bits on
+// the real part, odd bits on the imaginary part
+static c16_t qam1024_reference(const std::vector<uint8_t> &bits, int sym)
+{
+  int level[2];
+  for (int j = 0; j < 2; j++) {
+    int b[5];
+    for (int k = 0; k < 5; k++)
+      b[k] = 1 - 2 * bits[sym * 10 + j + 2 * k];
+    level[j] = b[0] * (16 - b[1] * (8 - b[2] * (4 - b[3] * (2 - b[4]))));
+  }
+  // same scaling as the other constellations: 2^15 / sqrt(2) / sqrt(682) per unit
+  const double unit = 32768.0 / std::sqrt(2.0) / std::sqrt(682.0);
+  return {int16_t(level[0] * unit), int16_t(level[1] * unit)};
+}
+
+TEST(NrModulationTest, qam1024)
+{
+  nr_generate_modulation_table();
+  // whole 5-byte groups only, and a tail of 1 to 3 symbols
+  for (uint32_t n_symbs : {4u, 5u, 6u, 7u, 12u, 1200u, 1201u, 1203u}) {
+    SCOPED_TRACE(::testing::Message() << n_symbs << " symbols");
+    const uint32_t length = n_symbs * 10;
+    std::vector<uint8_t> bits(length);
+    std::vector<uint32_t> in((length + 31) / 32 + 4, 0);
+    for (uint32_t k = 0; k < length; k++) {
+      bits[k] = rand() & 1;
+      in[k / 32] |= uint32_t(bits[k]) << (k % 32);
+    }
+    std::vector<c16_t> out(n_symbs);
+    nr_modulation(in.data(), length, 10, (int16_t *)out.data());
+    for (uint32_t i = 0; i < n_symbs; i++) {
+      const c16_t want = qam1024_reference(bits, i);
+      EXPECT_C16_NEAR(out[i].r, want.r, 1) << "symbol " << i;
+      EXPECT_C16_NEAR(out[i].i, want.i, 1) << "symbol " << i;
+    }
+
+    // the fused modulation and layer mapping (3 and 4 layers): layer l carries symbols l, l + Nl, ...
+    for (uint8_t n_layers : {3, 4}) {
+      if (n_symbs % n_layers)
+        continue;
+      const int layerSz = n_symbs / n_layers;
+      std::vector<c16_t> tx(n_layers * layerSz);
+      ASSERT_TRUE(nr_modulation_layer_mapping(in.data(), length, 10, n_layers, layerSz, (c16_t(*)[])tx.data()));
+      for (int l = 0; l < n_layers; l++)
+        for (int k = 0; k < layerSz; k++) {
+          EXPECT_EQ(tx[l * layerSz + k].r, out[k * n_layers + l].r) << "layer " << l << " symbol " << k;
+          EXPECT_EQ(tx[l * layerSz + k].i, out[k * n_layers + l].i) << "layer " << l << " symbol " << k;
+        }
+    }
+  }
+}
+
 int main(int argc, char **argv)
 {
   // Initialize random seed
   srand(time(0));
 
+  logInit();
   testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

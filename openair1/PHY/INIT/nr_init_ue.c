@@ -496,7 +496,7 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
    * right-size all per-actor scratch buffers, reducing the PDSCH working
    * set and easing L2 cache pressure. */
   const int max_layers = min(fp->nb_antennas_rx, NR_MAX_NB_LAYERS);
-  const uint32_t llr_buf_max = NR_NB_SC_PER_RB * NR_SYMBOLS_PER_SLOT * fp->N_RB_DL * 8 * max_layers;
+  const uint32_t llr_buf_max = NR_NB_SC_PER_RB * NR_SYMBOLS_PER_SLOT * fp->N_RB_DL * 10 * max_layers; // up to 1024QAM
   /* Buffers are now 1-symbol-wide: channel compensation writes into them and
    * LLR+demapping consumes them within the same nr_rx_pdsch() call, so there
    * is no need to keep slot-wide storage. */

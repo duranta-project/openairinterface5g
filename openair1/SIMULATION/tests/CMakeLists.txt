@@ -121,6 +121,11 @@ add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test6 "4x4 MIMO, 1 Layer" nr_dlsim -
 add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test7 "4x4 MIMO, 2 Layers" nr_dlsim -P -n30 -s20 -U 3 0 0 2 -gA -x2 -y4 -z4)
 add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test8 "4x4 MIMO, 2 Layers 256 QAM" nr_dlsim -P -n30 -s25 -e22 -q1 -U 3 0 0 2 -gA -x2 -y4 -z4)
 add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test9 "4x4 MIMO, 4 Layers" nr_dlsim -P -n30 -s20 -U 3 0 0 2 -x4 -y4 -z4)
+add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test10 "106 MCS-TABLE 1024 QAM MCS Index 26" nr_dlsim -P -n100 -q3 -e26 -s37 -S38 -R106 -b106)
+add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test11 "2x2 MIMO, 2 Layers 1024 QAM" nr_dlsim -P -n100 -q3 -e26 -s41 -S42 -R106 -b51 -x2 -y2 -z2)
+add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test12 "1024 QAM HARQ retx on 40 of 51 PRBs (reserved MCS 31), 2 rounds, at least 45% TP" nr_dlsim -P -n100 -q3 -e26 -s34 -S34.5 -R106 -b51 -K40 -t45)
+add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test13 "273 PRBs 1024 QAM MCS Index 26" nr_dlsim -P -n50 -q3 -e26 -s40 -S41 -R273 -b273)
+add_physim_test(physim.5g.nr_dlsim.mcs.mimo.test14 "4x4 MIMO, 4 Layers 1024 QAM, 273 PRBs" nr_dlsim -P -n20 -q3 -e26 -s48 -S49 -R273 -b273 -x4 -y4 -z4)
 add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test1 "3 PTRS, 8 Interpolated Symbols" nr_dlsim -P -n300 -s5 -T 2 2 2)
 add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test2 "6 PTRS, 5 Interpolated Symbols" nr_dlsim -P -n300 -s5 -T 2 1 2)
 add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test3 "11 PTRS, 0 Interpolated Symbols" nr_dlsim -P -n300 -s5 -T 2 0 4)
@@ -155,6 +160,8 @@ add_physim_test(physim.5g.nr_ulschsim.test1 "106 PRBs" nr_ulschsim -R 106 -m9 -s
 add_physim_test(physim.5g.nr_ulschsim.test2 "217 PRBs" nr_ulschsim -R 217 -m15 -s15 -n300)
 add_physim_test(physim.5g.nr_ulschsim.test3 "273 PRBs" nr_ulschsim -R 273 -m19 -s20 -n300)
 add_physim_test(physim.5g.nr_ulschsim.test4 "106 PRBs 4-layer MIMO" nr_ulschsim -R 106 -m9 -s13 -n300 -y4 -z4 -W4)
+# 4 TBs per decoder call, 4 threads, through the BLER waterfall: same results as one TB per call
+add_physim_test(physim.5g.nr_ulschsim.test5 "106 PRBs, 4 TBs per decoder call" nr_ulschsim -R 106 -m9 -s2 -S3.5 -n100 -T4 -C4)
 
 ####################################################################################
 ######                           nr_pucchsim unit test                        ######

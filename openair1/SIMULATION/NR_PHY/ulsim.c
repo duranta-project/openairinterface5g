@@ -890,7 +890,7 @@ int main(int argc, char *argv[])
 
   uint32_t tbslbrm = 0;
   if (ilbrm)
-    tbslbrm = nr_compute_tbslbrm(mcs_table, N_RB_UL, precod_nbr_layers);
+    tbslbrm = nr_compute_tbslbrm(nr_get_max_Qm_ul(mcs_table), N_RB_UL, precod_nbr_layers);
 
   if ((UE->frame_parms.nb_antennas_tx==4)&&(precod_nbr_layers==4))
     num_dmrs_cdm_grps_no_data = 2;
@@ -932,7 +932,7 @@ int main(int argc, char *argv[])
     ulsch_input_buffer[i] = (uint8_t)rand();
   }
 
-  uint8_t ptrs_time_density = get_L_ptrs(ptrs_mcs1, ptrs_mcs2, ptrs_mcs3, Imcs, mcs_table);
+  uint8_t ptrs_time_density = get_L_ptrs(ptrs_mcs1, ptrs_mcs2, ptrs_mcs3, mcs_table == 0 ? 29 : 28, Imcs);
   uint8_t ptrs_freq_density = get_K_ptrs(n_rb0, n_rb1, nb_rb);
 
   double ts = 1.0 / (gNB->frame_parms.subcarrier_spacing * gNB->frame_parms.ofdm_symbol_size);

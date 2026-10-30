@@ -15,6 +15,9 @@
 #include "executables/nr-uesoftmodem.h"
 #include "PHY/CODING/nrLDPC_extern.h"
 #include "common/utils/nr/nr_common.h"
+
+_Static_assert(NR_LDPC_MAX_NUM_CB >= MAX_NUM_NR_DLSCH_SEGMENTS && NR_LDPC_MAX_NUM_CB >= MAX_NUM_NR_ULSCH_SEGMENTS,
+               "the LDPC coding interface must hold the code blocks of a TB");
 #include "openair1/PHY/TOOLS/phy_scope_interface.h"
 #include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_nr_interface.h"
 

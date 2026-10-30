@@ -189,6 +189,34 @@ TEST(nr_rate_matching, random)
   }
 }
 
+// Bit interleaving (TS 38.212 5.4.2.2): output bit i * Qm + j is input bit j * E / Qm + i
+TEST(nr_rate_matching, interleaving_all_modulation_orders)
+{
+  std::mt19937 rng(4);
+  for (uint8_t Qm = 2; Qm <= 10; Qm += 2) {
+    // exercise the SIMD blocks and the scalar tails of every implementation
+    for (uint32_t EQm : {1u, 7u, 16u, 31u, 64u, 127u, 512u, 1001u}) {
+      SCOPED_TRACE(::testing::Message() << "Qm " << int(Qm) << " E " << EQm * Qm);
+      const uint32_t E = EQm * Qm;
+      std::vector<uint8_t> e(E), f(E);
+      for (auto &b : e)
+        b = rng() & 1;
+      nr_interleaving_ldpc(E, Qm, e.data(), f.data());
+      for (uint32_t i = 0; i < EQm; i++)
+        for (uint32_t j = 0; j < Qm; j++)
+          ASSERT_EQ(f[i * Qm + j], e[j * EQm + i]) << "bit " << i * Qm + j;
+
+      std::vector<int16_t> llr(E), deint(E);
+      for (auto &l : llr)
+        l = int16_t(rng());
+      nr_deinterleaving_ldpc(E, Qm, deint.data(), llr.data());
+      for (uint32_t i = 0; i < EQm; i++)
+        for (uint32_t j = 0; j < Qm; j++)
+          ASSERT_EQ(deint[j * EQm + i], llr[i * Qm + j]) << "llr " << i * Qm + j;
+    }
+  }
+}
+
 int main(int argc, char **argv)
 {
   logInit();
