@@ -301,17 +301,16 @@ typedef struct {
 
 static void process_ul_data(int tti, int frame, int slot, PHY_VARS_gNB *gNB, struct xran_fh_init fh_init, struct xran_fh_config *fh_cfg, split7_config_t *s7cfg)
 {
-  int ret;
-
   // PUxCH
   for (int xran_port = 0; xran_port < fh_init.xran_ports; xran_port++) {
     oran_buf_list_t *bufs = get_xran_buffers(xran_port);
     const int fft_size = 1 << fh_cfg[xran_port].perMu[s7cfg->mu].nULFftSize;
     // same slot position in the RU_RX_SLOT_DEPTH ring as the L1 readers (e.g. nr_ulsch_demodulation.c)
     const int slot_offset = (slot % RU_RX_SLOT_DEPTH) * XRAN_NUM_OF_SYMBOL_PER_SLOT * fft_size;
-    ret = xran_fh_rx_read_slot(tti, slot_offset, xran_port, fh_cfg[xran_port].neAxcUl, fft_size, bufs, s7cfg->rxdataF);
-    if (ret != 0)
-      LOG_W(HW, "[%d.%d] xran_fh_rx_read_slot error for xran_port %d\n", frame, slot, xran_port);
+    for (int ant_id = 0; ant_id < fh_cfg[xran_port].neAxcUl; ant_id++)
+      xran_fh_rx_read_slot_ant(fft_size,
+                               &bufs->dstcp[ant_id][tti % XRAN_N_FE_BUF_LEN],
+                               s7cfg->rxdataF[ant_id + xran_port * fh_cfg[xran_port].neAxcUl] + slot_offset);
   }
 
   // PRACH
@@ -325,9 +324,13 @@ static void process_ul_data(int tti, int frame, int slot, PHY_VARS_gNB *gNB, str
       const int slots_per_sf = 1 << s7cfg->mu;
       const bool is_prach_slot = frame % info.x == info.y && xran_is_prach_slot(xran_port, slot / slots_per_sf, p.slot % slots_per_sf, s7cfg->mu);
       if (is_prach_slot) {
-        ret = xran_fh_rx_prach_read_slot(tti, xran_port, fh_cfg[xran_port].neAxcUl, &fh_cfg[xran_port].ru_conf, &fh_cfg[xran_port].perMu[s7cfg->mu].prach_conf, s7cfg->prach_kbar, bufs, p);
-        if (ret != 0)
-          LOG_W(HW, "[%d.%d] xran_fh_rx_prach_read_slot error for xran_port %d\n", frame, slot, xran_port);
+        // hardcoded to use only the first PRACH occasion
+        for (int ant_id = 0; ant_id < fh_cfg[xran_port].neAxcUl; ant_id++)
+          xran_fh_rx_prach_read_slot_ant(&fh_cfg[xran_port].ru_conf,
+                                         &fh_cfg[xran_port].perMu[s7cfg->mu].prach_conf,
+                                         s7cfg->prach_kbar,
+                                         &bufs->prachdstdecomp[ant_id][tti % XRAN_N_FE_BUF_LEN],
+                                         p.prach_buf[ant_id + xran_port * fh_cfg[xran_port].neAxcUl][0]);
       } else {
         LOG_W(HW, "[%d.%d] xran_port %d Expected PRACH reception of scheduled slot %d\n", xran_port, frame, slot, p.slot);
       }

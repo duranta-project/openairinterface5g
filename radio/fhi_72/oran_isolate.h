@@ -19,10 +19,10 @@
 
 void print_fhi_counters(struct xran_fh_init fh_init, struct xran_fh_config *fh_config);
 
-/** @brief Reads PUSCH data of xran slot tti from one xran port into rxdataF, starting at slot_offset samples. */
-int xran_fh_rx_read_slot(const int tti, const int slot_offset, const int xran_port, const uint8_t nb_ant, const int fft_size, oran_buf_list_t *bufs, int32_t **rxdataF);
-/** @brief Reads PRACH data of slot tti from one xran port into p.prach_buf, skipping kbar int16 of the PRACH PRBs. */
-int xran_fh_rx_prach_read_slot(const int tti, const int xran_port, const uint8_t nb_ant, const struct xran_ru_config *ru_conf, const struct xran_prach_config *prach_conf, const int kbar, oran_buf_list_t *bufs, prach_item_t p);
+/** @brief Reads PUSCH data of one antenna from its slot buffer dstcp into rxdataF_ant (the slot's position in rxdataF). */
+void xran_fh_rx_read_slot_ant(const int fft_size, struct xran_buffer_list *dstcp, int32_t *rxdataF_ant);
+/** @brief Reads PRACH data of one antenna from its slot buffer prachdstdecomp into prach_dst, skipping kbar int16 of the PRACH PRBs. */
+void xran_fh_rx_prach_read_slot_ant(const struct xran_ru_config *ru_conf, const struct xran_prach_config *prach_conf, const int kbar, struct xran_buffer_list *prachdstdecomp, c16_t *prach_dst);
 /** @brief Writes CP DL/UL data for given slot. */
 int xran_send_cp_slot(const int tti, const int slot, const int xran_port, const uint8_t nb_ant, uint16_t **beams, struct xran_buffer_list buf[XRAN_MAX_ANTENNA_NR][XRAN_N_FE_BUF_LEN]);
 /** @brief Writes TX data (PDSCH) of one antenna into its slot buffers srccp (PRB map) and src (U-plane). */

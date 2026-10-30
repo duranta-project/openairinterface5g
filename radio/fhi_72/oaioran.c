@@ -222,137 +222,127 @@ void oai_xran_fh_rx_prach_callback(void *pCallbackTag, xran_status_t status, uin
 /** @details Read PRACH data from xran buffers.
  * If I/Q compression (bitwidth < 16 bits) is configured, decompresses the data
  * before writing.
- * Called by split7_thread() once oai_xran_fh_rx_callback() signalled the slot. */
-int xran_fh_rx_prach_read_slot(const int tti, const int xran_port, const uint8_t nb_ant, const struct xran_ru_config *ru_conf, const struct xran_prach_config *prach_conf, const int kbar, oran_buf_list_t *bufs, prach_item_t p)
+ * Called by split7_thread() per xran port and antenna, once
+ * oai_xran_fh_rx_callback() signalled the slot. */
+void xran_fh_rx_prach_read_slot_ant(const struct xran_ru_config *ru_conf, const struct xran_prach_config *prach_conf, const int kbar, struct xran_buffer_list *prachdstdecomp, c16_t *prach_dst)
 {
-  for (int aa = p.ant_start; aa < p.ant_start + nb_ant; aa++) {
-    for (uint8_t sym_idx = prach_conf->startSymId; sym_idx <= prach_conf->lastSymId; sym_idx++) {
-      int16_t *dst, *src;
-      int idx = 0;
-      // hardcoded to use only first prach occasion
-      dst = (int16_t *)p.prach_buf[aa + (xran_port * nb_ant) - p.ant_start][0];
-      struct xran_prb_map * pPrbMap = (struct xran_prb_map *)bufs->prachdstdecomp[aa - p.ant_start][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
-      struct xran_rx_packet_ctl *p_rx_packet_ctl = &pPrbMap->sFrontHaulRxPacketCtrl[sym_idx];
-      uint16_t num_prbu = p_rx_packet_ctl->nRBSize[0]; // or prach_conf->numPrbc
-      uint16_t N_ZC = (num_prbu <= 12) ? 139 : 839;
-      int32_t nRxPkt = p_rx_packet_ctl->nRxPkt;
-      if (nRxPkt == 0) {
-        //LOG_E(HW, "tti %d xran_port %d ant_id %d sym_idx %d nRxPkt %d (expected 1 packet)\n", tti, xran_port, aa, sym_idx, nRxPkt);
+  struct xran_prb_map *pPrbMap = (struct xran_prb_map *)prachdstdecomp->pBuffers->pData;
+  for (uint8_t sym_idx = prach_conf->startSymId; sym_idx <= prach_conf->lastSymId; sym_idx++) {
+    int16_t *dst, *src;
+    int idx = 0;
+    dst = (int16_t *)prach_dst;
+    struct xran_rx_packet_ctl *p_rx_packet_ctl = &pPrbMap->sFrontHaulRxPacketCtrl[sym_idx];
+    uint16_t num_prbu = p_rx_packet_ctl->nRBSize[0]; // or prach_conf->numPrbc
+    uint16_t N_ZC = (num_prbu <= 12) ? 139 : 839;
+    int32_t nRxPkt = p_rx_packet_ctl->nRxPkt;
+    if (nRxPkt == 0) {
+      memset(&dst[sym_idx], 0, N_ZC * 2 * sizeof(*dst));
+      continue;
+    } else {
+      src = (int16_t *)p_rx_packet_ctl->pData[0];
+      if (src == NULL) { // protection
+        LOG_E(HW, "PRACH sym_idx %d src = NULL\n", sym_idx);
         memset(&dst[sym_idx], 0, N_ZC * 2 * sizeof(*dst));
         continue;
+      }
+    }
+    /* convert Network order to host order */
+    if (ru_conf->compMeth_PRACH == XRAN_COMPMETHOD_NONE) {
+      if (sym_idx == prach_conf->startSymId) {
+        for (idx = 0; idx < N_ZC * 2; idx++) {
+          dst[idx] = ((int16_t)ntohs(src[idx + kbar]));
+        }
       } else {
-        src = (int16_t *)p_rx_packet_ctl->pData[0];
-        if (src == NULL) { // protection
-          LOG_E(HW, "tti %d xran_port %d ant_id %d sym_idx %d src = NULL\n", tti, xran_port, aa, sym_idx);
-          memset(&dst[sym_idx], 0, N_ZC * 2 * sizeof(*dst));
-          continue;
+        for (idx = 0; idx < N_ZC * 2; idx++) {
+          dst[idx] += ((int16_t)ntohs(src[idx + kbar]));
         }
       }
-      /* convert Network order to host order */
-      if (ru_conf->compMeth_PRACH == XRAN_COMPMETHOD_NONE) {
-        if (sym_idx == prach_conf->startSymId) {
-          for (idx = 0; idx < N_ZC * 2; idx++) {
-            dst[idx] = ((int16_t)ntohs(src[idx + kbar]));
-          }
-        } else {
-          for (idx = 0; idx < N_ZC * 2; idx++) {
-            dst[idx] += ((int16_t)ntohs(src[idx + kbar]));
-          }
-        }
-      } else if (ru_conf->compMeth_PRACH == XRAN_COMPMETHOD_BLKFLOAT) {
-        int16_t local_dst[num_prbu * 2 * N_SC_PER_PRB] __attribute__((aligned(64)));
+    } else if (ru_conf->compMeth_PRACH == XRAN_COMPMETHOD_BLKFLOAT) {
+      int16_t local_dst[num_prbu * 2 * N_SC_PER_PRB] __attribute__((aligned(64)));
 
 #if defined(__i386__) || defined(__x86_64__)
-        struct xranlib_decompress_request bfp_decom_req = {};
-        struct xranlib_decompress_response bfp_decom_rsp = {};
-        int payload_len = (3 * ru_conf->iqWidth_PRACH + 1) * num_prbu;
+      struct xranlib_decompress_request bfp_decom_req = {};
+      struct xranlib_decompress_response bfp_decom_rsp = {};
+      int payload_len = (3 * ru_conf->iqWidth_PRACH + 1) * num_prbu;
 
-        bfp_decom_req.data_in = (int8_t *)src;
-        bfp_decom_req.numRBs = num_prbu;
-        bfp_decom_req.len = payload_len;
-        bfp_decom_req.compMethod = XRAN_COMPMETHOD_BLKFLOAT;
-        bfp_decom_req.iqWidth = ru_conf->iqWidth_PRACH;
+      bfp_decom_req.data_in = (int8_t *)src;
+      bfp_decom_req.numRBs = num_prbu;
+      bfp_decom_req.len = payload_len;
+      bfp_decom_req.compMethod = XRAN_COMPMETHOD_BLKFLOAT;
+      bfp_decom_req.iqWidth = ru_conf->iqWidth_PRACH;
 
-        bfp_decom_rsp.data_out = (int16_t *)local_dst;
-        bfp_decom_rsp.len = 0;
-        xranlib_decompress_avx512(&bfp_decom_req, &bfp_decom_rsp);
+      bfp_decom_rsp.data_out = (int16_t *)local_dst;
+      bfp_decom_rsp.len = 0;
+      xranlib_decompress_avx512(&bfp_decom_req, &bfp_decom_rsp);
 #elif defined(__arm__) || defined(__aarch64__)
-        armral_bfp_decompression(ru_conf->iqWidth_PRACH, num_prbu, (int8_t *)src, (int16_t *)local_dst);
+      armral_bfp_decompression(ru_conf->iqWidth_PRACH, num_prbu, (int8_t *)src, (int16_t *)local_dst);
 #else
-        AssertFatal(1 == 0, "BFP decompression not supported on this architecture");
+      AssertFatal(1 == 0, "BFP decompression not supported on this architecture");
 #endif
-        if (sym_idx == prach_conf->startSymId)
-          for (idx = 0; idx < (N_ZC * 2); idx++)
-            dst[idx] = local_dst[idx + kbar];
-        else
-          for (idx = 0; idx < (N_ZC * 2); idx++)
-            dst[idx] += (local_dst[idx + kbar]);
-      } // COMPMETHOD_BLKFLOAT
-    } // sym_idx
-  } // aa
-
-  return (0);
+      if (sym_idx == prach_conf->startSymId)
+        for (idx = 0; idx < (N_ZC * 2); idx++)
+          dst[idx] = local_dst[idx + kbar];
+      else
+        for (idx = 0; idx < (N_ZC * 2); idx++)
+          dst[idx] += (local_dst[idx + kbar]);
+    } // COMPMETHOD_BLKFLOAT
+  } // sym_idx
 }
 
 /** @details Read PUSCH data from xran buffers.
  * If I/Q compression (bitwidth < 16 bits) is configured, decompresses the data
  * before writing.
- * Called by split7_thread() once oai_xran_fh_rx_callback() signalled the slot. */
-int xran_fh_rx_read_slot(const int tti, const int slot_offset, const int xran_port, const uint8_t nb_ant, const int fft_size, oran_buf_list_t *bufs, int32_t **rxdataF)
+ * Called by split7_thread() per xran port and antenna, once
+ * oai_xran_fh_rx_callback() signalled the slot. */
+void xran_fh_rx_read_slot_ant(const int fft_size, struct xran_buffer_list *dstcp, int32_t *rxdataF_ant)
 {
-  for (uint8_t ant_id = 0; ant_id < nb_ant; ant_id++) {
-    int32_t *start = rxdataF[ant_id + (xran_port * nb_ant)] + slot_offset;
+  struct xran_prb_map *pPrbMap = (struct xran_prb_map *)dstcp->pBuffers->pData;
+  struct xran_prb_elm *pRbElm = &pPrbMap->prbMap[0];
 
-    struct xran_prb_map *pPrbMap = (struct xran_prb_map *)bufs->dstcp[ant_id][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
-    struct xran_prb_elm *pRbElm = &pPrbMap->prbMap[0];
+  for (int32_t sym_idx = pRbElm->nStartSymb; sym_idx < pRbElm->nStartSymb + pRbElm->numSymb; sym_idx++) {
+    int32_t *pos = rxdataF_ant + sym_idx * fft_size;
+    struct xran_rx_packet_ctl *p_rx_packet_ctl = &pPrbMap->sFrontHaulRxPacketCtrl[sym_idx];
+    int32_t nRxPkt = p_rx_packet_ctl->nRxPkt;
+    LOG_D(HW, "nRxPkt %d\n", nRxPkt);
+    for (int pkt_idx = 0; pkt_idx < nRxPkt; pkt_idx++) {
+      uint8_t *src = p_rx_packet_ctl->pData[pkt_idx];
+      int numRB = p_rx_packet_ctl->nRBSize[pkt_idx];
+      int startRB = p_rx_packet_ctl->nRBStart[pkt_idx];
+      // num_prbu & start_prbu are for UL U-plane only
+      LOG_D(HW, "p_rx_packet_ctl[%d] startRB[%d]:numRB[%d]\n", pkt_idx, startRB, numRB);
 
-    for (int32_t sym_idx = pRbElm->nStartSymb; sym_idx < pRbElm->nStartSymb + pRbElm->numSymb; sym_idx++) {
-      int32_t *pos = start + sym_idx * fft_size;
-      struct xran_rx_packet_ctl *p_rx_packet_ctl = &pPrbMap->sFrontHaulRxPacketCtrl[sym_idx];
-      int32_t nRxPkt = p_rx_packet_ctl->nRxPkt;
-      LOG_D(HW, "nRxPkt %d\n", nRxPkt);
-      for (int pkt_idx = 0; pkt_idx < nRxPkt; pkt_idx++) {
-        uint8_t *src = p_rx_packet_ctl->pData[pkt_idx];
-        int numRB = p_rx_packet_ctl->nRBSize[pkt_idx];
-        int startRB = p_rx_packet_ctl->nRBStart[pkt_idx];
-        // num_prbu & start_prbu are for UL U-plane only
-        LOG_D(HW, "p_rx_packet_ctl[%d] startRB[%d]:numRB[%d]\n", pkt_idx, startRB, numRB);
-
-        if (pRbElm->compMethod == XRAN_COMPMETHOD_NONE) {
-          // NOTE: gcc 11 knows how to generate AVX2 for this!
-          for (int idx = 0; idx < (numRB * N_SC_PER_PRB) * 2; idx++)
-            ((int16_t *)pos)[idx + startRB * N_SC_PER_PRB * 2] = ((int16_t)ntohs(((uint16_t *)src)[idx])) >> 2;
-        } else if (pRbElm->compMethod == XRAN_COMPMETHOD_BLKFLOAT) {
+      if (pRbElm->compMethod == XRAN_COMPMETHOD_NONE) {
+        // NOTE: gcc 11 knows how to generate AVX2 for this!
+        for (int idx = 0; idx < (numRB * N_SC_PER_PRB) * 2; idx++)
+          ((int16_t *)pos)[idx + startRB * N_SC_PER_PRB * 2] = ((int16_t)ntohs(((uint16_t *)src)[idx])) >> 2;
+      } else if (pRbElm->compMethod == XRAN_COMPMETHOD_BLKFLOAT) {
 #if defined(__i386__) || defined(__x86_64__)
-          struct xranlib_decompress_request bfp_decom_req = {};
-          struct xranlib_decompress_response bfp_decom_rsp = {};
+        struct xranlib_decompress_request bfp_decom_req = {};
+        struct xranlib_decompress_response bfp_decom_rsp = {};
 
-          int16_t payload_len = (3 * pRbElm->iqWidth + 1) * numRB;
+        int16_t payload_len = (3 * pRbElm->iqWidth + 1) * numRB;
 
-          bfp_decom_req.data_in = (int8_t *)src;
-          bfp_decom_req.numRBs = numRB;
-          bfp_decom_req.len = payload_len;
-          bfp_decom_req.compMethod = pRbElm->compMethod;
-          bfp_decom_req.iqWidth = pRbElm->iqWidth;
+        bfp_decom_req.data_in = (int8_t *)src;
+        bfp_decom_req.numRBs = numRB;
+        bfp_decom_req.len = payload_len;
+        bfp_decom_req.compMethod = pRbElm->compMethod;
+        bfp_decom_req.iqWidth = pRbElm->iqWidth;
 
-          bfp_decom_rsp.data_out = (int16_t *)(pos + startRB * N_SC_PER_PRB);
-          bfp_decom_rsp.len = 0;
+        bfp_decom_rsp.data_out = (int16_t *)(pos + startRB * N_SC_PER_PRB);
+        bfp_decom_rsp.len = 0;
 
-          xranlib_decompress_avx512(&bfp_decom_req, &bfp_decom_rsp);
+        xranlib_decompress_avx512(&bfp_decom_req, &bfp_decom_rsp);
 #elif defined(__arm__) || defined(__aarch64__)
-          armral_bfp_decompression(pRbElm->iqWidth, numRB, (int8_t *)src, (int16_t *)(pos + startRB * N_SC_PER_PRB));
+        armral_bfp_decompression(pRbElm->iqWidth, numRB, (int8_t *)src, (int16_t *)(pos + startRB * N_SC_PER_PRB));
 #else
-          AssertFatal(1 == 0, "BFP compression not supported on this architecture");
+        AssertFatal(1 == 0, "BFP compression not supported on this architecture");
 #endif
-        } else {
-          printf("pRbElm->compMethod == %d is not supported\n", pRbElm->compMethod);
-          exit(-1);
-        }
-      } // pkt_idx
-    } // sym_idx
-  } // ant_ind
-
-  return (0);
+      } else {
+        printf("pRbElm->compMethod == %d is not supported\n", pRbElm->compMethod);
+        exit(-1);
+      }
+    } // pkt_idx
+  } // sym_idx
 }
 
 // Send CP DL/UL packets
